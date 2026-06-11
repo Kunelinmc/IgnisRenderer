@@ -6,33 +6,49 @@ import {
 	type CompositeShaderSource,
 	type ShaderSourceSegmentKind,
 } from "./runtime";
+import {
+	createWebGLBrowserShaderSources,
+	WEBGL_INTERNAL_SHADER_FILES,
+	WEBGL_PIPELINE_SHADER_PARTS,
+	WEBGL_SHADER_FILES,
+	WEBGL_SHADER_PARTS,
+	type WebGLShaderPart,
+} from "./webgl/sources";
+import {
+	createWebGPUBrowserShaderSources,
+	createWebGPUBrowserSyncShaderSources,
+	WEBGPU_FIXED_SHADER_FILES,
+	WEBGPU_POST_PROCESS_PARTS_USING_SHARED_LIGHT_DATA,
+	WEBGPU_POST_PROCESS_SHADER_FILES,
+	WEBGPU_SCENE_SHADER_FILES,
+	WEBGPU_SCENE_SHADER_PARTS,
+	WEBGPU_SHADOW_SHADER_FILES,
+	WEBGPU_SYNC_SHADER_FILES,
+	WEBGPU_UTILITY_SHADER_FILES,
+	type WebGPUPostProcessShaderPart,
+	type WebGPUSceneShaderPart,
+	type WebGPUShaderSourceSyncKey,
+	type WebGPUShadowShaderPart,
+	type WebGPUUtilityShaderPart,
+} from "./webgpu/sources";
 
-type ImportMetaGlobLoaderMap = Record<string, () => Promise<string>>;
+export {
+	WEBGL_PIPELINE_SHADER_PARTS,
+	WEBGL_SHADER_PARTS,
+	WEBGPU_SCENE_SHADER_PARTS,
+};
+export type { WebGLShaderPart } from "./webgl/sources";
+export type {
+	WebGPUPostProcessShaderPart,
+	WebGPUSceneShaderPart,
+	WebGPUShadowShaderPart,
+	WebGPUUtilityShaderPart,
+} from "./webgpu/sources";
 
-function createBrowserShaderSources(): ImportMetaGlobLoaderMap {
-	if (Platform.isNodeRuntime()) {
-		return {};
-	}
-	try {
-		return {
-			...import.meta.glob<string>(
-				["./webgpu/**/*.wgsl", "!./webgpu/utility/mipmapBlit.wgsl"],
-				{
-					query: "?raw",
-					import: "default",
-				}
-			),
-			...import.meta.glob<string>("./webgl/parts/*.glsl", {
-				query: "?raw",
-				import: "default",
-			}),
-		};
-	} catch {
-		return {};
-	}
-}
-
-const browserShaderSources: ImportMetaGlobLoaderMap = createBrowserShaderSources();
+const browserShaderSources: Record<string, () => Promise<string>> = {
+	...createWebGPUBrowserShaderSources(),
+	...createWebGLBrowserShaderSources(),
+};
 
 type NodeFsModule = {
 	readFile: (
@@ -44,141 +60,6 @@ type NodeFsModule = {
 type NodeFsSyncModule = {
 	readFileSync: (path: string | URL, encoding: "utf8") => string;
 };
-
-export type WebGPUSceneShaderPart =
-	| "lightData"
-	| "constants"
-	| "definitions"
-	| "utils"
-	| "vertexStage"
-	| "fragmentPrelude"
-	| "fragmentPhong"
-	| "fragmentPbrSetup"
-	| "fragmentPbrDirectional"
-	| "fragmentPbrPoint"
-	| "fragmentPbrSpot"
-	| "fragmentPbrArea"
-	| "fragmentPbrAmbient"
-	| "fragmentGBuffer"
-	| "fragmentSingleTarget";
-
-export type WebGPUPostProcessShaderPart =
-	| "ssao"
-	| "ssgi"
-	| "taa"
-	| "hiz"
-	| "ssr"
-	| "screenSpaceRefractions"
-	| "volumetric"
-	| "fog"
-	| "motionBlur"
-	| "dof"
-	| "bloomDownsample"
-	| "bloomBlurH"
-	| "bloomBlurV"
-	| "bloomUpsample"
-	| "bloomComposite"
-	| "toneMapping"
-	| "colorFilter"
-	| "interactionOutline"
-	| "fxaa"
-	| "copy"
-	| "sobelNormal";
-
-export type WebGPUShadowShaderPart = "depth";
-
-export type WebGPUUtilityShaderPart =
-	| "planarReflectionComposite"
-	| "present"
-	| "depthDirtyClear"
-	| "decal"
-	| "oitResolve"
-	| "occlusionCulling"
-	| "mipmapBlit";
-
-export type WebGLShaderPart =
-	| "sceneVertex"
-	| "sceneFragment"
-	| "sceneDepthPrepassVertex"
-	| "sceneDepthPrepassFragment"
-	| "environmentVertex"
-	| "environmentFragment"
-	| "presentVertex"
-	| "presentFragment"
-	| "particleVertex"
-	| "particleFragment"
-	| "shadowDepthVertex"
-	| "shadowDepthFragment"
-	| "shadowTransmittanceFragment"
-	| "copyFragment"
-	| "oitResolveFragment"
-	| "postProcessStubFragment"
-	| "toneMappingFragment"
-	| "colorFilterFragment"
-	| "fxaaFragment"
-	| "bloomFragment"
-	| "interactionOutlineFragment"
-	| "motionBlurFragment"
-	| "fogFragment"
-	| "dofFragment"
-	| "taaFragment"
-	| "ssaoRawFragment"
-	| "ssaoBlurFragment"
-	| "ssaoCombineFragment";
-
-export const WEBGPU_SCENE_SHADER_PARTS: readonly WebGPUSceneShaderPart[] = [
-	"lightData",
-	"constants",
-	"definitions",
-	"utils",
-	"vertexStage",
-	"fragmentPrelude",
-	"fragmentPhong",
-	"fragmentPbrSetup",
-	"fragmentPbrDirectional",
-	"fragmentPbrPoint",
-	"fragmentPbrSpot",
-	"fragmentPbrArea",
-	"fragmentPbrAmbient",
-	"fragmentGBuffer",
-	"fragmentSingleTarget",
-];
-
-export const WEBGL_SHADER_PARTS: readonly WebGLShaderPart[] = [
-	"sceneVertex",
-	"sceneFragment",
-	"sceneDepthPrepassVertex",
-	"sceneDepthPrepassFragment",
-	"environmentVertex",
-	"environmentFragment",
-	"presentVertex",
-	"presentFragment",
-	"particleVertex",
-	"particleFragment",
-	"shadowDepthVertex",
-	"shadowDepthFragment",
-	"shadowTransmittanceFragment",
-	"copyFragment",
-	"oitResolveFragment",
-	"postProcessStubFragment",
-	"toneMappingFragment",
-	"colorFilterFragment",
-	"fxaaFragment",
-	"bloomFragment",
-	"interactionOutlineFragment",
-	"motionBlurFragment",
-	"fogFragment",
-	"dofFragment",
-	"taaFragment",
-	"ssaoRawFragment",
-	"ssaoBlurFragment",
-	"ssaoCombineFragment",
-];
-
-export const WEBGL_PIPELINE_SHADER_PARTS: readonly WebGLShaderPart[] =
-	WEBGL_SHADER_PARTS.filter(
-		(part) => part !== "sceneVertex" && part !== "sceneFragment"
-	);
 
 export interface WebGLSceneLightLimits {
 	maxDirectionalLights: number;
@@ -252,7 +133,7 @@ export type ShaderSourceKey =
 	| "webgl.scene.raw"
 	| "webgl.scene.composite";
 
-export type ShaderSourceSyncKey = "webgpu.utility.mipmapBlit.raw";
+export type ShaderSourceSyncKey = WebGPUShaderSourceSyncKey;
 
 export type ShaderSourceParams<K extends ShaderSourceKey> =
 	K extends "webgl.scene.raw" | "webgl.scene.composite" ?
@@ -327,126 +208,8 @@ type AnyShaderSourceResult =
 	| WebGLSceneShaderSource
 	| WebGLSceneCompositeShaderSource;
 
-const WEBGPU_POST_PROCESS_PARTS_USING_SHARED_LIGHT_DATA =
-	new Set<WebGPUPostProcessShaderPart>(["ssr", "volumetric"]);
-
-const webgpuSceneShaderFiles: Record<WebGPUSceneShaderPart, string> = {
-	lightData: "./webgpu/common/lightData.wgsl",
-	constants: "./webgpu/common/constants.wgsl",
-	definitions: "./webgpu/common/definitions.wgsl",
-	utils: "./webgpu/common/utils.wgsl",
-	vertexStage: "./webgpu/scene/vertexStage.wgsl",
-	fragmentPrelude: "./webgpu/scene/fragmentPrelude.wgsl",
-	fragmentPhong: "./webgpu/scene/fragmentPhong.wgsl",
-	fragmentPbrSetup: "./webgpu/scene/fragmentPbrSetup.wgsl",
-	fragmentPbrDirectional: "./webgpu/scene/fragmentPbrDirectional.wgsl",
-	fragmentPbrPoint: "./webgpu/scene/fragmentPbrPoint.wgsl",
-	fragmentPbrSpot: "./webgpu/scene/fragmentPbrSpot.wgsl",
-	fragmentPbrArea: "./webgpu/scene/fragmentPbrArea.wgsl",
-	fragmentPbrAmbient: "./webgpu/scene/fragmentPbrAmbient.wgsl",
-	fragmentGBuffer: "./webgpu/scene/fragmentGBuffer.wgsl",
-	fragmentSingleTarget: "./webgpu/scene/fragmentSingleTarget.wgsl",
-};
-
-const webgpuPostProcessShaderFiles: Record<WebGPUPostProcessShaderPart, string> = {
-	ssao: "./webgpu/postprocess/ssao.wgsl",
-	ssgi: "./webgpu/postprocess/ssgi.wgsl",
-	taa: "./webgpu/postprocess/taa.wgsl",
-	hiz: "./webgpu/postprocess/hiz.wgsl",
-	ssr: "./webgpu/postprocess/ssr.wgsl",
-	screenSpaceRefractions: "./webgpu/postprocess/screenSpaceRefractions.wgsl",
-	volumetric: "./webgpu/postprocess/volumetric.wgsl",
-	fog: "./webgpu/postprocess/fog.wgsl",
-	motionBlur: "./webgpu/postprocess/motionBlur.wgsl",
-	dof: "./webgpu/postprocess/dof.wgsl",
-	bloomDownsample: "./webgpu/postprocess/bloomDownsample.wgsl",
-	bloomBlurH: "./webgpu/postprocess/bloomBlurH.wgsl",
-	bloomBlurV: "./webgpu/postprocess/bloomBlurV.wgsl",
-	bloomUpsample: "./webgpu/postprocess/bloomUpsample.wgsl",
-	bloomComposite: "./webgpu/postprocess/bloomComposite.wgsl",
-	toneMapping: "./webgpu/postprocess/toneMapping.wgsl",
-	colorFilter: "./webgpu/postprocess/colorFilter.wgsl",
-	interactionOutline: "./webgpu/postprocess/interactionOutline.wgsl",
-	fxaa: "./webgpu/postprocess/fxaa.wgsl",
-	copy: "./webgpu/postprocess/copy.wgsl",
-	sobelNormal: "./webgpu/postprocess/sobelNormal.wgsl",
-};
-
-const webgpuShadowShaderFiles: Record<WebGPUShadowShaderPart, string> = {
-	depth: "./webgpu/shadow/depth.wgsl",
-};
-
-const webgpuUtilityShaderFiles: Record<WebGPUUtilityShaderPart, string> = {
-	planarReflectionComposite: "./webgpu/utility/planarReflectionComposite.wgsl",
-	present: "./webgpu/utility/present.wgsl",
-	depthDirtyClear: "./webgpu/utility/depthDirtyClear.wgsl",
-	decal: "./webgpu/scene/decal.wgsl",
-	oitResolve: "./webgpu/utility/oitResolve.wgsl",
-	occlusionCulling: "./webgpu/utility/occlusionCulling.wgsl",
-	mipmapBlit: "./webgpu/utility/mipmapBlit.wgsl",
-};
-
-const webglShaderFiles: Record<WebGLShaderPart, string> = {
-	sceneVertex: "./webgl/parts/sceneVertex.glsl",
-	sceneFragment: "./webgl/parts/sceneFragment.glsl",
-	sceneDepthPrepassVertex: "./webgl/parts/sceneDepthPrepassVertex.glsl",
-	sceneDepthPrepassFragment: "./webgl/parts/sceneDepthPrepassFragment.glsl",
-	environmentVertex: "./webgl/parts/environmentVertex.glsl",
-	environmentFragment: "./webgl/parts/environmentFragment.glsl",
-	presentVertex: "./webgl/parts/presentVertex.glsl",
-	presentFragment: "./webgl/parts/presentFragment.glsl",
-	particleVertex: "./webgl/parts/particleVertex.glsl",
-	particleFragment: "./webgl/parts/particleFragment.glsl",
-	shadowDepthVertex: "./webgl/parts/shadowDepthVertex.glsl",
-	shadowDepthFragment: "./webgl/parts/shadowDepthFragment.glsl",
-	shadowTransmittanceFragment: "./webgl/parts/shadowTransmittanceFragment.glsl",
-	copyFragment: "./webgl/parts/copyFragment.glsl",
-	oitResolveFragment: "./webgl/parts/oitResolveFragment.glsl",
-	postProcessStubFragment: "./webgl/parts/postProcessStubFragment.glsl",
-	toneMappingFragment: "./webgl/parts/toneMappingFragment.glsl",
-	colorFilterFragment: "./webgl/parts/colorFilterFragment.glsl",
-	fxaaFragment: "./webgl/parts/fxaaFragment.glsl",
-	bloomFragment: "./webgl/parts/bloomFragment.glsl",
-	interactionOutlineFragment: "./webgl/parts/interactionOutlineFragment.glsl",
-	motionBlurFragment: "./webgl/parts/motionBlurFragment.glsl",
-	fogFragment: "./webgl/parts/fogFragment.glsl",
-	dofFragment: "./webgl/parts/dofFragment.glsl",
-	taaFragment: "./webgl/parts/taaFragment.glsl",
-	ssaoRawFragment: "./webgl/parts/ssaoRawFragment.glsl",
-	ssaoBlurFragment: "./webgl/parts/ssaoBlurFragment.glsl",
-	ssaoCombineFragment: "./webgl/parts/ssaoCombineFragment.glsl",
-};
-
-const webglInternalShaderFiles = {
-	diffuseProbeFallbackFragment: "./webgl/parts/diffuseProbeFallbackFragment.glsl",
-	irradianceProbeGridFragment: "./webgl/parts/irradianceProbeGridFragment.glsl",
-} as const;
-
-const syncShaderFiles: Record<ShaderSourceSyncKey, ShaderFileDescriptor> = {
-	"webgpu.utility.mipmapBlit.raw": {
-		scope: "webgpu",
-		key: "webgpu.utility.mipmapBlit",
-		path: "./webgpu/utility/mipmapBlit.wgsl",
-	},
-};
-
-function createBrowserSyncShaderSources(): Record<string, string> {
-	if (Platform.isNodeRuntime()) {
-		return {};
-	}
-	try {
-		return import.meta.glob<string>("./webgpu/utility/mipmapBlit.wgsl", {
-			query: "?raw",
-			import: "default",
-			eager: true,
-		});
-	} catch {
-		return {};
-	}
-}
-
 const browserSyncShaderSources: Record<string, string> =
-	createBrowserSyncShaderSources();
+	createWebGPUBrowserSyncShaderSources();
 
 const emptyCacheStats = (): MutableCacheBucketStats => ({
 	hits: 0,
@@ -692,7 +455,7 @@ export class ShaderSource {
 		this._preparedStats.misses++;
 		this._resultStats.misses++;
 
-		const descriptor = syncShaderFiles[key];
+		const descriptor = WEBGPU_SYNC_SHADER_FILES[key];
 		const result = this._loadFileRawSync(descriptor);
 		const cloned = cloneResult(result);
 		this._resultCache.set(cacheKey, Promise.resolve(cloned));
@@ -869,20 +632,12 @@ export class ShaderSource {
 			case "webgpu.environment.raw":
 				return (await this._loadWithSharedLightData(
 					"webgpu.environment.composite",
-					this._loadFileComposite({
-						scope: "webgpu",
-						key: "webgpu.environment",
-						path: "./webgpu/environment/background.wgsl",
-					})
+					this._loadFileComposite(WEBGPU_FIXED_SHADER_FILES.environment)
 				)).code;
 			case "webgpu.environment.composite":
 				return this._loadWithSharedLightData(
 					"webgpu.environment.composite",
-					this._loadFileComposite({
-						scope: "webgpu",
-						key: "webgpu.environment",
-						path: "./webgpu/environment/background.wgsl",
-					})
+					this._loadFileComposite(WEBGPU_FIXED_SHADER_FILES.environment)
 				);
 			case "webgpu.deferredLighting.raw":
 				return (await this._loadDeferredLightingComposite()).code;
@@ -891,42 +646,24 @@ export class ShaderSource {
 			case "webgpu.particle.raw":
 				return (await this._loadWithSharedLightData(
 					"webgpu.particle.composite",
-					this._loadFileComposite({
-						scope: "webgpu",
-						key: "webgpu.particle",
-						path: "./webgpu/particles/render.wgsl",
-					})
+					this._loadFileComposite(WEBGPU_FIXED_SHADER_FILES.particle)
 				)).code;
 			case "webgpu.particle.composite":
 				return this._loadWithSharedLightData(
 					"webgpu.particle.composite",
-					this._loadFileComposite({
-						scope: "webgpu",
-						key: "webgpu.particle",
-						path: "./webgpu/particles/render.wgsl",
-					})
+					this._loadFileComposite(WEBGPU_FIXED_SHADER_FILES.particle)
 				);
 			case "webgpu.particleSimulation.raw":
-				return this._loadFileRaw({
-					scope: "webgpu",
-					key: "webgpu.particleSimulation",
-					path: "./webgpu/particles/simulation.wgsl",
-				});
+				return this._loadFileRaw(WEBGPU_FIXED_SHADER_FILES.particleSimulation);
 			case "webgpu.clusteredLightingCull.composite":
 				return this._loadWithSharedLightData(
 					"webgpu.clusteredLightingCull.composite",
-					this._loadFileComposite({
-						scope: "webgpu",
-						key: "webgpu.clusteredLightingCull",
-						path: "./webgpu/lighting/clusteredLightingCull.wgsl",
-					})
+					this._loadFileComposite(WEBGPU_FIXED_SHADER_FILES.clusteredLightingCull)
 				);
 			case "webgpu.environmentIblPrefilter.raw":
-				return this._loadFileRaw({
-					scope: "webgpu",
-					key: "webgpu.environmentIblPrefilter",
-					path: "./webgpu/environment/iblPrefilter.wgsl",
-				});
+				return this._loadFileRaw(
+					WEBGPU_FIXED_SHADER_FILES.environmentIblPrefilter
+				);
 			case "webgl.scene.raw":
 				return this._loadWebGLSceneRaw(params);
 			case "webgl.scene.composite":
@@ -970,11 +707,7 @@ export class ShaderSource {
 			this._loadWebGPUScenePartComposite("constants"),
 			this._loadWebGPUScenePartComposite("definitions"),
 			this._loadWebGPUScenePartComposite("utils"),
-			this._loadFileComposite({
-				scope: "webgpu",
-				key: "webgpu.deferredLighting",
-				path: "./webgpu/lighting/deferredLighting.wgsl",
-			}),
+			this._loadFileComposite(WEBGPU_FIXED_SHADER_FILES.deferredLighting),
 		]);
 		return composeShaderParts(parts, "<webgpu-deferred-lighting-part>");
 	}
@@ -1012,7 +745,7 @@ export class ShaderSource {
 			:	this._loadFileRaw({
 					scope: "webgpu",
 					key: `webgpu.scene.part.${parsed.part}`,
-					path: webgpuSceneShaderFiles[parsed.part],
+					path: WEBGPU_SCENE_SHADER_FILES[parsed.part],
 				});
 	}
 
@@ -1022,7 +755,7 @@ export class ShaderSource {
 		return this._loadFileComposite({
 			scope: "webgpu",
 			key: `webgpu.scene.part.${part}`,
-			path: webgpuSceneShaderFiles[part],
+			path: WEBGPU_SCENE_SHADER_FILES[part],
 		});
 	}
 
@@ -1036,7 +769,7 @@ export class ShaderSource {
 		const descriptor: ShaderFileDescriptor = {
 			scope: "webgpu",
 			key: `webgpu.postprocess.${parsed.part}`,
-			path: webgpuPostProcessShaderFiles[parsed.part],
+			path: WEBGPU_POST_PROCESS_SHADER_FILES[parsed.part],
 		};
 		if (WEBGPU_POST_PROCESS_PARTS_USING_SHARED_LIGHT_DATA.has(parsed.part)) {
 			const composite = await this._loadWithSharedLightData(
@@ -1060,7 +793,7 @@ export class ShaderSource {
 		const descriptor: ShaderFileDescriptor = {
 			scope: "webgpu",
 			key: `webgpu.shadow.${parsed.part}`,
-			path: webgpuShadowShaderFiles[parsed.part],
+			path: WEBGPU_SHADOW_SHADER_FILES[parsed.part],
 		};
 		return parsed.composite ?
 				this._loadFileComposite(descriptor)
@@ -1077,7 +810,7 @@ export class ShaderSource {
 		const descriptor: ShaderFileDescriptor = {
 			scope: "webgpu",
 			key: `webgpu.utility.${parsed.part}`,
-			path: webgpuUtilityShaderFiles[parsed.part],
+			path: WEBGPU_UTILITY_SHADER_FILES[parsed.part],
 		};
 		return parsed.composite ?
 				this._loadFileComposite(descriptor)
@@ -1091,7 +824,7 @@ export class ShaderSource {
 		const descriptor: ShaderFileDescriptor = {
 			scope: "webgl",
 			key: `webgl.part.${parsed.part}`,
-			path: webglShaderFiles[parsed.part],
+			path: WEBGL_SHADER_FILES[parsed.part],
 		};
 		return parsed.composite ?
 				this._loadFileComposite(descriptor)
@@ -1111,22 +844,22 @@ export class ShaderSource {
 			this._loadFileRaw({
 				scope: "webgl",
 				key: "webgl.part.sceneVertex",
-				path: webglShaderFiles.sceneVertex,
+				path: WEBGL_SHADER_FILES.sceneVertex,
 			}),
 			this._loadFileRaw({
 				scope: "webgl",
 				key: "webgl.part.sceneFragment",
-				path: webglShaderFiles.sceneFragment,
+				path: WEBGL_SHADER_FILES.sceneFragment,
 			}),
 			this._loadFileRaw({
 				scope: "webgl",
 				key: "webgl.internal.diffuseProbeFallbackFragment",
-				path: webglInternalShaderFiles.diffuseProbeFallbackFragment,
+				path: WEBGL_INTERNAL_SHADER_FILES.diffuseProbeFallbackFragment,
 			}),
 			this._loadFileRaw({
 				scope: "webgl",
 				key: "webgl.internal.irradianceProbeGridFragment",
-				path: webglInternalShaderFiles.irradianceProbeGridFragment,
+				path: WEBGL_INTERNAL_SHADER_FILES.irradianceProbeGridFragment,
 			}),
 		]);
 		return {
@@ -1151,22 +884,22 @@ export class ShaderSource {
 			this._loadFileComposite({
 				scope: "webgl",
 				key: "webgl.part.sceneVertex",
-				path: webglShaderFiles.sceneVertex,
+				path: WEBGL_SHADER_FILES.sceneVertex,
 			}),
 			this._loadFileComposite({
 				scope: "webgl",
 				key: "webgl.part.sceneFragment",
-				path: webglShaderFiles.sceneFragment,
+				path: WEBGL_SHADER_FILES.sceneFragment,
 			}),
 			this._loadFileRaw({
 				scope: "webgl",
 				key: "webgl.internal.diffuseProbeFallbackFragment",
-				path: webglInternalShaderFiles.diffuseProbeFallbackFragment,
+				path: WEBGL_INTERNAL_SHADER_FILES.diffuseProbeFallbackFragment,
 			}),
 			this._loadFileRaw({
 				scope: "webgl",
 				key: "webgl.internal.irradianceProbeGridFragment",
-				path: webglInternalShaderFiles.irradianceProbeGridFragment,
+				path: WEBGL_INTERNAL_SHADER_FILES.irradianceProbeGridFragment,
 			}),
 		]);
 		const fragment = this._buildWebGLSceneFragment(
@@ -1181,7 +914,7 @@ export class ShaderSource {
 			vertex,
 			fragment: createInlineCompositeShaderSource(
 				fragment,
-				firstSourcePath(fragmentTemplate, webglShaderFiles.sceneFragment),
+				firstSourcePath(fragmentTemplate, WEBGL_SHADER_FILES.sceneFragment),
 				"template"
 			),
 		};
