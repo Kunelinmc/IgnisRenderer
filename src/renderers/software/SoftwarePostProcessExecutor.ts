@@ -9,7 +9,7 @@ import type {
 	PostProcessResourceHandle,
 } from "../../postprocess";
 import type { SoftwareVolumetricLightingContext } from "../../postprocess/passes/VolumetricLightingPass";
-import type { SoftwareBuiltinPostProcessContext } from "../../postprocess/passes/BuiltinScreenPasses";
+import type { SoftwareBuiltinPostProcessContext } from "../../postprocess/passes/ScreenPassShared";
 
 export interface SoftwarePostProcessExecutorHost {
 	getCanvasContext(): CanvasRenderingContext2D | null;

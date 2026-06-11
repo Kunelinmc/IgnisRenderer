@@ -111,13 +111,23 @@ import {
 import type { WebGLFXAAContext } from "../../postprocess/passes/FastApproximateAntiAliasingPass";
 import type {
 	WebGLColorFilterContext,
+} from "../../postprocess/passes/ColorFilterPass";
+import type {
 	WebGLDepthOfFieldContext,
-	WebGLGammaContext,
+} from "../../postprocess/passes/DepthOfFieldPass";
+import type { WebGLGammaContext } from "../../postprocess/passes/GammaPass";
+import type {
 	WebGLInteractionOutlineContext,
+} from "../../postprocess/passes/InteractionOutlinePass";
+import type {
 	WebGLMotionBlurContext,
+} from "../../postprocess/passes/MotionBlurPass";
+import type {
 	WebGLScreenPostProcessContext,
+} from "../../postprocess/passes/ScreenPassShared";
+import type {
 	WebGLToneMappingContext,
-} from "../../postprocess/passes/BuiltinScreenPasses";
+} from "../../postprocess/passes/ToneMappingPass";
 import {
 	resolveMaterialUniforms,
 	resolveTextureUVTransform,
