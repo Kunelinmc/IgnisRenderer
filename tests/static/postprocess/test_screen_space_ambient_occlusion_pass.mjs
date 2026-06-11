@@ -7,7 +7,7 @@ import {
 	resolveSSAODownsample,
 	resolveSSAOOptions,
 } from "../../../src/postprocess/index.ts";
-import { BackendPostProcessRuntime } from "../../../src/renderers/BackendPostProcessRuntime.ts";
+import { BackendPostProcessRuntime } from "../../../src/postprocess/BackendPostProcessRuntime.ts";
 import { CameraType } from "../../../src/cameras/Camera.ts";
 import {
 	createResolvedPostProcess,

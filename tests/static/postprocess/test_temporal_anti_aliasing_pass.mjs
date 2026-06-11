@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import {
 	TemporalAntiAliasingPass,
 } from "../../../src/postprocess/index.ts";
-import { BackendPostProcessRuntime } from "../../../src/renderers/BackendPostProcessRuntime.ts";
+import { BackendPostProcessRuntime } from "../../../src/postprocess/BackendPostProcessRuntime.ts";
 import {
 	createResolvedPostProcess,
 } from "../../helpers/postprocess.mjs";

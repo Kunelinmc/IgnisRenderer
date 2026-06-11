@@ -19,7 +19,7 @@ import {
 	ToneMappingPass,
 	VolumetricLightingPass,
 } from "../../../src/index.ts";
-import { BackendPostProcessRuntime } from "../../../src/renderers/BackendPostProcessRuntime.ts";
+import { BackendPostProcessRuntime } from "../../../src/postprocess/BackendPostProcessRuntime.ts";
 import {
 	createNoopPostProcessSupport,
 	createResolvedPostProcess,

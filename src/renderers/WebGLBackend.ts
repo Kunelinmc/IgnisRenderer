@@ -13,7 +13,7 @@ import type {
 } from "./IRenderBackend";
 import { WebGLFrameExecutor } from "./webgl/WebGLFrameExecutor";
 import { WebGLPostProcessExecutor } from "./webgl/WebGLPostProcessExecutor";
-import { BackendPostProcessRuntime } from "./BackendPostProcessRuntime";
+import { BackendPostProcessRuntime } from "../postprocess/BackendPostProcessRuntime";
 import {
 	WEBGL_MAX_DIRECTIONAL_LIGHTS,
 	WEBGL_MAX_POINT_LIGHTS,

@@ -9,7 +9,7 @@ import { Rasterizer } from "./software/Rasterizer";
 import {
 	SoftwarePostProcessExecutor,
 } from "./software/SoftwarePostProcessExecutor";
-import { BackendPostProcessRuntime } from "./BackendPostProcessRuntime";
+import { BackendPostProcessRuntime } from "../postprocess/BackendPostProcessRuntime";
 import { SoftwareMainPass } from "./software/passes/SoftwareMainPass";
 import { SoftwareParticlePass } from "./software/passes/SoftwareParticlePass";
 import { SoftwareReflectionPass } from "./software/passes/SoftwareReflectionPass";

@@ -18,7 +18,7 @@ import {
 	VolumetricLightingPass,
 	createRenderBackendExtensionRegistry,
 } from "../../src/index.ts";
-import { BackendPostProcessRuntime } from "../../src/renderers/BackendPostProcessRuntime.ts";
+import { BackendPostProcessRuntime } from "../../src/postprocess/BackendPostProcessRuntime.ts";
 
 export const ALL_POST_PROCESS_PASS_IDS = [
 	"ssao",

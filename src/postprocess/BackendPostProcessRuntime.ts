@@ -2,8 +2,8 @@ import type { FrameContext } from "../pipeline/types";
 import {
 	PostProcessGraphCompiler,
 	type CompiledPostProcessGraph,
-} from "../postprocess/PostProcessGraphCompiler";
-import { PostProcessResourcePool } from "../postprocess/PostProcessResourcePool";
+} from "./PostProcessGraphCompiler";
+import { PostProcessResourcePool } from "./PostProcessResourcePool";
 import type {
 	IPostProcessExecutor,
 	LogicalGBufferBridge,
@@ -11,8 +11,8 @@ import type {
 	PostProcessFrameRequest,
 	PostProcessPassExecutionContextRequest,
 	PostProcessPassRequest,
-} from "../postprocess/types";
-import type { PostProcessPassRegistry } from "../postprocess/PostProcessPass";
+} from "./types";
+import type { PostProcessPassRegistry } from "./PostProcessPass";
 
 export interface BackendPostProcessRuntimeOptions {
 	readonly executor: IPostProcessExecutor;
