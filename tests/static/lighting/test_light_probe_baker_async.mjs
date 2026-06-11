@@ -73,7 +73,7 @@ async function testExplicitWebGPUModeRequiresSource() {
 		}),
 		(error) =>
 			error instanceof Error &&
-			error.message.includes("no webgpuSource was provided")
+			error.message.includes("no WebGPU backend or compute source")
 	);
 }
 
@@ -81,7 +81,7 @@ async function testAutoFallsBackWhenWebGPUPathFails() {
 	const texture = createTestTexture();
 	const baked = await bakeEnvironmentIBLFromEnvironmentMap(texture, {
 		acceleration: "auto",
-		webgpuSource: { type: "webgpu" },
+		computeSource: { type: "webgpu" },
 	});
 	assert.ok(baked.prefilteredMap);
 	assert.equal(baked.prefilteredMap?.mipmaps.length, 5);
@@ -113,9 +113,9 @@ async function testCPUPrefilterPreservesHDRRadiance() {
 	const texture = new Texture(new Float32Array([4, 2, 1, 1]), 1, 1, "HDR");
 	const baked = await bakeEnvironmentIBLFromEnvironmentMap(texture, {
 		acceleration: "cpu",
-		prefilterMaxSampleWidth: 1,
-		prefilterMaxSampleHeight: 1,
-		prefilterMaxMipLevels: 1,
+		maxSampleWidth: 1,
+		maxSampleHeight: 1,
+		maxMipLevels: 1,
 	});
 	const mip0 = baked.prefilteredMap.mipmaps[0];
 	assert.ok(mip0 instanceof Float32Array);
@@ -138,18 +138,18 @@ async function testWebGPUPrefilterUsesRGBA16FloatForHDR() {
 	const backend = new FakeWebGPUBackend();
 	const baked = await bakeEnvironmentIBLFromEnvironmentMap(texture, {
 		acceleration: "webgpu",
-		webgpuSource: backend,
-		prefilterMaxSampleWidth: 1,
-		prefilterMaxSampleHeight: 1,
-		prefilterMaxMipLevels: 1,
+		backend,
+		maxSampleWidth: 1,
+		maxSampleHeight: 1,
+		maxMipLevels: 1,
 	});
 	assert.ok(baked.prefilteredMap.mipmaps[0] instanceof Float32Array);
 
 	const inputTexture = backend.createTextureCalls.find(
-		(call) => call.label === "EnvironmentIBLBakeInputTexture"
+		(call) => call.label === "IBLPrefilterInputTexture"
 	);
 	const outputTexture = backend.createTextureCalls.find(
-		(call) => call.label === "EnvironmentIBLBakePrefilterOutput_mip0"
+		(call) => call.label === "IBLPrefilterOutput_mip0"
 	);
 	assert.equal(inputTexture?.format, TextureFormat.RGBA16Float);
 	assert.equal(outputTexture?.format, TextureFormat.RGBA16Float);

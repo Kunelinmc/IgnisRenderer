@@ -39,17 +39,6 @@ import {
 import type { RendererStageDefinition } from "../pipeline/RendererStageGraph";
 import { RenderPipelineRegistry } from "../pipeline/RenderPipelineRegistry";
 import { createDefaultPipelineStages } from "../pipeline/defaultPipeline";
-import { bakeEnvironmentIBLFromEnvironmentMap } from "../pipeline/EnvironmentIBLBaker";
-import {
-	DEFAULT_ENVIRONMENT_IBL_UPDATE_OPTIONS,
-	EnvironmentIBLUpdateRuntime,
-	normalizeEnvironmentIBLUpdateOptions,
-	type EnvironmentIBLUpdateOptions,
-} from "../lights/runtime/EnvironmentIBLUpdateRuntime";
-import {
-	ensureEnvironmentTextureEquirect,
-	isTextureReadyForEnvironment,
-} from "../lights/runtime/environmentMapRuntime";
 import { isLocalizedLightProbe } from "../lights/runtime/lightProbeRuntime";
 import {
 	ANIMATION_SIM_DELTA_TIME_MS_KEY,
@@ -73,7 +62,6 @@ import {
 	type IncrementalRenderingOptions,
 	type RenderDirtyReason,
 } from "../pipeline/incremental";
-import type { WebGPUComputeFacadeSource } from "./webgpu/ComputeFacade";
 import type {
 	FrameContext,
 	FramePassStage,
@@ -86,7 +74,6 @@ import type {
 	RenderBackendDeviceLostInfo,
 	RendererBackendResourceEvent,
 	WarmupOptions,
-	WarmupProgress,
 	WarmupReport,
 } from "./IRenderBackend";
 import { RendererOcclusionCullingController } from "./RendererOcclusionCullingController";
@@ -96,7 +83,6 @@ export type {
 	IncrementalRenderingOptions,
 	RenderDirtyReason,
 } from "../pipeline/incremental";
-export type { EnvironmentIBLUpdateOptions } from "../lights/runtime/EnvironmentIBLUpdateRuntime";
 
 export interface RendererEvents {
 	tick: [{ now: number; deltaTime: number }];
@@ -191,9 +177,6 @@ export class Renderer extends EventEmitter<RendererEvents> {
 	private _lastIncrementalFrameStats: IncrementalFrameStats | null;
 	private _preparedSceneCache: PreparedSceneCache;
 	private _probeCaptureRuntime: ProbeCaptureRuntime;
-	private _environmentIBLUpdateRuntime: EnvironmentIBLUpdateRuntime;
-	private _environmentIBLUpdateOptions: EnvironmentIBLUpdateOptions;
-	private _environmentIBLUpdateRequestToken: number;
 	private _pendingDirtyReasonMask: number;
 	private _lastKnownSceneVersion: number;
 	private _occlusionCullingController: RendererOcclusionCullingController;
@@ -245,11 +228,6 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		this._lastIncrementalFrameStats = null;
 		this._preparedSceneCache = new PreparedSceneCache();
 		this._probeCaptureRuntime = new ProbeCaptureRuntime();
-		this._environmentIBLUpdateRuntime = new EnvironmentIBLUpdateRuntime();
-		this._environmentIBLUpdateOptions = {
-			...DEFAULT_ENVIRONMENT_IBL_UPDATE_OPTIONS,
-		};
-		this._environmentIBLUpdateRequestToken = 0;
 		this._pendingDirtyReasonMask = renderDirtyReasonToMask("unknown");
 		this._lastKnownSceneVersion = 0;
 
@@ -367,13 +345,6 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		this.refreshReflectionProbeCaches();
 		this._assertCameraInScene(this.scene, this.camera, "renderScene");
 		this.camera.updateMatrices();
-		const environmentIBLUpdated = await this._warmupBakeEnvironmentIBL(options);
-		if (environmentIBLUpdated) {
-			this.scene.syncNodeToECS();
-			this.scene.updateWorldMatrices();
-			this.camera.updateMatrices();
-		}
-
 		const transient = createTransientStore();
 		transient.set(PARTICLE_SIM_DELTA_TIME_SECONDS_KEY, 0);
 		transient.set(ANIMATION_SIM_DELTA_TIME_MS_KEY, 0);
@@ -430,91 +401,6 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		return this.backend.warmup(context, options);
 	}
 
-	private async _warmupBakeEnvironmentIBL(
-		options: WarmupOptions
-	): Promise<boolean> {
-		const includeEnvironmentIBLBake =
-			options.includeEnvironmentIBLBake ?? !!options.environmentIBLBake;
-		if (includeEnvironmentIBLBake === false) {
-			return false;
-		}
-
-		const environment = this.scene.environment;
-		if (!environment.lightingEnabled) {
-			return false;
-		}
-
-		const iblTexture = ensureEnvironmentTextureEquirect(
-			environment.iblTexture
-		);
-		if (!iblTexture || !isTextureReadyForEnvironment(iblTexture)) {
-			return false;
-		}
-
-		const bakeOptions = {
-			...(options.environmentIBLBake ?? {}),
-		};
-		if (!bakeOptions.webgpuSource && this.backend.type === "webgpu") {
-			bakeOptions.webgpuSource =
-				this.backend as unknown as WebGPUComputeFacadeSource;
-		}
-
-		const bakedEnvironment = await bakeEnvironmentIBLFromEnvironmentMap(
-			iblTexture,
-			{
-				...bakeOptions,
-				onProgress:
-					options.onProgress ?
-						(progress) => {
-							const event: WarmupProgress = {
-								phase: `environment-ibl-bake:${progress.phase}`,
-								completed: progress.completed,
-								total: progress.total,
-								detail: progress.detail,
-							};
-							options.onProgress?.(event);
-						}
-					:	undefined,
-			}
-		);
-
-		const lights = this.scene.getLights();
-		const probes = lights.filter(
-			(light): light is LightProbe =>
-				light.type === LightType.LightProbe &&
-				(light as LightProbe).source === "environment"
-		);
-
-		if (probes.length === 0) {
-			probes.push(this.scene.add(new LightProbe({})));
-		}
-
-		for (const probe of probes) {
-			probe.sh = this._cloneSHCoefficients(bakedEnvironment.sh);
-		}
-
-		const reflectionProbes = lights.filter(
-			(light): light is ReflectionProbe =>
-				light.type === LightType.ReflectionProbe
-		);
-		for (const reflectionProbe of reflectionProbes) {
-			if (reflectionProbe.source !== "environment") continue;
-			reflectionProbe.prefilteredMap = bakedEnvironment.prefilteredMap;
-			reflectionProbe.markRuntimeDirty();
-		}
-
-		this._markFrameDirty("lighting");
-		return true;
-	}
-
-	private _cloneSHCoefficients(source: SHCoefficients): SHCoefficients {
-		return source.map((coefficient) => ({
-			r: coefficient.r,
-			g: coefficient.g,
-			b: coefficient.b,
-		})) as SHCoefficients;
-	}
-
 	public resizeCanvas(): void {
 		const rect = this.canvas.getBoundingClientRect();
 		this._deviceScaleFactor = window.devicePixelRatio || 1;
@@ -542,8 +428,6 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		this._lastKnownSceneVersion = scene.version;
 		this._preparedSceneCache.reset();
 		this._occlusionCullingController.reset();
-		this._environmentIBLUpdateRuntime.reset();
-		this._environmentIBLUpdateRequestToken = 0;
 		if (this._physicsSystem) {
 			this._physicsSystem.setEntityNodeResolver((entityId) => {
 				return this.scene.ecs.getNodeByEntity(entityId);
@@ -622,46 +506,6 @@ export class Renderer extends EventEmitter<RendererEvents> {
 			})),
 			dirtyTiles: this._lastIncrementalFrameStats.dirtyTiles.slice(),
 		};
-	}
-
-	public setEnvironmentIBLUpdateOptions(
-		options: Partial<EnvironmentIBLUpdateOptions>
-	): void {
-		const next = normalizeEnvironmentIBLUpdateOptions({
-			...this._environmentIBLUpdateOptions,
-			...(options ?? {}),
-		});
-		if (
-			next.enabled === this._environmentIBLUpdateOptions.enabled &&
-			next.autoUpdate === this._environmentIBLUpdateOptions.autoUpdate &&
-			next.mipsPerFrame === this._environmentIBLUpdateOptions.mipsPerFrame &&
-			next.temporalBlendFactor ===
-				this._environmentIBLUpdateOptions.temporalBlendFactor &&
-			next.temporalBlendEpsilon ===
-				this._environmentIBLUpdateOptions.temporalBlendEpsilon &&
-			next.acceleration === this._environmentIBLUpdateOptions.acceleration &&
-			next.prefilterMaxSampleWidth ===
-				this._environmentIBLUpdateOptions.prefilterMaxSampleWidth &&
-			next.prefilterMaxSampleHeight ===
-				this._environmentIBLUpdateOptions.prefilterMaxSampleHeight &&
-			next.prefilterMaxMipLevels ===
-				this._environmentIBLUpdateOptions.prefilterMaxMipLevels &&
-			next.resetTemporalHistoryOnComplete ===
-				this._environmentIBLUpdateOptions.resetTemporalHistoryOnComplete
-		) {
-			return;
-		}
-		this._environmentIBLUpdateOptions = next;
-		this._markFrameDirty("environment-ibl");
-	}
-
-	public getEnvironmentIBLUpdateOptions(): EnvironmentIBLUpdateOptions {
-		return { ...this._environmentIBLUpdateOptions };
-	}
-
-	public requestEnvironmentIBLUpdate(): void {
-		this._environmentIBLUpdateRequestToken++;
-		this._markFrameDirty("environment-ibl");
 	}
 
 	public get backendType(): IRenderBackend["type"] {
@@ -873,10 +717,6 @@ export class Renderer extends EventEmitter<RendererEvents> {
 				"feature-resolution",
 				(state) => this._executeFeatureResolutionStage(state),
 			],
-			[
-				"environment-ibl-update",
-				() => this._executeEnvironmentIBLUpdateStage(),
-			],
 			["sync-in", (state) => this._executeSyncInStage(state)],
 			["animation-sim", (state) => this._executeAnimationStage(state)],
 			["physics-sim", (state) => this._executePhysicsStage(state)],
@@ -1011,21 +851,6 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		}
 	}
 
-	private _executeEnvironmentIBLUpdateStage(): void {
-		const updateResult = this._environmentIBLUpdateRuntime.execute({
-			scene: this.scene,
-			requestToken: this._environmentIBLUpdateRequestToken,
-			options: this._environmentIBLUpdateOptions,
-			webgpuSource:
-				this.backend.type === "webgpu" ?
-					(this.backend as unknown as WebGPUComputeFacadeSource)
-				:	null,
-		});
-		if (updateResult.dirtyReason) {
-			this._markFrameDirty(updateResult.dirtyReason);
-		}
-	}
-
 	private _executeSyncInStage(state: RenderSceneFrameState): void {
 		this.scene.syncNodeToECS();
 		if (!state.hasAnimationStage && !state.emittedPostAnimation) {
@@ -1141,10 +966,6 @@ export class Renderer extends EventEmitter<RendererEvents> {
 			frameDirtyReasonMask: state.frameDirtyReasonMask,
 			frameContext: state.context,
 			cameraWorldPosition,
-			webgpuSource:
-				this.backend.type === "webgpu" ?
-					(this.backend as unknown as WebGPUComputeFacadeSource)
-				:	null,
 			webgpuCaptureSource:
 				this.backend.type === "webgpu" ?
 					(this.backend as unknown as ProbeWebGPUCaptureSource)

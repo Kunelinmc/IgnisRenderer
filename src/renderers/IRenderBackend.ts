@@ -3,7 +3,6 @@ import type {
 	FrameContext,
 	FramePass,
 } from "../pipeline/types";
-import type { EnvironmentIBLBakeOptions } from "../pipeline/EnvironmentIBLBaker";
 import type { ShaderCompileError } from "../shaders/runtime";
 import type { RenderBackendExtensionRegistry } from "./BackendExtensions";
 import type { PostProcessPassRegistry } from "../postprocess/PostProcessPass";
@@ -29,8 +28,6 @@ export interface WarmupOptions {
 	includeShadowPass?: boolean;
 	includePostProcess?: boolean;
 	includeParticles?: boolean;
-	includeEnvironmentIBLBake?: boolean;
-	environmentIBLBake?: Omit<EnvironmentIBLBakeOptions, "onProgress">;
 	logCompilationInfo?: boolean;
 	onProgress?: (progress: WarmupProgress) => void;
 }

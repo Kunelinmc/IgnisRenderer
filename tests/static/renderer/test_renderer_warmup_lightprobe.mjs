@@ -24,16 +24,10 @@ class StubBackend {
 			shadows: false,
 			reflection: false,
 			environment: true,
-			ssao: false,
-			ssgi: false,
-			taa: false,
-			ssr: false,
-			volumetric: false,
-			fog: false,
-			motionBlur: false,
-			dof: false,
-			bloom: false,
+			postProcess: true,
 			clusteredLighting: false,
+			oit: false,
+			occlusionCulling: false,
 		};
 		installNoopPostProcessAdapter(
 			this,
@@ -98,205 +92,83 @@ function createEnvironmentTexture(width = 32, height = 16) {
 	return new Texture(data, width, height, "sRGB");
 }
 
-async function testWarmupOverwritesOnlyEnvironmentReflectionProbes() {
+function createRendererFixture() {
+	const backend = new StubBackend();
+	const camera = new Camera();
+	const canvas = {
+		width: 320,
+		height: 180,
+		getBoundingClientRect() {
+			return { width: 320, height: 180 };
+		},
+	};
+	const renderer = new Renderer(backend, canvas, camera);
+	renderer.features.worldMatrix = Matrix4.identity();
+	return { backend, renderer };
+}
+
+async function withDOMGlobals(callback) {
 	const originalWindow = globalThis.window;
 	const originalRAF = globalThis.requestAnimationFrame;
-
 	try {
 		globalThis.window = { devicePixelRatio: 1 };
 		globalThis.requestAnimationFrame = () => 0;
+		await callback();
+	} finally {
+		globalThis.window = originalWindow;
+		globalThis.requestAnimationFrame = originalRAF;
+	}
+}
 
-		const backend = new StubBackend();
-		const camera = new Camera();
-		const canvas = {
-			width: 320,
-			height: 180,
-			getBoundingClientRect() {
-				return { width: 320, height: 180 };
-			},
-		};
-		const renderer = new Renderer(backend, canvas, camera);
-		renderer.features.worldMatrix = Matrix4.identity();
+async function testWarmupDoesNotBakeEnvironmentProbes() {
+	await withDOMGlobals(async () => {
+		const { renderer } = createRendererFixture();
 		renderer.features.enableSH = true;
 		const environmentTexture = createEnvironmentTexture();
 		renderer.scene.environment.backgroundTexture = environmentTexture;
 		renderer.scene.environment.iblTexture = environmentTexture;
 
-		const probeA = renderer.scene.add(new LightProbe({ sh: SH.empty() }));
-		const probeB = renderer.scene.add(new LightProbe({ sh: SH.empty() }));
-		const manualLightProbe = renderer.scene.add(
-			new LightProbe({ source: "manual", sh: SH.empty() })
+		const lightProbe = renderer.scene.add(new LightProbe({ sh: SH.empty() }));
+		const reflectionProbe = renderer.scene.add(
+			new ReflectionProbe({ source: "environment", prefilteredMap: null })
 		);
-		const capturedLightProbe = renderer.scene.add(
-			new LightProbe({ source: "capturedScene", sh: SH.empty() })
-		);
-		const reflectionA = renderer.scene.add(
-			new ReflectionProbe({ shape: "box", prefilteredMap: null })
-		);
-		const reflectionB = renderer.scene.add(
-			new ReflectionProbe({ shape: "sphere", prefilteredMap: null })
-		);
-		const capturedPrefiltered = new Texture(
-			new Float32Array([0.25, 0.5, 0.75, 1]),
-			1,
-			1,
-			"HDR"
-		);
-		const manualPrefiltered = new Texture(
-			new Float32Array([0.7, 0.2, 0.1, 1]),
-			1,
-			1,
-			"HDR"
-		);
-		const reflectionCaptured = renderer.scene.add(
-			new ReflectionProbe({
-				shape: "sphere",
-				source: "capturedScene",
-				prefilteredMap: capturedPrefiltered,
-			})
-		);
-		const reflectionManual = renderer.scene.add(
-			new ReflectionProbe({
-				shape: "sphere",
-				source: "manual",
-				prefilteredMap: manualPrefiltered,
-			})
-		);
-
 		const progress = [];
 		await renderer.warmup({
-			environmentIBLBake: { acceleration: "cpu" },
 			onProgress: (event) => progress.push(event),
 		});
 
-		const probes = renderer.scene
-			.getLights()
-			.filter((light) => light.type === "lightProbe");
-		assert.equal(probes.length, 4);
-		for (const probe of probes) {
-			assert.equal(probe.sh.length, 16);
-		}
-		assert.ok(probeA.sh[0].r !== 0 || probeA.sh[0].g !== 0 || probeA.sh[0].b !== 0);
-		assert.ok(probeB.sh[0].r !== 0 || probeB.sh[0].g !== 0 || probeB.sh[0].b !== 0);
-		assert.equal(manualLightProbe.sh[0].r, 0);
-		assert.equal(capturedLightProbe.sh[0].r, 0);
-		assert.ok(reflectionA.prefilteredMap);
-		assert.ok(reflectionB.prefilteredMap);
-		assert.equal(reflectionCaptured.prefilteredMap, capturedPrefiltered);
-		assert.equal(reflectionManual.prefilteredMap, manualPrefiltered);
-		assert.equal("intensity" in probeA, false);
-		assert.equal("intensity" in probeB, false);
-		assert.ok(
-			progress.some((event) =>
-				event.phase.startsWith("environment-ibl-bake:")
-			)
+		assert.equal(lightProbe.sh[0].r, 0);
+		assert.equal(lightProbe.sh[0].g, 0);
+		assert.equal(lightProbe.sh[0].b, 0);
+		assert.equal(reflectionProbe.prefilteredMap, null);
+		assert.equal(
+			progress.some((event) => event.phase.startsWith("environment-ibl")),
+			false
 		);
-	} finally {
-		globalThis.window = originalWindow;
-		globalThis.requestAnimationFrame = originalRAF;
-	}
+	});
 }
 
-async function testWarmupCreatesProbeWhenSceneHasNone() {
-	const originalWindow = globalThis.window;
-	const originalRAF = globalThis.requestAnimationFrame;
-
-	try {
-		globalThis.window = { devicePixelRatio: 1 };
-		globalThis.requestAnimationFrame = () => 0;
-
-		const backend = new StubBackend();
-		const camera = new Camera();
-		const canvas = {
-			width: 320,
-			height: 180,
-			getBoundingClientRect() {
-				return { width: 320, height: 180 };
-			},
-		};
-		const renderer = new Renderer(backend, canvas, camera);
-		renderer.features.worldMatrix = Matrix4.identity();
+async function testWarmupDoesNotCreateProbeWhenSceneHasNone() {
+	await withDOMGlobals(async () => {
+		const { renderer } = createRendererFixture();
 		const environmentTexture = createEnvironmentTexture();
 		renderer.scene.environment.backgroundTexture = environmentTexture;
 		renderer.scene.environment.iblTexture = environmentTexture;
 
-		await renderer.warmup({
-			environmentIBLBake: { acceleration: "cpu" },
-		});
-
-		const probes = renderer.scene
-			.getLights()
-			.filter((light) => light.type === "lightProbe");
-		assert.equal(probes.length, 1);
-		const reflectionProbes = renderer.scene
-			.getLights()
-			.filter((light) => light.type === "reflectionProbe");
-		assert.equal(reflectionProbes.length, 0);
-	} finally {
-		globalThis.window = originalWindow;
-		globalThis.requestAnimationFrame = originalRAF;
-	}
-}
-
-async function testWarmupSkipsLightProbeBakeWhenDisabled() {
-	const originalWindow = globalThis.window;
-	const originalRAF = globalThis.requestAnimationFrame;
-
-	try {
-		globalThis.window = { devicePixelRatio: 1 };
-		globalThis.requestAnimationFrame = () => 0;
-
-		const backend = new StubBackend();
-		const camera = new Camera();
-		const canvas = {
-			width: 320,
-			height: 180,
-			getBoundingClientRect() {
-				return { width: 320, height: 180 };
-			},
-		};
-		const renderer = new Renderer(backend, canvas, camera);
-		renderer.features.worldMatrix = Matrix4.identity();
-		const environmentTexture = createEnvironmentTexture();
-		renderer.scene.environment.backgroundTexture = environmentTexture;
-		renderer.scene.environment.iblTexture = environmentTexture;
-
-		await renderer.warmup({
-			includeEnvironmentIBLBake: false,
-			environmentIBLBake: { acceleration: "cpu" },
-		});
+		await renderer.warmup();
 
 		const probes = renderer.scene
 			.getLights()
 			.filter((light) => light.type === "lightProbe");
 		assert.equal(probes.length, 0);
-	} finally {
-		globalThis.window = originalWindow;
-		globalThis.requestAnimationFrame = originalRAF;
-	}
+	});
 }
 
 async function testWarmupAndRenderIncrementalContextContractMatches() {
-	const originalWindow = globalThis.window;
-	const originalRAF = globalThis.requestAnimationFrame;
+	await withDOMGlobals(async () => {
+		const { backend, renderer } = createRendererFixture();
 
-	try {
-		globalThis.window = { devicePixelRatio: 1 };
-		globalThis.requestAnimationFrame = () => 0;
-
-		const backend = new StubBackend();
-		const camera = new Camera();
-		const canvas = {
-			width: 320,
-			height: 180,
-			getBoundingClientRect() {
-				return { width: 320, height: 180 };
-			},
-		};
-		const renderer = new Renderer(backend, canvas, camera);
-		renderer.features.worldMatrix = Matrix4.identity();
-
-		await renderer.warmup({ includeEnvironmentIBLBake: false });
+		await renderer.warmup();
 		await renderer.renderScene(0);
 
 		const warmupIncremental = backend.lastWarmupContext?.incremental;
@@ -311,69 +183,12 @@ async function testWarmupAndRenderIncrementalContextContractMatches() {
 		assert.equal(renderIncremental.firstPass, null);
 		assert.equal(warmupIncremental.forceFullFrame, true);
 		assert.equal(renderIncremental.forceFullFrame, true);
-	} finally {
-		globalThis.window = originalWindow;
-		globalThis.requestAnimationFrame = originalRAF;
-	}
-}
-
-async function testWarmupWithoutEnvironmentIBLBakeKeepsReflectionProbeUnset() {
-	const originalWindow = globalThis.window;
-	const originalRAF = globalThis.requestAnimationFrame;
-
-	try {
-		globalThis.window = { devicePixelRatio: 1 };
-		globalThis.requestAnimationFrame = () => 0;
-
-		const backend = new StubBackend();
-		const camera = new Camera();
-		const canvas = {
-			width: 320,
-			height: 180,
-			getBoundingClientRect() {
-				return { width: 320, height: 180 };
-			},
-		};
-		const renderer = new Renderer(backend, canvas, camera);
-		renderer.features.worldMatrix = Matrix4.identity();
-		const environmentTexture = createEnvironmentTexture();
-		renderer.scene.environment.backgroundTexture = environmentTexture;
-		renderer.scene.environment.iblTexture = environmentTexture;
-		const reflectionProbe = renderer.scene.add(
-			new ReflectionProbe({ source: "environment", prefilteredMap: null })
-		);
-
-		await renderer.warmup({
-			includeEnvironmentIBLBake: false,
-		});
-		await renderer.renderScene(0);
-
-		assert.equal(reflectionProbe.prefilteredMap, null);
-	} finally {
-		globalThis.window = originalWindow;
-		globalThis.requestAnimationFrame = originalRAF;
-	}
+	});
 }
 
 async function testWarmupPostProcessPlanUsesPipelineOrder() {
-	const originalWindow = globalThis.window;
-	const originalRAF = globalThis.requestAnimationFrame;
-
-	try {
-		globalThis.window = { devicePixelRatio: 1 };
-		globalThis.requestAnimationFrame = () => 0;
-
-		const backend = new StubBackend();
-		const camera = new Camera();
-		const canvas = {
-			width: 320,
-			height: 180,
-			getBoundingClientRect() {
-				return { width: 320, height: 180 };
-			},
-		};
-		const renderer = new Renderer(backend, canvas, camera);
-		renderer.features.worldMatrix = Matrix4.identity();
+	await withDOMGlobals(async () => {
+		const { backend, renderer } = createRendererFixture();
 
 		renderer.postProcess.getPass("tonemap")?.disable();
 		renderer.postProcess.getPass("gamma")?.disable();
@@ -394,7 +209,7 @@ async function testWarmupPostProcessPlanUsesPipelineOrder() {
 			})()
 		);
 
-		await renderer.warmup({ includeEnvironmentIBLBake: false });
+		await renderer.warmup();
 
 		const plan = buildWarmupPlan(backend.lastWarmupContext, {
 			includePostProcess: true,
@@ -404,18 +219,13 @@ async function testWarmupPostProcessPlanUsesPipelineOrder() {
 			"color-filter",
 			"custom-warmup-order",
 		]);
-	} finally {
-		globalThis.window = originalWindow;
-		globalThis.requestAnimationFrame = originalRAF;
-	}
+	});
 }
 
 async function run() {
-	await testWarmupOverwritesOnlyEnvironmentReflectionProbes();
-	await testWarmupCreatesProbeWhenSceneHasNone();
-	await testWarmupSkipsLightProbeBakeWhenDisabled();
+	await testWarmupDoesNotBakeEnvironmentProbes();
+	await testWarmupDoesNotCreateProbeWhenSceneHasNone();
 	await testWarmupAndRenderIncrementalContextContractMatches();
-	await testWarmupWithoutEnvironmentIBLBakeKeepsReflectionProbeUnset();
 	await testWarmupPostProcessPlanUsesPipelineOrder();
 	console.log("Renderer warmup light probe tests passed");
 }

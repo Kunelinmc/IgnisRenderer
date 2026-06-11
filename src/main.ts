@@ -82,9 +82,7 @@ async function init() {
 	canvas = bootstrap.canvas;
 	const renderer = bootstrap.renderer;
 
-	await renderer.warmup({
-		includeEnvironmentIBLBake: false,
-	});
+	await renderer.warmup();
 
 	renderer.updateSH();
 	renderer.requestRender("unknown");

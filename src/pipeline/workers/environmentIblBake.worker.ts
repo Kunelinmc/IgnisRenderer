@@ -1,5 +1,5 @@
 import { Texture } from "../../core/Texture";
-import { prefilterEnvMapMipLevel } from "../EnvironmentIBLBaker";
+import { prefilterEnvMapMipLevel } from "../IBLPrefilter";
 import type {
 	EnvironmentIBLBakeWorkerTaskPayload,
 	EnvironmentIBLBakeWorkerTaskResult,

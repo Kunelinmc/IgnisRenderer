@@ -14,12 +14,7 @@ import { hasPostProcessExecutionPasses } from "../postprocess";
 export function createDefaultPipelineStages(): RenderPipelineStageRegistration[] {
 	return [
 		{ id: "feature-resolution", kind: "renderer", dependsOn: [] },
-		{
-			id: "environment-ibl-update",
-			kind: "renderer",
-			dependsOn: ["feature-resolution"],
-		},
-		{ id: "sync-in", kind: "renderer", dependsOn: ["environment-ibl-update"] },
+		{ id: "sync-in", kind: "renderer", dependsOn: ["feature-resolution"] },
 		{
 			id: "animation-sim",
 			kind: "renderer",

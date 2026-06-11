@@ -203,6 +203,11 @@ BREAKING CHANGE: `RenderPipelineRegistry.registerStage` has been replaced by
     - **Depth of Field (DoF)**: Cinematic bokeh effect with focus distance, range, and chromatic aberration.
     - **FXAA**: Fast Approximate Anti-Aliasing for broad compatibility.
 - **Warmup System**: Robust pre-compilation phase (`WarmupPlanner`) to ensure all necessary pipelines and resources are prepared before rendering based on scene features.
+- **Environment IBL Prefiltering**: `IBLPrefilter` owns CPU, worker, and WebGPU
+  environment specular prefiltering as a standalone service. `Renderer` must not
+  schedule environment IBL bake/update work or expose environment IBL update
+  APIs; applications and tools must invoke `IBLPrefilter` or
+  `bakeEnvironmentIBLFromEnvironmentMap` explicitly and assign probe data.
 - **Pipeline Stages**:
 	1. **Feature Resolution**: Detects requirements (Shadows, IBL, Post-processing).
 	2. **Warmup**: Pre-compiles shaders and pipelines if needed.

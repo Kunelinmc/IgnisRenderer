@@ -48,10 +48,6 @@ const CAPTURE_RELEVANT_SCENE_DIRTY_MASK =
 	RENDER_DIRTY_REASON_MASK.physics |
 	RENDER_DIRTY_REASON_MASK.particles;
 
-type ProbeCaptureWebGPUSource = NonNullable<
-	EnvironmentIBLBakeOptions["webgpuSource"]
->;
-
 export type ProbeCaptureTargetKind = "reflection" | "light" | "grid";
 
 interface ProbeCaptureTarget {
@@ -162,7 +158,6 @@ export interface ProbeCaptureRuntimeExecuteContext {
 	frameDirtyReasonMask?: number | null;
 	frameContext?: FrameContext | null;
 	cameraWorldPosition?: IVector3 | null;
-	webgpuSource?: ProbeCaptureWebGPUSource | null;
 	webgpuCaptureSource?: ProbeWebGPUCaptureSource | null;
 }
 
@@ -443,7 +438,7 @@ export class ProbeCaptureRuntime {
 			return;
 		}
 
-		await this._runCaptureBake(task, environmentMap, context.webgpuSource ?? null);
+		await this._runCaptureBake(task, environmentMap);
 		if (this._activeTask?.taskId === task.taskId) {
 			this._activeTask = null;
 		}
@@ -500,8 +495,7 @@ export class ProbeCaptureRuntime {
 
 	private async _runCaptureBake(
 		task: CaptureTaskState,
-		environmentMap: Texture,
-		webgpuSource: ProbeCaptureWebGPUSource | null
+		environmentMap: Texture
 	): Promise<void> {
 		const needsPrefilter = task.targets.some(
 			(target) => target.kind === "reflection"
@@ -509,21 +503,18 @@ export class ProbeCaptureRuntime {
 		let sh: SHCoefficients;
 		let prefilteredMap: Texture | null = null;
 
-		const prefilterMaxSampleWidth = Math.max(1, Math.floor(task.captureWidth));
-		const prefilterMaxSampleHeight = Math.max(1, Math.floor(task.captureHeight));
+		const maxSampleWidth = Math.max(1, Math.floor(task.captureWidth));
+		const maxSampleHeight = Math.max(1, Math.floor(task.captureHeight));
 		if (needsPrefilter) {
 			const bakeOptions: EnvironmentIBLBakeOptions = {
 				acceleration: "auto",
-				prefilterMaxSampleWidth,
-				prefilterMaxSampleHeight,
-				prefilterMaxMipLevels: resolveCapturePrefilterMipLevels(
-					prefilterMaxSampleWidth,
-					prefilterMaxSampleHeight
+				maxSampleWidth,
+				maxSampleHeight,
+				maxMipLevels: resolveCapturePrefilterMipLevels(
+					maxSampleWidth,
+					maxSampleHeight
 				),
 			};
-			if (webgpuSource) {
-				bakeOptions.webgpuSource = webgpuSource;
-			}
 
 			const baked = await this._bakeEnvironmentIBL(environmentMap, bakeOptions);
 			sh = baked.sh;

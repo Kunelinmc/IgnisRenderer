@@ -15,8 +15,8 @@ The list covers:
   `parts/definitions.wgsl`, `parts/fragmentGBuffer.wgsl`,
   `deferredLightingShader.wgsl`, `environmentShader.wgsl`,
   `particleShader.wgsl`, `particleSimulation.wgsl`, and post-process shaders.
-- WebGPU compute kernels created through `ComputeRuntime` by
-  `EnvironmentIBLBaker`, `SobelNormalMapper`, and `WebGPUParticleSimulator`.
+- WebGPU compute kernels created through `ComputeRuntime` by `IBLPrefilter`,
+  `SobelNormalMapper`, and `WebGPUParticleSimulator`.
 
 This document does not list vertex attribute `shaderLocation` values.
 
@@ -246,7 +246,7 @@ indices:
 
 ### Environment IBL Prefilter Compute
 
-`environmentIblPrefilter.wgsl` and `EnvironmentIBLBaker` use:
+`environmentIblPrefilter.wgsl` and `IBLPrefilter` use:
 
 | Binding | Shader name | Resource contract |
 | --- | --- | --- |
@@ -327,7 +327,7 @@ rg -n "@group\\([0-9]+\\) @binding\\([0-9]+\\)" src/renderers/webgpu src/shaders
 Use this command to verify TypeScript bind group layout entries:
 
 ```bash
-rg -n "createBindGroupLayout|createBindingGroup|binding:" src/renderers/webgpu src/addons/SobelNormalMapper.ts src/pipeline/EnvironmentIBLBaker.ts src/simulation/particles/WebGPUParticleSimulator.ts -g "*.ts"
+rg -n "createBindGroupLayout|createBindingGroup|binding:" src/renderers/webgpu src/addons/SobelNormalMapper.ts src/pipeline/IBLPrefilter.ts src/simulation/particles/WebGPUParticleSimulator.ts -g "*.ts"
 ```
 
 When adding a new binding, update the WGSL declaration, the TypeScript layout or

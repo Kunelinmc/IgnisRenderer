@@ -150,11 +150,20 @@ export {
 	type RenderPipelineFramePlanOptions,
 } from "./pipeline/RenderPipelineRegistry";
 export type { RendererStageDefinition } from "./pipeline/RendererStageGraph";
-export { bakeEnvironmentIBLFromEnvironmentMap } from "./pipeline/EnvironmentIBLBaker";
+export {
+	IBLPrefilter,
+	bakeEnvironmentIBLFromEnvironmentMap,
+	prefilterEnvironmentIBL,
+} from "./pipeline/EnvironmentIBLBaker";
 export type {
 	EnvironmentIBLBakeAcceleration,
 	EnvironmentIBLBakeOptions,
 	EnvironmentIBLBakeProgress,
+	IBLPrefilterAcceleration,
+	IBLPrefilterBackendSource,
+	IBLPrefilterConstructorOptions,
+	IBLPrefilterOptions,
+	IBLPrefilterProgress,
 } from "./pipeline/EnvironmentIBLBaker";
 export { Scene } from "./core/Scene";
 export { Camera, CameraType } from "./cameras/Camera";
