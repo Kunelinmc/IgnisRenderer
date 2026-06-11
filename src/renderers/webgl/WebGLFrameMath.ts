@@ -1,11 +1,11 @@
 import { clamp } from "../../maths/Common";
 import { Matrix4 } from "../../maths/Matrix4";
 import type { Matrix3Arr } from "../../maths/types";
-import { TAA_JITTER_SEQUENCE_LENGTH } from "../constants";
 import {
-	WEBGL_MAX_LOCAL_LIGHT_PROBES,
-	WEBGL_MAX_REFLECTION_PROBES,
-} from "./constants";
+	TAA_JITTER_SEQUENCE_LENGTH,
+	MAX_LOCAL_LIGHT_PROBES,
+	MAX_REFLECTION_PROBES,
+} from "../constants";
 import type {
 	WebGLLocalLightProbeUniform,
 	WebGLReflectionProbeUniform,
@@ -234,8 +234,8 @@ export function flattenReflectionProbeRows(
 	matrixKey: "worldToProbeMatrix" | "probeToWorldMatrix",
 	row: 0 | 1 | 2
 ): Float32Array {
-	const packed = new Float32Array(WEBGL_MAX_REFLECTION_PROBES * 4);
-	const count = Math.min(WEBGL_MAX_REFLECTION_PROBES, values.length);
+	const packed = new Float32Array(MAX_REFLECTION_PROBES * 4);
+	const count = Math.min(MAX_REFLECTION_PROBES, values.length);
 	for (let i = 0; i < count; i++) {
 		const matrix = values[i][matrixKey].elements;
 		const offset = i * 4;
@@ -251,8 +251,8 @@ export function flattenReflectionProbeVec4(
 	values: WebGLReflectionProbeUniform[],
 	mapper: (probe: WebGLReflectionProbeUniform) => [number, number, number, number]
 ): Float32Array {
-	const packed = new Float32Array(WEBGL_MAX_REFLECTION_PROBES * 4);
-	const count = Math.min(WEBGL_MAX_REFLECTION_PROBES, values.length);
+	const packed = new Float32Array(MAX_REFLECTION_PROBES * 4);
+	const count = Math.min(MAX_REFLECTION_PROBES, values.length);
 	for (let i = 0; i < count; i++) {
 		const mapped = mapper(values[i]);
 		const offset = i * 4;
@@ -268,8 +268,8 @@ export function flattenLocalLightProbeRows(
 	values: WebGLLocalLightProbeUniform[],
 	row: 0 | 1 | 2
 ): Float32Array {
-	const packed = new Float32Array(WEBGL_MAX_LOCAL_LIGHT_PROBES * 4);
-	const count = Math.min(WEBGL_MAX_LOCAL_LIGHT_PROBES, values.length);
+	const packed = new Float32Array(MAX_LOCAL_LIGHT_PROBES * 4);
+	const count = Math.min(MAX_LOCAL_LIGHT_PROBES, values.length);
 	for (let i = 0; i < count; i++) {
 		const matrix = values[i].worldToProbeMatrix.elements;
 		const offset = i * 4;
@@ -285,8 +285,8 @@ export function flattenLocalLightProbeVec4(
 	values: WebGLLocalLightProbeUniform[],
 	mapper: (probe: WebGLLocalLightProbeUniform) => [number, number, number, number]
 ): Float32Array {
-	const packed = new Float32Array(WEBGL_MAX_LOCAL_LIGHT_PROBES * 4);
-	const count = Math.min(WEBGL_MAX_LOCAL_LIGHT_PROBES, values.length);
+	const packed = new Float32Array(MAX_LOCAL_LIGHT_PROBES * 4);
+	const count = Math.min(MAX_LOCAL_LIGHT_PROBES, values.length);
 	for (let i = 0; i < count; i++) {
 		const mapped = mapper(values[i]);
 		const offset = i * 4;

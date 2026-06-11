@@ -13,10 +13,12 @@ import {
 	ShaderRuntime,
 } from "../../../src/shaders/runtime/index.ts";
 import {
-	WEBGL_MAX_DIRECTIONAL_LIGHTS,
-	WEBGL_MAX_POINT_LIGHTS,
-	WEBGL_MAX_SPOT_LIGHTS,
-} from "../../../src/renderers/webgl/constants.ts";
+	MAX_DIRECTIONAL_LIGHTS,
+	MAX_LOCAL_LIGHT_PROBES,
+	MAX_POINT_LIGHTS,
+	MAX_REFLECTION_PROBES,
+	MAX_SPOT_LIGHTS,
+} from "../../../src/renderers/constants.ts";
 
 const REPO_ROOT = path.resolve(
 	path.dirname(fileURLToPath(import.meta.url)),
@@ -27,9 +29,9 @@ const REPO_ROOT = path.resolve(
 const SHADER_ROOT = path.join(REPO_ROOT, "src", "shaders");
 
 const WEBGL_SCENE_LIMITS = {
-	maxDirectionalLights: WEBGL_MAX_DIRECTIONAL_LIGHTS,
-	maxPointLights: WEBGL_MAX_POINT_LIGHTS,
-	maxSpotLights: WEBGL_MAX_SPOT_LIGHTS,
+	maxDirectionalLights: MAX_DIRECTIONAL_LIGHTS,
+	maxPointLights: MAX_POINT_LIGHTS,
+	maxSpotLights: MAX_SPOT_LIGHTS,
 };
 
 async function testLoadsRawAndCompositeParts() {
@@ -145,6 +147,16 @@ async function testWebGLSceneVariants() {
 			"const int MAX_SPOT_LIGHTS = __WEBGL_MAX_SPOT_LIGHTS__;"
 		)
 	);
+	assert.ok(
+		raw.fragment.includes(
+			"const int MAX_LOCAL_LIGHT_PROBES = __WEBGL_MAX_LOCAL_LIGHT_PROBES__;"
+		)
+	);
+	assert.ok(
+		raw.fragment.includes(
+			"const int MAX_REFLECTION_PROBES = __WEBGL_MAX_REFLECTION_PROBES__;"
+		)
+	);
 	assert.ok(!raw.fragment.includes("__MAX_DIRECTIONAL_LIGHTS__"));
 	assert.ok(!raw.fragment.includes("WEBGL_SHADOW_TRANSMITTANCE 1"));
 	assert.ok(
@@ -180,17 +192,27 @@ async function testWebGLSceneVariants() {
 	assert.equal(compiled.hasErrors, false);
 	assert.ok(
 		compiled.code.includes(
-			`const int MAX_DIRECTIONAL_LIGHTS = ${WEBGL_MAX_DIRECTIONAL_LIGHTS};`
+			`const int MAX_DIRECTIONAL_LIGHTS = ${MAX_DIRECTIONAL_LIGHTS};`
 		)
 	);
 	assert.ok(
 		compiled.code.includes(
-			`const int MAX_POINT_LIGHTS = ${WEBGL_MAX_POINT_LIGHTS};`
+			`const int MAX_POINT_LIGHTS = ${MAX_POINT_LIGHTS};`
 		)
 	);
 	assert.ok(
 		compiled.code.includes(
-			`const int MAX_SPOT_LIGHTS = ${WEBGL_MAX_SPOT_LIGHTS};`
+			`const int MAX_SPOT_LIGHTS = ${MAX_SPOT_LIGHTS};`
+		)
+	);
+	assert.ok(
+		compiled.code.includes(
+			`const int MAX_LOCAL_LIGHT_PROBES = ${MAX_LOCAL_LIGHT_PROBES};`
+		)
+	);
+	assert.ok(
+		compiled.code.includes(
+			`const int MAX_REFLECTION_PROBES = ${MAX_REFLECTION_PROBES};`
 		)
 	);
 	assert.ok(!compiled.code.includes("__WEBGL_MAX_DIRECTIONAL_LIGHTS__"));

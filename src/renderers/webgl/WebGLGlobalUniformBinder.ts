@@ -1,13 +1,13 @@
-﻿import type { SHCoefficients } from "../../maths/types";
+import type { SHCoefficients } from "../../maths/types";
 import type { FrameContext } from "../../pipeline/types";
 import type { FogOptions } from "../../postprocess/passes/FogPass";
 import { IBLBRDF } from "../../pipeline/IBLBRDF";
 import { Logger } from "../../foundation/Logger";
 import {
-	WEBGL_MAX_DIRECTIONAL_LIGHTS,
-	WEBGL_MAX_POINT_LIGHTS,
-	WEBGL_MAX_SPOT_LIGHTS,
-} from "./constants";
+	MAX_DIRECTIONAL_LIGHTS,
+	MAX_POINT_LIGHTS,
+	MAX_SPOT_LIGHTS,
+} from "../constants";
 import {
 	finiteOr,
 	flattenLocalLightProbeRows,
@@ -829,7 +829,7 @@ export function bindWebGLGlobalUniforms(
 				light.direction[1],
 				light.direction[2],
 				0,
-			], WEBGL_MAX_DIRECTIONAL_LIGHTS),
+			], MAX_DIRECTIONAL_LIGHTS),
 			0
 		);
 		if (packedDirection.hadInvalid) {
@@ -847,7 +847,7 @@ export function bindWebGLGlobalUniforms(
 				light.color[1],
 				light.color[2],
 				0,
-			], WEBGL_MAX_DIRECTIONAL_LIGHTS),
+			], MAX_DIRECTIONAL_LIGHTS),
 			0
 		);
 		if (packedColor.hadInvalid) {
@@ -860,7 +860,7 @@ export function bindWebGLGlobalUniforms(
 	}
 	if (uniforms.dirShadowViewProjection) {
 		const packedShadowViewProjection = sanitizeFloat32Array(
-			flattenShadowViewProjection(lights.directionalShadows, WEBGL_MAX_DIRECTIONAL_LIGHTS),
+			flattenShadowViewProjection(lights.directionalShadows, MAX_DIRECTIONAL_LIGHTS),
 			0
 		);
 		if (packedShadowViewProjection.hadInvalid) {
@@ -879,7 +879,7 @@ export function bindWebGLGlobalUniforms(
 		const packedCascadeViewProjection = sanitizeFloat32Array(
 			flattenShadowCascadeViewProjection(
 				lights.directionalShadows,
-				WEBGL_MAX_DIRECTIONAL_LIGHTS
+				MAX_DIRECTIONAL_LIGHTS
 			),
 			0
 		);
@@ -899,7 +899,7 @@ export function bindWebGLGlobalUniforms(
 		const packedCascadeSplits = sanitizeFloat32Array(
 			flattenShadowCascadeSplits(
 				lights.directionalShadows,
-				WEBGL_MAX_DIRECTIONAL_LIGHTS
+				MAX_DIRECTIONAL_LIGHTS
 			),
 			0
 		);
@@ -916,7 +916,7 @@ export function bindWebGLGlobalUniforms(
 	}
 	if (uniforms.dirShadowParamsA) {
 		const packedDirShadowParamsA = sanitizeFloat32Array(
-			flattenShadowParamsA(lights.directionalShadows, WEBGL_MAX_DIRECTIONAL_LIGHTS),
+			flattenShadowParamsA(lights.directionalShadows, MAX_DIRECTIONAL_LIGHTS),
 			0
 		);
 		if (packedDirShadowParamsA.hadInvalid) {
@@ -929,7 +929,7 @@ export function bindWebGLGlobalUniforms(
 	}
 	if (uniforms.dirShadowParamsB) {
 		const packedDirShadowParamsB = sanitizeFloat32Array(
-			flattenShadowParamsB(lights.directionalShadows, WEBGL_MAX_DIRECTIONAL_LIGHTS),
+			flattenShadowParamsB(lights.directionalShadows, MAX_DIRECTIONAL_LIGHTS),
 			0
 		);
 		if (packedDirShadowParamsB.hadInvalid) {
@@ -942,7 +942,7 @@ export function bindWebGLGlobalUniforms(
 	}
 	if (uniforms.dirShadowParamsC) {
 		const packedDirShadowParamsC = sanitizeFloat32Array(
-			flattenShadowParamsC(lights.directionalShadows, WEBGL_MAX_DIRECTIONAL_LIGHTS),
+			flattenShadowParamsC(lights.directionalShadows, MAX_DIRECTIONAL_LIGHTS),
 			0
 		);
 		if (packedDirShadowParamsC.hadInvalid) {
@@ -955,7 +955,7 @@ export function bindWebGLGlobalUniforms(
 	}
 	if (uniforms.dirShadowParamsD) {
 		const packedDirShadowParamsD = sanitizeFloat32Array(
-			flattenShadowParamsD(lights.directionalShadows, WEBGL_MAX_DIRECTIONAL_LIGHTS),
+			flattenShadowParamsD(lights.directionalShadows, MAX_DIRECTIONAL_LIGHTS),
 			0
 		);
 		if (packedDirShadowParamsD.hadInvalid) {
@@ -977,7 +977,7 @@ export function bindWebGLGlobalUniforms(
 				light.position[1],
 				light.position[2],
 				light.range,
-			], WEBGL_MAX_POINT_LIGHTS),
+			], MAX_POINT_LIGHTS),
 			0
 		);
 		if (packedPointPositionRange.hadInvalid) {
@@ -995,7 +995,7 @@ export function bindWebGLGlobalUniforms(
 				light.color[1],
 				light.color[2],
 				0,
-			], WEBGL_MAX_POINT_LIGHTS),
+			], MAX_POINT_LIGHTS),
 			0
 		);
 		if (packedPointColor.hadInvalid) {
@@ -1017,7 +1017,7 @@ export function bindWebGLGlobalUniforms(
 				light.position[1],
 				light.position[2],
 				light.range,
-			], WEBGL_MAX_SPOT_LIGHTS),
+			], MAX_SPOT_LIGHTS),
 			0
 		);
 		if (packedSpotPositionRange.hadInvalid) {
@@ -1035,7 +1035,7 @@ export function bindWebGLGlobalUniforms(
 				light.direction[1],
 				light.direction[2],
 				light.outerCos,
-			], WEBGL_MAX_SPOT_LIGHTS),
+			], MAX_SPOT_LIGHTS),
 			0
 		);
 		if (packedSpotDirectionOuter.hadInvalid) {
@@ -1053,7 +1053,7 @@ export function bindWebGLGlobalUniforms(
 				light.color[1],
 				light.color[2],
 				light.innerCos,
-			], WEBGL_MAX_SPOT_LIGHTS),
+			], MAX_SPOT_LIGHTS),
 			0
 		);
 		if (packedSpotColorInner.hadInvalid) {
@@ -1066,7 +1066,7 @@ export function bindWebGLGlobalUniforms(
 	}
 	if (uniforms.spotShadowViewProjection) {
 		const packedSpotShadowViewProjection = sanitizeFloat32Array(
-			flattenShadowViewProjection(lights.spotShadows, WEBGL_MAX_SPOT_LIGHTS),
+			flattenShadowViewProjection(lights.spotShadows, MAX_SPOT_LIGHTS),
 			0
 		);
 		if (packedSpotShadowViewProjection.hadInvalid) {
@@ -1083,7 +1083,7 @@ export function bindWebGLGlobalUniforms(
 	}
 	if (uniforms.spotShadowParamsA) {
 		const packedSpotShadowParamsA = sanitizeFloat32Array(
-			flattenShadowParamsA(lights.spotShadows, WEBGL_MAX_SPOT_LIGHTS),
+			flattenShadowParamsA(lights.spotShadows, MAX_SPOT_LIGHTS),
 			0
 		);
 		if (packedSpotShadowParamsA.hadInvalid) {
@@ -1096,7 +1096,7 @@ export function bindWebGLGlobalUniforms(
 	}
 	if (uniforms.spotShadowParamsB) {
 		const packedSpotShadowParamsB = sanitizeFloat32Array(
-			flattenShadowParamsB(lights.spotShadows, WEBGL_MAX_SPOT_LIGHTS),
+			flattenShadowParamsB(lights.spotShadows, MAX_SPOT_LIGHTS),
 			0
 		);
 		if (packedSpotShadowParamsB.hadInvalid) {
@@ -1109,7 +1109,7 @@ export function bindWebGLGlobalUniforms(
 	}
 	if (uniforms.spotShadowParamsC) {
 		const packedSpotShadowParamsC = sanitizeFloat32Array(
-			flattenShadowParamsC(lights.spotShadows, WEBGL_MAX_SPOT_LIGHTS),
+			flattenShadowParamsC(lights.spotShadows, MAX_SPOT_LIGHTS),
 			0
 		);
 		if (packedSpotShadowParamsC.hadInvalid) {
@@ -1122,7 +1122,7 @@ export function bindWebGLGlobalUniforms(
 	}
 	if (uniforms.spotShadowParamsD) {
 		const packedSpotShadowParamsD = sanitizeFloat32Array(
-			flattenShadowParamsD(lights.spotShadows, WEBGL_MAX_SPOT_LIGHTS),
+			flattenShadowParamsD(lights.spotShadows, MAX_SPOT_LIGHTS),
 			0
 		);
 		if (packedSpotShadowParamsD.hadInvalid) {

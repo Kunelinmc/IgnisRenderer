@@ -14,12 +14,14 @@ import {
 	packModelUniformData,
 } from "../../../src/renderers/webgpu/packing.ts";
 import {
-	WEBGPU_MAX_AREA_LIGHTS,
-	WEBGPU_MAX_DIRECTIONAL_LIGHTS,
-	WEBGPU_MAX_LOCAL_LIGHT_PROBES,
-	WEBGPU_MAX_POINT_LIGHTS,
-	WEBGPU_MAX_REFLECTION_PROBES,
-	WEBGPU_MAX_SPOT_LIGHTS,
+	MAX_AREA_LIGHTS,
+	MAX_DIRECTIONAL_LIGHTS,
+	MAX_LOCAL_LIGHT_PROBES,
+	MAX_POINT_LIGHTS,
+	MAX_REFLECTION_PROBES,
+	MAX_SPOT_LIGHTS,
+} from "../../../src/renderers/constants.ts";
+import {
 	WEBGPU_SH_COEFFICIENT_COUNT,
 	WEBGPU_TEXTURE_SLOT_COUNT,
 } from "../../../src/renderers/webgpu/constants.ts";
@@ -120,49 +122,49 @@ function createFrameLayout() {
 			{ name: "taaJitterCurrentPrev", type: VEC4_F32 },
 			{
 				name: "directionalLights",
-				type: arrayOf(directionalLightSchema, WEBGPU_MAX_DIRECTIONAL_LIGHTS),
+				type: arrayOf(directionalLightSchema, MAX_DIRECTIONAL_LIGHTS),
 			},
-			{ name: "pointLights", type: arrayOf(pointLightSchema, WEBGPU_MAX_POINT_LIGHTS) },
-			{ name: "spotLights", type: arrayOf(spotLightSchema, WEBGPU_MAX_SPOT_LIGHTS) },
+			{ name: "pointLights", type: arrayOf(pointLightSchema, MAX_POINT_LIGHTS) },
+			{ name: "spotLights", type: arrayOf(spotLightSchema, MAX_SPOT_LIGHTS) },
 			{
 				name: "directionalShadows",
-				type: arrayOf(shadowDataSchema, WEBGPU_MAX_DIRECTIONAL_LIGHTS),
+				type: arrayOf(shadowDataSchema, MAX_DIRECTIONAL_LIGHTS),
 			},
 			{
 				name: "spotShadows",
-				type: arrayOf(shadowDataSchema, WEBGPU_MAX_SPOT_LIGHTS),
+				type: arrayOf(shadowDataSchema, MAX_SPOT_LIGHTS),
 			},
 			{ name: "shAmbientCoeffs", type: arrayOf(VEC4_F32, WEBGPU_SH_COEFFICIENT_COUNT) },
 			{
 				name: "reflectionProbes",
-				type: arrayOf(reflectionProbeSchema, WEBGPU_MAX_REFLECTION_PROBES),
+				type: arrayOf(reflectionProbeSchema, MAX_REFLECTION_PROBES),
 			},
 			{ name: "localLightProbeCounts", type: VEC4_F32 },
 			{
 				name: "localLightProbeWorldToProbeRow0",
-				type: arrayOf(VEC4_F32, WEBGPU_MAX_LOCAL_LIGHT_PROBES),
+				type: arrayOf(VEC4_F32, MAX_LOCAL_LIGHT_PROBES),
 			},
 			{
 				name: "localLightProbeWorldToProbeRow1",
-				type: arrayOf(VEC4_F32, WEBGPU_MAX_LOCAL_LIGHT_PROBES),
+				type: arrayOf(VEC4_F32, MAX_LOCAL_LIGHT_PROBES),
 			},
 			{
 				name: "localLightProbeWorldToProbeRow2",
-				type: arrayOf(VEC4_F32, WEBGPU_MAX_LOCAL_LIGHT_PROBES),
+				type: arrayOf(VEC4_F32, MAX_LOCAL_LIGHT_PROBES),
 			},
 			{
 				name: "localLightProbeDataA",
-				type: arrayOf(VEC4_F32, WEBGPU_MAX_LOCAL_LIGHT_PROBES),
+				type: arrayOf(VEC4_F32, MAX_LOCAL_LIGHT_PROBES),
 			},
 			{
 				name: "localLightProbeDataB",
-				type: arrayOf(VEC4_F32, WEBGPU_MAX_LOCAL_LIGHT_PROBES),
+				type: arrayOf(VEC4_F32, MAX_LOCAL_LIGHT_PROBES),
 			},
 			{
 				name: "localLightProbeSHAmbientCoeffs",
 				type: arrayOf(
 					VEC4_F32,
-					WEBGPU_MAX_LOCAL_LIGHT_PROBES * WEBGPU_SH_COEFFICIENT_COUNT
+					MAX_LOCAL_LIGHT_PROBES * WEBGPU_SH_COEFFICIENT_COUNT
 				),
 			},
 			{ name: "irradianceProbeGridWorldToGridRow0", type: VEC4_F32 },
@@ -172,7 +174,7 @@ function createFrameLayout() {
 			{ name: "irradianceProbeGridDataB", type: VEC4_F32 },
 			{ name: "irradianceProbeGridDataC", type: VEC4_F32 },
 			{ name: "areaLightCounts", type: VEC4_F32 },
-			{ name: "areaLights", type: arrayOf(areaLightSchema, WEBGPU_MAX_AREA_LIGHTS) },
+			{ name: "areaLights", type: arrayOf(areaLightSchema, MAX_AREA_LIGHTS) },
 		]),
 		"uniform"
 	);

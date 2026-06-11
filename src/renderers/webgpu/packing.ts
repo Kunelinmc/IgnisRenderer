@@ -1,13 +1,15 @@
 import { Matrix4 } from "../../maths/Matrix4";
 import type { Matrix3Arr } from "../../maths/types";
+import {
+	MAX_AREA_LIGHTS,
+	MAX_DIRECTIONAL_LIGHTS,
+	MAX_LOCAL_LIGHT_PROBES,
+	MAX_POINT_LIGHTS,
+	MAX_REFLECTION_PROBES,
+	MAX_SPOT_LIGHTS,
+} from "../constants";
 
 import {
-	WEBGPU_MAX_AREA_LIGHTS,
-	WEBGPU_MAX_DIRECTIONAL_LIGHTS,
-	WEBGPU_MAX_LOCAL_LIGHT_PROBES,
-	WEBGPU_MAX_POINT_LIGHTS,
-	WEBGPU_MAX_REFLECTION_PROBES,
-	WEBGPU_MAX_SPOT_LIGHTS,
 	WEBGPU_SH_COEFFICIENT_COUNT,
 	WEBGPU_TEXTURE_SLOT_COUNT,
 } from "./constants";
@@ -116,7 +118,7 @@ const FRAME_UNIFORM_PACKER = createStructuredBufferPacker<
 		packVec4("taaJitterCurrentPrev", (input) => input.taaJitterCurrentPrev),
 		packArrayStruct<WebGPUFrameUniformInput, WebGPUDirectionalLightUniform>(
 			"directionalLights",
-			WEBGPU_MAX_DIRECTIONAL_LIGHTS,
+			MAX_DIRECTIONAL_LIGHTS,
 			(input, index) => input.directionalLights[index],
 			[
 				packVec4("direction", (light) => [
@@ -135,7 +137,7 @@ const FRAME_UNIFORM_PACKER = createStructuredBufferPacker<
 		),
 		packArrayStruct<WebGPUFrameUniformInput, WebGPUPointLightUniform>(
 			"pointLights",
-			WEBGPU_MAX_POINT_LIGHTS,
+			MAX_POINT_LIGHTS,
 			(input, index) => input.pointLights[index],
 			[
 				packVec4("positionRange", (light) => [
@@ -154,7 +156,7 @@ const FRAME_UNIFORM_PACKER = createStructuredBufferPacker<
 		),
 		packArrayStruct<WebGPUFrameUniformInput, WebGPUSpotLightUniform>(
 			"spotLights",
-			WEBGPU_MAX_SPOT_LIGHTS,
+			MAX_SPOT_LIGHTS,
 			(input, index) => input.spotLights[index],
 			[
 				packVec4("positionRange", (light) => [
@@ -178,12 +180,12 @@ const FRAME_UNIFORM_PACKER = createStructuredBufferPacker<
 			]
 		),
 		packCustom("directionalShadows", (writer, input) => {
-			for (let i = 0; i < WEBGPU_MAX_DIRECTIONAL_LIGHTS; i++) {
+			for (let i = 0; i < MAX_DIRECTIONAL_LIGHTS; i++) {
 				writeShadowData(writer, "directionalShadows", i, input.directionalShadows[i]);
 			}
 		}),
 		packCustom("spotShadows", (writer, input) => {
-			for (let i = 0; i < WEBGPU_MAX_SPOT_LIGHTS; i++) {
+			for (let i = 0; i < MAX_SPOT_LIGHTS; i++) {
 				writeShadowData(writer, "spotShadows", i, input.spotShadows[i]);
 			}
 		}),
@@ -193,7 +195,7 @@ const FRAME_UNIFORM_PACKER = createStructuredBufferPacker<
 		}),
 		packArrayStruct<WebGPUFrameUniformInput, WebGPUReflectionProbeUniform>(
 			"reflectionProbes",
-			WEBGPU_MAX_REFLECTION_PROBES,
+			MAX_REFLECTION_PROBES,
 			(input, index) => input.reflectionProbes[index],
 			[
 				packVec4("worldToProbeRow0", (probe) =>
@@ -242,7 +244,7 @@ const FRAME_UNIFORM_PACKER = createStructuredBufferPacker<
 		]),
 		packArrayVec4(
 			"localLightProbeWorldToProbeRow0",
-			WEBGPU_MAX_LOCAL_LIGHT_PROBES,
+			MAX_LOCAL_LIGHT_PROBES,
 			(input, i) => {
 				const probe = input.localLightProbes[i];
 				return probe ? matrixRow(probe.worldToProbeMatrix, 0) : null;
@@ -250,7 +252,7 @@ const FRAME_UNIFORM_PACKER = createStructuredBufferPacker<
 		),
 		packArrayVec4(
 			"localLightProbeWorldToProbeRow1",
-			WEBGPU_MAX_LOCAL_LIGHT_PROBES,
+			MAX_LOCAL_LIGHT_PROBES,
 			(input, i) => {
 				const probe = input.localLightProbes[i];
 				return probe ? matrixRow(probe.worldToProbeMatrix, 1) : null;
@@ -258,7 +260,7 @@ const FRAME_UNIFORM_PACKER = createStructuredBufferPacker<
 		),
 		packArrayVec4(
 			"localLightProbeWorldToProbeRow2",
-			WEBGPU_MAX_LOCAL_LIGHT_PROBES,
+			MAX_LOCAL_LIGHT_PROBES,
 			(input, i) => {
 				const probe = input.localLightProbes[i];
 				return probe ? matrixRow(probe.worldToProbeMatrix, 2) : null;
@@ -266,7 +268,7 @@ const FRAME_UNIFORM_PACKER = createStructuredBufferPacker<
 		),
 		packArrayVec4(
 			"localLightProbeDataA",
-			WEBGPU_MAX_LOCAL_LIGHT_PROBES,
+			MAX_LOCAL_LIGHT_PROBES,
 			(input, i) => {
 				const probe = input.localLightProbes[i];
 				return probe ?
@@ -281,7 +283,7 @@ const FRAME_UNIFORM_PACKER = createStructuredBufferPacker<
 		),
 		packArrayVec4(
 			"localLightProbeDataB",
-			WEBGPU_MAX_LOCAL_LIGHT_PROBES,
+			MAX_LOCAL_LIGHT_PROBES,
 			(input, i) => {
 				const probe = input.localLightProbes[i];
 				return probe ?
@@ -296,7 +298,7 @@ const FRAME_UNIFORM_PACKER = createStructuredBufferPacker<
 		),
 		packArrayVec4(
 			"localLightProbeSHAmbientCoeffs",
-			WEBGPU_MAX_LOCAL_LIGHT_PROBES * WEBGPU_SH_COEFFICIENT_COUNT,
+			MAX_LOCAL_LIGHT_PROBES * WEBGPU_SH_COEFFICIENT_COUNT,
 			(input, i) => {
 				const probeIndex = Math.floor(i / WEBGPU_SH_COEFFICIENT_COUNT);
 				const coefficientIndex = i % WEBGPU_SH_COEFFICIENT_COUNT;
@@ -347,14 +349,14 @@ const FRAME_UNIFORM_PACKER = createStructuredBufferPacker<
 			return grid ? [1, WEBGPU_SH_COEFFICIENT_COUNT, grid.cellCount, 0] : [0, 16, 1, 0];
 		}),
 		packVec4("areaLightCounts", (input) => [
-			Math.min(input.areaLights.length, WEBGPU_MAX_AREA_LIGHTS),
+			Math.min(input.areaLights.length, MAX_AREA_LIGHTS),
 			0,
 			0,
 			0,
 		]),
 		packArrayStruct<WebGPUFrameUniformInput, WebGPUAreaLightUniform>(
 			"areaLights",
-			WEBGPU_MAX_AREA_LIGHTS,
+			MAX_AREA_LIGHTS,
 			(input, index) => input.areaLights[index],
 			[
 				packVec4("positionRange", (light) => [

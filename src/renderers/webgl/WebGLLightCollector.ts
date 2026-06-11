@@ -21,12 +21,12 @@ import {
 	selectActiveIrradianceProbeGrid,
 } from "../../lights/runtime/irradianceProbeGridRuntime";
 import {
-	WEBGL_MAX_DIRECTIONAL_LIGHTS,
-	WEBGL_MAX_LOCAL_LIGHT_PROBES,
-	WEBGL_MAX_POINT_LIGHTS,
-	WEBGL_MAX_REFLECTION_PROBES,
-	WEBGL_MAX_SPOT_LIGHTS,
-} from "./constants";
+	MAX_DIRECTIONAL_LIGHTS,
+	MAX_LOCAL_LIGHT_PROBES,
+	MAX_POINT_LIGHTS,
+	MAX_REFLECTION_PROBES,
+	MAX_SPOT_LIGHTS,
+} from "../constants";
 import { collectReflectionProbeEnvironment } from "../../lights/runtime/reflectionProbeRuntime";
 import {
 	ensureEnvironmentTextureEquirect,
@@ -246,10 +246,10 @@ export function collectWebGLLights(
 				break;
 			}
 			case LightType.Directional: {
-				if (state.directionalLights.length >= WEBGL_MAX_DIRECTIONAL_LIGHTS) {
+				if (state.directionalLights.length >= MAX_DIRECTIONAL_LIGHTS) {
 					emitWarning(
 						"webgl-directional-light-limit",
-						`WebGL forward shading supports at most ${WEBGL_MAX_DIRECTIONAL_LIGHTS} directional lights; extra lights are ignored`
+						`WebGL forward shading supports at most ${MAX_DIRECTIONAL_LIGHTS} directional lights; extra lights are ignored`
 					);
 					break;
 				}
@@ -284,11 +284,11 @@ export function collectWebGLLights(
 					});
 				}
 
-				if (state.pointLights.length >= WEBGL_MAX_POINT_LIGHTS) {
+				if (state.pointLights.length >= MAX_POINT_LIGHTS) {
 					if (!enableClusteredLighting) {
 						emitWarning(
 							"webgl-point-light-limit",
-							`WebGL forward shading supports at most ${WEBGL_MAX_POINT_LIGHTS} point lights; extra lights are ignored`
+							`WebGL forward shading supports at most ${MAX_POINT_LIGHTS} point lights; extra lights are ignored`
 						);
 					}
 					break;
@@ -316,7 +316,7 @@ export function collectWebGLLights(
 					const clusteredShadowEnabled =
 						resolvedShadow.enabled &&
 						forwardShadowIndex >= 0 &&
-						forwardShadowIndex < WEBGL_MAX_SPOT_LIGHTS;
+						forwardShadowIndex < MAX_SPOT_LIGHTS;
 					state.clusteredLights.push({
 						type: 1,
 						position: [position.x, position.y, position.z],
@@ -330,11 +330,11 @@ export function collectWebGLLights(
 					});
 				}
 
-				if (state.spotLights.length >= WEBGL_MAX_SPOT_LIGHTS) {
+				if (state.spotLights.length >= MAX_SPOT_LIGHTS) {
 					if (!enableClusteredLighting) {
 						emitWarning(
 							"webgl-spot-light-limit",
-							`WebGL forward shading supports at most ${WEBGL_MAX_SPOT_LIGHTS} spot lights; extra lights are ignored`
+							`WebGL forward shading supports at most ${MAX_SPOT_LIGHTS} spot lights; extra lights are ignored`
 						);
 					}
 					break;
@@ -374,7 +374,7 @@ export function collectWebGLLights(
 	if (enableSH) {
 		state.localLightProbes = collectActiveLocalizedLightProbes(
 			lights,
-			WEBGL_MAX_LOCAL_LIGHT_PROBES,
+			MAX_LOCAL_LIGHT_PROBES,
 			cameraWorldPosition
 		).map((probe) => createWebGLLocalLightProbeUniform(probe));
 		state.localLightProbeCount = state.localLightProbes.length;
@@ -396,7 +396,7 @@ export function collectWebGLLights(
 
 	const reflectionEnvironment = collectReflectionProbeEnvironment(
 		lights,
-		WEBGL_MAX_REFLECTION_PROBES,
+		MAX_REFLECTION_PROBES,
 		cameraWorldPosition
 	);
 	state.envSpecularFallbackMap = null;

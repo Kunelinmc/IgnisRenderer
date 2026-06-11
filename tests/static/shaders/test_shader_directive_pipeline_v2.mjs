@@ -9,10 +9,12 @@ import {
 } from "../../../src/shaders/runtime/index.ts";
 import { Logger } from "../../../src/foundation/Logger.ts";
 import {
-	WEBGL_MAX_DIRECTIONAL_LIGHTS,
-	WEBGL_MAX_POINT_LIGHTS,
-	WEBGL_MAX_SPOT_LIGHTS,
-} from "../../../src/renderers/webgl/constants.ts";
+	MAX_DIRECTIONAL_LIGHTS,
+	MAX_LOCAL_LIGHT_PROBES,
+	MAX_POINT_LIGHTS,
+	MAX_REFLECTION_PROBES,
+	MAX_SPOT_LIGHTS,
+} from "../../../src/renderers/constants.ts";
 
 function createStage(options = {}) {
 	const runtime = options.runtime ?? new ShaderRuntime({ mode: "warn" });
@@ -378,9 +380,17 @@ precision highp float;
 const int MAX_DIRECTIONAL_LIGHTS = __WEBGL_MAX_DIRECTIONAL_LIGHTS__;
 const int MAX_POINT_LIGHTS = __WEBGL_MAX_POINT_LIGHTS__;
 const int MAX_SPOT_LIGHTS = __WEBGL_MAX_SPOT_LIGHTS__;
+const int MAX_LOCAL_LIGHT_PROBES = __WEBGL_MAX_LOCAL_LIGHT_PROBES__;
+const int MAX_REFLECTION_PROBES = __WEBGL_MAX_REFLECTION_PROBES__;
 out vec4 fragColor;
 void main() {
-	fragColor = vec4(float(MAX_DIRECTIONAL_LIGHTS + MAX_POINT_LIGHTS + MAX_SPOT_LIGHTS));
+	fragColor = vec4(float(
+		MAX_DIRECTIONAL_LIGHTS +
+		MAX_POINT_LIGHTS +
+		MAX_SPOT_LIGHTS +
+		MAX_LOCAL_LIGHT_PROBES +
+		MAX_REFLECTION_PROBES
+	));
 }`,
 		language: "glsl",
 		stage: "fragment",
@@ -392,17 +402,27 @@ void main() {
 	assert.equal(result.hasErrors, false);
 	assert.ok(
 		result.code.includes(
-			`const int MAX_DIRECTIONAL_LIGHTS = ${WEBGL_MAX_DIRECTIONAL_LIGHTS};`
+			`const int MAX_DIRECTIONAL_LIGHTS = ${MAX_DIRECTIONAL_LIGHTS};`
 		)
 	);
 	assert.ok(
 		result.code.includes(
-			`const int MAX_POINT_LIGHTS = ${WEBGL_MAX_POINT_LIGHTS};`
+			`const int MAX_POINT_LIGHTS = ${MAX_POINT_LIGHTS};`
 		)
 	);
 	assert.ok(
 		result.code.includes(
-			`const int MAX_SPOT_LIGHTS = ${WEBGL_MAX_SPOT_LIGHTS};`
+			`const int MAX_SPOT_LIGHTS = ${MAX_SPOT_LIGHTS};`
+		)
+	);
+	assert.ok(
+		result.code.includes(
+			`const int MAX_LOCAL_LIGHT_PROBES = ${MAX_LOCAL_LIGHT_PROBES};`
+		)
+	);
+	assert.ok(
+		result.code.includes(
+			`const int MAX_REFLECTION_PROBES = ${MAX_REFLECTION_PROBES};`
 		)
 	);
 	assert.equal(result.code.includes("__WEBGL_MAX_DIRECTIONAL_LIGHTS__"), false);

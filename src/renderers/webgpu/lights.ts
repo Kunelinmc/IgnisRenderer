@@ -21,11 +21,13 @@ import {
 	WEBGPU_CLUSTERED_LIGHT_TYPE_AREA,
 	WEBGPU_CLUSTERED_LIGHT_TYPE_POINT,
 	WEBGPU_CLUSTERED_LIGHT_TYPE_SPOT,
-	WEBGPU_MAX_AREA_LIGHTS,
-	WEBGPU_MAX_DIRECTIONAL_LIGHTS,
-	WEBGPU_MAX_POINT_LIGHTS,
-	WEBGPU_MAX_SPOT_LIGHTS,
 } from "./constants";
+import {
+	MAX_AREA_LIGHTS,
+	MAX_DIRECTIONAL_LIGHTS,
+	MAX_POINT_LIGHTS,
+	MAX_SPOT_LIGHTS,
+} from "../constants";
 import type {
 	WebGPUAreaLightUniform,
 	WebGPUClusteredLightUniform,
@@ -137,9 +139,9 @@ function collectDirectionalLight(
 	const color = toLinearLightColor(light.color, light.intensity);
 	pushVolumetricDirectionalLight(state, direction, color);
 
-	if (state.directionalLights.length >= WEBGPU_MAX_DIRECTIONAL_LIGHTS) {
+	if (state.directionalLights.length >= MAX_DIRECTIONAL_LIGHTS) {
 		state.warnings.push(
-			createLightLimitWarning("directional", WEBGPU_MAX_DIRECTIONAL_LIGHTS)
+			createLightLimitWarning("directional", MAX_DIRECTIONAL_LIGHTS)
 		);
 		return;
 	}
@@ -167,10 +169,10 @@ function collectPointLight(
 	pushVolumetricPointLight(state, position, range, color);
 	pushClusteredPointLight(state, position, range, color, enableClusteredLighting);
 
-	if (state.pointLights.length >= WEBGPU_MAX_POINT_LIGHTS) {
+	if (state.pointLights.length >= MAX_POINT_LIGHTS) {
 		if (!enableClusteredLighting) {
 			state.warnings.push(
-				createLightLimitWarning("point", WEBGPU_MAX_POINT_LIGHTS)
+				createLightLimitWarning("point", MAX_POINT_LIGHTS)
 			);
 		}
 		return;
@@ -212,7 +214,7 @@ function collectSpotLight(
 	);
 	const shadowIndex = state.spotShadows.length;
 	const clusteredCastsShadow =
-		shadowData.enabled && shadowIndex < WEBGPU_MAX_SPOT_LIGHTS;
+		shadowData.enabled && shadowIndex < MAX_SPOT_LIGHTS;
 	if (enableClusteredLighting && shadowData.enabled && !clusteredCastsShadow) {
 		pushWarningOnce(state, {
 			key: "webgpu-clustered-spot-shadow-budget",
@@ -234,10 +236,10 @@ function collectSpotLight(
 		enableClusteredLighting
 	);
 
-	if (state.spotLights.length >= WEBGPU_MAX_SPOT_LIGHTS) {
+	if (state.spotLights.length >= MAX_SPOT_LIGHTS) {
 		if (!enableClusteredLighting) {
 			state.warnings.push(
-				createLightLimitWarning("spot", WEBGPU_MAX_SPOT_LIGHTS)
+				createLightLimitWarning("spot", MAX_SPOT_LIGHTS)
 			);
 		}
 		return;
@@ -300,10 +302,10 @@ function collectAreaLight(
 
 	pushClusteredAreaLight(state, areaLight, enableClusteredLighting);
 
-	if (state.areaLights.length >= WEBGPU_MAX_AREA_LIGHTS) {
+	if (state.areaLights.length >= MAX_AREA_LIGHTS) {
 		if (!enableClusteredLighting) {
 			state.warnings.push(
-				createLightLimitWarning("area", WEBGPU_MAX_AREA_LIGHTS)
+				createLightLimitWarning("area", MAX_AREA_LIGHTS)
 			);
 		}
 		return;

@@ -25,10 +25,10 @@ import {
 	renderWebGLPackets,
 } from "../../../src/renderers/webgl/WebGLScenePass.ts";
 import {
-	WEBGL_MAX_DIRECTIONAL_LIGHTS,
-	WEBGL_MAX_POINT_LIGHTS,
-	WEBGL_MAX_SPOT_LIGHTS,
-} from "../../../src/renderers/webgl/constants.ts";
+	MAX_DIRECTIONAL_LIGHTS,
+	MAX_POINT_LIGHTS,
+	MAX_SPOT_LIGHTS,
+} from "../../../src/renderers/constants.ts";
 import {
 	ShaderSource,
 	WEBGL_SHADER_PARTS,
@@ -670,20 +670,20 @@ function testLightCollectorLimitsAndWarnings() {
 	const warn = (key, message) => warnings.push({ key, message });
 	const lights = [new AmbientLight()];
 
-	for (let i = 0; i < WEBGL_MAX_DIRECTIONAL_LIGHTS + 2; i++) {
+	for (let i = 0; i < MAX_DIRECTIONAL_LIGHTS + 2; i++) {
 		lights.push(new DirectionalLight({ intensity: 1 + i * 0.1 }));
 	}
-	for (let i = 0; i < WEBGL_MAX_POINT_LIGHTS + 2; i++) {
+	for (let i = 0; i < MAX_POINT_LIGHTS + 2; i++) {
 		lights.push(new PointLight({ range: 100 + i }));
 	}
-	for (let i = 0; i < WEBGL_MAX_SPOT_LIGHTS + 2; i++) {
+	for (let i = 0; i < MAX_SPOT_LIGHTS + 2; i++) {
 		lights.push(new SpotLight({ range: 100 + i }));
 	}
 
 	const state = collectWebGLLights(lights, true, warn);
-	assert.equal(state.directionalLights.length, WEBGL_MAX_DIRECTIONAL_LIGHTS);
-	assert.equal(state.pointLights.length, WEBGL_MAX_POINT_LIGHTS);
-	assert.equal(state.spotLights.length, WEBGL_MAX_SPOT_LIGHTS);
+	assert.equal(state.directionalLights.length, MAX_DIRECTIONAL_LIGHTS);
+	assert.equal(state.pointLights.length, MAX_POINT_LIGHTS);
+	assert.equal(state.spotLights.length, MAX_SPOT_LIGHTS);
 	assert.ok(warnings.some((warning) => warning.key === "webgl-directional-light-limit"));
 	assert.ok(warnings.some((warning) => warning.key === "webgl-point-light-limit"));
 	assert.ok(warnings.some((warning) => warning.key === "webgl-spot-light-limit"));
@@ -2350,9 +2350,9 @@ async function run() {
 			key: "webgl.scene.raw",
 			params: {
 				limits: {
-					maxDirectionalLights: WEBGL_MAX_DIRECTIONAL_LIGHTS,
-					maxPointLights: WEBGL_MAX_POINT_LIGHTS,
-					maxSpotLights: WEBGL_MAX_SPOT_LIGHTS,
+					maxDirectionalLights: MAX_DIRECTIONAL_LIGHTS,
+					maxPointLights: MAX_POINT_LIGHTS,
+					maxSpotLights: MAX_SPOT_LIGHTS,
 				},
 			},
 		},
@@ -2360,9 +2360,9 @@ async function run() {
 			key: "webgl.scene.composite",
 			params: {
 				limits: {
-					maxDirectionalLights: WEBGL_MAX_DIRECTIONAL_LIGHTS,
-					maxPointLights: WEBGL_MAX_POINT_LIGHTS,
-					maxSpotLights: WEBGL_MAX_SPOT_LIGHTS,
+					maxDirectionalLights: MAX_DIRECTIONAL_LIGHTS,
+					maxPointLights: MAX_POINT_LIGHTS,
+					maxSpotLights: MAX_SPOT_LIGHTS,
 				},
 			},
 		},
@@ -2370,9 +2370,9 @@ async function run() {
 			key: "webgl.scene.raw",
 			params: {
 				limits: {
-					maxDirectionalLights: WEBGL_MAX_DIRECTIONAL_LIGHTS,
-					maxPointLights: WEBGL_MAX_POINT_LIGHTS,
-					maxSpotLights: WEBGL_MAX_SPOT_LIGHTS,
+					maxDirectionalLights: MAX_DIRECTIONAL_LIGHTS,
+					maxPointLights: MAX_POINT_LIGHTS,
+					maxSpotLights: MAX_SPOT_LIGHTS,
 					enableShadowTransmittance: true,
 				},
 			},
@@ -2381,9 +2381,9 @@ async function run() {
 			key: "webgl.scene.composite",
 			params: {
 				limits: {
-					maxDirectionalLights: WEBGL_MAX_DIRECTIONAL_LIGHTS,
-					maxPointLights: WEBGL_MAX_POINT_LIGHTS,
-					maxSpotLights: WEBGL_MAX_SPOT_LIGHTS,
+					maxDirectionalLights: MAX_DIRECTIONAL_LIGHTS,
+					maxPointLights: MAX_POINT_LIGHTS,
+					maxSpotLights: MAX_SPOT_LIGHTS,
 					enableShadowTransmittance: true,
 				},
 			},

@@ -25,9 +25,11 @@ import type { WebGPUBackend } from "../WebGPUBackend";
 import type { ICommandEncoder } from "../ICommandEncoder";
 import { ShaderSource } from "../../shaders/ShaderSource";
 import {
-	WEBGPU_MAX_DIRECTIONAL_LIGHTS,
+	MAX_DIRECTIONAL_LIGHTS,
+	MAX_SPOT_LIGHTS,
+} from "../constants";
+import {
 	WEBGPU_MAX_MORPH_TARGETS,
-	WEBGPU_MAX_SPOT_LIGHTS,
 	WEBGPU_SHADOW_ATLAS_COLUMNS,
 } from "./constants";
 import { createWebGPUShadowVertexBufferLayout } from "./bufferLayouts";
@@ -947,7 +949,7 @@ export class WebGPUShadowPass {
 
 		for (const light of scene.lights) {
 			if (light.type === LightType.Directional) {
-				if (directionalIndex >= WEBGPU_MAX_DIRECTIONAL_LIGHTS) continue;
+				if (directionalIndex >= MAX_DIRECTIONAL_LIGHTS) continue;
 				if (isShadowCastingLight(light)) {
 					const renderSet = shadowMaps.get(light) ?? null;
 					const shadowMap = getPrimaryShadowMap(renderSet);
@@ -1005,13 +1007,13 @@ export class WebGPUShadowPass {
 			}
 
 			if (light.type === LightType.Spot) {
-				if (spotIndex >= WEBGPU_MAX_SPOT_LIGHTS) continue;
+				if (spotIndex >= MAX_SPOT_LIGHTS) continue;
 				if (isShadowCastingLight(light)) {
 					const renderSet = shadowMaps.get(light) ?? null;
 					const shadowMap = getPrimaryShadowMap(renderSet);
 					if (shadowMap?.viewProjectionMatrix && renderSet) {
 						const globalTileIndex =
-							WEBGPU_MAX_DIRECTIONAL_LIGHTS + spotIndex;
+							MAX_DIRECTIONAL_LIGHTS + spotIndex;
 						slots.push({
 							shadowMap,
 							renderSet,

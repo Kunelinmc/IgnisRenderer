@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { bindWebGLGlobalUniforms } from "../../../src/renderers/webgl/WebGLGlobalUniformBinder.ts";
-import { WEBGL_MAX_POINT_LIGHTS } from "../../../src/renderers/webgl/constants.ts";
+import { MAX_POINT_LIGHTS } from "../../../src/renderers/constants.ts";
 import { createResolvedPostProcess } from "../../helpers/postprocess.mjs";
 
 function approxEqual(actual, expected, epsilon = 1e-5) {
@@ -157,7 +157,7 @@ function testPointLightUniformPackingUsesConfiguredBudget() {
 	assert.equal(gl._calls.uniform1iCalls.get(pointLightCount), 6);
 
 	const packedPosition = gl._calls.uniform4fvCalls.get(pointLightPositionRange);
-	assert.equal(packedPosition.length, WEBGL_MAX_POINT_LIGHTS * 4);
+	assert.equal(packedPosition.length, MAX_POINT_LIGHTS * 4);
 	assert.equal(packedPosition[20], 6);
 	assert.equal(packedPosition[21], 7);
 	assert.equal(packedPosition[22], 8);
@@ -165,7 +165,7 @@ function testPointLightUniformPackingUsesConfiguredBudget() {
 	assert.equal(packedPosition[24], 0);
 
 	const packedColor = gl._calls.uniform4fvCalls.get(pointLightColor);
-	assert.equal(packedColor.length, WEBGL_MAX_POINT_LIGHTS * 4);
+	assert.equal(packedColor.length, MAX_POINT_LIGHTS * 4);
 	approxEqual(packedColor[20], 0.6);
 	approxEqual(packedColor[21], 1.2);
 	approxEqual(packedColor[22], 1.8);

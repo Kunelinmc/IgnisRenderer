@@ -49,12 +49,14 @@ import {
 	WEBGPU_PARTICLE_VERTEX_LAYOUTS,
 } from "../../../src/renderers/webgpu/bufferLayouts.ts";
 import {
-	WEBGPU_MAX_DIRECTIONAL_LIGHTS,
-	WEBGPU_MAX_AREA_LIGHTS,
-	WEBGPU_MAX_LOCAL_LIGHT_PROBES,
-	WEBGPU_MAX_POINT_LIGHTS,
-	WEBGPU_MAX_REFLECTION_PROBES,
-	WEBGPU_MAX_SPOT_LIGHTS,
+	MAX_DIRECTIONAL_LIGHTS,
+	MAX_AREA_LIGHTS,
+	MAX_LOCAL_LIGHT_PROBES,
+	MAX_POINT_LIGHTS,
+	MAX_REFLECTION_PROBES,
+	MAX_SPOT_LIGHTS,
+} from "../../../src/renderers/constants.ts";
+import {
 	WEBGPU_DEFERRED_COLOR_BYTES_PER_SAMPLE,
 	WEBGPU_DEFERRED_REQUIRED_FRAGMENT_SAMPLED_TEXTURE_COUNT,
 	WEBGPU_DEFERRED_STORAGE_TEXTURE_COUNT,
@@ -837,22 +839,22 @@ async function testWebGPUShaderConstantTokenInjection() {
 
 	assert.ok(
 		WEBGPU_SCENE_SHADER.includes(
-			`directionalLights: array<DirectionalLightData, ${WEBGPU_MAX_DIRECTIONAL_LIGHTS}>`
+			`directionalLights: array<DirectionalLightData, ${MAX_DIRECTIONAL_LIGHTS}>`
 		)
 	);
 	assert.ok(
 		WEBGPU_SCENE_SHADER.includes(
-			`pointLights: array<PointLightData, ${WEBGPU_MAX_POINT_LIGHTS}>`
+			`pointLights: array<PointLightData, ${MAX_POINT_LIGHTS}>`
 		)
 	);
 	assert.ok(
 		WEBGPU_SCENE_SHADER.includes(
-			`spotLights: array<SpotLightData, ${WEBGPU_MAX_SPOT_LIGHTS}>`
+			`spotLights: array<SpotLightData, ${MAX_SPOT_LIGHTS}>`
 		)
 	);
 	assert.ok(
 		WEBGPU_SCENE_SHADER.includes(
-			`areaLights: array<AreaLightData, ${WEBGPU_MAX_AREA_LIGHTS}>`
+			`areaLights: array<AreaLightData, ${MAX_AREA_LIGHTS}>`
 		)
 	);
 	assert.ok(
@@ -862,12 +864,12 @@ async function testWebGPUShaderConstantTokenInjection() {
 	);
 	assert.ok(
 		WEBGPU_SCENE_SHADER.includes(
-			`localLightProbeWorldToProbeRow0: array<vec4<f32>, ${WEBGPU_MAX_LOCAL_LIGHT_PROBES}>`
+			`localLightProbeWorldToProbeRow0: array<vec4<f32>, ${MAX_LOCAL_LIGHT_PROBES}>`
 		)
 	);
 	assert.ok(
 		WEBGPU_SCENE_SHADER.includes(
-			`reflectionProbes: array<ReflectionProbeData, ${WEBGPU_MAX_REFLECTION_PROBES}>`
+			`reflectionProbes: array<ReflectionProbeData, ${MAX_REFLECTION_PROBES}>`
 		)
 	);
 	assert.ok(
@@ -882,32 +884,32 @@ async function testWebGPUShaderConstantTokenInjection() {
 	);
 	assert.ok(
 		WEBGPU_ENVIRONMENT_SHADER.includes(
-			`pointLights: array<PointLightData, ${WEBGPU_MAX_POINT_LIGHTS}>`
+			`pointLights: array<PointLightData, ${MAX_POINT_LIGHTS}>`
 		)
 	);
 	assert.ok(
 		WEBGPU_PARTICLE_SHADER.includes(
-			`directionalLights: array<vec4<f32>, ${WEBGPU_MAX_DIRECTIONAL_LIGHTS * 2}>`
+			`directionalLights: array<vec4<f32>, ${MAX_DIRECTIONAL_LIGHTS * 2}>`
 		)
 	);
 	assert.ok(
 		WEBGPU_PARTICLE_SHADER.includes(
-			`pointLights: array<vec4<f32>, ${WEBGPU_MAX_POINT_LIGHTS * 2}>`
+			`pointLights: array<vec4<f32>, ${MAX_POINT_LIGHTS * 2}>`
 		)
 	);
 	assert.ok(
 		WEBGPU_PARTICLE_SHADER.includes(
-			`spotLights: array<vec4<f32>, ${WEBGPU_MAX_SPOT_LIGHTS * 3}>`
+			`spotLights: array<vec4<f32>, ${MAX_SPOT_LIGHTS * 3}>`
 		)
 	);
 	assert.ok(
 		WEBGPU_SSR_SHADER.includes(
-			`pointLights: array<PointLightData, ${WEBGPU_MAX_POINT_LIGHTS}>`
+			`pointLights: array<PointLightData, ${MAX_POINT_LIGHTS}>`
 		)
 	);
 	assert.ok(
 		WEBGPU_CLUSTERED_CULL_SHADER.includes(
-			`pointLights: array<PointLightData, ${WEBGPU_MAX_POINT_LIGHTS}>`
+			`pointLights: array<PointLightData, ${MAX_POINT_LIGHTS}>`
 		)
 	);
 	assert.ok(
@@ -1268,11 +1270,11 @@ function testWebGPUShadowPCSSParams() {
 
 function testWebGPUPointLightLimit() {
 	const withinLimit = Array.from(
-		{ length: WEBGPU_MAX_POINT_LIGHTS },
+		{ length: MAX_POINT_LIGHTS },
 		() => new PointLight()
 	);
 	const withinState = collectWebGPULighting(withinLimit, true, false);
-	assert.equal(withinState.pointLights.length, WEBGPU_MAX_POINT_LIGHTS);
+	assert.equal(withinState.pointLights.length, MAX_POINT_LIGHTS);
 	assert.ok(
 		!withinState.warnings.some(
 			(warning) => warning.key === "webgpu-point-limit"
@@ -1280,11 +1282,11 @@ function testWebGPUPointLightLimit() {
 	);
 
 	const overLimit = Array.from(
-		{ length: WEBGPU_MAX_POINT_LIGHTS + 2 },
+		{ length: MAX_POINT_LIGHTS + 2 },
 		() => new PointLight()
 	);
 	const overState = collectWebGPULighting(overLimit, true, false);
-	assert.equal(overState.pointLights.length, WEBGPU_MAX_POINT_LIGHTS);
+	assert.equal(overState.pointLights.length, MAX_POINT_LIGHTS);
 	assert.ok(
 		overState.warnings.some((warning) => warning.key === "webgpu-point-limit")
 	);
@@ -1319,11 +1321,11 @@ function testWebGPUAreaLightCollection() {
 	assert.equal(area.color[2], 0);
 
 	const overLimit = Array.from(
-		{ length: WEBGPU_MAX_AREA_LIGHTS + 1 },
+		{ length: MAX_AREA_LIGHTS + 1 },
 		() => new AreaLight()
 	);
 	const overState = collectWebGPULighting(overLimit, true, false);
-	assert.equal(overState.areaLights.length, WEBGPU_MAX_AREA_LIGHTS);
+	assert.equal(overState.areaLights.length, MAX_AREA_LIGHTS);
 	assert.ok(
 		overState.warnings.some((warning) => warning.key === "webgpu-area-limit")
 	);
@@ -1336,10 +1338,10 @@ function testWebGPUAreaLightCollection() {
 		undefined,
 		true
 	);
-	assert.equal(clusteredOverState.areaLights.length, WEBGPU_MAX_AREA_LIGHTS);
-	assert.equal(clusteredOverState.clusteredLights.length, WEBGPU_MAX_AREA_LIGHTS + 1);
+	assert.equal(clusteredOverState.areaLights.length, MAX_AREA_LIGHTS);
+	assert.equal(clusteredOverState.clusteredLights.length, MAX_AREA_LIGHTS + 1);
 	assert.equal(
-		clusteredOverState.clusteredLights[WEBGPU_MAX_AREA_LIGHTS].type,
+		clusteredOverState.clusteredLights[MAX_AREA_LIGHTS].type,
 		WEBGPU_CLUSTERED_LIGHT_TYPE_AREA
 	);
 	assert.equal(
@@ -1352,7 +1354,7 @@ function testWebGPUAreaLightCollection() {
 
 function testWebGPUClusteredSpotShadowBudgetFallback() {
 	const lights = Array.from(
-		{ length: WEBGPU_MAX_SPOT_LIGHTS + 1 },
+		{ length: MAX_SPOT_LIGHTS + 1 },
 		() => new SpotLight()
 	);
 	const shadowMaps = new Map();
@@ -1373,12 +1375,12 @@ function testWebGPUClusteredSpotShadowBudgetFallback() {
 	const clusteredSpots = state.clusteredLights.filter(
 		(light) => light.type === WEBGPU_CLUSTERED_LIGHT_TYPE_SPOT
 	);
-	assert.equal(state.spotLights.length, WEBGPU_MAX_SPOT_LIGHTS);
-	assert.equal(state.spotShadows.length, WEBGPU_MAX_SPOT_LIGHTS);
-	assert.equal(clusteredSpots.length, WEBGPU_MAX_SPOT_LIGHTS + 1);
-	assert.equal(clusteredSpots[WEBGPU_MAX_SPOT_LIGHTS - 1].castsShadow, true);
-	assert.equal(clusteredSpots[WEBGPU_MAX_SPOT_LIGHTS].castsShadow, false);
-	assert.equal(clusteredSpots[WEBGPU_MAX_SPOT_LIGHTS].shadowIndex, WEBGPU_MAX_SPOT_LIGHTS);
+	assert.equal(state.spotLights.length, MAX_SPOT_LIGHTS);
+	assert.equal(state.spotShadows.length, MAX_SPOT_LIGHTS);
+	assert.equal(clusteredSpots.length, MAX_SPOT_LIGHTS + 1);
+	assert.equal(clusteredSpots[MAX_SPOT_LIGHTS - 1].castsShadow, true);
+	assert.equal(clusteredSpots[MAX_SPOT_LIGHTS].castsShadow, false);
+	assert.equal(clusteredSpots[MAX_SPOT_LIGHTS].shadowIndex, MAX_SPOT_LIGHTS);
 	assert.ok(
 		state.warnings.some(
 			(warning) => warning.key === "webgpu-clustered-spot-shadow-budget"

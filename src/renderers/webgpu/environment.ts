@@ -27,9 +27,9 @@ import {
 import type { PreparedScene } from "../../pipeline/types";
 
 import {
-	WEBGPU_MAX_LOCAL_LIGHT_PROBES,
-	WEBGPU_MAX_REFLECTION_PROBES,
-} from "./constants";
+	MAX_LOCAL_LIGHT_PROBES,
+	MAX_REFLECTION_PROBES,
+} from "../constants";
 import type {
 	WebGPUEnvironmentState,
 	WebGPUIrradianceProbeGridUniform,
@@ -81,13 +81,13 @@ export function collectWebGPUEnvironment(
 	const localLightProbes = enableSH ?
 			collectActiveLocalizedLightProbes(
 				scene.lights,
-				WEBGPU_MAX_LOCAL_LIGHT_PROBES,
+				MAX_LOCAL_LIGHT_PROBES,
 				reflectionProbeCameraWorldPosition
 			)
 		:	[];
 	const reflectionEnvironment = collectReflectionProbeEnvironment(
 		scene.lights,
-		WEBGPU_MAX_REFLECTION_PROBES,
+		MAX_REFLECTION_PROBES,
 		reflectionProbeCameraWorldPosition
 	);
 	let reflectionProbeCount = 0;

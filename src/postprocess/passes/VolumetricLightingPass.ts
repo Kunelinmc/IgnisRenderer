@@ -22,6 +22,7 @@ import {
 } from "../../renderers/software/passes/SoftwareShadowPass";
 import {
 	MAX_EXPOSURE,
+	MAX_VOLUMETRIC_LIGHTS,
 	POST_PROCESS_NOISE_REFERENCE_WIDTH,
 	VOLUMETRIC_SIGMA_T_SCALE,
 } from "../../renderers/constants";
@@ -35,7 +36,6 @@ import {
 } from "../../renderers/types";
 import {
 	WEBGPU_2D_COMPUTE_WORKGROUP_SIZE as WORKGROUP_SIZE,
-	WEBGPU_MAX_VOLUMETRIC_LIGHTS as MAX_VOLUMETRIC_LIGHTS,
 	WEBGPU_VOLUMETRIC_LIGHT_STRIDE_FLOATS as VOLUMETRIC_LIGHT_STRIDE_FLOATS,
 } from "../../renderers/webgpu/constants";
 import { getWebGPUVolumetricLightLayout } from "../../renderers/webgpu/bufferLayouts";

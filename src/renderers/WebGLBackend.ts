@@ -15,10 +15,10 @@ import { WebGLFrameExecutor } from "./webgl/WebGLFrameExecutor";
 import { WebGLPostProcessExecutor } from "./webgl/WebGLPostProcessExecutor";
 import { BackendPostProcessRuntime } from "../postprocess/BackendPostProcessRuntime";
 import {
-	WEBGL_MAX_DIRECTIONAL_LIGHTS,
-	WEBGL_MAX_POINT_LIGHTS,
-	WEBGL_MAX_SPOT_LIGHTS,
-} from "./webgl/constants";
+	MAX_DIRECTIONAL_LIGHTS,
+	MAX_POINT_LIGHTS,
+	MAX_SPOT_LIGHTS,
+} from "./constants";
 import {
 	ShaderBackendCompileStage,
 	DEFAULT_SHADER_DIRECTIVE_PROFILE_REGISTRY,
@@ -183,9 +183,9 @@ export class WebGLBackend implements IRenderBackend {
 					key: "webgl.scene.raw" as const,
 					params: {
 						limits: {
-							maxDirectionalLights: WEBGL_MAX_DIRECTIONAL_LIGHTS,
-							maxPointLights: WEBGL_MAX_POINT_LIGHTS,
-							maxSpotLights: WEBGL_MAX_SPOT_LIGHTS,
+							maxDirectionalLights: MAX_DIRECTIONAL_LIGHTS,
+							maxPointLights: MAX_POINT_LIGHTS,
+							maxSpotLights: MAX_SPOT_LIGHTS,
 							enableShadowTransmittance: false,
 						},
 					},
@@ -194,9 +194,9 @@ export class WebGLBackend implements IRenderBackend {
 					key: "webgl.scene.composite" as const,
 					params: {
 						limits: {
-							maxDirectionalLights: WEBGL_MAX_DIRECTIONAL_LIGHTS,
-							maxPointLights: WEBGL_MAX_POINT_LIGHTS,
-							maxSpotLights: WEBGL_MAX_SPOT_LIGHTS,
+							maxDirectionalLights: MAX_DIRECTIONAL_LIGHTS,
+							maxPointLights: MAX_POINT_LIGHTS,
+							maxSpotLights: MAX_SPOT_LIGHTS,
 							enableShadowTransmittance: false,
 						},
 					},
@@ -205,9 +205,9 @@ export class WebGLBackend implements IRenderBackend {
 					key: "webgl.scene.raw" as const,
 					params: {
 						limits: {
-							maxDirectionalLights: WEBGL_MAX_DIRECTIONAL_LIGHTS,
-							maxPointLights: WEBGL_MAX_POINT_LIGHTS,
-							maxSpotLights: WEBGL_MAX_SPOT_LIGHTS,
+							maxDirectionalLights: MAX_DIRECTIONAL_LIGHTS,
+							maxPointLights: MAX_POINT_LIGHTS,
+							maxSpotLights: MAX_SPOT_LIGHTS,
 							enableShadowTransmittance: true,
 						},
 					},
@@ -216,9 +216,9 @@ export class WebGLBackend implements IRenderBackend {
 					key: "webgl.scene.composite" as const,
 					params: {
 						limits: {
-							maxDirectionalLights: WEBGL_MAX_DIRECTIONAL_LIGHTS,
-							maxPointLights: WEBGL_MAX_POINT_LIGHTS,
-							maxSpotLights: WEBGL_MAX_SPOT_LIGHTS,
+							maxDirectionalLights: MAX_DIRECTIONAL_LIGHTS,
+							maxPointLights: MAX_POINT_LIGHTS,
+							maxSpotLights: MAX_SPOT_LIGHTS,
 							enableShadowTransmittance: true,
 						},
 					},

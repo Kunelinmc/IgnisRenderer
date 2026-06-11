@@ -1,12 +1,14 @@
-﻿import type { Material } from "../../materials/Material";
+import type { Material } from "../../materials/Material";
 import { Matrix4 } from "../../maths/Matrix4";
 import { resolveMaterialShadowTransmittance } from "../../materials/transparency";
 import type { DrawPacket, FrameContext } from "../../pipeline/types";
 import { PARTICLE_TRANSIENT_BATCHES_KEY } from "../../pipeline/types";
 import { hasParticleShadowCastingBatches } from "../../pipeline/ParticleShadowVolume";
 import {
-	WEBGL_MAX_DIRECTIONAL_LIGHTS,
-	WEBGL_MAX_SPOT_LIGHTS,
+	MAX_DIRECTIONAL_LIGHTS,
+	MAX_SPOT_LIGHTS,
+} from "../constants";
+import {
 	WEBGL_SHADOW_ATLAS_COLUMNS,
 } from "./constants";
 import { getMaxShadowSize, isFiniteMatrix, toColumnMajorMat4 } from "./WebGLFrameMath";
@@ -128,7 +130,7 @@ export function renderWebGLShadows(
 	gl.clear(gl.DEPTH_BUFFER_BIT);
 
 	const directionalCount = Math.min(
-		WEBGL_MAX_DIRECTIONAL_LIGHTS,
+		MAX_DIRECTIONAL_LIGHTS,
 		lights.directionalShadows.length
 	);
 	for (let i = 0; i < directionalCount; i++) {
@@ -150,13 +152,13 @@ export function renderWebGLShadows(
 		}
 	}
 
-	const spotCount = Math.min(WEBGL_MAX_SPOT_LIGHTS, lights.spotShadows.length);
+	const spotCount = Math.min(MAX_SPOT_LIGHTS, lights.spotShadows.length);
 	for (let i = 0; i < spotCount; i++) {
 		host._renderShadowSlice(
 			shadowProgram,
 			packets,
 			lights.spotShadows[i],
-			WEBGL_MAX_DIRECTIONAL_LIGHTS + i,
+			MAX_DIRECTIONAL_LIGHTS + i,
 			0
 		);
 	}
@@ -196,7 +198,7 @@ export function renderWebGLShadows(
 			transmitterProgram,
 			transmitterPackets,
 			lights.spotShadows[i],
-			WEBGL_MAX_DIRECTIONAL_LIGHTS + i,
+			MAX_DIRECTIONAL_LIGHTS + i,
 			0
 		);
 	}
@@ -405,4 +407,3 @@ export function drawWebGLShadowTransmittancePacket(
 	);
 	gl.bindVertexArray(null);
 }
-

@@ -1,8 +1,8 @@
 import {
-	WEBGL_MAX_DIRECTIONAL_LIGHTS,
-	WEBGL_MAX_POINT_LIGHTS,
-	WEBGL_MAX_SPOT_LIGHTS,
-} from "./constants";
+	MAX_DIRECTIONAL_LIGHTS,
+	MAX_POINT_LIGHTS,
+	MAX_SPOT_LIGHTS,
+} from "../constants";
 import {
 	createWebGLSceneUniforms,
 	type WebGLSceneUniforms,
@@ -1188,9 +1188,9 @@ export class WebGLProgramLibrary {
 
 	private _getSceneLightLimits(): WebGLSceneLightLimits {
 		return {
-			maxDirectionalLights: WEBGL_MAX_DIRECTIONAL_LIGHTS,
-			maxPointLights: WEBGL_MAX_POINT_LIGHTS,
-			maxSpotLights: WEBGL_MAX_SPOT_LIGHTS,
+			maxDirectionalLights: MAX_DIRECTIONAL_LIGHTS,
+			maxPointLights: MAX_POINT_LIGHTS,
+			maxSpotLights: MAX_SPOT_LIGHTS,
 			enableShadowTransmittance: this._enableShadowTransmittanceSampling,
 			enableIrradianceProbeGrid: this._enableIrradianceProbeGridSampling,
 		};

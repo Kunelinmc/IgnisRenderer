@@ -1,16 +1,18 @@
 import { MAX_INTERACTION_OUTLINE_CIRCLES } from "../../interaction/outlineProjection";
 import type { VertexBufferLayout } from "../types";
+import {
+	MAX_AREA_LIGHTS,
+	MAX_DIRECTIONAL_LIGHTS,
+	MAX_LOCAL_LIGHT_PROBES,
+	MAX_POINT_LIGHTS,
+	MAX_REFLECTION_PROBES,
+	MAX_SPOT_LIGHTS,
+} from "../constants";
 
 import {
 	WEBGPU_CLUSTERED_LIGHT_STRIDE_FLOATS,
 	WEBGPU_CLUSTERED_PARAMS_FLOATS,
 	WEBGPU_FRAME_UNIFORM_BYTE_SIZE,
-	WEBGPU_MAX_AREA_LIGHTS,
-	WEBGPU_MAX_DIRECTIONAL_LIGHTS,
-	WEBGPU_MAX_LOCAL_LIGHT_PROBES,
-	WEBGPU_MAX_POINT_LIGHTS,
-	WEBGPU_MAX_REFLECTION_PROBES,
-	WEBGPU_MAX_SPOT_LIGHTS,
 	WEBGPU_MODEL_UNIFORM_BYTE_SIZE,
 	WEBGPU_PARTICLE_ATTR_INSTANCE_COLOR,
 	WEBGPU_PARTICLE_ATTR_INSTANCE_POSITION_SIZE,
@@ -251,23 +253,23 @@ export const WEBGPU_FRAME_UNIFORM_LAYOUT = new StructuredBufferLayout(
 		{ name: "taaJitterCurrentPrev", type: VEC4_F32 },
 		{
 			name: "directionalLights",
-			type: arrayOf(DIRECTIONAL_LIGHT_SCHEMA, WEBGPU_MAX_DIRECTIONAL_LIGHTS),
+			type: arrayOf(DIRECTIONAL_LIGHT_SCHEMA, MAX_DIRECTIONAL_LIGHTS),
 		},
 		{
 			name: "pointLights",
-			type: arrayOf(POINT_LIGHT_SCHEMA, WEBGPU_MAX_POINT_LIGHTS),
+			type: arrayOf(POINT_LIGHT_SCHEMA, MAX_POINT_LIGHTS),
 		},
 		{
 			name: "spotLights",
-			type: arrayOf(SPOT_LIGHT_SCHEMA, WEBGPU_MAX_SPOT_LIGHTS),
+			type: arrayOf(SPOT_LIGHT_SCHEMA, MAX_SPOT_LIGHTS),
 		},
 		{
 			name: "directionalShadows",
-			type: arrayOf(SHADOW_DATA_SCHEMA, WEBGPU_MAX_DIRECTIONAL_LIGHTS),
+			type: arrayOf(SHADOW_DATA_SCHEMA, MAX_DIRECTIONAL_LIGHTS),
 		},
 		{
 			name: "spotShadows",
-			type: arrayOf(SHADOW_DATA_SCHEMA, WEBGPU_MAX_SPOT_LIGHTS),
+			type: arrayOf(SHADOW_DATA_SCHEMA, MAX_SPOT_LIGHTS),
 		},
 		{
 			name: "shAmbientCoeffs",
@@ -275,34 +277,34 @@ export const WEBGPU_FRAME_UNIFORM_LAYOUT = new StructuredBufferLayout(
 		},
 		{
 			name: "reflectionProbes",
-			type: arrayOf(REFLECTION_PROBE_SCHEMA, WEBGPU_MAX_REFLECTION_PROBES),
+			type: arrayOf(REFLECTION_PROBE_SCHEMA, MAX_REFLECTION_PROBES),
 		},
 		{ name: "localLightProbeCounts", type: VEC4_F32 },
 		{
 			name: "localLightProbeWorldToProbeRow0",
-			type: arrayOf(VEC4_F32, WEBGPU_MAX_LOCAL_LIGHT_PROBES),
+			type: arrayOf(VEC4_F32, MAX_LOCAL_LIGHT_PROBES),
 		},
 		{
 			name: "localLightProbeWorldToProbeRow1",
-			type: arrayOf(VEC4_F32, WEBGPU_MAX_LOCAL_LIGHT_PROBES),
+			type: arrayOf(VEC4_F32, MAX_LOCAL_LIGHT_PROBES),
 		},
 		{
 			name: "localLightProbeWorldToProbeRow2",
-			type: arrayOf(VEC4_F32, WEBGPU_MAX_LOCAL_LIGHT_PROBES),
+			type: arrayOf(VEC4_F32, MAX_LOCAL_LIGHT_PROBES),
 		},
 		{
 			name: "localLightProbeDataA",
-			type: arrayOf(VEC4_F32, WEBGPU_MAX_LOCAL_LIGHT_PROBES),
+			type: arrayOf(VEC4_F32, MAX_LOCAL_LIGHT_PROBES),
 		},
 		{
 			name: "localLightProbeDataB",
-			type: arrayOf(VEC4_F32, WEBGPU_MAX_LOCAL_LIGHT_PROBES),
+			type: arrayOf(VEC4_F32, MAX_LOCAL_LIGHT_PROBES),
 		},
 		{
 			name: "localLightProbeSHAmbientCoeffs",
 			type: arrayOf(
 				VEC4_F32,
-				WEBGPU_MAX_LOCAL_LIGHT_PROBES * WEBGPU_SH_COEFFICIENT_COUNT
+				MAX_LOCAL_LIGHT_PROBES * WEBGPU_SH_COEFFICIENT_COUNT
 			),
 		},
 		{ name: "irradianceProbeGridWorldToGridRow0", type: VEC4_F32 },
@@ -314,7 +316,7 @@ export const WEBGPU_FRAME_UNIFORM_LAYOUT = new StructuredBufferLayout(
 		{ name: "areaLightCounts", type: VEC4_F32 },
 		{
 			name: "areaLights",
-			type: arrayOf(AREA_LIGHT_SCHEMA, WEBGPU_MAX_AREA_LIGHTS),
+			type: arrayOf(AREA_LIGHT_SCHEMA, MAX_AREA_LIGHTS),
 		},
 	]),
 	"uniform"

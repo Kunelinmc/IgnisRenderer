@@ -1,6 +1,14 @@
 /**
- * Shared post-process constants used across rendering backends.
+ * Shared renderer constants used across rendering backends.
  */
+export const MAX_DIRECTIONAL_LIGHTS = 4;
+export const MAX_POINT_LIGHTS = 16;
+export const MAX_SPOT_LIGHTS = 8;
+export const MAX_AREA_LIGHTS = 8;
+export const MAX_REFLECTION_PROBES = 8;
+export const MAX_LOCAL_LIGHT_PROBES = 8;
+export const MAX_VOLUMETRIC_LIGHTS = 65000;
+
 export const DEFAULT_GAMMA = 2.2;
 export const MIN_GAMMA = 0.01;
 export const MAX_GAMMA = 8.0;
