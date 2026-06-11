@@ -1,27 +1,13 @@
 import assert from "node:assert/strict";
-import { PostProcessPipeline } from "../../../src/postprocess/PostProcessPipeline.ts";
+import { resolvePostProcessExecutionOrder } from "../../../src/postprocess/index.ts";
 import { createResolvedPostProcess } from "../../helpers/postprocess.mjs";
 
 function createPostProcess(overrides = {}) {
 	return createResolvedPostProcess(overrides, "webgl");
 }
 
-function createExecutor() {
-	return {
-		backend: "webgl",
-		createResource() {
-			throw new Error("Unexpected history allocation in this test");
-		},
-		destroyResource() {},
-		executePass() {
-			return { ran: true };
-		},
-	};
-}
-
 function testBuiltInOrderUsesPipelineAuthority() {
-	const pipeline = new PostProcessPipeline();
-	const order = pipeline.getExecutionOrder(
+	const order = resolvePostProcessExecutionOrder(
 		createPostProcess({
 			ssao: { enabled: true },
 			taa: { enabled: true },
@@ -35,7 +21,7 @@ function testBuiltInOrderUsesPipelineAuthority() {
 			"interaction-outline": { enabled: true },
 			gamma: { enabled: true },
 		}),
-		createExecutor()
+		{ backend: "webgl" }
 	);
 	assert.deepEqual(
 		order.map((pass) => pass.id),
@@ -56,13 +42,12 @@ function testBuiltInOrderUsesPipelineAuthority() {
 }
 
 function testFogSceneModeSkipsFogInPipelineOrder() {
-	const pipeline = new PostProcessPipeline();
-	const order = pipeline.getExecutionOrder(
+	const order = resolvePostProcessExecutionOrder(
 		createPostProcess({
 			fog: { enabled: true, options: { application: "scene" } },
 			"motion-blur": { enabled: true },
 		}),
-		createExecutor()
+		{ backend: "webgl" }
 	);
 	assert.equal(order.some((pass) => pass.id === "fog"), false);
 	assert.ok(order.some((pass) => pass.id === "motion-blur"));

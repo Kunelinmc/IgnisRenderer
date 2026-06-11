@@ -27,7 +27,7 @@ import {
 	PostProcessPass,
 	type PostProcessPassConfig,
 } from "../PostProcessPass";
-import { getRequiredBuiltinPostProcessOrderMetadata } from "../builtinMetadata";
+import type { PostProcessPassMetadata } from "../ordering";
 import type {
 	PostProcessPassImplementation,
 	PostProcessPassRequest,
@@ -35,8 +35,16 @@ import type {
 } from "../types";
 
 export const BLOOM_PASS_ID = "bloom";
-export const BLOOM_PASS_ORDER =
-	getRequiredBuiltinPostProcessOrderMetadata(BLOOM_PASS_ID);
+export const BLOOM_PASS_ORDER = {
+	id: BLOOM_PASS_ID,
+	placement: "hdr",
+	order: 500,
+	incremental: {
+		firstPass: "bloom",
+		grade: "standard",
+		inflationRadius: 48,
+	},
+} as const satisfies PostProcessPassMetadata;
 
 export interface BloomOptions {
 	/** Luminance threshold above which pixels contribute to bloom. */
@@ -69,6 +77,7 @@ export const DEFAULT_BLOOM_OPTIONS: Required<
 	filterRadius: 1,
 };
 
+/** @internal WebGPU context supplied to the built-in bloom implementation. */
 export interface WebGPUBloomContext {
 	readonly encoder?: ICommandEncoder;
 	readonly targets?: WebGPUPostProcessFrameTargets;
@@ -76,6 +85,7 @@ export interface WebGPUBloomContext {
 	publishColorTarget?(texture: IRenderTexture): void;
 }
 
+/** @internal WebGL context supplied to the built-in bloom implementation. */
 export interface WebGLBloomContext {
 	readonly gl: WebGL2RenderingContext;
 	readonly programs: WebGLProgramLibrary;
@@ -116,6 +126,7 @@ interface WebGPUBloomResources {
 /**
  * WebGPU implementation of the HDR bloom pass.
  */
+/** @internal WebGPU implementation for the built-in bloom pass. */
 export class WebGPUBloomImplementation
 	implements PostProcessPassImplementation<WebGPUBloomContext, BloomOptions>
 {
@@ -658,6 +669,7 @@ export class WebGPUBloomImplementation
 /**
  * WebGL implementation of the HDR bloom pass.
  */
+/** @internal WebGL implementation for the built-in bloom pass. */
 export class WebGLBloomImplementation
 	implements PostProcessPassImplementation<WebGLBloomContext, BloomOptions>
 {
@@ -769,7 +781,7 @@ export class BloomPass extends PostProcessPass<BloomOptions, BloomOptions> {
 		super({
 			...config,
 			...BLOOM_PASS_ORDER,
-			builtIn: true,
+			incremental: config.incremental ?? BLOOM_PASS_ORDER.incremental,
 			warningLabel: "bloom",
 			implementations: {
 				webgpu: new WebGPUBloomImplementation(),

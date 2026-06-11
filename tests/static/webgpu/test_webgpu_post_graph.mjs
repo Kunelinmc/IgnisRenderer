@@ -1,93 +1,12 @@
 import assert from "node:assert/strict";
-import { PostProcessPipeline } from "../../../src/postprocess/PostProcessPipeline.ts";
+import {
+	PostProcessGraphCompiler,
+	resolvePostProcessExecutionOrder,
+} from "../../../src/postprocess/index.ts";
 import { createResolvedPostProcess } from "../../helpers/postprocess.mjs";
 
 function createPostProcess(overrides = {}) {
 	return createResolvedPostProcess(overrides, "webgpu");
-}
-
-function createExecutor() {
-	const shared = {
-		sampler: null,
-		compute: {
-			createShaderModule: async () => ({ label: "fxaa-shader" }),
-			createComputePipeline: () => ({ label: "fxaa-pipeline" }),
-			createBuffer: () => ({ label: "fxaa-params" }),
-			writeBuffer() {},
-		},
-		async ensureCommonResources() {
-			this.sampler = this.sampler ?? { label: "fxaa-sampler" };
-		},
-		getCachedBindGroup() {
-			return { label: "fxaa-binding" };
-		},
-	};
-	return {
-		backend: "webgpu",
-		createResource() {
-			throw new Error("Unexpected history allocation in this test");
-		},
-		destroyResource() {},
-		executePass() {
-			return { ran: true };
-		},
-		getPassExecutionContext(request) {
-			const passId = request.passId;
-			const targets = {
-				sceneColor: { width: 64, height: 32, label: "scene" },
-				postPing: { width: 64, height: 32, label: "ping" },
-				postPong: { width: 64, height: 32, label: "pong" },
-				gMotionDepth: { width: 64, height: 32, label: "motion-depth" },
-			};
-			if (
-				[
-					"motion-blur",
-					"dof",
-					"tonemap",
-					"color-filter",
-					"interaction-outline",
-				].includes(passId)
-			) {
-				return {
-					encoder: {
-						beginComputePass() {},
-						setComputePipeline() {},
-						setBindingGroup() {},
-						dispatchWorkgroups() {},
-						endComputePass() {},
-					},
-					targets,
-					shared,
-					publishColorTarget(texture) {
-						targets.sceneColor = texture;
-					},
-				};
-			}
-			if (passId === "gamma") {
-				return {
-					targets,
-					presentToCanvas() {},
-				};
-			}
-			if (passId !== "fxaa") {
-				return undefined;
-			}
-			return {
-				encoder: {
-					beginComputePass() {},
-					setComputePipeline() {},
-					setBindingGroup() {},
-					dispatchWorkgroups() {},
-					endComputePass() {},
-				},
-				targets,
-				shared,
-				publishColorTarget(texture) {
-					targets.sceneColor = texture;
-				},
-			};
-		},
-	};
 }
 
 function createFrameContext(postProcess, incremental = {}) {
@@ -155,8 +74,7 @@ function createGBufferBridge() {
 }
 
 function testBuiltInOrderUsesPipelineAuthority() {
-	const pipeline = new PostProcessPipeline();
-	const order = pipeline.getExecutionOrder(
+	const order = resolvePostProcessExecutionOrder(
 		createPostProcess({
 			ssao: { enabled: true },
 			ssgi: { enabled: true },
@@ -173,7 +91,7 @@ function testBuiltInOrderUsesPipelineAuthority() {
 			"interaction-outline": { enabled: true },
 			gamma: { enabled: true },
 		}),
-		createExecutor()
+		{ backend: "webgpu" }
 	);
 	assert.deepEqual(
 		order.map((pass) => pass.id),
@@ -197,28 +115,18 @@ function testBuiltInOrderUsesPipelineAuthority() {
 }
 
 function testFogSceneModeSkipsFogInPipelineOrder() {
-	const pipeline = new PostProcessPipeline();
-	const order = pipeline.getExecutionOrder(
+	const order = resolvePostProcessExecutionOrder(
 		createPostProcess({
 			volumetric: { enabled: true },
 			fog: { enabled: true, options: { application: "scene" } },
 			"motion-blur": { enabled: true },
 		}),
-		createExecutor()
+		{ backend: "webgpu" }
 	);
 	assert.equal(order.some((pass) => pass.id === "fog"), false);
 }
 
-async function testIncrementalStartPassIsResolvedByPipeline() {
-	const pipeline = new PostProcessPipeline();
-	const executed = [];
-	const executor = {
-		...createExecutor(),
-		executePass(passId, request) {
-			executed.push({ passId, startPassId: request.startPassId });
-			return { ran: true };
-		},
-	};
+function testIncrementalStartPassIsResolvedByGraphCompiler() {
 	const postProcess = createPostProcess({
 		bloom: { enabled: true },
 		tonemap: { enabled: true },
@@ -226,33 +134,31 @@ async function testIncrementalStartPassIsResolvedByPipeline() {
 		fxaa: { enabled: true },
 		gamma: { enabled: true },
 	});
-	const result = await pipeline.execute({
-		frameContext: createFrameContext(postProcess, {
-			enabled: true,
-			forceFullFrame: false,
-			firstPass: "postprocess",
-			postProcessStartPass: "color-filter",
-		}),
-		executor,
+	const frameContext = createFrameContext(postProcess, {
+		enabled: true,
+		forceFullFrame: false,
+		firstPass: "postprocess",
+		postProcessStartPass: "color-filter",
+	});
+	const graph = new PostProcessGraphCompiler().compile({
+		frameContext,
+		backend: "webgpu",
+		postProcess,
 		gBuffer: createGBufferBridge(),
 	});
 
-	assert.equal(result.startPassId, "color-filter");
+	assert.equal(graph.startPassId, "color-filter");
 	assert.deepEqual(
-		result.executedPassIds,
+		graph.passes.map((pass) => pass.id),
 		["color-filter", "fxaa", "gamma"]
 	);
-	assert.deepEqual(
-		executed.map((entry) => entry.passId),
-		[]
-	);
-	assert.ok(executed.every((entry) => entry.startPassId === "color-filter"));
+	assert.equal(graph.frameContext.incremental.postProcessStartPass, "color-filter");
 }
 
 async function run() {
 	testBuiltInOrderUsesPipelineAuthority();
 	testFogSceneModeSkipsFogInPipelineOrder();
-	await testIncrementalStartPassIsResolvedByPipeline();
+	testIncrementalStartPassIsResolvedByGraphCompiler();
 	console.log("WebGPU post-process pipeline-order tests passed");
 }
 

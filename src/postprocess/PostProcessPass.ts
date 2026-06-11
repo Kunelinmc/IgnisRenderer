@@ -19,10 +19,11 @@ export type PostProcessPassId = string;
 export interface PostProcessPassConfig<TRawOptions = unknown> {
 	readonly id: string;
 	/**
-	 * Marks pass-owned engine passes so registry consumers can separate them
-	 * from user-defined custom passes.
+	 * Marks renderer-default built-in passes so registry consumers can separate
+	 * them from manually registered passes.
 	 *
-	 * Omit this value for custom passes.
+	 * Omit this value for engine-provided or user-defined passes that must be
+	 * registered explicitly.
 	 */
 	readonly builtIn?: boolean;
 	/**
@@ -80,7 +81,7 @@ export abstract class PostProcessPass<
 > extends EventEmitter<{ change: [PostProcessPassChange] }> {
 	public readonly id: string;
 	/**
-	 * Whether this pass is an engine-provided built-in pass.
+	 * Whether this pass is a renderer-default built-in pass.
 	 *
 	 * The value is resolved during construction and has no side effects.
 	 */

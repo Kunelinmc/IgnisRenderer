@@ -56,7 +56,7 @@ export const ALL_ENABLED_POST_PROCESS_REQUEST = {
 	gamma: { enabled: true },
 };
 
-const BUILTIN_PASS_FACTORIES = {
+const ENGINE_PASS_FACTORIES = {
 	ssao: (config) => new ScreenSpaceAmbientOcclusionPass(config),
 	ssgi: (config) => new ScreenSpaceGlobalIlluminationPass(config),
 	taa: (config) => new TemporalAntiAliasingPass(config),
@@ -98,7 +98,7 @@ export function createPostProcessRegistryFromRequest(
 	for (const [id, value] of Object.entries(request)) {
 		const passRequest =
 			value && typeof value === "object" ? value : { enabled: value === true };
-		const factory = BUILTIN_PASS_FACTORIES[id];
+		const factory = ENGINE_PASS_FACTORIES[id];
 		if (factory) {
 			registry.registerPass(factory(passRequest));
 		} else {

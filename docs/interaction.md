@@ -33,8 +33,8 @@ it must not be stored as an ECS component and it must not require subclassing
 - Object callbacks may be stored in `Interactable` as runtime functions:
   `onHoverEnter`, `onHoverLeave`, `onSelect`, `onDeselect`, and `onClick`.
 - `InteractionController` must write `INTERACTION_TRANSIENT_STATE_KEY` during
-  frame transient contribution so the built-in `interaction-outline` pass can
-  render selected entities.
+  frame transient contribution so the engine-provided `interaction-outline` pass
+  can render selected entities after it is registered.
 
 ## Usage
 

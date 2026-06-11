@@ -5,8 +5,8 @@ import {
 	ScreenSpaceRefractionsPass,
 	createSSRefractionTraceParams,
 	resolveSSRefractionOptions,
+	PostProcessGraphCompiler,
 } from "../../../src/postprocess/index.ts";
-import { PostProcessPipeline } from "../../../src/postprocess/PostProcessPipeline.ts";
 import { createResolvedPostProcess } from "../../helpers/postprocess.mjs";
 
 function createFrameContext(transmissionFactor = 1) {
@@ -133,51 +133,29 @@ function testShouldExecuteRequiresTransmissionPackets() {
 	pass.destroy();
 }
 
-function testUnsupportedBackendsWarnAndDisable() {
+function testUnsupportedBackendsDisableWithoutBuiltInWarning() {
 	const software = createResolvedPostProcess(
 		{ ssrefraction: { enabled: true } },
 		"software"
 	);
 	assert.equal(software.isEnabled("ssrefraction"), false);
-	assert.ok(
-		software.getWarnings().some(
-			(warning) =>
-				warning.key === "software-postprocess-unsupported-ssrefraction"
-		)
-	);
+	assert.deepEqual(software.getWarnings(), []);
 }
 
 async function testPipelineRequiresTransmissionChannel() {
 	const pass = new ScreenSpaceRefractionsPass({ enabled: true });
 	const frameContext = createFrameContext(1);
 	const warnings = [];
-	const executor = {
-		backend: "webgpu",
-		createResource(desc) {
-			return {
-				id: desc.id,
-				backend: "webgpu",
-				width: desc.width,
-				height: desc.height,
-				format: desc.format,
-				resource: { id: desc.id },
-			};
-		},
-		destroyResource() {},
-		executePass() {
-			throw new Error("ssrefraction should not execute without transmission");
-		},
-	};
-	const pipeline = new PostProcessPipeline();
-	const result = await pipeline.execute({
+	const graph = new PostProcessGraphCompiler().compile({
 		frameContext,
-		executor,
+		backend: "webgpu",
+		postProcess: frameContext.postProcess,
 		gBuffer: createGBuffer(false),
 		warn(key, message) {
 			warnings.push({ key, message });
 		},
 	});
-	assert.deepEqual(result.executedPassIds, []);
+	assert.deepEqual(graph.passes, []);
 	assert.deepEqual(
 		warnings.map((warning) => warning.key),
 		["postprocess-requirement-missing-ssrefraction"]
@@ -212,7 +190,7 @@ function testTransientDescriptors() {
 
 testDescriptorAndOptions();
 testShouldExecuteRequiresTransmissionPackets();
-testUnsupportedBackendsWarnAndDisable();
+testUnsupportedBackendsDisableWithoutBuiltInWarning();
 await testPipelineRequiresTransmissionChannel();
 testTransientDescriptors();
 console.log("ScreenSpaceRefractionsPass tests passed");

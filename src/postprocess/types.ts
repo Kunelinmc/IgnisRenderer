@@ -1,7 +1,5 @@
-import type { PostProcessIncrementalMetadata } from "../pipeline/incremental";
 import type {
 	FrameContext,
-	FramePassStage,
 } from "../pipeline/types";
 import type {
 	PostProcessPass,
@@ -287,10 +285,6 @@ export interface IPostProcessExecutor {
 	getPassExecutionContext?(
 		request: PostProcessPassExecutionContextRequest
 	): unknown;
-	getPassWarmupContext?(
-		passId: string,
-		request: PostProcessPassWarmupRequest
-	): unknown;
 	executePass(
 		passId: string,
 		request: PostProcessPassRequest
@@ -323,19 +317,4 @@ export interface IPostProcessExecutor {
 	 * or committing temporal history.
 	 */
 	abortFrame?(request: PostProcessFrameAbortRequest): void | Promise<void>;
-}
-
-export interface PostProcessPipelineExecuteRequest {
-	readonly frameContext: FrameContext;
-	readonly executor: IPostProcessExecutor;
-	readonly gBuffer: LogicalGBufferBridge;
-	readonly startPassId?: string | null;
-	readonly historyFinalization?: "auto" | "manual";
-	readonly warn?: (key: string, message: string) => void;
-}
-
-export interface PostProcessPipelineExecuteResult {
-	readonly executedPassIds: readonly string[];
-	readonly firstStage: FramePassStage | null;
-	readonly startPassId: string | null;
 }

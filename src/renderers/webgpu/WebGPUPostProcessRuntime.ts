@@ -2,7 +2,7 @@ import type { ShaderCompileError } from "../../shaders/runtime";
 import { toShaderCompileError } from "../../pipeline/WarmupPlanner";
 import type { IWebGPUComputeFacade } from "./ComputeFacade";
 import { PostProcessSharedContext } from "./postprocess/PostProcessSharedContext";
-import { isWebGPUBuiltinPostProcessPassId } from "./WebGPUPostProcessContracts";
+import { isWebGPUReservedPostProcessPassId } from "./WebGPUPostProcessContracts";
 import type {
 	WebGPUPostProcessExecuteResult,
 	WebGPUPostProcessRuntimeExecuteRequest,
@@ -48,7 +48,7 @@ export class WebGPUPostProcessRuntime {
 	 * Throws when a custom runtime pass cannot be registered.
 	 *
 	 * @param pass Runtime pass descriptor to validate.
-	 * @throws If the id is empty, reserved by a built-in pass, or duplicated.
+	 * @throws If the id is empty, reserved by an engine pass, or duplicated.
 	 */
 	public assertCanRegisterRuntimePass(
 		pass: WebGPUPostProcessRuntimePass
@@ -70,13 +70,13 @@ export class WebGPUPostProcessRuntime {
 	 * Unregisters a custom runtime pass by id.
 	 *
 	 * @param id Runtime pass id to remove. Unknown custom ids are ignored.
-	 * @throws If `id` belongs to a built-in runtime pass.
+	 * @throws If `id` belongs to a reserved engine runtime pass.
 	 */
 	public unregisterRuntimePass(id: string): void {
 		const entry = this._runtimePassById.get(id);
-		if (isWebGPUBuiltinPostProcessPassId(id)) {
+		if (isWebGPUReservedPostProcessPassId(id)) {
 			throw new Error(
-				`Cannot unregister built-in WebGPU post-process runtime pass "${id}".`
+				`Cannot unregister reserved WebGPU post-process runtime pass "${id}".`
 			);
 		}
 		if (!entry) {
@@ -193,9 +193,9 @@ export class WebGPUPostProcessRuntime {
 		if (!pass.id) {
 			throw new Error("WebGPU post-process runtime pass id is required.");
 		}
-		if (isWebGPUBuiltinPostProcessPassId(pass.id)) {
+		if (isWebGPUReservedPostProcessPassId(pass.id)) {
 			throw new Error(
-				`Cannot register built-in WebGPU post-process runtime pass "${pass.id}".`
+				`Cannot register reserved WebGPU post-process runtime pass "${pass.id}".`
 			);
 		}
 		if (this._runtimePassById.has(pass.id)) {

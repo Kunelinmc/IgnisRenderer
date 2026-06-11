@@ -1,7 +1,4 @@
-import {
-	BUILTIN_POST_PROCESS_METADATA,
-	getBuiltinPostProcessOrderMetadata,
-} from "./builtinMetadata";
+import type { PostProcessIncrementalMetadata } from "../pipeline/incremental";
 
 export const POST_PROCESS_PLACEMENTS = [
 	"spatial",
@@ -24,12 +21,28 @@ export interface BuiltinPostProcessOrderEntry {
 	readonly order: number;
 }
 
+export interface PostProcessPassMetadata
+	extends BuiltinPostProcessOrderEntry {
+	readonly incremental: PostProcessIncrementalMetadata;
+}
+
 export const BUILTIN_POST_PROCESS_ORDER: readonly BuiltinPostProcessOrderEntry[] =
-	BUILTIN_POST_PROCESS_METADATA.map((metadata) => ({
-		id: metadata.id,
-		placement: metadata.placement,
-		order: metadata.order,
-	}));
+	[
+		{
+			id: "tonemap",
+			placement: "hdr",
+			order: 600,
+		},
+		{
+			id: "gamma",
+			placement: "present",
+			order: 900,
+		},
+	] as const;
+
+const BUILTIN_POST_PROCESS_ORDER_BY_ID = new Map(
+	BUILTIN_POST_PROCESS_ORDER.map((entry) => [entry.id, entry])
+);
 
 const CUSTOM_PLACEMENT_ORDER: Record<PostProcessPlacement, number> = {
 	spatial: 120,
@@ -52,7 +65,7 @@ const CUSTOM_PLACEMENT_ORDER: Record<PostProcessPlacement, number> = {
 export function getBuiltinPostProcessOrder(
 	id: string
 ): BuiltinPostProcessOrderEntry | null {
-	return getBuiltinPostProcessOrderMetadata(id);
+	return BUILTIN_POST_PROCESS_ORDER_BY_ID.get(id) ?? null;
 }
 
 /**

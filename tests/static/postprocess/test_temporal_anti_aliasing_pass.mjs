@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import {
 	TemporalAntiAliasingPass,
 } from "../../../src/postprocess/index.ts";
-import { PostProcessPipeline } from "../../../src/postprocess/PostProcessPipeline.ts";
+import { BackendPostProcessRuntime } from "../../../src/renderers/BackendPostProcessRuntime.ts";
 import {
 	createResolvedPostProcess,
 } from "../../helpers/postprocess.mjs";
@@ -26,6 +26,9 @@ function createSoftwareExecutor() {
 			return handle;
 		},
 		destroyResource() {},
+		createGBufferBridge(context) {
+			return createGBuffer(context);
+		},
 		getPassExecutionContext(request) {
 			if (request.passId !== "taa") {
 				return undefined;
@@ -138,16 +141,11 @@ async function testTAADescriptorAndImplementationRoute() {
 		"function"
 	);
 
-	const pipeline = new PostProcessPipeline();
 	const executor = createSoftwareExecutor();
 	const frameContext = createFrameContext();
-	const result = await pipeline.execute({
-		frameContext,
-		executor,
-		gBuffer: createGBuffer(frameContext),
-	});
+	const runtime = new BackendPostProcessRuntime({ executor });
+	await runtime.execute(frameContext);
 
-	assert.deepEqual(result.executedPassIds, ["taa"]);
 	assert.deepEqual(executor.fallbackCalls, []);
 	assert.deepEqual(
 		executor.created.map((handle) => handle.id),

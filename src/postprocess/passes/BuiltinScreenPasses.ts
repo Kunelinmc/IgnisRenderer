@@ -54,7 +54,7 @@ import {
 	type PostProcessPassConfig,
 	type PostProcessPassResolveRequest,
 } from "../PostProcessPass";
-import { getRequiredBuiltinPostProcessOrderMetadata } from "../builtinMetadata";
+import type { PostProcessPassMetadata } from "../ordering";
 import type {
 	PostProcessPassImplementation,
 	PostProcessPassRequest,
@@ -70,18 +70,66 @@ export const TONE_MAPPING_PASS_ID = "tonemap";
 export const COLOR_FILTER_PASS_ID = "color-filter";
 export const INTERACTION_OUTLINE_PASS_ID = "interaction-outline";
 export const GAMMA_PASS_ID = "gamma";
-export const MOTION_BLUR_PASS_ORDER =
-	getRequiredBuiltinPostProcessOrderMetadata(MOTION_BLUR_PASS_ID);
-export const DEPTH_OF_FIELD_PASS_ORDER =
-	getRequiredBuiltinPostProcessOrderMetadata(DEPTH_OF_FIELD_PASS_ID);
-export const TONE_MAPPING_PASS_ORDER =
-	getRequiredBuiltinPostProcessOrderMetadata(TONE_MAPPING_PASS_ID);
-export const COLOR_FILTER_PASS_ORDER =
-	getRequiredBuiltinPostProcessOrderMetadata(COLOR_FILTER_PASS_ID);
-export const INTERACTION_OUTLINE_PASS_ORDER =
-	getRequiredBuiltinPostProcessOrderMetadata(INTERACTION_OUTLINE_PASS_ID);
-export const GAMMA_PASS_ORDER =
-	getRequiredBuiltinPostProcessOrderMetadata(GAMMA_PASS_ID);
+export const MOTION_BLUR_PASS_ORDER = {
+	id: MOTION_BLUR_PASS_ID,
+	placement: "camera",
+	order: 400,
+	incremental: {
+		firstPass: "motion-blur",
+		grade: "cinematic",
+		inflationRadius: 24,
+	},
+} as const satisfies PostProcessPassMetadata;
+export const DEPTH_OF_FIELD_PASS_ORDER = {
+	id: DEPTH_OF_FIELD_PASS_ID,
+	placement: "camera",
+	order: 410,
+	incremental: {
+		firstPass: "dof",
+		grade: "cinematic",
+		inflationRadius: 32,
+	},
+} as const satisfies PostProcessPassMetadata;
+export const TONE_MAPPING_PASS_ORDER = {
+	id: TONE_MAPPING_PASS_ID,
+	placement: "hdr",
+	order: 600,
+	incremental: {
+		firstPass: "tonemap",
+		grade: "light",
+		inflationRadius: 0,
+	},
+} as const satisfies PostProcessPassMetadata;
+export const COLOR_FILTER_PASS_ORDER = {
+	id: COLOR_FILTER_PASS_ID,
+	placement: "ldr",
+	order: 700,
+	incremental: {
+		firstPass: "color-filter",
+		grade: "light",
+		inflationRadius: 2,
+	},
+} as const satisfies PostProcessPassMetadata;
+export const INTERACTION_OUTLINE_PASS_ORDER = {
+	id: INTERACTION_OUTLINE_PASS_ID,
+	placement: "overlay",
+	order: 800,
+	incremental: {
+		firstPass: "interaction-outline",
+		grade: "light",
+		inflationRadius: 2,
+	},
+} as const satisfies PostProcessPassMetadata;
+export const GAMMA_PASS_ORDER = {
+	id: GAMMA_PASS_ID,
+	placement: "present",
+	order: 900,
+	incremental: {
+		firstPass: "gamma",
+		grade: "light",
+		inflationRadius: 0,
+	},
+} as const satisfies PostProcessPassMetadata;
 
 export interface MotionBlurOptions {
 	/** Virtual shutter duration multiplier. Higher values lengthen blur trails. */
@@ -191,10 +239,12 @@ export const DEFAULT_COLOR_FILTER_OPTIONS: Required<
 	tint: 0,
 };
 
+/** @internal Software context supplied to built-in screen post-process implementations. */
 export interface SoftwareBuiltinPostProcessContext {
 	readonly canvasContext: CanvasRenderingContext2D | null;
 }
 
+/** @internal WebGPU context supplied to built-in screen post-process implementations. */
 export interface WebGPUScreenPostProcessContext {
 	readonly encoder?: ICommandEncoder;
 	readonly targets?: WebGPUPostProcessFrameTargets;
@@ -202,8 +252,10 @@ export interface WebGPUScreenPostProcessContext {
 	publishColorTarget?(texture: IRenderTexture): void;
 }
 
+/** @internal WebGPU runtime context supplied to built-in screen implementations. */
 export type WebGPURuntimePostProcessContext = WebGPUScreenPostProcessContext;
 
+/** @internal WebGPU context supplied to the built-in gamma implementation. */
 export interface WebGPUGammaContext {
 	readonly targets?: WebGPUPostProcessFrameTargets;
 	presentToCanvas?(
@@ -213,6 +265,7 @@ export interface WebGPUGammaContext {
 	warmupPresent?(): void | Promise<void>;
 }
 
+/** @internal WebGL context supplied to built-in screen post-process implementations. */
 export interface WebGLScreenPostProcessContext {
 	readonly gl: WebGL2RenderingContext;
 	readonly programs: WebGLProgramLibrary;
@@ -229,6 +282,7 @@ export interface WebGLScreenPostProcessContext {
 	publishColorTexture(texture: WebGLTexture): void;
 }
 
+/** @internal WebGL context supplied to the built-in gamma implementation. */
 export interface WebGLGammaContext {
 	readonly gl: WebGL2RenderingContext;
 	readonly programs: WebGLProgramLibrary;
@@ -240,16 +294,26 @@ export interface WebGLGammaContext {
 	markPresented(): void;
 }
 
+/** @internal WebGPU context supplied to the built-in motion blur implementation. */
 export type WebGPUMotionBlurContext = WebGPURuntimePostProcessContext;
+/** @internal WebGPU context supplied to the built-in depth-of-field implementation. */
 export type WebGPUDepthOfFieldContext = WebGPURuntimePostProcessContext;
+/** @internal WebGPU context supplied to the built-in tone mapping implementation. */
 export type WebGPUToneMappingContext = WebGPURuntimePostProcessContext;
+/** @internal WebGPU context supplied to the built-in color filter implementation. */
 export type WebGPUColorFilterContext = WebGPURuntimePostProcessContext;
+/** @internal WebGPU context supplied to the built-in interaction outline implementation. */
 export type WebGPUInteractionOutlineContext = WebGPURuntimePostProcessContext;
 
+/** @internal WebGL context supplied to the built-in motion blur implementation. */
 export type WebGLMotionBlurContext = WebGLScreenPostProcessContext;
+/** @internal WebGL context supplied to the built-in depth-of-field implementation. */
 export type WebGLDepthOfFieldContext = WebGLScreenPostProcessContext;
+/** @internal WebGL context supplied to the built-in tone mapping implementation. */
 export type WebGLToneMappingContext = WebGLScreenPostProcessContext;
+/** @internal WebGL context supplied to the built-in color filter implementation. */
 export type WebGLColorFilterContext = WebGLScreenPostProcessContext;
+/** @internal WebGL context supplied to the built-in interaction outline implementation. */
 export type WebGLInteractionOutlineContext = WebGLScreenPostProcessContext;
 
 interface IncrementalDirtyRect {
@@ -259,6 +323,7 @@ interface IncrementalDirtyRect {
 	maxY: number;
 }
 
+/** @internal Software implementation for the built-in tone mapping pass. */
 export class SoftwareToneMappingImplementation
 	implements PostProcessPassImplementation<SoftwareBuiltinPostProcessContext>
 {
@@ -292,6 +357,7 @@ export class SoftwareToneMappingImplementation
 	}
 }
 
+/** @internal Software implementation for the built-in color filter pass. */
 export class SoftwareColorFilterImplementation
 	implements PostProcessPassImplementation<SoftwareBuiltinPostProcessContext>
 {
@@ -355,6 +421,7 @@ export class SoftwareColorFilterImplementation
 	}
 }
 
+/** @internal Software implementation for the built-in interaction outline pass. */
 export class SoftwareInteractionOutlineImplementation
 	implements PostProcessPassImplementation<SoftwareBuiltinPostProcessContext>
 {
@@ -437,6 +504,7 @@ export class SoftwareInteractionOutlineImplementation
 	}
 }
 
+/** @internal Software implementation for the built-in gamma pass. */
 export class SoftwareGammaImplementation
 	implements PostProcessPassImplementation<SoftwareBuiltinPostProcessContext>
 {
@@ -544,6 +612,7 @@ interface WebGPUInteractionOutlineResources {
 	paramWriter: ReturnType<typeof INTERACTION_OUTLINE_LAYOUT.createWriter>;
 }
 
+/** @internal WebGPU implementation for the built-in motion blur pass. */
 export class WebGPUMotionBlurImplementation
 	implements PostProcessPassImplementation<WebGPUMotionBlurContext, MotionBlurOptions>
 {
@@ -735,6 +804,7 @@ export class WebGPUMotionBlurImplementation
 	}
 }
 
+/** @internal WebGPU implementation for the built-in depth-of-field pass. */
 export class WebGPUDepthOfFieldImplementation
 	implements PostProcessPassImplementation<WebGPUDepthOfFieldContext, DOFOptions>
 {
@@ -931,6 +1001,7 @@ export class WebGPUDepthOfFieldImplementation
 	}
 }
 
+/** @internal WebGPU implementation for the built-in tone mapping pass. */
 export class WebGPUToneMappingImplementation
 	implements PostProcessPassImplementation<WebGPUToneMappingContext, EmptyOptions>
 {
@@ -1053,6 +1124,7 @@ export class WebGPUToneMappingImplementation
 	}
 }
 
+/** @internal WebGPU implementation for the built-in color filter pass. */
 export class WebGPUColorFilterImplementation
 	implements PostProcessPassImplementation<WebGPUColorFilterContext, ColorFilterOptions>
 {
@@ -1230,6 +1302,7 @@ export class WebGPUColorFilterImplementation
 	}
 }
 
+/** @internal WebGPU implementation for the built-in interaction outline pass. */
 export class WebGPUInteractionOutlineImplementation
 	implements PostProcessPassImplementation<WebGPUInteractionOutlineContext, EmptyOptions>
 {
@@ -1437,6 +1510,7 @@ export class WebGPUInteractionOutlineImplementation
 	}
 }
 
+/** @internal WebGPU implementation for the built-in gamma pass. */
 export class WebGPUGammaImplementation
 	implements PostProcessPassImplementation<WebGPUGammaContext, EmptyOptions>
 {
@@ -1465,6 +1539,7 @@ export class WebGPUGammaImplementation
 	}
 }
 
+/** @internal WebGL implementation for the built-in motion blur pass. */
 export class WebGLMotionBlurImplementation
 	implements PostProcessPassImplementation<WebGLMotionBlurContext, MotionBlurOptions>
 {
@@ -1557,6 +1632,7 @@ export class WebGLMotionBlurImplementation
 	}
 }
 
+/** @internal WebGL implementation for the built-in depth-of-field pass. */
 export class WebGLDepthOfFieldImplementation
 	implements PostProcessPassImplementation<WebGLDepthOfFieldContext, DOFOptions>
 {
@@ -1675,6 +1751,7 @@ export class WebGLDepthOfFieldImplementation
 	}
 }
 
+/** @internal WebGL implementation for the built-in tone mapping pass. */
 export class WebGLToneMappingImplementation
 	implements PostProcessPassImplementation<WebGLToneMappingContext, EmptyOptions>
 {
@@ -1710,6 +1787,7 @@ export class WebGLToneMappingImplementation
 	}
 }
 
+/** @internal WebGL implementation for the built-in color filter pass. */
 export class WebGLColorFilterImplementation
 	implements PostProcessPassImplementation<WebGLColorFilterContext, ColorFilterOptions>
 {
@@ -1789,6 +1867,7 @@ export class WebGLColorFilterImplementation
 	}
 }
 
+/** @internal WebGL implementation for the built-in interaction outline pass. */
 export class WebGLInteractionOutlineImplementation
 	implements PostProcessPassImplementation<WebGLInteractionOutlineContext, EmptyOptions>
 {
@@ -1894,6 +1973,7 @@ export class WebGLInteractionOutlineImplementation
 	}
 }
 
+/** @internal WebGL implementation for the built-in gamma pass. */
 export class WebGLGammaImplementation
 	implements PostProcessPassImplementation<WebGLGammaContext, EmptyOptions>
 {
@@ -1963,7 +2043,7 @@ export class MotionBlurPass extends PostProcessPass<
 		super({
 			...config,
 			...MOTION_BLUR_PASS_ORDER,
-			builtIn: true,
+			incremental: config.incremental ?? MOTION_BLUR_PASS_ORDER.incremental,
 			warningLabel: "motion blur",
 			implementations: {
 				webgpu: new WebGPUMotionBlurImplementation(),
@@ -2003,7 +2083,7 @@ export class DepthOfFieldPass extends PostProcessPass<DOFOptions, DOFOptions> {
 		super({
 			...config,
 			...DEPTH_OF_FIELD_PASS_ORDER,
-			builtIn: true,
+			incremental: config.incremental ?? DEPTH_OF_FIELD_PASS_ORDER.incremental,
 			warningLabel: "depth of field",
 			implementations: {
 				webgpu: new WebGPUDepthOfFieldImplementation(),
@@ -2042,6 +2122,7 @@ export class ToneMappingPass extends PostProcessPass<EmptyOptions, EmptyOptions>
 		super({
 			...config,
 			...TONE_MAPPING_PASS_ORDER,
+			incremental: config.incremental ?? TONE_MAPPING_PASS_ORDER.incremental,
 			builtIn: true,
 			warningLabel: "tone mapping",
 			implementations: {
@@ -2075,7 +2156,7 @@ export class ColorFilterPass extends PostProcessPass<
 		super({
 			...config,
 			...COLOR_FILTER_PASS_ORDER,
-			builtIn: true,
+			incremental: config.incremental ?? COLOR_FILTER_PASS_ORDER.incremental,
 			warningLabel: "color filter",
 			implementations: {
 				software: new SoftwareColorFilterImplementation(),
@@ -2114,7 +2195,8 @@ export class InteractionOutlinePass extends PostProcessPass<
 		super({
 			...config,
 			...INTERACTION_OUTLINE_PASS_ORDER,
-			builtIn: true,
+			incremental:
+				config.incremental ?? INTERACTION_OUTLINE_PASS_ORDER.incremental,
 			warningLabel: "interaction outline",
 			implementations: {
 				software: new SoftwareInteractionOutlineImplementation(),
@@ -2155,6 +2237,7 @@ export class GammaPass extends PostProcessPass<EmptyOptions, EmptyOptions> {
 		super({
 			...config,
 			...GAMMA_PASS_ORDER,
+			incremental: config.incremental ?? GAMMA_PASS_ORDER.incremental,
 			builtIn: true,
 			warningLabel: "gamma correction",
 			implementations: {

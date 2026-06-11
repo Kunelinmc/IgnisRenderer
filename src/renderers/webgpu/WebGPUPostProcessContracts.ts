@@ -1,10 +1,13 @@
 import type { IRenderTexture } from "../types";
 import type { WebGPUPostProcessPassId } from "./postprocess/types";
 
+/** @internal WebGPU pass-owned implementation context metadata. */
 export type WebGPUPostProcessContextKind = "screen" | "present";
 
+/** @internal WebGPU pass-owned implementation history binding side. */
 export type WebGPUPostProcessHistorySide = "read" | "write";
 
+/** @internal WebGPU pass-owned implementation history binding metadata. */
 export interface WebGPUPostProcessHistoryBindingMetadata {
 	/**
 	 * Context property that receives the resolved history texture.
@@ -30,6 +33,7 @@ export interface WebGPUPostProcessHistoryBindingMetadata {
 	readonly side: WebGPUPostProcessHistorySide;
 }
 
+/** @internal WebGPU pass-owned implementation motion-history copy metadata. */
 export interface WebGPUPostProcessMotionHistoryCopyMetadata {
 	/**
 	 * Context property containing the writable motion-history texture.
@@ -48,6 +52,7 @@ export interface WebGPUPostProcessMotionHistoryCopyMetadata {
 	readonly method?: string;
 }
 
+/** @internal WebGPU pass-owned implementation transient binding metadata. */
 export interface WebGPUPostProcessTransientBindingMetadata {
 	/**
 	 * Context property that receives the resolved transient texture.
@@ -65,6 +70,7 @@ export interface WebGPUPostProcessTransientBindingMetadata {
 	readonly transientId: string;
 }
 
+/** @internal WebGPU pass-owned implementation context metadata. */
 export interface WebGPUPostProcessContextMetadata {
 	/**
 	 * Backend that owns this context metadata.
@@ -127,12 +133,14 @@ export interface WebGPUPostProcessContextMetadata {
 	readonly motionHistoryCopy?: WebGPUPostProcessMotionHistoryCopyMetadata;
 }
 
+/** @internal WebGPU screen-pass implementation context metadata. */
 export const WEBGPU_SCREEN_POST_PROCESS_CONTEXT_METADATA = {
 	backend: "webgpu",
 	kind: "screen",
 	publishColorTarget: true,
 } as const satisfies WebGPUPostProcessContextMetadata;
 
+/** @internal WebGPU present-pass implementation context metadata. */
 export const WEBGPU_PRESENT_POST_PROCESS_CONTEXT_METADATA = {
 	backend: "webgpu",
 	kind: "present",
@@ -140,6 +148,8 @@ export const WEBGPU_PRESENT_POST_PROCESS_CONTEXT_METADATA = {
 
 /**
  * Returns whether a context metadata value is owned by the WebGPU backend.
+ *
+ * @internal Used by WebGPU pass-owned implementation context packing.
  *
  * @param value Candidate implementation metadata context.
  * @returns `true` when WebGPU can pack the declared context.
@@ -158,11 +168,11 @@ export function isWebGPUPostProcessContextMetadata(
 	);
 }
 
-export type WebGPUBuiltinPostProcessPassId =
+export type WebGPUReservedPostProcessPassId =
 	| WebGPUPostProcessPassId
 	| "gamma";
 
-const WEBGPU_BUILTIN_POST_PROCESS_PASS_ID_SET = new Set<string>([
+const WEBGPU_RESERVED_POST_PROCESS_PASS_ID_SET = new Set<string>([
 	"ssao",
 	"ssgi",
 	"taa",
@@ -181,15 +191,17 @@ const WEBGPU_BUILTIN_POST_PROCESS_PASS_ID_SET = new Set<string>([
 ]);
 
 /**
- * Returns whether `id` is reserved by a built-in WebGPU post-process pass.
+ * Returns whether `id` is reserved by an engine-provided WebGPU
+ * post-process pass.
  *
  * @param id Candidate runtime pass id.
  * @returns `true` when the id cannot be used by custom post-process passes.
  */
-export function isWebGPUBuiltinPostProcessPassId(id: string): boolean {
-	return WEBGPU_BUILTIN_POST_PROCESS_PASS_ID_SET.has(id);
+export function isWebGPUReservedPostProcessPassId(id: string): boolean {
+	return WEBGPU_RESERVED_POST_PROCESS_PASS_ID_SET.has(id);
 }
 
+/** @internal WebGPU frame target set exposed to pass-owned implementations. */
 export interface WebGPUFrameTargets {
 	sceneColor: IRenderTexture;
 	sceneColorMain: IRenderTexture;
@@ -219,4 +231,5 @@ export interface WebGPUFrameTargets {
 	planarReflectionMask?: IRenderTexture | null;
 }
 
+/** @internal Read-only WebGPU frame target view for pass-owned implementations. */
 export type WebGPUPostProcessFrameTargets = Readonly<WebGPUFrameTargets>;

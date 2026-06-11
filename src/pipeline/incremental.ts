@@ -4,12 +4,10 @@ import {
 } from "./types";
 import {
 	getEnabledCustomPostProcessPassIds,
-	isFogPostProcessEnabled,
 	type PostProcessPass,
 	type PostProcessPassId,
 	type ResolvedPostProcessState,
 } from "../postprocess";
-import { BUILTIN_POST_PROCESS_METADATA } from "../postprocess/builtinMetadata";
 
 export const RENDER_DIRTY_REASON_MASK = {
 	unknown: 1 << 0,
@@ -160,6 +158,7 @@ export interface PostProcessIncrementalMetadata {
 	readonly grade?: PostProcessGrade;
 	readonly inflationRadius?: number;
 	readonly fallbackScale?: number;
+	readonly isEnabled?: (postProcess: ResolvedPostProcessState) => boolean;
 }
 
 interface RegisteredDirtyReasonDescriptor
@@ -175,7 +174,9 @@ interface RegisteredFramePassDescriptor extends IncrementalFramePassDescriptor {
 }
 
 interface RegisteredPostProcessIncrementalMetadata
-	extends Required<Omit<PostProcessIncrementalMetadata, "firstPass">> {
+	extends Required<
+		Omit<PostProcessIncrementalMetadata, "firstPass" | "isEnabled">
+	> {
 	readonly id: string;
 	readonly firstPass: FramePassStage | null;
 	readonly order: number;
@@ -188,7 +189,7 @@ interface DirtyReasonSeed extends IncrementalDirtyReasonDescriptor {
 }
 
 interface PostProcessIncrementalSeed
-	extends Omit<PostProcessIncrementalMetadata, "firstPass"> {
+	extends Omit<PostProcessIncrementalMetadata, "firstPass" | "isEnabled"> {
 	readonly id: PostProcessPassId;
 	readonly firstPass: PostProcessStage | null;
 	readonly order: number;
@@ -353,20 +354,22 @@ const DIRTY_REASON_SEEDS: readonly DirtyReasonSeed[] = [
 	},
 ];
 
-const POST_PROCESS_INCREMENTAL_SEEDS: readonly PostProcessIncrementalSeed[] =
-	BUILTIN_POST_PROCESS_METADATA.map((metadata, order) => ({
-		id: metadata.id,
-		order,
-		firstPass: metadata.incremental.firstPass,
-		grade: metadata.incremental.grade,
-		inflationRadius: metadata.incremental.inflationRadius,
-		...(metadata.incremental.fallbackScale === undefined ?
-			{}
-		:	{ fallbackScale: metadata.incremental.fallbackScale }),
-		...(metadata.incremental.enabledPredicate === "fog-postprocess" ?
-			{ isEnabled: isFogPostProcessEnabled }
-		:	{}),
-	}));
+const POST_PROCESS_INCREMENTAL_SEEDS: readonly PostProcessIncrementalSeed[] = [
+	{
+		id: "tonemap",
+		order: 600,
+		firstPass: "tonemap",
+		grade: "light",
+		inflationRadius: 0,
+	},
+	{
+		id: "gamma",
+		order: 900,
+		firstPass: "gamma",
+		grade: "light",
+		inflationRadius: 0,
+	},
+] as const;
 
 const POST_PROCESS_GRADE_INDEX: Record<PostProcessGrade, number> = {
 	none: 0,
@@ -376,7 +379,7 @@ const POST_PROCESS_GRADE_INDEX: Record<PostProcessGrade, number> = {
 };
 
 const DEFAULT_CUSTOM_POST_PROCESS_INCREMENTAL_METADATA: Required<
-	Omit<PostProcessIncrementalMetadata, "firstPass">
+	Omit<PostProcessIncrementalMetadata, "firstPass" | "isEnabled">
 > & {
 	firstPass: null;
 } = {
@@ -394,7 +397,7 @@ export class IncrementalRegistry {
 		new Map<string, RegisteredPostProcessIncrementalMetadata>();
 	private _nextCustomDirtyReasonBit = 19;
 	private _nextFramePassOrder = 0;
-	private _nextPostProcessOrder = POST_PROCESS_INCREMENTAL_SEEDS.length;
+	private _nextPostProcessOrder = 0;
 
 	constructor() {
 		for (const descriptor of DIRTY_REASON_SEEDS) {
@@ -565,7 +568,8 @@ export class IncrementalRegistry {
 	/**
 	 * Registers incremental metadata for a logical post-process pass.
 	 *
-	 * @param pass Pass instance whose `builtIn` flag controls ownership.
+	 * @param pass Pass instance. Renderer-default built-ins cannot be removed;
+	 * manually registered passes can be removed.
 	 * @param metadata Optional incremental metadata override.
 	 * @returns Nothing.
 	 * @sideEffects Mutates post-process incremental planning metadata.
@@ -594,7 +598,11 @@ export class IncrementalRegistry {
 		const passMetadata =
 			typeof passOrId === "string" ?
 				metadata ?? {}
-			:	(metadata ?? passOrId.incremental ?? {});
+			:	{
+					...(passOrId.order === undefined ? {} : { order: passOrId.order }),
+					...(passOrId.incremental ?? {}),
+					...(metadata ?? {}),
+				};
 		const builtIn =
 			typeof passOrId === "string" ? false : passOrId.builtIn === true;
 		const current = this._postProcessPasses.get(id);
@@ -602,6 +610,17 @@ export class IncrementalRegistry {
 			throw new Error(
 				`Cannot register built-in post-process incremental metadata "${id}".`
 			);
+		}
+		if (
+			current &&
+			!current.builtIn &&
+			!builtIn &&
+			metadata === undefined &&
+			typeof passOrId !== "string" &&
+			passOrId.incremental === undefined &&
+			passOrId.order === undefined
+		) {
+			return;
 		}
 		if (
 			current?.builtIn &&
@@ -629,7 +648,7 @@ export class IncrementalRegistry {
 	}
 
 	/**
-	 * Returns whether an id is known as a built-in or registered custom
+	 * Returns whether an id is known as a default built-in or registered manual
 	 * post-process pass for incremental planning.
 	 *
 	 * @param id Candidate post-process pass id.
@@ -1336,10 +1355,10 @@ function resolveDirtyReasonFirstPass(
 				return null;
 			}
 			case "interaction":
-				if (isBuiltInPostProcessStage(
-					"interaction-outline",
-					input.postProcess
-				)) {
+				if (
+					input.postProcess.isEnabled("interaction-outline") &&
+					registry.isPostProcessPass("interaction-outline", input.postProcess)
+				) {
 					return "interaction-outline";
 				}
 				return null;

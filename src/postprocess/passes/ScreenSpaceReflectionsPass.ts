@@ -20,7 +20,7 @@ import {
 	type PostProcessPassConfig,
 	type PostProcessPassResolveRequest,
 } from "../PostProcessPass";
-import { getRequiredBuiltinPostProcessOrderMetadata } from "../builtinMetadata";
+import type { PostProcessPassMetadata } from "../ordering";
 import type {
 	PostProcessHistoryDescriptor,
 	PostProcessHistorySlots,
@@ -34,8 +34,16 @@ import type {
 const DEFAULT_HISTORY_USAGE = ["sampled", "storage", "render-target"] as const;
 const MOTION_HISTORY_USAGE = ["sampled", "copy-dst", "render-target"] as const;
 export const SCREEN_SPACE_REFLECTIONS_PASS_ID = "ssr";
-export const SCREEN_SPACE_REFLECTIONS_PASS_ORDER =
-	getRequiredBuiltinPostProcessOrderMetadata(SCREEN_SPACE_REFLECTIONS_PASS_ID);
+export const SCREEN_SPACE_REFLECTIONS_PASS_ORDER = {
+	id: SCREEN_SPACE_REFLECTIONS_PASS_ID,
+	placement: "temporal",
+	order: 210,
+	incremental: {
+		firstPass: "ssr",
+		grade: "cinematic",
+		inflationRadius: 16,
+	},
+} as const satisfies PostProcessPassMetadata;
 const WEBGPU_SSR_RAW_TRANSIENT_ID = "ssr:raw";
 const WEBGPU_HIZ_TRANSIENT_ID = "hiz";
 const WEBGPU_HIZ_TRANSIENT_USAGE = ["sampled", "storage"] as const;
@@ -108,6 +116,7 @@ export type ResolvedSSROptions = Required<
 	>
 >;
 
+/** @internal WebGPU context supplied to the built-in SSR implementation. */
 export interface WebGPUSSRContext {
 	readonly encoder?: ICommandEncoder;
 	readonly targets?: WebGPUPostProcessFrameTargets;
@@ -245,6 +254,7 @@ export function resolveSSRHistoryDescriptors(
 /**
  * WebGPU implementation of the cross-backend screen-space reflections pass.
  */
+/** @internal WebGPU implementation for the built-in SSR pass. */
 export class WebGPUScreenSpaceReflectionsImplementation
 	implements PostProcessPassImplementation<WebGPUSSRContext>
 {
@@ -659,7 +669,8 @@ export class ScreenSpaceReflectionsPass extends PostProcessPass<
 		super({
 			...config,
 			...SCREEN_SPACE_REFLECTIONS_PASS_ORDER,
-			builtIn: true,
+			incremental:
+				config.incremental ?? SCREEN_SPACE_REFLECTIONS_PASS_ORDER.incremental,
 			warningLabel: "SSR",
 			implementations: {
 				webgpu: new WebGPUScreenSpaceReflectionsImplementation(),

@@ -5,8 +5,8 @@ import {
 	createSSGIKernelParams,
 	resolveSSGIOptions,
 } from "../../../src/postprocess/index.ts";
-import { PostProcessPipeline } from "../../../src/postprocess/PostProcessPipeline.ts";
 import { CameraType } from "../../../src/cameras/Camera.ts";
+import { BackendPostProcessRuntime } from "../../../src/renderers/BackendPostProcessRuntime.ts";
 import { WebGPUPostProcessRuntime } from "../../../src/renderers/webgpu/WebGPUPostProcessRuntime.ts";
 import {
 	FakeBackend,
@@ -223,6 +223,7 @@ async function testSSGIPipelineUsesWebGPUImplementation() {
 	const executor = {
 		backend: "webgpu",
 		fallbackCalls: [],
+		endFrames: [],
 		createResource(desc) {
 			return {
 				id: desc.id,
@@ -234,6 +235,9 @@ async function testSSGIPipelineUsesWebGPUImplementation() {
 			};
 		},
 		destroyResource() {},
+		createGBufferBridge() {
+			return createWebGPUGBuffer();
+		},
 		getPassExecutionContext(request) {
 			if (request.passId !== "ssgi") {
 				return undefined;
@@ -251,15 +255,14 @@ async function testSSGIPipelineUsesWebGPUImplementation() {
 			this.fallbackCalls.push(passId);
 			return { ran: true };
 		},
+		endFrame(request) {
+			this.endFrames.push(request);
+		},
 	};
-	const pipeline = new PostProcessPipeline();
-	const result = await pipeline.execute({
-		frameContext,
-		executor,
-		gBuffer: createWebGPUGBuffer(),
-	});
+	const runtimeBridge = new BackendPostProcessRuntime({ executor });
+	await runtimeBridge.execute(frameContext);
 
-	assert.deepEqual(result.executedPassIds, ["ssgi"]);
+	assert.deepEqual(executor.endFrames.at(-1).executedPassIds, ["ssgi"]);
 	assert.deepEqual(executor.fallbackCalls, []);
 	assert.deepEqual(encoder.calls.slice(0, 2), [
 		["beginComputePass", "WebGPUSSGI"],

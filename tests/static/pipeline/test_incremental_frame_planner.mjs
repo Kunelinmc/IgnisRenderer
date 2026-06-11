@@ -9,7 +9,10 @@ import {
 	PostProcessPass,
 	PostProcessPassRegistry,
 } from "../../../src/postprocess/index.ts";
-import { createResolvedPostProcess } from "../../helpers/postprocess.mjs";
+import {
+	createPostProcessRegistryFromRequest,
+	createResolvedPostProcess,
+} from "../../helpers/postprocess.mjs";
 
 class TestBuiltInPostProcessPass extends PostProcessPass {
 	constructor() {
@@ -41,6 +44,21 @@ function createPostProcess(overrides = {}) {
 	return createResolvedPostProcess(overrides, "test");
 }
 
+function createRegisteredPostProcess(overrides = {}) {
+	const postProcessRegistry = createPostProcessRegistryFromRequest(
+		overrides,
+		"test"
+	);
+	const registry = new IncrementalRegistry();
+	for (const pass of postProcessRegistry.getPasses()) {
+		registry.registerPostProcessPass(pass);
+	}
+	return {
+		postProcess: postProcessRegistry.createSnapshot("test"),
+		registry,
+	};
+}
+
 function testNoDirtyReasonsReturnsNoPass() {
 	const plan = IncrementalFramePlanner.plan({
 		enabled: true,
@@ -55,13 +73,15 @@ function testNoDirtyReasonsReturnsNoPass() {
 }
 
 function testInteractionStartsAtInteractionOutline() {
+	const registered = createRegisteredPostProcess({
+		"interaction-outline": { enabled: true },
+	});
 	const plan = IncrementalFramePlanner.plan({
 		enabled: true,
 		reasonMask: renderDirtyReasonToMask("interaction"),
 		features: createFeatures(),
-		postProcess: createPostProcess({
-			"interaction-outline": { enabled: true },
-		}),
+		postProcess: registered.postProcess,
+		registry: registered.registry,
 	});
 	assert.equal(plan.firstPass, "postprocess");
 	assert.equal(plan.postProcessStartPass, "interaction-outline");
@@ -82,14 +102,16 @@ function testParticlesStartAtParticleSim() {
 }
 
 function testPostFxStartsAtFirstEnabledPostStage() {
+	const registered = createRegisteredPostProcess({
+		bloom: { enabled: true },
+		fxaa: { enabled: true },
+	});
 	const plan = IncrementalFramePlanner.plan({
 		enabled: true,
 		reasonMask: renderDirtyReasonToMask("postfx"),
 		features: createFeatures(),
-		postProcess: createPostProcess({
-			bloom: { enabled: true },
-			fxaa: { enabled: true },
-		}),
+		postProcess: registered.postProcess,
+		registry: registered.registry,
 	});
 	assert.equal(plan.firstPass, "postprocess");
 	assert.equal(plan.postProcessStartPass, "bloom");
@@ -117,87 +139,97 @@ function testBuiltInPostProcessStageUsesPassMetadata() {
 }
 
 function testPostFxStandardReasonStartsAtEarliestEnabledPostStage() {
+	const registered = createRegisteredPostProcess({
+		ssao: { enabled: true },
+		bloom: { enabled: true },
+		fxaa: { enabled: true },
+	});
 	const plan = IncrementalFramePlanner.plan({
 		enabled: true,
 		reasonMask: renderDirtyReasonToMask("postfx-standard"),
 		features: createFeatures(),
-		postProcess: createPostProcess({
-			ssao: { enabled: true },
-			bloom: { enabled: true },
-			fxaa: { enabled: true },
-		}),
+		postProcess: registered.postProcess,
+		registry: registered.registry,
 	});
 	assert.equal(plan.firstPass, "postprocess");
 	assert.equal(plan.postProcessStartPass, "ssao");
 }
 
 function testPostFxStartsAtFogWhenOnlyFogPostProcessEnabled() {
+	const registered = createRegisteredPostProcess({
+		fog: {
+			enabled: true,
+			options: {
+				application: "postprocess",
+			},
+		},
+		fxaa: { enabled: true },
+	});
 	const plan = IncrementalFramePlanner.plan({
 		enabled: true,
 		reasonMask: renderDirtyReasonToMask("postfx"),
 		features: createFeatures(),
-		postProcess: createPostProcess({
-			fog: {
-				enabled: true,
-				options: {
-					application: "postprocess",
-				},
-			},
-			fxaa: { enabled: true },
-		}),
+		postProcess: registered.postProcess,
+		registry: registered.registry,
 	});
 	assert.equal(plan.firstPass, "postprocess");
 	assert.equal(plan.postProcessStartPass, "fog");
 }
 
 function testPostFxSkipsFogInSceneMode() {
+	const registered = createRegisteredPostProcess({
+		fog: {
+			enabled: true,
+			options: {
+				application: "scene",
+			},
+		},
+		fxaa: { enabled: true },
+	});
 	const plan = IncrementalFramePlanner.plan({
 		enabled: true,
 		reasonMask: renderDirtyReasonToMask("postfx"),
 		features: createFeatures(),
-		postProcess: createPostProcess({
-			fog: {
-				enabled: true,
-				options: {
-					application: "scene",
-				},
-			},
-			fxaa: { enabled: true },
-		}),
+		postProcess: registered.postProcess,
+		registry: registered.registry,
 	});
 	assert.equal(plan.firstPass, "postprocess");
 	assert.equal(plan.postProcessStartPass, "fxaa");
 }
 
 function testPostFxSkipsToneMappingWhenDisabled() {
+	const registered = createRegisteredPostProcess({
+		fog: {
+			enabled: true,
+			options: {
+				application: "scene",
+			},
+		},
+		tonemap: { enabled: false },
+		fxaa: { enabled: true },
+	});
 	const plan = IncrementalFramePlanner.plan({
 		enabled: true,
 		reasonMask: renderDirtyReasonToMask("postfx"),
 		features: createFeatures(),
-		postProcess: createPostProcess({
-			fog: {
-				enabled: true,
-				options: {
-					application: "scene",
-				},
-			},
-			tonemap: { enabled: false },
-			fxaa: { enabled: true },
-		}),
+		postProcess: registered.postProcess,
+		registry: registered.registry,
 	});
 	assert.equal(plan.firstPass, "postprocess");
 	assert.equal(plan.postProcessStartPass, "fxaa");
 }
 
 function testPostFxCinematicReasonResetsTemporalHistory() {
+	const registered = createRegisteredPostProcess({
+		taa: { enabled: true },
+		fxaa: { enabled: true },
+	});
 	const plan = IncrementalFramePlanner.plan({
 		enabled: true,
 		reasonMask: renderDirtyReasonToMask("postfx-cinematic"),
 		features: createFeatures(),
-		postProcess: createPostProcess({
-			taa: { enabled: true },
-			fxaa: { enabled: true },
-		}),
+		postProcess: registered.postProcess,
+		registry: registered.registry,
 	});
 	assert.equal(plan.firstPass, "postprocess");
 	assert.equal(plan.postProcessStartPass, "taa");

@@ -5,10 +5,10 @@ import {
 	resolvePostProcessGrade,
 	scaleFullFrameFallbackAreaRatioForPostProcess,
 } from "../../../src/pipeline/incremental.ts";
-import { createResolvedPostProcess } from "../../helpers/postprocess.mjs";
+import { createPostProcessRegistryFromRequest } from "../../helpers/postprocess.mjs";
 
 function createPostProcess(overrides = {}) {
-	return createResolvedPostProcess(
+	const registry = createPostProcessRegistryFromRequest(
 		{
 			tonemap: { enabled: false },
 			"interaction-outline": { enabled: false },
@@ -17,6 +17,11 @@ function createPostProcess(overrides = {}) {
 		},
 		"test"
 	);
+	const incremental = getDefaultIncrementalRegistry();
+	for (const pass of registry.getPasses()) {
+		incremental.registerPostProcessPass(pass);
+	}
+	return registry.createSnapshot("test");
 }
 
 function enable(id, options) {
@@ -98,7 +103,7 @@ function testScaleFullFrameFallbackAreaRatioForPostProcess() {
 	assert.equal(cinematicRatio, 0.24);
 }
 
-function testScreenSpaceRefractionUsesBuiltinIncrementalMetadata() {
+function testScreenSpaceRefractionUsesRegisteredIncrementalMetadata() {
 	const registry = getDefaultIncrementalRegistry();
 	const postProcess = createPostProcess(enable("ssrefraction"));
 	assert.equal(resolvePostProcessGrade(postProcess), "cinematic");
@@ -144,7 +149,7 @@ function run() {
 	testResolvePostProcessGrade();
 	testComputePostProcessInflationRadius();
 	testScaleFullFrameFallbackAreaRatioForPostProcess();
-	testScreenSpaceRefractionUsesBuiltinIncrementalMetadata();
+	testScreenSpaceRefractionUsesRegisteredIncrementalMetadata();
 	testCustomPostProcessDefaultIncrementalMetadata();
 	testCustomPostProcessIncrementalMetadataOverride();
 	console.log("Incremental postfx grading tests passed");

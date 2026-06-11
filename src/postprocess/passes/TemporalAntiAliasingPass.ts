@@ -26,7 +26,7 @@ import {
 } from "../../maths/Misc";
 import { ShaderSource } from "../../shaders/ShaderSource";
 import { PostProcessPass, type PostProcessPassConfig } from "../PostProcessPass";
-import { getRequiredBuiltinPostProcessOrderMetadata } from "../builtinMetadata";
+import type { PostProcessPassMetadata } from "../ordering";
 import type {
 	PostProcessHistoryDescriptor,
 	PostProcessPassImplementation,
@@ -38,8 +38,16 @@ import type {
 
 const DEFAULT_HISTORY_USAGE = ["sampled", "storage", "render-target"] as const;
 export const TEMPORAL_ANTI_ALIASING_PASS_ID = "taa";
-export const TEMPORAL_ANTI_ALIASING_PASS_ORDER =
-	getRequiredBuiltinPostProcessOrderMetadata(TEMPORAL_ANTI_ALIASING_PASS_ID);
+export const TEMPORAL_ANTI_ALIASING_PASS_ORDER = {
+	id: TEMPORAL_ANTI_ALIASING_PASS_ID,
+	placement: "temporal",
+	order: 200,
+	incremental: {
+		firstPass: "taa",
+		grade: "cinematic",
+		inflationRadius: 8,
+	},
+} as const satisfies PostProcessPassMetadata;
 
 export const TAA_HISTORY_WEIGHT_RANGE: [number, number] = [0, 0.99];
 export const TAA_DEPTH_THRESHOLD_RANGE: [number, number] = [1e-4, 1];
@@ -106,10 +114,12 @@ export interface SoftwareTAARenderState extends TemporalJitterFrameState {
 export const SOFTWARE_TAA_RENDER_STATE_KEY =
 	defineTransientKey<SoftwareTAARenderState>("postprocess:taa-software-state");
 
+/** @internal Software context supplied to the built-in TAA implementation. */
 export interface SoftwareTAAContext {
 	readonly attachments: FrameAttachments;
 }
 
+/** @internal WebGPU context supplied to the built-in TAA implementation. */
 export interface WebGPUTAAContext {
 	readonly encoder: ICommandEncoder;
 	readonly targets: WebGPUPostProcessFrameTargets;
@@ -122,6 +132,7 @@ export interface WebGPUTAAContext {
 	writeMotionHistoryFromCurrent(): void | Promise<void>;
 }
 
+/** @internal WebGL context supplied to the built-in TAA implementation. */
 export interface WebGLTAAContext {
 	readonly gl: WebGL2RenderingContext;
 	readonly programs: WebGLProgramLibrary;
@@ -259,6 +270,7 @@ export function createTAAKernelParams(
 /**
  * CPU implementation of the cross-backend temporal anti-aliasing pass.
  */
+/** @internal Software implementation for the built-in TAA pass. */
 export class SoftwareTemporalAntiAliasingImplementation
 	implements PostProcessPassImplementation<SoftwareTAAContext>
 {
@@ -429,6 +441,7 @@ export class SoftwareTemporalAntiAliasingImplementation
 /**
  * WebGPU implementation of the cross-backend temporal anti-aliasing pass.
  */
+/** @internal WebGPU implementation for the built-in TAA pass. */
 export class WebGPUTemporalAntiAliasingImplementation
 	implements PostProcessPassImplementation<WebGPUTAAContext>
 {
@@ -606,6 +619,7 @@ export class WebGPUTemporalAntiAliasingImplementation
 /**
  * WebGL implementation of the cross-backend temporal anti-aliasing pass.
  */
+/** @internal WebGL implementation for the built-in TAA pass. */
 export class WebGLTemporalAntiAliasingImplementation
 	implements PostProcessPassImplementation<WebGLTAAContext>
 {
@@ -788,7 +802,8 @@ export class TemporalAntiAliasingPass extends PostProcessPass<
 		super({
 			...config,
 			...TEMPORAL_ANTI_ALIASING_PASS_ORDER,
-			builtIn: true,
+			incremental:
+				config.incremental ?? TEMPORAL_ANTI_ALIASING_PASS_ORDER.incremental,
 			warningLabel: "TAA",
 			implementations: {
 				software: new SoftwareTemporalAntiAliasingImplementation(),

@@ -117,7 +117,7 @@ import type {
 	WebGLMotionBlurContext,
 	WebGLScreenPostProcessContext,
 	WebGLToneMappingContext,
-} from "../../postprocess/passes/BuiltinFallbackPasses";
+} from "../../postprocess/passes/BuiltinScreenPasses";
 import {
 	resolveMaterialUniforms,
 	resolveTextureUVTransform,
@@ -574,9 +574,6 @@ export class WebGLFrameExecutor {
 	public getPassExecutionContext(
 		request: PostProcessPassExecutionContextRequest
 	): unknown {
-		if (!request.pass.builtIn) {
-			return undefined;
-		}
 		switch (request.passId) {
 			case "motion-blur": {
 				const context: WebGLMotionBlurContext =

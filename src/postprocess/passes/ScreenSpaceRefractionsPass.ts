@@ -20,7 +20,7 @@ import {
 	type PostProcessPassConfig,
 	type PostProcessPassResolveRequest,
 } from "../PostProcessPass";
-import { getRequiredBuiltinPostProcessOrderMetadata } from "../builtinMetadata";
+import type { PostProcessPassMetadata } from "../ordering";
 import type {
 	PostProcessPassImplementation,
 	PostProcessPassRequest,
@@ -30,8 +30,16 @@ import type {
 } from "../types";
 
 export const SCREEN_SPACE_REFRACTIONS_PASS_ID = "ssrefraction";
-export const SCREEN_SPACE_REFRACTIONS_PASS_ORDER =
-	getRequiredBuiltinPostProcessOrderMetadata(SCREEN_SPACE_REFRACTIONS_PASS_ID);
+export const SCREEN_SPACE_REFRACTIONS_PASS_ORDER = {
+	id: SCREEN_SPACE_REFRACTIONS_PASS_ID,
+	placement: "temporal",
+	order: 215,
+	incremental: {
+		firstPass: "ssrefraction",
+		grade: "cinematic",
+		inflationRadius: 16,
+	},
+} as const satisfies PostProcessPassMetadata;
 const WEBGPU_SSREFRACTION_RAW_TRANSIENT_ID = "ssrefraction:raw";
 const WEBGPU_HIZ_TRANSIENT_ID = "hiz";
 const WEBGPU_HIZ_TRANSIENT_USAGE = ["sampled", "storage"] as const;
@@ -99,6 +107,7 @@ export type ResolvedSSRefractionOptions = Required<
 	>
 >;
 
+/** @internal WebGPU context supplied to the built-in screen-space refraction implementation. */
 export interface WebGPUSSRefractionContext {
 	readonly encoder?: ICommandEncoder;
 	readonly targets?: WebGPUPostProcessFrameTargets;
@@ -235,6 +244,7 @@ export function resolveSSRefractionTransientDescriptors(
 /**
  * WebGPU implementation of the cross-backend screen-space refractions pass.
  */
+/** @internal WebGPU implementation for the built-in screen-space refraction pass. */
 export class WebGPUScreenSpaceRefractionsImplementation
 	implements PostProcessPassImplementation<WebGPUSSRefractionContext>
 {
@@ -564,7 +574,8 @@ export class ScreenSpaceRefractionsPass extends PostProcessPass<
 		super({
 			...config,
 			...SCREEN_SPACE_REFRACTIONS_PASS_ORDER,
-			builtIn: true,
+			incremental:
+				config.incremental ?? SCREEN_SPACE_REFRACTIONS_PASS_ORDER.incremental,
 			warningLabel: "screen-space refractions",
 			implementations: {
 				webgpu: new WebGPUScreenSpaceRefractionsImplementation(),

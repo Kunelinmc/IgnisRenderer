@@ -29,20 +29,22 @@ stage is now a backend pass. Backends opt in through
 - Pass mutation must use `pass.enable(options)`, `pass.disable()`,
   `pass.setEnabled(enabled)`, `pass.setOptions(options)`, or
   `pass.resetOptions()`.
-- `PostProcessPass.builtIn` must identify engine-provided built-in passes.
+- `PostProcessPass.builtIn` must be `true` only for renderer-default built-in
+  passes: `tonemap` and `gamma`.
 - `PostProcessPass.warningLabel` must provide the human-readable pass name used
   in diagnostics.
 - `PostProcessPass.shouldExecute(request)` may exclude an enabled snapshot pass
   from a specific frame without changing registry enabled state.
 - `PostProcessPass.shouldExecute(request)` must be deterministic and must not
   allocate backend resources.
-- Built-in pass classes must define their ids, ordering, implementations, and
-  diagnostic labels internally.
+- Engine-provided pass classes must define their ids, ordering, incremental
+  metadata, implementations, and diagnostic labels internally.
 - Custom `PostProcessPassConfig.warningLabel` may provide a human-readable
   custom pass name.
 - `Renderer` must auto-register only `ToneMappingPass` and `GammaPass`, both
   enabled by default.
-- Other built-in passes must be explicitly registered before they can run.
+- Other engine-provided pass classes must be explicitly registered before they
+  can run and must be treated as manually registered passes.
 - `FrameContext.postProcess` must be a `PostProcessPassRegistrySnapshot`.
 - Snapshot consumers must use `postProcess.isEnabled(id)` and
   `postProcess.getOptions(id)`.
@@ -60,8 +62,8 @@ stage is now a backend pass. Backends opt in through
 - `IRenderBackend` must not expose `postProcessExecutor`,
   `createPostProcessGBufferBridge(context)`, or `postProcessAdapter`.
 - Backends must not expose public post-process graph registration APIs.
-- Unsupported enabled built-in passes must be determined by missing pass-owned
-  backend implementations and must emit warning key
+- Unsupported enabled renderer-default built-in passes must be determined by
+  missing pass-owned backend implementations and must emit warning key
   `"<backend>-postprocess-unsupported-<passId>"`.
 
 ## Usage
@@ -134,7 +136,7 @@ bun tests/static/postprocess/test_renderer_postprocess_registry.mjs
 - `renderer.postProcess.registerPass(pass)` must throw when `pass.id` is already
   registered.
 - `"<backend>-postprocess-unsupported-<passId>"` must be emitted when an enabled
-  built-in pass has no implementation for the active backend.
+  renderer-default built-in pass has no implementation for the active backend.
 - `postprocess-history-conflict-<historyId>` must be emitted when eligible passes
   request incompatible descriptors for the same history id.
 - `postprocess-transient-conflict-<transientId>` must be emitted when eligible
@@ -163,7 +165,11 @@ bun tests/static/postprocess/test_renderer_postprocess_registry.mjs
 - `renderer.postProcess.reset(id)` and `renderer.postProcess.reset()` are
   removed.
 - `renderer.postProcess.getState()` is removed.
-- Only `tonemap` and `gamma` are auto-registered.
+- Only `tonemap` and `gamma` are auto-registered and report
+  `PostProcessPass.builtIn === true`.
+- Engine-provided post-process classes other than `ToneMappingPass` and
+  `GammaPass` report `PostProcessPass.builtIn === false` and may be
+  unregistered after manual registration.
 - `FrameContext.postProcess.enabled` and `FrameContext.postProcess.options` are
   removed.
 - `PostProcessBackendSupport` and `PostProcessCapableRenderBackend` are removed.

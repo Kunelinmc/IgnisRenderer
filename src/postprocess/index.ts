@@ -219,7 +219,7 @@ export {
 	type WebGPURuntimePostProcessContext,
 	type WebGPUScreenPostProcessContext,
 	type WebGPUToneMappingContext,
-} from "./passes/BuiltinFallbackPasses";
+} from "./passes/BuiltinScreenPasses";
 export {
 	PostProcessPass,
 	PostProcessPassRegistry,

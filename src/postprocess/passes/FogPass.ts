@@ -23,7 +23,7 @@ import {
 	type PostProcessPassConfig,
 	type PostProcessPassResolveRequest,
 } from "../PostProcessPass";
-import { getRequiredBuiltinPostProcessOrderMetadata } from "../builtinMetadata";
+import type { PostProcessPassMetadata } from "../ordering";
 import type {
 	IPostProcessExecutor,
 	PostProcessPassImplementation,
@@ -33,8 +33,20 @@ import type {
 } from "../types";
 
 export const FOG_PASS_ID = "fog";
-export const FOG_PASS_ORDER =
-	getRequiredBuiltinPostProcessOrderMetadata(FOG_PASS_ID);
+export const FOG_PASS_ORDER = {
+	id: FOG_PASS_ID,
+	placement: "atmosphere",
+	order: 310,
+	incremental: {
+		firstPass: "fog",
+		grade: "cinematic",
+		inflationRadius: 20,
+		isEnabled: (postProcess) =>
+			postProcess.isEnabled(FOG_PASS_ID) &&
+			(postProcess.getOptions<FogOptions>(FOG_PASS_ID)?.application ??
+				"postprocess") !== "scene",
+	},
+} as const satisfies PostProcessPassMetadata;
 
 export interface FogOptions {
 	/** Distance falloff model used to convert depth into fog opacity. */
@@ -76,6 +88,7 @@ export const DEFAULT_FOG_OPTIONS: Required<
 	strength: 1,
 };
 
+/** @internal WebGPU context supplied to the built-in fog implementation. */
 export interface WebGPUFogContext {
 	readonly encoder?: ICommandEncoder;
 	readonly targets?: WebGPUPostProcessFrameTargets;
@@ -83,6 +96,7 @@ export interface WebGPUFogContext {
 	publishColorTarget?(texture: IRenderTexture): void;
 }
 
+/** @internal WebGL context supplied to the built-in fog implementation. */
 export interface WebGLFogContext {
 	readonly gl: WebGL2RenderingContext;
 	readonly programs: WebGLProgramLibrary;
@@ -194,6 +208,7 @@ export function resolveFogParamData(
 /**
  * WebGPU implementation of the cross-backend fog pass.
  */
+/** @internal WebGPU implementation for the built-in fog pass. */
 export class WebGPUFogImplementation
 	implements PostProcessPassImplementation<WebGPUFogContext, FogOptions>
 {
@@ -332,6 +347,7 @@ export class WebGPUFogImplementation
 /**
  * WebGL implementation of the cross-backend fog pass.
  */
+/** @internal WebGL implementation for the built-in fog pass. */
 export class WebGLFogImplementation
 	implements PostProcessPassImplementation<WebGLFogContext, FogOptions>
 {
@@ -437,7 +453,7 @@ export class FogPass extends PostProcessPass<FogOptions, FogOptions> {
 		super({
 			...config,
 			...FOG_PASS_ORDER,
-			builtIn: true,
+			incremental: config.incremental ?? FOG_PASS_ORDER.incremental,
 			warningLabel: "fog",
 			implementations: {
 				webgpu: new WebGPUFogImplementation(),

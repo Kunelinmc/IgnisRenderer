@@ -49,7 +49,7 @@ import {
 	type PostProcessPassConfig,
 	type PostProcessPassResolveRequest,
 } from "../PostProcessPass";
-import { getRequiredBuiltinPostProcessOrderMetadata } from "../builtinMetadata";
+import type { PostProcessPassMetadata } from "../ordering";
 import type {
 	PostProcessHistoryDescriptor,
 	PostProcessPassImplementation,
@@ -62,8 +62,16 @@ import type {
 const DEFAULT_HISTORY_USAGE = ["sampled", "storage", "render-target"] as const;
 const MOTION_HISTORY_USAGE = ["sampled", "copy-dst", "render-target"] as const;
 export const VOLUMETRIC_LIGHTING_PASS_ID = "volumetric";
-export const VOLUMETRIC_LIGHTING_PASS_ORDER =
-	getRequiredBuiltinPostProcessOrderMetadata(VOLUMETRIC_LIGHTING_PASS_ID);
+export const VOLUMETRIC_LIGHTING_PASS_ORDER = {
+	id: VOLUMETRIC_LIGHTING_PASS_ID,
+	placement: "atmosphere",
+	order: 300,
+	incremental: {
+		firstPass: "volumetric",
+		grade: "cinematic",
+		inflationRadius: 16,
+	},
+} as const satisfies PostProcessPassMetadata;
 const WEBGPU_HIZ_TRANSIENT_ID = "hiz";
 const WEBGPU_HIZ_TRANSIENT_USAGE = ["sampled", "storage"] as const;
 const SOFTWARE_VOLUMETRIC_CONSTANTS = Object.freeze({
@@ -168,10 +176,12 @@ export const DEFAULT_VOLUMETRIC_OPTIONS: Required<
 	restirScaleClamp: 24,
 };
 
+/** @internal Software context supplied to the built-in volumetric lighting implementation. */
 export interface SoftwareVolumetricLightingContext {
 	readonly canvasContext: CanvasRenderingContext2D | null;
 }
 
+/** @internal WebGPU context supplied to the built-in volumetric lighting implementation. */
 export interface WebGPUVolumetricLightingContext {
 	readonly encoder?: ICommandEncoder;
 	readonly targets?: WebGPUPostProcessFrameTargets;
@@ -223,6 +233,7 @@ interface IncrementalDirtyRect {
 /**
  * Software implementation of volumetric lighting.
  */
+/** @internal Software implementation for the built-in volumetric lighting pass. */
 export class SoftwareVolumetricLightingImplementation
 	implements
 		PostProcessPassImplementation<
@@ -1183,6 +1194,7 @@ export class SoftwareVolumetricLightingImplementation
 /**
  * WebGPU implementation of volumetric lighting.
  */
+/** @internal WebGPU implementation for the built-in volumetric lighting pass. */
 export class WebGPUVolumetricLightingImplementation
 	implements
 		PostProcessPassImplementation<
@@ -1711,7 +1723,8 @@ export class VolumetricLightingPass extends PostProcessPass<
 		super({
 			...config,
 			...VOLUMETRIC_LIGHTING_PASS_ORDER,
-			builtIn: true,
+			incremental:
+				config.incremental ?? VOLUMETRIC_LIGHTING_PASS_ORDER.incremental,
 			warningLabel: "volumetric effects",
 			implementations: {
 				software: new SoftwareVolumetricLightingImplementation(),

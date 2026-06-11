@@ -10,36 +10,22 @@ const {
 function testBuiltinOrderIsAvailableFromOrderingModule() {
 	assert.deepEqual(
 		BUILTIN_POST_PROCESS_ORDER.map((entry) => entry.id),
-		[
-			"ssao",
-			"ssgi",
-			"taa",
-			"ssr",
-			"ssrefraction",
-			"volumetric",
-			"fog",
-			"motion-blur",
-			"dof",
-			"bloom",
-			"tonemap",
-			"color-filter",
-			"fxaa",
-			"interaction-outline",
-			"gamma",
-		]
+		["tonemap", "gamma"]
 	);
-	assert.deepEqual(getBuiltinPostProcessOrder("ssao"), {
-		id: "ssao",
-		placement: "spatial",
-		order: 100,
+	assert.deepEqual(getBuiltinPostProcessOrder("tonemap"), {
+		id: "tonemap",
+		placement: "hdr",
+		order: 600,
 	});
+	assert.equal(getBuiltinPostProcessOrder("ssao"), null);
 	assert.equal(getBuiltinPostProcessOrder("custom"), null);
 	assert.equal("defineBuiltinPostProcessOrder" in ordering, false);
 }
 
 function testPipelineStageHelperWorksWithoutPassBarrelImport() {
 	assert.equal(isPostProcessPassStage("postprocess"), true);
-	assert.equal(isPostProcessPassStage("ssao"), true);
+	assert.equal(isPostProcessPassStage("ssao"), false);
+	assert.equal(isPostProcessPassStage("tonemap"), true);
 	assert.equal(isPostProcessPassStage("gamma"), true);
 	assert.equal(isPostProcessPassStage("custom"), false);
 }

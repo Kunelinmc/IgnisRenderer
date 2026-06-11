@@ -376,7 +376,7 @@ function testFeatureGate() {
 	assert.equal(postProcess.isEnabled("ssr"), false);
 	assert.equal(postProcess.isEnabled("bloom"), false);
 	assert.equal(postProcess.getOptions("gamma") !== null, true);
-	assert.ok(postProcess.getWarnings().length >= 3);
+	assert.deepEqual(postProcess.getWarnings(), []);
 }
 
 async function testSceneShaderCoverage() {

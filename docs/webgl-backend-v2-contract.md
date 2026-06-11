@@ -101,8 +101,8 @@ bun tests/static/webgl/test_webgl_frame_executor_fxaa.mjs
 - `webgl-hdr-float-unsupported`: triggered when `EXT_color_buffer_float` is
   unavailable and WebGL falls back to `RGBA8` color, motion-depth, and
   post-process attachments.
-- `"<backend>-postprocess-unsupported-<passId>"`: triggered when an explicit
-  built-in post-process request has no WebGL implementation.
+- `"<backend>-postprocess-unsupported-<passId>"`: triggered when an enabled
+  renderer-default built-in post-process pass has no WebGL implementation.
 
 ## Compatibility / Breaking Changes
 - Public backend type name remains `WebGLBackend`.

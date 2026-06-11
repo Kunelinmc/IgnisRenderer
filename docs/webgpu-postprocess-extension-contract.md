@@ -28,6 +28,11 @@ integration, and lifecycle invalidation.
   `PostProcessPass.order` to enter the fixed post-process sequence.
 - `PostProcessPassImplementation.metadata.context.backend` must be `"webgpu"`
   for WebGPU context packing.
+- `WebGPUPostProcessContextMetadata`,
+  `WEBGPU_SCREEN_POST_PROCESS_CONTEXT_METADATA`, and
+  `WEBGPU_PRESENT_POST_PROCESS_CONTEXT_METADATA` are internal extension
+  contracts for pass-owned implementations. Application code should use
+  `PostProcessPass` and `renderer.postProcess.registerPass(pass)` instead.
 - `PostProcessPassImplementation.metadata.context.kind` must be `"screen"` or
   `"present"`.
 - `PostProcessPassImplementation.metadata.context` may request
@@ -63,16 +68,17 @@ integration, and lifecycle invalidation.
   declared by `WebGPUPostProcessContextMetadata.transients`.
 - WebGPU temporal passes must return `updatedHistoryIds` or `historyUpdated`
   when they write runtime-owned history resources.
-- The built-in `taa`, `fxaa`, `ssao`, `ssr`, `ssrefraction`, and `volumetric`
-  WebGPU kernels must be pass-owned implementations.
-- The built-in WebGPU `ssao` pass must request `ssao:raw` and `ssao:blur`
+- The engine-provided `taa`, `fxaa`, `ssao`, `ssr`, `ssrefraction`, and
+  `volumetric` WebGPU kernels must be pass-owned implementations.
+- The engine-provided WebGPU `ssao` pass must request `ssao:raw` and `ssao:blur`
   transients sized by its resolved `downsample` option.
-- The built-in WebGPU `ssr` pass must request `ssr:raw` sized by its resolved
-  `downsample` option and the shared `hiz` full-chain transient.
-- The built-in WebGPU `ssrefraction` pass must request `ssrefraction:raw` sized
-  by its resolved `downsample` option and the shared `hiz` full-chain transient.
-- The built-in WebGPU `volumetric` pass must request the same shared `hiz`
-  full-chain transient as `ssr` and `ssrefraction`.
+- The engine-provided WebGPU `ssr` pass must request `ssr:raw` sized by its
+  resolved `downsample` option and the shared `hiz` full-chain transient.
+- The engine-provided WebGPU `ssrefraction` pass must request
+  `ssrefraction:raw` sized by its resolved `downsample` option and the shared
+  `hiz` full-chain transient.
+- The engine-provided WebGPU `volumetric` pass must request the same shared
+  `hiz` full-chain transient as `ssr` and `ssrefraction`.
 - `WebGPUFrameTargets` must not contain post-process transient textures such as
   SSAO intermediates, SSR intermediates, or Hi-Z textures.
 - WebGPU executor resource allocation must use backend-owned texture creation

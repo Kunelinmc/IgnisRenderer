@@ -31,6 +31,10 @@ and is owned by each backend instance.
 - `Renderer` must not own post-process graph execution, resource allocation,
   history commit, or history abort.
 - `Renderer` must not resolve post-process execution through backend extensions.
+- `BackendPostProcessRuntime` must be the only runtime execution owner for the
+  cross-backend post-process graph.
+- `PostProcessGraphCompiler` must be the only source of graph ordering,
+  incremental slicing, eligibility, and resource descriptor compilation.
 - `renderer.postProcess.registerPass(pass)` must remain the public registration
   API for logical passes.
 - `PostProcessPass.placement` may be `"spatial"`, `"temporal"`,
@@ -87,8 +91,8 @@ and is owned by each backend instance.
 - Backend warmup must use `BackendPostProcessRuntime.compileWarmupGraph(context)`
   to obtain ordered pass descriptors and implementation warmup hints.
 - Warmup code must not depend on `WARMUP_POST_PROCESS_*` transient keys.
-- Backend support for built-in logical passes must be derived from pass-owned
-  implementations, not from a public backend pass registry.
+- Backend support for engine-provided logical passes must be derived from
+  pass-owned implementations, not from a public backend pass registry.
 - Backends must not expose public post-process graph registration APIs.
 
 ## Usage
@@ -154,3 +158,8 @@ bun tests/static/postprocess/test_postprocess_public_api.mjs
 - Code that previously depended on per-pass frame stages such as `ssao`, `taa`,
   or `gamma` must use the single `"postprocess"` backend pass and inspect
   `IncrementalFrameContext.postProcessStartPass` for the internal logical start.
+- `PostProcessPipeline`, `PostProcessPipelineExecuteRequest`, and
+  `PostProcessPipelineExecuteResult` are removed. Tests, tools, and custom
+  backends must use `PostProcessGraphCompiler`, `PostProcessResourcePool`, or
+  `BackendPostProcessRuntime` according to whether they need graph metadata,
+  resource lifetime, or full backend execution.

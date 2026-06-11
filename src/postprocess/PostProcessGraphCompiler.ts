@@ -449,10 +449,11 @@ function createPostProcessResolveRequest<TOptions>(
 }
 
 /**
- * Returns whether a stage id names the renderer post-process stage or a logical pass.
+ * Returns whether a stage id names the renderer post-process stage or a
+ * renderer-default built-in logical pass.
  *
  * @param stage Stage or pass id.
- * @returns `true` for `postprocess` or a built-in logical post-process pass.
+ * @returns `true` for `postprocess` or a default built-in logical pass.
  * @sideEffects None.
  */
 export function isPostProcessPassStage(stage: string): boolean {

@@ -9,7 +9,7 @@ import type {
 	PostProcessResourceHandle,
 } from "../../postprocess";
 import type { SoftwareVolumetricLightingContext } from "../../postprocess/passes/VolumetricLightingPass";
-import type { SoftwareBuiltinPostProcessContext } from "../../postprocess/passes/BuiltinFallbackPasses";
+import type { SoftwareBuiltinPostProcessContext } from "../../postprocess/passes/BuiltinScreenPasses";
 
 export interface SoftwarePostProcessExecutorHost {
 	getCanvasContext(): CanvasRenderingContext2D | null;
@@ -85,7 +85,7 @@ export class SoftwarePostProcessExecutor implements IPostProcessExecutor {
 	}
 
 	/**
-	 * Provides CPU helper objects for software built-in pass implementations.
+	 * Provides CPU helper objects for pass-owned software implementations.
 	 *
 	 * @param request Pass-owned implementation context request.
 	 * @returns Context object expected by the selected software implementation.
@@ -94,9 +94,6 @@ export class SoftwarePostProcessExecutor implements IPostProcessExecutor {
 	public getPassExecutionContext(
 		request: PostProcessPassExecutionContextRequest
 	): unknown {
-		if (!request.pass.builtIn) {
-			return undefined;
-		}
 		switch (request.passId) {
 			case "ssao":
 				return {

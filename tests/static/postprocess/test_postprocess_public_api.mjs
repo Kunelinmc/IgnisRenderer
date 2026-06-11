@@ -5,10 +5,13 @@ import {
 	FogPass,
 	GammaPass,
 	hasPostProcessExecutionPasses,
+	IncrementalFramePlanner,
 	PostProcessHistoryManager,
 	PostProcessPass,
 	PostProcessPassRegistry,
 	PostProcessTransientManager,
+	RenderPipelineRegistry,
+	renderDirtyReasonToMask,
 	resolvePostProcessExecutionOrder,
 	ScreenSpaceAmbientOcclusionPass,
 	ScreenSpaceGlobalIlluminationPass,
@@ -16,7 +19,7 @@ import {
 	ToneMappingPass,
 	VolumetricLightingPass,
 } from "../../../src/index.ts";
-import { PostProcessPipeline } from "../../../src/postprocess/PostProcessPipeline.ts";
+import { BackendPostProcessRuntime } from "../../../src/renderers/BackendPostProcessRuntime.ts";
 import {
 	createNoopPostProcessSupport,
 	createResolvedPostProcess,
@@ -48,6 +51,10 @@ class FakeExecutor {
 		};
 		this.created.push(handle);
 		return handle;
+	}
+
+	createGBufferBridge() {
+		return createGBufferBridge();
 	}
 
 	destroyResource(handle) {
@@ -299,6 +306,17 @@ function createGBufferBridge() {
 	};
 }
 
+function createRuntime(executor, warn) {
+	return new BackendPostProcessRuntime({
+		executor,
+		warn,
+	});
+}
+
+function getLastExecutedPassIds(executor) {
+	return executor.endFrames.at(-1)?.executedPassIds ?? [];
+}
+
 function testRegistryOnlySurfaceAndPassMutation() {
 	const registry = new PostProcessPassRegistry();
 	assert.equal(typeof registry.registerPass, "function");
@@ -321,7 +339,7 @@ function testRegistryOnlySurfaceAndPassMutation() {
 	});
 	registry.on("change", () => changes++);
 	registry.registerPass(ssao);
-	assert.equal(ssao.builtIn, true);
+	assert.equal(ssao.builtIn, false);
 	assert.equal("capabilityId" in ssao, false);
 	assert.equal(ssao.warningLabel, "SSAO");
 	ssao.setOptions({ radius: 4 });
@@ -340,8 +358,7 @@ function testSnapshotNormalizationAndWarnings() {
 		.getWarnings()
 		.find((warning) => warning.key === "software-postprocess-unsupported-ssgi");
 	assert.equal(snapshot.isEnabled("ssgi"), false);
-	assert.ok(unsupportedWarning);
-	assert.ok(unsupportedWarning.message.includes("SSGI post-processing"));
+	assert.equal(unsupportedWarning, undefined);
 
 	const registry = new PostProcessPassRegistry();
 	registry.registerPass(
@@ -356,7 +373,7 @@ function testSnapshotNormalizationAndWarnings() {
 	assert.equal(supported.getOptions("ssao").radius, 2);
 }
 
-async function testPipelineOrderingAndIncrementalStartPass() {
+async function testBackendRuntimeOrderingAndIncrementalStartPass() {
 	const registry = new PostProcessPassRegistry();
 	registry.registerPass(new ToneMappingPass({ enabled: true }));
 	registry.registerPass(new GammaPass({ enabled: true }));
@@ -372,15 +389,11 @@ async function testPipelineOrderingAndIncrementalStartPass() {
 	assert.equal(registry.getPass("custom-hdr").builtIn, false);
 	assert.equal("capabilityId" in registry.getPass("custom-hdr"), false);
 	const snapshot = registry.createSnapshot("webgpu");
-	const pipeline = new PostProcessPipeline();
 	const executor = new FakeExecutor("webgpu");
-	const result = await pipeline.execute({
-		frameContext: createFrameContext(snapshot),
-		executor,
-		gBuffer: createGBufferBridge(),
-	});
+	const runtime = createRuntime(executor);
+	await runtime.execute(createFrameContext(snapshot));
 
-	assert.deepEqual(result.executedPassIds, [
+	assert.deepEqual(getLastExecutedPassIds(executor), [
 		"custom-hdr",
 		"tonemap",
 		"custom-overlay",
@@ -394,21 +407,27 @@ async function testPipelineOrderingAndIncrementalStartPass() {
 	assert.deepEqual(executor.ownedExecuted, ["tonemap", "gamma"]);
 
 	const incrementalExecutor = new FakeExecutor("webgpu");
-	const incrementalResult = await pipeline.execute({
-		frameContext: createFrameContext(snapshot, {
+	const incrementalRuntime = createRuntime(incrementalExecutor);
+	await incrementalRuntime.execute(
+		createFrameContext(snapshot, {
 			enabled: true,
 			forceFullFrame: false,
 			firstPass: "postprocess",
 			postProcessStartPass: "custom-overlay",
-		}),
-		executor: incrementalExecutor,
-		gBuffer: createGBufferBridge(),
-	});
-	assert.equal(incrementalResult.startPassId, "custom-overlay");
-	assert.deepEqual(incrementalResult.executedPassIds, ["custom-overlay", "gamma"]);
+		})
+	);
+	assert.deepEqual(getLastExecutedPassIds(incrementalExecutor), [
+		"custom-overlay",
+		"gamma",
+	]);
 	assert.deepEqual(
 		incrementalExecutor.executed.map((entry) => entry.passId),
 		["custom-overlay"]
+	);
+	assert.ok(
+		incrementalExecutor.executed.every(
+			(entry) => entry.startPassId === "custom-overlay"
+		)
 	);
 	assert.deepEqual(incrementalExecutor.ownedExecuted, ["gamma"]);
 }
@@ -448,7 +467,6 @@ function testExecutionPredicatesDrivePipelineWork() {
 }
 
 async function testPassOwnedImplementationsAndFallback() {
-	const pipeline = new PostProcessPipeline();
 	const fxaaSnapshot = createResolvedPostProcess(
 		{ fxaa: { enabled: true } },
 		"software"
@@ -458,12 +476,8 @@ async function testPassOwnedImplementationsAndFallback() {
 		this.executed.push({ passId });
 		throw new Error(`Unexpected fallback execution for ${passId}`);
 	};
-	const result = await pipeline.execute({
-		frameContext: createFrameContext(fxaaSnapshot),
-		executor,
-		gBuffer: createGBufferBridge(),
-	});
-	assert.deepEqual(result.executedPassIds, ["fxaa"]);
+	await createRuntime(executor).execute(createFrameContext(fxaaSnapshot));
+	assert.deepEqual(getLastExecutedPassIds(executor), ["fxaa"]);
 	assert.deepEqual(executor.executed, []);
 
 	const webgpuSnapshot = createResolvedPostProcess(
@@ -479,11 +493,7 @@ async function testPassOwnedImplementationsAndFallback() {
 		this.executed.push({ passId });
 		throw new Error(`Unexpected fallback execution for ${passId}`);
 	};
-	await pipeline.execute({
-		frameContext: createFrameContext(webgpuSnapshot),
-		executor: webgpuExecutor,
-		gBuffer: createGBufferBridge(),
-	});
+	await createRuntime(webgpuExecutor).execute(createFrameContext(webgpuSnapshot));
 	assert.deepEqual(webgpuExecutor.executed, []);
 
 	const volumetricSnapshot = createResolvedPostProcess(
@@ -495,12 +505,10 @@ async function testPassOwnedImplementationsAndFallback() {
 		this.executed.push({ passId });
 		throw new Error(`Unexpected fallback execution for ${passId}`);
 	};
-	const volumetricResult = await pipeline.execute({
-		frameContext: createFrameContext(volumetricSnapshot),
-		executor: volumetricExecutor,
-		gBuffer: createGBufferBridge(),
-	});
-	assert.deepEqual(volumetricResult.executedPassIds, ["volumetric"]);
+	await createRuntime(volumetricExecutor).execute(
+		createFrameContext(volumetricSnapshot)
+	);
+	assert.deepEqual(getLastExecutedPassIds(volumetricExecutor), ["volumetric"]);
 	assert.deepEqual(volumetricExecutor.executed, []);
 
 	const fallbackSnapshot = createResolvedPostProcess(
@@ -508,12 +516,10 @@ async function testPassOwnedImplementationsAndFallback() {
 		"software"
 	);
 	const fallbackExecutor = new FakeExecutor("software");
-	const fallbackResult = await pipeline.execute({
-		frameContext: createFrameContext(fallbackSnapshot),
-		executor: fallbackExecutor,
-		gBuffer: createGBufferBridge(),
-	});
-	assert.deepEqual(fallbackResult.executedPassIds, ["tonemap"]);
+	await createRuntime(fallbackExecutor).execute(
+		createFrameContext(fallbackSnapshot)
+	);
+	assert.deepEqual(getLastExecutedPassIds(fallbackExecutor), ["tonemap"]);
 	assert.deepEqual(fallbackExecutor.executed.map((entry) => entry.passId), []);
 }
 
@@ -556,20 +562,48 @@ function testRegistryLifecycleDelegatesToPassImplementations() {
 	assert.deepEqual(calls, ["bloom:destroy"]);
 }
 
+function testManualEnginePassIncrementalRegistrationCanBeRemoved() {
+	const pipeline = new RenderPipelineRegistry();
+	const registry = new PostProcessPassRegistry();
+	const bloom = new BloomPass({ enabled: true });
+	registry.registerPass(new ToneMappingPass({ enabled: true }));
+	registry.registerPass(new GammaPass({ enabled: true }));
+	registry.registerPass(bloom);
+	pipeline.registerPostProcessPass(bloom);
+
+	const plan = IncrementalFramePlanner.plan({
+		enabled: true,
+		reasonMask: renderDirtyReasonToMask("postfx"),
+		features: { enableShadows: false },
+		postProcess: registry.createSnapshot("webgpu"),
+		registry: pipeline.incremental,
+	});
+	assert.equal(plan.firstPass, "postprocess");
+	assert.equal(plan.postProcessStartPass, "bloom");
+
+	registry.unregisterPass("bloom");
+	pipeline.unregisterPostProcessPass("bloom");
+	const afterUnregister = IncrementalFramePlanner.plan({
+		enabled: true,
+		reasonMask: renderDirtyReasonToMask("postfx"),
+		features: { enableShadows: false },
+		postProcess: registry.createSnapshot("webgpu"),
+		registry: pipeline.incremental,
+	});
+	assert.equal(afterUnregister.firstPass, "postprocess");
+	assert.equal(afterUnregister.postProcessStartPass, "tonemap");
+}
+
 async function testSSRHistorySignatureUsesOptions() {
-	const pipeline = new PostProcessPipeline();
 	const executor = new FakeExecutor("webgpu");
+	const runtime = createRuntime(executor);
 	const createSnapshot = (downsample) =>
 		createResolvedPostProcess(
 			{ ssr: { enabled: true, options: { downsample } } },
 			"webgpu"
 		);
 
-	await pipeline.execute({
-		frameContext: createFrameContext(createSnapshot(2)),
-		executor,
-		gBuffer: createGBufferBridge(),
-	});
+	await runtime.execute(createFrameContext(createSnapshot(2)));
 	const firstSSRRead = executor.created.find((handle) => handle.id === "ssr:read");
 	assert.equal(firstSSRRead.width, 32);
 	assert.equal(firstSSRRead.height, 16);
@@ -581,11 +615,8 @@ async function testSSRHistorySignatureUsesOptions() {
 	assert.equal(firstHiZ.height, 32);
 	assert.equal(firstHiZ.mipMode, "full-chain");
 
-	await pipeline.execute({
-		frameContext: createFrameContext(createSnapshot(4)),
-		executor,
-		gBuffer: createGBufferBridge(),
-	});
+	runtime.commitFrame();
+	await runtime.execute(createFrameContext(createSnapshot(4)));
 	const recreatedSSRReads = executor.created.filter(
 		(handle) => handle.id === "ssr:read"
 	);
@@ -606,60 +637,40 @@ async function testRanFalsePassIsExcludedFromExecutedIds() {
 	const registry = new PostProcessPassRegistry();
 	registry.registerPass(new SkippingPass("custom-skip", { enabled: true }));
 	const snapshot = registry.createSnapshot("webgpu");
-	const pipeline = new PostProcessPipeline();
 	const executor = new FakeExecutor("webgpu");
-	const result = await pipeline.execute({
-		frameContext: createFrameContext(snapshot),
-		executor,
-		gBuffer: createGBufferBridge(),
-	});
-	assert.deepEqual(result.executedPassIds, []);
+	await createRuntime(executor).execute(createFrameContext(snapshot));
+	assert.deepEqual(getLastExecutedPassIds(executor), []);
 }
 
-async function testPipelineManualHistoryCommitAndAbort() {
+async function testBackendRuntimeHistoryCommitAndAbort() {
 	const seen = [];
 	const registry = new PostProcessPassRegistry();
 	registry.registerPass(new HistoryUpdatingPass("history-pass", seen));
 	const snapshot = registry.createSnapshot("webgpu");
-	const pipeline = new PostProcessPipeline();
 	const executor = new FakeExecutor("webgpu");
+	const runtime = createRuntime(executor);
 
-	await pipeline.execute({
-		frameContext: createFrameContext(snapshot),
-		executor,
-		gBuffer: createGBufferBridge(),
-		historyFinalization: "manual",
-	});
+	await runtime.execute(createFrameContext(snapshot));
 	assert.equal(seen[0].valid, false);
 	const firstRead = seen[0].read;
 	const firstWrite = seen[0].write;
 
-	await pipeline.abortFrame(new Error("aborted renderer frame"));
+	await runtime.abortFrame(new Error("aborted renderer frame"));
 	seen.length = 0;
-	await pipeline.execute({
-		frameContext: createFrameContext(snapshot),
-		executor,
-		gBuffer: createGBufferBridge(),
-		historyFinalization: "manual",
-	});
+	await runtime.execute(createFrameContext(snapshot));
 	assert.equal(seen[0].valid, false);
 	assert.strictEqual(seen[0].read, firstRead);
 	assert.strictEqual(seen[0].write, firstWrite);
 
 	const secondWrite = seen[0].write;
-	pipeline.commitFrame();
+	runtime.commitFrame();
 	seen.length = 0;
-	await pipeline.execute({
-		frameContext: createFrameContext(snapshot),
-		executor,
-		gBuffer: createGBufferBridge(),
-		historyFinalization: "manual",
-	});
+	await runtime.execute(createFrameContext(snapshot));
 	assert.equal(seen[0].valid, true);
 	assert.strictEqual(seen[0].read, secondWrite);
 }
 
-async function testPipelineDestroyClearsPendingAndDestroysResources() {
+async function testBackendRuntimeDestroyClearsPendingAndDestroysResources() {
 	const seen = [];
 	const registry = new PostProcessPassRegistry();
 	registry.registerPass(new HistoryUpdatingPass("history-pass", seen, { order: 0 }));
@@ -667,69 +678,52 @@ async function testPipelineDestroyClearsPendingAndDestroysResources() {
 		{ id: "scratch" },
 	]));
 	const snapshot = registry.createSnapshot("webgpu");
-	const pipeline = new PostProcessPipeline();
 	const executor = new FakeExecutor("webgpu");
+	const runtime = createRuntime(executor);
 
-	await pipeline.execute({
-		frameContext: createFrameContext(snapshot),
-		executor,
-		gBuffer: createGBufferBridge(),
-		historyFinalization: "manual",
-	});
+	await runtime.execute(createFrameContext(snapshot));
 	assert.equal(executor.destroyed.length, 0);
 
-	pipeline.destroy(executor);
+	runtime.destroy();
 	const destroyedIds = executor.destroyed.map((handle) => handle.id);
 	assert.ok(destroyedIds.includes("history:read"));
 	assert.ok(destroyedIds.includes("history:write"));
 	assert.ok(destroyedIds.includes("scratch"));
 
-	await pipeline.abortFrame(new Error("postprocess already destroyed"));
+	await runtime.abortFrame(new Error("postprocess already destroyed"));
 	assert.equal(executor.abortFrames.length, 0);
 }
 
-async function testPipelineDefaultAutoCommitsHistory() {
+async function testBackendRuntimeCommitFrameSwapsHistory() {
 	const seen = [];
 	const registry = new PostProcessPassRegistry();
 	registry.registerPass(new HistoryUpdatingPass("history-pass", seen));
 	const snapshot = registry.createSnapshot("webgpu");
-	const pipeline = new PostProcessPipeline();
 	const executor = new FakeExecutor("webgpu");
+	const runtime = createRuntime(executor);
 
-	await pipeline.execute({
-		frameContext: createFrameContext(snapshot),
-		executor,
-		gBuffer: createGBufferBridge(),
-	});
+	await runtime.execute(createFrameContext(snapshot));
 	const firstWrite = seen[0].write;
+	runtime.commitFrame();
 	seen.length = 0;
-	await pipeline.execute({
-		frameContext: createFrameContext(snapshot),
-		executor,
-		gBuffer: createGBufferBridge(),
-	});
+	await runtime.execute(createFrameContext(snapshot));
 	assert.equal(seen[0].valid, true);
 	assert.strictEqual(seen[0].read, firstWrite);
 }
 
-async function testPipelineFailureAbortsExecutorAndHistory() {
+async function testBackendRuntimeFailureAbortsExecutorAndHistory() {
 	const seen = [];
 	const error = new Error("post-process failure");
 	const registry = new PostProcessPassRegistry();
 	registry.registerPass(new HistoryUpdatingPass("history-pass", seen, { order: 0 }));
 	registry.registerPass(new ThrowingPass("throwing-pass", error, { order: 1 }));
 	const snapshot = registry.createSnapshot("webgpu");
-	const pipeline = new PostProcessPipeline();
 	const executor = new FakeExecutor("webgpu");
+	const runtime = createRuntime(executor);
 
 	let caught = null;
 	try {
-		await pipeline.execute({
-			frameContext: createFrameContext(snapshot),
-			executor,
-			gBuffer: createGBufferBridge(),
-			historyFinalization: "manual",
-		});
+		await runtime.execute(createFrameContext(snapshot));
 	} catch (caughtError) {
 		caught = caughtError;
 	}
@@ -743,12 +737,9 @@ async function testPipelineFailureAbortsExecutorAndHistory() {
 	const recoveryRegistry = new PostProcessPassRegistry();
 	recoveryRegistry.registerPass(new HistoryUpdatingPass("history-pass", seen));
 	seen.length = 0;
-	await pipeline.execute({
-		frameContext: createFrameContext(recoveryRegistry.createSnapshot("webgpu")),
-		executor,
-		gBuffer: createGBufferBridge(),
-		historyFinalization: "manual",
-	});
+	await runtime.execute(
+		createFrameContext(recoveryRegistry.createSnapshot("webgpu"))
+	);
 	assert.equal(seen[0].valid, false);
 	assert.strictEqual(seen[0].read, firstRead);
 	assert.strictEqual(seen[0].write, firstWrite);
@@ -888,16 +879,11 @@ async function testTransientDescriptorConflictWarnsAndKeepsFirst() {
 			widthScale: 0.5,
 		},
 	]));
-	const pipeline = new PostProcessPipeline();
 	const executor = new FakeExecutor("webgpu");
 	const warnings = [];
+	const runtime = createRuntime(executor, (key) => warnings.push(key));
 
-	await pipeline.execute({
-		frameContext: createFrameContext(registry.createSnapshot("webgpu")),
-		executor,
-		gBuffer: createGBufferBridge(),
-		warn: (key) => warnings.push(key),
-	});
+	await runtime.execute(createFrameContext(registry.createSnapshot("webgpu")));
 
 	assert.deepEqual(warnings, ["postprocess-transient-conflict-shared"]);
 	const shared = executor.created.find((handle) => handle.id === "shared");
@@ -929,16 +915,17 @@ function testLogicalGBufferBridgeHelperShape() {
 async function run() {
 	testRegistryOnlySurfaceAndPassMutation();
 	testSnapshotNormalizationAndWarnings();
-	await testPipelineOrderingAndIncrementalStartPass();
+	await testBackendRuntimeOrderingAndIncrementalStartPass();
 	testExecutionPredicatesDrivePipelineWork();
 	await testPassOwnedImplementationsAndFallback();
 	testRegistryLifecycleDelegatesToPassImplementations();
+	testManualEnginePassIncrementalRegistrationCanBeRemoved();
 	await testSSRHistorySignatureUsesOptions();
 	await testRanFalsePassIsExcludedFromExecutedIds();
-	await testPipelineManualHistoryCommitAndAbort();
-	await testPipelineDestroyClearsPendingAndDestroysResources();
-	await testPipelineDefaultAutoCommitsHistory();
-	await testPipelineFailureAbortsExecutorAndHistory();
+	await testBackendRuntimeHistoryCommitAndAbort();
+	await testBackendRuntimeDestroyClearsPendingAndDestroysResources();
+	await testBackendRuntimeCommitFrameSwapsHistory();
+	await testBackendRuntimeFailureAbortsExecutorAndHistory();
 	testHistoryManagerInvalidationAndResize();
 	testTransientManagerReuseRecreateAndDestroy();
 	await testTransientDescriptorConflictWarnsAndKeepsFirst();

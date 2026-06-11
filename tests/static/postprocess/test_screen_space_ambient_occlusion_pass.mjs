@@ -7,7 +7,7 @@ import {
 	resolveSSAODownsample,
 	resolveSSAOOptions,
 } from "../../../src/postprocess/index.ts";
-import { PostProcessPipeline } from "../../../src/postprocess/PostProcessPipeline.ts";
+import { BackendPostProcessRuntime } from "../../../src/renderers/BackendPostProcessRuntime.ts";
 import { CameraType } from "../../../src/cameras/Camera.ts";
 import {
 	createResolvedPostProcess,
@@ -136,6 +136,7 @@ function createSoftwareExecutor() {
 	return {
 		backend: "software",
 		fallbackCalls: [],
+		endFrames: [],
 		createResource(desc) {
 			return {
 				id: desc.id,
@@ -147,6 +148,9 @@ function createSoftwareExecutor() {
 			};
 		},
 		destroyResource() {},
+		createGBufferBridge(context) {
+			return createGBuffer(context);
+		},
 		getPassExecutionContext(request) {
 			if (request.passId !== "ssao") {
 				return undefined;
@@ -156,6 +160,9 @@ function createSoftwareExecutor() {
 		executePass(passId) {
 			this.fallbackCalls.push(passId);
 			return { ran: true };
+		},
+		endFrame(request) {
+			this.endFrames.push(request);
 		},
 	};
 }
@@ -194,16 +201,11 @@ async function testSSAOPipelineUsesPassOwnedImplementation() {
 		"function"
 	);
 
-	const pipeline = new PostProcessPipeline();
 	const executor = createSoftwareExecutor();
 	const frameContext = createSoftwareFrameContext({ samples: 4, radius: 1 });
-	const result = await pipeline.execute({
-		frameContext,
-		executor,
-		gBuffer: createGBuffer(frameContext),
-	});
+	await new BackendPostProcessRuntime({ executor }).execute(frameContext);
 
-	assert.deepEqual(result.executedPassIds, ["ssao"]);
+	assert.deepEqual(executor.endFrames.at(-1).executedPassIds, ["ssao"]);
 	assert.deepEqual(executor.fallbackCalls, []);
 }
 

@@ -165,8 +165,8 @@ export class RenderPipelineRegistry {
 	/**
 	 * Registers post-process incremental metadata from a logical pass.
 	 *
-	 * @param pass Logical post-process pass whose `builtIn` flag controls
-	 * incremental metadata ownership.
+	 * @param pass Logical post-process pass. Renderer-default built-ins cannot be
+	 * unregistered; manually registered passes can.
 	 * @returns Nothing.
 	 * @sideEffects Mutates the incremental post-process metadata registry.
 	 */

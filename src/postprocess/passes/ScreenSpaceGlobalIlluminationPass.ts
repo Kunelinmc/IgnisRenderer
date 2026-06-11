@@ -18,7 +18,7 @@ import {
 import type { PostProcessSharedContext } from "../../renderers/webgpu/postprocess/PostProcessSharedContext";
 import { ShaderSource } from "../../shaders/ShaderSource";
 import { PostProcessPass, type PostProcessPassConfig } from "../PostProcessPass";
-import { getRequiredBuiltinPostProcessOrderMetadata } from "../builtinMetadata";
+import type { PostProcessPassMetadata } from "../ordering";
 import type {
 	PostProcessPassImplementation,
 	PostProcessPassRequest,
@@ -28,10 +28,16 @@ import type {
 
 const SSGI_MAX_SAMPLES = 16;
 export const SCREEN_SPACE_GLOBAL_ILLUMINATION_PASS_ID = "ssgi";
-export const SCREEN_SPACE_GLOBAL_ILLUMINATION_PASS_ORDER =
-	getRequiredBuiltinPostProcessOrderMetadata(
-		SCREEN_SPACE_GLOBAL_ILLUMINATION_PASS_ID
-	);
+export const SCREEN_SPACE_GLOBAL_ILLUMINATION_PASS_ORDER = {
+	id: SCREEN_SPACE_GLOBAL_ILLUMINATION_PASS_ID,
+	placement: "spatial",
+	order: 110,
+	incremental: {
+		firstPass: "ssgi",
+		grade: "standard",
+		inflationRadius: 12,
+	},
+} as const satisfies PostProcessPassMetadata;
 
 export interface SSGIOptions {
 	/** Indirect-light sample count, clamped to backend limits. */
@@ -86,6 +92,7 @@ export type ResolvedSSGIOptions = Required<
 	>
 >;
 
+/** @internal WebGPU context supplied to the built-in SSGI implementation. */
 export interface WebGPUSSGIContext {
 	readonly encoder?: ICommandEncoder;
 	readonly targets?: WebGPUPostProcessFrameTargets;
@@ -173,6 +180,7 @@ export function createSSGIKernelParams(
 /**
  * WebGPU implementation of the screen-space global illumination pass.
  */
+/** @internal WebGPU implementation for the built-in SSGI pass. */
 export class WebGPUScreenSpaceGlobalIlluminationImplementation
 	implements PostProcessPassImplementation<WebGPUSSGIContext>
 {
@@ -339,7 +347,9 @@ export class ScreenSpaceGlobalIlluminationPass extends PostProcessPass<
 		super({
 			...config,
 			...SCREEN_SPACE_GLOBAL_ILLUMINATION_PASS_ORDER,
-			builtIn: true,
+			incremental:
+				config.incremental ??
+				SCREEN_SPACE_GLOBAL_ILLUMINATION_PASS_ORDER.incremental,
 			warningLabel: "SSGI",
 			implementations: {
 				webgpu: new WebGPUScreenSpaceGlobalIlluminationImplementation(),

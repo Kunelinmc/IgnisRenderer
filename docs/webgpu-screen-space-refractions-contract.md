@@ -15,14 +15,14 @@ the opaque deferred G-buffer.
 ## API/Contract
 
 - `ScreenSpaceRefractionsPass` must use pass id `ssrefraction`.
-- `ScreenSpaceRefractionsPass` must be a built-in pass in the `temporal`
-  placement at order `215`.
+- `ScreenSpaceRefractionsPass` must be an engine-provided manually registered
+  pass in the `temporal` placement at order `215`.
 - `ScreenSpaceRefractionsPass.getRequirements()` must require `depth`, `motion`,
   and `transmission` logical G-buffer channels.
 - `LogicalGBufferSemantic` must include `transmission`.
 - The WebGPU implementation must be the only v1 implementation. SoftwareBackend
-  and WebGLBackend must emit the standard unsupported built-in warning when the
-  pass is enabled.
+  and WebGLBackend must disable the pass during post-process snapshot
+  resolution because it has no implementation for those backends.
 - WebGPU must allocate `transmissionSceneColorCopy`, `transmissionLighting`,
   `gTransmissionSurface0`, `gTransmissionSurface1`, `gTransmissionSurface2`, and
   `transmissionDepth` only when `ssrefraction` is enabled and the frame contains
@@ -72,10 +72,8 @@ bun tests/static/webgpu/test_webgpu_frame_executor_resilience.mjs
 
 ## Errors & Diagnostics
 
-- `software-postprocess-unsupported-ssrefraction`: triggered when the pass is
-  enabled on SoftwareBackend.
-- `webgl-postprocess-unsupported-ssrefraction`: triggered when the pass is
-  enabled on WebGLBackend.
+- SoftwareBackend and WebGLBackend disable `ssrefraction` during snapshot
+  resolution because the pass has no implementation for those backends.
 - `postprocess-requirement-missing-ssrefraction`: triggered when the logical
   `transmission` channel is unavailable for the frame.
 

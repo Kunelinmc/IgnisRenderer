@@ -1,6 +1,7 @@
 # WebGPU SSGI Contract
 ## Scope
-This document defines the contract for the built-in `ssgi` post-process pass in the WebGPU backend.
+This document defines the contract for the engine-provided `ssgi`
+post-process pass in the WebGPU backend.
 
 ## Background
 Screen-space global illumination provides a local indirect-light approximation by sampling visible scene color, albedo, normal, and depth buffers. The pass is intended for local color bounce and contact illumination, not full-scene physically complete global illumination.
@@ -56,7 +57,8 @@ bun tests/static/webgpu/test_webgpu_postprocess_runtime_spatial.mjs
 ```
 
 ## Errors & Diagnostics
-- If `ssgi` is explicitly enabled without an implementation for the active backend, post-process resolution must disable the pass and emit warning key `"<backend>-postprocess-unsupported-ssgi"`.
+- If `ssgi` is explicitly enabled without an implementation for the active
+  backend, post-process resolution must disable the pass.
 - Invalid numeric option values such as `NaN` and `Infinity` should fall back to defaults during pass execution.
 - Values outside the supported range must be clamped before shader execution.
 

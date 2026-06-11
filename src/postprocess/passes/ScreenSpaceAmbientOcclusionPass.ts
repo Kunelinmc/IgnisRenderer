@@ -30,7 +30,7 @@ import {
 	type PostProcessPassConfig,
 	type PostProcessPassResolveRequest,
 } from "../PostProcessPass";
-import { getRequiredBuiltinPostProcessOrderMetadata } from "../builtinMetadata";
+import type { PostProcessPassMetadata } from "../ordering";
 import type {
 	PostProcessPassImplementation,
 	PostProcessPassRequest,
@@ -42,10 +42,16 @@ import type {
 const SSAO_NOISE_SIZE = 4;
 const SSAO_SOFTWARE_MAX_SAMPLES = 48;
 export const SCREEN_SPACE_AMBIENT_OCCLUSION_PASS_ID = "ssao";
-export const SCREEN_SPACE_AMBIENT_OCCLUSION_PASS_ORDER =
-	getRequiredBuiltinPostProcessOrderMetadata(
-		SCREEN_SPACE_AMBIENT_OCCLUSION_PASS_ID
-	);
+export const SCREEN_SPACE_AMBIENT_OCCLUSION_PASS_ORDER = {
+	id: SCREEN_SPACE_AMBIENT_OCCLUSION_PASS_ID,
+	placement: "spatial",
+	order: 100,
+	incremental: {
+		firstPass: "ssao",
+		grade: "standard",
+		inflationRadius: 8,
+	},
+} as const satisfies PostProcessPassMetadata;
 const WEBGPU_SSAO_RAW_TRANSIENT_ID = "ssao:raw";
 const WEBGPU_SSAO_BLUR_TRANSIENT_ID = "ssao:blur";
 
@@ -102,10 +108,12 @@ export type ResolvedSSAOOptions = Required<
 	>
 >;
 
+/** @internal Software context supplied to the built-in SSAO implementation. */
 export interface SoftwareSSAOContext {
 	readonly attachments: FrameAttachments;
 }
 
+/** @internal WebGPU context supplied to the built-in SSAO implementation. */
 export interface WebGPUSSAOContext {
 	readonly encoder?: ICommandEncoder;
 	readonly targets?: WebGPUPostProcessFrameTargets;
@@ -115,6 +123,7 @@ export interface WebGPUSSAOContext {
 	publishColorTarget?(texture: IRenderTexture): void;
 }
 
+/** @internal WebGL context supplied to the built-in SSAO implementation. */
 export interface WebGLSSAOContext {
 	readonly gl: WebGL2RenderingContext;
 	readonly programs: WebGLProgramLibrary;
@@ -286,6 +295,7 @@ export function createSSAOKernelParams(
 /**
  * CPU implementation of the cross-backend SSAO pass.
  */
+/** @internal Software implementation for the built-in SSAO pass. */
 export class SoftwareScreenSpaceAmbientOcclusionImplementation
 	implements PostProcessPassImplementation<SoftwareSSAOContext>
 {
@@ -531,6 +541,7 @@ export class SoftwareScreenSpaceAmbientOcclusionImplementation
 /**
  * WebGPU implementation of the cross-backend SSAO pass.
  */
+/** @internal WebGPU implementation for the built-in SSAO pass. */
 export class WebGPUScreenSpaceAmbientOcclusionImplementation
 	implements PostProcessPassImplementation<WebGPUSSAOContext>
 {
@@ -806,6 +817,7 @@ export class WebGPUScreenSpaceAmbientOcclusionImplementation
 /**
  * WebGL implementation of the cross-backend SSAO pass.
  */
+/** @internal WebGL implementation for the built-in SSAO pass. */
 export class WebGLScreenSpaceAmbientOcclusionImplementation
 	implements PostProcessPassImplementation<WebGLSSAOContext>
 {
@@ -1055,7 +1067,9 @@ export class ScreenSpaceAmbientOcclusionPass extends PostProcessPass<
 		super({
 			...config,
 			...SCREEN_SPACE_AMBIENT_OCCLUSION_PASS_ORDER,
-			builtIn: true,
+			incremental:
+				config.incremental ??
+				SCREEN_SPACE_AMBIENT_OCCLUSION_PASS_ORDER.incremental,
 			warningLabel: "SSAO",
 			implementations: {
 				software: new SoftwareScreenSpaceAmbientOcclusionImplementation(),

@@ -26,7 +26,7 @@ import { clamp } from "../../maths/Common";
 import { ceilDiv } from "../../maths/Misc";
 import { ShaderSource } from "../../shaders/ShaderSource";
 import { PostProcessPass, type PostProcessPassConfig } from "../PostProcessPass";
-import { getRequiredBuiltinPostProcessOrderMetadata } from "../builtinMetadata";
+import type { PostProcessPassMetadata } from "../ordering";
 import type {
 	PostProcessPassImplementation,
 	PostProcessPassRequest,
@@ -34,10 +34,16 @@ import type {
 } from "../types";
 
 export const FAST_APPROXIMATE_ANTI_ALIASING_PASS_ID = "fxaa";
-export const FAST_APPROXIMATE_ANTI_ALIASING_PASS_ORDER =
-	getRequiredBuiltinPostProcessOrderMetadata(
-		FAST_APPROXIMATE_ANTI_ALIASING_PASS_ID
-	);
+export const FAST_APPROXIMATE_ANTI_ALIASING_PASS_ORDER = {
+	id: FAST_APPROXIMATE_ANTI_ALIASING_PASS_ID,
+	placement: "ldr",
+	order: 710,
+	incremental: {
+		firstPass: "fxaa",
+		grade: "light",
+		inflationRadius: 2,
+	},
+} as const satisfies PostProcessPassMetadata;
 
 interface IncrementalDirtyRect {
 	minX: number;
@@ -53,11 +59,13 @@ interface SampledByteColor {
 	a: number;
 }
 
+/** @internal Software context supplied to the built-in FXAA implementation. */
 export interface SoftwareFXAAContext {
 	readonly attachments: FrameAttachments;
 	readonly canvasContext: CanvasRenderingContext2D | null;
 }
 
+/** @internal WebGPU context supplied to the built-in FXAA implementation. */
 export interface WebGPUFXAAContext {
 	readonly encoder?: ICommandEncoder;
 	readonly targets?: WebGPUPostProcessFrameTargets;
@@ -65,6 +73,7 @@ export interface WebGPUFXAAContext {
 	publishColorTarget?(texture: IRenderTexture): void;
 }
 
+/** @internal WebGL context supplied to the built-in FXAA implementation. */
 export interface WebGLFXAAContext {
 	readonly gl: WebGL2RenderingContext;
 	readonly programs: WebGLProgramLibrary;
@@ -109,6 +118,7 @@ export function createFXAAKernelParams(width: number, height: number): Float32Ar
 /**
  * CPU implementation of the cross-backend FXAA pass.
  */
+/** @internal Software implementation for the built-in FXAA pass. */
 export class SoftwareFastApproximateAntiAliasingImplementation
 	implements PostProcessPassImplementation<SoftwareFXAAContext>
 {
@@ -308,6 +318,7 @@ export class SoftwareFastApproximateAntiAliasingImplementation
 /**
  * WebGPU implementation of the cross-backend FXAA pass.
  */
+/** @internal WebGPU implementation for the built-in FXAA pass. */
 export class WebGPUFastApproximateAntiAliasingImplementation
 	implements PostProcessPassImplementation<WebGPUFXAAContext>
 {
@@ -447,6 +458,7 @@ export class WebGPUFastApproximateAntiAliasingImplementation
 /**
  * WebGL implementation of the cross-backend FXAA pass.
  */
+/** @internal WebGL implementation for the built-in FXAA pass. */
 export class WebGLFastApproximateAntiAliasingImplementation
 	implements PostProcessPassImplementation<WebGLFXAAContext>
 {
@@ -533,7 +545,9 @@ export class FastApproximateAntiAliasingPass extends PostProcessPass<
 		super({
 			...config,
 			...FAST_APPROXIMATE_ANTI_ALIASING_PASS_ORDER,
-			builtIn: true,
+			incremental:
+				config.incremental ??
+				FAST_APPROXIMATE_ANTI_ALIASING_PASS_ORDER.incremental,
 			warningLabel: "FXAA",
 			implementations: {
 				software: new SoftwareFastApproximateAntiAliasingImplementation(),
