@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { LightProbe } from "../../../src/lights/LightProbe.ts";
+import { Matrix3 } from "../../../src/maths/Matrix3.ts";
 import { SH } from "../../../src/maths/SH.ts";
 import {
 	collectActiveLocalizedLightProbes,
@@ -136,6 +137,8 @@ function testMetricAndBlendCurve() {
 	assert.ok(Math.abs(left - right) < 1e-3);
 
 	const cache = sphereProbe.getRuntimeCache();
+	assert.ok(cache.worldToProbe3x3 instanceof Matrix3);
+	assert.equal(cache.worldToProbe3x3.elements[0][0], 1);
 	assert.ok(cache.effectiveBlendDistance >= 0.4);
 }
 

@@ -1,6 +1,7 @@
+import { Matrix3 } from "../maths/Matrix3";
 import { Matrix4 } from "../maths/Matrix4";
 import { SH } from "../maths/SH";
-import type { IVector3, Matrix3Arr, SHCoefficients } from "../maths/types";
+import type { IVector3, SHCoefficients } from "../maths/types";
 import { Vector3 } from "../maths/Vector3";
 import { Light, LightType, type LightParams } from "./Light";
 
@@ -22,7 +23,7 @@ export interface LightProbeCaptureResolution {
 export interface LightProbeRuntimeCache {
 	probeToWorldMatrix: Matrix4;
 	worldToProbeMatrix: Matrix4;
-	worldToProbe3x3: Matrix3Arr;
+	worldToProbe3x3: Matrix3;
 	probeWorldPosition: IVector3;
 	invHalfExtents: IVector3;
 	radiusInv: number;
@@ -140,11 +141,7 @@ export class LightProbe extends Light<LightType.LightProbe> {
 		this._runtimeCache = {
 			probeToWorldMatrix: Matrix4.identity(),
 			worldToProbeMatrix: Matrix4.identity(),
-			worldToProbe3x3: [
-				[1, 0, 0],
-				[0, 1, 0],
-				[0, 0, 1],
-			],
+			worldToProbe3x3: Matrix3.identity(),
 			probeWorldPosition: { x: 0, y: 0, z: 0 },
 			invHalfExtents: { x: 1, y: 1, z: 1 },
 			radiusInv: 1,
@@ -314,23 +311,27 @@ export class LightProbe extends Light<LightType.LightProbe> {
 		const world = this.worldMatrix;
 		world.copyTo(this._runtimeCache.probeToWorldMatrix);
 
-		const inverse3x3 = Matrix4.inverse3x3(world) ?? [
-			[1, 0, 0],
-			[0, 1, 0],
-			[0, 0, 1],
-		];
-		copyMatrix3(this._runtimeCache.worldToProbe3x3, inverse3x3);
+		const inverse3x3 = Matrix4.inverse3x3(
+			world,
+			this._runtimeCache.worldToProbe3x3
+		);
+		if (inverse3x3) {
+			this._runtimeCache.worldToProbe3x3.copy(inverse3x3);
+		} else {
+			Matrix3.identity().copyTo(this._runtimeCache.worldToProbe3x3);
+		}
+		const inverseElements = this._runtimeCache.worldToProbe3x3.elements;
 
 		const worldToProbe = this._runtimeCache.worldToProbeMatrix.elements;
-		worldToProbe[0][0] = inverse3x3[0][0];
-		worldToProbe[0][1] = inverse3x3[0][1];
-		worldToProbe[0][2] = inverse3x3[0][2];
-		worldToProbe[1][0] = inverse3x3[1][0];
-		worldToProbe[1][1] = inverse3x3[1][1];
-		worldToProbe[1][2] = inverse3x3[1][2];
-		worldToProbe[2][0] = inverse3x3[2][0];
-		worldToProbe[2][1] = inverse3x3[2][1];
-		worldToProbe[2][2] = inverse3x3[2][2];
+		worldToProbe[0][0] = inverseElements[0][0];
+		worldToProbe[0][1] = inverseElements[0][1];
+		worldToProbe[0][2] = inverseElements[0][2];
+		worldToProbe[1][0] = inverseElements[1][0];
+		worldToProbe[1][1] = inverseElements[1][1];
+		worldToProbe[1][2] = inverseElements[1][2];
+		worldToProbe[2][0] = inverseElements[2][0];
+		worldToProbe[2][1] = inverseElements[2][1];
+		worldToProbe[2][2] = inverseElements[2][2];
 		worldToProbe[3][0] = 0;
 		worldToProbe[3][1] = 0;
 		worldToProbe[3][2] = 0;
@@ -341,17 +342,17 @@ export class LightProbe extends Light<LightType.LightProbe> {
 		const ty = worldElements[1][3];
 		const tz = worldElements[2][3];
 		worldToProbe[0][3] =
-			-(inverse3x3[0][0] * tx +
-				inverse3x3[0][1] * ty +
-				inverse3x3[0][2] * tz);
+			-(inverseElements[0][0] * tx +
+				inverseElements[0][1] * ty +
+				inverseElements[0][2] * tz);
 		worldToProbe[1][3] =
-			-(inverse3x3[1][0] * tx +
-				inverse3x3[1][1] * ty +
-				inverse3x3[1][2] * tz);
+			-(inverseElements[1][0] * tx +
+				inverseElements[1][1] * ty +
+				inverseElements[1][2] * tz);
 		worldToProbe[2][3] =
-			-(inverse3x3[2][0] * tx +
-				inverse3x3[2][1] * ty +
-				inverse3x3[2][2] * tz);
+			-(inverseElements[2][0] * tx +
+				inverseElements[2][1] * ty +
+				inverseElements[2][2] * tz);
 
 		const probePosition = Matrix4.transformPoint(world, { x: 0, y: 0, z: 0 });
 		this._runtimeCache.probeWorldPosition.x = probePosition.x;
@@ -495,18 +496,6 @@ function sanitizeLightProbeCaptureResolution(
 	const width = Math.max(8, Math.floor(value?.width ?? 64));
 	const height = Math.max(4, Math.floor(value?.height ?? 32));
 	return { width, height };
-}
-
-function copyMatrix3(target: Matrix3Arr, source: Matrix3Arr): void {
-	target[0][0] = source[0][0];
-	target[0][1] = source[0][1];
-	target[0][2] = source[0][2];
-	target[1][0] = source[1][0];
-	target[1][1] = source[1][1];
-	target[1][2] = source[1][2];
-	target[2][0] = source[2][0];
-	target[2][1] = source[2][1];
-	target[2][2] = source[2][2];
 }
 
 function copyMatrixSignature(target: Float32Array, matrix: Matrix4): void {

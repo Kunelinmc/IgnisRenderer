@@ -24,6 +24,8 @@ reflective environment maps from real scene geometry and effects.
 - Existing field `captureUpdateMode` must remain supported.
 - Existing field `captureFar` must remain supported.
 - Existing method `requestCapture()` must remain supported.
+- `ReflectionProbeRuntimeCache.worldToProbe3x3` must be a `Matrix3` instance.
+  Consumers must read its row-major values from `worldToProbe3x3.elements`.
 - When a `ReflectionProbe` is parented under a non-root `Node`, capture origin
   must resolve from the direct parent world position while the probe transform
   continues to define the influence volume and parallax proxy.
@@ -104,5 +106,8 @@ should pass frame context and active camera world position into
 - Behavior change: probes parented under non-root nodes capture and project
   from parent world position; probes attached to `scene.root` capture and
   project from probe world position.
+- Breaking change: `ReflectionProbeRuntimeCache.worldToProbe3x3` is now a
+  `Matrix3` instance. Code that read a bare `Matrix3Arr` must read
+  `worldToProbe3x3.elements`.
 - Breaking stage rename: renderer pipeline stage `reflection-probe-capture` has
   been replaced by `probe-capture`.

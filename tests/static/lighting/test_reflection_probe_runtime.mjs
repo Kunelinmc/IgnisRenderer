@@ -14,6 +14,7 @@ import {
 	sampleReflectionProbesSpecular,
 	selectTopTwoReflectionProbes,
 } from "../../../src/lights/runtime/reflectionProbeRuntime.ts";
+import { Matrix3 } from "../../../src/maths/Matrix3.ts";
 import { Matrix4 } from "../../../src/maths/Matrix4.ts";
 import { CubeTexture } from "../../../src/core/CubeTexture.ts";
 
@@ -138,6 +139,8 @@ function testCaptureOriginUsesProbePositionWhenParentedToSceneRoot() {
 	scene.updateWorldMatrices();
 	probe.markRuntimeDirty();
 	const cache = probe.getRuntimeCache();
+	assert.ok(cache.worldToProbe3x3 instanceof Matrix3);
+	assert.equal(cache.worldToProbe3x3.elements[0][0], 1);
 	assert.deepEqual(cache.probeWorldPosition, { x: 10, y: 2, z: -3 });
 	assert.deepEqual(cache.captureWorldPosition, { x: 10, y: 2, z: -3 });
 }

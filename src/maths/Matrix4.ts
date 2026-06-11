@@ -2,6 +2,7 @@
  * Matrix4 class and utility functions (4x4 Matrix)
  */
 
+import { Matrix3 } from "./Matrix3";
 import { Vector3 } from "./Vector3";
 import type { Point, IVector3, IVector4, Matrix3Arr } from "./types";
 
@@ -339,7 +340,23 @@ export class Matrix4 {
 		return target;
 	}
 
-	public static inverse3x3(m: Matrix4 | number[][]): Matrix3Arr | null {
+	/**
+	 * Computes the inverse of the upper-left 3x3 submatrix.
+	 *
+	 * @param m Matrix source in the engine row-major representation.
+	 * @param out Optional `Matrix3` that receives the inverse.
+	 * @returns The inverted 3x3 matrix, or `null` when the submatrix is singular.
+	 * @sideEffects Writes to `out` when provided.
+	 */
+	public static inverse3x3(
+		m: Matrix4 | number[][],
+		out: Matrix3
+	): Matrix3 | null;
+	public static inverse3x3(m: Matrix4 | number[][]): Matrix3Arr | null;
+	public static inverse3x3(
+		m: Matrix4 | number[][],
+		out?: Matrix3
+	): Matrix3Arr | Matrix3 | null {
 		const me = m instanceof Matrix4 ? m.elements : m;
 		const m00 = me[0][0],
 			m01 = me[0][1],
@@ -361,6 +378,20 @@ export class Matrix4 {
 		}
 
 		const invDet = 1.0 / det;
+
+		if (out) {
+			const oe = out.elements;
+			oe[0][0] = (m11 * m22 - m12 * m21) * invDet;
+			oe[0][1] = (m02 * m21 - m01 * m22) * invDet;
+			oe[0][2] = (m01 * m12 - m02 * m11) * invDet;
+			oe[1][0] = (m12 * m20 - m10 * m22) * invDet;
+			oe[1][1] = (m00 * m22 - m02 * m20) * invDet;
+			oe[1][2] = (m02 * m10 - m00 * m12) * invDet;
+			oe[2][0] = (m10 * m21 - m11 * m20) * invDet;
+			oe[2][1] = (m01 * m20 - m00 * m21) * invDet;
+			oe[2][2] = (m00 * m11 - m01 * m10) * invDet;
+			return out;
+		}
 
 		return [
 			[

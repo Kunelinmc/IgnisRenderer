@@ -28,6 +28,8 @@ Behavioral contract:
 
 - `boxCast` must incorporate `rotation` when constructing box sweep volume.
 - `overlapBox` must incorporate `rotation` when constructing overlap volume.
+- Implementations should use `Matrix3.fromQuaternion` for shared row-major
+quaternion-to-matrix conversion.
 - Backends may use conservative broadphase approximation for rotated box tests
 when exact narrow-phase is unavailable.
 

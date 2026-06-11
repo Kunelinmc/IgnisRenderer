@@ -1,4 +1,5 @@
 import type { IVector3 } from "../maths/types";
+import { Matrix3 } from "../maths/Matrix3";
 import { EventEmitter } from "../core/EventEmitter";
 import type { Node } from "../core/Node";
 import type { Scene } from "../core/Scene";
@@ -58,6 +59,8 @@ import {
 	TRANSFORM_EPSILON,
 } from "./constants";
 import type { SpatialRayHit } from "../spatial";
+
+const ORIENTED_BOUNDS_ROTATION_MATRIX = Matrix3.identity();
 
 export interface PhysicsSystemOptions {
 	adapter?: IPhysicsEngineAdapter;
@@ -2335,56 +2338,24 @@ function toOrientedBoundsExtents(
 	halfExtents: IVector3,
 	rotation: QuaternionTuple
 ): IVector3 {
-	const matrix = quaternionToMatrix3(rotation);
+	const matrix = Matrix3.fromQuaternion(
+		rotation,
+		ORIENTED_BOUNDS_ROTATION_MATRIX
+	).elements;
 	return {
 		x:
-			Math.abs(matrix[0]) * halfExtents.x +
-			Math.abs(matrix[1]) * halfExtents.y +
-			Math.abs(matrix[2]) * halfExtents.z,
+			Math.abs(matrix[0][0]) * halfExtents.x +
+			Math.abs(matrix[0][1]) * halfExtents.y +
+			Math.abs(matrix[0][2]) * halfExtents.z,
 		y:
-			Math.abs(matrix[3]) * halfExtents.x +
-			Math.abs(matrix[4]) * halfExtents.y +
-			Math.abs(matrix[5]) * halfExtents.z,
+			Math.abs(matrix[1][0]) * halfExtents.x +
+			Math.abs(matrix[1][1]) * halfExtents.y +
+			Math.abs(matrix[1][2]) * halfExtents.z,
 		z:
-			Math.abs(matrix[6]) * halfExtents.x +
-			Math.abs(matrix[7]) * halfExtents.y +
-			Math.abs(matrix[8]) * halfExtents.z,
+			Math.abs(matrix[2][0]) * halfExtents.x +
+			Math.abs(matrix[2][1]) * halfExtents.y +
+			Math.abs(matrix[2][2]) * halfExtents.z,
 	};
-}
-
-function quaternionToMatrix3(rotation: QuaternionTuple): [
-	number,
-	number,
-	number,
-	number,
-	number,
-	number,
-	number,
-	number,
-	number,
-] {
-	const [x, y, z, w] = rotation;
-	const xx = x * x;
-	const yy = y * y;
-	const zz = z * z;
-	const xy = x * y;
-	const xz = x * z;
-	const yz = y * z;
-	const wx = w * x;
-	const wy = w * y;
-	const wz = w * z;
-
-	return [
-		1 - 2 * (yy + zz),
-		2 * (xy - wz),
-		2 * (xz + wy),
-		2 * (xy + wz),
-		1 - 2 * (xx + zz),
-		2 * (yz - wx),
-		2 * (xz - wy),
-		2 * (yz + wx),
-		1 - 2 * (xx + yy),
-	];
 }
 
 function createWorldRuntime(worldId: string): WorldRuntimeState {

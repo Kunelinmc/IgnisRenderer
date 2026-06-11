@@ -5,6 +5,7 @@ import type {
 	PhysicsAdapterStepResult,
 } from "../IPhysicsEngineAdapter";
 import type { IVector3 } from "../../maths/types";
+import { Matrix3 } from "../../maths/Matrix3";
 import { Vector3 } from "../../maths/Vector3";
 import { DEFAULT_GRAVITY } from "../constants";
 import type {
@@ -27,6 +28,8 @@ import type {
 	RigidBodyType,
 } from "../types";
 import { SimplePhysicsAdapter } from "./SimplePhysicsAdapter";
+
+const ORIENTED_BOUNDS_ROTATION_MATRIX = Matrix3.identity();
 
 interface AmmoModuleLike {
 	btDefaultCollisionConfiguration?: new () => unknown;
@@ -2336,20 +2339,23 @@ function toOrientedBoundsExtents(
 	halfExtents: IVector3,
 	rotation: [number, number, number, number]
 ): IVector3 {
-	const matrix = quaternionToMatrix3(rotation);
+	const matrix = Matrix3.fromQuaternion(
+		rotation,
+		ORIENTED_BOUNDS_ROTATION_MATRIX
+	).elements;
 	return {
 		x:
-			Math.abs(matrix[0]) * halfExtents.x +
-			Math.abs(matrix[1]) * halfExtents.y +
-			Math.abs(matrix[2]) * halfExtents.z,
+			Math.abs(matrix[0][0]) * halfExtents.x +
+			Math.abs(matrix[0][1]) * halfExtents.y +
+			Math.abs(matrix[0][2]) * halfExtents.z,
 		y:
-			Math.abs(matrix[3]) * halfExtents.x +
-			Math.abs(matrix[4]) * halfExtents.y +
-			Math.abs(matrix[5]) * halfExtents.z,
+			Math.abs(matrix[1][0]) * halfExtents.x +
+			Math.abs(matrix[1][1]) * halfExtents.y +
+			Math.abs(matrix[1][2]) * halfExtents.z,
 		z:
-			Math.abs(matrix[6]) * halfExtents.x +
-			Math.abs(matrix[7]) * halfExtents.y +
-			Math.abs(matrix[8]) * halfExtents.z,
+			Math.abs(matrix[2][0]) * halfExtents.x +
+			Math.abs(matrix[2][1]) * halfExtents.y +
+			Math.abs(matrix[2][2]) * halfExtents.z,
 	};
 }
 
@@ -2640,35 +2646,6 @@ function axisVector(axis: number, sign: number): IVector3 {
 	if (axis === 0) return { x: sign, y: 0, z: 0 };
 	if (axis === 1) return { x: 0, y: sign, z: 0 };
 	return { x: 0, y: 0, z: sign };
-}
-
-function quaternionToMatrix3(
-	rotation: [number, number, number, number]
-): [number, number, number, number, number, number, number, number, number] {
-	const x = rotation[0];
-	const y = rotation[1];
-	const z = rotation[2];
-	const w = rotation[3];
-	const xx = x * x;
-	const yy = y * y;
-	const zz = z * z;
-	const xy = x * y;
-	const xz = x * z;
-	const yz = y * z;
-	const wx = w * x;
-	const wy = w * y;
-	const wz = w * z;
-	return [
-		1 - 2 * (yy + zz),
-		2 * (xy - wz),
-		2 * (xz + wy),
-		2 * (xy + wz),
-		1 - 2 * (xx + zz),
-		2 * (yz - wx),
-		2 * (xz - wy),
-		2 * (yz + wx),
-		1 - 2 * (xx + yy),
-	];
 }
 
 function readAmmoComponent(

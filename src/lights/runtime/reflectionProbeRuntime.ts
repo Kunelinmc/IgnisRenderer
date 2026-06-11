@@ -1,6 +1,7 @@
 import { Texture } from "../../core/Texture";
+import { Matrix3 } from "../../maths/Matrix3";
 import { Matrix4 } from "../../maths/Matrix4";
-import type { IVector3 } from "../../maths/types";
+import type { IVector3, Matrix3Arr } from "../../maths/types";
 import {
 	LightType,
 	type ReflectionProbe,
@@ -668,22 +669,23 @@ function intersectLocalSphere(
 }
 
 function transformDirection3x3(
-	matrix: number[][],
+	matrix: Matrix3 | Matrix3Arr,
 	direction: IVector3
 ): IVector3 {
+	const elements = matrix instanceof Matrix3 ? matrix.elements : matrix;
 	return {
 		x:
-			matrix[0][0] * direction.x +
-			matrix[0][1] * direction.y +
-			matrix[0][2] * direction.z,
+			elements[0][0] * direction.x +
+			elements[0][1] * direction.y +
+			elements[0][2] * direction.z,
 		y:
-			matrix[1][0] * direction.x +
-			matrix[1][1] * direction.y +
-			matrix[1][2] * direction.z,
+			elements[1][0] * direction.x +
+			elements[1][1] * direction.y +
+			elements[1][2] * direction.z,
 		z:
-			matrix[2][0] * direction.x +
-			matrix[2][1] * direction.y +
-			matrix[2][2] * direction.z,
+			elements[2][0] * direction.x +
+			elements[2][1] * direction.y +
+			elements[2][2] * direction.z,
 	};
 }
 

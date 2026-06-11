@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { IrradianceProbeGrid } from "../../../src/lights/IrradianceProbeGrid.ts";
+import { Matrix3 } from "../../../src/maths/Matrix3.ts";
 import { SH } from "../../../src/maths/SH.ts";
 import {
 	computeIrradianceProbeGridRawWeight,
@@ -82,6 +83,8 @@ function testCloneAndRuntimeCache() {
 
 	const cache = grid.getRuntimeCache();
 	assert.equal(cache.cellCount, 6);
+	assert.ok(cache.worldToGrid3x3 instanceof Matrix3);
+	assert.equal(cache.worldToGrid3x3.elements[0][0], 1);
 	assert.equal(cache.cellWorldPositions[0].x, 2);
 	assert.equal(cache.cellWorldPositions[5].x, 8);
 	assert.equal(cache.validMask[grid.getCellIndex(2, 1, 0)], 1);

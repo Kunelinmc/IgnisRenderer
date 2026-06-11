@@ -25,6 +25,8 @@ probe influence with deterministic overlap resolution.
 - `LightProbe.priority` must be finite and must be sanitized to an integer.
 - `LightProbe.copy()` and `LightProbe.clone()` must preserve SH coefficients and
   localized probe properties.
+- `LightProbeRuntimeCache.worldToProbe3x3` must be a `Matrix3` instance.
+  Consumers must read its row-major values from `worldToProbe3x3.elements`.
 - Localized `LightProbe` selection must evaluate only probes in the highest
   active `priority` group.
 - Higher numeric `priority` values must win over lower numeric `priority`
@@ -95,3 +97,6 @@ bun tests/static/lighting/test_light_probe_runtime.mjs
   those backends.
 - The Software backend intentionally preserves the previous global accumulation
   behavior for localized probes.
+- Breaking change: `LightProbeRuntimeCache.worldToProbe3x3` is now a `Matrix3`
+  instance. Code that read a bare `Matrix3Arr` must read
+  `worldToProbe3x3.elements`.

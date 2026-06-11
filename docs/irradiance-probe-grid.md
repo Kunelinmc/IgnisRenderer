@@ -54,6 +54,9 @@ getRuntimeCache(): IrradianceProbeGridRuntimeCache;
 `clearCell` must mark the cell invalid. `requestCapture()` without an argument
 must request all cells.
 
+`IrradianceProbeGridRuntimeCache.worldToGrid3x3` must be a `Matrix3` instance.
+Consumers must read its row-major values from `worldToGrid3x3.elements`.
+
 ## Usage
 
 ```ts
@@ -93,7 +96,10 @@ capture source, capture falls back to analytic lights and environment only.
 
 ## Compatibility / Breaking Changes
 
-V1 is additive and does not change `LightProbe` or `ReflectionProbe` public
-contracts. The grid affects diffuse irradiance only. It does not affect
-reflection probe specular IBL. Auto placement, per-object probe override,
-visibility masks, and occlusion masks are not part of V1.
+The grid affects diffuse irradiance only. It does not affect reflection probe
+specular IBL. Auto placement, per-object probe override, visibility masks, and
+occlusion masks are not part of V1.
+
+Breaking change: `IrradianceProbeGridRuntimeCache.worldToGrid3x3` is now a
+`Matrix3` instance. Code that read a bare `Matrix3Arr` must read
+`worldToGrid3x3.elements`.

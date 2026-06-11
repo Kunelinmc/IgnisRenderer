@@ -1,6 +1,7 @@
+import { Matrix3 } from "../maths/Matrix3";
 import { Matrix4 } from "../maths/Matrix4";
 import { SH } from "../maths/SH";
-import type { IVector3, Matrix3Arr, SHCoefficients } from "../maths/types";
+import type { IVector3, SHCoefficients } from "../maths/types";
 import { Vector3 } from "../maths/Vector3";
 import { Light, LightType, type LightParams } from "./Light";
 import type {
@@ -29,7 +30,7 @@ export type IrradianceProbeGridCellRef =
 export interface IrradianceProbeGridRuntimeCache {
 	gridToWorldMatrix: Matrix4;
 	worldToGridMatrix: Matrix4;
-	worldToGrid3x3: Matrix3Arr;
+	worldToGrid3x3: Matrix3;
 	dimensions: IrradianceProbeGridDimensions;
 	cellCount: number;
 	halfExtents: IVector3;
@@ -161,11 +162,7 @@ export class IrradianceProbeGrid extends Light<LightType.IrradianceProbeGrid> {
 		this._runtimeCache = {
 			gridToWorldMatrix: Matrix4.identity(),
 			worldToGridMatrix: Matrix4.identity(),
-			worldToGrid3x3: [
-				[1, 0, 0],
-				[0, 1, 0],
-				[0, 0, 1],
-			],
+			worldToGrid3x3: Matrix3.identity(),
 			dimensions: { ...this.dimensions },
 			cellCount,
 			halfExtents: {
@@ -475,14 +472,15 @@ export class IrradianceProbeGrid extends Light<LightType.IrradianceProbeGrid> {
 		this.worldMatrix.copyTo(cache.gridToWorldMatrix);
 		Matrix4.inverse(this.worldMatrix, cache.worldToGridMatrix) ??
 			Matrix4.identity().copyTo(cache.worldToGridMatrix);
-		copyMatrix3(
-			cache.worldToGrid3x3,
-			Matrix4.inverse3x3(this.worldMatrix) ?? [
-				[1, 0, 0],
-				[0, 1, 0],
-				[0, 0, 1],
-			]
+		const inverse3x3 = Matrix4.inverse3x3(
+			this.worldMatrix,
+			cache.worldToGrid3x3
 		);
+		if (inverse3x3) {
+			cache.worldToGrid3x3.copy(inverse3x3);
+		} else {
+			Matrix3.identity().copyTo(cache.worldToGrid3x3);
+		}
 		cache.dimensions.x = this.dimensions.x;
 		cache.dimensions.y = this.dimensions.y;
 		cache.dimensions.z = this.dimensions.z;
@@ -715,18 +713,6 @@ function dimensionsEqual(
 	right: IrradianceProbeGridDimensions
 ): boolean {
 	return left.x === right.x && left.y === right.y && left.z === right.z;
-}
-
-function copyMatrix3(target: Matrix3Arr, source: Matrix3Arr): void {
-	target[0][0] = source[0][0];
-	target[0][1] = source[0][1];
-	target[0][2] = source[0][2];
-	target[1][0] = source[1][0];
-	target[1][1] = source[1][1];
-	target[1][2] = source[1][2];
-	target[2][0] = source[2][0];
-	target[2][1] = source[2][1];
-	target[2][2] = source[2][2];
 }
 
 function copyMatrixSignature(target: Float32Array, matrix: Matrix4): void {
