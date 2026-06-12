@@ -7,6 +7,7 @@ import {
 
 function createBackend(maxTextureDimension2D) {
 	const createTextureCalls = [];
+	const destroyedTextures = [];
 	return {
 		device: {
 			limits: {
@@ -16,11 +17,16 @@ function createBackend(maxTextureDimension2D) {
 		createTexture(desc) {
 			createTextureCalls.push(desc);
 			return {
-				destroy() {},
+				destroy() {
+					destroyedTextures.push(desc.label);
+				},
 			};
 		},
 		get createTextureCalls() {
 			return createTextureCalls;
+		},
+		get destroyedTextures() {
+			return destroyedTextures;
 		},
 	};
 }
@@ -101,8 +107,39 @@ function testPreparePropagatesResolvedAtlasTileSize() {
 	assert.equal(allocator.tileSize, 2048);
 }
 
+function testAtlasOnlyGrowsUntilDestroyed() {
+	const backend = createBackend(8192);
+	const allocator = new WebGPUShadowAtlasAllocator(backend);
+
+	allocator.ensureAtlasForTileSize(1024);
+	assert.equal(allocator.tileSize, 1024);
+	assert.equal(backend.createTextureCalls.length, 2);
+
+	allocator.ensureAtlasForTileSize(512);
+	assert.equal(allocator.tileSize, 1024);
+	assert.equal(backend.createTextureCalls.length, 2);
+	assert.deepEqual(backend.destroyedTextures, []);
+
+	allocator.ensureAtlasForTileSize(2048);
+	assert.equal(allocator.tileSize, 2048);
+	assert.equal(backend.createTextureCalls.length, 4);
+	assert.deepEqual(backend.destroyedTextures, [
+		"WebGPUShadowDepthAtlas",
+		"WebGPUShadowTransmittanceAtlas",
+	]);
+
+	allocator.destroy();
+	assert.deepEqual(backend.destroyedTextures, [
+		"WebGPUShadowDepthAtlas",
+		"WebGPUShadowTransmittanceAtlas",
+		"WebGPUShadowDepthAtlas",
+		"WebGPUShadowTransmittanceAtlas",
+	]);
+}
+
 testAtlasTileSizeIsClampedToDeviceLimit();
 testAtlasUsesHigherRequestedDeviceLimit();
 testPreparePropagatesResolvedAtlasTileSize();
+testAtlasOnlyGrowsUntilDestroyed();
 
 console.log("test_webgpu_shadow_atlas_allocator: ok");

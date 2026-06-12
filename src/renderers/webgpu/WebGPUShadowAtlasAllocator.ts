@@ -50,11 +50,19 @@ export class WebGPUShadowAtlasAllocator {
 		this.ensureAtlasForTileSize(Math.max(1, resolvedTileSize));
 	}
 
+	/**
+	 * Ensures that a shadow atlas texture at least as large as the requested tile
+	 * size exists.
+	 *
+	 * @param tileSize The requested tile size.
+	 * @returns The shadow depth atlas texture.
+	 * @internal WebGPU shadow rendering and frame binding infrastructure only.
+	 */
 	public ensureAtlasForTileSize(tileSize: number): IRenderTexture {
 		const requestedTileSize = Math.max(1, tileSize | 0);
 		const safeTileSize = this._resolveAtlasTileSize(requestedTileSize);
 
-		if (!this._atlas || this._atlas.tileSize !== safeTileSize) {
+		if (!this._atlas || this._atlas.tileSize < safeTileSize) {
 			this._atlas?.texture.destroy();
 			this._atlas?.transmittanceTexture.destroy();
 
