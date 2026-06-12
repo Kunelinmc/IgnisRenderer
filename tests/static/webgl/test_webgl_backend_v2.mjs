@@ -1477,6 +1477,15 @@ function testSceneShaderBackLitShadowGuard() {
 	assert.ok(shader.fragment.includes("if (uDoubleSided == 1 && dot(normal, viewDir) < 0.0)"));
 }
 
+function testSceneShaderKeepsClusteredFragmentLightLimitPlaceholder() {
+	const shader = getTestSceneShader();
+	assert.ok(
+		shader.fragment.includes(
+			"__WEBGL_MAX_CLUSTER_LIGHTS_PER_FRAGMENT__"
+		)
+	);
+}
+
 function testSceneShaderUsesDecoupledShadowNormal() {
 	const shader = getTestSceneShader();
 	assert.ok(shader.fragment.includes("vec3 shadowNormal = normal;"));
@@ -2452,6 +2461,7 @@ async function run() {
 	testLightCollectorPCSSShadowParams();
 	testLightCollectorDirectionalCSMShadowData();
 	testSceneShaderBackLitShadowGuard();
+	testSceneShaderKeepsClusteredFragmentLightLimitPlaceholder();
 	testSceneShaderUsesDecoupledShadowNormal();
 	testSceneShaderIncludesReflectionProbeUniforms();
 	testSceneShaderIncludesLocalizedLightProbeUniforms();

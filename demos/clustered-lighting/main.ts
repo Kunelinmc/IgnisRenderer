@@ -185,7 +185,7 @@ function createDefaultSettings(): DemoSettings {
 		clustered: true,
 		tileSizePx: 64,
 		zSlices: 24,
-		maxLightsPerCluster: 96,
+		maxLightsPerCluster: MAX_LIGHTS,
 		animateLights: true,
 		showMarkers: true,
 		markerBudget: 128,
@@ -490,7 +490,7 @@ async function createTweakpane(demo: DemoState): Promise<void> {
 			{
 				label: "Cluster cap",
 				min: 16,
-				max: 160,
+				max: MAX_LIGHTS,
 				step: 8,
 			}
 		).on("change", () => {

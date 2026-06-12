@@ -2,6 +2,9 @@ import assert from "node:assert/strict";
 import { CameraType } from "../../../src/cameras/Camera.ts";
 import { Logger } from "../../../src/foundation/Logger.ts";
 import { Matrix4 } from "../../../src/maths/Matrix4.ts";
+import {
+	MAX_CLUSTER_LIGHTS_PER_FRAGMENT,
+} from "../../../src/renderers/constants.ts";
 import { WebGLClusteredLightingRuntime } from "../../../src/renderers/webgl/WebGLClusteredLightingRuntime.ts";
 
 function createFakeGL() {
@@ -317,12 +320,41 @@ function testClusterOverflowClampsFixedSpanCount() {
 	assert.equal(indexUpload.pixels[0], 0);
 }
 
+function testFragmentLightBudgetClampsRequestedClusterCapacity() {
+	const gl = createFakeGL();
+	const runtime = new WebGLClusteredLightingRuntime(gl);
+	const context = createPerspectiveContext({
+		features: {
+			clusteredLightingOptions: {
+				tileSizePx: 64,
+				zSlices: 1,
+				maxLights: 1,
+				maxLightsPerCluster: MAX_CLUSTER_LIGHTS_PER_FRAGMENT + 64,
+			},
+		},
+	});
+
+	withCapturedWarnings((warnings) => {
+		runtime.prepare(context, createLightState(), 4096);
+		assert.equal(
+			runtime.getState().maxLightsPerCluster,
+			MAX_CLUSTER_LIGHTS_PER_FRAGMENT
+		);
+		assert.ok(
+			warnings.some((warning) =>
+				warning.includes("clamps each cluster to 512 lights")
+			)
+		);
+	});
+}
+
 function run() {
 	testPerspectiveBuildsClusterTextures();
 	testNonPerspectiveFallsBackWithWarning();
 	testLightBudgetWarning();
 	testClusterHeadersUseFixedClusterSpans();
 	testClusterOverflowClampsFixedSpanCount();
+	testFragmentLightBudgetClampsRequestedClusterCapacity();
 	console.log("WebGL clustered lighting runtime tests passed");
 }
 

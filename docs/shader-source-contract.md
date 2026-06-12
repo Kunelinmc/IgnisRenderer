@@ -39,8 +39,9 @@ Callers must use `ShaderSource.load()` for asynchronous loading and
   `maxSpotLights`.
 - WebGL scene sources must leave light-count placeholders in source text using
   `__WEBGL_MAX_DIRECTIONAL_LIGHTS__`, `__WEBGL_MAX_POINT_LIGHTS__`, and
-  `__WEBGL_MAX_SPOT_LIGHTS__`. `ShaderRuntime` directive profiles own the
-  replacement to concrete backend constants.
+  `__WEBGL_MAX_SPOT_LIGHTS__`. Clustered fragment loops must use
+  `__WEBGL_MAX_CLUSTER_LIGHTS_PER_FRAGMENT__`. `ShaderRuntime` directive
+  profiles own replacement with concrete backend constants.
 - Composite results returned from `ShaderSource` must be cloned so callers cannot
   mutate cached source maps.
 

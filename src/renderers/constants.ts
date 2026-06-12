@@ -5,6 +5,7 @@ export const MAX_DIRECTIONAL_LIGHTS = 4;
 export const MAX_POINT_LIGHTS = 16;
 export const MAX_SPOT_LIGHTS = 8;
 export const MAX_AREA_LIGHTS = 8;
+export const MAX_CLUSTER_LIGHTS_PER_FRAGMENT = 512;
 export const MAX_REFLECTION_PROBES = 8;
 export const MAX_LOCAL_LIGHT_PROBES = 8;
 export const MAX_VOLUMETRIC_LIGHTS = 65000;

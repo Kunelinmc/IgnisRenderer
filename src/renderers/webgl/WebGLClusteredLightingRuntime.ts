@@ -2,6 +2,7 @@ import { CameraType } from "../../cameras/Camera";
 import { Logger } from "../../foundation/Logger";
 import { Matrix4 } from "../../maths/Matrix4";
 import type { FrameContext } from "../../pipeline/types";
+import { MAX_CLUSTER_LIGHTS_PER_FRAGMENT } from "../constants";
 import type {
 	WebGLPointLight,
 	WebGLSpotLight,
@@ -119,6 +120,19 @@ export class WebGLClusteredLightingRuntime {
 		const height = Math.max(1, Math.floor(context.attachments.height));
 		const requested = context.features.clusteredLightingOptions ?? {};
 		const options = this._resolveOptions(requested);
+		if (
+			finiteOr(requested.maxLightsPerCluster, options.maxLightsPerCluster) >
+			MAX_CLUSTER_LIGHTS_PER_FRAGMENT
+		) {
+			Logger.warn(
+				`WebGL clustered lighting clamps each cluster to ` +
+					`${MAX_CLUSTER_LIGHTS_PER_FRAGMENT} lights; extra entries are skipped`,
+				{
+					scope: "WebGLClusteredLightingRuntime",
+					onceKey: "webgl-clustered-fragment-light-budget",
+				}
+			);
+		}
 		const isPerspective = context.camera.type === CameraType.Perspective;
 
 		if (!context.features.enableClusteredLighting || !context.features.enableLighting) {
@@ -370,12 +384,15 @@ export class WebGLClusteredLightingRuntime {
 				1,
 				Math.floor(finiteOr(value?.maxLights, DEFAULT_CLUSTER_OPTIONS.maxLights))
 			),
-			maxLightsPerCluster: Math.max(
-				1,
-				Math.floor(
-					finiteOr(
-						value?.maxLightsPerCluster,
-						DEFAULT_CLUSTER_OPTIONS.maxLightsPerCluster
+			maxLightsPerCluster: Math.min(
+				MAX_CLUSTER_LIGHTS_PER_FRAGMENT,
+				Math.max(
+					1,
+					Math.floor(
+						finiteOr(
+							value?.maxLightsPerCluster,
+							DEFAULT_CLUSTER_OPTIONS.maxLightsPerCluster
+						)
 					)
 				)
 			),
