@@ -49,7 +49,9 @@ import type {
 	WarmupPlan,
 } from "../../../pipeline/WarmupPlanner";
 import { toShaderCompileError } from "../../../pipeline/WarmupPlanner";
+import { createWarmupYieldController } from "../../../pipeline/WarmupScheduler";
 import type { ShaderCompileError } from "../../../shaders/runtime";
+import type { WarmupOptions } from "../../IRenderBackend";
 import { Logger } from "../../../foundation/Logger";
 import { materialUsesTransmission } from "../../../materials/transparency";
 import { materialSupportsWebGPUDeferredLighting } from "../material";
@@ -515,12 +517,14 @@ export class WebGPUFrameGraphRuntime {
 
 	public async warmup(
 		context: FrameContext,
-		plan: WarmupPlan
+		plan: WarmupPlan,
+		options: WarmupOptions = {}
 	): Promise<WarmupPhaseCounters> {
 		let total = 1;
 		let compiled = 0;
 		let failed = 0;
 		const errors: ShaderCompileError[] = [];
+		const yieldController = createWarmupYieldController(options);
 		this._ensureMRTSupport();
 		this._configureDeferredLightingSupport();
 
@@ -531,6 +535,7 @@ export class WebGPUFrameGraphRuntime {
 			failed++;
 			errors.push(toShaderCompileError(error, "webgpu", "WebGPUPresentWarmup"));
 		}
+		await yieldController.yieldIfNeeded();
 
 		const descriptorById = this._getWarmupPostProcessDescriptorMap(context, plan);
 		const hints = new Set<string>();
@@ -552,6 +557,7 @@ export class WebGPUFrameGraphRuntime {
 			if (postWarmup.errors.length > 0) {
 				errors.push(...postWarmup.errors);
 			}
+			await yieldController.yieldIfNeeded();
 		}
 
 		const warmedPassImplementations = new Set<string>();
@@ -594,6 +600,7 @@ export class WebGPUFrameGraphRuntime {
 					)
 				);
 			}
+			await yieldController.yieldIfNeeded();
 		}
 
 		return {

@@ -104,6 +104,8 @@ import type {
 	WarmupPlan,
 } from "../../pipeline/WarmupPlanner";
 import { toShaderCompileError } from "../../pipeline/WarmupPlanner";
+import { createWarmupYieldController } from "../../pipeline/WarmupScheduler";
+import type { WarmupOptions } from "../IRenderBackend";
 import { WebGLClusteredLightingRuntime } from "./WebGLClusteredLightingRuntime";
 import {
 	isFiniteMatrix,
@@ -857,12 +859,14 @@ export class WebGLFrameExecutor {
 
 	public async warmup(
 		context: FrameContext,
-		plan: WarmupPlan
+		plan: WarmupPlan,
+		options: WarmupOptions = {}
 	): Promise<WarmupPhaseCounters> {
 		let skipped = 0;
 		const errors: ShaderCompileError[] = [];
 		const handles: WebGLProgramWarmupHandle[] = [];
 		let enqueueFailures = 0;
+		const yieldController = createWarmupYieldController(options);
 
 		const enqueue = async (
 			label: string,
@@ -874,6 +878,7 @@ export class WebGLFrameExecutor {
 				enqueueFailures++;
 				errors.push(toShaderCompileError(error, "webgl", label));
 			}
+			await yieldController.yieldIfNeeded();
 		};
 
 		await enqueue("WebGLSceneProgram:builtin", () => {

@@ -82,10 +82,25 @@ async function init() {
 	canvas = bootstrap.canvas;
 	const renderer = bootstrap.renderer;
 
-	await renderer.warmup();
-
 	renderer.updateSH();
 	renderer.requestRender("unknown");
+	void renderer
+		.warmup({ scheduling: "idle" })
+		.then((report) => {
+			if (report.failed > 0) {
+				Logger.warn(
+					`Renderer warmup completed with ${report.failed} failure(s).`,
+					{ scope: "Main" }
+				);
+			}
+			// Re-render once background warmup has populated backend caches.
+			renderer.requestRender("unknown");
+		})
+		.catch((error) => {
+			Logger.warn(["Renderer warmup failed.", error], {
+				scope: "Main",
+			});
+		});
 
 	bindControls(canvas, camera, renderer);
 	setupInteraction(renderer, scene, camera);

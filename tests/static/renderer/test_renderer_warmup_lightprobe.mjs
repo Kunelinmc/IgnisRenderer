@@ -110,6 +110,8 @@ function createRendererFixture() {
 async function withDOMGlobals(callback) {
 	const originalWindow = globalThis.window;
 	const originalRAF = globalThis.requestAnimationFrame;
+	const originalIdleCallback = globalThis.requestIdleCallback;
+	const originalSetTimeout = globalThis.setTimeout;
 	try {
 		globalThis.window = { devicePixelRatio: 1 };
 		globalThis.requestAnimationFrame = () => 0;
@@ -117,7 +119,57 @@ async function withDOMGlobals(callback) {
 	} finally {
 		globalThis.window = originalWindow;
 		globalThis.requestAnimationFrame = originalRAF;
+		globalThis.requestIdleCallback = originalIdleCallback;
+		globalThis.setTimeout = originalSetTimeout;
 	}
+}
+
+async function testNextFrameWarmupAllowsPaintBeforePreparation() {
+	await withDOMGlobals(async () => {
+		const { backend, renderer } = createRendererFixture();
+		let frameCallback = null;
+		let timeoutCallback = null;
+		globalThis.requestAnimationFrame = (callback) => {
+			frameCallback = callback;
+			return 1;
+		};
+		globalThis.setTimeout = (callback) => {
+			timeoutCallback = callback;
+			return 1;
+		};
+
+		const warmupPromise = renderer.warmup({ scheduling: "next-frame" });
+		assert.equal(backend.lastWarmupContext, null);
+		assert.equal(typeof frameCallback, "function");
+
+		frameCallback();
+		await Promise.resolve();
+		assert.equal(backend.lastWarmupContext, null);
+		assert.equal(typeof timeoutCallback, "function");
+
+		timeoutCallback();
+		await warmupPromise;
+		assert.ok(backend.lastWarmupContext);
+	});
+}
+
+async function testIdleWarmupDefersBackendPreparation() {
+	await withDOMGlobals(async () => {
+		const { backend, renderer } = createRendererFixture();
+		let idleCallback = null;
+		globalThis.requestIdleCallback = (callback) => {
+			idleCallback = callback;
+			return 1;
+		};
+
+		const warmupPromise = renderer.warmup({ scheduling: "idle" });
+		assert.equal(backend.lastWarmupContext, null);
+		assert.equal(typeof idleCallback, "function");
+
+		idleCallback();
+		await warmupPromise;
+		assert.ok(backend.lastWarmupContext);
+	});
 }
 
 async function testWarmupDoesNotBakeEnvironmentProbes() {
@@ -223,6 +275,8 @@ async function testWarmupPostProcessPlanUsesPipelineOrder() {
 }
 
 async function run() {
+	await testNextFrameWarmupAllowsPaintBeforePreparation();
+	await testIdleWarmupDefersBackendPreparation();
 	await testWarmupDoesNotBakeEnvironmentProbes();
 	await testWarmupDoesNotCreateProbeWhenSceneHasNone();
 	await testWarmupAndRenderIncrementalContextContractMatches();

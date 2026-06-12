@@ -45,6 +45,7 @@ import {
 	createTransientStore,
 	PARTICLE_SIM_DELTA_TIME_SECONDS_KEY,
 } from "../pipeline/types";
+import { getWarmupStartDelay } from "../pipeline/WarmupScheduler";
 import { AnimationSystem } from "../animation/AnimationSystem";
 import type { PhysicsSystem } from "../physics";
 import type { SHCoefficients } from "../maths/types";
@@ -339,7 +340,20 @@ export class Renderer extends EventEmitter<RendererEvents> {
 		this.emit("backendresourceevent", event);
 	}
 
+	/**
+	 * Prepares backend pipelines and resources for the current scene.
+	 *
+	 * @param options Warmup coverage, diagnostics, and scheduling controls.
+	 * @returns A report after all requested warmup work completes.
+	 * @constraints Callers that do not need to block initialization should use
+	 * `scheduling: "idle"` and must handle the returned promise asynchronously.
+	 * @sideEffects Synchronizes scene state and creates backend-owned resources.
+	 */
 	public async warmup(options: WarmupOptions = {}): Promise<WarmupReport> {
+		const warmupStartDelay = getWarmupStartDelay(options);
+		if (warmupStartDelay) {
+			await warmupStartDelay;
+		}
 		this.scene.syncNodeToECS();
 		this.scene.updateWorldMatrices();
 		this.refreshReflectionProbeCaches();

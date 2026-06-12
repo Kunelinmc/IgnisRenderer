@@ -362,7 +362,7 @@ export class WebGLBackend implements IRenderBackend {
 		}
 		const plan = buildWarmupPlan(context, options, warmupPostProcessPlan);
 		try {
-			const phase = await this._frameExecutor.warmup(context, plan);
+			const phase = await this._frameExecutor.warmup(context, plan, options);
 			addWarmupPhase(report, phase);
 			this._reportWarmupProgress(options, phase);
 		} catch (error) {

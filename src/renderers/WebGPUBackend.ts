@@ -843,10 +843,10 @@ export class WebGPUBackend implements IRenderBackend {
 		const plan = buildWarmupPlan(context, options, warmupPostProcessPlan);
 		this._warmupLogCompilationInfo = options.logCompilationInfo === true;
 		try {
-			const framePhase = await this._frameExecutor.warmup(context, plan);
+			const framePhase = await this._frameExecutor.warmup(context, plan, options);
 			addWarmupPhase(report, framePhase);
 			this._reportWarmupProgress(options, framePhase);
-			const resourcePhase = await this._resources.warmup(context, plan);
+			const resourcePhase = await this._resources.warmup(context, plan, options);
 			addWarmupPhase(report, resourcePhase);
 			this._reportWarmupProgress(options, resourcePhase);
 		} catch (error) {

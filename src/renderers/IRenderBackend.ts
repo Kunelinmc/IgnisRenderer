@@ -23,12 +23,29 @@ export interface WarmupProgress {
 	detail?: string;
 }
 
+export type WarmupSchedulingMode = "immediate" | "next-frame" | "idle";
+
 export interface WarmupOptions {
 	includeCorePasses?: boolean;
 	includeShadowPass?: boolean;
 	includePostProcess?: boolean;
 	includeParticles?: boolean;
 	logCompilationInfo?: boolean;
+	/**
+	 * Controls when warmup begins.
+	 *
+	 * `immediate` preserves the legacy eager behavior, `next-frame` allows the
+	 * browser to paint once before warmup, and `idle` schedules warmup work for
+	 * browser idle time when supported.
+	 */
+	scheduling?: WarmupSchedulingMode;
+	/**
+	 * Approximate main-thread budget for cooperative warmup chunks.
+	 *
+	 * A value of `0` disables cooperative yielding. When `scheduling` is `idle`
+	 * and this option is omitted, backends use a small default time slice.
+	 */
+	yieldIntervalMs?: number;
 	onProgress?: (progress: WarmupProgress) => void;
 }
 

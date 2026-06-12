@@ -31,6 +31,10 @@ export type {
 	IRenderBackend,
 	RenderBackendDeviceLostInfo,
 	RendererBackendResourceEvent,
+	WarmupOptions,
+	WarmupProgress,
+	WarmupReport,
+	WarmupSchedulingMode,
 } from "./renderers/IRenderBackend";
 export {
 	RENDERER_OCCLUSION_CULLING_EXTENSION_ID,

@@ -123,8 +123,10 @@ import type {
 	WarmupPlan,
 } from "../../pipeline/WarmupPlanner";
 import { toShaderCompileError } from "../../pipeline/WarmupPlanner";
+import { createWarmupYieldController } from "../../pipeline/WarmupScheduler";
 import type { ShaderCompileError } from "../../shaders/runtime";
 import { Logger } from "../../foundation/Logger";
+import type { WarmupOptions } from "../IRenderBackend";
 
 const WEBGPU_SHADOW_CAPABILITIES: ShadowBackendCapabilities = {
 	backendKey: "webgpu",
@@ -290,13 +292,15 @@ export class WebGPURenderResources {
 
 	public async warmup(
 		context: FrameContext,
-		plan: WarmupPlan
+		plan: WarmupPlan,
+		options: WarmupOptions = {}
 	): Promise<WarmupPhaseCounters> {
 		let total = 0;
 		let compiled = 0;
 		let skipped = 0;
 		let failed = 0;
 		const errors: ShaderCompileError[] = [];
+		const yieldController = createWarmupYieldController(options);
 		const warmupScopeKey = "warmup-main";
 		let warmupResources: WebGPUPreparedFrameResources | null = null;
 
@@ -322,6 +326,7 @@ export class WebGPURenderResources {
 					toShaderCompileError(error, "webgpu", "WebGPUEnvironmentWarmup")
 				);
 			}
+			await yieldController.yieldIfNeeded();
 		}
 
 		const drawPackets = [
@@ -345,6 +350,7 @@ export class WebGPURenderResources {
 					toShaderCompileError(error, "webgpu", `WebGPUDrawWarmup:${packet.id}`)
 				);
 			}
+			await yieldController.yieldIfNeeded();
 		}
 
 		if (
@@ -383,6 +389,7 @@ export class WebGPURenderResources {
 							)
 						);
 					}
+					await yieldController.yieldIfNeeded();
 				}
 
 				for (const packet of context.scene.reflectivePackets) {
@@ -409,6 +416,7 @@ export class WebGPURenderResources {
 							)
 						);
 					}
+					await yieldController.yieldIfNeeded();
 				}
 			} finally {
 				this.releaseScope("warmup-planar-reflection");
@@ -426,6 +434,7 @@ export class WebGPURenderResources {
 					toShaderCompileError(error, "webgpu", "WebGPUShadowWarmup")
 				);
 			}
+			await yieldController.yieldIfNeeded();
 		}
 
 		if (plan.enableParticles) {
@@ -443,6 +452,7 @@ export class WebGPURenderResources {
 					toShaderCompileError(error, "webgpu", "WebGPUParticleWarmup")
 				);
 			}
+			await yieldController.yieldIfNeeded();
 		}
 
 		this.releaseScope(warmupScopeKey);

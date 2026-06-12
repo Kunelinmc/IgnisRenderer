@@ -19,6 +19,7 @@ import type {
 	OcclusionVisibilityProvider,
 } from "../../pipeline/OcclusionCulling";
 import type { WebGPUBackend } from "../WebGPUBackend";
+import type { WarmupOptions } from "../IRenderBackend";
 import type {
 	WebGPUPreparedFrameResources,
 	WebGPURenderResources,
@@ -110,9 +111,10 @@ export class WebGPUFrameExecutor {
 
 	public warmup(
 		context: FrameContext,
-		plan: WarmupPlan
+		plan: WarmupPlan,
+		options: WarmupOptions = {}
 	): Promise<WarmupPhaseCounters> {
-		return this._runtime.warmup(context, plan);
+		return this._runtime.warmup(context, plan, options);
 	}
 
 	public executePass(
