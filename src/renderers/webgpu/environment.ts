@@ -9,7 +9,7 @@ import { PBR_AMBIENT_FALLBACK_LINEAR } from "../../lights/constants";
 import { sRGBToLinear } from "../../maths/Common";
 import { SH } from "../../maths/SH";
 import type { SHCoefficients } from "../../maths/types";
-import { IBLBRDF } from "../../pipeline/IBLBRDF";
+import { IBLBRDF } from "../../lights/ibl/IBLBRDF";
 import {
 	collectActiveLocalizedLightProbes,
 	collectGlobalLightProbes,

@@ -1,7 +1,7 @@
 import type { SHCoefficients } from "../../maths/types";
 import type { FrameContext } from "../../pipeline/types";
 import type { FogOptions } from "../../postprocess/passes/FogPass";
-import { IBLBRDF } from "../../pipeline/IBLBRDF";
+import { IBLBRDF } from "../../lights/ibl/IBLBRDF";
 import { Logger } from "../../foundation/Logger";
 import {
 	MAX_DIRECTIONAL_LIGHTS,

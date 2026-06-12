@@ -58,7 +58,7 @@ import {
 	DEFAULT_TAA_OPTIONS,
 	type TAAOptions,
 } from "../../postprocess/passes/TemporalAntiAliasingPass";
-import { IBLBRDF } from "../../pipeline/IBLBRDF";
+import { IBLBRDF } from "../../lights/ibl/IBLBRDF";
 import {
 	collectWebGLLights,
 	type WebGLLightState,

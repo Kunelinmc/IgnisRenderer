@@ -1,7 +1,7 @@
-import { Texture } from "../core/Texture";
-import { Vector3 } from "../maths/Vector3";
-import { hammersley, importanceSampleGGX_VNDF } from "../maths/Sampling";
-import { lerp } from "../maths/Common";
+import { Texture } from "../../core/Texture";
+import { Vector3 } from "../../maths/Vector3";
+import { hammersley, importanceSampleGGX_VNDF } from "../../maths/Sampling";
+import { lerp } from "../../maths/Common";
 
 /**
  * Split-Sum Approximation for IBL Specular.

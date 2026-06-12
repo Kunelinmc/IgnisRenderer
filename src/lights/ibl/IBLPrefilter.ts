@@ -1,10 +1,10 @@
-import { Texture } from "../core/Texture";
-import { Platform } from "../foundation/Platform";
-import { lerp } from "../maths/Common";
-import { hammersley, importanceSampleGGX_VNDF } from "../maths/Sampling";
-import type { IVector3 } from "../maths/types";
-import { Vector3 } from "../maths/Vector3";
-import type { IRenderBackend } from "../renderers/IRenderBackend";
+import { Texture } from "../../core/Texture";
+import { Platform } from "../../foundation/Platform";
+import { lerp } from "../../maths/Common";
+import { hammersley, importanceSampleGGX_VNDF } from "../../maths/Sampling";
+import type { IVector3 } from "../../maths/types";
+import { Vector3 } from "../../maths/Vector3";
+import type { IRenderBackend } from "../../renderers/IRenderBackend";
 import {
 	AddressMode,
 	BufferUsage,
@@ -14,24 +14,24 @@ import {
 	type IRenderBuffer,
 	type IRenderTexture,
 	type ISampler,
-} from "../renderers/types";
+} from "../../renderers/types";
 import type {
 	IComputeKernel,
 	IComputeRuntime,
-} from "../renderers/IComputeRuntime";
-import type { WebGPUComputeFacadeSource } from "../renderers/webgpu/ComputeFacade";
-import { ComputeRuntime } from "../renderers/webgpu/ComputeRuntime";
+} from "../../renderers/IComputeRuntime";
+import type { WebGPUComputeFacadeSource } from "../../renderers/webgpu/ComputeFacade";
+import { ComputeRuntime } from "../../renderers/webgpu/ComputeRuntime";
 import {
 	createTextureMipUploadLevels,
 	resolveWebGPUTextureUploadFormat,
-} from "../renderers/webgpu/texture";
+} from "../../renderers/webgpu/texture";
 import {
 	WEBGPU_2D_COMPUTE_WORKGROUP_SIZE as WORKGROUP_SIZE,
-} from "../renderers/webgpu/constants";
-import { ShaderSource } from "../shaders/ShaderSource";
-import { globalWorkerScheduler } from "../workers/WorkerScheduler";
-import { postMessageWorkerTransportPlugin } from "../workers/transports";
-import type { WorkerLike } from "../workers/types";
+} from "../../renderers/webgpu/constants";
+import { ShaderSource } from "../../shaders/ShaderSource";
+import { globalWorkerScheduler } from "../../workers/WorkerScheduler";
+import { postMessageWorkerTransportPlugin } from "../../workers/transports";
+import type { WorkerLike } from "../../workers/types";
 import type {
 	EnvironmentIBLBakeWorkerEnvMapPayload,
 	EnvironmentIBLBakeWorkerTaskPayload,
@@ -41,7 +41,7 @@ import {
 	ensureEnvironmentTextureEquirect,
 	isTextureReadyForEnvironment,
 	sampleEnvironmentTextureLevelLinear,
-} from "../lights/runtime/environmentMapRuntime";
+} from "../runtime/environmentMapRuntime";
 
 export const IBL_PREFILTER_MAX_SAMPLE_WIDTH = 128;
 export const IBL_PREFILTER_MAX_SAMPLE_HEIGHT = 64;

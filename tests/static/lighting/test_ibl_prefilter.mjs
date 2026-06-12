@@ -3,7 +3,7 @@ import { Texture } from "../../../src/core/Texture.ts";
 import {
 	IBLPrefilter,
 	prefilterEnvironmentIBL,
-} from "../../../src/pipeline/IBLPrefilter.ts";
+} from "../../../src/lights/ibl/IBLPrefilter.ts";
 import { sampleEnvironmentTextureSpecular } from "../../../src/lights/runtime/environmentMapRuntime.ts";
 import { TextureFormat } from "../../../src/renderers/types.ts";
 

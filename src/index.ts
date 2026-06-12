@@ -158,7 +158,7 @@ export {
 	IBLPrefilter,
 	bakeEnvironmentIBLFromEnvironmentMap,
 	prefilterEnvironmentIBL,
-} from "./pipeline/EnvironmentIBLBaker";
+} from "./lights/ibl/EnvironmentIBLBaker";
 export type {
 	EnvironmentIBLBakeAcceleration,
 	EnvironmentIBLBakeOptions,
@@ -168,7 +168,7 @@ export type {
 	IBLPrefilterConstructorOptions,
 	IBLPrefilterOptions,
 	IBLPrefilterProgress,
-} from "./pipeline/EnvironmentIBLBaker";
+} from "./lights/ibl/EnvironmentIBLBaker";
 export { Scene } from "./core/Scene";
 export { Camera, CameraType } from "./cameras/Camera";
 export { OrthographicCamera } from "./cameras/OrthographicCamera";

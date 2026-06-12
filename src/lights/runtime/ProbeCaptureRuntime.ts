@@ -22,7 +22,7 @@ import {
 	projectEquirectTextureToSH,
 	type BakedEnvironmentIBL,
 	type EnvironmentIBLBakeOptions,
-} from "../../pipeline/EnvironmentIBLBaker";
+} from "../ibl/EnvironmentIBLBaker";
 import {
 	directionFromEquirectUV,
 	sampleEnvironmentTextureLevel,

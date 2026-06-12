@@ -1,4 +1,4 @@
-import { Texture } from "../../core/Texture";
+import { Texture } from "../../../core/Texture";
 import { prefilterEnvMapMipLevel } from "../IBLPrefilter";
 import type {
 	EnvironmentIBLBakeWorkerTaskPayload,

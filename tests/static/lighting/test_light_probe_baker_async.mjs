@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { Texture } from "../../../src/core/Texture.ts";
 import { sampleEnvironmentTextureSpecular } from "../../../src/lights/runtime/environmentMapRuntime.ts";
-import { bakeEnvironmentIBLFromEnvironmentMap } from "../../../src/pipeline/EnvironmentIBLBaker.ts";
+import { bakeEnvironmentIBLFromEnvironmentMap } from "../../../src/lights/ibl/EnvironmentIBLBaker.ts";
 import { TextureFormat } from "../../../src/renderers/types.ts";
 
 import { FakeWebGPUBackend } from "../../helpers/fakes.mjs";

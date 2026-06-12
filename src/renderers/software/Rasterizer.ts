@@ -7,7 +7,7 @@ import { resolveMaterialShadowTransmittance } from "../../materials/transparency
 import { Matrix4 } from "../../maths/Matrix4";
 import { PostProcessConstants } from "./constants";
 import { CoreConstants } from "./constants";
-import { IBLBRDF } from "../../pipeline/IBLBRDF";
+import { IBLBRDF } from "../../lights/ibl/IBLBRDF";
 import {
 	FlatLitShader,
 	LitShader,

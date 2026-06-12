@@ -1,7 +1,7 @@
-import { Texture } from "../core/Texture";
-import { sRGBToLinear } from "../maths/Common";
-import { SH } from "../maths/SH";
-import type { SHCoefficients } from "../maths/types";
+import { Texture } from "../../core/Texture";
+import { sRGBToLinear } from "../../maths/Common";
+import { SH } from "../../maths/SH";
+import type { SHCoefficients } from "../../maths/types";
 import {
 	IBL_PREFILTER_MAX_MIP_LEVELS,
 	IBL_PREFILTER_MAX_SAMPLE_HEIGHT,
@@ -14,7 +14,7 @@ import {
 import {
 	ensureEnvironmentTextureEquirect,
 	isTextureReadyForEnvironment,
-} from "../lights/runtime/environmentMapRuntime";
+} from "../runtime/environmentMapRuntime";
 
 export {
 	IBL_PREFILTER_MAX_MIP_LEVELS,

@@ -1,4 +1,4 @@
-import type { TextureColorSpace } from "../../core/Texture";
+import type { TextureColorSpace } from "../../../core/Texture";
 
 export type EnvironmentIBLBakeTextureData =
 	| Uint8ClampedArray
