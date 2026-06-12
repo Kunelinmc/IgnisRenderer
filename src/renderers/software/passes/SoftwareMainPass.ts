@@ -132,14 +132,10 @@ function createRasterizerContext(context: FrameContext): RasterizerContext {
 			environment.lightingEnabled ?
 				environment.iblTexture
 			:	null,
-		features: {
-			enableLighting: context.features.enableLighting,
-			enableSH: context.features.enableSH,
-			enableShadows: context.features.enableShadows,
-			enableGamma: context.postProcess.isEnabled("gamma"),
-			enableReflection: context.features.enableReflection,
-			worldMatrix: context.worldMatrix,
-		},
+		enableLighting: context.features.enableLighting,
+		enableSH: context.features.enableSH,
+		enableShadows: context.features.enableShadows,
+		enableReflection: context.features.enableReflection,
 	};
 }
 

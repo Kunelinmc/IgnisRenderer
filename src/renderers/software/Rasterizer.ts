@@ -137,14 +137,10 @@ export interface RasterizerContext {
 	sampleShadow?: ShaderContext["sampleShadow"];
 	shAmbientCoeffs: SHCoefficients | null;
 	environmentSpecularTexture?: Texture | null;
-	features: {
-		enableLighting: boolean;
-		enableSH: boolean;
-		enableShadows: boolean;
-		enableGamma: boolean;
-		enableReflection: boolean;
-		worldMatrix?: Matrix4;
-	};
+	enableLighting: boolean;
+	enableSH: boolean;
+	enableShadows: boolean;
+	enableReflection: boolean;
 	reflectionRenderer?: {
 		reflectionBuffers: Map<string, any>;
 	};
@@ -796,7 +792,7 @@ export class Rasterizer implements RasterizerLike {
 		const verts = this._vertsCache;
 		const shouldWriteDepth = !isTransparent && material.depthWrite;
 		const shadingModel = material.shading || ShadingModel.Flat;
-		const isLightingEnabled = context.features.enableLighting !== false;
+		const isLightingEnabled = context.enableLighting !== false;
 		const shading = isLightingEnabled ? shadingModel : ShadingModel.Unlit;
 
 		const shader = this._getShader(shading, material);
@@ -812,14 +808,12 @@ export class Rasterizer implements RasterizerLike {
 			lights: lights,
 			shadowMaps: context.shadowMaps,
 			sampleShadow: context.sampleShadow,
-			worldMatrix: context.features.worldMatrix,
 			shAmbientCoeffs: context.shAmbientCoeffs,
 			reflectionProbes,
 			reflectionProbeFallbackMap,
 			brdfLUT: IBLBRDF.getLUT(),
-			enableShadows: !!context.features.enableShadows,
-			enableSH: !!context.features.enableSH,
-			enableGamma: !!context.features.enableGamma,
+			enableShadows: !!context.enableShadows,
+			enableSH: !!context.enableSH,
 			enableLighting: isLightingEnabled,
 			gamma: PostProcessConstants.DEFAULT_GAMMA,
 		};
@@ -1043,7 +1037,7 @@ export class Rasterizer implements RasterizerLike {
 
 						if (
 							finalColor &&
-							context.features.enableReflection &&
+							context.enableReflection &&
 							material.reflectivity > 0 &&
 							material.mirrorPlane &&
 							isCameraOnFrontSide &&

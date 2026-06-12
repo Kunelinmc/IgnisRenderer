@@ -4,7 +4,7 @@ import { Projector } from "./Projector";
 import { RenderConstants } from "./constants";
 import type { FrameContext } from "../../pipeline/types";
 import type { ProjectedFace, ProjectedVertex } from "../../core/types";
-import type { Rasterizer } from "./Rasterizer";
+import type { Rasterizer, RasterizerContext } from "./Rasterizer";
 import { EnvironmentBackgroundRenderer } from "./EnvironmentRenderer";
 import { AlphaMode } from "../../materials/Material";
 import { materialUsesTransmission } from "../../materials/transparency";
@@ -411,7 +411,7 @@ export class ReflectionRenderer {
 		);
 		const environment = resolvePreparedSceneEnvironment(context.scene);
 
-		const rasterizerContext = {
+		const rasterizerContext: RasterizerContext = {
 			width: overrideSize.width,
 			height: overrideSize.height,
 			depthBuffer,
@@ -419,22 +419,18 @@ export class ReflectionRenderer {
 				position: context.camera.getWorldPosition(),
 				viewMatrix: context.camera.viewMatrix,
 			},
-				lights: context.scene.lights,
-				shadowMaps: context.shadowMaps,
-				sampleShadow,
-				shAmbientCoeffs: context.shAmbientCoeffs,
-				environmentSpecularTexture:
-					environment.lightingEnabled ?
-						environment.iblTexture
-					:	null,
-				features: {
-				enableLighting: context.features.enableLighting,
-				enableSH: context.features.enableSH,
-				enableShadows: context.features.enableShadows,
-				enableGamma: context.postProcess.isEnabled("gamma"),
-				enableReflection: context.features.enableReflection,
-				worldMatrix: context.worldMatrix,
-			},
+			lights: context.scene.lights,
+			shadowMaps: context.shadowMaps,
+			sampleShadow,
+			shAmbientCoeffs: context.shAmbientCoeffs,
+			environmentSpecularTexture:
+				environment.lightingEnabled ?
+					environment.iblTexture
+				:	null,
+			enableLighting: context.features.enableLighting,
+			enableSH: context.features.enableSH,
+			enableShadows: context.features.enableShadows,
+			enableReflection: context.features.enableReflection,
 		};
 
 		this._rasterizer.drawTriangle(

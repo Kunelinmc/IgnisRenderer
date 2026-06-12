@@ -23,14 +23,12 @@ export interface ShaderContext {
 		worldPoint: IVector3,
 		normal?: IVector3 | null
 	) => RGB;
-	worldMatrix?: Matrix4;
 	shAmbientCoeffs: SHCoefficients | null;
 	reflectionProbes: ReflectionProbe[];
 	reflectionProbeFallbackMap: Texture | null;
 	brdfLUT: Texture | null;
 	enableShadows: boolean;
 	enableSH: boolean;
-	enableGamma: boolean;
 	enableLighting: boolean;
 	gamma: number;
 }
