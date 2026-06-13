@@ -184,6 +184,11 @@ BREAKING CHANGE: `RenderPipelineRegistry.registerStage` has been replaced by
 ### Foundation & Utility Layer
 - **`src/foundation/`**: Core primitives used across the entire engine.
 	- `Color.ts`: HSL/RGB parsing and linear-space color utilities.
+	- `Error.ts`: Central definition file for all custom error classes and their
+	  associated initialization/data types. New `Error` subclasses MUST be
+	  defined in this file and imported by owning subsystems; subsystem files
+	  MUST NOT define local custom error classes. Ordinary
+	  `throw new Error(...)` usage does not require a centralized definition.
 	- `IdGenerator.ts`: Deterministic ID generation for resources.
 	- `Platform.ts`: Environment detection and browser-specific capability checks.
 - **`src/workers/`**: Multi-threading infrastructure.
