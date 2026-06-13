@@ -216,18 +216,6 @@ export interface WebGLColorFilterProgram {
 	};
 }
 
-export interface WebGLInteractionOutlineProgram {
-	program: WebGLProgram;
-	uniforms: {
-		sourceMap: WebGLUniformLocation | null;
-		outlineColor: WebGLUniformLocation | null;
-		outlineParams: WebGLUniformLocation | null;
-		viewportSize: WebGLUniformLocation | null;
-		circleCount: WebGLUniformLocation | null;
-		circles: WebGLUniformLocation | null;
-	};
-}
-
 export interface WebGLBloomProgram {
 	program: WebGLProgram;
 	uniforms: {
@@ -379,7 +367,6 @@ export class WebGLProgramLibrary {
 	private _toneMappingProgram: WebGLToneMappingProgram | null = null;
 	private _colorFilterProgram: WebGLColorFilterProgram | null = null;
 	private _fxaaProgram: WebGLFXAAProgram | null = null;
-	private _interactionOutlineProgram: WebGLInteractionOutlineProgram | null = null;
 	private _bloomProgram: WebGLBloomProgram | null = null;
 	private _motionBlurProgram: WebGLMotionBlurProgram | null = null;
 	private _dofProgram: WebGLDOFProgram | null = null;
@@ -685,22 +672,6 @@ export class WebGLProgramLibrary {
 				),
 			() => {
 				this.getToneMappingProgram();
-			},
-		);
-	}
-
-	public warmupInteractionOutlineProgram(): WebGLProgramWarmupHandle {
-		return this._warmupProgram(
-			"WebGLInteractionOutlineProgram",
-			() => this._interactionOutlineProgram,
-			() =>
-				this._beginProgramCompile(
-					this._shaderSource("presentVertex"),
-					this._shaderSource("interactionOutlineFragment"),
-					"WebGLInteractionOutlineProgram",
-				),
-			() => {
-				this.getInteractionOutlineProgram();
 			},
 		);
 	}
@@ -1720,61 +1691,6 @@ export class WebGLProgramLibrary {
 			},
 		};
 		return this._toneMappingProgram;
-	}
-
-	public getInteractionOutlineProgram(): WebGLInteractionOutlineProgram {
-		if (this._interactionOutlineProgram) {
-			return this._interactionOutlineProgram;
-		}
-		const program = this._createProgram(
-			this._shaderSource("presentVertex"),
-			this._shaderSource("interactionOutlineFragment"),
-			"WebGLInteractionOutlineProgram",
-		);
-		this._interactionOutlineProgram = {
-			program,
-			uniforms: {
-				sourceMap: this._gl.getUniformLocation(program, "uSourceMap"),
-				outlineColor: this._gl.getUniformLocation(program, "uOutlineColor"),
-				outlineParams: this._gl.getUniformLocation(program, "uOutlineParams"),
-				viewportSize: this._gl.getUniformLocation(program, "uViewportSize"),
-				circleCount: this._gl.getUniformLocation(program, "uCircleCount"),
-				circles: this._gl.getUniformLocation(program, "uCircles[0]"),
-			},
-		};
-		return this._interactionOutlineProgram;
-	}
-
-	/**
-	 * Attempts to resolve the interaction outline program without blocking.
-	 *
-	 * @returns The cached/finalized outline program, or `null` while compiling.
-	 * @sideEffects May enqueue program compilation or finalize a ready program.
-	 */
-	public tryGetInteractionOutlineProgram(): WebGLInteractionOutlineProgram | null {
-		if (this._interactionOutlineProgram) {
-			return this._interactionOutlineProgram;
-		}
-		const program = this._tryCreateProgram(
-			this._shaderSource("presentVertex"),
-			this._shaderSource("interactionOutlineFragment"),
-			"WebGLInteractionOutlineProgram",
-		);
-		if (!program) {
-			return null;
-		}
-		this._interactionOutlineProgram = {
-			program,
-			uniforms: {
-				sourceMap: this._gl.getUniformLocation(program, "uSourceMap"),
-				outlineColor: this._gl.getUniformLocation(program, "uOutlineColor"),
-				outlineParams: this._gl.getUniformLocation(program, "uOutlineParams"),
-				viewportSize: this._gl.getUniformLocation(program, "uViewportSize"),
-				circleCount: this._gl.getUniformLocation(program, "uCircleCount"),
-				circles: this._gl.getUniformLocation(program, "uCircles[0]"),
-			},
-		};
-		return this._interactionOutlineProgram;
 	}
 
 	public getColorFilterProgram(): WebGLColorFilterProgram {
@@ -2937,10 +2853,6 @@ export class WebGLProgramLibrary {
 		if (this._colorFilterProgram) {
 			this._gl.deleteProgram(this._colorFilterProgram.program);
 			this._colorFilterProgram = null;
-		}
-		if (this._interactionOutlineProgram) {
-			this._gl.deleteProgram(this._interactionOutlineProgram.program);
-			this._interactionOutlineProgram = null;
 		}
 		if (this._bloomProgram) {
 			this._gl.deleteProgram(this._bloomProgram.program);

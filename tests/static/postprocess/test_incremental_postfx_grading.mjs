@@ -11,7 +11,6 @@ function createPostProcess(overrides = {}) {
 	const registry = createPostProcessRegistryFromRequest(
 		{
 			tonemap: { enabled: false },
-			"interaction-outline": { enabled: false },
 			gamma: { enabled: false },
 			...overrides,
 		},

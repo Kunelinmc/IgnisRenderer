@@ -116,7 +116,6 @@ export class SoftwarePostProcessExecutor implements IPostProcessExecutor {
 				};
 			case "tonemap":
 			case "color-filter":
-			case "interaction-outline":
 			case "gamma": {
 				const context: SoftwareBuiltinPostProcessContext = {
 					canvasContext: this._host.getCanvasContext(),

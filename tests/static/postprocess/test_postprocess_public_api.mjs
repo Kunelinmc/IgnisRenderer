@@ -98,8 +98,7 @@ class FakeExecutor {
 				"dof",
 				"tonemap",
 				"color-filter",
-				"interaction-outline",
-			].includes(passId)
+				].includes(passId)
 		) {
 			const targets = {
 				sceneColor: { id: "scene", width: 64, height: 32 },
@@ -149,7 +148,7 @@ class FakeExecutor {
 		}
 		if (
 			this.backend === "software" &&
-			["tonemap", "color-filter", "interaction-outline", "gamma"].includes(passId)
+			["tonemap", "color-filter", "gamma"].includes(passId)
 		) {
 			return {
 				canvasContext: {},

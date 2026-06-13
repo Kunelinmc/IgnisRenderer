@@ -33,8 +33,7 @@ it must not be stored as an ECS component and it must not require subclassing
 - Object callbacks may be stored in `Interactable` as runtime functions:
   `onHoverEnter`, `onHoverLeave`, `onSelect`, `onDeselect`, and `onClick`.
 - `InteractionController` must write `INTERACTION_TRANSIENT_STATE_KEY` during
-  frame transient contribution so the engine-provided `interaction-outline` pass
-  can render selected entities after it is registered.
+   frame transient contribution.
 
 ## Usage
 
@@ -84,8 +83,8 @@ bun tests/static/scene/test_interaction_controller_selection.mjs
   a registered `Interactable` in `InteractionController.interactables`.
 - If callbacks do not run, verify that `enabled`, `hoverable`, and
   `selectable` are not set to `false` for the intended interaction.
-- If no outline is visible, verify that `InteractionController.attach()` was
-  called and that the selected entity id appears in
+- Verify that `InteractionController.attach()` was called and that the
+  selected entity id appears in
   `INTERACTION_TRANSIENT_STATE_KEY.selectedEntityIds`.
 - If overlapping meshes select the wrong entity, inspect `priority`; higher
   values must win before distance.

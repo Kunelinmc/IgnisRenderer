@@ -106,23 +106,6 @@ export const ANIMATION_SIM_DELTA_TIME_MS_KEY =
 export const INTERACTION_TRANSIENT_STATE_KEY =
 	defineTransientKey<InteractionTransientState>("pipeline:interaction-state");
 
-export const INTERACTION_OUTLINE_SHAPES = [
-	"circle",
-	"square",
-	"diamond",
-	"octagon",
-] as const;
-export type InteractionOutlineShape =
-	(typeof INTERACTION_OUTLINE_SHAPES)[number];
-
-export interface InteractionOutlineStyle {
-	color: RGBA;
-	thickness: number;
-	opacity: number;
-	xray: boolean;
-	shape?: InteractionOutlineShape;
-}
-
 export interface InteractionGizmoState {
 	mode: "translate" | "rotate" | "scale";
 	space: "world" | "local";
@@ -140,7 +123,6 @@ export interface InteractionDragRect {
 export interface InteractionTransientState {
 	selectedEntityIds: number[];
 	hoveredEntityId: number | null;
-	outline: InteractionOutlineStyle;
 	gizmo: InteractionGizmoState | null;
 	dragRect: InteractionDragRect | null;
 }

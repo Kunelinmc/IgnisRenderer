@@ -121,9 +121,6 @@ import type {
 } from "../../postprocess/passes/DepthOfFieldPass";
 import type { WebGLGammaContext } from "../../postprocess/passes/GammaPass";
 import type {
-	WebGLInteractionOutlineContext,
-} from "../../postprocess/passes/InteractionOutlinePass";
-import type {
 	WebGLMotionBlurContext,
 } from "../../postprocess/passes/MotionBlurPass";
 import type {
@@ -220,7 +217,6 @@ const WEBGL_POSTPROCESS_WARMUP_HINTS_BY_PASS: Readonly<
 	tonemap: ["postprocess:tonemap"],
 	"color-filter": ["postprocess:color-filter"],
 	fxaa: ["postprocess:fxaa"],
-	"interaction-outline": ["postprocess:interaction-outline"],
 	gamma: ["postprocess:gamma"],
 };
 
@@ -630,11 +626,6 @@ export class WebGLFrameExecutor {
 			}
 			case "color-filter": {
 				const context: WebGLColorFilterContext =
-					this._createWebGLScreenPostProcessContext();
-				return context;
-			}
-			case "interaction-outline": {
-				const context: WebGLInteractionOutlineContext =
 					this._createWebGLScreenPostProcessContext();
 				return context;
 			}
@@ -1059,14 +1050,6 @@ export class WebGLFrameExecutor {
 						);
 					});
 					break;
-				case "postprocess:interaction-outline":
-					await enqueue("WebGLInteractionOutlineProgram", () => {
-						return this._warmupProgramHandle(
-							"warmupInteractionOutlineProgram",
-							"getInteractionOutlineProgram",
-						);
-					});
-					break;
 				case "postprocess:motion-blur":
 					await enqueue("WebGLMotionBlurProgram", () => {
 						return this._warmupProgramHandle(
@@ -1290,7 +1273,6 @@ export class WebGLFrameExecutor {
 			case "dof":
 			case "tonemap":
 			case "color-filter":
-			case "interaction-outline":
 				return this._createWebGLScreenPostProcessContext();
 			case "gamma":
 				return this._createWebGLGammaPostProcessContext();

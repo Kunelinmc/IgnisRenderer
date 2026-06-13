@@ -185,7 +185,6 @@ const WEBGPU_RESERVED_POST_PROCESS_PASS_ID_SET = new Set<string>([
 	"bloom",
 	"color-filter",
 	"fxaa",
-	"interaction-outline",
 	"tonemap",
 	"gamma",
 ]);

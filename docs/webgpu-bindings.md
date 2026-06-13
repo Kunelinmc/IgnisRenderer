@@ -288,7 +288,6 @@ All entries in this section are pass-local `group(0)` unless stated otherwise.
 | `taa.wgsl` | `0 currentColor` texture, `1 historyColor` texture, `2 motionDepth` texture, `3 motionHistory` texture, `4 linearSampler` sampler, `5 params` uniform, `6 outColor` write storage texture, `7 outHistory` write storage texture |
 | `hiz.wgsl` depth seed | `0 depthTex` texture, `1 outTex` write storage texture |
 | `hiz.wgsl` mip downsample | `0 srcTex` texture, `1 dstTex` write storage texture |
-| `interactionOutline.wgsl` | `0 srcTex` texture, `2 params` uniform, `3 outTex` write storage texture. Binding `1` is unused. |
 | `ssr.wgsl` trace | `0 sceneColor` texture, `1 gNormalRoughMetal` texture, `2 gMotionDepth` texture, `3 hiZ` texture, `4 ssrHistory` texture, `5 motionHistory` texture, `6 linearSampler` sampler, `7 traceParams` uniform, `8 outSSR` write storage texture |
 | `ssr.wgsl` trace frame group | `group(1) binding(0) frame` uniform. Runtime supplies the shared scene frame bind group. |
 | `ssr.wgsl` compose | `0 composeScene` texture, `1 composeSSR` texture, `2 composeMotionDepth` texture, `3 composeSampler` sampler, `4 composeParams` uniform, `5 composeOut` write storage texture |

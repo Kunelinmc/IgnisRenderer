@@ -477,9 +477,6 @@ function testExecutePostProcessPassLeavesFXAAToPassImplementation() {
 	executor._applyToneMapping = () => {
 		events.push("tonemap");
 	};
-	executor._applyInteractionOutline = () => {
-		events.push("interaction-outline");
-	};
 	executor._present = () => {
 		events.push("gamma");
 	};
@@ -499,15 +496,10 @@ function testExecutePostProcessPassLeavesFXAAToPassImplementation() {
 
 	const toneMapResult = executor.executePostProcessPass("tonemap", request);
 	const fxaaResult = executor.executePostProcessPass("fxaa", request);
-	const outlineResult = executor.executePostProcessPass(
-		"interaction-outline",
-		request
-	);
 	const gammaResult = executor.executePostProcessPass("gamma", request);
 
 	assert.deepEqual(toneMapResult, { ran: false });
 	assert.deepEqual(fxaaResult, { ran: false });
-	assert.deepEqual(outlineResult, { ran: false });
 	assert.deepEqual(gammaResult, { ran: false });
 	assert.deepEqual(events, []);
 }

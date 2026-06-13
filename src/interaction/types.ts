@@ -1,5 +1,4 @@
 import type { Node } from "../core/Node";
-import type { InteractionOutlineStyle } from "../pipeline/types";
 import type {
 	InteractableRegistry,
 	InteractionPointerState,
@@ -13,7 +12,6 @@ export type InteractionSelectionMode = "single" | "multiple";
 export interface InteractionControllerOptions {
 	interactables?: InteractableRegistry;
 	maxRayDistance?: number;
-	outline?: Partial<InteractionOutlineStyle>;
 	selectionMode?: InteractionSelectionMode;
 }
 
@@ -77,13 +75,5 @@ export interface InteractionDragRectState {
 	endY: number;
 	active: boolean;
 }
-
-export const DEFAULT_INTERACTION_OUTLINE_STYLE: InteractionOutlineStyle = {
-	color: { r: 255, g: 196, b: 64, a: 1 },
-	thickness: 2,
-	opacity: 0.9,
-	xray: true,
-	shape: "circle",
-};
 
 export const DEFAULT_MAX_RAY_DISTANCE = 10000;

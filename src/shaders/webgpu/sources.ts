@@ -45,7 +45,6 @@ export type WebGPUPostProcessShaderPart =
 	| "bloomComposite"
 	| "toneMapping"
 	| "colorFilter"
-	| "interactionOutline"
 	| "fxaa"
 	| "copy"
 	| "sobelNormal";
@@ -123,7 +122,6 @@ export const WEBGPU_POST_PROCESS_SHADER_FILES: Record<
 	bloomComposite: "./webgpu/postprocess/bloomComposite.wgsl",
 	toneMapping: "./webgpu/postprocess/toneMapping.wgsl",
 	colorFilter: "./webgpu/postprocess/colorFilter.wgsl",
-	interactionOutline: "./webgpu/postprocess/interactionOutline.wgsl",
 	fxaa: "./webgpu/postprocess/fxaa.wgsl",
 	copy: "./webgpu/postprocess/copy.wgsl",
 	sobelNormal: "./webgpu/postprocess/sobelNormal.wgsl",

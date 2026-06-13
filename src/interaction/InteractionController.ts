@@ -2,7 +2,6 @@ import type { Camera } from "../cameras/Camera";
 import { EventEmitter } from "../core/EventEmitter";
 import type { Scene } from "../core/Scene";
 import type {
-	InteractionOutlineStyle,
 	InteractionTransientState,
 } from "../pipeline/types";
 import { INTERACTION_TRANSIENT_STATE_KEY } from "../pipeline/types";
@@ -20,7 +19,6 @@ import { InteractionPicker } from "./InteractionPicker";
 import { InteractionSelectionState } from "./InteractionSelectionState";
 import { TransformGizmoController } from "./TransformGizmoController";
 import {
-	DEFAULT_INTERACTION_OUTLINE_STYLE,
 	DEFAULT_MAX_RAY_DISTANCE,
 	type GizmoMode,
 	type GizmoPivot,
@@ -45,7 +43,6 @@ export class InteractionController extends EventEmitter<InteractionEvents> {
 	private _scene: Scene | null = null;
 	private _camera: Camera | null = null;
 	private _physics: PhysicsSystem | null = null;
-	private _outlineStyle: InteractionOutlineStyle;
 	private _selectionMode: InteractionSelectionMode;
 	private _lastPointer: InteractionPointerState = {
 		screenX: 0,
@@ -74,10 +71,6 @@ export class InteractionController extends EventEmitter<InteractionEvents> {
 		const maxRayDistance = Number.isFinite(options.maxRayDistance)
 			? Math.max(1, Number(options.maxRayDistance))
 			: DEFAULT_MAX_RAY_DISTANCE;
-		this._outlineStyle = {
-			...DEFAULT_INTERACTION_OUTLINE_STYLE,
-			...(options.outline ?? {}),
-		};
 		this._selectionMode = options.selectionMode ?? "single";
 		this._picker = new InteractionPicker(maxRayDistance, this.interactables);
 		this._selection = new InteractionSelectionState(
@@ -190,21 +183,6 @@ export class InteractionController extends EventEmitter<InteractionEvents> {
 		if (this._selectionMode === selectionMode) return;
 		this._selectionMode = selectionMode;
 		this._selection.setSelectionMode(selectionMode);
-		this._requestRender("interaction");
-	}
-
-	/**
-	 * Updates the global interaction outline style.
-	 *
-	 * @param style - Partial style merged into the current outline style.
-	 * @returns Nothing.
-	 * @sideEffects Requests an interaction render when attached.
-	 */
-	public setOutlineStyle(style: Partial<InteractionOutlineStyle>): void {
-		this._outlineStyle = {
-			...this._outlineStyle,
-			...style,
-		};
 		this._requestRender("interaction");
 	}
 
@@ -443,13 +421,6 @@ export class InteractionController extends EventEmitter<InteractionEvents> {
 		const interactionState: InteractionTransientState = {
 			selectedEntityIds: this._selection.getSelectedEntities(),
 			hoveredEntityId: this._selection.getHoveredEntity(),
-			outline: {
-				color: { ...this._outlineStyle.color },
-				thickness: this._outlineStyle.thickness,
-				opacity: this._outlineStyle.opacity,
-				xray: this._outlineStyle.xray,
-				shape: this._outlineStyle.shape,
-			},
 			gizmo: this._gizmo.getState(),
 			dragRect:
 				this._dragRect ?

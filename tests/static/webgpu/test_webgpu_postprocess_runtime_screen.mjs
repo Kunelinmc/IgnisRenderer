@@ -6,7 +6,6 @@ import {
 	DepthOfFieldPass,
 	FastApproximateAntiAliasingPass,
 	FogPass,
-	InteractionOutlinePass,
 	MotionBlurPass,
 	ToneMappingPass,
 } from "../../../src/postprocess/index.ts";
@@ -131,19 +130,6 @@ function createColorFilterPassRequest(frameContext, pass) {
 	};
 }
 
-function createInteractionOutlinePassRequest(frameContext, pass) {
-	return {
-		frameContext,
-		postProcess: frameContext.postProcess,
-		gBuffer: {},
-		histories: {},
-		pass,
-		passId: "interaction-outline",
-		options: frameContext.postProcess.getOptions("interaction-outline"),
-		startPassId: null,
-	};
-}
-
 function createWebGPUImplementationContext(runtime, encoder, targets) {
 	return {
 		encoder,
@@ -252,23 +238,6 @@ async function executeColorFilterPass(
 	pass = new ColorFilterPass({ enabled: true })
 ) {
 	const request = createColorFilterPassRequest(frameContext, pass);
-	const result = await request.pass
-		.getImplementation("webgpu")
-		.execute(
-			request,
-			createWebGPUImplementationContext(runtime, encoder, targets)
-		);
-	return { request, result };
-}
-
-async function executeInteractionOutlinePass(
-	runtime,
-	encoder,
-	targets,
-	frameContext,
-	pass = new InteractionOutlinePass({ enabled: true })
-) {
-	const request = createInteractionOutlinePassRequest(frameContext, pass);
 	const result = await request.pass
 		.getImplementation("webgpu")
 		.execute(
@@ -800,99 +769,6 @@ async function testColorFilterPassImplementationUsesDedicatedPipeline() {
 	runtime.destroy();
 }
 
-async function testInteractionOutlinePassImplementationUsesDedicatedPipeline() {
-	const backend = new FakeBackend();
-	const runtime = new WebGPUPostProcessRuntime(backend, () => {});
-	const encoder = new FakeEncoder();
-	const sceneColorMain = createTexture(64, 32, "scene");
-	const postPing = createTexture(64, 32, "ping");
-	const postPong = createTexture(64, 32, "pong");
-	const targets = {
-		sceneColor: sceneColorMain,
-		postPing,
-		postPong,
-	};
-	const frameContext = createFrameContext({
-		"interaction-outline": { enabled: true },
-	});
-	frameContext.attachments = { width: 64, height: 32 };
-	frameContext.camera = {
-		type: "perspective",
-		fov: 60,
-		viewMatrix: Matrix4.identity(),
-		viewProjectionMatrix: Matrix4.identity(),
-	};
-	frameContext.scene = {
-		meshInstances: [
-			{
-				entityId: 7,
-				visible: true,
-				getWorldBoundingSphere() {
-					return {
-						center: { x: 0, y: 0, z: -5 },
-						radius: 1,
-					};
-				},
-			},
-		],
-	};
-	frameContext.transient.set(INTERACTION_TRANSIENT_STATE_KEY, {
-		selectedEntityIds: [7],
-		outline: {
-			color: { r: 128, g: 64, b: 255, a: 0.5 },
-			opacity: 0.8,
-			thickness: 3,
-			shape: "diamond",
-		},
-	});
-
-	const { request, result } = await executeInteractionOutlinePass(
-		runtime,
-		encoder,
-		targets,
-		frameContext
-	);
-	assert.deepEqual(result, { ran: true });
-
-	assert.equal(backend.samplers.length, 1);
-	assert.equal(backend.shaderModules.length, 1);
-	assert.equal(backend.shaderModules[0].label, "WebGPUInteractionOutlineShader");
-	assert.equal(backend.computePipelines.length, 1);
-	assert.equal(
-		backend.computePipelines[0].label,
-		"WebGPUInteractionOutlinePipeline"
-	);
-	assert.equal(backend.buffers.length, 1);
-	assert.equal(backend.buffers[0].desc.label, "WebGPUInteractionOutlineParams");
-	assert.equal(backend.buffers[0].desc.size, 1088);
-	assert.equal(backend.bindingGroups.length, 1);
-	assert.equal(backend.bindingGroups[0].desc.entries.length, 3);
-	assert.equal(backend.bindingGroups[0].desc.entries[0].resource, sceneColorMain);
-	assert.equal(backend.bindingGroups[0].desc.entries[2].resource, postPong);
-
-	const params = backend.buffers[0].lastWrite;
-	assert.equal(params.length, 272);
-	assertClose(params[0], 1 / 64);
-	assertClose(params[1], 1 / 32);
-	assertClose(params[2], 0.4);
-	assertClose(params[3], 3);
-	assertClose(params[8], 1);
-	assertClose(params[9], 2);
-
-	assert.deepEqual(encoder.calls, [
-		["beginComputePass", "WebGPUInteractionOutline"],
-		["setComputePipeline", "WebGPUInteractionOutlinePipeline"],
-		["setBindingGroup", 0, "WebGPUInteractionOutline_Binding"],
-		["dispatchWorkgroups", 8, 4, 1],
-		["endComputePass"],
-	]);
-	assert.equal(targets.sceneColor, postPong);
-
-	request.pass.destroy();
-	destroySnapshotPasses(frameContext.postProcess);
-	runtime.destroy();
-}
-
 async function testMotionBlurSkipsRedundantParamUploads() {
 	const backend = new FakeBackend();
 	const runtime = new WebGPUPostProcessRuntime(backend, () => {});
@@ -1150,7 +1026,6 @@ export async function run() {
 	await testMotionBlurSkipsRedundantParamUploads();
 	await testDOFPassImplementationUsesDedicatedPipeline();
 	await testColorFilterPassImplementationUsesDedicatedPipeline();
-	await testInteractionOutlinePassImplementationUsesDedicatedPipeline();
 	await testFXAAPassImplementationPingPongsAndCachesResources();
 	await testInvalidateBindingsDestroysCachedBindingGroups();
 	await testBindingReplacementDestroysStaleBindingGroup();

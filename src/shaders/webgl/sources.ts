@@ -23,7 +23,6 @@ export type WebGLShaderPart =
 	| "colorFilterFragment"
 	| "fxaaFragment"
 	| "bloomFragment"
-	| "interactionOutlineFragment"
 	| "motionBlurFragment"
 	| "fogFragment"
 	| "dofFragment"
@@ -53,7 +52,6 @@ export const WEBGL_SHADER_PARTS: readonly WebGLShaderPart[] = [
 	"colorFilterFragment",
 	"fxaaFragment",
 	"bloomFragment",
-	"interactionOutlineFragment",
 	"motionBlurFragment",
 	"fogFragment",
 	"dofFragment",
@@ -89,7 +87,6 @@ export const WEBGL_SHADER_FILES: Record<WebGLShaderPart, string> = {
 	colorFilterFragment: "./webgl/parts/colorFilterFragment.glsl",
 	fxaaFragment: "./webgl/parts/fxaaFragment.glsl",
 	bloomFragment: "./webgl/parts/bloomFragment.glsl",
-	interactionOutlineFragment: "./webgl/parts/interactionOutlineFragment.glsl",
 	motionBlurFragment: "./webgl/parts/motionBlurFragment.glsl",
 	fogFragment: "./webgl/parts/fogFragment.glsl",
 	dofFragment: "./webgl/parts/dofFragment.glsl",

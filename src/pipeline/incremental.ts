@@ -1355,12 +1355,6 @@ function resolveDirtyReasonFirstPass(
 				return null;
 			}
 			case "interaction":
-				if (
-					input.postProcess.isEnabled("interaction-outline") &&
-					registry.isPostProcessPass("interaction-outline", input.postProcess)
-				) {
-					return "interaction-outline";
-				}
 				return null;
 			default:
 				break;

@@ -198,15 +198,6 @@ export {
 	type WebGLGammaContext,
 } from "./passes/GammaPass";
 export {
-	INTERACTION_OUTLINE_PASS_ID,
-	InteractionOutlinePass,
-	SoftwareInteractionOutlineImplementation,
-	WebGPUInteractionOutlineImplementation,
-	WebGLInteractionOutlineImplementation,
-	type WebGPUInteractionOutlineContext,
-	type WebGLInteractionOutlineContext,
-} from "./passes/InteractionOutlinePass";
-export {
 	DEFAULT_MOTION_BLUR_OPTIONS,
 	MOTION_BLUR_PASS_ID,
 	MotionBlurPass,

@@ -1,4 +1,4 @@
-import type { FrameContext, InteractionTransientState } from "../../../pipeline/types";
+import type { FrameContext } from "../../../pipeline/types";
 import type { ICommandEncoder } from "../../ICommandEncoder";
 import type {
 	IBindingGroup,
@@ -79,12 +79,6 @@ export interface WebGPUPostProcessFXAAExecuteRequest
 	passId: "fxaa";
 }
 
-export interface WebGPUPostProcessInteractionOutlineExecuteRequest
-	extends WebGPUPostProcessExecuteBaseRequest<"interaction-outline"> {
-	passId: "interaction-outline";
-	state?: InteractionTransientState | null;
-}
-
 export interface WebGPUPostProcessTonemapExecuteRequest
 	extends WebGPUPostProcessExecuteBaseRequest<"tonemap"> {
 	passId: "tonemap";
@@ -107,7 +101,6 @@ export type WebGPUPostProcessExecuteRequest =
 	| WebGPUPostProcessBloomExecuteRequest
 	| WebGPUPostProcessColorFilterExecuteRequest
 	| WebGPUPostProcessFXAAExecuteRequest
-	| WebGPUPostProcessInteractionOutlineExecuteRequest
 	| WebGPUPostProcessTonemapExecuteRequest;
 
 export type WebGPUPostProcessPassId = WebGPUPostProcessExecuteRequest["passId"];

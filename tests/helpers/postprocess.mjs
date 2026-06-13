@@ -5,7 +5,6 @@ import {
 	FastApproximateAntiAliasingPass,
 	FogPass,
 	GammaPass,
-	InteractionOutlinePass,
 	MotionBlurPass,
 	PostProcessPass,
 	PostProcessPassRegistry,
@@ -34,7 +33,6 @@ export const ALL_POST_PROCESS_PASS_IDS = [
 	"tonemap",
 	"color-filter",
 	"fxaa",
-	"interaction-outline",
 	"gamma",
 ];
 
@@ -52,7 +50,6 @@ export const ALL_ENABLED_POST_PROCESS_REQUEST = {
 	tonemap: { enabled: true },
 	"color-filter": { enabled: true },
 	fxaa: { enabled: true },
-	"interaction-outline": { enabled: true },
 	gamma: { enabled: true },
 };
 
@@ -70,7 +67,6 @@ const ENGINE_PASS_FACTORIES = {
 	tonemap: (config) => new ToneMappingPass(config),
 	"color-filter": (config) => new ColorFilterPass(config),
 	fxaa: (config) => new FastApproximateAntiAliasingPass(config),
-	"interaction-outline": (config) => new InteractionOutlinePass(config),
 	gamma: (config) => new GammaPass(config),
 };
 

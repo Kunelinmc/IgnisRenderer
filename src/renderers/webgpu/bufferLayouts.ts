@@ -1,4 +1,3 @@
-import { MAX_INTERACTION_OUTLINE_CIRCLES } from "../../interaction/outlineProjection";
 import type { VertexBufferLayout } from "../types";
 import {
 	MAX_AREA_LIGHTS,
@@ -383,24 +382,6 @@ export const WEBGPU_CLUSTER_GRID_PARAMS_LAYOUT = new StructuredBufferLayout(
 WEBGPU_CLUSTER_GRID_PARAMS_LAYOUT.assertByteSize(
 	WEBGPU_CLUSTERED_PARAMS_FLOATS * 4,
 	"ClusterGridParams"
-);
-
-export const WEBGPU_INTERACTION_OUTLINE_LAYOUT = new StructuredBufferLayout(
-	structOf([
-		{ name: "invSize", type: VEC2_F32 },
-		{ name: "opacity", type: F32 },
-		{ name: "thickness", type: F32 },
-		{ name: "color", type: VEC4_F32 },
-		{ name: "circleCount", type: F32 },
-		{ name: "shape", type: F32 },
-		{ name: "pad0", type: VEC3_F32 },
-		{ name: "circles", type: arrayOf(VEC4_F32, MAX_INTERACTION_OUTLINE_CIRCLES) },
-	]),
-	"uniform"
-);
-WEBGPU_INTERACTION_OUTLINE_LAYOUT.assertByteSize(
-	(16 + MAX_INTERACTION_OUTLINE_CIRCLES * 4) * 4,
-	"OutlineParams"
 );
 
 /**

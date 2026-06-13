@@ -72,22 +72,6 @@ function testNoDirtyReasonsReturnsNoPass() {
 	assert.equal(plan.temporalHistoryReset, false);
 }
 
-function testInteractionStartsAtInteractionOutline() {
-	const registered = createRegisteredPostProcess({
-		"interaction-outline": { enabled: true },
-	});
-	const plan = IncrementalFramePlanner.plan({
-		enabled: true,
-		reasonMask: renderDirtyReasonToMask("interaction"),
-		features: createFeatures(),
-		postProcess: registered.postProcess,
-		registry: registered.registry,
-	});
-	assert.equal(plan.firstPass, "postprocess");
-	assert.equal(plan.postProcessStartPass, "interaction-outline");
-	assert.equal(plan.forceFullFrame, false);
-}
-
 function testParticlesStartAtParticleSim() {
 	const plan = IncrementalFramePlanner.plan({
 		enabled: true,
@@ -374,7 +358,6 @@ function testCustomDirtyReasonUsesGroups() {
 
 function run() {
 	testNoDirtyReasonsReturnsNoPass();
-	testInteractionStartsAtInteractionOutline();
 	testParticlesStartAtParticleSim();
 	testPostFxStartsAtFirstEnabledPostStage();
 	testBuiltInPostProcessStageUsesPassMetadata();

@@ -127,7 +127,6 @@ function run() {
 		createPostProcess({
 			tonemap: { enabled: false },
 			gamma: { enabled: false },
-			"interaction-outline": { enabled: false },
 		})
 	);
 	assert.equal(

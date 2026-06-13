@@ -119,15 +119,6 @@ function runDefaultAndCallbackTests() {
 	assert.ok(interactionState);
 	assert.deepEqual(interactionState.selectedEntityIds, [box.entityId]);
 	assert.equal(interactionState.hoveredEntityId, box.entityId);
-	assert.equal(interactionState.outline.shape, "circle");
-
-	controller.setOutlineStyle({ shape: "square" });
-	const updatedTransient = runContributors(contributors, scene, camera);
-	const updatedInteractionState = updatedTransient.get(
-		INTERACTION_TRANSIENT_STATE_KEY
-	);
-	assert.ok(updatedInteractionState);
-	assert.equal(updatedInteractionState.outline.shape, "square");
 
 	controller.updatePointer(pointer("move", 0, 0));
 	controller.updatePointer(pointer("down", 0, 0, { button: 0 }));

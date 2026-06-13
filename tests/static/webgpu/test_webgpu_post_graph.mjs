@@ -88,7 +88,6 @@ function testBuiltInOrderUsesPipelineAuthority() {
 			tonemap: { enabled: true },
 			"color-filter": { enabled: true },
 			fxaa: { enabled: true },
-			"interaction-outline": { enabled: true },
 			gamma: { enabled: true },
 		}),
 		{ backend: "webgpu" }
@@ -108,7 +107,6 @@ function testBuiltInOrderUsesPipelineAuthority() {
 			"tonemap",
 			"color-filter",
 			"fxaa",
-			"interaction-outline",
 			"gamma",
 		]
 	);
