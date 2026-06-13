@@ -409,18 +409,17 @@ export class FrameCoordinator {
 		if (delegate.features.enableSH) {
 			this.updateSH(delegate);
 		}
-		// Build shadows first so it's populated for scene building if needed, though typically done in context creation.
-		// PreparedSceneBuilder accepts the shadow maps. Since the builder only maps instances, it works with delegate's shadowMaps.
+		// Build a baseline shadow map — PreparedSceneBuilder only maps shadow-
+		// caster geometry, it does not depend on actual shadow map content.
+		// Use an empty map here to avoid the destructive side effect of
+		// ShadowManager.buildFrameState (which unbinds lights not in the
+		// given light list). The real shadow maps are built later in
+		// _createFrameContext below.
 		const preparedResult = this._preparedSceneCache.build({
 			source: {
 				scene: delegate.scene,
 				camera: delegate.camera,
-				shadowMaps: delegate.scene.shadows.buildFrameState({
-					lights: [],
-					enableShadows: false,
-					cameraPosition: { x: 0, y: 0, z: 0 },
-					backendCapabilities: this._backendSession.profile.shadow,
-				}).shadowMaps, // Build a baseline, will be fully updated in _createFrameContext
+				shadowMaps: new Map(),
 				hasActiveAnimations: delegate.animationSystem.hasActiveActions(),
 			},
 			viewportWidth: delegate.canvas.width,
