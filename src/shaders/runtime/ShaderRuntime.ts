@@ -1,3 +1,4 @@
+import { ConditionParseError } from "../../foundation/Error";
 import {
 	SHADER_RUNTIME_DEFAULT_CACHE_LIMIT,
 	SHADER_RUNTIME_RESERVED_RULE_PREFIX,
@@ -450,16 +451,6 @@ function isPromiseLike<T = unknown>(value: unknown): value is PromiseLike<T> {
 		"then" in value &&
 		typeof (value as { then?: unknown }).then === "function"
 	);
-}
-
-class ConditionParseError extends Error {
-	public column: number;
-
-	public constructor(message: string, column: number) {
-		super(message);
-		this.name = "ConditionParseError";
-		this.column = Math.max(1, Math.floor(column));
-	}
 }
 
 class DirectiveConditionParser {

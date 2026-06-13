@@ -122,6 +122,10 @@ import {
 	invalidateWebGPUComputeFacade,
 	type IWebGPUComputeFacade,
 } from "./webgpu/ComputeFacade";
+import {
+	WebGPUPipelineCreationInvalidatedError,
+	WebGPUShaderModuleCreationInvalidatedError,
+} from "../foundation/Error";
 import { Logger } from "../foundation/Logger";
 
 interface InternalSampler extends ISampler {
@@ -194,26 +198,6 @@ interface CachedBindingGroupEntry {
 	lastUsedFrame: number;
 	lastTouchedTick: number;
 	refCount: number;
-}
-
-class WebGPUShaderModuleCreationInvalidatedError extends Error {
-	constructor(label?: string) {
-		const shaderLabel = label && label.length > 0 ? label : "unnamed";
-		super(
-			`WebGPU shader module creation was invalidated by backend lifecycle reset [${shaderLabel}].`,
-		);
-		this.name = "WebGPUShaderModuleCreationInvalidatedError";
-	}
-}
-
-class WebGPUPipelineCreationInvalidatedError extends Error {
-	constructor(label?: string) {
-		const pipelineLabel = label && label.length > 0 ? label : "unnamed";
-		super(
-			`WebGPU pipeline creation was invalidated by backend lifecycle reset [${pipelineLabel}].`,
-		);
-		this.name = "WebGPUPipelineCreationInvalidatedError";
-	}
 }
 
 type BindingResourceInput = BindingGroupDesc["entries"][number]["resource"];

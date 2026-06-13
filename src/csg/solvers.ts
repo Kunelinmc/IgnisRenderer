@@ -5,6 +5,7 @@ import { clamp } from "../maths/Common";
 import { MeshAsset, type MeshFace } from "../meshes";
 import { MeshInstance } from "../meshes/MeshInstance";
 import { DEFAULT_PRIMITIVE_DRAW_TOPOLOGY } from "../core/types";
+import { CSGBuildError } from "../foundation/Error";
 import type {
 	CSGBuildOptions,
 	CSGDiagnostic,
@@ -47,15 +48,6 @@ interface SolveContext {
 	diagnostics: CSGDiagnostic[];
 	attributeDropWarningIssued: boolean;
 	operandStateBySource: Map<string, OperandSolveState>;
-}
-
-class CSGBuildError extends Error {
-	public readonly diagnostic: CSGDiagnostic;
-
-	constructor(diagnostic: CSGDiagnostic) {
-		super(diagnostic.message);
-		this.diagnostic = diagnostic;
-	}
 }
 
 class BSPVertex {
