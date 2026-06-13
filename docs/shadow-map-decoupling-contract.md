@@ -1,53 +1,45 @@
 # Shadow Map Decoupling Contract
+
 ## Scope
-This document defines the new shadow architecture where `Light` and shadow state are fully decoupled and shadows are managed by `Scene`.
+This document defines the shadow mapping contract, including configuration, decoupling from light sources, and how capabilities are queried from the session's profile.
 
 ## Background
-The previous model stored shadow configuration directly in `Light` (`castShadow` and `shadow`), which coupled rendering policy to light entities and made multi-backend orchestration harder.
+Historically, lights held shadow configuration directly. The decoupled model moves shadow management to `Scene` and relies on the session's `RenderBackendProfile.shadow` to check what capabilities the active backend session supports.
 
 ## API/Contract
-- `Scene` must expose `scene.shadows` as the single entrypoint for shadow lifecycle.
-- `scene.shadows.createSingle(options)` must create a `SingleShadowMap`.
-- `scene.shadows.createVSM(options)` must create a `VSMShadowMap`.
-- `scene.shadows.createCSM(options)` must create a `CSMShadowMap`.
-- `scene.shadows.bind(light, shadowMap)` must bind one shadow map to one light.
-- `scene.shadows.rebind(light, shadowMap)` must replace the current binding for that light.
-- `scene.shadows.unbindLight(light)` must remove the binding for that light.
-- `scene.shadows.destroy(shadowMap)` must remove the shadow map and all light bindings that reference it.
-- `Light` must not expose `castShadow`, `shadow`, `setShadowStrategy`, `setSingleMapShadow`, or `setCSMShadow`.
-- `CSMShadowMap` must support all light categories in this release:
-	- Directional cascades.
-	- Spot cascades.
-	- Point cube cascades (`cascadeCount * 6` slices).
-- `VSMShadowMap` must preserve VSM parameters in `ShadowConfig.params` (`shadowMomentBias`, `shadowBleedReduction`, `shadowMinVariance`) while runtime sampling should fallback to PCF in v1.
+- `RenderBackendProfile.shadow`
+	- Must contain shadow capabilities and budgets for the active backend.
+	- `backendKey`: unique backend identifier string.
+	- `supportsFilterModes`: array of supported filter modes (e.g. `"pcf"`, `"vsm"`).
+	- `supportsDirectionalCSM`: boolean indicating directional cascade support.
+	- `supportsSpotCSM`: boolean indicating spot cascade support.
+	- `supportsPointCSM`: boolean indicating point/cube cascade support.
+	- `maxDynamicShadowCost`: numerical budget for dynamic shadow calculations.
+- `scene.shadows`
+	- Must be the single entry point for binding and managing shadow maps.
+	- `createSingle(options)`, `createVSM(options)`, `createCSM(options)`: create corresponding shadow maps.
+	- `bind(light, shadowMap)`, `unbindLight(light)`: bind or unbind a shadow map to a light.
+	- `destroy(shadowMap)`: destroy a shadow map and clear its bindings.
 
 ## Usage
 ```ts
-import { Scene, DirectionalLight, CSMShadowMap } from "../src/index";
+import { Scene, DirectionalLight, CSMShadowMap } from "../src";
 
 const scene = new Scene();
 const light = scene.add(new DirectionalLight({ intensity: 1.2 }));
-const shadowMap = scene.shadows.createCSM({
-	size: 2048,
-	priority: 3,
-	cascadeCounts: { directional: 4, spot: 3, point: 2 },
-	lambda: 0.65,
-	blendRatio: 0.1,
-	stabilize: true,
-});
 
-scene.shadows.bind(light, shadowMap);
-```
-
-```bash
-bunx tsc --noEmit
+// Query backend shadow capability first
+const profile = renderer.backendProfile;
+if (profile.shadow.supportsDirectionalCSM) {
+	const shadowMap = scene.shadows.createCSM({ size: 2048 });
+	scene.shadows.bind(light, shadowMap);
+}
 ```
 
 ## Errors & Diagnostics
-- Binding a light that is not in the active scene graph may result in zero active shadow slices at frame build time.
-- Destroying a bound `ShadowMapBase` will invalidate all associated light bindings by contract.
-- Backends may emit fallback warnings when `CSM` is requested but backend-specific support is unavailable.
+- If a CSM shadow map is requested on a backend that does not support CSM cascades, the backend must emit a fallback warning.
+- Binding lights that are not present in the scene graph will result in zero active shadow cascades at frame build time.
 
 ## Compatibility / Breaking Changes
-- Breaking: all direct light shadow APIs are removed (`castShadow`, `shadow`, and shadow strategy mutators).
-- All callers must migrate to `scene.shadows.*` binding APIs.
+- Lights no longer expose `castShadow`, `shadow`, or strategy mutators.
+- All query of shadow capabilities must go through `renderer.backendProfile.shadow`.
