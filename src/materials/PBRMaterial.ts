@@ -43,13 +43,17 @@ export interface PBRMaterialParams extends MaterialParams {
 	 */
 	emissive?: RGB;
 	emissiveIntensity?: number;
+	/** KHR_materials_ior index of refraction. */
 	ior?: number;
+	/** KHR_materials_specular specular factor in range 0..1. */
 	specularFactor?: number;
 	/**
-	 * Linear specular color factor stored in 0..255 units.
+	 * KHR_materials_specular linear specular color factor stored in 0..255 units.
 	 */
 	specularColor?: RGB;
+	/** KHR_materials_specular specular factor texture. */
 	specularMap?: TextureLike;
+	/** KHR_materials_specular specular color texture (RGB). */
 	specularColorMap?: TextureLike;
 	/**
 	 * @deprecated Use reflectance instead.
@@ -75,34 +79,59 @@ export interface PBRMaterialParams extends MaterialParams {
 	occlusionMapUV?: UVChannel;
 	specularMapUV?: UVChannel;
 	specularColorMapUV?: UVChannel;
+	/** KHR_materials_clearcoat clearcoat factor in range 0..1. */
 	clearcoat?: number;
+	/** KHR_materials_clearcoat clearcoat factor texture (red channel). */
 	clearcoatMap?: TextureLike;
+	/** KHR_materials_clearcoat clearcoat roughness in range 0..1. */
 	clearcoatRoughness?: number;
+	/** KHR_materials_clearcoat clearcoat roughness texture (green channel). */
 	clearcoatRoughnessMap?: TextureLike;
+	/** KHR_materials_clearcoat clearcoat normal map texture. */
 	clearcoatNormalMap?: TextureLike;
+	/** KHR_materials_clearcoat clearcoat normal scale. */
 	clearcoatNormalScale?: number;
+	/** UV set used by clearcoatMap. */
 	clearcoatMapUV?: UVChannel;
+	/** UV set used by clearcoatRoughnessMap. */
 	clearcoatRoughnessMapUV?: UVChannel;
+	/** UV set used by clearcoatNormalMap. */
 	clearcoatNormalMapUV?: UVChannel;
 	/**
-	 * Linear sheen color factor stored in 0..255 units.
+	 * KHR_materials_sheen linear sheen color factor stored in 0..255 units.
 	 */
 	sheenColorFactor?: RGB;
+	/** KHR_materials_sheen sheen color texture (RGB). */
 	sheenColorMap?: TextureLike;
+	/** KHR_materials_sheen sheen roughness in range 0..1. */
 	sheenRoughnessFactor?: number;
+	/** KHR_materials_sheen sheen roughness texture (alpha channel). */
 	sheenRoughnessMap?: TextureLike;
+	/** UV set used by sheenColorMap. */
 	sheenColorMapUV?: UVChannel;
+	/** UV set used by sheenRoughnessMap. */
 	sheenRoughnessMapUV?: UVChannel;
+	/** KHR_materials_transmission transmission factor in range 0..1. */
 	transmissionFactor?: number;
+	/** KHR_materials_transmission transmission texture (red channel). */
 	transmissionMap?: TextureLike;
+	/** UV set used by transmissionMap. */
 	transmissionMapUV?: UVChannel;
+	/** KHR_materials_iridescence iridescence factor in range 0..1. */
 	iridescenceFactor?: number;
+	/** KHR_materials_iridescence iridescence intensity texture (red channel). */
 	iridescenceMap?: TextureLike;
+	/** UV set used by iridescenceMap. */
 	iridescenceMapUV?: UVChannel;
+	/** KHR_materials_iridescence index of refraction. */
 	iridescenceIor?: number;
+	/** KHR_materials_iridescence minimum film thickness in nanometers. */
 	iridescenceThicknessMinimum?: number;
+	/** KHR_materials_iridescence maximum film thickness in nanometers. */
 	iridescenceThicknessMaximum?: number;
+	/** KHR_materials_iridescence thickness texture (green channel). */
 	iridescenceThicknessMap?: TextureLike;
+	/** UV set used by iridescenceThicknessMap. */
 	iridescenceThicknessMapUV?: UVChannel;
 	/**
 	 * KHR_materials_anisotropy strength in the range 0..1.
@@ -121,12 +150,16 @@ export interface PBRMaterialParams extends MaterialParams {
 	anisotropyMap?: TextureLike;
 	/** UV set used by `anisotropyMap`. */
 	anisotropyMapUV?: UVChannel;
+	/** KHR_materials_volume thickness factor. */
 	thicknessFactor?: number;
+	/** KHR_materials_volume thickness texture. */
 	thicknessMap?: TextureLike;
+	/** UV set used by thicknessMap. */
 	thicknessMapUV?: UVChannel;
+	/** KHR_materials_volume attenuation distance. */
 	attenuationDistance?: number;
 	/**
-	 * Linear volume attenuation color stored in 0..255 units.
+	 * KHR_materials_volume linear attenuation color stored in 0..255 units.
 	 */
 	attenuationColor?: RGB;
 }
@@ -152,38 +185,68 @@ export class PBRMaterial extends Material {
 	public normalMapUV: UVChannel;
 	public emissiveMapUV: UVChannel;
 	public occlusionMapUV: UVChannel;
+	/** KHR_materials_specular specular factor texture. */
 	public specularMap: TextureLike;
+	/** KHR_materials_specular specular color texture (RGB). */
 	public specularColorMap: TextureLike;
+	/** UV set used by specularMap. */
 	public specularMapUV: UVChannel;
+	/** UV set used by specularColorMap. */
 	public specularColorMapUV: UVChannel;
+	/** KHR_materials_clearcoat clearcoat factor in range 0..1. */
 	public clearcoat: number;
+	/** KHR_materials_clearcoat clearcoat factor texture (red channel). */
 	public clearcoatMap: TextureLike;
+	/** KHR_materials_clearcoat clearcoat roughness in range 0..1. */
 	public clearcoatRoughness: number;
+	/** KHR_materials_clearcoat clearcoat roughness texture (green channel). */
 	public clearcoatRoughnessMap: TextureLike;
+	/** KHR_materials_clearcoat clearcoat normal map texture. */
 	public clearcoatNormalMap: TextureLike;
+	/** KHR_materials_clearcoat clearcoat normal scale. */
 	public clearcoatNormalScale: number;
+	/** UV set used by clearcoatMap. */
 	public clearcoatMapUV: UVChannel;
+	/** UV set used by clearcoatRoughnessMap. */
 	public clearcoatRoughnessMapUV: UVChannel;
+	/** UV set used by clearcoatNormalMap. */
 	public clearcoatNormalMapUV: UVChannel;
 
+	/** KHR_materials_sheen linear sheen color factor stored in 0..255 units. */
 	public sheenColorFactor: RGB;
+	/** KHR_materials_sheen sheen color texture (RGB). */
 	public sheenColorMap: TextureLike;
+	/** KHR_materials_sheen sheen roughness in range 0..1. */
 	public sheenRoughnessFactor: number;
+	/** KHR_materials_sheen sheen roughness texture (alpha channel). */
 	public sheenRoughnessMap: TextureLike;
+	/** UV set used by sheenColorMap. */
 	public sheenColorMapUV: UVChannel;
+	/** UV set used by sheenRoughnessMap. */
 	public sheenRoughnessMapUV: UVChannel;
 
+	/** KHR_materials_transmission transmission factor in range 0..1. */
 	public transmissionFactor: number;
+	/** KHR_materials_transmission transmission texture (red channel). */
 	public transmissionMap: TextureLike;
+	/** UV set used by transmissionMap. */
 	public transmissionMapUV: UVChannel;
 
+	/** KHR_materials_iridescence iridescence factor in range 0..1. */
 	public iridescenceFactor: number;
+	/** KHR_materials_iridescence iridescence intensity texture (red channel). */
 	public iridescenceMap: TextureLike;
+	/** UV set used by iridescenceMap. */
 	public iridescenceMapUV: UVChannel;
+	/** KHR_materials_iridescence index of refraction. */
 	public iridescenceIor: number;
+	/** KHR_materials_iridescence minimum film thickness in nanometers. */
 	public iridescenceThicknessMinimum: number;
+	/** KHR_materials_iridescence maximum film thickness in nanometers. */
 	public iridescenceThicknessMaximum: number;
+	/** KHR_materials_iridescence thickness texture (green channel). */
 	public iridescenceThicknessMap: TextureLike;
+	/** UV set used by iridescenceThicknessMap. */
 	public iridescenceThicknessMapUV: UVChannel;
 
 	/** KHR_materials_anisotropy strength in the range 0..1. */
@@ -195,10 +258,15 @@ export class PBRMaterial extends Material {
 	/** UV set used by `anisotropyMap`. */
 	public anisotropyMapUV: UVChannel;
 
+	/** KHR_materials_volume thickness factor. */
 	public thicknessFactor: number;
+	/** KHR_materials_volume thickness texture. */
 	public thicknessMap: TextureLike;
+	/** UV set used by thicknessMap. */
 	public thicknessMapUV: UVChannel;
+	/** KHR_materials_volume attenuation distance. */
 	public attenuationDistance: number;
+	/** KHR_materials_volume linear attenuation color stored in 0..255 units. */
 	public attenuationColor: RGB;
 
 	/**
