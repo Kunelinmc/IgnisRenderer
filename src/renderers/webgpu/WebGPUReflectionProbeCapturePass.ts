@@ -30,7 +30,7 @@ import type {
 	WebGPUPreparedFrameResources,
 	WebGPURenderResources,
 } from "./WebGPURenderResources";
-import type { WebGPUBackend } from "../WebGPUBackend";
+import type { WebGPUBackendSession } from "../WebGPUBackend";
 import { TextureFormat, TextureUsage } from "../types";
 import { submitWebGPUDraws } from "./WebGPUDrawSubmission";
 
@@ -53,11 +53,11 @@ const CUBE_FACE_UP_VECTORS: IVector3[] = [
 ];
 
 export class WebGPUReflectionProbeCapturePass {
-	private _backend: WebGPUBackend;
+	private _backend: WebGPUBackendSession;
 	private _resources: WebGPURenderResources;
 	private _readbackRuntime: ComputeRuntime;
 
-	constructor(backend: WebGPUBackend, resources: WebGPURenderResources) {
+	constructor(backend: WebGPUBackendSession, resources: WebGPURenderResources) {
 		this._backend = backend;
 		this._resources = resources;
 		this._readbackRuntime = new ComputeRuntime(backend);
@@ -106,6 +106,7 @@ export class WebGPUReflectionProbeCapturePass {
 		}
 
 		const captureContext: FrameContext = {
+			backendProfile: request.frameContext.backendProfile,
 			camera: captureCamera,
 			attachments: {
 				width: faceSize,
@@ -190,7 +191,7 @@ export class WebGPUReflectionProbeCapturePass {
 	}
 
 	private async _recordSceneCapture(
-		encoder: ReturnType<WebGPUBackend["createCommandEncoder"]>,
+		encoder: ReturnType<WebGPUBackendSession["createCommandEncoder"]>,
 		context: FrameContext,
 		targets: CaptureRenderTargets,
 		includeEnvironment: boolean,
@@ -272,7 +273,7 @@ export class WebGPUReflectionProbeCapturePass {
 	}
 
 	private async _recordEnvironmentCapturePass(
-		encoder: ReturnType<WebGPUBackend["createCommandEncoder"]>,
+		encoder: ReturnType<WebGPUBackendSession["createCommandEncoder"]>,
 		targets: CaptureRenderTargets,
 		frameResources: WebGPUPreparedFrameResources
 	): Promise<boolean> {
@@ -310,16 +311,16 @@ export class WebGPUReflectionProbeCapturePass {
 }
 
 interface CaptureRenderTargets {
-	sceneColor: ReturnType<WebGPUBackend["createTexture"]>;
-	gAlbedoAlpha: ReturnType<WebGPUBackend["createTexture"]>;
-	gNormalRoughMetal: ReturnType<WebGPUBackend["createTexture"]>;
-	gEmissiveOcclusion: ReturnType<WebGPUBackend["createTexture"]>;
-	gMotionDepth: ReturnType<WebGPUBackend["createTexture"]>;
-	depth: ReturnType<WebGPUBackend["createTexture"]>;
+	sceneColor: ReturnType<WebGPUBackendSession["createTexture"]>;
+	gAlbedoAlpha: ReturnType<WebGPUBackendSession["createTexture"]>;
+	gNormalRoughMetal: ReturnType<WebGPUBackendSession["createTexture"]>;
+	gEmissiveOcclusion: ReturnType<WebGPUBackendSession["createTexture"]>;
+	gMotionDepth: ReturnType<WebGPUBackendSession["createTexture"]>;
+	depth: ReturnType<WebGPUBackendSession["createTexture"]>;
 }
 
 function createCaptureRenderTargets(
-	backend: WebGPUBackend,
+	backend: WebGPUBackendSession,
 	faceSize: number,
 	faceIndex: number
 ): CaptureRenderTargets {

@@ -6,7 +6,7 @@ import {
 	WEBGPU_TEXTURE_SLOT,
 } from "../renderers/webgpu/constants";
 import type { IWebGPUComputeFacade } from "../renderers/webgpu/ComputeFacade";
-import { resolveWebGPUComputeFacade } from "../renderers/webgpu/ComputeFacade";
+import { WEBGPU_COMPUTE_EXTENSION } from "../renderers/BackendExtensions";
 import type { IComputeKernel, IComputeRuntime } from "../renderers/IComputeRuntime";
 import { ComputeRuntime } from "../renderers/webgpu/ComputeRuntime";
 import {
@@ -145,12 +145,10 @@ export class SobelNormalMapper {
 		if (this._destroyed) {
 			throw new Error("SobelNormalMapper has been destroyed.");
 		}
-		if (!this._overrideComputeFacade && renderer.backend.type !== "webgpu") {
-			throw new Error("SobelNormalMapper requires WebGPU backend.");
-		}
 		const computeFacade =
-			this._overrideComputeFacade ?? resolveWebGPUComputeFacade(renderer);
-		const backendRef = renderer.backend;
+			this._overrideComputeFacade ??
+			renderer.requireBackendExtension(WEBGPU_COMPUTE_EXTENSION);
+		const backendRef = computeFacade;
 		if (
 			this._isInitialized &&
 			this._computeFacade === computeFacade &&
@@ -164,35 +162,7 @@ export class SobelNormalMapper {
 		this._computeFacade = computeFacade;
 		this._backendRef = backendRef;
 
-		const runtimeSources: unknown[] = [];
-		if (this._overrideComputeFacade) {
-			runtimeSources.push(this._overrideComputeFacade);
-		}
-		if (backendRef && !runtimeSources.includes(backendRef)) {
-			runtimeSources.push(backendRef);
-		}
-		if (!runtimeSources.includes(computeFacade)) {
-			runtimeSources.push(computeFacade);
-		}
-
-		let runtime: IComputeRuntime | null = null;
-		let runtimeInitError: unknown = null;
-		for (const runtimeSource of runtimeSources) {
-			try {
-				runtime = new ComputeRuntime(runtimeSource as any);
-				break;
-			} catch (error) {
-				runtimeInitError = error;
-			}
-		}
-		if (!runtime) {
-			throw (
-				runtimeInitError ??
-				new Error(
-					"SobelNormalMapper failed to initialize ComputeRuntime from provided WebGPU sources."
-				)
-			);
-		}
+		const runtime: IComputeRuntime = new ComputeRuntime(computeFacade);
 
 		const code = await ShaderSource.load("webgpu.postprocess.sobelNormal.raw");
 		let kernel: IComputeKernel;

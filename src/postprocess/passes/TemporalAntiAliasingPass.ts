@@ -806,9 +806,9 @@ export class TemporalAntiAliasingPass extends PostProcessPass<
 				config.incremental ?? TEMPORAL_ANTI_ALIASING_PASS_ORDER.incremental,
 			warningLabel: "TAA",
 			implementations: {
-				software: new SoftwareTemporalAntiAliasingImplementation(),
-				webgpu: new WebGPUTemporalAntiAliasingImplementation(),
-				webgl: new WebGLTemporalAntiAliasingImplementation(),
+				software: () => new SoftwareTemporalAntiAliasingImplementation(),
+				webgpu: () => new WebGPUTemporalAntiAliasingImplementation(),
+				webgl: () => new WebGLTemporalAntiAliasingImplementation(),
 			},
 		});
 	}

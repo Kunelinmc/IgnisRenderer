@@ -10,17 +10,17 @@ import {
 	type IRenderTexture,
 	type IShaderModule,
 } from "../../types";
-import type { WebGPUBackend } from "../../WebGPUBackend";
+import type { WebGPUBackendSession } from "../../WebGPUBackend";
 
 /**
  * Records depth-only clears scoped to incremental dirty rectangles.
  */
 export class WebGPUDepthDirtyClearPass {
-	private readonly _backend: WebGPUBackend;
+	private readonly _backend: WebGPUBackendSession;
 	private _shaderModule: IShaderModule | null = null;
 	private readonly _pipelines = new Map<string, IRenderPipeline>();
 
-	public constructor(backend: WebGPUBackend) {
+	public constructor(backend: WebGPUBackendSession) {
 		this._backend = backend;
 	}
 

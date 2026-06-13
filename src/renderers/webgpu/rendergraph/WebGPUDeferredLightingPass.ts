@@ -3,7 +3,7 @@ import {
 	type IBindingGroup,
 	type IRenderTexture,
 } from "../../types";
-import type { WebGPUBackend } from "../../WebGPUBackend";
+import type { WebGPUBackendSession } from "../../WebGPUBackend";
 import type {
 	WebGPURenderResources,
 } from "../WebGPURenderResources";
@@ -17,7 +17,7 @@ export interface WebGPUDeferredLightingPassCallbacks {
  * Owns deferred G-buffer bindings and full-screen lighting resolve.
  */
 export class WebGPUDeferredLightingPass {
-	private readonly _backend: WebGPUBackend;
+	private readonly _backend: WebGPUBackendSession;
 	private readonly _resources: WebGPURenderResources;
 	private readonly _recordingContext: WebGPUFrameGraphRecordingContext;
 	private _gbufferWriteBinding: IBindingGroup | null = null;
@@ -26,7 +26,7 @@ export class WebGPUDeferredLightingPass {
 	private _gbufferReadBindingSources: IRenderTexture[] = [];
 
 	public constructor(
-		backend: WebGPUBackend,
+		backend: WebGPUBackendSession,
 		resources: WebGPURenderResources,
 		callbacks: WebGPUDeferredLightingPassCallbacks
 	) {

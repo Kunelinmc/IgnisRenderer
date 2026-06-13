@@ -103,6 +103,15 @@ async function init() {
 		});
 
 	bindControls(canvas, camera, renderer);
+	const renderLoop = (now: number): void => {
+		void renderer
+			.renderFrame(now)
+			.catch((error) => {
+				Logger.error(["Renderer frame failed.", error], { scope: "Main" });
+			})
+			.finally(() => requestAnimationFrame(renderLoop));
+	};
+	requestAnimationFrame(renderLoop);
 	setupInteraction(renderer, scene, camera);
 
 	window.addEventListener("resize", () => {
@@ -119,15 +128,15 @@ async function createRenderer(
 	let renderer: Renderer;
 
 	if (Platform.hasWebGPU()) {
-		renderer = new Renderer(
-			new WebGPUBackend({
+		renderer = new Renderer({
+			backend: new WebGPUBackend({
 				enableDeferredLighting: true,
 				enableEarlyZPrepass: true,
 				enableOcclusionCulling: true,
 			}),
 			canvas,
 			camera,
-		);
+		});
 		renderer.setScene(scene);
 		renderer.postProcess.registerPass(
 			new FastApproximateAntiAliasingPass({ enabled: true })
@@ -135,7 +144,7 @@ async function createRenderer(
 		renderer.features.enableOIT = true;
 
 		try {
-			await renderer.init();
+			await renderer.initialize();
 
 			Logger.info("Using WebGPU backend");
 			return { canvas, renderer };
@@ -147,14 +156,14 @@ async function createRenderer(
 	}
 
 	try {
-		renderer = new Renderer(new WebGLBackend(), canvas, camera);
+		renderer = new Renderer({ backend: new WebGLBackend(), canvas, camera });
 		renderer.setScene(scene);
 		renderer.postProcess.registerPass(
 			new FastApproximateAntiAliasingPass({ enabled: true })
 		);
 		renderer.features.enableOIT = true;
 
-		await renderer.init();
+		await renderer.initialize();
 
 		Logger.info("Using WebGL backend");
 		return { canvas, renderer };
@@ -164,17 +173,17 @@ async function createRenderer(
 		});
 	}
 
-	renderer = new Renderer(
-		new SoftwareBackend({
+	renderer = new Renderer({
+		backend: new SoftwareBackend({
 			rasterMode: "tile",
 			enableEarlyZPrepass: true,
 		}),
 		canvas,
 		camera,
-	);
+	});
 	renderer.setScene(scene);
 
-	await renderer.init();
+	await renderer.initialize();
 
 	Logger.info("Using software backend");
 	return { canvas, renderer };

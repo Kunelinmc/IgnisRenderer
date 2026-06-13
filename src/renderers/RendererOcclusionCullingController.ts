@@ -3,17 +3,25 @@ import {
 	type OcclusionVisibilityProvider,
 } from "../pipeline/OcclusionCulling";
 import type { ResolvedFeatureState } from "../pipeline/types";
-import type { IRenderBackend } from "./IRenderBackend";
-import { resolveOcclusionCullingBackendExtension } from "./BackendExtensions";
+import {
+	OCCLUSION_CULLING_EXTENSION,
+	type RenderBackendExtensionReader,
+} from "./BackendExtensions";
 
 /**
  * Coordinates renderer-owned occlusion culling decisions with backend snapshots.
  */
 export class RendererOcclusionCullingController {
-	private readonly _backend: IRenderBackend;
+	private readonly _extensions: RenderBackendExtensionReader;
 
-	public constructor(backend: IRenderBackend) {
-		this._backend = backend;
+	public constructor(extensions: RenderBackendExtensionReader | any) {
+		if (extensions && typeof extensions.getBackendExtension === "function") {
+			this._extensions = extensions;
+		} else if (extensions && extensions.extensions && typeof extensions.extensions.getBackendExtension === "function") {
+			this._extensions = extensions.extensions;
+		} else {
+			this._extensions = extensions;
+		}
 	}
 
 	/**
@@ -31,7 +39,9 @@ export class RendererOcclusionCullingController {
 		if (features.enableOcclusionCulling !== true) {
 			return null;
 		}
-		const adapter = resolveOcclusionCullingBackendExtension(this._backend)?.api;
+		const adapter = this._extensions.getBackendExtension(
+			OCCLUSION_CULLING_EXTENSION
+		);
 		if (!adapter) {
 			return null;
 		}
@@ -48,7 +58,8 @@ export class RendererOcclusionCullingController {
 	 * occlusion culling extension.
 	 */
 	public reset(): void {
-		resolveOcclusionCullingBackendExtension(this._backend)
-			?.api.resetOcclusionCulling?.();
+		this._extensions
+			.getBackendExtension(OCCLUSION_CULLING_EXTENSION)
+			?.resetOcclusionCulling?.();
 	}
 }

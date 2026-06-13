@@ -5,7 +5,7 @@ import type {
 	ISampler,
 } from "../types";
 import { BufferUsage, TextureFormat, TextureUsage } from "../types";
-import type { WebGPUBackend } from "../WebGPUBackend";
+import type { WebGPUBackendSession } from "../WebGPUBackend";
 import {
 	WEBGPU_FRAME_UNIFORM_BYTE_SIZE,
 	WEBGPU_SH_COEFFICIENT_COUNT,
@@ -66,7 +66,7 @@ export interface WebGPUFrameBindingPrepareOptions {
 }
 
 export class WebGPUFrameBindingCache {
-	private _backend: WebGPUBackend;
+	private _backend: WebGPUBackendSession;
 	private _layouts: WebGPUPipelineLayouts;
 	private _textureRegistry: WebGPUTextureRegistry;
 	private _shadowAtlases: WebGPUShadowAtlasAllocator;
@@ -108,7 +108,7 @@ export class WebGPUFrameBindingCache {
 	private _temporalJitterCurrentPrev: [number, number, number, number] = [0, 0, 0, 0];
 
 	constructor(
-		backend: WebGPUBackend,
+		backend: WebGPUBackendSession,
 		layouts: WebGPUPipelineLayouts,
 		textureRegistry: WebGPUTextureRegistry,
 		shadowAtlases: WebGPUShadowAtlasAllocator

@@ -260,9 +260,9 @@ export class ToneMappingPass extends PostProcessPass<EmptyOptions, EmptyOptions>
 			builtIn: true,
 			warningLabel: "tone mapping",
 			implementations: {
-				software: new SoftwareToneMappingImplementation(),
-				webgpu: new WebGPUToneMappingImplementation(),
-				webgl: new WebGLToneMappingImplementation(),
+				software: () => new SoftwareToneMappingImplementation(),
+				webgpu: () => new WebGPUToneMappingImplementation(),
+				webgl: () => new WebGLToneMappingImplementation(),
 			},
 		});
 	}

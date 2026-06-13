@@ -22,12 +22,14 @@ import {
 } from "../../../postprocess";
 import type { ICommandEncoder } from "../../ICommandEncoder";
 import type { IRenderTexture } from "../../types";
-import type { WebGPUBackend } from "../../WebGPUBackend";
+import type { WebGPUBackendSession } from "../../WebGPUBackend";
 import type {
 	WebGPUPreparedFrameResources,
 	WebGPURenderResources,
 } from "../WebGPURenderResources";
 import { resolveWebGPUComputeFacade } from "../ComputeFacade";
+import { BackendPostProcessRuntime } from "../../../postprocess/BackendPostProcessRuntime";
+import { WebGPUPostProcessExecutor } from "../WebGPUPostProcessExecutor";
 import {
 	WEBGPU_DEFERRED_COLOR_BYTES_PER_SAMPLE,
 	WEBGPU_DEFERRED_COLOR_TARGET_COUNT,
@@ -100,7 +102,7 @@ const WEBGPU_OIT_DISABLED_MSAA_KEY = "webgpu-oit-disabled-msaa";
 const WEBGPU_OIT_DISABLED_RUNTIME_KEY = "webgpu-oit-disabled-runtime";
 
 export class WebGPUFrameGraphRuntime {
-	private _backend: WebGPUBackend;
+	private _backend: WebGPUBackendSession;
 	private _resources: WebGPURenderResources;
 	private _encoder: ICommandEncoder | null = null;
 	private _frameContext: FrameContext | null = null;
@@ -111,6 +113,7 @@ export class WebGPUFrameGraphRuntime {
 	private _deferredEnabled = false;
 	private _postRuntime: WebGPUPostProcessRuntime;
 	private _postBridge: WebGPUPostProcessBridge;
+	private _fallbackPostProcessRuntime?: BackendPostProcessRuntime;
 	private _oitActive = false;
 	private _motionHistoryWriteTarget: IRenderTexture | null = null;
 	private _pendingPostProcessColorTarget: IRenderTexture | null = null;
@@ -142,7 +145,7 @@ export class WebGPUFrameGraphRuntime {
 	private _lastExecutedGraphNodeIds: string[] = [];
 	private _frameGraphValidationMode: WebGPUFrameGraphValidationMode = "throw";
 
-	constructor(backend: WebGPUBackend, resources: WebGPURenderResources) {
+	constructor(backend: WebGPUBackendSession, resources: WebGPURenderResources) {
 		this._backend = backend;
 		this._resources = resources;
 		const backendOptions = this._backend as {
@@ -537,13 +540,13 @@ export class WebGPUFrameGraphRuntime {
 		}
 		await yieldController.yieldIfNeeded();
 
-		const descriptorById = this._getWarmupPostProcessDescriptorMap(context, plan);
+		const postRuntime = this._backend.postProcessRuntime ?? this._getFallbackPostProcessRuntime();
+		const warmupGraph = postRuntime.compileWarmupGraph(context);
 		const hints = new Set<string>();
 		if (plan.includePostProcess) {
 			for (const passId of plan.postProcessPasses) {
-				const implementation = descriptorById
-					.get(passId)
-					?.getImplementation("webgpu");
+				const compiledPass = warmupGraph.passes.find((p) => p.id === passId);
+				const implementation = compiledPass?.implementation;
 				for (const hint of implementation?.metadata?.warmupHints ?? []) {
 					hints.add(hint);
 				}
@@ -565,9 +568,8 @@ export class WebGPUFrameGraphRuntime {
 			if (warmedPassImplementations.has(passId)) {
 				continue;
 			}
-			const implementation = descriptorById
-				.get(passId)
-				?.getImplementation("webgpu");
+			const compiledPass = warmupGraph.passes.find((p) => p.id === passId);
+			const implementation = compiledPass?.implementation;
 			if (typeof implementation?.warmup !== "function") {
 				continue;
 			}
@@ -581,13 +583,7 @@ export class WebGPUFrameGraphRuntime {
 					postProcess: context.postProcess,
 					backend: "webgpu",
 					context: warmupContext,
-					options:
-						context.postProcess.getOptions(passId) ??
-						descriptorById.get(passId)?.normalizeOptions({
-							frameContext: context,
-							postProcess: context.postProcess,
-							backend: "webgpu",
-						}),
+					options: compiledPass?.options,
 				});
 				compiled++;
 			} catch (error) {
@@ -631,6 +627,20 @@ export class WebGPUFrameGraphRuntime {
 			return undefined;
 		}
 		return this._postBridge.getPassWarmupExecutionContext(metadata);
+	}
+
+	private _getFallbackPostProcessRuntime(): BackendPostProcessRuntime {
+		if (!this._fallbackPostProcessRuntime) {
+			this._fallbackPostProcessRuntime = new BackendPostProcessRuntime({
+				executor: new WebGPUPostProcessExecutor({
+					getFrameExecutor: () => (this._backend as any)._frameExecutor ?? null,
+					assertDeviceOperational: () => {},
+				}),
+				session: this._backend,
+				warn: () => {},
+			});
+		}
+		return this._fallbackPostProcessRuntime;
 	}
 
 	/**

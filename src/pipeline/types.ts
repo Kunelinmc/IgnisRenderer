@@ -23,6 +23,7 @@ import type { MeshAsset, MeshInstance } from "../meshes";
 import type { EnvironmentTintLinear } from "../core/Environment";
 import type { PostProcessPassRegistrySnapshot } from "../postprocess/PostProcessPass";
 import type { OcclusionCandidate } from "./OcclusionCulling";
+import type { RenderBackendProfile } from "../renderers/IRenderBackend";
 
 export type TransientKey<TValue, TName extends string = string> = TName & {
 	readonly __transientValueType?: TValue;
@@ -253,6 +254,7 @@ export interface FrameAttachments {
 }
 
 export interface FrameContext {
+	readonly backendProfile: RenderBackendProfile;
 	readonly camera: Camera;
 	readonly attachments: FrameAttachments;
 	readonly features: ResolvedFeatureState;
@@ -288,7 +290,7 @@ export type FramePassStage = BuiltinFramePassStage | (string & {});
 
 export interface FramePass {
 	stage: FramePassStage;
-	executor: "shared" | "backend";
+	executor: "backend";
 	enabled: boolean;
 	dependsOn: readonly FramePassStage[];
 	precompileHints?: string[];

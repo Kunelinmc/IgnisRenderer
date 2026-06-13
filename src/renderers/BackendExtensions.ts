@@ -1,8 +1,11 @@
 import type { OcclusionCullingBackendAdapter } from "../pipeline/OcclusionCulling";
-import type { IRenderBackend } from "./IRenderBackend";
+import type { ProbeWebGPUCaptureSource } from "../lights/runtime/ProbeCaptureRuntime";
+import type { IWebGPUComputeFacade } from "./webgpu/ComputeFacade";
 
 export const RENDERER_OCCLUSION_CULLING_EXTENSION_ID =
 	"renderer.occlusion-culling";
+export const RENDERER_PROBE_CAPTURE_EXTENSION_ID = "renderer.probe-capture";
+export const WEBGPU_COMPUTE_EXTENSION_ID = "webgpu.compute";
 
 export const RENDERER_OCCLUSION_VISIBILITY_INSERTION_POINT =
 	"renderer:prepared-scene:occlusion-visibility";
@@ -11,6 +14,8 @@ export const WEBGPU_OCCLUSION_AFTER_DEPTH_INSERTION_POINT =
 
 export type RenderBackendExtensionId =
 	| typeof RENDERER_OCCLUSION_CULLING_EXTENSION_ID
+	| typeof RENDERER_PROBE_CAPTURE_EXTENSION_ID
+	| typeof WEBGPU_COMPUTE_EXTENSION_ID
 	| (string & {});
 
 export type RenderBackendExtensionInsertionPoint =
@@ -18,16 +23,26 @@ export type RenderBackendExtensionInsertionPoint =
 	| typeof WEBGPU_OCCLUSION_AFTER_DEPTH_INSERTION_POINT
 	| (string & {});
 
+export interface RenderBackendExtensionKey<TApi> {
+	readonly id: RenderBackendExtensionId;
+}
+
 export interface RenderBackendExtension<TApi = unknown> {
 	readonly id: RenderBackendExtensionId;
 	readonly insertionPoints: readonly RenderBackendExtensionInsertionPoint[];
 	readonly api: TApi;
 }
 
-export interface RenderBackendExtensionRegistry {
-	getExtension<TApi = unknown>(
-		id: RenderBackendExtensionId
-	): RenderBackendExtension<TApi> | null;
+export interface RenderBackendExtensionReader {
+	getBackendExtension<TApi>(key: RenderBackendExtensionKey<TApi>): TApi | null;
+	requireBackendExtension<TApi>(key: RenderBackendExtensionKey<TApi>): TApi;
+}
+
+export interface RenderBackendExtensionRegistry
+	extends RenderBackendExtensionReader {
+	getExtension<TApi = unknown>(id: RenderBackendExtensionId):
+		| RenderBackendExtension<TApi>
+		| null;
 	listExtensions(): readonly RenderBackendExtension[];
 }
 
@@ -52,6 +67,21 @@ export function createRenderBackendExtensionRegistry(
 	}
 	const snapshot = Array.from(extensionById.values());
 	return {
+		getBackendExtension<TApi>(key: RenderBackendExtensionKey<TApi>): TApi | null {
+			return (
+				(extensionById.get(key.id) as RenderBackendExtension<TApi> | undefined)
+					?.api ?? null
+			);
+		},
+		requireBackendExtension<TApi>(key: RenderBackendExtensionKey<TApi>): TApi {
+			const extension = extensionById.get(key.id) as
+				| RenderBackendExtension<TApi>
+				| undefined;
+			if (!extension) {
+				throw new Error(`Render backend extension "${key.id}" is unavailable.`);
+			}
+			return extension.api;
+		},
 		getExtension<TApi = unknown>(
 			id: RenderBackendExtensionId
 		): RenderBackendExtension<TApi> | null {
@@ -74,11 +104,42 @@ export function createRenderBackendExtensionRegistry(
  * @sideEffects None.
  */
 export function resolveOcclusionCullingBackendExtension(
-	backend: IRenderBackend
+	reader: RenderBackendExtensionReader
 ): RenderBackendExtension<OcclusionCullingBackendAdapter> | null {
-	return (
-		backend.extensions?.getExtension<OcclusionCullingBackendAdapter>(
-			RENDERER_OCCLUSION_CULLING_EXTENSION_ID
-		) ?? null
-	);
+	const registry = (reader as any)?.extensions || reader;
+	if (registry && typeof registry.getExtension === "function") {
+		const ext = registry.getExtension(RENDERER_OCCLUSION_CULLING_EXTENSION_ID);
+		if (ext) return ext;
+	}
+
+	let api: OcclusionCullingBackendAdapter | null = null;
+	if (reader && typeof reader.getBackendExtension === "function") {
+		api = reader.getBackendExtension(OCCLUSION_CULLING_EXTENSION);
+	} else if (reader && (reader as any).extensions && typeof (reader as any).extensions.getBackendExtension === "function") {
+		api = (reader as any).extensions.getBackendExtension(OCCLUSION_CULLING_EXTENSION);
+	}
+	if (!api) return null;
+	return {
+		id: RENDERER_OCCLUSION_CULLING_EXTENSION_ID,
+		insertionPoints: [RENDERER_OCCLUSION_VISIBILITY_INSERTION_POINT],
+		api,
+	};
 }
+
+export const OCCLUSION_CULLING_EXTENSION: RenderBackendExtensionKey<
+	OcclusionCullingBackendAdapter
+> = {
+	id: RENDERER_OCCLUSION_CULLING_EXTENSION_ID,
+};
+
+export const PROBE_CAPTURE_EXTENSION: RenderBackendExtensionKey<
+	ProbeWebGPUCaptureSource
+> = {
+	id: RENDERER_PROBE_CAPTURE_EXTENSION_ID,
+};
+
+export const WEBGPU_COMPUTE_EXTENSION: RenderBackendExtensionKey<
+	IWebGPUComputeFacade
+> = {
+	id: WEBGPU_COMPUTE_EXTENSION_ID,
+};

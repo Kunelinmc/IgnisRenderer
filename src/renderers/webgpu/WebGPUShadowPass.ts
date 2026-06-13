@@ -21,7 +21,7 @@ import {
 } from "../../simulation/animation/types";
 import { DEFAULT_PRIMITIVE_DRAW_TOPOLOGY } from "../../core/types";
 import { resolveMaterialShadowTransmittance } from "../../materials/transparency";
-import type { WebGPUBackend } from "../WebGPUBackend";
+import type { WebGPUBackendSession } from "../WebGPUBackend";
 import type { ICommandEncoder } from "../ICommandEncoder";
 import { ShaderSource } from "../../shaders/ShaderSource";
 import {
@@ -97,7 +97,7 @@ interface ShadowInstancedDrawBatch {
 const SHADOW_INSTANCE_DATA_UINTS = 8;
 
 export class WebGPUShadowPass {
-	private _backend: WebGPUBackend;
+	private _backend: WebGPUBackendSession;
 	private _geometryRegistry: WebGPUGeometryRegistry;
 	private _shadowAtlases: WebGPUShadowAtlasAllocator;
 	private _depthRemapMatrix = new Matrix4([
@@ -129,7 +129,7 @@ export class WebGPUShadowPass {
 	private _instanceTransmittanceData = new Float32Array(0);
 
 	constructor(
-		backend: WebGPUBackend,
+		backend: WebGPUBackendSession,
 		geometryRegistry: WebGPUGeometryRegistry,
 		shadowAtlases: WebGPUShadowAtlasAllocator
 	) {

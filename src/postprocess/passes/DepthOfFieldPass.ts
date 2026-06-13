@@ -442,8 +442,8 @@ export class DepthOfFieldPass extends PostProcessPass<DOFOptions, DOFOptions> {
 			incremental: config.incremental ?? DEPTH_OF_FIELD_PASS_ORDER.incremental,
 			warningLabel: "depth of field",
 			implementations: {
-				webgpu: new WebGPUDepthOfFieldImplementation(),
-				webgl: new WebGLDepthOfFieldImplementation(),
+				webgpu: () => new WebGPUDepthOfFieldImplementation(),
+				webgl: () => new WebGLDepthOfFieldImplementation(),
 			},
 		});
 	}

@@ -15,7 +15,7 @@ import {
 	type IRenderTexture,
 } from "../../types";
 import { tryGetTextureFormatInfo } from "../../TextureFormatInfo";
-import type { WebGPUBackend } from "../../WebGPUBackend";
+import type { WebGPUBackendSession } from "../../WebGPUBackend";
 import type { WebGPUPreparedFrameResources } from "../WebGPURenderResources";
 import {
 	isWebGPUPostProcessContextMetadata,
@@ -38,13 +38,13 @@ export interface WebGPUPostProcessBridgeCallbacks {
  * Packs WebGPU-specific post-process helpers and validates published targets.
  */
 export class WebGPUPostProcessBridge {
-	private readonly _backend: WebGPUBackend;
+	private readonly _backend: WebGPUBackendSession;
 	private readonly _runtime: WebGPUPostProcessRuntime;
 	private readonly _callbacks: WebGPUPostProcessBridgeCallbacks;
 	private _pendingColorTarget: IRenderTexture | null = null;
 
 	public constructor(
-		backend: WebGPUBackend,
+		backend: WebGPUBackendSession,
 		runtime: WebGPUPostProcessRuntime,
 		callbacks: WebGPUPostProcessBridgeCallbacks
 	) {

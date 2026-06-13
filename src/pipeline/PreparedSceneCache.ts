@@ -3,7 +3,6 @@ import type { Matrix4 } from "../maths/Matrix4";
 import type { Material } from "../materials/Material";
 import { getMaterialTransmissionFactor } from "../materials/transparency";
 import { DECAL_CHANNELS, resolveDecalChannelBlendMode } from "../decals";
-import type { Renderer } from "../renderers/Renderer";
 import {
 	buildDirtyTileCoverage,
 	computePostProcessInflationRadius,
@@ -27,6 +26,7 @@ import type { OcclusionVisibilityProvider } from "./OcclusionCulling";
 import { normalizeOcclusionCullingOptions } from "./OcclusionCulling";
 import type { ResolvedPostProcessState } from "../postprocess";
 import { PreparedSceneBuilder } from "./PreparedSceneBuilder";
+import type { PreparedSceneBuildSource } from "./PreparedSceneBuilder";
 import { PreparedSceneTileSpatialIndex } from "./PreparedSceneSpatialIndex";
 import { computePacketScreenRect } from "./screenBounds";
 
@@ -87,7 +87,7 @@ const MATERIAL_TEXTURE_FIELD_HASHES = MATERIAL_TEXTURE_FIELDS.map(hashStaticToke
 const DECAL_CHANNEL_HASHES = DECAL_CHANNELS.map(hashStaticToken32);
 
 export interface PreparedSceneCacheBuildInput {
-	renderer: Renderer;
+	source: PreparedSceneBuildSource;
 	viewportWidth: number;
 	viewportHeight: number;
 	features: ResolvedFeatureState;
@@ -121,7 +121,7 @@ export class PreparedSceneCache {
 	}
 
 	public build(input: PreparedSceneCacheBuildInput): PreparedSceneCacheBuildResult {
-		const frame = PreparedSceneBuilder.build(input.renderer, {
+		const frame = PreparedSceneBuilder.build(input.source, {
 			viewportWidth: input.viewportWidth,
 			viewportHeight: input.viewportHeight,
 			occlusionVisibilityProvider: input.occlusionVisibilityProvider ?? null,

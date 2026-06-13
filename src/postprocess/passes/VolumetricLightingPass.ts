@@ -1727,8 +1727,8 @@ export class VolumetricLightingPass extends PostProcessPass<
 				config.incremental ?? VOLUMETRIC_LIGHTING_PASS_ORDER.incremental,
 			warningLabel: "volumetric effects",
 			implementations: {
-				software: new SoftwareVolumetricLightingImplementation(),
-				webgpu: new WebGPUVolumetricLightingImplementation(),
+				software: () => new SoftwareVolumetricLightingImplementation(),
+				webgpu: () => new WebGPUVolumetricLightingImplementation(),
 			},
 		});
 	}

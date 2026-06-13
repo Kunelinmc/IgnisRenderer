@@ -17,7 +17,7 @@ import {
 	ShaderMaterial,
 } from "../../materials/ShaderMaterial";
 import type { IRenderPipeline, IShaderModule } from "../types";
-import type { WebGPUBackend } from "../WebGPUBackend";
+import type { WebGPUBackendSession } from "../WebGPUBackend";
 import type { WebGPUPipelineLayouts } from "./WebGPUPipelineLayouts";
 import { Logger } from "../../foundation/Logger";
 import {
@@ -108,7 +108,7 @@ interface WebGPUPipelineLibraryOptions {
 }
 
 export class WebGPUPipelineLibrary {
-	private _backend: WebGPUBackend;
+	private _backend: WebGPUBackendSession;
 	private _layouts: WebGPUPipelineLayouts;
 	private _disposeShaderRuntimeListener: (() => void) | null = null;
 	private _sceneShaderModule: IShaderModule | null = null;
@@ -127,7 +127,7 @@ export class WebGPUPipelineLibrary {
 	private _earlyZPrepassCache = new Map<string, IRenderPipeline>();
 
 	constructor(
-		backend: WebGPUBackend,
+		backend: WebGPUBackendSession,
 		layouts: WebGPUPipelineLayouts,
 		options: WebGPUPipelineLibraryOptions = {}
 	) {

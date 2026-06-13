@@ -15,7 +15,7 @@ import {
 	type IRenderTexture,
 	type IShaderModule,
 } from "../types";
-import type { WebGPUBackend } from "../WebGPUBackend";
+import type { WebGPUBackendSession } from "../WebGPUBackend";
 import { tryGetNativeWebGPUCommandEncoder } from "./WebGPUCommandEncoder";
 import {
 	tryGetWebGPUBuffer,
@@ -58,7 +58,7 @@ const READBACK_ALIGNMENT = 4;
  * Owns WebGPU previous-frame Hi-Z occlusion culling resources and snapshots.
  */
 export class WebGPUOcclusionCullingRuntime {
-	private readonly _backend: WebGPUBackend;
+	private readonly _backend: WebGPUBackendSession;
 	private _frameIndex = 0;
 	private _lastCompletedFrameIndex = -1;
 	private _visibilityGeneration = 0;
@@ -76,7 +76,7 @@ export class WebGPUOcclusionCullingRuntime {
 	private _occlusionPipeline: IComputePipeline | null = null;
 	private _warnedKeys = new Set<string>();
 
-	public constructor(backend: WebGPUBackend) {
+	public constructor(backend: WebGPUBackendSession) {
 		this._backend = backend;
 	}
 

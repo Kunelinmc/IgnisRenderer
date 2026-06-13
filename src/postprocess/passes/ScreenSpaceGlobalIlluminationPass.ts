@@ -352,7 +352,7 @@ export class ScreenSpaceGlobalIlluminationPass extends PostProcessPass<
 				SCREEN_SPACE_GLOBAL_ILLUMINATION_PASS_ORDER.incremental,
 			warningLabel: "SSGI",
 			implementations: {
-				webgpu: new WebGPUScreenSpaceGlobalIlluminationImplementation(),
+				webgpu: () => new WebGPUScreenSpaceGlobalIlluminationImplementation(),
 			},
 		});
 	}

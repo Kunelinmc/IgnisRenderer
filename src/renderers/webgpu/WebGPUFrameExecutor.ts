@@ -18,7 +18,7 @@ import type {
 	NormalizedOcclusionCullingOptions,
 	OcclusionVisibilityProvider,
 } from "../../pipeline/OcclusionCulling";
-import type { WebGPUBackend } from "../WebGPUBackend";
+import type { WebGPUBackendSession } from "../WebGPUBackend";
 import type { WarmupOptions } from "../IRenderBackend";
 import type {
 	WebGPUPreparedFrameResources,
@@ -34,7 +34,7 @@ export class WebGPUFrameExecutor {
 	private readonly _runtime: WebGPUFrameGraphRuntime;
 
 	public constructor(
-		backend: WebGPUBackend,
+		backend: WebGPUBackendSession,
 		resources: WebGPURenderResources
 	) {
 		this._runtime = new WebGPUFrameGraphRuntime(backend, resources);

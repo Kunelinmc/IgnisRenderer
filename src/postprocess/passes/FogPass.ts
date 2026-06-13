@@ -456,8 +456,8 @@ export class FogPass extends PostProcessPass<FogOptions, FogOptions> {
 			incremental: config.incremental ?? FOG_PASS_ORDER.incremental,
 			warningLabel: "fog",
 			implementations: {
-				webgpu: new WebGPUFogImplementation(),
-				webgl: new WebGLFogImplementation(),
+				webgpu: () => new WebGPUFogImplementation(),
+				webgl: () => new WebGLFogImplementation(),
 			},
 		});
 	}

@@ -332,7 +332,11 @@ async function testWarmupHintsFollowPlanPostProcessPasses() {
 }
 
 function testBackendPostProcessSurfaceKeepsOnlyExecutorBridge() {
-	const backend = new WebGPUBackend();
+	const provider = new WebGPUBackend();
+	const backend = provider.createSession({
+		surface: { canvas: {} },
+		events: { emit: () => {} },
+	});
 	assert.equal(backend.capabilities.postProcess, true);
 	assert.equal(
 		backend.extensions
@@ -347,7 +351,11 @@ function testBackendPostProcessSurfaceKeepsOnlyExecutorBridge() {
 }
 
 function testWebGPUOcclusionExtensionDescriptor() {
-	const backend = new WebGPUBackend();
+	const provider = new WebGPUBackend();
+	const backend = provider.createSession({
+		surface: { canvas: {} },
+		events: { emit: () => {} },
+	});
 	const extension = backend.extensions.getExtension(
 		RENDERER_OCCLUSION_CULLING_EXTENSION_ID
 	);

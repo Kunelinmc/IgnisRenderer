@@ -578,7 +578,7 @@ export class ScreenSpaceRefractionsPass extends PostProcessPass<
 				config.incremental ?? SCREEN_SPACE_REFRACTIONS_PASS_ORDER.incremental,
 			warningLabel: "screen-space refractions",
 			implementations: {
-				webgpu: new WebGPUScreenSpaceRefractionsImplementation(),
+				webgpu: () => new WebGPUScreenSpaceRefractionsImplementation(),
 			},
 		});
 	}

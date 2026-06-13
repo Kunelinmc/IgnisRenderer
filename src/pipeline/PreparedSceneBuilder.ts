@@ -4,7 +4,9 @@ import { ShaderMaterial } from "../materials/ShaderMaterial";
 import { isMaterialTransparentPass } from "../materials/transparency";
 import { Matrix4 } from "../maths/Matrix4";
 import type { Matrix3Arr } from "../maths/types";
-import type { Renderer } from "../renderers/Renderer";
+import type { Scene } from "../core/Scene";
+import type { ShadowCastingLight } from "../lights";
+import type { ShadowRenderSet } from "../lights/shadows/ShadowMapping";
 import type { IPrimitive } from "../core/types";
 import { DEFAULT_PRIMITIVE_DRAW_TOPOLOGY } from "../core/types";
 import type { Decal } from "../decals";
@@ -32,9 +34,16 @@ export interface PreparedSceneBuildOptions {
 	occlusionVisibilityProvider?: OcclusionVisibilityProvider | null;
 }
 
+export interface PreparedSceneBuildSource {
+	readonly scene: Scene;
+	readonly camera: Camera;
+	readonly shadowMaps: Map<ShadowCastingLight, ShadowRenderSet>;
+	readonly hasActiveAnimations: boolean;
+}
+
 export class PreparedSceneBuilder {
 	public static build(
-		renderer: Renderer,
+		source: PreparedSceneBuildSource,
 		options: PreparedSceneBuildOptions = {}
 	): PreparedScene {
 		const opaquePackets: DrawPacket[] = [];
@@ -42,7 +51,7 @@ export class PreparedSceneBuilder {
 		const shadowCasterPackets: DrawPacket[] = [];
 		const shadowTransmitterPackets: DrawPacket[] = [];
 		const reflectivePackets: DrawPacket[] = [];
-		const meshInstances = renderer.scene.getMeshInstances();
+		const meshInstances = source.scene.getMeshInstances();
 		const renderableMeshInstances = meshInstances.filter(
 			(meshInstance) => meshInstance.visible !== false
 		);
@@ -57,8 +66,8 @@ export class PreparedSceneBuilder {
 			}
 		}
 
-		const frustumVisibleMeshInstances = renderer.scene.queryMeshInstancesInFrustum(
-			renderer.camera,
+		const frustumVisibleMeshInstances = source.scene.queryMeshInstancesInFrustum(
+			source.camera,
 			frustumCulledMeshInstances
 		);
 		const cameraVisibleMeshInstances = new Set<MeshInstance>(
@@ -70,7 +79,7 @@ export class PreparedSceneBuilder {
 
 		for (const meshInstance of renderableMeshInstances) {
 			const visibleInCamera = cameraVisibleMeshInstances.has(meshInstance);
-			const packets = this._buildMeshPackets(meshInstance, renderer.camera);
+			const packets = this._buildMeshPackets(meshInstance, source.camera);
 			for (const packet of packets) {
 				if (packet.passFlags & DRAW_PACKET_FLAG_TRANSPARENT) {
 					if (visibleInCamera) {
@@ -98,7 +107,7 @@ export class PreparedSceneBuilder {
 
 		const occlusion = this._resolveOcclusionState(
 			opaquePackets,
-			renderer.camera,
+			source.camera,
 			options
 		);
 		if (occlusion) {
@@ -115,17 +124,17 @@ export class PreparedSceneBuilder {
 		opaquePackets.sort(compareOpaquePackets);
 		transparentPackets.sort(compareTransparentPackets);
 		const decalPackets = this._buildDecalPackets(
-			renderer.scene.getDecals(),
+			source.scene.getDecals(),
 			opaquePackets
 		);
-		const environment = renderer.scene.environment;
+		const environment = source.scene.environment;
 
 		return {
-			sceneBounds: renderer.scene.getBounds(),
-			lights: renderer.scene.ecs.findLights(),
-			particleSystems: renderer.scene.ecs.findParticleSystems(),
-			hasActiveAnimations: renderer.animationSystem.hasActiveActions(),
-			camera: renderer.camera,
+			sceneBounds: source.scene.getBounds(),
+			lights: source.scene.ecs.findLights(),
+			particleSystems: source.scene.ecs.findParticleSystems(),
+			hasActiveAnimations: source.hasActiveAnimations,
+			camera: source.camera,
 			environment: {
 				backgroundEnabled: environment.backgroundEnabled,
 				lightingEnabled: environment.lightingEnabled,
@@ -138,7 +147,7 @@ export class PreparedSceneBuilder {
 				backgroundExposure: environment.backgroundExposure,
 			},
 			meshInstances,
-			shadowMaps: renderer.shadowMaps,
+			shadowMaps: source.shadowMaps,
 			opaquePackets,
 			transparentPackets,
 			shadowCasterPackets,

@@ -3,9 +3,10 @@ import type {
 	FrameContext,
 	FramePass,
 } from "../pipeline/types";
+import type { RenderDirtyReason } from "../pipeline/incremental";
+import type { IShadowBackendCapabilities } from "../lights/shadows";
 import type { ShaderCompileError } from "../shaders/runtime";
 import type { RenderBackendExtensionRegistry } from "./BackendExtensions";
-import type { PostProcessPassRegistry } from "../postprocess/PostProcessPass";
 
 export type KnownBackendType = "software" | "webgpu" | "webgl";
 export type RenderBackendType = KnownBackendType | (string & {});
@@ -81,6 +82,25 @@ export interface BackendCapabilities {
 	occlusionCulling: boolean;
 }
 
+export interface RenderBackendProfile {
+	readonly id: RenderBackendType;
+	readonly capabilities: BackendCapabilities;
+	readonly frameScheduling: FrameSchedulingMode;
+	readonly shadow: IShadowBackendCapabilities;
+	readonly lighting: {
+		readonly localizedProbeMode: "accumulate-globally" | "backend-local";
+	};
+}
+
+export interface RenderSurface {
+	readonly canvas: HTMLCanvasElement;
+}
+
+export interface RenderSurfaceSize {
+	readonly width: number;
+	readonly height: number;
+}
+
 export type RendererBackendResourceEventAction = "invalidate" | "destroy";
 export type RendererBackendResourceEventResource = string & {};
 
@@ -91,41 +111,38 @@ export interface RendererBackendResourceEvent {
 	readonly reason?: string;
 }
 
-/**
- * Presentation-only renderer host state exposed to backends.
- * Frame data must flow through `FrameContext`.
- *
- * @internal Backend-to-renderer bridge. Applications must not construct or call
- * this interface directly.
- */
-export interface RendererBackendBridge {
-	readonly canvas: Pick<HTMLCanvasElement, "width" | "height">;
-	readonly postProcess?: PostProcessPassRegistry;
-	pixels?: Uint8ClampedArray | null;
-	/**
-	 * Notifies the renderer that the backend observed device/context loss.
-	 *
-	 * @internal Backend lifecycle callback. Applications should subscribe to
-	 * `RendererEvents.devicelost` instead.
-	 */
-	onDeviceLost?(info?: RenderBackendDeviceLostInfo): void | Promise<void>;
-	/**
-	 * Notifies the renderer that backend-owned resources changed lifetime.
-	 *
-	 * @param event Backend resource event to handle.
-	 * @returns Nothing.
-	 * @sideEffects May invalidate or destroy renderer-owned resources that
-	 * reference backend handles.
-	 * @internal Backend resource lifetime callback. Applications should
-	 * subscribe to `RendererEvents.backendresourceevent` instead.
-	 */
-	onBackendResourceEvent?(event: RendererBackendResourceEvent): void;
+export type RenderBackendEvent =
+	| {
+			type: "device-lost";
+			info?: RenderBackendDeviceLostInfo;
+	  }
+	| { type: "device-restored" }
+	| { type: "render-invalidated"; reason: RenderDirtyReason }
+	| { type: "resource-lifecycle"; event: RendererBackendResourceEvent };
+
+export interface RenderBackendEventSink {
+	emit(event: RenderBackendEvent): void;
+}
+
+export interface RenderBackendSessionContext {
+	readonly surface: RenderSurface;
+	readonly events: RenderBackendEventSink;
 }
 
 export interface IRenderBackend {
-	readonly type: RenderBackendType;
-	readonly capabilities: BackendCapabilities;
-	readonly frameScheduling: FrameSchedulingMode;
+	/**
+	 * Creates an isolated runtime session for one renderer.
+	 *
+	 * @param context Presentation surface and backend event sink.
+	 * @returns A session that must not be shared by multiple renderers.
+	 * @sideEffects Allocates backend runtime state but does not initialize the
+	 * graphics device or context until `initialize()` is called.
+	 */
+	createSession(context: RenderBackendSessionContext): IRenderBackendSession;
+}
+
+export interface IRenderBackendSession {
+	readonly profile: RenderBackendProfile;
 	/**
 	 * Optional registry of backend-owned integration APIs.
 	 *
@@ -133,30 +150,15 @@ export interface IRenderBackend {
 	 * registry instead of adding feature-specific properties to `IRenderBackend`.
 	 * @sideEffects None.
 	 */
-	readonly extensions?: RenderBackendExtensionRegistry;
-	/**
-	 * Attaches renderer-owned bridge callbacks to the backend.
-	 *
-	 * @internal Renderer-owned lifecycle hook. Applications must not call this
-	 * directly.
-	 */
-	setRenderer?(renderer: RendererBackendBridge): void;
-	init(canvas: HTMLCanvasElement): Promise<void>;
-	/**
-	 * Marks backend device or graphics context resources as lost.
-	 *
-	 * @internal Backend lifecycle hook used by backend implementations and
-	 * renderer recovery paths. Applications should use `Renderer.restore()` and
-	 * `RendererEvents.devicelost` instead of calling this directly.
-	 */
-	onDeviceLost?(info?: RenderBackendDeviceLostInfo): void | Promise<void>;
+	readonly extensions: RenderBackendExtensionRegistry;
+	initialize(): Promise<void>;
 	/**
 	 * Rebuilds backend device or graphics context resources after loss.
 	 */
-	restore?(canvas?: HTMLCanvasElement): void | Promise<void>;
-	resize(width: number, height: number): void;
-	destroy?(): void;
-	getAttachments(width: number, height: number): FrameAttachments;
+	restore(): void | Promise<void>;
+	resize(size: RenderSurfaceSize): void;
+	destroy(): void | Promise<void>;
+	getAttachments(size: RenderSurfaceSize): FrameAttachments;
 	beginFrame(context: FrameContext): void | Promise<void>;
 	/**
 	 * Aborts the active frame after a failed `beginFrame` or pass execution.
@@ -168,11 +170,7 @@ export interface IRenderBackend {
 	 * @sideEffects Releases per-frame state without presenting, submitting new
 	 * frame work, or committing temporal history.
 	 */
-	abortFrame?(error?: unknown): void | Promise<void>;
-	executeSharedPass?(
-		pass: FramePass,
-		context: FrameContext
-	): void | Promise<void>;
+	abortFrame(error?: unknown): void | Promise<void>;
 	executePass(pass: FramePass, context: FrameContext): void | Promise<void>;
 	skipPass?(pass: FramePass): void;
 	warmup?(

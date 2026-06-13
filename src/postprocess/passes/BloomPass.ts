@@ -784,8 +784,8 @@ export class BloomPass extends PostProcessPass<BloomOptions, BloomOptions> {
 			incremental: config.incremental ?? BLOOM_PASS_ORDER.incremental,
 			warningLabel: "bloom",
 			implementations: {
-				webgpu: new WebGPUBloomImplementation(),
-				webgl: new WebGLBloomImplementation(),
+				webgpu: () => new WebGPUBloomImplementation(),
+				webgl: () => new WebGLBloomImplementation(),
 			},
 		});
 	}

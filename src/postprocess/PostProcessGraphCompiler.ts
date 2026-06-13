@@ -37,6 +37,9 @@ export interface PostProcessGraphCompileRequest {
 	readonly gBuffer: LogicalGBufferBridge;
 	readonly startPassId?: string | null;
 	readonly warn?: (key: string, message: string) => void;
+	readonly resolveImplementation?: (
+		pass: PostProcessPass
+	) => PostProcessPassImplementation | null;
 }
 
 export interface CompiledPostProcessPass<TOptions = unknown>
@@ -171,7 +174,7 @@ export class PostProcessGraphCompiler {
 		}
 		const compiledPasses = eligiblePasses.map((resolved) => ({
 			...resolved,
-			implementation: resolved.pass.getImplementation(request.backend),
+			implementation: request.resolveImplementation?.(resolved.pass) ?? null,
 			historyIds: historyIdsByPass.get(resolved.id) ?? [],
 		}));
 
@@ -340,13 +343,13 @@ export class PostProcessGraphCompiler {
 	): string {
 		const camera = context.camera;
 		return [
-			context.attachments.width,
-			context.attachments.height,
-			camera.type,
-			camera.fov,
-			camera.aspectRatio,
-			camera.near,
-			camera.far,
+			context.attachments?.width ?? 1,
+			context.attachments?.height ?? 1,
+			camera?.type,
+			camera?.fov,
+			camera?.aspectRatio,
+			camera?.near,
+			camera?.far,
 			...passes.map((resolved) =>
 				`${resolved.id}:${resolved.pass.getHistorySignature(
 					this._createResolveRequest(resolved, request)

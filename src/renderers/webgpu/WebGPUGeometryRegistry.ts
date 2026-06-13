@@ -4,7 +4,7 @@ import {
 	type PrimitiveDrawTopology,
 } from "../../core/types";
 import { BufferUsage, type IRenderBuffer } from "../types";
-import type { WebGPUBackend } from "../WebGPUBackend";
+import type { WebGPUBackendSession } from "../WebGPUBackend";
 import { GeometryBuilder } from "../../meshes/GeometryBuilder";
 import {
 	WEBGPU_SCENE_VERTEX_FLOAT_OFFSET,
@@ -30,7 +30,7 @@ interface WebGPUCachedGeometryEntry {
 }
 
 export class WebGPUGeometryRegistry {
-	private _backend: WebGPUBackend;
+	private _backend: WebGPUBackendSession;
 	private _cache = new WeakMap<IPrimitive, WebGPUCachedGeometryEntry>();
 	private _owned = new Set<WebGPUGeometryHandle>();
 	private _finalizationRegistry: FinalizationRegistry<WebGPUGeometryHandle> | null =
@@ -41,7 +41,7 @@ export class WebGPUGeometryRegistry {
 			})
 		:	null;
 
-	constructor(backend: WebGPUBackend) {
+	constructor(backend: WebGPUBackendSession) {
 		this._backend = backend;
 	}
 

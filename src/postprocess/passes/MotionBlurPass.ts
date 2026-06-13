@@ -399,8 +399,8 @@ export class MotionBlurPass extends PostProcessPass<
 			incremental: config.incremental ?? MOTION_BLUR_PASS_ORDER.incremental,
 			warningLabel: "motion blur",
 			implementations: {
-				webgpu: new WebGPUMotionBlurImplementation(),
-				webgl: new WebGLMotionBlurImplementation(),
+				webgpu: () => new WebGPUMotionBlurImplementation(),
+				webgl: () => new WebGLMotionBlurImplementation(),
 			},
 		});
 	}

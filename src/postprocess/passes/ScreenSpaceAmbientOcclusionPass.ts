@@ -1072,9 +1072,9 @@ export class ScreenSpaceAmbientOcclusionPass extends PostProcessPass<
 				SCREEN_SPACE_AMBIENT_OCCLUSION_PASS_ORDER.incremental,
 			warningLabel: "SSAO",
 			implementations: {
-				software: new SoftwareScreenSpaceAmbientOcclusionImplementation(),
-				webgpu: new WebGPUScreenSpaceAmbientOcclusionImplementation(),
-				webgl: new WebGLScreenSpaceAmbientOcclusionImplementation(),
+				software: () => new SoftwareScreenSpaceAmbientOcclusionImplementation(),
+				webgpu: () => new WebGPUScreenSpaceAmbientOcclusionImplementation(),
+				webgl: () => new WebGLScreenSpaceAmbientOcclusionImplementation(),
 			},
 		});
 	}

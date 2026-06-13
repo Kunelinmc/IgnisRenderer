@@ -4,6 +4,7 @@ import {
 	type CompiledPostProcessGraph,
 } from "./PostProcessGraphCompiler";
 import { PostProcessResourcePool } from "./PostProcessResourcePool";
+import type { IRenderBackendSession } from "../renderers/IRenderBackend";
 import type {
 	IPostProcessExecutor,
 	LogicalGBufferBridge,
@@ -11,12 +12,13 @@ import type {
 	PostProcessFrameRequest,
 	PostProcessPassExecutionContextRequest,
 	PostProcessPassRequest,
+	PostProcessPassImplementation,
 } from "./types";
-import type { PostProcessPassRegistry } from "./PostProcessPass";
+import type { PostProcessPass } from "./PostProcessPass";
 
 export interface BackendPostProcessRuntimeOptions {
 	readonly executor: IPostProcessExecutor;
-	readonly getPassRegistry?: () => PostProcessPassRegistry | null;
+	readonly session: IRenderBackendSession;
 	readonly warn?: (key: string, message: string) => void;
 }
 
@@ -30,16 +32,30 @@ interface PendingBackendPostProcessFrame {
  */
 export class BackendPostProcessRuntime {
 	private readonly _executor: IPostProcessExecutor;
-	private readonly _getPassRegistry: () => PostProcessPassRegistry | null;
+	private readonly _session: IRenderBackendSession;
 	private readonly _warn: (key: string, message: string) => void;
 	private readonly _compiler = new PostProcessGraphCompiler();
 	private readonly _resources = new PostProcessResourcePool();
+	private readonly _observedPasses = new Set<PostProcessPass>();
+	private readonly _implementations = new Map<PostProcessPass, PostProcessPassImplementation>();
 	private _pendingFrame: PendingBackendPostProcessFrame | null = null;
 
 	public constructor(options: BackendPostProcessRuntimeOptions) {
 		this._executor = options.executor;
-		this._getPassRegistry = options.getPassRegistry ?? (() => null);
+		this._session = options.session;
 		this._warn = options.warn ?? (() => {});
+	}
+
+	private _resolveImplementation(pass: PostProcessPass): PostProcessPassImplementation | null {
+		let impl = this._implementations.get(pass);
+		if (!impl) {
+			const factory = pass.getImplementationFactory(this._executor.backend);
+			if (factory) {
+				impl = typeof factory === "function" ? factory(this._session) : (factory as any);
+				this._implementations.set(pass, impl);
+			}
+		}
+		return impl ?? null;
 	}
 
 	/**
@@ -51,13 +67,16 @@ export class BackendPostProcessRuntime {
 	 * @sideEffects May emit diagnostics through the configured warning sink.
 	 */
 	public compileGraph(context: FrameContext): CompiledPostProcessGraph {
-		return this._compiler.compile({
+		const graph = this._compiler.compile({
 			postProcess: context.postProcess,
 			backend: this._executor.backend,
 			frameContext: context,
 			gBuffer: this._executor.createGBufferBridge(context),
 			warn: this._warn,
+			resolveImplementation: (pass) => this._resolveImplementation(pass),
 		});
+		this._observePasses(graph);
+		return graph;
 	}
 
 	/**
@@ -69,13 +88,16 @@ export class BackendPostProcessRuntime {
 	 * @sideEffects None.
 	 */
 	public compileWarmupGraph(context: FrameContext): CompiledPostProcessGraph {
-		return this._compiler.compile({
+		const graph = this._compiler.compile({
 			postProcess: context.postProcess,
 			backend: this._executor.backend,
 			frameContext: context,
 			gBuffer: this._createWarmupGBuffer(context),
 			warn: () => {},
+			resolveImplementation: (pass) => this._resolveImplementation(pass),
 		});
+		this._observePasses(graph);
+		return graph;
 	}
 
 	/**
@@ -98,6 +120,15 @@ export class BackendPostProcessRuntime {
 
 		if (this._pendingFrame) {
 			await this.abortFrame();
+		}
+
+		// Clean up unregistered implementations from cache
+		const activePasses = new Set(context.postProcess.getEnabledPasses().map((r) => r.pass));
+		for (const [pass, impl] of this._implementations.entries()) {
+			if (!activePasses.has(pass)) {
+				impl.destroy?.();
+				this._implementations.delete(pass);
+			}
 		}
 
 		const graph = this.compileGraph(context);
@@ -217,7 +248,12 @@ export class BackendPostProcessRuntime {
 	 */
 	public invalidateFrameSized(): void {
 		this._resources.invalidateFrameSized(this._executor);
-		this._getPassRegistry()?.invalidatePasses(this._executor.backend);
+		for (const impl of this._implementations.values()) {
+			impl.invalidate?.();
+		}
+		for (const pass of this._observedPasses) {
+			pass.invalidate();
+		}
 	}
 
 	/**
@@ -229,13 +265,26 @@ export class BackendPostProcessRuntime {
 	 */
 	public destroy(): void {
 		this._resources.destroy(this._executor);
-		this._getPassRegistry()?.destroyPasses(this._executor.backend);
+		for (const impl of this._implementations.values()) {
+			impl.destroy?.();
+		}
+		this._implementations.clear();
+		for (const pass of this._observedPasses) {
+			pass.destroy();
+		}
+		this._observedPasses.clear();
 		this._pendingFrame = null;
 	}
 
+	private _observePasses(graph: CompiledPostProcessGraph): void {
+		for (const resolved of graph.passes) {
+			this._observedPasses.add(resolved.pass);
+		}
+	}
+
 	private _createWarmupGBuffer(context: FrameContext): LogicalGBufferBridge {
-		const width = Math.max(1, context.attachments.width ?? 1);
-		const height = Math.max(1, context.attachments.height ?? 1);
+		const width = Math.max(1, context.attachments?.width ?? 1);
+		const height = Math.max(1, context.attachments?.height ?? 1);
 		const semantics: readonly LogicalGBufferSemantic[] = [
 			"color",
 			"depth",

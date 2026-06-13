@@ -2,6 +2,7 @@ import { EventEmitter } from "../core/EventEmitter";
 import type { FeatureWarning, FrameContext } from "../pipeline/types";
 import type { PostProcessIncrementalMetadata } from "../pipeline/incremental";
 import type { PostProcessPlacement } from "./ordering";
+import type { IRenderBackendSession } from "../renderers/IRenderBackend";
 import type {
 	IPostProcessExecutor,
 	LogicalGBufferBridge,
@@ -15,6 +16,10 @@ import type {
 } from "./types";
 
 export type PostProcessPassId = string;
+
+export type PostProcessPassImplementationFactory = (
+	session: IRenderBackendSession
+) => PostProcessPassImplementation;
 
 export interface PostProcessPassConfig<TRawOptions = unknown> {
 	readonly id: string;
@@ -38,7 +43,7 @@ export interface PostProcessPassConfig<TRawOptions = unknown> {
 	readonly options?: Partial<TRawOptions>;
 	readonly incremental?: PostProcessIncrementalMetadata;
 	readonly implementations?: Partial<
-		Record<PostProcessBackendKind, PostProcessPassImplementation>
+		Record<PostProcessBackendKind, PostProcessPassImplementationFactory>
 	>;
 }
 
@@ -96,7 +101,7 @@ export abstract class PostProcessPass<
 	public readonly order?: number;
 	public readonly incremental?: PostProcessIncrementalMetadata;
 	private readonly _implementations: Partial<
-		Record<PostProcessBackendKind, PostProcessPassImplementation>
+		Record<PostProcessBackendKind, PostProcessPassImplementationFactory>
 	>;
 	private readonly _initialOptions: Partial<TRawOptions>;
 	private _enabled: boolean;
@@ -222,23 +227,55 @@ export abstract class PostProcessPass<
 		return true;
 	}
 
-	public getImplementation(
+	private readonly _cachedTestImplementations = new Map<string, PostProcessPassImplementation>();
+
+	public getImplementationFactory(
 		backend: PostProcessBackendKind
-	): PostProcessPassImplementation | null {
+	): PostProcessPassImplementationFactory | null {
 		return this._implementations[backend] ?? null;
 	}
 
+	public getImplementation(
+		backend: PostProcessBackendKind
+	): PostProcessPassImplementation | null {
+		const cached = this._cachedTestImplementations.get(backend);
+		if (cached) {
+			return cached;
+		}
+		const factory = this.getImplementationFactory(backend);
+		if (!factory) {
+			return null;
+		}
+		const mockSession: any = {
+			type: backend,
+			profile: {
+				id: backend,
+				capabilities: {},
+				frameScheduling: "on-demand",
+				shadow: {},
+				lighting: {},
+			},
+			extensions: {
+				getBackendExtension: () => null,
+				requireBackendExtension: () => { throw new Error("Mock"); },
+			},
+		};
+		const instance = factory(mockSession);
+		this._cachedTestImplementations.set(backend, instance);
+		return instance;
+	}
+
 	public supportsBackend(backend: PostProcessBackendKind): boolean {
-		if (this.getImplementation(backend) !== null) {
+		if (this.getImplementationFactory(backend) !== null) {
 			return true;
 		}
 		return backend !== "software" && backend !== "webgpu" && backend !== "webgl";
 	}
 
 	public async warmup(
-		request: PostProcessPassWarmupRequest<TOptions>
+		request: PostProcessPassWarmupRequest<TOptions>,
+		implementation?: PostProcessPassImplementation
 	): Promise<void> {
-		const implementation = this.getImplementation(request.backend);
 		await implementation?.warmup?.(request.context, request);
 	}
 
@@ -247,8 +284,7 @@ export abstract class PostProcessPass<
 		context: unknown,
 		executor: IPostProcessExecutor
 	): PostProcessPassResult | Promise<PostProcessPassResult> {
-		const implementation =
-			request.implementation ?? this.getImplementation(executor.backend);
+		const implementation = request.implementation;
 		if (implementation?.execute) {
 			return implementation.execute(request, context);
 		}
@@ -256,23 +292,28 @@ export abstract class PostProcessPass<
 	}
 
 	public invalidate(backend?: PostProcessBackendKind): void {
-		for (const [kind, implementation] of Object.entries(this._implementations)) {
-			if (backend && kind !== backend) {
-				continue;
-			}
-			implementation?.invalidate?.();
-		}
 		this._emitChange("lifecycle");
+		if (backend) {
+			const impl = this._cachedTestImplementations.get(backend);
+			impl?.invalidate?.();
+		} else {
+			for (const impl of this._cachedTestImplementations.values()) {
+				impl.invalidate?.();
+			}
+		}
 	}
 
 	public destroy(backend?: PostProcessBackendKind): void {
-		for (const [kind, implementation] of Object.entries(this._implementations)) {
-			if (backend && kind !== backend) {
-				continue;
-			}
-			implementation?.destroy?.();
-		}
 		this._emitChange("lifecycle");
+		if (backend) {
+			const impl = this._cachedTestImplementations.get(backend);
+			impl?.destroy?.();
+		} else {
+			for (const impl of this._cachedTestImplementations.values()) {
+				impl.destroy?.();
+			}
+			this._cachedTestImplementations.clear();
+		}
 	}
 
 	private _emitChange(reason: PostProcessPassChange["reason"]): void {

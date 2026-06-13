@@ -197,9 +197,9 @@ export class GammaPass extends PostProcessPass<EmptyOptions, EmptyOptions> {
 			builtIn: true,
 			warningLabel: "gamma correction",
 			implementations: {
-				software: new SoftwareGammaImplementation(),
-				webgpu: new WebGPUGammaImplementation(),
-				webgl: new WebGLGammaImplementation(),
+				software: () => new SoftwareGammaImplementation(),
+				webgpu: () => new WebGPUGammaImplementation(),
+				webgl: () => new WebGLGammaImplementation(),
 			},
 		});
 	}

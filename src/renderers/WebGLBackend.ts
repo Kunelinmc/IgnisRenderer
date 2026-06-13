@@ -2,12 +2,16 @@ import {
 	PARTICLE_SIM_DELTA_TIME_SECONDS_KEY,
 	type FrameContext,
 	type FramePass,
+	type FrameAttachments,
 } from "../pipeline/types";
 import { DefaultParticleSimulator } from "../simulation/particles/DefaultParticleSimulator";
 import type {
 	IRenderBackend,
+	IRenderBackendSession,
 	RenderBackendDeviceLostInfo,
-	RendererBackendBridge,
+	RenderBackendProfile,
+	RenderBackendSessionContext,
+	RenderSurfaceSize,
 	WarmupOptions,
 	WarmupReport,
 } from "./IRenderBackend";
@@ -49,7 +53,6 @@ import {
 import {
 	createRenderBackendExtensionRegistry,
 } from "./BackendExtensions";
-import type { PostProcessPassRegistry } from "../postprocess/PostProcessPass";
 
 const SUPPORTED_WEBGL_STAGES: readonly FramePass["stage"][] = [
 	"shadow",
@@ -72,7 +75,152 @@ type WebGLBackendPassHandler = (
 	context: FrameContext
 ) => void | Promise<void>;
 
-export class WebGLBackend implements IRenderBackend {
+export class WebGLBackend implements IRenderBackend, IRenderBackendSession {
+	private readonly _options: WebGLBackendOptions;
+	private _defaultSession: WebGLBackendSession | null = null;
+
+	public constructor(options: WebGLBackendOptions = {}) {
+		this._options = options;
+	}
+
+	public createSession(
+		context: RenderBackendSessionContext
+	): IRenderBackendSession {
+		const session = new WebGLBackendSession(this._options, context);
+		this._defaultSession = session;
+		return session;
+	}
+
+	private _getOrEstablishSession(): WebGLBackendSession {
+		if (!this._defaultSession) {
+			this._defaultSession = new WebGLBackendSession(this._options, {
+				surface: { canvas: typeof document !== "undefined" ? document.createElement("canvas") : { width: 320, height: 180 } as any },
+				events: { emit: () => {} },
+			});
+		}
+		return this._defaultSession;
+	}
+
+	// Delegate properties and methods of IRenderBackendSession
+	public get type() { return "webgl"; }
+	public get capabilities() { return this._getOrEstablishSession().capabilities; }
+	public get frameScheduling() { return this._getOrEstablishSession().frameScheduling; }
+	public get extensions() { return this._getOrEstablishSession().extensions; }
+	public get profile() { return this._getOrEstablishSession().profile; }
+
+	private _rendererCompat: any = null;
+	public get _renderer() { return this._rendererCompat; }
+	public set _renderer(val) { this._rendererCompat = val; }
+
+	public setRenderer(renderer: any): void {
+		this._rendererCompat = renderer;
+	}
+
+	public async init(canvas: HTMLCanvasElement): Promise<void> {
+		this.createSession({
+			surface: { canvas },
+			events: {
+				emit: (event) => {
+					if (event.type === "device-lost") {
+						this._rendererCompat?.onDeviceLost?.(event.info);
+					} else if (event.type === "device-restored") {
+						this._rendererCompat?.onDeviceRestored?.();
+					}
+				}
+			},
+		});
+		await this.initialize();
+	}
+
+	public initialize(): Promise<void> {
+		return this._getOrEstablishSession().initialize();
+	}
+
+	public restore(): Promise<void> {
+		this._getOrEstablishSession().restore();
+		return Promise.resolve();
+	}
+
+	public resize(size: RenderSurfaceSize | number, heightParam?: number): void {
+		this._getOrEstablishSession().resize(size, heightParam);
+	}
+
+	public getAttachments(size: RenderSurfaceSize | number, heightParam?: number): FrameAttachments {
+		return this._getOrEstablishSession().getAttachments(size, heightParam);
+	}
+
+	public beginFrame(context: FrameContext): void | Promise<void> {
+		return this._getOrEstablishSession().beginFrame(context);
+	}
+
+	public executePass(pass: FramePass, context: FrameContext): void | Promise<void> {
+		return this._getOrEstablishSession().executePass(pass, context);
+	}
+
+	public skipPass(pass: FramePass): void {
+		this._getOrEstablishSession().skipPass(pass);
+	}
+
+	public endFrame(): void | Promise<void> {
+		return this._getOrEstablishSession().endFrame();
+	}
+
+	public abortFrame(error?: unknown): void | Promise<void> {
+		return this._getOrEstablishSession().abortFrame(error);
+	}
+
+	public destroy(): void | Promise<void> {
+		if (this._defaultSession) {
+			return this._defaultSession.destroy();
+		}
+	}
+
+	public isEarlyZPrepassEnabled(): boolean {
+		return this._getOrEstablishSession().isEarlyZPrepassEnabled();
+	}
+
+	public onDeviceLost(info?: RenderBackendDeviceLostInfo): void {
+		this._getOrEstablishSession().onDeviceLost(info);
+	}
+
+	public _resolveParticleDeltaTime(context: FrameContext): number {
+		return (this._getOrEstablishSession() as any)._resolveParticleDeltaTime(context);
+	}
+
+	public get _frameExecutor(): any {
+		return (this._getOrEstablishSession() as any)._frameExecutor;
+	}
+
+	public set _frameExecutor(value: any) {
+		(this._getOrEstablishSession() as any)._frameExecutor = value;
+	}
+
+	public get _particleSimulator(): any {
+		return (this._getOrEstablishSession() as any)._particleSimulator;
+	}
+
+	public set _particleSimulator(value: any) {
+		(this._getOrEstablishSession() as any)._particleSimulator = value;
+	}
+
+	public get _contextLost(): boolean {
+		return (this._getOrEstablishSession() as any)._contextLost;
+	}
+
+	public set _contextLost(value: boolean) {
+		(this._getOrEstablishSession() as any)._contextLost = value;
+	}
+
+	public get _plannedPasses(): any {
+		return (this._getOrEstablishSession() as any)._plannedPasses;
+	}
+
+	public get _plannedPassOrder(): any {
+		return (this._getOrEstablishSession() as any)._plannedPassOrder;
+	}
+}
+
+class WebGLBackendSession implements IRenderBackendSession {
 	public readonly type = "webgl";
 	public readonly frameScheduling = "on-demand";
 	public readonly capabilities = {
@@ -90,26 +238,38 @@ export class WebGLBackend implements IRenderBackend {
 	});
 	private readonly _postProcessRuntime = new BackendPostProcessRuntime({
 		executor: this._postProcessExecutor,
-		getPassRegistry: () => this._postProcessRegistry,
+		session: this,
 		warn: (key, message) =>
 			Logger.warn(`[${key}] ${message}`, {
 				scope: "WebGLBackend",
 				onceKey: key,
 			}),
 	});
+	public get postProcessRuntime(): BackendPostProcessRuntime {
+		return this._postProcessRuntime;
+	}
 	public readonly extensions = createRenderBackendExtensionRegistry([]);
+	public readonly profile: RenderBackendProfile = {
+		id: "webgl",
+		capabilities: this.capabilities,
+		frameScheduling: this.frameScheduling,
+		shadow: {
+			backendKey: "webgl",
+			supportsFilterModes: ["pcf", "vsm"],
+			supportsDirectionalCSM: true,
+			supportsSpotCSM: false,
+			supportsPointCSM: false,
+			maxDynamicShadowCost: 24,
+		},
+		lighting: { localizedProbeMode: "backend-local" },
+	};
 
+	private readonly _sessionContext: RenderBackendSessionContext;
+	private readonly _options: WebGLBackendOptions;
 	private _canvas: HTMLCanvasElement | null = null;
 	private _gl: WebGL2RenderingContext | null = null;
 	private _frameExecutor: WebGLFrameExecutor | null = null;
 	private _particleSimulator: DefaultParticleSimulator | null = null;
-	private _onBackendResourceEvent:
-		| RendererBackendBridge["onBackendResourceEvent"]
-		| null = null;
-	private _postProcessRegistry: PostProcessPassRegistry | null = null;
-	private _onDeviceLost:
-		| RendererBackendBridge["onDeviceLost"]
-		| null = null;
 	private _contextLost = false;
 	private _contextLossHandler: ((event: Event) => void) | null = null;
 	private _contextRestoreHandler: ((event: Event) => void) | null = null;
@@ -128,7 +288,12 @@ export class WebGLBackend implements IRenderBackend {
 		WebGLBackendPassHandler
 	>;
 
-	constructor(options: WebGLBackendOptions = {}) {
+	constructor(
+		options: WebGLBackendOptions,
+		sessionContext: RenderBackendSessionContext
+	) {
+		this._options = options;
+		this._sessionContext = sessionContext;
 		const shaderMode = options.shaderMode ?? "warn";
 		this._validatePrograms = options.validatePrograms === true;
 		this._enableEarlyZPrepass = options.enableEarlyZPrepass !== false;
@@ -156,20 +321,8 @@ export class WebGLBackend implements IRenderBackend {
 		return this._enableEarlyZPrepass;
 	}
 
-	/**
-	 * Attaches renderer-owned bridge callbacks to the WebGL backend.
-	 *
-	 * @internal Renderer-owned lifecycle hook.
-	 */
-	public setRenderer(renderer: RendererBackendBridge): void {
-		this._onBackendResourceEvent =
-			renderer.onBackendResourceEvent?.bind(renderer) ?? null;
-		this._onDeviceLost = renderer.onDeviceLost?.bind(renderer) ?? null;
-		this._postProcessRegistry = renderer.postProcess ?? null;
-		this._ensureParticleSimulator();
-	}
-
-	public async init(canvas: HTMLCanvasElement): Promise<void> {
+	public async initialize(): Promise<void> {
+		const canvas = this._requireSessionContext().surface.canvas;
 		this._ensureParticleSimulator();
 		this._canvas = canvas;
 		this._installContextLifecycleListeners(canvas);
@@ -249,15 +402,24 @@ export class WebGLBackend implements IRenderBackend {
 		);
 	}
 
-	public restore(canvas?: HTMLCanvasElement): void {
-		const targetCanvas = this._resolveRestoreCanvas(canvas);
+	public restore(): void {
+		const targetCanvas = this._requireSessionContext().surface.canvas;
 		this._ensureParticleSimulator();
 		this._canvas = targetCanvas;
 		this._installContextLifecycleListeners(targetCanvas);
 		this._initializeGLContext(targetCanvas);
 	}
 
-	public resize(width: number, height: number): void {
+	public resize(size: RenderSurfaceSize | number, heightParam?: number): void {
+		let width: number;
+		let height: number;
+		if (typeof size === "object" && size !== null) {
+			width = size.width;
+			height = size.height;
+		} else {
+			width = size as number;
+			height = heightParam!;
+		}
 		this._width = toSafeDimension(width);
 		this._height = toSafeDimension(height);
 		if (this._contextLost) return;
@@ -265,13 +427,19 @@ export class WebGLBackend implements IRenderBackend {
 		this._frameExecutor?.resize(this._width, this._height);
 	}
 
-	public getAttachments(
-		width: number,
-		height: number
-	): {
+	public getAttachments(size: RenderSurfaceSize | number, heightParam?: number): {
 		width: number;
 		height: number;
 	} {
+		let width: number;
+		let height: number;
+		if (typeof size === "object" && size !== null) {
+			width = size.width;
+			height = size.height;
+		} else {
+			width = size as number;
+			height = heightParam!;
+		}
 		return {
 			width: toSafeDimension(width),
 			height: toSafeDimension(height),
@@ -441,6 +609,7 @@ export class WebGLBackend implements IRenderBackend {
 				enableEarlyZPrepass: this._enableEarlyZPrepass,
 				onProgramCompilePending: () => this._emitProgramCompilePendingEvent(),
 				onTextureUploadPending: () => this._emitTextureUploadPendingEvent(),
+				postProcessRuntime: this._postProcessRuntime,
 			}
 		);
 		this._contextLost = false;
@@ -459,20 +628,16 @@ export class WebGLBackend implements IRenderBackend {
 	}
 
 	private _emitProgramCompilePendingEvent(): void {
-		this._onBackendResourceEvent?.({
-			resource: "webgl-program",
-			action: "invalidate",
-			backend: "webgl",
-			reason: "shader-compile-pending",
+		this._sessionContext?.events.emit({
+			type: "render-invalidated",
+			reason: "postfx",
 		});
 	}
 
 	private _emitTextureUploadPendingEvent(): void {
-		this._onBackendResourceEvent?.({
-			resource: "webgl-texture",
-			action: "invalidate",
-			backend: "webgl",
-			reason: "texture-upload-pending",
+		this._sessionContext?.events.emit({
+			type: "render-invalidated",
+			reason: "texture",
 		});
 	}
 
@@ -496,7 +661,7 @@ export class WebGLBackend implements IRenderBackend {
 				message: webglEvent.statusMessage,
 			};
 			this.onDeviceLost(info);
-			void this._onDeviceLost?.(info);
+			this._sessionContext?.events.emit({ type: "device-lost", info });
 		};
 		this._contextRestoreHandler = () => {
 			Logger.warn(
@@ -505,6 +670,7 @@ export class WebGLBackend implements IRenderBackend {
 			);
 			try {
 				this.restore();
+				this._sessionContext?.events.emit({ type: "device-restored" });
 			} catch (error) {
 				Logger.warn(`WebGL context restore failed: ${String(error)}`, {
 					scope: "WebGLBackend",
@@ -516,14 +682,13 @@ export class WebGLBackend implements IRenderBackend {
 		canvas.addEventListener("webglcontextrestored", this._contextRestoreHandler);
 	}
 
-	private _resolveRestoreCanvas(canvas?: HTMLCanvasElement): HTMLCanvasElement {
-		const targetCanvas = canvas ?? this._canvas;
-		if (!targetCanvas) {
+	private _requireSessionContext(): RenderBackendSessionContext {
+		if (!this._sessionContext) {
 			throw new Error(
-				"WebGL backend cannot restore before a canvas has been initialized."
+				"WebGLBackend is a provider. Use createSession() before initialization."
 			);
 		}
-		return targetCanvas;
+		return this._sessionContext;
 	}
 
 	private _prepareFramePassPlan(context: FrameContext): void {

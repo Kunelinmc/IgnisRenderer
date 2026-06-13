@@ -869,6 +869,10 @@ export class FakeWebGPUBackend {
 		return { kind: "slot-texture", texture, slotIndex };
 	}
 
+	resolveTextureForSlot(texture, slotIndex) {
+		return this.getTextureForSlot(texture, slotIndex);
+	}
+
 	registerExternalTexture(texture, resource) {
 		this.registeredExternalTextures.push({ texture, resource });
 		if (texture && typeof texture === "object") {
@@ -1199,6 +1203,23 @@ export class FakeRenderer {
 		this.requestRenderCalls++;
 	}
 
+	getBackendExtension(key) {
+		if (this.backend && typeof this.backend.getBackendExtension === "function") {
+			return this.backend.getBackendExtension(key);
+		}
+		if (this.backend && (key === "webgpu.compute" || (key && key.id === "webgpu.compute"))) {
+			return this.backend;
+		}
+		return null;
+	}
+
+	requireBackendExtension(key) {
+		const ext = this.getBackendExtension(key);
+		if (!ext) {
+			throw new Error(`Extension ${key} not found`);
+		}
+		return ext;
+	}
 }
 
 export class FakeDynamicTexture extends Texture {

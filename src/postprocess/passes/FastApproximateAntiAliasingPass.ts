@@ -550,9 +550,9 @@ export class FastApproximateAntiAliasingPass extends PostProcessPass<
 				FAST_APPROXIMATE_ANTI_ALIASING_PASS_ORDER.incremental,
 			warningLabel: "FXAA",
 			implementations: {
-				software: new SoftwareFastApproximateAntiAliasingImplementation(),
-				webgpu: new WebGPUFastApproximateAntiAliasingImplementation(),
-				webgl: new WebGLFastApproximateAntiAliasingImplementation(),
+				software: () => new SoftwareFastApproximateAntiAliasingImplementation(),
+				webgpu: () => new WebGPUFastApproximateAntiAliasingImplementation(),
+				webgl: () => new WebGLFastApproximateAntiAliasingImplementation(),
 			},
 		});
 	}

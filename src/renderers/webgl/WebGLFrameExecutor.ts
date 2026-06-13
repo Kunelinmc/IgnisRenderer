@@ -181,6 +181,8 @@ import {
 	writeWebGLParticleInstances,
 	type WebGLParticlePassHost,
 } from "./WebGLParticlePass";
+import { BackendPostProcessRuntime } from "../../postprocess/BackendPostProcessRuntime";
+import { WebGLPostProcessExecutor } from "./WebGLPostProcessExecutor";
 import { TemporalJitterState } from "../temporal/TemporalJitterState";
 import type { WebGLTAAContext } from "../../postprocess/passes/TemporalAntiAliasingPass";
 
@@ -196,6 +198,7 @@ export interface WebGLFrameExecutorOptions {
 	 * can continue processing the queue.
 	 */
 	onTextureUploadPending?: () => void;
+	postProcessRuntime?: BackendPostProcessRuntime;
 }
 
 const WEBGL_POSTPROCESS_WARMUP_HINTS_BY_PASS: Readonly<
@@ -306,6 +309,7 @@ export class WebGLFrameExecutor {
 	private _supportsFloatColorBuffer: boolean | null = null;
 	private _enableEarlyZPrepass = true;
 	private readonly _passHandlers: Map<FramePass["stage"], WebGLFramePassHandler>;
+	private _postProcessRuntime: BackendPostProcessRuntime;
 
 	constructor(
 		gl: WebGL2RenderingContext,
@@ -314,6 +318,26 @@ export class WebGLFrameExecutor {
 		options: WebGLFrameExecutorOptions = {},
 	) {
 		this._gl = gl;
+		this._postProcessRuntime = options.postProcessRuntime ?? new BackendPostProcessRuntime({
+			executor: new WebGLPostProcessExecutor({
+				getFrameExecutor: () => this,
+			}),
+			session: {
+				type: "webgl",
+				profile: {
+					id: "webgl",
+					capabilities: {},
+					frameScheduling: "on-demand",
+					shadow: {},
+					lighting: {},
+				},
+				extensions: {
+					getBackendExtension: () => null,
+					requireBackendExtension: () => { throw new Error("Mock"); },
+				},
+			} as any,
+			warn: () => {},
+		});
 		this._enableEarlyZPrepass = options.enableEarlyZPrepass !== false;
 		this._programs = new WebGLProgramLibrary(
 			gl,
@@ -1081,7 +1105,7 @@ export class WebGLFrameExecutor {
 			}
 		}
 
-		const descriptorById = this._getWarmupPostProcessDescriptorMap(context, plan);
+		const warmupGraph = this._postProcessRuntime!.compileWarmupGraph(context);
 		const warmedPassImplementations = new Set<string>();
 		for (const passId of plan.postProcessPasses) {
 			if (warmedPassImplementations.has(passId)) {
@@ -1090,7 +1114,8 @@ export class WebGLFrameExecutor {
 			if ((WEBGL_POSTPROCESS_WARMUP_HINTS_BY_PASS[passId]?.length ?? 0) > 0) {
 				continue;
 			}
-			const implementation = descriptorById.get(passId)?.getImplementation("webgl");
+			const compiled = warmupGraph.passes.find((p) => p.id === passId);
+			const implementation = compiled?.implementation;
 			if (typeof implementation?.warmup !== "function") {
 				continue;
 			}
@@ -1104,13 +1129,7 @@ export class WebGLFrameExecutor {
 						postProcess: context.postProcess,
 						backend: "webgl",
 						context: warmupContext,
-						options:
-							context.postProcess.getOptions(passId) ??
-							descriptorById.get(passId)?.normalizeOptions({
-								frameContext: context,
-								postProcess: context.postProcess,
-								backend: "webgl",
-							}),
+						options: compiled.options,
 					}
 				);
 			});

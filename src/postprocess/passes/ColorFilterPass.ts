@@ -425,9 +425,9 @@ export class ColorFilterPass extends PostProcessPass<
 			incremental: config.incremental ?? COLOR_FILTER_PASS_ORDER.incremental,
 			warningLabel: "color filter",
 			implementations: {
-				software: new SoftwareColorFilterImplementation(),
-				webgpu: new WebGPUColorFilterImplementation(),
-				webgl: new WebGLColorFilterImplementation(),
+				software: () => new SoftwareColorFilterImplementation(),
+				webgpu: () => new WebGPUColorFilterImplementation(),
+				webgl: () => new WebGLColorFilterImplementation(),
 			},
 		});
 	}

@@ -31,8 +31,7 @@ import type {
 
 export type RenderPipelineStageKind =
 	| "renderer"
-	| "backend-pass"
-	| "shared-pass";
+	| "backend-pass";
 
 export interface RenderPipelineStageRunContext {
 	frame: PreparedScene;
@@ -86,7 +85,7 @@ interface RegisteredPipelineStage extends RenderPipelineStageRegistration {
 }
 
 function isFramePassKind(kind: RenderPipelineStageKind): boolean {
-	return kind === "backend-pass" || kind === "shared-pass";
+	return kind === "backend-pass";
 }
 
 export class RenderPipelineRegistry {
@@ -194,7 +193,7 @@ export class RenderPipelineRegistry {
 		}
 		return {
 			stage: stage.id,
-			executor: stage.kind === "shared-pass" ? "shared" : "backend",
+			executor: "backend",
 			enabled: true,
 			dependsOn: stage.dependsOn.slice(),
 		};

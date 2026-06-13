@@ -21,7 +21,7 @@ import {
 	type IRenderTexture,
 	type ISampler,
 } from "../../types";
-import type { WebGPUBackend } from "../../WebGPUBackend";
+import type { WebGPUBackendSession } from "../../WebGPUBackend";
 import {
 	WEBGPU_MODEL_BINDING_ANISOTROPY_TEXTURE,
 	WEBGPU_TEXTURE_DEDICATED_SAMPLER_SLOT_COUNT,
@@ -118,7 +118,7 @@ const DECAL_BATCH_WORKGROUP_SIZE = 8;
  * Applies scene-graph decals by modifying deferred G-buffer channels.
  */
 export class WebGPUDeferredDecalPass {
-	private readonly _backend: WebGPUBackend;
+	private readonly _backend: WebGPUBackendSession;
 	private readonly _resources: WebGPURenderResources;
 	private readonly _recordingContext: WebGPUFrameGraphRecordingContext;
 	private _uniformBuffer: IRenderBuffer | null = null;
@@ -140,7 +140,7 @@ export class WebGPUDeferredDecalPass {
 	private _materialBindingEntries = new Set<DecalMaterialBindingCacheEntry>();
 
 	public constructor(
-		backend: WebGPUBackend,
+		backend: WebGPUBackendSession,
 		resources: WebGPURenderResources,
 		callbacks: WebGPUDeferredDecalPassCallbacks
 	) {

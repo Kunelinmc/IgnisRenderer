@@ -1,4 +1,4 @@
-import type { WebGPUBackend } from "../WebGPUBackend";
+import type { WebGPUBackendSession } from "../WebGPUBackend";
 import type { IRenderTexture, TextureFormat, TextureUsage } from "../types";
 
 export interface TexturePoolOptions {
@@ -10,7 +10,7 @@ export interface TexturePoolOptions {
 }
 
 export class TexturePool {
-	private _backend: WebGPUBackend;
+	private _backend: WebGPUBackendSession;
 	private _usage: TextureUsage;
 	private _sampleCount: number;
 	private _label: string;
@@ -23,7 +23,7 @@ export class TexturePool {
 	private _owned = new Set<IRenderTexture>();
 	private _textureBucket = new Map<IRenderTexture, string>();
 
-	constructor(backend: WebGPUBackend, options: TexturePoolOptions) {
+	constructor(backend: WebGPUBackendSession, options: TexturePoolOptions) {
 		this._backend = backend;
 		this._usage = options.usage;
 		this._sampleCount = Math.max(1, Math.floor(options.sampleCount ?? 1));

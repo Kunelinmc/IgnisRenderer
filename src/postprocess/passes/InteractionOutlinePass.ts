@@ -493,9 +493,9 @@ export class InteractionOutlinePass extends PostProcessPass<
 				config.incremental ?? INTERACTION_OUTLINE_PASS_ORDER.incremental,
 			warningLabel: "interaction outline",
 			implementations: {
-				software: new SoftwareInteractionOutlineImplementation(),
-				webgpu: new WebGPUInteractionOutlineImplementation(),
-				webgl: new WebGLInteractionOutlineImplementation(),
+				software: () => new SoftwareInteractionOutlineImplementation(),
+				webgpu: () => new WebGPUInteractionOutlineImplementation(),
+				webgl: () => new WebGLInteractionOutlineImplementation(),
 			},
 		});
 	}

@@ -673,7 +673,7 @@ export class ScreenSpaceReflectionsPass extends PostProcessPass<
 				config.incremental ?? SCREEN_SPACE_REFLECTIONS_PASS_ORDER.incremental,
 			warningLabel: "SSR",
 			implementations: {
-				webgpu: new WebGPUScreenSpaceReflectionsImplementation(),
+				webgpu: () => new WebGPUScreenSpaceReflectionsImplementation(),
 			},
 		});
 	}

@@ -1,4 +1,4 @@
-import type { WebGPUBackend } from "../WebGPUBackend";
+import type { WebGPUBackendSession } from "../WebGPUBackend";
 import { TextureFormat, TextureUsage, type IRenderTexture } from "../types";
 import {
 	WEBGPU_SHADOW_ATLAS_COLUMNS,
@@ -20,10 +20,10 @@ interface ShadowSlice {
 }
 
 export class WebGPUShadowAtlasAllocator {
-	private _backend: WebGPUBackend;
+	private _backend: WebGPUBackendSession;
 	private _atlas: ShadowAtlas | null = null;
 
-	constructor(backend: WebGPUBackend) {
+	constructor(backend: WebGPUBackendSession) {
 		this._backend = backend;
 	}
 

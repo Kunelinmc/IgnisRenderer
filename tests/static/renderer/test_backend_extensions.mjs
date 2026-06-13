@@ -101,7 +101,7 @@ function testOcclusionControllerUsesExtensionApi() {
 function testWebGPURegistersExpectedExtensions() {
 	const backend = new WebGPUBackend();
 	const extensions = backend.extensions.listExtensions();
-	assert.equal(extensions.length, 1);
+	assert.equal(extensions.length, 3);
 	assert.deepEqual(
 		resolveOcclusionCullingBackendExtension(backend).insertionPoints,
 		[
