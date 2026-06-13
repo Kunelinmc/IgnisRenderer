@@ -158,12 +158,13 @@ async function bootDemo(): Promise<DemoState> {
 		applyLightMembership(demo);
 		updateLights(demo, 0);
 
-		await renderer.init();
+		await renderer.initialize();
 		await renderer.warmup({ includeCorePasses: true });
 
 		scene.syncNodeToECS();
 		scene.updateWorldMatrices();
 		renderer.requestRender("unknown");
+		await renderer.renderFrame(performanceNow());
 		setStatus("Running", "ready");
 		updateMetrics(demo);
 		startAnimationLoop(demo);
@@ -225,6 +226,7 @@ function resetCamera(demo: DemoState): void {
 	demo.camera.phi = 1.08;
 	demo.camera.updatePosition();
 	demo.renderer.requestRender("camera");
+	void demo.renderer.renderFrame(performanceNow()).catch(() => {});
 }
 
 function populateScene(scene: Scene): void {
@@ -386,18 +388,22 @@ async function createRenderer(
 ): Promise<Renderer> {
 	const platform = Platform.detect();
 	if (platform.hasWebGPU) {
-		return new Renderer(
-			new WebGPUBackend({
+		return new Renderer({
+			canvas: target,
+			backend: new WebGPUBackend({
 				enableDeferredLighting: true,
 				enableEarlyZPrepass: true,
 				enableOcclusionCulling: false,
 			}),
-			target,
-			camera
-		);
+			camera,
+		});
 	}
 	if (platform.hasWebGL2) {
-		return new Renderer(new WebGLBackend(), target, camera);
+		return new Renderer({
+			canvas: target,
+			backend: new WebGLBackend(),
+			camera,
+		});
 	}
 	throw new Error("This browser does not expose WebGPU or WebGL2.");
 }
@@ -684,6 +690,7 @@ function requestSceneRender(
 ): void {
 	demo.scene.updateWorldMatrices();
 	demo.renderer.requestRender(reason);
+	void demo.renderer.renderFrame(performanceNow()).catch(() => {});
 	updateMetrics(demo);
 }
 
@@ -695,7 +702,7 @@ function updateMetrics(demo: DemoState): void {
 	const tilesY = Math.ceil(height / options.tileSizePx);
 	const activeLights = getActiveLightCount(demo);
 	const visibleMarkers = getVisibleMarkerCount(demo);
-	backendMetric.textContent = demo.renderer.backend.type;
+	backendMetric.textContent = demo.renderer.backendProfile.id;
 	modeMetric.textContent = demo.settings.clustered ?
 		"clustered"
 	:	`forward cap ${LEGACY_POINT_LIGHT_CAP}`;
