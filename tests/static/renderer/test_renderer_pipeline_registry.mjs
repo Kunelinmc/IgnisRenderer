@@ -5,9 +5,11 @@ import { Renderer } from "../../../src/renderers/Renderer.ts";
 import {
 	installNoopPostProcessAdapter,
 } from "../../helpers/postprocess.mjs";
+import { TestRenderBackend } from "../../helpers/TestRenderBackend.mjs";
 
-class RegistryBackend {
+class RegistryBackend extends TestRenderBackend {
 	constructor() {
+		super();
 		this.type = "webgpu";
 		this.capabilities = {
 			sh: false,
@@ -34,11 +36,9 @@ class RegistryBackend {
 		this.throwOnPass = null;
 	}
 
-	async init() {}
-
 	resize() {}
 
-	getAttachments(width, height) {
+	getAttachments({ width, height }) {
 		return {
 			width,
 			height,

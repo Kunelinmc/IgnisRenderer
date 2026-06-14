@@ -191,15 +191,19 @@ function createFakeCanvas(gl) {
 	};
 }
 
-function createRendererBridge(overrides = {}) {
-	const warnings = [];
-	return {
-		warnings,
-		bridge: {
-			canvas: { width: 1, height: 1 },
-			...overrides,
+function createWebGLSession(options, canvas, handlers = {}) {
+	return new WebGLBackend(options).createSession({
+		surface: { canvas },
+		events: {
+			emit(event) {
+				if (event.type === "device-lost") {
+					handlers.onDeviceLost?.(event.info);
+			} else if (event.type === "device-restored") {
+					handlers.onDeviceRestored?.();
+			}
+			},
 		},
-	};
+	});
 }
 
 function captureWarnMessages(run) {
@@ -222,29 +226,26 @@ function captureWarnMessages(run) {
 }
 
 async function testInitRequiresWebGL2() {
-	const backend = new WebGLBackend();
-	const { bridge } = createRendererBridge();
-	backend.setRenderer(bridge);
 	const canvas = createFakeCanvas(null);
+	const backend = createWebGLSession({}, canvas);
 	await assert.rejects(
-		backend.init(canvas),
+		backend.initialize(),
 		/WebGL2 context|requires WebGL2|acquire WebGL2/
 	);
 }
 
 async function testInitAndPassRouting() {
-	const backend = new WebGLBackend();
-	const { bridge, warnings } = createRendererBridge();
-	backend.setRenderer(bridge);
+	const warnings = [];
 	const canvas = createFakeCanvas(createFakeWebGL2Context());
-	await backend.init(canvas);
+	const backend = createWebGLSession({}, canvas);
+	await backend.initialize();
 
-	assert.equal(backend.type, "webgl");
-	assert.equal(backend.frameScheduling, "on-demand");
+	assert.equal(backend.profile.id, "webgl");
+	assert.equal(backend.profile.frameScheduling, "on-demand");
 	assert.equal(backend.isEarlyZPrepassEnabled(), true);
 	assert.equal(backend._frameExecutor._enableEarlyZPrepass, true);
 	assert.equal("passExecutors" in backend, false);
-	assert.deepEqual(backend.capabilities, {
+	assert.deepEqual(backend.profile.capabilities, {
 		sh: true,
 		shadows: true,
 		reflection: false,
@@ -281,7 +282,7 @@ async function testInitAndPassRouting() {
 		endFrame() {},
 	};
 
-	backend.resize(800, 600);
+	backend.resize({ width: 800, height: 600 });
 	backend.beginFrame({ frameId: 1 });
 	backend.executePass({ stage: "main-opaque" }, { frameId: 1 });
 	backend.executePass(
@@ -313,29 +314,26 @@ async function testInitAndPassRouting() {
 }
 
 async function testEarlyZPrepassOptionCanDisable() {
-	const backend = new WebGLBackend({
-		enableEarlyZPrepass: false,
-	});
-	const { bridge } = createRendererBridge();
-	backend.setRenderer(bridge);
 	const canvas = createFakeCanvas(createFakeWebGL2Context());
-	await backend.init(canvas);
+	const backend = createWebGLSession(
+		{ enableEarlyZPrepass: false },
+		canvas
+	);
+	await backend.initialize();
 
 	assert.equal(backend.isEarlyZPrepassEnabled(), false);
 	assert.equal(backend._frameExecutor._enableEarlyZPrepass, false);
 }
 
 async function testContextLostAndRestored() {
-	const backend = new WebGLBackend();
 	const deviceLostInfos = [];
-	const { bridge } = createRendererBridge({
+	const canvas = createFakeCanvas(createFakeWebGL2Context());
+	const backend = createWebGLSession({}, canvas, {
 		onDeviceLost(info) {
 			deviceLostInfos.push(info);
 		},
 	});
-	backend.setRenderer(bridge);
-	const canvas = createFakeCanvas(createFakeWebGL2Context());
-	await backend.init(canvas);
+	await backend.initialize();
 
 	const originalExecutor = backend._frameExecutor;
 	let prevented = false;
@@ -366,11 +364,9 @@ async function testContextLostAndRestored() {
 }
 
 async function testPublicLifecycleMethods() {
-	const backend = new WebGLBackend();
-	const { bridge } = createRendererBridge();
-	backend.setRenderer(bridge);
 	const canvas = createFakeCanvas(createFakeWebGL2Context());
-	await backend.init(canvas);
+	const backend = createWebGLSession({}, canvas);
+	await backend.initialize();
 
 	const originalExecutor = backend._frameExecutor;
 	const warnings = captureWarnMessages(() => {
@@ -392,7 +388,7 @@ async function testPublicLifecycleMethods() {
 }
 
 function testParticleDeltaTimeIsClampedToSafeMaximum() {
-	const backend = new WebGLBackend();
+	const backend = createWebGLSession({}, {});
 	const transient = new Map([
 		[PARTICLE_SIM_DELTA_TIME_SECONDS_KEY, 1000],
 	]);
@@ -456,7 +452,7 @@ function createDependencyContext() {
 }
 
 function testBackendPlanOmitsRendererOwnedPostProcessStage() {
-	const backend = new WebGLBackend();
+	const backend = createWebGLSession({}, {});
 	const context = createDependencyContext();
 	backend._frameExecutor = {
 		beginFrame() {},

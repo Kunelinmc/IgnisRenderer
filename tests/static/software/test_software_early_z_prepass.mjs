@@ -20,6 +20,13 @@ function createRendererBridge() {
 	};
 }
 
+function createSoftwareSession(options = {}) {
+	return new SoftwareBackend(options).createSession({
+		surface: createRendererBridge(),
+		events: { emit: () => {} },
+	});
+}
+
 function createCamera() {
 	const camera = new Camera();
 	camera.position.set(0, 0, 4);
@@ -31,7 +38,7 @@ function createCamera() {
 }
 
 function createContext(backend, camera, packetsByStage = {}, incremental = {}) {
-	const attachments = backend.getAttachments(WIDTH, HEIGHT);
+	const attachments = backend.getAttachments({ width: WIDTH, height: HEIGHT });
 	const zeroSH = createZeroSH();
 
 	return {
@@ -308,21 +315,19 @@ async function testScanlinePrepassParity() {
 	];
 
 	const cameraA = createCamera();
-	const backendA = new SoftwareBackend({
+	const backendA = createSoftwareSession({
 		rasterMode: "scanline",
 		enableEarlyZPrepass: false,
 	});
-	backendA.setRenderer(createRendererBridge());
 	const withoutPrepass = copyAttachments(
 		await renderOpaqueFrame(backendA, cameraA, packets)
 	);
 
 	const cameraB = createCamera();
-	const backendB = new SoftwareBackend({
+	const backendB = createSoftwareSession({
 		rasterMode: "scanline",
 		enableEarlyZPrepass: true,
 	});
-	backendB.setRenderer(createRendererBridge());
 	const withPrepass = copyAttachments(
 		await renderOpaqueFrame(backendB, cameraB, packets)
 	);
@@ -340,7 +345,7 @@ async function testTilePrepassParity() {
 			createTrianglePacket("tile-near-red", { r: 255, g: 0, b: 0 }, { zOffset: 0.2 }),
 		];
 
-		const backendA = new SoftwareBackend({
+		const backendA = createSoftwareSession({
 			rasterMode: "tile",
 			enableEarlyZPrepass: false,
 			tile: {
@@ -350,13 +355,12 @@ async function testTilePrepassParity() {
 				scheduler: createMockScheduler(),
 			},
 		});
-		backendA.setRenderer(createRendererBridge());
 		const withoutPrepass = copyAttachments(
 			await renderOpaqueFrame(backendA, createCamera(), packets)
 		);
 		assert.equal(backendA.activeRasterMode, "tile");
 
-		const backendB = new SoftwareBackend({
+		const backendB = createSoftwareSession({
 			rasterMode: "tile",
 			enableEarlyZPrepass: true,
 			tile: {
@@ -366,7 +370,6 @@ async function testTilePrepassParity() {
 				scheduler: createMockScheduler(),
 			},
 		});
-		backendB.setRenderer(createRendererBridge());
 		const withPrepass = copyAttachments(
 			await renderOpaqueFrame(backendB, createCamera(), packets)
 		);
@@ -397,20 +400,18 @@ async function testMaskPacketParity() {
 		}),
 	];
 
-	const backendA = new SoftwareBackend({
+	const backendA = createSoftwareSession({
 		rasterMode: "scanline",
 		enableEarlyZPrepass: false,
 	});
-	backendA.setRenderer(createRendererBridge());
 	const withoutPrepass = copyAttachments(
 		await renderOpaqueFrame(backendA, createCamera(), packets)
 	);
 
-	const backendB = new SoftwareBackend({
+	const backendB = createSoftwareSession({
 		rasterMode: "scanline",
 		enableEarlyZPrepass: true,
 	});
-	backendB.setRenderer(createRendererBridge());
 	const withPrepass = copyAttachments(
 		await renderOpaqueFrame(backendB, createCamera(), packets)
 	);
@@ -431,11 +432,10 @@ function createDepthWriteDisabledPackets() {
 }
 
 async function testDepthWriteDisabledScanlinePrepassParity() {
-	const backendA = new SoftwareBackend({
+	const backendA = createSoftwareSession({
 		rasterMode: "scanline",
 		enableEarlyZPrepass: false,
 	});
-	backendA.setRenderer(createRendererBridge());
 	const withoutPrepass = copyAttachments(
 		await renderOpaqueFrame(
 			backendA,
@@ -444,11 +444,10 @@ async function testDepthWriteDisabledScanlinePrepassParity() {
 		)
 	);
 
-	const backendB = new SoftwareBackend({
+	const backendB = createSoftwareSession({
 		rasterMode: "scanline",
 		enableEarlyZPrepass: true,
 	});
-	backendB.setRenderer(createRendererBridge());
 	const withPrepass = copyAttachments(
 		await renderOpaqueFrame(
 			backendB,
@@ -465,7 +464,7 @@ async function testDepthWriteDisabledTilePrepassParity() {
 	globalThis.Worker = class FakeWorker {};
 
 	try {
-		const backendA = new SoftwareBackend({
+		const backendA = createSoftwareSession({
 			rasterMode: "tile",
 			enableEarlyZPrepass: false,
 			tile: {
@@ -475,7 +474,6 @@ async function testDepthWriteDisabledTilePrepassParity() {
 				scheduler: createMockScheduler(),
 			},
 		});
-		backendA.setRenderer(createRendererBridge());
 		const withoutPrepass = copyAttachments(
 			await renderOpaqueFrame(
 				backendA,
@@ -484,7 +482,7 @@ async function testDepthWriteDisabledTilePrepassParity() {
 			)
 		);
 
-		const backendB = new SoftwareBackend({
+		const backendB = createSoftwareSession({
 			rasterMode: "tile",
 			enableEarlyZPrepass: true,
 			tile: {
@@ -494,7 +492,6 @@ async function testDepthWriteDisabledTilePrepassParity() {
 				scheduler: createMockScheduler(),
 			},
 		});
-		backendB.setRenderer(createRendererBridge());
 		const withPrepass = copyAttachments(
 			await renderOpaqueFrame(
 				backendB,
@@ -513,11 +510,10 @@ async function testDepthWriteDisabledTilePrepassParity() {
 
 async function runIncrementalScenario(enableEarlyZPrepass) {
 	const camera = createCamera();
-	const backend = new SoftwareBackend({
+	const backend = createSoftwareSession({
 		rasterMode: "scanline",
 		enableEarlyZPrepass,
 	});
-	backend.setRenderer(createRendererBridge());
 
 	const frameOnePackets = [
 		createTrianglePacket("inc-far-blue", { r: 0, g: 0, b: 255 }, { zOffset: -0.2 }),

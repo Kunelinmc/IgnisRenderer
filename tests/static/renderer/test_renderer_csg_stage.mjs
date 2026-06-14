@@ -8,9 +8,11 @@ import { Material } from "../../../src/materials/Material.ts";
 import {
 	installNoopPostProcessAdapter,
 } from "../../helpers/postprocess.mjs";
+import { TestRenderBackend } from "../../helpers/TestRenderBackend.mjs";
 
-class StubBackend {
+class StubBackend extends TestRenderBackend {
 	constructor() {
+		super();
 		this.type = "stub";
 		this.capabilities = {
 			sh: false,
@@ -31,11 +33,9 @@ class StubBackend {
 		this.beginFrameCount = 0;
 	}
 
-	async init() {}
-
 	resize() {}
 
-	getAttachments(width, height) {
+	getAttachments({ width, height }) {
 		return {
 			width,
 			height,

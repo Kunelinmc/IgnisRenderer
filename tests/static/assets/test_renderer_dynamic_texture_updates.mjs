@@ -8,9 +8,11 @@ import { FakeDynamicTexture } from "../../helpers/fakes.mjs";
 import {
 	installNoopPostProcessAdapter,
 } from "../../helpers/postprocess.mjs";
+import { TestRenderBackend } from "../../helpers/TestRenderBackend.mjs";
 
-class StubBackend {
+class StubBackend extends TestRenderBackend {
 	constructor() {
+		super();
 		this.type = "stub";
 		this.capabilities = {
 			sh: false,
@@ -32,25 +34,21 @@ class StubBackend {
 		this.restoreCanvases = [];
 	}
 
-	async init(canvas) {
-		this.initCanvas = canvas;
-	}
-
-	setRenderer(renderer) {
-		this.renderer = renderer;
+	async initialize() {
+		this.initCanvas = this.sessionContext.surface.canvas;
 	}
 
 	onDeviceLost(info) {
 		this.deviceLostInfos.push(info);
 	}
 
-	restore(canvas) {
-		this.restoreCanvases.push(canvas);
+	restore() {
+		this.restoreCanvases.push(this.sessionContext.surface.canvas);
 	}
 
 	resize() {}
 
-	getAttachments(width, height) {
+	getAttachments({ width, height }) {
 		return {
 			width,
 			height,

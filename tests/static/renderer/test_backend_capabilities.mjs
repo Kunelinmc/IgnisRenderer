@@ -3,13 +3,14 @@ import { SoftwareBackend } from "../../../src/renderers/SoftwareBackend.ts";
 import { WebGPUBackend } from "../../../src/renderers/WebGPUBackend.ts";
 import { WebGLBackend } from "../../../src/renderers/WebGLBackend.ts";
 import { FakeImageData as MockImageData } from "../../helpers/fakes.mjs";
+import { createBackendSession } from "../../helpers/TestRenderBackend.mjs";
 
 function run() {
-	const software = new SoftwareBackend();
-	const webgpu = new WebGPUBackend();
-	const webgl = new WebGLBackend();
+	const software = createBackendSession(new SoftwareBackend());
+	const webgpu = createBackendSession(new WebGPUBackend());
+	const webgl = createBackendSession(new WebGLBackend());
 
-	assert.deepEqual(software.capabilities, {
+	assert.deepEqual(software.profile.capabilities, {
 		sh: true,
 		shadows: true,
 		reflection: true,
@@ -21,7 +22,7 @@ function run() {
 	});
 	assert.equal("postProcessCapabilities" in software, false);
 
-	assert.deepEqual(webgpu.capabilities, {
+	assert.deepEqual(webgpu.profile.capabilities, {
 		sh: true,
 		shadows: true,
 		reflection: true,
@@ -32,13 +33,15 @@ function run() {
 		postProcess: true,
 	});
 	assert.equal(
-		new WebGPUBackend({ enableOcclusionCulling: false }).capabilities
+		createBackendSession(
+			new WebGPUBackend({ enableOcclusionCulling: false })
+		).profile.capabilities
 			.occlusionCulling,
 		false
 	);
 	assert.equal("postProcessCapabilities" in webgpu, false);
 
-	assert.deepEqual(webgl.capabilities, {
+	assert.deepEqual(webgl.profile.capabilities, {
 		sh: true,
 		shadows: true,
 		reflection: false,
@@ -53,9 +56,9 @@ function run() {
 	assert.equal("passExecutors" in software, false);
 	assert.equal("passExecutors" in webgpu, false);
 	assert.equal("passExecutors" in webgl, false);
-	assert.equal(software.frameScheduling, "on-demand");
-	assert.equal(webgpu.frameScheduling, "on-demand");
-	assert.equal(webgl.frameScheduling, "on-demand");
+	assert.equal(software.profile.frameScheduling, "on-demand");
+	assert.equal(webgpu.profile.frameScheduling, "on-demand");
+	assert.equal(webgl.profile.frameScheduling, "on-demand");
 
 	testSoftwareBackendReusesFrameImageData();
 	testSoftwareBackendHandlesResizeDuringFrame();
@@ -69,18 +72,14 @@ function testSoftwareBackendReusesFrameImageData() {
 	globalThis.ImageData = MockImageData;
 
 	try {
-		const backend = new SoftwareBackend();
-		const pixels = new Uint8ClampedArray(16);
+		const backend = createBackendSession(
+			new SoftwareBackend(),
+			{ width: 2, height: 2 }
+		);
+		const { pixels } = backend.getAttachments({ width: 2, height: 2 });
 		pixels[0] = 7;
 		const putCalls = [];
 
-		backend._renderer = {
-			pixels,
-			canvas: {
-				width: 2,
-				height: 2,
-			},
-		};
 		backend._ctx = {
 			putImageData(imageData, x, y) {
 				putCalls.push({ imageData, x, y });
@@ -109,17 +108,12 @@ function testSoftwareBackendHandlesResizeDuringFrame() {
 	globalThis.ImageData = MockImageData;
 
 	try {
-		const backend = new SoftwareBackend();
-		const attachments = backend.getAttachments(2, 2);
+		const canvas = { width: 1, height: 1 };
+		const backend = createBackendSession(new SoftwareBackend(), canvas);
+		const attachments = backend.getAttachments({ width: 2, height: 2 });
 		const putCalls = [];
 
 		attachments.pixels[0] = 99;
-		backend._renderer = {
-			canvas: {
-				width: 1,
-				height: 1,
-			},
-		};
 		backend._ctx = {
 			putImageData(imageData, x, y) {
 				putCalls.push({ imageData, x, y });

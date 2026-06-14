@@ -432,7 +432,7 @@ export class FakeCommandEncoder {
  */
 export class FakeWebGPUBackend {
 	constructor() {
-		this.type = "webgpu";
+		this.profile = { id: "webgpu" };
 		installNoopPostProcessAdapter(
 			this,
 			"webgpu"

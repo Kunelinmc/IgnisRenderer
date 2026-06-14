@@ -766,7 +766,7 @@ function testResizeUsesProvidedDimensions() {
 			invalidateCalls++;
 		},
 	};
-	backend.resize(320.9, 240.2);
+	backend.resize({ width: 320.9, height: 240.2 });
 	assert.equal(backend.canvas.width, 320);
 	assert.equal(backend.canvas.height, 240);
 	assert.equal(device.configureCalls, 1);
@@ -792,7 +792,7 @@ async function testResizeDuringActiveFrameDefersResourceInvalidation() {
 	};
 	backend._frameActive = true;
 
-	backend.resize(320.9, 240.2);
+	backend.resize({ width: 320.9, height: 240.2 });
 	assert.equal(backend.canvas.width, 1);
 	assert.equal(backend.canvas.height, 1);
 	assert.equal(device.configureCalls, 0);
@@ -895,7 +895,7 @@ async function testDeferredLifecycleChangesCoalesceFrameTargetInvalidation() {
 	backend._frameActive = true;
 
 	backend.setMSAASampleCount(8);
-	backend.resize(10, 12);
+	backend.resize({ width: 10, height: 12 });
 	await backend.abortFrame();
 
 	assert.equal(backend.getMSAASampleCount(), 4);

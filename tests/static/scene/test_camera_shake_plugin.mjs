@@ -10,9 +10,11 @@ import {
 import {
 	installNoopPostProcessAdapter,
 } from "../../helpers/postprocess.mjs";
+import { TestRenderBackend } from "../../helpers/TestRenderBackend.mjs";
 
-class StubBackend {
+class StubBackend extends TestRenderBackend {
 	constructor(frameScheduling = "always") {
+		super();
 		this.type = "stub";
 		this.frameScheduling = frameScheduling;
 		this.capabilities = {
@@ -35,11 +37,9 @@ class StubBackend {
 		this.beginSnapshots = [];
 	}
 
-	async init() {}
-
 	resize() {}
 
-	getAttachments(width, height) {
+	getAttachments({ width, height }) {
 		return {
 			width,
 			height,

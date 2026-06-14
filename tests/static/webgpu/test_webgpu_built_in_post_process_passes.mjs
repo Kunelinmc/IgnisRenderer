@@ -337,7 +337,7 @@ function testBackendPostProcessSurfaceKeepsOnlyExecutorBridge() {
 		surface: { canvas: {} },
 		events: { emit: () => {} },
 	});
-	assert.equal(backend.capabilities.postProcess, true);
+	assert.equal(backend.profile.capabilities.postProcess, true);
 	assert.equal(
 		backend.extensions
 			.listExtensions()

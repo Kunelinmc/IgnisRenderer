@@ -3,11 +3,12 @@ import { resolveFeatureState } from "../../../src/pipeline/FeatureResolver.ts";
 import { WebGPUBackend } from "../../../src/renderers/WebGPUBackend.ts";
 import { WebGLBackend } from "../../../src/renderers/WebGLBackend.ts";
 import { SoftwareBackend } from "../../../src/renderers/SoftwareBackend.ts";
+import { createBackendSession } from "../../helpers/TestRenderBackend.mjs";
 
 function testEnableOITNegotiationAcrossBackends() {
-	const webgpu = new WebGPUBackend();
-	const webgl = new WebGLBackend();
-	const software = new SoftwareBackend();
+	const webgpu = createBackendSession(new WebGPUBackend());
+	const webgl = createBackendSession(new WebGLBackend());
+	const software = createBackendSession(new SoftwareBackend());
 
 	const request = {
 		enableLighting: true,
@@ -17,8 +18,8 @@ function testEnableOITNegotiationAcrossBackends() {
 
 	const webgpuResolved = resolveFeatureState(
 		request,
-		webgpu.capabilities,
-		webgpu.type
+		webgpu.profile.capabilities,
+		webgpu.profile.id
 	);
 	assert.equal(webgpuResolved.enableOIT, true);
 	assert.equal(
@@ -30,8 +31,8 @@ function testEnableOITNegotiationAcrossBackends() {
 
 	const webglResolved = resolveFeatureState(
 		request,
-		webgl.capabilities,
-		webgl.type
+		webgl.profile.capabilities,
+		webgl.profile.id
 	);
 	assert.equal(webglResolved.enableOIT, true);
 	assert.equal(
@@ -43,8 +44,8 @@ function testEnableOITNegotiationAcrossBackends() {
 
 	const softwareResolved = resolveFeatureState(
 		request,
-		software.capabilities,
-		software.type
+		software.profile.capabilities,
+		software.profile.id
 	);
 	assert.equal(softwareResolved.enableOIT, false);
 	assert.equal(
@@ -56,15 +57,15 @@ function testEnableOITNegotiationAcrossBackends() {
 }
 
 function testEnableOITDisabledRequestHasNoWarning() {
-	const webgl = new WebGLBackend();
+	const webgl = createBackendSession(new WebGLBackend());
 	const resolved = resolveFeatureState(
 		{
 			enableLighting: true,
 			enableGamma: true,
 			enableOIT: false,
 		},
-		webgl.capabilities,
-		webgl.type
+		webgl.profile.capabilities,
+		webgl.profile.id
 	);
 	assert.equal(resolved.enableOIT, false);
 	assert.equal(

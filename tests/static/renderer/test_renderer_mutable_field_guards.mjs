@@ -2,9 +2,11 @@ import assert from "node:assert/strict";
 import { Camera } from "../../../src/cameras/Camera.ts";
 import { Scene } from "../../../src/core/Scene.ts";
 import { Renderer } from "../../../src/renderers/Renderer.ts";
+import { TestRenderBackend } from "../../helpers/TestRenderBackend.mjs";
 
-class StubBackend {
+class StubBackend extends TestRenderBackend {
 	constructor() {
+		super();
 		this.type = "stub";
 		this.capabilities = {
 			sh: false,
@@ -25,11 +27,9 @@ class StubBackend {
 		this.frameScheduling = "on-demand";
 	}
 
-	async init() {}
-
 	resize() {}
 
-	getAttachments(width, height) {
+	getAttachments({ width, height }) {
 		return {
 			width,
 			height,

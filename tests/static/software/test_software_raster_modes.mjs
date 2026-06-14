@@ -20,6 +20,13 @@ function createRendererBridge() {
 	};
 }
 
+function createSoftwareSession(options = {}) {
+	return new SoftwareBackend(options).createSession({
+		surface: createRendererBridge(),
+		events: { emit: () => {} },
+	});
+}
+
 async function captureWarnMessagesAsync(run) {
 	const warnings = [];
 	Logger.configure({
@@ -40,7 +47,7 @@ async function captureWarnMessagesAsync(run) {
 }
 
 function createContext(backend, camera, packetsByStage = {}) {
-	const attachments = backend.getAttachments(WIDTH, HEIGHT);
+	const attachments = backend.getAttachments({ width: WIDTH, height: HEIGHT });
 	const zeroSH = createZeroSH();
 
 	return {
@@ -294,7 +301,6 @@ function createCamera() {
 async function renderPass(backend, stage, packetsByStage, warnings) {
 	const camera = createCamera();
 	void warnings;
-	backend.setRenderer(createRendererBridge());
 	const context = createContext(backend, camera, packetsByStage);
 	backend.beginFrame(context);
 	await backend.executePass(
@@ -309,7 +315,7 @@ async function renderPass(backend, stage, packetsByStage, warnings) {
 }
 
 async function testDefaultRasterMode() {
-	const backend = new SoftwareBackend();
+	const backend = createSoftwareSession();
 	assert.equal(backend.requestedRasterMode, "scanline");
 	assert.equal(backend.activeRasterMode, "scanline");
 }
@@ -319,7 +325,7 @@ async function testTileModeFallsBackWhenWorkerUnavailable() {
 	globalThis.Worker = undefined;
 
 	try {
-		const backend = new SoftwareBackend({
+		const backend = createSoftwareSession({
 			rasterMode: "tile",
 		});
 		const warnings = await captureWarnMessagesAsync(async () => {
@@ -363,7 +369,7 @@ async function testTileModeMatchesScanlineAndPreservesOrder() {
 		};
 
 		const scanlineWarnings = [];
-		const scanlineBackend = new SoftwareBackend({
+		const scanlineBackend = createSoftwareSession({
 			rasterMode: "scanline",
 		});
 		const scanlineAttachments = await renderPass(
@@ -377,7 +383,7 @@ async function testTileModeMatchesScanlineAndPreservesOrder() {
 			reverseTriangleOrder: true,
 		});
 		const tileWarnings = [];
-		const tileBackend = new SoftwareBackend({
+		const tileBackend = createSoftwareSession({
 			rasterMode: "tile",
 			tile: {
 				tileSize: 16,
@@ -433,7 +439,7 @@ async function testTileModeFallsBackOnWorkerTaskError() {
 			g: 64,
 			b: 255,
 		});
-		const backend = new SoftwareBackend({
+		const backend = createSoftwareSession({
 			rasterMode: "tile",
 			tile: {
 				tileSize: 16,
