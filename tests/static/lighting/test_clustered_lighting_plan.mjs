@@ -22,9 +22,14 @@ import {
 	WEBGPU_CLUSTERED_INDEX_SHADOW_BIT,
 	WEBGPU_CLUSTERED_INDEX_TYPE_MASK,
 	WEBGPU_CLUSTERED_INDEX_VOLUMETRIC_BIT,
-	WEBGPU_CLUSTERED_LIGHT_STRIDE_FLOATS,
+	WEBGPU_CLUSTERED_AREA_STRIDE_FLOATS,
+	WEBGPU_CLUSTERED_CULL_STRIDE_FLOATS,
 	WEBGPU_CLUSTERED_LIGHT_TYPE_AREA,
+	WEBGPU_CLUSTERED_MAX_LIGHTS,
+	WEBGPU_CLUSTERED_MAX_LIGHTS_PER_CLUSTER,
+	WEBGPU_CLUSTERED_METADATA_STRIDE_UINTS,
 	WEBGPU_CLUSTERED_PARAMS_FLOATS,
+	WEBGPU_CLUSTERED_VEC4_STRIDE_FLOATS,
 } from "../../../src/renderers/webgpu/constants.ts";
 import { ShaderSource } from "../../../src/shaders/ShaderSource.ts";
 
@@ -190,6 +195,7 @@ function testClusteredDefaultsAndMerge() {
 		maxLights: DEFAULT_CLUSTERED_LIGHTING_OPTIONS.maxLights,
 		maxLightsPerCluster:
 			DEFAULT_CLUSTERED_LIGHTING_OPTIONS.maxLightsPerCluster,
+		cullingMode: "gather",
 	});
 
 	const merged = resolveFeatureState(
@@ -197,6 +203,7 @@ function testClusteredDefaultsAndMerge() {
 			clusteredLightingOptions: {
 				tileSizePx: 32,
 				maxLightsPerCluster: 96,
+				cullingMode: "scatter",
 			},
 		},
 		createCapabilities(true),
@@ -208,7 +215,14 @@ function testClusteredDefaultsAndMerge() {
 		zSlices: DEFAULT_CLUSTERED_LIGHTING_OPTIONS.zSlices,
 		maxLights: DEFAULT_CLUSTERED_LIGHTING_OPTIONS.maxLights,
 		maxLightsPerCluster: 96,
+		cullingMode: "scatter",
 	});
+	const webgl = resolveFeatureState(
+		{ clusteredLightingOptions: { cullingMode: "scatter" } },
+		createCapabilities(true),
+		"webgl"
+	);
+	assert.equal(webgl.clusteredLightingOptions.cullingMode, "scatter");
 }
 
 function testClusteredCapabilityGateWarning() {
@@ -333,7 +347,7 @@ function testRuntimeWritesClampedActiveLightCount() {
 	assert.equal(params[11], 64);
 }
 
-function testRuntimeWritesClusteredAreaRecordData() {
+function testRuntimeWritesClusteredAreaSoAData() {
 	const compute = new ClusteredComputeRecorder();
 	const runtime = new WebGPUClusteredLightingRuntime(
 		compute,
@@ -366,25 +380,54 @@ function testRuntimeWritesClusteredAreaRecordData() {
 		128
 	);
 
-	const lightWrite = compute.writes.find(
-		(write) => write.buffer.label === "WebGPUClusteredLights"
+	const positionWrite = compute.writes.find(
+		(write) => write.buffer.label === "WebGPUClusteredPositionRange"
 	);
-	assert.ok(lightWrite);
-	assert.equal(
-		lightWrite.data.byteLength,
-		WEBGPU_CLUSTERED_LIGHT_STRIDE_FLOATS * 4
+	const colorWrite = compute.writes.find(
+		(write) => write.buffer.label === "WebGPUClusteredColorInner"
 	);
-	const floats = new Float32Array(lightWrite.data);
-	assert.deepEqual(Array.from(floats.slice(0, 4)), [1, 2, 3, 50]);
-	assert.deepEqual(Array.from(floats.slice(8, 12)), [4, 5, 6, -2]);
-	assert.deepEqual(Array.from(floats.slice(12, 16)), [1, 0, 0, 20]);
-	assert.deepEqual(Array.from(floats.slice(16, 20)), [0, 0, 1, 10]);
-	assert.deepEqual(Array.from(floats.slice(20, 24)), [0, 1, 0, 200]);
-	const uints = new Uint32Array(lightWrite.data);
-	assert.equal(uints[24], WEBGPU_CLUSTERED_LIGHT_TYPE_AREA);
+	const areaWrite = compute.writes.find(
+		(write) => write.buffer.label === "WebGPUClusteredAreaPayload"
+	);
+	const metadataWrite = compute.writes.find(
+		(write) => write.buffer.label === "WebGPUClusteredMetadata"
+	);
+	const cullWrite = compute.writes.find(
+		(write) => write.buffer.label === "WebGPUClusteredCullData"
+	);
+	assert.ok(positionWrite);
+	assert.ok(colorWrite);
+	assert.ok(areaWrite);
+	assert.ok(metadataWrite);
+	assert.ok(cullWrite);
+	assert.equal(positionWrite.data.byteLength, WEBGPU_CLUSTERED_VEC4_STRIDE_FLOATS * 4);
+	assert.equal(areaWrite.data.byteLength, WEBGPU_CLUSTERED_AREA_STRIDE_FLOATS * 4);
+	assert.equal(metadataWrite.data.byteLength, WEBGPU_CLUSTERED_METADATA_STRIDE_UINTS * 4);
+	assert.equal(cullWrite.data.byteLength, WEBGPU_CLUSTERED_CULL_STRIDE_FLOATS * 4);
+	const asFloats = (write) => new Float32Array(
+		write.data.buffer,
+		write.data.byteOffset,
+		write.data.byteLength / 4
+	);
+	const positions = asFloats(positionWrite);
+	const colors = asFloats(colorWrite);
+	const areas = asFloats(areaWrite);
+	const cull = asFloats(cullWrite);
+	assert.deepEqual(Array.from(positions), [1, 2, 3, 50]);
+	assert.deepEqual(Array.from(colors), [4, 5, 6, -2]);
+	assert.deepEqual(Array.from(areas.slice(0, 4)), [1, 0, 0, 20]);
+	assert.deepEqual(Array.from(areas.slice(4, 8)), [0, 0, 1, 10]);
+	assert.deepEqual(Array.from(areas.slice(8, 12)), [0, 1, 0, 200]);
+	assert.ok(Math.abs(cull[3] - (50 + Math.hypot(10, 5))) < 1e-5);
+	const metadata = new Uint32Array(
+		metadataWrite.data.buffer,
+		metadataWrite.data.byteOffset,
+		metadataWrite.data.byteLength / 4
+	);
+	assert.equal(metadata[0], WEBGPU_CLUSTERED_LIGHT_TYPE_AREA);
 }
 
-async function testRuntimeDispatchesLightDrivenComputePasses() {
+async function testRuntimeDispatchesGatherComputePasses() {
 	globalThis.GPUShaderStage ??= { COMPUTE: 4 };
 	const compute = new ClusteredComputeRecorder();
 	const runtime = new WebGPUClusteredLightingRuntime(
@@ -423,10 +466,111 @@ async function testRuntimeDispatchesLightDrivenComputePasses() {
 
 	assert.deepEqual(
 		compute.computePipelines.map((pipeline) => pipeline.desc.compute.entryPoint),
-		["csClear", "csScatter", "csFinalize"]
+		["csClear", "csScatter", "csFinalize", "csGather", "csResolveOverflow"]
 	);
 	assert.deepEqual(
 		encoder.calls
+			.filter((call) => call[0] === "beginComputePass")
+			.map((call) => call[1]),
+		["WebGPUClusteredLightingGather"]
+	);
+	const sceneBinding = runtime.getSceneBinding();
+	assert.equal(sceneBinding.desc.entries.length, 8);
+	assert.equal(compute.bindGroupLayouts[0].desc.entries.length, 8);
+	assert.deepEqual(
+		compute.bindGroupLayouts[0].desc.entries.map((entry) => entry.binding),
+		[0, 1, 2, 3, 4, 5, 6, 7]
+	);
+}
+
+async function testRuntimeRetainsScatterABPath() {
+	globalThis.GPUShaderStage ??= { COMPUTE: 4 };
+	const compute = new ClusteredComputeRecorder();
+	const runtime = new WebGPUClusteredLightingRuntime(compute, {}, {}, () => {});
+	runtime.prepareFrame(
+		{ camera: { type: CameraType.Perspective, near: 0.1, far: 100 } },
+		{
+			enableLighting: true,
+			enableClusteredLighting: true,
+			clusteredLightingOptions: {
+				cullingMode: "scatter",
+				maxLights: 4,
+				maxLightsPerCluster: 8,
+				tileSizePx: 64,
+				zSlices: 4,
+			},
+		},
+		{ clusteredLights: [createClusteredLight(0)] },
+		128,
+		128
+	);
+	const encoder = new ClusteredCommandEncoder();
+	await runtime.build(encoder, {});
+	assert.deepEqual(
+		encoder.calls.filter((call) => call[0] === "beginComputePass").map((call) => call[1]),
+		[
+			"WebGPUClusteredLightingClear",
+			"WebGPUClusteredLightingScatter",
+			"WebGPUClusteredLightingFinalize",
+		]
+	);
+}
+
+async function testRuntimeSkipsStaticCullAndSelectiveUploads() {
+	globalThis.GPUShaderStage ??= { COMPUTE: 4 };
+	const compute = new ClusteredComputeRecorder();
+	const runtime = new WebGPUClusteredLightingRuntime(compute, {}, {}, () => {});
+	const light = createClusteredLight(0);
+	const frame = { camera: { type: CameraType.Perspective, near: 0.1, far: 100 } };
+	const features = {
+		enableLighting: true,
+		enableClusteredLighting: true,
+		clusteredLightingOptions: {
+			maxLights: 4,
+			maxLightsPerCluster: 8,
+			tileSizePx: 64,
+			zSlices: 4,
+		},
+	};
+	runtime.prepareFrame(frame, features, { clusteredLights: [light] }, 128, 128);
+	await runtime.build(new ClusteredCommandEncoder(), {});
+	const writesAfterFirstFrame = compute.writes.length;
+	const staticEncoder = new ClusteredCommandEncoder();
+	runtime.prepareFrame(frame, features, { clusteredLights: [light] }, 128, 128);
+	await runtime.build(staticEncoder, {});
+	assert.equal(compute.writes.length, writesAfterFirstFrame);
+	assert.equal(staticEncoder.calls.length, 0);
+
+	light.color = [2, 2, 2];
+	const writesBeforeColor = compute.writes.length;
+	const colorEncoder = new ClusteredCommandEncoder();
+	runtime.prepareFrame(frame, features, { clusteredLights: [light] }, 128, 128);
+	await runtime.build(colorEncoder, {});
+	assert.deepEqual(
+		compute.writes.slice(writesBeforeColor).map((write) => write.buffer.label),
+		["WebGPUClusteredColorInner"]
+	);
+	assert.equal(colorEncoder.calls.length, 0);
+
+	const writesBeforeModeSwitch = compute.writes.length;
+	const modeEncoder = new ClusteredCommandEncoder();
+	runtime.prepareFrame(
+		frame,
+		{
+			...features,
+			clusteredLightingOptions: {
+				...features.clusteredLightingOptions,
+				cullingMode: "scatter",
+			},
+		},
+		{ clusteredLights: [light] },
+		128,
+		128
+	);
+	await runtime.build(modeEncoder, {});
+	assert.equal(compute.writes.length, writesBeforeModeSwitch);
+	assert.deepEqual(
+		modeEncoder.calls
 			.filter((call) => call[0] === "beginComputePass")
 			.map((call) => call[1]),
 		[
@@ -434,6 +578,67 @@ async function testRuntimeDispatchesLightDrivenComputePasses() {
 			"WebGPUClusteredLightingScatter",
 			"WebGPUClusteredLightingFinalize",
 		]
+	);
+}
+
+function testRuntimeClampsWebGPULimits() {
+	const compute = new ClusteredComputeRecorder();
+	const warnings = [];
+	const runtime = new WebGPUClusteredLightingRuntime(
+		compute,
+		{},
+		{},
+		(key, message) => warnings.push({ key, message })
+	);
+	const lights = Array.from(
+		{ length: WEBGPU_CLUSTERED_MAX_LIGHTS + 1 },
+		(_, index) => createClusteredLight(index)
+	);
+	runtime.prepareFrame(
+		{ camera: { type: CameraType.Perspective, near: 0.1, far: 100 } },
+		{
+			enableLighting: true,
+			enableClusteredLighting: true,
+			clusteredLightingOptions: {
+				maxLights: WEBGPU_CLUSTERED_MAX_LIGHTS + 10,
+				maxLightsPerCluster: WEBGPU_CLUSTERED_MAX_LIGHTS_PER_CLUSTER + 10,
+				tileSizePx: 64,
+				zSlices: 4,
+			},
+		},
+		{ clusteredLights: lights },
+		64,
+		64
+	);
+	const paramsWrite = compute.writes.find(
+		(write) => write.buffer.label === "WebGPUClusteredParams"
+	);
+	const params = new Uint32Array(paramsWrite.data);
+	assert.equal(params[10], WEBGPU_CLUSTERED_MAX_LIGHTS);
+	assert.equal(params[11], WEBGPU_CLUSTERED_MAX_LIGHTS_PER_CLUSTER);
+	runtime.prepareFrame(
+		{ camera: { type: CameraType.Perspective, near: 0.1, far: 100 } },
+		{
+			enableLighting: true,
+			enableClusteredLighting: true,
+			clusteredLightingOptions: {
+				maxLights: WEBGPU_CLUSTERED_MAX_LIGHTS + 10,
+				maxLightsPerCluster: WEBGPU_CLUSTERED_MAX_LIGHTS_PER_CLUSTER + 10,
+			},
+		},
+		{ clusteredLights: lights },
+		64,
+		64
+	);
+	assert.equal(
+		warnings.filter((warning) => warning.key === "webgpu-clustered-max-lights-limit").length,
+		1
+	);
+	assert.equal(
+		warnings.filter(
+			(warning) => warning.key === "webgpu-clustered-max-per-cluster-limit"
+		).length,
+		1
 	);
 }
 
@@ -479,17 +684,16 @@ async function testClusteredCullShaderUsesActiveCountAndTiling() {
 	assert.ok(shader.includes("maxLightsPerCluster: u32"));
 	assert.ok(shader.includes("const CLUSTER_LIGHT_TYPE_AREA: u32 = 2u;"));
 	assert.ok(shader.includes("fn activeClusterLightCount() -> u32"));
-	assert.ok(
-		shader.includes(
-			"return min(clusterParams.lightCount, arrayLength(&clusterLights.lights));"
-		)
-	);
-	assert.ok(!shader.includes("let maxLights = arrayLength(&clusterLights.lights);"));
+	assert.ok(shader.includes("arrayLength(&clusterCullData.values)"));
 	assert.ok(shader.includes("fn csClear("));
 	assert.ok(shader.includes("fn csScatter("));
 	assert.ok(shader.includes("fn csFinalize("));
-	assert.ok(shader.includes("if (lightType == CLUSTER_LIGHT_TYPE_AREA)"));
-	assert.ok(shader.includes("let halfWidth = max(abs(light.rightWidth.w), 0.0) * 0.5;"));
+	assert.ok(shader.includes("fn csGather("));
+	assert.ok(shader.includes("fn csResolveOverflow("));
+	assert.ok(shader.includes("var<workgroup> overflowScores: array<f32, 1024>;"));
+	assert.ok(shader.includes("fn scoreIsBetter("));
+	assert.ok(shader.includes("let lightIndexA = refA & CLUSTER_LIGHT_INDEX_MASK;"));
+	assert.ok(shader.includes("return clusterSliceDepths.depths[min(slice, lastIndex)];"));
 	assert.ok(shader.includes("atomicAdd(&clusterHeaders.headers[clusterIndex].count"));
 	assert.ok(shader.includes("fn resolveLightClusterRange("));
 	assert.ok(!shader.includes("for (var tileBase: u32 = 0u;"));
@@ -502,7 +706,7 @@ async function testClusteredShadingUsesActiveLightCountGuards() {
 	assert.ok(deferred.includes("fn activeClusteredLightCount() -> u32"));
 	assert.ok(
 		deferred.includes(
-			"return min(clusterGrid.lightCount, arrayLength(&clusterLights.lights));"
+			"return min(clusterGrid.lightCount, arrayLength(&clusterPositionRanges.values));"
 		)
 	);
 	assert.equal(
@@ -512,25 +716,39 @@ async function testClusteredShadingUsesActiveLightCountGuards() {
 		),
 		2
 	);
-	assert.ok(
-		!deferred.includes(
-			"let clusterLightCount = u32(arrayLength(&clusterLights.lights));"
-		)
-	);
+	assert.ok(!deferred.includes("clusterLights.lights"));
+	assert.ok(deferred.includes("surface.pixelPosition"));
 
-	for (const part of ["fragmentPbrPoint", "fragmentPbrSpot", "fragmentPhong"]) {
+	for (const part of ["fragmentPbrPoint", "fragmentPhong"]) {
 		const source = (
 			await ShaderSource.load(`webgpu.scene.part.${part}.composite`)
 		).code;
 		assert.ok(source.includes("let clusterLightCount = activeClusteredLightCount();"));
 	}
+	const pointPart = (
+		await ShaderSource.load("webgpu.scene.part.fragmentPbrPoint.composite")
+	).code;
+	assert.equal(countOccurrences(pointPart, "getClusterHeaderForFragment("), 1);
+	assert.equal(
+		countOccurrences(pointPart, "clusterIndices.indices[clusterHeader.offset"),
+		1
+	);
+	assert.ok(pointPart.includes("evaluateClusteredDirectLightSample"));
+	assert.ok(pointPart.includes("clusterRef.lightType == CLUSTER_LIGHT_TYPE_AREA"));
+	assert.ok(pointPart.includes("clusterRef.lightType == CLUSTER_LIGHT_TYPE_SPOT"));
+	const spotPart = (
+		await ShaderSource.load("webgpu.scene.part.fragmentPbrSpot.composite")
+	).code;
+	assert.ok(spotPart.includes("if (!isClusteredLightingEnabled())"));
+	assert.ok(!spotPart.includes("getClusterHeaderForFragment"));
 	const areaPart = (
 		await ShaderSource.load("webgpu.scene.part.fragmentPbrArea.composite")
 	).code;
-	assert.ok(areaPart.includes("CLUSTER_LIGHT_TYPE_AREA"));
-	assert.ok(areaPart.includes("clusteredRecordToAreaLight"));
-	assert.ok(areaPart.includes("if (isClusteredLightingEnabled())"));
-	assert.ok(areaPart.includes("} else {\n\tlet areaCount = areaLightCount();"));
+	assert.ok(areaPart.includes("if (!isClusteredLightingEnabled())"));
+	assert.ok(!areaPart.includes("getClusterHeaderForFragment"));
+	const scene = (await ShaderSource.load("webgpu.scene.composite")).code;
+	assert.equal(countOccurrences(scene, "getClusterHeaderForFragment("), 3);
+	assert.equal(countOccurrences(scene, "clusterIndices.indices[clusterHeader.offset"), 2);
 }
 
 async function run() {
@@ -539,8 +757,11 @@ async function run() {
 	testOcclusionCullingDefaultsAndCapabilityGate();
 	testClusterParamsLayoutWritesLightCount();
 	testRuntimeWritesClampedActiveLightCount();
-	testRuntimeWritesClusteredAreaRecordData();
-	await testRuntimeDispatchesLightDrivenComputePasses();
+	testRuntimeWritesClusteredAreaSoAData();
+	await testRuntimeDispatchesGatherComputePasses();
+	await testRuntimeRetainsScatterABPath();
+	await testRuntimeSkipsStaticCullAndSelectiveUploads();
+	testRuntimeClampsWebGPULimits();
 	testClusteredIndexBitfieldPackUnpack();
 	testClusterHeaderFlagPack();
 	await testClusteredCullShaderUsesActiveCountAndTiling();
