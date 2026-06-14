@@ -9,7 +9,7 @@ IgnisRenderer is a high-performance 3D rendering engine built from the ground up
 
 [Live Demo](https://ignis-renderer-demo.netlify.app/)
 
-![IgnisRenderer Screenshot](./assets/screenshot.png)
+![IgnisRenderer Screenshot](./assets/screenshots/screenshot.png)
 
 ## 🚀 Key Features
 
