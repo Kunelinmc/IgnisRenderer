@@ -20,9 +20,6 @@ import {
 	type TransientStore,
 	type RendererFeatureFlags,
 	type RendererFeatureResolvedOptions,
-	type FrameAttachments,
-	type FramePass,
-	type FrameContext,
 } from "../pipeline/types";
 
 export type RendererFeatures = RendererFeatureFlags &
@@ -61,7 +58,6 @@ import {
 } from "../pipeline/incremental";
 import type {
 	IRenderBackend,
-	IRenderBackendSession,
 	RenderBackendProfile,
 	RenderBackendEvent,
 	RenderBackendDeviceLostInfo,
@@ -69,8 +65,6 @@ import type {
 	RendererBackendResourceEvent,
 	WarmupOptions,
 	WarmupReport,
-	RenderBackendSessionContext,
-	RenderSurfaceSize,
 } from "./IRenderBackend";
 import type { RenderBackendExtensionKey } from "./BackendExtensions";
 import { RendererRuntime } from "./RendererRuntime";
@@ -203,15 +197,10 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 		this.postProcess.registerPass(new ToneMappingPass({ enabled: true }));
 		this.postProcess.registerPass(new GammaPass({ enabled: true }));
 
-		const session = typeof backend.createSession === "function"
-			? backend.createSession({
+		const session = backend.createSession({
 				surface: { canvas },
 				events: { emit: (event) => this._handleBackendEvent(event) },
-			})
-			: new LegacyBackendSessionWrapper(backend, {
-				surface: { canvas },
-				events: { emit: (event) => this._handleBackendEvent(event) },
-			});
+		});
 
 		this.backendProfile = session.profile;
 
@@ -834,144 +823,5 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 		throw new Error(
 			`Renderer.${caller} requires the active camera to belong to the active scene graph`
 		);
-	}
-}
-
-class LegacyBackendSessionWrapper implements IRenderBackendSession {
-	public readonly profile: RenderBackendProfile;
-	public readonly extensions = {
-		getBackendExtension: () => null,
-		requireBackendExtension: (key: any) => {
-			throw new Error(`Render backend extension "${key.id}" is unavailable.`);
-		}
-	} as any;
-	private _legacyBackend: any;
-	private _context: RenderBackendSessionContext;
-
-	constructor(legacyBackend: any, context: RenderBackendSessionContext) {
-		this._legacyBackend = legacyBackend;
-		this._context = context;
-		this.profile = {
-			id: legacyBackend.type ?? "legacy",
-			capabilities: legacyBackend.capabilities ?? {
-				sh: false,
-				shadows: false,
-				reflection: false,
-				environment: false,
-				clusteredLighting: false,
-				oit: false,
-				occlusionCulling: false,
-				postProcess: false,
-			},
-			frameScheduling: legacyBackend.frameScheduling ?? "on-demand",
-			shadow: legacyBackend.profile?.shadow ?? {
-				backendKey: legacyBackend.type ?? "legacy",
-				supportsFilterModes: ["pcf"],
-				supportsDirectionalCSM: false,
-				supportsSpotCSM: false,
-				supportsPointCSM: false,
-				maxDynamicShadowCost: 0,
-			},
-			lighting: legacyBackend.profile?.lighting ?? {
-				localizedProbeMode: "accumulate-globally"
-			}
-		};
-		if (typeof legacyBackend.setRenderer === "function") {
-			legacyBackend.setRenderer({
-				postProcess: null,
-				canvas: context.surface.canvas,
-			});
-		}
-	}
-
-	async initialize(): Promise<void> {
-		if (typeof this._legacyBackend.initialize === "function") {
-			await this._legacyBackend.initialize();
-		} else if (typeof this._legacyBackend.init === "function") {
-			await this._legacyBackend.init(this._context.surface.canvas);
-		}
-	}
-
-	async restore(): Promise<void> {
-		if (typeof this._legacyBackend.restore === "function") {
-			await this._legacyBackend.restore(this._context.surface.canvas);
-		}
-	}
-
-	resize(size: RenderSurfaceSize): void {
-		if (typeof this._legacyBackend.resize === "function") {
-			this._legacyBackend.resize(size.width, size.height);
-		}
-	}
-
-	getAttachments(size: RenderSurfaceSize): FrameAttachments {
-		if (typeof this._legacyBackend.getAttachments === "function") {
-			return this._legacyBackend.getAttachments(size.width, size.height);
-		}
-		return {
-			width: size.width,
-			height: size.height,
-		};
-	}
-
-	beginFrame(context: FrameContext): void | Promise<void> {
-		if (typeof this._legacyBackend.beginFrame === "function") {
-			return this._legacyBackend.beginFrame(context);
-		}
-	}
-
-	executePass(pass: FramePass, context: FrameContext): void | Promise<void> {
-		if (typeof this._legacyBackend.executePass === "function") {
-			return this._legacyBackend.executePass(pass, context);
-		}
-	}
-
-	skipPass(pass: FramePass): void {
-		if (typeof this._legacyBackend.skipPass === "function") {
-			this._legacyBackend.skipPass(pass);
-		}
-	}
-
-	endFrame(): void | Promise<void> {
-		if (typeof this._legacyBackend.endFrame === "function") {
-			return this._legacyBackend.endFrame();
-		}
-	}
-
-	abortFrame(error?: unknown): void | Promise<void> {
-		if (typeof this._legacyBackend.abortFrame === "function") {
-			return this._legacyBackend.abortFrame(error);
-		}
-	}
-
-	destroy(): void | Promise<void> {
-		if (typeof this._legacyBackend.destroy === "function") {
-			return this._legacyBackend.destroy();
-		}
-	}
-
-	async onDeviceLost(info?: any): Promise<void> {
-		if (this._legacyBackend && typeof this._legacyBackend.onDeviceLost === "function") {
-			await this._legacyBackend.onDeviceLost(info);
-		}
-	}
-
-	async warmup(context: FrameContext, options: WarmupOptions): Promise<WarmupReport> {
-		if (typeof this._legacyBackend.warmup === "function") {
-			return this._legacyBackend.warmup(context, options);
-		}
-		const startedAt = Date.now();
-		return {
-			backend: this.profile.id,
-			startedAt,
-			finishedAt: startedAt,
-			durationMs: 0,
-			total: 0,
-			compiled: 0,
-			skipped: 0,
-			failed: 0,
-			phases: [],
-			errors: [],
-		};
 	}
 }

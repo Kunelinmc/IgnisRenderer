@@ -29,6 +29,11 @@ export { Renderer } from "./renderers/Renderer";
 export type { RendererEvents } from "./renderers/Renderer";
 export type {
 	IRenderBackend,
+	IRenderBackendSession,
+	RenderBackendSessionContext,
+	RenderBackendProfile,
+	RenderSurface,
+	RenderSurfaceSize,
 	RenderBackendDeviceLostInfo,
 	RendererBackendResourceEvent,
 	WarmupOptions,

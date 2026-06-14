@@ -127,9 +127,8 @@ function resolvePreparedSceneEnvironment(scene: FrameContext["scene"]): {
 	};
 }
 
-export class SoftwareBackend implements IRenderBackend, IRenderBackendSession {
+export class SoftwareBackend implements IRenderBackend {
 	private readonly _options: SoftwareBackendOptions;
-	private _defaultSession: SoftwareBackendSession | null = null;
 
 	public constructor(options: SoftwareBackendOptions = {}) {
 		this._options = options;
@@ -138,105 +137,11 @@ export class SoftwareBackend implements IRenderBackend, IRenderBackendSession {
 	public createSession(
 		context: RenderBackendSessionContext
 	): IRenderBackendSession {
-		const session = new SoftwareBackendSession(this._options, context);
-		this._defaultSession = session;
-		return session;
-	}
-
-	private _getOrEstablishSession(): SoftwareBackendSession {
-		if (!this._defaultSession) {
-			this._defaultSession = new SoftwareBackendSession(this._options, {
-				surface: { canvas: typeof document !== "undefined" ? document.createElement("canvas") : { width: 320, height: 180 } as any },
-				events: { emit: () => {} },
-			});
-		}
-		return this._defaultSession;
-	}
-
-	// Delegate properties and methods of IRenderBackendSession
-	public get type() { return "software"; }
-	public get capabilities() { return this._getOrEstablishSession().capabilities; }
-	public get frameScheduling() { return this._getOrEstablishSession().frameScheduling; }
-	public get extensions() { return this._getOrEstablishSession().extensions; }
-	public get profile() { return this._getOrEstablishSession().profile; }
-	public get activeRasterMode() { return this._getOrEstablishSession().activeRasterMode; }
-	public get requestedRasterMode() { return this._getOrEstablishSession().requestedRasterMode; }
-
-	public get _renderer() { return (this._getOrEstablishSession() as any)._renderer; }
-	public set _renderer(val) { (this._getOrEstablishSession() as any)._renderer = val; }
-
-	public get _ctx() { return (this._getOrEstablishSession() as any)._ctx; }
-	public set _ctx(val) { (this._getOrEstablishSession() as any)._ctx = val; }
-
-	public setRenderer(renderer: any): void {
-		// Legacy compatibility hook
-		this._renderer = renderer;
-	}
-
-	public async init(canvas: HTMLCanvasElement): Promise<void> {
-		this.createSession({
-			surface: { canvas },
-			events: { emit: () => {} },
-		});
-		await this.initialize();
-	}
-
-	public initialize(): Promise<void> {
-		return this._getOrEstablishSession().initialize();
-	}
-
-	public restore(): Promise<void> {
-		return this._getOrEstablishSession().restore();
-	}
-
-	public resize(size: RenderSurfaceSize | number, heightParam?: number): void {
-		this._getOrEstablishSession().resize(size, heightParam);
-	}
-
-	public getAttachments(size: RenderSurfaceSize | number, heightParam?: number): FrameAttachments {
-		return this._getOrEstablishSession().getAttachments(size, heightParam);
-	}
-
-	public beginFrame(context: FrameContext): void | Promise<void> {
-		return this._getOrEstablishSession().beginFrame(context);
-	}
-
-	public executePass(pass: FramePass, context: FrameContext): void | Promise<void> {
-		return this._getOrEstablishSession().executePass(pass, context);
-	}
-
-	public skipPass(pass: FramePass): void {
-		this._getOrEstablishSession().skipPass(pass);
-	}
-
-	public endFrame(): void | Promise<void> {
-		return this._getOrEstablishSession().endFrame();
-	}
-
-	public abortFrame(error?: unknown): void | Promise<void> {
-		return this._getOrEstablishSession().abortFrame(error);
-	}
-
-	public destroy(): void | Promise<void> {
-		if (this._defaultSession) {
-			return this._defaultSession.destroy();
-		}
+		return new SoftwareBackendSession(this._options, context);
 	}
 }
 
 class SoftwareBackendSession implements IRenderBackendSession {
-	public readonly type = "software";
-	public readonly frameScheduling = "on-demand";
-	public readonly capabilities = {
-		sh: true,
-		shadows: true,
-		reflection: true,
-		environment: true,
-		postProcess: true,
-		clusteredLighting: false,
-		oit: false,
-		occlusionCulling: false,
-	};
 	private readonly _postProcessExecutor = new SoftwarePostProcessExecutor(
 		{
 			getCanvasContext: () => this._ctx,
@@ -255,8 +160,17 @@ class SoftwareBackendSession implements IRenderBackendSession {
 	public readonly requestedRasterMode: SoftwareRasterMode;
 	public readonly profile: RenderBackendProfile = {
 		id: "software",
-		capabilities: this.capabilities,
-		frameScheduling: this.frameScheduling,
+		capabilities: {
+			sh: true,
+			shadows: true,
+			reflection: true,
+			environment: true,
+			postProcess: true,
+			clusteredLighting: false,
+			oit: false,
+			occlusionCulling: false,
+		},
+		frameScheduling: "on-demand",
 		shadow: {
 			backendKey: "software",
 			supportsFilterModes: ["pcf", "vsm"],
@@ -291,7 +205,6 @@ class SoftwareBackendSession implements IRenderBackendSession {
 	private _particleSimulator: DefaultParticleSimulator | null = null;
 	private _offscreenCanvas: OffscreenCanvas | null = null;
 	private _offscreenCtx: OffscreenCanvasRenderingContext2D | null = null;
-	private _renderer: any = null;
 	private _options: SoftwareBackendOptions;
 	private _activeRasterMode: SoftwareRasterMode;
 	private readonly _passHandlers: Map<FramePass["stage"], SoftwarePassHandler>;
@@ -314,7 +227,7 @@ class SoftwareBackendSession implements IRenderBackendSession {
 	}
 
 	public async initialize(): Promise<void> {
-		const canvas = this._requireSessionContext().surface.canvas;
+		const canvas = this._sessionContext.surface.canvas;
 		this._ctx = canvas.getContext("2d");
 		this._ensureRuntime();
 	}
@@ -337,22 +250,13 @@ class SoftwareBackendSession implements IRenderBackendSession {
 		this._particlePass = new SoftwareParticlePass();
 		this._reflectionPass = new SoftwareReflectionPass(this._rasterizer);
 		this._particleSimulator = new DefaultParticleSimulator({
-			backendTag: this.type,
+			backendTag: this.profile.id,
 		});
 		this._syncActiveRasterMode();
 	}
 
-	public getAttachments(size: RenderSurfaceSize | number, heightParam?: number): FrameAttachments {
-		let width: number;
-		let height: number;
-		if (typeof size === "object" && size !== null) {
-			width = size.width;
-			height = size.height;
-		} else {
-			width = size as number;
-			height = heightParam!;
-		}
-
+	public getAttachments(size: RenderSurfaceSize): FrameAttachments {
+		const { width, height } = size;
 		if (
 			!this._pixels ||
 			this._pixels.length !== width * height * 4 ||
@@ -376,16 +280,8 @@ class SoftwareBackendSession implements IRenderBackendSession {
 		};
 	}
 
-	public resize(size: RenderSurfaceSize | number, heightParam?: number): void {
-		let width: number;
-		let height: number;
-		if (typeof size === "object" && size !== null) {
-			width = size.width;
-			height = size.height;
-		} else {
-			width = size as number;
-			height = heightParam!;
-		}
+	public resize(size: RenderSurfaceSize): void {
+		const { width, height } = size;
 		this._frameImageData = null;
 		this._framePixels = null;
 		this._framePixelsShared = false;
@@ -696,7 +592,7 @@ class SoftwareBackendSession implements IRenderBackendSession {
 	private _resolveFrameDimensions(
 		pixels: Uint8ClampedArray,
 	): { width: number; height: number } {
-		const canvas = this._renderer?.canvas ?? this._requireSessionContext().surface.canvas;
+		const canvas = this._sessionContext.surface.canvas;
 		const canvasWidth = canvas.width;
 		const canvasHeight = canvas.height;
 		if (pixels.length === canvasWidth * canvasHeight * 4) {
@@ -735,7 +631,7 @@ class SoftwareBackendSession implements IRenderBackendSession {
 	}
 
 	private _resolveFramePixels(): Uint8ClampedArray {
-		const pixels = this._pixels ?? this._renderer?.pixels;
+		const pixels = this._pixels;
 
 		if (!pixels) {
 			throw new Error("Software backend frame buffer is not initialized.");
@@ -772,15 +668,6 @@ class SoftwareBackendSession implements IRenderBackendSession {
 		this._reflectionPass = null;
 		this._particleSimulator = null;
 		this._rasterizer = null;
-	}
-
-	private _requireSessionContext(): RenderBackendSessionContext {
-		if (!this._sessionContext) {
-			throw new Error(
-				"SoftwareBackend is a provider. Use createSession() before initialization."
-			);
-		}
-		return this._sessionContext;
 	}
 
 	private _syncActiveRasterMode(): void {

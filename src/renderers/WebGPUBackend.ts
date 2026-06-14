@@ -243,9 +243,8 @@ type WebGPUPassHandler = (
 	context: FrameContext
 ) => void | Promise<void>;
 
-export class WebGPUBackend implements IRenderBackend, IRenderBackendSession {
+export class WebGPUBackend implements IRenderBackend {
 	private readonly _options: WebGPUBackendOptions;
-	private _defaultSession: WebGPUBackendSession | null = null;
 
 	public constructor(options: WebGPUBackendOptions = {}) {
 		this._options = options;
@@ -254,87 +253,11 @@ export class WebGPUBackend implements IRenderBackend, IRenderBackendSession {
 	public createSession(
 		context: RenderBackendSessionContext
 	): IRenderBackendSession {
-		const session = new WebGPUBackendSession(this._options, context);
-		this._defaultSession = session;
-		return session;
-	}
-
-	private _getOrEstablishSession(): WebGPUBackendSession {
-		if (!this._defaultSession) {
-			this._defaultSession = new WebGPUBackendSession(this._options, {
-				surface: { canvas: typeof document !== "undefined" ? document.createElement("canvas") : { width: 320, height: 180 } as any },
-				events: { emit: () => {} },
-			});
-		}
-		return this._defaultSession;
-	}
-
-	// Delegate properties and methods of IRenderBackendSession
-	public get type() { return "webgpu"; }
-	public get capabilities() { return this._getOrEstablishSession().capabilities; }
-	public get frameScheduling() { return this._getOrEstablishSession().frameScheduling; }
-	public get extensions() { return this._getOrEstablishSession().extensions; }
-	public get profile() { return this._getOrEstablishSession().profile; }
-
-	public setRenderer(renderer: any): void {
-		// Legacy compatibility hook
-	}
-
-	public async init(canvas: HTMLCanvasElement): Promise<void> {
-		this.createSession({
-			surface: { canvas },
-			events: { emit: () => {} },
-		});
-		await this.initialize();
-	}
-
-	public initialize(): Promise<void> {
-		return this._getOrEstablishSession().initialize();
-	}
-
-	public restore(): Promise<void> {
-		return this._getOrEstablishSession().restore();
-	}
-
-	public resize(size: RenderSurfaceSize | number, heightParam?: number): void {
-		this._getOrEstablishSession().resize(size, heightParam);
-	}
-
-	public getAttachments(size: RenderSurfaceSize | number, heightParam?: number): FrameAttachments {
-		return this._getOrEstablishSession().getAttachments(size, heightParam);
-	}
-
-	public beginFrame(context: FrameContext): void | Promise<void> {
-		return this._getOrEstablishSession().beginFrame(context);
-	}
-
-	public executePass(pass: FramePass, context: FrameContext): void | Promise<void> {
-		return this._getOrEstablishSession().executePass(pass, context);
-	}
-
-	public skipPass(pass: FramePass): void {
-		this._getOrEstablishSession()?.skipPass?.(pass);
-	}
-
-	public endFrame(): void | Promise<void> {
-		return this._getOrEstablishSession().endFrame();
-	}
-
-	public abortFrame(error?: unknown): void | Promise<void> {
-		return this._getOrEstablishSession().abortFrame(error);
-	}
-
-	public destroy(): void | Promise<void> {
-		if (this._defaultSession) {
-			return this._defaultSession.destroy();
-		}
+		return new WebGPUBackendSession(this._options, context);
 	}
 }
 
 export class WebGPUBackendSession implements IRenderBackendSession {
-	public readonly type = "webgpu";
-	public readonly frameScheduling = "on-demand";
-	public readonly capabilities: BackendCapabilities;
 	private readonly _postProcessExecutor = new WebGPUPostProcessExecutor({
 		getFrameExecutor: () => this._frameExecutor,
 		assertDeviceOperational: (operation) =>
@@ -492,7 +415,7 @@ export class WebGPUBackendSession implements IRenderBackendSession {
 			options.enableOcclusionCulling !== false;
 		this._frameGraphValidationMode =
 			options.frameGraphValidation === "warn" ? "warn" : "throw";
-		this.capabilities = {
+		const capabilities: BackendCapabilities = {
 			sh: true,
 			shadows: true,
 			reflection: true,
@@ -504,8 +427,8 @@ export class WebGPUBackendSession implements IRenderBackendSession {
 		};
 		this.profile = {
 			id: "webgpu",
-			capabilities: this.capabilities,
-			frameScheduling: this.frameScheduling,
+			capabilities,
+			frameScheduling: "on-demand",
 			shadow: {
 				backendKey: "webgpu",
 				supportsFilterModes: ["pcf", "vsm"],
@@ -609,16 +532,8 @@ export class WebGPUBackendSession implements IRenderBackendSession {
 		return this._frameGraphValidationMode;
 	}
 
-	public getAttachments(size: RenderSurfaceSize | number, heightParam?: number): FrameAttachments {
-		let width: number;
-		let height: number;
-		if (typeof size === "object" && size !== null) {
-			width = size.width;
-			height = size.height;
-		} else {
-			width = size as number;
-			height = heightParam!;
-		}
+	public getAttachments(size: RenderSurfaceSize): FrameAttachments {
+		const { width, height } = size;
 		return {
 			width,
 			height,
@@ -626,7 +541,7 @@ export class WebGPUBackendSession implements IRenderBackendSession {
 	}
 
 	public async initialize(): Promise<void> {
-		const canvas = this._requireSessionContext().surface.canvas;
+		const canvas = this._sessionContext.surface.canvas;
 		this._canvas = canvas;
 		this._destroyRequested = false;
 
@@ -798,7 +713,7 @@ export class WebGPUBackendSession implements IRenderBackendSession {
 			);
 			this._particleSimulator = new WebGPUParticleSimulator({
 				backend: this,
-				backendTag: this.type,
+				backendTag: this.profile.id,
 				maxParticlesPerSystem: 300000,
 			});
 		} catch (error) {
@@ -844,16 +759,8 @@ export class WebGPUBackendSession implements IRenderBackendSession {
 		await this.initialize();
 	}
 
-	public resize(size: RenderSurfaceSize | number, heightParam?: number): void {
-		let width: number;
-		let height: number;
-		if (typeof size === "object" && size !== null) {
-			width = size.width;
-			height = size.height;
-		} else {
-			width = size as number;
-			height = heightParam!;
-		}
+	public resize(size: RenderSurfaceSize): void {
+		const { width, height } = size;
 		if (!this.device || !this.context || !this.canvas) {
 			return;
 		}
@@ -950,7 +857,7 @@ export class WebGPUBackendSession implements IRenderBackendSession {
 	}
 
 	public async warmup(context: FrameContext, options: WarmupOptions = {}): Promise<WarmupReport> {
-		const report = createWarmupReport(this.type);
+		const report = createWarmupReport(this.profile.id);
 		if (!this._resources || !this._frameExecutor) {
 			throw new Error("WebGPU backend has not been initialized.");
 		}
@@ -979,7 +886,7 @@ export class WebGPUBackendSession implements IRenderBackendSession {
 				compiled: 0,
 				skipped: 0,
 				failed: 1,
-				errors: [toShaderCompileError(error, this.type, "WebGPUWarmup")],
+				errors: [toShaderCompileError(error, this.profile.id, "WebGPUWarmup")],
 			};
 			addWarmupPhase(report, failedPhase);
 			this._reportWarmupProgress(options, failedPhase);
@@ -1871,15 +1778,6 @@ export class WebGPUBackendSession implements IRenderBackendSession {
 				? info.message
 				: "Device loss was reported without a diagnostic message.";
 		return reason ? { reason, message } : { message };
-	}
-
-	private _requireSessionContext(): RenderBackendSessionContext {
-		if (!this._sessionContext) {
-			throw new Error(
-				"WebGPUBackend is a provider. Use createSession() before initialization."
-			);
-		}
-		return this._sessionContext;
 	}
 
 	private _destroyPostProcessResourcesForReset(): void {

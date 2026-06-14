@@ -103,7 +103,7 @@ export class BackendPostProcessRuntime {
 	/**
 	 * Executes the backend-owned `"postprocess"` pass for one frame.
 	 *
-	 * @internal Called from `IRenderBackend.executePass()`.
+	 * @internal Called from `IRenderBackendSession.executePass()`.
 	 * @param context Active renderer frame context.
 	 * @returns Promise that resolves after executor pass hooks complete.
 	 * @sideEffects Allocates resources, mutates backend frame targets, and records

@@ -1185,7 +1185,9 @@ export class WebGPURenderResources {
 		return {
 			scene: contextOrScene,
 			features: featuresArg,
-			postProcess: this._fallbackPostProcess.createSnapshot(this._backend.type),
+			postProcess: this._fallbackPostProcess.createSnapshot(
+				this._backend.profile.id
+			),
 			shAmbientCoeffs: null,
 			renderWidth: 1,
 			renderHeight: 1,
