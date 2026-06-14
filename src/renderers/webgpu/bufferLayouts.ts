@@ -9,7 +9,6 @@ import {
 } from "../constants";
 
 import {
-	WEBGPU_CLUSTERED_LIGHT_STRIDE_FLOATS,
 	WEBGPU_CLUSTERED_PARAMS_FLOATS,
 	WEBGPU_FRAME_UNIFORM_BYTE_SIZE,
 	WEBGPU_MODEL_UNIFORM_BYTE_SIZE,
@@ -103,26 +102,12 @@ const REFLECTION_PROBE_SCHEMA = structOf([
 	{ name: "dataC", type: VEC4_F32 },
 ]);
 
-const CLUSTERED_LIGHT_RECORD_SCHEMA = structOf([
-	{ name: "positionRange", type: VEC4_F32 },
-	{ name: "directionOuter", type: VEC4_F32 },
-	{ name: "colorInner", type: VEC4_F32 },
-	{ name: "rightWidth", type: VEC4_F32 },
-	{ name: "upHeight", type: VEC4_F32 },
-	{ name: "normalAreaScale", type: VEC4_F32 },
-	{ name: "packedFlags", type: U32 },
-	{ name: "shadowIndex", type: U32 },
-	{ name: "reserved0", type: U32 },
-	{ name: "reserved1", type: U32 },
-]);
-
 const VOLUMETRIC_LIGHT_RECORD_SCHEMA = structOf([
 	{ name: "positionRange", type: VEC4_F32 },
 	{ name: "directionOuter", type: VEC4_F32 },
 	{ name: "colorInner", type: VEC4_F32 },
 ]);
 
-const CLUSTERED_LIGHT_LAYOUT_CACHE = new Map<number, StructuredBufferLayout>();
 const VOLUMETRIC_LIGHT_LAYOUT_CACHE = new Map<number, StructuredBufferLayout>();
 
 export const WEBGPU_SCENE_VERTEX_LAYOUT = new StructuredBufferLayout(
@@ -439,33 +424,6 @@ export function createWebGPUShaderMaterialUniformLayout(
 		structOf(fields.map((field) => ({ name: field.name, type: field.type }))),
 		"uniform"
 	);
-}
-
-/**
- * Resolves the storage buffer layout for clustered light records.
- *
- * @param count - Number of light records to expose in the storage array.
- * @returns A cached storage-address-space layout sized for `count` records.
- * @throws If `count` produces a layout that does not match the expected stride.
- */
-export function getWebGPUClusteredLightLayout(
-	count: number
-): StructuredBufferLayout {
-	const cached = CLUSTERED_LIGHT_LAYOUT_CACHE.get(count);
-	if (cached) {
-		return cached;
-	}
-
-	const layout = new StructuredBufferLayout(
-		arrayOf(CLUSTERED_LIGHT_RECORD_SCHEMA, count),
-		"storage"
-	);
-	layout.assertByteSize(
-		count * WEBGPU_CLUSTERED_LIGHT_STRIDE_FLOATS * 4,
-		"ClusterLightBuffer"
-	);
-	CLUSTERED_LIGHT_LAYOUT_CACHE.set(count, layout);
-	return layout;
 }
 
 /**

@@ -154,6 +154,14 @@ export interface WebGPUClusterGridParams {
 	maxLightsPerCluster: number;
 }
 
+export type WebGPUClusteredCullingMode = "gather" | "scatter";
+
+export interface WebGPUClusteredAreaPayload {
+	rightWidth: [number, number, number, number];
+	upHeight: [number, number, number, number];
+	normalAreaScale: [number, number, number, number];
+}
+
 export interface WebGPUClusterLightRecord {
 	positionRange: [number, number, number, number];
 	directionOuter: [number, number, number, number];

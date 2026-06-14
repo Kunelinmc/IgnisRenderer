@@ -151,28 +151,13 @@ export function createWebGPUPipelineLayouts(
 	});
 	const clusteredSceneBindGroupLayout = device.createBindGroupLayout({
 		label: "WebGPUClusteredSceneBindGroupLayout",
-		entries: [
-			{
-				binding: 0,
-				visibility: GPUShaderStage.FRAGMENT,
-				buffer: { type: "uniform" },
-			},
-			{
-				binding: 1,
-				visibility: GPUShaderStage.FRAGMENT,
-				buffer: { type: "read-only-storage" },
-			},
-			{
-				binding: 2,
-				visibility: GPUShaderStage.FRAGMENT,
-				buffer: { type: "read-only-storage" },
-			},
-			{
-				binding: 3,
-				visibility: GPUShaderStage.FRAGMENT,
-				buffer: { type: "read-only-storage" },
-			},
-		],
+		entries: Array.from({ length: 8 }, (_, binding) => ({
+			binding,
+			visibility: GPUShaderStage.FRAGMENT,
+			buffer: {
+				type: binding === 0 ? "uniform" : "read-only-storage",
+			} as GPUBufferBindingLayout,
+		})),
 	});
 	const gbufferWriteBindGroupLayout = device.createBindGroupLayout({
 		label: "WebGPUGBufferWriteBindGroupLayout",

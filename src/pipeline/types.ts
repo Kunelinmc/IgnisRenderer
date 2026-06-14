@@ -294,6 +294,7 @@ export interface ClusteredLightingOptions {
 	zSlices?: number;
 	maxLights?: number;
 	maxLightsPerCluster?: number;
+	cullingMode?: "gather" | "scatter";
 	[key: string]: unknown;
 }
 
@@ -326,13 +327,18 @@ export const DEFAULT_OCCLUSION_CULLING_OPTIONS: Required<
 export const DEFAULT_CLUSTERED_LIGHTING_OPTIONS: Required<
 	Pick<
 		ClusteredLightingOptions,
-		"tileSizePx" | "zSlices" | "maxLights" | "maxLightsPerCluster"
+		| "tileSizePx"
+		| "zSlices"
+		| "maxLights"
+		| "maxLightsPerCluster"
+		| "cullingMode"
 	>
 > = {
 	tileSizePx: 64,
 	zSlices: 24,
 	maxLights: 256,
 	maxLightsPerCluster: 64,
+	cullingMode: "gather",
 };
 
 export interface FeatureWarning {

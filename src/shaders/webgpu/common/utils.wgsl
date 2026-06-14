@@ -405,13 +405,14 @@ fn evaluateAreaLight(
 	return AreaLightSample(direction, light.color.xyz * attenuation, true);
 }
 
-fn clusteredRecordToAreaLight(light: ClusterLightRecord) -> AreaLightData {
+fn clusteredRecordToAreaLight(lightIndex: u32) -> AreaLightData {
+	let payload = clusterAreaPayloads.values[lightIndex];
 	return AreaLightData(
-		light.positionRange,
-		light.rightWidth,
-		light.upHeight,
-		light.normalAreaScale,
-		vec4<f32>(light.colorInner.xyz, 0.0)
+		clusterPositionRanges.values[lightIndex],
+		payload.rightWidth,
+		payload.upHeight,
+		payload.normalAreaScale,
+		vec4<f32>(clusterColorInners.values[lightIndex].xyz, 0.0)
 	);
 }
 
@@ -2053,30 +2054,24 @@ fn isClusteredLightingEnabled() -> bool {
 }
 
 fn activeClusteredLightCount() -> u32 {
-	return min(clusterGrid.lightCount, arrayLength(&clusterLights.lights));
+	return min(clusterGrid.lightCount, arrayLength(&clusterPositionRanges.values));
 }
 
 fn computeClusterSliceFromLinearDepth(linearDepth: f32) -> u32 {
 	let nearPlane = max(clusterGrid.near, 0.05);
-	let farPlane = max(clusterGrid.far, nearPlane + 1e-3);
-	let z = max(linearDepth, nearPlane);
-	let numerator = log(z) - log(nearPlane);
-	let denominator = max(log(farPlane) - log(nearPlane), EPSILON);
-	let scaled = numerator / denominator * f32(clusterGrid.zSlices);
-	let slice = i32(floor(scaled));
+	let z = clamp(linearDepth, nearPlane, max(clusterGrid.far, nearPlane));
+	let slice = i32(floor(log(z) * clusterGrid.logScale + clusterGrid.logBias));
 	return u32(clamp(slice, 0, i32(clusterGrid.zSlices) - 1));
 }
 
-fn computeClusterIndex(worldPosition: vec3<f32>, linearDepth: f32) -> u32 {
-	let clip = frame.viewProjection * vec4<f32>(worldPosition, 1.0);
-	if (abs(clip.w) <= EPSILON) {
-		return 0u;
-	}
-	let invW = 1.0 / clip.w;
-	let ndc = clip.xy * invW;
-	let uv = vec2<f32>(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5);
+fn computeClusterIndex(pixelPosition: vec2<f32>, linearDepth: f32) -> u32 {
 	let tilesX = max(clusterGrid.tilesX, 1u);
 	let tilesY = max(clusterGrid.tilesY, 1u);
+	let screenSize = vec2<f32>(
+		f32(max(clusterGrid.screenWidth, 1u)),
+		f32(max(clusterGrid.screenHeight, 1u))
+	);
+	let uv = clamp(pixelPosition / screenSize, vec2<f32>(0.0), vec2<f32>(0.999999));
 	let tileX = u32(
 		clamp(
 			i32(floor(uv.x * f32(tilesX))),
@@ -2096,13 +2091,13 @@ fn computeClusterIndex(worldPosition: vec3<f32>, linearDepth: f32) -> u32 {
 }
 
 fn getClusterHeaderForFragment(
-	worldPosition: vec3<f32>,
+	pixelPosition: vec2<f32>,
 	linearDepth: f32
 ) -> ClusterHeader {
 	if (!isClusteredLightingEnabled()) {
 		return ClusterHeader(0u, 0u, 0u, 0u);
 	}
-	let clusterIndex = computeClusterIndex(worldPosition, linearDepth);
+	let clusterIndex = computeClusterIndex(pixelPosition, linearDepth);
 	if (clusterIndex >= clusterGrid.clusterCount) {
 		return ClusterHeader(0u, 0u, 0u, 0u);
 	}
@@ -2124,5 +2119,77 @@ fn decodeClusteredLightRef(value: u32) -> ClusteredLightRef {
 		(value & CLUSTER_INDEX_TYPE_MASK) >> CLUSTER_INDEX_TYPE_SHIFT,
 		(value & CLUSTER_INDEX_SHADOW_BIT) != 0u,
 		(value & CLUSTER_INDEX_VOLUMETRIC_BIT) != 0u
+	);
+}
+
+struct ClusteredDirectLightSample {
+	direction: vec3<f32>,
+	radiance: vec3<f32>,
+	valid: bool,
+}
+
+fn evaluateClusteredDirectLightSample(
+	lightRef: ClusteredLightRef,
+	worldPosition: vec3<f32>,
+	sampleIndex: u32
+) -> ClusteredDirectLightSample {
+	if (lightRef.lightType == CLUSTER_LIGHT_TYPE_AREA) {
+		let areaLight = evaluateAreaLight(
+			clusteredRecordToAreaLight(lightRef.lightIndex),
+			worldPosition,
+			sampleIndex
+		);
+		return ClusteredDirectLightSample(
+			areaLight.direction,
+			areaLight.radiance,
+			areaLight.valid
+		);
+	}
+	if (lightRef.lightType != CLUSTER_LIGHT_TYPE_POINT &&
+		lightRef.lightType != CLUSTER_LIGHT_TYPE_SPOT) {
+		return ClusteredDirectLightSample(
+			vec3<f32>(0.0, 1.0, 0.0),
+			vec3<f32>(0.0),
+			false
+		);
+	}
+
+	let positionRange = clusterPositionRanges.values[lightRef.lightIndex];
+	let colorInner = clusterColorInners.values[lightRef.lightIndex];
+	let toLight = positionRange.xyz - worldPosition;
+	let distanceSq = dot(toLight, toLight);
+	let distanceValue = sqrt(max(distanceSq, EPSILON));
+	if (distanceValue > positionRange.w) {
+		return ClusteredDirectLightSample(
+			vec3<f32>(0.0, 1.0, 0.0),
+			vec3<f32>(0.0),
+			false
+		);
+	}
+	let lightDirection = toLight / distanceValue;
+	var attenuation = pointAttenuation(distanceSq, positionRange.w);
+	if (lightRef.lightType == CLUSTER_LIGHT_TYPE_SPOT) {
+		let directionOuter = clusterDirectionOuters.values[lightRef.lightIndex];
+		let coneAttenuation = spotAttenuation(
+			dot(
+				-lightDirection,
+				safeNormalize(directionOuter.xyz, vec3<f32>(0.0, -1.0, 0.0))
+			),
+			directionOuter.w,
+			colorInner.w
+		);
+		if (coneAttenuation <= 0.0) {
+			return ClusteredDirectLightSample(
+				lightDirection,
+				vec3<f32>(0.0),
+				false
+			);
+		}
+		attenuation *= coneAttenuation;
+	}
+	return ClusteredDirectLightSample(
+		lightDirection,
+		colorInner.xyz * attenuation,
+		true
 	);
 }

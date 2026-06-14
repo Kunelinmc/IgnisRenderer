@@ -52,17 +52,15 @@ struct ClusterGridParams {
 	maxLightsPerCluster: u32,
 }
 
-struct ClusterLightRecord {
-	positionRange: vec4<f32>,
-	directionOuter: vec4<f32>,
-	colorInner: vec4<f32>,
+struct ClusterAreaPayload {
 	rightWidth: vec4<f32>,
 	upHeight: vec4<f32>,
 	normalAreaScale: vec4<f32>,
+}
+
+struct ClusterMetadata {
 	packedFlags: u32,
 	shadowIndex: u32,
-	reserved0: u32,
-	reserved1: u32,
 }
 
 struct ClusterHeader {
@@ -72,8 +70,16 @@ struct ClusterHeader {
 	reserved: u32,
 }
 
-struct ClusterLightBuffer {
-	lights: array<ClusterLightRecord>,
+struct ClusterVec4Buffer {
+	values: array<vec4<f32>>,
+}
+
+struct ClusterAreaPayloadBuffer {
+	values: array<ClusterAreaPayload>,
+}
+
+struct ClusterMetadataBuffer {
+	values: array<ClusterMetadata>,
 }
 
 struct ClusterHeaderBuffer {
@@ -238,6 +244,10 @@ struct ParticleShadowVolumeBuffer {
 @group(1) @binding(37) var anisotropyTexture: texture_2d<f32>;
 
 @group(2) @binding(0) var<uniform> clusterGrid: ClusterGridParams;
-@group(2) @binding(1) var<storage, read> clusterLights: ClusterLightBuffer;
-@group(2) @binding(2) var<storage, read> clusterHeaders: ClusterHeaderBuffer;
-@group(2) @binding(3) var<storage, read> clusterIndices: ClusterLightIndexList;
+@group(2) @binding(1) var<storage, read> clusterPositionRanges: ClusterVec4Buffer;
+@group(2) @binding(2) var<storage, read> clusterDirectionOuters: ClusterVec4Buffer;
+@group(2) @binding(3) var<storage, read> clusterColorInners: ClusterVec4Buffer;
+@group(2) @binding(4) var<storage, read> clusterAreaPayloads: ClusterAreaPayloadBuffer;
+@group(2) @binding(5) var<storage, read> clusterMetadata: ClusterMetadataBuffer;
+@group(2) @binding(6) var<storage, read> clusterHeaders: ClusterHeaderBuffer;
+@group(2) @binding(7) var<storage, read> clusterIndices: ClusterLightIndexList;
