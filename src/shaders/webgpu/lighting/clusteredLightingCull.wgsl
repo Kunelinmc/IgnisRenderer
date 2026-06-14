@@ -141,6 +141,7 @@ var<workgroup> overflowScores: array<f32, 1024>;
 var<workgroup> overflowRefs: array<u32, 1024>;
 var<workgroup> overflowMatchCount: atomic<u32>;
 var<workgroup> overflowSelectedFlags: atomic<u32>;
+var<workgroup> isOverflow: bool;
 
 fn clusteredEnabled() -> bool {
 	return frame.environmentOptionsB.w > 0.5 &&
@@ -625,9 +626,17 @@ fn csResolveOverflow(
 	@builtin(local_invocation_index) lane: u32
 ) {
 	let clusterIndex = workgroupId.x;
-	if (clusterIndex >= clusterParams.clusterCount ||
-		(atomicLoad(&clusterHeaders.headers[clusterIndex].flags) &
-			CLUSTER_HEADER_FLAG_OVERFLOW) == 0u) {
+	if (clusterIndex >= clusterParams.clusterCount) {
+		return;
+	}
+
+	if (lane == 0u) {
+		let flags = atomicLoad(&clusterHeaders.headers[clusterIndex].flags);
+		isOverflow = (flags & CLUSTER_HEADER_FLAG_OVERFLOW) != 0u;
+	}
+	workgroupBarrier();
+
+	if (!workgroupUniformLoad(&isOverflow)) {
 		return;
 	}
 	let tilesX = max(clusterParams.tilesX, 1u);
