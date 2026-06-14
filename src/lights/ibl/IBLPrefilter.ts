@@ -4,7 +4,6 @@ import { lerp } from "../../maths/Common";
 import { hammersley, importanceSampleGGX_VNDF } from "../../maths/Sampling";
 import type { IVector3 } from "../../maths/types";
 import { Vector3 } from "../../maths/Vector3";
-import type { IRenderBackend } from "../../renderers/IRenderBackend";
 import {
 	AddressMode,
 	BufferUsage,
@@ -95,9 +94,7 @@ export interface IBLPrefilterProgress {
 	detail?: string;
 }
 
-export type IBLPrefilterBackendSource =
-	| IRenderBackend
-	| WebGPUComputeFacadeSource;
+export type IBLPrefilterBackendSource = WebGPUComputeFacadeSource;
 
 export interface IBLPrefilterOptions {
 	signal?: AbortSignal | null;
@@ -910,7 +907,7 @@ async function prefilterEnvMapOnWebGPU(
 ): Promise<Texture> {
 	if (!options.computeSource) {
 		throw new Error(
-			"WebGPU acceleration was requested for IBL prefiltering, but no WebGPU backend or compute source was provided."
+			"WebGPU acceleration was requested for IBL prefiltering, but no renderer, backend session, or compute source was provided."
 		);
 	}
 	return prefilterEnvMapWithWebGPU(
@@ -1008,9 +1005,9 @@ function resolveComputeSource(
 /**
  * Prefilters equirectangular environment maps into specular IBL mip chains.
  *
- * @remarks The class is independent from `Renderer`. Passing a WebGPU backend
- * or compute facade enables GPU acceleration; all other backends use
- * worker/CPU fallback according to `acceleration`.
+ * @remarks The class may run independently from `Renderer`. Passing a WebGPU
+ * renderer, backend session, or compute facade enables GPU acceleration; all
+ * other sources use worker/CPU fallback according to `acceleration`.
  */
 export class IBLPrefilter {
 	private readonly _backend: IBLPrefilterBackendSource | null;
@@ -1019,7 +1016,7 @@ export class IBLPrefilter {
 	/**
 	 * Creates a standalone environment IBL prefilter service.
 	 *
-	 * @param source Optional render backend, WebGPU compute source, or
+	 * @param source Optional renderer, backend session, WebGPU compute source, or
 	 * constructor options. Passing a WebGPU-capable source enables GPU
 	 * acceleration when requested or selected by `auto`.
 	 * @constraints The source must outlive calls to `prefilter()`.
