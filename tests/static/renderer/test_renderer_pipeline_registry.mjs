@@ -133,7 +133,7 @@ async function testRendererAbortsPartialBeginFrameFailure() {
 	assert.strictEqual(backend.abortErrors[0], error);
 }
 
-async function testRendererSuccessfulFrameEndsAndSchedules() {
+async function testRendererSuccessfulFrameEndsWithoutScheduling() {
 	const backend = new RegistryBackend();
 	const renderer = createRenderer(backend);
 	let frameEndEvents = 0;
@@ -152,7 +152,7 @@ async function testRendererSuccessfulFrameEndsAndSchedules() {
 	assert.equal(backend.endFrameCalls, 1);
 	assert.equal(backend.abortFrameCalls, 0);
 	assert.equal(frameEndEvents, 1);
-	assert.equal(scheduledFrames, 1);
+	assert.equal(scheduledFrames, 0);
 	const context = backend.contexts.at(-1);
 	assert.ok(context.framePlan);
 	assert.ok(
@@ -234,7 +234,7 @@ async function run() {
 
 		await testRendererAbortsBackendFrameOnPassFailure();
 		await testRendererAbortsPartialBeginFrameFailure();
-		await testRendererSuccessfulFrameEndsAndSchedules();
+		await testRendererSuccessfulFrameEndsWithoutScheduling();
 		await testRendererWarnsForMissingRendererStageExecutor();
 
 		const backend = new RegistryBackend();

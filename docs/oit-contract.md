@@ -68,7 +68,7 @@ const renderer = new Renderer(backend, canvas, camera);
 await renderer.initialize();
 
 renderer.features.enableOIT = true;
-await renderer.renderScene(performance.now());
+await renderer.renderFrame(performance.now());
 ```
 
 ```ts

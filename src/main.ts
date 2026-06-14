@@ -103,15 +103,7 @@ async function init() {
 		});
 
 	bindControls(canvas, camera, renderer);
-	const renderLoop = (now: number): void => {
-		void renderer
-			.renderFrame(now)
-			.catch((error) => {
-				Logger.error(["Renderer frame failed.", error], { scope: "Main" });
-			})
-			.finally(() => requestAnimationFrame(renderLoop));
-	};
-	requestAnimationFrame(renderLoop);
+	renderer.renderLoop();
 	setupInteraction(renderer, scene, camera);
 
 	window.addEventListener("resize", () => {

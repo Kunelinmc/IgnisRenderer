@@ -81,7 +81,7 @@ renderer.features.occlusionCullingOptions = {
 	hysteresisFrames: 2,
 	maxReadbackLatencyFrames: 3,
 };
-await renderer.renderScene(performance.now());
+await renderer.renderFrame(performance.now());
 ```
 
 ```ts

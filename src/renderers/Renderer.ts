@@ -130,7 +130,7 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 	public readonly pipeline: RenderPipelineRegistry;
 	public readonly postProcess: PostProcessPassRegistry;
 	public animationAutoRender: boolean;
-	public readonly logger: Pick<LoggerStatic, "warn">;
+	public readonly logger: Pick<LoggerStatic, "warn" | "error">;
 
 	private readonly _canvas: HTMLCanvasElement;
 	private _scene: Scene;
@@ -141,6 +141,7 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 	private _lastIncrementalFrameStats: IncrementalFrameStats | null = null;
 	private readonly _runtime: RendererRuntime;
 	private readonly _coordinator: FrameCoordinator;
+	private _renderLoopStop: (() => void) | null = null;
 
 	private _shadowMaps = new Map<ShadowCastingLight, ShadowRenderSet>();
 	private _shCoeffs: SHCoefficients = [] as any;
@@ -265,6 +266,7 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 	}
 
 	public async destroy(): Promise<void> {
+		this._renderLoopStop?.();
 		await this._runtime.destroy();
 		if (this._physicsSystem) {
 			this._physicsSystem.bindSceneSpatial(null);
@@ -379,6 +381,64 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 		return operation;
 	}
 
+	/**
+	 * Starts a serialized animation-frame loop for this renderer.
+	 *
+	 * Frame failures are logged and do not stop later frames. Repeated calls
+	 * while the loop is active return the same stop function.
+	 *
+	 * @returns An idempotent function that stops the loop.
+	 * @constraints The renderer must not have been destroyed.
+	 * @sideEffects Schedules animation frames and logs rejected frame errors.
+	 */
+	public renderLoop(): () => void {
+		this._runtime.assertNotDestroyed("renderLoop");
+		if (this._renderLoopStop) {
+			return this._renderLoopStop;
+		}
+
+		let active = true;
+		let requestId: number | null = null;
+		const scheduleNextFrame = (): void => {
+			if (!active) return;
+			requestId = requestAnimationFrame((nowMs) => {
+				requestId = null;
+				void this.renderFrame(nowMs)
+					.catch((error) => {
+						this.logger.error(
+							["Renderer render loop frame failed.", error],
+							{ scope: "Renderer" }
+						);
+					})
+					.finally(scheduleNextFrame);
+			});
+		};
+		const stop = (): void => {
+			if (!active) return;
+			active = false;
+			if (requestId !== null && typeof cancelAnimationFrame === "function") {
+				cancelAnimationFrame(requestId);
+			}
+			requestId = null;
+			if (this._renderLoopStop === stop) {
+				this._renderLoopStop = null;
+			}
+		};
+
+		this._renderLoopStop = stop;
+		scheduleNextFrame();
+		return stop;
+	}
+
+	/**
+	 * Renders one frame through the legacy scene-rendering entry point.
+	 *
+	 * @deprecated Use `renderFrame(nowMs)` for manual frame control or
+	 * `renderLoop()` for automatic animation-frame scheduling.
+	 * @param nowMs Animation-frame timestamp in milliseconds.
+	 * @returns The result of the delegated `renderFrame(nowMs)` call.
+	 * @sideEffects Performs the same rendering work as `renderFrame(nowMs)`.
+	 */
 	public async renderScene(nowMs: number): Promise<RenderFrameResult> {
 		return this.renderFrame(nowMs);
 	}
@@ -463,11 +523,6 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 		);
 
 		this.emit("frameend", { now, deltaTime: this._deltaTime });
-		if (this.backendProfile.frameScheduling !== "on-demand") {
-			requestAnimationFrame((time) => {
-				void this.renderFrame(time).catch(() => {});
-			});
-		}
 		return { rendered: true };
 	}
 
