@@ -37,7 +37,7 @@
 
 		if (isClusteredLightingEnabled()) {
 			let clusterHeader = getClusterHeaderForFragment(
-				input.worldPosition,
+				input.position.xy,
 				linearDepth
 			);
 			let clusterEntryCount = getClusterEntryCount(clusterHeader);
@@ -48,9 +48,8 @@
 				if (clusterRef.lightIndex >= clusterLightCount) {
 					continue;
 				}
-				let clusterLight = clusterLights.lights[clusterRef.lightIndex];
 				if (clusterRef.lightType == CLUSTER_LIGHT_TYPE_AREA) {
-					let areaRecord = clusteredRecordToAreaLight(clusterLight);
+					let areaRecord = clusteredRecordToAreaLight(clusterRef.lightIndex);
 					for (
 						var sampleIndex: u32 = 0u;
 						sampleIndex < AREA_LIGHT_SAMPLE_COUNT;
@@ -82,10 +81,12 @@
 					}
 					continue;
 				}
-				let toLight = clusterLight.positionRange.xyz - input.worldPosition;
+				let positionRange = clusterPositionRanges.values[clusterRef.lightIndex];
+				let colorInner = clusterColorInners.values[clusterRef.lightIndex];
+				let toLight = positionRange.xyz - input.worldPosition;
 				let distanceSq = dot(toLight, toLight);
 				let distanceValue = sqrt(max(distanceSq, EPSILON));
-				let lightRange = clusterLight.positionRange.w;
+				let lightRange = positionRange.w;
 				if (distanceValue > lightRange) {
 					continue;
 				}
@@ -96,23 +97,27 @@
 
 				// Spot light cone + shadow
 				if (clusterRef.lightType == CLUSTER_LIGHT_TYPE_SPOT) {
+					let directionOuter =
+						clusterDirectionOuters.values[clusterRef.lightIndex];
 					let lightToPoint = -lightDirection;
 					let coneDirection = safeNormalize(
-						clusterLight.directionOuter.xyz,
+						directionOuter.xyz,
 						vec3<f32>(0.0, -1.0, 0.0)
 					);
 					let coneAttenuation = spotAttenuation(
 						dot(lightToPoint, coneDirection),
-						clusterLight.directionOuter.w,
-						clusterLight.colorInner.w
+						directionOuter.w,
+						colorInner.w
 					);
 					if (coneAttenuation <= 0.0) {
 						continue;
 					}
 					attenuation *= coneAttenuation;
-					if (clusterRef.shadowed && clusterLight.shadowIndex < 8u) {
+					let shadowIndex =
+						clusterMetadata.values[clusterRef.lightIndex].shadowIndex;
+					if (clusterRef.shadowed && shadowIndex < 8u) {
 						shadow = sampleSpotShadowVisibility(
-							clusterLight.shadowIndex,
+							shadowIndex,
 							input.worldPosition,
 							shadowNormal,
 							lightDirection
@@ -122,7 +127,7 @@
 					continue;
 				}
 
-				let radiance = clusterLight.colorInner.xyz * attenuation;
+				let radiance = colorInner.xyz * attenuation;
 				let nDotL = max(dot(normal, lightDirection), 0.0);
 				if (nDotL <= 0.0) {
 					continue;

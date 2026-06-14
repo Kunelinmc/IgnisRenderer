@@ -46,6 +46,7 @@ struct DeferredSurface {
 	anisotropyTangent: vec3<f32>,
 	anisotropyBitangent: vec3<f32>,
 	anisotropyStrength: f32,
+	pixelPosition: vec2<f32>,
 }
 
 struct DeferredPBRContext {
@@ -183,7 +184,8 @@ fn loadDeferredSurface(input: DeferredVSOut) -> DeferredSurface {
 		max(materialExt2.z, 0.0),
 		anisotropyTangent,
 		anisotropyBitangent,
-		clamp(materialExt3.z, 0.0, 1.0)
+		clamp(materialExt3.z, 0.0, 1.0),
+		input.position.xy
 	);
 }
 
@@ -334,7 +336,7 @@ fn evaluateDeferredPBR(surface: DeferredSurface) -> vec3<f32> {
 
 	if (isClusteredLightingEnabled()) {
 		let clusterHeader = getClusterHeaderForFragment(
-			surface.worldPosition,
+			surface.pixelPosition,
 			surface.linearDepth
 		);
 		let clusterEntryCount = getClusterEntryCount(clusterHeader);
@@ -345,9 +347,8 @@ fn evaluateDeferredPBR(surface: DeferredSurface) -> vec3<f32> {
 			if (clusterRef.lightIndex >= clusterLightCount) {
 				continue;
 			}
-			let clusterLight = clusterLights.lights[clusterRef.lightIndex];
 			if (clusterRef.lightType == CLUSTER_LIGHT_TYPE_AREA) {
-				let areaRecord = clusteredRecordToAreaLight(clusterLight);
+				let areaRecord = clusteredRecordToAreaLight(clusterRef.lightIndex);
 				for (
 					var sampleIndex: u32 = 0u;
 					sampleIndex < AREA_LIGHT_SAMPLE_COUNT;
@@ -371,10 +372,12 @@ fn evaluateDeferredPBR(surface: DeferredSurface) -> vec3<f32> {
 				}
 				continue;
 			}
-			let toLight = clusterLight.positionRange.xyz - surface.worldPosition;
+			let positionRange = clusterPositionRanges.values[clusterRef.lightIndex];
+			let colorInner = clusterColorInners.values[clusterRef.lightIndex];
+			let toLight = positionRange.xyz - surface.worldPosition;
 			let distanceSq = dot(toLight, toLight);
 			let distanceValue = sqrt(max(distanceSq, EPSILON));
-			let lightRange = clusterLight.positionRange.w;
+			let lightRange = positionRange.w;
 			if (distanceValue > lightRange) {
 				continue;
 			}
@@ -383,23 +386,27 @@ fn evaluateDeferredPBR(surface: DeferredSurface) -> vec3<f32> {
 			var attenuation = pointAttenuation(distanceSq, lightRange);
 			var shadow = vec3<f32>(1.0);
 			if (clusterRef.lightType == CLUSTER_LIGHT_TYPE_SPOT) {
+				let directionOuter =
+					clusterDirectionOuters.values[clusterRef.lightIndex];
 				let lightToPoint = -lightDirection;
 				let coneDirection = safeNormalize(
-					clusterLight.directionOuter.xyz,
+					directionOuter.xyz,
 					vec3<f32>(0.0, -1.0, 0.0)
 				);
 				let coneAttenuation = spotAttenuation(
 					dot(lightToPoint, coneDirection),
-					clusterLight.directionOuter.w,
-					clusterLight.colorInner.w
+					directionOuter.w,
+					colorInner.w
 				);
 				if (coneAttenuation <= 0.0) {
 					continue;
 				}
 				attenuation *= coneAttenuation;
-				if (clusterRef.shadowed && clusterLight.shadowIndex < 8u) {
+				let shadowIndex =
+					clusterMetadata.values[clusterRef.lightIndex].shadowIndex;
+				if (clusterRef.shadowed && shadowIndex < 8u) {
 					shadow = sampleSpotShadowVisibility(
-						clusterLight.shadowIndex,
+						shadowIndex,
 						surface.worldPosition,
 						surface.shadowNormal,
 						lightDirection
@@ -413,7 +420,7 @@ fn evaluateDeferredPBR(surface: DeferredSurface) -> vec3<f32> {
 				surface,
 				pbr,
 				lightDirection,
-				clusterLight.colorInner.xyz * attenuation,
+				colorInner.xyz * attenuation,
 				shadow
 			);
 		}
@@ -682,7 +689,7 @@ fn evaluateDeferredPhong(surface: DeferredSurface) -> vec3<f32> {
 
 	if (isClusteredLightingEnabled()) {
 		let clusterHeader = getClusterHeaderForFragment(
-			surface.worldPosition,
+			surface.pixelPosition,
 			surface.linearDepth
 		);
 		let clusterEntryCount = getClusterEntryCount(clusterHeader);
@@ -693,9 +700,8 @@ fn evaluateDeferredPhong(surface: DeferredSurface) -> vec3<f32> {
 			if (clusterRef.lightIndex >= clusterLightCount) {
 				continue;
 			}
-			let clusterLight = clusterLights.lights[clusterRef.lightIndex];
 			if (clusterRef.lightType == CLUSTER_LIGHT_TYPE_AREA) {
-				let areaRecord = clusteredRecordToAreaLight(clusterLight);
+				let areaRecord = clusteredRecordToAreaLight(clusterRef.lightIndex);
 				for (
 					var sampleIndex: u32 = 0u;
 					sampleIndex < AREA_LIGHT_SAMPLE_COUNT;
@@ -728,10 +734,12 @@ fn evaluateDeferredPhong(surface: DeferredSurface) -> vec3<f32> {
 				}
 				continue;
 			}
-			let toLight = clusterLight.positionRange.xyz - surface.worldPosition;
+			let positionRange = clusterPositionRanges.values[clusterRef.lightIndex];
+			let colorInner = clusterColorInners.values[clusterRef.lightIndex];
+			let toLight = positionRange.xyz - surface.worldPosition;
 			let distanceSq = dot(toLight, toLight);
 			let distanceValue = sqrt(max(distanceSq, EPSILON));
-			let lightRange = clusterLight.positionRange.w;
+			let lightRange = positionRange.w;
 			if (distanceValue > lightRange) {
 				continue;
 			}
@@ -739,22 +747,26 @@ fn evaluateDeferredPhong(surface: DeferredSurface) -> vec3<f32> {
 			var attenuation = pointAttenuation(distanceSq, lightRange);
 			var shadow = vec3<f32>(1.0);
 			if (clusterRef.lightType == CLUSTER_LIGHT_TYPE_SPOT) {
+				let directionOuter =
+					clusterDirectionOuters.values[clusterRef.lightIndex];
 				let coneDirection = safeNormalize(
-					clusterLight.directionOuter.xyz,
+					directionOuter.xyz,
 					vec3<f32>(0.0, -1.0, 0.0)
 				);
 				let coneAttenuation = spotAttenuation(
 					dot(-lightDirection, coneDirection),
-					clusterLight.directionOuter.w,
-					clusterLight.colorInner.w
+					directionOuter.w,
+					colorInner.w
 				);
 				if (coneAttenuation <= 0.0) {
 					continue;
 				}
 				attenuation *= coneAttenuation;
-				if (clusterRef.shadowed && clusterLight.shadowIndex < 8u) {
+				let shadowIndex =
+					clusterMetadata.values[clusterRef.lightIndex].shadowIndex;
+				if (clusterRef.shadowed && shadowIndex < 8u) {
 					shadow = sampleSpotShadowVisibility(
-						clusterLight.shadowIndex,
+						shadowIndex,
 						surface.worldPosition,
 						surface.shadowNormal,
 						lightDirection
@@ -772,7 +784,7 @@ fn evaluateDeferredPhong(surface: DeferredSurface) -> vec3<f32> {
 				surface.viewDir
 			);
 			let specFactor = pow(max(dot(surface.normal, halfVector), 0.0), shininess);
-			let radiance = clusterLight.colorInner.xyz * attenuation * shadow;
+			let radiance = colorInner.xyz * attenuation * shadow;
 			direct += radiance * nDotL * surface.albedo;
 			direct += radiance * specFactor * surface.specularColor;
 		}
