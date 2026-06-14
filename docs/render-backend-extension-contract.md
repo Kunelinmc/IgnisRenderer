@@ -7,6 +7,8 @@ This document defines the backend extension registry used by `IRenderBackendSess
 Renderer-facing optional capabilities must not add feature-specific properties to the main backend interface. Backends expose optional integration APIs through a stable, typed extension registry in the active backend session.
 
 ## API/Contract
+- `IRenderBackend`
+	- Must not expose `extensions` or an implicit default session.
 - `IRenderBackendSession.extensions`
 	- Must expose a `RenderBackendExtensionRegistry`.
 - `RenderBackendExtensionKey<TApi>`
@@ -47,4 +49,6 @@ if (compute) {
 
 ## Compatibility / Breaking Changes
 - `IRenderBackend.extensions` is removed; extensions are now resolved through `IRenderBackendSession.extensions` via `renderer.getBackendExtension` or `renderer.requireBackendExtension`.
+- Applications that manually create a session must query that session's
+  extension registry, not the provider.
 - Extensions must be queried via typed keys rather than raw string identifiers.

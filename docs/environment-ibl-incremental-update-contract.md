@@ -29,7 +29,7 @@ IBL prefiltering is now an explicit operation owned by applications or tooling.
 ## Usage
 ```ts
 const baked = await bakeEnvironmentIBLFromEnvironmentMap(environmentTexture, {
-	backend: webgpuBackend,
+	backend: renderer,
 	acceleration: "auto",
 });
 

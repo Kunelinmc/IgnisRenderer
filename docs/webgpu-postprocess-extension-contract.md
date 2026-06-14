@@ -4,19 +4,19 @@ This document defines the WebGPU-specific behavior behind the cross-backend
 post-process contract.
 
 ## Background
-WebGPU post-processing is owned by `WebGPUBackend`. `Renderer` owns only
-`renderer.postProcess`, while `WebGPUBackend` owns `BackendPostProcessRuntime`,
+WebGPU post-processing is owned by `WebGPUBackendSession`. `Renderer` owns only
+`renderer.postProcess`, while `WebGPUBackendSession` owns `BackendPostProcessRuntime`,
 `WebGPUPostProcessExecutor`, concrete texture allocation, frame target
 integration, and lifecycle invalidation.
 
 ## API/Contract
-- `WebGPUBackend.capabilities.postProcess` must be `true`.
-- `WebGPUBackend.extensions` must not expose `renderer.postprocess`.
-- `WebGPUBackend.executePass({ stage: "postprocess" }, context)` must delegate
+- `WebGPUBackendSession.profile.capabilities.postProcess` must be `true`.
+- `WebGPUBackendSession.extensions` must not expose `renderer.postprocess`.
+- `WebGPUBackendSession.executePass({ stage: "postprocess" }, context)` must delegate
   to backend-owned post-process runtime execution.
-- `WebGPUBackend.endFrame()` must commit post-process histories only after the
+- `WebGPUBackendSession.endFrame()` must commit post-process histories only after the
   WebGPU frame executor ends successfully.
-- `WebGPUBackend.abortFrame(error)` must abort the post-process runtime before
+- `WebGPUBackendSession.abortFrame(error)` must abort the post-process runtime before
   clearing WebGPU frame executor and particle state.
 - WebGPU resize, device loss, MSAA changes, shader runtime changes, and destroy
   must call post-process runtime invalidation or destruction directly.

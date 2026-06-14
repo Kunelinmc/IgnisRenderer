@@ -19,15 +19,15 @@ flowchart TD
 	Prefilter --> CPU[CPU or Worker Prefilter]
 	Prefilter --> GPU[WebGPU ComputeRuntime]
 	GPU --> Facade[WebGPU ComputeFacade]
-	Facade --> Backend[WebGPUBackend]
+	Facade --> Session[WebGPUBackendSession]
 	Prefilter --> Texture[Prefiltered HDR Texture]
 	App --> Probe[ReflectionProbe or LightProbe]
 	Probe --> Renderer[Renderer Frame Rendering]
 ```
 
 ## API/Contract
-- `IBLPrefilter` must accept an optional backend or WebGPU compute source at
-  construction time.
+- `IBLPrefilter` must accept an optional `Renderer`, backend session, or WebGPU
+  compute source at construction time.
 - `IBLPrefilter.prefilter(envMap, options)` must return an HDR `Texture` whose
   `mipmaps` encode roughness levels.
 - `prefilterEnvironmentIBL(envMap, options)` must provide a one-shot helper with
@@ -36,8 +36,8 @@ flowchart TD
   `maxMipLevels` for output limits.
 - `IBLPrefilterOptions.acceleration` must support `auto`, `worker`, `cpu`, and
   `webgpu`.
-- If `acceleration` is `webgpu`, a WebGPU backend or compute source must be
-  provided.
+- If `acceleration` is `webgpu`, a WebGPU renderer, backend session, or compute
+  source must be provided.
 - If `acceleration` is `auto`, WebGPU may be used when a valid WebGPU source is
   available; otherwise worker or CPU fallback may be used.
 - `Renderer` must not expose environment IBL bake or update methods.
@@ -46,7 +46,7 @@ flowchart TD
 
 ## Usage
 ```ts
-const prefilter = new IBLPrefilter(webgpuBackend);
+const prefilter = new IBLPrefilter(renderer);
 const prefilteredMap = await prefilter.prefilter(environmentTexture, {
 	acceleration: "auto",
 	maxSampleWidth: 128,
@@ -60,7 +60,7 @@ reflectionProbe.markRuntimeDirty();
 
 ```ts
 const baked = await bakeEnvironmentIBLFromEnvironmentMap(environmentTexture, {
-	backend: webgpuBackend,
+	backend: renderer,
 	acceleration: "auto",
 });
 
@@ -77,8 +77,8 @@ bun tests/static/lighting/test_ibl_prefilter.mjs
   equirectangular texture or cubemap.
 - `IBLPrefilter.prefilter()` must throw an `AbortError` when `signal` is
   aborted.
-- Explicit `webgpu` acceleration must throw when no WebGPU backend or compute
-  source is available.
+- Explicit `webgpu` acceleration must throw when no WebGPU renderer, backend
+  session, or compute source is available.
 - Explicit `worker` acceleration must throw when the Worker API is unavailable.
 
 ## Compatibility / Breaking Changes
@@ -88,3 +88,5 @@ This change is breaking.
 `Renderer.requestEnvironmentIBLUpdate()`, `WarmupOptions.environmentIBLBake`,
 and `WarmupOptions.includeEnvironmentIBLBake` are removed. Consumers must use
 `IBLPrefilter` or `bakeEnvironmentIBLFromEnvironmentMap` directly.
+`IRenderBackend` providers are no longer accepted as compute sources; use the
+active `Renderer`, an explicit `IRenderBackendSession`, or a compute facade.

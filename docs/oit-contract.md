@@ -16,9 +16,9 @@ lighting has resolved into `sceneColorMain`.
 
 ## API/Contract
 - `BackendCapabilities.oit` must exist on all backends.
-- `WebGPUBackend.capabilities.oit` must be `true`.
-- `WebGLBackend.capabilities.oit` must be `true`.
-- `SoftwareBackend.capabilities.oit` must be `false`.
+- `WebGPUBackendSession.profile.capabilities.oit` must be `true`.
+- `WebGLBackendSession.profile.capabilities.oit` must be `true`.
+- `SoftwareBackendSession.profile.capabilities.oit` must be `false`.
 - `RendererFeatureRequest.enableOIT` must be accepted by feature resolution.
 - `Renderer.features.enableOIT` defaults to `false`.
 - `resolveFeatureState(...)` must auto-disable `enableOIT` when backend
@@ -65,7 +65,7 @@ import { WebGLBackend } from "../src/renderers/WebGLBackend";
 
 const backend = new WebGLBackend();
 const renderer = new Renderer(backend, canvas, camera);
-await renderer.init();
+await renderer.initialize();
 
 renderer.features.enableOIT = true;
 await renderer.renderScene(performance.now());
@@ -77,8 +77,8 @@ await renderer.renderScene(performance.now());
 // - If backend does not support OIT, it is disabled and warning is emitted.
 const resolved = resolveFeatureState(
 	{ enableOIT: true },
-	backend.capabilities,
-	backend.type
+	renderer.backendProfile.capabilities,
+	renderer.backendProfile.id
 );
 ```
 
@@ -98,6 +98,7 @@ const resolved = resolveFeatureState(
 All warnings should be emitted via `warn once` behavior.
 
 ## Compatibility / Breaking Changes
-No breaking API changes are introduced. `enableOIT` is opt-in and defaults to
-disabled. Unsupported backends and unsupported runtime conditions must fall
-back to legacy transparent rendering.
+`enableOIT` remains opt-in and defaults to disabled. Capability inspection must
+use `Renderer.backendProfile` or an explicit backend session; providers no
+longer expose runtime capabilities. Unsupported backends and unsupported
+runtime conditions must fall back to legacy transparent rendering.

@@ -91,6 +91,11 @@ BREAKING CHANGE: `RenderPipelineRegistry.registerStage` has been replaced by
 	- **SoftwareBackend**: Multi-threaded CPU rasterizer with modular executors for rasterization, light evaluation, and post-processing.
 	- **WebGPUBackend**: Hardware-accelerated pipeline utilizing a delegated architecture with specialized registries for resources, bindings, and frame execution.
 	- **WebGLBackend**: Modernizing with a new V1 implementation for broad compatibility.
+	- Backend classes are configuration providers. `IRenderBackend` must expose
+	  only `createSession(context)`, while renderer-bound runtime state,
+	  capabilities, extensions, device lifecycle, and frame execution belong to
+	  the returned `IRenderBackendSession`. Providers must not create or proxy an
+	  implicit default session.
 - **Core Architecture**: Entity Component System (ECS) backing a modular Scene Graph. `Node` acts as a high-level interface synchronized with the ECS. Integrated with Animation, Physics, and backend-owned Particle simulation runtimes.
 
 ## Build & Test Commands
@@ -197,7 +202,7 @@ BREAKING CHANGE: `RenderPipelineRegistry.registerStage` has been replaced by
 
 ### Advanced Rendering Features
 - **WebGPU Deferred Lighting**: `main-opaque` may internally split into background, G-buffer, deferred lighting resolve, and forward fallback GPU passes. This is WebGPU-internal and must not add global renderer frame-pass stages for Software/WebGL.
-- **Cross-Backend Post-Processing**: `src/postprocess/` owns logical pass descriptors, graph compilation, G-buffer semantic contracts, history/transient resource policies, and pass-owned implementations when a built-in pass requires cross-backend orchestration (for example TAA). `Renderer` owns only the public `renderer.postProcess` registry. Post-processing is a backend-owned `"postprocess"` `backend-pass`; Software, WebGL, and WebGPU hold a `BackendPostProcessRuntime` and execute it from `IRenderBackend.executePass({ stage: "postprocess" })`. Backends expose `IPostProcessExecutor.executePass(passId, request)` fallback, optional `IPostProcessExecutor.getPassExecutionContext(request)` low-level helpers, and `LogicalGBufferBridge`; they must not expose public post-process graph registration APIs, `renderer.postprocess` backend extensions, or hardcode pass kernel orchestration that belongs in `src/postprocess/passes/`.
+- **Cross-Backend Post-Processing**: `src/postprocess/` owns logical pass descriptors, graph compilation, G-buffer semantic contracts, history/transient resource policies, and pass-owned implementations when a built-in pass requires cross-backend orchestration (for example TAA). `Renderer` owns only the public `renderer.postProcess` registry. Post-processing is a backend-owned `"postprocess"` `backend-pass`; Software, WebGL, and WebGPU sessions hold a `BackendPostProcessRuntime` and execute it from `IRenderBackendSession.executePass({ stage: "postprocess" })`. Backends expose `IPostProcessExecutor.executePass(passId, request)` fallback, optional `IPostProcessExecutor.getPassExecutionContext(request)` low-level helpers, and `LogicalGBufferBridge`; they must not expose public post-process graph registration APIs, `renderer.postprocess` backend extensions, or hardcode pass kernel orchestration that belongs in `src/postprocess/passes/`.
 - **Built-In Post-Processing Passes**: Cross-backend logical pass system supporting:
     - **SSAO**: Screen-Space Ambient Occlusion with depth-aware bilateral blur.
     - **TAA**: Temporal Anti-Aliasing with variance clamping and history rectification.

@@ -26,10 +26,10 @@ untrusted visibility information must keep objects visible.
   - `maxReadbackLatencyFrames = 3`.
   - `debug = false`.
 - `BackendCapabilities.occlusionCulling` must exist on all backends.
-- `WebGPUBackend.capabilities.occlusionCulling` must be `true` unless
+- `WebGPUBackendSession.profile.capabilities.occlusionCulling` must be `true` unless
   `WebGPUBackendOptions.enableOcclusionCulling === false`.
-- `WebGLBackend.capabilities.occlusionCulling` must be `false` in v1.
-- `SoftwareBackend.capabilities.occlusionCulling` must be `false` in v1.
+- `WebGLBackendSession.profile.capabilities.occlusionCulling` must be `false` in v1.
+- `SoftwareBackendSession.profile.capabilities.occlusionCulling` must be `false` in v1.
 - Backends that support occlusion culling must expose an
   `OcclusionCullingBackendAdapter` through the `renderer.occlusion-culling`
   backend extension.
@@ -74,7 +74,7 @@ import { WebGPUBackend } from "../src/renderers/WebGPUBackend";
 
 const backend = new WebGPUBackend();
 const renderer = new Renderer(backend, canvas, camera);
-await renderer.init();
+await renderer.initialize();
 
 renderer.features.enableOcclusionCulling = true;
 renderer.features.occlusionCullingOptions = {
@@ -88,8 +88,11 @@ await renderer.renderScene(performance.now());
 const disabledBackend = new WebGPUBackend({
 	enableOcclusionCulling: false,
 });
+const disabledRenderer = new Renderer(disabledBackend, canvas, camera);
 
-console.assert(disabledBackend.capabilities.occlusionCulling === false);
+console.assert(
+	disabledRenderer.backendProfile.capabilities.occlusionCulling === false
+);
 ```
 
 ```bash
@@ -120,7 +123,7 @@ frames would otherwise produce duplicate warnings.
 Occlusion culling remains opt-in and defaults to disabled for renderer feature
 users. Backend integration APIs are breaking:
 `backend.occlusionCullingAdapter` is removed and must be replaced with
-`resolveOcclusionCullingBackendExtension(backend)?.api`. Unsupported backends
+`renderer.getBackendExtension(OCCLUSION_CULLING_EXTENSION)`. Unsupported backends
 must keep existing rendering behavior by disabling the resolved feature.
 
 WebGPU may promote an active occlusion-culling frame away from the single-target

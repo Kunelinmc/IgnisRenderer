@@ -30,7 +30,7 @@ await renderer.warmup();
 
 ```ts
 const baked = await bakeEnvironmentIBLFromEnvironmentMap(environmentTexture, {
-	backend: webgpuBackend,
+	backend: renderer,
 	acceleration: "auto",
 });
 

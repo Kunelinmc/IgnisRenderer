@@ -7,6 +7,12 @@ This document defines the device/context loss and restoration contract for `IRen
 GPU-backed renderers can lose their device or context at runtime. WebGPU reports loss through `GPUDevice.lost`, and WebGL reports loss through `webglcontextlost` and `webglcontextrestored` events. IgnisRenderer exposes a backend-agnostic lifecycle contract via sessions and events so that the renderer and applications can recover resource state without direct coupling.
 
 ## API/Contract
+- `IRenderBackend.createSession(context)`
+	- Behavior contract: must return a new renderer-owned `IRenderBackendSession`.
+	- Constraint: each call must return isolated runtime state bound to the
+	  supplied surface and event sink.
+	- Constraint: providers must not expose session lifecycle, frame lifecycle,
+	  profile, or extension members directly.
 - `RenderBackendDeviceLostInfo`
 	- Input contract: `reason` may contain a backend-specific loss reason.
 	- Input contract: `message` may contain a diagnostic message.
@@ -38,10 +44,10 @@ GPU-backed renderers can lose their device or context at runtime. WebGPU reports
 	- Constraint: must be idempotent.
 - `RendererEvents.devicelost`
 	- Output contract: emitted to the application after renderer-owned device-loss bookkeeping completes.
-- `WebGPURenderBackendSession`
+- `WebGPUBackendSession`
 	- Must listen to `GPUDevice.lost`.
 	- Must perform internal rollback, mark device as lost, and then emit `device-lost` event through `RenderBackendEventSink`.
-- `WebGLRenderBackendSession`
+- `WebGLBackendSession`
 	- Must handle `webglcontextlost` by marking context as lost and emitting `device-lost`.
 	- Must handle `webglcontextrestored` by restoring state and emitting `device-restored`.
 
@@ -75,4 +81,6 @@ await renderer.restore();
 - `renderer.backend` and `renderer.backendType` are removed.
 - `Renderer.onDeviceLost` and `Renderer.onBackendResourceEvent` are removed.
 - `RendererBackendBridge` is removed.
+- Provider-level `initialize`, `restore`, `resize`, `getAttachments`, frame
+  lifecycle, `destroy`, `profile`, and `extensions` members are removed.
 - Backends must route all lifecycle notifications as events through `RenderBackendEventSink` instead of direct callbacks.

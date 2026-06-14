@@ -7,6 +7,9 @@ This document defines the per-frame lifecycle contract for `IRenderBackendSessio
 Rendering backends allocate command buffers and transient targets during frame execution. If a stage throws an error, the engine must abort the frame and release resources without submitting partial work to the GPU.
 
 ## API/Contract
+- `IRenderBackend`
+	- Must expose only `createSession(context)` for backend runtime creation.
+	- Must not expose frame lifecycle methods or an implicit default session.
 - `IRenderBackendSession.beginFrame(context: FrameContext)`
 	- Behavior contract: must prepare command encoders, bind presentation attachments, and transition frame state.
 	- Constraint: must throw if another frame is already active or if the session is uninitialized.
@@ -51,4 +54,6 @@ try {
 
 ## Compatibility / Breaking Changes
 - `IRenderBackend` direct frame lifecycle methods are removed. Frame orchestration is moved entirely to `IRenderBackendSession` and coordinated by `FrameCoordinator`.
+- Backend providers no longer create an implicit session when profile,
+  capability, extension, or frame methods are read.
 - `IRenderBackend.executeSharedPass` is removed.

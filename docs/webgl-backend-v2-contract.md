@@ -11,20 +11,20 @@ WebGL-specific implementation constraints. WebGL post-processing is now
 backend-owned and executes through the `"postprocess"` backend pass.
 
 ## API/Contract
-- `WebGLBackend` must report core `capabilities.sh = true`.
-- `WebGLBackend` must report `capabilities.clusteredLighting = true`.
-- `WebGLBackend` must report `capabilities.postProcess = true`.
+- `WebGLBackendSession` must report core `profile.capabilities.sh = true`.
+- `WebGLBackendSession` must report `profile.capabilities.clusteredLighting = true`.
+- `WebGLBackendSession` must report `profile.capabilities.postProcess = true`.
 - `WebGLBackend` must not expose `postProcessCapabilities`.
 - WebGL post-process support must be derived from pass-owned WebGL
   implementations.
-- `WebGLBackend.extensions` must not expose `renderer.postprocess`.
-- `WebGLBackend.executePass({ stage: "postprocess" }, context)` must delegate
+- `WebGLBackendSession.extensions` must not expose `renderer.postprocess`.
+- `WebGLBackendSession.executePass({ stage: "postprocess" }, context)` must delegate
   to backend-owned post-process runtime execution.
-- `WebGLBackend.endFrame()` must commit post-process histories only after the
+- `WebGLBackendSession.endFrame()` must commit post-process histories only after the
   WebGL frame executor ends successfully.
-- `WebGLBackend.abortFrame(error)` must abort post-process runtime before
+- `WebGLBackendSession.abortFrame(error)` must abort post-process runtime before
   clearing WebGL frame executor state.
-- `WebGLBackend.warmup(context, options)` must use
+- `WebGLBackendSession.warmup(context, options)` must use
   `BackendPostProcessRuntime.compileWarmupGraph(context)` to collect post-process
   pass descriptors.
 - `WebGLPostProcessExecutor.createGBufferBridge(context)` must return a
@@ -78,7 +78,7 @@ renderer.postProcess.registerPass(new FogPass({
 	},
 }));
 
-await renderer.init();
+await renderer.initialize();
 renderer.requestRender();
 ```
 
@@ -106,6 +106,8 @@ bun tests/static/webgl/test_webgl_frame_executor_fxaa.mjs
 
 ## Compatibility / Breaking Changes
 - Public backend type name remains `WebGLBackend`.
+- `WebGLBackend` is now a provider and exposes only `createSession(context)`;
+  runtime state and lifecycle methods belong to `WebGLBackendSession`.
 - Core capability fields `sh` and `clusteredLighting` changed from disabled to
   enabled.
 - `BackendCapabilities.postProcess` is added and is `true` for `WebGLBackend`.
