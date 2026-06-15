@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import {
+	GammaPass,
 	ScreenSpaceRefractionsPass,
 	ScreenSpaceReflectionsPass,
 	TemporalAntiAliasingPass,
@@ -16,6 +17,7 @@ import { FakeWebGPUBackend as FakeBackend } from "../../helpers/fakes.mjs";
 import { createResolvedPostProcess } from "../../helpers/postprocess.mjs";
 
 const BUILTIN_PASS_BY_ID = new Map([
+	["gamma", new GammaPass({ enabled: true })],
 	["taa", new TemporalAntiAliasingPass({ enabled: true })],
 	["ssr", new ScreenSpaceReflectionsPass({ enabled: true })],
 	["ssrefraction", new ScreenSpaceRefractionsPass({ enabled: true })],
@@ -88,7 +90,11 @@ function createExecutionContextRequest(passId, request, overrides = {}) {
 	};
 }
 
-function createExecutorHarness() {
+function createExecutorHarness(postProcessRequest = {
+	taa: { enabled: true },
+	ssr: { enabled: true },
+	volumetric: { enabled: true },
+}) {
 	const backend = new FakeBackend();
 	const frameResources = {
 		scopeKey: "main",
@@ -133,11 +139,7 @@ function createExecutorHarness() {
 			warnings: [],
 			clusteredLightingOptions: {},
 		},
-		postProcess: createResolvedPostProcess({
-			taa: { enabled: true },
-			ssr: { enabled: true },
-			volumetric: { enabled: true },
-		}, "webgpu"),
+		postProcess: createResolvedPostProcess(postProcessRequest, "webgpu"),
 		shadowMaps: new Map(),
 		scene: {
 			particleSystems: [],
@@ -160,7 +162,54 @@ function createExecutorHarness() {
 		transient: new Map(),
 	};
 	executor.beginFrame(frameContext);
-	return { executor, backend };
+	return { executor, backend, frameContext };
+}
+
+async function testGammaOwnsWebGPUKernelBeforeRawPresent() {
+	const { executor, backend, frameContext } = createExecutorHarness({
+		gamma: { enabled: true },
+	});
+	const gammaPass = BUILTIN_PASS_BY_ID.get("gamma");
+	const request = createTemporalRequest({ frameContext });
+	const passRequest = createExecutionContextRequest("gamma", request, {
+		pass: gammaPass,
+		implementation: gammaPass.getImplementation("webgpu"),
+	});
+	const context = executor.getPassExecutionContext(passRequest);
+	const targets = executor.getFrameGraphDebugState().frameTargets;
+
+	assert.equal(
+		executor.getFrameGraphDebugState().targetManager.needsPostProcessTargets,
+		true
+	);
+	assert.ok(context.encoder);
+	assert.ok(context.shared);
+	assert.equal(typeof context.publishColorTarget, "function");
+
+	const result = await passRequest.implementation.execute(passRequest, context);
+	executor.completePostProcessPass(passRequest, result);
+	assert.deepEqual(result, { ran: true });
+	assert.equal(
+		executor.getFrameGraphDebugState().frameTargets.sceneColor,
+		targets.postPong
+	);
+	assert.equal(
+		backend.computePipelines.some(
+			(pipeline) => pipeline.label === "WebGPUGammaPipeline"
+		),
+		true
+	);
+
+	await executor.endFrame();
+	assert.equal(
+		backend.buffers.some((buffer) => buffer.label === "WebGPUPresentParams"),
+		false
+	);
+	const presentBinding = backend.bindingGroups.find(
+		(group) => group.label === "WebGPUPresentBinding"
+	);
+	assert.ok(presentBinding);
+	assert.equal(presentBinding.entries.length, 2);
 }
 
 async function testTemporalExecutePassUsesPipelineHistories() {
@@ -369,6 +418,7 @@ function testWebGPUOcclusionExtensionDescriptor() {
 }
 
 async function run() {
+	await testGammaOwnsWebGPUKernelBeforeRawPresent();
 	await testTemporalExecutePassUsesPipelineHistories();
 	testCustomImplementationMetadataPacksContext();
 	await testWarmupHintsFollowPlanPostProcessPasses();

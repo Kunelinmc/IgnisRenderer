@@ -15,7 +15,6 @@ import type {
 	ResolvedPostProcessPass,
 } from "../../../postprocess";
 import {
-	GAMMA_PASS_ID,
 	SCREEN_SPACE_REFLECTIONS_PASS_ID,
 	SCREEN_SPACE_REFRACTIONS_PASS_ID,
 	resolvePostProcessExecutionOrder,
@@ -188,8 +187,7 @@ export class WebGPUFrameGraphRuntime {
 				getEncoder: () => this._encoder,
 				getFrameTargets: () => this._frameTargets,
 				requireFrameResources: () => this._requireFrameResources(),
-				presentToCanvas: (source, applyGamma) =>
-					this._presentToCanvas(source, applyGamma),
+				presentToCanvas: (source) => this._presentToCanvas(source),
 				warmupPresent: () => this._ensurePresentResources(),
 				setMotionHistoryWriteTarget: (texture) => {
 					this._motionHistoryWriteTarget = texture;
@@ -806,10 +804,7 @@ export class WebGPUFrameGraphRuntime {
 
 		try {
 			if (this._mrtEnabled && this._frameTargets && !this._hasPresentedInFrame) {
-				await this._presentToCanvas(
-					this._frameTargets.sceneColor,
-					this._frameContext?.postProcess.isEnabled("gamma") !== false
-				);
+				await this._presentToCanvas(this._frameTargets.sceneColor);
 			}
 
 			this._backend.submit([encoder.finish()]);
@@ -1043,9 +1038,7 @@ export class WebGPUFrameGraphRuntime {
 				frameContext: context,
 			}
 		);
-		const needsPostProcessTargets = postProcessPasses.some(
-			(resolved) => resolved.id !== GAMMA_PASS_ID
-		);
+		const needsPostProcessTargets = postProcessPasses.length > 0;
 		const needsPostProcessGBuffer = this._postProcessNeedsGBuffer(
 			context,
 			postProcessPasses
@@ -1306,16 +1299,12 @@ export class WebGPUFrameGraphRuntime {
 		await this._presentPass.warmup();
 	}
 
-	private async _presentToCanvas(
-		source: IRenderTexture,
-		applyGamma: boolean
-	): Promise<void> {
+	private async _presentToCanvas(source: IRenderTexture): Promise<void> {
 		if (!this._encoder) return;
 		await this._presentPass.present({
 			encoder: this._encoder,
 			frameContext: this._frameContext,
 			source,
-			applyGamma,
 			resolveDirtyRects: (context, width, height) =>
 				this._recordingContext.resolveDirtyRects(context, width, height),
 		});

@@ -1,8 +1,22 @@
 import { linearToSRGB, sRGBToLinear } from "../../maths/Common";
+import { ceilDiv } from "../../maths/Misc";
 import { DEFAULT_GAMMA } from "../../renderers/constants";
 import {
-	WEBGPU_PRESENT_POST_PROCESS_CONTEXT_METADATA,
+	WEBGPU_2D_COMPUTE_WORKGROUP_SIZE as WEBGPU_WORKGROUP_SIZE,
+} from "../../renderers/webgpu/constants";
+import {
+	BufferUsage,
+	type IComputePipeline,
+	type IRenderBuffer,
+	type IShaderModule,
+} from "../../renderers/types";
+import {
+	WEBGPU_SCREEN_POST_PROCESS_CONTEXT_METADATA,
 } from "../../renderers/webgpu/WebGPUPostProcessContracts";
+import type {
+	PostProcessSharedContext,
+} from "../../renderers/webgpu/postprocess/PostProcessSharedContext";
+import { ShaderSource } from "../../shaders/ShaderSource";
 import { PostProcessPass, type PostProcessPassConfig } from "../PostProcessPass";
 import type { PostProcessPassMetadata } from "../ordering";
 import type {
@@ -12,7 +26,9 @@ import type {
 } from "../types";
 import {
 	forEachSoftwareDirtyRect,
+	publishWebGPUColorTarget,
 	resolveSoftwareDirtyRects,
+	resolveWebGPUTarget,
 	type EmptyOptions,
 	type SoftwareBuiltinPostProcessContext,
 	type WebGLGammaContext,
@@ -100,32 +116,156 @@ export class SoftwareGammaImplementation
 		this._lastGamma = gamma;
 	}
 }
+interface WebGPUGammaResources {
+	shared: PostProcessSharedContext;
+	module: IShaderModule | null;
+	pipeline: IComputePipeline | null;
+	params: IRenderBuffer | null;
+	paramData: Float32Array<ArrayBuffer>;
+}
+
 /** @internal WebGPU implementation for the built-in gamma pass. */
 export class WebGPUGammaImplementation
 	implements PostProcessPassImplementation<WebGPUGammaContext, EmptyOptions>
 {
 	public readonly id = "gamma:webgpu";
 	public readonly metadata = {
-		context: WEBGPU_PRESENT_POST_PROCESS_CONTEXT_METADATA,
+		context: WEBGPU_SCREEN_POST_PROCESS_CONTEXT_METADATA,
 	};
+	private _resources = new WeakMap<
+		PostProcessSharedContext,
+		WebGPUGammaResources
+	>();
+	private _resourceSet = new Set<WebGPUGammaResources>();
 
 	public async warmup(context: WebGPUGammaContext | undefined): Promise<void> {
-		await context?.warmupPresent?.();
+		if (context) {
+			await this._ensureResources(context.shared);
+		}
 	}
 
 	public async execute(
-		request: PostProcessPassRequest<EmptyOptions>,
+		_request: PostProcessPassRequest<EmptyOptions>,
 		context: WebGPUGammaContext | undefined
 	): Promise<PostProcessPassResult> {
-		const source = context?.targets?.sceneColor;
-		if (!source || !context?.presentToCanvas) {
+		if (!context?.encoder || !context.targets) {
 			return { ran: false };
 		}
-		await context.presentToCanvas(
-			source,
-			request.frameContext.postProcess.isEnabled(GAMMA_PASS_ID)
+		const ran = await this._runGammaKernel(context);
+		return ran ? { ran: true } : { ran: false };
+	}
+
+	public invalidate(): void {
+		for (const resources of this._resourceSet) {
+			resources.shared.invalidateBindingsByPrefix("gamma-");
+		}
+	}
+
+	public destroy(): void {
+		for (const resources of this._resourceSet) {
+			resources.shared.destroyManagedResource(
+				resources.pipeline,
+				"gamma pipeline"
+			);
+			resources.shared.destroyManagedResource(
+				resources.module,
+				"gamma shader module"
+			);
+			resources.shared.destroyManagedResource(
+				resources.params,
+				"gamma params buffer"
+			);
+			resources.shared.invalidateBindingsByPrefix("gamma-");
+			resources.pipeline = null;
+			resources.module = null;
+			resources.params = null;
+		}
+		this._resourceSet.clear();
+		this._resources = new WeakMap<
+			PostProcessSharedContext,
+			WebGPUGammaResources
+		>();
+	}
+
+	private async _runGammaKernel(context: WebGPUGammaContext): Promise<boolean> {
+		const resources = await this._ensureResources(context.shared);
+		if (
+			!context.encoder ||
+			!context.targets ||
+			!resources.pipeline ||
+			!resources.params
+		) {
+			return false;
+		}
+		const targets = context.targets;
+		const target = resolveWebGPUTarget(targets);
+		const binding = context.shared.getCachedBindGroup(
+			`gamma-${target === targets.postPing ? "ping" : "pong"}`,
+			resources.pipeline,
+			[
+				{ binding: 0, resource: targets.sceneColor },
+				{ binding: 1, resource: resources.params },
+				{ binding: 2, resource: target },
+			],
+			"WebGPUGamma_Binding"
 		);
-		return { ran: true };
+		context.encoder.beginComputePass({ label: "WebGPUGamma" });
+		context.encoder.setComputePipeline(resources.pipeline);
+		context.encoder.setBindingGroup(0, binding);
+		context.encoder.dispatchWorkgroups(
+			ceilDiv(target.width, WEBGPU_WORKGROUP_SIZE),
+			ceilDiv(target.height, WEBGPU_WORKGROUP_SIZE),
+			1
+		);
+		context.encoder.endComputePass();
+		publishWebGPUColorTarget(context, target);
+		return true;
+	}
+
+	private async _ensureResources(
+		shared: PostProcessSharedContext
+	): Promise<WebGPUGammaResources> {
+		let resources = this._resources.get(shared);
+		if (!resources) {
+			resources = {
+				shared,
+				module: null,
+				pipeline: null,
+				params: null,
+				paramData: new Float32Array(4),
+			};
+			this._resources.set(shared, resources);
+			this._resourceSet.add(resources);
+		}
+		if (!resources.module) {
+			const shader = await ShaderSource.load(
+				"webgpu.postprocess.gamma.composite"
+			);
+			resources.module = await shared.compute.createShaderModule({
+				label: "WebGPUGammaShader",
+				code: shader.code,
+				sourceMap: shader.sourceMap,
+				language: "wgsl",
+				stage: "compute",
+				sourceKind: "postprocess",
+			});
+		}
+		if (!resources.pipeline) {
+			resources.pipeline = await shared.compute.createComputePipeline({
+				label: "WebGPUGammaPipeline",
+				compute: { module: resources.module, entryPoint: "csMain" },
+			});
+		}
+		if (!resources.params) {
+			resources.params = shared.compute.createBuffer({
+				label: "WebGPUGammaParams",
+				size: 16,
+				usage: BufferUsage.Uniform | BufferUsage.CopyDst,
+			});
+			resources.paramData[0] = DEFAULT_GAMMA;
+			shared.compute.writeBuffer(resources.params, resources.paramData);
+		}
+		return resources;
 	}
 }
 /** @internal WebGL implementation for the built-in gamma pass. */

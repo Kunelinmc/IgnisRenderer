@@ -29,7 +29,7 @@ export interface WebGPUPostProcessBridgeCallbacks {
 	getEncoder(): ICommandEncoder | null;
 	getFrameTargets(): WebGPUFrameTargets | null;
 	requireFrameResources(): WebGPUPreparedFrameResources;
-	presentToCanvas(source: IRenderTexture, applyGamma: boolean): Promise<void>;
+	presentToCanvas(source: IRenderTexture): Promise<void>;
 	warmupPresent(): Promise<void>;
 	setMotionHistoryWriteTarget(texture: IRenderTexture | null): void;
 }
@@ -234,8 +234,8 @@ export class WebGPUPostProcessBridge {
 		if (metadata.kind === "present") {
 			return {
 				targets: this._createFrameTargetsView(),
-				presentToCanvas: (source: IRenderTexture, applyGamma: boolean) =>
-					this._callbacks.presentToCanvas(source, applyGamma),
+				presentToCanvas: (source: IRenderTexture) =>
+					this._callbacks.presentToCanvas(source),
 				warmupPresent: () => this._callbacks.warmupPresent(),
 			};
 		}

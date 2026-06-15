@@ -1,12 +1,9 @@
 import type { FrameContext } from "../../../pipeline/types";
-import { DEFAULT_GAMMA } from "../../constants";
 import type { ICommandEncoder } from "../../ICommandEncoder";
 import {
 	AddressMode,
-	BufferUsage,
 	FilterMode,
 	type IBindingGroup,
-	type IRenderBuffer,
 	type IRenderPipeline,
 	type IRenderTexture,
 	type ISampler,
@@ -26,7 +23,6 @@ export interface WebGPUPresentRequest {
 	readonly encoder: ICommandEncoder;
 	readonly frameContext: FrameContext | null;
 	readonly source: IRenderTexture;
-	readonly applyGamma: boolean;
 	readonly resolveDirtyRects: (
 		context: FrameContext | null,
 		targetWidth: number,
@@ -42,7 +38,6 @@ export class WebGPUPresentPass {
 	private _shaderModule: IShaderModule | null = null;
 	private _pipeline: IRenderPipeline | null = null;
 	private _sampler: ISampler | null = null;
-	private _paramsBuffer: IRenderBuffer | null = null;
 	private _binding: IBindingGroup | null = null;
 	private _bindingSource: IRenderTexture | null = null;
 
@@ -56,14 +51,9 @@ export class WebGPUPresentPass {
 
 	public async present(request: WebGPUPresentRequest): Promise<void> {
 		await this._ensureResources();
-		if (!this._pipeline || !this._sampler || !this._paramsBuffer) {
+		if (!this._pipeline || !this._sampler) {
 			return;
 		}
-
-		this._backend.writeBuffer(
-			this._paramsBuffer,
-			new Float32Array([DEFAULT_GAMMA, request.applyGamma ? 1 : 0, 0, 0])
-		);
 
 		if (!this._binding || this._bindingSource !== request.source) {
 			this._destroyBindingGroup(this._binding);
@@ -73,7 +63,6 @@ export class WebGPUPresentPass {
 				entries: [
 					{ binding: 0, resource: request.source },
 					{ binding: 1, resource: this._sampler },
-					{ binding: 2, resource: this._paramsBuffer },
 				],
 				label: "WebGPUPresentBinding",
 			});
@@ -128,8 +117,6 @@ export class WebGPUPresentPass {
 
 	public destroy(): void {
 		this.onShaderRuntimeChanged();
-		this._destroyManagedResource(this._paramsBuffer);
-		this._paramsBuffer = null;
 	}
 
 	private async _ensureResources(): Promise<void> {
@@ -176,13 +163,6 @@ export class WebGPUPresentPass {
 			});
 		}
 
-		if (!this._paramsBuffer) {
-			this._paramsBuffer = this._backend.createBuffer({
-				label: "WebGPUPresentParams",
-				size: 16,
-				usage: BufferUsage.Uniform | BufferUsage.CopyDst,
-			});
-		}
 	}
 
 	private _destroyBindingGroup(group: IBindingGroup | null): void {

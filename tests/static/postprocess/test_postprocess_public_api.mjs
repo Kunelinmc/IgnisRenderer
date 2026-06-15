@@ -98,6 +98,7 @@ class FakeExecutor {
 				"dof",
 				"tonemap",
 				"color-filter",
+				"gamma",
 				].includes(passId)
 		) {
 			const targets = {
@@ -132,16 +133,6 @@ class FakeExecutor {
 				},
 				publishColorTarget: (texture) => {
 					targets.sceneColor = texture;
-					this.ownedExecuted.push(passId);
-				},
-			};
-		}
-		if (this.backend === "webgpu" && passId === "gamma") {
-			return {
-				targets: {
-					sceneColor: { id: "scene" },
-				},
-				presentToCanvas: () => {
 					this.ownedExecuted.push(passId);
 				},
 			};

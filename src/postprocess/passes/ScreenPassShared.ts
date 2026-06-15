@@ -24,14 +24,7 @@ export interface WebGPUScreenPostProcessContext {
 export type WebGPURuntimePostProcessContext = WebGPUScreenPostProcessContext;
 
 /** @internal WebGPU context supplied to the built-in gamma implementation. */
-export interface WebGPUGammaContext {
-	readonly targets?: WebGPUPostProcessFrameTargets;
-	presentToCanvas?(
-		source: IRenderTexture,
-		applyGamma: boolean
-	): void | Promise<void>;
-	warmupPresent?(): void | Promise<void>;
-}
+export type WebGPUGammaContext = WebGPUScreenPostProcessContext;
 
 /** @internal WebGL context supplied to built-in screen post-process implementations. */
 export interface WebGLScreenPostProcessContext {
