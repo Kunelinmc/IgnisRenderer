@@ -16,6 +16,7 @@ import { CubeTexture } from "../../../src/core/CubeTexture.ts";
 import { Node } from "../../../src/core/Node.ts";
 import { Scene } from "../../../src/core/Scene.ts";
 import { collectWebGLLights } from "../../../src/renderers/webgl/WebGLLightCollector.ts";
+import { WebGLProgramCompiler } from "../../../src/renderers/webgl/WebGLProgramCompiler.ts";
 import { WebGLProgramLibrary } from "../../../src/renderers/webgl/WebGLProgramLibrary.ts";
 import { WebGLGeometryRegistry } from "../../../src/renderers/webgl/WebGLGeometryRegistry.ts";
 import {
@@ -73,6 +74,22 @@ function createProgramLibrary(gl, warn, shaderRuntime, shaderCompileStage) {
 		shaderRuntime,
 		shaderCompileStage,
 	);
+}
+
+function createCompilerSlot(compiler, label, uniformNames = []) {
+	return compiler.createSlot({
+		label,
+		vertex: () => CUSTOM_WEBGL_VERTEX,
+		fragment: () => CUSTOM_WEBGL_FRAGMENT,
+		reflect(gl, program) {
+			return {
+				program,
+				uniforms: Object.fromEntries(
+					uniformNames.map((name) => [name, gl.getUniformLocation(program, name)])
+				),
+			};
+		},
+	});
 }
 
 function createProgramCompileFailGL() {
@@ -1192,12 +1209,16 @@ function testProgramLibraryRuntimeRevisionInvalidatesCustomCache() {
 	assert.equal(gl.programCount, 2);
 }
 
-function testProgramLibraryCompilesMotionBlurAndDOFPrograms() {
+function testProgramOwnershipSeparatesPostProcessAndBackendPrograms() {
 	const gl = createProgramCaptureGL();
+	const compiler = new WebGLProgramCompiler(gl);
 	const library = createProgramLibrary(gl, () => {});
 
-	const motionBlurProgram = library.getMotionBlurProgram();
-	const dofProgram = library.getDOFProgram();
+	const motionBlurProgram = createCompilerSlot(
+		compiler,
+		"WebGLMotionBlurProgram"
+	).get();
+	const dofProgram = createCompilerSlot(compiler, "WebGLDOFProgram").get();
 	const oitResolveProgram = library.getOITResolveProgram();
 
 	assert.ok(motionBlurProgram.program);
@@ -1206,13 +1227,17 @@ function testProgramLibraryCompilesMotionBlurAndDOFPrograms() {
 	assert.equal(gl.programCount, 3);
 }
 
-function testProgramLibraryParallelWarmupDefersStatusQueries() {
+function testProgramCompilerParallelWarmupDefersStatusQueries() {
 	const gl = createProgramWarmupTrackingGL({
 		parallel: true,
 		completeAfterPolls: 2,
 	});
-	const library = createProgramLibrary(gl, () => {});
-	const handle = library.warmupFXAAProgram();
+	const compiler = new WebGLProgramCompiler(gl);
+	const slot = createCompilerSlot(compiler, "WebGLFXAAProgram", [
+		"uSourceMap",
+		"uTexelSize",
+	]);
+	const handle = slot.warmup();
 
 	assert.equal(gl.calls.linkProgram, 1);
 	assert.equal(gl.calls.getShaderParameter.length, 0);
@@ -1241,12 +1266,12 @@ function testProgramLibraryParallelWarmupDefersStatusQueries() {
 	assert.ok(gl.calls.getUniformLocation.includes("uTexelSize"));
 }
 
-function testProgramLibraryFallbackWarmupBatchesBeforeFinalize() {
+function testProgramCompilerFallbackWarmupBatchesBeforeFinalize() {
 	const gl = createProgramWarmupTrackingGL();
-	const library = createProgramLibrary(gl, () => {});
+	const compiler = new WebGLProgramCompiler(gl);
 
-	const fxaa = library.warmupFXAAProgram();
-	const present = library.warmupPresentProgram();
+	const fxaa = createCompilerSlot(compiler, "WebGLFXAAProgram").warmup();
+	const present = createCompilerSlot(compiler, "WebGLPresentProgram").warmup();
 
 	assert.equal(gl.calls.linkProgram, 2);
 	assert.equal(gl.calls.getShaderParameter.length, 0);
@@ -1266,22 +1291,30 @@ function testProgramLibraryFallbackWarmupBatchesBeforeFinalize() {
 	);
 }
 
-function testProgramLibraryTryGetDefersFallbackFinalization() {
+function testProgramCompilerTryGetDefersFallbackFinalization() {
 	const gl = createProgramWarmupTrackingGL();
 	let pendingNotifications = 0;
-	const library = new WebGLProgramLibrary(
+	const compiler = new WebGLProgramCompiler(
 		gl,
-		() => {},
+		undefined,
+		undefined,
 		{
 			onProgramCompilePending: () => {
 				pendingNotifications++;
 			},
 		},
 	);
+	const fxaaSlot = createCompilerSlot(compiler, "WebGLFXAAProgram", [
+		"uSourceMap",
+		"uTexelSize",
+	]);
+	const bloomSlot = createCompilerSlot(compiler, "WebGLBloomProgram", [
+		"uBloomParams",
+	]);
 
-	library.beginFrame();
-	assert.equal(library.tryGetFXAAProgram(), null);
-	assert.equal(library.tryGetBloomProgram(), null);
+	compiler.beginFrame();
+	assert.equal(fxaaSlot.tryGet(), null);
+	assert.equal(bloomSlot.tryGet(), null);
 	assert.equal(pendingNotifications, 1);
 	assert.equal(gl.calls.linkProgram, 2);
 	assert.equal(gl.calls.getShaderParameter.length, 0);
@@ -1291,9 +1324,9 @@ function testProgramLibraryTryGetDefersFallbackFinalization() {
 	);
 	assert.equal(gl.calls.getUniformLocation.length, 0);
 
-	library.beginFrame();
-	assert.equal(library.tryGetFXAAProgram(), null);
-	assert.equal(library.tryGetBloomProgram(), null);
+	compiler.beginFrame();
+	assert.equal(fxaaSlot.tryGet(), null);
+	assert.equal(bloomSlot.tryGet(), null);
 	assert.equal(pendingNotifications, 2);
 	assert.equal(gl.calls.getShaderParameter.length, 0);
 	assert.equal(
@@ -1301,9 +1334,9 @@ function testProgramLibraryTryGetDefersFallbackFinalization() {
 		false
 	);
 
-	library.beginFrame();
-	const fxaa = library.tryGetFXAAProgram();
-	const bloomPending = library.tryGetBloomProgram();
+	compiler.beginFrame();
+	const fxaa = fxaaSlot.tryGet();
+	const bloomPending = bloomSlot.tryGet();
 	assert.ok(fxaa);
 	assert.equal(bloomPending, null);
 	assert.equal(pendingNotifications, 3);
@@ -1320,8 +1353,8 @@ function testProgramLibraryTryGetDefersFallbackFinalization() {
 		false
 	);
 
-	library.beginFrame();
-	const bloom = library.tryGetBloomProgram();
+	compiler.beginFrame();
+	const bloom = bloomSlot.tryGet();
 	assert.ok(bloom);
 	assert.equal(pendingNotifications, 3);
 	assert.equal(gl.calls.getShaderParameter.length, 4);
@@ -1333,13 +1366,13 @@ function testProgramLibraryTryGetDefersFallbackFinalization() {
 	assert.ok(gl.calls.getUniformLocation.includes("uBloomParams"));
 }
 
-function testProgramLibraryValidationIsOptIn() {
+function testProgramCompilerValidationIsOptIn() {
 	const gl = createProgramWarmupTrackingGL({
 		validateStatus: false,
 	});
-	const library = createProgramLibrary(gl, () => {});
+	const compiler = new WebGLProgramCompiler(gl);
 
-	library.getFXAAProgram();
+	createCompilerSlot(compiler, "WebGLFXAAProgram").get();
 
 	assert.equal(gl.calls.validateProgram, 0);
 	assert.equal(
@@ -1348,18 +1381,22 @@ function testProgramLibraryValidationIsOptIn() {
 	);
 }
 
-function testProgramLibraryValidationWarnsWhenEnabled() {
+function testProgramCompilerValidationWarnsWhenEnabled() {
 	const warnings = [];
 	const gl = createProgramWarmupTrackingGL({
 		validateStatus: false,
 	});
-	const library = new WebGLProgramLibrary(
+	const compiler = new WebGLProgramCompiler(
 		gl,
-		(key, message) => warnings.push({ key, message }),
-		{ validatePrograms: true },
+		undefined,
+		undefined,
+		{
+			validatePrograms: true,
+			warn: (key, message) => warnings.push({ key, message }),
+		},
 	);
 
-	library.getFXAAProgram();
+	createCompilerSlot(compiler, "WebGLFXAAProgram").get();
 
 	assert.equal(gl.calls.validateProgram, 1);
 	assert.ok(gl.calls.getProgramParameter.includes(gl.VALIDATE_STATUS));
@@ -1368,6 +1405,64 @@ function testProgramLibraryValidationWarnsWhenEnabled() {
 			warning.key.startsWith("webgl-program-validate-WebGLFXAAProgram")
 		)
 	);
+}
+
+function testProgramCompilerSlotLifecycleAndStaleWarmup() {
+	const gl = createProgramWarmupTrackingGL({
+		parallel: true,
+		completeAfterPolls: 100,
+	});
+	let deletedPrograms = 0;
+	gl.deleteProgram = () => {
+		deletedPrograms++;
+	};
+	const compiler = new WebGLProgramCompiler(gl);
+	let sourceRevision = 0;
+	let sourceResolutions = 0;
+	const createSlot = () => compiler.createSlot({
+		label: "WebGLLifecycleProgram",
+		vertex: () => {
+			sourceResolutions++;
+			return `${CUSTOM_WEBGL_VERTEX}\n// revision ${sourceRevision}`;
+		},
+		fragment: () => {
+			sourceResolutions++;
+			return `${CUSTOM_WEBGL_FRAGMENT}\n// revision ${sourceRevision}`;
+		},
+		reflect: (_gl, program) => ({ program }),
+	});
+	const slot = createSlot();
+
+	assert.throws(createSlot, /already registered/);
+	const staleHandle = slot.warmup();
+	assert.equal(compiler.getCompileState(slot.label), "pending");
+	sourceRevision++;
+	slot.invalidate();
+	assert.equal(compiler.getCompileState(slot.label), "idle");
+	assert.throws(() => staleHandle.isComplete(), /became stale/);
+	assert.throws(() => staleHandle.finalize(), /became stale/);
+	assert.equal(deletedPrograms, 1);
+
+	const first = slot.get();
+	assert.ok(first.program);
+	assert.equal(sourceResolutions, 4);
+	sourceRevision++;
+	slot.invalidate();
+	const second = slot.get();
+	assert.ok(second.program);
+	assert.notEqual(second.program, first.program);
+	assert.equal(sourceResolutions, 6);
+	assert.equal(deletedPrograms, 2);
+
+	slot.destroy();
+	slot.destroy();
+	assert.equal(deletedPrograms, 3);
+	const replacement = createSlot();
+	replacement.get();
+	compiler.destroy();
+	compiler.destroy();
+	assert.equal(deletedPrograms, 4);
+	assert.throws(() => replacement.get(), /destroyed/);
 }
 
 function testLightCollectorShadowBias() {
@@ -2459,12 +2554,13 @@ async function run() {
 	testProgramLibraryShaderMaterialMissingSourceFallsBack();
 	testProgramLibraryWarnModeFallsBackOnCustomCompileFailure();
 	testProgramLibraryRuntimeRevisionInvalidatesCustomCache();
-	testProgramLibraryCompilesMotionBlurAndDOFPrograms();
-	testProgramLibraryParallelWarmupDefersStatusQueries();
-	testProgramLibraryFallbackWarmupBatchesBeforeFinalize();
-	testProgramLibraryTryGetDefersFallbackFinalization();
-	testProgramLibraryValidationIsOptIn();
-	testProgramLibraryValidationWarnsWhenEnabled();
+	testProgramOwnershipSeparatesPostProcessAndBackendPrograms();
+	testProgramCompilerParallelWarmupDefersStatusQueries();
+	testProgramCompilerFallbackWarmupBatchesBeforeFinalize();
+	testProgramCompilerTryGetDefersFallbackFinalization();
+	testProgramCompilerValidationIsOptIn();
+	testProgramCompilerValidationWarnsWhenEnabled();
+	testProgramCompilerSlotLifecycleAndStaleWarmup();
 	testLightCollectorShadowBias();
 	testLightCollectorPCSSShadowParams();
 	testLightCollectorDirectionalCSMShadowData();

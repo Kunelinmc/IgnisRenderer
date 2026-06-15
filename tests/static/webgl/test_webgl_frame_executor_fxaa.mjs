@@ -255,6 +255,54 @@ function createFrameTargetTestGL(options = {}) {
 	};
 }
 
+function createProgramCompilerStub(resources = {}, calls = []) {
+	const warmupHandles = [];
+	return {
+		createSlot(descriptor) {
+			const label = descriptor.label;
+			let destroyed = false;
+			const resolve = () => {
+				assert.equal(destroyed, false);
+				const resource = resources[label];
+				return typeof resource === "function" ? resource() : resource ?? null;
+			};
+			return {
+				label,
+				get() {
+					const resource = resolve();
+					if (!resource) throw new Error(`Missing test program ${label}`);
+					return resource;
+				},
+				tryGet: resolve,
+				warmup() {
+					calls.push(label);
+					const handle = {
+						label,
+						isComplete: () => true,
+						finalize: () => {},
+					};
+					warmupHandles.push(handle);
+					return handle;
+				},
+				invalidate() {},
+				destroy() {
+					destroyed = true;
+				},
+			};
+		},
+		beginFrame() {},
+		markWarmupHandles() {
+			return warmupHandles.length;
+		},
+		collectWarmupHandlesSince(mark) {
+			const handles = warmupHandles.slice(mark);
+			warmupHandles.length = mark;
+			return handles;
+		},
+		destroy() {},
+	};
+}
+
 function captureWarnMessages(run) {
 	const warnings = [];
 	Logger.configure({
@@ -283,17 +331,15 @@ function testFXAAPassUsesLatestPostSourceAndRebindsPostTarget() {
 	const postFramebuffer = { id: "post-fbo" };
 	const fullscreenVao = { id: "fullscreen-vao" };
 
-	executor._programs = {
-		tryGetFXAAProgram() {
-			return {
+	executor._programCompiler = createProgramCompilerStub({
+		WebGLFXAAProgram: {
 				program: { id: "fxaa-program" },
 				uniforms: {
 					sourceMap: { id: "uSourceMap" },
 					texelSize: { id: "uTexelSize" },
 				},
-			};
 		},
-	};
+	});
 	executor._sceneColorTexture = sceneColor;
 	executor._presentSourceTexture = taaHistory;
 	executor._postColorTexture = postColor;
@@ -354,12 +400,12 @@ function testFXAAPassSkipsWhileProgramPending() {
 	const postColor = { id: "post-color" };
 	let tryCalls = 0;
 
-	executor._programs = {
-		tryGetFXAAProgram() {
+	executor._programCompiler = createProgramCompilerStub({
+		WebGLFXAAProgram() {
 			tryCalls++;
 			return null;
 		},
-	};
+	});
 	executor._sceneColorTexture = sceneColor;
 	executor._presentSourceTexture = sourceColor;
 	executor._postColorTexture = postColor;
@@ -410,16 +456,14 @@ function testToneMappingPassUsesLatestPostSourceAndRebindsPostTarget() {
 	const postFramebuffer = { id: "post-fbo" };
 	const fullscreenVao = { id: "fullscreen-vao" };
 
-	executor._programs = {
-		tryGetToneMappingProgram() {
-			return {
+	executor._programCompiler = createProgramCompilerStub({
+		WebGLToneMappingProgram: {
 				program: { id: "tonemap-program" },
 				uniforms: {
 					sourceMap: { id: "uSourceMap" },
 				},
-			};
 		},
-	};
+	});
 	executor._sceneColorTexture = sceneColor;
 	executor._presentSourceTexture = bloomColor;
 	executor._postColorTexture = postColor;
@@ -872,9 +916,8 @@ function testTransparentRenderPacketsConfiguresBlendAndDepthState() {
 function testTAAPassDetachesMotionAttachmentAndSanitizesOptions() {
 	const gl = createFXAATestGL();
 	const executor = new WebGLFrameExecutor(gl);
-	executor._programs = {
-		tryGetTAAProgram() {
-			return {
+	executor._programCompiler = createProgramCompilerStub({
+		WebGLTAAProgram: {
 				program: { id: "taa-program" },
 				uniforms: {
 					sceneColor: "uSceneColor",
@@ -889,9 +932,8 @@ function testTAAPassDetachesMotionAttachmentAndSanitizesOptions() {
 					sharpen: "uSharpen",
 					historyValid: "uHistoryValid",
 				},
-			};
 		},
-	};
+	});
 	executor._postFramebuffer = { id: "post-fbo" };
 	executor._sceneColorTexture = { id: "scene-color" };
 	executor._sceneMotionTexture = { id: "scene-motion" };
@@ -997,17 +1039,17 @@ function testTAAPassDetachesMotionAttachmentAndSanitizesOptions() {
 function testSSAOPassDetachesSecondaryAttachmentForDownsampleTargets() {
 	const gl = createFXAATestGL();
 	const executor = new WebGLFrameExecutor(gl);
-	executor._programs = {
-		tryGetSSAORawProgram() {
-			return { program: { id: "ssao-raw" }, uniforms: {} };
+	let programsReady = false;
+	executor._programCompiler = createProgramCompilerStub({
+		WebGLSSAORawProgram: { program: { id: "ssao-raw" }, uniforms: {} },
+		WebGLSSAOBlurProgram: () => programsReady ?
+			{ program: { id: "ssao-blur" }, uniforms: {} }
+		: null,
+		WebGLSSAOCombineProgram: {
+			program: { id: "ssao-combine" },
+			uniforms: {},
 		},
-		tryGetSSAOBlurProgram() {
-			return { program: { id: "ssao-blur" }, uniforms: {} };
-		},
-		tryGetSSAOCombineProgram() {
-			return { program: { id: "ssao-combine" }, uniforms: {} };
-		},
-	};
+	});
 	executor._postFramebuffer = { id: "post-fbo" };
 	executor._postColorTexture = { id: "post-color" };
 	executor._sceneColorTexture = { id: "scene-color" };
@@ -1056,6 +1098,16 @@ function testSSAOPassDetachesSecondaryAttachmentForDownsampleTargets() {
 		...request,
 		implementation: pass.getImplementation("webgl"),
 	});
+	const pendingResult = pass.getImplementation("webgl").execute(
+		request,
+		passContext
+	);
+	assert.deepEqual(pendingResult, { ran: false });
+	assert.equal(
+		gl.calls.some((call) => call.name === "framebufferTexture2D"),
+		false
+	);
+	programsReady = true;
 	const result =
 		pass.getImplementation("webgl").execute(
 			request,
@@ -1257,59 +1309,12 @@ async function testWarmupCollectsPostProcessHintsFromPlanOrder() {
 	const gl = createFXAATestGL();
 	const executor = new WebGLFrameExecutor(gl);
 	const calls = [];
+	executor._programCompiler = createProgramCompilerStub({}, calls);
 
 	executor._programs = {
 		getSceneProgram() {
 			calls.push("scene");
 			return { program: { id: "scene" }, uniforms: {} };
-		},
-		warmupSSAORawProgram() {
-			calls.push("ssao-raw");
-			return {
-				label: "ssao-raw",
-				isComplete: () => true,
-				finalize: () => {},
-			};
-		},
-		warmupSSAOBlurProgram() {
-			calls.push("ssao-blur");
-			return {
-				label: "ssao-blur",
-				isComplete: () => true,
-				finalize: () => {},
-			};
-		},
-		warmupSSAOCombineProgram() {
-			calls.push("ssao-combine");
-			return {
-				label: "ssao-combine",
-				isComplete: () => true,
-				finalize: () => {},
-			};
-		},
-		getBloomProgram() {
-			calls.push("bloom");
-			return { program: { id: "bloom" }, uniforms: {} };
-		},
-		warmupBloomProgram() {
-			calls.push("bloom");
-			return {
-				label: "bloom",
-				isComplete: () => true,
-				finalize: () => {},
-			};
-		},
-		getFXAAProgram() {
-			calls.push("fxaa");
-			return { program: { id: "fxaa" }, uniforms: {} };
-		},
-		warmupFXAAProgram() {
-			calls.push("fxaa");
-			return {
-				label: "fxaa",
-				isComplete: () => true,
-				finalize: () => {},
-			};
 		},
 		getPresentProgram() {
 			calls.push("present");
@@ -1343,11 +1348,11 @@ async function testWarmupCollectsPostProcessHintsFromPlanOrder() {
 
 	assert.deepEqual(calls, [
 		"scene",
-		"ssao-raw",
-		"ssao-blur",
-		"ssao-combine",
-		"bloom",
-		"fxaa",
+		"WebGLSSAORawProgram",
+		"WebGLSSAOBlurProgram",
+		"WebGLSSAOCombineProgram",
+		"WebGLBloomProgram",
+		"WebGLFXAAProgram",
 		"present",
 	]);
 }
