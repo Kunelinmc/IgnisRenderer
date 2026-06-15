@@ -9,7 +9,6 @@ import {
 	MotionBlurPass,
 	ToneMappingPass,
 } from "../../../src/postprocess/index.ts";
-import { INTERACTION_TRANSIENT_STATE_KEY } from "../../../src/pipeline/types.ts";
 import { Matrix4 } from "../../../src/maths/Matrix4.ts";
 import { WebGPUPostProcessRuntime } from "../../../src/renderers/webgpu/WebGPUPostProcessRuntime.ts";
 import {

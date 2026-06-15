@@ -1,16 +1,7 @@
 import type { Camera } from "../cameras/Camera";
 import { EventEmitter } from "../core/EventEmitter";
 import type { Scene } from "../core/Scene";
-import type {
-	InteractionTransientState,
-} from "../pipeline/types";
-import { INTERACTION_TRANSIENT_STATE_KEY } from "../pipeline/types";
 import type { PhysicsSystem } from "../physics/PhysicsSystem";
-import type {
-	FrameTransientContributor,
-	FrameTransientContributorContext,
-	Renderer,
-} from "../renderers/Renderer";
 import {
 	InteractableRegistry,
 	type InteractionPointerState,
@@ -28,8 +19,10 @@ import {
 	type InteractionDragRectState,
 	type InteractionEntityEvent,
 	type InteractionEvents,
+	type InteractionGizmoState,
 	type InteractionPointerEventLike,
 	type InteractionSelectionMode,
+	type InteractionState,
 	type InteractionTransformEvent,
 } from "./types";
 
@@ -39,7 +32,6 @@ export class InteractionController extends EventEmitter<InteractionEvents> {
 	 * behavior for picking, callbacks, and selection filtering.
 	 */
 	public readonly interactables: InteractableRegistry;
-	private _renderer: Renderer | null = null;
 	private _scene: Scene | null = null;
 	private _camera: Camera | null = null;
 	private _physics: PhysicsSystem | null = null;
@@ -54,7 +46,6 @@ export class InteractionController extends EventEmitter<InteractionEvents> {
 	private _picker: InteractionPicker;
 	private _selection: InteractionSelectionState;
 	private _gizmo: TransformGizmoController;
-	private _transientContributor: FrameTransientContributor;
 
 	/**
 	 * Creates a controller for registry-backed scene interaction.
@@ -79,29 +70,23 @@ export class InteractionController extends EventEmitter<InteractionEvents> {
 			this.interactables
 		);
 		this._gizmo = new TransformGizmoController();
-		this._transientContributor = (context) => {
-			this._writeTransientState(context);
-		};
 	}
 
 	/**
-	 * Attaches the controller to renderer frame state and scene picking data.
+	 * Attaches the controller to scene picking data.
 	 *
-	 * @param renderer - Renderer that receives transient interaction state.
 	 * @param scene - Scene whose nodes are resolved against `interactables`.
 	 * @param camera - Camera used to convert pointer coordinates into rays.
 	 * @param physicsSystem - Optional physics system used before BVH picking.
 	 * @returns This controller for chaining.
-	 * @sideEffects Registers a frame transient contributor on `renderer`.
+	 * @sideEffects Resets interaction state when the attachment changes.
 	 */
 	public attach(
-		renderer: Renderer,
-		scene: Scene = renderer.scene,
-		camera: Camera = renderer.camera,
+		scene: Scene,
+		camera: Camera,
 		physicsSystem: PhysicsSystem | null = null
 	): this {
 		if (
-			this._renderer === renderer &&
 			this._scene === scene &&
 			this._camera === camera &&
 			this._physics === physicsSystem
@@ -109,30 +94,22 @@ export class InteractionController extends EventEmitter<InteractionEvents> {
 			return this;
 		}
 		this.detach();
-		this._renderer = renderer;
 		this._scene = scene;
 		this._camera = camera;
 		this._physics = physicsSystem;
 		this._picker.attach(scene, camera, physicsSystem);
 		this._selection.setScene(scene);
 		this._gizmo.attach(scene, camera);
-		renderer.registerFrameTransientContributor(this._transientContributor);
 		return this;
 	}
 
 	/**
-	 * Detaches from the current renderer and clears transient interaction state.
+	 * Detaches from the current scene and clears interaction state.
 	 *
 	 * @returns Nothing.
-	 * @sideEffects Unregisters the frame transient contributor when attached.
+	 * @sideEffects Clears picking, selection, drag, and gizmo state.
 	 */
 	public detach(): void {
-		if (this._renderer) {
-			this._renderer.unregisterFrameTransientContributor(
-				this._transientContributor
-			);
-		}
-		this._renderer = null;
 		this._scene = null;
 		this._camera = null;
 		this._physics = null;
@@ -173,17 +150,40 @@ export class InteractionController extends EventEmitter<InteractionEvents> {
 	}
 
 	/**
+	 * Reads the current interaction state without submitting rendering work.
+	 *
+	 * @returns A detached snapshot of selection, hover, gizmo, and drag state.
+	 * @sideEffects None.
+	 */
+	public getState(): InteractionState {
+		return {
+			selectedEntityIds: this._selection.getSelectedEntities(),
+			hoveredEntityId: this._selection.getHoveredEntity(),
+			gizmo: this._gizmo.getState(),
+			dragRect:
+				this._dragRect ?
+					{
+						startX: this._dragRect.startX,
+						startY: this._dragRect.startY,
+						endX: this._dragRect.endX,
+						endY: this._dragRect.endY,
+						active: this._dragRect.active,
+					}
+				: null,
+		};
+	}
+
+	/**
 	 * Updates whether selection is single-entity or multi-entity.
 	 *
 	 * @param selectionMode - `single` keeps one entity; `multiple` allows many.
 	 * @returns Nothing.
-	 * @sideEffects May deselect entities and requests an interaction render.
+	 * @sideEffects May deselect entities and emit interaction callbacks.
 	 */
 	public setSelectionMode(selectionMode: InteractionSelectionMode): void {
 		if (this._selectionMode === selectionMode) return;
 		this._selectionMode = selectionMode;
 		this._selection.setSelectionMode(selectionMode);
-		this._requestRender("interaction");
 	}
 
 	/**
@@ -191,11 +191,10 @@ export class InteractionController extends EventEmitter<InteractionEvents> {
 	 *
 	 * @param space - World-space or local-space gizmo axes.
 	 * @returns Nothing.
-	 * @sideEffects Requests an interaction render when attached.
+	 * @sideEffects Updates future gizmo sessions.
 	 */
 	public setGizmoSpace(space: GizmoSpace): void {
 		this._gizmo.setSpace(space);
-		this._requestRender("interaction");
 	}
 
 	/**
@@ -203,27 +202,28 @@ export class InteractionController extends EventEmitter<InteractionEvents> {
 	 *
 	 * @param pivot - Object-origin or bounds-center pivot mode.
 	 * @returns Nothing.
-	 * @sideEffects Requests an interaction render when attached.
+	 * @sideEffects Updates future gizmo sessions.
 	 */
 	public setGizmoPivot(pivot: GizmoPivot): void {
 		this._gizmo.setPivot(pivot);
-		this._requestRender("interaction");
 	}
 
 	/**
 	 * Feeds a normalized pointer or keyboard event into the controller.
 	 *
 	 * @param event - Pointer/key event data in viewport pixel coordinates.
-	 * @returns Nothing.
-	 * @sideEffects May update registry-backed interaction state, callbacks, and render dirtiness.
+	 * @returns The interaction state after processing the event.
+	 * @sideEffects May update registry-backed interaction state, invoke callbacks,
+	 * emit events, and modify a node during transform-gizmo interaction. It does
+	 * not request or submit rendering work.
 	 */
-	public updatePointer(event: InteractionPointerEventLike): void {
-		if (!this._scene || !this._camera) return;
+	public updatePointer(event: InteractionPointerEventLike): InteractionState {
+		if (!this._scene || !this._camera) return this.getState();
 
 		this._updatePointerSnapshot(event);
 		if (event.type === "key") {
 			this._handleKeyEvent(event);
-			return;
+			return this.getState();
 		}
 
 		switch (event.type) {
@@ -238,19 +238,17 @@ export class InteractionController extends EventEmitter<InteractionEvents> {
 				break;
 			case "leave":
 			case "cancel":
-				if (this._selection.setHover(null, this._snapshotPointer())) {
-					this._requestRender("interaction");
-				}
+				this._selection.setHover(null, this._snapshotPointer());
 				this._dragRect = null;
 				if (event.type === "cancel" && this._gizmo.isActive()) {
 					const cancelled = this._gizmo.cancel(this._selection.getSelection());
 					if (cancelled) {
 						this.emit("transformCancelled", cancelled);
 					}
-					this._requestRender("transform");
 				}
 				break;
 		}
+		return this.getState();
 	}
 
 	private _handlePointerMove(): void {
@@ -262,20 +260,17 @@ export class InteractionController extends EventEmitter<InteractionEvents> {
 				this._picker.isEntitySelectable(entityId) &&
 				this._gizmo.updateTransform(entityId, pointer)
 			) {
-				this._requestRender("transform");
 				return;
 			}
 			const cancelled = this._gizmo.cancel(entityId);
 			if (cancelled) {
 				this.emit("transformCancelled", cancelled);
 			}
-			this._requestRender("transform");
 			return;
 		}
 		if (this._dragRect?.active) {
 			this._dragRect.endX = pointer.screenX;
 			this._dragRect.endY = pointer.screenY;
-			this._requestRender("interaction");
 			return;
 		}
 		const hit = this._picker.pick(
@@ -284,9 +279,7 @@ export class InteractionController extends EventEmitter<InteractionEvents> {
 			{ width: pointer.viewportWidth, height: pointer.viewportHeight },
 			"hover"
 		);
-		if (this._selection.setHover(hit?.entityId ?? null, pointer)) {
-			this._requestRender("interaction");
-		}
+		this._selection.setHover(hit?.entityId ?? null, pointer);
 	}
 
 	private _handlePointerDown(button: number): void {
@@ -297,7 +290,6 @@ export class InteractionController extends EventEmitter<InteractionEvents> {
 				if (cancelled) {
 					this.emit("transformCancelled", cancelled);
 				}
-				this._requestRender("transform");
 			}
 			return;
 		}
@@ -307,7 +299,6 @@ export class InteractionController extends EventEmitter<InteractionEvents> {
 			if (committed) {
 				this.emit("transformCommitted", committed);
 			}
-			this._requestRender("transform");
 			return;
 		}
 
@@ -324,7 +315,6 @@ export class InteractionController extends EventEmitter<InteractionEvents> {
 				this._selection.replaceSelection([hit.entityId], pointer);
 			}
 			this._selection.emitClick(hit.entityId, pointer);
-			this._requestRender("interaction");
 			return;
 		}
 
@@ -335,7 +325,6 @@ export class InteractionController extends EventEmitter<InteractionEvents> {
 			endY: pointer.screenY,
 			active: true,
 		};
-		this._requestRender("interaction");
 	}
 
 	private _handlePointerUp(button: number): void {
@@ -352,7 +341,6 @@ export class InteractionController extends EventEmitter<InteractionEvents> {
 		} else {
 			this._selection.replaceSelection(selected, pointer);
 		}
-		this._requestRender("interaction");
 	}
 
 	private _handleKeyEvent(event: InteractionPointerEventLike): void {
@@ -365,7 +353,6 @@ export class InteractionController extends EventEmitter<InteractionEvents> {
 				if (cancelled) {
 					this.emit("transformCancelled", cancelled);
 				}
-				this._requestRender("transform");
 			}
 			return;
 		}
@@ -376,7 +363,6 @@ export class InteractionController extends EventEmitter<InteractionEvents> {
 				if (committed) {
 					this.emit("transformCommitted", committed);
 				}
-				this._requestRender("transform");
 			}
 			return;
 		}
@@ -385,7 +371,6 @@ export class InteractionController extends EventEmitter<InteractionEvents> {
 			this._gizmo.setSpace(
 				this._gizmo.getSpace() === "world" ? "local" : "world"
 			);
-			this._requestRender("interaction");
 			return;
 		}
 
@@ -395,7 +380,6 @@ export class InteractionController extends EventEmitter<InteractionEvents> {
 					"bounds-center"
 				: "object-origin"
 			);
-			this._requestRender("interaction");
 			return;
 		}
 
@@ -413,27 +397,7 @@ export class InteractionController extends EventEmitter<InteractionEvents> {
 			const mode: GizmoMode =
 				key === "g" ? "translate" : key === "r" ? "rotate" : "scale";
 			this._gizmo.begin(mode, node, this._snapshotPointer());
-			this._requestRender("interaction");
 		}
-	}
-
-	private _writeTransientState(context: FrameTransientContributorContext): void {
-		const interactionState: InteractionTransientState = {
-			selectedEntityIds: this._selection.getSelectedEntities(),
-			hoveredEntityId: this._selection.getHoveredEntity(),
-			gizmo: this._gizmo.getState(),
-			dragRect:
-				this._dragRect ?
-					{
-						startX: this._dragRect.startX,
-						startY: this._dragRect.startY,
-						endX: this._dragRect.endX,
-						endY: this._dragRect.endY,
-						active: this._dragRect.active,
-					}
-				: null,
-		};
-		context.transient.set(INTERACTION_TRANSIENT_STATE_KEY, interactionState);
 	}
 
 	private _updatePointerSnapshot(event: InteractionPointerEventLike): void {
@@ -471,10 +435,6 @@ export class InteractionController extends EventEmitter<InteractionEvents> {
 			altKey: this._lastPointer.altKey,
 		};
 	}
-
-	private _requestRender(reason: "interaction" | "transform"): void {
-		this._renderer?.requestRender(reason);
-	}
 }
 
 export type {
@@ -483,9 +443,12 @@ export type {
 	GizmoSpace,
 	InteractionControllerOptions,
 	InteractionClickEvent,
+	InteractionDragRectState,
 	InteractionEntityEvent,
 	InteractionEvents,
+	InteractionGizmoState,
 	InteractionPointerEventLike,
 	InteractionSelectionMode,
+	InteractionState,
 	InteractionTransformEvent,
 };

@@ -16,8 +16,8 @@ it must not be stored as an ECS component and it must not require subclassing
 
 ## API/Contract
 
-- `InteractionController` must be attached to a `Renderer`, `Scene`, and
-  `Camera` before pointer input is processed.
+- `InteractionController` must be attached to a `Scene` and `Camera` before
+  pointer input is processed. A `Renderer` must not be required.
 - `Interactable` must be registered in `InteractionController.interactables`
   before a node can be hovered, clicked, selected, or selected by drag
   rectangle.
@@ -32,8 +32,10 @@ it must not be stored as an ECS component and it must not require subclassing
   selection changes.
 - Object callbacks may be stored in `Interactable` as runtime functions:
   `onHoverEnter`, `onHoverLeave`, `onSelect`, `onDeselect`, and `onClick`.
-- `InteractionController` must write `INTERACTION_TRANSIENT_STATE_KEY` during
-   frame transient contribution.
+- `InteractionController.updatePointer()` must return an `InteractionState`
+  snapshot and must not request or submit rendering work.
+- `InteractionController.getState()` must return the current selection, hover,
+  transform-gizmo, and drag-rectangle state.
 
 ## Usage
 
@@ -42,14 +44,13 @@ import {
 	InteractionController,
 	Scene,
 	Camera,
-	Renderer,
 	type Interactable,
 } from "ignisrenderer";
 
 const controller = new InteractionController({
 	selectionMode: "multiple",
 });
-controller.attach(renderer, scene, camera);
+controller.attach(scene, camera);
 
 const interactable: Interactable = {
 	priority: 10,
@@ -61,7 +62,7 @@ const interactable: Interactable = {
 controller.interactables.set(meshInstance, interactable);
 
 canvas.addEventListener("pointerdown", (event) => {
-	controller.updatePointer({
+	const interaction = controller.updatePointer({
 		type: "down",
 		button: event.button,
 		screenX: event.clientX,
@@ -70,6 +71,7 @@ canvas.addEventListener("pointerdown", (event) => {
 		viewportWidth: canvas.clientWidth,
 		viewportHeight: canvas.clientHeight,
 	});
+	console.log(interaction.selectedEntityIds);
 });
 ```
 
@@ -83,9 +85,9 @@ bun tests/static/scene/test_interaction_controller_selection.mjs
   a registered `Interactable` in `InteractionController.interactables`.
 - If callbacks do not run, verify that `enabled`, `hoverable`, and
   `selectable` are not set to `false` for the intended interaction.
-- Verify that `InteractionController.attach()` was called and that the
-  selected entity id appears in
-  `INTERACTION_TRANSIENT_STATE_KEY.selectedEntityIds`.
+- Verify that `InteractionController.attach()` was called and that the selected
+  entity id appears in the `InteractionState.selectedEntityIds` returned by
+  `updatePointer()` or `getState()`.
 - If overlapping meshes select the wrong entity, inspect `priority`; higher
   values must win before distance.
 
@@ -102,3 +104,8 @@ bun tests/static/scene/test_interaction_controller_selection.mjs
 - Meshes without a registered `Interactable` are not selected by default.
 - Code that used `getSelection()` may continue reading the primary selected
   entity. Code that needs multi-selection must use `getSelectedEntities()`.
+- `InteractionController.attach(renderer, scene, camera)` has been replaced by
+  `InteractionController.attach(scene, camera)`.
+- `INTERACTION_TRANSIENT_STATE_KEY` and the interaction pipeline transient
+  types have been removed. Applications must consume `InteractionState`
+  directly and decide when and how to render interaction visuals.

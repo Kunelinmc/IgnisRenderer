@@ -271,7 +271,7 @@ export function setupInteraction(renderer: Renderer, scene: Scene, camera: Camer
 	for (const meshInstance of scene.getMeshInstances()) {
 		interaction.interactables.set(meshInstance, {});
 	}
-	interaction.attach(renderer, scene, camera);
+	interaction.attach(scene, camera);
 
 	// Listen for selection events
 	interaction.on("selectionChanged", ({ node }) => {

@@ -103,29 +103,6 @@ export const PARTICLE_SIM_DELTA_TIME_SECONDS_KEY =
 	defineTransientKey<number>("pipeline:particle-delta-time-seconds");
 export const ANIMATION_SIM_DELTA_TIME_MS_KEY =
 	defineTransientKey<number>("pipeline:animation-delta-time-ms");
-export const INTERACTION_TRANSIENT_STATE_KEY =
-	defineTransientKey<InteractionTransientState>("pipeline:interaction-state");
-
-export interface InteractionGizmoState {
-	mode: "translate" | "rotate" | "scale";
-	space: "world" | "local";
-	pivot: "object-origin" | "bounds-center";
-}
-
-export interface InteractionDragRect {
-	startX: number;
-	startY: number;
-	endX: number;
-	endY: number;
-	active: boolean;
-}
-
-export interface InteractionTransientState {
-	selectedEntityIds: number[];
-	hoveredEntityId: number | null;
-	gizmo: InteractionGizmoState | null;
-	dragRect: InteractionDragRect | null;
-}
 
 export interface ParticleUVRect {
 	u0: number;

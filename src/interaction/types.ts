@@ -76,4 +76,17 @@ export interface InteractionDragRectState {
 	active: boolean;
 }
 
+export interface InteractionGizmoState {
+	mode: GizmoMode;
+	space: GizmoSpace;
+	pivot: GizmoPivot;
+}
+
+export interface InteractionState {
+	selectedEntityIds: number[];
+	hoveredEntityId: number | null;
+	gizmo: InteractionGizmoState | null;
+	dragRect: InteractionDragRectState | null;
+}
+
 export const DEFAULT_MAX_RAY_DISTANCE = 10000;

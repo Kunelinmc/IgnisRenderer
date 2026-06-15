@@ -3,11 +3,6 @@ import { Camera } from "../../../src/cameras/Camera.ts";
 import { Scene } from "../../../src/core/Scene.ts";
 import { MeshFactory } from "../../../src/meshes/MeshFactory.ts";
 import { PBRMaterial } from "../../../src/materials/PBRMaterial.ts";
-import {
-	INTERACTION_TRANSIENT_STATE_KEY,
-	PARTICLE_SIM_DELTA_TIME_SECONDS_KEY,
-	ANIMATION_SIM_DELTA_TIME_MS_KEY,
-} from "../../../src/pipeline/types.ts";
 import { InteractionController } from "../../../src/interaction/InteractionController.ts";
 
 function createScene() {
@@ -15,40 +10,6 @@ function createScene() {
 	const camera = new Camera();
 	scene.add(camera);
 	return { scene, camera };
-}
-
-function createFakeRenderer(scene, camera) {
-	const contributors = new Set();
-	const renderReasons = [];
-	return {
-		contributors,
-		renderReasons,
-		renderer: {
-			scene,
-			camera,
-			requestRender: (reason) => renderReasons.push(reason),
-			registerFrameTransientContributor: (contributor) =>
-				contributors.add(contributor),
-			unregisterFrameTransientContributor: (contributor) =>
-				contributors.delete(contributor),
-		},
-	};
-}
-
-function runContributors(contributors, scene, camera) {
-	const transient = new Map();
-	transient.set(PARTICLE_SIM_DELTA_TIME_SECONDS_KEY, 0);
-	transient.set(ANIMATION_SIM_DELTA_TIME_MS_KEY, 0);
-	for (const contributor of contributors) {
-		contributor({
-			now: 0,
-			deltaTime: 0,
-			scene,
-			camera,
-			transient,
-		});
-	}
-	return transient;
 }
 
 function pointer(type, x, y, extra = {}) {
@@ -79,9 +40,8 @@ function runDefaultAndCallbackTests() {
 	scene.add(box);
 	sync(scene, camera);
 
-	const { contributors, renderer } = createFakeRenderer(scene, camera);
 	const controller = new InteractionController();
-	controller.attach(renderer, scene, camera, null);
+	controller.attach(scene, camera, null);
 
 	controller.updatePointer(pointer("down", 99.5, 99.5, { button: 0 }));
 	controller.updatePointer(pointer("up", 99.5, 99.5, { button: 0 }));
@@ -111,14 +71,13 @@ function runDefaultAndCallbackTests() {
 	});
 
 	controller.updatePointer(pointer("move", 99.5, 99.5));
-	controller.updatePointer(pointer("down", 99.5, 99.5, { button: 0 }));
+	const interactionState = controller.updatePointer(
+		pointer("down", 99.5, 99.5, { button: 0 })
+	);
 	assert.equal(controller.getSelection(), box.entityId);
-
-	const transient = runContributors(contributors, scene, camera);
-	const interactionState = transient.get(INTERACTION_TRANSIENT_STATE_KEY);
-	assert.ok(interactionState);
 	assert.deepEqual(interactionState.selectedEntityIds, [box.entityId]);
 	assert.equal(interactionState.hoveredEntityId, box.entityId);
+	assert.deepEqual(controller.getState(), interactionState);
 
 	controller.updatePointer(pointer("move", 0, 0));
 	controller.updatePointer(pointer("down", 0, 0, { button: 0 }));
@@ -133,7 +92,12 @@ function runDefaultAndCallbackTests() {
 	]);
 
 	controller.detach();
-	assert.equal(contributors.size, 0);
+	assert.deepEqual(controller.getState(), {
+		selectedEntityIds: [],
+		hoveredEntityId: null,
+		gizmo: null,
+		dragRect: null,
+	});
 }
 
 function runPriorityTest() {
@@ -156,11 +120,10 @@ function runPriorityTest() {
 	scene.add(high);
 	sync(scene, camera);
 
-	const { renderer } = createFakeRenderer(scene, camera);
 	const controller = new InteractionController();
 	controller.interactables.set(low, { priority: 0 });
 	controller.interactables.set(high, { priority: 10 });
-	controller.attach(renderer, scene, camera, null);
+	controller.attach(scene, camera, null);
 	controller.updatePointer(pointer("down", 99.5, 99.5, { button: 0 }));
 	assert.equal(controller.getSelection(), high.entityId);
 }
@@ -185,11 +148,10 @@ function runMultipleSelectionTest() {
 	scene.add(right);
 	sync(scene, camera);
 
-	const { renderer } = createFakeRenderer(scene, camera);
 	const controller = new InteractionController({ selectionMode: "multiple" });
 	controller.interactables.set(left, {});
 	controller.interactables.set(right, {});
-	controller.attach(renderer, scene, camera, null);
+	controller.attach(scene, camera, null);
 	controller.updatePointer(pointer("down", 0, 0, { button: 0 }));
 	controller.updatePointer(pointer("move", 199, 199));
 	controller.updatePointer(pointer("up", 199, 199, { button: 0 }));
