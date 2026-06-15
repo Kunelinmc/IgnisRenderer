@@ -21,6 +21,10 @@ import {
 	DOF_NEAR_FAR_STRENGTH_RANGE,
 } from "../../renderers/webgl/constants";
 import { sanitizeFiniteClamped } from "../../renderers/webgl/WebGLFrameMath";
+import type {
+	WebGLProgramCompiler,
+	WebGLProgramSlot,
+} from "../../renderers/webgl/WebGLProgramCompiler";
 import { ShaderSource } from "../../shaders/ShaderSource";
 import { PostProcessPass, type PostProcessPassConfig } from "../PostProcessPass";
 import type { PostProcessPassMetadata } from "../ordering";
@@ -40,6 +44,18 @@ import {
 } from "./ScreenPassShared";
 
 export const DEPTH_OF_FIELD_PASS_ID = "dof";
+
+interface WebGLDepthOfFieldProgram {
+	readonly program: WebGLProgram;
+	readonly uniforms: {
+		readonly sourceMap: WebGLUniformLocation | null;
+		readonly motionDepthMap: WebGLUniformLocation | null;
+		readonly texelSize: WebGLUniformLocation | null;
+		readonly focusParams: WebGLUniformLocation | null;
+		readonly dofParams: WebGLUniformLocation | null;
+		readonly chromaticAberration: WebGLUniformLocation | null;
+	};
+}
 export const DEPTH_OF_FIELD_PASS_ORDER = {
 	id: DEPTH_OF_FIELD_PASS_ID,
 	placement: "camera",
@@ -307,9 +323,13 @@ export class WebGLDepthOfFieldImplementation
 	implements PostProcessPassImplementation<WebGLDepthOfFieldContext, DOFOptions>
 {
 	public readonly id = "dof:webgl";
+	private _programCompiler: WebGLProgramCompiler | null = null;
+	private _programSlot: WebGLProgramSlot<WebGLDepthOfFieldProgram> | null = null;
 
 	public warmup(context: WebGLDepthOfFieldContext | undefined): void {
-		context?.programs.warmupDOFProgram();
+		if (context) {
+			this._getProgramSlot(context.programCompiler).warmup();
+		}
 	}
 
 	public execute(
@@ -374,7 +394,7 @@ export class WebGLDepthOfFieldImplementation
 		);
 
 		const gl = context.gl;
-		const program = context.programs.tryGetDOFProgram();
+		const program = this._getProgramSlot(context.programCompiler).tryGet();
 		if (!program) {
 			return { ran: false };
 		}
@@ -418,6 +438,44 @@ export class WebGLDepthOfFieldImplementation
 		gl.bindVertexArray(null);
 		context.publishColorTexture(target.texture);
 		return { ran: true };
+	}
+
+	public destroy(): void {
+		this._programSlot?.destroy();
+		this._programSlot = null;
+		this._programCompiler = null;
+	}
+
+	private _getProgramSlot(
+		compiler: WebGLProgramCompiler
+	): WebGLProgramSlot<WebGLDepthOfFieldProgram> {
+		if (this._programCompiler !== compiler) {
+			this._programSlot?.destroy();
+			this._programCompiler = compiler;
+			this._programSlot = compiler.createSlot({
+				label: "WebGLDOFProgram",
+				vertex: () => ShaderSource.get("webgl.part.presentVertex.raw"),
+				fragment: () => ShaderSource.get("webgl.part.dofFragment.raw"),
+				reflect: (gl, program) => ({
+					program,
+					uniforms: {
+						sourceMap: gl.getUniformLocation(program, "uSourceMap"),
+						motionDepthMap: gl.getUniformLocation(
+							program,
+							"uMotionDepthMap"
+						),
+						texelSize: gl.getUniformLocation(program, "uTexelSize"),
+						focusParams: gl.getUniformLocation(program, "uFocusParams"),
+						dofParams: gl.getUniformLocation(program, "uDOFParams"),
+						chromaticAberration: gl.getUniformLocation(
+							program,
+							"uChromaticAberration"
+						),
+					},
+				}),
+			});
+		}
+		return this._programSlot!;
 	}
 }
 export interface DepthOfFieldPassConfig

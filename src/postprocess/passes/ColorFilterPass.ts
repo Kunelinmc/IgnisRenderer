@@ -14,6 +14,10 @@ import {
 } from "../../renderers/webgpu/WebGPUPostProcessContracts";
 import type { PostProcessSharedContext } from "../../renderers/webgpu/postprocess/PostProcessSharedContext";
 import { sanitizeFiniteClamped } from "../../renderers/webgl/WebGLFrameMath";
+import type {
+	WebGLProgramCompiler,
+	WebGLProgramSlot,
+} from "../../renderers/webgl/WebGLProgramCompiler";
 import { ShaderSource } from "../../shaders/ShaderSource";
 import { PostProcessPass, type PostProcessPassConfig } from "../PostProcessPass";
 import type { PostProcessPassMetadata } from "../ordering";
@@ -35,6 +39,15 @@ import {
 } from "./ScreenPassShared";
 
 export const COLOR_FILTER_PASS_ID = "color-filter";
+
+interface WebGLColorFilterProgram {
+	readonly program: WebGLProgram;
+	readonly uniforms: {
+		readonly sourceMap: WebGLUniformLocation | null;
+		readonly filterParams0: WebGLUniformLocation | null;
+		readonly filterParams1: WebGLUniformLocation | null;
+	};
+}
 export const COLOR_FILTER_PASS_ORDER = {
 	id: COLOR_FILTER_PASS_ID,
 	placement: "ldr",
@@ -326,9 +339,13 @@ export class WebGLColorFilterImplementation
 	implements PostProcessPassImplementation<WebGLColorFilterContext, ColorFilterOptions>
 {
 	public readonly id = "color-filter:webgl";
+	private _programCompiler: WebGLProgramCompiler | null = null;
+	private _programSlot: WebGLProgramSlot<WebGLColorFilterProgram> | null = null;
 
 	public warmup(context: WebGLColorFilterContext | undefined): void {
-		context?.programs.warmupColorFilterProgram();
+		if (context) {
+			this._getProgramSlot(context.programCompiler).warmup();
+		}
 	}
 
 	public execute(
@@ -372,7 +389,7 @@ export class WebGLColorFilterImplementation
 		);
 
 		const gl = context.gl;
-		const program = context.programs.tryGetColorFilterProgram();
+		const program = this._getProgramSlot(context.programCompiler).tryGet();
 		if (!program) {
 			return { ran: false };
 		}
@@ -398,6 +415,42 @@ export class WebGLColorFilterImplementation
 		gl.bindVertexArray(null);
 		context.publishColorTexture(target.texture);
 		return { ran: true };
+	}
+
+	public destroy(): void {
+		this._programSlot?.destroy();
+		this._programSlot = null;
+		this._programCompiler = null;
+	}
+
+	private _getProgramSlot(
+		compiler: WebGLProgramCompiler
+	): WebGLProgramSlot<WebGLColorFilterProgram> {
+		if (this._programCompiler !== compiler) {
+			this._programSlot?.destroy();
+			this._programCompiler = compiler;
+			this._programSlot = compiler.createSlot({
+				label: "WebGLColorFilterProgram",
+				vertex: () => ShaderSource.get("webgl.part.presentVertex.raw"),
+				fragment: () =>
+					ShaderSource.get("webgl.part.colorFilterFragment.raw"),
+				reflect: (gl, webglProgram) => ({
+					program: webglProgram,
+					uniforms: {
+						sourceMap: gl.getUniformLocation(webglProgram, "uSourceMap"),
+						filterParams0: gl.getUniformLocation(
+							webglProgram,
+							"uFilterParams0"
+						),
+						filterParams1: gl.getUniformLocation(
+							webglProgram,
+							"uFilterParams1"
+						),
+					},
+				}),
+			});
+		}
+		return this._programSlot!;
 	}
 }
 export interface ColorFilterPassConfig

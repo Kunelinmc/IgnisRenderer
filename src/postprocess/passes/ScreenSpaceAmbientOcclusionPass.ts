@@ -22,7 +22,10 @@ import {
 	type WebGPUPostProcessFrameTargets,
 } from "../../renderers/webgpu/WebGPUPostProcessContracts";
 import type { PostProcessSharedContext } from "../../renderers/webgpu/postprocess/PostProcessSharedContext";
-import type { WebGLProgramLibrary } from "../../renderers/webgl/WebGLProgramLibrary";
+import type {
+	WebGLProgramCompiler,
+	WebGLProgramSlot,
+} from "../../renderers/webgl/WebGLProgramCompiler";
 import { ceilDiv } from "../../maths/Misc";
 import { ShaderSource } from "../../shaders/ShaderSource";
 import {
@@ -126,7 +129,7 @@ export interface WebGPUSSAOContext {
 /** @internal WebGL context supplied to the built-in SSAO implementation. */
 export interface WebGLSSAOContext {
 	readonly gl: WebGL2RenderingContext;
-	readonly programs: WebGLProgramLibrary;
+	readonly programCompiler: WebGLProgramCompiler;
 	readonly fullscreenVao: WebGLVertexArrayObject | null;
 	readonly postFramebuffer: WebGLFramebuffer | null;
 	readonly sceneColorTexture: WebGLTexture | null;
@@ -147,6 +150,42 @@ export interface WebGLSSAOContext {
 		frameContext: FrameContext | null
 	): void;
 	publishColorTexture(texture: WebGLTexture): void;
+}
+
+interface WebGLSSAORawProgram {
+	readonly program: WebGLProgram;
+	readonly uniforms: {
+		readonly normalMap: WebGLUniformLocation | null;
+		readonly depthMap: WebGLUniformLocation | null;
+		readonly invSize: WebGLUniformLocation | null;
+		readonly gtao: WebGLUniformLocation | null;
+		readonly blurProj: WebGLUniformLocation | null;
+		readonly pass: WebGLUniformLocation | null;
+		readonly cameraPosition: WebGLUniformLocation | null;
+		readonly basisRight: WebGLUniformLocation | null;
+		readonly basisUp: WebGLUniformLocation | null;
+		readonly basisBackward: WebGLUniformLocation | null;
+	};
+}
+
+interface WebGLSSAOBlurProgram {
+	readonly program: WebGLProgram;
+	readonly uniforms: {
+		readonly sourceMap: WebGLUniformLocation | null;
+		readonly depthMap: WebGLUniformLocation | null;
+		readonly invSize: WebGLUniformLocation | null;
+		readonly blurProj: WebGLUniformLocation | null;
+		readonly pass: WebGLUniformLocation | null;
+	};
+}
+
+interface WebGLSSAOCombineProgram {
+	readonly program: WebGLProgram;
+	readonly uniforms: {
+		readonly sceneColor: WebGLUniformLocation | null;
+		readonly aoMap: WebGLUniformLocation | null;
+		readonly invSize: WebGLUniformLocation | null;
+	};
 }
 
 interface IncrementalDirtyRect {
@@ -822,11 +861,19 @@ export class WebGLScreenSpaceAmbientOcclusionImplementation
 	implements PostProcessPassImplementation<WebGLSSAOContext>
 {
 	public readonly id = "ssao:webgl";
+	private _programCompiler: WebGLProgramCompiler | null = null;
+	private _rawProgramSlot: WebGLProgramSlot<WebGLSSAORawProgram> | null = null;
+	private _blurProgramSlot: WebGLProgramSlot<WebGLSSAOBlurProgram> | null = null;
+	private _combineProgramSlot: WebGLProgramSlot<WebGLSSAOCombineProgram> | null = null;
 
 	public warmup(context: WebGLSSAOContext | undefined): void {
-		context?.programs.warmupSSAORawProgram();
-		context?.programs.warmupSSAOBlurProgram();
-		context?.programs.warmupSSAOCombineProgram();
+		if (!context) {
+			return;
+		}
+		this._ensureProgramSlots(context.programCompiler);
+		this._rawProgramSlot!.warmup();
+		this._blurProgramSlot!.warmup();
+		this._combineProgramSlot!.warmup();
 	}
 
 	public execute(
@@ -864,9 +911,10 @@ export class WebGLScreenSpaceAmbientOcclusionImplementation
 		}
 
 		const gl = context.gl;
-		const rawProgram = context.programs.tryGetSSAORawProgram();
-		const blurProgram = context.programs.tryGetSSAOBlurProgram();
-		const combineProgram = context.programs.tryGetSSAOCombineProgram();
+		this._ensureProgramSlots(context.programCompiler);
+		const rawProgram = this._rawProgramSlot!.tryGet();
+		const blurProgram = this._blurProgramSlot!.tryGet();
+		const combineProgram = this._combineProgramSlot!.tryGet();
 		if (!rawProgram || !blurProgram || !combineProgram) {
 			return { ran: false };
 		}
@@ -1042,6 +1090,74 @@ export class WebGLScreenSpaceAmbientOcclusionImplementation
 		gl.bindVertexArray(null);
 		context.publishColorTexture(targetTexture);
 		return { ran: true };
+	}
+
+	public destroy(): void {
+		this._rawProgramSlot?.destroy();
+		this._blurProgramSlot?.destroy();
+		this._combineProgramSlot?.destroy();
+		this._rawProgramSlot = null;
+		this._blurProgramSlot = null;
+		this._combineProgramSlot = null;
+		this._programCompiler = null;
+	}
+
+	private _ensureProgramSlots(compiler: WebGLProgramCompiler): void {
+		if (this._programCompiler === compiler) {
+			return;
+		}
+		this.destroy();
+		this._programCompiler = compiler;
+		const vertex = () => ShaderSource.get("webgl.part.presentVertex.raw");
+		this._rawProgramSlot = compiler.createSlot({
+			label: "WebGLSSAORawProgram",
+			vertex,
+			fragment: () => ShaderSource.get("webgl.part.ssaoRawFragment.raw"),
+			reflect: (gl, program) => ({
+				program,
+				uniforms: {
+					normalMap: gl.getUniformLocation(program, "uNormalMap"),
+					depthMap: gl.getUniformLocation(program, "uDepthMap"),
+					invSize: gl.getUniformLocation(program, "uInvSize"),
+					gtao: gl.getUniformLocation(program, "uGTAO"),
+					blurProj: gl.getUniformLocation(program, "uBlurProj"),
+					pass: gl.getUniformLocation(program, "uPass"),
+					cameraPosition: gl.getUniformLocation(program, "uCameraPosition"),
+					basisRight: gl.getUniformLocation(program, "uBasisRight"),
+					basisUp: gl.getUniformLocation(program, "uBasisUp"),
+					basisBackward: gl.getUniformLocation(program, "uBasisBackward"),
+				},
+			}),
+		});
+		this._blurProgramSlot = compiler.createSlot({
+			label: "WebGLSSAOBlurProgram",
+			vertex,
+			fragment: () => ShaderSource.get("webgl.part.ssaoBlurFragment.raw"),
+			reflect: (gl, program) => ({
+				program,
+				uniforms: {
+					sourceMap: gl.getUniformLocation(program, "uSourceMap"),
+					depthMap: gl.getUniformLocation(program, "uDepthMap"),
+					invSize: gl.getUniformLocation(program, "uInvSize"),
+					blurProj: gl.getUniformLocation(program, "uBlurProj"),
+					pass: gl.getUniformLocation(program, "uPass"),
+				},
+			}),
+		});
+		this._combineProgramSlot = compiler.createSlot({
+			label: "WebGLSSAOCombineProgram",
+			vertex,
+			fragment: () =>
+				ShaderSource.get("webgl.part.ssaoCombineFragment.raw"),
+			reflect: (gl, program) => ({
+				program,
+				uniforms: {
+					sceneColor: gl.getUniformLocation(program, "uSceneColor"),
+					aoMap: gl.getUniformLocation(program, "uAoMap"),
+					invSize: gl.getUniformLocation(program, "uInvSize"),
+				},
+			}),
+		});
 	}
 }
 

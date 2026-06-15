@@ -16,7 +16,10 @@ import {
 	WEBGPU_2D_COMPUTE_WORKGROUP_SIZE as WORKGROUP_SIZE,
 } from "../../renderers/webgpu/constants";
 import type { PostProcessSharedContext } from "../../renderers/webgpu/postprocess/PostProcessSharedContext";
-import type { WebGLProgramLibrary } from "../../renderers/webgl/WebGLProgramLibrary";
+import type {
+	WebGLProgramCompiler,
+	WebGLProgramSlot,
+} from "../../renderers/webgl/WebGLProgramCompiler";
 import { clamp } from "../../maths/Common";
 import { ceilDiv, finiteOr } from "../../maths/Misc";
 import {
@@ -88,7 +91,7 @@ export interface WebGPUBloomContext {
 /** @internal WebGL context supplied to the built-in bloom implementation. */
 export interface WebGLBloomContext {
 	readonly gl: WebGL2RenderingContext;
-	readonly programs: WebGLProgramLibrary;
+	readonly programCompiler: WebGLProgramCompiler;
 	readonly fullscreenVao: WebGLVertexArrayObject | null;
 	readonly postFramebuffer: WebGLFramebuffer | null;
 	readonly sceneColorTexture: WebGLTexture | null;
@@ -99,6 +102,15 @@ export interface WebGLBloomContext {
 	bindColorTarget(texture: WebGLTexture): void;
 	drawFullscreen(): void;
 	publishColorTexture(texture: WebGLTexture): void;
+}
+
+interface WebGLBloomProgram {
+	readonly program: WebGLProgram;
+	readonly uniforms: {
+		readonly sourceMap: WebGLUniformLocation | null;
+		readonly texelSize: WebGLUniformLocation | null;
+		readonly bloomParams: WebGLUniformLocation | null;
+	};
 }
 
 interface WebGPUBloomResources {
@@ -674,9 +686,13 @@ export class WebGLBloomImplementation
 	implements PostProcessPassImplementation<WebGLBloomContext, BloomOptions>
 {
 	public readonly id = "bloom:webgl";
+	private _programCompiler: WebGLProgramCompiler | null = null;
+	private _programSlot: WebGLProgramSlot<WebGLBloomProgram> | null = null;
 
 	public warmup(context: WebGLBloomContext | undefined): void {
-		context?.programs.warmupBloomProgram();
+		if (context) {
+			this._getProgramSlot(context.programCompiler).warmup();
+		}
 	}
 
 	public execute(
@@ -722,7 +738,9 @@ export class WebGLBloomImplementation
 		);
 
 		const gl = context.gl;
-		const bloomProgram = context.programs.tryGetBloomProgram();
+		const bloomProgram = this._getProgramSlot(
+			context.programCompiler
+		).tryGet();
 		if (!bloomProgram) {
 			return { ran: false };
 		}
@@ -759,6 +777,35 @@ export class WebGLBloomImplementation
 		gl.bindVertexArray(null);
 		context.publishColorTexture(targetTexture);
 		return { ran: true };
+	}
+
+	public destroy(): void {
+		this._programSlot?.destroy();
+		this._programSlot = null;
+		this._programCompiler = null;
+	}
+
+	private _getProgramSlot(
+		compiler: WebGLProgramCompiler
+	): WebGLProgramSlot<WebGLBloomProgram> {
+		if (this._programCompiler !== compiler) {
+			this._programSlot?.destroy();
+			this._programCompiler = compiler;
+			this._programSlot = compiler.createSlot({
+				label: "WebGLBloomProgram",
+				vertex: () => ShaderSource.get("webgl.part.presentVertex.raw"),
+				fragment: () => ShaderSource.get("webgl.part.bloomFragment.raw"),
+				reflect: (gl, program) => ({
+					program,
+					uniforms: {
+						sourceMap: gl.getUniformLocation(program, "uSourceMap"),
+						texelSize: gl.getUniformLocation(program, "uTexelSize"),
+						bloomParams: gl.getUniformLocation(program, "uBloomParams"),
+					},
+				}),
+			});
+		}
+		return this._programSlot!;
 	}
 }
 

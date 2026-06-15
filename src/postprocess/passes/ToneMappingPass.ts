@@ -8,6 +8,10 @@ import {
 	WEBGPU_SCREEN_POST_PROCESS_CONTEXT_METADATA,
 } from "../../renderers/webgpu/WebGPUPostProcessContracts";
 import type { PostProcessSharedContext } from "../../renderers/webgpu/postprocess/PostProcessSharedContext";
+import type {
+	WebGLProgramCompiler,
+	WebGLProgramSlot,
+} from "../../renderers/webgl/WebGLProgramCompiler";
 import { ShaderSource } from "../../shaders/ShaderSource";
 import { PostProcessPass, type PostProcessPassConfig } from "../PostProcessPass";
 import type { PostProcessPassMetadata } from "../ordering";
@@ -30,6 +34,13 @@ import {
 } from "./ScreenPassShared";
 
 export const TONE_MAPPING_PASS_ID = "tonemap";
+
+interface WebGLToneMappingProgram {
+	readonly program: WebGLProgram;
+	readonly uniforms: {
+		readonly sourceMap: WebGLUniformLocation | null;
+	};
+}
 export const TONE_MAPPING_PASS_ORDER = {
 	id: TONE_MAPPING_PASS_ID,
 	placement: "hdr",
@@ -208,9 +219,13 @@ export class WebGLToneMappingImplementation
 	implements PostProcessPassImplementation<WebGLToneMappingContext, EmptyOptions>
 {
 	public readonly id = "tonemap:webgl";
+	private _programCompiler: WebGLProgramCompiler | null = null;
+	private _programSlot: WebGLProgramSlot<WebGLToneMappingProgram> | null = null;
 
 	public warmup(context: WebGLToneMappingContext | undefined): void {
-		context?.programs.warmupToneMappingProgram();
+		if (context) {
+			this._getProgramSlot(context.programCompiler).warmup();
+		}
 	}
 
 	public execute(
@@ -222,7 +237,7 @@ export class WebGLToneMappingImplementation
 			return { ran: false };
 		}
 		const gl = context.gl;
-		const program = context.programs.tryGetToneMappingProgram();
+		const program = this._getProgramSlot(context.programCompiler).tryGet();
 		if (!program) {
 			return { ran: false };
 		}
@@ -236,6 +251,37 @@ export class WebGLToneMappingImplementation
 		gl.bindVertexArray(null);
 		context.publishColorTexture(target.texture);
 		return { ran: true };
+	}
+
+	public destroy(): void {
+		this._programSlot?.destroy();
+		this._programSlot = null;
+		this._programCompiler = null;
+	}
+
+	private _getProgramSlot(
+		compiler: WebGLProgramCompiler
+	): WebGLProgramSlot<WebGLToneMappingProgram> {
+		if (this._programCompiler !== compiler) {
+			this._programSlot?.destroy();
+			this._programCompiler = compiler;
+			this._programSlot = compiler.createSlot({
+				label: "WebGLToneMappingProgram",
+				vertex: () => ShaderSource.get("webgl.part.presentVertex.raw"),
+				fragment: () =>
+					ShaderSource.get("webgl.part.toneMappingFragment.raw"),
+				reflect: (gl, webglProgram) => ({
+					program: webglProgram,
+					uniforms: {
+						sourceMap: gl.getUniformLocation(
+							webglProgram,
+							"uSourceMap"
+						),
+					},
+				}),
+			});
+		}
+		return this._programSlot!;
 	}
 }
 /**

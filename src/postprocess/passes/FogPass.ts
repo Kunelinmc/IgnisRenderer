@@ -15,7 +15,10 @@ import {
 	type WebGPUPostProcessFrameTargets,
 } from "../../renderers/webgpu/WebGPUPostProcessContracts";
 import type { PostProcessSharedContext } from "../../renderers/webgpu/postprocess/PostProcessSharedContext";
-import type { WebGLProgramLibrary } from "../../renderers/webgl/WebGLProgramLibrary";
+import type {
+	WebGLProgramCompiler,
+	WebGLProgramSlot,
+} from "../../renderers/webgl/WebGLProgramCompiler";
 import { ceilDiv, finiteOr } from "../../maths/Misc";
 import { ShaderSource } from "../../shaders/ShaderSource";
 import {
@@ -99,7 +102,7 @@ export interface WebGPUFogContext {
 /** @internal WebGL context supplied to the built-in fog implementation. */
 export interface WebGLFogContext {
 	readonly gl: WebGL2RenderingContext;
-	readonly programs: WebGLProgramLibrary;
+	readonly programCompiler: WebGLProgramCompiler;
 	readonly fullscreenVao: WebGLVertexArrayObject | null;
 	readonly postFramebuffer: WebGLFramebuffer | null;
 	readonly sceneColorTexture: WebGLTexture | null;
@@ -111,6 +114,16 @@ export interface WebGLFogContext {
 	bindColorTarget(texture: WebGLTexture): void;
 	drawFullscreen(): void;
 	publishColorTexture(texture: WebGLTexture): void;
+}
+
+interface WebGLFogProgram {
+	readonly program: WebGLProgram;
+	readonly uniforms: {
+		readonly sceneColor: WebGLUniformLocation | null;
+		readonly motionDepthMap: WebGLUniformLocation | null;
+		readonly fogParams0: WebGLUniformLocation | null;
+		readonly fogParams1: WebGLUniformLocation | null;
+	};
 }
 
 interface WebGPUFogResources {
@@ -354,9 +367,13 @@ export class WebGLFogImplementation
 	public readonly id = "fog:webgl";
 	private _fogParams0 = new Float32Array(4);
 	private _fogParams1 = new Float32Array(4);
+	private _programCompiler: WebGLProgramCompiler | null = null;
+	private _programSlot: WebGLProgramSlot<WebGLFogProgram> | null = null;
 
 	public warmup(context: WebGLFogContext | undefined): void {
-		context?.programs.warmupFogProgram();
+		if (context) {
+			this._getProgramSlot(context.programCompiler).warmup();
+		}
 	}
 
 	public execute(
@@ -397,7 +414,9 @@ export class WebGLFogImplementation
 			this._fogParams1
 		);
 		const gl = context.gl;
-		const fogProgram = context.programs.tryGetFogProgram();
+		const fogProgram = this._getProgramSlot(
+			context.programCompiler
+		).tryGet();
 		if (!fogProgram) {
 			return { ran: false };
 		}
@@ -431,6 +450,39 @@ export class WebGLFogImplementation
 		gl.bindVertexArray(null);
 		context.publishColorTexture(targetTexture);
 		return { ran: true };
+	}
+
+	public destroy(): void {
+		this._programSlot?.destroy();
+		this._programSlot = null;
+		this._programCompiler = null;
+	}
+
+	private _getProgramSlot(
+		compiler: WebGLProgramCompiler
+	): WebGLProgramSlot<WebGLFogProgram> {
+		if (this._programCompiler !== compiler) {
+			this._programSlot?.destroy();
+			this._programCompiler = compiler;
+			this._programSlot = compiler.createSlot({
+				label: "WebGLFogProgram",
+				vertex: () => ShaderSource.get("webgl.part.presentVertex.raw"),
+				fragment: () => ShaderSource.get("webgl.part.fogFragment.raw"),
+				reflect: (gl, program) => ({
+					program,
+					uniforms: {
+						sceneColor: gl.getUniformLocation(program, "uSceneColor"),
+						motionDepthMap: gl.getUniformLocation(
+							program,
+							"uMotionDepthMap"
+						),
+						fogParams0: gl.getUniformLocation(program, "uFogParams0"),
+						fogParams1: gl.getUniformLocation(program, "uFogParams1"),
+					},
+				}),
+			});
+		}
+		return this._programSlot!;
 	}
 }
 

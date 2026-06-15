@@ -274,45 +274,16 @@ export class WebGLGammaImplementation
 {
 	public readonly id = "gamma:webgl";
 
-	public warmup(context: WebGLGammaContext | undefined): void {
-		context?.programs.warmupPresentProgram();
-	}
-
 	public execute(
 		request: PostProcessPassRequest<EmptyOptions>,
 		context: WebGLGammaContext | undefined
 	): PostProcessPassResult {
-		const sourceTexture = context?.getSourceTexture();
-		if (!context?.fullscreenVao || !sourceTexture) {
-			return { ran: false };
-		}
-		const gl = context.gl;
-		const program = context.programs.tryGetPresentProgram();
-		if (!program) {
-			return { ran: false };
-		}
-		gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-		gl.viewport(0, 0, context.width, context.height);
-		gl.useProgram(program.program);
-		gl.bindVertexArray(context.fullscreenVao);
-		gl.disable(gl.CULL_FACE);
-		gl.disable(gl.DEPTH_TEST);
-		gl.disable(gl.BLEND);
-		gl.activeTexture(gl.TEXTURE0);
-		gl.bindTexture(gl.TEXTURE_2D, sourceTexture);
-		if (program.uniforms.sourceMap) {
-			gl.uniform1i(program.uniforms.sourceMap, 0);
-		}
-		if (program.uniforms.applyGamma) {
-			gl.uniform1i(
-				program.uniforms.applyGamma,
-				request.frameContext.postProcess.isEnabled(GAMMA_PASS_ID) ? 1 : 0
-			);
-		}
-		context.drawFullscreen();
-		gl.bindVertexArray(null);
-		context.markPresented();
-		return { ran: true };
+		return {
+			ran:
+				context?.tryPresent(
+					request.frameContext.postProcess.isEnabled(GAMMA_PASS_ID)
+				) ?? false,
+		};
 	}
 }
 /**

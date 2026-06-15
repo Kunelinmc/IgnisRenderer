@@ -88,11 +88,14 @@ import {
 import type { ShadowMap } from "../../lights/shadows/ShadowMapping";
 import {
 	WebGLProgramLibrary,
-	type WebGLProgramWarmupHandle,
 	type WebGLSceneProgram,
 	type WebGLShadowDepthProgram,
 	type WebGLShadowTransmittanceProgram,
 } from "./WebGLProgramLibrary";
+import {
+	WebGLProgramCompiler,
+	type WebGLProgramWarmupHandle,
+} from "./WebGLProgramCompiler";
 import { WebGLTextureRegistry } from "./WebGLTextureRegistry";
 import type {
 	ShaderBackendCompileStage,
@@ -198,30 +201,9 @@ export interface WebGLFrameExecutorOptions {
 	postProcessRuntime?: BackendPostProcessRuntime;
 }
 
-const WEBGL_POSTPROCESS_WARMUP_HINTS_BY_PASS: Readonly<
-	Record<string, readonly string[]>
-> = {
-	ssao: [
-		"postprocess:ssao-raw",
-		"postprocess:ssao-blur",
-		"postprocess:ssao-combine",
-	],
-	ssgi: [],
-	taa: ["postprocess:taa"],
-	ssr: [],
-	volumetric: [],
-	fog: ["postprocess:fog"],
-	"motion-blur": ["postprocess:motion-blur"],
-	dof: ["postprocess:dof"],
-	bloom: ["postprocess:bloom"],
-	tonemap: ["postprocess:tonemap"],
-	"color-filter": ["postprocess:color-filter"],
-	fxaa: ["postprocess:fxaa"],
-	gamma: ["postprocess:gamma"],
-};
-
 export class WebGLFrameExecutor {
 	private _gl: WebGL2RenderingContext;
+	private _programCompiler: WebGLProgramCompiler;
 	private _programs: WebGLProgramLibrary;
 	private _geometry: WebGLGeometryRegistry;
 	private _textures: WebGLTextureRegistry;
@@ -335,6 +317,15 @@ export class WebGLFrameExecutor {
 			warn: () => {},
 		});
 		this._enableEarlyZPrepass = options.enableEarlyZPrepass !== false;
+		this._programCompiler = new WebGLProgramCompiler(
+			gl,
+			shaderRuntime,
+			shaderCompileStage,
+			{
+				validatePrograms: options.validatePrograms === true,
+				onProgramCompilePending: options.onProgramCompilePending,
+			}
+		);
 		this._programs = new WebGLProgramLibrary(
 			gl,
 			shaderRuntime,
@@ -342,6 +333,7 @@ export class WebGLFrameExecutor {
 			{
 				validatePrograms: options.validatePrograms === true,
 				onProgramCompilePending: options.onProgramCompilePending,
+				compiler: this._programCompiler,
 			},
 		);
 		this._irradianceProbeGridSamplingSupported =
@@ -368,7 +360,7 @@ export class WebGLFrameExecutor {
 	}
 
 	public beginFrame(context: FrameContext): void {
-		(this._programs as { beginFrame?: () => void }).beginFrame?.();
+		this._programCompiler.beginFrame();
 		this._textures.beginFrame();
 		this._activeContext = context;
 		this._presentedInFrame = false;
@@ -637,7 +629,7 @@ export class WebGLFrameExecutor {
 			case "ssao": {
 				const context: WebGLSSAOContext = {
 					gl: this._gl,
-					programs: this._programs,
+					programCompiler: this._programCompiler,
 					fullscreenVao: this._fullscreenVao,
 					postFramebuffer: this._postFramebuffer,
 					sceneColorTexture: this._sceneColorTexture,
@@ -673,7 +665,7 @@ export class WebGLFrameExecutor {
 				this._applyPipelineHistories(request);
 				const context: WebGLTAAContext = {
 					gl: this._gl,
-					programs: this._programs,
+					programCompiler: this._programCompiler,
 					fullscreenVao: this._fullscreenVao,
 					postFramebuffer: this._postFramebuffer,
 					sceneColorTexture: this._sceneColorTexture,
@@ -708,7 +700,7 @@ export class WebGLFrameExecutor {
 			case "fxaa": {
 				const context: WebGLFXAAContext = {
 					gl: this._gl,
-					programs: this._programs,
+					programCompiler: this._programCompiler,
 					fullscreenVao: this._fullscreenVao,
 					postFramebuffer: this._postFramebuffer,
 					sceneColorTexture: this._sceneColorTexture,
@@ -737,7 +729,7 @@ export class WebGLFrameExecutor {
 			case "fog": {
 				const context: WebGLFogContext = {
 					gl: this._gl,
-					programs: this._programs,
+					programCompiler: this._programCompiler,
 					fullscreenVao: this._fullscreenVao,
 					postFramebuffer: this._postFramebuffer,
 					sceneColorTexture: this._sceneColorTexture,
@@ -767,7 +759,7 @@ export class WebGLFrameExecutor {
 			case "bloom": {
 				const context: WebGLBloomContext = {
 					gl: this._gl,
-					programs: this._programs,
+					programCompiler: this._programCompiler,
 					fullscreenVao: this._fullscreenVao,
 					postFramebuffer: this._postFramebuffer,
 					sceneColorTexture: this._sceneColorTexture,
@@ -801,7 +793,7 @@ export class WebGLFrameExecutor {
 	private _createWebGLScreenPostProcessContext(): WebGLScreenPostProcessContext {
 		return {
 			gl: this._gl,
-			programs: this._programs,
+			programCompiler: this._programCompiler,
 			fullscreenVao: this._fullscreenVao,
 			postFramebuffer: this._postFramebuffer,
 			sceneColorTexture: this._sceneColorTexture,
@@ -829,21 +821,8 @@ export class WebGLFrameExecutor {
 
 	private _createWebGLGammaPostProcessContext(): WebGLGammaContext {
 		return {
-			gl: this._gl,
-			programs: this._programs,
-			fullscreenVao: this._fullscreenVao,
-			width: this._width,
-			height: this._height,
-			getSourceTexture: () => this._presentSourceTexture ?? this._sceneColorTexture,
-			drawFullscreen: () =>
-				this._drawFullscreenTrianglesWithDirtyScissor(
-					this._width,
-					this._height,
-					this._activeContext
-				),
-			markPresented: () => {
-				this._presentedInFrame = true;
-			},
+			tryPresent: (applyGamma) =>
+				this._present(applyGamma, this._activeContext, true),
 		};
 	}
 
@@ -974,127 +953,10 @@ export class WebGLFrameExecutor {
 			});
 		}
 
-		const warmupHints = new Set<string>();
-		for (const passId of plan.postProcessPasses) {
-			const hints = WEBGL_POSTPROCESS_WARMUP_HINTS_BY_PASS[passId];
-			if (!hints) {
-				continue;
-			}
-			for (const hint of hints) {
-				warmupHints.add(hint);
-			}
-		}
-		for (const hint of warmupHints) {
-			switch (hint) {
-				case "postprocess:ssao-raw":
-					await enqueue("WebGLSSAORawProgram", () => {
-						return this._warmupProgramHandle(
-							"warmupSSAORawProgram",
-							"getSSAORawProgram",
-						);
-					});
-					break;
-				case "postprocess:ssao-blur":
-					await enqueue("WebGLSSAOBlurProgram", () => {
-						return this._warmupProgramHandle(
-							"warmupSSAOBlurProgram",
-							"getSSAOBlurProgram",
-						);
-					});
-					break;
-				case "postprocess:ssao-combine":
-					await enqueue("WebGLSSAOCombineProgram", () => {
-						return this._warmupProgramHandle(
-							"warmupSSAOCombineProgram",
-							"getSSAOCombineProgram",
-						);
-					});
-					break;
-				case "postprocess:taa":
-					await enqueue("WebGLTAAProgram", () => {
-						return this._warmupProgramHandle(
-							"warmupTAAProgram",
-							"getTAAProgram",
-						);
-					});
-					break;
-				case "postprocess:fxaa":
-					await enqueue("WebGLFXAAProgram", () => {
-						return this._warmupProgramHandle(
-							"warmupFXAAProgram",
-							"getFXAAProgram",
-						);
-					});
-					break;
-				case "postprocess:bloom":
-					await enqueue("WebGLBloomProgram", () => {
-						return this._warmupProgramHandle(
-							"warmupBloomProgram",
-							"getBloomProgram",
-						);
-					});
-					break;
-				case "postprocess:tonemap":
-					await enqueue("WebGLToneMappingProgram", () => {
-						return this._warmupProgramHandle(
-							"warmupToneMappingProgram",
-							"getToneMappingProgram",
-						);
-					});
-					break;
-				case "postprocess:color-filter":
-					await enqueue("WebGLColorFilterProgram", () => {
-						return this._warmupProgramHandle(
-							"warmupColorFilterProgram",
-							"getColorFilterProgram",
-						);
-					});
-					break;
-				case "postprocess:motion-blur":
-					await enqueue("WebGLMotionBlurProgram", () => {
-						return this._warmupProgramHandle(
-							"warmupMotionBlurProgram",
-							"getMotionBlurProgram",
-						);
-					});
-					break;
-				case "postprocess:dof":
-					await enqueue("WebGLDOFProgram", () => {
-						return this._warmupProgramHandle(
-							"warmupDOFProgram",
-							"getDOFProgram",
-						);
-					});
-					break;
-				case "postprocess:fog":
-					await enqueue("WebGLFogProgram", () => {
-						return this._warmupProgramHandle(
-							"warmupFogProgram",
-							"getFogProgram",
-						);
-					});
-					break;
-				case "postprocess:gamma":
-					await enqueue("WebGLPresentProgram", () => {
-						return this._warmupProgramHandle(
-							"warmupPresentProgram",
-							"getPresentProgram",
-						);
-					});
-					break;
-				default:
-					skipped++;
-					break;
-			}
-		}
-
 		const warmupGraph = this._postProcessRuntime!.compileWarmupGraph(context);
 		const warmedPassImplementations = new Set<string>();
 		for (const passId of plan.postProcessPasses) {
 			if (warmedPassImplementations.has(passId)) {
-				continue;
-			}
-			if ((WEBGL_POSTPROCESS_WARMUP_HINTS_BY_PASS[passId]?.length ?? 0) > 0) {
 				continue;
 			}
 			const compiled = warmupGraph.passes.find((p) => p.id === passId);
@@ -1118,10 +980,7 @@ export class WebGLFrameExecutor {
 			});
 		}
 
-		if (
-			context.postProcess.isEnabled("gamma") &&
-			!plan.postProcessPasses.includes("gamma")
-		) {
+		if (context.postProcess.isEnabled("gamma")) {
 			await enqueue("WebGLPresentProgram", () => {
 				return this._warmupProgramHandle(
 					"warmupPresentProgram",
@@ -1149,25 +1008,11 @@ export class WebGLFrameExecutor {
 	private async _collectWarmupHandles(
 		action: () => unknown | Promise<unknown>
 	): Promise<WebGLProgramWarmupHandle[]> {
-		const programs = this._programs as unknown as {
-			markWarmupHandles?: () => number;
-			collectWarmupHandlesSince?: (
-				mark: number
-			) => WebGLProgramWarmupHandle[];
-		};
-		const mark =
-			typeof programs.markWarmupHandles === "function" ?
-				programs.markWarmupHandles()
-			:	null;
+		const mark = this._programCompiler.markWarmupHandles();
 		const result = await action();
-		if (
-			mark !== null &&
-			typeof programs.collectWarmupHandlesSince === "function"
-		) {
-			const logged = programs.collectWarmupHandlesSince(mark);
-			if (logged.length > 0) {
-				return logged;
-			}
+		const logged = this._programCompiler.collectWarmupHandlesSince(mark);
+		if (logged.length > 0) {
+			return logged;
 		}
 		if (isWebGLProgramWarmupHandle(result)) {
 			return [result];
@@ -1279,7 +1124,7 @@ export class WebGLFrameExecutor {
 			case "ssao": {
 				const context: WebGLSSAOContext = {
 					gl: this._gl,
-					programs: this._programs,
+					programCompiler: this._programCompiler,
 					fullscreenVao: this._fullscreenVao,
 					postFramebuffer: this._postFramebuffer,
 					sceneColorTexture: this._sceneColorTexture,
@@ -1314,7 +1159,7 @@ export class WebGLFrameExecutor {
 			case "fxaa": {
 				const context: WebGLFXAAContext = {
 					gl: this._gl,
-					programs: this._programs,
+					programCompiler: this._programCompiler,
 					fullscreenVao: this._fullscreenVao,
 					postFramebuffer: this._postFramebuffer,
 					sceneColorTexture: this._sceneColorTexture,
@@ -1343,7 +1188,7 @@ export class WebGLFrameExecutor {
 			case "fog": {
 				const context: WebGLFogContext = {
 					gl: this._gl,
-					programs: this._programs,
+					programCompiler: this._programCompiler,
 					fullscreenVao: this._fullscreenVao,
 					postFramebuffer: this._postFramebuffer,
 					sceneColorTexture: this._sceneColorTexture,
@@ -1373,7 +1218,7 @@ export class WebGLFrameExecutor {
 			case "bloom": {
 				const context: WebGLBloomContext = {
 					gl: this._gl,
-					programs: this._programs,
+					programCompiler: this._programCompiler,
 					fullscreenVao: this._fullscreenVao,
 					postFramebuffer: this._postFramebuffer,
 					sceneColorTexture: this._sceneColorTexture,
@@ -1440,6 +1285,7 @@ export class WebGLFrameExecutor {
 		this._geometry.destroy();
 		this._textures.destroy();
 		this._programs.destroy();
+		this._programCompiler.destroy();
 		this._activeContext = null;
 	}
 

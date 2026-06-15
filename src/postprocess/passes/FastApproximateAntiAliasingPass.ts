@@ -21,7 +21,10 @@ import {
 	type WebGPUPostProcessFrameTargets,
 } from "../../renderers/webgpu/WebGPUPostProcessContracts";
 import type { PostProcessSharedContext } from "../../renderers/webgpu/postprocess/PostProcessSharedContext";
-import type { WebGLProgramLibrary } from "../../renderers/webgl/WebGLProgramLibrary";
+import type {
+	WebGLProgramCompiler,
+	WebGLProgramSlot,
+} from "../../renderers/webgl/WebGLProgramCompiler";
 import { clamp } from "../../maths/Common";
 import { ceilDiv } from "../../maths/Misc";
 import { ShaderSource } from "../../shaders/ShaderSource";
@@ -76,7 +79,7 @@ export interface WebGPUFXAAContext {
 /** @internal WebGL context supplied to the built-in FXAA implementation. */
 export interface WebGLFXAAContext {
 	readonly gl: WebGL2RenderingContext;
-	readonly programs: WebGLProgramLibrary;
+	readonly programCompiler: WebGLProgramCompiler;
 	readonly fullscreenVao: WebGLVertexArrayObject | null;
 	readonly postFramebuffer: WebGLFramebuffer | null;
 	readonly sceneColorTexture: WebGLTexture | null;
@@ -87,6 +90,14 @@ export interface WebGLFXAAContext {
 	bindColorTarget(texture: WebGLTexture): void;
 	drawFullscreen(): void;
 	publishColorTexture(texture: WebGLTexture): void;
+}
+
+interface WebGLFXAAProgram {
+	readonly program: WebGLProgram;
+	readonly uniforms: {
+		readonly sourceMap: WebGLUniformLocation | null;
+		readonly texelSize: WebGLUniformLocation | null;
+	};
 }
 
 interface WebGPUFXAAResources {
@@ -463,9 +474,13 @@ export class WebGLFastApproximateAntiAliasingImplementation
 	implements PostProcessPassImplementation<WebGLFXAAContext>
 {
 	public readonly id = "fxaa:webgl";
+	private _programCompiler: WebGLProgramCompiler | null = null;
+	private _programSlot: WebGLProgramSlot<WebGLFXAAProgram> | null = null;
 
 	public warmup(context: WebGLFXAAContext | undefined): void {
-		context?.programs.warmupFXAAProgram();
+		if (context) {
+			this._getProgramSlot(context.programCompiler).warmup();
+		}
 	}
 
 	public execute(
@@ -492,7 +507,9 @@ export class WebGLFastApproximateAntiAliasingImplementation
 		}
 
 		const gl = context.gl;
-		const fxaaProgram = context.programs.tryGetFXAAProgram();
+		const fxaaProgram = this._getProgramSlot(
+			context.programCompiler
+		).tryGet();
 		if (!fxaaProgram) {
 			return { ran: false };
 		}
@@ -520,6 +537,34 @@ export class WebGLFastApproximateAntiAliasingImplementation
 		gl.bindVertexArray(null);
 		context.publishColorTexture(targetTexture);
 		return { ran: true };
+	}
+
+	public destroy(): void {
+		this._programSlot?.destroy();
+		this._programSlot = null;
+		this._programCompiler = null;
+	}
+
+	private _getProgramSlot(
+		compiler: WebGLProgramCompiler
+	): WebGLProgramSlot<WebGLFXAAProgram> {
+		if (this._programCompiler !== compiler) {
+			this._programSlot?.destroy();
+			this._programCompiler = compiler;
+			this._programSlot = compiler.createSlot({
+				label: "WebGLFXAAProgram",
+				vertex: () => ShaderSource.get("webgl.part.presentVertex.raw"),
+				fragment: () => ShaderSource.get("webgl.part.fxaaFragment.raw"),
+				reflect: (gl, program) => ({
+					program,
+					uniforms: {
+						sourceMap: gl.getUniformLocation(program, "uSourceMap"),
+						texelSize: gl.getUniformLocation(program, "uTexelSize"),
+					},
+				}),
+			});
+		}
+		return this._programSlot!;
 	}
 }
 

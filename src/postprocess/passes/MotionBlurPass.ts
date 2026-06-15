@@ -21,6 +21,10 @@ import {
 	MOTION_BLUR_VELOCITY_CLAMP_RANGE,
 } from "../../renderers/webgl/constants";
 import { sanitizeFiniteClamped } from "../../renderers/webgl/WebGLFrameMath";
+import type {
+	WebGLProgramCompiler,
+	WebGLProgramSlot,
+} from "../../renderers/webgl/WebGLProgramCompiler";
 import { ShaderSource } from "../../shaders/ShaderSource";
 import { PostProcessPass, type PostProcessPassConfig } from "../PostProcessPass";
 import type { PostProcessPassMetadata } from "../ordering";
@@ -40,6 +44,17 @@ import {
 } from "./ScreenPassShared";
 
 export const MOTION_BLUR_PASS_ID = "motion-blur";
+
+interface WebGLMotionBlurProgram {
+	readonly program: WebGLProgram;
+	readonly uniforms: {
+		readonly sourceMap: WebGLUniformLocation | null;
+		readonly motionDepthMap: WebGLUniformLocation | null;
+		readonly texelSize: WebGLUniformLocation | null;
+		readonly motionParams: WebGLUniformLocation | null;
+		readonly centerWeight: WebGLUniformLocation | null;
+	};
+}
 export const MOTION_BLUR_PASS_ORDER = {
 	id: MOTION_BLUR_PASS_ID,
 	placement: "camera",
@@ -287,9 +302,13 @@ export class WebGLMotionBlurImplementation
 	implements PostProcessPassImplementation<WebGLMotionBlurContext, MotionBlurOptions>
 {
 	public readonly id = "motion-blur:webgl";
+	private _programCompiler: WebGLProgramCompiler | null = null;
+	private _programSlot: WebGLProgramSlot<WebGLMotionBlurProgram> | null = null;
 
 	public warmup(context: WebGLMotionBlurContext | undefined): void {
-		context?.programs.warmupMotionBlurProgram();
+		if (context) {
+			this._getProgramSlot(context.programCompiler).warmup();
+		}
 	}
 
 	public execute(
@@ -337,7 +356,7 @@ export class WebGLMotionBlurImplementation
 		);
 
 		const gl = context.gl;
-		const program = context.programs.tryGetMotionBlurProgram();
+		const program = this._getProgramSlot(context.programCompiler).tryGet();
 		if (!program) {
 			return { ran: false };
 		}
@@ -372,6 +391,41 @@ export class WebGLMotionBlurImplementation
 		gl.bindVertexArray(null);
 		context.publishColorTexture(target.texture);
 		return { ran: true };
+	}
+
+	public destroy(): void {
+		this._programSlot?.destroy();
+		this._programSlot = null;
+		this._programCompiler = null;
+	}
+
+	private _getProgramSlot(
+		compiler: WebGLProgramCompiler
+	): WebGLProgramSlot<WebGLMotionBlurProgram> {
+		if (this._programCompiler !== compiler) {
+			this._programSlot?.destroy();
+			this._programCompiler = compiler;
+			this._programSlot = compiler.createSlot({
+				label: "WebGLMotionBlurProgram",
+				vertex: () => ShaderSource.get("webgl.part.presentVertex.raw"),
+				fragment: () =>
+					ShaderSource.get("webgl.part.motionBlurFragment.raw"),
+				reflect: (gl, program) => ({
+					program,
+					uniforms: {
+						sourceMap: gl.getUniformLocation(program, "uSourceMap"),
+						motionDepthMap: gl.getUniformLocation(
+							program,
+							"uMotionDepthMap"
+						),
+						texelSize: gl.getUniformLocation(program, "uTexelSize"),
+						motionParams: gl.getUniformLocation(program, "uMotionParams"),
+						centerWeight: gl.getUniformLocation(program, "uCenterWeight"),
+					},
+				}),
+			});
+		}
+		return this._programSlot!;
 	}
 }
 export interface MotionBlurPassConfig

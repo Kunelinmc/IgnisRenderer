@@ -17,7 +17,10 @@ import {
 } from "../../renderers/webgpu/constants";
 import type { WebGPUPostProcessFrameTargets } from "../../renderers/webgpu/WebGPUPostProcessContracts";
 import type { PostProcessSharedContext } from "../../renderers/webgpu/postprocess/PostProcessSharedContext";
-import type { WebGLProgramLibrary } from "../../renderers/webgl/WebGLProgramLibrary";
+import type {
+	WebGLProgramCompiler,
+	WebGLProgramSlot,
+} from "../../renderers/webgl/WebGLProgramCompiler";
 import { clamp } from "../../maths/Common";
 import {
 	ceilDiv,
@@ -135,7 +138,7 @@ export interface WebGPUTAAContext {
 /** @internal WebGL context supplied to the built-in TAA implementation. */
 export interface WebGLTAAContext {
 	readonly gl: WebGL2RenderingContext;
-	readonly programs: WebGLProgramLibrary;
+	readonly programCompiler: WebGLProgramCompiler;
 	readonly fullscreenVao: WebGLVertexArrayObject | null;
 	readonly postFramebuffer: WebGLFramebuffer | null;
 	readonly sceneColorTexture: WebGLTexture | null;
@@ -150,6 +153,23 @@ export interface WebGLTAAContext {
 	resolveTargetTexture(sourceTexture: WebGLTexture): WebGLTexture | null;
 	publishColorTexture(texture: WebGLTexture): void;
 	warn(key: string, message: string): void;
+}
+
+interface WebGLTAAProgram {
+	readonly program: WebGLProgram;
+	readonly uniforms: {
+		readonly sceneColor: WebGLUniformLocation | null;
+		readonly historyMap: WebGLUniformLocation | null;
+		readonly motionMap: WebGLUniformLocation | null;
+		readonly motionHistory: WebGLUniformLocation | null;
+		readonly texelSize: WebGLUniformLocation | null;
+		readonly historyWeight: WebGLUniformLocation | null;
+		readonly depthThreshold: WebGLUniformLocation | null;
+		readonly motionFactor: WebGLUniformLocation | null;
+		readonly varianceClampGamma: WebGLUniformLocation | null;
+		readonly sharpen: WebGLUniformLocation | null;
+		readonly historyValid: WebGLUniformLocation | null;
+	};
 }
 
 interface SampledColor {
@@ -624,6 +644,14 @@ export class WebGLTemporalAntiAliasingImplementation
 	implements PostProcessPassImplementation<WebGLTAAContext>
 {
 	public readonly id = "taa:webgl";
+	private _programCompiler: WebGLProgramCompiler | null = null;
+	private _programSlot: WebGLProgramSlot<WebGLTAAProgram> | null = null;
+
+	public warmup(context: WebGLTAAContext | undefined): void {
+		if (context) {
+			this._getProgramSlot(context.programCompiler).warmup();
+		}
+	}
 
 	public execute(
 		request: PostProcessPassRequest,
@@ -670,7 +698,7 @@ export class WebGLTemporalAntiAliasingImplementation
 		}
 
 		const options = resolveTAAOptions(request.options as TAAOptions);
-		const program = context.programs.tryGetTAAProgram();
+		const program = this._getProgramSlot(context.programCompiler).tryGet();
 		if (!program) {
 			return { ran: false };
 		}
@@ -777,6 +805,46 @@ export class WebGLTemporalAntiAliasingImplementation
 		gl.bindVertexArray(null);
 		context.publishColorTexture(targetTexture);
 		return { ran: true, updatedHistoryIds: ["taa", "motion"] };
+	}
+
+	public destroy(): void {
+		this._programSlot?.destroy();
+		this._programSlot = null;
+		this._programCompiler = null;
+	}
+
+	private _getProgramSlot(
+		compiler: WebGLProgramCompiler
+	): WebGLProgramSlot<WebGLTAAProgram> {
+		if (this._programCompiler !== compiler) {
+			this._programSlot?.destroy();
+			this._programCompiler = compiler;
+			this._programSlot = compiler.createSlot({
+				label: "WebGLTAAProgram",
+				vertex: () => ShaderSource.get("webgl.part.presentVertex.raw"),
+				fragment: () => ShaderSource.get("webgl.part.taaFragment.raw"),
+				reflect: (gl, program) => ({
+					program,
+					uniforms: {
+						sceneColor: gl.getUniformLocation(program, "uSceneColor"),
+						historyMap: gl.getUniformLocation(program, "uHistoryMap"),
+						motionMap: gl.getUniformLocation(program, "uMotionMap"),
+						motionHistory: gl.getUniformLocation(program, "uMotionHistory"),
+						texelSize: gl.getUniformLocation(program, "uTexelSize"),
+						historyWeight: gl.getUniformLocation(program, "uHistoryWeight"),
+						depthThreshold: gl.getUniformLocation(program, "uDepthThreshold"),
+						motionFactor: gl.getUniformLocation(program, "uMotionFactor"),
+						varianceClampGamma: gl.getUniformLocation(
+							program,
+							"uVarianceClampGamma"
+						),
+						sharpen: gl.getUniformLocation(program, "uSharpen"),
+						historyValid: gl.getUniformLocation(program, "uHistoryValid"),
+					},
+				}),
+			});
+		}
+		return this._programSlot!;
 	}
 }
 
