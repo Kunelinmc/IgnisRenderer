@@ -3,7 +3,7 @@ import type { ICommandEncoder } from "../../renderers/ICommandEncoder";
 import type { IRenderTexture } from "../../renderers/types";
 import type { WebGPUPostProcessFrameTargets } from "../../renderers/webgpu/WebGPUPostProcessContracts";
 import type { PostProcessSharedContext } from "../../renderers/webgpu/postprocess/PostProcessSharedContext";
-import type { WebGLProgramLibrary } from "../../renderers/webgl/WebGLProgramLibrary";
+import type { WebGLProgramCompiler } from "../../renderers/webgl/WebGLProgramCompiler";
 
 export type EmptyOptions = Record<string, never>;
 
@@ -29,7 +29,7 @@ export type WebGPUGammaContext = WebGPUScreenPostProcessContext;
 /** @internal WebGL context supplied to built-in screen post-process implementations. */
 export interface WebGLScreenPostProcessContext {
 	readonly gl: WebGL2RenderingContext;
-	readonly programs: WebGLProgramLibrary;
+	readonly programCompiler: WebGLProgramCompiler;
 	readonly fullscreenVao: WebGLVertexArrayObject | null;
 	readonly postFramebuffer: WebGLFramebuffer | null;
 	readonly sceneColorTexture: WebGLTexture | null;
@@ -45,14 +45,7 @@ export interface WebGLScreenPostProcessContext {
 
 /** @internal WebGL context supplied to the built-in gamma implementation. */
 export interface WebGLGammaContext {
-	readonly gl: WebGL2RenderingContext;
-	readonly programs: WebGLProgramLibrary;
-	readonly fullscreenVao: WebGLVertexArrayObject | null;
-	readonly width: number;
-	readonly height: number;
-	getSourceTexture(): WebGLTexture | null;
-	drawFullscreen(): void;
-	markPresented(): void;
+	tryPresent(applyGamma: boolean): boolean;
 }
 
 export interface IncrementalDirtyRect {

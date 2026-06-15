@@ -203,6 +203,12 @@ BREAKING CHANGE: `RenderPipelineRegistry.registerStage` has been replaced by
 ### Advanced Rendering Features
 - **WebGPU Deferred Lighting**: `main-opaque` may internally split into background, G-buffer, deferred lighting resolve, and forward fallback GPU passes. This is WebGPU-internal and must not add global renderer frame-pass stages for Software/WebGL.
 - **Cross-Backend Post-Processing**: `src/postprocess/` owns logical pass descriptors, graph compilation, G-buffer semantic contracts, history/transient resource policies, and pass-owned implementations when a built-in pass requires cross-backend orchestration (for example TAA). `Renderer` owns only the public `renderer.postProcess` registry. Post-processing is a backend-owned `"postprocess"` `backend-pass`; Software, WebGL, and WebGPU sessions hold a `BackendPostProcessRuntime` and execute it from `IRenderBackendSession.executePass({ stage: "postprocess" })`. Backends expose `IPostProcessExecutor.executePass(passId, request)` fallback, optional `IPostProcessExecutor.getPassExecutionContext(request)` low-level helpers, and `LogicalGBufferBridge`; they must not expose public post-process graph registration APIs, `renderer.postprocess` backend extensions, or hardcode pass kernel orchestration that belongs in `src/postprocess/passes/`.
+- **WebGL Post-Process Programs**: Built-in WebGL post-process implementations
+  MUST own their program descriptors, uniform reflection, slots, warmup, and
+  slot lifecycle. `WebGLProgramCompiler` owns compilation and raw WebGL resource
+  lifecycle. `WebGLProgramLibrary` MUST NOT expose pass-specific post-process
+  program APIs; it is reserved for backend-owned scene, presentation, copy,
+  shadow, particle, environment, and OIT programs.
 - **Built-In Post-Processing Passes**: Cross-backend logical pass system supporting:
     - **SSAO**: Screen-Space Ambient Occlusion with depth-aware bilateral blur.
     - **TAA**: Temporal Anti-Aliasing with variance clamping and history rectification.
