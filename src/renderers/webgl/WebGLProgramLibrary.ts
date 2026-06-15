@@ -191,14 +191,13 @@ export class WebGLProgramLibrary {
 	private _sceneDepthPrepassProgramDirectiveTag: string = "";
 	private _customSceneDepthPrepassPrograms = new Map<string, WebGLSceneProgram>();
 	private _missingDepthPrepassShaderMaterialWarnings = new Set<number>();
-	private _environmentProgramSlot: WebGLProgramSlot<WebGLEnvironmentProgram>;
-	private _presentProgramSlot: WebGLProgramSlot<WebGLPresentProgram>;
-	private _particleProgramSlot: WebGLProgramSlot<WebGLParticleProgram>;
-	private _shadowDepthProgramSlot: WebGLProgramSlot<WebGLShadowDepthProgram>;
-	private _shadowTransmittanceProgramSlot:
-		WebGLProgramSlot<WebGLShadowTransmittanceProgram>;
-	private _copyProgramSlot: WebGLProgramSlot<WebGLCopyProgram>;
-	private _oitResolveProgramSlot: WebGLProgramSlot<WebGLOITResolveProgram>;
+	private _environmentProgram: WebGLEnvironmentProgram | null = null;
+	private _presentProgram: WebGLPresentProgram | null = null;
+	private _particleProgram: WebGLParticleProgram | null = null;
+	private _shadowDepthProgram: WebGLShadowDepthProgram | null = null;
+	private _shadowTransmittanceProgram: WebGLShadowTransmittanceProgram | null = null;
+	private _copyProgram: WebGLCopyProgram | null = null;
+	private _oitResolveProgram: WebGLOITResolveProgram | null = null;
 
 	constructor(
 		gl: WebGL2RenderingContext,
