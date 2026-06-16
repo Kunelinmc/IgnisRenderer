@@ -16,6 +16,9 @@ import {
 	WEBGPU_2D_COMPUTE_WORKGROUP_SIZE as WORKGROUP_SIZE,
 } from "../../renderers/webgpu/constants";
 import type { WebGPUPostProcessFrameTargets } from "../../renderers/webgpu/WebGPUPostProcessContracts";
+import {
+	WEBGL_SCREEN_POST_PROCESS_CONTEXT_METADATA,
+} from "../../renderers/webgl/WebGLPostProcessContracts";
 import type { PostProcessSharedContext } from "../../renderers/webgpu/postprocess/PostProcessSharedContext";
 import type {
 	WebGLProgramCompiler,
@@ -644,6 +647,21 @@ export class WebGLTemporalAntiAliasingImplementation
 	implements PostProcessPassImplementation<WebGLTAAContext>
 {
 	public readonly id = "taa:webgl";
+	public readonly metadata = {
+		context: {
+			...WEBGL_SCREEN_POST_PROCESS_CONTEXT_METADATA,
+			sceneMotionTexture: true,
+			histories: [
+				{ property: "historyRead", historyId: "taa", side: "read" },
+				{ property: "historyWrite", historyId: "taa", side: "write" },
+				{ property: "motionHistoryRead", historyId: "motion", side: "read" },
+				{ property: "motionHistoryWrite", historyId: "motion", side: "write" },
+			],
+			syncPipelineHistories: true,
+			markTAAHistoryValidOnPublish: true,
+			warn: true,
+		},
+	} as const;
 	private _programCompiler: WebGLProgramCompiler | null = null;
 	private _programSlot: WebGLProgramSlot<WebGLTAAProgram> | null = null;
 

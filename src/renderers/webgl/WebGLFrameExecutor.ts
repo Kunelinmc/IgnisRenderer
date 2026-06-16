@@ -45,14 +45,11 @@ import {
 	DEFAULT_SSAO_OPTIONS,
 	resolveSSAODownsample,
 	type SSAOOptions,
-	type WebGLSSAOContext,
 } from "../../postprocess/passes/ScreenSpaceAmbientOcclusionPass";
-import type { WebGLBloomContext } from "../../postprocess/passes/BloomPass";
 import {
 	DEFAULT_FOG_OPTIONS,
 	resolveFogUniformParams,
 	type FogOptions,
-	type WebGLFogContext,
 } from "../../postprocess/passes/FogPass";
 import {
 	DEFAULT_TAA_OPTIONS,
@@ -115,23 +112,6 @@ import {
 	toColumnMajorMat4,
 	toSafeDimension,
 } from "./WebGLFrameMath";
-import type { WebGLFXAAContext } from "../../postprocess/passes/FastApproximateAntiAliasingPass";
-import type {
-	WebGLColorFilterContext,
-} from "../../postprocess/passes/ColorFilterPass";
-import type {
-	WebGLDepthOfFieldContext,
-} from "../../postprocess/passes/DepthOfFieldPass";
-import type { WebGLGammaContext } from "../../postprocess/passes/GammaPass";
-import type {
-	WebGLMotionBlurContext,
-} from "../../postprocess/passes/MotionBlurPass";
-import type {
-	WebGLScreenPostProcessContext,
-} from "../../postprocess/passes/ScreenPassShared";
-import type {
-	WebGLToneMappingContext,
-} from "../../postprocess/passes/ToneMappingPass";
 import {
 	resolveMaterialUniforms,
 	resolveTextureUVTransform,
@@ -184,7 +164,7 @@ import {
 import { BackendPostProcessRuntime } from "../../postprocess/BackendPostProcessRuntime";
 import { WebGLPostProcessExecutor } from "./WebGLPostProcessExecutor";
 import { TemporalJitterState } from "../temporal/TemporalJitterState";
-import type { WebGLTAAContext } from "../../postprocess/passes/TemporalAntiAliasingPass";
+import { WebGLPostProcessBridge } from "./WebGLPostProcessBridge";
 
 type WebGLFramePassHandler = (context: FrameContext) => void;
 
@@ -288,6 +268,7 @@ export class WebGLFrameExecutor {
 	private _enableEarlyZPrepass = true;
 	private readonly _passHandlers: Map<FramePass["stage"], WebGLFramePassHandler>;
 	private _postProcessRuntime: BackendPostProcessRuntime;
+	private _postProcessBridge: WebGLPostProcessBridge;
 
 	constructor(
 		gl: WebGL2RenderingContext,
@@ -356,6 +337,46 @@ export class WebGLFrameExecutor {
 			16
 		);
 		this._clusteredLighting = new WebGLClusteredLightingRuntime(gl);
+		this._postProcessBridge = new WebGLPostProcessBridge({
+			getGL: () => this._gl,
+			getProgramCompiler: () => this._programCompiler,
+			getFullscreenVao: () => this._fullscreenVao,
+			getPostFramebuffer: () => this._postFramebuffer,
+			getSceneColorTexture: () => this._sceneColorTexture,
+			getSceneMotionTexture: () => this._sceneMotionTexture,
+			getSceneNormalTexture: () => this._sceneNormalTexture,
+			getSSAORawTexture: () => this._ssaoRawTexture,
+			getSSAOBlurTexture: () => this._ssaoBlurTexture,
+			getWidth: () => this._width,
+			getHeight: () => this._height,
+			getSSAODownsample: () => this._targetSSAODownsample,
+			getActiveContext: () => this._activeContext,
+			getSourceTexture: () => this._presentSourceTexture ?? this._sceneColorTexture,
+			resolveTargetTexture: (sourceTexture) =>
+				this._resolvePostProcessTargetTexture(sourceTexture),
+			bindColorTarget: (texture) => this._bindPostSingleColorTarget(texture),
+			drawFullscreen: (width, height, frameContext) =>
+				this._drawFullscreenTrianglesWithDirtyScissor(
+					width,
+					height,
+					frameContext
+				),
+			publishColorTexture: (texture) => {
+				this._presentSourceTexture = texture;
+			},
+			markTAAHistoryValid: () => {
+				this._taaHistoryValid = true;
+			},
+			present: (applyGamma) =>
+				this._present(applyGamma, this._activeContext, true),
+			nextFrameJitter: () => this._nextSSAOFrameJitter(),
+			applyPipelineHistories: (request) => this._applyPipelineHistories(request),
+			warn: (key, message) =>
+				Logger.warn(`[${key}] ${message}`, {
+					scope: "WebGLFrameExecutor",
+					onceKey: key,
+				}),
+		});
 		this._passHandlers = this._createPassHandlers();
 	}
 
@@ -600,230 +621,7 @@ export class WebGLFrameExecutor {
 	public getPassExecutionContext(
 		request: PostProcessPassExecutionContextRequest
 	): unknown {
-		switch (request.passId) {
-			case "motion-blur": {
-				const context: WebGLMotionBlurContext =
-					this._createWebGLScreenPostProcessContext();
-				return context;
-			}
-			case "dof": {
-				const context: WebGLDepthOfFieldContext =
-					this._createWebGLScreenPostProcessContext();
-				return context;
-			}
-			case "tonemap": {
-				const context: WebGLToneMappingContext =
-					this._createWebGLScreenPostProcessContext();
-				return context;
-			}
-			case "color-filter": {
-				const context: WebGLColorFilterContext =
-					this._createWebGLScreenPostProcessContext();
-				return context;
-			}
-			case "gamma": {
-				const context: WebGLGammaContext =
-					this._createWebGLGammaPostProcessContext();
-				return context;
-			}
-			case "ssao": {
-				const context: WebGLSSAOContext = {
-					gl: this._gl,
-					programCompiler: this._programCompiler,
-					fullscreenVao: this._fullscreenVao,
-					postFramebuffer: this._postFramebuffer,
-					sceneColorTexture: this._sceneColorTexture,
-					sceneMotionTexture: this._sceneMotionTexture,
-					sceneNormalTexture: this._sceneNormalTexture,
-					ssaoRawTexture: this._ssaoRawTexture,
-					ssaoBlurTexture: this._ssaoBlurTexture,
-					width: this._width,
-					height: this._height,
-					ssaoDownsample: this._targetSSAODownsample,
-					getSourceTexture: () =>
-						this._presentSourceTexture ?? this._sceneColorTexture,
-					resolveTargetTexture: (sourceTexture) =>
-						resolveWebGLPostProcessTargetTexture(
-							this as unknown as WebGLFrameTargetLifecycleHost,
-							sourceTexture
-						),
-					bindColorTarget: (texture) => this._bindPostSingleColorTarget(texture),
-					nextFrameJitter: () => this._nextSSAOFrameJitter(),
-					drawFullscreen: (width, height, frameContext) =>
-						this._drawFullscreenTrianglesWithDirtyScissor(
-							width,
-							height,
-							frameContext
-						),
-					publishColorTexture: (texture) => {
-						this._presentSourceTexture = texture;
-					},
-				};
-				return context;
-			}
-			case "taa": {
-				this._applyPipelineHistories(request);
-				const context: WebGLTAAContext = {
-					gl: this._gl,
-					programCompiler: this._programCompiler,
-					fullscreenVao: this._fullscreenVao,
-					postFramebuffer: this._postFramebuffer,
-					sceneColorTexture: this._sceneColorTexture,
-					sceneMotionTexture: this._sceneMotionTexture,
-					width: this._width,
-					height: this._height,
-					historyRead: request.histories.taa?.read.resource as WebGLTexture | null,
-					historyWrite: request.histories.taa?.write.resource as WebGLTexture | null,
-					motionHistoryRead: request.histories.motion?.read
-						.resource as WebGLTexture | null,
-					motionHistoryWrite: request.histories.motion?.write
-						.resource as WebGLTexture | null,
-					getSourceTexture: () =>
-						this._presentSourceTexture ?? this._sceneColorTexture,
-					resolveTargetTexture: (sourceTexture) =>
-						resolveWebGLPostProcessTargetTexture(
-							this as unknown as WebGLFrameTargetLifecycleHost,
-							sourceTexture
-						),
-					publishColorTexture: (texture) => {
-						this._presentSourceTexture = texture;
-						this._taaHistoryValid = true;
-					},
-					warn: (key, message) =>
-						Logger.warn(`[${key}] ${message}`, {
-							scope: "WebGLFrameExecutor",
-							onceKey: key,
-						}),
-				};
-				return context;
-			}
-			case "fxaa": {
-				const context: WebGLFXAAContext = {
-					gl: this._gl,
-					programCompiler: this._programCompiler,
-					fullscreenVao: this._fullscreenVao,
-					postFramebuffer: this._postFramebuffer,
-					sceneColorTexture: this._sceneColorTexture,
-					width: this._width,
-					height: this._height,
-					getSourceTexture: () =>
-						this._presentSourceTexture ?? this._sceneColorTexture,
-					resolveTargetTexture: (sourceTexture) =>
-						resolveWebGLPostProcessTargetTexture(
-							this as unknown as WebGLFrameTargetLifecycleHost,
-							sourceTexture
-						),
-					bindColorTarget: (texture) => this._bindPostSingleColorTarget(texture),
-					drawFullscreen: () =>
-						this._drawFullscreenTrianglesWithDirtyScissor(
-							this._width,
-							this._height,
-							this._activeContext
-						),
-					publishColorTexture: (texture) => {
-						this._presentSourceTexture = texture;
-					},
-				};
-				return context;
-			}
-			case "fog": {
-				const context: WebGLFogContext = {
-					gl: this._gl,
-					programCompiler: this._programCompiler,
-					fullscreenVao: this._fullscreenVao,
-					postFramebuffer: this._postFramebuffer,
-					sceneColorTexture: this._sceneColorTexture,
-					sceneMotionTexture: this._sceneMotionTexture,
-					width: this._width,
-					height: this._height,
-					getSourceTexture: () =>
-						this._presentSourceTexture ?? this._sceneColorTexture,
-					resolveTargetTexture: (sourceTexture) =>
-						resolveWebGLPostProcessTargetTexture(
-							this as unknown as WebGLFrameTargetLifecycleHost,
-							sourceTexture
-						),
-					bindColorTarget: (texture) => this._bindPostSingleColorTarget(texture),
-					drawFullscreen: () =>
-						this._drawFullscreenTrianglesWithDirtyScissor(
-							this._width,
-							this._height,
-							this._activeContext
-						),
-					publishColorTexture: (texture) => {
-						this._presentSourceTexture = texture;
-					},
-				};
-				return context;
-			}
-			case "bloom": {
-				const context: WebGLBloomContext = {
-					gl: this._gl,
-					programCompiler: this._programCompiler,
-					fullscreenVao: this._fullscreenVao,
-					postFramebuffer: this._postFramebuffer,
-					sceneColorTexture: this._sceneColorTexture,
-					width: this._width,
-					height: this._height,
-					getSourceTexture: () =>
-						this._presentSourceTexture ?? this._sceneColorTexture,
-					resolveTargetTexture: (sourceTexture) =>
-						resolveWebGLPostProcessTargetTexture(
-							this as unknown as WebGLFrameTargetLifecycleHost,
-							sourceTexture
-						),
-					bindColorTarget: (texture) => this._bindPostSingleColorTarget(texture),
-					drawFullscreen: () =>
-						this._drawFullscreenTrianglesWithDirtyScissor(
-							this._width,
-							this._height,
-							this._activeContext
-						),
-					publishColorTexture: (texture) => {
-						this._presentSourceTexture = texture;
-					},
-				};
-				return context;
-			}
-			default:
-				return undefined;
-		}
-	}
-
-	private _createWebGLScreenPostProcessContext(): WebGLScreenPostProcessContext {
-		return {
-			gl: this._gl,
-			programCompiler: this._programCompiler,
-			fullscreenVao: this._fullscreenVao,
-			postFramebuffer: this._postFramebuffer,
-			sceneColorTexture: this._sceneColorTexture,
-			sceneMotionTexture: this._sceneMotionTexture,
-			width: this._width,
-			height: this._height,
-			getSourceTexture: () => this._presentSourceTexture ?? this._sceneColorTexture,
-			resolveTargetTexture: (sourceTexture) =>
-				resolveWebGLPostProcessTargetTexture(
-					this as unknown as WebGLFrameTargetLifecycleHost,
-					sourceTexture
-				),
-			bindColorTarget: (texture) => this._bindPostSingleColorTarget(texture),
-			drawFullscreen: () =>
-				this._drawFullscreenTrianglesWithDirtyScissor(
-					this._width,
-					this._height,
-					this._activeContext
-				),
-			publishColorTexture: (texture) => {
-				this._presentSourceTexture = texture;
-			},
-		};
-	}
-
-	private _createWebGLGammaPostProcessContext(): WebGLGammaContext {
-		return {
-			tryPresent: (applyGamma) =>
-				this._present(applyGamma, this._activeContext, true),
-		};
+		return this._postProcessBridge.getPassExecutionContext(request);
 	}
 
 	public endFrame(): void {
@@ -966,7 +764,10 @@ export class WebGLFrameExecutor {
 			}
 			warmedPassImplementations.add(passId);
 			await enqueue(`WebGLPostWarmup:${passId}`, async () => {
-				const warmupContext = this._getPassWarmupExecutionContext(passId);
+				const warmupContext =
+					this._postProcessBridge.getPassWarmupExecutionContext(
+						implementation
+					);
 				await implementation.warmup?.(
 					warmupContext,
 					{
@@ -1110,143 +911,6 @@ export class WebGLFrameExecutor {
 			plan.postProcessDescriptors ??
 			context.postProcess.getEnabledPasses().map((pass) => pass.pass);
 		return new Map(descriptors.map((pass) => [pass.id, pass]));
-	}
-
-	private _getPassWarmupExecutionContext(passId: string): unknown {
-		switch (passId) {
-			case "motion-blur":
-			case "dof":
-			case "tonemap":
-			case "color-filter":
-				return this._createWebGLScreenPostProcessContext();
-			case "gamma":
-				return this._createWebGLGammaPostProcessContext();
-			case "ssao": {
-				const context: WebGLSSAOContext = {
-					gl: this._gl,
-					programCompiler: this._programCompiler,
-					fullscreenVao: this._fullscreenVao,
-					postFramebuffer: this._postFramebuffer,
-					sceneColorTexture: this._sceneColorTexture,
-					sceneMotionTexture: this._sceneMotionTexture,
-					sceneNormalTexture: this._sceneNormalTexture,
-					ssaoRawTexture: this._ssaoRawTexture,
-					ssaoBlurTexture: this._ssaoBlurTexture,
-					width: this._width,
-					height: this._height,
-					ssaoDownsample: this._targetSSAODownsample,
-					getSourceTexture: () =>
-						this._presentSourceTexture ?? this._sceneColorTexture,
-					resolveTargetTexture: (sourceTexture) =>
-						resolveWebGLPostProcessTargetTexture(
-							this as unknown as WebGLFrameTargetLifecycleHost,
-							sourceTexture
-						),
-					bindColorTarget: (texture) => this._bindPostSingleColorTarget(texture),
-					nextFrameJitter: () => this._nextSSAOFrameJitter(),
-					drawFullscreen: (width, height, frameContext) =>
-						this._drawFullscreenTrianglesWithDirtyScissor(
-							width,
-							height,
-							frameContext
-						),
-					publishColorTexture: (texture) => {
-						this._presentSourceTexture = texture;
-					},
-				};
-				return context;
-			}
-			case "fxaa": {
-				const context: WebGLFXAAContext = {
-					gl: this._gl,
-					programCompiler: this._programCompiler,
-					fullscreenVao: this._fullscreenVao,
-					postFramebuffer: this._postFramebuffer,
-					sceneColorTexture: this._sceneColorTexture,
-					width: this._width,
-					height: this._height,
-					getSourceTexture: () =>
-						this._presentSourceTexture ?? this._sceneColorTexture,
-					resolveTargetTexture: (sourceTexture) =>
-						resolveWebGLPostProcessTargetTexture(
-							this as unknown as WebGLFrameTargetLifecycleHost,
-							sourceTexture
-						),
-					bindColorTarget: (texture) => this._bindPostSingleColorTarget(texture),
-					drawFullscreen: () =>
-						this._drawFullscreenTrianglesWithDirtyScissor(
-							this._width,
-							this._height,
-							this._activeContext
-						),
-					publishColorTexture: (texture) => {
-						this._presentSourceTexture = texture;
-					},
-				};
-				return context;
-			}
-			case "fog": {
-				const context: WebGLFogContext = {
-					gl: this._gl,
-					programCompiler: this._programCompiler,
-					fullscreenVao: this._fullscreenVao,
-					postFramebuffer: this._postFramebuffer,
-					sceneColorTexture: this._sceneColorTexture,
-					sceneMotionTexture: this._sceneMotionTexture,
-					width: this._width,
-					height: this._height,
-					getSourceTexture: () =>
-						this._presentSourceTexture ?? this._sceneColorTexture,
-					resolveTargetTexture: (sourceTexture) =>
-						resolveWebGLPostProcessTargetTexture(
-							this as unknown as WebGLFrameTargetLifecycleHost,
-							sourceTexture
-						),
-					bindColorTarget: (texture) => this._bindPostSingleColorTarget(texture),
-					drawFullscreen: () =>
-						this._drawFullscreenTrianglesWithDirtyScissor(
-							this._width,
-							this._height,
-							this._activeContext
-						),
-					publishColorTexture: (texture) => {
-						this._presentSourceTexture = texture;
-					},
-				};
-				return context;
-			}
-			case "bloom": {
-				const context: WebGLBloomContext = {
-					gl: this._gl,
-					programCompiler: this._programCompiler,
-					fullscreenVao: this._fullscreenVao,
-					postFramebuffer: this._postFramebuffer,
-					sceneColorTexture: this._sceneColorTexture,
-					width: this._width,
-					height: this._height,
-					getSourceTexture: () =>
-						this._presentSourceTexture ?? this._sceneColorTexture,
-					resolveTargetTexture: (sourceTexture) =>
-						resolveWebGLPostProcessTargetTexture(
-							this as unknown as WebGLFrameTargetLifecycleHost,
-							sourceTexture
-						),
-					bindColorTarget: (texture) => this._bindPostSingleColorTarget(texture),
-					drawFullscreen: () =>
-						this._drawFullscreenTrianglesWithDirtyScissor(
-							this._width,
-							this._height,
-							this._activeContext
-						),
-					publishColorTexture: (texture) => {
-						this._presentSourceTexture = texture;
-					},
-				};
-				return context;
-			}
-			default:
-				return undefined;
-		}
 	}
 
 	public resize(width: number, height: number): void {

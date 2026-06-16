@@ -12,6 +12,9 @@ import {
 import {
 	WEBGPU_SCREEN_POST_PROCESS_CONTEXT_METADATA,
 } from "../../renderers/webgpu/WebGPUPostProcessContracts";
+import {
+	WEBGL_SCREEN_POST_PROCESS_CONTEXT_METADATA,
+} from "../../renderers/webgl/WebGLPostProcessContracts";
 import type { PostProcessSharedContext } from "../../renderers/webgpu/postprocess/PostProcessSharedContext";
 import {
 	MOTION_BLUR_CENTER_WEIGHT_RANGE,
@@ -302,6 +305,12 @@ export class WebGLMotionBlurImplementation
 	implements PostProcessPassImplementation<WebGLMotionBlurContext, MotionBlurOptions>
 {
 	public readonly id = "motion-blur:webgl";
+	public readonly metadata = {
+		context: {
+			...WEBGL_SCREEN_POST_PROCESS_CONTEXT_METADATA,
+			sceneMotionTexture: true,
+		},
+	};
 	private _programCompiler: WebGLProgramCompiler | null = null;
 	private _programSlot: WebGLProgramSlot<WebGLMotionBlurProgram> | null = null;
 

@@ -13,6 +13,9 @@ import {
 import {
 	WEBGPU_SCREEN_POST_PROCESS_CONTEXT_METADATA,
 } from "../../renderers/webgpu/WebGPUPostProcessContracts";
+import {
+	WEBGL_PRESENT_POST_PROCESS_CONTEXT_METADATA,
+} from "../../renderers/webgl/WebGLPostProcessContracts";
 import type {
 	PostProcessSharedContext,
 } from "../../renderers/webgpu/postprocess/PostProcessSharedContext";
@@ -273,6 +276,9 @@ export class WebGLGammaImplementation
 	implements PostProcessPassImplementation<WebGLGammaContext, EmptyOptions>
 {
 	public readonly id = "gamma:webgl";
+	public readonly metadata = {
+		context: WEBGL_PRESENT_POST_PROCESS_CONTEXT_METADATA,
+	};
 
 	public execute(
 		request: PostProcessPassRequest<EmptyOptions>,

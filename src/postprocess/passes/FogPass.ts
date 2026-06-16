@@ -14,6 +14,9 @@ import {
 	WEBGPU_SCREEN_POST_PROCESS_CONTEXT_METADATA,
 	type WebGPUPostProcessFrameTargets,
 } from "../../renderers/webgpu/WebGPUPostProcessContracts";
+import {
+	WEBGL_SCREEN_POST_PROCESS_CONTEXT_METADATA,
+} from "../../renderers/webgl/WebGLPostProcessContracts";
 import type { PostProcessSharedContext } from "../../renderers/webgpu/postprocess/PostProcessSharedContext";
 import type {
 	WebGLProgramCompiler,
@@ -365,6 +368,12 @@ export class WebGLFogImplementation
 	implements PostProcessPassImplementation<WebGLFogContext, FogOptions>
 {
 	public readonly id = "fog:webgl";
+	public readonly metadata = {
+		context: {
+			...WEBGL_SCREEN_POST_PROCESS_CONTEXT_METADATA,
+			sceneMotionTexture: true,
+		},
+	};
 	private _fogParams0 = new Float32Array(4);
 	private _fogParams1 = new Float32Array(4);
 	private _programCompiler: WebGLProgramCompiler | null = null;

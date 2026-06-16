@@ -12,6 +12,9 @@ import {
 import {
 	WEBGPU_SCREEN_POST_PROCESS_CONTEXT_METADATA,
 } from "../../renderers/webgpu/WebGPUPostProcessContracts";
+import {
+	WEBGL_SCREEN_POST_PROCESS_CONTEXT_METADATA,
+} from "../../renderers/webgl/WebGLPostProcessContracts";
 import type { PostProcessSharedContext } from "../../renderers/webgpu/postprocess/PostProcessSharedContext";
 import { sanitizeFiniteClamped } from "../../renderers/webgl/WebGLFrameMath";
 import type {
@@ -339,6 +342,9 @@ export class WebGLColorFilterImplementation
 	implements PostProcessPassImplementation<WebGLColorFilterContext, ColorFilterOptions>
 {
 	public readonly id = "color-filter:webgl";
+	public readonly metadata = {
+		context: WEBGL_SCREEN_POST_PROCESS_CONTEXT_METADATA,
+	};
 	private _programCompiler: WebGLProgramCompiler | null = null;
 	private _programSlot: WebGLProgramSlot<WebGLColorFilterProgram> | null = null;
 

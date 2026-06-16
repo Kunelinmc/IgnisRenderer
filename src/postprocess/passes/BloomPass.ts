@@ -13,6 +13,9 @@ import {
 	type WebGPUPostProcessFrameTargets,
 } from "../../renderers/webgpu/WebGPUPostProcessContracts";
 import {
+	WEBGL_SCREEN_POST_PROCESS_CONTEXT_METADATA,
+} from "../../renderers/webgl/WebGLPostProcessContracts";
+import {
 	WEBGPU_2D_COMPUTE_WORKGROUP_SIZE as WORKGROUP_SIZE,
 } from "../../renderers/webgpu/constants";
 import type { PostProcessSharedContext } from "../../renderers/webgpu/postprocess/PostProcessSharedContext";
@@ -686,6 +689,9 @@ export class WebGLBloomImplementation
 	implements PostProcessPassImplementation<WebGLBloomContext, BloomOptions>
 {
 	public readonly id = "bloom:webgl";
+	public readonly metadata = {
+		context: WEBGL_SCREEN_POST_PROCESS_CONTEXT_METADATA,
+	};
 	private _programCompiler: WebGLProgramCompiler | null = null;
 	private _programSlot: WebGLProgramSlot<WebGLBloomProgram> | null = null;
 

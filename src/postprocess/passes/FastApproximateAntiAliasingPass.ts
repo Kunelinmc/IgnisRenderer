@@ -20,6 +20,9 @@ import {
 	WEBGPU_SCREEN_POST_PROCESS_CONTEXT_METADATA,
 	type WebGPUPostProcessFrameTargets,
 } from "../../renderers/webgpu/WebGPUPostProcessContracts";
+import {
+	WEBGL_SCREEN_POST_PROCESS_CONTEXT_METADATA,
+} from "../../renderers/webgl/WebGLPostProcessContracts";
 import type { PostProcessSharedContext } from "../../renderers/webgpu/postprocess/PostProcessSharedContext";
 import type {
 	WebGLProgramCompiler,
@@ -474,6 +477,9 @@ export class WebGLFastApproximateAntiAliasingImplementation
 	implements PostProcessPassImplementation<WebGLFXAAContext>
 {
 	public readonly id = "fxaa:webgl";
+	public readonly metadata = {
+		context: WEBGL_SCREEN_POST_PROCESS_CONTEXT_METADATA,
+	};
 	private _programCompiler: WebGLProgramCompiler | null = null;
 	private _programSlot: WebGLProgramSlot<WebGLFXAAProgram> | null = null;
 
