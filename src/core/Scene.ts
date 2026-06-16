@@ -15,7 +15,7 @@ import {
 	type SpatialIndex3D,
 	type SpatialIndexMode,
 } from "../spatial";
-import { ShadowManager } from "../lights/shadows";
+import { ShadowManager, type ShadowManagerOptions } from "../lights/shadows";
 import {
 	doesRenderDirtyReasonInvalidateSceneBounds,
 	renderDirtyReasonToMask,
@@ -31,6 +31,10 @@ interface SpatialMeshSignature {
 	bounds: BoundingSphere;
 	matrix: Float32Array;
 	dynamicState: boolean;
+}
+
+export interface SceneOptions {
+	shadows?: ShadowManagerOptions;
 }
 
 export class Scene {
@@ -65,13 +69,13 @@ export class Scene {
 	private _spatialIndexMode: SpatialIndexMode;
 	private _spatialQueryScratch: MeshInstance[] = [];
 
-	constructor() {
+	constructor(options: SceneOptions = {}) {
 		this.root = new Node({
 			idPrefix: "scene",
 			name: "sceneRoot",
 		});
 		this.ecs = new ECSWorld();
-		this.shadows = new ShadowManager();
+		this.shadows = new ShadowManager(options.shadows);
 		this.environment = new Environment();
 		this.environment.on("change", () => {
 			this.invalidate("unknown");

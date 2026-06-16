@@ -3,6 +3,8 @@ import { Scene } from "../../../src/core/Scene.ts";
 import { DirectionalLight } from "../../../src/lights/DirectionalLight.ts";
 import { PointLight } from "../../../src/lights/PointLight.ts";
 import { SpotLight } from "../../../src/lights/SpotLight.ts";
+import { ShadowMapBase } from "../../../src/lights/shadows/ShadowMapBase.ts";
+import { ShadowMapRegistry } from "../../../src/lights/shadows/ShadowMapRegistry.ts";
 import { updateShadowMapMetadata } from "../../../src/pipeline/ShadowMetadata.ts";
 
 function createSceneBounds(radius = 80) {
@@ -21,6 +23,31 @@ function createBudgetCapabilities(maxDynamicShadowCost) {
 		supportsPointCSM: true,
 		maxDynamicShadowCost,
 	};
+}
+
+class ExternalCascadeShadowMap extends ShadowMapBase {
+	kind = "external-cascade";
+
+	resolveCascadeCount() {
+		return 3;
+	}
+
+	toLegacyShadowConfig(_lightType, overrides = {}) {
+		return this.createCSMLegacyConfig(overrides.cascadeCount ?? 3, {
+			size: overrides.size,
+			lambda: 0.5,
+			blendRatio: 0.2,
+			stabilize: true,
+		});
+	}
+}
+
+class ExternalSingleShadowMap extends ShadowMapBase {
+	kind = "external-single";
+
+	toLegacyShadowConfig(_lightType, overrides = {}) {
+		return this.createSingleMapLegacyConfig(overrides.size);
+	}
 }
 
 function testShadowManagerBindingLifecycle() {
@@ -54,6 +81,61 @@ function testShadowManagerBindingLifecycle() {
 	scene.shadows.destroy(csm);
 	assert.equal(scene.shadows.getBoundShadowMap(spot), undefined);
 	assert.equal(scene.shadows.getLegacyShadowConfig(spot), undefined);
+}
+
+function testSceneAcceptsExternalShadowMapRegistry() {
+	const registry = new ShadowMapRegistry().register(
+		"external-cascade",
+		(options) => new ExternalCascadeShadowMap(options),
+	);
+	const scene = new Scene({ shadows: { registry } });
+	const sun = scene.add(new DirectionalLight({ intensity: 2 }));
+	const shadowMap = scene.shadows.create("external-cascade", {
+		size: 1024,
+		priority: 4,
+	});
+
+	scene.shadows.bind(sun, shadowMap);
+
+	const frameState = scene.shadows.buildFrameState({
+		lights: [sun],
+		enableShadows: true,
+	});
+	assert.equal(frameState.records.length, 1);
+	assert.equal(frameState.records[0].shadowMapKind, "external-cascade");
+	assert.equal(frameState.records[0].priority, 4);
+
+	const renderSet = frameState.get(sun);
+	assert.ok(renderSet);
+	assert.equal(renderSet?.resolvedConfig.strategy, "csm");
+	assert.equal(renderSet?.resolvedConfig.cascadeCount, 3);
+	assert.equal(renderSet?.slices.length, 3);
+
+	updateShadowMapMetadata(renderSet, sun, createSceneBounds(60));
+	assert.equal(renderSet?.effectiveStrategyType, "csm");
+	assert.equal(renderSet?.slices.length, 3);
+}
+
+function testShadowManagerRegistersCustomMapType() {
+	const scene = new Scene();
+	const sun = scene.add(new DirectionalLight());
+	scene.shadows.registerMapType(
+		"external-single",
+		(options) => new ExternalSingleShadowMap(options),
+	);
+
+	const shadowMap = scene.shadows.create("external-single", { size: 384 });
+	scene.shadows.bind(sun, shadowMap);
+
+	const config = scene.shadows.getLegacyShadowConfig(sun);
+	assert.equal(config?.strategy, "single-map");
+	assert.equal(config?.size, 384);
+
+	const frameState = scene.shadows.buildFrameState({
+		lights: [sun],
+		enableShadows: true,
+	});
+	assert.equal(frameState.records[0].shadowMapKind, "external-single");
 }
 
 function testVSMShadowMapUsesVSMFilterMetadataAndSingleMapRuntimeConfig() {
@@ -259,6 +341,8 @@ function testDynamicBudgetCanReduceResolutionAfterCascadeReduction() {
 
 function run() {
 	testShadowManagerBindingLifecycle();
+	testSceneAcceptsExternalShadowMapRegistry();
+	testShadowManagerRegistersCustomMapType();
 	testVSMShadowMapUsesVSMFilterMetadataAndSingleMapRuntimeConfig();
 	testVSMShadowMapNormalizesParametersAndUpdatesSignature();
 	testRenderSetSignatureUpdatesWhenShadowMapConfigChanges();

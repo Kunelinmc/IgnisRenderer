@@ -1,10 +1,14 @@
 import type { Matrix4 } from "../../maths/Matrix4";
 import type { IVector3 } from "../../maths/types";
 import type { ShadowCastingLight } from "..";
-import type { ShadowConfig, ShadowStrategyType, ShadowRenderSet } from "./ShadowMapping";
+import type {
+	ShadowConfig,
+	ShadowRenderSet,
+	ShadowStrategyType,
+} from "./ShadowMapping";
 
-
-export type ShadowMapKind = "single" | "vsm" | "csm";
+export type BuiltinShadowMapKind = "single" | "vsm" | "csm";
+export type ShadowMapKind = BuiltinShadowMapKind | (string & {});
 export type ShadowFilterMode = "pcf" | "vsm";
 export type ShadowBoundLightType =
 	| "directional"

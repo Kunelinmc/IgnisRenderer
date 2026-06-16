@@ -7,16 +7,22 @@ import {
 	type ShadowRenderSet,
 } from "./ShadowMapping";
 import type { IVector3 } from "../../maths/types";
-import { CSMShadowMap } from "./CSMShadowMap";
 import { ShadowFrameState } from "./ShadowFrameState";
-import { SingleShadowMap } from "./SingleShadowMap";
-import { VSMShadowMap, type VSMShadowMapOptions } from "./VSMShadowMap";
+import type { CSMShadowMap } from "./CSMShadowMap";
+import type { SingleShadowMap } from "./SingleShadowMap";
+import {
+	createDefaultShadowMapRegistry,
+	type ShadowMapRegistry,
+	type ShadowMapFactory,
+} from "./ShadowMapRegistry";
+import type { VSMShadowMap, VSMShadowMapOptions } from "./VSMShadowMap";
 import type { ShadowMapBase } from "./ShadowMapBase";
 import type {
 	IShadowBackendCapabilities,
 	ShadowBindingRecord,
 	ShadowCSMOptions,
 	ShadowMapBaseOptions,
+	ShadowMapKind,
 } from "./types";
 
 interface ShadowBudgetCandidate {
@@ -37,7 +43,12 @@ export interface ShadowFrameBuildOptions {
 	enableShadows?: boolean;
 }
 
+export interface ShadowManagerOptions {
+	registry?: ShadowMapRegistry;
+}
+
 export class ShadowManager {
+	private readonly _registry: ShadowMapRegistry;
 	private _mapsById = new Map<string, ShadowMapBase>();
 	private _shadowByLight = new Map<ShadowCastingLight, ShadowMapBase>();
 	private _lightsByShadowId = new Map<string, Set<ShadowCastingLight>>();
@@ -45,25 +56,58 @@ export class ShadowManager {
 	private _version = 0;
 	private _lastFrameState = new ShadowFrameState(0, [], new Map());
 
-	public createSingle(options: ShadowMapBaseOptions = {}): SingleShadowMap {
-		const shadowMap = new SingleShadowMap(options);
-		this._mapsById.set(shadowMap.id, shadowMap);
-		this._version++;
+	constructor(options: ShadowManagerOptions = {}) {
+		this._registry = options.registry ?? createDefaultShadowMapRegistry();
+	}
+
+	/**
+	 * Registers a shadow map factory on this manager's registry.
+	 *
+	 * @param kind - Stable kind string accepted by `create`.
+	 * @param factory - Factory that receives creation options and returns a map.
+	 * @returns This manager for chained registration.
+	 * @throws If `kind` is an empty string.
+	 * @sideEffects Future `create(kind, options)` calls can instantiate the kind.
+	 */
+	public registerMapType<
+		TShadowMap extends ShadowMapBase,
+		TOptions extends ShadowMapBaseOptions = ShadowMapBaseOptions,
+	>(
+		kind: ShadowMapKind,
+		factory: ShadowMapFactory<TShadowMap, TOptions>
+	): this {
+		this._registry.register(kind, factory);
+		return this;
+	}
+
+	/**
+	 * Creates a shadow map through the configured registry.
+	 *
+	 * @param kind - Registered shadow map kind to instantiate.
+	 * @param options - Options forwarded to the kind factory.
+	 * @returns The created shadow map instance.
+	 * @throws If `kind` has no registered factory.
+	 * @sideEffects Tracks the created map and increments the manager version.
+	 */
+	public create<
+		TShadowMap extends ShadowMapBase = ShadowMapBase,
+		TOptions extends ShadowMapBaseOptions = ShadowMapBaseOptions,
+	>(kind: ShadowMapKind, options: TOptions = {} as TOptions): TShadowMap {
+		const shadowMap = this._registry.create<TShadowMap, TOptions>(kind, options);
+		this._trackShadowMap(shadowMap);
 		return shadowMap;
+	}
+
+	public createSingle(options: ShadowMapBaseOptions = {}): SingleShadowMap {
+		return this.create<SingleShadowMap, ShadowMapBaseOptions>("single", options);
 	}
 
 	public createVSM(options: VSMShadowMapOptions = {}): VSMShadowMap {
-		const shadowMap = new VSMShadowMap(options);
-		this._mapsById.set(shadowMap.id, shadowMap);
-		this._version++;
-		return shadowMap;
+		return this.create<VSMShadowMap, VSMShadowMapOptions>("vsm", options);
 	}
 
 	public createCSM(options: ShadowCSMOptions = {}): CSMShadowMap {
-		const shadowMap = new CSMShadowMap(options);
-		this._mapsById.set(shadowMap.id, shadowMap);
-		this._version++;
-		return shadowMap;
+		return this.create<CSMShadowMap, ShadowCSMOptions>("csm", options);
 	}
 
 	public bind(light: ShadowCastingLight, shadowMap: ShadowMapBase): void {
@@ -329,10 +373,7 @@ export class ShadowManager {
 		shadowMap: ShadowMapBase,
 		light: ShadowCastingLight
 	): number {
-		if (shadowMap.kind !== "csm") {
-			return 1;
-		}
-		return (shadowMap as CSMShadowMap).getCascadeCountForLightType(light.type);
+		return shadowMap.resolveCascadeCount(light.type);
 	}
 
 	private _resolveCandidateScore(
@@ -366,6 +407,11 @@ export class ShadowManager {
 				this._lightsByShadowId.delete(shadowMap.id);
 			}
 		}
+	}
+
+	private _trackShadowMap(shadowMap: ShadowMapBase): void {
+		this._mapsById.set(shadowMap.id, shadowMap);
+		this._version++;
 	}
 }
 

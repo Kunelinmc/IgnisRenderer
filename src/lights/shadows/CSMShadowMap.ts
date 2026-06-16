@@ -55,6 +55,10 @@ export class CSMShadowMap extends ShadowMapBase {
 		this.stabilize = options.stabilize !== false;
 	}
 
+	public override resolveCascadeCount(lightType: LightType): number {
+		return this.getCascadeCountForLightType(lightType);
+	}
+
 	public getCascadeCountForLightType(lightType: LightType): number {
 		const boundType = this.resolveBoundLightType(lightType);
 		return this.getCascadeCountForBoundType(boundType);

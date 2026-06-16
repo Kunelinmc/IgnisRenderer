@@ -10,6 +10,7 @@ import type {
 	ShadowBiasSettings,
 	ShadowBoundLightType,
 	ShadowFilterMode,
+	ShadowMapKind,
 	ShadowMapBaseOptions,
 	ShadowSamplingSettings,
 } from "./types";
@@ -24,7 +25,7 @@ export abstract class ShadowMapBase {
 	public bias: ShadowBiasSettings;
 	public sampling: ShadowSamplingSettings;
 
-	public abstract readonly kind: "single" | "vsm" | "csm";
+	public abstract readonly kind: ShadowMapKind;
 
 	protected constructor(options: ShadowMapBaseOptions = {}) {
 		this.id = options.id ?? IdGenerator.nextId("shadow");
@@ -85,6 +86,17 @@ export abstract class ShadowMapBase {
 				Math.max(1, cascadeCount) * 6
 			:	Math.max(1, cascadeCount);
 		return perSliceCost * sliceMultiplier;
+	}
+
+	/**
+	 * @internal Shadow scheduling hook used by `ShadowManager`.
+	 *
+	 * Resolves the number of logical shadow cascades this map requests for the
+	 * provided light type. Custom shadow maps should override this when their
+	 * `toLegacyShadowConfig` output depends on multiple cascades.
+	 */
+	public resolveCascadeCount(_lightType: LightType): number {
+		return 1;
 	}
 
 	public abstract toLegacyShadowConfig(
