@@ -503,6 +503,7 @@ function createPlanarCaptureContext(
 		mirroredPosition.y,
 		mirroredPosition.z
 	);
+	camera.updateWorldMatrix();
 	camera.viewMatrix = mirrorViewMatrix;
 	camera.projectionMatrix = mirrorProjectionMatrix;
 	camera.viewProjectionMatrix = Matrix4.multiply(
@@ -596,7 +597,11 @@ function filterCapturePackets(
 			return false;
 		}
 		const distance = plane.distanceToPoint(packet.worldBounds.center);
-		return isCameraAbove ? distance >= 0 : distance <= 0;
+		const radius =
+			Number.isFinite(packet.worldBounds.radius) ?
+				Math.max(0, packet.worldBounds.radius)
+			:	0;
+		return isCameraAbove ? distance + radius >= 0 : distance - radius <= 0;
 	});
 }
 

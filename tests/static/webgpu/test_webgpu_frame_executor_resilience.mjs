@@ -1101,6 +1101,81 @@ async function testPlanarReflectionCaptureFailureKeepsMainFrameResources() {
 	);
 }
 
+async function testPlanarReflectionCaptureUsesMirroredCameraAndBoundsRadius() {
+	const backend = new FakeBackend();
+	backend.device.limits.maxStorageTexturesPerShaderStage = 0;
+	const resources = createPlanarReflectionResourcesStub();
+	const executor = new WebGPUFrameExecutor(backend, resources);
+	const context = createFrameContext(64, 64);
+	const camera = new Camera();
+	camera.position.set(0, 2, 5);
+	camera.updateMatrices();
+	context.camera = camera;
+	context.features.enableReflection = true;
+	context.postProcess = createResolvedPostProcess({
+		ssr: { enabled: true },
+	});
+
+	const mirrorMaterial = new Material({
+		name: "mirror",
+		reflectivity: 0.75,
+		mirrorPlane: { normal: { x: 0, y: 1, z: 0 }, constant: 0 },
+	});
+	const objectMaterial = new Material({ name: "object" });
+	const mirrorPacket = createPlanarPacket("mirror", mirrorMaterial, 0);
+	const crossingPacket = createPlanarPacket("crossing", objectMaterial, -0.5);
+	const culledPacket = createPlanarPacket("culled", objectMaterial, -2);
+	culledPacket.worldBounds.radius = 0.25;
+	context.scene.opaquePackets = [
+		mirrorPacket,
+		crossingPacket,
+		culledPacket,
+	];
+	context.scene.reflectivePackets = [mirrorPacket];
+	context.scene.transparentPackets = [];
+	context.scene.meshInstances = [];
+	context.scene.lights = [];
+	context.scene.shadowMaps = new Map();
+	context.scene.environment = {
+		backgroundEnabled: false,
+		lightingEnabled: false,
+		backgroundTexture: null,
+		iblTexture: null,
+		backgroundStrength: 1,
+		diffuseStrength: 1,
+		specularStrength: 1,
+		backgroundTintLinear: { r: 1, g: 1, b: 1 },
+		backgroundExposure: 1,
+	};
+
+	executor.beginFrame(context);
+	await executor.executePass(
+		{ stage: "reflection", executor: "backend", enabled: true },
+		context
+	);
+
+	const captureContext = resources._state.prepareContexts.find(
+		(candidate) =>
+			candidate.features.enableReflection === false &&
+			candidate.postProcess.isEnabled("ssr") === false
+	);
+	assert.ok(captureContext);
+	assert.deepEqual(captureContext.camera.getWorldPosition(), {
+		x: 0,
+		y: -2,
+		z: 5,
+	});
+	assert.deepEqual(
+		captureContext.scene.opaquePackets.map((packet) => packet.id),
+		["crossing"]
+	);
+	assert.ok(
+		resources._state.events.includes(
+			"prepare:reflection:false:ssr:false:opaque:crossing"
+		)
+	);
+}
+
 async function testOITTransparentAndParticleExecutionOrder() {
 	const backend = createOITBackend();
 	const resources = createOITSequencingResourcesStub();
@@ -1598,6 +1673,7 @@ async function run() {
 	await testPlanarReflectionUsesColorTargetsWithoutPostProcess();
 	await testPlanarReflectionCaptureKeepsMSAAFrameTargetsAlive();
 	await testPlanarReflectionCaptureFailureKeepsMainFrameResources();
+	await testPlanarReflectionCaptureUsesMirroredCameraAndBoundsRadius();
 	await testOITTransparentAndParticleExecutionOrder();
 	await testOITTransparentResolvesImmediatelyWithoutParticles();
 	await testScreenSpaceRefractionCapturesTransmissionPackets();
