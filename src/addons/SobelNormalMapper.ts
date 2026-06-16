@@ -19,10 +19,33 @@ import {
 
 const DEFAULT_STRENGTH = 2.0;
 
+export type SobelNormalMapperHeightSource =
+	| "luminance"
+	| "red"
+	| "green"
+	| "blue"
+	| "alpha";
+
+const HEIGHT_SOURCE_TO_MODE: Record<SobelNormalMapperHeightSource, number> = {
+	luminance: 0,
+	red: 1,
+	green: 2,
+	blue: 3,
+	alpha: 4,
+};
+
 export interface SobelNormalMapperOptions {
+	/** Controls the Sobel slope scale applied to the generated normals. */
 	strength?: number;
+	/** Flips the generated normal X component when true. */
 	invertX?: boolean;
+	/** Flips the generated normal Y component when true. */
 	invertY?: boolean;
+	/**
+	 * Source channel used as the height field before Sobel filtering.
+	 * Defaults to perceptual RGB luminance.
+	 */
+	heightSource?: SobelNormalMapperHeightSource;
 	computeFacade?: IWebGPUComputeFacade;
 }
 
@@ -61,6 +84,7 @@ export class SobelNormalMapper {
 	private _strength = DEFAULT_STRENGTH;
 	private _invertX = false;
 	private _invertY = false;
+	private _heightSource: SobelNormalMapperHeightSource = "luminance";
 
 	private _onPostAnimation = (): void => {
 		this.update();
@@ -106,6 +130,22 @@ export class SobelNormalMapper {
 		this.invalidate();
 	}
 
+	/**
+	 * Channel or luminance source used as the height field before Sobel filtering.
+	 */
+	public get heightSource(): SobelNormalMapperHeightSource {
+		return this._heightSource;
+	}
+
+	public set heightSource(value: SobelNormalMapperHeightSource) {
+		const next = normalizeHeightSource(value);
+		if (next === this._heightSource) {
+			return;
+		}
+		this._heightSource = next;
+		this.invalidate();
+	}
+
 	constructor(
 		private _source: Texture,
 		options: SobelNormalMapperOptions = {}
@@ -116,6 +156,7 @@ export class SobelNormalMapper {
 			:	DEFAULT_STRENGTH;
 		this._invertX = !!options.invertX;
 		this._invertY = !!options.invertY;
+		this._heightSource = normalizeHeightSource(options.heightSource);
 		this._overrideComputeFacade = options.computeFacade ?? null;
 		this._destTexture = new Texture(
 			null,
@@ -298,7 +339,7 @@ export class SobelNormalMapper {
 			this._strength,
 			this._invertX ? -1.0 : 1.0,
 			this._invertY ? -1.0 : 1.0,
-			0.0,
+			HEIGHT_SOURCE_TO_MODE[this._heightSource],
 		]);
 		this._runtime.writeBuffer(this._paramsBuffer, params);
 
@@ -379,6 +420,16 @@ export class SobelNormalMapper {
 	}
 
 	private _buildParamsKey(): string {
-		return `${this._strength}|${this._invertX ? 1 : 0}|${this._invertY ? 1 : 0}`;
+		return `${this._strength}|${this._invertX ? 1 : 0}|` +
+			`${this._invertY ? 1 : 0}|${this._heightSource}`;
 	}
+}
+
+function normalizeHeightSource(
+	value: SobelNormalMapperHeightSource | undefined
+): SobelNormalMapperHeightSource {
+	if (value && value in HEIGHT_SOURCE_TO_MODE) {
+		return value;
+	}
+	return "luminance";
 }

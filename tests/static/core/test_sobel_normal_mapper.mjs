@@ -1,8 +1,17 @@
 import assert from "node:assert/strict";
 import { SobelNormalMapper } from "../../../src/addons/SobelNormalMapper.ts";
 import { Texture } from "../../../src/core/Texture.ts";
+import { ShaderSource } from "../../../src/shaders/ShaderSource.ts";
 
 import { FakeWebGPUBackend, FakeRenderer } from "../../helpers/fakes.mjs";
+
+function getLastBufferWriteValues(backend) {
+	const write = backend.writeCalls
+		.filter((call) => call[0] === "writeBuffer")
+		.at(-1);
+	assert.ok(write, "Expected a buffer write.");
+	return Array.from(write[2]);
+}
 
 async function testInitUpdateAndInvalidationFlow() {
 	const backend = new FakeWebGPUBackend();
@@ -106,8 +115,49 @@ async function testInjectedComputeFacadeSupportsNonWebGPUBackend() {
 	assert.equal(computeFacade.unregisteredExternalTextures.length >= 1, true);
 }
 
+async function testHeightSourceControlsUniformAndInvalidation() {
+	const backend = new FakeWebGPUBackend();
+	const renderer = new FakeRenderer(backend);
+	const source = new Texture(new Uint8ClampedArray(4), 8, 8, "sRGB");
+	const mapper = new SobelNormalMapper(source, {
+		heightSource: "blue",
+	});
+
+	assert.equal(mapper.heightSource, "blue");
+
+	await mapper.init(renderer);
+	assert.equal(mapper.update(), true);
+	assert.deepEqual(getLastBufferWriteValues(backend), [2, 1, 1, 3]);
+
+	assert.equal(mapper.update(), false);
+	mapper.heightSource = "alpha";
+	assert.equal(mapper.update(), true);
+	assert.deepEqual(getLastBufferWriteValues(backend), [2, 1, 1, 4]);
+
+	mapper.heightSource = "red";
+	assert.equal(mapper.update(), true);
+	assert.deepEqual(getLastBufferWriteValues(backend), [2, 1, 1, 1]);
+}
+
+async function testSobelShaderSupportsChannelHeightSources() {
+	ShaderSource.clearCache();
+	const shader = await ShaderSource.load("webgpu.postprocess.sobelNormal.raw");
+
+	assert.match(shader, /heightSource: f32/);
+	assert.match(shader, /return color\.r;/);
+	assert.match(shader, /return color\.g;/);
+	assert.match(shader, /return color\.b;/);
+	assert.match(shader, /return color\.a;/);
+	assert.match(
+		shader,
+		/dot\(color\.rgb, vec3<f32>\(0\.2126, 0\.7152, 0\.0722\)\)/
+	);
+}
+
 await testInitUpdateAndInvalidationFlow();
 await testAttachRunsOnPostAnimationAndDetachStops();
 await testDestroyReleasesResources();
 await testInjectedComputeFacadeSupportsNonWebGPUBackend();
+await testHeightSourceControlsUniformAndInvalidation();
+await testSobelShaderSupportsChannelHeightSources();
 console.log("Sobel normal mapper tests passed");

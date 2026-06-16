@@ -212,6 +212,7 @@ export { InteractableRegistry } from "./interaction/Interactable";
 export {
 	SobelNormalMapper,
 	type SobelNormalMapperOptions,
+	type SobelNormalMapperHeightSource,
 } from "./addons/SobelNormalMapper";
 export {
 	screenToWorldRay,
