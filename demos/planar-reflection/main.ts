@@ -10,6 +10,7 @@ import {
 	PointLight,
 	Renderer,
 	Scene,
+	UnlitMaterial,
 	Vector3,
 	WebGPUBackend,
 } from "../../src/index";
@@ -35,6 +36,10 @@ interface TweakpanePane {
 	addButton: (options: Record<string, unknown>) => TweakpaneBinding;
 	addFolder: (options: Record<string, unknown>) => TweakpanePane;
 	refresh?: () => void;
+}
+
+function asTweakpanePane(value: unknown): TweakpanePane {
+	return value as TweakpanePane;
 }
 
 interface AnimatedObject {
@@ -419,13 +424,10 @@ function createLights(
 			0.08,
 			10,
 			5,
-			new PBRMaterial({
+			new UnlitMaterial({
 				name: `planar-light-marker-${index}`,
-				albedo: color,
-				emissive: color,
-				emissiveIntensity: 3.2,
-				roughness: 0.18,
-			})
+				diffuse: color,
+			}),
 		);
 		scene.add(light);
 		scene.add(marker);
@@ -451,49 +453,49 @@ async function createRenderer(
 
 async function createTweakpane(demo: DemoState): Promise<void> {
 	try {
-		const pane = new Pane({ title: "Planar Reflection" });
+		const pane = asTweakpanePane(new Pane({ title: "Planar Reflection" }));
 		const mirror = pane.addFolder({ title: "Mirror", expanded: true });
-		mirror.addBinding(
-			demo.settings as unknown as Record<string, unknown>,
-			"reflections",
-			{ label: "Enabled" }
-		).on("change", () => {
-			applyReflectionSettings(demo);
-			requestSceneRender(demo, "unknown");
-		});
-		mirror.addBinding(
-			demo.settings as unknown as Record<string, unknown>,
-			"reflectivity",
-			{
+
+		mirror
+			.addBinding(demo.settings as unknown as Record<string, unknown>, "reflections", {
+				label: "Enabled",
+			})
+			.on("change", () => {
+				applyReflectionSettings(demo);
+				requestSceneRender(demo, "unknown");
+			});
+
+		mirror
+			.addBinding(demo.settings as unknown as Record<string, unknown>, "reflectivity", {
 				label: "Reflectivity",
 				min: 0,
 				max: 1,
 				step: 0.01,
-			}
-		).on("change", () => {
-			applyReflectionSettings(demo);
-			requestSceneRender(demo, "unknown");
-		});
+			})
+			.on("change", () => {
+				applyReflectionSettings(demo);
+				requestSceneRender(demo, "unknown");
+			});
 
 		const motion = pane.addFolder({ title: "Motion", expanded: true });
-		motion.addBinding(
-			demo.settings as unknown as Record<string, unknown>,
-			"animateObjects",
-			{ label: "Objects" }
-		).on("change", () => requestSceneRender(demo, "unknown"));
-		motion.addBinding(
-			demo.settings as unknown as Record<string, unknown>,
-			"animateLights",
-			{ label: "Lights" }
-		).on("change", () => requestSceneRender(demo, "unknown"));
-		motion.addBinding(
-			demo.settings as unknown as Record<string, unknown>,
-			"showLightMarkers",
-			{ label: "Markers" }
-		).on("change", () => {
-			applyLightMarkerVisibility(demo);
-			requestSceneRender(demo, "unknown");
-		});
+		motion
+			.addBinding(demo.settings as unknown as Record<string, unknown>, "animateObjects", {
+				label: "Objects",
+			})
+			.on("change", () => requestSceneRender(demo, "unknown"));
+		motion
+			.addBinding(demo.settings as unknown as Record<string, unknown>, "animateLights", {
+				label: "Lights",
+			})
+			.on("change", () => requestSceneRender(demo, "unknown"));
+		motion
+			.addBinding(demo.settings as unknown as Record<string, unknown>, "showLightMarkers", {
+				label: "Markers",
+			})
+			.on("change", () => {
+				applyLightMarkerVisibility(demo);
+				requestSceneRender(demo, "unknown");
+			});
 
 		const view = pane.addFolder({ title: "View", expanded: false });
 		view.addButton({ title: "Reset Camera" }).on("click", () => {
@@ -505,12 +507,12 @@ async function createTweakpane(demo: DemoState): Promise<void> {
 		demo.paneBindings.backend = stats.addBinding(
 			demo.performance as unknown as Record<string, unknown>,
 			"backend",
-			{ label: "Backend", readonly: true }
+			{ label: "Backend", readonly: true },
 		);
 		demo.paneBindings.reflection = stats.addBinding(
 			demo.performance as unknown as Record<string, unknown>,
 			"reflection",
-			{ label: "Reflection", readonly: true }
+			{ label: "Reflection", readonly: true },
 		);
 		demo.paneBindings.fps = stats.addBinding(
 			demo.performance as unknown as Record<string, unknown>,
@@ -518,8 +520,8 @@ async function createTweakpane(demo: DemoState): Promise<void> {
 			{
 				label: "FPS",
 				readonly: true,
-				format: (value: number) => value > 0 ? value.toFixed(1) : "-",
-			}
+				format: (value: number) => (value > 0 ? value.toFixed(1) : "-"),
+			},
 		);
 		demo.paneBindings.frameMs = stats.addBinding(
 			demo.performance as unknown as Record<string, unknown>,
@@ -527,18 +529,18 @@ async function createTweakpane(demo: DemoState): Promise<void> {
 			{
 				label: "Frame Time",
 				readonly: true,
-				format: (value: number) => value > 0 ? `${value.toFixed(1)} ms` : "-",
-			}
+				format: (value: number) => (value > 0 ? `${value.toFixed(1)} ms` : "-"),
+			},
 		);
 		demo.paneBindings.mirror = stats.addBinding(
 			demo.performance as unknown as Record<string, unknown>,
 			"mirror",
-			{ label: "Mirror", readonly: true }
+			{ label: "Mirror", readonly: true },
 		);
 		demo.paneBindings.objects = stats.addBinding(
 			demo.performance as unknown as Record<string, unknown>,
 			"objects",
-			{ label: "Objects", readonly: true }
+			{ label: "Objects", readonly: true },
 		);
 		pane.refresh?.();
 		updateMetrics(demo);
