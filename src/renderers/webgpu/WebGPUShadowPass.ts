@@ -94,6 +94,14 @@ interface ShadowInstancedDrawBatch {
 	instanceCount: number;
 }
 
+interface InstanceBufferGroup {
+	mvpBuffer: GPUBuffer;
+	metaBuffer: GPUBuffer;
+	transmittanceBuffer: GPUBuffer;
+	bindGroup: GPUBindGroup;
+	capacity: number;
+}
+
 const SHADOW_INSTANCE_DATA_UINTS = 8;
 
 export class WebGPUShadowPass {
@@ -117,11 +125,8 @@ export class WebGPUShadowPass {
 	private _pipelineLayout: GPUPipelineLayout | null = null;
 	private _pipeline: IRenderPipeline | null = null;
 	private _transmittancePipeline: IRenderPipeline | null = null;
-	private _instanceMvpBuffer: GPUBuffer | null = null;
-	private _instanceMetaBuffer: GPUBuffer | null = null;
-	private _instanceTransmittanceBuffer: GPUBuffer | null = null;
-	private _instanceMvpBindGroup: GPUBindGroup | null = null;
-	private _instanceMvpCapacity = 0;
+	private _opaqueBufferGroups: InstanceBufferGroup[] = [];
+	private _transmittanceBufferGroups: InstanceBufferGroup[] = [];
 	private _frustum = new Frustum();
 	private _animationBindings = new Map<string, ShadowAnimationBindingEntry>();
 	private _fallbackStorageBuffer: GPUBuffer | null = null;
@@ -195,6 +200,7 @@ export class WebGPUShadowPass {
 
 		passEncoder.setPipeline(getWebGPURenderPipeline(this._pipeline));
 
+		let slotIndex = 0;
 		for (const slot of slots) {
 			const shadowMapSize = Math.max(1, slot.shadowMap.size | 0);
 			const baseOffsetX = slot.tileX * atlasTileSize;
@@ -249,8 +255,10 @@ export class WebGPUShadowPass {
 				drawCandidates,
 				this._shadowViewProjectionMatrix,
 				context,
-				animationBindingCache
+				animationBindingCache,
+				slotIndex
 			);
+			slotIndex++;
 		}
 
 		passEncoder.end();
@@ -273,6 +281,7 @@ export class WebGPUShadowPass {
 		transmittancePassEncoder.setPipeline(
 			getWebGPURenderPipeline(this._transmittancePipeline)
 		);
+		slotIndex = 0;
 		for (const slot of slots) {
 			const shadowMapSize = Math.max(1, slot.shadowMap.size | 0);
 			const baseOffsetX = slot.tileX * atlasTileSize;
@@ -312,8 +321,10 @@ export class WebGPUShadowPass {
 				transmitterCandidates,
 				this._shadowViewProjectionMatrix,
 				context,
-				animationBindingCache
+				animationBindingCache,
+				slotIndex
 			);
+			slotIndex++;
 		}
 		transmittancePassEncoder.end();
 		if (submitAtEnd) {
@@ -347,14 +358,25 @@ export class WebGPUShadowPass {
 		this._pipelineLayout = null;
 		this._pipeline = null;
 		this._transmittancePipeline = null;
-		this._instanceMvpBuffer?.destroy();
-		this._instanceMetaBuffer?.destroy();
-		this._instanceTransmittanceBuffer?.destroy();
-		this._instanceMvpBuffer = null;
-		this._instanceMetaBuffer = null;
-		this._instanceTransmittanceBuffer = null;
-		this._instanceMvpBindGroup = null;
-		this._instanceMvpCapacity = 0;
+
+		for (const group of this._opaqueBufferGroups) {
+			if (group) {
+				group.mvpBuffer.destroy();
+				group.metaBuffer.destroy();
+				group.transmittanceBuffer.destroy();
+			}
+		}
+		this._opaqueBufferGroups = [];
+
+		for (const group of this._transmittanceBufferGroups) {
+			if (group) {
+				group.mvpBuffer.destroy();
+				group.metaBuffer.destroy();
+				group.transmittanceBuffer.destroy();
+			}
+		}
+		this._transmittanceBufferGroups = [];
+
 		this._instanceMvpData = new Float32Array(0);
 		this._instanceMetaData = new Uint32Array(0);
 		this._instanceTransmittanceData = new Float32Array(0);
@@ -374,23 +396,26 @@ export class WebGPUShadowPass {
 		drawCandidates: ShadowDrawCandidate[],
 		viewProjectionMatrix: Matrix4,
 		context: FrameContext,
-		animationBindingCache: Map<string, GPUBindGroup | null>
+		animationBindingCache: Map<string, GPUBindGroup | null>,
+		slotIndex: number
 	): void {
-		const drawBatches = this._buildShadowDrawBatches(
+		const { batches: drawBatches, bindGroup } = this._buildShadowDrawBatches(
 			drawCandidates,
 			viewProjectionMatrix,
 			context,
 			animationBindingCache,
+			false,
+			slotIndex,
 			false
 		);
 		if (
 			drawBatches.length === 0 ||
-			!this._instanceMvpBindGroup
+			!bindGroup
 		) {
 			return;
 		}
 
-		passEncoder.setBindGroup(0, this._instanceMvpBindGroup);
+		passEncoder.setBindGroup(0, bindGroup);
 		for (const batch of drawBatches) {
 			passEncoder.setVertexBuffer(0, batch.candidate.vertexBuffer);
 			passEncoder.setIndexBuffer(batch.candidate.indexBuffer, "uint32");
@@ -410,23 +435,26 @@ export class WebGPUShadowPass {
 		drawCandidates: ShadowDrawCandidate[],
 		viewProjectionMatrix: Matrix4,
 		context: FrameContext,
-		animationBindingCache: Map<string, GPUBindGroup | null>
+		animationBindingCache: Map<string, GPUBindGroup | null>,
+		slotIndex: number
 	): void {
-		const drawBatches = this._buildShadowDrawBatches(
+		const { batches: drawBatches, bindGroup } = this._buildShadowDrawBatches(
 			drawCandidates,
 			viewProjectionMatrix,
 			context,
 			animationBindingCache,
+			true,
+			slotIndex,
 			true
 		);
 		if (
 			drawBatches.length === 0 ||
-			!this._instanceMvpBindGroup
+			!bindGroup
 		) {
 			return;
 		}
 
-		passEncoder.setBindGroup(0, this._instanceMvpBindGroup);
+		passEncoder.setBindGroup(0, bindGroup);
 		for (const batch of drawBatches) {
 			passEncoder.setVertexBuffer(0, batch.candidate.vertexBuffer);
 			passEncoder.setIndexBuffer(batch.candidate.indexBuffer, "uint32");
@@ -446,8 +474,10 @@ export class WebGPUShadowPass {
 		viewProjectionMatrix: Matrix4,
 		context: FrameContext,
 		animationBindingCache: Map<string, GPUBindGroup | null>,
-		resolveTransmittance: boolean
-	): ShadowInstancedDrawBatch[] {
+		resolveTransmittance: boolean,
+		slotIndex: number,
+		isTransmittance: boolean
+	): { batches: ShadowInstancedDrawBatch[]; bindGroup: GPUBindGroup | null } {
 		const drawBatches: ShadowInstancedDrawBatch[] = [];
 		let instanceCount = 0;
 		for (const candidate of drawCandidates) {
@@ -531,14 +561,21 @@ export class WebGPUShadowPass {
 			});
 		}
 
-		if (
-			instanceCount === 0 ||
-			!this._upsertShadowInstanceResources(instanceCount)
-		) {
-			return [];
+		if (instanceCount === 0) {
+			return { batches: [], bindGroup: null };
 		}
+
+		const group = this._upsertShadowInstanceResources(
+			instanceCount,
+			slotIndex,
+			isTransmittance
+		);
+		if (!group) {
+			return { batches: [], bindGroup: null };
+		}
+
 		this._requireBackendQueue().writeBuffer(
-			this._instanceMvpBuffer!,
+			group.mvpBuffer,
 			0,
 			this._instanceMvpData.subarray(
 				0,
@@ -546,7 +583,7 @@ export class WebGPUShadowPass {
 			) as Float32Array<ArrayBuffer>
 		);
 		this._requireBackendQueue().writeBuffer(
-			this._instanceMetaBuffer!,
+			group.metaBuffer,
 			0,
 			this._instanceMetaData.subarray(
 				0,
@@ -554,7 +591,7 @@ export class WebGPUShadowPass {
 			) as Uint32Array<ArrayBuffer>
 		);
 		this._requireBackendQueue().writeBuffer(
-			this._instanceTransmittanceBuffer!,
+			group.transmittanceBuffer,
 			0,
 			this._instanceTransmittanceData.subarray(
 				0,
@@ -562,7 +599,7 @@ export class WebGPUShadowPass {
 			) as Float32Array<ArrayBuffer>
 		);
 
-		return drawBatches;
+		return { batches: drawBatches, bindGroup: group.bindGroup };
 	}
 
 	private _ensureInstanceDataCapacity(instanceCount: number): void {
@@ -598,72 +635,75 @@ export class WebGPUShadowPass {
 		this._instanceMetaData = nextMeta;
 	}
 
-	private _upsertShadowInstanceResources(instanceCount: number): boolean {
+	private _upsertShadowInstanceResources(
+		instanceCount: number,
+		slotIndex: number,
+		isTransmittance: boolean
+	): InstanceBufferGroup | null {
 		if (!this._bindGroupLayout) {
-			return false;
+			return null;
 		}
 		const device = this._requireBackendDevice();
 		const requiredCapacity = Math.max(1, instanceCount);
 
+		const groups = isTransmittance ? this._transmittanceBufferGroups : this._opaqueBufferGroups;
+		let group = groups[slotIndex];
+
 		if (
-			!this._instanceMvpBuffer ||
-			!this._instanceMetaBuffer ||
-			!this._instanceTransmittanceBuffer ||
-			requiredCapacity > this._instanceMvpCapacity
+			!group ||
+			requiredCapacity > group.capacity
 		) {
-			this._instanceMvpBuffer?.destroy();
-			this._instanceMetaBuffer?.destroy();
-			this._instanceTransmittanceBuffer?.destroy();
-			this._instanceMvpBuffer = device.createBuffer({
-				label: "WebGPUShadowDepthMvpStorage",
+			if (group) {
+				group.mvpBuffer.destroy();
+				group.metaBuffer.destroy();
+				group.transmittanceBuffer.destroy();
+			}
+			const mvpBuffer = device.createBuffer({
+				label: `WebGPUShadowDepthMvpStorage_${isTransmittance ? "trans" : "opaque"}_${slotIndex}`,
 				size: requiredCapacity * 16 * 4,
 				usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
 			});
-			this._instanceMetaBuffer = device.createBuffer({
-				label: "WebGPUShadowDepthInstanceMeta",
+			const metaBuffer = device.createBuffer({
+				label: `WebGPUShadowDepthInstanceMeta_${isTransmittance ? "trans" : "opaque"}_${slotIndex}`,
 				size: requiredCapacity * SHADOW_INSTANCE_DATA_UINTS * 4,
 				usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
 			});
-			this._instanceTransmittanceBuffer = device.createBuffer({
-				label: "WebGPUShadowTransmittanceStorage",
+			const transmittanceBuffer = device.createBuffer({
+				label: `WebGPUShadowTransmittanceStorage_${isTransmittance ? "trans" : "opaque"}_${slotIndex}`,
 				size: requiredCapacity * 4 * 4,
 				usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
 			});
-			this._instanceMvpBindGroup = null;
-			this._instanceMvpCapacity = requiredCapacity;
-		}
 
-		if (
-			!this._instanceMvpBindGroup &&
-			this._instanceMvpBuffer &&
-			this._instanceMetaBuffer
-		) {
-			this._instanceMvpBindGroup = device.createBindGroup({
-				label: "WebGPUShadowDepthMvpBindGroup",
+			const bindGroup = device.createBindGroup({
+				label: `WebGPUShadowDepthMvpBindGroup_${isTransmittance ? "trans" : "opaque"}_${slotIndex}`,
 				layout: this._bindGroupLayout,
 				entries: [
 					{
 						binding: 0,
-						resource: { buffer: this._instanceMvpBuffer },
+						resource: { buffer: mvpBuffer },
 					},
 					{
 						binding: 1,
-						resource: { buffer: this._instanceMetaBuffer },
+						resource: { buffer: metaBuffer },
 					},
 					{
 						binding: 2,
-						resource: { buffer: this._instanceTransmittanceBuffer },
+						resource: { buffer: transmittanceBuffer },
 					},
 				],
 			});
+
+			group = {
+				mvpBuffer,
+				metaBuffer,
+				transmittanceBuffer,
+				bindGroup,
+				capacity: requiredCapacity,
+			};
+			groups[slotIndex] = group;
 		}
 
-		return (
-			!!this._instanceMvpBuffer &&
-			!!this._instanceMetaBuffer &&
-			!!this._instanceTransmittanceBuffer &&
-			!!this._instanceMvpBindGroup
-		);
+		return group;
 	}
 
 	private _collectShadowDrawCandidates(
