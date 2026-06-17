@@ -32,6 +32,10 @@ interface TweakpanePane {
 	refresh?: () => void;
 }
 
+function asTweakpanePane(value: unknown): TweakpanePane {
+	return value as TweakpanePane;
+}
+
 interface DemoSettings {
 	roomTilingX: number;
 	roomTilingY: number;
@@ -97,7 +101,7 @@ async function bootDemo(): Promise<DemoState> {
 
 		const material = createInteriorMaterial(settings);
 		const plane = MeshFactory.createPlane({ x: 0, y: 0, z: 0 }, 4.5, 4.5, material);
-		plane.quaternion.fromEuler(-Math.PI / 2, 0, 0);
+		plane.quaternion.fromEuler(Math.PI / 2, 0, 0);
 		plane.updateLocalMatrix();
 		scene.add(plane);
 
@@ -129,7 +133,7 @@ async function bootDemo(): Promise<DemoState> {
 			startedAt: performanceNow(),
 		};
 
-		renderer.on("frameend", ({ now, deltaTime }) => {
+		renderer.on("tick", ({ now, deltaTime }) => {
 			samplePerformance(performanceState, now, deltaTime);
 			updateMetrics(demo);
 		});
@@ -140,10 +144,7 @@ async function bootDemo(): Promise<DemoState> {
 		scene.syncNodeToECS();
 		scene.updateWorldMatrices();
 		renderer.requestRender("unknown");
-		await renderer.renderFrame(performanceNow());
-
-		updateMetrics(demo);
-		startAnimationLoop(demo);
+		renderer.renderLoop();
 
 		return demo;
 	} catch (error) {
@@ -174,11 +175,11 @@ function createPerformanceState(): DemoPerformance {
 }
 
 function createCamera(): OrbitCamera {
-	const camera = new OrbitCamera(new Vector3(0, 0, 0), 8);
+	const camera = new OrbitCamera(new Vector3(0, 0, 0), 10);
 	camera.fov = 45;
 	camera.near = 0.1;
 	camera.far = 100;
-	camera.theta = Math.PI / 2;
+	camera.theta = 0;
 	camera.phi = Math.PI / 2;
 	camera.minDistance = 2;
 	camera.maxDistance = 20;
@@ -229,7 +230,7 @@ function createInteriorMaterial(settings: DemoSettings): ShaderMaterial {
 
 async function createTweakpane(demo: DemoState): Promise<void> {
 	try {
-		const pane = new Pane({ title: "Interior Mapping" });
+		const pane = asTweakpanePane(new Pane({ title: "Interior Mapping" }));
 
 		const room = pane.addFolder({ title: "Room", expanded: true });
 		room.addBinding(demo.settings as unknown as Record<string, unknown>, "roomTilingX", {
@@ -286,12 +287,6 @@ async function createTweakpane(demo: DemoState): Promise<void> {
 			"viewVector",
 			{ label: "TBN View", readonly: true },
 		);
-
-		const view = pane.addFolder({ title: "View", expanded: false });
-		view.addButton({ title: "Reset Camera" }).on("click", () => {
-			resetCamera(demo);
-			updateMetrics(demo);
-		});
 
 		pane.refresh?.();
 		updateMetrics(demo);
@@ -361,26 +356,9 @@ function applyUniforms(demo: DemoState): void {
 	requestSceneRender(demo);
 }
 
-function resetCamera(demo: DemoState): void {
-	demo.camera.theta = Math.PI / 2;
-	demo.camera.phi = Math.PI / 2;
-	demo.camera.distance = 8;
-	demo.camera.updatePosition();
-	requestSceneRender(demo);
-}
-
 function requestSceneRender(demo: DemoState): void {
 	demo.scene.updateWorldMatrices();
 	demo.renderer.requestRender("camera");
-}
-
-function startAnimationLoop(demo: DemoState): void {
-	const animate = () => {
-		demo.renderer.renderFrame(performanceNow()).then(() => {
-			requestAnimationFrame(animate);
-		});
-	};
-	requestAnimationFrame(animate);
 }
 
 function updateMetrics(demo: DemoState): void {
