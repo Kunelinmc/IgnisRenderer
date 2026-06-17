@@ -635,6 +635,7 @@ export class FrameCoordinator {
 			backendCapabilities: this._backendSession.profile.shadow,
 		});
 		delegate.setShadowMaps(shadowFrameState.shadowMaps);
+		frame.shadowMaps = shadowFrameState.shadowMaps;
 
 		const attachments = this._backendSession.getAttachments({
 			width: delegate.canvas.width,

@@ -562,6 +562,7 @@ export class WebGPURenderResources {
 			renderWidth,
 			renderHeight,
 			temporalHistoryReset,
+			shadowMaps,
 		} = this._resolveFrameInputs(contextOrScene, featuresArg);
 		const particleMeshShadowPackets =
 			isFrameContext ?
@@ -606,7 +607,7 @@ export class WebGPURenderResources {
 		};
 
 		const shadowLights = scene.lights.filter(isShadowCastingLight);
-		syncShadowMapRegistry(scene.shadowMaps, shadowLights);
+		syncShadowMapRegistry(shadowMaps, shadowLights);
 		const shadowCasterBounds = resolveShadowCasterBounds(
 			shadowCasterPackets,
 			scene.sceneBounds
@@ -621,7 +622,7 @@ export class WebGPURenderResources {
 		);
 		if (features.enableShadows) {
 			for (const light of shadowLights) {
-				const shadowRenderSet = scene.shadowMaps.get(light);
+				const shadowRenderSet = shadowMaps.get(light);
 				if (shadowRenderSet) {
 					updateShadowMapMetadata(
 						shadowRenderSet,
@@ -647,7 +648,7 @@ export class WebGPURenderResources {
 			features.enableLighting,
 			features.enableSH,
 			features.enableShadows,
-			scene.shadowMaps,
+			shadowMaps,
 			featureState.enableClusteredLighting
 		);
 		for (const warning of lightingState.warnings) {
@@ -1157,6 +1158,7 @@ export class WebGPURenderResources {
 		renderWidth: number;
 		renderHeight: number;
 		temporalHistoryReset: boolean;
+		shadowMaps: Map<ShadowCastingLight, ShadowRenderSet>;
 	} {
 		if (this._isFrameContext(contextOrScene)) {
 			return {
@@ -1168,6 +1170,7 @@ export class WebGPURenderResources {
 				renderHeight: Math.max(1, contextOrScene.attachments.height || 1),
 				temporalHistoryReset:
 					contextOrScene.incremental?.temporalHistoryReset === true,
+				shadowMaps: contextOrScene.shadowMaps,
 			};
 		}
 
@@ -1192,6 +1195,7 @@ export class WebGPURenderResources {
 			renderWidth: 1,
 			renderHeight: 1,
 			temporalHistoryReset: false,
+			shadowMaps: contextOrScene.shadowMaps,
 		};
 	}
 

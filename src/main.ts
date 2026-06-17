@@ -31,7 +31,7 @@ async function init() {
 	camera.near = 0.1;
 	camera.far = 100;
 	camera.moveSpeed = 5;
-	camera.position.set(5, 4, 7);
+	camera.position.set(0, 5, 10);
 	camera.updateMatrices();
 
 	const scene = new Scene();
@@ -57,8 +57,12 @@ async function init() {
 	});
 	scene.add(sun);
 
-	const shadowMap = scene.shadows.createSingle({
-		size: 4096,
+	const shadowMap = scene.shadows.createCSM({
+		size: 2048,
+		lambda: 0.65,
+		maxDistance: 80,
+		blendRatio: 0.1,
+		stabilize: true,
 		sampling: {
 			filterMode: "pcf",
 			radius: 0.1,
