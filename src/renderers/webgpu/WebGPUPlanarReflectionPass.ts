@@ -1,6 +1,7 @@
 import { CameraType } from "../../cameras/Camera";
 import type { DrawPacket, FrameContext, PreparedScene } from "../../pipeline/types";
 import { createTransientStore } from "../../pipeline/types";
+import { PreparedSceneBuilder } from "../../pipeline/PreparedSceneBuilder";
 import { Matrix4 } from "../../maths/Matrix4";
 import { Plane } from "../../maths/Plane";
 import type { IRenderTexture, IBindingGroup } from "../types";
@@ -561,20 +562,25 @@ function createCaptureScene(
 	planeKey: string,
 	isCameraAbove: boolean
 ): PreparedScene {
+	const meshInstances = context.scene.meshInstances ?? [];
+	const rebuiltScene =
+		meshInstances.length > 0 ?
+			PreparedSceneBuilder.rebuildForCamera(context.scene, camera)
+		:	context.scene;
 	const opaquePackets = filterCapturePackets(
-		context.scene.opaquePackets,
+		rebuiltScene.opaquePackets,
 		plane,
 		planeKey,
 		isCameraAbove
 	);
 	const transparentPackets = filterCapturePackets(
-		context.scene.transparentPackets,
+		rebuiltScene.transparentPackets,
 		plane,
 		planeKey,
 		isCameraAbove
 	);
 	return {
-		...context.scene,
+		...rebuiltScene,
 		camera,
 		opaquePackets,
 		transparentPackets,

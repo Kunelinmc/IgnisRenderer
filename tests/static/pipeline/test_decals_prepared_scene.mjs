@@ -47,11 +47,7 @@ function createRenderer(scene, camera) {
 		scene,
 		camera,
 		shadowMaps: new Map(),
-		animationSystem: {
-			hasActiveActions() {
-				return false;
-			},
-		},
+		hasActiveAnimations: false,
 	};
 }
 

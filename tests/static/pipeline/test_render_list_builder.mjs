@@ -110,11 +110,7 @@ function run() {
 		scene,
 		camera,
 		shadowMaps: new Map(),
-		animationSystem: {
-			hasActiveActions() {
-				return false;
-			},
-		},
+		hasActiveAnimations: false,
 	});
 
 	assert.equal(frame.opaquePackets.length, 3);
@@ -130,16 +126,12 @@ function run() {
 	assert.equal(frame.transparentPackets[2].meshInstance.id, nearTransparent.id);
 	assert.equal(frame.reflectivePackets[0].meshInstance.id, reflective.id);
 
-	const occludedFrame = PreparedSceneBuilder.build(
+		const occludedFrame = PreparedSceneBuilder.build(
 		{
 			scene,
 			camera,
 			shadowMaps: new Map(),
-			animationSystem: {
-				hasActiveActions() {
-					return false;
-				},
-			},
+			hasActiveAnimations: false,
 		},
 		{
 			viewportWidth: 800,
@@ -172,7 +164,72 @@ function run() {
 	);
 	assert.equal(occludedFrame.transparentPackets.length, 3);
 
+	testRebuildForCameraUsesOverrideFrustum();
+
 	console.log("Render list builder tests passed");
+}
+
+function testRebuildForCameraUsesOverrideFrustum() {
+	const scene = new Scene();
+	const mainCamera = new Camera();
+	mainCamera.position.set(0, 0, 5);
+	scene.add(mainCamera);
+
+	const material = new Material({
+		name: "OverrideCameraOpaque",
+		alphaMode: "OPAQUE",
+	});
+	const mesh = createTriangleMesh(material);
+	const mainVisible = scene.add(
+		new MeshInstance({ mesh, name: "mainVisible" })
+	);
+	mainVisible.position.z = 0;
+	const overrideVisible = scene.add(
+		new MeshInstance({ mesh, name: "overrideVisible" })
+	);
+	overrideVisible.position.x = 80;
+	overrideVisible.position.z = 0;
+
+	scene.updateWorldMatrices();
+	mainCamera.updateMatrices();
+
+	const mainFrame = PreparedSceneBuilder.build({
+		scene,
+		camera: mainCamera,
+		shadowMaps: new Map(),
+		hasActiveAnimations: false,
+	});
+
+	assert.equal(
+		mainFrame.opaquePackets.some(
+			(packet) => packet.meshInstance.id === overrideVisible.id
+		),
+		false
+	);
+	assert.equal(mainFrame.meshInstances.length, 2);
+
+	const overrideCamera = new Camera();
+	overrideCamera.position.set(80, 0, 5);
+	overrideCamera.updateMatrices();
+	const rebuiltFrame = PreparedSceneBuilder.rebuildForCamera(
+		mainFrame,
+		overrideCamera
+	);
+
+	assert.equal(
+		rebuiltFrame.opaquePackets.some(
+			(packet) => packet.meshInstance.id === overrideVisible.id
+		),
+		true
+	);
+	assert.equal(
+		rebuiltFrame.opaquePackets.some(
+			(packet) => packet.meshInstance.id === mainVisible.id
+		),
+		false
+	);
+	assert.strictEqual(rebuiltFrame.environment, mainFrame.environment);
+	assert.strictEqual(rebuiltFrame.shadowMaps, mainFrame.shadowMaps);
 }
 
 run();

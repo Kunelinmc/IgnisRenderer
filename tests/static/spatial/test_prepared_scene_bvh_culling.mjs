@@ -75,11 +75,7 @@ function run() {
 			scene,
 			camera,
 			shadowMaps: new Map(),
-			animationSystem: {
-				hasActiveActions() {
-					return false;
-				},
-			},
+			hasActiveAnimations: false,
 		});
 	} finally {
 		camera.isSphereInFrustum = originalIsSphereInFrustum;
