@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+	<meta charset="UTF-8" />
+	<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+	<title>IgnisRenderer Planar Reflection Demo</title>
+	<style>
+		:root {
+			color-scheme: dark;
+			font-family: "Geist Sans", Geist, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+			background: #070807;
+			color: #f2f2ee;
+		}
+
+		html,
+		body {
+			width: 100%;
+			height: 100%;
+			margin: 0;
+		}
+
+		body {
+			overflow: hidden;
+			background: #070807;
+			user-select: none;
+			-webkit-user-select: none;
+		}
+
+		#canvas3d {
+			display: block;
+			width: 100vw;
+			height: 100vh;
+			background: #050605;
+			touch-action: none;
+		}
+
+		.hud {
+			position: fixed;
+			left: 16px;
+			bottom: 16px;
+			width: min(380px, calc(100vw - 32px));
+			box-sizing: border-box;
+			border: 1px solid rgba(255, 255, 255, 0.15);
+			border-radius: 8px;
+			background: rgba(9, 10, 9, 0.78);
+			box-shadow: 0 18px 42px rgba(0, 0, 0, 0.38);
+			backdrop-filter: blur(12px);
+			pointer-events: none;
+		}
+
+		.hud-header {
+			display: flex;
+			align-items: center;
+			justify-content: space-between;
+			gap: 12px;
+			padding: 12px 14px;
+			border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+		}
+
+		.title {
+			margin: 0;
+			font-size: 15px;
+			font-weight: 650;
+		}
+
+		.status {
+			display: inline-flex;
+			align-items: center;
+			gap: 8px;
+			font-size: 12px;
+			color: #d3d3cd;
+			white-space: nowrap;
+		}
+
+		.status-dot {
+			width: 8px;
+			height: 8px;
+			border-radius: 999px;
+			background: #e2b04a;
+			box-shadow: 0 0 14px rgba(226, 176, 74, 0.7);
+		}
+
+		.status-dot.ready {
+			background: #4ecb92;
+			box-shadow: 0 0 14px rgba(78, 203, 146, 0.7);
+		}
+
+		.status-dot.error {
+			background: #ff6363;
+			box-shadow: 0 0 14px rgba(255, 99, 99, 0.7);
+		}
+
+		.metrics {
+			display: grid;
+			grid-template-columns: repeat(2, minmax(0, 1fr));
+			margin: 0;
+		}
+
+		.metric {
+			min-width: 0;
+			padding: 10px 14px;
+			border-right: 1px solid rgba(255, 255, 255, 0.1);
+			border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+		}
+
+		.metric:nth-child(2n) {
+			border-right: 0;
+		}
+
+		.metric:nth-last-child(-n + 2) {
+			border-bottom: 0;
+		}
+
+		.metric-label {
+			display: block;
+			margin-bottom: 4px;
+			font-size: 11px;
+			color: #a7a7a0;
+		}
+
+		.metric-value {
+			display: block;
+			overflow: hidden;
+			text-overflow: ellipsis;
+			white-space: nowrap;
+			font-size: 13px;
+			font-variant-numeric: tabular-nums;
+		}
+
+		.error-message {
+			display: none;
+			position: fixed;
+			left: 50%;
+			top: 50%;
+			width: min(90vw, 520px);
+			transform: translate(-50%, -50%);
+			border: 1px solid rgba(255, 255, 255, 0.16);
+			border-radius: 8px;
+			background: #111210;
+			color: #eeeeea;
+			padding: 18px;
+			box-shadow: 0 18px 48px rgba(0, 0, 0, 0.44);
+		}
+
+		.error-message.visible {
+			display: block;
+		}
+
+		.error-message h2 {
+			margin: 0 0 8px;
+			font-size: 16px;
+		}
+
+		.error-message p {
+			margin: 0;
+			color: #cbc9c2;
+			font-size: 13px;
+			line-height: 1.5;
+		}
+
+		@media (max-width: 720px) {
+			.hud {
+				left: 10px;
+				bottom: 10px;
+				width: calc(100vw - 20px);
+			}
+		}
+	</style>
+</head>
+
+<body>
+	<canvas id="canvas3d"></canvas>
+	<section class="hud" aria-label="Planar reflection metrics">
+		<header class="hud-header">
+			<h1 class="title">Planar Reflection Mirror</h1>
+			<div class="status" aria-live="polite">
+				<span id="statusDot" class="status-dot"></span>
+				<span id="statusText">Starting</span>
+			</div>
+		</header>
+		<dl class="metrics">
+			<div class="metric">
+				<dt class="metric-label">Backend</dt>
+				<dd id="backendMetric" class="metric-value">-</dd>
+			</div>
+			<div class="metric">
+				<dt class="metric-label">Reflection</dt>
+				<dd id="reflectionMetric" class="metric-value">-</dd>
+			</div>
+			<div class="metric">
+				<dt class="metric-label">FPS</dt>
+				<dd id="fpsMetric" class="metric-value">-</dd>
+			</div>
+			<div class="metric">
+				<dt class="metric-label">Frame</dt>
+				<dd id="frameMetric" class="metric-value">-</dd>
+			</div>
+			<div class="metric">
+				<dt class="metric-label">Mirror</dt>
+				<dd id="mirrorMetric" class="metric-value">-</dd>
+			</div>
+			<div class="metric">
+				<dt class="metric-label">Objects</dt>
+				<dd id="objectMetric" class="metric-value">-</dd>
+			</div>
+		</dl>
+	</section>
+	<div id="errorMessage" class="error-message" role="alert">
+		<h2>Renderer unavailable</h2>
+		<p id="errorText"></p>
+	</div>
+	<script type="module" src="./main.ts"></script>
+</body>
+
+</html>
