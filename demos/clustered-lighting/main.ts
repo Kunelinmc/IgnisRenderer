@@ -10,6 +10,7 @@ import {
 	PointLight,
 	Renderer,
 	Scene,
+	UnlitMaterial,
 	Vector3,
 	WebGLBackend,
 	WebGPUBackend,
@@ -17,7 +18,7 @@ import {
 import type { RGB } from "../../src/index";
 
 const MAX_LIGHTS = 512;
-const DEFAULT_LIGHT_COUNT = 320;
+const DEFAULT_LIGHT_COUNT = 64;
 const LEGACY_POINT_LIGHT_CAP = 16;
 
 const LIGHT_PALETTE: RGB[] = [
@@ -50,6 +51,10 @@ interface TweakpanePane {
 	refresh?: () => void;
 }
 
+function asTweakpanePane(value: unknown): TweakpanePane {
+	return value as TweakpanePane;
+}
+
 interface DemoLight {
 	light: PointLight;
 	marker: ReturnType<typeof MeshFactory.createSphere>;
@@ -64,6 +69,7 @@ interface DemoSettings {
 	lightRange: number;
 	lightIntensity: number;
 	clustered: boolean;
+	clusterCullingMode: "gather" | "scatter";
 	tileSizePx: number;
 	zSlices: number;
 	maxLightsPerCluster: number;
@@ -177,9 +183,10 @@ async function bootDemo(): Promise<DemoState> {
 function createDefaultSettings(): DemoSettings {
 	return {
 		lightCount: DEFAULT_LIGHT_COUNT,
-		lightRange: 7.4,
-		lightIntensity: 18,
+		lightRange: 5,
+		lightIntensity: 10,
 		clustered: true,
+		clusterCullingMode: "gather",
 		tileSizePx: 64,
 		zSlices: 24,
 		maxLightsPerCluster: MAX_LIGHTS,
@@ -362,12 +369,9 @@ function createLightPool(settings: DemoSettings): DemoLight[] {
 			0.065,
 			6,
 			4,
-			new PBRMaterial({
+			new UnlitMaterial({
 				name: `stress-light-marker-${index}`,
-				albedo: color,
-				emissive: color,
-				emissiveIntensity: 2.8,
-				roughness: 0.2,
+				diffuse: color,
 			})
 		);
 		lights.push({
@@ -410,7 +414,7 @@ async function createRenderer(
 
 async function createTweakpane(demo: DemoState): Promise<void> {
 	try {
-		const pane = new Pane({ title: "Clustered Lighting" });
+		const pane = asTweakpanePane(new Pane({ title: "Clustered Lighting" }));
 		const load = pane.addFolder({ title: "Light Load", expanded: true });
 		load.addBinding(demo.settings as unknown as Record<string, unknown>, "lightCount", {
 			label: "Lights",
@@ -460,6 +464,20 @@ async function createTweakpane(demo: DemoState): Promise<void> {
 		cluster.addBinding(demo.settings as unknown as Record<string, unknown>, "clustered", {
 			label: "Clustered",
 		}).on("change", () => {
+			applyClusterOptions(demo);
+			requestSceneRender(demo, "unknown");
+		});
+		cluster.addBinding(
+			demo.settings as unknown as Record<string, unknown>,
+			"clusterCullingMode",
+			{
+				label: "Culling",
+				options: {
+					"Gather": "gather",
+					"Scatter": "scatter",
+				},
+			}
+		).on("change", () => {
 			applyClusterOptions(demo);
 			requestSceneRender(demo, "unknown");
 		});
@@ -710,12 +728,14 @@ function readClusterOptions(settings: DemoSettings): {
 	zSlices: number;
 	maxLights: number;
 	maxLightsPerCluster: number;
+	cullingMode: "gather" | "scatter";
 } {
 	return {
 		tileSizePx: settings.tileSizePx,
 		zSlices: settings.zSlices,
 		maxLights: settings.lightCount,
 		maxLightsPerCluster: settings.maxLightsPerCluster,
+		cullingMode: settings.clusterCullingMode,
 	};
 }
 
@@ -739,7 +759,7 @@ function updateMetrics(demo: DemoState): void {
 	const visibleMarkers = getVisibleMarkerCount(demo);
 	demo.performance.backend = demo.renderer.backendProfile.id;
 	demo.performance.mode = demo.settings.clustered ?
-		"clustered"
+		`clustered ${demo.settings.clusterCullingMode}`
 	:	`forward cap ${LEGACY_POINT_LIGHT_CAP}`;
 	demo.performance.lights = `${activeLights} lights, ${visibleMarkers} markers`;
 	demo.performance.clusterGrid = demo.settings.clustered ?
