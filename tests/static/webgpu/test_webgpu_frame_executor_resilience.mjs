@@ -1101,7 +1101,7 @@ async function testPlanarReflectionCaptureFailureKeepsMainFrameResources() {
 	);
 }
 
-async function testPlanarReflectionCaptureUsesMirroredCameraAndBoundsRadius() {
+async function testPlanarReflectionCaptureUsesMirroredCameraAndCenterSide() {
 	const backend = new FakeBackend();
 	backend.device.limits.maxStorageTexturesPerShaderStage = 0;
 	const resources = createPlanarReflectionResourcesStub();
@@ -1123,11 +1123,13 @@ async function testPlanarReflectionCaptureUsesMirroredCameraAndBoundsRadius() {
 	});
 	const objectMaterial = new Material({ name: "object" });
 	const mirrorPacket = createPlanarPacket("mirror", mirrorMaterial, 0);
+	const abovePacket = createPlanarPacket("above", objectMaterial, 1);
 	const crossingPacket = createPlanarPacket("crossing", objectMaterial, -0.5);
 	const culledPacket = createPlanarPacket("culled", objectMaterial, -2);
 	culledPacket.worldBounds.radius = 0.25;
 	context.scene.opaquePackets = [
 		mirrorPacket,
+		abovePacket,
 		crossingPacket,
 		culledPacket,
 	];
@@ -1167,11 +1169,11 @@ async function testPlanarReflectionCaptureUsesMirroredCameraAndBoundsRadius() {
 	});
 	assert.deepEqual(
 		captureContext.scene.opaquePackets.map((packet) => packet.id),
-		["crossing"]
+		["above"]
 	);
 	assert.ok(
 		resources._state.events.includes(
-			"prepare:reflection:false:ssr:false:opaque:crossing"
+			"prepare:reflection:false:ssr:false:opaque:above"
 		)
 	);
 }
@@ -1673,7 +1675,7 @@ async function run() {
 	await testPlanarReflectionUsesColorTargetsWithoutPostProcess();
 	await testPlanarReflectionCaptureKeepsMSAAFrameTargetsAlive();
 	await testPlanarReflectionCaptureFailureKeepsMainFrameResources();
-	await testPlanarReflectionCaptureUsesMirroredCameraAndBoundsRadius();
+	await testPlanarReflectionCaptureUsesMirroredCameraAndCenterSide();
 	await testOITTransparentAndParticleExecutionOrder();
 	await testOITTransparentResolvesImmediatelyWithoutParticles();
 	await testScreenSpaceRefractionCapturesTransmissionPackets();

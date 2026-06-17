@@ -20,6 +20,7 @@ import { Logger } from "../../foundation/Logger";
 
 export const WEBGPU_PLANAR_REFLECTION_MAX_PLANES = 2;
 export const WEBGPU_PLANAR_REFLECTION_RESOLUTION_SCALE = 0.5;
+export const WEBGPU_PLANAR_REFLECTION_SIDE_EPSILON = 1e-4;
 
 interface PlanarReflectionTargetSet {
 	sceneColor: IRenderTexture;
@@ -504,7 +505,13 @@ function createPlanarCaptureContext(
 		mirroredPosition.y,
 		mirroredPosition.z
 	);
-	camera.updateWorldMatrix();
+	const mirroredWorldMatrix = Matrix4.inverse(mirrorViewMatrix);
+	if (mirroredWorldMatrix) {
+		mirroredWorldMatrix.copyTo(camera.localMatrix);
+		mirroredWorldMatrix.copyTo(camera.worldMatrix);
+	} else {
+		camera.updateWorldMatrix();
+	}
 	camera.viewMatrix = mirrorViewMatrix;
 	camera.projectionMatrix = mirrorProjectionMatrix;
 	camera.viewProjectionMatrix = Matrix4.multiply(
@@ -598,16 +605,45 @@ function filterCapturePackets(
 	planeKey: string,
 	isCameraAbove: boolean
 ): DrawPacket[] {
+	return filterPlanarReflectionCapturePackets(
+		packets,
+		plane,
+		planeKey,
+		isCameraAbove
+	);
+}
+
+/**
+ * Filters draw packets for a planar reflection capture.
+ *
+ * @internal WebGPU planar reflections use this to reject packets on the
+ * mirrored side of the plane before oblique clipping. This avoids grazing-view
+ * artifacts where large surfaces just behind the mirror are clipped into long
+ * edge streaks in the reflection texture.
+ *
+ * @param packets Draw packets from the capture camera rebuild.
+ * @param plane Normalized mirror plane in world space.
+ * @param planeKey Stable key for the mirror plane currently being captured.
+ * @param isCameraAbove Whether the main camera is on the positive plane side.
+ * @returns Packets eligible for reflection capture.
+ */
+export function filterPlanarReflectionCapturePackets(
+	packets: DrawPacket[],
+	plane: Plane,
+	planeKey: string,
+	isCameraAbove: boolean
+): DrawPacket[] {
 	return packets.filter((packet) => {
 		if (resolvePlaneKey(packet.material.mirrorPlane) === planeKey) {
 			return false;
 		}
 		const distance = plane.distanceToPoint(packet.worldBounds.center);
-		const radius =
-			Number.isFinite(packet.worldBounds.radius) ?
-				Math.max(0, packet.worldBounds.radius)
-			:	0;
-		return isCameraAbove ? distance + radius >= 0 : distance - radius <= 0;
+		if (!Number.isFinite(distance)) {
+			return false;
+		}
+		return isCameraAbove ?
+			distance >= -WEBGPU_PLANAR_REFLECTION_SIDE_EPSILON
+		:	distance <= WEBGPU_PLANAR_REFLECTION_SIDE_EPSILON;
 	});
 }
 

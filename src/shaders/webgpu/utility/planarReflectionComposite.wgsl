@@ -53,7 +53,7 @@ struct VertexInput {
 
 struct VertexOutput {
 	@builtin(position) position: vec4<f32>,
-	@location(0) screenUv: vec2<f32>,
+	@location(0) @interpolate(linear) screenUv: vec2<f32>,
 	@location(1) uv0: vec2<f32>,
 	@location(2) uv1: vec2<f32>,
 	@location(3) uv2: vec2<f32>,
