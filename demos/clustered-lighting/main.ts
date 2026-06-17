@@ -1,3 +1,5 @@
+import { Pane } from "tweakpane";
+
 import {
 	AmbientLight,
 	DirectionalLight,
@@ -14,8 +16,6 @@ import {
 } from "../../src/index";
 import type { RGB } from "../../src/index";
 
-const TWEAKPANE_CDN_URL =
-	"https://cdn.jsdelivr.net/npm/tweakpane@4.0.5/dist/tweakpane.min.js";
 const MAX_LIGHTS = 512;
 const DEFAULT_LIGHT_COUNT = 320;
 const LEGACY_POINT_LIGHT_CAP = 16;
@@ -50,10 +50,6 @@ interface TweakpanePane {
 	refresh?: () => void;
 }
 
-interface TweakpaneModule {
-	Pane: new (options?: Record<string, unknown>) => TweakpanePane;
-}
-
 interface DemoLight {
 	light: PointLight;
 	marker: ReturnType<typeof MeshFactory.createSphere>;
@@ -83,6 +79,19 @@ interface DemoPerformance {
 	lastUpdateMs: number;
 	fps: number;
 	frameMs: number;
+	backend: string;
+	mode: string;
+	lights: string;
+	clusterGrid: string;
+}
+
+interface DemoPaneBindings {
+	backend?: TweakpaneBinding;
+	mode?: TweakpaneBinding;
+	fps?: TweakpaneBinding;
+	frameMs?: TweakpaneBinding;
+	lights?: TweakpaneBinding;
+	clusterGrid?: TweakpaneBinding;
 }
 
 interface DemoState {
@@ -92,19 +101,10 @@ interface DemoState {
 	lights: DemoLight[];
 	settings: DemoSettings;
 	performance: DemoPerformance;
+	paneBindings: DemoPaneBindings;
 	startedAt: number;
 }
 
-const statusDot = getElement<HTMLElement>("statusDot");
-const statusText = getElement<HTMLElement>("statusText");
-const backendMetric = getElement<HTMLElement>("backendMetric");
-const modeMetric = getElement<HTMLElement>("modeMetric");
-const fpsMetric = getElement<HTMLElement>("fpsMetric");
-const frameMetric = getElement<HTMLElement>("frameMetric");
-const lightMetric = getElement<HTMLElement>("lightMetric");
-const gridMetric = getElement<HTMLElement>("gridMetric");
-const errorMessage = getElement<HTMLElement>("errorMessage");
-const errorText = getElement<HTMLElement>("errorText");
 const canvas = getElement<HTMLCanvasElement>("canvas3d");
 
 const state = await bootDemo();
@@ -120,7 +120,6 @@ function getElement<T extends HTMLElement>(id: string): T {
 }
 
 async function bootDemo(): Promise<DemoState> {
-	setStatus("Starting", "pending");
 	try {
 		const settings = createDefaultSettings();
 		const scene = new Scene();
@@ -152,6 +151,7 @@ async function bootDemo(): Promise<DemoState> {
 			lights,
 			settings,
 			performance,
+			paneBindings: {},
 			startedAt: performanceNow(),
 		};
 
@@ -165,15 +165,11 @@ async function bootDemo(): Promise<DemoState> {
 		scene.updateWorldMatrices();
 		renderer.requestRender("unknown");
 		await renderer.renderFrame(performanceNow());
-		setStatus("Running", "ready");
 		updateMetrics(demo);
 		startAnimationLoop(demo);
 		return demo;
 	} catch (error) {
-		const message = error instanceof Error ? error.message : String(error);
-		setStatus("Failed", "error");
-		errorText.textContent = message;
-		errorMessage.classList.add("visible");
+		console.error("Clustered lighting demo failed to start.", error);
 		throw error;
 	}
 }
@@ -201,6 +197,10 @@ function createPerformanceState(): DemoPerformance {
 		lastUpdateMs: performanceNow(),
 		fps: 0,
 		frameMs: 0,
+		backend: "-",
+		mode: "-",
+		lights: "-",
+		clusterGrid: "-",
 	};
 }
 
@@ -410,9 +410,6 @@ async function createRenderer(
 
 async function createTweakpane(demo: DemoState): Promise<void> {
 	try {
-		const { Pane } = await import(
-			/* @vite-ignore */ TWEAKPANE_CDN_URL
-		) as TweakpaneModule;
 		const pane = new Pane({ title: "Clustered Lighting" });
 		const load = pane.addFolder({ title: "Light Load", expanded: true });
 		load.addBinding(demo.settings as unknown as Record<string, unknown>, "lightCount", {
@@ -532,12 +529,50 @@ async function createTweakpane(demo: DemoState): Promise<void> {
 			resetCamera(demo);
 			updateMetrics(demo);
 		});
+
+		const stats = pane.addFolder({ title: "Stats", expanded: true });
+		demo.paneBindings.backend = stats.addBinding(
+			demo.performance as unknown as Record<string, unknown>,
+			"backend",
+			{ label: "Backend", readonly: true }
+		);
+		demo.paneBindings.mode = stats.addBinding(
+			demo.performance as unknown as Record<string, unknown>,
+			"mode",
+			{ label: "Mode", readonly: true }
+		);
+		demo.paneBindings.fps = stats.addBinding(
+			demo.performance as unknown as Record<string, unknown>,
+			"fps",
+			{
+				label: "FPS",
+				readonly: true,
+				format: (value: number) => value > 0 ? value.toFixed(1) : "-",
+			}
+		);
+		demo.paneBindings.frameMs = stats.addBinding(
+			demo.performance as unknown as Record<string, unknown>,
+			"frameMs",
+			{
+				label: "Frame Time",
+				readonly: true,
+				format: (value: number) => value > 0 ? `${value.toFixed(1)} ms` : "-",
+			}
+		);
+		demo.paneBindings.lights = stats.addBinding(
+			demo.performance as unknown as Record<string, unknown>,
+			"lights",
+			{ label: "Lights", readonly: true }
+		);
+		demo.paneBindings.clusterGrid = stats.addBinding(
+			demo.performance as unknown as Record<string, unknown>,
+			"clusterGrid",
+			{ label: "Cluster Grid", readonly: true }
+		);
 		pane.refresh?.();
+		updateMetrics(demo);
 	} catch (error) {
-		const detail = error instanceof Error ? error.message : String(error);
-		setStatus("Controls unavailable", "error");
-		errorText.textContent = `Tweakpane CDN failed to load: ${detail}`;
-		errorMessage.classList.add("visible");
+		console.error("Clustered lighting controls failed to load.", error);
 	}
 }
 
@@ -702,20 +737,20 @@ function updateMetrics(demo: DemoState): void {
 	const tilesY = Math.ceil(height / options.tileSizePx);
 	const activeLights = getActiveLightCount(demo);
 	const visibleMarkers = getVisibleMarkerCount(demo);
-	backendMetric.textContent = demo.renderer.backendProfile.id;
-	modeMetric.textContent = demo.settings.clustered ?
+	demo.performance.backend = demo.renderer.backendProfile.id;
+	demo.performance.mode = demo.settings.clustered ?
 		"clustered"
 	:	`forward cap ${LEGACY_POINT_LIGHT_CAP}`;
-	fpsMetric.textContent = demo.performance.fps > 0 ?
-		demo.performance.fps.toFixed(1)
-	:	"-";
-	frameMetric.textContent = demo.performance.frameMs > 0 ?
-		`${demo.performance.frameMs.toFixed(1)} ms`
-	:	"-";
-	lightMetric.textContent = `${activeLights} lights, ${visibleMarkers} markers`;
-	gridMetric.textContent = demo.settings.clustered ?
+	demo.performance.lights = `${activeLights} lights, ${visibleMarkers} markers`;
+	demo.performance.clusterGrid = demo.settings.clustered ?
 		`${tilesX} x ${tilesY} x ${options.zSlices}`
 	:	"disabled";
+	demo.paneBindings.backend?.refresh?.();
+	demo.paneBindings.mode?.refresh?.();
+	demo.paneBindings.fps?.refresh?.();
+	demo.paneBindings.frameMs?.refresh?.();
+	demo.paneBindings.lights?.refresh?.();
+	demo.paneBindings.clusterGrid?.refresh?.();
 }
 
 function samplePerformance(
@@ -760,13 +795,4 @@ function getElapsedSeconds(demo: DemoState): number {
 
 function performanceNow(): number {
 	return typeof performance !== "undefined" ? performance.now() : Date.now();
-}
-
-function setStatus(
-	label: string,
-	mode: "pending" | "ready" | "error"
-): void {
-	statusText.textContent = label;
-	statusDot.classList.toggle("ready", mode === "ready");
-	statusDot.classList.toggle("error", mode === "error");
 }
