@@ -1,3 +1,5 @@
+import { Pane } from "tweakpane";
+
 import {
 	AmbientLight,
 	DirectionalLight,
@@ -13,8 +15,6 @@ import {
 } from "../../src/index";
 import type { MeshInstance, RGB } from "../../src/index";
 
-const TWEAKPANE_CDN_URL =
-	"https://cdn.jsdelivr.net/npm/tweakpane@4.0.5/dist/tweakpane.min.js";
 const MIRROR_Y = 0.03;
 const OBJECT_COUNT = 13;
 
@@ -35,10 +35,6 @@ interface TweakpanePane {
 	addButton: (options: Record<string, unknown>) => TweakpaneBinding;
 	addFolder: (options: Record<string, unknown>) => TweakpanePane;
 	refresh?: () => void;
-}
-
-interface TweakpaneModule {
-	Pane: new (options?: Record<string, unknown>) => TweakpanePane;
 }
 
 interface AnimatedObject {
@@ -63,6 +59,19 @@ interface DemoPerformance {
 	lastUpdateMs: number;
 	fps: number;
 	frameMs: number;
+	backend: string;
+	reflection: string;
+	mirror: string;
+	objects: string;
+}
+
+interface DemoPaneBindings {
+	backend?: TweakpaneBinding;
+	reflection?: TweakpaneBinding;
+	fps?: TweakpaneBinding;
+	frameMs?: TweakpaneBinding;
+	mirror?: TweakpaneBinding;
+	objects?: TweakpaneBinding;
 }
 
 interface DemoState {
@@ -74,19 +83,10 @@ interface DemoState {
 	lights: Array<{ light: PointLight; marker: MeshInstance; phase: number }>;
 	settings: DemoSettings;
 	performance: DemoPerformance;
+	paneBindings: DemoPaneBindings;
 	startedAt: number;
 }
 
-const statusDot = getElement<HTMLElement>("statusDot");
-const statusText = getElement<HTMLElement>("statusText");
-const backendMetric = getElement<HTMLElement>("backendMetric");
-const reflectionMetric = getElement<HTMLElement>("reflectionMetric");
-const fpsMetric = getElement<HTMLElement>("fpsMetric");
-const frameMetric = getElement<HTMLElement>("frameMetric");
-const mirrorMetric = getElement<HTMLElement>("mirrorMetric");
-const objectMetric = getElement<HTMLElement>("objectMetric");
-const errorMessage = getElement<HTMLElement>("errorMessage");
-const errorText = getElement<HTMLElement>("errorText");
 const canvas = getElement<HTMLCanvasElement>("canvas3d");
 
 const state = await bootDemo();
@@ -102,7 +102,6 @@ function getElement<T extends HTMLElement>(id: string): T {
 }
 
 async function bootDemo(): Promise<DemoState> {
-	setStatus("Starting", "pending");
 	try {
 		const platform = Platform.detect();
 		if (!platform.hasWebGPU) {
@@ -149,6 +148,7 @@ async function bootDemo(): Promise<DemoState> {
 			lights,
 			settings,
 			performance,
+			paneBindings: {},
 			startedAt: performanceNow(),
 		};
 
@@ -162,15 +162,11 @@ async function bootDemo(): Promise<DemoState> {
 		scene.updateWorldMatrices();
 		renderer.requestRender("unknown");
 		await renderer.renderFrame(performanceNow());
-		setStatus("Running", "ready");
 		updateMetrics(demo);
 		startAnimationLoop(demo);
 		return demo;
 	} catch (error) {
-		const message = error instanceof Error ? error.message : String(error);
-		setStatus("Failed", "error");
-		errorText.textContent = message;
-		errorMessage.classList.add("visible");
+		console.error("Planar reflection demo failed to start.", error);
 		throw error;
 	}
 }
@@ -192,6 +188,10 @@ function createPerformanceState(): DemoPerformance {
 		lastUpdateMs: performanceNow(),
 		fps: 0,
 		frameMs: 0,
+		backend: "-",
+		reflection: "-",
+		mirror: "-",
+		objects: "-",
 	};
 }
 
@@ -451,9 +451,6 @@ async function createRenderer(
 
 async function createTweakpane(demo: DemoState): Promise<void> {
 	try {
-		const { Pane } = await import(
-			/* @vite-ignore */ TWEAKPANE_CDN_URL
-		) as TweakpaneModule;
 		const pane = new Pane({ title: "Planar Reflection" });
 		const mirror = pane.addFolder({ title: "Mirror", expanded: true });
 		mirror.addBinding(
@@ -503,12 +500,50 @@ async function createTweakpane(demo: DemoState): Promise<void> {
 			resetCamera(demo);
 			updateMetrics(demo);
 		});
+
+		const stats = pane.addFolder({ title: "Stats", expanded: true });
+		demo.paneBindings.backend = stats.addBinding(
+			demo.performance as unknown as Record<string, unknown>,
+			"backend",
+			{ label: "Backend", readonly: true }
+		);
+		demo.paneBindings.reflection = stats.addBinding(
+			demo.performance as unknown as Record<string, unknown>,
+			"reflection",
+			{ label: "Reflection", readonly: true }
+		);
+		demo.paneBindings.fps = stats.addBinding(
+			demo.performance as unknown as Record<string, unknown>,
+			"fps",
+			{
+				label: "FPS",
+				readonly: true,
+				format: (value: number) => value > 0 ? value.toFixed(1) : "-",
+			}
+		);
+		demo.paneBindings.frameMs = stats.addBinding(
+			demo.performance as unknown as Record<string, unknown>,
+			"frameMs",
+			{
+				label: "Frame Time",
+				readonly: true,
+				format: (value: number) => value > 0 ? `${value.toFixed(1)} ms` : "-",
+			}
+		);
+		demo.paneBindings.mirror = stats.addBinding(
+			demo.performance as unknown as Record<string, unknown>,
+			"mirror",
+			{ label: "Mirror", readonly: true }
+		);
+		demo.paneBindings.objects = stats.addBinding(
+			demo.performance as unknown as Record<string, unknown>,
+			"objects",
+			{ label: "Objects", readonly: true }
+		);
 		pane.refresh?.();
+		updateMetrics(demo);
 	} catch (error) {
-		const detail = error instanceof Error ? error.message : String(error);
-		setStatus("Controls unavailable", "error");
-		errorText.textContent = `Tweakpane CDN failed to load: ${detail}`;
-		errorMessage.classList.add("visible");
+		console.error("Planar reflection controls failed to load.", error);
 	}
 }
 
@@ -632,18 +667,18 @@ function requestSceneRender(
 }
 
 function updateMetrics(demo: DemoState): void {
-	backendMetric.textContent = demo.renderer.backendProfile.id;
-	reflectionMetric.textContent = demo.settings.reflections ? "planar" : "off";
-	fpsMetric.textContent = demo.performance.fps > 0 ?
-		demo.performance.fps.toFixed(1)
-	:	"-";
-	frameMetric.textContent = demo.performance.frameMs > 0 ?
-		`${demo.performance.frameMs.toFixed(1)} ms`
-	:	"-";
-	mirrorMetric.textContent =
+	demo.performance.backend = demo.renderer.backendProfile.id;
+	demo.performance.reflection = demo.settings.reflections ? "planar" : "off";
+	demo.performance.mirror =
 		`${Math.round(demo.settings.reflectivity * 100)}% at y=${MIRROR_Y}`;
-	objectMetric.textContent =
+	demo.performance.objects =
 		`${demo.objects.length} meshes, ${demo.lights.length} lights`;
+	demo.paneBindings.backend?.refresh?.();
+	demo.paneBindings.reflection?.refresh?.();
+	demo.paneBindings.fps?.refresh?.();
+	demo.paneBindings.frameMs?.refresh?.();
+	demo.paneBindings.mirror?.refresh?.();
+	demo.paneBindings.objects?.refresh?.();
 }
 
 function samplePerformance(
@@ -666,15 +701,6 @@ function samplePerformance(
 
 function getElapsedSeconds(demo: DemoState): number {
 	return (performanceNow() - demo.startedAt) * 0.001;
-}
-
-function setStatus(
-	label: string,
-	state: "pending" | "ready" | "error"
-): void {
-	statusText.textContent = label;
-	statusDot.classList.toggle("ready", state === "ready");
-	statusDot.classList.toggle("error", state === "error");
 }
 
 function performanceNow(): number {
