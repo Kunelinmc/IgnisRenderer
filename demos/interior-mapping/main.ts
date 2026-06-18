@@ -178,7 +178,9 @@ function createPerformanceState(): DemoPerformance {
 }
 
 async function loadRoomTexture(): Promise<Texture> {
-	const texture = await new TextureLoader().load("./texture.png");
+	const texture = await new TextureLoader().load(
+		"../../assets/textures/interior-mapping-texture.png",
+	);
 	texture.label = "InteriorMappingRoomAtlas";
 	texture.wrapS = "Clamp";
 	texture.wrapT = "Clamp";
