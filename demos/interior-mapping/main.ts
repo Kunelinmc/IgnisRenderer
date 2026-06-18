@@ -7,8 +7,10 @@ import {
 	Renderer,
 	Scene,
 	ShaderMaterial,
+	TextureLoader,
 	Vector3,
 	WebGPUBackend,
+	type Texture,
 } from "../../src/index";
 
 import { INTERIOR_MAPPING_FRAGMENT_WGSL, INTERIOR_MAPPING_VERTEX_WGSL } from "./shaders";
@@ -99,7 +101,8 @@ async function bootDemo(): Promise<DemoState> {
 		const camera = createCamera();
 		scene.add(camera);
 
-		const material = createInteriorMaterial(settings);
+		const roomTexture = await loadRoomTexture();
+		const material = createInteriorMaterial(settings, roomTexture);
 		const plane = MeshFactory.createPlane({ x: 0, y: 0, z: 0 }, 4.5, 4.5, material);
 		plane.quaternion.fromEuler(Math.PI / 2, 0, 0);
 		plane.updateLocalMatrix();
@@ -174,6 +177,16 @@ function createPerformanceState(): DemoPerformance {
 	};
 }
 
+async function loadRoomTexture(): Promise<Texture> {
+	const texture = await new TextureLoader().load("./texture.png");
+	texture.label = "InteriorMappingRoomAtlas";
+	texture.wrapS = "Clamp";
+	texture.wrapT = "Clamp";
+	texture.minFilter = "Linear";
+	texture.magFilter = "Linear";
+	return texture;
+}
+
 function createCamera(): OrbitCamera {
 	const camera = new OrbitCamera(new Vector3(0, 0, 0), 10);
 	camera.fov = 45;
@@ -188,10 +201,18 @@ function createCamera(): OrbitCamera {
 	return camera;
 }
 
-function createInteriorMaterial(settings: DemoSettings): ShaderMaterial {
+function createInteriorMaterial(settings: DemoSettings, roomTexture: Texture): ShaderMaterial {
 	return new ShaderMaterial({
 		name: "interior-mapping-shader",
 		doubleSided: true,
+		textureBindings: [
+			{
+				name: "roomAtlas",
+				texture: roomTexture,
+				slot: 0,
+				uvSet: 0,
+			},
+		],
 		uniformBindings: [
 			{
 				name: "roomTiling",

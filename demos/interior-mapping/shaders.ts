@@ -82,6 +82,20 @@ fn edgeAO(u: f32, v: f32) -> f32 {
 	return smoothstep(0.0, 0.10, min(eu, ev));
 }
 
+fn sampleRoomAtlas(panel: vec2<u32>, uv: vec2<f32>) -> vec3<f32> {
+	let atlasGrid = vec2<f32>(3.0, 2.0);
+	let dimensions = vec2<f32>(textureDimensions(ignisShaderTexture_roomAtlas));
+	let texelMargin = vec2<f32>(0.5) / max(dimensions, vec2<f32>(1.0));
+	let panelMin = vec2<f32>(f32(panel.x), f32(panel.y)) / atlasGrid;
+	let panelMax = vec2<f32>(f32(panel.x + 1u), f32(panel.y + 1u)) / atlasGrid;
+	let atlasUv = mix(
+		panelMin + texelMargin,
+		panelMax - texelMargin,
+		clamp(vec2<f32>(uv.x, 1.0 - uv.y), vec2<f32>(0.0), vec2<f32>(1.0))
+	);
+	return ignisSampleTextureLevel_roomAtlas(atlasUv, atlasUv, atlasUv, atlasUv, 0.0).rgb;
+}
+
 @fragment
 fn fsMainSingle(input: VertexOutput) -> @location(0) vec4<f32> {
 	let viewDirWorld = normalize(input.worldPosition - frame.cameraPosition.xyz);
@@ -138,68 +152,42 @@ fn fsMainSingle(input: VertexOutput) -> @location(0) vec4<f32> {
 	var faceNormal = vec3<f32>(0.0);
 	var faceU = 0.0;
 	var faceV = 0.0;
+	var atlasPanel = vec2<u32>(2u, 1u);
+	var atlasUv = vec2<f32>(0.5);
 
 	if (hitX) {
 		let wallDepthU = hit.z / depth;
 		if (rdx > 0.0) {
 			faceNormal = vec3<f32>(-1.0, 0.0, 0.0);
 			faceU = 1.0 - wallDepthU;
-			baseColor = vec3<f32>(0.82, 0.26, 0.26);
+			atlasPanel = vec2<u32>(2u, 0u);
 		} else {
 			faceNormal = vec3<f32>(1.0, 0.0, 0.0);
 			faceU = wallDepthU;
-			baseColor = vec3<f32>(0.25, 0.80, 0.42);
+			atlasPanel = vec2<u32>(0u, 0u);
 		}
 		faceV = hit.y;
-		let baseboard = smoothstep(0.06, 0.05, hit.y);
-		baseColor = mix(baseColor, vec3<f32>(0.88, 0.86, 0.82), baseboard);
+		atlasUv = vec2<f32>(faceU, 1.0 - faceV);
 	} else if (hitY) {
 		faceU = hit.x;
 		faceV = hit.z / depth;
 		if (rdy > 0.0) {
 			faceNormal = vec3<f32>(0.0, -1.0, 0.0);
-			baseColor = vec3<f32>(0.93, 0.93, 0.90);
-			let beam = smoothstep(0.03, 0.0, abs(fract(hit.x * 2.0) - 0.5) - 0.47);
-			baseColor = mix(baseColor, vec3<f32>(0.70, 0.68, 0.62), beam * 0.5);
+			atlasPanel = vec2<u32>(0u, 1u);
 		} else {
 			faceNormal = vec3<f32>(0.0, 1.0, 0.0);
-			baseColor = vec3<f32>(0.52, 0.40, 0.28);
-			let plankV = fract(hit.x * 6.0);
-			let plankLine = smoothstep(0.04, 0.0, abs(plankV - 0.5) - 0.46);
-			let crossV = fract(hit.z / depth * 3.0);
-			let crossLine = smoothstep(0.04, 0.0, abs(crossV - 0.5) - 0.46);
-			baseColor = mix(
-				baseColor,
-				vec3<f32>(0.28, 0.20, 0.12),
-				max(plankLine, crossLine) * 0.6
-			);
+			atlasPanel = vec2<u32>(1u, 1u);
 		}
+		atlasUv = vec2<f32>(faceU, faceV);
 	} else {
 		faceNormal = vec3<f32>(0.0, 0.0, 1.0);
 		faceU = hit.x;
 		faceV = hit.y;
-		baseColor = vec3<f32>(0.91, 0.87, 0.80);
-
-		let stripe = smoothstep(0.03, 0.0, abs(fract(hit.x * 5.0) - 0.5) - 0.46);
-		baseColor = mix(baseColor, vec3<f32>(0.78, 0.72, 0.65), stripe * 0.4);
-
-		let lx = hit.x;
-		let ly = hit.y;
-		if (lx > 0.27 && lx < 0.73 && ly > 0.30 && ly < 0.78) {
-			baseColor = vec3<f32>(0.18, 0.12, 0.06);
-			if (lx > 0.31 && lx < 0.69 && ly > 0.34 && ly < 0.74) {
-				let gradY = (ly - 0.34) / 0.40;
-				let sky = mix(
-					vec3<f32>(0.96, 0.40, 0.10),
-					vec3<f32>(0.12, 0.18, 0.68),
-					gradY
-				);
-				let sunDist = distance(vec2<f32>(lx, ly), vec2<f32>(0.50, 0.42));
-				let sun = smoothstep(0.07, 0.04, sunDist);
-				baseColor = mix(sky, vec3<f32>(1.0, 0.90, 0.60), sun);
-			}
-		}
+		atlasPanel = vec2<u32>(1u, 0u);
+		atlasUv = vec2<f32>(faceU, 1.0 - faceV);
 	}
+
+	baseColor = sampleRoomAtlas(atlasPanel, atlasUv);
 
 	let light = roomLighting(faceNormal);
 	var color = baseColor * light;
