@@ -2348,6 +2348,9 @@ void main() {
 			max(uNormalScale, 0.0)
 		);
 	}
+	if (uDoubleSided == 1 && dot(normal, viewDir) < 0.0) {
+		normal = -normal;
+	}
 	float anisotropyStrength = clamp(uAnisotropy.x, 0.0, 1.0);
 	vec2 anisotropyDirection = vec2(1.0, 0.0);
 	vec2 anisotropyFrameUv = uHasNormalMap == 1 ? normalUv : baseUv;

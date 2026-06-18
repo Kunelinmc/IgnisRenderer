@@ -1567,9 +1567,18 @@ function testLightCollectorDirectionalCSMShadowData() {
 
 function testSceneShaderBackLitShadowGuard() {
 	const shader = getTestSceneShader();
+	const doubleSidedNormalFlip =
+		"if (uDoubleSided == 1 && dot(normal, viewDir) < 0.0)";
+	const firstFlipIndex = shader.fragment.indexOf(doubleSidedNormalFlip);
+	const secondFlipIndex = shader.fragment.indexOf(
+		doubleSidedNormalFlip,
+		firstFlipIndex + doubleSidedNormalFlip.length
+	);
+	const normalMapIndex = shader.fragment.indexOf("normal = applyNormalMap(");
 	assert.ok(shader.fragment.includes("dot(normal, lightDirection) <= 0.0"));
 	assert.ok(shader.fragment.includes("uniform int uDoubleSided;"));
-	assert.ok(shader.fragment.includes("if (uDoubleSided == 1 && dot(normal, viewDir) < 0.0)"));
+	assert.ok(firstFlipIndex >= 0);
+	assert.ok(secondFlipIndex > normalMapIndex);
 }
 
 function testSceneShaderKeepsClusteredFragmentLightLimitPlaceholder() {
