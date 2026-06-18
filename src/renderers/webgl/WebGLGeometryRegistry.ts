@@ -24,7 +24,7 @@ interface WebGLCachedGeometryEntry {
 }
 
 type WebGLGeometryWarn = (key: string, message: string) => void;
-const WEBGL_SCENE_VERTEX_FLOATS = 14;
+const WEBGL_SCENE_VERTEX_FLOATS = 18;
 const WEBGL_SCENE_VERTEX_STRIDE = WEBGL_SCENE_VERTEX_FLOATS * 4;
 
 export class WebGLGeometryRegistry {
@@ -131,6 +131,12 @@ export class WebGLGeometryRegistry {
 			this._warn(key, message);
 			return { handle: null, cacheFailure: true };
 		}
+		if (geometry.tangents && !isFiniteArray(geometry.tangents)) {
+			const key = `webgl-geometry-nonfinite-tangents-${primitive.id}`;
+			const message = `WebGL geometry ${primitiveLabel} contains non-finite tangent values; skipping`;
+			this._warn(key, message);
+			return { handle: null, cacheFailure: true };
+		}
 
 		const vertexCount = (positions.length / 3) | 0;
 		const maxIndex = getMaxIndex(indices);
@@ -153,9 +159,11 @@ export class WebGLGeometryRegistry {
 		const uv1 = geometry.uv1;
 		const uv2 = geometry.uv2;
 		const uv3 = geometry.uv3;
+		const tangents = geometry.tangents;
 		for (let i = 0; i < vertexCount; i++) {
 			const srcPos = i * 3;
 			const srcUv = i * 2;
+			const srcTangent = i * 4;
 			const dst = i * WEBGL_SCENE_VERTEX_FLOATS;
 			interleaved[dst] = positions[srcPos];
 			interleaved[dst + 1] = positions[srcPos + 1];
@@ -171,6 +179,10 @@ export class WebGLGeometryRegistry {
 			interleaved[dst + 11] = uv2?.[srcUv + 1] ?? interleaved[dst + 7];
 			interleaved[dst + 12] = uv3?.[srcUv] ?? interleaved[dst + 6];
 			interleaved[dst + 13] = uv3?.[srcUv + 1] ?? interleaved[dst + 7];
+			interleaved[dst + 14] = tangents?.[srcTangent] ?? 0;
+			interleaved[dst + 15] = tangents?.[srcTangent + 1] ?? 0;
+			interleaved[dst + 16] = tangents?.[srcTangent + 2] ?? 0;
+			interleaved[dst + 17] = tangents?.[srcTangent + 3] ?? 0;
 		}
 
 		const gl = this._gl;
@@ -202,6 +214,8 @@ export class WebGLGeometryRegistry {
 		gl.vertexAttribPointer(4, 2, gl.FLOAT, false, WEBGL_SCENE_VERTEX_STRIDE, 40);
 		gl.enableVertexAttribArray(5);
 		gl.vertexAttribPointer(5, 2, gl.FLOAT, false, WEBGL_SCENE_VERTEX_STRIDE, 48);
+		gl.enableVertexAttribArray(6);
+		gl.vertexAttribPointer(6, 4, gl.FLOAT, false, WEBGL_SCENE_VERTEX_STRIDE, 56);
 
 		gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuffer);
 		let indexType: number = gl.UNSIGNED_INT;

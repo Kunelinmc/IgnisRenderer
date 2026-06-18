@@ -27,6 +27,7 @@ in vec2 vUv;
 in vec2 vUv1;
 in vec2 vUv2;
 in vec2 vUv3;
+in vec4 vTangent;
 in vec4 vCurrentClip;
 in vec4 vPrevClip;
 in float vViewDepth;
@@ -201,23 +202,48 @@ vec2 resolveMappedUV(int uvSet, vec4 transformA, vec2 transformB) {
 	return applyUVTransform(resolveUV(uvSet), transformA, transformB);
 }
 
-vec3 applyNormalMap(vec3 baseNormal, vec2 uv, vec3 normalSample, float scale) {
+vec3 fallbackTangentFromNormal(vec3 n) {
+	vec3 axis = abs(n.y) > 0.999 ? vec3(1.0, 0.0, 0.0) : vec3(0.0, 1.0, 0.0);
+	return safeNormalize(cross(axis, n), vec3(1.0, 0.0, 0.0));
+}
+
+bool resolveTangentFrame(vec3 baseNormal, vec4 tangent, out vec3 t, out vec3 b) {
 	vec3 n = safeNormalize(baseNormal, vec3(0.0, 0.0, 1.0));
-	vec3 dp1 = dFdx(vWorldPos);
-	vec3 dp2 = dFdy(vWorldPos);
-	vec2 duv1 = dFdx(uv);
-	vec2 duv2 = dFdy(uv);
-	vec3 dp2perp = cross(dp2, n);
-	vec3 dp1perp = cross(n, dp1);
-	vec3 t = dp2perp * duv1.x + dp1perp * duv2.x;
-	vec3 b = dp2perp * duv1.y + dp1perp * duv2.y;
-	float maxLenSq = max(dot(t, t), dot(b, b));
-	if (maxLenSq <= EPSILON) {
+	float tangentLenSq = dot(tangent.xyz, tangent.xyz);
+	bool hasValidTangent = tangentLenSq > 1e-12 && abs(tangent.w) > EPSILON;
+	if (!hasValidTangent) {
+		t = fallbackTangentFromNormal(n);
+		b = safeNormalize(cross(n, t), fallbackTangentFromNormal(n));
+		return false;
+	}
+
+	t = tangent.xyz - n * dot(n, tangent.xyz);
+	float tLen = length(t);
+	if (tLen <= EPSILON) {
+		t = fallbackTangentFromNormal(n);
+		b = safeNormalize(cross(n, t), fallbackTangentFromNormal(n));
+		return false;
+	}
+
+	t /= tLen;
+	float handedness = tangent.w < 0.0 ? -1.0 : 1.0;
+	b = cross(n, t) * handedness;
+	return true;
+}
+
+vec3 applyNormalMap(
+	vec3 baseNormal,
+	vec4 tangent,
+	vec3 normalSample,
+	float scale
+) {
+	vec3 n = safeNormalize(baseNormal, vec3(0.0, 0.0, 1.0));
+	vec3 t;
+	vec3 b;
+	if (!resolveTangentFrame(n, tangent, t, b)) {
 		return n;
 	}
-	float invMax = inversesqrt(maxLenSq);
-	t *= invMax;
-	b *= invMax;
+
 	vec3 tangentNormal = vec3(
 		(normalSample.x * 2.0 - 1.0) * scale,
 		(normalSample.y * 2.0 - 1.0) * scale,
@@ -227,31 +253,6 @@ vec3 applyNormalMap(vec3 baseNormal, vec2 uv, vec3 normalSample, float scale) {
 		t * tangentNormal.x + b * tangentNormal.y + n * tangentNormal.z,
 		n
 	);
-}
-
-vec3 fallbackTangentFromNormal(vec3 n) {
-	vec3 axis = abs(n.y) > 0.999 ? vec3(1.0, 0.0, 0.0) : vec3(0.0, 1.0, 0.0);
-	return safeNormalize(cross(axis, n), vec3(1.0, 0.0, 0.0));
-}
-
-void resolveDerivativeTangentFrame(vec3 n, vec2 uv, out vec3 t, out vec3 b) {
-	vec3 dp1 = dFdx(vWorldPos);
-	vec3 dp2 = dFdy(vWorldPos);
-	vec2 duv1 = dFdx(uv);
-	vec2 duv2 = dFdy(uv);
-	vec3 dp2perp = cross(dp2, n);
-	vec3 dp1perp = cross(n, dp1);
-	t = dp2perp * duv1.x + dp1perp * duv2.x;
-	b = dp2perp * duv1.y + dp1perp * duv2.y;
-	float maxLenSq = max(dot(t, t), dot(b, b));
-	if (maxLenSq <= EPSILON) {
-		t = fallbackTangentFromNormal(n);
-		b = safeNormalize(cross(n, t), fallbackTangentFromNormal(n));
-		return;
-	}
-	float invMax = inversesqrt(maxLenSq);
-	t *= invMax;
-	b *= invMax;
 }
 
 vec2 rotateAnisotropyDirection(vec2 direction) {
@@ -2343,7 +2344,7 @@ void main() {
 	if (uShadingModel == 1 && uHasNormalMap == 1) {
 		normal = applyNormalMap(
 			normal,
-			normalUv,
+			vTangent,
 			texture(uNormalMap, normalUv).xyz,
 			max(uNormalScale, 0.0)
 		);
@@ -2353,7 +2354,6 @@ void main() {
 	}
 	float anisotropyStrength = clamp(uAnisotropy.x, 0.0, 1.0);
 	vec2 anisotropyDirection = vec2(1.0, 0.0);
-	vec2 anisotropyFrameUv = uHasNormalMap == 1 ? normalUv : baseUv;
 	if (uHasAnisotropyMap == 1) {
 		vec2 anisotropyUv = resolveMappedUV(
 			uAnisotropyMapUV,
@@ -2372,14 +2372,13 @@ void main() {
 			0.0,
 			1.0
 		);
-		anisotropyFrameUv = anisotropyUv;
 	}
 	anisotropyDirection = rotateAnisotropyDirection(anisotropyDirection);
 	vec3 anisotropyBaseTangent;
 	vec3 anisotropyBaseBitangent;
-	resolveDerivativeTangentFrame(
+	resolveTangentFrame(
 		normal,
-		anisotropyFrameUv,
+		vTangent,
 		anisotropyBaseTangent,
 		anisotropyBaseBitangent
 	);

@@ -7,6 +7,7 @@ layout(location = 2) in vec2 aUv0;
 layout(location = 3) in vec2 aUv1;
 layout(location = 4) in vec2 aUv2;
 layout(location = 5) in vec2 aUv3;
+layout(location = 6) in vec4 aTangent;
 
 uniform mat4 uModel;
 uniform mat4 uViewMatrix;
@@ -22,6 +23,7 @@ out vec2 vUv;
 out vec2 vUv1;
 out vec2 vUv2;
 out vec2 vUv3;
+out vec4 vTangent;
 out vec4 vCurrentClip;
 out vec4 vPrevClip;
 out float vViewDepth;
@@ -34,6 +36,12 @@ void main() {
 	vUv1 = aUv1;
 	vUv2 = aUv2;
 	vUv3 = aUv3;
+	vec3 worldTangent = uNormalMatrix * aTangent.xyz;
+	float tangentLen = length(worldTangent);
+	vTangent = vec4(
+		tangentLen > 0.000001 ? worldTangent / tangentLen : vec3(0.0),
+		aTangent.w
+	);
 	vViewDepth = max(-(uViewMatrix * worldPos).z, 0.0);
 	
 	vec4 clipPos = uViewProjection * worldPos;

@@ -1676,8 +1676,11 @@ function testSceneShaderIncludesIrradianceProbeGridWhenEnabled() {
 function testSceneShaderIncludesPBRTextureAndUV1Pipeline() {
 	const shader = getTestSceneShader();
 	assert.ok(shader.vertex.includes("layout(location = 3) in vec2 aUv1;"));
+	assert.ok(shader.vertex.includes("layout(location = 6) in vec4 aTangent;"));
 	assert.ok(shader.vertex.includes("out vec2 vUv1;"));
+	assert.ok(shader.vertex.includes("out vec4 vTangent;"));
 	assert.ok(shader.fragment.includes("in vec2 vUv1;"));
+	assert.ok(shader.fragment.includes("in vec4 vTangent;"));
 	assert.ok(shader.fragment.includes("uniform sampler2D uMetallicRoughnessMap;"));
 	assert.ok(shader.fragment.includes("uniform sampler2D uNormalMap;"));
 	assert.ok(shader.fragment.includes("uniform sampler2D uOcclusionMap;"));
@@ -1686,6 +1689,8 @@ function testSceneShaderIncludesPBRTextureAndUV1Pipeline() {
 	assert.ok(shader.fragment.includes("uniform vec4 uBaseMapTransformA;"));
 	assert.ok(shader.fragment.includes("uniform vec2 uBaseMapTransformB;"));
 	assert.ok(shader.fragment.includes("vec2 resolveMappedUV("));
+	assert.ok(shader.fragment.includes("bool resolveTangentFrame("));
+	assert.ok(shader.fragment.includes("vec4 tangent,"));
 }
 
 function testSceneShaderIncludesOITPassMode() {
@@ -1783,6 +1788,11 @@ function testGeometryRegistryUploadsUV1Attribute() {
 			uv1: new Float32Array([0.25, 0.5, 0.75, 0.5, 0.25, 0.9]),
 			uv2: new Float32Array([0.125, 0.25, 0.375, 0.5, 0.625, 0.75]),
 			uv3: new Float32Array([0.875, 0.75, 0.625, 0.5, 0.375, 0.25]),
+			tangents: new Float32Array([
+				1, 0, 0, 1,
+				0, 1, 0, -1,
+				0, 0, 1, 1,
+			]),
 			indices: new Uint32Array([0, 1, 2]),
 		},
 		topology: "triangle-list",
@@ -1796,25 +1806,27 @@ function testGeometryRegistryUploadsUV1Attribute() {
 	const handle = registry.getGeometry(packet);
 	assert.ok(handle);
 	assert.ok(gl.calls.vertexData instanceof Float32Array);
-	assert.equal(gl.calls.vertexData.length, 42);
+	assert.equal(gl.calls.vertexData.length, 54);
 	assert.equal(gl.calls.vertexData[8], 0.25);
 	assert.equal(gl.calls.vertexData[9], 0.5);
 	assert.equal(gl.calls.vertexData[10], 0.125);
 	assert.equal(gl.calls.vertexData[11], 0.25);
 	assert.equal(gl.calls.vertexData[12], 0.875);
 	assert.equal(gl.calls.vertexData[13], 0.75);
-	assert.equal(gl.calls.vertexData[22], 0.75);
-	assert.equal(gl.calls.vertexData[23], 0.5);
-	assert.equal(gl.calls.vertexData[24], 0.375);
-	assert.equal(gl.calls.vertexData[25], 0.5);
-	assert.equal(gl.calls.vertexData[26], 0.625);
+	assert.deepEqual(Array.from(gl.calls.vertexData.slice(14, 18)), [1, 0, 0, 1]);
+	assert.equal(gl.calls.vertexData[26], 0.75);
 	assert.equal(gl.calls.vertexData[27], 0.5);
+	assert.equal(gl.calls.vertexData[28], 0.375);
+	assert.equal(gl.calls.vertexData[29], 0.5);
+	assert.equal(gl.calls.vertexData[30], 0.625);
+	assert.equal(gl.calls.vertexData[31], 0.5);
+	assert.deepEqual(Array.from(gl.calls.vertexData.slice(32, 36)), [0, 1, 0, -1]);
 	assert.ok(
 		gl.calls.attributePointers.some(
 			(call) =>
 				call.index === 3 &&
 				call.size === 2 &&
-				call.stride === 56 &&
+				call.stride === 72 &&
 				call.offset === 32
 		)
 	);
@@ -1823,7 +1835,7 @@ function testGeometryRegistryUploadsUV1Attribute() {
 			(call) =>
 				call.index === 4 &&
 				call.size === 2 &&
-				call.stride === 56 &&
+				call.stride === 72 &&
 				call.offset === 40
 		)
 	);
@@ -1832,8 +1844,17 @@ function testGeometryRegistryUploadsUV1Attribute() {
 			(call) =>
 				call.index === 5 &&
 				call.size === 2 &&
-				call.stride === 56 &&
+				call.stride === 72 &&
 				call.offset === 48
+		)
+	);
+	assert.ok(
+		gl.calls.attributePointers.some(
+			(call) =>
+				call.index === 6 &&
+				call.size === 4 &&
+				call.stride === 72 &&
+				call.offset === 56
 		)
 	);
 }
