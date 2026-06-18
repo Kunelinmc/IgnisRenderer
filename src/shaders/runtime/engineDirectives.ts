@@ -393,6 +393,7 @@ function createMaterialTextureBindingInjectionScript(): ShaderInjectionScript {
 			const linear = normalizeBooleanFlag(args.linear, false);
 			const symbolToken = nameToken.toUpperCase();
 			const fnName = `ignisSampleTexture_${nameToken}`;
+			const fnLevelName = `ignisSampleTextureLevel_${nameToken}`;
 			const slotConst = `IGNIS_TEXTURE_SLOT_${symbolToken}`;
 			const uvConst = `IGNIS_TEXTURE_UVSET_${symbolToken}`;
 			const linearConst = `IGNIS_TEXTURE_LINEAR_${symbolToken}`;
@@ -418,8 +419,16 @@ function createMaterialTextureBindingInjectionScript(): ShaderInjectionScript {
 						`\telse if (${uvConst} >= 3) uv = uv3;\n` +
 						`\tvec4 sampled = texture(${uniformName}, uv);\n` +
 						`\treturn ${decodeExpression};\n` +
+						`}\n\n` +
+						`vec4 ${fnLevelName}(vec2 uv0, vec2 uv1, vec2 uv2, vec2 uv3, float lod) {\n` +
+						`\tvec2 uv = uv0;\n` +
+						`\tif (${uvConst} == 1) uv = uv1;\n` +
+						`\telse if (${uvConst} == 2) uv = uv2;\n` +
+						`\telse if (${uvConst} >= 3) uv = uv3;\n` +
+						`\tvec4 sampled = textureLod(${uniformName}, uv, lod);\n` +
+						`\treturn ${decodeExpression};\n` +
 						`}`,
-					symbols: [fnName, slotConst, uvConst, linearConst, uniformName],
+					symbols: [fnName, fnLevelName, slotConst, uvConst, linearConst, uniformName],
 					headerAnchor: "afterUniforms",
 					functionsAnchor: "beforeEntryPoint",
 				};
@@ -468,9 +477,24 @@ function createMaterialTextureBindingInjectionScript(): ShaderInjectionScript {
 					`\telse if (${uvConst} >= 3u) { uv = uv3; }\n` +
 					`\tlet sampled = textureSample(${textureName}, ${samplerName}, uv);\n` +
 					`\treturn ${decodeExpression};\n` +
+					`}\n\n` +
+					`fn ${fnLevelName}(\n` +
+					`\tuv0: vec2<f32>,\n` +
+					`\tuv1: vec2<f32>,\n` +
+					`\tuv2: vec2<f32>,\n` +
+					`\tuv3: vec2<f32>,\n` +
+					`\tlevel: f32\n` +
+					`) -> vec4<f32> {\n` +
+					`\tvar uv = uv0;\n` +
+					`\tif (${uvConst} == 1u) { uv = uv1; }\n` +
+					`\telse if (${uvConst} == 2u) { uv = uv2; }\n` +
+					`\telse if (${uvConst} >= 3u) { uv = uv3; }\n` +
+					`\tlet sampled = textureSampleLevel(${textureName}, ${samplerName}, uv, level);\n` +
+					`\treturn ${decodeExpression};\n` +
 					`}`,
 				symbols: [
 					fnName,
+					fnLevelName,
 					slotConst,
 					uvConst,
 					linearConst,
