@@ -1,3 +1,4 @@
+vec3 worldToProbePoint(int probeIndex, vec3 worldPosition) {
 	vec4 row0 = uReflectionProbeWorldToProbeRow0[probeIndex];
 	vec4 row1 = uReflectionProbeWorldToProbeRow1[probeIndex];
 	vec4 row2 = uReflectionProbeWorldToProbeRow2[probeIndex];

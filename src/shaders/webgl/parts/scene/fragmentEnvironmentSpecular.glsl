@@ -43,5 +43,3 @@ vec3 sampleFallbackEnvSpecular(vec3 direction, float roughness) {
 		sampled
 	:	srgbToLinear(sampled);
 }
-
-vec3 worldToProbePoint(int probeIndex, vec3 worldPosition) {
