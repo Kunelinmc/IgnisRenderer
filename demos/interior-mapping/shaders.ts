@@ -67,22 +67,7 @@ struct VertexOutput {
 	@location(3) worldTangent: vec4<f32>,
 }
 
-fn roomLighting(faceNormal: vec3<f32>) -> f32 {
-	let keyDir = normalize(vec3<f32>(-0.55, 0.75, 0.36));
-	let keyPow = max(dot(faceNormal, keyDir), 0.0);
-	let fillDir = normalize(vec3<f32>(0.60, -0.30, 0.74));
-	let fillPow = max(dot(faceNormal, fillDir), 0.0) * 0.35;
-	let ambient = 0.18;
-	return ambient + keyPow * 0.72 + fillPow;
-}
-
-fn edgeAO(u: f32, v: f32) -> f32 {
-	let eu = min(u, 1.0 - u);
-	let ev = min(v, 1.0 - v);
-	return smoothstep(0.0, 0.10, min(eu, ev));
-}
-
-fn sampleRoomAtlas(panel: vec2<u32>, uv: vec2<f32>) -> vec3<f32> {
+fn sampleRoomAtlas(panel: vec2<u32>, uv: vec2<f32>) -> vec4<f32> {
 	let atlasGrid = vec2<f32>(3.0, 2.0);
 	let dimensions = vec2<f32>(textureDimensions(ignisShaderTexture_roomAtlas));
 	let texelMargin = vec2<f32>(0.5) / max(dimensions, vec2<f32>(1.0));
@@ -93,7 +78,12 @@ fn sampleRoomAtlas(panel: vec2<u32>, uv: vec2<f32>) -> vec3<f32> {
 		panelMax - texelMargin,
 		clamp(vec2<f32>(uv.x, 1.0 - uv.y), vec2<f32>(0.0), vec2<f32>(1.0))
 	);
-	return ignisSampleTextureLevel_roomAtlas(atlasUv, atlasUv, atlasUv, atlasUv, 0.0).rgb;
+	return ignisSampleTextureLevel_roomAtlas(atlasUv, atlasUv, atlasUv, atlasUv, 0.0);
+}
+
+fn foregroundWindowAlpha(sampled: vec4<f32>) -> f32 {
+	let keyedGreen = all(sampled.rgb == vec3<f32>(0.0, 1.0, 0.0));
+	return select(clamp(sampled.a, 0.0, 1.0), 0.0, keyedGreen);
 }
 
 @fragment
@@ -146,10 +136,7 @@ fn fsMainSingle(input: VertexOutput) -> @location(0) vec4<f32> {
 
 	let hitX = t < (tx + EPS) && tx <= (ty + EPS) && tx <= (tz + EPS);
 	let hitY = !hitX && t < (ty + EPS) && ty <= (tz + EPS);
-	let depthPct = clamp(hit.z / depth, 0.0, 1.0);
-
 	var baseColor = vec3<f32>(0.0);
-	var faceNormal = vec3<f32>(0.0);
 	var faceU = 0.0;
 	var faceV = 0.0;
 	var atlasPanel = vec2<u32>(2u, 1u);
@@ -158,11 +145,9 @@ fn fsMainSingle(input: VertexOutput) -> @location(0) vec4<f32> {
 	if (hitX) {
 		let wallDepthU = hit.z / depth;
 		if (rdx > 0.0) {
-			faceNormal = vec3<f32>(-1.0, 0.0, 0.0);
 			faceU = 1.0 - wallDepthU;
 			atlasPanel = vec2<u32>(2u, 0u);
 		} else {
-			faceNormal = vec3<f32>(1.0, 0.0, 0.0);
 			faceU = wallDepthU;
 			atlasPanel = vec2<u32>(0u, 0u);
 		}
@@ -172,34 +157,25 @@ fn fsMainSingle(input: VertexOutput) -> @location(0) vec4<f32> {
 		faceU = hit.x;
 		faceV = hit.z / depth;
 		if (rdy > 0.0) {
-			faceNormal = vec3<f32>(0.0, -1.0, 0.0);
 			atlasPanel = vec2<u32>(0u, 1u);
 		} else {
-			faceNormal = vec3<f32>(0.0, 1.0, 0.0);
 			atlasPanel = vec2<u32>(1u, 1u);
 		}
 		atlasUv = vec2<f32>(faceU, faceV);
 	} else {
-		faceNormal = vec3<f32>(0.0, 0.0, 1.0);
 		faceU = hit.x;
 		faceV = hit.y;
 		atlasPanel = vec2<u32>(1u, 0u);
 		atlasUv = vec2<f32>(faceU, 1.0 - faceV);
 	}
 
-	baseColor = sampleRoomAtlas(atlasPanel, atlasUv);
+	baseColor = sampleRoomAtlas(atlasPanel, atlasUv).rgb;
 
-	let light = roomLighting(faceNormal);
-	var color = baseColor * light;
+	var color = baseColor;
 
-	let depthAO = mix(1.0, 0.28, pow(depthPct, 1.4));
-	color = color * depthAO;
-
-	let cornerOcc = edgeAO(faceU, faceV);
-	color = color * mix(0.38, 1.0, cornerOcc);
-
-	color = color / (color + vec3<f32>(1.0));
-	color = pow(color, vec3<f32>(1.0 / 2.2));
+	let foregroundUv = vec2<f32>(ro.x, 1.0 - ro.y);
+	let foreground = sampleRoomAtlas(vec2<u32>(2u, 1u), foregroundUv);
+	color = mix(color, foreground.rgb, foregroundWindowAlpha(foreground));
 
 	return vec4<f32>(color, 1.0);
 }
