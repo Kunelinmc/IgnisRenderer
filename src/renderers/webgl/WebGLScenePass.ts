@@ -1,4 +1,4 @@
-﻿import type { Material } from "../../materials/Material";
+import type { Material } from "../../materials/Material";
 import { isMaterialTransparentPass } from "../../materials/transparency";
 import {
 	ShaderMaterial,
@@ -73,6 +73,7 @@ export interface WebGLScenePassHost {
 	_width: number;
 	_height: number;
 	_maxTextureImageUnits: number;
+	_activeDrawBuffers?: number[];
 	_modelMatrixCache: Map<string, Float32Array>;
 	_modelMatrixKeysThisFrame: Set<string>;
 	_prevViewProjection: Float32Array | null;
@@ -168,6 +169,7 @@ export function renderWebGLPackets(
 	const sceneProgramMode: ShaderTargetMode =
 		drawBuffers.length >= 3 ? "mrt" : "single";
 	gl.drawBuffers(drawBuffers);
+	host._activeDrawBuffers = drawBuffers;
 	gl.activeTexture(gl.TEXTURE0);
 
 	gl.enable(gl.DEPTH_TEST);
@@ -378,6 +380,7 @@ export function renderWebGLEarlyZPrepass(
 		gl.disable(gl.SCISSOR_TEST);
 		gl.colorMask(true, true, true, true);
 		gl.drawBuffers(drawBuffers);
+		host._activeDrawBuffers = drawBuffers;
 		gl.depthMask(true);
 		gl.depthFunc(gl.LESS);
 		gl.bindVertexArray(null);
@@ -398,6 +401,13 @@ export function drawWebGLPacket(
 	const requiresTransparent = isMaterialTransparentPass(material);
 	if (transparentPass !== requiresTransparent) {
 		return;
+	}
+
+	const activeDrawBuffers = host._activeDrawBuffers;
+	let drawBuffersModified = false;
+	if (activeDrawBuffers && sceneProgram.targetMode === "single" && activeDrawBuffers.length > 1) {
+		gl.drawBuffers([gl.COLOR_ATTACHMENT0]);
+		drawBuffersModified = true;
 	}
 
 	if (packet.meshInstance.skeleton) {
@@ -834,6 +844,10 @@ export function drawWebGLPacket(
 		0
 	);
 	gl.bindVertexArray(null);
+
+	if (drawBuffersModified && activeDrawBuffers) {
+		gl.drawBuffers(activeDrawBuffers);
+	}
 }
 
 function resolveWebGLDepthPrepassProgram(
@@ -993,7 +1007,7 @@ export function bindWebGLShaderMaterialTextures(
 	}
 
 	const gl = host._gl;
-	let textureUnit = WEBGL_TEXTURE_UNIT_CUSTOM_START;
+	let textureUnit = host._maxTextureImageUnits < 17 ? 8 : WEBGL_TEXTURE_UNIT_CUSTOM_START;
 	const boundUniforms = new Set<string>();
 	for (const binding of bindings) {
 		if (boundUniforms.has(binding.webglUniform)) {

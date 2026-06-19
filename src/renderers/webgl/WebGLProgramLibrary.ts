@@ -82,6 +82,7 @@ export interface WebGLOITResolveProgram {
 export interface WebGLSceneProgram {
 	program: WebGLProgram;
 	uniforms: WebGLSceneUniforms;
+	targetMode?: ShaderTargetMode;
 }
 
 export interface WebGLEnvironmentProgram {
@@ -917,6 +918,7 @@ export class WebGLProgramLibrary {
 				sourceKind: "builtin-scene",
 			},
 		);
+		sceneProgram.targetMode = normalizedVariant.output;
 		this._builtinScenePrograms.set(cacheKey, {
 			program: sceneProgram,
 			directiveTag,
@@ -1031,6 +1033,10 @@ export class WebGLProgramLibrary {
 				customSamplerUniforms,
 				customUniforms,
 			);
+			const hasMrtChunk = material.chunks.some(
+				(chunk) => chunk.stage === "fragment" && chunk.mode === "mrt"
+			);
+			sceneProgram.targetMode = mode === "mrt" && !hasMrtChunk ? "single" : mode;
 		} catch (error) {
 			if (!this._isWarnMode()) {
 				throw error;

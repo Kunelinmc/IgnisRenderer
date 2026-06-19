@@ -24,6 +24,7 @@ import {
 import { WebGLGeometryRegistry } from "../../../src/renderers/webgl/WebGLGeometryRegistry.ts";
 import {
 	bindWebGLShaderMaterialUniforms,
+	bindWebGLShaderMaterialTextures,
 	drawWebGLPacket,
 	renderWebGLEarlyZPrepass,
 	renderWebGLPackets,
@@ -2553,6 +2554,121 @@ function testShaderMaterialCustomUniformBinding() {
 	assert.equal(gl.calls.uniform1f.length, 1);
 }
 
+function testShaderMaterialCustomTextureBinding() {
+	const gl = createScenePassCaptureGL();
+	const fakeTexture = { id: "test-tex", colorSpace: "Linear" };
+	const material = new ShaderMaterial({
+		textureBindings: [
+			{ name: "customTex", texture: fakeTexture, webglUniform: "uCustomTex" }
+		]
+	});
+	const customSamplers = {
+		uCustomTex: "uCustomTex"
+	};
+	const sceneProgram = { uniforms: { customSamplers } };
+
+	// Case 1: _maxTextureImageUnits is 32 (starts at WEBGL_TEXTURE_UNIT_CUSTOM_START = 17)
+	{
+		gl.calls.activeTextures = [];
+		gl.calls.boundTextures = [];
+		gl.calls.uniform1i = [];
+		const host = {
+			_gl: gl,
+			_maxTextureImageUnits: 32,
+			_textures: {
+				getBaseColorTexture(texture) {
+					return { texture };
+				}
+			}
+		};
+		bindWebGLShaderMaterialTextures(host, sceneProgram, material);
+		assert.equal(gl.calls.activeTextures.length, 2);
+		assert.equal(gl.calls.activeTextures[0], gl.TEXTURE0 + 17);
+		assert.equal(gl.calls.activeTextures[1], gl.TEXTURE0 + 0);
+		assert.deepEqual(gl.calls.boundTextures, [{ target: gl.TEXTURE_2D, texture: fakeTexture }]);
+		assert.deepEqual(gl.calls.uniform1i, [{ location: "uCustomTex", value: 17 }]);
+	}
+
+	// Case 2: _maxTextureImageUnits is 16 (falls back to start at 8)
+	{
+		gl.calls.activeTextures = [];
+		gl.calls.boundTextures = [];
+		gl.calls.uniform1i = [];
+		const host = {
+			_gl: gl,
+			_maxTextureImageUnits: 16,
+			_textures: {
+				getBaseColorTexture(texture) {
+					return { texture };
+				}
+			}
+		};
+		bindWebGLShaderMaterialTextures(host, sceneProgram, material);
+		assert.equal(gl.calls.activeTextures.length, 2);
+		assert.equal(gl.calls.activeTextures[0], gl.TEXTURE0 + 8);
+		assert.equal(gl.calls.activeTextures[1], gl.TEXTURE0 + 0);
+		assert.deepEqual(gl.calls.boundTextures, [{ target: gl.TEXTURE_2D, texture: fakeTexture }]);
+		assert.deepEqual(gl.calls.uniform1i, [{ location: "uCustomTex", value: 8 }]);
+	}
+}
+
+function testShaderMaterialDrawBuffersMismatchResolution() {
+	const gl = createScenePassCaptureGL();
+	const material = new ShaderMaterial({
+		uniformBindings: [],
+	});
+	const sceneProgram = {
+		program: {},
+		uniforms: {},
+		targetMode: "single",
+	};
+
+	const packet = {
+		id: "test-pkt",
+		material,
+		worldMatrix: Matrix4.identity(),
+		normalMatrix: Matrix4.identity(),
+		meshInstance: {
+			id: "test-mesh",
+			skeleton: null,
+		},
+	};
+
+	const host = {
+		_gl: gl,
+		_geometry: {
+			getGeometry() {
+				return {
+					vao: {},
+					topology: gl.TRIANGLES,
+					indexCount: 3,
+					indexType: 5123,
+				};
+			},
+		},
+		_textures: {
+			getBaseColorTexture() {
+				return { texture: null, isLinear: false };
+			},
+		},
+		_activeDrawBuffers: [gl.COLOR_ATTACHMENT0, gl.COLOR_ATTACHMENT1, gl.COLOR_ATTACHMENT2],
+		_modelMatrixCache: new Map(),
+		_modelMatrixKeysThisFrame: new Set(),
+		_bindShaderMaterialTextures() {},
+		_bindShaderMaterialUniforms() {},
+		_setCullMode() {},
+	};
+
+	gl.calls.drawBuffers = [];
+	drawWebGLPacket(host, sceneProgram, packet, false, {});
+
+	// Should have changed draw buffers to [COLOR_ATTACHMENT0], then drawn, then restored back to original
+	assert.deepEqual(gl.calls.drawBuffers, [
+		[gl.COLOR_ATTACHMENT0],
+		[gl.COLOR_ATTACHMENT0, gl.COLOR_ATTACHMENT1, gl.COLOR_ATTACHMENT2],
+	]);
+}
+
 function testWebGLBackendParticleDeltaTimeClamp() {
 	const backend = new WebGLBackend();
 	const session = backend.createSession({
@@ -2754,6 +2870,8 @@ async function run() {
 	testBuiltInMaskDepthPrepassShaderContract();
 	testEarlyZPrepassUsesDirtyRectPacketSelection();
 	testShaderMaterialCustomUniformBinding();
+	testShaderMaterialCustomTextureBinding();
+	testShaderMaterialDrawBuffersMismatchResolution();
 	testWebGLBackendParticleDeltaTimeClamp();
 	await testWebGLBackendWarmupDelegatesToFrameExecutor();
 	console.log("WebGL backend v2 unit tests passed");

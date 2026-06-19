@@ -78,7 +78,13 @@ fn sampleRoomAtlas(panel: vec2<u32>, uv: vec2<f32>) -> vec4<f32> {
 		panelMax - texelMargin,
 		clamp(vec2<f32>(uv.x, 1.0 - uv.y), vec2<f32>(0.0), vec2<f32>(1.0))
 	);
-	return ignisSampleTextureLevel_roomAtlas(atlasUv, atlasUv, atlasUv, atlasUv, 0.0);
+	return ignisSampleTextureLevel_roomAtlas(
+		atlasUv,
+		atlasUv,
+		atlasUv,
+		atlasUv,
+		0.0
+	);
 }
 
 @fragment
@@ -173,5 +179,158 @@ fn fsMainSingle(input: VertexOutput) -> @location(0) vec4<f32> {
 	color = mix(color, foreground.rgb, clamp(foreground.a, 0.0, 1.0));
 
 	return vec4<f32>(color, 1.0);
+}
+`;
+
+export const INTERIOR_MAPPING_VERTEX_GLSL = `#version 300 es
+precision highp float;
+
+layout(location = 0) in vec3 aPosition;
+layout(location = 1) in vec3 aNormal;
+layout(location = 2) in vec2 aUv0;
+layout(location = 6) in vec4 aTangent;
+
+uniform mat4 uModel;
+uniform mat4 uViewProjection;
+uniform mat3 uNormalMatrix;
+
+out vec3 vWorldPosition;
+out vec3 vWorldNormal;
+out vec2 vUv0;
+out vec4 vWorldTangent;
+
+void main() {
+	vec4 worldPos = uModel * vec4(aPosition, 1.0);
+	gl_Position = uViewProjection * worldPos;
+	vWorldPosition = worldPos.xyz;
+	vWorldNormal = normalize(uNormalMatrix * aNormal);
+
+	vec3 tangentWorld = uNormalMatrix * aTangent.xyz;
+	vWorldTangent = vec4(normalize(tangentWorld), aTangent.w);
+	vUv0 = aUv0;
+}
+`;
+
+export const INTERIOR_MAPPING_FRAGMENT_GLSL = `#version 300 es
+precision highp float;
+
+in vec3 vWorldPosition;
+in vec3 vWorldNormal;
+in vec2 vUv0;
+in vec4 vWorldTangent;
+
+uniform vec3 uCameraPosition;
+
+layout(location = 0) out vec4 fragColor;
+
+vec4 ignisSampleTextureLevel_roomAtlas(
+	vec2 uv0,
+	vec2 uv1,
+	vec2 uv2,
+	vec2 uv3,
+	float lod
+);
+
+vec4 sampleRoomAtlas(ivec2 panel, vec2 uv) {
+	vec2 atlasGrid = vec2(3.0, 2.0);
+	vec2 dimensions = vec2(textureSize(uShaderTex_roomAtlas, 0));
+	vec2 texelMargin = vec2(0.5) / max(dimensions, vec2(1.0));
+	vec2 panelMin = vec2(panel) / atlasGrid;
+	vec2 panelMax = vec2(panel + ivec2(1)) / atlasGrid;
+	vec2 atlasUv = mix(
+		panelMin + texelMargin,
+		panelMax - texelMargin,
+		clamp(vec2(uv.x, 1.0 - uv.y), vec2(0.0), vec2(1.0))
+	);
+	return ignisSampleTextureLevel_roomAtlas(atlasUv, atlasUv, atlasUv, atlasUv, 0.0);
+}
+
+void main() {
+	vec3 viewDirWorld = normalize(vWorldPosition - uCameraPosition);
+
+	vec3 N = normalize(vWorldNormal);
+	vec3 T = normalize(vWorldTangent.xyz);
+	vec3 B = normalize(cross(N, T) * vWorldTangent.w);
+
+	float aspect = uShaderUniform_roomAspect;
+	vec3 rdRaw = vec3(
+		dot(viewDirWorld, T),
+		dot(viewDirWorld, B),
+		-dot(viewDirWorld, N)
+	);
+	vec3 rdAspect = vec3(rdRaw.x / aspect, rdRaw.y, rdRaw.z);
+
+	if (rdAspect.z <= 0.0) {
+		fragColor = vec4(0.04, 0.04, 0.04, 1.0);
+		return;
+	}
+
+	vec2 tiling = uShaderUniform_roomTiling;
+	vec2 uvsScaled = vUv0 * tiling;
+	vec3 ro = vec3(fract(uvsScaled.x), fract(uvsScaled.y), 0.0);
+	float depth = uShaderUniform_roomDepth;
+
+	float EPS = 1e-5;
+	float rdx =
+		abs(rdAspect.x) < EPS ? sign(rdAspect.x + 0.5) * EPS : rdAspect.x;
+	float rdy =
+		abs(rdAspect.y) < EPS ? sign(rdAspect.y + 0.5) * EPS : rdAspect.y;
+	float rdz = rdAspect.z;
+
+	float tx = ((rdx > 0.0 ? 1.0 : 0.0) - ro.x) / rdx;
+	float ty = ((rdy > 0.0 ? 1.0 : 0.0) - ro.y) / rdy;
+	float tz = (depth - ro.z) / rdz;
+
+	float t = min(tx, min(ty, tz));
+	if (t < 0.0) {
+		fragColor = vec4(0.04, 0.04, 0.04, 1.0);
+		return;
+	}
+	vec3 hit = ro + t * rdAspect;
+
+	bool hitX = t < (tx + EPS) && tx <= (ty + EPS) && tx <= (tz + EPS);
+	bool hitY = !hitX && t < (ty + EPS) && ty <= (tz + EPS);
+	vec3 baseColor = vec3(0.0);
+	float faceU = 0.0;
+	float faceV = 0.0;
+	ivec2 atlasPanel = ivec2(2, 1);
+	vec2 atlasUv = vec2(0.5);
+
+	if (hitX) {
+		float wallDepthU = hit.z / depth;
+		if (rdx > 0.0) {
+			faceU = 1.0 - wallDepthU;
+			atlasPanel = ivec2(2, 0);
+		} else {
+			faceU = wallDepthU;
+			atlasPanel = ivec2(0, 0);
+		}
+		faceV = hit.y;
+		atlasUv = vec2(faceU, 1.0 - faceV);
+	} else if (hitY) {
+		faceU = hit.x;
+		faceV = hit.z / depth;
+		if (rdy > 0.0) {
+			atlasPanel = ivec2(0, 1);
+		} else {
+			atlasPanel = ivec2(1, 1);
+		}
+		atlasUv = vec2(faceU, faceV);
+	} else {
+		faceU = hit.x;
+		faceV = hit.y;
+		atlasPanel = ivec2(1, 0);
+		atlasUv = vec2(faceU, 1.0 - faceV);
+	}
+
+	baseColor = sampleRoomAtlas(atlasPanel, atlasUv).rgb;
+
+	vec3 color = baseColor;
+
+	vec2 foregroundUv = vec2(ro.x, 1.0 - ro.y);
+	vec4 foreground = sampleRoomAtlas(ivec2(2, 1), foregroundUv);
+	color = mix(color, foreground.rgb, clamp(foreground.a, 0.0, 1.0));
+
+	fragColor = vec4(color, 1.0);
 }
 `;

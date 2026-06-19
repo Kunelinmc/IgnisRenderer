@@ -11,7 +11,12 @@ import { WebGLBackend } from "../../src/renderers/WebGLBackend";
 import { WebGPUBackend } from "../../src/renderers/WebGPUBackend";
 import type { Texture } from "../../src/core/Texture";
 
-import { INTERIOR_MAPPING_FRAGMENT_WGSL, INTERIOR_MAPPING_VERTEX_WGSL } from "./shaders";
+import {
+	INTERIOR_MAPPING_FRAGMENT_GLSL,
+	INTERIOR_MAPPING_FRAGMENT_WGSL,
+	INTERIOR_MAPPING_VERTEX_GLSL,
+	INTERIOR_MAPPING_VERTEX_WGSL,
+} from "./shaders";
 
 interface TweakpaneBinding {
 	refresh?: () => void;
@@ -70,6 +75,8 @@ interface DemoState {
 	paneBindings: DemoPaneBindings;
 	startedAt: number;
 }
+
+type DemoBackendPreference = "auto" | "webgpu" | "webgl";
 
 const canvas = getElement<HTMLCanvasElement>("canvas3d");
 
@@ -280,20 +287,7 @@ async function bootDemo(): Promise<DemoState> {
 		wallBox.updateLocalMatrix();
 		scene.add(wallBox);
 
-		let backend;
-		if (platform.hasWebGPU) {
-			backend = new WebGPUBackend({
-				enableDeferredLighting: false,
-				enableEarlyZPrepass: false,
-				enableOcclusionCulling: false,
-			});
-		} else if (platform.hasWebGL2) {
-			backend = new WebGLBackend({
-				enableEarlyZPrepass: false,
-			});
-		} else {
-			throw new Error("This browser does not support WebGPU or WebGL.");
-		}
+		const backend = createBackend(platform, resolveBackendPreference());
 
 		const renderer = new Renderer({
 			canvas,
@@ -358,6 +352,65 @@ function createPerformanceState(): DemoPerformance {
 		backend: "-",
 		viewVector: "-",
 	};
+}
+
+function resolveBackendPreference(): DemoBackendPreference {
+	const value = new URLSearchParams(window.location.search)
+		.get("backend")
+		?.trim()
+		.toLowerCase();
+	if (value === "webgpu" || value === "webgl" || value === "auto") {
+		return value;
+	}
+	if (value) {
+		console.warn(
+			`Unknown backend search parameter "${value}"; using automatic backend selection.`,
+		);
+	}
+	return "auto";
+}
+
+function createBackend(
+	platform: ReturnType<typeof Platform.detect>,
+	preference: DemoBackendPreference,
+): WebGPUBackend | WebGLBackend {
+	if (preference === "webgpu") {
+		if (!platform.hasWebGPU) {
+			throw new Error(
+				"The requested WebGPU backend is not supported by this browser.",
+			);
+		}
+		return createWebGPUBackend();
+	}
+	if (preference === "webgl") {
+		if (!platform.hasWebGL2) {
+			throw new Error(
+				"The requested WebGL backend is not supported by this browser.",
+			);
+		}
+		return createWebGLBackend();
+	}
+	if (platform.hasWebGPU) {
+		return createWebGPUBackend();
+	}
+	if (platform.hasWebGL2) {
+		return createWebGLBackend();
+	}
+	throw new Error("This browser does not support WebGPU or WebGL.");
+}
+
+function createWebGPUBackend(): WebGPUBackend {
+	return new WebGPUBackend({
+		enableDeferredLighting: false,
+		enableEarlyZPrepass: false,
+		enableOcclusionCulling: false,
+	});
+}
+
+function createWebGLBackend(): WebGLBackend {
+	return new WebGLBackend({
+		enableEarlyZPrepass: false,
+	});
 }
 
 async function loadRoomTexture(): Promise<Texture> {
@@ -429,6 +482,19 @@ function createInteriorMaterial(settings: DemoSettings, roomTexture: Texture): S
 				stage: "fragment",
 				mode: "single",
 				code: INTERIOR_MAPPING_FRAGMENT_WGSL,
+			},
+			{
+				backend: "webgl",
+				language: "glsl",
+				stage: "vertex",
+				code: INTERIOR_MAPPING_VERTEX_GLSL,
+			},
+			{
+				backend: "webgl",
+				language: "glsl",
+				stage: "fragment",
+				mode: "single",
+				code: INTERIOR_MAPPING_FRAGMENT_GLSL,
 			},
 		],
 	});
