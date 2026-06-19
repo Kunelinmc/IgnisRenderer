@@ -7,12 +7,16 @@ in vec2 vUv2;
 in vec2 vUv3;
 
 uniform vec4 uBaseColor;
+#if WEBGL_DEPTH_ALPHA_MASK
 uniform vec4 uAlpha;
+#if WEBGL_DEPTH_BASE_MAP
 uniform sampler2D uBaseMap;
 uniform int uHasBaseMap;
 uniform int uBaseMapUV;
 uniform vec4 uBaseMapTransformA;
 uniform vec2 uBaseMapTransformB;
+#endif
+#endif
 
 vec2 resolveUV(int uvSet) {
 	if (uvSet == 1) return vUv1;
@@ -32,6 +36,7 @@ vec2 applyUVTransform(vec2 uv, vec4 transformA, vec2 transformB) {
 
 void main() {
 	float alpha = clamp(uBaseColor.a, 0.0, 1.0);
+#if WEBGL_DEPTH_ALPHA_MASK && WEBGL_DEPTH_BASE_MAP
 	if (uHasBaseMap == 1) {
 		vec2 baseUv = applyUVTransform(
 			resolveUV(uBaseMapUV),
@@ -40,8 +45,11 @@ void main() {
 		);
 		alpha *= texture(uBaseMap, baseUv).a;
 	}
+#endif
 
+#if WEBGL_DEPTH_ALPHA_MASK
 	if (uAlpha.y > 0.5 && alpha < uAlpha.x) {
 		discard;
 	}
+#endif
 }

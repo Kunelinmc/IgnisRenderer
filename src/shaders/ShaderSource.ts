@@ -10,10 +10,17 @@ import {
 	createWebGLBrowserShaderSources,
 	WEBGL_INTERNAL_SHADER_FILES,
 	WEBGL_PIPELINE_SHADER_PARTS,
+	WEBGL_SCENE_FRAGMENT_SHADER_FILES,
 	WEBGL_SHADER_FILES,
 	WEBGL_SHADER_PARTS,
+	type WebGLSceneFragmentPart,
 	type WebGLShaderPart,
 } from "./webgl/sources";
+import {
+	getWebGLSceneVariantKey,
+	normalizeWebGLSceneVariantDescriptor,
+	type WebGLSceneVariantDescriptor,
+} from "./webgl/sceneVariants";
 import {
 	createWebGPUBrowserShaderSources,
 	createWebGPUBrowserSyncShaderSources,
@@ -137,7 +144,11 @@ export type ShaderSourceSyncKey = WebGPUShaderSourceSyncKey;
 
 export type ShaderSourceParams<K extends ShaderSourceKey> =
 	K extends "webgl.scene.raw" | "webgl.scene.composite" ?
-		{ limits: WebGLSceneLightLimits }
+		{
+			limits: WebGLSceneLightLimits;
+			/** @internal WebGL built-in scene shader pruning descriptor. */
+			variant?: WebGLSceneVariantDescriptor;
+		}
 	:	undefined;
 
 export type ShaderSourceResult<K extends ShaderSourceKey> =
@@ -287,6 +298,9 @@ interface WebGLSceneOptionalBlocks {
 	irradianceProbeGridFragment: string;
 }
 
+const WEBGL_SCENE_VARIANT_DEFINES_PATH = "<webgl-scene-variant-defines>";
+const WEBGL_SCENE_FALLBACK_PATH = "<webgl-scene-fallbacks>";
+
 const WEBGL_IRRADIANCE_PROBE_GRID_UNIFORMS = [
 	"uniform int uIrradianceProbeGridEnabled;",
 	"uniform vec4 uIrradianceProbeGridWorldToGridRow0;",
@@ -301,11 +315,19 @@ const WEBGL_IRRADIANCE_PROBE_GRID_UNIFORMS = [
 function replaceOptionalDefines(
 	source: string,
 	limits: WebGLSceneLightLimits,
-	optionalBlocks: WebGLSceneOptionalBlocks
+	optionalBlocks: WebGLSceneOptionalBlocks,
+	variant: WebGLSceneVariantDescriptor
 ): string {
-	const shadowTransmittanceEnabled = !!limits.enableShadowTransmittance;
-	const irradianceProbeGridEnabled = !!limits.enableIrradianceProbeGrid;
-	return source
+	const shadowTransmittanceEnabled =
+		!!limits.enableShadowTransmittance &&
+		variant.scene.shadows &&
+		variant.scene.shadowTransmittance;
+	const irradianceProbeGridEnabled =
+		!!limits.enableIrradianceProbeGrid &&
+		variant.scene.sh &&
+		variant.scene.localLightProbes &&
+		variant.scene.irradianceProbeGrid;
+	const replaced = source
 		.replaceAll(
 			"__WEBGL_SHADOW_TRANSMITTANCE_DEFINE__",
 			shadowTransmittanceEnabled ?
@@ -331,6 +353,108 @@ function replaceOptionalDefines(
 				optionalBlocks.irradianceProbeGridFragment
 			:	optionalBlocks.diffuseProbeFallbackFragment
 		);
+	return replaceWebGLSceneTemplateBlocks(replaced, variant);
+}
+
+function replaceWebGLSceneTemplateBlocks(
+	source: string,
+	variant: WebGLSceneVariantDescriptor
+): string {
+	const material = variant.material;
+	const isFullMaterial = material.model === "full";
+	const isPBR = isFullMaterial || material.model === "pbr";
+	const isLegacy = isFullMaterial || material.model === "legacy";
+	const isLit = isPBR || isLegacy || isFullMaterial;
+	const replacements: Array<[string, boolean]> = [
+		["__WEBGL_SCENE_LIGHTING_UNIFORMS__", isLit],
+		["__WEBGL_SCENE_SH_UNIFORMS__", variant.scene.sh],
+		["__WEBGL_MATERIAL_SHADING_MODEL_UNIFORMS__", isFullMaterial],
+		["__WEBGL_MATERIAL_PBR_UNIFORMS__", isPBR],
+		["__WEBGL_MATERIAL_TRANSMISSION_UNIFORMS__", isPBR && material.transmission],
+		["__WEBGL_MATERIAL_IRIDESCENCE_UNIFORMS__", isPBR && material.iridescence],
+		["__WEBGL_MATERIAL_ANISOTROPY_UNIFORMS__", isPBR && material.anisotropy],
+		["__WEBGL_MATERIAL_PHONG_UNIFORMS__", isLegacy],
+		["__WEBGL_MATERIAL_ALPHA_MASK_UNIFORMS__", material.alphaMask],
+		["__WEBGL_MATERIAL_BASE_MAP_UNIFORMS__", material.baseMap],
+		[
+			"__WEBGL_MATERIAL_METALLIC_ROUGHNESS_MAP_UNIFORMS__",
+			isPBR && material.metallicRoughnessMap,
+		],
+		["__WEBGL_MATERIAL_NORMAL_MAP_UNIFORMS__", isPBR && material.normalMap],
+		["__WEBGL_MATERIAL_EMISSIVE_MAP_UNIFORMS__", material.emissiveMap],
+		["__WEBGL_MATERIAL_OCCLUSION_MAP_UNIFORMS__", isPBR && material.occlusionMap],
+		[
+			"__WEBGL_MATERIAL_IRIDESCENCE_MAP_UNIFORMS__",
+			isPBR && material.iridescence && material.iridescenceMap,
+		],
+		[
+			"__WEBGL_MATERIAL_IRIDESCENCE_THICKNESS_MAP_UNIFORMS__",
+			isPBR &&
+				(
+					(material.iridescence && material.iridescenceThicknessMap) ||
+					(material.anisotropy && material.anisotropyMap)
+				),
+		],
+		[
+			"__WEBGL_MATERIAL_ANISOTROPY_MAP_UNIFORMS__",
+			isPBR && material.anisotropy && material.anisotropyMap,
+		],
+		[
+			"__WEBGL_SCENE_ENVIRONMENT_SPECULAR_UNIFORMS__",
+			isPBR && variant.scene.environmentSpecular,
+		],
+		[
+			"__WEBGL_SCENE_LOCAL_LIGHT_PROBE_UNIFORMS__",
+			variant.scene.sh && variant.scene.localLightProbes,
+		],
+		[
+			"__WEBGL_SCENE_REFLECTION_PROBE_UNIFORMS__",
+			isPBR &&
+				variant.scene.environmentSpecular &&
+				variant.scene.reflectionProbes,
+		],
+		["__WEBGL_SCENE_FORWARD_LIGHT_UNIFORMS__", isLit],
+		["__WEBGL_SCENE_SHADOW_UNIFORMS__", isLit && variant.scene.shadows],
+		[
+			"__WEBGL_SCENE_CLUSTERED_LIGHT_UNIFORMS__",
+			isLit && variant.scene.clusteredLighting,
+		],
+		["__WEBGL_SCENE_OIT_UNIFORMS__", variant.oit],
+		[
+			"__WEBGL_SCENE_EXTRA_OUTPUTS__",
+			variant.oit || variant.output === "mrt",
+		],
+	];
+	let result = source;
+	for (const [marker, enabled] of replacements) {
+		result = replaceWebGLSceneTemplateBlock(result, marker, enabled);
+	}
+	return result;
+}
+
+function replaceWebGLSceneTemplateBlock(
+	source: string,
+	marker: string,
+	enabled: boolean
+): string {
+	const lines = source.split("\n");
+	const markerIndex = lines.findIndex((line) => line.trim() === marker);
+	if (markerIndex < 0) {
+		return source;
+	}
+	if (enabled) {
+		lines.splice(markerIndex, 1);
+		return lines.join("\n");
+	}
+	let endIndex = markerIndex + 1;
+	while (
+		endIndex < lines.length &&
+		!/^__WEBGL_[A-Z0-9_]+__$/.test(lines[endIndex].trim())
+	) {
+		endIndex++;
+	}
+	lines.splice(markerIndex, endIndex - markerIndex);
+	return lines.join("\n");
 }
 
 function normalizeWebGLSceneLimits(
@@ -353,6 +477,15 @@ function normalizeWebGLSceneLimits(
 		enableShadowTransmittance: !!limits.enableShadowTransmittance,
 		enableIrradianceProbeGrid: !!limits.enableIrradianceProbeGrid,
 	};
+}
+
+function normalizeWebGLSceneVariant(
+	params: unknown
+): WebGLSceneVariantDescriptor {
+	const variant = (
+		params as { variant?: WebGLSceneVariantDescriptor } | undefined
+	)?.variant;
+	return normalizeWebGLSceneVariantDescriptor(variant);
 }
 
 function isCompositeKey(key: ShaderSourceKey): boolean {
@@ -835,39 +968,18 @@ export class ShaderSource {
 		params: ShaderSourceParams<K> | undefined
 	): Promise<WebGLSceneShaderSource> {
 		const limits = normalizeWebGLSceneLimits(params);
-		const [
-			vertex,
-			fragmentTemplate,
-			diffuseProbeFallbackFragment,
-			irradianceProbeGridFragment,
-		] = await Promise.all([
+		const variant = normalizeWebGLSceneVariant(params);
+		const [vertex, fragment] = await Promise.all([
 			this._loadFileRaw({
 				scope: "webgl",
 				key: "webgl.part.sceneVertex",
 				path: WEBGL_SHADER_FILES.sceneVertex,
 			}),
-			this._loadFileRaw({
-				scope: "webgl",
-				key: "webgl.part.sceneFragment",
-				path: WEBGL_SHADER_FILES.sceneFragment,
-			}),
-			this._loadFileRaw({
-				scope: "webgl",
-				key: "webgl.internal.diffuseProbeFallbackFragment",
-				path: WEBGL_INTERNAL_SHADER_FILES.diffuseProbeFallbackFragment,
-			}),
-			this._loadFileRaw({
-				scope: "webgl",
-				key: "webgl.internal.irradianceProbeGridFragment",
-				path: WEBGL_INTERNAL_SHADER_FILES.irradianceProbeGridFragment,
-			}),
+			this._loadWebGLSceneFragmentComposite(limits, variant),
 		]);
 		return {
 			vertex,
-			fragment: this._buildWebGLSceneFragment(fragmentTemplate, limits, {
-				diffuseProbeFallbackFragment,
-				irradianceProbeGridFragment,
-			}),
+			fragment: fragment.code,
 		};
 	}
 
@@ -875,57 +987,263 @@ export class ShaderSource {
 		params: ShaderSourceParams<K> | undefined
 	): Promise<WebGLSceneCompositeShaderSource> {
 		const limits = normalizeWebGLSceneLimits(params);
-		const [
-			vertex,
-			fragmentTemplate,
-			diffuseProbeFallbackFragment,
-			irradianceProbeGridFragment,
-		] = await Promise.all([
+		const variant = normalizeWebGLSceneVariant(params);
+		const [vertex, fragment] = await Promise.all([
 			this._loadFileComposite({
 				scope: "webgl",
 				key: "webgl.part.sceneVertex",
 				path: WEBGL_SHADER_FILES.sceneVertex,
 			}),
-			this._loadFileComposite({
-				scope: "webgl",
-				key: "webgl.part.sceneFragment",
-				path: WEBGL_SHADER_FILES.sceneFragment,
-			}),
-			this._loadFileRaw({
-				scope: "webgl",
-				key: "webgl.internal.diffuseProbeFallbackFragment",
-				path: WEBGL_INTERNAL_SHADER_FILES.diffuseProbeFallbackFragment,
-			}),
-			this._loadFileRaw({
-				scope: "webgl",
-				key: "webgl.internal.irradianceProbeGridFragment",
-				path: WEBGL_INTERNAL_SHADER_FILES.irradianceProbeGridFragment,
-			}),
+			this._loadWebGLSceneFragmentComposite(limits, variant),
 		]);
-		const fragment = this._buildWebGLSceneFragment(
-			fragmentTemplate.code,
-			limits,
-			{
-				diffuseProbeFallbackFragment,
-				irradianceProbeGridFragment,
-			}
-		);
 		return {
 			vertex,
-			fragment: createInlineCompositeShaderSource(
-				fragment,
-				firstSourcePath(fragmentTemplate, WEBGL_SHADER_FILES.sceneFragment),
-				"template"
-			),
+			fragment,
 		};
+	}
+
+	private static async _loadWebGLSceneFragmentComposite(
+		limits: WebGLSceneLightLimits,
+		variant: WebGLSceneVariantDescriptor
+	): Promise<CompositeShaderSource> {
+		const optionalBlocks = await this._loadWebGLSceneOptionalBlocks();
+		const selectedParts = this._selectWebGLSceneFragmentParts(variant);
+		const parts = await Promise.all(
+			selectedParts.map((part) =>
+				this._loadWebGLSceneFragmentPartComposite(
+					part,
+					limits,
+					optionalBlocks,
+					variant
+				)
+			)
+		);
+		return composeShaderParts(
+			[
+				parts[0],
+				createInlineCompositeShaderSource(
+					this._buildWebGLSceneVariantDefines(variant),
+					WEBGL_SCENE_VARIANT_DEFINES_PATH,
+					"generated"
+				),
+				...parts.slice(1),
+				...this._buildWebGLSceneFallbackComposites(variant),
+			],
+			"<webgl-scene-fragment-part>"
+		);
+	}
+
+	private static async _loadWebGLSceneOptionalBlocks():
+		Promise<WebGLSceneOptionalBlocks> {
+		const [diffuseProbeFallbackFragment, irradianceProbeGridFragment] =
+			await Promise.all([
+				this._loadFileRaw({
+					scope: "webgl",
+					key: "webgl.internal.diffuseProbeFallbackFragment",
+					path: WEBGL_INTERNAL_SHADER_FILES.diffuseProbeFallbackFragment,
+				}),
+				this._loadFileRaw({
+					scope: "webgl",
+					key: "webgl.internal.irradianceProbeGridFragment",
+					path: WEBGL_INTERNAL_SHADER_FILES.irradianceProbeGridFragment,
+				}),
+			]);
+		return {
+			diffuseProbeFallbackFragment,
+			irradianceProbeGridFragment,
+		};
+	}
+
+	private static _selectWebGLSceneFragmentParts(
+		variant: WebGLSceneVariantDescriptor
+	): WebGLSceneFragmentPart[] {
+		const parts: WebGLSceneFragmentPart[] = [
+			"fragmentPrelude",
+			"fragmentUniforms",
+			"fragmentUvTextureNormal",
+		];
+		if (variant.scene.sh) {
+			parts.push("fragmentSh");
+			if (variant.scene.localLightProbes) {
+				parts.push("fragmentLocalProbes");
+			}
+		}
+		if (variant.scene.clusteredLighting) {
+			parts.push("fragmentClusteredLighting");
+		}
+		if (variant.scene.environmentSpecular) {
+			parts.push("fragmentEnvironmentSpecular");
+			if (variant.scene.reflectionProbes) {
+				parts.push("fragmentReflectionProbes");
+			}
+		}
+		parts.push("fragmentLightAttenuation");
+		if (variant.scene.shadows) {
+			parts.push("fragmentShadows");
+		}
+		if (
+			variant.material.model === "pbr" ||
+			variant.material.model === "full"
+		) {
+			parts.push("fragmentBrdfPbr");
+		}
+		if (
+			variant.material.model === "legacy" ||
+			variant.material.model === "full"
+		) {
+			parts.push("fragmentPhong");
+		}
+		if (
+			variant.material.model === "pbr" ||
+			variant.material.model === "full"
+		) {
+			parts.push("fragmentPbrLighting");
+		}
+		parts.push("fragmentMainOutput");
+		return parts;
+	}
+
+	private static _loadWebGLSceneFragmentPartComposite(
+		part: WebGLSceneFragmentPart,
+		limits: WebGLSceneLightLimits,
+		optionalBlocks: WebGLSceneOptionalBlocks,
+		variant: WebGLSceneVariantDescriptor
+	): Promise<CompositeShaderSource> {
+		return this._loadFileComposite({
+			scope: "webgl",
+			key: `webgl.scene.${part}`,
+			path: WEBGL_SCENE_FRAGMENT_SHADER_FILES[part],
+		}).then((composite) =>
+			createInlineCompositeShaderSource(
+				this._buildWebGLSceneFragment(
+					composite.code,
+					limits,
+					optionalBlocks,
+					variant
+				),
+				firstSourcePath(composite, WEBGL_SCENE_FRAGMENT_SHADER_FILES[part]),
+				"template"
+			)
+		);
 	}
 
 	private static _buildWebGLSceneFragment(
 		template: string,
 		limits: WebGLSceneLightLimits,
-		optionalBlocks: WebGLSceneOptionalBlocks
+		optionalBlocks: WebGLSceneOptionalBlocks,
+		variant: WebGLSceneVariantDescriptor
 	): string {
-		return replaceOptionalDefines(template, limits, optionalBlocks);
+		return replaceOptionalDefines(template, limits, optionalBlocks, variant);
+	}
+
+	private static _buildWebGLSceneVariantDefines(
+		variant: WebGLSceneVariantDescriptor
+	): string {
+		const material = variant.material;
+		const scene = variant.scene;
+		const define = (name: string, value: boolean): string =>
+			`#define ${name} ${value ? 1 : 0}`;
+		return [
+			define("WEBGL_SCENE_OUTPUT_MRT", variant.output === "mrt"),
+			define("WEBGL_SCENE_OIT", variant.oit),
+			define("WEBGL_SCENE_SHADOWS", scene.shadows),
+			define("WEBGL_SCENE_SHADOW_TRANSMITTANCE", scene.shadowTransmittance),
+			define("WEBGL_SCENE_CLUSTERED_LIGHTING", scene.clusteredLighting),
+			define("WEBGL_SCENE_SH", scene.sh),
+			define("WEBGL_SCENE_LOCAL_LIGHT_PROBES", scene.localLightProbes),
+			define("WEBGL_SCENE_IRRADIANCE_PROBE_GRID", scene.irradianceProbeGrid),
+			define("WEBGL_SCENE_REFLECTION_PROBES", scene.reflectionProbes),
+			define("WEBGL_SCENE_ENVIRONMENT_SPECULAR", scene.environmentSpecular),
+			define("WEBGL_MATERIAL_MODEL_UNLIT", material.model === "unlit"),
+			define("WEBGL_MATERIAL_MODEL_LEGACY", material.model === "legacy"),
+			define("WEBGL_MATERIAL_MODEL_PBR", material.model === "pbr"),
+			define("WEBGL_MATERIAL_MODEL_FULL", material.model === "full"),
+			define("WEBGL_MATERIAL_BASE_MAP", material.baseMap),
+			define(
+				"WEBGL_MATERIAL_METALLIC_ROUGHNESS_MAP",
+				material.metallicRoughnessMap
+			),
+			define("WEBGL_MATERIAL_NORMAL_MAP", material.normalMap),
+			define("WEBGL_MATERIAL_EMISSIVE_MAP", material.emissiveMap),
+			define("WEBGL_MATERIAL_OCCLUSION_MAP", material.occlusionMap),
+			define("WEBGL_MATERIAL_IRIDESCENCE", material.iridescence),
+			define("WEBGL_MATERIAL_IRIDESCENCE_MAP", material.iridescenceMap),
+			define(
+				"WEBGL_MATERIAL_IRIDESCENCE_THICKNESS_MAP",
+				material.iridescenceThicknessMap
+			),
+			define("WEBGL_MATERIAL_ANISOTROPY", material.anisotropy),
+			define("WEBGL_MATERIAL_ANISOTROPY_MAP", material.anisotropyMap),
+			define("WEBGL_MATERIAL_TRANSMISSION", material.transmission),
+			define("WEBGL_MATERIAL_ALPHA_MASK", material.alphaMask),
+		].join("\n");
+	}
+
+	private static _buildWebGLSceneFallbackComposites(
+		variant: WebGLSceneVariantDescriptor
+	): CompositeShaderSource[] {
+		const fallbacks: string[] = [];
+		const materialModel = variant.material.model;
+		const isLit =
+			materialModel === "pbr" ||
+			materialModel === "legacy" ||
+			materialModel === "full";
+		if (variant.scene.sh && !variant.scene.localLightProbes) {
+			fallbacks.push(this._buildWebGLLocalProbeFallbacks());
+		}
+		if (isLit && !variant.scene.shadows) {
+			fallbacks.push(this._buildWebGLShadowFallbacks());
+		}
+		if (variant.scene.environmentSpecular && !variant.scene.reflectionProbes) {
+			fallbacks.push(this._buildWebGLEnvironmentSpecularFallbacks());
+		}
+		return fallbacks.map((source, index) =>
+			createInlineCompositeShaderSource(
+				source,
+				`${WEBGL_SCENE_FALLBACK_PATH}:${index}`,
+				"generated"
+			)
+		);
+	}
+
+	private static _buildWebGLLocalProbeFallbacks(): string {
+		return [
+			"void selectTopTwoLocalLightProbes(vec3 worldPosition, out ivec2 indices, out vec2 rawWeights) {",
+			"\tindices = ivec2(-1);",
+			"\trawWeights = vec2(0.0);",
+			"}",
+			"vec4 sampleBlendedLocalLightProbeIrradiance(ivec2 indices, vec2 rawWeights, vec3 normal) {",
+			"\treturn vec4(0.0);",
+			"}",
+			"vec4 sampleBlendedLocalLightProbeRadiance(ivec2 indices, vec2 rawWeights, vec3 direction) {",
+			"\treturn vec4(0.0);",
+			"}",
+			"vec3 sampleDiffuseProbeIrradiance(vec3 worldPosition, vec3 normal) {",
+			"\treturn calculateIrradianceFromSH(normal);",
+			"}",
+		].join("\n");
+	}
+
+	private static _buildWebGLShadowFallbacks(): string {
+		return [
+			"vec3 sampleDirectionalShadowVisibility(int index, vec3 worldPosition, vec3 normal, vec3 lightDirection) {",
+			"\treturn vec3(1.0);",
+			"}",
+			"vec3 sampleSpotShadowVisibility(int index, vec3 worldPosition, vec3 normal, vec3 lightDirection) {",
+			"\treturn vec3(1.0);",
+			"}",
+		].join("\n");
+	}
+
+	private static _buildWebGLEnvironmentSpecularFallbacks(): string {
+		return [
+			"vec3 sampleEnvironmentSpecular(vec3 worldPosition, vec3 direction, float roughness) {",
+			"\tif (uHasEnvSpecularMap == 0) {",
+			"\t\treturn sampleFallbackEnvSpecular(direction, roughness);",
+			"\t}",
+			"\treturn samplePrefilteredEnvSpecularLayer(direction, roughness, 0.0, 1.0);",
+			"}",
+		].join("\n");
 	}
 
 	private static _parsePartKey<T extends string>(
@@ -1150,13 +1468,15 @@ export class ShaderSource {
 	): string {
 		if (key === "webgl.scene.raw" || key === "webgl.scene.composite") {
 			const limits = normalizeWebGLSceneLimits(params);
+			const variant = normalizeWebGLSceneVariant(params);
 			return (
 				`webgl:result:${key}` +
 				`|dir:${limits.maxDirectionalLights}` +
 				`|point:${limits.maxPointLights}` +
 				`|spot:${limits.maxSpotLights}` +
 				`|shadow:${limits.enableShadowTransmittance ? 1 : 0}` +
-				`|grid:${limits.enableIrradianceProbeGrid ? 1 : 0}`
+				`|grid:${limits.enableIrradianceProbeGrid ? 1 : 0}` +
+				`|variant:${getWebGLSceneVariantKey(variant)}`
 			);
 		}
 		return `${shaderSourceScope(key)}:result:${key}`;
