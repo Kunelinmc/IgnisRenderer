@@ -9,8 +9,15 @@ in vec4 vCurrentClip;
 in vec4 vPrevClip;
 in float vViewDepth;
 
+layout(location = 0) out vec4 fragColor;
+
 uniform vec3 uCameraPosition;
 uniform vec3 uAmbientColor;
+uniform int uDoubleSided;
+uniform vec4 uBaseColor;
+uniform vec4 uEmissive;
+uniform vec4 uFogParams0;
+uniform vec4 uFogParams1;
 __WEBGL_SCENE_LIGHTING_UNIFORMS__
 uniform int uEnableLighting;
 __WEBGL_SCENE_SH_UNIFORMS__
@@ -18,9 +25,6 @@ uniform int uEnableSH;
 uniform vec3 uSHAmbientCoeffs[SH_COEFFICIENT_COUNT];
 __WEBGL_MATERIAL_SHADING_MODEL_UNIFORMS__
 uniform int uShadingModel;
-uniform int uDoubleSided;
-uniform vec4 uBaseColor;
-uniform vec4 uEmissive;
 __WEBGL_MATERIAL_PBR_UNIFORMS__
 uniform vec4 uPBR;
 __WEBGL_MATERIAL_TRANSMISSION_UNIFORMS__
@@ -160,12 +164,8 @@ uniform sampler2D uClusterLightTexture;
 uniform vec2 uClusterHeaderTexSize;
 uniform vec2 uClusterIndexTexSize;
 uniform vec2 uClusterLightTexSize;
-uniform vec4 uFogParams0;
-uniform vec4 uFogParams1;
 __WEBGL_SCENE_OIT_UNIFORMS__
 uniform int uOITPassMode;
-
-layout(location = 0) out vec4 fragColor;
 __WEBGL_SCENE_EXTRA_OUTPUTS__
 layout(location = 1) out vec4 fragMotion;
 layout(location = 2) out vec4 fragNormal;

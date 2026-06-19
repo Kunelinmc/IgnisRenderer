@@ -85,6 +85,7 @@ vec3 applyNormalMap(
 	);
 }
 
+#if WEBGL_MATERIAL_ANISOTROPY || WEBGL_MATERIAL_MODEL_FULL
 vec2 rotateAnisotropyDirection(vec2 direction) {
 	return vec2(
 		direction.x * uAnisotropy.y - direction.y * uAnisotropy.z,
@@ -164,6 +165,7 @@ vec3 resolveAnisotropicReflectionDirection(
 	);
 	return reflectionDir;
 }
+#endif
 
 ivec2 linearIndexToTexel(int linearIndex, vec2 textureSizeValue) {
 	int width = max(int(floor(textureSizeValue.x + 0.5)), 1);

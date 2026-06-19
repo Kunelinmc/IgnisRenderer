@@ -30,6 +30,7 @@ vec3 evalPBRLight(
 		iridescenceIor
 	);
 	vec3 specular;
+#if WEBGL_MATERIAL_ANISOTROPY || WEBGL_MATERIAL_MODEL_FULL
 	if (anisotropyStrength > EPSILON) {
 		specular = resolveAnisotropicSpecular(
 			fresnel,
@@ -51,6 +52,12 @@ vec3 evalPBRLight(
 		float denominator = max(4.0 * nDotV * nDotL, 0.0001);
 		specular = (ndf * geometry * fresnel) / denominator;
 	}
+#else
+	float ndf = distributionGGX(pbrNormal, halfVector, roughness);
+	float geometry = geometrySmith(nDotV, nDotL, roughness);
+	float denominator = max(4.0 * nDotV * nDotL, 0.0001);
+	specular = (ndf * geometry * fresnel) / denominator;
+#endif
 
 	vec3 kd =
 		diffuseFresnelWeight(fresnel, iridescence) *
@@ -96,16 +103,22 @@ vec3 shadePBR(
 	float dielectricF0 = 0.16 * reflectance * reflectance;
 	vec3 f0 = mix(vec3(dielectricF0), albedo, metalness);
 	float nDotV = max(dot(pbrNormal, viewDir), PBR_MIN_NDOTV);
-	vec3 reflectionDir =
-		anisotropyStrength > EPSILON ?
-			resolveAnisotropicReflectionDirection(
-				pbrNormal,
-				viewDir,
-				anisotropyBitangent,
-				roughness,
-				anisotropyStrength
-			)
-		:	reflect(-viewDir, pbrNormal);
+	vec3 reflectionDir;
+#if WEBGL_MATERIAL_ANISOTROPY || WEBGL_MATERIAL_MODEL_FULL
+	if (anisotropyStrength > EPSILON) {
+		reflectionDir = resolveAnisotropicReflectionDirection(
+			pbrNormal,
+			viewDir,
+			anisotropyBitangent,
+			roughness,
+			anisotropyStrength
+		);
+	} else {
+		reflectionDir = reflect(-viewDir, pbrNormal);
+	}
+#else
+	reflectionDir = reflect(-viewDir, pbrNormal);
+#endif
 	ivec2 localProbeIndices = ivec2(-1);
 	vec2 localProbeWeights = vec2(0.0);
 
