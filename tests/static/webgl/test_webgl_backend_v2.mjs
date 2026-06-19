@@ -18,6 +18,9 @@ import { Scene } from "../../../src/core/Scene.ts";
 import { collectWebGLLights } from "../../../src/renderers/webgl/WebGLLightCollector.ts";
 import { WebGLProgramCompiler } from "../../../src/renderers/webgl/WebGLProgramCompiler.ts";
 import { WebGLProgramLibrary } from "../../../src/renderers/webgl/WebGLProgramLibrary.ts";
+import {
+	getWebGLSceneVariantKey,
+} from "../../../src/renderers/webgl/WebGLSceneProgramVariants.ts";
 import { WebGLGeometryRegistry } from "../../../src/renderers/webgl/WebGLGeometryRegistry.ts";
 import {
 	bindWebGLShaderMaterialUniforms,
@@ -43,6 +46,12 @@ const TEST_SCENE_LIMITS = {
 	maxDirectionalLights: 4,
 	maxPointLights: 4,
 	maxSpotLights: 4,
+};
+
+const PROGRAM_LIBRARY_SCENE_LIMITS = {
+	maxDirectionalLights: MAX_DIRECTIONAL_LIGHTS,
+	maxPointLights: MAX_POINT_LIGHTS,
+	maxSpotLights: MAX_SPOT_LIGHTS,
 };
 
 function getTestSceneShader() {
@@ -74,6 +83,53 @@ function createProgramLibrary(gl, warn, shaderRuntime, shaderCompileStage) {
 		shaderRuntime,
 		shaderCompileStage,
 	);
+}
+
+function createTestBuiltinSceneVariant(overrides = {}) {
+	return {
+		output: overrides.output ?? "single",
+		oit: overrides.oit ?? false,
+		scene: {
+			shadows: false,
+			shadowTransmittance: false,
+			clusteredLighting: false,
+			sh: false,
+			localLightProbes: false,
+			irradianceProbeGrid: false,
+			reflectionProbes: false,
+			environmentSpecular: false,
+			...(overrides.scene ?? {}),
+		},
+		material: {
+			model: "unlit",
+			baseMap: false,
+			metallicRoughnessMap: false,
+			normalMap: false,
+			emissiveMap: false,
+			occlusionMap: false,
+			iridescence: false,
+			iridescenceMap: false,
+			iridescenceThicknessMap: false,
+			anisotropy: false,
+			anisotropyMap: false,
+			transmission: false,
+			alphaMask: false,
+			...(overrides.material ?? {}),
+		},
+	};
+}
+
+async function prepareTestBuiltinSceneVariant(variant) {
+	await ShaderSource.prepareMany([
+		{
+			key: "webgl.scene.raw",
+			params: { limits: PROGRAM_LIBRARY_SCENE_LIMITS, variant },
+		},
+		{
+			key: "webgl.scene.composite",
+			params: { limits: PROGRAM_LIBRARY_SCENE_LIMITS, variant },
+		},
+	]);
 }
 
 function createCompilerSlot(compiler, label, uniformNames = []) {
@@ -959,6 +1015,87 @@ function testProgramLibraryShaderMaterialCustomProgram() {
 		gl.shaderSources.some((entry) => entry.source === CUSTOM_WEBGL_FRAGMENT)
 	);
 	assert.equal(warnings.length, 0);
+}
+
+async function testProgramLibraryCachesBuiltinSceneVariants() {
+	const noMapVariant = createTestBuiltinSceneVariant();
+	const baseMapVariant = createTestBuiltinSceneVariant({
+		material: { baseMap: true },
+	});
+	await prepareTestBuiltinSceneVariant(noMapVariant);
+	await prepareTestBuiltinSceneVariant(baseMapVariant);
+
+	const gl = createProgramCaptureGL();
+	const library = createProgramLibrary(gl, () => {});
+	const first = library.getSceneProgram(undefined, "single", noMapVariant);
+	const second = library.getSceneProgram(new Material(), "single", noMapVariant);
+	const withBaseMap = library.getSceneProgram(
+		new Material(),
+		"single",
+		baseMapVariant
+	);
+
+	assert.strictEqual(first, second);
+	assert.notStrictEqual(first, withBaseMap);
+	assert.equal(gl.programCount, 2);
+	assert.ok(
+		gl.shaderSources.some(
+			(entry) =>
+				entry.type === gl.FRAGMENT_SHADER &&
+				entry.source.includes("uniform sampler2D uBaseMap;")
+		)
+	);
+	assert.ok(
+		gl.shaderSources.some(
+			(entry) =>
+				entry.type === gl.FRAGMENT_SHADER &&
+				!entry.source.includes("uniform sampler2D uBaseMap;")
+		)
+	);
+	assert.notEqual(
+		getWebGLSceneVariantKey(noMapVariant),
+		getWebGLSceneVariantKey(baseMapVariant)
+	);
+}
+
+async function testProgramLibraryShaderMaterialIgnoresBuiltinVariant() {
+	const variant = createTestBuiltinSceneVariant({
+		material: { baseMap: true },
+	});
+	await prepareTestBuiltinSceneVariant(variant);
+
+	const gl = createProgramCaptureGL();
+	const library = createProgramLibrary(gl, () => {});
+	const material = new ShaderMaterial({
+		name: "VariantIgnoredCustomWebGLShader",
+		chunks: [
+			{
+				backend: "webgl",
+				language: "glsl",
+				stage: "vertex",
+				code: CUSTOM_WEBGL_VERTEX,
+			},
+			{
+				backend: "webgl",
+				language: "glsl",
+				stage: "fragment",
+				code: CUSTOM_WEBGL_FRAGMENT,
+			},
+		],
+	});
+
+	const custom = library.getSceneProgram(material, "single", variant);
+
+	assert.ok(custom);
+	assert.equal(gl.programCount, 1);
+	assert.ok(
+		gl.shaderSources.some((entry) => entry.source === CUSTOM_WEBGL_FRAGMENT)
+	);
+	assert.ok(
+		!gl.shaderSources.some((entry) =>
+			entry.source.includes("uniform sampler2D uBaseMap;")
+		)
+	);
 }
 
 function testProgramLibraryShaderMaterialCachesPerSceneTargetMode() {
@@ -2577,6 +2714,8 @@ async function run() {
 	testProgramLibraryCompileErrorMessage();
 	testProgramLibraryCompileErrorMapsSourceLine();
 	testProgramLibraryShaderMaterialCustomProgram();
+	await testProgramLibraryCachesBuiltinSceneVariants();
+	await testProgramLibraryShaderMaterialIgnoresBuiltinVariant();
 	testProgramLibraryShaderMaterialCachesPerSceneTargetMode();
 	testProgramLibraryBuiltinDepthPrepassProgram();
 	testProgramLibraryShaderMaterialDepthPrepassProgram();

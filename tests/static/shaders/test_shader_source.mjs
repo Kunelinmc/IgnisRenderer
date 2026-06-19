@@ -171,7 +171,13 @@ async function testWebGLSceneVariants() {
 	);
 	assert.equal(
 		composite.fragment.sourceMap.segments[0].sourcePath,
-		"./webgl/parts/sceneFragment.glsl"
+		"./webgl/parts/scene/fragmentPrelude.glsl"
+	);
+	assert.ok(
+		composite.fragment.sourceMap.segments.some(
+			(segment) =>
+				segment.sourcePath === "./webgl/parts/scene/fragmentMainOutput.glsl"
+		)
 	);
 
 	const compileStage = new ShaderBackendCompileStage({
@@ -216,6 +222,87 @@ async function testWebGLSceneVariants() {
 		)
 	);
 	assert.ok(!compiled.code.includes("__WEBGL_MAX_DIRECTIONAL_LIGHTS__"));
+}
+
+async function testWebGLScenePrunedVariant() {
+	ShaderSource.clearCache();
+	const variant = {
+		output: "single",
+		oit: false,
+		scene: {
+			shadows: false,
+			shadowTransmittance: false,
+			clusteredLighting: false,
+			sh: false,
+			localLightProbes: false,
+			irradianceProbeGrid: false,
+			reflectionProbes: false,
+			environmentSpecular: false,
+		},
+		material: {
+			model: "unlit",
+			baseMap: false,
+			metallicRoughnessMap: false,
+			normalMap: false,
+			emissiveMap: false,
+			occlusionMap: false,
+			iridescence: false,
+			iridescenceMap: false,
+			iridescenceThicknessMap: false,
+			anisotropy: false,
+			anisotropyMap: false,
+			transmission: false,
+			alphaMask: false,
+		},
+	};
+	await ShaderSource.prepareMany([
+		{ key: "webgl.scene.raw", params: { limits: WEBGL_SCENE_LIMITS, variant } },
+		{
+			key: "webgl.scene.composite",
+			params: { limits: WEBGL_SCENE_LIMITS, variant },
+		},
+	]);
+	const raw = ShaderSource.get("webgl.scene.raw", {
+		limits: WEBGL_SCENE_LIMITS,
+		variant,
+	});
+	const composite = ShaderSource.get("webgl.scene.composite", {
+		limits: WEBGL_SCENE_LIMITS,
+		variant,
+	});
+
+	assert.ok(!raw.fragment.includes("uniform sampler2D uShadowAtlas;"));
+	assert.ok(!raw.fragment.includes("uniform int uEnableClusteredLighting;"));
+	assert.ok(!raw.fragment.includes("uniform int uEnableSH;"));
+	assert.ok(!raw.fragment.includes("uniform sampler2D uNormalMap;"));
+	assert.ok(!raw.fragment.includes("vec3 shadePBR("));
+	assert.ok(!raw.fragment.includes("vec3 shadePhong("));
+	assert.ok(
+		composite.fragment.sourceMap.segments.some(
+			(segment) =>
+				segment.sourcePath === "./webgl/parts/scene/fragmentUniforms.glsl"
+		)
+	);
+
+	const compileStage = new ShaderBackendCompileStage({
+		backend: "webgl",
+		runtime: new ShaderRuntime({ mode: "strict" }),
+		profiles: DEFAULT_SHADER_DIRECTIVE_PROFILE_REGISTRY,
+		mode: "strict",
+	});
+	const compiled = compileStage.compile({
+		code: raw.fragment,
+		language: "glsl",
+		stage: "fragment",
+		entryPoint: "main",
+		label: "WebGLSceneFragmentPruned",
+		sourceKind: "builtin-scene",
+		sourceMap: composite.fragment.sourceMap,
+	});
+	assert.equal(compiled.hasErrors, false);
+	assert.ok(!compiled.code.includes("WEBGL_MATERIAL_MODEL_FULL"));
+	assert.ok(!compiled.code.includes("uShadowAtlas"));
+	assert.ok(!compiled.code.includes("uEnableClusteredLighting"));
 }
 
 async function testWebGPUCompositeIncludesSharedParts() {
@@ -386,6 +473,7 @@ async function run() {
 	await testConcurrentLoadsShareResultCache();
 	await testGetRequiresPrepare();
 	await testWebGLSceneVariants();
+	await testWebGLScenePrunedVariant();
 	await testWebGPUCompositeIncludesSharedParts();
 	await testCompositeResultsAreCloned();
 	testSyncLoadPopulatesPreparedCache();
