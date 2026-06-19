@@ -81,11 +81,6 @@ fn sampleRoomAtlas(panel: vec2<u32>, uv: vec2<f32>) -> vec4<f32> {
 	return ignisSampleTextureLevel_roomAtlas(atlasUv, atlasUv, atlasUv, atlasUv, 0.0);
 }
 
-fn foregroundWindowAlpha(sampled: vec4<f32>) -> f32 {
-	let keyedGreen = all(sampled.rgb == vec3<f32>(0.0, 1.0, 0.0));
-	return select(clamp(sampled.a, 0.0, 1.0), 0.0, keyedGreen);
-}
-
 @fragment
 fn fsMainSingle(input: VertexOutput) -> @location(0) vec4<f32> {
 	let viewDirWorld = normalize(input.worldPosition - frame.cameraPosition.xyz);
@@ -175,7 +170,7 @@ fn fsMainSingle(input: VertexOutput) -> @location(0) vec4<f32> {
 
 	let foregroundUv = vec2<f32>(ro.x, 1.0 - ro.y);
 	let foreground = sampleRoomAtlas(vec2<u32>(2u, 1u), foregroundUv);
-	color = mix(color, foreground.rgb, foregroundWindowAlpha(foreground));
+	color = mix(color, foreground.rgb, clamp(foreground.a, 0.0, 1.0));
 
 	return vec4<f32>(color, 1.0);
 }
