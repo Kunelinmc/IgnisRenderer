@@ -1,6 +1,5 @@
 import {
 	FPSCamera,
-	Camera,
 	Platform,
 	Renderer,
 	Scene,
@@ -13,10 +12,12 @@ import {
 	Logger,
 	DirectionalLight,
 	FastApproximateAntiAliasingPass,
+	type Camera,
 } from "./index";
 
-async function init() {
+async function init(): Promise<void> {
 	const platform = Platform.detect();
+
 	if (!platform.isBrowserRuntime) {
 		throw new Error(`Main entry requires browser runtime, got "${platform.runtime}".`);
 	}
@@ -27,6 +28,7 @@ async function init() {
 	}
 
 	let canvas = canvasElement;
+
 	const camera = new FPSCamera();
 	camera.near = 0.1;
 	camera.far = 100;
@@ -35,7 +37,43 @@ async function init() {
 	camera.updateMatrices();
 
 	const scene = new Scene();
+	await setupScene(scene, camera);
 
+	const bootstrap = await createRenderer(canvas, camera, scene);
+	canvas = bootstrap.canvas;
+
+	const renderer = bootstrap.renderer;
+	renderer
+		.warmup({ scheduling: "idle" })
+		.then((report) => {
+			if (report.failed > 0) {
+				Logger.warn(`Renderer warmup completed with ${report.failed} failure(s).`, {
+					scope: "Main",
+				});
+			}
+		})
+		.catch((error) => {
+			Logger.warn(["Renderer warmup failed.", error], {
+				scope: "Main",
+			});
+		});
+
+	renderer.renderLoop();
+
+	bindControls(canvas, camera, renderer);
+	setupInteraction(renderer, scene, camera);
+
+	window.addEventListener("resize", () => {
+		renderer.resizeCanvas();
+		renderer.requestRender("camera");
+	});
+}
+
+/**
+ * Configures the scene components, including spatial indexing, loaded models,
+ * directional lights, and CSM shadow mapping.
+ */
+async function setupScene(scene: Scene, camera: Camera): Promise<void> {
 	// Set spatial index mode to hybrid
 	scene.spatialIndexMode = "hybrid";
 
@@ -43,13 +81,15 @@ async function init() {
 
 	// Load model from assets/models/model.glb
 	const gltfLoader = new GLTFLoader();
+
 	gltfLoader.on("progress", (event) => {
-		const percent = (event.loaded / event.total) * 100;
-		Logger.info(`Loading model: ${percent.toFixed(2)}% (${event.loaded}/${event.total} bytes)`);
+		const total = event.total || 0;
+		const percent = total > 0 ? (event.loaded / total) * 100 : 0;
+		Logger.info(`Loading model: ${percent.toFixed(2)}% (${event.loaded}/${total} bytes)`);
 	});
+
 	const model = await gltfLoader.load("assets/models/model.glb");
 	scene.add(model);
-	scene.syncNodeToECS();
 
 	const sun = new DirectionalLight({
 		intensity: 5.0,
@@ -81,99 +121,64 @@ async function init() {
 	});
 
 	scene.shadows.bind(sun, shadowMap);
+}
 
-	const bootstrap = await createRenderer(canvas, camera, scene);
-	canvas = bootstrap.canvas;
-	const renderer = bootstrap.renderer;
-
-	renderer.updateSH();
-	renderer.requestRender("unknown");
-	void renderer
-		.warmup({ scheduling: "idle" })
-		.then((report) => {
-			if (report.failed > 0) {
-				Logger.warn(
-					`Renderer warmup completed with ${report.failed} failure(s).`,
-					{ scope: "Main" }
-				);
-			}
-			// Re-render once background warmup has populated backend caches.
-			renderer.requestRender("unknown");
-		})
-		.catch((error) => {
-			Logger.warn(["Renderer warmup failed.", error], {
-				scope: "Main",
+function getSelectedBackend(requested?: string): SoftwareBackend | WebGPUBackend | WebGLBackend {
+	if (requested) {
+		if (requested === "webgpu") {
+			return new WebGPUBackend({
+				enableDeferredLighting: true,
+				enableEarlyZPrepass: true,
+				enableOcclusionCulling: true,
 			});
+		}
+		if (requested === "webgl") {
+			return new WebGLBackend({
+				enableEarlyZPrepass: true,
+			});
+		}
+		return new SoftwareBackend({
+			rasterMode: "tile",
+			enableEarlyZPrepass: true,
 		});
+	}
 
-	bindControls(canvas, camera, renderer);
-	renderer.renderLoop();
-	setupInteraction(renderer, scene, camera);
+	const platform = Platform.detect();
 
-	window.addEventListener("resize", () => {
-		renderer.resizeCanvas();
-		renderer.requestRender("camera");
+	if (platform.hasWebGPU) {
+		return new WebGPUBackend({
+			enableDeferredLighting: true,
+			enableEarlyZPrepass: true,
+			enableOcclusionCulling: true,
+		});
+	}
+
+	if (platform.hasWebGL2) {
+		return new WebGLBackend({
+			enableEarlyZPrepass: true,
+		});
+	}
+
+	return new SoftwareBackend({
+		rasterMode: "tile",
+		enableEarlyZPrepass: true,
 	});
 }
 
+/**
+ * Initializes the renderer with the selected backend, sets up the scene, and registers post-processing passes. The backend can be specified via the "backend" URL query parameter.
+ */
 async function createRenderer(
 	canvas: HTMLCanvasElement,
 	camera: Camera,
 	scene: Scene,
 ): Promise<{ canvas: HTMLCanvasElement; renderer: Renderer }> {
-	let renderer: Renderer;
+	const params = new URLSearchParams(window.location.search);
+	const requested = params.get("backend")?.toLowerCase() || undefined;
 
-	if (Platform.hasWebGPU()) {
-		renderer = new Renderer({
-			backend: new WebGPUBackend({
-				enableDeferredLighting: true,
-				enableEarlyZPrepass: true,
-				enableOcclusionCulling: true,
-			}),
-			canvas,
-			camera,
-		});
-		renderer.setScene(scene);
-		renderer.postProcess.registerPass(
-			new FastApproximateAntiAliasingPass({ enabled: true })
-		);
-		renderer.features.enableOIT = true;
-
-		try {
-			await renderer.initialize();
-
-			Logger.info("Using WebGPU backend");
-			return { canvas, renderer };
-		} catch (error) {
-			Logger.warn(["WebGPU initialization failed, trying WebGL.", error], {
-				scope: "Main",
-			});
-		}
-	}
-
-	try {
-		renderer = new Renderer({ backend: new WebGLBackend(), canvas, camera });
-		renderer.setScene(scene);
-		renderer.postProcess.registerPass(
-			new FastApproximateAntiAliasingPass({ enabled: true })
-		);
-		renderer.features.enableOIT = true;
-
-		await renderer.initialize();
-
-		Logger.info("Using WebGL backend");
-		return { canvas, renderer };
-	} catch (error) {
-		Logger.warn(["WebGL initialization failed, fallback to software.", error], {
-			scope: "Main",
-		});
-	}
-
-	renderer = new Renderer({
-		backend: new SoftwareBackend({
-			rasterMode: "tile",
-			enableEarlyZPrepass: true,
-		}),
+	const backend = getSelectedBackend(requested);
+	const renderer = new Renderer({
+		backend,
 		canvas,
 		camera,
 	});
@@ -181,10 +186,15 @@ async function createRenderer(
 
 	await renderer.initialize();
 
-	Logger.info("Using software backend");
+	renderer.postProcess.registerPass(new FastApproximateAntiAliasingPass({ enabled: true }));
+	renderer.features.enableOIT = true;
+
 	return { canvas, renderer };
 }
 
+/**
+ * Binds keyboard and mouse controls for FPS-style camera movement and looking around.
+ */
 function bindControls(canvas: HTMLCanvasElement, camera: FPSCamera, renderer: Renderer): void {
 	const keys = new Set<string>();
 
@@ -202,25 +212,38 @@ function bindControls(canvas: HTMLCanvasElement, camera: FPSCamera, renderer: Re
 		canvas.requestPointerLock();
 	});
 
-	window.addEventListener("mousemove", (event: MouseEvent) => {
+	const onMouseMove = (event: MouseEvent) => {
+		if (event.movementX === 0 && event.movementY === 0) return;
+		camera.rotate(event.movementX, event.movementY);
+		renderer.requestRender("camera");
+	};
+
+	document.addEventListener("pointerlockchange", () => {
 		if (document.pointerLockElement === canvas) {
-			if (event.movementX === 0 && event.movementY === 0) return;
-			camera.rotate(event.movementX, event.movementY);
-			renderer.requestRender("camera");
+			window.addEventListener("mousemove", onMouseMove);
+		} else {
+			window.removeEventListener("mousemove", onMouseMove);
 		}
 	});
 
 	let accumulator = 0;
 	const fixedTimeStep = 1 / 60; // 60Hz fixed update
 
-	renderer.on("tick", async ({ deltaTime }) => {
+	renderer.on("tick", ({ deltaTime }) => {
+		// If no keys are active, we don't need to simulate movement.
+		// Simply discard accumulated time or keep the fractional remainder.
+		if (keys.size === 0) {
+			accumulator %= fixedTimeStep;
+			return;
+		}
+
 		// Convert ms to seconds and cap to avoid spiral of death
 		accumulator += Math.min(deltaTime / 1000, 0.25);
 
 		let cameraMoved = false;
+		const stepDistance = camera.moveSpeed * fixedTimeStep;
 
 		while (accumulator >= fixedTimeStep) {
-			const stepDistance = camera.moveSpeed * fixedTimeStep;
 			let forwardInput = 0;
 			let rightInput = 0;
 			let upInput = 0;
@@ -272,6 +295,7 @@ function bindControls(canvas: HTMLCanvasElement, camera: FPSCamera, renderer: Re
  */
 export function setupInteraction(renderer: Renderer, scene: Scene, camera: Camera) {
 	const interaction = new InteractionController();
+
 	for (const meshInstance of scene.getMeshInstances()) {
 		interaction.interactables.set(meshInstance, {});
 	}
@@ -286,7 +310,7 @@ export function setupInteraction(renderer: Renderer, scene: Scene, camera: Camer
 
 	// Handle mouse input
 	const canvas = renderer.canvas;
-	const handlePointer = (type: any, e: MouseEvent) => {
+	const handlePointer = (type: "down" | "move" | "up", e: MouseEvent) => {
 		interaction.updatePointer({
 			type,
 			screenX: e.clientX,
