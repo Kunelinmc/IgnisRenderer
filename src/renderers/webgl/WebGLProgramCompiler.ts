@@ -8,6 +8,7 @@ import {
 	type ShaderCompilerMessage,
 	type ShaderProcessResult,
 	type ShaderRuntime,
+	type ShaderSourceKind,
 	type ShaderSourceSegmentMap,
 } from "../../shaders/runtime";
 
@@ -19,7 +20,7 @@ export interface WebGLShaderCompileMetadata {
 	readonly sourceMap?: ShaderSourceSegmentMap | null;
 	readonly variantKey?: string;
 	readonly materialId?: string;
-	readonly sourceKind?: "custom-material" | "unknown";
+	readonly sourceKind?: ShaderSourceKind;
 }
 
 export interface WebGLShaderSourceDescriptor {
@@ -69,7 +70,7 @@ interface WebGLPendingShaderCompile {
 	readonly shader: WebGLShader;
 	readonly stage: "vertex" | "fragment";
 	readonly label: string;
-	readonly sourceKind: "custom-material" | "unknown";
+	readonly sourceKind: ShaderSourceKind;
 	readonly variantKey?: string;
 	readonly materialId?: string;
 	readonly code: string;
@@ -637,7 +638,7 @@ export class WebGLProgramCompiler {
 	private _processShaderSource(
 		source: string,
 		stage: "vertex" | "fragment",
-		sourceKind: "custom-material" | "unknown",
+		sourceKind: ShaderSourceKind,
 		label: string,
 		sourceMap?: ShaderSourceSegmentMap | null
 	): ShaderProcessResult {

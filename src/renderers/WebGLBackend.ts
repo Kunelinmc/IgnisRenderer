@@ -242,6 +242,54 @@ class WebGLBackendSession implements IRenderBackendSession {
 						},
 					},
 				},
+				{
+					key: "webgl.scene.raw" as const,
+					params: {
+						limits: {
+							maxDirectionalLights: MAX_DIRECTIONAL_LIGHTS,
+							maxPointLights: MAX_POINT_LIGHTS,
+							maxSpotLights: MAX_SPOT_LIGHTS,
+							enableShadowTransmittance: false,
+							enableIrradianceProbeGrid: true,
+						},
+					},
+				},
+				{
+					key: "webgl.scene.composite" as const,
+					params: {
+						limits: {
+							maxDirectionalLights: MAX_DIRECTIONAL_LIGHTS,
+							maxPointLights: MAX_POINT_LIGHTS,
+							maxSpotLights: MAX_SPOT_LIGHTS,
+							enableShadowTransmittance: false,
+							enableIrradianceProbeGrid: true,
+						},
+					},
+				},
+				{
+					key: "webgl.scene.raw" as const,
+					params: {
+						limits: {
+							maxDirectionalLights: MAX_DIRECTIONAL_LIGHTS,
+							maxPointLights: MAX_POINT_LIGHTS,
+							maxSpotLights: MAX_SPOT_LIGHTS,
+							enableShadowTransmittance: true,
+							enableIrradianceProbeGrid: true,
+						},
+					},
+				},
+				{
+					key: "webgl.scene.composite" as const,
+					params: {
+						limits: {
+							maxDirectionalLights: MAX_DIRECTIONAL_LIGHTS,
+							maxPointLights: MAX_POINT_LIGHTS,
+							maxSpotLights: MAX_SPOT_LIGHTS,
+							enableShadowTransmittance: true,
+							enableIrradianceProbeGrid: true,
+						},
+					},
+				},
 			]
 		);
 		this._initializeGLContext(canvas);

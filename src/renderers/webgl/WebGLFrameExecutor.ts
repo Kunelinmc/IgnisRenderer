@@ -5,7 +5,10 @@ import {
 	AlphaMode,
 	type Material,
 } from "../../materials/Material";
-import { materialUsesTransmission } from "../../materials/transparency";
+import {
+	isMaterialTransparentPass,
+	materialUsesTransmission,
+} from "../../materials/transparency";
 import {
 	ShaderMaterial,
 	type ShaderTargetMode,
@@ -66,6 +69,7 @@ import { WebGLGeometryRegistry } from "./WebGLGeometryRegistry";
 import {
 	POST_PROCESS_STAGES,
 	MAX_DIRECTIONAL_LIGHTS,
+	MAX_POINT_LIGHTS,
 	MAX_SPOT_LIGHTS,
 } from "../constants";
 import {
@@ -99,6 +103,7 @@ import type {
 	ShaderRuntime,
 } from "../../shaders/runtime";
 import type { ShaderCompileError } from "../../shaders/runtime";
+import { ShaderSource, type WebGLSceneLightLimits } from "../../shaders/ShaderSource";
 import type {
 	WarmupPhaseCounters,
 	WarmupPlan,
@@ -165,6 +170,14 @@ import { BackendPostProcessRuntime } from "../../postprocess/BackendPostProcessR
 import { WebGLPostProcessExecutor } from "./WebGLPostProcessExecutor";
 import { TemporalJitterState } from "../temporal/TemporalJitterState";
 import { WebGLPostProcessBridge } from "./WebGLPostProcessBridge";
+import {
+	getWebGLSceneDepthVariantKey,
+	getWebGLSceneVariantKey,
+	resolveWebGLBuiltinDepthVariant,
+	resolveWebGLBuiltinSceneVariant,
+	type WebGLSceneDepthVariantDescriptor,
+	type WebGLSceneVariantDescriptor,
+} from "./WebGLSceneProgramVariants";
 
 type WebGLFramePassHandler = (context: FrameContext) => void;
 
@@ -673,22 +686,65 @@ export class WebGLFrameExecutor {
 			await yieldController.yieldIfNeeded();
 		};
 
-		await enqueue("WebGLSceneProgram:builtin", () => {
-			return this._warmupProgramHandle(
-				"warmupSceneProgram",
-				"getSceneProgram",
-			);
-		});
-		if (this._enableEarlyZPrepass) {
-			await enqueue("WebGLSceneDepthPrepassProgram:builtin", () => {
+		const materialWarmupModes: ShaderTargetMode[] =
+			plan.sceneTargetMode === "mrt" ? ["mrt", "single"] : ["single"];
+		const warmupLightState = this._collectWarmupLightState(context);
+		const builtinSceneVariants = this._collectWarmupSceneVariants(
+			context,
+			plan.materials,
+			materialWarmupModes,
+			warmupLightState
+		);
+		const builtinDepthVariants = this._collectWarmupDepthVariants(
+			plan.materials
+		);
+		await enqueue("WebGLSceneSource:builtin", () =>
+			ShaderSource.prepareMany(
+				[...builtinSceneVariants.values()].flatMap((variant) => [
+					{
+						key: "webgl.scene.raw" as const,
+						params: {
+							limits: this._getWarmupSceneLightLimits(),
+							variant,
+						},
+					},
+					{
+						key: "webgl.scene.composite" as const,
+						params: {
+							limits: this._getWarmupSceneLightLimits(),
+							variant,
+						},
+					},
+				])
+			)
+		);
+		for (const [variantKey, variant] of builtinSceneVariants) {
+			await enqueue(`WebGLSceneProgram:builtin:${variantKey}`, () => {
 				return this._warmupProgramHandle(
-					"warmupSceneDepthPrepassProgram",
-					"getSceneDepthPrepassProgram",
+					"warmupSceneProgram",
+					"getSceneProgram",
+					undefined,
+					variant.output,
+					variant
 				);
 			});
 		}
-		const materialWarmupModes: ShaderTargetMode[] =
-			plan.sceneTargetMode === "mrt" ? ["mrt", "single"] : ["single"];
+		if (this._enableEarlyZPrepass) {
+			for (const [variantKey, variant] of builtinDepthVariants) {
+				await enqueue(
+					`WebGLSceneDepthPrepassProgram:builtin:${variantKey}`,
+					() => {
+						return this._warmupProgramHandle(
+							"warmupSceneDepthPrepassProgram",
+							"getSceneDepthPrepassProgram",
+							undefined,
+							"single",
+							variant
+						);
+					}
+				);
+			}
+		}
 		for (const material of plan.materials) {
 			if (!(material instanceof ShaderMaterial)) {
 				continue;
@@ -742,7 +798,7 @@ export class WebGLFrameExecutor {
 				);
 			});
 		}
-		if (context.features.enableOIT) {
+		if (context.features?.enableOIT) {
 			await enqueue("WebGLOITResolveProgram", () => {
 				return this._warmupProgramHandle(
 					"warmupOITResolveProgram",
@@ -803,6 +859,126 @@ export class WebGLFrameExecutor {
 			skipped,
 			failed,
 			errors,
+		};
+	}
+
+	private _collectWarmupLightState(context: FrameContext): WebGLLightState {
+		const scene = context.scene;
+		const environment = scene?.environment;
+		return collectWebGLLights(
+			scene?.lights ?? [],
+			context.features?.enableLighting ?? false,
+			context.features?.enableShadows ?? false,
+			context.shadowMaps ?? new Map(),
+			context.features?.enableSH ?? false,
+			environment?.lightingEnabled ?
+				environment.iblTexture
+			:	null,
+			context.features?.enableClusteredLighting ?? false,
+			context.camera?.getWorldPosition ?
+				context.camera.getWorldPosition(
+					WEBGL_REFLECTION_PROBE_CAMERA_WORLD_POSITION_SCRATCH
+				)
+			:	null
+		);
+	}
+
+	private _collectWarmupSceneVariants(
+		context: FrameContext,
+		materials: readonly Material[],
+		modes: readonly ShaderTargetMode[],
+		lightState: WebGLLightState
+	): Map<string, WebGLSceneVariantDescriptor> {
+		const variants = new Map<string, WebGLSceneVariantDescriptor>();
+		for (const material of materials) {
+			if (material instanceof ShaderMaterial) {
+				continue;
+			}
+			for (const mode of modes) {
+				this._addWarmupSceneVariant(
+					variants,
+					context,
+					material,
+					mode,
+					0,
+					lightState
+				);
+			}
+			if (context.features?.enableOIT && isMaterialTransparentPass(material)) {
+				this._addWarmupSceneVariant(
+					variants,
+					context,
+					material,
+					"single",
+					1,
+					lightState
+				);
+				this._addWarmupSceneVariant(
+					variants,
+					context,
+					material,
+					"single",
+					2,
+					lightState
+				);
+			}
+		}
+		return variants;
+	}
+
+	private _addWarmupSceneVariant(
+		variants: Map<string, WebGLSceneVariantDescriptor>,
+		context: FrameContext,
+		material: Material,
+		mode: ShaderTargetMode,
+		oitPassMode: 0 | 1 | 2,
+		lightState: WebGLLightState
+	): void {
+		const variant = resolveWebGLBuiltinSceneVariant(
+			context,
+			material,
+			mode,
+			oitPassMode,
+			{
+				lightState,
+				enableShadowTransmittance: this._maxTextureImageUnits >= 17,
+				enableIrradianceProbeGrid: this._irradianceProbeGridSamplingSupported,
+			}
+		);
+		if (!variant) {
+			return;
+		}
+		variants.set(getWebGLSceneVariantKey(variant), variant);
+	}
+
+	private _collectWarmupDepthVariants(
+		materials: readonly Material[]
+	): Map<string, WebGLSceneDepthVariantDescriptor> {
+		const variants = new Map<string, WebGLSceneDepthVariantDescriptor>();
+		for (const material of materials) {
+			if (
+				material instanceof ShaderMaterial ||
+				isMaterialTransparentPass(material) ||
+				material.depthWrite === false
+			) {
+				continue;
+			}
+			const variant = resolveWebGLBuiltinDepthVariant(material);
+			if (!variant) {
+				continue;
+			}
+			variants.set(getWebGLSceneDepthVariantKey(variant), variant);
+		}
+		return variants;
+	}
+
+	private _getWarmupSceneLightLimits(): WebGLSceneLightLimits {
+		return {
+			maxDirectionalLights: MAX_DIRECTIONAL_LIGHTS,
+			maxPointLights: MAX_POINT_LIGHTS,
+			maxSpotLights: MAX_SPOT_LIGHTS,
+			enableShadowTransmittance: this._maxTextureImageUnits >= 17,
+			enableIrradianceProbeGrid: this._irradianceProbeGridSamplingSupported,
 		};
 	}
 
@@ -1648,6 +1824,30 @@ export class WebGLFrameExecutor {
 			context,
 			packets
 		);
+	}
+
+	private _resolveSceneProgramVariant(
+		context: FrameContext,
+		packet: DrawPacket,
+		mode: ShaderTargetMode
+	): WebGLSceneVariantDescriptor | null {
+		return resolveWebGLBuiltinSceneVariant(
+			context,
+			packet.material,
+			mode,
+			this._oitPassMode,
+			{
+				lightState: this._lightState,
+				enableShadowTransmittance: !!this._shadowTransmittanceTexture,
+				enableIrradianceProbeGrid: this._irradianceProbeGridSamplingSupported,
+			}
+		);
+	}
+
+	private _resolveSceneDepthPrepassVariant(
+		packet: DrawPacket
+	): WebGLSceneDepthVariantDescriptor | null {
+		return resolveWebGLBuiltinDepthVariant(packet.material);
 	}
 
 	private _drawPacket(

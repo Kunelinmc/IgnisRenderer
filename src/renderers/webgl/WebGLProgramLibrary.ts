@@ -34,6 +34,14 @@ import {
 	type WebGLProgramWarmupHandle,
 	type WebGLShaderCompileMetadata,
 } from "./WebGLProgramCompiler";
+import {
+	getWebGLSceneDepthVariantKey,
+	getWebGLSceneVariantKey,
+	normalizeWebGLSceneDepthVariantDescriptor,
+	normalizeWebGLSceneVariantDescriptor,
+	type WebGLSceneDepthVariantDescriptor,
+	type WebGLSceneVariantDescriptor,
+} from "./WebGLSceneProgramVariants";
 
 export type {
 	WebGLProgramCompileState,
@@ -133,6 +141,11 @@ interface WebGLProgramCompileRequest {
 	readonly fragmentMetadata?: ShaderCompileMetadata;
 }
 
+interface WebGLBuiltinProgramCacheEntry {
+	program: WebGLSceneProgram;
+	directiveTag: string;
+}
+
 type WebGLProgramWarn = (key: string, message: string) => void;
 
 const WEBGL_MIN_TEXTURE_UNITS_FOR_SHADOW_TRANSMITTANCE = 17;
@@ -184,11 +197,10 @@ export class WebGLProgramLibrary {
 	private _enableShadowTransmittanceSampling: boolean;
 	private _enableIrradianceProbeGridSampling: boolean;
 	private _warnCallback: WebGLProgramWarn | null = null;
-	private _sceneProgram: WebGLSceneProgram | null = null;
-	private _sceneProgramDirectiveTag: string = "";
+	private _builtinScenePrograms = new Map<string, WebGLBuiltinProgramCacheEntry>();
 	private _customScenePrograms = new Map<string, WebGLSceneProgram>();
-	private _sceneDepthPrepassProgram: WebGLSceneProgram | null = null;
-	private _sceneDepthPrepassProgramDirectiveTag: string = "";
+	private _builtinSceneDepthPrepassPrograms =
+		new Map<string, WebGLBuiltinProgramCacheEntry>();
 	private _customSceneDepthPrepassPrograms = new Map<string, WebGLSceneProgram>();
 	private _missingDepthPrepassShaderMaterialWarnings = new Set<number>();
 	private _environmentProgram: WebGLEnvironmentProgram | null = null;
@@ -331,10 +343,11 @@ export class WebGLProgramLibrary {
 
 	public getSceneProgram(
 		material?: Material,
-		mode: ShaderTargetMode = "single"
+		mode: ShaderTargetMode = "single",
+		variant?: WebGLSceneVariantDescriptor
 	): WebGLSceneProgram {
 		if (!(material instanceof ShaderMaterial)) {
-			return this._getBuiltinSceneProgram();
+			return this._getBuiltinSceneProgram(variant);
 		}
 
 		const custom = this._getShaderMaterialSceneProgram(material, mode);
@@ -356,10 +369,11 @@ export class WebGLProgramLibrary {
 	 */
 	public getSceneDepthPrepassProgram(
 		material?: Material,
-		mode: ShaderTargetMode = "single"
+		mode: ShaderTargetMode = "single",
+		variant?: WebGLSceneDepthVariantDescriptor
 	): WebGLSceneProgram | null {
 		if (!(material instanceof ShaderMaterial)) {
-			return this._getBuiltinSceneDepthPrepassProgram();
+			return this._getBuiltinSceneDepthPrepassProgram(variant);
 		}
 
 		return this._getShaderMaterialDepthPrepassProgram(material, mode);
@@ -375,10 +389,11 @@ export class WebGLProgramLibrary {
 
 	public warmupSceneProgram(
 		material?: Material,
-		mode: ShaderTargetMode = "single"
+		mode: ShaderTargetMode = "single",
+		variant?: WebGLSceneVariantDescriptor
 	): WebGLProgramWarmupHandle {
 		if (!(material instanceof ShaderMaterial)) {
-			return this._warmupBuiltinSceneProgram();
+			return this._warmupBuiltinSceneProgram(variant);
 		}
 
 		const custom = this._warmupShaderMaterialSceneProgram(material, mode);
@@ -400,10 +415,11 @@ export class WebGLProgramLibrary {
 	 */
 	public warmupSceneDepthPrepassProgram(
 		material?: Material,
-		mode: ShaderTargetMode = "single"
+		mode: ShaderTargetMode = "single",
+		variant?: WebGLSceneDepthVariantDescriptor
 	): WebGLProgramWarmupHandle | null {
 		if (!(material instanceof ShaderMaterial)) {
-			return this._warmupBuiltinSceneDepthPrepassProgram();
+			return this._warmupBuiltinSceneDepthPrepassProgram(variant);
 		}
 
 		return this._warmupShaderMaterialDepthPrepassProgram(material, mode);
@@ -521,41 +537,47 @@ export class WebGLProgramLibrary {
 		);
 	}
 
-	private _warmupBuiltinSceneProgram(): WebGLProgramWarmupHandle {
+	private _warmupBuiltinSceneProgram(
+		variant?: WebGLSceneVariantDescriptor
+	): WebGLProgramWarmupHandle {
 		const directiveTag = this._shaderCompileStage?.getCacheFingerprintTag() ?? "";
-		if (this._sceneProgram && this._sceneProgramDirectiveTag !== directiveTag) {
-			this._gl.deleteProgram(this._sceneProgram.program);
-			this._sceneProgram = null;
-		}
+		const normalizedVariant = normalizeWebGLSceneVariantDescriptor(variant);
+		const cacheKey = this._createBuiltinSceneProgramCacheKey(
+			normalizedVariant,
+			directiveTag
+		);
+		const label = this._createBuiltinSceneProgramLabel(normalizedVariant);
+		const cached = this._builtinScenePrograms.get(cacheKey);
 		const limits = this._getSceneLightLimits();
 		const sceneShaderSource = ShaderSource.get("webgl.scene.raw", {
 			limits,
+			variant: normalizedVariant,
 		});
 		const sceneCompositeSource = ShaderSource.get("webgl.scene.composite", {
 			limits,
+			variant: normalizedVariant,
 		});
 		return this._warmupProgram(
-			"WebGLSceneProgram",
-			() =>
-				this._sceneProgram && this._sceneProgramDirectiveTag === directiveTag ?
-					this._sceneProgram
-				:	null,
+			label,
+			() => cached?.program ?? null,
 			() =>
 				this._beginProgramCompile(
 					sceneShaderSource.vertex,
 					sceneShaderSource.fragment,
-					"WebGLSceneProgram",
+					label,
 					{
 						sourceMap: sceneCompositeSource.vertex.sourceMap,
-						sourceKind: "unknown",
+						variantKey: getWebGLSceneVariantKey(normalizedVariant),
+						sourceKind: "builtin-scene",
 					},
 					{
 						sourceMap: sceneCompositeSource.fragment.sourceMap,
-						sourceKind: "unknown",
+						variantKey: getWebGLSceneVariantKey(normalizedVariant),
+						sourceKind: "builtin-scene",
 					},
 				),
 			() => {
-				this._getBuiltinSceneProgram();
+				this._getBuiltinSceneProgram(normalizedVariant);
 			},
 		);
 	}
@@ -639,17 +661,20 @@ export class WebGLProgramLibrary {
 		);
 	}
 
-	private _warmupBuiltinSceneDepthPrepassProgram(): WebGLProgramWarmupHandle {
+	private _warmupBuiltinSceneDepthPrepassProgram(
+		variant?: WebGLSceneDepthVariantDescriptor
+	): WebGLProgramWarmupHandle {
 		const directiveTag = this._shaderCompileStage?.getCacheFingerprintTag() ?? "";
-		if (
-			this._sceneDepthPrepassProgram &&
-			this._sceneDepthPrepassProgramDirectiveTag !== directiveTag
-		) {
-			this._gl.deleteProgram(this._sceneDepthPrepassProgram.program);
-			this._sceneDepthPrepassProgram = null;
-		}
-		const vertexSource = this._shaderSource("sceneDepthPrepassVertex");
-		const fragmentSource = this._shaderSource("sceneDepthPrepassFragment");
+		const normalizedVariant =
+			normalizeWebGLSceneDepthVariantDescriptor(variant);
+		const cacheKey = this._createBuiltinSceneDepthProgramCacheKey(
+			normalizedVariant,
+			directiveTag
+		);
+		const label = this._createBuiltinSceneDepthProgramLabel(normalizedVariant);
+		const cached = this._builtinSceneDepthPrepassPrograms.get(cacheKey);
+		const { vertexSource, fragmentSource } =
+			this._getBuiltinSceneDepthPrepassSources(normalizedVariant);
 		const vertexComposite = ShaderSource.get(
 			"webgl.part.sceneDepthPrepassVertex.composite"
 		);
@@ -657,28 +682,26 @@ export class WebGLProgramLibrary {
 			"webgl.part.sceneDepthPrepassFragment.composite"
 		);
 		return this._warmupProgram(
-			"WebGLSceneDepthPrepassProgram",
-			() =>
-				this._sceneDepthPrepassProgram &&
-				this._sceneDepthPrepassProgramDirectiveTag === directiveTag ?
-					this._sceneDepthPrepassProgram
-				:	null,
+			label,
+			() => cached?.program ?? null,
 			() =>
 				this._beginProgramCompile(
 					vertexSource,
 					fragmentSource,
-					"WebGLSceneDepthPrepassProgram",
+					label,
 					{
 						sourceMap: vertexComposite.sourceMap,
-						sourceKind: "unknown",
+						variantKey: getWebGLSceneDepthVariantKey(normalizedVariant),
+						sourceKind: "builtin-scene",
 					},
 					{
 						sourceMap: fragmentComposite.sourceMap,
-						sourceKind: "unknown",
+						variantKey: getWebGLSceneDepthVariantKey(normalizedVariant),
+						sourceKind: "builtin-scene",
 					},
 				),
 			() => {
-				this._getBuiltinSceneDepthPrepassProgram();
+				this._getBuiltinSceneDepthPrepassProgram(normalizedVariant);
 			},
 		);
 	}
@@ -789,81 +812,161 @@ export class WebGLProgramLibrary {
 		return `depth|${this._createShaderMaterialCacheKey(material, mode, directiveTag)}`;
 	}
 
-	private _getBuiltinSceneProgram(): WebGLSceneProgram {
-		const directiveTag = this._shaderCompileStage?.getCacheFingerprintTag() ?? "";
-		if (this._sceneProgram && this._sceneProgramDirectiveTag === directiveTag) {
-			return this._sceneProgram;
-		}
-		if (this._sceneProgram && this._sceneProgramDirectiveTag !== directiveTag) {
-			this._gl.deleteProgram(this._sceneProgram.program);
-			this._sceneProgram = null;
-		}
-		if (!this._sceneProgram) {
-			const limits = this._getSceneLightLimits();
-			const sceneShaderSource = ShaderSource.get("webgl.scene.raw", {
-				limits,
-			});
-			const sceneCompositeSource = ShaderSource.get("webgl.scene.composite", {
-				limits,
-			});
-			this._sceneProgram = this._createSceneProgram(
-				sceneShaderSource.vertex,
-				sceneShaderSource.fragment,
-				"WebGLSceneProgram",
-				{
-					sourceMap: sceneCompositeSource.vertex.sourceMap,
-					sourceKind: "unknown",
-				},
-				{
-					sourceMap: sceneCompositeSource.fragment.sourceMap,
-					sourceKind: "unknown",
-				},
-			);
-		}
-		this._sceneProgramDirectiveTag =
-			this._shaderCompileStage?.getCacheFingerprintTag() ?? directiveTag;
-		return this._sceneProgram;
+	private _createBuiltinSceneProgramCacheKey(
+		variant: WebGLSceneVariantDescriptor,
+		directiveTag: string
+	): string {
+		const limits = this._getSceneLightLimits();
+		return (
+			`${getWebGLSceneVariantKey(variant)}` +
+			`|limits:${limits.maxDirectionalLights},` +
+			`${limits.maxPointLights},${limits.maxSpotLights}` +
+			`|shadowSampler:${limits.enableShadowTransmittance ? 1 : 0}` +
+			`|gridSampler:${limits.enableIrradianceProbeGrid ? 1 : 0}` +
+			`|runtime:${this._shaderRuntime?.revision ?? 0}` +
+			`|directive:${directiveTag}`
+		);
 	}
 
-	private _getBuiltinSceneDepthPrepassProgram(): WebGLSceneProgram {
+	private _createBuiltinSceneDepthProgramCacheKey(
+		variant: WebGLSceneDepthVariantDescriptor,
+		directiveTag: string
+	): string {
+		return (
+			`${getWebGLSceneDepthVariantKey(variant)}` +
+			`|runtime:${this._shaderRuntime?.revision ?? 0}` +
+			`|directive:${directiveTag}`
+		);
+	}
+
+	private _hasPreparedBuiltinSceneSources(
+		limits: WebGLSceneLightLimits,
+		variant: WebGLSceneVariantDescriptor
+	): boolean {
+		const params = { limits, variant };
+		return (
+			ShaderSource.has("webgl.scene.raw", params) &&
+			ShaderSource.has("webgl.scene.composite", params)
+		);
+	}
+
+	private _createBuiltinSceneProgramLabel(
+		variant: WebGLSceneVariantDescriptor
+	): string {
+		return `WebGLSceneProgram_${getWebGLSceneVariantKey(variant)}`;
+	}
+
+	private _createBuiltinSceneDepthProgramLabel(
+		variant: WebGLSceneDepthVariantDescriptor
+	): string {
+		return `WebGLSceneDepthPrepassProgram_${getWebGLSceneDepthVariantKey(variant)}`;
+	}
+
+	private _getBuiltinSceneDepthPrepassSources(
+		variant: WebGLSceneDepthVariantDescriptor
+	): { vertexSource: string; fragmentSource: string } {
+		const defines = [
+			`#define WEBGL_DEPTH_ALPHA_MASK ${variant.alphaMask ? 1 : 0}`,
+			`#define WEBGL_DEPTH_BASE_MAP ${variant.baseMap ? 1 : 0}`,
+		].join("\n");
+		return {
+			vertexSource: this._shaderSource("sceneDepthPrepassVertex"),
+			fragmentSource:
+				`${defines}\n` + this._shaderSource("sceneDepthPrepassFragment"),
+		};
+	}
+
+	private _getBuiltinSceneProgram(
+		variant?: WebGLSceneVariantDescriptor
+	): WebGLSceneProgram {
 		const directiveTag = this._shaderCompileStage?.getCacheFingerprintTag() ?? "";
-		if (
-			this._sceneDepthPrepassProgram &&
-			this._sceneDepthPrepassProgramDirectiveTag === directiveTag
-		) {
-			return this._sceneDepthPrepassProgram;
+		const limits = this._getSceneLightLimits();
+		let normalizedVariant = normalizeWebGLSceneVariantDescriptor(variant);
+		if (!this._hasPreparedBuiltinSceneSources(limits, normalizedVariant)) {
+			normalizedVariant = normalizeWebGLSceneVariantDescriptor();
 		}
-		if (
-			this._sceneDepthPrepassProgram &&
-			this._sceneDepthPrepassProgramDirectiveTag !== directiveTag
-		) {
-			this._gl.deleteProgram(this._sceneDepthPrepassProgram.program);
-			this._sceneDepthPrepassProgram = null;
+		const cacheKey = this._createBuiltinSceneProgramCacheKey(
+			normalizedVariant,
+			directiveTag
+		);
+		const cached = this._builtinScenePrograms.get(cacheKey);
+		if (cached) {
+			return cached.program;
 		}
-		if (!this._sceneDepthPrepassProgram) {
-			const vertexComposite = ShaderSource.get(
-				"webgl.part.sceneDepthPrepassVertex.composite"
-			);
-			const fragmentComposite = ShaderSource.get(
-				"webgl.part.sceneDepthPrepassFragment.composite"
-			);
-			this._sceneDepthPrepassProgram = this._createSceneProgram(
-				this._shaderSource("sceneDepthPrepassVertex"),
-				this._shaderSource("sceneDepthPrepassFragment"),
-				"WebGLSceneDepthPrepassProgram",
-				{
-					sourceMap: vertexComposite.sourceMap,
-					sourceKind: "unknown",
-				},
-				{
-					sourceMap: fragmentComposite.sourceMap,
-					sourceKind: "unknown",
-				},
-			);
+		const sceneShaderSource = ShaderSource.get("webgl.scene.raw", {
+			limits,
+			variant: normalizedVariant,
+		});
+		const sceneCompositeSource = ShaderSource.get("webgl.scene.composite", {
+			limits,
+			variant: normalizedVariant,
+		});
+		const variantKey = getWebGLSceneVariantKey(normalizedVariant);
+		const sceneProgram = this._createSceneProgram(
+			sceneShaderSource.vertex,
+			sceneShaderSource.fragment,
+			this._createBuiltinSceneProgramLabel(normalizedVariant),
+			{
+				sourceMap: sceneCompositeSource.vertex.sourceMap,
+				variantKey,
+				sourceKind: "builtin-scene",
+			},
+			{
+				sourceMap: sceneCompositeSource.fragment.sourceMap,
+				variantKey,
+				sourceKind: "builtin-scene",
+			},
+		);
+		this._builtinScenePrograms.set(cacheKey, {
+			program: sceneProgram,
+			directiveTag,
+		});
+		return sceneProgram;
+	}
+
+	private _getBuiltinSceneDepthPrepassProgram(
+		variant?: WebGLSceneDepthVariantDescriptor
+	): WebGLSceneProgram {
+		const directiveTag = this._shaderCompileStage?.getCacheFingerprintTag() ?? "";
+		const normalizedVariant =
+			normalizeWebGLSceneDepthVariantDescriptor(variant);
+		const cacheKey = this._createBuiltinSceneDepthProgramCacheKey(
+			normalizedVariant,
+			directiveTag
+		);
+		const cached = this._builtinSceneDepthPrepassPrograms.get(cacheKey);
+		if (cached) {
+			return cached.program;
 		}
-		this._sceneDepthPrepassProgramDirectiveTag =
-			this._shaderCompileStage?.getCacheFingerprintTag() ?? directiveTag;
-		return this._sceneDepthPrepassProgram;
+		const vertexComposite = ShaderSource.get(
+			"webgl.part.sceneDepthPrepassVertex.composite"
+		);
+		const fragmentComposite = ShaderSource.get(
+			"webgl.part.sceneDepthPrepassFragment.composite"
+		);
+		const { vertexSource, fragmentSource } =
+			this._getBuiltinSceneDepthPrepassSources(normalizedVariant);
+		const variantKey = getWebGLSceneDepthVariantKey(normalizedVariant);
+		const sceneProgram = this._createSceneProgram(
+			vertexSource,
+			fragmentSource,
+			this._createBuiltinSceneDepthProgramLabel(normalizedVariant),
+			{
+				sourceMap: vertexComposite.sourceMap,
+				variantKey,
+				sourceKind: "builtin-scene",
+			},
+			{
+				sourceMap: fragmentComposite.sourceMap,
+				variantKey,
+				sourceKind: "builtin-scene",
+			},
+		);
+		this._builtinSceneDepthPrepassPrograms.set(cacheKey, {
+			program: sceneProgram,
+			directiveTag,
+		});
+		return sceneProgram;
 	}
 
 	private _getShaderMaterialSceneProgram(
@@ -1399,20 +1502,18 @@ export class WebGLProgramLibrary {
 	}
 
 	private _disposePrograms(): void {
-		if (this._sceneProgram) {
-			this._gl.deleteProgram(this._sceneProgram.program);
-			this._sceneProgram = null;
+		for (const entry of this._builtinScenePrograms.values()) {
+			this._gl.deleteProgram(entry.program.program);
 		}
-		this._sceneProgramDirectiveTag = "";
+		this._builtinScenePrograms.clear();
 		for (const sceneProgram of this._customScenePrograms.values()) {
 			this._gl.deleteProgram(sceneProgram.program);
 		}
 		this._customScenePrograms.clear();
-		if (this._sceneDepthPrepassProgram) {
-			this._gl.deleteProgram(this._sceneDepthPrepassProgram.program);
-			this._sceneDepthPrepassProgram = null;
+		for (const entry of this._builtinSceneDepthPrepassPrograms.values()) {
+			this._gl.deleteProgram(entry.program.program);
 		}
-		this._sceneDepthPrepassProgramDirectiveTag = "";
+		this._builtinSceneDepthPrepassPrograms.clear();
 		for (const sceneProgram of this._customSceneDepthPrepassPrograms.values()) {
 			this._gl.deleteProgram(sceneProgram.program);
 		}

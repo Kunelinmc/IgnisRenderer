@@ -17,6 +17,10 @@ import {
 	resolveTextureUVTransform,
 } from "./WebGLMaterialUniformResolver";
 import type { WebGLSceneProgram } from "./WebGLProgramLibrary";
+import type {
+	WebGLSceneDepthVariantDescriptor,
+	WebGLSceneVariantDescriptor,
+} from "./WebGLSceneProgramVariants";
 import { Logger } from "../../foundation/Logger";
 
 const WEBGL_TEXTURE_UNIT_BASE_MAP = 0;
@@ -40,11 +44,13 @@ export interface WebGLScenePassHost {
 	_programs: {
 		getSceneProgram(
 			material?: Material,
-			mode?: ShaderTargetMode
+			mode?: ShaderTargetMode,
+			variant?: WebGLSceneVariantDescriptor
 		): WebGLSceneProgram;
 		getSceneDepthPrepassProgram(
 			material?: Material,
-			mode?: ShaderTargetMode
+			mode?: ShaderTargetMode,
+			variant?: WebGLSceneDepthVariantDescriptor
 		): WebGLSceneProgram | null;
 	};
 	_geometry: {
@@ -106,6 +112,14 @@ export interface WebGLScenePassHost {
 		sceneProgram: WebGLSceneProgram,
 		material: Material
 	): void;
+	_resolveSceneProgramVariant?(
+		context: FrameContext,
+		packet: DrawPacket,
+		mode: ShaderTargetMode
+	): WebGLSceneVariantDescriptor | null;
+	_resolveSceneDepthPrepassVariant?(
+		packet: DrawPacket
+	): WebGLSceneDepthVariantDescriptor | null;
 }
 
 export interface WebGLSceneRenderOptions {
@@ -193,7 +207,8 @@ export function renderWebGLPackets(
 			for (const packet of packets) {
 				const sceneProgram = host._programs.getSceneProgram(
 					packet.material,
-					sceneProgramMode
+					sceneProgramMode,
+					resolveSceneProgramVariant(host, context, packet, sceneProgramMode)
 				);
 				if (activeProgram !== sceneProgram) {
 					gl.useProgram(sceneProgram.program);
@@ -229,7 +244,13 @@ export function renderWebGLPackets(
 				for (const packet of rectPackets) {
 					const sceneProgram = host._programs.getSceneProgram(
 						packet.material,
-						sceneProgramMode
+						sceneProgramMode,
+						resolveSceneProgramVariant(
+							host,
+							context,
+							packet,
+							sceneProgramMode
+						)
 					);
 					if (activeProgram !== sceneProgram) {
 						gl.useProgram(sceneProgram.program);
@@ -831,7 +852,27 @@ function resolveWebGLDepthPrepassProgram(
 	if (!geometry || geometry.topology !== host._gl.TRIANGLES) {
 		return null;
 	}
-	return host._programs.getSceneDepthPrepassProgram(material, mode);
+	return host._programs.getSceneDepthPrepassProgram(
+		material,
+		mode,
+		resolveSceneDepthPrepassVariant(host, packet)
+	);
+}
+
+function resolveSceneProgramVariant(
+	host: WebGLScenePassHost,
+	context: FrameContext,
+	packet: DrawPacket,
+	mode: ShaderTargetMode
+): WebGLSceneVariantDescriptor | null {
+	return host._resolveSceneProgramVariant?.(context, packet, mode) ?? null;
+}
+
+function resolveSceneDepthPrepassVariant(
+	host: WebGLScenePassHost,
+	packet: DrawPacket
+): WebGLSceneDepthVariantDescriptor | null {
+	return host._resolveSceneDepthPrepassVariant?.(packet) ?? null;
 }
 
 export function drawWebGLDepthPrepassPacket(
