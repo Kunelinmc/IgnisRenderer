@@ -37,6 +37,14 @@ Callers must use `ShaderSource.load()` for asynchronous loading and
 - `webgl.scene.raw` and `webgl.scene.composite` must receive
   `params.limits` with `maxDirectionalLights`, `maxPointLights`, and
   `maxSpotLights`.
+- `webgl.scene.raw` and `webgl.scene.composite` may receive an internal
+  `params.variant` descriptor. Renderer and material public APIs must not
+  expose this descriptor; WebGL frame execution derives it from current
+  frame, light, target, and built-in material state.
+- WebGL scene fragment source may be assembled from multiple internal GLSL
+  parts. `webgl.scene.composite.fragment.sourceMap.segments` may therefore
+  contain one segment per internal part plus generated define or fallback
+  segments.
 - WebGL scene sources must leave light-count placeholders in source text using
   `__WEBGL_MAX_DIRECTIONAL_LIGHTS__`, `__WEBGL_MAX_POINT_LIGHTS__`, and
   `__WEBGL_MAX_SPOT_LIGHTS__`. Clustered fragment loops must use
@@ -68,6 +76,43 @@ const webglScene = ShaderSource.get("webgl.scene.raw", {
 	},
 });
 
+await ShaderSource.prepare("webgl.scene.composite", {
+	limits: {
+		maxDirectionalLights: 4,
+		maxPointLights: 16,
+		maxSpotLights: 8,
+	},
+	variant: {
+		output: "single",
+		oit: false,
+		scene: {
+			shadows: false,
+			shadowTransmittance: false,
+			clusteredLighting: false,
+			sh: false,
+			localLightProbes: false,
+			irradianceProbeGrid: false,
+			reflectionProbes: false,
+			environmentSpecular: false,
+		},
+		material: {
+			model: "unlit",
+			baseMap: false,
+			metallicRoughnessMap: false,
+			normalMap: false,
+			emissiveMap: false,
+			occlusionMap: false,
+			iridescence: false,
+			iridescenceMap: false,
+			iridescenceThicknessMap: false,
+			anisotropy: false,
+			anisotropyMap: false,
+			transmission: false,
+			alphaMask: false,
+		},
+	},
+});
+
 const mipmapBlit = ShaderSource.getSync("webgpu.utility.mipmapBlit.raw");
 
 console.log(
@@ -83,6 +128,8 @@ console.log(
 - `ShaderSource.get()` must throw when the requested key and params have not
   been prepared.
 - WebGL scene keys must throw when `params.limits` is missing.
+- WebGL scene keys must normalize missing `params.variant` to the full
+  compatibility variant.
 - Browser loading must throw when a shader path is not bundled by the
   centralized `import.meta.glob` registry.
 - `ShaderSource.getSync()` must throw when the requested key is not available
