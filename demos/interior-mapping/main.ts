@@ -1,7 +1,8 @@
 import { Pane } from "tweakpane";
 
 import {
-	MeshFactory,
+	MeshAsset,
+	MeshInstance,
 	OrbitCamera,
 	Platform,
 	Renderer,
@@ -9,6 +10,7 @@ import {
 	ShaderMaterial,
 	TextureLoader,
 	Vector3,
+	WebGLBackend,
 	WebGPUBackend,
 	type Texture,
 } from "../../src/index";
@@ -90,9 +92,6 @@ function getElement<T extends HTMLElement>(id: string): T {
 async function bootDemo(): Promise<DemoState> {
 	try {
 		const platform = Platform.detect();
-		if (!platform.hasWebGPU) {
-			throw new Error("This browser does not support WebGPU, or WebGPU is disabled.");
-		}
 
 		const settings = createDefaultSettings();
 		const scene = new Scene();
@@ -103,18 +102,206 @@ async function bootDemo(): Promise<DemoState> {
 
 		const roomTexture = await loadRoomTexture();
 		const material = createInteriorMaterial(settings, roomTexture);
-		const plane = MeshFactory.createPlane({ x: 0, y: 0, z: 0 }, 4.5, 4.5, material);
-		plane.quaternion.fromEuler(Math.PI / 2, 0, 0);
-		plane.updateLocalMatrix();
-		scene.add(plane);
+		const w2 = 2.25;
+		const h2 = 2.25;
+		const d2 = 2.25;
+		const faces = [
+			// Front Face (z = +2.25)
+			{
+				vertices: [
+					{
+						x: -w2,
+						y: -h2,
+						z: d2,
+						u: 0,
+						v: 1,
+						normal: { x: 0, y: 0, z: 1 },
+						tangent: { x: 1, y: 0, z: 0, w: -1 },
+					},
+					{
+						x: w2,
+						y: -h2,
+						z: d2,
+						u: 1,
+						v: 1,
+						normal: { x: 0, y: 0, z: 1 },
+						tangent: { x: 1, y: 0, z: 0, w: -1 },
+					},
+					{
+						x: w2,
+						y: h2,
+						z: d2,
+						u: 1,
+						v: 0,
+						normal: { x: 0, y: 0, z: 1 },
+						tangent: { x: 1, y: 0, z: 0, w: -1 },
+					},
+					{
+						x: -w2,
+						y: h2,
+						z: d2,
+						u: 0,
+						v: 0,
+						normal: { x: 0, y: 0, z: 1 },
+						tangent: { x: 1, y: 0, z: 0, w: -1 },
+					},
+				],
+				normal: { x: 0, y: 0, z: 1 },
+				material,
+			},
+			// Back Face (z = -2.25)
+			{
+				vertices: [
+					{
+						x: w2,
+						y: -h2,
+						z: -d2,
+						u: 0,
+						v: 1,
+						normal: { x: 0, y: 0, z: -1 },
+						tangent: { x: -1, y: 0, z: 0, w: -1 },
+					},
+					{
+						x: -w2,
+						y: -h2,
+						z: -d2,
+						u: 1,
+						v: 1,
+						normal: { x: 0, y: 0, z: -1 },
+						tangent: { x: -1, y: 0, z: 0, w: -1 },
+					},
+					{
+						x: -w2,
+						y: h2,
+						z: -d2,
+						u: 1,
+						v: 0,
+						normal: { x: 0, y: 0, z: -1 },
+						tangent: { x: -1, y: 0, z: 0, w: -1 },
+					},
+					{
+						x: w2,
+						y: h2,
+						z: -d2,
+						u: 0,
+						v: 0,
+						normal: { x: 0, y: 0, z: -1 },
+						tangent: { x: -1, y: 0, z: 0, w: -1 },
+					},
+				],
+				normal: { x: 0, y: 0, z: -1 },
+				material,
+			},
+			// Left Face (x = -2.25)
+			{
+				vertices: [
+					{
+						x: -w2,
+						y: -h2,
+						z: -d2,
+						u: 0,
+						v: 1,
+						normal: { x: -1, y: 0, z: 0 },
+						tangent: { x: 0, y: 0, z: 1, w: -1 },
+					},
+					{
+						x: -w2,
+						y: -h2,
+						z: d2,
+						u: 1,
+						v: 1,
+						normal: { x: -1, y: 0, z: 0 },
+						tangent: { x: 0, y: 0, z: 1, w: -1 },
+					},
+					{
+						x: -w2,
+						y: h2,
+						z: d2,
+						u: 1,
+						v: 0,
+						normal: { x: -1, y: 0, z: 0 },
+						tangent: { x: 0, y: 0, z: 1, w: -1 },
+					},
+					{
+						x: -w2,
+						y: h2,
+						z: -d2,
+						u: 0,
+						v: 0,
+						normal: { x: -1, y: 0, z: 0 },
+						tangent: { x: 0, y: 0, z: 1, w: -1 },
+					},
+				],
+				normal: { x: -1, y: 0, z: 0 },
+				material,
+			},
+			// Right Face (x = 2.25)
+			{
+				vertices: [
+					{
+						x: w2,
+						y: -h2,
+						z: d2,
+						u: 0,
+						v: 1,
+						normal: { x: 1, y: 0, z: 0 },
+						tangent: { x: 0, y: 0, z: -1, w: -1 },
+					},
+					{
+						x: w2,
+						y: -h2,
+						z: -d2,
+						u: 1,
+						v: 1,
+						normal: { x: 1, y: 0, z: 0 },
+						tangent: { x: 0, y: 0, z: -1, w: -1 },
+					},
+					{
+						x: w2,
+						y: h2,
+						z: -d2,
+						u: 1,
+						v: 0,
+						normal: { x: 1, y: 0, z: 0 },
+						tangent: { x: 0, y: 0, z: -1, w: -1 },
+					},
+					{
+						x: w2,
+						y: h2,
+						z: d2,
+						u: 0,
+						v: 0,
+						normal: { x: 1, y: 0, z: 0 },
+						tangent: { x: 0, y: 0, z: -1, w: -1 },
+					},
+				],
+				normal: { x: 1, y: 0, z: 0 },
+				material,
+			},
+		];
+		const mesh = MeshAsset.fromFaces(faces);
+		const wallBox = new MeshInstance({ mesh, position: new Vector3(0, 0, 0) });
+		wallBox.updateLocalMatrix();
+		scene.add(wallBox);
 
-		const renderer = new Renderer({
-			canvas,
-			backend: new WebGPUBackend({
+		let backend;
+		if (platform.hasWebGPU) {
+			backend = new WebGPUBackend({
 				enableDeferredLighting: false,
 				enableEarlyZPrepass: false,
 				enableOcclusionCulling: false,
-			}),
+			});
+		} else if (platform.hasWebGL2) {
+			backend = new WebGLBackend({
+				enableEarlyZPrepass: false,
+			});
+		} else {
+			throw new Error("This browser does not support WebGPU or WebGL.");
+		}
+
+		const renderer = new Renderer({
+			canvas,
+			backend,
 			camera,
 		});
 
@@ -160,7 +347,7 @@ function createDefaultSettings(): DemoSettings {
 	return {
 		roomTilingX: 3,
 		roomTilingY: 3,
-		roomDepth: 0.8,
+		roomDepth: 1,
 		roomAspect: 1,
 	};
 }
@@ -319,38 +506,74 @@ async function createTweakpane(demo: DemoState): Promise<void> {
 }
 
 function bindOrbitControls(demo: DemoState): void {
-	let activePointerId: number | null = null;
+	const activePointers = new Map<number, PointerEvent>();
 	let lastX = 0;
 	let lastY = 0;
+	let lastPinchDistance = 0;
 
 	canvas.addEventListener("pointerdown", (event) => {
-		if (event.button !== 0) return;
-		activePointerId = event.pointerId;
-		lastX = event.clientX;
-		lastY = event.clientY;
+		activePointers.set(event.pointerId, event);
 		canvas.setPointerCapture(event.pointerId);
+
+		if (activePointers.size === 1) {
+			lastX = event.clientX;
+			lastY = event.clientY;
+		} else if (activePointers.size === 2) {
+			const pts = Array.from(activePointers.values());
+			lastPinchDistance = Math.hypot(
+				pts[0].clientX - pts[1].clientX,
+				pts[0].clientY - pts[1].clientY,
+			);
+		}
 	});
 
 	canvas.addEventListener("pointermove", (event) => {
-		if (activePointerId !== event.pointerId) return;
-		const dx = event.clientX - lastX;
-		const dy = event.clientY - lastY;
-		lastX = event.clientX;
-		lastY = event.clientY;
-		if (dx === 0 && dy === 0) return;
-		demo.camera.rotate(dx, dy);
-		requestSceneRender(demo);
+		if (!activePointers.has(event.pointerId)) return;
+		activePointers.set(event.pointerId, event);
+
+		if (activePointers.size === 1) {
+			const dx = event.clientX - lastX;
+			const dy = event.clientY - lastY;
+			lastX = event.clientX;
+			lastY = event.clientY;
+			if (dx === 0 && dy === 0) return;
+			demo.camera.rotate(dx, dy);
+			requestSceneRender(demo);
+		} else if (activePointers.size === 2) {
+			const pts = Array.from(activePointers.values());
+			const currentDistance = Math.hypot(
+				pts[0].clientX - pts[1].clientX,
+				pts[0].clientY - pts[1].clientY,
+			);
+			const diff = lastPinchDistance - currentDistance;
+			if (Math.abs(diff) > 0.5) {
+				demo.camera.zoom(diff * 1.5);
+				requestSceneRender(demo);
+				lastPinchDistance = currentDistance;
+			}
+		}
 	});
 
 	const clearPointer = (event: PointerEvent) => {
-		if (activePointerId !== event.pointerId) return;
-		activePointerId = null;
-		if (canvas.hasPointerCapture(event.pointerId)) {
-			canvas.releasePointerCapture(event.pointerId);
+		activePointers.delete(event.pointerId);
+		try {
+			if (canvas.hasPointerCapture(event.pointerId)) {
+				canvas.releasePointerCapture(event.pointerId);
+			}
+		} catch (e) {
+			// ignore
+		}
+
+		if (activePointers.size === 1) {
+			const remaining = Array.from(activePointers.values())[0];
+			lastX = remaining.clientX;
+			lastY = remaining.clientY;
 		}
 	};
+
 	canvas.addEventListener("pointerup", clearPointer);
 	canvas.addEventListener("pointercancel", clearPointer);
+	canvas.addEventListener("pointerleave", clearPointer);
 
 	canvas.addEventListener(
 		"wheel",
