@@ -7,6 +7,9 @@ const entryPath = process.env.ENTRY || "index.html";
 
 export default defineConfig({
 	base: "./",
+	worker: {
+		format: "es",
+	},
 	build: {
 		rollupOptions: {
 			input: {

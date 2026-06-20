@@ -42,16 +42,13 @@ function createUnsupportedSyncWorkerCallError(methodName: string): Error {
 }
 
 function createDefaultWorker(workerIndex: number, poolId: string): WorkerLike {
-	const workerCtor =
-		(globalThis as typeof globalThis & { Worker?: new (...args: any[]) => Worker })
-			.Worker;
-	if (typeof workerCtor !== "function") {
+	if (typeof Worker !== "function") {
 		throw new Error(
 			`Worker constructor is unavailable for pool "${poolId}" (worker #${workerIndex})`
 		);
 	}
 
-	return new workerCtor(new URL("../workers/ammoPhysics.worker.ts", import.meta.url), {
+	return new Worker(new URL("../workers/ammoPhysics.worker.ts", import.meta.url), {
 		type: "module",
 	}) as unknown as WorkerLike;
 }
