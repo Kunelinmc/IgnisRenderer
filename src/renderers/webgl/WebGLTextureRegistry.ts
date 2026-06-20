@@ -84,8 +84,8 @@ interface DeferredTextureUploadRequest {
 	isLinear: boolean;
 }
 
-const DEFAULT_DEFERRED_UPLOADS_PER_FRAME = 1;
-const DEFAULT_DEFERRED_UPLOAD_BYTES_PER_FRAME = 8 * 1024 * 1024;
+export const DEFAULT_DEFERRED_UPLOADS_PER_FRAME = 4;
+export const DEFAULT_DEFERRED_UPLOAD_BYTES_PER_FRAME = 32 * 1024 * 1024;
 
 export class WebGLTextureRegistry {
 	private _gl: WebGL2RenderingContext;

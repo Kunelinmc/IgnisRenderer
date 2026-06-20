@@ -434,6 +434,65 @@ function testDeferredTextureUploadBudgetUploadsOnePerFrame() {
 	);
 }
 
+function testDeferredTextureUploadDefaultCountBudgetUploadsFourPerFrame() {
+	const gl = createTextureRegistryTestGL();
+	const registry = new WebGLTextureRegistry(gl, () => {}, {
+		uploadScheduling: "deferred",
+	});
+	const textures = Array.from(
+		{ length: 4 },
+		() => new Texture(new Uint8Array(2 * 2 * 4), 2, 2, "sRGB")
+	);
+
+	for (const texture of textures) {
+		registry.getBaseColorTexture(texture);
+	}
+
+	assert.equal(registry.pendingUploadCount, 4);
+
+	registry.beginFrame();
+
+	assert.equal(registry.pendingUploadCount, 0);
+	assert.equal(
+		gl.texImage2DCalls.filter((call) => call.width === 2).length,
+		4
+	);
+}
+
+function testDeferredTextureUploadDefaultByteBudgetAllowsThirtyTwoMiB() {
+	const gl = createTextureRegistryTestGL();
+	const registry = new WebGLTextureRegistry(gl, () => {}, {
+		uploadScheduling: "deferred",
+		maxUploadsPerFrame: 2,
+	});
+	const size = 2048;
+	const textureA = new Texture(
+		new Uint8Array(size * size * 4),
+		size,
+		size,
+		"sRGB"
+	);
+	const textureB = new Texture(
+		new Uint8Array(size * size * 4),
+		size,
+		size,
+		"sRGB"
+	);
+
+	registry.getBaseColorTexture(textureA);
+	registry.getBaseColorTexture(textureB);
+
+	assert.equal(registry.pendingUploadCount, 2);
+
+	registry.beginFrame();
+
+	assert.equal(registry.pendingUploadCount, 0);
+	assert.equal(
+		gl.texImage2DCalls.filter((call) => call.width === size).length,
+		2
+	);
+}
+
 function run() {
 	testEnvironmentTextureRespectsTextureColorSpace();
 	testBaseColorTextureRemainsSrgbByDefault();
@@ -449,6 +508,8 @@ function run() {
 	testDeferredBaseColorTextureUploadsOnBeginFrame();
 	testDeferredBaseColorTextureReusesPendingTarget();
 	testDeferredTextureUploadBudgetUploadsOnePerFrame();
+	testDeferredTextureUploadDefaultCountBudgetUploadsFourPerFrame();
+	testDeferredTextureUploadDefaultByteBudgetAllowsThirtyTwoMiB();
 	console.log("WebGL texture registry color-space tests passed");
 }
 

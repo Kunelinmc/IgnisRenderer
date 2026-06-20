@@ -97,7 +97,11 @@ import {
 	WebGLProgramCompiler,
 	type WebGLProgramWarmupHandle,
 } from "./WebGLProgramCompiler";
-import { WebGLTextureRegistry } from "./WebGLTextureRegistry";
+import {
+	DEFAULT_DEFERRED_UPLOAD_BYTES_PER_FRAME,
+	DEFAULT_DEFERRED_UPLOADS_PER_FRAME,
+	WebGLTextureRegistry,
+} from "./WebGLTextureRegistry";
 import type {
 	ShaderBackendCompileStage,
 	ShaderRuntime,
@@ -335,8 +339,8 @@ export class WebGLFrameExecutor {
 		this._geometry = new WebGLGeometryRegistry(gl);
 		this._textures = new WebGLTextureRegistry(gl, undefined, {
 			uploadScheduling: "deferred",
-			maxUploadsPerFrame: 1,
-			maxUploadBytesPerFrame: 8 * 1024 * 1024,
+			maxUploadsPerFrame: DEFAULT_DEFERRED_UPLOADS_PER_FRAME,
+			maxUploadBytesPerFrame: DEFAULT_DEFERRED_UPLOAD_BYTES_PER_FRAME,
 			onUploadPending: options.onTextureUploadPending,
 		});
 		this._fullscreenVao = gl.createVertexArray();
