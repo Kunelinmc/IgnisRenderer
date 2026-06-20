@@ -2078,7 +2078,7 @@ function isRapierUsable(module: RapierModuleLike): boolean {
 
 async function loadOptionalRapierModule(): Promise<unknown> {
 	try {
-		// @ts-expect-error - Allow dynamic import of Rapier module, which may not exist
+		// @ts-ignore - Allow dynamic import of Rapier module, which may not exist
 		return await import("@dimforge/rapier3d-compat");
 	} catch (packageImportError) {
 		try {
