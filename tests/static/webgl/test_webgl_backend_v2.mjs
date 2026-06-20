@@ -30,6 +30,10 @@ import {
 	renderWebGLPackets,
 } from "../../../src/renderers/webgl/WebGLScenePass.ts";
 import {
+	drawWebGLShadowPacket,
+	drawWebGLShadowTransmittancePacket,
+} from "../../../src/renderers/webgl/WebGLShadowPass.ts";
+import {
 	MAX_DIRECTIONAL_LIGHTS,
 	MAX_POINT_LIGHTS,
 	MAX_SPOT_LIGHTS,
@@ -279,6 +283,7 @@ function createScenePassCaptureGL() {
 		uniform3uiv: [],
 		uniform4uiv: [],
 		uniform2f: [],
+		uniform3f: [],
 		uniform4f: [],
 		uniformMatrix4fv: [],
 		depthMask: [],
@@ -301,6 +306,7 @@ function createScenePassCaptureGL() {
 		TRIANGLES: 0x0004,
 		DEPTH_TEST: 0x0b71,
 		BLEND: 0x0be2,
+		CULL_FACE: 0x0b44,
 		SCISSOR_TEST: 0x0c11,
 		LESS: 0x0201,
 		LEQUAL: 0x0203,
@@ -369,6 +375,9 @@ function createScenePassCaptureGL() {
 		},
 		uniform2f(location, x, y) {
 			calls.uniform2f.push({ location, x, y });
+		},
+		uniform3f(location, x, y, z) {
+			calls.uniform3f.push({ location, x, y, z });
 		},
 		uniform4f(location, x, y, z, w) {
 			calls.uniform4f.push({ location, x, y, z, w });
@@ -736,6 +745,39 @@ function createEarlyZPacket(id, material = new Material()) {
 		material,
 		worldMatrix: Matrix4.identity(),
 		normalMatrix: Matrix4.identity(),
+	};
+}
+
+function createShadowPassHost(gl, options = {}) {
+	let cullModeCalls = 0;
+	return {
+		_gl: gl,
+		_geometry: {
+			getGeometry(packet) {
+				return options.getGeometry?.(packet) ?? {
+					vao: { id: `shadow-vao-${packet.id}` },
+					topology: gl.TRIANGLES,
+					indexCount: 3,
+					indexType: 5123,
+				};
+			},
+		},
+		_shadowMvpMatrix: Matrix4.identity(),
+		_setCullMode() {
+			cullModeCalls++;
+		},
+		get cullModeCalls() {
+			return cullModeCalls;
+		},
+	};
+}
+
+function createShadowPacket(material = new Material()) {
+	return {
+		id: "shadow-packet",
+		meshInstance: { id: "shadow-mesh", skeleton: null },
+		material,
+		worldMatrix: Matrix4.identity(),
 	};
 }
 
@@ -1728,9 +1770,19 @@ function testSceneShaderKeepsClusteredFragmentLightLimitPlaceholder() {
 	);
 }
 
-function testSceneShaderUsesDecoupledShadowNormal() {
+function testSceneShaderUsesFlippedShadowNormal() {
 	const shader = getTestSceneShader();
-	assert.ok(shader.fragment.includes("vec3 shadowNormal = normal;"));
+	const doubleSidedNormalFlip =
+		"if (uDoubleSided == 1 && dot(normal, viewDir) < 0.0)";
+	const firstFlipIndex = shader.fragment.indexOf(doubleSidedNormalFlip);
+	const secondFlipIndex = shader.fragment.indexOf(
+		doubleSidedNormalFlip,
+		firstFlipIndex + doubleSidedNormalFlip.length
+	);
+	const shadowNormalIndex = shader.fragment.indexOf("vec3 shadowNormal = normal;");
+	assert.ok(firstFlipIndex >= 0);
+	assert.ok(secondFlipIndex > firstFlipIndex);
+	assert.ok(shadowNormalIndex > secondFlipIndex);
 	assert.ok(
 		/shadePBR\(\s*albedo,\s*normal,\s*shadowNormal,\s*viewDir,/.test(
 			shader.fragment
@@ -1746,6 +1798,39 @@ function testSceneShaderUsesDecoupledShadowNormal() {
 	assert.ok(shader.fragment.includes("uParticleShadowVolumeAtlas"));
 	assert.ok(shader.fragment.includes("uParticleShadowVolumeSliceParams"));
 	assert.ok(shader.fragment.includes("sampleParticleShadowVolumeTransmittance"));
+}
+
+function testShadowPassDisablesCullFaceForDepthAndTransmittance() {
+	const gl = createScenePassCaptureGL();
+	const host = createShadowPassHost(gl);
+	const material = new Material({
+		doubleSided: false,
+		cullMode: "front",
+	});
+	const packet = createShadowPacket(material);
+	const depthProgram = {
+		program: { id: "shadow-depth" },
+		uniforms: { mvp: "uMvp" },
+	};
+	const transmittanceProgram = {
+		program: { id: "shadow-transmittance" },
+		uniforms: {
+			mvp: "uMvp",
+			transmittance: "uTransmittance",
+		},
+	};
+
+	drawWebGLShadowPacket(host, depthProgram, packet, Matrix4.identity());
+	drawWebGLShadowTransmittancePacket(
+		host,
+		transmittanceProgram,
+		packet,
+		Matrix4.identity()
+	);
+
+	assert.equal(host.cullModeCalls, 0);
+	assert.deepEqual(gl.calls.disable, [gl.CULL_FACE, gl.CULL_FACE]);
+	assert.equal(gl.calls.drawElements.length, 2);
 }
 
 function testSceneShaderIncludesReflectionProbeUniforms() {
@@ -2851,7 +2936,8 @@ async function run() {
 	testLightCollectorDirectionalCSMShadowData();
 	testSceneShaderBackLitShadowGuard();
 	testSceneShaderKeepsClusteredFragmentLightLimitPlaceholder();
-	testSceneShaderUsesDecoupledShadowNormal();
+	testSceneShaderUsesFlippedShadowNormal();
+	testShadowPassDisablesCullFaceForDepthAndTransmittance();
 	testSceneShaderIncludesReflectionProbeUniforms();
 	testSceneShaderIncludesLocalizedLightProbeUniforms();
 	testSceneShaderFitsCommonWebGLTextureUnitLimit();

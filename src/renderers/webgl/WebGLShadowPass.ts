@@ -362,7 +362,7 @@ export function drawWebGLShadowPacket(
 		);
 	}
 
-	host._setCullMode(packet.material);
+	gl.disable(gl.CULL_FACE);
 	gl.bindVertexArray(geometry.vao);
 	gl.drawElements(
 		geometry.topology,
@@ -397,7 +397,7 @@ export function drawWebGLShadowTransmittancePacket(
 		transmittance.g,
 		transmittance.b
 	);
-	host._setCullMode(packet.material);
+	gl.disable(gl.CULL_FACE);
 	gl.bindVertexArray(geometry.vao);
 	gl.drawElements(
 		geometry.topology,

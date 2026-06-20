@@ -22,7 +22,6 @@ void main() {
 #endif
 
 	vec3 normal = normalize(vNormal);
-	vec3 shadowNormal = normal;
 	vec3 viewDir = safeNormalize(uCameraPosition - vWorldPos, vec3(0.0, 0.0, 1.0));
 	if (uDoubleSided == 1 && dot(normal, viewDir) < 0.0) {
 		normal = -normal;
@@ -121,6 +120,7 @@ void main() {
 		normal = -normal;
 	}
 #endif
+	vec3 shadowNormal = normal;
 
 	float anisotropyStrength = 0.0;
 	vec3 anisotropyTangent = fallbackTangentFromNormal(normal);
