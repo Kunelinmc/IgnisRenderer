@@ -18,7 +18,7 @@ Historically, lights held shadow configuration directly. The decoupled model mov
 - `scene.shadows`
 	- Must be the single entry point for binding and managing shadow maps.
 	- `create(kind, options)` must create a shadow map through the configured `ShadowMapRegistry`.
-	- `createSingle(options)`, `createVSM(options)`, `createCSM(options)`: must remain compatibility helpers for the built-in shadow map kinds.
+	- `createSingle(options)`, `createVariance(options)`, `createCascaded(options)`: must remain compatibility helpers for the built-in shadow map kinds.
 	- `registerMapType(kind, factory)` must register user-defined shadow map factories on the manager's registry.
 	- `bind(light, shadowMap)`, `unbindLight(light)`: bind or unbind a shadow map to a light.
 	- `destroy(shadowMap)`: destroy a shadow map and clear its bindings.

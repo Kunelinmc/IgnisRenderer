@@ -68,7 +68,7 @@ function createDirectionalCSMLight({
 		direction,
 	});
 	scene.add(light);
-	const shadowMap = scene.shadows.createCSM({
+	const shadowMap = scene.shadows.createCascaded({
 		size: 1024,
 		priority,
 		lambda,
@@ -115,7 +115,7 @@ function createSpotCSMLight({
 		outerAngle: Math.PI / 3,
 	});
 	scene.add(light);
-	const shadowMap = scene.shadows.createCSM({
+	const shadowMap = scene.shadows.createCascaded({
 		size: 1024,
 		priority,
 		lambda: 0.65,
@@ -607,7 +607,7 @@ function testUnsupportedPositionalCSMFallbackToSingleMap() {
 	scene.add(pointLight);
 	scene.shadows.bind(
 		pointLight,
-		scene.shadows.createCSM({
+		scene.shadows.createCascaded({
 			size: 1024,
 			cascadeCounts: {
 				point: 2,

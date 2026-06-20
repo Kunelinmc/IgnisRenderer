@@ -43,14 +43,14 @@ export interface ShadowMapBaseOptions {
 	sampling?: ShadowSamplingSettings;
 }
 
-export interface ShadowCSMDefaults {
+export interface CascadedShadowMapDefaults {
 	directional: number;
 	spot: number;
 	point: number;
 }
 
-export interface ShadowCSMOptions extends ShadowMapBaseOptions {
-	cascadeCounts?: Partial<ShadowCSMDefaults>;
+export interface CascadedShadowMapOptions extends ShadowMapBaseOptions {
+	cascadeCounts?: Partial<CascadedShadowMapDefaults>;
 	lambda?: number;
 	maxDistance?: number;
 	blendRatio?: number;

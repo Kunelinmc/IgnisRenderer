@@ -3,23 +3,23 @@ import type { ShadowConfig } from "./ShadowMapping";
 import type { ShadowMapBaseOptions } from "./types";
 import { SingleShadowMap } from "./SingleShadowMap";
 
-export interface VSMShadowMapOptions extends ShadowMapBaseOptions {
+export interface VarianceShadowMapOptions extends ShadowMapBaseOptions {
 	momentBias?: number;
 	bleedReduction?: number;
 	minVariance?: number;
 }
 
 /**
- * VSM v1 currently keeps runtime fallback behavior to PCF across backends.
+ * VarianceShadowMap v1 currently keeps runtime fallback behavior to PCF across backends.
  * The map still preserves VSM-specific parameters for future backend upgrades.
  */
-export class VSMShadowMap extends SingleShadowMap {
-	public readonly kind = "vsm" as const;
+export class VarianceShadowMap extends SingleShadowMap {
+	public override readonly kind = "vsm" as const;
 	private _momentBias: number;
 	private _bleedReduction: number;
 	private _minVariance: number;
 
-	constructor(options: VSMShadowMapOptions = {}) {
+	constructor(options: VarianceShadowMapOptions = {}) {
 		super({
 			...options,
 			sampling: {
@@ -75,7 +75,7 @@ export class VSMShadowMap extends SingleShadowMap {
 		);
 	}
 
-	public setVSMParameters(options: {
+	public setVarianceParameters(options: {
 		momentBias?: number;
 		bleedReduction?: number;
 		minVariance?: number;

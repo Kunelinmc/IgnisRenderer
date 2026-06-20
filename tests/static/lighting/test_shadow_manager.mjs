@@ -56,7 +56,7 @@ function testShadowManagerBindingLifecycle() {
 	const spot = scene.add(new SpotLight({ intensity: 1, range: 120 }));
 
 	const single = scene.shadows.createSingle({ size: 1024 });
-	const csm = scene.shadows.createCSM({
+	const csm = scene.shadows.createCascaded({
 		size: 2048,
 		cascadeCounts: {
 			directional: 4,
@@ -138,10 +138,10 @@ function testShadowManagerRegistersCustomMapType() {
 	assert.equal(frameState.records[0].shadowMapKind, "external-single");
 }
 
-function testVSMShadowMapUsesVSMFilterMetadataAndSingleMapRuntimeConfig() {
+function testVarianceShadowMapUsesVSMFilterMetadataAndSingleMapRuntimeConfig() {
 	const scene = new Scene();
 	const sun = scene.add(new DirectionalLight());
-	const vsm = scene.shadows.createVSM({
+	const vsm = scene.shadows.createVariance({
 		size: 1536,
 		momentBias: 0.004,
 		bleedReduction: 0.35,
@@ -172,10 +172,10 @@ function testVSMShadowMapUsesVSMFilterMetadataAndSingleMapRuntimeConfig() {
 	assert.equal(frameState.records[0].renderSet.resolvedConfig.strategy, "single-map");
 }
 
-function testVSMShadowMapNormalizesParametersAndUpdatesSignature() {
+function testVarianceShadowMapNormalizesParametersAndUpdatesSignature() {
 	const scene = new Scene();
 	const sun = scene.add(new DirectionalLight());
-	const vsm = scene.shadows.createVSM({
+	const vsm = scene.shadows.createVariance({
 		momentBias: 0.001,
 		bleedReduction: 0.2,
 		minVariance: 0.00002,
@@ -190,7 +190,7 @@ function testVSMShadowMapNormalizesParametersAndUpdatesSignature() {
 	assert.ok(renderSetA);
 	const signatureA = renderSetA.configSignature;
 
-	vsm.setVSMParameters({
+	vsm.setVarianceParameters({
 		momentBias: -1,
 		bleedReduction: 5,
 		minVariance: 0,
@@ -245,7 +245,7 @@ function testPointCSMGeneratesCubeCascadeSlices() {
 	const point = scene.add(new PointLight({ range: 90 }));
 	scene.shadows.bind(
 		point,
-		scene.shadows.createCSM({
+		scene.shadows.createCascaded({
 			size: 1024,
 			cascadeCounts: {
 				point: 2,
@@ -286,7 +286,7 @@ function testDynamicBudgetDegradesCascadeThenDisablesLowerScoreShadows() {
 
 	scene.shadows.bind(
 		highPriority,
-		scene.shadows.createCSM({
+		scene.shadows.createCascaded({
 			size: 1024,
 			priority: 3,
 			cascadeCounts: {
@@ -317,7 +317,7 @@ function testDynamicBudgetCanReduceResolutionAfterCascadeReduction() {
 
 	scene.shadows.bind(
 		sun,
-		scene.shadows.createCSM({
+		scene.shadows.createCascaded({
 			size: 1024,
 			priority: 2,
 			cascadeCounts: {
@@ -343,8 +343,8 @@ function run() {
 	testShadowManagerBindingLifecycle();
 	testSceneAcceptsExternalShadowMapRegistry();
 	testShadowManagerRegistersCustomMapType();
-	testVSMShadowMapUsesVSMFilterMetadataAndSingleMapRuntimeConfig();
-	testVSMShadowMapNormalizesParametersAndUpdatesSignature();
+	testVarianceShadowMapUsesVSMFilterMetadataAndSingleMapRuntimeConfig();
+	testVarianceShadowMapNormalizesParametersAndUpdatesSignature();
 	testRenderSetSignatureUpdatesWhenShadowMapConfigChanges();
 	testPointCSMGeneratesCubeCascadeSlices();
 	testDynamicBudgetDegradesCascadeThenDisablesLowerScoreShadows();

@@ -8,19 +8,19 @@ import {
 } from "./ShadowMapping";
 import type { IVector3 } from "../../maths/types";
 import { ShadowFrameState } from "./ShadowFrameState";
-import type { CSMShadowMap } from "./CSMShadowMap";
+import type { CascadedShadowMap } from "./CascadedShadowMap";
 import type { SingleShadowMap } from "./SingleShadowMap";
 import {
 	createDefaultShadowMapRegistry,
 	type ShadowMapRegistry,
 	type ShadowMapFactory,
 } from "./ShadowMapRegistry";
-import type { VSMShadowMap, VSMShadowMapOptions } from "./VSMShadowMap";
+import type { VarianceShadowMap, VarianceShadowMapOptions } from "./VarianceShadowMap";
 import type { ShadowMapBase } from "./ShadowMapBase";
 import type {
 	IShadowBackendCapabilities,
 	ShadowBindingRecord,
-	ShadowCSMOptions,
+	CascadedShadowMapOptions,
 	ShadowMapBaseOptions,
 	ShadowMapKind,
 } from "./types";
@@ -102,12 +102,12 @@ export class ShadowManager {
 		return this.create<SingleShadowMap, ShadowMapBaseOptions>("single", options);
 	}
 
-	public createVSM(options: VSMShadowMapOptions = {}): VSMShadowMap {
-		return this.create<VSMShadowMap, VSMShadowMapOptions>("vsm", options);
+	public createVariance(options: VarianceShadowMapOptions = {}): VarianceShadowMap {
+		return this.create<VarianceShadowMap, VarianceShadowMapOptions>("vsm", options);
 	}
 
-	public createCSM(options: ShadowCSMOptions = {}): CSMShadowMap {
-		return this.create<CSMShadowMap, ShadowCSMOptions>("csm", options);
+	public createCascaded(options: CascadedShadowMapOptions = {}): CascadedShadowMap {
+		return this.create<CascadedShadowMap, CascadedShadowMapOptions>("csm", options);
 	}
 
 	public bind(light: ShadowCastingLight, shadowMap: ShadowMapBase): void {

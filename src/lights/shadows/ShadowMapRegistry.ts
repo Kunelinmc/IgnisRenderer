@@ -1,9 +1,9 @@
-import { CSMShadowMap } from "./CSMShadowMap";
+import { CascadedShadowMap } from "./CascadedShadowMap";
 import type { ShadowMapBase } from "./ShadowMapBase";
 import { SingleShadowMap } from "./SingleShadowMap";
-import { VSMShadowMap, type VSMShadowMapOptions } from "./VSMShadowMap";
+import { VarianceShadowMap, type VarianceShadowMapOptions } from "./VarianceShadowMap";
 import type {
-	ShadowCSMOptions,
+	CascadedShadowMapOptions,
 	ShadowMapBaseOptions,
 	ShadowMapKind,
 } from "./types";
@@ -116,12 +116,12 @@ export function createDefaultShadowMapRegistry(): ShadowMapRegistry {
 			"single",
 			(options) => new SingleShadowMap(options)
 		)
-		.register<VSMShadowMap, VSMShadowMapOptions>(
+		.register<VarianceShadowMap, VarianceShadowMapOptions>(
 			"vsm",
-			(options) => new VSMShadowMap(options)
+			(options) => new VarianceShadowMap(options)
 		)
-		.register<CSMShadowMap, ShadowCSMOptions>(
+		.register<CascadedShadowMap, CascadedShadowMapOptions>(
 			"csm",
-			(options) => new CSMShadowMap(options)
+			(options) => new CascadedShadowMap(options)
 		);
 }

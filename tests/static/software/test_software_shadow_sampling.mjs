@@ -224,7 +224,7 @@ function testCSMSamplerUsesAvailableCascadeSlice() {
 	const scene = new Scene();
 	const light = new DirectionalLight();
 	scene.add(light);
-	const csmShadowMap = scene.shadows.createCSM({
+	const csmShadowMap = scene.shadows.createCascaded({
 		size: 8,
 		cascadeCounts: {
 			directional: 2,
@@ -294,7 +294,7 @@ function testDirectionalCSMSamplerUsesCameraDepthSplit() {
 	const scene = new Scene();
 	const light = new DirectionalLight();
 	scene.add(light);
-	const csmShadowMap = scene.shadows.createCSM({
+	const csmShadowMap = scene.shadows.createCascaded({
 		size: 8,
 		cascadeCounts: {
 			directional: 2,

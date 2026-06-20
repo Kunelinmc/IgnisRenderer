@@ -97,7 +97,7 @@ async function setupScene(scene: Scene, camera: Camera): Promise<void> {
 	});
 	scene.add(sun);
 
-	const shadowMap = scene.shadows.createCSM({
+	const shadowMap = scene.shadows.createCascaded({
 		size: 2048,
 		lambda: 0.65,
 		maxDistance: 80,

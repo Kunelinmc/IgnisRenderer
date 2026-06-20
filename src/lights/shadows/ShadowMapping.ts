@@ -34,7 +34,7 @@ const DEFAULT_SHADOW_PARAMS: ShadowParams = {
 };
 
 export type ShadowStrategyType = "single-map" | "csm";
-export type CSMCascadeCount = 1 | 2 | 3 | 4;
+export type CascadedCascadeCount = 1 | 2 | 3 | 4;
 
 interface BaseShadowConfig {
 	strategy: ShadowStrategyType;
@@ -47,9 +47,9 @@ export interface SingleMapShadowConfig extends BaseShadowConfig {
 	strategy: "single-map";
 }
 
-export interface CSMShadowConfig extends BaseShadowConfig {
+export interface CascadedShadowConfig extends BaseShadowConfig {
 	strategy: "csm";
-	cascadeCount?: CSMCascadeCount;
+	cascadeCount?: CascadedCascadeCount;
 	splitMode?: "practical";
 	lambda?: number;
 	maxDistance?: number;
@@ -57,7 +57,7 @@ export interface CSMShadowConfig extends BaseShadowConfig {
 	stabilize?: boolean;
 }
 
-export type ShadowConfig = SingleMapShadowConfig | CSMShadowConfig;
+export type ShadowConfig = SingleMapShadowConfig | CascadedShadowConfig;
 
 export const DEFAULT_SINGLE_MAP_SHADOW_CONFIG: SingleMapShadowConfig = {
 	strategy: "single-map",
@@ -65,7 +65,7 @@ export const DEFAULT_SINGLE_MAP_SHADOW_CONFIG: SingleMapShadowConfig = {
 	priority: 0,
 };
 
-export const DEFAULT_CSM_SHADOW_CONFIG: CSMShadowConfig = {
+export const DEFAULT_CASCADED_SHADOW_CONFIG: CascadedShadowConfig = {
 	strategy: "csm",
 	size: 1024,
 	priority: 0,
@@ -84,7 +84,7 @@ function clampFinite(value: unknown, fallback: number, min = -Infinity, max = In
 	return Math.min(max, Math.max(min, value));
 }
 
-function resolveCascadeCount(value: unknown, fallback: CSMCascadeCount): CSMCascadeCount {
+function resolveCascadeCount(value: unknown, fallback: CascadedCascadeCount): CascadedCascadeCount {
 	if (value === 1 || value === 2 || value === 3 || value === 4) {
 		return value;
 	}
@@ -217,7 +217,7 @@ function resolveSliceCount(config: ShadowConfig): number {
 	if (config.strategy !== "csm") {
 		return 1;
 	}
-	return config.cascadeCount ?? DEFAULT_CSM_SHADOW_CONFIG.cascadeCount ?? 4;
+	return config.cascadeCount ?? DEFAULT_CASCADED_SHADOW_CONFIG.cascadeCount ?? 4;
 }
 
 function resolveSliceSize(config: ShadowConfig, baseSize: number): number {

@@ -6,7 +6,7 @@ existing `ShadowMap` and `ShadowRenderSet` runtime.
 ## Background
 Particle systems previously supported `receiveShadows` only. Billboard particle
 shadow casting now uses light-space volume density that is associated with
-active shadow slices, so `CSMShadowMap` and `SingleShadowMap` metadata can be
+active shadow slices, so `CascadedShadowMap` and `SingleShadowMap` metadata can be
 reused without coupling shadow strategy code to particle rendering.
 
 ## API/Contract

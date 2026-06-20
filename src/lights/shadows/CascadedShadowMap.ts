@@ -3,7 +3,7 @@ import { Vector3 } from "../../maths/Vector3";
 import type { IVector3 } from "../../maths/types";
 import { LightType, type DirectionalLight, type PointLight, type SpotLight } from "..";
 import { MIN_SHADOW_NEAR, SHADOW_NEAR_FAR_GAP } from "../constants";
-import type { CSMShadowConfig, ShadowConfig, ShadowMap } from "./ShadowMapping";
+import type { CascadedShadowConfig, ShadowConfig, ShadowMap } from "./ShadowMapping";
 import { ShadowMapBase } from "./ShadowMapBase";
 import { SingleShadowMap } from "./SingleShadowMap";
 import type {
@@ -12,11 +12,11 @@ import type {
 	ShadowStrategyBuildContext,
 	ShadowStrategyCamera,
 	ShadowBoundLightType,
-	ShadowCSMDefaults,
-	ShadowCSMOptions,
+	CascadedShadowMapDefaults,
+	CascadedShadowMapOptions,
 } from "./types";
 
-const DEFAULT_CASCADE_COUNTS: ShadowCSMDefaults = {
+const DEFAULT_CASCADE_COUNTS: CascadedShadowMapDefaults = {
 	directional: 4,
 	spot: 3,
 	point: 2,
@@ -28,15 +28,15 @@ const _tmpCamPos = { x: 0, y: 0, z: 0 };
 const _tmpCamForward = { x: 0, y: 0, z: -1 };
 const _tmpCamUp = { x: 0, y: 1, z: 0 };
 
-export class CSMShadowMap extends ShadowMapBase {
-	public readonly kind = "csm" as const;
-	public cascadeCounts: ShadowCSMDefaults;
+export class CascadedShadowMap extends ShadowMapBase {
+	public override readonly kind = "csm" as const;
+	public cascadeCounts: CascadedShadowMapDefaults;
 	public lambda: number;
 	public maxDistance?: number;
 	public blendRatio: number;
 	public stabilize: boolean;
 
-	constructor(options: ShadowCSMOptions = {}) {
+	constructor(options: CascadedShadowMapOptions = {}) {
 		super(options);
 		this.cascadeCounts = {
 			directional: clampCascadeCount(
@@ -98,9 +98,9 @@ export class CSMShadowMap extends ShadowMapBase {
 	public static buildSlices(
 		context: ShadowStrategyBuildContext
 	): ShadowSliceDescriptor[] {
-		const config = context.config as CSMShadowConfig;
+		const config = context.config as CascadedShadowConfig;
 		if (context.light.type === LightType.Spot) {
-			return CSMShadowMap.buildSpotCascadeSlices(
+			return CascadedShadowMap.buildSpotCascadeSlices(
 				context.light as SpotLight,
 				context.sceneBounds,
 				config,
@@ -108,7 +108,7 @@ export class CSMShadowMap extends ShadowMapBase {
 			);
 		}
 		if (context.light.type === LightType.Point) {
-			return CSMShadowMap.buildPointCubeCascadeSlices(
+			return CascadedShadowMap.buildPointCubeCascadeSlices(
 				context.light as PointLight,
 				context.sceneBounds,
 				config
@@ -141,7 +141,7 @@ export class CSMShadowMap extends ShadowMapBase {
 
 		const cascadeCount = Math.max(1, Math.min(4, config.cascadeCount ?? 4));
 		const lambda = Math.max(0, Math.min(1, config.lambda ?? 0.65));
-		const splits = CSMShadowMap.calculatePracticalCascadeSplits(
+		const splits = CascadedShadowMap.calculatePracticalCascadeSplits(
 			cascadeCount,
 			cameraNear,
 			cameraFar,
@@ -160,7 +160,7 @@ export class CSMShadowMap extends ShadowMapBase {
 		for (let index = 0; index < cascadeCount; index++) {
 			const splitNear = splits[index];
 			const splitFar = splits[index + 1];
-			const hasCorners = CSMShadowMap.computePerspectiveFrustumCorners(
+			const hasCorners = CascadedShadowMap.computePerspectiveFrustumCorners(
 				context.camera,
 				splitNear,
 				splitFar,
@@ -171,7 +171,7 @@ export class CSMShadowMap extends ShadowMapBase {
 			}
 
 			slices.push(
-				CSMShadowMap.buildDirectionalCascadeSlice(
+				CascadedShadowMap.buildDirectionalCascadeSlice(
 					direction,
 					cornersBuffer,
 					shadowMapSize,
@@ -207,7 +207,7 @@ export class CSMShadowMap extends ShadowMapBase {
 	private static buildSpotCascadeSlices(
 		light: SpotLight,
 		sceneBounds: SceneBounds,
-		config: CSMShadowConfig,
+		config: CascadedShadowConfig,
 		aspectRatio?: number
 	): ShadowSliceDescriptor[] {
 		const projectionAspectRatio =
@@ -219,7 +219,7 @@ export class CSMShadowMap extends ShadowMapBase {
 		);
 		const cascadeCount = Math.max(1, Math.min(4, config.cascadeCount ?? 3));
 		const lambda = Math.max(0, Math.min(1, config.lambda ?? 0.65));
-		const splits = CSMShadowMap.calculatePracticalCascadeSplits(
+		const splits = CascadedShadowMap.calculatePracticalCascadeSplits(
 			cascadeCount,
 			baseSlice.splitNear,
 			baseSlice.splitFar,
@@ -248,7 +248,7 @@ export class CSMShadowMap extends ShadowMapBase {
 	private static buildPointCubeCascadeSlices(
 		light: PointLight,
 		sceneBounds: SceneBounds,
-		config: CSMShadowConfig
+		config: CascadedShadowConfig
 	): ShadowSliceDescriptor[] {
 		const position = Matrix4.transformPoint(light.worldMatrix, {
 			x: 0,
@@ -266,7 +266,7 @@ export class CSMShadowMap extends ShadowMapBase {
 		const near = MIN_SHADOW_NEAR;
 		const cascadeCount = Math.max(1, Math.min(4, config.cascadeCount ?? 2));
 		const lambda = Math.max(0, Math.min(1, config.lambda ?? 0.65));
-		const splits = CSMShadowMap.calculatePracticalCascadeSplits(
+		const splits = CascadedShadowMap.calculatePracticalCascadeSplits(
 			cascadeCount,
 			near,
 			far,
@@ -339,7 +339,7 @@ export class CSMShadowMap extends ShadowMapBase {
 		splitFar: number,
 		output: IVector3[]
 	): boolean {
-		const cameraPosition = CSMShadowMap.resolveCameraPosition(camera);
+		const cameraPosition = CascadedShadowMap.resolveCameraPosition(camera);
 		if (!cameraPosition) {
 			return false;
 		}
@@ -355,13 +355,13 @@ export class CSMShadowMap extends ShadowMapBase {
 				camera.aspectRatio
 			:	16 / 9;
 
-		const forward = CSMShadowMap.resolveCameraDirection(
+		const forward = CascadedShadowMap.resolveCameraDirection(
 			camera,
 			{ x: 0, y: 0, z: -1 },
 			{ x: 0, y: 0, z: -1 },
 			_tmpCamForward
 		);
-		const upVector = CSMShadowMap.resolveCameraDirection(
+		const upVector = CascadedShadowMap.resolveCameraDirection(
 			camera,
 			camera.up ?? { x: 0, y: 1, z: 0 },
 			camera.up ?? { x: 0, y: 1, z: 0 },
@@ -371,7 +371,7 @@ export class CSMShadowMap extends ShadowMapBase {
 		const up = Vector3.normalize(Vector3.cross(right, forward));
 
 		if (camera.type === "orthographic") {
-			const bounds = CSMShadowMap.resolveOrthographicBounds(camera, aspect);
+			const bounds = CascadedShadowMap.resolveOrthographicBounds(camera, aspect);
 			const nearCenter = Vector3.add(
 				cameraPosition,
 				Vector3.scale(forward, splitNear)
@@ -542,7 +542,7 @@ export class CSMShadowMap extends ShadowMapBase {
 					centerZ * lightRight.z;
 				const centerLightY =
 					centerX * lightUp.x + centerY * lightUp.y + centerZ * lightUp.z;
-				const stabilizedCenter = CSMShadowMap.resolveStabilizedCenterLightSpace(
+				const stabilizedCenter = CascadedShadowMap.resolveStabilizedCenterLightSpace(
 					centerLightX,
 					centerLightY,
 					boundsRadius,
@@ -559,7 +559,7 @@ export class CSMShadowMap extends ShadowMapBase {
 				centerZ += lightRight.z * deltaX + lightUp.z * deltaY;
 			}
 		} else if (sliceShadowMap) {
-			CSMShadowMap.resetStabilizedCenterLightSpace(sliceShadowMap);
+			CascadedShadowMap.resetStabilizedCenterLightSpace(sliceShadowMap);
 		}
 		let lightDistance = projectionHalfSpan * 2;
 		if (
@@ -675,7 +675,7 @@ export class CSMShadowMap extends ShadowMapBase {
 			Number.isFinite(previousX) &&
 			typeof previousY === "number" &&
 			Number.isFinite(previousY) &&
-			CSMShadowMap.matchesStabilizedLightDirection(shadowMap, lightDir);
+			CascadedShadowMap.matchesStabilizedLightDirection(shadowMap, lightDir);
 
 		if (hasPrevious) {
 			stableX = previousX;

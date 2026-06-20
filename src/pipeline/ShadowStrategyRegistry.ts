@@ -1,5 +1,5 @@
 import { LightType, type ShadowCastingLight } from "../lights";
-import { CSMShadowMap } from "../lights/shadows/CSMShadowMap";
+import { CascadedShadowMap } from "../lights/shadows/CascadedShadowMap";
 import { SingleShadowMap } from "../lights/shadows/SingleShadowMap";
 import type { ShadowConfig, ShadowStrategyType } from "../lights/shadows/ShadowMapping";
 import type {
@@ -29,7 +29,7 @@ export interface ShadowBackendCapabilities {
 export class ShadowStrategyRegistry {
 	private static readonly _defaultRegistry = new ShadowStrategyRegistry()
 		.register("single-map", SingleShadowMap)
-		.register("csm", CSMShadowMap);
+		.register("csm", CascadedShadowMap);
 
 	private readonly _providers = new Map<ShadowStrategyType, IShadowStrategyProvider>();
 

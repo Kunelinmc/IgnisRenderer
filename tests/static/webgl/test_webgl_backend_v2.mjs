@@ -1842,7 +1842,7 @@ function testLightCollectorDirectionalCSMShadowData() {
 	scene.add(light);
 	scene.shadows.bind(
 		light,
-		scene.shadows.createCSM({
+		scene.shadows.createCascaded({
 			size: 1024,
 			blendRatio: 0.2,
 			cascadeCounts: {

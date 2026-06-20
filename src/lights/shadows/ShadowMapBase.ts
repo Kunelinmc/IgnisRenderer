@@ -1,7 +1,7 @@
 import { IdGenerator } from "../../foundation/IdGenerator";
 import { LightType } from "..";
 import type {
-	CSMShadowConfig,
+	CascadedShadowConfig,
 	ShadowConfig,
 	ShadowParams,
 	SingleMapShadowConfig,
@@ -142,7 +142,7 @@ export abstract class ShadowMapBase {
 			blendRatio?: number;
 			stabilize?: boolean;
 		}
-	): CSMShadowConfig {
+	): CascadedShadowConfig {
 		const size = Math.max(1, Math.floor(options.size ?? this.size));
 		return {
 			strategy: "csm",

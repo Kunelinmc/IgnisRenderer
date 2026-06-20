@@ -8,7 +8,7 @@ The previous model bound shadow controls to `Light` (`castShadow` and `light.sha
 ## API/Contract
 - Shadow generation must be enabled only by explicit binding through `scene.shadows.bind(light, shadowMap)`.
 - `Light` must not carry any shadow strategy fields.
-- `scene.shadows.createCSM(options)` must produce `ShadowConfig` with `strategy: "csm"` when consumed as legacy config.
+- `scene.shadows.createCascaded(options)` must produce `ShadowConfig` with `strategy: "csm"` when consumed as legacy config.
 - `CSM` must support `DirectionalLight`, `SpotLight`, and `PointLight`.
 - Cascade defaults must be `4/3/2` for `directional/spot/point`.
 - Directional `CSM` must use practical camera-frustum splits.
@@ -27,7 +27,7 @@ The previous model bound shadow controls to `Light` (`castShadow` and `light.sha
   - `slices[]`
 - Dynamic budget selection must rank shadows by `priority`, then `light.intensity`, then camera relation score.
 - Dynamic degradation order must be: reduce cascade count, then reduce resolution, then disable low-score shadows.
-- `VSMShadowMap` must keep `filterMode: "vsm"` metadata and preserve `shadowMomentBias`, `shadowBleedReduction`, and `shadowMinVariance` in `ShadowConfig.params`, while runtime filtering should fallback to PCF in v1.
+- `VarianceShadowMap` must keep `filterMode: "vsm"` metadata and preserve `shadowMomentBias`, `shadowBleedReduction`, and `shadowMinVariance` in `ShadowConfig.params`, while runtime filtering should fallback to PCF in v1.
 
 ## Usage
 Example: configure and bind directional CSM through `Scene`.
@@ -42,7 +42,7 @@ const sun = new DirectionalLight({
 });
 scene.add(sun);
 
-const csm = scene.shadows.createCSM({
+const csm = scene.shadows.createCascaded({
 	size: 2048,
 	priority: 10,
 	cascadeCounts: { directional: 4, spot: 3, point: 2 },
