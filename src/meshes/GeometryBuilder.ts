@@ -20,6 +20,10 @@ export interface GeometryFace {
 	material?: Material | null;
 	color?: RGBA;
 	normal?: IVector3;
+	/**
+	 * Custom geometry-level double-sided flag. Allows specifying double-sidedness
+	 * for individual faces during custom mesh construction before a Material is bound.
+	 */
 	doubleSided?: boolean;
 	[key: string]: unknown;
 }

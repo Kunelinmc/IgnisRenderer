@@ -86,6 +86,10 @@ export interface PrimitiveFace {
 	vertices: IVertex[];
 	color?: RGBA;
 	normal?: IVector3;
+	/**
+	 * Flat-cached double-sided flag. Used by the CPU software renderer/projector
+	 * for self-contained clipping, culling, and normal calculations.
+	 */
 	doubleSided?: boolean;
 }
 

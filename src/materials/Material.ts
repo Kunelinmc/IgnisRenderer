@@ -48,6 +48,10 @@ export class Material {
 	public type: string;
 	public shading: ShadingModel;
 	public opacity: number;
+	/**
+	 * Configures pipeline state culling (cullMode = None if true, Back if false)
+	 * and flips shader normals on face back-sides for correct lighting.
+	 */
 	public doubleSided: boolean;
 	public cullMode: CullMode;
 	public wireframe: boolean;
