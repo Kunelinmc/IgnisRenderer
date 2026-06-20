@@ -538,6 +538,7 @@ export class GLTFLoader extends Loader<GLTFLoaderEvents> {
 
 			if (m.extensions?.KHR_materials_unlit) {
 				const unlitMat = new UnlitMaterial({
+					name: m.name,
 					diffuse: {
 						r: baseColor[0] * 255,
 						g: baseColor[1] * 255,
@@ -562,6 +563,7 @@ export class GLTFLoader extends Loader<GLTFLoaderEvents> {
 			}
 
 			const material = new PBRMaterial({
+				name: m.name,
 				albedo: {
 					r: baseColor[0] * 255,
 					g: baseColor[1] * 255,

@@ -30,6 +30,7 @@ function testUnlitExtensionParsing() {
 		{
 			materials: [
 				{
+					name: "UnlitSignage",
 					pbrMetallicRoughness: {
 						baseColorFactor: [0.2, 0.4, 0.6, 0.8],
 						baseColorTexture: { index: 0 },
@@ -46,6 +47,7 @@ function testUnlitExtensionParsing() {
 
 	assert.equal(materials.length, 1);
 	const mat = materials[0];
+	assert.equal(mat.name, "UnlitSignage");
 	assert.equal(mat.type, "Unlit");
 	assert.equal(mat.shading, "Unlit");
 	approx(mat.diffuse.r, 51);
@@ -57,6 +59,27 @@ function testUnlitExtensionParsing() {
 	approx(mat.alphaCutoff, 0.25);
 	assert.equal(mat.map, baseTex);
 	assert.equal(mat.map.data, baseTex.data);
+}
+
+function testMaterialNamesArePreserved() {
+	const loader = new GLTFLoader();
+
+	const materials = loader.parseMaterials({
+		materials: [
+			{
+				name: "BodyPaint",
+				pbrMetallicRoughness: {},
+			},
+			{
+				pbrMetallicRoughness: {},
+			},
+		],
+	});
+
+	assert.equal(materials.length, 2);
+	assert.equal(materials[0].type, "PBR");
+	assert.equal(materials[0].name, "BodyPaint");
+	assert.equal(materials[1].name, "Untitled");
 }
 
 function testIorExtensionUpdatesReflectance() {
@@ -575,6 +598,7 @@ function run() {
 	try {
 		console.log("Starting glTF material extensions tests...");
 		testUnlitExtensionParsing();
+		testMaterialNamesArePreserved();
 		testIorExtensionUpdatesReflectance();
 		testPBRMaterialIorSetterSyncsReflectance();
 		testSpecularExtensionParsing();
