@@ -30,10 +30,7 @@ import {
 	renderWebGLEarlyZPrepass,
 	renderWebGLPackets,
 } from "../../../src/renderers/webgl/WebGLScenePass.ts";
-import {
-	drawWebGLShadowPacket,
-	drawWebGLShadowTransmittancePacket,
-} from "../../../src/renderers/webgl/WebGLShadowPass.ts";
+import { WebGLShadowPass } from "../../../src/renderers/webgl/WebGLShadowPass.ts";
 import {
 	MAX_DIRECTIONAL_LIGHTS,
 	MAX_POINT_LIGHTS,
@@ -752,8 +749,25 @@ function createEarlyZPacket(id, material = new Material()) {
 function createShadowPassHost(gl, options = {}) {
 	let cullModeCalls = 0;
 	return {
-		_gl: gl,
-		_geometry: {
+		gl,
+		programs: {
+			getShadowDepthProgram() {
+				return {
+					program: { id: "shadow-depth" },
+					uniforms: { mvp: "uMvp" },
+				};
+			},
+			getShadowTransmittanceProgram() {
+				return {
+					program: { id: "shadow-transmittance" },
+					uniforms: {
+						mvp: "uMvp",
+						transmittance: "uTransmittance",
+					},
+				};
+			},
+		},
+		geometry: {
 			getGeometry(packet) {
 				return options.getGeometry?.(packet) ?? {
 					vao: { id: `shadow-vao-${packet.id}` },
@@ -763,9 +777,20 @@ function createShadowPassHost(gl, options = {}) {
 				};
 			},
 		},
-		_shadowMvpMatrix: Matrix4.identity(),
 		_setCullMode() {
 			cullModeCalls++;
+		},
+		getLightState() {
+			return null;
+		},
+		getSceneFramebuffer() {
+			return null;
+		},
+		getViewportSize() {
+			return { width: 64, height: 64 };
+		},
+		getMaxTextureSize() {
+			return 4096;
 		},
 		get cullModeCalls() {
 			return cullModeCalls;
@@ -1914,6 +1939,7 @@ function testSceneShaderUsesFlippedShadowNormal() {
 function testShadowPassDisablesCullFaceForDepthAndTransmittance() {
 	const gl = createScenePassCaptureGL();
 	const host = createShadowPassHost(gl);
+	const pass = new WebGLShadowPass(host);
 	const material = new Material({
 		doubleSided: false,
 		cullMode: "front",
@@ -1931,9 +1957,8 @@ function testShadowPassDisablesCullFaceForDepthAndTransmittance() {
 		},
 	};
 
-	drawWebGLShadowPacket(host, depthProgram, packet, Matrix4.identity());
-	drawWebGLShadowTransmittancePacket(
-		host,
+	pass.drawShadowPacket(depthProgram, packet, Matrix4.identity());
+	pass.drawShadowTransmittancePacket(
 		transmittanceProgram,
 		packet,
 		Matrix4.identity()

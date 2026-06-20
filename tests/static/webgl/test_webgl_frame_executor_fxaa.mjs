@@ -966,7 +966,7 @@ function testShadowSkinningWarningKeyIsStable() {
 	const gl = createFXAATestGL();
 	const executor = new WebGLFrameExecutor(gl);
 	const warnings = captureWarnMessages(() => {
-		executor._drawShadowPacket(
+		executor._shadowPass.drawShadowPacket(
 			{ uniforms: { mvp: null } },
 			{ meshInstance: { id: "mesh-a", skeleton: {} } },
 			{}

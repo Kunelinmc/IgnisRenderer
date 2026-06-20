@@ -13,7 +13,6 @@ import {
 	ShaderMaterial,
 	type ShaderTargetMode,
 } from "../../materials/ShaderMaterial";
-import { Matrix4 } from "../../maths/Matrix4";
 import type { SHCoefficients } from "../../maths/types";
 import {
 	resolveShadowCasterBounds,
@@ -63,7 +62,6 @@ import {
 	collectWebGLLights,
 	type WebGLLightState,
 	type WebGLClusteredLight,
-	type WebGLShadowData,
 } from "./WebGLLightCollector";
 import { WebGLGeometryRegistry } from "./WebGLGeometryRegistry";
 import {
@@ -82,16 +80,12 @@ import {
 	WEBGL_PARTICLE_SHADOW_VOLUME_MAX_SLICES,
 	WEBGL_REFLECTION_PROBE_CAMERA_WORLD_POSITION_SCRATCH,
 	WEBGL_SHADOW_CAPABILITIES,
-	WEBGL_SHADOW_ATLAS_COLUMNS,
-	WEBGL_SHADOW_ATLAS_ROWS,
 	WEBGL_TEXTURE_UNIT_PARTICLE_SHADOW_VOLUME,
 } from "./constants";
 import type { ShadowMap } from "../../lights/shadows/ShadowMapping";
 import {
 	WebGLProgramLibrary,
 	type WebGLSceneProgram,
-	type WebGLShadowDepthProgram,
-	type WebGLShadowTransmittanceProgram,
 } from "./WebGLProgramLibrary";
 import {
 	WebGLProgramCompiler,
@@ -148,13 +142,7 @@ import {
 	type WebGLLocalLightProbeUploadHost,
 	type WebGLSHAmbientUploadHost,
 } from "./WebGLGlobalUniformBinder";
-import {
-	drawWebGLShadowPacket,
-	drawWebGLShadowTransmittancePacket,
-	renderWebGLShadows,
-	renderWebGLShadowSlice,
-	type WebGLShadowPassHost,
-} from "./WebGLShadowPass";
+import { WebGLShadowPass } from "./WebGLShadowPass";
 import {
 	bindWebGLShaderMaterialUniforms,
 	bindWebGLShaderMaterialTextures,
@@ -165,13 +153,8 @@ import {
 	type WebGLScenePassHost,
 } from "./WebGLScenePass";
 import {
-	bindWebGLParticleInstanceAttributes,
-	destroyWebGLParticleResources,
-	ensureWebGLParticleCapacity,
-	ensureWebGLParticleResources,
-	renderWebGLParticles,
-	writeWebGLParticleInstances,
-	type WebGLParticlePassHost,
+	WebGLParticlePass,
+	type WebGLParticleRenderOptions,
 } from "./WebGLParticlePass";
 import { BackendPostProcessRuntime } from "../../postprocess/BackendPostProcessRuntime";
 import { WebGLPostProcessExecutor } from "./WebGLPostProcessExecutor";
@@ -207,6 +190,8 @@ export class WebGLFrameExecutor {
 	private _programs: WebGLProgramLibrary;
 	private _geometry: WebGLGeometryRegistry;
 	private _textures: WebGLTextureRegistry;
+	private _shadowPass: WebGLShadowPass;
+	private _particlePass: WebGLParticlePass;
 	private _sceneFramebuffer: WebGLFramebuffer | null = null;
 	private _sceneColorTexture: WebGLTexture | null = null;
 	private _sceneColorFormat: WebGLFrameTargetFormat = "rgba8unorm";
@@ -218,11 +203,6 @@ export class WebGLFrameExecutor {
 	private _oitFramebuffer: WebGLFramebuffer | null = null;
 	private _oitAccumTexture: WebGLTexture | null = null;
 	private _oitRevealTexture: WebGLTexture | null = null;
-	private _shadowFramebuffer: WebGLFramebuffer | null = null;
-	private _shadowAtlasTexture: WebGLTexture | null = null;
-	private _shadowTransmittanceTexture: WebGLTexture | null = null;
-	private _shadowAtlasTileSize = 0;
-	private _shadowMvpMatrix = Matrix4.identity();
 	private _particleShadowVolumeTexture: WebGLTexture | null = null;
 	private _particleShadowVolumeAtlasWidth = 0;
 	private _particleShadowVolumeAtlasHeight = 0;
@@ -249,11 +229,6 @@ export class WebGLFrameExecutor {
 	private _ssaoColorFormat: WebGLFrameTargetFormat = "rgba8unorm";
 	private _presentSourceTexture: WebGLTexture | null = null;
 	private _fullscreenVao: WebGLVertexArrayObject | null = null;
-	private _particleVao: WebGLVertexArrayObject | null = null;
-	private _particleQuadBuffer: WebGLBuffer | null = null;
-	private _particleInstanceBuffer: WebGLBuffer | null = null;
-	private _particleInstanceCapacity = 0;
-	private _particleScratch = new Float32Array(0);
 	private _width = 1;
 	private _height = 1;
 	private _targetWidth = 0;
@@ -346,6 +321,33 @@ export class WebGLFrameExecutor {
 			maxUploadBytesPerFrame: DEFAULT_DEFERRED_UPLOAD_BYTES_PER_FRAME,
 			onUploadPending: options.onTextureUploadPending,
 		});
+		this._shadowPass = new WebGLShadowPass({
+			gl,
+			programs: this._programs,
+			geometry: this._geometry,
+			getLightState: () => this._lightState,
+			getSceneFramebuffer: () => this._sceneFramebuffer,
+			getViewportSize: () => ({ width: this._width, height: this._height }),
+			getMaxTextureSize: () => this._maxTextureSize,
+		});
+		this._particlePass = new WebGLParticlePass({
+			gl,
+			programs: this._programs,
+			textures: this._textures,
+			getSceneFramebuffer: () => this._sceneFramebuffer,
+			getViewportSize: () => ({ width: this._width, height: this._height }),
+			getFogParams: () => ({
+				params0: this._fogParams0,
+				params1: this._fogParams1,
+			}),
+			isIncrementalPartial: (context) => this._isIncrementalPartial(context),
+			resolveDirtyRects: (context, width, height) =>
+				this._resolveDirtyRects(context, width, height),
+			setScissorRect: (x, y, width, height, viewportHeight) =>
+				this._setScissorRect(x, y, width, height, viewportHeight),
+			updateFogParams: (fogOptions, enabled) =>
+				this._updateFogParams(fogOptions, enabled),
+		});
 		this._fullscreenVao = gl.createVertexArray();
 		this._maxTextureSize = this._resolveLimit(gl.MAX_TEXTURE_SIZE, 4096);
 		this._maxRenderbufferSize = this._resolveLimit(
@@ -398,6 +400,18 @@ export class WebGLFrameExecutor {
 				}),
 		});
 		this._passHandlers = this._createPassHandlers();
+	}
+
+	private get _shadowAtlasTexture(): WebGLTexture | null {
+		return this._shadowPass.getTargets().atlasTexture;
+	}
+
+	private get _shadowTransmittanceTexture(): WebGLTexture | null {
+		return this._shadowPass.getTargets().transmittanceTexture;
+	}
+
+	private get _shadowAtlasTileSize(): number {
+		return this._shadowPass.getTargets().atlasTileSize;
 	}
 
 	public beginFrame(context: FrameContext): void {
@@ -1051,8 +1065,8 @@ export class WebGLFrameExecutor {
 
 	public destroy(): void {
 		this._destroyFrameTargets();
-		this._destroyShadowTargets();
-		this._destroyParticleResources();
+		this._shadowPass.destroy();
+		this._particlePass.destroy();
 		this._clusteredLighting.destroy();
 		if (this._shAmbientTexture) {
 			this._gl.deleteTexture(this._shAmbientTexture);
@@ -1583,166 +1597,7 @@ export class WebGLFrameExecutor {
 	}
 
 	private _renderShadows(context: FrameContext): void {
-		renderWebGLShadows(this as unknown as WebGLShadowPassHost, context);
-	}
-
-	private _renderShadowSlice(
-		shadowProgram: WebGLShadowDepthProgram,
-		packets: DrawPacket[],
-		shadow: WebGLShadowData | undefined,
-		tileIndex: number,
-		cascadeIndex: number = 0
-	): void {
-		renderWebGLShadowSlice(
-			this as unknown as WebGLShadowPassHost,
-			shadowProgram,
-			packets,
-			shadow,
-			tileIndex,
-			cascadeIndex
-		);
-	}
-
-	private _drawShadowPacket(
-		shadowProgram: WebGLShadowDepthProgram,
-		packet: DrawPacket,
-		viewProjectionMatrix: Matrix4
-	): void {
-		drawWebGLShadowPacket(
-			this as unknown as WebGLShadowPassHost,
-			shadowProgram,
-			packet,
-			viewProjectionMatrix
-		);
-	}
-
-	private _drawShadowTransmittancePacket(
-		shadowProgram: WebGLShadowTransmittanceProgram,
-		packet: DrawPacket,
-		viewProjectionMatrix: Matrix4
-	): void {
-		drawWebGLShadowTransmittancePacket(
-			this as unknown as WebGLShadowPassHost,
-			shadowProgram,
-			packet,
-			viewProjectionMatrix
-		);
-	}
-
-	private _ensureShadowTargets(tileSize: number): void {
-		if (
-			this._shadowFramebuffer &&
-			this._shadowAtlasTexture &&
-			this._shadowAtlasTileSize === tileSize
-		) {
-			return;
-		}
-
-		const atlasWidth = tileSize * WEBGL_SHADOW_ATLAS_COLUMNS;
-		const atlasHeight = tileSize * WEBGL_SHADOW_ATLAS_ROWS;
-		if (atlasWidth > this._maxTextureSize || atlasHeight > this._maxTextureSize) {
-			throw new Error(
-				`WebGL shadow atlas ${atlasWidth}x${atlasHeight} exceeds MAX_TEXTURE_SIZE=${this._maxTextureSize}`
-			);
-		}
-
-		this._destroyShadowTargets();
-		const gl = this._gl;
-		const shadowTexture = gl.createTexture();
-		const transmittanceTexture = gl.createTexture();
-		const shadowFramebuffer = gl.createFramebuffer();
-		if (!shadowTexture || !transmittanceTexture || !shadowFramebuffer) {
-			if (shadowTexture) gl.deleteTexture(shadowTexture);
-			if (transmittanceTexture) gl.deleteTexture(transmittanceTexture);
-			if (shadowFramebuffer) gl.deleteFramebuffer(shadowFramebuffer);
-			throw new Error("Failed to create WebGL shadow atlas targets");
-		}
-
-		gl.bindTexture(gl.TEXTURE_2D, shadowTexture);
-		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
-		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
-		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-		gl.texImage2D(
-			gl.TEXTURE_2D,
-			0,
-			gl.DEPTH_COMPONENT24,
-			atlasWidth,
-			atlasHeight,
-			0,
-			gl.DEPTH_COMPONENT,
-			gl.UNSIGNED_INT,
-			null
-		);
-		gl.bindTexture(gl.TEXTURE_2D, null);
-
-		gl.bindTexture(gl.TEXTURE_2D, transmittanceTexture);
-		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
-		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
-		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-		gl.texImage2D(
-			gl.TEXTURE_2D,
-			0,
-			gl.RGBA8,
-			atlasWidth,
-			atlasHeight,
-			0,
-			gl.RGBA,
-			gl.UNSIGNED_BYTE,
-			null
-		);
-		gl.bindTexture(gl.TEXTURE_2D, null);
-
-		gl.bindFramebuffer(gl.FRAMEBUFFER, shadowFramebuffer);
-		gl.framebufferTexture2D(
-			gl.FRAMEBUFFER,
-			gl.DEPTH_ATTACHMENT,
-			gl.TEXTURE_2D,
-			shadowTexture,
-			0
-		);
-		gl.framebufferTexture2D(
-			gl.FRAMEBUFFER,
-			gl.COLOR_ATTACHMENT0,
-			gl.TEXTURE_2D,
-			transmittanceTexture,
-			0
-		);
-		gl.drawBuffers([gl.NONE]);
-		gl.readBuffer(gl.NONE);
-		const status = gl.checkFramebufferStatus(gl.FRAMEBUFFER);
-		gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-		if (status !== gl.FRAMEBUFFER_COMPLETE) {
-			gl.deleteFramebuffer(shadowFramebuffer);
-			gl.deleteTexture(shadowTexture);
-			gl.deleteTexture(transmittanceTexture);
-			throw new Error(
-				`WebGL shadow framebuffer is incomplete (status=0x${status.toString(16)})`
-			);
-		}
-
-		this._shadowFramebuffer = shadowFramebuffer;
-		this._shadowAtlasTexture = shadowTexture;
-		this._shadowTransmittanceTexture = transmittanceTexture;
-		this._shadowAtlasTileSize = tileSize;
-	}
-
-	private _destroyShadowTargets(): void {
-		const gl = this._gl;
-		if (this._shadowFramebuffer) {
-			gl.deleteFramebuffer(this._shadowFramebuffer);
-			this._shadowFramebuffer = null;
-		}
-		if (this._shadowAtlasTexture) {
-			gl.deleteTexture(this._shadowAtlasTexture);
-			this._shadowAtlasTexture = null;
-		}
-		if (this._shadowTransmittanceTexture) {
-			gl.deleteTexture(this._shadowTransmittanceTexture);
-			this._shadowTransmittanceTexture = null;
-		}
-		this._shadowAtlasTileSize = 0;
+		this._shadowPass.render(context);
 	}
 
 	private _renderPackets(
@@ -1845,18 +1700,9 @@ export class WebGLFrameExecutor {
 
 	private _renderParticles(
 		context: FrameContext,
-		options: {
-			framebuffer?: WebGLFramebuffer | null;
-			drawBuffers?: number[];
-			includeBlendModes?: ParticleBlendMode[];
-			oitPassMode?: 0 | 1 | 2;
-		} = {}
+		options: WebGLParticleRenderOptions = {}
 	): void {
-		renderWebGLParticles(
-			this as unknown as WebGLParticlePassHost,
-			context,
-			options
-		);
+		this._particlePass.render(context, options);
 	}
 
 	private _clearOITTargets(): void {
@@ -2045,34 +1891,6 @@ export class WebGLFrameExecutor {
 		this._oitLegacyTransparentPackets = [];
 		this._oitHasContributors = false;
 		this._oitNeedsLegacyAfterParticles = false;
-	}
-
-	private _writeParticleInstances(batch: ParticleRenderBatch): number {
-		return writeWebGLParticleInstances(
-			this as unknown as WebGLParticlePassHost,
-			batch
-		);
-	}
-
-	private _ensureParticleResources(): void {
-		ensureWebGLParticleResources(this as unknown as WebGLParticlePassHost);
-	}
-
-	private _ensureParticleCapacity(requiredInstances: number): void {
-		ensureWebGLParticleCapacity(
-			this as unknown as WebGLParticlePassHost,
-			requiredInstances
-		);
-	}
-
-	private _bindParticleInstanceAttributes(): void {
-		bindWebGLParticleInstanceAttributes(
-			this as unknown as WebGLParticlePassHost
-		);
-	}
-
-	private _destroyParticleResources(): void {
-		destroyWebGLParticleResources(this as unknown as WebGLParticlePassHost);
 	}
 
 	private _bindGlobalUniforms(
