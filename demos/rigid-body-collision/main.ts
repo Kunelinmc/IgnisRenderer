@@ -15,6 +15,8 @@ import {
 	PhysicsSystem,
 	RapierWorkerPhysicsAdapter,
 	CameraShakePlugin,
+	FastApproximateAntiAliasingPass,
+	UnlitMaterial,
 } from "../../src/index";
 import type { MeshInstance } from "../../src/index";
 
@@ -29,6 +31,7 @@ interface DemoSettings {
 	friction: number;
 	backend: string;
 	maxObjects: number;
+	fxaa: boolean;
 }
 
 interface DemoDiagnostics {
@@ -82,7 +85,11 @@ function createBackend(
 		if (!platform.hasWebGPU) {
 			throw new Error("WebGPU is not supported by this browser.");
 		}
-		return new WebGPUBackend({ enableDeferredLighting: true, enableEarlyZPrepass: true });
+		return new WebGPUBackend({
+			enableDeferredLighting: true,
+			enableEarlyZPrepass: true,
+			enableOcclusionCulling: true,
+		});
 	}
 	if (preference === "webgl") {
 		if (!platform.hasWebGL2) {
@@ -91,7 +98,11 @@ function createBackend(
 		return new WebGLBackend({ enableEarlyZPrepass: true });
 	}
 	if (platform.hasWebGPU) {
-		return new WebGPUBackend({ enableDeferredLighting: true, enableEarlyZPrepass: true });
+		return new WebGPUBackend({
+			enableDeferredLighting: true,
+			enableEarlyZPrepass: true,
+			enableOcclusionCulling: true,
+		});
 	}
 	if (platform.hasWebGL2) {
 		return new WebGLBackend({ enableEarlyZPrepass: true });
@@ -184,6 +195,9 @@ async function bootDemo(): Promise<DemoState> {
 	await renderer.initialize();
 	await renderer.warmup({ includeCorePasses: true });
 
+	// Register FXAA pass
+	renderer.postProcess.registerPass(new FastApproximateAntiAliasingPass({ enabled: true }));
+
 	// Initialize Physics
 	const physics = new PhysicsSystem({
 		adapter: new RapierWorkerPhysicsAdapter({
@@ -214,6 +228,7 @@ async function bootDemo(): Promise<DemoState> {
 		friction: 0.3,
 		backend: preference,
 		maxObjects: 150,
+		fxaa: true,
 	};
 
 	const diagnostics: DemoDiagnostics = {
@@ -256,15 +271,9 @@ async function bootDemo(): Promise<DemoState> {
 // Physics Container Creation
 // ----------------------------------------------------
 function createContainer(state: DemoState): void {
-	const groundMat = new PBRMaterial();
-	groundMat.albedo = { r: 35, g: 39, b: 50 };
-	groundMat.roughness = 0.8;
-	groundMat.metalness = 0.15;
+	const groundMat = new UnlitMaterial({ diffuse: { r: 35, g: 39, b: 50 } });
 
-	const wallMat = new PBRMaterial();
-	wallMat.albedo = { r: 48, g: 52, b: 67 };
-	wallMat.roughness = 0.9;
-	wallMat.metalness = 0.05;
+	const wallMat = new UnlitMaterial({ diffuse: { r: 48, g: 52, b: 67 } });
 
 	const size = 16;
 	const height = 5;
@@ -559,37 +568,54 @@ function updateHUD(state: DemoState, deltaTimeSeconds: number): void {
 // Event Bindings & Orbit Controls
 // ----------------------------------------------------
 function bindOrbitControls(state: DemoState): void {
-	let activePointerId: number | null = null;
-	let lastX = 0;
-	let lastY = 0;
+	const activePointers: Map<number, { x: number; y: number }> = new Map();
+	let prevPinchDist = 0;
 
 	canvas.addEventListener("pointerdown", (event) => {
-		// Ignore right click or other pointer events
-		if (event.button !== 0) return;
-		activePointerId = event.pointerId;
-		lastX = event.clientX;
-		lastY = event.clientY;
+		activePointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
 		canvas.setPointerCapture(event.pointerId);
+
+		if (activePointers.size === 2) {
+			const pts = Array.from(activePointers.values());
+			prevPinchDist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+		}
 	});
 
 	canvas.addEventListener("pointermove", (event) => {
-		if (activePointerId !== event.pointerId) return;
-		const dx = event.clientX - lastX;
-		const dy = event.clientY - lastY;
-		lastX = event.clientX;
-		lastY = event.clientY;
-		if (dx === 0 && dy === 0) return;
+		const prev = activePointers.get(event.pointerId);
+		if (!prev) return;
 
-		state.camera.rotate(dx, dy);
-		state.scene.updateWorldMatrices();
-		state.renderer.requestRender("camera");
+		if (activePointers.size === 1) {
+			const dx = event.clientX - prev.x;
+			const dy = event.clientY - prev.y;
+			if (dx !== 0 || dy !== 0) {
+				state.camera.rotate(dx, dy);
+				state.scene.updateWorldMatrices();
+				state.renderer.requestRender("camera");
+			}
+			activePointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+		} else if (activePointers.size === 2) {
+			activePointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+
+			const pts = Array.from(activePointers.values());
+			const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+			const delta = prevPinchDist - dist;
+
+			state.camera.zoom(delta);
+			state.scene.updateWorldMatrices();
+			state.renderer.requestRender("camera");
+
+			prevPinchDist = dist;
+		}
 	});
 
 	const clearPointer = (event: PointerEvent) => {
-		if (activePointerId !== event.pointerId) return;
-		activePointerId = null;
+		activePointers.delete(event.pointerId);
 		if (canvas.hasPointerCapture(event.pointerId)) {
 			canvas.releasePointerCapture(event.pointerId);
+		}
+		if (activePointers.size < 2) {
+			prevPinchDist = 0;
 		}
 	};
 	canvas.addEventListener("pointerup", clearPointer);
@@ -621,6 +647,19 @@ function createTweakpane(state: DemoState): void {
 
 	// Spawn Objects Folder
 	const spawnFolder = pane.addFolder({ title: "Spawn Objects", expanded: true });
+
+	// Single Spawners for precise touch spawning
+	spawnFolder.addButton({ title: "Spawn Box (B)" }).on("click", () => {
+		spawnObject(state, "box");
+	});
+	spawnFolder.addButton({ title: "Spawn Sphere (S)" }).on("click", () => {
+		spawnObject(state, "sphere");
+	});
+	spawnFolder.addButton({ title: "Spawn Cylinder (C)" }).on("click", () => {
+		spawnObject(state, "cylinder");
+	});
+
+	// Batch Spawners
 	spawnFolder.addButton({ title: "Spawn 10 Boxes" }).on("click", () => {
 		for (let i = 0; i < 10; i++) spawnObject(state, "box");
 	});
@@ -679,6 +718,17 @@ function createTweakpane(state: DemoState): void {
 		step: 10,
 		label: "Max Objects",
 	});
+
+	settingsFolder
+		.addBinding(state.settings, "fxaa", {
+			label: "FXAA Anti-Aliasing",
+		})
+		.on("change", (ev) => {
+			const pass = state.renderer.postProcess.getPass("fxaa");
+			if (pass) {
+				pass.setEnabled(ev.value);
+			}
+		});
 
 	settingsFolder
 		.addBinding(state.settings, "backend", {
