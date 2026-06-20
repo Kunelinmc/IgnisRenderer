@@ -1236,6 +1236,50 @@ export class WebGLProgramLibrary {
 		return this._environmentProgram;
 	}
 
+	/**
+	 * Attempts to resolve the environment program without blocking on shader status.
+	 *
+	 * @returns The cached/finalized environment program, or `null` while compiling.
+	 * @sideEffects May enqueue program compilation or finalize a ready program.
+	 */
+	public tryGetEnvironmentProgram(): WebGLEnvironmentProgram | null {
+		if (this._environmentProgram) {
+			return this._environmentProgram;
+		}
+		const program = this._tryCreateProgram(
+			this._shaderSource("environmentVertex"),
+			this._shaderSource("environmentFragment"),
+			"WebGLEnvironmentProgram",
+		);
+		if (!program) {
+			return null;
+		}
+		this._environmentProgram = {
+			program,
+			uniforms: {
+				environmentMap: this._gl.getUniformLocation(program, "uEnvironmentMap"),
+				environmentBasisRight: this._gl.getUniformLocation(program, "uEnvironmentBasisRight"),
+				environmentBasisUp: this._gl.getUniformLocation(program, "uEnvironmentBasisUp"),
+				environmentBasisBackward: this._gl.getUniformLocation(program, "uEnvironmentBasisBackward"),
+				environmentIsOrthographic: this._gl.getUniformLocation(program, "uEnvironmentIsOrthographic"),
+				environmentMapIsLinear: this._gl.getUniformLocation(program, "uEnvironmentMapIsLinear"),
+				environmentBackgroundTint: this._gl.getUniformLocation(
+					program,
+					"uEnvironmentBackgroundTint"
+				),
+				environmentBackgroundExposure: this._gl.getUniformLocation(
+					program,
+					"uEnvironmentBackgroundExposure"
+				),
+				environmentBackgroundStrength: this._gl.getUniformLocation(
+					program,
+					"uEnvironmentBackgroundStrength"
+				),
+			},
+		};
+		return this._environmentProgram;
+	}
+
 	public getPresentProgram(): WebGLPresentProgram {
 		if (this._presentProgram) {
 			return this._presentProgram;
@@ -1311,6 +1355,37 @@ export class WebGLProgramLibrary {
 		return this._particleProgram;
 	}
 
+	public tryGetParticleProgram(): WebGLParticleProgram | null {
+		if (this._particleProgram) {
+			return this._particleProgram;
+		}
+		const program = this._tryCreateProgram(
+			this._shaderSource("particleVertex"),
+			this._shaderSource("particleFragment"),
+			"WebGLParticleProgram",
+		);
+		if (!program) {
+			return null;
+		}
+		this._particleProgram = {
+			program,
+			uniforms: {
+				viewProjection: this._gl.getUniformLocation(program, "uViewProjection"),
+				basisRight: this._gl.getUniformLocation(program, "uBasisRight"),
+				basisUp: this._gl.getUniformLocation(program, "uBasisUp"),
+				particleMap: this._gl.getUniformLocation(program, "uParticleMap"),
+				uvTransformA: this._gl.getUniformLocation(program, "uUvTransformA"),
+				uvTransformB: this._gl.getUniformLocation(program, "uUvTransformB"),
+				mapIsLinear: this._gl.getUniformLocation(program, "uMapIsLinear"),
+				cameraPosition: this._gl.getUniformLocation(program, "uCameraPosition"),
+				fogParams0: this._gl.getUniformLocation(program, "uFogParams0"),
+				fogParams1: this._gl.getUniformLocation(program, "uFogParams1"),
+				oitPassMode: this._gl.getUniformLocation(program, "uOITPassMode"),
+			},
+		};
+		return this._particleProgram;
+	}
+
 	public getShadowDepthProgram(): WebGLShadowDepthProgram {
 		if (this._shadowDepthProgram) {
 			return this._shadowDepthProgram;
@@ -1320,6 +1395,27 @@ export class WebGLProgramLibrary {
 			this._shaderSource("shadowDepthFragment"),
 			"WebGLShadowDepthProgram",
 		);
+		this._shadowDepthProgram = {
+			program,
+			uniforms: {
+				mvp: this._gl.getUniformLocation(program, "uMvp"),
+			},
+		};
+		return this._shadowDepthProgram;
+	}
+
+	public tryGetShadowDepthProgram(): WebGLShadowDepthProgram | null {
+		if (this._shadowDepthProgram) {
+			return this._shadowDepthProgram;
+		}
+		const program = this._tryCreateProgram(
+			this._shaderSource("shadowDepthVertex"),
+			this._shaderSource("shadowDepthFragment"),
+			"WebGLShadowDepthProgram",
+		);
+		if (!program) {
+			return null;
+		}
 		this._shadowDepthProgram = {
 			program,
 			uniforms: {
@@ -1348,6 +1444,29 @@ export class WebGLProgramLibrary {
 		return this._shadowTransmittanceProgram;
 	}
 
+	public tryGetShadowTransmittanceProgram():
+		WebGLShadowTransmittanceProgram | null {
+		if (this._shadowTransmittanceProgram) {
+			return this._shadowTransmittanceProgram;
+		}
+		const program = this._tryCreateProgram(
+			this._shaderSource("shadowDepthVertex"),
+			this._shaderSource("shadowTransmittanceFragment"),
+			"WebGLShadowTransmittanceProgram",
+		);
+		if (!program) {
+			return null;
+		}
+		this._shadowTransmittanceProgram = {
+			program,
+			uniforms: {
+				mvp: this._gl.getUniformLocation(program, "uMvp"),
+				transmittance: this._gl.getUniformLocation(program, "uTransmittance"),
+			},
+		};
+		return this._shadowTransmittanceProgram;
+	}
+
 	public getCopyProgram(): WebGLCopyProgram {
 		if (this._copyProgram) {
 			return this._copyProgram;
@@ -1366,6 +1485,27 @@ export class WebGLProgramLibrary {
 		return this._copyProgram;
 	}
 
+	public tryGetCopyProgram(): WebGLCopyProgram | null {
+		if (this._copyProgram) {
+			return this._copyProgram;
+		}
+		const program = this._tryCreateProgram(
+			this._shaderSource("presentVertex"),
+			this._shaderSource("copyFragment"),
+			"WebGLCopyProgram",
+		);
+		if (!program) {
+			return null;
+		}
+		this._copyProgram = {
+			program,
+			uniforms: {
+				sourceMap: this._gl.getUniformLocation(program, "uSourceMap"),
+			},
+		};
+		return this._copyProgram;
+	}
+
 	public getOITResolveProgram(): WebGLOITResolveProgram {
 		if (this._oitResolveProgram) {
 			return this._oitResolveProgram;
@@ -1375,6 +1515,29 @@ export class WebGLProgramLibrary {
 			this._shaderSource("oitResolveFragment"),
 			"WebGLOITResolveProgram",
 		);
+		this._oitResolveProgram = {
+			program,
+			uniforms: {
+				sceneColor: this._gl.getUniformLocation(program, "uSceneColor"),
+				oitAccumMap: this._gl.getUniformLocation(program, "uOITAccumMap"),
+				oitRevealMap: this._gl.getUniformLocation(program, "uOITRevealMap"),
+			},
+		};
+		return this._oitResolveProgram;
+	}
+
+	public tryGetOITResolveProgram(): WebGLOITResolveProgram | null {
+		if (this._oitResolveProgram) {
+			return this._oitResolveProgram;
+		}
+		const program = this._tryCreateProgram(
+			this._shaderSource("presentVertex"),
+			this._shaderSource("oitResolveFragment"),
+			"WebGLOITResolveProgram",
+		);
+		if (!program) {
+			return null;
+		}
 		this._oitResolveProgram = {
 			program,
 			uniforms: {

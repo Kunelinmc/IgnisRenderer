@@ -1475,12 +1475,12 @@ async function testWarmupCollectsPostProcessHintsFromPlanOrder() {
 	);
 
 	assert.deepEqual(calls, [
+		"present",
 		"WebGLSSAORawProgram",
 		"WebGLSSAOBlurProgram",
 		"WebGLSSAOCombineProgram",
 		"WebGLBloomProgram",
 		"WebGLFXAAProgram",
-		"present",
 	]);
 }
 

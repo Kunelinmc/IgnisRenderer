@@ -98,6 +98,10 @@ import {
 	type WebGLProgramWarmupHandle,
 } from "./WebGLProgramCompiler";
 import {
+	WebGLProgramWarmupQueue,
+	type WebGLProgramWarmupPriority,
+} from "./WebGLProgramWarmupQueue";
+import {
 	DEFAULT_DEFERRED_UPLOAD_BYTES_PER_FRAME,
 	DEFAULT_DEFERRED_UPLOADS_PER_FRAME,
 	WebGLTextureRegistry,
@@ -106,7 +110,6 @@ import type {
 	ShaderBackendCompileStage,
 	ShaderRuntime,
 } from "../../shaders/runtime";
-import type { ShaderCompileError } from "../../shaders/runtime";
 import { ShaderSource, type WebGLSceneLightLimits } from "../../shaders/ShaderSource";
 import type {
 	WarmupPhaseCounters,
@@ -672,22 +675,19 @@ export class WebGLFrameExecutor {
 		options: WarmupOptions = {}
 	): Promise<WarmupPhaseCounters> {
 		let skipped = 0;
-		const errors: ShaderCompileError[] = [];
-		const handles: WebGLProgramWarmupHandle[] = [];
-		let enqueueFailures = 0;
 		const yieldController = createWarmupYieldController(options);
+		const queue = new WebGLProgramWarmupQueue();
 
-		const enqueue = async (
+		const enqueue = (
 			label: string,
+			priority: WebGLProgramWarmupPriority,
 			action: () => unknown | Promise<unknown>
-		): Promise<void> => {
-			try {
-				handles.push(...(await this._collectWarmupHandles(action)));
-			} catch (error) {
-				enqueueFailures++;
-				errors.push(toShaderCompileError(error, "webgl", label));
-			}
-			await yieldController.yieldIfNeeded();
+		): void => {
+			queue.enqueue({
+				label,
+				priority,
+				action: () => this._collectWarmupHandles(action),
+			});
 		};
 
 		const materialWarmupModes: ShaderTargetMode[] =
@@ -702,7 +702,7 @@ export class WebGLFrameExecutor {
 		const builtinDepthVariants = this._collectWarmupDepthVariants(
 			plan.materials
 		);
-		await enqueue("WebGLSceneSource:builtin", () =>
+		enqueue("WebGLSceneSource:builtin", "core", () =>
 			ShaderSource.prepareMany(
 				[...builtinSceneVariants.values()].flatMap((variant) => [
 					{
@@ -723,7 +723,7 @@ export class WebGLFrameExecutor {
 			)
 		);
 		for (const [variantKey, variant] of builtinSceneVariants) {
-			await enqueue(`WebGLSceneProgram:builtin:${variantKey}`, () => {
+			enqueue(`WebGLSceneProgram:builtin:${variantKey}`, "core", () => {
 				return this._warmupProgramHandle(
 					"warmupSceneProgram",
 					"getSceneProgram",
@@ -735,8 +735,9 @@ export class WebGLFrameExecutor {
 		}
 		if (this._enableEarlyZPrepass) {
 			for (const [variantKey, variant] of builtinDepthVariants) {
-				await enqueue(
+				enqueue(
 					`WebGLSceneDepthPrepassProgram:builtin:${variantKey}`,
+					"core",
 					() => {
 						return this._warmupProgramHandle(
 							"warmupSceneDepthPrepassProgram",
@@ -754,17 +755,22 @@ export class WebGLFrameExecutor {
 				continue;
 			}
 			for (const mode of materialWarmupModes) {
-				await enqueue(`WebGLSceneProgram:material:${material.shaderId}:${mode}`, () => {
-					return this._warmupProgramHandle(
-						"warmupSceneProgram",
-						"getSceneProgram",
-						material,
-						mode,
-					);
-				});
+				enqueue(
+					`WebGLSceneProgram:material:${material.shaderId}:${mode}`,
+					"core",
+					() => {
+						return this._warmupProgramHandle(
+							"warmupSceneProgram",
+							"getSceneProgram",
+							material,
+							mode,
+						);
+					}
+				);
 				if (this._enableEarlyZPrepass) {
-					await enqueue(
+					enqueue(
 						`WebGLSceneDepthPrepassProgram:material:${material.shaderId}:${mode}`,
+						"core",
 						() => {
 							return this._warmupProgramHandle(
 								"warmupSceneDepthPrepassProgram",
@@ -779,7 +785,7 @@ export class WebGLFrameExecutor {
 		}
 
 		if (plan.enableEnvironment) {
-			await enqueue("WebGLEnvironmentProgram", () => {
+			enqueue("WebGLEnvironmentProgram", "optional", () => {
 				return this._warmupProgramHandle(
 					"warmupEnvironmentProgram",
 					"getEnvironmentProgram",
@@ -787,7 +793,7 @@ export class WebGLFrameExecutor {
 			});
 		}
 		if (plan.enableShadows) {
-			await enqueue("WebGLShadowDepthProgram", () => {
+			enqueue("WebGLShadowDepthProgram", "optional", () => {
 				return this._warmupProgramHandle(
 					"warmupShadowDepthProgram",
 					"getShadowDepthProgram",
@@ -795,7 +801,7 @@ export class WebGLFrameExecutor {
 			});
 		}
 		if (plan.enableParticles) {
-			await enqueue("WebGLParticleProgram", () => {
+			enqueue("WebGLParticleProgram", "optional", () => {
 				return this._warmupProgramHandle(
 					"warmupParticleProgram",
 					"getParticleProgram",
@@ -803,7 +809,7 @@ export class WebGLFrameExecutor {
 			});
 		}
 		if (context.features?.enableOIT) {
-			await enqueue("WebGLOITResolveProgram", () => {
+			enqueue("WebGLOITResolveProgram", "optional", () => {
 				return this._warmupProgramHandle(
 					"warmupOITResolveProgram",
 					"getOITResolveProgram",
@@ -823,7 +829,7 @@ export class WebGLFrameExecutor {
 				continue;
 			}
 			warmedPassImplementations.add(passId);
-			await enqueue(`WebGLPostWarmup:${passId}`, async () => {
+			enqueue(`WebGLPostWarmup:${passId}`, "postprocess", async () => {
 				const warmupContext =
 					this._postProcessBridge.getPassWarmupExecutionContext(
 						implementation
@@ -842,7 +848,7 @@ export class WebGLFrameExecutor {
 		}
 
 		if (context.postProcess.isEnabled("gamma")) {
-			await enqueue("WebGLPresentProgram", () => {
+			enqueue("WebGLPresentProgram", "core", () => {
 				return this._warmupProgramHandle(
 					"warmupPresentProgram",
 					"getPresentProgram",
@@ -850,11 +856,13 @@ export class WebGLFrameExecutor {
 			});
 		}
 
-		const finalized = await this._finalizeWarmupHandles(handles);
-		errors.push(...finalized.errors);
-		const failed = enqueueFailures + finalized.failed;
-		const compiled = finalized.compiled;
-		const total = handles.length + enqueueFailures + skipped;
+		const result = await queue.run(yieldController, options);
+		const errors = result.errors.map((entry) =>
+			toShaderCompileError(entry.error, "webgl", entry.label)
+		);
+		const failed = result.enqueueFailures + result.failed;
+		const compiled = result.compiled;
+		const total = result.handles + result.enqueueFailures + skipped;
 
 		return {
 			phase: "webgl-programs",
@@ -1023,64 +1031,6 @@ export class WebGLFrameExecutor {
 			return createCompletedWebGLWarmupHandle(getMethod);
 		}
 		throw new Error(`WebGL program library does not expose ${warmupMethod}.`);
-	}
-
-	private async _finalizeWarmupHandles(
-		handles: WebGLProgramWarmupHandle[]
-	): Promise<{
-		compiled: number;
-		failed: number;
-		errors: ShaderCompileError[];
-	}> {
-		const pending = Array.from(
-			new Map(handles.map((handle) => [handle.label, handle])).values()
-		);
-		const errors: ShaderCompileError[] = [];
-		let compiled = 0;
-		let failed = 0;
-
-		if (pending.length > 0) {
-			await yieldWebGLWarmupFrame();
-		}
-		while (pending.length > 0) {
-			let progressed = false;
-			for (let i = 0; i < pending.length; ) {
-				const handle = pending[i];
-				let complete = false;
-				try {
-					complete = handle.isComplete();
-				} catch (error) {
-					failed++;
-					errors.push(toShaderCompileError(error, "webgl", handle.label));
-					pending.splice(i, 1);
-					progressed = true;
-					continue;
-				}
-				if (!complete) {
-					i++;
-					continue;
-				}
-				try {
-					handle.finalize();
-					compiled++;
-				} catch (error) {
-					failed++;
-					errors.push(toShaderCompileError(error, "webgl", handle.label));
-				}
-				pending.splice(i, 1);
-				progressed = true;
-				await yieldWebGLWarmupFrame();
-			}
-			if (pending.length > 0 && !progressed) {
-				await yieldWebGLWarmupFrame();
-			}
-		}
-
-		return {
-			compiled,
-			failed,
-			errors,
-		};
 	}
 
 	private _getWarmupPostProcessDescriptorMap(
@@ -1935,7 +1885,10 @@ export class WebGLFrameExecutor {
 			return false;
 		}
 		const gl = this._gl;
-		const copyProgram = this._programs.getCopyProgram();
+		const copyProgram = this._programs.tryGetCopyProgram();
+		if (!copyProgram) {
+			return false;
+		}
 		gl.bindFramebuffer(gl.FRAMEBUFFER, this._postFramebuffer);
 		this._bindPostSingleColorTarget(this._postColorTexture);
 		gl.viewport(0, 0, this._width, this._height);
@@ -1974,7 +1927,10 @@ export class WebGLFrameExecutor {
 			return;
 		}
 		const gl = this._gl;
-		const resolveProgram = this._programs.getOITResolveProgram();
+		const resolveProgram = this._programs.tryGetOITResolveProgram();
+		if (!resolveProgram) {
+			return;
+		}
 		gl.bindFramebuffer(gl.FRAMEBUFFER, this._sceneFramebuffer);
 		gl.drawBuffers([gl.COLOR_ATTACHMENT0]);
 		gl.viewport(0, 0, this._width, this._height);
@@ -2164,7 +2120,10 @@ export class WebGLFrameExecutor {
 		const environment = context.scene.environment;
 
 		const gl = this._gl;
-		const environmentProgram = this._programs.getEnvironmentProgram();
+		const environmentProgram = this._programs.tryGetEnvironmentProgram();
+		if (!environmentProgram) {
+			return;
+		}
 		const resolved = this._textures.getEnvironmentTexture(environmentBackgroundTexture);
 		const view = context.camera.viewMatrix.elements;
 		const isOrthographic = context.camera.type === CameraType.Orthographic;
@@ -2419,17 +2378,4 @@ function createCompletedWebGLWarmupHandle(
 		isComplete: () => true,
 		finalize: () => {},
 	};
-}
-
-function yieldWebGLWarmupFrame(): Promise<void> {
-	return new Promise((resolve) => {
-		const requestFrame = (globalThis as {
-			requestAnimationFrame?: (callback: () => void) => unknown;
-		}).requestAnimationFrame;
-		if (typeof requestFrame === "function") {
-			requestFrame(() => resolve());
-			return;
-		}
-		setTimeout(resolve, 0);
-	});
 }

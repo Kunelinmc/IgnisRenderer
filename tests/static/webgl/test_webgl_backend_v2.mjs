@@ -17,6 +17,7 @@ import { Node } from "../../../src/core/Node.ts";
 import { Scene } from "../../../src/core/Scene.ts";
 import { collectWebGLLights } from "../../../src/renderers/webgl/WebGLLightCollector.ts";
 import { WebGLProgramCompiler } from "../../../src/renderers/webgl/WebGLProgramCompiler.ts";
+import { WebGLProgramWarmupQueue } from "../../../src/renderers/webgl/WebGLProgramWarmupQueue.ts";
 import { WebGLProgramLibrary } from "../../../src/renderers/webgl/WebGLProgramLibrary.ts";
 import {
 	getWebGLSceneVariantKey,
@@ -1645,6 +1646,116 @@ function testProgramCompilerSlotLifecycleAndStaleWarmup() {
 	assert.throws(() => replacement.get(), /destroyed/);
 }
 
+async function testProgramWarmupQueuePrioritizesCoreWork() {
+	const events = [];
+	const queue = new WebGLProgramWarmupQueue({
+		waitForSlice: async () => {},
+	});
+	const yieldController = { yieldIfNeeded: async () => {} };
+	const createHandle = (label) => ({
+		label,
+		isComplete: () => true,
+		finalize: () => {
+			events.push(`finalize:${label}`);
+		},
+	});
+
+	queue.enqueue({
+		label: "post",
+		priority: "postprocess",
+		action: () => {
+			events.push("action:post");
+			return [createHandle("post")];
+		},
+	});
+	queue.enqueue({
+		label: "core",
+		priority: "core",
+		action: () => {
+			events.push("action:core");
+			return [createHandle("core")];
+		},
+	});
+	queue.enqueue({
+		label: "optional",
+		priority: "optional",
+		action: () => {
+			events.push("action:optional");
+			return [createHandle("optional")];
+		},
+	});
+
+	const result = await queue.run(yieldController);
+
+	assert.deepEqual(events, [
+		"action:core",
+		"finalize:core",
+		"action:optional",
+		"finalize:optional",
+		"action:post",
+		"finalize:post",
+	]);
+	assert.equal(result.compiled, 3);
+	assert.equal(result.failed, 0);
+}
+
+async function testProgramWarmupQueueFinalizesOneProgramPerSlice() {
+	let slice = 0;
+	const finalizedAt = [];
+	const queue = new WebGLProgramWarmupQueue({
+		waitForSlice: async () => {
+			slice++;
+		},
+	});
+	const yieldController = { yieldIfNeeded: async () => {} };
+
+	queue.enqueue({
+		label: "batch",
+		priority: "core",
+		action: () => ["a", "b", "c"].map((label) => ({
+			label,
+			isComplete: () => true,
+			finalize: () => {
+				finalizedAt.push(slice);
+			},
+		})),
+	});
+
+	const result = await queue.run(yieldController);
+
+	assert.deepEqual(finalizedAt, [0, 1, 2]);
+	assert.equal(result.compiled, 3);
+	assert.equal(result.failed, 0);
+}
+
+async function testProgramWarmupQueueReportsStaleHandles() {
+	const queue = new WebGLProgramWarmupQueue({
+		waitForSlice: async () => {},
+	});
+	const yieldController = { yieldIfNeeded: async () => {} };
+
+	queue.enqueue({
+		label: "stale",
+		priority: "core",
+		action: () => [{
+			label: "stale",
+			isComplete: () => {
+				throw new Error("stale handle");
+			},
+			finalize: () => {
+				throw new Error("should not finalize");
+			},
+		}],
+	});
+
+	const result = await queue.run(yieldController);
+
+	assert.equal(result.compiled, 0);
+	assert.equal(result.failed, 1);
+	assert.equal(result.errors[0].label, "stale");
+	assert.match(String(result.errors[0].error), /stale handle/);
+}
+
 function testLightCollectorShadowBias() {
 	const light = new DirectionalLight();
 	const shadowMap = new ShadowMap(1024, {
@@ -2931,6 +3042,9 @@ async function run() {
 	testProgramCompilerValidationIsOptIn();
 	testProgramCompilerValidationWarnsWhenEnabled();
 	testProgramCompilerSlotLifecycleAndStaleWarmup();
+	await testProgramWarmupQueuePrioritizesCoreWork();
+	await testProgramWarmupQueueFinalizesOneProgramPerSlice();
+	await testProgramWarmupQueueReportsStaleHandles();
 	testLightCollectorShadowBias();
 	testLightCollectorPCSSShadowParams();
 	testLightCollectorDirectionalCSMShadowData();

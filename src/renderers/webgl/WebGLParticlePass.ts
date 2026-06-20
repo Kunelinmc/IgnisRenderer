@@ -44,6 +44,22 @@ export interface WebGLParticlePassHost {
 				oitPassMode?: WebGLUniformLocation | string | null;
 			};
 		};
+		tryGetParticleProgram?(): {
+			program: WebGLProgram;
+			uniforms: {
+				viewProjection?: WebGLUniformLocation | string | null;
+				basisRight?: WebGLUniformLocation | string | null;
+				basisUp?: WebGLUniformLocation | string | null;
+				cameraPosition?: WebGLUniformLocation | string | null;
+				fogParams0?: WebGLUniformLocation | string | null;
+				fogParams1?: WebGLUniformLocation | string | null;
+				particleMap?: WebGLUniformLocation | string | null;
+				mapIsLinear?: WebGLUniformLocation | string | null;
+				uvTransformA?: WebGLUniformLocation | string | null;
+				uvTransformB?: WebGLUniformLocation | string | null;
+				oitPassMode?: WebGLUniformLocation | string | null;
+			};
+		} | null;
 	};
 	_textures: {
 		getBaseColorTexture(texture: any | null): {
@@ -117,7 +133,13 @@ export function renderWebGLParticles(
 	}
 
 	const gl = host._gl;
-	const particleProgram = host._programs.getParticleProgram();
+	const particleProgram =
+		typeof host._programs.tryGetParticleProgram === "function" ?
+			host._programs.tryGetParticleProgram()
+		:	host._programs.getParticleProgram();
+	if (!particleProgram) {
+		return;
+	}
 	const view = context.camera.viewMatrix.elements;
 	const incrementalPartial = host._isIncrementalPartial(context);
 	const dirtyRects = host._resolveDirtyRects(context, host._width, host._height);

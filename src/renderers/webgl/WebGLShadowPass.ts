@@ -31,6 +31,9 @@ export interface WebGLShadowPassHost {
 	_programs: {
 		getShadowDepthProgram(): WebGLShadowDepthProgram;
 		getShadowTransmittanceProgram(): WebGLShadowTransmittanceProgram;
+		tryGetShadowDepthProgram?(): WebGLShadowDepthProgram | null;
+		tryGetShadowTransmittanceProgram?():
+			WebGLShadowTransmittanceProgram | null;
 	};
 	_geometry: {
 		getGeometry(packet: DrawPacket): {
@@ -105,6 +108,16 @@ export function renderWebGLShadows(
 		return;
 	}
 
+	const gl = host._gl;
+	const shadowProgram =
+		typeof host._programs.tryGetShadowDepthProgram === "function" ?
+			host._programs.tryGetShadowDepthProgram()
+		:	host._programs.getShadowDepthProgram();
+	if (!shadowProgram) {
+		host._shadowAtlasTileSize = 0;
+		return;
+	}
+
 	host._shadowAtlasTileSize = maxShadowSize;
 	for (const shadow of lights.directionalShadows) {
 		shadow.atlasTileSize = maxShadowSize;
@@ -113,10 +126,11 @@ export function renderWebGLShadows(
 		shadow.atlasTileSize = maxShadowSize;
 	}
 
-	const gl = host._gl;
-	const shadowProgram = host._programs.getShadowDepthProgram();
 	const packets = context.scene.shadowCasterPackets;
-	const transmitterProgram = host._programs.getShadowTransmittanceProgram();
+	const transmitterProgram =
+		typeof host._programs.tryGetShadowTransmittanceProgram === "function" ?
+			host._programs.tryGetShadowTransmittanceProgram()
+		:	host._programs.getShadowTransmittanceProgram();
 	const transmitterPackets = context.scene.shadowTransmitterPackets;
 
 	gl.bindFramebuffer(gl.FRAMEBUFFER, host._shadowFramebuffer);
@@ -171,6 +185,17 @@ export function renderWebGLShadows(
 	gl.clearColor(1, 1, 1, 1);
 	gl.disable(gl.SCISSOR_TEST);
 	gl.clear(gl.COLOR_BUFFER_BIT);
+	if (!transmitterProgram) {
+		gl.disable(gl.BLEND);
+		gl.depthMask(true);
+		gl.disable(gl.SCISSOR_TEST);
+		gl.colorMask(true, true, true, true);
+		gl.drawBuffers([gl.COLOR_ATTACHMENT0]);
+		gl.bindVertexArray(null);
+		gl.bindFramebuffer(gl.FRAMEBUFFER, host._sceneFramebuffer);
+		gl.viewport(0, 0, host._width, host._height);
+		return;
+	}
 	gl.enable(gl.SCISSOR_TEST);
 	gl.useProgram(transmitterProgram.program);
 	for (let i = 0; i < directionalCount; i++) {

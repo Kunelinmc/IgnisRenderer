@@ -21,6 +21,11 @@ requested work completes.
 - `yieldIntervalMs: 0` must disable cooperative timer or idle yields.
 - `Renderer.warmup(options)` must remain awaitable and must resolve to
   `WarmupReport` after requested work completes.
+- WebGL backend warmup must prioritize core scene and presentation programs
+  before optional environment, shadow, particle, OIT, and post-process programs.
+- WebGL backend warmup should split program finalization across scheduling
+  slices so shader status and link checks do not all run in one main-thread
+  loop.
 - Applications that do not require warmup completion before interaction should
   start idle warmup without awaiting it during bootstrap.
 
@@ -30,6 +35,13 @@ void renderer.warmup({ scheduling: "idle" }).then((report) => {
 	if (report.failed > 0) {
 		console.warn("Renderer warmup failures", report.errors);
 	}
+});
+```
+
+```ts
+void renderer.warmup({
+	scheduling: "idle",
+	yieldIntervalMs: 4,
 });
 ```
 
