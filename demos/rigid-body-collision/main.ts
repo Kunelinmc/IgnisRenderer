@@ -14,6 +14,7 @@ import {
 	WebGPUBackend,
 	PhysicsSystem,
 	RapierWorkerPhysicsAdapter,
+	CameraShakePlugin,
 } from "../../src/index";
 import type { MeshInstance } from "../../src/index";
 
@@ -57,6 +58,7 @@ interface DemoState {
 		sleeping?: any;
 		activeBackend?: any;
 	};
+	cameraShake: CameraShakePlugin;
 }
 
 const canvas = document.getElementById("canvas3d") as HTMLCanvasElement;
@@ -235,6 +237,7 @@ async function bootDemo(): Promise<DemoState> {
 		settings,
 		diagnostics,
 		paneBindings: {},
+		cameraShake: new CameraShakePlugin().attach(renderer),
 	};
 
 	// Create static boundary container (Ground and 4 walls)
@@ -500,10 +503,17 @@ function applyExplosion(state: DemoState): void {
 		// Calculate outward impulse force
 		const forceX = (dx / dist) * 4.5;
 		const forceZ = (dz / dist) * 4.5;
-		const forceY = 6.0 + Math.random() * 4.0; // strong upward boost
+		const forceY = 10.0 + Math.random() * 4.0; // strong upward boost
 
 		state.physics.applyImpulse(item.node, { x: forceX, y: forceY, z: forceZ });
 	}
+
+	// Trigger camera shake effect
+	state.cameraShake.trigger({
+		intensity: 0.8,
+		durationSeconds: 0.4,
+		frequencyHz: 10,
+	});
 }
 
 function clearSpawnedObjects(state: DemoState): void {
