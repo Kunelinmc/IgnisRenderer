@@ -239,7 +239,7 @@ async function runRapierCollisionFilterContract() {
 		{ mode: "explicit", shape: { kind: "sphere", radius: 1 } },
 		{ kind: "sphere", radius: 1 }
 	);
-	adapter.setCollisionMask("filter", "collider", 0x00020001);
+	adapter.setColliderCollisionFilter("filter", "collider", 0x00020001);
 
 	assert.ok(
 		fakeRapier.stats.collisionGroupUpdates.includes(0x00020001),
@@ -277,7 +277,7 @@ async function runAmmoCollisionFilterContract() {
 		{ mode: "explicit", shape: { kind: "sphere", radius: 1 } },
 		{ kind: "sphere", radius: 1 }
 	);
-	adapter.setCollisionMask("filter", "collider", 0x00040002);
+	adapter.setColliderCollisionFilter("filter", "collider", 0x00040002);
 
 	assert.ok(
 		fakeAmmo.stats.addRigidBodyCalls.some(

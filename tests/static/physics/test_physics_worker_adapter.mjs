@@ -266,16 +266,22 @@ async function testWorkerAdapterFallsBackToPostMessageTransport(adapterType) {
 		friction: 0.4,
 		restitution: 0.8,
 	});
+	adapter.setBodyGravityScale("main", "body-1", 0.5);
+	adapter.setColliderCollisionFilter("main", "collider-1", 0x00010000);
 
 	const stepResult = await adapter.stepWorldAsync("main", 0.016);
 	assert.equal(stepResult.activeBodies, 1);
 	assert.equal(dispatchPayloads.length, 1);
-	assert.equal(dispatchPayloads[0].commands.length, 4);
+	assert.equal(dispatchPayloads[0].commands.length, 6);
 	assert.equal(dispatchPayloads[0].commands[3].type, "setColliderMaterial");
 	assert.deepEqual(dispatchPayloads[0].commands[3].material, {
 		friction: 0.4,
 		restitution: 0.8,
 	});
+	assert.equal(dispatchPayloads[0].commands[4].type, "setBodyGravityScale");
+	assert.equal(dispatchPayloads[0].commands[4].scale, 0.5);
+	assert.equal(dispatchPayloads[0].commands[5].type, "setColliderCollisionFilter");
+	assert.equal(dispatchPayloads[0].commands[5].filter, 0x00010000);
 
 	const stats = adapter.getWorkerPoolStats();
 	assert.equal(stats?.transportMode, "post-message");

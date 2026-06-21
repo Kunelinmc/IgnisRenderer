@@ -96,7 +96,7 @@ function testColliderSensorAndMask() {
 		restitution: 0.8,
 	});
 
-	adapter.setCollisionMask("mask", "collider-a", 0);
+	adapter.setColliderCollisionFilter("mask", "collider-a", 0x00010000);
 	step = adapter.stepWorld("mask", 0.016);
 	assert.ok(step.events.some((event) => event.type === "triggerEnd"));
 

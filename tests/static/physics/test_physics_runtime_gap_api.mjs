@@ -10,7 +10,7 @@ class TrackingPhysicsAdapter extends SimplePhysicsAdapter {
 		this.destroyControllerCalls = [];
 		this.destroyColliderCalls = [];
 		this.sensorCalls = [];
-		this.maskCalls = [];
+		this.filterCalls = [];
 		this.materialCalls = [];
 	}
 
@@ -34,9 +34,9 @@ class TrackingPhysicsAdapter extends SimplePhysicsAdapter {
 		super.setColliderSensor(worldId, colliderId, isSensor);
 	}
 
-	setCollisionMask(worldId, colliderId, mask) {
-		this.maskCalls.push({ worldId, colliderId, mask });
-		super.setCollisionMask(worldId, colliderId, mask);
+	setColliderCollisionFilter(worldId, colliderId, filter) {
+		this.filterCalls.push({ worldId, colliderId, filter });
+		super.setColliderCollisionFilter(worldId, colliderId, filter);
 	}
 
 	setColliderMaterial(worldId, colliderId, material) {
@@ -190,10 +190,13 @@ function testColliderRuntimeApi() {
 		),
 	);
 
-	physics.setCollisionMask(leftCollider, 0);
+	physics.setColliderCollisionFilter(leftCollider, {
+		groups: ["default"],
+		collidesWith: [],
+	});
 	report = physics.step(0.016);
-	assert.equal(adapter.maskCalls.length, 1);
-	assert.equal(adapter.maskCalls[0].mask, 0);
+	assert.equal(adapter.filterCalls.length, 4);
+	assert.equal(adapter.filterCalls.at(-1).filter, 0x00010000);
 	assert.ok(report.events.some((event) => event.type === "triggerEnd"));
 
 	physics.setColliderFriction(rightCollider, 0.4);
