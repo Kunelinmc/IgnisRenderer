@@ -253,6 +253,25 @@ export class PhysicsSystem extends EventEmitter<PhysicsEvents> {
 	}
 
 	/**
+	 * Returns the name of the active physics engine adapter.
+	 *
+	 * @returns The adapter ID (e.g. "rapier-worker" or "rapier-fallback").
+	 */
+	public getAdapterId(): string {
+		return this._adapter.id;
+	}
+
+	/**
+	 * Checks if the physics system is currently using a fallback adapter.
+	 *
+	 * @returns True if using a fallback adapter, false otherwise.
+	 */
+	public isUsingFallback(): boolean {
+		const anyAdapter = this._adapter as any;
+		return anyAdapter.usingFallbackAdapter === true || anyAdapter._usingFallbackAdapter === true;
+	}
+
+	/**
 	 * Binds `PhysicsBodyNode` attachment and removal to a scene lifecycle.
 	 *
 	 * @param scene - Scene whose public node lifecycle should be observed.

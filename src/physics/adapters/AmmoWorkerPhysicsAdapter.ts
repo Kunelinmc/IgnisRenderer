@@ -84,6 +84,17 @@ export class AmmoWorkerPhysicsAdapter implements IPhysicsEngineAdapter {
 	private _defaultTimeoutMs?: number;
 	private _initialized = false;
 	private _usingFallbackAdapter = false;
+
+	/**
+	 * Indicates whether this adapter is operating in fallback mode
+	 * (i.e., the worker failed to initialize and a direct adapter was
+	 * substituted).
+	 *
+	 * @internal Used by PhysicsSystem.isUsingFallback().
+	 */
+	public get usingFallbackAdapter(): boolean {
+		return this._usingFallbackAdapter;
+	}
 	private _pendingCommands: AmmoWorkerCommand[] = [];
 	private _worldIds = new Set<string>();
 	private _stepChain: Promise<void> = Promise.resolve();

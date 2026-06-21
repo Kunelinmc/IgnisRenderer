@@ -355,6 +355,15 @@ export class RapierPhysicsAdapter implements IPhysicsEngineAdapter {
 			descriptor.mass
 		);
 
+		if (descriptor.lockTranslations) {
+			const [x, y, z] = descriptor.lockTranslations;
+			this._invoke(rigidBody, ["setEnabledTranslations"], [[!x, !y, !z, true]]);
+		}
+		if (descriptor.lockRotations) {
+			const [x, y, z] = descriptor.lockRotations;
+			this._invoke(rigidBody, ["setEnabledRotations"], [[!x, !y, !z, true]]);
+		}
+
 		if (descriptor.linearVelocity) {
 			this._setVector3(
 				rigidBody,
@@ -1850,12 +1859,12 @@ export class RapierPhysicsAdapter implements IPhysicsEngineAdapter {
 		}
 		if (descriptor.lockTranslations) {
 			const [x, y, z] = descriptor.lockTranslations;
-			this._invoke(bodyDesc, ["setEnabledTranslations"], [[!x, !y, !z]]);
+			this._invoke(bodyDesc, ["enabledTranslations", "setEnabledTranslations"], [[!x, !y, !z]]);
 			this._invoke(bodyDesc, ["restrictTranslations"], [[x, y, z]]);
 		}
 		if (descriptor.lockRotations) {
 			const [x, y, z] = descriptor.lockRotations;
-			this._invoke(bodyDesc, ["setEnabledRotations"], [[!x, !y, !z]]);
+			this._invoke(bodyDesc, ["enabledRotations", "setEnabledRotations"], [[!x, !y, !z]]);
 			this._invoke(bodyDesc, ["restrictRotations"], [[x, y, z]]);
 		}
 
