@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+	<meta charset="UTF-8" />
+	<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+	<title>IgnisRenderer - Orbit Physics Character Control Demo</title>
+	<style>
+		html,
+		body {
+			width: 100%;
+			height: 100%;
+			margin: 0;
+			overflow: hidden;
+			background-color: #f3f4f6;
+		}
+
+		#canvas3d {
+			display: block;
+			width: 100vw;
+			height: 100vh;
+			background: radial-gradient(circle at center, #ffffff 0%, #e5e7eb 100%);
+			touch-action: none;
+		}
+
+		/* Overlay instructions */
+		#instructions {
+			position: absolute;
+			top: 20px;
+			left: 20px;
+			color: #1f2937;
+			font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+			font-size: 14px;
+			background: rgba(255, 255, 255, 0.85);
+			padding: 12px 18px;
+			border-radius: 8px;
+			border: 1px solid rgba(0, 0, 0, 0.08);
+			pointer-events: none;
+			backdrop-filter: blur(4px);
+			z-index: 10;
+			box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+		}
+
+		#instructions h3 {
+			margin: 0 0 6px 0;
+			font-size: 16px;
+			font-weight: 600;
+			color: #111827;
+		}
+
+		#instructions ul {
+			margin: 0;
+			padding-left: 20px;
+		}
+
+		#instructions li {
+			margin-bottom: 4px;
+		}
+	</style>
+</head>
+
+<body>
+	<div id="instructions">
+		<h3>Third-Person Physics Control Demo</h3>
+		<ul>
+			<li>Use <strong>W, A, S, D</strong> to move character on the ground</li>
+			<li>Press <strong>Space</strong> to Jump</li>
+			<li>Press <strong>Q</strong> to Spawn a disposable Sphere</li>
+			<li><strong>Click canvas</strong> to lock cursor (<strong>ESC</strong> to release)</li>
+			<li><strong>Scroll wheel</strong> to Zoom</li>
+		</ul>
+	</div>
+	<canvas id="canvas3d"></canvas>
+	<script type="module" src="./main.ts"></script>
+</body>
+
+</html>
