@@ -37,6 +37,16 @@ export interface SceneOptions {
 	shadows?: ShadowManagerOptions;
 }
 
+export interface SceneNodeLifecycleEvent {
+	parent: Node;
+	child: Node;
+}
+
+export interface SceneNodeLifecycleListener {
+	nodeAttached?(event: SceneNodeLifecycleEvent): void;
+	nodeDetached?(event: SceneNodeLifecycleEvent): void;
+}
+
 export class Scene {
 	public readonly root: Node;
 	public readonly ecs: ECSWorld;
@@ -68,6 +78,7 @@ export class Scene {
 	private _spatialSeenEpoch = 0;
 	private _spatialIndexMode: SpatialIndexMode;
 	private _spatialQueryScratch: MeshInstance[] = [];
+	private _nodeLifecycleListeners = new Set<SceneNodeLifecycleListener>();
 
 	constructor(options: SceneOptions = {}) {
 		this.root = new Node({
@@ -100,6 +111,23 @@ export class Scene {
 
 	public remove(node: Node): boolean {
 		return node.parent ? node.parent.removeChild(node) : false;
+	}
+
+	/**
+	 * Subscribes to public scene graph attach and detach events.
+	 *
+	 * @param listener - Listener invoked after public attach or detach calls update
+	 * scene ownership and ECS bindings.
+	 * @returns A disposer that removes the listener.
+	 * @sideEffects Stores the listener until the returned disposer is called.
+	 */
+	public addNodeLifecycleListener(
+		listener: SceneNodeLifecycleListener
+	): () => void {
+		this._nodeLifecycleListeners.add(listener);
+		return () => {
+			this._nodeLifecycleListeners.delete(listener);
+		};
 	}
 
 	public clear(): void {
@@ -336,6 +364,9 @@ export class Scene {
 		this._boundsDirty = true;
 		this.syncNodeToECS();
 		this.invalidate();
+		for (const listener of this._nodeLifecycleListeners) {
+			listener.nodeAttached?.({ parent, child });
+		}
 	}
 
 	public onNodeDetachedFromAPI(_parent: Node, child: Node): void {
@@ -355,6 +386,9 @@ export class Scene {
 		this._decalsCacheDirty = true;
 		this._boundsDirty = true;
 		this.invalidate();
+		for (const listener of this._nodeLifecycleListeners) {
+			listener.nodeDetached?.({ parent: _parent, child });
+		}
 	}
 
 	public invalidate(reason: RenderDirtyReason = "unknown"): void {
