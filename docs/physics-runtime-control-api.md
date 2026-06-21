@@ -1,9 +1,8 @@
 # PhysicsSystem Runtime Body Control API
 
 ## Scope
-This document defines runtime body-control and collider-rebuild contracts for
-`PhysicsSystem`, including read-back, lifecycle teardown, collider runtime
-control, and `Scene` spatial-index binding for mesh query candidate generation.
+This document defines runtime body-control, named collision-filter, collider
+rebuild, and opt-in `Scene` lifecycle contracts for `PhysicsSystem`.
 
 ## Background
 `PhysicsSystem` controls simulation wakeup and step-skipping behavior at system
@@ -27,12 +26,20 @@ high-cost geometry recook.
 - `rebuildColliders(target): PhysicsColliderHandle[]`
 - `removeCollider(collider): void`
 - `setColliderSensor(collider, isSensor): void`
-- `setCollisionMask(collider, mask): void`
+- `defineCollisionLayer(name, bitIndex): void`
+- `setColliderCollisionFilter(collider, filter): void`
 - `setColliderFriction(collider, friction): void`
 - `setColliderRestitution(collider, restitution): void`
+- `setBodyType(target, type): void`
+- `setBodyMass(target, mass): void`
+- `setBodyGravityScale(target, scale): void`
+- `setBodyLinearDamping(target, value): void`
+- `setBodyAngularDamping(target, value): void`
+- `wakeUpBody(target): void`
 - `destroyJoint(joint): void`
 - `destroyCharacterController(controller): void`
 - `bindSceneSpatial(scene): void`
+- `bindSceneLifecycle(scene, options): () => void`
 
 Contract rules:
 
@@ -66,12 +73,31 @@ controller and must not detach the controlled body.
 methods should be treated as no-ops.
 - `setColliderSensor(collider, isSensor)` must update the cached collider
 descriptor and forward to `IPhysicsEngineAdapter.setColliderSensor()`.
-- `setCollisionMask(collider, mask)` must forward the raw adapter collision
-filter mask. Named collision layers are out of scope for this contract.
+- `defineCollisionLayer(name, bitIndex)` must register a unique layer name and a
+unique bit index from `0` through `15`.
+- Unspecified collider collision filters must resolve to group `default` and
+`collidesWith: "all"`.
+- `setColliderCollisionFilter(collider, filter)` must update the cached
+descriptor and forward the encoded adapter collision filter.
+- Unknown collision layer names, duplicate layer names, duplicate bit indexes,
+and out-of-range bit indexes must throw.
 - `setColliderFriction()` and `setColliderRestitution()` must update cached
 collider material and forward through `IPhysicsEngineAdapter.setColliderMaterial()`.
 - Ammo-backed adapters apply collider material updates to the owning rigid body;
 for multi-collider bodies, the last material setter wins.
+- Runtime body property setters must update the cached body descriptor, wake the
+body, and mark the world dirty.
+- `setBodyType()` must preserve existing body, collider, joint, and controller
+handles and must update sleeping-island dynamic-body tracking.
+- `setBodyType(target, "dynamic")` must throw when the body authority is
+`"animation"`.
+- `bindSceneLifecycle(scene, options)` must only auto-attach and auto-detach
+`PhysicsBodyNode` instances.
+- `bindSceneLifecycle()` must default to
+`{ attachExisting: true, detachRemoved: true }` and return an unsubscribe
+function.
+- Reparenting a `PhysicsBodyNode` within the same `Scene` must not detach its
+physics body.
 - For mesh colliders (`mode: "mesh"`), `rebuildColliders(target)` must recook
 only when geometry version/key changes.
 - For mesh colliders, transform-only changes must update transform/spatial state
@@ -102,6 +128,17 @@ const body = physics.attachBody(node, {
 
 physics.setLinearVelocity(body, { x: 2, y: 0, z: 0 });
 physics.applyImpulse(body, { x: 0, y: 1, z: 0 });
+physics.defineCollisionLayer("player", 1);
+const collider = physics.addCollider(body, {
+	mode: "explicit",
+	shape: { kind: "sphere", radius: 1 },
+	collision: { groups: ["player"], collidesWith: ["default"] },
+});
+physics.setColliderCollisionFilter(collider, {
+	groups: ["player"],
+	collidesWith: "all",
+});
+physics.setBodyGravityScale(body, 0.5);
 const velocity = physics.getLinearVelocity(body);
 physics.rebuildColliders(body);
 physics.step(1 / 60);
@@ -123,11 +160,18 @@ missing.
 an infinite value.
 - `Collider restitution must be finite`: `setColliderRestitution()` received
 `NaN` or an infinite value.
+- `Physics collision layer "<name>" is not defined`: a collider filter referenced
+an unregistered layer.
+- `Physics collision layer bitIndex must be between 0 and 15`: layer
+registration used an invalid bit index.
+- `Physics body mass must be a finite positive number`: `setBodyMass()` received
+`NaN`, an infinite value, zero, or a negative value.
 
 ## Compatibility / Breaking Changes
-This contract is partially breaking at mesh-descriptor level and should be
-adopted with migration guidance from `Mesh Collision V2`:
+This contract is breaking:
 
-- `mode: "mesh"` is the primary mesh-collider entry.
-- legacy `mode: "trimesh-cook"` may be translated for one compatibility version
-with deprecation warning.
+- `setCollisionMask()` has been removed from `PhysicsSystem` and replaced by
+`setColliderCollisionFilter()`.
+- Adapter and worker commands no longer expose `setCollisionMask`; they expose
+`setColliderCollisionFilter` with an internal encoded filter.
+- `mode: "mesh"` remains the primary mesh-collider entry.
