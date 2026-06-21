@@ -259,20 +259,25 @@ async function testInitAndPassRouting() {
 
 	const calls = [];
 	backend._frameExecutor = {
+		resize(width, height) {
+			calls.push(["resize", width, height]);
+		},
+		destroy() {
+			calls.push(["destroy"]);
+		},
+	};
+	backend._frameGraphRuntime = {
 		beginFrame(context) {
 			calls.push(["begin", context]);
 		},
 		executePass(pass, context) {
 			calls.push(["pass", pass.stage, context]);
 		},
-		endFrame() {
-			calls.push(["end"]);
+		endFrame(context) {
+			calls.push(["end", context]);
 		},
-		resize(width, height) {
-			calls.push(["resize", width, height]);
-		},
-		destroy() {
-			calls.push(["destroy"]);
+		abortFrame() {
+			calls.push(["abort"]);
 		},
 	};
 	backend._particleSimulator = {
@@ -302,7 +307,7 @@ async function testInitAndPassRouting() {
 		["pass", "particles", { frameId: 1 }],
 		["pass", "shadow", { frameId: 1 }],
 		["pass", "shadow", { frameId: 1 }],
-		["end"],
+		["end", { frameId: 1 }],
 		["destroy"],
 	]);
 	assert.equal(
@@ -455,11 +460,14 @@ function testBackendPlanOmitsRendererOwnedPostProcessStage() {
 	const backend = createWebGLSession({}, {});
 	const context = createDependencyContext();
 	backend._frameExecutor = {
+		resize() {},
+		destroy() {},
+	};
+	backend._frameGraphRuntime = {
 		beginFrame() {},
 		executePass() {},
 		endFrame() {},
-		resize() {},
-		destroy() {},
+		abortFrame() {},
 	};
 	backend._particleSimulator = {
 		beginFrame() {},

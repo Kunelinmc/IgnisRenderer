@@ -897,7 +897,8 @@ function testMainOpaqueRunsEarlyZPrepassBeforeColorPass() {
 		);
 	};
 
-	executor.executePass({ stage: "main-opaque" }, context);
+	const earlyZPacketIds = executor.renderOpaqueDepthPrepass(context);
+	executor.renderOpaqueScene(context, earlyZPacketIds);
 
 	assert.deepEqual(events, [
 		"prepass:1",
@@ -924,7 +925,8 @@ function testMainOpaqueCanDisableEarlyZPrepass() {
 		);
 	};
 
-	executor.executePass({ stage: "main-opaque" }, context);
+	const earlyZPacketIds = executor.renderOpaqueDepthPrepass(context);
+	executor.renderOpaqueScene(context, earlyZPacketIds);
 
 	assert.deepEqual(events, [
 		"color:1:false:0",
