@@ -158,7 +158,7 @@ import {
 } from "./WebGLParticlePass";
 import { BackendPostProcessRuntime } from "../../postprocess/BackendPostProcessRuntime";
 import { WebGLPostProcessExecutor } from "./WebGLPostProcessExecutor";
-import { TemporalJitterState } from "../temporal/TemporalJitterState";
+import { TemporalJitterState } from "../cross/TemporalJitterState";
 import { WebGLPostProcessBridge } from "./WebGLPostProcessBridge";
 import {
 	getWebGLSceneDepthVariantKey,

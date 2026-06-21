@@ -3,7 +3,7 @@ import {
 	type FrameAttachments,
 } from "../../pipeline/types";
 import type { Matrix4 } from "../../maths/Matrix4";
-import type { TemporalJitterFrameState } from "../../renderers/temporal/TemporalJitterState";
+import type { TemporalJitterFrameState } from "../../renderers/cross/TemporalJitterState";
 import type { ICommandEncoder } from "../../renderers/ICommandEncoder";
 import {
 	BufferUsage,

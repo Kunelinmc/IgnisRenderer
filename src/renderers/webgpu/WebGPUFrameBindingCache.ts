@@ -29,7 +29,7 @@ import { WebGPUTextureRegistry } from "./WebGPUTextureRegistry";
 import { WebGPUShadowAtlasAllocator } from "./WebGPUShadowAtlasAllocator";
 import type { WebGPUPipelineLayouts } from "./WebGPUPipelineLayouts";
 import { finiteOr } from "../../maths/Misc";
-import { TemporalJitterState } from "../temporal/TemporalJitterState";
+import { TemporalJitterState } from "../cross/TemporalJitterState";
 import type { WebGPUSceneTargetMode } from "./WebGPUPipelineLibrary";
 import { clamp } from "../../maths/Common";
 import type { Matrix4 } from "../../maths/Matrix4";

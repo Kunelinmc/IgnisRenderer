@@ -38,7 +38,7 @@ import {
 } from "../pipeline/ShadowStrategyRegistry";
 import { FrameAttachments } from "../pipeline/types";
 import { CameraType } from "../cameras/Camera";
-import { TemporalJitterState } from "./temporal/TemporalJitterState";
+import { TemporalJitterState } from "./cross/TemporalJitterState";
 import {
 	DEFAULT_TAA_OPTIONS,
 	SOFTWARE_TAA_RENDER_STATE_KEY,

@@ -40,7 +40,7 @@ import {
 import type { Texture } from "../../core/Texture";
 import type { SoftwareShadowRenderTarget } from "./passes/SoftwareShadowPass";
 import { collectActiveReflectionProbes } from "../../lights/runtime/reflectionProbeRuntime";
-import type { TemporalJitterFrameState } from "../temporal/TemporalJitterState";
+import type { TemporalJitterFrameState } from "../cross/TemporalJitterState";
 
 export interface RasterizerLike {
 	drawTriangle(
