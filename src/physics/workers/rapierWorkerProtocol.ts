@@ -13,6 +13,7 @@ import type {
 	PhysicsTransform,
 	PhysicsWorldConfig,
 	RigidBodyDescriptor,
+	RigidBodyType,
 } from "../types";
 
 export type RapierWorkerCommand =
@@ -55,6 +56,41 @@ export type RapierWorkerCommand =
 			velocity: IVector3;
 	  }
 	| {
+			type: "setBodyType";
+			worldId: string;
+			bodyId: string;
+			bodyType: RigidBodyType;
+	  }
+	| {
+			type: "setBodyMass";
+			worldId: string;
+			bodyId: string;
+			mass: number;
+	  }
+	| {
+			type: "setBodyGravityScale";
+			worldId: string;
+			bodyId: string;
+			scale: number;
+	  }
+	| {
+			type: "setBodyLinearDamping";
+			worldId: string;
+			bodyId: string;
+			value: number;
+	  }
+	| {
+			type: "setBodyAngularDamping";
+			worldId: string;
+			bodyId: string;
+			value: number;
+	  }
+	| {
+			type: "wakeUpBody";
+			worldId: string;
+			bodyId: string;
+	  }
+	| {
 			type: "applyForce";
 			worldId: string;
 			bodyId: string;
@@ -92,10 +128,10 @@ export type RapierWorkerCommand =
 			isSensor: boolean;
 	  }
 	| {
-			type: "setCollisionMask";
+			type: "setColliderCollisionFilter";
 			worldId: string;
 			colliderId: string;
-			mask: number;
+			filter: number;
 	  }
 	| {
 			type: "setColliderMaterial";

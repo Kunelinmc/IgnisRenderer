@@ -115,6 +115,40 @@ function applyCommand(
 				command.velocity
 			);
 			return;
+		case "setBodyType":
+			rapierAdapter.setBodyType(
+				command.worldId,
+				command.bodyId,
+				command.bodyType
+			);
+			return;
+		case "setBodyMass":
+			rapierAdapter.setBodyMass(command.worldId, command.bodyId, command.mass);
+			return;
+		case "setBodyGravityScale":
+			rapierAdapter.setBodyGravityScale(
+				command.worldId,
+				command.bodyId,
+				command.scale
+			);
+			return;
+		case "setBodyLinearDamping":
+			rapierAdapter.setBodyLinearDamping(
+				command.worldId,
+				command.bodyId,
+				command.value
+			);
+			return;
+		case "setBodyAngularDamping":
+			rapierAdapter.setBodyAngularDamping(
+				command.worldId,
+				command.bodyId,
+				command.value
+			);
+			return;
+		case "wakeUpBody":
+			rapierAdapter.wakeUpBody(command.worldId, command.bodyId);
+			return;
 		case "applyForce":
 			rapierAdapter.applyForce(command.worldId, command.bodyId, command.force);
 			return;
@@ -147,11 +181,11 @@ function applyCommand(
 				command.isSensor
 			);
 			return;
-		case "setCollisionMask":
-			rapierAdapter.setCollisionMask(
+		case "setColliderCollisionFilter":
+			rapierAdapter.setColliderCollisionFilter(
 				command.worldId,
 				command.colliderId,
-				command.mask
+				command.filter
 			);
 			return;
 		case "setColliderMaterial":

@@ -112,6 +112,40 @@ function applyCommand(ammoAdapter: AmmoPhysicsAdapter, command: AmmoWorkerComman
 				command.velocity
 			);
 			return;
+		case "setBodyType":
+			ammoAdapter.setBodyType(
+				command.worldId,
+				command.bodyId,
+				command.bodyType
+			);
+			return;
+		case "setBodyMass":
+			ammoAdapter.setBodyMass(command.worldId, command.bodyId, command.mass);
+			return;
+		case "setBodyGravityScale":
+			ammoAdapter.setBodyGravityScale(
+				command.worldId,
+				command.bodyId,
+				command.scale
+			);
+			return;
+		case "setBodyLinearDamping":
+			ammoAdapter.setBodyLinearDamping(
+				command.worldId,
+				command.bodyId,
+				command.value
+			);
+			return;
+		case "setBodyAngularDamping":
+			ammoAdapter.setBodyAngularDamping(
+				command.worldId,
+				command.bodyId,
+				command.value
+			);
+			return;
+		case "wakeUpBody":
+			ammoAdapter.wakeUpBody(command.worldId, command.bodyId);
+			return;
 		case "applyForce":
 			ammoAdapter.applyForce(command.worldId, command.bodyId, command.force);
 			return;
@@ -140,11 +174,11 @@ function applyCommand(ammoAdapter: AmmoPhysicsAdapter, command: AmmoWorkerComman
 				command.isSensor
 			);
 			return;
-		case "setCollisionMask":
-			ammoAdapter.setCollisionMask(
+		case "setColliderCollisionFilter":
+			ammoAdapter.setColliderCollisionFilter(
 				command.worldId,
 				command.colliderId,
-				command.mask
+				command.filter
 			);
 			return;
 		case "setColliderMaterial":
