@@ -30,6 +30,7 @@ import type {
 	PhysicsTransform,
 	PhysicsWorldConfig,
 	RigidBodyDescriptor,
+	RigidBodyType,
 } from "../types";
 import { RapierPhysicsAdapter } from "./RapierPhysicsAdapter";
 import type {
@@ -415,6 +416,105 @@ export class RapierWorkerPhysicsAdapter implements IPhysicsEngineAdapter {
 		});
 	}
 
+	public setBodyType(
+		worldId: string,
+		bodyId: string,
+		type: RigidBodyType
+	): void {
+		if (this._usingFallbackAdapter) {
+			this._fallbackAdapter.setBodyType(worldId, bodyId, type);
+			return;
+		}
+		this._assertInitialized();
+		this._enqueueCommand({
+			type: "setBodyType",
+			worldId,
+			bodyId,
+			bodyType: type,
+		});
+	}
+
+	public setBodyMass(worldId: string, bodyId: string, mass: number): void {
+		if (this._usingFallbackAdapter) {
+			this._fallbackAdapter.setBodyMass(worldId, bodyId, mass);
+			return;
+		}
+		this._assertInitialized();
+		this._enqueueCommand({
+			type: "setBodyMass",
+			worldId,
+			bodyId,
+			mass,
+		});
+	}
+
+	public setBodyGravityScale(
+		worldId: string,
+		bodyId: string,
+		scale: number
+	): void {
+		if (this._usingFallbackAdapter) {
+			this._fallbackAdapter.setBodyGravityScale(worldId, bodyId, scale);
+			return;
+		}
+		this._assertInitialized();
+		this._enqueueCommand({
+			type: "setBodyGravityScale",
+			worldId,
+			bodyId,
+			scale,
+		});
+	}
+
+	public setBodyLinearDamping(
+		worldId: string,
+		bodyId: string,
+		value: number
+	): void {
+		if (this._usingFallbackAdapter) {
+			this._fallbackAdapter.setBodyLinearDamping(worldId, bodyId, value);
+			return;
+		}
+		this._assertInitialized();
+		this._enqueueCommand({
+			type: "setBodyLinearDamping",
+			worldId,
+			bodyId,
+			value,
+		});
+	}
+
+	public setBodyAngularDamping(
+		worldId: string,
+		bodyId: string,
+		value: number
+	): void {
+		if (this._usingFallbackAdapter) {
+			this._fallbackAdapter.setBodyAngularDamping(worldId, bodyId, value);
+			return;
+		}
+		this._assertInitialized();
+		this._enqueueCommand({
+			type: "setBodyAngularDamping",
+			worldId,
+			bodyId,
+			value,
+		});
+	}
+
+	public wakeUpBody(worldId: string, bodyId: string): void {
+		if (this._usingFallbackAdapter) {
+			this._fallbackAdapter.wakeUpBody(worldId, bodyId);
+			return;
+		}
+		this._assertInitialized();
+		this._enqueueCommand({
+			type: "wakeUpBody",
+			worldId,
+			bodyId,
+		});
+	}
+
 	public applyForce(worldId: string, bodyId: string, force: IVector3): void {
 		if (this._usingFallbackAdapter) {
 			this._fallbackAdapter.applyForce(worldId, bodyId, force);
@@ -520,21 +620,25 @@ export class RapierWorkerPhysicsAdapter implements IPhysicsEngineAdapter {
 		});
 	}
 
-	public setCollisionMask(
+	public setColliderCollisionFilter(
 		worldId: string,
 		colliderId: string,
-		mask: number
+		filter: number
 	): void {
 		if (this._usingFallbackAdapter) {
-			this._fallbackAdapter.setCollisionMask(worldId, colliderId, mask);
+			this._fallbackAdapter.setColliderCollisionFilter(
+				worldId,
+				colliderId,
+				filter
+			);
 			return;
 		}
 		this._assertInitialized();
 		this._enqueueCommand({
-			type: "setCollisionMask",
+			type: "setColliderCollisionFilter",
 			worldId,
 			colliderId,
-			mask,
+			filter,
 		});
 	}
 

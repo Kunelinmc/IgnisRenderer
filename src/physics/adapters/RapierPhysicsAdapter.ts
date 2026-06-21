@@ -8,6 +8,12 @@ import type { IVector3 } from "../../maths/types";
 import { Matrix3 } from "../../maths/Matrix3";
 import { Vector3 } from "../../maths/Vector3";
 import { DEFAULT_GRAVITY } from "../constants";
+import {
+	DEFAULT_COLLISION_FILTER,
+	collisionFilterToInteractionGroups,
+	decodeCollisionFilter,
+	sanitizeCollisionFilter,
+} from "../collisionFilter";
 import type {
 	CharacterControllerDescriptor,
 	CharacterMoveResult,
@@ -88,7 +94,7 @@ interface RapierColliderState {
 	trimeshBVH: TrimeshRayBVHEntry | null;
 	rapierCollider: any;
 	isTrigger: boolean;
-	collisionMask: number;
+	collisionFilter: number;
 	radius: number;
 	halfExtents: IVector3;
 	offset: IVector3;
@@ -175,8 +181,6 @@ interface RapierCharacterColliderResolution {
 	collider: any | null;
 	owned: boolean;
 }
-
-const DEFAULT_COLLISION_MASK = 0xffffffff;
 
 export interface RapierPhysicsAdapterOptions {
 	moduleLoader?: () => Promise<unknown>;
@@ -496,6 +500,120 @@ export class RapierPhysicsAdapter implements IPhysicsEngineAdapter {
 		body.sleeping = false;
 	}
 
+	public setBodyType(
+		worldId: string,
+		bodyId: string,
+		type: RigidBodyType
+	): void {
+		if (this._usingFallback()) {
+			this._delegate.setBodyType(worldId, bodyId, type);
+			return;
+		}
+		const body = this._requireBody(worldId, bodyId);
+		const rapierType = this._resolveRapierBodyTypeValue(type);
+		if (rapierType !== null) {
+			this._invoke(
+				body.rigidBody,
+				["setBodyType"],
+				[
+					[rapierType, true],
+					[rapierType],
+				]
+			);
+		}
+		body.type = type;
+		body.descriptor = {
+			...body.descriptor,
+			type,
+		};
+		body.sleeping = false;
+	}
+
+	public setBodyMass(worldId: string, bodyId: string, mass: number): void {
+		if (this._usingFallback()) {
+			this._delegate.setBodyMass(worldId, bodyId, mass);
+			return;
+		}
+		const body = this._requireBody(worldId, bodyId);
+		body.descriptor = {
+			...body.descriptor,
+			mass,
+		};
+		this._applyRigidBodyMassOverride(body.rigidBody, body.type, mass);
+		body.sleeping = false;
+	}
+
+	public setBodyGravityScale(
+		worldId: string,
+		bodyId: string,
+		scale: number
+	): void {
+		if (this._usingFallback()) {
+			this._delegate.setBodyGravityScale(worldId, bodyId, scale);
+			return;
+		}
+		const body = this._requireBody(worldId, bodyId);
+		body.descriptor = {
+			...body.descriptor,
+			gravityScale: scale,
+		};
+		this._invoke(
+			body.rigidBody,
+			["setGravityScale"],
+			[
+				[scale, true],
+				[scale],
+			]
+		);
+		body.sleeping = false;
+	}
+
+	public setBodyLinearDamping(
+		worldId: string,
+		bodyId: string,
+		value: number
+	): void {
+		if (this._usingFallback()) {
+			this._delegate.setBodyLinearDamping(worldId, bodyId, value);
+			return;
+		}
+		const body = this._requireBody(worldId, bodyId);
+		body.descriptor = {
+			...body.descriptor,
+			linearDamping: Math.max(0, value),
+		};
+		this._invoke(body.rigidBody, ["setLinearDamping"], [[Math.max(0, value)]]);
+		body.sleeping = false;
+	}
+
+	public setBodyAngularDamping(
+		worldId: string,
+		bodyId: string,
+		value: number
+	): void {
+		if (this._usingFallback()) {
+			this._delegate.setBodyAngularDamping(worldId, bodyId, value);
+			return;
+		}
+		const body = this._requireBody(worldId, bodyId);
+		body.descriptor = {
+			...body.descriptor,
+			angularDamping: Math.max(0, value),
+		};
+		this._invoke(body.rigidBody, ["setAngularDamping"], [[Math.max(0, value)]]);
+		body.sleeping = false;
+	}
+
+	public wakeUpBody(worldId: string, bodyId: string): void {
+		if (this._usingFallback()) {
+			this._delegate.wakeUpBody(worldId, bodyId);
+			return;
+		}
+		const body = this._requireBody(worldId, bodyId);
+		this._invoke(body.rigidBody, ["wakeUp"], [[], [true]]);
+		body.sleeping = false;
+	}
+
 	public applyForce(worldId: string, bodyId: string, force: IVector3): void {
 		if (this._usingFallback()) {
 			this._delegate.applyForce(worldId, bodyId, force);
@@ -617,7 +735,7 @@ export class RapierPhysicsAdapter implements IPhysicsEngineAdapter {
 			trimeshBVH: buildTrimeshRayBVH(shape, descriptor),
 			rapierCollider,
 			isTrigger: descriptor.isTrigger === true,
-			collisionMask: DEFAULT_COLLISION_MASK,
+			collisionFilter: DEFAULT_COLLISION_FILTER,
 			radius: computeShapeRadius(shape),
 			halfExtents: computeShapeHalfExtents(shape),
 			offset,
@@ -674,13 +792,13 @@ export class RapierPhysicsAdapter implements IPhysicsEngineAdapter {
 		);
 	}
 
-	public setCollisionMask(
+	public setColliderCollisionFilter(
 		worldId: string,
 		colliderId: string,
-		mask: number
+		filter: number
 	): void {
 		if (this._usingFallback()) {
-			this._delegate.setCollisionMask(worldId, colliderId, mask);
+			this._delegate.setColliderCollisionFilter(worldId, colliderId, filter);
 			return;
 		}
 		const world = this._requireWorld(worldId);
@@ -690,7 +808,7 @@ export class RapierPhysicsAdapter implements IPhysicsEngineAdapter {
 				`Physics collider "${colliderId}" does not exist in "${worldId}"`
 			);
 		}
-		collider.collisionMask = sanitizeCollisionMask(mask);
+		collider.collisionFilter = sanitizeCollisionFilter(filter);
 		this._applyNativeCollisionMask(collider);
 	}
 
@@ -1763,6 +1881,19 @@ export class RapierPhysicsAdapter implements IPhysicsEngineAdapter {
 		);
 	}
 
+	private _resolveRapierBodyTypeValue(type: RigidBodyType): unknown | null {
+		const rawType = (this._rapier as { RigidBodyType?: Record<string, unknown> } | null)
+			?.RigidBodyType;
+		if (rawType && typeof rawType === "object") {
+			const key =
+				type === "dynamic" ? "Dynamic"
+				: type === "fixed" ? "Fixed"
+				: "KinematicPositionBased";
+			if (rawType[key] !== undefined) return rawType[key];
+		}
+		return null;
+	}
+
 	private _createColliderDescriptor(shape: ColliderShape): any {
 		const rapier = this._requireRapier();
 		const colliderFactory = rapier.ColliderDesc;
@@ -2043,8 +2174,8 @@ export class RapierPhysicsAdapter implements IPhysicsEngineAdapter {
 	}
 
 	private _applyNativeCollisionMask(collider: RapierColliderState): void {
-		const interactionGroups = collisionMaskToInteractionGroups(
-			collider.collisionMask
+		const interactionGroups = collisionFilterToInteractionGroups(
+			collider.collisionFilter
 		);
 		this._invoke(
 			collider.rapierCollider,
@@ -2416,38 +2547,12 @@ function toSet(values?: string[]): Set<string> | null {
 	return new Set(values);
 }
 
-function sanitizeCollisionMask(mask: number): number {
-	if (!Number.isFinite(mask)) return DEFAULT_COLLISION_MASK;
-	return Math.floor(mask) >>> 0;
-}
-
-function decodeCollisionFilter(mask: number): { group: number; filter: number } {
-	const sanitized = sanitizeCollisionMask(mask);
-	const lowBits = sanitized & 0xffff;
-	const highBits = (sanitized >>> 16) & 0xffff;
-	if (highBits === 0) {
-		return {
-			group: lowBits,
-			filter: lowBits,
-		};
-	}
-	return {
-		group: highBits,
-		filter: lowBits,
-	};
-}
-
-function collisionMaskToInteractionGroups(mask: number): number {
-	const filter = decodeCollisionFilter(mask);
-	return (((filter.group & 0xffff) << 16) | (filter.filter & 0xffff)) >>> 0;
-}
-
 function canCollidersInteract(
 	left: RapierColliderState,
 	right: RapierColliderState
 ): boolean {
-	const leftFilter = decodeCollisionFilter(left.collisionMask);
-	const rightFilter = decodeCollisionFilter(right.collisionMask);
+	const leftFilter = decodeCollisionFilter(left.collisionFilter);
+	const rightFilter = decodeCollisionFilter(right.collisionFilter);
 	return (
 		(leftFilter.group & rightFilter.filter) !== 0 &&
 		(rightFilter.group & leftFilter.filter) !== 0

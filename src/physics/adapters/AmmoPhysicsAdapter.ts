@@ -8,6 +8,11 @@ import type { IVector3 } from "../../maths/types";
 import { Matrix3 } from "../../maths/Matrix3";
 import { Vector3 } from "../../maths/Vector3";
 import { DEFAULT_GRAVITY } from "../constants";
+import {
+	DEFAULT_COLLISION_FILTER,
+	decodeCollisionFilter,
+	sanitizeCollisionFilter,
+} from "../collisionFilter";
 import type {
 	CharacterControllerDescriptor,
 	CharacterMoveResult,
@@ -114,7 +119,7 @@ interface AmmoColliderState {
 	ammoShape: any;
 	childTransform: any;
 	isTrigger: boolean;
-	collisionMask: number;
+	collisionFilter: number;
 	radius: number;
 	halfExtents: IVector3;
 	offset: IVector3;
@@ -150,8 +155,6 @@ interface AmmoQueryHit {
 	point: IVector3;
 	normal: IVector3;
 }
-
-const DEFAULT_COLLISION_MASK = 0xffffffff;
 
 export interface AmmoPhysicsAdapterOptions {
 	moduleLoader?: () => Promise<unknown>;
@@ -423,6 +426,94 @@ export class AmmoPhysicsAdapter implements IPhysicsEngineAdapter {
 		this._invoke(body.rigidBody, ["activate"], [[true], [1], []]);
 	}
 
+	public setBodyType(
+		worldId: string,
+		bodyId: string,
+		type: RigidBodyType
+	): void {
+		this._delegate.setBodyType(worldId, bodyId, type);
+		if (this._usingFallback()) return;
+		const world = this._worlds.get(worldId);
+		const body = world?.bodies.get(bodyId);
+		if (!world || !body) return;
+		body.type = type;
+		body.mass = resolveBodyMass(type, body.mass);
+		this._applyBodyFlags(body.rigidBody, type);
+		this._refreshBodyMassProperties(body);
+		this._syncBodyCollisionFilter(world, body);
+		this._invoke(body.rigidBody, ["activate"], [[true], [1], []]);
+	}
+
+	public setBodyMass(worldId: string, bodyId: string, mass: number): void {
+		this._delegate.setBodyMass(worldId, bodyId, mass);
+		if (this._usingFallback()) return;
+		const world = this._worlds.get(worldId);
+		const body = world?.bodies.get(bodyId);
+		if (!body || body.type !== "dynamic") return;
+		body.mass = resolveBodyMass("dynamic", mass);
+		this._refreshBodyMassProperties(body);
+		this._invoke(body.rigidBody, ["activate"], [[true], [1], []]);
+	}
+
+	public setBodyGravityScale(
+		worldId: string,
+		bodyId: string,
+		scale: number
+	): void {
+		this._delegate.setBodyGravityScale(worldId, bodyId, scale);
+		if (this._usingFallback()) return;
+		const world = this._worlds.get(worldId);
+		const body = world?.bodies.get(bodyId);
+		if (!body) return;
+		this._invoke(body.rigidBody, ["setGravityScale"], [[scale], [scale, true]]);
+		this._invoke(body.rigidBody, ["activate"], [[true], [1], []]);
+	}
+
+	public setBodyLinearDamping(
+		worldId: string,
+		bodyId: string,
+		value: number
+	): void {
+		this._delegate.setBodyLinearDamping(worldId, bodyId, value);
+		if (this._usingFallback()) return;
+		const world = this._worlds.get(worldId);
+		const body = world?.bodies.get(bodyId);
+		if (!body) return;
+		this._invoke(
+			body.rigidBody,
+			["setDamping"],
+			[[sanitizeDamping(value), undefined], [sanitizeDamping(value)]]
+		);
+		this._invoke(body.rigidBody, ["activate"], [[true], [1], []]);
+	}
+
+	public setBodyAngularDamping(
+		worldId: string,
+		bodyId: string,
+		value: number
+	): void {
+		this._delegate.setBodyAngularDamping(worldId, bodyId, value);
+		if (this._usingFallback()) return;
+		const world = this._worlds.get(worldId);
+		const body = world?.bodies.get(bodyId);
+		if (!body) return;
+		this._invoke(
+			body.rigidBody,
+			["setDamping"],
+			[[undefined, sanitizeDamping(value)], [0, sanitizeDamping(value)]]
+		);
+		this._invoke(body.rigidBody, ["activate"], [[true], [1], []]);
+	}
+
+	public wakeUpBody(worldId: string, bodyId: string): void {
+		this._delegate.wakeUpBody(worldId, bodyId);
+		if (this._usingFallback()) return;
+		const world = this._worlds.get(worldId);
+		const body = world?.bodies.get(bodyId);
+		if (!body) return;
+		this._invoke(body.rigidBody, ["activate"], [[true], [1], []]);
+	}
+
 	public applyForce(worldId: string, bodyId: string, force: IVector3): void {
 		this._delegate.applyForce(worldId, bodyId, force);
 		if (this._usingFallback()) return;
@@ -565,7 +656,7 @@ export class AmmoPhysicsAdapter implements IPhysicsEngineAdapter {
 				ammoShape,
 				childTransform,
 				isTrigger,
-				collisionMask: DEFAULT_COLLISION_MASK,
+				collisionFilter: DEFAULT_COLLISION_FILTER,
 				radius: computeShapeRadius(shape),
 				halfExtents: computeShapeHalfExtents(shape),
 				offset,
@@ -645,19 +736,19 @@ export class AmmoPhysicsAdapter implements IPhysicsEngineAdapter {
 		collider.isTrigger = isSensor === true;
 	}
 
-	public setCollisionMask(
+	public setColliderCollisionFilter(
 		worldId: string,
 		colliderId: string,
-		mask: number
+		filter: number
 	): void {
 		if (this._usingFallback()) {
-			this._delegate.setCollisionMask(worldId, colliderId, mask);
+			this._delegate.setColliderCollisionFilter(worldId, colliderId, filter);
 			return;
 		}
 		const world = this._worlds.get(worldId);
 		const collider = world?.colliders.get(colliderId);
 		if (!collider) return;
-		collider.collisionMask = sanitizeCollisionMask(mask);
+		collider.collisionFilter = sanitizeCollisionFilter(filter);
 		const body = world?.bodies.get(collider.bodyId);
 		if (world && body) {
 			this._syncBodyCollisionFilter(world, body);
@@ -1258,12 +1349,12 @@ export class AmmoPhysicsAdapter implements IPhysicsEngineAdapter {
 		for (const colliderId of body.colliderIds) {
 			const collider = world.colliders.get(colliderId);
 			if (!collider) continue;
-			const filter = decodeCollisionFilter(collider.collisionMask);
+			const filter = decodeCollisionFilter(collider.collisionFilter);
 			group |= filter.group;
 			mask |= filter.filter;
 		}
 		if (body.colliderIds.size === 0) {
-			const defaultFilter = decodeCollisionFilter(DEFAULT_COLLISION_MASK);
+			const defaultFilter = decodeCollisionFilter(DEFAULT_COLLISION_FILTER);
 			group = defaultFilter.group;
 			mask = defaultFilter.filter;
 		}
@@ -2410,27 +2501,6 @@ function toOrientedBoundsExtents(
 function toSet(values?: string[]): Set<string> | null {
 	if (!values || values.length === 0) return null;
 	return new Set(values);
-}
-
-function sanitizeCollisionMask(mask: number): number {
-	if (!Number.isFinite(mask)) return DEFAULT_COLLISION_MASK;
-	return Math.floor(mask) >>> 0;
-}
-
-function decodeCollisionFilter(mask: number): { group: number; filter: number } {
-	const sanitized = sanitizeCollisionMask(mask);
-	const lowBits = sanitized & 0xffff;
-	const highBits = (sanitized >>> 16) & 0xffff;
-	if (highBits === 0) {
-		return {
-			group: lowBits,
-			filter: lowBits,
-		};
-	}
-	return {
-		group: highBits,
-		filter: lowBits,
-	};
 }
 
 function intersectRayWithCollider(

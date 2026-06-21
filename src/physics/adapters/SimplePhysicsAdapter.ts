@@ -30,6 +30,11 @@ import type {
 	PhysicsAdapterCapabilities,
 	PhysicsAdapterStepResult,
 } from "../IPhysicsEngineAdapter";
+import {
+	DEFAULT_COLLISION_FILTER,
+	decodeCollisionFilter,
+	sanitizeCollisionFilter,
+} from "../collisionFilter";
 
 const ORIENTED_BOUNDS_ROTATION_MATRIX = Matrix3.identity();
 
@@ -37,6 +42,7 @@ interface SimpleBodyState {
 	id: string;
 	type: RigidBodyType;
 	mass: number;
+	gravityScale: number;
 	canSleep: boolean;
 	linearDamping: number;
 	angularDamping: number;
@@ -58,7 +64,7 @@ interface SimpleColliderState {
 	descriptor: ColliderDescriptor;
 	shape: ColliderShape;
 	isTrigger: boolean;
-	collisionMask: number;
+	collisionFilter: number;
 	material: Partial<Pick<PhysicsMaterialDescriptor, "friction" | "restitution">>;
 	radius: number;
 	halfExtents: IVector3;
@@ -96,8 +102,6 @@ interface SimpleQueryHit {
 	point: IVector3;
 	normal: IVector3;
 }
-
-const DEFAULT_COLLISION_MASK = 0xffffffff;
 
 export class SimplePhysicsAdapter implements IPhysicsEngineAdapter {
 	public readonly id: string;
@@ -160,6 +164,7 @@ export class SimplePhysicsAdapter implements IPhysicsEngineAdapter {
 			id: bodyId,
 			type: descriptor.type ?? "dynamic",
 			mass: resolveBodyMass(descriptor),
+			gravityScale: sanitizeGravityScale(descriptor.gravityScale),
 			canSleep: descriptor.canSleep ?? world.config.allowSleep ?? true,
 			linearDamping: sanitizeDamping(descriptor.linearDamping),
 			angularDamping: sanitizeDamping(descriptor.angularDamping),
@@ -227,6 +232,59 @@ export class SimplePhysicsAdapter implements IPhysicsEngineAdapter {
 		body.sleeping = false;
 	}
 
+	public setBodyType(
+		worldId: string,
+		bodyId: string,
+		type: RigidBodyType
+	): void {
+		const body = this._requireBody(worldId, bodyId);
+		body.type = type;
+		body.mass = type === "dynamic" ? sanitizeMass(body.mass) : 1;
+		body.sleeping = false;
+	}
+
+	public setBodyMass(worldId: string, bodyId: string, mass: number): void {
+		const body = this._requireBody(worldId, bodyId);
+		if (body.type !== "dynamic") return;
+		body.mass = sanitizeMass(mass);
+		body.sleeping = false;
+	}
+
+	public setBodyGravityScale(
+		worldId: string,
+		bodyId: string,
+		scale: number
+	): void {
+		const body = this._requireBody(worldId, bodyId);
+		body.gravityScale = sanitizeGravityScale(scale);
+		body.sleeping = false;
+	}
+
+	public setBodyLinearDamping(
+		worldId: string,
+		bodyId: string,
+		value: number
+	): void {
+		const body = this._requireBody(worldId, bodyId);
+		body.linearDamping = sanitizeDamping(value);
+		body.sleeping = false;
+	}
+
+	public setBodyAngularDamping(
+		worldId: string,
+		bodyId: string,
+		value: number
+	): void {
+		const body = this._requireBody(worldId, bodyId);
+		body.angularDamping = sanitizeDamping(value);
+		body.sleeping = false;
+	}
+
+	public wakeUpBody(worldId: string, bodyId: string): void {
+		const body = this._requireBody(worldId, bodyId);
+		body.sleeping = false;
+	}
+
 	public applyForce(worldId: string, bodyId: string, force: IVector3): void {
 		const body = this._requireBody(worldId, bodyId);
 		if (body.type !== "dynamic") return;
@@ -279,7 +337,7 @@ export class SimplePhysicsAdapter implements IPhysicsEngineAdapter {
 			descriptor,
 			shape,
 			isTrigger: descriptor.isTrigger === true,
-			collisionMask: DEFAULT_COLLISION_MASK,
+			collisionFilter: DEFAULT_COLLISION_FILTER,
 			material: {
 				friction: descriptor.material?.friction,
 				restitution: descriptor.material?.restitution,
@@ -316,10 +374,10 @@ export class SimplePhysicsAdapter implements IPhysicsEngineAdapter {
 		collider.isTrigger = isSensor === true;
 	}
 
-	public setCollisionMask(
+	public setColliderCollisionFilter(
 		worldId: string,
 		colliderId: string,
-		mask: number
+		filter: number
 	): void {
 		const world = this._requireWorld(worldId);
 		const collider = world.colliders.get(colliderId);
@@ -328,7 +386,7 @@ export class SimplePhysicsAdapter implements IPhysicsEngineAdapter {
 				`Physics collider "${colliderId}" does not exist in "${worldId}"`
 			);
 		}
-		collider.collisionMask = sanitizeCollisionMask(mask);
+		collider.collisionFilter = sanitizeCollisionFilter(filter);
 	}
 
 	public setColliderMaterial(
@@ -630,11 +688,14 @@ export class SimplePhysicsAdapter implements IPhysicsEngineAdapter {
 			if (dt > 0) {
 				const invMass = 1 / body.mass;
 				body.linearVelocity.x +=
-					(gravity.x + body.accumulatedForce.x * invMass) * dt;
+					(gravity.x * body.gravityScale + body.accumulatedForce.x * invMass) *
+					dt;
 				body.linearVelocity.y +=
-					(gravity.y + body.accumulatedForce.y * invMass) * dt;
+					(gravity.y * body.gravityScale + body.accumulatedForce.y * invMass) *
+					dt;
 				body.linearVelocity.z +=
-					(gravity.z + body.accumulatedForce.z * invMass) * dt;
+					(gravity.z * body.gravityScale + body.accumulatedForce.z * invMass) *
+					dt;
 				body.angularVelocity.x += body.accumulatedTorque.x * invMass * dt;
 				body.angularVelocity.y += body.accumulatedTorque.y * invMass * dt;
 				body.angularVelocity.z += body.accumulatedTorque.z * invMass * dt;
@@ -958,17 +1019,26 @@ function cloneTransform(transform: PhysicsTransform): PhysicsTransform {
 	};
 }
 
-function resolveBodyMass(descriptor: RigidBodyDescriptor): number {
+function resolveBodyMass(
+	descriptor: Pick<RigidBodyDescriptor, "type" | "mass">
+): number {
 	if ((descriptor.type ?? "dynamic") !== "dynamic") return 1;
-	if (Number.isFinite(descriptor.mass) && Number(descriptor.mass) > 0) {
-		return Number(descriptor.mass);
-	}
+	return sanitizeMass(descriptor.mass);
+}
+
+function sanitizeMass(value: number | undefined): number {
+	if (Number.isFinite(value) && Number(value) > 0) return Number(value);
 	return 1;
 }
 
 function sanitizeDamping(value: number | undefined): number {
 	if (!Number.isFinite(value)) return 0;
 	return Math.max(0, Number(value));
+}
+
+function sanitizeGravityScale(value: number | undefined): number {
+	if (!Number.isFinite(value)) return 1;
+	return Number(value);
 }
 
 function sanitizeLockAxes(
@@ -983,33 +1053,12 @@ function computeDampingFactor(damping: number, deltaSeconds: number): number {
 	return Math.max(0, 1 - damping * deltaSeconds);
 }
 
-function sanitizeCollisionMask(mask: number): number {
-	if (!Number.isFinite(mask)) return DEFAULT_COLLISION_MASK;
-	return Math.floor(mask) >>> 0;
-}
-
-function decodeCollisionFilter(mask: number): { group: number; filter: number } {
-	const sanitized = sanitizeCollisionMask(mask);
-	const lowBits = sanitized & 0xffff;
-	const highBits = (sanitized >>> 16) & 0xffff;
-	if (highBits === 0) {
-		return {
-			group: lowBits,
-			filter: lowBits,
-		};
-	}
-	return {
-		group: highBits,
-		filter: lowBits,
-	};
-}
-
 function canCollidersInteract(
 	left: SimpleColliderState,
 	right: SimpleColliderState
 ): boolean {
-	const leftFilter = decodeCollisionFilter(left.collisionMask);
-	const rightFilter = decodeCollisionFilter(right.collisionMask);
+	const leftFilter = decodeCollisionFilter(left.collisionFilter);
+	const rightFilter = decodeCollisionFilter(right.collisionFilter);
 	return (
 		(leftFilter.group & rightFilter.filter) !== 0 &&
 		(rightFilter.group & leftFilter.filter) !== 0
