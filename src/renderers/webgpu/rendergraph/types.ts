@@ -6,6 +6,9 @@ import type { WebGPUSceneTargetMode } from "../WebGPUScenePassDescriptors";
 
 export type WebGPUFrameGraphNodeKind =
 	| "shadow"
+	| "paged-shadow-page-mark"
+	| "paged-shadow-page-allocate"
+	| "paged-shadow-depth"
 	| "planar-reflection-capture"
 	| "opaque-scene"
 	| "deferred-decal"

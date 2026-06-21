@@ -26,6 +26,55 @@ function run() {
 	const planner = new WebGPUFrameGraphPlanner();
 	const context = { scene: { decalPackets: [] } };
 	const contextWithDecals = { scene: { decalPackets: [{}] } };
+	const pagedShadowContext = {
+		backendProfile: {
+			shadow: {
+				supportsPagedShadows: true,
+			},
+		},
+		shadowMaps: new Map([
+			[
+				{ id: "light-0" },
+				{
+					storageMode: "paged",
+				},
+			],
+		]),
+		scene: { decalPackets: [] },
+	};
+
+	const shadow = planner.planStage(
+		createPass("shadow"),
+		context,
+		createState()
+	);
+	assert.deepEqual(
+		shadow.nodes.map((node) => node.kind),
+		["shadow"]
+	);
+
+	const pagedShadow = planner.planStage(
+		createPass("shadow"),
+		pagedShadowContext,
+		createState()
+	);
+	assert.deepEqual(
+		pagedShadow.nodes.map((node) => node.kind),
+		[
+			"shadow",
+			"paged-shadow-page-mark",
+			"paged-shadow-page-allocate",
+			"paged-shadow-depth",
+		]
+	);
+	assert.equal(
+		pagedShadow.nodes[1].writes[0].id,
+		"paged-shadow:page-requests"
+	);
+	assert.equal(
+		pagedShadow.nodes[3].writes[0].id,
+		"paged-shadow:physical-depth"
+	);
 
 	const opaque = planner.planStage(
 		createPass("main-opaque"),

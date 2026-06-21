@@ -83,6 +83,10 @@ import {
 	WebGPUOcclusionCullingRuntime,
 } from "../WebGPUOcclusionCullingRuntime";
 import {
+	WebGPUPagedShadowRuntime,
+	type WebGPUPagedShadowFrameRequest,
+} from "../WebGPUPagedShadowRuntime";
+import {
 	normalizeOcclusionCullingOptions,
 	type NormalizedOcclusionCullingOptions,
 	type OcclusionVisibilityProvider,
@@ -131,6 +135,7 @@ export class WebGPUFrameGraphRuntime {
 	private _deferredDecalPass: WebGPUDeferredDecalPass;
 	private _scenePassRecorder: WebGPUScenePassRecorder;
 	private _occlusionRuntime: WebGPUOcclusionCullingRuntime;
+	private _pagedShadowRuntime = new WebGPUPagedShadowRuntime();
 	private _deferredOpaqueFrameState: WebGPUDeferredOpaqueFrameState | null =
 		null;
 	private readonly _graphPlanner = new WebGPUFrameGraphPlanner();
@@ -653,6 +658,7 @@ export class WebGPUFrameGraphRuntime {
 		this._presentPass.destroy();
 		this._oitPass.destroy();
 		this._depthDirtyClearPass.destroy();
+		this._pagedShadowRuntime.destroy();
 		this._pendingFrameTargetInvalidation = false;
 		this._pendingShaderRuntimeInvalidation = false;
 		this._clearActiveFrameState(false);
@@ -723,6 +729,30 @@ export class WebGPUFrameGraphRuntime {
 				},
 			],
 			[
+				"paged-shadow-page-mark",
+				async (_node, context) => {
+					const request = this._createPagedShadowRequest(context);
+					this._pagedShadowRuntime.prepareFrame(request);
+					await this._pagedShadowRuntime.recordPageMarkPass(request);
+				},
+			],
+			[
+				"paged-shadow-page-allocate",
+				async (_node, context) => {
+					await this._pagedShadowRuntime.recordPageAllocationPass(
+						this._createPagedShadowRequest(context)
+					);
+				},
+			],
+			[
+				"paged-shadow-depth",
+				async (_node, context) => {
+					await this._pagedShadowRuntime.recordDepthPass(
+						this._createPagedShadowRequest(context)
+					);
+				},
+			],
+			[
 				"planar-reflection-capture",
 				async (_node, context) => {
 					await this._recordPlanarReflectionPass(context);
@@ -784,6 +814,18 @@ export class WebGPUFrameGraphRuntime {
 				},
 			],
 		]);
+	}
+
+	private _createPagedShadowRequest(
+		context: FrameContext
+	): WebGPUPagedShadowFrameRequest {
+		return {
+			context,
+			encoder: this._encoder,
+			renderSets: context.shadowMaps,
+			shadowCasterPackets: context.scene.shadowCasterPackets,
+			shadowTransmitterPackets: context.scene.shadowTransmitterPackets,
+		};
 	}
 
 	public async endFrame(): Promise<void> {

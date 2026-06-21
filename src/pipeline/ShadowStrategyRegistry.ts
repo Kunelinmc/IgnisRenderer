@@ -24,6 +24,9 @@ export interface ShadowBackendCapabilities {
 	supportsPointCSM?: boolean;
 	maxCsmDirectionalLights: number;
 	maxDynamicShadowCost?: number;
+	supportsPagedShadows?: boolean;
+	maxPagedShadowPages?: number;
+	pagedShadowPageSizeRange?: [number, number];
 }
 
 export class ShadowStrategyRegistry {

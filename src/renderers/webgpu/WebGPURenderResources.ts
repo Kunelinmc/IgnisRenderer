@@ -136,6 +136,9 @@ const WEBGPU_SHADOW_CAPABILITIES: ShadowBackendCapabilities = {
 	supportsPointCSM: false,
 	maxCsmDirectionalLights: 1,
 	maxDynamicShadowCost: 48,
+	supportsPagedShadows: true,
+	maxPagedShadowPages: 2048,
+	pagedShadowPageSizeRange: [64, 256],
 };
 
 export interface WebGPUDrawResources {

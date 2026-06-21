@@ -1,9 +1,11 @@
 import { CascadedShadowMap } from "./CascadedShadowMap";
+import { PagedShadowMap } from "./PagedShadowMap";
 import type { ShadowMapBase } from "./ShadowMapBase";
 import { SingleShadowMap } from "./SingleShadowMap";
 import { VarianceShadowMap, type VarianceShadowMapOptions } from "./VarianceShadowMap";
 import type {
 	CascadedShadowMapOptions,
+	PagedShadowMapOptions,
 	ShadowMapBaseOptions,
 	ShadowMapKind,
 } from "./types";
@@ -107,7 +109,7 @@ export class ShadowMapRegistry {
 /**
  * Creates a registry containing IgnisRenderer's built-in shadow map kinds.
  *
- * @returns A new registry with `single`, `vsm`, and `csm` factories.
+ * @returns A new registry with `single`, `vsm`, `csm`, and `paged-shadow` factories.
  * @sideEffects None.
  */
 export function createDefaultShadowMapRegistry(): ShadowMapRegistry {
@@ -123,5 +125,9 @@ export function createDefaultShadowMapRegistry(): ShadowMapRegistry {
 		.register<CascadedShadowMap, CascadedShadowMapOptions>(
 			"csm",
 			(options) => new CascadedShadowMap(options)
+		)
+		.register<PagedShadowMap, PagedShadowMapOptions>(
+			"paged-shadow",
+			(options) => new PagedShadowMap(options)
 		);
 }

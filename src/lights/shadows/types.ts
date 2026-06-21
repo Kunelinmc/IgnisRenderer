@@ -7,7 +7,7 @@ import type {
 	ShadowStrategyType,
 } from "./ShadowMapping";
 
-export type BuiltinShadowMapKind = "single" | "vsm" | "csm";
+export type BuiltinShadowMapKind = "single" | "vsm" | "csm" | "paged-shadow";
 export type ShadowMapKind = BuiltinShadowMapKind | (string & {});
 export type ShadowFilterMode = "pcf" | "vsm";
 export type ShadowBoundLightType =
@@ -57,6 +57,23 @@ export interface CascadedShadowMapOptions extends ShadowMapBaseOptions {
 	stabilize?: boolean;
 }
 
+export type PagedShadowFeedbackMode = "conservative" | "screen-feedback";
+
+export interface PagedShadowMapOptions extends ShadowMapBaseOptions {
+	virtualResolution?: number;
+	pageSize?: number;
+	physicalPageCount?: number;
+	clipmapLevels?: number;
+	maxPagesPerFrame?: number;
+	cacheFrames?: number;
+	feedbackMode?: PagedShadowFeedbackMode;
+	cascadeCounts?: Partial<CascadedShadowMapDefaults>;
+	lambda?: number;
+	maxDistance?: number;
+	blendRatio?: number;
+	stabilize?: boolean;
+}
+
 export interface ShadowRuntimeSlice {
 	index: number;
 	view: Matrix4 | null;
@@ -92,6 +109,9 @@ export interface IShadowBackendCapabilities {
 	supportsSpotCSM: boolean;
 	supportsPointCSM: boolean;
 	maxDynamicShadowCost?: number;
+	supportsPagedShadows?: boolean;
+	maxPagedShadowPages?: number;
+	pagedShadowPageSizeRange?: [number, number];
 }
 
 export interface ShadowSliceAllocation {

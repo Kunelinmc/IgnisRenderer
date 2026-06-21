@@ -15,16 +15,19 @@ Historically, lights held shadow configuration directly. The decoupled model mov
 	- `supportsSpotCSM`: boolean indicating spot cascade support.
 	- `supportsPointCSM`: boolean indicating point/cube cascade support.
 	- `maxDynamicShadowCost`: numerical budget for dynamic shadow calculations.
+	- `supportsPagedShadows`: optional boolean indicating paged shadow scheduling support.
+	- `maxPagedShadowPages`: optional physical page budget for paged shadows.
+	- `pagedShadowPageSizeRange`: optional supported page-size range.
 - `scene.shadows`
 	- Must be the single entry point for binding and managing shadow maps.
 	- `create(kind, options)` must create a shadow map through the configured `ShadowMapRegistry`.
-	- `createSingle(options)`, `createVariance(options)`, `createCascaded(options)`: must remain compatibility helpers for the built-in shadow map kinds.
+	- `createSingle(options)`, `createVariance(options)`, `createCascaded(options)`, `createPaged(options)`: must remain compatibility helpers for the built-in shadow map kinds.
 	- `registerMapType(kind, factory)` must register user-defined shadow map factories on the manager's registry.
 	- `bind(light, shadowMap)`, `unbindLight(light)`: bind or unbind a shadow map to a light.
 	- `destroy(shadowMap)`: destroy a shadow map and clear its bindings.
 - `ShadowMapRegistry`
 	- Must map each `ShadowMapKind` string to a factory that returns a `ShadowMapBase`.
-	- Must support built-in kinds `single`, `vsm`, and `csm` through `createDefaultShadowMapRegistry()`.
+	- Must support built-in kinds `single`, `vsm`, `csm`, and `paged-shadow` through `createDefaultShadowMapRegistry()`.
 	- May register external custom kinds using any non-empty string.
 	- Must throw when `create(kind, options)` is called for an unregistered kind.
 - `ShadowMapBase`

@@ -6,6 +6,7 @@
 
 import type { Matrix4 } from "../../maths/Matrix4";
 import type { IVector3 } from "../../maths/types";
+import type { PagedShadowFeedbackMode } from "./types";
 
 export interface ShadowParams {
 	shadowBias?: number;
@@ -35,6 +36,8 @@ const DEFAULT_SHADOW_PARAMS: ShadowParams = {
 
 export type ShadowStrategyType = "single-map" | "csm";
 export type CascadedCascadeCount = 1 | 2 | 3 | 4;
+export type ShadowStorageMode = "atlas" | "paged";
+export type ShadowRegionKind = "single" | "cascade" | "paged-page";
 
 interface BaseShadowConfig {
 	strategy: ShadowStrategyType;
@@ -184,6 +187,48 @@ export interface ShadowAtlasRect {
 	localTileSpan: number;
 }
 
+export interface PagedShadowRegionMetadata {
+	level: number;
+	pageX: number;
+	pageY: number;
+	pageSize: number;
+	virtualResolution: number;
+	physicalPageIndex: number;
+	dirty: boolean;
+	resident: boolean;
+}
+
+export interface PagedShadowLayoutMetadata {
+	virtualResolution: number;
+	pageSize: number;
+	pageGridSize: number;
+	physicalPageCount: number;
+	maxPagesPerFrame: number;
+	clipmapLevels: number;
+	cacheFrames: number;
+	feedbackMode: PagedShadowFeedbackMode;
+}
+
+export interface ShadowRegionDescriptor {
+	id: number;
+	kind: ShadowRegionKind;
+	view: Matrix4 | null;
+	projection: Matrix4 | null;
+	viewProjection: Matrix4 | null;
+	lightDir: IVector3;
+	splitNear: number;
+	splitFar: number;
+	atlasRect?: ShadowAtlasRect;
+	sourceSliceIndex: number;
+	paged?: PagedShadowRegionMetadata;
+}
+
+export interface ShadowLayout {
+	storageMode: ShadowStorageMode;
+	regions: ShadowRegionDescriptor[];
+	paged?: PagedShadowLayoutMetadata;
+}
+
 export interface ShadowSlice {
 	index: number;
 	shadowMap: ShadowMap;
@@ -199,7 +244,14 @@ export interface ShadowRenderSet {
 	configSignature: string;
 	size: number;
 	slices: ShadowSlice[];
+	storageMode: ShadowStorageMode;
+	layout: ShadowLayout;
 	metadataVersion: number;
+}
+
+export interface ShadowRenderSetOptions {
+	storageMode?: ShadowStorageMode;
+	paged?: PagedShadowLayoutMetadata;
 }
 
 function isShadowMapLike(value: unknown): value is ShadowMap {
@@ -237,7 +289,45 @@ function createShadowSlice(index: number, sliceSize: number, params: ShadowParam
 	};
 }
 
-export function createShadowRenderSet(config?: ShadowConfig): ShadowRenderSet {
+function resolveRegionKind(
+	config: ShadowConfig,
+	storageMode: ShadowStorageMode
+): ShadowRegionKind {
+	if (storageMode === "paged") {
+		return "paged-page";
+	}
+	return config.strategy === "csm" ? "cascade" : "single";
+}
+
+export function syncShadowLayout(renderSet: ShadowRenderSet): ShadowLayout {
+	const regionKind = resolveRegionKind(
+		renderSet.resolvedConfig,
+		renderSet.storageMode
+	);
+	const regions = renderSet.slices.map((slice) => ({
+		id: slice.index,
+		kind: regionKind,
+		view: slice.shadowMap.viewMatrix,
+		projection: slice.shadowMap.projectionMatrix,
+		viewProjection: slice.shadowMap.viewProjectionMatrix,
+		lightDir: slice.shadowMap.latestLightDir,
+		splitNear: slice.splitNear,
+		splitFar: slice.splitFar,
+		atlasRect: slice.atlasRect ?? undefined,
+		sourceSliceIndex: slice.index,
+	}));
+	renderSet.layout = {
+		storageMode: renderSet.storageMode,
+		regions,
+		paged: renderSet.storageMode === "paged" ? renderSet.layout.paged : undefined,
+	};
+	return renderSet.layout;
+}
+
+export function createShadowRenderSet(
+	config?: ShadowConfig,
+	options: ShadowRenderSetOptions = {}
+): ShadowRenderSet {
 	const resolvedConfig = normalizeShadowConfig(config);
 	const sliceCount = resolveSliceCount(resolvedConfig);
 	const baseSize = resolvedConfig.size ?? 1024;
@@ -248,31 +338,50 @@ export function createShadowRenderSet(config?: ShadowConfig): ShadowRenderSet {
 		slices.push(createShadowSlice(index, sliceSize, resolvedConfig.params ?? {}));
 	}
 
-	return {
+	const storageMode = options.storageMode ?? "atlas";
+	const renderSet: ShadowRenderSet = {
 		requestedStrategyType: resolvedConfig.strategy,
 		effectiveStrategyType: resolvedConfig.strategy,
 		resolvedConfig,
 		configSignature: shadowConfigSignature(resolvedConfig),
 		size: baseSize,
 		slices,
+		storageMode,
+		layout: {
+			storageMode,
+			regions: [],
+			paged: storageMode === "paged" ? options.paged : undefined,
+		},
 		metadataVersion: 0,
 	};
+	syncShadowLayout(renderSet);
+	return renderSet;
 }
 
 export function ensureShadowRenderSetMatchesConfig(
 	renderSet: ShadowRenderSet,
-	config?: ShadowConfig
+	config?: ShadowConfig,
+	options: ShadowRenderSetOptions = {}
 ): ShadowRenderSet {
 	const resolvedConfig = normalizeShadowConfig(config);
 	const signature = shadowConfigSignature(resolvedConfig);
-	if (renderSet.configSignature === signature) {
+	const storageMode = options.storageMode ?? renderSet.storageMode ?? "atlas";
+	const paged = storageMode === "paged" ? options.paged ?? renderSet.layout.paged : undefined;
+	if (
+		renderSet.configSignature === signature &&
+		renderSet.storageMode === storageMode
+	) {
 		renderSet.requestedStrategyType = resolvedConfig.strategy;
 		renderSet.resolvedConfig = resolvedConfig;
 		renderSet.size = resolvedConfig.size ?? renderSet.size;
+		renderSet.storageMode = storageMode;
+		renderSet.layout.storageMode = storageMode;
+		renderSet.layout.paged = paged;
+		syncShadowLayout(renderSet);
 		return renderSet;
 	}
 
-	const next = createShadowRenderSet(resolvedConfig);
+	const next = createShadowRenderSet(resolvedConfig, { storageMode, paged });
 	next.metadataVersion = renderSet.metadataVersion + 1;
 	return next;
 }

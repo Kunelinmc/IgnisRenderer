@@ -436,6 +436,9 @@ export class WebGPUBackendSession implements IRenderBackendSession {
 				supportsSpotCSM: false,
 				supportsPointCSM: false,
 				maxDynamicShadowCost: 48,
+				supportsPagedShadows: true,
+				maxPagedShadowPages: 2048,
+				pagedShadowPageSizeRange: [64, 256],
 			},
 			lighting: { localizedProbeMode: "backend-local" },
 		};

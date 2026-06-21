@@ -71,11 +71,7 @@ export class WebGPUFrameGraphPlanner {
 		return new Map([
 			[
 				"shadow",
-				(pass) => [
-					this._node(pass, "shadow", "WebGPUShadow", {
-						writes: [this._write("shadow-atlas", "render-attachment")],
-					}),
-				],
+				(pass, context) => this._createShadowNodes(pass, context),
 			],
 			[
 				"reflection",
@@ -216,6 +212,69 @@ export class WebGPUFrameGraphPlanner {
 			label,
 			...resources,
 		};
+	}
+
+	private _createShadowNodes(
+		pass: FramePass,
+		context: FrameContext
+	): WebGPUFrameGraphNode[] {
+		const nodes = [
+			this._node(pass, "shadow", "WebGPUShadow", {
+				writes: [this._write("shadow-atlas", "render-attachment")],
+			}),
+		];
+		if (!this._hasPagedShadowWork(context)) {
+			return nodes;
+		}
+		nodes.push(
+			this._node(pass, "paged-shadow-page-mark", "WebGPUPagedShadowPageMark", {
+				writes: [this._write("paged-shadow:page-requests", "storage-binding")],
+			}),
+			this._node(
+				pass,
+				"paged-shadow-page-allocate",
+				"WebGPUPagedShadowPageAllocate",
+				{
+					reads: [
+						this._read("paged-shadow:page-requests", "storage-binding"),
+					],
+					writes: [
+						this._write("paged-shadow:page-table", "storage-binding"),
+						this._write("paged-shadow:page-metadata", "storage-binding"),
+					],
+				}
+			),
+			this._node(pass, "paged-shadow-depth", "WebGPUPagedShadowDepth", {
+				reads: [
+					this._read("paged-shadow:page-table", "storage-binding"),
+					this._read("paged-shadow:page-metadata", "storage-binding"),
+				],
+				writes: [
+					this._write("paged-shadow:physical-depth", "render-attachment"),
+					this._write(
+						"paged-shadow:physical-transmittance",
+						"render-attachment"
+					),
+				],
+			})
+		);
+		return nodes;
+	}
+
+	private _hasPagedShadowWork(context: FrameContext): boolean {
+		if (context.backendProfile?.shadow?.supportsPagedShadows !== true) {
+			return false;
+		}
+		const shadowMaps = context.shadowMaps;
+		if (!shadowMaps || typeof shadowMaps.values !== "function") {
+			return false;
+		}
+		for (const renderSet of shadowMaps.values()) {
+			if (renderSet.storageMode === "paged") {
+				return true;
+			}
+		}
+		return false;
 	}
 
 	private _createOpaqueResources(

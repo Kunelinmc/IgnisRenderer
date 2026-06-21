@@ -307,6 +307,66 @@ function testDeferredDecalNodeRecordsGBufferTransitions() {
 	assert.equal(albedoState.lastUsage, "texture-binding");
 }
 
+function testPagedShadowStubNodesValidate() {
+	const { stage } = compile([
+		{
+			id: "shadow:shadow",
+			stage: "shadow",
+			kind: "shadow",
+			label: "WebGPUShadow",
+			writes: [{ id: "shadow-atlas", usage: "render-attachment" }],
+		},
+		{
+			id: "shadow:paged-shadow-page-mark",
+			stage: "shadow",
+			kind: "paged-shadow-page-mark",
+			label: "WebGPUPagedShadowPageMark",
+			writes: [{
+				id: "paged-shadow:page-requests",
+				usage: "storage-binding",
+			}],
+		},
+		{
+			id: "shadow:paged-shadow-page-allocate",
+			stage: "shadow",
+			kind: "paged-shadow-page-allocate",
+			label: "WebGPUPagedShadowPageAllocate",
+			reads: [{
+				id: "paged-shadow:page-requests",
+				usage: "storage-binding",
+			}],
+			writes: [
+				{ id: "paged-shadow:page-table", usage: "storage-binding" },
+				{ id: "paged-shadow:page-metadata", usage: "storage-binding" },
+			],
+		},
+		{
+			id: "shadow:paged-shadow-depth",
+			stage: "shadow",
+			kind: "paged-shadow-depth",
+			label: "WebGPUPagedShadowDepth",
+			reads: [
+				{ id: "paged-shadow:page-table", usage: "storage-binding" },
+				{ id: "paged-shadow:page-metadata", usage: "storage-binding" },
+			],
+			writes: [
+				{ id: "paged-shadow:physical-depth", usage: "render-attachment" },
+				{
+					id: "paged-shadow:physical-transmittance",
+					usage: "render-attachment",
+				},
+			],
+		},
+	]);
+
+	assert.equal(stage.diagnostics.length, 0);
+	assert.ok(
+		stage.barriers.some(
+			(barrier) => barrier.resource === "paged-shadow:page-requests"
+		)
+	);
+}
+
 function run() {
 	testReadBeforeCreateDiagnostic();
 	testOptionalReadDoesNotDiagnose();
@@ -315,6 +375,7 @@ function run() {
 	testUsageTransitionsEmitBarriers();
 	testResourceDebugStateTracksLastAccess();
 	testDeferredDecalNodeRecordsGBufferTransitions();
+	testPagedShadowStubNodesValidate();
 	console.log("test_webgpu_frame_graph_compiler: ok");
 }
 

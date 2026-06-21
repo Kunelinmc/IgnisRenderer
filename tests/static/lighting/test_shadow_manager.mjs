@@ -14,6 +14,37 @@ function createSceneBounds(radius = 80) {
 	};
 }
 
+function createCamera(overrides = {}) {
+	const position = overrides.position ?? { x: 0, y: 4, z: 16 };
+	const up = overrides.up ?? { x: 0, y: 1, z: 0 };
+	const forward = overrides.forward ?? { x: 0, y: 0, z: -1 };
+	return {
+		near: overrides.near ?? 0.1,
+		far: overrides.far ?? 100,
+		fov: overrides.fov ?? 60,
+		aspectRatio: overrides.aspectRatio ?? 16 / 9,
+		position,
+		up,
+		getWorldPosition(target = { x: 0, y: 0, z: 0 }) {
+			target.x = position.x;
+			target.y = position.y;
+			target.z = position.z;
+			return target;
+		},
+		getWorldDirection(localDirection, target = { x: 0, y: 0, z: 0 }) {
+			const useUpDirection =
+				Math.abs(localDirection.x - up.x) <= 1e-6 &&
+				Math.abs(localDirection.y - up.y) <= 1e-6 &&
+				Math.abs(localDirection.z - up.z) <= 1e-6;
+			const source = useUpDirection ? up : forward;
+			target.x = source.x;
+			target.y = source.y;
+			target.z = source.z;
+			return target;
+		},
+	};
+}
+
 function createBudgetCapabilities(maxDynamicShadowCost) {
 	return {
 		backendKey: "test",
@@ -22,6 +53,15 @@ function createBudgetCapabilities(maxDynamicShadowCost) {
 		supportsSpotCSM: true,
 		supportsPointCSM: true,
 		maxDynamicShadowCost,
+	};
+}
+
+function createPagedCapabilities(supportsPagedShadows = true) {
+	return {
+		...createBudgetCapabilities(64),
+		supportsPagedShadows,
+		maxPagedShadowPages: 2048,
+		pagedShadowPageSizeRange: [64, 256],
 	};
 }
 
@@ -339,6 +379,137 @@ function testDynamicBudgetCanReduceResolutionAfterCascadeReduction() {
 	assert.equal(selected?.size, 512);
 }
 
+function testShadowLayoutsMirrorSingleAndCSMSlices() {
+	const scene = new Scene();
+	const singleLight = scene.add(new DirectionalLight({ intensity: 1 }));
+	scene.shadows.bind(singleLight, scene.shadows.createSingle({ size: 1024 }));
+
+	const singleFrame = scene.shadows.buildFrameState({
+		lights: [singleLight],
+		enableShadows: true,
+	});
+	const singleSet = singleFrame.get(singleLight);
+	assert.ok(singleSet);
+	updateShadowMapMetadata(singleSet, singleLight, createSceneBounds(40));
+	assert.equal(singleSet.storageMode, "atlas");
+	assert.equal(singleSet.layout.storageMode, "atlas");
+	assert.equal(singleSet.layout.regions.length, 1);
+	assert.equal(singleSet.layout.regions[0].kind, "single");
+	assert.equal(
+		singleSet.layout.regions[0].viewProjection,
+		singleSet.slices[0].shadowMap.viewProjectionMatrix
+	);
+
+	const csmLight = scene.add(new DirectionalLight({ intensity: 1 }));
+	scene.shadows.bind(
+		csmLight,
+		scene.shadows.createCascaded({
+			size: 1024,
+			cascadeCounts: { directional: 4 },
+		})
+	);
+	const csmFrame = scene.shadows.buildFrameState({
+		lights: [singleLight, csmLight],
+		enableShadows: true,
+	});
+	const csmSet = csmFrame.get(csmLight);
+	assert.ok(csmSet);
+	updateShadowMapMetadata(csmSet, csmLight, createSceneBounds(80), {
+		camera: createCamera(),
+	});
+	assert.equal(csmSet.storageMode, "atlas");
+	assert.equal(csmSet.layout.regions.length, 4);
+	for (let index = 0; index < csmSet.layout.regions.length; index++) {
+		assert.equal(csmSet.layout.regions[index].kind, "cascade");
+		assert.equal(csmSet.layout.regions[index].sourceSliceIndex, index);
+		assert.equal(csmSet.layout.regions[index].splitNear, csmSet.slices[index].splitNear);
+		assert.equal(csmSet.layout.regions[index].splitFar, csmSet.slices[index].splitFar);
+		assert.equal(
+			csmSet.layout.regions[index].viewProjection,
+			csmSet.slices[index].shadowMap.viewProjectionMatrix
+		);
+	}
+}
+
+function testPagedShadowMapBuildsPagedRenderSetMetadata() {
+	const scene = new Scene();
+	const sun = scene.add(new DirectionalLight({ intensity: 2 }));
+	const paged = scene.shadows.createPaged({
+		size: 2048,
+		virtualResolution: 8192,
+		pageSize: 64,
+		physicalPageCount: 512,
+		clipmapLevels: 5,
+		maxPagesPerFrame: 128,
+		cacheFrames: 60,
+		feedbackMode: "conservative",
+		cascadeCounts: { directional: 4 },
+	});
+	scene.shadows.bind(sun, paged);
+
+	const frameState = scene.shadows.buildFrameState({
+		lights: [sun],
+		enableShadows: true,
+		backendCapabilities: createPagedCapabilities(true),
+	});
+	assert.equal(frameState.records.length, 1);
+	assert.equal(frameState.records[0].shadowMapKind, "paged-shadow");
+	assert.equal(frameState.records[0].renderSet.storageMode, "paged");
+
+	const renderSet = frameState.get(sun);
+	assert.ok(renderSet);
+	assert.equal(renderSet.storageMode, "paged");
+	assert.equal(renderSet.layout.storageMode, "paged");
+	assert.equal(renderSet.layout.paged?.virtualResolution, 8192);
+	assert.equal(renderSet.layout.paged?.pageSize, 64);
+	assert.equal(renderSet.layout.paged?.physicalPageCount, 512);
+	assert.equal(renderSet.layout.paged?.maxPagesPerFrame, 128);
+
+	updateShadowMapMetadata(renderSet, sun, createSceneBounds(100), {
+		camera: createCamera(),
+	});
+	assert.equal(renderSet.resolvedConfig.strategy, "csm");
+	assert.equal(renderSet.slices.length, 4);
+	assert.equal(renderSet.layout.regions.length, 4);
+	for (let index = 0; index < renderSet.layout.regions.length; index++) {
+		const region = renderSet.layout.regions[index];
+		assert.equal(region.kind, "paged-page");
+		assert.equal(region.sourceSliceIndex, index);
+		assert.equal(region.splitNear, renderSet.slices[index].splitNear);
+		assert.equal(region.splitFar, renderSet.slices[index].splitFar);
+		assert.equal(
+			region.viewProjection,
+			renderSet.slices[index].shadowMap.viewProjectionMatrix
+		);
+	}
+}
+
+function testPagedShadowMapFallsBackToAtlasWhenUnsupported() {
+	const scene = new Scene();
+	const sun = scene.add(new DirectionalLight({ intensity: 2 }));
+	scene.shadows.bind(
+		sun,
+		scene.shadows.createPaged({
+			size: 1024,
+			virtualResolution: 4096,
+			pageSize: 128,
+		})
+	);
+
+	const frameState = scene.shadows.buildFrameState({
+		lights: [sun],
+		enableShadows: true,
+		backendCapabilities: createPagedCapabilities(false),
+	});
+	const renderSet = frameState.get(sun);
+	assert.ok(renderSet);
+	assert.equal(frameState.records[0].shadowMapKind, "paged-shadow");
+	assert.equal(renderSet.storageMode, "atlas");
+	assert.equal(renderSet.layout.storageMode, "atlas");
+	assert.equal(renderSet.layout.paged, undefined);
+	assert.equal(renderSet.resolvedConfig.strategy, "csm");
+}
+
 function run() {
 	testShadowManagerBindingLifecycle();
 	testSceneAcceptsExternalShadowMapRegistry();
@@ -349,6 +520,9 @@ function run() {
 	testPointCSMGeneratesCubeCascadeSlices();
 	testDynamicBudgetDegradesCascadeThenDisablesLowerScoreShadows();
 	testDynamicBudgetCanReduceResolutionAfterCascadeReduction();
+	testShadowLayoutsMirrorSingleAndCSMSlices();
+	testPagedShadowMapBuildsPagedRenderSetMetadata();
+	testPagedShadowMapFallsBackToAtlasWhenUnsupported();
 	console.log("Shadow manager tests passed");
 }
 

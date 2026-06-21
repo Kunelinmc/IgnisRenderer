@@ -7,6 +7,7 @@ import {
 	normalizeShadowConfig,
 	shadowConfigSignature,
 	ShadowMap,
+	syncShadowLayout,
 	type ShadowSlice,
 	type ShadowConfig,
 	type ShadowRenderSet,
@@ -179,6 +180,7 @@ function resetRenderSetMetadata(renderSet: ShadowRenderSet): void {
 		slice.splitFar = 0;
 		slice.atlasRect = null;
 	}
+	syncShadowLayout(renderSet);
 }
 
 const SHADOW_RADIUS_SHRINK_BLEND = 0.12;
@@ -267,6 +269,7 @@ function reconfigureRenderSet(renderSet: ShadowRenderSet, config: ShadowConfig):
 	renderSet.slices = rebuilt.slices;
 	renderSet.effectiveStrategyType = resolved.strategy;
 	renderSet.metadataVersion++;
+	syncShadowLayout(renderSet);
 }
 
 function resolveRequiredSliceCount(
@@ -429,4 +432,5 @@ export function updateShadowMapMetadata(
 	}
 
 	renderSet.metadataVersion++;
+	syncShadowLayout(renderSet);
 }

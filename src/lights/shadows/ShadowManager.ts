@@ -3,12 +3,15 @@ import { LightType } from "..";
 import {
 	createShadowRenderSet,
 	ensureShadowRenderSetMatchesConfig,
+	type PagedShadowLayoutMetadata,
 	type ShadowConfig,
+	type ShadowRenderSetOptions,
 	type ShadowRenderSet,
 } from "./ShadowMapping";
 import type { IVector3 } from "../../maths/types";
 import { ShadowFrameState } from "./ShadowFrameState";
 import type { CascadedShadowMap } from "./CascadedShadowMap";
+import type { PagedShadowMap } from "./PagedShadowMap";
 import type { SingleShadowMap } from "./SingleShadowMap";
 import {
 	createDefaultShadowMapRegistry,
@@ -21,6 +24,7 @@ import type {
 	IShadowBackendCapabilities,
 	ShadowBindingRecord,
 	CascadedShadowMapOptions,
+	PagedShadowMapOptions,
 	ShadowMapBaseOptions,
 	ShadowMapKind,
 } from "./types";
@@ -33,6 +37,7 @@ interface ShadowBudgetCandidate {
 	cascadeCount: number;
 	filterMode: "pcf" | "vsm";
 	config: ShadowConfig;
+	renderSetOptions: ShadowRenderSetOptions;
 	cost: number;
 }
 
@@ -108,6 +113,20 @@ export class ShadowManager {
 
 	public createCascaded(options: CascadedShadowMapOptions = {}): CascadedShadowMap {
 		return this.create<CascadedShadowMap, CascadedShadowMapOptions>("csm", options);
+	}
+
+	/**
+	 * Creates a built-in paged shadow map definition.
+	 *
+	 * @param options Paged shadow budget, feedback, fallback CSM, and sampling options.
+	 * @returns A `PagedShadowMap` tracked by this manager.
+	 * @remarks The map is not attached to a light until `bind()` is called.
+	 */
+	public createPaged(options: PagedShadowMapOptions = {}): PagedShadowMap {
+		return this.create<PagedShadowMap, PagedShadowMapOptions>(
+			"paged-shadow",
+			options
+		);
 	}
 
 	public bind(light: ShadowCastingLight, shadowMap: ShadowMapBase): void {
@@ -229,8 +248,12 @@ export class ShadowManager {
 			const existing = this._shadowRenderSets.get(candidate.light);
 			const nextRenderSet =
 				!existing ?
-					createShadowRenderSet(candidate.config)
-				:	ensureShadowRenderSetMatchesConfig(existing, candidate.config);
+					createShadowRenderSet(candidate.config, candidate.renderSetOptions)
+				:	ensureShadowRenderSetMatchesConfig(
+						existing,
+						candidate.config,
+						candidate.renderSetOptions
+					);
 			this._shadowRenderSets.set(candidate.light, nextRenderSet);
 
 			records.push({
@@ -270,6 +293,10 @@ export class ShadowManager {
 				size: shadowMap.size,
 				cascadeCount,
 			});
+			const renderSetOptions = this._resolveRenderSetOptions(
+				shadowMap,
+				options.backendCapabilities
+			);
 			const score = this._resolveCandidateScore(light, shadowMap, cameraPosition);
 			const cost = shadowMap.estimateCost(light.type, shadowMap.size, cascadeCount);
 			candidates.push({
@@ -280,6 +307,7 @@ export class ShadowManager {
 				cascadeCount,
 				filterMode: shadowMap.filterMode,
 				config,
+				renderSetOptions,
 				cost,
 			});
 		}
@@ -376,6 +404,22 @@ export class ShadowManager {
 		return shadowMap.resolveCascadeCount(light.type);
 	}
 
+	private _resolveRenderSetOptions(
+		shadowMap: ShadowMapBase,
+		capabilities?: IShadowBackendCapabilities
+	): ShadowRenderSetOptions {
+		if (shadowMap.kind !== "paged-shadow") {
+			return { storageMode: "atlas" };
+		}
+		if (capabilities && capabilities.supportsPagedShadows !== true) {
+			return { storageMode: "atlas" };
+		}
+		return {
+			storageMode: "paged",
+			paged: resolvePagedLayoutMetadata(shadowMap),
+		};
+	}
+
 	private _resolveCandidateScore(
 		light: ShadowCastingLight,
 		shadowMap: ShadowMapBase,
@@ -443,4 +487,16 @@ function isShadowBindableLightType(
 		light.type === LightType.Spot ||
 		light.type === LightType.RectArea
 	);
+}
+
+function resolvePagedLayoutMetadata(
+	shadowMap: ShadowMapBase
+): PagedShadowLayoutMetadata | undefined {
+	const resolver = (shadowMap as {
+		toLayoutMetadata?: () => PagedShadowLayoutMetadata;
+	}).toLayoutMetadata;
+	if (typeof resolver !== "function") {
+		return undefined;
+	}
+	return resolver.call(shadowMap);
 }
