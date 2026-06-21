@@ -689,6 +689,42 @@ export class PhysicsSystem extends EventEmitter<PhysicsEvents> {
 	}
 
 	/**
+	 * Teleports or updates the transform of a physics body.
+	 *
+	 * @param target - Node, body handle, body id, or ECS entity id to resolve.
+	 * @param transform - The target transform to apply.
+	 * @sideEffects Updates the physics engine, cached state, and node transform.
+	 */
+	public setBodyTransform(
+		target: Node | PhysicsBodyHandle | string | PhysicsEntityId,
+		transform: PhysicsTransform
+	): void {
+		const body = this._resolveBodyRef(target);
+		const runtime = this._runtimeByWorldId.get(body.worldId);
+		if (!runtime) return;
+
+		const cache = runtime.bodyStateCacheById.get(body.id);
+		if (cache) {
+			this._markBroadphaseBodyDirtyFromCache(
+				body.worldId,
+				body.id,
+				cache,
+				transform,
+				this._resolveBodyBroadphaseRadius(runtime, body)
+			);
+		}
+
+		this._adapter.setBodyTransform(body.worldId, body.id, transform);
+		this._setCachedBodyState(runtime, body.id, transform, false);
+		this._setBodySleepingState(runtime, body.id, false);
+		runtime.forceStepNextFrame = true;
+
+		if (body.authority === "physics") {
+			this._applyNodeTransform(body.node, transform);
+		}
+	}
+
+	/**
 	 * Reads the last cached sleep state for a physics body.
 	 *
 	 * @param target - Node, body handle, body id, or ECS entity id to resolve.
