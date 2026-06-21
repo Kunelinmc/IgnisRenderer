@@ -250,6 +250,13 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 		this._camera.updateMatrices();
 	}
 
+	/**
+	 * Initializes the rendering backend session and setups default resource registries.
+	 * Must be called before performing any rendering actions.
+	 * 
+	 * @throws {Error} If the renderer is already initialized or has been destroyed.
+	 * @returns A promise that resolves when initialization is complete.
+	 */
 	public async initialize(): Promise<void> {
 		this._runtime.assertNotDestroyed("initialize");
 		if (this._runtime.isInitialized) {
@@ -259,6 +266,11 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 		this.resizeCanvas();
 	}
 
+	/**
+	 * Restores the renderer after context loss or disposal. Re-initializes runtime and resets coordinators.
+	 * 
+	 * @returns A promise that resolves when the restore process completes.
+	 */
 	public async restore(): Promise<void> {
 		if (!this._runtime.isInitialized) {
 			await this.initialize();
@@ -269,6 +281,12 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 		this.resizeCanvas();
 	}
 
+	/**
+	 * Disposes all allocated GPU resources, stops the render loop, and cleans up event listeners.
+	 * Once destroyed, the renderer instance can no longer be used.
+	 * 
+	 * @returns A promise that resolves when disposal is complete.
+	 */
 	public async destroy(): Promise<void> {
 		this._renderLoopStop?.();
 		await this._runtime.destroy();
@@ -278,70 +296,155 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 		this._frameTransientContributors.clear();
 	}
 
+	/**
+	 * Gets the canvas element associated with this renderer.
+	 */
 	public get canvas(): HTMLCanvasElement {
 		return this._canvas;
 	}
 
+	/**
+	 * Gets the currently active scene graph.
+	 */
 	public get scene(): Scene {
 		return this._scene;
 	}
 
+	/**
+	 * Gets the active rendering camera.
+	 */
 	public get camera(): Camera {
 		return this._camera;
 	}
 
+	/**
+	 * Gets the registered physics system instance, if any.
+	 */
 	public get physicsSystem(): PhysicsSystem | null {
 		return this._physicsSystem;
 	}
 
+	/**
+	 * Gets the current configuration options for incremental rendering.
+	 */
 	public get incrementalOptions(): IncrementalRenderingOptions {
 		return this._incrementalOptions;
 	}
 
+	/**
+	 * Gets the set of active frame transient contributors.
+	 */
 	public get frameTransientContributors(): Set<FrameTransientContributor> {
 		return this._frameTransientContributors;
 	}
 
+	/**
+	 * Gets the active shadow maps mapping.
+	 * 
+	 * @internal Owned by the pipeline stage system.
+	 */
 	public get shadowMaps(): Map<ShadowCastingLight, ShadowRenderSet> {
 		return this._shadowMaps;
 	}
 
+	/**
+	 * Gets the current spherical harmonics coefficients.
+	 * 
+	 * @internal Owned by the spherical harmonics lighting subsystem.
+	 */
 	public get shCoeffs(): SHCoefficients {
 		return this._shCoeffs;
 	}
 
+	/**
+	 * Gets the current ambient spherical harmonics coefficients.
+	 * 
+	 * @internal Owned by the spherical harmonics lighting subsystem.
+	 */
 	public get shAmbientCoeffs(): SHCoefficients {
 		return this._shAmbientCoeffs;
 	}
 
+	/**
+	 * Gets the timestamp of the last executed frame.
+	 * 
+	 * @internal Owned by the frame execution scheduling subsystem.
+	 */
 	public get lastTime(): number {
 		return this._lastTime;
 	}
 
+	/**
+	 * Sets the global spherical harmonics coefficients.
+	 * 
+	 * @internal Owned by the spherical harmonics lighting subsystem. Preferred alternative: update lighting sources in the scene.
+	 * @param coeffs The new spherical harmonics coefficients.
+	 */
 	public setSHCoefficients(coeffs: SHCoefficients): void {
 		this._shCoeffs = coeffs;
 	}
 
+	/**
+	 * Sets the ambient spherical harmonics coefficients.
+	 * 
+	 * @internal Owned by the spherical harmonics lighting subsystem. Preferred alternative: update ambient lights in the scene.
+	 * @param coeffs The new ambient spherical harmonics coefficients.
+	 */
 	public setSHAmbientCoefficients(coeffs: SHCoefficients): void {
 		this._shAmbientCoeffs = coeffs;
 	}
 
+	/**
+	 * Updates the active shadow map registry.
+	 * 
+	 * @internal Owned by the shadow mapping subsystem.
+	 * @param shadowMaps The new shadow map collection mapping.
+	 */
 	public setShadowMaps(shadowMaps: Map<ShadowCastingLight, ShadowRenderSet>): void {
 		this._shadowMaps = shadowMaps;
 	}
 
+	/**
+	 * Sets stats for the last incremental frame.
+	 * 
+	 * @internal Owned by the incremental rendering subsystem.
+	 * @param stats The stats to store.
+	 */
 	public setLastIncrementalFrameStats(stats: IncrementalFrameStats | null): void {
 		this._lastIncrementalFrameStats = stats;
 	}
 
+	/**
+	 * Retrieves an extension interface supported by the active rendering backend.
+	 * 
+	 * @template TApi The extension api type.
+	 * @param key The key identifying the requested extension.
+	 * @returns The extension instance if supported, otherwise null.
+	 */
 	public getBackendExtension<TApi>(key: RenderBackendExtensionKey<TApi>): TApi | null {
 		return this._runtime.backendSession.extensions.getBackendExtension(key);
 	}
 
+	/**
+	 * Retrieves an extension interface supported by the active rendering backend, throwing if not available.
+	 * 
+	 * @template TApi The extension api type.
+	 * @param key The key identifying the requested extension.
+	 * @throws {Error} If the extension is not supported by the backend.
+	 * @returns The extension instance.
+	 */
 	public requireBackendExtension<TApi>(key: RenderBackendExtensionKey<TApi>): TApi {
 		return this._runtime.backendSession.extensions.requireBackendExtension(key);
 	}
 
+	/**
+	 * Emits a post-animation event.
+	 * 
+	 * @internal Owned by the FrameCoordinator subsystem. Preferred alternative: subscribe to `RendererEvents.postanimation` instead of calling `emitPostAnimation` directly.
+	 * @param now The current timestamp.
+	 * @param deltaTime The elapsed time since the last frame.
+	 * @param transient The current transient store.
+	 */
 	public emitPostAnimation(now: number, deltaTime: number, transient: TransientStore): void {
 		this.emit("postanimation", {
 			now,
@@ -351,6 +454,9 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 		});
 	}
 
+	/**
+	 * Refreshes all runtime caches for reflection probes in the scene.
+	 */
 	public refreshReflectionProbeCaches(): void {
 		for (const light of this._scene.getLights()) {
 			if (light.type !== LightType.ReflectionProbe) continue;
@@ -358,6 +464,13 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 		}
 	}
 
+	/**
+	 * Logs a warning event with the renderer logger prefix.
+	 * 
+	 * @internal Owned by the logging/diagnostics subsystem.
+	 * @param key Unique key for deduping warnings.
+	 * @param message Warning message.
+	 */
 	public warn(key: string, message: string): void {
 		this.logger.warn(`[${key}] ${message}`, {
 			scope: "Renderer",
@@ -365,6 +478,13 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 		});
 	}
 
+	/**
+	 * Triggers the rendering of a single frame. This checks initialization and runs the execution coordinator.
+	 * 
+	 * @param nowMs The current animation frame timestamp in milliseconds.
+	 * @throws {Error} If another frame is already rendering concurrently.
+	 * @returns A promise resolving to the frame render result (rendered or skipped).
+	 */
 	public async renderFrame(nowMs: number): Promise<RenderFrameResult> {
 		if (!this._runtime.isInitialized) {
 			await this.initialize();
@@ -447,6 +567,13 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 		return this.renderFrame(nowMs);
 	}
 
+	/**
+	 * Callback triggered when a GPU device lost event occurs.
+	 * 
+	 * @internal Owned by the device management subsystem. Preferred alternative: subscribe to `RendererEvents.devicelost` instead of calling `Renderer.onDeviceLost`.
+	 * @param info Optional details about the device loss reason.
+	 * @returns A promise that resolves when recovery or cleanup tasks finish.
+	 */
 	public async onDeviceLost(info?: any): Promise<void> {
 		const session = this._runtime.backendSession;
 		if (session && typeof (session as any).onDeviceLost === "function") {
@@ -455,6 +582,12 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 		this._handleBackendEvent({ type: "device-lost", info });
 	}
 
+	/**
+	 * Callback triggered when a backend resource lifecycle event occurs.
+	 * 
+	 * @internal Owned by the resource registry. Preferred alternative: subscribe to `RendererEvents.backendresourceevent` instead of calling `Renderer.onBackendResourceEvent`.
+	 * @param event The backend resource lifecycle event payload.
+	 */
 	public onBackendResourceEvent(event: any): void {
 		this._handleBackendEvent({ type: "resource-lifecycle", event });
 	}
@@ -530,6 +663,12 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 		return { rendered: true };
 	}
 
+	/**
+	 * Warmup system execution to precompile shaders/pipelines and initialize cache buffers.
+	 * 
+	 * @param options Warmup planning options.
+	 * @returns A promise resolving to the warmup report detailing compiled pipeline count.
+	 */
 	public async warmup(options: WarmupOptions = {}): Promise<WarmupReport> {
 		const warmupStartDelay = getWarmupStartDelay(options);
 		if (warmupStartDelay) {
@@ -587,6 +726,10 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 		return this._coordinator.warmup(this, context, options);
 	}
 
+	/**
+	 * Resizes the canvas to match its bounding client rect dimensions scaled by device scale factor.
+	 * Invalidates current session viewport bounds and marks the next frame dirty.
+	 */
 	public resizeCanvas(): void {
 		const rect = this._canvas.getBoundingClientRect();
 		this._deviceScaleFactor = window.devicePixelRatio || 1;
@@ -607,10 +750,20 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 		this._camera.updateMatrices();
 	}
 
+	/**
+	 * Requests a frame redraw by marking the frame as dirty with a specific reason.
+	 * 
+	 * @param reason The reason triggering the redraw request.
+	 */
 	public requestRender(reason: RenderDirtyReason = "unknown"): void {
 		this._markFrameDirty(reason);
 	}
 
+	/**
+	 * Binds a new active scene to the renderer and resets the execution coordinator.
+	 * 
+	 * @param scene The new Scene graph instance.
+	 */
 	public setScene(scene: Scene): void {
 		this._assertCameraInScene(scene, this._camera, "setScene");
 		this._scene = scene;
@@ -625,6 +778,11 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 		this._markFrameDirty("unknown");
 	}
 
+	/**
+	 * Binds a new active camera to the renderer and resets the execution coordinator.
+	 * 
+	 * @param camera The new Camera instance.
+	 */
 	public setCamera(camera: Camera): void {
 		this._assertCameraInScene(this._scene, camera, "setCamera");
 		this._camera = camera;
@@ -632,6 +790,11 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 		this._markFrameDirty("camera");
 	}
 
+	/**
+	 * Binds a physics simulation system instance to update and query colliders/rigid bodies.
+	 * 
+	 * @param physicsSystem The physics system instance or null to unbind.
+	 */
 	public setPhysicsSystem(physicsSystem: PhysicsSystem | null): void {
 		if (this._physicsSystem && this._physicsSystem !== physicsSystem) {
 			this._physicsSystem.bindSceneSpatial(null);
@@ -645,14 +808,29 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 		}
 	}
 
+	/**
+	 * Registers a callback hook that populates custom transient store data before every frame.
+	 * 
+	 * @param contributor The contributor function.
+	 */
 	public registerFrameTransientContributor(contributor: FrameTransientContributor): void {
 		this._frameTransientContributors.add(contributor);
 	}
 
+	/**
+	 * Unregisters a previously registered frame transient contributor callback.
+	 * 
+	 * @param contributor The contributor function.
+	 */
 	public unregisterFrameTransientContributor(contributor: FrameTransientContributor): void {
 		this._frameTransientContributors.delete(contributor);
 	}
 
+	/**
+	 * Configures incremental rendering options such as tile sizing and dirty rect maximums.
+	 * 
+	 * @param options Partial incremental rendering configurations.
+	 */
 	public setIncrementalRendering(options: Partial<IncrementalRenderingOptions>): void {
 		const next = mergeIncrementalRenderingOptions(this._incrementalOptions, options);
 		if (
@@ -670,10 +848,20 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 		this._markFrameDirty("unknown");
 	}
 
+	/**
+	 * Retrieves the current active configuration options for incremental rendering.
+	 * 
+	 * @returns A copy of the incremental rendering options.
+	 */
 	public getIncrementalRenderingOptions(): IncrementalRenderingOptions {
 		return { ...this._incrementalOptions };
 	}
 
+	/**
+	 * Retrieves statistics for the last executed incremental frame.
+	 * 
+	 * @returns The last frame stats or null if none exist or incremental rendering is disabled.
+	 */
 	public getLastIncrementalFrameStats(): IncrementalFrameStats | null {
 		if (!this._lastIncrementalFrameStats) {
 			return null;
@@ -690,6 +878,9 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 		};
 	}
 
+	/**
+	 * Updates spherical harmonics coefficients by projecting lighting data from the active scene.
+	 */
 	public updateSH(): void {
 		if (this._coordinator) {
 			this._coordinator.updateSH(this);
