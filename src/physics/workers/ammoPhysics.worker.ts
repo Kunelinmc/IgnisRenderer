@@ -147,6 +147,13 @@ function applyCommand(ammoAdapter: AmmoPhysicsAdapter, command: AmmoWorkerComman
 				command.mask
 			);
 			return;
+		case "setColliderMaterial":
+			ammoAdapter.setColliderMaterial(
+				command.worldId,
+				command.colliderId,
+				command.material
+			);
+			return;
 		case "createJoint":
 			ammoAdapter.createJoint(command.worldId, command.jointId, command.descriptor);
 			return;

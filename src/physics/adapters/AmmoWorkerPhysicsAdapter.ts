@@ -19,6 +19,7 @@ import type {
 	ColliderDescriptor,
 	ColliderShape,
 	JointDescriptor,
+	PhysicsMaterialDescriptor,
 	PhysicsBoxCastQuery,
 	PhysicsOverlapBoxQuery,
 	PhysicsOverlapHit,
@@ -374,6 +375,28 @@ export class AmmoWorkerPhysicsAdapter implements IPhysicsEngineAdapter {
 			worldId,
 			colliderId,
 			mask,
+		});
+	}
+
+	public setColliderMaterial(
+		worldId: string,
+		colliderId: string,
+		material: Partial<Pick<PhysicsMaterialDescriptor, "friction" | "restitution">>
+	): void {
+		if (this._usingFallbackAdapter) {
+			this._fallbackAdapter.setColliderMaterial?.(
+				worldId,
+				colliderId,
+				material
+			);
+			return;
+		}
+		this._assertInitialized();
+		this._enqueueCommand({
+			type: "setColliderMaterial",
+			worldId,
+			colliderId,
+			material,
 		});
 	}
 

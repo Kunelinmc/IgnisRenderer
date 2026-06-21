@@ -6,6 +6,7 @@ import type {
 	PhysicsOverlapBoxQuery,
 	PhysicsOverlapHit,
 	PhysicsOverlapSphereQuery,
+	PhysicsMaterialDescriptor,
 	PhysicsQueryHit,
 	PhysicsRaycastQuery,
 	PhysicsSphereCastQuery,
@@ -31,6 +32,8 @@ export interface PhysicsAdapterBodyState {
 	transform: PhysicsTransform;
 	sleeping: boolean;
 	ccd: boolean;
+	linearVelocity?: IVector3;
+	angularVelocity?: IVector3;
 }
 
 export interface PhysicsAdapterStepResult {
@@ -88,6 +91,13 @@ export interface IPhysicsEngineAdapter {
 		isSensor: boolean
 	): void;
 	setCollisionMask(worldId: string, colliderId: string, mask: number): void;
+	setColliderMaterial?(
+		worldId: string,
+		colliderId: string,
+		material: Partial<
+			Pick<PhysicsMaterialDescriptor, "friction" | "restitution">
+		>
+	): void;
 	createJoint(
 		worldId: string,
 		jointId: string,

@@ -18,6 +18,7 @@ import type {
 	JointDescriptor,
 	PhysicsEvent,
 	PhysicsEventType,
+	PhysicsMaterialDescriptor,
 	PhysicsTransform,
 	PhysicsWorldConfig,
 	RigidBodyDescriptor,
@@ -58,6 +59,7 @@ interface SimpleColliderState {
 	shape: ColliderShape;
 	isTrigger: boolean;
 	collisionMask: number;
+	material: Partial<Pick<PhysicsMaterialDescriptor, "friction" | "restitution">>;
 	radius: number;
 	halfExtents: IVector3;
 	offset: IVector3;
@@ -278,6 +280,10 @@ export class SimplePhysicsAdapter implements IPhysicsEngineAdapter {
 			shape,
 			isTrigger: descriptor.isTrigger === true,
 			collisionMask: DEFAULT_COLLISION_MASK,
+			material: {
+				friction: descriptor.material?.friction,
+				restitution: descriptor.material?.restitution,
+			},
 			radius: computeShapeRadius(shape),
 			halfExtents: computeShapeHalfExtents(shape),
 			offset: cloneVector(descriptor.offset ?? { x: 0, y: 0, z: 0 }),
@@ -323,6 +329,33 @@ export class SimplePhysicsAdapter implements IPhysicsEngineAdapter {
 			);
 		}
 		collider.collisionMask = sanitizeCollisionMask(mask);
+	}
+
+	public setColliderMaterial(
+		worldId: string,
+		colliderId: string,
+		material: Partial<Pick<PhysicsMaterialDescriptor, "friction" | "restitution">>
+	): void {
+		const world = this._requireWorld(worldId);
+		const collider = world.colliders.get(colliderId);
+		if (!collider) {
+			throw new Error(
+				`Physics collider "${colliderId}" does not exist in "${worldId}"`
+			);
+		}
+		if (material.friction !== undefined) {
+			collider.material.friction = material.friction;
+		}
+		if (material.restitution !== undefined) {
+			collider.material.restitution = material.restitution;
+		}
+		collider.descriptor = {
+			...collider.descriptor,
+			material: {
+				...collider.descriptor.material,
+				...material,
+			},
+		};
 	}
 
 	public createJoint(
@@ -677,6 +710,8 @@ export class SimplePhysicsAdapter implements IPhysicsEngineAdapter {
 				transform: cloneTransform(body.transform),
 				sleeping: body.sleeping,
 				ccd: body.ccd,
+				linearVelocity: cloneVector(body.linearVelocity),
+				angularVelocity: cloneVector(body.angularVelocity),
 			});
 		}
 

@@ -4,6 +4,7 @@ import type {
 	ColliderDescriptor,
 	ColliderShape,
 	JointDescriptor,
+	PhysicsMaterialDescriptor,
 	PhysicsBoxCastQuery,
 	PhysicsOverlapBoxQuery,
 	PhysicsOverlapSphereQuery,
@@ -95,6 +96,14 @@ export type AmmoWorkerCommand =
 			worldId: string;
 			colliderId: string;
 			mask: number;
+	  }
+	| {
+			type: "setColliderMaterial";
+			worldId: string;
+			colliderId: string;
+			material: Partial<
+				Pick<PhysicsMaterialDescriptor, "friction" | "restitution">
+			>;
 	  }
 	| {
 			type: "createJoint";

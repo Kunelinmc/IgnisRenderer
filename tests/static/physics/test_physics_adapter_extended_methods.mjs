@@ -42,6 +42,8 @@ function testForcesAndVelocities() {
 	let step = adapter.stepWorld("forces", 1);
 	let state = findBodyState(step, "body");
 	assertAlmostEqual(state.transform.position.x, 1);
+	assertAlmostEqual(state.linearVelocity.x, 1);
+	assertAlmostEqual(state.angularVelocity.y, 0);
 
 	adapter.applyForce("forces", "body", { x: 2, y: 0, z: 0 });
 	step = adapter.stepWorld("forces", 1);
@@ -89,6 +91,10 @@ function testColliderSensorAndMask() {
 	assert.ok(
 		step.events.some((event) => event.type === "triggerBegin" || event.type === "triggerStay")
 	);
+	adapter.setColliderMaterial("mask", "collider-b", {
+		friction: 0.4,
+		restitution: 0.8,
+	});
 
 	adapter.setCollisionMask("mask", "collider-a", 0);
 	step = adapter.stepWorld("mask", 0.016);

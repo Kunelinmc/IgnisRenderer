@@ -154,6 +154,13 @@ function applyCommand(
 				command.mask
 			);
 			return;
+		case "setColliderMaterial":
+			rapierAdapter.setColliderMaterial(
+				command.worldId,
+				command.colliderId,
+				command.material
+			);
+			return;
 		case "createJoint":
 			rapierAdapter.createJoint(
 				command.worldId,

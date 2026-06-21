@@ -24,6 +24,7 @@ import type {
 	ColliderDescriptor,
 	ColliderShape,
 	JointDescriptor,
+	PhysicsMaterialDescriptor,
 	PhysicsTransform,
 	PhysicsWorldConfig,
 	RigidBodyDescriptor,
@@ -693,6 +694,45 @@ export class RapierPhysicsAdapter implements IPhysicsEngineAdapter {
 		this._applyNativeCollisionMask(collider);
 	}
 
+	public setColliderMaterial(
+		worldId: string,
+		colliderId: string,
+		material: Partial<Pick<PhysicsMaterialDescriptor, "friction" | "restitution">>
+	): void {
+		if (this._usingFallback()) {
+			this._delegate.setColliderMaterial?.(worldId, colliderId, material);
+			return;
+		}
+		const world = this._requireWorld(worldId);
+		const collider = world.colliders.get(colliderId);
+		if (!collider) {
+			throw new Error(
+				`Physics collider "${colliderId}" does not exist in "${worldId}"`
+			);
+		}
+		collider.descriptor = {
+			...collider.descriptor,
+			material: {
+				...collider.descriptor.material,
+				...material,
+			},
+		};
+		if (material.friction !== undefined) {
+			this._invoke(
+				collider.rapierCollider,
+				["setFriction"],
+				[[material.friction]]
+			);
+		}
+		if (material.restitution !== undefined) {
+			this._invoke(
+				collider.rapierCollider,
+				["setRestitution"],
+				[[material.restitution]]
+			);
+		}
+	}
+
 	public createJoint(
 		worldId: string,
 		jointId: string,
@@ -1113,6 +1153,8 @@ export class RapierPhysicsAdapter implements IPhysicsEngineAdapter {
 				transform,
 				sleeping,
 				ccd,
+				linearVelocity: this._readBodyLinearVelocity(body.rigidBody),
+				angularVelocity: this._readBodyAngularVelocity(body.rigidBody),
 			});
 		}
 
@@ -1831,6 +1873,11 @@ export class RapierPhysicsAdapter implements IPhysicsEngineAdapter {
 
 	private _readBodyLinearVelocity(rigidBody: any): IVector3 {
 		const value = this._readFromGetter(rigidBody, "linvel");
+		return readVector3(value);
+	}
+
+	private _readBodyAngularVelocity(rigidBody: any): IVector3 {
+		const value = this._readFromGetter(rigidBody, "angvel");
 		return readVector3(value);
 	}
 

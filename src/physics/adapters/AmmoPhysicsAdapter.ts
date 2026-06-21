@@ -22,6 +22,7 @@ import type {
 	ColliderDescriptor,
 	ColliderShape,
 	JointDescriptor,
+	PhysicsMaterialDescriptor,
 	PhysicsTransform,
 	PhysicsWorldConfig,
 	RigidBodyDescriptor,
@@ -663,6 +664,39 @@ export class AmmoPhysicsAdapter implements IPhysicsEngineAdapter {
 		}
 	}
 
+	public setColliderMaterial(
+		worldId: string,
+		colliderId: string,
+		material: Partial<Pick<PhysicsMaterialDescriptor, "friction" | "restitution">>
+	): void {
+		if (this._usingFallback()) {
+			this._delegate.setColliderMaterial?.(worldId, colliderId, material);
+			return;
+		}
+		const world = this._worlds.get(worldId);
+		const collider = world?.colliders.get(colliderId);
+		if (!collider) return;
+		collider.descriptor = {
+			...collider.descriptor,
+			material: {
+				...collider.descriptor.material,
+				...material,
+			},
+		};
+		const body = world?.bodies.get(collider.bodyId);
+		if (!body) return;
+		if (material.friction !== undefined) {
+			this._invoke(body.rigidBody, ["setFriction"], [[material.friction]]);
+		}
+		if (material.restitution !== undefined) {
+			this._invoke(
+				body.rigidBody,
+				["setRestitution"],
+				[[material.restitution]]
+			);
+		}
+	}
+
 	public createJoint(
 		worldId: string,
 		jointId: string,
@@ -891,6 +925,8 @@ export class AmmoPhysicsAdapter implements IPhysicsEngineAdapter {
 				transform,
 				sleeping,
 				ccd: body.ccd,
+				linearVelocity: this._readBodyLinearVelocity(body),
+				angularVelocity: this._readBodyAngularVelocity(body),
 			});
 			this._delegate.setBodyTransform(worldId, body.id, transform);
 		}
@@ -1002,6 +1038,18 @@ export class AmmoPhysicsAdapter implements IPhysicsEngineAdapter {
 		);
 		const speed = Math.hypot(velocity.x, velocity.y, velocity.z);
 		return speed < 0.001;
+	}
+
+	private _readBodyLinearVelocity(body: AmmoBodyState): IVector3 {
+		return readAmmoVector3(
+			this._readFromGetter(body.rigidBody, "getLinearVelocity")
+		);
+	}
+
+	private _readBodyAngularVelocity(body: AmmoBodyState): IVector3 {
+		return readAmmoVector3(
+			this._readFromGetter(body.rigidBody, "getAngularVelocity")
+		);
 	}
 
 	private _applyBodyFlags(rigidBody: any, type: RigidBodyType): void {

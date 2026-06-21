@@ -266,6 +266,13 @@ export interface PhysicsStepReport {
 	dirty: boolean;
 }
 
+export interface PhysicsBodyStats {
+	bodyCount: number;
+	activeBodies: number;
+	sleepingBodies: number;
+	ccdBodies: number;
+}
+
 export interface StepOverride extends PhysicsStepConfig {
 	worldIds?: PhysicsWorldId[];
 }

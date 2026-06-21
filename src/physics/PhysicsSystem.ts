@@ -18,6 +18,7 @@ import type {
 	MeshColliderNarrowphase,
 	MeshColliderPolicy,
 	PhysicsBodyHandle,
+	PhysicsBodyStats,
 	PhysicsBoxCastQuery,
 	PhysicsColliderHandle,
 	PhysicsEvent,
@@ -100,6 +101,12 @@ interface CachedBodyState {
 	rotationY: number;
 	rotationZ: number;
 	rotationW: number;
+	linearVelocityX: number;
+	linearVelocityY: number;
+	linearVelocityZ: number;
+	angularVelocityX: number;
+	angularVelocityY: number;
+	angularVelocityZ: number;
 	sleeping: boolean;
 }
 
@@ -380,6 +387,101 @@ export class PhysicsSystem extends EventEmitter<PhysicsEvents> {
 		return collider;
 	}
 
+	/**
+	 * Removes one collider without detaching the owning body.
+	 *
+	 * @param target - Collider handle or collider id returned by `addCollider()`.
+	 * @sideEffects Removes native adapter resources, updates broadphase metadata,
+	 * and wakes the owning world.
+	 */
+	public removeCollider(target: PhysicsColliderHandle | string): void {
+		const colliderId = typeof target === "string" ? target : target.id;
+		const collider = this._colliderById.get(colliderId);
+		if (!collider) return;
+		const body = this._bodyById.get(collider.bodyId);
+		this._destroyColliderBinding(collider.worldId, collider.id);
+		if (body) {
+			this._recomputeBodyBroadphaseRadius(body);
+		}
+		this._markWorldDirtyForStep(collider.worldId);
+	}
+
+	/**
+	 * Toggles whether a collider emits trigger events instead of solid contacts.
+	 *
+	 * @param target - Collider handle or collider id returned by `addCollider()`.
+	 * @param isSensor - `true` to make the collider a trigger/sensor.
+	 * @sideEffects Updates adapter collider state and wakes the owning world.
+	 */
+	public setColliderSensor(
+		target: PhysicsColliderHandle | string,
+		isSensor: boolean
+	): void {
+		const collider = this._resolveColliderRef(target);
+		collider.descriptor = {
+			...collider.descriptor,
+			isTrigger: isSensor === true,
+		};
+		this._adapter.setColliderSensor(
+			collider.worldId,
+			collider.id,
+			isSensor === true
+		);
+		this._markWorldDirtyForStep(collider.worldId);
+	}
+
+	/**
+	 * Updates a collider collision mask using the adapter 32-bit filter encoding.
+	 *
+	 * @param target - Collider handle or collider id returned by `addCollider()`.
+	 * @param mask - Adapter collision filter mask.
+	 * @sideEffects Updates adapter collider state and wakes the owning world.
+	 */
+	public setCollisionMask(
+		target: PhysicsColliderHandle | string,
+		mask: number
+	): void {
+		const collider = this._resolveColliderRef(target);
+		this._adapter.setCollisionMask(collider.worldId, collider.id, mask);
+		this._markWorldDirtyForStep(collider.worldId);
+	}
+
+	/**
+	 * Updates collider friction at runtime.
+	 *
+	 * @param target - Collider handle or collider id returned by `addCollider()`.
+	 * @param friction - Finite friction coefficient.
+	 * @sideEffects Updates descriptor cache, forwards to the adapter, and wakes
+	 * the owning world.
+	 */
+	public setColliderFriction(
+		target: PhysicsColliderHandle | string,
+		friction: number
+	): void {
+		if (!Number.isFinite(friction)) {
+			throw new Error("Collider friction must be finite");
+		}
+		this._setColliderMaterial(target, { friction });
+	}
+
+	/**
+	 * Updates collider restitution at runtime.
+	 *
+	 * @param target - Collider handle or collider id returned by `addCollider()`.
+	 * @param restitution - Finite restitution coefficient.
+	 * @sideEffects Updates descriptor cache, forwards to the adapter, and wakes
+	 * the owning world.
+	 */
+	public setColliderRestitution(
+		target: PhysicsColliderHandle | string,
+		restitution: number
+	): void {
+		if (!Number.isFinite(restitution)) {
+			throw new Error("Collider restitution must be finite");
+		}
+		this._setColliderMaterial(target, { restitution });
+	}
+
 	public rebuildColliders(
 		target: Node | PhysicsBodyHandle | PhysicsEntityId
 	): PhysicsColliderHandle[] {
@@ -411,12 +513,122 @@ export class PhysicsSystem extends EventEmitter<PhysicsEvents> {
 		return rebuilt;
 	}
 
+	/**
+	 * Reads the last cached linear velocity for a physics body.
+	 *
+	 * @param target - Node, body handle, body id, or ECS entity id to resolve.
+	 * @returns The cached world-space velocity, or `null` when unavailable.
+	 * @sideEffects None.
+	 */
+	public getLinearVelocity(
+		target: Node | PhysicsBodyHandle | string | PhysicsEntityId
+	): IVector3 | null {
+		const body = this._resolveBodyRef(target);
+		const cache = this._runtimeByWorldId
+			.get(body.worldId)
+			?.bodyStateCacheById.get(body.id);
+		if (!cache) return null;
+		return {
+			x: cache.linearVelocityX,
+			y: cache.linearVelocityY,
+			z: cache.linearVelocityZ,
+		};
+	}
+
+	/**
+	 * Reads the last cached angular velocity for a physics body.
+	 *
+	 * @param target - Node, body handle, body id, or ECS entity id to resolve.
+	 * @returns The cached world-space angular velocity, or `null` when unavailable.
+	 * @sideEffects None.
+	 */
+	public getAngularVelocity(
+		target: Node | PhysicsBodyHandle | string | PhysicsEntityId
+	): IVector3 | null {
+		const body = this._resolveBodyRef(target);
+		const cache = this._runtimeByWorldId
+			.get(body.worldId)
+			?.bodyStateCacheById.get(body.id);
+		if (!cache) return null;
+		return {
+			x: cache.angularVelocityX,
+			y: cache.angularVelocityY,
+			z: cache.angularVelocityZ,
+		};
+	}
+
+	/**
+	 * Reads the last cached transform for a physics body.
+	 *
+	 * @param target - Node, body handle, body id, or ECS entity id to resolve.
+	 * @returns The cached local body transform, or `null` when unavailable.
+	 * @sideEffects None.
+	 */
+	public getBodyTransform(
+		target: Node | PhysicsBodyHandle | string | PhysicsEntityId
+	): PhysicsTransform | null {
+		const body = this._resolveBodyRef(target);
+		const cache = this._runtimeByWorldId
+			.get(body.worldId)
+			?.bodyStateCacheById.get(body.id);
+		if (!cache) return null;
+		return {
+			position: {
+				x: cache.positionX,
+				y: cache.positionY,
+				z: cache.positionZ,
+			},
+			rotation: [
+				cache.rotationX,
+				cache.rotationY,
+				cache.rotationZ,
+				cache.rotationW,
+			],
+		};
+	}
+
+	/**
+	 * Reads the last cached sleep state for a physics body.
+	 *
+	 * @param target - Node, body handle, body id, or ECS entity id to resolve.
+	 * @returns The cached sleep state, or `null` when unavailable.
+	 * @sideEffects None.
+	 */
+	public isSleeping(
+		target: Node | PhysicsBodyHandle | string | PhysicsEntityId
+	): boolean | null {
+		const body = this._resolveBodyRef(target);
+		const cache = this._runtimeByWorldId
+			.get(body.worldId)
+			?.bodyStateCacheById.get(body.id);
+		return cache?.sleeping ?? null;
+	}
+
+	/**
+	 * Reads cached body counts for a physics world.
+	 *
+	 * @param worldId - World identifier passed to `createWorld()`.
+	 * @returns Cached body count, active body count, sleeping count, and CCD count.
+	 * @sideEffects None.
+	 */
+	public getBodyStats(worldId: string): PhysicsBodyStats {
+		this._requireWorld(worldId);
+		const runtime = this._requireRuntime(worldId);
+		return {
+			bodyCount: runtime.bodyIds.size,
+			activeBodies: runtime.cachedStats.activeBodies,
+			sleepingBodies: runtime.cachedStats.sleepingBodies,
+			ccdBodies: runtime.cachedStats.ccdBodies,
+		};
+	}
+
 	public setLinearVelocity(
 		target: Node | PhysicsBodyHandle | string | PhysicsEntityId,
 		velocity: IVector3
 	): void {
 		const body = this._resolveBodyRef(target);
 		this._adapter.setBodyLinearVelocity(body.worldId, body.id, velocity);
+		this._setCachedLinearVelocity(body.worldId, body.id, velocity);
 		this._markWorldDirtyForStep(body.worldId);
 	}
 
@@ -426,6 +638,7 @@ export class PhysicsSystem extends EventEmitter<PhysicsEvents> {
 	): void {
 		const body = this._resolveBodyRef(target);
 		this._adapter.setAngularVelocity(body.worldId, body.id, velocity);
+		this._setCachedAngularVelocity(body.worldId, body.id, velocity);
 		this._markWorldDirtyForStep(body.worldId);
 	}
 
@@ -483,6 +696,22 @@ export class PhysicsSystem extends EventEmitter<PhysicsEvents> {
 		this._jointById.set(jointId, handle);
 		this._registerJointPair(desc.worldId, bodyA.id, bodyB.id);
 		return handle;
+	}
+
+	/**
+	 * Destroys one joint without detaching the connected bodies.
+	 *
+	 * @param target - Joint handle or joint id returned by `createJoint()`.
+	 * @sideEffects Removes native adapter resources and wakes the owning world.
+	 */
+	public destroyJoint(target: PhysicsJointHandle | string): void {
+		const jointId = typeof target === "string" ? target : target.id;
+		const joint = this._jointById.get(jointId);
+		if (!joint) return;
+		this._adapter.destroyJoint(joint.worldId, joint.id);
+		this._jointById.delete(joint.id);
+		this._unregisterJointPair(joint.worldId, joint.bodyAId, joint.bodyBId);
+		this._markWorldDirtyForStep(joint.worldId);
 	}
 
 	public createCharacterController(
@@ -559,6 +788,27 @@ export class PhysicsSystem extends EventEmitter<PhysicsEvents> {
 		});
 		this._markWorldDirtyForStep(desc.worldId);
 		return handle;
+	}
+
+	/**
+	 * Destroys one character controller without detaching its body.
+	 *
+	 * @param target - Controller handle or controller id returned by
+	 * `createCharacterController()`.
+	 * @sideEffects Removes native adapter resources and wakes the owning world.
+	 */
+	public destroyCharacterController(
+		target: CharacterControllerHandle | string
+	): void {
+		const controllerId = typeof target === "string" ? target : target.id;
+		const controller = this._controllerById.get(controllerId);
+		if (!controller) return;
+		this._adapter.destroyCharacterController(
+			controller.worldId,
+			controller.id
+		);
+		this._controllerById.delete(controller.id);
+		this._markWorldControllerDirty(controller.worldId);
 	}
 
 	public raycast(query: PhysicsRaycastQuery): PhysicsQueryHit | null {
@@ -1027,7 +1277,9 @@ export class PhysicsSystem extends EventEmitter<PhysicsEvents> {
 				runtime,
 				body.id,
 				state.transform,
-				state.sleeping
+				state.sleeping,
+				state.linearVelocity,
+				state.angularVelocity
 			);
 
 			if (body.authority !== "physics") continue;
@@ -1043,7 +1295,9 @@ export class PhysicsSystem extends EventEmitter<PhysicsEvents> {
 		runtime: WorldRuntimeState,
 		bodyId: string,
 		transform: PhysicsTransform,
-		sleeping: boolean
+		sleeping: boolean,
+		linearVelocity?: IVector3,
+		angularVelocity?: IVector3
 	): void {
 		const existing = runtime.bodyStateCacheById.get(bodyId);
 		if (existing) {
@@ -1054,6 +1308,16 @@ export class PhysicsSystem extends EventEmitter<PhysicsEvents> {
 			existing.rotationY = transform.rotation[1];
 			existing.rotationZ = transform.rotation[2];
 			existing.rotationW = transform.rotation[3];
+			if (linearVelocity) {
+				existing.linearVelocityX = linearVelocity.x;
+				existing.linearVelocityY = linearVelocity.y;
+				existing.linearVelocityZ = linearVelocity.z;
+			}
+			if (angularVelocity) {
+				existing.angularVelocityX = angularVelocity.x;
+				existing.angularVelocityY = angularVelocity.y;
+				existing.angularVelocityZ = angularVelocity.z;
+			}
 			existing.sleeping = sleeping;
 			return;
 		}
@@ -1065,8 +1329,50 @@ export class PhysicsSystem extends EventEmitter<PhysicsEvents> {
 			rotationY: transform.rotation[1],
 			rotationZ: transform.rotation[2],
 			rotationW: transform.rotation[3],
+			linearVelocityX: linearVelocity?.x ?? 0,
+			linearVelocityY: linearVelocity?.y ?? 0,
+			linearVelocityZ: linearVelocity?.z ?? 0,
+			angularVelocityX: angularVelocity?.x ?? 0,
+			angularVelocityY: angularVelocity?.y ?? 0,
+			angularVelocityZ: angularVelocity?.z ?? 0,
 			sleeping,
 		});
+	}
+
+	private _setCachedLinearVelocity(
+		worldId: string,
+		bodyId: string,
+		velocity: IVector3
+	): void {
+		const runtime = this._runtimeByWorldId.get(worldId);
+		const cache = runtime?.bodyStateCacheById.get(bodyId);
+		if (!cache) return;
+		cache.linearVelocityX = velocity.x;
+		cache.linearVelocityY = velocity.y;
+		cache.linearVelocityZ = velocity.z;
+		cache.sleeping = false;
+		if (runtime) {
+			this._setBodySleepingState(runtime, bodyId, false);
+			this._recomputeWorldCachedStats(runtime);
+		}
+	}
+
+	private _setCachedAngularVelocity(
+		worldId: string,
+		bodyId: string,
+		velocity: IVector3
+	): void {
+		const runtime = this._runtimeByWorldId.get(worldId);
+		const cache = runtime?.bodyStateCacheById.get(bodyId);
+		if (!cache) return;
+		cache.angularVelocityX = velocity.x;
+		cache.angularVelocityY = velocity.y;
+		cache.angularVelocityZ = velocity.z;
+		cache.sleeping = false;
+		if (runtime) {
+			this._setBodySleepingState(runtime, bodyId, false);
+			this._recomputeWorldCachedStats(runtime);
+		}
 	}
 
 	private _hasTransformDelta(
@@ -1254,7 +1560,9 @@ export class PhysicsSystem extends EventEmitter<PhysicsEvents> {
 			runtime,
 			body.id,
 			this._resolveNodeTransform(body.node),
-			false
+			false,
+			body.body.linearVelocity,
+			body.body.angularVelocity
 		);
 		if ((body.body.type ?? "dynamic") === "dynamic") {
 			runtime.dynamicBodyIds.add(body.id);
@@ -1726,6 +2034,46 @@ export class PhysicsSystem extends EventEmitter<PhysicsEvents> {
 			throw new Error(`Physics body "${target}" does not exist`);
 		}
 		return this._resolveBody(target);
+	}
+
+	private _resolveColliderRef(
+		target: PhysicsColliderHandle | string
+	): InternalColliderBinding {
+		const colliderId = typeof target === "string" ? target : target.id;
+		const collider = this._colliderById.get(colliderId);
+		if (collider) return collider;
+		throw new Error(`Physics collider "${colliderId}" does not exist`);
+	}
+
+	private _setColliderMaterial(
+		target: PhysicsColliderHandle | string,
+		material: {
+			friction?: number;
+			restitution?: number;
+		}
+	): void {
+		const collider = this._resolveColliderRef(target);
+		const setColliderMaterial = this._adapter.setColliderMaterial;
+		if (!setColliderMaterial) {
+			throw new Error(
+				`${this._adapter.id} adapter does not support collider material updates`
+			);
+		}
+		const previous = collider.descriptor.material ?? {};
+		collider.descriptor = {
+			...collider.descriptor,
+			material: {
+				...previous,
+				...material,
+			},
+		};
+		setColliderMaterial.call(
+			this._adapter,
+			collider.worldId,
+			collider.id,
+			material
+		);
+		this._markWorldDirtyForStep(collider.worldId);
 	}
 
 	private _resolveNodeTarget(
