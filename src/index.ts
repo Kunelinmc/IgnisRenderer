@@ -8,6 +8,7 @@ export { Matrix4 } from "./maths/Matrix4";
 export { Quaternion } from "./maths/Quaternion";
 
 export * from "./maths/Common";
+export * from "./maths/Noise";
 export * from "./maths/types";
 export * from "./foundation/Color";
 export * from "./foundation/Logger";
