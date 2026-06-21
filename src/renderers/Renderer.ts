@@ -211,7 +211,11 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 		this._deviceScaleFactor = window.devicePixelRatio || 1;
 		this.animationAutoRender = true;
 		this._incrementalOptions = { ...DEFAULT_INCREMENTAL_RENDERING_OPTIONS };
-
+		// Initialize default baseline features requested by the renderer.
+		// While the `features` property is readonly to prevent reference reassignment,
+		// its fields are mutable and can be configured by external consumers post-construction.
+		// At runtime, these requested features are resolved and validated against the actual
+		// backend session capabilities (see `resolveFeatureState`).
 		this.features = {
 			enableLighting: true,
 			enableSH: false,
