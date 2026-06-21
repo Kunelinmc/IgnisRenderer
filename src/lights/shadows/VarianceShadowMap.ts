@@ -14,7 +14,7 @@ export interface VarianceShadowMapOptions extends ShadowMapBaseOptions {
  * The map still preserves VSM-specific parameters for future backend upgrades.
  */
 export class VarianceShadowMap extends SingleShadowMap {
-	public override readonly kind = "vsm" as const;
+	public override readonly kind = "variance" as const;
 	private _momentBias: number;
 	private _bleedReduction: number;
 	private _minVariance: number;

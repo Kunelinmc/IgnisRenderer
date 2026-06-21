@@ -27,7 +27,7 @@ Historically, lights held shadow configuration directly. The decoupled model mov
 	- `destroy(shadowMap)`: destroy a shadow map and clear its bindings.
 - `ShadowMapRegistry`
 	- Must map each `ShadowMapKind` string to a factory that returns a `ShadowMapBase`.
-	- Must support built-in kinds `single`, `vsm`, `csm`, and `paged-shadow` through `createDefaultShadowMapRegistry()`.
+	- Must support built-in kinds `single`, `variance`, `cascaded`, and `paged-shadow` through `createDefaultShadowMapRegistry()`.
 	- May register external custom kinds using any non-empty string.
 	- Must throw when `create(kind, options)` is called for an unregistered kind.
 - `ShadowMapBase`

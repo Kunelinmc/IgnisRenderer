@@ -207,7 +207,7 @@ function testVarianceShadowMapUsesVSMFilterMetadataAndSingleMapRuntimeConfig() {
 		enableShadows: true,
 	});
 	assert.equal(frameState.records.length, 1);
-	assert.equal(frameState.records[0].shadowMapKind, "vsm");
+	assert.equal(frameState.records[0].shadowMapKind, "variance");
 	assert.equal(frameState.records[0].filterMode, "vsm");
 	assert.equal(frameState.records[0].renderSet.resolvedConfig.strategy, "single-map");
 }

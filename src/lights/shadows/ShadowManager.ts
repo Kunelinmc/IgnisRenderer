@@ -108,11 +108,11 @@ export class ShadowManager {
 	}
 
 	public createVariance(options: VarianceShadowMapOptions = {}): VarianceShadowMap {
-		return this.create<VarianceShadowMap, VarianceShadowMapOptions>("vsm", options);
+		return this.create<VarianceShadowMap, VarianceShadowMapOptions>("variance", options);
 	}
 
 	public createCascaded(options: CascadedShadowMapOptions = {}): CascadedShadowMap {
-		return this.create<CascadedShadowMap, CascadedShadowMapOptions>("csm", options);
+		return this.create<CascadedShadowMap, CascadedShadowMapOptions>("cascaded", options);
 	}
 
 	/**

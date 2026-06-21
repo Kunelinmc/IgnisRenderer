@@ -34,7 +34,7 @@ const DEFAULT_POSITIONAL_SHADOW_DIRECTION = { x: 0, y: -1, z: 0 };
 const DEFAULT_SHADOW_PERSPECTIVE_ASPECT_RATIO = 1;
 
 export class SingleShadowMap extends ShadowMapBase {
-	public readonly kind: "single" | "vsm" = "single";
+	public readonly kind: "single" | "variance" = "single";
 
 	constructor(options: ShadowMapBaseOptions = {}) {
 		super(options);

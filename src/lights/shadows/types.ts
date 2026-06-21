@@ -7,7 +7,7 @@ import type {
 	ShadowStrategyType,
 } from "./ShadowMapping";
 
-export type BuiltinShadowMapKind = "single" | "vsm" | "csm" | "paged-shadow";
+export type BuiltinShadowMapKind = "single" | "variance" | "cascaded" | "paged-shadow";
 export type ShadowMapKind = BuiltinShadowMapKind | (string & {});
 export type ShadowFilterMode = "pcf" | "vsm";
 export type ShadowBoundLightType =

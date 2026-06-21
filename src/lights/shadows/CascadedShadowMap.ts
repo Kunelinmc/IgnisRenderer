@@ -29,7 +29,7 @@ const _tmpCamForward = { x: 0, y: 0, z: -1 };
 const _tmpCamUp = { x: 0, y: 1, z: 0 };
 
 export class CascadedShadowMap extends ShadowMapBase {
-	public override readonly kind = "csm" as const;
+	public override readonly kind = "cascaded" as const;
 	public cascadeCounts: CascadedShadowMapDefaults;
 	public lambda: number;
 	public maxDistance?: number;

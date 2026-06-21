@@ -53,9 +53,9 @@ bun tests/static/webgpu/test_webgpu_frame_graph_planner.mjs
   must not fail a frame because a scene requested `PagedShadowMap`.
 - WebGPU paged shadow graph nodes must be no-op stubs until physical page
   resources are implemented.
-- Implementations must not use `"vsm"` to identify paged shadows because `"vsm"`
+- Implementations must not use `"variance"` to identify paged shadows because `"variance"`
   identifies `VarianceShadowMap`.
 
 ## Compatibility / Breaking Changes
-The feature is additive. Existing `single`, `vsm`, and `csm` shadow maps must
+The feature is additive. Existing `single`, `variance`, and `cascaded` shadow maps must
 retain their current behavior.
