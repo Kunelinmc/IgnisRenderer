@@ -31,7 +31,6 @@ import {
 	PARTICLE_TRANSIENT_BATCHES_KEY,
 	type DrawPacket,
 	type FrameContext,
-	type FramePass,
 	type ParticleRenderBatch,
 } from "../../pipeline/types";
 import type {
@@ -65,7 +64,6 @@ import {
 } from "./WebGLLightCollector";
 import { WebGLGeometryRegistry } from "./WebGLGeometryRegistry";
 import {
-	POST_PROCESS_STAGES,
 	MAX_DIRECTIONAL_LIGHTS,
 	MAX_POINT_LIGHTS,
 	MAX_SPOT_LIGHTS,
@@ -169,8 +167,6 @@ import {
 	type WebGLSceneVariantDescriptor,
 } from "./WebGLSceneProgramVariants";
 
-type WebGLFramePassHandler = (context: FrameContext) => void;
-
 export interface WebGLFrameExecutorOptions {
 	validatePrograms?: boolean;
 	enableEarlyZPrepass?: boolean;
@@ -257,11 +253,11 @@ export class WebGLFrameExecutor {
 	private _oitPassMode: 0 | 1 | 2 = 0;
 	private _oitActive = false;
 	private _oitHasContributors = false;
+	private _oitTransparentPackets: DrawPacket[] = [];
 	private _oitLegacyTransparentPackets: DrawPacket[] = [];
 	private _oitNeedsLegacyAfterParticles = false;
 	private _supportsFloatColorBuffer: boolean | null = null;
 	private _enableEarlyZPrepass = true;
-	private readonly _passHandlers: Map<FramePass["stage"], WebGLFramePassHandler>;
 	private _postProcessRuntime: BackendPostProcessRuntime;
 	private _postProcessBridge: WebGLPostProcessBridge;
 
@@ -399,7 +395,6 @@ export class WebGLFrameExecutor {
 					onceKey: key,
 				}),
 		});
-		this._passHandlers = this._createPassHandlers();
 	}
 
 	private get _shadowAtlasTexture(): WebGLTexture | null {
@@ -433,6 +428,7 @@ export class WebGLFrameExecutor {
 		this._presentSourceTexture = this._sceneColorTexture;
 		this._oitPassMode = 0;
 		this._oitHasContributors = false;
+		this._oitTransparentPackets = [];
 		this._oitLegacyTransparentPackets = [];
 		this._oitNeedsLegacyAfterParticles = false;
 		this._particleShadowVolumeAtlasSize.fill(0);
@@ -481,7 +477,9 @@ export class WebGLFrameExecutor {
 			this._taaHistoryValid = false;
 			this._prevViewProjection = null;
 		}
+	}
 
+	public clearFrameTargets(context: FrameContext): void {
 		const gl = this._gl;
 		gl.bindFramebuffer(gl.FRAMEBUFFER, this._sceneFramebuffer);
 		gl.viewport(0, 0, this._width, this._height);
@@ -511,7 +509,10 @@ export class WebGLFrameExecutor {
 		} else {
 			gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 		}
+	}
 
+	public renderEnvironmentNode(context: FrameContext): void {
+		const incrementalPartial = this._isIncrementalPartial(context);
 		if (
 			!incrementalPartial &&
 			context.features.enableEnvironment &&
@@ -522,17 +523,174 @@ export class WebGLFrameExecutor {
 		}
 	}
 
-	public executePass(pass: FramePass, context: FrameContext): void {
-		const handler = this._passHandlers.get(pass.stage);
-		if (!handler) {
-			const key = `webgl-stage-unsupported-${pass.stage}`;
-			Logger.warn(
-				`[${key}] WebGL backend does not support pass "${pass.stage}" yet; skipping`,
-				{ scope: "WebGLFrameExecutor", onceKey: key }
-			);
+	public isOITActive(): boolean {
+		return this._oitActive && !!this._oitFramebuffer;
+	}
+
+	public hasPresentedInFrame(): boolean {
+		return this._presentedInFrame;
+	}
+
+	public collectFrameGraphResources(): readonly string[] {
+		const resources = new Set<string>();
+		if (this._sceneColorTexture) {
+			resources.add("frame:scene-color");
+			resources.add("frame:present-source");
+		}
+		if (this._sceneMotionTexture) resources.add("frame:motion-depth");
+		if (this._sceneNormalTexture) resources.add("frame:normal");
+		if (this._sceneDepthBuffer) resources.add("frame:depth");
+		if (this._postColorTexture) resources.add("post:color");
+		if (this._ssaoRawTexture) resources.add("post:ssao-raw");
+		if (this._ssaoBlurTexture) resources.add("post:ssao-blur");
+		if (this._oitAccumTexture) resources.add("oit:accum");
+		if (this._oitRevealTexture) resources.add("oit:reveal");
+		if (this._shadowAtlasTexture) resources.add("shadow:atlas");
+		if (this._shadowTransmittanceTexture) {
+			resources.add("shadow:transmittance");
+		}
+		return Array.from(resources);
+	}
+
+	public renderShadowNode(context: FrameContext): void {
+		this._updateParticleShadowVolumes(context);
+		this._renderShadows(context);
+	}
+
+	public renderOpaqueDepthPrepass(context: FrameContext): Set<string> {
+		return this._renderEarlyZPrepass(context, context.scene.opaquePackets);
+	}
+
+	public renderOpaqueScene(
+		context: FrameContext,
+		earlyZPacketIds: ReadonlySet<string>
+	): void {
+		this._renderPackets(context, context.scene.opaquePackets, false, {
+			earlyZPacketIds,
+		});
+	}
+
+	public renderTransparentLegacy(context: FrameContext): void {
+		this._renderPackets(context, context.scene.transparentPackets, true);
+	}
+
+	public prepareOITTransparent(context: FrameContext): void {
+		if (!this.isOITActive()) {
+			this.renderTransparentLegacy(context);
 			return;
 		}
-		handler(context);
+		const { oitPackets, legacyPackets } = this._partitionTransparentPackets(
+			context.scene.transparentPackets
+		);
+		this._oitTransparentPackets = oitPackets;
+		this._oitLegacyTransparentPackets = legacyPackets;
+		this._oitNeedsLegacyAfterParticles =
+			(context.scene.particleSystems?.length ?? 0) > 0;
+		this._oitHasContributors = false;
+		if (oitPackets.length > 0) {
+			this._clearOITTargets();
+		}
+	}
+
+	public renderOITTransparentAccum(context: FrameContext): void {
+		if (!this.isOITActive() || this._oitTransparentPackets.length <= 0) {
+			return;
+		}
+		this._renderPackets(context, this._oitTransparentPackets, true, {
+			framebuffer: this._oitFramebuffer,
+			drawBuffers: [this._gl.COLOR_ATTACHMENT0],
+			blendMode: "oit-accum",
+			oitPassMode: 1,
+		});
+	}
+
+	public renderOITTransparentReveal(context: FrameContext): void {
+		if (!this.isOITActive() || this._oitTransparentPackets.length <= 0) {
+			return;
+		}
+		this._renderPackets(context, this._oitTransparentPackets, true, {
+			framebuffer: this._oitFramebuffer,
+			drawBuffers: [this._gl.COLOR_ATTACHMENT0],
+			blendMode: "oit-reveal",
+			oitPassMode: 2,
+		});
+		this._oitHasContributors = true;
+	}
+
+	public resolveOIT(context: FrameContext): void {
+		if (this._oitHasContributors) {
+			this._resolveOITComposition(context);
+		}
+	}
+
+	public renderOITLegacyTransparent(context: FrameContext): void {
+		if (this._oitLegacyTransparentPackets.length > 0) {
+			this._renderPackets(context, this._oitLegacyTransparentPackets, true);
+		}
+		this._oitTransparentPackets = [];
+		this._oitLegacyTransparentPackets = [];
+		this._oitHasContributors = false;
+		this._oitNeedsLegacyAfterParticles = false;
+	}
+
+	public prepareOITParticles(): void {
+		if (!this.isOITActive()) {
+			return;
+		}
+		if (!this._oitHasContributors) {
+			this._clearOITTargets();
+		}
+	}
+
+	public renderOITParticleAccum(context: FrameContext): void {
+		if (!this.isOITActive()) {
+			this._renderParticles(context);
+			return;
+		}
+		this._renderParticles(context, {
+			framebuffer: this._oitFramebuffer,
+			drawBuffers: [this._gl.COLOR_ATTACHMENT0],
+			includeBlendModes: [ParticleBlendMode.Alpha],
+			oitPassMode: 1,
+		});
+	}
+
+	public renderOITParticleReveal(context: FrameContext): void {
+		if (!this.isOITActive()) {
+			return;
+		}
+		this._renderParticles(context, {
+			framebuffer: this._oitFramebuffer,
+			drawBuffers: [this._gl.COLOR_ATTACHMENT0],
+			includeBlendModes: [ParticleBlendMode.Alpha],
+			oitPassMode: 2,
+		});
+		this._oitHasContributors = true;
+	}
+
+	public renderParticlesLegacy(context: FrameContext): void {
+		this._renderParticles(context);
+	}
+
+	public renderOITAdditiveParticles(context: FrameContext): void {
+		this._renderParticles(context, {
+			includeBlendModes: [ParticleBlendMode.Additive],
+		});
+	}
+
+	public presentFrame(): void {
+		if (!this._presentedInFrame) {
+			this._present(
+				this._activeContext?.postProcess.isEnabled("gamma") !== false,
+				this._activeContext,
+				true
+			);
+		}
+	}
+
+	public finishFrame(): void {
+		this._pruneModelMatrixCache();
+		this._activeContext = null;
 	}
 
 	public createPostProcessResource(
@@ -659,15 +817,8 @@ export class WebGLFrameExecutor {
 	}
 
 	public endFrame(): void {
-		if (!this._presentedInFrame) {
-			this._present(
-				this._activeContext?.postProcess.isEnabled("gamma") !== false,
-				this._activeContext,
-				true
-			);
-		}
-		this._pruneModelMatrixCache();
-		this._activeContext = null;
+		this.presentFrame();
+		this.finishFrame();
 	}
 
 	public abortFrame(): void {
@@ -678,6 +829,7 @@ export class WebGLFrameExecutor {
 		this._oitPassMode = 0;
 		this._oitActive = false;
 		this._oitHasContributors = false;
+		this._oitTransparentPackets = [];
 		this._oitLegacyTransparentPackets = [];
 		this._oitNeedsLegacyAfterParticles = false;
 		this._modelMatrixKeysThisFrame.clear();
@@ -1095,64 +1247,6 @@ export class WebGLFrameExecutor {
 		this._programs.destroy();
 		this._programCompiler.destroy();
 		this._activeContext = null;
-	}
-
-	private _createPassHandlers(): Map<
-		FramePass["stage"],
-		WebGLFramePassHandler
-	> {
-		const runPostProcess = (_context: FrameContext) => {};
-		const handlers = new Map<FramePass["stage"], WebGLFramePassHandler>([
-			[
-				"shadow",
-				(context) => {
-					this._updateParticleShadowVolumes(context);
-					this._renderShadows(context);
-				},
-			],
-			[
-				"main-opaque",
-				(context) => {
-					const earlyZPacketIds = this._renderEarlyZPrepass(
-						context,
-						context.scene.opaquePackets
-					);
-					this._renderPackets(context, context.scene.opaquePackets, false, {
-						earlyZPacketIds,
-					});
-				},
-			],
-			[
-				"main-transparent",
-				(context) => {
-					if (this._oitActive) {
-						this._renderOITTransparentPass(context);
-						return;
-					}
-					this._renderPackets(context, context.scene.transparentPackets, true);
-				},
-			],
-			[
-				"particles",
-				(context) => {
-					if (this._oitActive) {
-						this._renderOITParticlePass(context);
-						return;
-					}
-					this._renderParticles(context);
-				},
-			],
-			[
-				"ssao",
-				(context) => {
-					runPostProcess(context);
-				},
-			],
-		]);
-		for (const stage of POST_PROCESS_STAGES) {
-			handlers.set(stage, runPostProcess);
-		}
-		return handlers;
 	}
 
 	private _updateParticleShadowVolumes(context: FrameContext): void {
