@@ -16,6 +16,7 @@ import type {
 	WarmupReport,
 } from "./IRenderBackend";
 import { WebGLFrameExecutor } from "./webgl/WebGLFrameExecutor";
+import { WebGLFrameGraphRuntime } from "./webgl/rendergraph/WebGLFrameGraphRuntime";
 import { WebGLPostProcessExecutor } from "./webgl/WebGLPostProcessExecutor";
 import { BackendPostProcessRuntime } from "../postprocess/BackendPostProcessRuntime";
 import {
@@ -54,13 +55,6 @@ import {
 	createRenderBackendExtensionRegistry,
 } from "./BackendExtensions";
 
-const SUPPORTED_WEBGL_STAGES: readonly FramePass["stage"][] = [
-	"shadow",
-	"main-opaque",
-	"main-transparent",
-	"particles",
-	"postprocess",
-] as const;
 const MAX_PARTICLE_SIM_DELTA_TIME_SECONDS = 0.5;
 
 export interface WebGLBackendOptions {
@@ -69,11 +63,6 @@ export interface WebGLBackendOptions {
 	validatePrograms?: boolean;
 	enableEarlyZPrepass?: boolean;
 }
-
-type WebGLBackendPassHandler = (
-	pass: FramePass,
-	context: FrameContext
-) => void | Promise<void>;
 
 export class WebGLBackend implements IRenderBackend {
 	private readonly _options: WebGLBackendOptions;
@@ -135,7 +124,9 @@ class WebGLBackendSession implements IRenderBackendSession {
 	private _canvas: HTMLCanvasElement | null = null;
 	private _gl: WebGL2RenderingContext | null = null;
 	private _frameExecutor: WebGLFrameExecutor | null = null;
+	private _frameGraphRuntime: WebGLFrameGraphRuntime | null = null;
 	private _particleSimulator: DefaultParticleSimulator | null = null;
+	private _activeContext: FrameContext | null = null;
 	private _contextLost = false;
 	private _contextLossHandler: ((event: Event) => void) | null = null;
 	private _contextRestoreHandler: ((event: Event) => void) | null = null;
@@ -149,10 +140,6 @@ class WebGLBackendSession implements IRenderBackendSession {
 	private _plannedPasses = new Set<FramePass["stage"]>();
 	private _plannedPassOrder = new Map<FramePass["stage"], number>();
 	private readonly _framePlanner = new FramePassPlanValidator("WebGL");
-	private readonly _passHandlers: Map<
-		FramePass["stage"],
-		WebGLBackendPassHandler
-	>;
 
 	constructor(
 		options: WebGLBackendOptions,
@@ -173,7 +160,6 @@ class WebGLBackendSession implements IRenderBackendSession {
 			hook: options.directiveHook ?? null,
 			mode: shaderMode,
 		});
-		this._passHandlers = this._createPassHandlers();
 		this._ensureParticleSimulator();
 	}
 
@@ -345,37 +331,37 @@ class WebGLBackendSession implements IRenderBackendSession {
 	}
 
 	public beginFrame(context: FrameContext): void {
-		if (!this._frameExecutor) {
+		if (!this._frameExecutor || !this._frameGraphRuntime) {
 			throw new Error("WebGL backend has not been initialized.");
 		}
 		if (this._contextLost) {
 			return;
 		}
 		this._executedPasses.clear();
+		this._activeContext = context;
 		this._prepareFramePassPlan(context);
 		this._particleSimulator?.beginFrame(context);
-		this._frameExecutor.beginFrame(context);
+		this._frameGraphRuntime.beginFrame(context);
 	}
 
 	public executePass(pass: FramePass, context: FrameContext): void | Promise<void> {
-		if (!this._frameExecutor) {
+		if (!this._frameExecutor || !this._frameGraphRuntime) {
 			throw new Error("WebGL backend has not been initialized.");
 		}
 		if (this._contextLost) {
 			return;
 		}
 		this._validatePassDependencies(pass);
-		const handler = this._passHandlers.get(pass.stage);
-		if (!handler) {
-			const key = `webgl-pass-unsupported-${pass.stage}`;
-			Logger.warn(
-				`[${key}] WebGL backend does not support pass "${pass.stage}" yet; skipping`,
-				{ scope: "WebGLBackend", onceKey: key }
+		if (pass.stage === "particle-sim") {
+			this._particleSimulator?.simulate(
+				context,
+				this._resolveParticleDeltaTime(context)
 			);
+			this._particleSimulator?.emitRenderBatches(context);
 			this._markPassExecuted(pass.stage);
 			return;
 		}
-		const result = handler(pass, context);
+		const result = this._frameGraphRuntime.executePass(pass, context);
 		if (result && typeof (result as Promise<void>).then === "function") {
 			return (result as Promise<void>).then(() => {
 				this._markPassExecuted(pass.stage);
@@ -390,12 +376,17 @@ class WebGLBackendSession implements IRenderBackendSession {
 	}
 
 	public endFrame(): void {
-		if (!this._frameExecutor || this._contextLost) {
+		if (!this._frameExecutor || !this._frameGraphRuntime || this._contextLost) {
 			return;
 		}
-		this._frameExecutor.endFrame();
+		const context = this._activeContext;
+		if (!context) {
+			throw new Error("WebGL backend cannot end a frame before beginFrame.");
+		}
+		this._frameGraphRuntime.endFrame(context);
 		this._particleSimulator?.endFrame();
 		this._postProcessRuntime.commitFrame();
+		this._activeContext = null;
 	}
 
 	public async abortFrame(_error?: unknown): Promise<void> {
@@ -403,8 +394,9 @@ class WebGLBackendSession implements IRenderBackendSession {
 			return;
 		}
 		await this._postProcessRuntime.abortFrame(_error);
-		this._frameExecutor?.abortFrame();
+		this._frameGraphRuntime?.abortFrame();
 		this._particleSimulator?.endFrame();
+		this._activeContext = null;
 		this._executedPasses.clear();
 		this._plannedPasses.clear();
 		this._plannedPassOrder.clear();
@@ -450,8 +442,10 @@ class WebGLBackendSession implements IRenderBackendSession {
 		this._postProcessRuntime.destroy();
 		this._frameExecutor?.destroy();
 		this._frameExecutor = null;
+		this._frameGraphRuntime = null;
 		this._particleSimulator = null;
 		this._gl = null;
+		this._activeContext = null;
 
 		if (this._canvas) {
 			if (this._contextLossHandler) {
@@ -509,6 +503,10 @@ class WebGLBackendSession implements IRenderBackendSession {
 				onTextureUploadPending: () => this._emitTextureUploadPendingEvent(),
 				postProcessRuntime: this._postProcessRuntime,
 			}
+		);
+		this._frameGraphRuntime = new WebGLFrameGraphRuntime(
+			this._frameExecutor,
+			this._postProcessRuntime
 		);
 		this._contextLost = false;
 		this._frameExecutor.resize(this._width, this._height);
@@ -609,27 +607,8 @@ class WebGLBackendSession implements IRenderBackendSession {
 		};
 	}
 
-	private _createPassHandlers(): Map<
-		FramePass["stage"],
-		WebGLBackendPassHandler
-	> {
-		const handlers = new Map<FramePass["stage"], WebGLBackendPassHandler>();
-		handlers.set("particle-sim", (_pass, context) => {
-			this._particleSimulator?.simulate(
-				context,
-				this._resolveParticleDeltaTime(context)
-			);
-			this._particleSimulator?.emitRenderBatches(context);
-		});
-		for (const stage of SUPPORTED_WEBGL_STAGES) {
-			handlers.set(stage, (pass, context) => {
-				if (pass.stage === "postprocess") {
-					return this._postProcessRuntime.execute(context);
-				}
-				this._frameExecutor?.executePass(pass, context);
-			});
-		}
-		return handlers;
+	public getFrameGraphDebugState(): unknown {
+		return this._frameGraphRuntime?.getDebugState() ?? null;
 	}
 }
 
