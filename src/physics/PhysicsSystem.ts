@@ -21,6 +21,7 @@ import type {
 	PhysicsBodyStats,
 	PhysicsBoxCastQuery,
 	PhysicsColliderHandle,
+	PhysicsCollisionFilterDescriptor,
 	PhysicsEvent,
 	PhysicsEvents,
 	PhysicsJointHandle,
@@ -36,6 +37,7 @@ import type {
 	PhysicsTransform,
 	PhysicsWorldConfig,
 	PhysicsWorldStepReport,
+	RigidBodyType,
 	StepOverride,
 	TransformAuthority,
 	PhysicsEntityId,
@@ -59,6 +61,11 @@ import {
 	DEFAULT_BROADPHASE_BODY_RADIUS,
 	TRANSFORM_EPSILON,
 } from "./constants";
+import {
+	DEFAULT_COLLISION_LAYER,
+	cloneCollisionFilterDescriptor,
+	encodeCollisionFilter,
+} from "./collisionFilter";
 import type { SpatialRayHit } from "../spatial";
 
 const ORIENTED_BOUNDS_ROTATION_MATRIX = Matrix3.identity();
@@ -66,6 +73,11 @@ const ORIENTED_BOUNDS_ROTATION_MATRIX = Matrix3.identity();
 export interface PhysicsSystemOptions {
 	adapter?: IPhysicsEngineAdapter;
 	geometryProvider?: ICollisionGeometryProvider;
+}
+
+export interface PhysicsSceneLifecycleBindingOptions {
+	attachExisting?: boolean;
+	detachRemoved?: boolean;
 }
 
 interface InternalBodyBinding extends PhysicsBodyHandle {
@@ -190,6 +202,9 @@ export class PhysicsSystem extends EventEmitter<PhysicsEvents> {
 	private _warnedTrimeshCookDeprecation = false;
 	private _spatialMeshScratch: MeshInstance[] = [];
 	private _spatialRayScratch: SpatialRayHit[] = [];
+	private _collisionLayerBits = new Map<string, number>([
+		[DEFAULT_COLLISION_LAYER, 0],
+	]);
 	private _entityNodeResolver:
 		| ((entityId: PhysicsEntityId) => Node | null)
 		| null = null;
@@ -209,6 +224,60 @@ export class PhysicsSystem extends EventEmitter<PhysicsEvents> {
 
 	public bindSceneSpatial(scene: Scene | null): void {
 		this._sceneSpatial = scene;
+	}
+
+	/**
+	 * Registers one named collision layer for high-level collider filters.
+	 *
+	 * @param name - Unique layer name used by collider descriptors.
+	 * @param bitIndex - Bit index in the adapter 16-bit group/filter encoding.
+	 * @sideEffects Updates the collision layer registry used by future filter
+	 * descriptor resolution.
+	 */
+	public defineCollisionLayer(name: string, bitIndex: number): void {
+		const normalizedName = normalizeCollisionLayerName(name);
+		if (this._collisionLayerBits.has(normalizedName)) {
+			throw new Error(`Physics collision layer "${normalizedName}" already exists`);
+		}
+		if (!Number.isInteger(bitIndex) || bitIndex < 0 || bitIndex > 15) {
+			throw new Error("Physics collision layer bitIndex must be between 0 and 15");
+		}
+		for (const existingBit of this._collisionLayerBits.values()) {
+			if (existingBit === bitIndex) {
+				throw new Error(
+					`Physics collision layer bit ${bitIndex} is already assigned`
+				);
+			}
+		}
+		this._collisionLayerBits.set(normalizedName, bitIndex);
+	}
+
+	/**
+	 * Binds `PhysicsBodyNode` attachment and removal to a scene lifecycle.
+	 *
+	 * @param scene - Scene whose public node lifecycle should be observed.
+	 * @param options - Optional lifecycle behavior flags.
+	 * @returns A disposer that removes the lifecycle listener.
+	 * @sideEffects May attach existing `PhysicsBodyNode` instances immediately.
+	 */
+	public bindSceneLifecycle(
+		scene: Scene,
+		options: PhysicsSceneLifecycleBindingOptions = {}
+	): () => void {
+		const attachExisting = options.attachExisting ?? true;
+		const detachRemoved = options.detachRemoved ?? true;
+		if (attachExisting) {
+			this._attachPhysicsBodyNodesRecursive(scene.root);
+		}
+		return scene.addNodeLifecycleListener({
+			nodeAttached: ({ child }) => {
+				this._attachPhysicsBodyNodesRecursive(child);
+			},
+			nodeDetached: ({ child }) => {
+				if (!detachRemoved) return;
+				this._detachPhysicsBodyNodesRecursive(child);
+			},
+		});
 	}
 
 	public async init(): Promise<void> {
@@ -368,6 +437,11 @@ export class PhysicsSystem extends EventEmitter<PhysicsEvents> {
 			normalizedDescriptor,
 			resolvedShape.shape
 		);
+		this._adapter.setColliderCollisionFilter(
+			body.worldId,
+			colliderId,
+			this._encodeCollisionFilter(normalizedDescriptor.collision)
+		);
 		const collider: InternalColliderBinding = {
 			id: colliderId,
 			worldId: body.worldId,
@@ -431,18 +505,26 @@ export class PhysicsSystem extends EventEmitter<PhysicsEvents> {
 	}
 
 	/**
-	 * Updates a collider collision mask using the adapter 32-bit filter encoding.
+	 * Updates a collider collision filter using named physics layers.
 	 *
 	 * @param target - Collider handle or collider id returned by `addCollider()`.
-	 * @param mask - Adapter collision filter mask.
+	 * @param filter - Named collision groups and collidable layers.
 	 * @sideEffects Updates adapter collider state and wakes the owning world.
 	 */
-	public setCollisionMask(
+	public setColliderCollisionFilter(
 		target: PhysicsColliderHandle | string,
-		mask: number
+		filter: PhysicsCollisionFilterDescriptor
 	): void {
 		const collider = this._resolveColliderRef(target);
-		this._adapter.setCollisionMask(collider.worldId, collider.id, mask);
+		collider.descriptor = {
+			...collider.descriptor,
+			collision: cloneCollisionFilterDescriptor(filter),
+		};
+		this._adapter.setColliderCollisionFilter(
+			collider.worldId,
+			collider.id,
+			this._encodeCollisionFilter(filter)
+		);
 		this._markWorldDirtyForStep(collider.worldId);
 	}
 
@@ -639,6 +721,156 @@ export class PhysicsSystem extends EventEmitter<PhysicsEvents> {
 		const body = this._resolveBodyRef(target);
 		this._adapter.setAngularVelocity(body.worldId, body.id, velocity);
 		this._setCachedAngularVelocity(body.worldId, body.id, velocity);
+		this._markWorldDirtyForStep(body.worldId);
+	}
+
+	/**
+	 * Changes a body's runtime rigid-body type while preserving its handles.
+	 *
+	 * @param target - Node, body handle, body id, or ECS entity id to resolve.
+	 * @param type - New rigid-body type.
+	 * @sideEffects Updates adapter state, cached descriptor data, sleeping-island
+	 * dynamic tracking, and wakes the owning world.
+	 */
+	public setBodyType(
+		target: Node | PhysicsBodyHandle | string | PhysicsEntityId,
+		type: RigidBodyType
+	): void {
+		const body = this._resolveBodyRef(target);
+		if (body.authority === "animation" && type === "dynamic") {
+			throw new Error(
+				'authority="animation" does not allow dynamic rigid bodies. Use kinematic/fixed.'
+			);
+		}
+		const previousType = body.body.type ?? "dynamic";
+		if (previousType === type) {
+			this.wakeUpBody(body);
+			return;
+		}
+		this._adapter.setBodyType(body.worldId, body.id, type);
+		body.body = {
+			...body.body,
+			type,
+		};
+		this._updateRuntimeBodyType(body, previousType, type);
+		this._markWorldDirtyForStep(body.worldId);
+	}
+
+	/**
+	 * Updates a dynamic body's runtime mass.
+	 *
+	 * @param target - Node, body handle, body id, or ECS entity id to resolve.
+	 * @param mass - Finite positive mass value.
+	 * @sideEffects Forwards to the adapter, updates cached descriptor data, wakes
+	 * the body, and marks the owning world dirty.
+	 */
+	public setBodyMass(
+		target: Node | PhysicsBodyHandle | string | PhysicsEntityId,
+		mass: number
+	): void {
+		if (!Number.isFinite(mass) || mass <= 0) {
+			throw new Error("Physics body mass must be a finite positive number");
+		}
+		const body = this._resolveBodyRef(target);
+		this._adapter.setBodyMass(body.worldId, body.id, mass);
+		body.body = {
+			...body.body,
+			mass,
+		};
+		this._wakeCachedBody(body.worldId, body.id);
+		this._markWorldDirtyForStep(body.worldId);
+	}
+
+	/**
+	 * Updates a body's runtime gravity scale.
+	 *
+	 * @param target - Node, body handle, body id, or ECS entity id to resolve.
+	 * @param scale - Finite multiplier applied to world gravity.
+	 * @sideEffects Forwards to the adapter, updates cached descriptor data, wakes
+	 * the body, and marks the owning world dirty.
+	 */
+	public setBodyGravityScale(
+		target: Node | PhysicsBodyHandle | string | PhysicsEntityId,
+		scale: number
+	): void {
+		if (!Number.isFinite(scale)) {
+			throw new Error("Physics body gravityScale must be finite");
+		}
+		const body = this._resolveBodyRef(target);
+		this._adapter.setBodyGravityScale(body.worldId, body.id, scale);
+		body.body = {
+			...body.body,
+			gravityScale: scale,
+		};
+		this._wakeCachedBody(body.worldId, body.id);
+		this._markWorldDirtyForStep(body.worldId);
+	}
+
+	/**
+	 * Updates a body's runtime linear damping.
+	 *
+	 * @param target - Node, body handle, body id, or ECS entity id to resolve.
+	 * @param value - Finite damping value clamped to zero or greater.
+	 * @sideEffects Forwards to the adapter, updates cached descriptor data, wakes
+	 * the body, and marks the owning world dirty.
+	 */
+	public setBodyLinearDamping(
+		target: Node | PhysicsBodyHandle | string | PhysicsEntityId,
+		value: number
+	): void {
+		if (!Number.isFinite(value)) {
+			throw new Error("Physics body linear damping must be finite");
+		}
+		const damping = Math.max(0, value);
+		const body = this._resolveBodyRef(target);
+		this._adapter.setBodyLinearDamping(body.worldId, body.id, damping);
+		body.body = {
+			...body.body,
+			linearDamping: damping,
+		};
+		this._wakeCachedBody(body.worldId, body.id);
+		this._markWorldDirtyForStep(body.worldId);
+	}
+
+	/**
+	 * Updates a body's runtime angular damping.
+	 *
+	 * @param target - Node, body handle, body id, or ECS entity id to resolve.
+	 * @param value - Finite damping value clamped to zero or greater.
+	 * @sideEffects Forwards to the adapter, updates cached descriptor data, wakes
+	 * the body, and marks the owning world dirty.
+	 */
+	public setBodyAngularDamping(
+		target: Node | PhysicsBodyHandle | string | PhysicsEntityId,
+		value: number
+	): void {
+		if (!Number.isFinite(value)) {
+			throw new Error("Physics body angular damping must be finite");
+		}
+		const damping = Math.max(0, value);
+		const body = this._resolveBodyRef(target);
+		this._adapter.setBodyAngularDamping(body.worldId, body.id, damping);
+		body.body = {
+			...body.body,
+			angularDamping: damping,
+		};
+		this._wakeCachedBody(body.worldId, body.id);
+		this._markWorldDirtyForStep(body.worldId);
+	}
+
+	/**
+	 * Forces a body out of the cached sleeping state.
+	 *
+	 * @param target - Node, body handle, body id, or ECS entity id to resolve.
+	 * @sideEffects Forwards to the adapter, updates cached sleep state, and marks
+	 * the owning world dirty.
+	 */
+	public wakeUpBody(
+		target: Node | PhysicsBodyHandle | string | PhysicsEntityId
+	): void {
+		const body = this._resolveBodyRef(target);
+		this._adapter.wakeUpBody(body.worldId, body.id);
+		this._wakeCachedBody(body.worldId, body.id);
 		this._markWorldDirtyForStep(body.worldId);
 	}
 
@@ -1628,6 +1860,34 @@ export class PhysicsSystem extends EventEmitter<PhysicsEvents> {
 		this._recomputeWorldCachedStats(runtime);
 	}
 
+	private _updateRuntimeBodyType(
+		body: InternalBodyBinding,
+		previousType: RigidBodyType,
+		nextType: RigidBodyType
+	): void {
+		const runtime = this._runtimeByWorldId.get(body.worldId);
+		if (!runtime) return;
+		if (previousType === "dynamic" && nextType !== "dynamic") {
+			runtime.dynamicBodyIds.delete(body.id);
+		}
+		if (previousType !== "dynamic" && nextType === "dynamic") {
+			runtime.dynamicBodyIds.add(body.id);
+		}
+		runtime.islandsDirty = true;
+		runtime.forceStepNextFrame = true;
+		this._setBodySleepingState(runtime, body.id, false);
+		this._recomputeWorldCachedStats(runtime);
+	}
+
+	private _wakeCachedBody(worldId: string, bodyId: string): void {
+		const runtime = this._runtimeByWorldId.get(worldId);
+		if (!runtime) return;
+		const cache = runtime.bodyStateCacheById.get(bodyId);
+		if (cache) cache.sleeping = false;
+		this._setBodySleepingState(runtime, bodyId, false);
+		this._recomputeWorldCachedStats(runtime);
+	}
+
 	private _refreshAnimationAuthorityIndex(runtime: WorldRuntimeState): void {
 		for (const bodyId of runtime.bodyIds) {
 			const body = this._bodyById.get(bodyId);
@@ -1857,10 +2117,10 @@ export class PhysicsSystem extends EventEmitter<PhysicsEvents> {
 		body: InternalBodyBinding
 	): ColliderDescriptor {
 		if (desc.mode !== "trimesh-cook" && desc.mode !== "mesh") {
-			return desc;
+			return this._withNormalizedCollision(desc);
 		}
 		if (desc.mode === "mesh") {
-			return {
+			return this._withNormalizedCollision({
 				...desc,
 				meshPolicy:
 					desc.meshPolicy ?? this._resolveMeshPolicyFromBodyType(body.body.type),
@@ -1868,7 +2128,7 @@ export class PhysicsSystem extends EventEmitter<PhysicsEvents> {
 				backendPreference:
 					desc.backendPreference ??
 					this._resolveMeshBackendPreference(this._adapter.id),
-			} satisfies MeshColliderDescriptorV2;
+			} satisfies MeshColliderDescriptorV2);
 		}
 
 		if (!this._warnedTrimeshCookDeprecation) {
@@ -1877,16 +2137,69 @@ export class PhysicsSystem extends EventEmitter<PhysicsEvents> {
 				`[PhysicsSystem] Collider mode "trimesh-cook" is deprecated and has been translated to "mesh".`
 			);
 		}
-		return {
+		return this._withNormalizedCollision({
 			mode: "mesh",
 			sourceNode: desc.sourceNode,
 			isTrigger: desc.isTrigger,
 			offset: desc.offset,
 			material: desc.material,
+			collision: desc.collision,
 			meshPolicy: this._resolveMeshPolicyFromBodyType(body.body.type),
 			narrowphase: "face-bvh",
 			backendPreference: this._resolveMeshBackendPreference(this._adapter.id),
-		} satisfies MeshColliderDescriptorV2;
+		} satisfies MeshColliderDescriptorV2);
+	}
+
+	private _withNormalizedCollision<T extends ColliderDescriptor>(desc: T): T {
+		return {
+			...desc,
+			collision: this._normalizeCollisionFilterDescriptor(desc.collision),
+		};
+	}
+
+	private _normalizeCollisionFilterDescriptor(
+		filter: PhysicsCollisionFilterDescriptor | undefined
+	): PhysicsCollisionFilterDescriptor {
+		return {
+			groups: filter?.groups ? [...filter.groups] : [DEFAULT_COLLISION_LAYER],
+			collidesWith:
+				filter?.collidesWith === undefined ? "all"
+				: filter.collidesWith === "all" ? "all"
+				: [...filter.collidesWith],
+		};
+	}
+
+	private _encodeCollisionFilter(
+		filter: PhysicsCollisionFilterDescriptor | undefined
+	): number {
+		const normalized = this._normalizeCollisionFilterDescriptor(filter);
+		const groupMask = this._resolveCollisionLayerMask(normalized.groups ?? []);
+		const filterMask =
+			normalized.collidesWith === "all" ? 0xffff
+			: this._resolveCollisionLayerMask(normalized.collidesWith ?? [], true);
+		return encodeCollisionFilter(groupMask, filterMask);
+	}
+
+	private _resolveCollisionLayerMask(
+		layerNames: string[],
+		allowEmpty = false
+	): number {
+		if (layerNames.length === 0) {
+			if (allowEmpty) return 0;
+			throw new Error("Physics collision filter requires at least one layer");
+		}
+		let mask = 0;
+		for (const name of layerNames) {
+			const normalizedName = normalizeCollisionLayerName(name);
+			const bit = this._collisionLayerBits.get(normalizedName);
+			if (bit === undefined) {
+				throw new Error(
+					`Physics collision layer "${normalizedName}" is not defined`
+				);
+			}
+			mask |= 1 << bit;
+		}
+		return mask & 0xffff;
 	}
 
 	private _resolveColliderShape(
@@ -2074,6 +2387,25 @@ export class PhysicsSystem extends EventEmitter<PhysicsEvents> {
 			material
 		);
 		this._markWorldDirtyForStep(collider.worldId);
+	}
+
+	private _attachPhysicsBodyNodesRecursive(node: Node): void {
+		node.traverse((candidate) => {
+			if (!(candidate instanceof PhysicsBodyNode)) return;
+			if (this._bodyIdByNodeId.has(candidate.id)) return;
+			this.attachBody(candidate);
+		});
+	}
+
+	private _detachPhysicsBodyNodesRecursive(node: Node): void {
+		node.traverse((candidate) => {
+			if (!(candidate instanceof PhysicsBodyNode)) return;
+			const bodyId = this._bodyIdByNodeId.get(candidate.id);
+			if (!bodyId) return;
+			const body = this._bodyById.get(bodyId);
+			if (!body) return;
+			this.detachBody(body);
+		});
 	}
 
 	private _resolveNodeTarget(
@@ -2483,6 +2815,14 @@ function isBodyHandle(value: unknown): value is PhysicsBodyHandle {
 	return "id" in value && "worldId" in value && "node" in value;
 }
 
+function normalizeCollisionLayerName(name: string): string {
+	const normalized = String(name ?? "").trim();
+	if (normalized.length === 0) {
+		throw new Error("Physics collision layer name is required");
+	}
+	return normalized;
+}
+
 function cloneColliderDescriptor(desc: ColliderDescriptor): ColliderDescriptor {
 	const base = {
 		...desc,
@@ -2500,6 +2840,7 @@ function cloneColliderDescriptor(desc: ColliderDescriptor): ColliderDescriptor {
 					...desc.material,
 				}
 			:	undefined,
+		collision: cloneCollisionFilterDescriptor(desc.collision),
 	};
 
 	if (!desc.mode || desc.mode === "explicit") {
