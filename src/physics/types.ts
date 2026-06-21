@@ -44,6 +44,7 @@ export interface PhysicsWorldConfig extends PhysicsStepConfig {
 export interface RigidBodyDescriptor {
 	type?: RigidBodyType;
 	mass?: number;
+	gravityScale?: number;
 	linearDamping?: number;
 	angularDamping?: number;
 	canSleep?: boolean;
@@ -58,6 +59,11 @@ export interface PhysicsMaterialDescriptor {
 	friction?: number;
 	restitution?: number;
 	density?: number;
+}
+
+export interface PhysicsCollisionFilterDescriptor {
+	groups?: string[];
+	collidesWith?: string[] | "all";
 }
 
 export interface ColliderShapeBox {
@@ -99,6 +105,7 @@ export interface ColliderDescriptorBase {
 	isTrigger?: boolean;
 	offset?: IVector3;
 	material?: PhysicsMaterialDescriptor;
+	collision?: PhysicsCollisionFilterDescriptor;
 }
 
 export interface ExplicitColliderDescriptor extends ColliderDescriptorBase {
@@ -246,6 +253,38 @@ export interface PhysicsOverlapHit {
 	bodyId: string;
 	colliderId: string;
 	isTrigger: boolean;
+}
+
+export type PhysicsDebugGeometryKind =
+	| "collider"
+	| "aabb"
+	| "joint-axis"
+	| "contact-point";
+
+export interface PhysicsDebugLine {
+	kind: PhysicsDebugGeometryKind;
+	worldId: PhysicsWorldId;
+	bodyId?: string;
+	colliderId?: string;
+	jointId?: string;
+	from: IVector3;
+	to: IVector3;
+	color?: [number, number, number, number];
+}
+
+export interface PhysicsDebugPoint {
+	kind: "contact-point";
+	worldId: PhysicsWorldId;
+	bodyAId?: string;
+	bodyBId?: string;
+	position: IVector3;
+	normal?: IVector3;
+	color?: [number, number, number, number];
+}
+
+export interface PhysicsDebugGeometry {
+	lines: PhysicsDebugLine[];
+	points: PhysicsDebugPoint[];
 }
 
 export interface PhysicsWorldStepReport {
