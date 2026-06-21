@@ -17,6 +17,7 @@ import type {
 	PhysicsTransform,
 	PhysicsWorldConfig,
 	RigidBodyDescriptor,
+	RigidBodyType,
 } from "./types";
 
 export interface PhysicsAdapterCapabilities {
@@ -74,6 +75,12 @@ export interface IPhysicsEngineAdapter {
 		bodyId: string,
 		velocity: IVector3
 	): void;
+	setBodyType(worldId: string, bodyId: string, type: RigidBodyType): void;
+	setBodyMass(worldId: string, bodyId: string, mass: number): void;
+	setBodyGravityScale(worldId: string, bodyId: string, scale: number): void;
+	setBodyLinearDamping(worldId: string, bodyId: string, value: number): void;
+	setBodyAngularDamping(worldId: string, bodyId: string, value: number): void;
+	wakeUpBody(worldId: string, bodyId: string): void;
 	applyForce(worldId: string, bodyId: string, force: IVector3): void;
 	applyTorque(worldId: string, bodyId: string, torque: IVector3): void;
 	applyImpulse(worldId: string, bodyId: string, impulse: IVector3): void;
@@ -90,7 +97,11 @@ export interface IPhysicsEngineAdapter {
 		colliderId: string,
 		isSensor: boolean
 	): void;
-	setCollisionMask(worldId: string, colliderId: string, mask: number): void;
+	setColliderCollisionFilter(
+		worldId: string,
+		colliderId: string,
+		filter: number
+	): void;
 	setColliderMaterial?(
 		worldId: string,
 		colliderId: string,
