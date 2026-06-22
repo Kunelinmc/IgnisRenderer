@@ -244,6 +244,7 @@ type WebGPUPassHandler = (
 ) => void | Promise<void>;
 
 export class WebGPUBackend implements IRenderBackend {
+	public readonly id = "webgpu";
 	private readonly _options: WebGPUBackendOptions;
 
 	public constructor(options: WebGPUBackendOptions = {}) {

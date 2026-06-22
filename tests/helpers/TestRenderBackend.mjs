@@ -2,6 +2,7 @@ import { createRenderBackendExtensionRegistry } from "../../src/renderers/Backen
 
 export class TestRenderBackend {
 	constructor() {
+		this.id = "test";
 		this.type = "test";
 		this.capabilities = {
 			sh: false,

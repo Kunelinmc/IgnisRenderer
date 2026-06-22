@@ -8,7 +8,8 @@ Rendering backends allocate command buffers and transient targets during frame e
 
 ## API/Contract
 - `IRenderBackend`
-	- Must expose only `createSession(context)` for backend runtime creation.
+	- Must expose `id` for provider identification.
+	- Must expose `createSession(context)` for backend runtime creation.
 	- Must not expose frame lifecycle methods or an implicit default session.
 - `IRenderBackendSession.beginFrame(context: FrameContext)`
 	- Behavior contract: must prepare command encoders, bind presentation attachments, and transition frame state.
@@ -56,4 +57,6 @@ try {
 - `IRenderBackend` direct frame lifecycle methods are removed. Frame orchestration is moved entirely to `IRenderBackendSession` and coordinated by `FrameCoordinator`.
 - Backend providers no longer create an implicit session when profile,
   capability, extension, or frame methods are read.
+- Backend providers may be identified with `IRenderBackend.id` without creating
+  a session.
 - `IRenderBackend.executeSharedPass` is removed.

@@ -27,6 +27,7 @@ function createSession(provider, canvas, events) {
 }
 
 function assertProviderOnly(provider) {
+	assert.equal(typeof provider.id, "string");
 	assert.equal(typeof provider.createSession, "function");
 	for (const key of LEGACY_RUNTIME_KEYS) {
 		assert.equal(key in provider, false, `provider must not expose ${key}`);

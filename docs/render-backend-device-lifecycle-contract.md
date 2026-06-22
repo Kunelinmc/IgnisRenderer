@@ -13,6 +13,11 @@ GPU-backed renderers can lose their device or context at runtime. WebGPU reports
 	  supplied surface and event sink.
 	- Constraint: providers must not expose session lifecycle, frame lifecycle,
 	  profile, or extension members directly.
+- `IRenderBackend.id`
+	- Output contract: must identify the backend provider without creating an
+	  `IRenderBackendSession`.
+	- Constraint: must not allocate runtime state or imply initialized device
+	  capabilities.
 - `RenderBackendDeviceLostInfo`
 	- Input contract: `reason` may contain a backend-specific loss reason.
 	- Input contract: `message` may contain a diagnostic message.
@@ -56,6 +61,7 @@ GPU-backed renderers can lose their device or context at runtime. WebGPU reports
 import { Renderer, WebGPUBackend } from "../src";
 
 const backend = new WebGPUBackend();
+console.info(`Using ${backend.id} backend`);
 const renderer = new Renderer({
 	canvas,
 	backend,
@@ -83,4 +89,5 @@ await renderer.restore();
 - `RendererBackendBridge` is removed.
 - Provider-level `initialize`, `restore`, `resize`, `getAttachments`, frame
   lifecycle, `destroy`, `profile`, and `extensions` members are removed.
+  Providers may expose only `id` as non-runtime metadata.
 - Backends must route all lifecycle notifications as events through `RenderBackendEventSink` instead of direct callbacks.

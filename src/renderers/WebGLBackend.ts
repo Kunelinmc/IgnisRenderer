@@ -65,6 +65,7 @@ export interface WebGLBackendOptions {
 }
 
 export class WebGLBackend implements IRenderBackend {
+	public readonly id = "webgl";
 	private readonly _options: WebGLBackendOptions;
 
 	public constructor(options: WebGLBackendOptions = {}) {

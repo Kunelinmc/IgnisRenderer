@@ -6,9 +6,19 @@ import { FakeImageData as MockImageData } from "../../helpers/fakes.mjs";
 import { createBackendSession } from "../../helpers/TestRenderBackend.mjs";
 
 function run() {
-	const software = createBackendSession(new SoftwareBackend());
-	const webgpu = createBackendSession(new WebGPUBackend());
-	const webgl = createBackendSession(new WebGLBackend());
+	const softwareProvider = new SoftwareBackend();
+	const webgpuProvider = new WebGPUBackend();
+	const webglProvider = new WebGLBackend();
+	const software = createBackendSession(softwareProvider);
+	const webgpu = createBackendSession(webgpuProvider);
+	const webgl = createBackendSession(webglProvider);
+
+	assert.equal(softwareProvider.id, "software");
+	assert.equal(webgpuProvider.id, "webgpu");
+	assert.equal(webglProvider.id, "webgl");
+	assert.equal(software.profile.id, softwareProvider.id);
+	assert.equal(webgpu.profile.id, webgpuProvider.id);
+	assert.equal(webgl.profile.id, webglProvider.id);
 
 	assert.deepEqual(software.profile.capabilities, {
 		sh: true,

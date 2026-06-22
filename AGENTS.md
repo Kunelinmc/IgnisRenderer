@@ -92,10 +92,10 @@ BREAKING CHANGE: `RenderPipelineRegistry.registerStage` has been replaced by
 	- **WebGPUBackend**: Hardware-accelerated pipeline utilizing a delegated architecture with specialized registries for resources, bindings, and frame execution.
 	- **WebGLBackend**: Modernizing with a new V1 implementation for broad compatibility.
 	- Backend classes are configuration providers. `IRenderBackend` must expose
-	  only `createSession(context)`, while renderer-bound runtime state,
-	  capabilities, extensions, device lifecycle, and frame execution belong to
-	  the returned `IRenderBackendSession`. Providers must not create or proxy an
-	  implicit default session.
+	  only provider metadata (`id`) and `createSession(context)`, while
+	  renderer-bound runtime state, capabilities, extensions, device lifecycle,
+	  and frame execution belong to the returned `IRenderBackendSession`.
+	  Providers must not create or proxy an implicit default session.
 - **Core Architecture**: Entity Component System (ECS) backing a modular Scene Graph. `Node` acts as a high-level interface synchronized with the ECS. Integrated with Animation, Physics, and backend-owned Particle simulation runtimes.
 
 ## Build & Test Commands

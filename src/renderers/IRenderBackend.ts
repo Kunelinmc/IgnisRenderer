@@ -131,6 +131,15 @@ export interface RenderBackendSessionContext {
 
 export interface IRenderBackend {
 	/**
+	 * Identifies the backend implementation without creating a renderer session.
+	 *
+	 * @remarks This value is provider-owned metadata. Capability, lifecycle,
+	 * extension, and runtime state queries must still use the returned
+	 * `IRenderBackendSession`.
+	 * @sideEffects None.
+	 */
+	readonly id: RenderBackendType;
+	/**
 	 * Creates an isolated runtime session for one renderer.
 	 *
 	 * @param context Presentation surface and backend event sink.

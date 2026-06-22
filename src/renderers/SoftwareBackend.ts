@@ -128,6 +128,7 @@ function resolvePreparedSceneEnvironment(scene: FrameContext["scene"]): {
 }
 
 export class SoftwareBackend implements IRenderBackend {
+	public readonly id = "software";
 	private readonly _options: SoftwareBackendOptions;
 
 	public constructor(options: SoftwareBackendOptions = {}) {
