@@ -1,4 +1,6 @@
 import type { PostProcessIncrementalMetadata } from "../pipeline/incremental";
+import { GAMMA_PASS_ORDER } from "./passes/GammaPass";
+import { TONE_MAPPING_PASS_ORDER } from "./passes/ToneMappingPass";
 
 export const POST_PROCESS_PLACEMENTS = [
 	"spatial",
@@ -26,22 +28,11 @@ export interface PostProcessPassMetadata
 	readonly incremental: PostProcessIncrementalMetadata;
 }
 
-export const BUILTIN_POST_PROCESS_ORDER: readonly BuiltinPostProcessOrderEntry[] =
+const BUILTIN_POST_PROCESS_PASS_ORDER_BY_ID = new Map(
 	[
-		{
-			id: "tonemap",
-			placement: "hdr",
-			order: 600,
-		},
-		{
-			id: "gamma",
-			placement: "present",
-			order: 900,
-		},
-	] as const;
-
-const BUILTIN_POST_PROCESS_ORDER_BY_ID = new Map(
-	BUILTIN_POST_PROCESS_ORDER.map((entry) => [entry.id, entry])
+		createBuiltinPostProcessOrderEntry(TONE_MAPPING_PASS_ORDER),
+		createBuiltinPostProcessOrderEntry(GAMMA_PASS_ORDER),
+	].map((entry) => [entry.id, entry])
 );
 
 const CUSTOM_PLACEMENT_ORDER: Record<PostProcessPlacement, number> = {
@@ -65,7 +56,7 @@ const CUSTOM_PLACEMENT_ORDER: Record<PostProcessPlacement, number> = {
 export function getBuiltinPostProcessOrder(
 	id: string
 ): BuiltinPostProcessOrderEntry | null {
-	return BUILTIN_POST_PROCESS_ORDER_BY_ID.get(id) ?? null;
+	return BUILTIN_POST_PROCESS_PASS_ORDER_BY_ID.get(id) ?? null;
 }
 
 /**
@@ -95,4 +86,14 @@ export function isPostProcessPlacement(
 		typeof value === "string" &&
 		(POST_PROCESS_PLACEMENTS as readonly string[]).includes(value)
 	);
+}
+
+function createBuiltinPostProcessOrderEntry(
+	metadata: BuiltinPostProcessOrderEntry
+): BuiltinPostProcessOrderEntry {
+	return {
+		id: metadata.id,
+		placement: metadata.placement,
+		order: metadata.order,
+	};
 }

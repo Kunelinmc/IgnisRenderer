@@ -34,7 +34,6 @@ export {
 	type PostProcessTransientPrepareResult,
 } from "./PostProcessTransientManager";
 export {
-	BUILTIN_POST_PROCESS_ORDER,
 	DEFAULT_POST_PROCESS_PLACEMENT,
 	POST_PROCESS_PLACEMENTS,
 	getBuiltinPostProcessOrder,
@@ -190,6 +189,7 @@ export {
 } from "./passes/DepthOfFieldPass";
 export {
 	GAMMA_PASS_ID,
+	GAMMA_PASS_ORDER,
 	GammaPass,
 	SoftwareGammaImplementation,
 	WebGPUGammaImplementation,
@@ -210,6 +210,7 @@ export {
 } from "./passes/MotionBlurPass";
 export {
 	TONE_MAPPING_PASS_ID,
+	TONE_MAPPING_PASS_ORDER,
 	ToneMappingPass,
 	SoftwareToneMappingImplementation,
 	WebGPUToneMappingImplementation,
