@@ -567,31 +567,6 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 		return this.renderFrame(nowMs);
 	}
 
-	/**
-	 * Callback triggered when a GPU device lost event occurs.
-	 * 
-	 * @internal Owned by the device management subsystem. Preferred alternative: subscribe to `RendererEvents.devicelost` instead of calling `Renderer.onDeviceLost`.
-	 * @param info Optional details about the device loss reason.
-	 * @returns A promise that resolves when recovery or cleanup tasks finish.
-	 */
-	public async onDeviceLost(info?: any): Promise<void> {
-		const session = this._runtime.backendSession;
-		if (session && typeof (session as any).onDeviceLost === "function") {
-			await (session as any).onDeviceLost(info);
-		}
-		this._handleBackendEvent({ type: "device-lost", info });
-	}
-
-	/**
-	 * Callback triggered when a backend resource lifecycle event occurs.
-	 * 
-	 * @internal Owned by the resource registry. Preferred alternative: subscribe to `RendererEvents.backendresourceevent` instead of calling `Renderer.onBackendResourceEvent`.
-	 * @param event The backend resource lifecycle event payload.
-	 */
-	public onBackendResourceEvent(event: any): void {
-		this._handleBackendEvent({ type: "resource-lifecycle", event });
-	}
-
 	private async _renderFrame(now: number): Promise<RenderFrameResult> {
 		this._deltaTime = now - (this._lastTime || now);
 		this._lastTime = now;

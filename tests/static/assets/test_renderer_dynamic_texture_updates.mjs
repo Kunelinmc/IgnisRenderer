@@ -186,9 +186,14 @@ async function run() {
 				event.action,
 			]);
 		});
-		await renderer.onDeviceLost({
+		const deviceLostInfo = {
 			reason: "manual-test",
 			message: "simulated loss",
+		};
+		backend.onDeviceLost(deviceLostInfo);
+		backend.sessionContext.events.emit({
+			type: "device-lost",
+			info: deviceLostInfo,
 		});
 		assert.equal(backend.deviceLostInfos.length, 1);
 		assert.equal(backend.deviceLostInfos[0].message, "simulated loss");
@@ -203,11 +208,14 @@ async function run() {
 		assert.equal(backend.restoreCanvases[0], canvas);
 
 		await testRendererPostProcessCleanupBridge(canvas);
-		renderer.onBackendResourceEvent({
-			resource: "postprocess",
-			action: "invalidate",
-			backend: "stub",
-			reason: "event-test",
+		backend.sessionContext.events.emit({
+			type: "resource-lifecycle",
+			event: {
+				resource: "postprocess",
+				action: "invalidate",
+				backend: "stub",
+				reason: "event-test",
+			},
 		});
 		assert.deepEqual(rendererEvents[1], [
 			"backendresourceevent",

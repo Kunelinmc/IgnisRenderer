@@ -150,7 +150,7 @@ BREAKING CHANGE: `RenderPipelineRegistry.registerStage` has been replaced by
   are not application-facing APIs, MUST include `@internal` in their JSDoc.
   The JSDoc SHOULD name the owning subsystem and the preferred public
   alternative (for example, subscribe to `RendererEvents.devicelost` instead of
-  calling `Renderer.onDeviceLost`).
+  exposing a renderer-level device-loss injection method).
 
 ### Docs Writing Guidelines (`docs/`)
 - **Scope**: These rules apply only to `docs/*.md`. They do not apply to `README*.md` unless explicitly requested.
