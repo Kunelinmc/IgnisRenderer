@@ -99,6 +99,9 @@ import type {
 	WebGPUFrameGraphValidationMode,
 } from "./types";
 import { WebGPUPresentPass } from "./WebGPUPresentPass";
+import { WebGPUCustomRenderTargetRuntime } from "./WebGPUCustomRenderTargetRuntime";
+import type { RenderTargetReadbackOptions } from "../../CustomRenderTargets";
+import type { TextureReadbackResult } from "../../IComputeRuntime";
 
 const WEBGPU_OIT_DISABLED_MRT_KEY = "webgpu-oit-disabled-mrt-unavailable";
 const WEBGPU_OIT_DISABLED_MSAA_KEY = "webgpu-oit-disabled-msaa";
@@ -129,6 +132,7 @@ export class WebGPUFrameGraphRuntime {
 	private _depthDirtyClearPass: WebGPUDepthDirtyClearPass;
 	private _planarReflectionPass: WebGPUPlanarReflectionPass;
 	private _presentPass: WebGPUPresentPass;
+	private _customRenderTargets: WebGPUCustomRenderTargetRuntime;
 	private _frameTargetManager: WebGPUFrameTargetManager;
 	private _oitPass: WebGPUOITPass;
 	private _deferredLightingPass: WebGPUDeferredLightingPass;
@@ -204,6 +208,7 @@ export class WebGPUFrameGraphRuntime {
 			resources
 		);
 		this._presentPass = new WebGPUPresentPass(backend);
+		this._customRenderTargets = new WebGPUCustomRenderTargetRuntime(backend);
 		this._frameTargetManager = new WebGPUFrameTargetManager(backend, {
 			resolveMSAASampleCount: () => this._resolveMSAASampleCount(),
 			configureDeferredLightingSupport: () =>
@@ -344,6 +349,7 @@ export class WebGPUFrameGraphRuntime {
 		}
 
 		this._encoder = this._backend.createCommandEncoder();
+		this._customRenderTargets.sync(context);
 
 		this._ensureMRTSupport();
 		this._configureDeferredLightingSupport();
@@ -656,6 +662,7 @@ export class WebGPUFrameGraphRuntime {
 		this._occlusionRuntime.destroy();
 		this._planarReflectionPass.destroy();
 		this._presentPass.destroy();
+		this._customRenderTargets.destroy();
 		this._oitPass.destroy();
 		this._depthDirtyClearPass.destroy();
 		this._pagedShadowRuntime.destroy();
@@ -669,6 +676,15 @@ export class WebGPUFrameGraphRuntime {
 		context: FrameContext
 	): Promise<void> {
 		if (!this._encoder) return;
+
+		if (this._customRenderTargets.hasPass(pass, context)) {
+			await this._customRenderTargets.executePass(
+				pass,
+				context,
+				this._encoder
+			);
+			return;
+		}
 
 		const plan = this._graphPlanner.planStage(pass, context, {
 			deferredActive: this._deferredEnabled,
@@ -850,6 +866,7 @@ export class WebGPUFrameGraphRuntime {
 			}
 
 			this._backend.submit([encoder.finish()]);
+			this._customRenderTargets.markFrameCommitted();
 			this._occlusionRuntime.scheduleQueuedReadbacks();
 			if (motionSource && motionTarget && width > 0 && height > 0) {
 				this._backend.copyTextureToTexture(
@@ -864,7 +881,16 @@ export class WebGPUFrameGraphRuntime {
 	}
 
 	public abortFrame(): void {
+		this._customRenderTargets.markFrameAborted();
 		this._clearActiveFrameState();
+	}
+
+	public readRenderTargetColor(
+		id: string,
+		attachmentIndex?: number,
+		options?: RenderTargetReadbackOptions
+	): Promise<TextureReadbackResult> {
+		return this._customRenderTargets.readColor(id, attachmentIndex, options);
 	}
 
 	private _collectInitialGraphResources(): string[] {

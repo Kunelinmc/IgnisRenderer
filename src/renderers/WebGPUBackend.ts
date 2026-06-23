@@ -13,6 +13,8 @@ import type {
 	WarmupOptions,
 	WarmupReport,
 } from "./IRenderBackend";
+import type { RenderTargetReadbackOptions } from "./CustomRenderTargets";
+import type { TextureReadbackResult } from "./IComputeRuntime";
 import {
 	type FrameAttachments,
 	type FrameContext,
@@ -407,6 +409,9 @@ export class WebGPUBackend implements IRenderBackend {
 			clusteredLighting: true,
 			oit: true,
 			occlusionCulling: this._enableOcclusionCulling,
+			customRenderTargets: true,
+			customRenderPasses: true,
+			renderTargetReadback: true,
 		};
 		this.profile = {
 			id: "webgpu",
@@ -848,6 +853,23 @@ export class WebGPUBackend implements IRenderBackend {
 
 	public skipPass(pass: FramePass): void {
 		this._markPassExecuted(pass.stage);
+	}
+
+	public readRenderTargetColor(
+		id: string,
+		attachmentIndex?: number,
+		options?: RenderTargetReadbackOptions
+	): Promise<TextureReadbackResult> {
+		if (!this._frameExecutor) {
+			return Promise.reject(
+				new Error("WebGPU backend has not been initialized.")
+			);
+		}
+		return this._frameExecutor.readRenderTargetColor(
+			id,
+			attachmentIndex,
+			options
+		);
 	}
 
 	public async warmup(context: FrameContext, options: WarmupOptions = {}): Promise<WarmupReport> {

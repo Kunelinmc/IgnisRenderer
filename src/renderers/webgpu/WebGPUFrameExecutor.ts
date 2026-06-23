@@ -20,6 +20,8 @@ import type {
 } from "../../pipeline/OcclusionCulling";
 import type { WebGPUBackend } from "../WebGPUBackend";
 import type { WarmupOptions } from "../IRenderBackend";
+import type { RenderTargetReadbackOptions } from "../CustomRenderTargets";
+import type { TextureReadbackResult } from "../IComputeRuntime";
 import type {
 	WebGPUPreparedFrameResources,
 	WebGPURenderResources,
@@ -130,6 +132,14 @@ export class WebGPUFrameExecutor {
 
 	public abortFrame(): void {
 		this._runtime.abortFrame();
+	}
+
+	public readRenderTargetColor(
+		id: string,
+		attachmentIndex?: number,
+		options?: RenderTargetReadbackOptions
+	): Promise<TextureReadbackResult> {
+		return this._runtime.readRenderTargetColor(id, attachmentIndex, options);
 	}
 
 	public destroy(): void {
