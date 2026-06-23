@@ -17,6 +17,10 @@ import {
 	submitWebGPUDraws,
 } from "./WebGPUDrawSubmission";
 import { Logger } from "../../foundation/Logger";
+import {
+	CustomRenderPassRegistrySnapshot,
+	RenderTargetRegistrySnapshot,
+} from "../CustomRenderTargets";
 
 export const WEBGPU_PLANAR_REFLECTION_MAX_PLANES = 2;
 export const WEBGPU_PLANAR_REFLECTION_RESOLUTION_SCALE = 0.5;
@@ -539,6 +543,8 @@ function createPlanarCaptureContext(
 			enableReflection: false,
 		},
 		postProcess: capturePostProcess,
+		renderTargets: new RenderTargetRegistrySnapshot(),
+		customRenderPasses: new CustomRenderPassRegistrySnapshot(),
 		shadowMaps: captureScene.shadowMaps,
 		scene: captureScene,
 		shCoeffs: context.shCoeffs,

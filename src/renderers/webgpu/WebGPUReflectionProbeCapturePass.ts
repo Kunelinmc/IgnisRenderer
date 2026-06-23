@@ -33,6 +33,10 @@ import type {
 import type { WebGPUBackend } from "../WebGPUBackend";
 import { TextureFormat, TextureUsage } from "../types";
 import { submitWebGPUDraws } from "./WebGPUDrawSubmission";
+import {
+	CustomRenderPassRegistrySnapshot,
+	RenderTargetRegistrySnapshot,
+} from "../CustomRenderTargets";
 
 const CAPTURE_CAMERA_NEAR = 0.1;
 const CUBE_FACE_DIRECTIONS: IVector3[] = [
@@ -114,6 +118,8 @@ export class WebGPUReflectionProbeCapturePass {
 			},
 			features: captureFeatures,
 			postProcess: capturePostProcess,
+			renderTargets: new RenderTargetRegistrySnapshot(),
+			customRenderPasses: new CustomRenderPassRegistrySnapshot(),
 			shadowMaps: captureScene.shadowMaps,
 			scene: captureScene,
 			shCoeffs: request.frameContext.shCoeffs,
