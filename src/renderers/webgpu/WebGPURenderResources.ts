@@ -1797,7 +1797,7 @@ export class WebGPURenderResources {
 			id: [
 				"particleMesh",
 				batch.systemId,
-				batch.definitionIndex,
+				batch.templateIndex,
 				batch.primitive.id,
 				particleIndex,
 			].join(":"),
@@ -2424,7 +2424,7 @@ function createParticleMeshInstance(
 	worldMatrix: Matrix4
 ): MeshInstance {
 	return {
-		id: `particleMeshInstance:${batch.systemId}:${batch.definitionIndex}`,
+		id: `particleMeshInstance:${batch.systemId}:${batch.templateIndex}`,
 		mesh: batch.mesh,
 		skeleton: null,
 		morphWeights: batch.mesh.defaultMorphWeights,

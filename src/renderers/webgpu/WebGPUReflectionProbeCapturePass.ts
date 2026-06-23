@@ -727,7 +727,7 @@ function populateParticleBatchesForCapture(
 			const depth = -cameraSpace.z;
 			if (depth <= 0) continue;
 			particles.push({
-				definitionIndex: particle.definitionIndex,
+				templateIndex: particle.templateIndex,
 				position: {
 					x: particle.position.x,
 					y: particle.position.y,

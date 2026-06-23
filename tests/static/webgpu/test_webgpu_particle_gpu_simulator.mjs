@@ -380,8 +380,8 @@ function testRenderResourcesBuildsParticleMeshDrawPackets() {
 		{
 			kind: "mesh",
 			systemId: "particleSystem-mesh",
-			definitionIndex: 0,
-			definitionId: "opaque-shard",
+			templateIndex: 0,
+			templateId: "opaque-shard",
 			mesh: opaqueMesh,
 			primitive: opaqueMesh.primitives[0],
 			material: opaqueMaterial,
@@ -391,7 +391,7 @@ function testRenderResourcesBuildsParticleMeshDrawPackets() {
 			shadowSoftness: 1,
 			particles: [
 				{
-					definitionIndex: 0,
+					templateIndex: 0,
 					position: { x: 1, y: 2, z: 3 },
 					previousPosition: { x: 0, y: 2, z: 3 },
 					size: 2,
@@ -405,8 +405,8 @@ function testRenderResourcesBuildsParticleMeshDrawPackets() {
 		{
 			kind: "mesh",
 			systemId: "particleSystem-mesh",
-			definitionIndex: 1,
-			definitionId: "transparent-shard",
+			templateIndex: 1,
+			templateId: "transparent-shard",
 			mesh: transparentMesh,
 			primitive: transparentMesh.primitives[0],
 			material: transparentMaterial,
@@ -416,7 +416,7 @@ function testRenderResourcesBuildsParticleMeshDrawPackets() {
 			shadowSoftness: 1,
 			particles: [
 				{
-					definitionIndex: 1,
+					templateIndex: 1,
 					position: { x: 0, y: 0, z: 0 },
 					previousPosition: { x: 0, y: 0, z: 0 },
 					size: 1,

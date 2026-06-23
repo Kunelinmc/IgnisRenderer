@@ -5,7 +5,10 @@ import {
 	ParticleSpaceMode,
 	type ParticleAtlas,
 	type ParticleCollider,
-	type ParticleDefinition,
+	type ParticleTemplate,
+	type ParticleRange,
+	type ParticleCurve,
+	type ParticleColorGradient,
 	type ParticleEmitterParams,
 	type ParticleGradientKey,
 	type ParticleLODLevel,
@@ -19,59 +22,43 @@ import type { RGBA } from "../foundation/Color";
 const DEFAULT_EMITTER = {
 	rate: 10,
 	bursts: [],
-	lifetimeRange: [0.5, 1.5],
-	speedRange: [2, 5],
-	sizeRange: [0.5, 1.0],
+	lifetimeRange: [0.5, 1.5] as [number, number],
+	speedRange: [2, 5] as [number, number],
+	sizeRange: [0.5, 1.0] as [number, number],
 	direction: { x: 0, y: 1, z: 0 },
-	spread: 0.35,
-	spawnRadius: 0,
-	startColor: { r: 255, g: 255, b: 255, a: 1 },
-	rotationRange: [0, 0],
-	angularVelocityRange: [0, 0],
-} satisfies {
-	rate: number;
-	bursts: [];
-	lifetimeRange: [number, number];
-	speedRange: [number, number];
-	sizeRange: [number, number];
-	direction: IVector3;
-	spread: number;
-	spawnRadius: number;
-	startColor: RGBA;
-	rotationRange: [number, number];
-	angularVelocityRange: [number, number];
+	spread: 0.1,
+	spawnRadius: 0.0,
+	startColor: { r: 255, g: 255, b: 255, a: 1.0 },
+	rotationRange: [0, 0] as [number, number],
+	angularVelocityRange: [0, 0] as [number, number],
 };
 
-const DEFAULT_GRAVITY: IVector3 = Object.freeze({
-	x: 0,
-	y: -9.8,
-	z: 0,
-});
+const DEFAULT_GRAVITY = { x: 0, y: -9.8, z: 0 };
 
 const DEFAULT_LOD_LEVELS: ParticleLODLevel[] = [
 	{
-		distance: 24,
-		projectedSize: 64,
+		distance: 20,
+		projectedSize: 50,
 		simulationIntervalFrames: 1,
 		spawnScale: 1,
 		maxParticlesScale: 1,
 		renderSortRatio: 1,
 	},
 	{
-		distance: 72,
-		projectedSize: 24,
+		distance: 50,
+		projectedSize: 20,
 		simulationIntervalFrames: 2,
-		spawnScale: 0.65,
-		maxParticlesScale: 0.65,
-		renderSortRatio: 0.75,
+		spawnScale: 0.7,
+		maxParticlesScale: 0.7,
+		renderSortRatio: 0.5,
 	},
 	{
-		distance: Number.POSITIVE_INFINITY,
-		projectedSize: 0,
+		distance: 100,
+		projectedSize: 5,
 		simulationIntervalFrames: 4,
-		spawnScale: 0.35,
-		maxParticlesScale: 0.35,
-		renderSortRatio: 0.5,
+		spawnScale: 0.3,
+		maxParticlesScale: 0.3,
+		renderSortRatio: 0.2,
 	},
 ];
 
@@ -87,10 +74,20 @@ export class ParticleSystem extends Node {
 	public space: ParticleSpaceMode;
 	public gravity: IVector3;
 	public emit: ParticleEmitterParams;
-	public definitions: ParticleDefinition[];
+	public templates: ParticleTemplate[];
 	public colliders: ParticleCollider[];
 	public subEmitter: ParticleSubEmitterConfig | null;
 	public lod: ParticleLODSettings;
+
+	/** @deprecated Use templates instead. */
+	public get definitions(): ParticleTemplate[] {
+		return this.templates;
+	}
+
+	/** @deprecated Use templates instead. */
+	public set definitions(value: ParticleTemplate[]) {
+		this.templates = value;
+	}
 
 	constructor(params: ParticleSystemParams = {}) {
 		super({
@@ -103,10 +100,10 @@ export class ParticleSystem extends Node {
 		this.seed = Math.max(1, Math.floor(params.seed ?? 1337));
 		this.space = params.space ?? ParticleSpaceMode.Local;
 		this.gravity = cloneVector(params.gravity ?? DEFAULT_GRAVITY);
-		this.definitions = normalizeParticleDefinitions(params);
+		this.templates = normalizeParticleTemplates(params);
 		this.emit = createEmitterParams(
 			params.emit,
-			() => this._primaryDefinition
+			() => this._primaryTemplate
 		);
 		this.colliders = (params.colliders ?? []).map((collider) =>
 			cloneCollider(collider)
@@ -116,86 +113,86 @@ export class ParticleSystem extends Node {
 	}
 
 	public get blendMode(): ParticleBlendMode {
-		return resolveDefinitionBlendMode(this._primaryDefinition);
+		return resolveTemplateBlendMode(this._primaryTemplate);
 	}
 
 	public set blendMode(value: ParticleBlendMode) {
-		const definition = this._primaryDefinition;
-		if (definition.shape.kind === "billboard") {
-			definition.shape.blendMode = value;
+		const template = this._primaryTemplate;
+		if (template.shape.kind === "billboard") {
+			template.shape.blendMode = value;
 		}
 	}
 
 	public get texture(): Texture | null {
-		const shape = this._primaryDefinition.shape;
+		const shape = this._primaryTemplate.shape;
 		return shape.kind === "billboard" ? shape.texture ?? null : null;
 	}
 
 	public set texture(value: Texture | null) {
-		const definition = this._primaryDefinition;
-		if (definition.shape.kind === "billboard") {
-			definition.shape.texture = value;
+		const template = this._primaryTemplate;
+		if (template.shape.kind === "billboard") {
+			template.shape.texture = value;
 		}
 	}
 
 	public get atlas(): ParticleAtlas | null {
-		const shape = this._primaryDefinition.shape;
+		const shape = this._primaryTemplate.shape;
 		return shape.kind === "billboard" ? shape.atlas ?? null : null;
 	}
 
 	public set atlas(value: ParticleAtlas | null) {
-		const definition = this._primaryDefinition;
-		if (definition.shape.kind === "billboard") {
-			definition.shape.atlas = value;
+		const template = this._primaryTemplate;
+		if (template.shape.kind === "billboard") {
+			template.shape.atlas = value;
 		}
 	}
 
 	public get sizeOverLifetime(): ParticleGradientKey<number>[] {
-		return this._primaryDefinition.sizeOverLifetime ?? [];
+		return this._primaryTemplate.sizeOverLifetime ?? [];
 	}
 
 	public set sizeOverLifetime(value: ParticleGradientKey<number>[]) {
-		this._primaryDefinition.sizeOverLifetime = cloneNumberGradient(value);
+		this._primaryTemplate.sizeOverLifetime = cloneNumberGradient(value);
 	}
 
 	public get colorOverLifetime(): ParticleGradientKey<RGBA>[] {
-		return this._primaryDefinition.colorOverLifetime ?? [];
+		return this._primaryTemplate.colorOverLifetime ?? [];
 	}
 
 	public set colorOverLifetime(value: ParticleGradientKey<RGBA>[]) {
-		this._primaryDefinition.colorOverLifetime = cloneColorGradient(value);
+		this._primaryTemplate.colorOverLifetime = cloneColorGradient(value);
 	}
 
 	public get receiveShadows(): boolean {
-		return this._primaryDefinition.receiveShadows ?? true;
+		return this._primaryTemplate.receiveShadows ?? true;
 	}
 
 	public set receiveShadows(value: boolean) {
-		this._primaryDefinition.receiveShadows = value;
+		this._primaryTemplate.receiveShadows = value;
 	}
 
 	public get castShadows(): boolean {
-		return this._primaryDefinition.castShadows ?? true;
+		return this._primaryTemplate.castShadows ?? true;
 	}
 
 	public set castShadows(value: boolean) {
-		this._primaryDefinition.castShadows = value;
+		this._primaryTemplate.castShadows = value;
 	}
 
 	public get shadowDensity(): number {
-		return this._primaryDefinition.shadowDensity ?? 1;
+		return this._primaryTemplate.shadowDensity ?? 1;
 	}
 
 	public set shadowDensity(value: number) {
-		this._primaryDefinition.shadowDensity = resolveNonNegativeFinite(value, 1);
+		this._primaryTemplate.shadowDensity = resolveNonNegativeFinite(value, 1);
 	}
 
 	public get shadowSoftness(): number {
-		return this._primaryDefinition.shadowSoftness ?? 1;
+		return this._primaryTemplate.shadowSoftness ?? 1;
 	}
 
 	public set shadowSoftness(value: number) {
-		this._primaryDefinition.shadowSoftness = resolveNonNegativeFinite(value, 1);
+		this._primaryTemplate.shadowSoftness = resolveNonNegativeFinite(value, 1);
 	}
 
 	protected override _createCloneInstance(): this {
@@ -208,12 +205,12 @@ export class ParticleSystem extends Node {
 		target.seed = this.seed;
 		target.space = this.space;
 		target.gravity = cloneVector(this.gravity);
-		target.definitions = this.definitions.map((definition) =>
-			cloneParticleDefinition(definition)
+		target.templates = this.templates.map((template) =>
+			cloneParticleTemplate(template)
 		);
 		target.emit = createEmitterParams(
 			this.emit,
-			() => target._primaryDefinition
+			() => target._primaryTemplate
 		);
 		target.colliders = this.colliders.map((collider) =>
 			cloneCollider(collider)
@@ -222,11 +219,11 @@ export class ParticleSystem extends Node {
 		target.lod = cloneLOD(this.lod);
 	}
 
-	private get _primaryDefinition(): ParticleDefinition {
-		if (this.definitions.length === 0) {
-			this.definitions.push(createDefaultParticleDefinition({}));
+	private get _primaryTemplate(): ParticleTemplate {
+		if (this.templates.length === 0) {
+			this.templates.push(createDefaultParticleTemplate({}));
 		}
-		return this.definitions[0];
+		return this.templates[0];
 	}
 }
 
@@ -260,7 +257,7 @@ function cloneRange(source: [number, number]): [number, number] {
 
 function createEmitterParams(
 	source: ParticleEmitterParams | undefined,
-	resolveDefinition: () => ParticleDefinition
+	resolveTemplate: () => ParticleTemplate
 ): ParticleEmitterParams {
 	const emit: ParticleEmitterParams = {
 		rate: source?.rate ?? DEFAULT_EMITTER.rate,
@@ -272,37 +269,37 @@ function createEmitterParams(
 	defineRangeAlias(
 		emit,
 		"lifetimeRange",
-		resolveDefinition,
+		resolveTemplate,
 		DEFAULT_EMITTER.lifetimeRange
 	);
 	defineRangeAlias(
 		emit,
 		"speedRange",
-		resolveDefinition,
+		resolveTemplate,
 		DEFAULT_EMITTER.speedRange
 	);
 	defineRangeAlias(
 		emit,
 		"sizeRange",
-		resolveDefinition,
+		resolveTemplate,
 		DEFAULT_EMITTER.sizeRange
 	);
 	defineColorAlias(
 		emit,
 		"startColor",
-		resolveDefinition,
+		resolveTemplate,
 		DEFAULT_EMITTER.startColor
 	);
 	defineRangeAlias(
 		emit,
 		"rotationRange",
-		resolveDefinition,
+		resolveTemplate,
 		DEFAULT_EMITTER.rotationRange
 	);
 	defineRangeAlias(
 		emit,
 		"angularVelocityRange",
-		resolveDefinition,
+		resolveTemplate,
 		DEFAULT_EMITTER.angularVelocityRange
 	);
 	return emit;
@@ -316,25 +313,25 @@ function defineRangeAlias(
 		| "sizeRange"
 		| "rotationRange"
 		| "angularVelocityRange",
-	resolveDefinition: () => ParticleDefinition,
+	resolveTemplate: () => ParticleTemplate,
 	fallback: [number, number]
 ): void {
 	Object.defineProperty(emit, key, {
 		configurable: true,
 		enumerable: true,
 		get: () => {
-			const definition = resolveDefinition() as ParticleDefinition &
+			const template = resolveTemplate() as ParticleTemplate &
 				Record<typeof key, [number, number] | undefined>;
-			const current = definition[key];
+			const current = template[key];
 			if (current) return current;
 			const next = cloneRange(fallback);
-			definition[key] = next;
+			template[key] = next;
 			return next;
 		},
 		set: (value: [number, number] | undefined) => {
-			const definition = resolveDefinition() as ParticleDefinition &
+			const template = resolveTemplate() as ParticleTemplate &
 				Record<typeof key, [number, number] | undefined>;
-			definition[key] = cloneRange(value ?? fallback);
+			template[key] = cloneRange(value ?? fallback);
 		},
 	});
 }
@@ -342,55 +339,56 @@ function defineRangeAlias(
 function defineColorAlias(
 	emit: ParticleEmitterParams,
 	key: "startColor",
-	resolveDefinition: () => ParticleDefinition,
+	resolveTemplate: () => ParticleTemplate,
 	fallback: RGBA
 ): void {
 	Object.defineProperty(emit, key, {
 		configurable: true,
 		enumerable: true,
 		get: () => {
-			const definition = resolveDefinition();
-			if (!definition.startColor) {
-				definition.startColor = cloneColor(fallback);
+			const template = resolveTemplate();
+			if (!template.startColor) {
+				template.startColor = cloneColor(fallback);
 			}
-			return definition.startColor;
+			return template.startColor;
 		},
 		set: (value: RGBA | undefined) => {
-			resolveDefinition().startColor = cloneColor(value ?? fallback);
+			resolveTemplate().startColor = cloneColor(value ?? fallback);
 		},
 	});
 }
 
-function normalizeParticleDefinitions(
+function normalizeParticleTemplates(
 	params: ParticleSystemParams
-): ParticleDefinition[] {
-	const rawDefinitions =
-		params.definitions && params.definitions.length > 0 ?
-			params.definitions
-		:	[createDefaultParticleDefinition(params)];
-	if (rawDefinitions.length > 8) {
-		throw new Error("ParticleSystem supports at most 8 particle definitions.");
+): ParticleTemplate[] {
+	const rawTemplates =
+		params.templates && params.templates.length > 0 ? params.templates
+		: params.definitions && params.definitions.length > 0 ? params.definitions
+		: [createDefaultParticleTemplate(params)];
+
+	if (rawTemplates.length > 8) {
+		throw new Error("ParticleSystem supports at most 8 particle templates.");
 	}
 
-	const definitions = rawDefinitions.map((definition, index) =>
-		cloneParticleDefinition({
-			...definition,
-			id: definition.id ?? `definition-${index}`,
-			weight: sanitizeWeight(definition.weight),
+	const templates = rawTemplates.map((template, index) =>
+		cloneParticleTemplate({
+			...template,
+			id: template.id ?? `template-${index}`,
+			weight: sanitizeWeight(template.weight),
 		})
 	);
-	if (definitions.every((definition) => (definition.weight ?? 1) <= 0)) {
-		throw new Error("ParticleSystem requires at least one positive definition weight.");
+	if (templates.every((template) => (template.weight ?? 1) <= 0)) {
+		throw new Error("ParticleSystem requires at least one positive template weight.");
 	}
-	return definitions;
+	return templates;
 }
 
-function createDefaultParticleDefinition(
+function createDefaultParticleTemplate(
 	params: ParticleSystemParams
-): ParticleDefinition {
+): ParticleTemplate {
 	const emit = params.emit ?? {};
 	return {
-		id: "definition-0",
+		id: "template-0",
 		weight: 1,
 		lifetimeRange: cloneRange(
 			(emit as ParticleEmitterParams & {
@@ -436,7 +434,7 @@ function createDefaultParticleDefinition(
 	};
 }
 
-function cloneParticleDefinition(source: ParticleDefinition): ParticleDefinition {
+function cloneParticleTemplate(source: ParticleTemplate): ParticleTemplate {
 	return {
 		...source,
 		id: source.id,
@@ -469,9 +467,9 @@ function cloneParticleDefinition(source: ParticleDefinition): ParticleDefinition
 	};
 }
 
-function resolveDefinitionBlendMode(definition: ParticleDefinition): ParticleBlendMode {
-	if (definition.shape.kind === "billboard") {
-		return definition.shape.blendMode ?? ParticleBlendMode.Alpha;
+function resolveTemplateBlendMode(template: ParticleTemplate): ParticleBlendMode {
+	if (template.shape.kind === "billboard") {
+		return template.shape.blendMode ?? ParticleBlendMode.Alpha;
 	}
 	return ParticleBlendMode.Alpha;
 }

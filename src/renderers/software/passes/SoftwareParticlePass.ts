@@ -202,7 +202,7 @@ function warnSkippedMeshParticles(context: FrameContext): void {
 	Logger.warn(
 		[
 			"[software-particle-mesh-skipped] SoftwareBackend skips mesh particle",
-			"definitions; use WebGPUBackend to render particle meshes.",
+			"templates; use WebGPUBackend to render particle meshes.",
 		].join(" "),
 		{
 			scope: "SoftwareParticlePass",

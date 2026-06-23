@@ -285,13 +285,13 @@ export class DefaultParticleSimulator implements IParticleSimulator {
 		const spawnRadius = Math.max(0, emit.spawnRadius ?? 0);
 		let maxStartSize = 0;
 		let maxLifetimeScale = 1;
-		for (const definition of system.definitions) {
-			const sizeRange = definition.sizeRange ?? [0.5, 1];
+		for (const template of system.templates) {
+			const sizeRange = template.sizeRange ?? [0.5, 1];
 			maxStartSize = Math.max(maxStartSize, sizeRange[0], sizeRange[1]);
-			if ((definition.sizeOverLifetime?.length ?? 0) > 0) {
+			if ((template.sizeOverLifetime?.length ?? 0) > 0) {
 				maxLifetimeScale = Math.max(
 					maxLifetimeScale,
-					...definition.sizeOverLifetime!.map((key) => key.value)
+					...template.sizeOverLifetime!.map((key) => key.value)
 				);
 			}
 		}

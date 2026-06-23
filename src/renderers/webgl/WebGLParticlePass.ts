@@ -358,7 +358,7 @@ export class WebGLParticlePass
 		}
 		logWebGLParticlePassWarning(
 			"webgl-particle-mesh-skipped",
-			"WebGLBackend skips mesh particle definitions; use WebGPUBackend to render particle meshes."
+			"WebGLBackend skips mesh particle templates; use WebGPUBackend to render particle meshes."
 		);
 	}
 

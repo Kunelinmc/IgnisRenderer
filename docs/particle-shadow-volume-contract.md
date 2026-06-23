@@ -4,26 +4,26 @@ This document defines the v1 contract for particle shadow casting through the
 existing `ShadowMap` and `ShadowRenderSet` runtime.
 
 ## Background
-Particle systems previously supported `receiveShadows` only. Billboard particle
+`ParticleSystem` previously supported `receiveShadows` only. Billboard particle
 shadow casting now uses light-space volume density that is associated with
-active shadow slices, so `CascadedShadowMap` and `SingleShadowMap` metadata can be
+solid/alpha shadow slices, so `CascadedShadowMap` and `SingleShadowMap` metadata can be
 reused without coupling shadow strategy code to particle rendering.
 
 ## API/Contract
-- `ParticleDefinition.castShadows` must control whether an alpha billboard
-  definition contributes to particle shadow volume density.
-- `ParticleDefinition.shadowDensity` must scale the injected billboard density.
-- `ParticleDefinition.shadowSoftness` must control the spherical density falloff
+- `ParticleTemplate.castShadows` must control whether an alpha billboard
+  template contributes to particle shadow volume density.
+- `ParticleTemplate.shadowDensity` must scale the injected billboard density.
+- `ParticleTemplate.shadowSoftness` must control the spherical density falloff
   used by the v1 billboard particle kernel.
 - `ParticleSystem.castShadows`, `ParticleSystem.shadowDensity`, and
-  `ParticleSystem.shadowSoftness` must proxy the first definition for legacy
+  `ParticleSystem.shadowSoftness` must proxy the first template for legacy
   callers.
-- `ParticleDefinition.castShadows` must default to `true`.
-- `ParticleDefinition.shadowDensity` must default to `1`.
-- `ParticleDefinition.shadowSoftness` must default to `1`.
+- `ParticleTemplate.castShadows` must default to `true`.
+- `ParticleTemplate.shadowDensity` must default to `1`.
+- `ParticleTemplate.shadowSoftness` must default to `1`.
 - `ParticleBlendMode.Additive` billboard particles must not cast particle
   volume shadows in v1, even when `castShadows` is `true`.
-- Mesh particle definitions must use regular mesh shadow caster/transmitter
+- Mesh particle templates must use regular mesh shadow caster/transmitter
   draw packets on WebGPU instead of billboard particle shadow volume density.
 - Particle shadow volume sampling must multiply the existing shadow visibility.
 - Missing or inactive particle volume resources must return transmittance `1`.
@@ -42,7 +42,7 @@ reused without coupling shadow strategy code to particle rendering.
 import { ParticleSystem, ParticleBlendMode } from "../src/index";
 
 const smoke = new ParticleSystem({
-	definitions: [
+	templates: [
 		{
 			lifetimeRange: [1, 3],
 			speedRange: [0.5, 2],
@@ -83,4 +83,4 @@ bunx tsc --noEmit
 - Additive particle systems remain visually compatible because v1 excludes them
   from particle shadow volume injection.
 - Legacy `ParticleSystemParams.castShadows`, `shadowDensity`, and
-  `shadowSoftness` remain accepted as first-definition aliases.
+  `shadowSoftness` remain accepted as first-template aliases.

@@ -1,6 +1,6 @@
 import {
 	ParticleBlendMode,
-	type ParticleDefinition,
+	type ParticleTemplate,
 	type ParticleSystem,
 } from "../particles";
 import type { ShadowMap } from "../lights/shadows/ShadowMapping";
@@ -313,24 +313,24 @@ function estimateParticleSystemShadowRadius(system: ParticleSystem): number {
 	let startSize = 0;
 	let sizeScale = 1;
 
-	if (Array.isArray(system.definitions)) {
-		for (const definition of system.definitions) {
-			if (definition.shape.kind !== "billboard") continue;
+	if (Array.isArray(system.templates)) {
+		for (const template of system.templates) {
+			if (template.shape.kind !== "billboard") continue;
 			lifetime = Math.max(
 				lifetime,
-				definition.lifetimeRange[0],
-				definition.lifetimeRange[1]
+				template.lifetimeRange[0],
+				template.lifetimeRange[1]
 			);
-			speed = Math.max(speed, definition.speedRange[0], definition.speedRange[1]);
+			speed = Math.max(speed, template.speedRange[0], template.speedRange[1]);
 			startSize = Math.max(
 				startSize,
-				definition.sizeRange[0],
-				definition.sizeRange[1]
+				template.sizeRange[0],
+				template.sizeRange[1]
 			);
-			if ((definition.sizeOverLifetime?.length ?? 0) > 0) {
+			if ((template.sizeOverLifetime?.length ?? 0) > 0) {
 				sizeScale = Math.max(
 					sizeScale,
-					...definition.sizeOverLifetime!.map((key) => key.value)
+					...template.sizeOverLifetime!.map((key) => key.value)
 				);
 			}
 		}
@@ -354,8 +354,8 @@ function estimateParticleSystemShadowRadius(system: ParticleSystem): number {
 }
 
 function hasParticleSystemShadowCaster(system: ParticleSystem): boolean {
-	if (Array.isArray(system.definitions)) {
-		return system.definitions.some(isParticleDefinitionShadowCaster);
+	if (Array.isArray(system.templates)) {
+		return system.templates.some(isParticleTemplateShadowCaster);
 	}
 	return (
 		system.castShadows === true &&
@@ -364,15 +364,15 @@ function hasParticleSystemShadowCaster(system: ParticleSystem): boolean {
 	);
 }
 
-function isParticleDefinitionShadowCaster(
-	definition: ParticleDefinition
+function isParticleTemplateShadowCaster(
+	template: ParticleTemplate
 ): boolean {
 	return (
-		definition.shape.kind === "billboard" &&
-		(definition.castShadows ?? true) === true &&
-		(definition.shape.blendMode ?? ParticleBlendMode.Alpha) !==
+		template.shape.kind === "billboard" &&
+		(template.castShadows ?? true) === true &&
+		(template.shape.blendMode ?? ParticleBlendMode.Alpha) !==
 			ParticleBlendMode.Additive &&
-		(definition.shadowDensity ?? 1) > MIN_PARTICLE_SHADOW_DENSITY
+		(template.shadowDensity ?? 1) > MIN_PARTICLE_SHADOW_DENSITY
 	);
 }
 

@@ -275,8 +275,24 @@ function testLegacyEmitterDefinitionAliases() {
 
 	system.emit.speedRange = [0, 0];
 	system.emit.startColor.r = 200;
+	assert.deepEqual(system.templates[0].speedRange, [0, 0]);
+	assert.equal(system.templates[0].startColor.r, 200);
 	assert.deepEqual(system.definitions[0].speedRange, [0, 0]);
 	assert.equal(system.definitions[0].startColor.r, 200);
+
+	const system2 = new ParticleSystem({
+		definitions: [
+			{
+				lifetimeRange: [1, 2],
+				speedRange: [3, 4],
+				sizeRange: [5, 6],
+				startColor: { r: 1, g: 2, b: 3, a: 1 },
+				shape: { kind: "billboard" },
+			}
+		]
+	});
+	assert.deepEqual(system2.templates[0].lifetimeRange, [1, 2]);
+	assert.deepEqual(system2.definitions[0].lifetimeRange, [1, 2]);
 }
 
 function testWeightedDefinitionsBuildBillboardAndMeshBatches() {
@@ -291,7 +307,7 @@ function testWeightedDefinitionsBuildBillboardAndMeshBatches() {
 			speedRange: [0, 0],
 			spread: 0,
 		},
-		definitions: [
+		templates: [
 			{
 				id: "spark",
 				weight: 1,
@@ -322,10 +338,10 @@ function testWeightedDefinitionsBuildBillboardAndMeshBatches() {
 	executeSimulator(simulator, context, 0.016);
 
 	const billboardBatch = getBatches(context).find(
-		(batch) => batch.definitionId === "spark"
+		(batch) => batch.templateId === "spark"
 	);
 	const meshBatch = getMeshBatches(context).find(
-		(batch) => batch.definitionId === "shard"
+		(batch) => batch.templateId === "shard"
 	);
 	assert.ok(billboardBatch);
 	assert.ok(meshBatch);
@@ -333,7 +349,7 @@ function testWeightedDefinitionsBuildBillboardAndMeshBatches() {
 	assert.equal(meshBatch.primitive, mesh.primitives[0]);
 	assert.equal(meshBatch.material, mesh.primitives[0].material);
 	assert.ok(meshBatch.particles.length > 0);
-	assert.equal(meshBatch.particles[0].definitionIndex, 1);
+	assert.equal(meshBatch.particles[0].templateIndex, 1);
 	assert.ok(
 		meshBatch.particles[0].previousPosition.y >
 			meshBatch.particles[0].position.y

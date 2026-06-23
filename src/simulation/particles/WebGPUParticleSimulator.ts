@@ -258,11 +258,11 @@ export class WebGPUParticleSimulator implements IParticleSimulator {
 		if (system.blendMode !== ParticleBlendMode.Additive) {
 			return false;
 		}
-		if (system.definitions.length !== 1) {
+		if (system.templates.length !== 1) {
 			return false;
 		}
-		const definition = system.definitions[0];
-		if (!definition || definition.shape.kind !== "billboard") {
+		const template = system.templates[0];
+		if (!template || template.shape.kind !== "billboard") {
 			return false;
 		}
 		if (system.lod?.enabled) {
@@ -274,10 +274,10 @@ export class WebGPUParticleSimulator implements IParticleSimulator {
 		if (system.subEmitter && system.subEmitter.enabled !== false) {
 			return false;
 		}
-		if ((definition.sizeOverLifetime?.length ?? 0) > 0) {
+		if ((template.sizeOverLifetime?.length ?? 0) > 0) {
 			return false;
 		}
-		if ((definition.colorOverLifetime?.length ?? 0) > 0) {
+		if ((template.colorOverLifetime?.length ?? 0) > 0) {
 			return false;
 		}
 		return true;
@@ -325,21 +325,21 @@ export class WebGPUParticleSimulator implements IParticleSimulator {
 				continue;
 			}
 
-			const definition = system.definitions[0];
-			const shape = definition?.shape;
+			const template = system.templates[0];
+			const shape = template?.shape;
 			this._computeDrawBatchesThisFrame.push({
 				systemId: system.id,
-				definitionIndex: 0,
-				definitionId: definition?.id,
+				templateIndex: 0,
+				templateId: template?.id,
 				blendMode:
 					shape?.kind === "billboard" ?
 						shape.blendMode ?? ParticleBlendMode.Alpha
 					:	ParticleBlendMode.Alpha,
 				texture: shape?.kind === "billboard" ? shape.texture ?? null : null,
-				receiveShadows: definition?.receiveShadows ?? true,
+				receiveShadows: template?.receiveShadows ?? true,
 				castShadows: false,
-				shadowDensity: Math.max(0, definition?.shadowDensity ?? 1),
-				shadowSoftness: Math.max(0, definition?.shadowSoftness ?? 1),
+				shadowDensity: Math.max(0, template?.shadowDensity ?? 1),
+				shadowSoftness: Math.max(0, template?.shadowSoftness ?? 1),
 				instanceBuffer: state.instanceBuffer,
 				instanceCount: maxParticles,
 				indirectBuffer: state.indirectBuffer,
@@ -595,8 +595,8 @@ export class WebGPUParticleSimulator implements IParticleSimulator {
 			this._backend.writeBuffer(state.indirectBuffer, indirectArgs);
 			drawBatches.push({
 				systemId: batch.systemId,
-				definitionIndex: batch.definitionIndex,
-				definitionId: batch.definitionId,
+				templateIndex: batch.templateIndex,
+				templateId: batch.templateId,
 				blendMode: batch.blendMode,
 				texture: batch.texture,
 				receiveShadows: batch.receiveShadows,
@@ -776,20 +776,20 @@ export class WebGPUParticleSimulator implements IParticleSimulator {
 		const { system, state } = input;
 		const emit = system.emit ?? {};
 		const worldPosition = system.getWorldPosition();
-		const definition = system.definitions[0];
+		const template = system.templates[0];
 		const lifetimeRange = normalizeRange(
-			definition?.lifetimeRange ?? [0.5, 1.5]
+			template?.lifetimeRange ?? [0.5, 1.5]
 		);
-		const speedRange = normalizeRange(definition?.speedRange ?? [2, 5]);
-		const sizeRange = normalizeRange(definition?.sizeRange ?? [0.5, 1]);
+		const speedRange = normalizeRange(template?.speedRange ?? [2, 5]);
+		const sizeRange = normalizeRange(template?.sizeRange ?? [0.5, 1]);
 		const rotationRange = normalizeRange(
-			definition?.rotationRange ?? [0, 0]
+			template?.rotationRange ?? [0, 0]
 		);
 		const angularVelocityRange = normalizeRange(
-			definition?.angularVelocityRange ?? [0, 0]
+			template?.angularVelocityRange ?? [0, 0]
 		);
 		const direction = emit.direction ?? { x: 0, y: 1, z: 0 };
-		const shape = definition?.shape;
+		const shape = template?.shape;
 		const atlas = shape?.kind === "billboard" ? shape.atlas : null;
 		const buffer = new ArrayBuffer(PARTICLE_SIM_PARAMS_SIZE);
 		const view = new DataView(buffer);
@@ -809,7 +809,7 @@ export class WebGPUParticleSimulator implements IParticleSimulator {
 		);
 		view.setUint32(
 			28,
-			(definition?.receiveShadows ?? true) ? 1 : 0,
+			(template?.receiveShadows ?? true) ? 1 : 0,
 			true
 		);
 
@@ -864,7 +864,7 @@ export class WebGPUParticleSimulator implements IParticleSimulator {
 			0
 		);
 		const startColor =
-			definition?.startColor ?? { r: 255, g: 255, b: 255, a: 1 };
+			template?.startColor ?? { r: 255, g: 255, b: 255, a: 1 };
 		writeVec4(
 			view,
 			160,

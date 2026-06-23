@@ -3,7 +3,7 @@ import { clamp } from "../../maths/Common";
 import {
 	ParticleSpaceMode,
 	type ParticleCollider,
-	type ParticleDefinition,
+	type ParticleTemplate,
 	type ParticleSubEmitterConfig,
 	type ParticleSystem,
 } from "../../particles";
@@ -14,7 +14,7 @@ import type { RuntimeParticle, SystemRuntimeState } from "./types";
 interface SpawnOverrides {
 	position?: IVector3;
 	baseVelocity?: IVector3;
-	definitionIndex?: number;
+	templateIndex?: number;
 	lifetimeRange?: [number, number];
 	speedRange?: [number, number];
 	sizeRange?: [number, number];
@@ -196,7 +196,7 @@ export class ParticleSimulationCore {
 			lifetimeRange: subEmitter.lifetimeRange,
 			speedRange: subEmitter.speedRange,
 			sizeRange: subEmitter.sizeRange,
-			definitionIndex: parent.definitionIndex,
+			templateIndex: parent.templateIndex,
 		});
 	}
 
@@ -206,16 +206,16 @@ export class ParticleSimulationCore {
 		overrides: SpawnOverrides = {}
 	): RuntimeParticle {
 		const emit = system.emit;
-		const definitionIndex =
-			overrides.definitionIndex ??
-			this._selectDefinitionIndex(system, runtime);
-		const definition = resolveParticleDefinition(system, definitionIndex);
-		const lifetimeRange = overrides.lifetimeRange ?? definition.lifetimeRange;
-		const speedRange = overrides.speedRange ?? definition.speedRange;
-		const sizeRange = overrides.sizeRange ?? definition.sizeRange;
-		const rotationRange = definition.rotationRange ?? [0, 0];
-		const angularVelocityRange = definition.angularVelocityRange ?? [0, 0];
-		const startColor = definition.startColor;
+		const templateIndex =
+			overrides.templateIndex ??
+			this._selectTemplateIndex(system, runtime);
+		const template = resolveParticleTemplate(system, templateIndex);
+		const lifetimeRange = overrides.lifetimeRange ?? template.lifetimeRange;
+		const speedRange = overrides.speedRange ?? template.speedRange;
+		const sizeRange = overrides.sizeRange ?? template.sizeRange;
+		const rotationRange = template.rotationRange ?? [0, 0];
+		const angularVelocityRange = template.angularVelocityRange ?? [0, 0];
+		const startColor = template.startColor;
 
 		const randomDirection = this._randomDirectionInCone(
 			runtime,
@@ -254,7 +254,7 @@ export class ParticleSimulationCore {
 		const rotation = this._randomRange(runtime, rotationRange[0], rotationRange[1]);
 
 		return {
-			definitionIndex,
+			templateIndex,
 			position,
 			previousPosition: {
 				x: position.x,
@@ -287,25 +287,25 @@ export class ParticleSimulationCore {
 		};
 	}
 
-	private _selectDefinitionIndex(
+	private _selectTemplateIndex(
 		system: ParticleSystem,
 		runtime: SystemRuntimeState
 	): number {
-		const definitions = system.definitions;
-		if (definitions.length <= 1) return 0;
+		const templates = system.templates;
+		if (templates.length <= 1) return 0;
 
 		let totalWeight = 0;
-		for (const definition of definitions) {
-			totalWeight += Math.max(0, definition.weight ?? 1);
+		for (const template of templates) {
+			totalWeight += Math.max(0, template.weight ?? 1);
 		}
 		if (totalWeight <= 0) return 0;
 
 		let target = this._nextRandom(runtime) * totalWeight;
-		for (let i = 0; i < definitions.length; i++) {
-			target -= Math.max(0, definitions[i].weight ?? 1);
+		for (let i = 0; i < templates.length; i++) {
+			target -= Math.max(0, templates[i].weight ?? 1);
 			if (target <= 0) return i;
 		}
-		return definitions.length - 1;
+		return templates.length - 1;
 	}
 
 	private _resolveCollider(
@@ -535,10 +535,10 @@ export function cloneColor(source: RGBA): RGBA {
 	};
 }
 
-function resolveParticleDefinition(
+function resolveParticleTemplate(
 	system: ParticleSystem,
 	index: number
-): ParticleDefinition {
-	const safeIndex = Math.max(0, Math.min(system.definitions.length - 1, index));
-	return system.definitions[safeIndex];
+): ParticleTemplate {
+	const safeIndex = Math.max(0, Math.min(system.templates.length - 1, index));
+	return system.templates[safeIndex];
 }

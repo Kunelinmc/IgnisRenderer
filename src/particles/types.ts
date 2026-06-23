@@ -78,23 +78,30 @@ export interface ParticleMeshShape {
 
 export type ParticleRenderShape = ParticleBillboardShape | ParticleMeshShape;
 
-export interface ParticleDefinition {
+export type ParticleRange = [number, number];
+export type ParticleCurve = ParticleGradientKey<number>[];
+export type ParticleColorGradient = ParticleGradientKey<RGBA>[];
+
+export interface ParticleTemplate {
 	id?: string;
 	weight?: number;
-	lifetimeRange: [number, number];
-	speedRange: [number, number];
-	sizeRange: [number, number];
+	lifetimeRange: ParticleRange;
+	speedRange: ParticleRange;
+	sizeRange: ParticleRange;
 	startColor: RGBA;
-	rotationRange?: [number, number];
-	angularVelocityRange?: [number, number];
-	sizeOverLifetime?: ParticleGradientKey<number>[];
-	colorOverLifetime?: ParticleGradientKey<RGBA>[];
+	rotationRange?: ParticleRange;
+	angularVelocityRange?: ParticleRange;
+	sizeOverLifetime?: ParticleCurve;
+	colorOverLifetime?: ParticleColorGradient;
 	shape: ParticleRenderShape;
 	receiveShadows?: boolean;
 	castShadows?: boolean;
 	shadowDensity?: number;
 	shadowSoftness?: number;
 }
+
+/** @deprecated Use ParticleTemplate instead. */
+export type ParticleDefinition = ParticleTemplate;
 
 interface ParticleColliderBase {
 	restitution?: number;
@@ -159,45 +166,47 @@ export interface ParticleSystemParams {
 	position?: IVector3;
 	gravity?: IVector3;
 	emit?: ParticleEmitterParams;
-	definitions?: ParticleDefinition[];
+	templates?: ParticleTemplate[];
+	/** @deprecated Use templates instead. */
+	definitions?: ParticleTemplate[];
 	colliders?: ParticleCollider[];
 	subEmitter?: ParticleSubEmitterConfig | null;
 	lod?: ParticleLODSettings;
 
 	/**
-	 * @deprecated Use `definitions[].shape.blendMode`.
+	 * @deprecated Use `templates[].shape.blendMode`.
 	 */
 	blendMode?: ParticleBlendMode;
 	/**
-	 * @deprecated Use `definitions[].shape.texture`.
+	 * @deprecated Use `templates[].shape.texture`.
 	 */
 	texture?: Texture | null;
 	/**
-	 * @deprecated Use `definitions[].shape.atlas`.
+	 * @deprecated Use `templates[].shape.atlas`.
 	 */
 	atlas?: ParticleAtlas | null;
 	/**
-	 * @deprecated Use `definitions[].sizeOverLifetime`.
+	 * @deprecated Use `templates[].sizeOverLifetime`.
 	 */
 	sizeOverLifetime?: ParticleGradientKey<number>[];
 	/**
-	 * @deprecated Use `definitions[].colorOverLifetime`.
+	 * @deprecated Use `templates[].colorOverLifetime`.
 	 */
 	colorOverLifetime?: ParticleGradientKey<RGBA>[];
 	/**
-	 * @deprecated Use `definitions[].receiveShadows`.
+	 * @deprecated Use `templates[].receiveShadows`.
 	 */
 	receiveShadows?: boolean;
 	/**
-	 * @deprecated Use `definitions[].castShadows`.
+	 * @deprecated Use `templates[].castShadows`.
 	 */
 	castShadows?: boolean;
 	/**
-	 * @deprecated Use `definitions[].shadowDensity`.
+	 * @deprecated Use `templates[].shadowDensity`.
 	 */
 	shadowDensity?: number;
 	/**
-	 * @deprecated Use `definitions[].shadowSoftness`.
+	 * @deprecated Use `templates[].shadowSoftness`.
 	 */
 	shadowSoftness?: number;
 }

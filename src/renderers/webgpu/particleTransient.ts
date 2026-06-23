@@ -8,8 +8,8 @@ import type { IRenderBuffer } from "../types";
 
 export interface WebGPUParticleDrawBatch {
 	systemId: string;
-	definitionIndex?: number;
-	definitionId?: string;
+	templateIndex?: number;
+	templateId?: string;
 	blendMode: ParticleBlendMode;
 	texture: Texture | null;
 	receiveShadows: boolean;
@@ -24,8 +24,8 @@ export interface WebGPUParticleDrawBatch {
 
 export interface WebGPUParticleMeshDrawBatch {
 	systemId: string;
-	definitionIndex: number;
-	definitionId?: string;
+	templateIndex: number;
+	templateId?: string;
 	mesh: MeshAsset;
 	primitive: IPrimitive;
 	material: Material;

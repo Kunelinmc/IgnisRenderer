@@ -3,7 +3,7 @@ import type { IVector3 } from "../../maths/types";
 import type { RGBA } from "../../foundation/Color";
 
 export interface RuntimeParticle {
-	definitionIndex: number;
+	templateIndex: number;
 	position: IVector3;
 	previousPosition: IVector3;
 	velocity: IVector3;

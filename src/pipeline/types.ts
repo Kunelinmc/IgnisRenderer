@@ -112,7 +112,7 @@ export interface ParticleUVRect {
 }
 
 export interface ParticleRenderItem {
-	definitionIndex?: number;
+	templateIndex?: number;
 	position: IVector3;
 	previousPosition?: IVector3;
 	size: number;
@@ -126,8 +126,8 @@ export interface ParticleRenderItem {
 export interface ParticleRenderBatch {
 	kind?: "billboard";
 	systemId: string;
-	definitionIndex?: number;
-	definitionId?: string;
+	templateIndex?: number;
+	templateId?: string;
 	blendMode: ParticleBlendMode;
 	texture: Texture | null;
 	receiveShadows: boolean;
@@ -138,7 +138,7 @@ export interface ParticleRenderBatch {
 }
 
 export interface ParticleMeshRenderItem {
-	definitionIndex: number;
+	templateIndex: number;
 	position: IVector3;
 	previousPosition: IVector3;
 	size: number;
@@ -151,8 +151,8 @@ export interface ParticleMeshRenderItem {
 export interface ParticleMeshRenderBatch {
 	kind: "mesh";
 	systemId: string;
-	definitionIndex: number;
-	definitionId?: string;
+	templateIndex: number;
+	templateId?: string;
 	mesh: MeshAsset;
 	primitive: IPrimitive;
 	material: Material;

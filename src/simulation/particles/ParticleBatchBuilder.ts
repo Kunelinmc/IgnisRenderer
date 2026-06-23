@@ -3,7 +3,7 @@ import { clamp } from "../../maths/Common";
 import {
 	ParticleBlendMode,
 	ParticleSpaceMode,
-	type ParticleDefinition,
+	type ParticleTemplate,
 	type ParticleGradientKey,
 	type ParticleSystem,
 } from "../../particles";
@@ -38,8 +38,8 @@ export class ParticleBatchBuilder {
 		const systemPosition = system.getWorldPosition();
 
 		for (const particle of runtime.particles) {
-			const definition = system.definitions[particle.definitionIndex];
-			if (!definition) continue;
+			const template = system.templates[particle.templateIndex];
+			if (!template) continue;
 			const worldPosition = this._resolveWorldPosition(
 				system,
 				systemPosition,
@@ -57,27 +57,27 @@ export class ParticleBatchBuilder {
 
 			const lifeT = clamp(particle.age / particle.lifetime);
 			const sizeMultiplier = this._sampleNumberGradient(
-				definition.sizeOverLifetime,
+				template.sizeOverLifetime,
 				lifeT,
 				1
 			);
 			const size = particle.startSize * Math.max(0, sizeMultiplier);
 			const color = this._sampleColorGradient(
-				definition.colorOverLifetime,
+				template.colorOverLifetime,
 				lifeT,
 				particle.startColor
 			);
 
 			if (size <= 0 || color.a <= 0) continue;
 
-			if (definition.shape.kind === "mesh") {
+			if (template.shape.kind === "mesh") {
 				this._pushMeshParticle(
 					meshBatches,
 					system,
-					definition,
-					particle.definitionIndex,
+					template,
+					particle.templateIndex,
 					{
-						definitionIndex: particle.definitionIndex,
+						templateIndex: particle.templateIndex,
 						position: worldPosition,
 						previousPosition: previousWorldPosition,
 						size,
@@ -93,11 +93,11 @@ export class ParticleBatchBuilder {
 			const batch = this._getOrCreateBillboardBatch(
 				billboardBatches,
 				system,
-				definition,
-				particle.definitionIndex
+				template,
+				particle.templateIndex
 			);
 			batch.particles.push({
-				definitionIndex: particle.definitionIndex,
+				templateIndex: particle.templateIndex,
 				position: worldPosition,
 				previousPosition: previousWorldPosition,
 				size,
@@ -105,7 +105,7 @@ export class ParticleBatchBuilder {
 				rotation: particle.rotation,
 				previousRotation: particle.previousRotation,
 				depth,
-				uvRect: this._resolveAtlasUVRect(definition, particle),
+				uvRect: this._resolveAtlasUVRect(template, particle),
 			});
 		}
 
@@ -138,8 +138,8 @@ export class ParticleBatchBuilder {
 		return result.billboardBatches[0] ?? {
 			kind: "billboard",
 			systemId: system.id,
-			definitionIndex: 0,
-			definitionId: system.definitions[0]?.id,
+			templateIndex: 0,
+			templateId: system.templates[0]?.id,
 			blendMode: ParticleBlendMode.Alpha,
 			texture: null,
 			receiveShadows: true,
@@ -171,60 +171,60 @@ export class ParticleBatchBuilder {
 	private _getOrCreateBillboardBatch(
 		batches: Map<number, ParticleRenderBatch>,
 		system: ParticleSystem,
-		definition: ParticleDefinition,
-		definitionIndex: number
+		template: ParticleTemplate,
+		templateIndex: number
 	): ParticleRenderBatch {
-		let batch = batches.get(definitionIndex);
+		let batch = batches.get(templateIndex);
 		if (batch) return batch;
-		const shape = definition.shape.kind === "billboard" ? definition.shape : null;
+		const shape = template.shape.kind === "billboard" ? template.shape : null;
 		const blendMode = shape?.blendMode ?? ParticleBlendMode.Alpha;
 		batch = {
 			kind: "billboard",
 			systemId: system.id,
-			definitionIndex,
-			definitionId: definition.id,
+			templateIndex,
+			templateId: template.id,
 			blendMode,
 			texture: shape?.texture ?? null,
-			receiveShadows: definition.receiveShadows ?? true,
+			receiveShadows: template.receiveShadows ?? true,
 			castShadows:
-				(definition.castShadows ?? true) &&
+				(template.castShadows ?? true) &&
 				blendMode !== ParticleBlendMode.Additive,
-			shadowDensity: Math.max(0, definition.shadowDensity ?? 1),
-			shadowSoftness: Math.max(0, definition.shadowSoftness ?? 1),
+			shadowDensity: Math.max(0, template.shadowDensity ?? 1),
+			shadowSoftness: Math.max(0, template.shadowSoftness ?? 1),
 			particles: [],
 		};
-		batches.set(definitionIndex, batch);
+		batches.set(templateIndex, batch);
 		return batch;
 	}
 
 	private _pushMeshParticle(
 		batches: Map<string, ParticleMeshRenderBatch>,
 		system: ParticleSystem,
-		definition: ParticleDefinition,
-		definitionIndex: number,
+		template: ParticleTemplate,
+		templateIndex: number,
 		item: ParticleMeshRenderItem
 	): void {
-		if (definition.shape.kind !== "mesh") return;
-		const mesh = definition.shape.mesh;
+		if (template.shape.kind !== "mesh") return;
+		const mesh = template.shape.mesh;
 		for (const primitive of mesh.primitives) {
 			if (primitive.visible === false) continue;
-			const key = `${definitionIndex}:${primitive.id}:${primitive.material.name}`;
+			const key = `${templateIndex}:${primitive.id}:${primitive.material.name}`;
 			let batch = batches.get(key);
 			if (!batch) {
 				batch = {
 					kind: "mesh",
 					systemId: system.id,
-					definitionIndex,
-					definitionId: definition.id,
+					templateIndex,
+					templateId: template.id,
 					mesh,
 					primitive,
 					material: primitive.material,
-					receiveShadows: definition.receiveShadows ?? true,
+					receiveShadows: template.receiveShadows ?? true,
 					castShadows:
-						(definition.castShadows ?? true) &&
+						(template.castShadows ?? true) &&
 						primitive.castShadows !== false,
-					shadowDensity: Math.max(0, definition.shadowDensity ?? 1),
-					shadowSoftness: Math.max(0, definition.shadowSoftness ?? 1),
+					shadowDensity: Math.max(0, template.shadowDensity ?? 1),
+					shadowSoftness: Math.max(0, template.shadowSoftness ?? 1),
 					particles: [],
 				};
 				batches.set(key, batch);
@@ -247,11 +247,11 @@ export class ParticleBatchBuilder {
 	}
 
 	private _resolveAtlasUVRect(
-		definition: ParticleDefinition,
+		template: ParticleTemplate,
 		particle: RuntimeParticle
 	): ParticleUVRect {
 		const atlas =
-			definition.shape.kind === "billboard" ? definition.shape.atlas : null;
+			template.shape.kind === "billboard" ? template.shape.atlas : null;
 		if (!atlas) return FULL_UV_RECT;
 
 		const rows = Math.max(1, atlas.rows | 0);
