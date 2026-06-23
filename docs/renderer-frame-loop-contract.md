@@ -31,7 +31,7 @@ single-frame control for tools, tests, and externally scheduled runtimes.
 	  rendering or `renderLoop()` for automatic scheduling.
 - `Renderer.destroy()`
 	- Behavior contract: must stop the active render loop before waiting for an
-	  in-progress frame and destroying the backend session.
+	  in-progress frame and destroying the attached backend.
 
 ## Usage
 ```ts

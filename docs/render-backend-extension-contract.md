@@ -1,16 +1,17 @@
 # Render Backend Extension Contract
 
 ## Scope
-This document defines the backend extension registry used by `IRenderBackendSession`, `Renderer`, and backend-owned optional integration APIs.
+This document defines the backend extension registry used by `IRenderBackend`, `Renderer`, and backend-owned optional integration APIs.
 
 ## Background
-Renderer-facing optional capabilities must not add feature-specific properties to the main backend interface. Backends expose optional integration APIs through a stable, typed extension registry in the active backend session.
+Renderer-facing optional capabilities must not add feature-specific properties to the main backend interface. Backends expose optional integration APIs through a stable, typed extension registry on the attached backend runtime.
 
 ## API/Contract
 - `IRenderBackend`
-	- Must not expose `extensions` or an implicit default session.
-- `IRenderBackendSession.extensions`
 	- Must expose a `RenderBackendExtensionRegistry`.
+	- Must preserve extension object identity for the lifetime of the backend.
+	- Must not expose feature-specific optional APIs as direct properties when a
+	  typed extension key exists.
 - `RenderBackendExtensionKey<TApi>`
 	- Must carry a unique string `id`.
 - `RenderBackendExtensionRegistry.getBackendExtension(key)`
@@ -24,7 +25,7 @@ Renderer-facing optional capabilities must not add feature-specific properties t
 - `WEBGPU_COMPUTE_EXTENSION`
 	- Must expose an `IWebGPUComputeFacade` API.
 - Identity Persistence:
-	- Extension API objects must maintain the same object identity for the lifetime of the backend session.
+	- Extension API objects must maintain the same object identity for the lifetime of the backend runtime.
 - Device Loss Behavior:
 	- During a device-lost state, invoking operations on extension APIs must throw a clear, descriptive error.
 	- After `restore()` completes, the existing extension API objects must resume normal operation.
@@ -48,7 +49,7 @@ if (compute) {
 - Operations on extension APIs during device loss must throw an error with the message prefix `Device lost: `.
 
 ## Compatibility / Breaking Changes
-- `IRenderBackend.extensions` is removed; extensions are now resolved through `IRenderBackendSession.extensions` via `renderer.getBackendExtension` or `renderer.requireBackendExtension`.
-- Applications that manually create a session must query that session's
-  extension registry, not the provider.
+- `IRenderBackend.createSession(context)` is removed; extensions are resolved
+  from the attached backend runtime via `renderer.getBackendExtension` or
+  `renderer.requireBackendExtension`.
 - Extensions must be queried via typed keys rather than raw string identifiers.

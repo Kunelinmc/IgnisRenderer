@@ -26,10 +26,10 @@ untrusted visibility information must keep objects visible.
   - `maxReadbackLatencyFrames = 3`.
   - `debug = false`.
 - `BackendCapabilities.occlusionCulling` must exist on all backends.
-- `WebGPUBackendSession.profile.capabilities.occlusionCulling` must be `true` unless
+- `WebGPUBackend.profile.capabilities.occlusionCulling` must be `true` unless
   `WebGPUBackendOptions.enableOcclusionCulling === false`.
-- `WebGLBackendSession.profile.capabilities.occlusionCulling` must be `false` in v1.
-- `SoftwareBackendSession.profile.capabilities.occlusionCulling` must be `false` in v1.
+- `WebGLBackend.profile.capabilities.occlusionCulling` must be `false` in v1.
+- `SoftwareBackend.profile.capabilities.occlusionCulling` must be `false` in v1.
 - Backends that support occlusion culling must expose an
   `OcclusionCullingBackendAdapter` through the `renderer.occlusion-culling`
   backend extension.

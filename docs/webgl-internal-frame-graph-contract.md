@@ -1,11 +1,11 @@
 # WebGL Internal Frame Graph Contract
 ## Scope
 This document defines the backend-internal WebGL frame graph used behind
-`WebGLBackendSession`. It does not define renderer-level stages, public
+`WebGLBackend`. It does not define renderer-level stages, public
 post-process registration APIs, or a cross-backend render graph runtime.
 
 ## Background
-`WebGLBackendSession` exposes renderer-owned frame lifecycle methods. Internally,
+`WebGLBackend` exposes renderer-owned frame lifecycle methods. Internally,
 `WebGLFrameGraphRuntime` expands renderer-level `FramePass` entries into WebGL
 nodes so framebuffer, texture, OIT, post-process, and presentation work can be
 validated without keeping pass orchestration inside `WebGLFrameExecutor`.
@@ -32,7 +32,7 @@ validated without keeping pass orchestration inside `WebGLFrameExecutor`.
 ## Usage
 ```ts
 const backend = new WebGLBackend();
-const session = backend.createSession({
+backend.attach({
 	surface: { canvas },
 	events,
 });

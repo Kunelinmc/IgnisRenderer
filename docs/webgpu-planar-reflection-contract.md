@@ -13,9 +13,9 @@ WebGL remains outside this contract.
 ## API/Contract
 - WebGPU must honor `Material.reflectivity` when `Material.mirrorPlane` is set.
 - WebGPU must report
-  `WebGPUBackendSession.profile.capabilities.reflection === true`.
+  `WebGPUBackend.profile.capabilities.reflection === true`.
 - WebGL must continue to report
-  `WebGLBackendSession.profile.capabilities.reflection === false`.
+  `WebGLBackend.profile.capabilities.reflection === false`.
 - WebGPU must support at most `WEBGPU_PLANAR_REFLECTION_MAX_PLANES = 2` active
   mirror planes per frame.
 - WebGPU must capture planar reflection targets at
@@ -88,4 +88,4 @@ The WebGPU frame planner should schedule the `reflection` frame pass when
 - Backend compatibility: Software keeps its existing reflection behavior.
 - Backend compatibility: WebGL remains without planar reflection support.
 - Capability inspection must use `Renderer.backendProfile` or an explicit
-  backend session; providers do not expose runtime capability fields.
+  attached backend.

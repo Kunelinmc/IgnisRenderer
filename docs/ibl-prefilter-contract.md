@@ -19,14 +19,14 @@ flowchart TD
 	Prefilter --> CPU[CPU or Worker Prefilter]
 	Prefilter --> GPU[WebGPU ComputeRuntime]
 	GPU --> Facade[WebGPU ComputeFacade]
-	Facade --> Session[WebGPUBackendSession]
+	Facade --> Backend[WebGPUBackend]
 	Prefilter --> Texture[Prefiltered HDR Texture]
 	App --> Probe[ReflectionProbe or LightProbe]
 	Probe --> Renderer[Renderer Frame Rendering]
 ```
 
 ## API/Contract
-- `IBLPrefilter` must accept an optional `Renderer`, backend session, or WebGPU
+- `IBLPrefilter` must accept an optional `Renderer`, attached backend, or WebGPU
   compute source at construction time.
 - `IBLPrefilter.prefilter(envMap, options)` must return an HDR `Texture` whose
   `mipmaps` encode roughness levels.
@@ -36,7 +36,7 @@ flowchart TD
   `maxMipLevels` for output limits.
 - `IBLPrefilterOptions.acceleration` must support `auto`, `worker`, `cpu`, and
   `webgpu`.
-- If `acceleration` is `webgpu`, a WebGPU renderer, backend session, or compute
+- If `acceleration` is `webgpu`, a WebGPU renderer, attached backend, or compute
   source must be provided.
 - If `acceleration` is `auto`, WebGPU may be used when a valid WebGPU source is
   available; otherwise worker or CPU fallback may be used.
@@ -77,8 +77,8 @@ bun tests/static/lighting/test_ibl_prefilter.mjs
   equirectangular texture or cubemap.
 - `IBLPrefilter.prefilter()` must throw an `AbortError` when `signal` is
   aborted.
-- Explicit `webgpu` acceleration must throw when no WebGPU renderer, backend
-  session, or compute source is available.
+- Explicit `webgpu` acceleration must throw when no WebGPU renderer, attached
+  backend, or compute source is available.
 - Explicit `worker` acceleration must throw when the Worker API is unavailable.
 
 ## Compatibility / Breaking Changes
@@ -88,5 +88,5 @@ This change is breaking.
 `Renderer.requestEnvironmentIBLUpdate()`, `WarmupOptions.environmentIBLBake`,
 and `WarmupOptions.includeEnvironmentIBLBake` are removed. Consumers must use
 `IBLPrefilter` or `bakeEnvironmentIBLFromEnvironmentMap` directly.
-`IRenderBackend` providers are no longer accepted as compute sources; use the
-active `Renderer`, an explicit `IRenderBackendSession`, or a compute facade.
+Unattached `IRenderBackend` instances are no longer accepted as compute sources;
+use the active `Renderer`, an attached `IRenderBackend`, or a compute facade.

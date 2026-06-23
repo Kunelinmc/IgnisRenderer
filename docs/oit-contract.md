@@ -16,9 +16,9 @@ lighting has resolved into `sceneColorMain`.
 
 ## API/Contract
 - `BackendCapabilities.oit` must exist on all backends.
-- `WebGPUBackendSession.profile.capabilities.oit` must be `true`.
-- `WebGLBackendSession.profile.capabilities.oit` must be `true`.
-- `SoftwareBackendSession.profile.capabilities.oit` must be `false`.
+- `WebGPUBackend.profile.capabilities.oit` must be `true`.
+- `WebGLBackend.profile.capabilities.oit` must be `true`.
+- `SoftwareBackend.profile.capabilities.oit` must be `false`.
 - `RendererFeatureRequest.enableOIT` must be accepted by feature resolution.
 - `Renderer.features.enableOIT` defaults to `false`.
 - `resolveFeatureState(...)` must auto-disable `enableOIT` when backend
@@ -99,6 +99,7 @@ All warnings should be emitted via `warn once` behavior.
 
 ## Compatibility / Breaking Changes
 `enableOIT` remains opt-in and defaults to disabled. Capability inspection must
-use `Renderer.backendProfile` or an explicit backend session; providers no
-longer expose runtime capabilities. Unsupported backends and unsupported
-runtime conditions must fall back to legacy transparent rendering.
+use `Renderer.backendProfile` or an explicit attached backend. Unattached
+backends must not be used for runtime capability checks. Unsupported backends
+and unsupported runtime conditions must fall back to legacy transparent
+rendering.

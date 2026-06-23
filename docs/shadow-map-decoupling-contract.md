@@ -4,7 +4,7 @@
 This document defines the shadow mapping contract, including configuration, decoupling from light sources, and how capabilities are queried from the session's profile.
 
 ## Background
-Historically, lights held shadow configuration directly. The decoupled model moves shadow management to `Scene` and relies on the session's `RenderBackendProfile.shadow` to check what capabilities the active backend session supports.
+Historically, lights held shadow configuration directly. The decoupled model moves shadow management to `Scene` and relies on the attached backend's `RenderBackendProfile.shadow` to check what capabilities the active backend supports.
 
 ## API/Contract
 - `RenderBackendProfile.shadow`
