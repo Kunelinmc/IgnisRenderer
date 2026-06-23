@@ -215,7 +215,7 @@ export class ParticleSimulationCore {
 		const sizeRange = overrides.sizeRange ?? template.sizeRange;
 		const rotationRange = template.rotationRange ?? [0, 0];
 		const angularVelocityRange = template.angularVelocityRange ?? [0, 0];
-		const startColor = template.startColor;
+		const startColor = template.startColor ?? { r: 255, g: 255, b: 255, a: 1 };
 
 		const randomDirection = this._randomDirectionInCone(
 			runtime,

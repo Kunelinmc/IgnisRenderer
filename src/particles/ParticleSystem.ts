@@ -350,7 +350,7 @@ function defineColorAlias(
 			if (!template.startColor) {
 				template.startColor = cloneColor(fallback);
 			}
-			return template.startColor;
+			return template.startColor!;
 		},
 		set: (value: RGBA | undefined) => {
 			resolveTemplate().startColor = cloneColor(value ?? fallback);
@@ -442,7 +442,7 @@ function cloneParticleTemplate(source: ParticleTemplate): ParticleTemplate {
 		lifetimeRange: cloneRange(source.lifetimeRange),
 		speedRange: cloneRange(source.speedRange),
 		sizeRange: cloneRange(source.sizeRange),
-		startColor: cloneColor(source.startColor),
+		startColor: source.startColor ? cloneColor(source.startColor) : undefined,
 		rotationRange: cloneOptionalRange(source.rotationRange),
 		angularVelocityRange: cloneOptionalRange(source.angularVelocityRange),
 		sizeOverLifetime: cloneNumberGradient(source.sizeOverLifetime ?? []),

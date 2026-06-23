@@ -88,7 +88,7 @@ export interface ParticleTemplate {
 	lifetimeRange: ParticleRange;
 	speedRange: ParticleRange;
 	sizeRange: ParticleRange;
-	startColor: RGBA;
+	startColor?: RGBA;
 	rotationRange?: ParticleRange;
 	angularVelocityRange?: ParticleRange;
 	sizeOverLifetime?: ParticleCurve;

@@ -84,7 +84,6 @@ const impact = new ParticleSystem({
 			lifetimeRange: [1, 2],
 			speedRange: [1, 3],
 			sizeRange: [0.2, 0.5],
-			startColor: { r: 255, g: 255, b: 255, a: 1 },
 			shape: {
 				kind: "mesh",
 				mesh: shardMesh,
