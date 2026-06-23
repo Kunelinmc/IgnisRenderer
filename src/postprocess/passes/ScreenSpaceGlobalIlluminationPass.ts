@@ -188,8 +188,7 @@ export class WebGPUScreenSpaceGlobalIlluminationImplementation
 	public readonly metadata = {
 		context: WEBGPU_SCREEN_POST_PROCESS_CONTEXT_METADATA,
 	};
-	private _resources = new WeakMap<PostProcessSharedContext, WebGPUSSGIResources>();
-	private _resourceSet = new Set<WebGPUSSGIResources>();
+	private _resources = new Map<PostProcessSharedContext, WebGPUSSGIResources>();
 
 	public async warmup(context: WebGPUSSGIContext | undefined): Promise<void> {
 		if (context) {
@@ -209,13 +208,13 @@ export class WebGPUScreenSpaceGlobalIlluminationImplementation
 	}
 
 	public invalidate(): void {
-		for (const resources of this._resourceSet) {
+		for (const resources of this._resources.values()) {
 			resources.shared.invalidateBindingsByPrefix("ssgi-");
 		}
 	}
 
 	public destroy(): void {
-		for (const resources of this._resourceSet) {
+		for (const resources of this._resources.values()) {
 			resources.shared.destroyManagedResource(
 				resources.pipeline,
 				"SSGI pipeline"
@@ -233,8 +232,7 @@ export class WebGPUScreenSpaceGlobalIlluminationImplementation
 			resources.pipeline = null;
 			resources.params = null;
 		}
-		this._resourceSet.clear();
-		this._resources = new WeakMap<PostProcessSharedContext, WebGPUSSGIResources>();
+		this._resources.clear();
 	}
 
 	private async _runSSGIKernel(
@@ -294,7 +292,6 @@ export class WebGPUScreenSpaceGlobalIlluminationImplementation
 		if (!resources) {
 			resources = { shared, module: null, pipeline: null, params: null };
 			this._resources.set(shared, resources);
-			this._resourceSet.add(resources);
 		}
 		await shared.ensureCommonResources();
 		if (!resources.module) {

@@ -149,8 +149,7 @@ export class WebGPUBloomImplementation
 	public readonly metadata = {
 		context: WEBGPU_SCREEN_POST_PROCESS_CONTEXT_METADATA,
 	};
-	private _resources = new WeakMap<PostProcessSharedContext, WebGPUBloomResources>();
-	private _resourceSet = new Set<WebGPUBloomResources>();
+	private _resources = new Map<PostProcessSharedContext, WebGPUBloomResources>();
 
 	public async warmup(context: WebGPUBloomContext | undefined): Promise<void> {
 		if (context) {
@@ -170,13 +169,13 @@ export class WebGPUBloomImplementation
 	}
 
 	public invalidate(): void {
-		for (const resources of this._resourceSet) {
+		for (const resources of this._resources.values()) {
 			this._destroyMipTextures(resources);
 		}
 	}
 
 	public destroy(): void {
-		for (const resources of this._resourceSet) {
+		for (const resources of this._resources.values()) {
 			this._destroyMipTextures(resources);
 			const shared = resources.shared;
 			shared.destroyManagedResource(
@@ -237,8 +236,7 @@ export class WebGPUBloomImplementation
 			);
 			shared.invalidateBindingsByPrefix("bloom-");
 		}
-		this._resourceSet.clear();
-		this._resources = new WeakMap<PostProcessSharedContext, WebGPUBloomResources>();
+		this._resources.clear();
 	}
 
 	private async _runBloomKernel(
@@ -519,7 +517,6 @@ export class WebGPUBloomImplementation
 				mipCount: 0,
 			};
 			this._resources.set(shared, resources);
-			this._resourceSet.add(resources);
 		}
 		await shared.ensureCommonResources();
 		if (!resources.downsampleModule) {

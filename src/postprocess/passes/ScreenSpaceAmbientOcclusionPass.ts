@@ -603,8 +603,7 @@ export class WebGPUScreenSpaceAmbientOcclusionImplementation
 			],
 		},
 	};
-	private _resources = new WeakMap<PostProcessSharedContext, WebGPUSSAOResources>();
-	private _resourceSet = new Set<WebGPUSSAOResources>();
+	private _resources = new Map<PostProcessSharedContext, WebGPUSSAOResources>();
 
 	public async warmup(context: WebGPUSSAOContext | undefined): Promise<void> {
 		if (context) {
@@ -624,13 +623,13 @@ export class WebGPUScreenSpaceAmbientOcclusionImplementation
 	}
 
 	public invalidate(): void {
-		for (const resources of this._resourceSet) {
+		for (const resources of this._resources.values()) {
 			resources.shared.invalidateBindingsByPrefix("ssao-");
 		}
 	}
 
 	public destroy(): void {
-		for (const resources of this._resourceSet) {
+		for (const resources of this._resources.values()) {
 			resources.shared.destroyManagedResource(
 				resources.rawPipeline,
 				"SSAO raw pipeline"
@@ -658,8 +657,7 @@ export class WebGPUScreenSpaceAmbientOcclusionImplementation
 			resources.combinePipeline = null;
 			resources.params = null;
 		}
-		this._resourceSet.clear();
-		this._resources = new WeakMap<PostProcessSharedContext, WebGPUSSAOResources>();
+		this._resources.clear();
 	}
 
 	private async _runSSAOKernel(
@@ -813,7 +811,6 @@ export class WebGPUScreenSpaceAmbientOcclusionImplementation
 				frameIndex: 0,
 			};
 			this._resources.set(shared, resources);
-			this._resourceSet.add(resources);
 		}
 		await shared.ensureCommonResources();
 		if (!resources.module) {

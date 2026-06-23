@@ -340,8 +340,7 @@ export class WebGPUFastApproximateAntiAliasingImplementation
 	public readonly metadata = {
 		context: WEBGPU_SCREEN_POST_PROCESS_CONTEXT_METADATA,
 	};
-	private _resources = new WeakMap<PostProcessSharedContext, WebGPUFXAAResources>();
-	private _resourceSet = new Set<WebGPUFXAAResources>();
+	private _resources = new Map<PostProcessSharedContext, WebGPUFXAAResources>();
 
 	public async warmup(context: WebGPUFXAAContext | undefined): Promise<void> {
 		if (context) {
@@ -361,13 +360,13 @@ export class WebGPUFastApproximateAntiAliasingImplementation
 	}
 
 	public invalidate(): void {
-		for (const resources of this._resourceSet) {
+		for (const resources of this._resources.values()) {
 			resources.shared.invalidateBindingsByPrefix("fxaa-");
 		}
 	}
 
 	public destroy(): void {
-		for (const resources of this._resourceSet) {
+		for (const resources of this._resources.values()) {
 			resources.shared.destroyManagedResource(
 				resources.pipeline,
 				"FXAA pipeline"
@@ -385,8 +384,7 @@ export class WebGPUFastApproximateAntiAliasingImplementation
 			resources.pipeline = null;
 			resources.params = null;
 		}
-		this._resourceSet.clear();
-		this._resources = new WeakMap<PostProcessSharedContext, WebGPUFXAAResources>();
+		this._resources.clear();
 	}
 
 	private async _runFXAAKernel(context: WebGPUFXAAContext): Promise<boolean> {
@@ -438,7 +436,6 @@ export class WebGPUFastApproximateAntiAliasingImplementation
 		if (!resources) {
 			resources = { shared, module: null, pipeline: null, params: null };
 			this._resources.set(shared, resources);
-			this._resourceSet.add(resources);
 		}
 		await shared.ensureCommonResources();
 		if (!resources.module) {

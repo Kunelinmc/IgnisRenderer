@@ -118,8 +118,7 @@ export class WebGPUMotionBlurImplementation
 		context: WEBGPU_SCREEN_POST_PROCESS_CONTEXT_METADATA,
 	};
 	private _resources =
-		new WeakMap<PostProcessSharedContext, WebGPUMotionBlurResources>();
-	private _resourceSet = new Set<WebGPUMotionBlurResources>();
+		new Map<PostProcessSharedContext, WebGPUMotionBlurResources>();
 
 	public async warmup(
 		context: WebGPUMotionBlurContext | undefined
@@ -141,13 +140,13 @@ export class WebGPUMotionBlurImplementation
 	}
 
 	public invalidate(): void {
-		for (const resources of this._resourceSet) {
+		for (const resources of this._resources.values()) {
 			resources.shared.invalidateBindingsByPrefix("motion-blur-");
 		}
 	}
 
 	public destroy(): void {
-		for (const resources of this._resourceSet) {
+		for (const resources of this._resources.values()) {
 			resources.shared.destroyManagedResource(
 				resources.pipeline,
 				"motion blur pipeline"
@@ -166,9 +165,7 @@ export class WebGPUMotionBlurImplementation
 			resources.params = null;
 			resources.paramUploaded = false;
 		}
-		this._resourceSet.clear();
-		this._resources =
-			new WeakMap<PostProcessSharedContext, WebGPUMotionBlurResources>();
+		this._resources.clear();
 	}
 
 	private async _runMotionBlurKernel(
@@ -268,7 +265,6 @@ export class WebGPUMotionBlurImplementation
 				paramUploaded: false,
 			};
 			this._resources.set(shared, resources);
-			this._resourceSet.add(resources);
 		}
 		await shared.ensureCommonResources();
 		if (!resources.module) {

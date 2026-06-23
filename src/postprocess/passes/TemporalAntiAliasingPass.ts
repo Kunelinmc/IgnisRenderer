@@ -486,8 +486,7 @@ export class WebGPUTemporalAntiAliasingImplementation
 		},
 		warmupHints: ["postprocess:taa"],
 	} as const;
-	private _resources = new WeakMap<PostProcessSharedContext, WebGPUTAAResources>();
-	private _resourceSet = new Set<WebGPUTAAResources>();
+	private _resources = new Map<PostProcessSharedContext, WebGPUTAAResources>();
 
 	public async warmup?(
 		context: WebGPUTAAContext | undefined
@@ -513,13 +512,13 @@ export class WebGPUTemporalAntiAliasingImplementation
 	}
 
 	public invalidate(): void {
-		for (const resources of this._resourceSet) {
+		for (const resources of this._resources.values()) {
 			resources.shared.invalidateBindingsByPrefix("taa-");
 		}
 	}
 
 	public destroy(): void {
-		for (const resources of this._resourceSet) {
+		for (const resources of this._resources.values()) {
 			resources.shared.destroyManagedResource(
 				resources.pipeline,
 				"TAA pipeline"
@@ -537,8 +536,7 @@ export class WebGPUTemporalAntiAliasingImplementation
 			resources.pipeline = null;
 			resources.params = null;
 		}
-		this._resourceSet.clear();
-		this._resources = new WeakMap<PostProcessSharedContext, WebGPUTAAResources>();
+		this._resources.clear();
 	}
 
 	private async _runTAAKernel(
@@ -608,7 +606,6 @@ export class WebGPUTemporalAntiAliasingImplementation
 		if (!resources) {
 			resources = { shared, module: null, pipeline: null, params: null };
 			this._resources.set(shared, resources);
-			this._resourceSet.add(resources);
 		}
 		await shared.ensureCommonResources();
 		if (!resources.module) {

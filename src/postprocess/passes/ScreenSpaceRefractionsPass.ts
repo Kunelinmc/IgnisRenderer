@@ -267,11 +267,10 @@ export class WebGPUScreenSpaceRefractionsImplementation
 			],
 		},
 	} as const;
-	private _resources = new WeakMap<
+	private _resources = new Map<
 		PostProcessSharedContext,
 		WebGPUSSRefractionResources
 	>();
-	private _resourceSet = new Set<WebGPUSSRefractionResources>();
 
 	public async warmup(
 		context: WebGPUSSRefractionContext | undefined
@@ -293,13 +292,13 @@ export class WebGPUScreenSpaceRefractionsImplementation
 	}
 
 	public invalidate(): void {
-		for (const resources of this._resourceSet) {
+		for (const resources of this._resources.values()) {
 			resources.shared.invalidateBindingsByPrefix("ssrefraction-");
 		}
 	}
 
 	public destroy(): void {
-		for (const resources of this._resourceSet) {
+		for (const resources of this._resources.values()) {
 			resources.shared.destroyManagedResource(
 				resources.tracePipeline,
 				"SSRf trace pipeline"
@@ -329,11 +328,7 @@ export class WebGPUScreenSpaceRefractionsImplementation
 			resources.traceGroupLayout0 = null;
 			resources.tracePipelineLayout = null;
 		}
-		this._resourceSet.clear();
-		this._resources = new WeakMap<
-			PostProcessSharedContext,
-			WebGPUSSRefractionResources
-		>();
+		this._resources.clear();
 	}
 
 	private async _runKernel(
@@ -468,7 +463,6 @@ export class WebGPUScreenSpaceRefractionsImplementation
 				tracePipelineLayout: null,
 			};
 			this._resources.set(shared, resources);
-			this._resourceSet.add(resources);
 		}
 		await shared.getHiZHelper().ensureResources();
 		if (!resources.module) {

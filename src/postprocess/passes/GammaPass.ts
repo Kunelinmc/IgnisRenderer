@@ -135,11 +135,10 @@ export class WebGPUGammaImplementation
 	public readonly metadata = {
 		context: WEBGPU_SCREEN_POST_PROCESS_CONTEXT_METADATA,
 	};
-	private _resources = new WeakMap<
+	private _resources = new Map<
 		PostProcessSharedContext,
 		WebGPUGammaResources
 	>();
-	private _resourceSet = new Set<WebGPUGammaResources>();
 
 	public async warmup(context: WebGPUGammaContext | undefined): Promise<void> {
 		if (context) {
@@ -159,13 +158,13 @@ export class WebGPUGammaImplementation
 	}
 
 	public invalidate(): void {
-		for (const resources of this._resourceSet) {
+		for (const resources of this._resources.values()) {
 			resources.shared.invalidateBindingsByPrefix("gamma-");
 		}
 	}
 
 	public destroy(): void {
-		for (const resources of this._resourceSet) {
+		for (const resources of this._resources.values()) {
 			resources.shared.destroyManagedResource(
 				resources.pipeline,
 				"gamma pipeline"
@@ -183,11 +182,7 @@ export class WebGPUGammaImplementation
 			resources.module = null;
 			resources.params = null;
 		}
-		this._resourceSet.clear();
-		this._resources = new WeakMap<
-			PostProcessSharedContext,
-			WebGPUGammaResources
-		>();
+		this._resources.clear();
 	}
 
 	private async _runGammaKernel(context: WebGPUGammaContext): Promise<boolean> {
@@ -238,7 +233,6 @@ export class WebGPUGammaImplementation
 				paramData: new Float32Array(4),
 			};
 			this._resources.set(shared, resources);
-			this._resourceSet.add(resources);
 		}
 		if (!resources.module) {
 			const shader = await ShaderSource.load(

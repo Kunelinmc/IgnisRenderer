@@ -134,8 +134,7 @@ export class WebGPUDepthOfFieldImplementation
 		context: WEBGPU_SCREEN_POST_PROCESS_CONTEXT_METADATA,
 	};
 	private _resources =
-		new WeakMap<PostProcessSharedContext, WebGPUDepthOfFieldResources>();
-	private _resourceSet = new Set<WebGPUDepthOfFieldResources>();
+		new Map<PostProcessSharedContext, WebGPUDepthOfFieldResources>();
 
 	public async warmup(
 		context: WebGPUDepthOfFieldContext | undefined
@@ -157,13 +156,13 @@ export class WebGPUDepthOfFieldImplementation
 	}
 
 	public invalidate(): void {
-		for (const resources of this._resourceSet) {
+		for (const resources of this._resources.values()) {
 			resources.shared.invalidateBindingsByPrefix("dof-");
 		}
 	}
 
 	public destroy(): void {
-		for (const resources of this._resourceSet) {
+		for (const resources of this._resources.values()) {
 			resources.shared.destroyManagedResource(resources.pipeline, "DoF pipeline");
 			resources.shared.destroyManagedResource(resources.module, "DoF shader module");
 			resources.shared.destroyManagedResource(resources.params, "DoF params buffer");
@@ -172,9 +171,7 @@ export class WebGPUDepthOfFieldImplementation
 			resources.pipeline = null;
 			resources.params = null;
 		}
-		this._resourceSet.clear();
-		this._resources =
-			new WeakMap<PostProcessSharedContext, WebGPUDepthOfFieldResources>();
+		this._resources.clear();
 	}
 
 	private async _runDOFKernel(
@@ -291,7 +288,6 @@ export class WebGPUDepthOfFieldImplementation
 				paramData: new Float32Array(12),
 			};
 			this._resources.set(shared, resources);
-			this._resourceSet.add(resources);
 		}
 		await shared.ensureCommonResources();
 		if (!resources.module) {

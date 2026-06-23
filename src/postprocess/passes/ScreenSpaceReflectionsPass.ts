@@ -286,8 +286,7 @@ export class WebGPUScreenSpaceReflectionsImplementation
 			},
 		},
 	} as const;
-	private _resources = new WeakMap<PostProcessSharedContext, WebGPUSSRResources>();
-	private _resourceSet = new Set<WebGPUSSRResources>();
+	private _resources = new Map<PostProcessSharedContext, WebGPUSSRResources>();
 
 	public async warmup(context: WebGPUSSRContext | undefined): Promise<void> {
 		if (context) {
@@ -318,13 +317,13 @@ export class WebGPUScreenSpaceReflectionsImplementation
 	}
 
 	public invalidate(): void {
-		for (const resources of this._resourceSet) {
+		for (const resources of this._resources.values()) {
 			resources.shared.invalidateBindingsByPrefix("ssr-");
 		}
 	}
 
 	public destroy(): void {
-		for (const resources of this._resourceSet) {
+		for (const resources of this._resources.values()) {
 			resources.shared.destroyManagedResource(
 				resources.tracePipeline,
 				"SSR trace pipeline"
@@ -364,8 +363,7 @@ export class WebGPUScreenSpaceReflectionsImplementation
 			resources.traceGroupLayout0 = null;
 			resources.tracePipelineLayout = null;
 		}
-		this._resourceSet.clear();
-		this._resources = new WeakMap<PostProcessSharedContext, WebGPUSSRResources>();
+		this._resources.clear();
 	}
 
 	private async _runSSRKernel(
@@ -509,7 +507,6 @@ export class WebGPUScreenSpaceReflectionsImplementation
 				frameIndex: 0,
 			};
 			this._resources.set(shared, resources);
-			this._resourceSet.add(resources);
 		}
 		await shared.getHiZHelper().ensureResources();
 		if (!resources.module) {

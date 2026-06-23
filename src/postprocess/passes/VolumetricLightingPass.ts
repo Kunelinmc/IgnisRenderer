@@ -1237,11 +1237,10 @@ export class WebGPUVolumetricLightingImplementation
 			},
 		},
 	} as const;
-	private _resources = new WeakMap<
+	private _resources = new Map<
 		PostProcessSharedContext,
 		WebGPUVolumetricResources
 	>();
-	private _resourceSet = new Set<WebGPUVolumetricResources>();
 
 	public async warmup(
 		context: WebGPUVolumetricLightingContext | undefined
@@ -1274,13 +1273,13 @@ export class WebGPUVolumetricLightingImplementation
 	}
 
 	public invalidate(): void {
-		for (const resources of this._resourceSet) {
+		for (const resources of this._resources.values()) {
 			resources.shared.invalidateBindingsByPrefix("volumetric-");
 		}
 	}
 
 	public destroy(): void {
-		for (const resources of this._resourceSet) {
+		for (const resources of this._resources.values()) {
 			resources.shared.destroyManagedResource(
 				resources.pipeline,
 				"volumetric pipeline"
@@ -1307,11 +1306,7 @@ export class WebGPUVolumetricLightingImplementation
 			resources.groupLayout0 = null;
 			resources.pipelineLayout = null;
 		}
-		this._resourceSet.clear();
-		this._resources = new WeakMap<
-			PostProcessSharedContext,
-			WebGPUVolumetricResources
-		>();
+		this._resources.clear();
 	}
 
 	private async _runVolumetricKernel(
@@ -1616,7 +1611,6 @@ export class WebGPUVolumetricLightingImplementation
 				pipelineLayout: null,
 			};
 			this._resources.set(shared, resources);
-			this._resourceSet.add(resources);
 		}
 		await shared.getHiZHelper().ensureResources();
 		if (!resources.module) {

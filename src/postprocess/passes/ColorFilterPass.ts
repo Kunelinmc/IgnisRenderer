@@ -169,8 +169,7 @@ export class WebGPUColorFilterImplementation
 		context: WEBGPU_SCREEN_POST_PROCESS_CONTEXT_METADATA,
 	};
 	private _resources =
-		new WeakMap<PostProcessSharedContext, WebGPUColorFilterResources>();
-	private _resourceSet = new Set<WebGPUColorFilterResources>();
+		new Map<PostProcessSharedContext, WebGPUColorFilterResources>();
 
 	public async warmup(
 		context: WebGPUColorFilterContext | undefined
@@ -192,13 +191,13 @@ export class WebGPUColorFilterImplementation
 	}
 
 	public invalidate(): void {
-		for (const resources of this._resourceSet) {
+		for (const resources of this._resources.values()) {
 			resources.shared.invalidateBindingsByPrefix("color-filter-");
 		}
 	}
 
 	public destroy(): void {
-		for (const resources of this._resourceSet) {
+		for (const resources of this._resources.values()) {
 			resources.shared.destroyManagedResource(
 				resources.pipeline,
 				"color filter pipeline"
@@ -216,9 +215,7 @@ export class WebGPUColorFilterImplementation
 			resources.pipeline = null;
 			resources.params = null;
 		}
-		this._resourceSet.clear();
-		this._resources =
-			new WeakMap<PostProcessSharedContext, WebGPUColorFilterResources>();
+		this._resources.clear();
 	}
 
 	private async _runColorFilterKernel(
@@ -305,7 +302,6 @@ export class WebGPUColorFilterImplementation
 				paramData: new Float32Array(8),
 			};
 			this._resources.set(shared, resources);
-			this._resourceSet.add(resources);
 		}
 		await shared.ensureCommonResources();
 		if (!resources.module) {

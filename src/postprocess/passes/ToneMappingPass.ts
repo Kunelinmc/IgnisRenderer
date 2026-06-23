@@ -104,8 +104,7 @@ export class WebGPUToneMappingImplementation
 		context: WEBGPU_SCREEN_POST_PROCESS_CONTEXT_METADATA,
 	};
 	private _resources =
-		new WeakMap<PostProcessSharedContext, WebGPUToneMappingResources>();
-	private _resourceSet = new Set<WebGPUToneMappingResources>();
+		new Map<PostProcessSharedContext, WebGPUToneMappingResources>();
 
 	public async warmup(
 		context: WebGPUToneMappingContext | undefined
@@ -127,13 +126,13 @@ export class WebGPUToneMappingImplementation
 	}
 
 	public invalidate(): void {
-		for (const resources of this._resourceSet) {
+		for (const resources of this._resources.values()) {
 			resources.shared.invalidateBindingsByPrefix("tonemap-");
 		}
 	}
 
 	public destroy(): void {
-		for (const resources of this._resourceSet) {
+		for (const resources of this._resources.values()) {
 			resources.shared.destroyManagedResource(
 				resources.pipeline,
 				"tone mapping pipeline"
@@ -146,9 +145,7 @@ export class WebGPUToneMappingImplementation
 			resources.module = null;
 			resources.pipeline = null;
 		}
-		this._resourceSet.clear();
-		this._resources =
-			new WeakMap<PostProcessSharedContext, WebGPUToneMappingResources>();
+		this._resources.clear();
 	}
 
 	private async _runToneMappingKernel(
@@ -193,7 +190,6 @@ export class WebGPUToneMappingImplementation
 				pipeline: null,
 			};
 			this._resources.set(shared, resources);
-			this._resourceSet.add(resources);
 		}
 		if (!resources.module) {
 			const shader = await ShaderSource.load(

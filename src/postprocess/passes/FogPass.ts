@@ -232,8 +232,7 @@ export class WebGPUFogImplementation
 	public readonly metadata = {
 		context: WEBGPU_SCREEN_POST_PROCESS_CONTEXT_METADATA,
 	};
-	private _resources = new WeakMap<PostProcessSharedContext, WebGPUFogResources>();
-	private _resourceSet = new Set<WebGPUFogResources>();
+	private _resources = new Map<PostProcessSharedContext, WebGPUFogResources>();
 
 	public async warmup(context: WebGPUFogContext | undefined): Promise<void> {
 		if (context) {
@@ -253,13 +252,13 @@ export class WebGPUFogImplementation
 	}
 
 	public invalidate(): void {
-		for (const resources of this._resourceSet) {
+		for (const resources of this._resources.values()) {
 			resources.shared.invalidateBindingsByPrefix("fog-");
 		}
 	}
 
 	public destroy(): void {
-		for (const resources of this._resourceSet) {
+		for (const resources of this._resources.values()) {
 			resources.shared.destroyManagedResource(resources.pipeline, "fog pipeline");
 			resources.shared.destroyManagedResource(resources.module, "fog shader module");
 			resources.shared.destroyManagedResource(resources.params, "fog params buffer");
@@ -268,8 +267,7 @@ export class WebGPUFogImplementation
 			resources.pipeline = null;
 			resources.params = null;
 		}
-		this._resourceSet.clear();
-		this._resources = new WeakMap<PostProcessSharedContext, WebGPUFogResources>();
+		this._resources.clear();
 	}
 
 	private async _runFogKernel(
@@ -329,7 +327,6 @@ export class WebGPUFogImplementation
 				paramData: new Float32Array(8),
 			};
 			this._resources.set(shared, resources);
-			this._resourceSet.add(resources);
 		}
 		await shared.ensureCommonResources();
 		if (!resources.module) {
