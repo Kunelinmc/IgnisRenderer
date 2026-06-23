@@ -1,8 +1,7 @@
 import type {
 	IRenderBackend,
-	IRenderBackendSession,
+	RenderBackendAttachContext,
 	RenderBackendProfile,
-	RenderBackendSessionContext,
 	RenderSurfaceSize,
 } from "./IRenderBackend";
 import {
@@ -129,20 +128,6 @@ function resolvePreparedSceneEnvironment(scene: FrameContext["scene"]): {
 
 export class SoftwareBackend implements IRenderBackend {
 	public readonly id = "software";
-	private readonly _options: SoftwareBackendOptions;
-
-	public constructor(options: SoftwareBackendOptions = {}) {
-		this._options = options;
-	}
-
-	public createSession(
-		context: RenderBackendSessionContext
-	): IRenderBackendSession {
-		return new SoftwareBackendSession(this._options, context);
-	}
-}
-
-class SoftwareBackendSession implements IRenderBackendSession {
 	private readonly _postProcessExecutor = new SoftwarePostProcessExecutor(
 		{
 			getCanvasContext: () => this._ctx,
@@ -150,7 +135,7 @@ class SoftwareBackendSession implements IRenderBackendSession {
 	);
 	private readonly _postProcessRuntime = new BackendPostProcessRuntime({
 		executor: this._postProcessExecutor,
-		session: this,
+		backend: this,
 		warn: (key, message) =>
 			Logger.warn(`[${key}] ${message}`, {
 				scope: "SoftwareBackend",
@@ -183,7 +168,8 @@ class SoftwareBackendSession implements IRenderBackendSession {
 		lighting: { localizedProbeMode: "accumulate-globally" },
 	};
 
-	private readonly _sessionContext: RenderBackendSessionContext;
+	private _attachContext: RenderBackendAttachContext | null = null;
+	private _attached = false;
 	private _ctx: CanvasRenderingContext2D | null = null;
 	private _rasterizer: Rasterizer | null = null;
 	private _mainPass: SoftwareMainPass | null = null;
@@ -210,17 +196,21 @@ class SoftwareBackendSession implements IRenderBackendSession {
 	private _activeRasterMode: SoftwareRasterMode;
 	private readonly _passHandlers: Map<FramePass["stage"], SoftwarePassHandler>;
 
-	public constructor(
-		options: SoftwareBackendOptions,
-		sessionContext: RenderBackendSessionContext
-	) {
+	public constructor(options: SoftwareBackendOptions = {}) {
 		assertShaderDirectiveProfileRegistryComplete(DEFAULT_SHADER_DIRECTIVE_PROFILE_REGISTRY);
 		this._options = options;
-		this._sessionContext = sessionContext;
 		this.requestedRasterMode = options.rasterMode ?? DEFAULT_SOFTWARE_RASTER_MODE;
 		this._activeRasterMode = this.requestedRasterMode;
 		this._passHandlers = this._createPassHandlers();
 		this._ensureRuntime();
+	}
+
+	public attach(context: RenderBackendAttachContext): void {
+		if (this._attached) {
+			throw new Error("SoftwareBackend is already attached to a renderer.");
+		}
+		this._attachContext = context;
+		this._attached = true;
 	}
 
 	public get activeRasterMode(): SoftwareRasterMode {
@@ -228,7 +218,7 @@ class SoftwareBackendSession implements IRenderBackendSession {
 	}
 
 	public async initialize(): Promise<void> {
-		const canvas = this._sessionContext.surface.canvas;
+		const canvas = this._requireAttachContext().surface.canvas;
 		this._ctx = canvas.getContext("2d");
 		this._ensureRuntime();
 	}
@@ -593,7 +583,7 @@ class SoftwareBackendSession implements IRenderBackendSession {
 	private _resolveFrameDimensions(
 		pixels: Uint8ClampedArray,
 	): { width: number; height: number } {
-		const canvas = this._sessionContext.surface.canvas;
+		const canvas = this._requireAttachContext().surface.canvas;
 		const canvasWidth = canvas.width;
 		const canvasHeight = canvas.height;
 		if (pixels.length === canvasWidth * canvasHeight * 4) {
@@ -745,5 +735,12 @@ class SoftwareBackendSession implements IRenderBackendSession {
 			["taa", () => {}],
 			["ssr", () => {}],
 		]);
+	}
+
+	private _requireAttachContext(): RenderBackendAttachContext {
+		if (!this._attachContext) {
+			throw new Error("SoftwareBackend.attach() must be called before initialize().");
+		}
+		return this._attachContext;
 	}
 }

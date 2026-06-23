@@ -15,7 +15,7 @@ import type {
 	ShaderModuleDesc,
 	TextureDesc,
 } from "../types";
-import type { WebGPUBackendSession } from "../WebGPUBackend";
+import type { WebGPUBackend } from "../WebGPUBackend";
 import { Logger } from "../../foundation/Logger";
 
 export const WEBGPU_COMPUTE_FACADE_BRAND = Symbol(
@@ -76,7 +76,7 @@ export interface IWebGPUComputeFacadeResolverSource {
 
 export type WebGPUComputeFacadeSource =
 	| Renderer
-	| WebGPUBackendSession
+	| WebGPUBackend
 	| IWebGPUComputeFacade
 	| IWebGPUComputeFacadeResolverSource
 	| IWebGPUBackendLike;
@@ -113,7 +113,7 @@ export interface IWebGPUComputeFacade {
 }
 
 let WEBGPU_COMPUTE_FACADE_CACHE = new WeakMap<
-	WebGPUBackendSession,
+	WebGPUBackend,
 	IWebGPUComputeFacade
 >();
 let WEBGPU_COMPUTE_FACADE_CACHE_ENTRY_COUNT = 0;
@@ -125,7 +125,7 @@ class WebGPUBackendComputeFacade implements IWebGPUComputeFacade {
 	private _trackedExternalTextures = new Set<Texture>();
 
 	constructor(
-		private _backend: WebGPUBackendSession,
+		private _backend: WebGPUBackend,
 		private _onDestroy: () => void
 	) {}
 
@@ -599,12 +599,12 @@ function resolveLayoutDevice(
 	return device;
 }
 
-function getCachedFacade(backend: WebGPUBackendSession): IWebGPUComputeFacade | null {
+function getCachedFacade(backend: WebGPUBackend): IWebGPUComputeFacade | null {
 	return WEBGPU_COMPUTE_FACADE_CACHE.get(backend) ?? null;
 }
 
 function setCachedFacade(
-	backend: WebGPUBackendSession,
+	backend: WebGPUBackend,
 	facade: IWebGPUComputeFacade
 ): void {
 	const hadEntry = WEBGPU_COMPUTE_FACADE_CACHE.has(backend);
@@ -615,7 +615,7 @@ function setCachedFacade(
 }
 
 function removeCachedFacade(
-	backend: WebGPUBackendSession
+	backend: WebGPUBackend
 ): IWebGPUComputeFacade | null {
 	const cached = WEBGPU_COMPUTE_FACADE_CACHE.get(backend) ?? null;
 	if (cached && WEBGPU_COMPUTE_FACADE_CACHE.delete(backend)) {
@@ -637,13 +637,13 @@ export function getWebGPUComputeFacadeCacheStats(): {
 
 export function resetWebGPUComputeFacadeCacheForTesting(): void {
 	WEBGPU_COMPUTE_FACADE_CACHE = new WeakMap<
-		WebGPUBackendSession,
+		WebGPUBackend,
 		IWebGPUComputeFacade
 	>();
 	WEBGPU_COMPUTE_FACADE_CACHE_ENTRY_COUNT = 0;
 }
 
-export function invalidateWebGPUComputeFacade(backend: WebGPUBackendSession): void {
+export function invalidateWebGPUComputeFacade(backend: WebGPUBackend): void {
 	const cached = removeCachedFacade(backend);
 	if (!cached) {
 		return;
@@ -659,7 +659,7 @@ export function invalidateWebGPUComputeFacade(backend: WebGPUBackendSession): vo
 }
 
 export function createWebGPUComputeFacade(
-	backend: WebGPUBackendSession
+	backend: WebGPUBackend
 ): IWebGPUComputeFacade {
 	const cached = getCachedFacade(backend);
 	if (cached) {

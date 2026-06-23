@@ -53,11 +53,7 @@ import {
 	type IncrementalFrameStats,
 	type IncrementalRenderingOptions,
 } from "../pipeline/incremental";
-import type {
-	IRenderBackendSession,
-	WarmupOptions,
-	WarmupReport,
-} from "./IRenderBackend";
+import type { IRenderBackend, WarmupOptions, WarmupReport } from "./IRenderBackend";
 import {
 	PROBE_CAPTURE_EXTENSION,
 	type RenderBackendExtensionKey,
@@ -118,17 +114,17 @@ interface RenderSceneFrameState {
 }
 
 export class FrameCoordinator {
-	private readonly _backendSession: IRenderBackendSession;
+	private readonly _backend: IRenderBackend;
 	private readonly _preparedSceneCache = new PreparedSceneCache();
 	private readonly _probeCaptureRuntime = new ProbeCaptureRuntime();
 	private readonly _occlusionCullingController: RendererOcclusionCullingController;
 	private readonly _animationStage: AnimationSimulationStage;
 	private readonly _stageExecutors: Map<string, RendererStageExecutor>;
 
-	constructor(backendSession: IRenderBackendSession, animationSystem: AnimationSystem) {
-		this._backendSession = backendSession;
+	constructor(backend: IRenderBackend, animationSystem: AnimationSystem) {
+		this._backend = backend;
 		this._occlusionCullingController = new RendererOcclusionCullingController(
-			backendSession.extensions
+			backend.extensions,
 		);
 		this._animationStage = new AnimationSimulationStage(animationSystem);
 		this._stageExecutors = this._createStageExecutors();
@@ -142,12 +138,12 @@ export class FrameCoordinator {
 	public async warmup(
 		delegate: FrameCoordinatorDelegate,
 		context: FrameContext,
-		options: WarmupOptions
+		options: WarmupOptions,
 	): Promise<WarmupReport> {
-		if (!this._backendSession.warmup) {
+		if (!this._backend.warmup) {
 			const startedAt = Date.now();
 			return {
-				backend: this._backendSession.profile.id,
+				backend: this._backend.profile.id,
 				startedAt,
 				finishedAt: startedAt,
 				durationMs: 0,
@@ -159,7 +155,7 @@ export class FrameCoordinator {
 				errors: [],
 			};
 		}
-		return this._backendSession.warmup(context, options);
+		return this._backend.warmup(context, options);
 	}
 
 	public async executeFrame(
@@ -170,7 +166,7 @@ export class FrameCoordinator {
 		hasParticleSystems: boolean,
 		hasActiveAnimations: boolean,
 		deltaTimeSeconds: number,
-		transient: TransientStore
+		transient: TransientStore,
 	): Promise<void> {
 		const state = this._createRenderSceneFrameState(delegate, {
 			now,
@@ -187,7 +183,7 @@ export class FrameCoordinator {
 			}
 
 			if (state.frameStarted) {
-				await this._backendSession.endFrame();
+				await this._backend.endFrame();
 				state.frameStarted = false;
 			}
 		} catch (error) {
@@ -205,32 +201,27 @@ export class FrameCoordinator {
 			transient: TransientStore;
 			hasActiveAnimations: boolean;
 			hasParticleSystems: boolean;
-		}
+		},
 	): RenderSceneFrameState {
 		const resolved = resolveFeatureState(
 			delegate.features,
-			this._backendSession.profile.capabilities,
-			this._backendSession.profile.id
+			this._backend.profile.capabilities,
+			this._backend.profile.id,
 		);
-		const resolvedPostProcess = delegate.postProcess.createSnapshot(
-			this._backendSession.profile.id
-		);
-		const {
-			fullFrameRect: initialFullFrameRect,
-			fullFrameTiles: initialFullFrameTiles,
-		} = this._createFullFrameCoverage(delegate);
+		const resolvedPostProcess = delegate.postProcess.createSnapshot(this._backend.profile.id);
+		const { fullFrameRect: initialFullFrameRect, fullFrameTiles: initialFullFrameTiles } =
+			this._createFullFrameCoverage(delegate);
 		const incrementalFrameContext = this._createInitialIncrementalFrameContext(
 			options.frameDirtyReasonMask,
 			initialFullFrameRect,
-			initialFullFrameTiles
+			initialFullFrameTiles,
 		);
 		const stageOrder = delegate.pipeline.getExecutionOrder(
 			{
-				hasActiveAnimations:
-					options.hasActiveAnimations && delegate.animationAutoRender,
+				hasActiveAnimations: options.hasActiveAnimations && delegate.animationAutoRender,
 				hasParticleSystems: options.hasParticleSystems,
 			},
-			(key, message) => delegate.warn(key, message)
+			(key, message) => delegate.warn(key, message),
 		);
 		const stageIndexById = new Map<string, number>();
 		for (let index = 0; index < stageOrder.length; index++) {
@@ -250,9 +241,7 @@ export class FrameCoordinator {
 			emittedPostAnimation: false,
 			stageOrder,
 			stageIndexById,
-			hasAnimationStage: stageOrder.some(
-				(stage) => stage.id === "animation-sim"
-			),
+			hasAnimationStage: stageOrder.some((stage) => stage.id === "animation-sim"),
 			initialFullFrameRect,
 			initialFullFrameTiles,
 			incrementalFrameContext,
@@ -264,7 +253,7 @@ export class FrameCoordinator {
 		delegate: FrameCoordinatorDelegate,
 		stageId: string,
 		state: RenderSceneFrameState,
-		deltaTime: number
+		deltaTime: number,
 	): Promise<void> {
 		const executor = this._stageExecutors.get(stageId);
 		if (executor) {
@@ -280,14 +269,14 @@ export class FrameCoordinator {
 			const key = `renderer-stage-executor-missing-${stageId}`;
 			delegate.warn(
 				key,
-				`Renderer pipeline stage "${stageId}" has no internal executor; skipping stage`
+				`Renderer pipeline stage "${stageId}" has no internal executor; skipping stage`,
 			);
 			return;
 		}
 		const key = `renderer-stage-kind-missing-${stageId}`;
 		delegate.warn(
 			key,
-			`Renderer pipeline stage "${stageId}" is not registered; skipping stage`
+			`Renderer pipeline stage "${stageId}" is not registered; skipping stage`,
 		);
 	}
 
@@ -298,11 +287,11 @@ export class FrameCoordinator {
 				(delegate, state) => {
 					state.resolved = resolveFeatureState(
 						delegate.features,
-						this._backendSession.profile.capabilities,
-						this._backendSession.profile.id
+						this._backend.profile.capabilities,
+						this._backend.profile.id,
 					);
 					state.resolvedPostProcess = delegate.postProcess.createSnapshot(
-						this._backendSession.profile.id
+						this._backend.profile.id,
 					);
 					for (const warning of [
 						...state.resolved.warnings,
@@ -322,36 +311,42 @@ export class FrameCoordinator {
 				"prepared-scene-build",
 				(delegate, state) => this._executePreparedSceneBuildStage(delegate, state),
 			],
-			[
-				"probe-capture",
-				(delegate, state) => this._executeProbeCaptureStage(delegate, state),
-			],
+			["probe-capture", (delegate, state) => this._executeProbeCaptureStage(delegate, state)],
 			["sync-out", (delegate) => delegate.scene.syncECSToNode()],
 		]);
 	}
 
-	private _executeSyncInStage(delegate: FrameCoordinatorDelegate, state: RenderSceneFrameState): void {
+	private _executeSyncInStage(
+		delegate: FrameCoordinatorDelegate,
+		state: RenderSceneFrameState,
+	): void {
 		delegate.scene.syncNodeToECS();
 		if (!state.hasAnimationStage && !state.emittedPostAnimation) {
 			this._emitPostAnimation(delegate, state, state.deltaTimeSeconds * 1000);
 		}
 	}
 
-	private _executeAnimationStage(delegate: FrameCoordinatorDelegate, state: RenderSceneFrameState): void {
+	private _executeAnimationStage(
+		delegate: FrameCoordinatorDelegate,
+		state: RenderSceneFrameState,
+	): void {
 		const dt = state.deltaTimeSeconds * 1000;
 		this._animationStage.execute(
 			{
 				scene: delegate.scene,
 				transient: state.transient,
 			},
-			dt
+			dt,
 		);
 		if (!state.emittedPostAnimation) {
 			this._emitPostAnimation(delegate, state, dt);
 		}
 	}
 
-	private async _executePhysicsStage(delegate: FrameCoordinatorDelegate, state: RenderSceneFrameState): Promise<void> {
+	private async _executePhysicsStage(
+		delegate: FrameCoordinatorDelegate,
+		state: RenderSceneFrameState,
+	): Promise<void> {
 		if (delegate.physicsSystem) {
 			await delegate.physicsSystem.stepAsync(state.deltaTimeSeconds);
 		}
@@ -366,7 +361,7 @@ export class FrameCoordinator {
 
 	private _resolveLODMeshes(delegate: FrameCoordinatorDelegate): void {
 		const cameraWorldPosition = delegate.camera.getWorldPosition(
-			_tmpRendererCameraWorldPosition
+			_tmpRendererCameraWorldPosition,
 		);
 		const meshInstances = delegate.scene.getMeshInstances();
 		for (const meshInstance of meshInstances) {
@@ -387,24 +382,22 @@ export class FrameCoordinator {
 			}
 
 			const flushResult = meshInstance.flushCSG();
-			const result =
-				flushResult instanceof Promise ? await flushResult : flushResult;
+			const result = flushResult instanceof Promise ? await flushResult : flushResult;
 			for (const diagnostic of result.diagnostics) {
 				if (diagnostic.severity === "info") continue;
 				const key =
 					`csg-diagnostic-${meshInstance.id}-` +
 					`${diagnostic.code}-${diagnostic.message}`;
-				Logger.warn(
-					`[${key}] [CSG:${diagnostic.code}] ${diagnostic.message}`,
-					{ scope: "Renderer" }
-				);
+				Logger.warn(`[${key}] [CSG:${diagnostic.code}] ${diagnostic.message}`, {
+					scope: "Renderer",
+				});
 			}
 		}
 	}
 
 	private async _executePreparedSceneBuildStage(
 		delegate: FrameCoordinatorDelegate,
-		state: RenderSceneFrameState
+		state: RenderSceneFrameState,
 	): Promise<void> {
 		if (delegate.features.enableSH) {
 			this.updateSH(delegate);
@@ -427,10 +420,9 @@ export class FrameCoordinator {
 			features: state.resolved,
 			postProcess: state.resolvedPostProcess,
 			incrementalOptions: delegate.incrementalOptions,
-			occlusionVisibilityProvider:
-				this._occlusionCullingController.getVisibilityProvider(
-					state.resolved
-				),
+			occlusionVisibilityProvider: this._occlusionCullingController.getVisibilityProvider(
+				state.resolved,
+			),
 			occlusionCullingOptions: state.resolved.occlusionCullingOptions,
 		});
 		state.frame = preparedResult.frame;
@@ -446,15 +438,14 @@ export class FrameCoordinator {
 			incrementalPlan,
 			preparedResult,
 			state.initialFullFrameRect,
-			state.initialFullFrameTiles
+			state.initialFullFrameTiles,
 		);
 		state.incrementalStartStageIndex =
 			state.incrementalFrameContext.enabled &&
 			!state.incrementalFrameContext.forceFullFrame &&
-			state.incrementalFrameContext.firstPass ?
-				(state.stageIndexById.get(state.incrementalFrameContext.firstPass) ??
-					-1)
-			:	-1;
+			state.incrementalFrameContext.firstPass
+				? (state.stageIndexById.get(state.incrementalFrameContext.firstPass) ?? -1)
+				: -1;
 		this._recordIncrementalFrameStats(delegate, state.incrementalFrameContext);
 
 		const context = this._createFrameContext(
@@ -463,7 +454,7 @@ export class FrameCoordinator {
 			state.resolved,
 			state.resolvedPostProcess,
 			state.transient,
-			state.incrementalFrameContext
+			state.incrementalFrameContext,
 		);
 		state.context = {
 			...context,
@@ -473,23 +464,23 @@ export class FrameCoordinator {
 				features: state.resolved,
 				postProcess: state.resolvedPostProcess,
 				transient: state.transient,
-				backendType: this._backendSession.profile.id,
-				backendCapabilities: this._backendSession.profile.capabilities,
+				backendType: this._backend.profile.id,
+				backendCapabilities: this._backend.profile.capabilities,
 				incremental: state.incrementalFrameContext,
 				frameContext: context,
 				incrementalStartStageIndex: state.incrementalStartStageIndex,
 			}),
 		};
 		state.frameStarted = true;
-		await this._backendSession.beginFrame(state.context);
+		await this._backend.beginFrame(state.context);
 	}
 
 	private async _executeProbeCaptureStage(
 		delegate: FrameCoordinatorDelegate,
-		state: RenderSceneFrameState
+		state: RenderSceneFrameState,
 	): Promise<void> {
 		const cameraWorldPosition = delegate.camera.getWorldPosition(
-			_tmpRendererCameraWorldPosition
+			_tmpRendererCameraWorldPosition,
 		);
 		const captureRuntime = (delegate as any)._probeCaptureRuntime || this._probeCaptureRuntime;
 		await captureRuntime.execute({
@@ -505,27 +496,26 @@ export class FrameCoordinator {
 	private async _executeFramePassStage(
 		delegate: FrameCoordinatorDelegate,
 		stageId: string,
-		state: RenderSceneFrameState
+		state: RenderSceneFrameState,
 	): Promise<void> {
 		if (!state.context || !state.frame) return;
 		if (!delegate.pipeline.isFramePassStage(stageId as FramePassStage)) return;
 
 		const pass =
 			state.context.framePlan?.backendPasses.find(
-				(candidate) => candidate.stage === stageId
-			) ??
-			delegate.pipeline.createFramePass(stageId as FramePassStage);
+				(candidate) => candidate.stage === stageId,
+			) ?? delegate.pipeline.createFramePass(stageId as FramePassStage);
 		if (!pass.enabled) {
-			this._backendSession.skipPass?.(pass);
+			this._backend.skipPass?.(pass);
 			return;
 		}
-		await this._backendSession.executePass(pass, state.context);
+		await this._backend.executePass(pass, state.context);
 	}
 
 	private _emitPostAnimation(
 		delegate: FrameCoordinatorDelegate,
 		state: RenderSceneFrameState,
-		deltaTime: number
+		deltaTime: number,
 	): void {
 		delegate.emitPostAnimation(state.now, deltaTime, state.transient);
 		state.emittedPostAnimation = true;
@@ -533,7 +523,7 @@ export class FrameCoordinator {
 
 	private _recordIncrementalFrameStats(
 		delegate: FrameCoordinatorDelegate,
-		incrementalFrameContext: IncrementalFrameContext
+		incrementalFrameContext: IncrementalFrameContext,
 	): void {
 		delegate.setLastIncrementalFrameStats({
 			enabled: incrementalFrameContext.enabled,
@@ -562,15 +552,12 @@ export class FrameCoordinator {
 		fullFrameRect: ReturnType<typeof makeFullScreenRect>;
 		fullFrameTiles: DirtyTileCoverage;
 	} {
-		const fullFrameRect = makeFullScreenRect(
-			delegate.canvas.width,
-			delegate.canvas.height
-		);
+		const fullFrameRect = makeFullScreenRect(delegate.canvas.width, delegate.canvas.height);
 		const fullFrameTiles = buildDirtyTileCoverage(
 			[fullFrameRect],
 			fullFrameRect.width,
 			fullFrameRect.height,
-			delegate.incrementalOptions.dirtyTileSize
+			delegate.incrementalOptions.dirtyTileSize,
 		);
 		return {
 			fullFrameRect,
@@ -581,7 +568,7 @@ export class FrameCoordinator {
 	private _createInitialIncrementalFrameContext(
 		reasonMask: number,
 		fullFrameRect: ReturnType<typeof makeFullScreenRect>,
-		fullFrameTiles: DirtyTileCoverage
+		fullFrameTiles: DirtyTileCoverage,
 	): IncrementalFrameContext {
 		return {
 			enabled: true,
@@ -605,7 +592,7 @@ export class FrameCoordinator {
 		resolved: RenderSceneFeatureState,
 		postProcess: ResolvedPostProcessState,
 		transient: TransientStore,
-		incremental: IncrementalFrameContext
+		incremental: IncrementalFrameContext,
 	): FrameContext {
 		return this._createFrameContext(
 			delegate,
@@ -613,7 +600,7 @@ export class FrameCoordinator {
 			resolved,
 			postProcess,
 			transient,
-			incremental
+			incremental,
 		);
 	}
 
@@ -623,31 +610,31 @@ export class FrameCoordinator {
 		resolved: RenderSceneFeatureState,
 		postProcess: ResolvedPostProcessState,
 		transient: TransientStore,
-		incremental: IncrementalFrameContext
+		incremental: IncrementalFrameContext,
 	): FrameContext {
-		const cameraPosition = delegate.camera.getWorldPosition(
-			_tmpRendererCameraWorldPosition
-		);
+		const cameraPosition = delegate.camera.getWorldPosition(_tmpRendererCameraWorldPosition);
 		const shadowFrameState = delegate.scene.shadows.buildFrameState({
 			lights: frame.lights,
 			enableShadows: resolved.enableShadows,
 			cameraPosition,
-			backendCapabilities: this._backendSession.profile.shadow,
+			backendCapabilities: this._backend.profile.shadow,
 		});
 		delegate.setShadowMaps(shadowFrameState.shadowMaps);
 		frame.shadowMaps = shadowFrameState.shadowMaps;
 
-		const attachments = this._backendSession.getAttachments({
+		const attachments = this._backend.getAttachments({
 			width: delegate.canvas.width,
 			height: delegate.canvas.height,
 		});
 
 		// Build SH if not done
-		const shCoeffs = delegate.scene.version === 0 ? SH.empty() : this.updateSH(delegate).shCoeffs;
-		const shAmbientCoeffs = delegate.scene.version === 0 ? SH.empty() : this.updateSH(delegate).shAmbientCoeffs;
+		const shCoeffs =
+			delegate.scene.version === 0 ? SH.empty() : this.updateSH(delegate).shCoeffs;
+		const shAmbientCoeffs =
+			delegate.scene.version === 0 ? SH.empty() : this.updateSH(delegate).shAmbientCoeffs;
 
 		return {
-			backendProfile: this._backendSession.profile,
+			backendProfile: this._backend.profile,
 			camera: delegate.camera,
 			attachments,
 			features: resolved,
@@ -667,30 +654,23 @@ export class FrameCoordinator {
 		plan: ReturnType<typeof IncrementalFramePlanner.plan>,
 		prepared: PreparedSceneCacheBuildResult,
 		initialFullFrameRect: ReturnType<typeof makeFullScreenRect>,
-		initialFullFrameTiles: DirtyTileCoverage
+		initialFullFrameTiles: DirtyTileCoverage,
 	): IncrementalFrameContext {
 		const enabled = delegate.incrementalOptions.enabled;
 		const forceFullFrame = plan.forceFullFrame || prepared.forceFullFrame;
 		const fullFrameRect = initialFullFrameRect;
 		const fullFrameTiles = initialFullFrameTiles;
-		let dirtyRects =
-			enabled && !forceFullFrame ? prepared.dirtyRects.slice() : [fullFrameRect];
+		let dirtyRects = enabled && !forceFullFrame ? prepared.dirtyRects.slice() : [fullFrameRect];
 		let dirtyTiles =
-			enabled && !forceFullFrame ?
-				prepared.dirtyTiles.slice()
-			:	fullFrameTiles.dirtyTiles.slice();
+			enabled && !forceFullFrame
+				? prepared.dirtyTiles.slice()
+				: fullFrameTiles.dirtyTiles.slice();
 		let dirtyTileSize =
-			enabled && !forceFullFrame ?
-				prepared.dirtyTileSize
-			:	fullFrameTiles.tileSize;
+			enabled && !forceFullFrame ? prepared.dirtyTileSize : fullFrameTiles.tileSize;
 		let dirtyTileColumns =
-			enabled && !forceFullFrame ?
-				prepared.dirtyTileColumns
-			:	fullFrameTiles.tileColumns;
+			enabled && !forceFullFrame ? prepared.dirtyTileColumns : fullFrameTiles.tileColumns;
 		let dirtyTileRows =
-			enabled && !forceFullFrame ?
-				prepared.dirtyTileRows
-			:	fullFrameTiles.tileRows;
+			enabled && !forceFullFrame ? prepared.dirtyTileRows : fullFrameTiles.tileRows;
 		let dirtyAreaRatio = enabled && !forceFullFrame ? prepared.dirtyAreaRatio : 1;
 		if (enabled && !forceFullFrame && dirtyRects.length === 0 && plan.firstPass) {
 			dirtyRects = [fullFrameRect];
@@ -716,7 +696,10 @@ export class FrameCoordinator {
 		};
 	}
 
-	public updateSH(delegate: FrameCoordinatorDelegate): { shCoeffs: SHCoefficients; shAmbientCoeffs: SHCoefficients } {
+	public updateSH(delegate: FrameCoordinatorDelegate): {
+		shCoeffs: SHCoefficients;
+		shAmbientCoeffs: SHCoefficients;
+	} {
 		let ambientProbeSH: SHCoefficients = SH.empty();
 		let ambientR = 0;
 		let ambientG = 0;
@@ -736,7 +719,7 @@ export class FrameCoordinator {
 			if (light.type === LightType.LightProbe) {
 				const probe = light as LightProbe;
 				if (
-					this._backendSession.profile.lighting.localizedProbeMode === "backend-local" &&
+					this._backend.profile.lighting.localizedProbeMode === "backend-local" &&
 					isLocalizedLightProbe(probe)
 				) {
 					continue;
@@ -809,27 +792,24 @@ export class FrameCoordinator {
 	private _assertCameraInScene(
 		scene: Scene,
 		camera: Camera,
-		caller: "setScene" | "setCamera" | "renderScene"
+		caller: "setScene" | "setCamera" | "renderScene",
 	): void {
 		if (scene.contains(camera)) return;
 		throw new Error(
-			`Renderer.${caller} requires the active camera to belong to the active scene graph`
+			`Renderer.${caller} requires the active camera to belong to the active scene graph`,
 		);
 	}
 
-	private async _abortFailedFrame(
-		error: unknown,
-		frameStarted: boolean
-	): Promise<void> {
+	private async _abortFailedFrame(error: unknown, frameStarted: boolean): Promise<void> {
 		if (!frameStarted) {
 			return;
 		}
 		try {
-			await this._backendSession.abortFrame(error);
+			await this._backend.abortFrame(error);
 		} catch (abortError) {
 			Logger.warn(
 				`[renderer-backend-abort-failed] Failed to abort backend frame state: ${String(abortError)}`,
-				{ scope: "Renderer" }
+				{ scope: "Renderer" },
 			);
 		}
 	}

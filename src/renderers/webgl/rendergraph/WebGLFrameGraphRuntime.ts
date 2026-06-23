@@ -53,7 +53,7 @@ export class WebGLFrameGraphRuntime {
 	/**
 	 * Begins a WebGL frame and executes synthetic setup nodes.
 	 *
-	 * @internal Called by `WebGLBackendSession.beginFrame`.
+	 * @internal Called by `WebGLBackend.beginFrame`.
 	 * @param context Active renderer frame context.
 	 * @returns Nothing.
 	 * @sideEffects Prepares WebGL frame targets and clears scene attachments.
@@ -78,7 +78,7 @@ export class WebGLFrameGraphRuntime {
 	/**
 	 * Executes one renderer-level backend pass through WebGL graph nodes.
 	 *
-	 * @internal Called by `WebGLBackendSession.executePass`.
+	 * @internal Called by `WebGLBackend.executePass`.
 	 * @param pass Renderer frame pass.
 	 * @param context Active renderer frame context.
 	 * @returns Promise that resolves after all planned nodes complete.
@@ -107,7 +107,7 @@ export class WebGLFrameGraphRuntime {
 	/**
 	 * Executes the synthetic present node and clears active frame state.
 	 *
-	 * @internal Called by `WebGLBackendSession.endFrame`.
+	 * @internal Called by `WebGLBackend.endFrame`.
 	 * @param context Last active frame context.
 	 * @returns Promise that resolves after present node execution.
 	 * @sideEffects May present to canvas and clears executor frame state.
@@ -133,7 +133,7 @@ export class WebGLFrameGraphRuntime {
 	/**
 	 * Aborts active graph state after a failed WebGL frame.
 	 *
-	 * @internal Called by `WebGLBackendSession.abortFrame`.
+	 * @internal Called by `WebGLBackend.abortFrame`.
 	 * @returns Nothing.
 	 * @sideEffects Clears executor frame state without presenting.
 	 */

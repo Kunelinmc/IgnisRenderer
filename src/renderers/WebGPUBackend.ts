@@ -5,11 +5,10 @@ import {
 } from "./ICommandEncoder";
 import type {
 	IRenderBackend,
-	IRenderBackendSession,
 	BackendCapabilities,
 	RenderBackendDeviceLostInfo,
+	RenderBackendAttachContext,
 	RenderBackendProfile,
-	RenderBackendSessionContext,
 	RenderSurfaceSize,
 	WarmupOptions,
 	WarmupReport,
@@ -245,20 +244,6 @@ type WebGPUPassHandler = (
 
 export class WebGPUBackend implements IRenderBackend {
 	public readonly id = "webgpu";
-	private readonly _options: WebGPUBackendOptions;
-
-	public constructor(options: WebGPUBackendOptions = {}) {
-		this._options = options;
-	}
-
-	public createSession(
-		context: RenderBackendSessionContext
-	): IRenderBackendSession {
-		return new WebGPUBackendSession(this._options, context);
-	}
-}
-
-export class WebGPUBackendSession implements IRenderBackendSession {
 	private readonly _postProcessExecutor = new WebGPUPostProcessExecutor({
 		getFrameExecutor: () => this._frameExecutor,
 		assertDeviceOperational: (operation) =>
@@ -266,7 +251,7 @@ export class WebGPUBackendSession implements IRenderBackendSession {
 	});
 	private readonly _postProcessRuntime = new BackendPostProcessRuntime({
 		executor: this._postProcessExecutor,
-		session: this,
+		backend: this,
 		warn: (key, message) =>
 			Logger.warn(`[${key}] ${message}`, {
 				scope: "WebGPUBackend",
@@ -286,7 +271,8 @@ export class WebGPUBackendSession implements IRenderBackendSession {
 	public readonly extensions;
 	public readonly profile: RenderBackendProfile;
 
-	private readonly _sessionContext: RenderBackendSessionContext;
+	private _attachContext: RenderBackendAttachContext | null = null;
+	private _attached = false;
 	private readonly _options: WebGPUBackendOptions;
 	private _canvas: HTMLCanvasElement | null = null;
 	private _context: GPUCanvasContext | null = null;
@@ -399,12 +385,8 @@ export class WebGPUBackendSession implements IRenderBackendSession {
 	private readonly _resourceManager: WebGPUResourceManager;
 	private readonly _passHandlers: Map<FramePass["stage"], WebGPUPassHandler>;
 
-	constructor(
-		options: WebGPUBackendOptions,
-		sessionContext: RenderBackendSessionContext
-	) {
+	public constructor(options: WebGPUBackendOptions = {}) {
 		this._options = options;
-		this._sessionContext = sessionContext;
 		const shaderMode = options.shaderMode ?? "strict";
 		this._defaultMSAASampleCount =
 			options.enableMSAA === false ? 1 : WEBGPU_DEFAULT_MSAA_SAMPLE_COUNT;
@@ -492,6 +474,14 @@ export class WebGPUBackendSession implements IRenderBackendSession {
 		});
 	}
 
+	public attach(context: RenderBackendAttachContext): void {
+		if (this._attached) {
+			throw new Error("WebGPUBackend is already attached to a renderer.");
+		}
+		this._attachContext = context;
+		this._attached = true;
+	}
+
 	public getComputeFacade(): IWebGPUComputeFacade {
 		return createWebGPUComputeFacade(this);
 	}
@@ -545,7 +535,7 @@ export class WebGPUBackendSession implements IRenderBackendSession {
 	}
 
 	public async initialize(): Promise<void> {
-		const canvas = this._sessionContext.surface.canvas;
+		const canvas = this._requireAttachContext().surface.canvas;
 		this._canvas = canvas;
 		this._destroyRequested = false;
 
@@ -694,7 +684,7 @@ export class WebGPUBackendSession implements IRenderBackendSession {
 				return info;
 			}
 			this.onDeviceLost(info);
-			this._sessionContext?.events.emit({ type: "device-lost", info });
+			this._requireAttachContext().events.emit({ type: "device-lost", info });
 			return info;
 		});
 
@@ -1750,7 +1740,7 @@ export class WebGPUBackendSession implements IRenderBackendSession {
 					scope: "WebGPUBackend",
 				});
 				this._deviceLostInfo = null;
-				this._sessionContext?.events.emit({ type: "device-restored" });
+				this._requireAttachContext().events.emit({ type: "device-restored" });
 				return;
 			} catch (error) {
 				lastError = error;
@@ -3157,5 +3147,12 @@ export class WebGPUBackendSession implements IRenderBackendSession {
 				},
 			],
 		]);
+	}
+
+	private _requireAttachContext(): RenderBackendAttachContext {
+		if (!this._attachContext) {
+			throw new Error("WebGPUBackend.attach() must be called before initialize().");
+		}
+		return this._attachContext;
 	}
 }

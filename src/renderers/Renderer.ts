@@ -159,7 +159,7 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 		let backend: IRenderBackend;
 		let canvas: HTMLCanvasElement;
 		let camera: Camera | null = null;
-		if (options && typeof options === "object" && "canvas" in options && !("createSession" in options)) {
+		if (options && typeof options === "object" && "canvas" in options) {
 			const opts = options as RendererOptions;
 			backend = opts.backend;
 			canvas = opts.canvas;
@@ -198,15 +198,15 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 		this.postProcess.registerPass(new ToneMappingPass({ enabled: true }));
 		this.postProcess.registerPass(new GammaPass({ enabled: true }));
 
-		const session = backend.createSession({
+		backend.attach({
 				surface: { canvas },
 				events: { emit: (event) => this._handleBackendEvent(event) },
 		});
 
-		this.backendProfile = session.profile;
+		this.backendProfile = backend.profile;
 
-		this._runtime = new RendererRuntime(session, (event) => this._handleBackendEvent(event));
-		this._coordinator = new FrameCoordinator(session, this.animationSystem);
+		this._runtime = new RendererRuntime(backend, (event) => this._handleBackendEvent(event));
+		this._coordinator = new FrameCoordinator(backend, this.animationSystem);
 
 		this._deviceScaleFactor = window.devicePixelRatio || 1;
 		this.animationAutoRender = true;
@@ -215,7 +215,7 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 		// While the `features` property is readonly to prevent reference reassignment,
 		// its fields are mutable and can be configured by external consumers post-construction.
 		// At runtime, these requested features are resolved and validated against the actual
-		// backend session capabilities (see `resolveFeatureState`).
+		// backend capabilities (see `resolveFeatureState`).
 		this.features = {
 			enableLighting: true,
 			enableSH: false,
@@ -251,7 +251,7 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 	}
 
 	/**
-	 * Initializes the rendering backend session and setups default resource registries.
+	 * Initializes the attached rendering backend and sets up default resource registries.
 	 * Must be called before performing any rendering actions.
 	 * 
 	 * @throws {Error} If the renderer is already initialized or has been destroyed.
@@ -422,7 +422,7 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 	 * @returns The extension instance if supported, otherwise null.
 	 */
 	public getBackendExtension<TApi>(key: RenderBackendExtensionKey<TApi>): TApi | null {
-		return this._runtime.backendSession.extensions.getBackendExtension(key);
+		return this._runtime.backend.extensions.getBackendExtension(key);
 	}
 
 	/**
@@ -434,7 +434,7 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 	 * @returns The extension instance.
 	 */
 	public requireBackendExtension<TApi>(key: RenderBackendExtensionKey<TApi>): TApi {
-		return this._runtime.backendSession.extensions.requireBackendExtension(key);
+		return this._runtime.backend.extensions.requireBackendExtension(key);
 	}
 
 	/**
@@ -703,7 +703,7 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 
 	/**
 	 * Resizes the canvas to match its bounding client rect dimensions scaled by device scale factor.
-	 * Invalidates current session viewport bounds and marks the next frame dirty.
+	 * Invalidates current backend viewport bounds and marks the next frame dirty.
 	 */
 	public resizeCanvas(): void {
 		const rect = this._canvas.getBoundingClientRect();
@@ -711,7 +711,7 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 		this._canvas.width = rect.width * this._deviceScaleFactor;
 		this._canvas.height = rect.height * this._deviceScaleFactor;
 
-		this._runtime.backendSession.resize({
+		this._runtime.backend.resize({
 			width: this._canvas.width,
 			height: this._canvas.height,
 		});

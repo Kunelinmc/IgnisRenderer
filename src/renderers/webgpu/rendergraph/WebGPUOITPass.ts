@@ -12,7 +12,7 @@ import {
 	type ISampler,
 	type IShaderModule,
 } from "../../types";
-import type { WebGPUBackendSession } from "../../WebGPUBackend";
+import type { WebGPUBackend } from "../../WebGPUBackend";
 import {
 	submitWebGPUDraws,
 } from "../WebGPUDrawSubmission";
@@ -42,7 +42,7 @@ export interface WebGPUOITPassCallbacks {
  * Records weighted blended OIT transparent, particle, and resolve work.
  */
 export class WebGPUOITPass {
-	private readonly _backend: WebGPUBackendSession;
+	private readonly _backend: WebGPUBackend;
 	private readonly _resources: WebGPURenderResources;
 	private readonly _recordingContext: WebGPUFrameGraphRecordingContext;
 	private readonly _callbacks: WebGPUOITPassCallbacks;
@@ -58,7 +58,7 @@ export class WebGPUOITPass {
 	private _needsTransmissionAfterParticles = false;
 
 	public constructor(
-		backend: WebGPUBackendSession,
+		backend: WebGPUBackend,
 		resources: WebGPURenderResources,
 		callbacks: WebGPUOITPassCallbacks
 	) {

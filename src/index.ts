@@ -30,8 +30,7 @@ export { Renderer } from "./renderers/Renderer";
 export type { RendererEvents } from "./renderers/Renderer";
 export type {
 	IRenderBackend,
-	IRenderBackendSession,
-	RenderBackendSessionContext,
+	RenderBackendAttachContext,
 	RenderBackendProfile,
 	RenderSurface,
 	RenderSurfaceSize,

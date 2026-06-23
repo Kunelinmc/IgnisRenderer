@@ -12,7 +12,7 @@ import {
 	TextureFormat,
 } from "../types";
 import { getTextureFormatInfo } from "../TextureFormatInfo";
-import type { WebGPUBackendSession } from "../WebGPUBackend";
+import type { WebGPUBackend } from "../WebGPUBackend";
 import { getWebGPURenderPipeline } from "./WebGPUResourceAccess";
 
 interface WebGPUMipmapPipelineEntry {
@@ -27,7 +27,7 @@ const GPU_SHADER_STAGE_FRAGMENT =
  * Generates 2D texture mip chains by rendering each mip from the previous mip.
  */
 export class WebGPUMipmapGenerator {
-	private _backend: WebGPUBackendSession;
+	private _backend: WebGPUBackend;
 	private _shaderModule: IShaderModule | null = null;
 	private _shaderModulePromise: Promise<IShaderModule | null> | null = null;
 	private _bindGroupLayout: GPUBindGroupLayout | null = null;
@@ -41,7 +41,7 @@ export class WebGPUMipmapGenerator {
 	private _viewCache = new WeakMap<object, GPUTextureView[]>();
 	private _lifecycleGeneration = 0;
 
-	constructor(backend: WebGPUBackendSession) {
+	constructor(backend: WebGPUBackend) {
 		this._backend = backend;
 	}
 

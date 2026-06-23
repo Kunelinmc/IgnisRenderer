@@ -7,7 +7,7 @@ import {
 } from "../constants";
 import type { WebGPUFrameTargets } from "../WebGPUPostProcessContracts";
 import type { WebGPUSceneTargetMode } from "../WebGPUScenePassDescriptors";
-import type { WebGPUBackendSession } from "../../WebGPUBackend";
+import type { WebGPUBackend } from "../../WebGPUBackend";
 import {
 	TextureFormat,
 	TextureUsage,
@@ -60,7 +60,7 @@ export interface WebGPUFrameTargetManagerDebugState {
  * Owns WebGPU frame target allocation, reuse, and pooled texture lifetime.
  */
 export class WebGPUFrameTargetManager {
-	private readonly _backend: WebGPUBackendSession;
+	private readonly _backend: WebGPUBackend;
 	private readonly _callbacks: WebGPUFrameTargetManagerCallbacks;
 	private _frameTargets: WebGPUFrameTargets | null = null;
 	private _msaaTargets: WebGPUFrameMSAATargets | null = null;
@@ -76,7 +76,7 @@ export class WebGPUFrameTargetManager {
 	private _texturePoolOwners = new Map<IRenderTexture, TexturePool>();
 
 	public constructor(
-		backend: WebGPUBackendSession,
+		backend: WebGPUBackend,
 		callbacks: WebGPUFrameTargetManagerCallbacks
 	) {
 		this._backend = backend;

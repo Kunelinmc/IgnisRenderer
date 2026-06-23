@@ -7,7 +7,7 @@ import { Plane } from "../../maths/Plane";
 import type { IRenderTexture, IBindingGroup } from "../types";
 import { TextureFormat, TextureUsage } from "../types";
 import type { ICommandEncoder } from "../ICommandEncoder";
-import type { WebGPUBackendSession } from "../WebGPUBackend";
+import type { WebGPUBackend } from "../WebGPUBackend";
 import type {
 	WebGPUPreparedFrameResources,
 	WebGPURenderResources,
@@ -57,13 +57,13 @@ export interface WebGPUPlanarReflectionCompositeRequest {
  * Captures and composites bounded planar reflections for the WebGPU backend.
  */
 export class WebGPUPlanarReflectionPass {
-	private _backend: WebGPUBackendSession;
+	private _backend: WebGPUBackend;
 	private _resources: WebGPURenderResources;
 	private _targets = new Map<string, PlanarReflectionTargetSet>();
 	private _activeReflections: ActivePlanarReflection[] = [];
 	private _bindings = new Map<IRenderTexture, IBindingGroup>();
 
-	constructor(backend: WebGPUBackendSession, resources: WebGPURenderResources) {
+	constructor(backend: WebGPUBackend, resources: WebGPURenderResources) {
 		this._backend = backend;
 		this._resources = resources;
 	}
@@ -695,7 +695,7 @@ function createPlanarReflectionScopeKey(planeKey: string): string {
 }
 
 function createTargets(
-	backend: WebGPUBackendSession,
+	backend: WebGPUBackend,
 	key: string,
 	width: number,
 	height: number

@@ -4,7 +4,7 @@ import {
 	type CompiledPostProcessGraph,
 } from "./PostProcessGraphCompiler";
 import { PostProcessResourcePool } from "./PostProcessResourcePool";
-import type { IRenderBackendSession } from "../renderers/IRenderBackend";
+import type { IRenderBackend } from "../renderers/IRenderBackend";
 import type {
 	IPostProcessExecutor,
 	LogicalGBufferBridge,
@@ -18,7 +18,7 @@ import type { PostProcessPass } from "./PostProcessPass";
 
 export interface BackendPostProcessRuntimeOptions {
 	readonly executor: IPostProcessExecutor;
-	readonly session: IRenderBackendSession;
+	readonly backend: IRenderBackend;
 	readonly warn?: (key: string, message: string) => void;
 }
 
@@ -32,7 +32,7 @@ interface PendingBackendPostProcessFrame {
  */
 export class BackendPostProcessRuntime {
 	private readonly _executor: IPostProcessExecutor;
-	private readonly _session: IRenderBackendSession;
+	private readonly _backend: IRenderBackend;
 	private readonly _warn: (key: string, message: string) => void;
 	private readonly _compiler = new PostProcessGraphCompiler();
 	private readonly _resources = new PostProcessResourcePool();
@@ -42,7 +42,7 @@ export class BackendPostProcessRuntime {
 
 	public constructor(options: BackendPostProcessRuntimeOptions) {
 		this._executor = options.executor;
-		this._session = options.session;
+		this._backend = options.backend;
 		this._warn = options.warn ?? (() => {});
 	}
 
@@ -51,7 +51,7 @@ export class BackendPostProcessRuntime {
 		if (!impl) {
 			const factory = pass.getImplementationFactory(this._executor.backend);
 			if (factory) {
-				impl = typeof factory === "function" ? factory(this._session) : (factory as any);
+				impl = typeof factory === "function" ? factory(this._backend) : (factory as any);
 				this._implementations.set(pass, impl);
 			}
 		}
@@ -103,7 +103,7 @@ export class BackendPostProcessRuntime {
 	/**
 	 * Executes the backend-owned `"postprocess"` pass for one frame.
 	 *
-	 * @internal Called from `IRenderBackendSession.executePass()`.
+	 * @internal Called from `IRenderBackend.executePass()`.
 	 * @param context Active renderer frame context.
 	 * @returns Promise that resolves after executor pass hooks complete.
 	 * @sideEffects Allocates resources, mutates backend frame targets, and records

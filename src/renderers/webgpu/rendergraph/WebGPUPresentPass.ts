@@ -9,7 +9,7 @@ import {
 	type ISampler,
 	type IShaderModule,
 } from "../../types";
-import type { WebGPUBackendSession } from "../../WebGPUBackend";
+import type { WebGPUBackend } from "../../WebGPUBackend";
 import { ShaderSource } from "../../../shaders/ShaderSource";
 
 export interface WebGPUPresentDirtyRect {
@@ -34,14 +34,14 @@ export interface WebGPUPresentRequest {
  * Records the WebGPU full-screen present pass and owns its GPU resources.
  */
 export class WebGPUPresentPass {
-	private readonly _backend: WebGPUBackendSession;
+	private readonly _backend: WebGPUBackend;
 	private _shaderModule: IShaderModule | null = null;
 	private _pipeline: IRenderPipeline | null = null;
 	private _sampler: ISampler | null = null;
 	private _binding: IBindingGroup | null = null;
 	private _bindingSource: IRenderTexture | null = null;
 
-	public constructor(backend: WebGPUBackendSession) {
+	public constructor(backend: WebGPUBackend) {
 		this._backend = backend;
 	}
 

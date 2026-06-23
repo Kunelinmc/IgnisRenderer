@@ -2,7 +2,7 @@ import { EventEmitter } from "../core/EventEmitter";
 import type { FeatureWarning, FrameContext } from "../pipeline/types";
 import type { PostProcessIncrementalMetadata } from "../pipeline/incremental";
 import type { PostProcessPlacement } from "./ordering";
-import type { IRenderBackendSession } from "../renderers/IRenderBackend";
+import type { IRenderBackend } from "../renderers/IRenderBackend";
 import type {
 	IPostProcessExecutor,
 	LogicalGBufferBridge,
@@ -18,7 +18,7 @@ import type {
 export type PostProcessPassId = string;
 
 export type PostProcessPassImplementationFactory = (
-	session: IRenderBackendSession
+	backend: IRenderBackend
 ) => PostProcessPassImplementation;
 
 export interface PostProcessPassConfig<TRawOptions = unknown> {

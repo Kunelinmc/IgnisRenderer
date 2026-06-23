@@ -1,17 +1,17 @@
 import type {
-	IRenderBackendSession,
+	IRenderBackend,
 	RenderBackendEvent,
 } from "./IRenderBackend";
 import type { RenderFrameResult } from "./Renderer";
 
 /**
- * Manages the lifetime, event notifications, and state of a single backend session.
+ * Manages the lifetime, event notifications, and state of a single backend.
  * Exposes synchronous lifecycle states and handles context/device recovery.
  *
- * @internal Used by Renderer to separate public APIs from session management.
+ * @internal Used by Renderer to separate public APIs from backend management.
  */
 export class RendererRuntime {
-	private readonly _backendSession: IRenderBackendSession;
+	private readonly _backend: IRenderBackend;
 	private readonly _onBackendEvent: (event: RenderBackendEvent) => void;
 	private _initialized = false;
 	private _destroyed = false;
@@ -19,15 +19,15 @@ export class RendererRuntime {
 	private _destroyPromise: Promise<void> | null = null;
 
 	constructor(
-		session: IRenderBackendSession,
+		backend: IRenderBackend,
 		onBackendEvent: (event: RenderBackendEvent) => void
 	) {
-		this._backendSession = session;
+		this._backend = backend;
 		this._onBackendEvent = onBackendEvent;
 	}
 
-	public get backendSession(): IRenderBackendSession {
-		return this._backendSession;
+	public get backend(): IRenderBackend {
+		return this._backend;
 	}
 
 	public get isInitialized(): boolean {
@@ -70,13 +70,13 @@ export class RendererRuntime {
 	public async initialize(): Promise<void> {
 		this.assertNotDestroyed("initialize");
 		if (this._initialized) return;
-		await this._backendSession.initialize();
+		await this._backend.initialize();
 		this._initialized = true;
 	}
 
 	public async restore(): Promise<void> {
 		this.assertReady("restore");
-		await this._backendSession.restore();
+		await this._backend.restore();
 	}
 
 	public async destroy(): Promise<void> {
@@ -95,7 +95,7 @@ export class RendererRuntime {
 				// Frame cleanup is handled by the render path before destruction.
 			}
 		}
-		await this._backendSession.destroy();
+		await this._backend.destroy();
 		this._destroyed = true;
 		this._initialized = false;
 	}

@@ -272,7 +272,7 @@ export class WebGLFrameExecutor {
 			executor: new WebGLPostProcessExecutor({
 				getFrameExecutor: () => this,
 			}),
-			session: {
+			backend: {
 				type: "webgl",
 				profile: {
 					id: "webgl",

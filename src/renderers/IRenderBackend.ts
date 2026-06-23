@@ -124,33 +124,24 @@ export interface RenderBackendEventSink {
 	emit(event: RenderBackendEvent): void;
 }
 
-export interface RenderBackendSessionContext {
+export interface RenderBackendAttachContext {
 	readonly surface: RenderSurface;
 	readonly events: RenderBackendEventSink;
 }
 
 export interface IRenderBackend {
 	/**
-	 * Identifies the backend implementation without creating a renderer session.
+	 * Identifies the backend implementation.
 	 *
-	 * @remarks This value is provider-owned metadata. Capability, lifecycle,
-	 * extension, and runtime state queries must still use the returned
-	 * `IRenderBackendSession`.
+	 * @remarks A backend instance is a one-shot renderer runtime. Capabilities,
+	 * lifecycle, extensions, and frame execution are owned by the attached
+	 * backend instance.
 	 * @sideEffects None.
 	 */
 	readonly id: RenderBackendType;
 	/**
-	 * Creates an isolated runtime session for one renderer.
-	 *
-	 * @param context Presentation surface and backend event sink.
-	 * @returns A session that must not be shared by multiple renderers.
-	 * @sideEffects Allocates backend runtime state but does not initialize the
-	 * graphics device or context until `initialize()` is called.
+	 * Runtime capabilities and scheduling metadata for this attached backend.
 	 */
-	createSession(context: RenderBackendSessionContext): IRenderBackendSession;
-}
-
-export interface IRenderBackendSession {
 	readonly profile: RenderBackendProfile;
 	/**
 	 * Optional registry of backend-owned integration APIs.
@@ -160,6 +151,14 @@ export interface IRenderBackendSession {
 	 * @sideEffects None.
 	 */
 	readonly extensions: RenderBackendExtensionRegistry;
+	/**
+	 * Attaches this backend instance to exactly one renderer surface.
+	 *
+	 * @param context Presentation surface and backend event sink.
+	 * @sideEffects Stores renderer-owned surface and event context. Implementations
+	 * must throw if called more than once, including after `destroy()`.
+	 */
+	attach(context: RenderBackendAttachContext): void;
 	initialize(): Promise<void>;
 	/**
 	 * Rebuilds backend device or graphics context resources after loss.

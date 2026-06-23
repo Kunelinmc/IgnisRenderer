@@ -41,7 +41,7 @@ import {
 	type ISampler,
 	type IShaderModule,
 } from "../types";
-import type { WebGPUBackendSession } from "../WebGPUBackend";
+import type { WebGPUBackend } from "../WebGPUBackend";
 import { resolveWebGPUComputeFacade } from "./ComputeFacade";
 import type { IWebGPUComputeFacade } from "./ComputeFacade";
 import {
@@ -231,7 +231,7 @@ interface WebGPUFrameResourceScope {
 }
 
 export class WebGPURenderResources {
-	private _backend: WebGPUBackendSession;
+	private _backend: WebGPUBackend;
 	private _computeFacade: IWebGPUComputeFacade;
 	private _layouts: ReturnType<typeof createWebGPUPipelineLayouts>;
 	private _geometryRegistry: WebGPUGeometryRegistry;
@@ -260,7 +260,7 @@ export class WebGPURenderResources {
 	private _destroyed = false;
 	private _fallbackPostProcess: PostProcessPassRegistry | null = null;
 
-	constructor(backend: WebGPUBackendSession) {
+	constructor(backend: WebGPUBackend) {
 		this._backend = backend;
 		this._computeFacade = resolveWebGPUComputeFacade(backend);
 		const device = backend.device;

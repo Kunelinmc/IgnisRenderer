@@ -21,7 +21,7 @@ import {
 } from "../../../postprocess";
 import type { ICommandEncoder } from "../../ICommandEncoder";
 import type { IRenderTexture } from "../../types";
-import type { WebGPUBackendSession } from "../../WebGPUBackend";
+import type { WebGPUBackend } from "../../WebGPUBackend";
 import type {
 	WebGPUPreparedFrameResources,
 	WebGPURenderResources,
@@ -105,7 +105,7 @@ const WEBGPU_OIT_DISABLED_MSAA_KEY = "webgpu-oit-disabled-msaa";
 const WEBGPU_OIT_DISABLED_RUNTIME_KEY = "webgpu-oit-disabled-runtime";
 
 export class WebGPUFrameGraphRuntime {
-	private _backend: WebGPUBackendSession;
+	private _backend: WebGPUBackend;
 	private _resources: WebGPURenderResources;
 	private _encoder: ICommandEncoder | null = null;
 	private _frameContext: FrameContext | null = null;
@@ -149,7 +149,7 @@ export class WebGPUFrameGraphRuntime {
 	private _lastExecutedGraphNodeIds: string[] = [];
 	private _frameGraphValidationMode: WebGPUFrameGraphValidationMode = "throw";
 
-	constructor(backend: WebGPUBackendSession, resources: WebGPURenderResources) {
+	constructor(backend: WebGPUBackend, resources: WebGPURenderResources) {
 		this._backend = backend;
 		this._resources = resources;
 		const backendOptions = this._backend as {
@@ -639,7 +639,7 @@ export class WebGPUFrameGraphRuntime {
 					getFrameExecutor: () => (this._backend as any)._frameExecutor ?? null,
 					assertDeviceOperational: () => {},
 				}),
-				session: this._backend,
+				backend: this._backend,
 				warn: () => {},
 			});
 		}
