@@ -13,6 +13,9 @@ export class TestRenderBackend {
 			clusteredLighting: false,
 			oit: false,
 			occlusionCulling: false,
+			customRenderTargets: false,
+			customRenderPasses: false,
+			renderTargetReadback: false,
 		};
 		this.frameScheduling = "on-demand";
 		this.extensions = createRenderBackendExtensionRegistry([]);
