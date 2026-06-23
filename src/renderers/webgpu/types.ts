@@ -2,9 +2,7 @@ import type { Matrix4 } from "../../maths/Matrix4";
 import type { IVector3, SHCoefficients } from "../../maths/types";
 import type { getPrimaryShadowMap, ShadowStrategyType } from "../../lights/shadows/ShadowMapping";
 import type { ClusteredLightingOptions } from "../../pipeline/types";
-import type { BloomOptions } from "../../postprocess/passes/BloomPass";
-import type { FogOptions } from "../../postprocess/passes/FogPass";
-import type { TAAOptions } from "../../postprocess/passes/TemporalAntiAliasingPass";
+import type { ResolvedPostProcessState } from "../../postprocess";
 import type { Texture } from "../../core/Texture";
 
 export interface WebGPUWarning {
@@ -117,25 +115,15 @@ export interface WebGPULightingState {
 
 export interface WebGPUFeatureState {
 	enableLighting: boolean;
-	enableGamma: boolean;
-	enableToneMapping: boolean;
 	enableSH: boolean;
 	enableShadows: boolean;
 	enableReflection: boolean;
 	enableEnvironment: boolean;
 	enableOIT: boolean;
-	enableSSAO: boolean;
-	enableSSGI: boolean;
-	enableTAA: boolean;
-	enableSSR: boolean;
-	enableVolumetric: boolean;
-	enableFog: boolean;
-	enableBloom: boolean;
 	enableClusteredLighting: boolean;
-	taaOptions?: TAAOptions;
-	fogOptions?: FogOptions;
-	bloomOptions?: BloomOptions;
 	clusteredLightingOptions?: ClusteredLightingOptions;
+	/** Per-frame resolved post-process registry snapshot. */
+	postProcess: ResolvedPostProcessState;
 	warnings: WebGPUWarning[];
 }
 

@@ -21,9 +21,6 @@ import {
 	ToneMappingPass,
 	type ResolvedPostProcessState,
 } from "../../postprocess";
-import { DEFAULT_BLOOM_OPTIONS } from "../../postprocess/passes/BloomPass";
-import { DEFAULT_FOG_OPTIONS } from "../../postprocess/passes/FogPass";
-import { DEFAULT_TAA_OPTIONS } from "../../postprocess/passes/TemporalAntiAliasingPass";
 import { ParticleBlendMode } from "../../particles";
 import { AlphaMode } from "../../materials/Material";
 import { isMaterialTransparentPass } from "../../materials/transparency";
@@ -587,25 +584,14 @@ export class WebGPURenderResources {
 			options?.temporalStateMode ?? (isFrameContext ? "advance" : "disabled");
 		const featureState: WebGPUFeatureState = {
 			enableLighting: features.enableLighting,
-			enableGamma: postProcess.isEnabled("gamma"),
-			enableToneMapping: postProcess.isEnabled("tonemap"),
 			enableSH: features.enableSH,
 			enableShadows: features.enableShadows,
 			enableReflection: features.enableReflection,
 			enableEnvironment: features.enableEnvironment,
 			enableOIT: features.enableOIT,
-			enableSSAO: postProcess.isEnabled("ssao"),
-			enableSSGI: postProcess.isEnabled("ssgi"),
-			enableTAA: postProcess.isEnabled("taa"),
-			enableSSR: postProcess.isEnabled("ssr"),
-			enableVolumetric: postProcess.isEnabled("volumetric"),
-			enableFog: postProcess.isEnabled("fog"),
-			enableBloom: postProcess.isEnabled("bloom"),
 			enableClusteredLighting: features.enableClusteredLighting,
-			taaOptions: postProcess.getOptions("taa") ?? DEFAULT_TAA_OPTIONS,
-			fogOptions: postProcess.getOptions("fog") ?? DEFAULT_FOG_OPTIONS,
-			bloomOptions: postProcess.getOptions("bloom") ?? DEFAULT_BLOOM_OPTIONS,
 			clusteredLightingOptions: features.clusteredLightingOptions,
+			postProcess,
 			warnings: [],
 		};
 

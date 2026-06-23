@@ -22,8 +22,12 @@ import type {
 import { PARTICLE_TRANSIENT_BATCHES_KEY } from "../../pipeline/types";
 import {
 	DEFAULT_FOG_OPTIONS,
+	FOG_PASS_ID,
+	GAMMA_PASS_ID,
+	TEMPORAL_ANTI_ALIASING_PASS_ID,
 	type FogOptions,
-} from "../../postprocess/passes/FogPass";
+	type TAAOptions,
+} from "../../postprocess";
 import { CameraType } from "../../cameras/Camera";
 import { WebGPUTextureRegistry } from "./WebGPUTextureRegistry";
 import { WebGPUShadowAtlasAllocator } from "./WebGPUShadowAtlasAllocator";
@@ -206,11 +210,12 @@ export class WebGPUFrameBindingCache {
 			reflectionProbeCount: environmentState.reflectionProbeCount,
 			reflectionProbes: environmentState.reflectionProbes,
 			enableLighting: features.enableLighting,
-			enableGamma: features.enableGamma,
+			enableGamma: features.postProcess.isEnabled(GAMMA_PASS_ID),
 			enableShadows: features.enableShadows,
 			enableClusteredLighting: features.enableClusteredLighting,
 			encodeGammaInShader:
-				features.enableGamma && sceneTargetMode === "single",
+				features.postProcess.isEnabled(GAMMA_PASS_ID) &&
+				sceneTargetMode === "single",
 			enableSH: environmentState.enableSH,
 			hasSHAmbient: environmentState.hasSHAmbient,
 			hasEnvironment: !!environmentState.environmentTexture,
@@ -413,11 +418,13 @@ export class WebGPUFrameBindingCache {
 		}
 
 		const jitter = this._temporalJitterState.next({
-			enabled: features.enableTAA,
+			enabled: features.postProcess.isEnabled(TEMPORAL_ANTI_ALIASING_PASS_ID),
 			isOrthographic,
 			width: renderWidth,
 			height: renderHeight,
-			jitterScale: features.taaOptions?.jitterScale,
+			jitterScale: features.postProcess
+				.getOptions<TAAOptions>(TEMPORAL_ANTI_ALIASING_PASS_ID)
+				?.jitterScale,
 			reset: temporalHistoryReset,
 		});
 		this._temporalJitterCurrentPrev = jitter;
@@ -699,7 +706,9 @@ export class WebGPUFrameBindingCache {
 	private _packFogUniformData(
 		features: WebGPUFeatureState
 	): Float32Array<ArrayBuffer> {
-		const source = features.fogOptions ?? DEFAULT_FOG_OPTIONS;
+		const source =
+			features.postProcess.getOptions<FogOptions>(FOG_PASS_ID) ??
+			DEFAULT_FOG_OPTIONS;
 		const color = source.color ?? DEFAULT_FOG_OPTIONS.color;
 		const start = Math.max(
 			0,
@@ -714,7 +723,7 @@ export class WebGPUFrameBindingCache {
 			finiteOr(source.density, DEFAULT_FOG_OPTIONS.density)
 		);
 		const sceneFogEnabled =
-			features.enableFog &&
+			features.postProcess.isEnabled(FOG_PASS_ID) &&
 			(source.application ?? DEFAULT_FOG_OPTIONS.application) === "scene";
 		const strength = sceneFogEnabled ?
 			Math.max(0, finiteOr(source.strength, DEFAULT_FOG_OPTIONS.strength))
