@@ -3,15 +3,15 @@ import { SoftwareBackend } from "../../../src/renderers/SoftwareBackend.ts";
 import { WebGPUBackend } from "../../../src/renderers/WebGPUBackend.ts";
 import { WebGLBackend } from "../../../src/renderers/WebGLBackend.ts";
 import { FakeImageData as MockImageData } from "../../helpers/fakes.mjs";
-import { createBackendSession } from "../../helpers/TestRenderBackend.mjs";
+import { attachBackend } from "../../helpers/TestRenderBackend.mjs";
 
 function run() {
 	const softwareProvider = new SoftwareBackend();
 	const webgpuProvider = new WebGPUBackend();
 	const webglProvider = new WebGLBackend();
-	const software = createBackendSession(softwareProvider);
-	const webgpu = createBackendSession(webgpuProvider);
-	const webgl = createBackendSession(webglProvider);
+	const software = attachBackend(softwareProvider);
+	const webgpu = attachBackend(webgpuProvider);
+	const webgl = attachBackend(webglProvider);
 
 	assert.equal(softwareProvider.id, "software");
 	assert.equal(webgpuProvider.id, "webgpu");
@@ -43,7 +43,7 @@ function run() {
 		postProcess: true,
 	});
 	assert.equal(
-		createBackendSession(
+		attachBackend(
 			new WebGPUBackend({ enableOcclusionCulling: false })
 		).profile.capabilities
 			.occlusionCulling,
@@ -82,7 +82,7 @@ function testSoftwareBackendReusesFrameImageData() {
 	globalThis.ImageData = MockImageData;
 
 	try {
-		const backend = createBackendSession(
+		const backend = attachBackend(
 			new SoftwareBackend(),
 			{ width: 2, height: 2 }
 		);
@@ -119,7 +119,7 @@ function testSoftwareBackendHandlesResizeDuringFrame() {
 
 	try {
 		const canvas = { width: 1, height: 1 };
-		const backend = createBackendSession(new SoftwareBackend(), canvas);
+		const backend = attachBackend(new SoftwareBackend(), canvas);
 		const attachments = backend.getAttachments({ width: 2, height: 2 });
 		const putCalls = [];
 

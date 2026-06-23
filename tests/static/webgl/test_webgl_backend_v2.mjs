@@ -2892,24 +2892,24 @@ function testShaderMaterialDrawBuffersMismatchResolution() {
 
 function testWebGLBackendParticleDeltaTimeClamp() {
 	const backend = new WebGLBackend();
-	const session = backend.createSession({
+	backend.attach({
 		surface: { canvas: {} },
 		events: { emit: () => {} },
 	});
 	const transient = new Map([
 		[PARTICLE_SIM_DELTA_TIME_SECONDS_KEY, 1000],
 	]);
-	const deltaTimeSeconds = session._resolveParticleDeltaTime({ transient });
+	const deltaTimeSeconds = backend._resolveParticleDeltaTime({ transient });
 	assert.equal(deltaTimeSeconds, 0.5);
 }
 
 async function testWebGLBackendWarmupDelegatesToFrameExecutor() {
 	const backend = new WebGLBackend();
-	const session = backend.createSession({
+	backend.attach({
 		surface: { canvas: {} },
 		events: { emit: () => {} },
 	});
-	session._frameExecutor = {
+	backend._frameExecutor = {
 		warmup() {
 			return {
 				phase: "webgl-programs",
@@ -2921,7 +2921,7 @@ async function testWebGLBackendWarmupDelegatesToFrameExecutor() {
 			};
 		},
 	};
-	const report = await session.warmup({
+	const report = await backend.warmup({
 		camera: {},
 		attachments: { width: 1, height: 1 },
 		features: {

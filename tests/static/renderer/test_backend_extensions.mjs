@@ -9,7 +9,7 @@ import {
 } from "../../../src/renderers/BackendExtensions.ts";
 import { RendererOcclusionCullingController } from "../../../src/renderers/RendererOcclusionCullingController.ts";
 import { WebGPUBackend } from "../../../src/renderers/WebGPUBackend.ts";
-import { createBackendSession } from "../../helpers/TestRenderBackend.mjs";
+import { attachBackend } from "../../helpers/TestRenderBackend.mjs";
 
 function testRegistryRejectsDuplicateIds() {
 	assert.throws(
@@ -100,7 +100,7 @@ function testOcclusionControllerUsesExtensionApi() {
 }
 
 function testWebGPURegistersExpectedExtensions() {
-	const session = createBackendSession(new WebGPUBackend());
+	const session = attachBackend(new WebGPUBackend());
 	const extensions = session.extensions.listExtensions();
 	assert.equal(extensions.length, 3);
 	assert.deepEqual(

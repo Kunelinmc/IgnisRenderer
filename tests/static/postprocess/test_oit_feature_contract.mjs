@@ -3,12 +3,12 @@ import { resolveFeatureState } from "../../../src/pipeline/FeatureResolver.ts";
 import { WebGPUBackend } from "../../../src/renderers/WebGPUBackend.ts";
 import { WebGLBackend } from "../../../src/renderers/WebGLBackend.ts";
 import { SoftwareBackend } from "../../../src/renderers/SoftwareBackend.ts";
-import { createBackendSession } from "../../helpers/TestRenderBackend.mjs";
+import { attachBackend } from "../../helpers/TestRenderBackend.mjs";
 
 function testEnableOITNegotiationAcrossBackends() {
-	const webgpu = createBackendSession(new WebGPUBackend());
-	const webgl = createBackendSession(new WebGLBackend());
-	const software = createBackendSession(new SoftwareBackend());
+	const webgpu = attachBackend(new WebGPUBackend());
+	const webgl = attachBackend(new WebGLBackend());
+	const software = attachBackend(new SoftwareBackend());
 
 	const request = {
 		enableLighting: true,
@@ -57,7 +57,7 @@ function testEnableOITNegotiationAcrossBackends() {
 }
 
 function testEnableOITDisabledRequestHasNoWarning() {
-	const webgl = createBackendSession(new WebGLBackend());
+	const webgl = attachBackend(new WebGLBackend());
 	const resolved = resolveFeatureState(
 		{
 			enableLighting: true,

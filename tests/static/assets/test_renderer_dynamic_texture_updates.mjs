@@ -35,7 +35,7 @@ class StubBackend extends TestRenderBackend {
 	}
 
 	async initialize() {
-		this.initCanvas = this.sessionContext.surface.canvas;
+		this.initCanvas = this.attachContext.surface.canvas;
 	}
 
 	onDeviceLost(info) {
@@ -43,7 +43,7 @@ class StubBackend extends TestRenderBackend {
 	}
 
 	restore() {
-		this.restoreCanvases.push(this.sessionContext.surface.canvas);
+		this.restoreCanvases.push(this.attachContext.surface.canvas);
 	}
 
 	resize() {}
@@ -191,7 +191,7 @@ async function run() {
 			message: "simulated loss",
 		};
 		backend.onDeviceLost(deviceLostInfo);
-		backend.sessionContext.events.emit({
+		backend.attachContext.events.emit({
 			type: "device-lost",
 			info: deviceLostInfo,
 		});
@@ -208,7 +208,7 @@ async function run() {
 		assert.equal(backend.restoreCanvases[0], canvas);
 
 		await testRendererPostProcessCleanupBridge(canvas);
-		backend.sessionContext.events.emit({
+		backend.attachContext.events.emit({
 			type: "resource-lifecycle",
 			event: {
 				resource: "postprocess",

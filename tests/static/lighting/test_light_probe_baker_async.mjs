@@ -73,7 +73,7 @@ async function testExplicitWebGPUModeRequiresSource() {
 		}),
 		(error) =>
 			error instanceof Error &&
-			error.message.includes("no renderer, backend session, or compute source")
+			error.message.includes("no renderer, attached backend, or compute source")
 	);
 }
 

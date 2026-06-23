@@ -16,7 +16,8 @@ export class TestRenderBackend {
 		};
 		this.frameScheduling = "on-demand";
 		this.extensions = createRenderBackendExtensionRegistry([]);
-		this.sessionContext = null;
+		this.attachContext = null;
+		this.attached = false;
 	}
 
 	get profile() {
@@ -36,9 +37,12 @@ export class TestRenderBackend {
 		};
 	}
 
-	createSession(context) {
-		this.sessionContext = context;
-		return this;
+	attach(context) {
+		if (this.attached) {
+			throw new Error("TestRenderBackend is already attached to a renderer.");
+		}
+		this.attachContext = context;
+		this.attached = true;
 	}
 
 	async initialize() {}
@@ -62,9 +66,10 @@ export class TestRenderBackend {
 	destroy() {}
 }
 
-export function createBackendSession(provider, canvas = {}) {
-	return provider.createSession({
+export function attachBackend(backend, canvas = {}) {
+	backend.attach({
 		surface: { canvas },
 		events: { emit: () => {} },
 	});
+	return backend;
 }

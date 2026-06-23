@@ -381,8 +381,8 @@ async function testWarmupHintsFollowPlanPostProcessPasses() {
 }
 
 function testBackendPostProcessSurfaceKeepsOnlyExecutorBridge() {
-	const provider = new WebGPUBackend();
-	const backend = provider.createSession({
+	const backend = new WebGPUBackend();
+	backend.attach({
 		surface: { canvas: {} },
 		events: { emit: () => {} },
 	});
@@ -400,8 +400,8 @@ function testBackendPostProcessSurfaceKeepsOnlyExecutorBridge() {
 }
 
 function testWebGPUOcclusionExtensionDescriptor() {
-	const provider = new WebGPUBackend();
-	const backend = provider.createSession({
+	const backend = new WebGPUBackend();
+	backend.attach({
 		surface: { canvas: {} },
 		events: { emit: () => {} },
 	});

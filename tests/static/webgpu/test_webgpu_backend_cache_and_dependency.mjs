@@ -186,20 +186,20 @@ class FakeDevice {
 }
 
 function createBackend(options = undefined) {
-	const provider = new WebGPUBackend(options);
-	const session = provider.createSession({
+	const backend = new WebGPUBackend(options);
+	backend.attach({
 		surface: { canvas: {} },
 		events: { emit: () => {} },
 	});
 	const device = new FakeDevice();
 	const queueSubmissions = [];
-	session._device = device;
-	session._queue = {
+	backend._device = device;
+	backend._queue = {
 		submit(commands) {
 			queueSubmissions.push(commands);
 		},
 	};
-	return { backend: session, device, queueSubmissions };
+	return { backend, device, queueSubmissions };
 }
 
 function createDeferred() {

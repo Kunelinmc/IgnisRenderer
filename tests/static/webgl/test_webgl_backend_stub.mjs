@@ -192,7 +192,8 @@ function createFakeCanvas(gl) {
 }
 
 function createWebGLSession(options, canvas, handlers = {}) {
-	return new WebGLBackend(options).createSession({
+	const backend = new WebGLBackend(options);
+	backend.attach({
 		surface: { canvas },
 		events: {
 			emit(event) {
@@ -204,6 +205,7 @@ function createWebGLSession(options, canvas, handlers = {}) {
 			},
 		},
 	});
+	return backend;
 }
 
 function captureWarnMessages(run) {

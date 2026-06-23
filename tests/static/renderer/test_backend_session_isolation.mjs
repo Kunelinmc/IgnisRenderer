@@ -1,102 +1,133 @@
 import assert from "node:assert/strict";
 
+import { Renderer } from "../../../src/renderers/Renderer.ts";
 import { SoftwareBackend } from "../../../src/renderers/SoftwareBackend.ts";
 import { WebGLBackend } from "../../../src/renderers/WebGLBackend.ts";
 import { WebGPUBackend } from "../../../src/renderers/WebGPUBackend.ts";
 import { WEBGPU_COMPUTE_EXTENSION } from "../../../src/renderers/BackendExtensions.ts";
 
-const LEGACY_RUNTIME_KEYS = [
-	"initialize",
-	"restore",
-	"resize",
-	"getAttachments",
-	"beginFrame",
-	"executePass",
-	"endFrame",
-	"abortFrame",
-	"destroy",
-	"profile",
-	"extensions",
-];
-
-function createSession(provider, canvas, events) {
-	return provider.createSession({
+function attachBackend(backend, canvas = {}, events = []) {
+	backend.attach({
 		surface: { canvas },
 		events: { emit: (event) => events.push(event) },
 	});
+	return backend;
 }
 
-function assertProviderOnly(provider) {
-	assert.equal(typeof provider.id, "string");
-	assert.equal(typeof provider.createSession, "function");
-	for (const key of LEGACY_RUNTIME_KEYS) {
-		assert.equal(key in provider, false, `provider must not expose ${key}`);
-	}
+function assertRuntimeSurface(backend) {
+	assert.equal(typeof backend.id, "string");
+	assert.equal(typeof backend.attach, "function");
+	assert.equal(typeof backend.initialize, "function");
+	assert.equal(typeof backend.restore, "function");
+	assert.equal(typeof backend.resize, "function");
+	assert.equal(typeof backend.getAttachments, "function");
+	assert.equal(typeof backend.beginFrame, "function");
+	assert.equal(typeof backend.executePass, "function");
+	assert.equal(typeof backend.endFrame, "function");
+	assert.equal(typeof backend.abortFrame, "function");
+	assert.equal(typeof backend.destroy, "function");
+	assert.ok(backend.profile);
+	assert.ok(backend.extensions);
+	assert.equal("createSession" in backend, false);
 }
 
-function assertSessionProfileOnly(session) {
+function assertProfileOnly(backend) {
 	for (const key of ["type", "capabilities", "frameScheduling"]) {
-		assert.equal(key in session, false, `session must use profile instead of ${key}`);
+		assert.equal(key in backend, false, `backend must use profile instead of ${key}`);
 	}
 }
 
-function testSoftwareSessionsOwnIndependentAttachments() {
-	const provider = new SoftwareBackend();
-	assertProviderOnly(provider);
-
-	const first = createSession(provider, { width: 4, height: 4 }, []);
-	const second = createSession(provider, { width: 8, height: 8 }, []);
-	assertSessionProfileOnly(first);
-	assertSessionProfileOnly(second);
-	const firstAttachments = first.getAttachments({ width: 4, height: 4 });
-	const secondAttachments = second.getAttachments({ width: 8, height: 8 });
-
-	assert.notStrictEqual(first, second);
-	assert.notStrictEqual(firstAttachments.pixels, secondAttachments.pixels);
-	assert.equal(firstAttachments.pixels.length, 4 * 4 * 4);
-	assert.equal(secondAttachments.pixels.length, 8 * 8 * 4);
+function assertSecondAttachThrows(backend) {
+	attachBackend(backend, {});
+	assert.throws(
+		() => attachBackend(backend, {}),
+		/is already attached to a renderer/
+	);
 }
 
-function testWebGLSessionStateStaysScoped() {
-	const provider = new WebGLBackend();
-	assertProviderOnly(provider);
-
-	const firstEvents = [];
-	const secondEvents = [];
-	const first = createSession(provider, {}, firstEvents);
-	const second = createSession(provider, {}, secondEvents);
-	assertSessionProfileOnly(first);
-	assertSessionProfileOnly(second);
-
-	first.onDeviceLost({ reason: "test-loss" });
-
-	assert.notStrictEqual(first, second);
-	assert.equal(first._contextLost, true);
-	assert.equal(second._contextLost, false);
-	assert.equal(secondEvents.length, 0);
+function testBackendsExposeRuntimeSurface() {
+	for (const backend of [
+		new SoftwareBackend(),
+		new WebGLBackend(),
+		new WebGPUBackend(),
+	]) {
+		assertRuntimeSurface(backend);
+		assertProfileOnly(backend);
+	}
 }
 
-function testWebGPUSessionExtensionsStayScoped() {
-	const provider = new WebGPUBackend();
-	assertProviderOnly(provider);
+function testBackendsRejectSecondAttach() {
+	assertSecondAttachThrows(new SoftwareBackend());
+	assertSecondAttachThrows(new WebGLBackend());
+	assertSecondAttachThrows(new WebGPUBackend());
+}
 
-	const first = createSession(provider, {}, []);
-	const second = createSession(provider, {}, []);
-	assertSessionProfileOnly(first);
-	assertSessionProfileOnly(second);
-	const firstCompute = first.extensions.requireBackendExtension(
+function testSoftwareAttachmentsReflectAttachedRuntime() {
+	const backend = attachBackend(new SoftwareBackend(), { width: 4, height: 4 });
+	const attachments = backend.getAttachments({ width: 4, height: 4 });
+
+	assert.equal(attachments.pixels.length, 4 * 4 * 4);
+}
+
+function testWebGLStateStaysRuntimeScoped() {
+	const events = [];
+	const backend = attachBackend(new WebGLBackend(), {}, events);
+
+	backend.onDeviceLost({ reason: "test-loss" });
+
+	assert.equal(backend._contextLost, true);
+	assert.equal(events.length, 0);
+}
+
+function testWebGPUExtensionsStayStable() {
+	const backend = attachBackend(new WebGPUBackend(), {});
+	const firstCompute = backend.extensions.requireBackendExtension(
 		WEBGPU_COMPUTE_EXTENSION
 	);
-	const secondCompute = second.extensions.requireBackendExtension(
+	const secondCompute = backend.extensions.requireBackendExtension(
 		WEBGPU_COMPUTE_EXTENSION
 	);
 
-	assert.notStrictEqual(first, second);
-	assert.notStrictEqual(first.extensions, second.extensions);
-	assert.notStrictEqual(firstCompute, secondCompute);
+	assert.strictEqual(firstCompute, secondCompute);
+	assert.strictEqual(backend.extensions, backend.extensions);
 }
 
-testSoftwareSessionsOwnIndependentAttachments();
-testWebGLSessionStateStaysScoped();
-testWebGPUSessionExtensionsStayScoped();
-console.log("Backend session isolation tests passed");
+function testRendererRejectsReusedBackend() {
+	const backend = new SoftwareBackend();
+	const originalWindow = globalThis.window;
+	if (!originalWindow) {
+		globalThis.window = { devicePixelRatio: 1 };
+	}
+	const canvasA = {
+		width: 1,
+		height: 1,
+		getBoundingClientRect: () => ({ width: 1, height: 1 }),
+		getContext: () => null,
+	};
+	const canvasB = {
+		width: 1,
+		height: 1,
+		getBoundingClientRect: () => ({ width: 1, height: 1 }),
+		getContext: () => null,
+	};
+
+	try {
+		new Renderer({ backend, canvas: canvasA });
+		assert.throws(
+			() => new Renderer({ backend, canvas: canvasB }),
+			/SoftwareBackend is already attached to a renderer/
+		);
+	} finally {
+		if (!originalWindow) {
+			delete globalThis.window;
+		}
+	}
+}
+
+testBackendsExposeRuntimeSurface();
+testBackendsRejectSecondAttach();
+testSoftwareAttachmentsReflectAttachedRuntime();
+testWebGLStateStaysRuntimeScoped();
+testWebGPUExtensionsStayStable();
+testRendererRejectsReusedBackend();
+console.log("Backend one-to-one runtime tests passed");

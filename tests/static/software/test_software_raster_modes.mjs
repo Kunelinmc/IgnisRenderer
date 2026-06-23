@@ -21,10 +21,12 @@ function createRendererBridge() {
 }
 
 function createSoftwareSession(options = {}) {
-	return new SoftwareBackend(options).createSession({
+	const backend = new SoftwareBackend(options);
+	backend.attach({
 		surface: createRendererBridge(),
 		events: { emit: () => {} },
 	});
+	return backend;
 }
 
 async function captureWarnMessagesAsync(run) {
