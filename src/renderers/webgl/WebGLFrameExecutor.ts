@@ -166,6 +166,10 @@ import {
 	type WebGLSceneDepthVariantDescriptor,
 	type WebGLSceneVariantDescriptor,
 } from "./WebGLSceneProgramVariants";
+import { WebGLCustomRenderTargetRuntime } from "./WebGLCustomRenderTargetRuntime";
+import type { FramePass } from "../../pipeline/types";
+import type { RenderTargetReadbackOptions } from "../CustomRenderTargets";
+import type { TextureReadbackResult } from "../IComputeRuntime";
 
 export interface WebGLFrameExecutorOptions {
 	validatePrograms?: boolean;
@@ -260,6 +264,7 @@ export class WebGLFrameExecutor {
 	private _enableEarlyZPrepass = true;
 	private _postProcessRuntime: BackendPostProcessRuntime;
 	private _postProcessBridge: WebGLPostProcessBridge;
+	private _customRenderTargets: WebGLCustomRenderTargetRuntime;
 
 	constructor(
 		gl: WebGL2RenderingContext,
@@ -355,6 +360,7 @@ export class WebGLFrameExecutor {
 			16
 		);
 		this._clusteredLighting = new WebGLClusteredLightingRuntime(gl);
+		this._customRenderTargets = new WebGLCustomRenderTargetRuntime(gl);
 		this._postProcessBridge = new WebGLPostProcessBridge({
 			getGL: () => this._gl,
 			getProgramCompiler: () => this._programCompiler,
@@ -412,6 +418,7 @@ export class WebGLFrameExecutor {
 	public beginFrame(context: FrameContext): void {
 		this._programCompiler.beginFrame();
 		this._textures.beginFrame();
+		this._customRenderTargets.sync(context);
 		this._activeContext = context;
 		this._presentedInFrame = false;
 		this._modelMatrixKeysThisFrame.clear();
@@ -689,8 +696,28 @@ export class WebGLFrameExecutor {
 	}
 
 	public finishFrame(): void {
+		this._customRenderTargets.markFrameCommitted();
 		this._pruneModelMatrixCache();
 		this._activeContext = null;
+	}
+
+	public hasCustomRenderPass(pass: FramePass, context: FrameContext): boolean {
+		return this._customRenderTargets.hasPass(pass, context);
+	}
+
+	public executeCustomRenderPass(
+		pass: FramePass,
+		context: FrameContext
+	): Promise<void> {
+		return this._customRenderTargets.executePass(pass, context);
+	}
+
+	public readCustomRenderTargetColor(
+		id: string,
+		attachmentIndex?: number,
+		options?: RenderTargetReadbackOptions
+	): Promise<TextureReadbackResult> {
+		return this._customRenderTargets.readColor(id, attachmentIndex, options);
 	}
 
 	public createPostProcessResource(
@@ -822,6 +849,7 @@ export class WebGLFrameExecutor {
 	}
 
 	public abortFrame(): void {
+		this._customRenderTargets.markFrameAborted();
 		this._activeContext = null;
 		this._presentedInFrame = false;
 		this._presentSourceTexture = this._sceneColorTexture;
@@ -1216,6 +1244,7 @@ export class WebGLFrameExecutor {
 	}
 
 	public destroy(): void {
+		this._customRenderTargets.destroy();
 		this._destroyFrameTargets();
 		this._shadowPass.destroy();
 		this._particlePass.destroy();

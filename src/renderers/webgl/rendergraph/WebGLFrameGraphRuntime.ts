@@ -88,6 +88,12 @@ export class WebGLFrameGraphRuntime {
 		pass: FramePass,
 		context: FrameContext
 	): void | Promise<void> {
+		if (
+			typeof this._executor.hasCustomRenderPass === "function" &&
+			this._executor.hasCustomRenderPass(pass, context)
+		) {
+			return this._executor.executeCustomRenderPass(pass, context);
+		}
 		const plan = this._planner.planStage(
 			pass,
 			context,

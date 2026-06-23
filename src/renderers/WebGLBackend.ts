@@ -14,6 +14,8 @@ import type {
 	WarmupOptions,
 	WarmupReport,
 } from "./IRenderBackend";
+import type { RenderTargetReadbackOptions } from "./CustomRenderTargets";
+import type { TextureReadbackResult } from "./IComputeRuntime";
 import { WebGLFrameExecutor } from "./webgl/WebGLFrameExecutor";
 import { WebGLFrameGraphRuntime } from "./webgl/rendergraph/WebGLFrameGraphRuntime";
 import { WebGLPostProcessExecutor } from "./webgl/WebGLPostProcessExecutor";
@@ -92,6 +94,9 @@ export class WebGLBackend implements IRenderBackend {
 			clusteredLighting: true,
 			oit: true,
 			occlusionCulling: false,
+			customRenderTargets: true,
+			customRenderPasses: true,
+			renderTargetReadback: true,
 		},
 		frameScheduling: "on-demand",
 		shadow: {
@@ -364,6 +369,23 @@ export class WebGLBackend implements IRenderBackend {
 
 	public skipPass(pass: FramePass): void {
 		this._markPassExecuted(pass.stage);
+	}
+
+	public readRenderTargetColor(
+		id: string,
+		attachmentIndex?: number,
+		options?: RenderTargetReadbackOptions
+	): Promise<TextureReadbackResult> {
+		if (!this._frameExecutor) {
+			return Promise.reject(
+				new Error("WebGL backend has not been initialized.")
+			);
+		}
+		return this._frameExecutor.readCustomRenderTargetColor(
+			id,
+			attachmentIndex,
+			options
+		);
 	}
 
 	public endFrame(): void {

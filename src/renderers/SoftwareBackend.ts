@@ -155,6 +155,9 @@ export class SoftwareBackend implements IRenderBackend {
 			clusteredLighting: false,
 			oit: false,
 			occlusionCulling: false,
+			customRenderTargets: false,
+			customRenderPasses: false,
+			renderTargetReadback: false,
 		},
 		frameScheduling: "on-demand",
 		shadow: {
@@ -406,6 +409,15 @@ export class SoftwareBackend implements IRenderBackend {
 
 	public async executePass(pass: FramePass, context: FrameContext): Promise<void> {
 		if (!this._mainPass || !this._reflectionPass) return;
+
+		if (context.customRenderPasses?.has(pass.stage)) {
+			const key = "software-custom-render-targets-unsupported";
+			Logger.warn(
+				`[${key}] Software backend does not support custom render targets or custom render passes yet; skipping pass "${pass.stage}".`,
+				{ scope: "SoftwareBackend", onceKey: key }
+			);
+			return;
+		}
 
 		const handler = this._passHandlers.get(pass.stage);
 		if (!handler) {
