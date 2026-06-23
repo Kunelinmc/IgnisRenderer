@@ -3,6 +3,10 @@ import type {
 	FrameContext,
 	FramePass,
 } from "../pipeline/types";
+import type {
+	RenderTargetReadbackOptions,
+} from "./CustomRenderTargets";
+import type { TextureReadbackResult } from "./IComputeRuntime";
 import type { RenderDirtyReason } from "../pipeline/incremental";
 import type { IShadowBackendCapabilities } from "../lights/shadows";
 import type { ShaderCompileError } from "../shaders/runtime";
@@ -80,6 +84,9 @@ export interface BackendCapabilities {
 	clusteredLighting: boolean;
 	oit: boolean;
 	occlusionCulling: boolean;
+	customRenderTargets: boolean;
+	customRenderPasses: boolean;
+	renderTargetReadback: boolean;
 }
 
 export interface RenderBackendProfile {
@@ -181,6 +188,11 @@ export interface IRenderBackend {
 	abortFrame(error?: unknown): void | Promise<void>;
 	executePass(pass: FramePass, context: FrameContext): void | Promise<void>;
 	skipPass?(pass: FramePass): void;
+	readRenderTargetColor?(
+		id: string,
+		attachmentIndex?: number,
+		options?: RenderTargetReadbackOptions
+	): Promise<TextureReadbackResult>;
 	warmup?(
 		context: FrameContext,
 		options?: WarmupOptions

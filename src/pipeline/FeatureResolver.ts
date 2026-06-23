@@ -15,6 +15,9 @@ const FEATURE_WARNING_KEYS: Record<keyof BackendCapabilities, string> = {
 	oit: "feature-oit",
 	clusteredLighting: "feature-clustered-lighting",
 	occlusionCulling: "feature-occlusion-culling",
+	customRenderTargets: "feature-custom-render-targets",
+	customRenderPasses: "feature-custom-render-passes",
+	renderTargetReadback: "feature-render-target-readback",
 };
 
 const FEATURE_WARNING_LABELS: Record<keyof BackendCapabilities, string> = {
@@ -26,6 +29,9 @@ const FEATURE_WARNING_LABELS: Record<keyof BackendCapabilities, string> = {
 	oit: "order-independent transparency",
 	clusteredLighting: "clustered lighting",
 	occlusionCulling: "occlusion culling",
+	customRenderTargets: "custom render targets",
+	customRenderPasses: "custom render passes",
+	renderTargetReadback: "render target readback",
 };
 
 export function resolveFeatureState(

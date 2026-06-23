@@ -22,6 +22,10 @@ import type { Texture } from "../core/Texture";
 import type { MeshAsset, MeshInstance } from "../meshes";
 import type { EnvironmentTintLinear } from "../core/Environment";
 import type { PostProcessPassRegistrySnapshot } from "../postprocess/PostProcessPass";
+import type {
+	CustomRenderPassRegistrySnapshot,
+	RenderTargetRegistrySnapshot,
+} from "../renderers/CustomRenderTargets";
 import type { OcclusionCandidate } from "./OcclusionCulling";
 import type { RenderBackendProfile } from "../renderers/IRenderBackend";
 
@@ -218,6 +222,8 @@ export interface FrameContext {
 	readonly attachments: FrameAttachments;
 	readonly features: ResolvedFeatureState;
 	readonly postProcess: PostProcessPassRegistrySnapshot;
+	readonly renderTargets: RenderTargetRegistrySnapshot;
+	readonly customRenderPasses: CustomRenderPassRegistrySnapshot;
 	readonly shadowMaps: Map<ShadowCastingLight, ShadowRenderSet>;
 	readonly scene: PreparedScene;
 	readonly shCoeffs: SHCoefficients;
