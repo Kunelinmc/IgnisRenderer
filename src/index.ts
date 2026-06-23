@@ -28,6 +28,25 @@ export type {
 } from "./core/types";
 export { Renderer } from "./renderers/Renderer";
 export type { RendererEvents } from "./renderers/Renderer";
+export {
+	CustomRenderPassRegistry,
+	CustomRenderPassRegistrySnapshot,
+	RenderTargetRegistry,
+	RenderTargetRegistrySnapshot,
+	type CustomRenderPassContext,
+	type CustomRenderPassDescriptor,
+	type CustomRenderPassRegistryChange,
+	type CustomRenderPassResourceFacade,
+	type CustomRenderTargetAttachment,
+	type CustomRenderTargetExecutionTarget,
+	type RenderTargetColorAttachmentDescriptor,
+	type RenderTargetDepthAttachmentDescriptor,
+	type RenderTargetDescriptor,
+	type RenderTargetHandle,
+	type RenderTargetReadbackOptions,
+	type RenderTargetRegistryChange,
+	type RenderTargetSizeDescriptor,
+} from "./renderers/CustomRenderTargets";
 export type {
 	IRenderBackend,
 	RenderBackendAttachContext,

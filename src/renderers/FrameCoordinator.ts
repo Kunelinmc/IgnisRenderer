@@ -20,6 +20,10 @@ import {
 	PostProcessPassRegistry,
 	type ResolvedPostProcessState,
 } from "../postprocess";
+import type {
+	CustomRenderPassRegistry,
+	RenderTargetRegistry,
+} from "./CustomRenderTargets";
 import { AnimationSimulationStage } from "../pipeline/AnimationSimulationStage";
 import { PreparedSceneBuilder } from "../pipeline/PreparedSceneBuilder";
 import {
@@ -77,6 +81,8 @@ export interface FrameCoordinatorDelegate {
 	readonly physicsSystem: PhysicsSystem | null;
 	readonly pipeline: RenderPipelineRegistry;
 	readonly postProcess: PostProcessPassRegistry;
+	readonly renderTargets: RenderTargetRegistry;
+	readonly renderPasses: CustomRenderPassRegistry;
 	readonly features: RendererFeatures;
 	readonly incrementalOptions: IncrementalRenderingOptions;
 	readonly animationAutoRender: boolean;
@@ -639,6 +645,8 @@ export class FrameCoordinator {
 			attachments,
 			features: resolved,
 			postProcess,
+			renderTargets: delegate.renderTargets.createSnapshot(),
+			customRenderPasses: delegate.renderPasses.createSnapshot(),
 			shadowMaps: shadowFrameState.shadowMaps,
 			scene: frame,
 			shCoeffs,

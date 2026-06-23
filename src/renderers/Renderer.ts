@@ -67,6 +67,12 @@ import type {
 	WarmupReport,
 } from "./IRenderBackend";
 import type { RenderBackendExtensionKey } from "./BackendExtensions";
+import {
+	CustomRenderPassRegistry,
+	RenderTargetRegistry,
+	type RenderTargetReadbackOptions,
+} from "./CustomRenderTargets";
+import type { TextureReadbackResult } from "./IComputeRuntime";
 import { RendererRuntime } from "./RendererRuntime";
 import {
 	FrameCoordinator,
@@ -129,6 +135,8 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 	public readonly features: RendererFeatures;
 	public readonly pipeline: RenderPipelineRegistry;
 	public readonly postProcess: PostProcessPassRegistry;
+	public readonly renderTargets: RenderTargetRegistry;
+	public readonly renderPasses: CustomRenderPassRegistry;
 	public animationAutoRender: boolean;
 	public readonly logger: Pick<LoggerStatic, "warn" | "error">;
 
@@ -176,6 +184,31 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 		this.pipeline = new RenderPipelineRegistry({
 			stages: createDefaultPipelineStages(),
 		});
+		this.renderTargets = new RenderTargetRegistry({
+			readColor: (
+				id: string,
+				attachmentIndex: number,
+				options?: RenderTargetReadbackOptions
+			): Promise<TextureReadbackResult> =>
+				this._readRenderTargetColor(id, attachmentIndex, options),
+		});
+		this.renderPasses = new CustomRenderPassRegistry({
+			registerPipelineStage: (pass) => {
+				this.pipeline.registerPipelineStage({
+					id: pass.id,
+					kind: "backend-pass",
+					dependsOn: pass.dependsOn ?? ["prepared-scene-build"],
+					shouldRun: (context) => {
+						if (!context.frameContext?.renderTargets.has(pass.target)) {
+							return false;
+						}
+						return pass.shouldRun ? pass.shouldRun(context) : true;
+					},
+					incremental: pass.incremental,
+				});
+			},
+			unregisterPipelineStage: (id) => this.pipeline.unregisterPipelineStage(id),
+		});
 
 		this.postProcess = new PostProcessPassRegistry();
 		this.postProcess.on("change", (change) => {
@@ -197,6 +230,22 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 
 		this.postProcess.registerPass(new ToneMappingPass({ enabled: true }));
 		this.postProcess.registerPass(new GammaPass({ enabled: true }));
+		this.renderTargets.on("change", () => {
+			if (this._scene) {
+				this._markFrameDirty("unknown");
+			} else {
+				this._frameDirty = true;
+				this._pendingDirtyReasonMask |= renderDirtyReasonToMask("unknown");
+			}
+		});
+		this.renderPasses.on("change", () => {
+			if (this._scene) {
+				this._markFrameDirty("unknown");
+			} else {
+				this._frameDirty = true;
+				this._pendingDirtyReasonMask |= renderDirtyReasonToMask("unknown");
+			}
+		});
 
 		backend.attach({
 				surface: { canvas },
@@ -799,6 +848,22 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 	 */
 	public unregisterFrameTransientContributor(contributor: FrameTransientContributor): void {
 		this._frameTransientContributors.delete(contributor);
+	}
+
+	private _readRenderTargetColor(
+		id: string,
+		attachmentIndex: number,
+		options?: RenderTargetReadbackOptions
+	): Promise<TextureReadbackResult> {
+		const read = this._runtime.backend.readRenderTargetColor;
+		if (typeof read !== "function") {
+			return Promise.reject(
+				new Error(
+					`${this.backendProfile.id} backend does not support render target readback.`
+				)
+			);
+		}
+		return read.call(this._runtime.backend, id, attachmentIndex, options);
 	}
 
 	/**
