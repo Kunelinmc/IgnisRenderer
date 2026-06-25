@@ -35,8 +35,8 @@ fn reconstructWorldPosition(coord: vec2<u32>) -> vec4<f32> {
 	if (depth >= 0.999999) {
 		return vec4<f32>(0.0, 0.0, 0.0, 0.0);
 	}
-	let screen = (vec2<f32>(coord) + vec2<f32>(0.5)) /
-		vec2<f32>(max(params.width, 1u), max(params.height, 1u));
+	let screen = (vec2<f32>(f32(coord.x), f32(coord.y)) + vec2<f32>(0.5)) /
+		vec2<f32>(f32(max(params.width, 1u)), f32(max(params.height, 1u)));
 	let ndc = vec3<f32>(
 		screen.x * 2.0 - 1.0,
 		1.0 - screen.y * 2.0,
@@ -53,8 +53,8 @@ fn markFeedbackPage(worldPosition: vec3<f32>, layoutIndex: u32, cascadeIndex: u3
 	if (layoutIndex >= arrayLength(&layouts)) {
 		return;
 	}
-	let layout = layouts[layoutIndex];
-	if (layout.feedbackMode == 0u || cascadeIndex >= layout.cascadeCount) {
+	let pageLayout = layouts[layoutIndex];
+	if (pageLayout.feedbackMode == 0u || cascadeIndex >= pageLayout.cascadeCount) {
 		return;
 	}
 	let matrixIndex = layoutIndex * 4u + cascadeIndex;
@@ -73,14 +73,14 @@ fn markFeedbackPage(worldPosition: vec3<f32>, layoutIndex: u32, cascadeIndex: u3
 	) {
 		return;
 	}
-	let gridSize = max(layout.pageGridSize, 1u);
+	let gridSize = max(pageLayout.pageGridSize, 1u);
 	let u = clamp(ndc.x * 0.5 + 0.5, 0.0, 0.999999);
 	let v = clamp(0.5 - ndc.y * 0.5, 0.0, 0.999999);
 	let pageX = min(u32(floor(u * f32(gridSize))), gridSize - 1u);
 	let pageY = min(u32(floor(v * f32(gridSize))), gridSize - 1u);
 	let tableIndex =
-		layout.pageTableBase +
-		cascadeIndex * layout.pageTableCascadeStride +
+		pageLayout.pageTableBase +
+		cascadeIndex * pageLayout.pageTableCascadeStride +
 		pageY * gridSize +
 		pageX;
 	if (
@@ -95,7 +95,9 @@ fn markFeedbackPage(worldPosition: vec3<f32>, layoutIndex: u32, cascadeIndex: u3
 
 @compute @workgroup_size(8, 8, 1)
 fn csMain(@builtin(global_invocation_id) globalId: vec3<u32>) {
-	if (globalId.x >= params.width || globalId.y >= params.height) {
+	let STRIDE: u32 = 8u;
+	let pixelCoord = globalId.xy * STRIDE;
+	if (pixelCoord.x >= params.width || pixelCoord.y >= params.height) {
 		return;
 	}
 	if (
@@ -106,7 +108,7 @@ fn csMain(@builtin(global_invocation_id) globalId: vec3<u32>) {
 	) {
 		return;
 	}
-	let world = reconstructWorldPosition(globalId.xy);
+	let world = reconstructWorldPosition(pixelCoord);
 	if (world.w <= 0.5) {
 		return;
 	}

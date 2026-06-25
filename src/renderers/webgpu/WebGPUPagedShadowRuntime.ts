@@ -267,7 +267,7 @@ export class WebGPUPagedShadowRuntime {
 				this._casterBoundsBuffer,
 				this._cascadeViewProjectionBuffer,
 			],
-			Math.max(1, Math.ceil(Math.max(1, this._casterBoundsData.length / 4) / 64)),
+			Math.max(1, Math.ceil(Math.max(this._pageTableLength, this._casterBoundsData.length / 4) / 64)),
 			1,
 			1
 		);
@@ -305,6 +305,7 @@ export class WebGPUPagedShadowRuntime {
 				this._compactedRequestsBuffer,
 				this._countersBuffer,
 				this._pageMetadataBuffer,
+				this._freeListBuffer,
 			],
 			1,
 			1,
@@ -346,8 +347,8 @@ export class WebGPUPagedShadowRuntime {
 				request.feedbackDepthTexture,
 				this._feedbackCameraBuffer,
 			],
-			Math.max(1, Math.ceil(Math.max(1, request.context.attachments.width) / 8)),
-			Math.max(1, Math.ceil(Math.max(1, request.context.attachments.height) / 8)),
+			Math.max(1, Math.ceil(Math.max(1, request.context.attachments.width) / 64)),
+			Math.max(1, Math.ceil(Math.max(1, request.context.attachments.height) / 64)),
 			1
 		);
 		this._swapFeedbackBuffers();
@@ -850,6 +851,7 @@ export class WebGPUPagedShadowRuntime {
 		const pageTable = new Uint32Array(this._pageTableLength);
 		pageTable.fill(WEBGPU_PAGED_SHADOW_NON_RESIDENT);
 		this._backend.writeBuffer(this._pageTableBuffer, pageTable);
+		this._counters[2] = this._physicalPageCount;
 		if (this._pageMetadataBuffer) {
 			this._backend.writeBuffer(
 				this._pageMetadataBuffer,
@@ -1092,17 +1094,23 @@ export class WebGPUPagedShadowRuntime {
 	private _resetGpuRequestBuffers(): void {
 		this._pageRequestFlags.fill(0);
 		this._compactedRequests.fill(0);
-		this._counters.fill(0);
+		this._counters[0] = 0;
+		this._counters[1] = 0;
 		this._dirtyPhysicalPages.fill(0);
 		for (const [buffer, data] of [
 			[this._pageRequestFlagsBuffer, this._pageRequestFlags],
 			[this._compactedRequestsBuffer, this._compactedRequests],
-			[this._countersBuffer, this._counters],
 			[this._dirtyPhysicalPagesBuffer, this._dirtyPhysicalPages],
 		] as Array<[IRenderBuffer | null, Uint32Array]>) {
 			if (buffer) {
 				this._backend.writeBuffer(buffer, data as Uint32Array<ArrayBuffer>);
 			}
+		}
+		if (this._countersBuffer) {
+			this._backend.writeBuffer(
+				this._countersBuffer,
+				new Uint32Array(this._counters.buffer, 0, 2)
+			);
 		}
 	}
 

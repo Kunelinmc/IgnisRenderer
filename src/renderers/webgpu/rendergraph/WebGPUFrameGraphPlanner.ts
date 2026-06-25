@@ -413,6 +413,19 @@ export class WebGPUFrameGraphPlanner {
 		if (!this._hasPagedShadowWork(context) || state.sceneTargetMode === "single") {
 			return nodes;
 		}
+		let hasScreenFeedback = false;
+		for (const renderSet of context.shadowMaps.values()) {
+			if (
+				renderSet.storageMode === "paged" &&
+				renderSet.layout?.paged?.feedbackMode === "screen-feedback"
+			) {
+				hasScreenFeedback = true;
+				break;
+			}
+		}
+		if (!hasScreenFeedback) {
+			return nodes;
+		}
 		nodes.push(
 			this._node(pass, "paged-shadow-feedback", "WebGPUPagedShadowFeedback", {
 				reads: [

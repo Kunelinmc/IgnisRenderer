@@ -53,13 +53,15 @@ fn markFeedbackRequests(index: u32) {
 
 @compute @workgroup_size(64)
 fn csMain(@builtin(global_invocation_id) globalId: vec3<u32>) {
-	let casterIndex = globalId.x;
-	markFeedbackRequests(casterIndex);
-	if (params.conservativeWarmup == 0u || casterIndex >= params.casterCount) {
+	let index = globalId.x;
+	if (index < params.pageTableLength) {
+		markFeedbackRequests(index);
+	}
+	if (params.conservativeWarmup == 0u || index >= params.casterCount) {
 		return;
 	}
 
-	let bounds = casterBounds[casterIndex].centerRadius;
+	let bounds = casterBounds[index].centerRadius;
 	let center = bounds.xyz;
 	let radius = max(bounds.w, 0.0);
 	let corners = array<vec3<f32>, 8>(

@@ -38,6 +38,11 @@ function run() {
 				{ id: "light-0" },
 				{
 					storageMode: "paged",
+					layout: {
+						paged: {
+							feedbackMode: "screen-feedback",
+						},
+					},
 				},
 			],
 		]),

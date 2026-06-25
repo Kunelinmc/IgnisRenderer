@@ -20,6 +20,7 @@ struct PagedShadowAllocationParams {
 @group(0) @binding(3) var<storage, read> compactedRequests: array<u32>;
 @group(0) @binding(4) var<storage, read_write> counters: array<atomic<u32>>;
 @group(0) @binding(5) var<storage, read_write> pageMetadata: array<u32>;
+@group(0) @binding(6) var<storage, read_write> freeList: array<u32>;
 
 fn residencyBase(physicalPageIndex: u32) -> u32 {
 	return physicalPageIndex * PAGED_SHADOW_RESIDENCY_UINTS;
@@ -78,14 +79,23 @@ fn csMain() {
 		}
 
 		var selected = PAGED_SHADOW_NON_RESIDENT;
-		for (var pageIndex = 0u; pageIndex < params.physicalPageCount; pageIndex = pageIndex + 1u) {
-			let base = residencyBase(pageIndex);
-			if (base + 7u >= arrayLength(&residencyState)) {
-				continue;
+		let freeCount = atomicLoad(&counters[2]);
+		if (freeCount > 0u) {
+			let freeListIndex = atomicSub(&counters[2], 1u) - 1u;
+			if (freeListIndex < arrayLength(&freeList)) {
+				selected = freeList[freeListIndex];
 			}
-			if (residencyState[base] == PAGED_SHADOW_NON_RESIDENT) {
-				selected = pageIndex;
-				break;
+		}
+		if (selected == PAGED_SHADOW_NON_RESIDENT) {
+			for (var pageIndex = 0u; pageIndex < params.physicalPageCount; pageIndex = pageIndex + 1u) {
+				let base = residencyBase(pageIndex);
+				if (base + 7u >= arrayLength(&residencyState)) {
+					continue;
+				}
+				if (residencyState[base] == PAGED_SHADOW_NON_RESIDENT) {
+					selected = pageIndex;
+					break;
+				}
 			}
 		}
 		if (selected == PAGED_SHADOW_NON_RESIDENT) {
@@ -150,6 +160,10 @@ fn csMain() {
 			if (metaBase + 7u < arrayLength(&pageMetadata)) {
 				pageMetadata[metaBase] = PAGED_SHADOW_NON_RESIDENT;
 				pageMetadata[metaBase + 4u] = 0u;
+			}
+			let freeListIndex = atomicAdd(&counters[2], 1u);
+			if (freeListIndex < arrayLength(&freeList)) {
+				freeList[freeListIndex] = pageIndex;
 			}
 		}
 	}
