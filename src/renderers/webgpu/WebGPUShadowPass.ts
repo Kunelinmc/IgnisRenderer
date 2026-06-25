@@ -104,7 +104,7 @@ interface InstanceBufferGroup {
 	capacity: number;
 }
 
-const SHADOW_INSTANCE_DATA_UINTS = 8;
+const SHADOW_INSTANCE_DATA_UINTS = 12;
 
 export class WebGPUShadowPass {
 	private _backend: WebGPUBackend;
@@ -372,45 +372,33 @@ export class WebGPUShadowPass {
 			colorAttachments: [],
 			depthStencilAttachment: {
 				view: atlasView,
-				depthClearValue: 1,
-				depthLoadOp: "clear",
+				depthLoadOp: "load",
 				depthStoreOp: "store",
 			},
 		});
 
 		passEncoder.setPipeline(getWebGPURenderPipeline(this._pipeline));
-		let slotIndex = 0;
-		for (const page of pages) {
-			passEncoder.setViewport(
-				page.viewportX,
-				page.viewportY,
-				page.viewportSize,
-				page.viewportSize,
-				0,
-				1
-			);
-			passEncoder.setScissorRect(
-				page.viewportX,
-				page.viewportY,
-				page.viewportSize,
-				page.viewportSize
-			);
-			Matrix4.multiply(
-				this._depthRemapMatrix,
-				page.viewProjection,
-				this._shadowViewProjectionMatrix
-			);
-			this._frustum.setFromMatrix(page.viewProjection);
-			this._drawShadowCasters(
-				passEncoder,
-				drawCandidates,
-				this._shadowViewProjectionMatrix,
-				context,
-				animationBindingCache,
-				slotIndex
-			);
-			slotIndex++;
-		}
+		const atlasSize = Math.max(
+			1,
+			Math.floor(
+				physicalDepthAtlas.width ??
+				pages.reduce(
+					(max, page) =>
+						Math.max(max, page.viewportX + page.viewportSize, page.viewportY + page.viewportSize),
+					1
+				)
+			)
+		);
+		passEncoder.setViewport(0, 0, atlasSize, atlasSize, 0, 1);
+		passEncoder.setScissorRect(0, 0, atlasSize, atlasSize);
+		this._drawPagedShadowCasters(
+			passEncoder,
+			drawCandidates,
+			pages,
+			atlasSize,
+			context,
+			animationBindingCache
+		);
 		passEncoder.end();
 		if (submitAtEnd) {
 			this._requireBackendQueue().submit([commandEncoder.finish()]);
@@ -474,6 +462,173 @@ export class WebGPUShadowPass {
 		this._fallbackStorageBuffer?.destroy();
 		this._fallbackStorageBuffer = null;
 		this._frameId = 0;
+	}
+
+	private _drawPagedShadowCasters(
+		passEncoder: GPURenderPassEncoder,
+		drawCandidates: ShadowDrawCandidate[],
+		pages: readonly WebGPUPagedShadowResidentPage[],
+		atlasSize: number,
+		context: FrameContext,
+		animationBindingCache: Map<string, GPUBindGroup | null>
+	): void {
+		const { batches: drawBatches, bindGroup } =
+			this._buildPagedShadowDrawBatches(
+				drawCandidates,
+				pages,
+				atlasSize,
+				context,
+				animationBindingCache
+			);
+		if (drawBatches.length === 0 || !bindGroup) {
+			return;
+		}
+
+		passEncoder.setBindGroup(0, bindGroup);
+		for (const batch of drawBatches) {
+			passEncoder.setVertexBuffer(0, batch.candidate.vertexBuffer);
+			passEncoder.setIndexBuffer(batch.candidate.indexBuffer, "uint32");
+			passEncoder.setBindGroup(1, batch.animationBindGroup);
+			passEncoder.drawIndexed(
+				batch.candidate.geometry.indexCount,
+				batch.instanceCount,
+				0,
+				0,
+				batch.firstInstance
+			);
+		}
+	}
+
+	private _buildPagedShadowDrawBatches(
+		drawCandidates: ShadowDrawCandidate[],
+		pages: readonly WebGPUPagedShadowResidentPage[],
+		atlasSize: number,
+		context: FrameContext,
+		animationBindingCache: Map<string, GPUBindGroup | null>
+	): { batches: ShadowInstancedDrawBatch[]; bindGroup: GPUBindGroup | null } {
+		const drawBatches: ShadowInstancedDrawBatch[] = [];
+		let instanceCount = 0;
+		for (const candidate of drawCandidates) {
+			const packet = candidate.packet;
+			if (!animationBindingCache.has(packet.id)) {
+				animationBindingCache.set(
+					packet.id,
+					this._resolveAnimationBinding(packet, candidate.geometry, context)
+				);
+			}
+			const animationBindGroup =
+				animationBindingCache.get(packet.id) ?? null;
+			if (!animationBindGroup) {
+				continue;
+			}
+
+			let firstInstance = -1;
+			let pageInstanceCount = 0;
+			for (const page of pages) {
+				this._frustum.setFromMatrix(page.viewProjection);
+				if (
+					!this._frustum.intersectsSphere(
+						packet.worldBounds.center,
+						packet.worldBounds.radius
+					)
+				) {
+					continue;
+				}
+
+				Matrix4.multiply(
+					this._depthRemapMatrix,
+					page.viewProjection,
+					this._shadowViewProjectionMatrix
+				);
+				Matrix4.multiply(
+					this._shadowViewProjectionMatrix,
+					packet.worldMatrix,
+					this._mvpMatrix
+				);
+
+				this._ensureInstanceDataCapacity(instanceCount + 1);
+				const mvpOffset = instanceCount * 16;
+				this._setMatrixInArray(this._mvpMatrix, this._instanceMvpData, mvpOffset);
+				const transmittanceOffset = instanceCount * 4;
+				this._instanceTransmittanceData[transmittanceOffset] = 1;
+				this._instanceTransmittanceData[transmittanceOffset + 1] = 1;
+				this._instanceTransmittanceData[transmittanceOffset + 2] = 1;
+				this._instanceTransmittanceData[transmittanceOffset + 3] = 1;
+				const metaOffset = instanceCount * SHADOW_INSTANCE_DATA_UINTS;
+				this._setShadowInstanceMetaInArray(
+					this._instanceMetaData,
+					metaOffset,
+					instanceCount,
+					0,
+					0,
+					0,
+					0,
+					page.viewportX,
+					page.viewportY,
+					page.viewportSize,
+					atlasSize,
+					1
+				);
+				if (firstInstance < 0) {
+					firstInstance = instanceCount;
+				}
+				instanceCount++;
+				pageInstanceCount++;
+			}
+
+			if (pageInstanceCount <= 0 || firstInstance < 0) {
+				continue;
+			}
+			const lastBatch = drawBatches[drawBatches.length - 1];
+			if (
+				lastBatch &&
+				lastBatch.animationBindGroup === animationBindGroup &&
+				lastBatch.candidate.vertexBuffer === candidate.vertexBuffer &&
+				lastBatch.candidate.indexBuffer === candidate.indexBuffer &&
+				lastBatch.candidate.geometry.indexCount === candidate.geometry.indexCount &&
+				lastBatch.firstInstance + lastBatch.instanceCount === firstInstance
+			) {
+				lastBatch.instanceCount += pageInstanceCount;
+				continue;
+			}
+			drawBatches.push({
+				candidate,
+				animationBindGroup,
+				firstInstance,
+				instanceCount: pageInstanceCount,
+			});
+		}
+
+		if (instanceCount === 0) {
+			return { batches: [], bindGroup: null };
+		}
+
+		const group = this._upsertShadowInstanceResources(instanceCount, 0, false);
+		if (!group) {
+			return { batches: [], bindGroup: null };
+		}
+		this._requireBackendQueue().writeBuffer(
+			group.mvpBuffer,
+			0,
+			this._instanceMvpData.subarray(0, instanceCount * 16) as Float32Array<ArrayBuffer>
+		);
+		this._requireBackendQueue().writeBuffer(
+			group.metaBuffer,
+			0,
+			this._instanceMetaData.subarray(
+				0,
+				instanceCount * SHADOW_INSTANCE_DATA_UINTS
+			) as Uint32Array<ArrayBuffer>
+		);
+		this._requireBackendQueue().writeBuffer(
+			group.transmittanceBuffer,
+			0,
+			this._instanceTransmittanceData.subarray(
+				0,
+				instanceCount * 4
+			) as Float32Array<ArrayBuffer>
+		);
+		return { batches: drawBatches, bindGroup: group.bindGroup };
 	}
 
 	private _drawShadowCasters(
@@ -1051,16 +1206,25 @@ export class WebGPUShadowPass {
 		vertexBaseOffset: number,
 		jointBaseOffset: number,
 		morphWeightBaseOffset: number,
-		morphDeltaBaseOffset: number
+		morphDeltaBaseOffset: number,
+		atlasOffsetX: number = 0,
+		atlasOffsetY: number = 0,
+		atlasPageSize: number = 0,
+		atlasSize: number = 0,
+		flags: number = 0
 	): void {
 		target[offset] = instanceBaseOffset >>> 0;
 		target[offset + 1] = vertexBaseOffset >>> 0;
 		target[offset + 2] = jointBaseOffset >>> 0;
 		target[offset + 3] = morphWeightBaseOffset >>> 0;
 		target[offset + 4] = morphDeltaBaseOffset >>> 0;
-		target[offset + 5] = 0;
-		target[offset + 6] = 0;
-		target[offset + 7] = 0;
+		target[offset + 5] = atlasOffsetX >>> 0;
+		target[offset + 6] = atlasOffsetY >>> 0;
+		target[offset + 7] = atlasPageSize >>> 0;
+		target[offset + 8] = atlasSize >>> 0;
+		target[offset + 9] = flags >>> 0;
+		target[offset + 10] = 0;
+		target[offset + 11] = 0;
 	}
 
 	private _collectShadowSlots(
