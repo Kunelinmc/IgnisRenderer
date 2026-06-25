@@ -221,9 +221,9 @@ fn vsMain(
 			f32(instanceData.atlasOffsetY)
 		);
 		let ndc = output.position.xy / vec2<f32>(max(abs(output.position.w), EPSILON));
-		let pageUv = ndc * 0.5 + vec2<f32>(0.5);
+		let pageUv = vec2<f32>(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5);
 		let atlasUv = (atlasOffset + pageUv * pageSize) / vec2<f32>(atlasSize);
-		let remappedNdc = atlasUv * 2.0 - vec2<f32>(1.0);
+		let remappedNdc = vec2<f32>(atlasUv.x * 2.0 - 1.0, 1.0 - atlasUv.y * 2.0);
 		output.position.x = remappedNdc.x * output.position.w;
 		output.position.y = remappedNdc.y * output.position.w;
 	}

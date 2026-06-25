@@ -1,7 +1,9 @@
 const DIRTY_PHYSICAL_PAGE_RECORD_UINTS: u32 = 8u;
 const DRAW_INDIRECT_UINTS: u32 = 5u;
 const SHADOW_INSTANCE_DATA_UINTS: u32 = 12u;
-const EPSILON: f32 = 0.000001;
+const PAGE_CLIP_XY_MARGIN: f32 = 4.0;
+const PAGE_CLIP_Z_MIN: f32 = -30.0;
+const PAGE_CLIP_Z_MAX: f32 = 10.0;
 
 struct PagedShadowDrawParams {
 	candidateCount: u32,
@@ -79,21 +81,30 @@ fn intersectsPage(bounds: vec4<f32>, viewProjection: mat4x4<f32>) -> bool {
 		center + vec3<f32>(-radius,  radius,  radius),
 		center + vec3<f32>( radius,  radius,  radius)
 	);
+	// Reject only when every AABB corner is outside the same loose clip plane.
+	var outsideLeft = true;
+	var outsideRight = true;
+	var outsideBottom = true;
+	var outsideTop = true;
+	var outsideNear = true;
+	var outsideFar = true;
 	for (var index = 0u; index < 8u; index = index + 1u) {
 		let clip = viewProjection * vec4<f32>(corners[index], 1.0);
-		if (abs(clip.w) <= EPSILON) {
-			continue;
-		}
-		let ndc = clip.xyz / vec3<f32>(clip.w);
-		if (
-			ndc.x >= -1.0 && ndc.x <= 1.0 &&
-			ndc.y >= -1.0 && ndc.y <= 1.0 &&
-			ndc.z >= -1.0 && ndc.z <= 1.0
-		) {
-			return true;
-		}
+		outsideLeft = outsideLeft && clip.x < -PAGE_CLIP_XY_MARGIN * clip.w;
+		outsideRight = outsideRight && clip.x > PAGE_CLIP_XY_MARGIN * clip.w;
+		outsideBottom = outsideBottom && clip.y < -PAGE_CLIP_XY_MARGIN * clip.w;
+		outsideTop = outsideTop && clip.y > PAGE_CLIP_XY_MARGIN * clip.w;
+		outsideNear = outsideNear && clip.z < PAGE_CLIP_Z_MIN * clip.w;
+		outsideFar = outsideFar && clip.z > PAGE_CLIP_Z_MAX * clip.w;
 	}
-	return false;
+	return !(
+		outsideLeft ||
+		outsideRight ||
+		outsideBottom ||
+		outsideTop ||
+		outsideNear ||
+		outsideFar
+	);
 }
 
 @compute @workgroup_size(1)

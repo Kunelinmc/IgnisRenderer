@@ -132,6 +132,12 @@ export class WebGPUShadowPass {
 	private _pipelineLayout: GPUPipelineLayout | null = null;
 	private _pipeline: IRenderPipeline | null = null;
 	private _transmittancePipeline: IRenderPipeline | null = null;
+	private _pagedClearShaderModule: IShaderModule | null = null;
+	private _pagedClearShaderModulePromise: Promise<IShaderModule> | null = null;
+	private _pagedClearBindGroupLayout: GPUBindGroupLayout | null = null;
+	private _pagedClearPipelineLayout: GPUPipelineLayout | null = null;
+	private _pagedClearPipeline: IRenderPipeline | null = null;
+	private _pagedClearParamsBuffer: GPUBuffer | null = null;
 	private _opaqueBufferGroups: InstanceBufferGroup[] = [];
 	private _transmittanceBufferGroups: InstanceBufferGroup[] = [];
 	private _pagedOpaqueBufferGroups: InstanceBufferGroup[] = [];
@@ -466,6 +472,19 @@ export class WebGPUShadowPass {
 				},
 			],
 		});
+		// Update clear params buffer on queue
+		const paramsArray = new Uint32Array([
+			resources.physicalPageCount,
+			resources.pageSize,
+			resources.physicalGridSize,
+			0, // pad
+		]);
+		this._requireBackendQueue().writeBuffer(
+			this._pagedClearParamsBuffer!,
+			0,
+			paramsArray
+		);
+
 		const animationBindingCache = new Map<string, GPUBindGroup | null>();
 		const { commandEncoder, submitAtEnd } =
 			this._resolveShadowCommandEncoder(frameEncoder);
@@ -480,9 +499,35 @@ export class WebGPUShadowPass {
 		});
 
 		const atlasSize = Math.max(1, resources.physicalAtlasSize);
-		passEncoder.setPipeline(getWebGPURenderPipeline(this._pipeline));
 		passEncoder.setViewport(0, 0, atlasSize, atlasSize, 0, 1);
 		passEncoder.setScissorRect(0, 0, atlasSize, atlasSize);
+
+		// Clear dirty pages first
+		if (this._pagedClearPipeline && this._pagedClearBindGroupLayout) {
+			const clearBindGroup = this._requireBackendDevice().createBindGroup({
+				label: "WebGPUPagedShadowClearBindGroup",
+				layout: this._pagedClearBindGroupLayout,
+				entries: [
+					{
+						binding: 0,
+						resource: { buffer: this._pagedClearParamsBuffer! },
+					},
+					{
+						binding: 1,
+						resource: { buffer: getWebGPUBuffer(resources.dirtyPhysicalPages) },
+					},
+					{
+						binding: 2,
+						resource: { buffer: getWebGPUBuffer(resources.counters) },
+					},
+				],
+			});
+			passEncoder.setPipeline(getWebGPURenderPipeline(this._pagedClearPipeline));
+			passEncoder.setBindGroup(0, clearBindGroup);
+			passEncoder.draw(6, resources.physicalPageCount, 0, 0);
+		}
+
+		passEncoder.setPipeline(getWebGPURenderPipeline(this._pipeline));
 		passEncoder.setBindGroup(0, bindGroup);
 		const indirectBuffer = getWebGPUBuffer(resources.drawIndirectArgsBuffer);
 		const candidateLimit = Math.min(
@@ -522,10 +567,15 @@ export class WebGPUShadowPass {
 		this._destroyManagedResource(this._shaderModule);
 		this._destroyManagedResource(this._pipeline);
 		this._destroyManagedResource(this._transmittancePipeline);
+		this._destroyManagedResource(this._pagedClearShaderModule);
+		this._destroyManagedResource(this._pagedClearPipeline);
 		this._shaderModule = null;
 		this._shaderModulePromise = null;
 		this._pipeline = null;
 		this._transmittancePipeline = null;
+		this._pagedClearShaderModule = null;
+		this._pagedClearShaderModulePromise = null;
+		this._pagedClearPipeline = null;
 	}
 
 	public async warmup(): Promise<void> {
@@ -536,6 +586,9 @@ export class WebGPUShadowPass {
 		this._destroyManagedResource(this._shaderModule);
 		this._destroyManagedResource(this._pipeline);
 		this._destroyManagedResource(this._transmittancePipeline);
+		this._destroyManagedResource(this._pagedClearShaderModule);
+		this._destroyManagedResource(this._pagedClearPipeline);
+		this._destroyManagedResource(this._pagedClearParamsBuffer);
 		this._shaderModule = null;
 		this._shaderModulePromise = null;
 		this._bindGroupLayout = null;
@@ -543,6 +596,12 @@ export class WebGPUShadowPass {
 		this._pipelineLayout = null;
 		this._pipeline = null;
 		this._transmittancePipeline = null;
+		this._pagedClearShaderModule = null;
+		this._pagedClearShaderModulePromise = null;
+		this._pagedClearBindGroupLayout = null;
+		this._pagedClearPipelineLayout = null;
+		this._pagedClearPipeline = null;
+		this._pagedClearParamsBuffer = null;
 
 		for (const group of this._opaqueBufferGroups) {
 			if (group) {
@@ -1638,6 +1697,90 @@ export class WebGPUShadowPass {
 					format: TextureFormat.Depth32Float,
 					depthWriteEnabled: false,
 					depthCompare: "less",
+				},
+			});
+		}
+
+		if (!this._pagedClearShaderModule) {
+			if (!this._pagedClearShaderModulePromise) {
+				this._pagedClearShaderModulePromise = ShaderSource.load(
+					"webgpu.shadow.pagedShadowClear.composite"
+				).then((composite) =>
+					this._backend.createShaderModule({
+						label: "WebGPUPagedShadowClearShader",
+						code: composite.code,
+						sourceMap: composite.sourceMap,
+						language: "wgsl",
+						stage: "vertex",
+						entryPoint: "vsMain",
+						sourceKind: "shadow",
+					})
+				);
+			}
+			try {
+				this._pagedClearShaderModule = await this._pagedClearShaderModulePromise;
+			} catch (error) {
+				this._pagedClearShaderModulePromise = null;
+				throw error;
+			}
+		}
+
+		if (!this._pagedClearBindGroupLayout) {
+			this._pagedClearBindGroupLayout = device.createBindGroupLayout({
+				label: "WebGPUPagedShadowClearBindGroupLayout",
+				entries: [
+					{
+						binding: 0,
+						visibility: GPUShaderStage.VERTEX,
+						buffer: { type: "uniform" },
+					},
+					{
+						binding: 1,
+						visibility: GPUShaderStage.VERTEX,
+						buffer: { type: "read-only-storage" },
+					},
+					{
+						binding: 2,
+						visibility: GPUShaderStage.VERTEX,
+						buffer: { type: "read-only-storage" },
+					},
+				],
+			});
+		}
+
+		if (!this._pagedClearPipelineLayout && this._pagedClearBindGroupLayout) {
+			this._pagedClearPipelineLayout = device.createPipelineLayout({
+				label: "WebGPUPagedShadowClearPipelineLayout",
+				bindGroupLayouts: [this._pagedClearBindGroupLayout],
+			});
+		}
+
+		if (!this._pagedClearParamsBuffer) {
+			this._pagedClearParamsBuffer = device.createBuffer({
+				label: "WebGPUPagedShadowClearParams",
+				size: 16,
+				usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+			});
+		}
+
+		if (!this._pagedClearPipeline && this._pagedClearShaderModule && this._pagedClearPipelineLayout) {
+			this._pagedClearPipeline = await this._backend.createPipeline({
+				label: "WebGPUPagedShadowClearPipeline",
+				layout: this._pagedClearPipelineLayout,
+				vertex: {
+					module: this._pagedClearShaderModule,
+					entryPoint: "vsMain",
+					buffers: [],
+				},
+				primitive: {
+					topology: PrimitiveTopology.TriangleList,
+					cullMode: "none",
+					frontFace: "ccw",
+				},
+				depthStencil: {
+					format: TextureFormat.Depth32Float,
+					depthWriteEnabled: true,
+					depthCompare: "always",
 				},
 			});
 		}

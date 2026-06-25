@@ -57,7 +57,8 @@ export type WebGPUShadowShaderPart =
 	| "pagedShadowResidencyAllocate"
 	| "pagedShadowDirtyCompact"
 	| "pagedShadowDrawBuild"
-	| "pagedShadowFeedback";
+	| "pagedShadowFeedback"
+	| "pagedShadowClear";
 
 export type WebGPUUtilityShaderPart =
 	| "planarReflectionComposite"
@@ -145,6 +146,7 @@ export const WEBGPU_SHADOW_SHADER_FILES: Record<WebGPUShadowShaderPart, string> 
 	pagedShadowDirtyCompact: "./webgpu/shadow/pagedShadowDirtyCompact.wgsl",
 	pagedShadowDrawBuild: "./webgpu/shadow/pagedShadowDrawBuild.wgsl",
 	pagedShadowFeedback: "./webgpu/shadow/pagedShadowFeedback.wgsl",
+	pagedShadowClear: "./webgpu/shadow/pagedShadowClear.wgsl",
 };
 
 export const WEBGPU_UTILITY_SHADER_FILES: Record<WebGPUUtilityShaderPart, string> = {

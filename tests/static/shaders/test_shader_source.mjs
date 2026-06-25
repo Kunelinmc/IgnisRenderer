@@ -329,6 +329,19 @@ async function testWebGPUCompositeIncludesSharedParts() {
 	assert.ok(deferred.code.includes("fn activeClusteredLightCount() -> u32"));
 }
 
+async function testPagedShadowDrawBuildUsesConservativePlaneCulling() {
+	ShaderSource.clearCache();
+
+	const source = await ShaderSource.load(
+		"webgpu.shadow.pagedShadowDrawBuild.raw"
+	);
+
+	assert.ok(source.includes("const PAGE_CLIP_XY_MARGIN: f32 = 4.0;"));
+	assert.ok(source.includes("var outsideLeft = true;"));
+	assert.ok(source.includes("outsideFar = outsideFar &&"));
+	assert.ok(!source.includes("let ndc = clip.xyz / vec3<f32>(clip.w);"));
+}
+
 function testCompositeResultsAreCloned() {
 	ShaderSource.clearCache();
 	return ShaderSource.load("webgpu.utility.present.composite").then((first) => {
@@ -487,6 +500,7 @@ async function run() {
 	await testWebGLSceneVariants();
 	await testWebGLScenePrunedVariant();
 	await testWebGPUCompositeIncludesSharedParts();
+	await testPagedShadowDrawBuildUsesConservativePlaneCulling();
 	await testCompositeResultsAreCloned();
 	testSyncLoadPopulatesPreparedCache();
 	await testCustomAsyncLoaderOverridesBuiltInSource();

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 
 import { LightType } from "../../../src/lights/index.ts";
 import { Matrix4 } from "../../../src/maths/Matrix4.ts";
@@ -349,12 +350,25 @@ async function testFeedbackPassUsesScreenDepthTexture() {
 	);
 }
 
+function testResidencyShaderRefreshesCachedPages() {
+	const source = readFileSync(
+		new URL(
+			"../../../src/shaders/webgpu/shadow/pagedShadowResidencyAllocate.wgsl",
+			import.meta.url
+		),
+		"utf8"
+	);
+	assert.match(source, /residencyState\[base \+ 3u\] = 1u;/);
+	assert.match(source, /pageMetadata\[metaBase \+ 4u\] = 1u;/);
+}
+
 async function run() {
 	testCpuRequesterRemainsAvailableForDiagnostics();
 	await testRuntimeCreatesGpuAuthoritativeBuffers();
 	await testGpuPassesDispatchWithoutCpuPageTableAllocation();
 	await testDepthPassBuildsGpuDrawsAndUsesIndirectRenderer();
 	await testFeedbackPassUsesScreenDepthTexture();
+	testResidencyShaderRefreshesCachedPages();
 	console.log("test_webgpu_paged_shadow_runtime: ok");
 }
 

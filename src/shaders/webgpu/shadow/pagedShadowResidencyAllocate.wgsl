@@ -66,11 +66,12 @@ fn csMain() {
 				residencyState[base] = tableIndex;
 				residencyState[base + 1u] = params.frameId;
 				residencyState[base + 2u] = 1u;
+				residencyState[base + 3u] = 1u;
 				residencyState[base + 4u] = compactedRequests[requestBase + 1u];
 				residencyState[base + 5u] = compactedRequests[requestBase + 2u];
 				residencyState[base + 6u] = compactedRequests[requestBase + 3u];
 				residencyState[base + 7u] = compactedRequests[requestBase + 6u];
-				writePhysicalPageMetadata(physicalPage, requestBase, tableIndex, residencyState[base + 3u]);
+				writePhysicalPageMetadata(physicalPage, requestBase, tableIndex, 1u);
 			}
 			continue;
 		}
@@ -164,6 +165,13 @@ fn csMain() {
 			let freeListIndex = atomicAdd(&counters[2], 1u);
 			if (freeListIndex < arrayLength(&freeList)) {
 				freeList[freeListIndex] = pageIndex;
+			}
+		} else {
+			residencyState[base + 3u] = 1u;
+			let metaBase = metadataBase(pageIndex);
+			if (metaBase + 7u < arrayLength(&pageMetadata)) {
+				pageMetadata[metaBase + 4u] = 1u;
+				pageMetadata[metaBase + 5u] = params.frameId;
 			}
 		}
 	}

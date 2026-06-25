@@ -89,7 +89,7 @@ fn csMain(@builtin(global_invocation_id) globalId: vec3<u32>) {
 			var hasProjected = false;
 			for (var cornerIndex = 0u; cornerIndex < 8u; cornerIndex = cornerIndex + 1u) {
 				let ndc = projectPoint(viewProjection, corners[cornerIndex]);
-				if (ndc.z < -1.0 || ndc.z > 1.0) {
+				if (ndc.z < -30.0 || ndc.z > 10.0) {
 					continue;
 				}
 				let uv = vec2<f32>(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5);

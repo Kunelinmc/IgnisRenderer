@@ -74,6 +74,7 @@ export interface WebGPUPagedShadowResources {
 	physicalAtlasSize: number;
 	drawCandidateCount: number;
 	drawInstanceCapacity: number;
+	physicalPageCount: number;
 }
 
 export interface WebGPUPagedShadowPageRequest {
@@ -436,6 +437,7 @@ export class WebGPUPagedShadowRuntime {
 			physicalAtlasSize: this._physicalAtlasSize,
 			drawCandidateCount: this._drawCandidateCount,
 			drawInstanceCapacity: this._drawInstanceCapacity,
+			physicalPageCount: this._physicalPageCount,
 		};
 	}
 
@@ -1383,6 +1385,7 @@ export class WebGPUPagedShadowRuntime {
 			physicalAtlasSize: DEFAULT_FALLBACK_PAGE_SIZE,
 			drawCandidateCount: 0,
 			drawInstanceCapacity: 1,
+			physicalPageCount: 1,
 		};
 	}
 
