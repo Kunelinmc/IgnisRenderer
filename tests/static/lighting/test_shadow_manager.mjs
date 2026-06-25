@@ -60,6 +60,7 @@ function createPagedCapabilities(supportsPagedShadows = true) {
 	return {
 		...createBudgetCapabilities(64),
 		supportsPagedShadows,
+		supportsPagedShadowRendering: supportsPagedShadows,
 		maxPagedShadowPages: 2048,
 		pagedShadowPageSizeRange: [64, 256],
 	};

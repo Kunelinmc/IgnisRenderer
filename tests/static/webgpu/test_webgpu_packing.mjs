@@ -93,6 +93,8 @@ function createFrameLayout() {
 		{ name: "paramsB", type: VEC4_F32 },
 		{ name: "paramsC", type: VEC4_F32 },
 		{ name: "paramsD", type: VEC4_F32 },
+		{ name: "paramsE", type: VEC4_F32 },
+		{ name: "paramsF", type: VEC4_F32 },
 	]);
 	const reflectionProbeSchema = structOf([
 		{ name: "worldToProbeRow0", type: VEC4_F32 },

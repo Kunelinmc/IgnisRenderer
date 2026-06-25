@@ -351,10 +351,6 @@ function testPagedShadowStubNodesValidate() {
 			],
 			writes: [
 				{ id: "paged-shadow:physical-depth", usage: "render-attachment" },
-				{
-					id: "paged-shadow:physical-transmittance",
-					usage: "render-attachment",
-				},
 			],
 		},
 	]);

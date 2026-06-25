@@ -30,6 +30,7 @@ function run() {
 		backendProfile: {
 			shadow: {
 				supportsPagedShadows: true,
+				supportsPagedShadowRendering: true,
 			},
 		},
 		shadowMaps: new Map([
@@ -74,6 +75,28 @@ function run() {
 	assert.equal(
 		pagedShadow.nodes[3].writes[0].id,
 		"paged-shadow:physical-depth"
+	);
+	assert.equal(
+		pagedShadow.nodes[3].writes.some(
+			(write) => write.id === "paged-shadow:physical-transmittance"
+		),
+		false
+	);
+
+	const pagedOpaque = planner.planStage(
+		createPass("main-opaque"),
+		pagedShadowContext,
+		createState()
+	);
+	assert.ok(
+		pagedOpaque.nodes[0].reads.some(
+			(read) => read.id === "paged-shadow:page-table"
+		)
+	);
+	assert.ok(
+		pagedOpaque.nodes[0].reads.some(
+			(read) => read.id === "paged-shadow:physical-depth"
+		)
 	);
 
 	const opaque = planner.planStage(
