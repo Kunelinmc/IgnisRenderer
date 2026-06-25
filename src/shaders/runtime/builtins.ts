@@ -112,7 +112,9 @@ function hasWGSLStageEntryPoint(context: ShaderRuleContext): boolean {
 	const stagePattern =
 		context.stage === "unknown" ? "(vertex|fragment|compute)" : context.stage;
 	const pattern = new RegExp(
-		`@${stagePattern}\\s+fn\\s+${escapeRegExp(entryPoint)}\\s*\\(`,
+		`@${stagePattern}(?:\\s+|//.*|/\\*[\\s\\S]*?\\*/|` +
+			`@[a-zA-Z_][a-zA-Z0-9_]*(?:\\([^)]*\\))?)*` +
+			`fn\\s+${escapeRegExp(entryPoint)}\\s*\\(`,
 		"m"
 	);
 	return pattern.test(context.source);

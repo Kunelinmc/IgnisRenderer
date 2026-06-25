@@ -129,6 +129,8 @@ export class WebGPUShadowPass {
 	private _transmittancePipeline: IRenderPipeline | null = null;
 	private _opaqueBufferGroups: InstanceBufferGroup[] = [];
 	private _transmittanceBufferGroups: InstanceBufferGroup[] = [];
+	private _pagedOpaqueBufferGroups: InstanceBufferGroup[] = [];
+	private _pagedTransmittanceBufferGroups: InstanceBufferGroup[] = [];
 	private _frustum = new Frustum();
 	private _animationBindings = new Map<string, ShadowAnimationBindingEntry>();
 	private _fallbackStorageBuffer: GPUBuffer | null = null;
@@ -450,6 +452,24 @@ export class WebGPUShadowPass {
 		}
 		this._transmittanceBufferGroups = [];
 
+		for (const group of this._pagedOpaqueBufferGroups) {
+			if (group) {
+				group.mvpBuffer.destroy();
+				group.metaBuffer.destroy();
+				group.transmittanceBuffer.destroy();
+			}
+		}
+		this._pagedOpaqueBufferGroups = [];
+
+		for (const group of this._pagedTransmittanceBufferGroups) {
+			if (group) {
+				group.mvpBuffer.destroy();
+				group.metaBuffer.destroy();
+				group.transmittanceBuffer.destroy();
+			}
+		}
+		this._pagedTransmittanceBufferGroups = [];
+
 		this._instanceMvpData = new Float32Array(0);
 		this._instanceMetaData = new Uint32Array(0);
 		this._instanceTransmittanceData = new Float32Array(0);
@@ -603,7 +623,7 @@ export class WebGPUShadowPass {
 			return { batches: [], bindGroup: null };
 		}
 
-		const group = this._upsertShadowInstanceResources(instanceCount, 0, false);
+		const group = this._upsertShadowInstanceResources(instanceCount, 0, false, true);
 		if (!group) {
 			return { batches: [], bindGroup: null };
 		}
@@ -878,7 +898,8 @@ export class WebGPUShadowPass {
 	private _upsertShadowInstanceResources(
 		instanceCount: number,
 		slotIndex: number,
-		isTransmittance: boolean
+		isTransmittance: boolean,
+		isPaged = false
 	): InstanceBufferGroup | null {
 		if (!this._bindGroupLayout) {
 			return null;
@@ -886,7 +907,9 @@ export class WebGPUShadowPass {
 		const device = this._requireBackendDevice();
 		const requiredCapacity = Math.max(1, instanceCount);
 
-		const groups = isTransmittance ? this._transmittanceBufferGroups : this._opaqueBufferGroups;
+		const groups = isPaged ?
+			(isTransmittance ? this._pagedTransmittanceBufferGroups : this._pagedOpaqueBufferGroups) :
+			(isTransmittance ? this._transmittanceBufferGroups : this._opaqueBufferGroups);
 		let group = groups[slotIndex];
 
 		if (
@@ -899,23 +922,23 @@ export class WebGPUShadowPass {
 				group.transmittanceBuffer.destroy();
 			}
 			const mvpBuffer = device.createBuffer({
-				label: `WebGPUShadowDepthMvpStorage_${isTransmittance ? "trans" : "opaque"}_${slotIndex}`,
+				label: `WebGPUShadowDepthMvpStorage_${isPaged ? "paged_" : ""}${isTransmittance ? "trans" : "opaque"}_${slotIndex}`,
 				size: requiredCapacity * 16 * 4,
 				usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
 			});
 			const metaBuffer = device.createBuffer({
-				label: `WebGPUShadowDepthInstanceMeta_${isTransmittance ? "trans" : "opaque"}_${slotIndex}`,
+				label: `WebGPUShadowDepthInstanceMeta_${isPaged ? "paged_" : ""}${isTransmittance ? "trans" : "opaque"}_${slotIndex}`,
 				size: requiredCapacity * SHADOW_INSTANCE_DATA_UINTS * 4,
 				usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
 			});
 			const transmittanceBuffer = device.createBuffer({
-				label: `WebGPUShadowTransmittanceStorage_${isTransmittance ? "trans" : "opaque"}_${slotIndex}`,
+				label: `WebGPUShadowTransmittanceStorage_${isPaged ? "paged_" : ""}${isTransmittance ? "trans" : "opaque"}_${slotIndex}`,
 				size: requiredCapacity * 4 * 4,
 				usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
 			});
 
 			const bindGroup = device.createBindGroup({
-				label: `WebGPUShadowDepthMvpBindGroup_${isTransmittance ? "trans" : "opaque"}_${slotIndex}`,
+				label: `WebGPUShadowDepthMvpBindGroup_${isPaged ? "paged_" : ""}${isTransmittance ? "trans" : "opaque"}_${slotIndex}`,
 				layout: this._bindGroupLayout,
 				entries: [
 					{

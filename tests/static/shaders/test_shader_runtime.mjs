@@ -383,6 +383,34 @@ function testWGSLAndGLSLEntryPointChecks() {
 			(diagnostic) => diagnostic.code === "missing-main"
 		)
 	);
+
+	const wgslValidEntryWithAttributes = runtime.process({
+		code: `
+			@compute @workgroup_size(64)
+			fn csMain() {}
+		`,
+		language: "wgsl",
+		stage: "compute",
+		entryPoint: "csMain",
+		label: "WGSLEntryPointAttributesTest",
+		sourceKind: "custom-material",
+	});
+	assert.equal(wgslValidEntryWithAttributes.hasErrors, false);
+
+	const wgslValidEntryWithComments = runtime.process({
+		code: `
+			@compute
+			// a comment here
+			@workgroup_size(8, 8, 1)
+			fn csMain() {}
+		`,
+		language: "wgsl",
+		stage: "compute",
+		entryPoint: "csMain",
+		label: "WGSLEntryPointCommentsTest",
+		sourceKind: "custom-material",
+	});
+	assert.equal(wgslValidEntryWithComments.hasErrors, false);
 }
 
 function testCacheAndRevisionInvalidation() {

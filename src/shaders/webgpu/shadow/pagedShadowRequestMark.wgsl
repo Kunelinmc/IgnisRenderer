@@ -68,9 +68,9 @@ fn csMain(@builtin(global_invocation_id) globalId: vec3<u32>) {
 	);
 
 	for (var layoutIndex = 0u; layoutIndex < params.layoutCount; layoutIndex = layoutIndex + 1u) {
-		let layout = layouts[layoutIndex];
-		let gridSize = max(layout.pageGridSize, 1u);
-		for (var cascadeIndex = 0u; cascadeIndex < layout.cascadeCount; cascadeIndex = cascadeIndex + 1u) {
+		let pagedLayout = layouts[layoutIndex];
+		let gridSize = max(pagedLayout.pageGridSize, 1u);
+		for (var cascadeIndex = 0u; cascadeIndex < pagedLayout.cascadeCount; cascadeIndex = cascadeIndex + 1u) {
 			let matrixIndex = layoutIndex * 4u + cascadeIndex;
 			if (matrixIndex >= arrayLength(&cascadeViewProjections)) {
 				continue;
@@ -106,8 +106,8 @@ fn csMain(@builtin(global_invocation_id) globalId: vec3<u32>) {
 			for (var pageY = minPage.y; pageY <= maxPage.y; pageY = pageY + 1u) {
 				for (var pageX = minPage.x; pageX <= maxPage.x; pageX = pageX + 1u) {
 					let tableIndex =
-						layout.pageTableBase +
-						cascadeIndex * layout.pageTableCascadeStride +
+						pagedLayout.pageTableBase +
+						cascadeIndex * pagedLayout.pageTableCascadeStride +
 						pageY * gridSize +
 						pageX;
 					if (tableIndex < params.pageTableLength) {
