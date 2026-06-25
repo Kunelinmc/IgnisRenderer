@@ -103,7 +103,7 @@ export class WebGPUFrameGraphPlanner {
 								pass,
 								"opaque-scene",
 								"WebGPUGBuffer",
-								this._createOpaqueResources(state)
+								this._createOpaqueResources(state, context)
 							),
 						];
 						if ((context.scene?.decalPackets.length ?? 0) > 0) {
@@ -121,7 +121,7 @@ export class WebGPUFrameGraphPlanner {
 								pass,
 								"deferred-lighting",
 								"WebGPUDeferredLighting",
-								this._createDeferredLightingResources()
+								this._createDeferredLightingResources(context)
 							)
 						);
 						return this._appendOcclusionNode(pass, state, nodes);
@@ -131,14 +131,14 @@ export class WebGPUFrameGraphPlanner {
 							pass,
 							"opaque-scene",
 							`WebGPUOpaque${state.sceneTargetMode}`,
-							this._createOpaqueResources(state)
+							this._createOpaqueResources(state, context)
 						),
 					]);
 				},
 			],
 			[
 				"main-transparent",
-				(pass, _context, state) => [
+				(pass, context, state) => [
 					state.oitActive ?
 						this._node(
 							pass,
@@ -148,6 +148,7 @@ export class WebGPUFrameGraphPlanner {
 								reads: [
 									this._read("frame:depth", "depth-attachment", true),
 									this._read("frame:scene-color-main", "copy-src", true),
+									...this._createPagedShadowLightingReads(context),
 									...this._createTransmissionDepthReads(state),
 								],
 								writes: [
@@ -163,7 +164,7 @@ export class WebGPUFrameGraphPlanner {
 							"transparent-scene",
 							"WebGPUTransparent",
 							this._withTransmissionCaptureResources(
-								this._createForwardResources(state, true),
+								this._createForwardResources(state, true, context),
 								state
 							)
 						),
@@ -171,13 +172,14 @@ export class WebGPUFrameGraphPlanner {
 			],
 			[
 				"particles",
-				(pass, _context, state) => [
+				(pass, context, state) => [
 					state.oitActive ?
 						this._node(pass, "oit-particles", "WebGPUOITParticles", {
 							reads: [
 								this._read("frame:depth", "depth-attachment", true),
 								this._read("oit:accum", "texture-binding", true),
 								this._read("oit:reveal", "texture-binding", true),
+								...this._createPagedShadowLightingReads(context),
 							],
 							writes: [
 								this._write("oit:accum", "render-attachment"),
@@ -189,7 +191,7 @@ export class WebGPUFrameGraphPlanner {
 							pass,
 							"particles",
 							"WebGPUParticles",
-							this._createForwardResources(state, true)
+							this._createForwardResources(state, true, context)
 						),
 				],
 			],
@@ -251,10 +253,6 @@ export class WebGPUFrameGraphPlanner {
 				],
 				writes: [
 					this._write("paged-shadow:physical-depth", "render-attachment"),
-					this._write(
-						"paged-shadow:physical-transmittance",
-						"render-attachment"
-					),
 				],
 			})
 		);
@@ -262,7 +260,9 @@ export class WebGPUFrameGraphPlanner {
 	}
 
 	private _hasPagedShadowWork(context: FrameContext): boolean {
-		if (context.backendProfile?.shadow?.supportsPagedShadows !== true) {
+		if (
+			context.backendProfile?.shadow?.supportsPagedShadowRendering !== true
+		) {
 			return false;
 		}
 		const shadowMaps = context.shadowMaps;
@@ -278,14 +278,18 @@ export class WebGPUFrameGraphPlanner {
 	}
 
 	private _createOpaqueResources(
-		state: WebGPUFrameGraphPlannerState
+		state: WebGPUFrameGraphPlannerState,
+		context: FrameContext
 	): Pick<WebGPUFrameGraphNode, "reads" | "writes"> {
 		if (state.sceneTargetMode === "single") {
-			return this._createForwardResources(state, false);
+			return this._createForwardResources(state, false, context);
 		}
 		if (state.sceneTargetMode === "color") {
 			return {
-				reads: [this._read("shadow-atlas", "texture-binding", true)],
+				reads: [
+					this._read("shadow-atlas", "texture-binding", true),
+					...this._createPagedShadowLightingReads(context),
+				],
 				writes: [
 					this._write("frame:scene-color-main", "render-attachment"),
 					this._write("frame:depth", "depth-attachment"),
@@ -313,6 +317,7 @@ export class WebGPUFrameGraphPlanner {
 		}
 		const reads = [
 			this._read("shadow-atlas", "texture-binding", true),
+			...this._createPagedShadowLightingReads(context),
 			this._read("planar-reflection:capture", "texture-binding", true),
 		];
 		if (state.needsPlanarReflectionMask) {
@@ -340,16 +345,16 @@ export class WebGPUFrameGraphPlanner {
 		};
 	}
 
-	private _createDeferredLightingResources(): Pick<
-		WebGPUFrameGraphNode,
-		"reads" | "writes"
-	> {
+	private _createDeferredLightingResources(
+		context: FrameContext
+	): Pick<WebGPUFrameGraphNode, "reads" | "writes"> {
 		return {
 			reads: [
 				...DEFERRED_GBUFFER_RESOURCE_IDS.map((id) =>
 					this._read(id, "texture-binding")
 				),
 				this._read("shadow-atlas", "texture-binding", true),
+				...this._createPagedShadowLightingReads(context),
 			],
 			writes: [
 				this._write("frame:scene-color-main", "render-attachment"),
@@ -433,7 +438,8 @@ export class WebGPUFrameGraphPlanner {
 
 	private _createForwardResources(
 		state: WebGPUFrameGraphPlannerState,
-		loadExistingColor: boolean
+		loadExistingColor: boolean,
+		context: FrameContext
 	): Pick<WebGPUFrameGraphNode, "reads" | "writes"> {
 		const targetPrefix =
 			state.sceneTargetMode === "single" || !state.hasFrameTargets ?
@@ -443,6 +449,7 @@ export class WebGPUFrameGraphPlanner {
 		const depth = `${targetPrefix}:depth`;
 		const reads: WebGPUFrameGraphResourceRef[] = [
 			this._read("shadow-atlas", "texture-binding", true),
+			...this._createPagedShadowLightingReads(context),
 		];
 		if (loadExistingColor) {
 			reads.push(this._read(sceneColor, "texture-binding", true));
@@ -455,6 +462,18 @@ export class WebGPUFrameGraphPlanner {
 				this._write(depth, "depth-attachment"),
 			],
 		};
+	}
+
+	private _createPagedShadowLightingReads(
+		context: FrameContext
+	): WebGPUFrameGraphResourceRef[] {
+		if (!this._hasPagedShadowWork(context)) {
+			return [];
+		}
+		return [
+			this._read("paged-shadow:page-table", "storage-binding", true),
+			this._read("paged-shadow:physical-depth", "texture-binding", true),
+		];
 	}
 
 	private _read(
