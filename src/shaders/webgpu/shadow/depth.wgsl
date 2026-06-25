@@ -13,9 +13,13 @@ struct ShadowInstanceData {
 	jointBaseOffset: u32,
 	morphWeightBaseOffset: u32,
 	morphDeltaBaseOffset: u32,
+	atlasOffsetX: u32,
+	atlasOffsetY: u32,
+	atlasPageSize: u32,
+	atlasSize: u32,
+	flags: u32,
 	_pad0: u32,
 	_pad1: u32,
-	_pad2: u32,
 }
 
 struct ShadowVertexInput {
@@ -209,6 +213,20 @@ fn vsMain(
 	);
 	output.position =
 		shadowMvps[safeInstanceIndex] * vec4<f32>(skinnedPosition, 1.0);
+	if (instanceData.atlasSize > 0u && instanceData.atlasPageSize > 0u) {
+		let atlasSize = f32(instanceData.atlasSize);
+		let pageSize = f32(instanceData.atlasPageSize);
+		let atlasOffset = vec2<f32>(
+			f32(instanceData.atlasOffsetX),
+			f32(instanceData.atlasOffsetY)
+		);
+		let ndc = output.position.xy / vec2<f32>(max(abs(output.position.w), EPSILON));
+		let pageUv = ndc * 0.5 + vec2<f32>(0.5);
+		let atlasUv = (atlasOffset + pageUv * pageSize) / vec2<f32>(atlasSize);
+		let remappedNdc = atlasUv * 2.0 - vec2<f32>(1.0);
+		output.position.x = remappedNdc.x * output.position.w;
+		output.position.y = remappedNdc.y * output.position.w;
+	}
 	return output;
 }
 

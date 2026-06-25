@@ -50,7 +50,13 @@ export type WebGPUPostProcessShaderPart =
 	| "copy"
 	| "sobelNormal";
 
-export type WebGPUShadowShaderPart = "depth";
+export type WebGPUShadowShaderPart =
+	| "depth"
+	| "pagedShadowRequestMark"
+	| "pagedShadowRequestCompact"
+	| "pagedShadowResidencyAllocate"
+	| "pagedShadowDirtyCompact"
+	| "pagedShadowFeedback";
 
 export type WebGPUUtilityShaderPart =
 	| "planarReflectionComposite"
@@ -131,6 +137,12 @@ export const WEBGPU_POST_PROCESS_SHADER_FILES: Record<
 
 export const WEBGPU_SHADOW_SHADER_FILES: Record<WebGPUShadowShaderPart, string> = {
 	depth: "./webgpu/shadow/depth.wgsl",
+	pagedShadowRequestMark: "./webgpu/shadow/pagedShadowRequestMark.wgsl",
+	pagedShadowRequestCompact: "./webgpu/shadow/pagedShadowRequestCompact.wgsl",
+	pagedShadowResidencyAllocate:
+		"./webgpu/shadow/pagedShadowResidencyAllocate.wgsl",
+	pagedShadowDirtyCompact: "./webgpu/shadow/pagedShadowDirtyCompact.wgsl",
+	pagedShadowFeedback: "./webgpu/shadow/pagedShadowFeedback.wgsl",
 };
 
 export const WEBGPU_UTILITY_SHADER_FILES: Record<WebGPUUtilityShaderPart, string> = {
