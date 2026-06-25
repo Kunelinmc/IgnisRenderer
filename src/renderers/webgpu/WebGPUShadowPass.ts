@@ -42,6 +42,7 @@ import {
 	PrimitiveTopology,
 	TextureFormat,
 	type IRenderPipeline,
+	type IRenderTexture,
 	type IShaderModule,
 } from "../types";
 import type {
@@ -49,6 +50,7 @@ import type {
 	WebGPUGeometryRegistry,
 } from "./WebGPUGeometryRegistry";
 import type { WebGPUShadowAtlasAllocator } from "./WebGPUShadowAtlasAllocator";
+import type { WebGPUPagedShadowResidentPage } from "./WebGPUPagedShadowRuntime";
 
 interface ShadowRenderSlot {
 	shadowMap: ShadowMap;
@@ -327,6 +329,89 @@ export class WebGPUShadowPass {
 			slotIndex++;
 		}
 		transmittancePassEncoder.end();
+		if (submitAtEnd) {
+			this._requireBackendQueue().submit([commandEncoder.finish()]);
+		}
+		this._trimAnimationResources();
+	}
+
+	/**
+	 * @internal WebGPU paged shadow depth renderer.
+	 */
+	public async renderPagedDepthPages(
+		context: FrameContext,
+		pages: readonly WebGPUPagedShadowResidentPage[],
+		physicalDepthAtlas: IRenderTexture,
+		frameEncoder?: ICommandEncoder | null,
+		shadowCasterPackets: readonly DrawPacket[] = context.scene.shadowCasterPackets
+	): Promise<void> {
+		if (!context.features.enableShadows || pages.length <= 0) {
+			return;
+		}
+		const atlasView = getWebGPUTexture(physicalDepthAtlas).view;
+		if (!atlasView) {
+			return;
+		}
+
+		await this._ensurePipelineResources();
+		if (
+			!this._pipeline ||
+			!this._bindGroupLayout ||
+			!this._animationBindGroupLayout
+		) {
+			return;
+		}
+
+		this._frameId++;
+		const drawCandidates = this._collectShadowDrawCandidates(shadowCasterPackets);
+		const animationBindingCache = new Map<string, GPUBindGroup | null>();
+		const { commandEncoder, submitAtEnd } =
+			this._resolveShadowCommandEncoder(frameEncoder);
+		const passEncoder = commandEncoder.beginRenderPass({
+			label: "WebGPUPagedShadowDepthPass",
+			colorAttachments: [],
+			depthStencilAttachment: {
+				view: atlasView,
+				depthClearValue: 1,
+				depthLoadOp: "clear",
+				depthStoreOp: "store",
+			},
+		});
+
+		passEncoder.setPipeline(getWebGPURenderPipeline(this._pipeline));
+		let slotIndex = 0;
+		for (const page of pages) {
+			passEncoder.setViewport(
+				page.viewportX,
+				page.viewportY,
+				page.viewportSize,
+				page.viewportSize,
+				0,
+				1
+			);
+			passEncoder.setScissorRect(
+				page.viewportX,
+				page.viewportY,
+				page.viewportSize,
+				page.viewportSize
+			);
+			Matrix4.multiply(
+				this._depthRemapMatrix,
+				page.viewProjection,
+				this._shadowViewProjectionMatrix
+			);
+			this._frustum.setFromMatrix(page.viewProjection);
+			this._drawShadowCasters(
+				passEncoder,
+				drawCandidates,
+				this._shadowViewProjectionMatrix,
+				context,
+				animationBindingCache,
+				slotIndex
+			);
+			slotIndex++;
+		}
+		passEncoder.end();
 		if (submitAtEnd) {
 			this._requireBackendQueue().submit([commandEncoder.finish()]);
 		}
@@ -707,7 +792,7 @@ export class WebGPUShadowPass {
 	}
 
 	private _collectShadowDrawCandidates(
-		packets: DrawPacket[]
+		packets: readonly DrawPacket[]
 	): ShadowDrawCandidate[] {
 		const candidates: ShadowDrawCandidate[] = [];
 		for (const packet of packets) {

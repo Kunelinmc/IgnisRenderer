@@ -78,6 +78,11 @@ import type {
 import { WebGPUShadowAtlasAllocator } from "./WebGPUShadowAtlasAllocator";
 import { WebGPUShadowPass } from "./WebGPUShadowPass";
 import {
+	WebGPUPagedShadowRuntime,
+	type WebGPUPagedShadowFrameRequest,
+	type WebGPUPagedShadowResources,
+} from "./WebGPUPagedShadowRuntime";
+import {
 	resolveShadowCasterBounds,
 	syncShadowMapRegistry,
 	updateShadowMapMetadata,
@@ -134,6 +139,7 @@ const WEBGPU_SHADOW_CAPABILITIES: ShadowBackendCapabilities = {
 	maxCsmDirectionalLights: 1,
 	maxDynamicShadowCost: 48,
 	supportsPagedShadows: true,
+	supportsPagedShadowRendering: true,
 	maxPagedShadowPages: 2048,
 	pagedShadowPageSizeRange: [64, 256],
 };
@@ -237,6 +243,7 @@ export class WebGPURenderResources {
 	private _pipelineLibrary: WebGPUPipelineLibrary;
 	private _materialBindings: WebGPUMaterialBindingCache;
 	private _shadowPass: WebGPUShadowPass;
+	private _pagedShadowRuntime: WebGPUPagedShadowRuntime;
 	private _frameScopes = new Map<string, WebGPUFrameResourceScope>();
 	private _particleShaderModule: IShaderModule | null = null;
 	private _decalShaderModule: IShaderModule | null = null;
@@ -283,6 +290,10 @@ export class WebGPURenderResources {
 			backend,
 			this._geometryRegistry,
 			this._shadowAtlases
+		);
+		this._pagedShadowRuntime = new WebGPUPagedShadowRuntime(
+			backend,
+			this._shadowPass
 		);
 	}
 
@@ -580,6 +591,13 @@ export class WebGPURenderResources {
 					(packet.passFlags & DRAW_PACKET_FLAG_SHADOW_CASTER) !== 0
 			),
 		];
+		const shadowTransmitterPackets = [
+			...scene.shadowTransmitterPackets,
+			...particleMeshShadowPackets.filter(
+				(packet) =>
+					(packet.passFlags & DRAW_PACKET_FLAG_SHADOW_TRANSMITTER) !== 0
+			),
+		];
 		const temporalStateMode =
 			options?.temporalStateMode ?? (isFrameContext ? "advance" : "disabled");
 		const featureState: WebGPUFeatureState = {
@@ -630,6 +648,15 @@ export class WebGPURenderResources {
 					);
 				}
 			}
+		}
+		if (isFrameContext) {
+			this._pagedShadowRuntime.prepareFrame({
+				context: contextOrScene,
+				encoder: null,
+				renderSets: shadowMaps,
+				shadowCasterPackets,
+				shadowTransmitterPackets,
+			});
 		}
 
 		const lightingState = collectWebGPULighting(
@@ -931,6 +958,49 @@ export class WebGPURenderResources {
 		prepared.frameBinding = scope.frameBindings.getSceneBinding();
 	}
 
+	/**
+	 * @internal WebGPU paged shadow frame graph hook.
+	 */
+	public preparePagedShadowFrame(
+		request: WebGPUPagedShadowFrameRequest
+	): void {
+		this._pagedShadowRuntime.prepareFrame(request);
+	}
+
+	/**
+	 * @internal WebGPU paged shadow frame graph hook.
+	 */
+	public recordPagedShadowPageMarkPass(
+		request: WebGPUPagedShadowFrameRequest
+	): void | Promise<void> {
+		return this._pagedShadowRuntime.recordPageMarkPass(request);
+	}
+
+	/**
+	 * @internal WebGPU paged shadow frame graph hook.
+	 */
+	public recordPagedShadowPageAllocationPass(
+		request: WebGPUPagedShadowFrameRequest
+	): void | Promise<void> {
+		return this._pagedShadowRuntime.recordPageAllocationPass(request);
+	}
+
+	/**
+	 * @internal WebGPU paged shadow frame graph hook.
+	 */
+	public recordPagedShadowDepthPass(
+		request: WebGPUPagedShadowFrameRequest
+	): Promise<void> {
+		return this._pagedShadowRuntime.recordDepthPass(request);
+	}
+
+	/**
+	 * @internal WebGPU frame binding hook.
+	 */
+	public getPagedShadowResources(): WebGPUPagedShadowResources {
+		return this._pagedShadowRuntime.getResources();
+	}
+
 	public async buildClusteredLighting(
 		encoder: ICommandEncoder,
 		frameResources: WebGPUPreparedFrameResources
@@ -989,6 +1059,7 @@ export class WebGPURenderResources {
 		}
 		this._frameScopes.clear();
 		this._materialBindings.destroy();
+		this._pagedShadowRuntime.destroy();
 		this._shadowPass.destroy();
 		this._pipelineLibrary.destroy();
 		this._shadowAtlases.destroy();
@@ -1084,7 +1155,8 @@ export class WebGPURenderResources {
 				this._backend,
 				this._layouts,
 				this._textureRegistry,
-				this._shadowAtlases
+				this._shadowAtlases,
+				this._pagedShadowRuntime
 			),
 			clusteredLighting: new WebGPUClusteredLightingRuntime(
 				this._computeFacade,
