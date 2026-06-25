@@ -6,6 +6,10 @@ struct PagedShadowRequestParams {
 	casterCount: u32,
 	layoutCount: u32,
 	frameId: u32,
+	conservativeWarmup: u32,
+	feedbackFlagCount: u32,
+	_pad0: u32,
+	_pad1: u32,
 }
 
 struct PagedShadowLayoutData {
@@ -14,9 +18,9 @@ struct PagedShadowLayoutData {
 	pageGridSize: u32,
 	cascadeCount: u32,
 	priorityBase: u32,
+	feedbackMode: u32,
 	_pad0: u32,
 	_pad1: u32,
-	_pad2: u32,
 }
 
 struct PagedShadowCasterBounds {
@@ -38,18 +42,20 @@ fn projectPoint(matrix: mat4x4<f32>, point: vec3<f32>) -> vec3<f32> {
 	return clip.xyz / vec3<f32>(clip.w);
 }
 
+fn markFeedbackRequests(index: u32) {
+	if (index >= min(params.feedbackFlagCount, params.pageTableLength)) {
+		return;
+	}
+	if (feedbackFlags[index] != 0u && index < arrayLength(&pageRequestFlags)) {
+		atomicOr(&pageRequestFlags[index], PAGED_SHADOW_REQUEST_SOURCE_FEEDBACK);
+	}
+}
+
 @compute @workgroup_size(64)
 fn csMain(@builtin(global_invocation_id) globalId: vec3<u32>) {
 	let casterIndex = globalId.x;
-	if (casterIndex >= params.casterCount) {
-		if (casterIndex == 0u) {
-			let feedbackCount = min(arrayLength(&feedbackFlags), params.pageTableLength);
-			for (var i = 0u; i < feedbackCount; i = i + 1u) {
-				if (feedbackFlags[i] != 0u) {
-					atomicOr(&pageRequestFlags[i], PAGED_SHADOW_REQUEST_SOURCE_FEEDBACK);
-				}
-			}
-		}
+	markFeedbackRequests(casterIndex);
+	if (params.conservativeWarmup == 0u || casterIndex >= params.casterCount) {
 		return;
 	}
 

@@ -42,6 +42,6 @@ fn csMain(@builtin(global_invocation_id) globalId: vec3<u32>) {
 	dirtyPhysicalPages[outBase + 4u] = residencyState[base + 6u];
 	dirtyPhysicalPages[outBase + 5u] = (physicalPageIndex % params.physicalGridSize) * params.pageSize;
 	dirtyPhysicalPages[outBase + 6u] = (physicalPageIndex / params.physicalGridSize) * params.pageSize;
-	dirtyPhysicalPages[outBase + 7u] = params.pageSize;
+	dirtyPhysicalPages[outBase + 7u] = max(residencyState[base + 7u], 1u);
 	residencyState[base + 3u] = 0u;
 }

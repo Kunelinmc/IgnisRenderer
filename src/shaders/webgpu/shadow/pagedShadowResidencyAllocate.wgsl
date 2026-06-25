@@ -1,6 +1,7 @@
 const PAGED_SHADOW_NON_RESIDENT: u32 = 0xffffffffu;
 const PAGED_SHADOW_REQUEST_RECORD_UINTS: u32 = 8u;
 const PAGED_SHADOW_RESIDENCY_UINTS: u32 = 8u;
+const PAGED_SHADOW_METADATA_UINTS: u32 = 8u;
 
 struct PagedShadowAllocationParams {
 	frameId: u32,
@@ -18,9 +19,29 @@ struct PagedShadowAllocationParams {
 @group(0) @binding(2) var<storage, read_write> residencyState: array<u32>;
 @group(0) @binding(3) var<storage, read> compactedRequests: array<u32>;
 @group(0) @binding(4) var<storage, read_write> counters: array<atomic<u32>>;
+@group(0) @binding(5) var<storage, read_write> pageMetadata: array<u32>;
 
 fn residencyBase(physicalPageIndex: u32) -> u32 {
 	return physicalPageIndex * PAGED_SHADOW_RESIDENCY_UINTS;
+}
+
+fn metadataBase(physicalPageIndex: u32) -> u32 {
+	return physicalPageIndex * PAGED_SHADOW_METADATA_UINTS;
+}
+
+fn writePhysicalPageMetadata(physicalPage: u32, requestBase: u32, tableIndex: u32, dirty: u32) {
+	let base = metadataBase(physicalPage);
+	if (base + 7u >= arrayLength(&pageMetadata)) {
+		return;
+	}
+	pageMetadata[base] = tableIndex;
+	pageMetadata[base + 1u] = compactedRequests[requestBase + 1u];
+	pageMetadata[base + 2u] = compactedRequests[requestBase + 2u];
+	pageMetadata[base + 3u] = compactedRequests[requestBase + 3u];
+	pageMetadata[base + 4u] = dirty;
+	pageMetadata[base + 5u] = params.frameId;
+	pageMetadata[base + 6u] = compactedRequests[requestBase + 6u];
+	pageMetadata[base + 7u] = compactedRequests[requestBase + 4u];
 }
 
 @compute @workgroup_size(1)
@@ -44,6 +65,11 @@ fn csMain() {
 				residencyState[base] = tableIndex;
 				residencyState[base + 1u] = params.frameId;
 				residencyState[base + 2u] = 1u;
+				residencyState[base + 4u] = compactedRequests[requestBase + 1u];
+				residencyState[base + 5u] = compactedRequests[requestBase + 2u];
+				residencyState[base + 6u] = compactedRequests[requestBase + 3u];
+				residencyState[base + 7u] = compactedRequests[requestBase + 6u];
+				writePhysicalPageMetadata(physicalPage, requestBase, tableIndex, residencyState[base + 3u]);
 			}
 			continue;
 		}
@@ -97,8 +123,9 @@ fn csMain() {
 		residencyState[selectedBase + 4u] = compactedRequests[requestBase + 1u];
 		residencyState[selectedBase + 5u] = compactedRequests[requestBase + 2u];
 		residencyState[selectedBase + 6u] = compactedRequests[requestBase + 3u];
-		residencyState[selectedBase + 7u] = compactedRequests[requestBase + 4u];
+		residencyState[selectedBase + 7u] = compactedRequests[requestBase + 6u];
 		pageTable[tableIndex] = selected;
+		writePhysicalPageMetadata(selected, requestBase, tableIndex, 1u);
 		allocatedThisFrame = allocatedThisFrame + 1u;
 	}
 
@@ -119,6 +146,11 @@ fn csMain() {
 			residencyState[base] = PAGED_SHADOW_NON_RESIDENT;
 			residencyState[base + 2u] = 0u;
 			residencyState[base + 3u] = 0u;
+			let metaBase = metadataBase(pageIndex);
+			if (metaBase + 7u < arrayLength(&pageMetadata)) {
+				pageMetadata[metaBase] = PAGED_SHADOW_NON_RESIDENT;
+				pageMetadata[metaBase + 4u] = 0u;
+			}
 		}
 	}
 }

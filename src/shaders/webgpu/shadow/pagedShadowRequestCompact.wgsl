@@ -37,6 +37,6 @@ fn csMain(@builtin(global_invocation_id) globalId: vec3<u32>) {
 	compactedRequests[base + 3u] = (tableIndex / gridSize) % gridSize;
 	compactedRequests[base + 4u] = flags;
 	compactedRequests[base + 5u] = 4u;
-	compactedRequests[base + 6u] = 0u;
+	compactedRequests[base + 6u] = gridSize;
 	compactedRequests[base + 7u] = 0u;
 }
