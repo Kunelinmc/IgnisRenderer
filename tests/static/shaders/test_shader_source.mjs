@@ -48,6 +48,12 @@ async function testLoadsRawAndCompositeParts() {
 	const pagedShadowCompute = await ShaderSource.load(
 		"webgpu.shadow.pagedShadowRequestMark.composite"
 	);
+	const pagedShadowDrawBuild = await ShaderSource.load(
+		"webgpu.shadow.pagedShadowDrawBuild.composite"
+	);
+	const pagedShadowFeedback = await ShaderSource.load(
+		"webgpu.shadow.pagedShadowFeedback.composite"
+	);
 	const glslRaw = await ShaderSource.load("webgl.part.sceneVertex.raw");
 	const glslComposite = await ShaderSource.load(
 		"webgl.part.sceneVertex.composite"
@@ -58,6 +64,8 @@ async function testLoadsRawAndCompositeParts() {
 	assert.ok(shadowRaw.includes("fn vsMain"));
 	assert.ok(shadowComposite.code.includes("fn fsTransmittance"));
 	assert.ok(pagedShadowCompute.code.includes("fn csMain"));
+	assert.ok(pagedShadowDrawBuild.code.includes("PagedShadowDrawParams"));
+	assert.ok(pagedShadowFeedback.code.includes("texture_depth_2d"));
 	assert.ok(glslRaw.includes("layout(location = 0) in vec3 aPosition;"));
 	assert.ok(glslComposite.code.includes("layout(location = 0) in vec3 aPosition;"));
 	assert.equal(

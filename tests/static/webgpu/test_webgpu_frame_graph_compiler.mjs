@@ -373,6 +373,8 @@ function testPagedShadowStubNodesValidate() {
 				{ id: "paged-shadow:dirty-physical-pages", usage: "storage-binding" },
 			],
 			writes: [
+				{ id: "paged-shadow:draw-instances", usage: "storage-binding" },
+				{ id: "paged-shadow:draw-indirect-args", usage: "storage-binding" },
 				{ id: "paged-shadow:physical-depth", usage: "render-attachment" },
 			],
 		},

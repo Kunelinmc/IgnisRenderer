@@ -82,9 +82,20 @@ function run() {
 			(write) => write.id === "paged-shadow:dirty-physical-pages"
 		)
 	);
-	assert.equal(
-		pagedShadow.nodes[3].writes[0].id,
-		"paged-shadow:physical-depth"
+	assert.ok(
+		pagedShadow.nodes[3].writes.some(
+			(write) => write.id === "paged-shadow:draw-instances"
+		)
+	);
+	assert.ok(
+		pagedShadow.nodes[3].writes.some(
+			(write) => write.id === "paged-shadow:draw-indirect-args"
+		)
+	);
+	assert.ok(
+		pagedShadow.nodes[3].writes.some(
+			(write) => write.id === "paged-shadow:physical-depth"
+		)
 	);
 	assert.equal(
 		pagedShadow.nodes[3].writes.some(
