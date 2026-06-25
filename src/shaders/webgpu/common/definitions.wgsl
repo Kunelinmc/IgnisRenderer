@@ -192,6 +192,10 @@ struct ParticleShadowVolumeBuffer {
 	data: array<f32>,
 }
 
+struct PagedShadowPageTable {
+	entries: array<u32>,
+}
+
 @group(0) @binding(0) var<uniform> frame: FrameUniforms;
 @group(0) @binding(1) var shadowAtlas: texture_depth_2d;
 @group(0) @binding(2) var envSpecularTexture: texture_2d<f32>;
@@ -204,6 +208,9 @@ struct ParticleShadowVolumeBuffer {
 @group(0) @binding(8) var shadowTransmittanceAtlas: texture_2d<f32>;
 @group(0) @binding(9) var brdfLUTTexture: texture_2d<f32>;
 @group(0) @binding(10) var irradianceProbeGridCoeffs: texture_2d<f32>;
+@group(0) @binding(11) var<storage, read> pagedShadowPageTable:
+	PagedShadowPageTable;
+@group(0) @binding(12) var pagedShadowPhysicalDepth: texture_depth_2d;
 
 @group(1) @binding(0) var<uniform> model: ModelUniforms;
 @group(1) @binding(1) var baseColorTexture: texture_2d<f32>;

@@ -1639,6 +1639,7 @@ fn loadShadowTransmittanceTexel(coord: vec2<i32>) -> vec3<f32> {
 	return textureLoad(shadowTransmittanceAtlas, coord, 0).rgb;
 }
 
+const PAGED_SHADOW_NON_RESIDENT: u32 = 0xffffffffu;
 const SHADOW_GOLDEN_ANGLE: f32 = 2.39996323;
 const MAX_PCSS_FILTER_SAMPLES: i32 = 64;
 const MAX_PCSS_SEARCH_SAMPLES: i32 = 64;
@@ -1655,6 +1656,92 @@ fn vogelDiskSample(sampleIndex: i32, sampleCount: i32, theta: f32) -> vec2<f32> 
 	let radius = sqrt((indexF + 0.5) / countF);
 	let angle = indexF * SHADOW_GOLDEN_ANGLE + theta;
 	return vec2<f32>(cos(angle), sin(angle)) * radius;
+}
+
+fn samplePagedShadowVisibilityForCascade(
+	shadowData: ShadowData,
+	shadowUv: vec2<f32>,
+	currentDepth: f32,
+	bias: f32,
+	cascadeIndex: u32
+) -> vec3<f32> {
+	let pageGridSize = max(u32(floor(shadowData.paramsE.z + 0.5)), 1u);
+	let pageSize = max(i32(floor(shadowData.paramsF.z + 0.5)), 1);
+	let physicalAtlasSize = max(i32(floor(shadowData.paramsF.x + 0.5)), 1);
+	let physicalGridSize = max(u32(floor(shadowData.paramsF.y + 0.5)), 1u);
+	let pageTableBase = u32(max(floor(shadowData.paramsE.y + 0.5), 0.0));
+	let pageTableCascadeStride = max(
+		u32(floor(shadowData.paramsF.w + 0.5)),
+		pageGridSize * pageGridSize
+	);
+	let pageCoord = vec2<u32>(
+		u32(clamp(floor(shadowUv.x * f32(pageGridSize)), 0.0, f32(pageGridSize - 1u))),
+		u32(clamp(floor(shadowUv.y * f32(pageGridSize)), 0.0, f32(pageGridSize - 1u)))
+	);
+	let tableIndex =
+		pageTableBase +
+		cascadeIndex * pageTableCascadeStride +
+		pageCoord.y * pageGridSize +
+		pageCoord.x;
+	if (tableIndex >= arrayLength(&pagedShadowPageTable.entries)) {
+		return vec3<f32>(1.0);
+	}
+	let physicalPageIndex = pagedShadowPageTable.entries[tableIndex];
+	if (physicalPageIndex == PAGED_SHADOW_NON_RESIDENT) {
+		return vec3<f32>(1.0);
+	}
+	let maxPhysicalPages = physicalGridSize * physicalGridSize;
+	if (physicalPageIndex >= maxPhysicalPages) {
+		return vec3<f32>(1.0);
+	}
+
+	let physicalPageCoord = vec2<i32>(
+		i32(physicalPageIndex % physicalGridSize),
+		i32(physicalPageIndex / physicalGridSize)
+	);
+	let localUv = fract(shadowUv * vec2<f32>(f32(pageGridSize)));
+	let texelPosition = localUv * vec2<f32>(f32(pageSize - 1), f32(pageSize - 1));
+	let pcfRadius = max(shadowData.paramsB.x, 1.0);
+	var visible = vec3<f32>(0.0);
+	var sampleCount = 0.0;
+	for (var y: i32 = -1; y <= 1; y = y + 1) {
+		for (var x: i32 = -1; x <= 1; x = x + 1) {
+			let samplePosition = texelPosition + vec2<f32>(f32(x), f32(y)) * pcfRadius;
+			if (
+				samplePosition.x < 0.0 ||
+				samplePosition.x > f32(pageSize - 1) ||
+				samplePosition.y < 0.0 ||
+				samplePosition.y > f32(pageSize - 1)
+			) {
+				continue;
+			}
+			let roundedSamplePosition = round(samplePosition);
+			let sampleCoord = vec2<i32>(
+				i32(roundedSamplePosition.x),
+				i32(roundedSamplePosition.y)
+			);
+			let atlasCoord = physicalPageCoord * pageSize + sampleCoord;
+			if (
+				atlasCoord.x < 0 ||
+				atlasCoord.x >= physicalAtlasSize ||
+				atlasCoord.y < 0 ||
+				atlasCoord.y >= physicalAtlasSize
+			) {
+				continue;
+			}
+			let sampleDepth = textureLoad(pagedShadowPhysicalDepth, atlasCoord, 0);
+			if (currentDepth - bias <= sampleDepth) {
+				visible += vec3<f32>(1.0);
+			}
+			sampleCount += 1.0;
+		}
+	}
+	if (sampleCount < 1.0) {
+		return vec3<f32>(1.0);
+	}
+	let filteredVisibility = visible / max(sampleCount, 1.0);
+	let strength = clamp(shadowData.paramsB.y, 0.0, 1.0);
+	return vec3<f32>(1.0 - strength) + strength * filteredVisibility;
 }
 
 fn sampleShadowVisibilityForCascade(
@@ -1721,6 +1808,21 @@ fn sampleShadowVisibilityForCascade(
 		currentDepth > 1.0
 	) {
 		return vec3<f32>(1.0);
+	}
+
+	if (shadowType == 0u && shadowData.paramsE.x > 0.5) {
+		return samplePagedShadowVisibilityForCascade(
+			shadowData,
+			shadowUv,
+			currentDepth,
+			bias,
+			clampedCascadeIndex
+		) * sampleParticleShadowVolumeTransmittance(
+			shadowType,
+			index,
+			clampedCascadeIndex,
+			worldPosition
+		);
 	}
 
 	let pcfRadius = max(shadowData.paramsB.x, 1.0);
