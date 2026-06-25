@@ -72,6 +72,7 @@ import {
 	WEBGPU_DEFAULT_MSAA_SAMPLE_COUNT,
 	WEBGPU_REQUIRED_FRAGMENT_SAMPLED_TEXTURE_COUNT,
 	WEBGPU_SCENE_REQUIRED_FRAGMENT_SAMPLER_COUNT,
+	WEBGPU_REQUIRED_FRAGMENT_STORAGE_BUFFER_COUNT,
 } from "./webgpu/constants";
 import {
 	BufferUsage,
@@ -610,6 +611,19 @@ export class WebGPUBackend implements IRenderBackend {
 			requiredLimits.maxSampledTexturesPerShaderStage =
 				requiredSampledTexturesPerShaderStage;
 			requiredLimits.maxSamplersPerShaderStage = requiredSamplersPerShaderStage;
+
+			const adapterMaxStorageBuffersPerShaderStage =
+				adapter.limits?.maxStorageBuffersPerShaderStage;
+			const requiredStorageBuffersPerShaderStage =
+				WEBGPU_REQUIRED_FRAGMENT_STORAGE_BUFFER_COUNT;
+			if (
+				typeof adapterMaxStorageBuffersPerShaderStage === "number" &&
+				adapterMaxStorageBuffersPerShaderStage >= requiredStorageBuffersPerShaderStage
+			) {
+				requiredLimits.maxStorageBuffersPerShaderStage =
+					adapterMaxStorageBuffersPerShaderStage;
+			}
+
 			if (
 				typeof adapterMaxSampledTexturesPerShaderStage === "number" &&
 				adapterMaxSampledTexturesPerShaderStage <
@@ -634,6 +648,17 @@ export class WebGPUBackend implements IRenderBackend {
 				);
 			}
 			if (
+				typeof adapterMaxStorageBuffersPerShaderStage === "number" &&
+				adapterMaxStorageBuffersPerShaderStage < requiredStorageBuffersPerShaderStage
+			) {
+				throw new Error(
+					"WebGPU adapter maxStorageBuffersPerShaderStage " +
+						`(${adapterMaxStorageBuffersPerShaderStage}) is below required ` +
+						"WebGPU pipeline storage buffer count " +
+						`(${requiredStorageBuffersPerShaderStage}).`,
+				);
+			}
+			if (
 				typeof adapter.features?.has === "function" &&
 				adapter.features.has("timestamp-query" as GPUFeatureName)
 			) {
@@ -649,6 +674,9 @@ export class WebGPUBackend implements IRenderBackend {
 				requestedDevice.limits?.maxSampledTexturesPerShaderStage;
 			const deviceMaxSamplersPerShaderStage =
 				requestedDevice.limits?.maxSamplersPerShaderStage;
+			const deviceMaxStorageBuffersPerShaderStage =
+				requestedDevice.limits?.maxStorageBuffersPerShaderStage;
+
 			if (
 				typeof deviceMaxSampledTexturesPerShaderStage === "number" &&
 				deviceMaxSampledTexturesPerShaderStage <
@@ -670,6 +698,17 @@ export class WebGPUBackend implements IRenderBackend {
 						`(${deviceMaxSamplersPerShaderStage}) is below required ` +
 						"scene pipeline sampler count " +
 						`(${requiredSamplersPerShaderStage}).`,
+				);
+			}
+			if (
+				typeof deviceMaxStorageBuffersPerShaderStage === "number" &&
+				deviceMaxStorageBuffersPerShaderStage < requiredStorageBuffersPerShaderStage
+			) {
+				throw new Error(
+					"Requested WebGPU device maxStorageBuffersPerShaderStage " +
+						`(${deviceMaxStorageBuffersPerShaderStage}) is below required ` +
+						"WebGPU pipeline storage buffer count " +
+						`(${requiredStorageBuffersPerShaderStage}).`,
 				);
 			}
 		} catch (error) {
