@@ -30,6 +30,14 @@ export interface ResolvedShadowData {
 	shadowMapBaseSize: number;
 	shadowMapSize: number;
 	atlasTileSize: number;
+	storageMode: "atlas" | "paged";
+	pagedPageTableBase: number;
+	pagedPageTableCascadeStride: number;
+	pagedPageGridSize: number;
+	pagedPageSize: number;
+	pagedPhysicalAtlasSize: number;
+	pagedPhysicalGridSize: number;
+	pagedPhysicalPageSize: number;
 	shadowMap: ShadowMap | null;
 }
 
@@ -132,6 +140,14 @@ export function resolveShadowData(
 			shadowMapBaseSize: 0,
 			shadowMapSize: 0,
 			atlasTileSize: 0,
+			storageMode: "atlas",
+			pagedPageTableBase: 0,
+			pagedPageTableCascadeStride: 0,
+			pagedPageGridSize: 0,
+			pagedPageSize: 0,
+			pagedPhysicalAtlasSize: 0,
+			pagedPhysicalGridSize: 0,
+			pagedPhysicalPageSize: 0,
 			shadowMap: options.keepShadowMapWhenDisabled ? resolvedShadowMap : null,
 		};
 	}
@@ -203,6 +219,7 @@ export function resolveShadowData(
 		renderSet.resolvedConfig.strategy === "csm" ?
 			Math.max(0, Math.min(1, renderSet.resolvedConfig.blendRatio ?? 0.1))
 		:	0;
+	const paged = renderSet?.storageMode === "paged" ? renderSet.layout.paged : null;
 
 	return {
 		enabled: true,
@@ -228,6 +245,14 @@ export function resolveShadowData(
 		shadowMapBaseSize: Math.max(1, renderSet?.size ?? resolvedShadowMap.size),
 		shadowMapSize: size,
 		atlasTileSize: 0,
+		storageMode: paged ? "paged" : "atlas",
+		pagedPageTableBase: paged?.pageTableBase ?? 0,
+		pagedPageTableCascadeStride: paged?.pageTableCascadeStride ?? 0,
+		pagedPageGridSize: paged?.pageGridSize ?? 0,
+		pagedPageSize: paged?.pageSize ?? 0,
+		pagedPhysicalAtlasSize: paged?.physicalAtlasSize ?? 0,
+		pagedPhysicalGridSize: paged?.physicalGridSize ?? 0,
+		pagedPhysicalPageSize: paged?.physicalPageSize ?? 0,
 		shadowMap: resolvedShadowMap,
 	};
 }

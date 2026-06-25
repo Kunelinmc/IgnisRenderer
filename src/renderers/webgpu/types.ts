@@ -97,6 +97,14 @@ export interface WebGPUShadowData {
 	shadowMapBaseSize: number;
 	shadowMapSize: number;
 	atlasTileSize: number;
+	storageMode: "atlas" | "paged";
+	pagedPageTableBase: number;
+	pagedPageTableCascadeStride: number;
+	pagedPageGridSize: number;
+	pagedPageSize: number;
+	pagedPhysicalAtlasSize: number;
+	pagedPhysicalGridSize: number;
+	pagedPhysicalPageSize: number;
 	shadowMap: ReturnType<typeof getPrimaryShadowMap>;
 }
 

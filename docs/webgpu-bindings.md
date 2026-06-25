@@ -66,6 +66,9 @@ The following pipeline layouts must preserve these bind group roles:
 | `7` | `particleShadowVolumes` | Read-only storage buffer |
 | `8` | `shadowTransmittanceAtlas` | `texture_2d<f32>` |
 | `9` | `brdfLUTTexture` | `texture_2d<f32>` |
+| `10` | `irradianceProbeGridCoeffs` | `texture_2d<f32>` |
+| `11` | `pagedShadowPageTable` | Read-only storage buffer of `u32` page entries |
+| `12` | `pagedShadowPhysicalDepth` | `texture_depth_2d` |
 
 ### `environmentFrameBindGroupLayout` - `group(0)`
 

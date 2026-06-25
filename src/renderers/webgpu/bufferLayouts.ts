@@ -88,6 +88,8 @@ const SHADOW_DATA_SCHEMA = structOf([
 	{ name: "paramsB", type: VEC4_F32 },
 	{ name: "paramsC", type: VEC4_F32 },
 	{ name: "paramsD", type: VEC4_F32 },
+	{ name: "paramsE", type: VEC4_F32 },
+	{ name: "paramsF", type: VEC4_F32 },
 ]);
 
 const REFLECTION_PROBE_SCHEMA = structOf([

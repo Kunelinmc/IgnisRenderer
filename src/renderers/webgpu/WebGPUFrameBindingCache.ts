@@ -31,6 +31,7 @@ import {
 import { CameraType } from "../../cameras/Camera";
 import { WebGPUTextureRegistry } from "./WebGPUTextureRegistry";
 import { WebGPUShadowAtlasAllocator } from "./WebGPUShadowAtlasAllocator";
+import type { WebGPUPagedShadowRuntime } from "./WebGPUPagedShadowRuntime";
 import type { WebGPUPipelineLayouts } from "./WebGPUPipelineLayouts";
 import { finiteOr } from "../../maths/Misc";
 import { TemporalJitterState } from "../cross/TemporalJitterState";
@@ -74,6 +75,7 @@ export class WebGPUFrameBindingCache {
 	private _layouts: WebGPUPipelineLayouts;
 	private _textureRegistry: WebGPUTextureRegistry;
 	private _shadowAtlases: WebGPUShadowAtlasAllocator;
+	private _pagedShadowRuntime: WebGPUPagedShadowRuntime;
 	private _frameUniformBuffer: IRenderBuffer | null = null;
 	private _fogUniformBuffer: IRenderBuffer | null = null;
 	private _environmentBackgroundParamsBuffer: IRenderBuffer | null = null;
@@ -92,6 +94,8 @@ export class WebGPUFrameBindingCache {
 	private _envSpecularFallbackTexture: IRenderTexture | null = null;
 	private _brdfLUTTexture: IRenderTexture | null = null;
 	private _irradianceProbeGridTexture: IRenderTexture | null = null;
+	private _pagedShadowPageTable: IRenderBuffer | null = null;
+	private _pagedShadowPhysicalDepthAtlas: IRenderTexture | null = null;
 	private _ownedIrradianceProbeGridTexture: IRenderTexture | null = null;
 	private _irradianceProbeGridTextureRevision = -1;
 	private _irradianceProbeGridTextureCellCount = 0;
@@ -115,12 +119,14 @@ export class WebGPUFrameBindingCache {
 		backend: WebGPUBackend,
 		layouts: WebGPUPipelineLayouts,
 		textureRegistry: WebGPUTextureRegistry,
-		shadowAtlases: WebGPUShadowAtlasAllocator
+		shadowAtlases: WebGPUShadowAtlasAllocator,
+		pagedShadowRuntime: WebGPUPagedShadowRuntime
 	) {
 		this._backend = backend;
 		this._layouts = layouts;
 		this._textureRegistry = textureRegistry;
 		this._shadowAtlases = shadowAtlases;
+		this._pagedShadowRuntime = pagedShadowRuntime;
 	}
 
 	public prepare(
@@ -298,6 +304,10 @@ export class WebGPUFrameBindingCache {
 			:	this._textureRegistry.getWhiteTexture();
 		const currentIrradianceProbeGrid =
 			this._getIrradianceProbeGridTexture(environmentState);
+		const pagedShadowResources = this._pagedShadowRuntime.getResources();
+		const currentPagedShadowPageTable = pagedShadowResources.pageTable;
+		const currentPagedShadowPhysicalDepthAtlas =
+			pagedShadowResources.physicalDepthAtlas;
 
 		if (
 			this._shadowAtlas !== currentShadowAtlas ||
@@ -307,6 +317,8 @@ export class WebGPUFrameBindingCache {
 			this._envSpecularFallbackTexture !== currentEnvSpecularFallback ||
 			this._brdfLUTTexture !== currentBRDFLUT ||
 			this._irradianceProbeGridTexture !== currentIrradianceProbeGrid ||
+			this._pagedShadowPageTable !== currentPagedShadowPageTable ||
+			this._pagedShadowPhysicalDepthAtlas !== currentPagedShadowPhysicalDepthAtlas ||
 			this._environmentSampler !== currentEnvironmentSampler ||
 			this._envSpecularSampler !== currentEnvSpecularSampler ||
 			this._envSpecularFallbackSampler !== currentEnvSpecularFallbackSampler
@@ -322,6 +334,9 @@ export class WebGPUFrameBindingCache {
 			this._envSpecularFallbackTexture = currentEnvSpecularFallback;
 			this._brdfLUTTexture = currentBRDFLUT;
 			this._irradianceProbeGridTexture = currentIrradianceProbeGrid;
+			this._pagedShadowPageTable = currentPagedShadowPageTable;
+			this._pagedShadowPhysicalDepthAtlas =
+				currentPagedShadowPhysicalDepthAtlas;
 			this._environmentSampler = currentEnvironmentSampler;
 			this._envSpecularSampler = currentEnvSpecularSampler;
 			this._envSpecularFallbackSampler = currentEnvSpecularFallbackSampler;
@@ -513,6 +528,18 @@ export class WebGPUFrameBindingCache {
 						resource:
 							this._irradianceProbeGridTexture ??
 							this._textureRegistry.getWhiteTexture(),
+					},
+					{
+						binding: 11,
+						resource:
+							this._pagedShadowPageTable ??
+							this._pagedShadowRuntime.getResources().pageTable,
+					},
+					{
+						binding: 12,
+						resource:
+							this._pagedShadowPhysicalDepthAtlas ??
+							this._pagedShadowRuntime.getResources().physicalDepthAtlas,
 					},
 				],
 			});

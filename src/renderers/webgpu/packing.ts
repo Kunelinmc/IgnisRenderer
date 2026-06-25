@@ -641,4 +641,16 @@ function writeShadowData(
 		shadow?.shadowSamples ?? 0,
 		shadow?.shadowSearchSamples ?? 0,
 	]);
+	writer.writeVec([arrayField, index, "paramsE"], [
+		shadow?.storageMode === "paged" ? 1 : 0,
+		shadow?.pagedPageTableBase ?? 0,
+		shadow?.pagedPageGridSize ?? 0,
+		shadow?.pagedPageSize ?? 0,
+	]);
+	writer.writeVec([arrayField, index, "paramsF"], [
+		shadow?.pagedPhysicalAtlasSize ?? 0,
+		shadow?.pagedPhysicalGridSize ?? 0,
+		shadow?.pagedPhysicalPageSize ?? 0,
+		shadow?.pagedPageTableCascadeStride ?? 0,
+	]);
 }
