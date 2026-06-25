@@ -665,6 +665,13 @@ export class WebGPUBackend implements IRenderBackend {
 				requiredFeatures.push("timestamp-query" as GPUFeatureName);
 			}
 
+			if (
+				typeof adapter.features?.has === "function" &&
+				adapter.features.has("indirect-first-instance" as GPUFeatureName)
+			) {
+				requiredFeatures.push("indirect-first-instance" as GPUFeatureName);
+			}
+
 			requestedDevice = await adapter.requestDevice({
 				requiredFeatures: requiredFeatures.length > 0 ? requiredFeatures : undefined,
 				requiredLimits:
