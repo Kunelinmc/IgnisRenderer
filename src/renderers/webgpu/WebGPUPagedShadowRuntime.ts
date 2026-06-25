@@ -15,6 +15,7 @@ import {
 	BufferUsage,
 	TextureFormat,
 	TextureUsage,
+	type BindingResource,
 	type IBindingGroup,
 	type IComputePipeline,
 	type IRenderBuffer,
@@ -25,15 +26,19 @@ import type { WebGPUBackend } from "../WebGPUBackend";
 import type { WebGPUShadowPass } from "./WebGPUShadowPass";
 
 export const WEBGPU_PAGED_SHADOW_NON_RESIDENT = 0xffffffff;
+
 const PAGE_METADATA_UINTS = 8;
 const PAGE_REQUEST_RECORD_UINTS = 8;
 const PAGE_RESIDENCY_STATE_UINTS = 8;
 const DIRTY_PHYSICAL_PAGE_RECORD_UINTS = 8;
 const PAGE_LAYOUT_UINTS = 8;
-const PAGE_REQUEST_PARAMS_UINTS = 4;
+const PAGE_REQUEST_PARAMS_UINTS = 8;
 const PAGE_ALLOC_PARAMS_UINTS = 8;
 const PAGE_DIRTY_PARAMS_UINTS = 4;
-const PAGE_FEEDBACK_PARAMS_UINTS = 4;
+const PAGE_DRAW_PARAMS_UINTS = 8;
+const PAGE_FEEDBACK_PARAMS_UINTS = 8;
+const DRAW_INDIRECT_UINTS = 5;
+const SHADOW_INSTANCE_DATA_UINTS = 12;
 const DEFAULT_FALLBACK_PAGE_SIZE = 1;
 
 export interface WebGPUPagedShadowFrameRequest {
@@ -42,6 +47,8 @@ export interface WebGPUPagedShadowFrameRequest {
 	renderSets: ReadonlyMap<ShadowCastingLight, ShadowRenderSet>;
 	shadowCasterPackets: readonly DrawPacket[];
 	shadowTransmitterPackets: readonly DrawPacket[];
+	feedbackDepthTexture?: IRenderTexture | null;
+	feedbackMotionDepthTexture?: IRenderTexture | null;
 }
 
 export interface WebGPUPagedShadowResources {
@@ -57,9 +64,16 @@ export interface WebGPUPagedShadowResources {
 	dirtyPhysicalPages: IRenderBuffer;
 	feedbackFlags: IRenderBuffer;
 	nextFeedbackFlags: IRenderBuffer;
+	drawMvpBuffer: IRenderBuffer;
+	drawInstanceMetaBuffer: IRenderBuffer;
+	drawTransmittanceBuffer: IRenderBuffer;
+	drawIndirectArgsBuffer: IRenderBuffer;
+	drawCandidateWorldMatrices: IRenderBuffer;
 	pageSize: number;
 	physicalGridSize: number;
 	physicalAtlasSize: number;
+	drawCandidateCount: number;
+	drawInstanceCapacity: number;
 }
 
 export interface WebGPUPagedShadowPageRequest {
@@ -89,16 +103,20 @@ export interface WebGPUPagedShadowResidentPage {
 
 export interface WebGPUPagedShadowDebugState {
 	frameId: number;
-	requestCount: number;
-	residentCount: number;
-	dirtyCount: number;
 	pageTableLength: number;
 	physicalPageCount: number;
 	pageSize: number;
 	physicalGridSize: number;
-	gpuRequestBufferSize: number;
-	gpuDirtyBufferSize: number;
+	requestBufferCapacity: number;
+	dirtyBufferCapacity: number;
 	feedbackFlagCount: number;
+	layoutCapacity: number;
+	casterCapacity: number;
+	drawCandidateCapacity: number;
+	drawCandidateCount: number;
+	drawInstanceCapacity: number;
+	hasCounterBuffer: boolean;
+	gpuAuthoritative: boolean;
 }
 
 export interface WebGPUPagedShadowRenderSetLayout {
@@ -109,18 +127,26 @@ export interface WebGPUPagedShadowRenderSetLayout {
 	cascadeCount: number;
 }
 
+interface FrameCasterSnapshot {
+	centerX: number;
+	centerY: number;
+	centerZ: number;
+	radius: number;
+}
+
 /**
  * WebGPU paged shadow runtime.
  *
- * V1 uses CPU conservative page requests and CPU page-table allocation. The
- * frame graph pass names are retained so GPU feedback/compute allocation can
- * replace these hooks later without changing public `PagedShadowMap` APIs.
+ * The WebGPU path keeps residency, dirty-page compaction, and page-table
+ * updates GPU authoritative. CPU work is limited to frame-local layout,
+ * cascade, caster bounds, world matrices, and indirect-argument seed uploads.
  */
 export class WebGPUPagedShadowRuntime {
 	private _backend: WebGPUBackend;
 	private _shadowPass: WebGPUShadowPass;
 	private _frameId = 0;
 	private _lastRequest: WebGPUPagedShadowFrameRequest | null = null;
+	private _preparedContext: FrameContext | null = null;
 	private _pageTableBuffer: IRenderBuffer | null = null;
 	private _pageMetadataBuffer: IRenderBuffer | null = null;
 	private _physicalDepthAtlas: IRenderTexture | null = null;
@@ -135,6 +161,11 @@ export class WebGPUPagedShadowRuntime {
 	private _fallbackDirtyPhysicalPages: IRenderBuffer | null = null;
 	private _fallbackFeedbackFlags: IRenderBuffer | null = null;
 	private _fallbackNextFeedbackFlags: IRenderBuffer | null = null;
+	private _fallbackDrawMvpBuffer: IRenderBuffer | null = null;
+	private _fallbackDrawMetaBuffer: IRenderBuffer | null = null;
+	private _fallbackDrawTransmittanceBuffer: IRenderBuffer | null = null;
+	private _fallbackDrawIndirectArgsBuffer: IRenderBuffer | null = null;
+	private _fallbackDrawCandidateWorldMatrices: IRenderBuffer | null = null;
 	private _pageRequestFlagsBuffer: IRenderBuffer | null = null;
 	private _compactedRequestsBuffer: IRenderBuffer | null = null;
 	private _residencyStateBuffer: IRenderBuffer | null = null;
@@ -146,32 +177,41 @@ export class WebGPUPagedShadowRuntime {
 	private _layoutBuffer: IRenderBuffer | null = null;
 	private _casterBoundsBuffer: IRenderBuffer | null = null;
 	private _cascadeViewProjectionBuffer: IRenderBuffer | null = null;
+	private _drawWorldMatrixBuffer: IRenderBuffer | null = null;
+	private _drawMvpBuffer: IRenderBuffer | null = null;
+	private _drawInstanceMetaBuffer: IRenderBuffer | null = null;
+	private _drawTransmittanceBuffer: IRenderBuffer | null = null;
+	private _drawIndirectArgsBuffer: IRenderBuffer | null = null;
 	private _requestParamsBuffer: IRenderBuffer | null = null;
 	private _compactParamsBuffer: IRenderBuffer | null = null;
 	private _allocationParamsBuffer: IRenderBuffer | null = null;
 	private _dirtyParamsBuffer: IRenderBuffer | null = null;
+	private _drawParamsBuffer: IRenderBuffer | null = null;
 	private _feedbackParamsBuffer: IRenderBuffer | null = null;
-	private _pageTable = new Uint32Array([WEBGPU_PAGED_SHADOW_NON_RESIDENT]);
-	private _pageMetadata = new Uint32Array(PAGE_METADATA_UINTS);
+	private _feedbackCameraBuffer: IRenderBuffer | null = null;
+	private _pageTableLength = 1;
 	private _pageRequestFlags = new Uint32Array(1);
 	private _compactedRequests = new Uint32Array(PAGE_REQUEST_RECORD_UINTS);
 	private _residencyState = createNonResidentUint32Array(PAGE_RESIDENCY_STATE_UINTS);
 	private _freeList = new Uint32Array([0]);
-	private _counters = new Uint32Array(4);
+	private _counters = new Uint32Array(8);
 	private _dirtyPhysicalPages = new Uint32Array(DIRTY_PHYSICAL_PAGE_RECORD_UINTS);
 	private _feedbackFlags = new Uint32Array(1);
 	private _nextFeedbackFlags = new Uint32Array(1);
 	private _layoutData = new Uint32Array(PAGE_LAYOUT_UINTS);
 	private _casterBoundsData = new Float32Array(4);
 	private _cascadeViewProjectionData = new Float32Array(16);
-	private _requests: WebGPUPagedShadowPageRequest[] = [];
-	private _residentPages = new Map<string, WebGPUPagedShadowResidentPage>();
-	private _physicalToKey: Array<string | null> = [];
+	private _drawWorldMatrixData = new Float32Array(16);
+	private _drawIndirectArgsData = new Uint32Array(DRAW_INDIRECT_UINTS);
+	private _feedbackCameraData = new Float32Array(16);
 	private _layouts: WebGPUPagedShadowRenderSetLayout[] = [];
 	private _requestBufferCapacity = 1;
 	private _layoutCapacity = 1;
 	private _casterCapacity = 1;
 	private _cascadeCapacity = 1;
+	private _drawCandidateCapacity = 1;
+	private _drawCandidateCount = 0;
+	private _drawInstanceCapacity = 1;
 	private _computeShaderModules = new Map<string, IShaderModule>();
 	private _computePipelines = new Map<string, IComputePipeline>();
 	private _computeBindGroups = new Map<string, IBindingGroup>();
@@ -179,10 +219,7 @@ export class WebGPUPagedShadowRuntime {
 	private _pageSize = DEFAULT_FALLBACK_PAGE_SIZE;
 	private _physicalGridSize = 1;
 	private _physicalAtlasSize = DEFAULT_FALLBACK_PAGE_SIZE;
-	private _resourcesDirty = true;
-	private _tableDirty = true;
-	private _gpuResourcesDirty = true;
-	private _gpuAllocationAuthoritative = false;
+	private _previousCasterBounds = new Map<string, FrameCasterSnapshot>();
 
 	public constructor(backend: WebGPUBackend, shadowPass: WebGPUShadowPass) {
 		this._backend = backend;
@@ -194,21 +231,20 @@ export class WebGPUPagedShadowRuntime {
 	 */
 	public prepareFrame(request: WebGPUPagedShadowFrameRequest): void {
 		this._lastRequest = request;
+		if (this._preparedContext === request.context) {
+			return;
+		}
+		this._preparedContext = request.context;
 		this._frameId++;
 		const layouts = this._resolvePagedRenderSetLayouts(request);
 		this._layouts = layouts;
-		this._prepareResourceShape(layouts);
+		this._prepareResourceShape(request, layouts);
 		for (const layout of layouts) {
 			layout.metadata.physicalAtlasSize = this._physicalAtlasSize;
 			layout.metadata.physicalGridSize = this._physicalGridSize;
 			layout.metadata.physicalPageSize = this._pageSize;
 		}
-		this._requests = collectWebGPUPagedShadowPageRequests(
-			request,
-			layouts
-		);
 		this._updateGpuFrameInputs(request, layouts);
-		this._tableDirty = true;
 	}
 
 	/**
@@ -218,7 +254,6 @@ export class WebGPUPagedShadowRuntime {
 		request: WebGPUPagedShadowFrameRequest
 	): Promise<void> {
 		this._lastRequest = request;
-		this._writePageBuffersIfNeeded();
 		this._resetGpuRequestBuffers();
 		await this._recordComputePass(
 			request.encoder,
@@ -232,7 +267,7 @@ export class WebGPUPagedShadowRuntime {
 				this._casterBoundsBuffer,
 				this._cascadeViewProjectionBuffer,
 			],
-			Math.max(1, Math.ceil(Math.max(1, request.shadowCasterPackets.length) / 64)),
+			Math.max(1, Math.ceil(Math.max(1, this._casterBoundsData.length / 4) / 64)),
 			1,
 			1
 		);
@@ -246,7 +281,7 @@ export class WebGPUPagedShadowRuntime {
 				this._countersBuffer,
 				this._compactedRequestsBuffer,
 			],
-			Math.max(1, Math.ceil(this._pageTable.length / 64)),
+			Math.max(1, Math.ceil(this._pageTableLength / 64)),
 			1,
 			1
 		);
@@ -259,7 +294,6 @@ export class WebGPUPagedShadowRuntime {
 		request: WebGPUPagedShadowFrameRequest
 	): Promise<void> {
 		this._lastRequest = request;
-		const useGpuAllocation = !!request.encoder;
 		await this._recordComputePass(
 			request.encoder,
 			"pagedShadowResidencyAllocate",
@@ -270,6 +304,7 @@ export class WebGPUPagedShadowRuntime {
 				this._residencyStateBuffer,
 				this._compactedRequestsBuffer,
 				this._countersBuffer,
+				this._pageMetadataBuffer,
 			],
 			1,
 			1,
@@ -289,44 +324,6 @@ export class WebGPUPagedShadowRuntime {
 			1,
 			1
 		);
-		if (useGpuAllocation) {
-			this._gpuAllocationAuthoritative = true;
-		}
-		if (this._requests.length <= 0) {
-			this._writePageBuffersIfNeeded();
-			return;
-		}
-
-		const requestedKeys = new Set<string>();
-		const maxPagesPerFrame = resolveMaxPagesPerFrame(request.renderSets);
-		let allocatedThisFrame = 0;
-		for (const pageRequest of this._requests) {
-			requestedKeys.add(pageRequest.key);
-			let page = this._residentPages.get(pageRequest.key);
-			if (page) {
-				page.request = pageRequest;
-				page.lastUsedFrame = this._frameId;
-				if (!page.viewProjection) {
-					page.dirty = true;
-				}
-				continue;
-			}
-			if (allocatedThisFrame >= maxPagesPerFrame) {
-				continue;
-			}
-			const physicalPageIndex = this._allocatePhysicalPage(requestedKeys);
-			if (physicalPageIndex < 0) {
-				continue;
-			}
-			page = this._createResidentPage(pageRequest, physicalPageIndex);
-			this._residentPages.set(pageRequest.key, page);
-			this._physicalToKey[physicalPageIndex] = pageRequest.key;
-			allocatedThisFrame++;
-		}
-
-		this._evictExpiredPages(requestedKeys, resolveMaxCacheFrames(request.renderSets));
-		this._rebuildPageTable();
-		this._writePageBuffersIfNeeded();
 	}
 
 	/**
@@ -343,6 +340,11 @@ export class WebGPUPagedShadowRuntime {
 			[
 				this._feedbackParamsBuffer,
 				this._nextFeedbackFlagsBuffer,
+				this._pageTableBuffer,
+				this._layoutBuffer,
+				this._cascadeViewProjectionBuffer,
+				request.feedbackDepthTexture,
+				this._feedbackCameraBuffer,
 			],
 			Math.max(1, Math.ceil(Math.max(1, request.context.attachments.width) / 8)),
 			Math.max(1, Math.ceil(Math.max(1, request.context.attachments.height) / 8)),
@@ -358,26 +360,32 @@ export class WebGPUPagedShadowRuntime {
 		request: WebGPUPagedShadowFrameRequest
 	): Promise<void> {
 		this._lastRequest = request;
-		const residentPages = Array.from(this._residentPages.values());
-		const dirtyPages = residentPages.filter(
-			(page) => page.dirty
+		await this._recordComputePass(
+			request.encoder,
+			"pagedShadowDrawBuild",
+			"WebGPUPagedShadowDrawBuild",
+			[
+				this._drawParamsBuffer,
+				this._dirtyPhysicalPagesBuffer,
+				this._countersBuffer,
+				this._casterBoundsBuffer,
+				this._drawWorldMatrixBuffer,
+				this._cascadeViewProjectionBuffer,
+				this._drawMvpBuffer,
+				this._drawInstanceMetaBuffer,
+				this._drawTransmittanceBuffer,
+				this._drawIndirectArgsBuffer,
+			],
+			Math.max(1, this._drawCandidateCount),
+			1,
+			1
 		);
-		if (dirtyPages.length <= 0) {
-			return;
-		}
-		const resources = this.getResources();
-		await this._shadowPass.renderPagedDepthPages(
+		await this._shadowPass.renderPagedDepthIndirect(
 			request.context,
-			dirtyPages,
-			resources.physicalDepthAtlas,
+			this.getResources(),
 			request.encoder,
 			request.shadowCasterPackets
 		);
-		for (const page of dirtyPages) {
-			page.dirty = false;
-		}
-		this._rebuildPageTable();
-		this._writePageBuffersIfNeeded();
 	}
 
 	/**
@@ -395,7 +403,12 @@ export class WebGPUPagedShadowRuntime {
 			!this._countersBuffer ||
 			!this._dirtyPhysicalPagesBuffer ||
 			!this._feedbackFlagsBuffer ||
-			!this._nextFeedbackFlagsBuffer
+			!this._nextFeedbackFlagsBuffer ||
+			!this._drawMvpBuffer ||
+			!this._drawInstanceMetaBuffer ||
+			!this._drawTransmittanceBuffer ||
+			!this._drawIndirectArgsBuffer ||
+			!this._drawWorldMatrixBuffer
 		) {
 			return this._getFallbackResources();
 		}
@@ -412,25 +425,36 @@ export class WebGPUPagedShadowRuntime {
 			dirtyPhysicalPages: this._dirtyPhysicalPagesBuffer,
 			feedbackFlags: this._feedbackFlagsBuffer,
 			nextFeedbackFlags: this._nextFeedbackFlagsBuffer,
+			drawMvpBuffer: this._drawMvpBuffer,
+			drawInstanceMetaBuffer: this._drawInstanceMetaBuffer,
+			drawTransmittanceBuffer: this._drawTransmittanceBuffer,
+			drawIndirectArgsBuffer: this._drawIndirectArgsBuffer,
+			drawCandidateWorldMatrices: this._drawWorldMatrixBuffer,
 			pageSize: this._pageSize,
 			physicalGridSize: this._physicalGridSize,
 			physicalAtlasSize: this._physicalAtlasSize,
+			drawCandidateCount: this._drawCandidateCount,
+			drawInstanceCapacity: this._drawInstanceCapacity,
 		};
 	}
 
 	public getDebugState(): WebGPUPagedShadowDebugState {
 		return {
 			frameId: this._frameId,
-			requestCount: this._requests.length,
-			residentCount: this._residentPages.size,
-			dirtyCount: Array.from(this._residentPages.values()).filter((page) => page.dirty).length,
-			pageTableLength: this._pageTable.length,
+			pageTableLength: this._pageTableLength,
 			physicalPageCount: this._physicalPageCount,
 			pageSize: this._pageSize,
 			physicalGridSize: this._physicalGridSize,
-			gpuRequestBufferSize: this._compactedRequests.byteLength,
-			gpuDirtyBufferSize: this._dirtyPhysicalPages.byteLength,
+			requestBufferCapacity: this._requestBufferCapacity,
+			dirtyBufferCapacity: this._physicalPageCount,
 			feedbackFlagCount: this._feedbackFlags.length,
+			layoutCapacity: this._layoutCapacity,
+			casterCapacity: this._casterCapacity,
+			drawCandidateCapacity: this._drawCandidateCapacity,
+			drawCandidateCount: this._drawCandidateCount,
+			drawInstanceCapacity: this._drawInstanceCapacity,
+			hasCounterBuffer: !!this._countersBuffer,
+			gpuAuthoritative: true,
 		};
 	}
 
@@ -439,36 +463,52 @@ export class WebGPUPagedShadowRuntime {
 	 */
 	public destroy(): void {
 		this._lastRequest = null;
-		this._pageTableBuffer?.destroy();
-		this._pageMetadataBuffer?.destroy();
-		this._physicalDepthAtlas?.destroy();
-		this._pageRequestFlagsBuffer?.destroy();
-		this._compactedRequestsBuffer?.destroy();
-		this._residencyStateBuffer?.destroy();
-		this._freeListBuffer?.destroy();
-		this._countersBuffer?.destroy();
-		this._dirtyPhysicalPagesBuffer?.destroy();
-		this._feedbackFlagsBuffer?.destroy();
-		this._nextFeedbackFlagsBuffer?.destroy();
-		this._layoutBuffer?.destroy();
-		this._casterBoundsBuffer?.destroy();
-		this._cascadeViewProjectionBuffer?.destroy();
-		this._requestParamsBuffer?.destroy();
-		this._compactParamsBuffer?.destroy();
-		this._allocationParamsBuffer?.destroy();
-		this._dirtyParamsBuffer?.destroy();
-		this._feedbackParamsBuffer?.destroy();
-		this._fallbackPageTableBuffer?.destroy();
-		this._fallbackMetadataBuffer?.destroy();
-		this._fallbackDepthAtlas?.destroy();
-		this._fallbackPageRequestFlags?.destroy();
-		this._fallbackCompactedRequests?.destroy();
-		this._fallbackResidencyState?.destroy();
-		this._fallbackFreeList?.destroy();
-		this._fallbackCounters?.destroy();
-		this._fallbackDirtyPhysicalPages?.destroy();
-		this._fallbackFeedbackFlags?.destroy();
-		this._fallbackNextFeedbackFlags?.destroy();
+		this._preparedContext = null;
+		for (const resource of [
+			this._pageTableBuffer,
+			this._pageMetadataBuffer,
+			this._physicalDepthAtlas,
+			this._pageRequestFlagsBuffer,
+			this._compactedRequestsBuffer,
+			this._residencyStateBuffer,
+			this._freeListBuffer,
+			this._countersBuffer,
+			this._dirtyPhysicalPagesBuffer,
+			this._feedbackFlagsBuffer,
+			this._nextFeedbackFlagsBuffer,
+			this._layoutBuffer,
+			this._casterBoundsBuffer,
+			this._cascadeViewProjectionBuffer,
+			this._drawWorldMatrixBuffer,
+			this._drawMvpBuffer,
+			this._drawInstanceMetaBuffer,
+			this._drawTransmittanceBuffer,
+			this._drawIndirectArgsBuffer,
+			this._requestParamsBuffer,
+			this._compactParamsBuffer,
+			this._allocationParamsBuffer,
+			this._dirtyParamsBuffer,
+			this._drawParamsBuffer,
+			this._feedbackParamsBuffer,
+			this._fallbackPageTableBuffer,
+			this._fallbackMetadataBuffer,
+			this._fallbackDepthAtlas,
+			this._fallbackPageRequestFlags,
+			this._fallbackCompactedRequests,
+			this._fallbackResidencyState,
+			this._fallbackFreeList,
+			this._fallbackCounters,
+			this._fallbackDirtyPhysicalPages,
+			this._fallbackFeedbackFlags,
+			this._fallbackNextFeedbackFlags,
+			this._fallbackDrawMvpBuffer,
+			this._fallbackDrawMetaBuffer,
+			this._fallbackDrawTransmittanceBuffer,
+			this._fallbackDrawIndirectArgsBuffer,
+			this._fallbackDrawCandidateWorldMatrices,
+		]) {
+			resource?.destroy();
+		}
 		this._pageTableBuffer = null;
 		this._pageMetadataBuffer = null;
 		this._physicalDepthAtlas = null;
@@ -483,10 +523,16 @@ export class WebGPUPagedShadowRuntime {
 		this._layoutBuffer = null;
 		this._casterBoundsBuffer = null;
 		this._cascadeViewProjectionBuffer = null;
+		this._drawWorldMatrixBuffer = null;
+		this._drawMvpBuffer = null;
+		this._drawInstanceMetaBuffer = null;
+		this._drawTransmittanceBuffer = null;
+		this._drawIndirectArgsBuffer = null;
 		this._requestParamsBuffer = null;
 		this._compactParamsBuffer = null;
 		this._allocationParamsBuffer = null;
 		this._dirtyParamsBuffer = null;
+		this._drawParamsBuffer = null;
 		this._feedbackParamsBuffer = null;
 		this._fallbackPageTableBuffer = null;
 		this._fallbackMetadataBuffer = null;
@@ -499,27 +545,16 @@ export class WebGPUPagedShadowRuntime {
 		this._fallbackDirtyPhysicalPages = null;
 		this._fallbackFeedbackFlags = null;
 		this._fallbackNextFeedbackFlags = null;
-		this._requests = [];
-		this._residentPages.clear();
+		this._fallbackDrawMvpBuffer = null;
+		this._fallbackDrawMetaBuffer = null;
+		this._fallbackDrawTransmittanceBuffer = null;
+		this._fallbackDrawIndirectArgsBuffer = null;
+		this._fallbackDrawCandidateWorldMatrices = null;
 		this._layouts = [];
-		this._physicalToKey = [];
-		this._pageTable = new Uint32Array([WEBGPU_PAGED_SHADOW_NON_RESIDENT]);
-		this._pageMetadata = new Uint32Array(PAGE_METADATA_UINTS);
-		this._pageRequestFlags = new Uint32Array(1);
-		this._compactedRequests = new Uint32Array(PAGE_REQUEST_RECORD_UINTS);
-		this._residencyState = createNonResidentUint32Array(PAGE_RESIDENCY_STATE_UINTS);
-		this._freeList = new Uint32Array([0]);
-		this._counters = new Uint32Array(4);
-		this._dirtyPhysicalPages = new Uint32Array(DIRTY_PHYSICAL_PAGE_RECORD_UINTS);
-		this._feedbackFlags = new Uint32Array(1);
-		this._nextFeedbackFlags = new Uint32Array(1);
+		this._previousCasterBounds.clear();
 		this._computeShaderModules.clear();
 		this._computePipelines.clear();
 		this._computeBindGroups.clear();
-		this._resourcesDirty = true;
-		this._tableDirty = true;
-		this._gpuResourcesDirty = true;
-		this._gpuAllocationAuthoritative = false;
 	}
 
 	private _resolvePagedRenderSetLayouts(
@@ -553,19 +588,12 @@ export class WebGPUPagedShadowRuntime {
 			});
 			pageTableCursor += pageTableCascadeStride * cascadeCount;
 		}
-		if (pageTableCursor <= 0) {
-			this._pageTable = new Uint32Array([WEBGPU_PAGED_SHADOW_NON_RESIDENT]);
-			return [];
-		}
-		if (this._pageTable.length !== pageTableCursor) {
-			this._pageTable = new Uint32Array(pageTableCursor);
-			this._pageTable.fill(WEBGPU_PAGED_SHADOW_NON_RESIDENT);
-			this._tableDirty = true;
-		}
+		this._pageTableLength = Math.max(1, pageTableCursor);
 		return layouts;
 	}
 
 	private _prepareResourceShape(
+		request: WebGPUPagedShadowFrameRequest,
 		layouts: readonly WebGPUPagedShadowRenderSetLayout[]
 	): void {
 		let pageSize = DEFAULT_FALLBACK_PAGE_SIZE;
@@ -583,26 +611,35 @@ export class WebGPUPagedShadowRuntime {
 		const physicalAtlasSize = physicalGridSize * pageSize;
 		const requestBufferCapacity = Math.max(
 			1,
-			...layouts.map((layout) => layout.metadata.maxPagesPerFrame | 0),
-			Math.min(Math.max(1, this._pageTable.length), physicalPageCount)
+			this._pageTableLength,
+			...layouts.map((layout) => layout.metadata.maxPagesPerFrame | 0)
 		);
 		const layoutCapacity = Math.max(1, layouts.length);
-		const casterCapacity = Math.max(
-			1,
-			this._lastRequest?.shadowCasterPackets.length ?? 1
+		const currentCasterCount = request.shadowCasterPackets.length;
+		const removedCasterCount = countRemovedCasterSnapshots(
+			this._previousCasterBounds,
+			request.shadowCasterPackets
 		);
+		const casterCapacity = Math.max(1, currentCasterCount + removedCasterCount);
 		const cascadeCapacity = Math.max(1, layoutCapacity * 4);
+		const drawCandidateCapacity = Math.max(1, currentCasterCount);
+		const drawInstanceCapacity = Math.max(
+			1,
+			drawCandidateCapacity * physicalPageCount
+		);
 		if (
 			this._pageSize === pageSize &&
 			this._physicalPageCount === physicalPageCount &&
 			this._physicalGridSize === physicalGridSize &&
 			this._physicalAtlasSize === physicalAtlasSize &&
-			this._requestBufferCapacity === requestBufferCapacity &&
-			this._layoutCapacity === layoutCapacity &&
+			this._requestBufferCapacity >= requestBufferCapacity &&
+			this._layoutCapacity >= layoutCapacity &&
 			this._casterCapacity >= casterCapacity &&
 			this._cascadeCapacity >= cascadeCapacity &&
+			this._drawCandidateCapacity >= drawCandidateCapacity &&
+			this._drawInstanceCapacity >= drawInstanceCapacity &&
 			this._pageTableBuffer &&
-			this._pageTableBuffer.size >= Math.max(4, this._pageTable.byteLength) &&
+			this._pageTableBuffer.size >= this._pageTableLength * 4 &&
 			this._pageMetadataBuffer &&
 			this._physicalDepthAtlas &&
 			this._pageRequestFlagsBuffer &&
@@ -612,7 +649,13 @@ export class WebGPUPagedShadowRuntime {
 			this._countersBuffer &&
 			this._dirtyPhysicalPagesBuffer &&
 			this._feedbackFlagsBuffer &&
-			this._nextFeedbackFlagsBuffer
+			this._nextFeedbackFlagsBuffer &&
+			this._drawMvpBuffer &&
+			this._drawInstanceMetaBuffer &&
+			this._drawTransmittanceBuffer &&
+			this._drawIndirectArgsBuffer &&
+			this._drawWorldMatrixBuffer &&
+			this._feedbackCameraBuffer
 		) {
 			return;
 		}
@@ -623,14 +666,11 @@ export class WebGPUPagedShadowRuntime {
 		this._physicalAtlasSize = physicalAtlasSize;
 		this._requestBufferCapacity = requestBufferCapacity;
 		this._layoutCapacity = layoutCapacity;
-		this._casterCapacity = Math.max(this._casterCapacity, casterCapacity);
+		this._casterCapacity = casterCapacity;
 		this._cascadeCapacity = cascadeCapacity;
-		this._residentPages.clear();
-		this._physicalToKey = new Array(physicalPageCount).fill(null);
-		this._pageMetadata = new Uint32Array(
-			Math.max(1, physicalPageCount) * PAGE_METADATA_UINTS
-		);
-		this._pageRequestFlags = new Uint32Array(Math.max(1, this._pageTable.length));
+		this._drawCandidateCapacity = drawCandidateCapacity;
+		this._drawInstanceCapacity = drawInstanceCapacity;
+		this._pageRequestFlags = new Uint32Array(Math.max(1, this._pageTableLength));
 		this._compactedRequests = new Uint32Array(
 			requestBufferCapacity * PAGE_REQUEST_RECORD_UINTS
 		);
@@ -641,41 +681,28 @@ export class WebGPUPagedShadowRuntime {
 		for (let index = 0; index < physicalPageCount; index++) {
 			this._freeList[index] = index;
 		}
-		this._counters = new Uint32Array(4);
+		this._counters = new Uint32Array(8);
 		this._dirtyPhysicalPages = new Uint32Array(
 			physicalPageCount * DIRTY_PHYSICAL_PAGE_RECORD_UINTS
 		);
-		this._feedbackFlags = new Uint32Array(Math.max(1, this._pageTable.length));
-		this._nextFeedbackFlags = new Uint32Array(Math.max(1, this._pageTable.length));
+		this._feedbackFlags = new Uint32Array(Math.max(1, this._pageTableLength));
+		this._nextFeedbackFlags = new Uint32Array(Math.max(1, this._pageTableLength));
 		this._layoutData = new Uint32Array(layoutCapacity * PAGE_LAYOUT_UINTS);
 		this._casterBoundsData = new Float32Array(this._casterCapacity * 4);
 		this._cascadeViewProjectionData = new Float32Array(this._cascadeCapacity * 16);
-		this._pageTableBuffer?.destroy();
-		this._pageMetadataBuffer?.destroy();
-		this._physicalDepthAtlas?.destroy();
-		this._pageRequestFlagsBuffer?.destroy();
-		this._compactedRequestsBuffer?.destroy();
-		this._residencyStateBuffer?.destroy();
-		this._freeListBuffer?.destroy();
-		this._countersBuffer?.destroy();
-		this._dirtyPhysicalPagesBuffer?.destroy();
-		this._feedbackFlagsBuffer?.destroy();
-		this._nextFeedbackFlagsBuffer?.destroy();
-		this._layoutBuffer?.destroy();
-		this._casterBoundsBuffer?.destroy();
-		this._cascadeViewProjectionBuffer?.destroy();
-		this._requestParamsBuffer?.destroy();
-		this._compactParamsBuffer?.destroy();
-		this._allocationParamsBuffer?.destroy();
-		this._dirtyParamsBuffer?.destroy();
-		this._feedbackParamsBuffer?.destroy();
+		this._drawWorldMatrixData = new Float32Array(this._drawCandidateCapacity * 16);
+		this._drawIndirectArgsData = new Uint32Array(
+			this._drawCandidateCapacity * DRAW_INDIRECT_UINTS
+		);
+		this._feedbackCameraData = new Float32Array(16);
+		this._destroyPrimaryResources();
 		this._pageTableBuffer = this._backend.createBuffer({
-			size: Math.max(4, this._pageTable.byteLength),
+			size: Math.max(4, this._pageTableLength * 4),
 			usage: BufferUsage.Storage | BufferUsage.CopyDst | BufferUsage.CopySrc,
 			label: "WebGPUPagedShadowPageTable",
 		});
 		this._pageMetadataBuffer = this._backend.createBuffer({
-			size: Math.max(4, this._pageMetadata.byteLength),
+			size: Math.max(4, physicalPageCount * PAGE_METADATA_UINTS * 4),
 			usage: BufferUsage.Storage | BufferUsage.CopyDst,
 			label: "WebGPUPagedShadowPageMetadata",
 		});
@@ -730,6 +757,27 @@ export class WebGPUPagedShadowRuntime {
 			"WebGPUPagedShadowCascadeViewProjections",
 			this._cascadeViewProjectionData.byteLength
 		);
+		this._drawWorldMatrixBuffer = this._createStorageBuffer(
+			"WebGPUPagedShadowDrawWorldMatrices",
+			this._drawWorldMatrixData.byteLength
+		);
+		this._drawMvpBuffer = this._createStorageBuffer(
+			"WebGPUPagedShadowDrawMvp",
+			this._drawInstanceCapacity * 16 * 4
+		);
+		this._drawInstanceMetaBuffer = this._createStorageBuffer(
+			"WebGPUPagedShadowDrawInstanceMeta",
+			this._drawInstanceCapacity * SHADOW_INSTANCE_DATA_UINTS * 4
+		);
+		this._drawTransmittanceBuffer = this._createStorageBuffer(
+			"WebGPUPagedShadowDrawTransmittance",
+			this._drawInstanceCapacity * 4 * 4
+		);
+		this._drawIndirectArgsBuffer = this._backend.createBuffer({
+			size: Math.max(4, this._drawIndirectArgsData.byteLength),
+			usage: BufferUsage.Storage | BufferUsage.CopyDst | BufferUsage.Indirect,
+			label: "WebGPUPagedShadowDrawIndirectArgs",
+		});
 		this._requestParamsBuffer = this._createUniformBuffer(
 			"WebGPUPagedShadowRequestParams",
 			PAGE_REQUEST_PARAMS_UINTS * 4
@@ -746,150 +794,82 @@ export class WebGPUPagedShadowRuntime {
 			"WebGPUPagedShadowDirtyParams",
 			PAGE_DIRTY_PARAMS_UINTS * 4
 		);
+		this._drawParamsBuffer = this._createUniformBuffer(
+			"WebGPUPagedShadowDrawParams",
+			PAGE_DRAW_PARAMS_UINTS * 4
+		);
 		this._feedbackParamsBuffer = this._createUniformBuffer(
 			"WebGPUPagedShadowFeedbackParams",
 			PAGE_FEEDBACK_PARAMS_UINTS * 4
 		);
-		this._resourcesDirty = true;
-		this._tableDirty = true;
-		this._gpuResourcesDirty = true;
-		this._gpuAllocationAuthoritative = false;
+		this._feedbackCameraBuffer = this._createStorageBuffer(
+			"WebGPUPagedShadowFeedbackCamera",
+			this._feedbackCameraData.byteLength
+		);
+		this._initializeGpuAuthoritativeBuffers();
 		this._computeBindGroups.clear();
 	}
 
-	private _allocatePhysicalPage(requestedKeys: ReadonlySet<string>): number {
-		for (let index = 0; index < this._physicalPageCount; index++) {
-			if (!this._physicalToKey[index]) {
-				return index;
-			}
+	private _destroyPrimaryResources(): void {
+		for (const resource of [
+			this._pageTableBuffer,
+			this._pageMetadataBuffer,
+			this._physicalDepthAtlas,
+			this._pageRequestFlagsBuffer,
+			this._compactedRequestsBuffer,
+			this._residencyStateBuffer,
+			this._freeListBuffer,
+			this._countersBuffer,
+			this._dirtyPhysicalPagesBuffer,
+			this._feedbackFlagsBuffer,
+			this._nextFeedbackFlagsBuffer,
+			this._layoutBuffer,
+			this._casterBoundsBuffer,
+			this._cascadeViewProjectionBuffer,
+			this._drawWorldMatrixBuffer,
+			this._drawMvpBuffer,
+			this._drawInstanceMetaBuffer,
+			this._drawTransmittanceBuffer,
+			this._drawIndirectArgsBuffer,
+			this._requestParamsBuffer,
+			this._compactParamsBuffer,
+			this._allocationParamsBuffer,
+			this._dirtyParamsBuffer,
+			this._drawParamsBuffer,
+			this._feedbackParamsBuffer,
+			this._feedbackCameraBuffer,
+		]) {
+			resource?.destroy();
 		}
-		let evictIndex = -1;
-		let oldestFrame = Number.POSITIVE_INFINITY;
-		for (let index = 0; index < this._physicalToKey.length; index++) {
-			const key = this._physicalToKey[index];
-			if (!key || requestedKeys.has(key)) {
-				continue;
-			}
-			const page = this._residentPages.get(key);
-			if (!page) {
-				return index;
-			}
-			if (page.lastUsedFrame < oldestFrame) {
-				oldestFrame = page.lastUsedFrame;
-				evictIndex = index;
-			}
-		}
-		if (evictIndex >= 0) {
-			const key = this._physicalToKey[evictIndex];
-			if (key) {
-				this._residentPages.delete(key);
-			}
-			this._physicalToKey[evictIndex] = null;
-		}
-		return evictIndex;
 	}
 
-	private _createResidentPage(
-		request: WebGPUPagedShadowPageRequest,
-		physicalPageIndex: number
-	): WebGPUPagedShadowResidentPage {
-		const viewportX = (physicalPageIndex % this._physicalGridSize) * this._pageSize;
-		const viewportY =
-			Math.floor(physicalPageIndex / this._physicalGridSize) * this._pageSize;
-		return {
-			key: request.key,
-			request,
-			physicalPageIndex,
-			dirty: true,
-			lastUsedFrame: this._frameId,
-			viewProjection: createPagedShadowPageViewProjection(request),
-			viewportX,
-			viewportY,
-			viewportSize: this._pageSize,
-		};
-	}
-
-	private _evictExpiredPages(
-		requestedKeys: ReadonlySet<string>,
-		cacheFrames: number
-	): void {
-		if (cacheFrames < 0) {
+	private _initializeGpuAuthoritativeBuffers(): void {
+		if (!this._pageTableBuffer) {
 			return;
 		}
-		const minFrame = this._frameId - cacheFrames;
-		for (const [key, page] of this._residentPages) {
-			if (requestedKeys.has(key) || page.lastUsedFrame >= minFrame) {
-				continue;
-			}
-			this._physicalToKey[page.physicalPageIndex] = null;
-			this._residentPages.delete(key);
+		const pageTable = new Uint32Array(this._pageTableLength);
+		pageTable.fill(WEBGPU_PAGED_SHADOW_NON_RESIDENT);
+		this._backend.writeBuffer(this._pageTableBuffer, pageTable);
+		if (this._pageMetadataBuffer) {
+			this._backend.writeBuffer(
+				this._pageMetadataBuffer,
+				new Uint32Array(this._physicalPageCount * PAGE_METADATA_UINTS)
+			);
 		}
-	}
-
-	private _rebuildPageTable(): void {
-		this._pageTable.fill(WEBGPU_PAGED_SHADOW_NON_RESIDENT);
-		this._pageMetadata.fill(0);
-		this._residencyState.fill(WEBGPU_PAGED_SHADOW_NON_RESIDENT);
-		this._dirtyPhysicalPages.fill(0);
-		let dirtyIndex = 0;
-		for (const page of this._residentPages.values()) {
-			this._pageTable[page.request.pageTableIndex] = page.physicalPageIndex;
-			const base = page.physicalPageIndex * PAGE_METADATA_UINTS;
-			this._pageMetadata[base] = page.request.pageTableIndex >>> 0;
-			this._pageMetadata[base + 1] = page.request.cascadeIndex >>> 0;
-			this._pageMetadata[base + 2] = page.request.pageX >>> 0;
-			this._pageMetadata[base + 3] = page.request.pageY >>> 0;
-			this._pageMetadata[base + 4] = page.dirty ? 1 : 0;
-			this._pageMetadata[base + 5] = this._frameId >>> 0;
-			this._pageMetadata[base + 6] = page.lastUsedFrame >>> 0;
-			this._pageMetadata[base + 7] = 0;
-			const residencyBase = page.physicalPageIndex * PAGE_RESIDENCY_STATE_UINTS;
-			this._residencyState[residencyBase] = page.request.pageTableIndex >>> 0;
-			this._residencyState[residencyBase + 1] = page.lastUsedFrame >>> 0;
-			this._residencyState[residencyBase + 2] = 1;
-			this._residencyState[residencyBase + 3] = page.dirty ? 1 : 0;
-			this._residencyState[residencyBase + 4] = page.request.cascadeIndex >>> 0;
-			this._residencyState[residencyBase + 5] = page.request.pageX >>> 0;
-			this._residencyState[residencyBase + 6] = page.request.pageY >>> 0;
-			this._residencyState[residencyBase + 7] = 0;
-			if (page.dirty && dirtyIndex < this._physicalPageCount) {
-				const dirtyBase = dirtyIndex * DIRTY_PHYSICAL_PAGE_RECORD_UINTS;
-				this._dirtyPhysicalPages[dirtyBase] = page.physicalPageIndex >>> 0;
-				this._dirtyPhysicalPages[dirtyBase + 1] =
-					page.request.pageTableIndex >>> 0;
-				this._dirtyPhysicalPages[dirtyBase + 2] =
-					page.request.cascadeIndex >>> 0;
-				this._dirtyPhysicalPages[dirtyBase + 3] = page.request.pageX >>> 0;
-				this._dirtyPhysicalPages[dirtyBase + 4] = page.request.pageY >>> 0;
-				this._dirtyPhysicalPages[dirtyBase + 5] = page.viewportX >>> 0;
-				this._dirtyPhysicalPages[dirtyBase + 6] = page.viewportY >>> 0;
-				this._dirtyPhysicalPages[dirtyBase + 7] = page.viewportSize >>> 0;
-				dirtyIndex++;
+		for (const [buffer, data] of [
+			[this._pageRequestFlagsBuffer, this._pageRequestFlags],
+			[this._compactedRequestsBuffer, this._compactedRequests],
+			[this._residencyStateBuffer, this._residencyState],
+			[this._freeListBuffer, this._freeList],
+			[this._countersBuffer, this._counters],
+			[this._dirtyPhysicalPagesBuffer, this._dirtyPhysicalPages],
+			[this._feedbackFlagsBuffer, this._feedbackFlags],
+			[this._nextFeedbackFlagsBuffer, this._nextFeedbackFlags],
+		] as Array<[IRenderBuffer | null, Uint32Array]>) {
+			if (buffer) {
+				this._backend.writeBuffer(buffer, data as Uint32Array<ArrayBuffer>);
 			}
 		}
-		this._tableDirty = true;
-		this._gpuResourcesDirty = true;
-	}
-
-	private _writePageBuffersIfNeeded(): void {
-		if (!this._pageTableBuffer || !this._pageMetadataBuffer) {
-			return;
-		}
-		if (!this._tableDirty && !this._resourcesDirty && !this._gpuResourcesDirty) {
-			return;
-		}
-		if (this._tableDirty || this._resourcesDirty) {
-			if (!this._gpuAllocationAuthoritative) {
-				this._backend.writeBuffer(this._pageTableBuffer, this._pageTable);
-			}
-			this._backend.writeBuffer(this._pageMetadataBuffer, this._pageMetadata);
-		}
-		if (this._gpuResourcesDirty) {
-			this._writeGpuStateBuffers();
-		}
-		this._tableDirty = false;
-		this._resourcesDirty = false;
-		this._gpuResourcesDirty = false;
 	}
 
 	private _createStorageBuffer(label: string, size: number): IRenderBuffer {
@@ -922,6 +902,8 @@ export class WebGPUPagedShadowRuntime {
 			this._layoutData[layoutOffset + 2] = layout.metadata.pageGridSize >>> 0;
 			this._layoutData[layoutOffset + 3] = layout.cascadeCount >>> 0;
 			this._layoutData[layoutOffset + 4] = Math.max(0, 4 - layoutIndex) >>> 0;
+			this._layoutData[layoutOffset + 5] =
+				layout.metadata.feedbackMode === "screen-feedback" ? 1 : 0;
 			for (let cascadeIndex = 0; cascadeIndex < layout.cascadeCount; cascadeIndex++) {
 				const slice = layout.renderSet.slices[cascadeIndex];
 				const matrix = slice?.shadowMap.viewProjectionMatrix;
@@ -936,40 +918,62 @@ export class WebGPUPagedShadowRuntime {
 			}
 		}
 
-		const casterCount = request.shadowCasterPackets.length;
-		if (this._casterBoundsData.length < Math.max(1, casterCount) * 4) {
-			this._casterCapacity = Math.max(1, casterCount);
-			this._casterBoundsData = new Float32Array(this._casterCapacity * 4);
-			this._casterBoundsBuffer?.destroy();
-			this._casterBoundsBuffer = this._createStorageBuffer(
-				"WebGPUPagedShadowCasterBounds",
-				this._casterBoundsData.byteLength
-			);
-			this._computeBindGroups.clear();
-		}
+		this._drawCandidateCount = request.shadowCasterPackets.length;
+		this._drawWorldMatrixData.fill(0);
+		this._drawIndirectArgsData.fill(0);
 		this._casterBoundsData.fill(0);
-		for (let index = 0; index < casterCount; index++) {
-			const bounds = request.shadowCasterPackets[index].worldBounds;
-			const offset = index * 4;
-			this._casterBoundsData[offset] = bounds.center.x;
-			this._casterBoundsData[offset + 1] = bounds.center.y;
-			this._casterBoundsData[offset + 2] = bounds.center.z;
-			this._casterBoundsData[offset + 3] = Math.max(0, bounds.radius);
+		this._feedbackCameraData.fill(0);
+		const inverseViewProjection = Matrix4.inverse(
+			request.context.camera.viewProjectionMatrix
+		);
+		if (inverseViewProjection) {
+			this._setMatrixInFloatArray(
+				inverseViewProjection,
+				this._feedbackCameraData,
+				0
+			);
+		}
+		const casterCount = this._writeCasterBoundsWithTombstones(
+			request.shadowCasterPackets
+		);
+		for (let index = 0; index < request.shadowCasterPackets.length; index++) {
+			const packet = request.shadowCasterPackets[index];
+			this._setMatrixInFloatArray(
+				packet.worldMatrix,
+				this._drawWorldMatrixData,
+				index * 16
+			);
+			const indirectOffset = index * DRAW_INDIRECT_UINTS;
+			this._drawIndirectArgsData[indirectOffset] =
+				Math.max(0, packet.geometry.indices.length | 0) >>> 0;
+			this._drawIndirectArgsData[indirectOffset + 1] = 0;
+			this._drawIndirectArgsData[indirectOffset + 2] = 0;
+			this._drawIndirectArgsData[indirectOffset + 3] = 0;
+			this._drawIndirectArgsData[indirectOffset + 4] =
+				(index * this._physicalPageCount) >>> 0;
 		}
 
+		const conservativeWarmup =
+			this._frameId <= 1 || layouts.some((layout) =>
+				layout.metadata.feedbackMode !== "screen-feedback"
+			) ? 1 : 0;
 		this._backend.writeBuffer(
 			this._requestParamsBuffer!,
 			new Uint32Array([
-				this._pageTable.length,
+				this._pageTableLength,
 				casterCount,
 				layouts.length,
 				this._frameId,
+				conservativeWarmup,
+				this._feedbackFlags.length,
+				0,
+				0,
 			])
 		);
 		this._backend.writeBuffer(
 			this._compactParamsBuffer!,
 			new Uint32Array([
-				this._pageTable.length,
+				this._pageTableLength,
 				this._requestBufferCapacity,
 				layouts[0]?.metadata.pageGridSize ?? 1,
 				0,
@@ -983,7 +987,7 @@ export class WebGPUPagedShadowRuntime {
 				this._physicalPageCount,
 				resolveMaxPagesPerFrame(request.renderSets),
 				resolveMaxCacheFrames(request.renderSets),
-				this._pageTable.length,
+				this._pageTableLength,
 				0,
 				0,
 			])
@@ -998,11 +1002,28 @@ export class WebGPUPagedShadowRuntime {
 			])
 		);
 		this._backend.writeBuffer(
+			this._drawParamsBuffer!,
+			new Uint32Array([
+				this._drawCandidateCount,
+				this._physicalPageCount,
+				this._physicalPageCount,
+				this._pageSize,
+				this._physicalGridSize,
+				this._drawInstanceCapacity,
+				this._frameId,
+				0,
+			])
+		);
+		this._backend.writeBuffer(
 			this._feedbackParamsBuffer!,
 			new Uint32Array([
-				this._pageTable.length,
+				this._pageTableLength,
 				Math.max(1, request.context.attachments.width | 0),
 				Math.max(1, request.context.attachments.height | 0),
+				layouts.length,
+				this._frameId,
+				this._feedbackFlags.length,
+				0,
 				0,
 			])
 		);
@@ -1012,7 +1033,60 @@ export class WebGPUPagedShadowRuntime {
 			this._cascadeViewProjectionBuffer!,
 			this._cascadeViewProjectionData
 		);
-		this._gpuResourcesDirty = true;
+		this._backend.writeBuffer(
+			this._feedbackCameraBuffer!,
+			this._feedbackCameraData
+		);
+		this._backend.writeBuffer(
+			this._drawWorldMatrixBuffer!,
+			this._drawWorldMatrixData
+		);
+		this._backend.writeBuffer(
+			this._drawIndirectArgsBuffer!,
+			this._drawIndirectArgsData
+		);
+	}
+
+	private _writeCasterBoundsWithTombstones(
+		packets: readonly DrawPacket[]
+	): number {
+		const currentIds = new Set<string>();
+		let cursor = 0;
+		for (const packet of packets) {
+			currentIds.add(packet.id);
+			const bounds = packet.worldBounds;
+			this._writeCasterBounds(cursor++, {
+				centerX: bounds.center.x,
+				centerY: bounds.center.y,
+				centerZ: bounds.center.z,
+				radius: Math.max(0, bounds.radius),
+			});
+		}
+		for (const [id, bounds] of this._previousCasterBounds) {
+			if (currentIds.has(id) || cursor >= this._casterCapacity) {
+				continue;
+			}
+			this._writeCasterBounds(cursor++, bounds);
+		}
+		this._previousCasterBounds.clear();
+		for (const packet of packets) {
+			const bounds = packet.worldBounds;
+			this._previousCasterBounds.set(packet.id, {
+				centerX: bounds.center.x,
+				centerY: bounds.center.y,
+				centerZ: bounds.center.z,
+				radius: Math.max(0, bounds.radius),
+			});
+		}
+		return cursor;
+	}
+
+	private _writeCasterBounds(index: number, bounds: FrameCasterSnapshot): void {
+		const offset = index * 4;
+		this._casterBoundsData[offset] = bounds.centerX;
+		this._casterBoundsData[offset + 1] = bounds.centerY;
+		this._casterBoundsData[offset + 2] = bounds.centerZ;
+		this._casterBoundsData[offset + 3] = bounds.radius;
 	}
 
 	private _resetGpuRequestBuffers(): void {
@@ -1020,34 +1094,14 @@ export class WebGPUPagedShadowRuntime {
 		this._compactedRequests.fill(0);
 		this._counters.fill(0);
 		this._dirtyPhysicalPages.fill(0);
-		if (!this._pageRequestFlagsBuffer || !this._compactedRequestsBuffer || !this._countersBuffer) {
-			return;
-		}
-		this._backend.writeBuffer(this._pageRequestFlagsBuffer, this._pageRequestFlags);
-		this._backend.writeBuffer(this._compactedRequestsBuffer, this._compactedRequests);
-		this._backend.writeBuffer(this._countersBuffer, this._counters);
-		if (this._dirtyPhysicalPagesBuffer) {
-			this._backend.writeBuffer(
-				this._dirtyPhysicalPagesBuffer,
-				this._dirtyPhysicalPages
-			);
-		}
-	}
-
-	private _writeGpuStateBuffers(): void {
-		const writes: Array<[IRenderBuffer | null, Uint32Array | Float32Array]> = [
+		for (const [buffer, data] of [
 			[this._pageRequestFlagsBuffer, this._pageRequestFlags],
 			[this._compactedRequestsBuffer, this._compactedRequests],
-			[this._residencyStateBuffer, this._residencyState],
-			[this._freeListBuffer, this._freeList],
 			[this._countersBuffer, this._counters],
 			[this._dirtyPhysicalPagesBuffer, this._dirtyPhysicalPages],
-			[this._feedbackFlagsBuffer, this._feedbackFlags],
-			[this._nextFeedbackFlagsBuffer, this._nextFeedbackFlags],
-		];
-		for (const [buffer, data] of writes) {
+		] as Array<[IRenderBuffer | null, Uint32Array]>) {
 			if (buffer) {
-				this._backend.writeBuffer(buffer, data as BufferSource);
+				this._backend.writeBuffer(buffer, data as Uint32Array<ArrayBuffer>);
 			}
 		}
 	}
@@ -1056,7 +1110,7 @@ export class WebGPUPagedShadowRuntime {
 		encoder: ICommandEncoder | null,
 		shaderPart: string,
 		label: string,
-		resources: ReadonlyArray<IRenderBuffer | null>,
+		resources: ReadonlyArray<BindingResource | null>,
 		x: number,
 		y: number,
 		z: number
@@ -1068,7 +1122,7 @@ export class WebGPUPagedShadowRuntime {
 			createBindingGroup?: (desc: {
 				pipeline?: IComputePipeline;
 				layoutIndex?: number;
-				entries: Array<{ binding: number; resource: IRenderBuffer }>;
+				entries: Array<{ binding: number; resource: BindingResource }>;
 				label?: string;
 			}) => IBindingGroup;
 			createComputePipeline?: (desc: {
@@ -1096,7 +1150,7 @@ export class WebGPUPagedShadowRuntime {
 		if (!pipeline) {
 			return;
 		}
-		const bindGroupKey = `${shaderPart}:${resources.map((resource) => resource?.size ?? 0).join(":")}`;
+		const bindGroupKey = `${shaderPart}:${resources.map(getResourceSizeSignature).join(":")}`;
 		let bindGroup = this._computeBindGroups.get(bindGroupKey);
 		if (!bindGroup) {
 			bindGroup = backend.createBindingGroup({
@@ -1263,7 +1317,7 @@ export class WebGPUPagedShadowRuntime {
 		);
 		this._fallbackCounters ??= this._createFallbackBuffer(
 			"WebGPUPagedShadowFallbackCounters",
-			16
+			32
 		);
 		this._fallbackDirtyPhysicalPages ??= this._createFallbackBuffer(
 			"WebGPUPagedShadowFallbackDirtyPhysicalPages",
@@ -1276,6 +1330,27 @@ export class WebGPUPagedShadowRuntime {
 		this._fallbackNextFeedbackFlags ??= this._createFallbackBuffer(
 			"WebGPUPagedShadowFallbackNextFeedbackFlags",
 			4
+		);
+		this._fallbackDrawMvpBuffer ??= this._createFallbackBuffer(
+			"WebGPUPagedShadowFallbackDrawMvp",
+			16 * 4
+		);
+		this._fallbackDrawMetaBuffer ??= this._createFallbackBuffer(
+			"WebGPUPagedShadowFallbackDrawMeta",
+			SHADOW_INSTANCE_DATA_UINTS * 4
+		);
+		this._fallbackDrawTransmittanceBuffer ??= this._createFallbackBuffer(
+			"WebGPUPagedShadowFallbackDrawTransmittance",
+			4 * 4
+		);
+		this._fallbackDrawIndirectArgsBuffer ??= this._createFallbackBuffer(
+			"WebGPUPagedShadowFallbackDrawIndirectArgs",
+			DRAW_INDIRECT_UINTS * 4,
+			BufferUsage.Storage | BufferUsage.CopyDst | BufferUsage.Indirect
+		);
+		this._fallbackDrawCandidateWorldMatrices ??= this._createFallbackBuffer(
+			"WebGPUPagedShadowFallbackDrawWorldMatrices",
+			16 * 4
 		);
 		return {
 			pageTable: this._fallbackPageTableBuffer,
@@ -1290,16 +1365,27 @@ export class WebGPUPagedShadowRuntime {
 			dirtyPhysicalPages: this._fallbackDirtyPhysicalPages,
 			feedbackFlags: this._fallbackFeedbackFlags,
 			nextFeedbackFlags: this._fallbackNextFeedbackFlags,
+			drawMvpBuffer: this._fallbackDrawMvpBuffer,
+			drawInstanceMetaBuffer: this._fallbackDrawMetaBuffer,
+			drawTransmittanceBuffer: this._fallbackDrawTransmittanceBuffer,
+			drawIndirectArgsBuffer: this._fallbackDrawIndirectArgsBuffer,
+			drawCandidateWorldMatrices: this._fallbackDrawCandidateWorldMatrices,
 			pageSize: DEFAULT_FALLBACK_PAGE_SIZE,
 			physicalGridSize: 1,
 			physicalAtlasSize: DEFAULT_FALLBACK_PAGE_SIZE,
+			drawCandidateCount: 0,
+			drawInstanceCapacity: 1,
 		};
 	}
 
-	private _createFallbackBuffer(label: string, size: number): IRenderBuffer {
+	private _createFallbackBuffer(
+		label: string,
+		size: number,
+		usage: BufferUsage = BufferUsage.Storage | BufferUsage.CopyDst
+	): IRenderBuffer {
 		const buffer = this._backend.createBuffer({
 			size: Math.max(4, size),
-			usage: BufferUsage.Storage | BufferUsage.CopyDst,
+			usage,
 			label,
 		});
 		this._backend.writeBuffer(buffer, new Uint32Array(Math.max(1, size / 4)));
@@ -1453,29 +1539,6 @@ function projectSphereToShadowUvBounds(
 	};
 }
 
-function createPagedShadowPageViewProjection(
-	request: WebGPUPagedShadowPageRequest
-): Matrix4 {
-	const grid = Math.max(1, request.pageGridSize);
-	const scale = grid;
-	const offsetX = grid - request.pageX * 2 - 1;
-	const offsetY = request.pageY * 2 + 1 - grid;
-	const crop = new Matrix4([
-		[scale, 0, 0, offsetX],
-		[0, scale, 0, offsetY],
-		[0, 0, 1, 0],
-		[0, 0, 0, 1],
-	]);
-	const source = findRequestViewProjection(request);
-	return source ? Matrix4.multiply(crop, source) : crop;
-}
-
-function findRequestViewProjection(
-	request: WebGPUPagedShadowPageRequest
-): Matrix4 | null {
-	return request.viewProjection ?? null;
-}
-
 function resolveMaxPagesPerFrame(
 	renderSets: ReadonlyMap<ShadowCastingLight, ShadowRenderSet>
 ): number {
@@ -1504,12 +1567,40 @@ function resolveMaxCacheFrames(
 	return Math.max(0, cacheFrames);
 }
 
+function createNonResidentUint32Array(length: number): Uint32Array {
+	const data = new Uint32Array(Math.max(1, length));
+	data.fill(WEBGPU_PAGED_SHADOW_NON_RESIDENT);
+	return data;
+}
+
 function clampInt(value: number, min: number, max: number): number {
+	if (!Number.isFinite(value)) {
+		return min;
+	}
 	return Math.max(min, Math.min(max, value | 0));
 }
 
-function createNonResidentUint32Array(length: number): Uint32Array {
-	const array = new Uint32Array(Math.max(1, length));
-	array.fill(WEBGPU_PAGED_SHADOW_NON_RESIDENT);
-	return array;
+function countRemovedCasterSnapshots(
+	previous: ReadonlyMap<string, FrameCasterSnapshot>,
+	packets: readonly DrawPacket[]
+): number {
+	if (previous.size <= 0) {
+		return 0;
+	}
+	const currentIds = new Set(packets.map((packet) => packet.id));
+	let count = 0;
+	for (const id of previous.keys()) {
+		if (!currentIds.has(id)) {
+			count++;
+		}
+	}
+	return count;
+}
+
+function getResourceSizeSignature(resource: BindingResource | null): string {
+	if (!resource || typeof resource !== "object") {
+		return "0";
+	}
+	const sized = resource as { size?: unknown; width?: unknown; height?: unknown };
+	return `${sized.size ?? 0}:${sized.width ?? 0}:${sized.height ?? 0}`;
 }

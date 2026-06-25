@@ -34,6 +34,7 @@ import {
 } from "./constants";
 import { createWebGPUShadowVertexBufferLayout } from "./bufferLayouts";
 import {
+	getWebGPUBuffer,
 	getWebGPURenderPipeline,
 	getWebGPUTexture,
 } from "./WebGPUResourceAccess";
@@ -50,7 +51,10 @@ import type {
 	WebGPUGeometryRegistry,
 } from "./WebGPUGeometryRegistry";
 import type { WebGPUShadowAtlasAllocator } from "./WebGPUShadowAtlasAllocator";
-import type { WebGPUPagedShadowResidentPage } from "./WebGPUPagedShadowRuntime";
+import type {
+	WebGPUPagedShadowResidentPage,
+	WebGPUPagedShadowResources,
+} from "./WebGPUPagedShadowRuntime";
 
 interface ShadowRenderSlot {
 	shadowMap: ShadowMap;
@@ -105,6 +109,7 @@ interface InstanceBufferGroup {
 }
 
 const SHADOW_INSTANCE_DATA_UINTS = 12;
+const DRAW_INDEXED_INDIRECT_UINTS = 5;
 
 export class WebGPUShadowPass {
 	private _backend: WebGPUBackend;
@@ -401,6 +406,111 @@ export class WebGPUShadowPass {
 			context,
 			animationBindingCache
 		);
+		passEncoder.end();
+		if (submitAtEnd) {
+			this._requireBackendQueue().submit([commandEncoder.finish()]);
+		}
+		this._trimAnimationResources();
+	}
+
+	/**
+	 * @internal WebGPU GPU-driven paged shadow depth renderer.
+	 */
+	public async renderPagedDepthIndirect(
+		context: FrameContext,
+		resources: WebGPUPagedShadowResources,
+		frameEncoder?: ICommandEncoder | null,
+		shadowCasterPackets: readonly DrawPacket[] = context.scene.shadowCasterPackets
+	): Promise<void> {
+		if (
+			!context.features.enableShadows ||
+			resources.drawCandidateCount <= 0 ||
+			resources.drawInstanceCapacity <= 0
+		) {
+			return;
+		}
+		const atlasView = getWebGPUTexture(resources.physicalDepthAtlas).view;
+		if (!atlasView) {
+			return;
+		}
+
+		await this._ensurePipelineResources();
+		if (
+			!this._pipeline ||
+			!this._bindGroupLayout ||
+			!this._animationBindGroupLayout
+		) {
+			return;
+		}
+
+		this._frameId++;
+		const drawCandidates = this._collectShadowDrawCandidates(shadowCasterPackets);
+		if (drawCandidates.length <= 0) {
+			return;
+		}
+		const bindGroup = this._requireBackendDevice().createBindGroup({
+			label: "WebGPUPagedShadowDepthIndirectBindGroup",
+			layout: this._bindGroupLayout,
+			entries: [
+				{
+					binding: 0,
+					resource: { buffer: getWebGPUBuffer(resources.drawMvpBuffer) },
+				},
+				{
+					binding: 1,
+					resource: { buffer: getWebGPUBuffer(resources.drawInstanceMetaBuffer) },
+				},
+				{
+					binding: 2,
+					resource: { buffer: getWebGPUBuffer(resources.drawTransmittanceBuffer) },
+				},
+			],
+		});
+		const animationBindingCache = new Map<string, GPUBindGroup | null>();
+		const { commandEncoder, submitAtEnd } =
+			this._resolveShadowCommandEncoder(frameEncoder);
+		const passEncoder = commandEncoder.beginRenderPass({
+			label: "WebGPUPagedShadowDepthIndirectPass",
+			colorAttachments: [],
+			depthStencilAttachment: {
+				view: atlasView,
+				depthLoadOp: "load",
+				depthStoreOp: "store",
+			},
+		});
+
+		const atlasSize = Math.max(1, resources.physicalAtlasSize);
+		passEncoder.setPipeline(getWebGPURenderPipeline(this._pipeline));
+		passEncoder.setViewport(0, 0, atlasSize, atlasSize, 0, 1);
+		passEncoder.setScissorRect(0, 0, atlasSize, atlasSize);
+		passEncoder.setBindGroup(0, bindGroup);
+		const indirectBuffer = getWebGPUBuffer(resources.drawIndirectArgsBuffer);
+		const candidateLimit = Math.min(
+			drawCandidates.length,
+			resources.drawCandidateCount
+		);
+		for (let candidateIndex = 0; candidateIndex < candidateLimit; candidateIndex++) {
+			const candidate = drawCandidates[candidateIndex];
+			const packet = candidate.packet;
+			if (!animationBindingCache.has(packet.id)) {
+				animationBindingCache.set(
+					packet.id,
+					this._resolveAnimationBinding(packet, candidate.geometry, context)
+				);
+			}
+			const animationBindGroup =
+				animationBindingCache.get(packet.id) ?? null;
+			if (!animationBindGroup) {
+				continue;
+			}
+			passEncoder.setVertexBuffer(0, candidate.vertexBuffer);
+			passEncoder.setIndexBuffer(candidate.indexBuffer, "uint32");
+			passEncoder.setBindGroup(1, animationBindGroup);
+			passEncoder.drawIndexedIndirect(
+				indirectBuffer,
+				candidateIndex * DRAW_INDEXED_INDIRECT_UINTS * 4
+			);
+		}
 		passEncoder.end();
 		if (submitAtEnd) {
 			this._requireBackendQueue().submit([commandEncoder.finish()]);
