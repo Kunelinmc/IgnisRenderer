@@ -45,6 +45,9 @@ async function testLoadsRawAndCompositeParts() {
 	const shadowComposite = await ShaderSource.load(
 		"webgpu.shadow.depth.composite"
 	);
+	const pagedShadowCompute = await ShaderSource.load(
+		"webgpu.shadow.pagedShadowRequestMark.composite"
+	);
 	const glslRaw = await ShaderSource.load("webgl.part.sceneVertex.raw");
 	const glslComposite = await ShaderSource.load(
 		"webgl.part.sceneVertex.composite"
@@ -54,6 +57,7 @@ async function testLoadsRawAndCompositeParts() {
 	assert.ok(wgslComposite.code.includes("struct DirectionalLightData"));
 	assert.ok(shadowRaw.includes("fn vsMain"));
 	assert.ok(shadowComposite.code.includes("fn fsTransmittance"));
+	assert.ok(pagedShadowCompute.code.includes("fn csMain"));
 	assert.ok(glslRaw.includes("layout(location = 0) in vec3 aPosition;"));
 	assert.ok(glslComposite.code.includes("layout(location = 0) in vec3 aPosition;"));
 	assert.equal(

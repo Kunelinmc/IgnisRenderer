@@ -85,6 +85,7 @@ function createRequest(renderSet, packets) {
 	return {
 		context: {
 			features: { enableShadows: true },
+			attachments: { width: 64, height: 64 },
 			scene: {
 				shadowCasterPackets: packets,
 				shadowTransmitterPackets: [],
@@ -156,7 +157,7 @@ function testCpuRequesterProducesStablePageKeys() {
 	);
 }
 
-function testAllocationHonorsMaxPagesAndPacksNonResidentEntries() {
+async function testAllocationHonorsMaxPagesAndPacksNonResidentEntries() {
 	const backend = createMockBackend();
 	const shadowPass = { renderPagedDepthPages() {} };
 	const runtime = new WebGPUPagedShadowRuntime(backend, shadowPass);
@@ -172,7 +173,7 @@ function testAllocationHonorsMaxPagesAndPacksNonResidentEntries() {
 	]);
 
 	runtime.prepareFrame(request);
-	runtime.recordPageAllocationPass(request);
+	await runtime.recordPageAllocationPass(request);
 
 	const table = getPageTableBuffer(backend).data;
 	assert.equal(table.length, 16);
@@ -180,9 +181,12 @@ function testAllocationHonorsMaxPagesAndPacksNonResidentEntries() {
 	assert.equal(table[0], 0);
 	assert.equal(table[3], WEBGPU_PAGED_SHADOW_NON_RESIDENT);
 	assert.equal(runtime.getDebugState().residentCount, 1);
+	assert.ok(runtime.getDebugState().gpuRequestBufferSize >= 8 * 4);
+	assert.ok(runtime.getDebugState().gpuDirtyBufferSize >= 2 * 8 * 4);
+	assert.equal(runtime.getDebugState().feedbackFlagCount, 16);
 }
 
-function testLruDoesNotEvictCurrentFrameRequests() {
+async function testLruDoesNotEvictCurrentFrameRequests() {
 	const backend = createMockBackend();
 	const shadowPass = { renderPagedDepthPages() {} };
 	const runtime = new WebGPUPagedShadowRuntime(backend, shadowPass);
@@ -197,14 +201,14 @@ function testLruDoesNotEvictCurrentFrameRequests() {
 		createPacket("left", -0.75, 0.75),
 	]);
 	runtime.prepareFrame(firstRequest);
-	runtime.recordPageAllocationPass(firstRequest);
+	await runtime.recordPageAllocationPass(firstRequest);
 
 	const secondRequest = createRequest(renderSet, [
 		createPacket("left", -0.75, 0.75),
 		createPacket("right", 0.75, 0.75),
 	]);
 	runtime.prepareFrame(secondRequest);
-	runtime.recordPageAllocationPass(secondRequest);
+	await runtime.recordPageAllocationPass(secondRequest);
 
 	const table = getPageTableBuffer(backend).data;
 	assert.equal(countResidentEntries(table), 1);
@@ -213,11 +217,44 @@ function testLruDoesNotEvictCurrentFrameRequests() {
 	assert.equal(runtime.getDebugState().residentCount, 1);
 }
 
-function run() {
+async function testDirtyPagesAreSubmittedAndClearedAfterDepthPass() {
+	const backend = createMockBackend();
+	const rendered = [];
+	const shadowPass = {
+		async renderPagedDepthPages(_context, pages) {
+			rendered.push(pages.map((page) => page.key));
+		},
+	};
+	const runtime = new WebGPUPagedShadowRuntime(backend, shadowPass);
+	const renderSet = createRenderSet({
+		paged: {
+			physicalPageCount: 2,
+			maxPagesPerFrame: 2,
+		},
+	});
+	const request = createRequest(renderSet, [
+		createPacket("left", -0.75, 0.75),
+		createPacket("right", 0.75, 0.75),
+	]);
+
+	runtime.prepareFrame(request);
+	await runtime.recordPageAllocationPass(request);
+	assert.equal(runtime.getDebugState().dirtyCount, 2);
+	await runtime.recordDepthPass(request);
+
+	assert.deepEqual(rendered, [[
+		"sun:paged-test:0:0:0",
+		"sun:paged-test:0:3:0",
+	]]);
+	assert.equal(runtime.getDebugState().dirtyCount, 0);
+}
+
+async function run() {
 	testCpuRequesterProducesStablePageKeys();
-	testAllocationHonorsMaxPagesAndPacksNonResidentEntries();
-	testLruDoesNotEvictCurrentFrameRequests();
+	await testAllocationHonorsMaxPagesAndPacksNonResidentEntries();
+	await testLruDoesNotEvictCurrentFrameRequests();
+	await testDirtyPagesAreSubmittedAndClearedAfterDepthPass();
 	console.log("test_webgpu_paged_shadow_runtime: ok");
 }
 
-run();
+await run();

@@ -70,7 +70,17 @@ function run() {
 	);
 	assert.equal(
 		pagedShadow.nodes[1].writes[0].id,
-		"paged-shadow:page-requests"
+		"paged-shadow:page-request-flags"
+	);
+	assert.ok(
+		pagedShadow.nodes[1].writes.some(
+			(write) => write.id === "paged-shadow:page-requests"
+		)
+	);
+	assert.ok(
+		pagedShadow.nodes[2].writes.some(
+			(write) => write.id === "paged-shadow:dirty-physical-pages"
+		)
 	);
 	assert.equal(
 		pagedShadow.nodes[3].writes[0].id,
@@ -96,6 +106,15 @@ function run() {
 	assert.ok(
 		pagedOpaque.nodes[0].reads.some(
 			(read) => read.id === "paged-shadow:physical-depth"
+		)
+	);
+	assert.equal(
+		pagedOpaque.nodes[pagedOpaque.nodes.length - 1].kind,
+		"paged-shadow-feedback"
+	);
+	assert.ok(
+		pagedOpaque.nodes[pagedOpaque.nodes.length - 1].writes.some(
+			(write) => write.id === "paged-shadow:next-feedback-flags"
 		)
 	);
 

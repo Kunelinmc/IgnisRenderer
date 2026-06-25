@@ -321,23 +321,45 @@ function testPagedShadowStubNodesValidate() {
 			stage: "shadow",
 			kind: "paged-shadow-page-mark",
 			label: "WebGPUPagedShadowPageMark",
-			writes: [{
-				id: "paged-shadow:page-requests",
+			reads: [{
+				id: "paged-shadow:feedback-flags",
 				usage: "storage-binding",
+				optional: true,
 			}],
+			writes: [
+				{
+					id: "paged-shadow:page-request-flags",
+					usage: "storage-binding",
+				},
+				{
+					id: "paged-shadow:page-requests",
+					usage: "storage-binding",
+				},
+				{ id: "paged-shadow:counters", usage: "storage-binding" },
+			],
 		},
 		{
 			id: "shadow:paged-shadow-page-allocate",
 			stage: "shadow",
 			kind: "paged-shadow-page-allocate",
 			label: "WebGPUPagedShadowPageAllocate",
-			reads: [{
-				id: "paged-shadow:page-requests",
-				usage: "storage-binding",
-			}],
+			reads: [
+				{
+					id: "paged-shadow:page-requests",
+					usage: "storage-binding",
+				},
+				{
+					id: "paged-shadow:page-request-flags",
+					usage: "storage-binding",
+				},
+			],
 			writes: [
 				{ id: "paged-shadow:page-table", usage: "storage-binding" },
 				{ id: "paged-shadow:page-metadata", usage: "storage-binding" },
+				{ id: "paged-shadow:residency-state", usage: "storage-binding" },
+				{ id: "paged-shadow:free-list", usage: "storage-binding" },
+				{ id: "paged-shadow:counters", usage: "storage-binding" },
+				{ id: "paged-shadow:dirty-physical-pages", usage: "storage-binding" },
 			],
 		},
 		{
@@ -348,9 +370,26 @@ function testPagedShadowStubNodesValidate() {
 			reads: [
 				{ id: "paged-shadow:page-table", usage: "storage-binding" },
 				{ id: "paged-shadow:page-metadata", usage: "storage-binding" },
+				{ id: "paged-shadow:dirty-physical-pages", usage: "storage-binding" },
 			],
 			writes: [
 				{ id: "paged-shadow:physical-depth", usage: "render-attachment" },
+			],
+		},
+		{
+			id: "main-opaque:paged-shadow-feedback",
+			stage: "main-opaque",
+			kind: "paged-shadow-feedback",
+			label: "WebGPUPagedShadowFeedback",
+			reads: [
+				{ id: "paged-shadow:page-table", usage: "storage-binding" },
+				{ id: "frame:depth", usage: "texture-binding", optional: true },
+			],
+			writes: [
+				{
+					id: "paged-shadow:next-feedback-flags",
+					usage: "storage-binding",
+				},
 			],
 		},
 	]);
@@ -359,6 +398,11 @@ function testPagedShadowStubNodesValidate() {
 	assert.ok(
 		stage.barriers.some(
 			(barrier) => barrier.resource === "paged-shadow:page-requests"
+		)
+	);
+	assert.ok(
+		stage.barriers.some(
+			(barrier) => barrier.resource === "paged-shadow:dirty-physical-pages"
 		)
 	);
 }
