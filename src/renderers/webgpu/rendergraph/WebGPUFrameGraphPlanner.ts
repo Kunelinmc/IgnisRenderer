@@ -124,16 +124,26 @@ export class WebGPUFrameGraphPlanner {
 								this._createDeferredLightingResources(context)
 							)
 						);
-						return this._appendOcclusionNode(pass, state, nodes);
-					}
-					return this._appendOcclusionNode(pass, state, [
-						this._node(
+						return this._appendPagedShadowFeedbackNode(
 							pass,
-							"opaque-scene",
-							`WebGPUOpaque${state.sceneTargetMode}`,
-							this._createOpaqueResources(state, context)
-						),
-					]);
+							context,
+							state,
+							this._appendOcclusionNode(pass, state, nodes)
+						);
+					}
+					return this._appendPagedShadowFeedbackNode(
+						pass,
+						context,
+						state,
+						this._appendOcclusionNode(pass, state, [
+							this._node(
+								pass,
+								"opaque-scene",
+								`WebGPUOpaque${state.sceneTargetMode}`,
+								this._createOpaqueResources(state, context)
+							),
+						])
+					);
 				},
 			],
 			[
@@ -230,7 +240,14 @@ export class WebGPUFrameGraphPlanner {
 		}
 		nodes.push(
 			this._node(pass, "paged-shadow-page-mark", "WebGPUPagedShadowPageMark", {
-				writes: [this._write("paged-shadow:page-requests", "storage-binding")],
+				reads: [
+					this._read("paged-shadow:feedback-flags", "storage-binding", true),
+				],
+				writes: [
+					this._write("paged-shadow:page-request-flags", "storage-binding"),
+					this._write("paged-shadow:page-requests", "storage-binding"),
+					this._write("paged-shadow:counters", "storage-binding"),
+				],
 			}),
 			this._node(
 				pass,
@@ -239,10 +256,15 @@ export class WebGPUFrameGraphPlanner {
 				{
 					reads: [
 						this._read("paged-shadow:page-requests", "storage-binding"),
+						this._read("paged-shadow:page-request-flags", "storage-binding"),
 					],
 					writes: [
 						this._write("paged-shadow:page-table", "storage-binding"),
 						this._write("paged-shadow:page-metadata", "storage-binding"),
+						this._write("paged-shadow:residency-state", "storage-binding"),
+						this._write("paged-shadow:free-list", "storage-binding"),
+						this._write("paged-shadow:counters", "storage-binding"),
+						this._write("paged-shadow:dirty-physical-pages", "storage-binding"),
 					],
 				}
 			),
@@ -250,6 +272,7 @@ export class WebGPUFrameGraphPlanner {
 				reads: [
 					this._read("paged-shadow:page-table", "storage-binding"),
 					this._read("paged-shadow:page-metadata", "storage-binding"),
+					this._read("paged-shadow:dirty-physical-pages", "storage-binding"),
 				],
 				writes: [
 					this._write("paged-shadow:physical-depth", "render-attachment"),
@@ -374,6 +397,32 @@ export class WebGPUFrameGraphPlanner {
 			this._node(pass, "occlusion-test", "WebGPUOcclusionTest", {
 				reads: [this._read("gbuffer:motion-depth", "texture-binding")],
 				writes: [this._write("occlusion:results", "storage-binding")],
+			})
+		);
+		return nodes;
+	}
+
+	private _appendPagedShadowFeedbackNode(
+		pass: FramePass,
+		context: FrameContext,
+		state: WebGPUFrameGraphPlannerState,
+		nodes: WebGPUFrameGraphNode[]
+	): WebGPUFrameGraphNode[] {
+		if (!this._hasPagedShadowWork(context) || state.sceneTargetMode === "single") {
+			return nodes;
+		}
+		nodes.push(
+			this._node(pass, "paged-shadow-feedback", "WebGPUPagedShadowFeedback", {
+				reads: [
+					this._read("frame:depth", "texture-binding", true),
+					this._read("paged-shadow:page-table", "storage-binding", true),
+				],
+				writes: [
+					this._write(
+						"paged-shadow:next-feedback-flags",
+						"storage-binding"
+					),
+				],
 			})
 		);
 		return nodes;

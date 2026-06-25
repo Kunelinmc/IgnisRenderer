@@ -995,6 +995,15 @@ export class WebGPURenderResources {
 	}
 
 	/**
+	 * @internal WebGPU paged shadow delayed feedback hook.
+	 */
+	public recordPagedShadowFeedbackPass(
+		request: WebGPUPagedShadowFrameRequest
+	): void | Promise<void> {
+		return this._pagedShadowRuntime.recordFeedbackPass(request);
+	}
+
+	/**
 	 * @internal WebGPU frame binding hook.
 	 */
 	public getPagedShadowResources(): WebGPUPagedShadowResources {

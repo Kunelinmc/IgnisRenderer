@@ -743,6 +743,7 @@ export class WebGPUFrameGraphRuntime {
 				"paged-shadow-page-mark",
 				async (_node, context) => {
 					const request = this._createPagedShadowRequest(context);
+					this._resources.preparePagedShadowFrame(request);
 					await this._resources.recordPagedShadowPageMarkPass(request);
 				},
 			],
@@ -758,6 +759,14 @@ export class WebGPUFrameGraphRuntime {
 				"paged-shadow-depth",
 				async (_node, context) => {
 					await this._resources.recordPagedShadowDepthPass(
+						this._createPagedShadowRequest(context)
+					);
+				},
+			],
+			[
+				"paged-shadow-feedback",
+				async (_node, context) => {
+					await this._resources.recordPagedShadowFeedbackPass(
 						this._createPagedShadowRequest(context)
 					);
 				},
