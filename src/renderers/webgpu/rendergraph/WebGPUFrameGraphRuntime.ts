@@ -838,12 +838,15 @@ export class WebGPUFrameGraphRuntime {
 	private _createPagedShadowRequest(
 		context: FrameContext
 	): WebGPUPagedShadowFrameRequest {
+		const frameTargets = this._frameTargets;
 		return {
 			context,
 			encoder: this._encoder,
 			renderSets: context.shadowMaps,
 			shadowCasterPackets: context.scene.shadowCasterPackets,
 			shadowTransmitterPackets: context.scene.shadowTransmitterPackets,
+			feedbackDepthTexture: frameTargets?.depth ?? null,
+			feedbackMotionDepthTexture: frameTargets?.gMotionDepth ?? null,
 		};
 	}
 

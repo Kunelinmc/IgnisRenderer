@@ -275,6 +275,8 @@ export class WebGPUFrameGraphPlanner {
 					this._read("paged-shadow:dirty-physical-pages", "storage-binding"),
 				],
 				writes: [
+					this._write("paged-shadow:draw-instances", "storage-binding"),
+					this._write("paged-shadow:draw-indirect-args", "storage-binding"),
 					this._write("paged-shadow:physical-depth", "render-attachment"),
 				],
 			})
