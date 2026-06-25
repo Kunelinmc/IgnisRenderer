@@ -62,6 +62,9 @@ async function testLoadsRawAndCompositeParts() {
 	assert.ok(wgslRaw.includes("struct DirectionalLightData"));
 	assert.ok(wgslComposite.code.includes("struct DirectionalLightData"));
 	assert.ok(shadowRaw.includes("fn vsMain"));
+	assert.ok(shadowRaw.includes("fn fsDepthClip"));
+	assert.ok(shadowRaw.includes("discardOutsideAtlasPage(input);"));
+	assert.ok(shadowRaw.includes("pixel.x >= input.atlasClipRect.z"));
 	assert.ok(shadowComposite.code.includes("fn fsTransmittance"));
 	assert.ok(pagedShadowCompute.code.includes("fn csMain"));
 	assert.ok(pagedShadowDrawBuild.code.includes("PagedShadowDrawParams"));

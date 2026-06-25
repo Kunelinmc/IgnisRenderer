@@ -1642,6 +1642,11 @@ export class WebGPUShadowPass {
 					entryPoint: "vsMain",
 					buffers: [createWebGPUShadowVertexBufferLayout()],
 				},
+				fragment: {
+					module: this._shaderModule,
+					entryPoint: "fsDepthClip",
+					targets: [],
+				},
 				primitive: {
 					topology: PrimitiveTopology.TriangleList,
 					cullMode: "none",
