@@ -25,6 +25,7 @@ export interface ShadowBackendCapabilities {
 	maxCsmDirectionalLights: number;
 	maxDynamicShadowCost?: number;
 	supportsPagedShadows?: boolean;
+	supportsPagedShadowRendering?: boolean;
 	maxPagedShadowPages?: number;
 	pagedShadowPageSizeRange?: [number, number];
 }

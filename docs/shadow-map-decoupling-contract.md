@@ -16,6 +16,8 @@ Historically, lights held shadow configuration directly. The decoupled model mov
 	- `supportsPointCSM`: boolean indicating point/cube cascade support.
 	- `maxDynamicShadowCost`: numerical budget for dynamic shadow calculations.
 	- `supportsPagedShadows`: optional boolean indicating paged shadow scheduling support.
+	- `supportsPagedShadowRendering`: optional boolean indicating complete paged
+	  shadow rendering support.
 	- `maxPagedShadowPages`: optional physical page budget for paged shadows.
 	- `pagedShadowPageSizeRange`: optional supported page-size range.
 - `scene.shadows`

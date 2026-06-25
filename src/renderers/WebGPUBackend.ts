@@ -425,6 +425,7 @@ export class WebGPUBackend implements IRenderBackend {
 				supportsPointCSM: false,
 				maxDynamicShadowCost: 48,
 				supportsPagedShadows: true,
+				supportsPagedShadowRendering: true,
 				maxPagedShadowPages: 2048,
 				pagedShadowPageSizeRange: [64, 256],
 			},

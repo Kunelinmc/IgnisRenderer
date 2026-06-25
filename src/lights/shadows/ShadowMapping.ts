@@ -207,6 +207,11 @@ export interface PagedShadowLayoutMetadata {
 	clipmapLevels: number;
 	cacheFrames: number;
 	feedbackMode: PagedShadowFeedbackMode;
+	pageTableBase?: number;
+	pageTableCascadeStride?: number;
+	physicalAtlasSize?: number;
+	physicalGridSize?: number;
+	physicalPageSize?: number;
 }
 
 export interface ShadowRegionDescriptor {

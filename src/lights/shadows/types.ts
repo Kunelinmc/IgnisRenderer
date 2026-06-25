@@ -110,6 +110,7 @@ export interface IShadowBackendCapabilities {
 	supportsPointCSM: boolean;
 	maxDynamicShadowCost?: number;
 	supportsPagedShadows?: boolean;
+	supportsPagedShadowRendering?: boolean;
 	maxPagedShadowPages?: number;
 	pagedShadowPageSizeRange?: [number, number];
 }

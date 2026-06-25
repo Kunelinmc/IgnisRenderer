@@ -411,7 +411,10 @@ export class ShadowManager {
 		if (shadowMap.kind !== "paged-shadow") {
 			return { storageMode: "atlas" };
 		}
-		if (capabilities && capabilities.supportsPagedShadows !== true) {
+		if (
+			capabilities &&
+			capabilities.supportsPagedShadowRendering !== true
+		) {
 			return { storageMode: "atlas" };
 		}
 		return {
