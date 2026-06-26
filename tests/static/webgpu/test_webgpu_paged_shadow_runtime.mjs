@@ -479,8 +479,41 @@ function testResidencyShaderRefreshesCachedPages() {
 		),
 		"utf8"
 	);
-	assert.match(source, /residencyState\[base \+ 3u\] = 1u;/);
-	assert.match(source, /pageMetadata\[metaBase \+ 4u\] = 1u;/);
+	assert.match(source, /residencyState\[base \+ 3u\] = dirty;/);
+	assert.match(source, /writePhysicalPageMetadata\(physicalPage, requestBase, tableIndex, dirty\);/);
+}
+
+async function testCascadeProjectionChangesSetForceDirty() {
+	const backend = createMockBackend();
+	const shadowPass = { renderPagedDepthIndirect() {} };
+	const runtime = new WebGPUPagedShadowRuntime(backend, shadowPass);
+	const packets = createPackets(2);
+	const renderSet = createRenderSet({
+		paged: {
+			pageSize: 64,
+			physicalPageCount: 4,
+		},
+	});
+
+	// Helper to get the latest forceDirty flag from written allocation params
+	const getLatestForceDirty = () => {
+		const allocParamsWrites = backend.writes.filter(([label]) => label === "WebGPUPagedShadowAllocationParams");
+		const latestWrite = allocParamsWrites[allocParamsWrites.length - 1];
+		return latestWrite ? latestWrite[1][6] : undefined;
+	};
+
+	// Frame 1: Initial call, should have forceDirty = 1
+	runtime.prepareFrame(createRequest(renderSet, packets));
+	assert.equal(getLatestForceDirty(), 1);
+
+	// Frame 2: Identical projections, should have forceDirty = 0
+	runtime.prepareFrame(createRequest(renderSet, packets));
+	assert.equal(getLatestForceDirty(), 0);
+
+	// Frame 3: Modified projections, should have forceDirty = 1 again
+	renderSet.slices[0].shadowMap.viewProjectionMatrix.elements[0][0] = 2;
+	runtime.prepareFrame(createRequest(renderSet, packets));
+	assert.equal(getLatestForceDirty(), 1);
 }
 
 async function run() {
@@ -493,6 +526,7 @@ async function run() {
 	await testDepthPassBuildsGpuDrawsAndUsesIndirectRenderer();
 	await testFeedbackPassUsesScreenDepthTexture();
 	testResidencyShaderRefreshesCachedPages();
+	await testCascadeProjectionChangesSetForceDirty();
 	console.log("test_webgpu_paged_shadow_runtime: ok");
 }
 

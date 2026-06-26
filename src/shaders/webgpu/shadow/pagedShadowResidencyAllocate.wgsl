@@ -1,4 +1,5 @@
 const PAGED_SHADOW_NON_RESIDENT: u32 = 0xffffffffu;
+const PAGED_SHADOW_REQUEST_SOURCE_DIRTY_CASTER: u32 = 4u;
 const PAGED_SHADOW_REQUEST_RECORD_UINTS: u32 = 8u;
 const PAGED_SHADOW_RESIDENCY_UINTS: u32 = 8u;
 const PAGED_SHADOW_METADATA_UINTS: u32 = 8u;
@@ -10,7 +11,7 @@ struct PagedShadowAllocationParams {
 	maxPagesPerFrame: u32,
 	cacheFrames: u32,
 	pageTableLength: u32,
-	_pad0: u32,
+	forceDirty: u32,
 	_pad1: u32,
 }
 
@@ -61,17 +62,23 @@ fn csMain() {
 
 		var physicalPage = pageTable[tableIndex];
 		if (physicalPage != PAGED_SHADOW_NON_RESIDENT && physicalPage < params.physicalPageCount) {
+			let requestFlags = compactedRequests[requestBase + 4u];
+			let dirty = select(
+				0u,
+				1u,
+				(requestFlags & PAGED_SHADOW_REQUEST_SOURCE_DIRTY_CASTER) != 0u || params.forceDirty != 0u
+			);
 			let base = residencyBase(physicalPage);
 			if (base + 7u < arrayLength(&residencyState)) {
 				residencyState[base] = tableIndex;
 				residencyState[base + 1u] = params.frameId;
 				residencyState[base + 2u] = 1u;
-				residencyState[base + 3u] = 1u;
+				residencyState[base + 3u] = dirty;
 				residencyState[base + 4u] = compactedRequests[requestBase + 1u];
 				residencyState[base + 5u] = compactedRequests[requestBase + 2u];
 				residencyState[base + 6u] = compactedRequests[requestBase + 3u];
 				residencyState[base + 7u] = compactedRequests[requestBase + 6u];
-				writePhysicalPageMetadata(physicalPage, requestBase, tableIndex, 1u);
+				writePhysicalPageMetadata(physicalPage, requestBase, tableIndex, dirty);
 			}
 			continue;
 		}
@@ -167,11 +174,15 @@ fn csMain() {
 				freeList[freeListIndex] = pageIndex;
 			}
 		} else {
-			residencyState[base + 3u] = 1u;
 			let metaBase = metadataBase(pageIndex);
 			if (metaBase + 7u < arrayLength(&pageMetadata)) {
-				pageMetadata[metaBase + 4u] = 1u;
 				pageMetadata[metaBase + 5u] = params.frameId;
+			}
+			if (params.forceDirty != 0u) {
+				residencyState[base + 3u] = 1u;
+				if (metaBase + 7u < arrayLength(&pageMetadata)) {
+					pageMetadata[metaBase + 4u] = 1u;
+				}
 			}
 		}
 	}

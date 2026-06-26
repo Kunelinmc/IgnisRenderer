@@ -1,5 +1,7 @@
 const PAGED_SHADOW_REQUEST_SOURCE_CONSERVATIVE: u32 = 1u;
 const PAGED_SHADOW_REQUEST_SOURCE_FEEDBACK: u32 = 2u;
+const PAGED_SHADOW_REQUEST_SOURCE_DIRTY_CASTER: u32 = 4u;
+const PAGED_SHADOW_CASTER_STATE_DIRTY: u32 = 1u;
 
 struct PagedShadowRequestParams {
 	pageTableLength: u32,
@@ -33,6 +35,7 @@ struct PagedShadowCasterBounds {
 @group(0) @binding(3) var<storage, read> layouts: array<PagedShadowLayoutData>;
 @group(0) @binding(4) var<storage, read> casterBounds: array<PagedShadowCasterBounds>;
 @group(0) @binding(5) var<storage, read> cascadeViewProjections: array<mat4x4<f32>>;
+@group(0) @binding(6) var<storage, read> casterStates: array<u32>;
 
 fn projectPoint(matrix: mat4x4<f32>, point: vec3<f32>) -> vec3<f32> {
 	let clip = matrix * vec4<f32>(point, 1.0);
@@ -57,8 +60,22 @@ fn csMain(@builtin(global_invocation_id) globalId: vec3<u32>) {
 	if (index < params.pageTableLength) {
 		markFeedbackRequests(index);
 	}
-	if (params.conservativeWarmup == 0u || index >= params.casterCount) {
+	if (index >= params.casterCount) {
 		return;
+	}
+	let casterStateIndex = index * 4u;
+	var casterState = 0u;
+	if (casterStateIndex < arrayLength(&casterStates)) {
+		casterState = casterStates[casterStateIndex];
+	}
+	let dirtyCaster =
+		(casterState & PAGED_SHADOW_CASTER_STATE_DIRTY) != 0u;
+	if (params.conservativeWarmup == 0u && !dirtyCaster) {
+		return;
+	}
+	var requestSource = PAGED_SHADOW_REQUEST_SOURCE_CONSERVATIVE;
+	if (dirtyCaster) {
+		requestSource = requestSource | PAGED_SHADOW_REQUEST_SOURCE_DIRTY_CASTER;
 	}
 
 	let bounds = casterBounds[index].centerRadius;
@@ -119,10 +136,7 @@ fn csMain(@builtin(global_invocation_id) globalId: vec3<u32>) {
 						pageY * gridSize +
 						pageX;
 					if (tableIndex < params.pageTableLength) {
-						let currentVal = atomicLoad(&pageRequestFlags[tableIndex]);
-						if ((currentVal & PAGED_SHADOW_REQUEST_SOURCE_CONSERVATIVE) == 0u) {
-							atomicOr(&pageRequestFlags[tableIndex], PAGED_SHADOW_REQUEST_SOURCE_CONSERVATIVE);
-						}
+						atomicOr(&pageRequestFlags[tableIndex], requestSource);
 					}
 				}
 			}

@@ -143,6 +143,7 @@ interface FrameCasterSnapshot {
 	centerY: number;
 	centerZ: number;
 	radius: number;
+	worldMatrix: Matrix4;
 }
 
 interface PendingDrawCounterReadback {
@@ -195,6 +196,7 @@ export class WebGPUPagedShadowRuntime {
 	private _nextFeedbackFlagsBuffer: IRenderBuffer | null = null;
 	private _layoutBuffer: IRenderBuffer | null = null;
 	private _casterBoundsBuffer: IRenderBuffer | null = null;
+	private _casterStatesBuffer: IRenderBuffer | null = null;
 	private _cascadeViewProjectionBuffer: IRenderBuffer | null = null;
 	private _drawWorldMatrixBuffer: IRenderBuffer | null = null;
 	private _drawMvpBuffer: IRenderBuffer | null = null;
@@ -219,6 +221,7 @@ export class WebGPUPagedShadowRuntime {
 	private _nextFeedbackFlags = new Uint32Array(1);
 	private _layoutData = new Uint32Array(PAGE_LAYOUT_UINTS);
 	private _casterBoundsData = new Float32Array(4);
+	private _casterStatesData = new Uint32Array(4);
 	private _cascadeViewProjectionData = new Float32Array(16);
 	private _drawWorldMatrixData = new Float32Array(16);
 	private _drawIndirectArgsData = new Uint32Array(DRAW_INDIRECT_UINTS);
@@ -241,6 +244,8 @@ export class WebGPUPagedShadowRuntime {
 	private _physicalGridSize = 1;
 	private _physicalAtlasSize = DEFAULT_FALLBACK_PAGE_SIZE;
 	private _previousCasterBounds = new Map<string, FrameCasterSnapshot>();
+	private _previousCascadeViewProjectionData: Float32Array | null = null;
+	private _projectionsChanged = false;
 	private _pendingDrawCounterReadbacks: PendingDrawCounterReadback[] = [];
 
 	public constructor(backend: WebGPUBackend, shadowPass: WebGPUShadowPass) {
@@ -290,6 +295,7 @@ export class WebGPUPagedShadowRuntime {
 				this._layoutBuffer,
 				this._casterBoundsBuffer,
 				this._cascadeViewProjectionBuffer,
+				this._casterStatesBuffer,
 			],
 			Math.max(1, Math.ceil(Math.max(this._pageTableLength, this._casterBoundsData.length / 4) / 64)),
 			1,
@@ -510,6 +516,7 @@ export class WebGPUPagedShadowRuntime {
 			this._nextFeedbackFlagsBuffer,
 			this._layoutBuffer,
 			this._casterBoundsBuffer,
+			this._casterStatesBuffer,
 			this._cascadeViewProjectionBuffer,
 			this._drawWorldMatrixBuffer,
 			this._drawMvpBuffer,
@@ -554,6 +561,7 @@ export class WebGPUPagedShadowRuntime {
 		this._nextFeedbackFlagsBuffer = null;
 		this._layoutBuffer = null;
 		this._casterBoundsBuffer = null;
+		this._casterStatesBuffer = null;
 		this._cascadeViewProjectionBuffer = null;
 		this._drawWorldMatrixBuffer = null;
 		this._drawMvpBuffer = null;
@@ -584,6 +592,7 @@ export class WebGPUPagedShadowRuntime {
 		this._fallbackDrawCandidateWorldMatrices = null;
 		this._layouts = [];
 		this._previousCasterBounds.clear();
+		this._previousCascadeViewProjectionData = null;
 		this._computeShaderModules.clear();
 		this._computePipelines.clear();
 		this._computeBindGroups.clear();
@@ -862,17 +871,24 @@ export class WebGPUPagedShadowRuntime {
 		}
 		if (
 			this._casterCapacity < casterCapacityRequirement ||
-			!this._casterBoundsBuffer
+			!this._casterBoundsBuffer ||
+			!this._casterStatesBuffer
 		) {
 			this._casterCapacity = growCapacity(
 				this._casterCapacity,
 				casterCapacityRequirement
 			);
 			this._casterBoundsData = new Float32Array(this._casterCapacity * 4);
+			this._casterStatesData = new Uint32Array(this._casterCapacity * 4);
 			this._destroyBuffer(this._casterBoundsBuffer);
+			this._destroyBuffer(this._casterStatesBuffer);
 			this._casterBoundsBuffer = this._createStorageBuffer(
 				"WebGPUPagedShadowCasterBounds",
 				this._casterBoundsData.byteLength
+			);
+			this._casterStatesBuffer = this._createStorageBuffer(
+				"WebGPUPagedShadowCasterStates",
+				this._casterStatesData.byteLength
 			);
 			changed = true;
 		}
@@ -1129,10 +1145,35 @@ export class WebGPUPagedShadowRuntime {
 			}
 		}
 
+		let projectionsChanged = false;
+		if (this._previousCascadeViewProjectionData) {
+			if (this._previousCascadeViewProjectionData.length !== this._cascadeViewProjectionData.length) {
+				projectionsChanged = true;
+			} else {
+				for (let i = 0; i < this._cascadeViewProjectionData.length; i++) {
+					if (Math.abs(this._cascadeViewProjectionData[i] - this._previousCascadeViewProjectionData[i]) > 1e-5) {
+						projectionsChanged = true;
+						break;
+					}
+				}
+			}
+		} else {
+			projectionsChanged = true;
+		}
+
+		if (projectionsChanged) {
+			if (!this._previousCascadeViewProjectionData || this._previousCascadeViewProjectionData.length !== this._cascadeViewProjectionData.length) {
+				this._previousCascadeViewProjectionData = new Float32Array(this._cascadeViewProjectionData.length);
+			}
+			this._previousCascadeViewProjectionData.set(this._cascadeViewProjectionData);
+		}
+		this._projectionsChanged = projectionsChanged;
+
 		this._drawCandidateCount = request.shadowCasterPackets.length;
 		this._drawWorldMatrixData.fill(0);
 		this._drawIndirectArgsData.fill(0);
 		this._casterBoundsData.fill(0);
+		this._casterStatesData.fill(0);
 		this._feedbackCameraData.fill(0);
 		const inverseViewProjection = Matrix4.inverse(
 			request.context.camera.viewProjectionMatrix
@@ -1199,7 +1240,7 @@ export class WebGPUPagedShadowRuntime {
 				resolveMaxPagesPerFrame(request.renderSets),
 				resolveMaxCacheFrames(request.renderSets),
 				this._pageTableLength,
-				0,
+				this._projectionsChanged ? 1 : 0,
 				0,
 			])
 		);
@@ -1240,6 +1281,7 @@ export class WebGPUPagedShadowRuntime {
 		);
 		this._backend.writeBuffer(this._layoutBuffer!, this._layoutData);
 		this._backend.writeBuffer(this._casterBoundsBuffer!, this._casterBoundsData);
+		this._backend.writeBuffer(this._casterStatesBuffer!, this._casterStatesData);
 		this._backend.writeBuffer(
 			this._cascadeViewProjectionBuffer!,
 			this._cascadeViewProjectionData
@@ -1262,23 +1304,49 @@ export class WebGPUPagedShadowRuntime {
 		packets: readonly DrawPacket[]
 	): number {
 		const currentIds = new Set<string>();
+		const movedIds = new Set<string>();
 		let cursor = 0;
+
+		// 1. Write current casters and check dirty states
 		for (const packet of packets) {
 			currentIds.add(packet.id);
 			const bounds = packet.worldBounds;
-			this._writeCasterBounds(cursor++, {
+			const prev = this._previousCasterBounds.get(packet.id);
+
+			let isDirty = true;
+			if (prev) {
+				const matricesMatch = matrix4Equals(packet.worldMatrix, prev.worldMatrix);
+				if (matricesMatch) {
+					isDirty = false;
+				} else {
+					movedIds.add(packet.id);
+				}
+			}
+
+			this._writeCasterBounds(cursor, {
 				centerX: bounds.center.x,
 				centerY: bounds.center.y,
 				centerZ: bounds.center.z,
 				radius: Math.max(0, bounds.radius),
+				worldMatrix: packet.worldMatrix,
 			});
+
+			this._writeCasterState(cursor, isDirty ? 1 : 0);
+			cursor++;
 		}
-		for (const [id, bounds] of this._previousCasterBounds) {
-			if (currentIds.has(id) || cursor >= this._casterCapacity) {
-				continue;
+
+		// 2. Write tombstones for removed or moved casters
+		for (const [id, prevBounds] of this._previousCasterBounds) {
+			const isRemoved = !currentIds.has(id);
+			const hasMoved = movedIds.has(id);
+			if ((isRemoved || hasMoved) && cursor < this._casterCapacity) {
+				this._writeCasterBounds(cursor, prevBounds);
+				this._writeCasterState(cursor, 1);
+				cursor++;
 			}
-			this._writeCasterBounds(cursor++, bounds);
 		}
+
+		// 3. Cache current bounds for the next frame
 		this._previousCasterBounds.clear();
 		for (const packet of packets) {
 			const bounds = packet.worldBounds;
@@ -1287,8 +1355,10 @@ export class WebGPUPagedShadowRuntime {
 				centerY: bounds.center.y,
 				centerZ: bounds.center.z,
 				radius: Math.max(0, bounds.radius),
+				worldMatrix: packet.worldMatrix,
 			});
 		}
+
 		return cursor;
 	}
 
@@ -1298,6 +1368,14 @@ export class WebGPUPagedShadowRuntime {
 		this._casterBoundsData[offset + 1] = bounds.centerY;
 		this._casterBoundsData[offset + 2] = bounds.centerZ;
 		this._casterBoundsData[offset + 3] = bounds.radius;
+	}
+
+	private _writeCasterState(index: number, state: number): void {
+		const offset = index * 4;
+		this._casterStatesData[offset] = state;
+		this._casterStatesData[offset + 1] = 0;
+		this._casterStatesData[offset + 2] = 0;
+		this._casterStatesData[offset + 3] = 0;
 	}
 
 	private _resetGpuRequestBuffers(): void {
@@ -1955,4 +2033,17 @@ function getResourceSizeSignature(resource: BindingResource | null): string {
 	}
 	const sized = resource as { size?: unknown; width?: unknown; height?: unknown };
 	return `${sized.size ?? 0}:${sized.width ?? 0}:${sized.height ?? 0}`;
+}
+
+function matrix4Equals(a: Matrix4, b: Matrix4): boolean {
+	const ae = a.elements;
+	const be = b.elements;
+	for (let r = 0; r < 4; r++) {
+		for (let c = 0; c < 4; c++) {
+			if (Math.abs(ae[r][c] - be[r][c]) > 1e-5) {
+				return false;
+			}
+		}
+	}
+	return true;
 }
