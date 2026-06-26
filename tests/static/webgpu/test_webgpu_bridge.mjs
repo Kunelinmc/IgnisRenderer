@@ -3409,7 +3409,7 @@ async function testSceneFrameBindingLayoutMatchesFallbackEnvironmentContract() {
 	assert.equal(sceneLayout.desc.entries[8].texture?.sampleType, "float");
 	assert.equal(sceneLayout.desc.entries[9].texture?.sampleType, "float");
 	assert.equal(sceneLayout.desc.entries[10].texture?.sampleType, "float");
-	assert.equal(sceneLayout.desc.entries[11].buffer?.type, "read-only-storage");
+	assert.equal(sceneLayout.desc.entries[11].texture?.sampleType, "uint");
 	assert.equal(sceneLayout.desc.entries[12].texture?.sampleType, "depth");
 
 	resources.destroy();

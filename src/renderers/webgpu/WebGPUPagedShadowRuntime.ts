@@ -63,6 +63,7 @@ export interface WebGPUPagedShadowFrameRequest {
 
 export interface WebGPUPagedShadowResources {
 	pageTable: IRenderBuffer;
+	pageTableTexture: IRenderTexture;
 	physicalDepthAtlas: IRenderTexture;
 	physicalTransmittanceAtlas: IRenderTexture | null;
 	pageMetadataBuffer: IRenderBuffer;
@@ -168,8 +169,10 @@ export class WebGPUPagedShadowRuntime {
 	private _lastRequest: WebGPUPagedShadowFrameRequest | null = null;
 	private _preparedContext: FrameContext | null = null;
 	private _pageTableBuffer: IRenderBuffer | null = null;
+	private _pageTableTexture: IRenderTexture | null = null;
 	private _pageMetadataBuffer: IRenderBuffer | null = null;
 	private _physicalDepthAtlas: IRenderTexture | null = null;
+	private _fallbackPageTableTexture: IRenderTexture | null = null;
 	private _fallbackPageTableBuffer: IRenderBuffer | null = null;
 	private _fallbackMetadataBuffer: IRenderBuffer | null = null;
 	private _fallbackDepthAtlas: IRenderTexture | null = null;
@@ -204,6 +207,7 @@ export class WebGPUPagedShadowRuntime {
 	private _drawTransmittanceBuffer: IRenderBuffer | null = null;
 	private _drawIndirectArgsBuffer: IRenderBuffer | null = null;
 	private _requestParamsBuffer: IRenderBuffer | null = null;
+	private _pageTableCopyParamsBuffer: IRenderBuffer | null = null;
 	private _compactParamsBuffer: IRenderBuffer | null = null;
 	private _allocationParamsBuffer: IRenderBuffer | null = null;
 	private _dirtyParamsBuffer: IRenderBuffer | null = null;
@@ -359,6 +363,45 @@ export class WebGPUPagedShadowRuntime {
 	}
 
 	/**
+	 * @internal WebGPU page table copy pass hook.
+	 */
+	public async recordPageTableCopyPass(
+		request: WebGPUPagedShadowFrameRequest
+	): Promise<void> {
+		this._lastRequest = request;
+		if (!this._pageTableCopyParamsBuffer || !this._pageTableBuffer || !this._pageTableTexture) {
+			return;
+		}
+
+		let maxPageGridSize = 1;
+		for (const layout of this._layouts) {
+			maxPageGridSize = Math.max(maxPageGridSize, layout.metadata.pageGridSize | 0);
+		}
+
+		const paramsArray = new Uint32Array([
+			this._pageTableLength,
+			maxPageGridSize,
+			0,
+			0,
+		]);
+		this._backend.writeBuffer(this._pageTableCopyParamsBuffer, paramsArray);
+
+		await this._recordComputePass(
+			request.encoder,
+			"pagedShadowPageTableCopy",
+			"WebGPUPagedShadowPageTableCopy",
+			[
+				this._pageTableCopyParamsBuffer,
+				this._pageTableBuffer,
+				this._pageTableTexture,
+			],
+			Math.max(1, Math.ceil(this._pageTableLength / 64)),
+			1,
+			1
+		);
+	}
+
+	/**
 	 * @internal WebGPU delayed screen-feedback compute hook.
 	 */
 	public async recordFeedbackPass(
@@ -448,6 +491,7 @@ export class WebGPUPagedShadowRuntime {
 		}
 		return {
 			pageTable: this._pageTableBuffer,
+			pageTableTexture: this._pageTableTexture!,
 			physicalDepthAtlas: this._physicalDepthAtlas,
 			physicalTransmittanceAtlas: null,
 			pageMetadataBuffer: this._pageMetadataBuffer,
@@ -505,6 +549,7 @@ export class WebGPUPagedShadowRuntime {
 		this._pendingDrawCounterReadbacks = [];
 		for (const resource of [
 			this._pageTableBuffer,
+			this._pageTableTexture,
 			this._pageMetadataBuffer,
 			this._physicalDepthAtlas,
 			this._pageRequestFlagsBuffer,
@@ -525,12 +570,14 @@ export class WebGPUPagedShadowRuntime {
 			this._drawTransmittanceBuffer,
 			this._drawIndirectArgsBuffer,
 			this._requestParamsBuffer,
+			this._pageTableCopyParamsBuffer,
 			this._compactParamsBuffer,
 			this._allocationParamsBuffer,
 			this._dirtyParamsBuffer,
 			this._drawParamsBuffer,
 			this._feedbackParamsBuffer,
 			this._fallbackPageTableBuffer,
+			this._fallbackPageTableTexture,
 			this._fallbackMetadataBuffer,
 			this._fallbackDepthAtlas,
 			this._fallbackPageRequestFlags,
@@ -550,6 +597,7 @@ export class WebGPUPagedShadowRuntime {
 			resource?.destroy();
 		}
 		this._pageTableBuffer = null;
+		this._pageTableTexture = null;
 		this._pageMetadataBuffer = null;
 		this._physicalDepthAtlas = null;
 		this._pageRequestFlagsBuffer = null;
@@ -570,12 +618,14 @@ export class WebGPUPagedShadowRuntime {
 		this._drawTransmittanceBuffer = null;
 		this._drawIndirectArgsBuffer = null;
 		this._requestParamsBuffer = null;
+		this._pageTableCopyParamsBuffer = null;
 		this._compactParamsBuffer = null;
 		this._allocationParamsBuffer = null;
 		this._dirtyParamsBuffer = null;
 		this._drawParamsBuffer = null;
 		this._feedbackParamsBuffer = null;
 		this._fallbackPageTableBuffer = null;
+		this._fallbackPageTableTexture = null;
 		this._fallbackMetadataBuffer = null;
 		this._fallbackDepthAtlas = null;
 		this._fallbackPageRequestFlags = null;
@@ -686,8 +736,12 @@ export class WebGPUPagedShadowRuntime {
 			physicalGridSize,
 			physicalAtlasSize
 		);
+		let maxPageGridSize = 1;
+		for (const layout of layouts) {
+			maxPageGridSize = Math.max(maxPageGridSize, layout.metadata.pageGridSize | 0);
+		}
 		resourcesChanged =
-			this._ensureVirtualPageResources(requestBufferCapacity, physicalReset) ||
+			this._ensureVirtualPageResources(requestBufferCapacity, physicalReset, maxPageGridSize) ||
 			resourcesChanged;
 		resourcesChanged =
 			this._ensureFrameInputResources(
@@ -778,16 +832,22 @@ export class WebGPUPagedShadowRuntime {
 
 	private _ensureVirtualPageResources(
 		requestBufferCapacityRequirement: number,
-		resetPageTable: boolean
+		resetPageTable: boolean,
+		maxPageGridSize: number
 	): boolean {
 		let changed = false;
+		const pageTableHeight = Math.max(1, Math.ceil(this._pageTableLength / maxPageGridSize));
 		const pageTableLengthChanged =
 			this._pageTableBufferLength !== this._pageTableLength ||
 			!this._pageTableBuffer ||
 			this._pageTableBuffer.size < this._pageTableLength * 4 ||
 			!this._pageRequestFlagsBuffer ||
 			!this._feedbackFlagsBuffer ||
-			!this._nextFeedbackFlagsBuffer;
+			!this._nextFeedbackFlagsBuffer ||
+			!this._pageTableTexture ||
+			this._pageTableTexture.width !== maxPageGridSize ||
+			this._pageTableTexture.height !== pageTableHeight ||
+			!this._pageTableCopyParamsBuffer;
 		const resetPhysicalForPageTable = pageTableLengthChanged && !resetPageTable;
 		if (pageTableLengthChanged) {
 			this._pageTableBufferLength = this._pageTableLength;
@@ -802,6 +862,8 @@ export class WebGPUPagedShadowRuntime {
 			this._destroyBuffer(this._pageRequestFlagsBuffer);
 			this._destroyBuffer(this._feedbackFlagsBuffer);
 			this._destroyBuffer(this._nextFeedbackFlagsBuffer);
+			this._destroyTexture(this._pageTableTexture);
+			this._destroyBuffer(this._pageTableCopyParamsBuffer);
 			this._pageTableBuffer = this._backend.createBuffer({
 				size: Math.max(4, this._pageTableLength * 4),
 				usage: BufferUsage.Storage | BufferUsage.CopyDst | BufferUsage.CopySrc,
@@ -818,6 +880,17 @@ export class WebGPUPagedShadowRuntime {
 			this._nextFeedbackFlagsBuffer = this._createStorageBuffer(
 				"WebGPUPagedShadowNextFeedbackFlags",
 				this._nextFeedbackFlags.byteLength
+			);
+			this._pageTableTexture = this._backend.createTexture({
+				width: maxPageGridSize,
+				height: pageTableHeight,
+				format: TextureFormat.R32Uint,
+				usage: TextureUsage.TextureBinding | TextureUsage.StorageBinding,
+				label: "WebGPUPagedShadowPageTableTexture",
+			});
+			this._pageTableCopyParamsBuffer = this._createUniformBuffer(
+				"WebGPUPagedShadowPageTableCopyParams",
+				16
 			);
 			changed = true;
 			resetPageTable = true;
@@ -1785,8 +1858,18 @@ export class WebGPUPagedShadowRuntime {
 			"WebGPUPagedShadowFallbackDrawWorldMatrices",
 			16 * 4
 		);
+		if (!this._fallbackPageTableTexture) {
+			this._fallbackPageTableTexture = this._backend.createTexture({
+				width: 1,
+				height: 1,
+				format: TextureFormat.R32Uint,
+				usage: TextureUsage.TextureBinding,
+				label: "WebGPUPagedShadowFallbackPageTableTexture",
+			});
+		}
 		return {
 			pageTable: this._fallbackPageTableBuffer,
+			pageTableTexture: this._fallbackPageTableTexture,
 			physicalDepthAtlas: this._fallbackDepthAtlas,
 			physicalTransmittanceAtlas: null,
 			pageMetadataBuffer: this._fallbackMetadataBuffer,

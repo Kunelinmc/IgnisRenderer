@@ -96,21 +96,19 @@ fn csMain() {
 		}
 
 		if (selected == PAGED_SHADOW_NON_RESIDENT) {
-			var oldestFrame = 0xffffffffu;
-			for (var pageIndex = 0u; pageIndex < params.physicalPageCount; pageIndex = pageIndex + 1u) {
+			let evictionPtr = atomicLoad(&counters[5]);
+			for (var i = 0u; i < params.physicalPageCount; i = i + 1u) {
+				let pageIndex = (evictionPtr + i) % params.physicalPageCount;
 				let base = residencyBase(pageIndex);
 				if (base + 7u >= arrayLength(&residencyState)) {
 					continue;
 				}
 				let residentTableIndex = residencyState[base];
 				let lastUsedFrame = residencyState[base + 1u];
-				if (residentTableIndex == PAGED_SHADOW_NON_RESIDENT) {
+				if (residentTableIndex == PAGED_SHADOW_NON_RESIDENT || lastUsedFrame < params.frameId) {
 					selected = pageIndex;
+					atomicStore(&counters[5], (pageIndex + 1u) % params.physicalPageCount);
 					break;
-				}
-				if (lastUsedFrame < oldestFrame) {
-					oldestFrame = lastUsedFrame;
-					selected = pageIndex;
 				}
 			}
 		}

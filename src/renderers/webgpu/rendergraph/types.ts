@@ -8,6 +8,7 @@ export type WebGPUFrameGraphNodeKind =
 	| "shadow"
 	| "paged-shadow-page-mark"
 	| "paged-shadow-page-allocate"
+	| "paged-shadow-page-table-copy"
 	| "paged-shadow-depth"
 	| "paged-shadow-feedback"
 	| "planar-reflection-capture"

@@ -58,6 +58,7 @@ export type WebGPUShadowShaderPart =
 	| "pagedShadowDirtyCompact"
 	| "pagedShadowDrawBuild"
 	| "pagedShadowFeedback"
+	| "pagedShadowPageTableCopy"
 	| "pagedShadowClear";
 
 export type WebGPUUtilityShaderPart =
@@ -146,6 +147,7 @@ export const WEBGPU_SHADOW_SHADER_FILES: Record<WebGPUShadowShaderPart, string> 
 	pagedShadowDirtyCompact: "./webgpu/shadow/pagedShadowDirtyCompact.wgsl",
 	pagedShadowDrawBuild: "./webgpu/shadow/pagedShadowDrawBuild.wgsl",
 	pagedShadowFeedback: "./webgpu/shadow/pagedShadowFeedback.wgsl",
+	pagedShadowPageTableCopy: "./webgpu/shadow/pagedShadowPageTableCopy.wgsl",
 	pagedShadowClear: "./webgpu/shadow/pagedShadowClear.wgsl",
 };
 

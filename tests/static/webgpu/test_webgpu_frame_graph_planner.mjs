@@ -70,6 +70,7 @@ function run() {
 			"shadow",
 			"paged-shadow-page-mark",
 			"paged-shadow-page-allocate",
+			"paged-shadow-page-table-copy",
 			"paged-shadow-depth",
 		]
 	);
@@ -88,22 +89,22 @@ function run() {
 		)
 	);
 	assert.ok(
-		pagedShadow.nodes[3].writes.some(
+		pagedShadow.nodes[4].writes.some(
 			(write) => write.id === "paged-shadow:draw-instances"
 		)
 	);
 	assert.ok(
-		pagedShadow.nodes[3].writes.some(
+		pagedShadow.nodes[4].writes.some(
 			(write) => write.id === "paged-shadow:draw-indirect-args"
 		)
 	);
 	assert.ok(
-		pagedShadow.nodes[3].writes.some(
+		pagedShadow.nodes[4].writes.some(
 			(write) => write.id === "paged-shadow:physical-depth"
 		)
 	);
 	assert.equal(
-		pagedShadow.nodes[3].writes.some(
+		pagedShadow.nodes[4].writes.some(
 			(write) => write.id === "paged-shadow:physical-transmittance"
 		),
 		false
@@ -116,7 +117,7 @@ function run() {
 	);
 	assert.ok(
 		pagedOpaque.nodes[0].reads.some(
-			(read) => read.id === "paged-shadow:page-table"
+			(read) => read.id === "paged-shadow:page-table-texture"
 		)
 	);
 	assert.ok(

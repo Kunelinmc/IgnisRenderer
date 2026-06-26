@@ -94,7 +94,7 @@ export class WebGPUFrameBindingCache {
 	private _envSpecularFallbackTexture: IRenderTexture | null = null;
 	private _brdfLUTTexture: IRenderTexture | null = null;
 	private _irradianceProbeGridTexture: IRenderTexture | null = null;
-	private _pagedShadowPageTable: IRenderBuffer | null = null;
+	private _pagedShadowPageTableTexture: IRenderTexture | null = null;
 	private _pagedShadowPhysicalDepthAtlas: IRenderTexture | null = null;
 	private _ownedIrradianceProbeGridTexture: IRenderTexture | null = null;
 	private _irradianceProbeGridTextureRevision = -1;
@@ -305,7 +305,7 @@ export class WebGPUFrameBindingCache {
 		const currentIrradianceProbeGrid =
 			this._getIrradianceProbeGridTexture(environmentState);
 		const pagedShadowResources = this._pagedShadowRuntime.getResources();
-		const currentPagedShadowPageTable = pagedShadowResources.pageTable;
+		const currentPagedShadowPageTableTexture = pagedShadowResources.pageTableTexture;
 		const currentPagedShadowPhysicalDepthAtlas =
 			pagedShadowResources.physicalDepthAtlas;
 
@@ -317,7 +317,7 @@ export class WebGPUFrameBindingCache {
 			this._envSpecularFallbackTexture !== currentEnvSpecularFallback ||
 			this._brdfLUTTexture !== currentBRDFLUT ||
 			this._irradianceProbeGridTexture !== currentIrradianceProbeGrid ||
-			this._pagedShadowPageTable !== currentPagedShadowPageTable ||
+			this._pagedShadowPageTableTexture !== currentPagedShadowPageTableTexture ||
 			this._pagedShadowPhysicalDepthAtlas !== currentPagedShadowPhysicalDepthAtlas ||
 			this._environmentSampler !== currentEnvironmentSampler ||
 			this._envSpecularSampler !== currentEnvSpecularSampler ||
@@ -334,7 +334,7 @@ export class WebGPUFrameBindingCache {
 			this._envSpecularFallbackTexture = currentEnvSpecularFallback;
 			this._brdfLUTTexture = currentBRDFLUT;
 			this._irradianceProbeGridTexture = currentIrradianceProbeGrid;
-			this._pagedShadowPageTable = currentPagedShadowPageTable;
+			this._pagedShadowPageTableTexture = currentPagedShadowPageTableTexture;
 			this._pagedShadowPhysicalDepthAtlas =
 				currentPagedShadowPhysicalDepthAtlas;
 			this._environmentSampler = currentEnvironmentSampler;
@@ -532,8 +532,8 @@ export class WebGPUFrameBindingCache {
 					{
 						binding: 11,
 						resource:
-							this._pagedShadowPageTable ??
-							this._pagedShadowRuntime.getResources().pageTable,
+							this._pagedShadowPageTableTexture ??
+							this._pagedShadowRuntime.getResources().pageTableTexture,
 					},
 					{
 						binding: 12,

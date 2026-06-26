@@ -268,6 +268,19 @@ export class WebGPUFrameGraphPlanner {
 					],
 				}
 			),
+			this._node(
+				pass,
+				"paged-shadow-page-table-copy",
+				"WebGPUPagedShadowPageTableCopy",
+				{
+					reads: [
+						this._read("paged-shadow:page-table", "storage-binding"),
+					],
+					writes: [
+						this._write("paged-shadow:page-table-texture", "storage-binding"),
+					],
+				}
+			),
 			this._node(pass, "paged-shadow-depth", "WebGPUPagedShadowDepth", {
 				reads: [
 					this._read("paged-shadow:page-table", "storage-binding"),
@@ -535,7 +548,7 @@ export class WebGPUFrameGraphPlanner {
 			return [];
 		}
 		return [
-			this._read("paged-shadow:page-table", "storage-binding", true),
+			this._read("paged-shadow:page-table-texture", "texture-binding", true),
 			this._read("paged-shadow:physical-depth", "texture-binding", true),
 		];
 	}

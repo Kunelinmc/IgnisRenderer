@@ -988,6 +988,15 @@ export class WebGPURenderResources {
 	/**
 	 * @internal WebGPU paged shadow frame graph hook.
 	 */
+	public recordPagedShadowPageTableCopyPass(
+		request: WebGPUPagedShadowFrameRequest
+	): void | Promise<void> {
+		return this._pagedShadowRuntime.recordPageTableCopyPass(request);
+	}
+
+	/**
+	 * @internal WebGPU paged shadow frame graph hook.
+	 */
 	public recordPagedShadowDepthPass(
 		request: WebGPUPagedShadowFrameRequest
 	): Promise<void> {

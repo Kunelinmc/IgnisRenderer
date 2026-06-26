@@ -756,6 +756,14 @@ export class WebGPUFrameGraphRuntime {
 				},
 			],
 			[
+				"paged-shadow-page-table-copy",
+				async (_node, context) => {
+					await this._resources.recordPagedShadowPageTableCopyPass(
+						this._createPagedShadowRequest(context)
+					);
+				},
+			],
+			[
 				"paged-shadow-depth",
 				async (_node, context) => {
 					await this._resources.recordPagedShadowDepthPass(
