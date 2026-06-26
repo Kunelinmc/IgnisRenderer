@@ -159,9 +159,16 @@ fn rangesIntersect(left: CascadeUVRange, right: CascadeUVRange) -> bool {
 
 var<workgroup> g_cellCounts: array<atomic<u32>, 64>;
 var<workgroup> g_cellOffsets: array<u32, 65>;
+// g_groupedDirtyIndices is shared workgroup memory (all threads).
+// With g_cellCounts(256) + g_cellOffsets(260) + this array, total must stay
+// under the 16384-byte WebGPU default maxComputeWorkgroupStorageSize.
+// 2048 * 4 = 8192 bytes → total 8708 bytes, safely within budget.
 var<workgroup> g_groupedDirtyIndices: array<u32, 2048>;
 
-const MAX_LOCAL_HITS: u32 = 32u;
+// MAX_LOCAL_HITS is per-thread private memory (function-local array), so it
+// does NOT count against workgroup storage. 64 entries allows large casters
+// spanning up to 64 dirty pages without truncation.
+const MAX_LOCAL_HITS: u32 = 64u;
 
 @compute @workgroup_size(64)
 fn csMain(

@@ -105,7 +105,7 @@ fn csMain() {
 				}
 				let residentTableIndex = residencyState[base];
 				let lastUsedFrame = residencyState[base + 1u];
-				if (residentTableIndex == PAGED_SHADOW_NON_RESIDENT || lastUsedFrame < params.frameId) {
+				if (residentTableIndex == PAGED_SHADOW_NON_RESIDENT || lastUsedFrame + params.cacheFrames < params.frameId) {
 					selected = pageIndex;
 					atomicStore(&counters[5], (pageIndex + 1u) % params.physicalPageCount);
 					break;

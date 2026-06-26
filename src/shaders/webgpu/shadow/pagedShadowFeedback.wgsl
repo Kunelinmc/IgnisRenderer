@@ -96,8 +96,9 @@ fn markFeedbackPage(worldPosition: vec3<f32>, layoutIndex: u32, cascadeIndex: u3
 @compute @workgroup_size(8, 8, 1)
 fn csMain(@builtin(global_invocation_id) globalId: vec3<u32>) {
 	let STRIDE: u32 = 8u;
-	let pixelCoord = globalId.xy * STRIDE;
-	if (pixelCoord.x >= params.width || pixelCoord.y >= params.height) {
+	let SUBSTRIDE: u32 = 4u;
+	let basePixelCoord = globalId.xy * STRIDE;
+	if (basePixelCoord.x >= params.width || basePixelCoord.y >= params.height) {
 		return;
 	}
 	if (
@@ -108,19 +109,31 @@ fn csMain(@builtin(global_invocation_id) globalId: vec3<u32>) {
 	) {
 		return;
 	}
-	let world = reconstructWorldPosition(pixelCoord);
-	if (world.w <= 0.5) {
-		return;
-	}
 	let layoutCount = min(params.layoutCount, arrayLength(&layouts));
-	for (var layoutIndex = 0u; layoutIndex < layoutCount; layoutIndex = layoutIndex + 1u) {
-		let cascadeCount = min(layouts[layoutIndex].cascadeCount, 4u);
-		for (
-			var cascadeIndex = 0u;
-			cascadeIndex < cascadeCount;
-			cascadeIndex = cascadeIndex + 1u
-		) {
-			markFeedbackPage(world.xyz, layoutIndex, cascadeIndex);
+
+	// Sample a 2x2 sub-grid within the 8x8 block (at 0, 4 pixel offsets)
+	// to increase coverage and reduce the chance of missing small shadow pages.
+	for (var sy: u32 = 0u; sy < 2u; sy = sy + 1u) {
+		for (var sx: u32 = 0u; sx < 2u; sx = sx + 1u) {
+			let pixelCoord = basePixelCoord + vec2<u32>(sx * SUBSTRIDE, sy * SUBSTRIDE);
+			if (pixelCoord.x >= params.width || pixelCoord.y >= params.height) {
+				continue;
+			}
+			let world = reconstructWorldPosition(pixelCoord);
+			if (world.w <= 0.5) {
+				continue;
+			}
+			for (var layoutIndex = 0u; layoutIndex < layoutCount; layoutIndex = layoutIndex + 1u) {
+				let cascadeCount = min(layouts[layoutIndex].cascadeCount, 4u);
+				for (
+					var cascadeIndex = 0u;
+					cascadeIndex < cascadeCount;
+					cascadeIndex = cascadeIndex + 1u
+				) {
+					markFeedbackPage(world.xyz, layoutIndex, cascadeIndex);
+				}
+			}
 		}
 	}
 }
+

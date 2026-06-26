@@ -523,6 +523,10 @@ export class WebGPUShadowPass {
 			});
 			passEncoder.setPipeline(getWebGPURenderPipeline(this._pagedClearPipeline));
 			passEncoder.setBindGroup(0, clearBindGroup);
+			// Draw up to physicalPageCount instances; the clear shader reads
+			// counters[1] (dirty count written by pagedShadowDirtyCompact) and
+			// clips excess instances via w=0 degeneracy, so this is functionally
+			// correct. The instance count is bounded by the dirty list length.
 			passEncoder.draw(6, resources.physicalPageCount, 0, 0);
 		}
 
