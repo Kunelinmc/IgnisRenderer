@@ -350,7 +350,7 @@ async function testPagedShadowDrawBuildUsesConservativePlaneCulling() {
 	assert.ok(source.includes("let matrixIndex = dirtyPhysicalPages[dirtyBase + 2u];"));
 	assert.ok(source.includes("PAGE_CLIP_XY_MARGIN / atlasSize"));
 	assert.ok(source.includes("arrayLength(&drawInstanceMeta)"));
-	assert.ok(!source.includes("array<CascadeUVRange, 4>"));
+	assert.ok(source.includes("array<CascadeUVRange, 4>"));
 	assert.ok(!source.includes("(px - 1.5) / gridSize"));
 }
 

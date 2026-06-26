@@ -594,9 +594,13 @@ export class WebGPUPagedShadowRuntime {
 		this._layouts = [];
 		this._previousCasterBounds.clear();
 		this._previousCascadeViewProjectionData = null;
+		for (const bindGroup of this._computeBindGroups.values()) {
+			const destroyFn = (bindGroup as { destroy?: () => void } | null)?.destroy;
+			destroyFn?.();
+		}
+		this._computeBindGroups.clear();
 		this._computeShaderModules.clear();
 		this._computePipelines.clear();
-		this._computeBindGroups.clear();
 	}
 
 	private _resolvePagedRenderSetLayouts(
@@ -697,6 +701,10 @@ export class WebGPUPagedShadowRuntime {
 		resourcesChanged = this._ensureFixedFrameResources() || resourcesChanged;
 		resourcesChanged = physicalReset || resourcesChanged;
 		if (resourcesChanged) {
+			for (const bindGroup of this._computeBindGroups.values()) {
+				const destroyFn = (bindGroup as { destroy?: () => void } | null)?.destroy;
+				destroyFn?.();
+			}
 			this._computeBindGroups.clear();
 		}
 	}
@@ -1666,7 +1674,6 @@ export class WebGPUPagedShadowRuntime {
 				this._nextFeedbackFlags
 			);
 		}
-		this._computeBindGroups.clear();
 	}
 
 	private _setMatrixInFloatArray(
@@ -2028,12 +2035,25 @@ function countRemovedCasterSnapshots(
 	return count;
 }
 
+const nextUniqueIdMap = new WeakMap<object, number>();
+let nextUniqueIdVal = 1;
+
+function getUniqueObjectId(obj: object): number {
+	let id = nextUniqueIdMap.get(obj);
+	if (id === undefined) {
+		id = nextUniqueIdVal++;
+		nextUniqueIdMap.set(obj, id);
+	}
+	return id;
+}
+
 function getResourceSizeSignature(resource: BindingResource | null): string {
 	if (!resource || typeof resource !== "object") {
 		return "0";
 	}
+	const id = getUniqueObjectId(resource);
 	const sized = resource as { size?: unknown; width?: unknown; height?: unknown };
-	return `${sized.size ?? 0}:${sized.width ?? 0}:${sized.height ?? 0}`;
+	return `${id}:${sized.size ?? 0}:${sized.width ?? 0}:${sized.height ?? 0}`;
 }
 
 function matrix4Equals(a: Matrix4, b: Matrix4): boolean {
