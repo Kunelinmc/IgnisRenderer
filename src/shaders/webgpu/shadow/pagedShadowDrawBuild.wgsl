@@ -46,6 +46,15 @@ struct ShadowInstanceData {
 @group(0) @binding(8) var<storage, read_write> drawTransmittance: array<vec4<f32>>;
 @group(0) @binding(9) var<storage, read_write> drawIndirectArgs: array<u32>;
 
+fn dirtyPageViewProjection(dirtyBase: u32) -> mat4x4<f32> {
+	let cascadeIndex = dirtyPhysicalPages[dirtyBase + 2u];
+	let pageX = dirtyPhysicalPages[dirtyBase + 3u];
+	let pageY = dirtyPhysicalPages[dirtyBase + 4u];
+	let pageGridSize = max(dirtyPhysicalPages[dirtyBase + 7u], 1u);
+	return cropMatrix(pageGridSize, pageX, pageY) *
+		cascadeViewProjections[cascadeIndex];
+}
+
 fn cropMatrix(grid: u32, pageX: u32, pageY: u32) -> mat4x4<f32> {
 	let safeGrid = max(grid, 1u);
 	let scale = f32(safeGrid);
@@ -117,9 +126,8 @@ fn csMain(@builtin(global_invocation_id) globalId: vec3<u32>) {
 	if (argsBase + 4u >= arrayLength(&drawIndirectArgs)) {
 		return;
 	}
-	let firstInstance = candidateIndex * params.physicalPageCount;
 	drawIndirectArgs[argsBase + 1u] = 0u;
-	drawIndirectArgs[argsBase + 4u] = firstInstance;
+	drawIndirectArgs[argsBase + 4u] = 0u;
 
 	let dirtyCount = min(atomicLoad(&counters[1]), params.dirtyCapacity);
 	if (dirtyCount == 0u || candidateIndex >= arrayLength(&casterBounds)) {
@@ -127,7 +135,7 @@ fn csMain(@builtin(global_invocation_id) globalId: vec3<u32>) {
 	}
 	let bounds = casterBounds[candidateIndex].centerRadius;
 	let worldMatrix = drawWorldMatrices[candidateIndex];
-	var localInstanceCount = 0u;
+	var intersectingPageCount = 0u;
 	for (var dirtyIndex = 0u; dirtyIndex < dirtyCount; dirtyIndex = dirtyIndex + 1u) {
 		let dirtyBase = dirtyIndex * DIRTY_PHYSICAL_PAGE_RECORD_UINTS;
 		if (dirtyBase + 7u >= arrayLength(&dirtyPhysicalPages)) {
@@ -137,21 +145,43 @@ fn csMain(@builtin(global_invocation_id) globalId: vec3<u32>) {
 		if (cascadeIndex >= arrayLength(&cascadeViewProjections)) {
 			continue;
 		}
-		let pageX = dirtyPhysicalPages[dirtyBase + 3u];
-		let pageY = dirtyPhysicalPages[dirtyBase + 4u];
-		let viewportX = dirtyPhysicalPages[dirtyBase + 5u];
-		let viewportY = dirtyPhysicalPages[dirtyBase + 6u];
-		let pageGridSize = max(dirtyPhysicalPages[dirtyBase + 7u], 1u);
-		let pageViewProjection =
-			cropMatrix(pageGridSize, pageX, pageY) *
-			cascadeViewProjections[cascadeIndex];
+		let pageViewProjection = dirtyPageViewProjection(dirtyBase);
 		if (!intersectsPage(bounds, pageViewProjection)) {
 			continue;
 		}
-		let instanceIndex = firstInstance + localInstanceCount;
-		if (instanceIndex >= params.drawInstanceCapacity || instanceIndex >= arrayLength(&drawMvps)) {
+		intersectingPageCount = intersectingPageCount + 1u;
+	}
+	if (intersectingPageCount == 0u) {
+		return;
+	}
+	let firstInstance = atomicAdd(&counters[3], intersectingPageCount);
+	drawIndirectArgs[argsBase + 4u] = firstInstance;
+	let capacity = min(params.drawInstanceCapacity, arrayLength(&drawMvps));
+	if (firstInstance >= capacity) {
+		atomicAdd(&counters[4], intersectingPageCount);
+		return;
+	}
+	let writableInstanceCount = min(intersectingPageCount, capacity - firstInstance);
+	var localInstanceCount = 0u;
+	for (var dirtyIndex = 0u; dirtyIndex < dirtyCount; dirtyIndex = dirtyIndex + 1u) {
+		if (localInstanceCount >= writableInstanceCount) {
 			break;
 		}
+		let dirtyBase = dirtyIndex * DIRTY_PHYSICAL_PAGE_RECORD_UINTS;
+		if (dirtyBase + 7u >= arrayLength(&dirtyPhysicalPages)) {
+			break;
+		}
+		let cascadeIndex = dirtyPhysicalPages[dirtyBase + 2u];
+		if (cascadeIndex >= arrayLength(&cascadeViewProjections)) {
+			continue;
+		}
+		let pageViewProjection = dirtyPageViewProjection(dirtyBase);
+		if (!intersectsPage(bounds, pageViewProjection)) {
+			continue;
+		}
+		let viewportX = dirtyPhysicalPages[dirtyBase + 5u];
+		let viewportY = dirtyPhysicalPages[dirtyBase + 6u];
+		let instanceIndex = firstInstance + localInstanceCount;
 		drawMvps[instanceIndex] = depthRemapMatrix() * pageViewProjection * worldMatrix;
 		drawInstanceMeta[instanceIndex] = ShadowInstanceData(
 			firstInstance,
@@ -171,4 +201,7 @@ fn csMain(@builtin(global_invocation_id) globalId: vec3<u32>) {
 		localInstanceCount = localInstanceCount + 1u;
 	}
 	drawIndirectArgs[argsBase + 1u] = localInstanceCount;
+	if (localInstanceCount < intersectingPageCount) {
+		atomicAdd(&counters[4], intersectingPageCount - localInstanceCount);
+	}
 }

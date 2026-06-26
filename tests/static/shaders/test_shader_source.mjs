@@ -342,6 +342,9 @@ async function testPagedShadowDrawBuildUsesConservativePlaneCulling() {
 	assert.ok(source.includes("const PAGE_CLIP_XY_MARGIN: f32 = 4.0;"));
 	assert.ok(source.includes("var outsideLeft = true;"));
 	assert.ok(source.includes("outsideFar = outsideFar &&"));
+	assert.ok(source.includes("atomicAdd(&counters[3], intersectingPageCount)"));
+	assert.ok(source.includes("atomicAdd(&counters[4]"));
+	assert.ok(!source.includes("candidateIndex * params.physicalPageCount"));
 	assert.ok(!source.includes("let ndc = clip.xyz / vec3<f32>(clip.w);"));
 }
 

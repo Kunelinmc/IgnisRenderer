@@ -182,6 +182,20 @@ function getBuffer(backend, label) {
 	return backend.buffers.find((buffer) => buffer.label === label);
 }
 
+function getLatestBuffer(backend, label) {
+	return backend.buffers.findLast((buffer) => buffer.label === label);
+}
+
+function getLatestTexture(backend, label) {
+	return backend.textures.findLast((texture) => texture.label === label);
+}
+
+function createPackets(count) {
+	return Array.from({ length: count }, (_value, index) =>
+		createPacket(`caster-${index}`, -0.75 + index * 0.01, 0.75)
+	);
+}
+
 function testCpuRequesterRemainsAvailableForDiagnostics() {
 	const renderSet = createRenderSet();
 	const packets = [
@@ -234,7 +248,114 @@ async function testRuntimeCreatesGpuAuthoritativeBuffers() {
 	assert.equal(table.data[3], WEBGPU_PAGED_SHADOW_NON_RESIDENT);
 	assert.equal(runtime.getDebugState().gpuAuthoritative, true);
 	assert.equal(runtime.getDebugState().drawCandidateCount, 2);
-	assert.equal(runtime.getDebugState().drawInstanceCapacity, 128);
+	assert.equal(runtime.getDebugState().drawInstanceCapacity, 32);
+}
+
+async function testCasterGrowthDoesNotRecreatePhysicalAtlas() {
+	const backend = createMockBackend();
+	const shadowPass = { renderPagedDepthIndirect() {} };
+	const runtime = new WebGPUPagedShadowRuntime(backend, shadowPass);
+	const renderSet = createRenderSet({
+		paged: {
+			physicalPageCount: 64,
+			maxPagesPerFrame: 4,
+		},
+	});
+
+	runtime.prepareFrame(createRequest(renderSet, createPackets(2)));
+	const firstAtlas = getLatestTexture(
+		backend,
+		"WebGPUPagedShadowPhysicalDepthAtlas"
+	);
+	assert.ok(firstAtlas);
+	assert.equal(runtime.getDebugState().drawInstanceCapacity, 32);
+
+	runtime.prepareFrame(createRequest(renderSet, createPackets(40)));
+
+	const latestAtlas = getLatestTexture(
+		backend,
+		"WebGPUPagedShadowPhysicalDepthAtlas"
+	);
+	assert.equal(latestAtlas, firstAtlas);
+	assert.equal(firstAtlas.destroyed, false);
+	assert.equal(
+		backend.textures.filter(
+			(texture) => texture.label === "WebGPUPagedShadowPhysicalDepthAtlas"
+		).length,
+		1
+	);
+	assert.equal(runtime.getDebugState().casterCapacity, 40);
+	assert.equal(runtime.getDebugState().drawInstanceCapacity, 160);
+}
+
+async function testPhysicalShapeChangesRecreateAtlasAndResetResidency() {
+	const backend = createMockBackend();
+	const shadowPass = { renderPagedDepthIndirect() {} };
+	const runtime = new WebGPUPagedShadowRuntime(backend, shadowPass);
+	const packets = createPackets(2);
+	const renderSet = createRenderSet({
+		paged: {
+			pageSize: 64,
+			physicalPageCount: 2,
+		},
+	});
+
+	runtime.prepareFrame(createRequest(renderSet, packets));
+	const firstAtlas = getLatestTexture(
+		backend,
+		"WebGPUPagedShadowPhysicalDepthAtlas"
+	);
+	const firstResidency = getLatestBuffer(
+		backend,
+		"WebGPUPagedShadowResidencyState"
+	);
+	assert.ok(firstAtlas);
+	assert.ok(firstResidency);
+
+	renderSet.layout.paged.physicalPageCount = 4;
+	runtime.prepareFrame(createRequest(renderSet, packets));
+	const secondAtlas = getLatestTexture(
+		backend,
+		"WebGPUPagedShadowPhysicalDepthAtlas"
+	);
+	const secondResidency = getLatestBuffer(
+		backend,
+		"WebGPUPagedShadowResidencyState"
+	);
+
+	assert.notEqual(secondAtlas, firstAtlas);
+	assert.equal(firstAtlas.destroyed, true);
+	assert.notEqual(secondResidency, firstResidency);
+	assert.equal(secondResidency.data[0], WEBGPU_PAGED_SHADOW_NON_RESIDENT);
+	assert.equal(runtime.getDebugState().physicalPageCount, 4);
+
+	renderSet.layout.paged.pageSize = 128;
+	runtime.prepareFrame(createRequest(renderSet, packets));
+	const thirdAtlas = getLatestTexture(
+		backend,
+		"WebGPUPagedShadowPhysicalDepthAtlas"
+	);
+	assert.notEqual(thirdAtlas, secondAtlas);
+	assert.equal(secondAtlas.destroyed, true);
+	assert.equal(runtime.getDebugState().pageSize, 128);
+}
+
+async function testDrawInstanceCapacityGrowsByOnePointFive() {
+	const backend = createMockBackend();
+	const shadowPass = { renderPagedDepthIndirect() {} };
+	const runtime = new WebGPUPagedShadowRuntime(backend, shadowPass);
+	const renderSet = createRenderSet({
+		paged: {
+			physicalPageCount: 512,
+			maxPagesPerFrame: 4,
+		},
+	});
+
+	runtime.prepareFrame(createRequest(renderSet, createPackets(10)));
+	assert.equal(runtime.getDebugState().drawInstanceCapacity, 40);
+
+	runtime.prepareFrame(createRequest(renderSet, createPackets(11)));
+	assert.equal(runtime.getDebugState().drawInstanceCapacity, 60);
 }
 
 async function testGpuPassesDispatchWithoutCpuPageTableAllocation() {
@@ -365,6 +486,9 @@ function testResidencyShaderRefreshesCachedPages() {
 async function run() {
 	testCpuRequesterRemainsAvailableForDiagnostics();
 	await testRuntimeCreatesGpuAuthoritativeBuffers();
+	await testCasterGrowthDoesNotRecreatePhysicalAtlas();
+	await testPhysicalShapeChangesRecreateAtlasAndResetResidency();
+	await testDrawInstanceCapacityGrowsByOnePointFive();
 	await testGpuPassesDispatchWithoutCpuPageTableAllocation();
 	await testDepthPassBuildsGpuDrawsAndUsesIndirectRenderer();
 	await testFeedbackPassUsesScreenDepthTexture();
