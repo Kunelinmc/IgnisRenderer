@@ -94,18 +94,7 @@ fn csMain() {
 				selected = freeList[freeListIndex];
 			}
 		}
-		if (selected == PAGED_SHADOW_NON_RESIDENT) {
-			for (var pageIndex = 0u; pageIndex < params.physicalPageCount; pageIndex = pageIndex + 1u) {
-				let base = residencyBase(pageIndex);
-				if (base + 7u >= arrayLength(&residencyState)) {
-					continue;
-				}
-				if (residencyState[base] == PAGED_SHADOW_NON_RESIDENT) {
-					selected = pageIndex;
-					break;
-				}
-			}
-		}
+
 		if (selected == PAGED_SHADOW_NON_RESIDENT) {
 			var oldestFrame = 0xffffffffu;
 			for (var pageIndex = 0u; pageIndex < params.physicalPageCount; pageIndex = pageIndex + 1u) {

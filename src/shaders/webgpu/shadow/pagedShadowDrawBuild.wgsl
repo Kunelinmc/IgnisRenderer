@@ -77,43 +77,18 @@ fn depthRemapMatrix() -> mat4x4<f32> {
 	);
 }
 
-fn intersectsPage(bounds: vec4<f32>, viewProjection: mat4x4<f32>) -> bool {
-	let center = bounds.xyz;
-	let radius = max(bounds.w, 0.0);
-	let corners = array<vec3<f32>, 8>(
-		center + vec3<f32>(-radius, -radius, -radius),
-		center + vec3<f32>( radius, -radius, -radius),
-		center + vec3<f32>(-radius,  radius, -radius),
-		center + vec3<f32>( radius,  radius, -radius),
-		center + vec3<f32>(-radius, -radius,  radius),
-		center + vec3<f32>( radius, -radius,  radius),
-		center + vec3<f32>(-radius,  radius,  radius),
-		center + vec3<f32>( radius,  radius,  radius)
-	);
-	// Reject only when every AABB corner is outside the same loose clip plane.
-	var outsideLeft = true;
-	var outsideRight = true;
-	var outsideBottom = true;
-	var outsideTop = true;
-	var outsideNear = true;
-	var outsideFar = true;
-	for (var index = 0u; index < 8u; index = index + 1u) {
-		let clip = viewProjection * vec4<f32>(corners[index], 1.0);
-		outsideLeft = outsideLeft && clip.x < -PAGE_CLIP_XY_MARGIN * clip.w;
-		outsideRight = outsideRight && clip.x > PAGE_CLIP_XY_MARGIN * clip.w;
-		outsideBottom = outsideBottom && clip.y < -PAGE_CLIP_XY_MARGIN * clip.w;
-		outsideTop = outsideTop && clip.y > PAGE_CLIP_XY_MARGIN * clip.w;
-		outsideNear = outsideNear && clip.z < PAGE_CLIP_Z_MIN * clip.w;
-		outsideFar = outsideFar && clip.z > PAGE_CLIP_Z_MAX * clip.w;
+fn projectPoint(matrix: mat4x4<f32>, point: vec3<f32>) -> vec3<f32> {
+	let clip = matrix * vec4<f32>(point, 1.0);
+	if (abs(clip.w) <= 0.000001) {
+		return vec3<f32>(2.0, 2.0, 2.0);
 	}
-	return !(
-		outsideLeft ||
-		outsideRight ||
-		outsideBottom ||
-		outsideTop ||
-		outsideNear ||
-		outsideFar
-	);
+	return clip.xyz / vec3<f32>(clip.w);
+}
+
+struct CascadeUVRange {
+	minUv: vec2<f32>,
+	maxUv: vec2<f32>,
+	hasProjected: bool,
 }
 
 @compute @workgroup_size(64)
@@ -135,6 +110,51 @@ fn csMain(@builtin(global_invocation_id) globalId: vec3<u32>) {
 	}
 	let bounds = casterBounds[candidateIndex].centerRadius;
 	let worldMatrix = drawWorldMatrices[candidateIndex];
+
+	let center = bounds.xyz;
+	let radius = max(bounds.w, 0.0);
+	let corners = array<vec3<f32>, 8>(
+		center + vec3<f32>(-radius, -radius, -radius),
+		center + vec3<f32>( radius, -radius, -radius),
+		center + vec3<f32>(-radius,  radius, -radius),
+		center + vec3<f32>( radius,  radius, -radius),
+		center + vec3<f32>(-radius, -radius,  radius),
+		center + vec3<f32>( radius, -radius,  radius),
+		center + vec3<f32>(-radius,  radius,  radius),
+		center + vec3<f32>( radius,  radius,  radius)
+	);
+
+	var localRanges: array<CascadeUVRange, 4>;
+	let maxCascades = min(4u, arrayLength(&cascadeViewProjections));
+	for (var c = 0u; c < maxCascades; c = c + 1u) {
+		let viewProjection = cascadeViewProjections[c];
+		var outsideNear = true;
+		var outsideFar = true;
+		for (var cornerIndex = 0u; cornerIndex < 8u; cornerIndex = cornerIndex + 1u) {
+			let ndc = projectPoint(viewProjection, corners[cornerIndex]);
+			if (ndc.z >= PAGE_CLIP_Z_MIN) {
+				outsideNear = false;
+			}
+			if (ndc.z <= PAGE_CLIP_Z_MAX) {
+				outsideFar = false;
+			}
+		}
+		if (outsideNear || outsideFar) {
+			localRanges[c] = CascadeUVRange(vec2<f32>(1.0), vec2<f32>(0.0), false);
+			continue;
+		}
+
+		var minUv = vec2<f32>(1.0, 1.0);
+		var maxUv = vec2<f32>(0.0, 0.0);
+		for (var cornerIndex = 0u; cornerIndex < 8u; cornerIndex = cornerIndex + 1u) {
+			let ndc = projectPoint(viewProjection, corners[cornerIndex]);
+			let uv = vec2<f32>(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5);
+			minUv = min(minUv, uv);
+			maxUv = max(maxUv, uv);
+		}
+		localRanges[c] = CascadeUVRange(minUv, maxUv, true);
+	}
+
 	var intersectingPageCount = 0u;
 	for (var dirtyIndex = 0u; dirtyIndex < dirtyCount; dirtyIndex = dirtyIndex + 1u) {
 		let dirtyBase = dirtyIndex * DIRTY_PHYSICAL_PAGE_RECORD_UINTS;
@@ -142,11 +162,26 @@ fn csMain(@builtin(global_invocation_id) globalId: vec3<u32>) {
 			break;
 		}
 		let cascadeIndex = dirtyPhysicalPages[dirtyBase + 2u];
-		if (cascadeIndex >= arrayLength(&cascadeViewProjections)) {
+		if (cascadeIndex >= maxCascades) {
 			continue;
 		}
-		let pageViewProjection = dirtyPageViewProjection(dirtyBase);
-		if (!intersectsPage(bounds, pageViewProjection)) {
+		let range = localRanges[cascadeIndex];
+		if (!range.hasProjected) {
+			continue;
+		}
+		let pageX = dirtyPhysicalPages[dirtyBase + 3u];
+		let pageY = dirtyPhysicalPages[dirtyBase + 4u];
+		let pageGridSize = max(dirtyPhysicalPages[dirtyBase + 7u], 1u);
+
+		let gridSize = f32(pageGridSize);
+		let px = f32(pageX);
+		let py = f32(pageY);
+
+		let pageMinUv = vec2<f32>((px - 1.5) / gridSize, (py - 1.5) / gridSize);
+		let pageMaxUv = vec2<f32>((px + 2.5) / gridSize, (py + 2.5) / gridSize);
+
+		if (range.minUv.x > pageMaxUv.x || range.maxUv.x < pageMinUv.x ||
+			range.minUv.y > pageMaxUv.y || range.maxUv.y < pageMinUv.y) {
 			continue;
 		}
 		intersectingPageCount = intersectingPageCount + 1u;
@@ -172,13 +207,29 @@ fn csMain(@builtin(global_invocation_id) globalId: vec3<u32>) {
 			break;
 		}
 		let cascadeIndex = dirtyPhysicalPages[dirtyBase + 2u];
-		if (cascadeIndex >= arrayLength(&cascadeViewProjections)) {
+		if (cascadeIndex >= maxCascades) {
+			continue;
+		}
+		let range = localRanges[cascadeIndex];
+		if (!range.hasProjected) {
+			continue;
+		}
+		let pageX = dirtyPhysicalPages[dirtyBase + 3u];
+		let pageY = dirtyPhysicalPages[dirtyBase + 4u];
+		let pageGridSize = max(dirtyPhysicalPages[dirtyBase + 7u], 1u);
+
+		let gridSize = f32(pageGridSize);
+		let px = f32(pageX);
+		let py = f32(pageY);
+
+		let pageMinUv = vec2<f32>((px - 1.5) / gridSize, (py - 1.5) / gridSize);
+		let pageMaxUv = vec2<f32>((px + 2.5) / gridSize, (py + 2.5) / gridSize);
+
+		if (range.minUv.x > pageMaxUv.x || range.maxUv.x < pageMinUv.x ||
+			range.minUv.y > pageMaxUv.y || range.maxUv.y < pageMinUv.y) {
 			continue;
 		}
 		let pageViewProjection = dirtyPageViewProjection(dirtyBase);
-		if (!intersectsPage(bounds, pageViewProjection)) {
-			continue;
-		}
 		let viewportX = dirtyPhysicalPages[dirtyBase + 5u];
 		let viewportY = dirtyPhysicalPages[dirtyBase + 6u];
 		let instanceIndex = firstInstance + localInstanceCount;
