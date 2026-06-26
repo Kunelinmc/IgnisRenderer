@@ -346,6 +346,26 @@ async function testPagedShadowDrawBuildUsesConservativePlaneCulling() {
 	assert.ok(source.includes("atomicAdd(&counters[4]"));
 	assert.ok(!source.includes("candidateIndex * params.physicalPageCount"));
 	assert.ok(!source.includes("let ndc = clip.xyz / vec3<f32>(clip.w);"));
+	assert.ok(source.includes("fn dirtyPageUvRange"));
+	assert.ok(source.includes("let matrixIndex = dirtyPhysicalPages[dirtyBase + 2u];"));
+	assert.ok(source.includes("PAGE_CLIP_XY_MARGIN / atlasSize"));
+	assert.ok(source.includes("arrayLength(&drawInstanceMeta)"));
+	assert.ok(!source.includes("array<CascadeUVRange, 4>"));
+	assert.ok(!source.includes("(px - 1.5) / gridSize"));
+}
+
+async function testPagedShadowRequestCompactUsesLayoutAddresses() {
+	ShaderSource.clearCache();
+
+	const source = await ShaderSource.load(
+		"webgpu.shadow.pagedShadowRequestCompact.raw"
+	);
+
+	assert.ok(source.includes("struct PagedShadowLayoutData"));
+	assert.ok(source.includes("@group(0) @binding(4) var<storage, read> layouts"));
+	assert.ok(source.includes("layoutIndex * 4u + cascadeIndex"));
+	assert.ok(source.includes("compactedRequests[base + 1u] = address.matrixIndex"));
+	assert.ok(!source.includes("tableIndex / (gridSize * gridSize)"));
 }
 
 function testCompositeResultsAreCloned() {
@@ -507,6 +527,7 @@ async function run() {
 	await testWebGLScenePrunedVariant();
 	await testWebGPUCompositeIncludesSharedParts();
 	await testPagedShadowDrawBuildUsesConservativePlaneCulling();
+	await testPagedShadowRequestCompactUsesLayoutAddresses();
 	await testCompositeResultsAreCloned();
 	testSyncLoadPopulatesPreparedCache();
 	await testCustomAsyncLoaderOverridesBuiltInSource();

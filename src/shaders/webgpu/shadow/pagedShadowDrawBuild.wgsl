@@ -47,12 +47,12 @@ struct ShadowInstanceData {
 @group(0) @binding(9) var<storage, read_write> drawIndirectArgs: array<u32>;
 
 fn dirtyPageViewProjection(dirtyBase: u32) -> mat4x4<f32> {
-	let cascadeIndex = dirtyPhysicalPages[dirtyBase + 2u];
+	let matrixIndex = dirtyPhysicalPages[dirtyBase + 2u];
 	let pageX = dirtyPhysicalPages[dirtyBase + 3u];
 	let pageY = dirtyPhysicalPages[dirtyBase + 4u];
 	let pageGridSize = max(dirtyPhysicalPages[dirtyBase + 7u], 1u);
 	return cropMatrix(pageGridSize, pageX, pageY) *
-		cascadeViewProjections[cascadeIndex];
+		cascadeViewProjections[matrixIndex];
 }
 
 fn cropMatrix(grid: u32, pageX: u32, pageY: u32) -> mat4x4<f32> {
@@ -91,6 +91,72 @@ struct CascadeUVRange {
 	hasProjected: bool,
 }
 
+fn projectSphereBoundsToUvRange(
+	viewProjection: mat4x4<f32>,
+	center: vec3<f32>,
+	radius: f32
+) -> CascadeUVRange {
+	let safeRadius = max(radius, 0.0);
+	let corners = array<vec3<f32>, 8>(
+		center + vec3<f32>(-safeRadius, -safeRadius, -safeRadius),
+		center + vec3<f32>( safeRadius, -safeRadius, -safeRadius),
+		center + vec3<f32>(-safeRadius,  safeRadius, -safeRadius),
+		center + vec3<f32>( safeRadius,  safeRadius, -safeRadius),
+		center + vec3<f32>(-safeRadius, -safeRadius,  safeRadius),
+		center + vec3<f32>( safeRadius, -safeRadius,  safeRadius),
+		center + vec3<f32>(-safeRadius,  safeRadius,  safeRadius),
+		center + vec3<f32>( safeRadius,  safeRadius,  safeRadius)
+	);
+
+	var outsideNear = true;
+	var outsideFar = true;
+	for (var cornerIndex = 0u; cornerIndex < 8u; cornerIndex = cornerIndex + 1u) {
+		let ndc = projectPoint(viewProjection, corners[cornerIndex]);
+		if (ndc.z >= PAGE_CLIP_Z_MIN) {
+			outsideNear = false;
+		}
+		if (ndc.z <= PAGE_CLIP_Z_MAX) {
+			outsideFar = false;
+		}
+	}
+	if (outsideNear || outsideFar) {
+		return CascadeUVRange(vec2<f32>(1.0), vec2<f32>(0.0), false);
+	}
+
+	var minUv = vec2<f32>(1.0, 1.0);
+	var maxUv = vec2<f32>(0.0, 0.0);
+	for (var cornerIndex = 0u; cornerIndex < 8u; cornerIndex = cornerIndex + 1u) {
+		let ndc = projectPoint(viewProjection, corners[cornerIndex]);
+		let uv = vec2<f32>(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5);
+		minUv = min(minUv, uv);
+		maxUv = max(maxUv, uv);
+	}
+	return CascadeUVRange(minUv, maxUv, true);
+}
+
+fn dirtyPageUvRange(pageX: u32, pageY: u32, pageGridSize: u32) -> CascadeUVRange {
+	let gridSize = f32(max(pageGridSize, 1u));
+	let px = f32(pageX);
+	let py = f32(pageY);
+	let atlasSize = max(gridSize * f32(max(params.pageSize, 1u)), 1.0);
+	let marginUv = PAGE_CLIP_XY_MARGIN / atlasSize;
+	return CascadeUVRange(
+		vec2<f32>(px / gridSize, py / gridSize) - vec2<f32>(marginUv),
+		vec2<f32>((px + 1.0) / gridSize, (py + 1.0) / gridSize) + vec2<f32>(marginUv),
+		true
+	);
+}
+
+fn rangesIntersect(left: CascadeUVRange, right: CascadeUVRange) -> bool {
+	if (!left.hasProjected || !right.hasProjected) {
+		return false;
+	}
+	return !(
+		left.minUv.x > right.maxUv.x || left.maxUv.x < right.minUv.x ||
+		left.minUv.y > right.maxUv.y || left.maxUv.y < right.minUv.y
+	);
+}
+
 @compute @workgroup_size(64)
 fn csMain(@builtin(global_invocation_id) globalId: vec3<u32>) {
 	let candidateIndex = globalId.x;
@@ -105,7 +171,11 @@ fn csMain(@builtin(global_invocation_id) globalId: vec3<u32>) {
 	drawIndirectArgs[argsBase + 4u] = 0u;
 
 	let dirtyCount = min(atomicLoad(&counters[1]), params.dirtyCapacity);
-	if (dirtyCount == 0u || candidateIndex >= arrayLength(&casterBounds)) {
+	if (
+		dirtyCount == 0u ||
+		candidateIndex >= arrayLength(&casterBounds) ||
+		candidateIndex >= arrayLength(&drawWorldMatrices)
+	) {
 		return;
 	}
 	let bounds = casterBounds[candidateIndex].centerRadius;
@@ -113,47 +183,6 @@ fn csMain(@builtin(global_invocation_id) globalId: vec3<u32>) {
 
 	let center = bounds.xyz;
 	let radius = max(bounds.w, 0.0);
-	let corners = array<vec3<f32>, 8>(
-		center + vec3<f32>(-radius, -radius, -radius),
-		center + vec3<f32>( radius, -radius, -radius),
-		center + vec3<f32>(-radius,  radius, -radius),
-		center + vec3<f32>( radius,  radius, -radius),
-		center + vec3<f32>(-radius, -radius,  radius),
-		center + vec3<f32>( radius, -radius,  radius),
-		center + vec3<f32>(-radius,  radius,  radius),
-		center + vec3<f32>( radius,  radius,  radius)
-	);
-
-	var localRanges: array<CascadeUVRange, 4>;
-	let maxCascades = min(4u, arrayLength(&cascadeViewProjections));
-	for (var c = 0u; c < maxCascades; c = c + 1u) {
-		let viewProjection = cascadeViewProjections[c];
-		var outsideNear = true;
-		var outsideFar = true;
-		for (var cornerIndex = 0u; cornerIndex < 8u; cornerIndex = cornerIndex + 1u) {
-			let ndc = projectPoint(viewProjection, corners[cornerIndex]);
-			if (ndc.z >= PAGE_CLIP_Z_MIN) {
-				outsideNear = false;
-			}
-			if (ndc.z <= PAGE_CLIP_Z_MAX) {
-				outsideFar = false;
-			}
-		}
-		if (outsideNear || outsideFar) {
-			localRanges[c] = CascadeUVRange(vec2<f32>(1.0), vec2<f32>(0.0), false);
-			continue;
-		}
-
-		var minUv = vec2<f32>(1.0, 1.0);
-		var maxUv = vec2<f32>(0.0, 0.0);
-		for (var cornerIndex = 0u; cornerIndex < 8u; cornerIndex = cornerIndex + 1u) {
-			let ndc = projectPoint(viewProjection, corners[cornerIndex]);
-			let uv = vec2<f32>(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5);
-			minUv = min(minUv, uv);
-			maxUv = max(maxUv, uv);
-		}
-		localRanges[c] = CascadeUVRange(minUv, maxUv, true);
-	}
 
 	var intersectingPageCount = 0u;
 	for (var dirtyIndex = 0u; dirtyIndex < dirtyCount; dirtyIndex = dirtyIndex + 1u) {
@@ -161,27 +190,19 @@ fn csMain(@builtin(global_invocation_id) globalId: vec3<u32>) {
 		if (dirtyBase + 7u >= arrayLength(&dirtyPhysicalPages)) {
 			break;
 		}
-		let cascadeIndex = dirtyPhysicalPages[dirtyBase + 2u];
-		if (cascadeIndex >= maxCascades) {
+		let matrixIndex = dirtyPhysicalPages[dirtyBase + 2u];
+		if (matrixIndex >= arrayLength(&cascadeViewProjections)) {
 			continue;
 		}
-		let range = localRanges[cascadeIndex];
+		let range = projectSphereBoundsToUvRange(cascadeViewProjections[matrixIndex], center, radius);
 		if (!range.hasProjected) {
 			continue;
 		}
 		let pageX = dirtyPhysicalPages[dirtyBase + 3u];
 		let pageY = dirtyPhysicalPages[dirtyBase + 4u];
 		let pageGridSize = max(dirtyPhysicalPages[dirtyBase + 7u], 1u);
-
-		let gridSize = f32(pageGridSize);
-		let px = f32(pageX);
-		let py = f32(pageY);
-
-		let pageMinUv = vec2<f32>((px - 1.5) / gridSize, (py - 1.5) / gridSize);
-		let pageMaxUv = vec2<f32>((px + 2.5) / gridSize, (py + 2.5) / gridSize);
-
-		if (range.minUv.x > pageMaxUv.x || range.maxUv.x < pageMinUv.x ||
-			range.minUv.y > pageMaxUv.y || range.maxUv.y < pageMinUv.y) {
+		let pageRange = dirtyPageUvRange(pageX, pageY, pageGridSize);
+		if (!rangesIntersect(range, pageRange)) {
 			continue;
 		}
 		intersectingPageCount = intersectingPageCount + 1u;
@@ -191,7 +212,10 @@ fn csMain(@builtin(global_invocation_id) globalId: vec3<u32>) {
 	}
 	let firstInstance = atomicAdd(&counters[3], intersectingPageCount);
 	drawIndirectArgs[argsBase + 4u] = firstInstance;
-	let capacity = min(params.drawInstanceCapacity, arrayLength(&drawMvps));
+	let capacity = min(
+		params.drawInstanceCapacity,
+		min(arrayLength(&drawMvps), min(arrayLength(&drawInstanceMeta), arrayLength(&drawTransmittance)))
+	);
 	if (firstInstance >= capacity) {
 		atomicAdd(&counters[4], intersectingPageCount);
 		return;
@@ -206,27 +230,19 @@ fn csMain(@builtin(global_invocation_id) globalId: vec3<u32>) {
 		if (dirtyBase + 7u >= arrayLength(&dirtyPhysicalPages)) {
 			break;
 		}
-		let cascadeIndex = dirtyPhysicalPages[dirtyBase + 2u];
-		if (cascadeIndex >= maxCascades) {
+		let matrixIndex = dirtyPhysicalPages[dirtyBase + 2u];
+		if (matrixIndex >= arrayLength(&cascadeViewProjections)) {
 			continue;
 		}
-		let range = localRanges[cascadeIndex];
+		let range = projectSphereBoundsToUvRange(cascadeViewProjections[matrixIndex], center, radius);
 		if (!range.hasProjected) {
 			continue;
 		}
 		let pageX = dirtyPhysicalPages[dirtyBase + 3u];
 		let pageY = dirtyPhysicalPages[dirtyBase + 4u];
 		let pageGridSize = max(dirtyPhysicalPages[dirtyBase + 7u], 1u);
-
-		let gridSize = f32(pageGridSize);
-		let px = f32(pageX);
-		let py = f32(pageY);
-
-		let pageMinUv = vec2<f32>((px - 1.5) / gridSize, (py - 1.5) / gridSize);
-		let pageMaxUv = vec2<f32>((px + 2.5) / gridSize, (py + 2.5) / gridSize);
-
-		if (range.minUv.x > pageMaxUv.x || range.maxUv.x < pageMinUv.x ||
-			range.minUv.y > pageMaxUv.y || range.maxUv.y < pageMinUv.y) {
+		let pageRange = dirtyPageUvRange(pageX, pageY, pageGridSize);
+		if (!rangesIntersect(range, pageRange)) {
 			continue;
 		}
 		let pageViewProjection = dirtyPageViewProjection(dirtyBase);

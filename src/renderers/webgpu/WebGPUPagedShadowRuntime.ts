@@ -310,6 +310,7 @@ export class WebGPUPagedShadowRuntime {
 				this._pageRequestFlagsBuffer,
 				this._countersBuffer,
 				this._compactedRequestsBuffer,
+				this._layoutBuffer,
 			],
 			Math.max(1, Math.ceil(this._pageTableLength / 64)),
 			1,
@@ -1227,7 +1228,7 @@ export class WebGPUPagedShadowRuntime {
 			new Uint32Array([
 				this._pageTableLength,
 				this._requestBufferCapacity,
-				layouts[0]?.metadata.pageGridSize ?? 1,
+				layouts.length,
 				0,
 			])
 		);

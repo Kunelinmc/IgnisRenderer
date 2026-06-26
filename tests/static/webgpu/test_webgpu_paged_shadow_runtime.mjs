@@ -378,6 +378,15 @@ async function testGpuPassesDispatchWithoutCpuPageTableAllocation() {
 	await runtime.recordPageMarkPass(request);
 	await runtime.recordPageAllocationPass(request);
 
+	const compactParamsWrites = backend.writes.filter(([label]) => label === "WebGPUPagedShadowCompactParams");
+	const compactParams = compactParamsWrites[compactParamsWrites.length - 1]?.[1];
+	assert.equal(compactParams?.[2], 1);
+	const compactBinding = backend.bindingGroups.find(
+		(group) => group.label === "WebGPUPagedShadowRequestCompactBindGroup"
+	);
+	assert.ok(compactBinding);
+	assert.equal(compactBinding.entries[4].resource.label, "WebGPUPagedShadowLayouts");
+
 	const table = getBuffer(backend, "WebGPUPagedShadowPageTable");
 	assert.equal(table.data[0], WEBGPU_PAGED_SHADOW_NON_RESIDENT);
 	assert.ok(

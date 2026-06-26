@@ -450,8 +450,7 @@ export class WebGPUShadowPass {
 		}
 
 		this._frameId++;
-		const drawCandidates = this._collectShadowDrawCandidates(shadowCasterPackets);
-		if (drawCandidates.length <= 0) {
+		if (shadowCasterPackets.length <= 0) {
 			return;
 		}
 		const bindGroup = this._requireBackendDevice().createBindGroup({
@@ -531,11 +530,16 @@ export class WebGPUShadowPass {
 		passEncoder.setBindGroup(0, bindGroup);
 		const indirectBuffer = getWebGPUBuffer(resources.drawIndirectArgsBuffer);
 		const candidateLimit = Math.min(
-			drawCandidates.length,
+			shadowCasterPackets.length,
 			resources.drawCandidateCount
 		);
 		for (let candidateIndex = 0; candidateIndex < candidateLimit; candidateIndex++) {
-			const candidate = drawCandidates[candidateIndex];
+			const candidate = this._collectShadowDrawCandidate(
+				shadowCasterPackets[candidateIndex]
+			);
+			if (!candidate) {
+				continue;
+			}
 			const packet = candidate.packet;
 			if (!animationBindingCache.has(packet.id)) {
 				animationBindingCache.set(
@@ -1143,29 +1147,38 @@ export class WebGPUShadowPass {
 	): ShadowDrawCandidate[] {
 		const candidates: ShadowDrawCandidate[] = [];
 		for (const packet of packets) {
-			if (
-				(packet.primitive.topology ?? DEFAULT_PRIMITIVE_DRAW_TOPOLOGY) !==
-				DEFAULT_PRIMITIVE_DRAW_TOPOLOGY
-			) {
-				continue;
+			const candidate = this._collectShadowDrawCandidate(packet);
+			if (candidate) {
+				candidates.push(candidate);
 			}
-			const geometry = this._geometryRegistry.getGeometry(packet.primitive);
-			const vertexBuffer = (
-				geometry.vertexBuffer as { _gpuResource?: GPUBuffer }
-			)._gpuResource;
-			const indexBuffer = (geometry.indexBuffer as { _gpuResource?: GPUBuffer })
-				._gpuResource;
-			if (!vertexBuffer || !indexBuffer) {
-				continue;
-			}
-			candidates.push({
-				packet,
-				geometry,
-				vertexBuffer,
-				indexBuffer,
-			});
 		}
 		return candidates;
+	}
+
+	private _collectShadowDrawCandidate(
+		packet: DrawPacket
+	): ShadowDrawCandidate | null {
+		if (
+			(packet.primitive.topology ?? DEFAULT_PRIMITIVE_DRAW_TOPOLOGY) !==
+			DEFAULT_PRIMITIVE_DRAW_TOPOLOGY
+		) {
+			return null;
+		}
+		const geometry = this._geometryRegistry.getGeometry(packet.primitive);
+		const vertexBuffer = (
+			geometry.vertexBuffer as { _gpuResource?: GPUBuffer }
+		)._gpuResource;
+		const indexBuffer = (geometry.indexBuffer as { _gpuResource?: GPUBuffer })
+			._gpuResource;
+		if (!vertexBuffer || !indexBuffer) {
+			return null;
+		}
+		return {
+			packet,
+			geometry,
+			vertexBuffer,
+			indexBuffer,
+		};
 	}
 
 	private _resolveShadowCommandEncoder(
