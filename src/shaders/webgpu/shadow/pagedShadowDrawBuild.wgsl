@@ -107,7 +107,7 @@ fn intersectsPage(bounds: vec4<f32>, viewProjection: mat4x4<f32>) -> bool {
 	);
 }
 
-@compute @workgroup_size(1)
+@compute @workgroup_size(64)
 fn csMain(@builtin(global_invocation_id) globalId: vec3<u32>) {
 	let candidateIndex = globalId.x;
 	if (candidateIndex >= params.candidateCount) {

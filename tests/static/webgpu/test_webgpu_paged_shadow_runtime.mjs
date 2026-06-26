@@ -234,7 +234,7 @@ async function testRuntimeCreatesGpuAuthoritativeBuffers() {
 	assert.equal(table.data[3], WEBGPU_PAGED_SHADOW_NON_RESIDENT);
 	assert.equal(runtime.getDebugState().gpuAuthoritative, true);
 	assert.equal(runtime.getDebugState().drawCandidateCount, 2);
-	assert.equal(runtime.getDebugState().drawInstanceCapacity, 8);
+	assert.equal(runtime.getDebugState().drawInstanceCapacity, 128);
 }
 
 async function testGpuPassesDispatchWithoutCpuPageTableAllocation() {

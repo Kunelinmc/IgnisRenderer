@@ -119,7 +119,10 @@ fn csMain(@builtin(global_invocation_id) globalId: vec3<u32>) {
 						pageY * gridSize +
 						pageX;
 					if (tableIndex < params.pageTableLength) {
-						atomicOr(&pageRequestFlags[tableIndex], PAGED_SHADOW_REQUEST_SOURCE_CONSERVATIVE);
+						let currentVal = atomicLoad(&pageRequestFlags[tableIndex]);
+						if ((currentVal & PAGED_SHADOW_REQUEST_SOURCE_CONSERVATIVE) == 0u) {
+							atomicOr(&pageRequestFlags[tableIndex], PAGED_SHADOW_REQUEST_SOURCE_CONSERVATIVE);
+						}
 					}
 				}
 			}

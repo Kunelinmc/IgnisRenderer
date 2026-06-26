@@ -24,6 +24,8 @@ import {
 } from "../types";
 import type { WebGPUBackend } from "../WebGPUBackend";
 import type { WebGPUShadowPass } from "./WebGPUShadowPass";
+import { tryGetNativeWebGPUCommandEncoder } from "./WebGPUCommandEncoder";
+import { getWebGPUBuffer } from "./WebGPUResourceAccess";
 
 export const WEBGPU_PAGED_SHADOW_NON_RESIDENT = 0xffffffff;
 
@@ -378,7 +380,7 @@ export class WebGPUPagedShadowRuntime {
 				this._drawTransmittanceBuffer,
 				this._drawIndirectArgsBuffer,
 			],
-			Math.max(1, this._drawCandidateCount),
+			Math.max(1, Math.ceil(this._drawCandidateCount / 64)),
 			1,
 			1
 		);
@@ -625,7 +627,8 @@ export class WebGPUPagedShadowRuntime {
 		);
 		const casterCapacity = Math.max(1, currentCasterCount + removedCasterCount);
 		const cascadeCapacity = Math.max(1, layoutCapacity * 4);
-		const drawCandidateCapacity = Math.max(1, currentCasterCount);
+		const chunkedCasterCount = Math.ceil(currentCasterCount / 32) * 32;
+		const drawCandidateCapacity = Math.max(32, chunkedCasterCount);
 		const drawInstanceCapacity = Math.max(
 			1,
 			drawCandidateCapacity * physicalPageCount
@@ -1099,13 +1102,36 @@ export class WebGPUPagedShadowRuntime {
 		this._counters[0] = 0;
 		this._counters[1] = 0;
 		this._dirtyPhysicalPages.fill(0);
-		for (const [buffer, data] of [
-			[this._pageRequestFlagsBuffer, this._pageRequestFlags],
-			[this._compactedRequestsBuffer, this._compactedRequests],
-			[this._dirtyPhysicalPagesBuffer, this._dirtyPhysicalPages],
-		] as Array<[IRenderBuffer | null, Uint32Array]>) {
-			if (buffer) {
-				this._backend.writeBuffer(buffer, data as Uint32Array<ArrayBuffer>);
+		const nativeEncoder = tryGetNativeWebGPUCommandEncoder(this._lastRequest?.encoder);
+		if (nativeEncoder && this._pageRequestFlagsBuffer) {
+			nativeEncoder.clearBuffer(
+				getWebGPUBuffer(this._pageRequestFlagsBuffer),
+				0,
+				this._pageRequestFlags.byteLength
+			);
+			if (this._compactedRequestsBuffer) {
+				nativeEncoder.clearBuffer(
+					getWebGPUBuffer(this._compactedRequestsBuffer),
+					0,
+					this._compactedRequests.byteLength
+				);
+			}
+			if (this._dirtyPhysicalPagesBuffer) {
+				nativeEncoder.clearBuffer(
+					getWebGPUBuffer(this._dirtyPhysicalPagesBuffer),
+					0,
+					this._dirtyPhysicalPages.byteLength
+				);
+			}
+		} else {
+			for (const [buffer, data] of [
+				[this._pageRequestFlagsBuffer, this._pageRequestFlags],
+				[this._compactedRequestsBuffer, this._compactedRequests],
+				[this._dirtyPhysicalPagesBuffer, this._dirtyPhysicalPages],
+			] as Array<[IRenderBuffer | null, Uint32Array]>) {
+				if (buffer) {
+					this._backend.writeBuffer(buffer, data as Uint32Array<ArrayBuffer>);
+				}
 			}
 		}
 		if (this._countersBuffer) {
