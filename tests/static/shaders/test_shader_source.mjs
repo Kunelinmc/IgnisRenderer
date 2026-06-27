@@ -85,7 +85,7 @@ async function testLoadsRawAndCompositeParts() {
 	);
 	assert.equal(
 		glslComposite.sourceMap.segments[0].sourcePath,
-		"./webgl/parts/sceneVertex.glsl"
+		"./webgl/scene/sceneVertex.glsl"
 	);
 }
 
@@ -190,12 +190,12 @@ async function testWebGLSceneVariants() {
 	);
 	assert.equal(
 		composite.fragment.sourceMap.segments[0].sourcePath,
-		"./webgl/parts/scene/fragmentPrelude.glsl"
+		"./webgl/scene/fragmentPrelude.glsl"
 	);
 	assert.ok(
 		composite.fragment.sourceMap.segments.some(
 			(segment) =>
-				segment.sourcePath === "./webgl/parts/scene/fragmentMainOutput.glsl"
+				segment.sourcePath === "./webgl/scene/fragmentMainOutput.glsl"
 		)
 	);
 
@@ -299,7 +299,7 @@ async function testWebGLScenePrunedVariant() {
 	assert.ok(
 		composite.fragment.sourceMap.segments.some(
 			(segment) =>
-				segment.sourcePath === "./webgl/parts/scene/fragmentUniforms.glsl"
+				segment.sourcePath === "./webgl/scene/fragmentUniforms.glsl"
 		)
 	);
 
@@ -535,7 +535,7 @@ async function collectShaderFiles(relativeRoot, extension) {
 async function testEmbeddedManifestMatchesShaderFiles() {
 	const shaderPaths = [
 		...(await collectShaderFiles("webgpu", ".wgsl")),
-		...(await collectShaderFiles(path.join("webgl", "parts"), ".glsl")),
+		...(await collectShaderFiles("webgl", ".glsl")),
 	].sort();
 	const manifestPaths = Object.keys(embeddedShaderSources).sort();
 

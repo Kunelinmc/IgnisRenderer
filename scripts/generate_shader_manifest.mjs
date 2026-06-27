@@ -57,7 +57,7 @@ function serializeString(value) {
 async function main() {
 	const paths = [
 		...(await collectShaderFiles("webgpu", ".wgsl")),
-		...(await collectShaderFiles(path.join("webgl", "parts"), ".glsl")),
+		...(await collectShaderFiles("webgl", ".glsl")),
 	].sort();
 
 	if (paths.length === 0) {

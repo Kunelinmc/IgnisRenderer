@@ -12,7 +12,7 @@ IgnisRenderer's main scene color is rendered and stored in HDR formats (e.g. `rg
 - The `tonemap` pass must execute after `bloom` (when enabled) and before `color-filter` (when enabled).
 - `ToneMappingPass` must support Software, WebGL, and WebGPU implementations:
   - **WebGPU**: Computes tone mapping using compute shader `src/shaders/webgpu/postprocess/toneMapping.wgsl`. It reads from `targets.sceneColor` and writes to the resolved ping-pong post-process target.
-  - **WebGL**: Executes tone mapping using vertex shader `webgl.part.presentVertex` and fragment shader `src/shaders/webgl/parts/toneMappingFragment.glsl`.
+  - **WebGL**: Executes tone mapping using vertex shader `webgl.part.presentVertex` and fragment shader `src/shaders/webgl/postprocess/toneMappingFragment.glsl`.
   - **Software**: Modifies canvas pixels directly in CPU memory.
 - All three backends must apply the same ACES-fitted mapping curve:
   $$\text{ACES}(x) = \frac{x \cdot (2.51 \cdot x + 0.03)}{x \cdot (2.43 \cdot x + 0.59) + 0.14}$$

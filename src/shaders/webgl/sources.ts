@@ -102,62 +102,62 @@ export const WEBGL_PIPELINE_SHADER_PARTS: readonly WebGLShaderPart[] =
 	);
 
 export const WEBGL_SHADER_FILES: Record<WebGLShaderPart, string> = {
-	sceneVertex: "./webgl/parts/sceneVertex.glsl",
-	sceneFragment: "./webgl/parts/sceneFragment.glsl",
-	sceneDepthPrepassVertex: "./webgl/parts/sceneDepthPrepassVertex.glsl",
-	sceneDepthPrepassFragment: "./webgl/parts/sceneDepthPrepassFragment.glsl",
-	environmentVertex: "./webgl/parts/environmentVertex.glsl",
-	environmentFragment: "./webgl/parts/environmentFragment.glsl",
-	presentVertex: "./webgl/parts/presentVertex.glsl",
-	presentFragment: "./webgl/parts/presentFragment.glsl",
-	particleVertex: "./webgl/parts/particleVertex.glsl",
-	particleFragment: "./webgl/parts/particleFragment.glsl",
-	shadowDepthVertex: "./webgl/parts/shadowDepthVertex.glsl",
-	shadowDepthFragment: "./webgl/parts/shadowDepthFragment.glsl",
-	shadowTransmittanceFragment: "./webgl/parts/shadowTransmittanceFragment.glsl",
-	copyFragment: "./webgl/parts/copyFragment.glsl",
-	oitResolveFragment: "./webgl/parts/oitResolveFragment.glsl",
-	postProcessStubFragment: "./webgl/parts/postProcessStubFragment.glsl",
-	toneMappingFragment: "./webgl/parts/toneMappingFragment.glsl",
-	colorFilterFragment: "./webgl/parts/colorFilterFragment.glsl",
-	fxaaFragment: "./webgl/parts/fxaaFragment.glsl",
-	bloomFragment: "./webgl/parts/bloomFragment.glsl",
-	motionBlurFragment: "./webgl/parts/motionBlurFragment.glsl",
-	fogFragment: "./webgl/parts/fogFragment.glsl",
-	dofFragment: "./webgl/parts/dofFragment.glsl",
-	taaFragment: "./webgl/parts/taaFragment.glsl",
-	ssaoRawFragment: "./webgl/parts/ssaoRawFragment.glsl",
-	ssaoBlurFragment: "./webgl/parts/ssaoBlurFragment.glsl",
-	ssaoCombineFragment: "./webgl/parts/ssaoCombineFragment.glsl",
+	sceneVertex: "./webgl/scene/sceneVertex.glsl",
+	sceneFragment: "./webgl/scene/sceneFragment.glsl",
+	sceneDepthPrepassVertex: "./webgl/scene/sceneDepthPrepassVertex.glsl",
+	sceneDepthPrepassFragment: "./webgl/scene/sceneDepthPrepassFragment.glsl",
+	environmentVertex: "./webgl/environment/environmentVertex.glsl",
+	environmentFragment: "./webgl/environment/environmentFragment.glsl",
+	presentVertex: "./webgl/utility/presentVertex.glsl",
+	presentFragment: "./webgl/utility/presentFragment.glsl",
+	particleVertex: "./webgl/particles/particleVertex.glsl",
+	particleFragment: "./webgl/particles/particleFragment.glsl",
+	shadowDepthVertex: "./webgl/shadow/shadowDepthVertex.glsl",
+	shadowDepthFragment: "./webgl/shadow/shadowDepthFragment.glsl",
+	shadowTransmittanceFragment: "./webgl/shadow/shadowTransmittanceFragment.glsl",
+	copyFragment: "./webgl/postprocess/copyFragment.glsl",
+	oitResolveFragment: "./webgl/utility/oitResolveFragment.glsl",
+	postProcessStubFragment: "./webgl/postprocess/postProcessStubFragment.glsl",
+	toneMappingFragment: "./webgl/postprocess/toneMappingFragment.glsl",
+	colorFilterFragment: "./webgl/postprocess/colorFilterFragment.glsl",
+	fxaaFragment: "./webgl/postprocess/fxaaFragment.glsl",
+	bloomFragment: "./webgl/postprocess/bloomFragment.glsl",
+	motionBlurFragment: "./webgl/postprocess/motionBlurFragment.glsl",
+	fogFragment: "./webgl/postprocess/fogFragment.glsl",
+	dofFragment: "./webgl/postprocess/dofFragment.glsl",
+	taaFragment: "./webgl/postprocess/taaFragment.glsl",
+	ssaoRawFragment: "./webgl/postprocess/ssaoRawFragment.glsl",
+	ssaoBlurFragment: "./webgl/postprocess/ssaoBlurFragment.glsl",
+	ssaoCombineFragment: "./webgl/postprocess/ssaoCombineFragment.glsl",
 };
 
 export const WEBGL_SCENE_FRAGMENT_SHADER_FILES: Record<
 	WebGLSceneFragmentPart,
 	string
 > = {
-	fragmentPrelude: "./webgl/parts/scene/fragmentPrelude.glsl",
-	fragmentUniforms: "./webgl/parts/scene/fragmentUniforms.glsl",
-	fragmentUvTextureNormal: "./webgl/parts/scene/fragmentUvTextureNormal.glsl",
-	fragmentSh: "./webgl/parts/scene/fragmentSh.glsl",
-	fragmentLocalProbes: "./webgl/parts/scene/fragmentLocalProbes.glsl",
+	fragmentPrelude: "./webgl/scene/fragmentPrelude.glsl",
+	fragmentUniforms: "./webgl/scene/fragmentUniforms.glsl",
+	fragmentUvTextureNormal: "./webgl/scene/fragmentUvTextureNormal.glsl",
+	fragmentSh: "./webgl/scene/fragmentSh.glsl",
+	fragmentLocalProbes: "./webgl/scene/fragmentLocalProbes.glsl",
 	fragmentClusteredLighting:
-		"./webgl/parts/scene/fragmentClusteredLighting.glsl",
+		"./webgl/scene/fragmentClusteredLighting.glsl",
 	fragmentReflectionEnvironment:
-		"./webgl/parts/scene/fragmentReflectionEnvironment.glsl",
+		"./webgl/scene/fragmentReflectionEnvironment.glsl",
 	fragmentEnvironmentSpecular:
-		"./webgl/parts/scene/fragmentEnvironmentSpecular.glsl",
-	fragmentReflectionProbes: "./webgl/parts/scene/fragmentReflectionProbes.glsl",
-	fragmentLightAttenuation: "./webgl/parts/scene/fragmentLightAttenuation.glsl",
-	fragmentShadows: "./webgl/parts/scene/fragmentShadows.glsl",
-	fragmentBrdfPbr: "./webgl/parts/scene/fragmentBrdfPbr.glsl",
-	fragmentPhong: "./webgl/parts/scene/fragmentPhong.glsl",
-	fragmentPbrLighting: "./webgl/parts/scene/fragmentPbrLighting.glsl",
-	fragmentMainOutput: "./webgl/parts/scene/fragmentMainOutput.glsl",
+		"./webgl/scene/fragmentEnvironmentSpecular.glsl",
+	fragmentReflectionProbes: "./webgl/scene/fragmentReflectionProbes.glsl",
+	fragmentLightAttenuation: "./webgl/scene/fragmentLightAttenuation.glsl",
+	fragmentShadows: "./webgl/scene/fragmentShadows.glsl",
+	fragmentBrdfPbr: "./webgl/scene/fragmentBrdfPbr.glsl",
+	fragmentPhong: "./webgl/scene/fragmentPhong.glsl",
+	fragmentPbrLighting: "./webgl/scene/fragmentPbrLighting.glsl",
+	fragmentMainOutput: "./webgl/scene/fragmentMainOutput.glsl",
 };
 
 export const WEBGL_INTERNAL_SHADER_FILES = {
-	diffuseProbeFallbackFragment: "./webgl/parts/diffuseProbeFallbackFragment.glsl",
-	irradianceProbeGridFragment: "./webgl/parts/irradianceProbeGridFragment.glsl",
+	diffuseProbeFallbackFragment: "./webgl/environment/diffuseProbeFallbackFragment.glsl",
+	irradianceProbeGridFragment: "./webgl/environment/irradianceProbeGridFragment.glsl",
 } as const;
 
 export function createWebGLBrowserShaderSources(): ImportMetaGlobLoaderMap {
@@ -166,7 +166,7 @@ export function createWebGLBrowserShaderSources(): ImportMetaGlobLoaderMap {
 	}
 	try {
 		return prefixWebGLShaderPaths(
-			import.meta.glob<string>("./parts/**/*.glsl", {
+			import.meta.glob<string>("./**/*.glsl", {
 				query: "?raw",
 				import: "default",
 			})
