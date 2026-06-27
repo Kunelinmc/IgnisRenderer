@@ -566,6 +566,20 @@ async function testDepthPassBuildsGpuDrawsAndUsesIndirectRenderer() {
 	);
 	assert.ok(dirtyGridIndex >= 0);
 	assert.ok(drawBuildIndex > dirtyGridIndex);
+	const dirtyGridBinding = backend.bindingGroups.find(
+		(group) => group.label === "WebGPUPagedShadowDirtyGridBuildBindGroup"
+	);
+	const drawBuildBinding = backend.bindingGroups.find(
+		(group) => group.label === "WebGPUPagedShadowDrawBuildBindGroup"
+	);
+	assert.equal(
+		dirtyGridBinding.entries[6].resource.label,
+		"WebGPUPagedShadowDirtyPageUvRanges"
+	);
+	assert.equal(
+		drawBuildBinding.entries[13].resource.label,
+		"WebGPUPagedShadowDirtyPageUvRanges"
+	);
 }
 
 async function testFeedbackPassUsesScreenDepthTexture() {

@@ -343,22 +343,25 @@ async function testPagedShadowDrawBuildUsesConservativePlaneCulling() {
 		"webgpu.shadow.pagedShadowDrawBuild.raw"
 	);
 
-	assert.ok(source.includes("const PAGE_CLIP_XY_MARGIN: f32 = 4.0;"));
 	assert.ok(source.includes("var outsideNear = true;"));
 	assert.ok(source.includes("var outsideFar = true;"));
 	assert.ok(source.includes("atomicAdd(&counters[3], intersectingPageCount)"));
 	assert.ok(source.includes("atomicAdd(&counters[4]"));
 	assert.ok(!source.includes("candidateIndex * params.physicalPageCount"));
 	assert.ok(!source.includes("let ndc = clip.xyz / vec3<f32>(clip.w);"));
-	assert.ok(source.includes("fn dirtyPageUvRange"));
 	assert.ok(source.includes("let matrixIndex = dirtyPhysicalPages[dirtyBase + 2u];"));
-	assert.ok(source.includes("PAGE_CLIP_XY_MARGIN / atlasSize"));
 	assert.ok(source.includes("arrayLength(&drawInstanceMeta)"));
 	assert.ok(source.includes("array<CascadeUVRange, 4>"));
 	assert.ok(source.includes("@group(0) @binding(11) var<storage, read> dirtyGridOffsets"));
 	assert.ok(source.includes("@group(0) @binding(12) var<storage, read> dirtyGridIndices"));
-	assert.ok(!source.includes("var<workgroup> g_cellCounts"));
-	assert.ok(!source.includes("var<workgroup> g_groupedDirtyIndices"));
+	assert.ok(source.includes("@group(0) @binding(13) var<storage, read> dirtyPageUvRanges"));
+	assert.ok(source.includes("var<workgroup> g_cachedDirtyPages"));
+	assert.ok(source.includes("workgroupUniformLoad(&g_cachedCellCount)"));
+	assert.ok(source.includes("rangeIntersectsCoarseCell"));
+	assert.ok(source.includes("CachedDirtyPage("));
+	assert.ok(source.includes("dirtyPageUvRanges[dirtyIndex]"));
+	assert.ok(!source.includes("fn dirtyPageUvRange"));
+	assert.ok(!source.includes("PAGE_CLIP_XY_MARGIN / atlasSize"));
 	assert.ok(!source.includes("(px - 1.5) / gridSize"));
 }
 
@@ -372,6 +375,11 @@ async function testPagedShadowDirtyGridBuildUsesGlobalGridBuffers() {
 	assert.ok(source.includes("var<storage, read_write> dirtyGridCounts"));
 	assert.ok(source.includes("var<storage, read_write> dirtyGridOffsets"));
 	assert.ok(source.includes("var<storage, read_write> dirtyGridIndices"));
+	assert.ok(source.includes("var<storage, read_write> dirtyPageUvRanges"));
+	assert.ok(source.includes("const PAGE_CLIP_XY_MARGIN: f32 = 4.0;"));
+	assert.ok(source.includes("fn dirtyPageUvRange"));
+	assert.ok(source.includes("PAGE_CLIP_XY_MARGIN / atlasSize"));
+	assert.ok(source.includes("dirtyPageUvRanges[i] = dirtyPageUvRange(dirtyBase)"));
 	assert.ok(source.includes("dirtyGridOffsets[DIRTY_GRID_CELL_COUNT] = sum"));
 	assert.ok(source.includes("dirtyGridIndices[insertIndex] = i"));
 }

@@ -50,6 +50,7 @@ const DRAW_COUNTER_READBACK_UINTS = 8;
 const DRAW_COUNTER_READBACK_RING_SIZE = 4;
 const DIRTY_GRID_CELL_COUNT = 64;
 const DIRTY_GRID_OFFSET_COUNT = DIRTY_GRID_CELL_COUNT + 1;
+const DIRTY_PAGE_UV_RANGE_FLOATS = 4;
 const WEBGPU_MAP_MODE_READ =
 	(globalThis as { GPUMapMode?: { READ?: number } }).GPUMapMode?.READ ??
 	0x0001;
@@ -202,6 +203,7 @@ export class WebGPUPagedShadowRuntime {
 	private _dirtyGridCountsBuffer: IRenderBuffer | null = null;
 	private _dirtyGridOffsetsBuffer: IRenderBuffer | null = null;
 	private _dirtyGridIndicesBuffer: IRenderBuffer | null = null;
+	private _dirtyPageUvRangesBuffer: IRenderBuffer | null = null;
 	private _feedbackFlagsBuffer: IRenderBuffer | null = null;
 	private _nextFeedbackFlagsBuffer: IRenderBuffer | null = null;
 	private _layoutBuffer: IRenderBuffer | null = null;
@@ -463,6 +465,7 @@ export class WebGPUPagedShadowRuntime {
 				this._dirtyGridCountsBuffer,
 				this._dirtyGridOffsetsBuffer,
 				this._dirtyGridIndicesBuffer,
+				this._dirtyPageUvRangesBuffer,
 			],
 			1,
 			1,
@@ -486,6 +489,7 @@ export class WebGPUPagedShadowRuntime {
 				this._dirtyGridCountsBuffer,
 				this._dirtyGridOffsetsBuffer,
 				this._dirtyGridIndicesBuffer,
+				this._dirtyPageUvRangesBuffer,
 			],
 			Math.max(1, Math.ceil(this._drawCandidateCount / 64)),
 			1,
@@ -520,7 +524,8 @@ export class WebGPUPagedShadowRuntime {
 			!this._drawInstanceMetaBuffer ||
 			!this._drawTransmittanceBuffer ||
 			!this._drawIndirectArgsBuffer ||
-			!this._drawWorldMatrixBuffer
+			!this._drawWorldMatrixBuffer ||
+			!this._dirtyPageUvRangesBuffer
 		) {
 			return this._getFallbackResources();
 		}
@@ -593,6 +598,7 @@ export class WebGPUPagedShadowRuntime {
 			this._dirtyGridCountsBuffer,
 			this._dirtyGridOffsetsBuffer,
 			this._dirtyGridIndicesBuffer,
+			this._dirtyPageUvRangesBuffer,
 			this._feedbackFlagsBuffer,
 			this._nextFeedbackFlagsBuffer,
 			this._layoutBuffer,
@@ -644,6 +650,7 @@ export class WebGPUPagedShadowRuntime {
 		this._dirtyGridCountsBuffer = null;
 		this._dirtyGridOffsetsBuffer = null;
 		this._dirtyGridIndicesBuffer = null;
+		this._dirtyPageUvRangesBuffer = null;
 		this._feedbackFlagsBuffer = null;
 		this._nextFeedbackFlagsBuffer = null;
 		this._layoutBuffer = null;
@@ -819,7 +826,8 @@ export class WebGPUPagedShadowRuntime {
 			!this._dirtyPhysicalPagesBuffer ||
 			!this._dirtyGridCountsBuffer ||
 			!this._dirtyGridOffsetsBuffer ||
-			!this._dirtyGridIndicesBuffer;
+			!this._dirtyGridIndicesBuffer ||
+			!this._dirtyPageUvRangesBuffer;
 		if (!needsReset) {
 			return false;
 		}
@@ -845,6 +853,7 @@ export class WebGPUPagedShadowRuntime {
 		this._destroyBuffer(this._dirtyGridCountsBuffer);
 		this._destroyBuffer(this._dirtyGridOffsetsBuffer);
 		this._destroyBuffer(this._dirtyGridIndicesBuffer);
+		this._destroyBuffer(this._dirtyPageUvRangesBuffer);
 		this._pageMetadataBuffer = this._backend.createBuffer({
 			size: Math.max(4, physicalPageCount * PAGE_METADATA_UINTS * 4),
 			usage: BufferUsage.Storage | BufferUsage.CopyDst,
@@ -880,6 +889,10 @@ export class WebGPUPagedShadowRuntime {
 		this._dirtyGridIndicesBuffer = this._createStorageBuffer(
 			"WebGPUPagedShadowDirtyGridIndices",
 			Math.max(1, physicalPageCount) * 4
+		);
+		this._dirtyPageUvRangesBuffer = this._createStorageBuffer(
+			"WebGPUPagedShadowDirtyPageUvRanges",
+			Math.max(1, physicalPageCount) * DIRTY_PAGE_UV_RANGE_FLOATS * 4
 		);
 		this._ensureCounterBuffer();
 		this._initializePhysicalCacheBuffers();
@@ -1238,6 +1251,12 @@ export class WebGPUPagedShadowRuntime {
 		this._backend.writeBuffer(
 			this._dirtyGridIndicesBuffer!,
 			new Uint32Array(Math.max(1, this._physicalPageCount))
+		);
+		this._backend.writeBuffer(
+			this._dirtyPageUvRangesBuffer!,
+			new Float32Array(
+				Math.max(1, this._physicalPageCount) * DIRTY_PAGE_UV_RANGE_FLOATS
+			)
 		);
 	}
 

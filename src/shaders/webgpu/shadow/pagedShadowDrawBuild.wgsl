@@ -1,7 +1,11 @@
 const DIRTY_PHYSICAL_PAGE_RECORD_UINTS: u32 = 8u;
 const DRAW_INDIRECT_UINTS: u32 = 5u;
 const SHADOW_INSTANCE_DATA_UINTS: u32 = 12u;
-const PAGE_CLIP_XY_MARGIN: f32 = 4.0;
+const DIRTY_GRID_CELL_COUNT: u32 = 64u;
+const DIRTY_GRID_CASCADE_CELLS: u32 = 16u;
+const DIRTY_GRID_COARSE_SIZE: u32 = 4u;
+const DIRTY_CELL_CACHE_SIZE: u32 = 64u;
+const INVALID_DIRTY_INDEX: u32 = 0xffffffffu;
 const PAGE_CLIP_Z_MIN: f32 = -30.0;
 const PAGE_CLIP_Z_MAX: f32 = 10.0;
 
@@ -48,6 +52,7 @@ struct ShadowInstanceData {
 @group(0) @binding(10) var<storage, read> dirtyGridCounts: array<u32>;
 @group(0) @binding(11) var<storage, read> dirtyGridOffsets: array<u32>;
 @group(0) @binding(12) var<storage, read> dirtyGridIndices: array<u32>;
+@group(0) @binding(13) var<storage, read> dirtyPageUvRanges: array<vec4<f32>>;
 
 fn dirtyPageViewProjection(dirtyBase: u32) -> mat4x4<f32> {
 	let matrixIndex = dirtyPhysicalPages[dirtyBase + 2u];
@@ -94,6 +99,15 @@ struct CascadeUVRange {
 	hasProjected: bool,
 }
 
+struct CachedDirtyPage {
+	dirtyIndex: u32,
+	uvRange: vec4<f32>,
+}
+
+var<workgroup> g_cachedDirtyPages: array<CachedDirtyPage, DIRTY_CELL_CACHE_SIZE>;
+var<workgroup> g_cachedCellStart: u32;
+var<workgroup> g_cachedCellCount: u32;
+
 fn projectSphereBoundsToUvRange(
 	viewProjection: mat4x4<f32>,
 	center: vec3<f32>,
@@ -137,19 +151,6 @@ fn projectSphereBoundsToUvRange(
 	return CascadeUVRange(minUv, maxUv, true);
 }
 
-fn dirtyPageUvRange(pageX: u32, pageY: u32, pageGridSize: u32) -> CascadeUVRange {
-	let gridSize = f32(max(pageGridSize, 1u));
-	let px = f32(pageX);
-	let py = f32(pageY);
-	let atlasSize = max(gridSize * f32(max(params.pageSize, 1u)), 1.0);
-	let marginUv = PAGE_CLIP_XY_MARGIN / atlasSize;
-	return CascadeUVRange(
-		vec2<f32>(px / gridSize, py / gridSize) - vec2<f32>(marginUv),
-		vec2<f32>((px + 1.0) / gridSize, (py + 1.0) / gridSize) + vec2<f32>(marginUv),
-		true
-	);
-}
-
 fn rangesIntersect(left: CascadeUVRange, right: CascadeUVRange) -> bool {
 	if (!left.hasProjected || !right.hasProjected) {
 		return false;
@@ -160,104 +161,174 @@ fn rangesIntersect(left: CascadeUVRange, right: CascadeUVRange) -> bool {
 	);
 }
 
+fn rangeIntersectsCoarseCell(
+	range: CascadeUVRange,
+	cellX: u32,
+	cellY: u32
+) -> bool {
+	if (!range.hasProjected) {
+		return false;
+	}
+	let minCoarseX = u32(clamp(
+		floor(range.minUv.x * f32(DIRTY_GRID_COARSE_SIZE)),
+		0.0,
+		f32(DIRTY_GRID_COARSE_SIZE - 1u)
+	));
+	let maxCoarseX = u32(clamp(
+		floor(range.maxUv.x * f32(DIRTY_GRID_COARSE_SIZE)),
+		0.0,
+		f32(DIRTY_GRID_COARSE_SIZE - 1u)
+	));
+	let minCoarseY = u32(clamp(
+		floor(range.minUv.y * f32(DIRTY_GRID_COARSE_SIZE)),
+		0.0,
+		f32(DIRTY_GRID_COARSE_SIZE - 1u)
+	));
+	let maxCoarseY = u32(clamp(
+		floor(range.maxUv.y * f32(DIRTY_GRID_COARSE_SIZE)),
+		0.0,
+		f32(DIRTY_GRID_COARSE_SIZE - 1u)
+	));
+	return (
+		cellX >= minCoarseX && cellX <= maxCoarseX &&
+		cellY >= minCoarseY && cellY <= maxCoarseY
+	);
+}
+
 // MAX_LOCAL_HITS is per-thread private memory (function-local array), so it
 // does NOT count against workgroup storage. 64 entries allows large casters
 // spanning up to 64 dirty pages without truncation.
 const MAX_LOCAL_HITS: u32 = 64u;
 
 @compute @workgroup_size(64)
-fn csMain(@builtin(global_invocation_id) globalId: vec3<u32>) {
+fn csMain(
+	@builtin(global_invocation_id) globalId: vec3<u32>,
+	@builtin(local_invocation_index) localIndex: u32
+) {
 	let candidateIndex = globalId.x;
 	let dirtyCount = min(
 		min(atomicLoad(&counters[1]), params.dirtyCapacity),
 		arrayLength(&dirtyGridIndices)
 	);
 
-	if (candidateIndex >= params.candidateCount) {
-		return;
-	}
-
 	let argsBase = candidateIndex * DRAW_INDIRECT_UINTS;
-	if (argsBase + 4u >= arrayLength(&drawIndirectArgs)) {
-		return;
-	}
-	drawIndirectArgs[argsBase + 1u] = 0u;
-	drawIndirectArgs[argsBase + 4u] = 0u;
-
-	if (
-		dirtyCount == 0u ||
-		candidateIndex >= arrayLength(&casterBounds) ||
-		candidateIndex >= arrayLength(&drawWorldMatrices)
-	) {
-		return;
+	let hasArgs = (
+		candidateIndex < params.candidateCount &&
+		argsBase + 4u < arrayLength(&drawIndirectArgs)
+	);
+	if (hasArgs) {
+		drawIndirectArgs[argsBase + 1u] = 0u;
+		drawIndirectArgs[argsBase + 4u] = 0u;
 	}
 
-	let bounds = casterBounds[candidateIndex].centerRadius;
-	let worldMatrix = drawWorldMatrices[candidateIndex];
-
-	let center = bounds.xyz;
-	let radius = max(bounds.w, 0.0);
+	let hasCandidateInput = (
+		hasArgs &&
+		dirtyCount > 0u &&
+		candidateIndex < arrayLength(&casterBounds) &&
+		candidateIndex < arrayLength(&drawWorldMatrices)
+	);
 
 	// 2. Precompute candidate UV ranges in each cascade (Optimization 2)
 	var candidateRanges: array<CascadeUVRange, 4>;
 	let cascadeCount = arrayLength(&cascadeViewProjections);
 	for (var c = 0u; c < 4u; c = c + 1u) {
-		if (c < cascadeCount) {
+		if (hasCandidateInput && c < cascadeCount) {
+			let bounds = casterBounds[candidateIndex].centerRadius;
+			let center = bounds.xyz;
+			let radius = max(bounds.w, 0.0);
 			candidateRanges[c] = projectSphereBoundsToUvRange(cascadeViewProjections[c], center, radius);
 		} else {
 			candidateRanges[c] = CascadeUVRange(vec2<f32>(1.0), vec2<f32>(0.0), false);
 		}
 	}
 
-	// 3. Loop 1: Find intersecting pages using Page Spatial Hash/Tile Grid (Optimizations 1, 4)
+	// 3. Loop 1: Cache one coarse cell's dirty pages in workgroup memory, then
+	// let all candidate lanes in this workgroup reuse the cached page records.
 	var hitDirtyIndices: array<u32, MAX_LOCAL_HITS>;
 	var intersectingPageCount = 0u;
 
-	for (var c = 0u; c < 4u; c = c + 1u) {
-		let range = candidateRanges[c];
-		if (!range.hasProjected) {
-			continue;
+	for (var cellIndex = 0u; cellIndex < DIRTY_GRID_CELL_COUNT; cellIndex = cellIndex + 1u) {
+		if (localIndex == 0u) {
+			let startIdx = min(dirtyGridOffsets[cellIndex], arrayLength(&dirtyGridIndices));
+			let endIdx = min(
+				min(dirtyGridOffsets[cellIndex + 1u], dirtyCount),
+				arrayLength(&dirtyGridIndices)
+			);
+			let safeEndIdx = max(startIdx, endIdx);
+			g_cachedCellStart = startIdx;
+			g_cachedCellCount = min(dirtyGridCounts[cellIndex], safeEndIdx - startIdx);
 		}
+		workgroupBarrier();
 
-		// Map UV range to overlapping coarse cells
-		let minCoarseX = u32(clamp(floor(range.minUv.x * 4.0), 0.0, 3.0));
-		let maxCoarseX = u32(clamp(floor(range.maxUv.x * 4.0), 0.0, 3.0));
-		let minCoarseY = u32(clamp(floor(range.minUv.y * 4.0), 0.0, 3.0));
-		let maxCoarseY = u32(clamp(floor(range.maxUv.y * 4.0), 0.0, 3.0));
+		let cellStart = workgroupUniformLoad(&g_cachedCellStart);
+		let cellEntryCount = workgroupUniformLoad(&g_cachedCellCount);
+		let cascadeIndex = cellIndex / DIRTY_GRID_CASCADE_CELLS;
+		let cellWithinCascade = cellIndex - cascadeIndex * DIRTY_GRID_CASCADE_CELLS;
+		let cellY = cellWithinCascade / DIRTY_GRID_COARSE_SIZE;
+		let cellX = cellWithinCascade - cellY * DIRTY_GRID_COARSE_SIZE;
+		let range = candidateRanges[cascadeIndex];
+		let candidateUsesCell = (
+			hasCandidateInput &&
+			rangeIntersectsCoarseCell(range, cellX, cellY)
+		);
 
-		for (var cy = minCoarseY; cy <= maxCoarseY; cy = cy + 1u) {
-			for (var cx = minCoarseX; cx <= maxCoarseX; cx = cx + 1u) {
-				let cellIndex = c * 16u + cy * 4u + cx;
-				if (dirtyGridCounts[cellIndex] == 0u) {
-					continue;
+		for (
+			var chunkStart = 0u;
+			chunkStart < cellEntryCount;
+			chunkStart = chunkStart + DIRTY_CELL_CACHE_SIZE
+		) {
+			let cacheOffset = chunkStart + localIndex;
+			if (cacheOffset < cellEntryCount) {
+				let dirtyGridIndex = cellStart + cacheOffset;
+				let dirtyIndex = dirtyGridIndices[dirtyGridIndex];
+				let dirtyBase = dirtyIndex * DIRTY_PHYSICAL_PAGE_RECORD_UINTS;
+				if (
+					dirtyIndex < dirtyCount &&
+					dirtyIndex < arrayLength(&dirtyPageUvRanges) &&
+					dirtyBase + 7u < arrayLength(&dirtyPhysicalPages)
+				) {
+					g_cachedDirtyPages[localIndex] = CachedDirtyPage(
+						dirtyIndex,
+						dirtyPageUvRanges[dirtyIndex]
+					);
+				} else {
+					g_cachedDirtyPages[localIndex] = CachedDirtyPage(
+						INVALID_DIRTY_INDEX,
+						vec4<f32>(0.0)
+					);
 				}
-				let startIdx = dirtyGridOffsets[cellIndex];
-				let endIdx = dirtyGridOffsets[cellIndex + 1u];
+			} else {
+				g_cachedDirtyPages[localIndex] = CachedDirtyPage(
+					INVALID_DIRTY_INDEX,
+					vec4<f32>(0.0)
+				);
+			}
+			workgroupBarrier();
 
-				for (var idx = startIdx; idx < endIdx; idx = idx + 1u) {
-					if (idx >= arrayLength(&dirtyGridIndices)) {
-						continue;
-					}
-					let dirtyIndex = dirtyGridIndices[idx];
-					let dirtyBase = dirtyIndex * DIRTY_PHYSICAL_PAGE_RECORD_UINTS;
-
-					let pageX = dirtyPhysicalPages[dirtyBase + 3u];
-					let pageY = dirtyPhysicalPages[dirtyBase + 4u];
-					let pageGridSize = max(dirtyPhysicalPages[dirtyBase + 7u], 1u);
-					let pageRange = dirtyPageUvRange(pageX, pageY, pageGridSize);
-
-					if (rangesIntersect(range, pageRange)) {
-						if (intersectingPageCount < MAX_LOCAL_HITS) {
-							hitDirtyIndices[intersectingPageCount] = dirtyIndex;
+			let chunkCount = min(DIRTY_CELL_CACHE_SIZE, cellEntryCount - chunkStart);
+			if (candidateUsesCell) {
+				for (var h = 0u; h < chunkCount; h = h + 1u) {
+					let cachedPage = g_cachedDirtyPages[h];
+					if (cachedPage.dirtyIndex != INVALID_DIRTY_INDEX) {
+						let pageRange = CascadeUVRange(
+							cachedPage.uvRange.xy,
+							cachedPage.uvRange.zw,
+							true
+						);
+						if (rangesIntersect(range, pageRange)) {
+							if (intersectingPageCount < MAX_LOCAL_HITS) {
+								hitDirtyIndices[intersectingPageCount] = cachedPage.dirtyIndex;
+							}
+							intersectingPageCount = intersectingPageCount + 1u;
 						}
-						intersectingPageCount = intersectingPageCount + 1u;
 					}
 				}
 			}
+			workgroupBarrier();
 		}
 	}
 
-	if (intersectingPageCount == 0u) {
+	if (!hasCandidateInput || intersectingPageCount == 0u) {
 		return;
 	}
 
@@ -278,6 +349,7 @@ fn csMain(@builtin(global_invocation_id) globalId: vec3<u32>) {
 
 	let writableInstanceCount = min(intersectingPageCount, capacity - firstInstance);
 	var localInstanceCount = 0u;
+	let worldMatrix = drawWorldMatrices[candidateIndex];
 
 	// 4. Loop 2: Directly write instances using Cached Hits (Optimization 3)
 	for (var h = 0u; h < writableInstanceCount; h = h + 1u) {
