@@ -92,7 +92,7 @@ BREAKING CHANGE: `RenderPipelineRegistry.registerStage` has been replaced by
 	- **WebGPUBackend**: Hardware-accelerated pipeline utilizing a delegated architecture with specialized registries for resources, bindings, and frame execution.
 	- **WebGLBackend**: Modernizing with a new V1 implementation for broad compatibility.
 	- Backend instances are one-shot renderer runtimes. `IRenderBackend` must
-	  expose `id`, `attach(context)`, profile/capabilities, extensions, device
+	  expose `profile.id`, `attach(context)`, profile/capabilities, extensions, device
 	  lifecycle, and frame execution on the backend instance. A backend instance
 	  must attach to at most one `Renderer`; create a new backend instance for a
 	  second renderer.

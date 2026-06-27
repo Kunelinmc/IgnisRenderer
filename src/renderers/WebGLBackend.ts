@@ -66,7 +66,6 @@ export interface WebGLBackendOptions {
 }
 
 export class WebGLBackend implements IRenderBackend {
-	public readonly id = "webgl";
 	private readonly _postProcessExecutor = new WebGLPostProcessExecutor({
 		getFrameExecutor: () => this._frameExecutor,
 	});

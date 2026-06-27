@@ -246,7 +246,6 @@ type WebGPUPassHandler = (
 ) => void | Promise<void>;
 
 export class WebGPUBackend implements IRenderBackend {
-	public readonly id = "webgpu";
 	private readonly _postProcessExecutor = new WebGPUPostProcessExecutor({
 		getFrameExecutor: () => this._frameExecutor,
 		assertDeviceOperational: (operation) =>

@@ -138,15 +138,6 @@ export interface RenderBackendAttachContext {
 
 export interface IRenderBackend {
 	/**
-	 * Identifies the backend implementation.
-	 *
-	 * @remarks A backend instance is a one-shot renderer runtime. Capabilities,
-	 * lifecycle, extensions, and frame execution are owned by the attached
-	 * backend instance.
-	 * @sideEffects None.
-	 */
-	readonly id: RenderBackendType;
-	/**
 	 * Runtime capabilities and scheduling metadata for this attached backend.
 	 */
 	readonly profile: RenderBackendProfile;

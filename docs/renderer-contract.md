@@ -35,7 +35,7 @@ All graphics commands are recorded through a backend-agnostic `ICommandEncoder`.
   - Behavior contract: must bind the backend instance to one renderer-owned surface and event sink.
   - Constraint: each backend instance may be attached only once.
   - Constraint: a second call must throw, including after `destroy()`.
-- `IRenderBackend.id`
+- `IRenderBackend.profile.id`
   - Output contract: must identify the backend implementation.
 - `RenderBackendDeviceLostInfo`
   - Input contract: `reason` may contain a backend-specific loss reason.

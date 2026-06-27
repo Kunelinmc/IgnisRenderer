@@ -13,12 +13,12 @@ function run() {
 	const webgpu = attachBackend(webgpuProvider);
 	const webgl = attachBackend(webglProvider);
 
-	assert.equal(softwareProvider.id, "software");
-	assert.equal(webgpuProvider.id, "webgpu");
-	assert.equal(webglProvider.id, "webgl");
-	assert.equal(software.profile.id, softwareProvider.id);
-	assert.equal(webgpu.profile.id, webgpuProvider.id);
-	assert.equal(webgl.profile.id, webglProvider.id);
+	assert.equal(softwareProvider.profile.id, "software");
+	assert.equal(webgpuProvider.profile.id, "webgpu");
+	assert.equal(webglProvider.profile.id, "webgl");
+	assert.equal(software.profile.id, "software");
+	assert.equal(webgpu.profile.id, "webgpu");
+	assert.equal(webgl.profile.id, "webgl");
 
 	assert.deepEqual(software.profile.capabilities, {
 		sh: true,

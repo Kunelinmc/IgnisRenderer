@@ -15,7 +15,7 @@ function attachBackend(backend, canvas = {}, events = []) {
 }
 
 function assertRuntimeSurface(backend) {
-	assert.equal(typeof backend.id, "string");
+	assert.equal(typeof backend.profile.id, "string");
 	assert.equal(typeof backend.attach, "function");
 	assert.equal(typeof backend.initialize, "function");
 	assert.equal(typeof backend.restore, "function");
@@ -32,7 +32,7 @@ function assertRuntimeSurface(backend) {
 }
 
 function assertProfileOnly(backend) {
-	for (const key of ["type", "capabilities", "frameScheduling"]) {
+	for (const key of ["id", "type", "capabilities", "frameScheduling"]) {
 		assert.equal(key in backend, false, `backend must use profile instead of ${key}`);
 	}
 }

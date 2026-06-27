@@ -127,7 +127,6 @@ function resolvePreparedSceneEnvironment(scene: FrameContext["scene"]): {
 }
 
 export class SoftwareBackend implements IRenderBackend {
-	public readonly id = "software";
 	private readonly _postProcessExecutor = new SoftwarePostProcessExecutor(
 		{
 			getCanvasContext: () => this._ctx,
