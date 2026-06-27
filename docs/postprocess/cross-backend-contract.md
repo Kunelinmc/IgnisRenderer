@@ -20,7 +20,7 @@ To support decoupled backends, post-processing resources must be isolated per ba
 
 ## Usage
 ```ts
-import { PostProcessPass, IRenderBackend } from "../src";
+import { PostProcessPass, IRenderBackend } from "ignisrenderer";
 
 class CustomPass extends PostProcessPass {
 	constructor() {

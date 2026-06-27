@@ -1,0 +1,52 @@
+# Screen-Space Refractions Pass Contract
+## Scope
+This document defines the contract for `ScreenSpaceRefractionsPass` (`ssrefraction`) and its cross-backend behavior across Software, WebGL, and WebGPU backends.
+
+## Background
+`ScreenSpaceRefractionsPass` resolves transmissive material background sampling as a logical post-process pass. Because transmissive materials are drawn after the opaque geometry pass, the backend must capture the opaque scene color and depth before rendering transmissive surfaces, and then perform ray-traced refraction using the captured data.
+
+## API/Contract
+- `ScreenSpaceRefractionsPass` must use pass id `"ssrefraction"`.
+- `ScreenSpaceRefractionsPass` must be an engine-provided manually registered pass in the `temporal` placement at order `215`.
+- `ScreenSpaceRefractionsPass.getRequirements()` must require `depth`, `motion`, and `transmission` logical G-buffer channels.
+- `LogicalGBufferSemantic` must include `transmission`.
+- **Backend Implementations**:
+  - **WebGPU**: The primary backend implementing the v1 refraction runtime.
+  - **Software / WebGL**: Do not currently provide refraction implementations. They must automatically disable the pass during post-process snapshot resolution.
+- WebGPU must allocate `transmissionSceneColorCopy`, `transmissionLighting`, `gTransmissionSurface0`, `gTransmissionSurface1`, `gTransmissionSurface2`, and `transmissionDepth` only when `ssrefraction` is enabled and the frame contains at least one packet where `materialUsesTransmission(packet.material)` is true.
+- WebGPU transmission surface texture packing:
+  - `gTransmissionSurface0`: Normal (encoded) in `.xy`, linear depth in `.z`, and transmission weight in `.w`.
+  - `gTransmissionSurface1`: `ior` in `.x`, `thickness` in `.y`, `roughness` in `.z`, and Fresnel average in `.w`.
+  - `gTransmissionSurface2`: Background tint in `.rgb` and coverage in `.w`.
+  - `transmissionLighting`: Forward surface lighting with environment or SH background transmission disabled.
+- The transmission capture pass must use loaded `transmissionDepth` with depth writes enabled so the engine respects opaque occlusion and captures the nearest transmissive layer.
+- The WebGPU post-process implementation must build a Hi-Z chain from opaque `gMotionDepth`, trace refracted rays, sample `transmissionSceneColorCopy`, and compose the result into the active scene color.
+- Offscreen hits, Hi-Z misses, and total internal reflection must sample `transmissionSceneColorCopy` at the original UV coordinate without offset.
+
+## Usage
+```ts
+import { ScreenSpaceRefractionsPass } from "ignisrenderer";
+
+renderer.postProcess.registerPass(
+	new ScreenSpaceRefractionsPass({
+		enabled: true,
+		options: {
+			maxSteps: 64,
+			maxDistance: 50,
+			thickness: 0.2,
+		},
+	})
+);
+```
+
+Run validation tests:
+```bash
+bun tests/static/postprocess/test_screen_space_refractions_pass.mjs
+```
+
+## Errors & Diagnostics
+- `postprocess-requirement-missing-ssrefraction`: Triggered when the logical `transmission` channel is unavailable for the frame.
+- If executed on Software or WebGL backends, snapshot resolution will automatically disable `ssrefraction` due to missing backend implementations.
+
+## Compatibility / Breaking Changes
+- N/A
