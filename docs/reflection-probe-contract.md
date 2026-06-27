@@ -44,16 +44,16 @@ When initializing a `ReflectionProbe` or passing options to its constructor `Ref
 ### Backend Support Matrix
 The following table outlines features and fallback behaviors across backends:
 
-| Feature / Capability | WebGPU Backend | WebGL Backend | Software Backend |
-| :--- | :--- | :--- | :--- |
-| **Capture Interface** | Supported via `PROBE_CAPTURE_EXTENSION` | Fallback only (No extension registered) | Fallback only (No extension registered) |
-| **Scene Mesh Capture (`includeMeshes`)** | Fully Supported (renders real geometry) | Not Supported (falls back to analytical) | Not Supported (falls back to analytical) |
-| **Transparent Geometry (`includeTransparent`)** | Fully Supported (renders alpha passes) | Not Supported (falls back to analytical) | Not Supported (falls back to analytical) |
-| **Particle Simulation (`includeParticles`)** | Fully Supported (renders active systems) | Not Supported (falls back to analytical) | Not Supported (falls back to analytical) |
-| **Shadow Reuse (`includeShadows`)** | Fully Supported (reuses depth bounds) | Not Supported (falls back to analytical) | Not Supported (falls back to analytical) |
-| **Environment Background (`includeEnvironment`)** | Fully Supported | Fully Supported (CPU-side fallback) | Fully Supported (CPU-side fallback) |
-| **Analytical Lights** | Fully Supported (if fallback active) | Fully Supported (CPU-side fallback) | Fully Supported (CPU-side fallback) |
-| **Fallback CPU Rasterization** | Yes (applied if GPU capture fails) | Yes (used exclusively for capture) | Yes (used exclusively for capture) |
+| Feature / Capability                              | WebGPU Backend                           | WebGL Backend                            | Software Backend                         |
+| :------------------------------------------------ | :--------------------------------------- | :--------------------------------------- | :--------------------------------------- |
+| **Capture Interface**                             | Supported via `PROBE_CAPTURE_EXTENSION`  | Fallback only (No extension registered)  | Fallback only (No extension registered)  |
+| **Scene Mesh Capture (`includeMeshes`)**          | Fully Supported (renders real geometry)  | Not Supported (falls back to analytical) | Not Supported (falls back to analytical) |
+| **Transparent Geometry (`includeTransparent`)**   | Fully Supported (renders alpha passes)   | Not Supported (falls back to analytical) | Not Supported (falls back to analytical) |
+| **Particle Simulation (`includeParticles`)**      | Fully Supported (renders active systems) | Not Supported (falls back to analytical) | Not Supported (falls back to analytical) |
+| **Shadow Reuse (`includeShadows`)**               | Fully Supported (reuses depth bounds)    | Not Supported (falls back to analytical) | Not Supported (falls back to analytical) |
+| **Environment Background (`includeEnvironment`)** | Fully Supported                          | Fully Supported (CPU-side fallback)      | Fully Supported (CPU-side fallback)      |
+| **Analytical Lights**                             | Fully Supported (if fallback active)     | Fully Supported (CPU-side fallback)      | Fully Supported (CPU-side fallback)      |
+| **Fallback CPU Rasterization**                    | Yes (applied if GPU capture fails)       | Yes (used exclusively for capture)       | Yes (used exclusively for capture)       |
 
 - **Analytical Fallback CPU Rasterization**: When mesh-based capture is unavailable (WebGL, Software) or fails, the engine falls back to CPU analytical approximation. The CPU fallback computes local irradiance/radiance by accumulating ambient lighting, environment background (if configured), and direct/analytical light sources (directional, point, spot, area lights) mapped to lobes.
 
