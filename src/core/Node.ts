@@ -153,6 +153,70 @@ export class Node {
 		}
 	}
 
+	/**
+	 * Sets the position of the node.
+	 *
+	 * @param x - The x-coordinate, or an object containing x, y, and z coordinates.
+	 * @param y - The y-coordinate (optional if an object is passed).
+	 * @param z - The z-coordinate (optional if an object is passed).
+	 * @returns This node instance for method chaining.
+	 * @sideEffects Updates the local matrix.
+	 */
+	public setPosition(x: number, y: number, z: number): this;
+	public setPosition(position: IVector3): this;
+	public setPosition(xOrVector: number | IVector3, y?: number, z?: number): this {
+		if (typeof xOrVector === "number") {
+			this.position.set(xOrVector, y ?? 0, z ?? 0);
+		} else {
+			this.position.copy(xOrVector);
+		}
+		this.updateLocalMatrix();
+		return this;
+	}
+
+	/**
+	 * Sets the rotation of the node using a quaternion or its components.
+	 *
+	 * @param x - The x component of the quaternion, or a Quaternion instance.
+	 * @param y - The y component of the quaternion (optional if a Quaternion is passed).
+	 * @param z - The z component of the quaternion (optional if a Quaternion is passed).
+	 * @param w - The w component of the quaternion (optional if a Quaternion is passed).
+	 * @returns This node instance for method chaining.
+	 * @sideEffects Updates the local matrix.
+	 */
+	public setRotation(x: number, y: number, z: number, w: number): this;
+	public setRotation(quaternion: Quaternion): this;
+	public setRotation(xOrQuat: number | Quaternion, y?: number, z?: number, w?: number): this {
+		if (xOrQuat instanceof Quaternion) {
+			this.quaternion.copy(xOrQuat).normalize();
+		} else if (typeof xOrQuat === "number") {
+			this.quaternion.set(xOrQuat, y ?? 0, z ?? 0, w ?? 1).normalize();
+		}
+		this.updateLocalMatrix();
+		return this;
+	}
+
+	/**
+	 * Sets the scale of the node.
+	 *
+	 * @param x - The x-scale, or an object containing x, y, and z scale components.
+	 * @param y - The y-scale (optional if an object is passed).
+	 * @param z - The z-scale (optional if an object is passed).
+	 * @returns This node instance for method chaining.
+	 * @sideEffects Updates the local matrix.
+	 */
+	public setScale(x: number, y: number, z: number): this;
+	public setScale(scale: IVector3): this;
+	public setScale(xOrVector: number | IVector3, y?: number, z?: number): this {
+		if (typeof xOrVector === "number") {
+			this.scale.set(xOrVector, y ?? 0, z ?? 0);
+		} else {
+			this.scale.copy(xOrVector);
+		}
+		this.updateLocalMatrix();
+		return this;
+	}
+
 	public setRotationFromEuler(x: number, y: number, z: number): this {
 		this.quaternion = Quaternion.fromEuler(x, y, z).normalize();
 		this.updateLocalMatrix();
