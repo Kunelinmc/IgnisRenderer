@@ -355,7 +355,25 @@ async function testPagedShadowDrawBuildUsesConservativePlaneCulling() {
 	assert.ok(source.includes("PAGE_CLIP_XY_MARGIN / atlasSize"));
 	assert.ok(source.includes("arrayLength(&drawInstanceMeta)"));
 	assert.ok(source.includes("array<CascadeUVRange, 4>"));
+	assert.ok(source.includes("@group(0) @binding(11) var<storage, read> dirtyGridOffsets"));
+	assert.ok(source.includes("@group(0) @binding(12) var<storage, read> dirtyGridIndices"));
+	assert.ok(!source.includes("var<workgroup> g_cellCounts"));
+	assert.ok(!source.includes("var<workgroup> g_groupedDirtyIndices"));
 	assert.ok(!source.includes("(px - 1.5) / gridSize"));
+}
+
+async function testPagedShadowDirtyGridBuildUsesGlobalGridBuffers() {
+	ShaderSource.clearCache();
+
+	const source = await ShaderSource.load(
+		"webgpu.shadow.pagedShadowDirtyGridBuild.raw"
+	);
+
+	assert.ok(source.includes("var<storage, read_write> dirtyGridCounts"));
+	assert.ok(source.includes("var<storage, read_write> dirtyGridOffsets"));
+	assert.ok(source.includes("var<storage, read_write> dirtyGridIndices"));
+	assert.ok(source.includes("dirtyGridOffsets[DIRTY_GRID_CELL_COUNT] = sum"));
+	assert.ok(source.includes("dirtyGridIndices[insertIndex] = i"));
 }
 
 async function testPagedShadowRequestCompactUsesLayoutAddresses() {
@@ -531,6 +549,7 @@ async function run() {
 	await testWebGLScenePrunedVariant();
 	await testWebGPUCompositeIncludesSharedParts();
 	await testPagedShadowDrawBuildUsesConservativePlaneCulling();
+	await testPagedShadowDirtyGridBuildUsesGlobalGridBuffers();
 	await testPagedShadowRequestCompactUsesLayoutAddresses();
 	await testCompositeResultsAreCloned();
 	testSyncLoadPopulatesPreparedCache();

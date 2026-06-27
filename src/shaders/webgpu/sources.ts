@@ -56,6 +56,7 @@ export type WebGPUShadowShaderPart =
 	| "pagedShadowRequestCompact"
 	| "pagedShadowResidencyAllocate"
 	| "pagedShadowDirtyCompact"
+	| "pagedShadowDirtyGridBuild"
 	| "pagedShadowDrawBuild"
 	| "pagedShadowFeedback"
 	| "pagedShadowPageTableCopy"
@@ -145,6 +146,7 @@ export const WEBGPU_SHADOW_SHADER_FILES: Record<WebGPUShadowShaderPart, string> 
 	pagedShadowResidencyAllocate:
 		"./webgpu/shadow/pagedShadowResidencyAllocate.wgsl",
 	pagedShadowDirtyCompact: "./webgpu/shadow/pagedShadowDirtyCompact.wgsl",
+	pagedShadowDirtyGridBuild: "./webgpu/shadow/pagedShadowDirtyGridBuild.wgsl",
 	pagedShadowDrawBuild: "./webgpu/shadow/pagedShadowDrawBuild.wgsl",
 	pagedShadowFeedback: "./webgpu/shadow/pagedShadowFeedback.wgsl",
 	pagedShadowPageTableCopy: "./webgpu/shadow/pagedShadowPageTableCopy.wgsl",

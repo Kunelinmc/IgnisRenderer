@@ -45,6 +45,9 @@ struct ShadowInstanceData {
 @group(0) @binding(7) var<storage, read_write> drawInstanceMeta: array<ShadowInstanceData>;
 @group(0) @binding(8) var<storage, read_write> drawTransmittance: array<vec4<f32>>;
 @group(0) @binding(9) var<storage, read_write> drawIndirectArgs: array<u32>;
+@group(0) @binding(10) var<storage, read> dirtyGridCounts: array<u32>;
+@group(0) @binding(11) var<storage, read> dirtyGridOffsets: array<u32>;
+@group(0) @binding(12) var<storage, read> dirtyGridIndices: array<u32>;
 
 fn dirtyPageViewProjection(dirtyBase: u32) -> mat4x4<f32> {
 	let matrixIndex = dirtyPhysicalPages[dirtyBase + 2u];
@@ -157,89 +160,19 @@ fn rangesIntersect(left: CascadeUVRange, right: CascadeUVRange) -> bool {
 	);
 }
 
-var<workgroup> g_cellCounts: array<atomic<u32>, 64>;
-var<workgroup> g_cellOffsets: array<u32, 65>;
-// g_groupedDirtyIndices is shared workgroup memory (all threads).
-// With g_cellCounts(256) + g_cellOffsets(260) + this array, total must stay
-// under the 16384-byte WebGPU default maxComputeWorkgroupStorageSize.
-// 2048 * 4 = 8192 bytes → total 8708 bytes, safely within budget.
-var<workgroup> g_groupedDirtyIndices: array<u32, 2048>;
-
 // MAX_LOCAL_HITS is per-thread private memory (function-local array), so it
 // does NOT count against workgroup storage. 64 entries allows large casters
 // spanning up to 64 dirty pages without truncation.
 const MAX_LOCAL_HITS: u32 = 64u;
 
 @compute @workgroup_size(64)
-fn csMain(
-	@builtin(global_invocation_id) globalId: vec3<u32>,
-	@builtin(local_invocation_index) localIndex: u32
-) {
+fn csMain(@builtin(global_invocation_id) globalId: vec3<u32>) {
 	let candidateIndex = globalId.x;
-	let dirtyCount = min(atomicLoad(&counters[1]), params.dirtyCapacity);
+	let dirtyCount = min(
+		min(atomicLoad(&counters[1]), params.dirtyCapacity),
+		arrayLength(&dirtyGridIndices)
+	);
 
-	// Cooperative Spatial Hash/Tile Grid building (all threads must participate in barriers)
-
-	// 1. Cooperative building of Page Spatial Hash / Tile Grid in workgroup shared memory
-	// Initialize cell counts
-	if (localIndex < 64u) {
-		atomicStore(&g_cellCounts[localIndex], 0u);
-	}
-	workgroupBarrier();
-
-	// Count pages in each cell
-	for (var i = localIndex; i < dirtyCount; i += 64u) {
-		let dirtyBase = i * DIRTY_PHYSICAL_PAGE_RECORD_UINTS;
-		if (dirtyBase + 7u < arrayLength(&dirtyPhysicalPages)) {
-			let matrixIndex = dirtyPhysicalPages[dirtyBase + 2u];
-			if (matrixIndex < 4u) {
-				let pageX = dirtyPhysicalPages[dirtyBase + 3u];
-				let pageY = dirtyPhysicalPages[dirtyBase + 4u];
-				let pageGridSize = max(dirtyPhysicalPages[dirtyBase + 7u], 1u);
-				let coarseX = min((pageX * 4u) / pageGridSize, 3u);
-				let coarseY = min((pageY * 4u) / pageGridSize, 3u);
-				let cellIndex = matrixIndex * 16u + coarseY * 4u + coarseX;
-				atomicAdd(&g_cellCounts[cellIndex], 1u);
-			}
-		}
-	}
-	workgroupBarrier();
-
-	// Compute prefix sums (offsets) of cell counts sequentially on thread 0
-	if (localIndex == 0u) {
-		var sum = 0u;
-		for (var c = 0u; c < 64u; c = c + 1u) {
-			g_cellOffsets[c] = sum;
-			sum = sum + atomicLoad(&g_cellCounts[c]);
-			atomicStore(&g_cellCounts[c], 0u); // Reset counts for tracking insertions
-		}
-		g_cellOffsets[64] = sum;
-	}
-	workgroupBarrier();
-
-	// Insert dirty pages into grouped list
-	for (var i = localIndex; i < dirtyCount; i += 64u) {
-		let dirtyBase = i * DIRTY_PHYSICAL_PAGE_RECORD_UINTS;
-		if (dirtyBase + 7u < arrayLength(&dirtyPhysicalPages)) {
-			let matrixIndex = dirtyPhysicalPages[dirtyBase + 2u];
-			if (matrixIndex < 4u) {
-				let pageX = dirtyPhysicalPages[dirtyBase + 3u];
-				let pageY = dirtyPhysicalPages[dirtyBase + 4u];
-				let pageGridSize = max(dirtyPhysicalPages[dirtyBase + 7u], 1u);
-				let coarseX = min((pageX * 4u) / pageGridSize, 3u);
-				let coarseY = min((pageY * 4u) / pageGridSize, 3u);
-				let cellIndex = matrixIndex * 16u + coarseY * 4u + coarseX;
-				let localOffset = atomicAdd(&g_cellCounts[cellIndex], 1u);
-				let insertIndex = g_cellOffsets[cellIndex] + localOffset;
-				if (insertIndex < 2048u) {
-					g_groupedDirtyIndices[insertIndex] = i;
-				}
-			}
-		}
-	}
-	workgroupBarrier();
-
-	// Now, after all workgroup barriers, threads that are out-of-bounds for candidates can safely exit
 	if (candidateIndex >= params.candidateCount) {
 		return;
 	}
@@ -295,11 +228,17 @@ fn csMain(
 		for (var cy = minCoarseY; cy <= maxCoarseY; cy = cy + 1u) {
 			for (var cx = minCoarseX; cx <= maxCoarseX; cx = cx + 1u) {
 				let cellIndex = c * 16u + cy * 4u + cx;
-				let startIdx = g_cellOffsets[cellIndex];
-				let endIdx = g_cellOffsets[cellIndex + 1u];
+				if (dirtyGridCounts[cellIndex] == 0u) {
+					continue;
+				}
+				let startIdx = dirtyGridOffsets[cellIndex];
+				let endIdx = dirtyGridOffsets[cellIndex + 1u];
 
 				for (var idx = startIdx; idx < endIdx; idx = idx + 1u) {
-					let dirtyIndex = g_groupedDirtyIndices[idx];
+					if (idx >= arrayLength(&dirtyGridIndices)) {
+						continue;
+					}
+					let dirtyIndex = dirtyGridIndices[idx];
 					let dirtyBase = dirtyIndex * DIRTY_PHYSICAL_PAGE_RECORD_UINTS;
 
 					let pageX = dirtyPhysicalPages[dirtyBase + 3u];

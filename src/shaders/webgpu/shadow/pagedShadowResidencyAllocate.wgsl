@@ -12,7 +12,7 @@ struct PagedShadowAllocationParams {
 	cacheFrames: u32,
 	pageTableLength: u32,
 	forceDirty: u32,
-	_pad1: u32,
+	residencyScanLimit: u32,
 }
 
 @group(0) @binding(0) var<uniform> params: PagedShadowAllocationParams;
@@ -49,6 +49,7 @@ fn writePhysicalPageMetadata(physicalPage: u32, requestBase: u32, tableIndex: u3
 @compute @workgroup_size(1)
 fn csMain() {
 	let requestCount = min(atomicLoad(&counters[0]), params.requestCountLimit);
+	let residencyScanLimit = min(params.residencyScanLimit, params.physicalPageCount);
 	var allocatedThisFrame = 0u;
 	for (var requestIndex = 0u; requestIndex < requestCount; requestIndex = requestIndex + 1u) {
 		let requestBase = requestIndex * PAGED_SHADOW_REQUEST_RECORD_UINTS;
@@ -97,7 +98,7 @@ fn csMain() {
 
 		if (selected == PAGED_SHADOW_NON_RESIDENT) {
 			let evictionPtr = atomicLoad(&counters[5]);
-			for (var i = 0u; i < params.physicalPageCount; i = i + 1u) {
+			for (var i = 0u; i < residencyScanLimit; i = i + 1u) {
 				let pageIndex = (evictionPtr + i) % params.physicalPageCount;
 				let base = residencyBase(pageIndex);
 				if (base + 7u >= arrayLength(&residencyState)) {
@@ -134,7 +135,13 @@ fn csMain() {
 		allocatedThisFrame = allocatedThisFrame + 1u;
 	}
 
-	for (var pageIndex = 0u; pageIndex < params.physicalPageCount; pageIndex = pageIndex + 1u) {
+	if (requestCount == 0u && params.forceDirty == 0u) {
+		return;
+	}
+
+	let maintenancePtr = atomicLoad(&counters[5]);
+	for (var i = 0u; i < residencyScanLimit; i = i + 1u) {
+		let pageIndex = (maintenancePtr + i) % params.physicalPageCount;
 		let base = residencyBase(pageIndex);
 		if (base + 7u >= arrayLength(&residencyState)) {
 			continue;
@@ -172,5 +179,11 @@ fn csMain() {
 				}
 			}
 		}
+	}
+	if (params.physicalPageCount > 0u) {
+		atomicStore(
+			&counters[5],
+			(maintenancePtr + residencyScanLimit) % params.physicalPageCount
+		);
 	}
 }

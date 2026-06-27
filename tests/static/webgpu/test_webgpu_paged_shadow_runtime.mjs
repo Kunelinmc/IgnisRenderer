@@ -9,6 +9,7 @@ import {
 	WebGPUPagedShadowRuntime,
 	collectWebGPUPagedShadowPageRequests,
 } from "../../../src/renderers/webgpu/WebGPUPagedShadowRuntime.ts";
+import { WebGPUCommandEncoder } from "../../../src/renderers/webgpu/WebGPUCommandEncoder.ts";
 
 function createMockBackend() {
 	const buffers = [];
@@ -16,12 +17,38 @@ function createMockBackend() {
 	const writes = [];
 	const bindingGroups = [];
 	const pipelines = [];
+	const nativeBuffers = [];
 	return {
 		buffers,
 		textures,
 		writes,
 		bindingGroups,
 		pipelines,
+		nativeBuffers,
+		device: {
+			createBuffer(desc) {
+				const mappedData = new ArrayBuffer(desc.size);
+				const buffer = {
+					size: desc.size,
+					usage: desc.usage,
+					label: desc.label,
+					mappedData,
+					destroyed: false,
+					mapAsync() {
+						return Promise.resolve();
+					},
+					getMappedRange() {
+						return mappedData;
+					},
+					unmap() {},
+					destroy() {
+						this.destroyed = true;
+					},
+				};
+				nativeBuffers.push(buffer);
+				return buffer;
+			},
+		},
 		createBuffer(desc) {
 			const buffer = {
 				size: desc.size,
@@ -33,6 +60,7 @@ function createMockBackend() {
 					this.destroyed = true;
 				},
 			};
+			buffer._gpuResource = buffer;
 			buffers.push(buffer);
 			return buffer;
 		},
@@ -49,9 +77,16 @@ function createMockBackend() {
 			textures.push(texture);
 			return texture;
 		},
-		writeBuffer(buffer, data) {
-			buffer.data = new Uint32Array(data.buffer ?? data);
-			writes.push([buffer.label, buffer.data]);
+		writeBuffer(buffer, data, offset = 0) {
+			const source =
+				ArrayBuffer.isView(data) ?
+					new Uint8Array(data.buffer, data.byteOffset, data.byteLength)
+				:	new Uint8Array(data);
+			const copy = new Uint8Array(source);
+			buffer.data = new Uint32Array(copy.buffer);
+			buffer.byteLength = copy.byteLength;
+			buffer.writeOffset = offset;
+			writes.push([buffer.label, buffer.data, offset, copy.byteLength]);
 		},
 		async createShaderModule(desc) {
 			return { label: desc.label };
@@ -89,6 +124,29 @@ function createEncoder() {
 			calls.push(["endComputePass"]);
 		},
 	};
+}
+
+function createWebGPUEncoder(copies = []) {
+	const nativeEncoder = {
+		copyBufferToBuffer(source, sourceOffset, destination, destinationOffset, size) {
+			copies.push({ source, sourceOffset, destination, destinationOffset, size });
+		},
+	};
+	const host = {
+		createPassTimestampWrites() {
+			return undefined;
+		},
+		getCurrentColorView() {
+			return null;
+		},
+		getCurrentDepthView() {
+			return null;
+		},
+		getCanvasColorTexture() {
+			return { width: 1, height: 1 };
+		},
+	};
+	return new WebGPUCommandEncoder(nativeEncoder, host, {});
 }
 
 function createRenderSet(overrides = {}) {
@@ -358,6 +416,60 @@ async function testDrawInstanceCapacityGrowsByOnePointFive() {
 	assert.equal(runtime.getDebugState().drawInstanceCapacity, 60);
 }
 
+async function testRequestMarkDispatchUsesActualCasterWorkCount() {
+	const backend = createMockBackend();
+	const encoder = createEncoder();
+	const shadowPass = { renderPagedDepthIndirect() {} };
+	const runtime = new WebGPUPagedShadowRuntime(backend, shadowPass);
+	const renderSet = createRenderSet({
+		paged: {
+			pageGridSize: 1,
+			physicalPageCount: 4,
+			maxPagesPerFrame: 1,
+		},
+	});
+
+	runtime.prepareFrame(createRequest(renderSet, createPackets(80)));
+	runtime._previousCasterBounds.clear();
+	runtime.prepareFrame(createRequest(renderSet, [createPacket("single", 0, 0)], encoder));
+	await runtime.recordPageMarkPass(createRequest(renderSet, [createPacket("single", 0, 0)], encoder));
+
+	const markBegin = encoder.calls.findIndex(
+		(call) => call[0] === "beginComputePass" &&
+			call[1] === "WebGPUPagedShadowRequestMark"
+	);
+	const markDispatch = encoder.calls.slice(markBegin).find(
+		(call) => call[0] === "dispatchWorkgroups"
+	);
+	assert.deepEqual(markDispatch, ["dispatchWorkgroups", 1, 1, 1]);
+}
+
+async function testFrameInputsUploadOnlyActiveSpans() {
+	const backend = createMockBackend();
+	const shadowPass = { renderPagedDepthIndirect() {} };
+	const runtime = new WebGPUPagedShadowRuntime(backend, shadowPass);
+	const renderSet = createRenderSet({
+		paged: {
+			physicalPageCount: 64,
+			maxPagesPerFrame: 4,
+		},
+	});
+
+	runtime.prepareFrame(createRequest(renderSet, createPackets(80)));
+	runtime.prepareFrame(createRequest(renderSet, createPackets(2)));
+
+	const matrixWrites = backend.writes.filter(
+		([label]) => label === "WebGPUPagedShadowDrawWorldMatrices"
+	);
+	const indirectWrites = backend.writes.filter(
+		([label]) => label === "WebGPUPagedShadowDrawIndirectArgs"
+	);
+	const latestMatrixWrite = matrixWrites[matrixWrites.length - 1];
+	const latestIndirectWrite = indirectWrites[indirectWrites.length - 1];
+	assert.equal(latestMatrixWrite[3], 2 * 16 * 4);
+	assert.equal(latestIndirectWrite[3], 2 * 5 * 4);
+}
+
 async function testGpuPassesDispatchWithoutCpuPageTableAllocation() {
 	const backend = createMockBackend();
 	const encoder = createEncoder();
@@ -444,12 +556,16 @@ async function testDepthPassBuildsGpuDrawsAndUsesIndirectRenderer() {
 			packetCount: 2,
 		},
 	]);
-	assert.ok(
-		encoder.calls.some(
-			(call) => call[0] === "beginComputePass" &&
-				call[1] === "WebGPUPagedShadowDrawBuild"
-		)
+	const dirtyGridIndex = encoder.calls.findIndex(
+		(call) => call[0] === "beginComputePass" &&
+			call[1] === "WebGPUPagedShadowDirtyGridBuild"
 	);
+	const drawBuildIndex = encoder.calls.findIndex(
+		(call) => call[0] === "beginComputePass" &&
+			call[1] === "WebGPUPagedShadowDrawBuild"
+	);
+	assert.ok(dirtyGridIndex >= 0);
+	assert.ok(drawBuildIndex > dirtyGridIndex);
 }
 
 async function testFeedbackPassUsesScreenDepthTexture() {
@@ -478,6 +594,36 @@ async function testFeedbackPassUsesScreenDepthTexture() {
 		feedbackBinding.entries[6].resource.label,
 		"WebGPUPagedShadowFeedbackCamera"
 	);
+}
+
+async function testDrawCounterReadbackUsesFixedRing() {
+	const previousUsage = globalThis.GPUBufferUsage;
+	globalThis.GPUBufferUsage = { COPY_DST: 1, MAP_READ: 2 };
+	try {
+		const backend = createMockBackend();
+		const copies = [];
+		const encoder = createWebGPUEncoder(copies);
+		const shadowPass = { renderPagedDepthIndirect() {} };
+		const runtime = new WebGPUPagedShadowRuntime(backend, shadowPass);
+		const renderSet = createRenderSet();
+		const request = createRequest(
+			renderSet,
+			[createPacket("left", -0.75, 0.75)],
+			encoder
+		);
+
+		runtime.prepareFrame(request);
+		for (let i = 0; i < 6; i++) {
+			runtime._queueDrawCounterReadback(request);
+		}
+
+		assert.equal(backend.nativeBuffers.length, 4);
+		assert.equal(copies.length, 4);
+		runtime.destroy();
+		assert.ok(backend.nativeBuffers.every((buffer) => buffer.destroyed));
+	} finally {
+		globalThis.GPUBufferUsage = previousUsage;
+	}
 }
 
 function testResidencyShaderRefreshesCachedPages() {
@@ -510,10 +656,16 @@ async function testCascadeProjectionChangesSetForceDirty() {
 		const latestWrite = allocParamsWrites[allocParamsWrites.length - 1];
 		return latestWrite ? latestWrite[1][6] : undefined;
 	};
+	const getLatestResidencyScanLimit = () => {
+		const allocParamsWrites = backend.writes.filter(([label]) => label === "WebGPUPagedShadowAllocationParams");
+		const latestWrite = allocParamsWrites[allocParamsWrites.length - 1];
+		return latestWrite ? latestWrite[1][7] : undefined;
+	};
 
 	// Frame 1: Initial call, should have forceDirty = 1
 	runtime.prepareFrame(createRequest(renderSet, packets));
 	assert.equal(getLatestForceDirty(), 1);
+	assert.equal(getLatestResidencyScanLimit(), 4);
 
 	// Frame 2: Identical projections, should have forceDirty = 0
 	runtime.prepareFrame(createRequest(renderSet, packets));
@@ -531,9 +683,12 @@ async function run() {
 	await testCasterGrowthDoesNotRecreatePhysicalAtlas();
 	await testPhysicalShapeChangesRecreateAtlasAndResetResidency();
 	await testDrawInstanceCapacityGrowsByOnePointFive();
+	await testRequestMarkDispatchUsesActualCasterWorkCount();
+	await testFrameInputsUploadOnlyActiveSpans();
 	await testGpuPassesDispatchWithoutCpuPageTableAllocation();
 	await testDepthPassBuildsGpuDrawsAndUsesIndirectRenderer();
 	await testFeedbackPassUsesScreenDepthTexture();
+	await testDrawCounterReadbackUsesFixedRing();
 	testResidencyShaderRefreshesCachedPages();
 	await testCascadeProjectionChangesSetForceDirty();
 	console.log("test_webgpu_paged_shadow_runtime: ok");
