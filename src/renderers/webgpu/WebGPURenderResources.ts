@@ -372,7 +372,7 @@ export class WebGPURenderResources {
 			try {
 				reflectionResources = this.prepareFrame(context, {
 					scopeKey: "warmup-planar-reflection",
-					sceneTargetMode: "mrt",
+					sceneTargetMode: "color",
 					temporalStateMode: "disabled",
 				});
 
@@ -381,7 +381,7 @@ export class WebGPURenderResources {
 					try {
 						const resources = reflectionResources ?
 							await this.getDrawResources(packet, reflectionResources, {
-								sceneTargetMode: "mrt",
+								sceneTargetMode: "color",
 								drawMode: "reflection-capture",
 							})
 						:	null;

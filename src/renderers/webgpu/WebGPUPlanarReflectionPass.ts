@@ -28,10 +28,6 @@ export const WEBGPU_PLANAR_REFLECTION_SIDE_EPSILON = 1e-4;
 
 interface PlanarReflectionTargetSet {
 	sceneColor: IRenderTexture;
-	gAlbedoAlpha: IRenderTexture;
-	gNormalRoughMetal: IRenderTexture;
-	gEmissiveOcclusion: IRenderTexture;
-	gMotionDepth: IRenderTexture;
 	depth: IRenderTexture;
 	width: number;
 	height: number;
@@ -126,7 +122,7 @@ export class WebGPUPlanarReflectionPass {
 				);
 				const frameResources = this._resources.prepareFrame(captureContext, {
 					scopeKey: createPlanarReflectionScopeKey(planeInfo.key),
-					sceneTargetMode: "mrt",
+					sceneTargetMode: "color",
 					temporalStateMode: "disabled",
 				});
 				const encoder = this._backend.createCommandEncoder();
@@ -298,30 +294,6 @@ export class WebGPUPlanarReflectionPass {
 					loadOp: drewEnvironment ? "load" : "clear",
 					storeOp: "store",
 				},
-				{
-					view: targets.gAlbedoAlpha,
-					clearValue: { r: 0, g: 0, b: 0, a: 1 },
-					loadOp: "clear",
-					storeOp: "store",
-				},
-				{
-					view: targets.gNormalRoughMetal,
-					clearValue: { r: 0, g: 0, b: 0, a: 0 },
-					loadOp: "clear",
-					storeOp: "store",
-				},
-				{
-					view: targets.gEmissiveOcclusion,
-					clearValue: { r: 0, g: 0, b: 0, a: 1 },
-					loadOp: "clear",
-					storeOp: "store",
-				},
-				{
-					view: targets.gMotionDepth,
-					clearValue: { r: 0, g: 0, b: 0, a: 0 },
-					loadOp: "clear",
-					storeOp: "store",
-				},
 			],
 			depthStencilAttachment: {
 				view: targets.depth,
@@ -341,7 +313,7 @@ export class WebGPUPlanarReflectionPass {
 			frameResources,
 			packets,
 			resolveDrawOptions: () => ({
-				sceneTargetMode: "mrt",
+				sceneTargetMode: "color",
 				drawMode: "reflection-capture",
 				sampleCountOverride: 1,
 			}),
@@ -355,7 +327,7 @@ export class WebGPUPlanarReflectionPass {
 		frameResources: WebGPUPreparedFrameResources
 	): Promise<boolean> {
 		const environmentResources =
-			await this._resources.getEnvironmentResources(frameResources, "mrt", {
+			await this._resources.getEnvironmentResources(frameResources, "color", {
 				sampleCountOverride: 1,
 			});
 		if (!environmentResources) {
@@ -715,34 +687,6 @@ function createTargets(
 			usage: TextureUsage.RenderAttachment | TextureUsage.TextureBinding,
 			label: `WebGPUPlanarReflectionColor_${safeKey}`,
 		}),
-		gAlbedoAlpha: backend.createTexture({
-			width,
-			height,
-			format: TextureFormat.RGBA8Unorm,
-			usage: TextureUsage.RenderAttachment,
-			label: `WebGPUPlanarReflectionAlbedo_${safeKey}`,
-		}),
-		gNormalRoughMetal: backend.createTexture({
-			width,
-			height,
-			format: TextureFormat.RGBA16Float,
-			usage: TextureUsage.RenderAttachment,
-			label: `WebGPUPlanarReflectionNormal_${safeKey}`,
-		}),
-		gEmissiveOcclusion: backend.createTexture({
-			width,
-			height,
-			format: TextureFormat.RGBA16Float,
-			usage: TextureUsage.RenderAttachment,
-			label: `WebGPUPlanarReflectionEmissive_${safeKey}`,
-		}),
-		gMotionDepth: backend.createTexture({
-			width,
-			height,
-			format: TextureFormat.RGBA16Float,
-			usage: TextureUsage.RenderAttachment,
-			label: `WebGPUPlanarReflectionMotion_${safeKey}`,
-		}),
 		depth: backend.createTexture({
 			width,
 			height,
@@ -757,10 +701,6 @@ function createTargets(
 
 function destroyTargets(targets: PlanarReflectionTargetSet): void {
 	targets.sceneColor.destroy();
-	targets.gAlbedoAlpha.destroy();
-	targets.gNormalRoughMetal.destroy();
-	targets.gEmissiveOcclusion.destroy();
-	targets.gMotionDepth.destroy();
 	targets.depth.destroy();
 }
 

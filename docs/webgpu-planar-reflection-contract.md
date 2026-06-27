@@ -20,7 +20,8 @@ WebGL remains outside this contract.
   mirror planes per frame.
 - WebGPU must capture planar reflection targets at
   `WEBGPU_PLANAR_REFLECTION_RESOLUTION_SCALE = 0.5` of the frame size.
-- Reflection capture color targets must use `rgba16float`.
+- Reflection capture must render into a single offscreen color target.
+- Reflection capture color target must use `rgba16float`.
 - Reflection capture must include environment, opaque packets, and transparent
   packets.
 - Reflection capture must exclude receivers that use the same normalized mirror
@@ -74,6 +75,9 @@ The WebGPU frame planner should schedule the `reflection` frame pass when
   binding includes `planarReflectionMask`.
 - If mirrored geometry appears culled, verify the draw uses the
   `reflection-capture` pipeline variant.
+- If the reflection capture target fails WebGPU pipeline validation, verify the
+  capture draw uses the offscreen single-target `color` mode instead of the
+  canvas `single` mode or the scene MRT mode.
 - If same-plane receivers appear recursively in the reflection, verify capture
   filtering removes packets whose normalized `mirrorPlane` key matches the
   active capture plane.
@@ -85,6 +89,8 @@ The WebGPU frame planner should schedule the `reflection` frame pass when
   `reflectivity` and `mirrorPlane`.
 - Behavior change: WebGPU no longer emits unsupported-material warnings for
   `reflectivity` or `mirrorPlane`.
+- Behavior change: WebGPU planar reflection capture uses a single offscreen
+  `rgba16float` color target instead of writing scene MRT G-buffer targets.
 - Backend compatibility: Software keeps its existing reflection behavior.
 - Backend compatibility: WebGL remains without planar reflection support.
 - Capability inspection must use `Renderer.backendProfile` or an explicit

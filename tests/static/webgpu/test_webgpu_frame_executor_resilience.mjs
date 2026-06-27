@@ -813,7 +813,12 @@ async function testPlanarReflectionCaptureAndCompositeSequencing() {
 		)
 	);
 	assert.ok(
-		resources._state.events.includes("draw:object:mrt:reflection-capture")
+		resources._state.events.includes("draw:object:color:reflection-capture")
+	);
+	assert.ok(
+		resources._state.environmentOptions.some(
+			(entry) => entry.sceneTargetMode === "color"
+		)
 	);
 	assert.ok(
 		resources._state.events.includes(
@@ -821,6 +826,11 @@ async function testPlanarReflectionCaptureAndCompositeSequencing() {
 		)
 	);
 	const labels = backend.recordedRenderPasses.map((pass) => pass.label);
+	const capturePass = backend.recordedRenderPasses.find(
+		(pass) => pass.label === "WebGPUPlanarReflectionCaptureMain"
+	);
+	assert.ok(capturePass);
+	assert.equal(capturePass.colorAttachments.length, 1);
 	assert.ok(
 		labels.indexOf("WebGPUPlanarReflectionCaptureMain") <
 			labels.indexOf("WebGPUMainMRT_Clear")
@@ -905,6 +915,11 @@ async function testPlanarReflectionUsesColorTargetsWithoutPostProcess() {
 				entry.sceneTargetMode === "color"
 		)
 	);
+	const capturePass = backend.recordedRenderPasses.find(
+		(pass) => pass.label === "WebGPUPlanarReflectionCaptureMain"
+	);
+	assert.ok(capturePass);
+	assert.equal(capturePass.colorAttachments.length, 1);
 	assert.ok(
 		resources._state.events.includes(
 			"draw:mirror:mrt:planar-reflection-composite"
@@ -1010,6 +1025,7 @@ async function testPlanarReflectionCaptureKeepsMSAAFrameTargetsAlive() {
 		(options) => options.drawMode === "reflection-capture"
 	);
 	assert.ok(captureDrawOptions);
+	assert.equal(captureDrawOptions.sceneTargetMode, "color");
 	assert.equal(captureDrawOptions.sampleCountOverride, 1);
 	const compositePass = backend.recordedRenderPasses.find(
 		(pass) => pass.label === "WebGPUPlanarReflectionComposite"
