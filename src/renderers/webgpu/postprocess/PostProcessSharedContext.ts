@@ -3,6 +3,7 @@ import { AddressMode, FilterMode } from "../../types";
 import type { IWebGPUComputeFacade } from "../ComputeFacade";
 import { Logger } from "../../../foundation/Logger";
 import { WebGPUHiZPostProcessHelper } from "./HiZPostProcessHelper";
+import { PostProcessCopyHelper } from "./PostProcessCopyHelper";
 
 interface CachedBindGroup {
 	group: IBindingGroup;
@@ -16,6 +17,7 @@ export class PostProcessSharedContext {
 	private _compute: IWebGPUComputeFacade;
 	private _sampler: ISampler | null = null;
 	private _hiZHelper: WebGPUHiZPostProcessHelper | null = null;
+	private _copyHelper: PostProcessCopyHelper | null = null;
 	private _bindGroupCache = new Map<string, CachedBindGroup>();
 	private _frameBindGroupLayout: GPUBindGroupLayout | null;
 
@@ -52,6 +54,19 @@ export class PostProcessSharedContext {
 			this._hiZHelper = new WebGPUHiZPostProcessHelper(this);
 		}
 		return this._hiZHelper;
+	}
+
+	/**
+	 * Returns the shared copy helper used by WebGPU post-process passes.
+	 *
+	 * @returns Lazily allocated helper owned by this shared context.
+	 * @sideEffects Allocates the helper object on first use.
+	 */
+	public getCopyHelper(): PostProcessCopyHelper {
+		if (!this._copyHelper) {
+			this._copyHelper = new PostProcessCopyHelper(this);
+		}
+		return this._copyHelper;
 	}
 
 	public warn(key: string, message: string): void {
@@ -115,11 +130,15 @@ export class PostProcessSharedContext {
 		this._destroyCachedBindGroups();
 		this._hiZHelper?.destroy();
 		this._hiZHelper = null;
+		this._copyHelper?.destroy();
+		this._copyHelper = null;
 	}
 
 	public destroy(): void {
 		this._hiZHelper?.destroy();
 		this._hiZHelper = null;
+		this._copyHelper?.destroy();
+		this._copyHelper = null;
 		this._destroyCachedBindGroups();
 		this.destroyManagedResource(this._sampler, "post-process sampler");
 		this._sampler = null;

@@ -139,8 +139,6 @@ interface WebGPUSSRResources {
 	composePipeline: IComputePipeline | null;
 	traceParams: IRenderBuffer | null;
 	composeParams: IRenderBuffer | null;
-	copyModule: IShaderModule | null;
-	copyPipeline: IComputePipeline | null;
 	traceGroupLayout0: GPUBindGroupLayout | null;
 	tracePipelineLayout: GPUPipelineLayout | null;
 	frameIndex: number;
@@ -333,16 +331,8 @@ export class WebGPUScreenSpaceReflectionsImplementation
 				"SSR compose pipeline"
 			);
 			resources.shared.destroyManagedResource(
-				resources.copyPipeline,
-				"SSR copy pipeline"
-			);
-			resources.shared.destroyManagedResource(
 				resources.module,
 				"SSR shader module"
-			);
-			resources.shared.destroyManagedResource(
-				resources.copyModule,
-				"SSR copy shader module"
 			);
 			resources.shared.destroyManagedResource(
 				resources.traceParams,
@@ -358,8 +348,6 @@ export class WebGPUScreenSpaceReflectionsImplementation
 			resources.composePipeline = null;
 			resources.traceParams = null;
 			resources.composeParams = null;
-			resources.copyModule = null;
-			resources.copyPipeline = null;
 			resources.traceGroupLayout0 = null;
 			resources.tracePipelineLayout = null;
 		}
@@ -442,13 +430,13 @@ export class WebGPUScreenSpaceReflectionsImplementation
 		);
 		context.encoder.endComputePass();
 
-		await this._copyTexture(
-			context.shared,
-			resources,
-			context.encoder,
-			ssrRaw,
-			context.historyWrite
-		);
+		await context.shared.getCopyHelper().copyTexture({
+			encoder: context.encoder,
+			source: ssrRaw,
+			destination: context.historyWrite,
+			cacheKey: "copy-ssr-history",
+			label: "WebGPUPost_Copy",
+		});
 
 		const composeTarget =
 			targets.sceneColor === targets.postPing ? targets.postPong : targets.postPing;
@@ -500,8 +488,6 @@ export class WebGPUScreenSpaceReflectionsImplementation
 				composePipeline: null,
 				traceParams: null,
 				composeParams: null,
-				copyModule: null,
-				copyPipeline: null,
 				traceGroupLayout0: null,
 				tracePipelineLayout: null,
 				frameIndex: 0,
@@ -584,63 +570,6 @@ export class WebGPUScreenSpaceReflectionsImplementation
 			});
 		}
 		return resources;
-	}
-
-	private async _copyTexture(
-		shared: PostProcessSharedContext,
-		resources: WebGPUSSRResources,
-		encoder: ICommandEncoder,
-		src: IRenderTexture,
-		dst: IRenderTexture
-	): Promise<void> {
-		if (src === dst) {
-			return;
-		}
-		await this._ensureCopyResources(shared, resources);
-		if (!resources.copyPipeline) {
-			return;
-		}
-		const binding = shared.getCachedBindGroup(
-			`ssr-copy-${src === dst ? "same" : "diff"}`,
-			resources.copyPipeline,
-			[
-				{ binding: 0, resource: src },
-				{ binding: 1, resource: dst },
-			],
-			"WebGPUPost_CopyBinding"
-		);
-		encoder.beginComputePass({ label: "WebGPUPost_Copy" });
-		encoder.setComputePipeline(resources.copyPipeline);
-		encoder.setBindingGroup(0, binding);
-		encoder.dispatchWorkgroups(
-			ceilDiv(dst.width, WORKGROUP_SIZE),
-			ceilDiv(dst.height, WORKGROUP_SIZE),
-			1
-		);
-		encoder.endComputePass();
-	}
-
-	private async _ensureCopyResources(
-		shared: PostProcessSharedContext,
-		resources: WebGPUSSRResources
-	): Promise<void> {
-		if (!resources.copyModule) {
-			const shader = await ShaderSource.load("webgpu.postprocess.copy.composite");
-			resources.copyModule = await shared.compute.createShaderModule({
-				label: "WebGPUCopyShader",
-				code: shader.code,
-				sourceMap: shader.sourceMap,
-				language: "wgsl",
-				stage: "compute",
-				sourceKind: "postprocess",
-			});
-		}
-		if (!resources.copyPipeline) {
-			resources.copyPipeline = await shared.compute.createComputePipeline({
-				label: "WebGPUCopyPipeline",
-				compute: { module: resources.copyModule, entryPoint: "csMain" },
-			});
-		}
 	}
 }
 

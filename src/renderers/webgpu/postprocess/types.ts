@@ -9,6 +9,7 @@ import type { IWebGPUComputeFacade } from "../ComputeFacade";
 import type { WebGPUPostProcessFrameTargets } from "../WebGPUPostProcessContracts";
 import type { WebGPULightingState } from "../types";
 import type { WebGPUHiZPostProcessHelper } from "./HiZPostProcessHelper";
+import type { PostProcessCopyHelper } from "./PostProcessCopyHelper";
 
 interface WebGPUPostProcessExecuteBaseRequest<TPassId extends string> {
 	passId: TPassId;
@@ -126,6 +127,12 @@ export interface WebGPUPostProcessRuntimeContext {
 	 * @returns Helper owned by the current WebGPU post-process runtime.
 	 */
 	getHiZHelper(): WebGPUHiZPostProcessHelper;
+	/**
+	 * Returns the shared copy helper for ordered post-process texture copies.
+	 *
+	 * @returns Helper owned by the current WebGPU post-process runtime.
+	 */
+	getCopyHelper(): PostProcessCopyHelper;
 	getCachedBindGroup(
 		key: string,
 		pipeline: IComputePipeline,

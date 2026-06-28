@@ -504,13 +504,15 @@ async function testSSRDestroyReleasesCachedBindings() {
 	assert.ok(ssrPass);
 	ssrPass.destroy();
 
-	assert.equal(backend.bindingGroupDestroyCalls, 3);
-	assert.equal(backend.shaderModuleDestroyCalls, 2);
-	assert.equal(backend.computePipelineDestroyCalls, 3);
+	assert.equal(backend.bindingGroupDestroyCalls, 2);
+	assert.equal(backend.shaderModuleDestroyCalls, 1);
+	assert.equal(backend.computePipelineDestroyCalls, 2);
 	assert.equal(backend.bufferDestroyCalls, 2);
 
 	runtime.destroy();
 	assert.equal(backend.bindingGroupDestroyCalls, 9);
+	assert.equal(backend.shaderModuleDestroyCalls, 3);
+	assert.equal(backend.computePipelineDestroyCalls, 5);
 }
 
 async function testUnknownPassReturnsRanFalse() {
