@@ -119,6 +119,11 @@ export function createWebGPUPipelineLayouts(
 				visibility: GPUShaderStage.FRAGMENT | GPUShaderStage.COMPUTE,
 				texture: { sampleType: "depth" },
 			},
+			{
+				binding: 13,
+				visibility: GPUShaderStage.FRAGMENT | GPUShaderStage.COMPUTE,
+				sampler: { type: "comparison" },
+			},
 		],
 	});
 	const decalFrameBindGroupLayout = device.createBindGroupLayout({

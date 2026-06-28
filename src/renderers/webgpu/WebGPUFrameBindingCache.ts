@@ -4,7 +4,13 @@ import type {
 	IRenderTexture,
 	ISampler,
 } from "../types";
-import { BufferUsage, TextureFormat, TextureUsage } from "../types";
+import {
+	AddressMode,
+	BufferUsage,
+	FilterMode,
+	TextureFormat,
+	TextureUsage,
+} from "../types";
 import type { WebGPUBackend } from "../WebGPUBackend";
 import {
 	WEBGPU_FRAME_UNIFORM_BYTE_SIZE,
@@ -106,6 +112,7 @@ export class WebGPUFrameBindingCache {
 	private _environmentSampler: ISampler | null = null;
 	private _envSpecularSampler: ISampler | null = null;
 	private _envSpecularFallbackSampler: ISampler | null = null;
+	private _shadowComparisonSampler: ISampler | null = null;
 	private _prevViewProjection:
 		| PreparedScene["camera"]["viewProjectionMatrix"]
 		| null = null;
@@ -541,11 +548,30 @@ export class WebGPUFrameBindingCache {
 							this._pagedShadowPhysicalDepthAtlas ??
 							this._pagedShadowRuntime.getResources().physicalDepthAtlas,
 					},
+					{
+						binding: 13,
+						resource: this._getShadowComparisonSampler(),
+					},
 				],
 			});
 		}
 
 		return this._sceneBinding;
+	}
+
+	private _getShadowComparisonSampler(): ISampler {
+		if (!this._shadowComparisonSampler) {
+			this._shadowComparisonSampler = this._backend.createSampler({
+				addressModeU: AddressMode.ClampToEdge,
+				addressModeV: AddressMode.ClampToEdge,
+				magFilter: FilterMode.Linear,
+				minFilter: FilterMode.Linear,
+				compare: "less-equal",
+				label: "WebGPUShadowComparisonSampler",
+			});
+		}
+
+		return this._shadowComparisonSampler;
 	}
 
 	/**
@@ -820,6 +846,8 @@ export class WebGPUFrameBindingCache {
 		this._envSpecularTexture = null;
 		this._envSpecularFallbackTexture = null;
 		this._brdfLUTTexture = null;
+		this._destroySampler(this._shadowComparisonSampler);
+		this._shadowComparisonSampler = null;
 		this._environmentSampler = null;
 		this._envSpecularSampler = null;
 		this._envSpecularFallbackSampler = null;
@@ -833,6 +861,13 @@ export class WebGPUFrameBindingCache {
 		const destroyFn = (group as { destroy?: () => void } | null)?.destroy;
 		if (typeof destroyFn === "function") {
 			destroyFn.call(group);
+		}
+	}
+
+	private _destroySampler(sampler: ISampler | null): void {
+		const destroyFn = (sampler as { destroy?: () => void } | null)?.destroy;
+		if (typeof destroyFn === "function") {
+			destroyFn.call(sampler);
 		}
 	}
 }

@@ -166,7 +166,7 @@ fn resolveAnisotropyDirection(
 	if (model.anisotropyTextureTransformB.w > 0.5) {
 		let texel = textureSample(
 			anisotropyTexture,
-			thicknessSampler,
+			transmissionSampler,
 			transformAnisotropyUV(uv0, uv1, uv2, uv3)
 		);
 		direction = texel.rg * 2.0 - vec2<f32>(1.0);
@@ -1635,6 +1635,40 @@ fn loadShadowDepthTexel(coord: vec2<i32>) -> f32 {
 	return textureLoad(shadowAtlas, coord, 0);
 }
 
+fn sampleShadowAtlasCompare(
+	atlasPosition: vec2<f32>,
+	atlasDimensions: vec2<u32>,
+	referenceDepth: f32
+) -> f32 {
+	let atlasSize = vec2<f32>(
+		max(f32(atlasDimensions.x), 1.0),
+		max(f32(atlasDimensions.y), 1.0)
+	);
+	return textureSampleCompareLevel(
+		shadowAtlas,
+		shadowComparisonSampler,
+		atlasPosition / atlasSize,
+		referenceDepth
+	);
+}
+
+fn samplePagedShadowDepthCompare(
+	atlasPosition: vec2<f32>,
+	atlasDimensions: vec2<u32>,
+	referenceDepth: f32
+) -> f32 {
+	let atlasSize = vec2<f32>(
+		max(f32(atlasDimensions.x), 1.0),
+		max(f32(atlasDimensions.y), 1.0)
+	);
+	return textureSampleCompareLevel(
+		pagedShadowPhysicalDepth,
+		shadowComparisonSampler,
+		atlasPosition / atlasSize,
+		referenceDepth
+	);
+}
+
 fn loadShadowTransmittanceTexel(coord: vec2<i32>) -> vec3<f32> {
 	return textureLoad(shadowTransmittanceAtlas, coord, 0).rgb;
 }
@@ -1667,7 +1701,6 @@ fn samplePagedShadowVisibilityForCascade(
 ) -> vec3<f32> {
 	let pageGridSize = max(u32(floor(shadowData.paramsE.z + 0.5)), 1u);
 	let pageSize = max(i32(floor(shadowData.paramsF.z + 0.5)), 1);
-	let physicalAtlasSize = max(i32(floor(shadowData.paramsF.x + 0.5)), 1);
 	let physicalGridSize = max(u32(floor(shadowData.paramsF.y + 0.5)), 1u);
 	let pageTableBase = u32(max(floor(shadowData.paramsE.y + 0.5), 0.0));
 	let pageTableCascadeStride = max(
@@ -1697,46 +1730,18 @@ fn samplePagedShadowVisibilityForCascade(
 		i32(physicalPageIndex / physicalGridSize)
 	);
 	let localUv = fract(shadowUv * vec2<f32>(f32(pageGridSize)));
-	let texelPosition = localUv * vec2<f32>(f32(pageSize - 1), f32(pageSize - 1));
-	let pcfRadius = max(shadowData.paramsB.x, 1.0);
-	var visible = vec3<f32>(0.0);
-	var sampleCount = 0.0;
-	for (var y: i32 = -1; y <= 1; y = y + 1) {
-		for (var x: i32 = -1; x <= 1; x = x + 1) {
-			let samplePosition = texelPosition + vec2<f32>(f32(x), f32(y)) * pcfRadius;
-			if (
-				samplePosition.x < 0.0 ||
-				samplePosition.x > f32(pageSize - 1) ||
-				samplePosition.y < 0.0 ||
-				samplePosition.y > f32(pageSize - 1)
-			) {
-				continue;
-			}
-			let roundedSamplePosition = round(samplePosition);
-			let sampleCoord = vec2<i32>(
-				i32(roundedSamplePosition.x),
-				i32(roundedSamplePosition.y)
-			);
-			let atlasCoord = physicalPageCoord * pageSize + sampleCoord;
-			if (
-				atlasCoord.x < 0 ||
-				atlasCoord.x >= physicalAtlasSize ||
-				atlasCoord.y < 0 ||
-				atlasCoord.y >= physicalAtlasSize
-			) {
-				continue;
-			}
-			let sampleDepth = textureLoad(pagedShadowPhysicalDepth, atlasCoord, 0);
-			if (currentDepth - bias <= sampleDepth) {
-				visible += vec3<f32>(1.0);
-			}
-			sampleCount += 1.0;
-		}
-	}
-	if (sampleCount < 1.0) {
-		return vec3<f32>(1.0);
-	}
-	let filteredVisibility = visible / max(sampleCount, 1.0);
+	let pageBase = vec2<f32>(physicalPageCoord * pageSize);
+	let atlasPosition =
+		pageBase + localUv * vec2<f32>(f32(pageSize - 1), f32(pageSize - 1)) +
+		vec2<f32>(0.5);
+	let atlasDimensions = textureDimensions(pagedShadowPhysicalDepth);
+	let filteredVisibility = vec3<f32>(
+		samplePagedShadowDepthCompare(
+			atlasPosition,
+			atlasDimensions,
+			currentDepth - bias
+		)
+	);
 	let strength = clamp(shadowData.paramsB.y, 0.0, 1.0);
 	return vec3<f32>(1.0 - strength) + strength * filteredVisibility;
 }
@@ -1918,31 +1923,23 @@ fn sampleShadowVisibilityForCascade(
 			sampleCount += 1.0;
 		}
 	} else {
-		for (var y: i32 = -1; y <= 1; y = y + 1) {
-			for (var x: i32 = -1; x <= 1; x = x + 1) {
-				let samplePosition =
-					texelPosition + vec2<f32>(f32(x), f32(y)) * pcfRadius;
-				if (
-					samplePosition.x < 0.0 ||
-					samplePosition.x > f32(shadowSize - 1) ||
-					samplePosition.y < 0.0 ||
-					samplePosition.y > f32(shadowSize - 1)
-				) {
-					continue;
-				}
-				let roundedSamplePosition = round(samplePosition);
-				let sampleCoord = vec2<i32>(
-					i32(roundedSamplePosition.x),
-					i32(roundedSamplePosition.y)
-				);
-				let atlasCoord = tileOffset + sampleCoord;
-				let sampleDepth = loadShadowDepthTexel(atlasCoord);
-				if (currentDepth - bias <= sampleDepth) {
-					visible += loadShadowTransmittanceTexel(atlasCoord);
-				}
-				sampleCount += 1.0;
-			}
-		}
+		let comparisonVisibility = sampleShadowAtlasCompare(
+			vec2<f32>(tileOffset) + texelPosition + vec2<f32>(0.5),
+			atlasDimensions,
+			currentDepth - bias
+		);
+		let roundedSamplePosition = round(texelPosition);
+		let localSampleCoord = clampShadowTexelCoord(
+			vec2<i32>(
+				i32(roundedSamplePosition.x),
+				i32(roundedSamplePosition.y)
+			),
+			shadowSize
+		);
+		visible += comparisonVisibility * loadShadowTransmittanceTexel(
+			tileOffset + localSampleCoord
+		);
+		sampleCount += 1.0;
 	}
 
 	if (sampleCount < 1.0) {

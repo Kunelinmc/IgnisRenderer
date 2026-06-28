@@ -166,6 +166,14 @@ export interface SamplerDesc {
 	magFilter?: FilterMode;
 	minFilter?: FilterMode;
 	mipmapFilter?: FilterMode;
+	compare?:
+		| "less"
+		| "always"
+		| "never"
+		| "equal"
+		| "less-equal"
+		| "greater"
+		| "greater-equal";
 	label?: string;
 }
 

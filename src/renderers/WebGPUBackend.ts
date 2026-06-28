@@ -1130,6 +1130,7 @@ export class WebGPUBackend implements IRenderBackend {
 			magFilter: desc.magFilter as GPUFilterMode | undefined,
 			minFilter: desc.minFilter as GPUFilterMode | undefined,
 			mipmapFilter: desc.mipmapFilter as GPUFilterMode | undefined,
+			compare: desc.compare as GPUCompareFunction | undefined,
 			label: desc.label,
 		});
 
@@ -1967,6 +1968,7 @@ export class WebGPUBackend implements IRenderBackend {
 			desc.magFilter ?? "",
 			desc.minFilter ?? "",
 			desc.mipmapFilter ?? "",
+			desc.compare ?? "",
 		].join("|");
 	}
 

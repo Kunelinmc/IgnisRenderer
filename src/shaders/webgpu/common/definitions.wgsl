@@ -206,6 +206,7 @@ struct ParticleShadowVolumeBuffer {
 @group(0) @binding(10) var irradianceProbeGridCoeffs: texture_2d<f32>;
 @group(0) @binding(11) var pagedShadowPageTable: texture_2d<u32>;
 @group(0) @binding(12) var pagedShadowPhysicalDepth: texture_depth_2d;
+@group(0) @binding(13) var shadowComparisonSampler: sampler_comparison;
 
 @group(1) @binding(0) var<uniform> model: ModelUniforms;
 @group(1) @binding(1) var baseColorTexture: texture_2d<f32>;
@@ -235,7 +236,6 @@ struct ParticleShadowVolumeBuffer {
 @group(1) @binding(25) var transmissionTexture: texture_2d<f32>;
 @group(1) @binding(26) var transmissionSampler: sampler;
 @group(1) @binding(27) var thicknessTexture: texture_2d<f32>;
-@group(1) @binding(28) var thicknessSampler: sampler;
 @group(1) @binding(29) var iridescenceTexture: texture_2d<f32>;
 @group(1) @binding(31) var iridescenceThicknessTexture: texture_2d<f32>;
 @group(1) @binding(30) var<uniform> animationParams: AnimationParams;

@@ -67,8 +67,9 @@ The following pipeline layouts must preserve these bind group roles:
 | `8` | `shadowTransmittanceAtlas` | `texture_2d<f32>` |
 | `9` | `brdfLUTTexture` | `texture_2d<f32>` |
 | `10` | `irradianceProbeGridCoeffs` | `texture_2d<f32>` |
-| `11` | `pagedShadowPageTable` | Read-only storage buffer of `u32` page entries |
+| `11` | `pagedShadowPageTable` | `texture_2d<u32>` |
 | `12` | `pagedShadowPhysicalDepth` | `texture_depth_2d` |
+| `13` | `shadowComparisonSampler` | Comparison sampler |
 
 ### `environmentFrameBindGroupLayout` - `group(0)`
 
@@ -111,7 +112,6 @@ The following pipeline layouts must preserve these bind group roles:
 | `25` | `transmissionTexture` | `texture_2d<f32>` |
 | `26` | `transmissionSampler` | Filtering sampler |
 | `27` | `thicknessTexture` | `texture_2d<f32>` |
-| `28` | `thicknessSampler` | Filtering sampler |
 | `29` | `iridescenceTexture` | `texture_2d<f32>` |
 | `30` | `animationParams` | `AnimationParams` uniform buffer |
 | `31` | `iridescenceThicknessTexture` | `texture_2d<f32>` |
@@ -124,9 +124,10 @@ The following pipeline layouts must preserve these bind group roles:
 
 Material texture slots are defined by `WEBGPU_TEXTURE_SLOT`. Texture bindings
 are `1 + slot * 2`. Dedicated sampler bindings are `2 + slot * 2` only for
-slots `0..13`. `iridescenceTexture`, `iridescenceThicknessTexture`, and
-`anisotropyTexture` do not have dedicated sampler bindings; shader code samples
-them with `thicknessSampler`. `anisotropyTexture` uses binding `37` and is not a
+slots `0..12`. `thicknessTexture`, `iridescenceTexture`,
+`iridescenceThicknessTexture`, and `anisotropyTexture` do not have dedicated
+sampler bindings; shader code samples them with `transmissionSampler`.
+`anisotropyTexture` uses binding `37` and is not a
 `WEBGPU_TEXTURE_SLOT` entry.
 
 ### `clusteredSceneBindGroupLayout` - `group(2)`
@@ -195,6 +196,7 @@ Particle render pipelines use `sceneFrameBindGroupLayout` as `group(0)` and
 | `0` | `3` | `envSpecularSampler` | Filtering sampler |
 | `0` | `6` | `fog` | `FogUniforms` uniform buffer |
 | `0` | `7` | `particleShadowVolumes` | Read-only storage buffer |
+| `0` | `13` | `shadowComparisonSampler` | Comparison sampler |
 | `1` | `0` | `particleTexture` | `texture_2d<f32>` |
 | `1` | `1` | `particleSampler` | Filtering sampler |
 | `1` | `2` | `particleUVTransform` | Particle UV transform uniform buffer |

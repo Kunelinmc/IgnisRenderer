@@ -97,7 +97,7 @@ fn shadeTransmissionCapture(input: VertexOutput) -> TransmissionFragmentOutput {
 	);
 	let thicknessSample = sampleLinearTexture(
 		thicknessTexture,
-		thicknessSampler,
+		transmissionSampler,
 		TEX_THICKNESS,
 		input.uv0,
 		input.uv1,

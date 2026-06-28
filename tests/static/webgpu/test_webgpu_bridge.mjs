@@ -425,7 +425,8 @@ async function testSceneShaderCoverage() {
 	);
 	assert.ok(WEBGPU_SCENE_SHADER.includes("AREA_LIGHT_SAMPLE_COUNT"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("sampleDirectionalShadowVisibility"));
-	assert.ok(WEBGPU_SCENE_SHADER.includes("textureLoad(shadowAtlas"));
+	assert.ok(WEBGPU_SCENE_SHADER.includes("sampler_comparison"));
+	assert.ok(WEBGPU_SCENE_SHADER.includes("textureSampleCompareLevel("));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("textureLoad(shadowTransmittanceAtlas"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("texture_depth_2d"));
 	assert.ok(!WEBGPU_SCENE_SHADER.includes("decodePackedShadowDepth"));
@@ -481,6 +482,7 @@ async function testSceneShaderCoverage() {
 	assert.ok(WEBGPU_SCENE_SHADER.includes("@group(0) @binding(5) var envSpecularFallbackSampler"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("@group(0) @binding(6) var<uniform> fog"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("@group(0) @binding(9) var brdfLUTTexture"));
+	assert.ok(WEBGPU_SCENE_SHADER.includes("@group(0) @binding(13) var shadowComparisonSampler"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("@group(2) @binding(0)"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("if (isClusteredLightingEnabled())"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("decodeClusteredLightRef"));
@@ -1476,7 +1478,7 @@ async function testRenderResourcesUseCopyDstForUploads() {
 	assert.ok(draw);
 	const firstDraw = draw[0];
 	assert.ok(firstDraw);
-	assert.equal(firstDraw.frameBinding.desc.entries.length, 13);
+	assert.equal(firstDraw.frameBinding.desc.entries.length, 14);
 	assert.ok(
 		firstDraw.frameBinding.desc.entries.some((entry) => entry.binding === 7)
 	);
@@ -3397,10 +3399,10 @@ async function testSceneFrameBindingLayoutMatchesFallbackEnvironmentContract() {
 		(layout) => layout.desc.label === "WebGPUSceneFrameBindGroupLayout"
 	);
 	assert.ok(sceneLayout);
-	assert.equal(sceneLayout.desc.entries.length, 13);
+	assert.equal(sceneLayout.desc.entries.length, 14);
 	assert.deepEqual(
 		sceneLayout.desc.entries.map((entry) => entry.binding),
-		[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+		[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]
 	);
 	assert.equal(sceneLayout.desc.entries[4].texture?.sampleType, "float");
 	assert.equal(sceneLayout.desc.entries[5].sampler?.type, "filtering");
@@ -3411,6 +3413,7 @@ async function testSceneFrameBindingLayoutMatchesFallbackEnvironmentContract() {
 	assert.equal(sceneLayout.desc.entries[10].texture?.sampleType, "float");
 	assert.equal(sceneLayout.desc.entries[11].texture?.sampleType, "uint");
 	assert.equal(sceneLayout.desc.entries[12].texture?.sampleType, "depth");
+	assert.equal(sceneLayout.desc.entries[13].sampler?.type, "comparison");
 
 	resources.destroy();
 }
@@ -3585,8 +3588,13 @@ async function testShadowAtlasSizeTracksShadowMapsWhenLightingDisabled() {
 	const shadowTransmittanceAtlasEntry = frameBinding.desc.entries.find(
 		(entry) => entry.binding === 8
 	);
+	const shadowComparisonSamplerEntry = frameBinding.desc.entries.find(
+		(entry) => entry.binding === 13
+	);
 	assert.ok(shadowAtlasEntry?.resource);
 	assert.ok(shadowTransmittanceAtlasEntry?.resource);
+	assert.ok(shadowComparisonSamplerEntry?.resource);
+	assert.equal(shadowComparisonSamplerEntry.resource.desc.compare, "less-equal");
 	assert.equal(
 		shadowAtlasEntry.resource.width,
 		1024 * WEBGPU_SHADOW_ATLAS_COLUMNS

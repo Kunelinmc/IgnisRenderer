@@ -291,7 +291,7 @@ fn fsMainGBuffer(input: VertexOutput) -> GBufferFragmentOutput {
 	);
 	let thicknessSample = sampleLinearTexture(
 		thicknessTexture,
-		thicknessSampler,
+		transmissionSampler,
 		TEX_THICKNESS,
 		input.uv0,
 		input.uv1,
@@ -300,7 +300,7 @@ fn fsMainGBuffer(input: VertexOutput) -> GBufferFragmentOutput {
 	);
 	let iridescenceSample = sampleLinearTexture(
 		iridescenceTexture,
-		thicknessSampler,
+		transmissionSampler,
 		TEX_IRIDESCENCE,
 		input.uv0,
 		input.uv1,
@@ -309,7 +309,7 @@ fn fsMainGBuffer(input: VertexOutput) -> GBufferFragmentOutput {
 	);
 	let iridescenceThicknessSample = sampleLinearTexture(
 		iridescenceThicknessTexture,
-		thicknessSampler,
+		transmissionSampler,
 		TEX_IRIDESCENCE_THICKNESS,
 		input.uv0,
 		input.uv1,

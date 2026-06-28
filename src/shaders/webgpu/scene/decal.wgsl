@@ -133,7 +133,6 @@ struct DecalEvaluation {
 @group(2) @binding(25) var transmissionTexture: texture_2d<f32>;
 @group(2) @binding(26) var transmissionSampler: sampler;
 @group(2) @binding(27) var thicknessTexture: texture_2d<f32>;
-@group(2) @binding(28) var thicknessSampler: sampler;
 @group(2) @binding(29) var iridescenceTexture: texture_2d<f32>;
 @group(2) @binding(31) var iridescenceThicknessTexture: texture_2d<f32>;
 @group(2) @binding(37) var anisotropyTexture: texture_2d<f32>;
@@ -496,18 +495,18 @@ fn fsMain(input: VSOut) -> GBufferOutput {
 	);
 	let thicknessSample = sampleLinearTexture(
 		thicknessTexture,
-		thicknessSampler,
+		transmissionSampler,
 		TEX_THICKNESS,
 		projectorUV
 	);
 	let iridescenceSample = textureSample(
 		iridescenceTexture,
-		thicknessSampler,
+		transmissionSampler,
 		transformUV(TEX_IRIDESCENCE, projectorUV)
 	);
 	let iridescenceThicknessSample = textureSample(
 		iridescenceThicknessTexture,
-		thicknessSampler,
+		transmissionSampler,
 		transformUV(TEX_IRIDESCENCE_THICKNESS, projectorUV)
 	);
 
@@ -571,7 +570,7 @@ fn fsMain(input: VSOut) -> GBufferOutput {
 	if (decal.anisotropyTextureTransformB.w > 0.5) {
 		let anisotropySample = textureSample(
 			anisotropyTexture,
-			thicknessSampler,
+			transmissionSampler,
 			transformAnisotropyUV(projectorUV)
 		);
 		anisotropyDirection = anisotropySample.rg * 2.0 - vec2<f32>(1.0);
@@ -937,18 +936,18 @@ fn applyDecalToGBuffer(
 	let thicknessSample = sampleLinearTextureFrom(
 		d,
 		thicknessTexture,
-		thicknessSampler,
+		transmissionSampler,
 		TEX_THICKNESS,
 		projectorUV
 	);
 	let iridescenceSample = textureSample(
 		iridescenceTexture,
-		thicknessSampler,
+		transmissionSampler,
 		transformUVFrom(d, TEX_IRIDESCENCE, projectorUV)
 	);
 	let iridescenceThicknessSample = textureSample(
 		iridescenceThicknessTexture,
-		thicknessSampler,
+		transmissionSampler,
 		transformUVFrom(d, TEX_IRIDESCENCE_THICKNESS, projectorUV)
 	);
 
@@ -1012,7 +1011,7 @@ fn applyDecalToGBuffer(
 	if (d.anisotropyTextureTransformB.w > 0.5) {
 		let anisotropySample = textureSample(
 			anisotropyTexture,
-			thicknessSampler,
+			transmissionSampler,
 			transformAnisotropyUVFrom(d, projectorUV)
 		);
 		anisotropyDirection = anisotropySample.rg * 2.0 - vec2<f32>(1.0);
