@@ -7,7 +7,6 @@ struct PagedShadowClearParams {
 
 @group(0) @binding(0) var<uniform> params: PagedShadowClearParams;
 @group(0) @binding(1) var<storage, read> dirtyPhysicalPages: array<u32>;
-@group(0) @binding(2) var<storage, read> counters: array<u32>;
 
 struct VertexOutput {
 	@builtin(position) position: vec4<f32>,
@@ -31,12 +30,6 @@ fn vsMain(
 	);
 
 	let quadPos = positions[vertexIndex];
-
-	let dirtyCount = min(counters[1], params.physicalPageCount);
-	if (instanceIndex >= dirtyCount) {
-		output.position = vec4<f32>(0.0, 0.0, 0.0, 0.0);
-		return output;
-	}
 
 	let dirtyBase = instanceIndex * 8u; // DIRTY_PHYSICAL_PAGE_RECORD_UINTS = 8u
 	if (dirtyBase + 7u >= arrayLength(&dirtyPhysicalPages)) {

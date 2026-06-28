@@ -20,6 +20,7 @@ struct PagedShadowDrawParams {
 @group(0) @binding(4) var<storage, read_write> dirtyGridOffsets: array<u32>;
 @group(0) @binding(5) var<storage, read_write> dirtyGridIndices: array<u32>;
 @group(0) @binding(6) var<storage, read_write> dirtyPageUvRanges: array<vec4<f32>>;
+@group(0) @binding(7) var<storage, read_write> clearDrawIndirectArgs: array<u32>;
 
 fn dirtyGridCellIndex(dirtyBase: u32) -> u32 {
 	let matrixIndex = dirtyPhysicalPages[dirtyBase + 2u];
@@ -52,6 +53,13 @@ fn csMain(@builtin(local_invocation_index) localIndex: u32) {
 		min(atomicLoad(&counters[1]), params.dirtyCapacity),
 		arrayLength(&dirtyGridIndices)
 	);
+
+	if (localIndex == 0u && arrayLength(&clearDrawIndirectArgs) >= 4u) {
+		clearDrawIndirectArgs[0] = 6u;
+		clearDrawIndirectArgs[1] = dirtyCount;
+		clearDrawIndirectArgs[2] = 0u;
+		clearDrawIndirectArgs[3] = 0u;
+	}
 
 	if (localIndex < DIRTY_GRID_CELL_COUNT) {
 		atomicStore(&dirtyGridCounts[localIndex], 0u);

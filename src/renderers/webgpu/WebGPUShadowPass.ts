@@ -515,19 +515,14 @@ export class WebGPUShadowPass {
 						binding: 1,
 						resource: { buffer: getWebGPUBuffer(resources.dirtyPhysicalPages) },
 					},
-					{
-						binding: 2,
-						resource: { buffer: getWebGPUBuffer(resources.counters) },
-					},
 				],
 			});
 			passEncoder.setPipeline(getWebGPURenderPipeline(this._pagedClearPipeline));
 			passEncoder.setBindGroup(0, clearBindGroup);
-			// Draw up to physicalPageCount instances; the clear shader reads
-			// counters[1] (dirty count written by pagedShadowDirtyCompact) and
-			// clips excess instances via w=0 degeneracy, so this is functionally
-			// correct. The instance count is bounded by the dirty list length.
-			passEncoder.draw(6, resources.physicalPageCount, 0, 0);
+			passEncoder.drawIndirect(
+				getWebGPUBuffer(resources.clearDrawIndirectArgsBuffer),
+				0
+			);
 		}
 
 		passEncoder.setPipeline(getWebGPURenderPipeline(this._pipeline));
@@ -1583,11 +1578,6 @@ export class WebGPUShadowPass {
 					},
 					{
 						binding: 1,
-						visibility: GPUShaderStage.VERTEX,
-						buffer: { type: "read-only-storage" },
-					},
-					{
-						binding: 2,
 						visibility: GPUShaderStage.VERTEX,
 						buffer: { type: "read-only-storage" },
 					},

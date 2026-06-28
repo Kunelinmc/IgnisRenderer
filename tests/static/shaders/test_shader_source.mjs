@@ -376,9 +376,12 @@ async function testPagedShadowDirtyGridBuildUsesGlobalGridBuffers() {
 	assert.ok(source.includes("var<storage, read_write> dirtyGridOffsets"));
 	assert.ok(source.includes("var<storage, read_write> dirtyGridIndices"));
 	assert.ok(source.includes("var<storage, read_write> dirtyPageUvRanges"));
+	assert.ok(source.includes("var<storage, read_write> clearDrawIndirectArgs"));
 	assert.ok(source.includes("const PAGE_CLIP_XY_MARGIN: f32 = 4.0;"));
 	assert.ok(source.includes("fn dirtyPageUvRange"));
 	assert.ok(source.includes("PAGE_CLIP_XY_MARGIN / atlasSize"));
+	assert.ok(source.includes("clearDrawIndirectArgs[0] = 6u"));
+	assert.ok(source.includes("clearDrawIndirectArgs[1] = dirtyCount"));
 	assert.ok(source.includes("dirtyPageUvRanges[i] = dirtyPageUvRange(dirtyBase)"));
 	assert.ok(source.includes("dirtyGridOffsets[DIRTY_GRID_CELL_COUNT] = sum"));
 	assert.ok(source.includes("dirtyGridIndices[insertIndex] = i"));

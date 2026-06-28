@@ -43,6 +43,7 @@ const PAGE_DIRTY_PARAMS_UINTS = 4;
 const PAGE_DRAW_PARAMS_UINTS = 8;
 const PAGE_FEEDBACK_PARAMS_UINTS = 8;
 const DRAW_INDIRECT_UINTS = 5;
+const CLEAR_DRAW_INDIRECT_UINTS = 4;
 const SHADOW_INSTANCE_DATA_UINTS = 12;
 const DEFAULT_FALLBACK_PAGE_SIZE = 1;
 const DRAW_INSTANCE_INITIAL_PAGES_PER_CASTER = 4;
@@ -83,6 +84,7 @@ export interface WebGPUPagedShadowResources {
 	drawInstanceMetaBuffer: IRenderBuffer;
 	drawTransmittanceBuffer: IRenderBuffer;
 	drawIndirectArgsBuffer: IRenderBuffer;
+	clearDrawIndirectArgsBuffer: IRenderBuffer;
 	drawCandidateWorldMatrices: IRenderBuffer;
 	pageSize: number;
 	physicalGridSize: number;
@@ -193,6 +195,7 @@ export class WebGPUPagedShadowRuntime {
 	private _fallbackDrawMetaBuffer: IRenderBuffer | null = null;
 	private _fallbackDrawTransmittanceBuffer: IRenderBuffer | null = null;
 	private _fallbackDrawIndirectArgsBuffer: IRenderBuffer | null = null;
+	private _fallbackClearDrawIndirectArgsBuffer: IRenderBuffer | null = null;
 	private _fallbackDrawCandidateWorldMatrices: IRenderBuffer | null = null;
 	private _pageRequestFlagsBuffer: IRenderBuffer | null = null;
 	private _compactedRequestsBuffer: IRenderBuffer | null = null;
@@ -215,6 +218,7 @@ export class WebGPUPagedShadowRuntime {
 	private _drawInstanceMetaBuffer: IRenderBuffer | null = null;
 	private _drawTransmittanceBuffer: IRenderBuffer | null = null;
 	private _drawIndirectArgsBuffer: IRenderBuffer | null = null;
+	private _clearDrawIndirectArgsBuffer: IRenderBuffer | null = null;
 	private _requestParamsBuffer: IRenderBuffer | null = null;
 	private _pageTableCopyParamsBuffer: IRenderBuffer | null = null;
 	private _compactParamsBuffer: IRenderBuffer | null = null;
@@ -238,6 +242,7 @@ export class WebGPUPagedShadowRuntime {
 	private _cascadeViewProjectionData = new Float32Array(16);
 	private _drawWorldMatrixData = new Float32Array(16);
 	private _drawIndirectArgsData = new Uint32Array(DRAW_INDIRECT_UINTS);
+	private _clearDrawIndirectArgsData = new Uint32Array([6, 0, 0, 0]);
 	private _feedbackCameraData = new Float32Array(16);
 	private _requestParamsData = new Uint32Array(PAGE_REQUEST_PARAMS_UINTS);
 	private _compactParamsData = new Uint32Array(PAGE_REQUEST_PARAMS_UINTS);
@@ -466,6 +471,7 @@ export class WebGPUPagedShadowRuntime {
 				this._dirtyGridOffsetsBuffer,
 				this._dirtyGridIndicesBuffer,
 				this._dirtyPageUvRangesBuffer,
+				this._clearDrawIndirectArgsBuffer,
 			],
 			1,
 			1,
@@ -524,6 +530,7 @@ export class WebGPUPagedShadowRuntime {
 			!this._drawInstanceMetaBuffer ||
 			!this._drawTransmittanceBuffer ||
 			!this._drawIndirectArgsBuffer ||
+			!this._clearDrawIndirectArgsBuffer ||
 			!this._drawWorldMatrixBuffer ||
 			!this._dirtyPageUvRangesBuffer
 		) {
@@ -547,6 +554,7 @@ export class WebGPUPagedShadowRuntime {
 			drawInstanceMetaBuffer: this._drawInstanceMetaBuffer,
 			drawTransmittanceBuffer: this._drawTransmittanceBuffer,
 			drawIndirectArgsBuffer: this._drawIndirectArgsBuffer,
+			clearDrawIndirectArgsBuffer: this._clearDrawIndirectArgsBuffer,
 			drawCandidateWorldMatrices: this._drawWorldMatrixBuffer,
 			pageSize: this._pageSize,
 			physicalGridSize: this._physicalGridSize,
@@ -610,6 +618,7 @@ export class WebGPUPagedShadowRuntime {
 			this._drawInstanceMetaBuffer,
 			this._drawTransmittanceBuffer,
 			this._drawIndirectArgsBuffer,
+			this._clearDrawIndirectArgsBuffer,
 			this._requestParamsBuffer,
 			this._pageTableCopyParamsBuffer,
 			this._compactParamsBuffer,
@@ -633,6 +642,7 @@ export class WebGPUPagedShadowRuntime {
 			this._fallbackDrawMetaBuffer,
 			this._fallbackDrawTransmittanceBuffer,
 			this._fallbackDrawIndirectArgsBuffer,
+			this._fallbackClearDrawIndirectArgsBuffer,
 			this._fallbackDrawCandidateWorldMatrices,
 		]) {
 			resource?.destroy();
@@ -662,6 +672,7 @@ export class WebGPUPagedShadowRuntime {
 		this._drawInstanceMetaBuffer = null;
 		this._drawTransmittanceBuffer = null;
 		this._drawIndirectArgsBuffer = null;
+		this._clearDrawIndirectArgsBuffer = null;
 		this._requestParamsBuffer = null;
 		this._pageTableCopyParamsBuffer = null;
 		this._compactParamsBuffer = null;
@@ -685,6 +696,7 @@ export class WebGPUPagedShadowRuntime {
 		this._fallbackDrawMetaBuffer = null;
 		this._fallbackDrawTransmittanceBuffer = null;
 		this._fallbackDrawIndirectArgsBuffer = null;
+		this._fallbackClearDrawIndirectArgsBuffer = null;
 		this._fallbackDrawCandidateWorldMatrices = null;
 		this._layouts = [];
 		this._previousCasterBounds.clear();
@@ -1179,6 +1191,19 @@ export class WebGPUPagedShadowRuntime {
 			);
 			changed = true;
 		}
+		if (!this._clearDrawIndirectArgsBuffer) {
+			this._clearDrawIndirectArgsData = new Uint32Array([6, 0, 0, 0]);
+			this._clearDrawIndirectArgsBuffer = this._backend.createBuffer({
+				size: CLEAR_DRAW_INDIRECT_UINTS * 4,
+				usage: BufferUsage.Storage | BufferUsage.CopyDst | BufferUsage.Indirect,
+				label: "WebGPUPagedShadowClearDrawIndirectArgs",
+			});
+			this._backend.writeBuffer(
+				this._clearDrawIndirectArgsBuffer,
+				this._clearDrawIndirectArgsData
+			);
+			changed = true;
+		}
 		return changed;
 	}
 
@@ -1258,6 +1283,16 @@ export class WebGPUPagedShadowRuntime {
 				Math.max(1, this._physicalPageCount) * DIRTY_PAGE_UV_RANGE_FLOATS
 			)
 		);
+		if (this._clearDrawIndirectArgsBuffer) {
+			this._clearDrawIndirectArgsData[0] = 6;
+			this._clearDrawIndirectArgsData[1] = 0;
+			this._clearDrawIndirectArgsData[2] = 0;
+			this._clearDrawIndirectArgsData[3] = 0;
+			this._backend.writeBuffer(
+				this._clearDrawIndirectArgsBuffer,
+				this._clearDrawIndirectArgsData
+			);
+		}
 	}
 
 	private _destroyBuffer(buffer: IRenderBuffer | null): void {
@@ -1596,11 +1631,21 @@ export class WebGPUPagedShadowRuntime {
 	private _resetGpuDrawCounters(): void {
 		this._counters[3] = 0;
 		this._counters[4] = 0;
+		this._clearDrawIndirectArgsData[0] = 6;
+		this._clearDrawIndirectArgsData[1] = 0;
+		this._clearDrawIndirectArgsData[2] = 0;
+		this._clearDrawIndirectArgsData[3] = 0;
 		if (this._countersBuffer) {
 			this._backend.writeBuffer(
 				this._countersBuffer,
 				new Uint32Array(this._counters.buffer, 3 * 4, 2),
 				3 * 4
+			);
+		}
+		if (this._clearDrawIndirectArgsBuffer) {
+			this._backend.writeBuffer(
+				this._clearDrawIndirectArgsBuffer,
+				this._clearDrawIndirectArgsData
 			);
 		}
 	}
@@ -1993,6 +2038,11 @@ export class WebGPUPagedShadowRuntime {
 			DRAW_INDIRECT_UINTS * 4,
 			BufferUsage.Storage | BufferUsage.CopyDst | BufferUsage.Indirect
 		);
+		this._fallbackClearDrawIndirectArgsBuffer ??= this._createFallbackBuffer(
+			"WebGPUPagedShadowFallbackClearDrawIndirectArgs",
+			CLEAR_DRAW_INDIRECT_UINTS * 4,
+			BufferUsage.Storage | BufferUsage.CopyDst | BufferUsage.Indirect
+		);
 		this._fallbackDrawCandidateWorldMatrices ??= this._createFallbackBuffer(
 			"WebGPUPagedShadowFallbackDrawWorldMatrices",
 			16 * 4
@@ -2024,6 +2074,7 @@ export class WebGPUPagedShadowRuntime {
 			drawInstanceMetaBuffer: this._fallbackDrawMetaBuffer,
 			drawTransmittanceBuffer: this._fallbackDrawTransmittanceBuffer,
 			drawIndirectArgsBuffer: this._fallbackDrawIndirectArgsBuffer,
+			clearDrawIndirectArgsBuffer: this._fallbackClearDrawIndirectArgsBuffer,
 			drawCandidateWorldMatrices: this._fallbackDrawCandidateWorldMatrices,
 			pageSize: DEFAULT_FALLBACK_PAGE_SIZE,
 			physicalGridSize: 1,

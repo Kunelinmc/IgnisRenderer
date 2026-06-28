@@ -100,6 +100,11 @@ function run() {
 	);
 	assert.ok(
 		pagedShadow.nodes[4].writes.some(
+			(write) => write.id === "paged-shadow:clear-draw-indirect-args"
+		)
+	);
+	assert.ok(
+		pagedShadow.nodes[4].writes.some(
 			(write) => write.id === "paged-shadow:physical-depth"
 		)
 	);

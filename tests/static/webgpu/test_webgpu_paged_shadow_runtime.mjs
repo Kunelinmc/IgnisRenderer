@@ -299,9 +299,16 @@ async function testRuntimeCreatesGpuAuthoritativeBuffers() {
 
 	const table = getBuffer(backend, "WebGPUPagedShadowPageTable");
 	const indirect = getBuffer(backend, "WebGPUPagedShadowDrawIndirectArgs");
+	const clearIndirect = getBuffer(
+		backend,
+		"WebGPUPagedShadowClearDrawIndirectArgs"
+	);
 	assert.ok(table);
 	assert.ok(indirect);
+	assert.ok(clearIndirect);
 	assert.ok(indirect.usage & BufferUsage.Indirect);
+	assert.ok(clearIndirect.usage & BufferUsage.Indirect);
+	assert.deepEqual(Array.from(clearIndirect.data), [6, 0, 0, 0]);
 	assert.equal(table.data[0], WEBGPU_PAGED_SHADOW_NON_RESIDENT);
 	assert.equal(table.data[3], WEBGPU_PAGED_SHADOW_NON_RESIDENT);
 	assert.equal(runtime.getDebugState().gpuAuthoritative, true);
@@ -530,6 +537,7 @@ async function testDepthPassBuildsGpuDrawsAndUsesIndirectRenderer() {
 			rendered.push({
 				candidates: resources.drawCandidateCount,
 				indirect: resources.drawIndirectArgsBuffer.label,
+				clearIndirect: resources.clearDrawIndirectArgsBuffer.label,
 				packetCount: packets.length,
 			});
 		},
@@ -553,6 +561,7 @@ async function testDepthPassBuildsGpuDrawsAndUsesIndirectRenderer() {
 		{
 			candidates: 2,
 			indirect: "WebGPUPagedShadowDrawIndirectArgs",
+			clearIndirect: "WebGPUPagedShadowClearDrawIndirectArgs",
 			packetCount: 2,
 		},
 	]);
@@ -575,6 +584,10 @@ async function testDepthPassBuildsGpuDrawsAndUsesIndirectRenderer() {
 	assert.equal(
 		dirtyGridBinding.entries[6].resource.label,
 		"WebGPUPagedShadowDirtyPageUvRanges"
+	);
+	assert.equal(
+		dirtyGridBinding.entries[7].resource.label,
+		"WebGPUPagedShadowClearDrawIndirectArgs"
 	);
 	assert.equal(
 		drawBuildBinding.entries[13].resource.label,
