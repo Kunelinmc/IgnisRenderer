@@ -13,19 +13,11 @@ import type {
 	ParticleMeshRenderBatch,
 	ParticleMeshRenderItem,
 	ParticleRenderBatch,
-	PreparedScene,
 } from "../../pipeline/types";
-import {
-	GammaPass,
-	PostProcessPassRegistry,
-	ToneMappingPass,
-	type ResolvedPostProcessState,
-} from "../../postprocess";
 import { ParticleBlendMode } from "../../particles";
 import { AlphaMode } from "../../materials/Material";
 import { isMaterialTransparentPass } from "../../materials/transparency";
 import { DEFAULT_PRIMITIVE_DRAW_TOPOLOGY } from "../../core/types";
-import type { ResolvedFeatureState } from "../../pipeline/types";
 import type { ICommandEncoder } from "../ICommandEncoder";
 import {
 	BufferUsage,
@@ -262,7 +254,6 @@ export class WebGPURenderResources {
 	private _deferredUnusedBinding: IBindingGroup | null = null;
 	private _frameId = 0;
 	private _destroyed = false;
-	private _fallbackPostProcess: PostProcessPassRegistry | null = null;
 
 	constructor(backend: WebGPUBackend) {
 		this._backend = backend;
@@ -532,58 +523,28 @@ export class WebGPURenderResources {
 	public prepareFrame(
 		context: FrameContext,
 		options: WebGPUPrepareFrameOptions
-	): WebGPUPreparedFrameResources;
-	public prepareFrame(
-		scene: PreparedScene,
-		features: ResolvedFeatureState,
-		options: WebGPUPrepareFrameOptions
-	): WebGPUPreparedFrameResources;
-	public prepareFrame(
-		contextOrScene: FrameContext | PreparedScene,
-		featuresOrOptions?: ResolvedFeatureState | WebGPUPrepareFrameOptions,
-		optionsArg?: WebGPUPrepareFrameOptions
 	): WebGPUPreparedFrameResources {
-		const isFrameContext = this._isFrameContext(contextOrScene);
-		const featuresArg =
-			isFrameContext ?
-				undefined
-			:	(featuresOrOptions as ResolvedFeatureState | undefined);
-		const options = this._resolvePrepareFrameOptions(
-			isFrameContext ?
-				(featuresOrOptions as WebGPUPrepareFrameOptions | undefined)
-			:	optionsArg
-		);
-
-		let jointMatrixMap: JointMatrixMap | null = null;
-		let morphWeightMap: MorphWeightMap | null = null;
-		if (isFrameContext) {
-			jointMatrixMap =
-				contextOrScene.transient.get(ANIMATION_WEBGPU_JOINT_MATRICES_KEY) ??
-				null;
-			morphWeightMap =
-				contextOrScene.transient.get(ANIMATION_WEBGPU_MORPH_WEIGHTS_KEY) ??
-				null;
-		}
-
-		const {
-			scene,
-			features,
-			postProcess,
-			shAmbientCoeffs,
-			renderWidth,
-			renderHeight,
-			temporalHistoryReset,
-			shadowMaps,
-		} = this._resolveFrameInputs(contextOrScene, featuresArg);
+		const resolvedOptions = this._resolvePrepareFrameOptions(options);
+		const jointMatrixMap =
+			context.transient.get(ANIMATION_WEBGPU_JOINT_MATRICES_KEY) ?? null;
+		const morphWeightMap =
+			context.transient.get(ANIMATION_WEBGPU_MORPH_WEIGHTS_KEY) ?? null;
+		const scene = context.scene;
+		const features = context.features;
+		const postProcess = context.postProcess;
+		const shAmbientCoeffs = context.shAmbientCoeffs;
+		const renderWidth = Math.max(1, context.attachments.width || 1);
+		const renderHeight = Math.max(1, context.attachments.height || 1);
+		const temporalHistoryReset =
+			context.incremental?.temporalHistoryReset === true;
+		const shadowMaps = context.shadowMaps;
 		const particleMeshShadowPackets =
-			isFrameContext ?
-				this.buildParticleMeshDrawPackets(contextOrScene, {
-					includeOpaque: false,
-					includeTransparent: false,
-					includeShadowCasters: true,
-					includeShadowTransmitters: true,
-				})
-			:	[];
+			this.buildParticleMeshDrawPackets(context, {
+				includeOpaque: false,
+				includeTransparent: false,
+				includeShadowCasters: true,
+				includeShadowTransmitters: true,
+			});
 		const shadowCasterPackets = [
 			...scene.shadowCasterPackets,
 			...particleMeshShadowPackets.filter(
@@ -598,8 +559,7 @@ export class WebGPURenderResources {
 					(packet.passFlags & DRAW_PACKET_FLAG_SHADOW_TRANSMITTER) !== 0
 			),
 		];
-		const temporalStateMode =
-			options?.temporalStateMode ?? (isFrameContext ? "advance" : "disabled");
+		const temporalStateMode = resolvedOptions.temporalStateMode ?? "advance";
 		const featureState: WebGPUFeatureState = {
 			enableLighting: features.enableLighting,
 			enableSH: features.enableSH,
@@ -649,15 +609,13 @@ export class WebGPURenderResources {
 				}
 			}
 		}
-		if (isFrameContext) {
-			this._pagedShadowRuntime.prepareFrame({
-				context: contextOrScene,
-				encoder: null,
-				renderSets: shadowMaps,
-				shadowCasterPackets,
-				shadowTransmitterPackets,
-			});
-		}
+		this._pagedShadowRuntime.prepareFrame({
+			context,
+			encoder: null,
+			renderSets: shadowMaps,
+			shadowCasterPackets,
+			shadowTransmitterPackets,
+		});
 
 		const lightingState = collectWebGPULighting(
 			scene.lights,
@@ -688,7 +646,7 @@ export class WebGPURenderResources {
 			lightingState,
 			this._resolveShadowAtlasTileSize(scene.shadowMaps, features.enableShadows)
 		);
-		const scope = this._getOrCreateFrameScope(options.scopeKey);
+		const scope = this._getOrCreateFrameScope(resolvedOptions.scopeKey);
 		scope.frameBindings.prepare(
 			scene,
 			lightingState,
@@ -696,7 +654,7 @@ export class WebGPURenderResources {
 			featureState,
 			renderWidth,
 			renderHeight,
-			options.sceneTargetMode,
+			resolvedOptions.sceneTargetMode,
 			{
 				temporalStateMode,
 				temporalHistoryReset,
@@ -711,8 +669,8 @@ export class WebGPURenderResources {
 		);
 
 		const frameResources: WebGPUPreparedFrameResources = {
-			scopeKey: options.scopeKey,
-			sceneTargetMode: options.sceneTargetMode,
+			scopeKey: resolvedOptions.scopeKey,
+			sceneTargetMode: resolvedOptions.sceneTargetMode,
 			frameBinding: scope.frameBindings.getSceneBinding(),
 			decalFrameBinding: scope.frameBindings.getDecalFrameBinding(),
 			environmentBinding: scope.frameBindings.getEnvironmentBinding(),
@@ -1083,10 +1041,6 @@ export class WebGPURenderResources {
 		this._shadowAtlases.destroy();
 		this._textureRegistry.destroy();
 		this._geometryRegistry.destroy();
-		if (this._fallbackPostProcess) {
-			this._fallbackPostProcess.destroyPasses();
-			this._fallbackPostProcess = null;
-		}
 	}
 
 	public getLightingState(
@@ -1223,70 +1177,6 @@ export class WebGPURenderResources {
 			"frameBinding" in value &&
 			"decalFrameBinding" in value &&
 			"clusteredSceneBinding" in value
-		);
-	}
-
-	private _resolveFrameInputs(
-		contextOrScene: FrameContext | PreparedScene,
-		featuresArg?: ResolvedFeatureState
-	): {
-		scene: PreparedScene;
-		features: ResolvedFeatureState;
-		postProcess: ResolvedPostProcessState;
-		shAmbientCoeffs: FrameContext["shAmbientCoeffs"] | null;
-		renderWidth: number;
-		renderHeight: number;
-		temporalHistoryReset: boolean;
-		shadowMaps: Map<ShadowCastingLight, ShadowRenderSet>;
-	} {
-		if (this._isFrameContext(contextOrScene)) {
-			return {
-				scene: contextOrScene.scene,
-				features: contextOrScene.features,
-				postProcess: contextOrScene.postProcess,
-				shAmbientCoeffs: contextOrScene.shAmbientCoeffs,
-				renderWidth: Math.max(1, contextOrScene.attachments.width || 1),
-				renderHeight: Math.max(1, contextOrScene.attachments.height || 1),
-				temporalHistoryReset:
-					contextOrScene.incremental?.temporalHistoryReset === true,
-				shadowMaps: contextOrScene.shadowMaps,
-			};
-		}
-
-		if (!featuresArg) {
-			throw new Error(
-				"WebGPURenderResources.prepareFrame() requires a resolved feature state."
-			);
-		}
-
-		if (!this._fallbackPostProcess) {
-			this._fallbackPostProcess = new PostProcessPassRegistry();
-			this._fallbackPostProcess.registerPass(new ToneMappingPass({ enabled: true }));
-			this._fallbackPostProcess.registerPass(new GammaPass({ enabled: true }));
-		}
-		return {
-			scene: contextOrScene,
-			features: featuresArg,
-			postProcess: this._fallbackPostProcess.createSnapshot(
-				this._backend.profile.id
-			),
-			shAmbientCoeffs: null,
-			renderWidth: 1,
-			renderHeight: 1,
-			temporalHistoryReset: false,
-			shadowMaps: contextOrScene.shadowMaps,
-		};
-	}
-
-	private _isFrameContext(
-		value: FrameContext | PreparedScene
-	): value is FrameContext {
-		return (
-			"scene" in value &&
-			"features" in value &&
-			"postProcess" in value &&
-			"attachments" in value &&
-			"transient" in value
 		);
 	}
 

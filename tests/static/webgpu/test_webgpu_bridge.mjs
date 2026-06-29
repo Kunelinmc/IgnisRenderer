@@ -192,6 +192,50 @@ function createFrame(packet) {
 	};
 }
 
+function createFrameContext(frame, features, options = {}) {
+	const width = options.width ?? 1;
+	const height = options.height ?? 1;
+	return {
+		camera: frame.camera,
+		attachments: { width, height },
+		features,
+		postProcess: options.postProcess ?? createResolvedPostProcess(),
+		shadowMaps: frame.shadowMaps,
+		scene: options.scene ?? frame,
+		shCoeffs: options.shCoeffs ?? SH.empty(),
+		shAmbientCoeffs: options.shAmbientCoeffs ?? SH.empty(),
+		worldMatrix: options.worldMatrix ?? Matrix4.identity(),
+		incremental: {
+			enabled: false,
+			forceFullFrame: true,
+			dirtyRects: [{ x: 0, y: 0, width, height }],
+			dirtyTileSize: Math.max(width, height),
+			dirtyTileColumns: 1,
+			dirtyTileRows: 1,
+			dirtyTiles: [0],
+			dirtyAreaRatio: 1,
+			firstPass: null,
+			postProcessStartPass: null,
+			reasonMask: 0,
+			temporalHistoryReset: options.temporalHistoryReset === true,
+		},
+		transient: options.transient ?? new Map(),
+	};
+}
+
+function createFrameContextWithFeatures(
+	frame,
+	featureRequest,
+	capabilities,
+	options = {}
+) {
+	return createFrameContext(
+		frame,
+		resolveFeatureState(featureRequest, capabilities, "webgpu"),
+		options
+	);
+}
+
 function createPreparedFrameResources(options = {}) {
 	const scopeKey = options.scopeKey ?? "test";
 	const sceneTargetMode = options.sceneTargetMode ?? "single";
@@ -1446,8 +1490,8 @@ async function testRenderResourcesUseCopyDstForUploads() {
 
 	await resources.init();
 	const frameResources = resources.prepareFrame(
-		frame,
-		resolveFeatureState(
+		createFrameContextWithFeatures(
+			frame,
 			{
 				enableLighting: true,
 				enableGamma: true,
@@ -1467,8 +1511,7 @@ async function testRenderResourcesUseCopyDstForUploads() {
 				dof: false,
 				bloom: false,
 				clusteredLighting: true,
-			},
-			"webgpu"
+			}
 		),
 		createMainFrameOptions()
 	);
@@ -1588,8 +1631,8 @@ async function testWebGPUBlendMaterialsUseTransparentPipelineState() {
 
 	await resources.init();
 	const frameResources = resources.prepareFrame(
-		frame,
-		resolveFeatureState(
+		createFrameContextWithFeatures(
+			frame,
 			{
 				enableLighting: true,
 				enableGamma: true,
@@ -1609,8 +1652,7 @@ async function testWebGPUBlendMaterialsUseTransparentPipelineState() {
 				dof: false,
 				bloom: false,
 				clusteredLighting: true,
-			},
-			"webgpu"
+			}
 		),
 		createMainFrameOptions()
 	);
@@ -1655,8 +1697,8 @@ async function testWebGPUTransmissionMaterialsUseTransparentPipelineState() {
 
 	await resources.init();
 	const frameResources = resources.prepareFrame(
-		frame,
-		resolveFeatureState(
+		createFrameContextWithFeatures(
+			frame,
 			{
 				enableLighting: true,
 				enableGamma: true,
@@ -1676,8 +1718,7 @@ async function testWebGPUTransmissionMaterialsUseTransparentPipelineState() {
 				dof: false,
 				bloom: false,
 				clusteredLighting: true,
-			},
-			"webgpu"
+			}
 		),
 		createMainFrameOptions()
 	);
@@ -1714,8 +1755,8 @@ async function testWebGPUEarlyZPrepassOpaquePipelineHasDepthOnlyState() {
 
 	await resources.init();
 	const frameResources = resources.prepareFrame(
-		frame,
-		resolveFeatureState(
+		createFrameContextWithFeatures(
+			frame,
 			{
 				enableLighting: true,
 				enableGamma: true,
@@ -1735,8 +1776,7 @@ async function testWebGPUEarlyZPrepassOpaquePipelineHasDepthOnlyState() {
 				dof: false,
 				bloom: false,
 				clusteredLighting: true,
-			},
-			"webgpu"
+			}
 		),
 		createMainFrameOptions()
 	);
@@ -1763,8 +1803,8 @@ async function testWebGPUEarlyZPrepassMaskPipelineUsesMaskDepthFragment() {
 
 	await resources.init();
 	const frameResources = resources.prepareFrame(
-		frame,
-		resolveFeatureState(
+		createFrameContextWithFeatures(
+			frame,
 			{
 				enableLighting: true,
 				enableGamma: true,
@@ -1784,8 +1824,7 @@ async function testWebGPUEarlyZPrepassMaskPipelineUsesMaskDepthFragment() {
 				dof: false,
 				bloom: false,
 				clusteredLighting: true,
-			},
-			"webgpu"
+			}
 		),
 		createMainFrameOptions()
 	);
@@ -1811,8 +1850,8 @@ async function testWebGPUEarlyZColorPipelineUsesReadOnlyDepthState() {
 
 	await resources.init();
 	const frameResources = resources.prepareFrame(
-		frame,
-		resolveFeatureState(
+		createFrameContextWithFeatures(
+			frame,
 			{
 				enableLighting: true,
 				enableGamma: true,
@@ -1832,8 +1871,7 @@ async function testWebGPUEarlyZColorPipelineUsesReadOnlyDepthState() {
 				dof: false,
 				bloom: false,
 				clusteredLighting: true,
-			},
-			"webgpu"
+			}
 		),
 		createMainFrameOptions()
 	);
@@ -1879,8 +1917,8 @@ fn customVs(@location(0) position: vec3<f32>) -> @builtin(position) vec4<f32> {
 
 	await resources.init();
 	const frameResources = resources.prepareFrame(
-		frame,
-		resolveFeatureState(
+		createFrameContextWithFeatures(
+			frame,
 			{
 				enableLighting: true,
 				enableGamma: true,
@@ -1900,8 +1938,7 @@ fn customVs(@location(0) position: vec3<f32>) -> @builtin(position) vec4<f32> {
 				dof: false,
 				bloom: false,
 				clusteredLighting: true,
-			},
-			"webgpu"
+			}
 		),
 		createMainFrameOptions()
 	);
@@ -1986,8 +2023,8 @@ fn customFs() -> @location(0) vec4<f32> {
 
 	await resources.init();
 	const frameResources = resources.prepareFrame(
-		frame,
-		resolveFeatureState(
+		createFrameContextWithFeatures(
+			frame,
 			{
 				enableLighting: true,
 				enableGamma: true,
@@ -2007,8 +2044,7 @@ fn customFs() -> @location(0) vec4<f32> {
 				dof: false,
 				bloom: false,
 				clusteredLighting: true,
-			},
-			"webgpu"
+			}
 		),
 		createMainFrameOptions()
 	);
@@ -2081,8 +2117,8 @@ fn customFs() -> @location(0) vec4<f32> {
 
 	await resources.init();
 	const frameResources = resources.prepareFrame(
-		frame,
-		resolveFeatureState(
+		createFrameContextWithFeatures(
+			frame,
 			{
 				enableLighting: true,
 				enableGamma: true,
@@ -2102,8 +2138,7 @@ fn customFs() -> @location(0) vec4<f32> {
 				dof: false,
 				bloom: false,
 				clusteredLighting: true,
-			},
-			"webgpu"
+			}
 		),
 		createMainFrameOptions()
 	);
@@ -2169,8 +2204,8 @@ async function testWebGPUOITTransparentPipelineUsesDualTargets() {
 
 	await resources.init();
 	const frameResources = resources.prepareFrame(
-		frame,
-		resolveFeatureState(
+		createFrameContextWithFeatures(
+			frame,
 			{
 				enableLighting: true,
 				enableGamma: true,
@@ -2192,8 +2227,7 @@ async function testWebGPUOITTransparentPipelineUsesDualTargets() {
 				dof: false,
 				bloom: false,
 				clusteredLighting: true,
-			},
-			"webgpu"
+			}
 		),
 		createMainFrameOptions()
 	);
@@ -2244,8 +2278,8 @@ async function testWebGPUOITTransmissionMaterialsStayLegacyPipeline() {
 
 	await resources.init();
 	const frameResources = resources.prepareFrame(
-		frame,
-		resolveFeatureState(
+		createFrameContextWithFeatures(
+			frame,
 			{
 				enableLighting: true,
 				enableGamma: true,
@@ -2267,8 +2301,7 @@ async function testWebGPUOITTransmissionMaterialsStayLegacyPipeline() {
 				dof: false,
 				bloom: false,
 				clusteredLighting: true,
-			},
-			"webgpu"
+			}
 		),
 		createMainFrameOptions()
 	);
@@ -2325,8 +2358,7 @@ async function testWebGPUOITParticlePipelinesSplitAlphaAndAdditive() {
 	);
 	resources.beginFrameResourceLifecycle();
 	const frameResources = resources.prepareFrame(
-		frame,
-		features,
+		createFrameContext(frame, features),
 		createMainFrameOptions()
 	);
 
@@ -2596,16 +2628,22 @@ async function testScopedSceneTargetModesUseDistinctBindings() {
 		"webgpu"
 	);
 
-	const mainFrameResources = resources.prepareFrame(frame, features, {
-		scopeKey: "main",
-		sceneTargetMode: "single",
-	});
+	const mainFrameResources = resources.prepareFrame(
+		createFrameContext(frame, features),
+		{
+			scopeKey: "main",
+			sceneTargetMode: "single",
+		}
+	);
 	const mainFrameBinding = mainFrameResources.frameBinding;
-	const captureFrameResources = resources.prepareFrame(frame, features, {
-		scopeKey: "test-capture",
-		sceneTargetMode: "mrt",
-		temporalStateMode: "disabled",
-	});
+	const captureFrameResources = resources.prepareFrame(
+		createFrameContext(frame, features),
+		{
+			scopeKey: "test-capture",
+			sceneTargetMode: "mrt",
+			temporalStateMode: "disabled",
+		}
+	);
 	assert.notEqual(captureFrameResources.frameBinding, mainFrameBinding);
 
 	const captureDrawResources = await resources.getDrawResources(
@@ -2681,10 +2719,13 @@ async function testSampleCountOverrideUsesSingleSampleCapturePipelines() {
 		},
 		"webgpu"
 	);
-	const frameResources = resources.prepareFrame(frame, features, {
-		scopeKey: "main",
-		sceneTargetMode: "mrt",
-	});
+	const frameResources = resources.prepareFrame(
+		createFrameContext(frame, features),
+		{
+			scopeKey: "main",
+			sceneTargetMode: "mrt",
+		}
+	);
 
 	const mainDrawResources = await resources.getDrawResources(
 		packet,
@@ -3004,8 +3045,7 @@ async function testParticleUVLayoutAndUniformBinding() {
 	);
 
 	const frameResources = resources.prepareFrame(
-		frame,
-		features,
+		createFrameContext(frame, features),
 		createMainFrameOptions()
 	);
 
@@ -3143,14 +3183,16 @@ async function testFrameBindingReplacementDestroysOldBinding() {
 	);
 
 	const firstFrameResources = resources.prepareFrame(
-		{
-			...frame,
-			environment: createEnvironmentSnapshot(
-				createTinyTexture(1),
-				createTinyTexture(1)
-			),
-		},
-		features,
+		createFrameContext(
+			{
+				...frame,
+				environment: createEnvironmentSnapshot(
+					createTinyTexture(1),
+					createTinyTexture(1)
+				),
+			},
+			features
+		),
 		createMainFrameOptions()
 	);
 	const firstEnvironment =
@@ -3160,14 +3202,16 @@ async function testFrameBindingReplacementDestroysOldBinding() {
 	assert.equal(firstBinding.destroyed, false);
 
 	const secondFrameResources = resources.prepareFrame(
-		{
-			...frame,
-			environment: createEnvironmentSnapshot(
-				createTinyTexture(1),
-				createTinyTexture(1)
-			),
-		},
-		features,
+		createFrameContext(
+			{
+				...frame,
+				environment: createEnvironmentSnapshot(
+					createTinyTexture(1),
+					createTinyTexture(1)
+				),
+			},
+			features
+		),
 		createMainFrameOptions()
 	);
 	assert.equal(firstBinding.destroyed, true);
@@ -3470,8 +3514,7 @@ async function testParticleShadowVolumeBufferUpdatesForDirectionalSlice() {
 		"webgpu"
 	);
 	const frameResources = resources.prepareFrame(
-		frame,
-		features,
+		createFrameContext(frame, features),
 		createMainFrameOptions()
 	);
 	resources.updateParticleShadowVolumes(
@@ -3577,8 +3620,7 @@ async function testShadowAtlasSizeTracksShadowMapsWhenLightingDisabled() {
 		"webgpu"
 	);
 	const frameResources = resources.prepareFrame(
-		frame,
-		features,
+		createFrameContext(frame, features),
 		createMainFrameOptions()
 	);
 	const frameBinding = resources.getFrameBinding(frameResources);
@@ -3637,8 +3679,7 @@ async function testParticleBindingCacheEvictsStaleSystems() {
 		"webgpu"
 	);
 	let frameResources = resources.prepareFrame(
-		frame,
-		features,
+		createFrameContext(frame, features),
 		createMainFrameOptions()
 	);
 
@@ -3713,8 +3754,7 @@ async function testParticleBindingCacheEvictsStaleSystems() {
 	for (let i = 0; i < 130; i++) {
 		resources.beginFrameResourceLifecycle();
 		frameResources = resources.prepareFrame(
-			frame,
-			features,
+			createFrameContext(frame, features),
 			createMainFrameOptions()
 		);
 	}
@@ -3755,8 +3795,7 @@ async function testRenderResourcesDestroyCleansParticleAndGeometryResources() {
 		"webgpu"
 	);
 	const frameResources = resources.prepareFrame(
-		frame,
-		features,
+		createFrameContext(frame, features),
 		createMainFrameOptions()
 	);
 	const draw = await resources.getDrawResources(packet, frameResources);
