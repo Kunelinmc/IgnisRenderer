@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { WebGPURenderResources } from "../../../src/renderers/webgpu/WebGPURenderResources.ts";
 import { WebGPUFrameExecutor } from "../../../src/renderers/webgpu/WebGPUFrameExecutor.ts";
 import { ShaderSource } from "../../../src/shaders/ShaderSource.ts";
@@ -781,6 +782,36 @@ function testDecalBatchLayoutHonorsStorageTextureLimit() {
 		layouts.decalOutputBindGroupLayout.desc.entries.length,
 		WEBGPU_DEFERRED_STORAGE_TEXTURE_COUNT
 	);
+}
+
+function testShadowDepthLayoutMatchesTransmittanceShaderBinding() {
+	const shadowDepthShader = readFileSync(
+		"src/shaders/webgpu/shadow/depth.wgsl",
+		"utf8"
+	);
+	const shadowPassSource = readFileSync(
+		"src/renderers/webgpu/WebGPUShadowPass.ts",
+		"utf8"
+	);
+	const depthLayoutBindingPattern = new RegExp([
+		"label: \"WebGPUShadowDepthBindGroupLayout\"",
+		"binding: 2,",
+		"visibility: GPUShaderStage\\.VERTEX,",
+		"buffer: \\{ type: \"read-only-storage\" \\}",
+	].join("[\\s\\S]*"));
+	const depthBindGroupEntryPattern = new RegExp([
+		"label: `WebGPUShadowDepthMvpBindGroup_",
+		"binding: 2,",
+		"resource: \\{ buffer: transmittanceBuffer \\}",
+	].join("[\\s\\S]*"));
+
+	assert.ok(
+		shadowDepthShader.includes(
+			"@group(0) @binding(2) var<storage, read> shadowTransmittance"
+		)
+	);
+	assert.match(shadowPassSource, depthLayoutBindingPattern);
+	assert.match(shadowPassSource, depthBindGroupEntryPattern);
 }
 
 async function testParticleShaderDepthConsistency() {
@@ -3999,6 +4030,7 @@ async function run() {
 	await testSceneShaderCoverage();
 	testScenePipelineLimitConstantsMatchLayout();
 	testDecalBatchLayoutHonorsStorageTextureLimit();
+	testShadowDepthLayoutMatchesTransmittanceShaderBinding();
 	await testParticleShaderDepthConsistency();
 	await testWebGPUShaderConstantTokenInjection();
 	testEnvironmentCollection();

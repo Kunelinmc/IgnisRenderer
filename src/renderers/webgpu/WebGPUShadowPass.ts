@@ -1581,6 +1581,11 @@ export class WebGPUShadowPass {
 						visibility: GPUShaderStage.VERTEX,
 						buffer: { type: "read-only-storage" },
 					},
+					{
+						binding: 2,
+						visibility: GPUShaderStage.VERTEX,
+						buffer: { type: "read-only-storage" },
+					},
 				],
 			});
 		}
