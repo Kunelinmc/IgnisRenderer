@@ -5,6 +5,7 @@ import {
 	getCustomPostProcessPlacementOrder,
 	isPostProcessPlacement,
 } from "./ordering";
+import { createPostProcessScaledResourceDescriptorKey } from "./resourceDescriptors";
 import type {
 	LogicalGBufferBridge,
 	LogicalGBufferSemantic,
@@ -376,28 +377,15 @@ export class PostProcessGraphCompiler {
 	private _createHistoryDescriptorKey(
 		descriptor: PostProcessHistoryDescriptor
 	): string {
-		return [
-			descriptor.widthScale ?? 1,
-			descriptor.heightScale ?? 1,
-			descriptor.format ?? "rgba16float",
-			[...(descriptor.usage ?? ["sampled", "storage", "render-target"])]
-				.sort()
-				.join(","),
-		].join("|");
+		return createPostProcessScaledResourceDescriptorKey(descriptor);
 	}
 
 	private _createTransientDescriptorKey(
 		descriptor: PostProcessTransientDescriptor
 	): string {
-		return [
-			descriptor.widthScale ?? 1,
-			descriptor.heightScale ?? 1,
-			descriptor.format ?? "rgba16float",
-			descriptor.mipMode ?? "single",
-			[...(descriptor.usage ?? ["sampled", "storage", "render-target"])]
-				.sort()
-				.join(","),
-		].join("|");
+		return createPostProcessScaledResourceDescriptorKey(descriptor, {
+			includeMipMode: true,
+		});
 	}
 }
 

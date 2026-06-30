@@ -11,6 +11,11 @@ To support decoupled backends, post-process execution is delegated to backend-ow
 - Backends that support post-processing must set `BackendCapabilities.postProcess = true` and handle `executePass({ stage: "postprocess" }, context)`.
 - Backend resize, device loss, or destruction must trigger post-process runtime invalidation or destruction.
 - A custom post-process pass must include its respective entry in `PostProcessPassConfig.implementations` (e.g., `webgpu`, `webgl`, or `software`).
+- `PostProcessHistoryDescriptor`, `PostProcessTransientDescriptor`, and
+  `PostProcessResourceDescriptor` must share
+  `PostProcessBaseResourceDescriptor` fields for `id`, `format`, and `usage`.
+  Scale-based descriptors must use `PostProcessScaledResourceDescriptor`;
+  concrete backend descriptors must use absolute `width` and `height`.
 
 ---
 

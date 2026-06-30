@@ -69,22 +69,25 @@ export interface PostProcessPassRequirements {
 	readonly history?: readonly string[];
 }
 
-export interface PostProcessHistoryDescriptor {
+export interface PostProcessBaseResourceDescriptor {
 	readonly id: string;
-	readonly widthScale?: number;
-	readonly heightScale?: number;
 	readonly format?: string;
 	readonly usage?: readonly string[];
 }
 
 export type PostProcessResourceMipMode = "single" | "full-chain";
 
-export interface PostProcessTransientDescriptor {
-	readonly id: string;
+export interface PostProcessScaledResourceDescriptor
+	extends PostProcessBaseResourceDescriptor {
 	readonly widthScale?: number;
 	readonly heightScale?: number;
-	readonly format?: string;
-	readonly usage?: readonly string[];
+}
+
+export interface PostProcessHistoryDescriptor
+	extends PostProcessScaledResourceDescriptor {}
+
+export interface PostProcessTransientDescriptor
+	extends PostProcessScaledResourceDescriptor {
 	readonly mipMode?: PostProcessResourceMipMode;
 }
 
@@ -97,8 +100,8 @@ export interface PostProcessHistoryResolveRequest {
 	readonly height: number;
 }
 
-export interface PostProcessResourceDescriptor {
-	readonly id: string;
+export interface PostProcessResourceDescriptor
+	extends PostProcessBaseResourceDescriptor {
 	readonly width: number;
 	readonly height: number;
 	readonly format: string;

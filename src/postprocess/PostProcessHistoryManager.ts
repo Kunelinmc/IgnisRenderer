@@ -3,9 +3,12 @@ import type {
 	PostProcessHistoryDescriptor,
 	PostProcessHistorySlot,
 	PostProcessHistorySlots,
-	PostProcessResourceDescriptor,
 	PostProcessResourceHandle,
 } from "./types";
+import {
+	createPostProcessResourceAllocationKey,
+	resolvePostProcessResourceDescriptor,
+} from "./resourceDescriptors";
 
 interface HistoryEntry {
 	descriptorKey: string;
@@ -170,18 +173,15 @@ export class PostProcessHistoryManager {
 		descriptor: PostProcessHistoryDescriptor,
 		request: PostProcessHistoryPrepareRequest
 	): void {
-		const resourceDescriptor = this._toResourceDescriptor(
+		const resourceDescriptor = resolvePostProcessResourceDescriptor(
 			descriptor,
 			request.width,
 			request.height
 		);
-		const descriptorKey = [
+		const descriptorKey = createPostProcessResourceAllocationKey(
 			request.executor.backend,
-			resourceDescriptor.width,
-			resourceDescriptor.height,
-			resourceDescriptor.format,
-			resourceDescriptor.usage.join(","),
-		].join("|");
+			resourceDescriptor
+		);
 		const current = this._entries.get(descriptor.id);
 		if (current && current.descriptorKey === descriptorKey) {
 			return;
@@ -203,28 +203,6 @@ export class PostProcessHistoryManager {
 			valid: false,
 			updated: false,
 		});
-	}
-
-	private _toResourceDescriptor(
-		descriptor: PostProcessHistoryDescriptor,
-		width: number,
-		height: number
-	): PostProcessResourceDescriptor {
-		const resolvedWidth = Math.max(
-			1,
-			Math.floor(width * (descriptor.widthScale ?? 1))
-		);
-		const resolvedHeight = Math.max(
-			1,
-			Math.floor(height * (descriptor.heightScale ?? 1))
-		);
-		return {
-			id: descriptor.id,
-			width: resolvedWidth,
-			height: resolvedHeight,
-			format: descriptor.format ?? "rgba16float",
-			usage: descriptor.usage ?? ["sampled", "storage", "render-target"],
-		};
 	}
 
 	private _toSlot(id: string, entry: HistoryEntry): PostProcessHistorySlot {

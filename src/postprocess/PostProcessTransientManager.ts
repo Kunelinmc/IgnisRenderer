@@ -1,11 +1,14 @@
 import type {
 	IPostProcessExecutor,
-	PostProcessResourceDescriptor,
 	PostProcessResourceHandle,
 	PostProcessTransientDescriptor,
 	PostProcessTransientSlot,
 	PostProcessTransientSlots,
 } from "./types";
+import {
+	createPostProcessResourceAllocationKey,
+	resolvePostProcessResourceDescriptor,
+} from "./resourceDescriptors";
 
 interface TransientEntry {
 	descriptorKey: string;
@@ -89,19 +92,22 @@ export class PostProcessTransientManager {
 		descriptor: PostProcessTransientDescriptor,
 		request: PostProcessTransientPrepareRequest
 	): boolean {
-		const resourceDescriptor = this._toResourceDescriptor(
+		const resourceDescriptor = resolvePostProcessResourceDescriptor(
 			descriptor,
 			request.width,
-			request.height
+			request.height,
+			{
+				includeMipMode: true,
+			}
 		);
-		const descriptorKey = [
+		const descriptorKey = createPostProcessResourceAllocationKey(
 			request.executor.backend,
-			resourceDescriptor.width,
-			resourceDescriptor.height,
-			resourceDescriptor.format,
-			resourceDescriptor.mipMode ?? "single",
-			[...resourceDescriptor.usage].sort().join(","),
-		].join("|");
+			resourceDescriptor,
+			{
+				includeMipMode: true,
+				sortUsage: true,
+			}
+		);
 		const current = this._entries.get(descriptor.id);
 		if (current && current.descriptorKey === descriptorKey) {
 			return false;
@@ -114,29 +120,6 @@ export class PostProcessTransientManager {
 			handle: request.executor.createResource(resourceDescriptor),
 		});
 		return true;
-	}
-
-	private _toResourceDescriptor(
-		descriptor: PostProcessTransientDescriptor,
-		width: number,
-		height: number
-	): PostProcessResourceDescriptor {
-		const resolvedWidth = Math.max(
-			1,
-			Math.floor(width * (descriptor.widthScale ?? 1))
-		);
-		const resolvedHeight = Math.max(
-			1,
-			Math.floor(height * (descriptor.heightScale ?? 1))
-		);
-		return {
-			id: descriptor.id,
-			width: resolvedWidth,
-			height: resolvedHeight,
-			format: descriptor.format ?? "rgba16float",
-			usage: descriptor.usage ?? ["sampled", "storage", "render-target"],
-			mipMode: descriptor.mipMode ?? "single",
-		};
 	}
 
 	private _toSlot(id: string, entry: TransientEntry): PostProcessTransientSlot {
