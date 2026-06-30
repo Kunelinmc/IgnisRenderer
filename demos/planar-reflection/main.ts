@@ -247,8 +247,8 @@ function populateScene(
 	const objects: AnimatedObject[] = [];
 	const floorMaterial = new PBRMaterial({
 		name: "matte-gallery-floor",
-		albedo: { r: 48, g: 50, b: 45 },
-		roughness: 0.82,
+		albedo: { r: 82, g: 86, b: 78 },
+		roughness: 0.76,
 		metalness: 0,
 		doubleSided: true,
 	});
@@ -336,13 +336,13 @@ function populateScene(
 	}
 
 	scene.add(new AmbientLight({
-		color: { r: 118, g: 126, b: 128 },
-		intensity: 0.16,
+		color: { r: 190, g: 202, b: 205 },
+		intensity: 0.34,
 	}));
 	scene.add(new DirectionalLight({
-		color: { r: 255, g: 242, b: 220 },
-		intensity: 0.42,
-		direction: { x: -0.35, y: -1, z: -0.24 },
+		color: { r: 255, g: 248, b: 232 },
+		intensity: 0.78,
+		direction: { x: -0.32, y: -1, z: -0.18 },
 	}));
 	return objects;
 }
@@ -366,9 +366,9 @@ function addMirrorTrim(scene: Scene, material: PBRMaterial): void {
 
 function addBackWall(scene: Scene): void {
 	const wallMaterial = new PBRMaterial({
-		name: "dark-wall",
-		albedo: { r: 54, g: 59, b: 61 },
-		roughness: 0.76,
+		name: "gallery-back-wall",
+		albedo: { r: 94, g: 101, b: 103 },
+		roughness: 0.72,
 		metalness: 0.02,
 	});
 	const wall = MeshFactory.createBox(
@@ -382,8 +382,8 @@ function addBackWall(scene: Scene): void {
 
 	const plinthMaterial = new PBRMaterial({
 		name: "gallery-plinths",
-		albedo: { r: 88, g: 92, b: 88 },
-		roughness: 0.67,
+		albedo: { r: 132, g: 137, b: 130 },
+		roughness: 0.62,
 		metalness: 0.06,
 	});
 	for (let index = 0; index < 7; index++) {
@@ -415,9 +415,9 @@ function createLights(
 		const phase = (index / colors.length) * Math.PI * 2;
 		const light = new PointLight({
 			color,
-			intensity: 9 + index * 1.4,
+			intensity: 14 + index * 2.1,
 			position: { x: 0, y: 2.4, z: 0 },
-			range: 8,
+			range: 10,
 		});
 		const marker = MeshFactory.createSphere(
 			{ x: 0, y: 2.4, z: 0 },
