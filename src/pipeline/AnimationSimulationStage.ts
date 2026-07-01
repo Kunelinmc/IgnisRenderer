@@ -1,6 +1,6 @@
-import { DefaultAnimationSimulator } from "../simulation/animation/DefaultAnimationSimulator";
 import type { AnimationSystem } from "../animation/AnimationSystem";
 import type { Scene } from "../core/Scene";
+import { AnimationRuntime } from "../simulation/animation/AnimationRuntime";
 import type { TransientStore } from "./types";
 
 export interface AnimationSimulationStageContext {
@@ -9,18 +9,22 @@ export interface AnimationSimulationStageContext {
 }
 
 export class AnimationSimulationStage {
-	private _simulator: DefaultAnimationSimulator;
+	private _runtime = new AnimationRuntime();
+	private _animationSystem: AnimationSystem;
 
 	constructor(animationSystem: AnimationSystem) {
-		this._simulator = new DefaultAnimationSimulator(animationSystem);
+		this._animationSystem = animationSystem;
 	}
 
 	public execute(
 		context: AnimationSimulationStageContext,
-		deltaTimeMs: number
+		deltaTimeSeconds: number
 	): void {
-		this._simulator.beginFrame(context);
-		this._simulator.simulate(context, deltaTimeMs);
-		this._simulator.endFrame();
+		this._runtime.update(
+			this._animationSystem,
+			Math.max(0, deltaTimeSeconds),
+			context.transient,
+			context.scene
+		);
 	}
 }

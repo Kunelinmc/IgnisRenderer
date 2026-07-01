@@ -342,7 +342,7 @@ export class FrameCoordinator {
 				scene: delegate.scene,
 				transient: state.transient,
 			},
-			dt,
+			state.deltaTimeSeconds,
 		);
 		if (!state.emittedPostAnimation) {
 			this._emitPostAnimation(delegate, state, dt);
