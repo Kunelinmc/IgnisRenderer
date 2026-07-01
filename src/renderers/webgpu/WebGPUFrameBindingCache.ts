@@ -311,7 +311,7 @@ export class WebGPUFrameBindingCache {
 			:	this._textureRegistry.getWhiteTexture();
 		const currentIrradianceProbeGrid =
 			this._getIrradianceProbeGridTexture(environmentState);
-		const pagedShadowResources = this._pagedShadowRuntime.getResources();
+		const pagedShadowResources = this._pagedShadowRuntime.getSamplingResources();
 		const currentPagedShadowPageTableTexture = pagedShadowResources.pageTableTexture;
 		const currentPagedShadowPhysicalDepthAtlas =
 			pagedShadowResources.physicalDepthAtlas;
@@ -540,13 +540,13 @@ export class WebGPUFrameBindingCache {
 						binding: 11,
 						resource:
 							this._pagedShadowPageTableTexture ??
-							this._pagedShadowRuntime.getResources().pageTableTexture,
+							this._pagedShadowRuntime.getSamplingResources().pageTableTexture,
 					},
 					{
 						binding: 12,
 						resource:
 							this._pagedShadowPhysicalDepthAtlas ??
-							this._pagedShadowRuntime.getResources().physicalDepthAtlas,
+							this._pagedShadowRuntime.getSamplingResources().physicalDepthAtlas,
 					},
 					{
 						binding: 13,

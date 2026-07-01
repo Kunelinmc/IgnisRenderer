@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 
 import { LightType } from "../../../src/lights/index.ts";
 import { Matrix4 } from "../../../src/maths/Matrix4.ts";
-import { BufferUsage } from "../../../src/renderers/types.ts";
+import { BufferUsage, TextureUsage } from "../../../src/renderers/types.ts";
 import {
 	WEBGPU_PAGED_SHADOW_NON_RESIDENT,
 	WebGPUPagedShadowRuntime,
@@ -15,6 +15,7 @@ function createMockBackend() {
 	const buffers = [];
 	const textures = [];
 	const writes = [];
+	const textureWrites = [];
 	const bindingGroups = [];
 	const pipelines = [];
 	const nativeBuffers = [];
@@ -22,6 +23,7 @@ function createMockBackend() {
 		buffers,
 		textures,
 		writes,
+		textureWrites,
 		bindingGroups,
 		pipelines,
 		nativeBuffers,
@@ -68,6 +70,7 @@ function createMockBackend() {
 			const texture = {
 				width: desc.width,
 				height: desc.height,
+				usage: desc.usage,
 				label: desc.label,
 				destroyed: false,
 				destroy() {
@@ -87,6 +90,19 @@ function createMockBackend() {
 			buffer.byteLength = copy.byteLength;
 			buffer.writeOffset = offset;
 			writes.push([buffer.label, buffer.data, offset, copy.byteLength]);
+		},
+		writeTexture(texture, data, desc, size) {
+			const source =
+				ArrayBuffer.isView(data) ?
+					new Uint8Array(data.buffer, data.byteOffset, data.byteLength)
+				:	new Uint8Array(data);
+			const copy = new Uint8Array(source);
+			textureWrites.push({
+				label: texture.label,
+				data: new Uint32Array(copy.buffer),
+				desc,
+				size,
+			});
 		},
 		async createShaderModule(desc) {
 			return { label: desc.label };
@@ -278,6 +294,51 @@ function testCpuRequesterRemainsAvailableForDiagnostics() {
 			["sun:paged-test:0:3:0", 3, 0, 3],
 		]
 	);
+}
+
+function testSamplingFallbackDoesNotCreateRenderBuffers() {
+	const backend = createMockBackend();
+	const shadowPass = { renderPagedDepthIndirect() {} };
+	const runtime = new WebGPUPagedShadowRuntime(backend, shadowPass);
+
+	const resources = runtime.getSamplingResources();
+	const pageTableTexture = getLatestTexture(
+		backend,
+		"WebGPUPagedShadowFallbackPageTableTexture"
+	);
+	const depthAtlas = getLatestTexture(
+		backend,
+		"WebGPUPagedShadowFallbackDepthAtlas"
+	);
+
+	assert.equal(resources.pageTableTexture, pageTableTexture);
+	assert.equal(resources.physicalDepthAtlas, depthAtlas);
+	assert.ok(pageTableTexture.usage & TextureUsage.TextureBinding);
+	assert.ok(pageTableTexture.usage & TextureUsage.CopyDst);
+	assert.equal(
+		backend.buffers.some((buffer) =>
+			buffer.label.startsWith("WebGPUPagedShadowFallback")
+		),
+		false
+	);
+	assert.equal(runtime.getIndirectRenderResources(), null);
+}
+
+function testSamplingFallbackWritesNonResidentPageTable() {
+	const backend = createMockBackend();
+	const shadowPass = { renderPagedDepthIndirect() {} };
+	const runtime = new WebGPUPagedShadowRuntime(backend, shadowPass);
+
+	runtime.getSamplingResources();
+
+	assert.deepEqual(backend.textureWrites, [
+		{
+			label: "WebGPUPagedShadowFallbackPageTableTexture",
+			data: new Uint32Array([WEBGPU_PAGED_SHADOW_NON_RESIDENT]),
+			desc: {},
+			size: { width: 1, height: 1 },
+		},
+	]);
 }
 
 async function testRuntimeCreatesGpuAuthoritativeBuffers() {
@@ -706,6 +767,8 @@ async function testCascadeProjectionChangesSetForceDirty() {
 
 async function run() {
 	testCpuRequesterRemainsAvailableForDiagnostics();
+	testSamplingFallbackDoesNotCreateRenderBuffers();
+	testSamplingFallbackWritesNonResidentPageTable();
 	await testRuntimeCreatesGpuAuthoritativeBuffers();
 	await testCasterGrowthDoesNotRecreatePhysicalAtlas();
 	await testPhysicalShapeChangesRecreateAtlasAndResetResidency();

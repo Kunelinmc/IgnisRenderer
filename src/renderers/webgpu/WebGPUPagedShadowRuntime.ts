@@ -66,26 +66,19 @@ export interface WebGPUPagedShadowFrameRequest {
 	feedbackMotionDepthTexture?: IRenderTexture | null;
 }
 
-export interface WebGPUPagedShadowResources {
-	pageTable: IRenderBuffer;
+export interface WebGPUPagedShadowSamplingResources {
 	pageTableTexture: IRenderTexture;
 	physicalDepthAtlas: IRenderTexture;
-	physicalTransmittanceAtlas: IRenderTexture | null;
-	pageMetadataBuffer: IRenderBuffer;
-	pageRequestFlags: IRenderBuffer;
-	compactedRequests: IRenderBuffer;
-	residencyState: IRenderBuffer;
-	freeList: IRenderBuffer;
-	counters: IRenderBuffer;
+}
+
+export interface WebGPUPagedShadowIndirectRenderResources {
+	physicalDepthAtlas: IRenderTexture;
 	dirtyPhysicalPages: IRenderBuffer;
-	feedbackFlags: IRenderBuffer;
-	nextFeedbackFlags: IRenderBuffer;
 	drawMvpBuffer: IRenderBuffer;
 	drawInstanceMetaBuffer: IRenderBuffer;
 	drawTransmittanceBuffer: IRenderBuffer;
 	drawIndirectArgsBuffer: IRenderBuffer;
 	clearDrawIndirectArgsBuffer: IRenderBuffer;
-	drawCandidateWorldMatrices: IRenderBuffer;
 	pageSize: number;
 	physicalGridSize: number;
 	physicalAtlasSize: number;
@@ -180,23 +173,7 @@ export class WebGPUPagedShadowRuntime {
 	private _pageMetadataBuffer: IRenderBuffer | null = null;
 	private _physicalDepthAtlas: IRenderTexture | null = null;
 	private _fallbackPageTableTexture: IRenderTexture | null = null;
-	private _fallbackPageTableBuffer: IRenderBuffer | null = null;
-	private _fallbackMetadataBuffer: IRenderBuffer | null = null;
 	private _fallbackDepthAtlas: IRenderTexture | null = null;
-	private _fallbackPageRequestFlags: IRenderBuffer | null = null;
-	private _fallbackCompactedRequests: IRenderBuffer | null = null;
-	private _fallbackResidencyState: IRenderBuffer | null = null;
-	private _fallbackFreeList: IRenderBuffer | null = null;
-	private _fallbackCounters: IRenderBuffer | null = null;
-	private _fallbackDirtyPhysicalPages: IRenderBuffer | null = null;
-	private _fallbackFeedbackFlags: IRenderBuffer | null = null;
-	private _fallbackNextFeedbackFlags: IRenderBuffer | null = null;
-	private _fallbackDrawMvpBuffer: IRenderBuffer | null = null;
-	private _fallbackDrawMetaBuffer: IRenderBuffer | null = null;
-	private _fallbackDrawTransmittanceBuffer: IRenderBuffer | null = null;
-	private _fallbackDrawIndirectArgsBuffer: IRenderBuffer | null = null;
-	private _fallbackClearDrawIndirectArgsBuffer: IRenderBuffer | null = null;
-	private _fallbackDrawCandidateWorldMatrices: IRenderBuffer | null = null;
 	private _pageRequestFlagsBuffer: IRenderBuffer | null = null;
 	private _compactedRequestsBuffer: IRenderBuffer | null = null;
 	private _residencyStateBuffer: IRenderBuffer | null = null;
@@ -501,9 +478,13 @@ export class WebGPUPagedShadowRuntime {
 			1,
 			1
 		);
+		const resources = this.getIndirectRenderResources();
+		if (!resources) {
+			return;
+		}
 		await this._shadowPass.renderPagedDepthIndirect(
 			request.context,
-			this.getResources(),
+			resources,
 			request.encoder,
 			request.shadowCasterPackets
 		);
@@ -511,51 +492,41 @@ export class WebGPUPagedShadowRuntime {
 	}
 
 	/**
-	 * @internal WebGPU resource query hook for shadow samplers and debug tools.
+	 * @internal WebGPU resource query hook for scene shadow samplers.
 	 */
-	public getResources(): WebGPUPagedShadowResources {
+	public getSamplingResources(): WebGPUPagedShadowSamplingResources {
+		if (!this._pageTableTexture || !this._physicalDepthAtlas) {
+			return this._getFallbackSamplingResources();
+		}
+		return {
+			pageTableTexture: this._pageTableTexture,
+			physicalDepthAtlas: this._physicalDepthAtlas,
+		};
+	}
+
+	/**
+	 * @internal WebGPU resource query hook for GPU-driven depth rendering.
+	 */
+	public getIndirectRenderResources(): WebGPUPagedShadowIndirectRenderResources | null {
 		if (
-			!this._pageTableBuffer ||
-			!this._pageMetadataBuffer ||
 			!this._physicalDepthAtlas ||
-			!this._pageRequestFlagsBuffer ||
-			!this._compactedRequestsBuffer ||
-			!this._residencyStateBuffer ||
-			!this._freeListBuffer ||
-			!this._countersBuffer ||
 			!this._dirtyPhysicalPagesBuffer ||
-			!this._feedbackFlagsBuffer ||
-			!this._nextFeedbackFlagsBuffer ||
 			!this._drawMvpBuffer ||
 			!this._drawInstanceMetaBuffer ||
 			!this._drawTransmittanceBuffer ||
 			!this._drawIndirectArgsBuffer ||
-			!this._clearDrawIndirectArgsBuffer ||
-			!this._drawWorldMatrixBuffer ||
-			!this._dirtyPageUvRangesBuffer
+			!this._clearDrawIndirectArgsBuffer
 		) {
-			return this._getFallbackResources();
+			return null;
 		}
 		return {
-			pageTable: this._pageTableBuffer,
-			pageTableTexture: this._pageTableTexture!,
 			physicalDepthAtlas: this._physicalDepthAtlas,
-			physicalTransmittanceAtlas: null,
-			pageMetadataBuffer: this._pageMetadataBuffer,
-			pageRequestFlags: this._pageRequestFlagsBuffer,
-			compactedRequests: this._compactedRequestsBuffer,
-			residencyState: this._residencyStateBuffer,
-			freeList: this._freeListBuffer,
-			counters: this._countersBuffer,
 			dirtyPhysicalPages: this._dirtyPhysicalPagesBuffer,
-			feedbackFlags: this._feedbackFlagsBuffer,
-			nextFeedbackFlags: this._nextFeedbackFlagsBuffer,
 			drawMvpBuffer: this._drawMvpBuffer,
 			drawInstanceMetaBuffer: this._drawInstanceMetaBuffer,
 			drawTransmittanceBuffer: this._drawTransmittanceBuffer,
 			drawIndirectArgsBuffer: this._drawIndirectArgsBuffer,
 			clearDrawIndirectArgsBuffer: this._clearDrawIndirectArgsBuffer,
-			drawCandidateWorldMatrices: this._drawWorldMatrixBuffer,
 			pageSize: this._pageSize,
 			physicalGridSize: this._physicalGridSize,
 			physicalAtlasSize: this._physicalAtlasSize,
@@ -626,24 +597,8 @@ export class WebGPUPagedShadowRuntime {
 			this._dirtyParamsBuffer,
 			this._drawParamsBuffer,
 			this._feedbackParamsBuffer,
-			this._fallbackPageTableBuffer,
 			this._fallbackPageTableTexture,
-			this._fallbackMetadataBuffer,
 			this._fallbackDepthAtlas,
-			this._fallbackPageRequestFlags,
-			this._fallbackCompactedRequests,
-			this._fallbackResidencyState,
-			this._fallbackFreeList,
-			this._fallbackCounters,
-			this._fallbackDirtyPhysicalPages,
-			this._fallbackFeedbackFlags,
-			this._fallbackNextFeedbackFlags,
-			this._fallbackDrawMvpBuffer,
-			this._fallbackDrawMetaBuffer,
-			this._fallbackDrawTransmittanceBuffer,
-			this._fallbackDrawIndirectArgsBuffer,
-			this._fallbackClearDrawIndirectArgsBuffer,
-			this._fallbackDrawCandidateWorldMatrices,
 		]) {
 			resource?.destroy();
 		}
@@ -680,24 +635,8 @@ export class WebGPUPagedShadowRuntime {
 		this._dirtyParamsBuffer = null;
 		this._drawParamsBuffer = null;
 		this._feedbackParamsBuffer = null;
-		this._fallbackPageTableBuffer = null;
 		this._fallbackPageTableTexture = null;
-		this._fallbackMetadataBuffer = null;
 		this._fallbackDepthAtlas = null;
-		this._fallbackPageRequestFlags = null;
-		this._fallbackCompactedRequests = null;
-		this._fallbackResidencyState = null;
-		this._fallbackFreeList = null;
-		this._fallbackCounters = null;
-		this._fallbackDirtyPhysicalPages = null;
-		this._fallbackFeedbackFlags = null;
-		this._fallbackNextFeedbackFlags = null;
-		this._fallbackDrawMvpBuffer = null;
-		this._fallbackDrawMetaBuffer = null;
-		this._fallbackDrawTransmittanceBuffer = null;
-		this._fallbackDrawIndirectArgsBuffer = null;
-		this._fallbackClearDrawIndirectArgsBuffer = null;
-		this._fallbackDrawCandidateWorldMatrices = null;
 		this._layouts = [];
 		this._previousCasterBounds.clear();
 		this._previousCascadeViewProjectionData = null;
@@ -1957,29 +1896,7 @@ export class WebGPUPagedShadowRuntime {
 		target[offset + 15] = elements[3][3];
 	}
 
-	private _getFallbackResources(): WebGPUPagedShadowResources {
-		if (!this._fallbackPageTableBuffer) {
-			this._fallbackPageTableBuffer = this._backend.createBuffer({
-				size: 4,
-				usage: BufferUsage.Storage | BufferUsage.CopyDst,
-				label: "WebGPUPagedShadowFallbackPageTable",
-			});
-			this._backend.writeBuffer(
-				this._fallbackPageTableBuffer,
-				new Uint32Array([WEBGPU_PAGED_SHADOW_NON_RESIDENT])
-			);
-		}
-		if (!this._fallbackMetadataBuffer) {
-			this._fallbackMetadataBuffer = this._backend.createBuffer({
-				size: PAGE_METADATA_UINTS * 4,
-				usage: BufferUsage.Storage | BufferUsage.CopyDst,
-				label: "WebGPUPagedShadowFallbackMetadata",
-			});
-			this._backend.writeBuffer(
-				this._fallbackMetadataBuffer,
-				new Uint32Array(PAGE_METADATA_UINTS)
-			);
-		}
+	private _getFallbackSamplingResources(): WebGPUPagedShadowSamplingResources {
 		if (!this._fallbackDepthAtlas) {
 			this._fallbackDepthAtlas = this._backend.createTexture({
 				width: DEFAULT_FALLBACK_PAGE_SIZE,
@@ -1989,114 +1906,25 @@ export class WebGPUPagedShadowRuntime {
 				label: "WebGPUPagedShadowFallbackDepthAtlas",
 			});
 		}
-		this._fallbackPageRequestFlags ??= this._createFallbackBuffer(
-			"WebGPUPagedShadowFallbackPageRequestFlags",
-			4
-		);
-		this._fallbackCompactedRequests ??= this._createFallbackBuffer(
-			"WebGPUPagedShadowFallbackCompactedRequests",
-			PAGE_REQUEST_RECORD_UINTS * 4
-		);
-		this._fallbackResidencyState ??= this._createFallbackBuffer(
-			"WebGPUPagedShadowFallbackResidencyState",
-			PAGE_RESIDENCY_STATE_UINTS * 4
-		);
-		this._fallbackFreeList ??= this._createFallbackBuffer(
-			"WebGPUPagedShadowFallbackFreeList",
-			4
-		);
-		this._fallbackCounters ??= this._createFallbackBuffer(
-			"WebGPUPagedShadowFallbackCounters",
-			32
-		);
-		this._fallbackDirtyPhysicalPages ??= this._createFallbackBuffer(
-			"WebGPUPagedShadowFallbackDirtyPhysicalPages",
-			DIRTY_PHYSICAL_PAGE_RECORD_UINTS * 4
-		);
-		this._fallbackFeedbackFlags ??= this._createFallbackBuffer(
-			"WebGPUPagedShadowFallbackFeedbackFlags",
-			4
-		);
-		this._fallbackNextFeedbackFlags ??= this._createFallbackBuffer(
-			"WebGPUPagedShadowFallbackNextFeedbackFlags",
-			4
-		);
-		this._fallbackDrawMvpBuffer ??= this._createFallbackBuffer(
-			"WebGPUPagedShadowFallbackDrawMvp",
-			16 * 4
-		);
-		this._fallbackDrawMetaBuffer ??= this._createFallbackBuffer(
-			"WebGPUPagedShadowFallbackDrawMeta",
-			SHADOW_INSTANCE_DATA_UINTS * 4
-		);
-		this._fallbackDrawTransmittanceBuffer ??= this._createFallbackBuffer(
-			"WebGPUPagedShadowFallbackDrawTransmittance",
-			4 * 4
-		);
-		this._fallbackDrawIndirectArgsBuffer ??= this._createFallbackBuffer(
-			"WebGPUPagedShadowFallbackDrawIndirectArgs",
-			DRAW_INDIRECT_UINTS * 4,
-			BufferUsage.Storage | BufferUsage.CopyDst | BufferUsage.Indirect
-		);
-		this._fallbackClearDrawIndirectArgsBuffer ??= this._createFallbackBuffer(
-			"WebGPUPagedShadowFallbackClearDrawIndirectArgs",
-			CLEAR_DRAW_INDIRECT_UINTS * 4,
-			BufferUsage.Storage | BufferUsage.CopyDst | BufferUsage.Indirect
-		);
-		this._fallbackDrawCandidateWorldMatrices ??= this._createFallbackBuffer(
-			"WebGPUPagedShadowFallbackDrawWorldMatrices",
-			16 * 4
-		);
 		if (!this._fallbackPageTableTexture) {
 			this._fallbackPageTableTexture = this._backend.createTexture({
 				width: 1,
 				height: 1,
 				format: TextureFormat.R32Uint,
-				usage: TextureUsage.TextureBinding,
+				usage: TextureUsage.TextureBinding | TextureUsage.CopyDst,
 				label: "WebGPUPagedShadowFallbackPageTableTexture",
 			});
+			this._backend.writeTexture(
+				this._fallbackPageTableTexture,
+				new Uint32Array([WEBGPU_PAGED_SHADOW_NON_RESIDENT]),
+				{},
+				{ width: 1, height: 1 }
+			);
 		}
 		return {
-			pageTable: this._fallbackPageTableBuffer,
 			pageTableTexture: this._fallbackPageTableTexture,
 			physicalDepthAtlas: this._fallbackDepthAtlas,
-			physicalTransmittanceAtlas: null,
-			pageMetadataBuffer: this._fallbackMetadataBuffer,
-			pageRequestFlags: this._fallbackPageRequestFlags,
-			compactedRequests: this._fallbackCompactedRequests,
-			residencyState: this._fallbackResidencyState,
-			freeList: this._fallbackFreeList,
-			counters: this._fallbackCounters,
-			dirtyPhysicalPages: this._fallbackDirtyPhysicalPages,
-			feedbackFlags: this._fallbackFeedbackFlags,
-			nextFeedbackFlags: this._fallbackNextFeedbackFlags,
-			drawMvpBuffer: this._fallbackDrawMvpBuffer,
-			drawInstanceMetaBuffer: this._fallbackDrawMetaBuffer,
-			drawTransmittanceBuffer: this._fallbackDrawTransmittanceBuffer,
-			drawIndirectArgsBuffer: this._fallbackDrawIndirectArgsBuffer,
-			clearDrawIndirectArgsBuffer: this._fallbackClearDrawIndirectArgsBuffer,
-			drawCandidateWorldMatrices: this._fallbackDrawCandidateWorldMatrices,
-			pageSize: DEFAULT_FALLBACK_PAGE_SIZE,
-			physicalGridSize: 1,
-			physicalAtlasSize: DEFAULT_FALLBACK_PAGE_SIZE,
-			drawCandidateCount: 0,
-			drawInstanceCapacity: 1,
-			physicalPageCount: 1,
 		};
-	}
-
-	private _createFallbackBuffer(
-		label: string,
-		size: number,
-		usage: BufferUsage = BufferUsage.Storage | BufferUsage.CopyDst
-	): IRenderBuffer {
-		const buffer = this._backend.createBuffer({
-			size: Math.max(4, size),
-			usage,
-			label,
-		});
-		this._backend.writeBuffer(buffer, new Uint32Array(Math.max(1, size / 4)));
-		return buffer;
 	}
 }
 

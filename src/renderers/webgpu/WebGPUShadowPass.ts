@@ -52,8 +52,8 @@ import type {
 } from "./WebGPUGeometryRegistry";
 import type { WebGPUShadowAtlasAllocator } from "./WebGPUShadowAtlasAllocator";
 import type {
+	WebGPUPagedShadowIndirectRenderResources,
 	WebGPUPagedShadowResidentPage,
-	WebGPUPagedShadowResources,
 } from "./WebGPUPagedShadowRuntime";
 
 interface ShadowRenderSlot {
@@ -424,7 +424,7 @@ export class WebGPUShadowPass {
 	 */
 	public async renderPagedDepthIndirect(
 		context: FrameContext,
-		resources: WebGPUPagedShadowResources,
+		resources: WebGPUPagedShadowIndirectRenderResources,
 		frameEncoder?: ICommandEncoder | null,
 		shadowCasterPackets: readonly DrawPacket[] = context.scene.shadowCasterPackets
 	): Promise<void> {

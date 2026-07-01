@@ -72,7 +72,7 @@ import { WebGPUShadowPass } from "./WebGPUShadowPass";
 import {
 	WebGPUPagedShadowRuntime,
 	type WebGPUPagedShadowFrameRequest,
-	type WebGPUPagedShadowResources,
+	type WebGPUPagedShadowSamplingResources,
 } from "./WebGPUPagedShadowRuntime";
 import {
 	resolveShadowCasterBounds,
@@ -973,8 +973,8 @@ export class WebGPURenderResources {
 	/**
 	 * @internal WebGPU frame binding hook.
 	 */
-	public getPagedShadowResources(): WebGPUPagedShadowResources {
-		return this._pagedShadowRuntime.getResources();
+	public getPagedShadowSamplingResources(): WebGPUPagedShadowSamplingResources {
+		return this._pagedShadowRuntime.getSamplingResources();
 	}
 
 	public async buildClusteredLighting(
