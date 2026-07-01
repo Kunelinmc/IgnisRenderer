@@ -2,9 +2,13 @@ import assert from "node:assert/strict";
 import * as ordering from "../../../src/postprocess/ordering.ts";
 import { isPostProcessPassStage } from "../../../src/postprocess/PostProcessGraphCompiler.ts";
 import {
+	TONE_MAPPING_PASS_INCREMENTAL,
 	TONE_MAPPING_PASS_ORDER,
 } from "../../../src/postprocess/passes/ToneMappingPass.ts";
-import { GAMMA_PASS_ORDER } from "../../../src/postprocess/passes/GammaPass.ts";
+import {
+	GAMMA_PASS_INCREMENTAL,
+	GAMMA_PASS_ORDER,
+} from "../../../src/postprocess/passes/GammaPass.ts";
 
 const {
 	getBuiltinPostProcessOrder,
@@ -15,21 +19,13 @@ function testBuiltinOrderIsDefinedOnPassModules() {
 		id: "tonemap",
 		placement: "hdr",
 		order: 600,
-		incremental: {
-			firstPass: "tonemap",
-			grade: "light",
-			inflationRadius: 0,
-		},
+		incremental: TONE_MAPPING_PASS_INCREMENTAL,
 	});
 	assert.deepEqual(GAMMA_PASS_ORDER, {
 		id: "gamma",
 		placement: "present",
 		order: 900,
-		incremental: {
-			firstPass: "gamma",
-			grade: "light",
-			inflationRadius: 0,
-		},
+		incremental: GAMMA_PASS_INCREMENTAL,
 	});
 	assert.deepEqual(getBuiltinPostProcessOrder("tonemap"), {
 		id: "tonemap",

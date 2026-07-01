@@ -20,6 +20,7 @@ import type {
 	PostProcessSharedContext,
 } from "../../renderers/webgpu/postprocess/PostProcessSharedContext";
 import { ShaderSource } from "../../shaders/ShaderSource";
+import type { PostProcessIncrementalMetadata } from "../../pipeline/incremental";
 import { PostProcessPass, type PostProcessPassConfig } from "../PostProcessPass";
 import type { PostProcessPassMetadata } from "../ordering";
 import type {
@@ -41,15 +42,16 @@ import {
 export type { WebGLGammaContext, WebGPUGammaContext } from "./ScreenPassShared";
 
 export const GAMMA_PASS_ID = "gamma";
+export const GAMMA_PASS_INCREMENTAL = {
+	firstPass: GAMMA_PASS_ID,
+	grade: "light",
+	inflationRadius: 0,
+} as const satisfies PostProcessIncrementalMetadata;
 export const GAMMA_PASS_ORDER = {
 	id: GAMMA_PASS_ID,
 	placement: "present",
 	order: 900,
-	incremental: {
-		firstPass: "gamma",
-		grade: "light",
-		inflationRadius: 0,
-	},
+	incremental: GAMMA_PASS_INCREMENTAL,
 } as const satisfies PostProcessPassMetadata;
 /** @internal Software implementation for the built-in gamma pass. */
 export class SoftwareGammaImplementation

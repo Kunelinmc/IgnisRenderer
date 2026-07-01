@@ -16,6 +16,7 @@ import type {
 	WebGLProgramSlot,
 } from "../../renderers/webgl/WebGLProgramCompiler";
 import { ShaderSource } from "../../shaders/ShaderSource";
+import type { PostProcessIncrementalMetadata } from "../../pipeline/incremental";
 import { PostProcessPass, type PostProcessPassConfig } from "../PostProcessPass";
 import type { PostProcessPassMetadata } from "../ordering";
 import type {
@@ -37,6 +38,11 @@ import {
 } from "./ScreenPassShared";
 
 export const TONE_MAPPING_PASS_ID = "tonemap";
+export const TONE_MAPPING_PASS_INCREMENTAL = {
+	firstPass: TONE_MAPPING_PASS_ID,
+	grade: "light",
+	inflationRadius: 0,
+} as const satisfies PostProcessIncrementalMetadata;
 
 interface WebGLToneMappingProgram {
 	readonly program: WebGLProgram;
@@ -48,11 +54,7 @@ export const TONE_MAPPING_PASS_ORDER = {
 	id: TONE_MAPPING_PASS_ID,
 	placement: "hdr",
 	order: 600,
-	incremental: {
-		firstPass: "tonemap",
-		grade: "light",
-		inflationRadius: 0,
-	},
+	incremental: TONE_MAPPING_PASS_INCREMENTAL,
 } as const satisfies PostProcessPassMetadata;
 export type WebGPUToneMappingContext = WebGPURuntimePostProcessContext;
 export type WebGLToneMappingContext = WebGLScreenPostProcessContext;

@@ -3,11 +3,23 @@ import {
 	type ResolvedFeatureState,
 } from "./types";
 import {
-	getEnabledCustomPostProcessPassIds,
 	type PostProcessPass,
 	type PostProcessPassId,
-	type ResolvedPostProcessState,
-} from "../postprocess";
+	type PostProcessPassRegistrySnapshot,
+	getEnabledCustomPostProcessPassIds,
+} from "../postprocess/PostProcessPass";
+import {
+	GAMMA_PASS_ID,
+	GAMMA_PASS_INCREMENTAL,
+	GAMMA_PASS_ORDER,
+} from "../postprocess/passes/GammaPass";
+import {
+	TONE_MAPPING_PASS_ID,
+	TONE_MAPPING_PASS_INCREMENTAL,
+	TONE_MAPPING_PASS_ORDER,
+} from "../postprocess/passes/ToneMappingPass";
+
+type ResolvedPostProcessState = PostProcessPassRegistrySnapshot;
 
 export const RENDER_DIRTY_REASON_MASK = {
 	unknown: 1 << 0,
@@ -188,14 +200,6 @@ interface DirtyReasonSeed extends IncrementalDirtyReasonDescriptor {
 	readonly mask: number;
 }
 
-interface PostProcessIncrementalSeed
-	extends Omit<PostProcessIncrementalMetadata, "firstPass" | "isEnabled"> {
-	readonly id: PostProcessPassId;
-	readonly firstPass: PostProcessStage | null;
-	readonly order: number;
-	readonly isEnabled?: (postProcess: ResolvedPostProcessState) => boolean;
-}
-
 const BUILTIN_FRAME_PASS_STAGE_ORDER: FramePassStage[] = [
 	"particle-sim",
 	"shadow",
@@ -354,23 +358,6 @@ const DIRTY_REASON_SEEDS: readonly DirtyReasonSeed[] = [
 	},
 ];
 
-const POST_PROCESS_INCREMENTAL_SEEDS: readonly PostProcessIncrementalSeed[] = [
-	{
-		id: "tonemap",
-		order: 600,
-		firstPass: "tonemap",
-		grade: "light",
-		inflationRadius: 0,
-	},
-	{
-		id: "gamma",
-		order: 900,
-		firstPass: "gamma",
-		grade: "light",
-		inflationRadius: 0,
-	},
-] as const;
-
 const POST_PROCESS_GRADE_INDEX: Record<PostProcessGrade, number> = {
 	none: 0,
 	light: 1,
@@ -412,9 +399,22 @@ export class IncrementalRegistry {
 				true
 			);
 		}
-		for (const metadata of POST_PROCESS_INCREMENTAL_SEEDS) {
-			this._registerPostProcessPass(metadata, true);
-		}
+		this._registerPostProcessPass(
+			{
+				id: TONE_MAPPING_PASS_ID,
+				order: TONE_MAPPING_PASS_ORDER.order,
+				...TONE_MAPPING_PASS_INCREMENTAL,
+			},
+			true
+		);
+		this._registerPostProcessPass(
+			{
+				id: GAMMA_PASS_ID,
+				order: GAMMA_PASS_ORDER.order,
+				...GAMMA_PASS_INCREMENTAL,
+			},
+			true
+		);
 	}
 
 	/**

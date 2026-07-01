@@ -189,6 +189,7 @@ export {
 } from "./passes/DepthOfFieldPass";
 export {
 	GAMMA_PASS_ID,
+	GAMMA_PASS_INCREMENTAL,
 	GAMMA_PASS_ORDER,
 	GammaPass,
 	SoftwareGammaImplementation,
@@ -210,6 +211,7 @@ export {
 } from "./passes/MotionBlurPass";
 export {
 	TONE_MAPPING_PASS_ID,
+	TONE_MAPPING_PASS_INCREMENTAL,
 	TONE_MAPPING_PASS_ORDER,
 	ToneMappingPass,
 	SoftwareToneMappingImplementation,
