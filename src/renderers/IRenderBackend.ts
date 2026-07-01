@@ -75,6 +75,27 @@ export interface WarmupReport {
 	errors: ShaderCompileError[];
 }
 
+export interface RenderBackendDeviceDebugInfo {
+	readonly vendor?: string;
+	readonly renderer?: string;
+	readonly architecture?: string;
+	readonly device?: string;
+	readonly description?: string;
+	readonly isFallbackAdapter?: boolean;
+	readonly driverVersion?: string;
+	readonly raw?: Record<string, string | number | boolean>;
+}
+
+export interface RenderBackendDebugInfo {
+	readonly backend: RenderBackendType;
+	readonly api: "software" | "webgpu" | "webgl2";
+	readonly available: boolean;
+	readonly unavailableReason?: string;
+	readonly device?: RenderBackendDeviceDebugInfo;
+	readonly limits?: Record<string, number>;
+	readonly features?: readonly string[];
+}
+
 export interface BackendCapabilities {
 	sh: boolean;
 	shadows: boolean;
@@ -158,6 +179,15 @@ export interface IRenderBackend {
 	 */
 	attach(context: RenderBackendAttachContext): void;
 	initialize(): Promise<void>;
+	/**
+	 * Returns a best-effort diagnostic snapshot for the backend runtime.
+	 *
+	 * @returns Backend debug information. The snapshot may report unavailable
+	 * or redacted fields when the backend is not initialized or browser privacy
+	 * policy hides GPU identifiers.
+	 * @sideEffects None. Implementations must not initialize backend resources.
+	 */
+	getDebugInfo(): RenderBackendDebugInfo;
 	/**
 	 * Rebuilds backend device or graphics context resources after loss.
 	 */

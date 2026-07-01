@@ -49,6 +49,15 @@ export class TestRenderBackend {
 
 	async initialize() {}
 
+	getDebugInfo() {
+		return {
+			backend: this.type,
+			api: "software",
+			available: false,
+			unavailableReason: "Test backend has not been initialized.",
+		};
+	}
+
 	async restore() {}
 
 	resize() {}

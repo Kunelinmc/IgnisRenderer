@@ -4,10 +4,19 @@ import { WebGLBackend } from "../../../src/renderers/WebGLBackend.ts";
 import { PARTICLE_SIM_DELTA_TIME_SECONDS_KEY } from "../../../src/pipeline/types.ts";
 import { createResolvedPostProcess } from "../../helpers/postprocess.mjs";
 
-function createFakeWebGL2Context() {
+function createFakeWebGL2Context(options = {}) {
+	const debugInfo = options.debugRendererInfo;
+	const supportedExtensions = options.supportedExtensions ?? [];
 	return {
 		MAX_TEXTURE_SIZE: 0x0d33,
 		MAX_RENDERBUFFER_SIZE: 0x84e8,
+		MAX_TEXTURE_IMAGE_UNITS: 0x8872,
+		MAX_VERTEX_TEXTURE_IMAGE_UNITS: 0x8b4c,
+		MAX_COMBINED_TEXTURE_IMAGE_UNITS: 0x8b4d,
+		MAX_DRAW_BUFFERS: 0x8824,
+		MAX_COLOR_ATTACHMENTS: 0x8cdf,
+		VENDOR: 0x1f00,
+		RENDERER: 0x1f01,
 		VERTEX_SHADER: 0x8b31,
 		FRAGMENT_SHADER: 0x8b30,
 		COMPILE_STATUS: 0x8b81,
@@ -63,10 +72,32 @@ function createFakeWebGL2Context() {
 		getParameter(param) {
 			if (param === this.MAX_TEXTURE_SIZE) return 4096;
 			if (param === this.MAX_RENDERBUFFER_SIZE) return 4096;
+			if (param === this.MAX_TEXTURE_IMAGE_UNITS) return 16;
+			if (param === this.MAX_VERTEX_TEXTURE_IMAGE_UNITS) return 8;
+			if (param === this.MAX_COMBINED_TEXTURE_IMAGE_UNITS) return 24;
+			if (param === this.MAX_DRAW_BUFFERS) return 4;
+			if (param === this.MAX_COLOR_ATTACHMENTS) return 4;
+			if (param === this.VENDOR) return options.vendor ?? "Masked Vendor";
+			if (param === this.RENDERER) return options.renderer ?? "Masked Renderer";
+			if (debugInfo && param === debugInfo.UNMASKED_VENDOR_WEBGL) {
+				return debugInfo.vendor;
+			}
+			if (debugInfo && param === debugInfo.UNMASKED_RENDERER_WEBGL) {
+				return debugInfo.renderer;
+			}
 			return 0;
 		},
-		getExtension() {
+		getExtension(name) {
+			if (name === "WEBGL_debug_renderer_info" && debugInfo) {
+				return {
+					UNMASKED_VENDOR_WEBGL: debugInfo.UNMASKED_VENDOR_WEBGL,
+					UNMASKED_RENDERER_WEBGL: debugInfo.UNMASKED_RENDERER_WEBGL,
+				};
+			}
 			return null;
+		},
+		getSupportedExtensions() {
+			return supportedExtensions;
 		},
 		createVertexArray() {
 			return {};
@@ -323,6 +354,55 @@ async function testInitAndPassRouting() {
 	);
 }
 
+async function testDebugInfoUsesWebGLDebugRendererExtension() {
+	const canvas = createFakeCanvas(
+		createFakeWebGL2Context({
+			debugRendererInfo: {
+				UNMASKED_VENDOR_WEBGL: 0x9245,
+				UNMASKED_RENDERER_WEBGL: 0x9246,
+				vendor: "GPU Vendor",
+				renderer: "GPU Renderer",
+			},
+			supportedExtensions: ["EXT_beta", "EXT_alpha"],
+		})
+	);
+	const backend = createWebGLSession({}, canvas);
+
+	assert.equal(backend.getDebugInfo().available, false);
+	await backend.initialize();
+
+	const debugInfo = backend.getDebugInfo();
+	assert.equal(debugInfo.backend, "webgl");
+	assert.equal(debugInfo.api, "webgl2");
+	assert.equal(debugInfo.available, true);
+	assert.equal(debugInfo.device.vendor, "GPU Vendor");
+	assert.equal(debugInfo.device.renderer, "GPU Renderer");
+	assert.equal(debugInfo.device.raw.unmaskedVendor, "GPU Vendor");
+	assert.equal(debugInfo.device.raw.unmaskedRenderer, "GPU Renderer");
+	assert.deepEqual(debugInfo.features, ["EXT_alpha", "EXT_beta"]);
+	assert.equal(debugInfo.limits.MAX_TEXTURE_SIZE, 4096);
+	assert.equal(debugInfo.limits.MAX_TEXTURE_IMAGE_UNITS, 16);
+	assert.equal(debugInfo.limits.MAX_DRAW_BUFFERS, 4);
+}
+
+async function testDebugInfoFallsBackToMaskedWebGLStrings() {
+	const canvas = createFakeCanvas(
+		createFakeWebGL2Context({
+			vendor: "Masked Test Vendor",
+			renderer: "Masked Test Renderer",
+		})
+	);
+	const backend = createWebGLSession({}, canvas);
+	await backend.initialize();
+
+	const debugInfo = backend.getDebugInfo();
+	assert.equal(debugInfo.available, true);
+	assert.equal(debugInfo.device.vendor, "Masked Test Vendor");
+	assert.equal(debugInfo.device.renderer, "Masked Test Renderer");
+	assert.equal(debugInfo.device.raw.vendor, "Masked Test Vendor");
+	assert.equal(debugInfo.device.raw.renderer, "Masked Test Renderer");
+}
+
 async function testEarlyZPrepassOptionCanDisable() {
 	const canvas = createFakeCanvas(createFakeWebGL2Context());
 	const backend = createWebGLSession(
@@ -489,6 +569,8 @@ function testBackendPlanOmitsRendererOwnedPostProcessStage() {
 async function run() {
 	await testInitRequiresWebGL2();
 	await testInitAndPassRouting();
+	await testDebugInfoUsesWebGLDebugRendererExtension();
+	await testDebugInfoFallsBackToMaskedWebGLStrings();
 	await testEarlyZPrepassOptionCanDisable();
 	await testContextLostAndRestored();
 	await testPublicLifecycleMethods();

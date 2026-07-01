@@ -1,6 +1,7 @@
 import type {
 	IRenderBackend,
 	RenderBackendAttachContext,
+	RenderBackendDebugInfo,
 	RenderBackendProfile,
 	RenderSurfaceSize,
 } from "./IRenderBackend";
@@ -217,6 +218,22 @@ export class SoftwareBackend implements IRenderBackend {
 
 	public get activeRasterMode(): SoftwareRasterMode {
 		return this._activeRasterMode;
+	}
+
+	/**
+	 * Returns software backend diagnostics.
+	 *
+	 * @returns A stable unavailable snapshot because this backend does not own
+	 * a GPU device.
+	 * @sideEffects None.
+	 */
+	public getDebugInfo(): RenderBackendDebugInfo {
+		return {
+			backend: "software",
+			api: "software",
+			available: false,
+			unavailableReason: "Software backend does not use a GPU device.",
+		};
 	}
 
 	public async initialize(): Promise<void> {

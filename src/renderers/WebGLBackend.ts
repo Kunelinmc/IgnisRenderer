@@ -7,6 +7,7 @@ import {
 import { DefaultParticleSimulator } from "../simulation/particles/DefaultParticleSimulator";
 import type {
 	IRenderBackend,
+	RenderBackendDebugInfo,
 	RenderBackendDeviceLostInfo,
 	RenderBackendAttachContext,
 	RenderBackendProfile,
@@ -57,6 +58,21 @@ import {
 } from "./BackendExtensions";
 
 const MAX_PARTICLE_SIM_DELTA_TIME_SECONDS = 0.5;
+const WEBGL_DEBUG_INFO_UNINITIALIZED: RenderBackendDebugInfo = {
+	backend: "webgl",
+	api: "webgl2",
+	available: false,
+	unavailableReason: "WebGL backend has not been initialized.",
+};
+const WEBGL_DEBUG_LIMIT_KEYS = [
+	"MAX_TEXTURE_SIZE",
+	"MAX_RENDERBUFFER_SIZE",
+	"MAX_TEXTURE_IMAGE_UNITS",
+	"MAX_VERTEX_TEXTURE_IMAGE_UNITS",
+	"MAX_COMBINED_TEXTURE_IMAGE_UNITS",
+	"MAX_DRAW_BUFFERS",
+	"MAX_COLOR_ATTACHMENTS",
+] as const;
 
 export interface WebGLBackendOptions {
 	shaderMode?: ShaderRuntimeMode;
@@ -131,6 +147,7 @@ export class WebGLBackend implements IRenderBackend {
 	private _plannedPasses = new Set<FramePass["stage"]>();
 	private _plannedPassOrder = new Map<FramePass["stage"], number>();
 	private readonly _framePlanner = new FramePassPlanValidator("WebGL");
+	private _debugInfo: RenderBackendDebugInfo = WEBGL_DEBUG_INFO_UNINITIALIZED;
 
 	constructor(options: WebGLBackendOptions = {}) {
 		this._options = options;
@@ -166,6 +183,17 @@ export class WebGLBackend implements IRenderBackend {
 	 */
 	public isEarlyZPrepassEnabled(): boolean {
 		return this._enableEarlyZPrepass;
+	}
+
+	/**
+	 * Returns the current WebGL diagnostic snapshot.
+	 *
+	 * @returns WebGL adapter strings, limits, and extensions when initialized,
+	 * otherwise an unavailable snapshot.
+	 * @sideEffects None.
+	 */
+	public getDebugInfo(): RenderBackendDebugInfo {
+		return this._debugInfo;
 	}
 
 	public async initialize(): Promise<void> {
@@ -458,6 +486,7 @@ export class WebGLBackend implements IRenderBackend {
 		this._particleSimulator = null;
 		this._gl = null;
 		this._activeContext = null;
+		this._debugInfo = WEBGL_DEBUG_INFO_UNINITIALIZED;
 
 		if (this._canvas) {
 			if (this._contextLossHandler) {
@@ -522,6 +551,45 @@ export class WebGLBackend implements IRenderBackend {
 		);
 		this._contextLost = false;
 		this._frameExecutor.resize(this._width, this._height);
+		this._debugInfo = this._createDebugInfo(gl);
+	}
+
+	private _createDebugInfo(gl: WebGL2RenderingContext): RenderBackendDebugInfo {
+		const debugInfo = getWebGLDebugRendererInfo(gl);
+		const raw: Record<string, string | number | boolean> = {};
+		let vendor = debugInfo?.vendor;
+		let renderer = debugInfo?.renderer;
+
+		if (vendor) {
+			raw.unmaskedVendor = vendor;
+		} else {
+			vendor = getWebGLStringParameter(gl, gl.VENDOR);
+			if (vendor) raw.vendor = vendor;
+		}
+		if (renderer) {
+			raw.unmaskedRenderer = renderer;
+		} else {
+			renderer = getWebGLStringParameter(gl, gl.RENDERER);
+			if (renderer) raw.renderer = renderer;
+		}
+
+		const device =
+			vendor || renderer || Object.keys(raw).length > 0
+				? {
+						vendor,
+						renderer,
+						raw: Object.keys(raw).length > 0 ? raw : undefined,
+				  }
+				: undefined;
+
+		return {
+			backend: "webgl",
+			api: "webgl2",
+			available: true,
+			device,
+			limits: collectWebGLLimits(gl),
+			features: collectWebGLExtensions(gl),
+		};
 	}
 
 	private _reportWarmupProgress(
@@ -636,4 +704,70 @@ function toSafeDimension(value: unknown): number {
 		return 1;
 	}
 	return Math.max(1, Math.floor(value));
+}
+
+function getWebGLDebugRendererInfo(
+	gl: WebGL2RenderingContext
+): { vendor?: string; renderer?: string } | null {
+	if (typeof gl.getExtension !== "function") {
+		return null;
+	}
+	let debugInfo: any = null;
+	try {
+		debugInfo = gl.getExtension("WEBGL_debug_renderer_info");
+	} catch {
+		return null;
+	}
+	if (!debugInfo) {
+		return null;
+	}
+	return {
+		vendor: getWebGLStringParameter(gl, debugInfo.UNMASKED_VENDOR_WEBGL),
+		renderer: getWebGLStringParameter(gl, debugInfo.UNMASKED_RENDERER_WEBGL),
+	};
+}
+
+function getWebGLStringParameter(
+	gl: WebGL2RenderingContext,
+	parameter: number | undefined
+): string | undefined {
+	if (typeof parameter !== "number" || typeof gl.getParameter !== "function") {
+		return undefined;
+	}
+	try {
+		const value = gl.getParameter(parameter);
+		return typeof value === "string" && value.length > 0 ? value : undefined;
+	} catch {
+		return undefined;
+	}
+}
+
+function collectWebGLLimits(gl: WebGL2RenderingContext): Record<string, number> {
+	const limits: Record<string, number> = {};
+	for (const key of WEBGL_DEBUG_LIMIT_KEYS) {
+		const parameter = (gl as any)[key];
+		if (typeof parameter !== "number" || typeof gl.getParameter !== "function") {
+			continue;
+		}
+		try {
+			const value = gl.getParameter(parameter);
+			if (typeof value === "number" && Number.isFinite(value)) {
+				limits[key] = value;
+			}
+		} catch {
+			continue;
+		}
+	}
+	return limits;
+}
+
+function collectWebGLExtensions(gl: WebGL2RenderingContext): readonly string[] {
+	if (typeof gl.getSupportedExtensions !== "function") {
+		return [];
+	}
+	try {
+		return [...(gl.getSupportedExtensions() ?? [])].sort();
+	} catch {
+		return [];
+	}
 }

@@ -6,6 +6,7 @@ import {
 import type {
 	IRenderBackend,
 	BackendCapabilities,
+	RenderBackendDebugInfo,
 	RenderBackendDeviceLostInfo,
 	RenderBackendAttachContext,
 	RenderBackendProfile,
@@ -216,6 +217,27 @@ const DEVICE_RECOVERY_MAX_ATTEMPTS = 3;
 const DEVICE_RECOVERY_BASE_DELAY_MS = 100;
 const WEBGPU_MSAA_SAMPLE_CANDIDATES = [16, 8, 4, 2, 1];
 const WEBGPU_EXPLICIT_MSAA_ENABLE_SAMPLE_COUNT = 4;
+const WEBGPU_DEBUG_INFO_UNINITIALIZED: RenderBackendDebugInfo = {
+	backend: "webgpu",
+	api: "webgpu",
+	available: false,
+	unavailableReason: "WebGPU backend has not been initialized.",
+};
+const WEBGPU_DEBUG_LIMIT_KEYS = [
+	"maxTextureDimension2D",
+	"maxTextureArrayLayers",
+	"maxBindGroups",
+	"maxBindingsPerBindGroup",
+	"maxBufferSize",
+	"maxStorageBufferBindingSize",
+	"maxUniformBufferBindingSize",
+	"maxSampledTexturesPerShaderStage",
+	"maxSamplersPerShaderStage",
+	"maxStorageBuffersPerShaderStage",
+	"maxStorageTexturesPerShaderStage",
+	"maxColorAttachments",
+	"maxColorAttachmentBytesPerSample",
+] as const;
 
 export interface WebGPUBackendOptions {
 	shaderMode?: ShaderRuntimeMode;
@@ -359,6 +381,7 @@ export class WebGPUBackend implements IRenderBackend {
 		| null = null;
 	private _pendingMSAASampleCount: number | null = null;
 	private _pendingShaderRuntimeInvalidation = false;
+	private _debugInfo: RenderBackendDebugInfo = WEBGPU_DEBUG_INFO_UNINITIALIZED;
 
 
 	private readonly _autoDisposeRegistry: FinalizationRegistry<string> | null =
@@ -530,6 +553,17 @@ export class WebGPUBackend implements IRenderBackend {
 	 */
 	public getFrameGraphValidationMode(): "throw" | "warn" {
 		return this._frameGraphValidationMode;
+	}
+
+	/**
+	 * Returns the current WebGPU diagnostic snapshot.
+	 *
+	 * @returns Adapter identifiers, selected limits, and device features when
+	 * initialized, otherwise an unavailable snapshot.
+	 * @sideEffects None.
+	 */
+	public getDebugInfo(): RenderBackendDebugInfo {
+		return this._debugInfo;
 	}
 
 	public getAttachments(size: RenderSurfaceSize): FrameAttachments {
@@ -730,6 +764,7 @@ export class WebGPUBackend implements IRenderBackend {
 		this._deviceLostInfo = null;
 		this._device = requestedDevice;
 		this._queue = requestedDevice.queue;
+		this._debugInfo = this._createDebugInfo(adapter, requestedDevice);
 		this._deviceLossPromise = requestedDevice.lost.then((info) => {
 			if (this.device !== requestedDevice) {
 				return info;
@@ -1889,6 +1924,7 @@ export class WebGPUBackend implements IRenderBackend {
 		this._msaaSelectionCache.clear();
 		this._preferredMSAASampleCount = this._defaultMSAASampleCount;
 		this._msaaSampleCount = 1;
+		this._debugInfo = WEBGPU_DEBUG_INFO_UNINITIALIZED;
 		if (this.context) {
 			try {
 				this.context.unconfigure();
@@ -1907,6 +1943,37 @@ export class WebGPUBackend implements IRenderBackend {
 		this._deviceLossPromise = null;
 		this._device = null;
 		this._queue = null;
+	}
+
+	private _createDebugInfo(
+		adapter: GPUAdapter,
+		device: GPUDevice
+	): RenderBackendDebugInfo {
+		const adapterInfo = resolveWebGPUAdapterInfo(adapter, device);
+		const raw = collectWebGPUAdapterRaw(adapterInfo);
+		const deviceInfo =
+			adapterInfo || Object.keys(raw).length > 0
+				? {
+						vendor: normalizeDebugString(adapterInfo?.vendor),
+						architecture: normalizeDebugString(adapterInfo?.architecture),
+						device: normalizeDebugString(adapterInfo?.device),
+						description: normalizeDebugString(adapterInfo?.description),
+						isFallbackAdapter:
+							typeof adapterInfo?.isFallbackAdapter === "boolean"
+								? adapterInfo.isFallbackAdapter
+								: undefined,
+						raw: Object.keys(raw).length > 0 ? raw : undefined,
+				  }
+				: undefined;
+
+		return {
+			backend: "webgpu",
+			api: "webgpu",
+			available: true,
+			device: deviceInfo,
+			limits: collectWebGPULimits(adapter, device),
+			features: collectWebGPUFeatures(device.features),
+		};
 	}
 
 	private _assertDeviceOperational(
@@ -3225,4 +3292,85 @@ export class WebGPUBackend implements IRenderBackend {
 		}
 		return this._attachContext;
 	}
+}
+
+type WebGPUAdapterInfoLike = Partial<GPUAdapterInfo> & {
+	readonly isFallbackAdapter?: boolean;
+};
+
+function resolveWebGPUAdapterInfo(
+	adapter: GPUAdapter,
+	device: GPUDevice
+): WebGPUAdapterInfoLike | null {
+	const deviceInfo = (device as { adapterInfo?: WebGPUAdapterInfoLike })
+		.adapterInfo;
+	if (deviceInfo) {
+		return deviceInfo;
+	}
+	return (adapter as { info?: WebGPUAdapterInfoLike }).info ?? null;
+}
+
+function collectWebGPUAdapterRaw(
+	info: WebGPUAdapterInfoLike | null
+): Record<string, string | number | boolean> {
+	if (!info) {
+		return {};
+	}
+	const raw: Record<string, string | number | boolean> = {};
+	for (const key of [
+		"vendor",
+		"architecture",
+		"device",
+		"description",
+		"isFallbackAdapter",
+		"subgroupMinSize",
+		"subgroupMaxSize",
+	] as const) {
+		const value = info[key];
+		if (
+			(typeof value === "string" && value.length > 0) ||
+			typeof value === "number" ||
+			typeof value === "boolean"
+		) {
+			raw[key] = value;
+		}
+	}
+	return raw;
+}
+
+function collectWebGPULimits(
+	adapter: GPUAdapter,
+	device: GPUDevice
+): Record<string, number> {
+	const limits: Record<string, number> = {};
+	for (const key of WEBGPU_DEBUG_LIMIT_KEYS) {
+		const value =
+			readNumericLimit(device.limits, key) ??
+			readNumericLimit(adapter.limits, key);
+		if (typeof value === "number") {
+			limits[key] = value;
+		}
+	}
+	return limits;
+}
+
+function readNumericLimit(limits: unknown, key: string): number | undefined {
+	const value = (limits as Record<string, unknown> | null | undefined)?.[key];
+	return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function collectWebGPUFeatures(features: unknown): readonly string[] {
+	if (!features || typeof (features as Iterable<string>)[Symbol.iterator] !== "function") {
+		return [];
+	}
+	try {
+		return Array.from(features as Iterable<string>, (feature) => String(feature))
+			.sort();
+	} catch {
+		return [];
+	}
+}
+
+function normalizeDebugString(value: unknown): string | undefined {
+	return typeof value === "string" && value.length > 0 ? value : undefined;
 }

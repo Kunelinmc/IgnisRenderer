@@ -50,6 +50,8 @@ export {
 export type {
 	IRenderBackend,
 	RenderBackendAttachContext,
+	RenderBackendDebugInfo,
+	RenderBackendDeviceDebugInfo,
 	RenderBackendProfile,
 	RenderSurface,
 	RenderSurfaceSize,

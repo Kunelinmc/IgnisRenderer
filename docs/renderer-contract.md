@@ -51,6 +51,20 @@ All graphics commands are recorded through a backend-agnostic `ICommandEncoder`.
 - `IRenderBackend.initialize()`
   - Behavior contract: must initialize the graphics context and acquire device resources.
   - Constraint: must throw when called before `attach(context)`, after the backend is destroyed, or when already initialized.
+- `IRenderBackend.getDebugInfo()`
+  - Output contract: must return a `RenderBackendDebugInfo` snapshot.
+  - Behavior contract: must not initialize backend resources or change renderer lifecycle state.
+  - Behavior contract: must return `available: false` with `unavailableReason` before backend initialization.
+  - Behavior contract: may omit or redact `device`, `limits`, and `features` fields when browser privacy policy or runtime support prevents collection.
+  - Constraint: callers must not use `driverVersion` or device identifier strings for feature gating. Feature decisions must use `IRenderBackend.profile.capabilities`.
+- `RenderBackendDebugInfo`
+  - `backend`: must identify the backend implementation.
+  - `api`: must identify the graphics API surface as `"software"`, `"webgpu"`, or `"webgl2"`.
+  - `available`: must be `true` only when the backend has collected runtime diagnostics.
+  - `unavailableReason`: should describe why diagnostics are unavailable when `available` is `false`.
+  - `device`: may contain best-effort adapter identifiers including `vendor`, `renderer`, `architecture`, `device`, `description`, `isFallbackAdapter`, `driverVersion`, and `raw`.
+  - `limits`: may contain selected numeric API limits.
+  - `features`: may contain sorted backend feature or extension names.
 - `IRenderBackend.restore()`
   - Behavior contract: must rebuild the graphics context and device resources after loss.
   - Behavior contract: must trigger resource recovery and emit `device-restored` when complete.
@@ -171,7 +185,18 @@ renderer.on("devicelost", ({ info }) => {
 await renderer.restore();
 ```
 
-### 2. Frame Loop Control
+### 2. Backend Debug Info
+```ts
+const debugInfo = renderer.getBackendDebugInfo();
+if (debugInfo.available) {
+	console.info(debugInfo.backend, debugInfo.api, debugInfo.device?.vendor);
+	console.info(debugInfo.limits?.maxTextureDimension2D);
+} else {
+	console.info(debugInfo.unavailableReason);
+}
+```
+
+### 3. Frame Loop Control
 ```ts
 // Start automatic rendering loop
 const stopRenderLoop = renderer.renderLoop();
@@ -183,7 +208,7 @@ stopRenderLoop();
 await renderer.renderFrame(performance.now());
 ```
 
-### 3. Frame Coordinator Execution (Internal / Backend Implementation)
+### 4. Frame Coordinator Execution (Internal / Backend Implementation)
 ```ts
 // Inside FrameCoordinator execution loop
 try {
@@ -202,7 +227,7 @@ try {
 }
 ```
 
-### 4. Querying Extensions
+### 5. Querying Extensions
 ```ts
 import { WEBGPU_COMPUTE_EXTENSION } from "ignisrenderer";
 
@@ -212,7 +237,7 @@ if (compute) {
 }
 ```
 
-### 5. In-Frame Command Recording and Texture Copying
+### 6. In-Frame Command Recording and Texture Copying
 ```ts
 encoder.beginRenderPass({
 	label: "TransparentAccumulation",
@@ -247,7 +272,7 @@ encoder.draw(3);
 encoder.endRenderPass();
 ```
 
-### 6. Custom Render Targets & Passes
+### 7. Custom Render Targets & Passes
 ```ts
 import { TextureFormat, type CustomRenderPassContext } from "ignisrenderer";
 
@@ -294,6 +319,7 @@ const readback = await renderer.renderTargets.readColor("inspect", 0);
 - `Renderer.renderFrame() cannot run concurrently.`: returned when another frame is still active.
 - Errors from manually awaited `renderFrame()` calls must continue to reject to the caller without automatic logging by `Renderer`.
 - `Renderer.initialize() cannot be called multiple times.`: triggered when `initialize` is invoked on an already initialized renderer.
+- `RenderBackendDebugInfo.available === false`: returned before initialization, for the software backend, or when diagnostics cannot be collected. This is not an error.
 - `device-lost` event triggers warning logging with backend-supplied details.
 - Context restoration failures must log `WebGL context restore failed` or throw appropriate errors.
 - `beginFrame` called while a frame is active must throw an error.

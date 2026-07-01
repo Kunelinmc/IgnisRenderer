@@ -58,6 +58,7 @@ import {
 } from "../pipeline/incremental";
 import type {
 	IRenderBackend,
+	RenderBackendDebugInfo,
 	RenderBackendProfile,
 	RenderBackendEvent,
 	RenderBackendDeviceLostInfo,
@@ -484,6 +485,18 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 	 */
 	public requireBackendExtension<TApi>(key: RenderBackendExtensionKey<TApi>): TApi {
 		return this._runtime.backend.extensions.requireBackendExtension(key);
+	}
+
+	/**
+	 * Returns the active backend diagnostic snapshot.
+	 *
+	 * @returns Best-effort backend debug information. Fields may be unavailable
+	 * when the backend is not initialized or browser privacy policy redacts GPU
+	 * identifiers.
+	 * @sideEffects None.
+	 */
+	public getBackendDebugInfo(): RenderBackendDebugInfo {
+		return this._runtime.backend.getDebugInfo();
 	}
 
 	/**

@@ -25,6 +25,7 @@ function assertRuntimeSurface(backend) {
 	assert.equal(typeof backend.executePass, "function");
 	assert.equal(typeof backend.endFrame, "function");
 	assert.equal(typeof backend.abortFrame, "function");
+	assert.equal(typeof backend.getDebugInfo, "function");
 	assert.equal(typeof backend.destroy, "function");
 	assert.ok(backend.profile);
 	assert.ok(backend.extensions);
@@ -53,6 +54,10 @@ function testBackendsExposeRuntimeSurface() {
 	]) {
 		assertRuntimeSurface(backend);
 		assertProfileOnly(backend);
+		const debugInfo = backend.getDebugInfo();
+		assert.equal(debugInfo.backend, backend.profile.id);
+		assert.equal(debugInfo.available, false);
+		assert.equal(typeof debugInfo.unavailableReason, "string");
 	}
 }
 
@@ -92,6 +97,80 @@ function testWebGPUExtensionsStayStable() {
 	assert.strictEqual(backend.extensions, backend.extensions);
 }
 
+function testWebGPUDebugInfoSnapshotFromMocks() {
+	const backend = new WebGPUBackend();
+	const adapterInfo = {
+		vendor: "nvidia",
+		architecture: "ada",
+		device: "2684",
+		description: "NVIDIA test adapter",
+		isFallbackAdapter: false,
+	};
+	const adapter = {
+		info: adapterInfo,
+		limits: {
+			maxTextureDimension2D: 8192,
+			maxTextureArrayLayers: 128,
+			maxBindGroups: 4,
+		},
+	};
+	const device = {
+		adapterInfo,
+		limits: {
+			maxTextureDimension2D: 4096,
+			maxTextureArrayLayers: 256,
+			maxBindGroups: 8,
+			maxBindingsPerBindGroup: 640,
+			maxBufferSize: 1024,
+			maxStorageBufferBindingSize: 2048,
+			maxUniformBufferBindingSize: 4096,
+			maxSampledTexturesPerShaderStage: 16,
+			maxSamplersPerShaderStage: 8,
+			maxStorageBuffersPerShaderStage: 12,
+			maxStorageTexturesPerShaderStage: 4,
+			maxColorAttachments: 8,
+			maxColorAttachmentBytesPerSample: 64,
+		},
+		features: new Set(["timestamp-query", "indirect-first-instance"]),
+	};
+
+	const debugInfo = backend._createDebugInfo(adapter, device);
+	assert.equal(debugInfo.available, true);
+	assert.equal(debugInfo.device.vendor, "nvidia");
+	assert.equal(debugInfo.device.architecture, "ada");
+	assert.equal(debugInfo.device.device, "2684");
+	assert.equal(debugInfo.device.description, "NVIDIA test adapter");
+	assert.equal(debugInfo.device.isFallbackAdapter, false);
+	assert.equal(debugInfo.device.raw.vendor, "nvidia");
+	assert.equal(debugInfo.limits.maxTextureDimension2D, 4096);
+	assert.equal(debugInfo.limits.maxTextureArrayLayers, 256);
+	assert.equal(debugInfo.limits.maxBindGroups, 8);
+	assert.deepEqual(debugInfo.features, [
+		"indirect-first-instance",
+		"timestamp-query",
+	]);
+}
+
+function testWebGPUDebugInfoHandlesMissingAdapterInfo() {
+	const backend = new WebGPUBackend();
+	const debugInfo = backend._createDebugInfo(
+		{
+			limits: {
+				maxTextureDimension2D: 2048,
+			},
+		},
+		{
+			limits: {},
+			features: null,
+		}
+	);
+
+	assert.equal(debugInfo.available, true);
+	assert.equal(debugInfo.device, undefined);
+	assert.equal(debugInfo.limits.maxTextureDimension2D, 2048);
+	assert.deepEqual(debugInfo.features, []);
+}
+
 function testRendererRejectsReusedBackend() {
 	const backend = new SoftwareBackend();
 	const originalWindow = globalThis.window;
@@ -124,10 +203,36 @@ function testRendererRejectsReusedBackend() {
 	}
 }
 
+function testRendererDelegatesBackendDebugInfo() {
+	const backend = new SoftwareBackend();
+	const originalWindow = globalThis.window;
+	if (!originalWindow) {
+		globalThis.window = { devicePixelRatio: 1 };
+	}
+	const canvas = {
+		width: 1,
+		height: 1,
+		getBoundingClientRect: () => ({ width: 1, height: 1 }),
+		getContext: () => null,
+	};
+
+	try {
+		const renderer = new Renderer({ backend, canvas });
+		assert.deepEqual(renderer.getBackendDebugInfo(), backend.getDebugInfo());
+	} finally {
+		if (!originalWindow) {
+			delete globalThis.window;
+		}
+	}
+}
+
 testBackendsExposeRuntimeSurface();
 testBackendsRejectSecondAttach();
 testSoftwareAttachmentsReflectAttachedRuntime();
 testWebGLStateStaysRuntimeScoped();
 testWebGPUExtensionsStayStable();
+testWebGPUDebugInfoSnapshotFromMocks();
+testWebGPUDebugInfoHandlesMissingAdapterInfo();
 testRendererRejectsReusedBackend();
+testRendererDelegatesBackendDebugInfo();
 console.log("Backend one-to-one runtime tests passed");
