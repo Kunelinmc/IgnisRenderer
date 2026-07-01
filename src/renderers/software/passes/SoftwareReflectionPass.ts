@@ -1,16 +1,20 @@
 import type { FrameContext } from "../../../pipeline/types";
 import type { Rasterizer } from "../Rasterizer";
-import { ReflectionRenderer } from "../ReflectionRenderer";
+import {
+	setSoftwarePlanarReflectionRuntime,
+	SoftwarePlanarReflectionRuntime,
+} from "../SoftwarePlanarReflectionRuntime";
 import type { SoftwarePassLike } from "./types";
 
 export class SoftwareReflectionPass implements SoftwarePassLike {
-	private _reflectionRenderer: ReflectionRenderer;
+	private _runtime: SoftwarePlanarReflectionRuntime;
 
 	constructor(rasterizer: Rasterizer) {
-		this._reflectionRenderer = new ReflectionRenderer(rasterizer);
+		this._runtime = new SoftwarePlanarReflectionRuntime(rasterizer);
 	}
 
 	public render(context: FrameContext): void {
-		this._reflectionRenderer.render(context);
+		this._runtime.render(context);
+		setSoftwarePlanarReflectionRuntime(context.transient, this._runtime);
 	}
 }

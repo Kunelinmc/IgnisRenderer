@@ -1,19 +1,31 @@
-import { Matrix4 } from "../../maths/Matrix4";
-import { Plane } from "../../maths/Plane";
-import { Projector } from "./Projector";
-import { RenderConstants } from "./constants";
-import type { FrameContext } from "../../pipeline/types";
-import type { ProjectedFace, ProjectedVertex } from "../../core/types";
-import type { Rasterizer, RasterizerContext } from "./Rasterizer";
-import { EnvironmentBackgroundRenderer } from "./EnvironmentRenderer";
+import type { RGB } from "../../foundation/Color";
+import type { Material, MirrorPlane } from "../../materials/Material";
 import { AlphaMode } from "../../materials/Material";
 import { materialUsesTransmission } from "../../materials/transparency";
+import { Matrix4 } from "../../maths/Matrix4";
+import { Plane } from "../../maths/Plane";
+import type { IVector3 } from "../../maths/types";
+import {
+	defineTransientKey,
+	type FrameContext,
+	type TransientStore,
+} from "../../pipeline/types";
+import type { ProjectedFace, ProjectedVertex } from "../../core/types";
+import { EnvironmentBackgroundRenderer } from "./EnvironmentRenderer";
+import { Projector } from "./Projector";
+import type { Rasterizer, RasterizerContext } from "./Rasterizer";
+import { RenderConstants } from "./constants";
 import {
 	createSoftwareShadowSampler,
 	getSoftwareShadowRuntimeMap,
 } from "./passes/SoftwareShadowPass";
 
-interface ReflectionBuffer {
+export const SOFTWARE_PLANAR_REFLECTION_RUNTIME_KEY =
+	defineTransientKey<SoftwarePlanarReflectionRuntime>(
+		"software-planar-reflection-runtime"
+	);
+
+export interface SoftwarePlanarReflectionBuffer {
 	imageData: ImageData;
 	width: number;
 	height: number;
@@ -21,6 +33,62 @@ interface ReflectionBuffer {
 
 interface PlaneAggregateInfo {
 	plane: Plane;
+}
+
+export interface SoftwarePlanarReflectionComposite {
+	bind(
+		material: Material,
+		cameraPosition: IVector3,
+		frameWidth: number,
+		frameHeight: number
+	): SoftwarePlanarReflectionCompositeBinding | null;
+}
+
+export interface SoftwarePlanarReflectionCompositeBinding {
+	composite(color: RGB, x: number, y: number): void;
+}
+
+class SoftwarePlanarReflectionBufferBinding
+	implements SoftwarePlanarReflectionCompositeBinding
+{
+	private _buffer: SoftwarePlanarReflectionBuffer;
+	private _scaleX: number;
+	private _scaleY: number;
+	private _reflectivity: number;
+	private _inverseReflectivity: number;
+
+	public constructor(
+		buffer: SoftwarePlanarReflectionBuffer,
+		frameWidth: number,
+		frameHeight: number,
+		reflectivity: number
+	) {
+		this._buffer = buffer;
+		this._scaleX = buffer.width / frameWidth;
+		this._scaleY = buffer.height / frameHeight;
+		this._reflectivity = reflectivity;
+		this._inverseReflectivity = 1 - reflectivity;
+	}
+
+	public composite(color: RGB, x: number, y: number): void {
+		const buffer = this._buffer;
+		let refX = Math.floor(x * this._scaleX);
+		let refY = Math.floor(y * this._scaleY);
+
+		refX = Math.max(0, Math.min(buffer.width - 1, refX));
+		refY = Math.max(0, Math.min(buffer.height - 1, refY));
+
+		const refIdx = (refY * buffer.width + refX) << 2;
+		const refData = buffer.imageData.data;
+		const reflectivity = this._reflectivity;
+		const inverseReflectivity = this._inverseReflectivity;
+
+		color.r = color.r * inverseReflectivity + refData[refIdx] * reflectivity;
+		color.g =
+			color.g * inverseReflectivity + refData[refIdx + 1] * reflectivity;
+		color.b =
+			color.b * inverseReflectivity + refData[refIdx + 2] * reflectivity;
+	}
 }
 
 function resolvePreparedSceneEnvironment(scene: FrameContext["scene"]): {
@@ -74,23 +142,84 @@ function resolvePreparedSceneEnvironment(scene: FrameContext["scene"]): {
 	};
 }
 
-export class ReflectionRenderer {
+export function resolveSoftwarePlanarReflectionPlaneKey(
+	plane: MirrorPlane | Plane | null | undefined
+): string | null {
+	if (!plane) {
+		return null;
+	}
+	return `${plane.normal.x},${plane.normal.y},${plane.normal.z},${plane.constant}`;
+}
+
+export function getSoftwarePlanarReflectionRuntime(
+	transient: TransientStore
+): SoftwarePlanarReflectionRuntime | null {
+	return transient.get(SOFTWARE_PLANAR_REFLECTION_RUNTIME_KEY) ?? null;
+}
+
+export function setSoftwarePlanarReflectionRuntime(
+	transient: TransientStore,
+	runtime: SoftwarePlanarReflectionRuntime
+): void {
+	transient.set(SOFTWARE_PLANAR_REFLECTION_RUNTIME_KEY, runtime);
+}
+
+export class SoftwarePlanarReflectionRuntime
+	implements SoftwarePlanarReflectionComposite
+{
 	private _rasterizer: Rasterizer;
 	private _depthBuffer: Float32Array | null = null;
 	private _planesPool: Map<string, Plane> = new Map();
 	private _imageDataPool: Map<string, ImageData[]> = new Map();
 
-	public reflectionBuffers: Map<string, ReflectionBuffer> = new Map();
+	public reflectionBuffers: Map<string, SoftwarePlanarReflectionBuffer> =
+		new Map();
 
-	// Allows scaling the resolution of reflection buffers for performance vs quality tradeoff
 	public resolutionScale: number = 0.5;
 
-	constructor(rasterizer: Rasterizer) {
+	public constructor(rasterizer: Rasterizer) {
 		this._rasterizer = rasterizer;
 	}
 
+	public bind(
+		material: Material,
+		cameraPosition: IVector3,
+		frameWidth: number,
+		frameHeight: number
+	): SoftwarePlanarReflectionCompositeBinding | null {
+		if (frameWidth <= 0 || frameHeight <= 0) {
+			return null;
+		}
+		const reflectivity = Math.max(
+			0,
+			Math.min(1, material.reflectivity ?? 0)
+		);
+		if (reflectivity <= 0 || !material.mirrorPlane) {
+			return null;
+		}
+		const plane = material.mirrorPlane;
+		const cameraDistance =
+			cameraPosition.x * plane.normal.x +
+			cameraPosition.y * plane.normal.y +
+			cameraPosition.z * plane.normal.z +
+			plane.constant;
+		if (cameraDistance <= 0) {
+			return null;
+		}
+		const key = resolveSoftwarePlanarReflectionPlaneKey(plane);
+		const buffer = key ? this.reflectionBuffers.get(key) : null;
+		if (!buffer) {
+			return null;
+		}
+		return new SoftwarePlanarReflectionBufferBinding(
+			buffer,
+			frameWidth,
+			frameHeight,
+			reflectivity
+		);
+	}
+
 	public render(context: FrameContext): void {
-		// 1. Collect all unique mirror planes and their aggregate filter settings
 		const planeInfos = this._collectPlaneInfos(context);
 
 		if (planeInfos.size === 0) {
@@ -107,15 +236,11 @@ export class ReflectionRenderer {
 		const scaledWidth = Math.max(1, Math.floor(width * this.resolutionScale));
 		const scaledHeight = Math.max(1, Math.floor(height * this.resolutionScale));
 
-		// 2. Render and process each plane
 		for (const [key, info] of planeInfos) {
 			const buffer = this._prepareBuffer(key, scaledWidth, scaledHeight);
-
-			// Render reflection
 			this._renderReflectionForPlane(info.plane, buffer, context);
 		}
 
-		// 3. Cleanup stale buffers and planes
 		this._cleanupStaleResources(planeInfos);
 	}
 
@@ -123,26 +248,28 @@ export class ReflectionRenderer {
 		context: FrameContext
 	): Map<string, PlaneAggregateInfo> {
 		const infos = new Map<string, PlaneAggregateInfo>();
-		const packets = context.scene.opaquePackets.concat(
-			context.scene.transparentPackets
-		);
 
-		for (const packet of packets) {
+		for (const packet of context.scene.reflectivePackets) {
 			const material = packet.material;
-			if (material && material.mirrorPlane) {
-				const p = material.mirrorPlane;
-				const key = `${p.normal.x},${p.normal.y},${p.normal.z},${p.constant}`;
+			const key = resolveSoftwarePlanarReflectionPlaneKey(
+				material?.mirrorPlane
+			);
+			if (!material || material.reflectivity <= 0 || !key) {
+				continue;
+			}
 
-				let info = infos.get(key);
-				if (!info) {
-					if (!this._planesPool.has(key)) {
-						this._planesPool.set(key, new Plane(p.normal, p.constant));
-					}
-					info = {
-						plane: this._planesPool.get(key)!,
-					};
-					infos.set(key, info);
+			let info = infos.get(key);
+			if (!info) {
+				if (!this._planesPool.has(key)) {
+					this._planesPool.set(
+						key,
+						new Plane(material.mirrorPlane!.normal, material.mirrorPlane!.constant)
+					);
 				}
+				info = {
+					plane: this._planesPool.get(key)!,
+				};
+				infos.set(key, info);
 			}
 		}
 		return infos;
@@ -152,7 +279,7 @@ export class ReflectionRenderer {
 		key: string,
 		width: number,
 		height: number
-	): ReflectionBuffer {
+	): SoftwarePlanarReflectionBuffer {
 		let buffer = this.reflectionBuffers.get(key);
 
 		if (buffer && (buffer.width !== width || buffer.height !== height)) {
@@ -208,7 +335,7 @@ export class ReflectionRenderer {
 
 	private _renderReflectionForPlane(
 		plane: Plane,
-		buffer: ReflectionBuffer,
+		buffer: SoftwarePlanarReflectionBuffer,
 		context: FrameContext
 	): void {
 		const pixels = buffer.imageData.data;
@@ -232,13 +359,12 @@ export class ReflectionRenderer {
 				buffer.height
 			);
 		} else {
-			pixels.fill(0); // Clear
+			pixels.fill(0);
 			for (let i = 3; i < pixels.length; i += 4) {
 				pixels[i] = RenderConstants.REFLECTION_BUFFER_ALPHA;
 			}
 		}
 
-		// Backup camera state
 		const camera = context.camera;
 		const originalViewMatrix = camera.viewMatrix;
 		const originalProjectionMatrix = camera.projectionMatrix;
@@ -247,18 +373,15 @@ export class ReflectionRenderer {
 			...camera.getWorldPosition(),
 		};
 
-		// 1. Calculate Reflection Matrix
 		const reflectMat = Matrix4.reflection(plane);
 		const mirroredPosition = Matrix4.transformPoint(
 			reflectMat,
 			originalCameraPosition
 		);
 
-		// 2. Set Mirror Camera: ViewMirror = ViewMain * R
 		const mirrorViewMatrix = Matrix4.multiply(originalViewMatrix, reflectMat);
 		camera.viewMatrix = mirrorViewMatrix;
 
-		// 3. Oblique Near Plane Clipping
 		const mirrorProjMatrix = originalProjectionMatrix.clone();
 		const isCameraAbove =
 			plane.normal.x * originalCameraPosition.x +
@@ -302,29 +425,23 @@ export class ReflectionRenderer {
 
 			const opaqueFaces: ProjectedFace[] = [];
 			const transparentFaces: ProjectedFace[] = [];
-
-			// Render scene with mirrored camera
+			const planeKey = resolveSoftwarePlanarReflectionPlaneKey(plane);
 			const packets = context.scene.opaquePackets.concat(
 				context.scene.transparentPackets
 			);
+
 			for (const packet of packets) {
 				const faces = Projector.projectPacket(packet, context, true, buffer);
 
 				for (const face of faces) {
-					// skip if same plane
-					if (face.material && face.material.mirrorPlane) {
-						const mp = face.material.mirrorPlane;
-						if (
-							mp.normal.x === plane.normal.x &&
-							mp.normal.y === plane.normal.y &&
-							mp.normal.z === plane.normal.z &&
-							mp.constant === plane.constant
-						) {
-							continue;
-						}
+					if (
+						resolveSoftwarePlanarReflectionPlaneKey(
+							face.material?.mirrorPlane
+						) === planeKey
+					) {
+						continue;
 					}
 
-					// Only reflect objects on the same side as the camera
 					const facePos = face.center || face.projected[0].world;
 					if (facePos) {
 						const dist =
@@ -386,7 +503,6 @@ export class ReflectionRenderer {
 				}
 			}
 		} finally {
-			// Restore camera
 			camera.viewMatrix = originalViewMatrix;
 			camera.projectionMatrix = originalProjectionMatrix;
 			camera.viewProjectionMatrix = originalViewProjMatrix;
@@ -430,7 +546,8 @@ export class ReflectionRenderer {
 			enableLighting: context.features.enableLighting,
 			enableSH: context.features.enableSH,
 			enableShadows: context.features.enableShadows,
-			enableReflection: context.features.enableReflection,
+			enableReflection: false,
+			planarReflectionComposite: null,
 		};
 
 		this._rasterizer.drawTriangle(

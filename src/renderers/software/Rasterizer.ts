@@ -41,6 +41,9 @@ import type { SoftwareShadowRenderTarget } from "./passes/SoftwareShadowPass";
 import { collectActiveReflectionProbes } from "../../lights/runtime/reflectionProbeRuntime";
 import type { TemporalJitterFrameState } from "../cross/TemporalJitterState";
 import { SoftwareTriangleInterpolator } from "./Interpolator";
+import type {
+	SoftwarePlanarReflectionComposite,
+} from "./SoftwarePlanarReflectionRuntime";
 
 export interface RasterizerLike {
 	drawTriangle(
@@ -103,9 +106,7 @@ export interface RasterizerContext {
 	enableSH: boolean;
 	enableShadows: boolean;
 	enableReflection: boolean;
-	reflectionRenderer?: {
-		reflectionBuffers: Map<string, any>;
-	};
+	planarReflectionComposite?: SoftwarePlanarReflectionComposite | null;
 }
 
 /**
@@ -669,17 +670,15 @@ export class Rasterizer implements RasterizerLike {
 		};
 		shader.initialize(face, shaderContext);
 
-		const camPos = context.camera.position;
-		let isCameraOnFrontSide = true;
-		if (material.mirrorPlane) {
-			const p = material.mirrorPlane;
-			const dist =
-				camPos.x * p.normal.x +
-				camPos.y * p.normal.y +
-				camPos.z * p.normal.z +
-				p.constant;
-			isCameraOnFrontSide = dist > 0;
-		}
+		const planarReflectionBinding =
+			context.enableReflection && context.planarReflectionComposite ?
+				context.planarReflectionComposite.bind(
+					material,
+					context.camera.position,
+					width,
+					height
+				)
+			:	null;
 
 		const verts = interpolator.prepareFragment(pts, face);
 
@@ -731,38 +730,8 @@ export class Rasterizer implements RasterizerLike {
 						let finalColor = finalOutput?.color;
 						const shadedDepth = finalOutput?.depth ?? span.zCamValue;
 
-						if (
-							finalColor &&
-							context.enableReflection &&
-							material.reflectivity > 0 &&
-							material.mirrorPlane &&
-							isCameraOnFrontSide &&
-							context.reflectionRenderer
-						) {
-							const p = material.mirrorPlane;
-							const key = `${p.normal.x},${p.normal.y},${p.normal.z},${p.constant}`;
-							const refBuffer =
-								context.reflectionRenderer.reflectionBuffers.get(key);
-							if (refBuffer) {
-								// Sample from reflection buffer with coordinate scaling
-								let refX = Math.floor(x * (refBuffer.width / width));
-								let refY = Math.floor(y * (refBuffer.height / height));
-
-								// Clamp to buffer bounds
-								refX = Math.max(0, Math.min(refBuffer.width - 1, refX));
-								refY = Math.max(0, Math.min(refBuffer.height - 1, refY));
-
-								const refIdx = (refY * refBuffer.width + refX) << 2;
-								const refData = refBuffer.imageData.data;
-
-								const reflectivity = material.reflectivity;
-								const invRef = 1 - reflectivity;
-								finalColor = {
-									r: finalColor.r * invRef + refData[refIdx] * reflectivity,
-									g: finalColor.g * invRef + refData[refIdx + 1] * reflectivity,
-									b: finalColor.b * invRef + refData[refIdx + 2] * reflectivity,
-								};
-							}
+						if (finalColor && planarReflectionBinding) {
+							planarReflectionBinding.composite(finalColor, x, y);
 						}
 
 						if (
