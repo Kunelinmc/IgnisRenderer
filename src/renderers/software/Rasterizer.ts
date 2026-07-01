@@ -34,13 +34,13 @@ import type { Renderer } from "../Renderer";
 import type { ProjectedVertex, ProjectedFace } from "../../core/types";
 import {
 	type IVector3,
-	type IVector4,
 	type SHCoefficients,
 } from "../../maths/types";
 import type { Texture } from "../../core/Texture";
 import type { SoftwareShadowRenderTarget } from "./passes/SoftwareShadowPass";
 import { collectActiveReflectionProbes } from "../../lights/runtime/reflectionProbeRuntime";
 import type { TemporalJitterFrameState } from "../cross/TemporalJitterState";
+import { SoftwareTriangleInterpolator } from "./Interpolator";
 
 export interface RasterizerLike {
 	drawTriangle(
@@ -64,44 +64,6 @@ export interface RasterizerLike {
 		face: ProjectedFace,
 		shadowTarget: SoftwareShadowRenderTarget
 	): void;
-}
-
-interface CachedVertex {
-	x: number;
-	y: number;
-	z: number;
-	iz: number;
-	worldO: IVector3;
-	previousWorldO: IVector3;
-	normalO: IVector3;
-	tangentO: IVector4;
-	uO: number;
-	vO: number;
-	u2O: number;
-	v2O: number;
-	u3O: number;
-	v3O: number;
-	u4O: number;
-	v4O: number;
-	zCamO: number;
-}
-
-interface EdgeInterpolationResult {
-	x: number;
-	iz: number;
-	worldO: IVector3;
-	previousWorldO: IVector3;
-	normalO: IVector3;
-	tangentO: IVector4;
-	uO: number;
-	vO: number;
-	u2O: number;
-	v2O: number;
-	u3O: number;
-	v3O: number;
-	u4O: number;
-	v4O: number;
-	zCamO: number;
 }
 
 /**
@@ -150,8 +112,9 @@ export interface RasterizerContext {
  * Rasterizer handles the scanline conversion of projected triangles to pixels.
  */
 export class Rasterizer implements RasterizerLike {
-	private _vertsCache: CachedVertex[];
 	private _defaultMaterial: Material;
+	private _interpolator: SoftwareTriangleInterpolator =
+		new SoftwareTriangleInterpolator();
 
 	// Shader, Strategy & Evaluator registries
 	private _evaluators: Map<string, IMaterialEvaluator> = new Map();
@@ -159,8 +122,6 @@ export class Rasterizer implements RasterizerLike {
 	private _shaderCache: Map<string, IShader> = new Map();
 
 	// Pre-allocated objects for zero-allocation rendering
-	private _edgeRes1: EdgeInterpolationResult = this._createEdgeRes();
-	private _edgeRes2: EdgeInterpolationResult = this._createEdgeRes();
 	private _fragmentInput: FragmentInput = {
 		zCam: 0,
 		world: { x: 0, y: 0, z: 0 },
@@ -177,25 +138,6 @@ export class Rasterizer implements RasterizerLike {
 	};
 	constructor() {
 		this._defaultMaterial = new Material();
-		this._vertsCache = Array.from({ length: 3 }, () => ({
-			x: 0,
-			y: 0,
-			z: 0,
-			iz: 0,
-			worldO: { x: 0, y: 0, z: 0 },
-			previousWorldO: { x: 0, y: 0, z: 0 },
-			normalO: { x: 0, y: 0, z: 0 },
-			tangentO: { x: 0, y: 0, z: 0, w: 0 },
-			uO: 0,
-			vO: 0,
-			u2O: 0,
-			v2O: 0,
-			u3O: 0,
-			v3O: 0,
-			u4O: 0,
-			v4O: 0,
-			zCamO: 0,
-		}));
 
 		this._initShaderSystem();
 	}
@@ -212,26 +154,6 @@ export class Rasterizer implements RasterizerLike {
 
 		this._strategies.set(ShadingModel.Phong, new BlinnPhongStrategy());
 		this._strategies.set(ShadingModel.PBR, new PBRStrategy());
-	}
-
-	private _createEdgeRes(): EdgeInterpolationResult {
-		return {
-			x: 0,
-			iz: 0,
-			worldO: { x: 0, y: 0, z: 0 },
-			previousWorldO: { x: 0, y: 0, z: 0 },
-			normalO: { x: 0, y: 0, z: 0 },
-			tangentO: { x: 0, y: 0, z: 0, w: 0 },
-			uO: 0,
-			vO: 0,
-			u2O: 0,
-			v2O: 0,
-			u3O: 0,
-			v3O: 0,
-			u4O: 0,
-			v4O: 0,
-			zCamO: 0,
-		};
 	}
 
 	private _getShader(shading: string, material: Material): IShader {
@@ -616,43 +538,6 @@ export class Rasterizer implements RasterizerLike {
 		}
 	}
 
-	private _fillEdgeRes(
-		res: EdgeInterpolationResult,
-		vA: CachedVertex,
-		vB: CachedVertex,
-		y: number
-	): void {
-		const dy = vB.y - vA.y;
-		const t = dy === 0 ? 0 : (y - vA.y) / dy;
-		res.x = vA.x + (vB.x - vA.x) * t;
-		res.iz = vA.iz + (vB.iz - vA.iz) * t;
-		res.worldO.x = vA.worldO.x + (vB.worldO.x - vA.worldO.x) * t;
-		res.worldO.y = vA.worldO.y + (vB.worldO.y - vA.worldO.y) * t;
-		res.worldO.z = vA.worldO.z + (vB.worldO.z - vA.worldO.z) * t;
-		res.previousWorldO.x =
-			vA.previousWorldO.x + (vB.previousWorldO.x - vA.previousWorldO.x) * t;
-		res.previousWorldO.y =
-			vA.previousWorldO.y + (vB.previousWorldO.y - vA.previousWorldO.y) * t;
-		res.previousWorldO.z =
-			vA.previousWorldO.z + (vB.previousWorldO.z - vA.previousWorldO.z) * t;
-		res.normalO.x = vA.normalO.x + (vB.normalO.x - vA.normalO.x) * t;
-		res.normalO.y = vA.normalO.y + (vB.normalO.y - vA.normalO.y) * t;
-		res.normalO.z = vA.normalO.z + (vB.normalO.z - vA.normalO.z) * t;
-		res.tangentO.x = vA.tangentO.x + (vB.tangentO.x - vA.tangentO.x) * t;
-		res.tangentO.y = vA.tangentO.y + (vB.tangentO.y - vA.tangentO.y) * t;
-		res.tangentO.z = vA.tangentO.z + (vB.tangentO.z - vA.tangentO.z) * t;
-		res.tangentO.w = vA.tangentO.w + (vB.tangentO.w - vA.tangentO.w) * t;
-		res.uO = vA.uO + (vB.uO - vA.uO) * t;
-		res.vO = vA.vO + (vB.vO - vA.vO) * t;
-		res.u2O = vA.u2O + (vB.u2O - vA.u2O) * t;
-		res.v2O = vA.v2O + (vB.v2O - vA.v2O) * t;
-		res.u3O = vA.u3O + (vB.u3O - vA.u3O) * t;
-		res.v3O = vA.v3O + (vB.v3O - vA.v3O) * t;
-		res.u4O = vA.u4O + (vB.u4O - vA.u4O) * t;
-		res.v4O = vA.v4O + (vB.v4O - vA.v4O) * t;
-		res.zCamO = vA.zCamO + (vB.zCamO - vA.zCamO) * t;
-	}
-
 	public drawCameraDepthTriangle(
 		pts: ProjectedVertex[],
 		context: RasterizerContext
@@ -680,20 +565,8 @@ export class Rasterizer implements RasterizerLike {
 			return;
 		}
 
-		const verts = this._vertsCache;
-		for (let i = 0; i < 3; i++) {
-			const p = pts[i];
-			const iz = p.w;
-			const linearDepth =
-				p.zView !== undefined ? -p.zView
-				: p.world.z !== undefined ? -p.world.z
-				: 0;
-			const v = verts[i];
-			v.x = p.x;
-			v.y = p.y;
-			v.iz = iz;
-			v.zCamO = linearDepth * iz;
-		}
+		const interpolator = this._interpolator;
+		const verts = interpolator.prepareCameraDepth(pts);
 
 		let [vTop, vMid, vBot] = [verts[0], verts[1], verts[2]];
 		if (vTop.y > vMid.y) [vTop, vMid] = [vMid, vTop];
@@ -706,52 +579,29 @@ export class Rasterizer implements RasterizerLike {
 
 		for (let y = minY; y <= maxY; y++) {
 			const py = y + 0.5;
-			let left = this._edgeRes1;
-			let right = this._edgeRes2;
-
-			if (py < vMid.y) {
-				this._fillEdgeRes(left, vTop, vMid, py);
-				this._fillEdgeRes(right, vTop, vBot, py);
-			} else {
-				this._fillEdgeRes(left, vMid, vBot, py);
-				this._fillEdgeRes(right, vTop, vBot, py);
-			}
-
-			if (left.x > right.x) {
-				const tmp = left;
-				left = right;
-				right = tmp;
-			}
+			interpolator.sampleScanlineEdges(vTop, vMid, vBot, py);
+			const left = interpolator.left;
+			const right = interpolator.right;
 
 			const startX = Math.max(clipMinX, Math.ceil(left.x - 0.5));
 			const endX = Math.min(clipMaxX, Math.floor(right.x - 0.5));
 			if (endX < startX) continue;
 
-			const spanWidth = right.x - left.x;
-			const spanInv = 1.0 / (spanWidth || CoreConstants.EPSILON);
-			const diz = (right.iz - left.iz) * spanInv;
-			const dzCamO = (right.zCamO - left.zCamO) * spanInv;
-
-			const dx = startX + 0.5 - left.x;
-			let iz = left.iz + dx * diz;
-			let zCamO = left.zCamO + dx * dzCamO;
+			const span = interpolator.depthSpan;
+			span.setup(left, right, startX);
 			const rowStart = y * width;
 
 			for (let x = startX; x <= endX; x++) {
 				const bufIdx = rowStart + x;
-				const safeIz =
-					Math.abs(iz) > CoreConstants.EPSILON ? iz
-					: iz >= 0 ? CoreConstants.EPSILON
-					: -CoreConstants.EPSILON;
-				const zCam = 1 / safeIz;
-				if (zCam > 0) {
-					const zCamValue = zCamO * zCam;
-					if (zCamValue > 0 && zCamValue < depthTarget[bufIdx]) {
-						depthTarget[bufIdx] = zCamValue;
+				if (span.computeDepth()) {
+					if (
+						span.zCamValue > 0 &&
+						span.zCamValue < depthTarget[bufIdx]
+					) {
+						depthTarget[bufIdx] = span.zCamValue;
 					}
 				}
-				iz += diz;
-				zCamO += dzCamO;
+				span.advance();
 			}
 		}
 	}
@@ -789,7 +639,7 @@ export class Rasterizer implements RasterizerLike {
 		}
 		const viewMat = context.camera.viewMatrix;
 
-		const verts = this._vertsCache;
+		const interpolator = this._interpolator;
 		const shouldWriteDepth = !isTransparent && material.depthWrite;
 		const shadingModel = material.shading || ShadingModel.Flat;
 		const isLightingEnabled = context.enableLighting !== false;
@@ -831,50 +681,7 @@ export class Rasterizer implements RasterizerLike {
 			isCameraOnFrontSide = dist > 0;
 		}
 
-		for (let i = 0; i < 3; i++) {
-			const p = pts[i];
-			const world = p.world ?? { x: 0, y: 0, z: 0 };
-			const previousWorld = p.previousWorld ?? world;
-			const normal = p.normal ?? face.normal ?? { x: 0, y: 0, z: 1 };
-			const tangent = p.tangent ?? { x: 0, y: 0, z: 0, w: 0 };
-			const iz = p.w;
-
-			const v = verts[i];
-			v.x = p.x;
-			v.y = p.y;
-			v.z = p.z;
-			v.iz = iz;
-			v.worldO.x = world.x * iz;
-			v.worldO.y = world.y * iz;
-			v.worldO.z = world.z * iz;
-			v.previousWorldO.x = previousWorld.x * iz;
-			v.previousWorldO.y = previousWorld.y * iz;
-			v.previousWorldO.z = previousWorld.z * iz;
-			v.normalO.x = normal.x * iz;
-			v.normalO.y = normal.y * iz;
-			v.normalO.z = normal.z * iz;
-			v.tangentO.x = tangent.x * iz;
-			v.tangentO.y = tangent.y * iz;
-			v.tangentO.z = tangent.z * iz;
-			v.tangentO.w = tangent.w * iz;
-			v.uO = (p.u ?? 0) * iz;
-			v.vO = (p.v ?? 0) * iz;
-			v.u2O = (p.u2 ?? 0) * iz;
-			v.v2O = (p.v2 ?? 0) * iz;
-			v.u3O = (p.u3 ?? 0) * iz;
-			v.v3O = (p.v3 ?? 0) * iz;
-			v.u4O = (p.u4 ?? 0) * iz;
-			v.v4O = (p.v4 ?? 0) * iz;
-
-			// Reconstruct linear depth (positive camera-space distance) for depth buffer.
-			// For perspective, iz = 1/w = 1/depth, so linearDepth * iz = 1.
-			// For orthographic, iz = 1, so linearDepth * iz = linearDepth.
-			const linearDepth =
-				p.zView !== undefined ? -p.zView
-				: p.world.z !== undefined ? -p.world.z
-				: 0;
-			v.zCamO = linearDepth * iz;
-		}
+		const verts = interpolator.prepareFragment(pts, face);
 
 		let [vTop, vMid, vBot] = [verts[0], verts[1], verts[2]];
 		if (vTop.y > vMid.y) [vTop, vMid] = [vMid, vTop];
@@ -887,153 +694,42 @@ export class Rasterizer implements RasterizerLike {
 
 		for (let y = minY; y <= maxY; y++) {
 			const py = y + 0.5;
-			let left = this._edgeRes1;
-			let right = this._edgeRes2;
-
-			if (py < vMid.y) {
-				this._fillEdgeRes(left, vTop, vMid, py);
-				this._fillEdgeRes(right, vTop, vBot, py);
-			} else {
-				this._fillEdgeRes(left, vMid, vBot, py);
-				this._fillEdgeRes(right, vTop, vBot, py);
-			}
-
-			if (left.x > right.x) {
-				const tmp = left;
-				left = right;
-				right = tmp;
-			}
+			interpolator.sampleScanlineEdges(vTop, vMid, vBot, py);
+			const left = interpolator.left;
+			const right = interpolator.right;
 
 			const startX = Math.max(clipMinX, Math.ceil(left.x - 0.5));
 			const endX = Math.min(clipMaxX, Math.floor(right.x - 0.5));
 			if (endX < startX) continue;
 
-			const spanWidth = right.x - left.x;
-			const spanInv = 1.0 / (spanWidth || CoreConstants.EPSILON);
-
-			const diz = (right.iz - left.iz) * spanInv;
-			const dWorldOx = (right.worldO.x - left.worldO.x) * spanInv;
-			const dWorldOy = (right.worldO.y - left.worldO.y) * spanInv;
-			const dWorldOz = (right.worldO.z - left.worldO.z) * spanInv;
-			const dPreviousWorldOx =
-				(right.previousWorldO.x - left.previousWorldO.x) * spanInv;
-			const dPreviousWorldOy =
-				(right.previousWorldO.y - left.previousWorldO.y) * spanInv;
-			const dPreviousWorldOz =
-				(right.previousWorldO.z - left.previousWorldO.z) * spanInv;
-			const dNormalOx = (right.normalO.x - left.normalO.x) * spanInv;
-			const dNormalOy = (right.normalO.y - left.normalO.y) * spanInv;
-			const dNormalOz = (right.normalO.z - left.normalO.z) * spanInv;
-			const dTangentOx = (right.tangentO.x - left.tangentO.x) * spanInv;
-			const dTangentOy = (right.tangentO.y - left.tangentO.y) * spanInv;
-			const dTangentOz = (right.tangentO.z - left.tangentO.z) * spanInv;
-			const dTangentOw = (right.tangentO.w - left.tangentO.w) * spanInv;
-			const duO = (right.uO - left.uO) * spanInv;
-			const dvO = (right.vO - left.vO) * spanInv;
-			const du2O = (right.u2O - left.u2O) * spanInv;
-			const dv2O = (right.v2O - left.v2O) * spanInv;
-			const du3O = (right.u3O - left.u3O) * spanInv;
-			const dv3O = (right.v3O - left.v3O) * spanInv;
-			const du4O = (right.u4O - left.u4O) * spanInv;
-			const dv4O = (right.v4O - left.v4O) * spanInv;
-			const dzCamO = (right.zCamO - left.zCamO) * spanInv;
-
-			const dx = startX + 0.5 - left.x;
-			let iz = left.iz + dx * diz;
-			let worldOx = left.worldO.x + dx * dWorldOx;
-			let worldOy = left.worldO.y + dx * dWorldOy;
-			let worldOz = left.worldO.z + dx * dWorldOz;
-			let previousWorldOx = left.previousWorldO.x + dx * dPreviousWorldOx;
-			let previousWorldOy = left.previousWorldO.y + dx * dPreviousWorldOy;
-			let previousWorldOz = left.previousWorldO.z + dx * dPreviousWorldOz;
-			let normalOx = left.normalO.x + dx * dNormalOx;
-			let normalOy = left.normalO.y + dx * dNormalOy;
-			let normalOz = left.normalO.z + dx * dNormalOz;
-			let tangentOx = left.tangentO.x + dx * dTangentOx;
-			let tangentOy = left.tangentO.y + dx * dTangentOy;
-			let tangentOz = left.tangentO.z + dx * dTangentOz;
-			let tangentOw = left.tangentO.w + dx * dTangentOw;
-			let uO = left.uO + dx * duO;
-			let vO = left.vO + dx * dvO;
-			let u2O = left.u2O + dx * du2O;
-			let v2O = left.v2O + dx * dv2O;
-			let u3O = left.u3O + dx * du3O;
-			let v3O = left.v3O + dx * dv3O;
-			let u4O = left.u4O + dx * du4O;
-			let v4O = left.v4O + dx * dv4O;
-			let zCamO = left.zCamO + dx * dzCamO;
+			const span = interpolator.fragmentSpan;
+			span.setup(left, right, startX);
 
 			const bufRow = y * width;
 			const input = this._fragmentInput;
 
 			for (let x = startX; x <= endX; x++) {
 				const bufIdx = bufRow + x;
-				const safeIz =
-					Math.abs(iz) > CoreConstants.EPSILON ? iz
-					: iz >= 0 ? CoreConstants.EPSILON
-					: -CoreConstants.EPSILON;
-				const zCam = 1 / safeIz;
 
 				// Use w for early z-test check, but final shade depth uses linear depth
-				if (zCam > 0) {
-					const zCamValue = zCamO * zCam;
-					if (zCamValue > 0) {
+				if (span.computeDepth()) {
+					if (span.zCamValue > 0) {
 						const earlyDepthValue =
 							earlyDepthBuffer ? earlyDepthBuffer[bufIdx] : depthBuffer[bufIdx];
 						const passedEarlyDepth =
 							earlyDepthBuffer ?
-								zCamValue <= earlyDepthValue + CoreConstants.EPSILON
-							:	zCamValue < earlyDepthValue;
+								span.zCamValue <= earlyDepthValue + CoreConstants.EPSILON
+							:	span.zCamValue < earlyDepthValue;
 						if (!passedEarlyDepth) {
-							iz += diz;
-							worldOx += dWorldOx;
-							worldOy += dWorldOy;
-							worldOz += dWorldOz;
-							previousWorldOx += dPreviousWorldOx;
-							previousWorldOy += dPreviousWorldOy;
-							previousWorldOz += dPreviousWorldOz;
-							normalOx += dNormalOx;
-							normalOy += dNormalOy;
-							normalOz += dNormalOz;
-							tangentOx += dTangentOx;
-							tangentOy += dTangentOy;
-							tangentOz += dTangentOz;
-							tangentOw += dTangentOw;
-							uO += duO;
-							vO += dvO;
-							u2O += du2O;
-							v2O += dv2O;
-							u3O += du3O;
-							v3O += dv3O;
-							u4O += du4O;
-							v4O += dv4O;
+							span.advance();
 							continue;
 						}
 
-						input.zCam = zCam;
-						input.world.x = worldOx * zCam;
-						input.world.y = worldOy * zCam;
-						input.world.z = worldOz * zCam;
-						input.normal.x = normalOx * zCam;
-						input.normal.y = normalOy * zCam;
-						input.normal.z = normalOz * zCam;
-						input.tangent.x = tangentOx * zCam;
-						input.tangent.y = tangentOy * zCam;
-						input.tangent.z = tangentOz * zCam;
-						input.tangent.w = tangentOw * zCam;
-						input.u = uO * zCam;
-						input.v = vO * zCam;
-						input.u2 = u2O * zCam;
-						input.v2 = v2O * zCam;
-						input.u3 = u3O * zCam;
-						input.v3 = v3O * zCam;
-						input.u4 = u4O * zCam;
-						input.v4 = v4O * zCam;
-						input.zCam = zCamValue;
+						span.writeFragmentInput(input);
 
 						const finalOutput = shader.shade(input);
 						let finalColor = finalOutput?.color;
-						const shadedDepth = finalOutput?.depth ?? zCamValue;
+						const shadedDepth = finalOutput?.depth ?? span.zCamValue;
 
 						if (
 							finalColor &&
@@ -1099,9 +795,9 @@ export class Rasterizer implements RasterizerLike {
 										x,
 										y,
 										{
-											x: previousWorldOx * zCam,
-											y: previousWorldOy * zCam,
-											z: previousWorldOz * zCam,
+											x: span.previousWorldOx * span.zCam,
+											y: span.previousWorldOy * span.zCam,
+											z: span.previousWorldOz * span.zCam,
 										},
 										shadedDepth
 									);
@@ -1120,28 +816,7 @@ export class Rasterizer implements RasterizerLike {
 					}
 				}
 
-				iz += diz;
-				worldOx += dWorldOx;
-				worldOy += dWorldOy;
-				worldOz += dWorldOz;
-				previousWorldOx += dPreviousWorldOx;
-				previousWorldOy += dPreviousWorldOy;
-				previousWorldOz += dPreviousWorldOz;
-				normalOx += dNormalOx;
-				normalOy += dNormalOy;
-				normalOz += dNormalOz;
-				tangentOx += dTangentOx;
-				tangentOy += dTangentOy;
-				tangentOz += dTangentOz;
-				tangentOw += dTangentOw;
-				uO += duO;
-				vO += dvO;
-				u2O += du2O;
-				v2O += dv2O;
-				u3O += du3O;
-				v3O += dv3O;
-				u4O += du4O;
-				v4O += dv4O;
+				span.advance();
 			}
 		}
 
