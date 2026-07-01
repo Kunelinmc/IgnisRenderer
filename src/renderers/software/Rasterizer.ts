@@ -5,7 +5,6 @@ import {
 } from "../../materials/Material";
 import { resolveMaterialShadowTransmittance } from "../../materials/transparency";
 import { Matrix4 } from "../../maths/Matrix4";
-import { PostProcessConstants } from "./constants";
 import { CoreConstants } from "./constants";
 import { IBLBRDF } from "../../lights/ibl/IBLBRDF";
 import {
@@ -666,7 +665,6 @@ export class Rasterizer implements RasterizerLike {
 			enableShadows: !!context.enableShadows,
 			enableSH: !!context.enableSH,
 			enableLighting: isLightingEnabled,
-			gamma: PostProcessConstants.DEFAULT_GAMMA,
 		};
 		shader.initialize(face, shaderContext);
 

@@ -27,7 +27,6 @@ function createContext(overrides = {}) {
 		enableSH: true,
 		enableGamma: false,
 		enableLighting: true,
-		gamma: 2.2,
 		...overrides,
 	};
 }
