@@ -12,12 +12,10 @@ import type { Material } from "../../materials";
 import type { RGB } from "../../foundation/Color";
 import type { SceneLight, ShadowCastingLight } from "../../lights";
 import type { ReflectionProbe } from "../../lights/ReflectionProbe";
-import type { ShadowRenderSet } from "../../lights/shadows/ShadowMapping";
 
 export interface ShaderContext {
 	cameraPos: IVector3;
 	lights: SceneLight[];
-	shadowMaps: Map<ShadowCastingLight, ShadowRenderSet>;
 	sampleShadow?: (
 		light: ShadowCastingLight,
 		worldPoint: IVector3,
@@ -29,7 +27,6 @@ export interface ShaderContext {
 	brdfLUT: Texture | null;
 	enableShadows: boolean;
 	enableSH: boolean;
-	enableLighting: boolean;
 }
 
 export interface FragmentOutput {

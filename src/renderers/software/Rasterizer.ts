@@ -656,7 +656,6 @@ export class Rasterizer implements RasterizerLike {
 		const shaderContext: ShaderContext = {
 			cameraPos: context.camera.position,
 			lights: lights,
-			shadowMaps: context.shadowMaps,
 			sampleShadow: context.sampleShadow,
 			shAmbientCoeffs: context.shAmbientCoeffs,
 			reflectionProbes,
@@ -664,7 +663,6 @@ export class Rasterizer implements RasterizerLike {
 			brdfLUT: IBLBRDF.getLUT(),
 			enableShadows: !!context.enableShadows,
 			enableSH: !!context.enableSH,
-			enableLighting: isLightingEnabled,
 		};
 		shader.initialize(face, shaderContext);
 
