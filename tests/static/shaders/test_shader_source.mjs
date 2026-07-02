@@ -387,6 +387,35 @@ async function testPagedShadowDirtyGridBuildUsesGlobalGridBuffers() {
 	assert.ok(source.includes("dirtyGridIndices[insertIndex] = i"));
 }
 
+async function testPagedShadowClearLayoutMatchesShaderBindings() {
+	ShaderSource.clearCache();
+
+	const source = await ShaderSource.load("webgpu.shadow.pagedShadowClear.raw");
+	const shadowPass = await readFile(
+		path.join(REPO_ROOT, "src", "renderers", "webgpu", "WebGPUShadowPass.ts"),
+		"utf8"
+	);
+	const layoutStart = shadowPass.indexOf(
+		"label: \"WebGPUPagedShadowClearBindGroupLayout\""
+	);
+	const layoutEnd = shadowPass.indexOf(
+		"label: \"WebGPUPagedShadowClearPipelineLayout\"",
+		layoutStart
+	);
+	const layoutSource = shadowPass.slice(layoutStart, layoutEnd);
+
+	assert.ok(source.includes("@group(0) @binding(0) var<uniform> params"));
+	assert.ok(
+		source.includes(
+			"@group(0) @binding(1) var<storage, read> dirtyPhysicalPages"
+		)
+	);
+	assert.ok(!source.includes("@group(0) @binding(2)"));
+	assert.ok(layoutSource.includes("binding: 0"));
+	assert.ok(layoutSource.includes("binding: 1"));
+	assert.ok(!layoutSource.includes("binding: 2"));
+}
+
 async function testPagedShadowRequestCompactUsesLayoutAddresses() {
 	ShaderSource.clearCache();
 
@@ -561,6 +590,7 @@ async function run() {
 	await testWebGPUCompositeIncludesSharedParts();
 	await testPagedShadowDrawBuildUsesConservativePlaneCulling();
 	await testPagedShadowDirtyGridBuildUsesGlobalGridBuffers();
+	await testPagedShadowClearLayoutMatchesShaderBindings();
 	await testPagedShadowRequestCompactUsesLayoutAddresses();
 	await testCompositeResultsAreCloned();
 	testSyncLoadPopulatesPreparedCache();
