@@ -1,12 +1,14 @@
-import type { FrameContext } from "../../../pipeline/types";
+import type { DrawPacket, FrameContext } from "../../../pipeline/types";
 import type { Rasterizer } from "../Rasterizer";
 import {
 	setSoftwarePlanarReflectionRuntime,
 	SoftwarePlanarReflectionRuntime,
 } from "../SoftwarePlanarReflectionRuntime";
-import type { SoftwarePassLike } from "./types";
+import type { SoftwarePassLike, SoftwareSurfaceCompositePass } from "./types";
 
-export class SoftwareReflectionPass implements SoftwarePassLike {
+export class SoftwareReflectionPass
+	implements SoftwarePassLike, SoftwareSurfaceCompositePass
+{
 	private _runtime: SoftwarePlanarReflectionRuntime;
 
 	constructor(rasterizer: Rasterizer) {
@@ -16,5 +18,9 @@ export class SoftwareReflectionPass implements SoftwarePassLike {
 	public render(context: FrameContext): void {
 		this._runtime.render(context);
 		setSoftwarePlanarReflectionRuntime(context.transient, this._runtime);
+	}
+
+	public composite(context: FrameContext, packets: DrawPacket[]): void {
+		this._runtime.composite(context, packets);
 	}
 }

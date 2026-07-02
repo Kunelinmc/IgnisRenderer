@@ -8,9 +8,6 @@ import type {
 } from "../../../core/types";
 import type { Rasterizer, RasterizerContext } from "../Rasterizer";
 import { createSoftwareShadowSampler, getSoftwareShadowRuntimeMap } from "./SoftwareShadowPass";
-import {
-	getSoftwarePlanarReflectionRuntime,
-} from "../SoftwarePlanarReflectionRuntime";
 import type { WorkerLike } from "../../../workers/types";
 import { globalWorkerScheduler } from "../../../workers/WorkerScheduler";
 import { DEFAULT_WORKER_TRANSPORT_PLUGINS } from "../../../workers/transports";
@@ -109,10 +106,6 @@ function resolvePreparedSceneEnvironment(
 
 function createRasterizerContext(context: FrameContext): RasterizerContext {
 	const runtimeMap = getSoftwareShadowRuntimeMap(context.transient);
-	const planarReflectionRuntime =
-		context.features.enableReflection ?
-			getSoftwarePlanarReflectionRuntime(context.transient)
-		:	null;
 	const sampleShadow = createSoftwareShadowSampler(
 		context.shadowMaps,
 		runtimeMap,
@@ -142,8 +135,6 @@ function createRasterizerContext(context: FrameContext): RasterizerContext {
 		enableLighting: context.features.enableLighting,
 		enableSH: context.features.enableSH,
 		enableShadows: context.features.enableShadows,
-		enableReflection: context.features.enableReflection,
-		planarReflectionComposite: planarReflectionRuntime,
 	};
 }
 

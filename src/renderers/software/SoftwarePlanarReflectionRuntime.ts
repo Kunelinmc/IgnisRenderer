@@ -1,20 +1,24 @@
-import type { RGB } from "../../foundation/Color";
-import type { Material, MirrorPlane } from "../../materials/Material";
+import type { MirrorPlane } from "../../materials/Material";
 import { AlphaMode } from "../../materials/Material";
 import { materialUsesTransmission } from "../../materials/transparency";
 import { Matrix4 } from "../../maths/Matrix4";
 import { Plane } from "../../maths/Plane";
-import type { IVector3 } from "../../maths/types";
 import {
 	defineTransientKey,
+	type DrawPacket,
 	type FrameContext,
 	type TransientStore,
 } from "../../pipeline/types";
 import type { ProjectedFace, ProjectedVertex } from "../../core/types";
+import { sampleSoftwareTextureAlpha } from "../../shaders/software/textureSampling";
 import { EnvironmentBackgroundRenderer } from "./EnvironmentRenderer";
+import {
+	SoftwareTriangleInterpolator,
+	type SoftwareFragmentSpan,
+} from "./Interpolator";
 import { Projector } from "./Projector";
 import type { Rasterizer, RasterizerContext } from "./Rasterizer";
-import { RenderConstants } from "./constants";
+import { CoreConstants, RenderConstants } from "./constants";
 import {
 	createSoftwareShadowSampler,
 	getSoftwareShadowRuntimeMap,
@@ -35,60 +39,11 @@ interface PlaneAggregateInfo {
 	plane: Plane;
 }
 
-export interface SoftwarePlanarReflectionComposite {
-	bind(
-		material: Material,
-		cameraPosition: IVector3,
-		frameWidth: number,
-		frameHeight: number
-	): SoftwarePlanarReflectionCompositeBinding | null;
-}
-
-export interface SoftwarePlanarReflectionCompositeBinding {
-	composite(color: RGB, x: number, y: number): void;
-}
-
-class SoftwarePlanarReflectionBufferBinding
-	implements SoftwarePlanarReflectionCompositeBinding
-{
-	private _buffer: SoftwarePlanarReflectionBuffer;
-	private _scaleX: number;
-	private _scaleY: number;
-	private _reflectivity: number;
-	private _inverseReflectivity: number;
-
-	public constructor(
-		buffer: SoftwarePlanarReflectionBuffer,
-		frameWidth: number,
-		frameHeight: number,
-		reflectivity: number
-	) {
-		this._buffer = buffer;
-		this._scaleX = buffer.width / frameWidth;
-		this._scaleY = buffer.height / frameHeight;
-		this._reflectivity = reflectivity;
-		this._inverseReflectivity = 1 - reflectivity;
-	}
-
-	public composite(color: RGB, x: number, y: number): void {
-		const buffer = this._buffer;
-		let refX = Math.floor(x * this._scaleX);
-		let refY = Math.floor(y * this._scaleY);
-
-		refX = Math.max(0, Math.min(buffer.width - 1, refX));
-		refY = Math.max(0, Math.min(buffer.height - 1, refY));
-
-		const refIdx = (refY * buffer.width + refX) << 2;
-		const refData = buffer.imageData.data;
-		const reflectivity = this._reflectivity;
-		const inverseReflectivity = this._inverseReflectivity;
-
-		color.r = color.r * inverseReflectivity + refData[refIdx] * reflectivity;
-		color.g =
-			color.g * inverseReflectivity + refData[refIdx + 1] * reflectivity;
-		color.b =
-			color.b * inverseReflectivity + refData[refIdx + 2] * reflectivity;
-	}
+interface SoftwareCompositeClipRect {
+	minX: number;
+	minY: number;
+	maxX: number;
+	maxY: number;
 }
 
 function resolvePreparedSceneEnvironment(scene: FrameContext["scene"]): {
@@ -142,6 +97,37 @@ function resolvePreparedSceneEnvironment(scene: FrameContext["scene"]): {
 	};
 }
 
+function resolveCompositeClipRects(
+	context: FrameContext
+): SoftwareCompositeClipRect[] {
+	const width = Math.max(1, Math.floor(context.attachments.width));
+	const height = Math.max(1, Math.floor(context.attachments.height));
+	if (
+		!context.incremental.enabled ||
+		context.incremental.forceFullFrame ||
+		context.incremental.dirtyRects.length === 0
+	) {
+		return [{
+			minX: 0,
+			minY: 0,
+			maxX: width - 1,
+			maxY: height - 1,
+		}];
+	}
+
+	const rects: SoftwareCompositeClipRect[] = [];
+	for (const rect of context.incremental.dirtyRects) {
+		const minX = Math.max(0, Math.floor(rect.x));
+		const minY = Math.max(0, Math.floor(rect.y));
+		const maxX = Math.min(width - 1, Math.ceil(rect.x + rect.width) - 1);
+		const maxY = Math.min(height - 1, Math.ceil(rect.y + rect.height) - 1);
+		if (minX <= maxX && minY <= maxY) {
+			rects.push({ minX, minY, maxX, maxY });
+		}
+	}
+	return rects;
+}
+
 export function resolveSoftwarePlanarReflectionPlaneKey(
 	plane: MirrorPlane | Plane | null | undefined
 ): string | null {
@@ -164,13 +150,13 @@ export function setSoftwarePlanarReflectionRuntime(
 	transient.set(SOFTWARE_PLANAR_REFLECTION_RUNTIME_KEY, runtime);
 }
 
-export class SoftwarePlanarReflectionRuntime
-	implements SoftwarePlanarReflectionComposite
-{
+export class SoftwarePlanarReflectionRuntime {
 	private _rasterizer: Rasterizer;
 	private _depthBuffer: Float32Array | null = null;
 	private _planesPool: Map<string, Plane> = new Map();
 	private _imageDataPool: Map<string, ImageData[]> = new Map();
+	private _compositeInterpolator: SoftwareTriangleInterpolator =
+		new SoftwareTriangleInterpolator();
 
 	public reflectionBuffers: Map<string, SoftwarePlanarReflectionBuffer> =
 		new Map();
@@ -179,44 +165,6 @@ export class SoftwarePlanarReflectionRuntime
 
 	public constructor(rasterizer: Rasterizer) {
 		this._rasterizer = rasterizer;
-	}
-
-	public bind(
-		material: Material,
-		cameraPosition: IVector3,
-		frameWidth: number,
-		frameHeight: number
-	): SoftwarePlanarReflectionCompositeBinding | null {
-		if (frameWidth <= 0 || frameHeight <= 0) {
-			return null;
-		}
-		const reflectivity = Math.max(
-			0,
-			Math.min(1, material.reflectivity ?? 0)
-		);
-		if (reflectivity <= 0 || !material.mirrorPlane) {
-			return null;
-		}
-		const plane = material.mirrorPlane;
-		const cameraDistance =
-			cameraPosition.x * plane.normal.x +
-			cameraPosition.y * plane.normal.y +
-			cameraPosition.z * plane.normal.z +
-			plane.constant;
-		if (cameraDistance <= 0) {
-			return null;
-		}
-		const key = resolveSoftwarePlanarReflectionPlaneKey(plane);
-		const buffer = key ? this.reflectionBuffers.get(key) : null;
-		if (!buffer) {
-			return null;
-		}
-		return new SoftwarePlanarReflectionBufferBinding(
-			buffer,
-			frameWidth,
-			frameHeight,
-			reflectivity
-		);
 	}
 
 	public render(context: FrameContext): void {
@@ -242,6 +190,85 @@ export class SoftwarePlanarReflectionRuntime
 		}
 
 		this._cleanupStaleResources(planeInfos);
+	}
+
+	public composite(context: FrameContext, packets: DrawPacket[]): void {
+		if (
+			!context.features.enableReflection ||
+			packets.length <= 0 ||
+			this.reflectionBuffers.size <= 0
+		) {
+			return;
+		}
+		const pixels = context.attachments.pixels;
+		const depthBuffer = context.attachments.depthBuffer;
+		const width = context.attachments.width;
+		const height = context.attachments.height;
+		if (!pixels || !depthBuffer || width <= 0 || height <= 0) {
+			return;
+		}
+
+		const clipRects = resolveCompositeClipRects(context);
+		if (clipRects.length <= 0) {
+			return;
+		}
+
+		for (const packet of packets) {
+			const material = packet.material;
+			const reflectivity = Math.max(
+				0,
+				Math.min(1, material.reflectivity ?? 0)
+			);
+			if (
+				reflectivity <= 0 ||
+				!material.mirrorPlane ||
+				material.alphaMode === AlphaMode.Blend
+			) {
+				continue;
+			}
+
+			const plane = material.mirrorPlane;
+			const cameraPosition = context.camera.getWorldPosition();
+			const cameraDistance =
+				cameraPosition.x * plane.normal.x +
+				cameraPosition.y * plane.normal.y +
+				cameraPosition.z * plane.normal.z +
+				plane.constant;
+			if (cameraDistance <= 0) {
+				continue;
+			}
+
+			const key = resolveSoftwarePlanarReflectionPlaneKey(plane);
+			const buffer = key ? this.reflectionBuffers.get(key) : null;
+			if (!buffer) {
+				continue;
+			}
+
+			const faces = Projector.projectPacket(packet, context);
+			for (const face of faces) {
+				const projected = face.projected;
+				for (let i = 1; i < projected.length - 1; i++) {
+					const triangle: [ProjectedVertex, ProjectedVertex, ProjectedVertex] = [
+						projected[0],
+						projected[i],
+						projected[i + 1],
+					];
+					for (const clipRect of clipRects) {
+						this._compositeTriangle(
+							triangle,
+							face,
+							pixels,
+							depthBuffer,
+							width,
+							height,
+							clipRect,
+							buffer,
+							reflectivity
+						);
+					}
+				}
+			}
+		}
 	}
 
 	private _collectPlaneInfos(
@@ -546,8 +573,6 @@ export class SoftwarePlanarReflectionRuntime
 			enableLighting: context.features.enableLighting,
 			enableSH: context.features.enableSH,
 			enableShadows: context.features.enableShadows,
-			enableReflection: false,
-			planarReflectionComposite: null,
 		};
 
 		this._rasterizer.drawTriangle(
@@ -557,6 +582,93 @@ export class SoftwarePlanarReflectionRuntime
 			rasterizerContext,
 			isTransparent
 		);
+	}
+
+	private _compositeTriangle(
+		pts: [ProjectedVertex, ProjectedVertex, ProjectedVertex],
+		face: ProjectedFace,
+		pixels: Uint8ClampedArray,
+		depthBuffer: Float32Array,
+		width: number,
+		height: number,
+		clipRect: SoftwareCompositeClipRect,
+		buffer: SoftwarePlanarReflectionBuffer,
+		reflectivity: number
+	): void {
+		const interpolator = this._compositeInterpolator;
+		const verts = interpolator.prepareFragment(pts, face);
+		const material = face.material;
+
+		let [vTop, vMid, vBot] = [verts[0], verts[1], verts[2]];
+		if (vTop.y > vMid.y) [vTop, vMid] = [vMid, vTop];
+		if (vMid.y > vBot.y) [vMid, vBot] = [vBot, vMid];
+		if (vTop.y > vMid.y) [vTop, vMid] = [vMid, vTop];
+
+		const minY = Math.max(clipRect.minY, Math.ceil(vTop.y - 0.5));
+		const maxY = Math.min(clipRect.maxY, Math.floor(vBot.y - 0.5));
+		if (minY > maxY) return;
+
+		const useMask = material?.alphaMode === AlphaMode.Mask;
+		const inverseReflectivity = 1 - reflectivity;
+		const scaleX = buffer.width / width;
+		const scaleY = buffer.height / height;
+		const reflectionData = buffer.imageData.data;
+
+		for (let y = minY; y <= maxY; y++) {
+			const py = y + 0.5;
+			interpolator.sampleScanlineEdges(vTop, vMid, vBot, py);
+			const left = interpolator.left;
+			const right = interpolator.right;
+
+			const startX = Math.max(clipRect.minX, Math.ceil(left.x - 0.5));
+			const endX = Math.min(clipRect.maxX, Math.floor(right.x - 0.5));
+			if (endX < startX) continue;
+
+			const span = interpolator.fragmentSpan;
+			span.setup(left, right, startX);
+			const row = y * width;
+
+			for (let x = startX; x <= endX; x++) {
+				const idx = row + x;
+				if (span.computeDepth() && span.zCamValue > 0) {
+					if (span.zCamValue <= depthBuffer[idx] + CoreConstants.EPSILON) {
+						if (!useMask || this._passesAlphaMask(material!, span)) {
+							let refX = Math.floor(x * scaleX);
+							let refY = Math.floor(y * scaleY);
+							refX = Math.max(0, Math.min(buffer.width - 1, refX));
+							refY = Math.max(0, Math.min(buffer.height - 1, refY));
+
+							const pixelIdx = idx << 2;
+							const refIdx = (refY * buffer.width + refX) << 2;
+							pixels[pixelIdx] =
+								pixels[pixelIdx] * inverseReflectivity +
+								reflectionData[refIdx] * reflectivity;
+							pixels[pixelIdx + 1] =
+								pixels[pixelIdx + 1] * inverseReflectivity +
+								reflectionData[refIdx + 1] * reflectivity;
+							pixels[pixelIdx + 2] =
+								pixels[pixelIdx + 2] * inverseReflectivity +
+								reflectionData[refIdx + 2] * reflectivity;
+							pixels[pixelIdx + 3] = CoreConstants.OPAQUE_ALPHA;
+						}
+					}
+				}
+				span.advance();
+			}
+		}
+	}
+
+	private _passesAlphaMask(
+		material: NonNullable<ProjectedFace["material"]>,
+		span: SoftwareFragmentSpan
+	): boolean {
+		const alpha =
+			sampleSoftwareTextureAlpha(
+				material.map,
+				span.uO * span.zCam,
+				span.vO * span.zCam
+			) * (material.opacity ?? 1);
+		return alpha >= (material.alphaCutoff ?? 0.5);
 	}
 
 	private _getImageDataFromPool(

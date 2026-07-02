@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { Camera } from "../../../src/cameras/Camera.ts";
 import { BasicMaterial, AlphaMode } from "../../../src/materials/index.ts";
 import { Matrix4 } from "../../../src/maths/Matrix4.ts";
@@ -10,7 +11,6 @@ import {
 import {
 	getSoftwarePlanarReflectionRuntime,
 	resolveSoftwarePlanarReflectionPlaneKey,
-	setSoftwarePlanarReflectionRuntime,
 	SoftwarePlanarReflectionRuntime,
 } from "../../../src/renderers/software/SoftwarePlanarReflectionRuntime.ts";
 import { createResolvedPostProcess } from "../../helpers/postprocess.mjs";
@@ -208,92 +208,17 @@ function createImageBuffer(width, height, data) {
 	};
 }
 
-function createReflectiveMaterial(options = {}) {
-	return new BasicMaterial({
-		diffuse: { r: 10, g: 20, b: 30 },
-		reflectivity: options.reflectivity ?? 0.5,
-		mirrorPlane:
-			options.mirrorPlane ?? { normal: { x: 0, y: 0, z: 1 }, constant: 0 },
-	});
-}
-
-function testCompositeBindingBlendsReflectionColor() {
-	const runtime = new SoftwarePlanarReflectionRuntime(new Rasterizer());
-	const material = createReflectiveMaterial({ reflectivity: 0.25 });
-	const key = resolveSoftwarePlanarReflectionPlaneKey(material.mirrorPlane);
-	runtime.reflectionBuffers.set(
-		key,
-		createImageBuffer(1, 1, [200, 100, 50, 255])
-	);
-
-	const binding = runtime.bind(material, { x: 0, y: 0, z: 4 }, 2, 2);
-	assert.ok(binding, "Reflective material should create a composite binding");
-
-	const color = { r: 100, g: 100, b: 100 };
-	binding.composite(color, 0, 0);
-	assert.equal(color.r, 125);
-	assert.equal(color.g, 100);
-	assert.equal(color.b, 87.5);
-}
-
-function testCompositeBindingRejectsInactiveInputs() {
-	const runtime = new SoftwarePlanarReflectionRuntime(new Rasterizer());
-	const material = createReflectiveMaterial();
-	const key = resolveSoftwarePlanarReflectionPlaneKey(material.mirrorPlane);
-	runtime.reflectionBuffers.set(
-		key,
-		createImageBuffer(1, 1, [255, 255, 255, 255])
-	);
-
-	material.reflectivity = 0;
-	assert.equal(runtime.bind(material, { x: 0, y: 0, z: 4 }, 2, 2), null);
-
-	material.reflectivity = 0.5;
-	material.mirrorPlane = null;
-	assert.equal(runtime.bind(material, { x: 0, y: 0, z: 4 }, 2, 2), null);
-
-	material.mirrorPlane = { normal: { x: 0, y: 0, z: 1 }, constant: 0 };
-	assert.equal(runtime.bind(material, { x: 0, y: 0, z: -4 }, 2, 2), null);
-
-	material.mirrorPlane = { normal: { x: 0, y: 1, z: 0 }, constant: 0 };
-	assert.equal(runtime.bind(material, { x: 0, y: 1, z: 0 }, 2, 2), null);
-}
-
-function testCompositeBindingScalesAndClampsCoordinates() {
-	const runtime = new SoftwarePlanarReflectionRuntime(new Rasterizer());
-	const material = createReflectiveMaterial({ reflectivity: 1 });
-	const key = resolveSoftwarePlanarReflectionPlaneKey(material.mirrorPlane);
-	runtime.reflectionBuffers.set(
-		key,
-		createImageBuffer(2, 2, [
-			10,
-			0,
-			0,
-			255,
-			20,
-			0,
-			0,
-			255,
-			30,
-			0,
-			0,
-			255,
-			40,
-			0,
-			0,
-			255,
-		])
-	);
-
-	const binding = runtime.bind(material, { x: 0, y: 0, z: 4 }, 4, 4);
-	assert.ok(binding, "Reflective material should bind a 2x2 buffer");
-
-	const color = { r: 0, g: 0, b: 0 };
-	binding.composite(color, 3, 3);
-	assert.equal(color.r, 40);
-
-	binding.composite(color, 99, 99);
-	assert.equal(color.r, 40);
+function createAlphaTexture(alpha) {
+	return {
+		data: new Uint8ClampedArray([255, 255, 255, alpha]),
+		width: 1,
+		height: 1,
+		repeat: { x: 1, y: 1 },
+		offset: { x: 0, y: 0 },
+		rotation: 0,
+		wrapS: "ClampToEdge",
+		wrapT: "ClampToEdge",
+	};
 }
 
 function testReflectionPassPublishesRuntime() {
@@ -308,7 +233,7 @@ function testReflectionPassPublishesRuntime() {
 	);
 }
 
-async function testMainPassConsumesRuntimeComposite() {
+async function testRuntimeCompositeBlendsReflectionColor() {
 	const rasterizer = new Rasterizer();
 	const mainPass = new SoftwareMainPass(rasterizer, {
 		mode: "scanline",
@@ -333,9 +258,9 @@ async function testMainPassConsumesRuntimeComposite() {
 		resolveSoftwarePlanarReflectionPlaneKey(mirrorPlane),
 		createImageBuffer(1, 1, [0, 200, 0, 255])
 	);
-	setSoftwarePlanarReflectionRuntime(context.transient, runtime);
 
 	await mainPass.render(context, [packet], false);
+	runtime.composite(context, [packet]);
 
 	const idx = ((HEIGHT >> 1) * WIDTH + (WIDTH >> 1)) << 2;
 	assert.ok(
@@ -347,6 +272,161 @@ async function testMainPassConsumesRuntimeComposite() {
 		context.attachments.pixels[idx + 1] > 80 &&
 			context.attachments.pixels[idx + 1] < 120,
 		"Main pass should composite reflection green channel"
+	);
+}
+
+async function testRuntimeCompositeSamplesScaledReflectionBuffer() {
+	const rasterizer = new Rasterizer();
+	const mainPass = new SoftwareMainPass(rasterizer, {
+		mode: "scanline",
+		enableEarlyZPrepass: false,
+	});
+	const mirrorPlane = { normal: { x: 0, y: 0, z: 1 }, constant: 0 };
+	const packet = createTrianglePacket(
+		"mirror-scaled",
+		{ r: 0, g: 0, b: 0 },
+		{ reflectivity: 1, mirrorPlane }
+	);
+	const context = createContext(
+		createCamera(),
+		{
+			opaquePackets: [packet],
+			reflectivePackets: [packet],
+		},
+		{ enableReflection: true }
+	);
+	const runtime = new SoftwarePlanarReflectionRuntime(rasterizer);
+	runtime.reflectionBuffers.set(
+		resolveSoftwarePlanarReflectionPlaneKey(mirrorPlane),
+		createImageBuffer(2, 2, [
+			10,
+			0,
+			0,
+			255,
+			20,
+			0,
+			0,
+			255,
+			30,
+			0,
+			0,
+			255,
+			40,
+			0,
+			0,
+			255,
+		])
+	);
+
+	await mainPass.render(context, [packet], false);
+	runtime.composite(context, [packet]);
+
+	const idx = ((HEIGHT >> 1) * WIDTH + (WIDTH >> 1)) << 2;
+	assert.equal(context.attachments.pixels[idx], 40);
+}
+
+function testRuntimeCompositeSkipsMissingBuffer() {
+	const rasterizer = new Rasterizer();
+	const mirrorPlane = { normal: { x: 0, y: 0, z: 1 }, constant: 0 };
+	const packet = createTrianglePacket(
+		"mirror-missing-buffer",
+		{ r: 0, g: 0, b: 0 },
+		{ reflectivity: 1, mirrorPlane }
+	);
+	const context = createContext(
+		createCamera(),
+		{
+			opaquePackets: [packet],
+			reflectivePackets: [packet],
+		},
+		{ enableReflection: true }
+	);
+	context.attachments.pixels.fill(100);
+	const runtime = new SoftwarePlanarReflectionRuntime(rasterizer);
+
+	runtime.composite(context, [packet]);
+
+	const idx = ((HEIGHT >> 1) * WIDTH + (WIDTH >> 1)) << 2;
+	assert.equal(context.attachments.pixels[idx], 100);
+}
+
+function testRuntimeCompositeHonorsAlphaMask() {
+	const rasterizer = new Rasterizer();
+	const mirrorPlane = { normal: { x: 0, y: 0, z: 1 }, constant: 0 };
+	const packet = createTrianglePacket(
+		"mirror-mask",
+		{ r: 0, g: 0, b: 0 },
+		{
+			reflectivity: 1,
+			mirrorPlane,
+			alphaMode: AlphaMode.Mask,
+		}
+	);
+	packet.material.map = createAlphaTexture(0);
+	packet.material.alphaCutoff = 0.5;
+	const context = createContext(
+		createCamera(),
+		{
+			opaquePackets: [packet],
+			reflectivePackets: [packet],
+		},
+		{ enableReflection: true }
+	);
+	context.attachments.pixels.fill(100);
+	const runtime = new SoftwarePlanarReflectionRuntime(rasterizer);
+	runtime.reflectionBuffers.set(
+		resolveSoftwarePlanarReflectionPlaneKey(mirrorPlane),
+		createImageBuffer(1, 1, [0, 200, 0, 255])
+	);
+
+	runtime.composite(context, [packet]);
+
+	const idx = ((HEIGHT >> 1) * WIDTH + (WIDTH >> 1)) << 2;
+	assert.equal(context.attachments.pixels[idx], 100);
+}
+
+async function testReflectionPassCompositeAfterMainPass() {
+	const rasterizer = new Rasterizer();
+	const mainPass = new SoftwareMainPass(rasterizer, {
+		mode: "scanline",
+		enableEarlyZPrepass: false,
+	});
+	const reflectionPass = new SoftwareReflectionPass(rasterizer);
+	const mirrorPlane = { normal: { x: 0, y: 0, z: 1 }, constant: 0 };
+	const packet = createTrianglePacket(
+		"mirror-pass",
+		{ r: 200, g: 0, b: 0 },
+		{ reflectivity: 0.5, mirrorPlane }
+	);
+	const context = createContext(
+		createCamera(),
+		{
+			opaquePackets: [packet],
+			reflectivePackets: [packet],
+		},
+		{ enableReflection: true }
+	);
+
+	await mainPass.render(context, [packet], false);
+	reflectionPass.render(context);
+	const runtime = getSoftwarePlanarReflectionRuntime(context.transient);
+	assert.ok(runtime, "Reflection pass should expose the runtime for the frame");
+	runtime.reflectionBuffers.set(
+		resolveSoftwarePlanarReflectionPlaneKey(mirrorPlane),
+		createImageBuffer(1, 1, [0, 200, 0, 255])
+	);
+	reflectionPass.composite(context, [packet]);
+
+	const idx = ((HEIGHT >> 1) * WIDTH + (WIDTH >> 1)) << 2;
+	assert.ok(
+		context.attachments.pixels[idx] > 80 &&
+			context.attachments.pixels[idx] < 120,
+		"Composite pass should blend reflection red channel"
+	);
+	assert.ok(
+		context.attachments.pixels[idx + 1] > 80 &&
+			context.attachments.pixels[idx + 1] < 120,
+		"Composite pass should blend reflection green channel"
 	);
 }
 
@@ -385,18 +465,28 @@ function testReflectionCaptureDisablesRecursiveComposite() {
 		"Reflection capture should rasterize reflected scene geometry"
 	);
 	for (const drawContext of drawContexts) {
-		assert.equal(drawContext.enableReflection, false);
-		assert.equal(drawContext.planarReflectionComposite, null);
+		assert.equal("enableReflection" in drawContext, false);
+		assert.equal("planarReflectionComposite" in drawContext, false);
 	}
 }
 
+function testRasterizerDoesNotReferencePlanarReflection() {
+	const source = readFileSync(
+		new URL("../../../src/renderers/software/Rasterizer.ts", import.meta.url),
+		"utf8"
+	);
+	assert.equal(/planarReflection|SoftwarePlanarReflection/.test(source), false);
+}
+
 async function run() {
-	testCompositeBindingBlendsReflectionColor();
-	testCompositeBindingRejectsInactiveInputs();
-	testCompositeBindingScalesAndClampsCoordinates();
 	testReflectionPassPublishesRuntime();
-	await testMainPassConsumesRuntimeComposite();
+	await testRuntimeCompositeBlendsReflectionColor();
+	await testRuntimeCompositeSamplesScaledReflectionBuffer();
+	testRuntimeCompositeSkipsMissingBuffer();
+	testRuntimeCompositeHonorsAlphaMask();
+	await testReflectionPassCompositeAfterMainPass();
 	testReflectionCaptureDisablesRecursiveComposite();
+	testRasterizerDoesNotReferencePlanarReflection();
 	console.log("Software planar reflection runtime tests passed");
 }
 

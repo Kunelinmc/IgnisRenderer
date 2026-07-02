@@ -20,7 +20,10 @@ import { SoftwareMainPass } from "./software/passes/SoftwareMainPass";
 import { SoftwareParticlePass } from "./software/passes/SoftwareParticlePass";
 import { SoftwareReflectionPass } from "./software/passes/SoftwareReflectionPass";
 import { SoftwareShadowPass } from "./software/passes/SoftwareShadowPass";
-import type { SoftwarePassLike } from "./software/passes/types";
+import type {
+	SoftwarePassLike,
+	SoftwareSurfaceCompositePass,
+} from "./software/passes/types";
 import { EnvironmentBackgroundRenderer } from "./software/EnvironmentRenderer";
 import { isShadowCastingLight } from "../lights";
 import {
@@ -178,7 +181,9 @@ export class SoftwareBackend implements IRenderBackend {
 	private _mainPass: SoftwareMainPass | null = null;
 	private _particlePass: SoftwarePassLike | null = null;
 	private _shadowPass: SoftwarePassLike | null = null;
-	private _reflectionPass: SoftwarePassLike | null = null;
+	private _reflectionPass:
+		| (SoftwarePassLike & SoftwareSurfaceCompositePass)
+		| null = null;
 	private _framePixelsShared = false;
 	private _pixels: Uint8ClampedArray | null = null;
 	private _depthBuffer: Float32Array | null = null;
@@ -587,6 +592,14 @@ export class SoftwareBackend implements IRenderBackend {
 		return packets;
 	}
 
+	private _resolveOpaqueReflectivePackets(packets: DrawPacket[]): DrawPacket[] {
+		return packets.filter(
+			(packet) =>
+				packet.material.reflectivity > 0 &&
+				packet.material.mirrorPlane !== null
+		);
+	}
+
 	private _getFrameImageData(): ImageData {
 		const pixels = this._resolveFramePixels();
 		const { width, height } = this._resolveFrameDimensions(pixels);
@@ -730,6 +743,10 @@ export class SoftwareBackend implements IRenderBackend {
 						context.scene.opaquePackets,
 					);
 					await this._mainPass.render(context, packets, false);
+					this._reflectionPass?.composite(
+						context,
+						this._resolveOpaqueReflectivePackets(packets)
+					);
 					this._syncActiveRasterMode();
 				},
 			],

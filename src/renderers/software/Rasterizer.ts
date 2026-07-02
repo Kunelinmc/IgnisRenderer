@@ -24,9 +24,6 @@ import type { Texture } from "../../core/Texture";
 import type { SoftwareShadowRenderTarget } from "./passes/SoftwareShadowPass";
 import type { TemporalJitterFrameState } from "../cross/TemporalJitterState";
 import { SoftwareTriangleInterpolator } from "./Interpolator";
-import type {
-	SoftwarePlanarReflectionComposite,
-} from "./SoftwarePlanarReflectionRuntime";
 import { SoftwareMaterialRuntime } from "./SoftwareMaterialRuntime";
 
 export interface RasterizerLike {
@@ -89,8 +86,6 @@ export interface RasterizerContext {
 	enableLighting: boolean;
 	enableSH: boolean;
 	enableShadows: boolean;
-	enableReflection: boolean;
-	planarReflectionComposite?: SoftwarePlanarReflectionComposite | null;
 }
 
 /**
@@ -509,16 +504,6 @@ export class Rasterizer implements RasterizerLike {
 		const interpolator = this._interpolator;
 		const shouldWriteDepth = program.shouldWriteDepth;
 
-		const planarReflectionBinding =
-			context.enableReflection && context.planarReflectionComposite ?
-				context.planarReflectionComposite.bind(
-					material,
-					context.camera.position,
-					width,
-					height
-				)
-			:	null;
-
 		const verts = interpolator.prepareFragment(pts, face);
 
 		let [vTop, vMid, vBot] = [verts[0], verts[1], verts[2]];
@@ -568,10 +553,6 @@ export class Rasterizer implements RasterizerLike {
 						const finalOutput = program.shade(input);
 						let finalColor = finalOutput?.color;
 						const shadedDepth = finalOutput?.depth ?? span.zCamValue;
-
-						if (finalColor && planarReflectionBinding) {
-							planarReflectionBinding.composite(finalColor, x, y);
-						}
 
 						if (
 							finalColor &&
