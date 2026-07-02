@@ -26,6 +26,9 @@ own world positions.
   `source === "capturedScene"`.
 - `ProbeCaptureRuntime` must write captured low-frequency radiance to
   `LightProbe.sh`.
+- `ProbeCaptureRuntime` must invalidate captured SH writes with a
+  non-capture-relevant dirty reason such as `probe-capture`; runtime capture
+  writeback must not advance the `onSceneDirty` capture dirty stamp by itself.
 - `ProbeCaptureRuntime` must store radiance SH coefficients and must not store
   pre-convolved irradiance coefficients.
 - `ProbeCaptureRuntime` must share one capture between `LightProbe` and

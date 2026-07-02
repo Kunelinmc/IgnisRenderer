@@ -64,6 +64,7 @@ export interface IrradianceProbeGridParams extends LightParams {
 
 const IRRADIANCE_PROBE_GRID_MAX_CELL_COUNT = 256;
 const IRRADIANCE_PROBE_GRID_NUMERIC_EPSILON = 1e-6;
+const SH_COEFFICIENT_COMPONENTS = new Set<PropertyKey>(["r", "g", "b"]);
 
 /**
  * Regular local-box grid of spherical harmonics irradiance probes.
@@ -101,8 +102,8 @@ export class IrradianceProbeGrid extends Light<LightType.IrradianceProbeGrid> {
 	public includeParticles: boolean;
 	/** Includes shadowing in captures when true. */
 	public includeShadows: boolean;
-	/** Per-cell SH coefficients, indexed with X fastest, then Y, then Z. */
-	public sh: SHCoefficients[];
+	private _sh: SHCoefficients[] = [];
+	private _shProxy: SHCoefficients[] | null = null;
 
 	private _validMask: Uint8Array;
 	private _cellRevisions: Uint32Array;
@@ -117,6 +118,8 @@ export class IrradianceProbeGrid extends Light<LightType.IrradianceProbeGrid> {
 	private _lastHalfExtents = new Float32Array(3);
 	private _lastBlendDistance: number;
 	private _lastPriority: number;
+	private _suppressSHMutationTracking = 0;
+	private _storageInitialized = false;
 
 	/**
 	 * Creates an irradiance probe grid.
@@ -155,7 +158,7 @@ export class IrradianceProbeGrid extends Light<LightType.IrradianceProbeGrid> {
 		this.includeTransparent = resolvedParams.includeTransparent ?? true;
 		this.includeParticles = resolvedParams.includeParticles ?? true;
 		this.includeShadows = resolvedParams.includeShadows ?? true;
-		this.sh = cloneGridSH(resolvedParams.sh, cellCount);
+		this._replaceSHStorage(resolvedParams.sh, cellCount);
 		this._validMask = createValidMask(resolvedParams.validMask, cellCount);
 		this._cellRevisions = new Uint32Array(cellCount);
 		this._cellCaptureRequestTokens = new Uint32Array(cellCount);
@@ -190,6 +193,26 @@ export class IrradianceProbeGrid extends Light<LightType.IrradianceProbeGrid> {
 		this._lastPriority = this.priority;
 		for (let i = 0; i < this._matrixSignature.length; i++) {
 			this._matrixSignature[i] = Number.NaN;
+		}
+		this._storageInitialized = true;
+	}
+
+	/** Per-cell SH coefficients, indexed with X fastest, then Y, then Z. */
+	public get sh(): SHCoefficients[] {
+		if (!this._shProxy) {
+			this._shProxy = this._createGridSHProxy();
+		}
+		return this._shProxy;
+	}
+
+	public set sh(value: SHCoefficients[]) {
+		const cellCount =
+			this.dimensions ? getCellCount(sanitizeDimensions(this.dimensions))
+			: Array.isArray(value) ? value.length
+			: 0;
+		this._replaceSHStorage(value, cellCount);
+		if (this._storageInitialized && this._suppressSHMutationTracking === 0) {
+			this._markAllCellDataChanged(true, "lighting");
 		}
 	}
 
@@ -241,8 +264,7 @@ export class IrradianceProbeGrid extends Light<LightType.IrradianceProbeGrid> {
 		coeffs: SHCoefficients
 	): void {
 		const index = this._resolveCellIndex(cell);
-		copySHCoefficients(this.sh[index], coeffs);
-		this._markCellDataChanged(index, true);
+		this._writeCellSH(index, coeffs, true, "lighting");
 	}
 
 	/**
@@ -255,8 +277,7 @@ export class IrradianceProbeGrid extends Light<LightType.IrradianceProbeGrid> {
 	 */
 	public clearCell(cell: IrradianceProbeGridCellRef): void {
 		const index = this._resolveCellIndex(cell);
-		copySHCoefficients(this.sh[index], SH.empty());
-		this._markCellDataChanged(index, false);
+		this._writeCellSH(index, SH.empty(), false, "lighting");
 	}
 
 	/**
@@ -325,7 +346,26 @@ export class IrradianceProbeGrid extends Light<LightType.IrradianceProbeGrid> {
 	 * @sideEffects Marks the cell valid and advances revisions.
 	 */
 	public markCellCaptureUpdated(cellIndex: number): void {
-		this._markCellDataChanged(cellIndex, true);
+		this._markCellDataChanged(cellIndex, true, "lighting");
+	}
+
+	/**
+	 * Writes captured-scene SH coefficients for one cell.
+	 *
+	 * @internal Owned by `ProbeCaptureRuntime`; application-authored data should
+	 * use `setCellSH` so intent remains explicit.
+	 * @param cellIndex - Flat cell index.
+	 * @param coeffs - Captured SH coefficients copied into the cell.
+	 * @returns Nothing.
+	 * @sideEffects Marks the cell valid, advances revisions, and invalidates the
+	 * scene with the non-capture-relevant `probe-capture` reason.
+	 */
+	public writeCapturedCellSH(
+		cellIndex: number,
+		coeffs: SHCoefficients
+	): void {
+		const index = this._resolveCellIndex(cellIndex);
+		this._writeCellSH(index, coeffs, true, "probe-capture");
 	}
 
 	/**
@@ -391,9 +431,11 @@ export class IrradianceProbeGrid extends Light<LightType.IrradianceProbeGrid> {
 		target.includeParticles = this.includeParticles;
 		target.includeShadows = this.includeShadows;
 		target._resizeStorage(getCellCount(this.dimensions));
-		for (let i = 0; i < this.sh.length; i++) {
-			copySHCoefficients(target.sh[i], this.sh[i]);
-		}
+		target._withSHMutationTrackingSuppressed(() => {
+			for (let i = 0; i < this.sh.length; i++) {
+				copySHCoefficients(target.sh[i], this.sh[i]);
+			}
+		});
 		target._validMask.set(this._validMask);
 		target._cellRevisions.set(this._cellRevisions);
 		target._cellCaptureRequestTokens.set(this._cellCaptureRequestTokens);
@@ -416,18 +458,48 @@ export class IrradianceProbeGrid extends Light<LightType.IrradianceProbeGrid> {
 		return this.getCellIndex(cell.x, cell.y, cell.z);
 	}
 
-	private _markCellDataChanged(cellIndex: number, valid: boolean): void {
+	private _writeCellSH(
+		cellIndex: number,
+		coeffs: SHCoefficients,
+		valid: boolean,
+		dirtyReason: "lighting" | "probe-capture"
+	): void {
+		this._withSHMutationTrackingSuppressed(() => {
+			copySHCoefficients(this._sh[cellIndex], coeffs);
+		});
+		this._markCellDataChanged(cellIndex, valid, dirtyReason);
+	}
+
+	private _markCellDataChanged(
+		cellIndex: number,
+		valid: boolean,
+		dirtyReason: "lighting" | "probe-capture"
+	): void {
 		const index = this._resolveCellIndex(cellIndex);
 		this._validMask[index] = valid ? 1 : 0;
 		this._cellRevisions[index]++;
 		this._textureRevision++;
 		this._captureRevision++;
 		this._runtimeCache.textureRevision = this._textureRevision;
-		this.scene?.invalidate("lighting");
+		this.scene?.invalidate(dirtyReason);
+	}
+
+	private _markAllCellDataChanged(
+		valid: boolean,
+		dirtyReason: "lighting" | "probe-capture"
+	): void {
+		for (let index = 0; index < this._sh.length; index++) {
+			this._validMask[index] = valid ? 1 : 0;
+			this._cellRevisions[index]++;
+		}
+		this._textureRevision++;
+		this._captureRevision++;
+		this._runtimeCache.textureRevision = this._textureRevision;
+		this.scene?.invalidate(dirtyReason);
 	}
 
 	private _resizeStorage(cellCount: number): void {
-		this.sh = cloneGridSH(this.sh, cellCount);
+		this._replaceSHStorage(this._sh, cellCount);
 		this._validMask = createValidMask(this._validMask, cellCount);
 		this._cellRevisions = resizeUint32Array(this._cellRevisions, cellCount);
 		this._cellCaptureRequestTokens = resizeUint32Array(
@@ -438,6 +510,97 @@ export class IrradianceProbeGrid extends Light<LightType.IrradianceProbeGrid> {
 			createCellWorldPositionArray(cellCount);
 		this._runtimeCache.validMask = this._validMask;
 		this._runtimeCache.cellRevisions = this._cellRevisions;
+	}
+
+	private _replaceSHStorage(
+		source: SHCoefficients[] | null | undefined,
+		cellCount: number
+	): void {
+		const cloned = cloneGridSH(source, cellCount);
+		this._sh = cloned.map((cell, index) => this._trackCellSH(index, cell));
+		this._shProxy = null;
+	}
+
+	private _createGridSHProxy(): SHCoefficients[] {
+		return new Proxy(this._sh, {
+			set: (target, property, value) => {
+				const index = resolveArrayIndexProperty(property);
+				if (index === null) {
+					return Reflect.set(target, property, value);
+				}
+				const cell = cloneSHCoefficients(value as SHCoefficients);
+				target[index] = this._trackCellSH(index, cell);
+				this._markTrackedSHMutation(index);
+				return true;
+			},
+		});
+	}
+
+	private _trackCellSH(
+		cellIndex: number,
+		cell: SHCoefficients
+	): SHCoefficients {
+		for (let coeffIndex = 0; coeffIndex < cell.length; coeffIndex++) {
+			cell[coeffIndex] = this._trackSHCoefficient(cellIndex, cell[coeffIndex]);
+		}
+		return new Proxy(cell, {
+			set: (target, property, value) => {
+				const coeffIndex = resolveArrayIndexProperty(property);
+				if (coeffIndex === null) {
+					return Reflect.set(target, property, value);
+				}
+				target[coeffIndex] = this._trackSHCoefficient(
+					cellIndex,
+					value as SHCoefficients[number]
+				);
+				this._markTrackedSHMutation(cellIndex);
+				return true;
+			},
+		});
+	}
+
+	private _trackSHCoefficient(
+		cellIndex: number,
+		coefficient: SHCoefficients[number] | undefined
+	): SHCoefficients[number] {
+		const values = {
+			r: coefficient?.r ?? 0,
+			g: coefficient?.g ?? 0,
+			b: coefficient?.b ?? 0,
+		};
+		const target = {};
+		for (const component of SH_COEFFICIENT_COMPONENTS) {
+			const key = component as "r" | "g" | "b";
+			Object.defineProperty(target, key, {
+				enumerable: true,
+				configurable: true,
+				get: () => values[key],
+				set: (value: number) => {
+					if (values[key] === value) {
+						return;
+					}
+					values[key] = value;
+					this._markTrackedSHMutation(cellIndex);
+				},
+			});
+		}
+		return target as SHCoefficients[number];
+	}
+
+	private _markTrackedSHMutation(cellIndex: number): void {
+		if (!this._storageInitialized || this._suppressSHMutationTracking > 0) {
+			return;
+		}
+		this._markCellDataChanged(cellIndex, true, "lighting");
+	}
+
+	private _withSHMutationTrackingSuppressed(callback: () => void): void {
+		this._suppressSHMutationTracking++;
+		try {
+			callback();
+		} finally {
+			this._suppressSHMutationTracking--;
+		}
 	}
 
 	private _runtimeStateChanged(): boolean {
@@ -667,6 +830,20 @@ function resizeUint32Array(source: Uint32Array, cellCount: number): Uint32Array 
 	const result = new Uint32Array(cellCount);
 	result.set(source.subarray(0, Math.min(source.length, cellCount)));
 	return result;
+}
+
+function resolveArrayIndexProperty(property: PropertyKey): number | null {
+	if (typeof property !== "string") {
+		return null;
+	}
+	if (property === "" || `${Number(property)}` !== property) {
+		return null;
+	}
+	const index = Number(property);
+	if (!Number.isInteger(index) || index < 0) {
+		return null;
+	}
+	return index;
 }
 
 function createCellWorldPositionArray(cellCount: number): IVector3[] {

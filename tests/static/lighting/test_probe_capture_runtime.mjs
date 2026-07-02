@@ -229,11 +229,56 @@ async function testGridManualCellAndWholeGridCaptureRequests() {
 	assert.equal(grid.isCellValid(1), true);
 }
 
+async function testGridOnSceneDirtyCaptureDoesNotSelfTriggerOrStarveCells() {
+	const runtime = new ProbeCaptureRuntime({ captureBudgetMs: 100 });
+	const scene = new Scene();
+	scene.add(new AmbientLight({ intensity: 1 }));
+	const grid = scene.add(
+		new IrradianceProbeGrid({
+			dimensions: { x: 2, y: 1, z: 1 },
+			source: "capturedScene",
+			captureUpdateMode: "onSceneDirty",
+			captureResolution: { width: 16, height: 8 },
+			includeMeshes: false,
+			includeEnvironment: false,
+		})
+	);
+	scene.updateWorldMatrices();
+
+	await driveRuntimeUntil(
+		runtime,
+		(step) => ({ scene, nowMs: step * 16 }),
+		() => grid.isCellValid(0) && grid.isCellValid(1),
+		8
+	);
+	assert.equal(grid.isCellValid(0), true);
+	assert.equal(grid.isCellValid(1), true);
+	assert.equal(grid.captureRevision, 2);
+
+	for (let step = 0; step < 4; step++) {
+		await runtime.execute({ scene, nowMs: 200 + step * 16 });
+		await flushAsyncTasks();
+	}
+	assert.equal(grid.captureRevision, 2);
+
+	scene.invalidate("lighting");
+	await driveRuntimeUntil(
+		runtime,
+		(step) => ({ scene, nowMs: 1000 + step * 16 }),
+		() => grid.captureRevision >= 4,
+		8
+	);
+	assert.equal(grid.captureRevision, 4);
+	assert.equal(grid.isCellValid(0), true);
+	assert.equal(grid.isCellValid(1), true);
+}
+
 async function run() {
 	await testLightProbeManualCaptureProjectsSHWithoutPrefilterBake();
 	await testSharedCaptureUpdatesLightAndReflectionProbe();
 	await testSharedCaptureSkipsStaleLightProbeResult();
 	await testGridManualCellAndWholeGridCaptureRequests();
+	await testGridOnSceneDirtyCaptureDoesNotSelfTriggerOrStarveCells();
 	console.log("Probe capture runtime tests passed");
 }
 

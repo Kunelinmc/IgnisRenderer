@@ -39,6 +39,13 @@ to capture one cell at a time. Capture fields match `LightProbe`:
 Grid SH data must use the engine SH contract: L=3 with `16` coefficients per
 cell. Cell indexing is `x` fastest, then `y`, then `z`.
 
+`IrradianceProbeGrid.sh` and `getCellSH()` return mutable cell-owned SH
+storage for backward compatibility. Direct mutation of `sh`, a cell SH array,
+or a coefficient component must advance `textureRevision` and
+`captureRevision`, mark the touched cell valid, and invalidate scene lighting.
+Applications should use `setCellSH()` for authored writes and `clearCell()` for
+invalidating a cell.
+
 Public methods:
 
 ```ts

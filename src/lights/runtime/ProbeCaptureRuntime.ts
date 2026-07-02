@@ -542,14 +542,13 @@ export class ProbeCaptureRuntime {
 			} else {
 				if (target.kind === "grid") {
 					const grid = probe as IrradianceProbeGrid;
-					copySHCoefficients(grid.getCellSH(target.cellIndex), sh);
-					grid.markCellCaptureUpdated(target.cellIndex);
+					grid.writeCapturedCellSH(target.cellIndex, sh);
 				} else {
 					const lightProbe = probe as LightProbe;
 					copySHCoefficients(lightProbe.sh, sh);
 					lightProbe.markCaptureUpdated();
+					task.scene.invalidate("probe-capture");
 				}
-				task.scene.invalidate("lighting");
 			}
 
 			const key = createProbeCaptureTargetKey(

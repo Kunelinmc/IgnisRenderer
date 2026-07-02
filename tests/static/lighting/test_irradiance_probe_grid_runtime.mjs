@@ -72,6 +72,36 @@ function testConstructorIndexingAndValidity() {
 	assert.ok(grid.textureRevision > textureRevision);
 }
 
+function testMutableSHReferencesAdvanceRevisions() {
+	const grid = new IrradianceProbeGrid({
+		dimensions: { x: 2, y: 1, z: 1 },
+	});
+	grid.setCellSH(0, createSH(1));
+
+	const firstTextureRevision = grid.textureRevision;
+	const firstCaptureRevision = grid.captureRevision;
+	grid.getCellSH(0)[0].r = 9;
+	assert.equal(grid.getCellSH(0)[0].r, 9);
+	assert.ok(grid.textureRevision > firstTextureRevision);
+	assert.ok(grid.captureRevision > firstCaptureRevision);
+	assert.equal(grid.getRuntimeCache().textureRevision, grid.textureRevision);
+
+	const secondTextureRevision = grid.textureRevision;
+	const secondCaptureRevision = grid.captureRevision;
+	grid.sh[0][0].g = 6;
+	assert.equal(grid.getCellSH(0)[0].g, 6);
+	assert.ok(grid.textureRevision > secondTextureRevision);
+	assert.ok(grid.captureRevision > secondCaptureRevision);
+	assert.equal(grid.getRuntimeCache().textureRevision, grid.textureRevision);
+
+	const thirdTextureRevision = grid.textureRevision;
+	grid.sh[1] = createSH(4);
+	assert.equal(grid.getCellSH(1)[0].r, 4);
+	assert.equal(grid.isCellValid(1), true);
+	assert.ok(grid.textureRevision > thirdTextureRevision);
+	assert.equal(grid.getRuntimeCache().textureRevision, grid.textureRevision);
+}
+
 function testCloneAndRuntimeCache() {
 	const grid = createGrid({
 		dimensions: { x: 3, y: 2, z: 1 },
@@ -168,6 +198,7 @@ function testCoverageCurveAndActiveSelection() {
 
 function run() {
 	testConstructorIndexingAndValidity();
+	testMutableSHReferencesAdvanceRevisions();
 	testCloneAndRuntimeCache();
 	testTrilinearSamplingAndInvalidNormalization();
 	testCoverageCurveAndActiveSelection();
