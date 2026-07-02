@@ -1,27 +1,13 @@
 import {
 	AlphaMode,
 	Material,
-	ShadingModel,
 } from "../../materials/Material";
 import { resolveMaterialShadowTransmittance } from "../../materials/transparency";
 import { Matrix4 } from "../../maths/Matrix4";
 import { CoreConstants } from "./constants";
-import { IBLBRDF } from "../../lights/ibl/IBLBRDF";
 import {
-	FlatLitShader,
-	LitShader,
-	PBRStrategy,
-	BlinnPhongStrategy,
-	PhongEvaluator,
-	PBREvaluator,
-	UnlitShader,
-	type IShader,
 	type ShaderContext,
-	type IMaterialEvaluator,
-	type ILightingStrategy,
 	type FragmentInput,
-	type PhongSurfaceProperties,
-	type PBRSurfaceProperties,
 } from "../../shaders";
 import { clamp } from "../../maths/Common";
 import {
@@ -29,7 +15,6 @@ import {
 	type ShadowCastingLight,
 } from "../../lights";
 import type { ShadowRenderSet } from "../../lights/shadows/ShadowMapping";
-import type { Renderer } from "../Renderer";
 import type { ProjectedVertex, ProjectedFace } from "../../core/types";
 import {
 	type IVector3,
@@ -37,12 +22,12 @@ import {
 } from "../../maths/types";
 import type { Texture } from "../../core/Texture";
 import type { SoftwareShadowRenderTarget } from "./passes/SoftwareShadowPass";
-import { collectActiveReflectionProbes } from "../../lights/runtime/reflectionProbeRuntime";
 import type { TemporalJitterFrameState } from "../cross/TemporalJitterState";
 import { SoftwareTriangleInterpolator } from "./Interpolator";
 import type {
 	SoftwarePlanarReflectionComposite,
 } from "./SoftwarePlanarReflectionRuntime";
+import { SoftwareMaterialRuntime } from "./SoftwareMaterialRuntime";
 
 export interface RasterizerLike {
 	drawTriangle(
@@ -112,14 +97,10 @@ export interface RasterizerContext {
  * Rasterizer handles the scanline conversion of projected triangles to pixels.
  */
 export class Rasterizer implements RasterizerLike {
-	private _defaultMaterial: Material;
 	private _interpolator: SoftwareTriangleInterpolator =
 		new SoftwareTriangleInterpolator();
-
-	// Shader, Strategy & Evaluator registries
-	private _evaluators: Map<string, IMaterialEvaluator> = new Map();
-	private _strategies: Map<string, ILightingStrategy> = new Map();
-	private _shaderCache: Map<string, IShader> = new Map();
+	private _materialRuntime: SoftwareMaterialRuntime =
+		new SoftwareMaterialRuntime();
 
 	// Pre-allocated objects for zero-allocation rendering
 	private _fragmentInput: FragmentInput = {
@@ -136,128 +117,6 @@ export class Rasterizer implements RasterizerLike {
 		u4: 0,
 		v4: 0,
 	};
-	constructor() {
-		this._defaultMaterial = new Material();
-
-		this._initShaderSystem();
-	}
-
-	private _initShaderSystem(): void {
-		this._evaluators.set(
-			ShadingModel.Phong,
-			new PhongEvaluator(this._defaultMaterial)
-		);
-		this._evaluators.set(
-			ShadingModel.PBR,
-			new PBREvaluator(this._defaultMaterial)
-		);
-
-		this._strategies.set(ShadingModel.Phong, new BlinnPhongStrategy());
-		this._strategies.set(ShadingModel.PBR, new PBRStrategy());
-	}
-
-	private _getShader(shading: string, material: Material): IShader {
-		const isPBR = shading === ShadingModel.PBR || material.type === "PBR";
-		const evaluatorType = isPBR ? ShadingModel.PBR : ShadingModel.Phong;
-
-		const evaluator = this._evaluators.get(evaluatorType)!;
-		const strategy = this._strategies.get(evaluatorType)!;
-
-		evaluator.compile(material);
-
-		const key = `${shading}_${evaluatorType}`;
-		let shader = this._shaderCache.get(key);
-
-		if (!shader) {
-			shader = this._createShaderInstance(shading, evaluator, strategy, isPBR);
-			this._shaderCache.set(key, shader);
-		} else {
-			shader.setEvaluator(evaluator);
-		}
-
-		return shader;
-	}
-
-	private _createShaderInstance(
-		shading: string,
-		evaluator: IMaterialEvaluator,
-		strategy: ILightingStrategy,
-		isPBR: boolean
-	): IShader {
-		if (shading === ShadingModel.Unlit) {
-			return new UnlitShader(evaluator);
-		}
-
-		if (isPBR) {
-			return new LitShader(
-				strategy as ILightingStrategy<PBRSurfaceProperties>,
-				evaluator as IMaterialEvaluator<PBRSurfaceProperties>
-			);
-		}
-
-		if (shading === ShadingModel.Flat) {
-			return new FlatLitShader(
-				strategy as ILightingStrategy<PhongSurfaceProperties>,
-				evaluator as IMaterialEvaluator<PhongSurfaceProperties>
-			);
-		}
-
-		return new LitShader(
-			strategy as ILightingStrategy<PhongSurfaceProperties>,
-			evaluator as IMaterialEvaluator<PhongSurfaceProperties>
-		);
-	}
-
-	private _sampleTextureAlpha(map: Texture, u: number, v: number): number {
-		let uu = u * map.repeat.x;
-		let vv = v * map.repeat.y;
-
-		if (map.rotation !== 0) {
-			const c = Math.cos(map.rotation);
-			const s = Math.sin(map.rotation);
-			const ru = uu * c - vv * s;
-			const rv = uu * s + vv * c;
-			uu = ru;
-			vv = rv;
-		}
-
-		uu += map.offset.x;
-		vv += map.offset.y;
-
-		if (map.wrapS === "Repeat") uu = uu - Math.floor(uu);
-		else if (map.wrapS === "MirroredRepeat") {
-			const iter = Math.floor(uu);
-			uu = uu - iter;
-			if (Math.abs(iter) % 2 === 1) uu = 1.0 - uu;
-		} else uu = clamp(uu);
-
-		if (map.wrapT === "Repeat") vv = vv - Math.floor(vv);
-		else if (map.wrapT === "MirroredRepeat") {
-			const iter = Math.floor(vv);
-			vv = vv - iter;
-			if (Math.abs(iter) % 2 === 1) vv = 1.0 - vv;
-		} else vv = clamp(vv);
-
-		let tx = Math.floor(uu * map.width);
-		let ty = Math.floor(vv * map.height);
-
-		tx = Math.max(0, Math.min(map.width - 1, tx));
-		ty = Math.max(0, Math.min(map.height - 1, ty));
-
-		const idx = (ty * map.width + tx) << 2;
-		const alphaValue = map.data?.[idx + 3];
-		if (alphaValue === undefined) return 1.0;
-
-		if (map.colorSpace === "HDR" || map.colorSpace === "Linear") {
-			if (map.data instanceof Float32Array) {
-				return clamp(alphaValue as number);
-			}
-
-			return clamp((alphaValue as number) / 255);
-		}
-
-		return clamp((alphaValue as number) / 255);
-	}
 
 	public drawDepthTriangle(
 		pts: ProjectedVertex[],
@@ -276,10 +135,9 @@ export class Rasterizer implements RasterizerLike {
 				material.map.height > 0
 			) ?
 				material.map
-			:	null;
+		:	null;
 		const useMask = maskTexture !== null;
 		const alphaCutoff = material?.alphaCutoff ?? 0.5;
-		const opacity = material?.opacity ?? 1;
 
 		let [vTop, vMid, vBot] = pts;
 		if (vTop.y > vMid.y) [vTop, vMid] = [vMid, vTop];
@@ -443,7 +301,11 @@ export class Rasterizer implements RasterizerLike {
 					const invIz = 1 / safeIz;
 					const u = uO * invIz;
 					const v = vO * invIz;
-					const alpha = this._sampleTextureAlpha(maskTexture, u, v) * opacity;
+					const alpha = this._materialRuntime.sampleAlphaMask(
+						material,
+						u,
+						v
+					);
 					if (alpha >= alphaCutoff) {
 						buffer[idx] = z;
 					}
@@ -626,7 +488,12 @@ export class Rasterizer implements RasterizerLike {
 			clipRect ?
 				Math.min(height - 1, Math.floor(clipRect.maxY))
 			:	height - 1;
-		const material = face.material ?? this._defaultMaterial;
+		const program = this._materialRuntime.prepareFragmentProgram(
+			face,
+			context,
+			isTransparent
+		);
+		const material = program.material;
 
 		if (!depthBuffer) return;
 		if (
@@ -640,31 +507,7 @@ export class Rasterizer implements RasterizerLike {
 		const viewMat = context.camera.viewMatrix;
 
 		const interpolator = this._interpolator;
-		const shouldWriteDepth = !isTransparent && material.depthWrite;
-		const shadingModel = material.shading || ShadingModel.Flat;
-		const isLightingEnabled = context.enableLighting !== false;
-		const shading = isLightingEnabled ? shadingModel : ShadingModel.Unlit;
-
-		const shader = this._getShader(shading, material);
-		const lights = context.lights;
-		const reflectionProbes = collectActiveReflectionProbes(lights);
-		const reflectionProbeFallbackMap =
-			reflectionProbes.length <= 0 ?
-				(context.environmentSpecularTexture ?? null)
-			:	null;
-
-		const shaderContext: ShaderContext = {
-			cameraPos: context.camera.position,
-			lights: lights,
-			sampleShadow: context.sampleShadow,
-			shAmbientCoeffs: context.shAmbientCoeffs,
-			reflectionProbes,
-			reflectionProbeFallbackMap,
-			brdfLUT: IBLBRDF.getLUT(),
-			enableShadows: !!context.enableShadows,
-			enableSH: !!context.enableSH,
-		};
-		shader.initialize(face, shaderContext);
+		const shouldWriteDepth = program.shouldWriteDepth;
 
 		const planarReflectionBinding =
 			context.enableReflection && context.planarReflectionComposite ?
@@ -722,7 +565,7 @@ export class Rasterizer implements RasterizerLike {
 
 						span.writeFragmentInput(input);
 
-						const finalOutput = shader.shade(input);
+						const finalOutput = program.shade(input);
 						let finalColor = finalOutput?.color;
 						const shadedDepth = finalOutput?.depth ?? span.zCamValue;
 
@@ -769,7 +612,7 @@ export class Rasterizer implements RasterizerLike {
 								}
 							} else {
 								const faceAlpha = face.color?.a ?? 1;
-								const shaderAlpha = shader.getOpacity();
+								const shaderAlpha = program.getOpacity();
 								const alpha = clamp(faceAlpha * shaderAlpha);
 								const invA = 1 - alpha;
 								pixels[idx] = finalColor.r * alpha + pixels[idx] * invA;
@@ -848,7 +691,7 @@ export class Rasterizer implements RasterizerLike {
 			clipRect ?
 				Math.min(height - 1, Math.floor(clipRect.maxY))
 			:	height - 1;
-		const material = face.material ?? this._defaultMaterial;
+		const material = this._materialRuntime.resolveMaterial(face.material);
 
 		if (!depthBuffer) return;
 		if (clipMinX > clipMaxX || clipMinY > clipMaxY) return;
