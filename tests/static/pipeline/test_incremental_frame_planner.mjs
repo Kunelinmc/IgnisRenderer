@@ -263,32 +263,6 @@ function testDisabledIncrementalAlwaysFullFrame() {
 	assert.equal(plan.temporalHistoryReset, true);
 }
 
-function testEnvironmentIBLForcesFullFrameWithoutTemporalReset() {
-	const plan = IncrementalFramePlanner.plan({
-		enabled: true,
-		reasonMask: renderDirtyReasonToMask("environment-ibl"),
-		features: createFeatures(),
-		postProcess: createPostProcess(),
-	});
-	assert.equal(plan.forceFullFrame, true);
-	assert.equal(plan.temporalHistoryReset, false);
-	assert.equal(plan.firstPass, "main-opaque");
-	assert.equal(plan.postProcessStartPass, null);
-}
-
-function testEnvironmentIBLCompleteResetsTemporalHistory() {
-	const plan = IncrementalFramePlanner.plan({
-		enabled: true,
-		reasonMask: renderDirtyReasonToMask("environment-ibl-complete"),
-		features: createFeatures(),
-		postProcess: createPostProcess(),
-	});
-	assert.equal(plan.forceFullFrame, true);
-	assert.equal(plan.temporalHistoryReset, true);
-	assert.equal(plan.firstPass, "main-opaque");
-	assert.equal(plan.postProcessStartPass, null);
-}
-
 function testDecalStartsAtMainOpaqueWithoutFullFrame() {
 	const plan = IncrementalFramePlanner.plan({
 		enabled: true,
@@ -369,8 +343,6 @@ function run() {
 	testCameraForcesFullAndResetsTemporal();
 	testGeometryFallsBackToMainWhenShadowsDisabled();
 	testDisabledIncrementalAlwaysFullFrame();
-	testEnvironmentIBLForcesFullFrameWithoutTemporalReset();
-	testEnvironmentIBLCompleteResetsTemporalHistory();
 	testDecalStartsAtMainOpaqueWithoutFullFrame();
 	testCustomDirtyReasonAllocatesMaskAndPlansFirstPass();
 	testCustomDirtyReasonUsesGroups();

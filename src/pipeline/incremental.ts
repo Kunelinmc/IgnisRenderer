@@ -38,8 +38,6 @@ export const RENDER_DIRTY_REASON_MASK = {
 	"postfx-standard": 1 << 13,
 	"postfx-cinematic": 1 << 14,
 	"reflection-probe": 1 << 15,
-	"environment-ibl": 1 << 16,
-	"environment-ibl-complete": 1 << 17,
 	decal: 1 << 18,
 	"probe-capture": 1 << 19,
 } as const;
@@ -338,17 +336,6 @@ const DIRTY_REASON_SEEDS: readonly DirtyReasonSeed[] = [
 		id: "reflection-probe",
 		mask: RENDER_DIRTY_REASON_MASK["reflection-probe"],
 		groups: ["geometry"],
-		forceFullFrame: true,
-		temporalHistoryReset: true,
-	},
-	{
-		id: "environment-ibl",
-		mask: RENDER_DIRTY_REASON_MASK["environment-ibl"],
-		forceFullFrame: true,
-	},
-	{
-		id: "environment-ibl-complete",
-		mask: RENDER_DIRTY_REASON_MASK["environment-ibl-complete"],
 		forceFullFrame: true,
 		temporalHistoryReset: true,
 	},
