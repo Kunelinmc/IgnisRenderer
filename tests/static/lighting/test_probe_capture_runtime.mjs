@@ -5,22 +5,28 @@ import { AmbientLight } from "../../../src/lights/AmbientLight.ts";
 import { IrradianceProbeGrid } from "../../../src/lights/IrradianceProbeGrid.ts";
 import { LightProbe } from "../../../src/lights/LightProbe.ts";
 import { ReflectionProbe } from "../../../src/lights/ReflectionProbe.ts";
+import { IBLPrefilter } from "../../../src/lights/ibl/IBLPrefilter.ts";
 import { ProbeCaptureRuntime } from "../../../src/lights/runtime/ProbeCaptureRuntime.ts";
 
-function createBakedEnvironment(seed = 1) {
-	return {
-		sh: Array.from({ length: 16 }, (_, index) => ({
-			r: seed * (index + 1),
-			g: seed * (index + 1) * 0.5,
-			b: seed * (index + 1) * 0.25,
-		})),
-		prefilteredMap: new Texture(
-			new Float32Array([seed, seed * 0.5, seed * 0.25, 1]),
-			1,
-			1,
-			"HDR"
-		),
+function createPrefilteredMap(seed = 1) {
+	return new Texture(
+		new Float32Array([seed, seed * 0.5, seed * 0.25, 1]),
+		1,
+		1,
+		"HDR"
+	);
+}
+
+async function withPrefilterStub(handler, run) {
+	const original = IBLPrefilter.prototype.prefilter;
+	IBLPrefilter.prototype.prefilter = function prefilterStub(envMap, options) {
+		return handler.call(this, envMap, options);
 	};
+	try {
+		return await run();
+	} finally {
+		IBLPrefilter.prototype.prefilter = original;
+	}
 }
 
 function createCapturedFace(faceSize, seed = 1) {
@@ -56,14 +62,9 @@ async function driveRuntimeUntil(runtime, createContext, predicate, maxSteps = 1
 	}
 }
 
-async function testLightProbeManualCaptureProjectsSHWithoutPrefilterBake() {
-	let bakeCallCount = 0;
-	const runtime = new ProbeCaptureRuntime({
-		bakeEnvironmentIBL: async () => {
-			bakeCallCount++;
-			return createBakedEnvironment(1);
-		},
-	});
+async function testLightProbeManualCaptureProjectsSHWithoutPrefilter() {
+	let prefilterCallCount = 0;
+	const runtime = new ProbeCaptureRuntime();
 	const scene = new Scene();
 	scene.add(new AmbientLight({ intensity: 1 }));
 	const probe = scene.add(
@@ -89,107 +90,113 @@ async function testLightProbeManualCaptureProjectsSHWithoutPrefilterBake() {
 	);
 
 	assert.ok(probe.sh[0].r > 0);
-	assert.equal(bakeCallCount, 0);
+	assert.equal(prefilterCallCount, 0);
 }
 
 async function testSharedCaptureUpdatesLightAndReflectionProbe() {
-	let bakeCallCount = 0;
+	let prefilterCallCount = 0;
 	let faceCaptureCount = 0;
-	const runtime = new ProbeCaptureRuntime({
-		bakeEnvironmentIBL: async () => {
-			bakeCallCount++;
-			return createBakedEnvironment(2);
+	await withPrefilterStub(
+		async () => {
+			prefilterCallCount++;
+			return createPrefilteredMap(2);
 		},
-	});
-	const scene = new Scene();
-	const lightProbe = scene.add(
-		new LightProbe({
-			source: "capturedScene",
-			captureUpdateMode: "manual",
-			captureResolution: { width: 16, height: 8 },
-			includeEnvironment: false,
-		})
-	);
-	const reflectionProbe = scene.add(
-		new ReflectionProbe({
-			source: "capturedScene",
-			captureUpdateMode: "manual",
-			captureResolution: { width: 16, height: 8 },
-			includeEnvironment: false,
-		})
-	);
-	scene.updateWorldMatrices();
-	lightProbe.requestCapture();
-	reflectionProbe.requestCapture();
+		async () => {
+			const runtime = new ProbeCaptureRuntime();
+			const scene = new Scene();
+			const lightProbe = scene.add(
+				new LightProbe({
+					source: "capturedScene",
+					captureUpdateMode: "manual",
+					captureResolution: { width: 16, height: 8 },
+					includeEnvironment: false,
+				})
+			);
+			const reflectionProbe = scene.add(
+				new ReflectionProbe({
+					source: "capturedScene",
+					captureUpdateMode: "manual",
+					captureResolution: { width: 16, height: 8 },
+					includeEnvironment: false,
+				})
+			);
+			scene.updateWorldMatrices();
+			lightProbe.requestCapture();
+			reflectionProbe.requestCapture();
 
-	await driveRuntimeUntil(
-		runtime,
-		(step) => ({
-			scene,
-			nowMs: step * 16,
-			frameContext: {},
-			webgpuCaptureSource: {
-				async captureProbeFace(request) {
-					faceCaptureCount++;
-					return createCapturedFace(request.faceSize, 0.75);
-				},
-			},
-		}),
-		() => lightProbe.sh[0].r > 0 && reflectionProbe.prefilteredMap !== null
-	);
+			await driveRuntimeUntil(
+				runtime,
+				(step) => ({
+					scene,
+					nowMs: step * 16,
+					frameContext: {},
+					webgpuCaptureSource: {
+						async captureProbeFace(request) {
+							faceCaptureCount++;
+							return createCapturedFace(request.faceSize, 0.75);
+						},
+					},
+				}),
+				() => lightProbe.sh[0].r > 0 && reflectionProbe.prefilteredMap !== null
+			);
 
-	assert.equal(faceCaptureCount, 6);
-	assert.equal(bakeCallCount, 1);
-	assert.ok(lightProbe.sh[0].r > 0);
-	assert.ok(reflectionProbe.prefilteredMap);
+			assert.equal(faceCaptureCount, 6);
+			assert.equal(prefilterCallCount, 1);
+			assert.ok(lightProbe.sh[0].r > 0);
+			assert.ok(reflectionProbe.prefilteredMap);
+		}
+	);
 }
 
 async function testSharedCaptureSkipsStaleLightProbeResult() {
-	const deferredBake = createDeferred();
-	let bakeCallCount = 0;
-	const runtime = new ProbeCaptureRuntime({
-		bakeEnvironmentIBL: () => {
-			bakeCallCount++;
-			return deferredBake.promise;
+	const deferredPrefilter = createDeferred();
+	let prefilterCallCount = 0;
+	await withPrefilterStub(
+		() => {
+			prefilterCallCount++;
+			return deferredPrefilter.promise;
 		},
-	});
-	const scene = new Scene();
-	const lightProbe = scene.add(
-		new LightProbe({
-			source: "capturedScene",
-			captureUpdateMode: "manual",
-			captureResolution: { width: 16, height: 8 },
-			includeMeshes: false,
-			includeEnvironment: false,
-		})
-	);
-	const reflectionProbe = scene.add(
-		new ReflectionProbe({
-			source: "capturedScene",
-			captureUpdateMode: "manual",
-			captureResolution: { width: 16, height: 8 },
-			includeMeshes: false,
-			includeEnvironment: false,
-		})
-	);
-	scene.updateWorldMatrices();
-	lightProbe.requestCapture();
-	reflectionProbe.requestCapture();
+		async () => {
+			const runtime = new ProbeCaptureRuntime();
+			const scene = new Scene();
+			const lightProbe = scene.add(
+				new LightProbe({
+					source: "capturedScene",
+					captureUpdateMode: "manual",
+					captureResolution: { width: 16, height: 8 },
+					includeMeshes: false,
+					includeEnvironment: false,
+				})
+			);
+			const reflectionProbe = scene.add(
+				new ReflectionProbe({
+					source: "capturedScene",
+					captureUpdateMode: "manual",
+					captureResolution: { width: 16, height: 8 },
+					includeMeshes: false,
+					includeEnvironment: false,
+				})
+			);
+			scene.updateWorldMatrices();
+			lightProbe.requestCapture();
+			reflectionProbe.requestCapture();
 
-	await driveRuntimeUntil(
-		runtime,
-		(step) => ({ scene, nowMs: step * 16 }),
-		() => bakeCallCount >= 1
+			await driveRuntimeUntil(
+				runtime,
+				(step) => ({ scene, nowMs: step * 16 }),
+				() => prefilterCallCount >= 1
+			);
+			assert.equal(prefilterCallCount, 1);
+
+			lightProbe.position.set(1, 0, 0);
+			scene.updateWorldMatrices();
+			deferredPrefilter.resolve(createPrefilteredMap(3));
+			await flushAsyncTasks();
+
+			assert.equal(lightProbe.sh[0].r, 0);
+			assert.ok(reflectionProbe.prefilteredMap);
+		}
 	);
-	assert.equal(bakeCallCount, 1);
-
-	lightProbe.position.set(1, 0, 0);
-	scene.updateWorldMatrices();
-	deferredBake.resolve(createBakedEnvironment(3));
-	await flushAsyncTasks();
-
-	assert.equal(lightProbe.sh[0].r, 0);
-	assert.ok(reflectionProbe.prefilteredMap);
 }
 
 async function testGridManualCellAndWholeGridCaptureRequests() {
@@ -274,7 +281,7 @@ async function testGridOnSceneDirtyCaptureDoesNotSelfTriggerOrStarveCells() {
 }
 
 async function run() {
-	await testLightProbeManualCaptureProjectsSHWithoutPrefilterBake();
+	await testLightProbeManualCaptureProjectsSHWithoutPrefilter();
 	await testSharedCaptureUpdatesLightAndReflectionProbe();
 	await testSharedCaptureSkipsStaleLightProbeResult();
 	await testGridManualCellAndWholeGridCaptureRequests();

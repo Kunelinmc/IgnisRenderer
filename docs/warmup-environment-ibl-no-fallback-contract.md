@@ -2,7 +2,7 @@
 ## Scope
 This document defines the `Renderer.warmup()` contract for environment IBL.
 The contract covers warmup side effects, fallback behavior, and migration to
-standalone `IBLPrefilter`.
+standalone SH projection and `IBLPrefilter`.
 
 ## Background
 Environment IBL prefiltering is now an explicit application or tooling step.
@@ -13,7 +13,8 @@ probe data from `Environment.iblTexture`.
 - `WarmupOptions` must not expose `allowEnvironmentSpecularFallback`.
 - `WarmupOptions` must not expose `includeEnvironmentIBLBake`.
 - `WarmupOptions` must not expose `environmentIBLBake`.
-- `Renderer.warmup(options)` must not bake environment IBL.
+- `Renderer.warmup(options)` must not project environment SH or prefilter
+  environment IBL.
 - `Renderer.warmup(options)` must not synthesize IBL input from
   `environment.backgroundTexture`.
 - `Renderer.warmup(options)` must not synthesize background input from
@@ -29,13 +30,21 @@ await renderer.warmup();
 ```
 
 ```ts
-const baked = await bakeEnvironmentIBLFromEnvironmentMap(environmentTexture, {
-	backend: renderer,
-	acceleration: "auto",
+const sh = projectEnvironmentTextureToSH(environmentTexture, {
+	maxSampleWidth: 128,
+	maxSampleHeight: 64,
 });
 
-lightProbe.sh = baked.sh;
-reflectionProbe.prefilteredMap = baked.prefilteredMap;
+const prefilteredMap = await prefilterEnvironmentIBL(environmentTexture, {
+	backend: renderer,
+	acceleration: "auto",
+	maxSampleWidth: 128,
+	maxSampleHeight: 64,
+	maxMipLevels: 5,
+});
+
+lightProbe.sh = sh;
+reflectionProbe.prefilteredMap = prefilteredMap;
 ```
 
 ```bash
@@ -43,15 +52,18 @@ bun tests/static/renderer/test_renderer_warmup_lightprobe.mjs
 ```
 
 ## Errors & Diagnostics
-- `Renderer.warmup()` must not emit environment IBL bake progress events.
+- `Renderer.warmup()` must not emit environment SH projection or IBL prefilter
+  progress events.
 - `Renderer.warmup()` must not warn when `environment.iblTexture` is missing,
   invalid, or a load-error fallback.
-- Environment IBL bake errors must come from `IBLPrefilter` or
-  `bakeEnvironmentIBLFromEnvironmentMap`, not from `Renderer.warmup()`.
+- Environment SH projection errors must come from `projectEnvironmentTextureToSH`,
+  not from `Renderer.warmup()`.
+- Environment specular prefilter errors must come from `IBLPrefilter` or
+  `prefilterEnvironmentIBL`, not from `Renderer.warmup()`.
 
 ## Compatibility / Breaking Changes
 This change is breaking.
 `WarmupOptions.includeEnvironmentIBLBake` and
 `WarmupOptions.environmentIBLBake` are removed. Consumers must invoke
-`IBLPrefilter` or `bakeEnvironmentIBLFromEnvironmentMap` explicitly before
-assigning probe data.
+`projectEnvironmentTextureToSH` and `IBLPrefilter` or
+`prefilterEnvironmentIBL` explicitly before assigning probe data.

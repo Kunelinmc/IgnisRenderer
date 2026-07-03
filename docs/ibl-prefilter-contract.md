@@ -1,26 +1,27 @@
 # IBL Prefilter Contract
 ## Scope
 This document defines the standalone environment IBL prefilter contract.
-The contract covers `IBLPrefilter`, `prefilterEnvironmentIBL`, backend
-selection, output texture shape, and ownership boundaries with `Renderer`.
+The contract covers `IBLPrefilter`, `prefilterEnvironmentIBL`,
+`projectEnvironmentTextureToSH`, backend selection, output texture shape, and
+ownership boundaries with `Renderer`.
 
 ## Background
 Environment specular prefiltering is independent from frame rendering.
 `Renderer` must not schedule, own, or configure IBL prefilter work. Applications
-and tooling must invoke `IBLPrefilter` or `bakeEnvironmentIBLFromEnvironmentMap`
-explicitly, then assign the resulting texture or SH coefficients to probes.
+and tooling must invoke `IBLPrefilter` or `prefilterEnvironmentIBL` explicitly
+for specular IBL textures, invoke `projectEnvironmentTextureToSH` explicitly for
+diffuse SH coefficients, then assign the resulting data to probes.
 
 ```mermaid
 flowchart TD
 	App[Application or Tooling] --> Prefilter[IBLPrefilter]
-	App --> Baker[bakeEnvironmentIBLFromEnvironmentMap]
-	Baker --> SH[SH Projection]
-	Baker --> Prefilter
+	App --> SH[projectEnvironmentTextureToSH]
 	Prefilter --> CPU[CPU or Worker Prefilter]
 	Prefilter --> GPU[WebGPU ComputeRuntime]
 	GPU --> Facade[WebGPU ComputeFacade]
 	Facade --> Backend[WebGPUBackend]
 	Prefilter --> Texture[Prefiltered HDR Texture]
+	SH --> Coefficients[SH Coefficients]
 	App --> Probe[ReflectionProbe or LightProbe]
 	Probe --> Renderer[Renderer Frame Rendering]
 ```
@@ -32,6 +33,9 @@ flowchart TD
   `mipmaps` encode roughness levels.
 - `prefilterEnvironmentIBL(envMap, options)` must provide a one-shot helper with
   the same behavior as constructing `IBLPrefilter` and calling `prefilter`.
+- `projectEnvironmentTextureToSH(envMap, options)` must project a valid
+  environment texture into radiance SH coefficients and must not prefilter
+  specular IBL data.
 - `IBLPrefilterOptions` must use `maxSampleWidth`, `maxSampleHeight`, and
   `maxMipLevels` for output limits.
 - `IBLPrefilterOptions.acceleration` must support `auto`, `worker`, `cpu`, and
@@ -40,7 +44,7 @@ flowchart TD
   source must be provided.
 - If `acceleration` is `auto`, WebGPU may be used when a valid WebGPU source is
   available; otherwise worker or CPU fallback may be used.
-- `Renderer` must not expose environment IBL bake or update methods.
+- `Renderer` must not expose environment IBL prefilter or update methods.
 - `Renderer.warmup()` must not create `LightProbe` instances, assign
   `LightProbe.sh`, or assign `ReflectionProbe.prefilteredMap`.
 
@@ -59,13 +63,21 @@ reflectionProbe.markRuntimeDirty();
 ```
 
 ```ts
-const baked = await bakeEnvironmentIBLFromEnvironmentMap(environmentTexture, {
-	backend: renderer,
-	acceleration: "auto",
+const sh = projectEnvironmentTextureToSH(environmentTexture, {
+	maxSampleWidth: 128,
+	maxSampleHeight: 64,
 });
 
-lightProbe.sh = baked.sh;
-reflectionProbe.prefilteredMap = baked.prefilteredMap;
+const prefilteredMap = await prefilterEnvironmentIBL(environmentTexture, {
+	backend: renderer,
+	acceleration: "auto",
+	maxSampleWidth: 128,
+	maxSampleHeight: 64,
+	maxMipLevels: 5,
+});
+
+lightProbe.sh = sh;
+reflectionProbe.prefilteredMap = prefilteredMap;
 ```
 
 ```bash
@@ -86,7 +98,9 @@ This change is breaking.
 `Renderer.setEnvironmentIBLUpdateOptions()`,
 `Renderer.getEnvironmentIBLUpdateOptions()`,
 `Renderer.requestEnvironmentIBLUpdate()`, `WarmupOptions.environmentIBLBake`,
-and `WarmupOptions.includeEnvironmentIBLBake` are removed. Consumers must use
-`IBLPrefilter` or `bakeEnvironmentIBLFromEnvironmentMap` directly.
+`WarmupOptions.includeEnvironmentIBLBake`,
+`bakeEnvironmentIBLFromEnvironmentMap()`, and `EnvironmentIBLBake*` types are
+removed. Consumers must use `projectEnvironmentTextureToSH` for SH data and
+`IBLPrefilter` or `prefilterEnvironmentIBL` for specular prefilter textures.
 Unattached `IRenderBackend` instances are no longer accepted as compute sources;
 use the active `Renderer`, an attached `IRenderBackend`, or a compute facade.

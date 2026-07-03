@@ -181,20 +181,23 @@ export {
 } from "./pipeline/RenderPipelineRegistry";
 export type { RendererStageDefinition } from "./pipeline/RendererStageGraph";
 export {
+	IBL_PREFILTER_MAX_MIP_LEVELS,
+	IBL_PREFILTER_MAX_SAMPLE_HEIGHT,
+	IBL_PREFILTER_MAX_SAMPLE_WIDTH,
 	IBLPrefilter,
-	bakeEnvironmentIBLFromEnvironmentMap,
 	prefilterEnvironmentIBL,
-} from "./lights/ibl/EnvironmentIBLBaker";
+} from "./lights/ibl/IBLPrefilter";
 export type {
-	EnvironmentIBLBakeAcceleration,
-	EnvironmentIBLBakeOptions,
-	EnvironmentIBLBakeProgress,
 	IBLPrefilterAcceleration,
 	IBLPrefilterBackendSource,
 	IBLPrefilterConstructorOptions,
 	IBLPrefilterOptions,
 	IBLPrefilterProgress,
-} from "./lights/ibl/EnvironmentIBLBaker";
+} from "./lights/ibl/IBLPrefilter";
+export {
+	projectEnvironmentTextureToSH,
+	type EnvironmentSHProjectionOptions,
+} from "./lights/ibl/EnvironmentSH";
 export { Scene } from "./core/Scene";
 export { Camera, CameraType } from "./cameras/Camera";
 export { OrthographicCamera } from "./cameras/OrthographicCamera";

@@ -1,27 +1,27 @@
 import type { TextureColorSpace } from "../../../core/Texture";
 
-export type EnvironmentIBLBakeTextureData =
+export type IBLPrefilterWorkerTextureData =
 	| Uint8ClampedArray
 	| Float32Array
 	| Uint8Array;
 
-export interface EnvironmentIBLBakeWorkerEnvMapPayload {
+export interface IBLPrefilterWorkerEnvMapPayload {
 	width: number;
 	height: number;
 	colorSpace: TextureColorSpace;
-	data: EnvironmentIBLBakeTextureData | null;
+	data: IBLPrefilterWorkerTextureData | null;
 }
 
-export interface EnvironmentIBLBakeWorkerTaskPayload {
+export interface IBLPrefilterWorkerTaskPayload {
 	type: "prefilter-mip";
-	envMap: EnvironmentIBLBakeWorkerEnvMapPayload;
+	envMap: IBLPrefilterWorkerEnvMapPayload;
 	baseWidth: number;
 	baseHeight: number;
 	maxMipLevels: number;
 	level: number;
 }
 
-export interface EnvironmentIBLBakeWorkerTaskResult {
+export interface IBLPrefilterWorkerTaskResult {
 	type: "prefilter-mip";
 	level: number;
 	width: number;

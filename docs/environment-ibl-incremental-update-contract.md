@@ -2,7 +2,7 @@
 ## Scope
 This document defines the removal contract for Renderer-owned environment IBL
 runtime updates. The contract covers removed APIs, renderer pipeline behavior,
-and the replacement path through standalone `IBLPrefilter`.
+and the replacement path through standalone SH projection and `IBLPrefilter`.
 
 ## Background
 Environment IBL update work previously lived in `Renderer` and could be driven
@@ -17,28 +17,38 @@ IBL prefiltering is now an explicit operation owned by applications or tooling.
 - `EnvironmentIBLUpdateRuntime` must not be part of the runtime source tree.
 - The default renderer pipeline must not include an
   `environment-ibl-update` stage.
-- `Renderer` must not import `EnvironmentIBLBaker` for warmup or runtime update
-  orchestration.
-- `Renderer` must not pass a WebGPU compute source to probe-capture baking.
-- Applications must call `IBLPrefilter` or
-  `bakeEnvironmentIBLFromEnvironmentMap` directly when environment IBL data
-  needs to be regenerated.
+- `Renderer` must not import IBL prefilter or SH projection helpers for warmup
+  or runtime update orchestration.
+- `Renderer` must not pass a WebGPU compute source to probe-capture
+  prefiltering.
+- Applications must call `projectEnvironmentTextureToSH` directly when
+  environment SH data needs to be regenerated.
+- Applications must call `IBLPrefilter` or `prefilterEnvironmentIBL` directly
+  when environment specular IBL data needs to be regenerated.
 - Applications must assign generated SH coefficients and prefiltered maps to
   the target probes explicitly.
 
 ## Usage
 ```ts
-const baked = await bakeEnvironmentIBLFromEnvironmentMap(environmentTexture, {
-	backend: renderer,
-	acceleration: "auto",
+const sh = projectEnvironmentTextureToSH(environmentTexture, {
+	maxSampleWidth: 128,
+	maxSampleHeight: 64,
 });
 
 for (const lightProbe of environmentLightProbes) {
-	lightProbe.sh = baked.sh.map((coefficient) => ({ ...coefficient }));
+	lightProbe.sh = sh.map((coefficient) => ({ ...coefficient }));
 }
 
+const prefilteredMap = await prefilterEnvironmentIBL(environmentTexture, {
+	backend: renderer,
+	acceleration: "auto",
+	maxSampleWidth: 128,
+	maxSampleHeight: 64,
+	maxMipLevels: 5,
+});
+
 for (const reflectionProbe of environmentReflectionProbes) {
-	reflectionProbe.prefilteredMap = baked.prefilteredMap;
+	reflectionProbe.prefilteredMap = prefilteredMap;
 	reflectionProbe.markRuntimeDirty();
 }
 
@@ -52,12 +62,16 @@ bun tests/static/lighting/test_ibl_prefilter.mjs
 ## Errors & Diagnostics
 - Renderer frame execution must not emit `environment-ibl` or
   `environment-ibl-complete` dirty reasons.
-- Environment IBL bake failures must be surfaced by the direct prefilter or
-  bake call.
+- Environment SH projection failures must be surfaced by
+  `projectEnvironmentTextureToSH`.
+- Environment specular prefilter failures must be surfaced by `IBLPrefilter` or
+  `prefilterEnvironmentIBL`.
 - Applications that replace probe data must request a render with an existing
   dirty reason such as `lighting`.
 
 ## Compatibility / Breaking Changes
-This change is breaking. Renderer-owned environment IBL update APIs and the
-`environment-ibl-update` pipeline stage are removed. Consumers must migrate to
-explicit `IBLPrefilter` or `bakeEnvironmentIBLFromEnvironmentMap` calls.
+This change is breaking. Renderer-owned environment IBL update APIs, the
+`environment-ibl-update` pipeline stage, `bakeEnvironmentIBLFromEnvironmentMap`,
+and `EnvironmentIBLBake*` types are removed. Consumers must migrate to explicit
+`projectEnvironmentTextureToSH` and `IBLPrefilter` or `prefilterEnvironmentIBL`
+calls.

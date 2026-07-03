@@ -17,12 +17,11 @@ import { sRGBToLinear, clamp } from "../../maths/Common";
 import type { IVector3, SHCoefficients } from "../../maths/types";
 import { Vector3 } from "../../maths/Vector3";
 import type { FrameContext } from "../../pipeline/types";
+import { projectEnvironmentTextureToSH } from "../ibl/EnvironmentSH";
 import {
-	bakeEnvironmentIBLFromEnvironmentMap,
-	projectEquirectTextureToSH,
-	type BakedEnvironmentIBL,
-	type EnvironmentIBLBakeOptions,
-} from "../ibl/EnvironmentIBLBaker";
+	prefilterEnvironmentIBL,
+	type IBLPrefilterOptions,
+} from "../ibl/IBLPrefilter";
 import {
 	directionFromEquirectUV,
 	sampleEnvironmentTextureLevel,
@@ -32,7 +31,7 @@ import { RENDER_DIRTY_REASON_MASK } from "../../pipeline/incremental";
 const DIRECTIONAL_LOBE_EXPONENT = 96;
 const LOCAL_LIGHT_LOBE_EXPONENT = 64;
 const AREA_LIGHT_LOBE_EXPONENT = 48;
-const DEFAULT_MAX_BAKES_PER_FRAME = 1;
+const DEFAULT_MAX_CAPTURES_PER_FRAME = 1;
 const DEFAULT_CAPTURE_BUDGET_MS = 4;
 const CAPTURE_RESOLUTION_SCALE_STEPS = [1, 0.75, 0.5] as const;
 const CAPTURE_RESOLUTION_DOWNSCALE_OVERBUDGET_RATIO = 4;
@@ -162,24 +161,16 @@ export interface ProbeCaptureRuntimeExecuteContext {
 }
 
 export interface ProbeCaptureRuntimeOptions {
-	maxBakesPerFrame?: number;
+	maxCapturesPerFrame?: number;
 	captureBudgetMs?: number;
-	bakeEnvironmentIBL?: (
-		envMap: Texture,
-		options: EnvironmentIBLBakeOptions
-	) => Promise<BakedEnvironmentIBL>;
 }
 
 export class ProbeCaptureRuntime {
 	private _activeTask: CaptureTaskState | null = null;
 	private _inFlightQuantum: Promise<void> | null = null;
 	private _nextTaskId = 0;
-	private _maxBakesPerFrame: number;
+	private _maxCapturesPerFrame: number;
 	private _captureBudgetMs: number;
-	private _bakeEnvironmentIBL: (
-		envMap: Texture,
-		options: EnvironmentIBLBakeOptions
-	) => Promise<BakedEnvironmentIBL>;
 	private _lastCaptureSecondsByProbeId = new Map<string, number>();
 	private _lastCaptureSceneDirtyStampByProbeId = new Map<string, number>();
 	private _lastHandledRequestTokenByProbeId = new Map<string, number>();
@@ -187,9 +178,11 @@ export class ProbeCaptureRuntime {
 	private _lastRelevantSceneVersionByScene = new WeakMap<Scene, number>();
 
 	constructor(options: ProbeCaptureRuntimeOptions = {}) {
-		this._maxBakesPerFrame = Math.max(
+		this._maxCapturesPerFrame = Math.max(
 			1,
-			Math.floor(options.maxBakesPerFrame ?? DEFAULT_MAX_BAKES_PER_FRAME)
+			Math.floor(
+				options.maxCapturesPerFrame ?? DEFAULT_MAX_CAPTURES_PER_FRAME
+			)
 		);
 		this._captureBudgetMs = Math.max(
 			0.1,
@@ -197,8 +190,6 @@ export class ProbeCaptureRuntime {
 				Number(options.captureBudgetMs)
 			:	DEFAULT_CAPTURE_BUDGET_MS
 		);
-		this._bakeEnvironmentIBL =
-			options.bakeEnvironmentIBL ?? bakeEnvironmentIBLFromEnvironmentMap;
 	}
 
 	public execute(
@@ -233,7 +224,7 @@ export class ProbeCaptureRuntime {
 
 			let inspected = 0;
 			for (const target of candidates) {
-				if (inspected >= this._maxBakesPerFrame) {
+				if (inspected >= this._maxCapturesPerFrame) {
 					break;
 				}
 				inspected++;
@@ -438,7 +429,7 @@ export class ProbeCaptureRuntime {
 			return;
 		}
 
-		await this._runCaptureBake(task, environmentMap);
+		await this._runCaptureResolve(task, environmentMap);
 		if (this._activeTask?.taskId === task.taskId) {
 			this._activeTask = null;
 		}
@@ -493,7 +484,7 @@ export class ProbeCaptureRuntime {
 		return captureCubeFace(task.faceSize, faceIndex, task.lightingState);
 	}
 
-	private async _runCaptureBake(
+	private async _runCaptureResolve(
 		task: CaptureTaskState,
 		environmentMap: Texture
 	): Promise<void> {
@@ -505,8 +496,12 @@ export class ProbeCaptureRuntime {
 
 		const maxSampleWidth = Math.max(1, Math.floor(task.captureWidth));
 		const maxSampleHeight = Math.max(1, Math.floor(task.captureHeight));
+		sh = projectEnvironmentTextureToSH(environmentMap, {
+			maxSampleWidth,
+			maxSampleHeight,
+		});
 		if (needsPrefilter) {
-			const bakeOptions: EnvironmentIBLBakeOptions = {
+			const prefilterOptions: IBLPrefilterOptions = {
 				acceleration: "auto",
 				maxSampleWidth,
 				maxSampleHeight,
@@ -515,12 +510,10 @@ export class ProbeCaptureRuntime {
 					maxSampleHeight
 				),
 			};
-
-			const baked = await this._bakeEnvironmentIBL(environmentMap, bakeOptions);
-			sh = baked.sh;
-			prefilteredMap = baked.prefilteredMap;
-		} else {
-			sh = projectEquirectTextureToSH(environmentMap);
+			prefilteredMap = await prefilterEnvironmentIBL(
+				environmentMap,
+				prefilterOptions
+			);
 		}
 
 		for (const target of task.targets) {

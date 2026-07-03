@@ -136,10 +136,12 @@ The renderer frame pipeline must preserve this logical order:
   rendering based on scene features.
 - `IBLPrefilter` owns CPU, worker, and WebGPU environment specular prefiltering
   as a standalone service.
-- `Renderer` must not schedule environment IBL bake/update work or expose
-  environment IBL update APIs.
+- `Renderer` must not schedule environment SH projection or IBL prefilter work
+  or expose environment IBL update APIs.
 - Applications and tools must invoke `IBLPrefilter` or
-  `bakeEnvironmentIBLFromEnvironmentMap` explicitly and assign probe data.
+  `prefilterEnvironmentIBL` explicitly for specular IBL textures.
+- Applications and tools must invoke `projectEnvironmentTextureToSH` explicitly
+  for environment SH coefficients.
 
 ### Performance and Resource Contract
 

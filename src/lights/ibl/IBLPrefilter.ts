@@ -32,10 +32,10 @@ import { globalWorkerScheduler } from "../../workers/WorkerScheduler";
 import { postMessageWorkerTransportPlugin } from "../../workers/transports";
 import type { WorkerLike } from "../../workers/types";
 import type {
-	EnvironmentIBLBakeWorkerEnvMapPayload,
-	EnvironmentIBLBakeWorkerTaskPayload,
-	EnvironmentIBLBakeWorkerTaskResult,
-} from "./workers/environmentIblBakeWorkerProtocol";
+	IBLPrefilterWorkerEnvMapPayload,
+	IBLPrefilterWorkerTaskPayload,
+	IBLPrefilterWorkerTaskResult,
+} from "./workers/iblPrefilterWorkerProtocol";
 import {
 	ensureEnvironmentTextureEquirect,
 	isTextureReadyForEnvironment,
@@ -580,7 +580,7 @@ function uploadSourceTexture(
 	}
 }
 
-async function bakeMipLevelWithWebGPU(
+async function prefilterMipLevelWithWebGPU(
 	runtime: IComputeRuntime,
 	kernel: IComputeKernel,
 	sampler: ISampler,
@@ -718,7 +718,7 @@ export async function prefilterEnvMapWithWebGPU(
 			);
 
 			try {
-				const mipData = await bakeMipLevelWithWebGPU(
+				const mipData = await prefilterMipLevelWithWebGPU(
 					resources.runtime,
 					resources.kernel,
 					resources.sampler,
@@ -764,7 +764,7 @@ function createPrefilterWorker(workerIndex: number, poolId: string): WorkerLike 
 	}
 
 	return new Worker(
-		new URL("./workers/environmentIblBake.worker.ts", import.meta.url),
+		new URL("./workers/iblPrefilter.worker.ts", import.meta.url),
 		{
 			type: "module",
 		}
@@ -775,7 +775,7 @@ function resolveWorkerPoolId(): string {
 	return `${DEFAULT_PREFILTER_POOL_PREFIX}-${Math.random().toString(36).slice(2)}`;
 }
 
-function toWorkerEnvMapPayload(envMap: Texture): EnvironmentIBLBakeWorkerEnvMapPayload {
+function toWorkerEnvMapPayload(envMap: Texture): IBLPrefilterWorkerEnvMapPayload {
 	return {
 		width: envMap.width,
 		height: envMap.height,
@@ -814,7 +814,7 @@ async function prefilterEnvMapWithWorkers(
 		const tasks: Promise<IBLPrefilterMipData>[] = [];
 		for (let level = 0; level < totalMipLevels; level++) {
 			assertPrefilterNotAborted(options.signal);
-			const payload: EnvironmentIBLBakeWorkerTaskPayload = {
+			const payload: IBLPrefilterWorkerTaskPayload = {
 				type: "prefilter-mip",
 				envMap: envPayload,
 				baseWidth,
@@ -825,8 +825,8 @@ async function prefilterEnvMapWithWorkers(
 
 			const task = globalWorkerScheduler
 				.schedule<
-					EnvironmentIBLBakeWorkerTaskResult,
-					EnvironmentIBLBakeWorkerTaskPayload
+					IBLPrefilterWorkerTaskResult,
+					IBLPrefilterWorkerTaskPayload
 				>(
 					poolId,
 					payload,

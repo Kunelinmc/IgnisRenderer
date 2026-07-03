@@ -1,9 +1,9 @@
 import { Texture } from "../../../core/Texture";
 import { prefilterEnvMapMipLevel } from "../IBLPrefilter";
 import type {
-	EnvironmentIBLBakeWorkerTaskPayload,
-	EnvironmentIBLBakeWorkerTaskResult,
-} from "./environmentIblBakeWorkerProtocol";
+	IBLPrefilterWorkerTaskPayload,
+	IBLPrefilterWorkerTaskResult,
+} from "./iblPrefilterWorkerProtocol";
 
 interface WorkerEnvelope<TPayload> {
 	id: number;
@@ -25,9 +25,9 @@ const workerScope = globalThis as WorkerScopeLike;
 
 function isWorkerEnvelope(
 	value: unknown
-): value is WorkerEnvelope<EnvironmentIBLBakeWorkerTaskPayload> {
+): value is WorkerEnvelope<IBLPrefilterWorkerTaskPayload> {
 	if (!value || typeof value !== "object") return false;
-	const candidate = value as WorkerEnvelope<EnvironmentIBLBakeWorkerTaskPayload>;
+	const candidate = value as WorkerEnvelope<IBLPrefilterWorkerTaskPayload>;
 	return (
 		typeof candidate.id === "number" &&
 		!!candidate.payload &&
@@ -36,10 +36,10 @@ function isWorkerEnvelope(
 }
 
 function executeTask(
-	payload: EnvironmentIBLBakeWorkerTaskPayload
-): EnvironmentIBLBakeWorkerTaskResult {
+	payload: IBLPrefilterWorkerTaskPayload
+): IBLPrefilterWorkerTaskResult {
 	if (payload.type !== "prefilter-mip") {
-		throw new Error(`Unknown environment IBL bake task "${payload}"`);
+		throw new Error(`Unknown IBL prefilter task "${payload}"`);
 	}
 
 	const env = payload.envMap;
@@ -67,13 +67,13 @@ workerScope.onmessage = (event) => {
 
 	try {
 		const result = executeTask(envelope.payload);
-		const response: WorkerResultEnvelope<EnvironmentIBLBakeWorkerTaskResult> = {
+		const response: WorkerResultEnvelope<IBLPrefilterWorkerTaskResult> = {
 			id: envelope.id,
 			result,
 		};
 		workerScope.postMessage(response);
 	} catch (error) {
-		const response: WorkerResultEnvelope<EnvironmentIBLBakeWorkerTaskResult> = {
+		const response: WorkerResultEnvelope<IBLPrefilterWorkerTaskResult> = {
 			id: envelope.id,
 			error: error instanceof Error ? error.message : String(error),
 		};
