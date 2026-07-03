@@ -96,9 +96,15 @@ required references. Read them before changing related behavior:
 
 ### Documentation
 
-- Public methods and properties must have JSDoc.
-- New externally exposed public methods must document purpose, parameters,
-  return value, constraints, and observable side effects.
+- Public methods and properties should have JSDoc when their behavior,
+  constraints, or side effects are not obvious from the name and type.
+- Simple variables, simple properties, and methods that only perform an
+  obvious action or return no value may omit the entire JSDoc when the
+  signature is self-explanatory.
+- New externally exposed public methods must document purpose and any relevant
+  parameters, return value, constraints, and observable side effects. Omit
+  sections that do not apply, such as return value documentation for `void`
+  methods.
 - Public methods or interfaces that exist only for TypeScript contracts,
   backend bridges, tests, or renderer orchestration must include `@internal`.
   The JSDoc should name the owning subsystem and preferred public alternative.
