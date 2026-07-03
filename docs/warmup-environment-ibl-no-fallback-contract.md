@@ -36,7 +36,7 @@ const sh = projectEnvironmentTextureToSH(environmentTexture, {
 });
 
 const prefilteredMap = await prefilterEnvironmentIBL(environmentTexture, {
-	backend: renderer,
+	backend: webgpuBackend,
 	acceleration: "auto",
 	maxSampleWidth: 128,
 	maxSampleHeight: 64,

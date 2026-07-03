@@ -1,5 +1,4 @@
 import type { Texture } from "../../core/Texture";
-import type { Renderer } from "../Renderer";
 import type { ICommandBuffer, ICommandEncoder } from "../ICommandEncoder";
 import type {
 	BindingGroupDesc,
@@ -32,57 +31,53 @@ type ResolveTextureForSlotMethod = (
 	slotIndex: number
 ) => IRenderTexture;
 
-interface IWebGPUBackendLike {
+export interface IWebGPUComputeBackendLike {
 	type?: unknown;
-	device?: GPUDevice | null;
-	createSampler?: (desc: SamplerDesc) => ISampler;
-	createShaderModule?: (desc: ShaderModuleDesc) => Promise<IShaderModule>;
-	createComputePipeline?: (
+	device: GPUDevice | null;
+	queue?: GPUQueue | null;
+	createSampler(desc: SamplerDesc): ISampler;
+	createShaderModule(desc: ShaderModuleDesc): Promise<IShaderModule>;
+	createComputePipeline(
 		desc: ComputePipelineDesc
-	) => Promise<IComputePipeline>;
-	createBuffer?: (desc: BufferDesc) => IRenderBuffer;
-	createTexture?: (desc: TextureDesc) => IRenderTexture;
-	createBindingGroup?: (desc: BindingGroupDesc) => IBindingGroup;
+	): Promise<IComputePipeline>;
+	createBuffer(desc: BufferDesc): IRenderBuffer;
+	createTexture(desc: TextureDesc): IRenderTexture;
+	createBindingGroup(desc: BindingGroupDesc): IBindingGroup;
 	createBindGroupLayout?: (
 		desc: GPUBindGroupLayoutDescriptor
 	) => GPUBindGroupLayout;
 	createPipelineLayout?: (
 		desc: GPUPipelineLayoutDescriptor
 	) => GPUPipelineLayout;
-	createTextureView?: CreateTextureViewMethod;
-	createCommandEncoder?: () => ICommandEncoder;
-	submit?: (commands: ICommandBuffer[]) => void;
-	writeBuffer?: (
+	createTextureView: CreateTextureViewMethod;
+	createCommandEncoder(): ICommandEncoder;
+	submit(commands: ICommandBuffer[]): void;
+	writeBuffer(
 		buffer: IRenderBuffer,
 		data: BufferSource,
 		offset?: number
-	) => void;
+	): void;
+	getComputeFacade?: () => IWebGPUComputeFacade | null | undefined;
 	resolveTextureForSlot?: ResolveTextureForSlotMethod;
 	getTextureForSlot?: ResolveTextureForSlotMethod;
-	registerExternalTexture?: (
+	registerExternalTexture(
 		texture: Texture,
 		resource: IRenderTexture,
 		uploadedVersion?: number,
 		mipLevelCount?: number
-	) => void;
-	unregisterExternalTexture?: (texture: Texture) => void;
-}
-
-export interface IWebGPUComputeFacadeResolverSource {
-	backend?: WebGPUComputeFacadeSource | null;
-	type?: unknown;
-	getComputeFacade?: () => WebGPUComputeFacadeSource | null | undefined;
+	): void;
+	unregisterExternalTexture(texture: Texture): void;
 }
 
 export type WebGPUComputeFacadeSource =
-	| Renderer
 	| WebGPUBackend
 	| IWebGPUComputeFacade
-	| IWebGPUComputeFacadeResolverSource
-	| IWebGPUBackendLike;
+	| IWebGPUComputeBackendLike;
 
 export interface IWebGPUComputeFacade {
 	readonly [WEBGPU_COMPUTE_FACADE_BRAND]: true;
+	readonly device: GPUDevice | null;
+	readonly queue: GPUQueue | null;
 	createSampler(desc: SamplerDesc): ISampler;
 	createShaderModule(desc: ShaderModuleDesc): Promise<IShaderModule>;
 	createComputePipeline(desc: ComputePipelineDesc): Promise<IComputePipeline>;
@@ -128,6 +123,14 @@ class WebGPUBackendComputeFacade implements IWebGPUComputeFacade {
 		private _backend: WebGPUBackend,
 		private _onDestroy: () => void
 	) {}
+
+	public get device(): GPUDevice | null {
+		return this._backend.device;
+	}
+
+	public get queue(): GPUQueue | null {
+		return this._backend.queue;
+	}
 
 	private _assertAlive(operation: string): void {
 		if (this._destroyed) {
@@ -188,7 +191,7 @@ class WebGPUBackendComputeFacade implements IWebGPUComputeFacade {
 		desc?: GPUTextureViewDescriptor
 	): GPUTextureView {
 		this._assertAlive("create texture views");
-		const createTextureView = (this._backend as IWebGPUBackendLike)
+		const createTextureView = (this._backend as IWebGPUComputeBackendLike)
 			.createTextureView;
 		if (typeof createTextureView !== "function") {
 			throw new Error("WebGPU backend does not expose createTextureView().");
@@ -267,6 +270,7 @@ class WebGPUBackendComputeFacade implements IWebGPUComputeFacade {
 }
 
 interface AdaptedFacadeOps {
+	deviceSource: { device?: GPUDevice | null; queue?: GPUQueue | null };
 	createSampler: (desc: SamplerDesc) => ISampler;
 	createShaderModule: (desc: ShaderModuleDesc) => Promise<IShaderModule>;
 	createComputePipeline: (desc: ComputePipelineDesc) => Promise<IComputePipeline>;
@@ -312,6 +316,12 @@ function createAdaptedFacade(ops: AdaptedFacadeOps): IWebGPUComputeFacade {
 
 	return {
 		[WEBGPU_COMPUTE_FACADE_BRAND]: true,
+		get device() {
+			return ops.deviceSource.device ?? null;
+		},
+		get queue() {
+			return ops.deviceSource.queue ?? ops.deviceSource.device?.queue ?? null;
+		},
 		createSampler: (desc) => {
 			assertAlive("create samplers");
 			return ops.createSampler(desc);
@@ -475,7 +485,7 @@ function tryCreateFacadeFromBackendLike(
 	}
 
 	const sourceObject = value as object;
-	const source = value as IWebGPUBackendLike;
+	const source = value as IWebGPUComputeBackendLike;
 	const createSampler = bindMethod<(desc: SamplerDesc) => ISampler>(
 		sourceObject,
 		"createSampler"
@@ -560,6 +570,7 @@ function tryCreateFacadeFromBackendLike(
 	>(sourceObject, "createPipelineLayout");
 
 	return createAdaptedFacade({
+		deviceSource: source,
 		createSampler,
 		createShaderModule,
 		createComputePipeline,
@@ -677,64 +688,35 @@ export function resolveWebGPUComputeFacade(
 ): IWebGPUComputeFacade {
 	if (!source || typeof source !== "object") {
 		throw new Error(
-			"WebGPU compute facade requires a Renderer, WebGPU backend, or compute facade source."
+			"WebGPU compute facade requires a WebGPU backend or compute facade source."
 		);
 	}
 
-	const visited = new WeakSet<object>();
-	let current: unknown = source;
-	let depth = 0;
-	const maxDepth = 32;
+	if (isWebGPUComputeFacade(source)) {
+		return source;
+	}
 
-	while (current && typeof current === "object") {
-		if (depth++ > maxDepth) {
-			throw new Error(
-				"Failed to resolve WebGPU compute facade: resolution depth exceeded safe limit."
-			);
-		}
+	const sourceType = (source as { type?: unknown }).type;
+	if (
+		typeof sourceType === "string" &&
+		sourceType.length > 0 &&
+		sourceType !== "webgpu"
+	) {
+		throw new Error(
+			`WebGPU compute facade requires WebGPU backend, received "${sourceType}".`
+		);
+	}
 
-		const currentObject = current as object;
-		if (visited.has(currentObject)) {
-			throw new Error(
-				"Failed to resolve WebGPU compute facade: cyclic source references detected."
-			);
-		}
-		visited.add(currentObject);
+	const directFacade = (source as {
+		getComputeFacade?: () => IWebGPUComputeFacade | null | undefined;
+	}).getComputeFacade?.call(source);
+	if (directFacade && isWebGPUComputeFacade(directFacade)) {
+		return directFacade;
+	}
 
-		if (isWebGPUComputeFacade(current)) {
-			return current;
-		}
-
-		const resolverLike = current as IWebGPUComputeFacadeResolverSource;
-		if (typeof resolverLike.getComputeFacade === "function") {
-			const resolved = resolverLike.getComputeFacade();
-			if (resolved && resolved !== currentObject) {
-				current = resolved;
-				continue;
-			}
-		}
-
-		if (resolverLike.backend && resolverLike.backend !== currentObject) {
-			current = resolverLike.backend;
-			continue;
-		}
-
-		if (
-			typeof resolverLike.type === "string" &&
-			resolverLike.type.length > 0 &&
-			resolverLike.type !== "webgpu"
-		) {
-			throw new Error(
-				`WebGPU compute facade requires WebGPU backend, received "${resolverLike.type}".`
-			);
-		}
-
-		const adapted = tryCreateFacadeFromBackendLike(current);
-		if (adapted) {
-			return adapted;
-		}
-
-		break;
+	const adapted = tryCreateFacadeFromBackendLike(source);
+	if (adapted) {
+		return adapted;
 	}
 
 	throw new Error(

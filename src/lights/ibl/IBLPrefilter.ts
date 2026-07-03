@@ -902,7 +902,7 @@ async function prefilterEnvMapOnWebGPU(
 ): Promise<Texture> {
 	if (!options.computeSource) {
 		throw new Error(
-			"WebGPU acceleration was requested for IBL prefiltering, but no renderer, attached backend, or compute source was provided."
+			"WebGPU acceleration was requested for IBL prefiltering, but no WebGPU backend or compute source was provided."
 		);
 	}
 	return prefilterEnvMapWithWebGPU(
@@ -1001,7 +1001,7 @@ function resolveComputeSource(
  * Prefilters equirectangular environment maps into specular IBL mip chains.
  *
  * @remarks The class may run independently from `Renderer`. Passing a WebGPU
- * renderer, attached backend, or compute facade enables GPU acceleration; all
+ * backend or compute facade enables GPU acceleration; all
  * other sources use worker/CPU fallback according to `acceleration`.
  */
 export class IBLPrefilter {
@@ -1011,7 +1011,7 @@ export class IBLPrefilter {
 	/**
 	 * Creates a standalone environment IBL prefilter service.
 	 *
-	 * @param source Optional renderer, attached backend, WebGPU compute source, or
+	 * @param source Optional WebGPU backend, WebGPU compute source, or
 	 * constructor options. Passing a WebGPU-capable source enables GPU
 	 * acceleration when requested or selected by `auto`.
 	 * @constraints The source must outlive calls to `prefilter()`.

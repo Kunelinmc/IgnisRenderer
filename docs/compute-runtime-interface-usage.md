@@ -4,11 +4,14 @@
 
 This document describes how to use `ComputeRuntime` for WebGPU compute jobs.
 
-`ComputeRuntime` must be constructed from a WebGPU source. Valid sources are
-`Renderer` with `WebGPUBackend`, `WebGPUBackend`, `IWebGPUComputeFacade`, or an
-object exposing `backend` or `getComputeFacade()`.
-When a source is an `IWebGPUComputeFacade`, its
-`createComputePipeline(desc)` method must return `Promise<IComputePipeline>`.
+`ComputeRuntime` must be constructed from a WebGPU compute source. Valid sources
+are `WebGPUBackend`, `IWebGPUComputeFacade`, or a WebGPU backend-like object
+that exposes the compute, texture, command submission, `device`, and `queue`
+surface required by `WebGPUComputeFacadeSource`. `Renderer` instances and
+renderer-like `{ backend }` wrappers are not valid sources.
+When a source is an `IWebGPUComputeFacade`, its `device`, `queue`, and
+`createComputePipeline(desc)` members must be available, and
+`createComputePipeline(desc)` must return `Promise<IComputePipeline>`.
 
 ## Background
 
@@ -24,6 +27,11 @@ through `TextureReadbackResult` helpers instead of assuming tightly packed data.
 - `createSampler(desc)` must create an `ISampler`.
 - WebGPU compute facade sources must implement
   `createComputePipeline(desc): Promise<IComputePipeline>`.
+- WebGPU compute sources must expose an initialized WebGPU `device` and `queue`
+  before `writeTexture`, `readBuffer`, `readTexture`, or dispatch completion
+  tracking can be used.
+- `ComputeRuntime` must not resolve `Renderer` instances, renderer-like
+  `{ backend }` wrappers, or recursive source objects.
 - `writeBuffer(buffer, data, offset?)` must upload buffer bytes.
 - `writeTexture(texture, data, layout, size)` must upload texture bytes and
   requires positive `layout.bytesPerRow`.
@@ -50,9 +58,11 @@ import {
 	TextureFormat,
 	TextureUsage,
 	type IComputeRuntime,
+	type WebGPUBackend,
 } from "../src";
+import { WEBGPU_COMPUTE_EXTENSION } from "../src/renderers/BackendExtensions";
 
-declare const renderer: unknown;
+declare const backend: WebGPUBackend;
 
 async function run(runtime: IComputeRuntime): Promise<Float32Array> {
 	const texture = runtime.createTexture({
@@ -108,16 +118,27 @@ fn csMain(@builtin(global_invocation_id) id: vec3<u32>) {
 	return pixels;
 }
 
-const runtime = new ComputeRuntime(renderer);
+const runtime = new ComputeRuntime(backend);
 const pixels = await run(runtime);
 runtime.destroy();
 console.log(pixels[0]);
+```
+
+Applications that only have a `Renderer` must resolve the backend-owned compute
+extension outside `ComputeRuntime`, then construct the runtime from that
+extension:
+
+```ts
+const compute = renderer.requireBackendExtension(WEBGPU_COMPUTE_EXTENSION);
+const runtime = new ComputeRuntime(compute);
 ```
 
 ## Errors & Diagnostics
 
 - `ComputeRuntime requires a webgpuSource that exposes an initialized GPU device and queue.`
   triggers when the source cannot resolve a WebGPU `device` and `queue`.
+- `Failed to resolve WebGPU compute facade from provided source.` triggers when
+  a renderer-like wrapper or incomplete backend-like source is passed.
 - Kernel creation must throw for duplicate binding keys, duplicate binding
   indices, or unsupported binding types.
 - Dispatch must throw when required resources are missing, resource types do not
@@ -135,3 +156,8 @@ passing the pipeline to WebGPU helper code.
 
 `toRGBAFloat32()` remains additive. Existing `toNormalizedRGBA8Float32()`
 callers remain valid for `RGBA8Unorm` and `BGRA8Unorm` readbacks.
+
+`ComputeRuntime` no longer accepts `Renderer` instances or renderer-like
+`{ backend }` source wrappers. Callers must pass a `WebGPUBackend`, a
+backend-owned `IWebGPUComputeFacade`, or another direct
+`WebGPUComputeFacadeSource`.

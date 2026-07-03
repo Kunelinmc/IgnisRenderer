@@ -112,7 +112,7 @@ async function testFacadeDelegatesAndCaches() {
 	assert.equal(unregisterCalls.length, 1);
 }
 
-function testResolverSupportsRendererAndBackend() {
+function testResolverSupportsBackendAndFacade() {
 	const backend = new FakeWebGPUBackend();
 	const facade = createWebGPUComputeFacade(backend);
 	backend.getComputeFacade = () => facade;
@@ -120,9 +120,16 @@ function testResolverSupportsRendererAndBackend() {
 	const fromBackend = resolveWebGPUComputeFacade(backend);
 	assert.equal(fromBackend, facade);
 
-	const renderer = { backend };
-	const fromRenderer = resolveWebGPUComputeFacade(renderer);
-	assert.equal(fromRenderer, facade);
+	const fromFacade = resolveWebGPUComputeFacade(facade);
+	assert.equal(fromFacade, facade);
+}
+
+function testResolverRejectsRendererLikeSource() {
+	const backend = new FakeWebGPUBackend();
+	assert.throws(
+		() => resolveWebGPUComputeFacade({ backend }),
+		/Failed to resolve WebGPU compute facade/
+	);
 }
 
 function testResolverRejectsNonWebGPUBackend() {
@@ -142,17 +149,6 @@ function testCacheInvalidationRecreatesFacade() {
 	const facadeB = createWebGPUComputeFacade(backend);
 	assert.notEqual(facadeA, facadeB);
 	assert.equal(getWebGPUComputeFacadeCacheStats().entryCount, 1);
-}
-
-function testResolverRejectsCycles() {
-	const cyclicA = {};
-	const cyclicB = {};
-	cyclicA.backend = cyclicB;
-	cyclicB.backend = cyclicA;
-	assert.throws(
-		() => resolveWebGPUComputeFacade(cyclicA),
-		/cyclic source references detected/
-	);
 }
 
 function testResolverRejectsIncompleteBackendLike() {
@@ -199,10 +195,10 @@ function testResolverRejectsIncompleteBackendLike() {
 
 export async function run() {
 	await testFacadeDelegatesAndCaches();
-	testResolverSupportsRendererAndBackend();
+	testResolverSupportsBackendAndFacade();
+	testResolverRejectsRendererLikeSource();
 	testResolverRejectsNonWebGPUBackend();
 	testCacheInvalidationRecreatesFacade();
-	testResolverRejectsCycles();
 	testResolverRejectsIncompleteBackendLike();
 	console.log("WebGPU compute facade tests passed");
 }

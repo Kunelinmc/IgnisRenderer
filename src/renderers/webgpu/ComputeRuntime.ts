@@ -756,51 +756,21 @@ function resolveWebGPUComputeContext(
 			"ComputeRuntime requires a webgpuSource that exposes an initialized GPU device and queue."
 		);
 	}
-	const visited = new WeakSet<object>();
-	let current: unknown = source;
-	let depth = 0;
-
-	while (current && typeof current === "object") {
-		if (depth++ > 32) {
-			break;
-		}
-		const objectCurrent = current as object;
-		if (visited.has(objectCurrent)) {
-			break;
-		}
-		visited.add(objectCurrent);
-
-		const candidate = current as {
-			device?: GPUDevice | null;
-			queue?: GPUQueue | null;
-			backend?: unknown;
-			getComputeFacade?: () => unknown;
-		};
-		const device = candidate.device;
-		const queue = candidate.queue ?? candidate.device?.queue;
-		if (
-			device &&
-			queue &&
-			typeof device.createCommandEncoder === "function" &&
-			typeof queue.submit === "function" &&
-			typeof queue.writeTexture === "function" &&
-			typeof queue.onSubmittedWorkDone === "function"
-		) {
-			return { device, queue };
-		}
-
-		if (typeof candidate.getComputeFacade === "function") {
-			const resolved = candidate.getComputeFacade();
-			if (resolved && resolved !== objectCurrent) {
-				current = resolved;
-				continue;
-			}
-		}
-		if (candidate.backend && candidate.backend !== objectCurrent) {
-			current = candidate.backend;
-			continue;
-		}
-		break;
+	const candidate = source as {
+		device?: GPUDevice | null;
+		queue?: GPUQueue | null;
+	};
+	const device = candidate.device;
+	const queue = candidate.queue ?? candidate.device?.queue;
+	if (
+		device &&
+		queue &&
+		typeof device.createCommandEncoder === "function" &&
+		typeof queue.submit === "function" &&
+		typeof queue.writeTexture === "function" &&
+		typeof queue.onSubmittedWorkDone === "function"
+	) {
+		return { device, queue };
 	}
 
 	throw new Error(

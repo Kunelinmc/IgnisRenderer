@@ -25,6 +25,11 @@ on capabilities rather than backend-specific classes.
 - WebGPU facade-backed `IComputeRuntime` implementations must await
   `IWebGPUComputeFacade.createComputePipeline(desc)` before exposing a created
   `IComputeKernel`.
+- WebGPU `ComputeRuntime` sources must be direct `WebGPUComputeFacadeSource`
+  values, such as `WebGPUBackend`, `IWebGPUComputeFacade`, or backend-like
+  objects with the required WebGPU compute, `device`, and `queue` members.
+- WebGPU `ComputeRuntime` implementations must not resolve `Renderer`
+  instances, renderer-like `{ backend }` wrappers, or recursive source chains.
 - `TextureReadbackResult` must expose raw `bytes`, dimensions, row layout,
   `toFloat32`, `toRGBAFloat32`, and `toNormalizedRGBA8Float32`.
 - `toRGBAFloat32` must decode `RGBA8Unorm`, `BGRA8Unorm`, and `RGBA16Float`
@@ -45,9 +50,10 @@ on capabilities rather than backend-specific classes.
 ```ts
 import type { IComputeRuntime } from "../src/renderers/IComputeRuntime";
 import { ComputeRuntime } from "../src/renderers/webgpu/ComputeRuntime";
+import type { WebGPUComputeFacadeSource } from "../src/renderers/webgpu/ComputeFacade";
 
-function createRuntime(webgpuSource: unknown): IComputeRuntime {
-	return new ComputeRuntime(webgpuSource as any);
+function createRuntime(source: WebGPUComputeFacadeSource): IComputeRuntime {
+	return new ComputeRuntime(source);
 }
 
 async function run(runtime: IComputeRuntime): Promise<void> {
@@ -68,6 +74,8 @@ async function run(runtime: IComputeRuntime): Promise<void> {
 - `dispatch` should throw when required resources are missing or type-mismatched.
 - `dispatch` should throw when both `dispatch` and `dispatch2D` are set.
 - Runtime methods should throw after `destroy()` is called.
+- WebGPU `ComputeRuntime` should throw when a source does not expose an
+  initialized WebGPU `device` and `queue`.
 
 ## Compatibility / Breaking Changes
 
@@ -77,3 +85,8 @@ pipeline creation before dispatching or creating pipeline-dependent bind groups.
 
 Existing `IComputeRuntime.createKernel()` usage remains valid because it already
 returns `Promise<IComputeKernel>`.
+
+WebGPU `ComputeRuntime` construction no longer accepts `Renderer` instances or
+renderer-like `{ backend }` source wrappers. Consumers must pass a direct
+`WebGPUBackend`, `IWebGPUComputeFacade`, or compatible
+`WebGPUComputeFacadeSource`.

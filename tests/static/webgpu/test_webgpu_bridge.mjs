@@ -1465,7 +1465,7 @@ function testWebGPUClusteredSpotShadowBudgetFallback() {
 	);
 }
 
-function testRenderResourcesRequestsComputeFacadeFromBackend() {
+function testRenderResourcesResolveComputeFacadeFromBackend() {
 	const backend = new FakeBackend();
 	const resources = new WebGPURenderResources(backend);
 
@@ -1499,7 +1499,7 @@ function testRenderResourcesLeaveShaderRuntimeSubscriptionToBackend() {
 	assert.equal(listenerCount, 0);
 }
 
-function testFrameExecutorRequestsComputeFacadeFromBackend() {
+function testFrameExecutorResolvesComputeFacadeFromBackend() {
 	const backend = new FakeBackend();
 	const resourcesStub = { sceneFrameLayout: null };
 	const executor = new WebGPUFrameExecutor(backend, resourcesStub);
@@ -4024,9 +4024,9 @@ async function run() {
 	testTransformComposition();
 	testMaterialAdaptation();
 	testFeatureGate();
-	testRenderResourcesRequestsComputeFacadeFromBackend();
+	testRenderResourcesResolveComputeFacadeFromBackend();
 	testRenderResourcesLeaveShaderRuntimeSubscriptionToBackend();
-	testFrameExecutorRequestsComputeFacadeFromBackend();
+	testFrameExecutorResolvesComputeFacadeFromBackend();
 	await testSceneShaderCoverage();
 	testScenePipelineLimitConstantsMatchLayout();
 	testDecalBatchLayoutHonorsStorageTextureLimit();
