@@ -26,7 +26,7 @@ struct TraceParams {
 	binarySearchSteps: f32,
 	maxMip: f32,
 	roughnessMipScale: f32,
-	_pad0: f32,
+	planeRefinementSteps: f32,
 	_pad1: vec4<f32>,
 }
 
@@ -39,6 +39,7 @@ struct TraceParams {
 @group(0) @binding(6) var linearSampler: sampler;
 @group(0) @binding(7) var<uniform> traceParams: TraceParams;
 @group(0) @binding(8) var outRefraction: texture_storage_2d<rgba16float, write>;
+@group(0) @binding(9) var opaqueNormal: texture_2d<f32>;
 
 @group(1) @binding(0) var<uniform> frame: FrameUniforms;
 
@@ -170,6 +171,57 @@ fn refractViewDirection(v: vec3<f32>, n: vec3<f32>, ior: f32) -> RefractionResul
 	return RefractionResult(normalize(refraction), true);
 }
 
+fn refineHitWithPlane(
+	worldPos: vec3<f32>,
+	rayDir: vec3<f32>,
+	initialUv: vec2<f32>
+) -> HiZTraceResult {
+	var result: HiZTraceResult;
+	result.hit = false;
+	result.hitUv = initialUv;
+	result.t = 0.0;
+
+	let refineSteps = i32(clamp(traceParams.planeRefinementSteps, 0.0, 8.0));
+	let thickness = max(traceParams.thickness, 0.01);
+	var uv = initialUv;
+
+	for (var i: i32 = 0; i < 8; i = i + 1) {
+		if (i >= refineSteps) { break; }
+		if (!isInsideScreen(uv)) { break; }
+
+		let motionDepth = textureSampleLevel(opaqueMotionDepth, linearSampler, uv, 0.0);
+		let sceneDepth = motionDepth.z;
+		if (sceneDepth <= 0.0) { break; }
+
+		let normalSample = textureSampleLevel(opaqueNormal, linearSampler, uv, 0.0);
+		let planeNormal = decodeNormal(normalSample.xy);
+		let planePoint = getPosition(uv, sceneDepth);
+		let denom = dot(rayDir, planeNormal);
+		if (abs(denom) < 1e-4) { break; }
+
+		let candidateT = dot(planePoint - worldPos, planeNormal) / denom;
+		if (candidateT <= 0.0 || candidateT > traceParams.maxDistance) { break; }
+
+		let candidatePos = worldPos + rayDir * candidateT;
+		let candidateUv = worldToUv(candidatePos);
+		if (!isInsideScreen(candidateUv)) { break; }
+
+		let candidateDepth =
+			textureSampleLevel(opaqueMotionDepth, linearSampler, candidateUv, 0.0).z;
+		if (candidateDepth <= 0.0) { break; }
+
+		let rayDepth = worldToLinearDepth(candidatePos);
+		if (abs(rayDepth - candidateDepth) > thickness) { break; }
+
+		result.hit = true;
+		result.hitUv = candidateUv;
+		result.t = candidateT;
+		uv = candidateUv;
+	}
+
+	return result;
+}
+
 fn traceHiZ(worldPos: vec3<f32>, rayDir: vec3<f32>) -> HiZTraceResult {
 	var result: HiZTraceResult;
 	result.hit = false;
@@ -231,6 +283,11 @@ fn traceHiZ(worldPos: vec3<f32>, rayDir: vec3<f32>) -> HiZTraceResult {
 	}
 
 	if (result.hit) {
+		let planeResult = refineHitWithPlane(worldPos, rayDir, result.hitUv);
+		if (planeResult.hit) {
+			return planeResult;
+		}
+
 		var refineMin = missT;
 		var refineMax = result.t;
 		let refineSteps = i32(clamp(traceParams.binarySearchSteps, 0.0, 16.0));

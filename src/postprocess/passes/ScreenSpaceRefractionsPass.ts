@@ -63,6 +63,8 @@ export interface SSRefractionOptions {
 	downsample?: number;
 	/** Refinement iterations after a ray hit is found. */
 	binarySearchSteps?: number;
+	/** Tangent-plane refinement iterations after a Hi-Z ray hit is found. */
+	planeRefinementSteps?: number;
 	/** Allows backend-specific experimental refraction options. */
 	[key: string]: unknown;
 }
@@ -73,6 +75,7 @@ export const DEFAULT_SSREFRACTION_OPTIONS: Required<
 		| "downsample"
 		| "maxSteps"
 		| "binarySearchSteps"
+		| "planeRefinementSteps"
 		| "maxDistance"
 		| "thickness"
 		| "stride"
@@ -84,6 +87,7 @@ export const DEFAULT_SSREFRACTION_OPTIONS: Required<
 	downsample: 1,
 	maxSteps: 64,
 	binarySearchSteps: 5,
+	planeRefinementSteps: 3,
 	maxDistance: 50,
 	thickness: 0.2,
 	stride: 1,
@@ -98,6 +102,7 @@ export type ResolvedSSRefractionOptions = Required<
 		| "downsample"
 		| "maxSteps"
 		| "binarySearchSteps"
+		| "planeRefinementSteps"
 		| "maxDistance"
 		| "thickness"
 		| "stride"
@@ -152,6 +157,12 @@ export function resolveSSRefractionOptions(
 			options?.binarySearchSteps,
 			DEFAULT_SSREFRACTION_OPTIONS.binarySearchSteps
 		),
+		planeRefinementSteps: clampInteger(
+			options?.planeRefinementSteps,
+			DEFAULT_SSREFRACTION_OPTIONS.planeRefinementSteps,
+			0,
+			8
+		),
 		maxDistance: finiteOr(
 			options?.maxDistance,
 			DEFAULT_SSREFRACTION_OPTIONS.maxDistance
@@ -204,7 +215,7 @@ export function createSSRefractionTraceParams(
 		options.binarySearchSteps,
 		maxHiZMip,
 		options.roughnessMipScale,
-		0,
+		options.planeRefinementSteps,
 		0,
 		0,
 		0,
@@ -351,6 +362,7 @@ export class WebGPUScreenSpaceRefractionsImplementation
 			!targets.postPing ||
 			!targets.postPong ||
 			!targets.gMotionDepth ||
+			!targets.gNormalRoughMetal ||
 			!targets.transmissionSceneColorCopy ||
 			!targets.transmissionLighting ||
 			!targets.gTransmissionSurface0 ||
@@ -396,6 +408,7 @@ export class WebGPUScreenSpaceRefractionsImplementation
 				{ binding: 6, resource: context.shared.sampler },
 				{ binding: 7, resource: resources.traceParams },
 				{ binding: 8, resource: raw },
+				{ binding: 9, resource: targets.gNormalRoughMetal },
 			],
 			"WebGPUSSRefraction_TraceBinding"
 		);
@@ -501,6 +514,7 @@ export class WebGPUScreenSpaceRefractionsImplementation
 							visibility: GPUShaderStage.COMPUTE,
 							storageTexture: { format: "rgba16float", access: "write-only" },
 						},
+						{ binding: 9, visibility: GPUShaderStage.COMPUTE, texture: {} },
 					],
 				});
 				resources.tracePipelineLayout = shared.compute.createPipelineLayout({
@@ -582,7 +596,7 @@ export class ScreenSpaceRefractionsPass extends PostProcessPass<
 	}
 
 	public override getRequirements(): PostProcessPassRequirements {
-		return { gBuffer: ["depth", "motion", "transmission"] };
+		return { gBuffer: ["depth", "motion", "normal", "transmission"] };
 	}
 
 	public override getTransientResourceDescriptors(
@@ -607,4 +621,16 @@ function clampDownsample(value: unknown, fallback: number): number {
 		return fallback;
 	}
 	return Math.min(8, Math.max(1, Math.floor(value)));
+}
+
+function clampInteger(
+	value: unknown,
+	fallback: number,
+	min: number,
+	max: number
+): number {
+	if (typeof value !== "number" || !Number.isFinite(value)) {
+		return fallback;
+	}
+	return Math.min(max, Math.max(min, Math.floor(value)));
 }

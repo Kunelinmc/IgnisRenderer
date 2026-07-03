@@ -43,11 +43,14 @@ function createFrameContext(transmissionFactor = 1) {
 	};
 }
 
-function createGBuffer(includeTransmission = true) {
+function createGBuffer(includeTransmission = true, includeNormal = true) {
 	const channels = {
 		depth: {},
 		motion: {},
 	};
+	if (includeNormal) {
+		channels.normal = {};
+	}
 	if (includeTransmission) {
 		channels.transmission = {};
 	}
@@ -73,6 +76,7 @@ function testDescriptorAndOptions() {
 	assert.deepEqual(pass.getRequirements({}).gBuffer, [
 		"depth",
 		"motion",
+		"normal",
 		"transmission",
 	]);
 	assert.equal(typeof pass.getImplementation("webgpu").execute, "function");
@@ -83,6 +87,7 @@ function testDescriptorAndOptions() {
 		downsample: 99,
 		maxSteps: 12,
 		binarySearchSteps: 3,
+		planeRefinementSteps: 99,
 		maxDistance: 9,
 		thickness: 0.5,
 		stride: 2,
@@ -93,6 +98,7 @@ function testDescriptorAndOptions() {
 	assert.equal(options.downsample, 8);
 	assert.equal(options.maxSteps, 12);
 	assert.equal(options.binarySearchSteps, 3);
+	assert.equal(options.planeRefinementSteps, 8);
 	assert.equal(options.maxDistance, 9);
 	assert.equal(options.thickness, 0.5);
 	assert.equal(options.stride, 2);
@@ -107,6 +113,14 @@ function testDescriptorAndOptions() {
 	assert.equal(params[2], 9);
 	assert.equal(params[9], 5);
 	assert.equal(params[10], 6);
+	assert.equal(params[11], 8);
+
+	const defaultOptions = resolveSSRefractionOptions();
+	assert.equal(defaultOptions.planeRefinementSteps, 3);
+	const disabledPlaneRefinement = resolveSSRefractionOptions({
+		planeRefinementSteps: 0,
+	});
+	assert.equal(disabledPlaneRefinement.planeRefinementSteps, 0);
 
 	pass.destroy();
 }
@@ -163,6 +177,27 @@ async function testPipelineRequiresTransmissionChannel() {
 	pass.destroy();
 }
 
+async function testPipelineRequiresNormalChannel() {
+	const pass = new ScreenSpaceRefractionsPass({ enabled: true });
+	const frameContext = createFrameContext(1);
+	const warnings = [];
+	const graph = new PostProcessGraphCompiler().compile({
+		frameContext,
+		backend: "webgpu",
+		postProcess: frameContext.postProcess,
+		gBuffer: createGBuffer(true, false),
+		warn(key, message) {
+			warnings.push({ key, message });
+		},
+	});
+	assert.deepEqual(graph.passes, []);
+	assert.deepEqual(
+		warnings.map((warning) => warning.key),
+		["postprocess-requirement-missing-ssrefraction"]
+	);
+	pass.destroy();
+}
+
 function testTransientDescriptors() {
 	const pass = new ScreenSpaceRefractionsPass({
 		enabled: true,
@@ -192,5 +227,6 @@ testDescriptorAndOptions();
 testShouldExecuteRequiresTransmissionPackets();
 testUnsupportedBackendsDisableWithoutBuiltInWarning();
 await testPipelineRequiresTransmissionChannel();
+await testPipelineRequiresNormalChannel();
 testTransientDescriptors();
 console.log("ScreenSpaceRefractionsPass tests passed");
