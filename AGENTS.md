@@ -126,6 +126,9 @@ required references. Read them before changing related behavior:
   7. `## Compatibility / Breaking Changes`
 - Use RFC-style wording with `must`, `should`, and `may`.
 - Wrap contract names, types, functions, and parameters in backticks.
+- Do not add host-local Markdown links or absolute local filesystem paths to
+  documentation. Use repo-relative paths in backticks for code references, or
+  repo-relative Markdown links when an actual document link is needed.
 - Avoid ambiguous wording. Prefer testable statements.
 - Every code block must include a language tag.
 - Examples must match current API names and must not use removed interfaces.

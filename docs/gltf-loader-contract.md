@@ -2,7 +2,10 @@
 
 ## Scope
 
-This document defines the contract for [GLTFLoader](file:///d:/Projects/IgnisRenderer/src/loaders/GLTFLoader.ts) in [GLTFLoader.ts](file:///d:/Projects/IgnisRenderer/src/loaders/GLTFLoader.ts). It specifies how `.gltf` (JSON) and `.glb` (binary) models are loaded, parsed, and converted to the IgnisRenderer node hierarchy, ECS prefabs, materials, animations, and cameras.
+This document defines the contract for `GLTFLoader` in
+`src/loaders/GLTFLoader.ts`. It specifies how `.gltf` (JSON) and `.glb`
+(binary) models are loaded, parsed, and converted to the IgnisRenderer node
+hierarchy, ECS prefabs, materials, animations, and cameras.
 
 ## Background
 
