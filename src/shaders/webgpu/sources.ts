@@ -189,9 +189,9 @@ export const WEBGPU_FIXED_SHADER_FILES = {
 		key: "webgpu.clusteredLightingCull",
 		path: "./webgpu/lighting/clusteredLightingCull.wgsl",
 	},
-	environmentIblPrefilter: {
+	iblPrefilter: {
 		scope: "webgpu",
-		key: "webgpu.environmentIblPrefilter",
+		key: "webgpu.iblPrefilter",
 		path: "./webgpu/environment/iblPrefilter.wgsl",
 	},
 } as const satisfies Record<string, WebGPUShaderFileDescriptor>;

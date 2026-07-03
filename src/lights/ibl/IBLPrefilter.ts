@@ -478,7 +478,7 @@ async function createWebGPUResources(
 	const runtime = new ComputeRuntime(source);
 	try {
 		const shaderCode = await ShaderSource.load(
-			"webgpu.environmentIblPrefilter.raw"
+			"webgpu.iblPrefilter.raw"
 		);
 		const kernel = await runtime.createKernel({
 			label: "IBLPrefilter",

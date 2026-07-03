@@ -100,7 +100,7 @@ type WebGPURawFixedShaderKey =
 	| "webgpu.deferredLighting.raw"
 	| "webgpu.particle.raw"
 	| "webgpu.particleSimulation.raw"
-	| "webgpu.environmentIblPrefilter.raw";
+	| "webgpu.iblPrefilter.raw";
 
 type WebGPUCompositeFixedShaderKey =
 	| "webgpu.scene.composite"
@@ -793,9 +793,9 @@ export class ShaderSource {
 					"webgpu.clusteredLightingCull.composite",
 					this._loadFileComposite(WEBGPU_FIXED_SHADER_FILES.clusteredLightingCull)
 				);
-			case "webgpu.environmentIblPrefilter.raw":
+			case "webgpu.iblPrefilter.raw":
 				return this._loadFileRaw(
-					WEBGPU_FIXED_SHADER_FILES.environmentIblPrefilter
+					WEBGPU_FIXED_SHADER_FILES.iblPrefilter
 				);
 			case "webgl.scene.raw":
 				return this._loadWebGLSceneRaw(params);
