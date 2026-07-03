@@ -258,6 +258,26 @@ function createFrameContext(overrides = {}) {
 	};
 }
 
+async function createCachedRenderPipeline(backend) {
+	const shader = await backend.createShaderModule({
+		code: "shader render cached",
+		label: "CachedRenderShader",
+	});
+	return backend.createPipeline({
+		label: "CachedRenderPipeline",
+		vertex: {
+			module: shader,
+			entryPoint: "vsMain",
+			buffers: [],
+		},
+		fragment: {
+			module: shader,
+			entryPoint: "fsMain",
+			targets: [{ format: TextureFormat.RGBA8Unorm }],
+		},
+	});
+}
+
 function createRendererFramePlan(passes) {
 	const dependencyByStage = new Map([
 		["shadow", ["prepared-scene-build", "particle-sim"]],
@@ -310,18 +330,16 @@ async function testShaderModuleCacheUsesHashKey() {
 	assert.notEqual(moduleA, moduleB);
 	assert.equal(moduleA._gpuResource, moduleB._gpuResource);
 	assert.equal(device.shaderModuleDescs.length, 1);
-	const cacheKeys = Array.from(backend._shaderModuleCache.keys());
-	assert.equal(cacheKeys.length, 1);
-	assert.notEqual(cacheKeys[0], shaderCode);
-	assert.ok(cacheKeys[0].includes("hash:"));
-	const entry = backend._shaderModuleCache.values().next().value;
-	assert.equal(entry.refCount, 2);
-	assert.equal(entry.gpuResource, moduleA._gpuResource);
+	let stats = backend.getWebGPUCacheDebugStats().pipeline;
+	assert.equal(stats.shaderModuleEntries, 1);
+	assert.deepEqual(stats.shaderModuleRefCounts, [2]);
 
 	moduleA.destroy();
-	assert.equal(entry.refCount, 1);
+	stats = backend.getWebGPUCacheDebugStats().pipeline;
+	assert.deepEqual(stats.shaderModuleRefCounts, [1]);
 	moduleB.destroy();
-	assert.equal(backend._shaderModuleCache.size, 0);
+	stats = backend.getWebGPUCacheDebugStats().pipeline;
+	assert.equal(stats.shaderModuleEntries, 0);
 }
 
 async function testShaderModuleRetryWithinSingleRequest() {
@@ -395,8 +413,9 @@ async function testStaleShaderModuleCreationRejectsAfterRollback() {
 		() => shaderPromise,
 		/WebGPU shader module creation was invalidated/
 	);
-	assert.equal(backend._shaderModuleCache.size, 0);
-	assert.equal(backend._shaderModuleInFlight.size, 0);
+	const stats = backend.getWebGPUCacheDebugStats().pipeline;
+	assert.equal(stats.shaderModuleEntries, 0);
+	assert.equal(stats.shaderModuleInFlight, 0);
 }
 
 async function testStaleShaderModulePromiseDoesNotClearRecoveredInFlight() {
@@ -438,23 +457,37 @@ async function testStaleShaderModulePromiseDoesNotClearRecoveredInFlight() {
 		() => newDevice.shaderModuleDescs.length === 1,
 		"recovered shader module creation should start"
 	);
-	assert.equal(backend._shaderModuleInFlight.size, 1);
+	assert.equal(
+		backend.getWebGPUCacheDebugStats().pipeline.shaderModuleInFlight,
+		1
+	);
 
 	oldCompilationInfo.resolve({ messages: [] });
 	await assert.rejects(
 		() => stalePromise,
 		/WebGPU shader module creation was invalidated/
 	);
-	assert.equal(backend._shaderModuleInFlight.size, 1);
-	assert.equal(backend._shaderModuleCache.size, 0);
+	assert.equal(
+		backend.getWebGPUCacheDebugStats().pipeline.shaderModuleInFlight,
+		1
+	);
+	assert.equal(
+		backend.getWebGPUCacheDebugStats().pipeline.shaderModuleEntries,
+		0
+	);
 
 	newCompilationInfo.resolve({ messages: [] });
 	const shader = await recoveredPromise;
 	assert.ok(shader);
-	assert.equal(backend._shaderModuleInFlight.size, 0);
-	assert.equal(backend._shaderModuleCache.size, 1);
-	const entry = backend._shaderModuleCache.values().next().value;
-	assert.strictEqual(entry.gpuResource.desc, newDevice.shaderModuleDescs[0]);
+	assert.equal(
+		backend.getWebGPUCacheDebugStats().pipeline.shaderModuleInFlight,
+		0
+	);
+	assert.equal(
+		backend.getWebGPUCacheDebugStats().pipeline.shaderModuleEntries,
+		1
+	);
+	assert.strictEqual(shader._gpuResource.desc, newDevice.shaderModuleDescs[0]);
 }
 
 function testSamplerReferenceCounting() {
@@ -464,13 +497,15 @@ function testSamplerReferenceCounting() {
 
 	assert.notEqual(samplerA, samplerB);
 	assert.equal(samplerA._gpuResource, samplerB._gpuResource);
-	const samplerEntry = backend._samplerCache.values().next().value;
-	assert.equal(samplerEntry.refCount, 2);
+	let stats = backend.getWebGPUCacheDebugStats().pipeline;
+	assert.deepEqual(stats.samplerRefCounts, [2]);
 
 	samplerA.destroy();
-	assert.equal(samplerEntry.refCount, 1);
+	stats = backend.getWebGPUCacheDebugStats().pipeline;
+	assert.deepEqual(stats.samplerRefCounts, [1]);
 	samplerB.destroy();
-	assert.equal(backend._samplerCache.size, 0);
+	stats = backend.getWebGPUCacheDebugStats().pipeline;
+	assert.equal(stats.samplerEntries, 0);
 }
 
 async function testComputePipelineAutoLayoutCaching() {
@@ -499,7 +534,10 @@ async function testComputePipelineAutoLayoutCaching() {
 	assert.equal(device.pipelineLayouts.length, 0);
 	assert.equal(device.computePipelineDescs.length, 1);
 	assert.equal(device.computePipelineDescs[0].layout, "auto");
-	assert.equal(backend._autoComputePipelineLayoutCache.size, 0);
+	assert.equal(
+		backend.getWebGPUCacheDebugStats().pipeline.computePipelineEntries,
+		1
+	);
 }
 
 async function testRenderPipelineAutoLayoutCaching() {
@@ -540,7 +578,10 @@ async function testRenderPipelineAutoLayoutCaching() {
 	assert.equal(device.pipelineLayouts.length, 0);
 	assert.equal(device.renderPipelineDescs.length, 1);
 	assert.equal(device.renderPipelineDescs[0].layout, "auto");
-	assert.equal(backend._autoRenderPipelineLayoutCache.size, 0);
+	assert.equal(
+		backend.getWebGPUCacheDebugStats().pipeline.renderPipelineEntries,
+		1
+	);
 }
 
 async function testComputePipelineFailureClearsInFlight() {
@@ -562,13 +603,15 @@ async function testComputePipelineFailureClearsInFlight() {
 		() => backend.createComputePipeline(desc),
 		/simulated compute pipeline failure/
 	);
-	assert.equal(backend._computePipelineInFlight.size, 0);
-	assert.equal(backend._computePipelineCache.size, 0);
+	let stats = backend.getWebGPUCacheDebugStats().pipeline;
+	assert.equal(stats.computePipelineInFlight, 0);
+	assert.equal(stats.computePipelineEntries, 0);
 
 	const pipeline = await backend.createComputePipeline(desc);
 	assert.ok(pipeline._gpuResource);
 	assert.equal(device.computePipelineDescs.length, 2);
-	assert.equal(backend._computePipelineCache.size, 1);
+	stats = backend.getWebGPUCacheDebugStats().pipeline;
+	assert.equal(stats.computePipelineEntries, 1);
 }
 
 async function testStaleRenderPipelineCreationRejectsAfterRollback() {
@@ -598,7 +641,7 @@ async function testStaleRenderPipelineCreationRejectsAfterRollback() {
 
 	const pipelinePromise = backend.createPipeline(desc);
 	await waitForCondition(
-		() => backend._renderPipelineInFlight.size === 1,
+		() => backend.getWebGPUCacheDebugStats().pipeline.renderPipelineInFlight === 1,
 		"Expected render pipeline creation to be in flight"
 	);
 	backend._rollbackInitializationState();
@@ -613,8 +656,9 @@ async function testStaleRenderPipelineCreationRejectsAfterRollback() {
 		() => pipelinePromise,
 		/WebGPU pipeline creation was invalidated/
 	);
-	assert.equal(backend._renderPipelineCache.size, 0);
-	assert.equal(backend._renderPipelineInFlight.size, 0);
+	const stats = backend.getWebGPUCacheDebugStats().pipeline;
+	assert.equal(stats.renderPipelineEntries, 0);
+	assert.equal(stats.renderPipelineInFlight, 0);
 }
 
 function testBindingGroupCacheUsesHashedKey() {
@@ -638,15 +682,14 @@ function testBindingGroupCacheUsesHashedKey() {
 
 	assert.equal(groupA, groupB);
 	assert.equal(device.bindGroupDescs.length, 1);
-	const keys = Array.from(backend._bindingGroupCache.keys());
-	assert.equal(keys.length, 1);
-	assert.equal(typeof keys[0], "bigint");
+	const stats = backend.getWebGPUCacheDebugStats().bindingGroups;
+	assert.equal(stats.entryCount, 1);
+	assert.equal(stats.bucketCount, 1);
 }
 
 function testBindingGroupHashCollisionBucketSafety() {
 	const { backend, device } = createBackend();
-	const originalGetHashKey = backend._getBindingGroupCacheKey;
-	backend._getBindingGroupCacheKey = () => 1n;
+	backend.setBindingGroupHashOverrideForTesting(() => 1n);
 
 	const layout = { id: "layout0" };
 	const gpuBufferA = { destroy() {} };
@@ -683,13 +726,14 @@ function testBindingGroupHashCollisionBucketSafety() {
 	assert.equal(groupA, groupA2);
 	assert.equal(groupB, groupB2);
 	assert.equal(device.bindGroupDescs.length, 2);
-	const bucket = backend._bindingGroupCache.get(1n);
-	assert.equal(bucket.length, 2);
+	const stats = backend.getWebGPUCacheDebugStats().bindingGroups;
+	assert.equal(stats.entryCount, 2);
+	assert.deepEqual(stats.bucketSizes, [2]);
 
-	backend._getBindingGroupCacheKey = originalGetHashKey;
+	backend.setBindingGroupHashOverrideForTesting(null);
 }
 
-function testSetMSAASampleCountClampsAndInvalidates() {
+async function testSetMSAASampleCountClampsAndInvalidates() {
 	const { backend } = createBackend();
 	let invalidationCount = 0;
 	backend._frameExecutor = {
@@ -697,17 +741,19 @@ function testSetMSAASampleCountClampsAndInvalidates() {
 			invalidationCount++;
 		},
 	};
-	backend._renderPipelineCache.set("cached", {
-		key: "cached",
-		label: "cached",
-		refCount: 1,
-		gpuResource: { getBindGroupLayout() {} },
-	});
+	await createCachedRenderPipeline(backend);
+	assert.equal(
+		backend.getWebGPUCacheDebugStats().pipeline.renderPipelineEntries,
+		1
+	);
 
 	backend.setMSAASampleCount(8);
 	assert.equal(backend.getMSAASampleCount(), 4);
 	assert.equal(invalidationCount, 1);
-	assert.equal(backend._renderPipelineCache.size, 0);
+	assert.equal(
+		backend.getWebGPUCacheDebugStats().pipeline.renderPipelineEntries,
+		0
+	);
 
 	backend.setMSAASampleCount(3);
 	assert.equal(backend.getMSAASampleCount(), 1);
@@ -816,25 +862,26 @@ async function testMSAAChangeDuringActiveFrameDefersCachesAndTargets() {
 			invalidationCount++;
 		},
 	};
-	backend._renderPipelineCache.set("cached", {
-		key: "cached",
-		label: "cached",
-		refCount: 1,
-		gpuResource: { getBindGroupLayout() {} },
-	});
+	await createCachedRenderPipeline(backend);
 	backend._frameActive = true;
 	const previousPreferredSampleCount = backend._preferredMSAASampleCount;
 
 	backend.setMSAASampleCount(8);
 	assert.equal(backend.getMSAASampleCount(), 1);
 	assert.equal(backend._preferredMSAASampleCount, previousPreferredSampleCount);
-	assert.equal(backend._renderPipelineCache.size, 1);
+	assert.equal(
+		backend.getWebGPUCacheDebugStats().pipeline.renderPipelineEntries,
+		1
+	);
 	assert.equal(invalidationCount, 0);
 
 	await backend.endFrame();
 	assert.equal(backend.getMSAASampleCount(), 4);
 	assert.equal(backend._preferredMSAASampleCount, 8);
-	assert.equal(backend._renderPipelineCache.size, 0);
+	assert.equal(
+		backend.getWebGPUCacheDebugStats().pipeline.renderPipelineEntries,
+		0
+	);
 	assert.equal(invalidationCount, 1);
 	assert.equal(backend._pendingMSAASampleCount, null);
 }
@@ -855,22 +902,23 @@ async function testShaderRuntimeChangeDuringActiveFrameDefersInvalidation() {
 			resourceInvalidations++;
 		},
 	};
-	backend._renderPipelineCache.set("cached", {
-		key: "cached",
-		label: "cached",
-		refCount: 1,
-		gpuResource: { getBindGroupLayout() {} },
-	});
+	await createCachedRenderPipeline(backend);
 	backend._frameActive = true;
 
 	backend.shaderRuntime.setMode("warn");
 	assert.equal(backend.shaderRuntime.getMode(), "warn");
-	assert.equal(backend._renderPipelineCache.size, 1);
+	assert.equal(
+		backend.getWebGPUCacheDebugStats().pipeline.renderPipelineEntries,
+		1
+	);
 	assert.equal(executorInvalidations, 0);
 	assert.equal(resourceInvalidations, 0);
 
 	await backend.endFrame();
-	assert.equal(backend._renderPipelineCache.size, 0);
+	assert.equal(
+		backend.getWebGPUCacheDebugStats().pipeline.renderPipelineEntries,
+		0
+	);
 	assert.equal(executorInvalidations, 1);
 	assert.equal(resourceInvalidations, 1);
 	assert.equal(backend._pendingShaderRuntimeInvalidation, false);
@@ -974,8 +1022,12 @@ function testAutomaticDeviceLossDestroysPostProcessBeforeRollback() {
 function testMapBindingResourceRejectsPrimitive() {
 	const { backend } = createBackend();
 	assert.throws(
-		() => backend._mapBindingResource("invalid"),
-		/Unsupported WebGPU binding resource/
+		() =>
+			backend.createBindingGroup({
+				layout: { id: "layout-invalid" },
+				entries: [{ binding: 0, resource: "invalid" }],
+			}),
+		/Unsupported binding resource/i
 	);
 }
 
@@ -1279,7 +1331,7 @@ async function run() {
 	await testStaleRenderPipelineCreationRejectsAfterRollback();
 	testBindingGroupCacheUsesHashedKey();
 	testBindingGroupHashCollisionBucketSafety();
-	testSetMSAASampleCountClampsAndInvalidates();
+	await testSetMSAASampleCountClampsAndInvalidates();
 	testExplicitMSAASwitchCanEnableAndDisable();
 	testCreateBufferMappedAtCreationExposesUnmap();
 	testResizeUsesProvidedDimensions();

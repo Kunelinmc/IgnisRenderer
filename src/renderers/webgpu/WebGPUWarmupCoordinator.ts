@@ -1,0 +1,94 @@
+import type {
+	FrameContext,
+} from "../../pipeline/types";
+import type {
+	RenderBackendProfile,
+	WarmupOptions,
+	WarmupReport,
+} from "../IRenderBackend";
+import {
+	addWarmupPhase,
+	buildWarmupPlan,
+	createWarmupReport,
+	finalizeWarmupReport,
+	toShaderCompileError,
+	type WarmupPhaseCounters,
+	type WarmupPostProcessPlan,
+} from "../../pipeline/WarmupPlanner";
+import type { BackendPostProcessRuntime } from "../../postprocess/BackendPostProcessRuntime";
+import type { WebGPUFrameExecutor } from "./WebGPUFrameExecutor";
+import type { WebGPURenderResources } from "./WebGPURenderResources";
+
+export interface WebGPUWarmupCoordinatorHost {
+	readonly profile: RenderBackendProfile;
+	readonly frameExecutor: WebGPUFrameExecutor | null;
+	readonly resources: WebGPURenderResources | null;
+	readonly postProcessRuntime: BackendPostProcessRuntime;
+	setWarmupLogCompilationInfo(enabled: boolean): void;
+}
+
+export class WebGPUWarmupCoordinator {
+	public constructor(private readonly _host: WebGPUWarmupCoordinatorHost) {}
+
+	public async warmup(
+		context: FrameContext,
+		options: WarmupOptions = {}
+	): Promise<WarmupReport> {
+		const report = createWarmupReport(this._host.profile.id);
+		if (!this._host.resources || !this._host.frameExecutor) {
+			throw new Error("WebGPU backend has not been initialized.");
+		}
+
+		let warmupPostProcessPlan: WarmupPostProcessPlan | undefined;
+		if (options.includePostProcess !== false) {
+			const graph = this._host.postProcessRuntime.compileWarmupGraph(context);
+			warmupPostProcessPlan = {
+				passIds: graph.orderedPasses.map((pass) => pass.id),
+				descriptors: graph.orderedPasses.map((pass) => pass.pass),
+			};
+		}
+		const plan = buildWarmupPlan(context, options, warmupPostProcessPlan);
+		this._host.setWarmupLogCompilationInfo(options.logCompilationInfo === true);
+		try {
+			const framePhase = await this._host.frameExecutor.warmup(
+				context,
+				plan,
+				options
+			);
+			addWarmupPhase(report, framePhase);
+			this._reportWarmupProgress(options, framePhase);
+			const resourcePhase = await this._host.resources.warmup(
+				context,
+				plan,
+				options
+			);
+			addWarmupPhase(report, resourcePhase);
+			this._reportWarmupProgress(options, resourcePhase);
+		} catch (error) {
+			const failedPhase = {
+				phase: "webgpu-warmup",
+				total: 1,
+				compiled: 0,
+				skipped: 0,
+				failed: 1,
+				errors: [toShaderCompileError(error, this._host.profile.id, "WebGPUWarmup")],
+			};
+			addWarmupPhase(report, failedPhase);
+			this._reportWarmupProgress(options, failedPhase);
+		} finally {
+			this._host.setWarmupLogCompilationInfo(false);
+		}
+		return finalizeWarmupReport(report);
+	}
+
+	private _reportWarmupProgress(
+		options: WarmupOptions,
+		phase: WarmupPhaseCounters,
+	): void {
+		options.onProgress?.({
+			phase: phase.phase,
+			completed: phase.compiled + phase.skipped + phase.failed,
+			total: phase.total,
+		});
+	}
+}
