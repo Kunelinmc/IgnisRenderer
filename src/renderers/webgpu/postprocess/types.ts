@@ -19,101 +19,25 @@ interface WebGPUPostProcessExecuteBaseRequest<TPassId extends string> {
 	options: unknown;
 }
 
-export interface WebGPUPostProcessSSAOExecuteRequest
-	extends WebGPUPostProcessExecuteBaseRequest<"ssao"> {
-	passId: "ssao";
+export interface WebGPUPostProcessExecuteRequest
+	extends WebGPUPostProcessExecuteBaseRequest<string> {
+	historyValid?: boolean;
+	frameBinding?: IBindingGroup;
+	lightingState?: WebGPULightingState | null;
+	[key: string]: unknown;
 }
 
-export interface WebGPUPostProcessSSGIExecuteRequest
-	extends WebGPUPostProcessExecuteBaseRequest<"ssgi"> {
-	passId: "ssgi";
-}
-
-export interface WebGPUPostProcessTAAExecuteRequest
-	extends WebGPUPostProcessExecuteBaseRequest<"taa"> {
-	passId: "taa";
-	historyValid: boolean;
-}
-
-export interface WebGPUPostProcessSSRExecuteRequest
-	extends WebGPUPostProcessExecuteBaseRequest<"ssr"> {
-	passId: "ssr";
-	historyValid: boolean;
-	frameBinding: IBindingGroup;
-}
-
-export interface WebGPUPostProcessVolumetricExecuteRequest
-	extends WebGPUPostProcessExecuteBaseRequest<"volumetric"> {
-	passId: "volumetric";
-	historyValid: boolean;
-	frameBinding: IBindingGroup;
-	lightingState: WebGPULightingState | null;
-}
-
-export interface WebGPUPostProcessFogExecuteRequest
-	extends WebGPUPostProcessExecuteBaseRequest<"fog"> {
-	passId: "fog";
-}
-
-export interface WebGPUPostProcessMotionBlurExecuteRequest
-	extends WebGPUPostProcessExecuteBaseRequest<"motion-blur"> {
-	passId: "motion-blur";
-}
-
-export interface WebGPUPostProcessDOFExecuteRequest
-	extends WebGPUPostProcessExecuteBaseRequest<"dof"> {
-	passId: "dof";
-}
-
-export interface WebGPUPostProcessBloomExecuteRequest
-	extends WebGPUPostProcessExecuteBaseRequest<"bloom"> {
-	passId: "bloom";
-}
-
-export interface WebGPUPostProcessColorFilterExecuteRequest
-	extends WebGPUPostProcessExecuteBaseRequest<"color-filter"> {
-	passId: "color-filter";
-}
-
-export interface WebGPUPostProcessFXAAExecuteRequest
-	extends WebGPUPostProcessExecuteBaseRequest<"fxaa"> {
-	passId: "fxaa";
-}
-
-export interface WebGPUPostProcessTonemapExecuteRequest
-	extends WebGPUPostProcessExecuteBaseRequest<"tonemap"> {
-	passId: "tonemap";
-}
+export type WebGPUPostProcessPassId = string;
 
 export interface WebGPUCustomPostProcessExecuteRequest
-	extends WebGPUPostProcessExecuteBaseRequest<string> {
-	passId: string;
-}
-
-export type WebGPUPostProcessExecuteRequest =
-	| WebGPUPostProcessSSAOExecuteRequest
-	| WebGPUPostProcessSSGIExecuteRequest
-	| WebGPUPostProcessTAAExecuteRequest
-	| WebGPUPostProcessSSRExecuteRequest
-	| WebGPUPostProcessVolumetricExecuteRequest
-	| WebGPUPostProcessFogExecuteRequest
-	| WebGPUPostProcessMotionBlurExecuteRequest
-	| WebGPUPostProcessDOFExecuteRequest
-	| WebGPUPostProcessBloomExecuteRequest
-	| WebGPUPostProcessColorFilterExecuteRequest
-	| WebGPUPostProcessFXAAExecuteRequest
-	| WebGPUPostProcessTonemapExecuteRequest;
-
-export type WebGPUPostProcessPassId = WebGPUPostProcessExecuteRequest["passId"];
+	extends WebGPUPostProcessExecuteRequest {}
 
 export interface WebGPUPostProcessExecuteResult {
 	ran: boolean;
 	historyUpdated?: boolean;
 }
 
-export type WebGPUPostProcessRuntimeExecuteRequest =
-	| WebGPUPostProcessExecuteRequest
-	| WebGPUCustomPostProcessExecuteRequest;
+export type WebGPUPostProcessRuntimeExecuteRequest = WebGPUPostProcessExecuteRequest;
 
 export interface WebGPUPostProcessRuntimeContext {
 	readonly compute: IWebGPUComputeFacade;
