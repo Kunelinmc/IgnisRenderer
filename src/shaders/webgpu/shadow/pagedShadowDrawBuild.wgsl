@@ -96,6 +96,8 @@ fn projectPoint(matrix: mat4x4<f32>, point: vec3<f32>) -> vec3<f32> {
 struct CascadeUVRange {
 	minUv: vec2<f32>,
 	maxUv: vec2<f32>,
+	minCoarse: vec2<u32>,
+	maxCoarse: vec2<u32>,
 	hasProjected: bool,
 }
 
@@ -107,6 +109,43 @@ struct CachedDirtyPage {
 var<workgroup> g_cachedDirtyPages: array<CachedDirtyPage, DIRTY_CELL_CACHE_SIZE>;
 var<workgroup> g_cachedCellStart: u32;
 var<workgroup> g_cachedCellCount: u32;
+
+fn invalidCascadeUVRange() -> CascadeUVRange {
+	return CascadeUVRange(
+		vec2<f32>(1.0),
+		vec2<f32>(0.0),
+		vec2<u32>(1u),
+		vec2<u32>(0u),
+		false
+	);
+}
+
+fn coarseCellRange(minUv: vec2<f32>, maxUv: vec2<f32>) -> vec4<u32> {
+	let coarseScale = f32(DIRTY_GRID_COARSE_SIZE);
+	let coarseMax = f32(DIRTY_GRID_COARSE_SIZE - 1u);
+	let minCoarse = vec2<u32>(clamp(
+		floor(minUv * vec2<f32>(coarseScale)),
+		vec2<f32>(0.0),
+		vec2<f32>(coarseMax)
+	));
+	let maxCoarse = vec2<u32>(clamp(
+		floor(maxUv * vec2<f32>(coarseScale)),
+		vec2<f32>(0.0),
+		vec2<f32>(coarseMax)
+	));
+	return vec4<u32>(minCoarse, maxCoarse);
+}
+
+fn projectedCascadeUVRange(minUv: vec2<f32>, maxUv: vec2<f32>) -> CascadeUVRange {
+	let coarseRange = coarseCellRange(minUv, maxUv);
+	return CascadeUVRange(
+		minUv,
+		maxUv,
+		coarseRange.xy,
+		coarseRange.zw,
+		true
+	);
+}
 
 fn projectSphereBoundsToUvRange(
 	viewProjection: mat4x4<f32>,
@@ -127,6 +166,8 @@ fn projectSphereBoundsToUvRange(
 
 	var outsideNear = true;
 	var outsideFar = true;
+	var minUv = vec2<f32>(1.0, 1.0);
+	var maxUv = vec2<f32>(0.0, 0.0);
 	for (var cornerIndex = 0u; cornerIndex < 8u; cornerIndex = cornerIndex + 1u) {
 		let ndc = projectPoint(viewProjection, corners[cornerIndex]);
 		if (ndc.z >= PAGE_CLIP_Z_MIN) {
@@ -135,20 +176,14 @@ fn projectSphereBoundsToUvRange(
 		if (ndc.z <= PAGE_CLIP_Z_MAX) {
 			outsideFar = false;
 		}
-	}
-	if (outsideNear || outsideFar) {
-		return CascadeUVRange(vec2<f32>(1.0), vec2<f32>(0.0), false);
-	}
-
-	var minUv = vec2<f32>(1.0, 1.0);
-	var maxUv = vec2<f32>(0.0, 0.0);
-	for (var cornerIndex = 0u; cornerIndex < 8u; cornerIndex = cornerIndex + 1u) {
-		let ndc = projectPoint(viewProjection, corners[cornerIndex]);
 		let uv = vec2<f32>(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5);
 		minUv = min(minUv, uv);
 		maxUv = max(maxUv, uv);
 	}
-	return CascadeUVRange(minUv, maxUv, true);
+	if (outsideNear || outsideFar) {
+		return invalidCascadeUVRange();
+	}
+	return projectedCascadeUVRange(minUv, maxUv);
 }
 
 fn rangesIntersect(left: CascadeUVRange, right: CascadeUVRange) -> bool {
@@ -169,29 +204,9 @@ fn rangeIntersectsCoarseCell(
 	if (!range.hasProjected) {
 		return false;
 	}
-	let minCoarseX = u32(clamp(
-		floor(range.minUv.x * f32(DIRTY_GRID_COARSE_SIZE)),
-		0.0,
-		f32(DIRTY_GRID_COARSE_SIZE - 1u)
-	));
-	let maxCoarseX = u32(clamp(
-		floor(range.maxUv.x * f32(DIRTY_GRID_COARSE_SIZE)),
-		0.0,
-		f32(DIRTY_GRID_COARSE_SIZE - 1u)
-	));
-	let minCoarseY = u32(clamp(
-		floor(range.minUv.y * f32(DIRTY_GRID_COARSE_SIZE)),
-		0.0,
-		f32(DIRTY_GRID_COARSE_SIZE - 1u)
-	));
-	let maxCoarseY = u32(clamp(
-		floor(range.maxUv.y * f32(DIRTY_GRID_COARSE_SIZE)),
-		0.0,
-		f32(DIRTY_GRID_COARSE_SIZE - 1u)
-	));
 	return (
-		cellX >= minCoarseX && cellX <= maxCoarseX &&
-		cellY >= minCoarseY && cellY <= maxCoarseY
+		cellX >= range.minCoarse.x && cellX <= range.maxCoarse.x &&
+		cellY >= range.minCoarse.y && cellY <= range.maxCoarse.y
 	);
 }
 
@@ -238,7 +253,7 @@ fn csMain(
 			let radius = max(bounds.w, 0.0);
 			candidateRanges[c] = projectSphereBoundsToUvRange(cascadeViewProjections[c], center, radius);
 		} else {
-			candidateRanges[c] = CascadeUVRange(vec2<f32>(1.0), vec2<f32>(0.0), false);
+			candidateRanges[c] = invalidCascadeUVRange();
 		}
 	}
 
@@ -313,6 +328,8 @@ fn csMain(
 						let pageRange = CascadeUVRange(
 							cachedPage.uvRange.xy,
 							cachedPage.uvRange.zw,
+							vec2<u32>(0u),
+							vec2<u32>(0u),
 							true
 						);
 						if (rangesIntersect(range, pageRange)) {
