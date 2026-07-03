@@ -565,7 +565,20 @@ async function testGpuPassesDispatchWithoutCpuPageTableAllocation() {
 		(group) => group.label === "WebGPUPagedShadowRequestCompactBindGroup"
 	);
 	assert.ok(compactBinding);
-	assert.equal(compactBinding.entries[4].resource.label, "WebGPUPagedShadowLayouts");
+	assert.equal(
+		compactBinding.entries[4].resource.label,
+		"WebGPUPagedShadowPageAddresses"
+	);
+	const pageAddress = getBuffer(backend, "WebGPUPagedShadowPageAddresses");
+	assert.equal(pageAddress.data[0], 0);
+	assert.equal(pageAddress.data[1], 0);
+	assert.equal(pageAddress.data[2], 0);
+	assert.equal(pageAddress.data[3], 4);
+	assert.equal(pageAddress.data[4], 5);
+	assert.equal(pageAddress.data[5], 1);
+	assert.equal(pageAddress.data[8], 0);
+	assert.equal(pageAddress.data[9], 1);
+	assert.equal(pageAddress.data[10], 0);
 
 	const table = getBuffer(backend, "WebGPUPagedShadowPageTable");
 	assert.equal(table.data[0], WEBGPU_PAGED_SHADOW_NON_RESIDENT);

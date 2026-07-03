@@ -37,6 +37,7 @@ const PAGE_REQUEST_RECORD_UINTS = 8;
 const PAGE_RESIDENCY_STATE_UINTS = 8;
 const DIRTY_PHYSICAL_PAGE_RECORD_UINTS = 8;
 const PAGE_LAYOUT_UINTS = 8;
+const PAGE_ADDRESS_UINTS = 8;
 const PAGE_REQUEST_PARAMS_UINTS = 8;
 const PAGE_ALLOC_PARAMS_UINTS = 8;
 const PAGE_DIRTY_PARAMS_UINTS = 4;
@@ -175,6 +176,7 @@ export class WebGPUPagedShadowRuntime {
 	private _fallbackPageTableTexture: IRenderTexture | null = null;
 	private _fallbackDepthAtlas: IRenderTexture | null = null;
 	private _pageRequestFlagsBuffer: IRenderBuffer | null = null;
+	private _pageAddressBuffer: IRenderBuffer | null = null;
 	private _compactedRequestsBuffer: IRenderBuffer | null = null;
 	private _residencyStateBuffer: IRenderBuffer | null = null;
 	private _freeListBuffer: IRenderBuffer | null = null;
@@ -206,6 +208,8 @@ export class WebGPUPagedShadowRuntime {
 	private _feedbackCameraBuffer: IRenderBuffer | null = null;
 	private _pageTableLength = 1;
 	private _pageRequestFlags = new Uint32Array(1);
+	private _pageAddressData = new Uint32Array(PAGE_ADDRESS_UINTS);
+	private _pageAddressSignature = "";
 	private _compactedRequests = new Uint32Array(PAGE_REQUEST_RECORD_UINTS);
 	private _residencyState = createNonResidentUint32Array(PAGE_RESIDENCY_STATE_UINTS);
 	private _freeList = new Uint32Array([0]);
@@ -313,7 +317,7 @@ export class WebGPUPagedShadowRuntime {
 				this._pageRequestFlagsBuffer,
 				this._countersBuffer,
 				this._compactedRequestsBuffer,
-				this._layoutBuffer,
+				this._pageAddressBuffer,
 			],
 			Math.max(1, Math.ceil(this._pageTableLength / 64)),
 			1,
@@ -569,6 +573,7 @@ export class WebGPUPagedShadowRuntime {
 			this._pageMetadataBuffer,
 			this._physicalDepthAtlas,
 			this._pageRequestFlagsBuffer,
+			this._pageAddressBuffer,
 			this._compactedRequestsBuffer,
 			this._residencyStateBuffer,
 			this._freeListBuffer,
@@ -607,6 +612,8 @@ export class WebGPUPagedShadowRuntime {
 		this._pageMetadataBuffer = null;
 		this._physicalDepthAtlas = null;
 		this._pageRequestFlagsBuffer = null;
+		this._pageAddressBuffer = null;
+		this._pageAddressSignature = "";
 		this._compactedRequestsBuffer = null;
 		this._residencyStateBuffer = null;
 		this._freeListBuffer = null;
@@ -862,6 +869,7 @@ export class WebGPUPagedShadowRuntime {
 			!this._pageTableBuffer ||
 			this._pageTableBuffer.size < this._pageTableLength * 4 ||
 			!this._pageRequestFlagsBuffer ||
+			!this._pageAddressBuffer ||
 			!this._feedbackFlagsBuffer ||
 			!this._nextFeedbackFlagsBuffer ||
 			!this._pageTableTexture ||
@@ -874,12 +882,17 @@ export class WebGPUPagedShadowRuntime {
 			this._pageRequestFlags = new Uint32Array(
 				Math.max(1, this._pageTableLength)
 			);
+			this._pageAddressData = new Uint32Array(
+				Math.max(1, this._pageTableLength) * PAGE_ADDRESS_UINTS
+			);
+			this._pageAddressSignature = "";
 			this._feedbackFlags = new Uint32Array(Math.max(1, this._pageTableLength));
 			this._nextFeedbackFlags = new Uint32Array(
 				Math.max(1, this._pageTableLength)
 			);
 			this._destroyBuffer(this._pageTableBuffer);
 			this._destroyBuffer(this._pageRequestFlagsBuffer);
+			this._destroyBuffer(this._pageAddressBuffer);
 			this._destroyBuffer(this._feedbackFlagsBuffer);
 			this._destroyBuffer(this._nextFeedbackFlagsBuffer);
 			this._destroyTexture(this._pageTableTexture);
@@ -892,6 +905,10 @@ export class WebGPUPagedShadowRuntime {
 			this._pageRequestFlagsBuffer = this._createStorageBuffer(
 				"WebGPUPagedShadowPageRequestFlags",
 				this._pageRequestFlags.byteLength
+			);
+			this._pageAddressBuffer = this._createStorageBuffer(
+				"WebGPUPagedShadowPageAddresses",
+				this._pageAddressData.byteLength
 			);
 			this._feedbackFlagsBuffer = this._createStorageBuffer(
 				"WebGPUPagedShadowFeedbackFlags",
@@ -1258,6 +1275,63 @@ export class WebGPUPagedShadowRuntime {
 		});
 	}
 
+	private _writePageAddressData(
+		layouts: readonly WebGPUPagedShadowRenderSetLayout[]
+	): boolean {
+		const signature = [
+			this._pageTableLength,
+			...layouts.map((layout) =>
+				[
+					layout.pageTableBase,
+					layout.pageTableCascadeStride,
+					layout.metadata.pageGridSize | 0,
+					layout.cascadeCount,
+				].join(":")
+			),
+		].join("|");
+		if (signature === this._pageAddressSignature) {
+			return false;
+		}
+		this._pageAddressSignature = signature;
+		activeUint32Span(
+			this._pageAddressData,
+			Math.max(PAGE_ADDRESS_UINTS, this._pageTableLength * PAGE_ADDRESS_UINTS)
+		).fill(0);
+		for (let layoutIndex = 0; layoutIndex < layouts.length; layoutIndex++) {
+			const layout = layouts[layoutIndex];
+			const gridSize = Math.max(1, layout.metadata.pageGridSize | 0);
+			const priorityBase = Math.max(0, 4 - layoutIndex);
+			for (
+				let cascadeIndex = 0;
+				cascadeIndex < layout.cascadeCount;
+				cascadeIndex++
+			) {
+				const matrixIndex = layoutIndex * 4 + cascadeIndex;
+				const cascadeBase =
+					layout.pageTableBase + cascadeIndex * layout.pageTableCascadeStride;
+				const priority =
+					priorityBase +
+					(layout.cascadeCount - Math.min(cascadeIndex, layout.cascadeCount - 1));
+				for (let pageY = 0; pageY < gridSize; pageY++) {
+					for (let pageX = 0; pageX < gridSize; pageX++) {
+						const tableIndex = cascadeBase + pageY * gridSize + pageX;
+						if (tableIndex >= this._pageTableLength) {
+							continue;
+						}
+						const addressOffset = tableIndex * PAGE_ADDRESS_UINTS;
+						this._pageAddressData[addressOffset] = matrixIndex >>> 0;
+						this._pageAddressData[addressOffset + 1] = pageX >>> 0;
+						this._pageAddressData[addressOffset + 2] = pageY >>> 0;
+						this._pageAddressData[addressOffset + 3] = gridSize >>> 0;
+						this._pageAddressData[addressOffset + 4] = priority >>> 0;
+						this._pageAddressData[addressOffset + 5] = 1;
+					}
+				}
+			}
+		}
+		return true;
+	}
+
 	private _updateGpuFrameInputs(
 		request: WebGPUPagedShadowFrameRequest,
 		layouts: readonly WebGPUPagedShadowRenderSetLayout[]
@@ -1292,6 +1366,7 @@ export class WebGPUPagedShadowRuntime {
 				);
 			}
 		}
+		const pageAddressDataChanged = this._writePageAddressData(layouts);
 
 		let projectionsChanged = false;
 		if (this._previousCascadeViewProjectionData) {
@@ -1417,6 +1492,15 @@ export class WebGPUPagedShadowRuntime {
 			this._layoutBuffer!,
 			activeUint32Span(this._layoutData, layoutWriteCount)
 		);
+		if (pageAddressDataChanged) {
+			this._backend.writeBuffer(
+				this._pageAddressBuffer!,
+				activeUint32Span(
+					this._pageAddressData,
+					Math.max(PAGE_ADDRESS_UINTS, this._pageTableLength * PAGE_ADDRESS_UINTS)
+				)
+			);
+		}
 		this._backend.writeBuffer(
 			this._casterBoundsBuffer!,
 			activeFloat32Span(this._casterBoundsData, Math.max(4, casterCount * 4))

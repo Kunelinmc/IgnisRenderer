@@ -423,10 +423,11 @@ async function testPagedShadowRequestCompactUsesLayoutAddresses() {
 		"webgpu.shadow.pagedShadowRequestCompact.raw"
 	);
 
-	assert.ok(source.includes("struct PagedShadowLayoutData"));
-	assert.ok(source.includes("@group(0) @binding(4) var<storage, read> layouts"));
-	assert.ok(source.includes("layoutIndex * 4u + cascadeIndex"));
+	assert.ok(source.includes("struct PagedShadowPageAddress"));
+	assert.ok(source.includes("@group(0) @binding(4) var<storage, read> pageAddresses"));
+	assert.ok(source.includes("let address = pageAddresses[tableIndex]"));
 	assert.ok(source.includes("compactedRequests[base + 1u] = address.matrixIndex"));
+	assert.ok(!source.includes("fn resolvePageTableAddress"));
 	assert.ok(!source.includes("tableIndex / (gridSize * gridSize)"));
 }
 
