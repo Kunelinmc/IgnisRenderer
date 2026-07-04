@@ -74,7 +74,6 @@ import {
 	type RenderTargetReadbackOptions,
 } from "./CustomRenderTargets";
 import type { TextureReadbackResult } from "./IComputeRuntime";
-import { RendererRuntime } from "./RendererRuntime";
 import {
 	FrameCoordinator,
 	type FrameCoordinatorDelegate,
@@ -148,9 +147,13 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 	private readonly _frameTransientContributors = new Set<FrameTransientContributor>();
 	private _incrementalOptions: IncrementalRenderingOptions;
 	private _lastIncrementalFrameStats: IncrementalFrameStats | null = null;
-	private readonly _runtime: RendererRuntime;
+	private readonly _backend: IRenderBackend;
 	private readonly _coordinator: FrameCoordinator;
 	private _renderLoopStop: (() => void) | null = null;
+	private _initialized = false;
+	private _destroyed = false;
+	private _activeFramePromise: Promise<RenderFrameResult> | null = null;
+	private _destroyPromise: Promise<void> | null = null;
 
 	private _shadowMaps = new Map<ShadowCastingLight, ShadowRenderSet>();
 	private _shCoeffs: SHCoefficients = [] as any;
@@ -255,7 +258,7 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 
 		this.backendProfile = backend.profile;
 
-		this._runtime = new RendererRuntime(backend, (event) => this._handleBackendEvent(event));
+		this._backend = backend;
 		this._coordinator = new FrameCoordinator(backend, this.animationSystem);
 
 		this._deviceScaleFactor = window.devicePixelRatio || 1;
@@ -308,11 +311,12 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 	 * @returns A promise that resolves when initialization is complete.
 	 */
 	public async initialize(): Promise<void> {
-		this._runtime.assertNotDestroyed("initialize");
-		if (this._runtime.isInitialized) {
+		this._assertRuntimeNotDestroyed("initialize");
+		if (this._initialized) {
 			throw new Error("Renderer.initialize(): already initialized.");
 		}
-		await this._runtime.initialize();
+		await this._backend.initialize();
+		this._initialized = true;
 		this.resizeCanvas();
 	}
 
@@ -322,11 +326,11 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 	 * @returns A promise that resolves when the restore process completes.
 	 */
 	public async restore(): Promise<void> {
-		if (!this._runtime.isInitialized) {
+		if (!this._initialized) {
 			await this.initialize();
 		}
-		this._runtime.assertReady("restore");
-		await this._runtime.restore();
+		this._assertRuntimeReady("restore");
+		await this._backend.restore();
 		this._coordinator.reset();
 		this.resizeCanvas();
 	}
@@ -339,7 +343,7 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 	 */
 	public async destroy(): Promise<void> {
 		this._renderLoopStop?.();
-		await this._runtime.destroy();
+		await this._destroyRuntime();
 		if (this._physicsSystem) {
 			this._physicsSystem.bindSceneSpatial(null);
 		}
@@ -472,7 +476,7 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 	 * @returns The extension instance if supported, otherwise null.
 	 */
 	public getBackendExtension<TApi>(key: RenderBackendExtensionKey<TApi>): TApi | null {
-		return this._runtime.backend.extensions.getBackendExtension(key);
+		return this._backend.extensions.getBackendExtension(key);
 	}
 
 	/**
@@ -484,7 +488,7 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 	 * @returns The extension instance.
 	 */
 	public requireBackendExtension<TApi>(key: RenderBackendExtensionKey<TApi>): TApi {
-		return this._runtime.backend.extensions.requireBackendExtension(key);
+		return this._backend.extensions.requireBackendExtension(key);
 	}
 
 	/**
@@ -496,7 +500,7 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 	 * @sideEffects None.
 	 */
 	public getBackendDebugInfo(): RenderBackendDebugInfo {
-		return this._runtime.backend.getDebugInfo();
+		return this._backend.getDebugInfo();
 	}
 
 	/**
@@ -548,20 +552,20 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 	 * @returns A promise resolving to the frame render result (rendered or skipped).
 	 */
 	public async renderFrame(nowMs: number): Promise<RenderFrameResult> {
-		if (!this._runtime.isInitialized) {
+		if (!this._initialized) {
 			await this.initialize();
 		}
-		this._runtime.assertReady("renderFrame");
-		if (this._runtime.activeFramePromise) {
+		this._assertRuntimeReady("renderFrame");
+		if (this._activeFramePromise) {
 			return Promise.reject(
 				new Error("Renderer.renderFrame() cannot run concurrently.")
 			);
 		}
 		const operation = this._renderFrame(nowMs);
-		this._runtime.activeFramePromise = operation;
+		this._activeFramePromise = operation;
 		operation.catch(() => {}).finally(() => {
-			if (this._runtime.activeFramePromise === operation) {
-				this._runtime.activeFramePromise = null;
+			if (this._activeFramePromise === operation) {
+				this._activeFramePromise = null;
 			}
 		});
 		return operation;
@@ -578,7 +582,7 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 	 * @sideEffects Schedules animation frames and logs rejected frame errors.
 	 */
 	public renderLoop(): () => void {
-		this._runtime.assertNotDestroyed("renderLoop");
+		this._assertRuntimeNotDestroyed("renderLoop");
 		if (this._renderLoopStop) {
 			return this._renderLoopStop;
 		}
@@ -773,7 +777,7 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 		this._canvas.width = rect.width * this._deviceScaleFactor;
 		this._canvas.height = rect.height * this._deviceScaleFactor;
 
-		this._runtime.backend.resize({
+		this._backend.resize({
 			width: this._canvas.width,
 			height: this._canvas.height,
 		});
@@ -868,7 +872,7 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 		attachmentIndex: number,
 		options?: RenderTargetReadbackOptions
 	): Promise<TextureReadbackResult> {
-		const read = this._runtime.backend.readRenderTargetColor;
+		const read = this._backend.readRenderTargetColor;
 		if (typeof read !== "function") {
 			return Promise.reject(
 				new Error(
@@ -876,7 +880,7 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 				)
 			);
 		}
-		return read.call(this._runtime.backend, id, attachmentIndex, options);
+		return read.call(this._backend, id, attachmentIndex, options);
 	}
 
 	/**
@@ -1033,6 +1037,42 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 				(this as any)._shAmbientCoeffs = shAmbientCoeffs;
 			}
 		}
+	}
+
+	private _assertRuntimeReady(operation: string): void {
+		if (this._destroyed || this._destroyPromise) {
+			throw new Error(`Renderer.${operation}() cannot run after destroy().`);
+		}
+		if (!this._initialized) {
+			throw new Error(`Renderer.${operation}() requires initialize() to complete first.`);
+		}
+	}
+
+	private _assertRuntimeNotDestroyed(operation: string): void {
+		if (this._destroyed || this._destroyPromise) {
+			throw new Error(`Renderer.${operation}() cannot run after destroy().`);
+		}
+	}
+
+	private async _destroyRuntime(): Promise<void> {
+		if (this._destroyPromise) return this._destroyPromise;
+		this._destroyPromise = this._destroyRuntimeInternal();
+		return this._destroyPromise;
+	}
+
+	private async _destroyRuntimeInternal(): Promise<void> {
+		if (this._destroyed) return;
+		const activeFrame = this._activeFramePromise;
+		if (activeFrame) {
+			try {
+				await activeFrame;
+			} catch {
+				// Frame cleanup is handled by the render path before destruction.
+			}
+		}
+		await this._backend.destroy();
+		this._destroyed = true;
+		this._initialized = false;
 	}
 
 	private _handleBackendEvent(event: RenderBackendEvent): void {
