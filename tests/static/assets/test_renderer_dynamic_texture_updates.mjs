@@ -93,7 +93,7 @@ class CleanupPostProcessPass extends PostProcessPass {
 
 function createPostProcessFrameContext(postProcess) {
 	return {
-		camera: {
+		viewCamera: {
 			type: "perspective",
 			fov: 60,
 			aspectRatio: 1,

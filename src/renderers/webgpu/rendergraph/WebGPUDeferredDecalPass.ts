@@ -286,7 +286,7 @@ export class WebGPUDeferredDecalPass {
 		for (const packet of packets) {
 			const screenRect = computePacketScreenRect(
 				packet,
-				context.camera,
+				context.viewCamera,
 				width,
 				height
 			);

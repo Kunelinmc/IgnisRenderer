@@ -279,7 +279,7 @@ export function renderWebGLPackets(
 	}
 
 	const currentViewProjection = toFiniteColumnMajorMat4(
-		context.camera.viewProjectionMatrix
+		context.viewCamera.viewProjectionMatrix
 	);
 	if (!currentViewProjection) {
 		logWebGLScenePassWarning(

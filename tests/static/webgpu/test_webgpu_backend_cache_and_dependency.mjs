@@ -225,7 +225,7 @@ async function waitForCondition(predicate, message, count = 32) {
 
 function createFrameContext(overrides = {}) {
 	return {
-		camera: {},
+		viewCamera: {},
 		attachments: { width: 4, height: 4 },
 		features: {
 			enableLighting: true,

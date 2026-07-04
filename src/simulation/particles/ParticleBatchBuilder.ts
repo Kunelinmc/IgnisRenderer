@@ -34,7 +34,7 @@ export class ParticleBatchBuilder {
 	): ParticleBuildResult {
 		const billboardBatches = new Map<number, ParticleRenderBatch>();
 		const meshBatches = new Map<string, ParticleMeshRenderBatch>();
-		const cameraView = context.camera.viewMatrix;
+		const cameraView = context.viewCamera.viewMatrix;
 		const systemPosition = system.getWorldPosition();
 
 		for (const particle of runtime.particles) {

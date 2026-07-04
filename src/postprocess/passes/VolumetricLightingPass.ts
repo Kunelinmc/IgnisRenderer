@@ -269,7 +269,7 @@ export class SoftwareVolumetricLightingImplementation
 	}
 
 	private _getCameraBasis(context: FrameContext): CameraBasis {
-		const view = context.camera.viewMatrix.elements;
+		const view = context.viewCamera.viewMatrix.elements;
 		return {
 			right: { x: view[0][0], y: view[0][1], z: view[0][2] },
 			up: { x: view[1][0], y: view[1][1], z: view[1][2] },
@@ -285,7 +285,7 @@ export class SoftwareVolumetricLightingImplementation
 		basis: CameraBasis,
 		context: FrameContext
 	): WorldRay {
-		const camera = context.camera;
+		const camera = context.viewCamera;
 
 		if (camera.type === CameraType.Orthographic) {
 			// In orthographic camera, rays are constant (pointing forward)
@@ -587,7 +587,7 @@ export class SoftwareVolumetricLightingImplementation
 		const sampleSurface = { position: { x: 0, y: 0, z: 0 } };
 		const lightContribution = createLightContribution();
 
-		const camera = context.camera;
+		const camera = context.viewCamera;
 		const cameraPos = camera.getWorldPosition();
 		const basis = this._getCameraBasis(context);
 		const near = camera.near || 0.1;
@@ -652,7 +652,7 @@ export class SoftwareVolumetricLightingImplementation
 		const shadowSampler = createSoftwareShadowSampler(
 			context.shadowMaps,
 			getSoftwareShadowRuntimeMap(context.transient),
-			{ camera: context.camera }
+			{ camera: context.viewCamera }
 		);
 		const shadowInterval = Math.round(
 			clamp(
@@ -1114,7 +1114,7 @@ export class SoftwareVolumetricLightingImplementation
 		ndcX: number,
 		ndcY: number,
 		zView: number,
-		camera: FrameContext["camera"]
+		camera: FrameContext["viewCamera"]
 	): IVector3 {
 		if (camera.type === CameraType.Orthographic) {
 			const orthoCam = camera as OrthographicCamera;
@@ -1313,7 +1313,7 @@ export class WebGPUVolumetricLightingImplementation
 		request: PostProcessPassRequest<VolumetricOptions>,
 		context: WebGPUVolumetricLightingContext
 	): Promise<boolean> {
-		if (request.frameContext.camera.type === CameraType.Orthographic) {
+		if (request.frameContext.viewCamera.type === CameraType.Orthographic) {
 			context.shared.warn(
 				"webgpu-volumetric-orthographic-disabled",
 				"WebGPU volumetric lighting is disabled for orthographic cameras."

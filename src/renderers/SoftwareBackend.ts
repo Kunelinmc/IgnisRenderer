@@ -190,7 +190,7 @@ export class SoftwareBackend implements IRenderBackend {
 	private _normalBuffer: Float32Array | null = null;
 	private _motionBuffer: Float32Array | null = null;
 	private _temporalJitterState = new TemporalJitterState();
-	private _previousViewProjection: FrameContext["camera"]["viewProjectionMatrix"] | null = null;
+	private _previousViewProjection: FrameContext["viewCamera"]["viewProjectionMatrix"] | null = null;
 	private _previousWorldMatrices = new Map<string, FrameContext["worldMatrix"]>();
 	private _activeContext: FrameContext | null = null;
 	private _frameImageData: ImageData | null = null;
@@ -421,7 +421,7 @@ export class SoftwareBackend implements IRenderBackend {
 					exposure: environment.backgroundExposure,
 				},
 				pixels,
-				context.camera,
+				context.viewCamera,
 				context.attachments.width,
 				context.attachments.height,
 			);
@@ -490,7 +490,7 @@ export class SoftwareBackend implements IRenderBackend {
 		const taaEnabled = context.postProcess.isEnabled("taa");
 		const jitter = this._temporalJitterState.nextFrameState({
 			enabled: taaEnabled,
-			isOrthographic: context.camera.type === CameraType.Orthographic,
+			isOrthographic: context.viewCamera.type === CameraType.Orthographic,
 			width: context.attachments.width,
 			height: context.attachments.height,
 			jitterScale: taaOptions.jitterScale ?? DEFAULT_TAA_OPTIONS.jitterScale,
@@ -503,7 +503,7 @@ export class SoftwareBackend implements IRenderBackend {
 		context.transient.set(SOFTWARE_TAA_RENDER_STATE_KEY, {
 			...jitter,
 			previousViewProjection: this._previousViewProjection,
-			currentViewProjection: context.camera.viewProjectionMatrix,
+			currentViewProjection: context.viewCamera.viewProjectionMatrix,
 			previousWorldMatrices: this._previousWorldMatrices,
 			currentWorldMatrices: new Map(),
 		});
@@ -518,7 +518,7 @@ export class SoftwareBackend implements IRenderBackend {
 		if (!state) {
 			return;
 		}
-		this._previousViewProjection = context.camera.viewProjectionMatrix.clone();
+		this._previousViewProjection = context.viewCamera.viewProjectionMatrix.clone();
 		this._previousWorldMatrices = new Map(state.currentWorldMatrices);
 	}
 

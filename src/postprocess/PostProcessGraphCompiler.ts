@@ -342,7 +342,7 @@ export class PostProcessGraphCompiler {
 		passes: readonly ResolvedPostProcessPass[],
 		request: PostProcessHistoryResolveRequest
 	): string {
-		const camera = context.camera;
+		const camera = context.viewCamera;
 		return [
 			context.attachments?.width ?? 1,
 			context.attachments?.height ?? 1,

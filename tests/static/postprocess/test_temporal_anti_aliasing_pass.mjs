@@ -56,7 +56,7 @@ function createFrameContext() {
 		motionBuffer[(i << 2) + 2] = 1;
 	}
 	return {
-		camera: {
+		viewCamera: {
 			type: "perspective",
 			fov: 60,
 			aspectRatio: 1,

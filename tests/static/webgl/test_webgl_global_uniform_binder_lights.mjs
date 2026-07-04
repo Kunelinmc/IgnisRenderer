@@ -117,7 +117,7 @@ function createBinderHost(gl, pointLights) {
 
 function createFrameContext() {
 	return {
-		camera: {
+		viewCamera: {
 			getWorldPosition() {
 				return { x: 0, y: 0, z: 0 };
 			},

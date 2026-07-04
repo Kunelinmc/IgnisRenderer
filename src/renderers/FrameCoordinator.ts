@@ -641,7 +641,7 @@ export class FrameCoordinator {
 
 		return {
 			backendProfile: this._backend.profile,
-			camera: delegate.camera,
+			viewCamera: delegate.camera,
 			attachments,
 			features: resolved,
 			postProcess,

@@ -49,7 +49,7 @@ class TestPostProcessPass extends PostProcessPass {
 
 function createFrameContext(overrides = {}) {
 	return {
-		camera: {
+		viewCamera: {
 			type: "perspective",
 			fov: 60,
 			aspectRatio: 16 / 9,

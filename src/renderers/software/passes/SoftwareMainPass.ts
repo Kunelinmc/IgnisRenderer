@@ -109,7 +109,7 @@ function createRasterizerContext(context: FrameContext): RasterizerContext {
 	const sampleShadow = createSoftwareShadowSampler(
 		context.shadowMaps,
 		runtimeMap,
-		{ camera: context.camera }
+		{ camera: context.viewCamera }
 	);
 	const environment = resolvePreparedSceneEnvironment(context.scene);
 
@@ -121,8 +121,8 @@ function createRasterizerContext(context: FrameContext): RasterizerContext {
 		motionBuffer: context.attachments.motionBuffer,
 		taa: context.transient.get(SOFTWARE_TAA_RENDER_STATE_KEY),
 		camera: {
-			position: context.camera.getWorldPosition(),
-			viewMatrix: context.camera.viewMatrix,
+			position: context.viewCamera.getWorldPosition(),
+			viewMatrix: context.viewCamera.viewMatrix,
 		},
 		lights: context.scene.lights,
 		shadowMaps: context.shadowMaps,

@@ -299,7 +299,7 @@ export class WebGPUScreenSpaceReflectionsImplementation
 		if (!context?.encoder || !context.targets || !context.frameBinding) {
 			return { ran: false };
 		}
-		if (request.frameContext.camera.type === CameraType.Orthographic) {
+		if (request.frameContext.viewCamera.type === CameraType.Orthographic) {
 			context.shared.warn(
 				"webgpu-ssr-orthographic-disabled",
 				"WebGPU SSR is disabled for orthographic cameras."

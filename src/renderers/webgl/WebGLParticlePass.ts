@@ -128,7 +128,7 @@ export class WebGLParticlePass
 		if (!particleProgram) {
 			return;
 		}
-		const view = context.camera.viewMatrix.elements;
+		const view = context.viewCamera.viewMatrix.elements;
 		const { width, height } = this._host.getViewportSize();
 		const incrementalPartial = this._host.isIncrementalPartial(context);
 		const dirtyRects = this._host.resolveDirtyRects(context, width, height);
@@ -162,7 +162,7 @@ export class WebGLParticlePass
 			gl.uniformMatrix4fv(
 				particleProgram.uniforms.viewProjection as WebGLUniformLocation,
 				false,
-				toColumnMajorMat4(context.camera.viewProjectionMatrix)
+				toColumnMajorMat4(context.viewCamera.viewProjectionMatrix)
 			);
 		}
 		if (particleProgram.uniforms.basisRight) {
@@ -182,7 +182,7 @@ export class WebGLParticlePass
 			);
 		}
 		if (particleProgram.uniforms.cameraPosition) {
-			const cameraPosition = context.camera.getWorldPosition();
+			const cameraPosition = context.viewCamera.getWorldPosition();
 			gl.uniform3f(
 				particleProgram.uniforms.cameraPosition as WebGLUniformLocation,
 				finiteOr(cameraPosition.x, 0),

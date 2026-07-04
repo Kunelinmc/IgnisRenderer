@@ -79,7 +79,7 @@ function createModeTrackingResourcesStub() {
 
 function createFrameContext(width, height) {
 	return {
-		camera: {},
+		viewCamera: {},
 		attachments: { width, height },
 		features: {
 			enableLighting: true,
@@ -748,7 +748,7 @@ async function testPlanarReflectionCaptureAndCompositeSequencing() {
 	const camera = new Camera();
 	camera.position.set(0, 2, 5);
 	camera.updateMatrices();
-	context.camera = camera;
+	context.viewCamera = camera;
 	context.features.enableReflection = true;
 	context.postProcess = createResolvedPostProcess({
 		ssr: { enabled: true },
@@ -860,7 +860,7 @@ async function testPlanarReflectionUsesColorTargetsWithoutPostProcess() {
 	const camera = new Camera();
 	camera.position.set(0, 2, 5);
 	camera.updateMatrices();
-	context.camera = camera;
+	context.viewCamera = camera;
 	context.features.enableReflection = true;
 	context.postProcess = createResolvedPostProcess({});
 	const mirrorMaterial = new Material({
@@ -957,7 +957,7 @@ async function testPlanarReflectionCaptureKeepsMSAAFrameTargetsAlive() {
 	const camera = new Camera();
 	camera.position.set(0, 2, 5);
 	camera.updateMatrices();
-	context.camera = camera;
+	context.viewCamera = camera;
 	context.features.enableReflection = true;
 	context.postProcess = createResolvedPostProcess({
 		ssr: { enabled: true },
@@ -1052,7 +1052,7 @@ async function testPlanarReflectionCaptureFailureKeepsMainFrameResources() {
 	const camera = new Camera();
 	camera.position.set(0, 2, 5);
 	camera.updateMatrices();
-	context.camera = camera;
+	context.viewCamera = camera;
 	context.features.enableReflection = true;
 	context.postProcess = createResolvedPostProcess({
 		ssr: { enabled: true },
@@ -1126,7 +1126,7 @@ async function testPlanarReflectionCaptureUsesMirroredCameraAndCenterSide() {
 	const camera = new Camera();
 	camera.position.set(0, 2, 5);
 	camera.updateMatrices();
-	context.camera = camera;
+	context.viewCamera = camera;
 	context.features.enableReflection = true;
 	context.postProcess = createResolvedPostProcess({
 		ssr: { enabled: true },
@@ -1178,7 +1178,7 @@ async function testPlanarReflectionCaptureUsesMirroredCameraAndCenterSide() {
 			candidate.postProcess.isEnabled("ssr") === false
 	);
 	assert.ok(captureContext);
-	assert.deepEqual(captureContext.camera.getWorldPosition(), {
+	assert.deepEqual(captureContext.viewCamera.getWorldPosition(), {
 		x: 0,
 		y: -2,
 		z: 5,

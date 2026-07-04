@@ -71,7 +71,7 @@ function createSoftwareFrameContext(options = {}) {
 		normalBuffer[i * 3 + 2] = 1;
 	}
 	return {
-		camera: createOrthographicCamera(),
+		viewCamera: createOrthographicCamera(),
 		attachments: {
 			width,
 			height,

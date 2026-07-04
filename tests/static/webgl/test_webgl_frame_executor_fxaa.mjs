@@ -1000,7 +1000,7 @@ function testTransparentRenderPacketsConfiguresBlendAndDepthState() {
 
 	executor._renderPackets(
 		{
-			camera: {
+			viewCamera: {
 				viewProjectionMatrix: [
 					[1, 0, 0, 0],
 					[0, 1, 0, 0],
@@ -1195,7 +1195,7 @@ function testSSAOPassDetachesSecondaryAttachmentForDownsampleTargets() {
 		[0, 0, 0, 1],
 	];
 	const context = {
-		camera: {
+		viewCamera: {
 			type: "perspective",
 			fov: 60,
 			aspectRatio: 1280 / 720,
@@ -1372,7 +1372,7 @@ function testGlobalUniformsSanitizeNonFiniteCameraAndLightValues() {
 		},
 	};
 	const context = {
-		camera: {
+		viewCamera: {
 			viewProjectionMatrix: {
 				elements: [
 					[Number.NaN, 0, 0, 0],

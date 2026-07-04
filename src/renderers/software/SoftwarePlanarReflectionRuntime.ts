@@ -228,7 +228,7 @@ export class SoftwarePlanarReflectionRuntime {
 			}
 
 			const plane = material.mirrorPlane;
-			const cameraPosition = context.camera.getWorldPosition();
+			const cameraPosition = context.viewCamera.getWorldPosition();
 			const cameraDistance =
 				cameraPosition.x * plane.normal.x +
 				cameraPosition.y * plane.normal.y +
@@ -381,7 +381,7 @@ export class SoftwarePlanarReflectionRuntime {
 					exposure: environment.backgroundExposure,
 				},
 				pixels,
-				context.camera,
+				context.viewCamera,
 				buffer.width,
 				buffer.height
 			);
@@ -392,7 +392,7 @@ export class SoftwarePlanarReflectionRuntime {
 			}
 		}
 
-		const camera = context.camera;
+		const camera = context.viewCamera;
 		const originalViewMatrix = camera.viewMatrix;
 		const originalProjectionMatrix = camera.projectionMatrix;
 		const originalViewProjMatrix = camera.viewProjectionMatrix;
@@ -550,7 +550,7 @@ export class SoftwarePlanarReflectionRuntime {
 		const sampleShadow = createSoftwareShadowSampler(
 			context.shadowMaps,
 			runtimeMap,
-			{ camera: context.camera }
+			{ camera: context.viewCamera }
 		);
 		const environment = resolvePreparedSceneEnvironment(context.scene);
 
@@ -559,8 +559,8 @@ export class SoftwarePlanarReflectionRuntime {
 			height: overrideSize.height,
 			depthBuffer,
 			camera: {
-				position: context.camera.getWorldPosition(),
-				viewMatrix: context.camera.viewMatrix,
+				position: context.viewCamera.getWorldPosition(),
+				viewMatrix: context.viewCamera.viewMatrix,
 			},
 			lights: context.scene.lights,
 			shadowMaps: context.shadowMaps,

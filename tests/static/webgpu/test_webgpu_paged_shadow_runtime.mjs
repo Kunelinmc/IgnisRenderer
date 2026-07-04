@@ -204,7 +204,7 @@ function createRequest(renderSet, packets, encoder = null) {
 	return {
 		context: {
 			features: { enableShadows: true },
-			camera: {
+			viewCamera: {
 				viewProjectionMatrix: Matrix4.identity(),
 			},
 			attachments: { width: 64, height: 64 },

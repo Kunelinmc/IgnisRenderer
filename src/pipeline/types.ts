@@ -218,7 +218,13 @@ export interface FrameAttachments {
 
 export interface FrameContext {
 	readonly backendProfile: RenderBackendProfile;
-	readonly camera: Camera;
+	/**
+	 * Camera that provides the active view/projection for this frame context.
+	 *
+	 * In renderer-driven frames this must match `scene.camera`. Secondary
+	 * capture contexts must rebuild `scene` for this camera before execution.
+	 */
+	readonly viewCamera: Camera;
 	readonly attachments: FrameAttachments;
 	readonly features: ResolvedFeatureState;
 	readonly postProcess: PostProcessPassRegistrySnapshot;

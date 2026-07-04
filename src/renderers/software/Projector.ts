@@ -31,8 +31,8 @@ export class Projector {
 	): ProjectedFace[] {
 		const targetWidth = overrideSize?.width ?? context.attachments.width;
 		const targetHeight = overrideSize?.height ?? context.attachments.height;
-		const projectionMatrix = context.camera.projectionMatrix;
-		const viewMatrix = context.camera.viewMatrix;
+		const projectionMatrix = context.viewCamera.projectionMatrix;
+		const viewMatrix = context.viewCamera.viewMatrix;
 		const taaState = context.transient.get(SOFTWARE_TAA_RENDER_STATE_KEY);
 		const previousWorldMatrix =
 			taaState?.previousWorldMatrices.get(packet.id) ?? packet.worldMatrix;
@@ -136,7 +136,7 @@ export class Projector {
 				clippedVerts.map((vertex) => vertex.view)
 			);
 			const v0 = clippedVerts[0].view;
-			const isOrthographic = context.camera.type === CameraType.Orthographic;
+			const isOrthographic = context.viewCamera.type === CameraType.Orthographic;
 			const dot =
 				isOrthographic ?
 					-cullNormal.z
@@ -357,7 +357,7 @@ function clipFaceToNearPlane(
 	context: FrameContext,
 	previousWorldVerts?: IVertex[]
 ): ClippedVertexPair[] {
-	const nearZ = -context.camera.near;
+	const nearZ = -context.viewCamera.near;
 	const clippedVerts: ClippedVertexPair[] = [];
 
 	for (let i = 0; i < viewVerts.length; i++) {

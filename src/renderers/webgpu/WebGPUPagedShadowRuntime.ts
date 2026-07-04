@@ -1397,7 +1397,7 @@ export class WebGPUPagedShadowRuntime {
 		this._drawCandidateCount = request.shadowCasterPackets.length;
 		this._feedbackCameraData.fill(0);
 		const inverseViewProjection = Matrix4.inverse(
-			request.context.camera.viewProjectionMatrix
+			request.context.viewCamera.viewProjectionMatrix
 		);
 		if (inverseViewProjection) {
 			this._setMatrixInFloatArray(

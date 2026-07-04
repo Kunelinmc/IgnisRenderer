@@ -627,7 +627,7 @@ void main() {
 
 function createScenePassContext(overrides = {}) {
 	return {
-		camera: {
+		viewCamera: {
 			viewProjectionMatrix: Matrix4.identity(),
 		},
 		incremental: {
@@ -2922,7 +2922,7 @@ async function testWebGLBackendWarmupDelegatesToFrameExecutor() {
 		},
 	};
 	const report = await backend.warmup({
-		camera: {},
+		viewCamera: {},
 		attachments: { width: 1, height: 1 },
 		features: {
 			enableLighting: true,

@@ -38,7 +38,7 @@ export class SoftwareParticlePass implements SoftwarePassLike {
 		const sampleShadow = createSoftwareShadowSampler(
 			context.shadowMaps,
 			runtimeMap,
-			{ camera: context.camera }
+			{ camera: context.viewCamera }
 		);
 
 		for (const batch of batches) {
@@ -60,11 +60,11 @@ export class SoftwareParticlePass implements SoftwarePassLike {
 		const height = attachments.height;
 		const pixels = attachments.pixels!;
 		const depthBuffer = attachments.depthBuffer!;
-		const viewPosition = Matrix4.transformPoint(context.camera.viewMatrix, particle.position);
+		const viewPosition = Matrix4.transformPoint(context.viewCamera.viewMatrix, particle.position);
 		const depth = -viewPosition.z;
 		if (depth <= 0) return;
 
-		const clip = Matrix4.transformPoint(context.camera.projectionMatrix, viewPosition);
+		const clip = Matrix4.transformPoint(context.viewCamera.projectionMatrix, viewPosition);
 		const w = clip.w ?? 0;
 		if (Math.abs(w) < CoreConstants.EPSILON) return;
 
@@ -167,11 +167,11 @@ export class SoftwareParticlePass implements SoftwarePassLike {
 	}
 
 	private _resolveParticleRadiusPx(context: FrameContext, size: number, depth: number): number {
-		if (context.camera.type === CameraType.Orthographic) {
+		if (context.viewCamera.type === CameraType.Orthographic) {
 			return Math.max(MIN_PARTICLE_PIXEL_RADIUS, size * 0.5);
 		}
 
-		const halfFovRadians = (context.camera.fov * Math.PI) / 360;
+		const halfFovRadians = (context.viewCamera.fov * Math.PI) / 360;
 		const tanHalfFov = Math.tan(halfFovRadians) || CoreConstants.EPSILON;
 		const focalLength = (context.attachments.height * 0.5) / tanHalfFov;
 		const pixelSize = (Math.max(MIN_PARTICLE_WORLD_SIZE, size) * focalLength) / depth;

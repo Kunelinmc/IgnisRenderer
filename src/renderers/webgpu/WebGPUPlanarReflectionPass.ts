@@ -78,7 +78,7 @@ export class WebGPUPlanarReflectionPass {
 	 */
 	public async capture(context: FrameContext): Promise<number> {
 		this._activeReflections = [];
-		if (context.camera.type === CameraType.Orthographic) {
+		if (context.viewCamera.type === CameraType.Orthographic) {
 			Logger.warn(
 				"[webgpu-planar-reflection-orthographic-disabled] WebGPU planar reflections are disabled for orthographic cameras.",
 				{
@@ -447,18 +447,18 @@ function createPlanarCaptureContext(
 	width: number,
 	height: number
 ): FrameContext {
-	const camera = context.camera.clone(false);
-	const originalPosition = context.camera.getWorldPosition();
+	const camera = context.viewCamera.clone(false);
+	const originalPosition = context.viewCamera.getWorldPosition();
 	const reflectionMatrix = Matrix4.reflection(plane);
 	const mirroredPosition = Matrix4.transformPoint(
 		reflectionMatrix,
 		originalPosition
 	);
 	const mirrorViewMatrix = Matrix4.multiply(
-		context.camera.viewMatrix,
+		context.viewCamera.viewMatrix,
 		reflectionMatrix
 	);
-	const mirrorProjectionMatrix = context.camera.projectionMatrix.clone();
+	const mirrorProjectionMatrix = context.viewCamera.projectionMatrix.clone();
 	const isCameraAbove = plane.distanceToPoint(originalPosition) > 0;
 	const clipPlaneNormal = Matrix4.transformDirection(
 		mirrorViewMatrix,
@@ -508,7 +508,7 @@ function createPlanarCaptureContext(
 
 	return {
 		backendProfile: context.backendProfile,
-		camera,
+		viewCamera: camera,
 		attachments: { width, height },
 		features: {
 			...context.features,
@@ -542,7 +542,7 @@ function createPlanarCaptureContext(
 
 function createCaptureScene(
 	context: FrameContext,
-	camera: FrameContext["camera"],
+	camera: FrameContext["viewCamera"],
 	plane: Plane,
 	planeKey: string,
 	isCameraAbove: boolean

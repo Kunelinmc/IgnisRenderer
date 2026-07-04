@@ -11,7 +11,7 @@ function createPostProcess(overrides = {}) {
 
 function createFrameContext(postProcess, incremental = {}) {
 	return {
-		camera: {
+		viewCamera: {
 			type: "perspective",
 			fov: 60,
 			aspectRatio: 1,

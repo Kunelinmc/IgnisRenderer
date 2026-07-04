@@ -60,7 +60,7 @@ function createPerspectiveContext(overrides = {}) {
 			width: 640,
 			height: 360,
 		},
-		camera: {
+		viewCamera: {
 			type: CameraType.Perspective,
 			near: 0.1,
 			far: 200,
@@ -151,7 +151,7 @@ function testNonPerspectiveFallsBackWithWarning() {
 	withCapturedWarnings((warnings) => {
 		const runtime = new WebGLClusteredLightingRuntime(createFakeGL());
 		const context = createPerspectiveContext({
-			camera: {
+			viewCamera: {
 				type: CameraType.Orthographic,
 				near: 0.1,
 				far: 200,
@@ -233,7 +233,7 @@ function testClusterHeadersUseFixedClusterSpans() {
 			width: 128,
 			height: 64,
 		},
-		camera: {
+		viewCamera: {
 			type: CameraType.Perspective,
 			near: 0.1,
 			far: 200,

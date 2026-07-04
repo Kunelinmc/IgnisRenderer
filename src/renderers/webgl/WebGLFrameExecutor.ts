@@ -452,7 +452,7 @@ export class WebGLFrameExecutor {
 					context.scene.environment.iblTexture
 				:	null,
 				context.features.enableClusteredLighting,
-				context.camera.getWorldPosition(
+				context.viewCamera.getWorldPosition(
 					WEBGL_REFLECTION_PROBE_CAMERA_WORLD_POSITION_SCRATCH
 				)
 			);
@@ -467,7 +467,7 @@ export class WebGLFrameExecutor {
 			context.postProcess.getOptions<TAAOptions>("taa") ?? DEFAULT_TAA_OPTIONS;
 		const temporalJitter = this._temporalJitterState.next({
 			enabled: taaEnabled,
-			isOrthographic: context.camera.type === CameraType.Orthographic,
+			isOrthographic: context.viewCamera.type === CameraType.Orthographic,
 			width: this._width,
 			height: this._height,
 			jitterScale: taaOptions.jitterScale ?? DEFAULT_TAA_OPTIONS.jitterScale,
@@ -1081,8 +1081,8 @@ export class WebGLFrameExecutor {
 				environment.iblTexture
 			:	null,
 			context.features?.enableClusteredLighting ?? false,
-			context.camera?.getWorldPosition ?
-				context.camera.getWorldPosition(
+			context.viewCamera?.getWorldPosition ?
+				context.viewCamera.getWorldPosition(
 					WEBGL_REFLECTION_PROBE_CAMERA_WORLD_POSITION_SCRATCH
 				)
 			:	null
@@ -2066,11 +2066,11 @@ export class WebGLFrameExecutor {
 			return;
 		}
 		const resolved = this._textures.getEnvironmentTexture(environmentBackgroundTexture);
-		const view = context.camera.viewMatrix.elements;
-		const isOrthographic = context.camera.type === CameraType.Orthographic;
+		const view = context.viewCamera.viewMatrix.elements;
+		const isOrthographic = context.viewCamera.type === CameraType.Orthographic;
 		const tanHalfFov =
-			isOrthographic ? 0 : Math.tan((context.camera.fov * Math.PI) / 360);
-		const aspect = context.camera.aspectRatio || this._width / this._height;
+			isOrthographic ? 0 : Math.tan((context.viewCamera.fov * Math.PI) / 360);
+		const aspect = context.viewCamera.aspectRatio || this._width / this._height;
 
 		gl.bindFramebuffer(gl.FRAMEBUFFER, this._sceneFramebuffer);
 		gl.drawBuffers([gl.COLOR_ATTACHMENT0, gl.COLOR_ATTACHMENT1]);

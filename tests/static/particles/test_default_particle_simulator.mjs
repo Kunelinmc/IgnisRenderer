@@ -19,7 +19,7 @@ function createContext(systems) {
 	camera.updateMatrices();
 
 	return {
-		camera,
+		viewCamera: camera,
 		attachments: {
 			width: 1280,
 			height: 720,

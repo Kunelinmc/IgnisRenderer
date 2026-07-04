@@ -90,6 +90,14 @@ All graphics commands are recorded through a backend-agnostic `ICommandEncoder`.
   - Must handle `webglcontextrestored` by restoring state and emitting `device-restored`.
 
 ### 3. Frame Execution Lifecycle (`IRenderBackend`)
+- `FrameContext.viewCamera`
+  - Output contract: must provide the active view/projection camera for the
+    current frame or secondary capture context.
+  - Behavior contract: renderer-driven frames must set `viewCamera` to the same
+    camera used to build `FrameContext.scene`.
+  - Constraint: secondary capture contexts, such as planar reflections or
+    reflection probe captures, must rebuild `FrameContext.scene` for
+    `viewCamera` before backend execution.
 - `IRenderBackend.beginFrame(context: FrameContext)`
   - Behavior contract: must prepare command encoders, bind presentation attachments, and transition frame state.
   - Constraint: must throw if another frame is already active or if the backend is uninitialized.

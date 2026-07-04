@@ -44,7 +44,7 @@ function createDecalPacket(id, material, overrides = {}) {
 
 function createFrameContext(decalPackets, overrides = {}) {
 	return {
-		camera: createCamera(),
+		viewCamera: createCamera(),
 		attachments: { width: 64, height: 64 },
 		features: { warnings: [] },
 		postProcess: {},

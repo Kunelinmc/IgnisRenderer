@@ -197,7 +197,7 @@ function createFrameContext(frame, features, options = {}) {
 	const width = options.width ?? 1;
 	const height = options.height ?? 1;
 	return {
-		camera: frame.camera,
+		viewCamera: frame.camera,
 		attachments: { width, height },
 		features,
 		postProcess: options.postProcess ?? createResolvedPostProcess(),
@@ -2597,7 +2597,7 @@ async function testWebGPUEnvironmentCombinationsRegression() {
 		);
 		const frameResources = resources.prepareFrame(
 			{
-				camera: scene.camera,
+				viewCamera: scene.camera,
 				attachments: { width: 16, height: 16 },
 				features,
 				postProcess: createResolvedPostProcess(),
@@ -2993,7 +2993,7 @@ async function testReflectionProbeCaptureUsesParentWorldPositionAsOrigin() {
 	const resources = {
 		prepareFrame(context, options = {}) {
 			preparedCameraPositions.push(
-				context.camera.getWorldPosition({ x: 0, y: 0, z: 0 })
+				context.viewCamera.getWorldPosition({ x: 0, y: 0, z: 0 })
 			);
 			return createPreparedFrameResources(options);
 		},
@@ -3262,7 +3262,7 @@ function createWebGPUFrameContextForTemporalTest(
 	temporalHistoryReset = false
 ) {
 	return {
-		camera: frame.camera,
+		viewCamera: frame.camera,
 		attachments: { width, height },
 		features,
 		postProcess,

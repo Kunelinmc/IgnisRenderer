@@ -11,7 +11,7 @@ import { createResolvedPostProcess } from "../../helpers/postprocess.mjs";
 
 function createFrameContext(transmissionFactor = 1) {
 	return {
-		camera: {
+		viewCamera: {
 			type: "perspective",
 			fov: 60,
 			aspectRatio: 1,

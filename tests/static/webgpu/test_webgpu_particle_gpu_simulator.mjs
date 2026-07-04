@@ -91,7 +91,7 @@ function createContext(particleSystems = []) {
 		spatialIndex: null,
 	};
 	return {
-		camera,
+		viewCamera: camera,
 		attachments: {
 			width: 64,
 			height: 64,

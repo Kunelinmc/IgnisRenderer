@@ -269,7 +269,7 @@ export class DefaultParticleSimulator implements IParticleSimulator {
 		context: FrameContext
 	): number {
 		const systemPosition = system.getWorldPosition();
-		const cameraPosition = context.camera.getWorldPosition();
+		const cameraPosition = context.viewCamera.getWorldPosition();
 		const dx = systemPosition.x - cameraPosition.x;
 		const dy = systemPosition.y - cameraPosition.y;
 		const dz = systemPosition.z - cameraPosition.z;
@@ -300,11 +300,11 @@ export class DefaultParticleSimulator implements IParticleSimulator {
 
 		if (estimatedRadius <= 0) return 0;
 
-		if (context.camera.type === CameraType.Orthographic) {
+		if (context.viewCamera.type === CameraType.Orthographic) {
 			return estimatedRadius * 2;
 		}
 
-		const halfFov = (context.camera.fov * Math.PI) / 360;
+		const halfFov = (context.viewCamera.fov * Math.PI) / 360;
 		const tanHalfFov = Math.tan(halfFov) || 1e-6;
 		const focalLength =
 			(Math.max(1, context.attachments.height) * 0.5) / tanHalfFov;

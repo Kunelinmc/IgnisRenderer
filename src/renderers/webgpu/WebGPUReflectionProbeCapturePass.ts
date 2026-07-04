@@ -111,7 +111,7 @@ export class WebGPUReflectionProbeCapturePass {
 
 		const captureContext: FrameContext = {
 			backendProfile: request.frameContext.backendProfile,
-			camera: captureCamera,
+			viewCamera: captureCamera,
 			attachments: {
 				width: faceSize,
 				height: faceSize,
@@ -468,7 +468,7 @@ function buildCapturePreparedScene(
 			}
 		}
 
-		const sceneRef = frameContext.camera.scene;
+		const sceneRef = frameContext.viewCamera.scene;
 		const visibleSet = new Set<MeshInstance>();
 		if (sceneRef) {
 			const visible = sceneRef.queryMeshInstancesInFrustum(
