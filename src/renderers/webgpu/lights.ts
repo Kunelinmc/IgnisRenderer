@@ -34,7 +34,7 @@ import type {
 	WebGPULightingState,
 	WebGPUShadowData,
 	WebGPUVolumetricLightUniform,
-	WebGPUVec3,
+	Vec3Tuple,
 	WebGPUWarning,
 } from "./types";
 
@@ -344,7 +344,7 @@ function pushWarningOnce(
 function pushVolumetricDirectionalLight(
 	state: WebGPULightingState,
 	direction: { x: number; y: number; z: number },
-	color: WebGPUVec3
+	color: Vec3Tuple
 ): void {
 	const light: WebGPUVolumetricLightUniform = {
 		type: 0,
@@ -362,7 +362,7 @@ function pushVolumetricPointLight(
 	state: WebGPULightingState,
 	position: { x: number; y: number; z: number },
 	range: number,
-	color: WebGPUVec3
+	color: Vec3Tuple
 ): void {
 	const light: WebGPUVolumetricLightUniform = {
 		type: 1,
@@ -383,7 +383,7 @@ function pushVolumetricSpotLight(
 	direction: { x: number; y: number; z: number },
 	outerCos: number,
 	innerCos: number,
-	color: WebGPUVec3
+	color: Vec3Tuple
 ): void {
 	const light: WebGPUVolumetricLightUniform = {
 		type: 2,
@@ -401,7 +401,7 @@ function pushClusteredPointLight(
 	state: WebGPULightingState,
 	position: { x: number; y: number; z: number },
 	range: number,
-	color: WebGPUVec3,
+	color: Vec3Tuple,
 	enableClusteredLighting: boolean
 ): void {
 	if (!enableClusteredLighting) {
@@ -435,7 +435,7 @@ function pushClusteredSpotLight(
 	direction: { x: number; y: number; z: number },
 	outerCos: number,
 	innerCos: number,
-	color: WebGPUVec3,
+	color: Vec3Tuple,
 	castsShadow: boolean,
 	shadowIndex: number,
 	enableClusteredLighting: boolean
@@ -506,8 +506,8 @@ function normalizeVector3(
 	x: number,
 	y: number,
 	z: number,
-	fallback: WebGPUVec3
-): WebGPUVec3 {
+	fallback: Vec3Tuple
+): Vec3Tuple {
 	const length = Math.hypot(x, y, z);
 	if (length <= 1e-6) {
 		return fallback;

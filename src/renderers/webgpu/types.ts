@@ -10,35 +10,35 @@ export interface WebGPUWarning {
 	message: string;
 }
 
-export type WebGPUVec3 = [number, number, number];
+export type Vec3Tuple = [number, number, number];
 
 interface WebGPULightUniformBase {
-	color: WebGPUVec3;
+	color: Vec3Tuple;
 }
 
 export interface WebGPUDirectionalLightUniform extends WebGPULightUniformBase {
-	direction: WebGPUVec3;
+	direction: Vec3Tuple;
 }
 
 export interface WebGPUPointLightUniform extends WebGPULightUniformBase {
-	position: WebGPUVec3;
+	position: Vec3Tuple;
 	range: number;
 }
 
 export interface WebGPUSpotLightUniform extends WebGPUPointLightUniform {
-	direction: WebGPUVec3;
+	direction: Vec3Tuple;
 	outerCos: number;
 	innerCos: number;
 }
 
 export interface WebGPUAreaLightUniform extends WebGPULightUniformBase {
-	position: WebGPUVec3;
+	position: Vec3Tuple;
 	range: number;
-	right: WebGPUVec3;
+	right: Vec3Tuple;
 	width: number;
-	up: WebGPUVec3;
+	up: Vec3Tuple;
 	height: number;
-	normal: WebGPUVec3;
+	normal: Vec3Tuple;
 	areaScale: number;
 }
 
@@ -51,25 +51,25 @@ export type WebGPUClusteredLightType = 0 | 1 | 2;
 
 export interface WebGPUVolumetricLightUniform extends WebGPULightUniformBase {
 	type: WebGPUVolumetricLightType;
-	position: WebGPUVec3;
+	position: Vec3Tuple;
 	range: number;
-	direction: WebGPUVec3;
+	direction: Vec3Tuple;
 	outerCos: number;
 	innerCos: number;
 }
 
 export interface WebGPUClusteredLightUniform extends WebGPULightUniformBase {
 	type: WebGPUClusteredLightType;
-	position: WebGPUVec3;
+	position: Vec3Tuple;
 	range: number;
-	direction: WebGPUVec3;
+	direction: Vec3Tuple;
 	outerCos: number;
 	innerCos: number;
-	right: WebGPUVec3;
+	right: Vec3Tuple;
 	width: number;
-	up: WebGPUVec3;
+	up: Vec3Tuple;
 	height: number;
-	normal: WebGPUVec3;
+	normal: Vec3Tuple;
 	areaScale: number;
 	castsShadow: boolean;
 	affectsVolumetric: boolean;
@@ -109,7 +109,7 @@ export interface WebGPUShadowData {
 }
 
 export interface WebGPULightingState {
-	ambientColor: WebGPUVec3;
+	ambientColor: Vec3Tuple;
 	directionalLights: WebGPUDirectionalLightUniform[];
 	directionalShadows: WebGPUShadowData[];
 	pointLights: WebGPUPointLightUniform[];
@@ -271,9 +271,9 @@ export interface WebGPUFrameUniformInput {
 	viewProjectionMatrix: Matrix4 | number[][];
 	prevViewProjectionMatrix: Matrix4 | number[][];
 	cameraPosition: IVector3;
-	environmentRight: WebGPUVec3;
-	environmentUp: WebGPUVec3;
-	environmentBackward: WebGPUVec3;
+	environmentRight: Vec3Tuple;
+	environmentUp: Vec3Tuple;
+	environmentBackward: Vec3Tuple;
 	environmentTanHalfFov: number;
 	environmentAspect: number;
 	environmentIsOrthographic: boolean;
