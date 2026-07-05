@@ -4,25 +4,16 @@ import { SH } from "../../maths/SH";
 import { Vector3 } from "../../maths/Vector3";
 import type { IVector3 } from "../../maths/types";
 import type { RGB } from "../../foundation/Color";
-import { LightType } from "../../lights/Light";
-import type { AmbientLight } from "../../lights/AmbientLight";
-import type { AreaLight } from "../../lights/AreaLight";
-import type { DirectionalLight } from "../../lights/DirectionalLight";
-import type { PointLight } from "../../lights/PointLight";
-import type { LightProbe } from "../../lights/LightProbe";
-import type { IrradianceProbeGrid } from "../../lights/IrradianceProbeGrid";
-import type { ReflectionProbe } from "../../lights/ReflectionProbe";
-import type { SpotLight } from "../../lights/SpotLight";
-
-type SceneLight =
-	| AmbientLight
-	| DirectionalLight
-	| PointLight
-	| SpotLight
-	| LightProbe
-	| IrradianceProbeGrid
-	| ReflectionProbe
-	| AreaLight;
+import { LightType } from "../../lights";
+import type {
+	AmbientLight,
+	AreaLight,
+	DirectionalLight,
+	PointLight,
+	LightProbe,
+	SpotLight,
+	SceneLight,
+} from "../../lights";
 
 export interface SurfacePoint {
 	position: IVector3;

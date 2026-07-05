@@ -6,6 +6,7 @@
 
 import type { Matrix4 } from "../../maths/Matrix4";
 import type { IVector3 } from "../../maths/types";
+import type { SceneLight, ShadowCastingLight } from "../types";
 import type { PagedShadowFeedbackMode } from "./types";
 
 export interface ShadowParams {
@@ -416,4 +417,18 @@ export function getPrimaryShadowMap(
 	renderSet: ShadowRenderSet | ShadowMap | null | undefined
 ): ShadowMap | null {
 	return getPrimaryShadowSlice(renderSet)?.shadowMap ?? null;
+}
+
+export function isShadowCastingLight(
+	light: SceneLight
+): light is ShadowCastingLight {
+	if (
+		light.type !== "directional" &&
+		light.type !== "point" &&
+		light.type !== "spot" &&
+		light.type !== "rectArea"
+	) {
+		return false;
+	}
+	return light.scene?.shadows.getBoundShadowMap(light) !== undefined;
 }
