@@ -42,6 +42,10 @@ required references. Read them before changing related behavior:
 - Prioritize `bun`. Fall back to `node` and `npm` only if `bun` is unavailable.
 - Prioritize `rg` for file and text search. Fall back only if `rg` is
   unavailable.
+- Avoid token-wasteful discovery patterns. Do not run unscoped `rg --files` from
+  the repository root, read entire files in one pass, or use low-hit-rate broad
+  searches when a narrower path, glob, symbol, or line-limited read can answer
+  the question.
 
 ### Commands
 
