@@ -124,7 +124,6 @@ export type {
 export {
 	getEnabledCustomPostProcessPassIds,
 	hasEnabledCustomPostProcessPass,
-	isFogPostProcessEnabled,
 } from "./postprocess";
 export type {
 	BloomOptions,
