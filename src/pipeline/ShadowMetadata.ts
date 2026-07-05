@@ -1,6 +1,7 @@
 import { Matrix4 } from "../maths/Matrix4";
 import type { IVector3 } from "../maths/types";
-import type { ShadowCastingLight } from "../lights";
+import { LightType, type ShadowCastingLight } from "../lights";
+import { CascadedShadowMap } from "../lights/shadows/CascadedShadowMap";
 import {
 	createShadowRenderSet,
 	ensureShadowRenderSetMatchesConfig,
@@ -12,13 +13,13 @@ import {
 	type ShadowConfig,
 	type ShadowRenderSet,
 } from "../lights/shadows/ShadowMapping";
+import { SingleShadowMap } from "../lights/shadows/SingleShadowMap";
+import type {
+	SceneBounds,
+	ShadowSliceDescriptor,
+	ShadowStrategyCamera,
+} from "../lights/shadows/types";
 import type { DrawPacket } from "./types";
-import {
-	ShadowStrategyRegistry,
-	type ShadowBackendCapabilities,
-	type ShadowStrategyCamera,
-	type SceneBounds,
-} from "./ShadowStrategyRegistry";
 
 interface ShadowBoundsCamera {
 	isSphereInFrustum?: (center: IVector3, radius: number) => boolean;
@@ -396,13 +397,19 @@ export function updateShadowMapMetadata(
 			:	sceneBounds.radius,
 	};
 
-	const descriptors = ShadowStrategyRegistry.buildWithDefault({
+	let descriptors: ShadowSliceDescriptor[] = [];
+	const buildContext = {
 		light,
 		renderSet,
 		config: effectiveConfig,
 		sceneBounds: stabilizedSceneBounds,
 		camera: options?.camera ?? null,
-	});
+	};
+	if (effectiveConfig.strategy === "single-map") {
+		descriptors = SingleShadowMap.buildSlices(buildContext);
+	} else if (effectiveConfig.strategy === "csm") {
+		descriptors = CascadedShadowMap.buildSlices(buildContext);
+	}
 
 	if (descriptors.length <= 0) {
 		resetRenderSetMetadata(renderSet);
@@ -433,4 +440,58 @@ export function updateShadowMapMetadata(
 
 	renderSet.metadataVersion++;
 	syncShadowLayout(renderSet);
+}
+
+export interface ShadowBackendCapabilities {
+	backendKey: string;
+	supportsSingleMap: boolean;
+	supportsDirectionalCSM: boolean;
+	supportsSpotCSM?: boolean;
+	supportsPointCSM?: boolean;
+	maxCsmDirectionalLights: number;
+	maxDynamicShadowCost?: number;
+	supportsPagedShadows?: boolean;
+	supportsPagedShadowRendering?: boolean;
+	maxPagedShadowPages?: number;
+	pagedShadowPageSizeRange?: [number, number];
+}
+
+function resolveShadowPriority(light: ShadowCastingLight): number {
+	const config = light.scene?.shadows.getLegacyShadowConfig(light);
+	if (!config) {
+		return 0;
+	}
+	const priority = (config as { priority?: unknown }).priority;
+	if (typeof priority !== "number" || !Number.isFinite(priority)) {
+		return 0;
+	}
+	return priority;
+}
+
+export function selectCSMDirectionalLights(
+	lights: ShadowCastingLight[],
+	maxCount: number,
+	resolveConfig: (light: ShadowCastingLight) => ShadowConfig | undefined = (light) =>
+		light.scene?.shadows.getLegacyShadowConfig(light),
+): Set<ShadowCastingLight> {
+	const requested = lights.filter(
+		(light) => light.type === LightType.Directional && resolveConfig(light)?.strategy === "csm",
+	);
+	if (requested.length <= 0 || maxCount <= 0) {
+		return new Set();
+	}
+
+	requested.sort((left, right) => {
+		const priorityDelta = resolveShadowPriority(right) - resolveShadowPriority(left);
+		if (priorityDelta !== 0) {
+			return priorityDelta;
+		}
+		const intensityDelta = right.intensity - left.intensity;
+		if (intensityDelta !== 0) {
+			return intensityDelta;
+		}
+		return left.id.localeCompare(right.id);
+	});
+
+	return new Set(requested.slice(0, maxCount));
 }

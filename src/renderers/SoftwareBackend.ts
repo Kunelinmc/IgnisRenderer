@@ -38,7 +38,7 @@ import {
 import {
 	selectCSMDirectionalLights,
 	type ShadowBackendCapabilities,
-} from "../pipeline/ShadowStrategyRegistry";
+} from "../pipeline/ShadowMetadata";
 import { FrameAttachments } from "../pipeline/types";
 import { CameraType } from "../cameras/Camera";
 import { TemporalJitterState } from "./cross/TemporalJitterState";

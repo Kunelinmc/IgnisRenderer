@@ -86,7 +86,7 @@ import {
 import {
 	selectCSMDirectionalLights,
 	type ShadowBackendCapabilities,
-} from "../../pipeline/ShadowStrategyRegistry";
+} from "../../pipeline/ShadowMetadata";
 import { isShadowCastingLight, type ShadowCastingLight } from "../../lights";
 import type { ShadowRenderSet } from "../../lights/shadows/ShadowMapping";
 import { WebGPUTextureRegistry } from "./WebGPUTextureRegistry";

@@ -26,7 +26,7 @@ import {
 	injectParticleBatchIntoShadowVolume,
 	resolveParticleShadowCasterBounds,
 } from "../../pipeline/ParticleShadowVolume";
-import { selectCSMDirectionalLights } from "../../pipeline/ShadowStrategyRegistry";
+import { selectCSMDirectionalLights } from "../../pipeline/ShadowMetadata";
 import {
 	PARTICLE_TRANSIENT_BATCHES_KEY,
 	type DrawPacket,

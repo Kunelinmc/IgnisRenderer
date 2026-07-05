@@ -1,4 +1,4 @@
-import type { ShadowBackendCapabilities } from "../../pipeline/ShadowStrategyRegistry";
+import type { ShadowBackendCapabilities } from "../../pipeline/ShadowMetadata";
 
 export const WEBGL_SHADOW_ATLAS_COLUMNS = 4;
 export const WEBGL_SHADOW_ATLAS_ROWS = 3;

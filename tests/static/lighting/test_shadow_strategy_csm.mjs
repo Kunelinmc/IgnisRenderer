@@ -10,7 +10,7 @@ import {
 	normalizeShadowConfig,
 } from "../../../src/lights/shadows/ShadowMapping.ts";
 import { updateShadowMapMetadata } from "../../../src/pipeline/ShadowMetadata.ts";
-import { selectCSMDirectionalLights } from "../../../src/pipeline/ShadowStrategyRegistry.ts";
+import { selectCSMDirectionalLights } from "../../../src/pipeline/ShadowMetadata.ts";
 import { collectWebGPULighting } from "../../../src/renderers/webgpu/lights.ts";
 import { collectWebGLLights } from "../../../src/renderers/webgl/WebGLLightCollector.ts";
 
