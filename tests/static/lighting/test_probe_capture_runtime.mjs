@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { CubeTexture } from "../../../src/core/CubeTexture.ts";
 import { Scene } from "../../../src/core/Scene.ts";
 import { Texture } from "../../../src/core/Texture.ts";
 import { AmbientLight } from "../../../src/lights/AmbientLight.ts";
@@ -38,6 +39,17 @@ function createCapturedFace(faceSize, seed = 1) {
 		data[i + 3] = 1;
 	}
 	return data;
+}
+
+function createBoundCubeTexture(seed = 0) {
+	return new CubeTexture({
+		faces: Array.from(
+			{ length: 6 },
+			() => new Float32Array([seed, seed, seed, 1])
+		),
+		size: 1,
+		colorSpace: "HDR",
+	});
 }
 
 function createDeferred() {
@@ -93,6 +105,53 @@ async function testLightProbeManualCaptureProjectsSHWithoutPrefilter() {
 	assert.equal(prefilterCallCount, 0);
 }
 
+async function testLightProbeCaptureWritesBoundTextures() {
+	const runtime = new ProbeCaptureRuntime();
+	const scene = new Scene();
+	const rawTexture = new Texture(null, 0, 0, "HDR");
+	const cubeTexture = createBoundCubeTexture();
+	const probe = scene.add(
+		new LightProbe({
+			source: "capturedScene",
+			captureUpdateMode: "manual",
+			captureResolution: { width: 16, height: 8 },
+			includeEnvironment: false,
+		})
+	);
+	probe.capture
+		.bindRawTexture(rawTexture)
+		.bindCubeTexture(cubeTexture);
+	scene.updateWorldMatrices();
+	probe.requestCapture();
+
+	await driveRuntimeUntil(
+		runtime,
+		(step) => ({
+			scene,
+			nowMs: step * 16,
+			frameContext: {},
+			webgpuCaptureSource: {
+				async captureProbeFace(request) {
+					return createCapturedFace(request.faceSize, 0.6);
+				},
+			},
+		}),
+		() => probe.sh[0].r > 0
+	);
+
+	assert.equal(probe.capture.rawTexture, rawTexture);
+	assert.equal(probe.capture.cubeTexture, cubeTexture);
+	assert.equal(rawTexture.width, 16);
+	assert.equal(rawTexture.height, 8);
+	assert.equal(rawTexture.colorSpace, "HDR");
+	assert.ok(rawTexture.data instanceof Float32Array);
+	assert.equal(cubeTexture.width, 4);
+	assert.equal(cubeTexture.height, 4);
+	assert.equal(cubeTexture.colorSpace, "HDR");
+	assert.equal(cubeTexture.getFaces().length, 6);
+	assert.equal(cubeTexture.getFaces()[0].length, 4 * 4 * 4);
+}
+
 async function testSharedCaptureUpdatesLightAndReflectionProbe() {
 	let prefilterCallCount = 0;
 	let faceCaptureCount = 0;
@@ -144,6 +203,57 @@ async function testSharedCaptureUpdatesLightAndReflectionProbe() {
 			assert.equal(prefilterCallCount, 1);
 			assert.ok(lightProbe.sh[0].r > 0);
 			assert.ok(reflectionProbe.prefilteredMap);
+		}
+	);
+}
+
+async function testReflectionProbeCaptureWritesBoundPrefilteredTexture() {
+	await withPrefilterStub(
+		async () => createPrefilteredMap(4),
+		async () => {
+			const runtime = new ProbeCaptureRuntime();
+			const scene = new Scene();
+			const rawTexture = new Texture(null, 0, 0, "HDR");
+			const cubeTexture = createBoundCubeTexture();
+			const prefilteredTexture = new Texture(null, 0, 0, "HDR");
+			const probe = scene.add(
+				new ReflectionProbe({
+					source: "capturedScene",
+					captureUpdateMode: "manual",
+					captureResolution: { width: 16, height: 8 },
+					includeEnvironment: false,
+				})
+			);
+			probe.capture
+				.bindRawTexture(rawTexture)
+				.bindCubeTexture(cubeTexture)
+				.bindPrefilteredTexture(prefilteredTexture);
+			scene.updateWorldMatrices();
+			probe.requestCapture();
+
+			await driveRuntimeUntil(
+				runtime,
+				(step) => ({
+					scene,
+					nowMs: step * 16,
+					frameContext: {},
+					webgpuCaptureSource: {
+						async captureProbeFace(request) {
+							return createCapturedFace(request.faceSize, 0.8);
+						},
+					},
+				}),
+				() => probe.prefilteredMap !== null
+			);
+
+			assert.equal(probe.prefilteredMap, prefilteredTexture);
+			assert.equal(probe.capture.prefilteredTexture, prefilteredTexture);
+			assert.equal(prefilteredTexture.width, 1);
+			assert.equal(prefilteredTexture.height, 1);
+			assert.ok(prefilteredTexture.data instanceof Float32Array);
+			assert.equal(prefilteredTexture.data[0], 4);
+			assert.equal(rawTexture.width, 16);
+			assert.equal(cubeTexture.width, 4);
 		}
 	);
 }
@@ -282,7 +392,9 @@ async function testGridOnSceneDirtyCaptureDoesNotSelfTriggerOrStarveCells() {
 
 async function run() {
 	await testLightProbeManualCaptureProjectsSHWithoutPrefilter();
+	await testLightProbeCaptureWritesBoundTextures();
 	await testSharedCaptureUpdatesLightAndReflectionProbe();
+	await testReflectionProbeCaptureWritesBoundPrefilteredTexture();
 	await testSharedCaptureSkipsStaleLightProbeResult();
 	await testGridManualCellAndWholeGridCaptureRequests();
 	await testGridOnSceneDirtyCaptureDoesNotSelfTriggerOrStarveCells();

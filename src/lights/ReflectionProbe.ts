@@ -4,6 +4,7 @@ import { Matrix4 } from "../maths/Matrix4";
 import type { IVector3 } from "../maths/types";
 import { Vector3 } from "../maths/Vector3";
 import { Light, LightType, type LightParams } from "./Light";
+import { ReflectionProbeCaptureController } from "./ProbeCaptureController";
 
 export type ReflectionProbeShape = "sphere" | "box";
 export type ReflectionProbeParallaxMode = "off" | "box" | "sphere";
@@ -75,6 +76,7 @@ export class ReflectionProbe extends Light<LightType.ReflectionProbe> {
 	public includeTransparent: boolean;
 	public includeParticles: boolean;
 	public includeShadows: boolean;
+	public readonly capture: ReflectionProbeCaptureController;
 
 	private _runtimeCache: ReflectionProbeRuntimeCache;
 	private _runtimeDirty = true;
@@ -91,33 +93,28 @@ export class ReflectionProbe extends Light<LightType.ReflectionProbe> {
 	constructor(params: ReflectionProbeParams = {}) {
 		super(LightType.ReflectionProbe, params);
 		this.shape = params.shape ?? "sphere";
-		this.radius = Math.max(
-			REFLECTION_PROBE_NUMERIC_EPSILON,
-			params.radius ?? 5
-		);
+		this.radius = Math.max(REFLECTION_PROBE_NUMERIC_EPSILON, params.radius ?? 5);
 		this.halfExtents = new Vector3();
 		this.halfExtents.copy(params.halfExtents ?? { x: 5, y: 5, z: 5 });
 		this.blendDistance = Math.max(0, params.blendDistance ?? 0.15);
 		this.blendExponent = sanitizeBlendExponent(params.blendExponent ?? 1);
-		this.parallaxMode =
-			params.parallaxMode ?? (this.shape === "box" ? "box" : "off");
+		this.parallaxMode = params.parallaxMode ?? (this.shape === "box" ? "box" : "off");
 		this.prefilteredMap = params.prefilteredMap ?? null;
 		this.source = sanitizeReflectionProbeSource(params.source ?? "environment");
 		this.captureUpdateMode = sanitizeCaptureUpdateMode(
-			params.captureUpdateMode ?? "onSceneDirty"
+			params.captureUpdateMode ?? "onSceneDirty",
 		);
 		this.captureIntervalSeconds = sanitizeCaptureIntervalSeconds(
-			params.captureIntervalSeconds ?? 1
+			params.captureIntervalSeconds ?? 1,
 		);
-		this.captureResolution = sanitizeCaptureResolution(
-			params.captureResolution
-		);
+		this.captureResolution = sanitizeCaptureResolution(params.captureResolution);
 		this.captureFar = sanitizeCaptureFar(params.captureFar ?? 200);
 		this.includeEnvironment = params.includeEnvironment ?? true;
 		this.includeMeshes = params.includeMeshes ?? true;
 		this.includeTransparent = params.includeTransparent ?? true;
 		this.includeParticles = params.includeParticles ?? true;
 		this.includeShadows = params.includeShadows ?? true;
+		this.capture = new ReflectionProbeCaptureController();
 
 		this._runtimeCache = {
 			probeToWorldMatrix: Matrix4.identity(),
@@ -228,10 +225,7 @@ export class ReflectionProbe extends Light<LightType.ReflectionProbe> {
 		const world = this.worldMatrix;
 		world.copyTo(this._runtimeCache.probeToWorldMatrix);
 
-		const inverse3x3 = Matrix4.inverse3x3(
-			world,
-			this._runtimeCache.worldToProbe3x3
-		);
+		const inverse3x3 = Matrix4.inverse3x3(world, this._runtimeCache.worldToProbe3x3);
 		if (inverse3x3) {
 			this._runtimeCache.worldToProbe3x3.copy(inverse3x3);
 		} else {
@@ -258,18 +252,21 @@ export class ReflectionProbe extends Light<LightType.ReflectionProbe> {
 		const tx = worldElements[0][3];
 		const ty = worldElements[1][3];
 		const tz = worldElements[2][3];
-		worldToProbe[0][3] =
-			-(inverseElements[0][0] * tx +
-				inverseElements[0][1] * ty +
-				inverseElements[0][2] * tz);
-		worldToProbe[1][3] =
-			-(inverseElements[1][0] * tx +
-				inverseElements[1][1] * ty +
-				inverseElements[1][2] * tz);
-		worldToProbe[2][3] =
-			-(inverseElements[2][0] * tx +
-				inverseElements[2][1] * ty +
-				inverseElements[2][2] * tz);
+		worldToProbe[0][3] = -(
+			inverseElements[0][0] * tx +
+			inverseElements[0][1] * ty +
+			inverseElements[0][2] * tz
+		);
+		worldToProbe[1][3] = -(
+			inverseElements[1][0] * tx +
+			inverseElements[1][1] * ty +
+			inverseElements[1][2] * tz
+		);
+		worldToProbe[2][3] = -(
+			inverseElements[2][0] * tx +
+			inverseElements[2][1] * ty +
+			inverseElements[2][2] * tz
+		);
 
 		const probePosition = this._runtimeCache.probeWorldPosition;
 		const worldPosition = Matrix4.transformPoint(world, { x: 0, y: 0, z: 0 });
@@ -278,26 +275,14 @@ export class ReflectionProbe extends Light<LightType.ReflectionProbe> {
 		probePosition.z = worldPosition.z;
 		resolveCaptureWorldPosition(this, this._runtimeCache.captureWorldPosition);
 
-		const safeHalfX = Math.max(
-			Math.abs(this.halfExtents.x),
-			REFLECTION_PROBE_NUMERIC_EPSILON
-		);
-		const safeHalfY = Math.max(
-			Math.abs(this.halfExtents.y),
-			REFLECTION_PROBE_NUMERIC_EPSILON
-		);
-		const safeHalfZ = Math.max(
-			Math.abs(this.halfExtents.z),
-			REFLECTION_PROBE_NUMERIC_EPSILON
-		);
+		const safeHalfX = Math.max(Math.abs(this.halfExtents.x), REFLECTION_PROBE_NUMERIC_EPSILON);
+		const safeHalfY = Math.max(Math.abs(this.halfExtents.y), REFLECTION_PROBE_NUMERIC_EPSILON);
+		const safeHalfZ = Math.max(Math.abs(this.halfExtents.z), REFLECTION_PROBE_NUMERIC_EPSILON);
 		this._runtimeCache.invHalfExtents.x = 1 / safeHalfX;
 		this._runtimeCache.invHalfExtents.y = 1 / safeHalfY;
 		this._runtimeCache.invHalfExtents.z = 1 / safeHalfZ;
 
-		const safeRadius = Math.max(
-			Math.abs(this.radius),
-			REFLECTION_PROBE_NUMERIC_EPSILON
-		);
+		const safeRadius = Math.max(Math.abs(this.radius), REFLECTION_PROBE_NUMERIC_EPSILON);
 		this._runtimeCache.radiusInv = 1 / safeRadius;
 		this._runtimeCache.blendExponent = sanitizeBlendExponent(this.blendExponent);
 
@@ -305,13 +290,9 @@ export class ReflectionProbe extends Light<LightType.ReflectionProbe> {
 			this.shape === "box" ? Math.max(safeHalfX, safeHalfY, safeHalfZ) : safeRadius;
 		const blendFloor = Math.max(
 			REFLECTION_PROBE_MIN_BLEND_DISTANCE,
-			probeSizeMetric * REFLECTION_PROBE_BLEND_FLOOR_RATIO
+			probeSizeMetric * REFLECTION_PROBE_BLEND_FLOOR_RATIO,
 		);
-		this._runtimeCache.effectiveBlendDistance = Math.max(
-			0,
-			this.blendDistance,
-			blendFloor
-		);
+		this._runtimeCache.effectiveBlendDistance = Math.max(0, this.blendDistance, blendFloor);
 
 		this._lastShape = this.shape;
 		this._lastRadius = this.radius;

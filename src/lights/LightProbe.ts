@@ -4,6 +4,7 @@ import { SH } from "../maths/SH";
 import type { IVector3, SHCoefficients } from "../maths/types";
 import { Vector3 } from "../maths/Vector3";
 import { Light, LightType, type LightParams } from "./Light";
+import { ProbeCaptureController } from "./ProbeCaptureController";
 
 export type LightProbeShape = "global" | "sphere" | "box";
 export type LightProbeSource =
@@ -85,6 +86,8 @@ export class LightProbe extends Light<LightType.LightProbe> {
 	public includeParticles: boolean;
 	/** Whether capture includes shadowed lighting where supported. */
 	public includeShadows: boolean;
+	/** Runtime texture output bindings for captured-scene updates. */
+	public readonly capture: ProbeCaptureController;
 
 	private _runtimeCache: LightProbeRuntimeCache;
 	private _runtimeDirty = true;
@@ -113,30 +116,25 @@ export class LightProbe extends Light<LightType.LightProbe> {
 		this.radius = sanitizeLightProbeRadius(resolvedParams.radius ?? 5);
 		this.halfExtents = new Vector3();
 		this.halfExtents.copy(sanitizeHalfExtents(resolvedParams.halfExtents));
-		this.blendDistance = sanitizeLightProbeBlendDistance(
-			resolvedParams.blendDistance ?? 0.15
-		);
+		this.blendDistance = sanitizeLightProbeBlendDistance(resolvedParams.blendDistance ?? 0.15);
 		this.priority = sanitizeLightProbePriority(resolvedParams.priority ?? 0);
-		this.source = sanitizeLightProbeSource(
-			resolvedParams.source ?? "environment"
-		);
+		this.source = sanitizeLightProbeSource(resolvedParams.source ?? "environment");
 		this.captureUpdateMode = sanitizeLightProbeCaptureUpdateMode(
-			resolvedParams.captureUpdateMode ?? "onSceneDirty"
+			resolvedParams.captureUpdateMode ?? "onSceneDirty",
 		);
 		this.captureIntervalSeconds = sanitizeLightProbeCaptureIntervalSeconds(
-			resolvedParams.captureIntervalSeconds ?? 1
+			resolvedParams.captureIntervalSeconds ?? 1,
 		);
 		this.captureResolution = sanitizeLightProbeCaptureResolution(
-			resolvedParams.captureResolution
+			resolvedParams.captureResolution,
 		);
-		this.captureFar = sanitizeLightProbeCaptureFar(
-			resolvedParams.captureFar ?? 200
-		);
+		this.captureFar = sanitizeLightProbeCaptureFar(resolvedParams.captureFar ?? 200);
 		this.includeEnvironment = resolvedParams.includeEnvironment ?? true;
 		this.includeMeshes = resolvedParams.includeMeshes ?? true;
 		this.includeTransparent = resolvedParams.includeTransparent ?? true;
 		this.includeParticles = resolvedParams.includeParticles ?? true;
 		this.includeShadows = resolvedParams.includeShadows ?? true;
+		this.capture = new ProbeCaptureController();
 
 		this._runtimeCache = {
 			probeToWorldMatrix: Matrix4.identity(),
@@ -178,21 +176,14 @@ export class LightProbe extends Light<LightType.LightProbe> {
 			this.shape = sanitizeLightProbeShape(source.shape);
 			this.radius = sanitizeLightProbeRadius(source.radius);
 			this.halfExtents.copy(sanitizeHalfExtents(source.halfExtents));
-			this.blendDistance = sanitizeLightProbeBlendDistance(
-				source.blendDistance
-			);
+			this.blendDistance = sanitizeLightProbeBlendDistance(source.blendDistance);
 			this.priority = sanitizeLightProbePriority(source.priority);
 			this.source = sanitizeLightProbeSource(source.source);
-			this.captureUpdateMode = sanitizeLightProbeCaptureUpdateMode(
-				source.captureUpdateMode
+			this.captureUpdateMode = sanitizeLightProbeCaptureUpdateMode(source.captureUpdateMode);
+			this.captureIntervalSeconds = sanitizeLightProbeCaptureIntervalSeconds(
+				source.captureIntervalSeconds,
 			);
-			this.captureIntervalSeconds =
-				sanitizeLightProbeCaptureIntervalSeconds(
-					source.captureIntervalSeconds
-				);
-			this.captureResolution = sanitizeLightProbeCaptureResolution(
-				source.captureResolution
-			);
+			this.captureResolution = sanitizeLightProbeCaptureResolution(source.captureResolution);
 			this.captureFar = sanitizeLightProbeCaptureFar(source.captureFar);
 			this.includeEnvironment = source.includeEnvironment;
 			this.includeMeshes = source.includeMeshes;
@@ -311,10 +302,7 @@ export class LightProbe extends Light<LightType.LightProbe> {
 		const world = this.worldMatrix;
 		world.copyTo(this._runtimeCache.probeToWorldMatrix);
 
-		const inverse3x3 = Matrix4.inverse3x3(
-			world,
-			this._runtimeCache.worldToProbe3x3
-		);
+		const inverse3x3 = Matrix4.inverse3x3(world, this._runtimeCache.worldToProbe3x3);
 		if (inverse3x3) {
 			this._runtimeCache.worldToProbe3x3.copy(inverse3x3);
 		} else {
@@ -341,18 +329,21 @@ export class LightProbe extends Light<LightType.LightProbe> {
 		const tx = worldElements[0][3];
 		const ty = worldElements[1][3];
 		const tz = worldElements[2][3];
-		worldToProbe[0][3] =
-			-(inverseElements[0][0] * tx +
-				inverseElements[0][1] * ty +
-				inverseElements[0][2] * tz);
-		worldToProbe[1][3] =
-			-(inverseElements[1][0] * tx +
-				inverseElements[1][1] * ty +
-				inverseElements[1][2] * tz);
-		worldToProbe[2][3] =
-			-(inverseElements[2][0] * tx +
-				inverseElements[2][1] * ty +
-				inverseElements[2][2] * tz);
+		worldToProbe[0][3] = -(
+			inverseElements[0][0] * tx +
+			inverseElements[0][1] * ty +
+			inverseElements[0][2] * tz
+		);
+		worldToProbe[1][3] = -(
+			inverseElements[1][0] * tx +
+			inverseElements[1][1] * ty +
+			inverseElements[1][2] * tz
+		);
+		worldToProbe[2][3] = -(
+			inverseElements[2][0] * tx +
+			inverseElements[2][1] * ty +
+			inverseElements[2][2] * tz
+		);
 
 		const probePosition = Matrix4.transformPoint(world, { x: 0, y: 0, z: 0 });
 		this._runtimeCache.probeWorldPosition.x = probePosition.x;
@@ -370,21 +361,17 @@ export class LightProbe extends Light<LightType.LightProbe> {
 
 		const resolvedShape = sanitizeLightProbeShape(this.shape);
 		const probeSizeMetric =
-			resolvedShape === "box" ?
-				Math.max(
-					safeHalfExtents.x,
-					safeHalfExtents.y,
-					safeHalfExtents.z
-				)
-			: safeRadius;
+			resolvedShape === "box"
+				? Math.max(safeHalfExtents.x, safeHalfExtents.y, safeHalfExtents.z)
+				: safeRadius;
 		const blendFloor = Math.max(
 			LIGHT_PROBE_MIN_BLEND_DISTANCE,
-			probeSizeMetric * LIGHT_PROBE_BLEND_FLOOR_RATIO
+			probeSizeMetric * LIGHT_PROBE_BLEND_FLOOR_RATIO,
 		);
 		this._runtimeCache.effectiveBlendDistance = Math.max(
 			0,
 			sanitizeLightProbeBlendDistance(this.blendDistance),
-			blendFloor
+			blendFloor,
 		);
 
 		this._lastShape = this.shape;

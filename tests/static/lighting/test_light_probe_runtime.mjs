@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { CubeTexture } from "../../../src/core/CubeTexture.ts";
+import { Texture } from "../../../src/core/Texture.ts";
 import { LightProbe } from "../../../src/lights/LightProbe.ts";
 import { Matrix3 } from "../../../src/maths/Matrix3.ts";
 import { SH } from "../../../src/maths/SH.ts";
@@ -36,6 +38,14 @@ function createLocalizedProbe({
 	probe.updateWorldMatrix();
 	probe.markRuntimeDirty();
 	return probe;
+}
+
+function createCubeTexture() {
+	return new CubeTexture({
+		faces: Array.from({ length: 6 }, () => new Float32Array([0, 0, 0, 1])),
+		size: 1,
+		colorSpace: "HDR",
+	});
 }
 
 function testConstructorAndLocalizedClone() {
@@ -82,6 +92,34 @@ function testConstructorAndLocalizedClone() {
 	assert.notEqual(cloned.sh, probe.sh);
 	cloned.sh[0].r = 99;
 	assert.notEqual(cloned.sh[0].r, probe.sh[0].r);
+	assert.equal(cloned.capture.rawTexture, null);
+	assert.equal(cloned.capture.cubeTexture, null);
+}
+
+function testCaptureOutputBindingsAreRuntimeOnly() {
+	const probe = new LightProbe({});
+	const rawA = new Texture(null, 0, 0, "HDR");
+	const rawB = new Texture(null, 0, 0, "HDR");
+	const cube = createCubeTexture();
+
+	assert.equal(probe.capture.bindRawTexture(rawA), probe.capture);
+	probe.capture.bindCubeTexture(cube);
+	assert.equal(probe.capture.rawTexture, rawA);
+	assert.equal(probe.capture.cubeTexture, cube);
+
+	probe.capture.bindRawTexture(rawB);
+	assert.equal(probe.capture.rawTexture, rawB);
+
+	probe.capture.clearOutputs();
+	assert.equal(probe.capture.rawTexture, null);
+	assert.equal(probe.capture.cubeTexture, null);
+
+	const source = new LightProbe({});
+	source.capture.bindRawTexture(rawA).bindCubeTexture(cube);
+	const target = new LightProbe({});
+	target.copy(source);
+	assert.equal(target.capture.rawTexture, null);
+	assert.equal(target.capture.cubeTexture, null);
 }
 
 function testCopyPreservesLocalizedState() {
@@ -208,6 +246,7 @@ function testCollectionSeparatesGlobalAndLocalizedProbes() {
 
 function run() {
 	testConstructorAndLocalizedClone();
+	testCaptureOutputBindingsAreRuntimeOnly();
 	testCopyPreservesLocalizedState();
 	testMetricAndBlendCurve();
 	testPrioritySelectionAndTieBreak();

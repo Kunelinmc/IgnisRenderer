@@ -195,6 +195,20 @@ function testRuntimeCacheDirtyBehavior() {
 
 function testReflectionProbeCaptureDefaultsAndClone() {
 	const probe = new ReflectionProbe();
+	const rawTexture = new Texture(null, 0, 0, "HDR");
+	const cubeTexture = createTinyCubeTexture([
+		new Float32Array([0, 0, 0, 1]),
+		new Float32Array([0, 0, 0, 1]),
+		new Float32Array([0, 0, 0, 1]),
+		new Float32Array([0, 0, 0, 1]),
+		new Float32Array([0, 0, 0, 1]),
+		new Float32Array([0, 0, 0, 1]),
+	]);
+	const prefilteredTexture = new Texture(null, 0, 0, "HDR");
+	probe.capture
+		.bindRawTexture(rawTexture)
+		.bindCubeTexture(cubeTexture)
+		.bindPrefilteredTexture(prefilteredTexture);
 	assert.equal(probe.source, "environment");
 	assert.equal(probe.captureUpdateMode, "onSceneDirty");
 	assert.equal(probe.captureIntervalSeconds, 1);
@@ -219,6 +233,63 @@ function testReflectionProbeCaptureDefaultsAndClone() {
 	assert.equal(cloned.includeTransparent, probe.includeTransparent);
 	assert.equal(cloned.includeParticles, probe.includeParticles);
 	assert.equal(cloned.includeShadows, probe.includeShadows);
+	assert.equal(cloned.capture.rawTexture, null);
+	assert.equal(cloned.capture.cubeTexture, null);
+	assert.equal(cloned.capture.prefilteredTexture, null);
+}
+
+function testReflectionProbeCaptureOutputBindingsCanBeCleared() {
+	const probe = new ReflectionProbe();
+	const rawTexture = new Texture(null, 0, 0, "HDR");
+	const cubeTexture = createTinyCubeTexture([
+		new Float32Array([0, 0, 0, 1]),
+		new Float32Array([0, 0, 0, 1]),
+		new Float32Array([0, 0, 0, 1]),
+		new Float32Array([0, 0, 0, 1]),
+		new Float32Array([0, 0, 0, 1]),
+		new Float32Array([0, 0, 0, 1]),
+	]);
+	const prefilteredTexture = new Texture(null, 0, 0, "HDR");
+
+	probe.capture
+		.bindRawTexture(rawTexture)
+		.bindCubeTexture(cubeTexture)
+		.bindPrefilteredTexture(prefilteredTexture);
+	assert.equal(probe.capture.rawTexture, rawTexture);
+	assert.equal(probe.capture.cubeTexture, cubeTexture);
+	assert.equal(probe.capture.prefilteredTexture, prefilteredTexture);
+
+	probe.capture.bindPrefilteredTexture(null);
+	assert.equal(probe.capture.prefilteredTexture, null);
+
+	probe.capture.clearOutputs();
+	assert.equal(probe.capture.rawTexture, null);
+	assert.equal(probe.capture.cubeTexture, null);
+	assert.equal(probe.capture.prefilteredTexture, null);
+}
+
+function testCubeTextureReplaceFacesSupportsResize() {
+	const cube = createTinyCubeTexture([
+		new Float32Array([0, 0, 0, 1]),
+		new Float32Array([0, 0, 0, 1]),
+		new Float32Array([0, 0, 0, 1]),
+		new Float32Array([0, 0, 0, 1]),
+		new Float32Array([0, 0, 0, 1]),
+		new Float32Array([0, 0, 0, 1]),
+	]);
+	const initialVersion = cube.version;
+	const faces = Array.from(
+		{ length: 6 },
+		(_, index) => new Float32Array(2 * 2 * 4).fill(index + 1)
+	);
+
+	cube.replaceFaces({ faces, size: 2, colorSpace: "HDR" });
+
+	assert.equal(cube.width, 2);
+	assert.equal(cube.height, 2);
+	assert.equal(cube.colorSpace, "HDR");
+	assert.ok(cube.version > initialVersion);
+	assert.equal(cube.getFaces()[5][0], 6);
 }
 
 function testReflectionProbeRequestCaptureFlags() {
@@ -413,6 +484,8 @@ function run() {
 	testCaptureOriginUsesParentPositionWhenParentedToModelNode();
 	testRuntimeCacheDirtyBehavior();
 	testReflectionProbeCaptureDefaultsAndClone();
+	testReflectionProbeCaptureOutputBindingsCanBeCleared();
+	testCubeTextureReplaceFacesSupportsResize();
 	testReflectionProbeRequestCaptureFlags();
 	testCubemapSpecularSamplingAndAtlasBuild();
 	testAtlasCacheInvalidatesWhenProbeTextureObjectChanges();

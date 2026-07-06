@@ -1,5 +1,7 @@
 import type { Scene } from "../../core/Scene";
+import type { CubeTextureFaceData } from "../../core/CubeTexture";
 import { Texture } from "../../core/Texture";
+import type { TextureMipLevel } from "../../core/Texture";
 import { Logger } from "../../foundation/Logger";
 import {
 	LightType,
@@ -525,10 +527,18 @@ export class ProbeCaptureRuntime {
 			if (!probe || !this._isTargetFresh(task, target, probe)) {
 				continue;
 			}
+			writeProbeCaptureTextureOutputs(probe, task, environmentMap);
 			if (target.kind === "reflection") {
 				if (!prefilteredMap) continue;
 				const reflectionProbe = probe as ReflectionProbe;
-				reflectionProbe.prefilteredMap = prefilteredMap;
+				const boundPrefiltered =
+					reflectionProbe.capture.prefilteredTexture;
+				if (boundPrefiltered) {
+					copyTexturePayload(boundPrefiltered, prefilteredMap);
+					reflectionProbe.prefilteredMap = boundPrefiltered;
+				} else {
+					reflectionProbe.prefilteredMap = prefilteredMap;
+				}
 				reflectionProbe.markCaptureUpdated();
 				reflectionProbe.markRuntimeDirty();
 				task.scene.invalidate("reflection-probe");
@@ -978,6 +988,71 @@ function buildCapturedEnvironmentMap(task: CaptureTaskState): Texture | null {
 	texture.minFilter = "Linear";
 	texture.magFilter = "Linear";
 	return texture;
+}
+
+function writeProbeCaptureTextureOutputs(
+	probe: ReflectionProbe | LightProbe | IrradianceProbeGrid,
+	task: CaptureTaskState,
+	environmentMap: Texture
+): void {
+	if (
+		probe.type !== LightType.ReflectionProbe &&
+		probe.type !== LightType.LightProbe
+	) {
+		return;
+	}
+	const output = probe.capture;
+	const cubeTexture = output.cubeTexture;
+	if (cubeTexture) {
+		const faces = collectCapturedCubeFaces(task);
+		if (faces) {
+			cubeTexture.replaceFaces({
+				faces,
+				size: task.faceSize,
+				colorSpace: "HDR",
+			});
+		}
+	}
+	const rawTexture = output.rawTexture;
+	if (rawTexture) {
+		copyTexturePayload(rawTexture, environmentMap);
+	}
+}
+
+function collectCapturedCubeFaces(
+	task: CaptureTaskState
+): CubeTextureFaceData[] | null {
+	const faces: CubeTextureFaceData[] = [];
+	for (let faceIndex = 0; faceIndex < 6; faceIndex++) {
+		const faceData = task.capturedFaces[faceIndex];
+		if (!faceData) {
+			return null;
+		}
+		faces.push(faceData);
+	}
+	return faces;
+}
+
+function copyTexturePayload(target: Texture, source: Texture): void {
+	target.colorSpace = source.colorSpace;
+	target.format = source.format;
+	target.formatExplicit = source.formatExplicit;
+	target.wrapS = source.wrapS;
+	target.wrapT = source.wrapT;
+	target.minFilter = source.minFilter;
+	target.magFilter = source.magFilter;
+	target.setMipLevels(cloneTextureLevels(source.levels));
+}
+
+function cloneTextureLevels(levels: TextureMipLevel[]): TextureMipLevel[] {
+	return levels.map((level) => ({
+		data: level.data,
+		width: level.width,
+		height: level.height,
+		depthOrArrayLayers: level.depthOrArrayLayers,
+		bytesPerRow: level.bytesPerRow,
+		rowsPerImage: level.rowsPerImage,
+	}));
 }
 
 function copySHCoefficients(

@@ -1,6 +1,7 @@
 import { clamp } from "../maths/Common";
 import type { RGBA } from "../foundation/Color";
 import type { IVector3 } from "../maths/types";
+import { TextureFormat } from "../renderers/types";
 import { Texture, type TextureColorSpace } from "./Texture";
 
 export type CubeTextureFaceData = Uint8Array | Uint8ClampedArray | Float32Array;
@@ -93,6 +94,26 @@ export class CubeTexture extends Texture {
 		this.data = null;
 		this.mipmaps = [];
 		this.markNeedsUpdate();
+	}
+
+	/**
+	 * Replaces all cubemap faces and allows the texture size to change.
+	 */
+	public replaceFaces(params: CubeTextureParams): void {
+		const inferredSize = inferCubeFaceSize(params.faces);
+		const requestedSize =
+			typeof params.size === "number" && Number.isFinite(params.size) ?
+				Math.max(CUBE_TEXTURE_MIN_SIZE, Math.floor(params.size))
+			:	inferredSize;
+		this.width = requestedSize;
+		this.height = requestedSize;
+		this.colorSpace = params.colorSpace ?? this.colorSpace;
+		this.format =
+			this.colorSpace === "HDR" ?
+				TextureFormat.RGBA16Float
+			:	TextureFormat.RGBA8Unorm;
+		this.formatExplicit = false;
+		this.setFaces(params.faces, params.faceMipmaps);
 	}
 
 	public sampleDirectionRaw(direction: IVector3, level = 0): RGBA {

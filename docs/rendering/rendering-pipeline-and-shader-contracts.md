@@ -142,6 +142,12 @@ The renderer frame pipeline must preserve this logical order:
   `prefilterEnvironmentIBL` explicitly for specular IBL textures.
 - Applications and tools must invoke `projectEnvironmentTextureToSH` explicitly
   for environment SH coefficients.
+- Captured-scene `LightProbe` and `ReflectionProbe` instances may expose
+  user-owned backend-agnostic `Texture` or `CubeTexture` outputs through
+  `probe.capture`.
+- Probe capture texture outputs must preserve user-owned object identity and
+  must not expose backend-native texture handles or backend `IRenderTexture`
+  objects through public probe APIs.
 
 ### Performance and Resource Contract
 
