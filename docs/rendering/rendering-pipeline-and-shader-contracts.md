@@ -61,6 +61,15 @@ The renderer frame pipeline must preserve this logical order:
   bypass sRGB decoding.
 - The default PBR model must use GGX NDF, Smith-Schlick geometry, and
   Fresnel-Schlick.
+- WebGPU scene lights must be normalized once per frame into an internal
+  lighting catalog before feature-specific GPU views are derived.
+- WebGPU non-core lighting features, such as clustered lighting and volumetric
+  lighting, must consume internal frame feature data derived from the resolved
+  catalog or effective surface-lighting view. They must not rescan
+  `scene.lights` or add feature-owned light lists to `WebGPULightingState`.
+- WebGPU volumetric lighting must follow the effective surface-lighting view.
+  Its implementation light cap may limit sampling/storage work, but it must not
+  make unsupported or rejected scene lights affect volumetric results.
 
 ### Vertex Layout Contract
 

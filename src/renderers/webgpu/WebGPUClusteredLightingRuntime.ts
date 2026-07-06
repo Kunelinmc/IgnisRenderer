@@ -37,9 +37,10 @@ import {
 } from "./constants";
 import type {
 	WebGPUClusteredCullingMode,
+	WebGPUClusteredLightingData,
 	WebGPUClusterGridParams,
 	WebGPUFeatureState,
-	WebGPULightingState,
+	WebGPUClusteredLightUniform,
 } from "./types";
 
 export interface ComputePassBinding {
@@ -250,7 +251,7 @@ export class WebGPUClusteredLightingRuntime {
 	public prepareFrame(
 		frame: PreparedScene,
 		features: WebGPUFeatureState,
-		lighting: WebGPULightingState | null,
+		lighting: WebGPUClusteredLightingData | null,
 		renderWidth: number,
 		renderHeight: number
 	): void {
@@ -316,9 +317,14 @@ export class WebGPUClusteredLightingRuntime {
 			features.enableLighting &&
 			isPerspective &&
 			logDenom > 1e-6;
-		const sourceLights = lighting?.clusteredLights ?? [];
+		const sourceLights = lighting?.lights ?? [];
 		const maxLights = canCluster ? Math.min(sourceLights.length, maxLightBudget) : 0;
-		if (sourceLights.length > maxLightBudget) {
+		if (
+			sourceLights.length > maxLightBudget &&
+			!(lighting?.warnings ?? []).some(
+				(warning) => warning.key === "webgpu-clustered-light-budget"
+			)
+		) {
 			this._warnOnce(
 				"webgpu-clustered-light-budget",
 				`WebGPU clustered lighting clamps lights to ${maxLightBudget}; extra lights are skipped`,
@@ -690,7 +696,7 @@ export class WebGPUClusteredLightingRuntime {
 
 	private _packFrameData(
 		frame: PreparedScene,
-		lights: WebGPULightingState["clusteredLights"],
+		lights: readonly WebGPUClusteredLightUniform[],
 		count: number,
 		params: WebGPUClusterGridParams,
 		mode: WebGPUClusteredCullingMode

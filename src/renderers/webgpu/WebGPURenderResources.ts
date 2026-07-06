@@ -41,12 +41,19 @@ import {
 } from "../../simulation/animation/types";
 import {
 	collectWebGPUEnvironment,
-	collectWebGPULighting,
+	collectWebGPULightingCatalog,
+	createWebGPULightingState,
 	createWebGPUMaterialUniformData,
 	type WebGPUEnvironmentState,
 	type WebGPUFeatureState,
 	type WebGPULightingState,
 } from "./";
+import type { WebGPUFrameFeatureDataStore } from "./FrameFeatures";
+import {
+	WEBGPU_CLUSTERED_LIGHTING_DATA,
+	canPrepareClusteredLighting,
+	createWebGPUFrameFeatureRegistry,
+} from "./WebGPUFrameFeatureModules";
 import { createWebGPUPipelineLayouts } from "./WebGPUPipelineLayouts";
 import {
 	WebGPUFrameBindingCache,
@@ -213,6 +220,7 @@ export interface WebGPUPreparedFrameResources {
 	environmentBinding: IBindingGroup;
 	clusteredSceneBinding: IBindingGroup;
 	readonly lightingState: WebGPULightingState;
+	readonly featureData: WebGPUFrameFeatureDataStore;
 	readonly featureState: WebGPUFeatureState;
 	readonly environmentState: WebGPUEnvironmentState;
 	readonly jointMatrixMap: JointMatrixMap | null;
@@ -236,6 +244,7 @@ export class WebGPURenderResources {
 	private _materialBindings: WebGPUMaterialBindingCache;
 	private _shadowPass: WebGPUShadowPass;
 	private _pagedShadowRuntime: WebGPUPagedShadowRuntime;
+	private _frameFeatureRegistry = createWebGPUFrameFeatureRegistry();
 	private _frameScopes = new Map<string, WebGPUFrameResourceScope>();
 	private _particleShaderModule: IShaderModule | null = null;
 	private _decalShaderModule: IShaderModule | null = null;
@@ -617,15 +626,38 @@ export class WebGPURenderResources {
 			shadowTransmitterPackets,
 		});
 
-		const lightingState = collectWebGPULighting(
+		const lightingCatalog = collectWebGPULightingCatalog(
 			scene.lights,
 			features.enableLighting,
 			features.enableSH,
 			features.enableShadows,
-			shadowMaps,
-			featureState.enableClusteredLighting
+			shadowMaps
+		);
+		const enableClusteredSurfaceLighting = canPrepareClusteredLighting({
+			scene,
+			featureState,
+		});
+		const lightingState = createWebGPULightingState(
+			lightingCatalog,
+			enableClusteredSurfaceLighting
 		);
 		for (const warning of lightingState.warnings) {
+			Logger.warn(`[${warning.key}] ${warning.message}`, {
+				scope: "WebGPURenderResources",
+			});
+		}
+		const featureData = this._frameFeatureRegistry.prepareFrame({
+			frameContext: context,
+			scene,
+			featureState,
+			lightingCatalog,
+			lightingState,
+			renderWidth,
+			renderHeight,
+		});
+		const clusteredLightingData =
+			featureData.get(WEBGPU_CLUSTERED_LIGHTING_DATA) ?? null;
+		for (const warning of clusteredLightingData?.warnings ?? []) {
 			Logger.warn(`[${warning.key}] ${warning.message}`, {
 				scope: "WebGPURenderResources",
 			});
@@ -663,7 +695,7 @@ export class WebGPURenderResources {
 		scope.clusteredLighting.prepareFrame(
 			scene,
 			featureState,
-			lightingState,
+			clusteredLightingData,
 			renderWidth,
 			renderHeight
 		);
@@ -676,6 +708,7 @@ export class WebGPURenderResources {
 			environmentBinding: scope.frameBindings.getEnvironmentBinding(),
 			clusteredSceneBinding: scope.clusteredLighting.getSceneBinding(),
 			lightingState,
+			featureData,
 			featureState,
 			environmentState,
 			jointMatrixMap,
@@ -1029,6 +1062,7 @@ export class WebGPURenderResources {
 		this._particleInstanceCapacity = 0;
 		this._destroyBindingGroup(this._deferredUnusedBinding);
 		this._deferredUnusedBinding = null;
+		this._frameFeatureRegistry.destroy();
 		for (const scope of this._frameScopes.values()) {
 			scope.frameBindings.destroy();
 			scope.clusteredLighting.destroy();

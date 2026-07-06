@@ -328,7 +328,7 @@ function testRuntimeWritesClampedActiveLightCount() {
 			},
 		},
 		{
-			clusteredLights: [
+			lights: [
 				createClusteredLight(0),
 				createClusteredLight(1),
 				createClusteredLight(2),
@@ -374,7 +374,7 @@ function testRuntimeWritesClusteredAreaSoAData() {
 			},
 		},
 		{
-			clusteredLights: [createClusteredAreaLight()],
+			lights: [createClusteredAreaLight()],
 		},
 		128,
 		128
@@ -455,7 +455,7 @@ async function testRuntimeDispatchesGatherComputePasses() {
 			},
 		},
 		{
-			clusteredLights: [createClusteredLight(0), createClusteredLight(1)],
+			lights: [createClusteredLight(0), createClusteredLight(1)],
 		},
 		128,
 		128
@@ -500,7 +500,7 @@ async function testRuntimeRetainsScatterABPath() {
 				zSlices: 4,
 			},
 		},
-		{ clusteredLights: [createClusteredLight(0)] },
+		{ lights: [createClusteredLight(0)] },
 		128,
 		128
 	);
@@ -532,11 +532,11 @@ async function testRuntimeSkipsStaticCullAndSelectiveUploads() {
 			zSlices: 4,
 		},
 	};
-	runtime.prepareFrame(frame, features, { clusteredLights: [light] }, 128, 128);
+	runtime.prepareFrame(frame, features, { lights: [light] }, 128, 128);
 	await runtime.build(new ClusteredCommandEncoder(), {});
 	const writesAfterFirstFrame = compute.writes.length;
 	const staticEncoder = new ClusteredCommandEncoder();
-	runtime.prepareFrame(frame, features, { clusteredLights: [light] }, 128, 128);
+	runtime.prepareFrame(frame, features, { lights: [light] }, 128, 128);
 	await runtime.build(staticEncoder, {});
 	assert.equal(compute.writes.length, writesAfterFirstFrame);
 	assert.equal(staticEncoder.calls.length, 0);
@@ -544,7 +544,7 @@ async function testRuntimeSkipsStaticCullAndSelectiveUploads() {
 	light.color = [2, 2, 2];
 	const writesBeforeColor = compute.writes.length;
 	const colorEncoder = new ClusteredCommandEncoder();
-	runtime.prepareFrame(frame, features, { clusteredLights: [light] }, 128, 128);
+	runtime.prepareFrame(frame, features, { lights: [light] }, 128, 128);
 	await runtime.build(colorEncoder, {});
 	assert.deepEqual(
 		compute.writes.slice(writesBeforeColor).map((write) => write.buffer.label),
@@ -563,7 +563,7 @@ async function testRuntimeSkipsStaticCullAndSelectiveUploads() {
 				cullingMode: "scatter",
 			},
 		},
-		{ clusteredLights: [light] },
+		{ lights: [light] },
 		128,
 		128
 	);
@@ -606,7 +606,7 @@ function testRuntimeClampsWebGPULimits() {
 				zSlices: 4,
 			},
 		},
-		{ clusteredLights: lights },
+		{ lights },
 		64,
 		64
 	);
@@ -626,7 +626,7 @@ function testRuntimeClampsWebGPULimits() {
 				maxLightsPerCluster: WEBGPU_CLUSTERED_MAX_LIGHTS_PER_CLUSTER + 10,
 			},
 		},
-		{ clusteredLights: lights },
+		{ lights },
 		64,
 		64
 	);

@@ -258,6 +258,12 @@ export class WebGPUPostProcessBridge {
 			context.lightingState =
 				this._callbacks.requireFrameResources().lightingState;
 		}
+		if (metadata.frameData && mode === "execute") {
+			const featureData = this._callbacks.requireFrameResources().featureData;
+			for (const binding of metadata.frameData) {
+				context[binding.property] = featureData.get(binding.key);
+			}
+		}
 		if (request && mode === "execute") {
 			for (const binding of metadata.histories ?? []) {
 				context[binding.property] = this._getHistoryTexture(

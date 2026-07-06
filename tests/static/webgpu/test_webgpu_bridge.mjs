@@ -10,11 +10,16 @@ import {
 } from "../../../src/shaders/runtime/index.ts";
 import {
 	collectWebGPUEnvironment,
+	collectWebGPULightingCatalog,
 	collectWebGPULighting,
+	createWebGPUClusteredLightingData,
+	createWebGPUFrameFeatureRegistry,
+	createWebGPULightingState,
 	createWebGPUMaterialUniformData,
 	materialSupportsWebGPUDeferredLighting,
 	packMatrix4ForWGSL,
 	remapClipSpaceDepth,
+	WEBGPU_VOLUMETRIC_LIGHTING_DATA,
 	WEBGPU_FRAME_UNIFORM_FLOATS,
 } from "../../../src/renderers/webgpu/index.ts";
 import { WebGPUReflectionProbeCapturePass } from "../../../src/renderers/webgpu/WebGPUReflectionProbeCapturePass.ts";
@@ -248,6 +253,7 @@ function createPreparedFrameResources(options = {}) {
 		environmentBinding: null,
 		clusteredSceneBinding: null,
 		lightingState: {},
+		featureData: { get: () => undefined },
 		featureState: {},
 		environmentState: {},
 		jointMatrixMap: new Map(),
@@ -1415,10 +1421,19 @@ function testWebGPUAreaLightCollection() {
 		undefined,
 		true
 	);
+	const clusteredOverCatalog = collectWebGPULightingCatalog(
+		overLimit,
+		true,
+		false
+	);
+	const clusteredOverData = createWebGPUClusteredLightingData(
+		clusteredOverCatalog,
+		MAX_AREA_LIGHTS + 1
+	);
 	assert.equal(clusteredOverState.areaLights.length, MAX_AREA_LIGHTS);
-	assert.equal(clusteredOverState.clusteredLights.length, MAX_AREA_LIGHTS + 1);
+	assert.equal(clusteredOverData.lights.length, MAX_AREA_LIGHTS + 1);
 	assert.equal(
-		clusteredOverState.clusteredLights[MAX_AREA_LIGHTS].type,
+		clusteredOverData.lights[MAX_AREA_LIGHTS].type,
 		WEBGPU_CLUSTERED_LIGHT_TYPE_AREA
 	);
 	assert.equal(
@@ -1449,7 +1464,18 @@ function testWebGPUClusteredSpotShadowBudgetFallback() {
 		shadowMaps,
 		true
 	);
-	const clusteredSpots = state.clusteredLights.filter(
+	const catalog = collectWebGPULightingCatalog(
+		lights,
+		true,
+		false,
+		true,
+		shadowMaps
+	);
+	const clusteredData = createWebGPUClusteredLightingData(
+		catalog,
+		MAX_SPOT_LIGHTS + 1
+	);
+	const clusteredSpots = clusteredData.lights.filter(
 		(light) => light.type === WEBGPU_CLUSTERED_LIGHT_TYPE_SPOT
 	);
 	assert.equal(state.spotLights.length, MAX_SPOT_LIGHTS);
@@ -1459,10 +1485,82 @@ function testWebGPUClusteredSpotShadowBudgetFallback() {
 	assert.equal(clusteredSpots[MAX_SPOT_LIGHTS].castsShadow, false);
 	assert.equal(clusteredSpots[MAX_SPOT_LIGHTS].shadowIndex, MAX_SPOT_LIGHTS);
 	assert.ok(
-		state.warnings.some(
+		clusteredData.warnings.some(
 			(warning) => warning.key === "webgpu-clustered-spot-shadow-budget"
 		)
 	);
+}
+
+function testWebGPUFrameFeatureRegistryGatesVolumetricLighting() {
+	const light = new PointLight({ range: 8, intensity: 2 });
+	const catalog = collectWebGPULightingCatalog([light], true, false);
+	const lightingState = createWebGPULightingState(catalog, false);
+	const registry = createWebGPUFrameFeatureRegistry();
+	const baseContext = {
+		frameContext: {},
+		scene: {
+			camera: {
+				type: "perspective",
+				near: 0.1,
+				far: 100,
+			},
+		},
+		featureState: {
+			enableLighting: true,
+			enableClusteredLighting: false,
+			clusteredLightingOptions: {},
+			postProcess: {
+				isEnabled: () => false,
+			},
+		},
+		lightingCatalog: catalog,
+		lightingState,
+		renderWidth: 64,
+		renderHeight: 64,
+	};
+	const disabledStore = registry.prepareFrame(baseContext);
+	assert.equal(disabledStore.has(WEBGPU_VOLUMETRIC_LIGHTING_DATA), false);
+
+	const enabledStore = registry.prepareFrame({
+		...baseContext,
+		featureState: {
+			...baseContext.featureState,
+			postProcess: {
+				isEnabled: (id) => id === "volumetric",
+			},
+		},
+	});
+	const volumetric = enabledStore.get(WEBGPU_VOLUMETRIC_LIGHTING_DATA);
+	assert.ok(volumetric);
+	assert.equal(volumetric.lights.length, 1);
+	assert.equal(volumetric.lights[0].type, 1);
+
+	const secondLight = new PointLight({ range: 16, intensity: 4 });
+	const clusteredCatalog = collectWebGPULightingCatalog(
+		[light, secondLight],
+		true,
+		false
+	);
+	const clusteredLightingState = createWebGPULightingState(
+		clusteredCatalog,
+		true
+	);
+	const clusteredStore = registry.prepareFrame({
+		...baseContext,
+		featureState: {
+			...baseContext.featureState,
+			enableClusteredLighting: true,
+			clusteredLightingOptions: { maxLights: 1 },
+			postProcess: {
+				isEnabled: (id) => id === "volumetric",
+			},
+		},
+		lightingCatalog: clusteredCatalog,
+		lightingState: clusteredLightingState,
+	});
+	const clusteredVolumetric = clusteredStore.get(WEBGPU_VOLUMETRIC_LIGHTING_DATA);
+	assert.ok(clusteredVolumetric);
+	assert.equal(clusteredVolumetric.lights.length, 1);
 }
 
 function testRenderResourcesResolveComputeFacadeFromBackend() {
@@ -4044,6 +4142,7 @@ async function run() {
 	testWebGPUPointLightLimit();
 	testWebGPUAreaLightCollection();
 	testWebGPUClusteredSpotShadowBudgetFallback();
+	testWebGPUFrameFeatureRegistryGatesVolumetricLighting();
 	await testRenderResourcesUseCopyDstForUploads();
 	await testWebGPUBlendMaterialsUseTransparentPipelineState();
 	await testWebGPUTransmissionMaterialsUseTransparentPipelineState();

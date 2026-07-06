@@ -1,4 +1,5 @@
 import type { IRenderTexture } from "../types";
+import type { WebGPUFrameFeatureKey } from "./FrameFeatures";
 import type { WebGPUPostProcessPassId } from "./postprocess/types";
 
 /** @internal WebGPU pass-owned implementation context metadata. */
@@ -70,6 +71,24 @@ export interface WebGPUPostProcessTransientBindingMetadata {
 	readonly transientId: string;
 }
 
+/** @internal WebGPU pass-owned frame feature data binding metadata. */
+export interface WebGPUPostProcessFrameDataBindingMetadata<TValue = unknown> {
+	/**
+	 * Context property that receives the requested frame feature data.
+	 *
+	 * @remarks The value is read from `WebGPUPreparedFrameResources.featureData`.
+	 * @sideEffects None.
+	 */
+	readonly property: string;
+	/**
+	 * Typed internal frame feature data key.
+	 *
+	 * @remarks Missing data resolves to `undefined`; passes must handle absence.
+	 * @sideEffects None.
+	 */
+	readonly key: WebGPUFrameFeatureKey<TValue>;
+}
+
 /** @internal WebGPU pass-owned implementation context metadata. */
 export interface WebGPUPostProcessContextMetadata {
 	/**
@@ -109,6 +128,15 @@ export interface WebGPUPostProcessContextMetadata {
 	 * @sideEffects None.
 	 */
 	readonly lightingState?: boolean;
+	/**
+	 * Frame feature data bindings to pack into the implementation context.
+	 *
+	 * @remarks Used by optional WebGPU features, such as volumetric lighting,
+	 * that consume pass-specific frame data without depending on the full
+	 * lighting state.
+	 * @sideEffects None.
+	 */
+	readonly frameData?: readonly WebGPUPostProcessFrameDataBindingMetadata[];
 	/**
 	 * History texture bindings to pack into the context.
 	 *

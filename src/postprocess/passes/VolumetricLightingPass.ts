@@ -41,7 +41,8 @@ import {
 import { getWebGPUVolumetricLightLayout } from "../../renderers/webgpu/bufferLayouts";
 import type { WebGPUPostProcessFrameTargets } from "../../renderers/webgpu/WebGPUPostProcessContracts";
 import type { PostProcessSharedContext } from "../../renderers/webgpu/postprocess/PostProcessSharedContext";
-import type { WebGPULightingState } from "../../renderers/webgpu/types";
+import { WEBGPU_VOLUMETRIC_LIGHTING_DATA } from "../../renderers/webgpu/WebGPUFrameFeatureModules";
+import type { WebGPUVolumetricLightingData } from "../../renderers/webgpu/types";
 import { ceilDiv, finiteOr } from "../../maths/Misc";
 import { ShaderSource } from "../../shaders/ShaderSource";
 import {
@@ -187,7 +188,7 @@ export interface WebGPUVolumetricLightingContext {
 	readonly targets?: WebGPUPostProcessFrameTargets;
 	readonly shared: PostProcessSharedContext;
 	readonly frameBinding?: IBindingGroup;
-	readonly lightingState?: WebGPULightingState | null;
+	readonly volumetricLighting?: WebGPUVolumetricLightingData;
 	readonly hiZ?: IRenderTexture | null;
 	readonly historyRead?: IRenderTexture | null;
 	readonly historyWrite?: IRenderTexture | null;
@@ -1209,7 +1210,12 @@ export class WebGPUVolumetricLightingImplementation
 			kind: "screen",
 			publishColorTarget: true,
 			frameBinding: true,
-			lightingState: true,
+			frameData: [
+				{
+					property: "volumetricLighting",
+					key: WEBGPU_VOLUMETRIC_LIGHTING_DATA,
+				},
+			],
 			histories: [
 				{ property: "historyRead", historyId: "volumetric", side: "read" },
 				{ property: "historyWrite", historyId: "volumetric", side: "write" },
@@ -1323,7 +1329,7 @@ export class WebGPUVolumetricLightingImplementation
 		const resources = await this._ensureResources(context.shared);
 		const lightCount = this._updateLightBuffer(
 			resources,
-			context.lightingState ?? null
+			context.volumetricLighting
 		);
 		if (
 			!context.encoder ||
@@ -1518,14 +1524,14 @@ export class WebGPUVolumetricLightingImplementation
 
 	private _updateLightBuffer(
 		resources: WebGPUVolumetricResources,
-		lightingState: WebGPULightingState | null
+		volumetricLighting: WebGPUVolumetricLightingData | undefined
 	): number {
-		const sourceLights = lightingState?.volumetricLights ?? [];
+		const sourceLights = volumetricLighting?.lights ?? [];
 		const clampedLightCount = Math.min(sourceLights.length, MAX_VOLUMETRIC_LIGHTS);
 		if (sourceLights.length > MAX_VOLUMETRIC_LIGHTS) {
 			resources.shared.warn(
 				"webgpu-volumetric-light-count-clamped",
-				`WebGPU volumetric ReSTIR clamps light count to ${MAX_VOLUMETRIC_LIGHTS}; extra lights are skipped`
+				`WebGPU volumetric lighting samples at most ${MAX_VOLUMETRIC_LIGHTS} effective surface lights; extra lights are skipped`
 			);
 		}
 		this._ensureLightBufferCapacity(resources, clampedLightCount);

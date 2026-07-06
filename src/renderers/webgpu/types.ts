@@ -76,6 +76,54 @@ export interface WebGPUClusteredLightUniform extends WebGPULightUniformBase {
 	shadowIndex: number;
 }
 
+export type WebGPULightingCatalogLightType =
+	| "directional"
+	| "point"
+	| "spot"
+	| "area";
+
+export interface WebGPULightingCatalogLight extends WebGPULightUniformBase {
+	readonly type: WebGPULightingCatalogLightType;
+	readonly source: unknown;
+	readonly position: Vec3Tuple;
+	readonly range: number;
+	readonly direction: Vec3Tuple;
+	readonly outerCos: number;
+	readonly innerCos: number;
+	readonly right: Vec3Tuple;
+	readonly width: number;
+	readonly up: Vec3Tuple;
+	readonly height: number;
+	readonly normal: Vec3Tuple;
+	readonly areaScale: number;
+	readonly shadow: WebGPUShadowData | null;
+	readonly shadowIndex: number;
+}
+
+export interface WebGPULightingCatalog {
+	ambientColor: Vec3Tuple;
+	lights: WebGPULightingCatalogLight[];
+	warnings: WebGPUWarning[];
+}
+
+export interface WebGPUSurfaceLightingView {
+	directionalLights: WebGPUDirectionalLightUniform[];
+	pointLights: WebGPUPointLightUniform[];
+	spotLights: WebGPUSpotLightUniform[];
+	areaLights: WebGPUAreaLightUniform[];
+	clusteredLights: WebGPUClusteredLightUniform[];
+}
+
+export interface WebGPUClusteredLightingData {
+	lights: WebGPUClusteredLightUniform[];
+	warnings: WebGPUWarning[];
+}
+
+export interface WebGPUVolumetricLightingData {
+	lights: WebGPUVolumetricLightUniform[];
+	warnings: WebGPUWarning[];
+}
+
 export interface WebGPUShadowData {
 	enabled: boolean;
 	strategyType: ShadowStrategyType;
@@ -116,8 +164,6 @@ export interface WebGPULightingState {
 	spotLights: WebGPUSpotLightUniform[];
 	spotShadows: WebGPUShadowData[];
 	areaLights: WebGPUAreaLightUniform[];
-	clusteredLights: WebGPUClusteredLightUniform[];
-	volumetricLights: WebGPUVolumetricLightUniform[];
 	warnings: WebGPUWarning[];
 }
 
