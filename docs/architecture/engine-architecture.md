@@ -57,8 +57,9 @@ through dedicated simulation stages and backend-owned runtimes.
 
 ### Simulation Contract
 
-- `AnimationSimulationStage` owns animation mixers, blend trees, and skeletal
-  update integration.
+- `AnimationRuntime` owns animation mixers, blend trees, and skeletal update
+  integration. `FrameCoordinator` owns animation stage scheduling within the
+  renderer frame pipeline.
 - `PhysicsSystem` owns collision detection and rigid body dynamics through
   adapter contracts.
 - `DefaultParticleSimulator` and `WebGPUParticleSimulator` own high-density

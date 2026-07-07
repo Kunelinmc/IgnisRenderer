@@ -259,7 +259,7 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 		this.backendProfile = backend.profile;
 
 		this._backend = backend;
-		this._coordinator = new FrameCoordinator(backend, this.animationSystem);
+		this._coordinator = new FrameCoordinator(backend);
 
 		this._deviceScaleFactor = window.devicePixelRatio || 1;
 		this.animationAutoRender = true;

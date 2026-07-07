@@ -24,7 +24,7 @@ import type {
 	CustomRenderPassRegistry,
 	RenderTargetRegistry,
 } from "./CustomRenderTargets";
-import { AnimationSimulationStage } from "../pipeline/AnimationSimulationStage";
+import { AnimationRuntime } from "../simulation/animation/AnimationRuntime";
 import { PreparedSceneBuilder } from "../pipeline/PreparedSceneBuilder";
 import {
 	PreparedSceneCache,
@@ -44,7 +44,7 @@ import type {
 	RendererFeatures,
 	FrameTransientContributor,
 } from "./Renderer";
-import { AnimationSystem } from "../animation/AnimationSystem";
+import type { AnimationSystem } from "../animation/AnimationSystem";
 import type { PhysicsSystem } from "../physics";
 import type { SHCoefficients } from "../maths/types";
 import {
@@ -124,15 +124,14 @@ export class FrameCoordinator {
 	private readonly _preparedSceneCache = new PreparedSceneCache();
 	private readonly _probeCaptureRuntime = new ProbeCaptureRuntime();
 	private readonly _occlusionCullingController: RendererOcclusionCullingController;
-	private readonly _animationStage: AnimationSimulationStage;
+	private readonly _animationRuntime = new AnimationRuntime();
 	private readonly _stageExecutors: Map<string, RendererStageExecutor>;
 
-	constructor(backend: IRenderBackend, animationSystem: AnimationSystem) {
+	constructor(backend: IRenderBackend) {
 		this._backend = backend;
 		this._occlusionCullingController = new RendererOcclusionCullingController(
 			backend.extensions,
 		);
-		this._animationStage = new AnimationSimulationStage(animationSystem);
 		this._stageExecutors = this._createStageExecutors();
 	}
 
@@ -337,12 +336,11 @@ export class FrameCoordinator {
 		state: RenderSceneFrameState,
 	): void {
 		const dt = state.deltaTimeSeconds * 1000;
-		this._animationStage.execute(
-			{
-				scene: delegate.scene,
-				transient: state.transient,
-			},
+		this._animationRuntime.update(
+			delegate.animationSystem,
 			state.deltaTimeSeconds,
+			state.transient,
+			delegate.scene,
 		);
 		if (!state.emittedPostAnimation) {
 			this._emitPostAnimation(delegate, state, dt);
