@@ -68,6 +68,13 @@ export interface DirtyRect {
 	height: number;
 }
 
+export interface IncrementalDirtyRect {
+	minX: number;
+	minY: number;
+	maxX: number;
+	maxY: number;
+}
+
 export interface DirtyTileCoverage {
 	tileSize: number;
 	tileColumns: number;

@@ -44,6 +44,11 @@ import type {
 	PostProcessPassRequirements,
 	PostProcessTransientDescriptor,
 } from "../types";
+import {
+	forEachSoftwareDirtyRect,
+	resolveSoftwareDirtyRects,
+	type IncrementalDirtyRect,
+} from "./ScreenPassShared";
 
 const SSAO_NOISE_SIZE = 4;
 const SSAO_SOFTWARE_MAX_SAMPLES = 48;
@@ -189,13 +194,6 @@ interface WebGLSSAOCombineProgram {
 		readonly aoMap: WebGLUniformLocation | null;
 		readonly invSize: WebGLUniformLocation | null;
 	};
-}
-
-interface IncrementalDirtyRect {
-	minX: number;
-	minY: number;
-	maxX: number;
-	maxY: number;
 }
 
 interface WebGPUSSAOResources {
@@ -372,7 +370,7 @@ export class SoftwareScreenSpaceAmbientOcclusionImplementation
 		if (!pixels || !depthBuffer || !normalBuffer) {
 			return { ran: false };
 		}
-		const dirtyRects = resolveDirtyRects(frameContext);
+		const dirtyRects = resolveSoftwareDirtyRects(frameContext);
 		if (dirtyRects.length === 0) {
 			return { ran: false };
 		}
@@ -388,7 +386,7 @@ export class SoftwareScreenSpaceAmbientOcclusionImplementation
 		const camera = frameContext.viewCamera;
 		const projection = camera.projectionMatrix.elements;
 
-		forEachDirtyRect(dirtyRects, (rect) => {
+		forEachSoftwareDirtyRect(dirtyRects, (rect) => {
 			for (let y = rect.minY; y <= rect.maxY; y++) {
 				for (let x = rect.minX; x <= rect.maxX; x++) {
 					const idx = y * width + x;
@@ -498,7 +496,7 @@ export class SoftwareScreenSpaceAmbientOcclusionImplementation
 		});
 
 		this._blur(aoBuffer, width, height, dirtyRects, options.blurRadius);
-		forEachDirtyRect(dirtyRects, (rect) => {
+		forEachSoftwareDirtyRect(dirtyRects, (rect) => {
 			for (let y = rect.minY; y <= rect.maxY; y++) {
 				const row = y * width;
 				for (let x = rect.minX; x <= rect.maxX; x++) {
@@ -558,7 +556,7 @@ export class SoftwareScreenSpaceAmbientOcclusionImplementation
 		const temp = this._blurTemp;
 		temp.set(buffer);
 		const radius = Math.max(1, Math.min(4, Math.round(blurRadius)));
-		forEachDirtyRect(dirtyRects, (rect) => {
+		forEachSoftwareDirtyRect(dirtyRects, (rect) => {
 			for (let y = rect.minY; y <= rect.maxY; y++) {
 				for (let x = rect.minX; x <= rect.maxX; x++) {
 					let sum = 0;
@@ -1232,43 +1230,6 @@ export class ScreenSpaceAmbientOcclusionPass extends PostProcessPass<
 				heightScale: scale,
 			},
 		];
-	}
-}
-
-function resolveDirtyRects(context: FrameContext): IncrementalDirtyRect[] {
-	const width = Math.max(1, context.attachments.width);
-	const height = Math.max(1, context.attachments.height);
-	const incremental = context.incremental;
-	if (
-		!incremental.enabled ||
-		incremental.forceFullFrame ||
-		incremental.dirtyRects.length === 0
-	) {
-		return [{ minX: 0, minY: 0, maxX: width - 1, maxY: height - 1 }];
-	}
-	const dirtyRects: IncrementalDirtyRect[] = [];
-	for (const rect of incremental.dirtyRects) {
-		const minX = Math.max(0, Math.floor(rect.x));
-		const minY = Math.max(0, Math.floor(rect.y));
-		const maxX = Math.min(width - 1, Math.ceil(rect.x + rect.width) - 1);
-		const maxY = Math.min(height - 1, Math.ceil(rect.y + rect.height) - 1);
-		if (minX > maxX || minY > maxY) {
-			continue;
-		}
-		dirtyRects.push({ minX, minY, maxX, maxY });
-	}
-	return dirtyRects;
-}
-
-function forEachDirtyRect(
-	dirtyRects: IncrementalDirtyRect[],
-	callback: (rect: IncrementalDirtyRect) => void
-): void {
-	for (const rect of dirtyRects) {
-		if (rect.minX > rect.maxX || rect.minY > rect.maxY) {
-			continue;
-		}
-		callback(rect);
 	}
 }
 

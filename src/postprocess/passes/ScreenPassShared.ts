@@ -1,9 +1,11 @@
 import type { FrameContext } from "../../pipeline/types";
+import type { IncrementalDirtyRect } from "../../pipeline/incremental";
 import type { ICommandEncoder } from "../../renderers/ICommandEncoder";
 import type { IRenderTexture } from "../../renderers/types";
 import type { WebGPUPostProcessFrameTargets } from "../../renderers/webgpu/WebGPUPostProcessContracts";
 import type { PostProcessSharedContext } from "../../renderers/webgpu/postprocess/PostProcessSharedContext";
 import type { WebGLProgramCompiler } from "../../renderers/webgl/WebGLProgramCompiler";
+export type { IncrementalDirtyRect } from "../../pipeline/incremental";
 
 export type EmptyOptions = Record<string, never>;
 
@@ -43,12 +45,6 @@ export interface WebGLScreenPostProcessContext {
 	publishColorTexture(texture: WebGLTexture): void;
 }
 
-export interface IncrementalDirtyRect {
-	minX: number;
-	minY: number;
-	maxX: number;
-	maxY: number;
-}
 export function resolveSoftwareDirtyRects(context: FrameContext): IncrementalDirtyRect[] {
 	const width = Math.max(1, context.attachments.width);
 	const height = Math.max(1, context.attachments.height);

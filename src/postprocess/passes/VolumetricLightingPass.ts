@@ -59,6 +59,11 @@ import type {
 	PostProcessPassResult,
 	PostProcessTransientDescriptor,
 } from "../types";
+import {
+	forEachSoftwareDirtyRect,
+	resolveSoftwareDirtyRects,
+	type IncrementalDirtyRect,
+} from "./ScreenPassShared";
 
 const DEFAULT_HISTORY_USAGE = ["sampled", "storage", "render-target"] as const;
 const MOTION_HISTORY_USAGE = ["sampled", "copy-dst", "render-target"] as const;
@@ -224,13 +229,6 @@ interface WorldRay extends IVector3 {
 
 type VolumetricLight = DirectionalLight | PointLight | SpotLight;
 
-interface IncrementalDirtyRect {
-	minX: number;
-	minY: number;
-	maxX: number;
-	maxY: number;
-}
-
 /**
  * Software implementation of volumetric lighting.
  */
@@ -361,53 +359,6 @@ export class SoftwareVolumetricLightingImplementation
 	private _toFiniteNumber(value: unknown, fallback: number): number {
 		if (typeof value === "number" && Number.isFinite(value)) return value;
 		return fallback;
-	}
-
-	private _resolveDirtyRects(context: FrameContext): IncrementalDirtyRect[] {
-		const width = Math.max(1, context.attachments.width);
-		const height = Math.max(1, context.attachments.height);
-		const incremental = context.incremental;
-		if (
-			!incremental.enabled ||
-			incremental.forceFullFrame ||
-			incremental.dirtyRects.length === 0
-		) {
-			return [{
-				minX: 0,
-				minY: 0,
-				maxX: width - 1,
-				maxY: height - 1,
-			}];
-		}
-		const dirtyRects: IncrementalDirtyRect[] = [];
-		for (const rect of incremental.dirtyRects) {
-			const minX = Math.max(0, Math.floor(rect.x));
-			const minY = Math.max(0, Math.floor(rect.y));
-			const maxX = Math.min(width - 1, Math.ceil(rect.x + rect.width) - 1);
-			const maxY = Math.min(height - 1, Math.ceil(rect.y + rect.height) - 1);
-			if (minX > maxX || minY > maxY) {
-				continue;
-			}
-			dirtyRects.push({
-				minX,
-				minY,
-				maxX,
-				maxY,
-			});
-		}
-		return dirtyRects;
-	}
-
-	private _forEachDirtyRect(
-		dirtyRects: IncrementalDirtyRect[],
-		callback: (rect: IncrementalDirtyRect) => void
-	): void {
-		for (const rect of dirtyRects) {
-			if (rect.minX > rect.maxX || rect.minY > rect.maxY) {
-				continue;
-			}
-			callback(rect);
-		}
 	}
 
 	private _samplePreviousVolumetric(
@@ -572,7 +523,7 @@ export class SoftwareVolumetricLightingImplementation
 		const { width: w, height: h } = context.attachments;
 		const pixels = context.attachments.pixels;
 		if (!pixels || !context.attachments.depthBuffer) return;
-		const dirtyRects = this._resolveDirtyRects(context);
+		const dirtyRects = resolveSoftwareDirtyRects(context);
 		if (dirtyRects.length === 0) {
 			return;
 		}
@@ -1019,7 +970,7 @@ export class SoftwareVolumetricLightingImplementation
 		dirtyRects: IncrementalDirtyRect[]
 	): void {
 		const invSigmaSq2 = 1.0 / (2.0 * depthSigma * depthSigma);
-		this._forEachDirtyRect(dirtyRects, (rect) => {
+		forEachSoftwareDirtyRect(dirtyRects, (rect) => {
 			for (let y = rect.minY; y <= rect.maxY; y++) {
 				const fy = (y + 0.5) / ds - 0.5;
 				const ly0 = Math.max(0, Math.floor(fy));
@@ -1148,7 +1099,7 @@ export class SoftwareVolumetricLightingImplementation
 		ds: number,
 		dirtyRects: IncrementalDirtyRect[]
 	): void {
-		this._forEachDirtyRect(dirtyRects, (rect) => {
+		forEachSoftwareDirtyRect(dirtyRects, (rect) => {
 			for (let y = rect.minY; y <= rect.maxY; y++) {
 				const fy = (y + 0.5) / ds - 0.5;
 				const ly0 = Math.max(0, Math.floor(fy));

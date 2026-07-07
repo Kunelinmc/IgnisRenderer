@@ -38,6 +38,10 @@ import type {
 	PostProcessPassRequest,
 	PostProcessPassResult,
 } from "../types";
+import {
+	forEachSoftwareDirtyRect,
+	resolveSoftwareDirtyRects,
+} from "./ScreenPassShared";
 
 export const FAST_APPROXIMATE_ANTI_ALIASING_PASS_ID = "fxaa";
 export const FAST_APPROXIMATE_ANTI_ALIASING_PASS_ORDER = {
@@ -50,13 +54,6 @@ export const FAST_APPROXIMATE_ANTI_ALIASING_PASS_ORDER = {
 		inflationRadius: 2,
 	},
 } as const satisfies PostProcessPassMetadata;
-
-interface IncrementalDirtyRect {
-	minX: number;
-	minY: number;
-	maxX: number;
-	maxY: number;
-}
 
 interface SampledByteColor {
 	r: number;
@@ -173,7 +170,7 @@ export class SoftwareFastApproximateAntiAliasingImplementation
 		}
 		const output = this._output;
 		output.set(pixels);
-		const dirtyRects = resolveDirtyRects(frameContext);
+		const dirtyRects = resolveSoftwareDirtyRects(frameContext);
 		if (dirtyRects.length === 0) {
 			return { ran: false };
 		}
@@ -192,7 +189,7 @@ export class SoftwareFastApproximateAntiAliasingImplementation
 		}
 
 		const outCol: SampledByteColor = { r: 0, g: 0, b: 0, a: 0 };
-		forEachDirtyRect(dirtyRects, (rect) => {
+		forEachSoftwareDirtyRect(dirtyRects, (rect) => {
 			for (let y = rect.minY; y <= rect.maxY; y++) {
 				const row = y * width;
 				for (let x = rect.minX; x <= rect.maxX; x++) {
@@ -603,48 +600,6 @@ export class FastApproximateAntiAliasingPass extends PostProcessPass<
 				webgl: () => new WebGLFastApproximateAntiAliasingImplementation(),
 			},
 		});
-	}
-}
-
-function resolveDirtyRects(context: FrameContext): IncrementalDirtyRect[] {
-	const width = Math.max(1, context.attachments.width);
-	const height = Math.max(1, context.attachments.height);
-	const incremental = context.incremental;
-	if (
-		!incremental.enabled ||
-		incremental.forceFullFrame ||
-		incremental.dirtyRects.length === 0
-	) {
-		return [{
-			minX: 0,
-			minY: 0,
-			maxX: width - 1,
-			maxY: height - 1,
-		}];
-	}
-	const dirtyRects: IncrementalDirtyRect[] = [];
-	for (const rect of incremental.dirtyRects) {
-		const minX = Math.max(0, Math.floor(rect.x));
-		const minY = Math.max(0, Math.floor(rect.y));
-		const maxX = Math.min(width - 1, Math.ceil(rect.x + rect.width) - 1);
-		const maxY = Math.min(height - 1, Math.ceil(rect.y + rect.height) - 1);
-		if (minX > maxX || minY > maxY) {
-			continue;
-		}
-		dirtyRects.push({ minX, minY, maxX, maxY });
-	}
-	return dirtyRects;
-}
-
-function forEachDirtyRect(
-	dirtyRects: IncrementalDirtyRect[],
-	callback: (rect: IncrementalDirtyRect) => void
-): void {
-	for (const rect of dirtyRects) {
-		if (rect.minX > rect.maxX || rect.minY > rect.maxY) {
-			continue;
-		}
-		callback(rect);
 	}
 }
 
