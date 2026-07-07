@@ -391,8 +391,6 @@ export class WebGLFrameExecutor {
 			markTAAHistoryValid: () => {
 				this._taaHistoryValid = true;
 			},
-			present: (applyGamma) =>
-				this._present(applyGamma, this._activeContext, true),
 			nextFrameJitter: () => this._nextSSAOFrameJitter(),
 			applyPipelineHistories: (request) => this._applyPipelineHistories(request),
 			warn: (key, message) =>
@@ -687,11 +685,7 @@ export class WebGLFrameExecutor {
 
 	public presentFrame(): void {
 		if (!this._presentedInFrame) {
-			this._present(
-				this._activeContext?.postProcess.isEnabled("gamma") !== false,
-				this._activeContext,
-				true
-			);
+			this._present(this._activeContext, true);
 		}
 	}
 
@@ -1041,14 +1035,12 @@ export class WebGLFrameExecutor {
 			});
 		}
 
-		if (context.postProcess.isEnabled("gamma")) {
-			enqueue("WebGLPresentProgram", "core", () => {
-				return this._warmupProgramHandle(
-					"warmupPresentProgram",
-					"getPresentProgram",
-				);
-			});
-		}
+		enqueue("WebGLPresentProgram", "core", () => {
+			return this._warmupProgramHandle(
+				"warmupPresentProgram",
+				"getPresentProgram",
+			);
+		});
 
 		const result = await queue.run(yieldController, options);
 		const errors = result.errors.map((entry) =>
@@ -2156,7 +2148,6 @@ export class WebGLFrameExecutor {
 	}
 
 	private _present(
-		applyGamma: boolean,
 		context: FrameContext | null = this._activeContext,
 		nonBlocking = false
 	): boolean {
@@ -2181,9 +2172,6 @@ export class WebGLFrameExecutor {
 		gl.bindTexture(gl.TEXTURE_2D, sourceTexture);
 		if (presentProgram.uniforms.sourceMap) {
 			gl.uniform1i(presentProgram.uniforms.sourceMap, 0);
-		}
-		if (presentProgram.uniforms.applyGamma) {
-			gl.uniform1i(presentProgram.uniforms.applyGamma, applyGamma ? 1 : 0);
 		}
 		this._drawFullscreenTrianglesWithDirtyScissor(
 			this._width,

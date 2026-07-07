@@ -1,24 +1,20 @@
-import { linearToSRGB, sRGBToLinear } from "../../maths/Common";
+import { linearToSRGB } from "../../maths/Common";
 import { ceilDiv } from "../../maths/Misc";
 import { DEFAULT_GAMMA } from "../../renderers/constants";
-import {
-	WEBGPU_2D_COMPUTE_WORKGROUP_SIZE as WEBGPU_WORKGROUP_SIZE,
-} from "../../renderers/webgpu/constants";
+import { WEBGPU_2D_COMPUTE_WORKGROUP_SIZE as WEBGPU_WORKGROUP_SIZE } from "../../renderers/webgpu/constants";
 import {
 	BufferUsage,
 	type IComputePipeline,
 	type IRenderBuffer,
 	type IShaderModule,
 } from "../../renderers/types";
-import {
-	WEBGPU_SCREEN_POST_PROCESS_CONTEXT_METADATA,
-} from "../../renderers/webgpu/WebGPUPostProcessContracts";
-import {
-	WEBGL_PRESENT_POST_PROCESS_CONTEXT_METADATA,
-} from "../../renderers/webgl/WebGLPostProcessContracts";
+import { WEBGPU_SCREEN_POST_PROCESS_CONTEXT_METADATA } from "../../renderers/webgpu/WebGPUPostProcessContracts";
+import { WEBGL_SCREEN_POST_PROCESS_CONTEXT_METADATA } from "../../renderers/webgl/WebGLPostProcessContracts";
+import type { PostProcessSharedContext } from "../../renderers/webgpu/postprocess/PostProcessSharedContext";
 import type {
-	PostProcessSharedContext,
-} from "../../renderers/webgpu/postprocess/PostProcessSharedContext";
+	WebGLProgramCompiler,
+	WebGLProgramSlot,
+} from "../../renderers/webgl/WebGLProgramCompiler";
 import { ShaderSource } from "../../shaders/ShaderSource";
 import type { PostProcessIncrementalMetadata } from "../../pipeline/incremental";
 import { PostProcessPass, type PostProcessPassConfig } from "../PostProcessPass";
@@ -29,17 +25,18 @@ import type {
 	PostProcessPassResult,
 } from "../types";
 import {
+	bindWebGLPostTarget,
 	forEachSoftwareDirtyRect,
 	publishWebGPUColorTarget,
 	resolveSoftwareDirtyRects,
+	resolveWebGLTarget,
 	resolveWebGPUTarget,
 	type EmptyOptions,
 	type SoftwareBuiltinPostProcessContext,
-	type WebGLGammaContext,
+	type WebGLScreenPostProcessContext,
 	type WebGPUGammaContext,
 } from "./ScreenPassShared";
-
-export type { WebGLGammaContext, WebGPUGammaContext } from "./ScreenPassShared";
+export type { WebGPUGammaContext } from "./ScreenPassShared";
 
 export const GAMMA_PASS_ID = "gamma";
 export const GAMMA_PASS_INCREMENTAL = {
@@ -53,10 +50,9 @@ export const GAMMA_PASS_ORDER = {
 	order: 900,
 	incremental: GAMMA_PASS_INCREMENTAL,
 } as const satisfies PostProcessPassMetadata;
+
 /** @internal Software implementation for the built-in gamma pass. */
-export class SoftwareGammaImplementation
-	implements PostProcessPassImplementation<SoftwareBuiltinPostProcessContext>
-{
+export class SoftwareGammaImplementation implements PostProcessPassImplementation<SoftwareBuiltinPostProcessContext> {
 	public readonly id = "gamma:software";
 	private readonly _sRGBLUT = new Uint8Array(256);
 	private _lutBuilt = false;
@@ -64,7 +60,7 @@ export class SoftwareGammaImplementation
 
 	public execute(
 		request: PostProcessPassRequest,
-		context: SoftwareBuiltinPostProcessContext | undefined
+		context: SoftwareBuiltinPostProcessContext | undefined,
 	): PostProcessPassResult {
 		const width = request.frameContext.attachments.width;
 		const height = request.frameContext.attachments.height;
@@ -81,9 +77,7 @@ export class SoftwareGammaImplementation
 		if (pixels.length === 0) {
 			return { ran: false };
 		}
-		const gamma = request.frameContext.postProcess.isEnabled(GAMMA_PASS_ID)
-			? DEFAULT_GAMMA
-			: 1;
+		const gamma = request.frameContext.postProcess.isEnabled(GAMMA_PASS_ID) ? DEFAULT_GAMMA : 1;
 		const dirtyRects = resolveSoftwareDirtyRects(request.frameContext);
 		this._buildSRGBLUT(gamma);
 		const lut = this._sRGBLUT;
@@ -112,15 +106,15 @@ export class SoftwareGammaImplementation
 		const invGamma = 1 / gamma;
 		for (let i = 0; i < 256; i++) {
 			const value = i / 255;
-			this._sRGBLUT[i] =
-				isStandardSRGB ?
-					Math.round(linearToSRGB(value) * 255)
-				:	Math.round(Math.pow(value, invGamma) * 255);
+			this._sRGBLUT[i] = isStandardSRGB
+				? Math.round(linearToSRGB(value) * 255)
+				: Math.round(Math.pow(value, invGamma) * 255);
 		}
 		this._lutBuilt = true;
 		this._lastGamma = gamma;
 	}
 }
+
 interface WebGPUGammaResources {
 	shared: PostProcessSharedContext;
 	module: IShaderModule | null;
@@ -129,18 +123,23 @@ interface WebGPUGammaResources {
 	paramData: Float32Array<ArrayBuffer>;
 }
 
+interface WebGLGammaProgram {
+	readonly program: WebGLProgram;
+	readonly uniforms: {
+		readonly sourceMap: WebGLUniformLocation | null;
+	};
+}
+
 /** @internal WebGPU implementation for the built-in gamma pass. */
-export class WebGPUGammaImplementation
-	implements PostProcessPassImplementation<WebGPUGammaContext, EmptyOptions>
-{
+export class WebGPUGammaImplementation implements PostProcessPassImplementation<
+	WebGPUGammaContext,
+	EmptyOptions
+> {
 	public readonly id = "gamma:webgpu";
 	public readonly metadata = {
 		context: WEBGPU_SCREEN_POST_PROCESS_CONTEXT_METADATA,
 	};
-	private _resources = new Map<
-		PostProcessSharedContext,
-		WebGPUGammaResources
-	>();
+	private _resources = new Map<PostProcessSharedContext, WebGPUGammaResources>();
 
 	public async warmup(context: WebGPUGammaContext | undefined): Promise<void> {
 		if (context) {
@@ -150,7 +149,7 @@ export class WebGPUGammaImplementation
 
 	public async execute(
 		_request: PostProcessPassRequest<EmptyOptions>,
-		context: WebGPUGammaContext | undefined
+		context: WebGPUGammaContext | undefined,
 	): Promise<PostProcessPassResult> {
 		if (!context?.encoder || !context.targets) {
 			return { ran: false };
@@ -167,18 +166,9 @@ export class WebGPUGammaImplementation
 
 	public destroy(): void {
 		for (const resources of this._resources.values()) {
-			resources.shared.destroyManagedResource(
-				resources.pipeline,
-				"gamma pipeline"
-			);
-			resources.shared.destroyManagedResource(
-				resources.module,
-				"gamma shader module"
-			);
-			resources.shared.destroyManagedResource(
-				resources.params,
-				"gamma params buffer"
-			);
+			resources.shared.destroyManagedResource(resources.pipeline, "gamma pipeline");
+			resources.shared.destroyManagedResource(resources.module, "gamma shader module");
+			resources.shared.destroyManagedResource(resources.params, "gamma params buffer");
 			resources.shared.invalidateBindingsByPrefix("gamma-");
 			resources.pipeline = null;
 			resources.module = null;
@@ -189,12 +179,7 @@ export class WebGPUGammaImplementation
 
 	private async _runGammaKernel(context: WebGPUGammaContext): Promise<boolean> {
 		const resources = await this._ensureResources(context.shared);
-		if (
-			!context.encoder ||
-			!context.targets ||
-			!resources.pipeline ||
-			!resources.params
-		) {
+		if (!context.encoder || !context.targets || !resources.pipeline || !resources.params) {
 			return false;
 		}
 		const targets = context.targets;
@@ -207,7 +192,7 @@ export class WebGPUGammaImplementation
 				{ binding: 1, resource: resources.params },
 				{ binding: 2, resource: target },
 			],
-			"WebGPUGamma_Binding"
+			"WebGPUGamma_Binding",
 		);
 		context.encoder.beginComputePass({ label: "WebGPUGamma" });
 		context.encoder.setComputePipeline(resources.pipeline);
@@ -215,7 +200,7 @@ export class WebGPUGammaImplementation
 		context.encoder.dispatchWorkgroups(
 			ceilDiv(target.width, WEBGPU_WORKGROUP_SIZE),
 			ceilDiv(target.height, WEBGPU_WORKGROUP_SIZE),
-			1
+			1,
 		);
 		context.encoder.endComputePass();
 		publishWebGPUColorTarget(context, target);
@@ -223,7 +208,7 @@ export class WebGPUGammaImplementation
 	}
 
 	private async _ensureResources(
-		shared: PostProcessSharedContext
+		shared: PostProcessSharedContext,
 	): Promise<WebGPUGammaResources> {
 		let resources = this._resources.get(shared);
 		if (!resources) {
@@ -237,9 +222,7 @@ export class WebGPUGammaImplementation
 			this._resources.set(shared, resources);
 		}
 		if (!resources.module) {
-			const shader = await ShaderSource.load(
-				"webgpu.postprocess.gamma.composite"
-			);
+			const shader = await ShaderSource.load("webgpu.postprocess.gamma.composite");
 			resources.module = await shared.compute.createShaderModule({
 				label: "WebGPUGammaShader",
 				code: shader.code,
@@ -267,27 +250,76 @@ export class WebGPUGammaImplementation
 		return resources;
 	}
 }
+
 /** @internal WebGL implementation for the built-in gamma pass. */
-export class WebGLGammaImplementation
-	implements PostProcessPassImplementation<WebGLGammaContext, EmptyOptions>
-{
+export class WebGLGammaImplementation implements PostProcessPassImplementation<
+	WebGLScreenPostProcessContext,
+	EmptyOptions
+> {
 	public readonly id = "gamma:webgl";
 	public readonly metadata = {
-		context: WEBGL_PRESENT_POST_PROCESS_CONTEXT_METADATA,
+		context: WEBGL_SCREEN_POST_PROCESS_CONTEXT_METADATA,
 	};
+	private _programCompiler: WebGLProgramCompiler | null = null;
+	private _programSlot: WebGLProgramSlot<WebGLGammaProgram> | null = null;
+
+	public warmup(context: WebGLScreenPostProcessContext | undefined): void {
+		if (context) {
+			this._getProgramSlot(context.programCompiler).warmup();
+		}
+	}
 
 	public execute(
-		request: PostProcessPassRequest<EmptyOptions>,
-		context: WebGLGammaContext | undefined
+		_request: PostProcessPassRequest<EmptyOptions>,
+		context: WebGLScreenPostProcessContext | undefined,
 	): PostProcessPassResult {
-		return {
-			ran:
-				context?.tryPresent(
-					request.frameContext.postProcess.isEnabled(GAMMA_PASS_ID)
-				) ?? false,
-		};
+		const target = resolveWebGLTarget(context);
+		if (!target) {
+			return { ran: false };
+		}
+		const gl = context.gl;
+		const program = this._getProgramSlot(context.programCompiler).tryGet();
+		if (!program) {
+			return { ran: false };
+		}
+		bindWebGLPostTarget(context, program.program, target.texture);
+		gl.activeTexture(gl.TEXTURE0);
+		gl.bindTexture(gl.TEXTURE_2D, target.source);
+		if (program.uniforms.sourceMap) {
+			gl.uniform1i(program.uniforms.sourceMap, 0);
+		}
+		context.drawFullscreen();
+		gl.bindVertexArray(null);
+		context.publishColorTexture(target.texture);
+		return { ran: true };
+	}
+
+	public destroy(): void {
+		this._programSlot?.destroy();
+		this._programSlot = null;
+		this._programCompiler = null;
+	}
+
+	private _getProgramSlot(compiler: WebGLProgramCompiler): WebGLProgramSlot<WebGLGammaProgram> {
+		if (this._programCompiler !== compiler) {
+			this._programSlot?.destroy();
+			this._programCompiler = compiler;
+			this._programSlot = compiler.createSlot({
+				label: "WebGLGammaProgram",
+				vertex: () => ShaderSource.get("webgl.part.presentVertex.raw"),
+				fragment: () => ShaderSource.get("webgl.part.gammaFragment.raw"),
+				reflect: (gl, program) => ({
+					program,
+					uniforms: {
+						sourceMap: gl.getUniformLocation(program, "uSourceMap"),
+					},
+				}),
+			});
+		}
+		return this._programSlot!;
 	}
 }
+
 /**
  * Stateful logical gamma correction pass.
  */
@@ -295,13 +327,8 @@ export class GammaPass extends PostProcessPass<EmptyOptions, EmptyOptions> {
 	public constructor(
 		config: Omit<
 			PostProcessPassConfig<EmptyOptions>,
-			| "id"
-			| "builtIn"
-			| "warningLabel"
-			| "placement"
-			| "order"
-			| "implementations"
-		> = {}
+			"id" | "builtIn" | "warningLabel" | "placement" | "order" | "implementations"
+		> = {},
 	) {
 		super({
 			...config,

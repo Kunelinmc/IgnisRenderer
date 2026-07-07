@@ -1,5 +1,5 @@
 /** @internal WebGL pass-owned implementation context metadata. */
-export type WebGLPostProcessContextKind = "screen" | "present";
+export type WebGLPostProcessContextKind = "screen";
 
 /** @internal WebGL pass-owned implementation history binding side. */
 export type WebGLPostProcessHistorySide = "read" | "write";
@@ -31,12 +31,6 @@ export const WEBGL_SCREEN_POST_PROCESS_CONTEXT_METADATA = {
 	kind: "screen",
 } as const satisfies WebGLPostProcessContextMetadata;
 
-/** @internal WebGL present-pass implementation context metadata. */
-export const WEBGL_PRESENT_POST_PROCESS_CONTEXT_METADATA = {
-	backend: "webgl",
-	kind: "present",
-} as const satisfies WebGLPostProcessContextMetadata;
-
 /**
  * Returns whether a context metadata value is owned by the WebGL backend.
  *
@@ -53,8 +47,5 @@ export function isWebGLPostProcessContextMetadata(
 		return false;
 	}
 	const candidate = value as Partial<WebGLPostProcessContextMetadata>;
-	return (
-		candidate.backend === "webgl" &&
-		(candidate.kind === "screen" || candidate.kind === "present")
-	);
+	return candidate.backend === "webgl" && candidate.kind === "screen";
 }

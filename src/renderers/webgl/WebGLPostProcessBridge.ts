@@ -4,7 +4,6 @@ import type {
 	PostProcessPassImplementation,
 	PostProcessPassRequest,
 } from "../../postprocess";
-import type { WebGLGammaContext } from "../../postprocess/passes/ScreenPassShared";
 import type { WebGLProgramCompiler } from "./WebGLProgramCompiler";
 import {
 	isWebGLPostProcessContextMetadata,
@@ -35,7 +34,6 @@ export interface WebGLPostProcessBridgeCallbacks {
 	): void;
 	publishColorTexture(texture: WebGLTexture): void;
 	markTAAHistoryValid(): void;
-	present(applyGamma: boolean): boolean;
 	nextFrameJitter(): number;
 	applyPipelineHistories(request: PostProcessPassRequest): void;
 	warn(key: string, message: string): void;
@@ -106,16 +104,7 @@ export class WebGLPostProcessBridge {
 		metadata: WebGLPostProcessContextMetadata,
 		request: PostProcessPassRequest | null,
 		mode: "execute" | "warmup"
-	): Record<string, unknown> | WebGLGammaContext | undefined {
-		if (metadata.kind === "present") {
-			return {
-				tryPresent: (applyGamma) =>
-					mode === "execute" ?
-						this._callbacks.present(applyGamma)
-					:	false,
-			};
-		}
-
+	): Record<string, unknown> | undefined {
 		const context: Record<string, unknown> = {
 			gl: this._callbacks.getGL(),
 			programCompiler: this._callbacks.getProgramCompiler(),

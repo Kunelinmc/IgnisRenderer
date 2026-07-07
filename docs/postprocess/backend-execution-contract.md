@@ -37,6 +37,8 @@ To support decoupled backends, post-process execution is delegated to backend-ow
   - `bindColorTarget(texture)`: Bind the target texture as the framebuffer attachment.
   - `drawFullscreen()`: Draw the fullscreen triangle.
   - `publishColorTexture(texture)`: Notify the runtime of the final written texture.
+- WebGL built-in passes, including `gamma`, must execute through
+  `WebGLScreenPostProcessContext` instead of presenting directly to the canvas.
 - Pass program compilation is managed via `WebGLProgramCompiler` slots, which handle validation, uniform reflection, and warmup.
 
 ---

@@ -599,14 +599,31 @@ function testWebGLContextIgnoresMissingOrForeignMetadata() {
 	);
 }
 
-function testGammaContextUsesPresentMetadata() {
+function testGammaPassUsesScreenPostProcessFlow() {
 	const gl = createFXAATestGL();
 	const executor = new WebGLFrameExecutor(gl);
-	const calls = [];
-	executor._present = (applyGamma, context, nonBlocking) => {
-		calls.push({ applyGamma, context, nonBlocking });
-		return true;
-	};
+	const sceneColor = { id: "scene-color" };
+	const sourceColor = { id: "source-color" };
+	const postColor = { id: "post-color" };
+	const postFramebuffer = { id: "post-fbo" };
+	const fullscreenVao = { id: "fullscreen-vao" };
+
+	executor._programCompiler = createProgramCompilerStub({
+		WebGLGammaProgram: {
+			program: { id: "gamma-program" },
+			uniforms: {
+				sourceMap: { id: "uSourceMap" },
+			},
+		},
+	});
+	executor._sceneColorTexture = sceneColor;
+	executor._presentSourceTexture = sourceColor;
+	executor._postColorTexture = postColor;
+	executor._postFramebuffer = postFramebuffer;
+	executor._fullscreenVao = fullscreenVao;
+	executor._width = 640;
+	executor._height = 360;
+
 	const pass = new GammaPass({ enabled: true });
 	const frameContext = {
 		postProcess: createResolvedPostProcess({ gamma: { enabled: true } }, "webgl"),
@@ -625,11 +642,23 @@ function testGammaContextUsesPresentMetadata() {
 		implementation: pass.getImplementation("webgl"),
 	};
 	const context = executor.getPassExecutionContext(request);
+	const result = pass.getImplementation("webgl").execute(request, context);
 
-	assert.equal(context.tryPresent(true), true);
-	assert.deepEqual(calls, [
-		{ applyGamma: true, context: null, nonBlocking: true },
-	]);
+	assert.deepEqual(result, { ran: true });
+
+	const attachmentWrite = gl.calls.find(
+		(call) =>
+			call.name === "framebufferTexture2D" &&
+			call.attachment === gl.COLOR_ATTACHMENT0
+	);
+	assert.equal(attachmentWrite?.texture, postColor);
+
+	const sourceBindCalls = gl.calls.filter(
+		(call) => call.name === "bindTexture" && call.target === gl.TEXTURE_2D
+	);
+	const sourceBind = sourceBindCalls[sourceBindCalls.length - 1];
+	assert.equal(sourceBind?.texture, sourceColor);
+	assert.equal(executor._presentSourceTexture, postColor);
 }
 
 function testExecutePostProcessPassLeavesFXAAToPassImplementation() {
@@ -1492,7 +1521,7 @@ async function run() {
 	testToneMappingPassUsesLatestPostSourceAndRebindsPostTarget();
 	testWebGLContextUsesImplementationMetadataForCustomPassId();
 	testWebGLContextIgnoresMissingOrForeignMetadata();
-	testGammaContextUsesPresentMetadata();
+	testGammaPassUsesScreenPostProcessFlow();
 	testExecutePostProcessPassLeavesFXAAToPassImplementation();
 	testFrameTargetsFallbackToRGBA8MotionWithoutFloatExtension();
 	testFrameTargetsCreateOITResourcesWithFloatExtension();

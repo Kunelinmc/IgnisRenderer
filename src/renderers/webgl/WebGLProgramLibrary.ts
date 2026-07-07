@@ -104,7 +104,6 @@ export interface WebGLPresentProgram {
 	program: WebGLProgram;
 	uniforms: {
 		sourceMap: WebGLUniformLocation | null;
-		applyGamma: WebGLUniformLocation | null;
 	};
 }
 
@@ -1293,7 +1292,6 @@ export class WebGLProgramLibrary {
 			program,
 			uniforms: {
 				sourceMap: this._gl.getUniformLocation(program, "uSourceMap"),
-				applyGamma: this._gl.getUniformLocation(program, "uApplyGamma"),
 			},
 		};
 		return this._presentProgram;
@@ -1321,7 +1319,6 @@ export class WebGLProgramLibrary {
 			program,
 			uniforms: {
 				sourceMap: this._gl.getUniformLocation(program, "uSourceMap"),
-				applyGamma: this._gl.getUniformLocation(program, "uApplyGamma"),
 			},
 		};
 		return this._presentProgram;

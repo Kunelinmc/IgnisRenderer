@@ -43,11 +43,6 @@ export interface WebGLScreenPostProcessContext {
 	publishColorTexture(texture: WebGLTexture): void;
 }
 
-/** @internal WebGL context supplied to the built-in gamma implementation. */
-export interface WebGLGammaContext {
-	tryPresent(applyGamma: boolean): boolean;
-}
-
 export interface IncrementalDirtyRect {
 	minX: number;
 	minY: number;

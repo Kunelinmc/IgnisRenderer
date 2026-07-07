@@ -178,7 +178,6 @@ export {
 	WebGPUGammaImplementation,
 	WebGLGammaImplementation,
 	type WebGPUGammaContext,
-	type WebGLGammaContext,
 } from "./passes/GammaPass";
 export {
 	DEFAULT_MOTION_BLUR_OPTIONS,
