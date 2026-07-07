@@ -523,6 +523,7 @@ export class WebGLBackend implements IRenderBackend {
 			stencil: false,
 			premultipliedAlpha: false,
 			preserveDrawingBuffer: false,
+			powerPreference: "high-performance",
 		}) as WebGL2RenderingContext | null;
 		if (!gl) {
 			throw new Error(
