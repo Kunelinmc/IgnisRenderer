@@ -21,12 +21,9 @@ const DEFAULT_CASCADE_COUNTS: CascadedShadowMapDefaults = {
 	spot: 3,
 	point: 2,
 };
+
 const CSM_CENTER_HYSTERESIS_RATIO = 0.1;
 const CSM_LIGHT_DIRECTION_RESET_EPSILON = 1e-4;
-
-const _tmpCamPos = { x: 0, y: 0, z: 0 };
-const _tmpCamForward = { x: 0, y: 0, z: -1 };
-const _tmpCamUp = { x: 0, y: 1, z: 0 };
 
 export class CascadedShadowMap extends ShadowMapBase {
 	public override readonly kind = "cascaded" as const;
@@ -310,7 +307,7 @@ export class CascadedShadowMap extends ShadowMapBase {
 			return null;
 		}
 		if (typeof camera.getWorldPosition === "function") {
-			return camera.getWorldPosition(_tmpCamPos);
+			return camera.getWorldPosition({ x: 0, y: 0, z: 0 });
 		}
 		if (!camera.position) {
 			return null;
@@ -359,13 +356,13 @@ export class CascadedShadowMap extends ShadowMapBase {
 			camera,
 			{ x: 0, y: 0, z: -1 },
 			{ x: 0, y: 0, z: -1 },
-			_tmpCamForward
+			{ x: 0, y: 0, z: -1 },
 		);
 		const upVector = CascadedShadowMap.resolveCameraDirection(
 			camera,
 			camera.up ?? { x: 0, y: 1, z: 0 },
 			camera.up ?? { x: 0, y: 1, z: 0 },
-			_tmpCamUp
+			{ x: 0, y: 1, z: 0 },
 		);
 		const right = Vector3.normalize(Vector3.cross(forward, upVector));
 		const up = Vector3.normalize(Vector3.cross(right, forward));
