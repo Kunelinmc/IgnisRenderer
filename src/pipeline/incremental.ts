@@ -38,8 +38,8 @@ export const RENDER_DIRTY_REASON_MASK = {
 	"postfx-standard": 1 << 13,
 	"postfx-cinematic": 1 << 14,
 	"reflection-probe": 1 << 15,
-	decal: 1 << 18,
-	"probe-capture": 1 << 19,
+	decal: 1 << 16,
+	"probe-capture": 1 << 17,
 } as const;
 
 export type BuiltinRenderDirtyReason = keyof typeof RENDER_DIRTY_REASON_MASK;
@@ -378,7 +378,7 @@ export class IncrementalRegistry {
 	private _framePasses = new Map<FramePassStage, RegisteredFramePassDescriptor>();
 	private _postProcessPasses =
 		new Map<string, RegisteredPostProcessIncrementalMetadata>();
-	private _nextCustomDirtyReasonBit = 20;
+	private _nextCustomDirtyReasonBit = 18;
 	private _nextFramePassOrder = 0;
 	private _nextPostProcessOrder = 0;
 
