@@ -4,7 +4,7 @@ import { Matrix4 } from "../maths/Matrix4";
 import type { IVector3 } from "../maths/types";
 import { Vector3 } from "../maths/Vector3";
 import { Light, LightType, type LightParams } from "./Light";
-import { ReflectionProbeCaptureController } from "./ProbeCaptureController";
+import { ReflectionProbeCaptureController } from "./runtime/ProbeCaptureController";
 
 export type ReflectionProbeShape = "sphere" | "box";
 export type ReflectionProbeParallaxMode = "off" | "box" | "sphere";

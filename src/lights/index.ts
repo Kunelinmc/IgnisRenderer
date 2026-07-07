@@ -6,7 +6,6 @@ export * from "./DirectionalLight";
 export * from "./PointLight";
 export * from "./SpotLight";
 export * from "./LightProbe";
-export * from "./ProbeCaptureController";
 export * from "./IrradianceProbeGrid";
 export * from "./ReflectionProbe";
 export * from "./AreaLight";

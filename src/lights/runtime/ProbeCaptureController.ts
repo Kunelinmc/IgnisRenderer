@@ -1,5 +1,5 @@
-import type { CubeTexture } from "../core/CubeTexture";
-import type { Texture } from "../core/Texture";
+import type { CubeTexture } from "../../core/CubeTexture";
+import type { Texture } from "../../core/Texture";
 
 /**
  * Runtime output bindings for captured-scene probe textures.

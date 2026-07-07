@@ -4,7 +4,7 @@ import { SH } from "../maths/SH";
 import type { IVector3, SHCoefficients } from "../maths/types";
 import { Vector3 } from "../maths/Vector3";
 import { Light, LightType, type LightParams } from "./Light";
-import { ProbeCaptureController } from "./ProbeCaptureController";
+import { ProbeCaptureController } from "./runtime/ProbeCaptureController";
 
 export type LightProbeShape = "global" | "sphere" | "box";
 export type LightProbeSource =
