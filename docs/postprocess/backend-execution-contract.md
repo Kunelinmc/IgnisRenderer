@@ -16,6 +16,12 @@ To support decoupled backends, post-process execution is delegated to backend-ow
   `PostProcessBaseResourceDescriptor` fields for `id`, `format`, and `usage`.
   Scale-based descriptors must use `PostProcessScaledResourceDescriptor`;
   concrete backend descriptors must use absolute `width` and `height`.
+- `LogicalGBufferSemantic` must include `roughness`, `metallic`, and
+  `specular` material channels. Backends must expose these semantics only when
+  the current frame has concrete resources for the values.
+- Multiple logical semantics may reference the same backend resource when the
+  values are packed into different channels. The `encoding` field must identify
+  the channel layout, such as `normal-roughness-metallic.z`.
 
 ---
 
@@ -25,6 +31,11 @@ To support decoupled backends, post-process execution is delegated to backend-ow
 - Passes must not mutate the frame targets directly; they must publish their output color texture via the `publishColorTarget(texture)` callback.
 - Warmup planning collects ordered descriptors and runs `PostProcessPassImplementation.warmup(context)` if present.
 - WebGPU passes requesting temporary resources must declare them using `getTransientResourceDescriptors(request)`. The runtime injects the allocated resources under the properties defined in `metadata.context.transients`.
+- WebGPU must expose `roughness` and `metallic` logical channels from
+  `gNormalRoughMetal.z` and `gNormalRoughMetal.w` when `gNormalRoughMetal`
+  exists.
+- WebGPU must expose the `specular` logical channel from `gSpecular.rgba` when
+  `gSpecular` exists.
 
 ---
 
@@ -151,7 +162,7 @@ class CustomSoftwareImpl {
 ```
 
 ## Errors & Diagnostics
-- `postprocess-requirement-missing-<passId>`: Triggered when a backend G-buffer bridge lacks a required semantic channel (e.g. `depth`, `motion`) during execution.
+- `postprocess-requirement-missing-<passId>`: Triggered when a backend G-buffer bridge lacks a required semantic channel (e.g. `depth`, `motion`, `roughness`) during execution.
 - `postprocess-transient-conflict-<transientId>`: Triggered when eligible passes request incompatible transient descriptors for the same transient resource.
 - WebGPU device allocation failures during `createResource(desc)` must propagate as backend resource allocation errors.
 - WebGL float color attachment fallbacks: If float textures are requested but `EXT_color_buffer_float` is unsupported, the WebGL runtime falls back to `rgba8unorm` and triggers `webgl-hdr-float-unsupported`.

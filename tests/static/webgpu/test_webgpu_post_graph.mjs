@@ -63,6 +63,8 @@ function createGBufferBridge() {
 			color: { semantic: "color", handle: { backend: "test" }, width: 64, height: 32 },
 			depth: { semantic: "depth", handle: { backend: "test" }, width: 64, height: 32 },
 			normal: { semantic: "normal", handle: { backend: "test" }, width: 64, height: 32 },
+			roughness: { semantic: "roughness", handle: { backend: "test" }, width: 64, height: 32 },
+			metallic: { semantic: "metallic", handle: { backend: "test" }, width: 64, height: 32 },
 			albedo: { semantic: "albedo", handle: { backend: "test" }, width: 64, height: 32 },
 			motion: { semantic: "motion", handle: { backend: "test" }, width: 64, height: 32 },
 		},

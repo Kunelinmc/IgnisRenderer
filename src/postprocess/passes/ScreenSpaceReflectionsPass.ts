@@ -609,7 +609,7 @@ export class ScreenSpaceReflectionsPass extends PostProcessPass<
 	}
 
 	public override getRequirements(): PostProcessPassRequirements {
-		return { gBuffer: ["depth", "normal", "motion"] };
+		return { gBuffer: ["depth", "normal", "roughness", "metallic", "motion"] };
 	}
 
 	public override getHistoryDescriptors(

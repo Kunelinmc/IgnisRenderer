@@ -292,8 +292,10 @@ export class BackendPostProcessRuntime {
 			"motion",
 			"world-position",
 			"albedo",
+			"roughness",
+			"metallic",
+			"specular",
 			"transmission",
-			"material",
 			"emissive",
 			"occlusion",
 		];

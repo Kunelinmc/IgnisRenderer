@@ -48,6 +48,11 @@ does not add a global renderer frame-pass stage and does not affect
 	- Color MRTs must be:
 	  `gAlbedoAlpha`, `gNormalRoughMetal`, `gEmissiveOcclusion`,
 	  `gMotionDepth`, `gSpecular`, `gCoatSheen`, and `gSheenReflectance`.
+	- `gNormalRoughMetal.xy` must store the encoded world-space normal,
+	  `gNormalRoughMetal.z` must store roughness, and
+	  `gNormalRoughMetal.w` must store metallic.
+	- `gSpecular.rgb` must store the resolved specular color, and
+	  `gSpecular.a` must store the resolved specular factor.
 	- Deferred storage payload textures must be:
 	  `gMaterialExt0`, `gMaterialExt1`, `gMaterialExt2`, and
 	  `gMaterialExt3`.

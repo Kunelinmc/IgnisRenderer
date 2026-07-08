@@ -121,16 +121,43 @@ export class WebGPUPostProcessBridge {
 				};
 			}
 			if (targets.gNormalRoughMetal) {
+				const normalRoughMetalHandle = {
+					backend: "webgpu" as const,
+					texture: targets.gNormalRoughMetal,
+				};
 				channels.normal = {
 					semantic: "normal",
-					handle: {
-						backend: "webgpu",
-						texture: targets.gNormalRoughMetal,
-					},
+					handle: normalRoughMetalHandle,
 					width,
 					height,
 					format: TextureFormat.RGBA16Float,
 					encoding: "encoded-world-normal",
+				};
+				channels.roughness = {
+					semantic: "roughness",
+					handle: normalRoughMetalHandle,
+					width,
+					height,
+					format: TextureFormat.RGBA16Float,
+					encoding: "normal-roughness-metallic.z",
+				};
+				channels.metallic = {
+					semantic: "metallic",
+					handle: normalRoughMetalHandle,
+					width,
+					height,
+					format: TextureFormat.RGBA16Float,
+					encoding: "normal-roughness-metallic.w",
+				};
+			}
+			if (targets.gSpecular) {
+				channels.specular = {
+					semantic: "specular",
+					handle: { backend: "webgpu", texture: targets.gSpecular },
+					width,
+					height,
+					format: TextureFormat.RGBA16Float,
+					encoding: "specular-color-factor.rgba",
 				};
 			}
 			if (targets.gAlbedoAlpha) {

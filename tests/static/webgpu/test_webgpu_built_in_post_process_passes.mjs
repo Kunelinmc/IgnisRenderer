@@ -426,6 +426,18 @@ function testWebGPUOcclusionExtensionDescriptor() {
 	assert.equal(typeof extension.api.resetOcclusionCulling, "function");
 }
 
+function testSSRRequirementsExposeMaterialChannels() {
+	const pass = new ScreenSpaceReflectionsPass({ enabled: true });
+	assert.deepEqual(pass.getRequirements({}).gBuffer, [
+		"depth",
+		"normal",
+		"roughness",
+		"metallic",
+		"motion",
+	]);
+	pass.destroy();
+}
+
 async function run() {
 	await testGammaOwnsWebGPUKernelBeforeRawPresent();
 	await testTemporalExecutePassUsesPipelineHistories();
@@ -433,6 +445,7 @@ async function run() {
 	await testWarmupHintsFollowPlanPostProcessPasses();
 	testBackendPostProcessSurfaceKeepsOnlyExecutorBridge();
 	testWebGPUOcclusionExtensionDescriptor();
+	testSSRRequirementsExposeMaterialChannels();
 	console.log("WebGPU post-process executor tests passed");
 }
 

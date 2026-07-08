@@ -286,6 +286,8 @@ function createGBufferBridge() {
 			color: { semantic: "color", width: 64, height: 32, handle: {} },
 			depth: { semantic: "depth", width: 64, height: 32, handle: {} },
 			normal: { semantic: "normal", width: 64, height: 32, handle: {} },
+			roughness: { semantic: "roughness", width: 64, height: 32, handle: {} },
+			metallic: { semantic: "metallic", width: 64, height: 32, handle: {} },
 			albedo: { semantic: "albedo", width: 64, height: 32, handle: {} },
 			motion: { semantic: "motion", width: 64, height: 32, handle: {} },
 		},

@@ -614,8 +614,27 @@ function testGBufferBridgeReportsAllocatedWebGPUFormats() {
 	assert.equal(bridge.channels.depth.encoding, "motion-depth.z");
 	assert.equal(bridge.channels.motion.format, "rgba16float");
 	assert.equal(bridge.channels.motion.encoding, "motion-depth.xy");
+	assert.equal(bridge.channels.normal.format, "rgba16float");
+	assert.equal(bridge.channels.normal.encoding, "encoded-world-normal");
+	assert.equal(bridge.channels.roughness.format, "rgba16float");
+	assert.equal(bridge.channels.roughness.encoding, "normal-roughness-metallic.z");
+	assert.equal(bridge.channels.metallic.format, "rgba16float");
+	assert.equal(bridge.channels.metallic.encoding, "normal-roughness-metallic.w");
+	assert.equal(bridge.channels.specular, undefined);
 	assert.equal(bridge.channels.albedo.format, "rgba8unorm");
 	assert.equal(bridge.channels.albedo.encoding, "linear-rgb-alpha");
+	assert.equal(
+		bridge.channels.normal.handle.texture,
+		getFrameTargets(executor).gNormalRoughMetal
+	);
+	assert.equal(
+		bridge.channels.roughness.handle.texture,
+		getFrameTargets(executor).gNormalRoughMetal
+	);
+	assert.equal(
+		bridge.channels.metallic.handle.texture,
+		getFrameTargets(executor).gNormalRoughMetal
+	);
 	assert.equal(
 		bridge.channels.albedo.handle.texture,
 		getFrameTargets(executor).gAlbedoAlpha
@@ -1449,6 +1468,13 @@ async function testDeferredLightingBindsUnusedGroupOnePlaceholder() {
 	];
 
 	executor.beginFrame(context);
+	const bridge = executor.createGBufferBridge(context);
+	assert.equal(bridge.channels.specular.format, "rgba16float");
+	assert.equal(bridge.channels.specular.encoding, "specular-color-factor.rgba");
+	assert.equal(
+		bridge.channels.specular.handle.texture,
+		getFrameTargets(executor).gSpecular
+	);
 	await executor.executePass(
 		{ stage: "main-opaque", executor: "backend", enabled: true },
 		context

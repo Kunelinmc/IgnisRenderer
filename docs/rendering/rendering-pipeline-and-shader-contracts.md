@@ -93,6 +93,10 @@ The renderer frame pipeline must preserve this logical order:
 - `src/postprocess/` owns logical pass descriptors, graph compilation, G-buffer
   semantic contracts, history resource policies, transient resource policies,
   and pass-owned implementations for built-in cross-backend passes.
+- Logical G-buffer semantics must include material properties needed by
+  screen-space passes, including `roughness`, `metallic`, and `specular`.
+  Backends may pack these values with other G-buffer data, but must expose
+  distinct logical channels with explicit `encoding` metadata when available.
 - `Renderer` must own only the public `renderer.postProcess` registry.
 - Post-processing must execute as a backend-owned `"postprocess"` backend pass.
 - Software, WebGL, and WebGPU backends must hold a
@@ -111,7 +115,9 @@ The renderer frame pipeline must preserve this logical order:
   blur.
 - TAA must provide temporal anti-aliasing with variance clamping and history
   rectification.
-- SSR must use Hi-Z tracing for screen-space reflections.
+- SSR must use Hi-Z tracing for screen-space reflections and must declare
+  `depth`, `normal`, `roughness`, `metallic`, and `motion` G-buffer
+  requirements.
 - Volumetric lighting must support ReSTIR-style reservoir spatiotemporal
   importance resampling where implemented.
 - Bloom must support HDR thresholding and soft-knee curves.
