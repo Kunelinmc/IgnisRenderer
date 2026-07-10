@@ -27,6 +27,9 @@ All graphics commands are recorded through a backend-agnostic `ICommandEncoder`.
 - `Renderer.renderScene(nowMs)`
   - Compatibility contract: must remain a deprecated alias of `renderFrame(nowMs)`.
   - Constraint: new application code must use `renderFrame(nowMs)` for manual rendering or `renderLoop()` for automatic scheduling.
+- `Renderer.updateSH()`
+  - Behavior contract: must delegate spherical harmonics updates to the renderer-owned `FrameCoordinator`.
+  - Constraint: must throw when the renderer-owned `FrameCoordinator` is unavailable and must not execute a fallback SH implementation.
 - `Renderer.destroy()`
   - Behavior contract: must stop the active render loop before waiting for an in-progress frame and destroying the attached backend.
 

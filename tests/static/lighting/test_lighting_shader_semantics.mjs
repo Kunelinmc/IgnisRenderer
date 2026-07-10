@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import { AmbientLight } from "../../../src/lights/AmbientLight.ts";
 import { DirectionalLight } from "../../../src/lights/DirectionalLight.ts";
 import { LightProbe } from "../../../src/lights/LightProbe.ts";
-import { ReflectionProbe } from "../../../src/lights/ReflectionProbe.ts";
 import { evaluateLightContribution } from "../../../src/renderers/software/LightEvaluator.ts";
 import { SH } from "../../../src/maths/SH.ts";
 import { BlinnPhongStrategy } from "../../../src/shaders/software/BlinnPhongStrategy.ts";
@@ -847,89 +846,25 @@ function testAnisotropyChangesPBRSpecularLobe() {
 	);
 }
 
-function testRendererUpdateSHPreservesHigherOrderProbeCoeffs() {
-	const probe = new LightProbe({ sh: SH.empty() });
-	probe.sh[0] = { r: 10, g: 0, b: 0 };
-	probe.sh[15] = { r: 7, g: 3, b: 1 };
+function testRendererUpdateSHRequiresCoordinator() {
+	assert.throws(
+		() => Renderer.prototype.updateSH.call({}),
+		/Renderer\.updateSH\(\) requires the renderer-owned FrameCoordinator\./
+	);
+}
 
-	const fakeRenderer = {
-		params: { worldMatrix: undefined },
-		scene: { getLights: () => [probe] },
-		_shAmbientCoeffs: SH.empty(),
-		_shCoeffs: SH.empty(),
+function testRendererUpdateSHDelegatesToCoordinator() {
+	const fakeRenderer = {};
+	let receivedDelegate = null;
+	fakeRenderer._coordinator = {
+		updateSH(delegate) {
+			receivedDelegate = delegate;
+		},
 	};
 
 	Renderer.prototype.updateSH.call(fakeRenderer);
 
-	assert.equal(fakeRenderer._shAmbientCoeffs[15].r, 7);
-	assert.equal(fakeRenderer._shAmbientCoeffs[15].g, 3);
-	assert.equal(fakeRenderer._shAmbientCoeffs[15].b, 1);
-}
-
-function testRendererUpdateSHIgnoresReflectionProbeSpecularMap() {
-	const probe = new LightProbe({ sh: SH.empty() });
-	probe.sh[0] = { r: 10, g: 0, b: 0 };
-	probe.sh[15] = { r: 7, g: 3, b: 1 };
-	const reflectionProbe = new ReflectionProbe({
-		prefilteredMap: new Texture(new Float32Array([1, 1, 1, 1]), 1, 1, "HDR"),
-	});
-
-	const fakeRenderer = {
-		params: { worldMatrix: undefined },
-		scene: { getLights: () => [probe, reflectionProbe] },
-		_shAmbientCoeffs: SH.empty(),
-		_shCoeffs: SH.empty(),
-	};
-
-	Renderer.prototype.updateSH.call(fakeRenderer);
-
-	assert.ok(Math.abs(fakeRenderer._shAmbientCoeffs[15].r - 7) < 1e-6);
-	assert.ok(Math.abs(fakeRenderer._shAmbientCoeffs[15].g - 3) < 1e-6);
-	assert.ok(Math.abs(fakeRenderer._shAmbientCoeffs[15].b - 1) < 1e-6);
-}
-
-function testRendererUpdateSHTreatsLocalizedProbeAsGlobalWithoutBackend() {
-	const probe = new LightProbe({ sh: SH.empty() });
-	probe.shape = "sphere";
-	probe.sh[15] = { r: 7, g: 3, b: 1 };
-
-	const fakeRenderer = {
-		params: { worldMatrix: undefined },
-		scene: { getLights: () => [probe] },
-		_shAmbientCoeffs: SH.empty(),
-		_shCoeffs: SH.empty(),
-	};
-
-	Renderer.prototype.updateSH.call(fakeRenderer);
-
-	assert.equal(fakeRenderer._shAmbientCoeffs[15].r, 7);
-	assert.equal(fakeRenderer._shAmbientCoeffs[15].g, 3);
-	assert.equal(fakeRenderer._shAmbientCoeffs[15].b, 1);
-}
-
-function testRendererUpdateSHSkipsLocalizedProbeForGPUBackends() {
-	const globalProbe = new LightProbe({ sh: SH.empty() });
-	globalProbe.sh[15] = { r: 2, g: 1, b: 0.5 };
-
-	const localizedProbe = new LightProbe({ sh: SH.empty() });
-	localizedProbe.shape = "box";
-	localizedProbe.sh[15] = { r: 7, g: 3, b: 1 };
-
-	for (const backendType of ["webgl", "webgpu"]) {
-		const fakeRenderer = {
-			backend: { type: backendType },
-			params: { worldMatrix: undefined },
-			scene: { getLights: () => [globalProbe, localizedProbe] },
-			_shAmbientCoeffs: SH.empty(),
-			_shCoeffs: SH.empty(),
-		};
-
-		Renderer.prototype.updateSH.call(fakeRenderer);
-
-		assert.equal(fakeRenderer._shAmbientCoeffs[15].r, 2);
-		assert.equal(fakeRenderer._shAmbientCoeffs[15].g, 1);
-		assert.equal(fakeRenderer._shAmbientCoeffs[15].b, 0.5);
-	}
+	assert.equal(receivedDelegate, fakeRenderer);
 }
 
 function run() {
@@ -950,10 +885,8 @@ function run() {
 		testTransmissionVolumeAttenuationUsesLinear255Color();
 		testIridescenceChangesPBRSpecularHue();
 		testAnisotropyChangesPBRSpecularLobe();
-		testRendererUpdateSHPreservesHigherOrderProbeCoeffs();
-		testRendererUpdateSHIgnoresReflectionProbeSpecularMap();
-		testRendererUpdateSHTreatsLocalizedProbeAsGlobalWithoutBackend();
-		testRendererUpdateSHSkipsLocalizedProbeForGPUBackends();
+		testRendererUpdateSHRequiresCoordinator();
+		testRendererUpdateSHDelegatesToCoordinator();
 		console.log("✅ Shader semantics tests passed");
 	} catch (error) {
 		console.error("❌ Shader semantics test failed");

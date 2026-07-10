@@ -79,20 +79,10 @@ import {
 	type FrameCoordinatorDelegate,
 } from "./FrameCoordinator";
 import type { SHCoefficients } from "../maths/types";
-import {
-	LightType,
-	ReflectionProbe,
-	type ShadowCastingLight,
-	LightProbe,
-} from "../lights";
-import { isLocalizedLightProbe } from "../lights/runtime/lightProbeRuntime";
-import { PBR_AMBIENT_FALLBACK_LINEAR } from "../lights/constants";
-import { Vector3 } from "../maths/Vector3";
+import { LightType, ReflectionProbe, type ShadowCastingLight } from "../lights";
 import type { ShadowRenderSet } from "../lights/shadows/ShadowMapping";
 import { Matrix4 } from "../maths/Matrix4";
 import { Texture } from "../core/Texture";
-import { sRGBToLinear } from "../maths/Common";
-import { SH } from "../maths/SH";
 
 export type {
 	IncrementalFrameStats,
@@ -939,104 +929,12 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 	 * Updates spherical harmonics coefficients by projecting lighting data from the active scene.
 	 */
 	public updateSH(): void {
-		if (this._coordinator) {
-			this._coordinator.updateSH(this);
-		} else {
-			const scene = this._scene || (this as any).scene;
-			if (!scene) return;
-
-			let ambientProbeSH: SHCoefficients = SH.empty();
-			let ambientR = 0;
-			let ambientG = 0;
-			let ambientB = 0;
-			let hasAmbient = false;
-
-			const bType = (this as any).backend?.type || (this as any)._backendType;
-			const isGpu = bType === "webgl" || bType === "webgpu";
-
-			for (const light of scene.getLights()) {
-				if (light.type === LightType.Ambient) {
-					const color = light.color || { r: 255, g: 255, b: 255 };
-					const intensity = light.intensity ?? 1;
-					ambientR += sRGBToLinear(color.r / 255) * 255 * intensity;
-					ambientG += sRGBToLinear(color.g / 255) * 255 * intensity;
-					ambientB += sRGBToLinear(color.b / 255) * 255 * intensity;
-					hasAmbient = true;
-					continue;
-				}
-
-				if (light.type === LightType.LightProbe) {
-					const probe = light as LightProbe;
-					if (isGpu && isLocalizedLightProbe(probe)) {
-						continue;
-					}
-					const probeSH = probe.sh;
-					const coeffCount = Math.min(ambientProbeSH.length, probeSH.length);
-					for (let i = 0; i < coeffCount; i++) {
-						ambientProbeSH[i].r += probeSH[i].r;
-						ambientProbeSH[i].g += probeSH[i].g;
-						ambientProbeSH[i].b += probeSH[i].b;
-					}
-				}
-			}
-
-			if (
-				!hasAmbient &&
-				ambientProbeSH[0].r === 0 &&
-				ambientProbeSH[0].g === 0 &&
-				ambientProbeSH[0].b === 0
-			) {
-				const fallbackLinear = PBR_AMBIENT_FALLBACK_LINEAR * 255;
-				ambientR = fallbackLinear;
-				ambientG = fallbackLinear;
-				ambientB = fallbackLinear;
-			}
-
-			ambientProbeSH[0].r += ambientR / Math.PI / 0.282095;
-			ambientProbeSH[0].g += ambientG / Math.PI / 0.282095;
-			ambientProbeSH[0].b += ambientB / Math.PI / 0.282095;
-
-			const shAmbientCoeffs = ambientProbeSH.map((coefficient) => ({
-				r: coefficient.r,
-				g: coefficient.g,
-				b: coefficient.b,
-			})) as SHCoefficients;
-
-			let totalSH: SHCoefficients = shAmbientCoeffs.map((coefficient) => ({
-				r: coefficient.r,
-				g: coefficient.g,
-				b: coefficient.b,
-			})) as SHCoefficients;
-
-			for (const light of scene.getLights()) {
-				if (light.type !== LightType.Directional) continue;
-
-				const worldDirection = light.getWorldLightDirection();
-				const direction = Vector3.normalize({
-					x: -worldDirection.x,
-					y: -worldDirection.y,
-					z: -worldDirection.z,
-				});
-				const intensity = light.intensity ?? 1;
-				const lightSH = SH.projectDirectionalLight(direction, {
-					r: light.color.r * intensity,
-					g: light.color.g * intensity,
-					b: light.color.b * intensity,
-				});
-				totalSH = SH.addCoeffs(totalSH, lightSH);
-			}
-
-			if (typeof this.setSHCoefficients === "function") {
-				this.setSHCoefficients(totalSH);
-			} else {
-				(this as any)._shCoeffs = totalSH;
-			}
-			if (typeof this.setSHAmbientCoefficients === "function") {
-				this.setSHAmbientCoefficients(shAmbientCoeffs);
-			} else {
-				(this as any)._shAmbientCoeffs = shAmbientCoeffs;
-			}
+		if (!this._coordinator) {
+			throw new Error(
+				"Renderer.updateSH() requires the renderer-owned FrameCoordinator."
+			);
 		}
+		this._coordinator.updateSH(this);
 	}
 
 	private _assertRuntimeReady(operation: string): void {
