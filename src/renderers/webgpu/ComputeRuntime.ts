@@ -47,6 +47,7 @@ import {
 	getTextureFormatBytesPerRow,
 	getTextureFormatInfo,
 } from "../TextureFormatInfo";
+import { getWebGPUResourceHandle } from "./WebGPUResourceHandle";
 import { getWebGPUTexture, tryGetWebGPUBuffer, tryGetWebGPUTexture } from "./WebGPUResourceAccess";
 
 export type {
@@ -1344,7 +1345,7 @@ function isSamplerBindingResource(resource: unknown): boolean {
 	if (tag === "[object GPUSampler]") {
 		return true;
 	}
-	const handle = (resource as { _gpuResource?: unknown })._gpuResource;
+	const handle = getWebGPUResourceHandle(resource);
 	if (handle) {
 		if (isLikelyGPUBufferHandle(handle) || isLikelyGPUTextureHandle(handle)) {
 			return false;

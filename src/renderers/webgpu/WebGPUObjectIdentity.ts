@@ -1,3 +1,5 @@
+import { getWebGPUObjectResourceHandle } from "./WebGPUResourceHandle";
+
 const HASH64_OFFSET_BASIS = 0xcbf29ce484222325n;
 const HASH64_PRIME = 0x100000001b3n;
 const HASH64_MASK = 0xffffffffffffffffn;
@@ -47,12 +49,9 @@ export class WebGPUObjectIdentity {
 			return `symbol:${String(value)}`;
 		}
 		if (type === "function" || type === "object") {
-			const backendHandle = value as { _gpuResource?: unknown };
-			if (
-				backendHandle._gpuResource &&
-				typeof backendHandle._gpuResource === "object"
-			) {
-				return `obj:${this.getObjectId(backendHandle._gpuResource as object)}`;
+			const backendHandle = getWebGPUObjectResourceHandle(value);
+			if (backendHandle) {
+				return `obj:${this.getObjectId(backendHandle)}`;
 			}
 			return `obj:${this.getObjectId(value as object)}`;
 		}

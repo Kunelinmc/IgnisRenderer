@@ -9,6 +9,10 @@ import {
 	tryGetWebGPUBuffer,
 	tryGetWebGPUTexture,
 } from "./WebGPUResourceAccess";
+import {
+	getWebGPUObjectResourceHandle,
+	getWebGPUResourceHandle,
+} from "./WebGPUResourceHandle";
 import type {
 	BindingGroupDesc,
 	IBindingGroup,
@@ -185,8 +189,7 @@ export class WebGPUBindingGroupCache {
 		}
 
 		if (resource && typeof resource === "object") {
-			const resourceWithHandle = resource as { _gpuResource?: unknown };
-			const handle = resourceWithHandle._gpuResource;
+			const handle = getWebGPUResourceHandle(resource);
 			if (handle) {
 				if (typeof (handle as GPUTexture).createView === "function") {
 					return (handle as GPUTexture).createView();
@@ -408,19 +411,12 @@ export class WebGPUBindingGroupCache {
 				};
 			}
 
-			const resourceWithHandle = resource as {
-				_gpuResource?: unknown;
-			};
-			if (
-				resourceWithHandle._gpuResource &&
-				typeof resourceWithHandle._gpuResource === "object"
-			) {
+			const handle = getWebGPUObjectResourceHandle(resource);
+			if (handle) {
 				return {
 					binding,
 					kind: 5,
-					primaryId: this._host.objectIdentity.getObjectId(
-						resourceWithHandle._gpuResource as object
-					),
+					primaryId: this._host.objectIdentity.getObjectId(handle),
 					secondaryId: 0,
 					offset: 0,
 					size: -1,
