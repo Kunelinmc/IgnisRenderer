@@ -430,7 +430,6 @@ export class WebGPUShadowPass {
 	): Promise<void> {
 		if (
 			!context.features.enableShadows ||
-			resources.drawCandidateCount <= 0 ||
 			resources.drawInstanceCapacity <= 0
 		) {
 			return;
@@ -450,27 +449,6 @@ export class WebGPUShadowPass {
 		}
 
 		this._frameId++;
-		if (shadowCasterPackets.length <= 0) {
-			return;
-		}
-		const bindGroup = this._requireBackendDevice().createBindGroup({
-			label: "WebGPUPagedShadowDepthIndirectBindGroup",
-			layout: this._bindGroupLayout,
-			entries: [
-				{
-					binding: 0,
-					resource: { buffer: getWebGPUBuffer(resources.drawMvpBuffer) },
-				},
-				{
-					binding: 1,
-					resource: { buffer: getWebGPUBuffer(resources.drawInstanceMetaBuffer) },
-				},
-				{
-					binding: 2,
-					resource: { buffer: getWebGPUBuffer(resources.drawTransmittanceBuffer) },
-				},
-			],
-		});
 		// Update clear params buffer on queue
 		const paramsArray = new Uint32Array([
 			resources.physicalPageCount,
@@ -484,7 +462,6 @@ export class WebGPUShadowPass {
 			paramsArray
 		);
 
-		const animationBindingCache = new Map<string, GPUBindGroup | null>();
 		const { commandEncoder, submitAtEnd } =
 			this._resolveShadowCommandEncoder(frameEncoder);
 		const passEncoder = commandEncoder.beginRenderPass({
@@ -501,7 +478,7 @@ export class WebGPUShadowPass {
 		passEncoder.setViewport(0, 0, atlasSize, atlasSize, 0, 1);
 		passEncoder.setScissorRect(0, 0, atlasSize, atlasSize);
 
-		// Clear dirty pages first
+		// Tombstones can dirty pages even when there are no current casters.
 		if (this._pagedClearPipeline && this._pagedClearBindGroupLayout) {
 			const clearBindGroup = this._requireBackendDevice().createBindGroup({
 				label: "WebGPUPagedShadowClearBindGroup",
@@ -525,39 +502,64 @@ export class WebGPUShadowPass {
 			);
 		}
 
-		passEncoder.setPipeline(getWebGPURenderPipeline(this._pipeline));
-		passEncoder.setBindGroup(0, bindGroup);
-		const indirectBuffer = getWebGPUBuffer(resources.drawIndirectArgsBuffer);
-		const candidateLimit = Math.min(
-			shadowCasterPackets.length,
-			resources.drawCandidateCount
-		);
-		for (let candidateIndex = 0; candidateIndex < candidateLimit; candidateIndex++) {
-			const candidate = this._collectShadowDrawCandidate(
-				shadowCasterPackets[candidateIndex]
+		if (shadowCasterPackets.length > 0 && resources.drawCandidateCount > 0) {
+			const animationBindingCache = new Map<string, GPUBindGroup | null>();
+			const bindGroup = this._requireBackendDevice().createBindGroup({
+				label: "WebGPUPagedShadowDepthIndirectBindGroup",
+				layout: this._bindGroupLayout,
+				entries: [
+					{
+						binding: 0,
+						resource: { buffer: getWebGPUBuffer(resources.drawMvpBuffer) },
+					},
+					{
+						binding: 1,
+						resource: {
+							buffer: getWebGPUBuffer(resources.drawInstanceMetaBuffer),
+						},
+					},
+					{
+						binding: 2,
+						resource: {
+							buffer: getWebGPUBuffer(resources.drawTransmittanceBuffer),
+						},
+					},
+				],
+			});
+			passEncoder.setPipeline(getWebGPURenderPipeline(this._pipeline));
+			passEncoder.setBindGroup(0, bindGroup);
+			const indirectBuffer = getWebGPUBuffer(resources.drawIndirectArgsBuffer);
+			const candidateLimit = Math.min(
+				shadowCasterPackets.length,
+				resources.drawCandidateCount
 			);
-			if (!candidate) {
-				continue;
-			}
-			const packet = candidate.packet;
-			if (!animationBindingCache.has(packet.id)) {
-				animationBindingCache.set(
-					packet.id,
-					this._resolveAnimationBinding(packet, candidate.geometry, context)
+			for (let candidateIndex = 0; candidateIndex < candidateLimit; candidateIndex++) {
+				const candidate = this._collectShadowDrawCandidate(
+					shadowCasterPackets[candidateIndex]
+				);
+				if (!candidate) {
+					continue;
+				}
+				const packet = candidate.packet;
+				if (!animationBindingCache.has(packet.id)) {
+					animationBindingCache.set(
+						packet.id,
+						this._resolveAnimationBinding(packet, candidate.geometry, context)
+					);
+				}
+				const animationBindGroup =
+					animationBindingCache.get(packet.id) ?? null;
+				if (!animationBindGroup) {
+					continue;
+				}
+				passEncoder.setVertexBuffer(0, candidate.vertexBuffer);
+				passEncoder.setIndexBuffer(candidate.indexBuffer, "uint32");
+				passEncoder.setBindGroup(1, animationBindGroup);
+				passEncoder.drawIndexedIndirect(
+					indirectBuffer,
+					candidateIndex * DRAW_INDEXED_INDIRECT_UINTS * 4
 				);
 			}
-			const animationBindGroup =
-				animationBindingCache.get(packet.id) ?? null;
-			if (!animationBindGroup) {
-				continue;
-			}
-			passEncoder.setVertexBuffer(0, candidate.vertexBuffer);
-			passEncoder.setIndexBuffer(candidate.indexBuffer, "uint32");
-			passEncoder.setBindGroup(1, animationBindGroup);
-			passEncoder.drawIndexedIndirect(
-				indirectBuffer,
-				candidateIndex * DRAW_INDEXED_INDIRECT_UINTS * 4
-			);
 		}
 		passEncoder.end();
 		if (submitAtEnd) {

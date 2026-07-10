@@ -431,6 +431,17 @@ async function testPagedShadowRequestCompactUsesLayoutAddresses() {
 	assert.ok(!source.includes("tableIndex / (gridSize * gridSize)"));
 }
 
+async function testPagedShadowSamplingUsesGlobalPageTableStride() {
+	ShaderSource.clearCache();
+	const source = await ShaderSource.load("webgpu.scene.part.utils.raw");
+
+	assert.ok(source.includes("textureDimensions(pagedShadowPageTable).x"));
+	assert.ok(source.includes("let pageTableIndex ="));
+	assert.ok(source.includes("pageTableIndex % pageTableWidth"));
+	assert.ok(source.includes("pageTableIndex / pageTableWidth"));
+	assert.ok(!source.includes("let pageTableBaseY ="));
+}
+
 function testCompositeResultsAreCloned() {
 	ShaderSource.clearCache();
 	return ShaderSource.load("webgpu.utility.present.composite").then((first) => {
@@ -593,6 +604,7 @@ async function run() {
 	await testPagedShadowDirtyGridBuildUsesGlobalGridBuffers();
 	await testPagedShadowClearLayoutMatchesShaderBindings();
 	await testPagedShadowRequestCompactUsesLayoutAddresses();
+	await testPagedShadowSamplingUsesGlobalPageTableStride();
 	await testCompositeResultsAreCloned();
 	testSyncLoadPopulatesPreparedCache();
 	await testCustomAsyncLoaderOverridesBuiltInSource();

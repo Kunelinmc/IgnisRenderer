@@ -1711,10 +1711,13 @@ fn samplePagedShadowVisibilityForCascade(
 		u32(clamp(floor(shadowUv.x * f32(pageGridSize)), 0.0, f32(pageGridSize - 1u))),
 		u32(clamp(floor(shadowUv.y * f32(pageGridSize)), 0.0, f32(pageGridSize - 1u)))
 	);
-	let pageTableBaseY = pageTableBase / pageGridSize;
+	let pageTableWidth = max(textureDimensions(pagedShadowPageTable).x, 1u);
+	let pageTableIndex =
+		pageTableBase + cascadeIndex * pageTableCascadeStride +
+		pageCoord.y * pageGridSize + pageCoord.x;
 	let textureCoord = vec2<i32>(
-		i32(pageCoord.x),
-		i32(pageTableBaseY + cascadeIndex * pageGridSize + pageCoord.y)
+		i32(pageTableIndex % pageTableWidth),
+		i32(pageTableIndex / pageTableWidth)
 	);
 	let physicalPageIndex = textureLoad(pagedShadowPageTable, textureCoord, 0).x;
 	if (physicalPageIndex == PAGED_SHADOW_NON_RESIDENT) {

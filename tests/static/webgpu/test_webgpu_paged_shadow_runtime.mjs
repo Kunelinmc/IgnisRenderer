@@ -10,6 +10,7 @@ import {
 	collectWebGPUPagedShadowPageRequests,
 } from "../../../src/renderers/webgpu/WebGPUPagedShadowRuntime.ts";
 import { WebGPUCommandEncoder } from "../../../src/renderers/webgpu/WebGPUCommandEncoder.ts";
+import { WebGPUShadowPass } from "../../../src/renderers/webgpu/WebGPUShadowPass.ts";
 
 function createMockBackend() {
 	const buffers = [];
@@ -669,6 +670,94 @@ async function testDepthPassBuildsGpuDrawsAndUsesIndirectRenderer() {
 	);
 }
 
+async function testEmptyCasterSetStillClearsDirtyPagedDepthPages() {
+	const calls = [];
+	const nativeBuffer = { destroy() {} };
+	const nativePass = {
+		setViewport() {},
+		setScissorRect() {},
+		setPipeline() {},
+		setBindGroup() {},
+		drawIndirect() {
+			calls.push("drawIndirect");
+		},
+		end() {
+			calls.push("end");
+		},
+	};
+	const nativeEncoder = {
+		beginRenderPass() {
+			calls.push("beginRenderPass");
+			return nativePass;
+		},
+		finish() {
+			return {};
+		},
+	};
+	const backend = {
+		device: {
+			createCommandEncoder() {
+				return nativeEncoder;
+			},
+			createBindGroup(desc) {
+				calls.push(desc.label);
+				return {};
+			},
+		},
+		queue: {
+			writeBuffer() {},
+			submit() {
+				calls.push("submit");
+			},
+		},
+	};
+	const shadowPass = new WebGPUShadowPass(backend, {}, {});
+	const renderPipeline = { _gpuResource: {} };
+	Object.assign(shadowPass, {
+		_pipeline: renderPipeline,
+		_transmittancePipeline: renderPipeline,
+		_bindGroupLayout: {},
+		_animationBindGroupLayout: {},
+		_fallbackStorageBuffer: nativeBuffer,
+		_pagedClearPipeline: renderPipeline,
+		_pagedClearBindGroupLayout: {},
+		_pagedClearParamsBuffer: nativeBuffer,
+	});
+	const physicalDepthAtlas = {
+		_gpuResource: {
+			createView() {
+				return {};
+			},
+		},
+	};
+	const resources = {
+		physicalDepthAtlas,
+		dirtyPhysicalPages: { _gpuResource: nativeBuffer },
+		drawMvpBuffer: { _gpuResource: nativeBuffer },
+		drawInstanceMetaBuffer: { _gpuResource: nativeBuffer },
+		drawTransmittanceBuffer: { _gpuResource: nativeBuffer },
+		drawIndirectArgsBuffer: { _gpuResource: nativeBuffer },
+		clearDrawIndirectArgsBuffer: { _gpuResource: nativeBuffer },
+		pageSize: 64,
+		physicalGridSize: 2,
+		physicalAtlasSize: 128,
+		drawCandidateCount: 0,
+		drawInstanceCapacity: 1,
+		physicalPageCount: 4,
+	};
+	const context = {
+		features: { enableShadows: true },
+		scene: { shadowCasterPackets: [] },
+	};
+
+	await shadowPass.renderPagedDepthIndirect(context, resources);
+
+	assert.ok(calls.includes("beginRenderPass"));
+	assert.ok(calls.includes("drawIndirect"));
+	assert.equal(calls.includes("WebGPUPagedShadowDepthIndirectBindGroup"), false);
+	assert.ok(calls.includes("submit"));
+}
+
 async function testFeedbackPassUsesScreenDepthTexture() {
 	const backend = createMockBackend();
 	const encoder = createEncoder();
@@ -790,6 +879,7 @@ async function run() {
 	await testFrameInputsUploadOnlyActiveSpans();
 	await testGpuPassesDispatchWithoutCpuPageTableAllocation();
 	await testDepthPassBuildsGpuDrawsAndUsesIndirectRenderer();
+	await testEmptyCasterSetStillClearsDirtyPagedDepthPages();
 	await testFeedbackPassUsesScreenDepthTexture();
 	await testDrawCounterReadbackUsesFixedRing();
 	testResidencyShaderRefreshesCachedPages();
