@@ -1,6 +1,7 @@
 import type {
 	FrameContext,
 } from "../pipeline/types";
+import type { RenderBackendType } from "../renderers/IRenderBackend";
 import type {
 	PostProcessPass,
 	PostProcessPassRegistrySnapshot,
@@ -9,7 +10,10 @@ import type {
 } from "./PostProcessPass";
 import type { PostProcessPlacement } from "./ordering";
 
-export type PostProcessBackendKind = "software" | "webgpu" | "webgl" | (string & {});
+/**
+ * @deprecated Use `RenderBackendType` from `renderers/IRenderBackend`.
+ */
+export type PostProcessBackendKind = RenderBackendType;
 
 export type LogicalGBufferSemantic =
 	| "color"
@@ -40,7 +44,7 @@ export type LogicalGBufferHandle =
 			readonly texture: WebGLTexture | null;
 	  }
 	| {
-			readonly backend: string;
+			readonly backend: RenderBackendType;
 			readonly resource: unknown;
 	  };
 
@@ -96,7 +100,7 @@ export interface PostProcessTransientDescriptor
 export interface PostProcessHistoryResolveRequest {
 	readonly frameContext: FrameContext;
 	readonly postProcess: PostProcessPassRegistrySnapshot;
-	readonly backend: PostProcessBackendKind;
+	readonly backend: RenderBackendType;
 	readonly gBuffer: LogicalGBufferBridge;
 	readonly width: number;
 	readonly height: number;
@@ -113,7 +117,7 @@ export interface PostProcessResourceDescriptor
 
 export interface PostProcessResourceHandle {
 	readonly id: string;
-	readonly backend: PostProcessBackendKind;
+	readonly backend: RenderBackendType;
 	readonly width: number;
 	readonly height: number;
 	readonly format: string;
@@ -258,7 +262,7 @@ export interface PostProcessFrameAbortRequest extends PostProcessFrameRequest {
 }
 
 export interface IPostProcessExecutor {
-	readonly backend: PostProcessBackendKind;
+	readonly backend: RenderBackendType;
 	/**
 	 * Creates the logical G-buffer view consumed by cross-backend passes.
 	 *

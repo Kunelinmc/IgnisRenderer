@@ -49,6 +49,7 @@ export {
 } from "./renderers/CustomRenderTargets";
 export type {
 	IRenderBackend,
+	RenderBackendType,
 	RenderBackendAttachContext,
 	RenderBackendDebugInfo,
 	RenderBackendDeviceDebugInfo,

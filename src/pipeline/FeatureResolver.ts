@@ -1,4 +1,7 @@
-import type { BackendCapabilities } from "../renderers/IRenderBackend";
+import type {
+	BackendCapabilities,
+	RenderBackendType,
+} from "../renderers/IRenderBackend";
 import type { RendererFeatureRequest, ResolvedFeatureState } from "./types";
 import {
 	DEFAULT_CLUSTERED_LIGHTING_OPTIONS,
@@ -37,7 +40,7 @@ const FEATURE_WARNING_LABELS: Record<keyof BackendCapabilities, string> = {
 export function resolveFeatureState(
 	request: RendererFeatureRequest,
 	capabilities: BackendCapabilities,
-	backendType: string
+	backendType: RenderBackendType
 ): ResolvedFeatureState {
 	const warnings: ResolvedFeatureState["warnings"] = [];
 
@@ -108,7 +111,7 @@ function resolveBooleanFeature(
 	requested: boolean | undefined,
 	supported: boolean,
 	feature: keyof BackendCapabilities,
-	backendType: string,
+	backendType: RenderBackendType,
 	warnings: ResolvedFeatureState["warnings"]
 ): boolean {
 	const enabled = requested === true;

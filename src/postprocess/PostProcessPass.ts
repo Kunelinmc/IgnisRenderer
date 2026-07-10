@@ -2,11 +2,13 @@ import { EventEmitter } from "../core/EventEmitter";
 import type { FeatureWarning, FrameContext } from "../pipeline/types";
 import type { PostProcessIncrementalMetadata } from "../pipeline/incremental";
 import type { PostProcessPlacement } from "./ordering";
-import type { IRenderBackend } from "../renderers/IRenderBackend";
+import type {
+	IRenderBackend,
+	RenderBackendType,
+} from "../renderers/IRenderBackend";
 import type {
 	IPostProcessExecutor,
 	LogicalGBufferBridge,
-	PostProcessBackendKind,
 	PostProcessHistoryDescriptor,
 	PostProcessPassImplementation,
 	PostProcessPassRequest,
@@ -43,7 +45,7 @@ export interface PostProcessPassConfig<TRawOptions = unknown> {
 	readonly options?: Partial<TRawOptions>;
 	readonly incremental?: PostProcessIncrementalMetadata;
 	readonly implementations?: Partial<
-		Record<PostProcessBackendKind, PostProcessPassImplementationFactory>
+		Record<RenderBackendType, PostProcessPassImplementationFactory>
 	>;
 }
 
@@ -56,7 +58,7 @@ export interface PostProcessPassChange {
 export interface PostProcessPassResolveRequest<TOptions = unknown> {
 	readonly frameContext?: FrameContext;
 	readonly postProcess?: PostProcessPassRegistrySnapshot;
-	readonly backend?: PostProcessBackendKind;
+	readonly backend?: RenderBackendType;
 	readonly gBuffer?: LogicalGBufferBridge;
 	readonly width?: number;
 	readonly height?: number;
@@ -66,7 +68,7 @@ export interface PostProcessPassResolveRequest<TOptions = unknown> {
 export interface PostProcessPassWarmupRequest<TOptions = unknown> {
 	readonly frameContext: FrameContext;
 	readonly postProcess: PostProcessPassRegistrySnapshot;
-	readonly backend: PostProcessBackendKind;
+	readonly backend: RenderBackendType;
 	readonly context: unknown;
 	readonly options: TOptions;
 }
@@ -101,7 +103,7 @@ export abstract class PostProcessPass<
 	public readonly order?: number;
 	public readonly incremental?: PostProcessIncrementalMetadata;
 	private readonly _implementations: Partial<
-		Record<PostProcessBackendKind, PostProcessPassImplementationFactory>
+		Record<RenderBackendType, PostProcessPassImplementationFactory>
 	>;
 	private readonly _initialOptions: Partial<TRawOptions>;
 	private _enabled: boolean;
@@ -230,13 +232,13 @@ export abstract class PostProcessPass<
 	private readonly _cachedTestImplementations = new Map<string, PostProcessPassImplementation>();
 
 	public getImplementationFactory(
-		backend: PostProcessBackendKind
+		backend: RenderBackendType
 	): PostProcessPassImplementationFactory | null {
 		return this._implementations[backend] ?? null;
 	}
 
 	public getImplementation(
-		backend: PostProcessBackendKind
+		backend: RenderBackendType
 	): PostProcessPassImplementation | null {
 		const cached = this._cachedTestImplementations.get(backend);
 		if (cached) {
@@ -265,7 +267,7 @@ export abstract class PostProcessPass<
 		return instance;
 	}
 
-	public supportsBackend(backend: PostProcessBackendKind): boolean {
+	public supportsBackend(backend: RenderBackendType): boolean {
 		if (this.getImplementationFactory(backend) !== null) {
 			return true;
 		}
@@ -291,7 +293,7 @@ export abstract class PostProcessPass<
 		return executor.executePass(this.id, request);
 	}
 
-	public invalidate(backend?: PostProcessBackendKind): void {
+	public invalidate(backend?: RenderBackendType): void {
 		this._emitChange("lifecycle");
 		if (backend) {
 			const impl = this._cachedTestImplementations.get(backend);
@@ -303,7 +305,7 @@ export abstract class PostProcessPass<
 		}
 	}
 
-	public destroy(backend?: PostProcessBackendKind): void {
+	public destroy(backend?: RenderBackendType): void {
 		this._emitChange("lifecycle");
 		if (backend) {
 			const impl = this._cachedTestImplementations.get(backend);
@@ -405,7 +407,7 @@ export class PostProcessPassRegistry extends EventEmitter<{
 	 * @returns This registry.
 	 * @sideEffects May clear implementation-owned backend caches.
 	 */
-	public invalidatePasses(backend?: PostProcessBackendKind): this {
+	public invalidatePasses(backend?: RenderBackendType): this {
 		for (const pass of this._passes.values()) {
 			pass.invalidate(backend);
 		}
@@ -419,14 +421,16 @@ export class PostProcessPassRegistry extends EventEmitter<{
 	 * @returns This registry.
 	 * @sideEffects Releases implementation-owned backend resources.
 	 */
-	public destroyPasses(backend?: PostProcessBackendKind): this {
+	public destroyPasses(backend?: RenderBackendType): this {
 		for (const pass of this._passes.values()) {
 			pass.destroy(backend);
 		}
 		return this;
 	}
 
-	public createSnapshot(backendType: string): PostProcessPassRegistrySnapshot {
+	public createSnapshot(
+		backendType: RenderBackendType
+	): PostProcessPassRegistrySnapshot {
 		return new PostProcessPassRegistrySnapshot(this.getPasses(), backendType);
 	}
 }
@@ -437,11 +441,11 @@ export class PostProcessPassRegistry extends EventEmitter<{
 export class PostProcessPassRegistrySnapshot {
 	private _passes = new Map<string, ResolvedPostProcessPass>();
 	private _warnings: FeatureWarning[] = [];
-	private readonly _backendType: string;
+	private readonly _backendType: RenderBackendType;
 
 	constructor(
 		passes: readonly PostProcessPass[],
-		backendType: string,
+		backendType: RenderBackendType,
 		resolvedPasses?: readonly ResolvedPostProcessPass[],
 		warnings?: readonly FeatureWarning[]
 	) {
@@ -454,7 +458,7 @@ export class PostProcessPassRegistrySnapshot {
 			return;
 		}
 		for (const pass of passes) {
-			const backend = backendType as PostProcessBackendKind;
+			const backend = backendType;
 			const options = pass.normalizeOptions({
 				backend,
 				postProcess: this,

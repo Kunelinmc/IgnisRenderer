@@ -4,6 +4,7 @@ import type {
 	PostProcessResourceMipMode,
 	PostProcessScaledResourceDescriptor,
 } from "./types";
+import type { RenderBackendType } from "../renderers/IRenderBackend";
 
 const DEFAULT_POST_PROCESS_RESOURCE_FORMAT = "rgba16float";
 const DEFAULT_POST_PROCESS_RESOURCE_USAGE = [
@@ -99,7 +100,7 @@ export function createPostProcessScaledResourceDescriptorKey(
  * @sideEffects None.
  */
 export function createPostProcessResourceAllocationKey(
-	backend: string,
+	backend: RenderBackendType,
 	descriptor: PostProcessResourceDescriptor,
 	options: PostProcessResourceDescriptorKeyOptions = {}
 ): string {

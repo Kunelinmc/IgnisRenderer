@@ -1,4 +1,5 @@
 import type { FrameContext } from "../pipeline/types";
+import type { RenderBackendType } from "../renderers/IRenderBackend";
 import {
 	DEFAULT_POST_PROCESS_PLACEMENT,
 	getBuiltinPostProcessOrder,
@@ -9,7 +10,6 @@ import { createPostProcessScaledResourceDescriptorKey } from "./resourceDescript
 import type {
 	LogicalGBufferBridge,
 	LogicalGBufferSemantic,
-	PostProcessBackendKind,
 	PostProcessHistoryDescriptor,
 	PostProcessHistoryResolveRequest,
 	PostProcessPassImplementation,
@@ -27,13 +27,13 @@ const CUSTOM_ORDER_SCALE = 0.001;
 const CUSTOM_ORDER_LIMIT = 999;
 
 export interface PostProcessExecutionOrderContext {
-	readonly backend?: PostProcessBackendKind;
+	readonly backend?: RenderBackendType;
 	readonly frameContext?: FrameContext;
 }
 
 export interface PostProcessGraphCompileRequest {
 	readonly postProcess: PostProcessPassRegistrySnapshot;
-	readonly backend: PostProcessBackendKind;
+	readonly backend: RenderBackendType;
 	readonly frameContext: FrameContext;
 	readonly gBuffer: LogicalGBufferBridge;
 	readonly startPassId?: string | null;
@@ -50,7 +50,7 @@ export interface CompiledPostProcessPass<TOptions = unknown>
 }
 
 export interface CompiledPostProcessGraph {
-	readonly backend: PostProcessBackendKind;
+	readonly backend: RenderBackendType;
 	readonly postProcess: PostProcessPassRegistrySnapshot;
 	readonly frameContext: FrameContext;
 	readonly gBuffer: LogicalGBufferBridge;
