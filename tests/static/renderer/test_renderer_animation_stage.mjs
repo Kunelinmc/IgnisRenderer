@@ -159,9 +159,9 @@ async function run() {
 		mixer.bindNode("/animated", meshInstance);
 		mixer.clipAction("move").play();
 
-		await renderer.renderScene(0);
-		await renderer.renderScene(16);
-		await renderer.renderScene(516);
+		await renderer.renderFrame(0);
+		await renderer.renderFrame(16);
+		await renderer.renderFrame(516);
 
 		assert.equal(backend.beginFrameCount, 3);
 		assert.ok(backend.mainOpaqueCenters.length >= 3);
@@ -172,7 +172,7 @@ async function run() {
 		assert.equal(backend.sharedStages.includes("animation-sim"), false);
 
 		renderer.animationAutoRender = false;
-		await renderer.renderScene(1016);
+		await renderer.renderFrame(1016);
 		assert.equal(backend.beginFrameCount, 3);
 
 		console.log("Renderer animation stage tests passed");

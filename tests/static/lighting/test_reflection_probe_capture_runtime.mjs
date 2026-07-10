@@ -643,7 +643,7 @@ async function testRendererCaptureStageRunsWithoutReflectivePackets() {
 			},
 		};
 
-		await renderer.renderScene(16);
+		await renderer.renderFrame(16);
 		assert.equal(captureStageCalls, 1);
 		assert.equal(backend.executedStages.includes("reflection"), false);
 	} finally {

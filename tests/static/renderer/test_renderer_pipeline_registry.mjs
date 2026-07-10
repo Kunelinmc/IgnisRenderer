@@ -103,7 +103,7 @@ async function testRendererAbortsBackendFrameOnPassFailure() {
 
 	let caught = null;
 	try {
-		await renderer.renderScene(16);
+		await renderer.renderFrame(16);
 	} catch (caughtError) {
 		caught = caughtError;
 	}
@@ -122,7 +122,7 @@ async function testRendererAbortsPartialBeginFrameFailure() {
 
 	let caught = null;
 	try {
-		await renderer.renderScene(16);
+		await renderer.renderFrame(16);
 	} catch (caughtError) {
 		caught = caughtError;
 	}
@@ -227,7 +227,7 @@ async function testRendererWarnsForMissingRendererStageExecutor() {
 			kind: "renderer",
 			dependsOn: ["sync-out"],
 		});
-		await renderer.renderScene(16);
+		await renderer.renderFrame(16);
 	} finally {
 		Logger.reset();
 	}
@@ -256,7 +256,7 @@ async function run() {
 		const backend = new RegistryBackend();
 		const renderer = createRenderer(backend);
 
-		await renderer.renderScene(0);
+		await renderer.renderFrame(0);
 		backend.executedPasses.length = 0;
 		backend.skippedPasses.length = 0;
 
@@ -276,7 +276,7 @@ async function run() {
 
 		try {
 			renderer.requestRender(customReasonId);
-			const result = await renderer.renderScene(16);
+			const result = await renderer.renderFrame(16);
 
 			const stats = renderer.getLastIncrementalFrameStats();
 			assert.equal(stats.firstPass, customPassId);

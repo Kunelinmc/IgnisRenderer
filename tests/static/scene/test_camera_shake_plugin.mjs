@@ -167,7 +167,7 @@ async function testShakeAppliedBeforeFrameAndRestoredAfterFrame() {
 		};
 
 		plugin.trigger();
-		await renderer.renderScene(16);
+		await renderer.renderFrame(16);
 
 		assert.equal(backend.beginFrameCount, 1);
 		const beginSnapshot = backend.beginSnapshots[0];
@@ -207,11 +207,11 @@ async function testOnDemandSchedulingStaysAwakeWhileShakeIsActive() {
 			positionAmplitude: { x: 0.4, y: 0.3, z: 0.2 },
 		});
 
-		await renderer.renderScene(16);
-		await renderer.renderScene(32);
+		await renderer.renderFrame(16);
+		await renderer.renderFrame(32);
 		assert.equal(backend.beginFrameCount, 2);
 
-		await renderer.renderScene(220);
+		await renderer.renderFrame(220);
 		assert.equal(
 			backend.beginFrameCount,
 			2,
@@ -268,7 +268,7 @@ async function testOrbitCameraShakeDoesNotDriftPoseBetweenFrames() {
 
 		plugin.trigger();
 		for (let t = 0; t <= 224; t += 16) {
-			await renderer.renderScene(t);
+			await renderer.renderFrame(t);
 			assertVectorClose(camera.position, basePosition);
 			assertVectorClose(camera.target, baseTarget);
 			assertVectorClose(camera.up, baseUp);
@@ -331,7 +331,7 @@ async function testOrbitRotationShakeRotatesAroundPivot() {
 			positionAmplitude: { x: 0, y: 0, z: 0 },
 			rotationAmplitude: { x: 0.025, y: 0.03, z: 0.02 },
 		});
-		await renderer.renderScene(16);
+		await renderer.renderFrame(16);
 
 		assert.equal(backend.beginFrameCount, 1);
 		const beginSnapshot = backend.beginSnapshots[0];

@@ -123,14 +123,14 @@ async function run() {
 		clean.flushCSG();
 		clean.flushCount = 0;
 
-		await renderer.renderScene(0);
+		await renderer.renderFrame(0);
 		assert.equal(backend.beginFrameCount, 1);
 		assert.equal(dirty.isCSGDirty, false);
 		assert.equal(dirty.flushCount, 1);
 		assert.equal(clean.flushCount, 0);
 
 		dirty.markCSGDirty();
-		await renderer.renderScene(16);
+		await renderer.renderFrame(16);
 		assert.equal(backend.beginFrameCount, 2);
 		assert.equal(dirty.flushCount, 2);
 

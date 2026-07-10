@@ -102,7 +102,7 @@ async function testRegistryAndFrameSnapshot() {
 		},
 	});
 
-	await renderer.renderScene(16);
+	await renderer.renderFrame(16);
 
 	const context = backend.contexts.at(-1);
 	assert.ok(context.renderTargets.has("inspect"));
@@ -131,7 +131,7 @@ async function testRegistryAndFrameSnapshot() {
 
 	renderer.renderPasses.unregister("inspect-pass");
 	renderer.requestRender("unknown");
-	await renderer.renderScene(32);
+	await renderer.renderFrame(32);
 	const nextPlan = backend.contexts.at(-1).framePlan;
 	assert.equal(
 		nextPlan.backendPasses.some((pass) => pass.stage === "inspect-pass"),

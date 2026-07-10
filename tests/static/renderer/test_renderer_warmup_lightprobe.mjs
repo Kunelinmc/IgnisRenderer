@@ -221,7 +221,7 @@ async function testWarmupAndRenderIncrementalContextContractMatches() {
 		const { backend, renderer } = createRendererFixture();
 
 		await renderer.warmup();
-		await renderer.renderScene(0);
+		await renderer.renderFrame(0);
 
 		const warmupIncremental = backend.lastWarmupContext?.incremental;
 		const renderIncremental = backend.lastBeginFrameContext?.incremental;

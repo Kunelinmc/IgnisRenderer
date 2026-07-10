@@ -79,7 +79,7 @@ async function testPostAnimationHookOrder() {
 			backend._postAnimationFlag = true;
 		});
 
-		await renderer.renderScene(16);
+		await renderer.renderFrame(16);
 		assert.equal(backend.postAnimationSeenBeforeBegin, true);
 	} finally {
 		globalThis.window = originalWindow;

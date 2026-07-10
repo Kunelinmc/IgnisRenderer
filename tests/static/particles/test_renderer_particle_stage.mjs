@@ -117,8 +117,8 @@ async function run() {
 		});
 		renderer.scene.add(system);
 
-		await renderer.renderScene(16);
-		await renderer.renderScene(32);
+		await renderer.renderFrame(16);
+		await renderer.renderFrame(32);
 
 		const incrementalStats = renderer.getLastIncrementalFrameStats();
 		assert.equal(incrementalStats?.forceFullFrame, true);

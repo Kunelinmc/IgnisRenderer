@@ -176,14 +176,14 @@ async function testRendererResolvesLODStage() {
 		);
 		lodMesh.position.z = -10;
 
-		await renderer.renderScene(0);
+		await renderer.renderFrame(0);
 		assert.equal(backend.beginFrameCount, 1);
 		assert.equal(lodMesh.activeLevelIndex, 1);
 		assert.equal(lodMesh.mesh, low);
 
 		camera.position.z = -9;
 		renderer.requestRender("camera");
-		await renderer.renderScene(16);
+		await renderer.renderFrame(16);
 		assert.equal(backend.beginFrameCount, 2);
 		assert.equal(lodMesh.activeLevelIndex, 0);
 		assert.equal(lodMesh.mesh, high);

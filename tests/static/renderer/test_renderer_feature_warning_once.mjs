@@ -76,8 +76,8 @@ async function run() {
 		renderer.features.enableEnvironment = false;
 		renderer.postProcess.getPass("gamma")?.disable();
 
-		await renderer.renderScene(0);
-		await renderer.renderScene(16);
+		await renderer.renderFrame(0);
+		await renderer.renderFrame(16);
 
 		const reflectionWarnings = warnings.filter((warning) =>
 			warning.includes("[webgpu-feature-reflection]")

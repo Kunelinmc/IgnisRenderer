@@ -236,9 +236,9 @@ async function run() {
 			console.warn = originalWarn;
 		}
 
-		await renderer.renderScene(0);
-		await renderer.renderScene(16);
-		await renderer.renderScene(32);
+		await renderer.renderFrame(0);
+		await renderer.renderFrame(16);
+		await renderer.renderFrame(32);
 
 		assert.equal(backend.beginFrameCount, 2);
 		assert.equal(warnedMessages.length, 1200);

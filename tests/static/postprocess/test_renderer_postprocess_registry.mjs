@@ -173,7 +173,7 @@ async function run() {
 		renderer.postProcess.getPass("tonemap")?.disable();
 		renderer.postProcess.getPass("gamma")?.disable();
 
-		await renderer.renderScene(0);
+		await renderer.renderFrame(0);
 
 		const postProcess = backend.contexts.at(-1).postProcess;
 		assert.equal(postProcess.isEnabled("custom-edge"), true);
@@ -240,7 +240,7 @@ async function run() {
 		noopRenderer.features.enableEnvironment = false;
 		noopRenderer.postProcess.getPass("tonemap")?.disable();
 		noopRenderer.postProcess.getPass("gamma")?.disable();
-		await noopRenderer.renderScene(0);
+		await noopRenderer.renderFrame(0);
 		assert.deepEqual(noopBackend.postProcessSupport.executor.executedPasses, []);
 		assert.equal(noopBackend.gBufferRequests, 0);
 		assert.equal(noopBackend.executedPasses.includes("postprocess"), false);
@@ -278,8 +278,8 @@ async function run() {
 				}
 			})()
 		);
-		await missingAdapterRenderer.renderScene(0);
-		await missingAdapterRenderer.renderScene(16);
+		await missingAdapterRenderer.renderFrame(0);
+		await missingAdapterRenderer.renderFrame(16);
 		Logger.reset();
 		assert.equal(
 			unsupportedWarnings.filter((warning) =>
@@ -328,8 +328,8 @@ async function run() {
 				}
 			})()
 		);
-		await historyRenderer.renderScene(0);
-		await historyRenderer.renderScene(16);
+		await historyRenderer.renderFrame(0);
+		await historyRenderer.renderFrame(16);
 		assert.equal(historySnapshots.length, 2);
 		assert.deepEqual(historySnapshots[0], {
 			valid: false,
@@ -364,7 +364,7 @@ async function run() {
 			})()
 		);
 		await assert.rejects(
-			() => throwingRenderer.renderScene(0),
+			() => throwingRenderer.renderFrame(0),
 			/postprocess failed/
 		);
 		assert.equal(throwingBackend.postProcessAbortCalls, 1);
