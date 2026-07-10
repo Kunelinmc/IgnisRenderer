@@ -39,6 +39,7 @@ export class BackendPostProcessRuntime {
 	private readonly _observedPasses = new Set<PostProcessPass>();
 	private readonly _implementations = new Map<PostProcessPass, PostProcessPassImplementation>();
 	private _pendingFrame: PendingBackendPostProcessFrame | null = null;
+	private _completedFramePreservesOutsideDirtyTiles = true;
 
 	public constructor(options: BackendPostProcessRuntimeOptions) {
 		this._executor = options.executor;
@@ -110,6 +111,7 @@ export class BackendPostProcessRuntime {
 	 * pending history writes without committing them.
 	 */
 	public async execute(context: FrameContext): Promise<void> {
+		this._completedFramePreservesOutsideDirtyTiles = true;
 		if (
 			context.incremental.enabled &&
 			!context.incremental.forceFullFrame &&
@@ -183,6 +185,9 @@ export class BackendPostProcessRuntime {
 				if (result?.ran === false) {
 					continue;
 				}
+				if (result?.preservesOutsideDirtyTiles !== true) {
+					this._completedFramePreservesOutsideDirtyTiles = false;
+				}
 				executedPassIds.push(resolved.id);
 				if (result?.updatedHistoryIds) {
 					this._resources.markUpdatedMany(result.updatedHistoryIds);
@@ -200,6 +205,15 @@ export class BackendPostProcessRuntime {
 			await this.abortFrame(error);
 			throw error;
 		}
+	}
+
+	/**
+	 * Reports whether the completed post-process chain proved local preservation.
+	 *
+	 * @internal Used by backend frame-coverage reporting only.
+	 */
+	public get completedFramePreservesOutsideDirtyTiles(): boolean {
+		return this._completedFramePreservesOutsideDirtyTiles;
 	}
 
 	/**

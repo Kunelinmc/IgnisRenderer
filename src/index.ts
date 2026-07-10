@@ -27,7 +27,7 @@ export type {
 	BoundingBox,
 } from "./core/types";
 export { Renderer } from "./renderers/Renderer";
-export type { RendererEvents } from "./renderers/Renderer";
+export type { RenderFrameResult, RendererEvents } from "./renderers/Renderer";
 export {
 	CustomRenderPassRegistry,
 	CustomRenderPassRegistrySnapshot,
@@ -144,6 +144,7 @@ export * from "./postprocess";
 export {
 	DEFAULT_INCREMENTAL_DIRTY_TILE_SIZE,
 	DEFAULT_INCREMENTAL_RENDERING_OPTIONS,
+	createIncrementalTileCoverage,
 	IncrementalFramePlanner,
 	RENDER_DIRTY_GROUP,
 	RENDER_DIRTY_REASON_MASK,
@@ -161,7 +162,11 @@ export type {
 	IncrementalDirtyReasonDescriptor,
 	IncrementalFrameContext,
 	IncrementalFramePassDescriptor,
+	IncrementalFrameStatus,
 	IncrementalFrameStats,
+	IncrementalTileCoverage,
+	IncrementalTileCoverageMode,
+	IncrementalTileRange,
 	IncrementalPlan,
 	IncrementalPlanInput,
 	IncrementalRenderingOptions,

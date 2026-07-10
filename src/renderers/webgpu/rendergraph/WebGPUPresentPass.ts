@@ -69,6 +69,21 @@ export class WebGPUPresentPass {
 			this._bindingSource = request.source;
 		}
 
+		const incrementalPartial =
+			request.frameContext?.incremental?.enabled === true &&
+			request.frameContext?.incremental?.forceFullFrame === false &&
+			(request.frameContext?.incremental?.dirtyRects?.length ?? 0) > 0;
+		const canvasTarget = this._backend.getCanvasColorTexture();
+		// WebGPU canvas swap-chain textures do not provide a cross-frame content
+		// preservation guarantee. Composite the whole target instead of relying on
+		// a `load` operation for non-dirty tiles.
+		const dirtyRects = incrementalPartial ?
+			[{ x: 0, y: 0, width: canvasTarget.width, height: canvasTarget.height }]
+		: request.resolveDirtyRects(
+				request.frameContext,
+				canvasTarget.width,
+				canvasTarget.height,
+			);
 		request.encoder.beginRenderPass({
 			label: "WebGPUPresentPass",
 			colorAttachments: [
@@ -81,12 +96,6 @@ export class WebGPUPresentPass {
 		});
 		request.encoder.setPipeline(this._pipeline);
 		request.encoder.setBindingGroup(0, this._binding);
-		const canvasTarget = this._backend.getCanvasColorTexture();
-		const dirtyRects = request.resolveDirtyRects(
-			request.frameContext,
-			canvasTarget.width,
-			canvasTarget.height
-		);
 		for (const rect of dirtyRects) {
 			request.encoder.setScissorRect?.(
 				rect.x,

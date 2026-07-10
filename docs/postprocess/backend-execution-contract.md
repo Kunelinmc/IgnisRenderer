@@ -9,6 +9,10 @@ To support decoupled backends, post-process execution is delegated to backend-ow
 
 ### Common Backend Lifecycle
 - Backends that support post-processing must set `BackendCapabilities.postProcess = true` and handle `executePass({ stage: "postprocess" }, context)`.
+- A post-process implementation must return `preservesOutsideDirtyTiles: true`
+  only when it preserves all pixels outside the current dirty tiles. Omitted
+  declarations must force the backend's completed frame coverage to
+  `"full-frame"`.
 - Backend resize, device loss, or destruction must trigger post-process runtime invalidation or destruction.
 - A custom post-process pass must include its respective entry in `PostProcessPassConfig.implementations` (e.g., `webgpu`, `webgl`, or `software`).
 - `PostProcessHistoryDescriptor`, `PostProcessTransientDescriptor`, and

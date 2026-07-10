@@ -24,6 +24,8 @@ All graphics commands are recorded through a backend-agnostic `ICommandEncoder`.
   - Input contract: `nowMs` must use the animation-frame timestamp time base in milliseconds.
   - Behavior contract: must render at most one frame and must not schedule a later frame.
   - Constraint: concurrent calls must reject.
+  - Output contract: must return an `IncrementalFrameStatus` in every result branch, including an on-demand clean result.
+  - Output contract: `IncrementalFrameStatus` must distinguish planned tile coverage from verified final-output coverage.
 - `Renderer.renderScene(nowMs)`
   - Compatibility contract: must remain a deprecated alias of `renderFrame(nowMs)`.
   - Constraint: new application code must use `renderFrame(nowMs)` for manual rendering or `renderLoop()` for automatic scheduling.
@@ -112,6 +114,9 @@ All graphics commands are recorded through a backend-agnostic `ICommandEncoder`.
 - `IRenderBackend.endFrame()`
   - Behavior contract: must finalize command encoders, submit command buffers, and present the frame.
   - Constraint: must throw if no frame is active.
+- `IRenderBackend.getCompletedFrameCoverage()`
+  - Internal contract: must return `"dirty-tiles"` only when the completed output preserved every non-dirty tile.
+  - Internal contract: must otherwise return `"full-frame"`.
 - `IRenderBackend.abortFrame(error?: unknown)`
   - Behavior contract: must cancel/release active encoders and discard command buffers.
   - Constraint: must be idempotent and must not throw if no frame is active.
@@ -219,7 +224,17 @@ stopRenderLoop();
 await renderer.renderFrame(performance.now());
 ```
 
-### 4. Frame Coordinator Execution (Internal / Backend Implementation)
+### 4. Incremental Frame Coverage
+```ts
+const result = await renderer.renderFrame(performance.now());
+const { plannedCoverage, finalOutputCoverage } = result.incremental;
+
+// Ranges are row-major half-open tile indices.
+console.info(plannedCoverage.updatedTileRanges);
+console.info(finalOutputCoverage.reusableTileRanges);
+```
+
+### 5. Frame Coordinator Execution (Internal / Backend Implementation)
 ```ts
 // Inside FrameCoordinator execution loop
 try {
@@ -238,7 +253,7 @@ try {
 }
 ```
 
-### 5. Querying Extensions
+### 6. Querying Extensions
 ```ts
 import { WEBGPU_COMPUTE_EXTENSION } from "ignisrenderer";
 
@@ -248,7 +263,7 @@ if (compute) {
 }
 ```
 
-### 6. In-Frame Command Recording and Texture Copying
+### 7. In-Frame Command Recording and Texture Copying
 ```ts
 encoder.beginRenderPass({
 	label: "TransparentAccumulation",
@@ -283,7 +298,7 @@ encoder.draw(3);
 encoder.endRenderPass();
 ```
 
-### 7. Custom Render Targets & Passes
+### 8. Custom Render Targets & Passes
 ```ts
 import { TextureFormat, type CustomRenderPassContext } from "ignisrenderer";
 
@@ -329,6 +344,7 @@ const readback = await renderer.renderTargets.readColor("inspect", 0);
 - `Renderer render loop frame failed.`: logged when a frame rejects. The original error must be included in the diagnostic, and the loop must continue.
 - `Renderer.renderFrame() cannot run concurrently.`: returned when another frame is still active.
 - Errors from manually awaited `renderFrame()` calls must continue to reject to the caller without automatic logging by `Renderer`.
+- A failed or aborted frame must not publish a new incremental status or replace the last successful incremental stats snapshot.
 - `Renderer.initialize() cannot be called multiple times.`: triggered when `initialize` is invoked on an already initialized renderer.
 - `RenderBackendDebugInfo.available === false`: returned before initialization, for the software backend, or when diagnostics cannot be collected. This is not an error.
 - `device-lost` event triggers warning logging with backend-supplied details.
@@ -347,6 +363,7 @@ const readback = await renderer.renderTargets.readColor("inspect", 0);
 - `<backend>-custom-render-target-msaa-unsupported-<id>` is logged when a backend cannot allocate a requested sample count.
 
 ## Compatibility / Breaking Changes
+- `RenderFrameResult` requires an `incremental` property on both rendered and clean result branches. This is a breaking TypeScript API change.
 - `Renderer.renderScene()` is deprecated and retained only for compatibility. Applications must use `Renderer.renderFrame()` for manual rendering or `Renderer.renderLoop()` for automatic scheduling. Neither `renderFrame()` nor the deprecated alias schedules subsequent frames based on backend `frameScheduling`.
 - `IRenderBackend.createSession(context)` and public backend session APIs are removed.
 - Backend instances are one-shot renderer runtimes and must not be reused across renderers.

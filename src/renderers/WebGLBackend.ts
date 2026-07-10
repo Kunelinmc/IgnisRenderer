@@ -10,6 +10,7 @@ import type {
 	RenderBackendDebugInfo,
 	RenderBackendDeviceLostInfo,
 	RenderBackendAttachContext,
+	RenderBackendCompletedFrameCoverage,
 	RenderBackendProfile,
 	RenderSurfaceSize,
 	WarmupOptions,
@@ -134,6 +135,7 @@ export class WebGLBackend implements IRenderBackend {
 	private _frameGraphRuntime: WebGLFrameGraphRuntime | null = null;
 	private _particleSimulator: DefaultParticleSimulator | null = null;
 	private _activeContext: FrameContext | null = null;
+	private _completedFrameCoverage: RenderBackendCompletedFrameCoverage = "full-frame";
 	private _contextLost = false;
 	private _contextLossHandler: ((event: Event) => void) | null = null;
 	private _contextRestoreHandler: ((event: Event) => void) | null = null;
@@ -354,6 +356,7 @@ export class WebGLBackend implements IRenderBackend {
 	}
 
 	public beginFrame(context: FrameContext): void {
+		this._completedFrameCoverage = "full-frame";
 		if (!this._frameExecutor || !this._frameGraphRuntime) {
 			throw new Error("WebGL backend has not been initialized.");
 		}
@@ -427,6 +430,11 @@ export class WebGLBackend implements IRenderBackend {
 		this._particleSimulator?.endFrame();
 		this._postProcessRuntime.commitFrame();
 		this._activeContext = null;
+	}
+
+	/** @internal Renderer frame-coordination coverage report. */
+	public getCompletedFrameCoverage(): RenderBackendCompletedFrameCoverage {
+		return this._completedFrameCoverage;
 	}
 
 	public async abortFrame(_error?: unknown): Promise<void> {

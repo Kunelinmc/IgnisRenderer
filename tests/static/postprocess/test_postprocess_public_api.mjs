@@ -179,6 +179,12 @@ class SkippingPass extends CustomPass {
 	}
 }
 
+class LocallyPreservingPass extends CustomPass {
+	execute() {
+		return { ran: true, preservesOutsideDirtyTiles: true };
+	}
+}
+
 class ConditionalPass extends CustomPass {
 	shouldExecute(request) {
 		return request.frameContext?.transient.get("run-conditional-pass") === true;
@@ -634,6 +640,22 @@ async function testRanFalsePassIsExcludedFromExecutedIds() {
 	assert.deepEqual(getLastExecutedPassIds(executor), []);
 }
 
+async function testBackendRuntimeTracksLocalPreservationDeclarations() {
+	const localRegistry = new PostProcessPassRegistry();
+	localRegistry.registerPass(new LocallyPreservingPass("local", { enabled: true }));
+	const localRuntime = createRuntime(new FakeExecutor("webgpu"));
+	await localRuntime.execute(createFrameContext(localRegistry.createSnapshot("webgpu")));
+	assert.equal(localRuntime.completedFramePreservesOutsideDirtyTiles, true);
+
+	const unspecifiedRegistry = new PostProcessPassRegistry();
+	unspecifiedRegistry.registerPass(new CustomPass("unspecified", { enabled: true }));
+	const unspecifiedRuntime = createRuntime(new FakeExecutor("webgpu"));
+	await unspecifiedRuntime.execute(
+		createFrameContext(unspecifiedRegistry.createSnapshot("webgpu"))
+	);
+	assert.equal(unspecifiedRuntime.completedFramePreservesOutsideDirtyTiles, false);
+}
+
 async function testBackendRuntimeHistoryCommitAndAbort() {
 	const seen = [];
 	const registry = new PostProcessPassRegistry();
@@ -914,6 +936,7 @@ async function run() {
 	testManualEnginePassIncrementalRegistrationCanBeRemoved();
 	await testSSRHistorySignatureUsesOptions();
 	await testRanFalsePassIsExcludedFromExecutedIds();
+	await testBackendRuntimeTracksLocalPreservationDeclarations();
 	await testBackendRuntimeHistoryCommitAndAbort();
 	await testBackendRuntimeDestroyClearsPendingAndDestroysResources();
 	await testBackendRuntimeCommitFrameSwapsHistory();

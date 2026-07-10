@@ -72,6 +72,10 @@ export class TestRenderBackend {
 
 	endFrame() {}
 
+	getCompletedFrameCoverage() {
+		return "full-frame";
+	}
+
 	abortFrame() {}
 
 	destroy() {}

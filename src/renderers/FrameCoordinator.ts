@@ -49,12 +49,14 @@ import type { PhysicsSystem } from "../physics";
 import type { SHCoefficients } from "../maths/types";
 import {
 	buildDirtyTileCoverage,
+	createIncrementalTileCoverage,
 	IncrementalFramePlanner,
 	makeFullScreenRect,
 	renderDirtyReasonToMask,
 	type IncrementalFrameContext,
 	type DirtyTileCoverage,
 	type IncrementalFrameStats,
+	type IncrementalFrameStatus,
 	type IncrementalRenderingOptions,
 } from "../pipeline/incremental";
 import type { IRenderBackend, WarmupOptions, WarmupReport } from "./IRenderBackend";
@@ -172,7 +174,7 @@ export class FrameCoordinator {
 		hasActiveAnimations: boolean,
 		deltaTimeSeconds: number,
 		transient: TransientStore,
-	): Promise<void> {
+	): Promise<IncrementalFrameStatus> {
 		const state = this._createRenderSceneFrameState(delegate, {
 			now,
 			deltaTimeSeconds,
@@ -191,10 +193,52 @@ export class FrameCoordinator {
 				await this._backend.endFrame();
 				state.frameStarted = false;
 			}
+			const status = this._createIncrementalFrameStatus(state.incrementalFrameContext);
+			delegate.setLastIncrementalFrameStats(status.plan);
+			return status;
 		} catch (error) {
 			await this._abortFailedFrame(error, state.frameStarted);
 			throw error;
 		}
+	}
+
+	/**
+	 * Creates the no-op incremental status returned by an on-demand clean frame.
+	 *
+	 * @internal Owned by `Renderer.renderFrame()`.
+	 */
+	public createCleanIncrementalFrameStatus(
+		delegate: FrameCoordinatorDelegate,
+	): IncrementalFrameStatus {
+		const { fullFrameTiles } = this._createFullFrameCoverage(delegate);
+		const plan: IncrementalFrameStats = {
+			enabled: delegate.incrementalOptions.enabled,
+			reasonMask: 0,
+			forceFullFrame: false,
+			temporalHistoryReset: false,
+			firstPass: null,
+			postProcessStartPass: null,
+			dirtyRectCount: 0,
+			dirtyTileCount: 0,
+			dirtyTileSize: fullFrameTiles.tileSize,
+			dirtyTileColumns: fullFrameTiles.tileColumns,
+			dirtyTileRows: fullFrameTiles.tileRows,
+			dirtyAreaRatio: 0,
+			dirtyRects: [],
+			dirtyTiles: [],
+		};
+		const coverage = createIncrementalTileCoverage(
+			fullFrameTiles.tileSize,
+			fullFrameTiles.tileColumns,
+			fullFrameTiles.tileRows,
+			[],
+			"unchanged",
+		);
+		return {
+			plan,
+			plannedCoverage: coverage,
+			finalOutputCoverage: coverage,
+		};
 	}
 
 	private _createRenderSceneFrameState(
@@ -450,8 +494,6 @@ export class FrameCoordinator {
 			state.incrementalFrameContext.firstPass
 				? (state.stageIndexById.get(state.incrementalFrameContext.firstPass) ?? -1)
 				: -1;
-		this._recordIncrementalFrameStats(delegate, state.incrementalFrameContext);
-
 		const context = this._createFrameContext(
 			delegate,
 			state.frame,
@@ -525,11 +567,10 @@ export class FrameCoordinator {
 		state.emittedPostAnimation = true;
 	}
 
-	private _recordIncrementalFrameStats(
-		delegate: FrameCoordinatorDelegate,
+	private _createIncrementalFrameStatus(
 		incrementalFrameContext: IncrementalFrameContext,
-	): void {
-		delegate.setLastIncrementalFrameStats({
+	): IncrementalFrameStatus {
+		const plan: IncrementalFrameStats = {
 			enabled: incrementalFrameContext.enabled,
 			reasonMask: incrementalFrameContext.reasonMask,
 			forceFullFrame: incrementalFrameContext.forceFullFrame,
@@ -549,7 +590,32 @@ export class FrameCoordinator {
 				height: rect.height,
 			})),
 			dirtyTiles: incrementalFrameContext.dirtyTiles.slice(),
-		});
+		};
+		const plannedCoverage = createIncrementalTileCoverage(
+			incrementalFrameContext.dirtyTileSize,
+			incrementalFrameContext.dirtyTileColumns,
+			incrementalFrameContext.dirtyTileRows,
+			incrementalFrameContext.dirtyTiles,
+			incrementalFrameContext.forceFullFrame ||
+			!incrementalFrameContext.enabled ||
+			incrementalFrameContext.temporalHistoryReset ?
+				"full"
+			: incrementalFrameContext.dirtyTiles.length === 0 ?
+				"unchanged"
+			: "partial",
+		);
+		const finalOutputCoverage =
+			this._backend.getCompletedFrameCoverage?.() === "dirty-tiles" &&
+			plannedCoverage.mode === "partial" ?
+				plannedCoverage
+			: createIncrementalTileCoverage(
+					incrementalFrameContext.dirtyTileSize,
+					incrementalFrameContext.dirtyTileColumns,
+					incrementalFrameContext.dirtyTileRows,
+					[],
+					plannedCoverage.mode === "unchanged" ? "unchanged" : "full",
+				);
+		return { plan, plannedCoverage, finalOutputCoverage };
 	}
 
 	private _createFullFrameCoverage(delegate: FrameCoordinatorDelegate): {

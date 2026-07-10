@@ -120,6 +120,16 @@ export interface RenderBackendProfile {
 	};
 }
 
+/**
+ * The final-output preservation guarantee reported after a successful frame.
+ *
+ * @internal Owned by renderer frame coordination. Applications receive the
+ * normalized `IncrementalFrameStatus` from `Renderer.renderFrame()`.
+ */
+export type RenderBackendCompletedFrameCoverage =
+	| "dirty-tiles"
+	| "full-frame";
+
 export interface RenderSurface {
 	readonly canvas: HTMLCanvasElement;
 }
@@ -219,4 +229,11 @@ export interface IRenderBackend {
 		options?: WarmupOptions
 	): Promise<WarmupReport>;
 	endFrame(): void | Promise<void>;
+	/**
+	 * Returns the completed frame's final-output preservation guarantee.
+	 *
+	 * @internal Owned by renderer frame coordination. Implementations must return
+	 * `"full-frame"` unless every final-output path preserved non-dirty tiles.
+	 */
+	getCompletedFrameCoverage(): RenderBackendCompletedFrameCoverage;
 }

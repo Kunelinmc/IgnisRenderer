@@ -1,6 +1,7 @@
 import type {
 	IRenderBackend,
 	RenderBackendAttachContext,
+	RenderBackendCompletedFrameCoverage,
 	RenderBackendDebugInfo,
 	RenderBackendProfile,
 	RenderSurfaceSize,
@@ -193,6 +194,7 @@ export class SoftwareBackend implements IRenderBackend {
 	private _previousViewProjection: FrameContext["viewCamera"]["viewProjectionMatrix"] | null = null;
 	private _previousWorldMatrices = new Map<string, FrameContext["worldMatrix"]>();
 	private _activeContext: FrameContext | null = null;
+	private _completedFrameCoverage: RenderBackendCompletedFrameCoverage = "full-frame";
 	private _frameImageData: ImageData | null = null;
 	private _framePixels: Uint8ClampedArray | null = null;
 	private _frameWidth = 0;
@@ -315,6 +317,7 @@ export class SoftwareBackend implements IRenderBackend {
 
 	public beginFrame(context: FrameContext): void {
 		this._activeContext = context;
+		this._completedFrameCoverage = "full-frame";
 		this._particleSimulator?.beginFrame(context);
 		this._prepareTAARenderState(context);
 
@@ -457,9 +460,13 @@ export class SoftwareBackend implements IRenderBackend {
 	}
 
 	public endFrame(): void {
+		const context = this._activeContext;
 		this._particleSimulator?.endFrame();
 		this._commitTAARenderState();
 		this._activeContext = null;
+		if (context && this._canPreserveNonDirtyTiles(context)) {
+			this._completedFrameCoverage = "dirty-tiles";
+		}
 
 		if (!this._ctx) {
 			this._postProcessRuntime.commitFrame();
@@ -476,6 +483,11 @@ export class SoftwareBackend implements IRenderBackend {
 			this._ctx.putImageData(imageData, 0, 0);
 		}
 		this._postProcessRuntime.commitFrame();
+	}
+
+	/** @internal Renderer frame-coordination coverage report. */
+	public getCompletedFrameCoverage(): RenderBackendCompletedFrameCoverage {
+		return this._completedFrameCoverage;
 	}
 
 	public async abortFrame(_error?: unknown): Promise<void> {
@@ -534,6 +546,15 @@ export class SoftwareBackend implements IRenderBackend {
 		const incremental = context.incremental;
 		return (
 			incremental.enabled && !incremental.forceFullFrame && incremental.dirtyRects.length > 0
+		);
+	}
+
+	private _canPreserveNonDirtyTiles(context: FrameContext): boolean {
+		return (
+			this._isIncrementalPartial(context) &&
+			!context.incremental.temporalHistoryReset &&
+			(context.postProcess.getEnabledPasses().length === 0 ||
+				this._postProcessRuntime.completedFramePreservesOutsideDirtyTiles)
 		);
 	}
 

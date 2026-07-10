@@ -146,7 +146,10 @@ async function testRendererSuccessfulFrameEndsWithoutScheduling() {
 		return scheduledFrames;
 	};
 
-	await renderer.renderScene(16);
+	const result = await renderer.renderFrame(16);
+	assert.equal(result.rendered, true);
+	assert.equal(result.incremental.plannedCoverage.mode, "full");
+	assert.equal(result.incremental.finalOutputCoverage.mode, "full");
 
 	assert.equal(backend.beginFrameCalls, 1);
 	assert.equal(backend.endFrameCalls, 1);
@@ -192,6 +195,18 @@ async function testRendererSuccessfulFrameEndsWithoutScheduling() {
 	);
 }
 
+async function testRendererReturnsUnchangedCoverageForCleanFrame() {
+	const backend = new RegistryBackend();
+	backend.frameScheduling = "on-demand";
+	const renderer = createRenderer(backend);
+	await renderer.renderFrame(0);
+	const result = await renderer.renderFrame(16);
+	assert.equal(result.rendered, false);
+	assert.equal(result.reason, "clean");
+	assert.equal(result.incremental.plannedCoverage.mode, "unchanged");
+	assert.equal(result.incremental.finalOutputCoverage.mode, "unchanged");
+}
+
 async function testRendererWarnsForMissingRendererStageExecutor() {
 	const backend = new RegistryBackend();
 	const renderer = createRenderer(backend);
@@ -235,6 +250,7 @@ async function run() {
 		await testRendererAbortsBackendFrameOnPassFailure();
 		await testRendererAbortsPartialBeginFrameFailure();
 		await testRendererSuccessfulFrameEndsWithoutScheduling();
+		await testRendererReturnsUnchangedCoverageForCleanFrame();
 		await testRendererWarnsForMissingRendererStageExecutor();
 
 		const backend = new RegistryBackend();
@@ -260,11 +276,13 @@ async function run() {
 
 		try {
 			renderer.requestRender(customReasonId);
-			await renderer.renderScene(16);
+			const result = await renderer.renderScene(16);
 
 			const stats = renderer.getLastIncrementalFrameStats();
 			assert.equal(stats.firstPass, customPassId);
 			assert.equal(stats.forceFullFrame, false);
+			assert.equal(result.incremental.plannedCoverage.mode, "partial");
+			assert.equal(result.incremental.finalOutputCoverage.mode, "full");
 			assert.ok(backend.skippedPasses.includes("main-opaque"));
 			assert.equal(backend.skippedPasses.includes("postprocess"), true);
 			assert.ok(backend.executedPasses.includes(customPassId));

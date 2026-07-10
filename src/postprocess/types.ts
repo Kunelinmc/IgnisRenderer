@@ -243,6 +243,7 @@ export interface PostProcessPassExecutionContextRequest<TOptions = unknown>
 
 export interface PostProcessPassResult {
 	readonly ran?: boolean;
+	readonly preservesOutsideDirtyTiles?: boolean;
 	readonly historyUpdated?: boolean;
 	readonly updatedHistoryIds?: readonly string[];
 }

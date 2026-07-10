@@ -107,6 +107,144 @@ export interface IncrementalFrameStats {
 	dirtyTiles: number[];
 }
 
+/**
+ * A half-open range of tile indices in row-major tile-grid order.
+ */
+export interface IncrementalTileRange {
+	readonly startTile: number;
+	readonly endTileExclusive: number;
+}
+
+export type IncrementalTileCoverageMode = "full" | "partial" | "unchanged";
+
+/**
+ * A normalized, non-overlapping tile coverage snapshot for one viewport.
+ *
+ * `updatedTileRanges` and `reusableTileRanges` always partition the tile grid.
+ */
+export interface IncrementalTileCoverage {
+	readonly mode: IncrementalTileCoverageMode;
+	readonly tileSize: number;
+	readonly tileColumns: number;
+	readonly tileRows: number;
+	readonly updatedTileRanges: readonly IncrementalTileRange[];
+	readonly reusableTileRanges: readonly IncrementalTileRange[];
+}
+
+/**
+ * Incremental planning and final-output preservation state for one frame.
+ */
+export interface IncrementalFrameStatus {
+	readonly plan: IncrementalFrameStats;
+	readonly plannedCoverage: IncrementalTileCoverage;
+	readonly finalOutputCoverage: IncrementalTileCoverage;
+}
+
+/**
+ * Creates a normalized tile coverage snapshot from updated tile indices.
+ *
+ * @param tileSize Tile edge length in pixels.
+ * @param tileColumns Number of viewport tile columns.
+ * @param tileRows Number of viewport tile rows.
+ * @param updatedTiles Tile indices whose output may change.
+ * @param mode Optional conservative override used for full-frame fallbacks.
+ * @returns A coverage snapshot whose updated and reusable ranges partition the grid.
+ */
+export function createIncrementalTileCoverage(
+	tileSize: number,
+	tileColumns: number,
+	tileRows: number,
+	updatedTiles: readonly number[],
+	mode?: IncrementalTileCoverageMode,
+): IncrementalTileCoverage {
+	const resolvedTileSize = Math.max(1, Math.floor(tileSize));
+	const resolvedColumns = Math.max(1, Math.floor(tileColumns));
+	const resolvedRows = Math.max(1, Math.floor(tileRows));
+	const tileCount = resolvedColumns * resolvedRows;
+	const normalizedTiles = Array.from(
+		new Set(
+			updatedTiles.filter(
+				(tile) => Number.isInteger(tile) && tile >= 0 && tile < tileCount,
+			),
+		),
+	).sort((left, right) => left - right);
+	const resolvedMode = mode ??
+		(normalizedTiles.length === 0 ?
+			"unchanged"
+		: normalizedTiles.length >= tileCount ?
+			"full"
+		: "partial");
+	if (resolvedMode === "full") {
+		return {
+			mode: "full",
+			tileSize: resolvedTileSize,
+			tileColumns: resolvedColumns,
+			tileRows: resolvedRows,
+			updatedTileRanges: [{ startTile: 0, endTileExclusive: tileCount }],
+			reusableTileRanges: [],
+		};
+	}
+	if (resolvedMode === "unchanged") {
+		return {
+			mode: "unchanged",
+			tileSize: resolvedTileSize,
+			tileColumns: resolvedColumns,
+			tileRows: resolvedRows,
+			updatedTileRanges: [],
+			reusableTileRanges: [{ startTile: 0, endTileExclusive: tileCount }],
+		};
+	}
+
+	const updatedTileRanges = tileIndicesToRanges(normalizedTiles);
+	return {
+		mode: "partial",
+		tileSize: resolvedTileSize,
+		tileColumns: resolvedColumns,
+		tileRows: resolvedRows,
+		updatedTileRanges,
+		reusableTileRanges: complementTileRanges(updatedTileRanges, tileCount),
+	};
+}
+
+function tileIndicesToRanges(
+	tiles: readonly number[],
+): IncrementalTileRange[] {
+	const ranges: IncrementalTileRange[] = [];
+	for (const tile of tiles) {
+		const previous = ranges[ranges.length - 1];
+		if (previous && previous.endTileExclusive === tile) {
+			ranges[ranges.length - 1] = {
+				startTile: previous.startTile,
+				endTileExclusive: tile + 1,
+			};
+			continue;
+		}
+		ranges.push({ startTile: tile, endTileExclusive: tile + 1 });
+	}
+	return ranges;
+}
+
+function complementTileRanges(
+	ranges: readonly IncrementalTileRange[],
+	tileCount: number,
+): IncrementalTileRange[] {
+	const complement: IncrementalTileRange[] = [];
+	let cursor = 0;
+	for (const range of ranges) {
+		if (cursor < range.startTile) {
+			complement.push({
+				startTile: cursor,
+				endTileExclusive: range.startTile,
+			});
+		}
+		cursor = range.endTileExclusive;
+	}
+	if (cursor < tileCount) {
+		complement.push({ startTile: cursor, endTileExclusive: tileCount });
+	}
+	return complement;
+}
+
 export interface IncrementalFrameContext {
 	enabled: boolean;
 	forceFullFrame: boolean;

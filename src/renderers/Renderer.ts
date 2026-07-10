@@ -40,8 +40,8 @@ export type FrameTransientContributor = (
 ) => void;
 
 export type RenderFrameResult =
-	| { rendered: true }
-	| { rendered: false; reason: "clean" };
+	| { rendered: true; incremental: IncrementalFrameStatus }
+	| { rendered: false; reason: "clean"; incremental: IncrementalFrameStatus };
 
 import { getWarmupStartDelay } from "../pipeline/WarmupScheduler";
 import {
@@ -52,6 +52,7 @@ import {
 	mergeIncrementalRenderingOptions,
 	renderDirtyReasonToMask,
 	type IncrementalFrameStats,
+	type IncrementalFrameStatus,
 	type IncrementalRenderingOptions,
 	type RenderDirtyReason,
 	type DirtyTileCoverage,
@@ -86,6 +87,7 @@ import { Texture } from "../core/Texture";
 
 export type {
 	IncrementalFrameStats,
+	IncrementalFrameStatus,
 	IncrementalRenderingOptions,
 	RenderDirtyReason,
 } from "../pipeline/incremental";
@@ -656,7 +658,11 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 			!hasParticleSystems &&
 			!(this.animationAutoRender && hasActiveAnimations)
 		) {
-			return { rendered: false, reason: "clean" };
+			return {
+				rendered: false,
+				reason: "clean",
+				incremental: this._coordinator.createCleanIncrementalFrameStatus(this),
+			};
 		}
 
 		this.emit("framestart", { now, deltaTime: this._deltaTime });
@@ -679,7 +685,7 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 			}
 		}
 
-		await this._coordinator.executeFrame(
+		const incremental = await this._coordinator.executeFrame(
 			this,
 			now,
 			this._deltaTime,
@@ -691,7 +697,7 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 		);
 
 		this.emit("frameend", { now, deltaTime: this._deltaTime });
-		return { rendered: true };
+		return { rendered: true, incremental };
 	}
 
 	/**
@@ -905,9 +911,10 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 	}
 
 	/**
-	 * Retrieves statistics for the last executed incremental frame.
+	 * Retrieves planner statistics for the last successfully completed frame.
 	 * 
-	 * @returns The last frame stats or null if none exist or incremental rendering is disabled.
+	 * @returns The last successful frame planner stats, or null if no frame completed.
+	 * Prefer the `incremental` value returned by `renderFrame()` for per-frame data.
 	 */
 	public getLastIncrementalFrameStats(): IncrementalFrameStats | null {
 		if (!this._lastIncrementalFrameStats) {

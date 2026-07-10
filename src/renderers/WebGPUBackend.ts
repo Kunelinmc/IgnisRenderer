@@ -9,6 +9,7 @@ import type {
 	RenderBackendDebugInfo,
 	RenderBackendDeviceLostInfo,
 	RenderBackendAttachContext,
+	RenderBackendCompletedFrameCoverage,
 	RenderBackendProfile,
 	RenderSurfaceSize,
 	WarmupOptions,
@@ -267,6 +268,7 @@ export class WebGPUBackend implements IRenderBackend {
 	private _enableDeferredLighting = true;
 	private _enableOcclusionCulling = true;
 	private _frameGraphValidationMode: "throw" | "warn" = "throw";
+	private _completedFrameCoverage: RenderBackendCompletedFrameCoverage = "full-frame";
 	private _shaderCompileStage: ShaderBackendCompileStage;
 	private readonly _shaderModuleCompiler: WebGPUShaderModuleCompiler;
 	private readonly _framePlanner = new FramePassPlanValidator("WebGPU");
@@ -844,6 +846,7 @@ export class WebGPUBackend implements IRenderBackend {
 		}
 
 		this._frameActive = true;
+		this._completedFrameCoverage = "full-frame";
 		this._frameSerial++;
 		this._commandScheduler.submitPendingCopyCommands();
 		this._bindingGroupCache.evictStale();
@@ -954,6 +957,11 @@ export class WebGPUBackend implements IRenderBackend {
 		if (abortError) {
 			throw abortError;
 		}
+	}
+
+	/** @internal Renderer frame-coordination coverage report. */
+	public getCompletedFrameCoverage(): RenderBackendCompletedFrameCoverage {
+		return this._completedFrameCoverage;
 	}
 
 	public getTextureForSlot(texture: Texture | null, slotIndex: number): IRenderTexture {
