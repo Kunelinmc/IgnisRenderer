@@ -48,6 +48,7 @@ export interface WebGLSceneMaterialVariant {
  */
 export interface WebGLSceneVariantDescriptor {
 	output: WebGLSceneOutputMode;
+	materialGBuffer: boolean;
 	oit: boolean;
 	scene: WebGLSceneFeatureVariant;
 	material: WebGLSceneMaterialVariant;
@@ -63,6 +64,7 @@ export interface WebGLSceneDepthVariantDescriptor {
 
 export const WEBGL_FULL_SCENE_VARIANT: WebGLSceneVariantDescriptor = {
 	output: "mrt",
+	materialGBuffer: false,
 	oit: true,
 	scene: {
 		shadows: true,
@@ -110,6 +112,7 @@ export function normalizeWebGLSceneVariantDescriptor(
 	}
 	return {
 		output: variant.output === "single" ? "single" : "mrt",
+		materialGBuffer: variant.output !== "single" && variant.materialGBuffer === true,
 		oit: variant.oit === true,
 		scene: {
 			shadows: variant.scene.shadows === true,
@@ -149,6 +152,7 @@ export function getWebGLSceneVariantKey(
 	const material = normalized.material;
 	return [
 		`out:${normalized.output}`,
+		`gbuf:${bit(normalized.materialGBuffer)}`,
 		`oit:${bit(normalized.oit)}`,
 		`shd:${bit(scene.shadows)}`,
 		`shdt:${bit(scene.shadowTransmittance)}`,
@@ -202,6 +206,7 @@ function cloneWebGLSceneVariantDescriptor(
 ): WebGLSceneVariantDescriptor {
 	return {
 		output: variant.output,
+		materialGBuffer: variant.materialGBuffer,
 		oit: variant.oit,
 		scene: { ...variant.scene },
 		material: { ...variant.material },

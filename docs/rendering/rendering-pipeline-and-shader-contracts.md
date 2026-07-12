@@ -97,6 +97,11 @@ The renderer frame pipeline must preserve this logical order:
   screen-space passes, including `roughness`, `metallic`, and `specular`.
   Backends may pack these values with other G-buffer data, but must expose
   distinct logical channels with explicit `encoding` metadata when available.
+- WebGL must preserve its compatibility path on runtimes with fewer than five
+  color attachments. When the runtime supports the required five-target
+  material G-buffer and an active WebGL implementation requires material
+  semantics, it must expose `albedo`, `roughness`, `metallic`, and `specular`
+  with their concrete attachment formats and explicit encodings.
 - `Renderer` must own only the public `renderer.postProcess` registry.
 - Post-processing must execute as a backend-owned `"postprocess"` backend pass.
 - Software, WebGL, and WebGPU backends must hold a

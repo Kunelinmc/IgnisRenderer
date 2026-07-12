@@ -1,3 +1,13 @@
+vec2 encodeNormalForGBuffer(vec3 normal) {
+	vec3 n = normalize(normal);
+	float invL1 = 1.0 / max(abs(n.x) + abs(n.y) + abs(n.z), EPSILON);
+	vec2 encoded = n.xy * invL1;
+	if (n.z < 0.0) {
+		encoded = (vec2(1.0) - abs(encoded.yx)) * sign(encoded.xy);
+	}
+	return encoded * 0.5 + 0.5;
+}
+
 void main() {
 	vec3 albedo = uBaseColor.rgb;
 	float alpha = clamp(uBaseColor.a, 0.0, 1.0);
@@ -308,9 +318,29 @@ void main() {
 #endif
 	fragColor = vec4(finalColor, finalAlpha);
 #if WEBGL_SCENE_OUTPUT_MRT
+	#if WEBGL_SCENE_OUTPUT_MATERIAL_GBUFFER && (WEBGL_MATERIAL_MODEL_PBR || WEBGL_MATERIAL_MODEL_FULL)
+	fragNormal = vec4(encodeNormalForGBuffer(normal), roughness, metalness);
+	#elif WEBGL_SCENE_OUTPUT_MATERIAL_GBUFFER
+	fragNormal = vec4(encodeNormalForGBuffer(normal), 1.0, 0.0);
+	#else
 	fragNormal = vec4(normal * 0.5 + 0.5, 1.0);
+	#endif
 	vec2 curUV = (vCurrentClip.xy / vCurrentClip.w) * 0.5 + 0.5;
 	vec2 prevUV = (vPrevClip.xy / vPrevClip.w) * 0.5 + 0.5;
 	fragMotion = vec4(curUV - prevUV, vViewDepth, 1.0);
+	#if WEBGL_SCENE_OUTPUT_MATERIAL_GBUFFER
+		fragAlbedo = vec4(albedo, alpha);
+		#if WEBGL_MATERIAL_MODEL_PBR || WEBGL_MATERIAL_MODEL_FULL
+			float dielectricF0 = 0.16 * reflectance * reflectance;
+			float specularFactor = uSpecular.a;
+			vec3 specularColor = uSpecular.rgb;
+			fragSpecular = vec4(
+				mix(vec3(dielectricF0), albedo, metalness) * specularColor,
+				specularFactor
+			);
+		#else
+			fragSpecular = vec4(0.0);
+		#endif
+	#endif
 #endif
 }

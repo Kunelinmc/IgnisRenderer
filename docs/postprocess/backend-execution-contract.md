@@ -45,6 +45,15 @@ To support decoupled backends, post-process execution is delegated to backend-ow
 
 ### WebGL Execution Contract
 - `WebGLBackend` executes post-processing by drawing fullscreen triangles using fragment shaders into ping-pong framebuffers.
+- When the runtime supports at least five draw buffers and color attachments,
+  WebGL must expose `albedo`, `roughness`, `metallic`, and `specular` from its
+  material G-buffer when an active WebGL implementation requires them. The
+  channels must report their concrete runtime formats and the encodings
+  `linear-rgb-alpha`, `normal-roughness-metallic.z`,
+  `normal-roughness-metallic.w`, and `specular-color-factor.rgba`.
+- When the five-target requirement is unavailable, WebGL must omit these
+  material channels while preserving available legacy channels. The graph must
+  skip a pass whose declared requirements are no longer satisfied.
 - The context passed is typed as `WebGLScreenPostProcessContext`, providing access to `gl`, `programCompiler`, `fullscreenVao`, `postFramebuffer`, `sceneColorTexture`, and texture dimensions.
 - WebGL implementations must use the following helper methods on the context:
   - `getSourceTexture()`: Retrieve the source texture to sample.

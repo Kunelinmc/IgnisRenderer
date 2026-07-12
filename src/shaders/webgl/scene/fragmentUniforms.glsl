@@ -27,6 +27,7 @@ __WEBGL_MATERIAL_SHADING_MODEL_UNIFORMS__
 uniform int uShadingModel;
 __WEBGL_MATERIAL_PBR_UNIFORMS__
 uniform vec4 uPBR;
+uniform vec4 uSpecular;
 __WEBGL_MATERIAL_TRANSMISSION_UNIFORMS__
 uniform vec4 uTransmissionVolume;
 uniform vec4 uAttenuationColor;
@@ -169,3 +170,7 @@ uniform int uOITPassMode;
 __WEBGL_SCENE_EXTRA_OUTPUTS__
 layout(location = 1) out vec4 fragMotion;
 layout(location = 2) out vec4 fragNormal;
+#if WEBGL_SCENE_OUTPUT_MATERIAL_GBUFFER
+layout(location = 3) out vec4 fragAlbedo;
+layout(location = 4) out vec4 fragSpecular;
+#endif

@@ -23,8 +23,11 @@ function createFXAATestGL() {
 		COLOR_ATTACHMENT0: 0x8ce0,
 		COLOR_ATTACHMENT1: 0x8ce1,
 		COLOR_ATTACHMENT2: 0x8ce2,
-		NONE: 0,
+		COLOR_ATTACHMENT3: 0x8ce3,
+		COLOR_ATTACHMENT4: 0x8ce4,
 		MAX_DRAW_BUFFERS: 0x8824,
+		MAX_COLOR_ATTACHMENTS: 0x8cdf,
+		NONE: 0,
 		TEXTURE_2D: 0x0de1,
 		TEXTURE0: 0x84c0,
 		TEXTURE1: 0x84c1,
@@ -48,7 +51,10 @@ function createFXAATestGL() {
 			) {
 				return 4096;
 			}
-			if (parameter === this.MAX_DRAW_BUFFERS) {
+			if (
+				parameter === this.MAX_DRAW_BUFFERS ||
+				parameter === this.MAX_COLOR_ATTACHMENTS
+			) {
 				return 4;
 			}
 			return 0;
@@ -176,6 +182,10 @@ function createFrameTargetTestGL(options = {}) {
 		COLOR_ATTACHMENT0: 0x8ce0,
 		COLOR_ATTACHMENT1: 0x8ce1,
 		COLOR_ATTACHMENT2: 0x8ce2,
+		COLOR_ATTACHMENT3: 0x8ce3,
+		COLOR_ATTACHMENT4: 0x8ce4,
+		MAX_DRAW_BUFFERS: 0x8824,
+		MAX_COLOR_ATTACHMENTS: 0x8cdf,
 		DEPTH_ATTACHMENT: 0x8d00,
 		DEPTH_COMPONENT24: 0x81a6,
 		TEXTURE_2D: 0x0de1,
@@ -200,6 +210,12 @@ function createFrameTargetTestGL(options = {}) {
 				parameter === this.MAX_RENDERBUFFER_SIZE
 			) {
 				return 4096;
+			}
+			if (
+				parameter === this.MAX_DRAW_BUFFERS ||
+				parameter === this.MAX_COLOR_ATTACHMENTS
+			) {
+				return options.materialGBufferLimit ?? 4;
 			}
 			return 0;
 		},
@@ -739,6 +755,51 @@ function testFrameTargetsCreateOITResourcesWithFloatExtension() {
 	assert.equal(bridge.channels.depth.format, "rgba16float");
 	assert.equal(bridge.channels.motion.format, "rgba16float");
 	assert.equal(bridge.channels.normal.format, "rgba8unorm");
+}
+
+function testMaterialGBufferBridgeUsesFiveAttachmentsWhenSupported() {
+	const gl = createFrameTargetTestGL({
+		floatExtension: true,
+		materialGBufferLimit: 5,
+	});
+	const executor = new WebGLFrameExecutor(gl);
+
+	executor._ensureFrameTargets(320, 180, 1, true);
+	const bridge = executor.createGBufferBridge({
+		attachments: { width: 320, height: 180 },
+	});
+
+	assert.equal(executor._materialGBufferEnabled, true);
+	assert.equal(bridge.channels.albedo.format, "rgba8unorm");
+	assert.equal(bridge.channels.albedo.encoding, "linear-rgb-alpha");
+	assert.equal(bridge.channels.roughness.format, "rgba16float");
+	assert.equal(bridge.channels.roughness.encoding, "normal-roughness-metallic.z");
+	assert.equal(bridge.channels.metallic.encoding, "normal-roughness-metallic.w");
+	assert.equal(bridge.channels.specular.format, "rgba16float");
+	assert.equal(bridge.channels.specular.encoding, "specular-color-factor.rgba");
+}
+
+function testMaterialGBufferFallsBackBelowFiveAttachments() {
+	const gl = createFrameTargetTestGL({ materialGBufferLimit: 4 });
+	let executor;
+	const warnings = captureWarnMessages(() => {
+		executor = new WebGLFrameExecutor(gl);
+		executor._ensureFrameTargets(320, 180, 1, true);
+	});
+	const bridge = executor.createGBufferBridge({
+		attachments: { width: 320, height: 180 },
+	});
+
+	assert.equal(executor._materialGBufferEnabled, false);
+	assert.equal(bridge.channels.albedo, undefined);
+	assert.equal(bridge.channels.roughness, undefined);
+	assert.equal(bridge.channels.metallic, undefined);
+	assert.equal(bridge.channels.specular, undefined);
+	assert.ok(
+		warnings.some((warning) =>
+			warning.includes("[webgl-gbuffer-material-semantics-unsupported]")
+		)
+	);
 }
 
 function testPostProcessResourceFormatFollowsFloatExtension() {
@@ -1525,6 +1586,8 @@ async function run() {
 	testExecutePostProcessPassLeavesFXAAToPassImplementation();
 	testFrameTargetsFallbackToRGBA8MotionWithoutFloatExtension();
 	testFrameTargetsCreateOITResourcesWithFloatExtension();
+	testMaterialGBufferBridgeUsesFiveAttachmentsWhenSupported();
+	testMaterialGBufferFallsBackBelowFiveAttachments();
 	testPostProcessResourceFormatFollowsFloatExtension();
 	testConfigureOITWarnsWithoutRuntimeTargets();
 	testOITTransparentAndParticleExecutionOrder();

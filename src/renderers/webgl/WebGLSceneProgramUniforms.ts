@@ -44,6 +44,13 @@ export class WebGLSceneMaterialUniforms {
 	public readonly baseColor: WebGLSceneUniformLocation;
 	public readonly emissive: WebGLSceneUniformLocation;
 	public readonly pbr: WebGLSceneUniformLocation;
+	public readonly specular: WebGLSceneUniformLocation;
+	public readonly specularMap: WebGLSceneUniformLocation;
+	public readonly hasSpecularMap: WebGLSceneUniformLocation;
+	public readonly specularMapUV: WebGLSceneUniformLocation;
+	public readonly specularColorMap: WebGLSceneUniformLocation;
+	public readonly hasSpecularColorMap: WebGLSceneUniformLocation;
+	public readonly specularColorMapUV: WebGLSceneUniformLocation;
 	public readonly transmissionVolume: WebGLSceneUniformLocation;
 	public readonly iridescence: WebGLSceneUniformLocation;
 	public readonly attenuationColor: WebGLSceneUniformLocation;
@@ -59,6 +66,13 @@ export class WebGLSceneMaterialUniforms {
 		this.baseColor = get("uBaseColor");
 		this.emissive = get("uEmissive");
 		this.pbr = get("uPBR");
+		this.specular = get("uSpecular");
+		this.specularMap = get("uSpecularMap");
+		this.hasSpecularMap = get("uHasSpecularMap");
+		this.specularMapUV = get("uSpecularMapUV");
+		this.specularColorMap = get("uSpecularColorMap");
+		this.hasSpecularColorMap = get("uHasSpecularColorMap");
+		this.specularColorMapUV = get("uSpecularColorMapUV");
 		this.transmissionVolume = get("uTransmissionVolume");
 		this.iridescence = get("uIridescence");
 		this.attenuationColor = get("uAttenuationColor");

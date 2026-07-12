@@ -29,6 +29,8 @@ const WEBGL_TEXTURE_UNIT_METALLIC_ROUGHNESS_MAP = 9;
 const WEBGL_TEXTURE_UNIT_EMISSIVE_MAP = 10;
 const WEBGL_TEXTURE_UNIT_OCCLUSION_MAP = 11;
 const WEBGL_TEXTURE_UNIT_IRIDESCENCE_MAP = 12;
+const WEBGL_TEXTURE_UNIT_SPECULAR_MAP = 13;
+const WEBGL_TEXTURE_UNIT_SPECULAR_COLOR_MAP = 14;
 const WEBGL_TEXTURE_UNIT_IRIDESCENCE_THICKNESS_MAP = 15;
 const WEBGL_TEXTURE_UNIT_CUSTOM_START = 17;
 
@@ -69,6 +71,7 @@ export interface WebGLScenePassHost {
 	};
 	_sceneFramebuffer: WebGLFramebuffer | null;
 	_sceneNormalTexture: WebGLTexture | null;
+	_materialGBufferEnabled: boolean;
 	_oitPassMode: 0 | 1 | 2;
 	_width: number;
 	_height: number;
@@ -163,7 +166,15 @@ export function renderWebGLPackets(
 	gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
 	const drawBuffers =
 		options.drawBuffers ??
-		(!transparent && host._sceneNormalTexture ?
+		(!transparent && host._materialGBufferEnabled ?
+			[
+				gl.COLOR_ATTACHMENT0,
+				gl.COLOR_ATTACHMENT1,
+				gl.COLOR_ATTACHMENT2,
+				gl.COLOR_ATTACHMENT3,
+				gl.COLOR_ATTACHMENT4,
+			]
+		: !transparent && host._sceneNormalTexture ?
 			[gl.COLOR_ATTACHMENT0, gl.COLOR_ATTACHMENT1, gl.COLOR_ATTACHMENT2]
 		:	[gl.COLOR_ATTACHMENT0, gl.COLOR_ATTACHMENT1]);
 	const sceneProgramMode: ShaderTargetMode =
@@ -320,7 +331,15 @@ export function renderWebGLEarlyZPrepass(
 		return prepassedPacketIds;
 	}
 	const drawBuffers =
-		host._sceneNormalTexture ?
+		host._materialGBufferEnabled ?
+			[
+				gl.COLOR_ATTACHMENT0,
+				gl.COLOR_ATTACHMENT1,
+				gl.COLOR_ATTACHMENT2,
+				gl.COLOR_ATTACHMENT3,
+				gl.COLOR_ATTACHMENT4,
+			]
+		: host._sceneNormalTexture ?
 			[gl.COLOR_ATTACHMENT0, gl.COLOR_ATTACHMENT1, gl.COLOR_ATTACHMENT2]
 		:	[gl.COLOR_ATTACHMENT0, gl.COLOR_ATTACHMENT1];
 	const sceneProgramMode: ShaderTargetMode =
@@ -461,6 +480,10 @@ export function drawWebGLPacket(
 	const resolvedMetallicRoughnessMap = host._textures.getBaseColorTexture(
 		uniforms.metallicRoughnessMap
 	);
+	const resolvedSpecularMap = host._textures.getBaseColorTexture(uniforms.specularMap);
+	const resolvedSpecularColorMap = host._textures.getBaseColorTexture(
+		uniforms.specularColorMap
+	);
 	const resolvedEmissiveMap = host._textures.getBaseColorTexture(
 		uniforms.emissiveMap
 	);
@@ -494,6 +517,10 @@ export function drawWebGLPacket(
 	gl.bindTexture(gl.TEXTURE_2D, resolvedNormalMap.texture);
 	gl.activeTexture(gl.TEXTURE0 + WEBGL_TEXTURE_UNIT_METALLIC_ROUGHNESS_MAP);
 	gl.bindTexture(gl.TEXTURE_2D, resolvedMetallicRoughnessMap.texture);
+	gl.activeTexture(gl.TEXTURE0 + WEBGL_TEXTURE_UNIT_SPECULAR_MAP);
+	gl.bindTexture(gl.TEXTURE_2D, resolvedSpecularMap.texture);
+	gl.activeTexture(gl.TEXTURE0 + WEBGL_TEXTURE_UNIT_SPECULAR_COLOR_MAP);
+	gl.bindTexture(gl.TEXTURE_2D, resolvedSpecularColorMap.texture);
 	gl.activeTexture(gl.TEXTURE0 + WEBGL_TEXTURE_UNIT_EMISSIVE_MAP);
 	gl.bindTexture(gl.TEXTURE_2D, resolvedEmissiveMap.texture);
 	gl.activeTexture(gl.TEXTURE0 + WEBGL_TEXTURE_UNIT_OCCLUSION_MAP);
@@ -550,6 +577,36 @@ export function drawWebGLPacket(
 	}
 	if (sceneProgram.uniforms.pbr) {
 		gl.uniform4fv(sceneProgram.uniforms.pbr, uniforms.pbr);
+	}
+	if (sceneProgram.uniforms.specular) {
+		gl.uniform4fv(sceneProgram.uniforms.specular, uniforms.specular);
+	}
+	if (sceneProgram.uniforms.specularMap) {
+		gl.uniform1i(sceneProgram.uniforms.specularMap, WEBGL_TEXTURE_UNIT_SPECULAR_MAP);
+	}
+	if (sceneProgram.uniforms.hasSpecularMap) {
+		gl.uniform1i(sceneProgram.uniforms.hasSpecularMap, uniforms.specularMap ? 1 : 0);
+	}
+	if (sceneProgram.uniforms.specularMapUV) {
+		gl.uniform1i(sceneProgram.uniforms.specularMapUV, uniforms.specularMapUV);
+	}
+	if (sceneProgram.uniforms.specularColorMap) {
+		gl.uniform1i(
+			sceneProgram.uniforms.specularColorMap,
+			WEBGL_TEXTURE_UNIT_SPECULAR_COLOR_MAP
+		);
+	}
+	if (sceneProgram.uniforms.hasSpecularColorMap) {
+		gl.uniform1i(
+			sceneProgram.uniforms.hasSpecularColorMap,
+			uniforms.specularColorMap ? 1 : 0
+		);
+	}
+	if (sceneProgram.uniforms.specularColorMapUV) {
+		gl.uniform1i(
+			sceneProgram.uniforms.specularColorMapUV,
+			uniforms.specularColorMapUV
+		);
 	}
 	if (sceneProgram.uniforms.transmissionVolume) {
 		gl.uniform4fv(

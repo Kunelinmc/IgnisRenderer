@@ -1145,6 +1145,7 @@ export class ShaderSource {
 			`#define ${name} ${value ? 1 : 0}`;
 		return [
 			define("WEBGL_SCENE_OUTPUT_MRT", variant.output === "mrt"),
+			define("WEBGL_SCENE_OUTPUT_MATERIAL_GBUFFER", variant.materialGBuffer),
 			define("WEBGL_SCENE_OIT", variant.oit),
 			define("WEBGL_SCENE_SHADOWS", scene.shadows),
 			define("WEBGL_SCENE_SHADOW_TRANSMITTANCE", scene.shadowTransmittance),

@@ -32,6 +32,20 @@ backend-owned and executes through the `"postprocess"` backend pass.
 - `FogPass` must provide a WebGL implementation and must support both
   post-process fog and scene-mode fog.
 - WebGL G-buffer bridge channels must report actual runtime attachment formats.
+- When an enabled WebGL post-process implementation requires `albedo`,
+  `roughness`, `metallic`, or `specular`, the backend must attempt to allocate
+  a five-target material G-buffer. It must require both `MAX_DRAW_BUFFERS`
+  and `MAX_COLOR_ATTACHMENTS` to be at least `5`.
+- The material G-buffer must use `sceneColor`, `gMotionDepth`,
+  `gNormalRoughMetal`, `gAlbedoAlpha`, and `gSpecular`. The latter three must
+  expose `linear-rgb-alpha`, `normal-roughness-metallic.z/.w`, and
+  `specular-color-factor.rgba` logical encodings through `LogicalGBufferBridge`.
+- `gNormalRoughMetal` and `gSpecular` must use `rgba16float` when float color
+  attachments are available and `rgba8unorm` otherwise; `gAlbedoAlpha` must
+  use `rgba8unorm`.
+- PBR `gSpecular` values must include the resolved `specularColorFactor` and
+  `specularFactor`. Built-in opaque PBR, Phong, and Unlit draws may write the
+  material payload; `ShaderMaterial` keeps its existing MRT compatibility path.
 - When `EXT_color_buffer_float` is unavailable, WebGL scene, motion-depth, and
   post-process color attachments must fall back to `rgba8unorm`.
 - `WebGLBackend` must not expose public `postProcess`, `postProcessExecutor`,
@@ -101,6 +115,10 @@ bun tests/static/webgl/test_webgl_frame_executor_fxaa.mjs
 - `webgl-hdr-float-unsupported`: triggered when `EXT_color_buffer_float` is
   unavailable and WebGL falls back to `RGBA8` color, motion-depth, and
   post-process attachments.
+- `webgl-gbuffer-material-semantics-unsupported`: triggered when an enabled
+  material-semantic post-process requirement cannot use the five-target WebGL
+  G-buffer because the runtime reports fewer than five draw buffers or color
+  attachments.
 - `"<backend>-postprocess-unsupported-<passId>"`: triggered when an enabled
   renderer-default built-in post-process pass has no WebGL implementation.
 
@@ -127,3 +145,7 @@ bun tests/static/webgl/test_webgl_frame_executor_fxaa.mjs
 - Forward-lighting point-light budget changed from `4` to `16` to match the
   WebGPU backend budget.
 - Test entrypoint is `tests/static/webgl/test_webgl_backend_v2.mjs`.
+- WebGL applications on runtimes with fewer than five color attachments retain
+  the existing `color`, `depth`, `motion`, and `normal` bridge channels. Passes
+  requiring omitted material channels are skipped through the shared
+  post-process requirement diagnostics.

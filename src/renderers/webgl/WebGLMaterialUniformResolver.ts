@@ -11,6 +11,7 @@ export interface MaterialUniformState {
 	baseColor: [number, number, number, number];
 	emissive: [number, number, number];
 	pbr: [number, number, number, number];
+	specular: [number, number, number, number];
 	transmissionVolume: [number, number, number, number];
 	iridescence: [number, number, number, number];
 	attenuationColor: [number, number, number, number];
@@ -21,6 +22,10 @@ export interface MaterialUniformState {
 	baseMapUV: 0 | 1 | 2 | 3;
 	metallicRoughnessMap: any | null;
 	metallicRoughnessMapUV: 0 | 1 | 2 | 3;
+	specularMap: any | null;
+	specularMapUV: 0 | 1 | 2 | 3;
+	specularColorMap: any | null;
+	specularColorMapUV: 0 | 1 | 2 | 3;
 	normalMap: any | null;
 	normalMapUV: 0 | 1 | 2 | 3;
 	normalScale: number;
@@ -53,6 +58,8 @@ export function resolveMaterialUniforms(material: Material): MaterialUniformStat
 	let roughness = 0.5;
 	let metalness = 0;
 	let reflectance = 0.5;
+	let specularFactor = 1;
+	let specularColor: [number, number, number] = [1, 1, 1];
 	let transmission = 0;
 	let ior = 1.5;
 	let thickness = 0;
@@ -69,6 +76,10 @@ export function resolveMaterialUniforms(material: Material): MaterialUniformStat
 	let baseMapUV: 0 | 1 | 2 | 3 = 0;
 	let metallicRoughnessMap: any | null = null;
 	let metallicRoughnessMapUV: 0 | 1 | 2 | 3 = 0;
+	let specularMap: any | null = null;
+	let specularMapUV: 0 | 1 | 2 | 3 = 0;
+	let specularColorMap: any | null = null;
+	let specularColorMapUV: 0 | 1 | 2 | 3 = 0;
 	let normalMap: any | null = null;
 	let normalMapUV: 0 | 1 | 2 | 3 = 0;
 	let normalScale = 1;
@@ -102,6 +113,13 @@ export function resolveMaterialUniforms(material: Material): MaterialUniformStat
 		roughness = clamp(pbr.roughness ?? 0.5, 0.04, 1);
 		metalness = clamp(pbr.metalness ?? 0, 0, 1);
 		reflectance = clamp(pbr.reflectance ?? 0.5, 0, 1);
+		specularFactor = clamp(pbr.specularFactor ?? 1, 0, 1);
+		const specularColorFactor = pbr.specularColorFactor ?? { r: 255, g: 255, b: 255 };
+		specularColor = [
+			clamp((specularColorFactor.r ?? 255) / 255, 0, 1),
+			clamp((specularColorFactor.g ?? 255) / 255, 0, 1),
+			clamp((specularColorFactor.b ?? 255) / 255, 0, 1),
+		];
 		transmission = getMaterialTransmissionFactor(material);
 		ior = Math.max(1, pbr.ior ?? 1.5);
 		thickness = Math.max(0, pbr.thicknessFactor ?? 0);
@@ -129,6 +147,10 @@ export function resolveMaterialUniforms(material: Material): MaterialUniformStat
 		baseMapUV = resolveUVSet(pbr.albedoMapUV);
 		metallicRoughnessMap = pbr.metallicRoughnessMap ?? null;
 		metallicRoughnessMapUV = resolveUVSet(pbr.metallicRoughnessMapUV);
+		specularMap = pbr.specularMap ?? null;
+		specularMapUV = resolveUVSet(pbr.specularMapUV);
+		specularColorMap = pbr.specularColorMap ?? null;
+		specularColorMapUV = resolveUVSet(pbr.specularColorMapUV);
 		normalMap = pbr.normalMap ?? null;
 		normalMapUV = resolveUVSet(pbr.normalMapUV);
 		normalScale = Math.max(0, pbr.normalScale ?? 1);
@@ -183,6 +205,12 @@ export function resolveMaterialUniforms(material: Material): MaterialUniformStat
 		baseColor: [baseColor[0], baseColor[1], baseColor[2], opacity],
 		emissive,
 		pbr: [roughness, metalness, reflectance, transmission],
+		specular: [
+			specularColor[0],
+			specularColor[1],
+			specularColor[2],
+			specularFactor,
+		],
 		transmissionVolume: [ior, thickness, attenuationDistance, 0],
 		iridescence: [
 			iridescenceFactor,
@@ -208,6 +236,10 @@ export function resolveMaterialUniforms(material: Material): MaterialUniformStat
 		baseMapUV,
 		metallicRoughnessMap,
 		metallicRoughnessMapUV,
+		specularMap,
+		specularMapUV,
+		specularColorMap,
+		specularColorMapUV,
 		normalMap,
 		normalMapUV,
 		normalScale,

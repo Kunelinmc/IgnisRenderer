@@ -14,6 +14,11 @@ export interface WebGLFrameTargetLifecycleHost {
 	_sceneMotionFormat: WebGLFrameTargetFormat;
 	_sceneNormalTexture: WebGLTexture | null;
 	_sceneNormalFormat: WebGLFrameTargetFormat;
+	_sceneAlbedoTexture: WebGLTexture | null;
+	_sceneAlbedoFormat: WebGLFrameTargetFormat;
+	_sceneSpecularTexture: WebGLTexture | null;
+	_sceneSpecularFormat: WebGLFrameTargetFormat;
+	_materialGBufferEnabled: boolean;
 	_sceneDepthBuffer: WebGLRenderbuffer | null;
 	_oitFramebuffer: WebGLFramebuffer | null;
 	_oitAccumTexture: WebGLTexture | null;
@@ -32,6 +37,7 @@ export interface WebGLFrameTargetLifecycleHost {
 	_targetWidth: number;
 	_targetHeight: number;
 	_targetSSAODownsample: number;
+	_targetMaterialGBufferEnabled: boolean;
 	_ssaoFrameIndex: number;
 	_supportsFloatColorBuffer: boolean | null;
 }
@@ -71,6 +77,24 @@ function createColorTexture(
 	);
 	gl.bindTexture(gl.TEXTURE_2D, null);
 	return texture;
+}
+
+function resolveLimit(
+	gl: WebGL2RenderingContext,
+	parameter: number | undefined,
+	fallback: number
+): number {
+	if (typeof parameter !== "number" || typeof gl.getParameter !== "function") {
+		return fallback;
+	}
+	try {
+		const value = gl.getParameter(parameter);
+		return typeof value === "number" && Number.isFinite(value) ?
+			Math.max(0, Math.floor(value))
+		:	fallback;
+	} catch {
+		return fallback;
+	}
 }
 
 export function bindWebGLPostSingleColorTarget(
@@ -151,7 +175,8 @@ export function ensureWebGLFrameTargets(
 	host: WebGLFrameTargetLifecycleHost,
 	width: number,
 	height: number,
-	ssaoDownsample: number
+	ssaoDownsample: number,
+	materialGBufferRequested: boolean
 ): void {
 	const supportsFloatColorBuffer = !!host._gl.getExtension(
 		"EXT_color_buffer_float"
@@ -161,6 +186,9 @@ export function ensureWebGLFrameTargets(
 		host._sceneColorTexture &&
 		host._sceneMotionTexture &&
 		host._sceneNormalTexture &&
+		(!materialGBufferRequested ||
+			(host._sceneAlbedoTexture && host._sceneSpecularTexture) ||
+			!host._materialGBufferEnabled) &&
 		host._sceneDepthBuffer &&
 		(!supportsFloatColorBuffer ||
 			(host._oitFramebuffer &&
@@ -172,7 +200,8 @@ export function ensureWebGLFrameTargets(
 		host._ssaoBlurTexture &&
 		host._targetWidth === width &&
 		host._targetHeight === height &&
-		host._targetSSAODownsample === ssaoDownsample
+		host._targetSSAODownsample === ssaoDownsample &&
+		host._targetMaterialGBufferEnabled === materialGBufferRequested
 	) {
 		return;
 	}
@@ -200,9 +229,23 @@ export function ensureWebGLFrameTargets(
 		supportsFloatColorBuffer ? "rgba16float" : "rgba8unorm";
 	const motionFormat: WebGLFrameTargetFormat =
 		supportsFloatColorBuffer ? "rgba16float" : "rgba8unorm";
-	const normalInternalFormat = gl.RGBA8;
-	const normalType = gl.UNSIGNED_BYTE;
-	const normalFormat: WebGLFrameTargetFormat = "rgba8unorm";
+	const normalInternalFormat =
+		materialGBufferRequested && supportsFloatColorBuffer ? gl.RGBA16F : gl.RGBA8;
+	const normalType =
+		materialGBufferRequested && supportsFloatColorBuffer ? gl.HALF_FLOAT : gl.UNSIGNED_BYTE;
+	const normalFormat: WebGLFrameTargetFormat =
+		materialGBufferRequested && supportsFloatColorBuffer ? "rgba16float" : "rgba8unorm";
+	const materialGBufferSupported =
+		materialGBufferRequested &&
+		resolveLimit(gl, gl.MAX_DRAW_BUFFERS, 4) >= 5 &&
+		resolveLimit(gl, gl.MAX_COLOR_ATTACHMENTS, 4) >= 5;
+	if (materialGBufferRequested && !materialGBufferSupported) {
+		const key = "webgl-gbuffer-material-semantics-unsupported";
+		Logger.warn(
+			`[${key}] WebGL material G-buffer requires at least five draw buffers and color attachments.`,
+			{ scope: "WebGLFrameTargetLifecycle", onceKey: key }
+		);
+	}
 	const aoWidth = Math.max(1, Math.floor(width / Math.max(ssaoDownsample, 1)));
 	const aoHeight = Math.max(1, Math.floor(height / Math.max(ssaoDownsample, 1)));
 	host._supportsFloatColorBuffer = supportsFloatColorBuffer;
@@ -239,6 +282,12 @@ export function ensureWebGLFrameTargets(
 		normalInternalFormat,
 		normalType
 	);
+	const sceneAlbedoTexture = materialGBufferSupported ?
+		createColorTexture(gl, width, height, gl.RGBA8, gl.UNSIGNED_BYTE)
+	:	null;
+	const sceneSpecularTexture = materialGBufferSupported ?
+		createColorTexture(gl, width, height, colorInternalFormat, colorType)
+	:	null;
 	const sceneDepthBuffer = gl.createRenderbuffer();
 	const oitFramebuffer = supportsFloatColorBuffer ? gl.createFramebuffer() : null;
 	const oitAccumTexture =
@@ -326,6 +375,12 @@ export function ensureWebGLFrameTargets(
 		if (sceneNormalTexture) {
 			gl.deleteTexture(sceneNormalTexture);
 		}
+		if (sceneAlbedoTexture) {
+			gl.deleteTexture(sceneAlbedoTexture);
+		}
+		if (sceneSpecularTexture) {
+			gl.deleteTexture(sceneSpecularTexture);
+		}
 		if (sceneDepthBuffer) {
 			gl.deleteRenderbuffer(sceneDepthBuffer);
 		}
@@ -369,6 +424,7 @@ export function ensureWebGLFrameTargets(
 		!sceneColorTexture ||
 		!sceneMotionTexture ||
 		!sceneNormalTexture ||
+		(materialGBufferSupported && (!sceneAlbedoTexture || !sceneSpecularTexture)) ||
 		!sceneDepthBuffer ||
 		(supportsFloatColorBuffer &&
 			(!oitFramebuffer || !oitAccumTexture || !oitRevealTexture)) ||
@@ -416,13 +472,35 @@ export function ensureWebGLFrameTargets(
 		sceneNormalTexture,
 		0
 	);
+	if (sceneAlbedoTexture && sceneSpecularTexture) {
+		gl.framebufferTexture2D(
+			gl.FRAMEBUFFER,
+			gl.COLOR_ATTACHMENT3,
+			gl.TEXTURE_2D,
+			sceneAlbedoTexture,
+			0
+		);
+		gl.framebufferTexture2D(
+			gl.FRAMEBUFFER,
+			gl.COLOR_ATTACHMENT4,
+			gl.TEXTURE_2D,
+			sceneSpecularTexture,
+			0
+		);
+	}
 	gl.framebufferRenderbuffer(
 		gl.FRAMEBUFFER,
 		gl.DEPTH_ATTACHMENT,
 		gl.RENDERBUFFER,
 		sceneDepthBuffer
 	);
-	gl.drawBuffers([
+	gl.drawBuffers(sceneAlbedoTexture && sceneSpecularTexture ? [
+		gl.COLOR_ATTACHMENT0,
+		gl.COLOR_ATTACHMENT1,
+		gl.COLOR_ATTACHMENT2,
+		gl.COLOR_ATTACHMENT3,
+		gl.COLOR_ATTACHMENT4,
+	] : [
 		gl.COLOR_ATTACHMENT0,
 		gl.COLOR_ATTACHMENT1,
 		gl.COLOR_ATTACHMENT2,
@@ -493,6 +571,11 @@ export function ensureWebGLFrameTargets(
 	host._sceneMotionFormat = motionFormat;
 	host._sceneNormalTexture = sceneNormalTexture;
 	host._sceneNormalFormat = normalFormat;
+	host._sceneAlbedoTexture = sceneAlbedoTexture;
+	host._sceneAlbedoFormat = "rgba8unorm";
+	host._sceneSpecularTexture = sceneSpecularTexture;
+	host._sceneSpecularFormat = colorFormat;
+	host._materialGBufferEnabled = materialGBufferSupported;
 	host._sceneDepthBuffer = sceneDepthBuffer;
 	host._oitFramebuffer = oitFramebuffer;
 	host._oitAccumTexture = oitAccumTexture;
@@ -511,6 +594,7 @@ export function ensureWebGLFrameTargets(
 	host._targetWidth = width;
 	host._targetHeight = height;
 	host._targetSSAODownsample = ssaoDownsample;
+	host._targetMaterialGBufferEnabled = materialGBufferRequested;
 	host._ssaoFrameIndex = 0;
 }
 
@@ -537,6 +621,17 @@ export function destroyWebGLFrameTargets(
 		host._sceneNormalTexture = null;
 	}
 	host._sceneNormalFormat = "rgba8unorm";
+	if (host._sceneAlbedoTexture) {
+		gl.deleteTexture(host._sceneAlbedoTexture);
+		host._sceneAlbedoTexture = null;
+	}
+	host._sceneAlbedoFormat = "rgba8unorm";
+	if (host._sceneSpecularTexture) {
+		gl.deleteTexture(host._sceneSpecularTexture);
+		host._sceneSpecularTexture = null;
+	}
+	host._sceneSpecularFormat = "rgba8unorm";
+	host._materialGBufferEnabled = false;
 	if (host._sceneDepthBuffer) {
 		gl.deleteRenderbuffer(host._sceneDepthBuffer);
 		host._sceneDepthBuffer = null;
@@ -588,6 +683,7 @@ export function destroyWebGLFrameTargets(
 	host._targetWidth = 0;
 	host._targetHeight = 0;
 	host._targetSSAODownsample = DEFAULT_SSAO_OPTIONS.downsample;
+	host._targetMaterialGBufferEnabled = false;
 	host._ssaoFrameIndex = 0;
 	host._supportsFloatColorBuffer = null;
 }

@@ -199,6 +199,11 @@ export class WebGLFrameExecutor {
 	private _sceneMotionFormat: WebGLFrameTargetFormat = "rgba8unorm";
 	private _sceneNormalTexture: WebGLTexture | null = null;
 	private _sceneNormalFormat: WebGLFrameTargetFormat = "rgba8unorm";
+	private _sceneAlbedoTexture: WebGLTexture | null = null;
+	private _sceneAlbedoFormat: WebGLFrameTargetFormat = "rgba8unorm";
+	private _sceneSpecularTexture: WebGLTexture | null = null;
+	private _sceneSpecularFormat: WebGLFrameTargetFormat = "rgba8unorm";
+	private _materialGBufferEnabled = false;
 	private _sceneDepthBuffer: WebGLRenderbuffer | null = null;
 	private _oitFramebuffer: WebGLFramebuffer | null = null;
 	private _oitAccumTexture: WebGLTexture | null = null;
@@ -234,6 +239,7 @@ export class WebGLFrameExecutor {
 	private _targetWidth = 0;
 	private _targetHeight = 0;
 	private _targetSSAODownsample = DEFAULT_SSAO_OPTIONS.downsample;
+	private _targetMaterialGBufferEnabled = false;
 	private _maxTextureSize: number;
 	private _maxRenderbufferSize: number;
 	private _maxTextureImageUnits: number;
@@ -428,7 +434,12 @@ export class WebGLFrameExecutor {
 		const ssaoDownsample = resolveSSAODownsample(
 			ssaoOptions.downsample
 		);
-		this._ensureFrameTargets(this._width, this._height, ssaoDownsample);
+		this._ensureFrameTargets(
+			this._width,
+			this._height,
+			ssaoDownsample,
+			this._requiresMaterialGBuffer(context)
+		);
 		this._configureOIT(context);
 		this._presentSourceTexture = this._sceneColorTexture;
 		this._oitPassMode = 0;
@@ -492,8 +503,15 @@ export class WebGLFrameExecutor {
 		gl.enable(gl.DEPTH_TEST);
 		gl.depthMask(true);
 
-		const drawBuffers =
-			this._sceneNormalTexture ?
+		const drawBuffers = this._materialGBufferEnabled ?
+			[
+				gl.COLOR_ATTACHMENT0,
+				gl.COLOR_ATTACHMENT1,
+				gl.COLOR_ATTACHMENT2,
+				gl.COLOR_ATTACHMENT3,
+				gl.COLOR_ATTACHMENT4,
+			]
+		:	this._sceneNormalTexture ?
 				[gl.COLOR_ATTACHMENT0, gl.COLOR_ATTACHMENT1, gl.COLOR_ATTACHMENT2]
 			:	[gl.COLOR_ATTACHMENT0, gl.COLOR_ATTACHMENT1];
 		gl.drawBuffers(drawBuffers);
@@ -809,6 +827,46 @@ export class WebGLFrameExecutor {
 						height,
 						format: this._sceneNormalFormat,
 						encoding: "encoded-world-normal",
+					}
+				:	undefined,
+				albedo: this._sceneAlbedoTexture ?
+					{
+						semantic: "albedo",
+						handle: { backend: "webgl", texture: this._sceneAlbedoTexture },
+						width,
+						height,
+						format: this._sceneAlbedoFormat,
+						encoding: "linear-rgb-alpha",
+					}
+				:	undefined,
+				roughness: this._sceneNormalTexture && this._materialGBufferEnabled ?
+					{
+						semantic: "roughness",
+						handle: { backend: "webgl", texture: this._sceneNormalTexture },
+						width,
+						height,
+						format: this._sceneNormalFormat,
+						encoding: "normal-roughness-metallic.z",
+					}
+				:	undefined,
+				metallic: this._sceneNormalTexture && this._materialGBufferEnabled ?
+					{
+						semantic: "metallic",
+						handle: { backend: "webgl", texture: this._sceneNormalTexture },
+						width,
+						height,
+						format: this._sceneNormalFormat,
+						encoding: "normal-roughness-metallic.w",
+					}
+				:	undefined,
+				specular: this._sceneSpecularTexture ?
+					{
+						semantic: "specular",
+						handle: { backend: "webgl", texture: this._sceneSpecularTexture },
+						width,
+						height,
+						format: this._sceneSpecularFormat,
+						encoding: "specular-color-factor.rgba",
 					}
 				:	undefined,
 			},
@@ -1141,7 +1199,8 @@ export class WebGLFrameExecutor {
 				lightState,
 				enableShadowTransmittance: this._maxTextureImageUnits >= 17,
 				enableIrradianceProbeGrid: this._irradianceProbeGridSamplingSupported,
-			}
+			},
+			mode === "mrt"
 		);
 		if (!variant) {
 			return;
@@ -1764,7 +1823,8 @@ export class WebGLFrameExecutor {
 				lightState: this._lightState,
 				enableShadowTransmittance: !!this._shadowTransmittanceTexture,
 				enableIrradianceProbeGrid: this._irradianceProbeGridSamplingSupported,
-			}
+			},
+			this._materialGBufferEnabled
 		);
 	}
 
@@ -2214,14 +2274,36 @@ export class WebGLFrameExecutor {
 	private _ensureFrameTargets(
 		width: number,
 		height: number,
-		ssaoDownsample: number
+		ssaoDownsample: number,
+		materialGBufferRequested: boolean
 	): void {
 		ensureWebGLFrameTargets(
 			this as unknown as WebGLFrameTargetLifecycleHost,
 			width,
 			height,
-			ssaoDownsample
+			ssaoDownsample,
+			materialGBufferRequested
 		);
+	}
+
+	private _requiresMaterialGBuffer(context: FrameContext): boolean {
+		for (const resolved of context.postProcess.getEnabledPasses()) {
+			const requirements = resolved.pass.getRequirements({
+				frameContext: context,
+				postProcess: context.postProcess,
+				backend: "webgl",
+				options: resolved.options,
+			});
+			if (requirements.gBuffer?.some((semantic) =>
+				semantic === "albedo" ||
+				semantic === "roughness" ||
+				semantic === "metallic" ||
+				semantic === "specular"
+			)) {
+				return true;
+			}
+		}
+		return false;
 	}
 
 	private _supportsWebGLFloatColorBuffer(): boolean {

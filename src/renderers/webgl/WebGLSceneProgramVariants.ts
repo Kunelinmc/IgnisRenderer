@@ -44,7 +44,8 @@ export function resolveWebGLBuiltinSceneVariant(
 	material: Material,
 	mode: ShaderTargetMode,
 	oitPassMode: 0 | 1 | 2,
-	environment: WebGLSceneVariantEnvironment
+	environment: WebGLSceneVariantEnvironment,
+	materialGBuffer = false
 ): WebGLSceneVariantDescriptor | null {
 	if (material instanceof ShaderMaterial) {
 		return null;
@@ -70,6 +71,7 @@ export function resolveWebGLBuiltinSceneVariant(
 		!!lightState?.envSpecularMap;
 	return normalizeWebGLSceneVariantDescriptor({
 		output: mode === "mrt" ? "mrt" : "single",
+		materialGBuffer: mode === "mrt" && materialGBuffer,
 		oit: oitPassMode !== 0,
 		scene: {
 			shadows: hasShadows,
