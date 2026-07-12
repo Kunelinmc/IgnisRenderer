@@ -1,6 +1,6 @@
 #import <ignis/webgpu/constants>
 
-struct FrameUniforms {
+struct FrameCameraUniforms {
 	viewProjection: mat4x4<f32>,
 	prevViewProjection: mat4x4<f32>,
 	cameraPosition: vec4<f32>,
@@ -41,7 +41,7 @@ struct TraceParams {
 @group(0) @binding(8) var outRefraction: texture_storage_2d<rgba16float, write>;
 @group(0) @binding(9) var opaqueNormal: texture_2d<f32>;
 
-@group(1) @binding(0) var<uniform> frame: FrameUniforms;
+@group(1) @binding(0) var<uniform> frame: FrameCameraUniforms;
 
 struct ComposeParams {
 	invFullSize: vec2<f32>,

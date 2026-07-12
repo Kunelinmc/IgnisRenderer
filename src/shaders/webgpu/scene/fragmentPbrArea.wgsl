@@ -7,7 +7,7 @@ if (!isClusteredLightingEnabled()) {
 			sampleIndex = sampleIndex + 1u
 		) {
 			let areaLight = evaluateAreaLight(
-				frame.areaLights[i],
+				frameLights.areaLights[i],
 				input.worldPosition,
 				sampleIndex
 			);
@@ -143,4 +143,3 @@ if (!isClusteredLightingEnabled()) {
 		}
 	}
 }
-

@@ -15,7 +15,7 @@ struct VolumetricLightBuffer {
 	lights: array<VolumetricLightData>,
 }
 
-struct FrameUniforms {
+struct FrameCameraUniforms {
 	viewProjection: mat4x4<f32>,
 	prevViewProjection: mat4x4<f32>,
 	cameraPosition: vec4<f32>,
@@ -28,12 +28,6 @@ struct FrameUniforms {
 	environmentOptionsA: vec4<f32>,
 	environmentOptionsB: vec4<f32>,
 	taaJitterCurrentPrev: vec4<f32>,
-	directionalLights: array<DirectionalLightData, __WEBGPU_MAX_DIRECTIONAL_LIGHTS__>,
-	pointLights: array<PointLightData, __WEBGPU_MAX_POINT_LIGHTS__>,
-	spotLights: array<SpotLightData, __WEBGPU_MAX_SPOT_LIGHTS__>,
-	directionalShadows: array<ShadowData, __WEBGPU_MAX_DIRECTIONAL_LIGHTS__>,
-	spotShadows: array<ShadowData, __WEBGPU_MAX_SPOT_LIGHTS__>,
-	shAmbientCoeffs: array<vec4<f32>, __WEBGPU_SH_COEFFICIENT_COUNT__>,
 }
 
 struct VolumetricParams {
@@ -87,7 +81,7 @@ struct CameraBasis {
 @group(0) @binding(10) var outReservoirHistory: texture_storage_2d<rgba16float, write>;
 @group(0) @binding(11) var<storage, read> volumetricLightBuffer: VolumetricLightBuffer;
 
-@group(1) @binding(0) var<uniform> frame: FrameUniforms;
+@group(1) @binding(0) var<uniform> frame: FrameCameraUniforms;
 
 const PI: f32 = 3.14159265359;
 const MAX_VIEW_STEPS: i32 = 96;

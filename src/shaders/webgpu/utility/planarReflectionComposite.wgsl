@@ -2,7 +2,7 @@
 
 const EPSILON: f32 = 1e-6;
 
-struct FrameUniforms {
+struct FrameCameraUniforms {
 	viewProjection: mat4x4<f32>,
 }
 
@@ -76,7 +76,7 @@ struct SkinnedVertex {
 	tangent: vec3<f32>,
 }
 
-@group(0) @binding(0) var<uniform> frame: FrameUniforms;
+@group(0) @binding(0) var<uniform> frame: FrameCameraUniforms;
 
 @group(1) @binding(0) var<uniform> model: ModelUniforms;
 @group(1) @binding(1) var baseColorTexture: texture_2d<f32>;

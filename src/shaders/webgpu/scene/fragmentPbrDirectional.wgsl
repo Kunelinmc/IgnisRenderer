@@ -1,10 +1,10 @@
 let directionalCount = u32(frame.lightCounts.x + 0.5);
 for (var i: u32 = 0u; i < directionalCount; i = i + 1u) {
 	let lightDirection = safeNormalize(
-		frame.directionalLights[i].direction.xyz,
+		frameLights.directionalLights[i].direction.xyz,
 		vec3<f32>(0.0, 1.0, 0.0)
 	);
-	let radiance = frame.directionalLights[i].color.xyz;
+	let radiance = frameLights.directionalLights[i].color.xyz;
 	let nDotLRaw = dot(pbrNormal, lightDirection);
 	let nDotL = max(nDotLRaw, 0.0);
 	let nDotLTransmission = max(-nDotLRaw, 0.0);

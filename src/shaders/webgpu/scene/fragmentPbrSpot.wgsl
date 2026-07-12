@@ -1,10 +1,10 @@
 if (!isClusteredLightingEnabled()) {
 	let spotCount = u32(frame.lightCounts.z + 0.5);
 	for (var i: u32 = 0u; i < spotCount; i = i + 1u) {
-		let toLight = frame.spotLights[i].positionRange.xyz - input.worldPosition;
+		let toLight = frameLights.spotLights[i].positionRange.xyz - input.worldPosition;
 		let distanceSq = dot(toLight, toLight);
 		let distanceValue = sqrt(max(distanceSq, EPSILON));
-		let lightRange = frame.spotLights[i].positionRange.w;
+		let lightRange = frameLights.spotLights[i].positionRange.w;
 		if (distanceValue > lightRange) {
 			continue;
 		}
@@ -12,20 +12,20 @@ if (!isClusteredLightingEnabled()) {
 		let lightDirection = toLight / distanceValue;
 		let lightToPoint = -lightDirection;
 		let coneDirection = safeNormalize(
-			frame.spotLights[i].directionOuter.xyz,
+			frameLights.spotLights[i].directionOuter.xyz,
 			vec3<f32>(0.0, -1.0, 0.0)
 		);
 		let coneAttenuation = spotAttenuation(
 			dot(lightToPoint, coneDirection),
-			frame.spotLights[i].directionOuter.w,
-			frame.spotLights[i].colorInner.w
+			frameLights.spotLights[i].directionOuter.w,
+			frameLights.spotLights[i].colorInner.w
 		);
 		if (coneAttenuation <= 0.0) {
 			continue;
 		}
 
 		let radiance =
-			frame.spotLights[i].colorInner.xyz *
+			frameLights.spotLights[i].colorInner.xyz *
 			pointAttenuation(distanceSq, lightRange) *
 			coneAttenuation;
 		let nDotLRaw = dot(pbrNormal, lightDirection);
@@ -138,4 +138,3 @@ if (!isClusteredLightingEnabled()) {
 		) * radiance * shadow;
 	}
 }
-

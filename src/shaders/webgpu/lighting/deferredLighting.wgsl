@@ -315,7 +315,7 @@ fn evaluateDeferredPBR(surface: DeferredSurface) -> vec3<f32> {
 	let directionalCount = u32(frame.lightCounts.x + 0.5);
 	for (var i: u32 = 0u; i < directionalCount; i = i + 1u) {
 		let lightDirection = safeNormalize(
-			frame.directionalLights[i].direction.xyz,
+			frameLights.directionalLights[i].direction.xyz,
 			vec3<f32>(0.0, 1.0, 0.0)
 		);
 		let shadow = sampleDirectionalShadowVisibility(
@@ -329,7 +329,7 @@ fn evaluateDeferredPBR(surface: DeferredSurface) -> vec3<f32> {
 			surface,
 			pbr,
 			lightDirection,
-			frame.directionalLights[i].color.xyz,
+			frameLights.directionalLights[i].color.xyz,
 			shadow
 		);
 	}
@@ -427,16 +427,16 @@ fn evaluateDeferredPBR(surface: DeferredSurface) -> vec3<f32> {
 	} else {
 		let pointCount = u32(frame.lightCounts.y + 0.5);
 		for (var i: u32 = 0u; i < pointCount; i = i + 1u) {
-			let toLight = frame.pointLights[i].positionRange.xyz - surface.worldPosition;
+			let toLight = frameLights.pointLights[i].positionRange.xyz - surface.worldPosition;
 			let distanceSq = dot(toLight, toLight);
 			let distanceValue = sqrt(max(distanceSq, EPSILON));
-			let lightRange = frame.pointLights[i].positionRange.w;
+			let lightRange = frameLights.pointLights[i].positionRange.w;
 			if (distanceValue > lightRange) {
 				continue;
 			}
 			let lightDirection = toLight / distanceValue;
 			let radiance =
-				frame.pointLights[i].color.xyz *
+				frameLights.pointLights[i].color.xyz *
 				pointAttenuation(distanceSq, lightRange);
 			directLight += evaluateDeferredPBRLight(
 				surface,
@@ -449,28 +449,28 @@ fn evaluateDeferredPBR(surface: DeferredSurface) -> vec3<f32> {
 
 		let spotCount = u32(frame.lightCounts.z + 0.5);
 		for (var i: u32 = 0u; i < spotCount; i = i + 1u) {
-			let toLight = frame.spotLights[i].positionRange.xyz - surface.worldPosition;
+			let toLight = frameLights.spotLights[i].positionRange.xyz - surface.worldPosition;
 			let distanceSq = dot(toLight, toLight);
 			let distanceValue = sqrt(max(distanceSq, EPSILON));
-			let lightRange = frame.spotLights[i].positionRange.w;
+			let lightRange = frameLights.spotLights[i].positionRange.w;
 			if (distanceValue > lightRange) {
 				continue;
 			}
 			let lightDirection = toLight / distanceValue;
 			let coneDirection = safeNormalize(
-				frame.spotLights[i].directionOuter.xyz,
+				frameLights.spotLights[i].directionOuter.xyz,
 				vec3<f32>(0.0, -1.0, 0.0)
 			);
 			let coneAttenuation = spotAttenuation(
 				dot(-lightDirection, coneDirection),
-				frame.spotLights[i].directionOuter.w,
-				frame.spotLights[i].colorInner.w
+				frameLights.spotLights[i].directionOuter.w,
+				frameLights.spotLights[i].colorInner.w
 			);
 			if (coneAttenuation <= 0.0) {
 				continue;
 			}
 			let radiance =
-				frame.spotLights[i].colorInner.xyz *
+				frameLights.spotLights[i].colorInner.xyz *
 				pointAttenuation(distanceSq, lightRange) *
 				coneAttenuation;
 			let shadow = sampleSpotShadowVisibility(
@@ -498,7 +498,7 @@ fn evaluateDeferredPBR(surface: DeferredSurface) -> vec3<f32> {
 				sampleIndex = sampleIndex + 1u
 			) {
 				let areaLight = evaluateAreaLight(
-					frame.areaLights[i],
+					frameLights.areaLights[i],
 					surface.worldPosition,
 					sampleIndex
 				);
@@ -663,7 +663,7 @@ fn evaluateDeferredPhong(surface: DeferredSurface) -> vec3<f32> {
 	let directionalCount = u32(frame.lightCounts.x + 0.5);
 	for (var i: u32 = 0u; i < directionalCount; i = i + 1u) {
 		let lightDirection = safeNormalize(
-			frame.directionalLights[i].direction.xyz,
+			frameLights.directionalLights[i].direction.xyz,
 			vec3<f32>(0.0, 1.0, 0.0)
 		);
 		let nDotL = max(dot(surface.normal, lightDirection), 0.0);
@@ -682,7 +682,7 @@ fn evaluateDeferredPhong(surface: DeferredSurface) -> vec3<f32> {
 			surface.viewDir
 		);
 		let specFactor = pow(max(dot(surface.normal, halfVector), 0.0), shininess);
-		let radiance = frame.directionalLights[i].color.xyz * shadow;
+		let radiance = frameLights.directionalLights[i].color.xyz * shadow;
 		direct += radiance * nDotL * surface.albedo;
 		direct += radiance * specFactor * surface.specularColor;
 	}
@@ -791,10 +791,10 @@ fn evaluateDeferredPhong(surface: DeferredSurface) -> vec3<f32> {
 	} else {
 		let pointCount = u32(frame.lightCounts.y + 0.5);
 		for (var i: u32 = 0u; i < pointCount; i = i + 1u) {
-			let toLight = frame.pointLights[i].positionRange.xyz - surface.worldPosition;
+			let toLight = frameLights.pointLights[i].positionRange.xyz - surface.worldPosition;
 			let distanceSq = dot(toLight, toLight);
 			let distanceValue = sqrt(max(distanceSq, EPSILON));
-			let lightRange = frame.pointLights[i].positionRange.w;
+			let lightRange = frameLights.pointLights[i].positionRange.w;
 			if (distanceValue > lightRange) {
 				continue;
 			}
@@ -809,7 +809,7 @@ fn evaluateDeferredPhong(surface: DeferredSurface) -> vec3<f32> {
 			);
 			let specFactor = pow(max(dot(surface.normal, halfVector), 0.0), shininess);
 			let radiance =
-				frame.pointLights[i].color.xyz *
+				frameLights.pointLights[i].color.xyz *
 				pointAttenuation(distanceSq, lightRange);
 			direct += radiance * nDotL * surface.albedo;
 			direct += radiance * specFactor * surface.specularColor;
@@ -817,22 +817,22 @@ fn evaluateDeferredPhong(surface: DeferredSurface) -> vec3<f32> {
 
 		let spotCount = u32(frame.lightCounts.z + 0.5);
 		for (var i: u32 = 0u; i < spotCount; i = i + 1u) {
-			let toLight = frame.spotLights[i].positionRange.xyz - surface.worldPosition;
+			let toLight = frameLights.spotLights[i].positionRange.xyz - surface.worldPosition;
 			let distanceSq = dot(toLight, toLight);
 			let distanceValue = sqrt(max(distanceSq, EPSILON));
-			let lightRange = frame.spotLights[i].positionRange.w;
+			let lightRange = frameLights.spotLights[i].positionRange.w;
 			if (distanceValue > lightRange) {
 				continue;
 			}
 			let lightDirection = toLight / distanceValue;
 			let coneDirection = safeNormalize(
-				frame.spotLights[i].directionOuter.xyz,
+				frameLights.spotLights[i].directionOuter.xyz,
 				vec3<f32>(0.0, -1.0, 0.0)
 			);
 			let coneAttenuation = spotAttenuation(
 				dot(-lightDirection, coneDirection),
-				frame.spotLights[i].directionOuter.w,
-				frame.spotLights[i].colorInner.w
+				frameLights.spotLights[i].directionOuter.w,
+				frameLights.spotLights[i].colorInner.w
 			);
 			if (coneAttenuation <= 0.0) {
 				continue;
@@ -853,7 +853,7 @@ fn evaluateDeferredPhong(surface: DeferredSurface) -> vec3<f32> {
 			);
 			let specFactor = pow(max(dot(surface.normal, halfVector), 0.0), shininess);
 			let radiance =
-				frame.spotLights[i].colorInner.xyz *
+				frameLights.spotLights[i].colorInner.xyz *
 				pointAttenuation(distanceSq, lightRange) *
 				coneAttenuation *
 				shadow;
@@ -871,7 +871,7 @@ fn evaluateDeferredPhong(surface: DeferredSurface) -> vec3<f32> {
 				sampleIndex = sampleIndex + 1u
 			) {
 				let areaLight = evaluateAreaLight(
-					frame.areaLights[i],
+					frameLights.areaLights[i],
 					surface.worldPosition,
 					sampleIndex
 				);

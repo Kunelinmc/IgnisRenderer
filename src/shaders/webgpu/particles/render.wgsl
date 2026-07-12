@@ -1,6 +1,6 @@
 #import <ignis/webgpu/constants>
 #import <ignis/postprocess/fog>
-struct FrameUniforms {
+struct FrameCameraUniforms {
 	viewProjection: mat4x4<f32>,
 	prevViewProjection: mat4x4<f32>,
 	cameraPosition: vec4<f32>,
@@ -13,12 +13,11 @@ struct FrameUniforms {
 	environmentOptionsA: vec4<f32>,
 	environmentOptionsB: vec4<f32>,
 	taaJitterCurrentPrev: vec4<f32>,
-	directionalLights: array<vec4<f32>, __WEBGPU_FRAME_DIRECTIONAL_LIGHT_VEC4_COUNT__>,
-	pointLights: array<vec4<f32>, __WEBGPU_FRAME_POINT_LIGHT_VEC4_COUNT__>,
-	spotLights: array<vec4<f32>, __WEBGPU_FRAME_SPOT_LIGHT_VEC4_COUNT__>,
+}
+
+struct FrameShadowUniforms {
 	directionalShadows: array<ShadowData, __WEBGPU_MAX_DIRECTIONAL_LIGHTS__>,
 	spotShadows: array<ShadowData, __WEBGPU_MAX_SPOT_LIGHTS__>,
-	shAmbientCoeffs: array<vec4<f32>, __WEBGPU_SH_COEFFICIENT_COUNT__>,
 }
 
 struct ParticleVertexInput {
@@ -59,13 +58,14 @@ struct ParticleShadowVolumeBuffer {
 	data: array<f32>,
 }
 
-@group(0) @binding(0) var<uniform> frame: FrameUniforms;
+@group(0) @binding(0) var<uniform> frame: FrameCameraUniforms;
 @group(0) @binding(1) var shadowAtlas: texture_depth_2d;
 @group(0) @binding(2) var envSpecularTexture: texture_2d<f32>;
 @group(0) @binding(3) var envSpecularSampler: sampler;
 @group(0) @binding(6) var<uniform> fog: FogUniforms;
 @group(0) @binding(7) var<storage, read> particleShadowVolumes:
 	ParticleShadowVolumeBuffer;
+@group(0) @binding(15) var<uniform> frameShadows: FrameShadowUniforms;
 
 @group(1) @binding(0) var particleTexture: texture_2d<f32>;
 @group(1) @binding(1) var particleSampler: sampler;
@@ -121,7 +121,7 @@ fn sampleDirectionalShadowVisibility(worldPosition: vec3<f32>) -> f32 {
 		return 1.0;
 	}
 
-	let shadow = frame.directionalShadows[0];
+	let shadow = frameShadows.directionalShadows[0];
 	if (shadow.paramsA.x < 0.5) {
 		return 1.0;
 	}

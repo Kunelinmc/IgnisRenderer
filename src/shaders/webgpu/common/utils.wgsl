@@ -287,7 +287,7 @@ const AREA_LIGHT_SAMPLE_COUNT: u32 =
 
 fn areaLightCount() -> u32 {
 	return min(
-		u32(max(frame.areaLightCounts.x + 0.5, 0.0)),
+		u32(max(frameLights.areaLightCounts.x + 0.5, 0.0)),
 		u32(__WEBGPU_MAX_AREA_LIGHTS__)
 	);
 }
@@ -784,7 +784,7 @@ fn calculateIrradianceFromSH(normal: vec3<f32>) -> vec3<f32> {
 		var factor = select(0.0, c3, i >= 4u && i < 9u);
 		factor = select(factor, c2, i >= 1u && i < 4u);
 		factor = select(factor, c1, i == 0u);
-		result += frame.shAmbientCoeffs[i].xyz * basis[i] * factor;
+		result += frameEnvironment.shAmbientCoeffs[i].xyz * basis[i] * factor;
 	}
 	return max(result, vec3<f32>(0.0));
 }
@@ -793,13 +793,13 @@ fn sampleSHRadiance(direction: vec3<f32>) -> vec3<f32> {
 	let basis = evalSHBasis(direction);
 	var result = vec3<f32>(0.0);
 	for (var i: u32 = 0u; i < 16u; i = i + 1u) {
-		result += frame.shAmbientCoeffs[i].xyz * basis[i];
+		result += frameEnvironment.shAmbientCoeffs[i].xyz * basis[i];
 	}
 	return max(result, vec3<f32>(0.0));
 }
 
 fn localLightProbeCount() -> u32 {
-	let count = u32(max(frame.localLightProbeCounts.x + 0.5, 0.0));
+	let count = u32(max(frameEnvironment.localLightProbeCounts.x + 0.5, 0.0));
 	return min(count, __WEBGPU_MAX_LOCAL_LIGHT_PROBES__u);
 }
 
@@ -807,9 +807,9 @@ fn worldToLocalLightProbePoint(
 	probeIndex: u32,
 	worldPosition: vec3<f32>
 ) -> vec3<f32> {
-	let row0 = frame.localLightProbeWorldToProbeRow0[probeIndex];
-	let row1 = frame.localLightProbeWorldToProbeRow1[probeIndex];
-	let row2 = frame.localLightProbeWorldToProbeRow2[probeIndex];
+	let row0 = frameEnvironment.localLightProbeWorldToProbeRow0[probeIndex];
+	let row1 = frameEnvironment.localLightProbeWorldToProbeRow1[probeIndex];
+	let row2 = frameEnvironment.localLightProbeWorldToProbeRow2[probeIndex];
 	return vec3<f32>(
 		dot(row0.xyz, worldPosition) + row0.w,
 		dot(row1.xyz, worldPosition) + row1.w,
@@ -822,8 +822,8 @@ fn computeLocalLightProbeMetric(
 	probeIndex: u32
 ) -> f32 {
 	let localPosition = worldToLocalLightProbePoint(probeIndex, worldPosition);
-	let dataA = frame.localLightProbeDataA[probeIndex];
-	let shape = frame.localLightProbeDataB[probeIndex].z;
+	let dataA = frameEnvironment.localLightProbeDataA[probeIndex];
+	let shape = frameEnvironment.localLightProbeDataB[probeIndex].z;
 	if (shape > 0.5) {
 		return max(
 			max(abs(localPosition.x) * dataA.x, abs(localPosition.y) * dataA.y),
@@ -834,13 +834,13 @@ fn computeLocalLightProbeMetric(
 }
 
 fn computeLocalLightProbeWeight(metric: f32, probeIndex: u32) -> f32 {
-	let blendDistance = max(frame.localLightProbeDataB[probeIndex].x, 1e-5);
+	let blendDistance = max(frameEnvironment.localLightProbeDataB[probeIndex].x, 1e-5);
 	let x = clamp((metric - 1.0) / blendDistance, 0.0, 1.0);
 	return 1.0 - smoothstep(0.0, 1.0, x);
 }
 
 fn localLightProbePriority(probeIndex: u32) -> i32 {
-	return i32(frame.localLightProbeDataB[probeIndex].y);
+	return i32(frameEnvironment.localLightProbeDataB[probeIndex].y);
 }
 
 fn localLightProbeCoeffIndex(probeIndex: u32, coeffIndex: u32) -> u32 {
@@ -848,7 +848,7 @@ fn localLightProbeCoeffIndex(probeIndex: u32, coeffIndex: u32) -> u32 {
 }
 
 fn sampleLocalLightProbeSHCoeff(probeIndex: u32, coeffIndex: u32) -> vec3<f32> {
-	return frame.localLightProbeSHAmbientCoeffs[
+	return frameEnvironment.localLightProbeSHAmbientCoeffs[
 		localLightProbeCoeffIndex(probeIndex, coeffIndex)
 	].xyz;
 }
@@ -1014,14 +1014,14 @@ fn sampleBlendedLocalLightProbeRadiance(
 }
 
 fn irradianceProbeGridEnabled() -> bool {
-	return frame.irradianceProbeGridDataC.x > 0.5 &&
-		frame.irradianceProbeGridDataA.w > 0.5;
+	return frameEnvironment.irradianceProbeGridDataC.x > 0.5 &&
+		frameEnvironment.irradianceProbeGridDataA.w > 0.5;
 }
 
 fn worldToIrradianceProbeGridPoint(worldPosition: vec3<f32>) -> vec3<f32> {
-	let row0 = frame.irradianceProbeGridWorldToGridRow0;
-	let row1 = frame.irradianceProbeGridWorldToGridRow1;
-	let row2 = frame.irradianceProbeGridWorldToGridRow2;
+	let row0 = frameEnvironment.irradianceProbeGridWorldToGridRow0;
+	let row1 = frameEnvironment.irradianceProbeGridWorldToGridRow1;
+	let row2 = frameEnvironment.irradianceProbeGridWorldToGridRow2;
 	return vec3<f32>(
 		dot(row0.xyz, worldPosition) + row0.w,
 		dot(row1.xyz, worldPosition) + row1.w,
@@ -1030,12 +1030,12 @@ fn worldToIrradianceProbeGridPoint(worldPosition: vec3<f32>) -> vec3<f32> {
 }
 
 fn computeIrradianceProbeGridCoverage(localPosition: vec3<f32>) -> f32 {
-	let invHalfExtents = frame.irradianceProbeGridDataB.xyz;
+	let invHalfExtents = frameEnvironment.irradianceProbeGridDataB.xyz;
 	let metric = max(
 		max(abs(localPosition.x) * invHalfExtents.x, abs(localPosition.y) * invHalfExtents.y),
 		abs(localPosition.z) * invHalfExtents.z
 	);
-	let blendDistance = max(frame.irradianceProbeGridDataB.w, 1e-5);
+	let blendDistance = max(frameEnvironment.irradianceProbeGridDataB.w, 1e-5);
 	let x = clamp((metric - 1.0) / blendDistance, 0.0, 1.0);
 	return 1.0 - smoothstep(0.0, 1.0, x);
 }
@@ -1072,11 +1072,11 @@ fn sampleIrradianceProbeGridIrradiance(
 		return vec4<f32>(0.0);
 	}
 	let dims = vec3<u32>(
-		max(u32(frame.irradianceProbeGridDataA.x + 0.5), 1u),
-		max(u32(frame.irradianceProbeGridDataA.y + 0.5), 1u),
-		max(u32(frame.irradianceProbeGridDataA.z + 0.5), 1u)
+		max(u32(frameEnvironment.irradianceProbeGridDataA.x + 0.5), 1u),
+		max(u32(frameEnvironment.irradianceProbeGridDataA.y + 0.5), 1u),
+		max(u32(frameEnvironment.irradianceProbeGridDataA.z + 0.5), 1u)
 	);
-	let cellCount = max(u32(frame.irradianceProbeGridDataA.w + 0.5), 1u);
+	let cellCount = max(u32(frameEnvironment.irradianceProbeGridDataA.w + 0.5), 1u);
 	let localPosition = worldToIrradianceProbeGridPoint(worldPosition);
 	let coverage = computeIrradianceProbeGridCoverage(localPosition);
 	if (coverage <= 1e-6) {
@@ -1085,17 +1085,17 @@ fn sampleIrradianceProbeGridIrradiance(
 
 	let gridX = resolveIrradianceProbeGridAxis(
 		localPosition.x,
-		frame.irradianceProbeGridDataB.x,
+		frameEnvironment.irradianceProbeGridDataB.x,
 		dims.x
 	);
 	let gridY = resolveIrradianceProbeGridAxis(
 		localPosition.y,
-		frame.irradianceProbeGridDataB.y,
+		frameEnvironment.irradianceProbeGridDataB.y,
 		dims.y
 	);
 	let gridZ = resolveIrradianceProbeGridAxis(
 		localPosition.z,
-		frame.irradianceProbeGridDataB.z,
+		frameEnvironment.irradianceProbeGridDataB.z,
 		dims.z
 	);
 	let x0 = min(u32(floor(gridX)), dims.x - 1u);
@@ -1313,7 +1313,7 @@ fn selectTopTwoReflectionProbes(worldPosition: vec3<f32>) -> vec4<f32> {
 	var secondWeight = 0.0;
 
 	for (var i: u32 = 0u; i < count; i = i + 1u) {
-		let probe = frame.reflectionProbes[i];
+		let probe = frameEnvironment.reflectionProbes[i];
 		let metric = computeReflectionProbeMetric(worldPosition, probe);
 		let weight = computeReflectionProbeWeight(metric, probe);
 		if (!isFiniteF32(weight) || weight <= 1e-6) {
@@ -1529,7 +1529,7 @@ fn sampleEnvironmentSpecular(
 	}
 
 	let firstIndex = u32(max(selection.x, 0.0));
-	let firstProbe = frame.reflectionProbes[firstIndex];
+	let firstProbe = frameEnvironment.reflectionProbes[firstIndex];
 	let firstDirection = computeReflectionProbeParallaxDirection(
 		worldPosition,
 		normalizedDirection,
@@ -1555,7 +1555,7 @@ fn sampleEnvironmentSpecular(
 	}
 
 	let secondIndex = u32(max(selection.y, 0.0));
-	let secondProbe = frame.reflectionProbes[secondIndex];
+	let secondProbe = frameEnvironment.reflectionProbes[secondIndex];
 	let secondDirection = computeReflectionProbeParallaxDirection(
 		worldPosition,
 		normalizedDirection,
@@ -2076,7 +2076,7 @@ fn sampleDirectionalShadowVisibility(
 	lightDirection: vec3<f32>,
 	linearDepth: f32
 ) -> vec3<f32> {
-	let shadowData = frame.directionalShadows[index];
+	let shadowData = frameShadows.directionalShadows[index];
 	let cascadeIndex = resolveDirectionalCascadeIndex(shadowData, linearDepth);
 	let baseVisibility = sampleShadowVisibilityForCascade(
 		0u,
@@ -2130,7 +2130,7 @@ fn sampleSpotShadowVisibility(
 	return sampleShadowVisibilityForCascade(
 		1u,
 		index,
-		frame.spotShadows[index],
+		frameShadows.spotShadows[index],
 		worldPosition,
 		normal,
 		lightDirection,

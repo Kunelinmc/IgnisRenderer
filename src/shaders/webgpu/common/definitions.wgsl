@@ -1,5 +1,5 @@
 #import <ignis/webgpu/constants>
-struct FrameUniforms {
+struct FrameCameraUniforms {
 	viewProjection: mat4x4<f32>,
 	prevViewProjection: mat4x4<f32>,
 	cameraPosition: vec4<f32>,
@@ -12,11 +12,22 @@ struct FrameUniforms {
 	environmentOptionsA: vec4<f32>,
 	environmentOptionsB: vec4<f32>,
 	taaJitterCurrentPrev: vec4<f32>,
+}
+
+struct FrameLightUniforms {
 	directionalLights: array<DirectionalLightData, __WEBGPU_MAX_DIRECTIONAL_LIGHTS__>,
 	pointLights: array<PointLightData, __WEBGPU_MAX_POINT_LIGHTS__>,
 	spotLights: array<SpotLightData, __WEBGPU_MAX_SPOT_LIGHTS__>,
+	areaLightCounts: vec4<f32>,
+	areaLights: array<AreaLightData, __WEBGPU_MAX_AREA_LIGHTS__>,
+}
+
+struct FrameShadowUniforms {
 	directionalShadows: array<ShadowData, __WEBGPU_MAX_DIRECTIONAL_LIGHTS__>,
 	spotShadows: array<ShadowData, __WEBGPU_MAX_SPOT_LIGHTS__>,
+}
+
+struct FrameEnvironmentUniforms {
 	shAmbientCoeffs: array<vec4<f32>, __WEBGPU_SH_COEFFICIENT_COUNT__>,
 	reflectionProbes: array<ReflectionProbeData, __WEBGPU_MAX_REFLECTION_PROBES__>,
 	localLightProbeCounts: vec4<f32>,
@@ -33,8 +44,6 @@ struct FrameUniforms {
 	irradianceProbeGridDataA: vec4<f32>,
 	irradianceProbeGridDataB: vec4<f32>,
 	irradianceProbeGridDataC: vec4<f32>,
-	areaLightCounts: vec4<f32>,
-	areaLights: array<AreaLightData, __WEBGPU_MAX_AREA_LIGHTS__>,
 }
 
 struct ClusterGridParams {
@@ -192,7 +201,7 @@ struct ParticleShadowVolumeBuffer {
 	data: array<f32>,
 }
 
-@group(0) @binding(0) var<uniform> frame: FrameUniforms;
+@group(0) @binding(0) var<uniform> frame: FrameCameraUniforms;
 @group(0) @binding(1) var shadowAtlas: texture_depth_2d;
 @group(0) @binding(2) var envSpecularTexture: texture_2d<f32>;
 @group(0) @binding(3) var envSpecularSampler: sampler;
@@ -207,6 +216,9 @@ struct ParticleShadowVolumeBuffer {
 @group(0) @binding(11) var pagedShadowPageTable: texture_2d<u32>;
 @group(0) @binding(12) var pagedShadowPhysicalDepth: texture_depth_2d;
 @group(0) @binding(13) var shadowComparisonSampler: sampler_comparison;
+@group(0) @binding(14) var<uniform> frameLights: FrameLightUniforms;
+@group(0) @binding(15) var<uniform> frameShadows: FrameShadowUniforms;
+@group(0) @binding(16) var<uniform> frameEnvironment: FrameEnvironmentUniforms;
 
 @group(1) @binding(0) var<uniform> model: ModelUniforms;
 @group(1) @binding(1) var baseColorTexture: texture_2d<f32>;

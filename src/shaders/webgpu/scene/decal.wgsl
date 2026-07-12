@@ -23,7 +23,7 @@ const MODE_MULTIPLY: u32 = 3u;
 const MODE_ADD: u32 = 4u;
 const MODE_NORMAL: u32 = 5u;
 
-struct FrameUniforms {
+struct FrameCameraUniforms {
 	viewProjection: mat4x4<f32>,
 	prevViewProjection: mat4x4<f32>,
 	cameraPosition: vec4<f32>,
@@ -91,7 +91,7 @@ struct DecalEvaluation {
 	gMaterialExt3: vec4<f32>,
 }
 
-@group(0) @binding(0) var<uniform> frame: FrameUniforms;
+@group(0) @binding(0) var<uniform> frame: FrameCameraUniforms;
 
 @group(1) @binding(0) var gAlbedoAlphaIn: texture_2d<f32>;
 @group(1) @binding(1) var gNormalRoughMetalIn: texture_2d<f32>;

@@ -156,16 +156,16 @@ if (isClusteredLightingEnabled()) {
 } else {
 	let pointCount = u32(frame.lightCounts.y + 0.5);
 	for (var i: u32 = 0u; i < pointCount; i = i + 1u) {
-		let toLight = frame.pointLights[i].positionRange.xyz - input.worldPosition;
+		let toLight = frameLights.pointLights[i].positionRange.xyz - input.worldPosition;
 		let distanceSq = dot(toLight, toLight);
 		let distanceValue = sqrt(max(distanceSq, EPSILON));
-		let lightRange = frame.pointLights[i].positionRange.w;
+		let lightRange = frameLights.pointLights[i].positionRange.w;
 		if (distanceValue > lightRange) {
 			continue;
 		}
 
 		let lightDirection = toLight / distanceValue;
-		let radiance = frame.pointLights[i].color.xyz * pointAttenuation(distanceSq, lightRange);
+		let radiance = frameLights.pointLights[i].color.xyz * pointAttenuation(distanceSq, lightRange);
 		let nDotLRaw = dot(pbrNormal, lightDirection);
 		let nDotL = max(nDotLRaw, 0.0);
 		let nDotLTransmission = max(-nDotLRaw, 0.0);
@@ -270,4 +270,3 @@ if (isClusteredLightingEnabled()) {
 		) * radiance;
 	}
 }
-

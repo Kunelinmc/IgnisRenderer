@@ -13,10 +13,10 @@
 		let directionalCount = u32(frame.lightCounts.x + 0.5);
 		for (var i: u32 = 0u; i < directionalCount; i = i + 1u) {
 			let lightDirection = safeNormalize(
-				frame.directionalLights[i].direction.xyz,
+				frameLights.directionalLights[i].direction.xyz,
 				vec3<f32>(0.0, 1.0, 0.0)
 			);
-			let radiance = frame.directionalLights[i].color.xyz;
+			let radiance = frameLights.directionalLights[i].color.xyz;
 			let nDotL = max(dot(normal, lightDirection), 0.0);
 			if (nDotL <= 0.0) {
 				continue;
@@ -141,17 +141,17 @@
 		} else {
 			let pointCount = u32(frame.lightCounts.y + 0.5);
 			for (var i: u32 = 0u; i < pointCount; i = i + 1u) {
-				let toLight = frame.pointLights[i].positionRange.xyz - input.worldPosition;
+				let toLight = frameLights.pointLights[i].positionRange.xyz - input.worldPosition;
 				let distanceSq = dot(toLight, toLight);
 				let distanceValue = sqrt(max(distanceSq, EPSILON));
-				let lightRange = frame.pointLights[i].positionRange.w;
+				let lightRange = frameLights.pointLights[i].positionRange.w;
 				if (distanceValue > lightRange) {
 					continue;
 				}
 
 				let lightDirection = toLight / distanceValue;
 				let attenuation = pointAttenuation(distanceSq, lightRange);
-				let radiance = frame.pointLights[i].color.xyz * attenuation;
+				let radiance = frameLights.pointLights[i].color.xyz * attenuation;
 				let nDotL = max(dot(normal, lightDirection), 0.0);
 				if (nDotL <= 0.0) {
 					continue;
@@ -165,10 +165,10 @@
 
 			let spotCount = u32(frame.lightCounts.z + 0.5);
 			for (var i: u32 = 0u; i < spotCount; i = i + 1u) {
-				let toLight = frame.spotLights[i].positionRange.xyz - input.worldPosition;
+				let toLight = frameLights.spotLights[i].positionRange.xyz - input.worldPosition;
 				let distanceSq = dot(toLight, toLight);
 				let distanceValue = sqrt(max(distanceSq, EPSILON));
-				let lightRange = frame.spotLights[i].positionRange.w;
+				let lightRange = frameLights.spotLights[i].positionRange.w;
 				if (distanceValue > lightRange) {
 					continue;
 				}
@@ -176,20 +176,20 @@
 				let lightDirection = toLight / distanceValue;
 				let lightToPoint = -lightDirection;
 				let coneDirection = safeNormalize(
-					frame.spotLights[i].directionOuter.xyz,
+					frameLights.spotLights[i].directionOuter.xyz,
 					vec3<f32>(0.0, -1.0, 0.0)
 				);
 				let coneAttenuation = spotAttenuation(
 					dot(lightToPoint, coneDirection),
-					frame.spotLights[i].directionOuter.w,
-					frame.spotLights[i].colorInner.w
+					frameLights.spotLights[i].directionOuter.w,
+					frameLights.spotLights[i].colorInner.w
 				);
 				if (coneAttenuation <= 0.0) {
 					continue;
 				}
 
 				let attenuation = pointAttenuation(distanceSq, lightRange) * coneAttenuation;
-				let radiance = frame.spotLights[i].colorInner.xyz * attenuation;
+				let radiance = frameLights.spotLights[i].colorInner.xyz * attenuation;
 				let nDotL = max(dot(normal, lightDirection), 0.0);
 				if (nDotL <= 0.0) {
 					continue;
@@ -217,7 +217,7 @@
 					sampleIndex = sampleIndex + 1u
 				) {
 					let areaLight = evaluateAreaLight(
-						frame.areaLights[i],
+						frameLights.areaLights[i],
 						input.worldPosition,
 						sampleIndex
 					);
