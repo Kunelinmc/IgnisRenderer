@@ -56,7 +56,7 @@ The following pipeline layouts must preserve these bind group roles:
 
 | Binding | Shader name | Resource contract |
 | --- | --- | --- |
-| `0` | `frame` | `FrameUniforms` uniform buffer |
+| `0` | `frame` | `FrameCameraUniforms` uniform buffer (288 bytes) |
 | `1` | `shadowAtlas` | `texture_depth_2d` |
 | `2` | `envSpecularTexture` | `texture_2d<f32>` |
 | `3` | `envSpecularSampler` | Filtering sampler |
@@ -70,12 +70,15 @@ The following pipeline layouts must preserve these bind group roles:
 | `11` | `pagedShadowPageTable` | `texture_2d<u32>` |
 | `12` | `pagedShadowPhysicalDepth` | `texture_depth_2d` |
 | `13` | `shadowComparisonSampler` | Comparison sampler |
+| `14` | `frameLights` | `FrameLightUniforms` uniform buffer (1,680 bytes) |
+| `15` | `frameShadows` | `FrameShadowUniforms` uniform buffer (5,760 bytes) |
+| `16` | `frameEnvironment` | `FrameEnvironmentUniforms` uniform buffer (4,208 bytes) |
 
 ### `environmentFrameBindGroupLayout` - `group(0)`
 
 | Binding | Shader name | Resource contract |
 | --- | --- | --- |
-| `0` | `frame` | `FrameUniforms` uniform buffer |
+| `0` | `frame` | `FrameCameraUniforms` uniform buffer (288 bytes) |
 | `1` | `environmentTexture` | `texture_2d<f32>` |
 | `2` | `environmentSampler` | Filtering sampler |
 | `3` | `environmentBackground` | Environment background uniform buffer |
@@ -152,7 +155,7 @@ passes agree on the fixed index span for each cluster.
 | `0` | `1` | `clusterLights` | Read-only storage buffer |
 | `0` | `2` | `clusterHeaders` | Read-write storage buffer |
 | `0` | `3` | `clusterIndices` | Read-write storage buffer |
-| `1` | `0` | `frame` | `FrameUniforms` uniform buffer through `sceneFrameBindGroupLayout` |
+| `1` | `0` | `frame` | `FrameCameraUniforms` uniform buffer through `sceneFrameBindGroupLayout` |
 
 ### G-buffer Bindings
 
@@ -190,13 +193,16 @@ Particle render pipelines use `sceneFrameBindGroupLayout` as `group(0)` and
 
 | Group | Binding | Shader name | Resource contract |
 | --- | --- | --- | --- |
-| `0` | `0` | `frame` | `FrameUniforms` uniform buffer |
+| `0` | `0` | `frame` | `FrameCameraUniforms` uniform buffer |
 | `0` | `1` | `shadowAtlas` | `texture_depth_2d` |
 | `0` | `2` | `envSpecularTexture` | `texture_2d<f32>` |
 | `0` | `3` | `envSpecularSampler` | Filtering sampler |
 | `0` | `6` | `fog` | `FogUniforms` uniform buffer |
 | `0` | `7` | `particleShadowVolumes` | Read-only storage buffer |
 | `0` | `13` | `shadowComparisonSampler` | Comparison sampler |
+| `0` | `14` | `frameLights` | `FrameLightUniforms` uniform buffer |
+| `0` | `15` | `frameShadows` | `FrameShadowUniforms` uniform buffer |
+| `0` | `16` | `frameEnvironment` | `FrameEnvironmentUniforms` uniform buffer |
 | `1` | `0` | `particleTexture` | `texture_2d<f32>` |
 | `1` | `1` | `particleSampler` | Filtering sampler |
 | `1` | `2` | `particleUVTransform` | Particle UV transform uniform buffer |
@@ -358,3 +364,10 @@ Changing any binding index, group index, or resource type is a breaking shader
 contract change. A compatible change may add a binding only when every affected
 pipeline layout, WGSL declaration, bind group population site, warmup path, and
 fallback resource path are updated together.
+
+The former monolithic `FrameUniforms` binding is split across
+`FrameCameraUniforms` at binding `0`, `FrameLightUniforms` at binding `14`,
+`FrameShadowUniforms` at binding `15`, and `FrameEnvironmentUniforms` at
+binding `16`. Custom WGSL that reads lights, shadows, or probe data through
+`frame` must migrate those reads to `frameLights`, `frameShadows`, or
+`frameEnvironment`; camera and global setting fields remain on `frame`.

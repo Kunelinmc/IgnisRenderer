@@ -36,6 +36,16 @@ or writer ownership.
   identify a path. Runtime type and length validation must remain owned by
   `StructuredBufferWriter`.
 
+The frame packers share `WebGPUFrameUniformInput` and target these
+`sceneFrameBindGroupLayout` resources:
+
+| Packer | Binding | Layout | Size |
+| --- | --- | --- | --- |
+| `packFrameCameraUniformData` | `0` | `FrameCameraUniforms` | 288 bytes |
+| `packFrameLightUniformData` | `14` | `FrameLightUniforms` | 1,680 bytes |
+| `packFrameShadowUniformData` | `15` | `FrameShadowUniforms` | 5,760 bytes |
+| `packFrameEnvironmentUniformData` | `16` | `FrameEnvironmentUniforms` | 4,208 bytes |
+
 ## Usage
 
 ```ts
@@ -102,5 +112,12 @@ const packed = packer.pack({
 
 ## Compatibility / Breaking Changes
 
-The packer API is additive. Existing `packFrameUniformData` and
-`packModelUniformData` call signatures remain valid.
+`packFrameUniformData` has been replaced by
+`packFrameCameraUniformData`, `packFrameLightUniformData`,
+`packFrameShadowUniformData`, and `packFrameEnvironmentUniformData`. Consumers
+must select the packer matching the target frame uniform binding.
+
+This is a breaking WebGPU shader contract. Custom WGSL must retain camera and
+global settings through `frame` at binding `0`, and must read lights, shadows,
+and probe data through `frameLights`, `frameShadows`, and `frameEnvironment`
+at bindings `14`, `15`, and `16` respectively.
