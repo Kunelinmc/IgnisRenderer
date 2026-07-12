@@ -14,7 +14,10 @@ import {
 	WEBGPU_TEXTURE_SLOT_COUNT,
 } from "./constants";
 import {
-	WEBGPU_FRAME_UNIFORM_LAYOUT as FRAME_UNIFORM_LAYOUT,
+	WEBGPU_FRAME_CAMERA_UNIFORM_LAYOUT,
+	WEBGPU_FRAME_ENVIRONMENT_UNIFORM_LAYOUT,
+	WEBGPU_FRAME_LIGHT_UNIFORM_LAYOUT,
+	WEBGPU_FRAME_SHADOW_UNIFORM_LAYOUT,
 	WEBGPU_MODEL_UNIFORM_LAYOUT as MODEL_UNIFORM_LAYOUT,
 } from "./bufferLayouts";
 import type { StructuredBufferLayout } from "./StructuredBufferLayout";
@@ -37,7 +40,10 @@ import type {
 } from "./types";
 
 export {
-	WEBGPU_FRAME_UNIFORM_BYTE_SIZE,
+	WEBGPU_FRAME_CAMERA_UNIFORM_BYTE_SIZE,
+	WEBGPU_FRAME_ENVIRONMENT_UNIFORM_BYTE_SIZE,
+	WEBGPU_FRAME_LIGHT_UNIFORM_BYTE_SIZE,
+	WEBGPU_FRAME_SHADOW_UNIFORM_BYTE_SIZE,
 	WEBGPU_MODEL_UNIFORM_BYTE_SIZE,
 } from "./constants";
 
@@ -49,12 +55,12 @@ interface WebGPUModelUniformInput {
 	renderLayers: number;
 }
 
-const FRAME_UNIFORM_PACKER = createStructuredBufferPacker<
+const FRAME_CAMERA_UNIFORM_PACKER = createStructuredBufferPacker<
 	WebGPUFrameUniformInput,
 	"float32Array"
 >({
-	label: "FrameUniforms",
-	layout: FRAME_UNIFORM_LAYOUT,
+	label: "FrameCameraUniforms",
+	layout: WEBGPU_FRAME_CAMERA_UNIFORM_LAYOUT,
 	output: "float32Array",
 	fields: [
 		packMat4("viewProjection", (input) => input.viewProjectionMatrix),
@@ -116,6 +122,17 @@ const FRAME_UNIFORM_PACKER = createStructuredBufferPacker<
 			input.enableClusteredLighting ? 1 : 0,
 		]),
 		packVec4("taaJitterCurrentPrev", (input) => input.taaJitterCurrentPrev),
+	],
+});
+
+const FRAME_LIGHT_UNIFORM_PACKER = createStructuredBufferPacker<
+	WebGPUFrameUniformInput,
+	"float32Array"
+>({
+	label: "FrameLightUniforms",
+	layout: WEBGPU_FRAME_LIGHT_UNIFORM_LAYOUT,
+	output: "float32Array",
+	fields: [
 		packArrayStruct<WebGPUFrameUniformInput, WebGPUDirectionalLightUniform>(
 			"directionalLights",
 			MAX_DIRECTIONAL_LIGHTS,
@@ -179,6 +196,60 @@ const FRAME_UNIFORM_PACKER = createStructuredBufferPacker<
 				]),
 			]
 		),
+		packVec4("areaLightCounts", (input) => [
+			Math.min(input.areaLights.length, MAX_AREA_LIGHTS),
+			0,
+			0,
+			0,
+		]),
+		packArrayStruct<WebGPUFrameUniformInput, WebGPUAreaLightUniform>(
+			"areaLights",
+			MAX_AREA_LIGHTS,
+			(input, index) => input.areaLights[index],
+			[
+				packVec4("positionRange", (light) => [
+					light.position[0],
+					light.position[1],
+					light.position[2],
+					light.range,
+				]),
+				packVec4("rightWidth", (light) => [
+					light.right[0],
+					light.right[1],
+					light.right[2],
+					light.width,
+				]),
+				packVec4("upHeight", (light) => [
+					light.up[0],
+					light.up[1],
+					light.up[2],
+					light.height,
+				]),
+				packVec4("normalAreaScale", (light) => [
+					light.normal[0],
+					light.normal[1],
+					light.normal[2],
+					light.areaScale,
+				]),
+				packVec4("color", (light) => [
+					light.color[0],
+					light.color[1],
+					light.color[2],
+					0,
+				]),
+			]
+		),
+	],
+});
+
+const FRAME_SHADOW_UNIFORM_PACKER = createStructuredBufferPacker<
+	WebGPUFrameUniformInput,
+	"float32Array"
+>({
+	label: "FrameShadowUniforms",
+	layout: WEBGPU_FRAME_SHADOW_UNIFORM_LAYOUT,
+	output: "float32Array",
+	fields: [
 		packCustom("directionalShadows", (writer, input) => {
 			for (let i = 0; i < MAX_DIRECTIONAL_LIGHTS; i++) {
 				writeShadowData(writer, "directionalShadows", i, input.directionalShadows[i]);
@@ -189,6 +260,17 @@ const FRAME_UNIFORM_PACKER = createStructuredBufferPacker<
 				writeShadowData(writer, "spotShadows", i, input.spotShadows[i]);
 			}
 		}),
+	],
+});
+
+const FRAME_ENVIRONMENT_UNIFORM_PACKER = createStructuredBufferPacker<
+	WebGPUFrameUniformInput,
+	"float32Array"
+>({
+	label: "FrameEnvironmentUniforms",
+	layout: WEBGPU_FRAME_ENVIRONMENT_UNIFORM_LAYOUT,
+	output: "float32Array",
+	fields: [
 		packArrayVec4("shAmbientCoeffs", WEBGPU_SH_COEFFICIENT_COUNT, (input, i) => {
 			const coefficient = input.shAmbientCoeffs?.[i];
 			return coefficient ? [coefficient.r, coefficient.g, coefficient.b, 0] : null;
@@ -348,49 +430,6 @@ const FRAME_UNIFORM_PACKER = createStructuredBufferPacker<
 			const grid = input.irradianceProbeGrid;
 			return grid ? [1, WEBGPU_SH_COEFFICIENT_COUNT, grid.cellCount, 0] : [0, 16, 1, 0];
 		}),
-		packVec4("areaLightCounts", (input) => [
-			Math.min(input.areaLights.length, MAX_AREA_LIGHTS),
-			0,
-			0,
-			0,
-		]),
-		packArrayStruct<WebGPUFrameUniformInput, WebGPUAreaLightUniform>(
-			"areaLights",
-			MAX_AREA_LIGHTS,
-			(input, index) => input.areaLights[index],
-			[
-				packVec4("positionRange", (light) => [
-					light.position[0],
-					light.position[1],
-					light.position[2],
-					light.range,
-				]),
-				packVec4("rightWidth", (light) => [
-					light.right[0],
-					light.right[1],
-					light.right[2],
-					light.width,
-				]),
-				packVec4("upHeight", (light) => [
-					light.up[0],
-					light.up[1],
-					light.up[2],
-					light.height,
-				]),
-				packVec4("normalAreaScale", (light) => [
-					light.normal[0],
-					light.normal[1],
-					light.normal[2],
-					light.areaScale,
-				]),
-				packVec4("color", (light) => [
-					light.color[0],
-					light.color[1],
-					light.color[2],
-					0,
-				]),
-			]
-		),
 	],
 });
 
@@ -484,10 +523,28 @@ export function packNormalMatrix4ForWGSL(
 	return packMatrix4ForWGSL(createNormalMatrixRows(normalMatrix));
 }
 
-export function packFrameUniformData(
+export function packFrameCameraUniformData(
 	input: WebGPUFrameUniformInput
 ): Float32Array {
-	return FRAME_UNIFORM_PACKER.pack(input);
+	return FRAME_CAMERA_UNIFORM_PACKER.pack(input);
+}
+
+export function packFrameLightUniformData(
+	input: WebGPUFrameUniformInput
+): Float32Array {
+	return FRAME_LIGHT_UNIFORM_PACKER.pack(input);
+}
+
+export function packFrameShadowUniformData(
+	input: WebGPUFrameUniformInput
+): Float32Array {
+	return FRAME_SHADOW_UNIFORM_PACKER.pack(input);
+}
+
+export function packFrameEnvironmentUniformData(
+	input: WebGPUFrameUniformInput
+): Float32Array {
+	return FRAME_ENVIRONMENT_UNIFORM_PACKER.pack(input);
 }
 
 export function remapClipSpaceDepth(clipZ: number, clipW: number): number {

@@ -10,7 +10,10 @@ import {
 
 import {
 	WEBGPU_CLUSTERED_PARAMS_FLOATS,
-	WEBGPU_FRAME_UNIFORM_BYTE_SIZE,
+	WEBGPU_FRAME_CAMERA_UNIFORM_BYTE_SIZE,
+	WEBGPU_FRAME_ENVIRONMENT_UNIFORM_BYTE_SIZE,
+	WEBGPU_FRAME_LIGHT_UNIFORM_BYTE_SIZE,
+	WEBGPU_FRAME_SHADOW_UNIFORM_BYTE_SIZE,
 	WEBGPU_MODEL_UNIFORM_BYTE_SIZE,
 	WEBGPU_PARTICLE_ATTR_INSTANCE_COLOR,
 	WEBGPU_PARTICLE_ATTR_INSTANCE_POSITION_SIZE,
@@ -223,7 +226,7 @@ export const WEBGPU_PARTICLE_VERTEX_LAYOUTS: VertexBufferLayout[] = [
 	}),
 ];
 
-export const WEBGPU_FRAME_UNIFORM_LAYOUT = new StructuredBufferLayout(
+export const WEBGPU_FRAME_CAMERA_UNIFORM_LAYOUT = new StructuredBufferLayout(
 	structOf([
 		{ name: "viewProjection", type: MAT4X4_F32 },
 		{ name: "prevViewProjection", type: MAT4X4_F32 },
@@ -237,6 +240,16 @@ export const WEBGPU_FRAME_UNIFORM_LAYOUT = new StructuredBufferLayout(
 		{ name: "environmentOptionsA", type: VEC4_F32 },
 		{ name: "environmentOptionsB", type: VEC4_F32 },
 		{ name: "taaJitterCurrentPrev", type: VEC4_F32 },
+	]),
+	"uniform"
+);
+WEBGPU_FRAME_CAMERA_UNIFORM_LAYOUT.assertByteSize(
+	WEBGPU_FRAME_CAMERA_UNIFORM_BYTE_SIZE,
+	"FrameCameraUniforms"
+);
+
+export const WEBGPU_FRAME_LIGHT_UNIFORM_LAYOUT = new StructuredBufferLayout(
+	structOf([
 		{
 			name: "directionalLights",
 			type: arrayOf(DIRECTIONAL_LIGHT_SCHEMA, MAX_DIRECTIONAL_LIGHTS),
@@ -249,6 +262,21 @@ export const WEBGPU_FRAME_UNIFORM_LAYOUT = new StructuredBufferLayout(
 			name: "spotLights",
 			type: arrayOf(SPOT_LIGHT_SCHEMA, MAX_SPOT_LIGHTS),
 		},
+		{ name: "areaLightCounts", type: VEC4_F32 },
+		{
+			name: "areaLights",
+			type: arrayOf(AREA_LIGHT_SCHEMA, MAX_AREA_LIGHTS),
+		},
+	]),
+	"uniform"
+);
+WEBGPU_FRAME_LIGHT_UNIFORM_LAYOUT.assertByteSize(
+	WEBGPU_FRAME_LIGHT_UNIFORM_BYTE_SIZE,
+	"FrameLightUniforms"
+);
+
+export const WEBGPU_FRAME_SHADOW_UNIFORM_LAYOUT = new StructuredBufferLayout(
+	structOf([
 		{
 			name: "directionalShadows",
 			type: arrayOf(SHADOW_DATA_SCHEMA, MAX_DIRECTIONAL_LIGHTS),
@@ -257,6 +285,16 @@ export const WEBGPU_FRAME_UNIFORM_LAYOUT = new StructuredBufferLayout(
 			name: "spotShadows",
 			type: arrayOf(SHADOW_DATA_SCHEMA, MAX_SPOT_LIGHTS),
 		},
+	]),
+	"uniform"
+);
+WEBGPU_FRAME_SHADOW_UNIFORM_LAYOUT.assertByteSize(
+	WEBGPU_FRAME_SHADOW_UNIFORM_BYTE_SIZE,
+	"FrameShadowUniforms"
+);
+
+export const WEBGPU_FRAME_ENVIRONMENT_UNIFORM_LAYOUT = new StructuredBufferLayout(
+	structOf([
 		{
 			name: "shAmbientCoeffs",
 			type: arrayOf(VEC4_F32, WEBGPU_SH_COEFFICIENT_COUNT),
@@ -299,17 +337,12 @@ export const WEBGPU_FRAME_UNIFORM_LAYOUT = new StructuredBufferLayout(
 		{ name: "irradianceProbeGridDataA", type: VEC4_F32 },
 		{ name: "irradianceProbeGridDataB", type: VEC4_F32 },
 		{ name: "irradianceProbeGridDataC", type: VEC4_F32 },
-		{ name: "areaLightCounts", type: VEC4_F32 },
-		{
-			name: "areaLights",
-			type: arrayOf(AREA_LIGHT_SCHEMA, MAX_AREA_LIGHTS),
-		},
 	]),
 	"uniform"
 );
-WEBGPU_FRAME_UNIFORM_LAYOUT.assertByteSize(
-	WEBGPU_FRAME_UNIFORM_BYTE_SIZE,
-	"FrameUniforms"
+WEBGPU_FRAME_ENVIRONMENT_UNIFORM_LAYOUT.assertByteSize(
+	WEBGPU_FRAME_ENVIRONMENT_UNIFORM_BYTE_SIZE,
+	"FrameEnvironmentUniforms"
 );
 
 export const WEBGPU_MODEL_UNIFORM_LAYOUT = new StructuredBufferLayout(

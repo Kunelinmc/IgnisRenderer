@@ -124,6 +124,30 @@ export function createWebGPUPipelineLayouts(
 				visibility: GPUShaderStage.FRAGMENT | GPUShaderStage.COMPUTE,
 				sampler: { type: "comparison" },
 			},
+			{
+				binding: 14,
+				visibility:
+					GPUShaderStage.VERTEX |
+					GPUShaderStage.FRAGMENT |
+					GPUShaderStage.COMPUTE,
+				buffer: { type: "uniform" },
+			},
+			{
+				binding: 15,
+				visibility:
+					GPUShaderStage.VERTEX |
+					GPUShaderStage.FRAGMENT |
+					GPUShaderStage.COMPUTE,
+				buffer: { type: "uniform" },
+			},
+			{
+				binding: 16,
+				visibility:
+					GPUShaderStage.VERTEX |
+					GPUShaderStage.FRAGMENT |
+					GPUShaderStage.COMPUTE,
+				buffer: { type: "uniform" },
+			},
 		],
 	});
 	const decalFrameBindGroupLayout = device.createBindGroupLayout({

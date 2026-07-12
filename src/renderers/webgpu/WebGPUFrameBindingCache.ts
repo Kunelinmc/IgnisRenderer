@@ -13,11 +13,18 @@ import {
 } from "../types";
 import type { WebGPUBackend } from "../WebGPUBackend";
 import {
-	WEBGPU_FRAME_UNIFORM_BYTE_SIZE,
+	WEBGPU_FRAME_CAMERA_UNIFORM_BYTE_SIZE,
+	WEBGPU_FRAME_ENVIRONMENT_UNIFORM_BYTE_SIZE,
+	WEBGPU_FRAME_LIGHT_UNIFORM_BYTE_SIZE,
+	WEBGPU_FRAME_SHADOW_UNIFORM_BYTE_SIZE,
 	WEBGPU_SH_COEFFICIENT_COUNT,
-	packFrameUniformData,
+	packFrameCameraUniformData,
+	packFrameEnvironmentUniformData,
+	packFrameLightUniformData,
+	packFrameShadowUniformData,
 	type WebGPUEnvironmentState,
 	type WebGPUFeatureState,
+	type WebGPUFrameUniformInput,
 	type WebGPULightingState,
 } from "./";
 import type {
@@ -82,7 +89,10 @@ export class WebGPUFrameBindingCache {
 	private _textureRegistry: WebGPUTextureRegistry;
 	private _shadowAtlases: WebGPUShadowAtlasAllocator;
 	private _pagedShadowRuntime: WebGPUPagedShadowRuntime;
-	private _frameUniformBuffer: IRenderBuffer | null = null;
+	private _frameCameraUniformBuffer: IRenderBuffer | null = null;
+	private _frameLightUniformBuffer: IRenderBuffer | null = null;
+	private _frameShadowUniformBuffer: IRenderBuffer | null = null;
+	private _frameEnvironmentUniformBuffer: IRenderBuffer | null = null;
 	private _fogUniformBuffer: IRenderBuffer | null = null;
 	private _environmentBackgroundParamsBuffer: IRenderBuffer | null = null;
 	private _environmentBackgroundParamsData: Float32Array<ArrayBuffer> =
@@ -180,7 +190,6 @@ export class WebGPUFrameBindingCache {
 				Math.abs(bounds.top - bounds.bottom) * 0.5
 			);
 		}
-		const frameUniform = this._getFrameUniformBuffer();
 		const temporalStateMode = options.temporalStateMode ?? "advance";
 		const prevViewProjection = this._resolvePreviousViewProjection(
 			frame,
@@ -195,7 +204,7 @@ export class WebGPUFrameBindingCache {
 			temporalStateMode,
 			options.temporalHistoryReset === true
 		);
-		const frameData = packFrameUniformData({
+		const frameUniformInput: WebGPUFrameUniformInput = {
 			viewProjectionMatrix: frame.camera.viewProjectionMatrix,
 			prevViewProjectionMatrix: prevViewProjection,
 			cameraPosition: frame.camera.getWorldPosition(),
@@ -242,9 +251,24 @@ export class WebGPUFrameBindingCache {
 			envSpecularFallbackMaxMipLevel:
 				environmentState.envSpecularFallbackMaxMipLevel,
 			taaJitterCurrentPrev: temporalJitter,
-		});
+		};
 
-		this._backend.writeBuffer(frameUniform, new Float32Array(frameData));
+		this._backend.writeBuffer(
+			this._getFrameCameraUniformBuffer(),
+			packFrameCameraUniformData(frameUniformInput) as Float32Array<ArrayBuffer>
+		);
+		this._backend.writeBuffer(
+			this._getFrameLightUniformBuffer(),
+			packFrameLightUniformData(frameUniformInput) as Float32Array<ArrayBuffer>
+		);
+		this._backend.writeBuffer(
+			this._getFrameShadowUniformBuffer(),
+			packFrameShadowUniformData(frameUniformInput) as Float32Array<ArrayBuffer>
+		);
+		this._backend.writeBuffer(
+			this._getFrameEnvironmentUniformBuffer(),
+			packFrameEnvironmentUniformData(frameUniformInput) as Float32Array<ArrayBuffer>
+		);
 		this._backend.writeBuffer(
 			this._getFogUniformBuffer(),
 			this._packFogUniformData(features)
@@ -485,7 +509,7 @@ export class WebGPUFrameBindingCache {
 				label: "FrameBinding_scene",
 				layout: this._layouts.sceneFrameBindGroupLayout,
 				entries: [
-					{ binding: 0, resource: this._getFrameUniformBuffer() },
+					{ binding: 0, resource: this._getFrameCameraUniformBuffer() },
 					{
 						binding: 1,
 						resource:
@@ -552,6 +576,12 @@ export class WebGPUFrameBindingCache {
 						binding: 13,
 						resource: this._getShadowComparisonSampler(),
 					},
+					{ binding: 14, resource: this._getFrameLightUniformBuffer() },
+					{ binding: 15, resource: this._getFrameShadowUniformBuffer() },
+					{
+						binding: 16,
+						resource: this._getFrameEnvironmentUniformBuffer(),
+					},
 				],
 			});
 		}
@@ -586,7 +616,7 @@ export class WebGPUFrameBindingCache {
 				label: "FrameBinding_decal",
 				layout: this._layouts.decalFrameBindGroupLayout,
 				entries: [
-					{ binding: 0, resource: this._getFrameUniformBuffer() },
+					{ binding: 0, resource: this._getFrameCameraUniformBuffer() },
 				],
 			});
 		}
@@ -600,7 +630,7 @@ export class WebGPUFrameBindingCache {
 				label: "FrameBinding_environment",
 				layout: this._layouts.environmentFrameBindGroupLayout,
 				entries: [
-					{ binding: 0, resource: this._getFrameUniformBuffer() },
+					{ binding: 0, resource: this._getFrameCameraUniformBuffer() },
 					{
 						binding: 1,
 						resource:
@@ -622,15 +652,48 @@ export class WebGPUFrameBindingCache {
 		return this._environmentBinding;
 	}
 
-	private _getFrameUniformBuffer(): IRenderBuffer {
-		if (!this._frameUniformBuffer) {
-			this._frameUniformBuffer = this._backend.createBuffer({
-				size: WEBGPU_FRAME_UNIFORM_BYTE_SIZE,
+	private _getFrameCameraUniformBuffer(): IRenderBuffer {
+		if (!this._frameCameraUniformBuffer) {
+			this._frameCameraUniformBuffer = this._backend.createBuffer({
+				size: WEBGPU_FRAME_CAMERA_UNIFORM_BYTE_SIZE,
 				usage: BufferUsage.Uniform | BufferUsage.CopyDst,
-				label: "WebGPUFrameUniforms",
+				label: "WebGPUFrameCameraUniforms",
 			});
 		}
-		return this._frameUniformBuffer;
+		return this._frameCameraUniformBuffer;
+	}
+
+	private _getFrameLightUniformBuffer(): IRenderBuffer {
+		if (!this._frameLightUniformBuffer) {
+			this._frameLightUniformBuffer = this._backend.createBuffer({
+				size: WEBGPU_FRAME_LIGHT_UNIFORM_BYTE_SIZE,
+				usage: BufferUsage.Uniform | BufferUsage.CopyDst,
+				label: "WebGPUFrameLightUniforms",
+			});
+		}
+		return this._frameLightUniformBuffer;
+	}
+
+	private _getFrameShadowUniformBuffer(): IRenderBuffer {
+		if (!this._frameShadowUniformBuffer) {
+			this._frameShadowUniformBuffer = this._backend.createBuffer({
+				size: WEBGPU_FRAME_SHADOW_UNIFORM_BYTE_SIZE,
+				usage: BufferUsage.Uniform | BufferUsage.CopyDst,
+				label: "WebGPUFrameShadowUniforms",
+			});
+		}
+		return this._frameShadowUniformBuffer;
+	}
+
+	private _getFrameEnvironmentUniformBuffer(): IRenderBuffer {
+		if (!this._frameEnvironmentUniformBuffer) {
+			this._frameEnvironmentUniformBuffer = this._backend.createBuffer({
+				size: WEBGPU_FRAME_ENVIRONMENT_UNIFORM_BYTE_SIZE,
+				usage: BufferUsage.Uniform | BufferUsage.CopyDst,
+				label: "WebGPUFrameEnvironmentUniforms",
+			});
+		}
+		return this._frameEnvironmentUniformBuffer;
 	}
 
 	private _getFogUniformBuffer(): IRenderBuffer {
@@ -825,8 +888,14 @@ export class WebGPUFrameBindingCache {
 		this._sceneBinding = null;
 		this._decalFrameBinding = null;
 		this._environmentBinding = null;
-		this._frameUniformBuffer?.destroy();
-		this._frameUniformBuffer = null;
+		this._frameCameraUniformBuffer?.destroy();
+		this._frameCameraUniformBuffer = null;
+		this._frameLightUniformBuffer?.destroy();
+		this._frameLightUniformBuffer = null;
+		this._frameShadowUniformBuffer?.destroy();
+		this._frameShadowUniformBuffer = null;
+		this._frameEnvironmentUniformBuffer?.destroy();
+		this._frameEnvironmentUniformBuffer = null;
 		this._fogUniformBuffer?.destroy();
 		this._fogUniformBuffer = null;
 		this._environmentBackgroundParamsBuffer?.destroy();
