@@ -20,7 +20,10 @@ import {
 	packMatrix4ForWGSL,
 	remapClipSpaceDepth,
 	WEBGPU_VOLUMETRIC_LIGHTING_DATA,
-	WEBGPU_FRAME_UNIFORM_FLOATS,
+	WEBGPU_FRAME_CAMERA_UNIFORM_FLOATS,
+	WEBGPU_FRAME_ENVIRONMENT_UNIFORM_FLOATS,
+	WEBGPU_FRAME_LIGHT_UNIFORM_FLOATS,
+	WEBGPU_FRAME_SHADOW_UNIFORM_FLOATS,
 } from "../../../src/renderers/webgpu/index.ts";
 import { WebGPUReflectionProbeCapturePass } from "../../../src/renderers/webgpu/WebGPUReflectionProbeCapturePass.ts";
 import { createWebGPUPipelineLayouts } from "../../../src/renderers/webgpu/WebGPUPipelineLayouts.ts";
@@ -51,7 +54,7 @@ import { ShadowMap, createShadowRenderSet } from "../../../src/lights/shadows/Sh
 import { PARTICLE_TRANSIENT_BATCHES_KEY } from "../../../src/pipeline/types.ts";
 import { ParticleBlendMode } from "../../../src/particles/types.ts";
 import {
-	WEBGPU_FRAME_UNIFORM_LAYOUT,
+	WEBGPU_FRAME_CAMERA_UNIFORM_LAYOUT,
 	WEBGPU_PARTICLE_VERTEX_LAYOUTS,
 } from "../../../src/renderers/webgpu/bufferLayouts.ts";
 import {
@@ -457,12 +460,12 @@ async function testSceneShaderCoverage() {
 	);
 	assert.ok(
 		WEBGPU_SCENE_SHADER.includes(
-			"frame.pointLights[i].positionRange.xyz - input.worldPosition"
+			"frameLights.pointLights[i].positionRange.xyz - input.worldPosition"
 		)
 	);
 	assert.ok(WEBGPU_SCENE_SHADER.includes("let areaCount = areaLightCount();"));
 	assert.ok(
-		/evaluateAreaLight\(\s*frame\.areaLights\[i\],\s*input\.worldPosition,\s*sampleIndex\s*\)/.test(
+		/evaluateAreaLight\(\s*frameLights\.areaLights\[i\],\s*input\.worldPosition,\s*sampleIndex\s*\)/.test(
 			WEBGPU_SCENE_SHADER
 		)
 	);
@@ -498,7 +501,7 @@ async function testSceneShaderCoverage() {
 	);
 	assert.ok(WEBGPU_DEFERRED_LIGHTING_SHADER.includes("DeferredPBRContext"));
 	assert.ok(
-		/evaluateAreaLight\(\s*frame\.areaLights\[i\],\s*surface\.worldPosition,\s*sampleIndex\s*\)/.test(
+		/evaluateAreaLight\(\s*frameLights\.areaLights\[i\],\s*surface\.worldPosition,\s*sampleIndex\s*\)/.test(
 			WEBGPU_DEFERRED_LIGHTING_SHADER
 		)
 	);
@@ -966,34 +969,22 @@ async function testWebGPUShaderConstantTokenInjection() {
 		)
 	);
 	assert.ok(
-		WEBGPU_ENVIRONMENT_SHADER.includes(
-			`pointLights: array<PointLightData, ${MAX_POINT_LIGHTS}>`
-		)
+		WEBGPU_ENVIRONMENT_SHADER.includes("struct FrameCameraUniforms")
 	);
 	assert.ok(
-		WEBGPU_PARTICLE_SHADER.includes(
-			`directionalLights: array<vec4<f32>, ${MAX_DIRECTIONAL_LIGHTS * 2}>`
-		)
+		WEBGPU_PARTICLE_SHADER.includes("struct FrameCameraUniforms")
 	);
 	assert.ok(
-		WEBGPU_PARTICLE_SHADER.includes(
-			`pointLights: array<vec4<f32>, ${MAX_POINT_LIGHTS * 2}>`
-		)
+		WEBGPU_PARTICLE_SHADER.includes("struct FrameShadowUniforms")
 	);
 	assert.ok(
-		WEBGPU_PARTICLE_SHADER.includes(
-			`spotLights: array<vec4<f32>, ${MAX_SPOT_LIGHTS * 3}>`
-		)
+		WEBGPU_PARTICLE_SHADER.includes("@group(0) @binding(15) var<uniform> frameShadows")
 	);
 	assert.ok(
-		WEBGPU_SSR_SHADER.includes(
-			`pointLights: array<PointLightData, ${MAX_POINT_LIGHTS}>`
-		)
+		WEBGPU_SSR_SHADER.includes("struct FrameCameraUniforms")
 	);
 	assert.ok(
-		WEBGPU_CLUSTERED_CULL_SHADER.includes(
-			`pointLights: array<PointLightData, ${MAX_POINT_LIGHTS}>`
-		)
+		WEBGPU_CLUSTERED_CULL_SHADER.includes("struct FrameCameraUniforms")
 	);
 	assert.ok(
 		WEBGPU_SSR_SHADER.includes(
@@ -1650,13 +1641,20 @@ async function testRenderResourcesUseCopyDstForUploads() {
 	assert.ok(draw);
 	const firstDraw = draw[0];
 	assert.ok(firstDraw);
-	assert.equal(firstDraw.frameBinding.desc.entries.length, 14);
+	assert.equal(firstDraw.frameBinding.desc.entries.length, 17);
 	assert.ok(
 		firstDraw.frameBinding.desc.entries.some((entry) => entry.binding === 7)
 	);
 	assert.ok(
 		firstDraw.frameBinding.desc.entries.some((entry) => entry.binding === 10)
 	);
+	for (const binding of [0, 14, 15, 16]) {
+		assert.ok(
+			firstDraw.frameBinding.desc.entries.some(
+				(entry) => entry.binding === binding
+			)
+		);
+	}
 	assert.equal(
 		firstDraw.modelBinding.desc.entries.length,
 		1 +
@@ -1737,11 +1735,18 @@ async function testRenderResourcesUseCopyDstForUploads() {
 				(desc.usage & BufferUsage.CopyDst) !== 0
 		)
 	);
-	assert.ok(
-		backend.bufferDescs.some(
-			(desc) => desc.size === WEBGPU_FRAME_UNIFORM_FLOATS * 4
-		)
-	);
+	for (const [label, size] of [
+		["WebGPUFrameCameraUniforms", WEBGPU_FRAME_CAMERA_UNIFORM_FLOATS * 4],
+		["WebGPUFrameLightUniforms", WEBGPU_FRAME_LIGHT_UNIFORM_FLOATS * 4],
+		["WebGPUFrameShadowUniforms", WEBGPU_FRAME_SHADOW_UNIFORM_FLOATS * 4],
+		["WebGPUFrameEnvironmentUniforms", WEBGPU_FRAME_ENVIRONMENT_UNIFORM_FLOATS * 4],
+	]) {
+		assert.ok(
+			backend.bufferDescs.some(
+				(desc) => desc.label === label && desc.size === size
+			)
+		);
+	}
 }
 
 async function testWebGPUBlendMaterialsUseTransparentPipelineState() {
@@ -3387,16 +3392,16 @@ function createWebGPUFrameContextForTemporalTest(
 	};
 }
 
-function readLatestFrameUniformField(backend, field) {
+function readLatestFrameCameraUniformField(backend, field) {
 	const frameWrites = backend.writeCalls.filter(
 		(call) =>
 			call[0] === "writeBuffer" &&
-			call[1]?.label === "WebGPUFrameUniforms"
+			call[1]?.label === "WebGPUFrameCameraUniforms"
 	);
 	assert.ok(frameWrites.length > 0);
 	const data = frameWrites[frameWrites.length - 1][2];
-	const offset = WEBGPU_FRAME_UNIFORM_LAYOUT.byteOffsetOf(field) / 4;
-	const length = WEBGPU_FRAME_UNIFORM_LAYOUT.byteSizeOf(field) / 4;
+	const offset = WEBGPU_FRAME_CAMERA_UNIFORM_LAYOUT.byteOffsetOf(field) / 4;
+	const length = WEBGPU_FRAME_CAMERA_UNIFORM_LAYOUT.byteSizeOf(field) / 4;
 	return Array.from(data.slice(offset, offset + length));
 }
 
@@ -3478,7 +3483,7 @@ async function testWebGPUPrepareFrameTemporalStateModes() {
 	resources.prepareFrame(previousContext, createMainFrameOptions());
 	const firstJitter = computeHaltonJitterNDC(0, width, height, 1);
 	assertArrayNearlyEqual(
-		readLatestFrameUniformField(backend, "taaJitterCurrentPrev"),
+		readLatestFrameCameraUniformField(backend, "taaJitterCurrentPrev"),
 		[firstJitter[0], firstJitter[1], 0, 0]
 	);
 
@@ -3492,11 +3497,11 @@ async function testWebGPUPrepareFrameTemporalStateModes() {
 	resources.prepareFrame(currentContext, createMainFrameOptions());
 	const secondJitter = computeHaltonJitterNDC(1, width, height, 1);
 	assertArrayNearlyEqual(
-		readLatestFrameUniformField(backend, "prevViewProjection"),
+		readLatestFrameCameraUniformField(backend, "prevViewProjection"),
 		Array.from(packMatrix4ForWGSL(previousViewProjection))
 	);
 	assertArrayNearlyEqual(
-		readLatestFrameUniformField(backend, "taaJitterCurrentPrev"),
+		readLatestFrameCameraUniformField(backend, "taaJitterCurrentPrev"),
 		[secondJitter[0], secondJitter[1], firstJitter[0], firstJitter[1]]
 	);
 
@@ -3516,11 +3521,11 @@ async function testWebGPUPrepareFrameTemporalStateModes() {
 		})
 	);
 	assertArrayNearlyEqual(
-		readLatestFrameUniformField(backend, "prevViewProjection"),
+		readLatestFrameCameraUniformField(backend, "prevViewProjection"),
 		Array.from(packMatrix4ForWGSL(captureViewProjection))
 	);
 	assertArrayNearlyEqual(
-		readLatestFrameUniformField(backend, "taaJitterCurrentPrev"),
+		readLatestFrameCameraUniformField(backend, "taaJitterCurrentPrev"),
 		[0, 0, 0, 0]
 	);
 
@@ -3529,18 +3534,18 @@ async function testWebGPUPrepareFrameTemporalStateModes() {
 		createMainFrameOptions({ temporalStateMode: "reuse" })
 	);
 	assertArrayNearlyEqual(
-		readLatestFrameUniformField(backend, "prevViewProjection"),
+		readLatestFrameCameraUniformField(backend, "prevViewProjection"),
 		Array.from(packMatrix4ForWGSL(previousViewProjection))
 	);
 	assertArrayNearlyEqual(
-		readLatestFrameUniformField(backend, "taaJitterCurrentPrev"),
+		readLatestFrameCameraUniformField(backend, "taaJitterCurrentPrev"),
 		[secondJitter[0], secondJitter[1], firstJitter[0], firstJitter[1]]
 	);
 
 	resources.prepareFrame(currentContext, createMainFrameOptions());
 	const thirdJitter = computeHaltonJitterNDC(2, width, height, 1);
 	assertArrayNearlyEqual(
-		readLatestFrameUniformField(backend, "taaJitterCurrentPrev"),
+		readLatestFrameCameraUniformField(backend, "taaJitterCurrentPrev"),
 		[thirdJitter[0], thirdJitter[1], secondJitter[0], secondJitter[1]]
 	);
 
@@ -3554,11 +3559,11 @@ async function testWebGPUPrepareFrameTemporalStateModes() {
 	);
 	resources.prepareFrame(resetContext, createMainFrameOptions());
 	assertArrayNearlyEqual(
-		readLatestFrameUniformField(backend, "prevViewProjection"),
+		readLatestFrameCameraUniformField(backend, "prevViewProjection"),
 		Array.from(packMatrix4ForWGSL(currentViewProjection))
 	);
 	assertArrayNearlyEqual(
-		readLatestFrameUniformField(backend, "taaJitterCurrentPrev"),
+		readLatestFrameCameraUniformField(backend, "taaJitterCurrentPrev"),
 		[firstJitter[0], firstJitter[1], 0, 0]
 	);
 }
@@ -3572,10 +3577,10 @@ async function testSceneFrameBindingLayoutMatchesFallbackEnvironmentContract() {
 		(layout) => layout.desc.label === "WebGPUSceneFrameBindGroupLayout"
 	);
 	assert.ok(sceneLayout);
-	assert.equal(sceneLayout.desc.entries.length, 14);
+	assert.equal(sceneLayout.desc.entries.length, 17);
 	assert.deepEqual(
 		sceneLayout.desc.entries.map((entry) => entry.binding),
-		[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]
+		[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
 	);
 	assert.equal(sceneLayout.desc.entries[4].texture?.sampleType, "float");
 	assert.equal(sceneLayout.desc.entries[5].sampler?.type, "filtering");
@@ -3587,6 +3592,9 @@ async function testSceneFrameBindingLayoutMatchesFallbackEnvironmentContract() {
 	assert.equal(sceneLayout.desc.entries[11].texture?.sampleType, "uint");
 	assert.equal(sceneLayout.desc.entries[12].texture?.sampleType, "depth");
 	assert.equal(sceneLayout.desc.entries[13].sampler?.type, "comparison");
+	assert.equal(sceneLayout.desc.entries[14].buffer?.type, "uniform");
+	assert.equal(sceneLayout.desc.entries[15].buffer?.type, "uniform");
+	assert.equal(sceneLayout.desc.entries[16].buffer?.type, "uniform");
 
 	resources.destroy();
 }

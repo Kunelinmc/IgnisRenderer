@@ -8,9 +8,15 @@ import {
 	vec,
 } from "../../../src/renderers/webgpu/StructuredBufferLayout.ts";
 import {
-	WEBGPU_FRAME_UNIFORM_BYTE_SIZE,
+	WEBGPU_FRAME_CAMERA_UNIFORM_BYTE_SIZE,
+	WEBGPU_FRAME_ENVIRONMENT_UNIFORM_BYTE_SIZE,
+	WEBGPU_FRAME_LIGHT_UNIFORM_BYTE_SIZE,
+	WEBGPU_FRAME_SHADOW_UNIFORM_BYTE_SIZE,
 	WEBGPU_MODEL_UNIFORM_BYTE_SIZE,
-	packFrameUniformData,
+	packFrameCameraUniformData,
+	packFrameEnvironmentUniformData,
+	packFrameLightUniformData,
+	packFrameShadowUniformData,
 	packModelUniformData,
 } from "../../../src/renderers/webgpu/packing.ts";
 import {
@@ -25,6 +31,12 @@ import {
 	WEBGPU_SH_COEFFICIENT_COUNT,
 	WEBGPU_TEXTURE_SLOT_COUNT,
 } from "../../../src/renderers/webgpu/constants.ts";
+import {
+	WEBGPU_FRAME_CAMERA_UNIFORM_LAYOUT,
+	WEBGPU_FRAME_ENVIRONMENT_UNIFORM_LAYOUT,
+	WEBGPU_FRAME_LIGHT_UNIFORM_LAYOUT,
+	WEBGPU_FRAME_SHADOW_UNIFORM_LAYOUT,
+} from "../../../src/renderers/webgpu/bufferLayouts.ts";
 
 const VEC4_F32 = vec(4, "f32");
 const MAT4X4_F32 = mat4x4f32();
@@ -59,124 +71,6 @@ function createModelLayout() {
 				name: "textureTransformB",
 				type: arrayOf(VEC4_F32, WEBGPU_TEXTURE_SLOT_COUNT),
 			},
-		]),
-		"uniform"
-	);
-}
-
-function createFrameLayout() {
-	const directionalLightSchema = structOf([
-		{ name: "direction", type: VEC4_F32 },
-		{ name: "color", type: VEC4_F32 },
-	]);
-	const pointLightSchema = structOf([
-		{ name: "positionRange", type: VEC4_F32 },
-		{ name: "color", type: VEC4_F32 },
-	]);
-	const spotLightSchema = structOf([
-		{ name: "positionRange", type: VEC4_F32 },
-		{ name: "directionOuter", type: VEC4_F32 },
-		{ name: "colorInner", type: VEC4_F32 },
-	]);
-	const areaLightSchema = structOf([
-		{ name: "positionRange", type: VEC4_F32 },
-		{ name: "rightWidth", type: VEC4_F32 },
-		{ name: "upHeight", type: VEC4_F32 },
-		{ name: "normalAreaScale", type: VEC4_F32 },
-		{ name: "color", type: VEC4_F32 },
-	]);
-	const shadowDataSchema = structOf([
-		{ name: "viewProjection", type: MAT4X4_F32 },
-		{ name: "cascadeViewProjections", type: arrayOf(MAT4X4_F32, 4) },
-		{ name: "cascadeSplits", type: arrayOf(VEC4_F32, 4) },
-		{ name: "paramsA", type: VEC4_F32 },
-		{ name: "paramsB", type: VEC4_F32 },
-		{ name: "paramsC", type: VEC4_F32 },
-		{ name: "paramsD", type: VEC4_F32 },
-		{ name: "paramsE", type: VEC4_F32 },
-		{ name: "paramsF", type: VEC4_F32 },
-	]);
-	const reflectionProbeSchema = structOf([
-		{ name: "worldToProbeRow0", type: VEC4_F32 },
-		{ name: "worldToProbeRow1", type: VEC4_F32 },
-		{ name: "worldToProbeRow2", type: VEC4_F32 },
-		{ name: "probeToWorldRow0", type: VEC4_F32 },
-		{ name: "probeToWorldRow1", type: VEC4_F32 },
-		{ name: "probeToWorldRow2", type: VEC4_F32 },
-		{ name: "dataA", type: VEC4_F32 },
-		{ name: "dataB", type: VEC4_F32 },
-		{ name: "dataC", type: VEC4_F32 },
-	]);
-
-	return new StructuredBufferLayout(
-		structOf([
-			{ name: "viewProjection", type: MAT4X4_F32 },
-			{ name: "prevViewProjection", type: MAT4X4_F32 },
-			{ name: "cameraPosition", type: VEC4_F32 },
-			{ name: "environmentBasisRight", type: VEC4_F32 },
-			{ name: "environmentBasisUp", type: VEC4_F32 },
-			{ name: "environmentBasisBackward", type: VEC4_F32 },
-			{ name: "ambientColor", type: VEC4_F32 },
-			{ name: "lightCounts", type: VEC4_F32 },
-			{ name: "options", type: VEC4_F32 },
-			{ name: "environmentOptionsA", type: VEC4_F32 },
-			{ name: "environmentOptionsB", type: VEC4_F32 },
-			{ name: "taaJitterCurrentPrev", type: VEC4_F32 },
-			{
-				name: "directionalLights",
-				type: arrayOf(directionalLightSchema, MAX_DIRECTIONAL_LIGHTS),
-			},
-			{ name: "pointLights", type: arrayOf(pointLightSchema, MAX_POINT_LIGHTS) },
-			{ name: "spotLights", type: arrayOf(spotLightSchema, MAX_SPOT_LIGHTS) },
-			{
-				name: "directionalShadows",
-				type: arrayOf(shadowDataSchema, MAX_DIRECTIONAL_LIGHTS),
-			},
-			{
-				name: "spotShadows",
-				type: arrayOf(shadowDataSchema, MAX_SPOT_LIGHTS),
-			},
-			{ name: "shAmbientCoeffs", type: arrayOf(VEC4_F32, WEBGPU_SH_COEFFICIENT_COUNT) },
-			{
-				name: "reflectionProbes",
-				type: arrayOf(reflectionProbeSchema, MAX_REFLECTION_PROBES),
-			},
-			{ name: "localLightProbeCounts", type: VEC4_F32 },
-			{
-				name: "localLightProbeWorldToProbeRow0",
-				type: arrayOf(VEC4_F32, MAX_LOCAL_LIGHT_PROBES),
-			},
-			{
-				name: "localLightProbeWorldToProbeRow1",
-				type: arrayOf(VEC4_F32, MAX_LOCAL_LIGHT_PROBES),
-			},
-			{
-				name: "localLightProbeWorldToProbeRow2",
-				type: arrayOf(VEC4_F32, MAX_LOCAL_LIGHT_PROBES),
-			},
-			{
-				name: "localLightProbeDataA",
-				type: arrayOf(VEC4_F32, MAX_LOCAL_LIGHT_PROBES),
-			},
-			{
-				name: "localLightProbeDataB",
-				type: arrayOf(VEC4_F32, MAX_LOCAL_LIGHT_PROBES),
-			},
-			{
-				name: "localLightProbeSHAmbientCoeffs",
-				type: arrayOf(
-					VEC4_F32,
-					MAX_LOCAL_LIGHT_PROBES * WEBGPU_SH_COEFFICIENT_COUNT
-				),
-			},
-			{ name: "irradianceProbeGridWorldToGridRow0", type: VEC4_F32 },
-			{ name: "irradianceProbeGridWorldToGridRow1", type: VEC4_F32 },
-			{ name: "irradianceProbeGridWorldToGridRow2", type: VEC4_F32 },
-			{ name: "irradianceProbeGridDataA", type: VEC4_F32 },
-			{ name: "irradianceProbeGridDataB", type: VEC4_F32 },
-			{ name: "irradianceProbeGridDataC", type: VEC4_F32 },
-			{ name: "areaLightCounts", type: VEC4_F32 },
-			{ name: "areaLights", type: arrayOf(areaLightSchema, MAX_AREA_LIGHTS) },
 		]),
 		"uniform"
 	);
@@ -382,62 +276,89 @@ function createFrameInput() {
 }
 
 function testFrameUniformPacking() {
-	const layout = createFrameLayout();
-	assert.equal(layout.byteSize, WEBGPU_FRAME_UNIFORM_BYTE_SIZE);
-
-	const data = packFrameUniformData(createFrameInput());
-	assert.equal(data.length * 4, WEBGPU_FRAME_UNIFORM_BYTE_SIZE);
-	assert.deepEqual(readVec(layout, data, "cameraPosition", 4), [1, 2, 3, 1]);
-	assert.deepEqual(readVec(layout, data, "environmentBasisRight", 4), [
+	const input = createFrameInput();
+	const cameraData = packFrameCameraUniformData(input);
+	const lightData = packFrameLightUniformData(input);
+	const shadowData = packFrameShadowUniformData(input);
+	const environmentData = packFrameEnvironmentUniformData(input);
+	assert.equal(
+		WEBGPU_FRAME_CAMERA_UNIFORM_LAYOUT.byteSize,
+		WEBGPU_FRAME_CAMERA_UNIFORM_BYTE_SIZE
+	);
+	assert.equal(
+		WEBGPU_FRAME_LIGHT_UNIFORM_LAYOUT.byteSize,
+		WEBGPU_FRAME_LIGHT_UNIFORM_BYTE_SIZE
+	);
+	assert.equal(
+		WEBGPU_FRAME_SHADOW_UNIFORM_LAYOUT.byteSize,
+		WEBGPU_FRAME_SHADOW_UNIFORM_BYTE_SIZE
+	);
+	assert.equal(
+		WEBGPU_FRAME_ENVIRONMENT_UNIFORM_LAYOUT.byteSize,
+		WEBGPU_FRAME_ENVIRONMENT_UNIFORM_BYTE_SIZE
+	);
+	assert.equal(
+		cameraData.byteLength + lightData.byteLength + shadowData.byteLength + environmentData.byteLength,
+		11936
+	);
+	assert.deepEqual(
+		readVec(WEBGPU_FRAME_CAMERA_UNIFORM_LAYOUT, cameraData, "cameraPosition", 4),
+		[1, 2, 3, 1]
+	);
+	assert.deepEqual(readVec(WEBGPU_FRAME_CAMERA_UNIFORM_LAYOUT, cameraData, "environmentBasisRight", 4), [
 		4, 5, 6, 7,
 	]);
-	assert.deepEqual(readVec(layout, data, "lightCounts", 4), [1, 1, 1, 2]);
-	assert.deepEqual(readVec(layout, data, "options", 4), [1, 0, 1, 1]);
-	assert.deepEqual(readVec(layout, data, "environmentOptionsA", 4), [
+	assert.deepEqual(readVec(WEBGPU_FRAME_CAMERA_UNIFORM_LAYOUT, cameraData, "lightCounts", 4), [1, 1, 1, 2]);
+	assert.deepEqual(readVec(WEBGPU_FRAME_CAMERA_UNIFORM_LAYOUT, cameraData, "options", 4), [1, 0, 1, 1]);
+	assert.deepEqual(readVec(WEBGPU_FRAME_CAMERA_UNIFORM_LAYOUT, cameraData, "environmentOptionsA", 4), [
 		1, 0, 7, 1,
 	]);
-	assert.deepEqual(readVec(layout, data, "environmentOptionsB", 4), [
+	assert.deepEqual(readVec(WEBGPU_FRAME_CAMERA_UNIFORM_LAYOUT, cameraData, "environmentOptionsB", 4), [
 		1, 5, 0, 1,
 	]);
-	assert.deepEqual(readVec(layout, data, ["directionalLights", 0, "direction"], 4), [
+	assert.deepEqual(readVec(WEBGPU_FRAME_LIGHT_UNIFORM_LAYOUT, lightData, ["directionalLights", 0, "direction"], 4), [
 		18, 19, 20, 0,
 	]);
-	assert.deepEqual(readVec(layout, data, ["pointLights", 0, "positionRange"], 4), [
+	assert.deepEqual(readVec(WEBGPU_FRAME_LIGHT_UNIFORM_LAYOUT, lightData, ["pointLights", 0, "positionRange"], 4), [
 		24, 25, 26, 27,
 	]);
-	assert.deepEqual(readVec(layout, data, ["spotLights", 0, "colorInner"], 4), [
+	assert.deepEqual(readVec(WEBGPU_FRAME_LIGHT_UNIFORM_LAYOUT, lightData, ["spotLights", 0, "colorInner"], 4), [
 		39, 40, 41, 42,
 	]);
-	assert.deepEqual(readVec(layout, data, "areaLightCounts", 4), [1, 0, 0, 0]);
-	assert.deepEqual(readVec(layout, data, ["areaLights", 0, "positionRange"], 4), [
+	assert.deepEqual(readVec(WEBGPU_FRAME_LIGHT_UNIFORM_LAYOUT, lightData, "areaLightCounts", 4), [1, 0, 0, 0]);
+	assert.deepEqual(readVec(WEBGPU_FRAME_LIGHT_UNIFORM_LAYOUT, lightData, ["areaLights", 0, "positionRange"], 4), [
 		47, 48, 49, 50,
 	]);
-	assert.deepEqual(readVec(layout, data, ["areaLights", 0, "normalAreaScale"], 4), [
+	assert.deepEqual(readVec(WEBGPU_FRAME_LIGHT_UNIFORM_LAYOUT, lightData, ["areaLights", 0, "normalAreaScale"], 4), [
 		59, 60, 61, 62,
 	]);
 	assert.deepEqual(
-		readVec(layout, data, ["reflectionProbes", 0, "worldToProbeRow0"], 4),
+		readVec(WEBGPU_FRAME_ENVIRONMENT_UNIFORM_LAYOUT, environmentData, ["reflectionProbes", 0, "worldToProbeRow0"], 4),
 		[1000, 1001, 1002, 1003]
 	);
 	assert.deepEqual(
-		readVec(layout, data, ["reflectionProbes", 1, "probeToWorldRow2"], 4),
+		readVec(WEBGPU_FRAME_ENVIRONMENT_UNIFORM_LAYOUT, environmentData, ["reflectionProbes", 1, "probeToWorldRow2"], 4),
 		[2108, 2109, 2110, 2111]
 	);
-	assert.deepEqual(readVec(layout, data, ["reflectionProbes", 1, "dataC"], 4), [
+	assert.deepEqual(readVec(WEBGPU_FRAME_ENVIRONMENT_UNIFORM_LAYOUT, environmentData, ["reflectionProbes", 1, "dataC"], 4), [
 		1, 9, 10, 11,
 	]);
-	assert.deepEqual(readVec(layout, data, "irradianceProbeGridWorldToGridRow1", 4), [
+	assert.deepEqual(readVec(WEBGPU_FRAME_ENVIRONMENT_UNIFORM_LAYOUT, environmentData, "irradianceProbeGridWorldToGridRow1", 4), [
 		3004, 3005, 3006, 3007,
 	]);
-	assert.deepEqual(readVec(layout, data, "irradianceProbeGridDataA", 4), [
+	assert.deepEqual(readVec(WEBGPU_FRAME_ENVIRONMENT_UNIFORM_LAYOUT, environmentData, "irradianceProbeGridDataA", 4), [
 		3, 4, 5, 60,
 	]);
-	assert.deepEqual(readVec(layout, data, "irradianceProbeGridDataB", 4), [
+	assert.deepEqual(readVec(WEBGPU_FRAME_ENVIRONMENT_UNIFORM_LAYOUT, environmentData, "irradianceProbeGridDataB", 4), [
 		0.25, 0.5, 0.75, 12,
 	]);
-	assert.deepEqual(readVec(layout, data, "irradianceProbeGridDataC", 4), [
+	assert.deepEqual(readVec(WEBGPU_FRAME_ENVIRONMENT_UNIFORM_LAYOUT, environmentData, "irradianceProbeGridDataC", 4), [
 		1, WEBGPU_SH_COEFFICIENT_COUNT, 60, 0,
 	]);
+	assert.equal(
+		readVec(WEBGPU_FRAME_SHADOW_UNIFORM_LAYOUT, shadowData, ["directionalShadows", 0, "paramsA"], 4)[0],
+		0
+	);
 }
 
 testModelUniformPacking();
