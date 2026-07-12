@@ -1,4 +1,4 @@
-const EPSILON: f32 = 1e-6;
+#import <ignis/webgpu/constants>
 
 struct AnimationParams {
 	jointCount: u32,

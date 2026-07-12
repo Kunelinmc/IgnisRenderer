@@ -61,8 +61,6 @@ struct ComposeParams {
 // Constants
 // ---------------------------------------------------------------------------
 
-const PI: f32 = 3.14159265359;
-
 // ---------------------------------------------------------------------------
 // Blue-noise hash for stochastic jitter
 // Interleaved gradient noise — compact, high-frequency, low-discrepancy
@@ -90,7 +88,7 @@ fn importanceSampleGGX(xi: vec2<f32>, roughness: f32, N: vec3<f32>) -> vec3<f32>
 	let a = roughness * roughness;
 	let a2 = a * a;
 
-	let phi = 2.0 * PI * xi.x;
+	let phi = TWO_PI * xi.x;
 	let cosTheta = sqrt(max((1.0 - xi.y) / max(1.0 + (a2 - 1.0) * xi.y, 1e-6), 0.0));
 	let sinTheta = sqrt(max(1.0 - cosTheta * cosTheta, 0.0));
 

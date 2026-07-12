@@ -575,7 +575,14 @@ function createWebGPUProfile(): ShaderDirectiveProfile {
 			{
 				language: "wgsl",
 				id: "ignis/webgpu/constants.wgsl",
-				code: `#define __WEBGPU_MAX_DIRECTIONAL_LIGHTS__ ${MAX_DIRECTIONAL_LIGHTS}
+				code: `const PI: f32 = 3.14159265359;
+const TWO_PI: f32 = 6.28318530718;
+const HALF_PI: f32 = 1.57079632679;
+const INV_PI: f32 = 0.31830988618;
+const INV_TWO_PI: f32 = 0.15915494309;
+const EPSILON: f32 = 1e-6;
+
+#define __WEBGPU_MAX_DIRECTIONAL_LIGHTS__ ${MAX_DIRECTIONAL_LIGHTS}
 #define __WEBGPU_MAX_POINT_LIGHTS__ ${MAX_POINT_LIGHTS}
 #define __WEBGPU_MAX_SPOT_LIGHTS__ ${MAX_SPOT_LIGHTS}
 #define __WEBGPU_MAX_AREA_LIGHTS__ ${MAX_AREA_LIGHTS}

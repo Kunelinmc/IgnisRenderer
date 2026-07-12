@@ -83,7 +83,6 @@ struct CameraBasis {
 
 @group(1) @binding(0) var<uniform> frame: FrameCameraUniforms;
 
-const PI: f32 = 3.14159265359;
 const MAX_VIEW_STEPS: i32 = 96;
 const MAX_SHADOW_STEPS: i32 = 24;
 const MAX_RESTIR_CANDIDATES: i32 = 64;

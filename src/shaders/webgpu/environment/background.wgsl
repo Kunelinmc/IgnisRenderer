@@ -1,7 +1,5 @@
 #import <ignis/webgpu/constants>
 #import <ignis/color/srgb>
-const PI: f32 = 3.14159265359;
-
 struct FrameCameraUniforms {
 	viewProjection: mat4x4<f32>,
 	prevViewProjection: mat4x4<f32>,

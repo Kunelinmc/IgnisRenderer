@@ -1,5 +1,5 @@
-const PI: f32 = 3.141592653589793;
-const TWO_PI: f32 = 6.283185307179586;
+#import <ignis/webgpu/constants>
+
 const PREFILTER_EPSILON: f32 = 1e-6;
 const EQUIRECT_DISTORTION_EPSILON: f32 = 1e-4;
 

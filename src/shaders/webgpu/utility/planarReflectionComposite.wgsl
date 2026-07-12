@@ -1,7 +1,5 @@
 #import <ignis/webgpu/constants>
 
-const EPSILON: f32 = 1e-6;
-
 struct FrameCameraUniforms {
 	viewProjection: mat4x4<f32>,
 }

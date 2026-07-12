@@ -1,4 +1,5 @@
-const EPSILON: f32 = 1e-6;
+#import <ignis/webgpu/constants>
+
 const TEX_BASE_COLOR: u32 = 0u;
 const TEX_METALLIC_ROUGHNESS: u32 = 1u;
 const TEX_NORMAL: u32 = 2u;

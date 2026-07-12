@@ -1,4 +1,4 @@
-const EPSILON: f32 = 0.000001;
+#import <ignis/webgpu/constants>
 
 struct PagedShadowFeedbackParams {
 	pageTableLength: u32,
@@ -136,4 +136,3 @@ fn csMain(@builtin(global_invocation_id) globalId: vec3<u32>) {
 		}
 	}
 }
-

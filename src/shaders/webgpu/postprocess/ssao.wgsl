@@ -1,3 +1,5 @@
+#import <ignis/webgpu/constants>
+
 struct Params {
 	invSize: vec4<f32>,
 	gtao: vec4<f32>,
@@ -11,7 +13,6 @@ struct Params {
 @group(0) @binding(3) var<uniform> params: Params;
 @group(0) @binding(4) var outTex: texture_storage_2d<rgba16float, write>;
 
-const PI: f32 = 3.14159265359;
 const GOLDEN_RATIO_CONJUGATE: f32 = 0.61803398875;
 const MAX_DIRECTION_COUNT: i32 = 8;
 const MAX_STEP_COUNT: i32 = 6;

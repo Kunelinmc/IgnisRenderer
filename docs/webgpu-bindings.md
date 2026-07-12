@@ -39,6 +39,23 @@ group.
 
 ## API/Contract
 
+### Shared WGSL Math Constants
+
+`#import <ignis/webgpu/constants>` must provide these shared `f32` constants:
+
+| Constant | Value |
+| --- | --- |
+| `PI` | `3.14159265359` |
+| `TWO_PI` | `6.28318530718` |
+| `HALF_PI` | `1.57079632679` |
+| `INV_PI` | `0.31830988618` |
+| `INV_TWO_PI` | `0.15915494309` |
+| `EPSILON` | `1e-6` |
+
+Built-in shaders and custom WGSL should import this module instead of defining
+duplicate equivalents. Pass-specific tolerances may remain local when their
+different value is intentional.
+
 ### Core Pipeline Bind Groups
 
 The following pipeline layouts must preserve these bind group roles:
