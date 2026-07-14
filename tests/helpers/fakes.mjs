@@ -551,7 +551,6 @@ export class FakeWebGPUBackend {
 		};
 	}
 
-	getMSAASampleCount() { return 1; }
 	getCanvasColorTexture() { return this.canvasColorTexture; }
 	getCanvasDepthTexture() { return this.canvasDepthTexture; }
 	getCanvasRenderTargetSize() {

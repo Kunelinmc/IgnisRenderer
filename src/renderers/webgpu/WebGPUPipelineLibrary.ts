@@ -18,6 +18,10 @@ import {
 } from "../../materials/ShaderMaterial";
 import type { IRenderPipeline, IShaderModule } from "../types";
 import type { WebGPUBackend } from "../WebGPUBackend";
+import {
+	SINGLE_SAMPLE_WEBGPU_MSAA_CONTEXT,
+	type WebGPUMSAAContext,
+} from "./WebGPUMSAAController";
 import type { WebGPUPipelineLayouts } from "./WebGPUPipelineLayouts";
 import { Logger } from "../../foundation/Logger";
 import {
@@ -105,11 +109,13 @@ interface WebGPUSceneProgram {
 
 interface WebGPUPipelineLibraryOptions {
 	listenToShaderRuntime?: boolean;
+	msaaContext?: WebGPUMSAAContext;
 }
 
 export class WebGPUPipelineLibrary {
 	private _backend: WebGPUBackend;
 	private _layouts: WebGPUPipelineLayouts;
+	private _msaa: WebGPUMSAAContext;
 	private _disposeShaderRuntimeListener: (() => void) | null = null;
 	private _sceneShaderModule: IShaderModule | null = null;
 	private _sceneShaderDirectiveTag = "";
@@ -133,6 +139,7 @@ export class WebGPUPipelineLibrary {
 	) {
 		this._backend = backend;
 		this._layouts = layouts;
+		this._msaa = options.msaaContext ?? SINGLE_SAMPLE_WEBGPU_MSAA_CONTEXT;
 		const shaderRuntime = this._getShaderRuntime();
 		const listenToShaderRuntime = options.listenToShaderRuntime !== false;
 		if (
@@ -879,16 +886,7 @@ export class WebGPUPipelineLibrary {
 		if (Number.isFinite(sampleCountOverride)) {
 			return Math.max(1, Math.floor(sampleCountOverride as number));
 		}
-		const getter = (this._backend as { getMSAASampleCount?: () => number })
-			.getMSAASampleCount;
-		if (typeof getter !== "function") {
-			return 1;
-		}
-		const sampleCount = getter.call(this._backend);
-		if (!Number.isFinite(sampleCount)) {
-			return 1;
-		}
-		return Math.max(1, Math.floor(sampleCount));
+		return this._msaa.sampleCount;
 	}
 
 	private _resolveShaderMaterialMode(

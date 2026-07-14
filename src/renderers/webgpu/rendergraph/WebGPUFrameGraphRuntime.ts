@@ -22,6 +22,7 @@ import {
 import type { ICommandEncoder } from "../../ICommandEncoder";
 import type { IRenderTexture } from "../../types";
 import type { WebGPUBackend } from "../../WebGPUBackend";
+import type { WebGPUMSAAContext } from "../WebGPUMSAAController";
 import type {
 	WebGPUPreparedFrameResources,
 	WebGPURenderResources,
@@ -107,6 +108,7 @@ const WEBGPU_OIT_DISABLED_RUNTIME_KEY = "webgpu-oit-disabled-runtime";
 export class WebGPUFrameGraphRuntime {
 	private _backend: WebGPUBackend;
 	private _resources: WebGPURenderResources;
+	private _msaa: WebGPUMSAAContext;
 	private _encoder: ICommandEncoder | null = null;
 	private _frameContext: FrameContext | null = null;
 	private _frameResources: WebGPUPreparedFrameResources | null = null;
@@ -149,9 +151,14 @@ export class WebGPUFrameGraphRuntime {
 	private _lastExecutedGraphNodeIds: string[] = [];
 	private _frameGraphValidationMode: WebGPUFrameGraphValidationMode = "throw";
 
-	constructor(backend: WebGPUBackend, resources: WebGPURenderResources) {
+	constructor(
+		backend: WebGPUBackend,
+		resources: WebGPURenderResources,
+		msaa: WebGPUMSAAContext
+	) {
 		this._backend = backend;
 		this._resources = resources;
+		this._msaa = msaa;
 		const backendOptions = this._backend as {
 			isEarlyZPrepassEnabled?: () => boolean;
 			enableEarlyZPrepass?: boolean;
@@ -206,7 +213,8 @@ export class WebGPUFrameGraphRuntime {
 		this._presentPass = new WebGPUPresentPass(backend);
 		this._customRenderTargets = new WebGPUCustomRenderTargetRuntime(backend);
 		this._frameTargetManager = new WebGPUFrameTargetManager(backend, {
-			resolveMSAASampleCount: () => this._resolveMSAASampleCount(),
+			resolveMSAASampleCount: () => this._msaa.sampleCount,
+			fallbackToSingleSample: () => this._msaa.fallbackToSingleSample(),
 			configureDeferredLightingSupport: () =>
 				this._configureDeferredLightingSupport(),
 			frameHasDeferredLightingWork: (context) =>
@@ -1050,7 +1058,7 @@ export class WebGPUFrameGraphRuntime {
 			return;
 		}
 
-		const sampleCount = this._resolveMSAASampleCount();
+		const sampleCount = this._msaa.sampleCount;
 		const maxColorAttachments =
 			this._backend.device?.limits?.maxColorAttachments ?? 8;
 		const maxColorAttachmentBytesPerSample =
@@ -1133,7 +1141,7 @@ export class WebGPUFrameGraphRuntime {
 			postProcessPasses.some(
 				(resolved) => resolved.id === SCREEN_SPACE_REFLECTIONS_PASS_ID
 			);
-		const msaaSampleCount = this._resolveMSAASampleCount();
+		const msaaSampleCount = this._msaa.sampleCount;
 		const needsOITTargets =
 			msaaSampleCount <= 1 &&
 			context.features.enableOIT === true &&
@@ -1238,7 +1246,7 @@ export class WebGPUFrameGraphRuntime {
 			this._oitActive = false;
 			return;
 		}
-		const sampleCount = this._resolveMSAASampleCount();
+		const sampleCount = this._msaa.sampleCount;
 		if (sampleCount > 1) {
 			this._warnOITDisabled(
 				WEBGPU_OIT_DISABLED_MSAA_KEY,
@@ -1295,19 +1303,6 @@ export class WebGPUFrameGraphRuntime {
 			height,
 			requirementsOrDeferred
 		);
-	}
-
-	private _resolveMSAASampleCount(): number {
-		const getter = (this._backend as { getMSAASampleCount?: () => number })
-			.getMSAASampleCount;
-		if (typeof getter !== "function") {
-			return 1;
-		}
-		const sampleCount = getter.call(this._backend);
-		if (!Number.isFinite(sampleCount)) {
-			return 1;
-		}
-		return Math.max(1, Math.floor(sampleCount));
 	}
 
 	private _destroyFrameTargets(): void {

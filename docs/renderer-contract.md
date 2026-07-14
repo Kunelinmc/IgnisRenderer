@@ -121,8 +121,9 @@ All graphics commands are recorded through a backend-agnostic `ICommandEncoder`.
   - Behavior contract: must cancel/release active encoders and discard command buffers.
   - Constraint: must be idempotent and must not throw if no frame is active.
   - Constraint: must not present to the canvas, commit temporal history, or submit work.
-- Deferred flushing:
-  - Backends must defer resize, MSAA, and shader runtime compilation updates while a frame is active.
+	- Backends must defer resize and shader runtime compilation updates while a frame is active.
+	- Backend-internal frame-target recovery may synchronously select a safe
+	  rendering configuration before the first render command is recorded.
   - Deferred updates must be flushed immediately after `endFrame` or `abortFrame` clears the active frame state.
 
 ### 4. Extension Registry

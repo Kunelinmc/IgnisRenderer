@@ -35,6 +35,7 @@ export interface WebGPUFrameTargetRequirements {
 
 export interface WebGPUFrameTargetManagerCallbacks {
 	resolveMSAASampleCount(): number;
+	fallbackToSingleSample(): boolean;
 	configureDeferredLightingSupport(): void;
 	frameHasDeferredLightingWork(context: FrameContext): boolean;
 	getFrameContext(): FrameContext | null;
@@ -703,13 +704,8 @@ export class WebGPUFrameTargetManager {
 				return;
 			}
 			if (msaaSampleCount > 1) {
-				const setter = (
-					this._backend as {
-						setMSAASampleCount?: (sampleCount: number) => void;
-					}
-				).setMSAASampleCount;
-				if (typeof setter === "function") {
-					setter.call(this._backend, 1);
+				if (!this._callbacks.fallbackToSingleSample()) {
+					throw error;
 				}
 				const key = "webgpu-msaa-runtime-fallback-1x";
 				Logger.warn(

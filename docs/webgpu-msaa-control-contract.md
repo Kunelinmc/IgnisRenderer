@@ -1,45 +1,30 @@
-# WebGPU MSAA Control Contract
+# WebGPU MSAA Configuration Contract
 ## Scope
-This document defines the explicit MSAA enable/disable control contract for
+This document defines the constructor-only MSAA configuration contract for
 `WebGPUBackend`.
 
 ## Background
-WebGPU rendering uses MSAA by default. Consumers need a direct boolean switch
-to disable or re-enable MSAA without manually reasoning about sample counts.
+WebGPU rendering uses MSAA by default. MSAA quality is selected when the
+backend is created and remains internal to the WebGPU runtime thereafter.
 
 ## API/Contract
-- `WebGPUBackendOptions.enableMSAA?: boolean`
-	- Input contract: accepts `true`, `false`, or `undefined`.
-	- Behavior contract:
-		- When `enableMSAA` is `false`, backend initialization must start from
-		  `1x` MSAA (`sampleCount = 1`).
-		- When `enableMSAA` is `true` or omitted, backend initialization must use
-		  the default MSAA preference (`4x`) and then clamp to supported values.
-- `WebGPUBackend.setMSAAEnabled(enabled: boolean): void`
-	- Input contract: accepts a boolean `enabled`.
-	- Behavior contract:
-		- When `enabled` is `false`, the backend must force `sampleCount = 1`.
-		- When `enabled` is `true`, the backend must request multisampling again
-		  using existing sample-count rules.
-	- Constraint: final active count may be lower than requested when device
-	  capabilities do not support higher MSAA counts.
-- `WebGPUBackend.setMSAASampleCount(sampleCount: number): void`
-	- Existing numeric control remains valid and may still be used for explicit
-	  quality levels.
-- `WebGPUBackend.getMSAASampleCount(): number`
-	- Output contract: returns the resolved runtime sample count (`>= 1`).
+- `WebGPUBackendOptions.msaaSampleCount?: number`
+	- Input contract: accepts a finite number. The value is floored and clamped
+	  to at least `1`.
+	- Behavior contract: omitted values request the default `4x` preference.
+	  `1` disables multisampling. The active count may be lower than requested
+	  when device capabilities do not support the requested count.
+	- Error contract: non-finite values must throw a configuration error.
+- MSAA runtime control is internal. `WebGPUBackend` must not expose
+	`getMSAASampleCount()`, `setMSAAEnabled()`, or `setMSAASampleCount()`.
+- The legacy `enableMSAA` option is removed. JavaScript callers that supply it
+	must receive a deterministic error directing them to `msaaSampleCount`.
 
 ## Usage
 ```ts
 import { WebGPUBackend } from "../src/renderers/WebGPUBackend";
 
-const backend = new WebGPUBackend({ enableMSAA: false });
-
-// Enable MSAA explicitly at runtime.
-backend.setMSAAEnabled(true);
-
-// Disable MSAA explicitly at runtime.
-backend.setMSAAEnabled(false);
+const backend = new WebGPUBackend({ msaaSampleCount: 1 });
 ```
 
 ```bash
@@ -47,12 +32,12 @@ bun tests/static/webgpu/test_webgpu_backend_cache_and_dependency.mjs
 ```
 
 ## Errors & Diagnostics
-- `setMSAASampleCount()` should ignore non-finite inputs.
-- Requested MSAA counts that are unsupported must be clamped to the nearest
-  supported value, and may end at `1x`.
-- Runtime MSAA allocation fallback may log
-  `webgpu-msaa-runtime-fallback-1x` and retry at `1x`.
+- Requested MSAA counts that are unsupported must be clamped to the highest
+  supported count that does not exceed the request, and may end at `1x`.
+- A frame-target allocation failure may log `webgpu-msaa-runtime-fallback-1x`
+  and retry at `1x` before recording render commands. The fallback remains
+  active until the device runtime is reinitialized.
 
 ## Compatibility / Breaking Changes
-This change is additive. Existing default behavior remains MSAA enabled unless
-`enableMSAA` is explicitly set to `false`.
+This change is breaking. Runtime MSAA methods and `enableMSAA` are removed;
+use `msaaSampleCount` when creating `WebGPUBackend`.

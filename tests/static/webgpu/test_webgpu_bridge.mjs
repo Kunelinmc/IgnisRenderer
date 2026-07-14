@@ -2819,7 +2819,11 @@ async function testSampleCountOverrideUsesSingleSampleCapturePipelines() {
 	const backend = new FakeBackend();
 	backend.canvasFormat = "bgra8unorm";
 	backend.canvasDepthFormat = "depth24plus";
-	backend.getMSAASampleCount = () => 4;
+	const msaa = {
+		sampleCount: 4,
+		resolveSupportedSampleCount: (requested) => Math.max(1, Math.floor(requested)),
+		fallbackToSingleSample: () => false,
+	};
 	const model = createModel([new PBRMaterial()]);
 	const packet = createPacket(model);
 	const frame = createFrame(packet);
@@ -2827,7 +2831,7 @@ async function testSampleCountOverrideUsesSingleSampleCapturePipelines() {
 		createTinyTexture(1),
 		createTinyTexture(1)
 	);
-	const resources = new WebGPURenderResources(backend);
+	const resources = new WebGPURenderResources(backend, msaa);
 	await resources.init();
 
 	const features = resolveFeatureState(

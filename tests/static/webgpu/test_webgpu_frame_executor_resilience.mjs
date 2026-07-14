@@ -116,8 +116,27 @@ function createFrameContext(width, height) {
 
 function createOITBackend({ sampleCount = 1 } = {}) {
 	const backend = new FakeBackend();
-	backend.getMSAASampleCount = () => sampleCount;
+	backend.msaaContext = createMSAAContext(sampleCount);
 	return backend;
+}
+
+function createMSAAContext(initialSampleCount = 1) {
+	let sampleCount = initialSampleCount;
+	return {
+		get sampleCount() {
+			return sampleCount;
+		},
+		resolveSupportedSampleCount(requested) {
+			return Math.max(1, Math.floor(requested));
+		},
+		fallbackToSingleSample() {
+			if (sampleCount === 1) {
+				return false;
+			}
+			sampleCount = 1;
+			return true;
+		},
+	};
 }
 
 function findEncoderCallIndex(backend, predicate) {
@@ -392,6 +411,53 @@ function testFrameTargetAllocationFailureReleasesPartialResources() {
 	assert.equal(getFrameGraphDebugState(executor).texturePoolOwnerCount, 0);
 	assert.equal(getFrameTargets(executor), null);
 	assert.equal(getMSAATargets(executor), null);
+}
+
+async function testMSAAAllocationFallbackPersistsForDeviceRuntime() {
+	const backend = new FakeBackend();
+	const msaa = createMSAAContext(4);
+	const createTexture = backend.createTexture.bind(backend);
+	let multisampleAllocationAttempts = 0;
+	backend.createTexture = (desc) => {
+		if ((desc.sampleCount ?? 1) > 1) {
+			multisampleAllocationAttempts++;
+			throw new Error("simulated MSAA allocation failure");
+		}
+		return createTexture(desc);
+	};
+	const executor = new WebGPUFrameExecutor(backend, createResourcesStub(), msaa);
+	const context = createFrameContext(64, 64);
+	const warnings = [];
+
+	Logger.configure({
+		level: "warn",
+		resetOnceKeys: true,
+		sink: {
+			warn: (...args) => warnings.push(args.map((arg) => String(arg)).join(" ")),
+		},
+	});
+	try {
+		executor.beginFrame(context);
+		assert.equal(msaa.sampleCount, 1);
+		assert.equal(getFrameGraphDebugState(executor).msaaTargets, null);
+		assert.equal(
+			getFrameGraphDebugState(executor).targetManager.msaaSampleCount,
+			1
+		);
+		assert.equal(multisampleAllocationAttempts, 1);
+		assert.equal(
+			warnings.filter((warning) => warning.includes("[webgpu-msaa-runtime-fallback-1x]")).length,
+			1
+		);
+
+		await executor.endFrame();
+		executor.beginFrame(context);
+		assert.equal(multisampleAllocationAttempts, 1);
+		assert.equal(msaa.sampleCount, 1);
+	} finally {
+		Logger.reset();
+		executor.destroy();
+	}
 }
 
 function testInvalidateFrameTargetsDestroysPresentBinding() {
@@ -962,17 +1028,10 @@ async function testPlanarReflectionUsesColorTargetsWithoutPostProcess() {
 async function testPlanarReflectionCaptureKeepsMSAAFrameTargetsAlive() {
 	const backend = new FakeBackend();
 	backend.device.limits.maxStorageTexturesPerShaderStage = 0;
-	let sampleCount = 4;
-	const msaaSetCalls = [];
+	const msaa = createMSAAContext(4);
 	let executor = null;
-	backend.getMSAASampleCount = () => sampleCount;
-	backend.setMSAASampleCount = (nextSampleCount) => {
-		msaaSetCalls.push(nextSampleCount);
-		sampleCount = nextSampleCount;
-		executor?.invalidateFrameTargets();
-	};
 	const resources = createPlanarReflectionResourcesStub();
-	executor = new WebGPUFrameExecutor(backend, resources);
+	executor = new WebGPUFrameExecutor(backend, resources, msaa);
 	const context = createFrameContext(64, 64);
 	const camera = new Camera();
 	camera.position.set(0, 2, 5);
@@ -1031,7 +1090,7 @@ async function testPlanarReflectionCaptureKeepsMSAAFrameTargetsAlive() {
 		{ stage: "reflection", executor: "backend", enabled: true },
 		context
 	);
-	assert.deepEqual(msaaSetCalls, []);
+	assert.equal(msaa.sampleCount, 4);
 	assert.strictEqual(getFrameTargets(executor), frameTargets);
 	assert.strictEqual(getMSAATargets(executor), msaaTargets);
 
@@ -1067,7 +1126,7 @@ async function testPlanarReflectionCaptureFailureKeepsMainFrameResources() {
 	backend.device.limits.maxStorageTexturesPerShaderStage = 0;
 	const resources = createPlanarReflectionResourcesStub();
 	resources._state.throwOnClusteredBuild = true;
-	const executor = new WebGPUFrameExecutor(backend, resources);
+	const executor = new WebGPUFrameExecutor(backend, resources, backend.msaaContext);
 	const context = createFrameContext(64, 64);
 	const camera = new Camera();
 	camera.position.set(0, 2, 5);
@@ -1629,7 +1688,7 @@ function testDeferredLightingWarnsWhenRequestedButMRTUnavailable() {
 async function testOITMSAAFallsBackToLegacyAndWarns() {
 	const backend = createOITBackend({ sampleCount: 4 });
 	const resources = createModeTrackingResourcesStub();
-	const executor = new WebGPUFrameExecutor(backend, resources);
+	const executor = new WebGPUFrameExecutor(backend, resources, backend.msaaContext);
 	const context = createFrameContext(64, 64);
 	context.features.enableOIT = true;
 	context.scene.transparentPackets = [{ id: "packet", material: {} }];
@@ -1701,6 +1760,7 @@ async function run() {
 	testAbortFrameClearsActiveStateWithoutSubmit();
 	await testEndFrameFailureClosesActiveState();
 	testFrameTargetAllocationFailureReleasesPartialResources();
+	await testMSAAAllocationFallbackPersistsForDeviceRuntime();
 	testInvalidateFrameTargetsDestroysPresentBinding();
 	testInvalidateFrameTargetsDefersDuringActiveFrame();
 	testShaderRuntimeInvalidationDefersDuringActiveFrame();

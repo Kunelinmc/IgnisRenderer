@@ -733,51 +733,37 @@ function testBindingGroupHashCollisionBucketSafety() {
 	backend.setBindingGroupHashOverrideForTesting(null);
 }
 
-async function testSetMSAASampleCountClampsAndInvalidates() {
-	const { backend } = createBackend();
-	let invalidationCount = 0;
-	backend._frameExecutor = {
-		invalidateFrameTargets() {
-			invalidationCount++;
-		},
-	};
+async function testMSAAConfigurationClampsAndRuntimeFallbackInvalidatesCaches() {
+	const { backend } = createBackend({ msaaSampleCount: 8 });
+	backend._msaaController.activateDevice();
 	await createCachedRenderPipeline(backend);
 	assert.equal(
 		backend.getWebGPUCacheDebugStats().pipeline.renderPipelineEntries,
 		1
 	);
 
-	backend.setMSAASampleCount(8);
-	assert.equal(backend.getMSAASampleCount(), 4);
-	assert.equal(invalidationCount, 1);
+	assert.equal(backend._msaaController.sampleCount, 4);
+	assert.equal(backend._msaaController.fallbackToSingleSample(), true);
+	assert.equal(backend._msaaController.sampleCount, 1);
 	assert.equal(
 		backend.getWebGPUCacheDebugStats().pipeline.renderPipelineEntries,
 		0
 	);
-
-	backend.setMSAASampleCount(3);
-	assert.equal(backend.getMSAASampleCount(), 1);
-	assert.equal(invalidationCount, 2);
 }
 
-function testExplicitMSAASwitchCanEnableAndDisable() {
-	const { backend } = createBackend({ enableMSAA: false });
-	let invalidationCount = 0;
-	backend._frameExecutor = {
-		invalidateFrameTargets() {
-			invalidationCount++;
-		},
-	};
-
-	assert.equal(backend.getMSAASampleCount(), 1);
-
-	backend.setMSAAEnabled(true);
-	assert.equal(backend.getMSAASampleCount(), 4);
-	assert.equal(invalidationCount, 1);
-
-	backend.setMSAAEnabled(false);
-	assert.equal(backend.getMSAASampleCount(), 1);
-	assert.equal(invalidationCount, 2);
+function testMSAAPublicControlIsRemovedAndLegacyOptionFails() {
+	const { backend } = createBackend();
+	assert.equal(typeof backend.getMSAASampleCount, "undefined");
+	assert.equal(typeof backend.setMSAAEnabled, "undefined");
+	assert.equal(typeof backend.setMSAASampleCount, "undefined");
+	assert.throws(
+		() => new WebGPUBackend({ enableMSAA: false }),
+		/msaaSampleCount: 1/
+	);
+	assert.throws(
+		() => new WebGPUBackend({ msaaSampleCount: Number.NaN }),
+		/finite number/
+	);
 }
 
 function testCreateBufferMappedAtCreationExposesUnmap() {
@@ -852,40 +838,6 @@ async function testResizeDuringActiveFrameDefersResourceInvalidation() {
 	assert.equal(backend._pendingResize, null);
 }
 
-async function testMSAAChangeDuringActiveFrameDefersCachesAndTargets() {
-	const { backend } = createBackend();
-	let invalidationCount = 0;
-	backend._frameExecutor = {
-		endFrame() {},
-		abortFrame() {},
-		invalidateFrameTargets() {
-			invalidationCount++;
-		},
-	};
-	await createCachedRenderPipeline(backend);
-	backend._frameActive = true;
-	const previousPreferredSampleCount = backend._preferredMSAASampleCount;
-
-	backend.setMSAASampleCount(8);
-	assert.equal(backend.getMSAASampleCount(), 1);
-	assert.equal(backend._preferredMSAASampleCount, previousPreferredSampleCount);
-	assert.equal(
-		backend.getWebGPUCacheDebugStats().pipeline.renderPipelineEntries,
-		1
-	);
-	assert.equal(invalidationCount, 0);
-
-	await backend.endFrame();
-	assert.equal(backend.getMSAASampleCount(), 4);
-	assert.equal(backend._preferredMSAASampleCount, 8);
-	assert.equal(
-		backend.getWebGPUCacheDebugStats().pipeline.renderPipelineEntries,
-		0
-	);
-	assert.equal(invalidationCount, 1);
-	assert.equal(backend._pendingMSAASampleCount, null);
-}
-
 async function testShaderRuntimeChangeDuringActiveFrameDefersInvalidation() {
 	const { backend } = createBackend();
 	let executorInvalidations = 0;
@@ -924,7 +876,7 @@ async function testShaderRuntimeChangeDuringActiveFrameDefersInvalidation() {
 	assert.equal(backend._pendingShaderRuntimeInvalidation, false);
 }
 
-async function testDeferredLifecycleChangesCoalesceFrameTargetInvalidation() {
+async function testDeferredResizeInvalidatesFrameTargets() {
 	const { backend, device } = createBackend();
 	let invalidateCalls = 0;
 	backend._canvas = { width: 1, height: 1 };
@@ -942,11 +894,9 @@ async function testDeferredLifecycleChangesCoalesceFrameTargetInvalidation() {
 	};
 	backend._frameActive = true;
 
-	backend.setMSAASampleCount(8);
 	backend.resize({ width: 10, height: 12 });
 	await backend.abortFrame();
 
-	assert.equal(backend.getMSAASampleCount(), 4);
 	assert.equal(backend.canvas.width, 10);
 	assert.equal(backend.canvas.height, 12);
 	assert.equal(invalidateCalls, 1);
@@ -1331,14 +1281,13 @@ async function run() {
 	await testStaleRenderPipelineCreationRejectsAfterRollback();
 	testBindingGroupCacheUsesHashedKey();
 	testBindingGroupHashCollisionBucketSafety();
-	await testSetMSAASampleCountClampsAndInvalidates();
-	testExplicitMSAASwitchCanEnableAndDisable();
+	await testMSAAConfigurationClampsAndRuntimeFallbackInvalidatesCaches();
+	testMSAAPublicControlIsRemovedAndLegacyOptionFails();
 	testCreateBufferMappedAtCreationExposesUnmap();
 	testResizeUsesProvidedDimensions();
 	await testResizeDuringActiveFrameDefersResourceInvalidation();
-	await testMSAAChangeDuringActiveFrameDefersCachesAndTargets();
 	await testShaderRuntimeChangeDuringActiveFrameDefersInvalidation();
-	await testDeferredLifecycleChangesCoalesceFrameTargetInvalidation();
+	await testDeferredResizeInvalidatesFrameTargets();
 	await testPublicDeviceLifecycleMethods();
 	testAutomaticDeviceLossDestroysPostProcessBeforeRollback();
 	testMapBindingResourceRejectsPrimitive();

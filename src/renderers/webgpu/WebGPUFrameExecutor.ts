@@ -28,6 +28,10 @@ import type {
 } from "./WebGPURenderResources";
 import type { WebGPUSceneTargetMode } from "./WebGPUScenePassDescriptors";
 import { WebGPUFrameGraphRuntime } from "./rendergraph/WebGPUFrameGraphRuntime";
+import {
+	SINGLE_SAMPLE_WEBGPU_MSAA_CONTEXT,
+	type WebGPUMSAAContext,
+} from "./WebGPUMSAAController";
 
 /**
  * Backend-facing compatibility facade for the WebGPU internal frame graph.
@@ -37,9 +41,10 @@ export class WebGPUFrameExecutor {
 
 	public constructor(
 		backend: WebGPUBackend,
-		resources: WebGPURenderResources
+		resources: WebGPURenderResources,
+		msaa: WebGPUMSAAContext = SINGLE_SAMPLE_WEBGPU_MSAA_CONTEXT
 	) {
-		this._runtime = new WebGPUFrameGraphRuntime(backend, resources);
+		this._runtime = new WebGPUFrameGraphRuntime(backend, resources, msaa);
 	}
 
 	public beginFrame(context: FrameContext): void {

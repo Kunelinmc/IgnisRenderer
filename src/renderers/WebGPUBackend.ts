@@ -41,6 +41,7 @@ import { WebGPUShaderModuleCompiler } from "./webgpu/WebGPUShaderModuleCompiler"
 import { WebGPUPipelineCache } from "./webgpu/WebGPUPipelineCache";
 import { WebGPUBindingGroupCache } from "./webgpu/WebGPUBindingGroupCache";
 import { WebGPUObjectIdentity } from "./webgpu/WebGPUObjectIdentity";
+import { WebGPUMSAAController } from "./webgpu/WebGPUMSAAController";
 import { WebGPUBackendPassDispatcher } from "./webgpu/WebGPUBackendPassDispatcher";
 import { WebGPUWarmupCoordinator } from "./webgpu/WebGPUWarmupCoordinator";
 import {
@@ -61,7 +62,6 @@ import {
 	WEBGPU_DEFERRED_STORAGE_TEXTURE_COUNT,
 	WEBGPU_MRT_COLOR_BYTES_PER_SAMPLE,
 	WEBGPU_MRT_COLOR_TARGET_COUNT,
-	WEBGPU_DEFAULT_MSAA_SAMPLE_COUNT,
 	WEBGPU_REQUIRED_FRAGMENT_SAMPLED_TEXTURE_COUNT,
 	WEBGPU_SCENE_REQUIRED_FRAGMENT_SAMPLER_COUNT,
 	WEBGPU_REQUIRED_FRAGMENT_STORAGE_BUFFER_COUNT,
@@ -103,8 +103,6 @@ import { Logger } from "../foundation/Logger";
 
 const DEVICE_RECOVERY_MAX_ATTEMPTS = 3;
 const DEVICE_RECOVERY_BASE_DELAY_MS = 100;
-const WEBGPU_MSAA_SAMPLE_CANDIDATES = [16, 8, 4, 2, 1];
-const WEBGPU_EXPLICIT_MSAA_ENABLE_SAMPLE_COUNT = 4;
 const WEBGPU_DEBUG_INFO_UNINITIALIZED: RenderBackendDebugInfo = {
 	backend: "webgpu",
 	api: "webgpu",
@@ -130,7 +128,7 @@ const WEBGPU_DEBUG_LIMIT_KEYS = [
 export interface WebGPUBackendOptions {
 	shaderMode?: ShaderRuntimeMode;
 	directiveHook?: ShaderDirectiveCompileHook | null;
-	enableMSAA?: boolean;
+	msaaSampleCount?: number;
 	enableEarlyZPrepass?: boolean;
 	/**
 	 * Enables WebGPU deferred opaque lighting when runtime limits allow it.
@@ -244,7 +242,6 @@ export class WebGPUBackend implements IRenderBackend {
 		width: number;
 		height: number;
 	} | null = null;
-	private _pendingMSAASampleCount: number | null = null;
 	private _pendingShaderRuntimeInvalidation = false;
 	private _debugInfo: RenderBackendDebugInfo = WEBGPU_DEBUG_INFO_UNINITIALIZED;
 
@@ -259,10 +256,7 @@ export class WebGPUBackend implements IRenderBackend {
 				})
 			: null;
 	private _warmupLogCompilationInfo = false;
-	private _msaaSelectionCache = new Map<string, number>();
-	private readonly _defaultMSAASampleCount: number;
-	private _preferredMSAASampleCount = WEBGPU_DEFAULT_MSAA_SAMPLE_COUNT;
-	private _msaaSampleCount = 1;
+	private readonly _msaaController: WebGPUMSAAController;
 	private _enableEarlyZPrepass = true;
 	private _enableDeferredLighting = true;
 	private _enableOcclusionCulling = true;
@@ -280,10 +274,31 @@ export class WebGPUBackend implements IRenderBackend {
 
 	public constructor(options: WebGPUBackendOptions = {}) {
 		this._options = options;
+		if (Object.prototype.hasOwnProperty.call(options, "enableMSAA")) {
+			throw new Error(
+				"WebGPUBackendOptions.enableMSAA was removed; use msaaSampleCount: 1 to disable MSAA or msaaSampleCount: 4 to request 4x MSAA."
+			);
+		}
 		const shaderMode = options.shaderMode ?? "strict";
-		this._defaultMSAASampleCount =
-			options.enableMSAA === false ? 1 : WEBGPU_DEFAULT_MSAA_SAMPLE_COUNT;
-		this._preferredMSAASampleCount = this._defaultMSAASampleCount;
+		const thisRef = this;
+		this._msaaController = new WebGPUMSAAController(
+			{
+				get device() {
+					return thisRef.device;
+				},
+				get canvasFormat() {
+					return thisRef.canvasFormat;
+				},
+				get canvasDepthFormat() {
+					return thisRef.canvasDepthFormat;
+				},
+				get objectIdentity() {
+					return thisRef._objectIdentity;
+				},
+				onRuntimeFallback: () => this._onMSAARuntimeFallback(),
+			},
+			options.msaaSampleCount
+		);
 		this._enableEarlyZPrepass = options.enableEarlyZPrepass !== false;
 		this._enableDeferredLighting = options.enableDeferredLighting !== false;
 		this._enableOcclusionCulling = options.enableOcclusionCulling !== false;
@@ -330,7 +345,6 @@ export class WebGPUBackend implements IRenderBackend {
 			mode: shaderMode,
 		});
 		this._shaderModuleCompiler = new WebGPUShaderModuleCompiler(this._shaderCompileStage);
-		const thisRef = this;
 		this._pipelineCache = new WebGPUPipelineCache({
 			get device() {
 				return thisRef.device;
@@ -348,7 +362,7 @@ export class WebGPUBackend implements IRenderBackend {
 				this._assertDeviceOperational(operation);
 			},
 			resolveSupportedMSAASampleCount: (requested, probeFormats) => {
-				return this._resolveSupportedMSAASampleCount(requested, probeFormats);
+				return this._msaaController.resolveSupportedSampleCount(requested, probeFormats);
 			},
 			createManagedDestroy: (target, destroyOptions) => {
 				return this._createManagedDestroy(target, destroyOptions);
@@ -723,15 +737,19 @@ export class WebGPUBackend implements IRenderBackend {
 			this._errorScopes = new WebGPUErrorScopeHelper(requestedDevice);
 			this.canvasDepthFormat = this._selectCanvasDepthFormat();
 			this.canvasFormat = navigator.gpu.getPreferredCanvasFormat();
-			this._msaaSampleCount = this._selectMSAASampleCount();
+			this._msaaController.activateDevice();
 			this._commandScheduler.initTimestampResources();
 			this._context = context;
 			this._configureContext();
 			this._recreateDepthTexture();
 
-			this._resources = new WebGPURenderResources(this);
+			this._resources = new WebGPURenderResources(this, this._msaaController);
 			await this._resources.init();
-			this._frameExecutor = new WebGPUFrameExecutor(this, this._resources);
+			this._frameExecutor = new WebGPUFrameExecutor(
+				this,
+				this._resources,
+				this._msaaController
+			);
 			this._reflectionProbeCapturePass = new WebGPUReflectionProbeCapturePass(
 				this,
 				this._resources,
@@ -1126,49 +1144,6 @@ export class WebGPUBackend implements IRenderBackend {
 		return this._canvasTargets.getCurrentDepthView();
 	}
 
-	public getMSAASampleCount(): number {
-		return this._msaaSampleCount;
-	}
-
-	public setMSAAEnabled(enabled: boolean): void {
-		if (enabled !== true) {
-			this.setMSAASampleCount(1);
-			return;
-		}
-		const preferredSampleCount = this._pendingMSAASampleCount ?? this._preferredMSAASampleCount;
-		const sampleCount =
-			preferredSampleCount > 1
-				? preferredSampleCount
-				: WEBGPU_EXPLICIT_MSAA_ENABLE_SAMPLE_COUNT;
-		this.setMSAASampleCount(sampleCount);
-	}
-
-	public setMSAASampleCount(sampleCount: number): void {
-		if (!Number.isFinite(sampleCount)) {
-			return;
-		}
-		const requested = Math.max(1, Math.floor(sampleCount));
-		if (this._isFrameActive()) {
-			this._pendingMSAASampleCount = requested;
-			return;
-		}
-		this._applyMSAASampleCount(requested);
-	}
-
-	private _applyMSAASampleCount(
-		requested: number,
-		options: { invalidateFrameTargets?: boolean } = {},
-	): boolean {
-		this._preferredMSAASampleCount = requested;
-		const resolved = this._resolveSupportedMSAASampleCount(requested);
-		if (resolved === this._msaaSampleCount) {
-			return false;
-		}
-		this._msaaSampleCount = resolved;
-		this._onMSAASampleCountChanged(options);
-		return true;
-	}
-
 	public getTimestampDurationsMs(): ReadonlyMap<string, number> {
 		return this._commandScheduler.getTimestampDurationsMs();
 	}
@@ -1244,7 +1219,7 @@ export class WebGPUBackend implements IRenderBackend {
 				requested: number,
 				probeFormats?: readonly GPUTextureFormat[],
 			) => {
-				return this._resolveSupportedMSAASampleCount(requested, probeFormats);
+				return this._msaaController.resolveSupportedSampleCount(requested, probeFormats);
 			},
 			resolvePositiveInteger: (value: number, fallback: number) => {
 				return this._resolvePositiveInteger(value, fallback);
@@ -1402,12 +1377,9 @@ export class WebGPUBackend implements IRenderBackend {
 		this._frameSerial = 0;
 		this._frameActive = false;
 		this._pendingResize = null;
-		this._pendingMSAASampleCount = null;
 		this._pendingShaderRuntimeInvalidation = false;
 		this._clearFramePlannerState();
-		this._msaaSelectionCache.clear();
-		this._preferredMSAASampleCount = this._defaultMSAASampleCount;
-		this._msaaSampleCount = 1;
+		this._msaaController.resetDevice();
 		this._debugInfo = WEBGPU_DEBUG_INFO_UNINITIALIZED;
 		if (this.context) {
 			try {
@@ -1563,19 +1535,10 @@ export class WebGPUBackend implements IRenderBackend {
 		return TextureFormat.Depth24Plus;
 	}
 
-	private _selectMSAASampleCount(): number {
-		const preferred = Math.max(1, Math.floor(this._preferredMSAASampleCount));
-		return this._resolveSupportedMSAASampleCount(preferred);
-	}
-
-	private _onMSAASampleCountChanged(options: { invalidateFrameTargets?: boolean } = {}): void {
-		this._commandScheduler.submitPendingCopyCommands();
+	private _onMSAARuntimeFallback(): void {
 		this._pipelineCache.clearPipelineCaches();
 		this._bindingGroupCache.clear();
 		this._postProcessRuntime.invalidateFrameSized();
-		if (options.invalidateFrameTargets !== false) {
-			this._frameExecutor?.invalidateFrameTargets();
-		}
 		this._resetCurrentCanvasTargets();
 	}
 
@@ -1601,10 +1564,8 @@ export class WebGPUBackend implements IRenderBackend {
 			return;
 		}
 		const applyShaderRuntimeInvalidation = this._pendingShaderRuntimeInvalidation;
-		const pendingMSAASampleCount = this._pendingMSAASampleCount;
 		const pendingResize = this._pendingResize;
 		this._pendingShaderRuntimeInvalidation = false;
-		this._pendingMSAASampleCount = null;
 		this._pendingResize = null;
 
 		if (applyShaderRuntimeInvalidation) {
@@ -1612,12 +1573,6 @@ export class WebGPUBackend implements IRenderBackend {
 		}
 
 		let needsFrameTargetInvalidation = false;
-		if (pendingMSAASampleCount !== null) {
-			needsFrameTargetInvalidation =
-				this._applyMSAASampleCount(pendingMSAASampleCount, {
-					invalidateFrameTargets: false,
-				}) || needsFrameTargetInvalidation;
-		}
 		if (pendingResize) {
 			needsFrameTargetInvalidation =
 				this._applyResize(pendingResize.width, pendingResize.height, {
@@ -1637,118 +1592,11 @@ export class WebGPUBackend implements IRenderBackend {
 	private _handleObjectIdentityRebase(): void {
 		this._pipelineCache.clearPipelineCaches();
 		this._bindingGroupCache.clear();
-		this._msaaSelectionCache.clear();
+		this._msaaController.clearCapabilityCache();
 		Logger.warn(
 			"WebGPU object-id space rebased; related caches were cleared to avoid unbounded growth.",
 			{ scope: "WebGPUBackend" },
 		);
-	}
-
-	private _resolveSupportedMSAASampleCount(
-		requested: number,
-		probeFormats?: readonly GPUTextureFormat[],
-	): number {
-		const normalized = Math.max(1, Math.floor(requested));
-		const maxColorAttachments = this.device?.limits?.maxColorAttachments ?? 0;
-		const maxColorAttachmentBytesPerSample =
-			this.device?.limits?.maxColorAttachmentBytesPerSample ?? 0;
-		const formats = this._getMSAAProbeFormats(probeFormats);
-		const formatsKey = formats.join(",");
-		const cacheKey = [
-			`device:${this._objectIdentity.getCacheToken(this.device)}`,
-			`requested:${normalized}`,
-			`maxAttachments:${maxColorAttachments}`,
-			`maxBytes:${maxColorAttachmentBytesPerSample}`,
-			`formats:${formatsKey}`,
-		].join("|");
-		const cached = this._msaaSelectionCache.get(cacheKey);
-		if (cached !== undefined) {
-			return cached;
-		}
-
-		const candidates = Array.from(
-			new Set([
-				normalized,
-				...WEBGPU_MSAA_SAMPLE_CANDIDATES.filter((sampleCount) => sampleCount <= normalized),
-				1,
-			]),
-		).sort((left, right) => right - left);
-
-		let selected = 1;
-		for (const candidate of candidates) {
-			if (this._isMSAASampleCountSupported(candidate, formats)) {
-				selected = candidate;
-				break;
-			}
-		}
-		this._msaaSelectionCache.set(cacheKey, selected);
-		return selected;
-	}
-
-	private _isMSAASampleCountSupported(
-		sampleCount: number,
-		probeFormats?: readonly GPUTextureFormat[],
-	): boolean {
-		if (!Number.isInteger(sampleCount) || sampleCount < 1) {
-			return false;
-		}
-		if (sampleCount === 1) {
-			return true;
-		}
-		if (!this.device || typeof this.device.createTexture !== "function") {
-			return false;
-		}
-		const maxColorAttachments = this.device?.limits?.maxColorAttachments ?? 0;
-		const maxColorAttachmentBytesPerSample =
-			this.device?.limits?.maxColorAttachmentBytesPerSample ?? 0;
-		if (
-			maxColorAttachments < WEBGPU_MRT_COLOR_TARGET_COUNT ||
-			maxColorAttachmentBytesPerSample < WEBGPU_MRT_COLOR_BYTES_PER_SAMPLE
-		) {
-			return false;
-		}
-		for (const format of this._getMSAAProbeFormats(probeFormats)) {
-			if (!this._probeSampleCountForFormat(sampleCount, format)) {
-				return false;
-			}
-		}
-		return true;
-	}
-
-	private _getMSAAProbeFormats(probeFormats?: readonly GPUTextureFormat[]): GPUTextureFormat[] {
-		const formats = new Set<GPUTextureFormat>([
-			this.canvasFormat,
-			this.canvasDepthFormat as GPUTextureFormat,
-			TextureFormat.RGBA16Float as GPUTextureFormat,
-			TextureFormat.RGBA8Unorm as GPUTextureFormat,
-			TextureFormat.Depth32Float as GPUTextureFormat,
-		]);
-		if (probeFormats) {
-			for (const format of probeFormats) {
-				formats.add(format);
-			}
-		}
-		return Array.from(formats);
-	}
-
-	private _probeSampleCountForFormat(sampleCount: number, format: GPUTextureFormat): boolean {
-		const device = this.device;
-		if (!device) {
-			return false;
-		}
-		try {
-			const probeTexture = device.createTexture({
-				size: [1, 1, 1],
-				sampleCount,
-				format,
-				usage: GPUTextureUsage.RENDER_ATTACHMENT,
-				label: `WebGPUMSAAProbe_${format}_${sampleCount}`,
-			});
-			probeTexture.destroy();
-			return true;
-		} catch {
-			return false;
-		}
 	}
 
 	private _isBufferMapped(buffer: GPUBuffer | null): boolean {

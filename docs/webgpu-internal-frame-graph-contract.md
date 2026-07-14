@@ -33,7 +33,11 @@ must remain backend-internal.
 - `"throw"` mode must fail frame execution on error diagnostics.
 - `"warn"` mode must emit diagnostics through `Logger.warn` and continue.
 - `WebGPUFrameTargetManager` must own WebGPU offscreen frame target allocation,
-  pooled texture ownership, MSAA fallback, and target debug state.
+  pooled texture ownership, and target debug state. It must request an MSAA
+  fallback from the backend-internal MSAA controller when allocation fails.
+- The backend-internal MSAA controller must own sample-count configuration,
+  device capability probing, resolved runtime state, and persistent `1x`
+  fallback state. It must not own frame textures.
 - `WebGPUFrameGraphRuntime` must orchestrate frame lifecycle and node execution;
   it must not own texture pool allocation logic.
 - `WebGPUFrameGraphRuntime` must execute graph nodes through a node executor

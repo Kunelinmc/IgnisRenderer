@@ -31,6 +31,10 @@ import {
 	type IShaderModule,
 } from "../types";
 import type { WebGPUBackend } from "../WebGPUBackend";
+import {
+	SINGLE_SAMPLE_WEBGPU_MSAA_CONTEXT,
+	type WebGPUMSAAContext,
+} from "./WebGPUMSAAController";
 import { resolveWebGPUComputeFacade } from "./ComputeFacade";
 import type { IWebGPUComputeFacade } from "./ComputeFacade";
 import {
@@ -235,6 +239,7 @@ interface WebGPUFrameResourceScope {
 
 export class WebGPURenderResources {
 	private _backend: WebGPUBackend;
+	private _msaa: WebGPUMSAAContext;
 	private _computeFacade: IWebGPUComputeFacade;
 	private _layouts: ReturnType<typeof createWebGPUPipelineLayouts>;
 	private _geometryRegistry: WebGPUGeometryRegistry;
@@ -264,8 +269,12 @@ export class WebGPURenderResources {
 	private _frameId = 0;
 	private _destroyed = false;
 
-	constructor(backend: WebGPUBackend) {
+	constructor(
+		backend: WebGPUBackend,
+		msaa: WebGPUMSAAContext = SINGLE_SAMPLE_WEBGPU_MSAA_CONTEXT
+	) {
 		this._backend = backend;
+		this._msaa = msaa;
 		this._computeFacade = resolveWebGPUComputeFacade(backend);
 		const device = backend.device;
 		if (!device) {
@@ -280,7 +289,7 @@ export class WebGPURenderResources {
 		this._pipelineLibrary = new WebGPUPipelineLibrary(
 			backend,
 			this._layouts,
-			{ listenToShaderRuntime: false }
+			{ listenToShaderRuntime: false, msaaContext: this._msaa }
 		);
 		this._materialBindings = new WebGPUMaterialBindingCache(
 			backend,
@@ -2323,16 +2332,7 @@ export class WebGPURenderResources {
 		if (Number.isFinite(sampleCountOverride)) {
 			return Math.max(1, Math.floor(sampleCountOverride as number));
 		}
-		const getter = (this._backend as { getMSAASampleCount?: () => number })
-			.getMSAASampleCount;
-		if (typeof getter !== "function") {
-			return 1;
-		}
-		const sampleCount = getter.call(this._backend);
-		if (!Number.isFinite(sampleCount)) {
-			return 1;
-		}
-		return Math.max(1, Math.floor(sampleCount));
+		return this._msaa.sampleCount;
 	}
 
 	private _resolveSinglePassDepthFormat(): TextureFormat {
