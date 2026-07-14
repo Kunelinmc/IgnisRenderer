@@ -83,11 +83,10 @@ export interface WebGLBackendOptions {
 }
 
 export class WebGLBackend implements IRenderBackend {
-	private readonly _postProcessExecutor = new WebGLPostProcessExecutor({
-		getFrameExecutor: () => this._frameExecutor,
-	});
 	private readonly _postProcessRuntime = new BackendPostProcessRuntime({
-		executor: this._postProcessExecutor,
+		executor: new WebGLPostProcessExecutor({
+			getFrameExecutor: () => this._frameExecutor,
+		}),
 		backend: this,
 		warn: (key, message) =>
 			Logger.warn(`[${key}] ${message}`, {
@@ -203,106 +202,104 @@ export class WebGLBackend implements IRenderBackend {
 		this._ensureParticleSimulator();
 		this._canvas = canvas;
 		this._installContextLifecycleListeners(canvas);
-		await ShaderSource.prepareMany(
-			[
-				...WEBGL_SHADER_PARTS.flatMap((part) => [
-					{ key: `webgl.part.${part}.raw` as const },
-					{ key: `webgl.part.${part}.composite` as const },
-				]),
-				{
-					key: "webgl.scene.raw" as const,
-					params: {
-						limits: {
-							maxDirectionalLights: MAX_DIRECTIONAL_LIGHTS,
-							maxPointLights: MAX_POINT_LIGHTS,
-							maxSpotLights: MAX_SPOT_LIGHTS,
-							enableShadowTransmittance: false,
-						},
+		await ShaderSource.prepareMany([
+			...WEBGL_SHADER_PARTS.flatMap((part) => [
+				{ key: `webgl.part.${part}.raw` as const },
+				{ key: `webgl.part.${part}.composite` as const },
+			]),
+			{
+				key: "webgl.scene.raw" as const,
+				params: {
+					limits: {
+						maxDirectionalLights: MAX_DIRECTIONAL_LIGHTS,
+						maxPointLights: MAX_POINT_LIGHTS,
+						maxSpotLights: MAX_SPOT_LIGHTS,
+						enableShadowTransmittance: false,
 					},
 				},
-				{
-					key: "webgl.scene.composite" as const,
-					params: {
-						limits: {
-							maxDirectionalLights: MAX_DIRECTIONAL_LIGHTS,
-							maxPointLights: MAX_POINT_LIGHTS,
-							maxSpotLights: MAX_SPOT_LIGHTS,
-							enableShadowTransmittance: false,
-						},
+			},
+			{
+				key: "webgl.scene.composite" as const,
+				params: {
+					limits: {
+						maxDirectionalLights: MAX_DIRECTIONAL_LIGHTS,
+						maxPointLights: MAX_POINT_LIGHTS,
+						maxSpotLights: MAX_SPOT_LIGHTS,
+						enableShadowTransmittance: false,
 					},
 				},
-				{
-					key: "webgl.scene.raw" as const,
-					params: {
-						limits: {
-							maxDirectionalLights: MAX_DIRECTIONAL_LIGHTS,
-							maxPointLights: MAX_POINT_LIGHTS,
-							maxSpotLights: MAX_SPOT_LIGHTS,
-							enableShadowTransmittance: true,
-						},
+			},
+			{
+				key: "webgl.scene.raw" as const,
+				params: {
+					limits: {
+						maxDirectionalLights: MAX_DIRECTIONAL_LIGHTS,
+						maxPointLights: MAX_POINT_LIGHTS,
+						maxSpotLights: MAX_SPOT_LIGHTS,
+						enableShadowTransmittance: true,
 					},
 				},
-				{
-					key: "webgl.scene.composite" as const,
-					params: {
-						limits: {
-							maxDirectionalLights: MAX_DIRECTIONAL_LIGHTS,
-							maxPointLights: MAX_POINT_LIGHTS,
-							maxSpotLights: MAX_SPOT_LIGHTS,
-							enableShadowTransmittance: true,
-						},
+			},
+			{
+				key: "webgl.scene.composite" as const,
+				params: {
+					limits: {
+						maxDirectionalLights: MAX_DIRECTIONAL_LIGHTS,
+						maxPointLights: MAX_POINT_LIGHTS,
+						maxSpotLights: MAX_SPOT_LIGHTS,
+						enableShadowTransmittance: true,
 					},
 				},
-				{
-					key: "webgl.scene.raw" as const,
-					params: {
-						limits: {
-							maxDirectionalLights: MAX_DIRECTIONAL_LIGHTS,
-							maxPointLights: MAX_POINT_LIGHTS,
-							maxSpotLights: MAX_SPOT_LIGHTS,
-							enableShadowTransmittance: false,
-							enableIrradianceProbeGrid: true,
-						},
+			},
+			{
+				key: "webgl.scene.raw" as const,
+				params: {
+					limits: {
+						maxDirectionalLights: MAX_DIRECTIONAL_LIGHTS,
+						maxPointLights: MAX_POINT_LIGHTS,
+						maxSpotLights: MAX_SPOT_LIGHTS,
+						enableShadowTransmittance: false,
+						enableIrradianceProbeGrid: true,
 					},
 				},
-				{
-					key: "webgl.scene.composite" as const,
-					params: {
-						limits: {
-							maxDirectionalLights: MAX_DIRECTIONAL_LIGHTS,
-							maxPointLights: MAX_POINT_LIGHTS,
-							maxSpotLights: MAX_SPOT_LIGHTS,
-							enableShadowTransmittance: false,
-							enableIrradianceProbeGrid: true,
-						},
+			},
+			{
+				key: "webgl.scene.composite" as const,
+				params: {
+					limits: {
+						maxDirectionalLights: MAX_DIRECTIONAL_LIGHTS,
+						maxPointLights: MAX_POINT_LIGHTS,
+						maxSpotLights: MAX_SPOT_LIGHTS,
+						enableShadowTransmittance: false,
+						enableIrradianceProbeGrid: true,
 					},
 				},
-				{
-					key: "webgl.scene.raw" as const,
-					params: {
-						limits: {
-							maxDirectionalLights: MAX_DIRECTIONAL_LIGHTS,
-							maxPointLights: MAX_POINT_LIGHTS,
-							maxSpotLights: MAX_SPOT_LIGHTS,
-							enableShadowTransmittance: true,
-							enableIrradianceProbeGrid: true,
-						},
+			},
+			{
+				key: "webgl.scene.raw" as const,
+				params: {
+					limits: {
+						maxDirectionalLights: MAX_DIRECTIONAL_LIGHTS,
+						maxPointLights: MAX_POINT_LIGHTS,
+						maxSpotLights: MAX_SPOT_LIGHTS,
+						enableShadowTransmittance: true,
+						enableIrradianceProbeGrid: true,
 					},
 				},
-				{
-					key: "webgl.scene.composite" as const,
-					params: {
-						limits: {
-							maxDirectionalLights: MAX_DIRECTIONAL_LIGHTS,
-							maxPointLights: MAX_POINT_LIGHTS,
-							maxSpotLights: MAX_SPOT_LIGHTS,
-							enableShadowTransmittance: true,
-							enableIrradianceProbeGrid: true,
-						},
+			},
+			{
+				key: "webgl.scene.composite" as const,
+				params: {
+					limits: {
+						maxDirectionalLights: MAX_DIRECTIONAL_LIGHTS,
+						maxPointLights: MAX_POINT_LIGHTS,
+						maxSpotLights: MAX_SPOT_LIGHTS,
+						enableShadowTransmittance: true,
+						enableIrradianceProbeGrid: true,
 					},
 				},
-			]
-		);
+			},
+		]);
 		this._initializeGLContext(canvas);
 	}
 
@@ -318,12 +315,10 @@ export class WebGLBackend implements IRenderBackend {
 		}
 		this._contextLost = true;
 		const detail =
-			typeof info?.message === "string" && info.message.length > 0
-				? `: ${info.message}`
-				: "";
+			typeof info?.message === "string" && info.message.length > 0 ? `: ${info.message}` : "";
 		Logger.warn(
 			`WebGL context was lost${detail}. Rendering is paused until context restoration.`,
-			{ scope: "WebGLBackend" }
+			{ scope: "WebGLBackend" },
 		);
 	}
 
@@ -379,10 +374,7 @@ export class WebGLBackend implements IRenderBackend {
 		}
 		this._validatePassDependencies(pass);
 		if (pass.stage === "particle-sim") {
-			this._particleSimulator?.simulate(
-				context,
-				this._resolveParticleDeltaTime(context)
-			);
+			this._particleSimulator?.simulate(context, this._resolveParticleDeltaTime(context));
 			this._particleSimulator?.emitRenderBatches(context);
 			this._markPassExecuted(pass.stage);
 			return;
@@ -404,18 +396,12 @@ export class WebGLBackend implements IRenderBackend {
 	public readRenderTargetColor(
 		id: string,
 		attachmentIndex?: number,
-		options?: RenderTargetReadbackOptions
+		options?: RenderTargetReadbackOptions,
 	): Promise<TextureReadbackResult> {
 		if (!this._frameExecutor) {
-			return Promise.reject(
-				new Error("WebGL backend has not been initialized.")
-			);
+			return Promise.reject(new Error("WebGL backend has not been initialized."));
 		}
-		return this._frameExecutor.readCustomRenderTargetColor(
-			id,
-			attachmentIndex,
-			options
-		);
+		return this._frameExecutor.readCustomRenderTargetColor(id, attachmentIndex, options);
 	}
 
 	public endFrame(): void {
@@ -450,10 +436,7 @@ export class WebGLBackend implements IRenderBackend {
 		this._plannedPassOrder.clear();
 	}
 
-	public async warmup(
-		context: FrameContext,
-		options: WarmupOptions = {}
-	): Promise<WarmupReport> {
+	public async warmup(context: FrameContext, options: WarmupOptions = {}): Promise<WarmupReport> {
 		const report = createWarmupReport(this.profile.id);
 		if (!this._frameExecutor) {
 			throw new Error("WebGL backend has not been initialized.");
@@ -498,15 +481,12 @@ export class WebGLBackend implements IRenderBackend {
 
 		if (this._canvas) {
 			if (this._contextLossHandler) {
-				this._canvas.removeEventListener(
-					"webglcontextlost",
-					this._contextLossHandler
-				);
+				this._canvas.removeEventListener("webglcontextlost", this._contextLossHandler);
 			}
 			if (this._contextRestoreHandler) {
 				this._canvas.removeEventListener(
 					"webglcontextrestored",
-					this._contextRestoreHandler
+					this._contextRestoreHandler,
 				);
 			}
 		}
@@ -534,9 +514,7 @@ export class WebGLBackend implements IRenderBackend {
 			powerPreference: "high-performance",
 		}) as WebGL2RenderingContext | null;
 		if (!gl) {
-			throw new Error(
-				"Failed to acquire WebGL2 context. WebGL backend requires WebGL2."
-			);
+			throw new Error("Failed to acquire WebGL2 context. WebGL backend requires WebGL2.");
 		}
 
 		this._gl = gl;
@@ -552,11 +530,11 @@ export class WebGLBackend implements IRenderBackend {
 				onProgramCompilePending: () => this._emitProgramCompilePendingEvent(),
 				onTextureUploadPending: () => this._emitTextureUploadPendingEvent(),
 				postProcessRuntime: this._postProcessRuntime,
-			}
+			},
 		);
 		this._frameGraphRuntime = new WebGLFrameGraphRuntime(
 			this._frameExecutor,
-			this._postProcessRuntime
+			this._postProcessRuntime,
 		);
 		this._contextLost = false;
 		this._frameExecutor.resize(this._width, this._height);
@@ -588,7 +566,7 @@ export class WebGLBackend implements IRenderBackend {
 						vendor,
 						renderer,
 						raw: Object.keys(raw).length > 0 ? raw : undefined,
-				  }
+					}
 				: undefined;
 
 		return {
@@ -601,10 +579,7 @@ export class WebGLBackend implements IRenderBackend {
 		};
 	}
 
-	private _reportWarmupProgress(
-		options: WarmupOptions,
-		phase: WarmupPhaseCounters,
-	): void {
+	private _reportWarmupProgress(options: WarmupOptions, phase: WarmupPhaseCounters): void {
 		options.onProgress?.({
 			phase: phase.phase,
 			completed: phase.compiled + phase.skipped + phase.failed,
@@ -649,10 +624,9 @@ export class WebGLBackend implements IRenderBackend {
 			this._requireAttachContext().events.emit({ type: "device-lost", info });
 		};
 		this._contextRestoreHandler = () => {
-			Logger.warn(
-				"WebGL context was restored. Rebuilding WebGL resources.",
-				{ scope: "WebGLBackend" }
-			);
+			Logger.warn("WebGL context was restored. Rebuilding WebGL resources.", {
+				scope: "WebGLBackend",
+			});
 			try {
 				this.restore();
 				this._requireAttachContext().events.emit({ type: "device-restored" });
@@ -672,16 +646,12 @@ export class WebGLBackend implements IRenderBackend {
 	}
 
 	private _validatePassDependencies(pass: FramePass): void {
-		this._framePlanner.validatePassDependencies(
-			pass,
-			this._getFramePlannerState(),
-			{
-				reportNonFatalError: (scope, error) =>
-					Logger.warn(`[${scope}] ${String(error)}`, {
-						scope: "WebGLBackend",
-					}),
-			}
-		);
+		this._framePlanner.validatePassDependencies(pass, this._getFramePlannerState(), {
+			reportNonFatalError: (scope, error) =>
+				Logger.warn(`[${scope}] ${String(error)}`, {
+					scope: "WebGLBackend",
+				}),
+		});
 	}
 
 	private _markPassExecuted(stage: FramePass["stage"]): void {

@@ -151,12 +151,11 @@ export interface WebGPUBackendOptions {
 }
 
 export class WebGPUBackend implements IRenderBackend {
-	private readonly _postProcessExecutor = new WebGPUPostProcessExecutor({
-		getFrameExecutor: () => this._frameExecutor,
-		assertDeviceOperational: (operation) => this._assertDeviceOperational(operation),
-	});
 	private readonly _postProcessRuntime = new BackendPostProcessRuntime({
-		executor: this._postProcessExecutor,
+		executor: new WebGPUPostProcessExecutor({
+			getFrameExecutor: () => this._frameExecutor,
+			assertDeviceOperational: (operation) => this._assertDeviceOperational(operation),
+		}),
 		backend: this,
 		warn: (key, message) =>
 			Logger.warn(`[${key}] ${message}`, {

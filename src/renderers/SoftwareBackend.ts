@@ -132,13 +132,10 @@ function resolvePreparedSceneEnvironment(scene: FrameContext["scene"]): {
 }
 
 export class SoftwareBackend implements IRenderBackend {
-	private readonly _postProcessExecutor = new SoftwarePostProcessExecutor(
-		{
-			getCanvasContext: () => this._ctx,
-		}
-	);
 	private readonly _postProcessRuntime = new BackendPostProcessRuntime({
-		executor: this._postProcessExecutor,
+		executor: new SoftwarePostProcessExecutor({
+			getCanvasContext: () => this._ctx,
+		}),
 		backend: this,
 		warn: (key, message) =>
 			Logger.warn(`[${key}] ${message}`, {
@@ -182,16 +179,15 @@ export class SoftwareBackend implements IRenderBackend {
 	private _mainPass: SoftwareMainPass | null = null;
 	private _particlePass: SoftwarePassLike | null = null;
 	private _shadowPass: SoftwarePassLike | null = null;
-	private _reflectionPass:
-		| (SoftwarePassLike & SoftwareSurfaceCompositePass)
-		| null = null;
+	private _reflectionPass: (SoftwarePassLike & SoftwareSurfaceCompositePass) | null = null;
 	private _framePixelsShared = false;
 	private _pixels: Uint8ClampedArray | null = null;
 	private _depthBuffer: Float32Array | null = null;
 	private _normalBuffer: Float32Array | null = null;
 	private _motionBuffer: Float32Array | null = null;
 	private _temporalJitterState = new TemporalJitterState();
-	private _previousViewProjection: FrameContext["viewCamera"]["viewProjectionMatrix"] | null = null;
+	private _previousViewProjection: FrameContext["viewCamera"]["viewProjectionMatrix"] | null =
+		null;
 	private _previousWorldMatrices = new Map<string, FrameContext["worldMatrix"]>();
 	private _activeContext: FrameContext | null = null;
 	private _completedFrameCoverage: RenderBackendCompletedFrameCoverage = "full-frame";
@@ -387,7 +383,7 @@ export class SoftwareBackend implements IRenderBackend {
 		);
 		const combinedShadowCasterBounds = mergeParticleShadowBounds(
 			shadowCasterBounds,
-			resolveParticleShadowCasterBounds(context.scene.particleSystems)
+			resolveParticleShadowCasterBounds(context.scene.particleSystems),
 		);
 		const selectedCSMLights = selectCSMDirectionalLights(
 			shadowLights,
@@ -438,7 +434,7 @@ export class SoftwareBackend implements IRenderBackend {
 			const key = "software-custom-render-targets-unsupported";
 			Logger.warn(
 				`[${key}] Software backend does not support custom render targets or custom render passes yet; skipping pass "${pass.stage}".`,
-				{ scope: "SoftwareBackend", onceKey: key }
+				{ scope: "SoftwareBackend", onceKey: key },
 			);
 			return;
 		}
@@ -448,7 +444,7 @@ export class SoftwareBackend implements IRenderBackend {
 			const key = `software-pass-unsupported-${pass.stage}`;
 			Logger.warn(
 				`[${key}] Software backend does not support pass "${pass.stage}" yet; skipping`,
-				{ scope: "SoftwareBackend", onceKey: key }
+				{ scope: "SoftwareBackend", onceKey: key },
 			);
 			return;
 		}
@@ -497,8 +493,7 @@ export class SoftwareBackend implements IRenderBackend {
 	}
 
 	private _prepareTAARenderState(context: FrameContext): void {
-		const taaOptions =
-			context.postProcess.getOptions<TAAOptions>("taa") ?? DEFAULT_TAA_OPTIONS;
+		const taaOptions = context.postProcess.getOptions<TAAOptions>("taa") ?? DEFAULT_TAA_OPTIONS;
 		const taaEnabled = context.postProcess.isEnabled("taa");
 		const jitter = this._temporalJitterState.nextFrameState({
 			enabled: taaEnabled,
@@ -615,9 +610,7 @@ export class SoftwareBackend implements IRenderBackend {
 
 	private _resolveOpaqueReflectivePackets(packets: DrawPacket[]): DrawPacket[] {
 		return packets.filter(
-			(packet) =>
-				packet.material.reflectivity > 0 &&
-				packet.material.mirrorPlane !== null
+			(packet) => packet.material.reflectivity > 0 && packet.material.mirrorPlane !== null,
 		);
 	}
 
@@ -642,9 +635,7 @@ export class SoftwareBackend implements IRenderBackend {
 		return this._frameImageData;
 	}
 
-	private _resolveFrameDimensions(
-		pixels: Uint8ClampedArray,
-	): { width: number; height: number } {
+	private _resolveFrameDimensions(pixels: Uint8ClampedArray): { width: number; height: number } {
 		const canvas = this._requireAttachContext().surface.canvas;
 		const canvasWidth = canvas.width;
 		const canvasHeight = canvas.height;
@@ -766,7 +757,7 @@ export class SoftwareBackend implements IRenderBackend {
 					await this._mainPass.render(context, packets, false);
 					this._reflectionPass?.composite(
 						context,
-						this._resolveOpaqueReflectivePackets(packets)
+						this._resolveOpaqueReflectivePackets(packets),
 					);
 					this._syncActiveRasterMode();
 				},
