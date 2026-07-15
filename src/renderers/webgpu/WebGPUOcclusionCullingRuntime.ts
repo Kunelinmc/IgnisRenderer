@@ -7,8 +7,6 @@ import type {
 import type { ICommandEncoder } from "../ICommandEncoder";
 import {
 	BufferUsage,
-	TextureFormat,
-	TextureUsage,
 	type IBindingGroup,
 	type IComputePipeline,
 	type IRenderBuffer,
@@ -55,7 +53,7 @@ const CANDIDATE_STRIDE_BYTES = CANDIDATE_FLOATS * 4;
 const READBACK_ALIGNMENT = 4;
 
 /**
- * Owns WebGPU previous-frame Hi-Z occlusion culling resources and snapshots.
+ * Owns WebGPU previous-frame occlusion culling state and snapshots.
  */
 export class WebGPUOcclusionCullingRuntime {
 	private readonly _backend: WebGPUBackend;
@@ -67,11 +65,6 @@ export class WebGPUOcclusionCullingRuntime {
 	private _candidateBuffer: IRenderBuffer | null = null;
 	private _resultBuffer: IRenderBuffer | null = null;
 	private _paramsBuffer: IRenderBuffer | null = null;
-	private _hiZTexture: IRenderTexture | null = null;
-	private _hiZMipViews: GPUTextureView[] = [];
-	private _hiZModule: IShaderModule | null = null;
-	private _hiZInitPipeline: IComputePipeline | null = null;
-	private _hiZReducePipeline: IComputePipeline | null = null;
 	private _occlusionModule: IShaderModule | null = null;
 	private _occlusionPipeline: IComputePipeline | null = null;
 	private _warnedKeys = new Set<string>();
@@ -109,21 +102,12 @@ export class WebGPUOcclusionCullingRuntime {
 	}
 
 	public invalidateFrameResources(): void {
-		this._destroyTexture(this._hiZTexture);
-		this._hiZTexture = null;
-		this._hiZMipViews = [];
 	}
 
 	public onShaderRuntimeChanged(): void {
-		this._destroyPipeline(this._hiZInitPipeline);
-		this._destroyPipeline(this._hiZReducePipeline);
 		this._destroyPipeline(this._occlusionPipeline);
-		this._destroyShaderModule(this._hiZModule);
 		this._destroyShaderModule(this._occlusionModule);
-		this._hiZInitPipeline = null;
-		this._hiZReducePipeline = null;
 		this._occlusionPipeline = null;
-		this._hiZModule = null;
 		this._occlusionModule = null;
 	}
 
@@ -247,32 +231,6 @@ export class WebGPUOcclusionCullingRuntime {
 		this._ensureCandidateBuffers(candidateCount);
 	}
 
-	private async _ensureHiZResources(): Promise<void> {
-		if (!this._hiZModule) {
-			const shader = await ShaderSource.load("webgpu.postprocess.hiz.composite");
-			this._hiZModule = await this._backend.createShaderModule({
-				label: "WebGPUOcclusionHiZShader",
-				code: shader.code,
-				sourceMap: shader.sourceMap,
-				language: "wgsl",
-				stage: "compute",
-				sourceKind: "postprocess",
-			});
-		}
-		if (!this._hiZInitPipeline) {
-			this._hiZInitPipeline = await this._backend.createComputePipeline({
-				label: "WebGPUOcclusionHiZInitPipeline",
-				compute: { module: this._hiZModule, entryPoint: "csInit" },
-			});
-		}
-		if (!this._hiZReducePipeline) {
-			this._hiZReducePipeline = await this._backend.createComputePipeline({
-				label: "WebGPUOcclusionHiZReducePipeline",
-				compute: { module: this._hiZModule, entryPoint: "csReduce" },
-			});
-		}
-	}
-
 	private async _ensureOcclusionResources(): Promise<void> {
 		if (!this._occlusionModule) {
 			const shader = await ShaderSource.load("webgpu.utility.occlusionCulling.composite");
@@ -300,35 +258,6 @@ export class WebGPUOcclusionCullingRuntime {
 				size: 16,
 				usage: BufferUsage.Uniform | BufferUsage.CopyDst,
 			});
-		}
-	}
-
-	private _ensureHiZTexture(width: number, height: number): void {
-		const mipLevelCount = Math.floor(Math.log2(Math.max(width, height))) + 1;
-		if (
-			this._hiZTexture &&
-			this._hiZTexture.width === width &&
-			this._hiZTexture.height === height
-		) {
-			return;
-		}
-		this.invalidateFrameResources();
-		this._hiZTexture = this._backend.createTexture({
-			label: "WebGPUOcclusionHiZ",
-			width,
-			height,
-			format: TextureFormat.RGBA16Float,
-			mipLevelCount,
-			usage: TextureUsage.TextureBinding | TextureUsage.StorageBinding,
-		});
-		this._hiZMipViews = [];
-		for (let mip = 0; mip < mipLevelCount; mip++) {
-			this._hiZMipViews.push(
-				this._backend.createTextureView(this._hiZTexture, {
-					baseMipLevel: mip,
-					mipLevelCount: 1,
-				}),
-			);
 		}
 	}
 
@@ -371,59 +300,6 @@ export class WebGPUOcclusionCullingRuntime {
 			data[offset + 7] = 0;
 		}
 		this._backend.writeBuffer(this._candidateBuffer, data);
-	}
-
-	private _recordHiZBuild(
-		encoder: ICommandEncoder,
-		depth: IRenderTexture,
-		hiZ: IRenderTexture,
-	): void {
-		if (!this._hiZInitPipeline || !this._hiZReducePipeline) {
-			return;
-		}
-		let binding = this._createBindingGroup(
-			this._hiZInitPipeline,
-			[
-				{ binding: 0, resource: depth },
-				{ binding: 1, resource: this._hiZMipViews[0] },
-			],
-			"WebGPUOcclusionHiZInitBinding",
-		);
-		encoder.beginComputePass({ label: "WebGPUOcclusionHiZInit" });
-		encoder.setComputePipeline(this._hiZInitPipeline);
-		encoder.setBindingGroup(0, binding);
-		encoder.dispatchWorkgroups(
-			ceilDiv(hiZ.width, WORKGROUP_SIZE),
-			ceilDiv(hiZ.height, WORKGROUP_SIZE),
-			1,
-		);
-		encoder.endComputePass();
-
-		let sourceWidth = hiZ.width;
-		let sourceHeight = hiZ.height;
-		for (let mip = 1; mip < this._hiZMipViews.length; mip++) {
-			const targetWidth = Math.max(1, sourceWidth >> 1);
-			const targetHeight = Math.max(1, sourceHeight >> 1);
-			binding = this._createBindingGroup(
-				this._hiZReducePipeline,
-				[
-					{ binding: 0, resource: this._hiZMipViews[mip - 1] },
-					{ binding: 1, resource: this._hiZMipViews[mip] },
-				],
-				`WebGPUOcclusionHiZReduceBinding_${mip}`,
-			);
-			encoder.beginComputePass({ label: `WebGPUOcclusionHiZReduce_${mip}` });
-			encoder.setComputePipeline(this._hiZReducePipeline);
-			encoder.setBindingGroup(0, binding);
-			encoder.dispatchWorkgroups(
-				ceilDiv(targetWidth, WORKGROUP_SIZE),
-				ceilDiv(targetHeight, WORKGROUP_SIZE),
-				1,
-			);
-			encoder.endComputePass();
-			sourceWidth = targetWidth;
-			sourceHeight = targetHeight;
-		}
 	}
 
 	private _recordOcclusionCompute(
