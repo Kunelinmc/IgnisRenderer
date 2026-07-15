@@ -211,11 +211,10 @@ function testTransientDescriptors() {
 	});
 	assert.deepEqual(
 		descriptors.map((descriptor) => descriptor.id),
-		["ssrefraction:raw", "hiz"]
+		["ssrefraction:raw"]
 	);
 	assert.equal(descriptors[0].widthScale, 0.5);
 	assert.equal(descriptors[0].heightScale, 0.5);
-	assert.equal(descriptors[1].mipMode, "full-chain");
 	assert.deepEqual(
 		pass.getTransientResourceDescriptors({ backend: "software" }),
 		[]

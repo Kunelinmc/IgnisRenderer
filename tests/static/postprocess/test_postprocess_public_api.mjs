@@ -608,10 +608,6 @@ async function testSSRHistorySignatureUsesOptions() {
 	const firstSSRRaw = executor.created.find((handle) => handle.id === "ssr:raw");
 	assert.equal(firstSSRRaw.width, 32);
 	assert.equal(firstSSRRaw.height, 16);
-	const firstHiZ = executor.created.find((handle) => handle.id === "hiz");
-	assert.equal(firstHiZ.width, 64);
-	assert.equal(firstHiZ.height, 32);
-	assert.equal(firstHiZ.mipMode, "full-chain");
 
 	runtime.commitFrame();
 	await runtime.execute(createFrameContext(createSnapshot(4)));
@@ -627,7 +623,6 @@ async function testSSRHistorySignatureUsesOptions() {
 	assert.equal(recreatedSSRRaw.at(-1).width, 16);
 	assert.equal(recreatedSSRRaw.at(-1).height, 8);
 	assert.ok(executor.destroyed.some((handle) => handle.id === "ssr:raw"));
-	assert.equal(executor.created.filter((handle) => handle.id === "hiz").length, 1);
 	assert.equal(executor.invalidatedBindings, 2);
 }
 

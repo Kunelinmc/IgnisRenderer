@@ -260,9 +260,6 @@ async function testTemporalExecutePassUsesPipelineHistories() {
 			"ssrefraction:raw": {
 				handle: { resource: { id: "ssrefraction-raw" } },
 			},
-			hiz: {
-				handle: { resource: { id: "hiz" } },
-			},
 		},
 	});
 	const ssrefractionContext = executor.getPassExecutionContext(
@@ -270,7 +267,7 @@ async function testTemporalExecutePassUsesPipelineHistories() {
 	);
 	assert.deepEqual(ssrefractionContext.frameBinding, { id: "frame-binding" });
 	assert.equal(ssrefractionContext.refractionRaw.id, "ssrefraction-raw");
-	assert.equal(ssrefractionContext.hiZ.id, "hiz");
+	assert.equal(ssrefractionContext.hiZ, null);
 
 	const volumetricContext = executor.getPassExecutionContext(
 		createExecutionContextRequest("volumetric", ssrRequest)
