@@ -55,8 +55,9 @@ untrusted visibility information must keep objects visible.
   occlusion culling is enabled and the prepared scene has eligible candidates.
 - The `occlusion-test` node must execute after opaque depth or deferred depth is
   available.
-- WebGPU occlusion culling must rely on a sampled depth-like source. In v1, the
-  runtime must prefer the frame-target path that provides `gMotionDepth`.
+- WebGPU occlusion culling must rely on the shared frame Hi-Z texture built
+  from `gMotionDepth` after opaque depth is available. The occlusion runtime
+  must not own a separate Hi-Z texture or build pipeline.
 - Missing `gMotionDepth`, missing candidates, device restore, resize, camera
   reset, stale results, missing results, and packet signature changes must make
   affected candidates visible.
@@ -108,8 +109,8 @@ bun tests/static/webgpu/test_webgpu_occlusion_culling_runtime.mjs
 - `{backend}-feature-occlusion-culling` must be emitted once when
   `enableOcclusionCulling` is requested on a backend whose
   `BackendCapabilities.occlusionCulling` is `false`.
-- `webgpu-occlusion-hiz-failed` may be emitted when the WebGPU runtime cannot
-  build the Hi-Z texture for the current frame.
+- `webgpu-hiz-build-failed` may be emitted when the shared WebGPU frame Hi-Z
+  build fails. Affected candidates must remain visible for that frame.
 - `webgpu-occlusion-encode-failed` may be emitted when the WebGPU runtime cannot
   record the visibility compute pass.
 - `webgpu-occlusion-readback-failed` may be emitted when an asynchronous

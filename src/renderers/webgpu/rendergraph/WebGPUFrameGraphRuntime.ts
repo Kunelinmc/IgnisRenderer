@@ -5,7 +5,6 @@ import type {
 } from "../../../pipeline/types";
 import type {
 	LogicalGBufferBridge,
-	PostProcessPass,
 	PostProcessPassExecutionContextRequest,
 	PostProcessPassImplementation,
 	PostProcessPassRequest,
@@ -28,6 +27,7 @@ import type {
 	WebGPURenderResources,
 } from "../WebGPURenderResources";
 import { resolveWebGPUComputeFacade } from "../ComputeFacade";
+import { WebGPUHiZBuilder } from "../WebGPUHiZBuilder";
 import { BackendPostProcessRuntime } from "../../../postprocess/BackendPostProcessRuntime";
 import { WebGPUPostProcessExecutor } from "../WebGPUPostProcessExecutor";
 import {
@@ -104,6 +104,11 @@ import type { TextureReadbackResult } from "../../IComputeRuntime";
 const WEBGPU_OIT_DISABLED_MRT_KEY = "webgpu-oit-disabled-mrt-unavailable";
 const WEBGPU_OIT_DISABLED_MSAA_KEY = "webgpu-oit-disabled-msaa";
 const WEBGPU_OIT_DISABLED_RUNTIME_KEY = "webgpu-oit-disabled-runtime";
+const SHARED_HIZ_POSTPROCESS_PASS_IDS = new Set([
+	SCREEN_SPACE_REFLECTIONS_PASS_ID,
+	SCREEN_SPACE_REFRACTIONS_PASS_ID,
+	"volumetric",
+]);
 
 export class WebGPUFrameGraphRuntime {
 	private _backend: WebGPUBackend;
@@ -138,8 +143,10 @@ export class WebGPUFrameGraphRuntime {
 	private _deferredDecalPass: WebGPUDeferredDecalPass;
 	private _scenePassRecorder: WebGPUScenePassRecorder;
 	private _occlusionRuntime: WebGPUOcclusionCullingRuntime;
-	private _deferredOpaqueFrameState: WebGPUDeferredOpaqueFrameState | null =
-		null;
+	private _hiZBuilder: WebGPUHiZBuilder;
+	private _hiZStatus: "unavailable" | "pending" | "ready" | "failed" = "unavailable";
+	private _hiZBuildCount = 0;
+	private _deferredOpaqueFrameState: WebGPUDeferredOpaqueFrameState | null = null;
 	private readonly _graphPlanner = new WebGPUFrameGraphPlanner();
 	private readonly _graphCompiler = new WebGPUFrameGraphCompiler();
 	private readonly _nodeExecutors: Map<
@@ -151,11 +158,7 @@ export class WebGPUFrameGraphRuntime {
 	private _lastExecutedGraphNodeIds: string[] = [];
 	private _frameGraphValidationMode: WebGPUFrameGraphValidationMode = "throw";
 
-	constructor(
-		backend: WebGPUBackend,
-		resources: WebGPURenderResources,
-		msaa: WebGPUMSAAContext
-	) {
+	constructor(backend: WebGPUBackend, resources: WebGPURenderResources, msaa: WebGPUMSAAContext) {
 		this._backend = backend;
 		this._resources = resources;
 		this._msaa = msaa;
@@ -169,20 +172,21 @@ export class WebGPUFrameGraphRuntime {
 		};
 		const earlyZGetter = backendOptions.isEarlyZPrepassEnabled;
 		this._enableEarlyZPrepass =
-			typeof earlyZGetter === "function" ?
-				earlyZGetter.call(this._backend)
-			:	backendOptions.enableEarlyZPrepass !== false;
+			typeof earlyZGetter === "function"
+				? earlyZGetter.call(this._backend)
+				: backendOptions.enableEarlyZPrepass !== false;
 		const deferredLightingGetter = backendOptions.isDeferredLightingEnabled;
 		this._enableDeferredLighting =
-			typeof deferredLightingGetter === "function" ?
-				deferredLightingGetter.call(this._backend)
-			:	backendOptions.enableDeferredLighting !== false;
+			typeof deferredLightingGetter === "function"
+				? deferredLightingGetter.call(this._backend)
+				: backendOptions.enableDeferredLighting !== false;
 		const validationGetter = backendOptions.getFrameGraphValidationMode;
 		this._frameGraphValidationMode =
-			typeof validationGetter === "function" ?
-				validationGetter.call(this._backend)
-			:	backendOptions.frameGraphValidation ?? "throw";
+			typeof validationGetter === "function"
+				? validationGetter.call(this._backend)
+				: (backendOptions.frameGraphValidation ?? "throw");
 		const computeFacade = resolveWebGPUComputeFacade(backend);
+		this._hiZBuilder = new WebGPUHiZBuilder(computeFacade);
 		this._postRuntime = new WebGPUPostProcessRuntime(
 			computeFacade,
 			(key, message) =>
@@ -190,35 +194,28 @@ export class WebGPUFrameGraphRuntime {
 					scope: "WebGPUFrameExecutor",
 					onceKey: key,
 				}),
-			resources.sceneFrameLayout
+			resources.sceneFrameLayout,
+			this._hiZBuilder,
 		);
-		this._postBridge = new WebGPUPostProcessBridge(
-			backend,
-			this._postRuntime,
-			{
-				getEncoder: () => this._encoder,
-				getFrameTargets: () => this._frameTargets,
-				requireFrameResources: () => this._requireFrameResources(),
-				presentToCanvas: (source) => this._presentToCanvas(source),
-				warmupPresent: () => this._ensurePresentResources(),
-				setMotionHistoryWriteTarget: (texture) => {
-					this._motionHistoryWriteTarget = texture;
-				},
-			}
-		);
-		this._planarReflectionPass = new WebGPUPlanarReflectionPass(
-			backend,
-			resources
-		);
+		this._postBridge = new WebGPUPostProcessBridge(backend, this._postRuntime, {
+			getEncoder: () => this._encoder,
+			getFrameTargets: () => this._frameTargets,
+			isHiZReady: () => this._hiZStatus === "ready",
+			requireFrameResources: () => this._requireFrameResources(),
+			presentToCanvas: (source) => this._presentToCanvas(source),
+			warmupPresent: () => this._ensurePresentResources(),
+			setMotionHistoryWriteTarget: (texture) => {
+				this._motionHistoryWriteTarget = texture;
+			},
+		});
+		this._planarReflectionPass = new WebGPUPlanarReflectionPass(backend, resources);
 		this._presentPass = new WebGPUPresentPass(backend);
 		this._customRenderTargets = new WebGPUCustomRenderTargetRuntime(backend);
 		this._frameTargetManager = new WebGPUFrameTargetManager(backend, {
 			resolveMSAASampleCount: () => this._msaa.sampleCount,
 			fallbackToSingleSample: () => this._msaa.fallbackToSingleSample(),
-			configureDeferredLightingSupport: () =>
-				this._configureDeferredLightingSupport(),
-			frameHasDeferredLightingWork: (context) =>
-				this._frameHasDeferredLightingWork(context),
+			configureDeferredLightingSupport: () => this._configureDeferredLightingSupport(),
+			frameHasDeferredLightingWork: (context) => this._frameHasDeferredLightingWork(context),
 			getFrameContext: () => this._frameContext,
 			isDeferredEnabled: () => this._deferredEnabled,
 			setDeferredEnabled: (enabled) => {
@@ -239,59 +236,33 @@ export class WebGPUFrameGraphRuntime {
 			isIncrementalPartial: (context) =>
 				this._dirtyRectResolver.isIncrementalPartial(context),
 			resolveDirtyRects: (context, width, height) =>
-				this._dirtyRectResolver.resolveDirtyRects(
-					context,
-					width,
-					height
-				),
+				this._dirtyRectResolver.resolveDirtyRects(context, width, height),
 			selectPacketsForRect: (context, packets, rect) =>
-				this._dirtyRectResolver.selectPacketsForRect(
-					context,
-					packets,
-					rect
-				),
+				this._dirtyRectResolver.selectPacketsForRect(context, packets, rect),
 			selectTransparentSubsetForRect: (context, packets, rect) =>
-				this._dirtyRectResolver.selectTransparentSubsetForRect(
-					context,
-					packets,
-					rect
-				),
+				this._dirtyRectResolver.selectTransparentSubsetForRect(context, packets, rect),
 		};
 		this._depthDirtyClearPass = new WebGPUDepthDirtyClearPass(backend);
-		this._deferredLightingPass = new WebGPUDeferredLightingPass(
-			backend,
-			resources,
-			{
-				recordingContext: this._recordingContext,
-			}
-		);
-		this._deferredDecalPass = new WebGPUDeferredDecalPass(
-			backend,
-			resources,
-			{
-				recordingContext: this._recordingContext,
-			}
-		);
+		this._deferredLightingPass = new WebGPUDeferredLightingPass(backend, resources, {
+			recordingContext: this._recordingContext,
+		});
+		this._deferredDecalPass = new WebGPUDeferredDecalPass(backend, resources, {
+			recordingContext: this._recordingContext,
+		});
 		this._scenePassRecorder = new WebGPUScenePassRecorder(
 			backend,
 			resources,
 			this._recordingContext,
 			this._depthDirtyClearPass,
 			{
-				getGBufferWriteBinding: () =>
-					this._deferredLightingPass.getGBufferWriteBinding(),
-			}
+				getGBufferWriteBinding: () => this._deferredLightingPass.getGBufferWriteBinding(),
+			},
 		);
 		this._occlusionRuntime = new WebGPUOcclusionCullingRuntime(backend);
 		this._oitPass = new WebGPUOITPass(backend, resources, {
 			recordingContext: this._recordingContext,
 			recordLegacyMainPass: (context, packets, clear, earlyZ) =>
-				this._scenePassRecorder.recordLegacyMainPass(
-					context,
-					packets,
-					clear,
-					earlyZ
-				),
+				this._scenePassRecorder.recordLegacyMainPass(context, packets, clear, earlyZ),
 			drawTransmissionFallback: (context, packets) =>
 				this._scenePassRecorder.drawTransmissionPackets(context, packets),
 			warnDisabled: (key, message) => this._warnOITDisabled(key, message),
@@ -337,12 +308,10 @@ export class WebGPUFrameGraphRuntime {
 		this._lastExecutedGraphNodeIds = [];
 		this._graphCompiler.beginFrame([]);
 		this._occlusionRuntime.beginFrame(context);
-		const targetWidth = this._resolveAttachmentDimension(
-			context.attachments.width
-		);
-		const targetHeight = this._resolveAttachmentDimension(
-			context.attachments.height
-		);
+		this._hiZStatus = "unavailable";
+		this._hiZBuildCount = 0;
+		const targetWidth = this._resolveAttachmentDimension(context.attachments.width);
+		const targetHeight = this._resolveAttachmentDimension(context.attachments.height);
 
 		if (targetWidth <= 0 || targetHeight <= 0) {
 			this._destroyFrameTargets();
@@ -358,13 +327,13 @@ export class WebGPUFrameGraphRuntime {
 		this._ensureMRTSupport();
 		this._configureDeferredLightingSupport();
 		const targetRequirements = this._resolveFrameTargetRequirements(context);
-		this._deferredEnabled =
-			targetRequirements?.sceneTargetMode === "gbuffer";
+		this._deferredEnabled = targetRequirements?.sceneTargetMode === "gbuffer";
 		if (this._mrtEnabled && targetRequirements) {
 			this._ensureFrameTargets(targetWidth, targetHeight, targetRequirements);
 		} else {
 			this._destroyFrameTargets();
 		}
+		if (this._frameTargets?.hiZ) this._hiZStatus = "pending";
 		this._configureOIT(context);
 		this._graphCompiler.beginFrame(this._collectInitialGraphResources());
 		this.prepareFrameResources(context);
@@ -378,9 +347,7 @@ export class WebGPUFrameGraphRuntime {
 	 * rejected before an encoder was created.
 	 * @sideEffects Writes frame uniforms and clustered lighting buffers.
 	 */
-	public prepareFrameResources(
-		context: FrameContext
-	): WebGPUPreparedFrameResources | null {
+	public prepareFrameResources(context: FrameContext): WebGPUPreparedFrameResources | null {
 		if (!this._frameContext || !this._encoder) {
 			this._frameResources = null;
 			return null;
@@ -403,7 +370,7 @@ export class WebGPUFrameGraphRuntime {
 	}
 
 	public createPostProcessResource(
-		desc: PostProcessResourceDescriptor
+		desc: PostProcessResourceDescriptor,
 	): PostProcessResourceHandle {
 		return this._postBridge.createResource(desc);
 	}
@@ -424,7 +391,7 @@ export class WebGPUFrameGraphRuntime {
 	}
 
 	public getOcclusionVisibilityProvider(
-		options: NormalizedOcclusionCullingOptions
+		options: NormalizedOcclusionCullingOptions,
 	): OcclusionVisibilityProvider {
 		return this._occlusionRuntime.getVisibilityProvider(options);
 	}
@@ -446,8 +413,17 @@ export class WebGPUFrameGraphRuntime {
 			msaaTargets: this._msaaTargets,
 			motionHistoryWriteTarget: this._motionHistoryWriteTarget,
 			pendingFrameTargetInvalidation: this._pendingFrameTargetInvalidation,
-			pendingShaderRuntimeInvalidation:
-				this._pendingShaderRuntimeInvalidation,
+			pendingShaderRuntimeInvalidation: this._pendingShaderRuntimeInvalidation,
+			hiZ: {
+				allocated: !!this._frameTargets?.hiZ,
+				status: this._hiZStatus,
+				width: this._frameTargets?.hiZ?.width ?? 0,
+				height: this._frameTargets?.hiZ?.height ?? 0,
+				mipLevelCount: this._frameTargets?.hiZ ?
+					Math.floor(Math.log2(Math.max(this._frameTargets.hiZ.width, this._frameTargets.hiZ.height))) + 1
+				: 0,
+				buildCount: this._hiZBuildCount,
+			},
 			lastPlannedNodeIds: this._lastPlannedGraphNodes.map((node) => node.id),
 			lastExecutedNodeIds: this._lastExecutedGraphNodeIds.slice(),
 			compiledStages: this._lastCompiledGraphStages.slice(),
@@ -460,16 +436,12 @@ export class WebGPUFrameGraphRuntime {
 
 	private _requireFrameResources(): WebGPUPreparedFrameResources {
 		if (!this._frameResources) {
-			throw new Error(
-				"WebGPUFrameExecutor requires prepared main-frame resources."
-			);
+			throw new Error("WebGPUFrameExecutor requires prepared main-frame resources.");
 		}
 		return this._frameResources;
 	}
 
-	public getPassExecutionContext(
-		request: PostProcessPassExecutionContextRequest
-	): unknown {
+	public getPassExecutionContext(request: PostProcessPassExecutionContextRequest): unknown {
 		return this._postBridge.getPassExecutionContext(request);
 	}
 
@@ -484,7 +456,7 @@ export class WebGPUFrameGraphRuntime {
 	 */
 	public completePostProcessPass(
 		request: PostProcessPassRequest,
-		result: PostProcessPassResult
+		result: PostProcessPassResult,
 	): void {
 		this._postBridge.completePass(request, result);
 	}
@@ -505,6 +477,7 @@ export class WebGPUFrameGraphRuntime {
 	private _invalidateFrameTargetsNow(): void {
 		this._destroyFrameTargets();
 		this._postRuntime.invalidateBindings();
+		this._hiZBuilder.invalidateBindings();
 		this._occlusionRuntime.invalidateFrameResources();
 		this._planarReflectionPass.destroy();
 	}
@@ -527,6 +500,7 @@ export class WebGPUFrameGraphRuntime {
 		this._destroyDeferredBindings();
 		this._depthDirtyClearPass.onShaderRuntimeChanged();
 		this._postRuntime.onShaderRuntimeChanged();
+		this._hiZBuilder.invalidateShaderResources();
 		this._occlusionRuntime.onShaderRuntimeChanged();
 		this._planarReflectionPass.destroy();
 	}
@@ -534,7 +508,7 @@ export class WebGPUFrameGraphRuntime {
 	public async warmup(
 		context: FrameContext,
 		plan: WarmupPlan,
-		options: WarmupOptions = {}
+		options: WarmupOptions = {},
 	): Promise<WarmupPhaseCounters> {
 		let total = 1;
 		let compiled = 0;
@@ -553,7 +527,8 @@ export class WebGPUFrameGraphRuntime {
 		}
 		await yieldController.yieldIfNeeded();
 
-		const postRuntime = this._backend.postProcessRuntime ?? this._getFallbackPostProcessRuntime();
+		const postRuntime =
+			this._backend.postProcessRuntime ?? this._getFallbackPostProcessRuntime();
 		const warmupGraph = postRuntime.compileWarmupGraph(context);
 		const hints = new Set<string>();
 		if (plan.includePostProcess) {
@@ -589,8 +564,7 @@ export class WebGPUFrameGraphRuntime {
 			warmedPassImplementations.add(passId);
 			total++;
 			try {
-				const warmupContext =
-					this._getPassWarmupExecutionContext(implementation);
+				const warmupContext = this._getPassWarmupExecutionContext(implementation);
 				await implementation.warmup(warmupContext, {
 					frameContext: context,
 					postProcess: context.postProcess,
@@ -601,13 +575,7 @@ export class WebGPUFrameGraphRuntime {
 				compiled++;
 			} catch (error) {
 				failed++;
-				errors.push(
-					toShaderCompileError(
-						error,
-						"webgpu",
-						`WebGPUPostWarmup:${passId}`
-					)
-				);
+				errors.push(toShaderCompileError(error, "webgpu", `WebGPUPostWarmup:${passId}`));
 			}
 			await yieldController.yieldIfNeeded();
 		}
@@ -622,19 +590,7 @@ export class WebGPUFrameGraphRuntime {
 		};
 	}
 
-	private _getWarmupPostProcessDescriptorMap(
-		context: FrameContext,
-		plan: WarmupPlan
-	): Map<string, PostProcessPass> {
-		const descriptors =
-			plan.postProcessDescriptors ??
-			context.postProcess.getEnabledPasses().map((pass) => pass.pass);
-		return new Map(descriptors.map((pass) => [pass.id, pass]));
-	}
-
-	private _getPassWarmupExecutionContext(
-		implementation: PostProcessPassImplementation
-	): unknown {
+	private _getPassWarmupExecutionContext(implementation: PostProcessPassImplementation): unknown {
 		const metadata = implementation.metadata?.context;
 		if (!isWebGPUPostProcessContextMetadata(metadata)) {
 			return undefined;
@@ -664,6 +620,7 @@ export class WebGPUFrameGraphRuntime {
 		this._destroyTexturePools();
 		this._postRuntime.destroy();
 		this._occlusionRuntime.destroy();
+		this._hiZBuilder.destroy();
 		this._planarReflectionPass.destroy();
 		this._presentPass.destroy();
 		this._customRenderTargets.destroy();
@@ -674,18 +631,11 @@ export class WebGPUFrameGraphRuntime {
 		this._clearActiveFrameState(false);
 	}
 
-	public async executePass(
-		pass: FramePass,
-		context: FrameContext
-	): Promise<void> {
+	public async executePass(pass: FramePass, context: FrameContext): Promise<void> {
 		if (!this._encoder) return;
 
 		if (this._customRenderTargets.hasPass(pass, context)) {
-			await this._customRenderTargets.executePass(
-				pass,
-				context,
-				this._encoder
-			);
+			await this._customRenderTargets.executePass(pass, context, this._encoder);
 			return;
 		}
 
@@ -695,24 +645,22 @@ export class WebGPUFrameGraphRuntime {
 			sceneTargetMode: this.getSceneTargetModeForFrame(),
 			hasFrameTargets: !!this._frameTargets,
 			hasMSAATargets: !!this._msaaTargets,
-			needsTransmissionTargets:
-				!!this._frameTargets?.transmissionSceneColorCopy,
+			needsTransmissionTargets: !!this._frameTargets?.transmissionSceneColorCopy,
 			needsPlanarReflectionMask: !!this._frameTargets?.planarReflectionMask,
 			needsOcclusionTest: this._frameNeedsOcclusionTest(context),
+			needsHiZBuild: this._hiZStatus === "pending",
 		});
 		if (plan.nodes.length === 0) {
 			const key = `webgpu-pass-unsupported-${pass.stage}`;
 			Logger.warn(
 				`[${key}] WebGPU backend does not support pass "${pass.stage}" yet; skipping`,
-				{ scope: "WebGPUFrameGraphRuntime", onceKey: key }
+				{ scope: "WebGPUFrameGraphRuntime", onceKey: key },
 			);
 			return;
 		}
 		const compiled = this._graphCompiler.compileStage(plan);
 		this._handleGraphDiagnostics(compiled);
-		this._lastCompiledGraphStages = this._graphCompiler
-			.getCompiledStages()
-			.slice();
+		this._lastCompiledGraphStages = this._graphCompiler.getCompiledStages().slice();
 		this._lastPlannedGraphNodes = [...plan.nodes];
 		for (const node of plan.nodes) {
 			await this._executeGraphNode(node, context);
@@ -722,13 +670,11 @@ export class WebGPUFrameGraphRuntime {
 
 	private async _executeGraphNode(
 		node: WebGPUFrameGraphNode,
-		context: FrameContext
+		context: FrameContext,
 	): Promise<void> {
 		const executor = this._nodeExecutors.get(node.kind);
 		if (!executor) {
-			throw new Error(
-				`WebGPU frame graph node kind "${node.kind}" has no executor.`
-			);
+			throw new Error(`WebGPU frame graph node kind "${node.kind}" has no executor.`);
 		}
 		await executor(node, context);
 	}
@@ -741,10 +687,7 @@ export class WebGPUFrameGraphRuntime {
 			[
 				"shadow",
 				async (_node, context) => {
-					await this._resources.renderShadows(
-						context,
-						this._encoder ?? undefined
-					);
+					await this._resources.renderShadows(context, this._encoder ?? undefined);
 				},
 			],
 			[
@@ -759,7 +702,7 @@ export class WebGPUFrameGraphRuntime {
 				"paged-shadow-page-allocate",
 				async (_node, context) => {
 					await this._resources.recordPagedShadowPageAllocationPass(
-						this._createPagedShadowRequest(context)
+						this._createPagedShadowRequest(context),
 					);
 				},
 			],
@@ -767,7 +710,7 @@ export class WebGPUFrameGraphRuntime {
 				"paged-shadow-page-table-copy",
 				async (_node, context) => {
 					await this._resources.recordPagedShadowPageTableCopyPass(
-						this._createPagedShadowRequest(context)
+						this._createPagedShadowRequest(context),
 					);
 				},
 			],
@@ -775,7 +718,7 @@ export class WebGPUFrameGraphRuntime {
 				"paged-shadow-depth",
 				async (_node, context) => {
 					await this._resources.recordPagedShadowDepthPass(
-						this._createPagedShadowRequest(context)
+						this._createPagedShadowRequest(context),
 					);
 				},
 			],
@@ -783,7 +726,7 @@ export class WebGPUFrameGraphRuntime {
 				"paged-shadow-feedback",
 				async (_node, context) => {
 					await this._resources.recordPagedShadowFeedbackPass(
-						this._createPagedShadowRequest(context)
+						this._createPagedShadowRequest(context),
 					);
 				},
 			],
@@ -796,11 +739,10 @@ export class WebGPUFrameGraphRuntime {
 			[
 				"opaque-scene",
 				async (_node, context) => {
-					this._deferredOpaqueFrameState =
-						await this._scenePassRecorder.recordOpaque(
-							context,
-							this._deferredEnabled
-						);
+					this._deferredOpaqueFrameState = await this._scenePassRecorder.recordOpaque(
+						context,
+						this._deferredEnabled,
+					);
 					if (!this._deferredOpaqueFrameState) {
 						await this._recordPlanarReflectionComposite(context);
 					}
@@ -816,6 +758,12 @@ export class WebGPUFrameGraphRuntime {
 				"deferred-lighting",
 				async (_node, context) => {
 					await this._recordDeferredLightingNode(context);
+				},
+			],
+			[
+				"hiz-build",
+				async (_node, context) => {
+					await this._recordHiZBuildNode(context);
 				},
 			],
 			[
@@ -851,9 +799,7 @@ export class WebGPUFrameGraphRuntime {
 		]);
 	}
 
-	private _createPagedShadowRequest(
-		context: FrameContext
-	): WebGPUPagedShadowFrameRequest {
+	private _createPagedShadowRequest(context: FrameContext): WebGPUPagedShadowFrameRequest {
 		const frameTargets = this._frameTargets;
 		return {
 			context,
@@ -876,11 +822,10 @@ export class WebGPUFrameGraphRuntime {
 		const width = this._targetWidth;
 		const height = this._targetHeight;
 		const motionSource =
-			this._mrtEnabled && this._motionHistoryWriteTarget ?
-				this._frameTargets?.gMotionDepth
-			:	null;
-		const motionTarget =
-			this._mrtEnabled ? this._motionHistoryWriteTarget : null;
+			this._mrtEnabled && this._motionHistoryWriteTarget
+				? this._frameTargets?.gMotionDepth
+				: null;
+		const motionTarget = this._mrtEnabled ? this._motionHistoryWriteTarget : null;
 
 		try {
 			if (this._mrtEnabled && this._frameTargets && !this._hasPresentedInFrame) {
@@ -894,7 +839,7 @@ export class WebGPUFrameGraphRuntime {
 				this._backend.copyTextureToTexture(
 					{ texture: motionSource },
 					{ texture: motionTarget },
-					{ width, height, depthOrArrayLayers: 1 }
+					{ width, height, depthOrArrayLayers: 1 },
 				);
 			}
 		} finally {
@@ -910,22 +855,20 @@ export class WebGPUFrameGraphRuntime {
 	public readRenderTargetColor(
 		id: string,
 		attachmentIndex?: number,
-		options?: RenderTargetReadbackOptions
+		options?: RenderTargetReadbackOptions,
 	): Promise<TextureReadbackResult> {
 		return this._customRenderTargets.readColor(id, attachmentIndex, options);
 	}
 
 	private _collectInitialGraphResources(): string[] {
-		const resources = new Set<string>([
-			"canvas:scene-color-main",
-			"canvas:depth",
-		]);
+		const resources = new Set<string>(["canvas:scene-color-main", "canvas:depth"]);
 		const targets = this._frameTargets;
 		if (targets) {
 			resources.add("frame:scene-color-main");
 			resources.add("frame:depth");
 			if (targets.postPing) resources.add("post:ping");
 			if (targets.postPong) resources.add("post:pong");
+			if (targets.hiZ) resources.add("frame:hiz");
 			if (targets.gAlbedoAlpha) resources.add("gbuffer:albedo-alpha");
 			if (targets.gNormalRoughMetal) {
 				resources.add("gbuffer:normal-rough-metal");
@@ -988,12 +931,8 @@ export class WebGPUFrameGraphRuntime {
 		return Array.from(resources);
 	}
 
-	private _handleGraphDiagnostics(
-		compiled: WebGPUCompiledFrameGraphStage
-	): void {
-		const errors = compiled.diagnostics.filter(
-			(diagnostic) => diagnostic.severity === "error"
-		);
+	private _handleGraphDiagnostics(compiled: WebGPUCompiledFrameGraphStage): void {
+		const errors = compiled.diagnostics.filter((diagnostic) => diagnostic.severity === "error");
 		if (errors.length <= 0) {
 			return;
 		}
@@ -1014,8 +953,7 @@ export class WebGPUFrameGraphRuntime {
 		if (this._mrtSupportChecked) return;
 		this._mrtSupportChecked = true;
 
-		const maxColorAttachments =
-			this._backend.device?.limits?.maxColorAttachments ?? 8;
+		const maxColorAttachments = this._backend.device?.limits?.maxColorAttachments ?? 8;
 		const maxColorAttachmentBytesPerSample =
 			this._backend.device?.limits?.maxColorAttachmentBytesPerSample ?? 32;
 
@@ -1031,14 +969,14 @@ export class WebGPUFrameGraphRuntime {
 			const key = "webgpu-mrt-disabled-attachments";
 			Logger.warn(
 				`[${key}] WebGPU device maxColorAttachments is ${maxColorAttachments}, requires ${WEBGPU_MRT_COLOR_TARGET_COUNT}; disabling MRT/GBuffer post-process pipeline`,
-				{ scope: "WebGPUFrameExecutor", onceKey: key }
+				{ scope: "WebGPUFrameExecutor", onceKey: key },
 			);
 		}
 		if (maxColorAttachmentBytesPerSample < WEBGPU_MRT_COLOR_BYTES_PER_SAMPLE) {
 			const key = "webgpu-mrt-disabled-bytes";
 			Logger.warn(
 				`[${key}] WebGPU device maxColorAttachmentBytesPerSample is ${maxColorAttachmentBytesPerSample}, requires ${WEBGPU_MRT_COLOR_BYTES_PER_SAMPLE}; disabling MRT/GBuffer post-process pipeline`,
-				{ scope: "WebGPUFrameExecutor", onceKey: key }
+				{ scope: "WebGPUFrameExecutor", onceKey: key },
 			);
 		}
 	}
@@ -1053,14 +991,13 @@ export class WebGPUFrameGraphRuntime {
 			const key = "webgpu-deferred-disabled-mrt";
 			Logger.warn(
 				`[${key}] WebGPU deferred lighting requires MRT scene targets; using the non-deferred fallback path.`,
-				{ scope: "WebGPUFrameExecutor", onceKey: key }
+				{ scope: "WebGPUFrameExecutor", onceKey: key },
 			);
 			return;
 		}
 
 		const sampleCount = this._msaa.sampleCount;
-		const maxColorAttachments =
-			this._backend.device?.limits?.maxColorAttachments ?? 8;
+		const maxColorAttachments = this._backend.device?.limits?.maxColorAttachments ?? 8;
 		const maxColorAttachmentBytesPerSample =
 			this._backend.device?.limits?.maxColorAttachmentBytesPerSample ?? 32;
 		const maxStorageTexturesPerShaderStage =
@@ -1069,10 +1006,8 @@ export class WebGPUFrameGraphRuntime {
 		const supportsDeferred =
 			sampleCount === 1 &&
 			maxColorAttachments >= WEBGPU_DEFERRED_COLOR_TARGET_COUNT &&
-			maxColorAttachmentBytesPerSample >=
-				WEBGPU_DEFERRED_COLOR_BYTES_PER_SAMPLE &&
-			maxStorageTexturesPerShaderStage >=
-				WEBGPU_DEFERRED_STORAGE_TEXTURE_COUNT;
+			maxColorAttachmentBytesPerSample >= WEBGPU_DEFERRED_COLOR_BYTES_PER_SAMPLE &&
+			maxStorageTexturesPerShaderStage >= WEBGPU_DEFERRED_STORAGE_TEXTURE_COUNT;
 
 		this._deferredEnabled = supportsDeferred;
 		if (supportsDeferred) {
@@ -1083,64 +1018,49 @@ export class WebGPUFrameGraphRuntime {
 			const key = "webgpu-deferred-disabled-msaa";
 			Logger.warn(
 				`[${key}] WebGPU deferred lighting requires sampleCount=1; using legacy MRT forward path for ${sampleCount}x MSAA.`,
-				{ scope: "WebGPUFrameExecutor", onceKey: key }
+				{ scope: "WebGPUFrameExecutor", onceKey: key },
 			);
 		}
 		if (maxColorAttachments < WEBGPU_DEFERRED_COLOR_TARGET_COUNT) {
 			const key = "webgpu-deferred-disabled-attachments";
 			Logger.warn(
 				`[${key}] WebGPU device maxColorAttachments is ${maxColorAttachments}, requires ${WEBGPU_DEFERRED_COLOR_TARGET_COUNT}; using legacy MRT forward path.`,
-				{ scope: "WebGPUFrameExecutor", onceKey: key }
+				{ scope: "WebGPUFrameExecutor", onceKey: key },
 			);
 		}
-		if (
-			maxColorAttachmentBytesPerSample <
-			WEBGPU_DEFERRED_COLOR_BYTES_PER_SAMPLE
-		) {
+		if (maxColorAttachmentBytesPerSample < WEBGPU_DEFERRED_COLOR_BYTES_PER_SAMPLE) {
 			const key = "webgpu-deferred-disabled-bytes";
 			Logger.warn(
 				`[${key}] WebGPU device maxColorAttachmentBytesPerSample is ${maxColorAttachmentBytesPerSample}, requires ${WEBGPU_DEFERRED_COLOR_BYTES_PER_SAMPLE}; using legacy MRT forward path.`,
-				{ scope: "WebGPUFrameExecutor", onceKey: key }
+				{ scope: "WebGPUFrameExecutor", onceKey: key },
 			);
 		}
-		if (
-			maxStorageTexturesPerShaderStage <
-			WEBGPU_DEFERRED_STORAGE_TEXTURE_COUNT
-		) {
+		if (maxStorageTexturesPerShaderStage < WEBGPU_DEFERRED_STORAGE_TEXTURE_COUNT) {
 			const key = "webgpu-deferred-disabled-storage-textures";
 			Logger.warn(
 				`[${key}] WebGPU device maxStorageTexturesPerShaderStage is ${maxStorageTexturesPerShaderStage}, requires ${WEBGPU_DEFERRED_STORAGE_TEXTURE_COUNT}; using legacy MRT forward path.`,
-				{ scope: "WebGPUFrameExecutor", onceKey: key }
+				{ scope: "WebGPUFrameExecutor", onceKey: key },
 			);
 		}
 	}
 
 	private _resolveFrameTargetRequirements(
-		context: FrameContext
+		context: FrameContext,
 	): WebGPUFrameTargetRequirements | null {
 		if (!this._mrtEnabled) {
 			return null;
 		}
-		const postProcessPasses = resolvePostProcessExecutionOrder(
-			context.postProcess,
-			{
-				backend: "webgpu",
-				frameContext: context,
-			}
-		);
+		const postProcessPasses = resolvePostProcessExecutionOrder(context.postProcess, {
+			backend: "webgpu",
+			frameContext: context,
+		});
 		const needsPostProcessTargets = postProcessPasses.length > 0;
-		const needsPostProcessGBuffer = this._postProcessNeedsGBuffer(
-			context,
-			postProcessPasses
-		);
+		const needsPostProcessGBuffer = this._postProcessNeedsGBuffer(context, postProcessPasses);
 		const needsPlanarReflection =
-			context.features.enableReflection &&
-			context.scene.reflectivePackets.length > 0;
+			context.features.enableReflection && context.scene.reflectivePackets.length > 0;
 		const needsPlanarReflectionMask =
 			needsPlanarReflection ||
-			postProcessPasses.some(
-				(resolved) => resolved.id === SCREEN_SPACE_REFLECTIONS_PASS_ID
-			);
+			postProcessPasses.some((resolved) => resolved.id === SCREEN_SPACE_REFLECTIONS_PASS_ID);
 		const msaaSampleCount = this._msaa.sampleCount;
 		const needsOITTargets =
 			msaaSampleCount <= 1 &&
@@ -1148,37 +1068,42 @@ export class WebGPUFrameGraphRuntime {
 			this._frameHasOITWork(context);
 		const needsTransmissionTargets =
 			postProcessPasses.some(
-				(resolved) => resolved.id === SCREEN_SPACE_REFRACTIONS_PASS_ID
+				(resolved) => resolved.id === SCREEN_SPACE_REFRACTIONS_PASS_ID,
 			) && this._frameHasTransmissionWork(context);
 		const needsOcclusionTargets = this._frameNeedsOcclusionTest(context);
-		const enableDeferred =
-			this._deferredEnabled && this._frameHasDeferredLightingWork(context);
+		const needsHiZTarget =
+			needsOcclusionTargets ||
+			postProcessPasses.some((resolved) => SHARED_HIZ_POSTPROCESS_PASS_IDS.has(resolved.id));
+		const enableDeferred = this._deferredEnabled && this._frameHasDeferredLightingWork(context);
 		if (
 			!enableDeferred &&
 			!needsPostProcessTargets &&
 			!needsPlanarReflection &&
 			!needsOITTargets &&
 			!needsTransmissionTargets &&
-			!needsOcclusionTargets
+			!needsOcclusionTargets &&
+			!needsHiZTarget
 		) {
 			return null;
 		}
-		const sceneTargetMode: Exclude<WebGPUSceneTargetMode, "single"> =
-			enableDeferred ? "gbuffer"
-			: needsPostProcessGBuffer || needsOcclusionTargets ? "mrt"
-			: "color";
+		const sceneTargetMode: Exclude<WebGPUSceneTargetMode, "single"> = enableDeferred
+			? "gbuffer"
+			: needsPostProcessGBuffer || needsOcclusionTargets || needsHiZTarget
+				? "mrt"
+				: "color";
 		return {
 			sceneTargetMode,
 			needsPostProcessTargets,
 			needsOITTargets,
 			needsTransmissionTargets,
 			needsPlanarReflectionMask,
+			needsHiZTarget,
 		};
 	}
 
 	private _postProcessNeedsGBuffer(
 		context: FrameContext,
-		passes: readonly ResolvedPostProcessPass[]
+		passes: readonly ResolvedPostProcessPass[],
 	): boolean {
 		for (const resolved of passes) {
 			if (!resolved.pass.builtIn) {
@@ -1206,7 +1131,7 @@ export class WebGPUFrameGraphRuntime {
 			}),
 		];
 		return opaquePackets.some((packet) =>
-			materialSupportsWebGPUDeferredLighting(packet.material)
+			materialSupportsWebGPUDeferredLighting(packet.material),
 		);
 	}
 
@@ -1225,9 +1150,7 @@ export class WebGPUFrameGraphRuntime {
 				includeTransparent: true,
 			}),
 		];
-		return transparentPackets.some((packet) =>
-			materialUsesTransmission(packet.material)
-		);
+		return transparentPackets.some((packet) => materialUsesTransmission(packet.material));
 	}
 
 	private _frameNeedsOcclusionTest(context: FrameContext): boolean {
@@ -1250,7 +1173,7 @@ export class WebGPUFrameGraphRuntime {
 		if (sampleCount > 1) {
 			this._warnOITDisabled(
 				WEBGPU_OIT_DISABLED_MSAA_KEY,
-				"WebGPU OIT v1 only supports sampleCount=1; falling back to legacy transparent rendering."
+				"WebGPU OIT v1 only supports sampleCount=1; falling back to legacy transparent rendering.",
 			);
 			this._oitActive = false;
 			return;
@@ -1258,7 +1181,7 @@ export class WebGPUFrameGraphRuntime {
 		if (!this._mrtEnabled || !this._frameTargets) {
 			this._warnOITDisabled(
 				WEBGPU_OIT_DISABLED_MRT_KEY,
-				"WebGPU OIT requires MRT scene targets; falling back to legacy transparent rendering."
+				"WebGPU OIT requires MRT scene targets; falling back to legacy transparent rendering.",
 			);
 			this._oitActive = false;
 			return;
@@ -1270,7 +1193,7 @@ export class WebGPUFrameGraphRuntime {
 		) {
 			this._warnOITDisabled(
 				WEBGPU_OIT_DISABLED_RUNTIME_KEY,
-				"WebGPU OIT runtime targets are unavailable; falling back to legacy transparent rendering."
+				"WebGPU OIT runtime targets are unavailable; falling back to legacy transparent rendering.",
 			);
 			this._oitActive = false;
 			return;
@@ -1278,7 +1201,7 @@ export class WebGPUFrameGraphRuntime {
 		if (typeof this._encoder?.copyTextureToTexture !== "function") {
 			this._warnOITDisabled(
 				WEBGPU_OIT_DISABLED_RUNTIME_KEY,
-				"WebGPU OIT requires in-frame texture-copy support; falling back to legacy transparent rendering."
+				"WebGPU OIT requires in-frame texture-copy support; falling back to legacy transparent rendering.",
 			);
 			this._oitActive = false;
 			return;
@@ -1296,13 +1219,9 @@ export class WebGPUFrameGraphRuntime {
 	private _ensureFrameTargets(
 		width: number,
 		height: number,
-		requirementsOrDeferred: WebGPUFrameTargetRequirements | boolean
+		requirementsOrDeferred: WebGPUFrameTargetRequirements | boolean,
 	): void {
-		this._frameTargetManager.ensureFrameTargets(
-			width,
-			height,
-			requirementsOrDeferred
-		);
+		this._frameTargetManager.ensureFrameTargets(width, height, requirementsOrDeferred);
 	}
 
 	private _destroyFrameTargets(): void {
@@ -1335,8 +1254,7 @@ export class WebGPUFrameGraphRuntime {
 	}
 
 	private _flushPendingLifecycleInvalidations(): void {
-		const applyShaderRuntimeInvalidation =
-			this._pendingShaderRuntimeInvalidation;
+		const applyShaderRuntimeInvalidation = this._pendingShaderRuntimeInvalidation;
 		const applyFrameTargetInvalidation = this._pendingFrameTargetInvalidation;
 		this._pendingShaderRuntimeInvalidation = false;
 		this._pendingFrameTargetInvalidation = false;
@@ -1350,9 +1268,7 @@ export class WebGPUFrameGraphRuntime {
 
 	private _hasActiveFrameState(): boolean {
 		return (
-			this._encoder !== null ||
-			this._frameContext !== null ||
-			this._frameResources !== null
+			this._encoder !== null || this._frameContext !== null || this._frameResources !== null
 		);
 	}
 
@@ -1397,32 +1313,24 @@ export class WebGPUFrameGraphRuntime {
 			}),
 		];
 		if (!this._frameTargets?.transmissionSceneColorCopy) {
-			await this._scenePassRecorder.recordMainPass(
-				context,
-				transparentPackets,
-				false,
-				false
-			);
+			await this._scenePassRecorder.recordMainPass(context, transparentPackets, false, false);
 			return;
 		}
 		const opaqueTransparentPackets = transparentPackets.filter(
-			(packet) => !materialUsesTransmission(packet.material)
+			(packet) => !materialUsesTransmission(packet.material),
 		);
 		const transmissionPackets = transparentPackets.filter((packet) =>
-			materialUsesTransmission(packet.material)
+			materialUsesTransmission(packet.material),
 		);
 		if (opaqueTransparentPackets.length > 0) {
 			await this._scenePassRecorder.recordMainPass(
 				context,
 				opaqueTransparentPackets,
 				false,
-				false
+				false,
 			);
 		}
-		await this._scenePassRecorder.drawTransmissionPackets(
-			context,
-			transmissionPackets
-		);
+		await this._scenePassRecorder.drawTransmissionPackets(context, transmissionPackets);
 	}
 
 	private async _recordOITTransparentPass(context: FrameContext): Promise<void> {
@@ -1437,12 +1345,7 @@ export class WebGPUFrameGraphRuntime {
 			}),
 		];
 		if (!this._mrtEnabled || !this._frameTargets) {
-			await this._scenePassRecorder.recordMainPass(
-				context,
-				transparentPackets,
-				false,
-				false
-			);
+			await this._scenePassRecorder.recordMainPass(context, transparentPackets, false, false);
 			return;
 		}
 		await this._oitPass.recordTransparentPass(context, transparentPackets);
@@ -1452,11 +1355,7 @@ export class WebGPUFrameGraphRuntime {
 		if (!this._encoder) {
 			return;
 		}
-		if (
-			!this._mrtEnabled ||
-			!this._frameTargets?.oitAccum ||
-			!this._frameTargets.oitReveal
-		) {
+		if (!this._mrtEnabled || !this._frameTargets?.oitAccum || !this._frameTargets.oitReveal) {
 			await this._scenePassRecorder.recordParticlePass(context);
 			return;
 		}
@@ -1468,7 +1367,7 @@ export class WebGPUFrameGraphRuntime {
 		options: {
 			includeOpaque?: boolean;
 			includeTransparent?: boolean;
-		}
+		},
 	): DrawPacket[] {
 		const resources = this._resources as WebGPURenderResources & {
 			buildParticleMeshDrawPackets?: (
@@ -1476,15 +1375,13 @@ export class WebGPUFrameGraphRuntime {
 				options: {
 					includeOpaque?: boolean;
 					includeTransparent?: boolean;
-				}
+				},
 			) => DrawPacket[];
 		};
 		return resources.buildParticleMeshDrawPackets?.(context, options) ?? [];
 	}
 
-	private async _recordPlanarReflectionPass(
-		context: FrameContext
-	): Promise<void> {
+	private async _recordPlanarReflectionPass(context: FrameContext): Promise<void> {
 		if (!this._encoder) {
 			return;
 		}
@@ -1493,9 +1390,7 @@ export class WebGPUFrameGraphRuntime {
 		this._encoder = this._backend.createCommandEncoder();
 	}
 
-	private async _recordPlanarReflectionComposite(
-		context: FrameContext
-	): Promise<void> {
+	private async _recordPlanarReflectionComposite(context: FrameContext): Promise<void> {
 		if (!this._encoder || !this._mrtEnabled || !this._frameTargets) {
 			return;
 		}
@@ -1505,8 +1400,7 @@ export class WebGPUFrameGraphRuntime {
 			context,
 			frameResources: this._requireFrameResources(),
 			frameTargets: this._frameTargets,
-			msaaTargets:
-				this._msaaTargets as WebGPUPlanarReflectionMSAATargets | null,
+			msaaTargets: this._msaaTargets as WebGPUPlanarReflectionMSAATargets | null,
 		});
 	}
 
@@ -1538,35 +1432,28 @@ export class WebGPUFrameGraphRuntime {
 		this._encoder = null;
 	}
 
-	private async _recordDeferredDecalNode(
-		context: FrameContext
-	): Promise<void> {
+	private async _recordDeferredDecalNode(context: FrameContext): Promise<void> {
 		if (!this._deferredOpaqueFrameState?.lightingEnabled) {
 			return;
 		}
 		await this._deferredDecalPass.recordDecalPass(context);
 	}
 
-	private async _recordDeferredLightingNode(
-		context: FrameContext
-	): Promise<void> {
+	private async _recordDeferredLightingNode(context: FrameContext): Promise<void> {
 		const state = this._deferredOpaqueFrameState;
 		if (!state) {
 			return;
 		}
 		try {
 			if (state.lightingEnabled) {
-				await this._recordDeferredLightingPass(
-					context,
-					state.clearSceneColor
-				);
+				await this._recordDeferredLightingPass(context, state.clearSceneColor);
 			}
 			if (state.fallbackPackets.length > 0) {
 				await this._scenePassRecorder.recordMainPass(
 					context,
 					state.fallbackPackets,
 					false,
-					false
+					false,
 				);
 			}
 			await this._recordPlanarReflectionComposite(context);
@@ -1577,26 +1464,42 @@ export class WebGPUFrameGraphRuntime {
 
 	private async _recordDeferredLightingPass(
 		context: FrameContext,
-		clearSceneColor: boolean
+		clearSceneColor: boolean,
 	): Promise<void> {
-		await this._deferredLightingPass.recordLightingPass(
-			context,
-			clearSceneColor
-		);
+		await this._deferredLightingPass.recordLightingPass(context, clearSceneColor);
+	}
+
+	private async _recordHiZBuildNode(_context: FrameContext): Promise<void> {
+		if (!this._encoder || !this._frameTargets?.gMotionDepth || !this._frameTargets.hiZ) {
+			this._hiZStatus = "unavailable";
+			return;
+		}
+		try {
+			await this._hiZBuilder.build({
+				encoder: this._encoder,
+				depth: this._frameTargets.gMotionDepth,
+				hiZ: this._frameTargets.hiZ,
+			});
+			this._hiZStatus = "ready";
+			this._hiZBuildCount++;
+		} catch (error) {
+			this._hiZStatus = "failed";
+			Logger.warn(
+				`[webgpu-hiz-build-failed] Shared WebGPU Hi-Z build failed; dependent effects will be skipped. ${String(error)}`,
+				{ scope: "WebGPUFrameExecutor", onceKey: "webgpu-hiz-build-failed" },
+			);
+		}
 	}
 
 	private async _recordOcclusionTestNode(context: FrameContext): Promise<void> {
-		if (!this._encoder || !this._frameTargets?.gMotionDepth) {
+		if (!this._encoder || this._hiZStatus !== "ready" || !this._frameTargets?.hiZ) {
 			return;
 		}
 		await this._occlusionRuntime.recordVisibilityPass({
 			context,
 			encoder: this._encoder,
-			depth: this._frameTargets.gMotionDepth,
-			options: normalizeOcclusionCullingOptions(
-				context.features.occlusionCullingOptions
-			),
+			hiZ: this._frameTargets.hiZ,
+			options: normalizeOcclusionCullingOptions(context.features.occlusionCullingOptions),
 		});
 	}
-
 }

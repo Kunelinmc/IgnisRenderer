@@ -2,8 +2,8 @@ import type { IBindingGroup, IComputePipeline, ISampler } from "../../types";
 import { AddressMode, FilterMode } from "../../types";
 import type { IWebGPUComputeFacade } from "../ComputeFacade";
 import { Logger } from "../../../foundation/Logger";
-import { WebGPUHiZPostProcessHelper } from "./HiZPostProcessHelper";
 import { PostProcessCopyHelper } from "./PostProcessCopyHelper";
+import { WebGPUHiZBuilder } from "../WebGPUHiZBuilder";
 
 interface CachedBindGroup {
 	group: IBindingGroup;
@@ -16,7 +16,8 @@ interface CachedBindGroup {
 export class PostProcessSharedContext {
 	private _compute: IWebGPUComputeFacade;
 	private _sampler: ISampler | null = null;
-	private _hiZHelper: WebGPUHiZPostProcessHelper | null = null;
+	private _hiZBuilder: WebGPUHiZBuilder | null;
+	private readonly _ownsHiZBuilder: boolean;
 	private _copyHelper: PostProcessCopyHelper | null = null;
 	private _bindGroupCache = new Map<string, CachedBindGroup>();
 	private _frameBindGroupLayout: GPUBindGroupLayout | null;
@@ -24,11 +25,14 @@ export class PostProcessSharedContext {
 	constructor(
 		compute: IWebGPUComputeFacade,
 		warn: (key: string, message: string) => void,
-		frameBindGroupLayout?: GPUBindGroupLayout
+		frameBindGroupLayout?: GPUBindGroupLayout,
+		hiZBuilder?: WebGPUHiZBuilder
 	) {
 		this._compute = compute;
 		void warn;
 		this._frameBindGroupLayout = frameBindGroupLayout || null;
+		this._hiZBuilder = hiZBuilder ?? null;
+		this._ownsHiZBuilder = !hiZBuilder;
 	}
 
 	public get compute(): IWebGPUComputeFacade {
@@ -43,17 +47,12 @@ export class PostProcessSharedContext {
 		return this._sampler;
 	}
 
-	/**
-	 * Returns the shared Hi-Z helper used by depth-aware WebGPU passes.
-	 *
-	 * @returns Lazily allocated helper owned by this shared context.
-	 * @sideEffects Allocates the helper object on first use.
-	 */
-	public getHiZHelper(): WebGPUHiZPostProcessHelper {
-		if (!this._hiZHelper) {
-			this._hiZHelper = new WebGPUHiZPostProcessHelper(this);
+	/** @internal Returns the frame-graph-owned shared Hi-Z builder. */
+	public getHiZBuilder(): WebGPUHiZBuilder {
+		if (!this._hiZBuilder) {
+			this._hiZBuilder = new WebGPUHiZBuilder(this._compute);
 		}
-		return this._hiZHelper;
+		return this._hiZBuilder;
 	}
 
 	/**
@@ -128,15 +127,16 @@ export class PostProcessSharedContext {
 
 	public onShaderRuntimeChanged(): void {
 		this._destroyCachedBindGroups();
-		this._hiZHelper?.destroy();
-		this._hiZHelper = null;
+		if (this._ownsHiZBuilder) this._hiZBuilder?.invalidateShaderResources();
 		this._copyHelper?.destroy();
 		this._copyHelper = null;
 	}
 
 	public destroy(): void {
-		this._hiZHelper?.destroy();
-		this._hiZHelper = null;
+		if (this._ownsHiZBuilder) {
+			this._hiZBuilder?.destroy();
+			this._hiZBuilder = null;
+		}
 		this._copyHelper?.destroy();
 		this._copyHelper = null;
 		this._destroyCachedBindGroups();

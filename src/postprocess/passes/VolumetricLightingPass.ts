@@ -78,8 +78,6 @@ export const VOLUMETRIC_LIGHTING_PASS_ORDER = {
 		inflationRadius: 16,
 	},
 } as const satisfies PostProcessPassMetadata;
-const WEBGPU_HIZ_TRANSIENT_ID = "hiz";
-const WEBGPU_HIZ_TRANSIENT_USAGE = ["sampled", "storage"] as const;
 const SOFTWARE_VOLUMETRIC_CONSTANTS = Object.freeze({
 	SIGMA_T_SCALE: VOLUMETRIC_SIGMA_T_SCALE,
 	MIN_RAY_DISTANCE: 0.1,
@@ -1183,12 +1181,7 @@ export class WebGPUVolumetricLightingImplementation
 				{ property: "motionHistoryRead", historyId: "motion", side: "read" },
 				{ property: "motionHistoryWrite", historyId: "motion", side: "write" },
 			],
-			transients: [
-				{
-					property: "hiZ",
-					transientId: WEBGPU_HIZ_TRANSIENT_ID,
-				},
-			],
+			requiresHiZ: true,
 			motionHistoryCopy: {
 				writeProperty: "motionHistoryWrite",
 			},
@@ -1300,11 +1293,7 @@ export class WebGPUVolumetricLightingImplementation
 		) {
 			return false;
 		}
-		const hiZMips = await context.shared.getHiZHelper().build({
-			encoder: context.encoder,
-			depth: context.targets.gMotionDepth,
-			hiZ: context.hiZ,
-		});
+		const hiZMips = context.shared.getHiZBuilder().getMipViews(context.hiZ);
 		if (hiZMips.length === 0) {
 			return false;
 		}
@@ -1569,7 +1558,8 @@ export class WebGPUVolumetricLightingImplementation
 			};
 			this._resources.set(shared, resources);
 		}
-		await shared.getHiZHelper().ensureResources();
+		await shared.ensureCommonResources();
+		await shared.getHiZBuilder().ensureResources();
 		if (!resources.module) {
 			const shader = await ShaderSource.load(
 				"webgpu.postprocess.volumetric.composite"
@@ -1709,12 +1699,6 @@ export class VolumetricLightingPass extends PostProcessPass<
 		if (request.backend !== "webgpu") {
 			return [];
 		}
-		return [
-			{
-				id: WEBGPU_HIZ_TRANSIENT_ID,
-				usage: WEBGPU_HIZ_TRANSIENT_USAGE,
-				mipMode: "full-chain",
-			},
-		];
+		return [];
 	}
 }

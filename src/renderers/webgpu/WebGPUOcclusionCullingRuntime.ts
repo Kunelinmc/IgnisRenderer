@@ -76,7 +76,7 @@ export class WebGPUOcclusionCullingRuntime {
 	private _occlusionPipeline: IComputePipeline | null = null;
 	private _warnedKeys = new Set<string>();
 
-	public constructor(backend: WebGPUBackend) {
+	constructor(backend: WebGPUBackend) {
 		this._backend = backend;
 	}
 
@@ -89,13 +89,12 @@ export class WebGPUOcclusionCullingRuntime {
 	}
 
 	public getVisibilityProvider(
-		options: NormalizedOcclusionCullingOptions
+		options: NormalizedOcclusionCullingOptions,
 	): OcclusionVisibilityProvider {
 		this._collectCompletedReadbacks();
 		return {
 			sourceFrameIndex: this._lastCompletedFrameIndex,
-			isPacketVisible: (candidate) =>
-				this._isPacketVisible(candidate, options),
+			isPacketVisible: (candidate) => this._isPacketVisible(candidate, options),
 		};
 	}
 
@@ -143,29 +142,24 @@ export class WebGPUOcclusionCullingRuntime {
 	public async recordVisibilityPass(request: {
 		context: FrameContext;
 		encoder: ICommandEncoder;
-		depth: IRenderTexture | null | undefined;
+		hiZ: IRenderTexture | null | undefined;
 		options: NormalizedOcclusionCullingOptions;
 	}): Promise<void> {
 		const occlusion = request.context.scene.occlusion;
-		const candidates = occlusion?.candidates.filter(
-			(candidate) => candidate.eligible
-		) ?? [];
-		if (!request.depth || candidates.length === 0) {
+		const candidates = occlusion?.candidates.filter((candidate) => candidate.eligible) ?? [];
+		if (!request.hiZ || candidates.length === 0) {
 			return;
 		}
 		try {
-			await this._ensureResources(request.depth, candidates.length);
+			await this._ensureResources(candidates.length);
 		} catch (error) {
 			this._warnOnce(
 				"webgpu-occlusion-encode-failed",
-				`WebGPU occlusion culling resources are unavailable; keeping current visibility snapshot. ${String(error)}`
+				`WebGPU occlusion culling resources are unavailable; keeping current visibility snapshot. ${String(error)}`,
 			);
 			return;
 		}
 		if (
-			!this._hiZTexture ||
-			!this._hiZInitPipeline ||
-			!this._hiZReducePipeline ||
 			!this._occlusionPipeline ||
 			!this._candidateBuffer ||
 			!this._resultBuffer ||
@@ -173,31 +167,19 @@ export class WebGPUOcclusionCullingRuntime {
 		) {
 			this._warnOnce(
 				"webgpu-occlusion-encode-failed",
-				"WebGPU occlusion culling resources are incomplete; keeping current visibility snapshot."
+				"WebGPU occlusion culling resources are incomplete; keeping current visibility snapshot.",
 			);
 			return;
 		}
 		try {
 			this._uploadCandidates(candidates);
-			this._backend.writeBuffer(
-				this._paramsBuffer,
-				new Float32Array([0.05, 0, 0, 0])
-			);
-			this._recordHiZBuild(request.encoder, request.depth, this._hiZTexture);
-		} catch (error) {
-			this._warnOnce(
-				"webgpu-occlusion-hiz-failed",
-				`WebGPU occlusion culling could not build Hi-Z; keeping current visibility snapshot. ${String(error)}`
-			);
-			return;
-		}
-		try {
-			this._recordOcclusionCompute(request.encoder, candidates.length);
+			this._backend.writeBuffer(this._paramsBuffer, new Float32Array([0.05, 0, 0, 0]));
+			this._recordOcclusionCompute(request.encoder, candidates.length, request.hiZ);
 			this._queueReadback(request.encoder, candidates, request.options);
 		} catch (error) {
 			this._warnOnce(
 				"webgpu-occlusion-encode-failed",
-				`WebGPU occlusion culling compute pass could not be encoded; keeping current visibility snapshot. ${String(error)}`
+				`WebGPU occlusion culling compute pass could not be encoded; keeping current visibility snapshot. ${String(error)}`,
 			);
 		}
 	}
@@ -211,10 +193,7 @@ export class WebGPUOcclusionCullingRuntime {
 			void pending.buffer
 				.mapAsync(WEBGPU_MAP_MODE_READ, 0, pending.byteLength)
 				.then(() => {
-					const mapped = pending.buffer.getMappedRange(
-						0,
-						pending.byteLength
-					);
+					const mapped = pending.buffer.getMappedRange(0, pending.byteLength);
 					this._applyReadback(pending, new Uint32Array(mapped.slice(0)));
 				})
 				.catch(() => {
@@ -224,7 +203,7 @@ export class WebGPUOcclusionCullingRuntime {
 					}
 					this._warnOnce(
 						"webgpu-occlusion-readback-failed",
-						"WebGPU occlusion culling readback failed; keeping current visibility snapshot."
+						"WebGPU occlusion culling readback failed; keeping current visibility snapshot.",
 					);
 					pending.done = true;
 				})
@@ -242,7 +221,7 @@ export class WebGPUOcclusionCullingRuntime {
 
 	private _isPacketVisible(
 		candidate: OcclusionCandidate,
-		options: NormalizedOcclusionCullingOptions
+		options: NormalizedOcclusionCullingOptions,
 	): boolean {
 		if (!candidate.eligible) {
 			return true;
@@ -257,22 +236,14 @@ export class WebGPUOcclusionCullingRuntime {
 		) {
 			return true;
 		}
-		if (
-			this._frameIndex - state.lastResultFrame >
-			options.maxReadbackLatencyFrames
-		) {
+		if (this._frameIndex - state.lastResultFrame > options.maxReadbackLatencyFrames) {
 			return true;
 		}
 		return state.visible;
 	}
 
-	private async _ensureResources(
-		depth: IRenderTexture,
-		candidateCount: number
-	): Promise<void> {
-		await this._ensureHiZResources();
+	private async _ensureResources(candidateCount: number): Promise<void> {
 		await this._ensureOcclusionResources();
-		this._ensureHiZTexture(depth.width, depth.height);
 		this._ensureCandidateBuffers(candidateCount);
 	}
 
@@ -304,9 +275,7 @@ export class WebGPUOcclusionCullingRuntime {
 
 	private async _ensureOcclusionResources(): Promise<void> {
 		if (!this._occlusionModule) {
-			const shader = await ShaderSource.load(
-				"webgpu.utility.occlusionCulling.composite"
-			);
+			const shader = await ShaderSource.load("webgpu.utility.occlusionCulling.composite");
 			this._occlusionModule = await this._backend.createShaderModule({
 				label: "WebGPUOcclusionCullingShader",
 				code: shader.code,
@@ -358,7 +327,7 @@ export class WebGPUOcclusionCullingRuntime {
 				this._backend.createTextureView(this._hiZTexture, {
 					baseMipLevel: mip,
 					mipLevelCount: 1,
-				})
+				}),
 			);
 		}
 	}
@@ -379,10 +348,7 @@ export class WebGPUOcclusionCullingRuntime {
 			this._resultBuffer = this._backend.createBuffer({
 				label: "WebGPUOcclusionResults",
 				size: Math.max(4, resultBytes),
-				usage:
-					BufferUsage.Storage |
-					BufferUsage.CopySrc |
-					BufferUsage.CopyDst,
+				usage: BufferUsage.Storage | BufferUsage.CopySrc | BufferUsage.CopyDst,
 			});
 		}
 	}
@@ -410,7 +376,7 @@ export class WebGPUOcclusionCullingRuntime {
 	private _recordHiZBuild(
 		encoder: ICommandEncoder,
 		depth: IRenderTexture,
-		hiZ: IRenderTexture
+		hiZ: IRenderTexture,
 	): void {
 		if (!this._hiZInitPipeline || !this._hiZReducePipeline) {
 			return;
@@ -421,7 +387,7 @@ export class WebGPUOcclusionCullingRuntime {
 				{ binding: 0, resource: depth },
 				{ binding: 1, resource: this._hiZMipViews[0] },
 			],
-			"WebGPUOcclusionHiZInitBinding"
+			"WebGPUOcclusionHiZInitBinding",
 		);
 		encoder.beginComputePass({ label: "WebGPUOcclusionHiZInit" });
 		encoder.setComputePipeline(this._hiZInitPipeline);
@@ -429,7 +395,7 @@ export class WebGPUOcclusionCullingRuntime {
 		encoder.dispatchWorkgroups(
 			ceilDiv(hiZ.width, WORKGROUP_SIZE),
 			ceilDiv(hiZ.height, WORKGROUP_SIZE),
-			1
+			1,
 		);
 		encoder.endComputePass();
 
@@ -444,7 +410,7 @@ export class WebGPUOcclusionCullingRuntime {
 					{ binding: 0, resource: this._hiZMipViews[mip - 1] },
 					{ binding: 1, resource: this._hiZMipViews[mip] },
 				],
-				`WebGPUOcclusionHiZReduceBinding_${mip}`
+				`WebGPUOcclusionHiZReduceBinding_${mip}`,
 			);
 			encoder.beginComputePass({ label: `WebGPUOcclusionHiZReduce_${mip}` });
 			encoder.setComputePipeline(this._hiZReducePipeline);
@@ -452,7 +418,7 @@ export class WebGPUOcclusionCullingRuntime {
 			encoder.dispatchWorkgroups(
 				ceilDiv(targetWidth, WORKGROUP_SIZE),
 				ceilDiv(targetHeight, WORKGROUP_SIZE),
-				1
+				1,
 			);
 			encoder.endComputePass();
 			sourceWidth = targetWidth;
@@ -462,11 +428,11 @@ export class WebGPUOcclusionCullingRuntime {
 
 	private _recordOcclusionCompute(
 		encoder: ICommandEncoder,
-		candidateCount: number
+		candidateCount: number,
+		hiZ: IRenderTexture,
 	): void {
 		if (
 			!this._occlusionPipeline ||
-			!this._hiZTexture ||
 			!this._candidateBuffer ||
 			!this._paramsBuffer ||
 			!this._resultBuffer
@@ -476,12 +442,12 @@ export class WebGPUOcclusionCullingRuntime {
 		const binding = this._createBindingGroup(
 			this._occlusionPipeline,
 			[
-				{ binding: 0, resource: this._hiZTexture },
+				{ binding: 0, resource: hiZ },
 				{ binding: 1, resource: this._candidateBuffer },
 				{ binding: 2, resource: this._paramsBuffer },
 				{ binding: 3, resource: this._resultBuffer },
 			],
-			"WebGPUOcclusionCullingBinding"
+			"WebGPUOcclusionCullingBinding",
 		);
 		encoder.beginComputePass({ label: "WebGPUOcclusionCulling" });
 		encoder.setComputePipeline(this._occlusionPipeline);
@@ -493,12 +459,12 @@ export class WebGPUOcclusionCullingRuntime {
 	private _queueReadback(
 		encoder: ICommandEncoder,
 		candidates: readonly OcclusionCandidate[],
-		options: NormalizedOcclusionCullingOptions
+		options: NormalizedOcclusionCullingOptions,
 	): void {
 		if (!this._resultBuffer || !this._backend.device) {
 			this._warnOnce(
 				"webgpu-occlusion-readback-failed",
-				"WebGPU occlusion culling cannot schedule readback without a result buffer and device."
+				"WebGPU occlusion culling cannot schedule readback without a result buffer and device.",
 			);
 			return;
 		}
@@ -507,7 +473,7 @@ export class WebGPUOcclusionCullingRuntime {
 		if (!nativeEncoder || !sourceBuffer) {
 			this._warnOnce(
 				"webgpu-occlusion-readback-failed",
-				"WebGPU occlusion culling cannot access native buffers for readback."
+				"WebGPU occlusion culling cannot access native buffers for readback.",
 			);
 			return;
 		}
@@ -532,10 +498,7 @@ export class WebGPUOcclusionCullingRuntime {
 		});
 	}
 
-	private _applyReadback(
-		pending: PendingReadback,
-		results: Uint32Array
-	): void {
+	private _applyReadback(pending: PendingReadback, results: Uint32Array): void {
 		if (pending.visibilityGeneration !== this._visibilityGeneration) {
 			pending.done = true;
 			return;
@@ -550,37 +513,31 @@ export class WebGPUOcclusionCullingRuntime {
 				!previous ||
 				previous.signatureA !== signatureA ||
 				previous.signatureB !== signatureB;
-			const occludedStreak =
-				gpuVisible ? 0
-				: signatureChanged ? 1
-				: (previous?.occludedStreak ?? 0) + 1;
+			const occludedStreak = gpuVisible
+				? 0
+				: signatureChanged
+					? 1
+					: (previous?.occludedStreak ?? 0) + 1;
 			this._visibilityByPacketId.set(packetId, {
 				signatureA,
 				signatureB,
 				lastResultFrame: pending.frameIndex,
 				occludedStreak,
-				visible:
-					gpuVisible ||
-					occludedStreak < pending.options.hysteresisFrames,
+				visible: gpuVisible || occludedStreak < pending.options.hysteresisFrames,
 			});
 		}
-		this._lastCompletedFrameIndex = Math.max(
-			this._lastCompletedFrameIndex,
-			pending.frameIndex
-		);
+		this._lastCompletedFrameIndex = Math.max(this._lastCompletedFrameIndex, pending.frameIndex);
 		pending.done = true;
 	}
 
 	private _collectCompletedReadbacks(): void {
-		this._pendingReadbacks = this._pendingReadbacks.filter(
-			(pending) => !pending.done
-		);
+		this._pendingReadbacks = this._pendingReadbacks.filter((pending) => !pending.done);
 	}
 
 	private _createBindingGroup(
 		pipeline: IComputePipeline,
 		entries: Array<{ binding: number; resource: unknown }>,
-		label: string
+		label: string,
 	): IBindingGroup {
 		return this._backend.createBindingGroup({
 			pipeline,

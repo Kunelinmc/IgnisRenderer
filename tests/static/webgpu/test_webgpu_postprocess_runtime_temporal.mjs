@@ -411,6 +411,11 @@ async function testHiZResourcesAreSharedAcrossTemporalPasses() {
 		volumetric: { enabled: true },
 	});
 	const encoder = new FakeEncoder(backend);
+	await runtime.sharedContext.getHiZBuilder().build({
+		encoder,
+		depth: targets.gMotionDepth,
+		hiZ: transients.hiZ,
+	});
 
 	await executeSSRImplementation(backend, runtime, {
 		targets,
@@ -497,7 +502,7 @@ async function testSSRDestroyReleasesCachedBindings() {
 		frameContext,
 		historyValid: true,
 	});
-	assert.equal(backend.bindingGroups.length, 9);
+	assert.equal(backend.bindingGroups.length, 3);
 
 	const ssrPass = frameContext.postProcess.getEnabledPasses()
 		.find((resolved) => resolved.id === "ssr")?.pass;
@@ -510,7 +515,7 @@ async function testSSRDestroyReleasesCachedBindings() {
 	assert.equal(backend.bufferDestroyCalls, 2);
 
 	runtime.destroy();
-	assert.equal(backend.bindingGroupDestroyCalls, 9);
+	assert.equal(backend.bindingGroupDestroyCalls, 3);
 	assert.equal(backend.shaderModuleDestroyCalls, 3);
 	assert.equal(backend.computePipelineDestroyCalls, 5);
 }

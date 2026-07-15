@@ -41,8 +41,6 @@ export const SCREEN_SPACE_REFRACTIONS_PASS_ORDER = {
 	},
 } as const satisfies PostProcessPassMetadata;
 const WEBGPU_SSREFRACTION_RAW_TRANSIENT_ID = "ssrefraction:raw";
-const WEBGPU_HIZ_TRANSIENT_ID = "hiz";
-const WEBGPU_HIZ_TRANSIENT_USAGE = ["sampled", "storage"] as const;
 
 export interface SSRefractionOptions {
 	/** Maximum ray-march iterations per refraction ray. */
@@ -244,11 +242,6 @@ export function resolveSSRefractionTransientDescriptors(
 			widthScale: scale,
 			heightScale: scale,
 		},
-		{
-			id: WEBGPU_HIZ_TRANSIENT_ID,
-			usage: WEBGPU_HIZ_TRANSIENT_USAGE,
-			mipMode: "full-chain",
-		},
 	];
 }
 
@@ -271,11 +264,8 @@ export class WebGPUScreenSpaceRefractionsImplementation
 					property: "refractionRaw",
 					transientId: WEBGPU_SSREFRACTION_RAW_TRANSIENT_ID,
 				},
-				{
-					property: "hiZ",
-					transientId: WEBGPU_HIZ_TRANSIENT_ID,
-				},
 			],
+			requiresHiZ: true,
 		},
 	} as const;
 	private _resources = new Map<
@@ -372,11 +362,7 @@ export class WebGPUScreenSpaceRefractionsImplementation
 			return false;
 		}
 
-		const hiZMips = await context.shared.getHiZHelper().build({
-			encoder: context.encoder,
-			depth: targets.gMotionDepth,
-			hiZ: context.hiZ,
-		});
+		const hiZMips = context.shared.getHiZBuilder().getMipViews(context.hiZ);
 		if (hiZMips.length === 0) {
 			return false;
 		}
@@ -477,7 +463,8 @@ export class WebGPUScreenSpaceRefractionsImplementation
 			};
 			this._resources.set(shared, resources);
 		}
-		await shared.getHiZHelper().ensureResources();
+		await shared.ensureCommonResources();
+		await shared.getHiZBuilder().ensureResources();
 		if (!resources.module) {
 			const shader =
 				await ShaderSource.load(

@@ -35,6 +35,10 @@ To support decoupled backends, post-process execution is delegated to backend-ow
 - Passes must not mutate the frame targets directly; they must publish their output color texture via the `publishColorTarget(texture)` callback.
 - Warmup planning collects ordered descriptors and runs `PostProcessPassImplementation.warmup(context)` if present.
 - WebGPU passes requesting temporary resources must declare them using `getTransientResourceDescriptors(request)`. The runtime injects the allocated resources under the properties defined in `metadata.context.transients`.
+- Built-in WebGPU passes that consume the shared opaque-depth Hi-Z must mark
+  their internal context metadata with `requiresHiZ`. The backend exposes the
+  frame target only after the frame graph has built it successfully; it is not
+  a post-process transient resource.
 - WebGPU must expose `roughness` and `metallic` logical channels from
   `gNormalRoughMetal.z` and `gNormalRoughMetal.w` when `gNormalRoughMetal`
   exists.

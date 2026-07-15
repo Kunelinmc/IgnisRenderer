@@ -189,6 +189,7 @@ function run() {
 			deferredActive: true,
 			sceneTargetMode: "gbuffer",
 			needsOcclusionTest: true,
+			needsHiZBuild: true,
 		})
 	);
 	assert.deepEqual(
@@ -197,12 +198,13 @@ function run() {
 			"opaque-scene",
 			"deferred-decal",
 			"deferred-lighting",
+			"hiz-build",
 			"occlusion-test",
 		]
 	);
 	assert.equal(
 		opaqueWithOcclusion.nodes.at(-1).reads[0].id,
-		"gbuffer:motion-depth"
+		"frame:hiz"
 	);
 
 	const forwardWithOcclusion = planner.planStage(
@@ -211,11 +213,12 @@ function run() {
 		createState({
 			sceneTargetMode: "mrt",
 			needsOcclusionTest: true,
+			needsHiZBuild: true,
 		})
 	);
 	assert.deepEqual(
 		forwardWithOcclusion.nodes.map((node) => node.kind),
-		["opaque-scene", "occlusion-test"]
+		["opaque-scene", "hiz-build", "occlusion-test"]
 	);
 
 	const transparent = planner.planStage(

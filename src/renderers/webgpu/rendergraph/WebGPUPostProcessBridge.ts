@@ -28,6 +28,7 @@ import { WebGPUPostProcessRuntime } from "../WebGPUPostProcessRuntime";
 export interface WebGPUPostProcessBridgeCallbacks {
 	getEncoder(): ICommandEncoder | null;
 	getFrameTargets(): WebGPUFrameTargets | null;
+	isHiZReady(): boolean;
 	requireFrameResources(): WebGPUPreparedFrameResources;
 	presentToCanvas(source: IRenderTexture): Promise<void>;
 	warmupPresent(): Promise<void>;
@@ -272,6 +273,9 @@ export class WebGPUPostProcessBridge {
 			targets: this._createFrameTargetsView(),
 			shared: this._runtime.sharedContext,
 		};
+		if (metadata.requiresHiZ && mode === "execute") {
+			context.hiZ = this._createFrameTargetsView()?.hiZ ?? null;
+		}
 		if (metadata.publishColorTarget && mode === "execute") {
 			context.publishColorTarget = (texture: IRenderTexture): void => {
 				this._pendingColorTarget = texture;
@@ -324,7 +328,10 @@ export class WebGPUPostProcessBridge {
 		if (!targets) {
 			return undefined;
 		}
-		return Object.freeze({ ...targets });
+		return Object.freeze({
+			...targets,
+			hiZ: this._callbacks.isHiZReady() ? targets.hiZ : null,
+		});
 	}
 
 	private _isOwnedColorTarget(

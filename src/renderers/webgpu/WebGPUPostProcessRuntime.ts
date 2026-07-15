@@ -1,6 +1,7 @@
 import type { ShaderCompileError } from "../../shaders/runtime";
 import { toShaderCompileError } from "../../pipeline/WarmupPlanner";
 import type { IWebGPUComputeFacade } from "./ComputeFacade";
+import { WebGPUHiZBuilder } from "./WebGPUHiZBuilder";
 import { PostProcessSharedContext } from "./postprocess/PostProcessSharedContext";
 import { isWebGPUReservedPostProcessPassId } from "./WebGPUPostProcessContracts";
 import type {
@@ -31,12 +32,14 @@ export class WebGPUPostProcessRuntime {
 	constructor(
 		computeFacade: IWebGPUComputeFacade,
 		warn: (key: string, message: string) => void,
-		frameBindGroupLayout?: GPUBindGroupLayout
+		frameBindGroupLayout?: GPUBindGroupLayout,
+		hiZBuilder?: WebGPUHiZBuilder
 	) {
 		this._shared = new PostProcessSharedContext(
 			computeFacade,
 			warn,
-			frameBindGroupLayout
+			frameBindGroupLayout,
+			hiZBuilder
 		);
 	}
 

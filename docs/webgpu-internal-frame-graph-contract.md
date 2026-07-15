@@ -46,6 +46,11 @@ must remain backend-internal.
   an internal planner/runtime mismatch.
 - The internal WebGPU graph must not add global renderer-level stages for
   Software or WebGL.
+- The frame graph may allocate a shared full-chain `frame:hiz` target when
+  occlusion culling or a built-in Hi-Z consumer is active. A `hiz-build` node
+  must run after opaque depth is available and before `occlusion-test`.
+- `WebGPUHiZBuilder` owns Hi-Z shader, pipeline, mip-view, and binding caches.
+  `WebGPUFrameTargetManager` owns the `frame:hiz` texture lifetime.
 
 ## Usage
 ```ts
@@ -71,6 +76,9 @@ bun tests/static/webgpu/test_webgpu_frame_executor_resilience.mjs
   `"warn"` and error diagnostics exist.
 - `webgpu-pass-unsupported-{stage}` must be logged once when a renderer-level
   backend pass has no WebGPU frame graph stage planner.
+- `webgpu-hiz-build-failed` must leave opaque rendering active, make occlusion
+  candidates visible, and prevent Hi-Z-dependent post-process passes from
+  running for the affected frame.
 
 ## Compatibility / Breaking Changes
 `getFrameGraphDebugState()` may expose structured internal graph diagnostics,

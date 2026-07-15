@@ -15,6 +15,7 @@ export type WebGPUFrameGraphNodeKind =
 	| "opaque-scene"
 	| "deferred-decal"
 	| "deferred-lighting"
+	| "hiz-build"
 	| "occlusion-test"
 	| "transparent-scene"
 	| "oit-transparent"
@@ -30,6 +31,7 @@ export interface WebGPUFrameGraphPlannerState {
 	readonly needsTransmissionTargets?: boolean;
 	readonly needsPlanarReflectionMask?: boolean;
 	readonly needsOcclusionTest?: boolean;
+	readonly needsHiZBuild?: boolean;
 }
 
 export type WebGPUFrameGraphResourceId = string;
@@ -135,6 +137,14 @@ export interface WebGPUFrameGraphDebugState {
 	readonly motionHistoryWriteTarget: unknown;
 	readonly pendingFrameTargetInvalidation: boolean;
 	readonly pendingShaderRuntimeInvalidation: boolean;
+	readonly hiZ: {
+		readonly allocated: boolean;
+		readonly status: "unavailable" | "pending" | "ready" | "failed";
+		readonly width: number;
+		readonly height: number;
+		readonly mipLevelCount: number;
+		readonly buildCount: number;
+	};
 	readonly lastPlannedNodeIds: readonly string[];
 	readonly lastExecutedNodeIds: readonly string[];
 	readonly compiledStages: readonly WebGPUCompiledFrameGraphStage[];

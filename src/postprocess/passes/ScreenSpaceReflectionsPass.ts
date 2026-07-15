@@ -45,8 +45,6 @@ export const SCREEN_SPACE_REFLECTIONS_PASS_ORDER = {
 	},
 } as const satisfies PostProcessPassMetadata;
 const WEBGPU_SSR_RAW_TRANSIENT_ID = "ssr:raw";
-const WEBGPU_HIZ_TRANSIENT_ID = "hiz";
-const WEBGPU_HIZ_TRANSIENT_USAGE = ["sampled", "storage"] as const;
 
 export interface SSROptions {
 	/** Maximum ray-march iterations per reflection ray. */
@@ -274,11 +272,8 @@ export class WebGPUScreenSpaceReflectionsImplementation
 					property: "ssrRaw",
 					transientId: WEBGPU_SSR_RAW_TRANSIENT_ID,
 				},
-				{
-					property: "hiZ",
-					transientId: WEBGPU_HIZ_TRANSIENT_ID,
-				},
 			],
+			requiresHiZ: true,
 			motionHistoryCopy: {
 				writeProperty: "motionHistoryWrite",
 			},
@@ -381,11 +376,7 @@ export class WebGPUScreenSpaceReflectionsImplementation
 		const targets = context.targets;
 		const ssrRaw = context.ssrRaw;
 		const hiZ = context.hiZ;
-		const hiZMips = await context.shared.getHiZHelper().build({
-			encoder: context.encoder,
-			depth: targets.gMotionDepth,
-			hiZ,
-		});
+		const hiZMips = context.shared.getHiZBuilder().getMipViews(hiZ);
 		if (hiZMips.length === 0) {
 			return false;
 		}
@@ -494,7 +485,8 @@ export class WebGPUScreenSpaceReflectionsImplementation
 			};
 			this._resources.set(shared, resources);
 		}
-		await shared.getHiZHelper().ensureResources();
+		await shared.ensureCommonResources();
+		await shared.getHiZBuilder().ensureResources();
 		if (!resources.module) {
 			const shader = await ShaderSource.load("webgpu.postprocess.ssr.composite");
 			resources.module = await shared.compute.createShaderModule({
@@ -631,11 +623,6 @@ export class ScreenSpaceReflectionsPass extends PostProcessPass<
 				id: WEBGPU_SSR_RAW_TRANSIENT_ID,
 				widthScale: scale,
 				heightScale: scale,
-			},
-			{
-				id: WEBGPU_HIZ_TRANSIENT_ID,
-				usage: WEBGPU_HIZ_TRANSIENT_USAGE,
-				mipMode: "full-chain",
 			},
 		];
 	}

@@ -40,18 +40,18 @@ export class WebGPUFrameGraphPlanner {
 		(
 			pass: FramePass,
 			context: FrameContext,
-			state: WebGPUFrameGraphPlannerState
+			state: WebGPUFrameGraphPlannerState,
 		) => WebGPUFrameGraphNode[]
 	>;
 
-	public constructor() {
+	constructor() {
 		this._stagePlanners = this._createStagePlanners();
 	}
 
 	public planStage(
 		pass: FramePass,
 		context: FrameContext,
-		state: WebGPUFrameGraphPlannerState
+		state: WebGPUFrameGraphPlannerState,
 	): WebGPUFrameGraphStagePlan {
 		const planner = this._stagePlanners.get(pass.stage);
 		return {
@@ -65,33 +65,18 @@ export class WebGPUFrameGraphPlanner {
 		(
 			pass: FramePass,
 			context: FrameContext,
-			state: WebGPUFrameGraphPlannerState
+			state: WebGPUFrameGraphPlannerState,
 		) => WebGPUFrameGraphNode[]
 	> {
 		return new Map([
-			[
-				"shadow",
-				(pass, context) => this._createShadowNodes(pass, context),
-			],
+			["shadow", (pass, context) => this._createShadowNodes(pass, context)],
 			[
 				"reflection",
 				(pass) => [
-					this._node(
-						pass,
-						"planar-reflection-capture",
-						"WebGPUPlanarReflectionCapture",
-						{
-							reads: [
-								this._read("shadow-atlas", "texture-binding", true),
-							],
-							writes: [
-								this._write(
-									"planar-reflection:capture",
-									"render-attachment"
-								),
-							],
-						}
-					),
+					this._node(pass, "planar-reflection-capture", "WebGPUPlanarReflectionCapture", {
+						reads: [this._read("shadow-atlas", "texture-binding", true)],
+						writes: [this._write("planar-reflection:capture", "render-attachment")],
+					}),
 				],
 			],
 			[
@@ -103,7 +88,7 @@ export class WebGPUFrameGraphPlanner {
 								pass,
 								"opaque-scene",
 								"WebGPUGBuffer",
-								this._createOpaqueResources(state, context)
+								this._createOpaqueResources(state, context),
 							),
 						];
 						if ((context.scene?.decalPackets.length ?? 0) > 0) {
@@ -112,8 +97,8 @@ export class WebGPUFrameGraphPlanner {
 									pass,
 									"deferred-decal",
 									"WebGPUDeferredDecal",
-									this._createDeferredDecalResources()
-								)
+									this._createDeferredDecalResources(),
+								),
 							);
 						}
 						nodes.push(
@@ -121,40 +106,36 @@ export class WebGPUFrameGraphPlanner {
 								pass,
 								"deferred-lighting",
 								"WebGPUDeferredLighting",
-								this._createDeferredLightingResources(context)
-							)
+								this._createDeferredLightingResources(context),
+							),
 						);
 						return this._appendPagedShadowFeedbackNode(
 							pass,
 							context,
 							state,
-							this._appendOcclusionNode(pass, state, nodes)
+							this._appendHiZNodes(pass, state, nodes),
 						);
 					}
 					return this._appendPagedShadowFeedbackNode(
 						pass,
 						context,
 						state,
-						this._appendOcclusionNode(pass, state, [
+						this._appendHiZNodes(pass, state, [
 							this._node(
 								pass,
 								"opaque-scene",
 								`WebGPUOpaque${state.sceneTargetMode}`,
-								this._createOpaqueResources(state, context)
+								this._createOpaqueResources(state, context),
 							),
-						])
+						]),
 					);
 				},
 			],
 			[
 				"main-transparent",
 				(pass, context, state) => [
-					state.oitActive ?
-						this._node(
-							pass,
-							"oit-transparent",
-							"WebGPUOITTransparent",
-							{
+					state.oitActive
+						? this._node(pass, "oit-transparent", "WebGPUOITTransparent", {
 								reads: [
 									this._read("frame:depth", "depth-attachment", true),
 									this._read("frame:scene-color-main", "copy-src", true),
@@ -167,42 +148,41 @@ export class WebGPUFrameGraphPlanner {
 									this._write("frame:scene-color-main", "render-attachment"),
 									...this._createTransmissionWrites(state),
 								],
-							}
-						)
-					:	this._node(
-							pass,
-							"transparent-scene",
-							"WebGPUTransparent",
-							this._withTransmissionCaptureResources(
-								this._createForwardResources(state, true, context),
-								state
-							)
-						),
+							})
+						: this._node(
+								pass,
+								"transparent-scene",
+								"WebGPUTransparent",
+								this._withTransmissionCaptureResources(
+									this._createForwardResources(state, true, context),
+									state,
+								),
+							),
 				],
 			],
 			[
 				"particles",
 				(pass, context, state) => [
-					state.oitActive ?
-						this._node(pass, "oit-particles", "WebGPUOITParticles", {
-							reads: [
-								this._read("frame:depth", "depth-attachment", true),
-								this._read("oit:accum", "texture-binding", true),
-								this._read("oit:reveal", "texture-binding", true),
-								...this._createPagedShadowLightingReads(context),
-							],
-							writes: [
-								this._write("oit:accum", "render-attachment"),
-								this._write("oit:reveal", "render-attachment"),
-								this._write("frame:scene-color-main", "render-attachment"),
-							],
-						})
-					:	this._node(
-							pass,
-							"particles",
-							"WebGPUParticles",
-							this._createForwardResources(state, true, context)
-						),
+					state.oitActive
+						? this._node(pass, "oit-particles", "WebGPUOITParticles", {
+								reads: [
+									this._read("frame:depth", "depth-attachment", true),
+									this._read("oit:accum", "texture-binding", true),
+									this._read("oit:reveal", "texture-binding", true),
+									...this._createPagedShadowLightingReads(context),
+								],
+								writes: [
+									this._write("oit:accum", "render-attachment"),
+									this._write("oit:reveal", "render-attachment"),
+									this._write("frame:scene-color-main", "render-attachment"),
+								],
+							})
+						: this._node(
+								pass,
+								"particles",
+								"WebGPUParticles",
+								this._createForwardResources(state, true, context),
+							),
 				],
 			],
 		]);
@@ -212,10 +192,7 @@ export class WebGPUFrameGraphPlanner {
 		pass: FramePass,
 		kind: WebGPUFrameGraphNode["kind"],
 		label: string,
-		resources: Pick<
-			WebGPUFrameGraphNode,
-			"creates" | "reads" | "writes" | "destroys"
-		> = {}
+		resources: Pick<WebGPUFrameGraphNode, "creates" | "reads" | "writes" | "destroys"> = {},
 	): WebGPUFrameGraphNode {
 		return {
 			id: `${pass.stage}:${kind}`,
@@ -226,10 +203,7 @@ export class WebGPUFrameGraphPlanner {
 		};
 	}
 
-	private _createShadowNodes(
-		pass: FramePass,
-		context: FrameContext
-	): WebGPUFrameGraphNode[] {
+	private _createShadowNodes(pass: FramePass, context: FrameContext): WebGPUFrameGraphNode[] {
 		const nodes = [
 			this._node(pass, "shadow", "WebGPUShadow", {
 				writes: [this._write("shadow-atlas", "render-attachment")],
@@ -240,47 +214,31 @@ export class WebGPUFrameGraphPlanner {
 		}
 		nodes.push(
 			this._node(pass, "paged-shadow-page-mark", "WebGPUPagedShadowPageMark", {
-				reads: [
-					this._read("paged-shadow:feedback-flags", "storage-binding", true),
-				],
+				reads: [this._read("paged-shadow:feedback-flags", "storage-binding", true)],
 				writes: [
 					this._write("paged-shadow:page-request-flags", "storage-binding"),
 					this._write("paged-shadow:page-requests", "storage-binding"),
 					this._write("paged-shadow:counters", "storage-binding"),
 				],
 			}),
-			this._node(
-				pass,
-				"paged-shadow-page-allocate",
-				"WebGPUPagedShadowPageAllocate",
-				{
-					reads: [
-						this._read("paged-shadow:page-requests", "storage-binding"),
-						this._read("paged-shadow:page-request-flags", "storage-binding"),
-					],
-					writes: [
-						this._write("paged-shadow:page-table", "storage-binding"),
-						this._write("paged-shadow:page-metadata", "storage-binding"),
-						this._write("paged-shadow:residency-state", "storage-binding"),
-						this._write("paged-shadow:free-list", "storage-binding"),
-						this._write("paged-shadow:counters", "storage-binding"),
-						this._write("paged-shadow:dirty-physical-pages", "storage-binding"),
-					],
-				}
-			),
-			this._node(
-				pass,
-				"paged-shadow-page-table-copy",
-				"WebGPUPagedShadowPageTableCopy",
-				{
-					reads: [
-						this._read("paged-shadow:page-table", "storage-binding"),
-					],
-					writes: [
-						this._write("paged-shadow:page-table-texture", "storage-binding"),
-					],
-				}
-			),
+			this._node(pass, "paged-shadow-page-allocate", "WebGPUPagedShadowPageAllocate", {
+				reads: [
+					this._read("paged-shadow:page-requests", "storage-binding"),
+					this._read("paged-shadow:page-request-flags", "storage-binding"),
+				],
+				writes: [
+					this._write("paged-shadow:page-table", "storage-binding"),
+					this._write("paged-shadow:page-metadata", "storage-binding"),
+					this._write("paged-shadow:residency-state", "storage-binding"),
+					this._write("paged-shadow:free-list", "storage-binding"),
+					this._write("paged-shadow:counters", "storage-binding"),
+					this._write("paged-shadow:dirty-physical-pages", "storage-binding"),
+				],
+			}),
+			this._node(pass, "paged-shadow-page-table-copy", "WebGPUPagedShadowPageTableCopy", {
+				reads: [this._read("paged-shadow:page-table", "storage-binding")],
+				writes: [this._write("paged-shadow:page-table-texture", "storage-binding")],
+			}),
 			this._node(pass, "paged-shadow-depth", "WebGPUPagedShadowDepth", {
 				reads: [
 					this._read("paged-shadow:page-table", "storage-binding"),
@@ -293,15 +251,13 @@ export class WebGPUFrameGraphPlanner {
 					this._write("paged-shadow:clear-draw-indirect-args", "storage-binding"),
 					this._write("paged-shadow:physical-depth", "render-attachment"),
 				],
-			})
+			}),
 		);
 		return nodes;
 	}
 
 	private _hasPagedShadowWork(context: FrameContext): boolean {
-		if (
-			context.backendProfile?.shadow?.supportsPagedShadowRendering !== true
-		) {
+		if (context.backendProfile?.shadow?.supportsPagedShadowRendering !== true) {
 			return false;
 		}
 		const shadowMaps = context.shadowMaps;
@@ -318,7 +274,7 @@ export class WebGPUFrameGraphPlanner {
 
 	private _createOpaqueResources(
 		state: WebGPUFrameGraphPlannerState,
-		context: FrameContext
+		context: FrameContext,
 	): Pick<WebGPUFrameGraphNode, "reads" | "writes"> {
 		if (state.sceneTargetMode === "single") {
 			return this._createForwardResources(state, false, context);
@@ -351,7 +307,7 @@ export class WebGPUFrameGraphPlanner {
 				this._write("gbuffer:material-ext0", "storage-binding"),
 				this._write("gbuffer:material-ext1", "storage-binding"),
 				this._write("gbuffer:material-ext2", "storage-binding"),
-				this._write("gbuffer:material-ext3", "storage-binding")
+				this._write("gbuffer:material-ext3", "storage-binding"),
 			);
 		}
 		const reads = [
@@ -365,55 +321,53 @@ export class WebGPUFrameGraphPlanner {
 		return { reads, writes };
 	}
 
-	private _createDeferredDecalResources(): Pick<
-		WebGPUFrameGraphNode,
-		"reads" | "writes"
-	> {
+	private _createDeferredDecalResources(): Pick<WebGPUFrameGraphNode, "reads" | "writes"> {
 		return {
-			reads: DEFERRED_GBUFFER_RESOURCE_IDS.map((id) =>
-				this._read(id, "copy-src")
-			),
+			reads: DEFERRED_GBUFFER_RESOURCE_IDS.map((id) => this._read(id, "copy-src")),
 			writes: [
 				...DEFERRED_GBUFFER_RENDER_RESOURCE_IDS.map((id) =>
-					this._write(id, "render-attachment")
+					this._write(id, "render-attachment"),
 				),
 				...DEFERRED_GBUFFER_STORAGE_RESOURCE_IDS.map((id) =>
-					this._write(id, "storage-binding")
+					this._write(id, "storage-binding"),
 				),
 			],
 		};
 	}
 
 	private _createDeferredLightingResources(
-		context: FrameContext
+		context: FrameContext,
 	): Pick<WebGPUFrameGraphNode, "reads" | "writes"> {
 		return {
 			reads: [
-				...DEFERRED_GBUFFER_RESOURCE_IDS.map((id) =>
-					this._read(id, "texture-binding")
-				),
+				...DEFERRED_GBUFFER_RESOURCE_IDS.map((id) => this._read(id, "texture-binding")),
 				this._read("shadow-atlas", "texture-binding", true),
 				...this._createPagedShadowLightingReads(context),
 			],
-			writes: [
-				this._write("frame:scene-color-main", "render-attachment"),
-			],
+			writes: [this._write("frame:scene-color-main", "render-attachment")],
 		};
 	}
 
-	private _appendOcclusionNode(
+	private _appendHiZNodes(
 		pass: FramePass,
 		state: WebGPUFrameGraphPlannerState,
-		nodes: WebGPUFrameGraphNode[]
+		nodes: WebGPUFrameGraphNode[],
 	): WebGPUFrameGraphNode[] {
-		if (!state.needsOcclusionTest || state.sceneTargetMode === "single") {
+		if (!state.needsHiZBuild || state.sceneTargetMode === "single") {
 			return nodes;
 		}
 		nodes.push(
-			this._node(pass, "occlusion-test", "WebGPUOcclusionTest", {
+			this._node(pass, "hiz-build", "WebGPUHiZBuild", {
 				reads: [this._read("gbuffer:motion-depth", "texture-binding")],
+				writes: [this._write("frame:hiz", "storage-binding")],
+			}),
+		);
+		if (!state.needsOcclusionTest) return nodes;
+		nodes.push(
+			this._node(pass, "occlusion-test", "WebGPUOcclusionTest", {
+				reads: [this._read("frame:hiz", "texture-binding")],
 				writes: [this._write("occlusion:results", "storage-binding")],
-			})
+			}),
 		);
 		return nodes;
 	}
@@ -422,7 +376,7 @@ export class WebGPUFrameGraphPlanner {
 		pass: FramePass,
 		context: FrameContext,
 		state: WebGPUFrameGraphPlannerState,
-		nodes: WebGPUFrameGraphNode[]
+		nodes: WebGPUFrameGraphNode[],
 	): WebGPUFrameGraphNode[] {
 		if (!this._hasPagedShadowWork(context) || state.sceneTargetMode === "single") {
 			return nodes;
@@ -446,38 +400,27 @@ export class WebGPUFrameGraphPlanner {
 					this._read("frame:depth", "texture-binding", true),
 					this._read("paged-shadow:page-table", "storage-binding", true),
 				],
-				writes: [
-					this._write(
-						"paged-shadow:next-feedback-flags",
-						"storage-binding"
-					),
-				],
-			})
+				writes: [this._write("paged-shadow:next-feedback-flags", "storage-binding")],
+			}),
 		);
 		return nodes;
 	}
 
 	private _withTransmissionCaptureResources(
 		resources: Pick<WebGPUFrameGraphNode, "reads" | "writes">,
-		state: WebGPUFrameGraphPlannerState
+		state: WebGPUFrameGraphPlannerState,
 	): Pick<WebGPUFrameGraphNode, "reads" | "writes"> {
 		if (!state.needsTransmissionTargets) {
 			return resources;
 		}
 		return {
-			reads: [
-				...(resources.reads ?? []),
-				...this._createTransmissionReads(state),
-			],
-			writes: [
-				...(resources.writes ?? []),
-				...this._createTransmissionWrites(state),
-			],
+			reads: [...(resources.reads ?? []), ...this._createTransmissionReads(state)],
+			writes: [...(resources.writes ?? []), ...this._createTransmissionWrites(state)],
 		};
 	}
 
 	private _createTransmissionReads(
-		state: WebGPUFrameGraphPlannerState
+		state: WebGPUFrameGraphPlannerState,
 	): WebGPUFrameGraphResourceRef[] {
 		if (!state.needsTransmissionTargets) {
 			return [];
@@ -489,7 +432,7 @@ export class WebGPUFrameGraphPlanner {
 	}
 
 	private _createTransmissionDepthReads(
-		state: WebGPUFrameGraphPlannerState
+		state: WebGPUFrameGraphPlannerState,
 	): WebGPUFrameGraphResourceRef[] {
 		if (!state.needsTransmissionTargets) {
 			return [];
@@ -498,7 +441,7 @@ export class WebGPUFrameGraphPlanner {
 	}
 
 	private _createTransmissionWrites(
-		state: WebGPUFrameGraphPlannerState
+		state: WebGPUFrameGraphPlannerState,
 	): WebGPUFrameGraphResourceRef[] {
 		if (!state.needsTransmissionTargets) {
 			return [];
@@ -517,12 +460,10 @@ export class WebGPUFrameGraphPlanner {
 	private _createForwardResources(
 		state: WebGPUFrameGraphPlannerState,
 		loadExistingColor: boolean,
-		context: FrameContext
+		context: FrameContext,
 	): Pick<WebGPUFrameGraphNode, "reads" | "writes"> {
 		const targetPrefix =
-			state.sceneTargetMode === "single" || !state.hasFrameTargets ?
-				"canvas"
-			:	"frame";
+			state.sceneTargetMode === "single" || !state.hasFrameTargets ? "canvas" : "frame";
 		const sceneColor = `${targetPrefix}:scene-color-main`;
 		const depth = `${targetPrefix}:depth`;
 		const reads: WebGPUFrameGraphResourceRef[] = [
@@ -542,9 +483,7 @@ export class WebGPUFrameGraphPlanner {
 		};
 	}
 
-	private _createPagedShadowLightingReads(
-		context: FrameContext
-	): WebGPUFrameGraphResourceRef[] {
+	private _createPagedShadowLightingReads(context: FrameContext): WebGPUFrameGraphResourceRef[] {
 		if (!this._hasPagedShadowWork(context)) {
 			return [];
 		}
@@ -557,7 +496,7 @@ export class WebGPUFrameGraphPlanner {
 	private _read(
 		id: string,
 		usage: WebGPUFrameGraphResourceRef["usage"],
-		optional = false
+		optional = false,
 	): WebGPUFrameGraphResourceRef {
 		return { id, usage, optional };
 	}
@@ -565,7 +504,7 @@ export class WebGPUFrameGraphPlanner {
 	private _write(
 		id: string,
 		usage: WebGPUFrameGraphResourceRef["usage"],
-		optional = false
+		optional = false,
 	): WebGPUFrameGraphResourceRef {
 		return { id, usage, optional };
 	}

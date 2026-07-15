@@ -159,6 +159,8 @@ export interface WebGPUPostProcessContextMetadata {
 	 * @sideEffects None.
 	 */
 	readonly motionHistoryCopy?: WebGPUPostProcessMotionHistoryCopyMetadata;
+	/** @internal Declares that this built-in pass consumes the shared frame Hi-Z. */
+	readonly requiresHiZ?: boolean;
 }
 
 /** @internal WebGPU screen-pass implementation context metadata. */
@@ -256,6 +258,7 @@ export interface WebGPUFrameTargets {
 	gTransmissionSurface2?: IRenderTexture | null;
 	transmissionDepth?: IRenderTexture | null;
 	planarReflectionMask?: IRenderTexture | null;
+	hiZ?: IRenderTexture | null;
 }
 
 /** @internal Read-only WebGPU frame target view for pass-owned implementations. */

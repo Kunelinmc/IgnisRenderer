@@ -8,7 +8,7 @@ import type {
 import type { IWebGPUComputeFacade } from "../ComputeFacade";
 import type { WebGPUPostProcessFrameTargets } from "../WebGPUPostProcessContracts";
 import type { WebGPULightingState } from "../types";
-import type { WebGPUHiZPostProcessHelper } from "./HiZPostProcessHelper";
+import type { WebGPUHiZBuilder } from "../WebGPUHiZBuilder";
 import type { PostProcessCopyHelper } from "./PostProcessCopyHelper";
 
 interface WebGPUPostProcessExecuteBaseRequest<TPassId extends string> {
@@ -46,11 +46,11 @@ export interface WebGPUPostProcessRuntimeContext {
 	warn(key: string, message: string): void;
 	ensureCommonResources(): Promise<void>;
 	/**
-	 * Returns the shared Hi-Z helper for depth-aware runtime passes.
+	 * Returns the shared frame-graph Hi-Z builder for depth-aware runtime passes.
 	 *
-	 * @returns Helper owned by the current WebGPU post-process runtime.
+	 * @returns Builder owned by the WebGPU frame graph runtime.
 	 */
-	getHiZHelper(): WebGPUHiZPostProcessHelper;
+	getHiZBuilder(): WebGPUHiZBuilder;
 	/**
 	 * Returns the shared copy helper for ordered post-process texture copies.
 	 *
