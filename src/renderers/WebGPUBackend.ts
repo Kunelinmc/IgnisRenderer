@@ -38,10 +38,19 @@ import { WebGPUCommandScheduler } from "./webgpu/WebGPUCommandScheduler";
 import { WebGPUCanvasTargetManager } from "./webgpu/WebGPUCanvasTargetManager";
 import { WebGPUResourceManager } from "./webgpu/WebGPUResourceManager";
 import { WebGPUShaderModuleCompiler } from "./webgpu/WebGPUShaderModuleCompiler";
-import { WebGPUPipelineCache } from "./webgpu/WebGPUPipelineCache";
-import { WebGPUBindingGroupCache } from "./webgpu/WebGPUBindingGroupCache";
+import {
+	WebGPUPipelineCache,
+	type WebGPUPipelineCacheHost,
+} from "./webgpu/WebGPUPipelineCache";
+import {
+	WebGPUBindingGroupCache,
+	type WebGPUBindingGroupCacheHost,
+} from "./webgpu/WebGPUBindingGroupCache";
 import { WebGPUObjectIdentity } from "./webgpu/WebGPUObjectIdentity";
-import { WebGPUMSAAController } from "./webgpu/WebGPUMSAAController";
+import {
+	WebGPUMSAAController,
+	type WebGPUMSAAControllerHost,
+} from "./webgpu/WebGPUMSAAController";
 import { WebGPUBackendPassDispatcher } from "./webgpu/WebGPUBackendPassDispatcher";
 import { WebGPUWarmupCoordinator } from "./webgpu/WebGPUWarmupCoordinator";
 import {
@@ -282,21 +291,7 @@ export class WebGPUBackend implements IRenderBackend {
 		const shaderMode = options.shaderMode ?? "strict";
 		const thisRef = this;
 		this._msaaController = new WebGPUMSAAController(
-			{
-				get device() {
-					return thisRef.device;
-				},
-				get canvasFormat() {
-					return thisRef.canvasFormat;
-				},
-				get canvasDepthFormat() {
-					return thisRef.canvasDepthFormat;
-				},
-				get objectIdentity() {
-					return thisRef._objectIdentity;
-				},
-				onRuntimeFallback: () => this._onMSAARuntimeFallback(),
-			},
+			this._createMSAAControllerHost(),
 			options.msaaSampleCount
 		);
 		this._enableEarlyZPrepass = options.enableEarlyZPrepass !== false;
@@ -345,52 +340,10 @@ export class WebGPUBackend implements IRenderBackend {
 			mode: shaderMode,
 		});
 		this._shaderModuleCompiler = new WebGPUShaderModuleCompiler(this._shaderCompileStage);
-		this._pipelineCache = new WebGPUPipelineCache({
-			get device() {
-				return thisRef.device;
-			},
-			get shaderModuleCompiler() {
-				return thisRef._shaderModuleCompiler;
-			},
-			get warmupLogCompilationInfo() {
-				return thisRef._warmupLogCompilationInfo;
-			},
-			get objectIdentity() {
-				return thisRef._objectIdentity;
-			},
-			assertDeviceOperational: (operation) => {
-				this._assertDeviceOperational(operation);
-			},
-			resolveSupportedMSAASampleCount: (requested, probeFormats) => {
-				return this._msaaController.resolveSupportedSampleCount(requested, probeFormats);
-			},
-			createManagedDestroy: (target, destroyOptions) => {
-				return this._createManagedDestroy(target, destroyOptions);
-			},
-			runValidationScopeAsync: (label, operation) => {
-				return this._runValidationScopeAsync(label, operation);
-			},
-		});
-		this._bindingGroupCache = new WebGPUBindingGroupCache({
-			get device() {
-				return thisRef.device;
-			},
-			get frameSerial() {
-				return thisRef._frameSerial;
-			},
-			get objectIdentity() {
-				return thisRef._objectIdentity;
-			},
-			assertDeviceOperational: (operation) => {
-				this._assertDeviceOperational(operation);
-			},
-			createManagedDestroy: (target, destroyOptions) => {
-				return this._createManagedDestroy(target, destroyOptions);
-			},
-			runValidationScope: (label, operation) => {
-				return this._runValidationScope(label, operation);
-			},
-		});
+		this._pipelineCache = new WebGPUPipelineCache(this._createPipelineCacheHost());
+		this._bindingGroupCache = new WebGPUBindingGroupCache(
+			this._createBindingGroupCacheHost()
+		);
 		this._passDispatcher = new WebGPUBackendPassDispatcher({
 			get frameExecutor() {
 				return thisRef._frameExecutor;
@@ -1156,6 +1109,79 @@ export class WebGPUBackend implements IRenderBackend {
 		  }
 		| undefined {
 		return this._commandScheduler.createPassTimestampWrites(label);
+	}
+
+	private _createMSAAControllerHost(): WebGPUMSAAControllerHost {
+		const thisRef = this;
+		return {
+			get device() {
+				return thisRef.device;
+			},
+			get canvasFormat() {
+				return thisRef.canvasFormat;
+			},
+			get canvasDepthFormat() {
+				return thisRef.canvasDepthFormat;
+			},
+			get objectIdentity() {
+				return thisRef._objectIdentity;
+			},
+			onRuntimeFallback: () => this._onMSAARuntimeFallback(),
+		};
+	}
+
+	private _createPipelineCacheHost(): WebGPUPipelineCacheHost {
+		const thisRef = this;
+		return {
+			get device() {
+				return thisRef.device;
+			},
+			get shaderModuleCompiler() {
+				return thisRef._shaderModuleCompiler;
+			},
+			get warmupLogCompilationInfo() {
+				return thisRef._warmupLogCompilationInfo;
+			},
+			get objectIdentity() {
+				return thisRef._objectIdentity;
+			},
+			assertDeviceOperational: (operation) => {
+				this._assertDeviceOperational(operation);
+			},
+			resolveSupportedMSAASampleCount: (requested, probeFormats) => {
+				return this._msaaController.resolveSupportedSampleCount(requested, probeFormats);
+			},
+			createManagedDestroy: (target, options) => {
+				return this._createManagedDestroy(target, options);
+			},
+			runValidationScopeAsync: (label, operation) => {
+				return this._runValidationScopeAsync(label, operation);
+			},
+		};
+	}
+
+	private _createBindingGroupCacheHost(): WebGPUBindingGroupCacheHost {
+		const thisRef = this;
+		return {
+			get device() {
+				return thisRef.device;
+			},
+			get frameSerial() {
+				return thisRef._frameSerial;
+			},
+			get objectIdentity() {
+				return thisRef._objectIdentity;
+			},
+			assertDeviceOperational: (operation) => {
+				this._assertDeviceOperational(operation);
+			},
+			createManagedDestroy: (target, options) => {
+				return this._createManagedDestroy(target, options);
+			},
+			runValidationScope: (label, operation) => {
+				return this._runValidationScope(label, operation);
+			},
+		};
 	}
 
 	private _createCommandSchedulerHost(): WebGPUCommandSchedulerHost {
