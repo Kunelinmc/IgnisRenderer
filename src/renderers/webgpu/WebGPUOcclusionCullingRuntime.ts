@@ -13,7 +13,7 @@ import {
 	type IRenderTexture,
 	type IShaderModule,
 } from "../types";
-import type { WebGPUBackend } from "../WebGPUBackend";
+import type { WebGPUFrameHost } from "./rendergraph/WebGPUFrameHost";
 import { tryGetNativeWebGPUCommandEncoder } from "./WebGPUCommandEncoder";
 import {
 	tryGetWebGPUBuffer,
@@ -56,7 +56,7 @@ const READBACK_ALIGNMENT = 4;
  * Owns WebGPU previous-frame occlusion culling state and snapshots.
  */
 export class WebGPUOcclusionCullingRuntime {
-	private readonly _backend: WebGPUBackend;
+	private readonly _backend: WebGPUFrameHost;
 	private _frameIndex = 0;
 	private _lastCompletedFrameIndex = -1;
 	private _visibilityGeneration = 0;
@@ -69,7 +69,7 @@ export class WebGPUOcclusionCullingRuntime {
 	private _occlusionPipeline: IComputePipeline | null = null;
 	private _warnedKeys = new Set<string>();
 
-	constructor(backend: WebGPUBackend) {
+	constructor(backend: WebGPUFrameHost) {
 		this._backend = backend;
 	}
 

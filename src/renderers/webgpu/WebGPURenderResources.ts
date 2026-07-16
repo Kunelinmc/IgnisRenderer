@@ -249,6 +249,7 @@ export class WebGPURenderResources {
 	private _materialBindings: WebGPUMaterialBindingCache;
 	private _shadowPass: WebGPUShadowPass;
 	private _pagedShadowRuntime: WebGPUPagedShadowRuntime;
+	private _shadowRuntimeDestroyed = false;
 	private _frameFeatureRegistry = createWebGPUFrameFeatureRegistry();
 	private _frameScopes = new Map<string, WebGPUFrameResourceScope>();
 	private _particleShaderModule: IShaderModule | null = null;
@@ -1045,10 +1046,33 @@ export class WebGPURenderResources {
 		for (const scope of this._frameScopes.values()) {
 			scope.clusteredLighting.onShaderRuntimeChanged();
 		}
+	}
+
+	/** @internal Owned by the WebGPU deferred frame runtime. */
+	public invalidateDeferredRuntimeResources(): void {
 		this._decalShaderModule = null;
 		this._decalPipeline = null;
 		this._decalBatchPipeline = null;
+		this._destroyBindingGroup(this._deferredUnusedBinding);
+		this._deferredUnusedBinding = null;
+	}
+
+	/** @internal Owned by the WebGPU shadow frame runtime. */
+	public onShadowRuntimeShaderChanged(): void {
+		if (this._shadowRuntimeDestroyed) {
+			return;
+		}
 		this._shadowPass.onShaderRuntimeChanged();
+	}
+
+	/** @internal Owned by the WebGPU shadow frame runtime. */
+	public destroyShadowRuntimeResources(): void {
+		if (this._shadowRuntimeDestroyed) {
+			return;
+		}
+		this._shadowRuntimeDestroyed = true;
+		this._pagedShadowRuntime.destroy();
+		this._shadowPass.destroy();
 	}
 
 	public destroy(): void {
@@ -1056,11 +1080,10 @@ export class WebGPURenderResources {
 			return;
 		}
 		this._destroyed = true;
+		this.destroyShadowRuntimeResources();
 		this._clearParticleBindingCache();
 		this._particleShaderModule = null;
-		this._decalShaderModule = null;
-		this._decalPipeline = null;
-		this._decalBatchPipeline = null;
+		this.invalidateDeferredRuntimeResources();
 		this._particlePipelineAlpha.clear();
 		this._particlePipelineOITAlpha.clear();
 		this._particlePipelineAdditive.clear();
@@ -1069,8 +1092,6 @@ export class WebGPURenderResources {
 		this._particleInstanceBuffer?.destroy();
 		this._particleInstanceBuffer = null;
 		this._particleInstanceCapacity = 0;
-		this._destroyBindingGroup(this._deferredUnusedBinding);
-		this._deferredUnusedBinding = null;
 		this._frameFeatureRegistry.destroy();
 		for (const scope of this._frameScopes.values()) {
 			scope.frameBindings.destroy();
@@ -1078,8 +1099,6 @@ export class WebGPURenderResources {
 		}
 		this._frameScopes.clear();
 		this._materialBindings.destroy();
-		this._pagedShadowRuntime.destroy();
-		this._shadowPass.destroy();
 		this._pipelineLibrary.destroy();
 		this._shadowAtlases.destroy();
 		this._textureRegistry.destroy();

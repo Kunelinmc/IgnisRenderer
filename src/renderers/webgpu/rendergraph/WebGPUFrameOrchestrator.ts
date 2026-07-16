@@ -10,16 +10,14 @@ import type {
 } from "../../../postprocess";
 import type { ICommandEncoder } from "../../ICommandEncoder";
 import type { IRenderTexture } from "../../types";
-import type { WebGPUBackend } from "../../WebGPUBackend";
+import type { WebGPUFrameHost } from "./WebGPUFrameHost";
 import type { WebGPUMSAAContext } from "../WebGPUMSAAController";
 import type {
 	WebGPUPreparedFrameResources,
 	WebGPURenderResources,
 } from "../WebGPURenderResources";
-import { resolveWebGPUComputeFacade } from "../ComputeFacade";
 import { WebGPUHiZBuilder } from "../WebGPUHiZBuilder";
-import { BackendPostProcessRuntime } from "../../../postprocess/BackendPostProcessRuntime";
-import { WebGPUPostProcessExecutor } from "../WebGPUPostProcessExecutor";
+import type { BackendPostProcessRuntime } from "../../../postprocess/BackendPostProcessRuntime";
 
 import {
 	isWebGPUPostProcessContextMetadata,
@@ -58,9 +56,22 @@ import { WebGPUFrameGraphPlanner } from "./WebGPUFrameGraphPlanner";
 import { WebGPUFrameGraphCompiler } from "./WebGPUFrameGraphCompiler";
 import {
 	WebGPUFrameNodeExecutorRegistry,
-	type WebGPUFrameNodeExecutorTable,
 } from "./WebGPUFrameNodeExecutorRegistry";
+import {
+	WebGPUDeferredNodeRuntime,
+	WebGPUPresentationNodeRuntime,
+	WebGPUPostProcessNodeRuntime,
+	WebGPUReflectionNodeRuntime,
+	WebGPUSceneNodeRuntime,
+	WebGPUShadowNodeRuntime,
+	WebGPUTransparencyNodeRuntime,
+	WebGPUVisibilityNodeRuntime,
+	type WebGPUFrameNodeRuntime,
+} from "./WebGPUFrameNodeRuntimes";
 import { WebGPUFrameSession } from "./WebGPUFrameSession";
+import { WebGPUFrameCommitter, type WebGPUFrameCommitDebugState } from "./WebGPUFrameCommitter";
+import { WebGPUFrameFeatureAnalyzer, type WebGPUFrameFeatureAnalysis } from "./WebGPUFrameFeatureAnalyzer";
+import { collectActiveWebGPUFrameGraphResources } from "./WebGPUFrameGraphResourceCatalog";
 import { WebGPUPostProcessBridge } from "./WebGPUPostProcessBridge";
 import { WebGPUOITPass } from "./WebGPUOITPass";
 import { WebGPUDeferredLightingPass } from "./WebGPUDeferredLightingPass";
@@ -102,25 +113,24 @@ export interface WebGPUFrameOrchestratorOptions {
 	readonly enableEarlyZPrepass: boolean;
 	readonly enableDeferredLighting: boolean;
 	readonly frameGraphValidationMode: WebGPUFrameGraphValidationMode;
-	readonly getFrameExecutor: () => import("../WebGPUFrameExecutor").WebGPUFrameExecutor | null;
 }
 
 export class WebGPUFrameOrchestrator {
-	private _backend: WebGPUBackend;
+	private _backend: WebGPUFrameHost;
 	private _resources: WebGPURenderResources;
 	private _msaa: WebGPUMSAAContext;
 	private _session: WebGPUFrameSession | null = null;
 	private _lastConfiguration: WebGPUFrameConfiguration | null = null;
 	private _postRuntime: WebGPUPostProcessRuntime;
+	private readonly _postProcessRuntime: BackendPostProcessRuntime;
 	private _postBridge: WebGPUPostProcessBridge;
-	private _fallbackPostProcessRuntime?: BackendPostProcessRuntime;
 	private _pendingFrameTargetInvalidation = false;
 	private _pendingShaderRuntimeInvalidation = false;
 	private _enableEarlyZPrepass = true;
 	private _enableDeferredLighting = true;
 	private readonly _frameGraphValidationMode: WebGPUFrameGraphValidationMode;
-	private readonly _getFrameExecutor: WebGPUFrameOrchestratorOptions["getFrameExecutor"];
 	private readonly _configurationResolver = new WebGPUFrameConfigurationResolver();
+	private readonly _featureAnalyzer = new WebGPUFrameFeatureAnalyzer();
 	private readonly _dirtyRectResolver = new WebGPUDirtyRectResolver();
 	private _recordingContext: WebGPUFrameGraphRecordingContext;
 	private _depthDirtyClearPass: WebGPUDepthDirtyClearPass;
@@ -137,12 +147,14 @@ export class WebGPUFrameOrchestrator {
 	private readonly _graphPlanner = new WebGPUFrameGraphPlanner();
 	private readonly _graphCompiler = new WebGPUFrameGraphCompiler();
 	private readonly _nodeExecutors: WebGPUFrameNodeExecutorRegistry;
+	private readonly _nodeRuntimes: readonly WebGPUFrameNodeRuntime[];
 	private _lastPlannedGraphNodes: WebGPUFrameGraphNode[] = [];
 	private _lastCompiledGraphStages: WebGPUCompiledFrameGraphStage[] = [];
 	private _lastExecutedGraphNodeIds: string[] = [];
+	private _lastCommitDebugState: WebGPUFrameCommitDebugState | null = null;
 
 	constructor(
-		backend: WebGPUBackend,
+		backend: WebGPUFrameHost,
 		resources: WebGPURenderResources,
 		msaa: WebGPUMSAAContext,
 		options: WebGPUFrameOrchestratorOptions,
@@ -153,8 +165,8 @@ export class WebGPUFrameOrchestrator {
 		this._enableEarlyZPrepass = options.enableEarlyZPrepass;
 		this._enableDeferredLighting = options.enableDeferredLighting;
 		this._frameGraphValidationMode = options.frameGraphValidationMode;
-		this._getFrameExecutor = options.getFrameExecutor;
-		const computeFacade = resolveWebGPUComputeFacade(backend);
+		this._postProcessRuntime = backend.postProcessRuntime;
+		const computeFacade = backend.computeFacade;
 		this._hiZBuilder = new WebGPUHiZBuilder(computeFacade);
 		this._postRuntime = new WebGPUPostProcessRuntime(
 			computeFacade,
@@ -226,8 +238,9 @@ export class WebGPUFrameOrchestrator {
 				this._scenePassRecorder.drawTransmissionPackets(context, packets),
 			warnDisabled: (key, message) => this._warnOITDisabled(key, message),
 		});
-		this._nodeExecutors = new WebGPUFrameNodeExecutorRegistry(
-			this._createNodeExecutors(),
+		this._nodeRuntimes = this._createNodeRuntimes();
+		this._nodeExecutors = WebGPUFrameNodeExecutorRegistry.fromRuntimes(
+			this._nodeRuntimes,
 		);
 	}
 
@@ -338,7 +351,7 @@ export class WebGPUFrameOrchestrator {
 		if (this._session) {
 			throw new Error("WebGPUFrameOrchestrator already has an active frame session.");
 		}
-		this._oitPass.resetFrameState();
+		for (const runtime of this._nodeRuntimes) runtime.beginFrame?.();
 		this._postBridge.clearPendingFrameState();
 		this._lastPlannedGraphNodes = [];
 		this._lastCompiledGraphStages = [];
@@ -356,13 +369,31 @@ export class WebGPUFrameOrchestrator {
 
 		const encoder = this._backend.createCommandEncoder();
 		this._customRenderTargets.sync(context);
-		const configuration = this._configureFrameTargets(context, encoder, targetWidth, targetHeight);
+		const analysis = this._featureAnalyzer.analyze(context, {
+			particleOpaquePackets: this._buildParticleMeshDrawPackets(context, {
+				includeOpaque: true,
+				includeTransparent: false,
+			}),
+			particleTransparentPackets: this._buildParticleMeshDrawPackets(context, {
+				includeOpaque: false,
+				includeTransparent: true,
+			}),
+		});
+		const configuration = this._configureFrameTargets(
+			context,
+			analysis,
+			encoder,
+			targetWidth,
+			targetHeight,
+		);
 		this._lastConfiguration = configuration;
 		this._session = WebGPUFrameSession.createRecording({
 			context,
 			configuration,
 			encoder,
 			hiZStatus: this._frameTargets?.hiZ ? "pending" : "unavailable",
+			analysis,
+			committer: new WebGPUFrameCommitter(this._backend),
 		});
 		this._graphCompiler.beginFrame(this._collectInitialGraphResources());
 		this.prepareFrameResources(context);
@@ -370,6 +401,7 @@ export class WebGPUFrameOrchestrator {
 
 	private _configureFrameTargets(
 		context: FrameContext,
+		analysis: WebGPUFrameFeatureAnalysis,
 		encoder: ICommandEncoder,
 		width: number,
 		height: number,
@@ -379,6 +411,7 @@ export class WebGPUFrameOrchestrator {
 		for (let attempts = 0; attempts < 3; attempts++) {
 			const configuration = this._resolveFrameConfiguration(
 				context,
+				analysis,
 				encoder,
 				forceDeferredFallback,
 				forceForwardMrt,
@@ -411,12 +444,13 @@ export class WebGPUFrameOrchestrator {
 
 	private _resolveFrameConfiguration(
 		context: FrameContext,
+		analysis: WebGPUFrameFeatureAnalysis,
 		encoder: ICommandEncoder,
 		forceDeferredFallback: boolean,
 		forceForwardMrt: boolean,
 	): WebGPUFrameConfiguration {
 		const device = this._backend.device;
-		return this._configurationResolver.resolve(context, {
+		return this._configurationResolver.resolve(analysis, {
 			maxColorAttachments: device?.limits?.maxColorAttachments ?? 8,
 			maxColorAttachmentBytesPerSample:
 				device?.limits?.maxColorAttachmentBytesPerSample ?? 32,
@@ -429,14 +463,6 @@ export class WebGPUFrameOrchestrator {
 			supportsInFrameTextureCopy: typeof encoder.copyTextureToTexture === "function",
 			forceDeferredFallback,
 			forceForwardMrt,
-			particleOpaquePackets: this._buildParticleMeshDrawPackets(context, {
-				includeOpaque: true,
-				includeTransparent: false,
-			}),
-			particleTransparentPackets: this._buildParticleMeshDrawPackets(context, {
-				includeOpaque: false,
-				includeTransparent: true,
-			}),
 		});
 	}
 
@@ -554,6 +580,7 @@ export class WebGPUFrameOrchestrator {
 			graphBarriers: this._graphCompiler.getBarriers(),
 			graphDiagnostics: this._graphCompiler.getDiagnostics(),
 			targetManager: this._frameTargetManager.getDebugState(),
+			commit: this._session?.committer?.getDebugState() ?? this._lastCommitDebugState,
 		};
 	}
 
@@ -599,10 +626,6 @@ export class WebGPUFrameOrchestrator {
 
 	private _invalidateFrameTargetsNow(): void {
 		this._destroyFrameTargets();
-		this._postRuntime.invalidateBindings();
-		this._hiZBuilder.invalidateBindings();
-		this._occlusionRuntime.invalidateFrameResources();
-		this._planarReflectionPass.destroy();
 	}
 
 	public invalidatePostProcessBindings(): void {
@@ -618,14 +641,7 @@ export class WebGPUFrameOrchestrator {
 	}
 
 	private _applyShaderRuntimeChangedNow(): void {
-		this._presentPass.onShaderRuntimeChanged();
-		this._oitPass.onShaderRuntimeChanged();
-		this._destroyDeferredBindings();
-		this._depthDirtyClearPass.onShaderRuntimeChanged();
-		this._postRuntime.onShaderRuntimeChanged();
-		this._hiZBuilder.invalidateShaderResources();
-		this._occlusionRuntime.onShaderRuntimeChanged();
-		this._planarReflectionPass.destroy();
+		for (const runtime of this._nodeRuntimes) runtime.onShaderRuntimeChanged?.();
 	}
 
 	public async warmup(
@@ -647,8 +663,7 @@ export class WebGPUFrameOrchestrator {
 		}
 		await yieldController.yieldIfNeeded();
 
-		const postRuntime =
-			this._backend.postProcessRuntime ?? this._getFallbackPostProcessRuntime();
+		const postRuntime = this._postProcessRuntime;
 		const warmupGraph = postRuntime.compileWarmupGraph(context);
 		const hints = new Set<string>();
 		if (plan.includePostProcess) {
@@ -718,34 +733,14 @@ export class WebGPUFrameOrchestrator {
 		return this._postBridge.getPassWarmupExecutionContext(metadata);
 	}
 
-	private _getFallbackPostProcessRuntime(): BackendPostProcessRuntime {
-		if (!this._fallbackPostProcessRuntime) {
-			this._fallbackPostProcessRuntime = new BackendPostProcessRuntime({
-					executor: new WebGPUPostProcessExecutor({
-					getFrameExecutor: () => this._getFrameExecutor(),
-					assertDeviceOperational: () => {},
-				}),
-				backend: this._backend,
-				warn: () => {},
-			});
-		}
-		return this._fallbackPostProcessRuntime;
-	}
-
 	/**
 	 * Release all GPU resources held by this executor.
 	 */
 	public destroy(): void {
 		this._destroyFrameTargets();
 		this._destroyTexturePools();
-		this._postRuntime.destroy();
-		this._occlusionRuntime.destroy();
-		this._hiZBuilder.destroy();
-		this._planarReflectionPass.destroy();
-		this._presentPass.destroy();
+		for (const runtime of this._nodeRuntimes) runtime.destroy();
 		this._customRenderTargets.destroy();
-		this._oitPass.destroy();
-		this._depthDirtyClearPass.destroy();
 		this._pendingFrameTargetInvalidation = false;
 		this._pendingShaderRuntimeInvalidation = false;
 		this._clearActiveSession(false);
@@ -786,6 +781,8 @@ export class WebGPUFrameOrchestrator {
 			needsHiZBuild:
 				session.configuration?.needsHiZBuild === true &&
 				this._hiZStatus === "pending",
+			needsPlanarReflectionComposite:
+				session.analysis?.needsPlanarReflection === true,
 		});
 		if (plan.nodes.length === 0) {
 			const key = `webgpu-pass-unsupported-${pass.stage}`;
@@ -805,8 +802,22 @@ export class WebGPUFrameOrchestrator {
 		}
 	}
 
-	private _createNodeExecutors(): WebGPUFrameNodeExecutorTable {
-		return {
+	private _createNodeRuntimes(): readonly WebGPUFrameNodeRuntime[] {
+		const scene = new WebGPUSceneNodeRuntime("scene", {
+			"opaque-scene": async (_node, session) => {
+				this._deferredOpaqueFrameState = await this._scenePassRecorder.recordOpaque(
+					session.context,
+					this._deferredEnabled,
+				);
+			},
+			particles: async (_node, session) => {
+				await this._scenePassRecorder.recordParticlePass(session.context);
+			},
+		}, {
+			destroy: () => this._depthDirtyClearPass.destroy(),
+			onShaderRuntimeChanged: () => this._depthDirtyClearPass.onShaderRuntimeChanged(),
+		});
+		const shadow = new WebGPUShadowNodeRuntime("shadow", {
 			shadow: async (_node, session) => {
 				await this._resources.renderShadows(
 					session.context,
@@ -838,31 +849,56 @@ export class WebGPUFrameOrchestrator {
 					this._createPagedShadowRequest(session.context),
 				);
 			},
+		}, {
+			onShaderRuntimeChanged: () => this._resources.onShadowRuntimeShaderChanged?.(),
+			destroy: () => this._resources.destroyShadowRuntimeResources?.(),
+		});
+		const reflection = new WebGPUReflectionNodeRuntime("reflection", {
 			"planar-reflection-capture": async (_node, session) => {
 				await this._recordPlanarReflectionPass(session.context);
 			},
-			"opaque-scene": async (_node, session) => {
-				const context = session.context;
-				this._deferredOpaqueFrameState = await this._scenePassRecorder.recordOpaque(
-					context,
-					this._deferredEnabled,
-				);
-				if (!this._deferredOpaqueFrameState) {
-					await this._recordPlanarReflectionComposite(context);
-				}
+			"planar-reflection-composite": async (_node, session) => {
+				await this._recordPlanarReflectionComposite(session.context);
 			},
+		}, {
+			destroy: () => this._planarReflectionPass.destroy(),
+			invalidateFrameResources: () => this._planarReflectionPass.destroy(),
+			onShaderRuntimeChanged: () => this._planarReflectionPass.destroy(),
+		});
+		const deferred = new WebGPUDeferredNodeRuntime("deferred", {
 			"deferred-decal": async (_node, session) => {
 				await this._recordDeferredDecalNode(session.context);
 			},
 			"deferred-lighting": async (_node, session) => {
 				await this._recordDeferredLightingNode(session.context);
 			},
+		}, {
+			invalidateFrameResources: () => this._destroyDeferredBindings(),
+			onShaderRuntimeChanged: () => {
+				this._destroyDeferredBindings();
+				this._resources.invalidateDeferredRuntimeResources?.();
+			},
+			destroy: () => this._resources.invalidateDeferredRuntimeResources?.(),
+		});
+		const visibility = new WebGPUVisibilityNodeRuntime("visibility", {
 			"hiz-build": async (_node, session) => {
 				await this._recordHiZBuildNode(session.context);
 			},
 			"occlusion-test": async (_node, session) => {
 				await this._recordOcclusionTestNode(session.context);
 			},
+		}, {
+			invalidateFrameResources: () => this._occlusionRuntime.invalidateFrameResources(),
+			onShaderRuntimeChanged: () => {
+				this._hiZBuilder.invalidateShaderResources();
+				this._occlusionRuntime.onShaderRuntimeChanged();
+			},
+			destroy: () => {
+				this._occlusionRuntime.destroy();
+				this._hiZBuilder.destroy();
+			},
+		});
+		const transparency = new WebGPUTransparencyNodeRuntime("transparency", {
 			"oit-transparent": async (_node, session) => {
 				await this._recordOITTransparentPass(session.context);
 			},
@@ -872,10 +908,33 @@ export class WebGPUFrameOrchestrator {
 			"oit-particles": async (_node, session) => {
 				await this._recordOITParticlePass(session.context);
 			},
-			particles: async (_node, session) => {
-				await this._scenePassRecorder.recordParticlePass(session.context);
+		}, {
+			beginFrame: () => this._oitPass.resetFrameState(),
+			invalidateFrameResources: () => this._oitPass.invalidateBindings(),
+			onShaderRuntimeChanged: () => this._oitPass.onShaderRuntimeChanged(),
+			destroy: () => this._oitPass.destroy(),
+		});
+		const postProcess = new WebGPUPostProcessNodeRuntime("post-process", {
+			"post-process": async (_node, session) => {
+				await this._postProcessRuntime.execute(session.context);
 			},
-		};
+		}, {
+			invalidateFrameResources: () => this._postRuntime.invalidateBindings(),
+			onShaderRuntimeChanged: () => this._postRuntime.onShaderRuntimeChanged(),
+			destroy: () => this._postRuntime.destroy(),
+		});
+		const presentation = new WebGPUPresentationNodeRuntime("presentation", {
+			presentation: async (_node, session) => {
+				if (!session.presented && this._frameTargets) {
+					await this._presentToCanvas(this._frameTargets.sceneColor);
+				}
+			},
+		}, {
+			invalidateFrameResources: () => this._presentPass.invalidateBindings(),
+			onShaderRuntimeChanged: () => this._presentPass.onShaderRuntimeChanged(),
+			destroy: () => this._presentPass.destroy(),
+		});
+		return [scene, shadow, deferred, transparency, reflection, visibility, postProcess, presentation];
 	}
 
 	private _createPagedShadowRequest(context: FrameContext): WebGPUPagedShadowFrameRequest {
@@ -901,10 +960,31 @@ export class WebGPUFrameOrchestrator {
 			return;
 		}
 		session.beginCommit();
+		const finalization = this._graphPlanner.planFinalization(
+			{ stage: "postprocess", executor: "backend", enabled: true, dependsOn: [] },
+			{
+				deferredActive: this._deferredEnabled,
+				oitActive: this._oitActive,
+				sceneTargetMode: this.getSceneTargetModeForFrame(),
+				hasFrameTargets: !!this._frameTargets,
+				hasMSAATargets: !!this._msaaTargets,
+			},
+		);
+		if (finalization.nodes.length > 0) {
+			const compiled = this._graphCompiler.compileStage(finalization);
+			this._handleGraphDiagnostics(compiled);
+			this._lastCompiledGraphStages = this._graphCompiler.getCompiledStages().slice();
+			this._lastPlannedGraphNodes = [...finalization.nodes];
+			for (const node of finalization.nodes) {
+				await this._nodeExecutors.execute(node, session);
+				this._lastExecutedGraphNodeIds.push(node.id);
+			}
+		}
 		const encoder = session.encoder;
-		if (!encoder) {
+		const committer = session.committer;
+		if (!encoder || !committer) {
 			this._clearActiveSession();
-			throw new Error("WebGPU committing frame session has no command encoder.");
+			throw new Error("WebGPU committing frame session has no encoder or committer.");
 		}
 
 		const width = this._targetWidth;
@@ -916,26 +996,28 @@ export class WebGPUFrameOrchestrator {
 		const motionTarget = this._mrtEnabled ? this._motionHistoryWriteTarget : null;
 
 		try {
-			if (this._mrtEnabled && this._frameTargets && !this._hasPresentedInFrame) {
-				await this._presentToCanvas(this._frameTargets.sceneColor);
-			}
-
-			this._backend.submit([encoder.finish()]);
-			this._customRenderTargets.markFrameCommitted();
-			this._occlusionRuntime.scheduleQueuedReadbacks();
 			if (motionSource && motionTarget && width > 0 && height > 0) {
-				this._backend.copyTextureToTexture(
+				encoder.copyTextureToTexture?.(
 					{ texture: motionSource },
 					{ texture: motionTarget },
 					{ width, height, depthOrArrayLayers: 1 },
 				);
 			}
+			committer.enqueueEncoder("main:final", encoder);
+			session.encoder = null;
+			await committer.commit(() => {
+				this._customRenderTargets.markFrameCommitted();
+				this._occlusionRuntime.scheduleQueuedReadbacks();
+			});
 		} finally {
+			this._lastCommitDebugState = committer.getDebugState();
 			this._clearActiveSession();
 		}
 	}
 
 	public abortFrame(): void {
+		this._session?.committer?.abort();
+		this._lastCommitDebugState = this._session?.committer?.getDebugState() ?? null;
 		this._customRenderTargets.markFrameAborted();
 		this._clearActiveSession();
 	}
@@ -948,75 +1030,11 @@ export class WebGPUFrameOrchestrator {
 		return this._customRenderTargets.readColor(id, attachmentIndex, options);
 	}
 
-	private _collectInitialGraphResources(): string[] {
-		const resources = new Set<string>(["canvas:scene-color-main", "canvas:depth"]);
-		const targets = this._frameTargets;
-		if (targets) {
-			resources.add("frame:scene-color-main");
-			resources.add("frame:depth");
-			if (targets.postPing) resources.add("post:ping");
-			if (targets.postPong) resources.add("post:pong");
-			if (targets.hiZ) resources.add("frame:hiz");
-			if (targets.gAlbedoAlpha) resources.add("gbuffer:albedo-alpha");
-			if (targets.gNormalRoughMetal) {
-				resources.add("gbuffer:normal-rough-metal");
-			}
-			if (targets.gEmissiveOcclusion) {
-				resources.add("gbuffer:emissive-occlusion");
-			}
-			if (targets.gMotionDepth) resources.add("gbuffer:motion-depth");
-			if (targets.gSpecular) resources.add("gbuffer:specular");
-			if (targets.gCoatSheen) resources.add("gbuffer:coat-sheen");
-			if (targets.gSheenReflectance) {
-				resources.add("gbuffer:sheen-reflectance");
-			}
-			if (targets.gMaterialExt0) resources.add("gbuffer:material-ext0");
-			if (targets.gMaterialExt1) resources.add("gbuffer:material-ext1");
-			if (targets.gMaterialExt2) resources.add("gbuffer:material-ext2");
-			if (targets.gMaterialExt3) resources.add("gbuffer:material-ext3");
-			if (targets.oitAccum) resources.add("oit:accum");
-			if (targets.oitReveal) resources.add("oit:reveal");
-			if (targets.oitSceneColorCopy) resources.add("oit:scene-color-copy");
-			if (targets.transmissionSceneColorCopy) {
-				resources.add("transmission:scene-color-copy");
-			}
-			if (targets.transmissionLighting) {
-				resources.add("transmission:lighting");
-			}
-			if (targets.gTransmissionSurface0) {
-				resources.add("transmission:surface0");
-			}
-			if (targets.gTransmissionSurface1) {
-				resources.add("transmission:surface1");
-			}
-			if (targets.gTransmissionSurface2) {
-				resources.add("transmission:surface2");
-			}
-			if (targets.transmissionDepth) resources.add("transmission:depth");
-			if (targets.planarReflectionMask) {
-				resources.add("planar-reflection:mask");
-			}
-		}
-		if (this._msaaTargets) {
-			resources.add("msaa:scene-color-main");
-			resources.add("msaa:depth");
-			if (this._msaaTargets.gAlbedoAlpha) {
-				resources.add("msaa:gbuffer:albedo-alpha");
-			}
-			if (this._msaaTargets.gNormalRoughMetal) {
-				resources.add("msaa:gbuffer:normal-rough-metal");
-			}
-			if (this._msaaTargets.gEmissiveOcclusion) {
-				resources.add("msaa:gbuffer:emissive-occlusion");
-			}
-			if (this._msaaTargets.gMotionDepth) {
-				resources.add("msaa:gbuffer:motion-depth");
-			}
-			if (this._msaaTargets.planarReflectionMask) {
-				resources.add("msaa:planar-reflection:mask");
-			}
-		}
-		return Array.from(resources);
+	private _collectInitialGraphResources() {
+		return collectActiveWebGPUFrameGraphResources(
+			this._frameTargets,
+			this._msaaTargets,
+		);
 	}
 
 	private _handleGraphDiagnostics(compiled: WebGPUCompiledFrameGraphStage): void {
@@ -1046,9 +1064,7 @@ export class WebGPUFrameOrchestrator {
 
 	private _destroyFrameTargets(): void {
 		this._frameTargetManager.destroyFrameTargets();
-		this._presentPass.invalidateBindings();
-		this._oitPass.invalidateBindings();
-		this._destroyDeferredBindings();
+		for (const runtime of this._nodeRuntimes) runtime.invalidateFrameResources?.();
 		this._oitPass.resetFrameState();
 		this._motionHistoryWriteTarget = null;
 		this._postBridge.clearPendingFrameState();
@@ -1191,11 +1207,15 @@ export class WebGPUFrameOrchestrator {
 	}
 
 	private async _recordPlanarReflectionPass(context: FrameContext): Promise<void> {
-		if (!this._encoder) {
+		const session = this._session;
+		if (!this._encoder || !session?.committer) {
 			return;
 		}
-		this._submitCurrentFrameEncoder();
-		await this._planarReflectionPass.capture(context);
+		session.committer.enqueueEncoder("main:before-reflection", this._encoder);
+		this._encoder = null;
+		await this._planarReflectionPass.capture(context, (label, encoder) => {
+			session.committer!.enqueueEncoder(label, encoder);
+		});
 		this._encoder = this._backend.createCommandEncoder();
 	}
 
@@ -1230,15 +1250,6 @@ export class WebGPUFrameOrchestrator {
 			],
 		});
 		this._encoder.endRenderPass();
-	}
-
-	private _submitCurrentFrameEncoder(): void {
-		if (!this._encoder) {
-			return;
-		}
-		const encoder = this._encoder;
-		this._backend.submit([encoder.finish()]);
-		this._encoder = null;
 	}
 
 	private async _recordDeferredDecalNode(context: FrameContext): Promise<void> {

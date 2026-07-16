@@ -6,8 +6,10 @@ import type {
 	WebGPUFrameGraphNode,
 	WebGPUFrameGraphPlannerState,
 	WebGPUFrameGraphResourceRef,
+	WebGPUFrameGraphResourceId,
 	WebGPUFrameGraphStagePlan,
 } from "./types";
+import { WEBGPU_FRAME_GRAPH_RESOURCES } from "./WebGPUFrameGraphResourceCatalog";
 
 const DEFERRED_GBUFFER_RENDER_RESOURCE_IDS = [
 	"gbuffer:albedo-alpha",
@@ -60,6 +62,23 @@ export class WebGPUFrameGraphPlanner {
 		};
 	}
 
+	public planFinalization(
+		pass: FramePass,
+		state: WebGPUFrameGraphPlannerState,
+	): WebGPUFrameGraphStagePlan {
+		const r = WEBGPU_FRAME_GRAPH_RESOURCES;
+		return {
+			pass,
+			nodes:
+				state.hasFrameTargets === true
+					? [this._node(pass, "presentation", "WebGPUPresentation", {
+							reads: [this._read(r.frameColor, "texture-binding")],
+							writes: [this._write(r.canvasColor, "present")],
+						})]
+					: [],
+		};
+	}
+
 	private _createStagePlanners(): Map<
 		FramePass["stage"],
 		(
@@ -69,6 +88,20 @@ export class WebGPUFrameGraphPlanner {
 		) => WebGPUFrameGraphNode[]
 	> {
 		return new Map([
+			[
+				"postprocess",
+				(pass) => [
+					this._node(pass, "post-process", "WebGPUPostProcess", {
+						reads: [
+							this._read(WEBGPU_FRAME_GRAPH_RESOURCES.frameColor, "texture-binding", true),
+							this._read(WEBGPU_FRAME_GRAPH_RESOURCES.frameHiZ, "texture-binding", true),
+						],
+						writes: [
+							this._write(WEBGPU_FRAME_GRAPH_RESOURCES.frameColor, "storage-binding", true),
+						],
+					}),
+				],
+			],
 			["shadow", (pass, context) => this._createShadowNodes(pass, context)],
 			[
 				"reflection",
@@ -113,21 +146,25 @@ export class WebGPUFrameGraphPlanner {
 							pass,
 							context,
 							state,
-							this._appendHiZNodes(pass, state, nodes),
+							this._appendHiZNodes(
+								pass,
+								state,
+								this._appendReflectionComposite(pass, state, nodes),
+							),
 						);
 					}
 					return this._appendPagedShadowFeedbackNode(
 						pass,
 						context,
 						state,
-						this._appendHiZNodes(pass, state, [
+						this._appendHiZNodes(pass, state, this._appendReflectionComposite(pass, state, [
 							this._node(
 								pass,
 								"opaque-scene",
 								`WebGPUOpaque${state.sceneTargetMode}`,
 								this._createOpaqueResources(state, context),
 							),
-						]),
+						])),
 					);
 				},
 			],
@@ -186,6 +223,26 @@ export class WebGPUFrameGraphPlanner {
 				],
 			],
 		]);
+	}
+
+	private _appendReflectionComposite(
+		pass: FramePass,
+		state: WebGPUFrameGraphPlannerState,
+		nodes: WebGPUFrameGraphNode[],
+	): WebGPUFrameGraphNode[] {
+		if (!state.needsPlanarReflectionComposite) return nodes;
+		const r = WEBGPU_FRAME_GRAPH_RESOURCES;
+		nodes.push(this._node(pass, "planar-reflection-composite", "WebGPUPlanarReflectionComposite", {
+			reads: [
+				this._read(r.planarReflectionCapture, "texture-binding"),
+				this._read(r.frameColor, "render-attachment", true),
+			],
+			writes: [
+				this._write(r.frameColor, "render-attachment", true),
+				this._write(r.planarReflectionMask, "render-attachment", true),
+			],
+		}));
+		return nodes;
 	}
 
 	private _node(
@@ -462,10 +519,13 @@ export class WebGPUFrameGraphPlanner {
 		loadExistingColor: boolean,
 		context: FrameContext,
 	): Pick<WebGPUFrameGraphNode, "reads" | "writes"> {
-		const targetPrefix =
-			state.sceneTargetMode === "single" || !state.hasFrameTargets ? "canvas" : "frame";
-		const sceneColor = `${targetPrefix}:scene-color-main`;
-		const depth = `${targetPrefix}:depth`;
+		const useCanvas = state.sceneTargetMode === "single" || !state.hasFrameTargets;
+		const sceneColor = useCanvas
+			? WEBGPU_FRAME_GRAPH_RESOURCES.canvasColor
+			: WEBGPU_FRAME_GRAPH_RESOURCES.frameColor;
+		const depth = useCanvas
+			? WEBGPU_FRAME_GRAPH_RESOURCES.canvasDepth
+			: WEBGPU_FRAME_GRAPH_RESOURCES.frameDepth;
 		const reads: WebGPUFrameGraphResourceRef[] = [
 			this._read("shadow-atlas", "texture-binding", true),
 			...this._createPagedShadowLightingReads(context),
@@ -494,7 +554,7 @@ export class WebGPUFrameGraphPlanner {
 	}
 
 	private _read(
-		id: string,
+		id: WebGPUFrameGraphResourceId,
 		usage: WebGPUFrameGraphResourceRef["usage"],
 		optional = false,
 	): WebGPUFrameGraphResourceRef {
@@ -502,7 +562,7 @@ export class WebGPUFrameGraphPlanner {
 	}
 
 	private _write(
-		id: string,
+		id: WebGPUFrameGraphResourceId,
 		usage: WebGPUFrameGraphResourceRef["usage"],
 		optional = false,
 	): WebGPUFrameGraphResourceRef {

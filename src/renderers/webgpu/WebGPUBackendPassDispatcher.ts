@@ -31,8 +31,6 @@ export class WebGPUBackendPassDispatcher {
 				return undefined;
 			case "particle-sim":
 				return this._executeParticleSimulation(context);
-			case "postprocess":
-				return this._host.postProcessRuntime.execute(context);
 			default:
 				return null;
 		}

@@ -1,6 +1,6 @@
 import type { WebGPUFrameTargets } from "../WebGPUPostProcessContracts";
 import type { WebGPUSceneTargetMode } from "../WebGPUScenePassDescriptors";
-import type { WebGPUBackend } from "../../WebGPUBackend";
+import type { WebGPUFrameHost } from "./WebGPUFrameHost";
 import {
 	TextureFormat,
 	TextureUsage,
@@ -57,7 +57,7 @@ export interface WebGPUFrameTargetManagerDebugState {
  * Owns WebGPU frame target allocation, reuse, and pooled texture lifetime.
  */
 export class WebGPUFrameTargetManager {
-	private readonly _backend: WebGPUBackend;
+	private readonly _backend: WebGPUFrameHost;
 	private _frameTargets: WebGPUFrameTargets | null = null;
 	private _msaaTargets: WebGPUFrameMSAATargets | null = null;
 	private _targetWidth = 0;
@@ -72,7 +72,7 @@ export class WebGPUFrameTargetManager {
 	private _texturePools = new Map<string, TexturePool>();
 	private _texturePoolOwners = new Map<IRenderTexture, TexturePool>();
 
-	constructor(backend: WebGPUBackend) {
+	constructor(backend: WebGPUFrameHost) {
 		this._backend = backend;
 	}
 

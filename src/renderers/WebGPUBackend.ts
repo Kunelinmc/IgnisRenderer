@@ -32,7 +32,9 @@ import {
 } from "./BackendExtensions";
 import { WebGPUErrorScopeHelper } from "./webgpu/WebGPUErrorScopeHelper";
 import { WebGPUFrameExecutor } from "./webgpu/WebGPUFrameExecutor";
+import type { WebGPUFrameHost } from "./webgpu/rendergraph/WebGPUFrameHost";
 import { WebGPUPostProcessExecutor } from "./webgpu/WebGPUPostProcessExecutor";
+import type { WebGPUPostProcessSessionPort } from "./webgpu/WebGPUPostProcessExecutor";
 import { BackendPostProcessRuntime } from "../postprocess/BackendPostProcessRuntime";
 import { WebGPUCommandScheduler } from "./webgpu/WebGPUCommandScheduler";
 import { WebGPUCanvasTargetManager } from "./webgpu/WebGPUCanvasTargetManager";
@@ -158,19 +160,13 @@ export interface WebGPUBackendOptions {
 }
 
 export class WebGPUBackend implements IRenderBackend {
-	private readonly _postProcessRuntime = new BackendPostProcessRuntime({
-		executor: new WebGPUPostProcessExecutor({
-			getFrameExecutor: () => this._frameExecutor,
-			assertDeviceOperational: (operation) => this._assertDeviceOperational(operation),
-		}),
-		backend: this,
-		warn: (key, message) =>
-			Logger.warn(`[${key}] ${message}`, {
-				scope: "WebGPUBackend",
-				onceKey: key,
-			}),
-	});
+	private _postProcessExecutor: WebGPUPostProcessExecutor | null = null;
+	private _postProcessRuntime: BackendPostProcessRuntime | null = null;
+	private _postProcessSessionPort: WebGPUPostProcessSessionPort | null = null;
 	public get postProcessRuntime(): BackendPostProcessRuntime {
+		if (!this._postProcessRuntime) {
+			throw new Error("WebGPU post-process runtime is not initialized.");
+		}
 		return this._postProcessRuntime;
 	}
 	private readonly _occlusionCullingExtensionApi: OcclusionCullingBackendAdapter = {
@@ -231,6 +227,7 @@ export class WebGPUBackend implements IRenderBackend {
 	private _errorScopes: WebGPUErrorScopeHelper | null = null;
 	private _resources: WebGPURenderResources | null = null;
 	private _frameExecutor: WebGPUFrameExecutor | null = null;
+	private _frameHost: WebGPUFrameHost | null = null;
 	private _reflectionProbeCapturePass: WebGPUReflectionProbeCapturePass | null = null;
 	private _particleSimulator: IParticleSimulator | null = null;
 	private _deviceLost = false;
@@ -698,8 +695,19 @@ export class WebGPUBackend implements IRenderBackend {
 
 			this._resources = new WebGPURenderResources(this, this._msaaController);
 			await this._resources.init();
+			this._frameHost = this._createFrameHost();
+			this._postProcessExecutor = new WebGPUPostProcessExecutor(this._frameHost);
+			this._postProcessRuntime = new BackendPostProcessRuntime({
+				executor: this._postProcessExecutor,
+				backend: this,
+				warn: (key, message) =>
+					Logger.warn(`[${key}] ${message}`, {
+						scope: "WebGPUBackend",
+						onceKey: key,
+					}),
+			});
 			this._frameExecutor = new WebGPUFrameExecutor(
-				this,
+				this._frameHost,
 				this._resources,
 				this._msaaController
 			);
@@ -803,7 +811,7 @@ export class WebGPUBackend implements IRenderBackend {
 		this._resetCurrentCanvasTargets();
 		this._bindingGroupCache.clear();
 		this._recreateDepthTexture();
-		this._postProcessRuntime.invalidateFrameSized();
+		this._postProcessRuntime?.invalidateFrameSized();
 		if (options.invalidateFrameTargets !== false) {
 			this._frameExecutor?.invalidateFrameTargets();
 		}
@@ -825,6 +833,16 @@ export class WebGPUBackend implements IRenderBackend {
 		this._particleSimulator?.beginFrame(context);
 		this._resources.beginFrameResourceLifecycle();
 		this._frameExecutor.beginFrame(context);
+		const portFactory = (
+			this._frameExecutor as WebGPUFrameExecutor & {
+				createPostProcessSessionPort?: () => WebGPUPostProcessSessionPort;
+			}
+		).createPostProcessSessionPort;
+		const postProcessPort = portFactory?.call(this._frameExecutor) ?? null;
+		if (postProcessPort) {
+			this._postProcessExecutor?.bindSession(postProcessPort);
+		}
+		this._postProcessSessionPort = postProcessPort;
 	}
 
 	public executePass(pass: FramePass, context: FrameContext): Promise<void> | void {
@@ -883,6 +901,8 @@ export class WebGPUBackend implements IRenderBackend {
 				this._reportNonFatalError("particle frame cleanup", error);
 			}
 		} finally {
+			this._postProcessExecutor?.unbindSession(this._postProcessSessionPort ?? undefined);
+			this._postProcessSessionPort = null;
 			this._frameActive = false;
 			this._clearFramePlannerState();
 		}
@@ -898,14 +918,14 @@ export class WebGPUBackend implements IRenderBackend {
 		if (frameError) {
 			throw frameError;
 		}
-		this._postProcessRuntime.commitFrame();
+		this._postProcessRuntime?.commitFrame();
 	}
 
 	public async abortFrame(_error?: unknown): Promise<void> {
 		const wasActive = this._frameActive;
 		let abortError: unknown = null;
 		try {
-			await this._postProcessRuntime.abortFrame(_error);
+			await this._postProcessRuntime?.abortFrame(_error);
 			this._frameExecutor?.abortFrame();
 			if (wasActive) {
 				this._particleSimulator?.endFrame();
@@ -913,6 +933,8 @@ export class WebGPUBackend implements IRenderBackend {
 		} catch (error) {
 			abortError = error;
 		} finally {
+			this._postProcessExecutor?.unbindSession(this._postProcessSessionPort ?? undefined);
+			this._postProcessSessionPort = null;
 			this._frameActive = false;
 			this._clearFramePlannerState();
 		}
@@ -1109,6 +1131,87 @@ export class WebGPUBackend implements IRenderBackend {
 		  }
 		| undefined {
 		return this._commandScheduler.createPassTimestampWrites(label);
+	}
+
+	private _createFrameHost(): WebGPUFrameHost {
+		const backend: WebGPUBackend = this;
+		const device = this.device;
+		const queue = this.queue;
+		if (!device || !queue) {
+			throw new Error("WebGPU backend cannot create a frame host without a device.");
+		}
+		const assertActive = (operation: string): void => {
+			if (backend.device !== device || backend.queue !== queue) {
+				throw new Error(`WebGPU frame host is no longer active; cannot ${operation}.`);
+			}
+			backend._assertDeviceOperational(operation);
+		};
+		return {
+			device,
+			queue,
+			canvasFormat: this.canvasFormat,
+			canvasDepthFormat: this.canvasDepthFormat,
+			computeFacade: this.getComputeFacade(),
+			get postProcessRuntime() {
+				return backend.postProcessRuntime;
+			},
+			enableEarlyZPrepass: this.isEarlyZPrepassEnabled(),
+			enableDeferredLighting: this.isDeferredLightingEnabled(),
+			frameGraphValidationMode: this.getFrameGraphValidationMode(),
+			createBuffer: (desc) => {
+				assertActive("create frame buffers");
+				return backend.createBuffer(desc);
+			},
+			createTexture: (desc) => {
+				assertActive("create frame textures");
+				return backend.createTexture(desc);
+			},
+			createSampler: (desc) => {
+				assertActive("create frame samplers");
+				return backend.createSampler(desc);
+			},
+			createShaderModule: (desc) => {
+				assertActive("create frame shader modules");
+				return backend.createShaderModule(desc);
+			},
+			createPipeline: (desc) => {
+				assertActive("create frame pipelines");
+				return backend.createPipeline(desc);
+			},
+			createComputePipeline: (desc) => {
+				assertActive("create frame compute pipelines");
+				return backend.createComputePipeline(desc);
+			},
+			createBindingGroup: (desc) => {
+				assertActive("create frame binding groups");
+				return backend.createBindingGroup(desc);
+			},
+			createTextureView: (texture, desc) => {
+				assertActive("create frame texture views");
+				return backend.createTextureView(texture, desc);
+			},
+			createCommandEncoder: () => {
+				assertActive("create frame command encoders");
+				return backend.createCommandEncoder();
+			},
+			submit: (commands) => {
+				assertActive("submit frame command buffers");
+				backend.submit(commands);
+			},
+			writeBuffer: (buffer, data, offset) => {
+				assertActive("write frame buffers");
+				backend.writeBuffer(buffer, data, offset);
+			},
+			getCanvasColorTexture: () => {
+				assertActive("resolve frame canvas color");
+				return backend.getCanvasColorTexture();
+			},
+			getCanvasDepthTexture: () => {
+				assertActive("resolve frame canvas depth");
+				return backend.getCanvasDepthTexture();
+			},
+			assertDeviceOperational: assertActive,
+		};
 	}
 
 	private _createMSAAControllerHost(): WebGPUMSAAControllerHost {
@@ -1378,15 +1481,22 @@ export class WebGPUBackend implements IRenderBackend {
 	}
 
 	private _destroyPostProcessResourcesForReset(): void {
-		this._postProcessRuntime.destroy();
+		this._postProcessRuntime?.destroy();
+		this._postProcessRuntime = null;
 	}
 
 	private _rollbackInitializationState(): void {
 		this._commandScheduler.reset();
+		this._postProcessRuntime?.destroy();
+		this._postProcessRuntime = null;
+		this._postProcessExecutor?.unbindSession();
+		this._postProcessExecutor = null;
+		this._postProcessSessionPort = null;
 		this._reflectionProbeCapturePass?.destroy();
 		this._reflectionProbeCapturePass = null;
 		this._frameExecutor?.destroy();
 		this._frameExecutor = null;
+		this._frameHost = null;
 		this._resources?.destroy();
 		this._resources = null;
 		const particleSimulator = this._particleSimulator as
@@ -1564,7 +1674,7 @@ export class WebGPUBackend implements IRenderBackend {
 	private _onMSAARuntimeFallback(): void {
 		this._pipelineCache.clearPipelineCaches();
 		this._bindingGroupCache.clear();
-		this._postProcessRuntime.invalidateFrameSized();
+		this._postProcessRuntime?.invalidateFrameSized();
 		this._resetCurrentCanvasTargets();
 	}
 
@@ -1579,7 +1689,7 @@ export class WebGPUBackend implements IRenderBackend {
 	private _applyShaderRuntimeChanged(): void {
 		this._commandScheduler.submitPendingCopyCommands();
 		this._invalidateShaderDependentCaches();
-		this._postProcessRuntime.destroy();
+		this._postProcessRuntime?.destroy();
 		this._frameExecutor?.onShaderRuntimeChanged?.();
 		this._resources?.onShaderRuntimeChanged?.();
 		this._resetCurrentCanvasTargets();

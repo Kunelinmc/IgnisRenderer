@@ -4,6 +4,8 @@ import type { IRenderTexture } from "../../types";
 import type { WebGPUPreparedFrameResources } from "../WebGPURenderResources";
 import type { WebGPUFrameConfiguration } from "./WebGPUFrameConfigurationResolver";
 import type { WebGPUDeferredOpaqueFrameState } from "./WebGPUScenePassRecorder";
+import type { WebGPUFrameFeatureAnalysis } from "./WebGPUFrameFeatureAnalyzer";
+import type { WebGPUFrameCommitter } from "./WebGPUFrameCommitter";
 
 export type WebGPUFrameSessionState = "recording" | "committing" | "skipped";
 
@@ -14,6 +16,8 @@ interface WebGPURecordingFrameSessionOptions {
 	readonly configuration: WebGPUFrameConfiguration;
 	readonly encoder: ICommandEncoder;
 	readonly hiZStatus: WebGPUFrameHiZStatus;
+	readonly analysis: WebGPUFrameFeatureAnalysis;
+	readonly committer: WebGPUFrameCommitter;
 }
 
 /**
@@ -33,6 +37,8 @@ export class WebGPUFrameSession {
 	public deferredOpaqueFrameState: WebGPUDeferredOpaqueFrameState | null = null;
 	public hiZStatus: WebGPUFrameHiZStatus;
 	public hiZBuildCount = 0;
+	public readonly analysis: WebGPUFrameFeatureAnalysis | null;
+	public readonly committer: WebGPUFrameCommitter | null;
 
 	private constructor(
 		context: FrameContext,
@@ -40,12 +46,16 @@ export class WebGPUFrameSession {
 		state: WebGPUFrameSessionState,
 		encoder: ICommandEncoder | null,
 		hiZStatus: WebGPUFrameHiZStatus,
+		analysis: WebGPUFrameFeatureAnalysis | null,
+		committer: WebGPUFrameCommitter | null,
 	) {
 		this.context = context;
 		this.configuration = configuration;
 		this.state = state;
 		this.encoder = encoder;
 		this.hiZStatus = hiZStatus;
+		this.analysis = analysis;
+		this.committer = committer;
 	}
 
 	public static createRecording(
@@ -57,6 +67,8 @@ export class WebGPUFrameSession {
 			"recording",
 			options.encoder,
 			options.hiZStatus,
+			options.analysis,
+			options.committer,
 		);
 	}
 
@@ -67,6 +79,8 @@ export class WebGPUFrameSession {
 			"skipped",
 			null,
 			"unavailable",
+			null,
+			null,
 		);
 	}
 

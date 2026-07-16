@@ -3,24 +3,33 @@ import type {
 	FramePassStage,
 } from "../../../pipeline/types";
 import type { WebGPUSceneTargetMode } from "../WebGPUScenePassDescriptors";
+import type { WebGPUFrameGraphResourceId } from "./WebGPUFrameGraphResourceCatalog";
+import type { WebGPUFrameCommitDebugState } from "./WebGPUFrameCommitter";
+
+export const WEBGPU_FRAME_GRAPH_NODE_KINDS = [
+	"shadow",
+	"paged-shadow-page-mark",
+	"paged-shadow-page-allocate",
+	"paged-shadow-page-table-copy",
+	"paged-shadow-depth",
+	"paged-shadow-feedback",
+	"planar-reflection-capture",
+	"planar-reflection-composite",
+	"opaque-scene",
+	"deferred-decal",
+	"deferred-lighting",
+	"hiz-build",
+	"occlusion-test",
+	"transparent-scene",
+	"oit-transparent",
+	"particles",
+	"oit-particles",
+	"post-process",
+	"presentation",
+] as const;
 
 export type WebGPUFrameGraphNodeKind =
-	| "shadow"
-	| "paged-shadow-page-mark"
-	| "paged-shadow-page-allocate"
-	| "paged-shadow-page-table-copy"
-	| "paged-shadow-depth"
-	| "paged-shadow-feedback"
-	| "planar-reflection-capture"
-	| "opaque-scene"
-	| "deferred-decal"
-	| "deferred-lighting"
-	| "hiz-build"
-	| "occlusion-test"
-	| "transparent-scene"
-	| "oit-transparent"
-	| "particles"
-	| "oit-particles";
+	(typeof WEBGPU_FRAME_GRAPH_NODE_KINDS)[number];
 
 export interface WebGPUFrameGraphPlannerState {
 	readonly deferredActive: boolean;
@@ -32,9 +41,10 @@ export interface WebGPUFrameGraphPlannerState {
 	readonly needsPlanarReflectionMask?: boolean;
 	readonly needsOcclusionTest?: boolean;
 	readonly needsHiZBuild?: boolean;
+	readonly needsPlanarReflectionComposite?: boolean;
 }
 
-export type WebGPUFrameGraphResourceId = string;
+export type { WebGPUFrameGraphResourceId } from "./WebGPUFrameGraphResourceCatalog";
 
 export type WebGPUFrameGraphResourceUsage =
 	| "external"
@@ -152,4 +162,5 @@ export interface WebGPUFrameGraphDebugState {
 	readonly graphBarriers: readonly WebGPUFrameGraphBarrier[];
 	readonly graphDiagnostics: readonly WebGPUFrameGraphDiagnostic[];
 	readonly targetManager: WebGPUFrameGraphTargetDebugState;
+	readonly commit: WebGPUFrameCommitDebugState | null;
 }

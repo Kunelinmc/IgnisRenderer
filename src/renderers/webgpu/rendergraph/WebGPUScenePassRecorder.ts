@@ -15,7 +15,7 @@ import type {
 	WebGPURenderResources,
 } from "../WebGPURenderResources";
 import type { WebGPUSceneTargetMode } from "../WebGPUScenePassDescriptors";
-import type { WebGPUBackend } from "../../WebGPUBackend";
+import type { WebGPUFrameHost } from "./WebGPUFrameHost";
 import {
 	TextureFormat,
 	type IBindingGroup,
@@ -38,14 +38,14 @@ export interface WebGPUScenePassRecorderCallbacks {
  * Records WebGPU scene draw passes while the runtime orchestrates graph nodes.
  */
 export class WebGPUScenePassRecorder {
-	private readonly _backend: WebGPUBackend;
+	private readonly _backend: WebGPUFrameHost;
 	private readonly _resources: WebGPURenderResources;
 	private readonly _recordingContext: WebGPUFrameGraphRecordingContext;
 	private readonly _depthDirtyClearPass: WebGPUDepthDirtyClearPass;
 	private readonly _callbacks: WebGPUScenePassRecorderCallbacks;
 
 	public constructor(
-		backend: WebGPUBackend,
+		backend: WebGPUFrameHost,
 		resources: WebGPURenderResources,
 		recordingContext: WebGPUFrameGraphRecordingContext,
 		depthDirtyClearPass: WebGPUDepthDirtyClearPass,

@@ -18,7 +18,8 @@ import type {
 	NormalizedOcclusionCullingOptions,
 	OcclusionVisibilityProvider,
 } from "../../pipeline/OcclusionCulling";
-import type { WebGPUBackend } from "../WebGPUBackend";
+import type { WebGPUFrameHost } from "./rendergraph/WebGPUFrameHost";
+import type { WebGPUPostProcessSessionPort } from "./WebGPUPostProcessExecutor";
 import type { WarmupOptions } from "../IRenderBackend";
 import type { RenderTargetReadbackOptions } from "../CustomRenderTargets";
 import type { TextureReadbackResult } from "../IComputeRuntime";
@@ -40,15 +41,14 @@ export class WebGPUFrameExecutor {
 	private readonly _orchestrator: WebGPUFrameOrchestrator;
 
 	public constructor(
-		backend: WebGPUBackend,
+		backend: WebGPUFrameHost,
 		resources: WebGPURenderResources,
 		msaa: WebGPUMSAAContext = SINGLE_SAMPLE_WEBGPU_MSAA_CONTEXT
 	) {
 		this._orchestrator = new WebGPUFrameOrchestrator(backend, resources, msaa, {
-			enableEarlyZPrepass: backend.isEarlyZPrepassEnabled(),
-			enableDeferredLighting: backend.isDeferredLightingEnabled(),
-			frameGraphValidationMode: backend.getFrameGraphValidationMode(),
-			getFrameExecutor: () => this,
+			enableEarlyZPrepass: backend.enableEarlyZPrepass,
+			enableDeferredLighting: backend.enableDeferredLighting,
+			frameGraphValidationMode: backend.frameGraphValidationMode,
 		});
 	}
 
@@ -142,6 +142,15 @@ export class WebGPUFrameExecutor {
 
 	public abortFrame(): void {
 		this._orchestrator.abortFrame();
+	}
+
+	public createPostProcessSessionPort(): WebGPUPostProcessSessionPort {
+		return {
+			createGBufferBridge: (context) => this.createGBufferBridge(context),
+			getPassExecutionContext: (request) => this.getPassExecutionContext(request),
+			completePass: (request, result) => this.completePostProcessPass(request, result),
+			invalidateResourceBindings: () => this.invalidatePostProcessBindings(),
+		};
 	}
 
 	public readRenderTargetColor(

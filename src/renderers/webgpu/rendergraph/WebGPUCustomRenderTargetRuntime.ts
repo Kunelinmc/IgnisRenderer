@@ -16,7 +16,7 @@ import {
 	TextureUsage,
 	type IRenderTexture,
 } from "../../types";
-import type { WebGPUBackend } from "../../WebGPUBackend";
+import type { WebGPUFrameHost } from "./WebGPUFrameHost";
 import { ComputeRuntime } from "../ComputeRuntime";
 import { Logger } from "../../../foundation/Logger";
 
@@ -33,12 +33,12 @@ interface WebGPUCustomRenderTarget {
  * Owns WebGPU custom render-target allocation, pass execution, and readback.
  */
 export class WebGPUCustomRenderTargetRuntime {
-	private readonly _backend: WebGPUBackend;
+	private readonly _backend: WebGPUFrameHost;
 	private _readbackRuntime: ComputeRuntime | null = null;
 	private readonly _targets = new Map<string, WebGPUCustomRenderTarget>();
 	private _lastSuccessfulFrame = false;
 
-	public constructor(backend: WebGPUBackend) {
+	public constructor(backend: WebGPUFrameHost) {
 		this._backend = backend;
 	}
 
@@ -170,7 +170,7 @@ export class WebGPUCustomRenderTargetRuntime {
 
 	private _getReadbackRuntime(): ComputeRuntime {
 		if (!this._readbackRuntime) {
-			this._readbackRuntime = new ComputeRuntime(this._backend);
+			this._readbackRuntime = new ComputeRuntime(this._backend.computeFacade);
 		}
 		return this._readbackRuntime;
 	}
@@ -236,9 +236,7 @@ export class WebGPUCustomRenderTargetRuntime {
 	}
 
 	private _createResourceFacade(): CustomRenderPassResourceFacade {
-		const backend = this._backend as WebGPUBackend & {
-			createPipeline?: WebGPUBackend["createPipeline"];
-		};
+		const backend = this._backend;
 		return {
 			createBuffer: (desc) => backend.createBuffer(desc),
 			createTexture: (desc) => backend.createTexture(desc),

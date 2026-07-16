@@ -7,7 +7,7 @@ import { Plane } from "../../maths/Plane";
 import type { IRenderTexture, IBindingGroup } from "../types";
 import { TextureFormat, TextureUsage } from "../types";
 import type { ICommandEncoder } from "../ICommandEncoder";
-import type { WebGPUBackend } from "../WebGPUBackend";
+import type { WebGPUFrameHost } from "./rendergraph/WebGPUFrameHost";
 import type {
 	WebGPUPreparedFrameResources,
 	WebGPURenderResources,
@@ -57,13 +57,13 @@ export interface WebGPUPlanarReflectionCompositeRequest {
  * Captures and composites bounded planar reflections for the WebGPU backend.
  */
 export class WebGPUPlanarReflectionPass {
-	private _backend: WebGPUBackend;
+	private _backend: WebGPUFrameHost;
 	private _resources: WebGPURenderResources;
 	private _targets = new Map<string, PlanarReflectionTargetSet>();
 	private _activeReflections: ActivePlanarReflection[] = [];
 	private _bindings = new Map<IRenderTexture, IBindingGroup>();
 
-	constructor(backend: WebGPUBackend, resources: WebGPURenderResources) {
+	constructor(backend: WebGPUFrameHost, resources: WebGPURenderResources) {
 		this._backend = backend;
 		this._resources = resources;
 	}
@@ -76,7 +76,10 @@ export class WebGPUPlanarReflectionPass {
 	 * @sideEffects Submits one WebGPU command buffer for each active capture and
 	 * prepares capture-scoped frame bindings for mirrored camera rendering.
 	 */
-	public async capture(context: FrameContext): Promise<number> {
+	public async capture(
+		context: FrameContext,
+		enqueue: (label: string, encoder: ICommandEncoder) => void,
+	): Promise<number> {
 		this._activeReflections = [];
 		if (context.viewCamera.type === CameraType.Orthographic) {
 			Logger.warn(
@@ -133,7 +136,7 @@ export class WebGPUPlanarReflectionPass {
 					targets,
 					frameResources
 				);
-				this._backend.submit([encoder.finish()]);
+				enqueue(`planar-reflection:${planeInfo.key}`, encoder);
 				activeKeys.add(planeInfo.key);
 				this._activeReflections.push({
 					key: planeInfo.key,
@@ -673,7 +676,7 @@ function createPlanarReflectionScopeKey(planeKey: string): string {
 }
 
 function createTargets(
-	backend: WebGPUBackend,
+	backend: WebGPUFrameHost,
 	key: string,
 	width: number,
 	height: number

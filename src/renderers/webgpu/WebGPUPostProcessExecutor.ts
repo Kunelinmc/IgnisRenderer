@@ -8,160 +8,118 @@ import type {
 	PostProcessResourceDescriptor,
 	PostProcessResourceHandle,
 } from "../../postprocess";
-import type { WebGPUFrameExecutor } from "./WebGPUFrameExecutor";
+import { tryGetTextureFormatInfo } from "../TextureFormatInfo";
+import {
+	TextureFormat,
+	TextureUsage,
+	type IRenderTexture,
+} from "../types";
+import type { WebGPUFrameHost } from "./rendergraph/WebGPUFrameHost";
 
-export interface WebGPUPostProcessExecutorHost {
-	/**
-	 * Resolves the active WebGPU frame executor.
-	 *
-	 * @returns Current frame executor, or `null` before initialization/after loss.
-	 * @sideEffects None.
-	 */
-	getFrameExecutor(): WebGPUFrameExecutor | null;
-	/**
-	 * Throws when the WebGPU device cannot service a post-process operation.
-	 *
-	 * @param operation Human-readable operation used in diagnostics.
-	 * @returns Nothing.
-	 * @sideEffects May throw when the backend device is lost or unavailable.
-	 */
-	assertDeviceOperational(operation: string): void;
+export interface WebGPUPostProcessSessionPort {
+	createGBufferBridge(context: FrameContext): LogicalGBufferBridge;
+	getPassExecutionContext(request: PostProcessPassExecutionContextRequest): unknown;
+	completePass(request: PostProcessPassRequest, result: PostProcessPassResult): void;
+	invalidateResourceBindings(): void;
 }
 
-/**
- * Supplies WebGPU post-process resources, G-buffer metadata, and pass helpers.
- */
+/** Supplies backend resources and delegates frame-only work through a session port. */
 export class WebGPUPostProcessExecutor implements IPostProcessExecutor {
-	/**
-	 * Backend kind used for pass implementation resolution.
-	 */
 	public readonly backend = "webgpu";
-	private readonly _host: WebGPUPostProcessExecutorHost;
+	private _sessionPort: WebGPUPostProcessSessionPort | null = null;
 
-	public constructor(host: WebGPUPostProcessExecutorHost) {
-		this._host = host;
+	public constructor(private readonly _host: WebGPUFrameHost) {}
+
+	public bindSession(port: WebGPUPostProcessSessionPort): void {
+		if (this._sessionPort) {
+			throw new Error("WebGPU post-process executor already has an active session port.");
+		}
+		this._sessionPort = port;
 	}
 
-	/**
-	 * Allocates a WebGPU post-process texture resource.
-	 *
-	 * @param desc Resource descriptor from the backend post-process resource pool.
-	 * @returns Resource handle wrapping a backend texture.
-	 * @sideEffects Allocates a GPU texture through the active frame executor.
-	 */
-	public createResource(
-		desc: PostProcessResourceDescriptor
-	): PostProcessResourceHandle {
+	public unbindSession(port?: WebGPUPostProcessSessionPort): void {
+		if (port && this._sessionPort !== port) return;
+		this._sessionPort = null;
+	}
+
+	public createResource(desc: PostProcessResourceDescriptor): PostProcessResourceHandle {
 		this._host.assertDeviceOperational("create post-process resource");
-		const executor = this._requireFrameExecutor(
-			"create post-process resource"
-		);
-		return executor.createPostProcessResource(desc);
+		const requestedFormat =
+			tryGetTextureFormatInfo(desc.format)?.format ?? TextureFormat.RGBA16Float;
+		const texture = this._host.createTexture({
+			width: desc.width,
+			height: desc.height,
+			format: requestedFormat,
+			mipLevelCount:
+				desc.mipMode === "full-chain"
+					? Math.floor(Math.log2(Math.max(desc.width, desc.height))) + 1
+					: undefined,
+			usage:
+				TextureUsage.TextureBinding |
+				TextureUsage.StorageBinding |
+				TextureUsage.RenderAttachment |
+				TextureUsage.CopyDst |
+				TextureUsage.CopySrc,
+			label: `WebGPUPostHistory_${desc.id}`,
+		});
+		return {
+			id: desc.id,
+			backend: "webgpu",
+			width: desc.width,
+			height: desc.height,
+			format: texture.format ?? requestedFormat,
+			mipMode: desc.mipMode ?? "single",
+			resource: texture,
+		};
 	}
 
-	/**
-	 * Releases a WebGPU post-process texture resource.
-	 *
-	 * @param handle Resource handle previously returned by `createResource`.
-	 * @returns Nothing.
-	 * @sideEffects Destroys the backend texture when the frame executor exists.
-	 */
 	public destroyResource(handle: PostProcessResourceHandle): void {
-		this._host.getFrameExecutor()?.destroyPostProcessResource(handle);
+		(handle.resource as IRenderTexture | null)?.destroy?.();
 	}
 
-	/**
-	 * Invalidates cached bind groups that may reference stale post-process inputs.
-	 *
-	 * @returns Nothing.
-	 * @sideEffects Drops WebGPU post-process binding caches.
-	 */
 	public invalidateResourceBindings(): void {
-		this._host.getFrameExecutor()?.invalidatePostProcessBindings();
+		this._sessionPort?.invalidateResourceBindings();
 	}
 
-	/**
-	 * Creates a logical G-buffer bridge for the current WebGPU frame.
-	 *
-	 * @param context Current renderer frame context.
-	 * @returns Logical bridge wrapping active WebGPU frame targets.
-	 * @sideEffects None.
-	 */
 	public createGBufferBridge(context: FrameContext): LogicalGBufferBridge {
-		return (
-			this._host.getFrameExecutor()?.createGBufferBridge(context) ??
-			this._createFallbackGBufferBridge(context)
-		);
+		return this._sessionPort?.createGBufferBridge(context) ??
+			this._createFallbackGBufferBridge(context);
 	}
 
-	/**
-	 * Provides WebGPU helper objects for pass-owned implementations.
-	 *
-	 * @param request Pass-owned implementation context request.
-	 * @returns Context object expected by the selected WebGPU implementation.
-	 * @sideEffects May reset pending pass output state in the frame executor.
-	 */
-	public getPassExecutionContext(
-		request: PostProcessPassExecutionContextRequest
-	): unknown {
-		return this._host.getFrameExecutor()?.getPassExecutionContext(request);
+	public getPassExecutionContext(request: PostProcessPassExecutionContextRequest): unknown {
+		return this._requireSession("create post-process pass context")
+			.getPassExecutionContext(request);
 	}
 
-	/**
-	 * Executes one fallback logical WebGPU post-process pass.
-	 *
-	 * @param passId Logical pass id.
-	 * @param request Current pass request.
-	 * @returns Execution result for pipeline history tracking.
-	 * @sideEffects None for WebGPU pass-owned implementations.
-	 */
 	public executePass(
-		passId: string,
-		request: PostProcessPassRequest
+		_passId: string,
+		_request: PostProcessPassRequest,
 	): PostProcessPassResult {
-		void passId;
-		void request;
 		return { ran: false };
 	}
 
-	/**
-	 * Applies backend-owned side effects recorded by a completed logical pass.
-	 *
-	 * @param request Logical pass request that just completed.
-	 * @param result Pass execution result.
-	 * @returns Nothing.
-	 * @sideEffects May publish a validated color target into WebGPU frame state.
-	 */
 	public completePass(
 		request: PostProcessPassRequest,
-		result: PostProcessPassResult
+		result: PostProcessPassResult,
 	): void {
-		this._host.getFrameExecutor()?.completePostProcessPass(request, result);
+		this._requireSession("complete post-process passes").completePass(request, result);
 	}
 
-	private _requireFrameExecutor(operation: string): WebGPUFrameExecutor {
-		const executor = this._host.getFrameExecutor();
-		if (!executor) {
-			throw new Error(
-				`WebGPU frame executor is not initialized; cannot ${operation}.`
-			);
+	private _requireSession(operation: string): WebGPUPostProcessSessionPort {
+		if (!this._sessionPort) {
+			throw new Error(`WebGPU post-process session is not active; cannot ${operation}.`);
 		}
-		return executor;
+		return this._sessionPort;
 	}
 
-	private _createFallbackGBufferBridge(
-		context: FrameContext
-	): LogicalGBufferBridge {
+	private _createFallbackGBufferBridge(context: FrameContext): LogicalGBufferBridge {
 		return {
 			width: Math.max(1, context.attachments.width),
 			height: Math.max(1, context.attachments.height),
 			normalSpace: "world",
 			depthEncoding: "hardware",
 			channels: {},
-			worldPosition: {
-				source: "derived",
-				available: false,
-			},
+			worldPosition: { source: "derived", available: false },
 		};
 	}
 }
