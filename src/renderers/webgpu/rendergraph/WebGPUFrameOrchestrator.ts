@@ -7,12 +7,6 @@ import type {
 	PostProcessPassResult,
 	PostProcessResourceDescriptor,
 	PostProcessResourceHandle,
-	ResolvedPostProcessPass,
-} from "../../../postprocess";
-import {
-	SCREEN_SPACE_REFLECTIONS_PASS_ID,
-	SCREEN_SPACE_REFRACTIONS_PASS_ID,
-	resolvePostProcessExecutionOrder,
 } from "../../../postprocess";
 import type { ICommandEncoder } from "../../ICommandEncoder";
 import type { IRenderTexture } from "../../types";
@@ -26,18 +20,11 @@ import { resolveWebGPUComputeFacade } from "../ComputeFacade";
 import { WebGPUHiZBuilder } from "../WebGPUHiZBuilder";
 import { BackendPostProcessRuntime } from "../../../postprocess/BackendPostProcessRuntime";
 import { WebGPUPostProcessExecutor } from "../WebGPUPostProcessExecutor";
-import {
-	WEBGPU_DEFERRED_COLOR_BYTES_PER_SAMPLE,
-	WEBGPU_DEFERRED_COLOR_TARGET_COUNT,
-	WEBGPU_DEFERRED_STORAGE_TEXTURE_COUNT,
-	WEBGPU_MRT_COLOR_BYTES_PER_SAMPLE,
-	WEBGPU_MRT_COLOR_TARGET_COUNT,
-} from "../constants";
+
 import {
 	isWebGPUPostProcessContextMetadata,
 	type WebGPUFrameTargets,
 	type WebGPUPostProcessContextMetadata,
-	type WebGPUPostProcessFrameTargets,
 } from "../WebGPUPostProcessContracts";
 import {
 	WebGPUPostProcessRuntime,
@@ -52,7 +39,6 @@ import type { ShaderCompileError } from "../../../shaders/runtime";
 import type { WarmupOptions } from "../../IRenderBackend";
 import { Logger } from "../../../foundation/Logger";
 import { materialUsesTransmission } from "../../../materials/transparency";
-import { materialSupportsWebGPUDeferredLighting } from "../material";
 import {
 	WebGPUPlanarReflectionPass,
 	type WebGPUPlanarReflectionMSAATargets,
@@ -62,7 +48,6 @@ import {
 	WebGPUFrameTargetManager,
 	type WebGPUFrameTargetEnsureResult,
 	type WebGPUFrameMSAATargets,
-	type WebGPUFrameTargetRequirements,
 } from "./WebGPUFrameTargetManager";
 import {
 	WebGPUFrameConfigurationResolver,
@@ -108,11 +93,6 @@ const WEBGPU_MSAA_RUNTIME_FALLBACK_KEY = "webgpu-msaa-runtime-fallback-1x";
 const WEBGPU_OIT_DISABLED_MRT_KEY = "webgpu-oit-disabled-mrt-unavailable";
 const WEBGPU_OIT_DISABLED_MSAA_KEY = "webgpu-oit-disabled-msaa";
 const WEBGPU_OIT_DISABLED_RUNTIME_KEY = "webgpu-oit-disabled-runtime";
-const SHARED_HIZ_POSTPROCESS_PASS_IDS = new Set([
-	SCREEN_SPACE_REFLECTIONS_PASS_ID,
-	SCREEN_SPACE_REFRACTIONS_PASS_ID,
-	"volumetric",
-]);
 
 interface WebGPUFrameScope {
 	readonly context: FrameContext;
@@ -121,7 +101,6 @@ interface WebGPUFrameScope {
 	resources: WebGPUPreparedFrameResources | null;
 	presented: boolean;
 	motionHistoryWriteTarget: IRenderTexture | null;
-	pendingPostProcessColorTarget: IRenderTexture | null;
 	deferredOpaqueFrameState: WebGPUDeferredOpaqueFrameState | null;
 	hiZStatus: "unavailable" | "pending" | "ready" | "failed";
 	hiZBuildCount: number;
@@ -140,7 +119,6 @@ export class WebGPUFrameOrchestrator {
 	private _msaa: WebGPUMSAAContext;
 	private _frame: WebGPUFrameScope | null = null;
 	private _lastConfiguration: WebGPUFrameConfiguration | null = null;
-	private _mrtSupportChecked = false;
 	private _postRuntime: WebGPUPostProcessRuntime;
 	private _postBridge: WebGPUPostProcessBridge;
 	private _fallbackPostProcessRuntime?: BackendPostProcessRuntime;
@@ -280,8 +258,6 @@ export class WebGPUFrameOrchestrator {
 		return this._frame?.context ?? null;
 	}
 
-	private set _frameContext(_value: FrameContext | null) {}
-
 	private get _frameResources(): WebGPUPreparedFrameResources | null {
 		return this._frame?.resources ?? null;
 	}
@@ -302,19 +278,13 @@ export class WebGPUFrameOrchestrator {
 		return this._frame?.configuration.mrtSupported ?? this._lastConfiguration?.mrtSupported ?? true;
 	}
 
-	private set _mrtEnabled(_value: boolean) {}
-
 	private get _deferredEnabled(): boolean {
 		return this._frame?.configuration.deferredActive ?? false;
 	}
 
-	private set _deferredEnabled(_value: boolean) {}
-
 	private get _oitActive(): boolean {
 		return this._frame?.configuration.oitActive ?? false;
 	}
-
-	private set _oitActive(_value: boolean) {}
 
 	private get _motionHistoryWriteTarget(): IRenderTexture | null {
 		return this._frame?.motionHistoryWriteTarget ?? null;
@@ -322,14 +292,6 @@ export class WebGPUFrameOrchestrator {
 
 	private set _motionHistoryWriteTarget(value: IRenderTexture | null) {
 		if (this._frame) this._frame.motionHistoryWriteTarget = value;
-	}
-
-	private get _pendingPostProcessColorTarget(): IRenderTexture | null {
-		return this._frame?.pendingPostProcessColorTarget ?? null;
-	}
-
-	private set _pendingPostProcessColorTarget(value: IRenderTexture | null) {
-		if (this._frame) this._frame.pendingPostProcessColorTarget = value;
 	}
 
 	private get _deferredOpaqueFrameState(): WebGPUDeferredOpaqueFrameState | null {
@@ -408,7 +370,6 @@ export class WebGPUFrameOrchestrator {
 			resources: null,
 			presented: false,
 			motionHistoryWriteTarget: null,
-			pendingPostProcessColorTarget: null,
 			deferredOpaqueFrameState: null,
 			hiZStatus: this._frameTargets?.hiZ ? "pending" : "unavailable",
 			hiZBuildCount: 0,
@@ -1118,293 +1079,10 @@ export class WebGPUFrameOrchestrator {
 		});
 	}
 
-	private _ensureMRTSupport(): void {
-		if (this._mrtSupportChecked) return;
-		this._mrtSupportChecked = true;
-
-		const maxColorAttachments = this._backend.device?.limits?.maxColorAttachments ?? 8;
-		const maxColorAttachmentBytesPerSample =
-			this._backend.device?.limits?.maxColorAttachmentBytesPerSample ?? 32;
-
-		if (
-			maxColorAttachments >= WEBGPU_MRT_COLOR_TARGET_COUNT &&
-			maxColorAttachmentBytesPerSample >= WEBGPU_MRT_COLOR_BYTES_PER_SAMPLE
-		) {
-			return;
-		}
-
-		this._mrtEnabled = false;
-		if (maxColorAttachments < WEBGPU_MRT_COLOR_TARGET_COUNT) {
-			const key = "webgpu-mrt-disabled-attachments";
-			Logger.warn(
-				`[${key}] WebGPU device maxColorAttachments is ${maxColorAttachments}, requires ${WEBGPU_MRT_COLOR_TARGET_COUNT}; disabling MRT/GBuffer post-process pipeline`,
-				{ scope: "WebGPUFrameExecutor", onceKey: key },
-			);
-		}
-		if (maxColorAttachmentBytesPerSample < WEBGPU_MRT_COLOR_BYTES_PER_SAMPLE) {
-			const key = "webgpu-mrt-disabled-bytes";
-			Logger.warn(
-				`[${key}] WebGPU device maxColorAttachmentBytesPerSample is ${maxColorAttachmentBytesPerSample}, requires ${WEBGPU_MRT_COLOR_BYTES_PER_SAMPLE}; disabling MRT/GBuffer post-process pipeline`,
-				{ scope: "WebGPUFrameExecutor", onceKey: key },
-			);
-		}
-	}
-
-	private _configureDeferredLightingSupport(): void {
-		if (!this._enableDeferredLighting) {
-			this._deferredEnabled = false;
-			return;
-		}
-		if (!this._mrtEnabled) {
-			this._deferredEnabled = false;
-			const key = "webgpu-deferred-disabled-mrt";
-			Logger.warn(
-				`[${key}] WebGPU deferred lighting requires MRT scene targets; using the non-deferred fallback path.`,
-				{ scope: "WebGPUFrameExecutor", onceKey: key },
-			);
-			return;
-		}
-
-		const sampleCount = this._msaa.sampleCount;
-		const maxColorAttachments = this._backend.device?.limits?.maxColorAttachments ?? 8;
-		const maxColorAttachmentBytesPerSample =
-			this._backend.device?.limits?.maxColorAttachmentBytesPerSample ?? 32;
-		const maxStorageTexturesPerShaderStage =
-			this._backend.device?.limits?.maxStorageTexturesPerShaderStage ?? 4;
-
-		const supportsDeferred =
-			sampleCount === 1 &&
-			maxColorAttachments >= WEBGPU_DEFERRED_COLOR_TARGET_COUNT &&
-			maxColorAttachmentBytesPerSample >= WEBGPU_DEFERRED_COLOR_BYTES_PER_SAMPLE &&
-			maxStorageTexturesPerShaderStage >= WEBGPU_DEFERRED_STORAGE_TEXTURE_COUNT;
-
-		this._deferredEnabled = supportsDeferred;
-		if (supportsDeferred) {
-			return;
-		}
-
-		if (sampleCount !== 1) {
-			const key = "webgpu-deferred-disabled-msaa";
-			Logger.warn(
-				`[${key}] WebGPU deferred lighting requires sampleCount=1; using legacy MRT forward path for ${sampleCount}x MSAA.`,
-				{ scope: "WebGPUFrameExecutor", onceKey: key },
-			);
-		}
-		if (maxColorAttachments < WEBGPU_DEFERRED_COLOR_TARGET_COUNT) {
-			const key = "webgpu-deferred-disabled-attachments";
-			Logger.warn(
-				`[${key}] WebGPU device maxColorAttachments is ${maxColorAttachments}, requires ${WEBGPU_DEFERRED_COLOR_TARGET_COUNT}; using legacy MRT forward path.`,
-				{ scope: "WebGPUFrameExecutor", onceKey: key },
-			);
-		}
-		if (maxColorAttachmentBytesPerSample < WEBGPU_DEFERRED_COLOR_BYTES_PER_SAMPLE) {
-			const key = "webgpu-deferred-disabled-bytes";
-			Logger.warn(
-				`[${key}] WebGPU device maxColorAttachmentBytesPerSample is ${maxColorAttachmentBytesPerSample}, requires ${WEBGPU_DEFERRED_COLOR_BYTES_PER_SAMPLE}; using legacy MRT forward path.`,
-				{ scope: "WebGPUFrameExecutor", onceKey: key },
-			);
-		}
-		if (maxStorageTexturesPerShaderStage < WEBGPU_DEFERRED_STORAGE_TEXTURE_COUNT) {
-			const key = "webgpu-deferred-disabled-storage-textures";
-			Logger.warn(
-				`[${key}] WebGPU device maxStorageTexturesPerShaderStage is ${maxStorageTexturesPerShaderStage}, requires ${WEBGPU_DEFERRED_STORAGE_TEXTURE_COUNT}; using legacy MRT forward path.`,
-				{ scope: "WebGPUFrameExecutor", onceKey: key },
-			);
-		}
-	}
-
-	private _resolveFrameTargetRequirements(
-		context: FrameContext,
-	): WebGPUFrameTargetRequirements | null {
-		if (!this._mrtEnabled) {
-			return null;
-		}
-		const postProcessPasses = resolvePostProcessExecutionOrder(context.postProcess, {
-			backend: "webgpu",
-			frameContext: context,
-		});
-		const needsPostProcessTargets = postProcessPasses.length > 0;
-		const needsPostProcessGBuffer = this._postProcessNeedsGBuffer(context, postProcessPasses);
-		const needsPlanarReflection =
-			context.features.enableReflection && context.scene.reflectivePackets.length > 0;
-		const needsPlanarReflectionMask =
-			needsPlanarReflection ||
-			postProcessPasses.some((resolved) => resolved.id === SCREEN_SPACE_REFLECTIONS_PASS_ID);
-		const msaaSampleCount = this._msaa.sampleCount;
-		const needsOITTargets =
-			msaaSampleCount <= 1 &&
-			context.features.enableOIT === true &&
-			this._frameHasOITWork(context);
-		const needsTransmissionTargets =
-			postProcessPasses.some(
-				(resolved) => resolved.id === SCREEN_SPACE_REFRACTIONS_PASS_ID,
-			) && this._frameHasTransmissionWork(context);
-		const needsOcclusionTargets = this._frameNeedsOcclusionTest(context);
-		const needsHiZTarget =
-			needsOcclusionTargets ||
-			postProcessPasses.some((resolved) => SHARED_HIZ_POSTPROCESS_PASS_IDS.has(resolved.id));
-		const enableDeferred = this._deferredEnabled && this._frameHasDeferredLightingWork(context);
-		if (
-			!enableDeferred &&
-			!needsPostProcessTargets &&
-			!needsPlanarReflection &&
-			!needsOITTargets &&
-			!needsTransmissionTargets &&
-			!needsOcclusionTargets &&
-			!needsHiZTarget
-		) {
-			return null;
-		}
-		const sceneTargetMode: Exclude<WebGPUSceneTargetMode, "single"> = enableDeferred
-			? "gbuffer"
-			: needsPostProcessGBuffer || needsOcclusionTargets || needsHiZTarget
-				? "mrt"
-				: "color";
-		return {
-			sceneTargetMode,
-			needsPostProcessTargets,
-			needsOITTargets,
-			needsTransmissionTargets,
-			needsPlanarReflectionMask,
-			needsHiZTarget,
-		};
-	}
-
-	private _postProcessNeedsGBuffer(
-		context: FrameContext,
-		passes: readonly ResolvedPostProcessPass[],
-	): boolean {
-		for (const resolved of passes) {
-			if (!resolved.pass.builtIn) {
-				return true;
-			}
-			const requirements = resolved.pass.getRequirements({
-				frameContext: context,
-				postProcess: context.postProcess,
-				backend: "webgpu",
-				options: resolved.options,
-			});
-			if ((requirements.gBuffer?.length ?? 0) > 0) {
-				return true;
-			}
-		}
-		return false;
-	}
-
-	private _frameHasDeferredLightingWork(context: FrameContext): boolean {
-		const opaquePackets = [
-			...context.scene.opaquePackets,
-			...this._buildParticleMeshDrawPackets(context, {
-				includeOpaque: true,
-				includeTransparent: false,
-			}),
-		];
-		return opaquePackets.some((packet) =>
-			materialSupportsWebGPUDeferredLighting(packet.material),
-		);
-	}
-
-	private _frameHasOITWork(context: FrameContext): boolean {
-		return (
-			context.scene.transparentPackets.length > 0 ||
-			(context.scene.particleSystems?.length ?? 0) > 0
-		);
-	}
-
-	private _frameHasTransmissionWork(context: FrameContext): boolean {
-		const transparentPackets = [
-			...context.scene.transparentPackets,
-			...this._buildParticleMeshDrawPackets(context, {
-				includeOpaque: false,
-				includeTransparent: true,
-			}),
-		];
-		return transparentPackets.some((packet) => materialUsesTransmission(packet.material));
-	}
-
-	private _frameNeedsOcclusionTest(context: FrameContext): boolean {
-		return (
-			context.features.enableOcclusionCulling === true &&
-			(context.scene.occlusion?.eligibleCandidateCount ?? 0) > 0
-		);
-	}
-
-	private _configureOIT(context: FrameContext): void {
-		if (context.features.enableOIT !== true) {
-			this._oitActive = false;
-			return;
-		}
-		if (!this._frameHasOITWork(context)) {
-			this._oitActive = false;
-			return;
-		}
-		const sampleCount = this._msaa.sampleCount;
-		if (sampleCount > 1) {
-			this._warnOITDisabled(
-				WEBGPU_OIT_DISABLED_MSAA_KEY,
-				"WebGPU OIT v1 only supports sampleCount=1; falling back to legacy transparent rendering.",
-			);
-			this._oitActive = false;
-			return;
-		}
-		if (!this._mrtEnabled || !this._frameTargets) {
-			this._warnOITDisabled(
-				WEBGPU_OIT_DISABLED_MRT_KEY,
-				"WebGPU OIT requires MRT scene targets; falling back to legacy transparent rendering.",
-			);
-			this._oitActive = false;
-			return;
-		}
-		if (
-			!this._frameTargets.oitAccum ||
-			!this._frameTargets.oitReveal ||
-			!this._frameTargets.oitSceneColorCopy
-		) {
-			this._warnOITDisabled(
-				WEBGPU_OIT_DISABLED_RUNTIME_KEY,
-				"WebGPU OIT runtime targets are unavailable; falling back to legacy transparent rendering.",
-			);
-			this._oitActive = false;
-			return;
-		}
-		if (typeof this._encoder?.copyTextureToTexture !== "function") {
-			this._warnOITDisabled(
-				WEBGPU_OIT_DISABLED_RUNTIME_KEY,
-				"WebGPU OIT requires in-frame texture-copy support; falling back to legacy transparent rendering.",
-			);
-			this._oitActive = false;
-			return;
-		}
-		this._oitActive = true;
-	}
-
 	private _warnOITDisabled(key: string, message: string): void {
 		Logger.warn(`[${key}] ${message}`, {
 			scope: "WebGPUFrameExecutor",
 			onceKey: key,
-		});
-	}
-
-	private _ensureFrameTargets(
-		width: number,
-		height: number,
-		requirementsOrDeferred: WebGPUFrameTargetRequirements | boolean,
-	): void {
-		const requirements: WebGPUFrameTargetRequirements = typeof requirementsOrDeferred === "boolean"
-			? {
-				sceneTargetMode: requirementsOrDeferred ? "gbuffer" : "mrt",
-				needsPostProcessTargets: true,
-				needsOITTargets: true,
-				needsTransmissionTargets: false,
-				needsPlanarReflectionMask: true,
-				needsHiZTarget: false,
-			}
-			: requirementsOrDeferred;
-		this._frameTargetManager.ensureFrameTargets({
-			width,
-			height,
-			sampleCount: this._msaa.sampleCount,
-			requirements,
 		});
 	}
 
@@ -1413,10 +1091,8 @@ export class WebGPUFrameOrchestrator {
 		this._presentPass.invalidateBindings();
 		this._oitPass.invalidateBindings();
 		this._destroyDeferredBindings();
-		this._oitActive = false;
 		this._oitPass.resetFrameState();
 		this._motionHistoryWriteTarget = null;
-		this._pendingPostProcessColorTarget = null;
 		this._postBridge.clearPendingFrameState();
 		this._deferredOpaqueFrameState = null;
 		this._occlusionRuntime.invalidateFrameResources();
