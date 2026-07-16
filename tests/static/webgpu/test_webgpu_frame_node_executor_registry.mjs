@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 
 import { WebGPUFrameNodeExecutorRegistry } from "../../../src/renderers/webgpu/rendergraph/WebGPUFrameNodeExecutorRegistry.ts";
+import { WEBGPU_FRAME_GRAPH_NODE_KINDS } from "../../../src/renderers/webgpu/rendergraph/types.ts";
 
 function createNode(kind = "opaque-scene") {
 	return {
@@ -35,6 +36,24 @@ async function testRegistryRejectsMissingExecutor() {
 	);
 }
 
+function testRuntimeCompositionRejectsDuplicateAndMissingOwners() {
+	assert.throws(
+		() => WebGPUFrameNodeExecutorRegistry.fromRuntimes([]),
+		/missing executors/,
+	);
+	const complete = Object.fromEntries(
+		WEBGPU_FRAME_GRAPH_NODE_KINDS.map((kind) => [kind, async () => {}]),
+	);
+	assert.throws(
+		() => WebGPUFrameNodeExecutorRegistry.fromRuntimes([
+			{ id: "all", executors: complete, destroy() {} },
+			{ id: "duplicate", executors: { shadow: async () => {} }, destroy() {} },
+		]),
+		/duplicate runtime owners/,
+	);
+}
+
 await testRegistryDispatchesByNodeKind();
 await testRegistryRejectsMissingExecutor();
+testRuntimeCompositionRejectsDuplicateAndMissingOwners();
 console.log("WebGPU frame node executor registry tests passed");

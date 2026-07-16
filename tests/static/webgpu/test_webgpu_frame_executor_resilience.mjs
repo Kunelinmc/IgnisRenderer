@@ -619,7 +619,7 @@ async function testIncrementalMainPassUsesDepthPartialReuse() {
 
 async function testMainOpaqueDisablesEarlyZWhenConfiguredOff() {
 	const backend = new FakeBackend();
-	backend.isEarlyZPrepassEnabled = () => false;
+	backend.enableEarlyZPrepass = false;
 	const resources = createModeTrackingResourcesStub();
 	const executor = new WebGPUFrameExecutor(backend, resources);
 	const context = createFrameContext(64, 64);
@@ -979,6 +979,13 @@ async function testPlanarReflectionCaptureAndCompositeSequencing() {
 		),
 		true
 	);
+	assert.equal(backend.submits, 0);
+	await executor.endFrame();
+	assert.deepEqual(getFrameGraphDebugState(executor).commit.submittedLabels, [
+		"main:before-reflection",
+		"planar-reflection:0.000000,1.000000,0.000000,0.000000",
+		"main:final",
+	]);
 }
 
 async function testPlanarReflectionUsesColorTargetsWithoutPostProcess() {
@@ -1660,7 +1667,7 @@ async function testDeferredLightingKeepsTransmissionOutOfGBuffer() {
 
 async function testDeferredLightingCanBeExplicitlyDisabled() {
 	const backend = new FakeBackend();
-	backend.isDeferredLightingEnabled = () => false;
+	backend.enableDeferredLighting = false;
 	const resources = createDeferredLightingResourcesStub();
 	const executor = new WebGPUFrameExecutor(backend, resources);
 	const context = createFrameContext(64, 64);

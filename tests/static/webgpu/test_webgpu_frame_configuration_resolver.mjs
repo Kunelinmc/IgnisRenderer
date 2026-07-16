@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { WebGPUFrameConfigurationResolver } from "../../../src/renderers/webgpu/rendergraph/WebGPUFrameConfigurationResolver.ts";
+import { WebGPUFrameFeatureAnalyzer } from "../../../src/renderers/webgpu/rendergraph/WebGPUFrameFeatureAnalyzer.ts";
 import { PBRMaterial } from "../../../src/materials/PBRMaterial.ts";
 import { createResolvedPostProcess } from "../../helpers/postprocess.mjs";
 
@@ -21,7 +22,8 @@ function createContext() {
 }
 
 function resolve(context, overrides = {}) {
-	return new WebGPUFrameConfigurationResolver().resolve(context, {
+	const analysis = new WebGPUFrameFeatureAnalyzer().analyze(context);
+	return new WebGPUFrameConfigurationResolver().resolve(analysis, {
 		maxColorAttachments: 8,
 		maxColorAttachmentBytesPerSample: 64,
 		maxStorageTexturesPerShaderStage: 4,
@@ -55,7 +57,8 @@ const deferred = resolve(deferredContext);
 assert.equal(deferred.sceneTargetMode, "gbuffer");
 assert.equal(deferred.deferredActive, true);
 
-const unsupported = new WebGPUFrameConfigurationResolver().resolve(deferredContext, {
+const unsupportedAnalysis = new WebGPUFrameFeatureAnalyzer().analyze(deferredContext);
+const unsupported = new WebGPUFrameConfigurationResolver().resolve(unsupportedAnalysis, {
 	maxColorAttachments: 1,
 	maxColorAttachmentBytesPerSample: 16,
 	maxStorageTexturesPerShaderStage: 0,

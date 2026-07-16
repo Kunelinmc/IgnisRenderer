@@ -1590,12 +1590,12 @@ function testRenderResourcesLeaveShaderRuntimeSubscriptionToBackend() {
 	assert.equal(listenerCount, 0);
 }
 
-function testFrameExecutorResolvesComputeFacadeFromBackend() {
+function testFrameExecutorConsumesComputeFacadeFromHost() {
 	const backend = new FakeBackend();
 	const resourcesStub = { sceneFrameLayout: null };
 	const executor = new WebGPUFrameExecutor(backend, resourcesStub);
 
-	assert.equal(backend.getComputeFacadeCalls, 1);
+	assert.equal(backend.getComputeFacadeCalls, 0);
 	assert.equal(typeof executor.getFrameGraphDebugState, "function");
 }
 
@@ -4138,7 +4138,7 @@ async function run() {
 	testFeatureGate();
 	testRenderResourcesResolveComputeFacadeFromBackend();
 	testRenderResourcesLeaveShaderRuntimeSubscriptionToBackend();
-	testFrameExecutorResolvesComputeFacadeFromBackend();
+	testFrameExecutorConsumesComputeFacadeFromHost();
 	await testSceneShaderCoverage();
 	testScenePipelineLimitConstantsMatchLayout();
 	testDecalBatchLayoutHonorsStorageTextureLimit();

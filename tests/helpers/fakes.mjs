@@ -433,10 +433,15 @@ export class FakeCommandEncoder {
 export class FakeWebGPUBackend {
 	constructor() {
 		this.profile = { id: "webgpu" };
-		installNoopPostProcessAdapter(
+		const postProcessSupport = installNoopPostProcessAdapter(
 			this,
 			"webgpu"
 		);
+		this.postProcessRuntime = postProcessSupport.runtime;
+		this.computeFacade = this;
+		this.enableEarlyZPrepass = true;
+		this.enableDeferredLighting = true;
+		this.frameGraphValidationMode = "throw";
 		this.canvasFormat = "rgba8unorm";
 		this.canvasDepthFormat = "depth24plus";
 		this.dispatches = [];
@@ -564,6 +569,8 @@ export class FakeWebGPUBackend {
 		this.getComputeFacadeCalls++;
 		return this;
 	}
+
+	assertDeviceOperational() {}
 
 	isEarlyZPrepassEnabled() { return true; }
 	isDeferredLightingEnabled() { return true; }
