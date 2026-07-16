@@ -135,6 +135,40 @@ export class WebGPUPipelineCreationInvalidatedError extends Error {
 	}
 }
 
+export interface WebGPUFramePartialSubmitErrorInit {
+	readonly cause: unknown;
+	readonly phase: "submit" | "post-submit";
+	readonly submittedLabels: readonly string[];
+	readonly pendingLabels: readonly string[];
+	readonly totalCount: number;
+}
+
+/** @internal Used by the WebGPU frame committer. */
+export class WebGPUFramePartialSubmitError extends Error {
+	public readonly phase: "submit" | "post-submit";
+	public readonly submittedCount: number;
+	public readonly totalCount: number;
+	public readonly submittedLabels: readonly string[];
+	public readonly pendingLabels: readonly string[];
+
+	public constructor(init: WebGPUFramePartialSubmitErrorInit) {
+		const submittedLabels = init.submittedLabels.slice();
+		const pendingLabels = init.pendingLabels.slice();
+		const totalCount = Math.max(submittedLabels.length, Math.floor(init.totalCount));
+		super(
+			`WebGPU frame partially submitted ${submittedLabels.length}/${totalCount} ` +
+				`command buffers before ${init.phase} failure.`,
+		);
+		this.name = "WebGPUFramePartialSubmitError";
+		this.phase = init.phase;
+		this.submittedCount = submittedLabels.length;
+		this.totalCount = totalCount;
+		this.submittedLabels = submittedLabels;
+		this.pendingLabels = pendingLabels;
+		(this as { cause?: unknown }).cause = init.cause;
+	}
+}
+
 export function mapShaderCompilerMessages(
 	messages: readonly ShaderCompilerMessage[],
 	code: string,
