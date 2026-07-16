@@ -6,8 +6,9 @@ post-process registration APIs.
 
 ## Background
 `WebGPUBackend` exposes the renderer-level backend lifecycle. Internally,
-`WebGPUFrameGraphRuntime` compiles WebGPU-specific nodes for renderer stages and
-validates resource usage before recording commands. WebGPU implementation
+`WebGPUFrameOrchestrator` compiles WebGPU-specific nodes for renderer stages and
+validates resource usage before recording commands. `WebGPUFrameConfigurationResolver`
+resolves feature policy before target allocation. WebGPU implementation
 details such as deferred lighting, OIT, MSAA frame targets, and presentation
 must remain backend-internal.
 
@@ -15,7 +16,7 @@ must remain backend-internal.
 - `WebGPUFrameGraphPlanner` must create WebGPU internal nodes for one
   renderer-level `FramePass` through registered stage planners.
 - Unsupported renderer-level backend pass ids must produce an empty WebGPU
-  stage plan; `WebGPUFrameGraphRuntime` must warn once and skip execution for
+  stage plan; `WebGPUFrameOrchestrator` must warn once and skip execution for
   that pass.
 - `WebGPUFrameGraphNode.reads` must list resource ids and usages sampled or
   loaded by the node.
@@ -32,15 +33,19 @@ must remain backend-internal.
 - `WebGPUBackendOptions.frameGraphValidation` must default to `"throw"`.
 - `"throw"` mode must fail frame execution on error diagnostics.
 - `"warn"` mode must emit diagnostics through `Logger.warn` and continue.
+- `WebGPUFrameConfigurationResolver` must resolve MRT, deferred, OIT, Hi-Z,
+  occlusion, reflection, and post-process target requirements without allocating
+  resources, recording commands, or holding a backend reference.
 - `WebGPUFrameTargetManager` must own WebGPU offscreen frame target allocation,
-  pooled texture ownership, and target debug state. It must request an MSAA
-  fallback from the backend-internal MSAA controller when allocation fails.
+  pooled texture ownership, and target debug state. It must return allocation
+  retry results and must not query or mutate orchestrator state.
 - The backend-internal MSAA controller must own sample-count configuration,
   device capability probing, resolved runtime state, and persistent `1x`
   fallback state. It must not own frame textures.
-- `WebGPUFrameGraphRuntime` must orchestrate frame lifecycle and node execution;
-  it must not own texture pool allocation logic.
-- `WebGPUFrameGraphRuntime` must execute graph nodes through a node executor
+- `WebGPUFrameOrchestrator` must own a single active frame scope and orchestrate
+  target retry, frame lifecycle, and node execution; it must not own texture
+  pool allocation logic.
+- `WebGPUFrameOrchestrator` must execute graph nodes through a node executor
   registry keyed by `WebGPUFrameGraphNode.kind`.
 - A planned graph node with no runtime executor must throw because it indicates
   an internal planner/runtime mismatch.

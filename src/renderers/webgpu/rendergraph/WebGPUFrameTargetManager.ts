@@ -1,10 +1,3 @@
-import type { FrameContext } from "../../../pipeline/types";
-import { Logger } from "../../../foundation/Logger";
-import {
-	WEBGPU_DEFERRED_COLOR_BYTES_PER_SAMPLE,
-	WEBGPU_DEFERRED_COLOR_TARGET_COUNT,
-	WEBGPU_DEFERRED_STORAGE_TEXTURE_COUNT,
-} from "../constants";
 import type { WebGPUFrameTargets } from "../WebGPUPostProcessContracts";
 import type { WebGPUSceneTargetMode } from "../WebGPUScenePassDescriptors";
 import type { WebGPUBackend } from "../../WebGPUBackend";
@@ -34,15 +27,17 @@ export interface WebGPUFrameTargetRequirements {
 	needsHiZTarget: boolean;
 }
 
-export interface WebGPUFrameTargetManagerCallbacks {
-	resolveMSAASampleCount(): number;
-	fallbackToSingleSample(): boolean;
-	configureDeferredLightingSupport(): void;
-	frameHasDeferredLightingWork(context: FrameContext): boolean;
-	getFrameContext(): FrameContext | null;
-	isDeferredEnabled(): boolean;
-	setDeferredEnabled(enabled: boolean): void;
+export interface WebGPUFrameTargetEnsureInput {
+	readonly width: number;
+	readonly height: number;
+	readonly sampleCount: number;
+	readonly requirements: WebGPUFrameTargetRequirements;
 }
+
+export type WebGPUFrameTargetEnsureResult =
+	| { readonly status: "ready" }
+	| { readonly status: "retry-legacy-mrt"; readonly error: unknown }
+	| { readonly status: "retry-single-sample"; readonly error: unknown };
 
 export interface WebGPUFrameTargetManagerDebugState {
 	readonly width: number;
@@ -63,7 +58,6 @@ export interface WebGPUFrameTargetManagerDebugState {
  */
 export class WebGPUFrameTargetManager {
 	private readonly _backend: WebGPUBackend;
-	private readonly _callbacks: WebGPUFrameTargetManagerCallbacks;
 	private _frameTargets: WebGPUFrameTargets | null = null;
 	private _msaaTargets: WebGPUFrameMSAATargets | null = null;
 	private _targetWidth = 0;
@@ -78,9 +72,8 @@ export class WebGPUFrameTargetManager {
 	private _texturePools = new Map<string, TexturePool>();
 	private _texturePoolOwners = new Map<IRenderTexture, TexturePool>();
 
-	constructor(backend: WebGPUBackend, callbacks: WebGPUFrameTargetManagerCallbacks) {
+	constructor(backend: WebGPUBackend) {
 		this._backend = backend;
-		this._callbacks = callbacks;
 	}
 
 	public get frameTargets(): WebGPUFrameTargets | null {
@@ -127,26 +120,12 @@ export class WebGPUFrameTargetManager {
 		};
 	}
 
-	public ensureFrameTargets(
-		width: number,
-		height: number,
-		requirementsOrDeferred: WebGPUFrameTargetRequirements | boolean,
-	): void {
-		const requirements =
-			typeof requirementsOrDeferred === "boolean"
-				? ({
-						sceneTargetMode: requirementsOrDeferred ? "gbuffer" : "mrt",
-						needsPostProcessTargets: true,
-						needsOITTargets: true,
-						needsTransmissionTargets: false,
-						needsPlanarReflectionMask: true,
-						needsHiZTarget: false,
-					} satisfies WebGPUFrameTargetRequirements)
-				: requirementsOrDeferred;
-		const msaaSampleCount = this._callbacks.resolveMSAASampleCount();
+	public ensureFrameTargets(input: WebGPUFrameTargetEnsureInput): WebGPUFrameTargetEnsureResult {
+		const { width, height, requirements } = input;
+		const msaaSampleCount = input.sampleCount;
 		if (width <= 0 || height <= 0) {
 			this.destroyFrameTargets();
-			return;
+			return { status: "ready" };
 		}
 
 		if (
@@ -162,7 +141,7 @@ export class WebGPUFrameTargetManager {
 			this._targetNeedsHiZTarget === requirements.needsHiZTarget
 		) {
 			this._frameTargets.sceneColor = this._frameTargets.sceneColorMain;
-			return;
+			return { status: "ready" };
 		}
 
 		const acquiredTextures: IRenderTexture[] = [];
@@ -656,6 +635,7 @@ export class WebGPUFrameTargetManager {
 				planarReflectionMask,
 			};
 			committed = true;
+			return { status: "ready" };
 		} catch (error) {
 			if (!committed) {
 				for (const texture of new Set(acquiredTextures)) {
@@ -664,42 +644,10 @@ export class WebGPUFrameTargetManager {
 			}
 			this.destroyFrameTargets();
 			if (requirements.sceneTargetMode === "gbuffer") {
-				this._callbacks.setDeferredEnabled(false);
-				const key = "webgpu-deferred-runtime-fallback";
-				Logger.warn(
-					`[${key}] WebGPU deferred frame target allocation failed; retrying with legacy MRT forward path. ${String(error)}`,
-					{ scope: "WebGPUFrameExecutor", onceKey: key },
-				);
-				this.ensureFrameTargets(width, height, {
-					...requirements,
-					sceneTargetMode:
-						requirements.sceneTargetMode === "gbuffer"
-							? "mrt"
-							: requirements.sceneTargetMode,
-				});
-				return;
+				return { status: "retry-legacy-mrt", error };
 			}
 			if (msaaSampleCount > 1) {
-				if (!this._callbacks.fallbackToSingleSample()) {
-					throw error;
-				}
-				const key = "webgpu-msaa-runtime-fallback-1x";
-				Logger.warn(
-					`[${key}] WebGPU ${msaaSampleCount}x MSAA target allocation failed; retrying at 1x.`,
-					{ scope: "WebGPUFrameExecutor", onceKey: key },
-				);
-				this._callbacks.configureDeferredLightingSupport();
-				const frameContext = this._callbacks.getFrameContext();
-				this.ensureFrameTargets(width, height, {
-					...requirements,
-					sceneTargetMode:
-						this._callbacks.isDeferredEnabled() &&
-						frameContext &&
-						this._callbacks.frameHasDeferredLightingWork(frameContext)
-							? "gbuffer"
-							: requirements.sceneTargetMode,
-				});
-				return;
+				return { status: "retry-single-sample", error };
 			}
 			throw error;
 		}

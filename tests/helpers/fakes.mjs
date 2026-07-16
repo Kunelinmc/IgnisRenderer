@@ -565,6 +565,10 @@ export class FakeWebGPUBackend {
 		return this;
 	}
 
+	isEarlyZPrepassEnabled() { return true; }
+	isDeferredLightingEnabled() { return true; }
+	getFrameGraphValidationMode() { return "throw"; }
+
 	async createShaderModule(desc) {
 		if (this.failCustomShaderModules && typeof desc.label === "string" && desc.label.startsWith("WebGPUShaderMaterial")) {
 			throw new Error("simulated custom shader module compile failure");

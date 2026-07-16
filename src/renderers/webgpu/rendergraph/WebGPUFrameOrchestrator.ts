@@ -1,8 +1,4 @@
-import type {
-	DrawPacket,
-	FrameContext,
-	FramePass,
-} from "../../../pipeline/types";
+import type { DrawPacket, FrameContext, FramePass } from "../../../pipeline/types";
 import type {
 	LogicalGBufferBridge,
 	PostProcessPassExecutionContextRequest,
@@ -64,9 +60,15 @@ import {
 import type { WebGPUSceneTargetMode } from "../WebGPUScenePassDescriptors";
 import {
 	WebGPUFrameTargetManager,
+	type WebGPUFrameTargetEnsureResult,
 	type WebGPUFrameMSAATargets,
 	type WebGPUFrameTargetRequirements,
 } from "./WebGPUFrameTargetManager";
+import {
+	WebGPUFrameConfigurationResolver,
+	type WebGPUFrameConfiguration,
+	type WebGPUFrameDiagnostic,
+} from "./WebGPUFrameConfigurationResolver";
 import { WebGPUFrameGraphPlanner } from "./WebGPUFrameGraphPlanner";
 import { WebGPUFrameGraphCompiler } from "./WebGPUFrameGraphCompiler";
 import { WebGPUPostProcessBridge } from "./WebGPUPostProcessBridge";
@@ -101,6 +103,8 @@ import { WebGPUCustomRenderTargetRuntime } from "./WebGPUCustomRenderTargetRunti
 import type { RenderTargetReadbackOptions } from "../../CustomRenderTargets";
 import type { TextureReadbackResult } from "../../IComputeRuntime";
 
+const WEBGPU_DEFERRED_RUNTIME_FALLBACK_KEY = "webgpu-deferred-runtime-fallback";
+const WEBGPU_MSAA_RUNTIME_FALLBACK_KEY = "webgpu-msaa-runtime-fallback-1x";
 const WEBGPU_OIT_DISABLED_MRT_KEY = "webgpu-oit-disabled-mrt-unavailable";
 const WEBGPU_OIT_DISABLED_MSAA_KEY = "webgpu-oit-disabled-msaa";
 const WEBGPU_OIT_DISABLED_RUNTIME_KEY = "webgpu-oit-disabled-runtime";
@@ -110,27 +114,43 @@ const SHARED_HIZ_POSTPROCESS_PASS_IDS = new Set([
 	"volumetric",
 ]);
 
-export class WebGPUFrameGraphRuntime {
+interface WebGPUFrameScope {
+	readonly context: FrameContext;
+	readonly configuration: WebGPUFrameConfiguration;
+	encoder: ICommandEncoder | null;
+	resources: WebGPUPreparedFrameResources | null;
+	presented: boolean;
+	motionHistoryWriteTarget: IRenderTexture | null;
+	pendingPostProcessColorTarget: IRenderTexture | null;
+	deferredOpaqueFrameState: WebGPUDeferredOpaqueFrameState | null;
+	hiZStatus: "unavailable" | "pending" | "ready" | "failed";
+	hiZBuildCount: number;
+}
+
+export interface WebGPUFrameOrchestratorOptions {
+	readonly enableEarlyZPrepass: boolean;
+	readonly enableDeferredLighting: boolean;
+	readonly frameGraphValidationMode: WebGPUFrameGraphValidationMode;
+	readonly getFrameExecutor: () => import("../WebGPUFrameExecutor").WebGPUFrameExecutor | null;
+}
+
+export class WebGPUFrameOrchestrator {
 	private _backend: WebGPUBackend;
 	private _resources: WebGPURenderResources;
 	private _msaa: WebGPUMSAAContext;
-	private _encoder: ICommandEncoder | null = null;
-	private _frameContext: FrameContext | null = null;
-	private _frameResources: WebGPUPreparedFrameResources | null = null;
-	private _hasPresentedInFrame = false;
-	private _mrtEnabled = true;
+	private _frame: WebGPUFrameScope | null = null;
+	private _lastConfiguration: WebGPUFrameConfiguration | null = null;
 	private _mrtSupportChecked = false;
-	private _deferredEnabled = false;
 	private _postRuntime: WebGPUPostProcessRuntime;
 	private _postBridge: WebGPUPostProcessBridge;
 	private _fallbackPostProcessRuntime?: BackendPostProcessRuntime;
-	private _oitActive = false;
-	private _motionHistoryWriteTarget: IRenderTexture | null = null;
-	private _pendingPostProcessColorTarget: IRenderTexture | null = null;
 	private _pendingFrameTargetInvalidation = false;
 	private _pendingShaderRuntimeInvalidation = false;
 	private _enableEarlyZPrepass = true;
 	private _enableDeferredLighting = true;
+	private readonly _frameGraphValidationMode: WebGPUFrameGraphValidationMode;
+	private readonly _getFrameExecutor: WebGPUFrameOrchestratorOptions["getFrameExecutor"];
+	private readonly _configurationResolver = new WebGPUFrameConfigurationResolver();
 	private readonly _dirtyRectResolver = new WebGPUDirtyRectResolver();
 	private _recordingContext: WebGPUFrameGraphRecordingContext;
 	private _depthDirtyClearPass: WebGPUDepthDirtyClearPass;
@@ -144,9 +164,6 @@ export class WebGPUFrameGraphRuntime {
 	private _scenePassRecorder: WebGPUScenePassRecorder;
 	private _occlusionRuntime: WebGPUOcclusionCullingRuntime;
 	private _hiZBuilder: WebGPUHiZBuilder;
-	private _hiZStatus: "unavailable" | "pending" | "ready" | "failed" = "unavailable";
-	private _hiZBuildCount = 0;
-	private _deferredOpaqueFrameState: WebGPUDeferredOpaqueFrameState | null = null;
 	private readonly _graphPlanner = new WebGPUFrameGraphPlanner();
 	private readonly _graphCompiler = new WebGPUFrameGraphCompiler();
 	private readonly _nodeExecutors: Map<
@@ -156,35 +173,20 @@ export class WebGPUFrameGraphRuntime {
 	private _lastPlannedGraphNodes: WebGPUFrameGraphNode[] = [];
 	private _lastCompiledGraphStages: WebGPUCompiledFrameGraphStage[] = [];
 	private _lastExecutedGraphNodeIds: string[] = [];
-	private _frameGraphValidationMode: WebGPUFrameGraphValidationMode = "throw";
 
-	constructor(backend: WebGPUBackend, resources: WebGPURenderResources, msaa: WebGPUMSAAContext) {
+	constructor(
+		backend: WebGPUBackend,
+		resources: WebGPURenderResources,
+		msaa: WebGPUMSAAContext,
+		options: WebGPUFrameOrchestratorOptions,
+	) {
 		this._backend = backend;
 		this._resources = resources;
 		this._msaa = msaa;
-		const backendOptions = this._backend as {
-			isEarlyZPrepassEnabled?: () => boolean;
-			enableEarlyZPrepass?: boolean;
-			isDeferredLightingEnabled?: () => boolean;
-			enableDeferredLighting?: boolean;
-			getFrameGraphValidationMode?: () => WebGPUFrameGraphValidationMode;
-			frameGraphValidation?: WebGPUFrameGraphValidationMode;
-		};
-		const earlyZGetter = backendOptions.isEarlyZPrepassEnabled;
-		this._enableEarlyZPrepass =
-			typeof earlyZGetter === "function"
-				? earlyZGetter.call(this._backend)
-				: backendOptions.enableEarlyZPrepass !== false;
-		const deferredLightingGetter = backendOptions.isDeferredLightingEnabled;
-		this._enableDeferredLighting =
-			typeof deferredLightingGetter === "function"
-				? deferredLightingGetter.call(this._backend)
-				: backendOptions.enableDeferredLighting !== false;
-		const validationGetter = backendOptions.getFrameGraphValidationMode;
-		this._frameGraphValidationMode =
-			typeof validationGetter === "function"
-				? validationGetter.call(this._backend)
-				: (backendOptions.frameGraphValidation ?? "throw");
+		this._enableEarlyZPrepass = options.enableEarlyZPrepass;
+		this._enableDeferredLighting = options.enableDeferredLighting;
+		this._frameGraphValidationMode = options.frameGraphValidationMode;
+		this._getFrameExecutor = options.getFrameExecutor;
 		const computeFacade = resolveWebGPUComputeFacade(backend);
 		this._hiZBuilder = new WebGPUHiZBuilder(computeFacade);
 		this._postRuntime = new WebGPUPostProcessRuntime(
@@ -211,17 +213,7 @@ export class WebGPUFrameGraphRuntime {
 		this._planarReflectionPass = new WebGPUPlanarReflectionPass(backend, resources);
 		this._presentPass = new WebGPUPresentPass(backend);
 		this._customRenderTargets = new WebGPUCustomRenderTargetRuntime(backend);
-		this._frameTargetManager = new WebGPUFrameTargetManager(backend, {
-			resolveMSAASampleCount: () => this._msaa.sampleCount,
-			fallbackToSingleSample: () => this._msaa.fallbackToSingleSample(),
-			configureDeferredLightingSupport: () => this._configureDeferredLightingSupport(),
-			frameHasDeferredLightingWork: (context) => this._frameHasDeferredLightingWork(context),
-			getFrameContext: () => this._frameContext,
-			isDeferredEnabled: () => this._deferredEnabled,
-			setDeferredEnabled: (enabled) => {
-				this._deferredEnabled = enabled;
-			},
-		});
+		this._frameTargetManager = new WebGPUFrameTargetManager(backend);
 		this._recordingContext = {
 			getEncoder: () => this._encoder,
 			getFrameTargets: () => this._frameTargets,
@@ -270,6 +262,100 @@ export class WebGPUFrameGraphRuntime {
 		this._nodeExecutors = this._createNodeExecutors();
 	}
 
+	private get _encoder(): ICommandEncoder | null {
+		return this._frame?.encoder ?? null;
+	}
+
+	private set _encoder(value: ICommandEncoder | null) {
+		if (!this._frame) {
+			if (value !== null) {
+				throw new Error("WebGPUFrameOrchestrator cannot assign an encoder outside an active frame.");
+			}
+			return;
+		}
+		this._frame.encoder = value;
+	}
+
+	private get _frameContext(): FrameContext | null {
+		return this._frame?.context ?? null;
+	}
+
+	private set _frameContext(_value: FrameContext | null) {}
+
+	private get _frameResources(): WebGPUPreparedFrameResources | null {
+		return this._frame?.resources ?? null;
+	}
+
+	private set _frameResources(value: WebGPUPreparedFrameResources | null) {
+		if (this._frame) this._frame.resources = value;
+	}
+
+	private get _hasPresentedInFrame(): boolean {
+		return this._frame?.presented ?? false;
+	}
+
+	private set _hasPresentedInFrame(value: boolean) {
+		if (this._frame) this._frame.presented = value;
+	}
+
+	private get _mrtEnabled(): boolean {
+		return this._frame?.configuration.mrtSupported ?? this._lastConfiguration?.mrtSupported ?? true;
+	}
+
+	private set _mrtEnabled(_value: boolean) {}
+
+	private get _deferredEnabled(): boolean {
+		return this._frame?.configuration.deferredActive ?? false;
+	}
+
+	private set _deferredEnabled(_value: boolean) {}
+
+	private get _oitActive(): boolean {
+		return this._frame?.configuration.oitActive ?? false;
+	}
+
+	private set _oitActive(_value: boolean) {}
+
+	private get _motionHistoryWriteTarget(): IRenderTexture | null {
+		return this._frame?.motionHistoryWriteTarget ?? null;
+	}
+
+	private set _motionHistoryWriteTarget(value: IRenderTexture | null) {
+		if (this._frame) this._frame.motionHistoryWriteTarget = value;
+	}
+
+	private get _pendingPostProcessColorTarget(): IRenderTexture | null {
+		return this._frame?.pendingPostProcessColorTarget ?? null;
+	}
+
+	private set _pendingPostProcessColorTarget(value: IRenderTexture | null) {
+		if (this._frame) this._frame.pendingPostProcessColorTarget = value;
+	}
+
+	private get _deferredOpaqueFrameState(): WebGPUDeferredOpaqueFrameState | null {
+		return this._frame?.deferredOpaqueFrameState ?? null;
+	}
+
+	private set _deferredOpaqueFrameState(value: WebGPUDeferredOpaqueFrameState | null) {
+		if (this._frame) this._frame.deferredOpaqueFrameState = value;
+	}
+
+	private get _hiZStatus(): "unavailable" | "pending" | "ready" | "failed" {
+		return this._frame?.hiZStatus ?? "unavailable";
+	}
+
+	private set _hiZStatus(value: "unavailable" | "pending" | "ready" | "failed") {
+		if (this._frame) this._frame.hiZStatus = value;
+	}
+
+	private get _hiZBuildCount(): number {
+		return this._frame?.hiZBuildCount ?? 0;
+	}
+
+	private set _hiZBuildCount(value: number) {
+		if (this._frame) this._frame.hiZBuildCount = value;
+	}
+
 	private get _frameTargets(): WebGPUFrameTargets | null {
 		return this._frameTargetManager.frameTargets;
 	}
@@ -295,48 +381,134 @@ export class WebGPUFrameGraphRuntime {
 	}
 
 	public beginFrame(context: FrameContext): void {
-		this._frameContext = context;
-		this._hasPresentedInFrame = false;
-		this._oitActive = false;
+		this._frame = null;
 		this._oitPass.resetFrameState();
-		this._motionHistoryWriteTarget = null;
-		this._pendingPostProcessColorTarget = null;
 		this._postBridge.clearPendingFrameState();
-		this._deferredOpaqueFrameState = null;
 		this._lastPlannedGraphNodes = [];
 		this._lastCompiledGraphStages = [];
 		this._lastExecutedGraphNodeIds = [];
 		this._graphCompiler.beginFrame([]);
 		this._occlusionRuntime.beginFrame(context);
-		this._hiZStatus = "unavailable";
-		this._hiZBuildCount = 0;
 		const targetWidth = this._resolveAttachmentDimension(context.attachments.width);
 		const targetHeight = this._resolveAttachmentDimension(context.attachments.height);
 
 		if (targetWidth <= 0 || targetHeight <= 0) {
 			this._destroyFrameTargets();
-			this._frameContext = null;
-			this._frameResources = null;
-			this._encoder = null;
 			return;
 		}
 
-		this._encoder = this._backend.createCommandEncoder();
+		const encoder = this._backend.createCommandEncoder();
 		this._customRenderTargets.sync(context);
-
-		this._ensureMRTSupport();
-		this._configureDeferredLightingSupport();
-		const targetRequirements = this._resolveFrameTargetRequirements(context);
-		this._deferredEnabled = targetRequirements?.sceneTargetMode === "gbuffer";
-		if (this._mrtEnabled && targetRequirements) {
-			this._ensureFrameTargets(targetWidth, targetHeight, targetRequirements);
-		} else {
-			this._destroyFrameTargets();
-		}
-		if (this._frameTargets?.hiZ) this._hiZStatus = "pending";
-		this._configureOIT(context);
+		const configuration = this._configureFrameTargets(context, encoder, targetWidth, targetHeight);
+		this._lastConfiguration = configuration;
+		this._frame = {
+			context,
+			configuration,
+			encoder,
+			resources: null,
+			presented: false,
+			motionHistoryWriteTarget: null,
+			pendingPostProcessColorTarget: null,
+			deferredOpaqueFrameState: null,
+			hiZStatus: this._frameTargets?.hiZ ? "pending" : "unavailable",
+			hiZBuildCount: 0,
+		};
 		this._graphCompiler.beginFrame(this._collectInitialGraphResources());
 		this.prepareFrameResources(context);
+	}
+
+	private _configureFrameTargets(
+		context: FrameContext,
+		encoder: ICommandEncoder,
+		width: number,
+		height: number,
+	): WebGPUFrameConfiguration {
+		let forceDeferredFallback = false;
+		let forceForwardMrt = false;
+		for (let attempts = 0; attempts < 3; attempts++) {
+			const configuration = this._resolveFrameConfiguration(
+				context,
+				encoder,
+				forceDeferredFallback,
+				forceForwardMrt,
+			);
+			this._emitConfigurationDiagnostics(configuration.diagnostics);
+			if (!configuration.targetRequirements) {
+				this._destroyFrameTargets();
+				return configuration;
+			}
+			const result = this._frameTargetManager.ensureFrameTargets({
+				width,
+				height,
+				sampleCount: this._msaa.sampleCount,
+				requirements: configuration.targetRequirements,
+			});
+			if (result.status === "ready") return configuration;
+			if (result.status === "retry-legacy-mrt") {
+				forceDeferredFallback = true;
+				forceForwardMrt = true;
+				this._warnFrameTargetRetry(WEBGPU_DEFERRED_RUNTIME_FALLBACK_KEY, result);
+				continue;
+			}
+			if (!this._msaa.fallbackToSingleSample()) {
+				throw result.error;
+			}
+			this._warnFrameTargetRetry(WEBGPU_MSAA_RUNTIME_FALLBACK_KEY, result);
+		}
+		throw new Error("WebGPU frame target allocation did not converge after fallback.");
+	}
+
+	private _resolveFrameConfiguration(
+		context: FrameContext,
+		encoder: ICommandEncoder,
+		forceDeferredFallback: boolean,
+		forceForwardMrt: boolean,
+	): WebGPUFrameConfiguration {
+		const device = this._backend.device;
+		return this._configurationResolver.resolve(context, {
+			maxColorAttachments: device?.limits?.maxColorAttachments ?? 8,
+			maxColorAttachmentBytesPerSample:
+				device?.limits?.maxColorAttachmentBytesPerSample ?? 32,
+			maxStorageTexturesPerShaderStage:
+				device?.limits?.maxStorageTexturesPerShaderStage ?? 4,
+		}, {
+			enableEarlyZPrepass: this._enableEarlyZPrepass,
+			enableDeferredLighting: this._enableDeferredLighting,
+			sampleCount: this._msaa.sampleCount,
+			supportsInFrameTextureCopy: typeof encoder.copyTextureToTexture === "function",
+			forceDeferredFallback,
+			forceForwardMrt,
+			particleOpaquePackets: this._buildParticleMeshDrawPackets(context, {
+				includeOpaque: true,
+				includeTransparent: false,
+			}),
+			particleTransparentPackets: this._buildParticleMeshDrawPackets(context, {
+				includeOpaque: false,
+				includeTransparent: true,
+			}),
+		});
+	}
+
+	private _emitConfigurationDiagnostics(diagnostics: readonly WebGPUFrameDiagnostic[]): void {
+		for (const diagnostic of diagnostics) {
+			Logger.warn(`[${diagnostic.code}] ${diagnostic.message}`, {
+				scope: "WebGPUFrameOrchestrator",
+				onceKey: diagnostic.code,
+			});
+		}
+	}
+
+	private _warnFrameTargetRetry(
+		key: string,
+		result: Exclude<WebGPUFrameTargetEnsureResult, { status: "ready" }>,
+	): void {
+		const message = key === WEBGPU_DEFERRED_RUNTIME_FALLBACK_KEY
+			? "WebGPU deferred frame target allocation failed; retrying with legacy MRT forward path."
+			: `WebGPU ${this._msaa.sampleCount}x MSAA target allocation failed; retrying at 1x.`;
+		Logger.warn(`[${key}] ${message} ${String(result.error)}`, {
+			scope: "WebGPUFrameOrchestrator",
+			onceKey: key,
+		});
 	}
 
 	/**
@@ -515,9 +687,6 @@ export class WebGPUFrameGraphRuntime {
 		let failed = 0;
 		const errors: ShaderCompileError[] = [];
 		const yieldController = createWarmupYieldController(options);
-		this._ensureMRTSupport();
-		this._configureDeferredLightingSupport();
-
 		try {
 			await this._ensurePresentResources();
 			compiled++;
@@ -601,8 +770,8 @@ export class WebGPUFrameGraphRuntime {
 	private _getFallbackPostProcessRuntime(): BackendPostProcessRuntime {
 		if (!this._fallbackPostProcessRuntime) {
 			this._fallbackPostProcessRuntime = new BackendPostProcessRuntime({
-				executor: new WebGPUPostProcessExecutor({
-					getFrameExecutor: () => (this._backend as any)._frameExecutor ?? null,
+					executor: new WebGPUPostProcessExecutor({
+					getFrameExecutor: () => this._getFrameExecutor(),
 					assertDeviceOperational: () => {},
 				}),
 				backend: this._backend,
@@ -647,14 +816,14 @@ export class WebGPUFrameGraphRuntime {
 			hasMSAATargets: !!this._msaaTargets,
 			needsTransmissionTargets: !!this._frameTargets?.transmissionSceneColorCopy,
 			needsPlanarReflectionMask: !!this._frameTargets?.planarReflectionMask,
-			needsOcclusionTest: this._frameNeedsOcclusionTest(context),
-			needsHiZBuild: this._hiZStatus === "pending",
+			needsOcclusionTest: this._frame?.configuration.needsOcclusionTest === true,
+			needsHiZBuild: this._frame?.configuration.needsHiZBuild === true && this._hiZStatus === "pending",
 		});
 		if (plan.nodes.length === 0) {
 			const key = `webgpu-pass-unsupported-${pass.stage}`;
 			Logger.warn(
 				`[${key}] WebGPU backend does not support pass "${pass.stage}" yet; skipping`,
-				{ scope: "WebGPUFrameGraphRuntime", onceKey: key },
+				{ scope: "WebGPUFrameOrchestrator", onceKey: key },
 			);
 			return;
 		}
@@ -944,7 +1113,7 @@ export class WebGPUFrameGraphRuntime {
 			throw new Error(message);
 		}
 		Logger.warn(`[webgpu-frame-graph-validation] ${message}`, {
-			scope: "WebGPUFrameGraphRuntime",
+			scope: "WebGPUFrameOrchestrator",
 			onceKey: `webgpu-frame-graph-validation:${compiled.pass.stage}`,
 		});
 	}
@@ -1221,7 +1390,22 @@ export class WebGPUFrameGraphRuntime {
 		height: number,
 		requirementsOrDeferred: WebGPUFrameTargetRequirements | boolean,
 	): void {
-		this._frameTargetManager.ensureFrameTargets(width, height, requirementsOrDeferred);
+		const requirements: WebGPUFrameTargetRequirements = typeof requirementsOrDeferred === "boolean"
+			? {
+				sceneTargetMode: requirementsOrDeferred ? "gbuffer" : "mrt",
+				needsPostProcessTargets: true,
+				needsOITTargets: true,
+				needsTransmissionTargets: false,
+				needsPlanarReflectionMask: true,
+				needsHiZTarget: false,
+			}
+			: requirementsOrDeferred;
+		this._frameTargetManager.ensureFrameTargets({
+			width,
+			height,
+			sampleCount: this._msaa.sampleCount,
+			requirements,
+		});
 	}
 
 	private _destroyFrameTargets(): void {
@@ -1239,14 +1423,7 @@ export class WebGPUFrameGraphRuntime {
 	}
 
 	private _clearActiveFrameState(flushPendingLifecycle = true): void {
-		this._encoder = null;
-		this._frameContext = null;
-		this._frameResources = null;
-		this._motionHistoryWriteTarget = null;
-		this._pendingPostProcessColorTarget = null;
-		this._hasPresentedInFrame = false;
-		this._deferredOpaqueFrameState = null;
-		this._oitActive = false;
+		this._frame = null;
 		this._oitPass.resetFrameState();
 		if (flushPendingLifecycle) {
 			this._flushPendingLifecycleInvalidations();

@@ -27,7 +27,7 @@ import type {
 	WebGPURenderResources,
 } from "./WebGPURenderResources";
 import type { WebGPUSceneTargetMode } from "./WebGPUScenePassDescriptors";
-import { WebGPUFrameGraphRuntime } from "./rendergraph/WebGPUFrameGraphRuntime";
+import { WebGPUFrameOrchestrator } from "./rendergraph/WebGPUFrameOrchestrator";
 import {
 	SINGLE_SAMPLE_WEBGPU_MSAA_CONTEXT,
 	type WebGPUMSAAContext,
@@ -37,83 +37,88 @@ import {
  * Backend-facing compatibility facade for the WebGPU internal frame graph.
  */
 export class WebGPUFrameExecutor {
-	private readonly _runtime: WebGPUFrameGraphRuntime;
+	private readonly _orchestrator: WebGPUFrameOrchestrator;
 
 	public constructor(
 		backend: WebGPUBackend,
 		resources: WebGPURenderResources,
 		msaa: WebGPUMSAAContext = SINGLE_SAMPLE_WEBGPU_MSAA_CONTEXT
 	) {
-		this._runtime = new WebGPUFrameGraphRuntime(backend, resources, msaa);
+		this._orchestrator = new WebGPUFrameOrchestrator(backend, resources, msaa, {
+			enableEarlyZPrepass: backend.isEarlyZPrepassEnabled(),
+			enableDeferredLighting: backend.isDeferredLightingEnabled(),
+			frameGraphValidationMode: backend.getFrameGraphValidationMode(),
+			getFrameExecutor: () => this,
+		});
 	}
 
 	public beginFrame(context: FrameContext): void {
-		this._runtime.beginFrame(context);
+		this._orchestrator.beginFrame(context);
 	}
 
 	public prepareFrameResources(
 		context: FrameContext
 	): WebGPUPreparedFrameResources | null {
-		return this._runtime.prepareFrameResources(context);
+		return this._orchestrator.prepareFrameResources(context);
 	}
 
 	public getPreparedFrameResources(): WebGPUPreparedFrameResources | null {
-		return this._runtime.getPreparedFrameResources();
+		return this._orchestrator.getPreparedFrameResources();
 	}
 
 	public createPostProcessResource(
 		desc: PostProcessResourceDescriptor
 	): PostProcessResourceHandle {
-		return this._runtime.createPostProcessResource(desc);
+		return this._orchestrator.createPostProcessResource(desc);
 	}
 
 	public destroyPostProcessResource(
 		handle: PostProcessResourceHandle
 	): void {
-		this._runtime.destroyPostProcessResource(handle);
+		this._orchestrator.destroyPostProcessResource(handle);
 	}
 
 	public createGBufferBridge(context: FrameContext): LogicalGBufferBridge {
-		return this._runtime.createGBufferBridge(context);
+		return this._orchestrator.createGBufferBridge(context);
 	}
 
 	public getSceneTargetModeForFrame(): WebGPUSceneTargetMode {
-		return this._runtime.getSceneTargetModeForFrame();
+		return this._orchestrator.getSceneTargetModeForFrame();
 	}
 
 	public getOcclusionVisibilityProvider(
 		options: NormalizedOcclusionCullingOptions
 	): OcclusionVisibilityProvider {
-		return this._runtime.getOcclusionVisibilityProvider(options);
+		return this._orchestrator.getOcclusionVisibilityProvider(options);
 	}
 
 	public resetOcclusionCulling(): void {
-		this._runtime.resetOcclusionCulling();
+		this._orchestrator.resetOcclusionCulling();
 	}
 
 	public getPassExecutionContext(
 		request: PostProcessPassExecutionContextRequest
 	): unknown {
-		return this._runtime.getPassExecutionContext(request);
+		return this._orchestrator.getPassExecutionContext(request);
 	}
 
 	public completePostProcessPass(
 		request: PostProcessPassRequest,
 		result: PostProcessPassResult
 	): void {
-		this._runtime.completePostProcessPass(request, result);
+		this._orchestrator.completePostProcessPass(request, result);
 	}
 
 	public invalidateFrameTargets(): void {
-		this._runtime.invalidateFrameTargets();
+		this._orchestrator.invalidateFrameTargets();
 	}
 
 	public invalidatePostProcessBindings(): void {
-		this._runtime.invalidatePostProcessBindings();
+		this._orchestrator.invalidatePostProcessBindings();
 	}
 
 	public onShaderRuntimeChanged(): void {
-		this._runtime.onShaderRuntimeChanged();
+		this._orchestrator.onShaderRuntimeChanged();
 	}
 
 	public warmup(
@@ -121,22 +126,22 @@ export class WebGPUFrameExecutor {
 		plan: WarmupPlan,
 		options: WarmupOptions = {}
 	): Promise<WarmupPhaseCounters> {
-		return this._runtime.warmup(context, plan, options);
+		return this._orchestrator.warmup(context, plan, options);
 	}
 
 	public executePass(
 		pass: FramePass,
 		context: FrameContext
 	): Promise<void> {
-		return this._runtime.executePass(pass, context);
+		return this._orchestrator.executePass(pass, context);
 	}
 
 	public endFrame(): Promise<void> {
-		return this._runtime.endFrame();
+		return this._orchestrator.endFrame();
 	}
 
 	public abortFrame(): void {
-		this._runtime.abortFrame();
+		this._orchestrator.abortFrame();
 	}
 
 	public readRenderTargetColor(
@@ -144,14 +149,14 @@ export class WebGPUFrameExecutor {
 		attachmentIndex?: number,
 		options?: RenderTargetReadbackOptions
 	): Promise<TextureReadbackResult> {
-		return this._runtime.readRenderTargetColor(id, attachmentIndex, options);
+		return this._orchestrator.readRenderTargetColor(id, attachmentIndex, options);
 	}
 
 	public destroy(): void {
-		this._runtime.destroy();
+		this._orchestrator.destroy();
 	}
 
 	public getFrameGraphDebugState(): unknown {
-		return this._runtime.getDebugState();
+		return this._orchestrator.getDebugState();
 	}
 }

@@ -575,7 +575,7 @@ async function testIncrementalMainPassUsesDepthPartialReuse() {
 
 async function testMainOpaqueDisablesEarlyZWhenConfiguredOff() {
 	const backend = new FakeBackend();
-	backend.enableEarlyZPrepass = false;
+	backend.isEarlyZPrepassEnabled = () => false;
 	const resources = createModeTrackingResourcesStub();
 	const executor = new WebGPUFrameExecutor(backend, resources);
 	const context = createFrameContext(64, 64);
