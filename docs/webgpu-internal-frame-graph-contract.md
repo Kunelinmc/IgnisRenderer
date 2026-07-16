@@ -45,8 +45,21 @@ must remain backend-internal.
 - `WebGPUFrameOrchestrator` must own a single active frame scope and orchestrate
   target retry, frame lifecycle, and node execution; it must not own texture
   pool allocation logic.
-- `WebGPUFrameOrchestrator` must execute graph nodes through a node executor
-  registry keyed by `WebGPUFrameGraphNode.kind`.
+- `WebGPUFrameSession` must own the mutable state for one frame and must expose
+  a lifecycle state of `"recording"`, `"committing"`, or `"skipped"`.
+- Zero-sized frames must use a `"skipped"` session without allocating an
+  encoder. They must still preserve the `beginFrame`/`endFrame` lifecycle.
+- `WebGPUFrameOrchestrator.beginFrame` must reject while another session is
+  active. `executePass` and `endFrame` must reject when no session is active.
+- `WebGPUFrameOrchestrator.executePass` must receive the same `FrameContext`
+  object passed to `beginFrame`. A `"skipped"` session must ignore pass
+  execution without recording commands.
+- `WebGPUFrameOrchestrator.abortFrame` must remain idempotent when no session is
+  active.
+- `WebGPUFrameOrchestrator` must execute graph nodes through
+  `WebGPUFrameNodeExecutorRegistry`, keyed by `WebGPUFrameGraphNode.kind`.
+- The node executor table must exhaustively cover `WebGPUFrameGraphNodeKind` so
+  adding a node kind produces a TypeScript error until an executor is supplied.
 - A planned graph node with no runtime executor must throw because it indicates
   an internal planner/runtime mismatch.
 - The internal WebGPU graph must not add global renderer-level stages for
@@ -67,6 +80,7 @@ const backend = new WebGPUBackend({
 ```bash
 bun tests/static/webgpu/test_webgpu_frame_graph_compiler.mjs
 bun tests/static/webgpu/test_webgpu_frame_graph_planner.mjs
+bun tests/static/webgpu/test_webgpu_frame_node_executor_registry.mjs
 bun tests/static/webgpu/test_webgpu_frame_executor_resilience.mjs
 ```
 
@@ -81,6 +95,10 @@ bun tests/static/webgpu/test_webgpu_frame_executor_resilience.mjs
   `"warn"` and error diagnostics exist.
 - `webgpu-pass-unsupported-{stage}` must be logged once when a renderer-level
   backend pass has no WebGPU frame graph stage planner.
+- `WebGPUFrameOrchestrator has no active frame session.` must report pass or
+  frame completion outside an active frame lifecycle.
+- `WebGPU frame pass context must match the context passed to beginFrame().`
+  must report a mismatched per-pass `FrameContext`.
 - `webgpu-hiz-build-failed` must leave opaque rendering active, make occlusion
   candidates visible, and prevent Hi-Z-dependent post-process passes from
   running for the affected frame.
@@ -90,4 +108,7 @@ bun tests/static/webgpu/test_webgpu_frame_executor_resilience.mjs
 barriers, resources, and target-manager state. Tests and diagnostic tooling must
 not depend on private runtime fields when equivalent graph debug data exists.
 The planner and runtime use internal registries instead of switch statements;
-this does not add public WebGPU frame graph registration APIs.
+this does not add public WebGPU frame graph registration APIs. Rejecting
+duplicate frame begins, missing active sessions, and mismatched frame-context
+identity strengthens internal lifecycle validation without changing the public
+renderer API.

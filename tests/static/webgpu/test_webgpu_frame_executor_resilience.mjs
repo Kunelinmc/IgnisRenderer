@@ -352,13 +352,57 @@ async function testZeroSizedFrameSkipsEncoderAndLegacyDepthPath() {
 
 	executor.beginFrame(context);
 	assert.equal(backend.createCommandEncoderCalls, 0);
+	assert.equal(getFrameGraphDebugState(executor).active, true);
 
 	await executor.executePass(
 		{ stage: "main-opaque", executor: "backend", enabled: true },
 		context
 	);
 	await executor.endFrame();
+	assert.equal(getFrameGraphDebugState(executor).active, false);
 	assert.equal(getFrameGraphDebugState(executor).texturePoolOwnerCount, 0);
+}
+
+async function testFrameSessionRejectsInvalidLifecycleCalls() {
+	const backend = new FakeBackend();
+	const executor = new WebGPUFrameExecutor(backend, createResourcesStub());
+	const context = createFrameContext(64, 64);
+
+	await assert.rejects(
+		executor.executePass(
+			{ stage: "main-opaque", executor: "backend", enabled: true },
+			context
+		),
+		/no active frame session/
+	);
+	await assert.rejects(executor.endFrame(), /no active frame session/);
+	assert.doesNotThrow(() => executor.abortFrame());
+
+	executor.beginFrame(context);
+	assert.throws(
+		() => executor.beginFrame(context),
+		/already has an active frame session/
+	);
+	assert.equal(getFrameGraphDebugState(executor).active, true);
+	executor.abortFrame();
+}
+
+async function testFrameSessionRequiresOriginalContext() {
+	const backend = new FakeBackend();
+	const executor = new WebGPUFrameExecutor(backend, createResourcesStub());
+	const context = createFrameContext(64, 64);
+	const mismatchedContext = createFrameContext(64, 64);
+
+	executor.beginFrame(context);
+	await assert.rejects(
+		executor.executePass(
+			{ stage: "main-opaque", executor: "backend", enabled: true },
+			mismatchedContext
+		),
+		/must match the context passed to beginFrame/
+	);
+	assert.equal(getFrameGraphDebugState(executor).active, true);
+	executor.abortFrame();
 }
 
 function testAbortFrameClearsActiveStateWithoutSubmit() {
@@ -1194,6 +1238,8 @@ async function testPlanarReflectionCaptureFailureKeepsMainFrameResources() {
 			event.startsWith("release:planar-reflection:")
 		)
 	);
+	executor.abortFrame();
+	assert.equal(getFrameGraphDebugState(executor).active, false);
 }
 
 async function testPlanarReflectionCaptureUsesMirroredCameraAndCenterSide() {
@@ -1757,6 +1803,8 @@ function testOITRuntimeFallbackWarnsWithoutEncoderCopy() {
 
 async function run() {
 	await testZeroSizedFrameSkipsEncoderAndLegacyDepthPath();
+	await testFrameSessionRejectsInvalidLifecycleCalls();
+	await testFrameSessionRequiresOriginalContext();
 	testAbortFrameClearsActiveStateWithoutSubmit();
 	await testEndFrameFailureClosesActiveState();
 	testFrameTargetAllocationFailureReleasesPartialResources();

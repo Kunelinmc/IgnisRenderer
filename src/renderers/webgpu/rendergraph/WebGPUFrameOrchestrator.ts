@@ -56,6 +56,11 @@ import {
 } from "./WebGPUFrameConfigurationResolver";
 import { WebGPUFrameGraphPlanner } from "./WebGPUFrameGraphPlanner";
 import { WebGPUFrameGraphCompiler } from "./WebGPUFrameGraphCompiler";
+import {
+	WebGPUFrameNodeExecutorRegistry,
+	type WebGPUFrameNodeExecutorTable,
+} from "./WebGPUFrameNodeExecutorRegistry";
+import { WebGPUFrameSession } from "./WebGPUFrameSession";
 import { WebGPUPostProcessBridge } from "./WebGPUPostProcessBridge";
 import { WebGPUOITPass } from "./WebGPUOITPass";
 import { WebGPUDeferredLightingPass } from "./WebGPUDeferredLightingPass";
@@ -80,7 +85,6 @@ import type {
 	WebGPUCompiledFrameGraphStage,
 	WebGPUFrameGraphDebugState,
 	WebGPUFrameGraphNode,
-	WebGPUFrameGraphNodeKind,
 	WebGPUFrameGraphValidationMode,
 } from "./types";
 import { WebGPUPresentPass } from "./WebGPUPresentPass";
@@ -94,18 +98,6 @@ const WEBGPU_OIT_DISABLED_MRT_KEY = "webgpu-oit-disabled-mrt-unavailable";
 const WEBGPU_OIT_DISABLED_MSAA_KEY = "webgpu-oit-disabled-msaa";
 const WEBGPU_OIT_DISABLED_RUNTIME_KEY = "webgpu-oit-disabled-runtime";
 
-interface WebGPUFrameScope {
-	readonly context: FrameContext;
-	readonly configuration: WebGPUFrameConfiguration;
-	encoder: ICommandEncoder | null;
-	resources: WebGPUPreparedFrameResources | null;
-	presented: boolean;
-	motionHistoryWriteTarget: IRenderTexture | null;
-	deferredOpaqueFrameState: WebGPUDeferredOpaqueFrameState | null;
-	hiZStatus: "unavailable" | "pending" | "ready" | "failed";
-	hiZBuildCount: number;
-}
-
 export interface WebGPUFrameOrchestratorOptions {
 	readonly enableEarlyZPrepass: boolean;
 	readonly enableDeferredLighting: boolean;
@@ -117,7 +109,7 @@ export class WebGPUFrameOrchestrator {
 	private _backend: WebGPUBackend;
 	private _resources: WebGPURenderResources;
 	private _msaa: WebGPUMSAAContext;
-	private _frame: WebGPUFrameScope | null = null;
+	private _session: WebGPUFrameSession | null = null;
 	private _lastConfiguration: WebGPUFrameConfiguration | null = null;
 	private _postRuntime: WebGPUPostProcessRuntime;
 	private _postBridge: WebGPUPostProcessBridge;
@@ -144,10 +136,7 @@ export class WebGPUFrameOrchestrator {
 	private _hiZBuilder: WebGPUHiZBuilder;
 	private readonly _graphPlanner = new WebGPUFrameGraphPlanner();
 	private readonly _graphCompiler = new WebGPUFrameGraphCompiler();
-	private readonly _nodeExecutors: Map<
-		WebGPUFrameGraphNodeKind,
-		(node: WebGPUFrameGraphNode, context: FrameContext) => Promise<void>
-	>;
+	private readonly _nodeExecutors: WebGPUFrameNodeExecutorRegistry;
 	private _lastPlannedGraphNodes: WebGPUFrameGraphNode[] = [];
 	private _lastCompiledGraphStages: WebGPUCompiledFrameGraphStage[] = [];
 	private _lastExecutedGraphNodeIds: string[] = [];
@@ -237,85 +226,88 @@ export class WebGPUFrameOrchestrator {
 				this._scenePassRecorder.drawTransmissionPackets(context, packets),
 			warnDisabled: (key, message) => this._warnOITDisabled(key, message),
 		});
-		this._nodeExecutors = this._createNodeExecutors();
+		this._nodeExecutors = new WebGPUFrameNodeExecutorRegistry(
+			this._createNodeExecutors(),
+		);
 	}
 
 	private get _encoder(): ICommandEncoder | null {
-		return this._frame?.encoder ?? null;
+		return this._session?.encoder ?? null;
 	}
 
 	private set _encoder(value: ICommandEncoder | null) {
-		if (!this._frame) {
+		if (!this._session) {
 			if (value !== null) {
 				throw new Error("WebGPUFrameOrchestrator cannot assign an encoder outside an active frame.");
 			}
 			return;
 		}
-		this._frame.encoder = value;
+		this._session.encoder = value;
 	}
 
 	private get _frameContext(): FrameContext | null {
-		return this._frame?.context ?? null;
+		return this._session?.context ?? null;
 	}
 
 	private get _frameResources(): WebGPUPreparedFrameResources | null {
-		return this._frame?.resources ?? null;
+		return this._session?.resources ?? null;
 	}
 
 	private set _frameResources(value: WebGPUPreparedFrameResources | null) {
-		if (this._frame) this._frame.resources = value;
+		if (this._session) this._session.resources = value;
 	}
 
 	private get _hasPresentedInFrame(): boolean {
-		return this._frame?.presented ?? false;
+		return this._session?.presented ?? false;
 	}
 
 	private set _hasPresentedInFrame(value: boolean) {
-		if (this._frame) this._frame.presented = value;
+		if (this._session) this._session.presented = value;
 	}
 
 	private get _mrtEnabled(): boolean {
-		return this._frame?.configuration.mrtSupported ?? this._lastConfiguration?.mrtSupported ?? true;
+		return this._session?.configuration?.mrtSupported ??
+			this._lastConfiguration?.mrtSupported ?? true;
 	}
 
 	private get _deferredEnabled(): boolean {
-		return this._frame?.configuration.deferredActive ?? false;
+		return this._session?.configuration?.deferredActive ?? false;
 	}
 
 	private get _oitActive(): boolean {
-		return this._frame?.configuration.oitActive ?? false;
+		return this._session?.configuration?.oitActive ?? false;
 	}
 
 	private get _motionHistoryWriteTarget(): IRenderTexture | null {
-		return this._frame?.motionHistoryWriteTarget ?? null;
+		return this._session?.motionHistoryWriteTarget ?? null;
 	}
 
 	private set _motionHistoryWriteTarget(value: IRenderTexture | null) {
-		if (this._frame) this._frame.motionHistoryWriteTarget = value;
+		if (this._session) this._session.motionHistoryWriteTarget = value;
 	}
 
 	private get _deferredOpaqueFrameState(): WebGPUDeferredOpaqueFrameState | null {
-		return this._frame?.deferredOpaqueFrameState ?? null;
+		return this._session?.deferredOpaqueFrameState ?? null;
 	}
 
 	private set _deferredOpaqueFrameState(value: WebGPUDeferredOpaqueFrameState | null) {
-		if (this._frame) this._frame.deferredOpaqueFrameState = value;
+		if (this._session) this._session.deferredOpaqueFrameState = value;
 	}
 
 	private get _hiZStatus(): "unavailable" | "pending" | "ready" | "failed" {
-		return this._frame?.hiZStatus ?? "unavailable";
+		return this._session?.hiZStatus ?? "unavailable";
 	}
 
 	private set _hiZStatus(value: "unavailable" | "pending" | "ready" | "failed") {
-		if (this._frame) this._frame.hiZStatus = value;
+		if (this._session) this._session.hiZStatus = value;
 	}
 
 	private get _hiZBuildCount(): number {
-		return this._frame?.hiZBuildCount ?? 0;
+		return this._session?.hiZBuildCount ?? 0;
 	}
 
 	private set _hiZBuildCount(value: number) {
-		if (this._frame) this._frame.hiZBuildCount = value;
+		if (this._session) this._session.hiZBuildCount = value;
 	}
 
 	private get _frameTargets(): WebGPUFrameTargets | null {
@@ -343,7 +335,9 @@ export class WebGPUFrameOrchestrator {
 	}
 
 	public beginFrame(context: FrameContext): void {
-		this._frame = null;
+		if (this._session) {
+			throw new Error("WebGPUFrameOrchestrator already has an active frame session.");
+		}
 		this._oitPass.resetFrameState();
 		this._postBridge.clearPendingFrameState();
 		this._lastPlannedGraphNodes = [];
@@ -356,6 +350,7 @@ export class WebGPUFrameOrchestrator {
 
 		if (targetWidth <= 0 || targetHeight <= 0) {
 			this._destroyFrameTargets();
+			this._session = WebGPUFrameSession.createSkipped(context);
 			return;
 		}
 
@@ -363,17 +358,12 @@ export class WebGPUFrameOrchestrator {
 		this._customRenderTargets.sync(context);
 		const configuration = this._configureFrameTargets(context, encoder, targetWidth, targetHeight);
 		this._lastConfiguration = configuration;
-		this._frame = {
+		this._session = WebGPUFrameSession.createRecording({
 			context,
 			configuration,
 			encoder,
-			resources: null,
-			presented: false,
-			motionHistoryWriteTarget: null,
-			deferredOpaqueFrameState: null,
 			hiZStatus: this._frameTargets?.hiZ ? "pending" : "unavailable",
-			hiZBuildCount: 0,
-		};
+		});
 		this._graphCompiler.beginFrame(this._collectInitialGraphResources());
 		this.prepareFrameResources(context);
 	}
@@ -535,7 +525,7 @@ export class WebGPUFrameOrchestrator {
 
 	public getDebugState(): WebGPUFrameGraphDebugState {
 		return {
-			active: this._hasActiveFrameState(),
+			active: this._session !== null,
 			sceneTargetMode: this.getSceneTargetModeForFrame(),
 			deferredActive: this._deferredEnabled,
 			oitActive: this._oitActive,
@@ -758,14 +748,29 @@ export class WebGPUFrameOrchestrator {
 		this._depthDirtyClearPass.destroy();
 		this._pendingFrameTargetInvalidation = false;
 		this._pendingShaderRuntimeInvalidation = false;
-		this._clearActiveFrameState(false);
+		this._clearActiveSession(false);
 	}
 
 	public async executePass(pass: FramePass, context: FrameContext): Promise<void> {
-		if (!this._encoder) return;
+		const session = this._session;
+		if (!session) {
+			throw new Error("WebGPUFrameOrchestrator has no active frame session.");
+		}
+		session.assertContext(context);
+		if (session.state === "skipped") {
+			return;
+		}
+		if (session.state !== "recording") {
+			throw new Error(
+				`WebGPU frame session cannot execute passes in state "${session.state}".`,
+			);
+		}
+		if (!session.encoder) {
+			throw new Error("WebGPU recording frame session has no command encoder.");
+		}
 
 		if (this._customRenderTargets.hasPass(pass, context)) {
-			await this._customRenderTargets.executePass(pass, context, this._encoder);
+			await this._customRenderTargets.executePass(pass, context, session.encoder);
 			return;
 		}
 
@@ -777,8 +782,10 @@ export class WebGPUFrameOrchestrator {
 			hasMSAATargets: !!this._msaaTargets,
 			needsTransmissionTargets: !!this._frameTargets?.transmissionSceneColorCopy,
 			needsPlanarReflectionMask: !!this._frameTargets?.planarReflectionMask,
-			needsOcclusionTest: this._frame?.configuration.needsOcclusionTest === true,
-			needsHiZBuild: this._frame?.configuration.needsHiZBuild === true && this._hiZStatus === "pending",
+			needsOcclusionTest: session.configuration?.needsOcclusionTest === true,
+			needsHiZBuild:
+				session.configuration?.needsHiZBuild === true &&
+				this._hiZStatus === "pending",
 		});
 		if (plan.nodes.length === 0) {
 			const key = `webgpu-pass-unsupported-${pass.stage}`;
@@ -793,140 +800,82 @@ export class WebGPUFrameOrchestrator {
 		this._lastCompiledGraphStages = this._graphCompiler.getCompiledStages().slice();
 		this._lastPlannedGraphNodes = [...plan.nodes];
 		for (const node of plan.nodes) {
-			await this._executeGraphNode(node, context);
+			await this._nodeExecutors.execute(node, session);
 			this._lastExecutedGraphNodeIds.push(node.id);
 		}
 	}
 
-	private async _executeGraphNode(
-		node: WebGPUFrameGraphNode,
-		context: FrameContext,
-	): Promise<void> {
-		const executor = this._nodeExecutors.get(node.kind);
-		if (!executor) {
-			throw new Error(`WebGPU frame graph node kind "${node.kind}" has no executor.`);
-		}
-		await executor(node, context);
-	}
-
-	private _createNodeExecutors(): Map<
-		WebGPUFrameGraphNodeKind,
-		(node: WebGPUFrameGraphNode, context: FrameContext) => Promise<void>
-	> {
-		return new Map([
-			[
-				"shadow",
-				async (_node, context) => {
-					await this._resources.renderShadows(context, this._encoder ?? undefined);
-				},
-			],
-			[
-				"paged-shadow-page-mark",
-				async (_node, context) => {
-					const request = this._createPagedShadowRequest(context);
-					this._resources.preparePagedShadowFrame(request);
-					await this._resources.recordPagedShadowPageMarkPass(request);
-				},
-			],
-			[
-				"paged-shadow-page-allocate",
-				async (_node, context) => {
-					await this._resources.recordPagedShadowPageAllocationPass(
-						this._createPagedShadowRequest(context),
-					);
-				},
-			],
-			[
-				"paged-shadow-page-table-copy",
-				async (_node, context) => {
-					await this._resources.recordPagedShadowPageTableCopyPass(
-						this._createPagedShadowRequest(context),
-					);
-				},
-			],
-			[
-				"paged-shadow-depth",
-				async (_node, context) => {
-					await this._resources.recordPagedShadowDepthPass(
-						this._createPagedShadowRequest(context),
-					);
-				},
-			],
-			[
-				"paged-shadow-feedback",
-				async (_node, context) => {
-					await this._resources.recordPagedShadowFeedbackPass(
-						this._createPagedShadowRequest(context),
-					);
-				},
-			],
-			[
-				"planar-reflection-capture",
-				async (_node, context) => {
-					await this._recordPlanarReflectionPass(context);
-				},
-			],
-			[
-				"opaque-scene",
-				async (_node, context) => {
-					this._deferredOpaqueFrameState = await this._scenePassRecorder.recordOpaque(
-						context,
-						this._deferredEnabled,
-					);
-					if (!this._deferredOpaqueFrameState) {
-						await this._recordPlanarReflectionComposite(context);
-					}
-				},
-			],
-			[
-				"deferred-decal",
-				async (_node, context) => {
-					await this._recordDeferredDecalNode(context);
-				},
-			],
-			[
-				"deferred-lighting",
-				async (_node, context) => {
-					await this._recordDeferredLightingNode(context);
-				},
-			],
-			[
-				"hiz-build",
-				async (_node, context) => {
-					await this._recordHiZBuildNode(context);
-				},
-			],
-			[
-				"occlusion-test",
-				async (_node, context) => {
-					await this._recordOcclusionTestNode(context);
-				},
-			],
-			[
-				"oit-transparent",
-				async (_node, context) => {
-					await this._recordOITTransparentPass(context);
-				},
-			],
-			[
-				"transparent-scene",
-				async (_node, context) => {
-					await this._recordTransparentScenePass(context);
-				},
-			],
-			[
-				"oit-particles",
-				async (_node, context) => {
-					await this._recordOITParticlePass(context);
-				},
-			],
-			[
-				"particles",
-				async (_node, context) => {
-					await this._scenePassRecorder.recordParticlePass(context);
-				},
-			],
-		]);
+	private _createNodeExecutors(): WebGPUFrameNodeExecutorTable {
+		return {
+			shadow: async (_node, session) => {
+				await this._resources.renderShadows(
+					session.context,
+					this._encoder ?? undefined,
+				);
+			},
+			"paged-shadow-page-mark": async (_node, session) => {
+				const request = this._createPagedShadowRequest(session.context);
+				this._resources.preparePagedShadowFrame(request);
+				await this._resources.recordPagedShadowPageMarkPass(request);
+			},
+			"paged-shadow-page-allocate": async (_node, session) => {
+				await this._resources.recordPagedShadowPageAllocationPass(
+					this._createPagedShadowRequest(session.context),
+				);
+			},
+			"paged-shadow-page-table-copy": async (_node, session) => {
+				await this._resources.recordPagedShadowPageTableCopyPass(
+					this._createPagedShadowRequest(session.context),
+				);
+			},
+			"paged-shadow-depth": async (_node, session) => {
+				await this._resources.recordPagedShadowDepthPass(
+					this._createPagedShadowRequest(session.context),
+				);
+			},
+			"paged-shadow-feedback": async (_node, session) => {
+				await this._resources.recordPagedShadowFeedbackPass(
+					this._createPagedShadowRequest(session.context),
+				);
+			},
+			"planar-reflection-capture": async (_node, session) => {
+				await this._recordPlanarReflectionPass(session.context);
+			},
+			"opaque-scene": async (_node, session) => {
+				const context = session.context;
+				this._deferredOpaqueFrameState = await this._scenePassRecorder.recordOpaque(
+					context,
+					this._deferredEnabled,
+				);
+				if (!this._deferredOpaqueFrameState) {
+					await this._recordPlanarReflectionComposite(context);
+				}
+			},
+			"deferred-decal": async (_node, session) => {
+				await this._recordDeferredDecalNode(session.context);
+			},
+			"deferred-lighting": async (_node, session) => {
+				await this._recordDeferredLightingNode(session.context);
+			},
+			"hiz-build": async (_node, session) => {
+				await this._recordHiZBuildNode(session.context);
+			},
+			"occlusion-test": async (_node, session) => {
+				await this._recordOcclusionTestNode(session.context);
+			},
+			"oit-transparent": async (_node, session) => {
+				await this._recordOITTransparentPass(session.context);
+			},
+			"transparent-scene": async (_node, session) => {
+				await this._recordTransparentScenePass(session.context);
+			},
+			"oit-particles": async (_node, session) => {
+				await this._recordOITParticlePass(session.context);
+			},
+			particles: async (_node, session) => {
+				await this._scenePassRecorder.recordParticlePass(session.context);
+			},
+		};
 	}
 
 	private _createPagedShadowRequest(context: FrameContext): WebGPUPagedShadowFrameRequest {
@@ -943,12 +892,21 @@ export class WebGPUFrameOrchestrator {
 	}
 
 	public async endFrame(): Promise<void> {
-		if (!this._encoder) {
-			this._clearActiveFrameState();
+		const session = this._session;
+		if (!session) {
+			throw new Error("WebGPUFrameOrchestrator has no active frame session.");
+		}
+		if (session.state === "skipped") {
+			this._clearActiveSession();
 			return;
 		}
+		session.beginCommit();
+		const encoder = session.encoder;
+		if (!encoder) {
+			this._clearActiveSession();
+			throw new Error("WebGPU committing frame session has no command encoder.");
+		}
 
-		const encoder = this._encoder;
 		const width = this._targetWidth;
 		const height = this._targetHeight;
 		const motionSource =
@@ -973,13 +931,13 @@ export class WebGPUFrameOrchestrator {
 				);
 			}
 		} finally {
-			this._clearActiveFrameState();
+			this._clearActiveSession();
 		}
 	}
 
 	public abortFrame(): void {
 		this._customRenderTargets.markFrameAborted();
-		this._clearActiveFrameState();
+		this._clearActiveSession();
 	}
 
 	public readRenderTargetColor(
@@ -1098,8 +1056,8 @@ export class WebGPUFrameOrchestrator {
 		this._occlusionRuntime.invalidateFrameResources();
 	}
 
-	private _clearActiveFrameState(flushPendingLifecycle = true): void {
-		this._frame = null;
+	private _clearActiveSession(flushPendingLifecycle = true): void {
+		this._session = null;
 		this._oitPass.resetFrameState();
 		if (flushPendingLifecycle) {
 			this._flushPendingLifecycleInvalidations();
@@ -1120,9 +1078,7 @@ export class WebGPUFrameOrchestrator {
 	}
 
 	private _hasActiveFrameState(): boolean {
-		return (
-			this._encoder !== null || this._frameContext !== null || this._frameResources !== null
-		);
+		return this._session !== null;
 	}
 
 	private _resolveAttachmentDimension(value: number): number {
