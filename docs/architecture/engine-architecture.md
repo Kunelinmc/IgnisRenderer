@@ -39,6 +39,11 @@ through dedicated simulation stages and backend-owned runtimes.
 - A second renderer must receive a new backend instance.
 - Backend device lifecycle and resource ownership must not leak into
   backend-agnostic public contracts.
+- WebGPU device initialization must create a narrow device-scoped frame host.
+  Backend-internal frame runtimes must depend on that host rather than the full
+  `WebGPUBackend` lifecycle facade.
+- Device loss must destroy backend-owned post-process state before invalidating
+  the frame host and destroying frame/shared GPU resources.
 
 ### ECS and Scene Graph Contract
 

@@ -30,11 +30,15 @@ WebGL remains outside this contract.
 - Reflection capture must set SSR post-processing to disabled.
 - Reflection capture must reuse current-frame shadow resources and must not
   schedule a dedicated shadow recapture pass.
+- Reflection capture command buffers must remain pending in the frame committer
+  until `endFrame()` and must be discarded without submission when the frame is
+  aborted before commit.
 - Reflection capture must use a `reflection-capture` pipeline variant with
   flipped front-face winding.
 - Main scene rendering must render the base material first.
 - Composite must run after opaque or deferred lighting output and before
   transparent scene rendering.
+- Capture and composite must be explicit internal frame graph nodes.
 - Composite must write a planar reflection mask target for mirror receiver
   pixels.
 - SSR compose must skip pixels marked by the planar reflection mask.

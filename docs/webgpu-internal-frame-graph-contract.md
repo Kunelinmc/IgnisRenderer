@@ -7,8 +7,9 @@ post-process registration APIs.
 ## Background
 `WebGPUBackend` exposes the renderer-level backend lifecycle. Internally,
 `WebGPUFrameOrchestrator` compiles WebGPU-specific nodes for renderer stages and
-validates resource usage before recording commands. `WebGPUFrameConfigurationResolver`
-resolves feature policy before target allocation. WebGPU implementation
+validates resource usage before recording commands. `WebGPUFrameFeatureAnalyzer`
+derives desired frame work and `WebGPUFrameConfigurationResolver` applies
+capability and fallback policy before target allocation. WebGPU implementation
 details such as deferred lighting, OIT, MSAA frame targets, and presentation
 must remain backend-internal.
 
@@ -33,9 +34,18 @@ must remain backend-internal.
 - `WebGPUBackendOptions.frameGraphValidation` must default to `"throw"`.
 - `"throw"` mode must fail frame execution on error diagnostics.
 - `"warn"` mode must emit diagnostics through `Logger.warn` and continue.
-- `WebGPUFrameConfigurationResolver` must resolve MRT, deferred, OIT, Hi-Z,
-  occlusion, reflection, and post-process target requirements without allocating
-  resources, recording commands, or holding a backend reference.
+- `WebGPUFrameHost` must expose only the device-scoped resource, canvas, command
+  recording, submission, and validation operations required by the frame
+  subsystem. Frame graph services and runtimes must not depend on
+  `WebGPUBackend`.
+- `WebGPUFrameFeatureAnalyzer` must scan scene, particle, reflection,
+  visibility, and post-process work exactly once per frame without applying
+  device capability fallbacks.
+- `WebGPUFrameConfigurationResolver` must consume analyzed feature work and
+  resolve only capability gating, effective configuration, and fallback policy.
+- Planner, compiler, orchestrator, and debug state must use the shared typed
+  graph resource catalog. The catalog must collect initial active resources
+  from concrete frame targets.
 - `WebGPUFrameTargetManager` must own WebGPU offscreen frame target allocation,
   pooled texture ownership, and target debug state. It must return allocation
   retry results and must not query or mutate orchestrator state.
@@ -45,6 +55,12 @@ must remain backend-internal.
 - `WebGPUFrameOrchestrator` must own a single active frame scope and orchestrate
   target retry, frame lifecycle, and node execution; it must not own texture
   pool allocation logic.
+- Scene, shadow, deferred, transparency, reflection, visibility, post-process,
+  and presentation runtimes must own their node executors and feature-local
+  pipeline/binding lifecycle.
+- Post-process and presentation must be explicit internal graph nodes.
+- Planar reflection composite must be an explicit graph node after opaque or
+  deferred output and before transparency.
 - `WebGPUFrameSession` must own the mutable state for one frame and must expose
   a lifecycle state of `"recording"`, `"committing"`, or `"skipped"`.
 - Zero-sized frames must use a `"skipped"` session without allocating an
@@ -56,6 +72,13 @@ must remain backend-internal.
   execution without recording commands.
 - `WebGPUFrameOrchestrator.abortFrame` must remain idempotent when no session is
   active.
+- `WebGPUFrameCommitter` must retain labeled command buffers until `endFrame()`,
+  submit them one at a time in recording order, and discard all retained work
+  when recording is aborted.
+- No frame runtime may submit a command buffer directly. Planar reflection
+  captures must enqueue their buffers in the frame committer.
+- A failure after at least one successful submission must throw
+  `WebGPUFramePartialSubmitError` with submitted and pending command metadata.
 - `WebGPUFrameOrchestrator` must execute graph nodes through
   `WebGPUFrameNodeExecutorRegistry`, keyed by `WebGPUFrameGraphNode.kind`.
 - The node executor table must exhaustively cover `WebGPUFrameGraphNodeKind` so
@@ -102,6 +125,8 @@ bun tests/static/webgpu/test_webgpu_frame_executor_resilience.mjs
 - `webgpu-hiz-build-failed` must leave opaque rendering active, make occlusion
   candidates visible, and prevent Hi-Z-dependent post-process passes from
   running for the affected frame.
+- `WebGPUFramePartialSubmitError` must identify the failure phase, original
+  cause, submitted count, total count, submitted labels, and pending labels.
 
 ## Compatibility / Breaking Changes
 `getFrameGraphDebugState()` may expose structured internal graph diagnostics,

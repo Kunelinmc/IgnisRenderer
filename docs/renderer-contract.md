@@ -112,7 +112,15 @@ All graphics commands are recorded through a backend-agnostic `ICommandEncoder`.
 - `IRenderBackend.skipPass(pass: FramePass)`
   - Behavior contract: called when a pass is disabled in the frame plan, allowing the backend to release/transition dependencies.
 - `IRenderBackend.endFrame()`
-  - Behavior contract: must finalize command encoders, submit command buffers, and present the frame.
+  - Behavior contract: must finalize command encoders, submit command buffers in
+    their recorded order, and present the frame.
+  - Behavior contract: temporal histories, completed coverage, and custom render
+    target publication must commit only after every frame command buffer and
+    post-submit hook succeeds.
+  - Error contract: a backend that submits more than one command buffer must
+    distinguish a failure before any submission from a failure after partial
+    submission. WebGPU must expose structured submitted and pending command
+    labels for the latter case.
   - Constraint: must throw if no frame is active.
 - `IRenderBackend.getCompletedFrameCoverage()`
   - Internal contract: must return `"dirty-tiles"` only when the completed output preserved every non-dirty tile.
@@ -120,7 +128,10 @@ All graphics commands are recorded through a backend-agnostic `ICommandEncoder`.
 - `IRenderBackend.abortFrame(error?: unknown)`
   - Behavior contract: must cancel/release active encoders and discard command buffers.
   - Constraint: must be idempotent and must not throw if no frame is active.
-  - Constraint: must not present to the canvas, commit temporal history, or submit work.
+  - Constraint: before commit begins, must not present to the canvas, commit
+    temporal history, or submit work. After a partial-submit failure, abort may
+    discard only the remaining work and must not claim that submitted work was
+    rolled back.
 	- Backends must defer resize and shader runtime compilation updates while a frame is active.
 	- Backend-internal frame-target recovery may synchronously select a safe
 	  rendering configuration before the first render command is recorded.
