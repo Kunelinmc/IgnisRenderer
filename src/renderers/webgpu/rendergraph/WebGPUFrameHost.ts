@@ -27,7 +27,7 @@ import type { BackendPostProcessRuntime } from "../../../postprocess/BackendPost
 export interface WebGPUFrameHost {
 	readonly device: GPUDevice | null;
 	readonly queue: GPUQueue | null;
-	readonly canvasFormat: GPUTextureFormat;
+	readonly canvasFormat: TextureFormat;
 	readonly canvasDepthFormat: TextureFormat;
 	readonly computeFacade: IWebGPUComputeFacade;
 	readonly postProcessRuntime: BackendPostProcessRuntime;

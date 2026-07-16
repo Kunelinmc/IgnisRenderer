@@ -56,13 +56,13 @@ export class WebGPUCanvasTargetManager {
 	public configureContext(
 		context: GPUCanvasContext,
 		device: GPUDevice,
-		format: GPUTextureFormat
+		format: TextureFormat
 	): void {
 		this.resetCurrentCanvasTargets();
-		this._canvasFormat = format as TextureFormat;
+		this._canvasFormat = format;
 		context.configure({
 			device,
-			format,
+			format: format as GPUTextureFormat,
 			alphaMode: "premultiplied",
 			usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC,
 		});

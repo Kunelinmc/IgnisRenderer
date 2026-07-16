@@ -219,7 +219,7 @@ export class WebGPUBackend implements IRenderBackend {
 		return this._queue;
 	}
 
-	public canvasFormat: GPUTextureFormat = "bgra8unorm";
+	public canvasFormat: TextureFormat = TextureFormat.BGRA8Unorm;
 	public canvasDepthFormat: TextureFormat = TextureFormat.Depth24Plus;
 	public readonly shaderRuntime: ShaderRuntime;
 
@@ -686,7 +686,7 @@ export class WebGPUBackend implements IRenderBackend {
 		try {
 			this._errorScopes = new WebGPUErrorScopeHelper(requestedDevice);
 			this.canvasDepthFormat = this._selectCanvasDepthFormat();
-			this.canvasFormat = navigator.gpu.getPreferredCanvasFormat();
+			this.canvasFormat = navigator.gpu.getPreferredCanvasFormat() as TextureFormat;
 			this._msaaController.activateDevice();
 			this._commandScheduler.initTimestampResources();
 			this._context = context;

@@ -25,7 +25,7 @@ export const SINGLE_SAMPLE_WEBGPU_MSAA_CONTEXT: WebGPUMSAAContext = {
 /** @internal WebGPU MSAA controller host contract. */
 export interface WebGPUMSAAControllerHost {
 	readonly device: GPUDevice | null;
-	readonly canvasFormat: GPUTextureFormat;
+	readonly canvasFormat: TextureFormat;
 	readonly canvasDepthFormat: TextureFormat;
 	readonly objectIdentity: WebGPUObjectIdentity;
 	onRuntimeFallback(): void;
@@ -166,7 +166,7 @@ export class WebGPUMSAAController implements WebGPUMSAAContext {
 
 	private _getProbeFormats(probeFormats?: readonly GPUTextureFormat[]): GPUTextureFormat[] {
 		const formats = new Set<GPUTextureFormat>([
-			this._host.canvasFormat,
+			this._host.canvasFormat as GPUTextureFormat,
 			this._host.canvasDepthFormat as GPUTextureFormat,
 			TextureFormat.RGBA16Float as GPUTextureFormat,
 			TextureFormat.RGBA8Unorm as GPUTextureFormat,

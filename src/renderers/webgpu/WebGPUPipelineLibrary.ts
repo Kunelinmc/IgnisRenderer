@@ -379,7 +379,7 @@ export class WebGPUPipelineLibrary {
 						format:
 							mode === "mrt" || mode === "gbuffer" || mode === "color" ?
 								TextureFormat.RGBA16Float
-							:	(this._backend.canvasFormat as any),
+							:	this._backend.canvasFormat,
 						blend: PLANAR_REFLECTION_BLEND_STATE,
 					},
 					{
@@ -514,7 +514,7 @@ export class WebGPUPipelineLibrary {
 					format:
 						descriptor.sceneTargetMode === "color" ?
 							TextureFormat.RGBA16Float
-						:	(this._backend.canvasFormat as any),
+						:	this._backend.canvasFormat,
 					blend: colorBlend,
 				},
 			];
@@ -804,7 +804,7 @@ export class WebGPUPipelineLibrary {
 		const targetFormat =
 			mode === "mrt" || mode === "gbuffer" || mode === "color" ?
 				TextureFormat.RGBA16Float
-			:	(this._backend.canvasFormat as any);
+			:	this._backend.canvasFormat;
 		const pipeline = await this._backend.createPipeline({
 			layout: this._layouts.environmentPipelineLayout,
 			label: `WebGPUEnvironmentPipeline_${mode}`,

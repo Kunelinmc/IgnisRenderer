@@ -2257,7 +2257,7 @@ export class WebGPURenderResources {
 		const colorFormat =
 			mode === "mrt" || mode === "color" ?
 				TextureFormat.RGBA16Float
-			:	(this._backend.canvasFormat as any);
+			:	this._backend.canvasFormat;
 		const depthFormat =
 			mode === "mrt" || mode === "color" ?
 				TextureFormat.Depth32Float

@@ -151,7 +151,7 @@ export class WebGPUPresentPass {
 				fragment: {
 					module: this._shaderModule,
 					entryPoint: "fsMain",
-					targets: [{ format: this._backend.canvasFormat as any }],
+					targets: [{ format: this._backend.canvasFormat }],
 				},
 				primitive: {
 					topology: "triangle-list" as any,
