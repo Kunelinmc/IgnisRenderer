@@ -3,7 +3,7 @@ import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
 
 const _dirname = dirname(fileURLToPath(import.meta.url));
-const entryPath = process.env.ENTRY || "index.html";
+const entryPath = process.env.ENTRY || "demos/clustered-lighting/index.html";
 
 export default defineConfig({
 	base: "./",
