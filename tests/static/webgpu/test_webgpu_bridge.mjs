@@ -67,6 +67,7 @@ import {
 } from "../../../src/renderers/constants.ts";
 import {
 	WEBGPU_DEFERRED_COLOR_BYTES_PER_SAMPLE,
+	WEBGPU_DEFERRED_COLOR_TARGET_COUNT,
 	WEBGPU_DEFERRED_REQUIRED_FRAGMENT_SAMPLED_TEXTURE_COUNT,
 	WEBGPU_DEFERRED_STORAGE_TEXTURE_COUNT,
 	WEBGPU_GBUFFER_READ_TEXTURE_COUNT,
@@ -90,6 +91,7 @@ import {
 	WEBGPU_TEXTURE_DEDICATED_SAMPLER_SLOT_COUNT,
 	WEBGPU_TEXTURE_SLOT_COUNT,
 	WEBGPU_TEXTURE_SLOT,
+	GBufferSlot,
 } from "../../../src/renderers/webgpu/constants.ts";
 import { WebGPUGeometryRegistry } from "../../../src/renderers/webgpu/WebGPUGeometryRegistry.ts";
 import { WebGPUTextureRegistry } from "../../../src/renderers/webgpu/WebGPUTextureRegistry.ts";
@@ -606,6 +608,26 @@ async function testSceneShaderCoverage() {
 			"return vec4<f32>(max(skyColor, vec3<f32>(0.0)), 1.0);"
 		)
 	);
+}
+
+async function testGBufferSlotShaderABI() {
+	const sceneShader = await ShaderSource.load("webgpu.scene.raw");
+	const slots = [
+		["gAlbedoAlpha", GBufferSlot.AlbedoAlpha],
+		["gNormalRoughMetal", GBufferSlot.NormalRoughMetal],
+		["gEmissiveOcclusion", GBufferSlot.EmissiveOcclusion],
+		["gMotionDepth", GBufferSlot.MotionDepth],
+		["gSpecular", GBufferSlot.Specular],
+		["gCoatSheen", GBufferSlot.CoatSheen],
+		["gSheenReflectance", GBufferSlot.SheenReflectance],
+	];
+	assert.equal(WEBGPU_DEFERRED_COLOR_TARGET_COUNT, slots.length);
+	for (const [name, slot] of slots) {
+		assert.ok(
+			sceneShader.includes(`@location(${slot}) ${name}`),
+			`GBufferSlot.${name.slice(1)} must match the WGSL output location`
+		);
+	}
 }
 
 function testScenePipelineLimitConstantsMatchLayout() {
@@ -4140,6 +4162,7 @@ async function run() {
 	testRenderResourcesLeaveShaderRuntimeSubscriptionToBackend();
 	testFrameExecutorConsumesComputeFacadeFromHost();
 	await testSceneShaderCoverage();
+	await testGBufferSlotShaderABI();
 	testScenePipelineLimitConstantsMatchLayout();
 	testDecalBatchLayoutHonorsStorageTextureLimit();
 	testShadowDepthLayoutMatchesTransmittanceShaderBinding();

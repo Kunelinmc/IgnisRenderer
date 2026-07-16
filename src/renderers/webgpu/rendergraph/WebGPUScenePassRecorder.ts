@@ -6,6 +6,7 @@ import type {
 	FrameContext,
 } from "../../../pipeline/types";
 import { materialSupportsWebGPUDeferredLighting } from "../material";
+import { GBufferSlot } from "../constants";
 import {
 	getDefaultWebGPUDrawBindings,
 	submitWebGPUDraws,
@@ -736,56 +737,56 @@ export class WebGPUScenePassRecorder {
 			:	new Set<string>();
 		const earlyZExecuted = earlyZPacketIds.size > 0;
 		const gbufferWriteBinding = this._callbacks.getGBufferWriteBinding();
+		const colorAttachments = [];
+		colorAttachments[GBufferSlot.AlbedoAlpha] = {
+			view: targets.gAlbedoAlpha,
+			clearValue: { r: 0, g: 0, b: 0, a: 0 },
+			loadOp: shouldClearAttachments ? "clear" : "load",
+			storeOp: "store",
+		};
+		colorAttachments[GBufferSlot.NormalRoughMetal] = {
+			view: targets.gNormalRoughMetal,
+			clearValue: { r: 0.5, g: 0.5, b: 1, a: 0 },
+			loadOp: shouldClearAttachments ? "clear" : "load",
+			storeOp: "store",
+		};
+		colorAttachments[GBufferSlot.EmissiveOcclusion] = {
+			view: targets.gEmissiveOcclusion,
+			clearValue: { r: 0, g: 0, b: 0, a: 1 },
+			loadOp: shouldClearAttachments ? "clear" : "load",
+			storeOp: "store",
+		};
+		colorAttachments[GBufferSlot.MotionDepth] = {
+			view: targets.gMotionDepth,
+			clearValue: { r: 0, g: 0, b: 0, a: 0 },
+			loadOp: shouldClearAttachments ? "clear" : "load",
+			storeOp: "store",
+		};
+		colorAttachments[GBufferSlot.Specular] = {
+			view: targets.gSpecular,
+			clearValue: { r: 0, g: 0, b: 0, a: 0 },
+			loadOp: shouldClearAttachments ? "clear" : "load",
+			storeOp: "store",
+		};
+		colorAttachments[GBufferSlot.CoatSheen] = {
+			view: targets.gCoatSheen,
+			clearValue: { r: 0, g: 0, b: 0, a: 0 },
+			loadOp: shouldClearAttachments ? "clear" : "load",
+			storeOp: "store",
+		};
+		colorAttachments[GBufferSlot.SheenReflectance] = {
+			view: targets.gSheenReflectance,
+			clearValue: { r: 0, g: 0, b: 0, a: 0 },
+			loadOp: shouldClearAttachments ? "clear" : "load",
+			storeOp: "store",
+		};
 
 		encoder.beginRenderPass({
 			label:
 				shouldClearAttachments ?
 					"WebGPUGBuffer_Clear"
 				:	"WebGPUGBuffer_Load",
-			colorAttachments: [
-				{
-					view: targets.gAlbedoAlpha,
-					clearValue: { r: 0, g: 0, b: 0, a: 0 },
-					loadOp: shouldClearAttachments ? "clear" : "load",
-					storeOp: "store",
-				},
-				{
-					view: targets.gNormalRoughMetal,
-					clearValue: { r: 0.5, g: 0.5, b: 1, a: 0 },
-					loadOp: shouldClearAttachments ? "clear" : "load",
-					storeOp: "store",
-				},
-				{
-					view: targets.gEmissiveOcclusion,
-					clearValue: { r: 0, g: 0, b: 0, a: 1 },
-					loadOp: shouldClearAttachments ? "clear" : "load",
-					storeOp: "store",
-				},
-				{
-					view: targets.gMotionDepth,
-					clearValue: { r: 0, g: 0, b: 0, a: 0 },
-					loadOp: shouldClearAttachments ? "clear" : "load",
-					storeOp: "store",
-				},
-				{
-					view: targets.gSpecular,
-					clearValue: { r: 0, g: 0, b: 0, a: 0 },
-					loadOp: shouldClearAttachments ? "clear" : "load",
-					storeOp: "store",
-				},
-				{
-					view: targets.gCoatSheen,
-					clearValue: { r: 0, g: 0, b: 0, a: 0 },
-					loadOp: shouldClearAttachments ? "clear" : "load",
-					storeOp: "store",
-				},
-				{
-					view: targets.gSheenReflectance,
-					clearValue: { r: 0, g: 0, b: 0, a: 0 },
-					loadOp: shouldClearAttachments ? "clear" : "load",
-					storeOp: "store",
-				},
-			],
+			colorAttachments,
 			depthStencilAttachment: {
 				view: depthAttachment,
 				depthClearValue: 1,

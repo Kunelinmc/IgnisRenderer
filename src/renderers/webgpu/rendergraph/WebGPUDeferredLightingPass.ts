@@ -4,6 +4,7 @@ import {
 	type IRenderTexture,
 } from "../../types";
 import type { WebGPUFrameHost } from "./WebGPUFrameHost";
+import { GBufferSlot } from "../constants";
 import type {
 	WebGPURenderResources,
 } from "../WebGPURenderResources";
@@ -97,19 +98,20 @@ export class WebGPUDeferredLightingPass {
 		) {
 			throw new Error("WebGPU deferred G-buffer read targets are unavailable.");
 		}
-		const sources = [
-			targets.gAlbedoAlpha,
-			targets.gNormalRoughMetal,
-			targets.gEmissiveOcclusion,
-			targets.gMotionDepth,
-			targets.gSpecular,
-			targets.gCoatSheen,
-			targets.gSheenReflectance,
+		const sources: IRenderTexture[] = [];
+		sources[GBufferSlot.AlbedoAlpha] = targets.gAlbedoAlpha;
+		sources[GBufferSlot.NormalRoughMetal] = targets.gNormalRoughMetal;
+		sources[GBufferSlot.EmissiveOcclusion] = targets.gEmissiveOcclusion;
+		sources[GBufferSlot.MotionDepth] = targets.gMotionDepth;
+		sources[GBufferSlot.Specular] = targets.gSpecular;
+		sources[GBufferSlot.CoatSheen] = targets.gCoatSheen;
+		sources[GBufferSlot.SheenReflectance] = targets.gSheenReflectance;
+		sources.push(
 			targets.gMaterialExt0,
 			targets.gMaterialExt1,
 			targets.gMaterialExt2,
-			targets.gMaterialExt3,
-		];
+			targets.gMaterialExt3
+		);
 		if (
 			this._gbufferReadBinding &&
 			this._gbufferReadBindingSources.length === sources.length &&

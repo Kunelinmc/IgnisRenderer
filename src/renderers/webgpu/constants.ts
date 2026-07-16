@@ -47,7 +47,23 @@ export const WEBGPU_MODEL_UNIFORM_BYTE_SIZE =
 export const WEBGPU_MODEL_ANIMATION_UNIFORM_FLOATS = 4;
 export const WEBGPU_MRT_COLOR_TARGET_COUNT = 5;
 export const WEBGPU_MRT_COLOR_BYTES_PER_SAMPLE = 40;
-export const WEBGPU_DEFERRED_COLOR_TARGET_COUNT = 7;
+/**
+ * Fixed color-attachment order for the WebGPU deferred G-buffer.
+ *
+ * This order is part of the fragment-output and render-pass ABI.
+ */
+export enum GBufferSlot {
+	AlbedoAlpha = 0,
+	NormalRoughMetal = 1,
+	EmissiveOcclusion = 2,
+	MotionDepth = 3,
+	Specular = 4,
+	CoatSheen = 5,
+	SheenReflectance = 6,
+}
+
+export const WEBGPU_DEFERRED_COLOR_TARGET_COUNT =
+	GBufferSlot.SheenReflectance + 1;
 export const WEBGPU_DEFERRED_COLOR_BYTES_PER_SAMPLE = 56;
 export const WEBGPU_DEFERRED_STORAGE_TEXTURE_COUNT = 4;
 export const WEBGPU_MAX_MORPH_TARGETS = 8;

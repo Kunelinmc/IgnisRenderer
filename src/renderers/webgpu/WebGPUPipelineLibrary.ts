@@ -24,6 +24,7 @@ import {
 } from "./WebGPUMSAAController";
 import type { WebGPUPipelineLayouts } from "./WebGPUPipelineLayouts";
 import { Logger } from "../../foundation/Logger";
+import { GBufferSlot } from "./constants";
 import {
 	resolveWebGPUScenePassDescriptor,
 	type WebGPUScenePassDescriptor,
@@ -497,15 +498,29 @@ export class WebGPUPipelineLibrary {
 		const motionBlend = !isTransparent ? undefined : ALPHA_BLEND_STATE;
 
 		if (fragmentTargetKind === "gbuffer") {
-			return [
-				{ format: TextureFormat.RGBA8Unorm },
-				{ format: TextureFormat.RGBA16Float },
-				{ format: TextureFormat.RGBA16Float },
-				{ format: TextureFormat.RGBA16Float },
-				{ format: TextureFormat.RGBA16Float },
-				{ format: TextureFormat.RGBA16Float },
-				{ format: TextureFormat.RGBA16Float },
-			];
+			const targets: ColorTargetState[] = [];
+			targets[GBufferSlot.AlbedoAlpha] = {
+				format: TextureFormat.RGBA8Unorm,
+			};
+			targets[GBufferSlot.NormalRoughMetal] = {
+				format: TextureFormat.RGBA16Float,
+			};
+			targets[GBufferSlot.EmissiveOcclusion] = {
+				format: TextureFormat.RGBA16Float,
+			};
+			targets[GBufferSlot.MotionDepth] = {
+				format: TextureFormat.RGBA16Float,
+			};
+			targets[GBufferSlot.Specular] = {
+				format: TextureFormat.RGBA16Float,
+			};
+			targets[GBufferSlot.CoatSheen] = {
+				format: TextureFormat.RGBA16Float,
+			};
+			targets[GBufferSlot.SheenReflectance] = {
+				format: TextureFormat.RGBA16Float,
+			};
+			return targets;
 		}
 
 		if (fragmentTargetKind === "single") {
