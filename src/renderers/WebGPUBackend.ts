@@ -181,7 +181,6 @@ export class WebGPUBackend implements IRenderBackend {
 
 	private _attachContext: RenderBackendAttachContext | null = null;
 	private _attached = false;
-	private readonly _options: WebGPUBackendOptions;
 	private _canvas: HTMLCanvasElement | null = null;
 	private _context: GPUCanvasContext | null = null;
 	private _device: GPUDevice | null = null;
@@ -279,7 +278,6 @@ export class WebGPUBackend implements IRenderBackend {
 	private readonly _warmupCoordinator: WebGPUWarmupCoordinator;
 
 	public constructor(options: WebGPUBackendOptions = {}) {
-		this._options = options;
 		if (Object.prototype.hasOwnProperty.call(options, "enableMSAA")) {
 			throw new Error(
 				"WebGPUBackendOptions.enableMSAA was removed; use msaaSampleCount: 1 to disable MSAA or msaaSampleCount: 4 to request 4x MSAA."
