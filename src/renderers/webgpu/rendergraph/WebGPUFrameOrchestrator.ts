@@ -36,7 +36,6 @@ import { createWarmupYieldController } from "../../../pipeline/WarmupScheduler";
 import type { ShaderCompileError } from "../../../shaders/runtime";
 import type { WarmupOptions } from "../../IRenderBackend";
 import { Logger } from "../../../foundation/Logger";
-import { materialUsesTransmission } from "../../../materials/transparency";
 import {
 	WebGPUPlanarReflectionPass,
 	type WebGPUPlanarReflectionMSAATargets,
@@ -64,7 +63,6 @@ import {
 	WebGPUReflectionNodeRuntime,
 	WebGPUSceneNodeRuntime,
 	WebGPUShadowNodeRuntime,
-	WebGPUTransparencyNodeRuntime,
 	WebGPUVisibilityNodeRuntime,
 	type WebGPUFrameNodeRuntime,
 } from "./WebGPUFrameNodeRuntimes";
@@ -73,7 +71,7 @@ import { WebGPUFrameCommitter, type WebGPUFrameCommitDebugState } from "./WebGPU
 import { WebGPUFrameFeatureAnalyzer, type WebGPUFrameFeatureAnalysis } from "./WebGPUFrameFeatureAnalyzer";
 import { collectActiveWebGPUFrameGraphResources } from "./WebGPUFrameGraphResourceCatalog";
 import { WebGPUPostProcessBridge } from "./WebGPUPostProcessBridge";
-import { WebGPUOITPass } from "./WebGPUOITPass";
+import { WebGPUTransparencyRuntime } from "./WebGPUTransparencyRuntime";
 import { WebGPUDeferredLightingPass } from "./WebGPUDeferredLightingPass";
 import { WebGPUDeferredDecalPass } from "./WebGPUDeferredDecalPass";
 import { WebGPUDirtyRectResolver } from "./WebGPUDirtyRectResolver";
@@ -138,7 +136,7 @@ export class WebGPUFrameOrchestrator {
 	private _presentPass: WebGPUPresentPass;
 	private _customRenderTargets: WebGPUCustomRenderTargetRuntime;
 	private _frameTargetManager: WebGPUFrameTargetManager;
-	private _oitPass: WebGPUOITPass;
+	private _transparencyRuntime: WebGPUTransparencyRuntime;
 	private _deferredLightingPass: WebGPUDeferredLightingPass;
 	private _deferredDecalPass: WebGPUDeferredDecalPass;
 	private _scenePassRecorder: WebGPUScenePassRecorder;
@@ -230,14 +228,15 @@ export class WebGPUFrameOrchestrator {
 			},
 		);
 		this._occlusionRuntime = new WebGPUOcclusionCullingRuntime(host);
-		this._oitPass = new WebGPUOITPass(host, resources, {
-			recordingContext: this._recordingContext,
-			recordLegacyMainPass: (context, packets, clear, earlyZ) =>
-				this._scenePassRecorder.recordLegacyMainPass(context, packets, clear, earlyZ),
-			drawTransmissionFallback: (context, packets) =>
-				this._scenePassRecorder.drawTransmissionPackets(context, packets),
-			warnDisabled: (key, message) => this._warnOITDisabled(key, message),
-		});
+		this._transparencyRuntime = new WebGPUTransparencyRuntime(
+			host,
+			resources,
+			this._recordingContext,
+			this._scenePassRecorder,
+			{
+				warnOnce: (code, message, cause) => this._warnFrameDiagnostic(code, message, cause),
+			},
+		);
 		this._nodeRuntimes = this._createNodeRuntimes();
 		this._nodeExecutors = WebGPUFrameNodeExecutorRegistry.fromRuntimes(
 			this._nodeRuntimes,
@@ -351,7 +350,7 @@ export class WebGPUFrameOrchestrator {
 		if (this._session) {
 			throw new Error("WebGPUFrameOrchestrator already has an active frame session.");
 		}
-		for (const runtime of this._nodeRuntimes) runtime.beginFrame?.();
+		for (const runtime of this._nodeRuntimes) runtime.beginFrame?.(context);
 		this._postBridge.clearPendingFrameState();
 		this._lastPlannedGraphNodes = [];
 		this._lastCompiledGraphStages = [];
@@ -783,6 +782,14 @@ export class WebGPUFrameOrchestrator {
 				this._hiZStatus === "pending",
 			needsPlanarReflectionComposite:
 				session.analysis?.needsPlanarReflection === true,
+			hasOITMeshContributors:
+				session.analysis?.transparency.oitPackets.length > 0,
+			hasTransmissionPackets:
+				(session.analysis?.transparency.transmissionPackets.length ?? 0) > 0,
+			hasAlphaBillboardParticles:
+				session.analysis?.transparency.hasAlphaBillboardParticles === true,
+			hasAdditiveBillboardParticles:
+				session.analysis?.transparency.hasAdditiveBillboardParticles === true,
 		});
 		if (plan.nodes.length === 0) {
 			const key = `webgpu-pass-unsupported-${pass.stage}`;
@@ -809,9 +816,6 @@ export class WebGPUFrameOrchestrator {
 					session.context,
 					this._deferredEnabled,
 				);
-			},
-			particles: async (_node, session) => {
-				await this._scenePassRecorder.recordParticlePass(session.context);
 			},
 		}, {
 			destroy: () => this._depthDirtyClearPass.destroy(),
@@ -898,22 +902,6 @@ export class WebGPUFrameOrchestrator {
 				this._hiZBuilder.destroy();
 			},
 		});
-		const transparency = new WebGPUTransparencyNodeRuntime("transparency", {
-			"oit-transparent": async (_node, session) => {
-				await this._recordOITTransparentPass(session.context);
-			},
-			"transparent-scene": async (_node, session) => {
-				await this._recordTransparentScenePass(session.context);
-			},
-			"oit-particles": async (_node, session) => {
-				await this._recordOITParticlePass(session.context);
-			},
-		}, {
-			beginFrame: () => this._oitPass.resetFrameState(),
-			invalidateFrameResources: () => this._oitPass.invalidateBindings(),
-			onShaderRuntimeChanged: () => this._oitPass.onShaderRuntimeChanged(),
-			destroy: () => this._oitPass.destroy(),
-		});
 		const postProcess = new WebGPUPostProcessNodeRuntime("post-process", {
 			"post-process": async (_node, session) => {
 				await this._postProcessRuntime.execute(session.context);
@@ -934,7 +922,7 @@ export class WebGPUFrameOrchestrator {
 			onShaderRuntimeChanged: () => this._presentPass.onShaderRuntimeChanged(),
 			destroy: () => this._presentPass.destroy(),
 		});
-		return [scene, shadow, deferred, transparency, reflection, visibility, postProcess, presentation];
+		return [scene, shadow, deferred, this._transparencyRuntime, reflection, visibility, postProcess, presentation];
 	}
 
 	private _createPagedShadowRequest(context: FrameContext): WebGPUPagedShadowFrameRequest {
@@ -1055,17 +1043,16 @@ export class WebGPUFrameOrchestrator {
 		});
 	}
 
-	private _warnOITDisabled(key: string, message: string): void {
-		Logger.warn(`[${key}] ${message}`, {
-			scope: "WebGPUFrameExecutor",
-			onceKey: key,
+	private _warnFrameDiagnostic(code: string, message: string, cause?: unknown): void {
+		Logger.warn(`[${code}] ${message}${cause ? ` ${String(cause)}` : ""}`, {
+			scope: "WebGPUFrameOrchestrator",
+			onceKey: code,
 		});
 	}
 
 	private _destroyFrameTargets(): void {
-		this._frameTargetManager.destroyFrameTargets();
 		for (const runtime of this._nodeRuntimes) runtime.invalidateFrameResources?.();
-		this._oitPass.resetFrameState();
+		this._frameTargetManager.destroyFrameTargets();
 		this._motionHistoryWriteTarget = null;
 		this._postBridge.clearPendingFrameState();
 		this._deferredOpaqueFrameState = null;
@@ -1074,7 +1061,6 @@ export class WebGPUFrameOrchestrator {
 
 	private _clearActiveSession(flushPendingLifecycle = true): void {
 		this._session = null;
-		this._oitPass.resetFrameState();
 		if (flushPendingLifecycle) {
 			this._flushPendingLifecycleInvalidations();
 		}
@@ -1127,64 +1113,6 @@ export class WebGPUFrameOrchestrator {
 				this._recordingContext.resolveDirtyRects(context, width, height),
 		});
 		this._hasPresentedInFrame = true;
-	}
-
-	private async _recordTransparentScenePass(context: FrameContext): Promise<void> {
-		const transparentPackets = [
-			...context.scene.transparentPackets,
-			...this._buildParticleMeshDrawPackets(context, {
-				includeOpaque: false,
-				includeTransparent: true,
-			}),
-		];
-		if (!this._frameTargets?.transmissionSceneColorCopy) {
-			await this._scenePassRecorder.recordMainPass(context, transparentPackets, false, false);
-			return;
-		}
-		const opaqueTransparentPackets = transparentPackets.filter(
-			(packet) => !materialUsesTransmission(packet.material),
-		);
-		const transmissionPackets = transparentPackets.filter((packet) =>
-			materialUsesTransmission(packet.material),
-		);
-		if (opaqueTransparentPackets.length > 0) {
-			await this._scenePassRecorder.recordMainPass(
-				context,
-				opaqueTransparentPackets,
-				false,
-				false,
-			);
-		}
-		await this._scenePassRecorder.drawTransmissionPackets(context, transmissionPackets);
-	}
-
-	private async _recordOITTransparentPass(context: FrameContext): Promise<void> {
-		if (!this._encoder) {
-			return;
-		}
-		const transparentPackets = [
-			...context.scene.transparentPackets,
-			...this._buildParticleMeshDrawPackets(context, {
-				includeOpaque: false,
-				includeTransparent: true,
-			}),
-		];
-		if (!this._mrtEnabled || !this._frameTargets) {
-			await this._scenePassRecorder.recordMainPass(context, transparentPackets, false, false);
-			return;
-		}
-		await this._oitPass.recordTransparentPass(context, transparentPackets);
-	}
-
-	private async _recordOITParticlePass(context: FrameContext): Promise<void> {
-		if (!this._encoder) {
-			return;
-		}
-		if (!this._mrtEnabled || !this._frameTargets?.oitAccum || !this._frameTargets.oitReveal) {
-			await this._scenePassRecorder.recordParticlePass(context);
-			return;
-		}
-		await this._oitPass.recordParticlePass(context);
 	}
 
 	private _buildParticleMeshDrawPackets(

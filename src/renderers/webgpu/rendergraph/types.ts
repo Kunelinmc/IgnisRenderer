@@ -20,10 +20,15 @@ export const WEBGPU_FRAME_GRAPH_NODE_KINDS = [
 	"deferred-lighting",
 	"hiz-build",
 	"occlusion-test",
-	"transparent-scene",
-	"oit-transparent",
-	"particles",
-	"oit-particles",
+	"transparent-forward",
+	"oit-prepare",
+	"oit-clear",
+	"oit-mesh-accumulate",
+	"oit-particle-accumulate",
+	"oit-resolve",
+	"transmission",
+	"particle-alpha-forward",
+	"particle-additive",
 	"post-process",
 	"presentation",
 ] as const;
@@ -42,6 +47,10 @@ export interface WebGPUFrameGraphPlannerState {
 	readonly needsOcclusionTest?: boolean;
 	readonly needsHiZBuild?: boolean;
 	readonly needsPlanarReflectionComposite?: boolean;
+	readonly hasOITMeshContributors?: boolean;
+	readonly hasTransmissionPackets?: boolean;
+	readonly hasAlphaBillboardParticles?: boolean;
+	readonly hasAdditiveBillboardParticles?: boolean;
 }
 
 export type { WebGPUFrameGraphResourceId } from "./WebGPUFrameGraphResourceCatalog";

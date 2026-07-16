@@ -57,7 +57,15 @@ must remain backend-internal.
   pool allocation logic.
 - Scene, shadow, deferred, transparency, reflection, visibility, post-process,
   and presentation runtimes must own their node executors and feature-local
-  pipeline/binding lifecycle.
+  pipeline/binding lifecycle. The orchestrator must not provide callback-only
+  runtime wrappers for those features.
+- Transparency graph nodes must separately represent OIT preparation, target
+  clear, mesh accumulation, particle accumulation, resolve, transmission, and
+  additive particle work. The OIT scene-color copy must occur in the prepare
+  node before any accumulation node.
+- `WebGPUTransparencyRuntime` owns OIT resolve shader, pipeline, sampler, and
+  binding lifecycle. `WebGPUFrameTargetManager` exclusively owns OIT frame
+  textures.
 - Post-process and presentation must be explicit internal graph nodes.
 - Planar reflection composite must be an explicit graph node after opaque or
   deferred output and before transparency.

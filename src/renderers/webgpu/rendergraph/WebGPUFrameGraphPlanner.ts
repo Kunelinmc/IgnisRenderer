@@ -170,59 +170,182 @@ export class WebGPUFrameGraphPlanner {
 			],
 			[
 				"main-transparent",
-				(pass, context, state) => [
-					state.oitActive
-						? this._node(pass, "oit-transparent", "WebGPUOITTransparent", {
-								reads: [
-									this._read("frame:depth", "depth-attachment", true),
-									this._read("frame:scene-color-main", "copy-src", true),
-									...this._createPagedShadowLightingReads(context),
-									...this._createTransmissionDepthReads(state),
-								],
-								writes: [
-									this._write("oit:accum", "render-attachment"),
-									this._write("oit:reveal", "render-attachment"),
-									this._write("frame:scene-color-main", "render-attachment"),
-									...this._createTransmissionWrites(state),
-								],
-							})
-						: this._node(
-								pass,
-								"transparent-scene",
-								"WebGPUTransparent",
-								this._withTransmissionCaptureResources(
-									this._createForwardResources(state, true, context),
-									state,
-								),
-							),
-				],
+				(pass, context, state) => this._createTransparentNodes(pass, context, state),
 			],
 			[
 				"particles",
-				(pass, context, state) => [
-					state.oitActive
-						? this._node(pass, "oit-particles", "WebGPUOITParticles", {
-								reads: [
-									this._read("frame:depth", "depth-attachment", true),
-									this._read("oit:accum", "texture-binding", true),
-									this._read("oit:reveal", "texture-binding", true),
-									...this._createPagedShadowLightingReads(context),
-								],
-								writes: [
-									this._write("oit:accum", "render-attachment"),
-									this._write("oit:reveal", "render-attachment"),
-									this._write("frame:scene-color-main", "render-attachment"),
-								],
-							})
-						: this._node(
-								pass,
-								"particles",
-								"WebGPUParticles",
-								this._createForwardResources(state, true, context),
-							),
-				],
+				(pass, context, state) => this._createParticleNodes(pass, context, state),
 			],
 		]);
+	}
+
+	private _createTransparentNodes(
+		pass: FramePass,
+		context: FrameContext,
+		state: WebGPUFrameGraphPlannerState,
+	): WebGPUFrameGraphNode[] {
+		const hasMeshContributors = state.hasOITMeshContributors !== false;
+		const hasTransmissionPackets = state.hasTransmissionPackets !== false;
+		if (!state.oitActive) {
+			const nodes: WebGPUFrameGraphNode[] = [];
+			if (hasMeshContributors) {
+				nodes.push(this._node(
+					pass,
+					"transparent-forward",
+					"WebGPUTransparentForward",
+					this._createForwardResources(state, true, context),
+				));
+			}
+			if (hasTransmissionPackets) {
+				nodes.push(this._node(
+					pass,
+					"transmission",
+					"WebGPUTransmission",
+					this._withTransmissionCaptureResources(
+						this._createForwardResources(state, true, context),
+						state,
+					),
+				));
+			}
+			return nodes;
+		}
+		if (!hasMeshContributors) return [];
+		const nodes = [
+			this._createOITPrepareNode(pass),
+			this._createOITClearNode(pass),
+			this._createOITMeshAccumulateNode(pass, context),
+		];
+		if (state.hasAlphaBillboardParticles !== true) {
+			nodes.push(this._createOITResolveNode(pass));
+			if (hasTransmissionPackets) {
+				nodes.push(this._node(
+					pass,
+					"transmission",
+					"WebGPUTransmission",
+					this._withTransmissionCaptureResources(
+						this._createForwardResources(state, true, context),
+						state,
+					),
+				));
+			}
+		}
+		return nodes;
+	}
+
+	private _createParticleNodes(
+		pass: FramePass,
+		context: FrameContext,
+		state: WebGPUFrameGraphPlannerState,
+	): WebGPUFrameGraphNode[] {
+		const hasAlphaParticles = state.hasAlphaBillboardParticles !== false;
+		const hasAdditiveParticles = state.hasAdditiveBillboardParticles !== false;
+		if (!state.oitActive) {
+			const nodes: WebGPUFrameGraphNode[] = [];
+			if (hasAlphaParticles) {
+				nodes.push(this._node(
+					pass,
+					"particle-alpha-forward",
+					"WebGPUParticlesAlpha",
+					this._createForwardResources(state, true, context),
+				));
+			}
+			if (hasAdditiveParticles) {
+				nodes.push(this._node(
+					pass,
+					"particle-additive",
+					"WebGPUParticlesAdditive",
+					this._createForwardResources(state, true, context),
+				));
+			}
+			return nodes;
+		}
+		const nodes: WebGPUFrameGraphNode[] = [];
+		if (hasAlphaParticles) {
+			if (state.hasOITMeshContributors !== true) {
+				nodes.push(this._createOITPrepareNode(pass), this._createOITClearNode(pass));
+			}
+			nodes.push(this._createOITParticleAccumulateNode(pass, context));
+			nodes.push(this._createOITResolveNode(pass));
+			if (state.hasTransmissionPackets === true) {
+				nodes.push(this._node(
+					pass,
+					"transmission",
+					"WebGPUTransmission",
+					this._withTransmissionCaptureResources(
+						this._createForwardResources(state, true, context),
+						state,
+					),
+				));
+			}
+		}
+		if (hasAdditiveParticles) {
+			nodes.push(this._node(
+				pass,
+				"particle-additive",
+				"WebGPUParticlesAdditive",
+				this._createForwardResources(state, true, context),
+			));
+		}
+		return nodes;
+	}
+
+	private _createOITPrepareNode(pass: FramePass): WebGPUFrameGraphNode {
+		return this._node(pass, "oit-prepare", "WebGPUOITPrepare", {
+			reads: [this._read("frame:scene-color-main", "copy-src")],
+			writes: [this._write("oit:scene-color-copy", "copy-dst")],
+		});
+	}
+
+	private _createOITClearNode(pass: FramePass): WebGPUFrameGraphNode {
+		return this._node(pass, "oit-clear", "WebGPUOITClear", {
+			writes: [
+				this._write("oit:accum", "render-attachment"),
+				this._write("oit:reveal", "render-attachment"),
+			],
+		});
+	}
+
+	private _createOITMeshAccumulateNode(
+		pass: FramePass,
+		context: FrameContext,
+	): WebGPUFrameGraphNode {
+		return this._node(pass, "oit-mesh-accumulate", "WebGPUOITMeshAccumulate", {
+			reads: [
+				this._read("frame:depth", "depth-attachment"),
+				...this._createPagedShadowLightingReads(context),
+			],
+			writes: [
+				this._write("oit:accum", "render-attachment"),
+				this._write("oit:reveal", "render-attachment"),
+			],
+		});
+	}
+
+	private _createOITParticleAccumulateNode(
+		pass: FramePass,
+		context: FrameContext,
+	): WebGPUFrameGraphNode {
+		return this._node(pass, "oit-particle-accumulate", "WebGPUOITParticleAccumulate", {
+			reads: [
+				this._read("frame:depth", "depth-attachment"),
+				...this._createPagedShadowLightingReads(context),
+			],
+			writes: [
+				this._write("oit:accum", "render-attachment"),
+				this._write("oit:reveal", "render-attachment"),
+			],
+		});
+	}
+
+	private _createOITResolveNode(pass: FramePass): WebGPUFrameGraphNode {
+		return this._node(pass, "oit-resolve", "WebGPUOITResolve", {
+			reads: [
+				this._read("oit:scene-color-copy", "texture-binding"),
+				this._read("oit:accum", "texture-binding"),
+				this._read("oit:reveal", "texture-binding"),
+			],
+			writes: [this._write("frame:scene-color-main", "render-attachment")],
+		});
 	}
 
 	private _appendReflectionComposite(

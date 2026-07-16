@@ -11,6 +11,11 @@ export type WebGPUFrameSessionState = "recording" | "committing" | "skipped";
 
 export type WebGPUFrameHiZStatus = "unavailable" | "pending" | "ready" | "failed";
 
+export type WebGPUTransparencyMode =
+	| "legacy"
+	| "oit"
+	| "legacy-runtime-fallback";
+
 interface WebGPURecordingFrameSessionOptions {
 	readonly context: FrameContext;
 	readonly configuration: WebGPUFrameConfiguration;
@@ -39,6 +44,7 @@ export class WebGPUFrameSession {
 	public hiZBuildCount = 0;
 	public readonly analysis: WebGPUFrameFeatureAnalysis | null;
 	public readonly committer: WebGPUFrameCommitter | null;
+	public transparencyMode: WebGPUTransparencyMode;
 
 	private constructor(
 		context: FrameContext,
@@ -56,6 +62,7 @@ export class WebGPUFrameSession {
 		this.hiZStatus = hiZStatus;
 		this.analysis = analysis;
 		this.committer = committer;
+		this.transparencyMode = configuration?.transparencyMode ?? "legacy";
 	}
 
 	public static createRecording(

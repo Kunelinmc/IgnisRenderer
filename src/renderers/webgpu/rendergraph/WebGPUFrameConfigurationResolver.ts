@@ -34,6 +34,7 @@ export interface WebGPUFrameConfiguration {
 	readonly deferredSupported: boolean;
 	readonly deferredActive: boolean;
 	readonly oitActive: boolean;
+	readonly transparencyMode: "legacy" | "oit";
 	readonly sceneTargetMode: WebGPUSceneTargetMode;
 	readonly targetRequirements: WebGPUFrameTargetRequirements | null;
 	readonly needsHiZBuild: boolean;
@@ -102,8 +103,8 @@ export class WebGPUFrameConfigurationResolver {
 			options.sampleCount === 1 &&
 			options.supportsInFrameTextureCopy &&
 			analysis.oitRequested &&
-			analysis.hasOITWork;
-		if (analysis.oitRequested && analysis.hasOITWork && !oitActive) {
+			analysis.transparency.hasOITContributors;
+		if (analysis.oitRequested && analysis.transparency.hasOITContributors && !oitActive) {
 			diagnostics.push({
 				code:
 					options.sampleCount > 1
@@ -141,6 +142,7 @@ export class WebGPUFrameConfigurationResolver {
 			deferredSupported,
 			deferredActive,
 			oitActive,
+			transparencyMode: oitActive ? "oit" : "legacy",
 			sceneTargetMode,
 			targetRequirements:
 				sceneTargetMode === "single"

@@ -48,8 +48,11 @@ lighting has resolved into `sceneColorMain`.
   - `ParticleBlendMode.Additive` -> legacy additive pipeline.
 - OIT resolve must use a separate fullscreen pass and must not read/write the
   same texture simultaneously.
-  - `WebGPUBackend` must copy `sceneColorMain` into `oitSceneColorCopy`, then
-    resolve back into `sceneColorMain`.
+  - `WebGPUBackend` must copy `sceneColorMain` into `oitSceneColorCopy` before
+    any OIT accumulation draw, then resolve back into `sceneColorMain`.
+  - If that in-frame copy fails while recording, WebGPU must use the legacy
+    transparent path for the same frame. It must not silently discard OIT
+    contributors after they have been classified.
   - `WebGLBackend` must copy `sceneColor` into `postColorTexture`, then resolve
     back into `sceneColor`.
 - WebGPU deferred ordering contract:

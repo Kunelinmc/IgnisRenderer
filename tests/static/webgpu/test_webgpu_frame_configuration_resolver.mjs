@@ -46,6 +46,24 @@ oitContext.scene.transparentPackets.push({ material: {} });
 const oit = resolve(oitContext);
 assert.equal(oit.oitActive, true);
 assert.equal(oit.targetRequirements.needsOITTargets, true);
+assert.equal(oit.transparencyMode, "oit");
+
+const transmissionOnlyContext = createContext();
+transmissionOnlyContext.features.enableOIT = true;
+transmissionOnlyContext.scene.transparentPackets.push({ material: { transmissionFactor: 1 } });
+const transmissionOnly = resolve(transmissionOnlyContext);
+assert.equal(transmissionOnly.oitActive, false);
+assert.equal(transmissionOnly.targetRequirements, null);
+
+const additiveOnlyContext = createContext();
+additiveOnlyContext.features.enableOIT = true;
+additiveOnlyContext.scene.particleSystems.push({
+	visible: true,
+	templates: [{ shape: { kind: "billboard", blendMode: "additive" } }],
+});
+const additiveOnly = resolve(additiveOnlyContext);
+assert.equal(additiveOnly.oitActive, false);
+assert.equal(additiveOnly.targetRequirements, null);
 
 const oitMsaa = resolve(oitContext, { sampleCount: 4 });
 assert.equal(oitMsaa.oitActive, false);

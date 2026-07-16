@@ -10,7 +10,7 @@ export interface WebGPUFrameNodeRuntime {
 	readonly id: string;
 	readonly executors: Readonly<Partial<Record<WebGPUFrameGraphNodeKind, WebGPUFrameNodeExecutor>>>;
 	warmup?(context: FrameContext, plan: WarmupPlan, options: WarmupOptions): Promise<void>;
-	beginFrame?(): void;
+	beginFrame?(context: FrameContext): void;
 	invalidateFrameResources?(): void;
 	onShaderRuntimeChanged?(): void;
 	destroy(): void;
@@ -24,7 +24,7 @@ class CallbackNodeRuntime implements WebGPUFrameNodeRuntime {
 		>,
 		private readonly _lifecycle: {
 			warmup?: (context: FrameContext, plan: WarmupPlan, options: WarmupOptions) => Promise<void>;
-			beginFrame?: () => void;
+		beginFrame?: (context: FrameContext) => void;
 			invalidateFrameResources?: () => void;
 			onShaderRuntimeChanged?: () => void;
 			destroy?: () => void;
@@ -39,8 +39,8 @@ class CallbackNodeRuntime implements WebGPUFrameNodeRuntime {
 		await this._lifecycle.warmup?.(context, plan, options);
 	}
 
-	public beginFrame(): void {
-		this._lifecycle.beginFrame?.();
+	public beginFrame(context: FrameContext): void {
+		this._lifecycle.beginFrame?.(context);
 	}
 
 	public invalidateFrameResources(): void {

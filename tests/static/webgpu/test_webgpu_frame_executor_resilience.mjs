@@ -1357,7 +1357,7 @@ async function testOITTransparentAndParticleExecutionOrder() {
 	const labels = backend.recordedRenderPasses.map((pass) => pass.label);
 	assert.deepEqual(labels, [
 		"WebGPUOITClear",
-		"WebGPUOITDraw",
+		"WebGPUOITMeshAccumulate",
 		"WebGPUParticlesOIT",
 		"WebGPUOITResolvePass",
 		"WebGPUTransmissionMRT",
@@ -1403,7 +1403,7 @@ async function testOITTransparentAndParticleExecutionOrder() {
 	);
 	const oitDrawIndex = findEncoderCallIndex(
 		backend,
-		(call) => call[0] === "beginRenderPass" && call[1]?.label === "WebGPUOITDraw"
+		(call) => call[0] === "beginRenderPass" && call[1]?.label === "WebGPUOITMeshAccumulate"
 	);
 	const copyIndex = findEncoderCallIndex(
 		backend,
@@ -1416,8 +1416,9 @@ async function testOITTransparentAndParticleExecutionOrder() {
 			call[1]?.label === "WebGPUOITResolvePass"
 	);
 	assert.ok(oitDrawIndex >= 0);
-	assert.ok(copyIndex > oitDrawIndex);
-	assert.ok(resolveIndex > copyIndex);
+	assert.ok(copyIndex >= 0);
+	assert.ok(copyIndex < oitDrawIndex);
+	assert.ok(resolveIndex > oitDrawIndex);
 	assert.equal(backend.encoderCopyCalls.length >= 1, true);
 }
 
@@ -1448,7 +1449,7 @@ async function testOITTransparentResolvesImmediatelyWithoutParticles() {
 	const labels = backend.recordedRenderPasses.map((pass) => pass.label);
 	assert.deepEqual(labels, [
 		"WebGPUOITClear",
-		"WebGPUOITDraw",
+		"WebGPUOITMeshAccumulate",
 		"WebGPUOITResolvePass",
 		"WebGPUTransmissionMRT",
 	]);
@@ -1485,7 +1486,7 @@ async function testOITTransparentResolvesImmediatelyWithoutParticles() {
 	);
 	const oitDrawIndex = findEncoderCallIndex(
 		backend,
-		(call) => call[0] === "beginRenderPass" && call[1]?.label === "WebGPUOITDraw"
+		(call) => call[0] === "beginRenderPass" && call[1]?.label === "WebGPUOITMeshAccumulate"
 	);
 	const copyIndex = findEncoderCallIndex(
 		backend,
@@ -1498,8 +1499,9 @@ async function testOITTransparentResolvesImmediatelyWithoutParticles() {
 			call[1]?.label === "WebGPUOITResolvePass"
 	);
 	assert.ok(oitDrawIndex >= 0);
-	assert.ok(copyIndex > oitDrawIndex);
-	assert.ok(resolveIndex > copyIndex);
+	assert.ok(copyIndex >= 0);
+	assert.ok(copyIndex < oitDrawIndex);
+	assert.ok(resolveIndex > oitDrawIndex);
 	assert.equal(backend.encoderCopyCalls.length >= 1, true);
 }
 

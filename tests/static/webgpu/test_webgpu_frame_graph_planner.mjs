@@ -228,7 +228,13 @@ function run() {
 	);
 	assert.deepEqual(
 		transparent.nodes.map((node) => node.kind),
-		["oit-transparent"]
+		[
+			"oit-prepare",
+			"oit-clear",
+			"oit-mesh-accumulate",
+			"oit-resolve",
+			"transmission",
+		]
 	);
 
 	const unknown = planner.planStage(
