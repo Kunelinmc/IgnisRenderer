@@ -16,12 +16,12 @@ import type { WebGPUFrameHost } from "./WebGPUFrameHost";
  * Records depth-only clears scoped to incremental dirty rectangles.
  */
 export class WebGPUDepthDirtyClearPass {
-	private readonly _backend: WebGPUFrameHost;
+	private readonly _host: WebGPUFrameHost;
 	private _shaderModule: IShaderModule | null = null;
 	private readonly _pipelines = new Map<string, IRenderPipeline>();
 
-	public constructor(backend: WebGPUFrameHost) {
-		this._backend = backend;
+	public constructor(host: WebGPUFrameHost) {
+		this._host = host;
 	}
 
 	/**
@@ -111,7 +111,7 @@ export class WebGPUDepthDirtyClearPass {
 		if (!this._shaderModule) {
 			const composite =
 				await ShaderSource.load("webgpu.utility.depthDirtyClear.composite");
-			this._shaderModule = await this._backend.createShaderModule({
+			this._shaderModule = await this._host.createShaderModule({
 				label: "WebGPUDepthDirtyClearShader",
 				code: composite.code,
 				sourceMap: composite.sourceMap,
@@ -121,7 +121,7 @@ export class WebGPUDepthDirtyClearPass {
 			});
 		}
 
-		const pipeline = await this._backend.createPipeline({
+		const pipeline = await this._host.createPipeline({
 			label: `WebGPUDepthDirtyClearPipeline_${cacheKey}`,
 			vertex: {
 				module: this._shaderModule,

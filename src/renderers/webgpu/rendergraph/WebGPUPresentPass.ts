@@ -34,15 +34,15 @@ export interface WebGPUPresentRequest {
  * Records the WebGPU full-screen present pass and owns its GPU resources.
  */
 export class WebGPUPresentPass {
-	private readonly _backend: WebGPUFrameHost;
+	private readonly _host: WebGPUFrameHost;
 	private _shaderModule: IShaderModule | null = null;
 	private _pipeline: IRenderPipeline | null = null;
 	private _sampler: ISampler | null = null;
 	private _binding: IBindingGroup | null = null;
 	private _bindingSource: IRenderTexture | null = null;
 
-	public constructor(backend: WebGPUFrameHost) {
-		this._backend = backend;
+	public constructor(host: WebGPUFrameHost) {
+		this._host = host;
 	}
 
 	public async warmup(): Promise<void> {
@@ -57,7 +57,7 @@ export class WebGPUPresentPass {
 
 		if (!this._binding || this._bindingSource !== request.source) {
 			this._destroyBindingGroup(this._binding);
-			this._binding = this._backend.createBindingGroup({
+			this._binding = this._host.createBindingGroup({
 				pipeline: this._pipeline,
 				layoutIndex: 0,
 				entries: [
@@ -73,7 +73,7 @@ export class WebGPUPresentPass {
 			request.frameContext?.incremental?.enabled === true &&
 			request.frameContext?.incremental?.forceFullFrame === false &&
 			(request.frameContext?.incremental?.dirtyRects?.length ?? 0) > 0;
-		const canvasTarget = this._backend.getCanvasColorTexture();
+		const canvasTarget = this._host.getCanvasColorTexture();
 		// WebGPU canvas swap-chain textures do not provide a cross-frame content
 		// preservation guarantee. Composite the whole target instead of relying on
 		// a `load` operation for non-dirty tiles.
@@ -131,7 +131,7 @@ export class WebGPUPresentPass {
 	private async _ensureResources(): Promise<void> {
 		if (!this._shaderModule) {
 			const composite = await ShaderSource.load("webgpu.utility.present.composite");
-			this._shaderModule = await this._backend.createShaderModule({
+			this._shaderModule = await this._host.createShaderModule({
 				label: "WebGPUPresentShader",
 				code: composite.code,
 				sourceMap: composite.sourceMap,
@@ -142,7 +142,7 @@ export class WebGPUPresentPass {
 		}
 
 		if (!this._pipeline) {
-			this._pipeline = await this._backend.createPipeline({
+			this._pipeline = await this._host.createPipeline({
 				label: "WebGPUPresentPipeline",
 				vertex: {
 					module: this._shaderModule,
@@ -151,7 +151,7 @@ export class WebGPUPresentPass {
 				fragment: {
 					module: this._shaderModule,
 					entryPoint: "fsMain",
-					targets: [{ format: this._backend.canvasFormat }],
+					targets: [{ format: this._host.canvasFormat }],
 				},
 				primitive: {
 					topology: "triangle-list" as any,
@@ -162,7 +162,7 @@ export class WebGPUPresentPass {
 		}
 
 		if (!this._sampler) {
-			this._sampler = this._backend.createSampler({
+			this._sampler = this._host.createSampler({
 				label: "WebGPUPresentSampler",
 				magFilter: FilterMode.Linear,
 				minFilter: FilterMode.Linear,

@@ -116,7 +116,7 @@ export interface WebGPUFrameOrchestratorOptions {
 }
 
 export class WebGPUFrameOrchestrator {
-	private _backend: WebGPUFrameHost;
+	private _host: WebGPUFrameHost;
 	private _resources: WebGPURenderResources;
 	private _msaa: WebGPUMSAAContext;
 	private _session: WebGPUFrameSession | null = null;
@@ -154,19 +154,19 @@ export class WebGPUFrameOrchestrator {
 	private _lastCommitDebugState: WebGPUFrameCommitDebugState | null = null;
 
 	constructor(
-		backend: WebGPUFrameHost,
+		host: WebGPUFrameHost,
 		resources: WebGPURenderResources,
 		msaa: WebGPUMSAAContext,
 		options: WebGPUFrameOrchestratorOptions,
 	) {
-		this._backend = backend;
+		this._host = host;
 		this._resources = resources;
 		this._msaa = msaa;
 		this._enableEarlyZPrepass = options.enableEarlyZPrepass;
 		this._enableDeferredLighting = options.enableDeferredLighting;
 		this._frameGraphValidationMode = options.frameGraphValidationMode;
-		this._postProcessRuntime = backend.postProcessRuntime;
-		const computeFacade = backend.computeFacade;
+		this._postProcessRuntime = host.postProcessRuntime;
+		const computeFacade = host.computeFacade;
 		this._hiZBuilder = new WebGPUHiZBuilder(computeFacade);
 		this._postRuntime = new WebGPUPostProcessRuntime(
 			computeFacade,
@@ -178,7 +178,7 @@ export class WebGPUFrameOrchestrator {
 			resources.sceneFrameLayout,
 			this._hiZBuilder,
 		);
-		this._postBridge = new WebGPUPostProcessBridge(backend, this._postRuntime, {
+		this._postBridge = new WebGPUPostProcessBridge(host, this._postRuntime, {
 			getEncoder: () => this._encoder,
 			getFrameTargets: () => this._frameTargets,
 			isHiZReady: () => this._hiZStatus === "ready",
@@ -189,10 +189,10 @@ export class WebGPUFrameOrchestrator {
 				this._motionHistoryWriteTarget = texture;
 			},
 		});
-		this._planarReflectionPass = new WebGPUPlanarReflectionPass(backend, resources);
-		this._presentPass = new WebGPUPresentPass(backend);
-		this._customRenderTargets = new WebGPUCustomRenderTargetRuntime(backend);
-		this._frameTargetManager = new WebGPUFrameTargetManager(backend);
+		this._planarReflectionPass = new WebGPUPlanarReflectionPass(host, resources);
+		this._presentPass = new WebGPUPresentPass(host);
+		this._customRenderTargets = new WebGPUCustomRenderTargetRuntime(host);
+		this._frameTargetManager = new WebGPUFrameTargetManager(host);
 		this._recordingContext = {
 			getEncoder: () => this._encoder,
 			getFrameTargets: () => this._frameTargets,
@@ -213,15 +213,15 @@ export class WebGPUFrameOrchestrator {
 			selectTransparentSubsetForRect: (context, packets, rect) =>
 				this._dirtyRectResolver.selectTransparentSubsetForRect(context, packets, rect),
 		};
-		this._depthDirtyClearPass = new WebGPUDepthDirtyClearPass(backend);
-		this._deferredLightingPass = new WebGPUDeferredLightingPass(backend, resources, {
+		this._depthDirtyClearPass = new WebGPUDepthDirtyClearPass(host);
+		this._deferredLightingPass = new WebGPUDeferredLightingPass(host, resources, {
 			recordingContext: this._recordingContext,
 		});
-		this._deferredDecalPass = new WebGPUDeferredDecalPass(backend, resources, {
+		this._deferredDecalPass = new WebGPUDeferredDecalPass(host, resources, {
 			recordingContext: this._recordingContext,
 		});
 		this._scenePassRecorder = new WebGPUScenePassRecorder(
-			backend,
+			host,
 			resources,
 			this._recordingContext,
 			this._depthDirtyClearPass,
@@ -229,8 +229,8 @@ export class WebGPUFrameOrchestrator {
 				getGBufferWriteBinding: () => this._deferredLightingPass.getGBufferWriteBinding(),
 			},
 		);
-		this._occlusionRuntime = new WebGPUOcclusionCullingRuntime(backend);
-		this._oitPass = new WebGPUOITPass(backend, resources, {
+		this._occlusionRuntime = new WebGPUOcclusionCullingRuntime(host);
+		this._oitPass = new WebGPUOITPass(host, resources, {
 			recordingContext: this._recordingContext,
 			recordLegacyMainPass: (context, packets, clear, earlyZ) =>
 				this._scenePassRecorder.recordLegacyMainPass(context, packets, clear, earlyZ),
@@ -367,7 +367,7 @@ export class WebGPUFrameOrchestrator {
 			return;
 		}
 
-		const encoder = this._backend.createCommandEncoder();
+		const encoder = this._host.createCommandEncoder();
 		this._customRenderTargets.sync(context);
 		const analysis = this._featureAnalyzer.analyze(context, {
 			particleOpaquePackets: this._buildParticleMeshDrawPackets(context, {
@@ -393,7 +393,7 @@ export class WebGPUFrameOrchestrator {
 			encoder,
 			hiZStatus: this._frameTargets?.hiZ ? "pending" : "unavailable",
 			analysis,
-			committer: new WebGPUFrameCommitter(this._backend),
+			committer: new WebGPUFrameCommitter(this._host),
 		});
 		this._graphCompiler.beginFrame(this._collectInitialGraphResources());
 		this.prepareFrameResources(context);
@@ -449,7 +449,7 @@ export class WebGPUFrameOrchestrator {
 		forceDeferredFallback: boolean,
 		forceForwardMrt: boolean,
 	): WebGPUFrameConfiguration {
-		const device = this._backend.device;
+		const device = this._host.device;
 		return this._configurationResolver.resolve(analysis, {
 			maxColorAttachments: device?.limits?.maxColorAttachments ?? 8,
 			maxColorAttachmentBytesPerSample:
@@ -1216,7 +1216,7 @@ export class WebGPUFrameOrchestrator {
 		await this._planarReflectionPass.capture(context, (label, encoder) => {
 			session.committer!.enqueueEncoder(label, encoder);
 		});
-		this._encoder = this._backend.createCommandEncoder();
+		this._encoder = this._host.createCommandEncoder();
 	}
 
 	private async _recordPlanarReflectionComposite(context: FrameContext): Promise<void> {

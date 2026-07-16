@@ -38,20 +38,20 @@ export interface WebGPUScenePassRecorderCallbacks {
  * Records WebGPU scene draw passes while the runtime orchestrates graph nodes.
  */
 export class WebGPUScenePassRecorder {
-	private readonly _backend: WebGPUFrameHost;
+	private readonly _host: WebGPUFrameHost;
 	private readonly _resources: WebGPURenderResources;
 	private readonly _recordingContext: WebGPUFrameGraphRecordingContext;
 	private readonly _depthDirtyClearPass: WebGPUDepthDirtyClearPass;
 	private readonly _callbacks: WebGPUScenePassRecorderCallbacks;
 
 	public constructor(
-		backend: WebGPUFrameHost,
+		host: WebGPUFrameHost,
 		resources: WebGPURenderResources,
 		recordingContext: WebGPUFrameGraphRecordingContext,
 		depthDirtyClearPass: WebGPUDepthDirtyClearPass,
 		callbacks: WebGPUScenePassRecorderCallbacks
 	) {
-		this._backend = backend;
+		this._host = host;
 		this._resources = resources;
 		this._recordingContext = recordingContext;
 		this._depthDirtyClearPass = depthDirtyClearPass;
@@ -213,8 +213,8 @@ export class WebGPUScenePassRecorder {
 		await this._resources.buildClusteredLighting(encoder, frameResources);
 		const incrementalPartial =
 			this._recordingContext.isIncrementalPartial(context);
-		const colorTexture = this._backend.getCanvasColorTexture();
-		const depthTexture = this._backend.getCanvasDepthTexture();
+		const colorTexture = this._host.getCanvasColorTexture();
+		const depthTexture = this._host.getCanvasDepthTexture();
 		const shouldClearAttachments = clearAttachments && !incrementalPartial;
 		const dirtyRects = this._recordingContext.resolveDirtyRects(
 			context,
@@ -226,7 +226,7 @@ export class WebGPUScenePassRecorder {
 			depthPartialReuseApplied = await this._depthDirtyClearPass.record(
 				encoder,
 				depthTexture,
-				this._backend.canvasDepthFormat,
+				this._host.canvasDepthFormat,
 				1,
 				dirtyRects
 			);
@@ -617,13 +617,13 @@ export class WebGPUScenePassRecorder {
 				label: "WebGPUParticlesSingle",
 				colorAttachments: [
 					{
-						view: this._backend.getCanvasColorTexture(),
+						view: this._host.getCanvasColorTexture(),
 						clearValue: { r: 0, g: 0, b: 0, a: 1 },
 						loadOp: "load",
 						storeOp: "store",
 					},
 				],
-				depth: this._backend.getCanvasDepthTexture(),
+				depth: this._host.getCanvasDepthTexture(),
 			},
 			frameResources,
 			"single",

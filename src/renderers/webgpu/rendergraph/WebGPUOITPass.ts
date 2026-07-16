@@ -42,7 +42,7 @@ export interface WebGPUOITPassCallbacks {
  * Records weighted blended OIT transparent, particle, and resolve work.
  */
 export class WebGPUOITPass {
-	private readonly _backend: WebGPUFrameHost;
+	private readonly _host: WebGPUFrameHost;
 	private readonly _resources: WebGPURenderResources;
 	private readonly _recordingContext: WebGPUFrameGraphRecordingContext;
 	private readonly _callbacks: WebGPUOITPassCallbacks;
@@ -58,11 +58,11 @@ export class WebGPUOITPass {
 	private _needsTransmissionAfterParticles = false;
 
 	public constructor(
-		backend: WebGPUFrameHost,
+		host: WebGPUFrameHost,
 		resources: WebGPURenderResources,
 		callbacks: WebGPUOITPassCallbacks
 	) {
-		this._backend = backend;
+		this._host = host;
 		this._resources = resources;
 		this._recordingContext = callbacks.recordingContext;
 		this._callbacks = callbacks;
@@ -324,7 +324,7 @@ export class WebGPUOITPass {
 			const composite = await ShaderSource.load(
 				"webgpu.utility.oitResolve.composite"
 			);
-			this._resolveShaderModule = await this._backend.createShaderModule({
+			this._resolveShaderModule = await this._host.createShaderModule({
 				label: "WebGPUOITResolveShader",
 				code: composite.code,
 				sourceMap: composite.sourceMap,
@@ -334,7 +334,7 @@ export class WebGPUOITPass {
 			});
 		}
 		if (!this._resolvePipeline) {
-			this._resolvePipeline = await this._backend.createPipeline({
+			this._resolvePipeline = await this._host.createPipeline({
 				label: "WebGPUOITResolvePipeline",
 				vertex: {
 					module: this._resolveShaderModule,
@@ -353,7 +353,7 @@ export class WebGPUOITPass {
 			} as any);
 		}
 		if (!this._resolveSampler) {
-			this._resolveSampler = this._backend.createSampler({
+			this._resolveSampler = this._host.createSampler({
 				label: "WebGPUOITResolveSampler",
 				magFilter: FilterMode.Linear,
 				minFilter: FilterMode.Linear,
@@ -424,7 +424,7 @@ export class WebGPUOITPass {
 			this._resolveBindingReveal !== targets.oitReveal
 		) {
 			this._destroyBindingGroup(this._resolveBinding);
-			this._resolveBinding = this._backend.createBindingGroup({
+			this._resolveBinding = this._host.createBindingGroup({
 				pipeline: this._resolvePipeline,
 				layoutIndex: 0,
 				entries: [

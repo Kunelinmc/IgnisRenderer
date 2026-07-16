@@ -17,7 +17,7 @@ export interface WebGPUDeferredLightingPassCallbacks {
  * Owns deferred G-buffer bindings and full-screen lighting resolve.
  */
 export class WebGPUDeferredLightingPass {
-	private readonly _backend: WebGPUFrameHost;
+	private readonly _host: WebGPUFrameHost;
 	private readonly _resources: WebGPURenderResources;
 	private readonly _recordingContext: WebGPUFrameGraphRecordingContext;
 	private _gbufferWriteBinding: IBindingGroup | null = null;
@@ -26,11 +26,11 @@ export class WebGPUDeferredLightingPass {
 	private _gbufferReadBindingSources: IRenderTexture[] = [];
 
 	public constructor(
-		backend: WebGPUFrameHost,
+		host: WebGPUFrameHost,
 		resources: WebGPURenderResources,
 		callbacks: WebGPUDeferredLightingPassCallbacks
 	) {
-		this._backend = backend;
+		this._host = host;
 		this._resources = resources;
 		this._recordingContext = callbacks.recordingContext;
 	}
@@ -70,7 +70,7 @@ export class WebGPUDeferredLightingPass {
 			return this._gbufferWriteBinding;
 		}
 		this._destroyBindingGroup(this._gbufferWriteBinding);
-		this._gbufferWriteBinding = this._backend.createBindingGroup({
+		this._gbufferWriteBinding = this._host.createBindingGroup({
 			layout: this._resources.getGBufferWriteLayout(),
 			entries: [
 				{ binding: 0, resource: sources[0] },
@@ -120,7 +120,7 @@ export class WebGPUDeferredLightingPass {
 			return this._gbufferReadBinding;
 		}
 		this._destroyBindingGroup(this._gbufferReadBinding);
-		this._gbufferReadBinding = this._backend.createBindingGroup({
+		this._gbufferReadBinding = this._host.createBindingGroup({
 			layout: this._resources.getGBufferReadLayout(),
 			entries: sources.map((resource, binding) => ({
 				binding,

@@ -118,7 +118,7 @@ const DECAL_BATCH_WORKGROUP_SIZE = 8;
  * Applies scene-graph decals by modifying deferred G-buffer channels.
  */
 export class WebGPUDeferredDecalPass {
-	private readonly _backend: WebGPUFrameHost;
+	private readonly _host: WebGPUFrameHost;
 	private readonly _resources: WebGPURenderResources;
 	private readonly _recordingContext: WebGPUFrameGraphRecordingContext;
 	private _uniformBuffer: IRenderBuffer | null = null;
@@ -140,11 +140,11 @@ export class WebGPUDeferredDecalPass {
 	private _materialBindingEntries = new Set<DecalMaterialBindingCacheEntry>();
 
 	public constructor(
-		backend: WebGPUFrameHost,
+		host: WebGPUFrameHost,
 		resources: WebGPURenderResources,
 		callbacks: WebGPUDeferredDecalPassCallbacks
 	) {
-		this._backend = backend;
+		this._host = host;
 		this._resources = resources;
 		this._recordingContext = callbacks.recordingContext;
 	}
@@ -421,7 +421,7 @@ export class WebGPUDeferredDecalPass {
 		uniformBuffer: IRenderBuffer
 	): Promise<number> {
 		const pipeline = await this._resources.getDecalPipeline();
-		this._backend.writeBuffer(
+		this._host.writeBuffer(
 			uniformBuffer,
 			createDecalUniformData(item.packet, item.materialData)
 		);
@@ -574,16 +574,16 @@ export class WebGPUDeferredDecalPass {
 			BufferUsage.Storage | BufferUsage.CopyDst,
 			"WebGPUDecalBatchTileIndices"
 		);
-		this._backend.writeBuffer(this._batchParamsBuffer, toBufferSource(params));
-		this._backend.writeBuffer(
+		this._host.writeBuffer(this._batchParamsBuffer, toBufferSource(params));
+		this._host.writeBuffer(
 			this._batchDecalsBuffer,
 			toBufferSource(data.decalUniforms)
 		);
-		this._backend.writeBuffer(
+		this._host.writeBuffer(
 			this._batchTileHeadersBuffer,
 			toBufferSource(data.tileHeaders)
 		);
-		this._backend.writeBuffer(
+		this._host.writeBuffer(
 			this._batchTileIndicesBuffer,
 			toBufferSource(data.tileDecalIndices)
 		);
@@ -603,7 +603,7 @@ export class WebGPUDeferredDecalPass {
 		this._destroyBindingGroup(this._batchBinding);
 		this._batchBinding = null;
 		this._batchBindingSources = [];
-		return this._backend.createBuffer({
+		return this._host.createBuffer({
 			size: resolvedSize,
 			usage,
 			label,
@@ -629,7 +629,7 @@ export class WebGPUDeferredDecalPass {
 			return this._batchBinding;
 		}
 		this._destroyBindingGroup(this._batchBinding);
-		this._batchBinding = this._backend.createBindingGroup({
+		this._batchBinding = this._host.createBindingGroup({
 			layout: this._resources.getDecalBatchBindGroupLayout(),
 			entries: sources.map((resource, binding) => ({
 				binding,
@@ -685,7 +685,7 @@ export class WebGPUDeferredDecalPass {
 
 	private _getUniformBuffer(): IRenderBuffer {
 		if (!this._uniformBuffer) {
-			this._uniformBuffer = this._backend.createBuffer({
+			this._uniformBuffer = this._host.createBuffer({
 				size: DECAL_UNIFORM_BYTES,
 				usage: BufferUsage.Uniform | BufferUsage.CopyDst,
 				label: "WebGPUDecalUniform",
@@ -695,7 +695,7 @@ export class WebGPUDeferredDecalPass {
 	}
 
 	private _deviceSupportsDecalPipeline(): boolean {
-		const limits = this._backend.device?.limits;
+		const limits = this._host.device?.limits;
 		const maxSampledTextures =
 			limits?.maxSampledTexturesPerShaderStage ?? Number.POSITIVE_INFINITY;
 		const maxSamplers =
@@ -707,7 +707,7 @@ export class WebGPUDeferredDecalPass {
 	}
 
 	private _deviceSupportsDecalBatchPipeline(): boolean {
-		const limits = this._backend.device?.limits;
+		const limits = this._host.device?.limits;
 		const maxStorageTextures =
 			limits?.maxStorageTexturesPerShaderStage ?? Number.POSITIVE_INFINITY;
 		const maxStorageBuffers =
@@ -742,7 +742,7 @@ export class WebGPUDeferredDecalPass {
 			texture.destroy();
 		}
 		this._snapshotTextures = targets.map((target) =>
-			this._backend.createTexture({
+			this._host.createTexture({
 				width: target.texture.width,
 				height: target.texture.height,
 				format: target.format,
@@ -755,7 +755,7 @@ export class WebGPUDeferredDecalPass {
 
 	private _getSnapshotReadBinding(): IBindingGroup {
 		if (!this._snapshotReadBinding) {
-			this._snapshotReadBinding = this._backend.createBindingGroup({
+			this._snapshotReadBinding = this._host.createBindingGroup({
 				layout: this._resources.getGBufferReadLayout(),
 				entries: this._snapshotTextures.map((resource, binding) => ({
 					binding,
@@ -782,7 +782,7 @@ export class WebGPUDeferredDecalPass {
 			return this._outputBinding;
 		}
 		this._destroyBindingGroup(this._outputBinding);
-		this._outputBinding = this._backend.createBindingGroup({
+		this._outputBinding = this._host.createBindingGroup({
 			layout: this._resources.getDecalOutputBindGroupLayout(),
 			entries: sources.map((resource, index) => ({
 				binding: 11 + index,
@@ -838,7 +838,7 @@ export class WebGPUDeferredDecalPass {
 			binding: WEBGPU_MODEL_BINDING_ANISOTROPY_TEXTURE,
 			resource: anisotropyTexture,
 		});
-		const group = this._backend.createBindingGroup({
+		const group = this._host.createBindingGroup({
 			layout: this._resources.getDecalBindGroupLayout(),
 			entries,
 			label: `WebGPUDecalMaterialBinding_${material.name}`,

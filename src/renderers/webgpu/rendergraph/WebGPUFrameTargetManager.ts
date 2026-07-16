@@ -57,7 +57,7 @@ export interface WebGPUFrameTargetManagerDebugState {
  * Owns WebGPU frame target allocation, reuse, and pooled texture lifetime.
  */
 export class WebGPUFrameTargetManager {
-	private readonly _backend: WebGPUFrameHost;
+	private readonly _host: WebGPUFrameHost;
 	private _frameTargets: WebGPUFrameTargets | null = null;
 	private _msaaTargets: WebGPUFrameMSAATargets | null = null;
 	private _targetWidth = 0;
@@ -72,8 +72,8 @@ export class WebGPUFrameTargetManager {
 	private _texturePools = new Map<string, TexturePool>();
 	private _texturePoolOwners = new Map<IRenderTexture, TexturePool>();
 
-	constructor(backend: WebGPUFrameHost) {
-		this._backend = backend;
+	constructor(host: WebGPUFrameHost) {
+		this._host = host;
 	}
 
 	public get frameTargets(): WebGPUFrameTargets | null {
@@ -702,7 +702,7 @@ export class WebGPUFrameTargetManager {
 	): IRenderTexture {
 		let pool = this._texturePools.get(poolId);
 		if (!pool) {
-			pool = new TexturePool(this._backend, options);
+			pool = new TexturePool(this._host, options);
 			this._texturePools.set(poolId, pool);
 		}
 		const texture = pool.acquire(width, height, format);

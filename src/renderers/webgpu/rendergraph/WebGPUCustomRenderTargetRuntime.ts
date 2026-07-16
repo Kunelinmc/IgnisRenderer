@@ -33,13 +33,13 @@ interface WebGPUCustomRenderTarget {
  * Owns WebGPU custom render-target allocation, pass execution, and readback.
  */
 export class WebGPUCustomRenderTargetRuntime {
-	private readonly _backend: WebGPUFrameHost;
+	private readonly _host: WebGPUFrameHost;
 	private _readbackRuntime: ComputeRuntime | null = null;
 	private readonly _targets = new Map<string, WebGPUCustomRenderTarget>();
 	private _lastSuccessfulFrame = false;
 
-	public constructor(backend: WebGPUFrameHost) {
-		this._backend = backend;
+	public constructor(host: WebGPUFrameHost) {
+		this._host = host;
 	}
 
 	public sync(context: FrameContext): void {
@@ -170,7 +170,7 @@ export class WebGPUCustomRenderTargetRuntime {
 
 	private _getReadbackRuntime(): ComputeRuntime {
 		if (!this._readbackRuntime) {
-			this._readbackRuntime = new ComputeRuntime(this._backend.computeFacade);
+			this._readbackRuntime = new ComputeRuntime(this._host.computeFacade);
 		}
 		return this._readbackRuntime;
 	}
@@ -182,7 +182,7 @@ export class WebGPUCustomRenderTargetRuntime {
 		sampleCount: number
 	): WebGPUCustomRenderTarget {
 		const color = descriptor.color.map((attachment, index) =>
-			this._backend.createTexture({
+			this._host.createTexture({
 				width,
 				height,
 				format: attachment.format,
@@ -199,7 +199,7 @@ export class WebGPUCustomRenderTargetRuntime {
 		);
 		const depth =
 			descriptor.depth ?
-				this._backend.createTexture({
+				this._host.createTexture({
 					width,
 					height,
 					format: descriptor.depth.format,
@@ -236,14 +236,14 @@ export class WebGPUCustomRenderTargetRuntime {
 	}
 
 	private _createResourceFacade(): CustomRenderPassResourceFacade {
-		const backend = this._backend;
+		const host = this._host;
 		return {
-			createBuffer: (desc) => backend.createBuffer(desc),
-			createTexture: (desc) => backend.createTexture(desc),
-			createSampler: (desc) => backend.createSampler(desc),
-			createShaderModule: (desc) => backend.createShaderModule(desc) as any,
-			createRenderPipeline: (desc) => backend.createPipeline(desc),
-			createBindingGroup: (desc) => backend.createBindingGroup(desc),
+			createBuffer: (desc) => host.createBuffer(desc),
+			createTexture: (desc) => host.createTexture(desc),
+			createSampler: (desc) => host.createSampler(desc),
+			createShaderModule: (desc) => host.createShaderModule(desc) as any,
+			createRenderPipeline: (desc) => host.createPipeline(desc),
+			createBindingGroup: (desc) => host.createBindingGroup(desc),
 		};
 	}
 }

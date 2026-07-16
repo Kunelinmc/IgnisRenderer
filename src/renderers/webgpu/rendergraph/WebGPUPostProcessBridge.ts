@@ -39,17 +39,17 @@ export interface WebGPUPostProcessBridgeCallbacks {
  * Packs WebGPU-specific post-process helpers and validates published targets.
  */
 export class WebGPUPostProcessBridge {
-	private readonly _backend: WebGPUFrameHost;
+	private readonly _host: WebGPUFrameHost;
 	private readonly _runtime: WebGPUPostProcessRuntime;
 	private readonly _callbacks: WebGPUPostProcessBridgeCallbacks;
 	private _pendingColorTarget: IRenderTexture | null = null;
 
 	public constructor(
-		backend: WebGPUFrameHost,
+		host: WebGPUFrameHost,
 		runtime: WebGPUPostProcessRuntime,
 		callbacks: WebGPUPostProcessBridgeCallbacks
 	) {
-		this._backend = backend;
+		this._host = host;
 		this._runtime = runtime;
 		this._callbacks = callbacks;
 	}
@@ -59,7 +59,7 @@ export class WebGPUPostProcessBridge {
 	): PostProcessResourceHandle {
 		const requestedFormat =
 			tryGetTextureFormatInfo(desc.format)?.format ?? TextureFormat.RGBA16Float;
-		const texture = this._backend.createTexture({
+		const texture = this._host.createTexture({
 			width: desc.width,
 			height: desc.height,
 			format: requestedFormat,
