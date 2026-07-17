@@ -2,6 +2,7 @@ import type { DrawPacket, FrameContext } from "../../../pipeline/types";
 import {
 	SCREEN_SPACE_REFLECTIONS_PASS_ID,
 	SCREEN_SPACE_REFRACTIONS_PASS_ID,
+	VOLUMETRIC_LIGHTING_PASS_ID,
 	resolvePostProcessExecutionOrder,
 	type ResolvedPostProcessPass,
 } from "../../../postprocess";
@@ -12,7 +13,7 @@ import { materialSupportsWebGPUDeferredLighting } from "../material";
 const SHARED_HIZ_POSTPROCESS_PASS_IDS = new Set([
 	SCREEN_SPACE_REFLECTIONS_PASS_ID,
 	SCREEN_SPACE_REFRACTIONS_PASS_ID,
-	"volumetric",
+	VOLUMETRIC_LIGHTING_PASS_ID,
 ]);
 
 export interface WebGPUFrameFeatureAnalysis {
