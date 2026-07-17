@@ -10,7 +10,7 @@ The list covers:
 - Core render pipeline layouts in `src/renderers/webgpu/WebGPUPipelineLayouts.ts`.
 - Frame, material, particle, clustered-lighting, G-buffer, shadow, present, and
   OIT bindings under `src/renderers/webgpu/`, including
-  `WebGPUFrameExecutor.ts` and `WebGPUShadowPass.ts`.
+  `rendergraph/WebGPUFrameOrchestrator.ts` and `WebGPUShadowPass.ts`.
 - WGSL bindings under `src/shaders/webgpu/`, including
   `parts/definitions.wgsl`, `parts/fragmentGBuffer.wgsl`,
   `deferredLightingShader.wgsl`, `environmentShader.wgsl`,
@@ -260,7 +260,7 @@ indices:
 
 ### Present and OIT Resolve Bindings
 
-`WebGPUFrameExecutor` inline WGSL uses these pass-local `group(0)` bindings:
+`WebGPUFrameOrchestrator` uses these pass-local `group(0)` bindings:
 
 | Pass | Binding | Shader name | Resource contract |
 | --- | --- | --- | --- |

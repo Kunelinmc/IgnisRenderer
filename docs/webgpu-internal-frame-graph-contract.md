@@ -1,7 +1,7 @@
 # WebGPU Internal Frame Graph Contract
 ## Scope
 This document defines the internal WebGPU frame graph used behind
-`WebGPUFrameExecutor`. It does not define renderer-level frame stages or public
+`WebGPUFrameOrchestrator`. It does not define renderer-level frame stages or public
 post-process registration APIs.
 
 ## Background

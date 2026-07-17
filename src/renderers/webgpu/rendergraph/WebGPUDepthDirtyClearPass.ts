@@ -68,7 +68,7 @@ export class WebGPUDepthDirtyClearPass {
 			const key = "webgpu-depth-partial-reuse-fallback";
 			Logger.warn(
 				`[${key}] WebGPU partial depth reuse unavailable; falling back to full depth clear. ${String(error)}`,
-				{ scope: "WebGPUFrameExecutor", onceKey: key }
+				{ scope: "WebGPUFrameOrchestrator", onceKey: key }
 			);
 			return false;
 		}

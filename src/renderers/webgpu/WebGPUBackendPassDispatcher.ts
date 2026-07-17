@@ -2,7 +2,7 @@ import type { FrameContext, FramePass } from "../../pipeline/types";
 import { PARTICLE_SIM_DELTA_TIME_SECONDS_KEY } from "../../pipeline/types";
 import type { BackendPostProcessRuntime } from "../../postprocess/BackendPostProcessRuntime";
 import type { IParticleSimulator } from "../../simulation/particles/IParticleSimulator";
-import type { WebGPUFrameExecutor } from "./WebGPUFrameExecutor";
+import type { WebGPUFrameOrchestrator } from "./rendergraph/WebGPUFrameOrchestrator";
 import type { WebGPURenderResources } from "./WebGPURenderResources";
 
 type ParticleSimulatorWithBatchEmit = IParticleSimulator & {
@@ -13,7 +13,7 @@ type ParticleSimulatorWithBatchEmit = IParticleSimulator & {
 };
 
 export interface WebGPUBackendPassDispatcherHost {
-	readonly frameExecutor: WebGPUFrameExecutor | null;
+	readonly frameOrchestrator: WebGPUFrameOrchestrator | null;
 	readonly particleSimulator: IParticleSimulator | null;
 	readonly postProcessRuntime: BackendPostProcessRuntime;
 	readonly resources: WebGPURenderResources | null;
@@ -47,7 +47,7 @@ export class WebGPUBackendPassDispatcher {
 			simulator?.emitRenderBatches(context);
 		}
 		const frameResources =
-			this._host.frameExecutor?.getPreparedFrameResources();
+			this._host.frameOrchestrator?.getPreparedFrameResources();
 		if (frameResources) {
 			this._host.resources?.updateParticleShadowVolumes?.(
 				frameResources,

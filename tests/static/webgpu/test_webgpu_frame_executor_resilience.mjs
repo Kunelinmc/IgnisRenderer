@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { WebGPUFrameExecutor } from "../../../src/renderers/webgpu/WebGPUFrameExecutor.ts";
+import { WebGPUFrameOrchestrator as WebGPUFrameExecutor } from "../../../src/renderers/webgpu/rendergraph/WebGPUFrameOrchestrator.ts";
 import { Logger } from "../../../src/foundation/Logger.ts";
 import { Camera } from "../../../src/cameras/Camera.ts";
 import { Material } from "../../../src/materials/Material.ts";
@@ -148,7 +148,7 @@ function findEncoderCallIndex(backend, predicate) {
 }
 
 function getFrameGraphDebugState(executor) {
-	return executor.getFrameGraphDebugState();
+	return executor.getDebugState();
 }
 
 function getFrameTargets(executor) {

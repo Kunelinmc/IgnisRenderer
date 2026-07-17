@@ -100,6 +100,8 @@ import { WebGPUPresentPass } from "./WebGPUPresentPass";
 import { WebGPUCustomRenderTargetRuntime } from "./WebGPUCustomRenderTargetRuntime";
 import type { RenderTargetReadbackOptions } from "../../CustomRenderTargets";
 import type { TextureReadbackResult } from "../../IComputeRuntime";
+import type { WebGPUPostProcessSessionPort } from "../WebGPUPostProcessExecutor";
+import { SINGLE_SAMPLE_WEBGPU_MSAA_CONTEXT } from "../WebGPUMSAAController";
 
 const WEBGPU_DEFERRED_RUNTIME_FALLBACK_KEY = "webgpu-deferred-runtime-fallback";
 const WEBGPU_MSAA_RUNTIME_FALLBACK_KEY = "webgpu-msaa-runtime-fallback-1x";
@@ -154,8 +156,12 @@ export class WebGPUFrameOrchestrator {
 	constructor(
 		host: WebGPUFrameHost,
 		resources: WebGPURenderResources,
-		msaa: WebGPUMSAAContext,
-		options: WebGPUFrameOrchestratorOptions,
+		msaa: WebGPUMSAAContext = SINGLE_SAMPLE_WEBGPU_MSAA_CONTEXT,
+		options: WebGPUFrameOrchestratorOptions = {
+			enableEarlyZPrepass: host.enableEarlyZPrepass,
+			enableDeferredLighting: host.enableDeferredLighting,
+			frameGraphValidationMode: host.frameGraphValidationMode,
+		},
 	) {
 		this._host = host;
 		this._resources = resources;
@@ -170,7 +176,7 @@ export class WebGPUFrameOrchestrator {
 			computeFacade,
 			(key, message) =>
 				Logger.warn(`[${key}] ${message}`, {
-					scope: "WebGPUFrameExecutor",
+					scope: "WebGPUFrameOrchestrator",
 					onceKey: key,
 				}),
 			resources.sceneFrameLayout,
@@ -585,13 +591,22 @@ export class WebGPUFrameOrchestrator {
 
 	private _requireFrameResources(): WebGPUPreparedFrameResources {
 		if (!this._frameResources) {
-			throw new Error("WebGPUFrameExecutor requires prepared main-frame resources.");
+			throw new Error("WebGPUFrameOrchestrator requires prepared main-frame resources.");
 		}
 		return this._frameResources;
 	}
 
 	public getPassExecutionContext(request: PostProcessPassExecutionContextRequest): unknown {
 		return this._postBridge.getPassExecutionContext(request);
+	}
+
+	public createPostProcessSessionPort(): WebGPUPostProcessSessionPort {
+		return {
+			createGBufferBridge: (context) => this.createGBufferBridge(context),
+			getPassExecutionContext: (request) => this.getPassExecutionContext(request),
+			completePass: (request, result) => this.completePostProcessPass(request, result),
+			invalidateResourceBindings: () => this.invalidatePostProcessBindings(),
+		};
 	}
 
 	/**
@@ -1234,7 +1249,7 @@ export class WebGPUFrameOrchestrator {
 			this._hiZStatus = "failed";
 			Logger.warn(
 				`[webgpu-hiz-build-failed] Shared WebGPU Hi-Z build failed; dependent effects will be skipped. ${String(error)}`,
-				{ scope: "WebGPUFrameExecutor", onceKey: "webgpu-hiz-build-failed" },
+				{ scope: "WebGPUFrameOrchestrator", onceKey: "webgpu-hiz-build-failed" },
 			);
 		}
 	}

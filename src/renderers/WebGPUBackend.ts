@@ -31,7 +31,7 @@ import {
 	WEBGPU_OCCLUSION_AFTER_DEPTH_INSERTION_POINT,
 } from "./BackendExtensions";
 import { WebGPUErrorScopeHelper } from "./webgpu/WebGPUErrorScopeHelper";
-import { WebGPUFrameExecutor } from "./webgpu/WebGPUFrameExecutor";
+import { WebGPUFrameOrchestrator } from "./webgpu/rendergraph/WebGPUFrameOrchestrator";
 import type { WebGPUFrameHost } from "./webgpu/rendergraph/WebGPUFrameHost";
 import { WebGPUPostProcessExecutor } from "./webgpu/WebGPUPostProcessExecutor";
 import type { WebGPUPostProcessSessionPort } from "./webgpu/WebGPUPostProcessExecutor";
@@ -171,9 +171,9 @@ export class WebGPUBackend implements IRenderBackend {
 	}
 	private readonly _occlusionCullingExtensionApi: OcclusionCullingBackendAdapter = {
 		getVisibilityProvider: (options: NormalizedOcclusionCullingOptions) =>
-			this._frameExecutor?.getOcclusionVisibilityProvider(options) ?? null,
+			this._frameOrchestrator?.getOcclusionVisibilityProvider(options) ?? null,
 		resetOcclusionCulling: () => {
-			this._frameExecutor?.resetOcclusionCulling();
+			this._frameOrchestrator?.resetOcclusionCulling();
 		},
 	};
 	public readonly extensions;
@@ -225,7 +225,7 @@ export class WebGPUBackend implements IRenderBackend {
 	private readonly _canvasTargets = new WebGPUCanvasTargetManager();
 	private _errorScopes: WebGPUErrorScopeHelper | null = null;
 	private _resources: WebGPURenderResources | null = null;
-	private _frameExecutor: WebGPUFrameExecutor | null = null;
+	private _frameOrchestrator: WebGPUFrameOrchestrator | null = null;
 	private _frameHost: WebGPUFrameHost | null = null;
 	private _reflectionProbeCapturePass: WebGPUReflectionProbeCapturePass | null = null;
 	private _particleSimulator: IParticleSimulator | null = null;
@@ -340,8 +340,8 @@ export class WebGPUBackend implements IRenderBackend {
 			this._createBindingGroupCacheHost()
 		);
 		this._passDispatcher = new WebGPUBackendPassDispatcher({
-			get frameExecutor() {
-				return thisRef._frameExecutor;
+			get frameOrchestrator() {
+				return thisRef._frameOrchestrator;
 			},
 			get particleSimulator() {
 				return thisRef._particleSimulator;
@@ -357,8 +357,8 @@ export class WebGPUBackend implements IRenderBackend {
 			get profile() {
 				return thisRef.profile;
 			},
-			get frameExecutor() {
-				return thisRef._frameExecutor;
+			get frameOrchestrator() {
+				return thisRef._frameOrchestrator;
 			},
 			get resources() {
 				return thisRef._resources;
@@ -704,7 +704,7 @@ export class WebGPUBackend implements IRenderBackend {
 						onceKey: key,
 					}),
 			});
-			this._frameExecutor = new WebGPUFrameExecutor(
+			this._frameOrchestrator = new WebGPUFrameOrchestrator(
 				this._frameHost,
 				this._resources,
 				this._msaaController
@@ -811,13 +811,13 @@ export class WebGPUBackend implements IRenderBackend {
 		this._recreateDepthTexture();
 		this._postProcessRuntime?.invalidateFrameSized();
 		if (options.invalidateFrameTargets !== false) {
-			this._frameExecutor?.invalidateFrameTargets();
+			this._frameOrchestrator?.invalidateFrameTargets();
 		}
 		return true;
 	}
 
 	public beginFrame(context: FrameContext): void {
-		if (!this._resources || !this._frameExecutor) {
+		if (!this._resources || !this._frameOrchestrator) {
 			throw new Error("WebGPU backend has not been initialized.");
 		}
 
@@ -830,13 +830,8 @@ export class WebGPUBackend implements IRenderBackend {
 		this._executedPasses.clear();
 		this._particleSimulator?.beginFrame(context);
 		this._resources.beginFrameResourceLifecycle();
-		this._frameExecutor.beginFrame(context);
-		const portFactory = (
-			this._frameExecutor as WebGPUFrameExecutor & {
-				createPostProcessSessionPort?: () => WebGPUPostProcessSessionPort;
-			}
-		).createPostProcessSessionPort;
-		const postProcessPort = portFactory?.call(this._frameExecutor) ?? null;
+		this._frameOrchestrator.beginFrame(context);
+		const postProcessPort = this._frameOrchestrator.createPostProcessSessionPort();
 		if (postProcessPort) {
 			this._postProcessExecutor?.bindSession(postProcessPort);
 		}
@@ -844,14 +839,14 @@ export class WebGPUBackend implements IRenderBackend {
 	}
 
 	public executePass(pass: FramePass, context: FrameContext): Promise<void> | void {
-		if (!this._frameExecutor) {
+		if (!this._frameOrchestrator) {
 			throw new Error("WebGPU backend has not been initialized.");
 		}
 
 		this._validatePassDependencies(pass);
 		const dispatched = this._passDispatcher.executePass(pass, context);
 		const result =
-			dispatched === null ? this._frameExecutor.executePass(pass, context) : dispatched;
+			dispatched === null ? this._frameOrchestrator.executePass(pass, context) : dispatched;
 		if (result && typeof (result as Promise<void>).then === "function") {
 			return (result as Promise<void>).then(() => {
 				this._markPassExecuted(pass.stage);
@@ -870,10 +865,10 @@ export class WebGPUBackend implements IRenderBackend {
 		attachmentIndex?: number,
 		options?: RenderTargetReadbackOptions,
 	): Promise<TextureReadbackResult> {
-		if (!this._frameExecutor) {
+		if (!this._frameOrchestrator) {
 			return Promise.reject(new Error("WebGPU backend has not been initialized."));
 		}
-		return this._frameExecutor.readRenderTargetColor(id, attachmentIndex, options);
+		return this._frameOrchestrator.readRenderTargetColor(id, attachmentIndex, options);
 	}
 
 	public async warmup(context: FrameContext, options: WarmupOptions = {}): Promise<WarmupReport> {
@@ -884,7 +879,7 @@ export class WebGPUBackend implements IRenderBackend {
 		const wasActive = this._frameActive;
 		let frameError: unknown = null;
 		try {
-			await this._frameExecutor?.endFrame();
+			await this._frameOrchestrator?.endFrame();
 		} catch (error) {
 			frameError = error;
 		}
@@ -924,7 +919,7 @@ export class WebGPUBackend implements IRenderBackend {
 		let abortError: unknown = null;
 		try {
 			await this._postProcessRuntime?.abortFrame(_error);
-			this._frameExecutor?.abortFrame();
+			this._frameOrchestrator?.abortFrame();
 			if (wasActive) {
 				this._particleSimulator?.endFrame();
 			}
@@ -995,7 +990,7 @@ export class WebGPUBackend implements IRenderBackend {
 	 * @sideEffects None.
 	 */
 	public getFrameSceneTargetMode(): "gbuffer" | "mrt" | "color" | "single" {
-		return this._frameExecutor?.getSceneTargetModeForFrame() ?? "single";
+		return this._frameOrchestrator?.getSceneTargetModeForFrame() ?? "single";
 	}
 
 	public async captureProbeFace(
@@ -1492,8 +1487,8 @@ export class WebGPUBackend implements IRenderBackend {
 		this._postProcessSessionPort = null;
 		this._reflectionProbeCapturePass?.destroy();
 		this._reflectionProbeCapturePass = null;
-		this._frameExecutor?.destroy();
-		this._frameExecutor = null;
+		this._frameOrchestrator?.destroy();
+		this._frameOrchestrator = null;
 		this._frameHost = null;
 		this._resources?.destroy();
 		this._resources = null;
@@ -1688,7 +1683,7 @@ export class WebGPUBackend implements IRenderBackend {
 		this._commandScheduler.submitPendingCopyCommands();
 		this._invalidateShaderDependentCaches();
 		this._postProcessRuntime?.destroy();
-		this._frameExecutor?.onShaderRuntimeChanged?.();
+		this._frameOrchestrator?.onShaderRuntimeChanged();
 		this._resources?.onShaderRuntimeChanged?.();
 		this._resetCurrentCanvasTargets();
 	}
@@ -1714,7 +1709,7 @@ export class WebGPUBackend implements IRenderBackend {
 				}) || needsFrameTargetInvalidation;
 		}
 		if (needsFrameTargetInvalidation) {
-			this._frameExecutor?.invalidateFrameTargets();
+			this._frameOrchestrator?.invalidateFrameTargets();
 		}
 	}
 

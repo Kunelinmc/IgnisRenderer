@@ -12,7 +12,7 @@ import {
 	RENDERER_OCCLUSION_VISIBILITY_INSERTION_POINT,
 	WEBGPU_OCCLUSION_AFTER_DEPTH_INSERTION_POINT,
 } from "../../../src/renderers/BackendExtensions.ts";
-import { WebGPUFrameExecutor } from "../../../src/renderers/webgpu/WebGPUFrameExecutor.ts";
+import { WebGPUFrameOrchestrator as WebGPUFrameExecutor } from "../../../src/renderers/webgpu/rendergraph/WebGPUFrameOrchestrator.ts";
 import { WebGPUFrameFeatureDataStore } from "../../../src/renderers/webgpu/FrameFeatures.ts";
 import { WEBGPU_VOLUMETRIC_LIGHTING_DATA } from "../../../src/renderers/webgpu/WebGPUFrameFeatureModules.ts";
 import { FakeWebGPUBackend as FakeBackend } from "../../helpers/fakes.mjs";
@@ -183,10 +183,10 @@ async function testGammaOwnsWebGPUKernelBeforeRawPresent() {
 		implementation: gammaPass.getImplementation("webgpu"),
 	});
 	const context = executor.getPassExecutionContext(passRequest);
-	const targets = executor.getFrameGraphDebugState().frameTargets;
+	const targets = executor.getDebugState().frameTargets;
 
 	assert.equal(
-		executor.getFrameGraphDebugState().targetManager.needsPostProcessTargets,
+		executor.getDebugState().targetManager.needsPostProcessTargets,
 		true
 	);
 	assert.ok(context.encoder);
@@ -197,7 +197,7 @@ async function testGammaOwnsWebGPUKernelBeforeRawPresent() {
 	executor.completePostProcessPass(passRequest, result);
 	assert.deepEqual(result, { ran: true });
 	assert.equal(
-		executor.getFrameGraphDebugState().frameTargets.sceneColor,
+		executor.getDebugState().frameTargets.sceneColor,
 		targets.postPong
 	);
 	assert.equal(
@@ -234,14 +234,14 @@ async function testTemporalExecutePassUsesPipelineHistories() {
 	const taaContext = executor.getPassExecutionContext(
 		createExecutionContextRequest("taa", taaRequest)
 	);
-	assert.equal("historyRead" in executor.getFrameGraphDebugState().frameTargets, false);
+	assert.equal("historyRead" in executor.getDebugState().frameTargets, false);
 	assert.equal(taaContext.historyRead.id, "taa-read");
 	assert.equal(taaContext.historyWrite.id, "taa-write");
 	assert.equal(taaContext.motionHistoryRead.id, "motion-read");
 	assert.equal(taaContext.motionHistoryWrite.id, "motion-write");
 	taaContext.writeMotionHistoryFromCurrent();
 	assert.equal(
-		executor.getFrameGraphDebugState().motionHistoryWriteTarget.id,
+		executor.getDebugState().motionHistoryWriteTarget.id,
 		"motion-write"
 	);
 
@@ -321,14 +321,14 @@ function testCustomImplementationMetadataPacksContext() {
 	assert.ok(context.shared);
 	assert.deepEqual(context.frameBinding, { id: "frame-binding" });
 	assert.equal(context.customHistoryWrite.id, "taa-write");
-	const targets = executor.getFrameGraphDebugState().frameTargets;
+	const targets = executor.getDebugState().frameTargets;
 	context.publishColorTarget(targets.postPing);
 	assert.equal(targets.sceneColor, targets.sceneColorMain);
 	executor.completePostProcessPass(
 		createExecutionContextRequest("custom-webgpu", request),
 		{ ran: true }
 	);
-	assert.equal(executor.getFrameGraphDebugState().frameTargets.sceneColor, targets.postPing);
+	assert.equal(executor.getDebugState().frameTargets.sceneColor, targets.postPing);
 	executor.abortFrame();
 }
 

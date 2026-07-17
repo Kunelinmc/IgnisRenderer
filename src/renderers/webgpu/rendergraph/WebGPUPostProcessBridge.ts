@@ -235,7 +235,7 @@ export class WebGPUPostProcessBridge {
 					`Post-process pass "${request.passId}" published a color target ` +
 					"that is not owned by the active WebGPU frame; ignoring it.",
 				{
-					scope: "WebGPUFrameExecutor",
+					scope: "WebGPUFrameOrchestrator",
 					onceKey: `webgpu-postprocess-color-target-unowned:${request.passId}`,
 				}
 			);

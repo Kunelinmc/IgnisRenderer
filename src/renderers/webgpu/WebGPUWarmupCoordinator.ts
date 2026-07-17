@@ -16,12 +16,12 @@ import {
 	type WarmupPostProcessPlan,
 } from "../../pipeline/WarmupPlanner";
 import type { BackendPostProcessRuntime } from "../../postprocess/BackendPostProcessRuntime";
-import type { WebGPUFrameExecutor } from "./WebGPUFrameExecutor";
+import type { WebGPUFrameOrchestrator } from "./rendergraph/WebGPUFrameOrchestrator";
 import type { WebGPURenderResources } from "./WebGPURenderResources";
 
 export interface WebGPUWarmupCoordinatorHost {
 	readonly profile: RenderBackendProfile;
-	readonly frameExecutor: WebGPUFrameExecutor | null;
+	readonly frameOrchestrator: WebGPUFrameOrchestrator | null;
 	readonly resources: WebGPURenderResources | null;
 	readonly postProcessRuntime: BackendPostProcessRuntime;
 	setWarmupLogCompilationInfo(enabled: boolean): void;
@@ -35,7 +35,7 @@ export class WebGPUWarmupCoordinator {
 		options: WarmupOptions = {}
 	): Promise<WarmupReport> {
 		const report = createWarmupReport(this._host.profile.id);
-		if (!this._host.resources || !this._host.frameExecutor) {
+		if (!this._host.resources || !this._host.frameOrchestrator) {
 			throw new Error("WebGPU backend has not been initialized.");
 		}
 
@@ -50,7 +50,7 @@ export class WebGPUWarmupCoordinator {
 		const plan = buildWarmupPlan(context, options, warmupPostProcessPlan);
 		this._host.setWarmupLogCompilationInfo(options.logCompilationInfo === true);
 		try {
-			const framePhase = await this._host.frameExecutor.warmup(
+			const framePhase = await this._host.frameOrchestrator.warmup(
 				context,
 				plan,
 				options

@@ -37,7 +37,7 @@ To support decoupled backends, post-process execution is delegated to backend-ow
 - `WebGPUPostProcessExecutor` must use a frame-scoped
   `WebGPUPostProcessSessionPort` for G-buffer, execution-context, completed-pass,
   binding-invalidation, and presentation operations. It must not resolve a
-  `WebGPUFrameExecutor` back-reference.
+  `WebGPUFrameOrchestrator` back-reference.
 - The context passed to WebGPU implementations is typed as `WebGPURuntimePostProcessContext` (or `WebGPUScreenPostProcessContext`), providing `encoder`, `targets`, and `shared` (`PostProcessSharedContext`).
 - Passes must not mutate the frame targets directly; they must publish their output color texture via the `publishColorTarget(texture)` callback.
 - Warmup planning collects ordered descriptors and runs `PostProcessPassImplementation.warmup(context)` if present.

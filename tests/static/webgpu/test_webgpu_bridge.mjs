@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { WebGPURenderResources } from "../../../src/renderers/webgpu/WebGPURenderResources.ts";
-import { WebGPUFrameExecutor } from "../../../src/renderers/webgpu/WebGPUFrameExecutor.ts";
+import { WebGPUFrameOrchestrator as WebGPUFrameExecutor } from "../../../src/renderers/webgpu/rendergraph/WebGPUFrameOrchestrator.ts";
 import { ShaderSource } from "../../../src/shaders/ShaderSource.ts";
 import {
 	DEFAULT_SHADER_DIRECTIVE_PROFILE_REGISTRY,
@@ -1618,7 +1618,7 @@ function testFrameExecutorConsumesComputeFacadeFromHost() {
 	const executor = new WebGPUFrameExecutor(backend, resourcesStub);
 
 	assert.equal(backend.getComputeFacadeCalls, 0);
-	assert.equal(typeof executor.getFrameGraphDebugState, "function");
+	assert.equal(typeof executor.getDebugState, "function");
 }
 
 async function testRenderResourcesUseCopyDstForUploads() {
