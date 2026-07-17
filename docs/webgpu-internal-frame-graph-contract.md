@@ -55,6 +55,19 @@ must remain backend-internal.
 - `WebGPUFrameOrchestrator` must own a single active frame scope and orchestrate
   target retry, frame lifecycle, and node execution; it must not own texture
   pool allocation logic.
+- `WebGPUFrameServiceOwner` must be the backend-private shared-service
+  composition root. It owns device-lifetime scene, texture, deferred, shadow,
+  and particle-render resources; consumers must receive only the corresponding
+  narrow resource-provider capability.
+- `WebGPUFrameResourceScope` must own frame bindings and clustered-lighting
+  state. The orchestrator owns the main scope, each planar target owns one
+  persistent capture scope, and probe capture must destroy its temporary scope
+  in a `finally` block. Prepared-frame data must not expose a string scope key.
+- `WebGPUDeviceResourceHost` must be the dependency boundary for registries and
+  device runtimes. Such modules must not import the complete `WebGPUBackend`.
+- Shared shader invalidation and destruction must be routed through
+  `WebGPUFrameServiceOwner`; frame-node runtimes may invalidate only their
+  pass-local resources.
 - Scene, shadow, deferred, transparency, reflection, visibility, post-process,
   and presentation runtimes must own their node executors and feature-local
   pipeline/binding lifecycle. The orchestrator must not provide callback-only
