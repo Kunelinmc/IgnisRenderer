@@ -5,9 +5,7 @@ import {
 } from "../../types";
 import type { WebGPUFrameHost } from "./WebGPUFrameHost";
 import { GBufferSlot } from "../constants";
-import type {
-	WebGPURenderResources,
-} from "../WebGPURenderResources";
+import type { WebGPUDeferredResourceProvider } from "../WebGPUResourceContracts";
 import type { WebGPUFrameGraphRecordingContext } from "./WebGPUFrameGraphRecordingContext";
 
 export interface WebGPUDeferredLightingPassCallbacks {
@@ -19,7 +17,7 @@ export interface WebGPUDeferredLightingPassCallbacks {
  */
 export class WebGPUDeferredLightingPass {
 	private readonly _host: WebGPUFrameHost;
-	private readonly _resources: WebGPURenderResources;
+	private readonly _resources: WebGPUDeferredResourceProvider;
 	private readonly _recordingContext: WebGPUFrameGraphRecordingContext;
 	private _gbufferWriteBinding: IBindingGroup | null = null;
 	private _gbufferWriteBindingSources: IRenderTexture[] = [];
@@ -28,7 +26,7 @@ export class WebGPUDeferredLightingPass {
 
 	public constructor(
 		host: WebGPUFrameHost,
-		resources: WebGPURenderResources,
+		resources: WebGPUDeferredResourceProvider,
 		callbacks: WebGPUDeferredLightingPassCallbacks
 	) {
 		this._host = host;

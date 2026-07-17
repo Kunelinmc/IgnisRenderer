@@ -73,6 +73,7 @@ import {
 	type WebGPUModelAnimationBindingState,
 } from "./WebGPUMaterialBindingCache";
 import { WebGPUPipelineLibrary } from "./WebGPUPipelineLibrary";
+import { WebGPUDeferredResources } from "./WebGPUDeferredResources";
 import type {
 	WebGPUScenePipelineDrawMode,
 	WebGPUSceneTargetMode,
@@ -253,9 +254,7 @@ export class WebGPURenderResources {
 	private _frameFeatureRegistry = createWebGPUFrameFeatureRegistry();
 	private _frameScopes = new Map<string, WebGPUFrameResourceScope>();
 	private _particleShaderModule: IShaderModule | null = null;
-	private _decalShaderModule: IShaderModule | null = null;
-	private _decalPipeline: IRenderPipeline | null = null;
-	private _decalBatchPipeline: IComputePipeline | null = null;
+	private _deferredResources: WebGPUDeferredResources;
 	private _particleQuadBuffer: IRenderBuffer | null = null;
 	private _particleInstanceBuffer: IRenderBuffer | null = null;
 	private _particleInstanceCapacity = 0;
@@ -266,7 +265,6 @@ export class WebGPURenderResources {
 		string,
 		WebGPUParticleBindingCacheEntry
 	>();
-	private _deferredUnusedBinding: IBindingGroup | null = null;
 	private _frameId = 0;
 	private _destroyed = false;
 
@@ -291,6 +289,11 @@ export class WebGPURenderResources {
 			backend,
 			this._layouts,
 			{ listenToShaderRuntime: false, msaaContext: this._msaa }
+		);
+		this._deferredResources = new WebGPUDeferredResources(
+			backend,
+			this._layouts,
+			() => this._pipelineLibrary.getDeferredLightingPipeline()
 		);
 		this._materialBindings = new WebGPUMaterialBindingCache(
 			backend,
@@ -770,7 +773,7 @@ export class WebGPURenderResources {
 	 * @sideEffects None.
 	 */
 	public getGBufferWriteLayout(): GPUBindGroupLayout {
-		return this._layouts.gbufferWriteBindGroupLayout;
+		return this._deferredResources.getGBufferWriteLayout();
 	}
 
 	/**
@@ -781,7 +784,7 @@ export class WebGPURenderResources {
 	 * @sideEffects None.
 	 */
 	public getGBufferReadLayout(): GPUBindGroupLayout {
-		return this._layouts.gbufferReadBindGroupLayout;
+		return this._deferredResources.getGBufferReadLayout();
 	}
 
 	/**
@@ -791,7 +794,7 @@ export class WebGPURenderResources {
 	 * @sideEffects None.
 	 */
 	public getDecalBindGroupLayout(): GPUBindGroupLayout {
-		return this._layouts.decalBindGroupLayout;
+		return this._deferredResources.getDecalBindGroupLayout();
 	}
 
 	/**
@@ -802,7 +805,7 @@ export class WebGPURenderResources {
 	 * @sideEffects None.
 	 */
 	public getDecalOutputBindGroupLayout(): GPUBindGroupLayout {
-		return this._layouts.decalOutputBindGroupLayout;
+		return this._deferredResources.getDecalOutputBindGroupLayout();
 	}
 
 	/**
@@ -812,7 +815,7 @@ export class WebGPURenderResources {
 	 * @sideEffects None.
 	 */
 	public getDecalBatchBindGroupLayout(): GPUBindGroupLayout {
-		return this._layouts.decalBatchBindGroupLayout;
+		return this._deferredResources.getDecalBatchBindGroupLayout();
 	}
 
 	/**
@@ -836,14 +839,7 @@ export class WebGPURenderResources {
 	 * @sideEffects May create and cache the placeholder bind group.
 	 */
 	public getDeferredUnusedBinding(): IBindingGroup {
-		if (!this._deferredUnusedBinding) {
-			this._deferredUnusedBinding = this._backend.createBindingGroup({
-				layout: this._layouts.deferredUnusedBindGroupLayout,
-				entries: [],
-				label: "WebGPUDeferredUnusedBinding",
-			});
-		}
-		return this._deferredUnusedBinding;
+		return this._deferredResources.getDeferredUnusedBinding();
 	}
 
 	/**
@@ -853,7 +849,7 @@ export class WebGPURenderResources {
 	 * @sideEffects May compile and cache the deferred lighting pipeline.
 	 */
 	public async getDeferredLightingPipeline(): Promise<IRenderPipeline> {
-		return this._pipelineLibrary.getDeferredLightingPipeline();
+		return this._deferredResources.getDeferredLightingPipeline();
 	}
 
 	/**
@@ -864,48 +860,7 @@ export class WebGPURenderResources {
 	 * @sideEffects May compile and cache the decal shader module and pipeline.
 	 */
 	public async getDecalPipeline(): Promise<IRenderPipeline> {
-		if (this._decalPipeline) {
-			return this._decalPipeline;
-		}
-		if (!this._decalShaderModule) {
-			const shader = await ShaderSource.load("webgpu.utility.decal.composite");
-			this._decalShaderModule = await this._backend.createShaderModule({
-				code: shader.code,
-				sourceMap: shader.sourceMap,
-				label: "WebGPUDecalShader",
-				language: "wgsl",
-				stage: "unknown",
-				sourceKind: "decal",
-			});
-		}
-		this._decalPipeline = await this._backend.createPipeline({
-			layout: this._layouts.decalPipelineLayout,
-			label: "WebGPUDeferredDecalPipeline",
-			vertex: {
-				module: this._decalShaderModule,
-				entryPoint: "vsMain",
-			},
-			fragment: {
-				module: this._decalShaderModule,
-				entryPoint: "fsMain",
-				targets: [
-					{ format: TextureFormat.RGBA8Unorm },
-					{ format: TextureFormat.RGBA16Float },
-					{ format: TextureFormat.RGBA16Float },
-					{ format: TextureFormat.RGBA16Float },
-					{ format: TextureFormat.RGBA16Float },
-					{ format: TextureFormat.RGBA16Float },
-					{ format: TextureFormat.RGBA16Float },
-				],
-			},
-			primitive: {
-				topology: "triangle-list" as any,
-				cullMode: "none",
-				frontFace: "ccw",
-			},
-			sampleCount: 1,
-		} as any);
-		return this._decalPipeline;
+		return this._deferredResources.getDecalPipeline();
 	}
 
 	/**
@@ -915,29 +870,7 @@ export class WebGPURenderResources {
 	 * @sideEffects May compile and cache the decal shader module and pipeline.
 	 */
 	public async getDecalBatchPipeline(): Promise<IComputePipeline> {
-		if (this._decalBatchPipeline) {
-			return this._decalBatchPipeline;
-		}
-		if (!this._decalShaderModule) {
-			const shader = await ShaderSource.load("webgpu.utility.decal.composite");
-			this._decalShaderModule = await this._backend.createShaderModule({
-				code: shader.code,
-				sourceMap: shader.sourceMap,
-				label: "WebGPUDecalShader",
-				language: "wgsl",
-				stage: "unknown",
-				sourceKind: "decal",
-			});
-		}
-		this._decalBatchPipeline = await this._backend.createComputePipeline({
-			layout: this._layouts.decalBatchPipelineLayout,
-			label: "WebGPUDeferredDecalBatchPipeline",
-			compute: {
-				module: this._decalShaderModule,
-				entryPoint: "csMainBatch",
-			},
-		} as any);
-		return this._decalBatchPipeline;
+		return this._deferredResources.getDecalBatchPipeline();
 	}
 
 	public updateParticleShadowVolumes(
@@ -1050,11 +983,7 @@ export class WebGPURenderResources {
 
 	/** @internal Owned by the WebGPU deferred frame runtime. */
 	public invalidateDeferredRuntimeResources(): void {
-		this._decalShaderModule = null;
-		this._decalPipeline = null;
-		this._decalBatchPipeline = null;
-		this._destroyBindingGroup(this._deferredUnusedBinding);
-		this._deferredUnusedBinding = null;
+		this._deferredResources.onShaderRuntimeChanged();
 	}
 
 	/** @internal Owned by the WebGPU shadow frame runtime. */

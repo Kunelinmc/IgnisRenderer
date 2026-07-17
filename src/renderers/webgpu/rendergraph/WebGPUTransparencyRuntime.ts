@@ -12,7 +12,10 @@ import {
 	type IShaderModule,
 } from "../../types";
 import { submitWebGPUDraws } from "../WebGPUDrawSubmission";
-import type { WebGPURenderResources } from "../WebGPURenderResources";
+import type {
+	WebGPUParticleRenderProvider,
+	WebGPUSceneResourceProvider,
+} from "../WebGPUResourceContracts";
 import type { WebGPUSceneTargetMode } from "../WebGPUScenePassDescriptors";
 import type { WebGPUFrameGraphRecordingContext } from "./WebGPUFrameGraphRecordingContext";
 import type { WebGPUFrameNodeRuntime } from "./WebGPUFrameNodeRuntimes";
@@ -64,7 +67,8 @@ export class WebGPUTransparencyRuntime implements WebGPUFrameNodeRuntime {
 
 	public constructor(
 		private readonly _host: WebGPUFrameHost,
-		private readonly _resources: WebGPURenderResources,
+		private readonly _resources: WebGPUSceneResourceProvider &
+			WebGPUParticleRenderProvider,
 		private readonly _recordingContext: WebGPUFrameGraphRecordingContext,
 		private readonly _sceneRecorder: WebGPUScenePassRecorder,
 		private readonly _diagnostics: WebGPUFrameDiagnosticSink,

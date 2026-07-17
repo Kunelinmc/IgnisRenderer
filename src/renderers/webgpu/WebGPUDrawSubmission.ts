@@ -5,7 +5,7 @@ import type {
 	WebGPUDrawResourceOptions,
 	WebGPUDrawResources,
 	WebGPUPreparedFrameResources,
-} from "./WebGPURenderResources";
+} from "./WebGPUResourceContracts";
 
 export interface WebGPUDrawSubmissionRect {
 	x: number;

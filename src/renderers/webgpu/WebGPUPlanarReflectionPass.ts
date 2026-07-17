@@ -10,8 +10,10 @@ import type { ICommandEncoder } from "../ICommandEncoder";
 import type { WebGPUFrameHost } from "./rendergraph/WebGPUFrameHost";
 import type {
 	WebGPUPreparedFrameResources,
-	WebGPURenderResources,
-} from "./WebGPURenderResources";
+ 	WebGPUFrameResourceProvider,
+	WebGPUPlanarReflectionResourceProvider,
+	WebGPUSceneResourceProvider,
+} from "./WebGPUResourceContracts";
 import type { WebGPUFrameTargets } from "./WebGPUPostProcessContracts";
 import {
 	submitWebGPUDraws,
@@ -58,12 +60,19 @@ export interface WebGPUPlanarReflectionCompositeRequest {
  */
 export class WebGPUPlanarReflectionPass {
 	private _backend: WebGPUFrameHost;
-	private _resources: WebGPURenderResources;
+	private _resources: WebGPUFrameResourceProvider &
+		WebGPUSceneResourceProvider &
+		WebGPUPlanarReflectionResourceProvider;
 	private _targets = new Map<string, PlanarReflectionTargetSet>();
 	private _activeReflections: ActivePlanarReflection[] = [];
 	private _bindings = new Map<IRenderTexture, IBindingGroup>();
 
-	constructor(backend: WebGPUFrameHost, resources: WebGPURenderResources) {
+	constructor(
+		backend: WebGPUFrameHost,
+		resources: WebGPUFrameResourceProvider &
+			WebGPUSceneResourceProvider &
+			WebGPUPlanarReflectionResourceProvider
+	) {
 		this._backend = backend;
 		this._resources = resources;
 	}

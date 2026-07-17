@@ -37,8 +37,11 @@ import type {
 } from "../types";
 import type {
 	WebGPUPreparedFrameResources,
-	WebGPURenderResources,
-} from "../WebGPURenderResources";
+} from "../WebGPUResourceContracts";
+import type {
+	WebGPUDeferredResourceProvider,
+	WebGPUTextureResourceProvider,
+} from "../WebGPUResourceContracts";
 import type { WebGPUFrameTargets } from "../WebGPUPostProcessContracts";
 import type { WebGPUFrameGraphRecordingContext } from "./WebGPUFrameGraphRecordingContext";
 
@@ -119,7 +122,8 @@ const DECAL_BATCH_WORKGROUP_SIZE = 8;
  */
 export class WebGPUDeferredDecalPass {
 	private readonly _host: WebGPUFrameHost;
-	private readonly _resources: WebGPURenderResources;
+	private readonly _resources: WebGPUDeferredResourceProvider &
+		WebGPUTextureResourceProvider;
 	private readonly _recordingContext: WebGPUFrameGraphRecordingContext;
 	private _uniformBuffer: IRenderBuffer | null = null;
 	private _snapshotTextures: IRenderTexture[] = [];
@@ -141,7 +145,7 @@ export class WebGPUDeferredDecalPass {
 
 	public constructor(
 		host: WebGPUFrameHost,
-		resources: WebGPURenderResources,
+		resources: WebGPUDeferredResourceProvider & WebGPUTextureResourceProvider,
 		callbacks: WebGPUDeferredDecalPassCallbacks
 	) {
 		this._host = host;

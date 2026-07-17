@@ -28,8 +28,10 @@ import { LightType } from "../../lights";
 import { ComputeRuntime } from "./ComputeRuntime";
 import type {
 	WebGPUPreparedFrameResources,
-	WebGPURenderResources,
-} from "./WebGPURenderResources";
+ 	WebGPUFrameResourceProvider,
+	WebGPUParticleRenderProvider,
+	WebGPUSceneResourceProvider,
+} from "./WebGPUResourceContracts";
 import type { WebGPUBackend } from "../WebGPUBackend";
 import { TextureFormat, TextureUsage } from "../types";
 import { submitWebGPUDraws } from "./WebGPUDrawSubmission";
@@ -58,10 +60,17 @@ const CUBE_FACE_UP_VECTORS: IVector3[] = [
 
 export class WebGPUReflectionProbeCapturePass {
 	private _backend: WebGPUBackend;
-	private _resources: WebGPURenderResources;
+	private _resources: WebGPUFrameResourceProvider &
+		WebGPUSceneResourceProvider &
+		WebGPUParticleRenderProvider;
 	private _readbackRuntime: ComputeRuntime;
 
-	constructor(backend: WebGPUBackend, resources: WebGPURenderResources) {
+	constructor(
+		backend: WebGPUBackend,
+		resources: WebGPUFrameResourceProvider &
+			WebGPUSceneResourceProvider &
+			WebGPUParticleRenderProvider
+	) {
 		this._backend = backend;
 		this._resources = resources;
 		this._readbackRuntime = new ComputeRuntime(backend);
@@ -272,10 +281,7 @@ export class WebGPUReflectionProbeCapturePass {
 	}
 
 	private _buildParticleMeshDrawPackets(context: FrameContext): DrawPacket[] {
-		const resources = this._resources as WebGPURenderResources & {
-			buildParticleMeshDrawPackets?: (context: FrameContext) => DrawPacket[];
-		};
-		return resources.buildParticleMeshDrawPackets?.(context) ?? [];
+		return this._resources.buildParticleMeshDrawPackets(context);
 	}
 
 	private async _recordEnvironmentCapturePass(

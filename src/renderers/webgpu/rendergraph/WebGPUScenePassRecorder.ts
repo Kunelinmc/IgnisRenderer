@@ -13,8 +13,9 @@ import {
 } from "../WebGPUDrawSubmission";
 import type {
 	WebGPUPreparedFrameResources,
-	WebGPURenderResources,
-} from "../WebGPURenderResources";
+ 	WebGPUParticleRenderProvider,
+	WebGPUSceneResourceProvider,
+} from "../WebGPUResourceContracts";
 import type { WebGPUSceneTargetMode } from "../WebGPUScenePassDescriptors";
 import type { WebGPUFrameHost } from "./WebGPUFrameHost";
 import {
@@ -40,14 +41,15 @@ export interface WebGPUScenePassRecorderCallbacks {
  */
 export class WebGPUScenePassRecorder {
 	private readonly _host: WebGPUFrameHost;
-	private readonly _resources: WebGPURenderResources;
+	private readonly _resources: WebGPUSceneResourceProvider &
+		WebGPUParticleRenderProvider;
 	private readonly _recordingContext: WebGPUFrameGraphRecordingContext;
 	private readonly _depthDirtyClearPass: WebGPUDepthDirtyClearPass;
 	private readonly _callbacks: WebGPUScenePassRecorderCallbacks;
 
 	public constructor(
 		host: WebGPUFrameHost,
-		resources: WebGPURenderResources,
+		resources: WebGPUSceneResourceProvider & WebGPUParticleRenderProvider,
 		recordingContext: WebGPUFrameGraphRecordingContext,
 		depthDirtyClearPass: WebGPUDepthDirtyClearPass,
 		callbacks: WebGPUScenePassRecorderCallbacks
@@ -180,16 +182,7 @@ export class WebGPUScenePassRecorder {
 			includeTransparent?: boolean;
 		}
 	): DrawPacket[] {
-		const resources = this._resources as WebGPURenderResources & {
-			buildParticleMeshDrawPackets?: (
-				context: FrameContext,
-				options: {
-					includeOpaque?: boolean;
-					includeTransparent?: boolean;
-				}
-			) => DrawPacket[];
-		};
-		return resources.buildParticleMeshDrawPackets?.(context, options) ?? [];
+		return this._resources.buildParticleMeshDrawPackets(context, options);
 	}
 
 	/**

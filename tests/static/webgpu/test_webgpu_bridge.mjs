@@ -3010,6 +3010,9 @@ async function testReflectionProbeCaptureUsesCanvasAttachmentFormats() {
 		async renderParticles() {
 			return 0;
 		},
+		buildParticleMeshDrawPackets() {
+			return [];
+		},
 	};
 	const probe = new ReflectionProbe({
 		includeMeshes: false,
@@ -3138,6 +3141,9 @@ async function testReflectionProbeCaptureUsesParentWorldPositionAsOrigin() {
 		},
 		async renderParticles() {
 			return 0;
+		},
+		buildParticleMeshDrawPackets() {
+			return [];
 		},
 	};
 	const modelRoot = new Node();
