@@ -26,8 +26,17 @@ function createPreparedFrameResources(options = {}) {
 	};
 }
 
+function createFrameScopeAdapter(resources) {
+	return {
+		prepare: (context, options) => resources.prepareFrame(context, options),
+		updateParticleShadowVolumes() {},
+		destroy() {},
+	};
+}
+
 function createResourcesStub() {
 	return {
+		createFrameScope() { return createFrameScopeAdapter(this); },
 		sceneFrameLayout: {},
 		prepareFrame(_context, options = {}) {
 			return createPreparedFrameResources(options);
@@ -41,6 +50,9 @@ function createResourcesStub() {
 			return null;
 		},
 		async renderParticles() {},
+		buildParticleMeshDrawPackets() {
+			return [];
+		},
 	};
 }
 
@@ -53,6 +65,7 @@ function createModeTrackingResourcesStub() {
 		drawPipelineModeAtRequest: null,
 	};
 	return {
+		createFrameScope() { return createFrameScopeAdapter(this); },
 		sceneFrameLayout: {},
 		prepareFrame(_context, options = {}) {
 			state.mode = options.sceneTargetMode ?? state.mode;
@@ -74,12 +87,16 @@ function createModeTrackingResourcesStub() {
 			return null;
 		},
 		async renderParticles() {},
+		buildParticleMeshDrawPackets() {
+			return [];
+		},
 		_state: state,
 	};
 }
 
 function createFrameContext(width, height) {
 	return {
+		createFrameScope() { return createFrameScopeAdapter(this); },
 		viewCamera: {},
 		attachments: { width, height },
 		features: {
@@ -123,6 +140,7 @@ function createOITBackend({ sampleCount = 1 } = {}) {
 function createMSAAContext(initialSampleCount = 1) {
 	let sampleCount = initialSampleCount;
 	return {
+		createFrameScope() { return createFrameScopeAdapter(this); },
 		get sampleCount() {
 			return sampleCount;
 		},
@@ -175,6 +193,7 @@ function createOITSequencingResourcesStub() {
 	};
 	return {
 		sceneFrameLayout: {},
+		createFrameScope() { return createFrameScopeAdapter(this); },
 		prepareFrame(_context, options = {}) {
 			state.events.push(`prepare:${options.sceneTargetMode ?? "default"}`);
 			return createPreparedFrameResources(options);
@@ -222,6 +241,9 @@ function createOITSequencingResourcesStub() {
 			encoder.endRenderPass();
 			return options.pipelineMode === "oit" ? 1 : 1;
 		},
+		buildParticleMeshDrawPackets() {
+			return [];
+		},
 		_state: state,
 	};
 }
@@ -242,6 +264,7 @@ function createDeferredLightingResourcesStub() {
 	};
 	return {
 		sceneFrameLayout: {},
+		createFrameScope() { return createFrameScopeAdapter(this); },
 		prepareFrame(_context, options = {}) {
 			return createPreparedFrameResources(options);
 		},
@@ -257,6 +280,9 @@ function createDeferredLightingResourcesStub() {
 			return [drawResource];
 		},
 		async renderParticles() {},
+		buildParticleMeshDrawPackets() {
+			return [];
+		},
 		getGBufferWriteLayout() {
 			return { id: "gbuffer-write-layout" };
 		},
@@ -298,6 +324,13 @@ function createPlanarReflectionResourcesStub() {
 	};
 	return {
 		sceneFrameLayout: {},
+		createFrameScope() {
+			return {
+				prepare: (context, options) => this.prepareFrame(context, options),
+				updateParticleShadowVolumes() {},
+				destroy() { state.events.push("scope:destroy"); },
+			};
+		},
 		prepareFrame(context, options = {}) {
 			state.prepareContexts.push(context);
 			state.events.push(
@@ -335,6 +368,9 @@ function createPlanarReflectionResourcesStub() {
 			return [drawResource];
 		},
 		async renderParticles() {},
+		buildParticleMeshDrawPackets() {
+			return [];
+		},
 		getPlanarReflectionLayout() {
 			return { id: "planar-reflection-layout" };
 		},
@@ -1238,11 +1274,10 @@ async function testPlanarReflectionCaptureFailureKeepsMainFrameResources() {
 	);
 
 	assert.strictEqual(executor.getPreparedFrameResources(), mainFrameResources);
-	assert.equal(mainFrameResources.scopeKey, "main");
 	assert.equal(mainFrameResources.sceneTargetMode, "mrt");
 	assert.ok(
 		resources._state.events.some((event) =>
-			event.startsWith("release:planar-reflection:")
+			event === "scope:destroy"
 		)
 	);
 	executor.abortFrame();

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { WebGPURenderResources } from "../../../src/renderers/webgpu/WebGPURenderResources.ts";
+import { WebGPUFrameServiceOwner as WebGPURenderResources } from "../../../src/renderers/webgpu/WebGPUFrameServiceOwner.ts";
 import { WebGPUFrameOrchestrator as WebGPUFrameExecutor } from "../../../src/renderers/webgpu/rendergraph/WebGPUFrameOrchestrator.ts";
 import { ShaderSource } from "../../../src/shaders/ShaderSource.ts";
 import {
@@ -263,6 +263,14 @@ function createPreparedFrameResources(options = {}) {
 		environmentState: {},
 		jointMatrixMap: new Map(),
 		morphWeightMap: new Map(),
+	};
+}
+
+function createFrameScopeAdapter(resources) {
+	return {
+		prepare: (context, options) => resources.prepareFrame(context, options),
+		updateParticleShadowVolumes() {},
+		destroy() {},
 	};
 }
 
@@ -1580,7 +1588,7 @@ function testWebGPUFrameFeatureRegistryGatesVolumetricLighting() {
 
 function testRenderResourcesResolveComputeFacadeFromBackend() {
 	const backend = new FakeBackend();
-	const resources = new WebGPURenderResources(backend);
+const resources = new WebGPURenderResources(backend);
 
 	assert.equal(backend.getComputeFacadeCalls, 1);
 	assert.equal(
@@ -1614,7 +1622,16 @@ function testRenderResourcesLeaveShaderRuntimeSubscriptionToBackend() {
 
 function testFrameExecutorConsumesComputeFacadeFromHost() {
 	const backend = new FakeBackend();
-	const resourcesStub = { sceneFrameLayout: null };
+	const resourcesStub = {
+		sceneFrameLayout: null,
+		createFrameScope() {
+			return {
+				prepare() { throw new Error("not used by this test"); },
+				updateParticleShadowVolumes() {},
+				destroy() {},
+			};
+		},
+	};
 	const executor = new WebGPUFrameExecutor(backend, resourcesStub);
 
 	assert.equal(backend.getComputeFacadeCalls, 0);
@@ -2996,6 +3013,7 @@ async function testReflectionProbeCaptureUsesCanvasAttachmentFormats() {
 		transient: new Map(),
 	};
 	const resources = {
+		createFrameScope() { return createFrameScopeAdapter(resources); },
 		prepareFrame(_context, options = {}) {
 			return createPreparedFrameResources(options);
 		},
@@ -3125,6 +3143,7 @@ async function testReflectionProbeCaptureUsesParentWorldPositionAsOrigin() {
 	};
 	const preparedCameraPositions = [];
 	const resources = {
+		createFrameScope() { return createFrameScopeAdapter(resources); },
 		prepareFrame(context, options = {}) {
 			preparedCameraPositions.push(
 				context.viewCamera.getWorldPosition({ x: 0, y: 0, z: 0 })

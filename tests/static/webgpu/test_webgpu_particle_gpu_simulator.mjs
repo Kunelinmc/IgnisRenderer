@@ -15,7 +15,7 @@ import { MeshAsset } from "../../../src/meshes/MeshAsset.ts";
 import { ParticleSystem } from "../../../src/particles/ParticleSystem.ts";
 import { ParticleBlendMode } from "../../../src/particles/types.ts";
 import { BufferUsage } from "../../../src/renderers/types.ts";
-import { WebGPURenderResources } from "../../../src/renderers/webgpu/WebGPURenderResources.ts";
+import { WebGPUFrameServiceOwner as WebGPURenderResources } from "../../../src/renderers/webgpu/WebGPUFrameServiceOwner.ts";
 import { WebGPUParticleSimulator } from "../../../src/simulation/particles/WebGPUParticleSimulator.ts";
 import { WEBGPU_PARTICLE_DRAW_BATCHES_KEY } from "../../../src/renderers/webgpu/particleTransient.ts";
 import {

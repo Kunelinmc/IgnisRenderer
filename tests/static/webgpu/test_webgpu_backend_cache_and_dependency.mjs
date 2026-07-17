@@ -791,7 +791,7 @@ function testResizeUsesProvidedDimensions() {
 			assert.equal(config.device, device);
 		},
 	};
-	backend._frameExecutor = {
+	backend._frameOrchestrator = {
 		endFrame() {},
 		abortFrame() {},
 		invalidateFrameTargets() {
@@ -815,7 +815,7 @@ async function testResizeDuringActiveFrameDefersResourceInvalidation() {
 			assert.equal(config.device, device);
 		},
 	};
-	backend._frameExecutor = {
+	backend._frameOrchestrator = {
 		endFrame() {},
 		abortFrame() {},
 		invalidateFrameTargets() {
@@ -842,7 +842,7 @@ async function testShaderRuntimeChangeDuringActiveFrameDefersInvalidation() {
 	const { backend } = createBackend();
 	let executorInvalidations = 0;
 	let resourceInvalidations = 0;
-	backend._frameExecutor = {
+	backend._frameOrchestrator = {
 		endFrame() {},
 		abortFrame() {},
 		onShaderRuntimeChanged() {
@@ -885,7 +885,7 @@ async function testDeferredResizeInvalidatesFrameTargets() {
 			device.configureCalls++;
 		},
 	};
-	backend._frameExecutor = {
+	backend._frameOrchestrator = {
 		endFrame() {},
 		abortFrame() {},
 		invalidateFrameTargets() {
@@ -941,7 +941,7 @@ function testAutomaticDeviceLossDestroysPostProcessBeforeRollback() {
 			calls.push("postprocess-runtime");
 		},
 	};
-	backend._frameExecutor = {
+	backend._frameOrchestrator = {
 		destroy() {
 			calls.push("frame-executor");
 		},
@@ -1018,9 +1018,10 @@ function testBackendPlanOmitsRendererOwnedPostProcessStage() {
 		beginFrameResourceLifecycle() {},
 		prepareFrame() {},
 	};
-	backend._frameExecutor = {
+	backend._frameOrchestrator = {
 		beginFrame() {},
 		executePass() {},
+		updateParticleShadowVolumes() {},
 		getPreparedFrameResources() {
 			return null;
 		},
@@ -1028,6 +1029,9 @@ function testBackendPlanOmitsRendererOwnedPostProcessStage() {
 		abortFrame() {},
 		destroy() {},
 		invalidateFrameTargets() {},
+		createPostProcessSessionPort() {
+			return null;
+		},
 	};
 	backend._particleSimulator = {
 		beginFrame() {},
@@ -1063,9 +1067,10 @@ function testPassPlanAllowsParticleStageBeforeMainOpaque() {
 		beginFrameResourceLifecycle() {},
 		prepareFrame() {},
 	};
-	backend._frameExecutor = {
+	backend._frameOrchestrator = {
 		beginFrame() {},
 		executePass() {},
+		updateParticleShadowVolumes() {},
 		getPreparedFrameResources() {
 			return null;
 		},
@@ -1073,6 +1078,9 @@ function testPassPlanAllowsParticleStageBeforeMainOpaque() {
 		abortFrame() {},
 		destroy() {},
 		invalidateFrameTargets() {},
+		createPostProcessSessionPort() {
+			return null;
+		},
 	};
 	backend._particleSimulator = {
 		beginFrame() {},
@@ -1137,9 +1145,10 @@ async function testAbortFrameClearsPlannerAndDelegatesWithoutEndFrame() {
 		beginFrameResourceLifecycle() {},
 		prepareFrame() {},
 	};
-	backend._frameExecutor = {
+	backend._frameOrchestrator = {
 		beginFrame() {},
 		executePass() {},
+		updateParticleShadowVolumes() {},
 		getPreparedFrameResources() {
 			return null;
 		},
@@ -1151,6 +1160,9 @@ async function testAbortFrameClearsPlannerAndDelegatesWithoutEndFrame() {
 		},
 		destroy() {},
 		invalidateFrameTargets() {},
+		createPostProcessSessionPort() {
+			return null;
+		},
 	};
 	backend._particleSimulator = {
 		beginFrame() {},
@@ -1200,7 +1212,7 @@ async function testEndFrameFailureStillEndsParticleFrameAndClearsPlanner() {
 		beginFrameResourceLifecycle() {},
 		prepareFrame() {},
 	};
-	backend._frameExecutor = {
+	backend._frameOrchestrator = {
 		beginFrame() {},
 		executePass() {},
 		getPreparedFrameResources() {
@@ -1212,6 +1224,9 @@ async function testEndFrameFailureStillEndsParticleFrameAndClearsPlanner() {
 		abortFrame() {},
 		destroy() {},
 		invalidateFrameTargets() {},
+		createPostProcessSessionPort() {
+			return null;
+		},
 	};
 	backend._particleSimulator = {
 		beginFrame() {},
@@ -1245,7 +1260,7 @@ async function testWarmupAggregatesPhases() {
 			return { orderedPasses: [], passes: [] };
 		},
 	};
-	backend._frameExecutor = {
+	backend._frameOrchestrator = {
 		warmup: async () => ({
 			phase: "frame",
 			total: 2,

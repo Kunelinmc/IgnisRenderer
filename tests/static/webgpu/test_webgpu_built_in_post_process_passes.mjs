@@ -118,6 +118,13 @@ function createExecutorHarness(postProcessRequest = {
 	};
 	const resources = {
 		sceneFrameLayout: {},
+		createFrameScope() {
+			return {
+				prepare() { return frameResources; },
+				updateParticleShadowVolumes() {},
+				destroy() {},
+			};
+		},
 		prepareFrame() {
 			return frameResources;
 		},
@@ -336,6 +343,13 @@ async function testWarmupHintsFollowPlanPostProcessPasses() {
 	const backend = new FakeBackend();
 	const resources = {
 		sceneFrameLayout: {},
+		createFrameScope() {
+			return {
+				prepare() { throw new Error("not used by warmup test"); },
+				updateParticleShadowVolumes() {},
+				destroy() {},
+			};
+		},
 	};
 	const executor = new WebGPUFrameExecutor(backend, resources);
 
