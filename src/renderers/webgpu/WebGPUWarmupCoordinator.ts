@@ -17,18 +17,18 @@ import {
 } from "../../pipeline/WarmupPlanner";
 import type { BackendPostProcessRuntime } from "../../postprocess/BackendPostProcessRuntime";
 import type { WebGPUFrameOrchestrator } from "./rendergraph/WebGPUFrameOrchestrator";
-import type { WebGPURenderResources } from "./WebGPURenderResources";
+import type { WebGPUFrameServiceOwner } from "./WebGPUFrameServiceOwner";
 
 export interface WebGPUWarmupCoordinatorHost {
 	readonly profile: RenderBackendProfile;
 	readonly frameOrchestrator: WebGPUFrameOrchestrator | null;
-	readonly resources: WebGPURenderResources | null;
+	readonly resources: WebGPUFrameServiceOwner | null;
 	readonly postProcessRuntime: BackendPostProcessRuntime;
 	setWarmupLogCompilationInfo(enabled: boolean): void;
 }
 
 export class WebGPUWarmupCoordinator {
-	public constructor(private readonly _host: WebGPUWarmupCoordinatorHost) {}
+	constructor(private readonly _host: WebGPUWarmupCoordinatorHost) {}
 
 	public async warmup(
 		context: FrameContext,

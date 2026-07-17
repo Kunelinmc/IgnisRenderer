@@ -18,36 +18,21 @@ import type {
 } from "../../types";
 import type { IWebGPUComputeFacade } from "../ComputeFacade";
 import type { BackendPostProcessRuntime } from "../../../postprocess/BackendPostProcessRuntime";
+import type { WebGPUDeviceResourceHost } from "../WebGPUDeviceResourceHost";
 
 /**
  * Narrow device-session surface consumed by the WebGPU frame subsystem.
  *
  * @internal Owned by `WebGPUBackend`; applications must use `Renderer`.
  */
-export interface WebGPUFrameHost {
-	readonly device: GPUDevice | null;
-	readonly queue: GPUQueue | null;
-	readonly canvasFormat: TextureFormat;
-	readonly canvasDepthFormat: TextureFormat;
+export interface WebGPUFrameHost extends WebGPUDeviceResourceHost {
 	readonly computeFacade: IWebGPUComputeFacade;
 	readonly postProcessRuntime: BackendPostProcessRuntime;
 	readonly enableEarlyZPrepass: boolean;
 	readonly enableDeferredLighting: boolean;
 	readonly frameGraphValidationMode: "throw" | "warn";
-	createBuffer(desc: BufferDesc): IRenderBuffer;
-	createTexture(desc: TextureDesc): IRenderTexture;
-	createSampler(desc: SamplerDesc): ISampler;
-	createShaderModule(desc: ShaderModuleDesc): Promise<IShaderModule>;
-	createPipeline(desc: PipelineDesc): Promise<IRenderPipeline>;
-	createComputePipeline(desc: ComputePipelineDesc): Promise<IComputePipeline>;
-	createBindingGroup(desc: BindingGroupDesc): IBindingGroup;
-	createTextureView(
-		texture: IRenderTexture,
-		desc?: GPUTextureViewDescriptor,
-	): GPUTextureView;
 	createCommandEncoder(): ICommandEncoder;
 	submit(commands: ICommandBuffer[]): void;
-	writeBuffer(buffer: IRenderBuffer, data: BufferSource, offset?: number): void;
 	getCanvasColorTexture(): IRenderTexture;
 	getCanvasDepthTexture(): IRenderTexture;
 	assertDeviceOperational(operation: string): void;

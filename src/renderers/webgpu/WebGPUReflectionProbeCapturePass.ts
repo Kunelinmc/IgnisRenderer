@@ -28,7 +28,7 @@ import { LightType } from "../../lights";
 import { ComputeRuntime } from "./ComputeRuntime";
 import type {
 	WebGPUPreparedFrameResources,
- 	WebGPUFrameResourceProvider,
+	WebGPUFrameResourceProvider,
 	WebGPUParticleRenderProvider,
 	WebGPUSceneResourceProvider,
 } from "./WebGPUResourceContracts";
@@ -142,12 +142,11 @@ export class WebGPUReflectionProbeCapturePass {
 			faceSize,
 			resolvedFaceIndex
 		);
-		const scopeKey = `probe-capture:${request.targetKind}:${request.targetId}:${resolvedFaceIndex}`;
+		const scope = this._resources.createFrameScope();
 		let frameResources: WebGPUPreparedFrameResources | null = null;
 
 		try {
-			frameResources = this._resources.prepareFrame(captureContext, {
-				scopeKey,
+			frameResources = scope.prepare(captureContext, {
 				sceneTargetMode: "mrt",
 				temporalStateMode: "disabled",
 			});
@@ -197,7 +196,7 @@ export class WebGPUReflectionProbeCapturePass {
 			);
 		} finally {
 			destroyCaptureRenderTargets(captureTargets);
-			this._resources.releaseScope(scopeKey);
+			scope.destroy();
 		}
 	}
 

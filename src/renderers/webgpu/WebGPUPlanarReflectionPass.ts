@@ -10,7 +10,8 @@ import type { ICommandEncoder } from "../ICommandEncoder";
 import type { WebGPUFrameHost } from "./rendergraph/WebGPUFrameHost";
 import type {
 	WebGPUPreparedFrameResources,
- 	WebGPUFrameResourceProvider,
+	WebGPUFrameResourceProvider,
+	WebGPUFrameResourceScope,
 	WebGPUPlanarReflectionResourceProvider,
 	WebGPUSceneResourceProvider,
 } from "./WebGPUResourceContracts";
@@ -33,6 +34,7 @@ interface PlanarReflectionTargetSet {
 	depth: IRenderTexture;
 	width: number;
 	height: number;
+	scope: WebGPUFrameResourceScope;
 }
 
 interface ActivePlanarReflection {
@@ -132,8 +134,7 @@ export class WebGPUPlanarReflectionPass {
 					width,
 					height
 				);
-				const frameResources = this._resources.prepareFrame(captureContext, {
-					scopeKey: createPlanarReflectionScopeKey(planeInfo.key),
+				const frameResources = targets.scope.prepare(captureContext, {
 					sceneTargetMode: "color",
 					temporalStateMode: "disabled",
 				});
@@ -273,9 +274,9 @@ export class WebGPUPlanarReflectionPass {
 	 * @sideEffects Destroys cached render targets and bind groups.
 	 */
 	public destroy(): void {
-		for (const [key, targets] of this._targets.entries()) {
+		for (const targets of this._targets.values()) {
 			this._destroyTargets(targets);
-			this._resources.releaseScope(createPlanarReflectionScopeKey(key));
+			targets.scope.destroy();
 		}
 		this._targets.clear();
 		for (const binding of this._bindings.values()) {
@@ -385,8 +386,12 @@ export class WebGPUPlanarReflectionPass {
 		}
 		if (existing) {
 			this._destroyTargets(existing);
+			existing.scope.destroy();
 		}
-		const targets = createTargets(this._backend, key, width, height);
+		const targets = {
+			...createTargets(this._backend, key, width, height),
+			scope: this._resources.createFrameScope(),
+		};
 		this._targets.set(key, targets);
 		return targets;
 	}
@@ -397,8 +402,8 @@ export class WebGPUPlanarReflectionPass {
 				continue;
 			}
 			this._destroyTargets(targets);
+			targets.scope.destroy();
 			this._targets.delete(key);
-			this._resources.releaseScope(createPlanarReflectionScopeKey(key));
 		}
 	}
 
@@ -680,16 +685,12 @@ function resolvePlaneKey(
 		.join(",");
 }
 
-function createPlanarReflectionScopeKey(planeKey: string): string {
-	return `planar-reflection:${planeKey}`;
-}
-
 function createTargets(
 	backend: WebGPUFrameHost,
 	key: string,
 	width: number,
 	height: number
-): PlanarReflectionTargetSet {
+): Omit<PlanarReflectionTargetSet, "scope"> {
 	const safeKey = key.replace(/[^a-zA-Z0-9_-]/g, "_");
 	return {
 		sceneColor: backend.createTexture({

@@ -16,7 +16,7 @@ import {
 } from "../../types";
 import { tryGetTextureFormatInfo } from "../../TextureFormatInfo";
 import type { WebGPUFrameHost } from "./WebGPUFrameHost";
-import type { WebGPUPreparedFrameResources } from "../WebGPURenderResources";
+import type { WebGPUPreparedFrameResources } from "../WebGPUResourceContracts";
 import {
 	isWebGPUPostProcessContextMetadata,
 	type WebGPUFrameTargets,
@@ -44,19 +44,17 @@ export class WebGPUPostProcessBridge {
 	private readonly _callbacks: WebGPUPostProcessBridgeCallbacks;
 	private _pendingColorTarget: IRenderTexture | null = null;
 
-	public constructor(
+	constructor(
 		host: WebGPUFrameHost,
 		runtime: WebGPUPostProcessRuntime,
-		callbacks: WebGPUPostProcessBridgeCallbacks
+		callbacks: WebGPUPostProcessBridgeCallbacks,
 	) {
 		this._host = host;
 		this._runtime = runtime;
 		this._callbacks = callbacks;
 	}
 
-	public createResource(
-		desc: PostProcessResourceDescriptor
-	): PostProcessResourceHandle {
+	public createResource(desc: PostProcessResourceDescriptor): PostProcessResourceHandle {
 		const requestedFormat =
 			tryGetTextureFormatInfo(desc.format)?.format ?? TextureFormat.RGBA16Float;
 		const texture = this._host.createTexture({
@@ -64,9 +62,9 @@ export class WebGPUPostProcessBridge {
 			height: desc.height,
 			format: requestedFormat,
 			mipLevelCount:
-				desc.mipMode === "full-chain" ?
-					Math.floor(Math.log2(Math.max(desc.width, desc.height))) + 1
-				:	undefined,
+				desc.mipMode === "full-chain"
+					? Math.floor(Math.log2(Math.max(desc.width, desc.height))) + 1
+					: undefined,
 			usage:
 				TextureUsage.TextureBinding |
 				TextureUsage.StorageBinding |
@@ -199,9 +197,7 @@ export class WebGPUPostProcessBridge {
 		};
 	}
 
-	public getPassExecutionContext(
-		request: PostProcessPassExecutionContextRequest
-	): unknown {
+	public getPassExecutionContext(request: PostProcessPassExecutionContextRequest): unknown {
 		if (!this._callbacks.getEncoder() || !this._callbacks.getFrameTargets()) {
 			return undefined;
 		}
@@ -213,16 +209,11 @@ export class WebGPUPostProcessBridge {
 		return this._createContext(metadata, request, "execute");
 	}
 
-	public getPassWarmupExecutionContext(
-		metadata: WebGPUPostProcessContextMetadata
-	): unknown {
+	public getPassWarmupExecutionContext(metadata: WebGPUPostProcessContextMetadata): unknown {
 		return this._createContext(metadata, null, "warmup");
 	}
 
-	public completePass(
-		request: PostProcessPassRequest,
-		result: PostProcessPassResult
-	): void {
+	public completePass(request: PostProcessPassRequest, result: PostProcessPassResult): void {
 		const colorTarget = this._pendingColorTarget;
 		this._pendingColorTarget = null;
 		const targets = this._callbacks.getFrameTargets();
@@ -237,7 +228,7 @@ export class WebGPUPostProcessBridge {
 				{
 					scope: "WebGPUFrameOrchestrator",
 					onceKey: `webgpu-postprocess-color-target-unowned:${request.passId}`,
-				}
+				},
 			);
 			return;
 		}
@@ -251,7 +242,7 @@ export class WebGPUPostProcessBridge {
 	private _createContext(
 		metadata: WebGPUPostProcessContextMetadata,
 		request: PostProcessPassRequest | null,
-		mode: "execute" | "warmup"
+		mode: "execute" | "warmup",
 	): Record<string, unknown> | undefined {
 		if (
 			mode === "execute" &&
@@ -282,12 +273,10 @@ export class WebGPUPostProcessBridge {
 			};
 		}
 		if (metadata.frameBinding && mode === "execute") {
-			context.frameBinding =
-				this._callbacks.requireFrameResources().frameBinding;
+			context.frameBinding = this._callbacks.requireFrameResources().frameBinding;
 		}
 		if (metadata.lightingState && mode === "execute") {
-			context.lightingState =
-				this._callbacks.requireFrameResources().lightingState;
+			context.lightingState = this._callbacks.requireFrameResources().lightingState;
 		}
 		if (metadata.frameData && mode === "execute") {
 			const featureData = this._callbacks.requireFrameResources().featureData;
@@ -300,22 +289,18 @@ export class WebGPUPostProcessBridge {
 				context[binding.property] = this._getHistoryTexture(
 					request,
 					binding.historyId,
-					binding.side
+					binding.side,
 				);
 			}
 			for (const binding of metadata.transients ?? []) {
-				context[binding.property] = this._getTransientTexture(
-					request,
-					binding.transientId
-				);
+				context[binding.property] = this._getTransientTexture(request, binding.transientId);
 			}
 			const motionCopy = metadata.motionHistoryCopy;
 			if (motionCopy) {
 				const method = motionCopy.method ?? "writeMotionHistoryFromCurrent";
 				context[method] = (): void => {
 					this._callbacks.setMotionHistoryWriteTarget(
-						(context[motionCopy.writeProperty] as IRenderTexture | null) ??
-							null
+						(context[motionCopy.writeProperty] as IRenderTexture | null) ?? null,
 					);
 				};
 			}
@@ -334,10 +319,7 @@ export class WebGPUPostProcessBridge {
 		});
 	}
 
-	private _isOwnedColorTarget(
-		texture: IRenderTexture,
-		targets: WebGPUFrameTargets
-	): boolean {
+	private _isOwnedColorTarget(texture: IRenderTexture, targets: WebGPUFrameTargets): boolean {
 		return (
 			texture === targets.sceneColorMain ||
 			texture === targets.postPing ||
@@ -348,7 +330,7 @@ export class WebGPUPostProcessBridge {
 	private _getHistoryTexture(
 		request: PostProcessPassRequest,
 		id: string,
-		side: "read" | "write"
+		side: "read" | "write",
 	): IRenderTexture | null {
 		const slot = request.histories[id]?.[side];
 		return (slot?.resource as IRenderTexture | null) ?? null;
@@ -356,7 +338,7 @@ export class WebGPUPostProcessBridge {
 
 	private _getTransientTexture(
 		request: PostProcessPassRequest,
-		id: string
+		id: string,
 	): IRenderTexture | null {
 		const slot = request.transients?.[id];
 		return (slot?.handle.resource as IRenderTexture | null) ?? null;

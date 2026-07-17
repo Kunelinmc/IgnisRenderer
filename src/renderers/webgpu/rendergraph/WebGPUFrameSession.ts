@@ -1,7 +1,7 @@
 import type { FrameContext } from "../../../pipeline/types";
 import type { ICommandEncoder } from "../../ICommandEncoder";
 import type { IRenderTexture } from "../../types";
-import type { WebGPUPreparedFrameResources } from "../WebGPURenderResources";
+import type { WebGPUPreparedFrameResources } from "../WebGPUResourceContracts";
 import type { WebGPUFrameConfiguration } from "./WebGPUFrameConfigurationResolver";
 import type { WebGPUDeferredOpaqueFrameState } from "./WebGPUScenePassRecorder";
 import type { WebGPUFrameFeatureAnalysis } from "./WebGPUFrameFeatureAnalyzer";

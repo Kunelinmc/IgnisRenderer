@@ -3,7 +3,6 @@ import { PARTICLE_SIM_DELTA_TIME_SECONDS_KEY } from "../../pipeline/types";
 import type { BackendPostProcessRuntime } from "../../postprocess/BackendPostProcessRuntime";
 import type { IParticleSimulator } from "../../simulation/particles/IParticleSimulator";
 import type { WebGPUFrameOrchestrator } from "./rendergraph/WebGPUFrameOrchestrator";
-import type { WebGPURenderResources } from "./WebGPURenderResources";
 
 type ParticleSimulatorWithBatchEmit = IParticleSimulator & {
 	simulateAndEmitRenderBatches?: (
@@ -16,16 +15,12 @@ export interface WebGPUBackendPassDispatcherHost {
 	readonly frameOrchestrator: WebGPUFrameOrchestrator | null;
 	readonly particleSimulator: IParticleSimulator | null;
 	readonly postProcessRuntime: BackendPostProcessRuntime;
-	readonly resources: WebGPURenderResources | null;
 }
 
 export class WebGPUBackendPassDispatcher {
-	public constructor(private readonly _host: WebGPUBackendPassDispatcherHost) {}
+	constructor(private readonly _host: WebGPUBackendPassDispatcherHost) {}
 
-	public executePass(
-		pass: FramePass,
-		context: FrameContext
-	): Promise<void> | void | null {
+	public executePass(pass: FramePass, context: FrameContext): Promise<void> | void | null {
 		switch (pass.stage) {
 			case "animation-sim":
 				return undefined;
@@ -38,22 +33,14 @@ export class WebGPUBackendPassDispatcher {
 
 	private async _executeParticleSimulation(context: FrameContext): Promise<void> {
 		const deltaTimeSeconds = this._resolveParticleDeltaTime(context);
-		const simulator =
-			this._host.particleSimulator as ParticleSimulatorWithBatchEmit | null;
+		const simulator = this._host.particleSimulator as ParticleSimulatorWithBatchEmit | null;
 		if (simulator?.simulateAndEmitRenderBatches) {
 			await simulator.simulateAndEmitRenderBatches(context, deltaTimeSeconds);
 		} else {
 			simulator?.simulate(context, deltaTimeSeconds);
 			simulator?.emitRenderBatches(context);
 		}
-		const frameResources =
-			this._host.frameOrchestrator?.getPreparedFrameResources();
-		if (frameResources) {
-			this._host.resources?.updateParticleShadowVolumes?.(
-				frameResources,
-				context
-			);
-		}
+		this._host.frameOrchestrator?.updateParticleShadowVolumes(context);
 	}
 
 	private _resolveParticleDeltaTime(context: FrameContext): number {

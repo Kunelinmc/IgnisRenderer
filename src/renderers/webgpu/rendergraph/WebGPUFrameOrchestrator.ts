@@ -13,9 +13,10 @@ import type { IRenderTexture } from "../../types";
 import type { WebGPUFrameHost } from "./WebGPUFrameHost";
 import type { WebGPUMSAAContext } from "../WebGPUMSAAController";
 import type {
+	WebGPUFrameResourceScope,
 	WebGPUPreparedFrameResources,
-	WebGPURenderResources,
-} from "../WebGPURenderResources";
+} from "../WebGPUResourceContracts";
+import type { WebGPUFrameServiceOwner } from "../WebGPUFrameServiceOwner";
 import { WebGPUHiZBuilder } from "../WebGPUHiZBuilder";
 import type { BackendPostProcessRuntime } from "../../../postprocess/BackendPostProcessRuntime";
 
@@ -117,7 +118,8 @@ export interface WebGPUFrameOrchestratorOptions {
 
 export class WebGPUFrameOrchestrator {
 	private _host: WebGPUFrameHost;
-	private _resources: WebGPURenderResources;
+	private _resources: WebGPUFrameServiceOwner;
+	private readonly _mainFrameScope: WebGPUFrameResourceScope;
 	private _msaa: WebGPUMSAAContext;
 	private _session: WebGPUFrameSession | null = null;
 	private _lastConfiguration: WebGPUFrameConfiguration | null = null;
@@ -155,7 +157,7 @@ export class WebGPUFrameOrchestrator {
 
 	constructor(
 		host: WebGPUFrameHost,
-		resources: WebGPURenderResources,
+		resources: WebGPUFrameServiceOwner,
 		msaa: WebGPUMSAAContext = SINGLE_SAMPLE_WEBGPU_MSAA_CONTEXT,
 		options: WebGPUFrameOrchestratorOptions = {
 			enableEarlyZPrepass: host.enableEarlyZPrepass,
@@ -165,6 +167,7 @@ export class WebGPUFrameOrchestrator {
 	) {
 		this._host = host;
 		this._resources = resources;
+		this._mainFrameScope = resources.createFrameScope();
 		this._msaa = msaa;
 		this._enableEarlyZPrepass = options.enableEarlyZPrepass;
 		this._enableDeferredLighting = options.enableDeferredLighting;
@@ -506,8 +509,7 @@ export class WebGPUFrameOrchestrator {
 			this._frameResources = null;
 			return null;
 		}
-		this._frameResources = this._resources.prepareFrame(context, {
-			scopeKey: "main",
+		this._frameResources = this._mainFrameScope.prepare(context, {
 			sceneTargetMode: this.getSceneTargetModeForFrame(),
 		});
 		return this._frameResources;
@@ -521,6 +523,13 @@ export class WebGPUFrameOrchestrator {
 	 */
 	public getPreparedFrameResources(): WebGPUPreparedFrameResources | null {
 		return this._frameResources;
+	}
+
+	/** @internal Updates main-scope particle shadow volumes after simulation. */
+	public updateParticleShadowVolumes(context: FrameContext): void {
+		if (this._frameResources) {
+			this._mainFrameScope.updateParticleShadowVolumes(context);
+		}
 	}
 
 	public createPostProcessResource(
@@ -755,6 +764,7 @@ export class WebGPUFrameOrchestrator {
 		this._destroyTexturePools();
 		for (const runtime of this._nodeRuntimes) runtime.destroy();
 		this._customRenderTargets.destroy();
+		this._mainFrameScope.destroy();
 		this._pendingFrameTargetInvalidation = false;
 		this._pendingShaderRuntimeInvalidation = false;
 		this._clearActiveSession(false);
@@ -868,9 +878,6 @@ export class WebGPUFrameOrchestrator {
 					this._createPagedShadowRequest(session.context),
 				);
 			},
-		}, {
-			onShaderRuntimeChanged: () => this._resources.onShadowRuntimeShaderChanged?.(),
-			destroy: () => this._resources.destroyShadowRuntimeResources?.(),
 		});
 		const reflection = new WebGPUReflectionNodeRuntime("reflection", {
 			"planar-reflection-capture": async (_node, session) => {
@@ -893,11 +900,7 @@ export class WebGPUFrameOrchestrator {
 			},
 		}, {
 			invalidateFrameResources: () => this._destroyDeferredBindings(),
-			onShaderRuntimeChanged: () => {
-				this._destroyDeferredBindings();
-				this._resources.invalidateDeferredRuntimeResources?.();
-			},
-			destroy: () => this._resources.invalidateDeferredRuntimeResources?.(),
+			onShaderRuntimeChanged: () => this._destroyDeferredBindings(),
 		});
 		const visibility = new WebGPUVisibilityNodeRuntime("visibility", {
 			"hiz-build": async (_node, session) => {
@@ -1137,7 +1140,7 @@ export class WebGPUFrameOrchestrator {
 			includeTransparent?: boolean;
 		},
 	): DrawPacket[] {
-		const resources = this._resources as WebGPURenderResources & {
+		const resources = this._resources as WebGPUFrameServiceOwner & {
 			buildParticleMeshDrawPackets?: (
 				context: FrameContext,
 				options: {
