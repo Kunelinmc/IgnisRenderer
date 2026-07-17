@@ -1,8 +1,5 @@
 /// <reference types="@webgpu/types" />
-import {
-	type ICommandBuffer,
-	type ICommandEncoder,
-} from "./ICommandEncoder";
+import { type ICommandBuffer, type ICommandEncoder } from "./ICommandEncoder";
 import type {
 	IRenderBackend,
 	BackendCapabilities,
@@ -40,24 +37,16 @@ import { WebGPUCommandScheduler } from "./webgpu/WebGPUCommandScheduler";
 import { WebGPUCanvasTargetManager } from "./webgpu/WebGPUCanvasTargetManager";
 import { WebGPUResourceManager } from "./webgpu/WebGPUResourceManager";
 import { WebGPUShaderModuleCompiler } from "./webgpu/WebGPUShaderModuleCompiler";
-import {
-	WebGPUPipelineCache,
-	type WebGPUPipelineCacheHost,
-} from "./webgpu/WebGPUPipelineCache";
+import { WebGPUPipelineCache, type WebGPUPipelineCacheHost } from "./webgpu/WebGPUPipelineCache";
 import {
 	WebGPUBindingGroupCache,
 	type WebGPUBindingGroupCacheHost,
 } from "./webgpu/WebGPUBindingGroupCache";
 import { WebGPUObjectIdentity } from "./webgpu/WebGPUObjectIdentity";
-import {
-	WebGPUMSAAController,
-	type WebGPUMSAAControllerHost,
-} from "./webgpu/WebGPUMSAAController";
+import { WebGPUMSAAController, type WebGPUMSAAControllerHost } from "./webgpu/WebGPUMSAAController";
 import { WebGPUBackendPassDispatcher } from "./webgpu/WebGPUBackendPassDispatcher";
 import { WebGPUWarmupCoordinator } from "./webgpu/WebGPUWarmupCoordinator";
-import {
-	WebGPUReflectionProbeCapturePass,
-} from "./webgpu/WebGPUReflectionProbeCapturePass";
+import { WebGPUReflectionProbeCapturePass } from "./webgpu/WebGPUReflectionProbeCapturePass";
 import type { ProbeWebGPUCaptureFaceRequest } from "../lights/runtime/ProbeCaptureRuntime";
 import { WebGPUFrameServiceOwner } from "./webgpu/WebGPUFrameServiceOwner";
 import type { WebGPUCommandSchedulerHost } from "./webgpu/WebGPUBackendContracts";
@@ -114,12 +103,15 @@ import { Logger } from "../foundation/Logger";
 
 const DEVICE_RECOVERY_MAX_ATTEMPTS = 3;
 const DEVICE_RECOVERY_BASE_DELAY_MS = 100;
+const WEBGPU_MAX_PARTICLES_PER_SYSTEM = 300_000;
+
 const WEBGPU_DEBUG_INFO_UNINITIALIZED: RenderBackendDebugInfo = {
 	backend: "webgpu",
 	api: "webgpu",
 	available: false,
 	unavailableReason: "WebGPU backend has not been initialized.",
 };
+
 const WEBGPU_DEBUG_LIMIT_KEYS = [
 	"maxTextureDimension2D",
 	"maxTextureArrayLayers",
@@ -135,6 +127,50 @@ const WEBGPU_DEBUG_LIMIT_KEYS = [
 	"maxColorAttachments",
 	"maxColorAttachmentBytesPerSample",
 ] as const;
+
+const WEBGPU_OPTIONAL_DEVICE_FEATURES = [
+	"timestamp-query",
+	"indirect-first-instance",
+] as const satisfies readonly GPUFeatureName[];
+
+const WEBGPU_REQUIRED_DEVICE_LIMITS = [
+	{
+		name: "maxSampledTexturesPerShaderStage",
+		minimum: WEBGPU_REQUIRED_FRAGMENT_SAMPLED_TEXTURE_COUNT,
+		description: "WebGPU pipeline sampled texture count",
+	},
+	{
+		name: "maxSamplersPerShaderStage",
+		minimum: WEBGPU_SCENE_REQUIRED_FRAGMENT_SAMPLER_COUNT,
+		description: "scene pipeline sampler count",
+	},
+	{
+		name: "maxStorageBuffersPerShaderStage",
+		minimum: WEBGPU_REQUIRED_FRAGMENT_STORAGE_BUFFER_COUNT,
+		description: "WebGPU pipeline storage buffer count",
+	},
+] as const satisfies readonly WebGPUMinimumLimit[];
+
+const WEBGPU_COLOR_ATTACHMENT_LIMIT_TIERS = [
+	WEBGPU_DEFERRED_COLOR_TARGET_COUNT,
+	WEBGPU_MRT_COLOR_TARGET_COUNT,
+] as const;
+
+const WEBGPU_COLOR_ATTACHMENT_BYTE_LIMIT_TIERS = [
+	WEBGPU_DEFERRED_COLOR_BYTES_PER_SAMPLE,
+	WEBGPU_MRT_COLOR_BYTES_PER_SAMPLE,
+] as const;
+
+type WebGPURequiredLimitName =
+	| "maxSampledTexturesPerShaderStage"
+	| "maxSamplersPerShaderStage"
+	| "maxStorageBuffersPerShaderStage";
+
+interface WebGPUMinimumLimit {
+	name: WebGPURequiredLimitName;
+	minimum: number;
+	description: string;
+}
 
 export interface WebGPUBackendOptions {
 	shaderMode?: ShaderRuntimeMode;
@@ -412,21 +448,6 @@ export class WebGPUBackend implements IRenderBackend {
 		return this._shaderCompileStage.getCacheFingerprintTag();
 	}
 
-	public isEarlyZPrepassEnabled(): boolean {
-		return this._enableEarlyZPrepass;
-	}
-
-	/**
-	 * Returns whether deferred opaque lighting is allowed for WebGPU frames.
-	 *
-	 * @returns `true` when the backend may use deferred lighting if runtime
-	 * limits and frame targets support it.
-	 * @sideEffects None.
-	 */
-	public isDeferredLightingEnabled(): boolean {
-		return this._enableDeferredLighting;
-	}
-
 	/**
 	 * Returns whether the backend may run WebGPU occlusion culling work.
 	 *
@@ -436,16 +457,6 @@ export class WebGPUBackend implements IRenderBackend {
 	 */
 	public isOcclusionCullingEnabled(): boolean {
 		return this._enableOcclusionCulling;
-	}
-
-	/**
-	 * Returns the diagnostic mode for WebGPU internal frame graph validation.
-	 *
-	 * @returns `"throw"` for strict validation or `"warn"` for non-fatal logs.
-	 * @sideEffects None.
-	 */
-	public getFrameGraphValidationMode(): "throw" | "warn" {
-		return this._frameGraphValidationMode;
 	}
 
 	/**
@@ -506,153 +517,13 @@ export class WebGPUBackend implements IRenderBackend {
 
 		let requestedDevice: GPUDevice;
 		try {
-			const requiredLimits: Record<string, number> = {};
-			const requiredFeatures: GPUFeatureName[] = [];
-			const adapterMaxTextureDimension2D = adapter.limits?.maxTextureDimension2D ?? 0;
-			const adapterMaxSampledTexturesPerShaderStage =
-				adapter.limits?.maxSampledTexturesPerShaderStage;
-			const adapterMaxSamplersPerShaderStage = adapter.limits?.maxSamplersPerShaderStage;
-			const adapterMaxStorageTexturesPerShaderStage =
-				adapter.limits?.maxStorageTexturesPerShaderStage;
-			const requiredSampledTexturesPerShaderStage =
-				WEBGPU_REQUIRED_FRAGMENT_SAMPLED_TEXTURE_COUNT;
-			const requiredSamplersPerShaderStage = WEBGPU_SCENE_REQUIRED_FRAGMENT_SAMPLER_COUNT;
-			if ((adapter.limits?.maxColorAttachments ?? 0) >= WEBGPU_DEFERRED_COLOR_TARGET_COUNT) {
-				requiredLimits.maxColorAttachments = WEBGPU_DEFERRED_COLOR_TARGET_COUNT;
-			} else if (
-				(adapter.limits?.maxColorAttachments ?? 0) >= WEBGPU_MRT_COLOR_TARGET_COUNT
-			) {
-				requiredLimits.maxColorAttachments = WEBGPU_MRT_COLOR_TARGET_COUNT;
-			}
-			if (
-				(adapter.limits?.maxColorAttachmentBytesPerSample ?? 0) >=
-				WEBGPU_DEFERRED_COLOR_BYTES_PER_SAMPLE
-			) {
-				requiredLimits.maxColorAttachmentBytesPerSample =
-					WEBGPU_DEFERRED_COLOR_BYTES_PER_SAMPLE;
-			} else if (
-				(adapter.limits?.maxColorAttachmentBytesPerSample ?? 0) >=
-				WEBGPU_MRT_COLOR_BYTES_PER_SAMPLE
-			) {
-				requiredLimits.maxColorAttachmentBytesPerSample = WEBGPU_MRT_COLOR_BYTES_PER_SAMPLE;
-			}
-			if (
-				typeof adapterMaxStorageTexturesPerShaderStage === "number" &&
-				adapterMaxStorageTexturesPerShaderStage >= WEBGPU_DEFERRED_STORAGE_TEXTURE_COUNT
-			) {
-				requiredLimits.maxStorageTexturesPerShaderStage =
-					WEBGPU_DEFERRED_STORAGE_TEXTURE_COUNT;
-			}
-			if (adapterMaxTextureDimension2D > 0) {
-				requiredLimits.maxTextureDimension2D = adapterMaxTextureDimension2D;
-			}
-			requiredLimits.maxSampledTexturesPerShaderStage = requiredSampledTexturesPerShaderStage;
-			requiredLimits.maxSamplersPerShaderStage = requiredSamplersPerShaderStage;
-
-			const adapterMaxStorageBuffersPerShaderStage =
-				adapter.limits?.maxStorageBuffersPerShaderStage;
-			const requiredStorageBuffersPerShaderStage =
-				WEBGPU_REQUIRED_FRAGMENT_STORAGE_BUFFER_COUNT;
-			if (
-				typeof adapterMaxStorageBuffersPerShaderStage === "number" &&
-				adapterMaxStorageBuffersPerShaderStage >= requiredStorageBuffersPerShaderStage
-			) {
-				requiredLimits.maxStorageBuffersPerShaderStage =
-					adapterMaxStorageBuffersPerShaderStage;
-			}
-
-			if (
-				typeof adapterMaxSampledTexturesPerShaderStage === "number" &&
-				adapterMaxSampledTexturesPerShaderStage < requiredSampledTexturesPerShaderStage
-			) {
-				throw new Error(
-					"WebGPU adapter maxSampledTexturesPerShaderStage " +
-						`(${adapterMaxSampledTexturesPerShaderStage}) is below required ` +
-						"WebGPU pipeline sampled texture count " +
-						`(${requiredSampledTexturesPerShaderStage}).`,
-				);
-			}
-			if (
-				typeof adapterMaxSamplersPerShaderStage === "number" &&
-				adapterMaxSamplersPerShaderStage < requiredSamplersPerShaderStage
-			) {
-				throw new Error(
-					"WebGPU adapter maxSamplersPerShaderStage " +
-						`(${adapterMaxSamplersPerShaderStage}) is below required ` +
-						"scene pipeline sampler count " +
-						`(${requiredSamplersPerShaderStage}).`,
-				);
-			}
-			if (
-				typeof adapterMaxStorageBuffersPerShaderStage === "number" &&
-				adapterMaxStorageBuffersPerShaderStage < requiredStorageBuffersPerShaderStage
-			) {
-				throw new Error(
-					"WebGPU adapter maxStorageBuffersPerShaderStage " +
-						`(${adapterMaxStorageBuffersPerShaderStage}) is below required ` +
-						"WebGPU pipeline storage buffer count " +
-						`(${requiredStorageBuffersPerShaderStage}).`,
-				);
-			}
-			if (
-				typeof adapter.features?.has === "function" &&
-				adapter.features.has("timestamp-query" as GPUFeatureName)
-			) {
-				requiredFeatures.push("timestamp-query" as GPUFeatureName);
-			}
-
-			if (
-				typeof adapter.features?.has === "function" &&
-				adapter.features.has("indirect-first-instance" as GPUFeatureName)
-			) {
-				requiredFeatures.push("indirect-first-instance" as GPUFeatureName);
-			}
-
+			const requiredLimits = createWebGPURequiredLimits(adapter.limits);
+			const requiredFeatures = selectSupportedWebGPUFeatures(adapter);
 			requestedDevice = await adapter.requestDevice({
 				requiredFeatures: requiredFeatures.length > 0 ? requiredFeatures : undefined,
-				requiredLimits:
-					Object.keys(requiredLimits).length > 0 ? (requiredLimits as any) : undefined,
+				requiredLimits: requiredLimits as any,
 			});
-			const deviceMaxSampledTexturesPerShaderStage =
-				requestedDevice.limits?.maxSampledTexturesPerShaderStage;
-			const deviceMaxSamplersPerShaderStage =
-				requestedDevice.limits?.maxSamplersPerShaderStage;
-			const deviceMaxStorageBuffersPerShaderStage =
-				requestedDevice.limits?.maxStorageBuffersPerShaderStage;
-
-			if (
-				typeof deviceMaxSampledTexturesPerShaderStage === "number" &&
-				deviceMaxSampledTexturesPerShaderStage < requiredSampledTexturesPerShaderStage
-			) {
-				throw new Error(
-					"Requested WebGPU device maxSampledTexturesPerShaderStage " +
-						`(${deviceMaxSampledTexturesPerShaderStage}) is below required ` +
-						"WebGPU pipeline sampled texture count " +
-						`(${requiredSampledTexturesPerShaderStage}).`,
-				);
-			}
-			if (
-				typeof deviceMaxSamplersPerShaderStage === "number" &&
-				deviceMaxSamplersPerShaderStage < requiredSamplersPerShaderStage
-			) {
-				throw new Error(
-					"Requested WebGPU device maxSamplersPerShaderStage " +
-						`(${deviceMaxSamplersPerShaderStage}) is below required ` +
-						"scene pipeline sampler count " +
-						`(${requiredSamplersPerShaderStage}).`,
-				);
-			}
-			if (
-				typeof deviceMaxStorageBuffersPerShaderStage === "number" &&
-				deviceMaxStorageBuffersPerShaderStage < requiredStorageBuffersPerShaderStage
-			) {
-				throw new Error(
-					"Requested WebGPU device maxStorageBuffersPerShaderStage " +
-						`(${deviceMaxStorageBuffersPerShaderStage}) is below required ` +
-						"WebGPU pipeline storage buffer count " +
-						`(${requiredStorageBuffersPerShaderStage}).`,
-				);
-			}
+			assertWebGPUMinimumLimits(requestedDevice.limits, "Requested WebGPU device");
 		} catch (error) {
 			throw new Error(`Failed to request WebGPU device: ${error}`);
 		}
@@ -711,7 +582,7 @@ export class WebGPUBackend implements IRenderBackend {
 			this._particleSimulator = new WebGPUParticleSimulator({
 				backend: this,
 				backendTag: this.profile.id,
-				maxParticlesPerSystem: 300000,
+				maxParticlesPerSystem: WEBGPU_MAX_PARTICLES_PER_SYSTEM,
 			});
 		} catch (error) {
 			this._rollbackInitializationState();
@@ -1143,9 +1014,9 @@ export class WebGPUBackend implements IRenderBackend {
 			get postProcessRuntime() {
 				return backend.postProcessRuntime;
 			},
-			enableEarlyZPrepass: this.isEarlyZPrepassEnabled(),
-			enableDeferredLighting: this.isDeferredLightingEnabled(),
-			frameGraphValidationMode: this.getFrameGraphValidationMode(),
+			enableEarlyZPrepass: this._enableEarlyZPrepass,
+			enableDeferredLighting: this._enableDeferredLighting,
+			frameGraphValidationMode: this._frameGraphValidationMode,
 			get shaderRuntime() {
 				return backend.shaderRuntime;
 			},
@@ -1853,10 +1724,9 @@ type WebGPUAdapterInfoLike = Partial<GPUAdapterInfo> & {
 
 function resolveWebGPUAdapterInfo(
 	adapter: GPUAdapter,
-	device: GPUDevice
+	device: GPUDevice,
 ): WebGPUAdapterInfoLike | null {
-	const deviceInfo = (device as { adapterInfo?: WebGPUAdapterInfoLike })
-		.adapterInfo;
+	const deviceInfo = (device as { adapterInfo?: WebGPUAdapterInfoLike }).adapterInfo;
 	if (deviceInfo) {
 		return deviceInfo;
 	}
@@ -1864,7 +1734,7 @@ function resolveWebGPUAdapterInfo(
 }
 
 function collectWebGPUAdapterRaw(
-	info: WebGPUAdapterInfoLike | null
+	info: WebGPUAdapterInfoLike | null,
 ): Record<string, string | number | boolean> {
 	if (!info) {
 		return {};
@@ -1891,15 +1761,10 @@ function collectWebGPUAdapterRaw(
 	return raw;
 }
 
-function collectWebGPULimits(
-	adapter: GPUAdapter,
-	device: GPUDevice
-): Record<string, number> {
+function collectWebGPULimits(adapter: GPUAdapter, device: GPUDevice): Record<string, number> {
 	const limits: Record<string, number> = {};
 	for (const key of WEBGPU_DEBUG_LIMIT_KEYS) {
-		const value =
-			readNumericLimit(device.limits, key) ??
-			readNumericLimit(adapter.limits, key);
+		const value = readNumericLimit(device.limits, key) ?? readNumericLimit(adapter.limits, key);
 		if (typeof value === "number") {
 			limits[key] = value;
 		}
@@ -1917,8 +1782,7 @@ function collectWebGPUFeatures(features: unknown): readonly string[] {
 		return [];
 	}
 	try {
-		return Array.from(features as Iterable<string>, (feature) => String(feature))
-			.sort();
+		return Array.from(features as Iterable<string>, (feature) => String(feature)).sort();
 	} catch {
 		return [];
 	}
@@ -1926,4 +1790,64 @@ function collectWebGPUFeatures(features: unknown): readonly string[] {
 
 function normalizeDebugString(value: unknown): string | undefined {
 	return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function createWebGPURequiredLimits(limits: GPUSupportedLimits): Record<string, number> {
+	assertWebGPUMinimumLimits(limits, "WebGPU adapter");
+
+	const requiredLimits: Record<string, number> = {
+		maxSampledTexturesPerShaderStage: WEBGPU_REQUIRED_FRAGMENT_SAMPLED_TEXTURE_COUNT,
+		maxSamplersPerShaderStage: WEBGPU_SCENE_REQUIRED_FRAGMENT_SAMPLER_COUNT,
+	};
+	const maxColorAttachments = selectHighestSupportedLimitTier(
+		limits.maxColorAttachments,
+		WEBGPU_COLOR_ATTACHMENT_LIMIT_TIERS,
+	);
+	const maxColorAttachmentBytesPerSample = selectHighestSupportedLimitTier(
+		limits.maxColorAttachmentBytesPerSample,
+		WEBGPU_COLOR_ATTACHMENT_BYTE_LIMIT_TIERS,
+	);
+
+	if (maxColorAttachments !== undefined) {
+		requiredLimits.maxColorAttachments = maxColorAttachments;
+	}
+	if (maxColorAttachmentBytesPerSample !== undefined) {
+		requiredLimits.maxColorAttachmentBytesPerSample = maxColorAttachmentBytesPerSample;
+	}
+	if (limits.maxStorageTexturesPerShaderStage >= WEBGPU_DEFERRED_STORAGE_TEXTURE_COUNT) {
+		requiredLimits.maxStorageTexturesPerShaderStage = WEBGPU_DEFERRED_STORAGE_TEXTURE_COUNT;
+	}
+	if (limits.maxTextureDimension2D > 0) {
+		requiredLimits.maxTextureDimension2D = limits.maxTextureDimension2D;
+	}
+	if (limits.maxStorageBuffersPerShaderStage >= WEBGPU_REQUIRED_FRAGMENT_STORAGE_BUFFER_COUNT) {
+		requiredLimits.maxStorageBuffersPerShaderStage = limits.maxStorageBuffersPerShaderStage;
+	}
+
+	return requiredLimits;
+}
+
+function selectSupportedWebGPUFeatures(adapter: GPUAdapter): GPUFeatureName[] {
+	if (typeof adapter.features?.has !== "function") {
+		return [];
+	}
+	return WEBGPU_OPTIONAL_DEVICE_FEATURES.filter((feature) => adapter.features.has(feature));
+}
+
+function selectHighestSupportedLimitTier(
+	available: number,
+	tiers: readonly number[],
+): number | undefined {
+	return tiers.find((tier) => available >= tier);
+}
+
+function assertWebGPUMinimumLimits(limits: GPUSupportedLimits, owner: string): void {
+	for (const { name, minimum, description } of WEBGPU_REQUIRED_DEVICE_LIMITS) {
+		const available = limits[name];
+		if (available < minimum) {
+			throw new Error(
+				`${owner} ${name} (${available}) is below required ${description} (${minimum}).`,
+			);
+		}
+	}
 }
