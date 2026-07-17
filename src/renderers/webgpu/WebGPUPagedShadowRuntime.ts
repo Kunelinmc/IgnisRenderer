@@ -22,7 +22,7 @@ import {
 	type IRenderTexture,
 	type IShaderModule,
 } from "../types";
-import type { WebGPUBackend } from "../WebGPUBackend";
+import type { WebGPUDeviceResourceHost } from "./WebGPUDeviceResourceHost";
 import type { WebGPUShadowPass } from "./WebGPUShadowPass";
 import { tryGetNativeWebGPUCommandEncoder } from "./WebGPUCommandEncoder";
 import {
@@ -164,7 +164,7 @@ interface DrawCounterReadbackSlot {
  * cascade, caster bounds, world matrices, and indirect-argument seed uploads.
  */
 export class WebGPUPagedShadowRuntime {
-	private _backend: WebGPUBackend;
+	private _backend: WebGPUDeviceResourceHost;
 	private _shadowPass: WebGPUShadowPass;
 	private _frameId = 0;
 	private _lastRequest: WebGPUPagedShadowFrameRequest | null = null;
@@ -256,7 +256,7 @@ export class WebGPUPagedShadowRuntime {
 	private _drawCounterReadbackSlots: DrawCounterReadbackSlot[] = [];
 	private _drawCounterReadbackCursor = 0;
 
-	public constructor(backend: WebGPUBackend, shadowPass: WebGPUShadowPass) {
+	constructor(backend: WebGPUDeviceResourceHost, shadowPass: WebGPUShadowPass) {
 		this._backend = backend;
 		this._shadowPass = shadowPass;
 	}
@@ -1681,7 +1681,7 @@ export class WebGPUPagedShadowRuntime {
 		}
 		const nativeEncoder = tryGetNativeWebGPUCommandEncoder(request.encoder);
 		const sourceBuffer = tryGetWebGPUBuffer(this._countersBuffer);
-		const backend = this._backend as WebGPUBackend & {
+		const backend = this._backend as WebGPUDeviceResourceHost & {
 			device?: {
 				createBuffer?: (descriptor: {
 					label: string;
@@ -1832,7 +1832,7 @@ export class WebGPUPagedShadowRuntime {
 		if (!encoder || resources.some((resource) => !resource)) {
 			return;
 		}
-		const backend = this._backend as WebGPUBackend & {
+		const backend = this._backend as WebGPUDeviceResourceHost & {
 			createBindingGroup?: (desc: {
 				pipeline?: IComputePipeline;
 				layoutIndex?: number;
@@ -1893,7 +1893,7 @@ export class WebGPUPagedShadowRuntime {
 		if (cached) {
 			return cached;
 		}
-		const backend = this._backend as WebGPUBackend & {
+		const backend = this._backend as WebGPUDeviceResourceHost & {
 			createComputePipeline?: (desc: {
 				label: string;
 				compute: { module: IShaderModule; entryPoint: string };

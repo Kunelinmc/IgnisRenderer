@@ -31,10 +31,7 @@ import {
 	type IShaderModule,
 } from "../types";
 import type { WebGPUBackend } from "../WebGPUBackend";
-import {
-	SINGLE_SAMPLE_WEBGPU_MSAA_CONTEXT,
-	type WebGPUMSAAContext,
-} from "./WebGPUMSAAController";
+import { SINGLE_SAMPLE_WEBGPU_MSAA_CONTEXT, type WebGPUMSAAContext } from "./WebGPUMSAAController";
 import { resolveWebGPUComputeFacade } from "./ComputeFacade";
 import type { IWebGPUComputeFacade } from "./ComputeFacade";
 import {
@@ -59,15 +56,9 @@ import {
 	createWebGPUFrameFeatureRegistry,
 } from "./WebGPUFrameFeatureModules";
 import { createWebGPUPipelineLayouts } from "./WebGPUPipelineLayouts";
-import {
-	WebGPUFrameBindingCache,
-	type WebGPUTemporalStateMode,
-} from "./WebGPUFrameBindingCache";
+import { WebGPUFrameBindingCache, type WebGPUTemporalStateMode } from "./WebGPUFrameBindingCache";
 import { WebGPUClusteredLightingRuntime } from "./WebGPUClusteredLightingRuntime";
-import {
-	WebGPUGeometryRegistry,
-	type WebGPUGeometryHandle,
-} from "./WebGPUGeometryRegistry";
+import { WebGPUGeometryRegistry, type WebGPUGeometryHandle } from "./WebGPUGeometryRegistry";
 import {
 	WebGPUMaterialBindingCache,
 	type WebGPUModelAnimationBindingState,
@@ -117,22 +108,22 @@ import {
 	WEBGPU_PARTICLE_QUAD_VERTICES,
 	WEBGPU_PARTICLE_UV_UNIFORM_SIZE,
 } from "./constants";
-import {
-	WEBGPU_PARTICLE_VERTEX_LAYOUTS,
-} from "./bufferLayouts";
+import { WEBGPU_PARTICLE_VERTEX_LAYOUTS } from "./bufferLayouts";
 import {
 	WEBGPU_PARTICLE_DRAW_BATCHES_KEY,
 	type WebGPUParticleDrawBatch,
 } from "./particleTransient";
-import type {
-	WarmupPhaseCounters,
-	WarmupPlan,
-} from "../../pipeline/WarmupPlanner";
+import type { WarmupPhaseCounters, WarmupPlan } from "../../pipeline/WarmupPlanner";
 import { toShaderCompileError } from "../../pipeline/WarmupPlanner";
 import { createWarmupYieldController } from "../../pipeline/WarmupScheduler";
 import type { ShaderCompileError } from "../../shaders/runtime";
 import { Logger } from "../../foundation/Logger";
 import type { WarmupOptions } from "../IRenderBackend";
+import type {
+	WebGPUFrameResourceScope as WebGPUFrameResourceScopeContract,
+	WebGPUPrepareFrameOptions as WebGPUPrepareFrameScopeOptions,
+	WebGPUPreparedFrameResources as WebGPUPreparedFrameResourcesContract,
+} from "./WebGPUResourceContracts";
 
 const WEBGPU_SHADOW_CAPABILITIES: ShadowBackendCapabilities = {
 	backendKey: "webgpu",
@@ -238,7 +229,48 @@ interface WebGPUFrameResourceScope {
 	prepared: WebGPUPreparedFrameResources | null;
 }
 
-export class WebGPURenderResources {
+class WebGPUFrameResourceScopeHandle implements WebGPUFrameResourceScopeContract {
+	private _prepared: WebGPUPreparedFrameResources | null = null;
+	private _destroyed = false;
+
+	constructor(
+		private readonly _owner: WebGPUFrameServiceOwner,
+		private readonly _scopeKey: string,
+	) {}
+
+	public prepare(
+		context: FrameContext,
+		options: WebGPUPrepareFrameScopeOptions,
+	): WebGPUPreparedFrameResourcesContract {
+		if (this._destroyed) {
+			throw new Error("WebGPU frame resource scope has been destroyed.");
+		}
+		this._prepared = this._owner.prepareFrame(context, {
+			...options,
+			scopeKey: this._scopeKey,
+		});
+		return this._prepared;
+	}
+
+	public updateParticleShadowVolumes(context: FrameContext): void {
+		if (!this._prepared) {
+			throw new Error("WebGPU frame resource scope has not been prepared.");
+		}
+		this._owner.updateParticleShadowVolumes(this._prepared, context);
+	}
+
+	public destroy(): void {
+		if (this._destroyed) {
+			return;
+		}
+		this._destroyed = true;
+		this._prepared = null;
+		this._owner.releaseScope(this._scopeKey);
+	}
+}
+
+/** @internal WebGPU backend-private composition and shared-resource owner. */
+export class WebGPUFrameServiceOwner {
 	private _backend: WebGPUBackend;
 	private _msaa: WebGPUMSAAContext;
 	private _computeFacade: IWebGPUComputeFacade;
@@ -253,6 +285,7 @@ export class WebGPURenderResources {
 	private _shadowRuntimeDestroyed = false;
 	private _frameFeatureRegistry = createWebGPUFrameFeatureRegistry();
 	private _frameScopes = new Map<string, WebGPUFrameResourceScope>();
+	private _nextFrameScopeId = 0;
 	private _particleShaderModule: IShaderModule | null = null;
 	private _deferredResources: WebGPUDeferredResources;
 	private _particleQuadBuffer: IRenderBuffer | null = null;
@@ -261,63 +294,58 @@ export class WebGPURenderResources {
 	private _particlePipelineAlpha = new Map<string, IRenderPipeline>();
 	private _particlePipelineOITAlpha = new Map<string, IRenderPipeline>();
 	private _particlePipelineAdditive = new Map<string, IRenderPipeline>();
-	private _particleBindingCache = new Map<
-		string,
-		WebGPUParticleBindingCacheEntry
-	>();
+	private _particleBindingCache = new Map<string, WebGPUParticleBindingCacheEntry>();
 	private _frameId = 0;
 	private _destroyed = false;
 
 	constructor(
 		backend: WebGPUBackend,
-		msaa: WebGPUMSAAContext = SINGLE_SAMPLE_WEBGPU_MSAA_CONTEXT
+		msaa: WebGPUMSAAContext = SINGLE_SAMPLE_WEBGPU_MSAA_CONTEXT,
 	) {
 		this._backend = backend;
 		this._msaa = msaa;
 		this._computeFacade = resolveWebGPUComputeFacade(backend);
 		const device = backend.device;
 		if (!device) {
-			throw new Error(
-				"WebGPU backend is not initialized; cannot create render resources."
-			);
+			throw new Error("WebGPU backend is not initialized; cannot create render resources.");
 		}
 		this._layouts = createWebGPUPipelineLayouts(device);
 		this._geometryRegistry = new WebGPUGeometryRegistry(backend);
 		this._textureRegistry = new WebGPUTextureRegistry(backend);
 		this._shadowAtlases = new WebGPUShadowAtlasAllocator(backend);
-		this._pipelineLibrary = new WebGPUPipelineLibrary(
-			backend,
-			this._layouts,
-			{ listenToShaderRuntime: false, msaaContext: this._msaa }
+		this._pipelineLibrary = new WebGPUPipelineLibrary(backend, this._layouts, {
+			listenToShaderRuntime: false,
+			msaaContext: this._msaa,
+		});
+		this._deferredResources = new WebGPUDeferredResources(backend, this._layouts, () =>
+			this._pipelineLibrary.getDeferredLightingPipeline(),
 		);
-		this._deferredResources = new WebGPUDeferredResources(
-			backend,
-			this._layouts,
-			() => this._pipelineLibrary.getDeferredLightingPipeline()
-		);
-		this._materialBindings = new WebGPUMaterialBindingCache(
-			backend,
-			this._layouts
-		);
+		this._materialBindings = new WebGPUMaterialBindingCache(backend, this._layouts);
 		this._shadowPass = new WebGPUShadowPass(
 			backend,
 			this._geometryRegistry,
-			this._shadowAtlases
+			this._shadowAtlases,
 		);
-		this._pagedShadowRuntime = new WebGPUPagedShadowRuntime(
-			backend,
-			this._shadowPass
-		);
+		this._pagedShadowRuntime = new WebGPUPagedShadowRuntime(backend, this._shadowPass);
 	}
 
 	public async init(): Promise<void> {
 		await this._pipelineLibrary.init();
 	}
 
+	/** @internal Creates an isolated frame-binding ownership scope. */
+	public createFrameScope(): WebGPUFrameResourceScopeContract {
+		if (this._destroyed) {
+			throw new Error("WebGPU frame service owner has been destroyed.");
+		}
+		this._nextFrameScopeId++;
+		return new WebGPUFrameResourceScopeHandle(this, `frame-scope-${this._nextFrameScopeId}`);
+	}
+
 	public async warmup(
 		context: FrameContext,
 		plan: WarmupPlan,
-		options: WarmupOptions = {}
+		options: WarmupOptions = {},
 	): Promise<WarmupPhaseCounters> {
 		let total = 0;
 		let compiled = 0;
@@ -346,23 +374,18 @@ export class WebGPURenderResources {
 				compiled++;
 			} catch (error) {
 				failed++;
-				errors.push(
-					toShaderCompileError(error, "webgpu", "WebGPUEnvironmentWarmup")
-				);
+				errors.push(toShaderCompileError(error, "webgpu", "WebGPUEnvironmentWarmup"));
 			}
 			await yieldController.yieldIfNeeded();
 		}
 
-		const drawPackets = [
-			...context.scene.opaquePackets,
-			...context.scene.transparentPackets,
-		];
+		const drawPackets = [...context.scene.opaquePackets, ...context.scene.transparentPackets];
 		for (const packet of drawPackets) {
 			total++;
 			try {
-				const resources = warmupResources ?
-					await this.getDrawResources(packet, warmupResources)
-				:	null;
+				const resources = warmupResources
+					? await this.getDrawResources(packet, warmupResources)
+					: null;
 				if (resources && resources.length > 0) {
 					compiled++;
 				} else {
@@ -370,17 +393,12 @@ export class WebGPURenderResources {
 				}
 			} catch (error) {
 				failed++;
-				errors.push(
-					toShaderCompileError(error, "webgpu", `WebGPUDrawWarmup:${packet.id}`)
-				);
+				errors.push(toShaderCompileError(error, "webgpu", `WebGPUDrawWarmup:${packet.id}`));
 			}
 			await yieldController.yieldIfNeeded();
 		}
 
-		if (
-			context.features.enableReflection &&
-			context.scene.reflectivePackets.length > 0
-		) {
+		if (context.features.enableReflection && context.scene.reflectivePackets.length > 0) {
 			let reflectionResources: WebGPUPreparedFrameResources | null = null;
 			try {
 				reflectionResources = this.prepareFrame(context, {
@@ -392,12 +410,12 @@ export class WebGPURenderResources {
 				for (const packet of drawPackets) {
 					total++;
 					try {
-						const resources = reflectionResources ?
-							await this.getDrawResources(packet, reflectionResources, {
-								sceneTargetMode: "color",
-								drawMode: "reflection-capture",
-							})
-						:	null;
+						const resources = reflectionResources
+							? await this.getDrawResources(packet, reflectionResources, {
+									sceneTargetMode: "color",
+									drawMode: "reflection-capture",
+								})
+							: null;
 						if (resources && resources.length > 0) {
 							compiled++;
 						} else {
@@ -409,8 +427,8 @@ export class WebGPURenderResources {
 							toShaderCompileError(
 								error,
 								"webgpu",
-								`WebGPUPlanarReflectionCaptureWarmup:${packet.id}`
-							)
+								`WebGPUPlanarReflectionCaptureWarmup:${packet.id}`,
+							),
 						);
 					}
 					await yieldController.yieldIfNeeded();
@@ -419,12 +437,12 @@ export class WebGPURenderResources {
 				for (const packet of context.scene.reflectivePackets) {
 					total++;
 					try {
-						const resources = reflectionResources ?
-							await this.getDrawResources(packet, reflectionResources, {
-								sceneTargetMode: "mrt",
-								drawMode: "planar-reflection-composite",
-							})
-						:	null;
+						const resources = reflectionResources
+							? await this.getDrawResources(packet, reflectionResources, {
+									sceneTargetMode: "mrt",
+									drawMode: "planar-reflection-composite",
+								})
+							: null;
 						if (resources && resources.length > 0) {
 							compiled++;
 						} else {
@@ -436,8 +454,8 @@ export class WebGPURenderResources {
 							toShaderCompileError(
 								error,
 								"webgpu",
-								`WebGPUPlanarReflectionCompositeWarmup:${packet.id}`
-							)
+								`WebGPUPlanarReflectionCompositeWarmup:${packet.id}`,
+							),
 						);
 					}
 					await yieldController.yieldIfNeeded();
@@ -454,9 +472,7 @@ export class WebGPURenderResources {
 				compiled++;
 			} catch (error) {
 				failed++;
-				errors.push(
-					toShaderCompileError(error, "webgpu", "WebGPUShadowWarmup")
-				);
+				errors.push(toShaderCompileError(error, "webgpu", "WebGPUShadowWarmup"));
 			}
 			await yieldController.yieldIfNeeded();
 		}
@@ -464,17 +480,11 @@ export class WebGPURenderResources {
 		if (plan.enableParticles) {
 			total++;
 			try {
-				await this._ensureParticleResources(
-					plan.sceneTargetMode,
-					1,
-					"legacy"
-				);
+				await this._ensureParticleResources(plan.sceneTargetMode, 1, "legacy");
 				compiled++;
 			} catch (error) {
 				failed++;
-				errors.push(
-					toShaderCompileError(error, "webgpu", "WebGPUParticleWarmup")
-				);
+				errors.push(toShaderCompileError(error, "webgpu", "WebGPUParticleWarmup"));
 			}
 			await yieldController.yieldIfNeeded();
 		}
@@ -492,7 +502,7 @@ export class WebGPURenderResources {
 
 	public async renderShadows(
 		context: FrameContext,
-		encoder?: ICommandEncoder | null
+		encoder?: ICommandEncoder | null,
 	): Promise<void> {
 		const shadowPackets = this.buildParticleMeshDrawPackets(context, {
 			includeOpaque: false,
@@ -505,11 +515,10 @@ export class WebGPURenderResources {
 			return;
 		}
 		const particleShadowCasters = shadowPackets.filter(
-			(packet) => (packet.passFlags & DRAW_PACKET_FLAG_SHADOW_CASTER) !== 0
+			(packet) => (packet.passFlags & DRAW_PACKET_FLAG_SHADOW_CASTER) !== 0,
 		);
 		const particleShadowTransmitters = shadowPackets.filter(
-			(packet) =>
-				(packet.passFlags & DRAW_PACKET_FLAG_SHADOW_TRANSMITTER) !== 0
+			(packet) => (packet.passFlags & DRAW_PACKET_FLAG_SHADOW_TRANSMITTER) !== 0,
 		);
 		await this._shadowPass.render(
 			{
@@ -526,7 +535,7 @@ export class WebGPURenderResources {
 					],
 				},
 			},
-			encoder
+			encoder,
 		);
 	}
 
@@ -544,41 +553,35 @@ export class WebGPURenderResources {
 
 	public prepareFrame(
 		context: FrameContext,
-		options: WebGPUPrepareFrameOptions
+		options: WebGPUPrepareFrameOptions,
 	): WebGPUPreparedFrameResources {
 		const resolvedOptions = this._resolvePrepareFrameOptions(options);
-		const jointMatrixMap =
-			context.transient.get(ANIMATION_WEBGPU_JOINT_MATRICES_KEY) ?? null;
-		const morphWeightMap =
-			context.transient.get(ANIMATION_WEBGPU_MORPH_WEIGHTS_KEY) ?? null;
+		const jointMatrixMap = context.transient.get(ANIMATION_WEBGPU_JOINT_MATRICES_KEY) ?? null;
+		const morphWeightMap = context.transient.get(ANIMATION_WEBGPU_MORPH_WEIGHTS_KEY) ?? null;
 		const scene = context.scene;
 		const features = context.features;
 		const postProcess = context.postProcess;
 		const shAmbientCoeffs = context.shAmbientCoeffs;
 		const renderWidth = Math.max(1, context.attachments.width || 1);
 		const renderHeight = Math.max(1, context.attachments.height || 1);
-		const temporalHistoryReset =
-			context.incremental?.temporalHistoryReset === true;
+		const temporalHistoryReset = context.incremental?.temporalHistoryReset === true;
 		const shadowMaps = context.shadowMaps;
-		const particleMeshShadowPackets =
-			this.buildParticleMeshDrawPackets(context, {
-				includeOpaque: false,
-				includeTransparent: false,
-				includeShadowCasters: true,
-				includeShadowTransmitters: true,
-			});
+		const particleMeshShadowPackets = this.buildParticleMeshDrawPackets(context, {
+			includeOpaque: false,
+			includeTransparent: false,
+			includeShadowCasters: true,
+			includeShadowTransmitters: true,
+		});
 		const shadowCasterPackets = [
 			...scene.shadowCasterPackets,
 			...particleMeshShadowPackets.filter(
-				(packet) =>
-					(packet.passFlags & DRAW_PACKET_FLAG_SHADOW_CASTER) !== 0
+				(packet) => (packet.passFlags & DRAW_PACKET_FLAG_SHADOW_CASTER) !== 0,
 			),
 		];
 		const shadowTransmitterPackets = [
 			...scene.shadowTransmitterPackets,
 			...particleMeshShadowPackets.filter(
-				(packet) =>
-					(packet.passFlags & DRAW_PACKET_FLAG_SHADOW_TRANSMITTER) !== 0
+				(packet) => (packet.passFlags & DRAW_PACKET_FLAG_SHADOW_TRANSMITTER) !== 0,
 			),
 		];
 		const temporalStateMode = resolvedOptions.temporalStateMode ?? "advance";
@@ -599,35 +602,30 @@ export class WebGPURenderResources {
 		syncShadowMapRegistry(shadowMaps, shadowLights);
 		const shadowCasterBounds = resolveShadowCasterBounds(
 			shadowCasterPackets,
-			scene.sceneBounds
+			scene.sceneBounds,
 		);
 		const combinedShadowCasterBounds = mergeParticleShadowBounds(
 			shadowCasterBounds,
-			resolveParticleShadowCasterBounds(scene.particleSystems)
+			resolveParticleShadowCasterBounds(scene.particleSystems),
 		);
 		const selectedCSMLights = selectCSMDirectionalLights(
 			shadowLights,
-			WEBGPU_SHADOW_CAPABILITIES.maxCsmDirectionalLights
+			WEBGPU_SHADOW_CAPABILITIES.maxCsmDirectionalLights,
 		);
 		if (features.enableShadows) {
 			for (const light of shadowLights) {
 				const shadowRenderSet = shadowMaps.get(light);
 				if (shadowRenderSet) {
-					updateShadowMapMetadata(
-						shadowRenderSet,
-						light,
-						combinedShadowCasterBounds,
-						{
-							camera: scene.camera,
-							backendCapabilities: WEBGPU_SHADOW_CAPABILITIES,
-							allowCSMDirectionalLights: selectedCSMLights,
-							onWarning: (key, message) =>
-								Logger.warn(`[${key}] ${message}`, {
-									scope: "WebGPURenderResources",
-									onceKey: key,
-								}),
-						}
-					);
+					updateShadowMapMetadata(shadowRenderSet, light, combinedShadowCasterBounds, {
+						camera: scene.camera,
+						backendCapabilities: WEBGPU_SHADOW_CAPABILITIES,
+						allowCSMDirectionalLights: selectedCSMLights,
+						onWarning: (key, message) =>
+							Logger.warn(`[${key}] ${message}`, {
+								scope: "WebGPUFrameServiceOwner",
+								onceKey: key,
+							}),
+					});
 				}
 			}
 		}
@@ -644,7 +642,7 @@ export class WebGPURenderResources {
 			features.enableLighting,
 			features.enableSH,
 			features.enableShadows,
-			shadowMaps
+			shadowMaps,
 		);
 		const enableClusteredSurfaceLighting = canPrepareClusteredLighting({
 			scene,
@@ -652,11 +650,11 @@ export class WebGPURenderResources {
 		});
 		const lightingState = createWebGPULightingState(
 			lightingCatalog,
-			enableClusteredSurfaceLighting
+			enableClusteredSurfaceLighting,
 		);
 		for (const warning of lightingState.warnings) {
 			Logger.warn(`[${warning.key}] ${warning.message}`, {
-				scope: "WebGPURenderResources",
+				scope: "WebGPUFrameServiceOwner",
 			});
 		}
 		const featureData = this._frameFeatureRegistry.prepareFrame({
@@ -668,28 +666,27 @@ export class WebGPURenderResources {
 			renderWidth,
 			renderHeight,
 		});
-		const clusteredLightingData =
-			featureData.get(WEBGPU_CLUSTERED_LIGHTING_DATA) ?? null;
+		const clusteredLightingData = featureData.get(WEBGPU_CLUSTERED_LIGHTING_DATA) ?? null;
 		for (const warning of clusteredLightingData?.warnings ?? []) {
 			Logger.warn(`[${warning.key}] ${warning.message}`, {
-				scope: "WebGPURenderResources",
+				scope: "WebGPUFrameServiceOwner",
 			});
 		}
 
 		const environmentState = collectWebGPUEnvironment(
 			scene,
 			featureState.enableSH,
-			shAmbientCoeffs
+			shAmbientCoeffs,
 		);
 		for (const warning of environmentState.warnings) {
 			Logger.warn(`[${warning.key}] ${warning.message}`, {
-				scope: "WebGPURenderResources",
+				scope: "WebGPUFrameServiceOwner",
 			});
 		}
 
 		this._shadowAtlases.prepare(
 			lightingState,
-			this._resolveShadowAtlasTileSize(scene.shadowMaps, features.enableShadows)
+			this._resolveShadowAtlasTileSize(scene.shadowMaps, features.enableShadows),
 		);
 		const scope = this._getOrCreateFrameScope(resolvedOptions.scopeKey);
 		scope.frameBindings.prepare(
@@ -703,14 +700,14 @@ export class WebGPURenderResources {
 			{
 				temporalStateMode,
 				temporalHistoryReset,
-			}
+			},
 		);
 		scope.clusteredLighting.prepareFrame(
 			scene,
 			featureState,
 			clusteredLightingData,
 			renderWidth,
-			renderHeight
+			renderHeight,
 		);
 
 		const frameResources: WebGPUPreparedFrameResources = {
@@ -747,22 +744,13 @@ export class WebGPURenderResources {
 		this._frameScopes.delete(scopeKey);
 	}
 
-	public getFrameBinding(
-		frameResources: WebGPUPreparedFrameResources
-	): IBindingGroup {
-		return this._requirePreparedFrameResources(
-			frameResources,
-			"getFrameBinding"
-		).frameBinding;
+	public getFrameBinding(frameResources: WebGPUPreparedFrameResources): IBindingGroup {
+		return this._requirePreparedFrameResources(frameResources, "getFrameBinding").frameBinding;
 	}
 
-	public getClusteredSceneBinding(
-		frameResources: WebGPUPreparedFrameResources
-	): IBindingGroup {
-		return this._requirePreparedFrameResources(
-			frameResources,
-			"getClusteredSceneBinding"
-		).clusteredSceneBinding;
+	public getClusteredSceneBinding(frameResources: WebGPUPreparedFrameResources): IBindingGroup {
+		return this._requirePreparedFrameResources(frameResources, "getClusteredSceneBinding")
+			.clusteredSceneBinding;
 	}
 
 	/**
@@ -875,29 +863,24 @@ export class WebGPURenderResources {
 
 	public updateParticleShadowVolumes(
 		frameResources: WebGPUPreparedFrameResources,
-		context: FrameContext
+		context: FrameContext,
 	): void {
 		const prepared = this._requirePreparedFrameResources(
 			frameResources,
-			"updateParticleShadowVolumes"
+			"updateParticleShadowVolumes",
 		);
 		if (!context) {
 			return;
 		}
 		const scope = this._requireFrameScope(prepared.scopeKey);
-		scope.frameBindings.updateParticleShadowVolumes(
-			context,
-			prepared.lightingState
-		);
+		scope.frameBindings.updateParticleShadowVolumes(context, prepared.lightingState);
 		prepared.frameBinding = scope.frameBindings.getSceneBinding();
 	}
 
 	/**
 	 * @internal WebGPU paged shadow frame graph hook.
 	 */
-	public preparePagedShadowFrame(
-		request: WebGPUPagedShadowFrameRequest
-	): void {
+	public preparePagedShadowFrame(request: WebGPUPagedShadowFrameRequest): void {
 		this._pagedShadowRuntime.prepareFrame(request);
 	}
 
@@ -905,7 +888,7 @@ export class WebGPURenderResources {
 	 * @internal WebGPU paged shadow frame graph hook.
 	 */
 	public recordPagedShadowPageMarkPass(
-		request: WebGPUPagedShadowFrameRequest
+		request: WebGPUPagedShadowFrameRequest,
 	): void | Promise<void> {
 		return this._pagedShadowRuntime.recordPageMarkPass(request);
 	}
@@ -914,7 +897,7 @@ export class WebGPURenderResources {
 	 * @internal WebGPU paged shadow frame graph hook.
 	 */
 	public recordPagedShadowPageAllocationPass(
-		request: WebGPUPagedShadowFrameRequest
+		request: WebGPUPagedShadowFrameRequest,
 	): void | Promise<void> {
 		return this._pagedShadowRuntime.recordPageAllocationPass(request);
 	}
@@ -923,7 +906,7 @@ export class WebGPURenderResources {
 	 * @internal WebGPU paged shadow frame graph hook.
 	 */
 	public recordPagedShadowPageTableCopyPass(
-		request: WebGPUPagedShadowFrameRequest
+		request: WebGPUPagedShadowFrameRequest,
 	): void | Promise<void> {
 		return this._pagedShadowRuntime.recordPageTableCopyPass(request);
 	}
@@ -931,9 +914,7 @@ export class WebGPURenderResources {
 	/**
 	 * @internal WebGPU paged shadow frame graph hook.
 	 */
-	public recordPagedShadowDepthPass(
-		request: WebGPUPagedShadowFrameRequest
-	): Promise<void> {
+	public recordPagedShadowDepthPass(request: WebGPUPagedShadowFrameRequest): Promise<void> {
 		return this._pagedShadowRuntime.recordDepthPass(request);
 	}
 
@@ -941,7 +922,7 @@ export class WebGPURenderResources {
 	 * @internal WebGPU paged shadow delayed feedback hook.
 	 */
 	public recordPagedShadowFeedbackPass(
-		request: WebGPUPagedShadowFrameRequest
+		request: WebGPUPagedShadowFrameRequest,
 	): void | Promise<void> {
 		return this._pagedShadowRuntime.recordFeedbackPass(request);
 	}
@@ -955,15 +936,11 @@ export class WebGPURenderResources {
 
 	public async buildClusteredLighting(
 		encoder: ICommandEncoder,
-		frameResources: WebGPUPreparedFrameResources
+		frameResources: WebGPUPreparedFrameResources,
 	): Promise<void> {
 		const scope = this._requireFrameScope(frameResources.scopeKey);
-		await scope.clusteredLighting.build(
-			encoder,
-			frameResources.frameBinding
-		);
-		frameResources.clusteredSceneBinding =
-			scope.clusteredLighting.getSceneBinding();
+		await scope.clusteredLighting.build(encoder, frameResources.frameBinding);
+		frameResources.clusteredSceneBinding = scope.clusteredLighting.getSceneBinding();
 	}
 
 	public onShaderRuntimeChanged(): void {
@@ -976,6 +953,8 @@ export class WebGPURenderResources {
 		this._particlePipelineOITAlpha.clear();
 		this._particlePipelineAdditive.clear();
 		this._clearParticleBindingCache();
+		this._deferredResources.onShaderRuntimeChanged();
+		this.onShadowRuntimeShaderChanged();
 		for (const scope of this._frameScopes.values()) {
 			scope.clusteredLighting.onShaderRuntimeChanged();
 		}
@@ -1034,25 +1013,18 @@ export class WebGPURenderResources {
 		this._geometryRegistry.destroy();
 	}
 
-	public getLightingState(
-		frameResources: WebGPUPreparedFrameResources
-	): WebGPULightingState {
-		return this._requirePreparedFrameResources(
-			frameResources,
-			"getLightingState"
-		).lightingState;
+	public getLightingState(frameResources: WebGPUPreparedFrameResources): WebGPULightingState {
+		return this._requirePreparedFrameResources(frameResources, "getLightingState")
+			.lightingState;
 	}
 
-	public getTextureForSlot(
-		texture: Texture | null,
-		slotIndex: number
-	): IRenderTexture {
+	public getTextureForSlot(texture: Texture | null, slotIndex: number): IRenderTexture {
 		return this._textureRegistry.getTextureForSlot(texture, slotIndex);
 	}
 
 	public getTextureForSlotAsync(
 		texture: Texture | null,
-		slotIndex: number
+		slotIndex: number,
 	): Promise<IRenderTexture> {
 		return this._textureRegistry.getTextureForSlotAsync(texture, slotIndex);
 	}
@@ -1065,13 +1037,13 @@ export class WebGPURenderResources {
 		texture: Texture,
 		resource: IRenderTexture,
 		uploadedVersion: number = texture.version,
-		mipLevelCount: number = 1
+		mipLevelCount: number = 1,
 	): void {
 		this._textureRegistry.registerExternalTexture(
 			texture,
 			resource,
 			uploadedVersion,
-			mipLevelCount
+			mipLevelCount,
 		);
 	}
 
@@ -1084,22 +1056,18 @@ export class WebGPURenderResources {
 	}
 
 	private _resolvePrepareFrameOptions(
-		options: WebGPUPrepareFrameOptions | undefined
+		options: WebGPUPrepareFrameOptions | undefined,
 	): WebGPUPrepareFrameOptions {
 		if (!options) {
-			throw new Error(
-				"WebGPURenderResources.prepareFrame() requires explicit frame options."
-			);
+			throw new Error("WebGPU frame preparation requires explicit frame options.");
 		}
 		if (typeof options.scopeKey !== "string" || options.scopeKey.trim() === "") {
 			throw new Error(
-				"WebGPURenderResources.prepareFrame() requires a non-empty scopeKey."
+				"WebGPU frame preparation requires a non-empty internal scope identifier.",
 			);
 		}
 		if (!options.sceneTargetMode) {
-			throw new Error(
-				"WebGPURenderResources.prepareFrame() requires sceneTargetMode."
-			);
+			throw new Error("WebGPU frame preparation requires sceneTargetMode.");
 		}
 		return {
 			scopeKey: options.scopeKey,
@@ -1119,7 +1087,7 @@ export class WebGPURenderResources {
 				this._layouts,
 				this._textureRegistry,
 				this._shadowAtlases,
-				this._pagedShadowRuntime
+				this._pagedShadowRuntime,
 			),
 			clusteredLighting: new WebGPUClusteredLightingRuntime(
 				this._computeFacade,
@@ -1128,7 +1096,7 @@ export class WebGPURenderResources {
 				(key, message) =>
 					Logger.warn(`[${key}] ${message}`, {
 						scope: "WebGPUClusteredLightingRuntime",
-					})
+					}),
 			),
 			prepared: null,
 		};
@@ -1139,28 +1107,24 @@ export class WebGPURenderResources {
 	private _requireFrameScope(scopeKey: string): WebGPUFrameResourceScope {
 		const scope = this._frameScopes.get(scopeKey);
 		if (!scope) {
-			throw new Error(
-				`WebGPURenderResources frame scope "${scopeKey}" is not prepared.`
-			);
+			throw new Error(`WebGPU frame scope "${scopeKey}" is not prepared.`);
 		}
 		return scope;
 	}
 
 	private _requirePreparedFrameResources(
 		frameResources: WebGPUPreparedFrameResources | undefined,
-		methodName: string
+		methodName: string,
 	): WebGPUPreparedFrameResources {
 		if (!this._isPreparedFrameResources(frameResources)) {
 			throw new Error(
-				`WebGPURenderResources.${methodName}() requires explicit prepared frame resources.`
+				`WebGPUFrameServiceOwner.${methodName}() requires explicit prepared frame resources.`,
 			);
 		}
 		return frameResources;
 	}
 
-	private _isPreparedFrameResources(
-		value: unknown
-	): value is WebGPUPreparedFrameResources {
+	private _isPreparedFrameResources(value: unknown): value is WebGPUPreparedFrameResources {
 		return (
 			!!value &&
 			typeof value === "object" &&
@@ -1173,7 +1137,7 @@ export class WebGPURenderResources {
 
 	private _resolveShadowAtlasTileSize(
 		shadowMaps: ReadonlyMap<ShadowCastingLight, ShadowRenderSet>,
-		enableShadows: boolean
+		enableShadows: boolean,
 	): number {
 		if (!enableShadows) {
 			return 1;
@@ -1182,7 +1146,7 @@ export class WebGPURenderResources {
 		let tileSize = 0;
 		for (const renderSet of shadowMaps.values()) {
 			const hasValidSlice = renderSet.slices.some(
-				(slice) => !!slice.shadowMap.viewProjectionMatrix
+				(slice) => !!slice.shadowMap.viewProjectionMatrix,
 			);
 			if (!hasValidSlice) {
 				continue;
@@ -1196,16 +1160,11 @@ export class WebGPURenderResources {
 	public async getDrawResources(
 		packet: DrawPacket,
 		frameResources: WebGPUPreparedFrameResources,
-		options: WebGPUDrawResourceOptions = {}
+		options: WebGPUDrawResourceOptions = {},
 	): Promise<WebGPUDrawResources[] | null> {
-		const prepared = this._requirePreparedFrameResources(
-			frameResources,
-			"getDrawResources"
-		);
-		const transparentPipelineMode =
-			options.transparentPipelineMode ?? "default";
-		const sceneTargetMode =
-			options.sceneTargetMode ?? prepared.sceneTargetMode;
+		const prepared = this._requirePreparedFrameResources(frameResources, "getDrawResources");
+		const transparentPipelineMode = options.transparentPipelineMode ?? "default";
+		const sceneTargetMode = options.sceneTargetMode ?? prepared.sceneTargetMode;
 		const drawMode = options.drawMode ?? "default";
 		const sampleCountOverride = options.sampleCountOverride;
 		const results: WebGPUDrawResources[] = [];
@@ -1213,55 +1172,48 @@ export class WebGPURenderResources {
 		const topology = geometry.topology;
 		const frameBinding = prepared.frameBinding;
 		const clusteredBinding = prepared.clusteredSceneBinding;
-		const animationState = this._resolveAnimationState(
-			packet,
-			geometry,
-			prepared
-		);
+		const animationState = this._resolveAnimationState(packet, geometry, prepared);
 
 		// ----- SOLID OBJECT -----
-		const solidMaterialData = createWebGPUMaterialUniformData(
-			packet.material,
-			false
-		);
+		const solidMaterialData = createWebGPUMaterialUniformData(packet.material, false);
 		for (const warning of solidMaterialData.warnings) {
 			Logger.warn(`[${warning.key}] ${warning.message}`, {
-				scope: "WebGPURenderResources",
+				scope: "WebGPUFrameServiceOwner",
 			});
 		}
 
 		const solidPipeline =
-			drawMode === "early-z-prepass" ?
-				await this._pipelineLibrary.getEarlyZPrepassPipeline(
-					packet.material,
-					sceneTargetMode,
-					false,
-					topology,
-					sampleCountOverride
-				)
-			:	await this._pipelineLibrary.getPipeline(
-					packet.material,
-					sceneTargetMode,
-					false,
-					topology,
-					transparentPipelineMode,
-					drawMode,
-					sampleCountOverride
-				);
+			drawMode === "early-z-prepass"
+				? await this._pipelineLibrary.getEarlyZPrepassPipeline(
+						packet.material,
+						sceneTargetMode,
+						false,
+						topology,
+						sampleCountOverride,
+					)
+				: await this._pipelineLibrary.getPipeline(
+						packet.material,
+						sceneTargetMode,
+						false,
+						topology,
+						transparentPipelineMode,
+						drawMode,
+						sampleCountOverride,
+					);
 		if (!solidPipeline) {
 			return null;
 		}
 		const solidTextures = await Promise.all(
 			solidMaterialData.textureSlots.map((slot, index) =>
-				this._textureRegistry.getTextureForSlotAsync(slot.map, index)
-			)
+				this._textureRegistry.getTextureForSlotAsync(slot.map, index),
+			),
 		);
 		const solidSamplers = solidMaterialData.textureSlots.map((slot) =>
-			this._textureRegistry.getSamplerForTexture(slot.map)
+			this._textureRegistry.getSamplerForTexture(slot.map),
 		);
 		const solidAnisotropyTexture = await this._textureRegistry.getTextureForSlotAsync(
 			solidMaterialData.anisotropyTexture.map,
-			-1
+			-1,
 		);
 		const solidModelBinding = this._materialBindings.getBinding(
 			packet,
@@ -1270,7 +1222,7 @@ export class WebGPURenderResources {
 			solidTextures,
 			solidSamplers,
 			solidAnisotropyTexture,
-			animationState
+			animationState,
 		);
 
 		results.push({
@@ -1289,10 +1241,7 @@ export class WebGPURenderResources {
 			packet.material.wireframe &&
 			topology === DEFAULT_PRIMITIVE_DRAW_TOPOLOGY
 		) {
-			const wireMaterialData = createWebGPUMaterialUniformData(
-				packet.material,
-				true
-			);
+			const wireMaterialData = createWebGPUMaterialUniformData(packet.material, true);
 			const wirePipeline = await this._pipelineLibrary.getPipeline(
 				packet.material,
 				sceneTargetMode,
@@ -1300,19 +1249,19 @@ export class WebGPURenderResources {
 				topology,
 				transparentPipelineMode,
 				drawMode,
-				sampleCountOverride
+				sampleCountOverride,
 			);
 			const wireTextures = await Promise.all(
 				wireMaterialData.textureSlots.map((slot, index) =>
-					this._textureRegistry.getTextureForSlotAsync(slot.map, index)
-				)
+					this._textureRegistry.getTextureForSlotAsync(slot.map, index),
+				),
 			);
 			const wireSamplers = wireMaterialData.textureSlots.map((slot) =>
-				this._textureRegistry.getSamplerForTexture(slot.map)
+				this._textureRegistry.getSamplerForTexture(slot.map),
 			);
 			const wireAnisotropyTexture = await this._textureRegistry.getTextureForSlotAsync(
 				wireMaterialData.anisotropyTexture.map,
-				-1
+				-1,
 			);
 			const wireModelBinding = this._materialBindings.getBinding(
 				packet,
@@ -1321,7 +1270,7 @@ export class WebGPURenderResources {
 				wireTextures,
 				wireSamplers,
 				wireAnisotropyTexture,
-				animationState
+				animationState,
 			);
 
 			results.push({
@@ -1341,11 +1290,11 @@ export class WebGPURenderResources {
 	public async getEnvironmentResources(
 		frameResources: WebGPUPreparedFrameResources,
 		sceneTargetMode?: WebGPUSceneTargetMode,
-		options: WebGPUEnvironmentResourceOptions = {}
+		options: WebGPUEnvironmentResourceOptions = {},
 	): Promise<WebGPUEnvironmentDrawResources | null> {
 		const prepared = this._requirePreparedFrameResources(
 			frameResources,
-			"getEnvironmentResources"
+			"getEnvironmentResources",
 		);
 		const resolvedSceneTargetMode = sceneTargetMode ?? prepared.sceneTargetMode;
 		if (
@@ -1357,7 +1306,7 @@ export class WebGPURenderResources {
 
 		const pipeline = await this._pipelineLibrary.getEnvironmentPipeline(
 			resolvedSceneTargetMode,
-			options.sampleCountOverride
+			options.sampleCountOverride,
 		);
 		const frameBinding = prepared.environmentBinding;
 
@@ -1380,7 +1329,7 @@ export class WebGPURenderResources {
 	 */
 	public buildParticleMeshDrawPackets(
 		context: FrameContext,
-		options: WebGPUParticleMeshPacketOptions = {}
+		options: WebGPUParticleMeshPacketOptions = {},
 	): DrawPacket[] {
 		const batches = context.transient.get(PARTICLE_MESH_TRANSIENT_BATCHES_KEY);
 		if (!batches || batches.length === 0) {
@@ -1389,8 +1338,7 @@ export class WebGPURenderResources {
 		const includeOpaque = options.includeOpaque ?? true;
 		const includeTransparent = options.includeTransparent ?? true;
 		const includeShadowCasters = options.includeShadowCasters ?? false;
-		const includeShadowTransmitters =
-			options.includeShadowTransmitters ?? false;
+		const includeShadowTransmitters = options.includeShadowTransmitters ?? false;
 		const includeReflective = options.includeReflective ?? false;
 		const packets: DrawPacket[] = [];
 
@@ -1399,22 +1347,18 @@ export class WebGPURenderResources {
 				const packet = this._createParticleMeshPacket(
 					batch,
 					batch.particles[particleIndex],
-					particleIndex
+					particleIndex,
 				);
 				const flags = packet.passFlags;
-				const isTransparent =
-					(flags & DRAW_PACKET_FLAG_TRANSPARENT) !== 0;
+				const isTransparent = (flags & DRAW_PACKET_FLAG_TRANSPARENT) !== 0;
 				const matchesMain =
-					(isTransparent && includeTransparent) ||
-					(!isTransparent && includeOpaque);
+					(isTransparent && includeTransparent) || (!isTransparent && includeOpaque);
 				const matchesShadow =
-					(includeShadowCasters &&
-						(flags & DRAW_PACKET_FLAG_SHADOW_CASTER) !== 0) ||
+					(includeShadowCasters && (flags & DRAW_PACKET_FLAG_SHADOW_CASTER) !== 0) ||
 					(includeShadowTransmitters &&
 						(flags & DRAW_PACKET_FLAG_SHADOW_TRANSMITTER) !== 0);
 				const matchesReflective =
-					includeReflective &&
-					(flags & DRAW_PACKET_FLAG_REFLECTIVE) !== 0;
+					includeReflective && (flags & DRAW_PACKET_FLAG_REFLECTIVE) !== 0;
 				if (matchesMain || matchesShadow || matchesReflective) {
 					packets.push(packet);
 				}
@@ -1431,22 +1375,13 @@ export class WebGPURenderResources {
 		targets: WebGPUParticlePassTargets,
 		frameResources: WebGPUPreparedFrameResources,
 		mode: WebGPUSceneTargetMode,
-		options: WebGPUParticleRenderOptions = {}
+		options: WebGPUParticleRenderOptions = {},
 	): Promise<number> {
-		const prepared = this._requirePreparedFrameResources(
-			frameResources,
-			"renderParticles"
-		);
+		const prepared = this._requirePreparedFrameResources(frameResources, "renderParticles");
 		const includeBlendModes = options.includeBlendModes ?? null;
 		const pipelineMode = options.pipelineMode ?? "legacy";
-		const sampleCount = this._resolveSampleCount(
-			mode,
-			options.sampleCountOverride
-		);
-		const particlePipelineKey = this._createParticlePipelineCacheKey(
-			mode,
-			sampleCount
-		);
+		const sampleCount = this._resolveSampleCount(mode, options.sampleCountOverride);
+		const particlePipelineKey = this._createParticlePipelineCacheKey(mode, sampleCount);
 		const gpuBatches = context.transient.get(WEBGPU_PARTICLE_DRAW_BATCHES_KEY);
 		if (gpuBatches && gpuBatches.length > 0) {
 			const drawBatches = gpuBatches.filter((batch) => {
@@ -1467,7 +1402,7 @@ export class WebGPURenderResources {
 					mode,
 					pipelineMode,
 					options.sampleCountOverride,
-					drawBatches
+					drawBatches,
 				);
 			}
 		}
@@ -1485,17 +1420,14 @@ export class WebGPURenderResources {
 		});
 		if (drawBatches.length === 0) return 0;
 
-		const totalParticles = drawBatches.reduce(
-			(sum, batch) => sum + batch.particles.length,
-			0
-		);
+		const totalParticles = drawBatches.reduce((sum, batch) => sum + batch.particles.length, 0);
 		if (totalParticles <= 0) return 0;
 
 		await this._ensureParticleResources(
 			mode,
 			totalParticles,
 			pipelineMode,
-			options.sampleCountOverride
+			options.sampleCountOverride,
 		);
 		if (!this._particleInstanceBuffer || !this._particleQuadBuffer) return 0;
 
@@ -1545,10 +1477,8 @@ export class WebGPURenderResources {
 		this._backend.writeBuffer(this._particleInstanceBuffer, instanceData);
 		const frameBinding = prepared.frameBinding;
 		const alphaPipeline = this._particlePipelineAlpha.get(particlePipelineKey);
-		const oitAlphaPipeline =
-			this._particlePipelineOITAlpha.get(particlePipelineKey);
-		const additivePipeline =
-			this._particlePipelineAdditive.get(particlePipelineKey);
+		const oitAlphaPipeline = this._particlePipelineOITAlpha.get(particlePipelineKey);
+		const additivePipeline = this._particlePipelineAdditive.get(particlePipelineKey);
 		if (pipelineMode === "oit") {
 			if (!oitAlphaPipeline) {
 				return 0;
@@ -1570,81 +1500,79 @@ export class WebGPURenderResources {
 		encoder.setVertexBuffer(0, this._particleQuadBuffer);
 		encoder.setVertexBuffer(1, this._particleInstanceBuffer);
 		const targetView =
-			targets.colorAttachments.find((attachment) => attachment.view)?.view ??
-			targets.depth;
+			targets.colorAttachments.find((attachment) => attachment.view)?.view ?? targets.depth;
 		const targetWidth = Math.max(
 			1,
 			Math.floor(
-				typeof targetView?.width === "number" ?
-					targetView.width
-				:	context.attachments.width
-			)
+				typeof targetView?.width === "number"
+					? targetView.width
+					: context.attachments.width,
+			),
 		);
 		const targetHeight = Math.max(
 			1,
 			Math.floor(
-				typeof targetView?.height === "number" ?
-					targetView.height
-				:	context.attachments.height
-			)
+				typeof targetView?.height === "number"
+					? targetView.height
+					: context.attachments.height,
+			),
 		);
 		const dirtyRects =
 			context.incremental?.enabled &&
 			!context.incremental.forceFullFrame &&
-			(context.incremental.dirtyRects?.length ?? 0) > 0 ?
-				context.incremental.dirtyRects
-					.map((rect) => {
-						const minX = Math.max(
-							0,
-							Math.floor(
-								(rect.x * targetWidth) /
-									Math.max(1, context.attachments.width)
-							)
-						);
-						const minY = Math.max(
-							0,
-							Math.floor(
-								(rect.y * targetHeight) /
-									Math.max(1, context.attachments.height)
-							)
-						);
-						const maxX = Math.min(
-							targetWidth,
-							Math.ceil(
-								((rect.x + rect.width) * targetWidth) /
-									Math.max(1, context.attachments.width)
-							)
-						);
-						const maxY = Math.min(
-							targetHeight,
-							Math.ceil(
-								((rect.y + rect.height) * targetHeight) /
-									Math.max(1, context.attachments.height)
-							)
-						);
-						return {
-							x: minX,
-							y: minY,
-							width: maxX - minX,
-							height: maxY - minY,
-						};
-					})
-					.filter((rect) => rect.width > 0 && rect.height > 0)
-			:	[{
-					x: 0,
-					y: 0,
-					width: targetWidth,
-					height: targetHeight,
-				}];
+			(context.incremental.dirtyRects?.length ?? 0) > 0
+				? context.incremental.dirtyRects
+						.map((rect) => {
+							const minX = Math.max(
+								0,
+								Math.floor(
+									(rect.x * targetWidth) / Math.max(1, context.attachments.width),
+								),
+							);
+							const minY = Math.max(
+								0,
+								Math.floor(
+									(rect.y * targetHeight) /
+										Math.max(1, context.attachments.height),
+								),
+							);
+							const maxX = Math.min(
+								targetWidth,
+								Math.ceil(
+									((rect.x + rect.width) * targetWidth) /
+										Math.max(1, context.attachments.width),
+								),
+							);
+							const maxY = Math.min(
+								targetHeight,
+								Math.ceil(
+									((rect.y + rect.height) * targetHeight) /
+										Math.max(1, context.attachments.height),
+								),
+							);
+							return {
+								x: minX,
+								y: minY,
+								width: maxX - minX,
+								height: maxY - minY,
+							};
+						})
+						.filter((rect) => rect.width > 0 && rect.height > 0)
+				: [
+						{
+							x: 0,
+							y: 0,
+							width: targetWidth,
+							height: targetHeight,
+						},
+					];
 
 		for (const range of drawRanges) {
 			const texture = await this._textureRegistry.getTextureForSlotAsync(
 				range.batch.texture,
-				0
+				0,
 			);
-			const sampler = this._textureRegistry.getSamplerForTexture(
-				range.batch.texture
-			);
+			const sampler = this._textureRegistry.getSamplerForTexture(range.batch.texture);
 			const cacheKey = `particle_${range.batch.systemId}`;
 			activeCacheKeys.add(cacheKey);
 			const cachedBinding = this._particleBindingCache.get(cacheKey);
@@ -1691,18 +1619,16 @@ export class WebGPURenderResources {
 					lastUsedFrame: this._frameId,
 				});
 			}
-			const uvTransformData = this._createParticleUVTransformData(
-				range.batch.texture
-			);
+			const uvTransformData = this._createParticleUVTransformData(range.batch.texture);
 			this._backend.writeBuffer(uvTransformBuffer, uvTransformData);
 			let pipeline: IRenderPipeline;
 			if (pipelineMode === "oit") {
 				pipeline = oitAlphaPipeline!;
 			} else {
 				pipeline =
-					range.batch.blendMode === ParticleBlendMode.Additive ?
-						additivePipeline!
-					:	alphaPipeline!;
+					range.batch.blendMode === ParticleBlendMode.Additive
+						? additivePipeline!
+						: alphaPipeline!;
 			}
 			encoder.setPipeline(pipeline);
 			encoder.setBindingGroup(1, particleBinding);
@@ -1720,36 +1646,30 @@ export class WebGPURenderResources {
 	private _createParticleMeshPacket(
 		batch: ParticleMeshRenderBatch,
 		particle: ParticleMeshRenderItem,
-		particleIndex: number
+		particleIndex: number,
 	): DrawPacket {
 		const material = batch.material;
 		const isTransparent = isMaterialTransparentPass(material);
-		const isReflective =
-			material.reflectivity > 0 && material.mirrorPlane !== null;
+		const isReflective = material.reflectivity > 0 && material.mirrorPlane !== null;
 		const supportsShadowCasting =
 			(batch.primitive.topology ?? DEFAULT_PRIMITIVE_DRAW_TOPOLOGY) ===
 			DEFAULT_PRIMITIVE_DRAW_TOPOLOGY;
 		const currentWorldMatrix = createParticleMeshWorldMatrix(
 			particle.position,
 			particle.rotation,
-			particle.size
+			particle.size,
 		);
 		const previousWorldMatrix = createParticleMeshWorldMatrix(
 			particle.previousPosition,
 			particle.previousRotation,
-			particle.size
+			particle.size,
 		);
-		const normalMatrix = Matrix4.normalMatrix(
-			currentWorldMatrix
-		) as Matrix3Arr;
+		const normalMatrix = Matrix4.normalMatrix(currentWorldMatrix) as Matrix3Arr;
 		const worldCenter = Matrix4.transformPoint(
 			currentWorldMatrix,
-			batch.primitive.boundingSphere.center
+			batch.primitive.boundingSphere.center,
 		);
-		const meshInstance = createParticleMeshInstance(
-			batch,
-			currentWorldMatrix
-		);
+		const meshInstance = createParticleMeshInstance(batch, currentWorldMatrix);
 
 		let passFlags = 0;
 		if (isTransparent) {
@@ -1786,8 +1706,7 @@ export class WebGPURenderResources {
 					y: worldCenter.y,
 					z: worldCenter.z,
 				},
-				radius: batch.primitive.boundingSphere.radius *
-					Math.max(0.001, particle.size),
+				radius: batch.primitive.boundingSphere.radius * Math.max(0.001, particle.size),
 			},
 			sortDepth: particle.depth,
 			pipelineKey: [
@@ -1809,35 +1728,22 @@ export class WebGPURenderResources {
 		mode: WebGPUSceneTargetMode,
 		pipelineMode: "legacy" | "oit",
 		sampleCountOverride: number | undefined,
-		drawBatches: readonly WebGPUParticleDrawBatch[]
+		drawBatches: readonly WebGPUParticleDrawBatch[],
 	): Promise<number> {
-		const totalParticles = drawBatches.reduce(
-			(sum, batch) => sum + batch.instanceCount,
-			0
-		);
+		const totalParticles = drawBatches.reduce((sum, batch) => sum + batch.instanceCount, 0);
 		if (totalParticles <= 0) {
 			return 0;
 		}
-		await this._ensureParticleResources(
-			mode,
-			0,
-			pipelineMode,
-			sampleCountOverride
-		);
+		await this._ensureParticleResources(mode, 0, pipelineMode, sampleCountOverride);
 		if (!this._particleQuadBuffer) {
 			return 0;
 		}
 		const sampleCount = this._resolveSampleCount(mode, sampleCountOverride);
-		const particlePipelineKey = this._createParticlePipelineCacheKey(
-			mode,
-			sampleCount
-		);
+		const particlePipelineKey = this._createParticlePipelineCacheKey(mode, sampleCount);
 		const frameBinding = frameResources.frameBinding;
 		const alphaPipeline = this._particlePipelineAlpha.get(particlePipelineKey);
-		const oitAlphaPipeline =
-			this._particlePipelineOITAlpha.get(particlePipelineKey);
-		const additivePipeline =
-			this._particlePipelineAdditive.get(particlePipelineKey);
+		const oitAlphaPipeline = this._particlePipelineOITAlpha.get(particlePipelineKey);
+		const additivePipeline = this._particlePipelineAdditive.get(particlePipelineKey);
 		if (pipelineMode === "oit") {
 			if (!oitAlphaPipeline) {
 				return 0;
@@ -1861,10 +1767,7 @@ export class WebGPURenderResources {
 		const activeCacheKeys = new Set<string>();
 
 		for (const batch of drawBatches) {
-			const texture = await this._textureRegistry.getTextureForSlotAsync(
-				batch.texture,
-				0
-			);
+			const texture = await this._textureRegistry.getTextureForSlotAsync(batch.texture, 0);
 			const sampler = this._textureRegistry.getSamplerForTexture(batch.texture);
 			const cacheKey = `particle_${batch.systemId}`;
 			activeCacheKeys.add(cacheKey);
@@ -1920,9 +1823,9 @@ export class WebGPURenderResources {
 				pipeline = oitAlphaPipeline!;
 			} else {
 				pipeline =
-					batch.blendMode === ParticleBlendMode.Additive ?
-						additivePipeline!
-					:	alphaPipeline!;
+					batch.blendMode === ParticleBlendMode.Additive
+						? additivePipeline!
+						: alphaPipeline!;
 			}
 
 			encoder.setPipeline(pipeline);
@@ -1945,26 +1848,25 @@ export class WebGPURenderResources {
 
 	private _resolveParticleDirtyRects(
 		context: FrameContext,
-		targets: WebGPUParticlePassTargets
+		targets: WebGPUParticlePassTargets,
 	): Array<{ x: number; y: number; width: number; height: number }> {
 		const targetView =
-			targets.colorAttachments.find((attachment) => attachment.view)?.view ??
-			targets.depth;
+			targets.colorAttachments.find((attachment) => attachment.view)?.view ?? targets.depth;
 		const targetWidth = Math.max(
 			1,
 			Math.floor(
-				typeof targetView?.width === "number" ?
-					targetView.width
-				:	context.attachments.width
-			)
+				typeof targetView?.width === "number"
+					? targetView.width
+					: context.attachments.width,
+			),
 		);
 		const targetHeight = Math.max(
 			1,
 			Math.floor(
-				typeof targetView?.height === "number" ?
-					targetView.height
-				:	context.attachments.height
-			)
+				typeof targetView?.height === "number"
+					? targetView.height
+					: context.attachments.height,
+			),
 		);
 		const hasIncrementalRects =
 			context.incremental?.enabled &&
@@ -1984,29 +1886,25 @@ export class WebGPURenderResources {
 			.map((rect) => {
 				const minX = Math.max(
 					0,
-					Math.floor(
-						(rect.x * targetWidth) / Math.max(1, context.attachments.width)
-					)
+					Math.floor((rect.x * targetWidth) / Math.max(1, context.attachments.width)),
 				);
 				const minY = Math.max(
 					0,
-					Math.floor(
-						(rect.y * targetHeight) / Math.max(1, context.attachments.height)
-					)
+					Math.floor((rect.y * targetHeight) / Math.max(1, context.attachments.height)),
 				);
 				const maxX = Math.min(
 					targetWidth,
 					Math.ceil(
 						((rect.x + rect.width) * targetWidth) /
-							Math.max(1, context.attachments.width)
-					)
+							Math.max(1, context.attachments.width),
+					),
 				);
 				const maxY = Math.min(
 					targetHeight,
 					Math.ceil(
 						((rect.y + rect.height) * targetHeight) /
-							Math.max(1, context.attachments.height)
-					)
+							Math.max(1, context.attachments.height),
+					),
 				);
 				return {
 					x: minX,
@@ -2019,8 +1917,7 @@ export class WebGPURenderResources {
 	}
 
 	private _evictParticleBindings(activeCacheKeys?: Set<string>): void {
-		const staleFrameThreshold =
-			this._frameId - WEBGPU_PARTICLE_BINDING_CACHE_MAX_AGE_FRAMES;
+		const staleFrameThreshold = this._frameId - WEBGPU_PARTICLE_BINDING_CACHE_MAX_AGE_FRAMES;
 		for (const [cacheKey, entry] of this._particleBindingCache.entries()) {
 			if (activeCacheKeys?.has(cacheKey)) {
 				continue;
@@ -2031,10 +1928,7 @@ export class WebGPURenderResources {
 			this._destroyParticleBindingEntry(cacheKey, entry);
 		}
 
-		if (
-			this._particleBindingCache.size <=
-			WEBGPU_PARTICLE_BINDING_CACHE_MAX_ENTRIES
-		) {
+		if (this._particleBindingCache.size <= WEBGPU_PARTICLE_BINDING_CACHE_MAX_ENTRIES) {
 			return;
 		}
 
@@ -2042,8 +1936,7 @@ export class WebGPURenderResources {
 			.filter(([cacheKey]) => !activeCacheKeys?.has(cacheKey))
 			.sort((left, right) => left[1].lastUsedFrame - right[1].lastUsedFrame);
 		while (
-			this._particleBindingCache.size >
-				WEBGPU_PARTICLE_BINDING_CACHE_MAX_ENTRIES &&
+			this._particleBindingCache.size > WEBGPU_PARTICLE_BINDING_CACHE_MAX_ENTRIES &&
 			evictionCandidates.length > 0
 		) {
 			const [cacheKey, entry] = evictionCandidates.shift()!;
@@ -2060,7 +1953,7 @@ export class WebGPURenderResources {
 
 	private _destroyParticleBindingEntry(
 		cacheKey: string,
-		entry: WebGPUParticleBindingCacheEntry
+		entry: WebGPUParticleBindingCacheEntry,
 	): void {
 		this._destroyBindingGroup(entry.group);
 		entry.uvTransformBuffer.destroy();
@@ -2078,7 +1971,7 @@ export class WebGPURenderResources {
 		mode: WebGPUSceneTargetMode,
 		totalParticles: number,
 		pipelineMode: "legacy" | "oit",
-		sampleCountOverride?: number
+		sampleCountOverride?: number,
 	): Promise<void> {
 		if (!this._particleShaderModule) {
 			const shader = await ShaderSource.load("webgpu.particle.composite");
@@ -2098,10 +1991,7 @@ export class WebGPURenderResources {
 				usage: BufferUsage.Vertex | BufferUsage.CopyDst,
 				label: "WebGPUParticleQuad",
 			});
-			this._backend.writeBuffer(
-				this._particleQuadBuffer,
-				WEBGPU_PARTICLE_QUAD_VERTICES
-			);
+			this._backend.writeBuffer(this._particleQuadBuffer, WEBGPU_PARTICLE_QUAD_VERTICES);
 		}
 
 		this._ensureParticleInstanceBuffer(totalParticles);
@@ -2116,24 +2006,23 @@ export class WebGPURenderResources {
 	private _ensureParticleInstanceBuffer(totalParticles: number): void {
 		if (totalParticles <= this._particleInstanceCapacity) return;
 
-		const resolvedParticles =
-			Number.isFinite(totalParticles) ?
-				Math.max(1, Math.floor(totalParticles))
-			:	1;
+		const resolvedParticles = Number.isFinite(totalParticles)
+			? Math.max(1, Math.floor(totalParticles))
+			: 1;
 		const maxCapacity = Math.max(
 			256,
-			Math.floor(Number.MAX_SAFE_INTEGER / WEBGPU_PARTICLE_INSTANCE_STRIDE)
+			Math.floor(Number.MAX_SAFE_INTEGER / WEBGPU_PARTICLE_INSTANCE_STRIDE),
 		);
 		if (resolvedParticles > maxCapacity) {
 			throw new Error(
-				`Particle instance request ${resolvedParticles} exceeds max capacity ${maxCapacity}.`
+				`Particle instance request ${resolvedParticles} exceeds max capacity ${maxCapacity}.`,
 			);
 		}
 		const exponent = Math.ceil(Math.log2(resolvedParticles));
 		const pow2Capacity = Math.pow(2, exponent);
 		const nextCapacity = Math.max(
 			256,
-			Math.min(maxCapacity, Number.isFinite(pow2Capacity) ? pow2Capacity : 256)
+			Math.min(maxCapacity, Number.isFinite(pow2Capacity) ? pow2Capacity : 256),
 		);
 		this._particleInstanceBuffer?.destroy();
 		this._particleInstanceBuffer = this._backend.createBuffer({
@@ -2147,133 +2036,133 @@ export class WebGPURenderResources {
 	private _ensureParticlePipeline(
 		mode: WebGPUSceneTargetMode,
 		pipelineType: "alpha" | "additive" | "oit-alpha",
-		sampleCountOverride?: number
+		sampleCountOverride?: number,
 	): Promise<void> {
 		const cache =
-			pipelineType === "additive" ? this._particlePipelineAdditive
-			: pipelineType === "oit-alpha" ? this._particlePipelineOITAlpha
-			: this._particlePipelineAlpha;
+			pipelineType === "additive"
+				? this._particlePipelineAdditive
+				: pipelineType === "oit-alpha"
+					? this._particlePipelineOITAlpha
+					: this._particlePipelineAlpha;
 		const sampleCount = this._resolveSampleCount(mode, sampleCountOverride);
 		const cacheKey = this._createParticlePipelineCacheKey(mode, sampleCount);
 		if (cache.has(cacheKey) || !this._particleShaderModule) return Promise.resolve();
 
 		const blend =
-			pipelineType === "additive" ?
-				{
-					color: {
-						srcFactor: "src-alpha",
-						dstFactor: "one",
-						operation: "add",
-					},
-					alpha: {
-						srcFactor: "one",
-						dstFactor: "one",
-						operation: "add",
-					},
-				}
-			:	{
-					color: {
-						srcFactor: "src-alpha",
-						dstFactor: "one-minus-src-alpha",
-						operation: "add",
-					},
-					alpha: {
-						srcFactor: "one",
-						dstFactor: "one-minus-src-alpha",
-						operation: "add",
-					},
-				};
+			pipelineType === "additive"
+				? {
+						color: {
+							srcFactor: "src-alpha",
+							dstFactor: "one",
+							operation: "add",
+						},
+						alpha: {
+							srcFactor: "one",
+							dstFactor: "one",
+							operation: "add",
+						},
+					}
+				: {
+						color: {
+							srcFactor: "src-alpha",
+							dstFactor: "one-minus-src-alpha",
+							operation: "add",
+						},
+						alpha: {
+							srcFactor: "one",
+							dstFactor: "one-minus-src-alpha",
+							operation: "add",
+						},
+					};
 		const colorFormat =
-			mode === "mrt" || mode === "color" ?
-				TextureFormat.RGBA16Float
-			:	this._backend.canvasFormat;
+			mode === "mrt" || mode === "color"
+				? TextureFormat.RGBA16Float
+				: this._backend.canvasFormat;
 		const depthFormat =
-			mode === "mrt" || mode === "color" ?
-				TextureFormat.Depth32Float
-			:	this._resolveSinglePassDepthFormat();
-		const fragmentEntryPoint =
-			pipelineType === "oit-alpha" ? "fsMainOIT" : "fsMain";
+			mode === "mrt" || mode === "color"
+				? TextureFormat.Depth32Float
+				: this._resolveSinglePassDepthFormat();
+		const fragmentEntryPoint = pipelineType === "oit-alpha" ? "fsMainOIT" : "fsMain";
 		const fragmentTargets =
-			pipelineType === "oit-alpha" ?
-				[
-					{
-						format: TextureFormat.RGBA16Float,
-						blend: {
-							color: {
-								srcFactor: "one",
-								dstFactor: "one",
-								operation: "add",
-							},
-							alpha: {
-								srcFactor: "one",
-								dstFactor: "one",
-								operation: "add",
-							},
-						},
-					},
-					{
-						format: TextureFormat.R8Unorm,
-						blend: {
-							color: {
-								srcFactor: "zero",
-								dstFactor: "one-minus-src",
-								operation: "add",
-							},
-							alpha: {
-								srcFactor: "zero",
-								dstFactor: "one-minus-src",
-								operation: "add",
+			pipelineType === "oit-alpha"
+				? [
+						{
+							format: TextureFormat.RGBA16Float,
+							blend: {
+								color: {
+									srcFactor: "one",
+									dstFactor: "one",
+									operation: "add",
+								},
+								alpha: {
+									srcFactor: "one",
+									dstFactor: "one",
+									operation: "add",
+								},
 							},
 						},
-					},
-				]
-			:	[
-					{
-						format: colorFormat,
-						blend,
-					},
-				];
+						{
+							format: TextureFormat.R8Unorm,
+							blend: {
+								color: {
+									srcFactor: "zero",
+									dstFactor: "one-minus-src",
+									operation: "add",
+								},
+								alpha: {
+									srcFactor: "zero",
+									dstFactor: "one-minus-src",
+									operation: "add",
+								},
+							},
+						},
+					]
+				: [
+						{
+							format: colorFormat,
+							blend,
+						},
+					];
 
-		return this._backend.createPipeline({
-			layout: this._layouts.particlePipelineLayout,
-			label: `WebGPUParticlePipeline_${pipelineType}_${mode}`,
-			vertex: {
-				module: this._particleShaderModule,
-				entryPoint: "vsMain",
-				buffers: WEBGPU_PARTICLE_VERTEX_LAYOUTS,
-			},
-			fragment: {
-				module: this._particleShaderModule,
-				entryPoint: fragmentEntryPoint,
-				targets: fragmentTargets,
-			},
-			primitive: {
-				topology: "triangle-list" as any,
-				cullMode: "none",
-				frontFace: "ccw",
-			},
-			depthStencil: {
-				format: depthFormat,
-				depthWriteEnabled: false,
-				depthCompare: "less",
-			},
-			sampleCount,
-		} as any).then((pipeline) => {
-			cache.set(cacheKey, pipeline);
-		});
+		return this._backend
+			.createPipeline({
+				layout: this._layouts.particlePipelineLayout,
+				label: `WebGPUParticlePipeline_${pipelineType}_${mode}`,
+				vertex: {
+					module: this._particleShaderModule,
+					entryPoint: "vsMain",
+					buffers: WEBGPU_PARTICLE_VERTEX_LAYOUTS,
+				},
+				fragment: {
+					module: this._particleShaderModule,
+					entryPoint: fragmentEntryPoint,
+					targets: fragmentTargets,
+				},
+				primitive: {
+					topology: "triangle-list" as any,
+					cullMode: "none",
+					frontFace: "ccw",
+				},
+				depthStencil: {
+					format: depthFormat,
+					depthWriteEnabled: false,
+					depthCompare: "less",
+				},
+				sampleCount,
+			} as any)
+			.then((pipeline) => {
+				cache.set(cacheKey, pipeline);
+			});
 	}
 
 	private _createParticlePipelineCacheKey(
 		mode: WebGPUSceneTargetMode,
-		sampleCount: number
+		sampleCount: number,
 	): string {
 		return `${mode}|msaa:${sampleCount}`;
 	}
 
-	private _resolveSampleCount(
-		mode: WebGPUSceneTargetMode,
-		sampleCountOverride?: number
-	): number {
+	private _resolveSampleCount(mode: WebGPUSceneTargetMode, sampleCountOverride?: number): number {
 		if (mode !== "mrt" && mode !== "color") {
 			return 1;
 		}
@@ -2290,9 +2179,7 @@ export class WebGPURenderResources {
 		return backend.canvasDepthFormat ?? TextureFormat.Depth24Plus;
 	}
 
-	private _createParticleUVTransformData(
-		texture: ParticleRenderBatch["texture"]
-	) {
+	private _createParticleUVTransformData(texture: ParticleRenderBatch["texture"]) {
 		const repeatX = texture?.repeat.x ?? 1;
 		const repeatY = texture?.repeat.y ?? 1;
 		const offsetX = texture?.offset.x ?? 0;
@@ -2315,43 +2202,30 @@ export class WebGPURenderResources {
 	private _resolveAnimationState(
 		packet: DrawPacket,
 		geometry: WebGPUGeometryHandle,
-		frameResources: WebGPUPreparedFrameResources
+		frameResources: WebGPUPreparedFrameResources,
 	): WebGPUModelAnimationBindingState {
-		const runtimeJoint =
-			frameResources.jointMatrixMap?.get(packet.meshInstance.id) ?? null;
+		const runtimeJoint = frameResources.jointMatrixMap?.get(packet.meshInstance.id) ?? null;
 		let jointMatrices: Float32Array | null = null;
 		if (runtimeJoint?.skeleton) {
-			runtimeJoint.skeleton.updateJointMatrices(
-				packet.meshInstance.worldMatrix
-			);
-			jointMatrices = runtimeJoint.skeleton.toFloat32Array(
-				runtimeJoint.matrices
-			);
+			runtimeJoint.skeleton.updateJointMatrices(packet.meshInstance.worldMatrix);
+			jointMatrices = runtimeJoint.skeleton.toFloat32Array(runtimeJoint.matrices);
 		} else if (packet.meshInstance.skeleton) {
-			packet.meshInstance.skeleton.updateJointMatrices(
-				packet.meshInstance.worldMatrix
-			);
+			packet.meshInstance.skeleton.updateJointMatrices(packet.meshInstance.worldMatrix);
 			jointMatrices = packet.meshInstance.skeleton.toFloat32Array();
 		}
 
-		const runtimeMorph =
-			frameResources.morphWeightMap?.get(packet.primitive.id) ?? null;
+		const runtimeMorph = frameResources.morphWeightMap?.get(packet.primitive.id) ?? null;
 		let morphTargetCount = Math.max(0, runtimeMorph?.targetCount ?? 0);
 		let sourceMorphWeights: Float32Array | null = runtimeMorph?.weights ?? null;
 		if (!sourceMorphWeights || morphTargetCount <= 0) {
 			const primitiveIndex = packet.mesh.primitives.indexOf(packet.primitive);
 			const instanceWeights =
-				primitiveIndex >= 0 ?
-					packet.meshInstance.morphWeights[primitiveIndex]
-				:	null;
+				primitiveIndex >= 0 ? packet.meshInstance.morphWeights[primitiveIndex] : null;
 			sourceMorphWeights = instanceWeights ?? null;
 			morphTargetCount = sourceMorphWeights?.length ?? 0;
 		}
 
-		morphTargetCount = Math.min(
-			Math.max(0, morphTargetCount),
-			geometry.morphTargetCount
-		);
+		morphTargetCount = Math.min(Math.max(0, morphTargetCount), geometry.morphTargetCount);
 		let morphWeights: Float32Array | null = null;
 		if (sourceMorphWeights && morphTargetCount > 0) {
 			morphWeights = new Float32Array(morphTargetCount);
@@ -2371,19 +2245,19 @@ export class WebGPURenderResources {
 function createParticleMeshWorldMatrix(
 	position: { x: number; y: number; z: number },
 	rotation: number,
-	size: number
+	size: number,
 ): Matrix4 {
 	const scale = Math.max(0.001, size);
-	return Matrix4.compose(
-		position,
-		Quaternion.fromEuler(0, 0, rotation),
-		{ x: scale, y: scale, z: scale }
-	);
+	return Matrix4.compose(position, Quaternion.fromEuler(0, 0, rotation), {
+		x: scale,
+		y: scale,
+		z: scale,
+	});
 }
 
 function createParticleMeshInstance(
 	batch: ParticleMeshRenderBatch,
-	worldMatrix: Matrix4
+	worldMatrix: Matrix4,
 ): MeshInstance {
 	return {
 		id: `particleMeshInstance:${batch.systemId}:${batch.templateIndex}`,
@@ -2396,10 +2270,8 @@ function createParticleMeshInstance(
 }
 
 function compareParticleMeshPackets(left: DrawPacket, right: DrawPacket): number {
-	const leftTransparent =
-		(left.passFlags & DRAW_PACKET_FLAG_TRANSPARENT) !== 0;
-	const rightTransparent =
-		(right.passFlags & DRAW_PACKET_FLAG_TRANSPARENT) !== 0;
+	const leftTransparent = (left.passFlags & DRAW_PACKET_FLAG_TRANSPARENT) !== 0;
+	const rightTransparent = (right.passFlags & DRAW_PACKET_FLAG_TRANSPARENT) !== 0;
 	if (leftTransparent !== rightTransparent) {
 		return leftTransparent ? 1 : -1;
 	}

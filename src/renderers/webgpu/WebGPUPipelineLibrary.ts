@@ -17,7 +17,7 @@ import {
 	ShaderMaterial,
 } from "../../materials/ShaderMaterial";
 import type { IRenderPipeline, IShaderModule } from "../types";
-import type { WebGPUBackend } from "../WebGPUBackend";
+import type { WebGPUDeviceResourceHost } from "./WebGPUDeviceResourceHost";
 import {
 	SINGLE_SAMPLE_WEBGPU_MSAA_CONTEXT,
 	type WebGPUMSAAContext,
@@ -114,7 +114,7 @@ interface WebGPUPipelineLibraryOptions {
 }
 
 export class WebGPUPipelineLibrary {
-	private _backend: WebGPUBackend;
+	private _backend: WebGPUDeviceResourceHost;
 	private _layouts: WebGPUPipelineLayouts;
 	private _msaa: WebGPUMSAAContext;
 	private _disposeShaderRuntimeListener: (() => void) | null = null;
@@ -134,7 +134,7 @@ export class WebGPUPipelineLibrary {
 	private _earlyZPrepassCache = new Map<string, IRenderPipeline>();
 
 	constructor(
-		backend: WebGPUBackend,
+		backend: WebGPUDeviceResourceHost,
 		layouts: WebGPUPipelineLayouts,
 		options: WebGPUPipelineLibraryOptions = {}
 	) {

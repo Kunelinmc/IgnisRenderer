@@ -97,14 +97,12 @@ export interface WebGPUParticleMeshPacketOptions {
 
 /** @internal Scoped frame preparation options. */
 export interface WebGPUPrepareFrameOptions {
-	readonly scopeKey: string;
 	readonly sceneTargetMode: WebGPUSceneTargetMode;
 	readonly temporalStateMode?: WebGPUTemporalStateMode;
 }
 
 /** @internal Prepared data and bindings for one WebGPU frame scope. */
 export interface WebGPUPreparedFrameResources {
-	readonly scopeKey: string;
 	readonly sceneTargetMode: WebGPUSceneTargetMode;
 	frameBinding: IBindingGroup;
 	decalFrameBinding: IBindingGroup;
@@ -118,17 +116,21 @@ export interface WebGPUPreparedFrameResources {
 	readonly morphWeightMap: MorphWeightMap | null;
 }
 
-/** @internal Frame preparation and scoped binding ownership. */
-export interface WebGPUFrameResourceProvider {
-	prepareFrame(
+/** @internal Owned WebGPU frame-binding and clustered-lighting scope. */
+export interface WebGPUFrameResourceScope {
+	prepare(
 		context: FrameContext,
 		options: WebGPUPrepareFrameOptions,
 	): WebGPUPreparedFrameResources;
-	releaseScope(scopeKey: string): void;
 	updateParticleShadowVolumes(
-		frameResources: WebGPUPreparedFrameResources,
 		context: FrameContext,
 	): void;
+	destroy(): void;
+}
+
+/** @internal Frame preparation and scoped binding ownership. */
+export interface WebGPUFrameResourceProvider {
+	createFrameScope(): WebGPUFrameResourceScope;
 }
 
 /** @internal Scene pipeline, environment, and clustered-lighting capability. */

@@ -59,7 +59,7 @@ import {
 	WebGPUReflectionProbeCapturePass,
 } from "./webgpu/WebGPUReflectionProbeCapturePass";
 import type { ProbeWebGPUCaptureFaceRequest } from "../lights/runtime/ProbeCaptureRuntime";
-import { WebGPURenderResources } from "./webgpu/WebGPURenderResources";
+import { WebGPUFrameServiceOwner } from "./webgpu/WebGPUFrameServiceOwner";
 import type { WebGPUCommandSchedulerHost } from "./webgpu/WebGPUBackendContracts";
 import {
 	FramePassPlanValidator,
@@ -224,7 +224,7 @@ export class WebGPUBackend implements IRenderBackend {
 
 	private readonly _canvasTargets = new WebGPUCanvasTargetManager();
 	private _errorScopes: WebGPUErrorScopeHelper | null = null;
-	private _resources: WebGPURenderResources | null = null;
+	private _resources: WebGPUFrameServiceOwner | null = null;
 	private _frameOrchestrator: WebGPUFrameOrchestrator | null = null;
 	private _frameHost: WebGPUFrameHost | null = null;
 	private _reflectionProbeCapturePass: WebGPUReflectionProbeCapturePass | null = null;
@@ -277,17 +277,17 @@ export class WebGPUBackend implements IRenderBackend {
 	private readonly _passDispatcher: WebGPUBackendPassDispatcher;
 	private readonly _warmupCoordinator: WebGPUWarmupCoordinator;
 
-	public constructor(options: WebGPUBackendOptions = {}) {
+	constructor(options: WebGPUBackendOptions = {}) {
 		if (Object.prototype.hasOwnProperty.call(options, "enableMSAA")) {
 			throw new Error(
-				"WebGPUBackendOptions.enableMSAA was removed; use msaaSampleCount: 1 to disable MSAA or msaaSampleCount: 4 to request 4x MSAA."
+				"WebGPUBackendOptions.enableMSAA was removed; use msaaSampleCount: 1 to disable MSAA or msaaSampleCount: 4 to request 4x MSAA.",
 			);
 		}
 		const shaderMode = options.shaderMode ?? "strict";
 		const thisRef = this;
 		this._msaaController = new WebGPUMSAAController(
 			this._createMSAAControllerHost(),
-			options.msaaSampleCount
+			options.msaaSampleCount,
 		);
 		this._enableEarlyZPrepass = options.enableEarlyZPrepass !== false;
 		this._enableDeferredLighting = options.enableDeferredLighting !== false;
@@ -336,9 +336,7 @@ export class WebGPUBackend implements IRenderBackend {
 		});
 		this._shaderModuleCompiler = new WebGPUShaderModuleCompiler(this._shaderCompileStage);
 		this._pipelineCache = new WebGPUPipelineCache(this._createPipelineCacheHost());
-		this._bindingGroupCache = new WebGPUBindingGroupCache(
-			this._createBindingGroupCacheHost()
-		);
+		this._bindingGroupCache = new WebGPUBindingGroupCache(this._createBindingGroupCacheHost());
 		this._passDispatcher = new WebGPUBackendPassDispatcher({
 			get frameOrchestrator() {
 				return thisRef._frameOrchestrator;
@@ -348,9 +346,6 @@ export class WebGPUBackend implements IRenderBackend {
 			},
 			get postProcessRuntime() {
 				return thisRef._postProcessRuntime;
-			},
-			get resources() {
-				return thisRef._resources;
 			},
 		});
 		this._warmupCoordinator = new WebGPUWarmupCoordinator({
@@ -691,7 +686,7 @@ export class WebGPUBackend implements IRenderBackend {
 			this._configureContext();
 			this._recreateDepthTexture();
 
-			this._resources = new WebGPURenderResources(this, this._msaaController);
+			this._resources = new WebGPUFrameServiceOwner(this, this._msaaController);
 			await this._resources.init();
 			this._frameHost = this._createFrameHost();
 			this._postProcessExecutor = new WebGPUPostProcessExecutor(this._frameHost);
@@ -707,7 +702,7 @@ export class WebGPUBackend implements IRenderBackend {
 			this._frameOrchestrator = new WebGPUFrameOrchestrator(
 				this._frameHost,
 				this._resources,
-				this._msaaController
+				this._msaaController,
 			);
 			this._reflectionProbeCapturePass = new WebGPUReflectionProbeCapturePass(
 				this,
@@ -1151,6 +1146,9 @@ export class WebGPUBackend implements IRenderBackend {
 			enableEarlyZPrepass: this.isEarlyZPrepassEnabled(),
 			enableDeferredLighting: this.isDeferredLightingEnabled(),
 			frameGraphValidationMode: this.getFrameGraphValidationMode(),
+			get shaderRuntime() {
+				return backend.shaderRuntime;
+			},
 			createBuffer: (desc) => {
 				assertActive("create frame buffers");
 				return backend.createBuffer(desc);
@@ -1194,6 +1192,10 @@ export class WebGPUBackend implements IRenderBackend {
 			writeBuffer: (buffer, data, offset) => {
 				assertActive("write frame buffers");
 				backend.writeBuffer(buffer, data, offset);
+			},
+			writeTexture: (texture, data, desc, size) => {
+				assertActive("write frame textures");
+				backend.writeTexture(texture, data, desc, size);
 			},
 			getCanvasColorTexture: () => {
 				assertActive("resolve frame canvas color");

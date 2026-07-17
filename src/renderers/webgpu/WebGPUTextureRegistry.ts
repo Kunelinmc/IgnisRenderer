@@ -11,7 +11,7 @@ import {
 } from "../types";
 import { getTextureFormatInfo } from "../TextureFormatInfo";
 import { Logger } from "../../foundation/Logger";
-import type { WebGPUBackend } from "../WebGPUBackend";
+import type { WebGPUDeviceResourceHost } from "./WebGPUDeviceResourceHost";
 import { tryGetWebGPUTextureHandle } from "./WebGPUResourceAccess";
 import {
 	createTextureMipUploadLevels,
@@ -38,7 +38,7 @@ interface SamplerCacheEntry {
 }
 
 export class WebGPUTextureRegistry {
-	private _backend: WebGPUBackend;
+	private _backend: WebGPUDeviceResourceHost;
 	private _textureCache = new WeakMap<Texture, TextureCacheEntry>();
 	private _samplerCache = new WeakMap<Texture, SamplerCacheEntry>();
 	private _uploadedVersionCache = new WeakMap<Texture, number>();
@@ -50,7 +50,7 @@ export class WebGPUTextureRegistry {
 	private _neutralNormalTexture: IRenderTexture | null = null;
 	private _whiteSampler: ISampler | null = null;
 
-	constructor(backend: WebGPUBackend) {
+	constructor(backend: WebGPUDeviceResourceHost) {
 		this._backend = backend;
 	}
 

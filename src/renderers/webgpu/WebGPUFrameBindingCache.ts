@@ -11,7 +11,7 @@ import {
 	TextureFormat,
 	TextureUsage,
 } from "../types";
-import type { WebGPUBackend } from "../WebGPUBackend";
+import type { WebGPUDeviceResourceHost } from "./WebGPUDeviceResourceHost";
 import {
 	WEBGPU_FRAME_CAMERA_UNIFORM_BYTE_SIZE,
 	WEBGPU_FRAME_ENVIRONMENT_UNIFORM_BYTE_SIZE,
@@ -84,7 +84,7 @@ export interface WebGPUFrameBindingPrepareOptions {
 }
 
 export class WebGPUFrameBindingCache {
-	private _backend: WebGPUBackend;
+	private _backend: WebGPUDeviceResourceHost;
 	private _layouts: WebGPUPipelineLayouts;
 	private _textureRegistry: WebGPUTextureRegistry;
 	private _shadowAtlases: WebGPUShadowAtlasAllocator;
@@ -133,7 +133,7 @@ export class WebGPUFrameBindingCache {
 	private _temporalJitterCurrentPrev: [number, number, number, number] = [0, 0, 0, 0];
 
 	constructor(
-		backend: WebGPUBackend,
+		backend: WebGPUDeviceResourceHost,
 		layouts: WebGPUPipelineLayouts,
 		textureRegistry: WebGPUTextureRegistry,
 		shadowAtlases: WebGPUShadowAtlasAllocator,

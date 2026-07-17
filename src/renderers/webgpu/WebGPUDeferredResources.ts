@@ -1,8 +1,14 @@
 import { ShaderSource } from "../../shaders/ShaderSource";
-import type { WebGPUBackend } from "../WebGPUBackend";
-import { TextureFormat, type IBindingGroup, type IComputePipeline, type IRenderPipeline, type IShaderModule } from "../types";
+import {
+	TextureFormat,
+	type IBindingGroup,
+	type IComputePipeline,
+	type IRenderPipeline,
+	type IShaderModule,
+} from "../types";
 import type { WebGPUDeferredResourceProvider } from "./WebGPUResourceContracts";
 import type { WebGPUPipelineLayouts } from "./WebGPUPipelineLayouts";
+import type { WebGPUDeviceResourceHost } from "./WebGPUDeviceResourceHost";
 
 /**
  * Owns WebGPU deferred layouts, pipelines, and the deferred placeholder group.
@@ -15,8 +21,8 @@ export class WebGPUDeferredResources implements WebGPUDeferredResourceProvider {
 	private _decalBatchPipeline: IComputePipeline | null = null;
 	private _deferredUnusedBinding: IBindingGroup | null = null;
 
-	public constructor(
-		private readonly _backend: WebGPUBackend,
+	constructor(
+		private readonly _backend: WebGPUDeviceResourceHost,
 		private readonly _layouts: WebGPUPipelineLayouts,
 		private readonly _getDeferredLightingPipeline: () => Promise<IRenderPipeline>,
 	) {}

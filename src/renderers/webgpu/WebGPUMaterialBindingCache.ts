@@ -6,7 +6,7 @@ import {
 	type IRenderTexture,
 	type ISampler,
 } from "../types";
-import type { WebGPUBackend } from "../WebGPUBackend";
+import type { WebGPUDeviceResourceHost } from "./WebGPUDeviceResourceHost";
 import type { DrawPacket } from "../../pipeline/types";
 import type { Matrix3Arr } from "../../maths/types";
 import { Matrix4 } from "../../maths/Matrix4";
@@ -90,7 +90,7 @@ const FALLBACK_STORAGE_DATA: FloatBuffer = new Float32Array(4);
 const FALLBACK_UNIFORM_DATA: FloatBuffer = new Float32Array(4);
 
 export class WebGPUMaterialBindingCache {
-	private _backend: WebGPUBackend;
+	private _backend: WebGPUDeviceResourceHost;
 	private _layouts: WebGPUPipelineLayouts;
 	private _cache = new Map<string, MaterialBindingEntry>();
 	private _currentFrame = 0;
@@ -98,7 +98,7 @@ export class WebGPUMaterialBindingCache {
 	private _fallbackShaderUniformBuffer: IRenderBuffer;
 	private _destroyed = false;
 
-	constructor(backend: WebGPUBackend, layouts: WebGPUPipelineLayouts) {
+	constructor(backend: WebGPUDeviceResourceHost, layouts: WebGPUPipelineLayouts) {
 		this._backend = backend;
 		this._layouts = layouts;
 		this._fallbackStorageBuffer = this._backend.createBuffer({
