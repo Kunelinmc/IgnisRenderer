@@ -24,6 +24,10 @@ backend-owned and executes through the `"postprocess"` backend pass.
   WebGL frame executor ends successfully.
 - `WebGLBackend.abortFrame(error)` must abort post-process runtime before
   clearing WebGL frame executor state.
+- `WebGLBackend.resize(size)` must invalidate post-process frame-sized
+  resources before invalidating WebGL frame targets.
+- WebGL context replacement must destroy the post-process resource pool before
+  destroying the previous context-scoped WebGL frame services.
 - `WebGLBackend.warmup(context, options)` must use
   `BackendPostProcessRuntime.compileWarmupGraph(context)` to collect post-process
   pass descriptors.
@@ -32,6 +36,9 @@ backend-owned and executes through the `"postprocess"` backend pass.
 - `FogPass` must provide a WebGL implementation and must support both
   post-process fog and scene-mode fog.
 - WebGL G-buffer bridge channels must report actual runtime attachment formats.
+- TAA and motion history textures must be allocated and destroyed by the
+  backend post-process resource pool. WebGL frame-target allocation must not
+  create or destroy temporal history textures.
 - When an enabled WebGL post-process implementation requires `albedo`,
   `roughness`, `metallic`, or `specular`, the backend must attempt to allocate
   a five-target material G-buffer. It must require both `MAX_DRAW_BUFFERS`

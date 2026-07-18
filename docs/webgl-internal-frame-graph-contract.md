@@ -17,9 +17,19 @@ validated without keeping pass orchestration inside `WebGLFrameExecutor`.
   `environment` nodes during `beginFrame(context)`.
 - `WebGLFrameGraphRuntime` must execute a synthetic `present` node during
   `endFrame(context)`.
-- `WebGLFrameExecutor` must own low-level WebGL services, resource handles,
-  frame target lifecycle, post-process bridge callbacks, and draw helpers.
+- `WebGLFrameExecutor` must remain a thin aggregate facade for frame begin,
+  finish, abort, resize, and service lifetime coordination.
+- `WebGLFrameServiceOwner` must construct device-scoped WebGL frame services
+  and destroy them in dependency order.
+- Each WebGL frame runtime must own and destroy the native handles it creates.
+  Frame-sized attachments must be owned exclusively by
+  `WebGLFrameTargetManager`; post-process histories must be owned exclusively
+  by `BackendPostProcessRuntime` resource pools.
+- `WebGLFrameNodeExecutorRegistry` must assign every WebGL graph node kind to
+  exactly one executor and must reject missing or duplicate registrations.
 - `WebGLFrameExecutor` must not own renderer-level pass orchestration.
+- WebGL graph and post-process runtimes must depend on narrow internal
+  contracts and must not require the concrete `WebGLFrameExecutor` type.
 - `WebGLFrameGraphCompiler` must preserve planner node order.
 - `WebGLFrameGraphCompiler` must emit diagnostics for missing resources,
   reads before creation, duplicate creates, unsupported usages, and WebGL
