@@ -14,6 +14,14 @@ To support decoupled backends, post-process execution is delegated to backend-ow
   declarations must force the backend's completed frame coverage to
   `"full-frame"`.
 - Backend resize, device loss, or destruction must trigger post-process runtime invalidation or destruction.
+- The runtime must compile pass eligibility before it prepares pool resources,
+  execute the resulting logical subgraph within the existing single
+  `"postprocess"` stage, and commit history only after the enclosing backend
+  frame succeeds.
+- Empty or clean incremental post-process frames must not begin a post-process
+	graph transaction or prepare post-process resources.
+- The runtime must retain planned and resolved logical color identities. A
+	  skipped pass must alias its planned output to its resolved input.
 - A custom post-process pass must include its respective entry in `PostProcessPassConfig.implementations` (e.g., `webgpu`, `webgl`, or `software`).
 - `PostProcessHistoryDescriptor`, `PostProcessTransientDescriptor`, and
   `PostProcessResourceDescriptor` must share
@@ -40,12 +48,16 @@ To support decoupled backends, post-process execution is delegated to backend-ow
   `WebGPUFrameOrchestrator` back-reference.
 - The context passed to WebGPU implementations is typed as `WebGPURuntimePostProcessContext` (or `WebGPUScreenPostProcessContext`), providing `encoder`, `targets`, and `shared` (`PostProcessSharedContext`).
 - Passes must not mutate the frame targets directly; they must publish their output color texture via the `publishColorTarget(texture)` callback.
+- The backend must treat `publishColorTarget(texture)` as pending until the
+  pass reports success. It must reject a controlled publication followed by
+  `{ ran: false }`.
 - Warmup planning collects ordered descriptors and runs `PostProcessPassImplementation.warmup(context)` if present.
 - WebGPU passes requesting temporary resources must declare them using `getTransientResourceDescriptors(request)`. The runtime injects the allocated resources under the properties defined in `metadata.context.transients`.
 - Built-in WebGPU passes that consume the shared opaque-depth Hi-Z must mark
-  their internal context metadata with `requiresHiZ`. The backend exposes the
-  frame target only after the frame graph has built it successfully; it is not
-  a post-process transient resource.
+  their graph metadata with a required `backend:frame-hiz` backend-shared
+  resource and their internal context metadata with `requiresHiZ`. WebGPU must
+  report that resource as available only after the frame graph has built Hi-Z
+  successfully; it is not a post-process transient resource.
 - WebGPU must expose `roughness` and `metallic` logical channels from
   `gNormalRoughMetal.z` and `gNormalRoughMetal.w` when `gNormalRoughMetal`
   exists.
@@ -72,6 +84,11 @@ To support decoupled backends, post-process execution is delegated to backend-ow
   - `bindColorTarget(texture)`: Bind the target texture as the framebuffer attachment.
   - `drawFullscreen()`: Draw the fullscreen triangle.
   - `publishColorTexture(texture)`: Notify the runtime of the final written texture.
+- WebGL must treat `publishColorTexture(texture)` as pending until the pass
+  result is known. Presentation must read the last successfully resolved
+	color texture, not a planned ping-pong target.
+- A built-in WebGL pass must publish the target selected for its logical node;
+	  publishing another owned texture must fail the frame transaction.
 - WebGL built-in passes, including `gamma`, must execute through
   `WebGLScreenPostProcessContext` instead of presenting directly to the canvas.
 - Pass program compilation is managed via `WebGLProgramCompiler` slots, which handle validation, uniform reflection, and warmup.
@@ -91,7 +108,7 @@ To support decoupled backends, post-process execution is delegated to backend-ow
 import { PostProcessPass, type PostProcessPassResolveRequest, type PostProcessTransientDescriptor } from "ignisrenderer";
 
 class CustomWebGPUPass extends PostProcessPass {
-	public constructor() {
+	constructor() {
 		super({
 			id: "custom-webgpu",
 			placement: "ldr",
