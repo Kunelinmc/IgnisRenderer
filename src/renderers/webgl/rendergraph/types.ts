@@ -19,6 +19,22 @@ export type WebGLFrameGraphNodeKind =
 	| "postprocess"
 	| "present";
 
+export const WEBGL_FRAME_GRAPH_NODE_KINDS = [
+	"shadow",
+	"scene-clear",
+	"environment",
+	"opaque-depth-prepass",
+	"opaque-scene",
+	"transparent-legacy",
+	"oit-clear",
+	"oit-accum",
+	"oit-reveal",
+	"oit-resolve",
+	"particles",
+	"postprocess",
+	"present",
+] as const satisfies readonly WebGLFrameGraphNodeKind[];
+
 export type WebGLFrameGraphResourceId = string;
 
 export type WebGLFrameGraphResourceUsage =

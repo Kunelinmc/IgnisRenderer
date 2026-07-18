@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
-import { WebGLFrameExecutor } from "../../../src/renderers/webgl/WebGLFrameExecutor.ts";
+import {
+	WebGLFrameServiceTestHarness as WebGLFrameExecutor,
+} from "../../helpers/webgl-frame-services.mjs";
 import { Logger } from "../../../src/foundation/Logger.ts";
 
 function createFakeGL() {

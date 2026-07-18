@@ -11,16 +11,31 @@ import type {
 	PostProcessResourceDescriptor,
 	PostProcessResourceHandle,
 } from "../../postprocess";
-import type { WebGLFrameExecutor } from "./WebGLFrameExecutor";
+
+export interface WebGLPostProcessDeviceServices {
+	createPostProcessResource(
+		desc: PostProcessResourceDescriptor,
+	): PostProcessResourceHandle;
+	destroyPostProcessResource(handle: PostProcessResourceHandle): void;
+	createGBufferBridge(context: FrameContext): LogicalGBufferBridge;
+	getPassExecutionContext(request: PostProcessPassExecutionContextRequest): unknown;
+	beginPostProcessFrame(): void;
+	endPostProcessFrame(): void;
+	abortPostProcessFrame(): void;
+	completePostProcessPass(
+		request: PostProcessPassRequest,
+		result: PostProcessPassResult,
+	): PostProcessPassCompletion;
+}
 
 export interface WebGLPostProcessExecutorHost {
 	/**
-	 * Resolves the active WebGL frame executor.
+	 * Resolves the active context-scoped WebGL device services.
 	 *
-	 * @returns Current frame executor, or `null` before initialization/after loss.
+	 * @returns Current services, or `null` before initialization/after loss.
 	 * @sideEffects None.
 	 */
-	getFrameExecutor(): WebGLFrameExecutor | null;
+	getDeviceServices(): WebGLPostProcessDeviceServices | null;
 }
 
 /**
@@ -42,11 +57,11 @@ export class WebGLPostProcessExecutor implements IPostProcessExecutor {
 	 *
 	 * @param desc Resource descriptor from the backend post-process resource pool.
 	 * @returns Resource handle wrapping a WebGL texture.
-	 * @sideEffects Allocates texture storage through the active frame executor.
+	 * @sideEffects Allocates texture storage through the active device services.
 	 */
 	public createResource(desc: PostProcessResourceDescriptor): PostProcessResourceHandle {
-		const executor = this._requireFrameExecutor("create post-process resource");
-		return executor.createPostProcessResource(desc);
+		const services = this._requireDeviceServices("create post-process resource");
+		return services.createPostProcessResource(desc);
 	}
 
 	/**
@@ -54,10 +69,10 @@ export class WebGLPostProcessExecutor implements IPostProcessExecutor {
 	 *
 	 * @param handle Resource handle previously returned by `createResource`.
 	 * @returns Nothing.
-	 * @sideEffects Destroys the backend texture when the frame executor exists.
+	 * @sideEffects Destroys the backend texture when device services exist.
 	 */
 	public destroyResource(handle: PostProcessResourceHandle): void {
-		this._host.getFrameExecutor()?.destroyPostProcessResource(handle);
+		this._host.getDeviceServices()?.destroyPostProcessResource(handle);
 	}
 
 	/**
@@ -69,7 +84,7 @@ export class WebGLPostProcessExecutor implements IPostProcessExecutor {
 	 */
 	public createGBufferBridge(context: FrameContext): LogicalGBufferBridge {
 		return (
-			this._host.getFrameExecutor()?.createGBufferBridge(context) ??
+			this._host.getDeviceServices()?.createGBufferBridge(context) ??
 			this._createFallbackGBufferBridge(context)
 		);
 	}
@@ -82,43 +97,37 @@ export class WebGLPostProcessExecutor implements IPostProcessExecutor {
 	 * @sideEffects None.
 	 */
 	public getPassExecutionContext(request: PostProcessPassExecutionContextRequest): unknown {
-		return this._host.getFrameExecutor()?.getPassExecutionContext(request);
+		return this._host.getDeviceServices()?.getPassExecutionContext(request);
 	}
 
 	/** @internal Opens the WebGL controlled-publication transaction. */
 	public beginFrame(): void {
-		this._host.getFrameExecutor()?.beginPostProcessFrame();
+		this._host.getDeviceServices()?.beginPostProcessFrame();
 	}
 
 	/** @internal Creates the WebGL logical-to-physical publication transaction. */
 	public createGraphBinding(_request: PostProcessFrameRequest): PostProcessGraphFrameBinding {
-		const executor = this._host.getFrameExecutor();
-		executor?.beginPostProcessFrame();
+		const services = this._host.getDeviceServices();
+		services?.beginPostProcessFrame();
 		return {
 			completePass: (request, result) =>
-				executor?.completePostProcessPass(request, result) ?? {},
-			endFrame: () => executor?.endPostProcessFrame(),
-			abortFrame: () => executor?.abortPostProcessFrame(),
+				services?.completePostProcessPass(request, result) ?? {},
+			endFrame: () => services?.endPostProcessFrame(),
+			abortFrame: () => services?.abortPostProcessFrame(),
 		};
 	}
 
 	/** @internal Closes the WebGL controlled-publication transaction. */
 	public endFrame(): void {
-		this._host.getFrameExecutor()?.endPostProcessFrame();
+		this._host.getDeviceServices()?.endPostProcessFrame();
 	}
 
-	/**
-	 * Executes one fallback logical WebGL post-process pass.
-	 *
-	 * @param passId Logical pass id.
-	 * @param request Current pass request.
-	 * @returns Execution result for pipeline history tracking.
-	 * @sideEffects May run backend-owned fullscreen work through the frame executor.
-	 */
-	public executePass(passId: string, request: PostProcessPassRequest): PostProcessPassResult {
-		return (
-			this._host.getFrameExecutor()?.executePostProcessPass(passId, request) ?? { ran: false }
-		);
+	/** @internal Compatibility fallback for passes without a WebGL implementation. */
+	public executePass(
+		_passId: string,
+		_request: PostProcessPassRequest,
+	): PostProcessPassResult {
+		return { ran: false };
 	}
 
 	/** @internal Applies backend-owned effects after a pass result is known. */
@@ -126,15 +135,15 @@ export class WebGLPostProcessExecutor implements IPostProcessExecutor {
 		request: PostProcessPassRequest,
 		result: PostProcessPassResult,
 	): PostProcessPassCompletion {
-		return this._host.getFrameExecutor()?.completePostProcessPass(request, result) ?? {};
+		return this._host.getDeviceServices()?.completePostProcessPass(request, result) ?? {};
 	}
 
-	private _requireFrameExecutor(operation: string): WebGLFrameExecutor {
-		const executor = this._host.getFrameExecutor();
-		if (!executor) {
-			throw new Error(`WebGL frame executor is not initialized; cannot ${operation}.`);
+	private _requireDeviceServices(operation: string): WebGLPostProcessDeviceServices {
+		const services = this._host.getDeviceServices();
+		if (!services) {
+			throw new Error(`WebGL device services are not initialized; cannot ${operation}.`);
 		}
-		return executor;
+		return services;
 	}
 
 	private _createFallbackGBufferBridge(context: FrameContext): LogicalGBufferBridge {

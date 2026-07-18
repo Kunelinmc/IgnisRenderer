@@ -2903,22 +2903,24 @@ function testWebGLBackendParticleDeltaTimeClamp() {
 	assert.equal(deltaTimeSeconds, 0.5);
 }
 
-async function testWebGLBackendWarmupDelegatesToFrameExecutor() {
+async function testWebGLBackendWarmupDelegatesToCoordinator() {
 	const backend = new WebGLBackend();
 	backend.attach({
 		surface: { canvas: {} },
 		events: { emit: () => {} },
 	});
 	backend._frameExecutor = {
-		warmup() {
-			return {
-				phase: "webgl-programs",
-				total: 3,
-				compiled: 2,
-				skipped: 1,
-				failed: 0,
-				errors: [],
-			};
+		warmupCoordinator: {
+			warmup() {
+				return {
+					phase: "webgl-programs",
+					total: 3,
+					compiled: 2,
+					skipped: 1,
+					failed: 0,
+					errors: [],
+				};
+			},
 		},
 	};
 	const report = await backend.warmup({
@@ -3098,7 +3100,7 @@ async function run() {
 	testShaderMaterialCustomTextureBinding();
 	testShaderMaterialDrawBuffersMismatchResolution();
 	testWebGLBackendParticleDeltaTimeClamp();
-	await testWebGLBackendWarmupDelegatesToFrameExecutor();
+	await testWebGLBackendWarmupDelegatesToCoordinator();
 	console.log("WebGL backend v2 unit tests passed");
 }
 

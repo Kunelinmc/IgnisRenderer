@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { WebGLFrameGraphRuntime } from "../../../src/renderers/webgl/rendergraph/WebGLFrameGraphRuntime.ts";
+import { WebGLFrameNodeExecutorRegistry } from "../../../src/renderers/webgl/rendergraph/WebGLFrameNodeExecutorRegistry.ts";
 
 function createContext(overrides = {}) {
 	return {
@@ -211,11 +212,27 @@ function testRuntimeDebugCapturesUnsupportedStage() {
 	]);
 }
 
+function testNodeRegistryRejectsMissingAndDuplicateOwners() {
+	assert.throws(
+		() => new WebGLFrameNodeExecutorRegistry([]),
+		/missing executors/,
+	);
+	const executor = () => {};
+	assert.throws(
+		() => new WebGLFrameNodeExecutorRegistry([
+			["present", executor],
+			["present", executor],
+		]),
+		/duplicate runtime owners/,
+	);
+}
+
 function run() {
 	testRuntimeExecutesOpaqueNodesInOrder();
 	testRuntimeDelegatesPostProcessNode();
 	testRuntimePlansOITParticleFlow();
 	testRuntimeDebugCapturesUnsupportedStage();
+	testNodeRegistryRejectsMissingAndDuplicateOwners();
 	console.log("WebGL frame graph runtime tests passed");
 }
 

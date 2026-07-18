@@ -85,7 +85,7 @@ export interface WebGLBackendOptions {
 export class WebGLBackend implements IRenderBackend {
 	private readonly _postProcessRuntime = new BackendPostProcessRuntime({
 		executor: new WebGLPostProcessExecutor({
-			getFrameExecutor: () => this._frameExecutor,
+			getDeviceServices: () => this._frameExecutor,
 		}),
 		backend: this,
 		warn: (key, message) =>
@@ -451,7 +451,11 @@ export class WebGLBackend implements IRenderBackend {
 		}
 		const plan = buildWarmupPlan(context, options, warmupPostProcessPlan);
 		try {
-			const phase = await this._frameExecutor.warmup(context, plan, options);
+			const phase = await this._frameExecutor.warmupCoordinator.warmup(
+				context,
+				plan,
+				options,
+			);
 			addWarmupPhase(report, phase);
 			this._reportWarmupProgress(options, phase);
 		} catch (error) {
@@ -691,7 +695,10 @@ function getWebGLDebugRendererInfo(
 	if (typeof gl.getExtension !== "function") {
 		return null;
 	}
-	let debugInfo: any = null;
+	let debugInfo: {
+		readonly UNMASKED_VENDOR_WEBGL: number;
+		readonly UNMASKED_RENDERER_WEBGL: number;
+	} | null = null;
 	try {
 		debugInfo = gl.getExtension("WEBGL_debug_renderer_info");
 	} catch {
@@ -724,7 +731,7 @@ function getWebGLStringParameter(
 function collectWebGLLimits(gl: WebGL2RenderingContext): Record<string, number> {
 	const limits: Record<string, number> = {};
 	for (const key of WEBGL_DEBUG_LIMIT_KEYS) {
-		const parameter = (gl as any)[key];
+		const parameter = gl[key];
 		if (typeof parameter !== "number" || typeof gl.getParameter !== "function") {
 			continue;
 		}

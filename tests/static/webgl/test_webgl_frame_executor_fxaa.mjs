@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
-import { WebGLFrameExecutor } from "../../../src/renderers/webgl/WebGLFrameExecutor.ts";
+import {
+	WebGLFrameServiceTestHarness as WebGLFrameExecutor,
+} from "../../helpers/webgl-frame-services.mjs";
 import { Logger } from "../../../src/foundation/Logger.ts";
 import {
 	FastApproximateAntiAliasingPass,
@@ -677,41 +679,6 @@ function testGammaPassUsesScreenPostProcessFlow() {
 	assert.equal(executor._presentSourceTexture, postColor);
 }
 
-function testExecutePostProcessPassLeavesFXAAToPassImplementation() {
-	const gl = createFXAATestGL();
-	const executor = new WebGLFrameExecutor(gl);
-	const events = [];
-
-	executor._applyToneMapping = () => {
-		events.push("tonemap");
-	};
-	executor._present = () => {
-		events.push("gamma");
-	};
-
-	const frameContext = {
-		postProcess: createResolvedPostProcess({
-			gamma: { enabled: true },
-			fxaa: { enabled: true },
-		}),
-		transient: new Map(),
-	};
-	const pass = new TemporalAntiAliasingPass({ enabled: true });
-	const request = {
-		frameContext,
-		histories: {},
-	};
-
-	const toneMapResult = executor.executePostProcessPass("tonemap", request);
-	const fxaaResult = executor.executePostProcessPass("fxaa", request);
-	const gammaResult = executor.executePostProcessPass("gamma", request);
-
-	assert.deepEqual(toneMapResult, { ran: false });
-	assert.deepEqual(fxaaResult, { ran: false });
-	assert.deepEqual(gammaResult, { ran: false });
-	assert.deepEqual(events, []);
-}
-
 function testFrameTargetsFallbackToRGBA8MotionWithoutFloatExtension() {
 	const gl = createFrameTargetTestGL({ floatExtension: false });
 	let executor;
@@ -723,6 +690,11 @@ function testFrameTargetsFallbackToRGBA8MotionWithoutFloatExtension() {
 	assert.equal(
 		gl.texImage2DCalls.some((call) => call.internalFormat === gl.RGBA16F),
 		false
+	);
+	assert.equal(
+		gl.createdTextures.length,
+		6,
+		"frame targets must not allocate post-process history textures"
 	);
 	const bridge = executor.createGBufferBridge({
 		attachments: { width: 320, height: 180 },
@@ -748,6 +720,11 @@ function testFrameTargetsCreateOITResourcesWithFloatExtension() {
 	assert.ok(executor._oitFramebuffer);
 	assert.ok(executor._oitAccumTexture);
 	assert.ok(executor._oitRevealTexture);
+	assert.equal(
+		gl.createdTextures.length,
+		8,
+		"float frame targets include OIT attachments but no histories"
+	);
 	const bridge = executor.createGBufferBridge({
 		attachments: { width: 320, height: 180 },
 	});
@@ -845,14 +822,14 @@ function testConfigureOITWarnsWithoutRuntimeTargets() {
 	const gl = createFrameTargetTestGL({ floatExtension: false });
 	const executor = new WebGLFrameExecutor(gl);
 	const warnings = captureWarnMessages(() => {
-		executor._configureOIT({
+		executor.transparency.beginFrame({
 			features: {
 				enableOIT: true,
 			},
 		});
 	});
 
-	assert.equal(executor._oitActive, false);
+	assert.equal(executor.transparency.isActive(), false);
 	assert.ok(
 		warnings.some((warning) =>
 			warning.includes("[webgl-oit-disabled-runtime]")
@@ -865,7 +842,7 @@ function testOITTransparentAndParticleExecutionOrder() {
 	const executor = new WebGLFrameExecutor(gl);
 	const events = [];
 
-	executor._oitActive = true;
+	executor.transparency._active = true;
 	executor._oitFramebuffer = { id: "oit-fbo" };
 	executor._sceneFramebuffer = { id: "scene-fbo" };
 	executor._sceneColorTexture = { id: "scene-color" };
@@ -875,13 +852,13 @@ function testOITTransparentAndParticleExecutionOrder() {
 	executor._oitRevealTexture = { id: "oit-reveal" };
 	executor._fullscreenVao = { id: "fullscreen-vao" };
 
-	executor._clearOITTargets = () => {
+	executor.transparency._clearTargets = () => {
 		events.push("clear");
 	};
-	executor._resolveOITComposition = () => {
+	executor.transparency._resolveComposition = () => {
 		events.push("resolve");
 	};
-	executor._renderPackets = (_context, packets, _transparent, options = {}) => {
+	executor.scene.renderPackets = (_context, packets, _transparent, options = {}) => {
 		events.push(
 			`packets:${options.blendMode ?? "legacy"}:${options.oitPassMode ?? 0}:${packets.length}`
 		);
@@ -903,8 +880,15 @@ function testOITTransparentAndParticleExecutionOrder() {
 		},
 	};
 
-	executor._renderOITTransparentPass(context);
-	executor._renderOITParticlePass(context);
+	executor.prepareOITTransparent(context);
+	executor.renderOITTransparentAccum(context);
+	executor.renderOITTransparentReveal(context);
+	executor.prepareOITParticles();
+	executor.renderOITParticleAccum(context);
+	executor.renderOITParticleReveal(context);
+	executor.resolveOIT(context);
+	executor.renderOITLegacyTransparent(context);
+	executor.renderOITAdditiveParticles(context);
 
 	assert.deepEqual(events, [
 		"clear",
@@ -923,7 +907,7 @@ function testOITTransparentResolvesImmediatelyWithoutParticles() {
 	const executor = new WebGLFrameExecutor(gl);
 	const events = [];
 
-	executor._oitActive = true;
+	executor.transparency._active = true;
 	executor._oitFramebuffer = { id: "oit-fbo" };
 	executor._sceneFramebuffer = { id: "scene-fbo" };
 	executor._sceneColorTexture = { id: "scene-color" };
@@ -933,13 +917,13 @@ function testOITTransparentResolvesImmediatelyWithoutParticles() {
 	executor._oitRevealTexture = { id: "oit-reveal" };
 	executor._fullscreenVao = { id: "fullscreen-vao" };
 
-	executor._clearOITTargets = () => {
+	executor.transparency._clearTargets = () => {
 		events.push("clear");
 	};
-	executor._resolveOITComposition = () => {
+	executor.transparency._resolveComposition = () => {
 		events.push("resolve");
 	};
-	executor._renderPackets = (_context, packets, _transparent, options = {}) => {
+	executor.scene.renderPackets = (_context, packets, _transparent, options = {}) => {
 		events.push(
 			`packets:${options.blendMode ?? "legacy"}:${options.oitPassMode ?? 0}:${packets.length}`
 		);
@@ -955,7 +939,11 @@ function testOITTransparentResolvesImmediatelyWithoutParticles() {
 		},
 	};
 
-	executor._renderOITTransparentPass(context);
+	executor.prepareOITTransparent(context);
+	executor.renderOITTransparentAccum(context);
+	executor.renderOITTransparentReveal(context);
+	executor.resolveOIT(context);
+	executor.renderOITLegacyTransparent(context);
 
 	assert.deepEqual(events, [
 		"clear",
@@ -977,11 +965,11 @@ function testMainOpaqueRunsEarlyZPrepassBeforeColorPass() {
 		},
 	};
 
-	executor._renderEarlyZPrepass = (_context, packets) => {
+	executor.scene.renderEarlyZ = (_context, packets) => {
 		events.push(`prepass:${packets.length}`);
 		return new Set(["opaque-0"]);
 	};
-	executor._renderPackets = (_context, packets, transparent, options = {}) => {
+	executor.scene.renderPackets = (_context, packets, transparent, options = {}) => {
 		events.push(
 			`color:${packets.length}:${transparent}:${options.earlyZPacketIds?.has("opaque-0")}`
 		);
@@ -1009,7 +997,7 @@ function testMainOpaqueCanDisableEarlyZPrepass() {
 		},
 	};
 
-	executor._renderPackets = (_context, packets, transparent, options = {}) => {
+	executor.scene.renderPackets = (_context, packets, transparent, options = {}) => {
 		events.push(
 			`color:${packets.length}:${transparent}:${options.earlyZPacketIds?.size ?? 0}`
 		);
@@ -1048,7 +1036,7 @@ function testEndFramePrunesStaleModelMatrixCache() {
 	executor._modelMatrixCache.set("drop", new Float32Array(16));
 	executor._modelMatrixKeysThisFrame.add("keep");
 	executor._presentedInFrame = true;
-	executor.endFrame();
+	executor.finishFrame();
 
 	assert.equal(executor._modelMatrixCache.has("keep"), true);
 	assert.equal(executor._modelMatrixCache.has("drop"), false);
@@ -1088,7 +1076,7 @@ function testTransparentRenderPacketsConfiguresBlendAndDepthState() {
 	executor._bindGlobalUniforms = () => {};
 	executor._drawPacket = () => {};
 
-	executor._renderPackets(
+	executor.scene.renderPackets(
 		{
 			viewCamera: {
 				viewProjectionMatrix: [
@@ -1532,17 +1520,17 @@ async function testWarmupCollectsPostProcessHintsFromPlanOrder() {
 	executor._programCompiler = createProgramCompilerStub({}, calls);
 
 	executor._programs = {
-		getSceneProgram() {
-			calls.push("scene");
-			return { program: { id: "scene" }, uniforms: {} };
-		},
-		getPresentProgram() {
+		warmupPresentProgram() {
 			calls.push("present");
-			return { program: { id: "present" }, uniforms: {} };
+			return {
+				label: "present",
+				isComplete: () => true,
+				finalize: () => {},
+			};
 		},
 	};
 
-	await executor.warmup(
+	await executor.warmupCoordinator.warmup(
 		{
 			features: {
 				enableOIT: false,
@@ -1583,7 +1571,6 @@ async function run() {
 	testWebGLContextUsesImplementationMetadataForCustomPassId();
 	testWebGLContextIgnoresMissingOrForeignMetadata();
 	testGammaPassUsesScreenPostProcessFlow();
-	testExecutePostProcessPassLeavesFXAAToPassImplementation();
 	testFrameTargetsFallbackToRGBA8MotionWithoutFloatExtension();
 	testFrameTargetsCreateOITResourcesWithFloatExtension();
 	testMaterialGBufferBridgeUsesFiveAttachmentsWhenSupported();
