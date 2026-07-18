@@ -4,6 +4,7 @@ import type {
 	PostProcessPassImplementation,
 	PostProcessPassRequest,
 	PostProcessPassResult,
+	PostProcessPassCompletion,
 } from "../../postprocess";
 import type { WebGLProgramCompiler } from "./WebGLProgramCompiler";
 import {
@@ -44,6 +45,9 @@ export interface WebGLPostProcessBridgeCallbacks {
 export class WebGLPostProcessBridge {
 	private readonly _callbacks: WebGLPostProcessBridgeCallbacks;
 	private _pendingColorTexture: WebGLTexture | null = null;
+	private _expectedColorTexture: WebGLTexture | null = null;
+	private readonly _physicalIds = new WeakMap<WebGLTexture, string>();
+	private _nextPhysicalId = 1;
 	private _pendingMarksTAAHistoryValid = false;
 	private _transactionActive = false;
 
@@ -69,7 +73,7 @@ export class WebGLPostProcessBridge {
 	 * @sideEffects None. Callback side effects occur only when methods create
 	 * execution contexts.
 	 */
-	public constructor(callbacks: WebGLPostProcessBridgeCallbacks) {
+	constructor(callbacks: WebGLPostProcessBridgeCallbacks) {
 		this._callbacks = callbacks;
 	}
 
@@ -83,9 +87,7 @@ export class WebGLPostProcessBridge {
 	 * @sideEffects May synchronize executor temporal-history aliases when the
 	 * implementation declares `syncPipelineHistories`.
 	 */
-	public getPassExecutionContext(
-		request: PostProcessPassExecutionContextRequest
-	): unknown {
+	public getPassExecutionContext(request: PostProcessPassExecutionContextRequest): unknown {
 		if (this._transactionActive) this.clearPendingPassState();
 		const metadata = request.implementation.metadata?.context;
 		if (!isWebGLPostProcessContextMetadata(metadata)) {
@@ -100,20 +102,27 @@ export class WebGLPostProcessBridge {
 	/** @internal Commits a controlled color publication after a successful pass. */
 	public completePass(
 		request: PostProcessPassRequest,
-		result: PostProcessPassResult
-	): void {
-		if (!this._transactionActive) return;
+		result: PostProcessPassResult,
+	): PostProcessPassCompletion {
+		if (!this._transactionActive) return {};
 		const texture = this._pendingColorTexture;
+		const expectedTexture = this._expectedColorTexture;
 		const markTAAHistoryValid = this._pendingMarksTAAHistoryValid;
 		this.clearPendingPassState();
-		if (!texture) return;
+		if (!texture) return { published: false };
 		if (result.ran === false) {
 			throw new Error(
-				`Post-process pass "${request.passId}" published a color texture and then reported ran: false.`
+				`Post-process pass "${request.passId}" published a color texture and then reported ran: false.`,
+			);
+		}
+		if (request.pass.builtIn && texture !== expectedTexture) {
+			throw new Error(
+				`Post-process pass "${request.passId}" published a texture other than its assigned graph output.`,
 			);
 		}
 		this._callbacks.publishColorTexture(texture);
 		if (markTAAHistoryValid) this._callbacks.markTAAHistoryValid();
+		return { published: true, physicalId: this._getPhysicalId(texture) };
 	}
 
 	/** @internal Clears an uncommitted pass publication after an aborted frame. */
@@ -132,9 +141,7 @@ export class WebGLPostProcessBridge {
 	 * `undefined`.
 	 * @sideEffects None.
 	 */
-	public getPassWarmupExecutionContext(
-		implementation: PostProcessPassImplementation
-	): unknown {
+	public getPassWarmupExecutionContext(implementation: PostProcessPassImplementation): unknown {
 		const metadata = implementation.metadata?.context;
 		if (!isWebGLPostProcessContextMetadata(metadata)) {
 			return undefined;
@@ -145,7 +152,7 @@ export class WebGLPostProcessBridge {
 	private _createContext(
 		metadata: WebGLPostProcessContextMetadata,
 		request: PostProcessPassRequest | null,
-		mode: "execute" | "warmup"
+		mode: "execute" | "warmup",
 	): Record<string, unknown> | undefined {
 		const context: Record<string, unknown> = {
 			gl: this._callbacks.getGL(),
@@ -157,13 +164,12 @@ export class WebGLPostProcessBridge {
 			height: this._callbacks.getHeight(),
 			getSourceTexture: () => this._callbacks.getSourceTexture(),
 			resolveTargetTexture: (sourceTexture: WebGLTexture) =>
-				this._callbacks.resolveTargetTexture(sourceTexture),
-			bindColorTarget: (texture: WebGLTexture) =>
-				this._callbacks.bindColorTarget(texture),
+				this._resolveTargetTexture(sourceTexture),
+			bindColorTarget: (texture: WebGLTexture) => this._callbacks.bindColorTarget(texture),
 			drawFullscreen: (
 				width = this._callbacks.getWidth(),
 				height = this._callbacks.getHeight(),
-				frameContext = this._callbacks.getActiveContext()
+				frameContext = this._callbacks.getActiveContext(),
 			) => this._callbacks.drawFullscreen(width, height, frameContext),
 			publishColorTexture: (texture: WebGLTexture) => {
 				if (mode !== "execute") return;
@@ -175,8 +181,7 @@ export class WebGLPostProcessBridge {
 					return;
 				}
 				this._pendingColorTexture = texture;
-				this._pendingMarksTAAHistoryValid =
-					metadata.markTAAHistoryValidOnPublish === true;
+				this._pendingMarksTAAHistoryValid = metadata.markTAAHistoryValidOnPublish === true;
 			},
 		};
 
@@ -195,8 +200,7 @@ export class WebGLPostProcessBridge {
 			context.nextFrameJitter = () => this._callbacks.nextFrameJitter();
 		}
 		if (metadata.warn) {
-			context.warn = (key: string, message: string) =>
-				this._callbacks.warn(key, message);
+			context.warn = (key: string, message: string) => this._callbacks.warn(key, message);
 		}
 		if (request && mode === "execute") {
 			for (const binding of metadata.histories ?? []) {
@@ -211,5 +215,26 @@ export class WebGLPostProcessBridge {
 	private clearPendingPassState(): void {
 		this._pendingColorTexture = null;
 		this._pendingMarksTAAHistoryValid = false;
+		this._expectedColorTexture = null;
+	}
+
+	private _resolveTargetTexture(sourceTexture: WebGLTexture): WebGLTexture | null {
+		const target = this._callbacks.resolveTargetTexture(sourceTexture);
+		if (target === sourceTexture) {
+			throw new Error(
+				"WebGL post-process graph selected one texture for sampled input and color output.",
+			);
+		}
+		this._expectedColorTexture = target;
+		return target;
+	}
+
+	private _getPhysicalId(texture: WebGLTexture): string {
+		let id = this._physicalIds.get(texture);
+		if (!id) {
+			id = `webgl:${this._nextPhysicalId++}`;
+			this._physicalIds.set(texture, id);
+		}
+		return id;
 	}
 }

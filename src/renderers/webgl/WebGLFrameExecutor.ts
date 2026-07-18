@@ -39,6 +39,7 @@ import type {
 	PostProcessPassExecutionContextRequest,
 	PostProcessPassRequest,
 	PostProcessPassResult,
+	PostProcessPassCompletion,
 	PostProcessResourceDescriptor,
 	PostProcessResourceHandle,
 } from "../../postprocess";
@@ -905,12 +906,17 @@ export class WebGLFrameExecutor {
 		this._postProcessBridge.endFrameTransaction();
 	}
 
+	/** @internal Aborts controlled output publication without aborting the renderer frame. */
+	public abortPostProcessFrame(): void {
+		this._postProcessBridge.clearPendingFrameState();
+	}
+
 	/** @internal Commits validated WebGL post-process output for one pass. */
 	public completePostProcessPass(
 		request: PostProcessPassRequest,
 		result: PostProcessPassResult
-	): void {
-		this._postProcessBridge.completePass(request, result);
+	): PostProcessPassCompletion {
+		return this._postProcessBridge.completePass(request, result);
 	}
 
 	public endFrame(): void {

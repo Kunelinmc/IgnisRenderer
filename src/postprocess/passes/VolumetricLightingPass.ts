@@ -50,6 +50,7 @@ import {
 	type PostProcessPassConfig,
 	type PostProcessPassResolveRequest,
 } from "../PostProcessPass";
+import { WEBGPU_HIZ_POST_PROCESS_GRAPH_METADATA } from "../graphMetadata";
 import type { PostProcessPassMetadata } from "../ordering";
 import type {
 	PostProcessHistoryDescriptor,
@@ -1154,6 +1155,7 @@ export class WebGPUVolumetricLightingImplementation
 {
 	public readonly id = "volumetric:webgpu";
 	public readonly metadata = {
+		graph: WEBGPU_HIZ_POST_PROCESS_GRAPH_METADATA,
 		context: {
 			backend: "webgpu",
 			kind: "screen",

@@ -163,6 +163,10 @@ export class WebGLFrameGraphRuntime {
 				...this._compiler.getDiagnostics(),
 				...this._runtimeDiagnostics,
 			],
+			postProcess: this._postProcessRuntime.getDebugState?.() ?? {
+				lastAttempt: null,
+				lastSuccessful: null,
+			},
 		};
 	}
 

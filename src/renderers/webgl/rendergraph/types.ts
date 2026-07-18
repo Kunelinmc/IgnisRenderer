@@ -2,6 +2,7 @@ import type {
 	FramePass,
 	FramePassStage,
 } from "../../../pipeline/types";
+import type { PostProcessGraphDebugState } from "../../../postprocess/BackendPostProcessRuntime";
 
 export type WebGLFrameGraphNodeKind =
 	| "shadow"
@@ -120,4 +121,5 @@ export interface WebGLFrameGraphDebugState {
 	readonly graphResources: readonly WebGLFrameGraphResourceDebugState[];
 	readonly graphBarriers: readonly WebGLFrameGraphBarrier[];
 	readonly graphDiagnostics: readonly WebGLFrameGraphDiagnostic[];
+	readonly postProcess: PostProcessGraphDebugState;
 }

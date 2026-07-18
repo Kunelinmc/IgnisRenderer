@@ -5,6 +5,9 @@ import type {
 	PostProcessPassExecutionContextRequest,
 	PostProcessPassRequest,
 	PostProcessPassResult,
+	PostProcessPassCompletion,
+	PostProcessGraphFrameBinding,
+	PostProcessFrameRequest,
 	PostProcessResourceDescriptor,
 	PostProcessResourceHandle,
 } from "../../postprocess";
@@ -30,7 +33,7 @@ export class WebGLPostProcessExecutor implements IPostProcessExecutor {
 	public readonly backend = "webgl";
 	private readonly _host: WebGLPostProcessExecutorHost;
 
-	public constructor(host: WebGLPostProcessExecutorHost) {
+	constructor(host: WebGLPostProcessExecutorHost) {
 		this._host = host;
 	}
 
@@ -41,12 +44,8 @@ export class WebGLPostProcessExecutor implements IPostProcessExecutor {
 	 * @returns Resource handle wrapping a WebGL texture.
 	 * @sideEffects Allocates texture storage through the active frame executor.
 	 */
-	public createResource(
-		desc: PostProcessResourceDescriptor
-	): PostProcessResourceHandle {
-		const executor = this._requireFrameExecutor(
-			"create post-process resource"
-		);
+	public createResource(desc: PostProcessResourceDescriptor): PostProcessResourceHandle {
+		const executor = this._requireFrameExecutor("create post-process resource");
 		return executor.createPostProcessResource(desc);
 	}
 
@@ -82,15 +81,25 @@ export class WebGLPostProcessExecutor implements IPostProcessExecutor {
 	 * @returns Context object expected by the selected WebGL implementation.
 	 * @sideEffects None.
 	 */
-	public getPassExecutionContext(
-		request: PostProcessPassExecutionContextRequest
-	): unknown {
+	public getPassExecutionContext(request: PostProcessPassExecutionContextRequest): unknown {
 		return this._host.getFrameExecutor()?.getPassExecutionContext(request);
 	}
 
 	/** @internal Opens the WebGL controlled-publication transaction. */
 	public beginFrame(): void {
 		this._host.getFrameExecutor()?.beginPostProcessFrame();
+	}
+
+	/** @internal Creates the WebGL logical-to-physical publication transaction. */
+	public createGraphBinding(_request: PostProcessFrameRequest): PostProcessGraphFrameBinding {
+		const executor = this._host.getFrameExecutor();
+		executor?.beginPostProcessFrame();
+		return {
+			completePass: (request, result) =>
+				executor?.completePostProcessPass(request, result) ?? {},
+			endFrame: () => executor?.endPostProcessFrame(),
+			abortFrame: () => executor?.abortPostProcessFrame(),
+		};
 	}
 
 	/** @internal Closes the WebGL controlled-publication transaction. */
@@ -106,37 +115,29 @@ export class WebGLPostProcessExecutor implements IPostProcessExecutor {
 	 * @returns Execution result for pipeline history tracking.
 	 * @sideEffects May run backend-owned fullscreen work through the frame executor.
 	 */
-	public executePass(
-		passId: string,
-		request: PostProcessPassRequest
-	): PostProcessPassResult {
+	public executePass(passId: string, request: PostProcessPassRequest): PostProcessPassResult {
 		return (
-			this._host.getFrameExecutor()?.executePostProcessPass(passId, request) ??
-			{ ran: false }
+			this._host.getFrameExecutor()?.executePostProcessPass(passId, request) ?? { ran: false }
 		);
 	}
 
 	/** @internal Applies backend-owned effects after a pass result is known. */
 	public completePass(
 		request: PostProcessPassRequest,
-		result: PostProcessPassResult
-	): void {
-		this._host.getFrameExecutor()?.completePostProcessPass(request, result);
+		result: PostProcessPassResult,
+	): PostProcessPassCompletion {
+		return this._host.getFrameExecutor()?.completePostProcessPass(request, result) ?? {};
 	}
 
 	private _requireFrameExecutor(operation: string): WebGLFrameExecutor {
 		const executor = this._host.getFrameExecutor();
 		if (!executor) {
-			throw new Error(
-				`WebGL frame executor is not initialized; cannot ${operation}.`
-			);
+			throw new Error(`WebGL frame executor is not initialized; cannot ${operation}.`);
 		}
 		return executor;
 	}
 
-	private _createFallbackGBufferBridge(
-		context: FrameContext
-	): LogicalGBufferBridge {
+	private _createFallbackGBufferBridge(context: FrameContext): LogicalGBufferBridge {
 		return {
 			width: Math.max(1, context.attachments.width),
 			height: Math.max(1, context.attachments.height),

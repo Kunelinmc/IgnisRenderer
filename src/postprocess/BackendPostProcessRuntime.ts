@@ -17,6 +17,8 @@ import type {
 	LogicalGBufferSemantic,
 	PostProcessFrameRequest,
 	PostProcessPassExecutionContextRequest,
+	PostProcessPassCompletion,
+	PostProcessGraphFrameBinding,
 	PostProcessPassRequest,
 	PostProcessPassImplementation,
 	PostProcessPassResult,
@@ -35,6 +37,33 @@ interface PendingBackendPostProcessFrame {
 	readonly attemptedPassIds: Set<string>;
 	readonly graph: CompiledPostProcessGraph;
 	readonly token: object;
+	readonly logicalGraph: CompiledRenderGraph<PostProcessRenderGraphNodePayload>;
+	readonly resolvedColorAliases: Map<string, string>;
+	readonly skippedPassIds: string[];
+	status: "prepared" | "executing" | "ended";
+	readonly binding: PostProcessGraphFrameBinding | null;
+}
+
+/** @internal Fully compiled post-process frame, before pool allocation. */
+export interface CompiledPostProcessFrame {
+	readonly graph: CompiledPostProcessGraph;
+	readonly logicalGraph: CompiledRenderGraph<PostProcessRenderGraphNodePayload>;
+	readonly outputColor: string;
+}
+
+/** @internal Sanitized outcome of one completed post-process graph transaction. */
+export interface PostProcessGraphExecutionResult {
+	readonly outputColor: string;
+	readonly resolvedOutputColor: string;
+	readonly executedPassIds: readonly string[];
+	readonly skippedPassIds: readonly string[];
+	readonly preservesOutsideDirtyTiles: boolean;
+}
+
+/** @internal Internal diagnostic snapshots without native resource handles. */
+export interface PostProcessGraphDebugState {
+	readonly lastAttempt: PostProcessGraphExecutionResult | null;
+	readonly lastSuccessful: PostProcessGraphExecutionResult | null;
 }
 
 /** @internal Opaque prepared post-process graph frame owned by one backend runtime. */
@@ -42,6 +71,7 @@ export interface PreparedPostProcessFrame {
 	readonly graph: CompiledPostProcessGraph;
 	/** @internal Opaque identity that prevents cross-frame reuse. */
 	readonly token: object;
+	readonly compiled: CompiledPostProcessFrame;
 }
 
 /**
@@ -60,8 +90,10 @@ export class BackendPostProcessRuntime {
 	private _pendingFrame: PendingBackendPostProcessFrame | null = null;
 	private _completedFramePreservesOutsideDirtyTiles = true;
 	private _lastRenderGraph: CompiledRenderGraph<PostProcessRenderGraphNodePayload> | null = null;
+	private _lastAttempt: PostProcessGraphExecutionResult | null = null;
+	private _lastSuccessful: PostProcessGraphExecutionResult | null = null;
 
-	public constructor(options: BackendPostProcessRuntimeOptions) {
+	constructor(options: BackendPostProcessRuntimeOptions) {
 		this._executor = options.executor;
 		this._backend = options.backend;
 		this._warn = options.warn ?? (() => {});
@@ -77,6 +109,19 @@ export class BackendPostProcessRuntime {
 			}
 		}
 		return impl ?? null;
+	}
+
+	private _compileExistingGraph(graph: CompiledPostProcessGraph): CompiledPostProcessFrame {
+		const subgraph = this._renderGraphAdapter.build(graph);
+		const logicalGraph = this._renderGraphCompiler.compile(subgraph);
+		this._lastRenderGraph = logicalGraph;
+		const errors = logicalGraph.diagnostics.filter(
+			(diagnostic) => diagnostic.severity === "error",
+		);
+		if (errors.length > 0) {
+			throw new Error(errors.map((diagnostic) => diagnostic.message).join(" "));
+		}
+		return Object.freeze({ graph, logicalGraph, outputColor: subgraph.outputColor });
 	}
 
 	/**
@@ -95,6 +140,8 @@ export class BackendPostProcessRuntime {
 			gBuffer: this._executor.createGBufferBridge(context),
 			warn: this._warn,
 			resolveImplementation: (pass) => this._resolveImplementation(pass),
+			isGraphResourceAvailable: (resourceId) =>
+				this._executor.isGraphResourceAvailable?.(resourceId) ?? true,
 		});
 		this._observePasses(graph);
 		return graph;
@@ -103,6 +150,21 @@ export class BackendPostProcessRuntime {
 	/** @internal Alias used by post-process render graph runners. */
 	public compileFrame(context: FrameContext): CompiledPostProcessGraph {
 		return this.compileGraph(context);
+	}
+
+	/** @internal Compiles the executable logical subgraph without allocating resources. */
+	public compileRenderGraphFrame(context: FrameContext): CompiledPostProcessFrame {
+		const graph = this.compileFrame(context);
+		const subgraph = this._renderGraphAdapter.build(graph);
+		const logicalGraph = this._renderGraphCompiler.compile(subgraph);
+		this._lastRenderGraph = logicalGraph;
+		const errors = logicalGraph.diagnostics.filter(
+			(diagnostic) => diagnostic.severity === "error",
+		);
+		if (errors.length > 0) {
+			throw new Error(errors.map((diagnostic) => diagnostic.message).join(" "));
+		}
+		return Object.freeze({ graph, logicalGraph, outputColor: subgraph.outputColor });
 	}
 
 	/**
@@ -146,7 +208,7 @@ export class BackendPostProcessRuntime {
 		}
 		{
 			const activePasses = new Set(
-				context.postProcess.getEnabledPasses().map((resolved) => resolved.pass)
+				context.postProcess.getEnabledPasses().map((resolved) => resolved.pass),
 			);
 			for (const [pass, implementation] of this._implementations.entries()) {
 				if (!activePasses.has(pass)) {
@@ -154,22 +216,12 @@ export class BackendPostProcessRuntime {
 					this._implementations.delete(pass);
 				}
 			}
-			const graph = this.compileFrame(context);
-			if (graph.passes.length <= 0) return;
-			const compiled = this._renderGraphCompiler.compile(
-				this._renderGraphAdapter.build(graph)
-			);
-			this._lastRenderGraph = compiled;
-			const errors = compiled.diagnostics.filter(
-				(diagnostic) => diagnostic.severity === "error"
-			);
-			if (errors.length > 0) {
-				throw new Error(errors.map((diagnostic) => diagnostic.message).join(" "));
-			}
-			const frame = await this.beginGraphFrame(graph);
+			const compiled = this.compileRenderGraphFrame(context);
+			if (compiled.graph.passes.length <= 0) return;
+			const frame = await this.beginGraphFrame(compiled);
 			if (!frame) return;
 			try {
-				for (const node of compiled.nodes) {
+				for (const node of compiled.logicalGraph.nodes) {
 					await this.executeGraphPass(frame, node.payload.passId);
 				}
 				await this.endGraphFrame(frame);
@@ -223,6 +275,7 @@ export class BackendPostProcessRuntime {
 			transients: resources.transients,
 		};
 		const executedPassIds: string[] = [];
+		const binding = this._executor.createGraphBinding?.(frameRequest) ?? null;
 		this._pendingFrame = {
 			frameRequest,
 			executedPassIds,
@@ -283,8 +336,11 @@ export class BackendPostProcessRuntime {
 
 	/** @internal Prepares pool-backed resources and opens one graph transaction. */
 	public async beginGraphFrame(
-		graph: CompiledPostProcessGraph
+		compiled: CompiledPostProcessFrame | CompiledPostProcessGraph,
 	): Promise<PreparedPostProcessFrame | null> {
+		const frameCompiled =
+			"logicalGraph" in compiled ? compiled : this._compileExistingGraph(compiled);
+		const graph = frameCompiled.graph;
 		if (graph.passes.length <= 0) return null;
 		if (this._pendingFrame) await this.abortFrame();
 		const resources = this._resources.prepare({
@@ -300,6 +356,7 @@ export class BackendPostProcessRuntime {
 			histories: resources.histories,
 			transients: resources.transients,
 		};
+		const binding = this._executor.createGraphBinding?.(frameRequest);
 		const token = {};
 		this._pendingFrame = {
 			frameRequest,
@@ -307,26 +364,43 @@ export class BackendPostProcessRuntime {
 			attemptedPassIds: new Set(),
 			graph,
 			token,
+			logicalGraph: frameCompiled.logicalGraph,
+			resolvedColorAliases: new Map([["frame:scene-color", "frame:scene-color"]]),
+			skippedPassIds: [],
+			status: "prepared",
+			binding,
 		};
-		await this._executor.beginFrame?.(frameRequest);
-		return { graph, token };
+		if (!binding) await this._executor.beginFrame?.(frameRequest);
+		return { graph, token, compiled: frameCompiled };
 	}
 
 	/** @internal Executes exactly one pass belonging to an active graph frame. */
 	public async executeGraphPass(
 		frame: PreparedPostProcessFrame,
-		passId: string
+		passId: string,
 	): Promise<PostProcessPassResult> {
 		const pending = this._pendingFrame;
 		if (!pending || pending.graph !== frame.graph || pending.token !== frame.token) {
 			throw new Error("Post-process graph frame is not active.");
+		}
+		if (pending.status === "ended") {
+			throw new Error("Post-process graph frame has already ended.");
 		}
 		const resolved = frame.graph.passes.find((pass) => pass.id === passId);
 		if (!resolved) throw new Error(`Post-process graph has no pass "${passId}".`);
 		if (pending.attemptedPassIds.has(resolved.id)) {
 			throw new Error(`Post-process graph pass "${passId}" already executed.`);
 		}
+		const node = pending.logicalGraph.nodes.find(
+			(candidate) => candidate.payload.passId === passId,
+		);
+		if (!node) throw new Error(`Post-process graph has no node for pass "${passId}".`);
+		const expectedNode = pending.logicalGraph.nodes[pending.attemptedPassIds.size];
+		if (expectedNode?.id !== node.id) {
+			throw new Error(`Post-process graph pass "${passId}" executed out of order.`);
+		}
 		pending.attemptedPassIds.add(resolved.id);
+		pending.status = "executing";
 		const request: PostProcessPassRequest = {
 			...pending.frameRequest,
 			pass: resolved.pass,
@@ -335,52 +409,94 @@ export class BackendPostProcessRuntime {
 			options: resolved.options,
 			startPassId: frame.graph.startPassId,
 		};
-		const executionContext = resolved.implementation?.execute ?
-			this._executor.getPassExecutionContext?.({
-				...request,
-				implementation: resolved.implementation,
-			} satisfies PostProcessPassExecutionContextRequest)
-		: undefined;
-		const result = (await resolved.pass.execute(request, executionContext, this._executor)) ?? {};
-		await this._executor.completePass?.(request, result);
-		if (result.ran === false) return result;
+		const executionContext = resolved.implementation?.execute
+			? this._executor.getPassExecutionContext?.({
+					...request,
+					implementation: resolved.implementation,
+				} satisfies PostProcessPassExecutionContextRequest)
+			: undefined;
+		await pending.binding?.beginPass?.(request);
+		const result =
+			(await resolved.pass.execute(request, executionContext, this._executor)) ?? {};
+		this._validateHistoryUpdates(resolved, result);
+		const completion = pending.binding
+			? await pending.binding.completePass?.(request, result)
+			: await this._executor.completePass?.(request, result);
+		if (result.ran === false) {
+			pending.skippedPassIds.push(resolved.id);
+			if (node.payload.plannedOutputColor && node.payload.inputColor) {
+				pending.resolvedColorAliases.set(
+					node.payload.plannedOutputColor,
+					this._resolveColorAlias(pending, node.payload.inputColor),
+				);
+			}
+			return result;
+		}
+		if (
+			node.payload.outputValidation === "strict" &&
+			node.payload.color.output === "new-version" &&
+			completion &&
+			completion.published !== true
+		) {
+			throw new Error(
+				`Post-process pass "${passId}" did not publish its assigned color output.`,
+			);
+		}
+		if (node.payload.plannedOutputColor) {
+			pending.resolvedColorAliases.set(
+				node.payload.plannedOutputColor,
+				node.payload.plannedOutputColor,
+			);
+		}
 		if (result.preservesOutsideDirtyTiles !== true) {
 			this._completedFramePreservesOutsideDirtyTiles = false;
 		}
 		pending.executedPassIds.push(resolved.id);
 		if (result.updatedHistoryIds) {
-			const undeclared = result.updatedHistoryIds.find(
-				(id) => !resolved.historyIds.includes(id)
-			);
-			if (undeclared) {
-				throw new Error(
-					`Post-process pass "${resolved.id}" updated undeclared history "${undeclared}".`
-				);
-			}
 			this._resources.markUpdatedMany(result.updatedHistoryIds);
 		} else if (result.historyUpdated) {
-			this._resources.markUpdatedMany(
-				resolved.historyIds.filter((id) => id !== "motion")
-			);
+			this._resources.markUpdatedMany(resolved.historyIds.filter((id) => id !== "motion"));
 		}
 		return result;
 	}
 
 	/** @internal Completes post-process hooks without committing temporal history. */
-	public async endGraphFrame(frame: PreparedPostProcessFrame): Promise<void> {
+	public async endGraphFrame(
+		frame: PreparedPostProcessFrame,
+	): Promise<PostProcessGraphExecutionResult> {
 		const pending = this._pendingFrame;
 		if (!pending || pending.graph !== frame.graph || pending.token !== frame.token) {
 			throw new Error("Post-process graph frame is not active.");
 		}
-		await this._executor.endFrame?.({
-			...pending.frameRequest,
-			executedPassIds: pending.executedPassIds,
-		});
+		if (pending.status === "ended") {
+			throw new Error("Post-process graph frame has already ended.");
+		}
+		const pendingResult = this._createExecutionResult(pending, frame.compiled.outputColor);
+		if (pending.binding) {
+			await pending.binding.endFrame?.(pendingResult.resolvedOutputColor);
+		} else {
+			await this._executor.endFrame?.({
+				...pending.frameRequest,
+				executedPassIds: pending.executedPassIds,
+			});
+		}
+		pending.status = "ended";
+		const result = pendingResult;
+		this._lastAttempt = result;
+		return result;
 	}
 
 	/** @internal Returns the latest logical post-process graph compilation. */
 	public getLastRenderGraph(): CompiledRenderGraph<PostProcessRenderGraphNodePayload> | null {
 		return this._lastRenderGraph;
+	}
+
+	/** @internal Returns sanitized post-process graph attempt snapshots. */
+	public getDebugState(): PostProcessGraphDebugState {
+		return Object.freeze({
+			lastAttempt: this._lastAttempt,
+			lastSuccessful: this._lastSuccessful,
+		});
 	}
 
 	/**
@@ -403,7 +519,11 @@ export class BackendPostProcessRuntime {
 		if (!this._pendingFrame) {
 			return;
 		}
+		if (this._pendingFrame.status !== "ended") {
+			throw new Error("Post-process graph frame must end before history can commit.");
+		}
 		this._resources.commitFrame();
+		this._lastSuccessful = this._lastAttempt;
 		this._pendingFrame = null;
 	}
 
@@ -422,11 +542,60 @@ export class BackendPostProcessRuntime {
 		if (!pending) {
 			return;
 		}
-		await this._executor.abortFrame?.({
-			...pending.frameRequest,
-			executedPassIds: pending.executedPassIds,
-			error,
+		this._lastAttempt = this._createExecutionResult(
+			pending,
+			pending.graph.passes.length > 0
+				? (pending.logicalGraph.nodes.at(-1)?.payload.plannedOutputColor ??
+						"frame:scene-color")
+				: "frame:scene-color",
+		);
+		if (pending.binding) {
+			await pending.binding.abortFrame?.(error);
+		} else {
+			await this._executor.abortFrame?.({
+				...pending.frameRequest,
+				executedPassIds: pending.executedPassIds,
+				error,
+			});
+		}
+	}
+
+	private _resolveColorAlias(pending: PendingBackendPostProcessFrame, color: string): string {
+		let resolved = color;
+		const visited = new Set<string>();
+		while (pending.resolvedColorAliases.has(resolved) && !visited.has(resolved)) {
+			visited.add(resolved);
+			const next = pending.resolvedColorAliases.get(resolved)!;
+			if (next === resolved) break;
+			resolved = next;
+		}
+		return resolved;
+	}
+
+	private _createExecutionResult(
+		pending: PendingBackendPostProcessFrame,
+		outputColor: string,
+	): PostProcessGraphExecutionResult {
+		return Object.freeze({
+			outputColor,
+			resolvedOutputColor: this._resolveColorAlias(pending, outputColor),
+			executedPassIds: Object.freeze(pending.executedPassIds.slice()),
+			skippedPassIds: Object.freeze(pending.skippedPassIds.slice()),
+			preservesOutsideDirtyTiles: this._completedFramePreservesOutsideDirtyTiles,
 		});
+	}
+
+	private _validateHistoryUpdates(
+		resolved: CompiledPostProcessGraph["passes"][number],
+		result: PostProcessPassResult,
+	): void {
+		if (!result.updatedHistoryIds) return;
+		const undeclared = result.updatedHistoryIds.find((id) => !resolved.historyIds.includes(id));
+		if (undeclared) {
+			throw new Error(
+				`Post-process pass "${resolved.id}" updated undeclared history "${undeclared}".`,
+			);
+		}
 	}
 
 	/**

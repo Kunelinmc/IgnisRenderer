@@ -5,6 +5,7 @@ import type {
 import type { WebGPUSceneTargetMode } from "../WebGPUScenePassDescriptors";
 import type { WebGPUFrameGraphResourceId } from "./WebGPUFrameGraphResourceCatalog";
 import type { WebGPUFrameCommitDebugState } from "./WebGPUFrameCommitter";
+import type { PostProcessGraphDebugState } from "../../../postprocess/BackendPostProcessRuntime";
 
 export const WEBGPU_FRAME_GRAPH_NODE_KINDS = [
 	"shadow",
@@ -172,4 +173,5 @@ export interface WebGPUFrameGraphDebugState {
 	readonly graphDiagnostics: readonly WebGPUFrameGraphDiagnostic[];
 	readonly targetManager: WebGPUFrameGraphTargetDebugState;
 	readonly commit: WebGPUFrameCommitDebugState | null;
+	readonly postProcess: PostProcessGraphDebugState;
 }

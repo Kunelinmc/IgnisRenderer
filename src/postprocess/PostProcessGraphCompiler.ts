@@ -7,11 +7,13 @@ import {
 	isPostProcessPlacement,
 } from "./ordering";
 import { createPostProcessScaledResourceDescriptorKey } from "./resourceDescriptors";
+import { resolveBuiltinPostProcessGraphMetadata } from "./graphMetadata";
 import type {
 	LogicalGBufferBridge,
 	LogicalGBufferSemantic,
 	PostProcessHistoryDescriptor,
 	PostProcessHistoryResolveRequest,
+	PostProcessGraphMetadata,
 	PostProcessPassImplementation,
 	PostProcessPassRequirements,
 	PostProcessTransientDescriptor,
@@ -41,12 +43,17 @@ export interface PostProcessGraphCompileRequest {
 	readonly resolveImplementation?: (
 		pass: PostProcessPass
 	) => PostProcessPassImplementation | null;
+	readonly isGraphResourceAvailable?: (resourceId: string) => boolean;
 }
 
 export interface CompiledPostProcessPass<TOptions = unknown>
 	extends ResolvedPostProcessPass<TOptions> {
 	readonly implementation: PostProcessPassImplementation | null;
+	readonly requirements: PostProcessPassRequirements;
 	readonly historyIds: readonly string[];
+	readonly transientIds: readonly string[];
+	readonly graphMetadata: PostProcessGraphMetadata | null;
+	readonly compatibilityOpaque: boolean;
 }
 
 export interface CompiledPostProcessGraph {
@@ -147,12 +154,41 @@ export class PostProcessGraphCompiler {
 			width,
 			height,
 		};
-		const eligiblePasses = this._filterPassesByRequirements(
+		let eligiblePasses = this._filterPassesByRequirements(
 			passes,
 			historyResolveRequest,
 			request.gBuffer,
 			warn
 		);
+		const implementationByPass = new Map<
+			string,
+			PostProcessPassImplementation | null
+		>();
+		const graphMetadataByPass = new Map<string, PostProcessGraphMetadata | null>();
+		for (const resolved of eligiblePasses) {
+			const implementation = request.resolveImplementation?.(resolved.pass) ?? null;
+			const graphMetadata = implementation?.metadata?.graph ??
+				(resolved.pass.builtIn ?
+					resolveBuiltinPostProcessGraphMetadata(request.backend) : null);
+			implementationByPass.set(resolved.id, implementation);
+			graphMetadataByPass.set(resolved.id, graphMetadata);
+		}
+		if (request.isGraphResourceAvailable) {
+			eligiblePasses = eligiblePasses.filter((resolved) => {
+				const unavailableResource = graphMetadataByPass.get(resolved.id)
+					?.backendShared?.find(
+						(resource) =>
+							resource.optional !== true &&
+							request.isGraphResourceAvailable!(resource.id) === false
+					);
+				if (!unavailableResource) return true;
+				warn(
+					`postprocess-backend-shared-unavailable-${resolved.id}`,
+					`Post-process pass "${resolved.id}" is unavailable because backend-shared resource "${unavailableResource.id}" is not ready.`
+				);
+				return false;
+			});
+		}
 		const historyDescriptors = this._collectHistoryDescriptors(
 			eligiblePasses,
 			historyResolveRequest,
@@ -164,7 +200,16 @@ export class PostProcessGraphCompiler {
 			warn
 		);
 		const historyIdsByPass = new Map<string, readonly string[]>();
+		const transientIdsByPass = new Map<string, readonly string[]>();
+		const requirementsByPass = new Map<string, PostProcessPassRequirements>();
 		for (const resolved of eligiblePasses) {
+			requirementsByPass.set(
+				resolved.id,
+				resolved.pass.getRequirements({
+					...historyResolveRequest,
+					options: resolved.options,
+				})
+			);
 			historyIdsByPass.set(
 				resolved.id,
 				this._resolvePassHistoryDescriptors(
@@ -172,12 +217,27 @@ export class PostProcessGraphCompiler {
 					historyResolveRequest
 				).map((history) => history.id)
 			);
+			transientIdsByPass.set(
+				resolved.id,
+				this._resolvePassTransientDescriptors(
+					resolved,
+					historyResolveRequest
+				).map((transient) => transient.id)
+			);
 		}
-		const compiledPasses = eligiblePasses.map((resolved) => ({
-			...resolved,
-			implementation: request.resolveImplementation?.(resolved.pass) ?? null,
-			historyIds: historyIdsByPass.get(resolved.id) ?? [],
-		}));
+		const compiledPasses = eligiblePasses.map((resolved) => {
+			const implementation = implementationByPass.get(resolved.id) ?? null;
+			const graphMetadata = graphMetadataByPass.get(resolved.id) ?? null;
+			return {
+				...resolved,
+				implementation,
+				requirements: requirementsByPass.get(resolved.id) ?? {},
+				historyIds: historyIdsByPass.get(resolved.id) ?? [],
+				transientIds: transientIdsByPass.get(resolved.id) ?? [],
+				graphMetadata,
+				compatibilityOpaque: graphMetadata === null,
+			};
+		});
 
 		return {
 			backend: request.backend,

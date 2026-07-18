@@ -5,6 +5,9 @@ import type {
 	PostProcessPassExecutionContextRequest,
 	PostProcessPassRequest,
 	PostProcessPassResult,
+	PostProcessPassCompletion,
+	PostProcessGraphFrameBinding,
+	PostProcessFrameRequest,
 	PostProcessResourceDescriptor,
 	PostProcessResourceHandle,
 } from "../../postprocess";
@@ -19,7 +22,11 @@ import type { WebGPUFrameHost } from "./rendergraph/WebGPUFrameHost";
 export interface WebGPUPostProcessSessionPort {
 	createGBufferBridge(context: FrameContext): LogicalGBufferBridge;
 	getPassExecutionContext(request: PostProcessPassExecutionContextRequest): unknown;
-	completePass(request: PostProcessPassRequest, result: PostProcessPassResult): void;
+	completePass(
+		request: PostProcessPassRequest,
+		result: PostProcessPassResult,
+	): PostProcessPassCompletion;
+	isGraphResourceAvailable(resourceId: string): boolean;
 	invalidateResourceBindings(): void;
 }
 
@@ -86,6 +93,18 @@ export class WebGPUPostProcessExecutor implements IPostProcessExecutor {
 			this._createFallbackGBufferBridge(context);
 	}
 
+	public isGraphResourceAvailable(resourceId: string): boolean {
+		return this._sessionPort?.isGraphResourceAvailable(resourceId) ?? true;
+	}
+
+	/** @internal Creates a session-scoped controlled publication transaction. */
+	public createGraphBinding(_request: PostProcessFrameRequest): PostProcessGraphFrameBinding {
+		const session = this._requireSession("create post-process graph binding");
+		return {
+			completePass: (request, result) => session.completePass(request, result),
+		};
+	}
+
 	public getPassExecutionContext(request: PostProcessPassExecutionContextRequest): unknown {
 		return this._requireSession("create post-process pass context")
 			.getPassExecutionContext(request);
@@ -101,8 +120,8 @@ export class WebGPUPostProcessExecutor implements IPostProcessExecutor {
 	public completePass(
 		request: PostProcessPassRequest,
 		result: PostProcessPassResult,
-	): void {
-		this._requireSession("complete post-process passes").completePass(request, result);
+	): PostProcessPassCompletion {
+		return this._requireSession("complete post-process passes").completePass(request, result);
 	}
 
 	private _requireSession(operation: string): WebGPUPostProcessSessionPort {

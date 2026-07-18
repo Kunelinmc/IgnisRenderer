@@ -458,13 +458,13 @@ export class SoftwareBackend implements IRenderBackend {
 	public endFrame(): void {
 		const context = this._activeContext;
 		this._particleSimulator?.endFrame();
-		this._commitTAARenderState();
 		this._activeContext = null;
 		if (context && this._canPreserveNonDirtyTiles(context)) {
 			this._completedFrameCoverage = "dirty-tiles";
 		}
 
 		if (!this._ctx) {
+			this._commitTAARenderState();
 			this._postProcessRuntime.commitFrame();
 			return;
 		}
@@ -478,7 +478,13 @@ export class SoftwareBackend implements IRenderBackend {
 		} else {
 			this._ctx.putImageData(imageData, 0, 0);
 		}
+		this._commitTAARenderState();
 		this._postProcessRuntime.commitFrame();
+	}
+
+	/** @internal Returns sanitized post-process graph diagnostics for backend tests. */
+	public getPostProcessGraphDebugState(): unknown {
+		return this._postProcessRuntime.getDebugState();
 	}
 
 	/** @internal Renderer frame-coordination coverage report. */

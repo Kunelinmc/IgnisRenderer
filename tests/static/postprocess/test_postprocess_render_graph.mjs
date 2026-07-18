@@ -51,4 +51,57 @@ const compiler = new RenderGraphCompiler();
 	assert.equal(compiled.diagnostics[0]?.code, "read-before-create");
 }
 
+{
+	const compiled = compiler.compile({
+		resources: [{ id: "imported", origin: "imported" }],
+		nodes: [
+			{ id: "late", stage: "postprocess", kind: "test", label: "Late", dependsOn: ["first"] },
+			{ id: "independent", stage: "postprocess", kind: "test", label: "Independent" },
+			{ id: "first", stage: "postprocess", kind: "test", label: "First" },
+		],
+	});
+	assert.deepEqual(compiled.nodes.map((node) => node.id), ["independent", "first", "late"]);
+	assert.equal(Object.isFrozen(compiled), true);
+	assert.equal(Object.isFrozen(compiled.nodes), true);
+	assert.equal(Object.isFrozen(compiled.nodes[0]), true);
+}
+
+{
+	const compiled = compiler.compile({
+		resources: [{ id: "created", origin: "graph" }],
+		nodes: [
+			{ id: "a", stage: "postprocess", kind: "test", label: "A", dependsOn: ["missing"] },
+			{ id: "b", stage: "postprocess", kind: "test", label: "B", dependsOn: ["c"] },
+			{ id: "c", stage: "postprocess", kind: "test", label: "C", dependsOn: ["b"] },
+			{ id: "d", stage: "postprocess", kind: "test", label: "D", destroys: ["created"] },
+		],
+	});
+	assert.ok(compiled.diagnostics.some((diagnostic) => diagnostic.code === "missing-dependency"));
+	assert.ok(compiled.diagnostics.some((diagnostic) => diagnostic.code === "cycle"));
+	assert.ok(compiled.diagnostics.some((diagnostic) => diagnostic.code === "destroy-before-create"));
+}
+
+{
+	const compiled = compiler.compile({
+		resources: [{ id: "frame:color", origin: "imported" }],
+		nodes: [
+			{
+				id: "write",
+				stage: "postprocess",
+				kind: "test",
+				label: "Write",
+				resources: [{ resource: "frame:color", access: "write", usage: "storage" }],
+			},
+			{
+				id: "read",
+				stage: "postprocess",
+				kind: "test",
+				label: "Read",
+				resources: [{ resource: "frame:color", access: "read", usage: "sampled" }],
+			},
+		],
+	});
+	assert.equal(compiled.transitions[1]?.hazard, "read-after-write");
+}
+
 console.log("Post-process render graph tests passed");

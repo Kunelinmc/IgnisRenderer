@@ -1,6 +1,7 @@
 import type {
 	FrameContext,
 } from "../pipeline/types";
+import type { RenderGraphAccess, RenderGraphUsage } from "../rendergraph/types";
 import type { RenderBackendType } from "../renderers/IRenderBackend";
 import type {
 	PostProcessPass,
@@ -170,12 +171,29 @@ export interface PostProcessColorFlow {
 	readonly output: "preserve" | "new-version";
 }
 
+/** @internal One logical use declared by a post-process implementation. */
+export interface PostProcessGraphResourceUse {
+	readonly access: RenderGraphAccess;
+	readonly usage: RenderGraphUsage;
+	readonly optional?: boolean;
+}
+
+/** @internal Per-side logical use of one persistent history resource. */
+export interface PostProcessGraphHistoryUse {
+	readonly read?: readonly PostProcessGraphResourceUse[];
+	readonly write?: readonly PostProcessGraphResourceUse[];
+}
+
 /** @internal Backend-agnostic post-process graph declaration. */
 export interface PostProcessGraphMetadata {
-	readonly color?: PostProcessColorFlow;
-	readonly histories?: Readonly<Record<string, "read" | "write" | "read-write">>;
-	readonly transients?: Readonly<Record<string, "read" | "write" | "read-write">>;
-	readonly backendShared?: readonly string[];
+	readonly color: PostProcessColorFlow;
+	readonly histories?: Readonly<Record<string, PostProcessGraphHistoryUse>>;
+	readonly transients?: Readonly<
+		Record<string, readonly PostProcessGraphResourceUse[]>
+	>;
+	readonly backendShared?: readonly (PostProcessGraphResourceUse & {
+		readonly id: string;
+	})[];
 	readonly outputValidation?: "strict" | "compatibility";
 }
 
@@ -272,6 +290,23 @@ export interface PostProcessPassResult {
 	readonly updatedHistoryIds?: readonly string[];
 }
 
+/** @internal Backend-owned outcome of controlled pass publication. */
+export interface PostProcessPassCompletion {
+	readonly published?: boolean;
+	readonly physicalId?: string;
+}
+
+/** @internal Backend-private binding transaction for one logical post-process graph. */
+export interface PostProcessGraphFrameBinding {
+	beginPass?(request: PostProcessPassRequest): void | Promise<void>;
+	completePass?(
+		request: PostProcessPassRequest,
+		result: PostProcessPassResult
+	): PostProcessPassCompletion | void | Promise<PostProcessPassCompletion | void>;
+	endFrame?(resolvedOutputColor: string): void | Promise<void>;
+	abortFrame?(error?: unknown): void | Promise<void>;
+}
+
 export interface PostProcessFrameEndRequest extends PostProcessFrameRequest {
 	readonly executedPassIds: readonly string[];
 }
@@ -292,6 +327,10 @@ export interface IPostProcessExecutor {
 	 * @sideEffects None. Resource ownership remains with the backend.
 	 */
 	createGBufferBridge(context: FrameContext): LogicalGBufferBridge;
+	/** @internal Reports whether a backend-shared graph resource is ready. */
+	isGraphResourceAvailable?(resourceId: string): boolean;
+	/** @internal Opens a backend-private logical-to-physical binding transaction. */
+	createGraphBinding?(request: PostProcessFrameRequest): PostProcessGraphFrameBinding;
 	createResource(
 		desc: PostProcessResourceDescriptor
 	): PostProcessResourceHandle;
@@ -333,7 +372,7 @@ export interface IPostProcessExecutor {
 	completePass?(
 		request: PostProcessPassRequest,
 		result: PostProcessPassResult
-	): void | Promise<void>;
+	): PostProcessPassCompletion | void | Promise<PostProcessPassCompletion | void>;
 	endFrame?(request: PostProcessFrameEndRequest): void | Promise<void>;
 	/**
 	 * Aborts backend post-process frame state after a failed pass or failed

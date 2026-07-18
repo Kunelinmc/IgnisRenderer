@@ -921,6 +921,29 @@ function testLogicalGBufferBridgeHelperShape() {
 	assert.equal(bridge.channels.normal.handle.backend, "software");
 }
 
+async function testRuntimeCompiledFrameTokenAndResolvedOutput() {
+	const registry = new PostProcessPassRegistry();
+	registry.registerPass(new ToneMappingPass({ enabled: true }));
+	const executor = new FakeExecutor("webgpu");
+	const runtime = createRuntime(executor);
+	const compiled = runtime.compileRenderGraphFrame(
+		createFrameContext(registry.createSnapshot("webgpu"))
+	);
+	assert.equal(compiled.logicalGraph.nodes.length, 1);
+	const frame = await runtime.beginGraphFrame(compiled);
+	assert.ok(frame);
+	await runtime.executeGraphPass(frame, "tonemap");
+	await assert.rejects(
+		() => runtime.executeGraphPass(frame, "tonemap"),
+		/already executed/
+	);
+	const result = await runtime.endGraphFrame(frame);
+	assert.equal(result.outputColor, "postprocess:color:0");
+	assert.equal(result.resolvedOutputColor, "postprocess:color:0");
+	runtime.commitFrame();
+	assert.deepEqual(runtime.getDebugState().lastSuccessful, result);
+}
+
 async function run() {
 	testRegistryOnlySurfaceAndPassMutation();
 	testSnapshotNormalizationAndWarnings();
@@ -940,6 +963,7 @@ async function run() {
 	testTransientManagerReuseRecreateAndDestroy();
 	await testTransientDescriptorConflictWarnsAndKeepsFirst();
 	testLogicalGBufferBridgeHelperShape();
+	await testRuntimeCompiledFrameTokenAndResolvedOutput();
 	console.log("Postprocess public API tests passed");
 }
 

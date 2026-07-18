@@ -163,6 +163,8 @@ function compile(registry, overrides = {}) {
 		frameContext: context,
 		gBuffer: overrides.gBuffer ?? createGBuffer(),
 		startPassId: overrides.startPassId,
+		resolveImplementation: overrides.resolveImplementation,
+		isGraphResourceAvailable: overrides.isGraphResourceAvailable,
 		warn: (key, message) => warnings.push({ key, message }),
 	});
 	return { graph, warnings };
@@ -264,8 +266,65 @@ function testCompilerHonorsExplicitStartPassAndSatisfiedRequirements() {
 	);
 }
 
+function testCompilerFiltersByBackendSharedResourceAvailability() {
+	const registry = new PostProcessPassRegistry();
+	registry.registerPass(new TestPostProcessPass({
+		id: "required-unavailable",
+		placement: "hdr",
+		histories: [{ id: "unused-history", format: "rgba16float" }],
+	}));
+	registry.registerPass(new TestPostProcessPass({
+		id: "optional-unavailable",
+		placement: "hdr",
+		order: 1,
+	}));
+	registry.registerPass(new TestPostProcessPass({
+		id: "required-available",
+		placement: "hdr",
+		order: 2,
+	}));
+
+	const sharedUse = (id, optional = false) => ({
+		color: { access: "read", output: "new-version" },
+		backendShared: [{
+			id,
+			access: "read",
+			usage: "sampled",
+			...(optional ? { optional: true } : {}),
+		}],
+	});
+	const metadata = new Map([
+		["required-unavailable", sharedUse("backend:missing")],
+		["optional-unavailable", sharedUse("backend:optional", true)],
+		["required-available", sharedUse("backend:ready")],
+	]);
+	const availabilityChecks = [];
+	const { graph, warnings } = compile(registry, {
+		resolveImplementation: (pass) => ({
+			metadata: { graph: metadata.get(pass.id) },
+		}),
+		isGraphResourceAvailable: (resourceId) => {
+			availabilityChecks.push(resourceId);
+			return resourceId === "backend:ready";
+		},
+	});
+
+	assert.deepEqual(
+		graph.passes.map((pass) => pass.id),
+		["optional-unavailable", "required-available"]
+	);
+	assert.deepEqual(graph.historyDescriptors, []);
+	assert.deepEqual(availabilityChecks, ["backend:missing", "backend:ready"]);
+	assert.deepEqual(
+		warnings.map((warning) => warning.key),
+		["postprocess-backend-shared-unavailable-required-unavailable"]
+	);
+	assert.match(warnings[0].message, /backend:missing/);
+}
+
 testCompilerOrdersFiltersAndCollectsDescriptors();
 testCompilerUsesIncrementalStartPass();
 testCompilerHonorsExplicitStartPassAndSatisfiedRequirements();
+testCompilerFiltersByBackendSharedResourceAvailability();
 
 console.log("Postprocess graph compiler tests passed");

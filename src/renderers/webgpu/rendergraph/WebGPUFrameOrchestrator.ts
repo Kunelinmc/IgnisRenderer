@@ -5,6 +5,7 @@ import type {
 	PostProcessPassImplementation,
 	PostProcessPassRequest,
 	PostProcessPassResult,
+	PostProcessPassCompletion,
 	PostProcessResourceDescriptor,
 	PostProcessResourceHandle,
 } from "../../../postprocess";
@@ -595,6 +596,7 @@ export class WebGPUFrameOrchestrator {
 			graphDiagnostics: this._graphCompiler.getDiagnostics(),
 			targetManager: this._frameTargetManager.getDebugState(),
 			commit: this._session?.committer?.getDebugState() ?? this._lastCommitDebugState,
+			postProcess: this._postProcessRuntime.getDebugState(),
 		};
 	}
 
@@ -614,6 +616,8 @@ export class WebGPUFrameOrchestrator {
 			createGBufferBridge: (context) => this.createGBufferBridge(context),
 			getPassExecutionContext: (request) => this.getPassExecutionContext(request),
 			completePass: (request, result) => this.completePostProcessPass(request, result),
+			isGraphResourceAvailable: (resourceId) =>
+				resourceId === "backend:frame-hiz" && this._hiZStatus === "ready",
 			invalidateResourceBindings: () => this.invalidatePostProcessBindings(),
 		};
 	}
@@ -630,8 +634,8 @@ export class WebGPUFrameOrchestrator {
 	public completePostProcessPass(
 		request: PostProcessPassRequest,
 		result: PostProcessPassResult,
-	): void {
-		this._postBridge.completePass(request, result);
+	): PostProcessPassCompletion {
+		return this._postBridge.completePass(request, result);
 	}
 
 	/**

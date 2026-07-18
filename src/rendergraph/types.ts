@@ -50,6 +50,7 @@ export interface RenderGraphNode<TPayload = unknown> {
 	readonly label: string;
 	readonly dependsOn?: readonly RenderGraphNodeId[];
 	readonly creates?: readonly RenderGraphResourceId[];
+	readonly destroys?: readonly RenderGraphResourceId[];
 	readonly resources?: readonly RenderGraphResourceRef[];
 	readonly payload?: TPayload;
 }
@@ -63,7 +64,8 @@ export interface RenderGraphDiagnostic {
 		| "missing-dependency"
 		| "cycle"
 		| "read-before-create"
-		| "duplicate-create";
+		| "duplicate-create"
+		| "destroy-before-create";
 	readonly nodeId?: RenderGraphNodeId;
 	readonly resourceId?: RenderGraphResourceId;
 	readonly message: string;
@@ -76,6 +78,7 @@ export interface RenderGraphTransition {
 	readonly previousAccess?: RenderGraphAccess;
 	readonly access: RenderGraphAccess;
 	readonly usage: RenderGraphUsage;
+	readonly hazard?: "read-after-write" | "write-after-read" | "write-after-write";
 }
 
 /** @internal First and last planned node use for one logical resource. */
