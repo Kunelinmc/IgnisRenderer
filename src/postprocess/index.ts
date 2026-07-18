@@ -237,6 +237,8 @@ export type {
 	PostProcessHistorySlot,
 	PostProcessHistorySlots,
 	PostProcessPassExecutionContextRequest,
+	PostProcessColorFlow,
+	PostProcessGraphMetadata,
 	PostProcessPassImplementation,
 	PostProcessPassImplementationMetadata,
 	PostProcessPassRequest,

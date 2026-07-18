@@ -3,6 +3,7 @@ import type {
 	PostProcessPassExecutionContextRequest,
 	PostProcessPassImplementation,
 	PostProcessPassRequest,
+	PostProcessPassResult,
 } from "../../postprocess";
 import type { WebGLProgramCompiler } from "./WebGLProgramCompiler";
 import {
@@ -42,6 +43,21 @@ export interface WebGLPostProcessBridgeCallbacks {
 /** @internal Packs implementation-declared WebGL post-process execution contexts. */
 export class WebGLPostProcessBridge {
 	private readonly _callbacks: WebGLPostProcessBridgeCallbacks;
+	private _pendingColorTexture: WebGLTexture | null = null;
+	private _pendingMarksTAAHistoryValid = false;
+	private _transactionActive = false;
+
+	/** @internal Starts the runtime-owned controlled-publication transaction. */
+	public beginFrameTransaction(): void {
+		this._transactionActive = true;
+		this.clearPendingPassState();
+	}
+
+	/** @internal Ends the controlled-publication transaction. */
+	public endFrameTransaction(): void {
+		this._transactionActive = false;
+		this.clearPendingPassState();
+	}
 
 	/**
 	 * Creates the WebGL post-process bridge.
@@ -70,6 +86,7 @@ export class WebGLPostProcessBridge {
 	public getPassExecutionContext(
 		request: PostProcessPassExecutionContextRequest
 	): unknown {
+		if (this._transactionActive) this.clearPendingPassState();
 		const metadata = request.implementation.metadata?.context;
 		if (!isWebGLPostProcessContextMetadata(metadata)) {
 			return undefined;
@@ -78,6 +95,31 @@ export class WebGLPostProcessBridge {
 			this._callbacks.applyPipelineHistories(request);
 		}
 		return this._createContext(metadata, request, "execute");
+	}
+
+	/** @internal Commits a controlled color publication after a successful pass. */
+	public completePass(
+		request: PostProcessPassRequest,
+		result: PostProcessPassResult
+	): void {
+		if (!this._transactionActive) return;
+		const texture = this._pendingColorTexture;
+		const markTAAHistoryValid = this._pendingMarksTAAHistoryValid;
+		this.clearPendingPassState();
+		if (!texture) return;
+		if (result.ran === false) {
+			throw new Error(
+				`Post-process pass "${request.passId}" published a color texture and then reported ran: false.`
+			);
+		}
+		this._callbacks.publishColorTexture(texture);
+		if (markTAAHistoryValid) this._callbacks.markTAAHistoryValid();
+	}
+
+	/** @internal Clears an uncommitted pass publication after an aborted frame. */
+	public clearPendingFrameState(): void {
+		this.clearPendingPassState();
+		this._transactionActive = false;
 	}
 
 	/**
@@ -124,10 +166,17 @@ export class WebGLPostProcessBridge {
 				frameContext = this._callbacks.getActiveContext()
 			) => this._callbacks.drawFullscreen(width, height, frameContext),
 			publishColorTexture: (texture: WebGLTexture) => {
-				this._callbacks.publishColorTexture(texture);
-				if (metadata.markTAAHistoryValidOnPublish && mode === "execute") {
-					this._callbacks.markTAAHistoryValid();
+				if (mode !== "execute") return;
+				if (!this._transactionActive) {
+					this._callbacks.publishColorTexture(texture);
+					if (metadata.markTAAHistoryValidOnPublish) {
+						this._callbacks.markTAAHistoryValid();
+					}
+					return;
 				}
+				this._pendingColorTexture = texture;
+				this._pendingMarksTAAHistoryValid =
+					metadata.markTAAHistoryValidOnPublish === true;
 			},
 		};
 
@@ -157,5 +206,10 @@ export class WebGLPostProcessBridge {
 			}
 		}
 		return context;
+	}
+
+	private clearPendingPassState(): void {
+		this._pendingColorTexture = null;
+		this._pendingMarksTAAHistoryValid = false;
 	}
 }

@@ -143,6 +143,11 @@ export type PostProcessTransientSlots = Record<string, PostProcessTransientSlot>
 
 export interface PostProcessPassImplementationMetadata<TContextMetadata = unknown> {
 	/**
+	 * Optional backend-agnostic logical resource declaration used by the internal
+	 * post-process render graph. Omit it to use the compatibility profile.
+	 */
+	readonly graph?: PostProcessGraphMetadata;
+	/**
 	 * Backend-specific context declaration consumed by
 	 * `IPostProcessExecutor.getPassExecutionContext`.
 	 *
@@ -157,6 +162,21 @@ export interface PostProcessPassImplementationMetadata<TContextMetadata = unknow
 	 * @sideEffects None.
 	 */
 	readonly warmupHints?: readonly string[];
+}
+
+/** @internal Logical color behavior declared by one pass implementation. */
+export interface PostProcessColorFlow {
+	readonly access: "none" | "read" | "read-write";
+	readonly output: "preserve" | "new-version";
+}
+
+/** @internal Backend-agnostic post-process graph declaration. */
+export interface PostProcessGraphMetadata {
+	readonly color?: PostProcessColorFlow;
+	readonly histories?: Readonly<Record<string, "read" | "write" | "read-write">>;
+	readonly transients?: Readonly<Record<string, "read" | "write" | "read-write">>;
+	readonly backendShared?: readonly string[];
+	readonly outputValidation?: "strict" | "compatibility";
 }
 
 export interface PostProcessPassImplementation<

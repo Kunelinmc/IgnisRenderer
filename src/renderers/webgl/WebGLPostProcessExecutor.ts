@@ -88,6 +88,16 @@ export class WebGLPostProcessExecutor implements IPostProcessExecutor {
 		return this._host.getFrameExecutor()?.getPassExecutionContext(request);
 	}
 
+	/** @internal Opens the WebGL controlled-publication transaction. */
+	public beginFrame(): void {
+		this._host.getFrameExecutor()?.beginPostProcessFrame();
+	}
+
+	/** @internal Closes the WebGL controlled-publication transaction. */
+	public endFrame(): void {
+		this._host.getFrameExecutor()?.endPostProcessFrame();
+	}
+
 	/**
 	 * Executes one fallback logical WebGL post-process pass.
 	 *
@@ -104,6 +114,14 @@ export class WebGLPostProcessExecutor implements IPostProcessExecutor {
 			this._host.getFrameExecutor()?.executePostProcessPass(passId, request) ??
 			{ ran: false }
 		);
+	}
+
+	/** @internal Applies backend-owned effects after a pass result is known. */
+	public completePass(
+		request: PostProcessPassRequest,
+		result: PostProcessPassResult
+	): void {
+		this._host.getFrameExecutor()?.completePostProcessPass(request, result);
 	}
 
 	private _requireFrameExecutor(operation: string): WebGLFrameExecutor {

@@ -1,9 +1,15 @@
 import type { FrameContext } from "../pipeline/types";
+import { RenderGraphCompiler } from "../rendergraph/RenderGraphCompiler";
+import type { CompiledRenderGraph } from "../rendergraph/types";
 import {
 	PostProcessGraphCompiler,
 	type CompiledPostProcessGraph,
 } from "./PostProcessGraphCompiler";
 import { PostProcessResourcePool } from "./PostProcessResourcePool";
+import {
+	PostProcessRenderGraphAdapter,
+	type PostProcessRenderGraphNodePayload,
+} from "./PostProcessRenderGraphAdapter";
 import type { IRenderBackend } from "../renderers/IRenderBackend";
 import type {
 	IPostProcessExecutor,
@@ -13,6 +19,7 @@ import type {
 	PostProcessPassExecutionContextRequest,
 	PostProcessPassRequest,
 	PostProcessPassImplementation,
+	PostProcessPassResult,
 } from "./types";
 import type { PostProcessPass } from "./PostProcessPass";
 
@@ -25,6 +32,16 @@ export interface BackendPostProcessRuntimeOptions {
 interface PendingBackendPostProcessFrame {
 	readonly frameRequest: PostProcessFrameRequest;
 	readonly executedPassIds: string[];
+	readonly attemptedPassIds: Set<string>;
+	readonly graph: CompiledPostProcessGraph;
+	readonly token: object;
+}
+
+/** @internal Opaque prepared post-process graph frame owned by one backend runtime. */
+export interface PreparedPostProcessFrame {
+	readonly graph: CompiledPostProcessGraph;
+	/** @internal Opaque identity that prevents cross-frame reuse. */
+	readonly token: object;
 }
 
 /**
@@ -35,11 +52,14 @@ export class BackendPostProcessRuntime {
 	private readonly _backend: IRenderBackend;
 	private readonly _warn: (key: string, message: string) => void;
 	private readonly _compiler = new PostProcessGraphCompiler();
+	private readonly _renderGraphCompiler = new RenderGraphCompiler();
+	private readonly _renderGraphAdapter = new PostProcessRenderGraphAdapter();
 	private readonly _resources = new PostProcessResourcePool();
 	private readonly _observedPasses = new Set<PostProcessPass>();
 	private readonly _implementations = new Map<PostProcessPass, PostProcessPassImplementation>();
 	private _pendingFrame: PendingBackendPostProcessFrame | null = null;
 	private _completedFramePreservesOutsideDirtyTiles = true;
+	private _lastRenderGraph: CompiledRenderGraph<PostProcessRenderGraphNodePayload> | null = null;
 
 	public constructor(options: BackendPostProcessRuntimeOptions) {
 		this._executor = options.executor;
@@ -78,6 +98,11 @@ export class BackendPostProcessRuntime {
 		});
 		this._observePasses(graph);
 		return graph;
+	}
+
+	/** @internal Alias used by post-process render graph runners. */
+	public compileFrame(context: FrameContext): CompiledPostProcessGraph {
+		return this.compileGraph(context);
 	}
 
 	/**
@@ -119,7 +144,43 @@ export class BackendPostProcessRuntime {
 		) {
 			return;
 		}
+		{
+			const activePasses = new Set(
+				context.postProcess.getEnabledPasses().map((resolved) => resolved.pass)
+			);
+			for (const [pass, implementation] of this._implementations.entries()) {
+				if (!activePasses.has(pass)) {
+					implementation.destroy?.();
+					this._implementations.delete(pass);
+				}
+			}
+			const graph = this.compileFrame(context);
+			if (graph.passes.length <= 0) return;
+			const compiled = this._renderGraphCompiler.compile(
+				this._renderGraphAdapter.build(graph)
+			);
+			this._lastRenderGraph = compiled;
+			const errors = compiled.diagnostics.filter(
+				(diagnostic) => diagnostic.severity === "error"
+			);
+			if (errors.length > 0) {
+				throw new Error(errors.map((diagnostic) => diagnostic.message).join(" "));
+			}
+			const frame = await this.beginGraphFrame(graph);
+			if (!frame) return;
+			try {
+				for (const node of compiled.nodes) {
+					await this.executeGraphPass(frame, node.payload.passId);
+				}
+				await this.endGraphFrame(frame);
+			} catch (error) {
+				await this.abortFrame(error);
+				throw error;
+			}
+			return;
+		}
 
+		/* Legacy monolithic loop retained only as migration reference.
 		if (this._pendingFrame) {
 			await this.abortFrame();
 		}
@@ -133,9 +194,18 @@ export class BackendPostProcessRuntime {
 			}
 		}
 
-		const graph = this.compileGraph(context);
+		const graph = this.compileFrame(context);
 		if (graph.passes.length <= 0) {
 			return;
+		}
+		const subgraph = this._renderGraphAdapter.build(graph);
+		const compiled = this._renderGraphCompiler.compile(subgraph);
+		this._lastRenderGraph = compiled;
+		const graphErrors = compiled.diagnostics.filter(
+			(diagnostic) => diagnostic.severity === "error"
+		);
+		if (graphErrors.length > 0) {
+			throw new Error(graphErrors.map((diagnostic) => diagnostic.message).join(" "));
 		}
 		const resources = this._resources.prepare({
 			executor: this._executor,
@@ -156,6 +226,9 @@ export class BackendPostProcessRuntime {
 		this._pendingFrame = {
 			frameRequest,
 			executedPassIds,
+			attemptedPassIds: new Set(),
+			graph,
+			token: {},
 		};
 
 		try {
@@ -205,6 +278,109 @@ export class BackendPostProcessRuntime {
 			await this.abortFrame(error);
 			throw error;
 		}
+		*/
+	}
+
+	/** @internal Prepares pool-backed resources and opens one graph transaction. */
+	public async beginGraphFrame(
+		graph: CompiledPostProcessGraph
+	): Promise<PreparedPostProcessFrame | null> {
+		if (graph.passes.length <= 0) return null;
+		if (this._pendingFrame) await this.abortFrame();
+		const resources = this._resources.prepare({
+			executor: this._executor,
+			graph,
+			reset: graph.frameContext.incremental.temporalHistoryReset,
+		});
+		if (resources.transientsChanged) this._executor.invalidateResourceBindings?.();
+		const frameRequest: PostProcessFrameRequest = {
+			frameContext: graph.frameContext,
+			postProcess: graph.postProcess,
+			gBuffer: graph.gBuffer,
+			histories: resources.histories,
+			transients: resources.transients,
+		};
+		const token = {};
+		this._pendingFrame = {
+			frameRequest,
+			executedPassIds: [],
+			attemptedPassIds: new Set(),
+			graph,
+			token,
+		};
+		await this._executor.beginFrame?.(frameRequest);
+		return { graph, token };
+	}
+
+	/** @internal Executes exactly one pass belonging to an active graph frame. */
+	public async executeGraphPass(
+		frame: PreparedPostProcessFrame,
+		passId: string
+	): Promise<PostProcessPassResult> {
+		const pending = this._pendingFrame;
+		if (!pending || pending.graph !== frame.graph || pending.token !== frame.token) {
+			throw new Error("Post-process graph frame is not active.");
+		}
+		const resolved = frame.graph.passes.find((pass) => pass.id === passId);
+		if (!resolved) throw new Error(`Post-process graph has no pass "${passId}".`);
+		if (pending.attemptedPassIds.has(resolved.id)) {
+			throw new Error(`Post-process graph pass "${passId}" already executed.`);
+		}
+		pending.attemptedPassIds.add(resolved.id);
+		const request: PostProcessPassRequest = {
+			...pending.frameRequest,
+			pass: resolved.pass,
+			passId: resolved.id,
+			implementation: resolved.implementation,
+			options: resolved.options,
+			startPassId: frame.graph.startPassId,
+		};
+		const executionContext = resolved.implementation?.execute ?
+			this._executor.getPassExecutionContext?.({
+				...request,
+				implementation: resolved.implementation,
+			} satisfies PostProcessPassExecutionContextRequest)
+		: undefined;
+		const result = (await resolved.pass.execute(request, executionContext, this._executor)) ?? {};
+		await this._executor.completePass?.(request, result);
+		if (result.ran === false) return result;
+		if (result.preservesOutsideDirtyTiles !== true) {
+			this._completedFramePreservesOutsideDirtyTiles = false;
+		}
+		pending.executedPassIds.push(resolved.id);
+		if (result.updatedHistoryIds) {
+			const undeclared = result.updatedHistoryIds.find(
+				(id) => !resolved.historyIds.includes(id)
+			);
+			if (undeclared) {
+				throw new Error(
+					`Post-process pass "${resolved.id}" updated undeclared history "${undeclared}".`
+				);
+			}
+			this._resources.markUpdatedMany(result.updatedHistoryIds);
+		} else if (result.historyUpdated) {
+			this._resources.markUpdatedMany(
+				resolved.historyIds.filter((id) => id !== "motion")
+			);
+		}
+		return result;
+	}
+
+	/** @internal Completes post-process hooks without committing temporal history. */
+	public async endGraphFrame(frame: PreparedPostProcessFrame): Promise<void> {
+		const pending = this._pendingFrame;
+		if (!pending || pending.graph !== frame.graph || pending.token !== frame.token) {
+			throw new Error("Post-process graph frame is not active.");
+		}
+		await this._executor.endFrame?.({
+			...pending.frameRequest,
+			executedPassIds: pending.executedPassIds,
+		});
+	}
+
+	/** @internal Returns the latest logical post-process graph compilation. */
+	public getLastRenderGraph(): CompiledRenderGraph<PostProcessRenderGraphNodePayload> | null {
+		return this._lastRenderGraph;
 	}
 
 	/**

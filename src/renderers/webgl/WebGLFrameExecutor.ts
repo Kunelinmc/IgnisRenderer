@@ -895,12 +895,31 @@ export class WebGLFrameExecutor {
 		return this._postProcessBridge.getPassExecutionContext(request);
 	}
 
+	/** @internal Opens controlled output publication for a runtime post-process frame. */
+	public beginPostProcessFrame(): void {
+		this._postProcessBridge.beginFrameTransaction();
+	}
+
+	/** @internal Closes controlled output publication for a runtime post-process frame. */
+	public endPostProcessFrame(): void {
+		this._postProcessBridge.endFrameTransaction();
+	}
+
+	/** @internal Commits validated WebGL post-process output for one pass. */
+	public completePostProcessPass(
+		request: PostProcessPassRequest,
+		result: PostProcessPassResult
+	): void {
+		this._postProcessBridge.completePass(request, result);
+	}
+
 	public endFrame(): void {
 		this.presentFrame();
 		this.finishFrame();
 	}
 
 	public abortFrame(): void {
+		this._postProcessBridge.clearPendingFrameState();
 		this._customRenderTargets.markFrameAborted();
 		this._activeContext = null;
 		this._presentedInFrame = false;

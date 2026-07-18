@@ -217,6 +217,11 @@ export class WebGPUPostProcessBridge {
 		const colorTarget = this._pendingColorTarget;
 		this._pendingColorTarget = null;
 		const targets = this._callbacks.getFrameTargets();
+		if (result.ran === false && colorTarget) {
+			throw new Error(
+				`Post-process pass "${request.passId}" published a color target and then reported ran: false.`,
+			);
+		}
 		if (result.ran === false || !colorTarget || !targets) {
 			return;
 		}
