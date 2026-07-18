@@ -23,10 +23,6 @@ export interface WebGLFrameTargetLifecycleHost {
 	_oitFramebuffer: WebGLFramebuffer | null;
 	_oitAccumTexture: WebGLTexture | null;
 	_oitRevealTexture: WebGLTexture | null;
-	_taaHistoryTextures: [WebGLTexture | null, WebGLTexture | null];
-	_taaMotionHistoryTextures: [WebGLTexture | null, WebGLTexture | null];
-	_taaHistoryIndex: number;
-	_taaHistoryValid: boolean;
 	_postFramebuffer: WebGLFramebuffer | null;
 	_postColorTexture: WebGLTexture | null;
 	_postColorFormat: WebGLFrameTargetFormat;
@@ -333,35 +329,6 @@ export function ensureWebGLFrameTargets(
 		colorType
 	);
 
-	const history0 = createColorTexture(
-		gl,
-		width,
-		height,
-		colorInternalFormat,
-		colorType
-	);
-	const history1 = createColorTexture(
-		gl,
-		width,
-		height,
-		colorInternalFormat,
-		colorType
-	);
-	const motionHistory0 = createColorTexture(
-		gl,
-		width,
-		height,
-		motionInternalFormat,
-		motionType
-	);
-	const motionHistory1 = createColorTexture(
-		gl,
-		width,
-		height,
-		motionInternalFormat,
-		motionType
-	);
-
 	const cleanupAllocatedTargets = (): void => {
 		if (sceneFramebuffer) {
 			gl.deleteFramebuffer(sceneFramebuffer);
@@ -405,18 +372,6 @@ export function ensureWebGLFrameTargets(
 		if (ssaoBlurTexture) {
 			gl.deleteTexture(ssaoBlurTexture);
 		}
-		if (history0) {
-			gl.deleteTexture(history0);
-		}
-		if (history1) {
-			gl.deleteTexture(history1);
-		}
-		if (motionHistory0) {
-			gl.deleteTexture(motionHistory0);
-		}
-		if (motionHistory1) {
-			gl.deleteTexture(motionHistory1);
-		}
 	};
 
 	if (
@@ -431,11 +386,7 @@ export function ensureWebGLFrameTargets(
 		!postFramebuffer ||
 		!postColorTexture ||
 		!ssaoRawTexture ||
-		!ssaoBlurTexture ||
-		!history0 ||
-		!history1 ||
-		!motionHistory0 ||
-		!motionHistory1
+		!ssaoBlurTexture
 	) {
 		cleanupAllocatedTargets();
 		throw new Error("Failed to create WebGL frame targets");
@@ -580,10 +531,6 @@ export function ensureWebGLFrameTargets(
 	host._oitFramebuffer = oitFramebuffer;
 	host._oitAccumTexture = oitAccumTexture;
 	host._oitRevealTexture = oitRevealTexture;
-	host._taaHistoryTextures = [history0, history1];
-	host._taaMotionHistoryTextures = [motionHistory0, motionHistory1];
-	host._taaHistoryIndex = 0;
-	host._taaHistoryValid = false;
 	host._postFramebuffer = postFramebuffer;
 	host._postColorTexture = postColorTexture;
 	host._postColorFormat = colorFormat;
@@ -648,19 +595,6 @@ export function destroyWebGLFrameTargets(
 		gl.deleteTexture(host._oitRevealTexture);
 		host._oitRevealTexture = null;
 	}
-	for (const texture of host._taaHistoryTextures) {
-		if (texture) {
-			gl.deleteTexture(texture);
-		}
-	}
-	for (const texture of host._taaMotionHistoryTextures) {
-		if (texture) {
-			gl.deleteTexture(texture);
-		}
-	}
-	host._taaHistoryTextures = [null, null];
-	host._taaMotionHistoryTextures = [null, null];
-	host._taaHistoryValid = false;
 	if (host._postFramebuffer) {
 		gl.deleteFramebuffer(host._postFramebuffer);
 		host._postFramebuffer = null;

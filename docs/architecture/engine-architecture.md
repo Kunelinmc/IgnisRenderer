@@ -42,6 +42,12 @@ through dedicated simulation stages and backend-owned runtimes.
 - WebGPU device initialization must create a narrow device-scoped frame host.
   Backend-internal frame runtimes must depend on that host rather than the full
   `WebGPUBackend` lifecycle facade.
+- WebGL device initialization must create a context-scoped frame service owner.
+  WebGL frame graph nodes and post-process adapters must depend on narrow
+  service contracts rather than the full `WebGLBackend` or concrete frame
+  executor facade.
+- Backend-native resources must have one lifecycle owner. Aggregate frame
+  facades may coordinate owners but must not duplicate native handle lifetime.
 - Device loss must destroy backend-owned post-process state before invalidating
   the frame host and destroying frame/shared GPU resources.
 

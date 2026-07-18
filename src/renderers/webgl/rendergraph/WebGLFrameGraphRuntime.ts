@@ -4,50 +4,61 @@ import type {
 } from "../../../pipeline/types";
 import { Logger } from "../../../foundation/Logger";
 import type { BackendPostProcessRuntime } from "../../../postprocess/BackendPostProcessRuntime";
-import type { WebGLFrameExecutor } from "../WebGLFrameExecutor";
 import { WebGLFrameGraphCompiler } from "./WebGLFrameGraphCompiler";
 import { WebGLFrameGraphPlanner } from "./WebGLFrameGraphPlanner";
+import {
+	WebGLFrameNodeExecutorRegistry,
+	type WebGLFrameNodeServices,
+} from "./WebGLFrameNodeExecutorRegistry";
 import type {
 	WebGLCompiledFrameGraphStage,
 	WebGLFrameGraphDebugState,
 	WebGLFrameGraphDiagnostic,
 	WebGLFrameGraphNode,
-	WebGLFrameGraphNodeKind,
 	WebGLFrameGraphPlannerState,
 	WebGLFrameGraphStagePlan,
 } from "./types";
 
-type WebGLGraphNodeExecutor = (
-	node: WebGLFrameGraphNode,
-	context: FrameContext
-) => void | Promise<void>;
+export interface WebGLFrameExecutionFacade extends WebGLFrameNodeServices {
+	beginFrame(context: FrameContext): void;
+	finishFrame(): void;
+	abortFrame(): void;
+	isOITActive(): boolean;
+	hasPresentedInFrame(): boolean;
+	collectFrameGraphResources(): readonly string[];
+	hasCustomRenderPass(pass: FramePass, context: FrameContext): boolean;
+	executeCustomRenderPass(pass: FramePass, context: FrameContext): Promise<void>;
+}
 
 /**
  * Orchestrates WebGL backend-private frame graph planning and node execution.
  */
 export class WebGLFrameGraphRuntime {
-	private readonly _executor: WebGLFrameExecutor;
+	private readonly _executor: WebGLFrameExecutionFacade;
 	private readonly _postProcessRuntime: BackendPostProcessRuntime;
 	private readonly _planner = new WebGLFrameGraphPlanner();
 	private readonly _compiler = new WebGLFrameGraphCompiler();
-	private readonly _nodeExecutors: Map<
-		WebGLFrameGraphNodeKind,
-		WebGLGraphNodeExecutor
-	>;
+	private readonly _nodeState = {
+		earlyZPacketIds: new Set<string>() as ReadonlySet<string>,
+	};
+	private readonly _nodeExecutors: WebGLFrameNodeExecutorRegistry;
 	private _active = false;
-	private _earlyZPacketIds: ReadonlySet<string> = new Set<string>();
 	private _lastPlannedGraphNodes: WebGLFrameGraphNode[] = [];
 	private _lastCompiledGraphStages: WebGLCompiledFrameGraphStage[] = [];
 	private _lastExecutedGraphNodeIds: string[] = [];
 	private _runtimeDiagnostics: WebGLFrameGraphDiagnostic[] = [];
 
 	public constructor(
-		executor: WebGLFrameExecutor,
+		executor: WebGLFrameExecutionFacade,
 		postProcessRuntime: BackendPostProcessRuntime
 	) {
 		this._executor = executor;
 		this._postProcessRuntime = postProcessRuntime;
-		this._nodeExecutors = this._createNodeExecutors();
+		this._nodeExecutors = WebGLFrameNodeExecutorRegistry.fromServices(
+			executor,
+			postProcessRuntime,
+			this._nodeState,
+		);
 	}
 
 	/**
@@ -60,7 +71,7 @@ export class WebGLFrameGraphRuntime {
 	 */
 	public beginFrame(context: FrameContext): void {
 		this._active = true;
-		this._earlyZPacketIds = new Set<string>();
+		this._nodeState.earlyZPacketIds = new Set<string>();
 		this._lastPlannedGraphNodes = [];
 		this._lastCompiledGraphStages = [];
 		this._lastExecutedGraphNodeIds = [];
@@ -128,7 +139,7 @@ export class WebGLFrameGraphRuntime {
 		const finish = () => {
 			this._executor.finishFrame();
 			this._active = false;
-			this._earlyZPacketIds = new Set<string>();
+			this._nodeState.earlyZPacketIds = new Set<string>();
 		};
 		if (result && typeof (result as Promise<void>).then === "function") {
 			return (result as Promise<void>).then(finish);
@@ -146,7 +157,7 @@ export class WebGLFrameGraphRuntime {
 	public abortFrame(): void {
 		this._executor.abortFrame();
 		this._active = false;
-		this._earlyZPacketIds = new Set<string>();
+		this._nodeState.earlyZPacketIds = new Set<string>();
 	}
 
 	public getDebugState(): WebGLFrameGraphDebugState {
@@ -196,101 +207,9 @@ export class WebGLFrameGraphRuntime {
 		node: WebGLFrameGraphNode,
 		context: FrameContext
 	): void | Promise<void> {
-		const executor = this._nodeExecutors.get(node.kind);
-		if (!executor) {
-			const diagnostic: WebGLFrameGraphDiagnostic = {
-				severity: "error",
-				nodeId: node.id,
-				resource: node.kind,
-				code: "missing-node-executor",
-				message:
-					`WebGL frame graph node kind "${node.kind}" has no executor.`,
-			};
-			this._runtimeDiagnostics.push(diagnostic);
-			throw new Error(diagnostic.message);
-		}
-		const result = executor(node, context);
+		const result = this._nodeExecutors.execute(node, context);
 		this._lastExecutedGraphNodeIds.push(node.id);
 		return result;
-	}
-
-	private _createNodeExecutors(): Map<
-		WebGLFrameGraphNodeKind,
-		WebGLGraphNodeExecutor
-	> {
-		return new Map([
-			["scene-clear", (_node, context) => this._executor.clearFrameTargets(context)],
-			["environment", (_node, context) => this._executor.renderEnvironmentNode(context)],
-			["shadow", (_node, context) => this._executor.renderShadowNode(context)],
-			[
-				"opaque-depth-prepass",
-				(_node, context) => {
-					this._earlyZPacketIds =
-						this._executor.renderOpaqueDepthPrepass(context);
-				},
-			],
-			[
-				"opaque-scene",
-				(_node, context) =>
-					this._executor.renderOpaqueScene(context, this._earlyZPacketIds),
-			],
-			[
-				"transparent-legacy",
-				(node, context) => {
-					if (node.scope === "transparent" || node.scope === "particles") {
-						this._executor.renderOITLegacyTransparent(context);
-						return;
-					}
-					this._executor.renderTransparentLegacy(context);
-				},
-			],
-			[
-				"oit-clear",
-				(node, context) => {
-					if (node.scope === "particles") {
-						this._executor.prepareOITParticles();
-						return;
-					}
-					this._executor.prepareOITTransparent(context);
-				},
-			],
-			[
-				"oit-accum",
-				(node, context) => {
-					if (node.scope === "particles") {
-						this._executor.renderOITParticleAccum(context);
-						return;
-					}
-					this._executor.renderOITTransparentAccum(context);
-				},
-			],
-			[
-				"oit-reveal",
-				(node, context) => {
-					if (node.scope === "particles") {
-						this._executor.renderOITParticleReveal(context);
-						return;
-					}
-					this._executor.renderOITTransparentReveal(context);
-				},
-			],
-			["oit-resolve", (_node, context) => this._executor.resolveOIT(context)],
-			[
-				"particles",
-				(node, context) => {
-					if (node.scope === "particles") {
-						this._executor.renderOITAdditiveParticles(context);
-						return;
-					}
-					this._executor.renderParticlesLegacy(context);
-				},
-			],
-			[
-				"postprocess",
-				(_node, context) => this._postProcessRuntime.execute(context),
-			],
-			["present", () => this._executor.presentFrame()],
-		]);
 	}
 
 	private _handleGraphDiagnostics(

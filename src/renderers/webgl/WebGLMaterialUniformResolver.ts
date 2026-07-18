@@ -3,8 +3,31 @@ import {
 	AlphaMode,
 	ShadingModel,
 	type Material,
+	type TextureLike,
 } from "../../materials/Material";
+import type { RGB } from "../../foundation/Color";
+import type { PBRMaterial } from "../../materials/PBRMaterial";
 import { getMaterialTransmissionFactor } from "../../materials/transparency";
+
+type WebGLPBRMaterial = PBRMaterial & {
+	/** Compatibility alias accepted from older material loaders. */
+	readonly specularColorFactor?: RGB;
+};
+
+type WebGLLegacyMaterial = Material & {
+	readonly diffuse?: RGB;
+	readonly emissive?: RGB;
+	readonly emissiveIntensity?: number;
+	readonly shininess?: number;
+};
+
+function isWebGLPBRMaterial(material: Material): material is WebGLPBRMaterial {
+	return material.shading === ShadingModel.PBR || material.type === "PBR";
+}
+
+function isWebGLLegacyMaterial(material: Material): material is WebGLLegacyMaterial {
+	return !isWebGLPBRMaterial(material);
+}
 
 export interface MaterialUniformState {
 	shadingModel: number;
@@ -18,27 +41,27 @@ export interface MaterialUniformState {
 	anisotropy: [number, number, number, number];
 	phong: [number, number, number, number];
 	alpha: [number, number, number, number];
-	baseMap: any | null;
+	baseMap: TextureLike;
 	baseMapUV: 0 | 1 | 2 | 3;
-	metallicRoughnessMap: any | null;
+	metallicRoughnessMap: TextureLike;
 	metallicRoughnessMapUV: 0 | 1 | 2 | 3;
-	specularMap: any | null;
+	specularMap: TextureLike;
 	specularMapUV: 0 | 1 | 2 | 3;
-	specularColorMap: any | null;
+	specularColorMap: TextureLike;
 	specularColorMapUV: 0 | 1 | 2 | 3;
-	normalMap: any | null;
+	normalMap: TextureLike;
 	normalMapUV: 0 | 1 | 2 | 3;
 	normalScale: number;
-	emissiveMap: any | null;
+	emissiveMap: TextureLike;
 	emissiveMapUV: 0 | 1 | 2 | 3;
-	occlusionMap: any | null;
+	occlusionMap: TextureLike;
 	occlusionMapUV: 0 | 1 | 2 | 3;
 	occlusionStrength: number;
-	iridescenceMap: any | null;
+	iridescenceMap: TextureLike;
 	iridescenceMapUV: 0 | 1 | 2 | 3;
-	iridescenceThicknessMap: any | null;
+	iridescenceThicknessMap: TextureLike;
 	iridescenceThicknessMapUV: 0 | 1 | 2 | 3;
-	anisotropyMap: any | null;
+	anisotropyMap: TextureLike;
 	anisotropyMapUV: 0 | 1 | 2 | 3;
 }
 
@@ -72,31 +95,31 @@ export function resolveMaterialUniforms(material: Material): MaterialUniformStat
 	let attenuationDistance = -1;
 	let attenuationColor: [number, number, number] = [1, 1, 1];
 	let shininess = 32;
-	let baseMap: any | null = material.map ?? null;
+	let baseMap: TextureLike = material.map ?? null;
 	let baseMapUV: 0 | 1 | 2 | 3 = 0;
-	let metallicRoughnessMap: any | null = null;
+	let metallicRoughnessMap: TextureLike = null;
 	let metallicRoughnessMapUV: 0 | 1 | 2 | 3 = 0;
-	let specularMap: any | null = null;
+	let specularMap: TextureLike = null;
 	let specularMapUV: 0 | 1 | 2 | 3 = 0;
-	let specularColorMap: any | null = null;
+	let specularColorMap: TextureLike = null;
 	let specularColorMapUV: 0 | 1 | 2 | 3 = 0;
-	let normalMap: any | null = null;
+	let normalMap: TextureLike = null;
 	let normalMapUV: 0 | 1 | 2 | 3 = 0;
 	let normalScale = 1;
-	let emissiveMap: any | null = null;
+	let emissiveMap: TextureLike = null;
 	let emissiveMapUV: 0 | 1 | 2 | 3 = 0;
-	let occlusionMap: any | null = null;
+	let occlusionMap: TextureLike = null;
 	let occlusionMapUV: 0 | 1 | 2 | 3 = 0;
 	let occlusionStrength = 1;
-	let iridescenceMap: any | null = null;
+	let iridescenceMap: TextureLike = null;
 	let iridescenceMapUV: 0 | 1 | 2 | 3 = 0;
-	let iridescenceThicknessMap: any | null = null;
+	let iridescenceThicknessMap: TextureLike = null;
 	let iridescenceThicknessMapUV: 0 | 1 | 2 | 3 = 0;
-	let anisotropyMap: any | null = null;
+	let anisotropyMap: TextureLike = null;
 	let anisotropyMapUV: 0 | 1 | 2 | 3 = 0;
 
-	if (isPBR) {
-		const pbr = material as any;
+	if (isWebGLPBRMaterial(material)) {
+		const pbr = material;
 		const albedo = pbr.albedo ?? { r: 255, g: 255, b: 255 };
 		baseColor = [
 			clamp((albedo.r ?? 255) / 255, 0, 1),
@@ -170,8 +193,8 @@ export function resolveMaterialUniforms(material: Material): MaterialUniformStat
 			Number.isFinite(pbr.anisotropyRotation) ? pbr.anisotropyRotation : 0;
 		anisotropyMap = pbr.anisotropyMap ?? null;
 		anisotropyMapUV = resolveUVSet(pbr.anisotropyMapUV);
-	} else {
-		const basic = material as any;
+	} else if (isWebGLLegacyMaterial(material)) {
+		const basic = material;
 		const diffuse = basic.diffuse ?? { r: 255, g: 255, b: 255 };
 		baseColor = [
 			sRGBToLinear(clamp((diffuse.r ?? 255) / 255, 0, 1)),
@@ -257,7 +280,7 @@ export function resolveMaterialUniforms(material: Material): MaterialUniformStat
 	};
 }
 
-export function resolveTextureUVTransform(texture: any | null): {
+export function resolveTextureUVTransform(texture: TextureLike): {
 	repeatX: number;
 	repeatY: number;
 	offsetX: number;

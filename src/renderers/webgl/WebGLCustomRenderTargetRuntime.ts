@@ -714,7 +714,11 @@ function createWebGLBuffer(
 	:	gl.ARRAY_BUFFER;
 	const data = desc.initialData ?? desc.size;
 	gl.bindBuffer(target, buffer);
-	gl.bufferData(target, data as any, gl.STATIC_DRAW);
+	if (typeof data === "number") {
+		gl.bufferData(target, data, gl.STATIC_DRAW);
+	} else {
+		gl.bufferData(target, data, gl.STATIC_DRAW);
+	}
 	gl.bindBuffer(target, null);
 	return {
 		size: desc.size,
