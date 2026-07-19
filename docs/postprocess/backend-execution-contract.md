@@ -1,8 +1,14 @@
 # Post-Process Backend Execution Contract
+
 ## Scope
-This document defines the backend-specific behavior, context interfaces, and execution flow for post-processing across Software, WebGL, and WebGPU backends.
+
+This document defines the backend-specific behavior, context interfaces, and
+execution flow for post-processing across Software, WebGL, and WebGPU backends.
+Shared logical analysis is defined by
+`docs/rendergraph/internal-render-graph-architecture.md`.
 
 ## Background
+
 To support decoupled backends, post-process execution is delegated to backend-owned runtimes. Each backend instantiates its own `BackendPostProcessRuntime` and executes it as a `"postprocess"` pass. Execution models differ per backend: WebGPU utilizes compute shaders, WebGL uses fragment shader passes on fullscreen triangles, and Software performs CPU-based direct pixel modification.
 
 ## API/Contract
@@ -18,6 +24,11 @@ To support decoupled backends, post-process execution is delegated to backend-ow
   execute the resulting logical subgraph within the existing single
   `"postprocess"` stage, and commit history only after the enclosing backend
   frame succeeds.
+- The logical post-process subgraph must continue using the pure shared
+  `RenderGraphCompiler`, but it must remain nested behind one outer backend
+  frame-graph node in V1.
+- Shared shadow diagnostics must not fail post-process execution. Only enforced
+  error diagnostics may reject the logical subgraph.
 - Empty or clean incremental post-process frames must not begin a post-process
 	graph transaction or prepare post-process resources.
 - The runtime must retain planned and resolved logical color identities. A
@@ -102,6 +113,7 @@ To support decoupled backends, post-process execution is delegated to backend-ow
 - To optimize performance, Software passes should resolve dirty rectangles using `resolveSoftwareDirtyRects(request.frameContext)` and process pixels only within these bounding regions.
 
 ## Usage
+
 
 ### WebGPU Implementation Example
 ```ts
@@ -203,12 +215,20 @@ class CustomSoftwareImpl {
 ```
 
 ## Errors & Diagnostics
+
 - `postprocess-requirement-missing-<passId>`: Triggered when a backend G-buffer bridge lacks a required semantic channel (e.g. `depth`, `motion`, `roughness`) during execution.
 - `postprocess-transient-conflict-<transientId>`: Triggered when eligible passes request incompatible transient descriptors for the same transient resource.
 - WebGPU device allocation failures during `createResource(desc)` must propagate as backend resource allocation errors.
 - WebGL float color attachment fallbacks: If float textures are requested but `EXT_color_buffer_float` is unsupported, the WebGL runtime falls back to `rgba8unorm` and triggers `webgl-hdr-float-unsupported`.
+- The enclosing backend graph analysis must mark post-process coverage as
+  `"coarse"`. It must not claim per-pass whole-frame visibility until the
+  nested subgraph is explicitly integrated through imports and exports.
 
 ## Compatibility / Breaking Changes
+
 - `renderer.postprocess` is no longer a WebGPU-specific extension; post-processing is fully cross-backend.
 - Custom passes must migrate from WebGPU-only configurations to the cross-backend `PostProcessPass` structure utilizing backend-specific context factories.
 - All temporary textures in WebGPU must be declared in `getTransientResourceDescriptors` and accessed via context bindings rather than querying the `WebGPUFrameTargets` directly.
+- Shared graph analysis must not change pass eligibility, ordering, planned or
+  resolved color versions, `{ ran: false }` aliasing, transient ownership, or
+  history commit and abort behavior.

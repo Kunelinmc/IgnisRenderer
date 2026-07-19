@@ -116,7 +116,8 @@ export class BackendPostProcessRuntime {
 		const logicalGraph = this._renderGraphCompiler.compile(subgraph);
 		this._lastRenderGraph = logicalGraph;
 		const errors = logicalGraph.diagnostics.filter(
-			(diagnostic) => diagnostic.severity === "error",
+			(diagnostic) =>
+				diagnostic.enforcement === "enforced" && diagnostic.severity === "error",
 		);
 		if (errors.length > 0) {
 			throw new Error(errors.map((diagnostic) => diagnostic.message).join(" "));
@@ -159,7 +160,8 @@ export class BackendPostProcessRuntime {
 		const logicalGraph = this._renderGraphCompiler.compile(subgraph);
 		this._lastRenderGraph = logicalGraph;
 		const errors = logicalGraph.diagnostics.filter(
-			(diagnostic) => diagnostic.severity === "error",
+			(diagnostic) =>
+				diagnostic.enforcement === "enforced" && diagnostic.severity === "error",
 		);
 		if (errors.length > 0) {
 			throw new Error(errors.map((diagnostic) => diagnostic.message).join(" "));
@@ -254,7 +256,8 @@ export class BackendPostProcessRuntime {
 		const compiled = this._renderGraphCompiler.compile(subgraph);
 		this._lastRenderGraph = compiled;
 		const graphErrors = compiled.diagnostics.filter(
-			(diagnostic) => diagnostic.severity === "error"
+			(diagnostic) =>
+				diagnostic.enforcement === "enforced" && diagnostic.severity === "error"
 		);
 		if (graphErrors.length > 0) {
 			throw new Error(graphErrors.map((diagnostic) => diagnostic.message).join(" "));

@@ -52,6 +52,9 @@ export class PostProcessRenderGraphAdapter {
 		addResource({
 			id: "frame:scene-color",
 			origin: "imported",
+			kind: "texture",
+			residency: "frame",
+			initialContent: "valid",
 			format: graph.gBuffer.channels.color?.format,
 			width: graph.width,
 			height: graph.height,
@@ -61,17 +64,48 @@ export class PostProcessRenderGraphAdapter {
 			addResource({
 				id: `frame:gbuffer:${semantic}`,
 				origin: "imported",
+				kind: "texture",
+				residency: "frame",
+				initialContent: "valid",
 				format: channel.format,
 				width: channel.width,
 				height: channel.height,
 			}, "gbuffer");
 		}
 		for (const descriptor of graph.historyDescriptors) {
-			addResource({ id: `postprocess:history:${descriptor.id}:read`, origin: "imported", format: descriptor.format, width: graph.width, height: graph.height }, "history-read");
-			addResource({ id: `postprocess:history:${descriptor.id}:write`, origin: "imported", format: descriptor.format, width: graph.width, height: graph.height }, "history-write");
+			addResource({
+				id: `postprocess:history:${descriptor.id}:read`,
+				origin: "imported",
+				kind: "texture",
+				residency: "history",
+				initialContent: "unknown",
+				format: descriptor.format,
+				width: graph.width,
+				height: graph.height,
+			}, "history-read");
+			addResource({
+				id: `postprocess:history:${descriptor.id}:write`,
+				origin: "imported",
+				kind: "texture",
+				residency: "history",
+				initialContent: "undefined",
+				format: descriptor.format,
+				width: graph.width,
+				height: graph.height,
+			}, "history-write");
 		}
 		for (const descriptor of graph.transientDescriptors) {
-			addResource({ id: `postprocess:transient:${descriptor.id}`, origin: "imported", format: descriptor.format, width: graph.width, height: graph.height, mipMode: descriptor.mipMode ?? "single" }, "transient");
+			addResource({
+				id: `postprocess:transient:${descriptor.id}`,
+				origin: "imported",
+				kind: "texture",
+				residency: "transient",
+				initialContent: "undefined",
+				format: descriptor.format,
+				width: graph.width,
+				height: graph.height,
+				mipMode: descriptor.mipMode ?? "single",
+			}, "transient");
 		}
 
 		const nodes: RenderGraphNode<PostProcessRenderGraphNodePayload>[] = [];
@@ -104,7 +138,14 @@ export class PostProcessRenderGraphAdapter {
 			this._appendHistoryRefs(refs, pass.historyIds, metadata, graph.backend);
 			this._appendTransientRefs(refs, pass.transientIds, metadata, graph.backend);
 			for (const shared of metadata?.backendShared ?? []) {
-				addResource({ id: shared.id, origin: "imported", optional: shared.optional }, "backend-shared");
+				addResource({
+					id: shared.id,
+					origin: "imported",
+					kind: "external",
+					residency: "external",
+					initialContent: "unknown",
+					optional: shared.optional,
+				}, "backend-shared");
 				refs.push({ resource: shared.id, access: shared.access, usage: shared.usage, optional: shared.optional });
 			}
 
@@ -112,9 +153,22 @@ export class PostProcessRenderGraphAdapter {
 			let plannedOutputColor: string | null = null;
 			if (color.output === "new-version") {
 				plannedOutputColor = `postprocess:color:${index}`;
-				addResource({ id: plannedOutputColor, origin: "graph", format: graph.gBuffer.channels.color?.format, width: graph.width, height: graph.height }, "color-version");
+				addResource({
+					id: plannedOutputColor,
+					origin: "graph",
+					kind: "texture",
+					residency: "transient",
+					initialContent: "undefined",
+					format: graph.gBuffer.channels.color?.format,
+					width: graph.width,
+					height: graph.height,
+				}, "color-version");
 				creates.push(plannedOutputColor);
-				refs.push({ resource: plannedOutputColor, access: "write", usage: this._colorOutputUsage(graph.backend) });
+				refs.push({
+					resource: plannedOutputColor,
+					access: "write",
+					usage: this._colorOutputUsage(graph.backend),
+				});
 				currentColor = plannedOutputColor;
 			}
 			nodes.push({
@@ -125,7 +179,14 @@ export class PostProcessRenderGraphAdapter {
 				dependsOn: previousNodeId ? [previousNodeId] : [],
 				creates,
 				resources: refs,
-				payload: { passId: pass.id, color, inputColor, plannedOutputColor, outputValidation, compatibilityOpaque },
+				payload: {
+					passId: pass.id,
+					color,
+					inputColor,
+					plannedOutputColor,
+					outputValidation,
+					compatibilityOpaque,
+				},
 			});
 			previousNodeId = nodeId;
 		}
@@ -138,7 +199,9 @@ export class PostProcessRenderGraphAdapter {
 	}
 
 	private _defaultColorFlow(backend: CompiledPostProcessGraph["backend"]): PostProcessColorFlow {
-		return backend === "software" ? { access: "read-write", output: "preserve" } : { access: "read", output: "new-version" };
+		return backend === "software" ?
+			{ access: "read-write", output: "preserve" }
+			: { access: "read", output: "new-version" };
 	}
 
 	private _colorInputUsage(backend: CompiledPostProcessGraph["backend"]): RenderGraphUsage {
@@ -157,8 +220,17 @@ export class PostProcessRenderGraphAdapter {
 	): void {
 		for (const id of ids) {
 			const declaration = metadata?.histories?.[id];
-			const read = declaration?.read ?? [{ access: "read", usage: backend === "software" ? "cpu-read" : "sampled" }];
-			const write = declaration?.write ?? [{ access: "write", usage: backend === "webgl" ? "color-attachment" : backend === "software" ? "cpu-write" : "storage" }];
+			const read = declaration?.read ?? [{
+				access: "read",
+				usage: backend === "software" ? "cpu-read" : "sampled",
+			}];
+			const write = declaration?.write ?? [{
+				access: "write",
+				usage:
+					backend === "webgl" ? "color-attachment"
+					: backend === "software" ? "cpu-write"
+					: "storage",
+			}];
 			this._appendUses(refs, `postprocess:history:${id}:read`, read);
 			this._appendUses(refs, `postprocess:history:${id}:write`, write);
 		}
@@ -171,7 +243,13 @@ export class PostProcessRenderGraphAdapter {
 		backend: CompiledPostProcessGraph["backend"]
 	): void {
 		for (const id of ids) {
-			const uses = metadata?.transients?.[id] ?? [{ access: "read-write", usage: backend === "webgl" ? "color-attachment" : backend === "software" ? "cpu-write" : "storage" }];
+			const uses = metadata?.transients?.[id] ?? [{
+				access: "read-write",
+				usage:
+					backend === "webgl" ? "color-attachment"
+					: backend === "software" ? "cpu-write"
+					: "storage",
+			}];
 			this._appendUses(refs, `postprocess:transient:${id}`, uses);
 		}
 	}
@@ -181,6 +259,13 @@ export class PostProcessRenderGraphAdapter {
 		resource: string,
 		uses: readonly PostProcessGraphResourceUse[]
 	): void {
-		for (const use of uses) refs.push({ resource, access: use.access, usage: use.usage, optional: use.optional });
+		for (const use of uses) {
+			refs.push({
+				resource,
+				access: use.access,
+				usage: use.usage,
+				optional: use.optional,
+			});
+		}
 	}
 }
