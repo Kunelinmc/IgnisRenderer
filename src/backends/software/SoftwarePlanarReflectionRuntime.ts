@@ -11,7 +11,7 @@ import {
 } from "../../pipeline/types";
 import type { ProjectedFace, ProjectedVertex } from "../../core/types";
 import { sampleSoftwareTextureAlpha } from "../../shaders/software/textureSampling";
-import { EnvironmentBackgroundRenderer } from "./EnvironmentRenderer";
+import { SkyboxRenderer } from "./SkyboxRenderer";
 import {
 	SoftwareTriangleInterpolator,
 	type SoftwareFragmentSpan,
@@ -373,7 +373,7 @@ export class SoftwarePlanarReflectionRuntime {
 			environment.backgroundEnabled &&
 			environment.backgroundTexture
 		) {
-			EnvironmentBackgroundRenderer.render(
+			SkyboxRenderer.render(
 				environment.backgroundTexture,
 				{
 					strength: environment.backgroundStrength,

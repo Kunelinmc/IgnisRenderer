@@ -25,7 +25,7 @@ import type {
 	SoftwarePassLike,
 	SoftwareSurfaceCompositePass,
 } from "./passes/types";
-import { EnvironmentBackgroundRenderer } from "./EnvironmentRenderer";
+import { SkyboxRenderer } from "./SkyboxRenderer";
 import { isShadowCastingLight } from "../../lights";
 import {
 	resolveShadowCasterBounds,
@@ -412,7 +412,7 @@ export class SoftwareBackend implements IRenderBackend {
 			environment.backgroundEnabled &&
 			environment.backgroundTexture
 		) {
-			EnvironmentBackgroundRenderer.render(
+			SkyboxRenderer.render(
 				environment.backgroundTexture,
 				{
 					strength: environment.backgroundStrength,

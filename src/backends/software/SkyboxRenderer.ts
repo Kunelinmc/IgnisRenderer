@@ -3,7 +3,7 @@ import { CameraType } from "../../cameras/Camera";
 import type { Texture } from "../../core/Texture";
 import { sRGBToLinear } from "../../maths/Common";
 
-export interface EnvironmentBackgroundRenderOptions {
+export interface SkyboxRenderOptions {
 	strength: number;
 	tintLinear: {
 		r: number;
@@ -13,10 +13,10 @@ export interface EnvironmentBackgroundRenderOptions {
 	exposure: number;
 }
 
-export class EnvironmentBackgroundRenderer {
+export class SkyboxRenderer {
 	public static render(
 		environmentBackgroundTexture: Texture,
-		options: EnvironmentBackgroundRenderOptions,
+		options: SkyboxRenderOptions,
 		pixels: Uint8ClampedArray,
 		camera: Camera,
 		width: number,

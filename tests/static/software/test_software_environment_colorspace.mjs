@@ -3,7 +3,7 @@ import { CameraType } from "../../../src/cameras/Camera.ts";
 import { Texture } from "../../../src/core/Texture.ts";
 import { sRGBToLinear } from "../../../src/maths/Common.ts";
 import { Matrix4 } from "../../../src/maths/Matrix4.ts";
-import { EnvironmentBackgroundRenderer } from "../../../src/backends/software/EnvironmentRenderer.ts";
+import { SkyboxRenderer } from "../../../src/backends/software/SkyboxRenderer.ts";
 
 const DEFAULT_BACKGROUND_OPTIONS = {
 	strength: 1,
@@ -20,7 +20,7 @@ function createCamera() {
 	};
 }
 
-function testEnvironmentRendererDecodesSRGBToLinear() {
+function testSkyboxRendererDecodesSRGBToLinear() {
 	const environment = new Texture(
 		new Uint8ClampedArray([128, 64, 32, 255]),
 		1,
@@ -29,7 +29,7 @@ function testEnvironmentRendererDecodesSRGBToLinear() {
 	);
 	const pixels = new Uint8ClampedArray(4);
 
-	EnvironmentBackgroundRenderer.render(
+	SkyboxRenderer.render(
 		environment,
 		DEFAULT_BACKGROUND_OPTIONS,
 		pixels,
@@ -47,7 +47,7 @@ function testEnvironmentRendererDecodesSRGBToLinear() {
 	assert.equal(pixels[3], 255);
 }
 
-function testEnvironmentRendererPreservesLinearTextureValues() {
+function testSkyboxRendererPreservesLinearTextureValues() {
 	const environment = new Texture(
 		new Uint8ClampedArray([128, 64, 32, 255]),
 		1,
@@ -56,7 +56,7 @@ function testEnvironmentRendererPreservesLinearTextureValues() {
 	);
 	const pixels = new Uint8ClampedArray(4);
 
-	EnvironmentBackgroundRenderer.render(
+	SkyboxRenderer.render(
 		environment,
 		DEFAULT_BACKGROUND_OPTIONS,
 		pixels,
@@ -68,11 +68,11 @@ function testEnvironmentRendererPreservesLinearTextureValues() {
 	assert.deepEqual(Array.from(pixels), [128, 64, 32, 255]);
 }
 
-function testEnvironmentRendererPreservesHDRTextureValues() {
+function testSkyboxRendererPreservesHDRTextureValues() {
 	const environment = new Texture(new Float32Array([1, 0.5, 0.25, 1]), 1, 1, "HDR");
 	const pixels = new Uint8ClampedArray(4);
 
-	EnvironmentBackgroundRenderer.render(
+	SkyboxRenderer.render(
 		environment,
 		DEFAULT_BACKGROUND_OPTIONS,
 		pixels,
@@ -85,9 +85,9 @@ function testEnvironmentRendererPreservesHDRTextureValues() {
 }
 
 function run() {
-	testEnvironmentRendererDecodesSRGBToLinear();
-	testEnvironmentRendererPreservesLinearTextureValues();
-	testEnvironmentRendererPreservesHDRTextureValues();
+	testSkyboxRendererDecodesSRGBToLinear();
+	testSkyboxRendererPreservesLinearTextureValues();
+	testSkyboxRendererPreservesHDRTextureValues();
 	console.log("Software environment color-space tests passed");
 }
 
