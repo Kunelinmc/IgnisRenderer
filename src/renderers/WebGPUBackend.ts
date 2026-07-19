@@ -267,7 +267,6 @@ export class WebGPUBackend implements IRenderBackend {
 	private _particleSimulator: IParticleSimulator | null = null;
 	private _deviceLost = false;
 	private _deviceLostInfo: RenderBackendDeviceLostInfo | null = null;
-	private _deviceLossPromise: Promise<GPUDeviceLostInfo> | null = null;
 	private readonly _objectIdentity = new WebGPUObjectIdentity(() => {
 		this._handleObjectIdentityRebase();
 	});
@@ -538,7 +537,7 @@ export class WebGPUBackend implements IRenderBackend {
 		this._device = requestedDevice;
 		this._queue = requestedDevice.queue;
 		this._debugInfo = this._createDebugInfo(adapter, requestedDevice);
-		this._deviceLossPromise = requestedDevice.lost.then((info) => {
+		requestedDevice.lost.then((info) => {
 			if (this.device !== requestedDevice) {
 				return info;
 			}
@@ -906,7 +905,6 @@ export class WebGPUBackend implements IRenderBackend {
 		invalidateWebGPUComputeFacade(this);
 		this._deviceLost = false;
 		this._deviceLostInfo = null;
-		this._deviceLossPromise = null;
 	}
 
 	public createBuffer(desc: BufferDesc): IRenderBuffer {
@@ -1425,7 +1423,6 @@ export class WebGPUBackend implements IRenderBackend {
 				this._reportNonFatalError("device destroy", error);
 			}
 		}
-		this._deviceLossPromise = null;
 		this._device = null;
 		this._queue = null;
 	}
