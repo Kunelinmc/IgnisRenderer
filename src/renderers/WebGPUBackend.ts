@@ -710,6 +710,12 @@ export class WebGPUBackend implements IRenderBackend {
 		}
 
 		this._validatePassDependencies(pass);
+		if (pass.stage === "particle-sim") {
+			this._frameOrchestrator.recordOpaqueGraphStage?.(
+				pass.stage,
+				"Particle simulation executes outside the logical frame graph.",
+			);
+		}
 		const dispatched = this._passDispatcher.executePass(pass, context);
 		const result =
 			dispatched === null ? this._frameOrchestrator.executePass(pass, context) : dispatched;
@@ -770,27 +776,47 @@ export class WebGPUBackend implements IRenderBackend {
 			this._flushDeferredLifecycleChanges();
 		} catch (error) {
 			if (!frameError) {
-				throw error;
+				frameError = error;
+			} else {
+				this._reportNonFatalError("deferred lifecycle flush after failed frame", error);
 			}
-			this._reportNonFatalError("deferred lifecycle flush after failed frame", error);
 		}
 		if (frameError) {
+			this._frameOrchestrator?.abortGraphAnalysis?.(frameError);
 			throw frameError;
 		}
-		this._postProcessRuntime?.commitFrame();
+		try {
+			this._postProcessRuntime?.commitFrame();
+			this._frameOrchestrator?.commitGraphAnalysis?.();
+		} catch (error) {
+			this._frameOrchestrator?.abortGraphAnalysis?.(error);
+			throw error;
+		}
 	}
 
 	public async abortFrame(_error?: unknown): Promise<void> {
 		const wasActive = this._frameActive;
 		let abortError: unknown = null;
 		try {
-			await this._postProcessRuntime?.abortFrame(_error);
-			this._frameOrchestrator?.abortFrame();
-			if (wasActive) {
-				this._particleSimulator?.endFrame();
+			try {
+				await this._postProcessRuntime?.abortFrame(_error);
+			} catch (error) {
+				abortError = error;
 			}
-		} catch (error) {
-			abortError = error;
+			try {
+				this._frameOrchestrator?.abortFrame(_error);
+			} catch (error) {
+				if (!abortError) abortError = error;
+				else this._reportNonFatalError("frame graph abort", error);
+			}
+			if (wasActive) {
+				try {
+					this._particleSimulator?.endFrame();
+				} catch (error) {
+					if (!abortError) abortError = error;
+					else this._reportNonFatalError("particle frame cleanup", error);
+				}
+			}
 		} finally {
 			this._postProcessExecutor?.unbindSession(this._postProcessSessionPort ?? undefined);
 			this._postProcessSessionPort = null;
@@ -1260,6 +1286,7 @@ export class WebGPUBackend implements IRenderBackend {
 		}
 		this._deviceLost = true;
 		this._deviceLostInfo = info;
+		this._frameOrchestrator?.abortGraphAnalysis?.(info);
 		const reason =
 			typeof info.reason === "string" && info.reason.length > 0 ? ` (${info.reason})` : "";
 		Logger.error(`WebGPU device was lost${reason}: ${info.message}`, {

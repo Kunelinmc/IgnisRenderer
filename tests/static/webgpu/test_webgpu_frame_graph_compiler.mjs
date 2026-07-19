@@ -47,6 +47,22 @@ function testOptionalReadDoesNotDiagnose() {
 	assert.equal(stage.diagnostics.length, 0);
 }
 
+function testDuplicateCreateDiagnosticMatchesLegacyShape() {
+	const { stage } = compile([{
+		id: "test:create",
+		stage: "main-opaque",
+		kind: "opaque-scene",
+		label: "CreateActive",
+		creates: [{ id: "frame:depth" }],
+	}], ["frame:depth"]);
+
+	assert.equal(stage.diagnostics[0].code, "duplicate-create");
+	assert.equal(
+		stage.diagnostics[0].message,
+		'Frame graph node "test:create" creates already active resource "frame:depth".',
+	);
+}
+
 function testOptionalReadDoesNotCreateResource() {
 	const { compiler } = compile([
 		{
@@ -160,6 +176,34 @@ function testResourceDebugStateTracksLastAccess() {
 	assert.equal(state.lastNodeId, "test:write-depth");
 	assert.equal(state.lastAccess, "write");
 	assert.equal(state.lastUsage, "depth-attachment");
+}
+
+function testGroupedAnalysisSeparatesShadowDiagnostics() {
+	const { compiler, stage } = compile([{
+		id: "test:read-imported",
+		stage: "main-opaque",
+		kind: "opaque-scene",
+		label: "ReadImported",
+		reads: [{ id: "frame:depth", usage: "texture-binding" }],
+	}], ["frame:depth"]);
+
+	assert.equal(stage.diagnostics.length, 0);
+	assert.equal(compiler.getDiagnostics().length, 0);
+	assert.ok(
+		compiler.getGraphAnalysis().current.shadowDiagnostics.some(
+			(diagnostic) => diagnostic.code === "read-content-unknown"
+		)
+	);
+	compiler.recordOpaqueStage(
+		"particle-sim",
+		"Particle simulation is backend-private.",
+	);
+	compiler.seal();
+	compiler.commit();
+	const analysis = compiler.getGraphAnalysis();
+	assert.equal(analysis.state, "committed");
+	assert.equal(analysis.lastSuccessful.completeness, "opaque");
+	assert.equal(analysis.lastSuccessful.diagnostics.length, 0);
 }
 
 function testDeferredDecalNodeRecordsGBufferTransitions() {
@@ -416,10 +460,12 @@ function testPagedShadowStubNodesValidate() {
 function run() {
 	testReadBeforeCreateDiagnostic();
 	testOptionalReadDoesNotDiagnose();
+	testDuplicateCreateDiagnosticMatchesLegacyShape();
 	testOptionalReadDoesNotCreateResource();
 	testOptionalReadDoesNotEmitBarrierForLaterWrite();
 	testUsageTransitionsEmitBarriers();
 	testResourceDebugStateTracksLastAccess();
+	testGroupedAnalysisSeparatesShadowDiagnostics();
 	testDeferredDecalNodeRecordsGBufferTransitions();
 	testPagedShadowStubNodesValidate();
 	console.log("test_webgpu_frame_graph_compiler: ok");

@@ -1,10 +1,14 @@
 # WebGPU Internal Frame Graph Contract
+
 ## Scope
+
 This document defines the internal WebGPU frame graph used behind
 `WebGPUFrameOrchestrator`. It does not define renderer-level frame stages or public
-post-process registration APIs.
+post-process registration APIs. Shared logical analysis is defined by
+`docs/rendergraph/internal-render-graph-architecture.md`.
 
 ## Background
+
 `WebGPUBackend` exposes the renderer-level backend lifecycle. Internally,
 `WebGPUFrameOrchestrator` compiles WebGPU-specific nodes for renderer stages and
 validates resource usage before recording commands. `WebGPUFrameFeatureAnalyzer`
@@ -26,6 +30,9 @@ must remain backend-internal.
 - `WebGPUFrameGraphNode.creates` and `WebGPUFrameGraphNode.destroys` may declare
   explicit resource lifetime changes when a future node owns transient targets.
 - `WebGPUFrameGraphCompiler` must preserve node order supplied by the planner.
+- `WebGPUFrameGraphCompiler` must remain a compatibility facade over the
+  shared `RenderGraphStateTracker`. Backend-specific node types, planning, and
+  execution must remain WebGPU-private.
 - `WebGPUFrameGraphCompiler` must emit a diagnostic when a non-optional read or
   destroy references an inactive resource.
 - `WebGPUFrameGraphCompiler` must emit barrier records for read/write or usage
@@ -34,6 +41,10 @@ must remain backend-internal.
 - `WebGPUBackendOptions.frameGraphValidation` must default to `"throw"`.
 - `"throw"` mode must fail frame execution on error diagnostics.
 - `"warn"` mode must emit diagnostics through `Logger.warn` and continue.
+- Only enforced diagnostics may participate in `"throw"` or `"warn"` policy.
+  Shared shadow diagnostics must not be logged or stop execution.
+- Legacy barrier records must be projected from shared logical transitions.
+  They must not emit native WebGPU synchronization commands.
 - `WebGPUFrameHost` must expose only the device-scoped resource, canvas, command
   recording, submission, and validation operations required by the frame
   subsystem. Frame graph services and runtimes must not depend on
@@ -93,6 +104,12 @@ must remain backend-internal.
   execution without recording commands.
 - `WebGPUFrameOrchestrator.abortFrame` must remain idempotent when no session is
   active.
+- `WebGPUFrameOrchestrator.endFrame` must seal graph analysis after final graph
+  recording. `WebGPUBackend` must commit analysis only after submission,
+  presentation, deferred lifecycle work, custom target publication, and
+  post-process history commit succeed. Any failure must abort analysis.
+- Custom render-target and particle-simulation paths that bypass graph nodes
+  must mark shared analysis coverage as `"opaque"` without changing execution.
 - `WebGPUFrameCommitter` must retain labeled command buffers until `endFrame()`,
   submit them one at a time in recording order, and discard all retained work
   when recording is aborted.
@@ -115,6 +132,7 @@ must remain backend-internal.
   `WebGPUFrameTargetManager` owns the `frame:hiz` texture lifetime.
 
 ## Usage
+
 ```ts
 const backend = new WebGPUBackend({
 	frameGraphValidation: "throw",
@@ -129,6 +147,7 @@ bun tests/static/webgpu/test_webgpu_frame_executor_resilience.mjs
 ```
 
 ## Errors & Diagnostics
+
 - `read-before-create` must trigger when a required node read references an
   inactive resource.
 - `destroy-before-create` must trigger when a required node destroy references
@@ -148,8 +167,12 @@ bun tests/static/webgpu/test_webgpu_frame_executor_resilience.mjs
   running for the affected frame.
 - `WebGPUFramePartialSubmitError` must identify the failure phase, original
   cause, submitted count, total count, submitted labels, and pending labels.
+- `getFrameGraphDebugState().graphAnalysis` must group `current`,
+  `lastAttempt`, and `lastSuccessful` snapshots. Shadow diagnostics such as
+  `read-content-unknown` and `opaque-stage-effects` must appear only there.
 
 ## Compatibility / Breaking Changes
+
 `getFrameGraphDebugState()` may expose structured internal graph diagnostics,
 barriers, resources, and target-manager state. Tests and diagnostic tooling must
 not depend on private runtime fields when equivalent graph debug data exists.
@@ -157,4 +180,5 @@ The planner and runtime use internal registries instead of switch statements;
 this does not add public WebGPU frame graph registration APIs. Rejecting
 duplicate frame begins, missing active sessions, and mismatched frame-context
 identity strengthens internal lifecycle validation without changing the public
-renderer API.
+renderer API. The shared analyzer does not transfer native resource ownership,
+flatten the nested post-process graph, or change planner and executor order.

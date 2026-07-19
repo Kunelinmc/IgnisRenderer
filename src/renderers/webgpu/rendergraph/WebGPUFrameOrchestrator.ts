@@ -365,12 +365,12 @@ export class WebGPUFrameOrchestrator {
 		this._lastPlannedGraphNodes = [];
 		this._lastCompiledGraphStages = [];
 		this._lastExecutedGraphNodeIds = [];
-		this._graphCompiler.beginFrame([]);
 		this._occlusionRuntime.beginFrame(context);
 		const targetWidth = this._resolveAttachmentDimension(context.attachments.width);
 		const targetHeight = this._resolveAttachmentDimension(context.attachments.height);
 
 		if (targetWidth <= 0 || targetHeight <= 0) {
+			this._graphCompiler.beginFrame([]);
 			this._destroyFrameTargets();
 			this._session = WebGPUFrameSession.createSkipped(context);
 			return;
@@ -594,6 +594,7 @@ export class WebGPUFrameOrchestrator {
 			graphResources: this._graphCompiler.getResourceDebugState(),
 			graphBarriers: this._graphCompiler.getBarriers(),
 			graphDiagnostics: this._graphCompiler.getDiagnostics(),
+			graphAnalysis: this._graphCompiler.getGraphAnalysis(),
 			targetManager: this._frameTargetManager.getDebugState(),
 			commit: this._session?.committer?.getDebugState() ?? this._lastCommitDebugState,
 			postProcess: this._postProcessRuntime.getDebugState(),
@@ -793,6 +794,10 @@ export class WebGPUFrameOrchestrator {
 		}
 
 		if (this._customRenderTargets.hasPass(pass, context)) {
+			this._graphCompiler.recordOpaqueStage(
+				pass.stage,
+				`Custom render target pass "${pass.stage}" executes outside the logical graph.`,
+			);
 			await this._customRenderTargets.executePass(pass, context, session.encoder);
 			return;
 		}
@@ -966,6 +971,7 @@ export class WebGPUFrameOrchestrator {
 			throw new Error("WebGPUFrameOrchestrator has no active frame session.");
 		}
 		if (session.state === "skipped") {
+			this._graphCompiler.seal();
 			this._clearActiveSession();
 			return;
 		}
@@ -990,6 +996,7 @@ export class WebGPUFrameOrchestrator {
 				this._lastExecutedGraphNodeIds.push(node.id);
 			}
 		}
+		this._graphCompiler.seal();
 		const encoder = session.encoder;
 		const committer = session.committer;
 		if (!encoder || !committer) {
@@ -1025,11 +1032,27 @@ export class WebGPUFrameOrchestrator {
 		}
 	}
 
-	public abortFrame(): void {
+	public abortFrame(error?: unknown): void {
 		this._session?.committer?.abort();
 		this._lastCommitDebugState = this._session?.committer?.getDebugState() ?? null;
 		this._customRenderTargets.markFrameAborted();
+		this._graphCompiler.abort(error);
 		this._clearActiveSession();
+	}
+
+	/** @internal Completes graph analysis after all backend transaction commits. */
+	public commitGraphAnalysis(): void {
+		this._graphCompiler.commit();
+	}
+
+	/** @internal Aborts graph analysis without changing native frame ownership. */
+	public abortGraphAnalysis(error?: unknown): void {
+		this._graphCompiler.abort(error);
+	}
+
+	/** @internal Records a backend pass that bypasses logical resource analysis. */
+	public recordOpaqueGraphStage(stage: string, message: string): void {
+		this._graphCompiler.recordOpaqueStage(stage, message);
 	}
 
 	public readRenderTargetColor(

@@ -1,3 +1,12 @@
+import { RenderGraphStateTracker } from "../../../rendergraph/RenderGraphStateTracker";
+import type {
+	RenderGraphDiagnostic,
+	RenderGraphNode,
+	RenderGraphResourceDescriptor,
+	RenderGraphTrackerDebugState,
+	RenderGraphTransition,
+	RenderGraphUsage,
+} from "../../../rendergraph/types";
 import type {
 	WebGPUCompiledFrameGraphStage,
 	WebGPUFrameGraphBarrier,
@@ -5,76 +14,79 @@ import type {
 	WebGPUFrameGraphNode,
 	WebGPUFrameGraphResourceDebugState,
 	WebGPUFrameGraphResourceId,
-	WebGPUFrameGraphResourceRef,
 	WebGPUFrameGraphResourceUsage,
 	WebGPUFrameGraphStagePlan,
 } from "./types";
 
-interface WebGPUFrameGraphResourceState {
-	id: WebGPUFrameGraphResourceId;
-	initialized: boolean;
-	lastNodeId: string | null;
-	lastAccess: "create" | "read" | "write" | "destroy" | null;
-	lastUsage: WebGPUFrameGraphResourceUsage | null;
-}
+type SharedWebGPUNode = RenderGraphNode<
+	WebGPUFrameGraphNode,
+	WebGPUFrameGraphNode["kind"]
+>;
 
-/**
- * Tracks WebGPU internal frame graph resource lifetimes and usage transitions.
- */
+/** Tracks WebGPU frame graph state through the shared logical analyzer. */
 export class WebGPUFrameGraphCompiler {
-	private readonly _resources = new Map<
-		WebGPUFrameGraphResourceId,
-		WebGPUFrameGraphResourceState
-	>();
+	private readonly _tracker = new RenderGraphStateTracker<
+		WebGPUFrameGraphNode,
+		WebGPUFrameGraphNode["kind"]
+	>({ allowImplicitResources: true });
 	private readonly _compiledStages: WebGPUCompiledFrameGraphStage[] = [];
 	private readonly _barriers: WebGPUFrameGraphBarrier[] = [];
 	private readonly _diagnostics: WebGPUFrameGraphDiagnostic[] = [];
 
-	/**
-	 * Resets per-frame graph state.
-	 *
-	 * @param initialResources Resources treated as externally available.
-	 * @sideEffects Clears prior compiled graph debug state.
-	 */
 	public beginFrame(initialResources: readonly WebGPUFrameGraphResourceId[]): void {
-		this._resources.clear();
+		const state = this._tracker.getDebugState().state;
+		if (state === "active" || state === "sealed") {
+			this._tracker.abort(
+				new Error("A new WebGPU frame superseded an uncommitted graph attempt."),
+			);
+		}
 		this._compiledStages.length = 0;
 		this._barriers.length = 0;
 		this._diagnostics.length = 0;
-		for (const id of initialResources) {
-			this._resources.set(id, {
-				id,
-				initialized: true,
-				lastNodeId: null,
-				lastAccess: "create",
-				lastUsage: "external",
-			});
-		}
+		this._tracker.beginFrame(initialResources.map(toImportedDescriptor));
 	}
 
-	/**
-	 * Records and validates one planned WebGPU internal stage.
-	 *
-	 * @param plan Stage plan produced by `WebGPUFrameGraphPlanner`.
-	 * @returns Compiled stage with barriers and diagnostics produced by it.
-	 * @sideEffects Updates resource state for later stages in the same frame.
-	 */
 	public compileStage(
-		plan: WebGPUFrameGraphStagePlan
+		plan: WebGPUFrameGraphStagePlan,
 	): WebGPUCompiledFrameGraphStage {
-		const barriersStart = this._barriers.length;
-		const diagnosticsStart = this._diagnostics.length;
-		for (const node of plan.nodes) {
-			this._recordNode(node);
+		const analyzed = this._tracker.appendStage({
+			nodes: plan.nodes.map(toSharedNode),
+		});
+		if (plan.pass.stage === "postprocess") {
+			this._tracker.markCompleteness("coarse");
 		}
+		const barriers = analyzed.transitions
+			.filter((transition) => transition.reason !== undefined)
+			.map(toWebGPUBarrier);
+		const diagnostics = analyzed.diagnostics
+			.map(toWebGPUDiagnostic)
+			.filter((diagnostic): diagnostic is WebGPUFrameGraphDiagnostic => !!diagnostic);
+		this._barriers.push(...barriers);
+		this._diagnostics.push(...diagnostics);
 		const compiled: WebGPUCompiledFrameGraphStage = {
 			pass: plan.pass,
 			nodes: plan.nodes.slice(),
-			barriers: this._barriers.slice(barriersStart),
-			diagnostics: this._diagnostics.slice(diagnosticsStart),
+			barriers,
+			diagnostics,
 		};
 		this._compiledStages.push(compiled);
 		return compiled;
+	}
+
+	public seal(): void {
+		this._tracker.seal();
+	}
+
+	public commit(): void {
+		this._tracker.commit();
+	}
+
+	public abort(error?: unknown): void {
+		this._tracker.abort(error);
+	}
+
+	public recordOpaqueStage(stage: string, message: string): void {
+		this._tracker.recordOpaqueStage(stage, message);
 	}
 
 	public getCompiledStages(): readonly WebGPUCompiledFrameGraphStage[] {
@@ -90,152 +102,150 @@ export class WebGPUFrameGraphCompiler {
 	}
 
 	public getResourceDebugState(): readonly WebGPUFrameGraphResourceDebugState[] {
-		return Array.from(this._resources.values())
-			.sort((a, b) => a.id.localeCompare(b.id))
-			.map((state) => ({
-				id: state.id,
-				initialized: state.initialized,
-				lastNodeId: state.lastNodeId,
-				lastAccess: state.lastAccess,
-				lastUsage: state.lastUsage,
-			}));
+		return this._tracker.getResourceDebugState().map((state) => ({
+			id: state.id as WebGPUFrameGraphResourceId,
+			initialized: state.active,
+			lastNodeId: state.lastNodeId,
+			lastAccess: toLegacyAccess(state.lastAccess),
+			lastUsage:
+				state.lastUsage ? toWebGPUUsage(state.lastUsage)
+				: state.lastAccess === "create" ? "external"
+				: null,
+		}));
 	}
 
-	private _recordNode(node: WebGPUFrameGraphNode): void {
-		for (const mutation of node.creates ?? []) {
-			const state = this._getOrCreateResourceState(mutation.id);
-			if (state.initialized && !mutation.optional) {
-				this._diagnostics.push({
-					severity: "error",
-					nodeId: node.id,
-					resource: mutation.id,
-					code: "duplicate-create",
-					message:
-						`Frame graph node "${node.id}" creates already active ` +
-						`resource "${mutation.id}".`,
-				});
-			}
-			state.initialized = true;
-			state.lastNodeId = node.id;
-			state.lastAccess = "create";
-			state.lastUsage = mutation.usage ?? state.lastUsage ?? "external";
-		}
-		for (const read of node.reads ?? []) {
-			this._recordRead(node, read);
-		}
-		for (const write of node.writes ?? []) {
-			this._recordWrite(node, write);
-		}
-		for (const mutation of node.destroys ?? []) {
-			const state = this._getOrCreateResourceState(mutation.id);
-			if (!state.initialized && !mutation.optional) {
-				this._diagnostics.push({
-					severity: "error",
-					nodeId: node.id,
-					resource: mutation.id,
-					code: "destroy-before-create",
-					message:
-						`Frame graph node "${node.id}" destroys inactive ` +
-						`resource "${mutation.id}".`,
-				});
-			}
-			state.initialized = false;
-			state.lastNodeId = node.id;
-			state.lastAccess = "destroy";
-			state.lastUsage = mutation.usage ?? state.lastUsage;
-		}
+	public getGraphAnalysis(): RenderGraphTrackerDebugState {
+		return this._tracker.getDebugState();
 	}
+}
 
-	private _recordRead(
-		node: WebGPUFrameGraphNode,
-		read: WebGPUFrameGraphResourceRef
-	): void {
-		const state = this._getOrCreateResourceState(read.id);
-		if (!state.initialized) {
-			if (!read.optional) {
-				this._diagnostics.push({
-					severity: "error",
-					nodeId: node.id,
-					resource: read.id,
-					code: "read-before-create",
-					message:
-						`Frame graph node "${node.id}" reads inactive resource ` +
-						`"${read.id}".`,
-				});
-			} else {
-				return;
-			}
-		}
-		this._recordUsageTransition(node, state, read.usage, "read");
-		state.lastNodeId = node.id;
-		state.lastAccess = "read";
-		state.lastUsage = read.usage;
-	}
+function toImportedDescriptor(
+	id: WebGPUFrameGraphResourceId,
+): RenderGraphResourceDescriptor {
+	return {
+		id,
+		origin: "imported",
+		kind: "external",
+		residency: "frame",
+		initialContent: "unknown",
+	};
+}
 
-	private _recordWrite(
-		node: WebGPUFrameGraphNode,
-		write: WebGPUFrameGraphResourceRef
-	): void {
-		const state = this._getOrCreateResourceState(write.id);
-		this._recordUsageTransition(node, state, write.usage, "write");
-		state.initialized = true;
-		state.lastNodeId = node.id;
-		state.lastAccess = "write";
-		state.lastUsage = write.usage;
-	}
+function toSharedNode(node: WebGPUFrameGraphNode): SharedWebGPUNode {
+	return {
+		id: node.id,
+		stage: node.stage,
+		kind: node.kind,
+		label: node.label,
+		creates: node.creates?.map((mutation) => ({
+			resource: mutation.id,
+			usage: mutation.usage ? toSharedUsage(mutation.usage) : undefined,
+			optional: mutation.optional,
+		})),
+		resources: [
+			...(node.reads ?? []).map((ref) => ({
+				resource: ref.id,
+				access: "read" as const,
+				usage: toSharedUsage(ref.usage),
+				optional: ref.optional,
+			})),
+			...(node.writes ?? []).map((ref) => ({
+				resource: ref.id,
+				access: "write" as const,
+				usage: toSharedUsage(ref.usage),
+				optional: ref.optional,
+			})),
+		],
+		destroys: node.destroys?.map((mutation) => ({
+			resource: mutation.id,
+			usage: mutation.usage ? toSharedUsage(mutation.usage) : undefined,
+			optional: mutation.optional,
+		})),
+		payload: node,
+	};
+}
 
-	private _recordUsageTransition(
-		node: WebGPUFrameGraphNode,
-		state: WebGPUFrameGraphResourceState,
-		nextUsage: WebGPUFrameGraphResourceUsage,
-		nextAccess: "read" | "write"
-	): void {
-		if (!state.lastUsage || !state.lastAccess || state.lastAccess === "create") {
-			return;
-		}
-		if (state.lastUsage === nextUsage && state.lastAccess === nextAccess) {
-			return;
-		}
-		this._barriers.push({
-			resource: state.id,
-			beforeNodeId: state.lastNodeId,
-			nodeId: node.id,
-			fromUsage: state.lastUsage,
-			toUsage: nextUsage,
-			reason: this._resolveBarrierReason(state.lastAccess, nextAccess),
-		});
+function toSharedUsage(usage: WebGPUFrameGraphResourceUsage): RenderGraphUsage {
+	switch (usage) {
+		case "render-attachment":
+			return "color-attachment";
+		case "texture-binding":
+			return "sampled";
+		case "storage-binding":
+			return "storage";
+		case "copy-src":
+			return "copy-source";
+		case "copy-dst":
+			return "copy-target";
+		case "present":
+			return "present";
+		case "depth-attachment":
+			return "depth-attachment";
+		case "external":
+			return "sampled";
 	}
+}
 
-	private _resolveBarrierReason(
-		lastAccess: WebGPUFrameGraphResourceState["lastAccess"],
-		nextAccess: "read" | "write"
-	): WebGPUFrameGraphBarrier["reason"] {
-		if (lastAccess === "write" && nextAccess === "read") {
-			return "read-after-write";
-		}
-		if (lastAccess === "read" && nextAccess === "write") {
-			return "write-after-read";
-		}
-		if (lastAccess === "write" && nextAccess === "write") {
-			return "write-after-write";
-		}
-		return "usage-transition";
+function toWebGPUUsage(usage: RenderGraphUsage): WebGPUFrameGraphResourceUsage {
+	switch (usage) {
+		case "color-attachment":
+			return "render-attachment";
+		case "sampled":
+			return "texture-binding";
+		case "storage":
+			return "storage-binding";
+		case "copy-source":
+			return "copy-src";
+		case "copy-target":
+			return "copy-dst";
+		case "present":
+			return "present";
+		case "depth-attachment":
+			return "depth-attachment";
+		default:
+			return "external";
 	}
+}
 
-	private _getOrCreateResourceState(
-		id: WebGPUFrameGraphResourceId
-	): WebGPUFrameGraphResourceState {
-		let state = this._resources.get(id);
-		if (!state) {
-			state = {
-				id,
-				initialized: false,
-				lastNodeId: null,
-				lastAccess: null,
-				lastUsage: null,
-			};
-			this._resources.set(id, state);
-		}
-		return state;
+function toWebGPUBarrier(
+	transition: RenderGraphTransition,
+): WebGPUFrameGraphBarrier {
+	return {
+		resource: transition.resourceId as WebGPUFrameGraphResourceId,
+		beforeNodeId: transition.fromNodeId ?? null,
+		nodeId: transition.nodeId,
+		fromUsage:
+			transition.previousUsage ? toWebGPUUsage(transition.previousUsage) : null,
+		toUsage: toWebGPUUsage(transition.usage),
+		reason: transition.reason ?? "usage-transition",
+	};
+}
+
+function toWebGPUDiagnostic(
+	diagnostic: RenderGraphDiagnostic,
+): WebGPUFrameGraphDiagnostic | null {
+	if (
+		diagnostic.code !== "read-before-create" &&
+		diagnostic.code !== "destroy-before-create" &&
+		diagnostic.code !== "duplicate-create"
+	) {
+		return null;
 	}
+	return {
+		severity: diagnostic.severity,
+		nodeId: diagnostic.nodeId ?? "unknown",
+		resource: (diagnostic.resourceId ?? "unknown") as WebGPUFrameGraphResourceId,
+		code: diagnostic.code,
+		message:
+			diagnostic.code === "duplicate-create" ?
+				`Frame graph node "${diagnostic.nodeId}" creates already active ` +
+				`resource "${diagnostic.resourceId}".`
+				: diagnostic.message.replace("Render graph node", "Frame graph node"),
+	};
+}
+
+function toLegacyAccess(
+	access: "create" | "read" | "write" | "read-write" | "destroy" | null,
+): "create" | "read" | "write" | "destroy" | null {
+	return access === "read-write" ? "write" : access;
 }
