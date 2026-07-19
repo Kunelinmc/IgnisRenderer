@@ -1,6 +1,6 @@
 import type { IRenderBackend } from "../IRenderBackend";
 import type { DrawPacket, FrameContext } from "../../pipeline/types";
-import type { SoftwareBackendOptions } from "./types";
+import type { SoftwareBackendOptions } from "./SoftwareBackend";
 import { Rasterizer } from "./Rasterizer";
 import { SoftwarePostProcessExecutor } from "./SoftwarePostProcessExecutor";
 import { BackendPostProcessRuntime } from "../../postprocess/BackendPostProcessRuntime";

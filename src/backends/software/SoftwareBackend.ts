@@ -41,7 +41,6 @@ import {
 	SOFTWARE_TAA_RENDER_STATE_KEY,
 	type TAAOptions,
 } from "../../postprocess/passes/TemporalAntiAliasingPass";
-import type { SoftwareBackendOptions } from "./types";
 import {
 	assertShaderDirectiveProfileRegistryComplete,
 	DEFAULT_SHADER_DIRECTIVE_PROFILE_REGISTRY,
@@ -51,9 +50,9 @@ import {
 	createRenderBackendExtensionRegistry,
 } from "../BackendExtensions";
 
-export type {
-	SoftwareBackendOptions,
-} from "./types";
+export interface SoftwareBackendOptions {
+	enableEarlyZPrepass?: boolean;
+}
 
 type SoftwarePassHandler = (
 	context: FrameContext

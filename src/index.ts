@@ -76,10 +76,10 @@ export {
 } from "./backends/BackendExtensions";
 export { EventEmitter } from "./core/EventEmitter";
 export * from "./workers";
-export { SoftwareBackend } from "./backends/software/SoftwareBackend";
-export type {
-	SoftwareBackendOptions,
-} from "./backends/software/types";
+export {
+	SoftwareBackend,
+	type SoftwareBackendOptions,
+} from "./backends/software/SoftwareBackend";
 export { WebGPUBackend } from "./backends/webgpu/WebGPUBackend";
 export { WebGLBackend } from "./backends/webgl/WebGLBackend";
 export {
