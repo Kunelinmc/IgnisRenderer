@@ -3,6 +3,7 @@ import type {
 	RenderGraphDiagnostic,
 	RenderGraphNode,
 	RenderGraphResourceDescriptor,
+	RenderGraphResourceRef,
 	RenderGraphTrackerDebugState,
 	RenderGraphTransition,
 	RenderGraphUsage,
@@ -55,12 +56,15 @@ export class WebGPUFrameGraphCompiler {
 		if (plan.pass.stage === "postprocess") {
 			this._tracker.markCompleteness("coarse");
 		}
-		const barriers = analyzed.transitions
-			.filter((transition) => transition.reason !== undefined)
-			.map(toWebGPUBarrier);
-		const diagnostics = analyzed.diagnostics
-			.map(toWebGPUDiagnostic)
-			.filter((diagnostic): diagnostic is WebGPUFrameGraphDiagnostic => !!diagnostic);
+		const barriers: WebGPUFrameGraphBarrier[] = [];
+		for (const transition of analyzed.transitions) {
+			if (transition.reason !== undefined) barriers.push(toWebGPUBarrier(transition));
+		}
+		const diagnostics: WebGPUFrameGraphDiagnostic[] = [];
+		for (const diagnostic of analyzed.diagnostics) {
+			const projected = toWebGPUDiagnostic(diagnostic);
+			if (projected) diagnostics.push(projected);
+		}
 		this._barriers.push(...barriers);
 		this._diagnostics.push(...diagnostics);
 		const compiled: WebGPUCompiledFrameGraphStage = {
@@ -132,6 +136,23 @@ function toImportedDescriptor(
 }
 
 function toSharedNode(node: WebGPUFrameGraphNode): SharedWebGPUNode {
+	const resources: RenderGraphResourceRef[] = [];
+	for (const ref of node.reads ?? []) {
+		resources.push({
+			resource: ref.id,
+			access: "read",
+			usage: toSharedUsage(ref.usage),
+			optional: ref.optional,
+		});
+	}
+	for (const ref of node.writes ?? []) {
+		resources.push({
+			resource: ref.id,
+			access: "write",
+			usage: toSharedUsage(ref.usage),
+			optional: ref.optional,
+		});
+	}
 	return {
 		id: node.id,
 		stage: node.stage,
@@ -142,20 +163,7 @@ function toSharedNode(node: WebGPUFrameGraphNode): SharedWebGPUNode {
 			usage: mutation.usage ? toSharedUsage(mutation.usage) : undefined,
 			optional: mutation.optional,
 		})),
-		resources: [
-			...(node.reads ?? []).map((ref) => ({
-				resource: ref.id,
-				access: "read" as const,
-				usage: toSharedUsage(ref.usage),
-				optional: ref.optional,
-			})),
-			...(node.writes ?? []).map((ref) => ({
-				resource: ref.id,
-				access: "write" as const,
-				usage: toSharedUsage(ref.usage),
-				optional: ref.optional,
-			})),
-		],
+		resources,
 		destroys: node.destroys?.map((mutation) => ({
 			resource: mutation.id,
 			usage: mutation.usage ? toSharedUsage(mutation.usage) : undefined,

@@ -3,6 +3,7 @@ import type {
 	RenderGraphDiagnostic,
 	RenderGraphNode,
 	RenderGraphResourceDescriptor,
+	RenderGraphResourceRef,
 	RenderGraphTrackerDebugState,
 	RenderGraphTransition,
 	RenderGraphUsage,
@@ -71,12 +72,15 @@ export class WebGLFrameGraphCompiler {
 		if (plan.pass.stage === "postprocess") {
 			this._tracker.markCompleteness("coarse");
 		}
-		const barriers = analyzed.transitions
-			.filter((transition) => transition.reason !== undefined)
-			.map(toWebGLBarrier);
-		const diagnostics = analyzed.diagnostics
-			.map(toWebGLDiagnostic)
-			.filter((diagnostic): diagnostic is WebGLFrameGraphDiagnostic => !!diagnostic);
+		const barriers: WebGLFrameGraphBarrier[] = [];
+		for (const transition of analyzed.transitions) {
+			if (transition.reason !== undefined) barriers.push(toWebGLBarrier(transition));
+		}
+		const diagnostics: WebGLFrameGraphDiagnostic[] = [];
+		for (const diagnostic of analyzed.diagnostics) {
+			const projected = toWebGLDiagnostic(diagnostic);
+			if (projected) diagnostics.push(projected);
+		}
 		this._barriers.push(...barriers);
 		this._diagnostics.push(...diagnostics);
 		const compiled: WebGLCompiledFrameGraphStage = {
@@ -144,28 +148,12 @@ function createWebGLValidationRule(): RenderGraphValidationRule<
 			const source = node.payload;
 			if (!source) return [];
 			const diagnostics: RenderGraphDiagnostic[] = [];
-			for (const ref of [...(source.reads ?? []), ...(source.writes ?? [])]) {
-				if (SUPPORTED_WEBGL_RESOURCE_USAGES.has(ref.usage)) continue;
-				diagnostics.push({
-					phase: "lower",
-					enforcement: "enforced",
-					severity: "error",
-					code: "unsupported-node-resource",
-					backend: "webgl",
-					stage: source.stage,
-					nodeId: source.id,
-					resourceId: ref.id,
-					message:
-						`WebGL frame graph node "${source.id}" references ` +
-						`unsupported usage "${String(ref.usage)}" for resource ` +
-						`"${ref.id}".`,
-				});
+			appendUnsupportedUsageDiagnostics(source, source.reads, diagnostics);
+			appendUnsupportedUsageDiagnostics(source, source.writes, diagnostics);
+			const sampled = new Set<string>();
+			for (const read of source.reads ?? []) {
+				if (read.usage === "texture-sampling") sampled.add(read.id);
 			}
-			const sampled = new Set(
-				(source.reads ?? [])
-					.filter((read) => read.usage === "texture-sampling")
-					.map((read) => read.id),
-			);
 			for (const write of source.writes ?? []) {
 				if (
 					!sampled.has(write.id) ||
@@ -193,6 +181,30 @@ function createWebGLValidationRule(): RenderGraphValidationRule<
 	};
 }
 
+function appendUnsupportedUsageDiagnostics(
+	node: WebGLFrameGraphNode,
+	refs: WebGLFrameGraphNode["reads"] | WebGLFrameGraphNode["writes"],
+	diagnostics: RenderGraphDiagnostic[],
+): void {
+	for (const ref of refs ?? []) {
+		if (SUPPORTED_WEBGL_RESOURCE_USAGES.has(ref.usage)) continue;
+		diagnostics.push({
+			phase: "lower",
+			enforcement: "enforced",
+			severity: "error",
+			code: "unsupported-node-resource",
+			backend: "webgl",
+			stage: node.stage,
+			nodeId: node.id,
+			resourceId: ref.id,
+			message:
+				`WebGL frame graph node "${node.id}" references ` +
+				`unsupported usage "${String(ref.usage)}" for resource ` +
+				`"${ref.id}".`,
+		});
+	}
+}
+
 function toImportedDescriptor(id: string): RenderGraphResourceDescriptor {
 	return {
 		id,
@@ -204,6 +216,23 @@ function toImportedDescriptor(id: string): RenderGraphResourceDescriptor {
 }
 
 function toSharedNode(node: WebGLFrameGraphNode): SharedWebGLNode {
+	const resources: RenderGraphResourceRef[] = [];
+	for (const ref of node.reads ?? []) {
+		resources.push({
+			resource: ref.id,
+			access: "read",
+			usage: toSharedUsage(ref.usage),
+			optional: ref.optional,
+		});
+	}
+	for (const ref of node.writes ?? []) {
+		resources.push({
+			resource: ref.id,
+			access: "write",
+			usage: toSharedUsage(ref.usage),
+			optional: ref.optional,
+		});
+	}
 	return {
 		id: node.id,
 		stage: node.stage,
@@ -218,20 +247,7 @@ function toSharedNode(node: WebGLFrameGraphNode): SharedWebGLNode {
 			usage: mutation.usage ? toSharedUsage(mutation.usage) : undefined,
 			optional: mutation.optional,
 		})),
-		resources: [
-			...(node.reads ?? []).map((ref) => ({
-				resource: ref.id,
-				access: "read" as const,
-				usage: toSharedUsage(ref.usage),
-				optional: ref.optional,
-			})),
-			...(node.writes ?? []).map((ref) => ({
-				resource: ref.id,
-				access: "write" as const,
-				usage: toSharedUsage(ref.usage),
-				optional: ref.optional,
-			})),
-		],
+		resources,
 		destroys: node.destroys?.map((mutation) => ({
 			resource: mutation.id,
 			usage: mutation.usage ? toSharedUsage(mutation.usage) : undefined,
