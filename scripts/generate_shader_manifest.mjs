@@ -68,7 +68,8 @@ async function main() {
 	const syncEntries = [];
 	for (const shaderPath of paths) {
 		const fullPath = path.join(shaderRoot, shaderPath.slice(2));
-		const source = await readFile(fullPath, "utf8");
+		let source = await readFile(fullPath, "utf8");
+		source = source.replace(/\r\n/g, "\n");
 		entries.push(
 			`\t${serializeString(shaderPath)}: ${serializeString(source)},`
 		);

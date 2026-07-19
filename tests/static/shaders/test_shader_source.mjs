@@ -585,11 +585,12 @@ async function testEmbeddedManifestMatchesShaderFiles() {
 
 	assert.deepEqual(manifestPaths, shaderPaths);
 	for (const shaderPath of shaderPaths) {
-		const expected = await readFile(
+		const content = await readFile(
 			path.join(SHADER_ROOT, shaderPath.slice(2)),
 			"utf8"
 		);
-		assert.equal(embeddedShaderSources[shaderPath], expected);
+		const normalized = content.replace(/\r\n/g, "\n");
+		assert.equal(embeddedShaderSources[shaderPath], normalized);
 	}
 }
 
