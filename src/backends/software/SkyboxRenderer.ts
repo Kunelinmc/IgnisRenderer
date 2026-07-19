@@ -1,6 +1,6 @@
-import type { Camera } from "../../cameras/Camera";
 import { CameraType } from "../../cameras/Camera";
 import type { Texture } from "../../core/Texture";
+import type { Matrix4 } from "../../maths/Matrix4";
 import { sRGBToLinear } from "../../maths/Common";
 
 export interface SkyboxRenderOptions {
@@ -13,12 +13,20 @@ export interface SkyboxRenderOptions {
 	exposure: number;
 }
 
+/** @internal Minimal camera view required for software skybox projection. */
+export interface SoftwareSkyboxCamera {
+	readonly type: CameraType;
+	readonly fov: number;
+	readonly aspectRatio: number;
+	readonly viewMatrix: Matrix4;
+}
+
 export class SkyboxRenderer {
 	public static render(
 		environmentBackgroundTexture: Texture,
 		options: SkyboxRenderOptions,
 		pixels: Uint8ClampedArray,
-		camera: Camera,
+		camera: SoftwareSkyboxCamera,
 		width: number,
 		height: number
 	): void {

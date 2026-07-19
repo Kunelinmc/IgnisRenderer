@@ -16,7 +16,7 @@ import {
 	SoftwareTriangleInterpolator,
 	type SoftwareFragmentSpan,
 } from "./Interpolator";
-import { Projector } from "./Projector";
+import { Projector, type SoftwareProjectionView } from "./Projector";
 import type { Rasterizer, RasterizerContext } from "./Rasterizer";
 import { CoreConstants, RenderConstants } from "./constants";
 import {
@@ -367,6 +367,44 @@ export class SoftwarePlanarReflectionRuntime {
 	): void {
 		const pixels = buffer.imageData.data;
 		const environment = resolvePreparedSceneEnvironment(context.scene);
+		const sourceCamera = context.viewCamera;
+		const originalCameraPosition = sourceCamera.getWorldPosition();
+		const reflectMat = Matrix4.reflection(plane);
+		const mirroredPosition = Matrix4.transformPoint(reflectMat, originalCameraPosition);
+		const mirrorViewMatrix = Matrix4.multiply(sourceCamera.viewMatrix, reflectMat);
+		const mirrorProjMatrix = sourceCamera.projectionMatrix.clone();
+		const isCameraAbove =
+			plane.normal.x * originalCameraPosition.x +
+				plane.normal.y * originalCameraPosition.y +
+				plane.normal.z * originalCameraPosition.z +
+				plane.constant >
+			0;
+		const clipPlaneNormal = Matrix4.transformDirection(mirrorViewMatrix, plane.normal);
+		let clipPlaneConstant = plane.distanceToPoint(mirroredPosition);
+		if (!isCameraAbove) {
+			clipPlaneNormal.x *= -1;
+			clipPlaneNormal.y *= -1;
+			clipPlaneNormal.z *= -1;
+			clipPlaneConstant *= -1;
+		}
+		mirrorProjMatrix.applyObliqueClipping({
+			normal: clipPlaneNormal,
+			constant: clipPlaneConstant,
+		});
+		const projectionView: SoftwareProjectionView = {
+			camera: {
+				type: sourceCamera.type,
+				near: sourceCamera.near,
+				position: mirroredPosition,
+				viewMatrix: mirrorViewMatrix,
+				projectionMatrix: mirrorProjMatrix,
+				viewProjectionMatrix: Matrix4.multiply(mirrorProjMatrix, mirrorViewMatrix),
+			},
+			width: buffer.width,
+			height: buffer.height,
+			temporalState: null,
+			trackTemporalHistory: false,
+		};
 
 		if (
 			context.features.enableEnvironment &&
@@ -381,7 +419,12 @@ export class SoftwarePlanarReflectionRuntime {
 					exposure: environment.backgroundExposure,
 				},
 				pixels,
-				context.viewCamera,
+				{
+					type: sourceCamera.type,
+					fov: sourceCamera.fov,
+					aspectRatio: sourceCamera.aspectRatio,
+					viewMatrix: mirrorViewMatrix,
+				},
 				buffer.width,
 				buffer.height
 			);
@@ -392,57 +435,7 @@ export class SoftwarePlanarReflectionRuntime {
 			}
 		}
 
-		const camera = context.viewCamera;
-		const originalViewMatrix = camera.viewMatrix;
-		const originalProjectionMatrix = camera.projectionMatrix;
-		const originalViewProjMatrix = camera.viewProjectionMatrix;
-		const originalCameraPosition = {
-			...camera.getWorldPosition(),
-		};
-
-		const reflectMat = Matrix4.reflection(plane);
-		const mirroredPosition = Matrix4.transformPoint(
-			reflectMat,
-			originalCameraPosition
-		);
-
-		const mirrorViewMatrix = Matrix4.multiply(originalViewMatrix, reflectMat);
-		camera.viewMatrix = mirrorViewMatrix;
-
-		const mirrorProjMatrix = originalProjectionMatrix.clone();
-		const isCameraAbove =
-			plane.normal.x * originalCameraPosition.x +
-				plane.normal.y * originalCameraPosition.y +
-				plane.normal.z * originalCameraPosition.z +
-				plane.constant >
-			0;
-
-		const clipPlaneNormal = Matrix4.transformDirection(
-			mirrorViewMatrix,
-			plane.normal
-		);
-		let clipPlaneConstant = plane.distanceToPoint(mirroredPosition);
-
-		if (!isCameraAbove) {
-			clipPlaneNormal.x *= -1;
-			clipPlaneNormal.y *= -1;
-			clipPlaneNormal.z *= -1;
-			clipPlaneConstant *= -1;
-		}
-
-		mirrorProjMatrix.applyObliqueClipping({
-			normal: clipPlaneNormal,
-			constant: clipPlaneConstant,
-		});
-
-		camera.projectionMatrix = mirrorProjMatrix;
-		camera.viewProjectionMatrix = Matrix4.multiply(
-			mirrorProjMatrix,
-			mirrorViewMatrix
-		);
-		camera.position.copy(mirroredPosition);
-
-		try {
+		{
 			const bufferSize = buffer.width * buffer.height;
 			if (!this._depthBuffer || this._depthBuffer.length !== bufferSize) {
 				this._depthBuffer = new Float32Array(bufferSize);
@@ -458,7 +451,13 @@ export class SoftwarePlanarReflectionRuntime {
 			);
 
 			for (const packet of packets) {
-				const faces = Projector.projectPacket(packet, context, true, buffer);
+				const faces = Projector.projectPacket(
+					packet,
+					context,
+					true,
+					buffer,
+					projectionView,
+				);
 
 				for (const face of faces) {
 					if (
@@ -508,6 +507,7 @@ export class SoftwarePlanarReflectionRuntime {
 						depthBuffer,
 						buffer,
 						context,
+						projectionView,
 						false
 					);
 				}
@@ -525,15 +525,11 @@ export class SoftwarePlanarReflectionRuntime {
 						depthBuffer,
 						buffer,
 						context,
+						projectionView,
 						true
 					);
 				}
 			}
-		} finally {
-			camera.viewMatrix = originalViewMatrix;
-			camera.projectionMatrix = originalProjectionMatrix;
-			camera.viewProjectionMatrix = originalViewProjMatrix;
-			camera.position.copy(originalCameraPosition);
 		}
 	}
 
@@ -544,13 +540,20 @@ export class SoftwarePlanarReflectionRuntime {
 		depthBuffer: Float32Array,
 		overrideSize: { width: number; height: number },
 		context: FrameContext,
+		projectionView: SoftwareProjectionView,
 		isTransparent: boolean
 	): void {
 		const runtimeMap = getSoftwareShadowRuntimeMap(context.transient);
+		const reflectionCamera = projectionView.camera;
 		const sampleShadow = createSoftwareShadowSampler(
 			context.shadowMaps,
 			runtimeMap,
-			{ camera: context.viewCamera }
+			{
+				camera: {
+					position: reflectionCamera.position,
+					viewMatrix: reflectionCamera.viewMatrix,
+				},
+			}
 		);
 		const environment = resolvePreparedSceneEnvironment(context.scene);
 
@@ -559,8 +562,8 @@ export class SoftwarePlanarReflectionRuntime {
 			height: overrideSize.height,
 			depthBuffer,
 			camera: {
-				position: context.viewCamera.getWorldPosition(),
-				viewMatrix: context.viewCamera.viewMatrix,
+				position: reflectionCamera.position || context.viewCamera.getWorldPosition(),
+				viewMatrix: reflectionCamera.viewMatrix,
 			},
 			lights: context.scene.lights,
 			shadowMaps: context.shadowMaps,

@@ -429,8 +429,22 @@ async function testReflectionPassCompositeAfterMainPass() {
 
 function testReflectionCaptureDisablesRecursiveComposite() {
 	const drawContexts = [];
+	let camera;
+	let cameraSnapshot;
 	const fakeRasterizer = {
 		drawTriangle(_pts, _face, _pixels, context) {
+			assert.equal(camera.viewMatrix, cameraSnapshot.viewMatrix);
+			assert.equal(camera.projectionMatrix, cameraSnapshot.projectionMatrix);
+			assert.equal(camera.viewProjectionMatrix, cameraSnapshot.viewProjectionMatrix);
+			assert.deepEqual(
+				[camera.position.x, camera.position.y, camera.position.z],
+				cameraSnapshot.position
+			);
+			assert.deepEqual(camera.viewMatrix.elements, cameraSnapshot.viewMatrixElements);
+			assert.deepEqual(
+				camera.projectionMatrix.elements,
+				cameraSnapshot.projectionMatrixElements
+			);
 			drawContexts.push(context);
 		},
 	};
@@ -445,8 +459,17 @@ function testReflectionCaptureDisablesRecursiveComposite() {
 		{ r: 40, g: 80, b: 120 },
 		{ zOffset: 1 }
 	);
+	camera = createCamera();
+	cameraSnapshot = {
+		viewMatrix: camera.viewMatrix,
+		projectionMatrix: camera.projectionMatrix,
+		viewProjectionMatrix: camera.viewProjectionMatrix,
+		position: [camera.position.x, camera.position.y, camera.position.z],
+		viewMatrixElements: camera.viewMatrix.elements.map((row) => [...row]),
+		projectionMatrixElements: camera.projectionMatrix.elements.map((row) => [...row]),
+	};
 	const context = createContext(
-		createCamera(),
+		camera,
 		{
 			opaquePackets: [mirrorPacket, reflectedPacket],
 			reflectivePackets: [mirrorPacket],
@@ -464,7 +487,16 @@ function testReflectionCaptureDisablesRecursiveComposite() {
 	for (const drawContext of drawContexts) {
 		assert.equal("enableReflection" in drawContext, false);
 		assert.equal("planarReflectionComposite" in drawContext, false);
+		assert.equal(drawContext.camera.position.z, -4);
+		assert.notStrictEqual(drawContext.camera.viewMatrix, camera.viewMatrix);
 	}
+	assert.equal(camera.viewMatrix, cameraSnapshot.viewMatrix);
+	assert.equal(camera.projectionMatrix, cameraSnapshot.projectionMatrix);
+	assert.equal(camera.viewProjectionMatrix, cameraSnapshot.viewProjectionMatrix);
+	assert.deepEqual(
+		[camera.position.x, camera.position.y, camera.position.z],
+		cameraSnapshot.position
+	);
 }
 
 function testRasterizerDoesNotReferencePlanarReflection() {

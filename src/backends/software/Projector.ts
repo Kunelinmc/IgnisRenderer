@@ -14,6 +14,7 @@ import { GeometryBuilder } from "../../meshes/GeometryBuilder";
 import { ANIMATION_SOFTWARE_DEFORMED_GEOMETRY_KEY } from "../../simulation/animation/types";
 import {
 	SOFTWARE_TAA_RENDER_STATE_KEY,
+	type SoftwareTAARenderState,
 } from "../../postprocess/passes/TemporalAntiAliasingPass";
 
 interface ClippedVertexPair {
@@ -22,21 +23,47 @@ interface ClippedVertexPair {
 	previousWorld?: IVertex;
 }
 
+/** @internal Immutable camera data consumed by software projection. */
+export interface SoftwareProjectionCamera {
+	type: CameraType;
+	near: number;
+	position?: { x: number; y: number; z: number };
+	viewMatrix: Matrix4;
+	projectionMatrix: Matrix4;
+	viewProjectionMatrix: Matrix4;
+}
+
+/** @internal Optional projection override used by Software secondary views. */
+export interface SoftwareProjectionView {
+	readonly camera: SoftwareProjectionCamera;
+	readonly width: number;
+	readonly height: number;
+	readonly temporalState?: SoftwareTAARenderState | null;
+	readonly trackTemporalHistory?: boolean;
+}
+
 export class Projector {
 	public static projectPacket(
 		packet: DrawPacket,
 		context: FrameContext,
 		flipCulling: boolean = false,
-		overrideSize?: { width: number; height: number }
+		overrideSize?: { width: number; height: number },
+		projectionView?: SoftwareProjectionView,
 	): ProjectedFace[] {
-		const targetWidth = overrideSize?.width ?? context.attachments.width;
-		const targetHeight = overrideSize?.height ?? context.attachments.height;
-		const projectionMatrix = context.viewCamera.projectionMatrix;
-		const viewMatrix = context.viewCamera.viewMatrix;
-		const taaState = context.transient.get(SOFTWARE_TAA_RENDER_STATE_KEY);
+		const camera = projectionView?.camera ?? context.viewCamera;
+		const targetWidth = projectionView?.width ?? overrideSize?.width ?? context.attachments.width;
+		const targetHeight = projectionView?.height ?? overrideSize?.height ?? context.attachments.height;
+		const projectionMatrix = camera.projectionMatrix;
+		const viewMatrix = camera.viewMatrix;
+		const taaState = projectionView ?
+			(projectionView.temporalState ?? null)
+		: context.transient.get(SOFTWARE_TAA_RENDER_STATE_KEY);
+		const trackTemporalHistory = projectionView?.trackTemporalHistory !== false;
 		const previousWorldMatrix =
 			taaState?.previousWorldMatrices.get(packet.id) ?? packet.worldMatrix;
-		taaState?.currentWorldMatrices.set(packet.id, packet.worldMatrix.clone());
+		if (trackTemporalHistory) {
+			taaState?.currentWorldMatrices.set(packet.id, packet.worldMatrix.clone());
+		}
 		const projectedFaces: ProjectedFace[] = [];
 
 		for (const face of this.getPacketFacesWithContext(packet, context)) {
@@ -127,7 +154,7 @@ export class Projector {
 			const clippedVerts = clipFaceToNearPlane(
 				viewVerts,
 				worldVerts,
-				context,
+				camera.near,
 				previousWorldVerts
 			);
 			if (clippedVerts.length < 3) continue;
@@ -136,7 +163,7 @@ export class Projector {
 				clippedVerts.map((vertex) => vertex.view)
 			);
 			const v0 = clippedVerts[0].view;
-			const isOrthographic = context.viewCamera.type === CameraType.Orthographic;
+			const isOrthographic = camera.type === CameraType.Orthographic;
 			const dot =
 				isOrthographic ?
 					-cullNormal.z
@@ -354,10 +381,10 @@ export class Projector {
 function clipFaceToNearPlane(
 	viewVerts: IVertex[],
 	worldVerts: IVertex[],
-	context: FrameContext,
+	near: number,
 	previousWorldVerts?: IVertex[]
 ): ClippedVertexPair[] {
-	const nearZ = -context.viewCamera.near;
+	const nearZ = -near;
 	const clippedVerts: ClippedVertexPair[] = [];
 
 	for (let i = 0; i < viewVerts.length; i++) {
