@@ -72,9 +72,9 @@ The option `enableEarlyZPrepass?: boolean` is accepted by `SoftwareBackendOption
 ### Backend Configuration
 
 ```ts
-import { SoftwareBackend } from "../src/renderers/SoftwareBackend";
-import { WebGLBackend } from "../src/renderers/WebGLBackend";
-import { WebGPUBackend } from "../src/renderers/WebGPUBackend";
+import { SoftwareBackend } from "../src/backends/software/SoftwareBackend";
+import { WebGLBackend } from "../src/backends/webgl/WebGLBackend";
+import { WebGPUBackend } from "../src/backends/webgpu/WebGPUBackend";
 
 // SoftwareBackend setup
 const softwareBackend = new SoftwareBackend({

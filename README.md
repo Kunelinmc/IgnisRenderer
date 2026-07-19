@@ -39,7 +39,8 @@ The codebase is organized into modular directories, separating core abstractions
 ### `src/` - Source Code
 - **`core/`**: Fundamental abstractions including Scene Graph management (`Node`, `Scene`) and Resource types (`Texture`).
 - **`ecs/`**: The underlying Entity Component System managing high-performance data storage and entity state.
-- **`renderers/`**: Multi-backend implementations. Contains specialized logic for Software, WebGL, and WebGPU pipelines, organized into subdirectories for delegated execution.
+- **`rendering/`**: Application-facing renderer facade and frame coordination logic.
+- **`backends/`**: Shared backend contracts and Software, WebGL, and WebGPU implementations.
 - **`pipeline/`**: The execution frame graph, responsible for feature resolution, frame planning, and draw call preparation.
 - **`simulation/`**: Unified simulation layer for animation, physics, and particles.
 - **`foundation/`**: Core primitives (Color, IdGenerator, Logger, Platform) used engine-wide.

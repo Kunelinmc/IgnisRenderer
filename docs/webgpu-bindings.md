@@ -7,9 +7,9 @@ IgnisRenderer.
 
 The list covers:
 
-- Core render pipeline layouts in `src/renderers/webgpu/WebGPUPipelineLayouts.ts`.
+- Core render pipeline layouts in `src/backends/webgpu/WebGPUPipelineLayouts.ts`.
 - Frame, material, particle, clustered-lighting, G-buffer, shadow, present, and
-  OIT bindings under `src/renderers/webgpu/`, including
+  OIT bindings under `src/backends/webgpu/`, including
   `rendergraph/WebGPUFrameOrchestrator.ts` and `WebGPUShadowPass.ts`.
 - WGSL bindings under `src/shaders/webgpu/`, including
   `parts/definitions.wgsl`, `parts/fragmentGBuffer.wgsl`,
@@ -348,13 +348,13 @@ the kernel schema.
 Use this command to verify WGSL binding declarations:
 
 ```bash
-rg -n "@group\\([0-9]+\\) @binding\\([0-9]+\\)" src/renderers/webgpu src/shaders/webgpu -g "*.ts" -g "*.wgsl"
+rg -n "@group\\([0-9]+\\) @binding\\([0-9]+\\)" src/backends/webgpu src/shaders/webgpu -g "*.ts" -g "*.wgsl"
 ```
 
 Use this command to verify TypeScript bind group layout entries:
 
 ```bash
-rg -n "createBindGroupLayout|createBindingGroup|binding:" src/renderers/webgpu src/addons/SobelNormalMapper.ts src/lights/ibl/IBLPrefilter.ts src/simulation/particles/WebGPUParticleSimulator.ts -g "*.ts"
+rg -n "createBindGroupLayout|createBindingGroup|binding:" src/backends/webgpu src/addons/SobelNormalMapper.ts src/lights/ibl/IBLPrefilter.ts src/simulation/particles/WebGPUParticleSimulator.ts -g "*.ts"
 ```
 
 When adding a new binding, update the WGSL declaration, the TypeScript layout or

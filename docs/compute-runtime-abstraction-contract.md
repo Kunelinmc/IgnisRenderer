@@ -3,7 +3,7 @@
 ## Scope
 
 This document defines the abstract contracts `IComputeRuntime` and
-`IComputeKernel` in `src/renderers/IComputeRuntime.ts`.
+`IComputeKernel` in `src/backends/IComputeRuntime.ts`.
 Implementations must satisfy these contracts to support compute workflows.
 
 ## Background
@@ -48,9 +48,9 @@ on capabilities rather than backend-specific classes.
 ## Usage
 
 ```ts
-import type { IComputeRuntime } from "../src/renderers/IComputeRuntime";
-import { ComputeRuntime } from "../src/renderers/webgpu/ComputeRuntime";
-import type { WebGPUComputeFacadeSource } from "../src/renderers/webgpu/ComputeFacade";
+import type { IComputeRuntime } from "../src/backends/IComputeRuntime";
+import { ComputeRuntime } from "../src/backends/webgpu/ComputeRuntime";
+import type { WebGPUComputeFacadeSource } from "../src/backends/webgpu/ComputeFacade";
 
 function createRuntime(source: WebGPUComputeFacadeSource): IComputeRuntime {
 	return new ComputeRuntime(source);

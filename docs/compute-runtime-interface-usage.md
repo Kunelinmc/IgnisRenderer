@@ -60,7 +60,7 @@ import {
 	type IComputeRuntime,
 	type WebGPUBackend,
 } from "../src";
-import { WEBGPU_COMPUTE_EXTENSION } from "../src/renderers/BackendExtensions";
+import { WEBGPU_COMPUTE_EXTENSION } from "../src/backends/BackendExtensions";
 
 declare const backend: WebGPUBackend;
 

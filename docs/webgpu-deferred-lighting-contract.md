@@ -86,7 +86,7 @@ does not add a global renderer frame-pass stage and does not affect
 
 ## Usage
 ```ts
-import { WebGPUBackend } from "../src/renderers/WebGPUBackend";
+import { WebGPUBackend } from "../src/backends/webgpu/WebGPUBackend";
 
 const backend = new WebGPUBackend({
 	enableDeferredLighting: false,

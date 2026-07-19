@@ -3,7 +3,7 @@
 ## Scope
 
 This document defines the public contract for the WebGPU structured buffer
-packer exported from `src/renderers/webgpu/index.ts`.
+packer exported from `src/backends/webgpu/index.ts`.
 
 ## Background
 
@@ -55,13 +55,13 @@ import {
 	mat4x4f32,
 	structOf,
 	vec,
-} from "../src/renderers/webgpu/StructuredBufferLayout";
+} from "../src/backends/webgpu/StructuredBufferLayout";
 import {
 	arrayVec4,
 	createStructuredBufferPacker,
 	mat4,
 	vec4,
-} from "../src/renderers/webgpu";
+} from "../src/backends/webgpu";
 
 const layout = new StructuredBufferLayout(
 	structOf([

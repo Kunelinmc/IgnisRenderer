@@ -70,8 +70,8 @@ untrusted visibility information must keep objects visible.
 
 ## Usage
 ```ts
-import { Renderer } from "../src/renderers/Renderer";
-import { WebGPUBackend } from "../src/renderers/WebGPUBackend";
+import { Renderer } from "../src/rendering/Renderer";
+import { WebGPUBackend } from "../src/backends/webgpu/WebGPUBackend";
 
 const backend = new WebGPUBackend();
 const renderer = new Renderer(backend, canvas, camera);

@@ -22,7 +22,7 @@ backend is created and remains internal to the WebGPU runtime thereafter.
 
 ## Usage
 ```ts
-import { WebGPUBackend } from "../src/renderers/WebGPUBackend";
+import { WebGPUBackend } from "../src/backends/webgpu/WebGPUBackend";
 
 const backend = new WebGPUBackend({ msaaSampleCount: 1 });
 ```

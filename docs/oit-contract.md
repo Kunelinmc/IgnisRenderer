@@ -63,8 +63,8 @@ lighting has resolved into `sceneColorMain`.
 
 ## Usage
 ```ts
-import { Renderer } from "../src/renderers/Renderer";
-import { WebGLBackend } from "../src/renderers/WebGLBackend";
+import { Renderer } from "../src/rendering/Renderer";
+import { WebGLBackend } from "../src/backends/webgl/WebGLBackend";
 
 const backend = new WebGLBackend();
 const renderer = new Renderer(backend, canvas, camera);
