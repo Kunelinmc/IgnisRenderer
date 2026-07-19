@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { WebGLFrameGraphCompiler } from "../../../src/renderers/webgl/rendergraph/WebGLFrameGraphCompiler.ts";
+import { WebGLFrameGraphCompiler } from "../../../src/backends/webgl/rendergraph/WebGLFrameGraphCompiler.ts";
 
 function createPass(stage = "main-opaque") {
 	return {

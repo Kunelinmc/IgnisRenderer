@@ -1,6 +1,6 @@
 import { EventEmitter } from "../core/EventEmitter";
-import type { TextureReadbackResult } from "./IComputeRuntime";
-import type { ICommandEncoder } from "./ICommandEncoder";
+import type { TextureReadbackResult } from "../backends/IComputeRuntime";
+import type { ICommandEncoder } from "../backends/ICommandEncoder";
 import type {
 	BindingGroupDesc,
 	BufferDesc,
@@ -17,13 +17,13 @@ import type {
 	ShaderModuleDesc,
 	TextureDesc,
 	TextureFormat,
-} from "./types";
+} from "../backends/types";
 import type { FrameContext, FramePassStage } from "../pipeline/types";
 import type {
 	RenderPipelineStageIncrementalOptions,
 	RenderPipelineStagePredicate,
 } from "../pipeline/RenderPipelineRegistry";
-import type { RenderBackendType } from "./IRenderBackend";
+import type { RenderBackendType } from "../backends/IRenderBackend";
 
 export type RenderTargetSizeDescriptor =
 	| {

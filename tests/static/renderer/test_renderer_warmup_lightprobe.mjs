@@ -5,7 +5,7 @@ import { LightProbe } from "../../../src/lights/LightProbe.ts";
 import { ReflectionProbe } from "../../../src/lights/ReflectionProbe.ts";
 import { Matrix4 } from "../../../src/maths/Matrix4.ts";
 import { SH } from "../../../src/maths/SH.ts";
-import { Renderer } from "../../../src/renderers/Renderer.ts";
+import { Renderer } from "../../../src/rendering/Renderer.ts";
 import { buildWarmupPlan } from "../../../src/pipeline/WarmupPlanner.ts";
 import {
 	BloomPass,

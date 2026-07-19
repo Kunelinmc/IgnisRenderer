@@ -6,7 +6,7 @@ import {
 	structOf,
 	StructuredBufferLayout,
 	vec,
-} from "../../../src/renderers/webgpu/StructuredBufferLayout.ts";
+} from "../../../src/backends/webgpu/StructuredBufferLayout.ts";
 import {
 	WEBGPU_FRAME_CAMERA_UNIFORM_BYTE_SIZE,
 	WEBGPU_FRAME_ENVIRONMENT_UNIFORM_BYTE_SIZE,
@@ -18,7 +18,7 @@ import {
 	packFrameLightUniformData,
 	packFrameShadowUniformData,
 	packModelUniformData,
-} from "../../../src/renderers/webgpu/packing.ts";
+} from "../../../src/backends/webgpu/packing.ts";
 import {
 	MAX_AREA_LIGHTS,
 	MAX_DIRECTIONAL_LIGHTS,
@@ -26,17 +26,17 @@ import {
 	MAX_POINT_LIGHTS,
 	MAX_REFLECTION_PROBES,
 	MAX_SPOT_LIGHTS,
-} from "../../../src/renderers/constants.ts";
+} from "../../../src/backends/constants.ts";
 import {
 	WEBGPU_SH_COEFFICIENT_COUNT,
 	WEBGPU_TEXTURE_SLOT_COUNT,
-} from "../../../src/renderers/webgpu/constants.ts";
+} from "../../../src/backends/webgpu/constants.ts";
 import {
 	WEBGPU_FRAME_CAMERA_UNIFORM_LAYOUT,
 	WEBGPU_FRAME_ENVIRONMENT_UNIFORM_LAYOUT,
 	WEBGPU_FRAME_LIGHT_UNIFORM_LAYOUT,
 	WEBGPU_FRAME_SHADOW_UNIFORM_LAYOUT,
-} from "../../../src/renderers/webgpu/bufferLayouts.ts";
+} from "../../../src/backends/webgpu/bufferLayouts.ts";
 
 const VEC4_F32 = vec(4, "f32");
 const MAT4X4_F32 = mat4x4f32();

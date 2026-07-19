@@ -5,7 +5,7 @@ import type {
 } from "../pipeline/types";
 import type {
 	RenderTargetReadbackOptions,
-} from "./CustomRenderTargets";
+} from "../rendering/CustomRenderTargets";
 import type { TextureReadbackResult } from "./IComputeRuntime";
 import type { RenderDirtyReason } from "../pipeline/incremental";
 import type { IShadowBackendCapabilities } from "../lights/shadows";

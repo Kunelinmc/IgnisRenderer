@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import {
 	WEBGPU_FRAME_GRAPH_RESOURCES,
 	collectActiveWebGPUFrameGraphResources,
-} from "../../../src/renderers/webgpu/rendergraph/WebGPUFrameGraphResourceCatalog.ts";
+} from "../../../src/backends/webgpu/rendergraph/WebGPUFrameGraphResourceCatalog.ts";
 
 const resources = collectActiveWebGPUFrameGraphResources({
 	sceneColor: {},

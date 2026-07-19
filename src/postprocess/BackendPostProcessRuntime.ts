@@ -10,7 +10,7 @@ import {
 	PostProcessRenderGraphAdapter,
 	type PostProcessRenderGraphNodePayload,
 } from "./PostProcessRenderGraphAdapter";
-import type { IRenderBackend } from "../renderers/IRenderBackend";
+import type { IRenderBackend } from "../backends/IRenderBackend";
 import type {
 	IPostProcessExecutor,
 	LogicalGBufferBridge,

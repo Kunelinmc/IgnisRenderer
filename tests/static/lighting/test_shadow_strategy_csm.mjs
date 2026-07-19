@@ -11,8 +11,8 @@ import {
 } from "../../../src/lights/shadows/ShadowMapping.ts";
 import { updateShadowMapMetadata } from "../../../src/pipeline/ShadowMetadata.ts";
 import { selectCSMDirectionalLights } from "../../../src/pipeline/ShadowMetadata.ts";
-import { collectWebGPULighting } from "../../../src/renderers/webgpu/lights.ts";
-import { collectWebGLLights } from "../../../src/renderers/webgl/WebGLLightCollector.ts";
+import { collectWebGPULighting } from "../../../src/backends/webgpu/lights.ts";
+import { collectWebGLLights } from "../../../src/backends/webgl/WebGLLightCollector.ts";
 
 function createSceneBounds(radius = 80) {
 	return {

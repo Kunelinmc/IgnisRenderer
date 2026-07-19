@@ -1,10 +1,10 @@
 import type { FrameContext } from "../../pipeline/types";
 import type { IncrementalDirtyRect } from "../../pipeline/incremental";
-import type { ICommandEncoder } from "../../renderers/ICommandEncoder";
-import type { IRenderTexture } from "../../renderers/types";
-import type { WebGPUPostProcessFrameTargets } from "../../renderers/webgpu/WebGPUPostProcessContracts";
-import type { PostProcessSharedContext } from "../../renderers/webgpu/postprocess/PostProcessSharedContext";
-import type { WebGLProgramCompiler } from "../../renderers/webgl/WebGLProgramCompiler";
+import type { ICommandEncoder } from "../../backends/ICommandEncoder";
+import type { IRenderTexture } from "../../backends/types";
+import type { WebGPUPostProcessFrameTargets } from "../../backends/webgpu/WebGPUPostProcessContracts";
+import type { PostProcessSharedContext } from "../../backends/webgpu/postprocess/PostProcessSharedContext";
+import type { WebGLProgramCompiler } from "../../backends/webgl/WebGLProgramCompiler";
 export type { IncrementalDirtyRect } from "../../pipeline/incremental";
 
 export type EmptyOptions = Record<string, never>;

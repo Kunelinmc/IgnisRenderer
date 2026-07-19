@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 
-import { Renderer } from "../../../src/renderers/Renderer.ts";
-import { SoftwareBackend } from "../../../src/renderers/SoftwareBackend.ts";
-import { WebGLBackend } from "../../../src/renderers/WebGLBackend.ts";
-import { WebGPUBackend } from "../../../src/renderers/WebGPUBackend.ts";
-import { WEBGPU_COMPUTE_EXTENSION } from "../../../src/renderers/BackendExtensions.ts";
+import { Renderer } from "../../../src/rendering/Renderer.ts";
+import { SoftwareBackend } from "../../../src/backends/software/SoftwareBackend.ts";
+import { WebGLBackend } from "../../../src/backends/webgl/WebGLBackend.ts";
+import { WebGPUBackend } from "../../../src/backends/webgpu/WebGPUBackend.ts";
+import { WEBGPU_COMPUTE_EXTENSION } from "../../../src/backends/BackendExtensions.ts";
 
 function attachBackend(backend, canvas = {}, events = []) {
 	backend.attach({

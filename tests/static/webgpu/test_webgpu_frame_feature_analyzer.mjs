@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 
 import { PBRMaterial } from "../../../src/materials/PBRMaterial.ts";
-import { WebGPUFrameFeatureAnalyzer } from "../../../src/renderers/webgpu/rendergraph/WebGPUFrameFeatureAnalyzer.ts";
+import { WebGPUFrameFeatureAnalyzer } from "../../../src/backends/webgpu/rendergraph/WebGPUFrameFeatureAnalyzer.ts";
 import { createResolvedPostProcess } from "../../helpers/postprocess.mjs";
 
 function createContext() {

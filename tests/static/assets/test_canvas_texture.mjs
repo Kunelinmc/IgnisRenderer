@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import { CanvasTexture } from "../../../src/core/CanvasTexture.ts";
 import { Texture } from "../../../src/core/Texture.ts";
-import { WebGPUTextureRegistry } from "../../../src/renderers/webgpu/WebGPUTextureRegistry.ts";
-import { WEBGPU_TEXTURE_SLOT } from "../../../src/renderers/webgpu/constants.ts";
-import { TextureFormat, TextureUsage } from "../../../src/renderers/types.ts";
+import { WebGPUTextureRegistry } from "../../../src/backends/webgpu/WebGPUTextureRegistry.ts";
+import { WEBGPU_TEXTURE_SLOT } from "../../../src/backends/webgpu/constants.ts";
+import { TextureFormat, TextureUsage } from "../../../src/backends/types.ts";
 
 import { FakeCanvasContext2D, FakeWebGPUBackend, FakeCanvas } from "../../helpers/fakes.mjs";
 

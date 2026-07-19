@@ -5,7 +5,7 @@ import {
 	prefilterEnvironmentIBL,
 } from "../../../src/lights/ibl/IBLPrefilter.ts";
 import { sampleEnvironmentTextureSpecular } from "../../../src/lights/runtime/environmentMapRuntime.ts";
-import { TextureFormat } from "../../../src/renderers/types.ts";
+import { TextureFormat } from "../../../src/backends/types.ts";
 
 import { FakeWebGPUBackend } from "../../helpers/fakes.mjs";
 

@@ -32,13 +32,13 @@ import type {
 	WebGPUParticleRenderProvider,
 	WebGPUSceneResourceProvider,
 } from "./WebGPUResourceContracts";
-import type { WebGPUBackend } from "../WebGPUBackend";
+import type { WebGPUBackend } from "./WebGPUBackend";
 import { TextureFormat, TextureUsage } from "../types";
 import { submitWebGPUDraws } from "./WebGPUDrawSubmission";
 import {
 	CustomRenderPassRegistrySnapshot,
 	RenderTargetRegistrySnapshot,
-} from "../CustomRenderTargets";
+} from "../../rendering/CustomRenderTargets";
 
 const CAPTURE_CAMERA_NEAR = 0.1;
 const CUBE_FACE_DIRECTIONS: IVector3[] = [

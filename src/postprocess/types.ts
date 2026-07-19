@@ -2,7 +2,7 @@ import type {
 	FrameContext,
 } from "../pipeline/types";
 import type { RenderGraphAccess, RenderGraphUsage } from "../rendergraph/types";
-import type { RenderBackendType } from "../renderers/IRenderBackend";
+import type { RenderBackendType } from "../backends/IRenderBackend";
 import type {
 	PostProcessPass,
 	PostProcessPassRegistrySnapshot,
@@ -12,7 +12,7 @@ import type {
 import type { PostProcessPlacement } from "./ordering";
 
 /**
- * @deprecated Use `RenderBackendType` from `renderers/IRenderBackend`.
+ * @deprecated Use `RenderBackendType` from `backends/IRenderBackend`.
  */
 export type PostProcessBackendKind = RenderBackendType;
 

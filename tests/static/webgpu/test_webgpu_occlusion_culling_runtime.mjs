@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 
-import { WebGPUOcclusionCullingRuntime } from "../../../src/renderers/webgpu/WebGPUOcclusionCullingRuntime.ts";
+import { WebGPUOcclusionCullingRuntime } from "../../../src/backends/webgpu/WebGPUOcclusionCullingRuntime.ts";
 import { normalizeOcclusionCullingOptions } from "../../../src/pipeline/OcclusionCulling.ts";
 
 function createContext() {

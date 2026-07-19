@@ -7,13 +7,13 @@ import { resolveFeatureState } from "../../../src/pipeline/FeatureResolver.ts";
 import { CameraType } from "../../../src/cameras/Camera.ts";
 import {
 	WEBGPU_CLUSTER_GRID_PARAMS_LAYOUT,
-} from "../../../src/renderers/webgpu/bufferLayouts.ts";
+} from "../../../src/backends/webgpu/bufferLayouts.ts";
 import {
 	packClusteredIndexRef,
 	unpackClusteredIndexRef,
 	packClusterHeaderFlags,
 	WebGPUClusteredLightingRuntime,
-} from "../../../src/renderers/webgpu/WebGPUClusteredLightingRuntime.ts";
+} from "../../../src/backends/webgpu/WebGPUClusteredLightingRuntime.ts";
 import {
 	WEBGPU_CLUSTERED_HEADER_FLAG_HAS_SHADOWED,
 	WEBGPU_CLUSTERED_HEADER_FLAG_HAS_VOLUMETRIC,
@@ -30,7 +30,7 @@ import {
 	WEBGPU_CLUSTERED_METADATA_STRIDE_UINTS,
 	WEBGPU_CLUSTERED_PARAMS_FLOATS,
 	WEBGPU_CLUSTERED_VEC4_STRIDE_FLOATS,
-} from "../../../src/renderers/webgpu/constants.ts";
+} from "../../../src/backends/webgpu/constants.ts";
 import { ShaderSource } from "../../../src/shaders/ShaderSource.ts";
 
 function createCapabilities(clusteredLighting) {

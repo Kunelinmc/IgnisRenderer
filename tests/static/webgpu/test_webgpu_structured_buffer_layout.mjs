@@ -5,15 +5,15 @@ import {
 	structOf,
 	StructuredBufferLayout,
 	vec,
-} from "../../../src/renderers/webgpu/StructuredBufferLayout.ts";
+} from "../../../src/backends/webgpu/StructuredBufferLayout.ts";
 import {
 	WEBGPU_SCENE_VERTEX_FLOATS,
-} from "../../../src/renderers/webgpu/constants.ts";
+} from "../../../src/backends/webgpu/constants.ts";
 import {
 	WEBGPU_SCENE_VERTEX_LAYOUT,
 	createWebGPUSceneVertexBufferLayout,
 	createWebGPUShadowVertexBufferLayout,
-} from "../../../src/renderers/webgpu/bufferLayouts.ts";
+} from "../../../src/backends/webgpu/bufferLayouts.ts";
 
 function testVertexAddressSpaceUsesPackedVectorAlignment() {
 	const vertexLayout = new StructuredBufferLayout(

@@ -1,4 +1,4 @@
-import type { ICommandEncoder } from "../../renderers/ICommandEncoder";
+import type { ICommandEncoder } from "../../backends/ICommandEncoder";
 import {
 	BufferUsage,
 	TextureFormat,
@@ -7,22 +7,22 @@ import {
 	type IRenderBuffer,
 	type IRenderTexture,
 	type IShaderModule,
-} from "../../renderers/types";
+} from "../../backends/types";
 import {
 	WEBGPU_SCREEN_POST_PROCESS_CONTEXT_METADATA,
 	type WebGPUPostProcessFrameTargets,
-} from "../../renderers/webgpu/WebGPUPostProcessContracts";
+} from "../../backends/webgpu/WebGPUPostProcessContracts";
 import {
 	WEBGL_SCREEN_POST_PROCESS_CONTEXT_METADATA,
-} from "../../renderers/webgl/WebGLPostProcessContracts";
+} from "../../backends/webgl/WebGLPostProcessContracts";
 import {
 	WEBGPU_2D_COMPUTE_WORKGROUP_SIZE as WORKGROUP_SIZE,
-} from "../../renderers/webgpu/constants";
-import type { PostProcessSharedContext } from "../../renderers/webgpu/postprocess/PostProcessSharedContext";
+} from "../../backends/webgpu/constants";
+import type { PostProcessSharedContext } from "../../backends/webgpu/postprocess/PostProcessSharedContext";
 import type {
 	WebGLProgramCompiler,
 	WebGLProgramSlot,
-} from "../../renderers/webgl/WebGLProgramCompiler";
+} from "../../backends/webgl/WebGLProgramCompiler";
 import { clamp } from "../../maths/Common";
 import { ceilDiv, finiteOr } from "../../maths/Misc";
 import {

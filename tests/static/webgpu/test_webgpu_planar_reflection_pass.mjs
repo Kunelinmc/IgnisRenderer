@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import {
 	WEBGPU_PLANAR_REFLECTION_SIDE_EPSILON,
 	filterPlanarReflectionCapturePackets,
-} from "../../../src/renderers/webgpu/WebGPUPlanarReflectionPass.ts";
+} from "../../../src/backends/webgpu/WebGPUPlanarReflectionPass.ts";
 import { Plane } from "../../../src/maths/Plane.ts";
 
 function createPacket(id, centerY, radius, mirrorPlane = null) {

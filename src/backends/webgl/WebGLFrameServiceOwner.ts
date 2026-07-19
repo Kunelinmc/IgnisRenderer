@@ -102,7 +102,7 @@ import {
 } from "./WebGLSceneProgramVariants";
 import { WebGLCustomRenderTargetRuntime } from "./WebGLCustomRenderTargetRuntime";
 import type { FramePass } from "../../pipeline/types";
-import type { RenderTargetReadbackOptions } from "../CustomRenderTargets";
+import type { RenderTargetReadbackOptions } from "../../rendering/CustomRenderTargets";
 import type { TextureReadbackResult } from "../IComputeRuntime";
 import { WebGLSceneRuntime } from "./WebGLSceneRuntime";
 

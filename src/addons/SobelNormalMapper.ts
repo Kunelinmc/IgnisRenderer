@@ -1,21 +1,21 @@
 import { Texture } from "../core/Texture";
-import { Renderer } from "../renderers/Renderer";
+import { Renderer } from "../rendering/Renderer";
 import { ShaderSource } from "../shaders/ShaderSource";
 import {
 	WEBGPU_2D_COMPUTE_WORKGROUP_SIZE as SOBEL_WORKGROUP_SIZE,
 	WEBGPU_TEXTURE_SLOT,
-} from "../renderers/webgpu/constants";
-import type { IWebGPUComputeFacade } from "../renderers/webgpu/ComputeFacade";
-import { WEBGPU_COMPUTE_EXTENSION } from "../renderers/BackendExtensions";
-import type { IComputeKernel, IComputeRuntime } from "../renderers/IComputeRuntime";
-import { ComputeRuntime } from "../renderers/webgpu/ComputeRuntime";
+} from "../backends/webgpu/constants";
+import type { IWebGPUComputeFacade } from "../backends/webgpu/ComputeFacade";
+import { WEBGPU_COMPUTE_EXTENSION } from "../backends/BackendExtensions";
+import type { IComputeKernel, IComputeRuntime } from "../backends/IComputeRuntime";
+import { ComputeRuntime } from "../backends/webgpu/ComputeRuntime";
 import {
 	BufferUsage,
 	type IRenderBuffer,
 	type IRenderTexture,
 	TextureFormat,
 	TextureUsage,
-} from "../renderers/types";
+} from "../backends/types";
 
 const DEFAULT_STRENGTH = 2.0;
 

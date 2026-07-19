@@ -3,8 +3,8 @@ import {
 	type FrameContext,
 	type FramePass,
 	type FrameAttachments,
-} from "../pipeline/types";
-import { DefaultParticleSimulator } from "../simulation/particles/DefaultParticleSimulator";
+} from "../../pipeline/types";
+import { DefaultParticleSimulator } from "../../simulation/particles/DefaultParticleSimulator";
 import type {
 	IRenderBackend,
 	RenderBackendDebugInfo,
@@ -15,31 +15,31 @@ import type {
 	RenderSurfaceSize,
 	WarmupOptions,
 	WarmupReport,
-} from "./IRenderBackend";
-import type { RenderTargetReadbackOptions } from "./CustomRenderTargets";
-import type { TextureReadbackResult } from "./IComputeRuntime";
-import { WebGLFrameExecutor } from "./webgl/WebGLFrameExecutor";
-import { WebGLFrameGraphRuntime } from "./webgl/rendergraph/WebGLFrameGraphRuntime";
-import { WebGLPostProcessExecutor } from "./webgl/WebGLPostProcessExecutor";
-import { BackendPostProcessRuntime } from "../postprocess/BackendPostProcessRuntime";
+} from "../IRenderBackend";
+import type { RenderTargetReadbackOptions } from "../../rendering/CustomRenderTargets";
+import type { TextureReadbackResult } from "../IComputeRuntime";
+import { WebGLFrameExecutor } from "./WebGLFrameExecutor";
+import { WebGLFrameGraphRuntime } from "./rendergraph/WebGLFrameGraphRuntime";
+import { WebGLPostProcessExecutor } from "./WebGLPostProcessExecutor";
+import { BackendPostProcessRuntime } from "../../postprocess/BackendPostProcessRuntime";
 import {
 	MAX_DIRECTIONAL_LIGHTS,
 	MAX_POINT_LIGHTS,
 	MAX_SPOT_LIGHTS,
-} from "./constants";
+} from "../constants";
 import {
 	ShaderBackendCompileStage,
 	DEFAULT_SHADER_DIRECTIVE_PROFILE_REGISTRY,
 	ShaderRuntime,
-} from "../shaders/runtime";
+} from "../../shaders/runtime";
 import type {
 	ShaderDirectiveCompileHook,
 	ShaderRuntimeMode,
-} from "../shaders/runtime";
+} from "../../shaders/runtime";
 import {
 	ShaderSource,
 	WEBGL_SHADER_PARTS,
-} from "../shaders/ShaderSource";
+} from "../../shaders/ShaderSource";
 import {
 	addWarmupPhase,
 	buildWarmupPlan,
@@ -48,15 +48,15 @@ import {
 	toShaderCompileError,
 	type WarmupPhaseCounters,
 	type WarmupPostProcessPlan,
-} from "../pipeline/WarmupPlanner";
-import { Logger } from "../foundation/Logger";
+} from "../../pipeline/WarmupPlanner";
+import { Logger } from "../../foundation/Logger";
 import {
 	FramePassPlanValidator,
 	type FramePassPlanValidatorState,
-} from "../pipeline/FramePassPlanValidator";
+} from "../../pipeline/FramePassPlanValidator";
 import {
 	createRenderBackendExtensionRegistry,
-} from "./BackendExtensions";
+} from "../BackendExtensions";
 
 const MAX_PARTICLE_SIM_DELTA_TIME_SECONDS = 0.5;
 const WEBGL_DEBUG_INFO_UNINITIALIZED: RenderBackendDebugInfo = {

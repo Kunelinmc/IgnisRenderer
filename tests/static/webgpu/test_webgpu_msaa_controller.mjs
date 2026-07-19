@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import {
 	WebGPUMSAAController,
-} from "../../../src/renderers/webgpu/WebGPUMSAAController.ts";
-import { TextureFormat } from "../../../src/renderers/types.ts";
+} from "../../../src/backends/webgpu/WebGPUMSAAController.ts";
+import { TextureFormat } from "../../../src/backends/types.ts";
 
 if (!globalThis.GPUTextureUsage) {
 	globalThis.GPUTextureUsage = { RENDER_ATTACHMENT: 1 << 4 };

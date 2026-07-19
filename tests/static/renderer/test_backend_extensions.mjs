@@ -6,9 +6,9 @@ import {
 	WEBGPU_OCCLUSION_AFTER_DEPTH_INSERTION_POINT,
 	createRenderBackendExtensionRegistry,
 	resolveOcclusionCullingBackendExtension,
-} from "../../../src/renderers/BackendExtensions.ts";
-import { RendererOcclusionCullingController } from "../../../src/renderers/RendererOcclusionCullingController.ts";
-import { WebGPUBackend } from "../../../src/renderers/WebGPUBackend.ts";
+} from "../../../src/backends/BackendExtensions.ts";
+import { RendererOcclusionCullingController } from "../../../src/rendering/RendererOcclusionCullingController.ts";
+import { WebGPUBackend } from "../../../src/backends/webgpu/WebGPUBackend.ts";
 import { attachBackend } from "../../helpers/TestRenderBackend.mjs";
 
 function testRegistryRejectsDuplicateIds() {

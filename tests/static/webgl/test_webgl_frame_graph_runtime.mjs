@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
-import { WebGLFrameGraphRuntime } from "../../../src/renderers/webgl/rendergraph/WebGLFrameGraphRuntime.ts";
-import { WebGLFrameNodeExecutorRegistry } from "../../../src/renderers/webgl/rendergraph/WebGLFrameNodeExecutorRegistry.ts";
+import { WebGLFrameGraphRuntime } from "../../../src/backends/webgl/rendergraph/WebGLFrameGraphRuntime.ts";
+import { WebGLFrameNodeExecutorRegistry } from "../../../src/backends/webgl/rendergraph/WebGLFrameNodeExecutorRegistry.ts";
 
 function createContext(overrides = {}) {
 	return {

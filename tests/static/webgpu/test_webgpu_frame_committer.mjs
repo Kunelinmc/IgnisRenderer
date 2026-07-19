@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 
 import { WebGPUFramePartialSubmitError } from "../../../src/foundation/Error.ts";
-import { WebGPUFrameCommitter } from "../../../src/renderers/webgpu/rendergraph/WebGPUFrameCommitter.ts";
+import { WebGPUFrameCommitter } from "../../../src/backends/webgpu/rendergraph/WebGPUFrameCommitter.ts";
 
 function createHost(failAt = -1) {
 	const submitted = [];

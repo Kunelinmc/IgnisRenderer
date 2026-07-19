@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { Logger } from "../../../src/foundation/Logger.ts";
 import { Matrix4 } from "../../../src/maths/Matrix4.ts";
 import { ShaderMaterial } from "../../../src/materials/ShaderMaterial.ts";
-import { WebGPUPipelineLibrary } from "../../../src/renderers/webgpu/WebGPUPipelineLibrary.ts";
+import { WebGPUPipelineLibrary } from "../../../src/backends/webgpu/WebGPUPipelineLibrary.ts";
 import { ShaderRuntime } from "../../../src/shaders/runtime/index.ts";
 
 import { FakeWebGPUBackend as FakeBackend } from "../../helpers/fakes.mjs";

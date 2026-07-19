@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 
-import { WebGPUPostProcessExecutor } from "../../../src/renderers/webgpu/WebGPUPostProcessExecutor.ts";
+import { WebGPUPostProcessExecutor } from "../../../src/backends/webgpu/WebGPUPostProcessExecutor.ts";
 import { FakeWebGPUBackend } from "../../helpers/fakes.mjs";
 
 const host = new FakeWebGPUBackend();

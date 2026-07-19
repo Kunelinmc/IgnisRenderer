@@ -11,24 +11,24 @@ import {
 	type IComputePipeline,
 	type IRenderBuffer,
 	type IShaderModule,
-} from "../../src/renderers/types";
+} from "../../src/backends/types";
 
 import {
 	WEBGPU_SCREEN_POST_PROCESS_CONTEXT_METADATA,
-} from "../../src/renderers/webgpu/WebGPUPostProcessContracts";
+} from "../../src/backends/webgpu/WebGPUPostProcessContracts";
 
 import {
 	WEBGL_SCREEN_POST_PROCESS_CONTEXT_METADATA,
-} from "../../src/renderers/webgl/WebGLPostProcessContracts";
+} from "../../src/backends/webgl/WebGLPostProcessContracts";
 
 import type {
 	PostProcessSharedContext,
-} from "../../src/renderers/webgpu/postprocess/PostProcessSharedContext";
+} from "../../src/backends/webgpu/postprocess/PostProcessSharedContext";
 
 import type {
 	WebGLProgramCompiler,
 	WebGLProgramSlot,
-} from "../../src/renderers/webgl/WebGLProgramCompiler";
+} from "../../src/backends/webgl/WebGLProgramCompiler";
 
 import { ShaderSource } from "../../src/shaders/ShaderSource";
 
@@ -45,7 +45,7 @@ import {
 } from "../../src/postprocess/passes/ScreenPassShared";
 
 import { ceilDiv } from "../../src/maths/Misc";
-import { WEBGPU_2D_COMPUTE_WORKGROUP_SIZE } from "../../src/renderers/webgpu/constants";
+import { WEBGPU_2D_COMPUTE_WORKGROUP_SIZE } from "../../src/backends/webgpu/constants";
 
 // Import raw shaders via Vite ?raw queries
 import blurShaderWGSL from "./shaders/blur.wgsl?raw";

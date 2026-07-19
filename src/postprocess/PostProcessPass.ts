@@ -5,7 +5,7 @@ import type { PostProcessPlacement } from "./ordering";
 import type {
 	IRenderBackend,
 	RenderBackendType,
-} from "../renderers/IRenderBackend";
+} from "../backends/IRenderBackend";
 import type {
 	IPostProcessExecutor,
 	LogicalGBufferBridge,

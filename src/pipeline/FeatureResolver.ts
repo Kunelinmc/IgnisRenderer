@@ -1,7 +1,7 @@
 import type {
 	BackendCapabilities,
 	RenderBackendType,
-} from "../renderers/IRenderBackend";
+} from "../backends/IRenderBackend";
 import type { RendererFeatureRequest, ResolvedFeatureState } from "./types";
 import {
 	DEFAULT_CLUSTERED_LIGHTING_OPTIONS,

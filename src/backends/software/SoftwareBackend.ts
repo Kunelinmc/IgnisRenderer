@@ -5,66 +5,66 @@ import type {
 	RenderBackendDebugInfo,
 	RenderBackendProfile,
 	RenderSurfaceSize,
-} from "./IRenderBackend";
+} from "../IRenderBackend";
 import {
 	PARTICLE_SIM_DELTA_TIME_SECONDS_KEY,
 	type DrawPacket,
 	type FrameContext,
 	type FramePass,
-} from "../pipeline/types";
-import { Rasterizer } from "./software/Rasterizer";
+} from "../../pipeline/types";
+import { Rasterizer } from "./Rasterizer";
 import {
 	SoftwarePostProcessExecutor,
-} from "./software/SoftwarePostProcessExecutor";
-import { BackendPostProcessRuntime } from "../postprocess/BackendPostProcessRuntime";
-import { SoftwareMainPass } from "./software/passes/SoftwareMainPass";
-import { SoftwareParticlePass } from "./software/passes/SoftwareParticlePass";
-import { SoftwareReflectionPass } from "./software/passes/SoftwareReflectionPass";
-import { SoftwareShadowPass } from "./software/passes/SoftwareShadowPass";
+} from "./SoftwarePostProcessExecutor";
+import { BackendPostProcessRuntime } from "../../postprocess/BackendPostProcessRuntime";
+import { SoftwareMainPass } from "./passes/SoftwareMainPass";
+import { SoftwareParticlePass } from "./passes/SoftwareParticlePass";
+import { SoftwareReflectionPass } from "./passes/SoftwareReflectionPass";
+import { SoftwareShadowPass } from "./passes/SoftwareShadowPass";
 import type {
 	SoftwarePassLike,
 	SoftwareSurfaceCompositePass,
-} from "./software/passes/types";
-import { EnvironmentBackgroundRenderer } from "./software/EnvironmentRenderer";
-import { isShadowCastingLight } from "../lights";
+} from "./passes/types";
+import { EnvironmentBackgroundRenderer } from "./EnvironmentRenderer";
+import { isShadowCastingLight } from "../../lights";
 import {
 	resolveShadowCasterBounds,
 	syncShadowMapRegistry,
 	updateShadowMapMetadata,
-} from "../pipeline/ShadowMetadata";
+} from "../../pipeline/ShadowMetadata";
 import {
 	mergeParticleShadowBounds,
 	resolveParticleShadowCasterBounds,
-} from "../pipeline/ParticleShadowVolume";
+} from "../../pipeline/ParticleShadowVolume";
 import {
 	selectCSMDirectionalLights,
 	type ShadowBackendCapabilities,
-} from "../pipeline/ShadowMetadata";
-import { FrameAttachments } from "../pipeline/types";
-import { CameraType } from "../cameras/Camera";
-import { TemporalJitterState } from "./cross/TemporalJitterState";
+} from "../../pipeline/ShadowMetadata";
+import { FrameAttachments } from "../../pipeline/types";
+import { CameraType } from "../../cameras/Camera";
+import { TemporalJitterState } from "../cross/TemporalJitterState";
 import {
 	DEFAULT_TAA_OPTIONS,
 	SOFTWARE_TAA_RENDER_STATE_KEY,
 	type TAAOptions,
-} from "../postprocess/passes/TemporalAntiAliasingPass";
-import { DefaultParticleSimulator } from "../simulation/particles/DefaultParticleSimulator";
-import { type SoftwareBackendOptions, type SoftwareRasterMode } from "./software/types";
-import { DEFAULT_SOFTWARE_RASTER_MODE } from "./software/constants";
+} from "../../postprocess/passes/TemporalAntiAliasingPass";
+import { DefaultParticleSimulator } from "../../simulation/particles/DefaultParticleSimulator";
+import { type SoftwareBackendOptions, type SoftwareRasterMode } from "./types";
+import { DEFAULT_SOFTWARE_RASTER_MODE } from "./constants";
 import {
 	assertShaderDirectiveProfileRegistryComplete,
 	DEFAULT_SHADER_DIRECTIVE_PROFILE_REGISTRY,
-} from "../shaders/runtime";
-import { Logger } from "../foundation/Logger";
+} from "../../shaders/runtime";
+import { Logger } from "../../foundation/Logger";
 import {
 	createRenderBackendExtensionRegistry,
-} from "./BackendExtensions";
+} from "../BackendExtensions";
 
 export type {
 	SoftwareBackendOptions,
 	SoftwareRasterMode,
 	SoftwareTileOptions,
-} from "./software/types";
+} from "./types";
 
 type SoftwarePassHandler = (
 	context: FrameContext

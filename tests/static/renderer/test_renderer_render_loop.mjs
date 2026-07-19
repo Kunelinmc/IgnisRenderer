@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 
 import { Camera } from "../../../src/cameras/Camera.ts";
 import { Logger } from "../../../src/foundation/Logger.ts";
-import { Renderer } from "../../../src/renderers/Renderer.ts";
+import { Renderer } from "../../../src/rendering/Renderer.ts";
 import { TestRenderBackend } from "../../helpers/TestRenderBackend.mjs";
 
 function createRenderer() {

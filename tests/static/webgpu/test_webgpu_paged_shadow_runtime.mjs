@@ -3,14 +3,14 @@ import { readFileSync } from "node:fs";
 
 import { LightType } from "../../../src/lights/index.ts";
 import { Matrix4 } from "../../../src/maths/Matrix4.ts";
-import { BufferUsage, TextureUsage } from "../../../src/renderers/types.ts";
+import { BufferUsage, TextureUsage } from "../../../src/backends/types.ts";
 import {
 	WEBGPU_PAGED_SHADOW_NON_RESIDENT,
 	WebGPUPagedShadowRuntime,
 	collectWebGPUPagedShadowPageRequests,
-} from "../../../src/renderers/webgpu/WebGPUPagedShadowRuntime.ts";
-import { WebGPUCommandEncoder } from "../../../src/renderers/webgpu/WebGPUCommandEncoder.ts";
-import { WebGPUShadowPass } from "../../../src/renderers/webgpu/WebGPUShadowPass.ts";
+} from "../../../src/backends/webgpu/WebGPUPagedShadowRuntime.ts";
+import { WebGPUCommandEncoder } from "../../../src/backends/webgpu/WebGPUCommandEncoder.ts";
+import { WebGPUShadowPass } from "../../../src/backends/webgpu/WebGPUShadowPass.ts";
 
 function createMockBackend() {
 	const buffers = [];

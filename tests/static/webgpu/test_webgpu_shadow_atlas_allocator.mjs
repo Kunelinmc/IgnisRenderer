@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
-import { WebGPUShadowAtlasAllocator } from "../../../src/renderers/webgpu/WebGPUShadowAtlasAllocator.ts";
+import { WebGPUShadowAtlasAllocator } from "../../../src/backends/webgpu/WebGPUShadowAtlasAllocator.ts";
 import {
 	WEBGPU_SHADOW_ATLAS_COLUMNS,
 	WEBGPU_SHADOW_ATLAS_ROWS,
-} from "../../../src/renderers/webgpu/constants.ts";
+} from "../../../src/backends/webgpu/constants.ts";
 
 function createBackend(maxTextureDimension2D) {
 	const createTextureCalls = [];

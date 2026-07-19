@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 
-import { Renderer } from "../../../src/renderers/Renderer.ts";
+import { Renderer } from "../../../src/rendering/Renderer.ts";
 import { Camera } from "../../../src/cameras/Camera.ts";
 import { Matrix4 } from "../../../src/maths/Matrix4.ts";
 import { ParticleSystem } from "../../../src/particles/ParticleSystem.ts";

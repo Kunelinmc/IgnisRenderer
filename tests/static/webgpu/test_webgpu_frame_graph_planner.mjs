@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { WebGPUFrameGraphPlanner } from "../../../src/renderers/webgpu/rendergraph/WebGPUFrameGraphPlanner.ts";
+import { WebGPUFrameGraphPlanner } from "../../../src/backends/webgpu/rendergraph/WebGPUFrameGraphPlanner.ts";
 
 function createPass(stage) {
 	return {

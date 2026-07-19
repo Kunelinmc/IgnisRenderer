@@ -1,5 +1,5 @@
 import type { FrameContext } from "../pipeline/types";
-import type { RenderBackendType } from "../renderers/IRenderBackend";
+import type { RenderBackendType } from "../backends/IRenderBackend";
 import {
 	DEFAULT_POST_PROCESS_PLACEMENT,
 	getBuiltinPostProcessOrder,

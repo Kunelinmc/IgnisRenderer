@@ -8,7 +8,7 @@ import type {
 	PostProcessResourceDescriptor,
 	PostProcessResourceHandle,
 } from "../../postprocess";
-import type { RenderTargetReadbackOptions } from "../CustomRenderTargets";
+import type { RenderTargetReadbackOptions } from "../../rendering/CustomRenderTargets";
 import type { TextureReadbackResult } from "../IComputeRuntime";
 import type { ShaderBackendCompileStage, ShaderRuntime } from "../../shaders/runtime";
 

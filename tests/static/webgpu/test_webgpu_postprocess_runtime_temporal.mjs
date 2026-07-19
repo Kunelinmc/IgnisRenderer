@@ -4,7 +4,7 @@ import {
 	ScreenSpaceReflectionsPass,
 	VolumetricLightingPass,
 } from "../../../src/postprocess/index.ts";
-import { WebGPUPostProcessRuntime } from "../../../src/renderers/webgpu/WebGPUPostProcessRuntime.ts";
+import { WebGPUPostProcessRuntime } from "../../../src/backends/webgpu/WebGPUPostProcessRuntime.ts";
 import {
 	FakeBackend,
 	FakeEncoder,

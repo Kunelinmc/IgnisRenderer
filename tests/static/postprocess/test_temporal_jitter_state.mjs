@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 
-import { TemporalJitterState } from "../../../src/renderers/cross/TemporalJitterState.ts";
+import { TemporalJitterState } from "../../../src/backends/cross/TemporalJitterState.ts";
 import { computeHaltonJitterNDC } from "../../../src/maths/Misc.ts";
 
 function testPerspectiveJitterTracksPreviousSample() {

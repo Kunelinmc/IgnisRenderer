@@ -1,4 +1,4 @@
-import type { RenderBackendType } from "../renderers/IRenderBackend";
+import type { RenderBackendType } from "../backends/IRenderBackend";
 import type { PostProcessGraphMetadata } from "./types";
 
 /** @internal Resolves strict graph profiles for engine-owned post-process passes. */

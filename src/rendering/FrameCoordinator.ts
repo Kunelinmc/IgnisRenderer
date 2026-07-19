@@ -59,11 +59,11 @@ import {
 	type IncrementalFrameStatus,
 	type IncrementalRenderingOptions,
 } from "../pipeline/incremental";
-import type { IRenderBackend, WarmupOptions, WarmupReport } from "./IRenderBackend";
+import type { IRenderBackend, WarmupOptions, WarmupReport } from "../backends/IRenderBackend";
 import {
 	PROBE_CAPTURE_EXTENSION,
 	type RenderBackendExtensionKey,
-} from "./BackendExtensions";
+} from "../backends/BackendExtensions";
 import { RendererOcclusionCullingController } from "./RendererOcclusionCullingController";
 
 const _tmpRendererCameraWorldPosition = { x: 0, y: 0, z: 0 };

@@ -3,8 +3,8 @@ import {
 	BufferUsage,
 	TextureFormat,
 	TextureUsage,
-} from "../../../src/renderers/types.ts";
-import { ComputeRuntime } from "../../../src/renderers/webgpu/ComputeRuntime.ts";
+} from "../../../src/backends/types.ts";
+import { ComputeRuntime } from "../../../src/backends/webgpu/ComputeRuntime.ts";
 import { float32ToFloat16Bits } from "../../../src/foundation/Float16.ts";
 
 import { FakeWebGPUBackend } from "../../helpers/fakes.mjs";

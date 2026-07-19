@@ -3,7 +3,7 @@ import { Camera } from "../../../src/cameras/Camera.ts";
 import { Texture } from "../../../src/core/Texture.ts";
 import { BasicMaterial, AlphaMode } from "../../../src/materials/index.ts";
 import { Matrix4 } from "../../../src/maths/Matrix4.ts";
-import { SoftwareBackend } from "../../../src/renderers/SoftwareBackend.ts";
+import { SoftwareBackend } from "../../../src/backends/software/SoftwareBackend.ts";
 import { createResolvedPostProcess } from "../../helpers/postprocess.mjs";
 
 const WIDTH = 64;

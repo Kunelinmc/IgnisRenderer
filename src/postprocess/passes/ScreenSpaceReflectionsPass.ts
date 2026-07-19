@@ -1,5 +1,5 @@
 import { CameraType } from "../../cameras/Camera";
-import type { ICommandEncoder } from "../../renderers/ICommandEncoder";
+import type { ICommandEncoder } from "../../backends/ICommandEncoder";
 import {
 	BufferUsage,
 	type IBindingGroup,
@@ -7,12 +7,12 @@ import {
 	type IRenderBuffer,
 	type IRenderTexture,
 	type IShaderModule,
-} from "../../renderers/types";
+} from "../../backends/types";
 import {
 	WEBGPU_2D_COMPUTE_WORKGROUP_SIZE as WORKGROUP_SIZE,
-} from "../../renderers/webgpu/constants";
-import type { WebGPUPostProcessFrameTargets } from "../../renderers/webgpu/WebGPUPostProcessContracts";
-import type { PostProcessSharedContext } from "../../renderers/webgpu/postprocess/PostProcessSharedContext";
+} from "../../backends/webgpu/constants";
+import type { WebGPUPostProcessFrameTargets } from "../../backends/webgpu/WebGPUPostProcessContracts";
+import type { PostProcessSharedContext } from "../../backends/webgpu/postprocess/PostProcessSharedContext";
 import { ceilDiv, finiteOr } from "../../maths/Misc";
 import { ShaderSource } from "../../shaders/ShaderSource";
 import {

@@ -3,7 +3,7 @@ import { Camera } from "../../../src/cameras/Camera.ts";
 import { Logger } from "../../../src/foundation/Logger.ts";
 import { BasicMaterial, AlphaMode } from "../../../src/materials/index.ts";
 import { Matrix4 } from "../../../src/maths/Matrix4.ts";
-import { SoftwareBackend } from "../../../src/renderers/SoftwareBackend.ts";
+import { SoftwareBackend } from "../../../src/backends/software/SoftwareBackend.ts";
 import { FakeWorker } from "../../helpers/fakes.mjs";
 import { createResolvedPostProcess } from "../../helpers/postprocess.mjs";
 

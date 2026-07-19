@@ -2,10 +2,10 @@ import assert from "node:assert/strict";
 import {
 	getDefaultWebGPUDrawBindings,
 	submitWebGPUDraws,
-} from "../../../src/renderers/webgpu/WebGPUDrawSubmission.ts";
+} from "../../../src/backends/webgpu/WebGPUDrawSubmission.ts";
 import {
 	resolveWebGPUScenePassDescriptor,
-} from "../../../src/renderers/webgpu/WebGPUScenePassDescriptors.ts";
+} from "../../../src/backends/webgpu/WebGPUScenePassDescriptors.ts";
 
 function createDrawResource(id) {
 	return {

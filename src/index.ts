@@ -26,8 +26,8 @@ export type {
 	BoundingSphere,
 	BoundingBox,
 } from "./core/types";
-export { Renderer } from "./renderers/Renderer";
-export type { RenderFrameResult, RendererEvents } from "./renderers/Renderer";
+export { Renderer } from "./rendering/Renderer";
+export type { RenderFrameResult, RendererEvents } from "./rendering/Renderer";
 export {
 	CustomRenderPassRegistry,
 	CustomRenderPassRegistrySnapshot,
@@ -46,7 +46,7 @@ export {
 	type RenderTargetReadbackOptions,
 	type RenderTargetRegistryChange,
 	type RenderTargetSizeDescriptor,
-} from "./renderers/CustomRenderTargets";
+} from "./rendering/CustomRenderTargets";
 export type {
 	IRenderBackend,
 	RenderBackendType,
@@ -62,7 +62,7 @@ export type {
 	WarmupProgress,
 	WarmupReport,
 	WarmupSchedulingMode,
-} from "./renderers/IRenderBackend";
+} from "./backends/IRenderBackend";
 export {
 	RENDERER_OCCLUSION_CULLING_EXTENSION_ID,
 	RENDERER_OCCLUSION_VISIBILITY_INSERTION_POINT,
@@ -73,17 +73,17 @@ export {
 	type RenderBackendExtensionId,
 	type RenderBackendExtensionInsertionPoint,
 	type RenderBackendExtensionRegistry,
-} from "./renderers/BackendExtensions";
+} from "./backends/BackendExtensions";
 export { EventEmitter } from "./core/EventEmitter";
 export * from "./workers";
-export { SoftwareBackend } from "./renderers/SoftwareBackend";
+export { SoftwareBackend } from "./backends/software/SoftwareBackend";
 export type {
 	SoftwareRasterMode,
 	SoftwareTileOptions,
 	SoftwareBackendOptions,
-} from "./renderers/software/types";
-export { WebGPUBackend } from "./renderers/WebGPUBackend";
-export { WebGLBackend } from "./renderers/WebGLBackend";
+} from "./backends/software/types";
+export { WebGPUBackend } from "./backends/webgpu/WebGPUBackend";
+export { WebGLBackend } from "./backends/webgl/WebGLBackend";
 export {
 	WEBGPU_PRESENT_POST_PROCESS_CONTEXT_METADATA,
 	WEBGPU_SCREEN_POST_PROCESS_CONTEXT_METADATA,
@@ -94,9 +94,9 @@ export {
 	type WebGPUPostProcessHistoryBindingMetadata,
 	type WebGPUPostProcessHistorySide,
 	type WebGPUPostProcessMotionHistoryCopyMetadata,
-} from "./renderers/webgpu/WebGPUPostProcessContracts";
-export type { IWebGPUComputeFacade } from "./renderers/webgpu/ComputeFacade";
-export { resolveWebGPUComputeFacade } from "./renderers/webgpu/ComputeFacade";
+} from "./backends/webgpu/WebGPUPostProcessContracts";
+export type { IWebGPUComputeFacade } from "./backends/webgpu/ComputeFacade";
+export { resolveWebGPUComputeFacade } from "./backends/webgpu/ComputeFacade";
 export {
 	ComputeRuntime,
 	ComputeKernel,
@@ -113,8 +113,8 @@ export {
 	type IComputeRuntime,
 	type ReadBufferOptions,
 	type ReadTextureOptions,
-} from "./renderers/webgpu/ComputeRuntime";
-export { Rasterizer } from "./renderers/software/Rasterizer";
+} from "./backends/webgpu/ComputeRuntime";
+export { Rasterizer } from "./backends/software/Rasterizer";
 export type {
 	FrameContext,
 	FramePass,

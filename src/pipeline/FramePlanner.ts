@@ -15,7 +15,7 @@ import { createDefaultPipelineStages } from "./defaultPipeline";
 import type {
 	BackendCapabilities,
 	RenderBackendType,
-} from "../renderers/IRenderBackend";
+} from "../backends/IRenderBackend";
 
 export interface FramePlannerBuildOptions {
 	registry?: RenderPipelineRegistry;

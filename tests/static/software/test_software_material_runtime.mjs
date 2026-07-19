@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { Texture } from "../../../src/core/Texture.ts";
 import { AlphaMode, BasicMaterial, PBRMaterial } from "../../../src/materials/index.ts";
-import { SoftwareMaterialRuntime } from "../../../src/renderers/software/SoftwareMaterialRuntime.ts";
+import { SoftwareMaterialRuntime } from "../../../src/backends/software/SoftwareMaterialRuntime.ts";
 import { sampleSoftwareTextureMap } from "../../../src/shaders/software/textureSampling.ts";
 
 function createFace(material) {

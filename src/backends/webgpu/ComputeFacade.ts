@@ -14,7 +14,7 @@ import type {
 	ShaderModuleDesc,
 	TextureDesc,
 } from "../types";
-import type { WebGPUBackend } from "../WebGPUBackend";
+import type { WebGPUBackend } from "./WebGPUBackend";
 import { Logger } from "../../foundation/Logger";
 
 export const WEBGPU_COMPUTE_FACADE_BRAND = Symbol(

@@ -8,7 +8,7 @@ import type {
 	CustomRenderTargetExecutionTarget,
 	RenderTargetDescriptor,
 	RenderTargetReadbackOptions,
-} from "../CustomRenderTargets";
+} from "../../rendering/CustomRenderTargets";
 import type { TextureReadbackResult } from "../IComputeRuntime";
 import {
 	AddressMode,

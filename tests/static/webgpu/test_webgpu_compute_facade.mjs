@@ -5,7 +5,7 @@ import {
 	invalidateWebGPUComputeFacade,
 	resetWebGPUComputeFacadeCacheForTesting,
 	resolveWebGPUComputeFacade,
-} from "../../../src/renderers/webgpu/computeFacade.ts";
+} from "../../../src/backends/webgpu/computeFacade.ts";
 import { FakeWebGPUBackend } from "../../helpers/fakes.mjs";
 
 async function testFacadeDelegatesAndCaches() {

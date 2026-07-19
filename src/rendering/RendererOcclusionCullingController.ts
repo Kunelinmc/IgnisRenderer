@@ -6,7 +6,7 @@ import type { ResolvedFeatureState } from "../pipeline/types";
 import {
 	OCCLUSION_CULLING_EXTENSION,
 	type RenderBackendExtensionReader,
-} from "./BackendExtensions";
+} from "../backends/BackendExtensions";
 
 /**
  * Coordinates renderer-owned occlusion culling decisions with backend snapshots.

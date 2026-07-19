@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 
-import { WebGLFrameServiceOwner } from "../../../src/renderers/webgl/WebGLFrameServiceOwner.ts";
-import { WebGLFrameSession } from "../../../src/renderers/webgl/WebGLFrameSession.ts";
+import { WebGLFrameServiceOwner } from "../../../src/backends/webgl/WebGLFrameServiceOwner.ts";
+import { WebGLFrameSession } from "../../../src/backends/webgl/WebGLFrameSession.ts";
 
 function testSessionClearsActiveFrameState() {
 	const session = new WebGLFrameSession();

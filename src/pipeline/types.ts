@@ -25,9 +25,9 @@ import type { PostProcessPassRegistrySnapshot } from "../postprocess/PostProcess
 import type {
 	CustomRenderPassRegistrySnapshot,
 	RenderTargetRegistrySnapshot,
-} from "../renderers/CustomRenderTargets";
+} from "../rendering/CustomRenderTargets";
 import type { OcclusionCandidate } from "./OcclusionCulling";
-import type { RenderBackendProfile } from "../renderers/IRenderBackend";
+import type { RenderBackendProfile } from "../backends/IRenderBackend";
 
 export type TransientKey<TValue, TName extends string = string> = TName & {
 	readonly __transientValueType?: TValue;

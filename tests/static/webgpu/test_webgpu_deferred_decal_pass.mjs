@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import { Material } from "../../../src/materials/Material.ts";
 import { Matrix4 } from "../../../src/maths/Matrix4.ts";
-import { WebGPUDeferredDecalPass } from "../../../src/renderers/webgpu/rendergraph/WebGPUDeferredDecalPass.ts";
+import { WebGPUDeferredDecalPass } from "../../../src/backends/webgpu/rendergraph/WebGPUDeferredDecalPass.ts";
 import {
 	TextureFormat,
 	TextureUsage,
-} from "../../../src/renderers/types.ts";
+} from "../../../src/backends/types.ts";
 
 import { FakeWebGPUBackend } from "../../helpers/fakes.mjs";
 

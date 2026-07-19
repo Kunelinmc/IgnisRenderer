@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { Material } from "../../../src/materials/Material.ts";
-import { WebGLGeometryRegistry } from "../../../src/renderers/webgl/WebGLGeometryRegistry.ts";
-import { WebGPUGeometryRegistry } from "../../../src/renderers/webgpu/WebGPUGeometryRegistry.ts";
+import { WebGLGeometryRegistry } from "../../../src/backends/webgl/WebGLGeometryRegistry.ts";
+import { WebGPUGeometryRegistry } from "../../../src/backends/webgpu/WebGPUGeometryRegistry.ts";
 
 function createPrimitive() {
 	return {

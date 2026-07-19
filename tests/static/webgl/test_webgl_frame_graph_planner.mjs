@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { WebGLFrameGraphPlanner } from "../../../src/renderers/webgl/rendergraph/WebGLFrameGraphPlanner.ts";
+import { WebGLFrameGraphPlanner } from "../../../src/backends/webgl/rendergraph/WebGLFrameGraphPlanner.ts";
 
 function createContext(overrides = {}) {
 	return {

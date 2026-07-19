@@ -30,7 +30,7 @@ import {
 	type ISampler,
 	type IShaderModule,
 } from "../types";
-import type { WebGPUBackend } from "../WebGPUBackend";
+import type { WebGPUBackend } from "./WebGPUBackend";
 import { SINGLE_SAMPLE_WEBGPU_MSAA_CONTEXT, type WebGPUMSAAContext } from "./WebGPUMSAAController";
 import { resolveWebGPUComputeFacade } from "./ComputeFacade";
 import type { IWebGPUComputeFacade } from "./ComputeFacade";

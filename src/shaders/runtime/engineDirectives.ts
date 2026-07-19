@@ -16,12 +16,12 @@ import {
 	MAX_REFLECTION_PROBES,
 	MAX_SPOT_LIGHTS,
 	VOLUMETRIC_SIGMA_T_SCALE,
-} from "../../renderers/constants";
+} from "../../backends/constants";
 import {
 	WEBGPU_MODEL_BINDING_SHADER_UNIFORMS,
 	WEBGPU_SH_COEFFICIENT_COUNT,
 	WEBGPU_TEXTURE_SLOT_COUNT,
-} from "../../renderers/webgpu/constants";
+} from "../../backends/webgpu/constants";
 
 const WEBGPU_PROFILE_ID = "webgpu/v1";
 const WEBGL_PROFILE_ID = "webgl/v1";

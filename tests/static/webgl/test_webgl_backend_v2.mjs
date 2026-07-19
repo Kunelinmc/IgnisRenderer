@@ -15,32 +15,32 @@ import { Texture } from "../../../src/core/Texture.ts";
 import { CubeTexture } from "../../../src/core/CubeTexture.ts";
 import { Node } from "../../../src/core/Node.ts";
 import { Scene } from "../../../src/core/Scene.ts";
-import { collectWebGLLights } from "../../../src/renderers/webgl/WebGLLightCollector.ts";
-import { WebGLProgramCompiler } from "../../../src/renderers/webgl/WebGLProgramCompiler.ts";
-import { WebGLProgramWarmupQueue } from "../../../src/renderers/webgl/WebGLProgramWarmupQueue.ts";
-import { WebGLProgramLibrary } from "../../../src/renderers/webgl/WebGLProgramLibrary.ts";
+import { collectWebGLLights } from "../../../src/backends/webgl/WebGLLightCollector.ts";
+import { WebGLProgramCompiler } from "../../../src/backends/webgl/WebGLProgramCompiler.ts";
+import { WebGLProgramWarmupQueue } from "../../../src/backends/webgl/WebGLProgramWarmupQueue.ts";
+import { WebGLProgramLibrary } from "../../../src/backends/webgl/WebGLProgramLibrary.ts";
 import {
 	getWebGLSceneVariantKey,
-} from "../../../src/renderers/webgl/WebGLSceneProgramVariants.ts";
-import { WebGLGeometryRegistry } from "../../../src/renderers/webgl/WebGLGeometryRegistry.ts";
+} from "../../../src/backends/webgl/WebGLSceneProgramVariants.ts";
+import { WebGLGeometryRegistry } from "../../../src/backends/webgl/WebGLGeometryRegistry.ts";
 import {
 	bindWebGLShaderMaterialUniforms,
 	bindWebGLShaderMaterialTextures,
 	drawWebGLPacket,
 	renderWebGLEarlyZPrepass,
 	renderWebGLPackets,
-} from "../../../src/renderers/webgl/WebGLScenePass.ts";
-import { WebGLShadowPass } from "../../../src/renderers/webgl/WebGLShadowPass.ts";
+} from "../../../src/backends/webgl/WebGLScenePass.ts";
+import { WebGLShadowPass } from "../../../src/backends/webgl/WebGLShadowPass.ts";
 import {
 	MAX_DIRECTIONAL_LIGHTS,
 	MAX_POINT_LIGHTS,
 	MAX_SPOT_LIGHTS,
-} from "../../../src/renderers/constants.ts";
+} from "../../../src/backends/constants.ts";
 import {
 	ShaderSource,
 	WEBGL_SHADER_PARTS,
 } from "../../../src/shaders/ShaderSource.ts";
-import { WebGLBackend } from "../../../src/renderers/WebGLBackend.ts";
+import { WebGLBackend } from "../../../src/backends/webgl/WebGLBackend.ts";
 import { PARTICLE_SIM_DELTA_TIME_SECONDS_KEY } from "../../../src/pipeline/types.ts";
 import { ShaderCompileError, ShaderRuntime } from "../../../src/shaders/runtime/index.ts";
 import { createResolvedPostProcess } from "../../helpers/postprocess.mjs";

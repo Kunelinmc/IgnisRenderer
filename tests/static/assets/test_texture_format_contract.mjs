@@ -5,17 +5,17 @@ import { float16BitsToFloat32 } from "../../../src/foundation/Float16.ts";
 import {
 	TextureFormat,
 	TextureUsage,
-} from "../../../src/renderers/types.ts";
+} from "../../../src/backends/types.ts";
 import {
 	getTextureFormatBlockCount,
 	getTextureFormatBytesPerRow,
 	getTextureFormatInfo,
 	textureFormatRequiresFeature,
-} from "../../../src/renderers/TextureFormatInfo.ts";
+} from "../../../src/backends/TextureFormatInfo.ts";
 import {
 	createTextureMipUploadData,
-} from "../../../src/renderers/webgpu/texture.ts";
-import { ComputeRuntime } from "../../../src/renderers/webgpu/ComputeRuntime.ts";
+} from "../../../src/backends/webgpu/texture.ts";
+import { ComputeRuntime } from "../../../src/backends/webgpu/ComputeRuntime.ts";
 import { FakeWebGPUBackend } from "../../helpers/fakes.mjs";
 
 function nearlyEqual(actual, expected, epsilon = 1e-4) {

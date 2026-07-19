@@ -3,16 +3,16 @@ import { readFileSync } from "node:fs";
 import { Camera } from "../../../src/cameras/Camera.ts";
 import { BasicMaterial, AlphaMode } from "../../../src/materials/index.ts";
 import { Matrix4 } from "../../../src/maths/Matrix4.ts";
-import { Rasterizer } from "../../../src/renderers/software/Rasterizer.ts";
-import { SoftwareMainPass } from "../../../src/renderers/software/passes/SoftwareMainPass.ts";
+import { Rasterizer } from "../../../src/backends/software/Rasterizer.ts";
+import { SoftwareMainPass } from "../../../src/backends/software/passes/SoftwareMainPass.ts";
 import {
 	SoftwareReflectionPass,
-} from "../../../src/renderers/software/passes/SoftwareReflectionPass.ts";
+} from "../../../src/backends/software/passes/SoftwareReflectionPass.ts";
 import {
 	getSoftwarePlanarReflectionRuntime,
 	resolveSoftwarePlanarReflectionPlaneKey,
 	SoftwarePlanarReflectionRuntime,
-} from "../../../src/renderers/software/SoftwarePlanarReflectionRuntime.ts";
+} from "../../../src/backends/software/SoftwarePlanarReflectionRuntime.ts";
 import { createResolvedPostProcess } from "../../helpers/postprocess.mjs";
 
 const WIDTH = 64;
@@ -472,7 +472,7 @@ function testReflectionCaptureDisablesRecursiveComposite() {
 
 function testRasterizerDoesNotReferencePlanarReflection() {
 	const source = readFileSync(
-		new URL("../../../src/renderers/software/Rasterizer.ts", import.meta.url),
+		new URL("../../../src/backends/software/Rasterizer.ts", import.meta.url),
 		"utf8"
 	);
 	assert.equal(/planarReflection|SoftwarePlanarReflection/.test(source), false);

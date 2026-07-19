@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
-import { WebGPUCustomRenderTargetRuntime } from "../../../src/renderers/webgpu/rendergraph/WebGPUCustomRenderTargetRuntime.ts";
-import { TextureFormat } from "../../../src/renderers/types.ts";
+import { WebGPUCustomRenderTargetRuntime } from "../../../src/backends/webgpu/rendergraph/WebGPUCustomRenderTargetRuntime.ts";
+import { TextureFormat } from "../../../src/backends/types.ts";
 import {
 	CustomRenderPassRegistrySnapshot,
 	RenderTargetRegistrySnapshot,
-} from "../../../src/renderers/CustomRenderTargets.ts";
+} from "../../../src/rendering/CustomRenderTargets.ts";
 import { createResolvedPostProcess } from "../../helpers/postprocess.mjs";
 
 class FakeEncoder {

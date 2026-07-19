@@ -10,7 +10,7 @@ import {
 	ToneMappingPass,
 } from "../../../src/postprocess/index.ts";
 import { Matrix4 } from "../../../src/maths/Matrix4.ts";
-import { WebGPUPostProcessRuntime } from "../../../src/renderers/webgpu/WebGPUPostProcessRuntime.ts";
+import { WebGPUPostProcessRuntime } from "../../../src/backends/webgpu/WebGPUPostProcessRuntime.ts";
 import {
 	FakeBackend,
 	FakeEncoder,

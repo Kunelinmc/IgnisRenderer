@@ -5,22 +5,22 @@ import {
 	type IComputePipeline,
 	type IRenderBuffer,
 	type IShaderModule,
-} from "../../renderers/types";
+} from "../../backends/types";
 import {
 	WEBGPU_2D_COMPUTE_WORKGROUP_SIZE as WEBGPU_WORKGROUP_SIZE,
-} from "../../renderers/webgpu/constants";
+} from "../../backends/webgpu/constants";
 import {
 	WEBGPU_SCREEN_POST_PROCESS_CONTEXT_METADATA,
-} from "../../renderers/webgpu/WebGPUPostProcessContracts";
+} from "../../backends/webgpu/WebGPUPostProcessContracts";
 import {
 	WEBGL_SCREEN_POST_PROCESS_CONTEXT_METADATA,
-} from "../../renderers/webgl/WebGLPostProcessContracts";
-import type { PostProcessSharedContext } from "../../renderers/webgpu/postprocess/PostProcessSharedContext";
-import { sanitizeFiniteClamped } from "../../renderers/webgl/WebGLFrameMath";
+} from "../../backends/webgl/WebGLPostProcessContracts";
+import type { PostProcessSharedContext } from "../../backends/webgpu/postprocess/PostProcessSharedContext";
+import { sanitizeFiniteClamped } from "../../backends/webgl/WebGLFrameMath";
 import type {
 	WebGLProgramCompiler,
 	WebGLProgramSlot,
-} from "../../renderers/webgl/WebGLProgramCompiler";
+} from "../../backends/webgl/WebGLProgramCompiler";
 import { ShaderSource } from "../../shaders/ShaderSource";
 import { PostProcessPass, type PostProcessPassConfig } from "../PostProcessPass";
 import type { PostProcessPassMetadata } from "../ordering";

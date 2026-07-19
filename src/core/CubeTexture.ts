@@ -1,7 +1,7 @@
 import { clamp } from "../maths/Common";
 import type { RGBA } from "../foundation/Color";
 import type { IVector3 } from "../maths/types";
-import { TextureFormat } from "../renderers/types";
+import { TextureFormat } from "../backends/types";
 import { Texture, type TextureColorSpace } from "./Texture";
 
 export type CubeTextureFaceData = Uint8Array | Uint8ClampedArray | Float32Array;

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { AmbientLight } from "../../../src/lights/AmbientLight.ts";
 import { DirectionalLight } from "../../../src/lights/DirectionalLight.ts";
 import { LightProbe } from "../../../src/lights/LightProbe.ts";
-import { evaluateLightContribution } from "../../../src/renderers/software/LightEvaluator.ts";
+import { evaluateLightContribution } from "../../../src/backends/software/LightEvaluator.ts";
 import { SH } from "../../../src/maths/SH.ts";
 import { BlinnPhongStrategy } from "../../../src/shaders/software/BlinnPhongStrategy.ts";
 import { PBRStrategy } from "../../../src/shaders/software/PBRStrategy.ts";
@@ -12,8 +12,8 @@ import { PBRMaterial } from "../../../src/materials/PBRMaterial.ts";
 import { PhongMaterial } from "../../../src/materials/PhongMaterial.ts";
 import { Material } from "../../../src/materials/Material.ts";
 import { Texture } from "../../../src/core/Texture.ts";
-import { Renderer } from "../../../src/renderers/Renderer.ts";
-import { Rasterizer } from "../../../src/renderers/software/Rasterizer.ts";
+import { Renderer } from "../../../src/rendering/Renderer.ts";
+import { Rasterizer } from "../../../src/backends/software/Rasterizer.ts";
 
 function createContext(overrides = {}) {
 	return {

@@ -9,22 +9,22 @@ import {
 	ParticleSpaceMode,
 	type ParticleSystem,
 } from "../../particles";
-import type { IComputeKernel, IComputeRuntime } from "../../renderers/IComputeRuntime";
+import type { IComputeKernel, IComputeRuntime } from "../../backends/IComputeRuntime";
 import {
 	BufferUsage,
 	type BufferDesc,
 	type IRenderBuffer,
-} from "../../renderers/types";
-import { ComputeRuntime } from "../../renderers/webgpu/ComputeRuntime";
-import type { WebGPUComputeFacadeSource } from "../../renderers/webgpu/ComputeFacade";
+} from "../../backends/types";
+import { ComputeRuntime } from "../../backends/webgpu/ComputeRuntime";
+import type { WebGPUComputeFacadeSource } from "../../backends/webgpu/ComputeFacade";
 import {
 	WEBGPU_PARTICLE_INSTANCE_FLOATS,
 	WEBGPU_PARTICLE_INSTANCE_STRIDE,
-} from "../../renderers/webgpu/constants";
+} from "../../backends/webgpu/constants";
 import {
 	WEBGPU_PARTICLE_DRAW_BATCHES_KEY,
 	type WebGPUParticleDrawBatch,
-} from "../../renderers/webgpu/particleTransient";
+} from "../../backends/webgpu/particleTransient";
 import { ShaderSource } from "../../shaders/ShaderSource";
 import { DefaultParticleSimulator } from "./DefaultParticleSimulator";
 import type { IParticleSimulator } from "./IParticleSimulator";

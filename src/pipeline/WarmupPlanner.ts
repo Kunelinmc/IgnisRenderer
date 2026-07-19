@@ -8,7 +8,7 @@ import type {
 	WarmupOptions,
 	WarmupPhaseReport,
 	WarmupReport,
-} from "../renderers/IRenderBackend";
+} from "../backends/IRenderBackend";
 import type { PostProcessPass } from "../postprocess/PostProcessPass";
 import { resolvePostProcessExecutionOrder } from "../postprocess/PostProcessGraphCompiler";
 

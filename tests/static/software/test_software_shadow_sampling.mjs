@@ -11,7 +11,7 @@ import {
 import {
 	createSoftwareShadowSampler,
 	sampleSoftwareShadow,
-} from "../../../src/renderers/software/passes/SoftwareShadowPass.ts";
+} from "../../../src/backends/software/passes/SoftwareShadowPass.ts";
 
 function createShadowFixture(overrides = {}, size = 4) {
 	const shadowMap = new ShadowMap(size, {

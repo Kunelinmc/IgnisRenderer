@@ -2,13 +2,13 @@ import { Pane } from "tweakpane";
 import { MeshAsset, MeshInstance } from "../../src/meshes";
 import { OrbitCamera } from "../../src/cameras/OrbitCamera";
 import { Platform } from "../../src/foundation/Platform";
-import { Renderer } from "../../src/renderers/Renderer";
+import { Renderer } from "../../src/rendering/Renderer";
 import { Scene } from "../../src/core/Scene";
 import { ShaderMaterial } from "../../src/materials";
 import { TextureLoader } from "../../src/loaders/TextureLoader";
 import { Vector3 } from "../../src/maths/Vector3";
-import { WebGLBackend } from "../../src/renderers/WebGLBackend";
-import { WebGPUBackend } from "../../src/renderers/WebGPUBackend";
+import { WebGLBackend } from "../../src/backends/webgl/WebGLBackend";
+import { WebGPUBackend } from "../../src/backends/webgpu/WebGPUBackend";
 import type { Texture } from "../../src/core/Texture";
 
 import {

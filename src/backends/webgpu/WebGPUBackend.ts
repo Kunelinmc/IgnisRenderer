@@ -1,5 +1,5 @@
 /// <reference types="@webgpu/types" />
-import { type ICommandBuffer, type ICommandEncoder } from "./ICommandEncoder";
+import { type ICommandBuffer, type ICommandEncoder } from "../ICommandEncoder";
 import type {
 	IRenderBackend,
 	BackendCapabilities,
@@ -11,14 +11,14 @@ import type {
 	RenderSurfaceSize,
 	WarmupOptions,
 	WarmupReport,
-} from "./IRenderBackend";
-import type { RenderTargetReadbackOptions } from "./CustomRenderTargets";
-import type { TextureReadbackResult } from "./IComputeRuntime";
-import { type FrameAttachments, type FrameContext, type FramePass } from "../pipeline/types";
+} from "../IRenderBackend";
+import type { RenderTargetReadbackOptions } from "../../rendering/CustomRenderTargets";
+import type { TextureReadbackResult } from "../IComputeRuntime";
+import { type FrameAttachments, type FrameContext, type FramePass } from "../../pipeline/types";
 import type {
 	NormalizedOcclusionCullingOptions,
 	OcclusionCullingBackendAdapter,
-} from "../pipeline/OcclusionCulling";
+} from "../../pipeline/OcclusionCulling";
 import {
 	createRenderBackendExtensionRegistry,
 	PROBE_CAPTURE_EXTENSION,
@@ -26,36 +26,36 @@ import {
 	RENDERER_OCCLUSION_VISIBILITY_INSERTION_POINT,
 	WEBGPU_COMPUTE_EXTENSION,
 	WEBGPU_OCCLUSION_AFTER_DEPTH_INSERTION_POINT,
-} from "./BackendExtensions";
-import { WebGPUErrorScopeHelper } from "./webgpu/WebGPUErrorScopeHelper";
-import { WebGPUFrameOrchestrator } from "./webgpu/rendergraph/WebGPUFrameOrchestrator";
-import type { WebGPUFrameHost } from "./webgpu/rendergraph/WebGPUFrameHost";
-import { WebGPUPostProcessExecutor } from "./webgpu/WebGPUPostProcessExecutor";
-import type { WebGPUPostProcessSessionPort } from "./webgpu/WebGPUPostProcessExecutor";
-import { BackendPostProcessRuntime } from "../postprocess/BackendPostProcessRuntime";
-import { WebGPUCommandScheduler } from "./webgpu/WebGPUCommandScheduler";
-import { WebGPUCanvasTargetManager } from "./webgpu/WebGPUCanvasTargetManager";
-import { WebGPUResourceManager } from "./webgpu/WebGPUResourceManager";
-import { WebGPUShaderModuleCompiler } from "./webgpu/WebGPUShaderModuleCompiler";
-import { WebGPUPipelineCache, type WebGPUPipelineCacheHost } from "./webgpu/WebGPUPipelineCache";
+} from "../BackendExtensions";
+import { WebGPUErrorScopeHelper } from "./WebGPUErrorScopeHelper";
+import { WebGPUFrameOrchestrator } from "./rendergraph/WebGPUFrameOrchestrator";
+import type { WebGPUFrameHost } from "./rendergraph/WebGPUFrameHost";
+import { WebGPUPostProcessExecutor } from "./WebGPUPostProcessExecutor";
+import type { WebGPUPostProcessSessionPort } from "./WebGPUPostProcessExecutor";
+import { BackendPostProcessRuntime } from "../../postprocess/BackendPostProcessRuntime";
+import { WebGPUCommandScheduler } from "./WebGPUCommandScheduler";
+import { WebGPUCanvasTargetManager } from "./WebGPUCanvasTargetManager";
+import { WebGPUResourceManager } from "./WebGPUResourceManager";
+import { WebGPUShaderModuleCompiler } from "./WebGPUShaderModuleCompiler";
+import { WebGPUPipelineCache, type WebGPUPipelineCacheHost } from "./WebGPUPipelineCache";
 import {
 	WebGPUBindingGroupCache,
 	type WebGPUBindingGroupCacheHost,
-} from "./webgpu/WebGPUBindingGroupCache";
-import { WebGPUObjectIdentity } from "./webgpu/WebGPUObjectIdentity";
-import { WebGPUMSAAController, type WebGPUMSAAControllerHost } from "./webgpu/WebGPUMSAAController";
-import { WebGPUBackendPassDispatcher } from "./webgpu/WebGPUBackendPassDispatcher";
-import { WebGPUWarmupCoordinator } from "./webgpu/WebGPUWarmupCoordinator";
-import { WebGPUReflectionProbeCapturePass } from "./webgpu/WebGPUReflectionProbeCapturePass";
-import type { ProbeWebGPUCaptureFaceRequest } from "../lights/runtime/ProbeCaptureRuntime";
-import { WebGPUFrameServiceOwner } from "./webgpu/WebGPUFrameServiceOwner";
-import type { WebGPUCommandSchedulerHost } from "./webgpu/WebGPUBackendContracts";
+} from "./WebGPUBindingGroupCache";
+import { WebGPUObjectIdentity } from "./WebGPUObjectIdentity";
+import { WebGPUMSAAController, type WebGPUMSAAControllerHost } from "./WebGPUMSAAController";
+import { WebGPUBackendPassDispatcher } from "./WebGPUBackendPassDispatcher";
+import { WebGPUWarmupCoordinator } from "./WebGPUWarmupCoordinator";
+import { WebGPUReflectionProbeCapturePass } from "./WebGPUReflectionProbeCapturePass";
+import type { ProbeWebGPUCaptureFaceRequest } from "../../lights/runtime/ProbeCaptureRuntime";
+import { WebGPUFrameServiceOwner } from "./WebGPUFrameServiceOwner";
+import type { WebGPUCommandSchedulerHost } from "./WebGPUBackendContracts";
 import {
 	FramePassPlanValidator,
 	type FramePassPlanValidatorState,
-} from "../pipeline/FramePassPlanValidator";
-import type { IParticleSimulator } from "../simulation/particles/IParticleSimulator";
-import { WebGPUParticleSimulator } from "../simulation/particles/WebGPUParticleSimulator";
+} from "../../pipeline/FramePassPlanValidator";
+import type { IParticleSimulator } from "../../simulation/particles/IParticleSimulator";
+import { WebGPUParticleSimulator } from "../../simulation/particles/WebGPUParticleSimulator";
 import {
 	WEBGPU_DEFERRED_COLOR_BYTES_PER_SAMPLE,
 	WEBGPU_DEFERRED_COLOR_TARGET_COUNT,
@@ -65,7 +65,7 @@ import {
 	WEBGPU_REQUIRED_FRAGMENT_SAMPLED_TEXTURE_COUNT,
 	WEBGPU_SCENE_REQUIRED_FRAGMENT_SAMPLER_COUNT,
 	WEBGPU_REQUIRED_FRAGMENT_STORAGE_BUFFER_COUNT,
-} from "./webgpu/constants";
+} from "./constants";
 import {
 	BufferUsage,
 	type BindingGroupDesc,
@@ -85,21 +85,21 @@ import {
 	type TextureDesc,
 	TextureFormat,
 	TextureUsage,
-} from "./types";
+} from "../types";
 import {
 	ShaderBackendCompileStage,
 	DEFAULT_SHADER_DIRECTIVE_PROFILE_REGISTRY,
 	ShaderRuntime,
-} from "../shaders/runtime";
-import type { ShaderDirectiveCompileHook, ShaderRuntimeMode } from "../shaders/runtime";
-import { ShaderSource } from "../shaders/ShaderSource";
-import type { Texture } from "../core/Texture";
+} from "../../shaders/runtime";
+import type { ShaderDirectiveCompileHook, ShaderRuntimeMode } from "../../shaders/runtime";
+import { ShaderSource } from "../../shaders/ShaderSource";
+import type { Texture } from "../../core/Texture";
 import {
 	createWebGPUComputeFacade,
 	invalidateWebGPUComputeFacade,
 	type IWebGPUComputeFacade,
-} from "./webgpu/ComputeFacade";
-import { Logger } from "../foundation/Logger";
+} from "./ComputeFacade";
+import { Logger } from "../../foundation/Logger";
 
 const DEVICE_RECOVERY_MAX_ATTEMPTS = 3;
 const DEVICE_RECOVERY_BASE_DELAY_MS = 100;

@@ -23,7 +23,7 @@ import { Logger } from "../../foundation/Logger";
 import {
 	CustomRenderPassRegistrySnapshot,
 	RenderTargetRegistrySnapshot,
-} from "../CustomRenderTargets";
+} from "../../rendering/CustomRenderTargets";
 
 export const WEBGPU_PLANAR_REFLECTION_MAX_PLANES = 2;
 export const WEBGPU_PLANAR_REFLECTION_RESOLUTION_SCALE = 0.5;

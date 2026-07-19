@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { Logger } from "../../../src/foundation/Logger.ts";
-import { WebGLBackend } from "../../../src/renderers/WebGLBackend.ts";
+import { WebGLBackend } from "../../../src/backends/webgl/WebGLBackend.ts";
 import { PARTICLE_SIM_DELTA_TIME_SECONDS_KEY } from "../../../src/pipeline/types.ts";
 import { createResolvedPostProcess } from "../../helpers/postprocess.mjs";
 

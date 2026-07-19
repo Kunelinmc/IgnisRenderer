@@ -1,21 +1,21 @@
 import { clamp } from "../../maths/Common";
 import { ceilDiv, finiteOr } from "../../maths/Misc";
-import type { ICommandEncoder } from "../../renderers/ICommandEncoder";
+import type { ICommandEncoder } from "../../backends/ICommandEncoder";
 import {
 	BufferUsage,
 	type IComputePipeline,
 	type IRenderBuffer,
 	type IRenderTexture,
 	type IShaderModule,
-} from "../../renderers/types";
+} from "../../backends/types";
 import {
 	WEBGPU_2D_COMPUTE_WORKGROUP_SIZE as WORKGROUP_SIZE,
-} from "../../renderers/webgpu/constants";
+} from "../../backends/webgpu/constants";
 import {
 	WEBGPU_SCREEN_POST_PROCESS_CONTEXT_METADATA,
 	type WebGPUPostProcessFrameTargets,
-} from "../../renderers/webgpu/WebGPUPostProcessContracts";
-import type { PostProcessSharedContext } from "../../renderers/webgpu/postprocess/PostProcessSharedContext";
+} from "../../backends/webgpu/WebGPUPostProcessContracts";
+import type { PostProcessSharedContext } from "../../backends/webgpu/postprocess/PostProcessSharedContext";
 import { ShaderSource } from "../../shaders/ShaderSource";
 import { PostProcessPass, type PostProcessPassConfig } from "../PostProcessPass";
 import type { PostProcessPassMetadata } from "../ordering";

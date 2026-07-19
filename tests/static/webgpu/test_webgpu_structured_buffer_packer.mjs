@@ -6,7 +6,7 @@ import {
 	structOf,
 	StructuredBufferLayout,
 	vec,
-} from "../../../src/renderers/webgpu/StructuredBufferLayout.ts";
+} from "../../../src/backends/webgpu/StructuredBufferLayout.ts";
 import {
 	arrayStruct,
 	arrayVec4,
@@ -20,7 +20,7 @@ import {
 	vec2,
 	vec3,
 	vec4,
-} from "../../../src/renderers/webgpu/StructuredBufferPacker.ts";
+} from "../../../src/backends/webgpu/StructuredBufferPacker.ts";
 
 function readF32(layout, data, path) {
 	return data[layout.byteOffsetOf(path) >> 2];

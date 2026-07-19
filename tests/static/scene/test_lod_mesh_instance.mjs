@@ -3,7 +3,7 @@ import { Camera } from "../../../src/cameras/Camera.ts";
 import { Material } from "../../../src/materials/Material.ts";
 import { LODMeshInstance } from "../../../src/meshes/LODMeshInstance.ts";
 import { MeshFactory } from "../../../src/meshes/MeshFactory.ts";
-import { Renderer } from "../../../src/renderers/Renderer.ts";
+import { Renderer } from "../../../src/rendering/Renderer.ts";
 import {
 	installNoopPostProcessAdapter,
 } from "../../helpers/postprocess.mjs";

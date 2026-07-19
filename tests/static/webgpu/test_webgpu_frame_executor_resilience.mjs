@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { WebGPUFrameOrchestrator as WebGPUFrameExecutor } from "../../../src/renderers/webgpu/rendergraph/WebGPUFrameOrchestrator.ts";
+import { WebGPUFrameOrchestrator as WebGPUFrameExecutor } from "../../../src/backends/webgpu/rendergraph/WebGPUFrameOrchestrator.ts";
 import { Logger } from "../../../src/foundation/Logger.ts";
 import { Camera } from "../../../src/cameras/Camera.ts";
 import { Material } from "../../../src/materials/Material.ts";

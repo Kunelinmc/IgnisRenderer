@@ -1,4 +1,4 @@
-import type { WarmupOptions } from "../renderers/IRenderBackend";
+import type { WarmupOptions } from "../backends/IRenderBackend";
 
 const DEFAULT_IDLE_TIMEOUT_MS = 16;
 const DEFAULT_BACKGROUND_YIELD_INTERVAL_MS = 4;

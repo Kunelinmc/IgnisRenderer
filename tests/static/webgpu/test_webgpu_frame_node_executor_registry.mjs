@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 
-import { WebGPUFrameNodeExecutorRegistry } from "../../../src/renderers/webgpu/rendergraph/WebGPUFrameNodeExecutorRegistry.ts";
-import { WEBGPU_FRAME_GRAPH_NODE_KINDS } from "../../../src/renderers/webgpu/rendergraph/types.ts";
+import { WebGPUFrameNodeExecutorRegistry } from "../../../src/backends/webgpu/rendergraph/WebGPUFrameNodeExecutorRegistry.ts";
+import { WEBGPU_FRAME_GRAPH_NODE_KINDS } from "../../../src/backends/webgpu/rendergraph/types.ts";
 
 function createNode(kind = "opaque-scene") {
 	return {

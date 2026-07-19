@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { Matrix4 } from "../../../src/maths/Matrix4.ts";
-import { WebGPUMaterialBindingCache } from "../../../src/renderers/webgpu/WebGPUMaterialBindingCache.ts";
+import { WebGPUMaterialBindingCache } from "../../../src/backends/webgpu/WebGPUMaterialBindingCache.ts";
 
 const fallbackAnisotropyTexture = { id: "anisotropy:fallback" };
 

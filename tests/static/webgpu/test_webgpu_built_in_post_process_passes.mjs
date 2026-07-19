@@ -6,15 +6,15 @@ import {
 	TemporalAntiAliasingPass,
 	VolumetricLightingPass,
 } from "../../../src/postprocess/index.ts";
-import { WebGPUBackend } from "../../../src/renderers/WebGPUBackend.ts";
+import { WebGPUBackend } from "../../../src/backends/webgpu/WebGPUBackend.ts";
 import {
 	RENDERER_OCCLUSION_CULLING_EXTENSION_ID,
 	RENDERER_OCCLUSION_VISIBILITY_INSERTION_POINT,
 	WEBGPU_OCCLUSION_AFTER_DEPTH_INSERTION_POINT,
-} from "../../../src/renderers/BackendExtensions.ts";
-import { WebGPUFrameOrchestrator as WebGPUFrameExecutor } from "../../../src/renderers/webgpu/rendergraph/WebGPUFrameOrchestrator.ts";
-import { WebGPUFrameFeatureDataStore } from "../../../src/renderers/webgpu/FrameFeatures.ts";
-import { WEBGPU_VOLUMETRIC_LIGHTING_DATA } from "../../../src/renderers/webgpu/WebGPUFrameFeatureModules.ts";
+} from "../../../src/backends/BackendExtensions.ts";
+import { WebGPUFrameOrchestrator as WebGPUFrameExecutor } from "../../../src/backends/webgpu/rendergraph/WebGPUFrameOrchestrator.ts";
+import { WebGPUFrameFeatureDataStore } from "../../../src/backends/webgpu/FrameFeatures.ts";
+import { WEBGPU_VOLUMETRIC_LIGHTING_DATA } from "../../../src/backends/webgpu/WebGPUFrameFeatureModules.ts";
 import { FakeWebGPUBackend as FakeBackend } from "../../helpers/fakes.mjs";
 import { createResolvedPostProcess } from "../../helpers/postprocess.mjs";
 

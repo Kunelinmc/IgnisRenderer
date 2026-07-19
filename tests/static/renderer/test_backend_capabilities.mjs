@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
-import { SoftwareBackend } from "../../../src/renderers/SoftwareBackend.ts";
-import { WebGPUBackend } from "../../../src/renderers/WebGPUBackend.ts";
-import { WebGLBackend } from "../../../src/renderers/WebGLBackend.ts";
+import { SoftwareBackend } from "../../../src/backends/software/SoftwareBackend.ts";
+import { WebGPUBackend } from "../../../src/backends/webgpu/WebGPUBackend.ts";
+import { WebGLBackend } from "../../../src/backends/webgl/WebGLBackend.ts";
 import { FakeImageData as MockImageData } from "../../helpers/fakes.mjs";
 import { attachBackend } from "../../helpers/TestRenderBackend.mjs";
 

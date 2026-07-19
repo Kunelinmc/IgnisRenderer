@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 
 import { Texture } from "../../../src/core/Texture.ts";
-import { TextureFormat, TextureUsage } from "../../../src/renderers/types.ts";
-import { WEBGPU_TEXTURE_SLOT } from "../../../src/renderers/webgpu/constants.ts";
-import { WebGPUMipmapGenerator } from "../../../src/renderers/webgpu/WebGPUMipmapGenerator.ts";
-import { WebGPUTextureRegistry } from "../../../src/renderers/webgpu/WebGPUTextureRegistry.ts";
+import { TextureFormat, TextureUsage } from "../../../src/backends/types.ts";
+import { WEBGPU_TEXTURE_SLOT } from "../../../src/backends/webgpu/constants.ts";
+import { WebGPUMipmapGenerator } from "../../../src/backends/webgpu/WebGPUMipmapGenerator.ts";
+import { WebGPUTextureRegistry } from "../../../src/backends/webgpu/WebGPUTextureRegistry.ts";
 
 import { FakeWebGPUBackend } from "../../helpers/fakes.mjs";
 

@@ -1,7 +1,7 @@
 import { BackendPostProcessRuntime } from "../../src/postprocess/BackendPostProcessRuntime.ts";
-import { createRenderBackendExtensionRegistry } from "../../src/renderers/BackendExtensions.ts";
-import { WebGLFrameServiceOwner } from "../../src/renderers/webgl/WebGLFrameServiceOwner.ts";
-import { WebGLPostProcessExecutor } from "../../src/renderers/webgl/WebGLPostProcessExecutor.ts";
+import { createRenderBackendExtensionRegistry } from "../../src/backends/BackendExtensions.ts";
+import { WebGLFrameServiceOwner } from "../../src/backends/webgl/WebGLFrameServiceOwner.ts";
+import { WebGLPostProcessExecutor } from "../../src/backends/webgl/WebGLPostProcessExecutor.ts";
 
 const TEST_BACKEND = {
 	profile: {

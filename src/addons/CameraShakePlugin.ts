@@ -1,4 +1,4 @@
-import type { Renderer } from "../renderers/Renderer";
+import type { Renderer } from "../rendering/Renderer";
 import { Camera } from "../cameras/Camera";
 import { OrbitCamera } from "../cameras/OrbitCamera";
 import { Quaternion } from "../maths/Quaternion";

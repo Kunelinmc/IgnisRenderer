@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { WebGPUFrameGraphCompiler } from "../../../src/renderers/webgpu/rendergraph/WebGPUFrameGraphCompiler.ts";
+import { WebGPUFrameGraphCompiler } from "../../../src/backends/webgpu/rendergraph/WebGPUFrameGraphCompiler.ts";
 
 function createPass(stage = "main-opaque") {
 	return { stage, executor: "backend", enabled: true, dependsOn: [] };

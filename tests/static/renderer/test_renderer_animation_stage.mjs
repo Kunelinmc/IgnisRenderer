@@ -6,7 +6,7 @@ import { MeshAsset } from "../../../src/meshes/MeshAsset.ts";
 import { MeshInstance } from "../../../src/meshes/MeshInstance.ts";
 import { AnimationClip } from "../../../src/animation/AnimationClip.ts";
 import { KeyframeTrack } from "../../../src/animation/KeyframeTrack.ts";
-import { Renderer } from "../../../src/renderers/Renderer.ts";
+import { Renderer } from "../../../src/rendering/Renderer.ts";
 import {
 	installNoopPostProcessAdapter,
 } from "../../helpers/postprocess.mjs";

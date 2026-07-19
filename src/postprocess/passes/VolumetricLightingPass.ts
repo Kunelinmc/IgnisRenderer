@@ -11,21 +11,21 @@ import {
 import { clamp } from "../../maths/Common";
 import type { IVector3 } from "../../maths/types";
 import type { FrameContext } from "../../pipeline/types";
-import type { ICommandEncoder } from "../../renderers/ICommandEncoder";
+import type { ICommandEncoder } from "../../backends/ICommandEncoder";
 import {
 	createLightContribution,
 	evaluateLightContribution,
-} from "../../renderers/software/LightEvaluator";
+} from "../../backends/software/LightEvaluator";
 import {
 	createSoftwareShadowSampler,
 	getSoftwareShadowRuntimeMap,
-} from "../../renderers/software/passes/SoftwareShadowPass";
+} from "../../backends/software/passes/SoftwareShadowPass";
 import {
 	MAX_EXPOSURE,
 	MAX_VOLUMETRIC_LIGHTS,
 	POST_PROCESS_NOISE_REFERENCE_WIDTH,
 	VOLUMETRIC_SIGMA_T_SCALE,
-} from "../../renderers/constants";
+} from "../../backends/constants";
 import {
 	BufferUsage,
 	type IBindingGroup,
@@ -33,16 +33,16 @@ import {
 	type IRenderBuffer,
 	type IRenderTexture,
 	type IShaderModule,
-} from "../../renderers/types";
+} from "../../backends/types";
 import {
 	WEBGPU_2D_COMPUTE_WORKGROUP_SIZE as WORKGROUP_SIZE,
 	WEBGPU_VOLUMETRIC_LIGHT_STRIDE_FLOATS as VOLUMETRIC_LIGHT_STRIDE_FLOATS,
-} from "../../renderers/webgpu/constants";
-import { getWebGPUVolumetricLightLayout } from "../../renderers/webgpu/bufferLayouts";
-import type { WebGPUPostProcessFrameTargets } from "../../renderers/webgpu/WebGPUPostProcessContracts";
-import type { PostProcessSharedContext } from "../../renderers/webgpu/postprocess/PostProcessSharedContext";
-import { WEBGPU_VOLUMETRIC_LIGHTING_DATA } from "../../renderers/webgpu/WebGPUFrameFeatureModules";
-import type { WebGPUVolumetricLightingData } from "../../renderers/webgpu/types";
+} from "../../backends/webgpu/constants";
+import { getWebGPUVolumetricLightLayout } from "../../backends/webgpu/bufferLayouts";
+import type { WebGPUPostProcessFrameTargets } from "../../backends/webgpu/WebGPUPostProcessContracts";
+import type { PostProcessSharedContext } from "../../backends/webgpu/postprocess/PostProcessSharedContext";
+import { WEBGPU_VOLUMETRIC_LIGHTING_DATA } from "../../backends/webgpu/WebGPUFrameFeatureModules";
+import type { WebGPUVolumetricLightingData } from "../../backends/webgpu/types";
 import { ceilDiv, finiteOr } from "../../maths/Misc";
 import { ShaderSource } from "../../shaders/ShaderSource";
 import {

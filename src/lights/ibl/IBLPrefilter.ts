@@ -13,20 +13,20 @@ import {
 	type IRenderBuffer,
 	type IRenderTexture,
 	type ISampler,
-} from "../../renderers/types";
+} from "../../backends/types";
 import type {
 	IComputeKernel,
 	IComputeRuntime,
-} from "../../renderers/IComputeRuntime";
-import type { WebGPUComputeFacadeSource } from "../../renderers/webgpu/ComputeFacade";
-import { ComputeRuntime } from "../../renderers/webgpu/ComputeRuntime";
+} from "../../backends/IComputeRuntime";
+import type { WebGPUComputeFacadeSource } from "../../backends/webgpu/ComputeFacade";
+import { ComputeRuntime } from "../../backends/webgpu/ComputeRuntime";
 import {
 	createTextureMipUploadLevels,
 	resolveWebGPUTextureUploadFormat,
-} from "../../renderers/webgpu/texture";
+} from "../../backends/webgpu/texture";
 import {
 	WEBGPU_2D_COMPUTE_WORKGROUP_SIZE as WORKGROUP_SIZE,
-} from "../../renderers/webgpu/constants";
+} from "../../backends/webgpu/constants";
 import { ShaderSource } from "../../shaders/ShaderSource";
 import { globalWorkerScheduler } from "../../workers/WorkerScheduler";
 import { postMessageWorkerTransportPlugin } from "../../workers/transports";

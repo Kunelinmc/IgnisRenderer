@@ -1,4 +1,4 @@
-import { createRenderBackendExtensionRegistry } from "../../src/renderers/BackendExtensions.ts";
+import { createRenderBackendExtensionRegistry } from "../../src/backends/BackendExtensions.ts";
 
 export class TestRenderBackend {
 	constructor() {

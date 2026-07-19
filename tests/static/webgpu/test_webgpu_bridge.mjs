@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { WebGPUFrameServiceOwner as WebGPURenderResources } from "../../../src/renderers/webgpu/WebGPUFrameServiceOwner.ts";
-import { WebGPUFrameOrchestrator as WebGPUFrameExecutor } from "../../../src/renderers/webgpu/rendergraph/WebGPUFrameOrchestrator.ts";
+import { WebGPUFrameServiceOwner as WebGPURenderResources } from "../../../src/backends/webgpu/WebGPUFrameServiceOwner.ts";
+import { WebGPUFrameOrchestrator as WebGPUFrameExecutor } from "../../../src/backends/webgpu/rendergraph/WebGPUFrameOrchestrator.ts";
 import { ShaderSource } from "../../../src/shaders/ShaderSource.ts";
 import {
 	DEFAULT_SHADER_DIRECTIVE_PROFILE_REGISTRY,
@@ -24,11 +24,11 @@ import {
 	WEBGPU_FRAME_ENVIRONMENT_UNIFORM_FLOATS,
 	WEBGPU_FRAME_LIGHT_UNIFORM_FLOATS,
 	WEBGPU_FRAME_SHADOW_UNIFORM_FLOATS,
-} from "../../../src/renderers/webgpu/index.ts";
-import { WebGPUReflectionProbeCapturePass } from "../../../src/renderers/webgpu/WebGPUReflectionProbeCapturePass.ts";
-import { createWebGPUPipelineLayouts } from "../../../src/renderers/webgpu/WebGPUPipelineLayouts.ts";
+} from "../../../src/backends/webgpu/index.ts";
+import { WebGPUReflectionProbeCapturePass } from "../../../src/backends/webgpu/WebGPUReflectionProbeCapturePass.ts";
+import { createWebGPUPipelineLayouts } from "../../../src/backends/webgpu/WebGPUPipelineLayouts.ts";
 import { resolveFeatureState } from "../../../src/pipeline/FeatureResolver.ts";
-import { BufferUsage, TextureFormat } from "../../../src/renderers/types.ts";
+import { BufferUsage, TextureFormat } from "../../../src/backends/types.ts";
 import { LightProbe } from "../../../src/lights/LightProbe.ts";
 import { AreaLight } from "../../../src/lights/AreaLight.ts";
 import { DirectionalLight } from "../../../src/lights/DirectionalLight.ts";
@@ -56,7 +56,7 @@ import { ParticleBlendMode } from "../../../src/particles/types.ts";
 import {
 	WEBGPU_FRAME_CAMERA_UNIFORM_LAYOUT,
 	WEBGPU_PARTICLE_VERTEX_LAYOUTS,
-} from "../../../src/renderers/webgpu/bufferLayouts.ts";
+} from "../../../src/backends/webgpu/bufferLayouts.ts";
 import {
 	MAX_DIRECTIONAL_LIGHTS,
 	MAX_AREA_LIGHTS,
@@ -64,7 +64,7 @@ import {
 	MAX_POINT_LIGHTS,
 	MAX_REFLECTION_PROBES,
 	MAX_SPOT_LIGHTS,
-} from "../../../src/renderers/constants.ts";
+} from "../../../src/backends/constants.ts";
 import {
 	WEBGPU_DEFERRED_COLOR_BYTES_PER_SAMPLE,
 	WEBGPU_DEFERRED_COLOR_TARGET_COUNT,
@@ -92,9 +92,9 @@ import {
 	WEBGPU_TEXTURE_SLOT_COUNT,
 	WEBGPU_TEXTURE_SLOT,
 	GBufferSlot,
-} from "../../../src/renderers/webgpu/constants.ts";
-import { WebGPUGeometryRegistry } from "../../../src/renderers/webgpu/WebGPUGeometryRegistry.ts";
-import { WebGPUTextureRegistry } from "../../../src/renderers/webgpu/WebGPUTextureRegistry.ts";
+} from "../../../src/backends/webgpu/constants.ts";
+import { WebGPUGeometryRegistry } from "../../../src/backends/webgpu/WebGPUGeometryRegistry.ts";
+import { WebGPUTextureRegistry } from "../../../src/backends/webgpu/WebGPUTextureRegistry.ts";
 import { createResolvedPostProcess } from "../../helpers/postprocess.mjs";
 
 globalThis.GPUShaderStage ??= {
@@ -829,7 +829,7 @@ function testShadowDepthLayoutMatchesTransmittanceShaderBinding() {
 		"utf8"
 	);
 	const shadowPassSource = readFileSync(
-		"src/renderers/webgpu/WebGPUShadowPass.ts",
+		"src/backends/webgpu/WebGPUShadowPass.ts",
 		"utf8"
 	);
 	const depthLayoutBindingPattern = new RegExp([

@@ -3,7 +3,7 @@ import { CameraType } from "../../../src/cameras/Camera.ts";
 import { Texture } from "../../../src/core/Texture.ts";
 import { sRGBToLinear } from "../../../src/maths/Common.ts";
 import { Matrix4 } from "../../../src/maths/Matrix4.ts";
-import { EnvironmentBackgroundRenderer } from "../../../src/renderers/software/EnvironmentRenderer.ts";
+import { EnvironmentBackgroundRenderer } from "../../../src/backends/software/EnvironmentRenderer.ts";
 
 const DEFAULT_BACKGROUND_OPTIONS = {
 	strength: 1,

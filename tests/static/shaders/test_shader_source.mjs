@@ -18,7 +18,7 @@ import {
 	MAX_POINT_LIGHTS,
 	MAX_REFLECTION_PROBES,
 	MAX_SPOT_LIGHTS,
-} from "../../../src/renderers/constants.ts";
+} from "../../../src/backends/constants.ts";
 
 const REPO_ROOT = path.resolve(
 	path.dirname(fileURLToPath(import.meta.url)),
@@ -392,7 +392,7 @@ async function testPagedShadowClearLayoutMatchesShaderBindings() {
 
 	const source = await ShaderSource.load("webgpu.shadow.pagedShadowClear.raw");
 	const shadowPass = await readFile(
-		path.join(REPO_ROOT, "src", "renderers", "webgpu", "WebGPUShadowPass.ts"),
+		path.join(REPO_ROOT, "src", "backends", "webgpu", "WebGPUShadowPass.ts"),
 		"utf8"
 	);
 	const layoutStart = shadowPass.indexOf(

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { Texture } from "../../../src/core/Texture.ts";
-import { WebGLTextureRegistry } from "../../../src/renderers/webgl/WebGLTextureRegistry.ts";
-import { TextureFormat } from "../../../src/renderers/types.ts";
+import { WebGLTextureRegistry } from "../../../src/backends/webgl/WebGLTextureRegistry.ts";
+import { TextureFormat } from "../../../src/backends/types.ts";
 
 function createTextureRegistryTestGL(options = {}) {
 	let textureId = 0;

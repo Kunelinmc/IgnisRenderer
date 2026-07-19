@@ -3,27 +3,27 @@ import {
 	type FrameAttachments,
 } from "../../pipeline/types";
 import type { Matrix4 } from "../../maths/Matrix4";
-import type { TemporalJitterFrameState } from "../../renderers/cross/TemporalJitterState";
-import type { ICommandEncoder } from "../../renderers/ICommandEncoder";
+import type { TemporalJitterFrameState } from "../../backends/cross/TemporalJitterState";
+import type { ICommandEncoder } from "../../backends/ICommandEncoder";
 import {
 	BufferUsage,
 	type IComputePipeline,
 	type IRenderBuffer,
 	type IRenderTexture,
 	type IShaderModule,
-} from "../../renderers/types";
+} from "../../backends/types";
 import {
 	WEBGPU_2D_COMPUTE_WORKGROUP_SIZE as WORKGROUP_SIZE,
-} from "../../renderers/webgpu/constants";
-import type { WebGPUPostProcessFrameTargets } from "../../renderers/webgpu/WebGPUPostProcessContracts";
+} from "../../backends/webgpu/constants";
+import type { WebGPUPostProcessFrameTargets } from "../../backends/webgpu/WebGPUPostProcessContracts";
 import {
 	WEBGL_SCREEN_POST_PROCESS_CONTEXT_METADATA,
-} from "../../renderers/webgl/WebGLPostProcessContracts";
-import type { PostProcessSharedContext } from "../../renderers/webgpu/postprocess/PostProcessSharedContext";
+} from "../../backends/webgl/WebGLPostProcessContracts";
+import type { PostProcessSharedContext } from "../../backends/webgpu/postprocess/PostProcessSharedContext";
 import type {
 	WebGLProgramCompiler,
 	WebGLProgramSlot,
-} from "../../renderers/webgl/WebGLProgramCompiler";
+} from "../../backends/webgl/WebGLProgramCompiler";
 import { clamp } from "../../maths/Common";
 import {
 	ceilDiv,

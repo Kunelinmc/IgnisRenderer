@@ -4,8 +4,8 @@ import { Logger } from "../../../src/foundation/Logger.ts";
 import { Matrix4 } from "../../../src/maths/Matrix4.ts";
 import {
 	MAX_CLUSTER_LIGHTS_PER_FRAGMENT,
-} from "../../../src/renderers/constants.ts";
-import { WebGLClusteredLightingRuntime } from "../../../src/renderers/webgl/WebGLClusteredLightingRuntime.ts";
+} from "../../../src/backends/constants.ts";
+import { WebGLClusteredLightingRuntime } from "../../../src/backends/webgl/WebGLClusteredLightingRuntime.ts";
 
 function createFakeGL() {
 	let textureId = 0;

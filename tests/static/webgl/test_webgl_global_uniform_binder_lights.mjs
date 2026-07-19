@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
-import { bindWebGLGlobalUniforms } from "../../../src/renderers/webgl/WebGLGlobalUniformBinder.ts";
-import { MAX_POINT_LIGHTS } from "../../../src/renderers/constants.ts";
+import { bindWebGLGlobalUniforms } from "../../../src/backends/webgl/WebGLGlobalUniformBinder.ts";
+import { MAX_POINT_LIGHTS } from "../../../src/backends/constants.ts";
 import { createResolvedPostProcess } from "../../helpers/postprocess.mjs";
 
 function approxEqual(actual, expected, epsilon = 1e-5) {

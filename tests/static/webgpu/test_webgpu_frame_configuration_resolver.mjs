@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
-import { WebGPUFrameConfigurationResolver } from "../../../src/renderers/webgpu/rendergraph/WebGPUFrameConfigurationResolver.ts";
-import { WebGPUFrameFeatureAnalyzer } from "../../../src/renderers/webgpu/rendergraph/WebGPUFrameFeatureAnalyzer.ts";
+import { WebGPUFrameConfigurationResolver } from "../../../src/backends/webgpu/rendergraph/WebGPUFrameConfigurationResolver.ts";
+import { WebGPUFrameFeatureAnalyzer } from "../../../src/backends/webgpu/rendergraph/WebGPUFrameFeatureAnalyzer.ts";
 import { PBRMaterial } from "../../../src/materials/PBRMaterial.ts";
 import { createResolvedPostProcess } from "../../helpers/postprocess.mjs";
 

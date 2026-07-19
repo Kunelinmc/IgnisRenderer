@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { resolveFeatureState } from "../../../src/pipeline/FeatureResolver.ts";
-import { WebGPUBackend } from "../../../src/renderers/WebGPUBackend.ts";
-import { WebGLBackend } from "../../../src/renderers/WebGLBackend.ts";
-import { SoftwareBackend } from "../../../src/renderers/SoftwareBackend.ts";
+import { WebGPUBackend } from "../../../src/backends/webgpu/WebGPUBackend.ts";
+import { WebGLBackend } from "../../../src/backends/webgl/WebGLBackend.ts";
+import { SoftwareBackend } from "../../../src/backends/software/SoftwareBackend.ts";
 import { attachBackend } from "../../helpers/TestRenderBackend.mjs";
 
 function testEnableOITNegotiationAcrossBackends() {

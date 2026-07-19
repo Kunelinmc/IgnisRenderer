@@ -67,14 +67,14 @@ import type {
 	RendererBackendResourceEvent,
 	WarmupOptions,
 	WarmupReport,
-} from "./IRenderBackend";
-import type { RenderBackendExtensionKey } from "./BackendExtensions";
+} from "../backends/IRenderBackend";
+import type { RenderBackendExtensionKey } from "../backends/BackendExtensions";
 import {
 	CustomRenderPassRegistry,
 	RenderTargetRegistry,
 	type RenderTargetReadbackOptions,
 } from "./CustomRenderTargets";
-import type { TextureReadbackResult } from "./IComputeRuntime";
+import type { TextureReadbackResult } from "../backends/IComputeRuntime";
 import {
 	FrameCoordinator,
 	type FrameCoordinatorDelegate,

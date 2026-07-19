@@ -27,7 +27,7 @@ import type {
 import type {
 	BackendCapabilities,
 	RenderBackendType,
-} from "../renderers/IRenderBackend";
+} from "../backends/IRenderBackend";
 
 export type RenderPipelineStageKind =
 	| "renderer"

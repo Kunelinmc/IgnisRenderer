@@ -7,7 +7,7 @@ import { ReflectionProbe } from "../../../src/lights/ReflectionProbe.ts";
 import { IBLPrefilter } from "../../../src/lights/ibl/IBLPrefilter.ts";
 import { Matrix4 } from "../../../src/maths/Matrix4.ts";
 import { ProbeCaptureRuntime } from "../../../src/lights/runtime/ProbeCaptureRuntime.ts";
-import { Renderer } from "../../../src/renderers/Renderer.ts";
+import { Renderer } from "../../../src/rendering/Renderer.ts";
 import {
 	installNoopPostProcessAdapter,
 } from "../../helpers/postprocess.mjs";

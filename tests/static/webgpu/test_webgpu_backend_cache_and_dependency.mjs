@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { Logger } from "../../../src/foundation/Logger.ts";
-import { WebGPUBackend } from "../../../src/renderers/WebGPUBackend.ts";
+import { WebGPUBackend } from "../../../src/backends/webgpu/WebGPUBackend.ts";
 import {
 	createInlineShaderSourceMap,
 	ShaderCompileError,
@@ -9,7 +9,7 @@ import {
 	BufferUsage,
 	TextureFormat,
 	TextureUsage,
-} from "../../../src/renderers/types.ts";
+} from "../../../src/backends/types.ts";
 import { createResolvedPostProcess } from "../../helpers/postprocess.mjs";
 
 if (!globalThis.GPUBufferUsage) {

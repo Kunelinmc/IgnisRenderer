@@ -1,20 +1,20 @@
 import { linearToSRGB } from "../../maths/Common";
 import { ceilDiv } from "../../maths/Misc";
-import { DEFAULT_GAMMA } from "../../renderers/constants";
-import { WEBGPU_2D_COMPUTE_WORKGROUP_SIZE as WEBGPU_WORKGROUP_SIZE } from "../../renderers/webgpu/constants";
+import { DEFAULT_GAMMA } from "../../backends/constants";
+import { WEBGPU_2D_COMPUTE_WORKGROUP_SIZE as WEBGPU_WORKGROUP_SIZE } from "../../backends/webgpu/constants";
 import {
 	BufferUsage,
 	type IComputePipeline,
 	type IRenderBuffer,
 	type IShaderModule,
-} from "../../renderers/types";
-import { WEBGPU_SCREEN_POST_PROCESS_CONTEXT_METADATA } from "../../renderers/webgpu/WebGPUPostProcessContracts";
-import { WEBGL_SCREEN_POST_PROCESS_CONTEXT_METADATA } from "../../renderers/webgl/WebGLPostProcessContracts";
-import type { PostProcessSharedContext } from "../../renderers/webgpu/postprocess/PostProcessSharedContext";
+} from "../../backends/types";
+import { WEBGPU_SCREEN_POST_PROCESS_CONTEXT_METADATA } from "../../backends/webgpu/WebGPUPostProcessContracts";
+import { WEBGL_SCREEN_POST_PROCESS_CONTEXT_METADATA } from "../../backends/webgl/WebGLPostProcessContracts";
+import type { PostProcessSharedContext } from "../../backends/webgpu/postprocess/PostProcessSharedContext";
 import type {
 	WebGLProgramCompiler,
 	WebGLProgramSlot,
-} from "../../renderers/webgl/WebGLProgramCompiler";
+} from "../../backends/webgl/WebGLProgramCompiler";
 import { ShaderSource } from "../../shaders/ShaderSource";
 import type { PostProcessIncrementalMetadata } from "../../pipeline/incremental";
 import { PostProcessPass, type PostProcessPassConfig } from "../PostProcessPass";

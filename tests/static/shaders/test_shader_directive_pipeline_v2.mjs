@@ -14,7 +14,7 @@ import {
 	MAX_POINT_LIGHTS,
 	MAX_REFLECTION_PROBES,
 	MAX_SPOT_LIGHTS,
-} from "../../../src/renderers/constants.ts";
+} from "../../../src/backends/constants.ts";
 
 function createStage(options = {}) {
 	const runtime = options.runtime ?? new ShaderRuntime({ mode: "warn" });

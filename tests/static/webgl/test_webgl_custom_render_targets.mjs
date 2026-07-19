@@ -1,14 +1,14 @@
 import assert from "node:assert/strict";
-import { WebGLCustomRenderTargetRuntime } from "../../../src/renderers/webgl/WebGLCustomRenderTargetRuntime.ts";
+import { WebGLCustomRenderTargetRuntime } from "../../../src/backends/webgl/WebGLCustomRenderTargetRuntime.ts";
 import {
 	BufferUsage,
 	PrimitiveTopology,
 	TextureFormat,
-} from "../../../src/renderers/types.ts";
+} from "../../../src/backends/types.ts";
 import {
 	CustomRenderPassRegistrySnapshot,
 	RenderTargetRegistrySnapshot,
-} from "../../../src/renderers/CustomRenderTargets.ts";
+} from "../../../src/rendering/CustomRenderTargets.ts";
 import { createResolvedPostProcess } from "../../helpers/postprocess.mjs";
 
 function createFakeGL() {

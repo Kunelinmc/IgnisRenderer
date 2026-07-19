@@ -12,7 +12,7 @@ import {
 } from "../../../src/postprocess/index.ts";
 import {
 	WEBGL_SCREEN_POST_PROCESS_CONTEXT_METADATA,
-} from "../../../src/renderers/webgl/WebGLPostProcessContracts.ts";
+} from "../../../src/backends/webgl/WebGLPostProcessContracts.ts";
 import { createResolvedPostProcess } from "../../helpers/postprocess.mjs";
 
 function createFXAATestGL() {
