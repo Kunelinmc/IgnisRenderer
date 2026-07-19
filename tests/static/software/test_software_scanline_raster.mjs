@@ -186,6 +186,7 @@ function createCamera() {
 }
 
 async function renderPass(backend, stage, packetsByStage) {
+	await backend.initialize();
 	const camera = createCamera();
 	const context = createContext(backend, camera, packetsByStage);
 	backend.beginFrame(context);
@@ -197,6 +198,7 @@ async function renderPass(backend, stage, packetsByStage) {
 		},
 		context
 	);
+	backend.endFrame();
 	return context.attachments;
 }
 

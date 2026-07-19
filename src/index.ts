@@ -112,7 +112,6 @@ export {
 	type ReadBufferOptions,
 	type ReadTextureOptions,
 } from "./backends/webgpu/ComputeRuntime";
-export { Rasterizer } from "./backends/software/Rasterizer";
 export type {
 	FrameContext,
 	FramePass,

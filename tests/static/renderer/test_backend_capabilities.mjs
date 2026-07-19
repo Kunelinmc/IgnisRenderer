@@ -99,15 +99,15 @@ function testSoftwareBackendReusesFrameImageData() {
 		pixels[0] = 7;
 		const putCalls = [];
 
-		backend._ctx = {
+		backend._surface._ctx = {
 			putImageData(imageData, x, y) {
 				putCalls.push({ imageData, x, y });
 			},
 		};
 
-		backend.endFrame();
+		backend._surface.present();
 		pixels[0] = 21;
-		backend.endFrame();
+		backend._surface.present();
 
 		assert.equal(MockImageData.instances.length, 1);
 		assert.equal(putCalls.length, 2);
@@ -133,13 +133,13 @@ function testSoftwareBackendHandlesResizeDuringFrame() {
 		const putCalls = [];
 
 		attachments.pixels[0] = 99;
-		backend._ctx = {
+		backend._surface._ctx = {
 			putImageData(imageData, x, y) {
 				putCalls.push({ imageData, x, y });
 			},
 		};
 
-		assert.doesNotThrow(() => backend.endFrame());
+		assert.doesNotThrow(() => backend._surface.present());
 		assert.equal(putCalls.length, 1);
 		assert.equal(putCalls[0].imageData.width, 2);
 		assert.equal(putCalls[0].imageData.height, 2);

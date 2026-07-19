@@ -19,6 +19,13 @@ export interface TemporalJitterFrameState {
 	readonly previousJitter: readonly [number, number];
 }
 
+/** @internal Restorable temporal jitter state for backend frame transactions. */
+export interface TemporalJitterCheckpoint {
+	readonly frameIndex: number;
+	readonly current: readonly [number, number];
+	readonly enabledLastFrame: boolean;
+}
+
 /**
  * Tracks current and previous temporal jitter for scene rendering.
  */
@@ -37,6 +44,22 @@ export class TemporalJitterState {
 		this._frameIndex = 0;
 		this._current = [0, 0];
 		this._enabledLastFrame = false;
+	}
+
+	/** @internal Captures state before beginning a backend frame transaction. */
+	public createCheckpoint(): TemporalJitterCheckpoint {
+		return {
+			frameIndex: this._frameIndex,
+			current: [this._current[0], this._current[1]],
+			enabledLastFrame: this._enabledLastFrame,
+		};
+	}
+
+	/** @internal Restores a checkpoint after a backend frame abort. */
+	public restoreCheckpoint(checkpoint: TemporalJitterCheckpoint): void {
+		this._frameIndex = checkpoint.frameIndex;
+		this._current = [checkpoint.current[0], checkpoint.current[1]];
+		this._enabledLastFrame = checkpoint.enabledLastFrame;
 	}
 
 	/**

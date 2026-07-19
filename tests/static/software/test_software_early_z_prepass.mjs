@@ -9,6 +9,7 @@ import { createResolvedPostProcess } from "../../helpers/postprocess.mjs";
 const WIDTH = 64;
 const HEIGHT = 64;
 const DEPTH_TOLERANCE = 1e-6;
+const initializedBackends = new WeakSet();
 
 function createZeroSH() {
 	return Array.from({ length: 9 }, () => ({ r: 0, g: 0, b: 0 }));
@@ -217,6 +218,10 @@ async function renderOpaqueFrame(
 	opaquePackets,
 	incremental = {}
 ) {
+	if (!initializedBackends.has(backend)) {
+		await backend.initialize();
+		initializedBackends.add(backend);
+	}
 	const context = createContext(
 		backend,
 		camera,
@@ -235,6 +240,7 @@ async function renderOpaqueFrame(
 		},
 		context
 	);
+	backend.endFrame();
 	return context.attachments;
 }
 

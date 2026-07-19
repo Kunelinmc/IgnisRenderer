@@ -13,6 +13,7 @@ import type { SoftwareBuiltinPostProcessContext } from "../../postprocess/passes
 
 export interface SoftwarePostProcessExecutorHost {
 	getCanvasContext(): CanvasRenderingContext2D | null;
+	getShadowSampler(context: FrameContext): SoftwareVolumetricLightingContext["sampleShadow"];
 }
 
 /**
@@ -106,6 +107,7 @@ export class SoftwarePostProcessExecutor implements IPostProcessExecutor {
 			case "volumetric": {
 				const context: SoftwareVolumetricLightingContext = {
 					canvasContext: this._host.getCanvasContext(),
+					sampleShadow: this._host.getShadowSampler(request.frameContext),
 				};
 				return context;
 			}

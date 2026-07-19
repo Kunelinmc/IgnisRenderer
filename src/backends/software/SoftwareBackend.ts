@@ -12,19 +12,9 @@ import {
 	type FrameContext,
 	type FramePass,
 } from "../../pipeline/types";
-import { Rasterizer } from "./Rasterizer";
-import {
-	SoftwarePostProcessExecutor,
-} from "./SoftwarePostProcessExecutor";
-import { BackendPostProcessRuntime } from "../../postprocess/BackendPostProcessRuntime";
-import { SoftwareMainPass } from "./passes/SoftwareMainPass";
-import { SoftwareParticlePass } from "./passes/SoftwareParticlePass";
-import { SoftwareReflectionPass } from "./passes/SoftwareReflectionPass";
-import { SoftwareShadowPass } from "./passes/SoftwareShadowPass";
-import type {
-	SoftwarePassLike,
-	SoftwareSurfaceCompositePass,
-} from "./passes/types";
+import { SoftwareSurfaceRuntime } from "./SoftwareSurfaceRuntime";
+import { SoftwarePassExecutor } from "./SoftwarePassExecutor";
+import { SoftwareFrameRuntime } from "./SoftwareFrameRuntime";
 import { SkyboxRenderer } from "./SkyboxRenderer";
 import { isShadowCastingLight } from "../../lights";
 import {
@@ -42,13 +32,15 @@ import {
 } from "../../pipeline/ShadowMetadata";
 import { FrameAttachments } from "../../pipeline/types";
 import { CameraType } from "../../cameras/Camera";
-import { TemporalJitterState } from "../cross/TemporalJitterState";
+import {
+	TemporalJitterState,
+	type TemporalJitterCheckpoint,
+} from "../cross/TemporalJitterState";
 import {
 	DEFAULT_TAA_OPTIONS,
 	SOFTWARE_TAA_RENDER_STATE_KEY,
 	type TAAOptions,
 } from "../../postprocess/passes/TemporalAntiAliasingPass";
-import { DefaultParticleSimulator } from "../../simulation/particles/DefaultParticleSimulator";
 import type { SoftwareBackendOptions } from "./types";
 import {
 	assertShaderDirectiveProfileRegistryComplete,
@@ -66,6 +58,20 @@ export type {
 type SoftwarePassHandler = (
 	context: FrameContext
 ) => void | Promise<void>;
+
+type SoftwareBackendState =
+	| "detached"
+	| "attached"
+	| "initializing"
+	| "ready"
+	| "frame-active"
+	| "restoring"
+	| "destroyed";
+
+interface SoftwareTemporalCommit {
+	previousViewProjection: FrameContext["viewCamera"]["viewProjectionMatrix"];
+	previousWorldMatrices: Map<string, FrameContext["worldMatrix"]>;
+}
 
 const SOFTWARE_SHADOW_CAPABILITIES: ShadowBackendCapabilities = {
 	backendKey: "software",
@@ -129,17 +135,6 @@ function resolvePreparedSceneEnvironment(scene: FrameContext["scene"]): {
 }
 
 export class SoftwareBackend implements IRenderBackend {
-	private readonly _postProcessRuntime = new BackendPostProcessRuntime({
-		executor: new SoftwarePostProcessExecutor({
-			getCanvasContext: () => this._ctx,
-		}),
-		backend: this,
-		warn: (key, message) =>
-			Logger.warn(`[${key}] ${message}`, {
-				scope: "SoftwareBackend",
-				onceKey: key,
-			}),
-	});
 	public readonly extensions = createRenderBackendExtensionRegistry([]);
 	public readonly profile: RenderBackendProfile = {
 		id: "software",
@@ -169,31 +164,15 @@ export class SoftwareBackend implements IRenderBackend {
 	};
 
 	private _attachContext: RenderBackendAttachContext | null = null;
-	private _attached = false;
-	private _ctx: CanvasRenderingContext2D | null = null;
-	private _rasterizer: Rasterizer | null = null;
-	private _mainPass: SoftwareMainPass | null = null;
-	private _particlePass: SoftwarePassLike | null = null;
-	private _shadowPass: SoftwarePassLike | null = null;
-	private _reflectionPass: (SoftwarePassLike & SoftwareSurfaceCompositePass) | null = null;
-	private _framePixelsShared = false;
-	private _pixels: Uint8ClampedArray | null = null;
-	private _depthBuffer: Float32Array | null = null;
-	private _normalBuffer: Float32Array | null = null;
-	private _motionBuffer: Float32Array | null = null;
+	private _state: SoftwareBackendState = "detached";
+	private readonly _surface = new SoftwareSurfaceRuntime();
+	private _executor: SoftwarePassExecutor | null = null;
 	private _temporalJitterState = new TemporalJitterState();
 	private _previousViewProjection: FrameContext["viewCamera"]["viewProjectionMatrix"] | null =
 		null;
 	private _previousWorldMatrices = new Map<string, FrameContext["worldMatrix"]>();
-	private _activeContext: FrameContext | null = null;
-	private _completedFrameCoverage: RenderBackendCompletedFrameCoverage = "full-frame";
-	private _frameImageData: ImageData | null = null;
-	private _framePixels: Uint8ClampedArray | null = null;
-	private _frameWidth = 0;
-	private _frameHeight = 0;
-	private _particleSimulator: DefaultParticleSimulator | null = null;
-	private _offscreenCanvas: OffscreenCanvas | null = null;
-	private _offscreenCtx: OffscreenCanvasRenderingContext2D | null = null;
+	private _temporalCheckpoint: TemporalJitterCheckpoint | null = null;
+	private readonly _frameRuntime = new SoftwareFrameRuntime();
 	private _options: SoftwareBackendOptions;
 	private readonly _passHandlers: Map<FramePass["stage"], SoftwarePassHandler>;
 
@@ -205,11 +184,12 @@ export class SoftwareBackend implements IRenderBackend {
 	}
 
 	public attach(context: RenderBackendAttachContext): void {
-		if (this._attached) {
+		if (this._state !== "detached") {
 			throw new Error("SoftwareBackend is already attached to a renderer.");
 		}
 		this._attachContext = context;
-		this._attached = true;
+		this._surface.attach(context.surface.canvas);
+		this._state = "attached";
 	}
 
 	/**
@@ -229,78 +209,90 @@ export class SoftwareBackend implements IRenderBackend {
 	}
 
 	public async initialize(): Promise<void> {
-		const canvas = this._requireAttachContext().surface.canvas;
-		this._ctx = canvas.getContext("2d");
-		this._ensureRuntime();
+		if (this._state !== "attached") {
+			this._throwForInitializeState();
+		}
+		this._state = "initializing";
+		try {
+			this._surface.initialize();
+			this._ensureRuntime();
+			this._state = "ready";
+		} catch (error) {
+			this._state = "attached";
+			throw error;
+		}
 	}
 
 	public async restore(): Promise<void> {
-		await this.initialize();
+		if (this._state !== "ready") {
+			throw new Error(
+				`SoftwareBackend.restore() requires the ready state; current state is "${this._state}".`,
+			);
+		}
+		this._state = "restoring";
+		try {
+			this._surface.initialize();
+			const replacement = this._createExecutor();
+			const previous = this._executor;
+			this._executor = replacement;
+			previous?.destroy();
+			this._resetTemporalState();
+			this._state = "ready";
+			this._requireAttachContext().events.emit({ type: "device-restored" });
+		} catch (error) {
+			this._state = "ready";
+			throw error;
+		}
 	}
 
 	private _ensureRuntime(): void {
-		if (this._rasterizer) {
-			return;
-		}
-		this._rasterizer = new Rasterizer();
-		this._shadowPass = new SoftwareShadowPass(this._rasterizer);
-		this._mainPass = new SoftwareMainPass(this._rasterizer, {
-			enableEarlyZPrepass: this._options.enableEarlyZPrepass,
-		});
-		this._particlePass = new SoftwareParticlePass();
-		this._reflectionPass = new SoftwareReflectionPass(this._rasterizer);
-		this._particleSimulator = new DefaultParticleSimulator({
-			backendTag: this.profile.id,
+		this._executor ??= this._createExecutor();
+	}
+
+	private _createExecutor(): SoftwarePassExecutor {
+		return new SoftwarePassExecutor({
+			backend: this,
+			backendOptions: this._options,
+			getCanvasContext: () => this._surface.getCanvasContext(),
 		});
 	}
 
 	public getAttachments(size: RenderSurfaceSize): FrameAttachments {
-		const { width, height } = size;
-		if (
-			!this._pixels ||
-			this._pixels.length !== width * height * 4 ||
-			!this._depthBuffer ||
-			this._depthBuffer.length !== width * height
-		) {
-			this._pixels = new Uint8ClampedArray(width * height * 4);
-			this._depthBuffer = new Float32Array(width * height);
-			this._normalBuffer = new Float32Array(width * height * 3);
-			this._motionBuffer = new Float32Array(width * height * 4);
+		if (this._state === "detached" || this._state === "destroyed") {
+			throw new Error("SoftwareBackend.getAttachments() requires attach() to complete.");
 		}
-		this._frameWidth = width;
-		this._frameHeight = height;
-		return {
-			pixels: this._pixels,
-			depthBuffer: this._depthBuffer,
-			normalBuffer: this._normalBuffer,
-			motionBuffer: this._motionBuffer,
-			width,
-			height,
-		};
+		if (this._state === "frame-active") {
+			throw new Error("SoftwareBackend cannot reconfigure attachments while a frame is active.");
+		}
+		return this._surface.getAttachments(size);
 	}
 
 	public resize(size: RenderSurfaceSize): void {
-		const { width, height } = size;
-		this._frameImageData = null;
-		this._framePixels = null;
-		this._framePixelsShared = false;
-
-		if (!this._offscreenCanvas) {
-			this._offscreenCanvas = new OffscreenCanvas(width, height);
-			this._offscreenCtx = this._offscreenCanvas.getContext(
-				"2d",
-			) as OffscreenCanvasRenderingContext2D | null;
-		} else {
-			this._offscreenCanvas.width = width;
-			this._offscreenCanvas.height = height;
+		if (this._state === "detached" || this._state === "destroyed") {
+			throw new Error("SoftwareBackend.resize() requires attach() to complete.");
 		}
-		this._postProcessRuntime.invalidateFrameSized();
+		if (this._state === "frame-active") {
+			this._frameRuntime.queueResize(size);
+			return;
+		}
+		this._applyResize(size);
+	}
+
+	private _applyResize(size: RenderSurfaceSize): void {
+		this._surface.resize(size);
+		this._executor?.invalidateFrameSized();
 	}
 
 	public beginFrame(context: FrameContext): void {
-		this._activeContext = context;
-		this._completedFrameCoverage = "full-frame";
-		this._particleSimulator?.beginFrame(context);
+		if (this._state !== "ready") {
+			throw new Error(
+				`SoftwareBackend.beginFrame() requires the ready state; current state is "${this._state}".`,
+			);
+		}
+		this._state = "frame-active";
+		this._frameRuntime.begin(context);
+		this._executor?.beginFrame(context);
+		this._temporalCheckpoint = this._temporalJitterState.createCheckpoint();
 		this._prepareTAARenderState(context);
 
 		const pixels = context.attachments.pixels!;
@@ -414,7 +406,8 @@ export class SoftwareBackend implements IRenderBackend {
 	}
 
 	public async executePass(pass: FramePass, context: FrameContext): Promise<void> {
-		if (!this._mainPass || !this._reflectionPass) return;
+		this._requireActiveContext(context, "executePass");
+		if (!this._executor) return;
 
 		if (context.customRenderPasses?.has(pass.stage)) {
 			const key = "software-custom-render-targets-unsupported";
@@ -438,50 +431,62 @@ export class SoftwareBackend implements IRenderBackend {
 	}
 
 	public skipPass(_pass: FramePass): void {
+		this._requireActiveContext(this._frameRuntime.activeContext, "skipPass");
 		// No pass dependency tracking in SoftwareBackend; no-op.
 	}
 
 	public endFrame(): void {
-		const context = this._activeContext;
-		this._particleSimulator?.endFrame();
-		this._activeContext = null;
-		if (context && this._canPreserveNonDirtyTiles(context)) {
-			this._completedFrameCoverage = "dirty-tiles";
-		}
+		const context = this._requireActiveContext(this._frameRuntime.activeContext, "endFrame");
+		this._executor?.endParticleFrame();
+		const temporalCommit = this._prepareTAARenderCommit(context);
 
-		if (!this._ctx) {
-			this._commitTAARenderState();
-			this._postProcessRuntime.commitFrame();
-			return;
-		}
+		this._surface.present();
 
-		const imageData = this._getFrameImageData();
-		if (this._offscreenCtx && this._offscreenCanvas) {
-			this._offscreenCtx.putImageData(imageData, 0, 0);
-			const bitmap = this._offscreenCanvas.transferToImageBitmap();
-			this._ctx.drawImage(bitmap, 0, 0);
-			bitmap.close();
+		this._executor?.commitFrame();
+		this._commitTAARenderState(temporalCommit);
+		if (this._canPreserveNonDirtyTiles(context)) {
+			this._frameRuntime.complete(true);
 		} else {
-			this._ctx.putImageData(imageData, 0, 0);
+			this._frameRuntime.complete(false);
 		}
-		this._commitTAARenderState();
-		this._postProcessRuntime.commitFrame();
+		this._temporalCheckpoint = null;
+		this._state = "ready";
+		this._flushPendingResize();
 	}
 
 	/** @internal Returns sanitized post-process graph diagnostics for backend tests. */
 	public getPostProcessGraphDebugState(): unknown {
-		return this._postProcessRuntime.getDebugState();
+		return this._executor?.getPostProcessDebugState() ?? null;
 	}
 
 	/** @internal Renderer frame-coordination coverage report. */
 	public getCompletedFrameCoverage(): RenderBackendCompletedFrameCoverage {
-		return this._completedFrameCoverage;
+		return this._frameRuntime.completedCoverage;
 	}
 
 	public async abortFrame(_error?: unknown): Promise<void> {
-		await this._postProcessRuntime.abortFrame(_error);
-		this._particleSimulator?.endFrame();
-		this._activeContext = null;
+		let abortError: unknown = null;
+		try {
+			await this._executor?.abortFrame(_error);
+		} catch (error) {
+			abortError = error;
+		}
+		try {
+			this._executor?.endParticleFrame();
+		} catch (error) {
+			abortError ??= error;
+		} finally {
+			if (this._temporalCheckpoint) {
+				this._temporalJitterState.restoreCheckpoint(this._temporalCheckpoint);
+			}
+			this._temporalCheckpoint = null;
+			this._frameRuntime.abort();
+			if (this._state === "frame-active") {
+				this._state = "ready";
+			}
+			this._flushPendingResize();
+		}
+		if (abortError) throw abortError;
 	}
 
 	private _prepareTAARenderState(context: FrameContext): void {
@@ -495,30 +500,31 @@ export class SoftwareBackend implements IRenderBackend {
 			jitterScale: taaOptions.jitterScale ?? DEFAULT_TAA_OPTIONS.jitterScale,
 			reset: context.incremental.temporalHistoryReset,
 		});
-		if (!taaEnabled || context.incremental.temporalHistoryReset) {
-			this._previousViewProjection = null;
-			this._previousWorldMatrices.clear();
-		}
+		const resetHistory = !taaEnabled || context.incremental.temporalHistoryReset;
 		context.transient.set(SOFTWARE_TAA_RENDER_STATE_KEY, {
 			...jitter,
-			previousViewProjection: this._previousViewProjection,
+			previousViewProjection: resetHistory ? null : this._previousViewProjection,
 			currentViewProjection: context.viewCamera.viewProjectionMatrix,
-			previousWorldMatrices: this._previousWorldMatrices,
+			previousWorldMatrices: resetHistory ? new Map() : this._previousWorldMatrices,
 			currentWorldMatrices: new Map(),
 		});
 	}
 
-	private _commitTAARenderState(): void {
-		const context = this._activeContext;
-		if (!context) {
-			return;
-		}
+	private _prepareTAARenderCommit(context: FrameContext): SoftwareTemporalCommit | null {
 		const state = context.transient.get(SOFTWARE_TAA_RENDER_STATE_KEY);
 		if (!state) {
-			return;
+			return null;
 		}
-		this._previousViewProjection = context.viewCamera.viewProjectionMatrix.clone();
-		this._previousWorldMatrices = new Map(state.currentWorldMatrices);
+		return {
+			previousViewProjection: context.viewCamera.viewProjectionMatrix.clone(),
+			previousWorldMatrices: new Map(state.currentWorldMatrices),
+		};
+	}
+
+	private _commitTAARenderState(commit: SoftwareTemporalCommit | null): void {
+		if (!commit) return;
+		this._previousViewProjection = commit.previousViewProjection;
+		this._previousWorldMatrices = commit.previousWorldMatrices;
 	}
 
 	private _resolveParticleDeltaTime(context: FrameContext): number {
@@ -541,7 +547,7 @@ export class SoftwareBackend implements IRenderBackend {
 			this._isIncrementalPartial(context) &&
 			!context.incremental.temporalHistoryReset &&
 			(context.postProcess.getEnabledPasses().length === 0 ||
-				this._postProcessRuntime.completedFramePreservesOutsideDirtyTiles)
+				this._executor?.completedFramePreservesOutsideDirtyTiles === true)
 		);
 	}
 
@@ -606,144 +612,54 @@ export class SoftwareBackend implements IRenderBackend {
 		);
 	}
 
-	private _getFrameImageData(): ImageData {
-		const pixels = this._resolveFramePixels();
-		const { width, height } = this._resolveFrameDimensions(pixels);
-
-		if (
-			!this._frameImageData ||
-			this._framePixels !== pixels ||
-			this._frameImageData.width !== width ||
-			this._frameImageData.height !== height
-		) {
-			this._frameImageData = this._createFrameImageData(pixels, width, height);
-			this._framePixels = pixels;
-		}
-
-		if (!this._framePixelsShared) {
-			this._frameImageData.data.set(pixels);
-		}
-
-		return this._frameImageData;
-	}
-
-	private _resolveFrameDimensions(pixels: Uint8ClampedArray): { width: number; height: number } {
-		const canvas = this._requireAttachContext().surface.canvas;
-		const canvasWidth = canvas.width;
-		const canvasHeight = canvas.height;
-		if (pixels.length === canvasWidth * canvasHeight * 4) {
-			return {
-				width: canvasWidth,
-				height: canvasHeight,
-			};
-		}
-
-		if (
-			this._frameWidth > 0 &&
-			this._frameHeight > 0 &&
-			pixels.length === this._frameWidth * this._frameHeight * 4
-		) {
-			return {
-				width: this._frameWidth,
-				height: this._frameHeight,
-			};
-		}
-
-		if (
-			this._frameImageData &&
-			pixels.length === this._frameImageData.width * this._frameImageData.height * 4
-		) {
-			return {
-				width: this._frameImageData.width,
-				height: this._frameImageData.height,
-			};
-		}
-
-		const pixelCount = Math.floor(pixels.length / 4);
-		return {
-			width: Math.max(1, pixelCount),
-			height: 1,
-		};
-	}
-
-	private _resolveFramePixels(): Uint8ClampedArray {
-		const pixels = this._pixels;
-
-		if (!pixels) {
-			throw new Error("Software backend frame buffer is not initialized.");
-		}
-
-		return pixels;
-	}
-
-	private _createFrameImageData(
-		pixels: Uint8ClampedArray,
-		width: number,
-		height: number,
-	): ImageData {
-		try {
-			const imageData = new ImageData(pixels as ImageDataArray, width, height);
-			this._framePixelsShared =
-				imageData.data === pixels || imageData.data.buffer === pixels.buffer;
-			return imageData;
-		} catch {
-			const imageData = new ImageData(width, height);
-			const copyLength = Math.min(imageData.data.length, pixels.length);
-			imageData.data.set(pixels.subarray(0, copyLength));
-			this._framePixelsShared = false;
-			return imageData;
-		}
-	}
-
 	public destroy(): void {
-		this._postProcessRuntime.destroy();
-		this._mainPass?.destroy();
-		this._mainPass = null;
-		this._particlePass = null;
-		this._shadowPass = null;
-		this._reflectionPass = null;
-		this._particleSimulator = null;
-		this._rasterizer = null;
+		if (this._state === "destroyed") return;
+		this._executor?.endParticleFrame();
+		this._destroyRuntimeResources();
+		this._resetTemporalState();
+		this._frameRuntime.clear();
+		this._surface.destroy();
+		this._state = "destroyed";
+	}
+
+	private _destroyRuntimeResources(): void {
+		this._executor?.destroy();
+		this._executor = null;
 	}
 
 	private _createPassHandlers(): Map<FramePass["stage"], SoftwarePassHandler> {
 		return new Map<FramePass["stage"], SoftwarePassHandler>([
-			["animation-sim", () => {}],
 			[
 				"particle-sim",
 				(context) => {
-					this._particleSimulator?.simulate(
+					this._executor?.simulateParticles(
 						context,
 						this._resolveParticleDeltaTime(context),
 					);
-					this._particleSimulator?.emitRenderBatches(context);
 				},
 			],
 			[
 				"shadow",
 				(context) => {
-					this._shadowPass?.render(context);
+					this._executor?.renderShadows(context);
 				},
 			],
 			[
 				"reflection",
 				(context) => {
-					this._reflectionPass?.render(context);
+					this._executor?.renderReflections(context);
 				},
 			],
 			[
 				"main-opaque",
 				async (context) => {
-					if (!this._mainPass) {
-						return;
-					}
 					const packets = this._resolvePacketsForPass(
 						context,
 						context.scene.opaquePackets,
 					);
-					await this._mainPass.render(context, packets, false);
-					this._reflectionPass?.composite(
+					await this._executor?.renderOpaque(
 						context,
+						packets,
 						this._resolveOpaqueReflectivePackets(packets),
 					);
 				},
@@ -751,32 +667,59 @@ export class SoftwareBackend implements IRenderBackend {
 			[
 				"main-transparent",
 				async (context) => {
-					if (!this._mainPass) {
-						return;
-					}
 					const packets = this._resolvePacketsForPass(
 						context,
 						context.scene.transparentPackets,
 					);
-					await this._mainPass.render(context, packets, true);
+					await this._executor?.renderTransparent(context, packets);
 				},
 			],
 			[
 				"particles",
 				(context) => {
-					this._particlePass?.render(context);
+					this._executor?.renderParticles(context);
 				},
 			],
 			[
 				"postprocess",
 				async (context) => {
-					await this._postProcessRuntime.execute(context);
+					await this._executor?.executePostProcess(context);
 				},
 			],
-			["ssao", () => {}],
-			["taa", () => {}],
-			["ssr", () => {}],
 		]);
+	}
+
+	private _resetTemporalState(): void {
+		this._temporalJitterState.reset();
+		this._previousViewProjection = null;
+		this._previousWorldMatrices.clear();
+		this._temporalCheckpoint = null;
+	}
+
+	private _flushPendingResize(): void {
+		const pending = this._frameRuntime.consumePendingResize();
+		if (pending) {
+			this._applyResize(pending);
+		}
+	}
+
+	private _requireActiveContext(
+		context: FrameContext | null,
+		operation: "executePass" | "skipPass" | "endFrame",
+	): FrameContext {
+		if (this._state !== "frame-active") {
+			throw new Error(`SoftwareBackend.${operation}() requires an active frame.`);
+		}
+		return this._frameRuntime.requireActive(context, operation);
+	}
+
+	private _throwForInitializeState(): never {
+		if (this._state === "detached") {
+			throw new Error("SoftwareBackend.initialize() requires attach() to complete.");
+		}
+		throw new Error(
+			`SoftwareBackend.initialize() requires the attached state; current state is "${this._state}".`,
+		);
 	}
 
 	private _requireAttachContext(): RenderBackendAttachContext {

@@ -100,15 +100,19 @@ All graphics commands are recorded through a backend-agnostic `ICommandEncoder`.
     current frame or secondary capture context.
   - Behavior contract: renderer-driven frames must set `viewCamera` to the same
     camera used to build `FrameContext.scene`.
-  - Constraint: secondary capture contexts, such as planar reflections or
-    reflection probe captures, must rebuild `FrameContext.scene` for
-    `viewCamera` before backend execution.
+  - Constraint: secondary capture contexts, such as reflection probe captures,
+    must rebuild `FrameContext.scene` for `viewCamera` before backend execution.
+  - Compatibility contract: Software planar reflections may instead use an
+    internal immutable mirrored view over the prepared main-view packets. That
+    view must not mutate the application `Camera` or commit main-view temporal
+    history.
 - `IRenderBackend.beginFrame(context: FrameContext)`
   - Behavior contract: must prepare command encoders, bind presentation attachments, and transition frame state.
   - Constraint: must throw if another frame is already active or if the backend is uninitialized.
 - `IRenderBackend.executePass(pass: FramePass, context: FrameContext)`
   - Behavior contract: must execute the commands for the given `FramePass`.
-  - Constraint: must throw if no frame is active.
+  - Constraint: must throw if no frame is active or `context` is not the active
+    frame context.
 - `IRenderBackend.skipPass(pass: FramePass)`
   - Behavior contract: called when a pass is disabled in the frame plan, allowing the backend to release/transition dependencies.
 - `IRenderBackend.endFrame()`
