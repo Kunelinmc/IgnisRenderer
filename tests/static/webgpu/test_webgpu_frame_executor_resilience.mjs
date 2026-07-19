@@ -399,6 +399,27 @@ async function testZeroSizedFrameSkipsEncoderAndLegacyDepthPath() {
 	assert.equal(getFrameGraphDebugState(executor).texturePoolOwnerCount, 0);
 }
 
+async function testDebugStateRetainsNodesFromEveryCompiledStage() {
+	const backend = new FakeBackend();
+	const executor = new WebGPUFrameExecutor(backend, createResourcesStub());
+	const context = createFrameContext(64, 64);
+
+	executor.beginFrame(context);
+	await executor.executePass(
+		{ stage: "main-opaque", executor: "backend", enabled: true },
+		context
+	);
+	await executor.endFrame();
+
+	const debugState = getFrameGraphDebugState(executor);
+	assert.ok(debugState.lastPlannedNodeIds.includes("main-opaque:opaque-scene"));
+	assert.ok(debugState.lastPlannedNodeIds.includes("postprocess:presentation"));
+	assert.deepEqual(
+		debugState.compiledStages.map((stage) => stage.pass.stage),
+		["main-opaque", "postprocess"]
+	);
+}
+
 async function testFrameSessionRejectsInvalidLifecycleCalls() {
 	const backend = new FakeBackend();
 	const executor = new WebGPUFrameExecutor(backend, createResourcesStub());
@@ -1847,6 +1868,7 @@ function testOITRuntimeFallbackWarnsWithoutEncoderCopy() {
 
 async function run() {
 	await testZeroSizedFrameSkipsEncoderAndLegacyDepthPath();
+	await testDebugStateRetainsNodesFromEveryCompiledStage();
 	await testFrameSessionRejectsInvalidLifecycleCalls();
 	await testFrameSessionRequiresOriginalContext();
 	testAbortFrameClearsActiveStateWithoutSubmit();

@@ -835,8 +835,8 @@ export class WebGPUFrameOrchestrator {
 		}
 		const compiled = this._graphCompiler.compileStage(plan);
 		this._handleGraphDiagnostics(compiled);
-		this._lastCompiledGraphStages = this._graphCompiler.getCompiledStages().slice();
-		this._lastPlannedGraphNodes = [...plan.nodes];
+		this._lastCompiledGraphStages.push(compiled);
+		this._lastPlannedGraphNodes.push(...plan.nodes);
 		for (const node of plan.nodes) {
 			await this._nodeExecutors.execute(node, session);
 			this._lastExecutedGraphNodeIds.push(node.id);
@@ -989,8 +989,8 @@ export class WebGPUFrameOrchestrator {
 		if (finalization.nodes.length > 0) {
 			const compiled = this._graphCompiler.compileStage(finalization);
 			this._handleGraphDiagnostics(compiled);
-			this._lastCompiledGraphStages = this._graphCompiler.getCompiledStages().slice();
-			this._lastPlannedGraphNodes = [...finalization.nodes];
+			this._lastCompiledGraphStages.push(compiled);
+			this._lastPlannedGraphNodes.push(...finalization.nodes);
 			for (const node of finalization.nodes) {
 				await this._nodeExecutors.execute(node, session);
 				this._lastExecutedGraphNodeIds.push(node.id);
