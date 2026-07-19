@@ -388,3 +388,8 @@ const readback = await renderer.renderTargets.readColor("inspect", 0);
 - Extensions must be queried via typed keys rather than raw string identifiers.
 - `getNativeWebGPUCommandEncoder` is removed from `ICommandEncoder`. Code that requires ordered texture copies must use `copyTextureToTexture`. WebGPU-internal passes that need native WebGPU objects must resolve them through WebGPU-owned helpers instead of the shared renderer contract.
 - SoftwareBackend does not support custom render targets.
+- `SoftwareBackend` exposes only its scanline rasterization path.
+  `SoftwareRasterMode`, `SoftwareTileOptions`, the `rasterMode` and `tile`
+  backend options, and the `requestedRasterMode` and `activeRasterMode`
+  properties are removed. Callers must construct `SoftwareBackend` without
+  raster-mode configuration.

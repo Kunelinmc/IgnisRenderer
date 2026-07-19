@@ -194,78 +194,6 @@ function createTrianglePacket(id, color, options = {}) {
 	};
 }
 
-function createMockScheduler() {
-	const pools = new Map();
-	return {
-		hasPool(poolId) {
-			return pools.has(poolId);
-		},
-		registerPool(poolOptions) {
-			pools.set(poolOptions.id, poolOptions);
-		},
-		async schedule(_poolId, payload) {
-			return computeBinsFromPayload(payload);
-		},
-		unregisterPool(poolId) {
-			pools.delete(poolId);
-		},
-	};
-}
-
-function computeBinsFromPayload(payload) {
-	if (!payload || payload.type !== "bin-main-pass") {
-		throw new Error("Unsupported payload in mock scheduler");
-	}
-
-	const tileSize = Math.max(1, Math.floor(payload.tileSize));
-	const tileColumns = Math.max(1, Math.ceil(payload.width / tileSize));
-	const maxTileX = tileColumns - 1;
-	const maxTileY = Math.max(0, Math.ceil(payload.height / tileSize) - 1);
-	const bins = new Map();
-
-	const start = Math.max(0, Math.floor(payload.startIndex));
-	const end = Math.min(
-		payload.triangleBounds.length,
-		Math.max(start, Math.floor(payload.endIndex))
-	);
-	for (let index = start; index < end; index++) {
-		const bounds = payload.triangleBounds[index];
-		if (!bounds) continue;
-		if (bounds.maxTileX < bounds.minTileX || bounds.maxTileY < bounds.minTileY) {
-			continue;
-		}
-
-		const minTileX = Math.max(0, Math.min(maxTileX, bounds.minTileX));
-		const minTileY = Math.max(0, Math.min(maxTileY, bounds.minTileY));
-		const maxTileXClamped = Math.max(0, Math.min(maxTileX, bounds.maxTileX));
-		const maxTileYClamped = Math.max(0, Math.min(maxTileY, bounds.maxTileY));
-
-		for (let tileY = minTileY; tileY <= maxTileYClamped; tileY++) {
-			for (let tileX = minTileX; tileX <= maxTileXClamped; tileX++) {
-				const tileIndex = tileY * tileColumns + tileX;
-				let bucket = bins.get(tileIndex);
-				if (!bucket) {
-					bucket = [];
-					bins.set(tileIndex, bucket);
-				}
-				bucket.push(index);
-			}
-		}
-	}
-
-	const entries = [...bins.entries()]
-		.sort((left, right) => left[0] - right[0])
-		.map(([tileIndex, triangleIndices]) => ({
-			tileIndex,
-			triangleIndices,
-		}));
-
-	return {
-		type: "bin-main-pass",
-		bins: entries,
-	};
-}
-
 function copyAttachments(attachments) {
 	return {
 		pixels: new Uint8ClampedArray(attachments.pixels),
@@ -318,7 +246,6 @@ async function testScanlinePrepassParity() {
 
 	const cameraA = createCamera();
 	const backendA = createSoftwareSession({
-		rasterMode: "scanline",
 		enableEarlyZPrepass: false,
 	});
 	const withoutPrepass = copyAttachments(
@@ -327,7 +254,6 @@ async function testScanlinePrepassParity() {
 
 	const cameraB = createCamera();
 	const backendB = createSoftwareSession({
-		rasterMode: "scanline",
 		enableEarlyZPrepass: true,
 	});
 	const withPrepass = copyAttachments(
@@ -335,54 +261,6 @@ async function testScanlinePrepassParity() {
 	);
 
 	assertAttachmentEqual(withoutPrepass, withPrepass);
-}
-
-async function testTilePrepassParity() {
-	const originalWorker = globalThis.Worker;
-	globalThis.Worker = class FakeWorker {};
-
-	try {
-		const packets = [
-			createTrianglePacket("tile-far-green", { r: 0, g: 255, b: 0 }, { zOffset: -0.25 }),
-			createTrianglePacket("tile-near-red", { r: 255, g: 0, b: 0 }, { zOffset: 0.2 }),
-		];
-
-		const backendA = createSoftwareSession({
-			rasterMode: "tile",
-			enableEarlyZPrepass: false,
-			tile: {
-				tileSize: 16,
-				workerCount: 2,
-				poolId: "software-early-z-tile-off",
-				scheduler: createMockScheduler(),
-			},
-		});
-		const withoutPrepass = copyAttachments(
-			await renderOpaqueFrame(backendA, createCamera(), packets)
-		);
-		assert.equal(backendA.activeRasterMode, "tile");
-
-		const backendB = createSoftwareSession({
-			rasterMode: "tile",
-			enableEarlyZPrepass: true,
-			tile: {
-				tileSize: 16,
-				workerCount: 2,
-				poolId: "software-early-z-tile-on",
-				scheduler: createMockScheduler(),
-			},
-		});
-		const withPrepass = copyAttachments(
-			await renderOpaqueFrame(backendB, createCamera(), packets)
-		);
-		assert.equal(backendB.activeRasterMode, "tile");
-
-		assertAttachmentEqual(withoutPrepass, withPrepass);
-		backendA.destroy();
-		backendB.destroy();
-	} finally {
-		globalThis.Worker = originalWorker;
-	}
 }
 
 async function testMaskPacketParity() {
@@ -403,7 +281,6 @@ async function testMaskPacketParity() {
 	];
 
 	const backendA = createSoftwareSession({
-		rasterMode: "scanline",
 		enableEarlyZPrepass: false,
 	});
 	const withoutPrepass = copyAttachments(
@@ -411,7 +288,6 @@ async function testMaskPacketParity() {
 	);
 
 	const backendB = createSoftwareSession({
-		rasterMode: "scanline",
 		enableEarlyZPrepass: true,
 	});
 	const withPrepass = copyAttachments(
@@ -435,7 +311,6 @@ function createDepthWriteDisabledPackets() {
 
 async function testDepthWriteDisabledScanlinePrepassParity() {
 	const backendA = createSoftwareSession({
-		rasterMode: "scanline",
 		enableEarlyZPrepass: false,
 	});
 	const withoutPrepass = copyAttachments(
@@ -447,7 +322,6 @@ async function testDepthWriteDisabledScanlinePrepassParity() {
 	);
 
 	const backendB = createSoftwareSession({
-		rasterMode: "scanline",
 		enableEarlyZPrepass: true,
 	});
 	const withPrepass = copyAttachments(
@@ -461,59 +335,9 @@ async function testDepthWriteDisabledScanlinePrepassParity() {
 	assertAttachmentEqual(withoutPrepass, withPrepass);
 }
 
-async function testDepthWriteDisabledTilePrepassParity() {
-	const originalWorker = globalThis.Worker;
-	globalThis.Worker = class FakeWorker {};
-
-	try {
-		const backendA = createSoftwareSession({
-			rasterMode: "tile",
-			enableEarlyZPrepass: false,
-			tile: {
-				tileSize: 16,
-				workerCount: 2,
-				poolId: "software-depth-write-tile-off",
-				scheduler: createMockScheduler(),
-			},
-		});
-		const withoutPrepass = copyAttachments(
-			await renderOpaqueFrame(
-				backendA,
-				createCamera(),
-				createDepthWriteDisabledPackets()
-			)
-		);
-
-		const backendB = createSoftwareSession({
-			rasterMode: "tile",
-			enableEarlyZPrepass: true,
-			tile: {
-				tileSize: 16,
-				workerCount: 2,
-				poolId: "software-depth-write-tile-on",
-				scheduler: createMockScheduler(),
-			},
-		});
-		const withPrepass = copyAttachments(
-			await renderOpaqueFrame(
-				backendB,
-				createCamera(),
-				createDepthWriteDisabledPackets()
-			)
-		);
-
-		assertAttachmentEqual(withoutPrepass, withPrepass);
-		backendA.destroy();
-		backendB.destroy();
-	} finally {
-		globalThis.Worker = originalWorker;
-	}
-}
-
 async function runIncrementalScenario(enableEarlyZPrepass) {
 	const camera = createCamera();
 	const backend = createSoftwareSession({
-		rasterMode: "scanline",
 		enableEarlyZPrepass,
 	});
 
@@ -548,10 +372,8 @@ async function testIncrementalParity() {
 
 async function run() {
 	await testScanlinePrepassParity();
-	await testTilePrepassParity();
 	await testMaskPacketParity();
 	await testDepthWriteDisabledScanlinePrepassParity();
-	await testDepthWriteDisabledTilePrepassParity();
 	await testIncrementalParity();
 	console.log("Software early Z pre-pass tests passed");
 }

@@ -78,8 +78,6 @@ export { EventEmitter } from "./core/EventEmitter";
 export * from "./workers";
 export { SoftwareBackend } from "./backends/software/SoftwareBackend";
 export type {
-	SoftwareRasterMode,
-	SoftwareTileOptions,
 	SoftwareBackendOptions,
 } from "./backends/software/types";
 export { WebGPUBackend } from "./backends/webgpu/WebGPUBackend";

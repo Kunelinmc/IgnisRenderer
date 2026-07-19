@@ -69,7 +69,7 @@ async function init() {
 		backend = new WebGLBackend();
 		backendLabel = "WebGL 2";
 	} else if (requestedBackend === "software") {
-		backend = new SoftwareBackend({ rasterMode: "tile" });
+		backend = new SoftwareBackend();
 		backendLabel = "Software (CPU)";
 	} else {
 		// Auto fallback based on platform support
@@ -80,7 +80,7 @@ async function init() {
 			backend = new WebGLBackend();
 			backendLabel = "WebGL 2 (Auto)";
 		} else {
-			backend = new SoftwareBackend({ rasterMode: "tile" });
+			backend = new SoftwareBackend();
 			backendLabel = "Software (Auto)";
 		}
 	}

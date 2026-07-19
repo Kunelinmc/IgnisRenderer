@@ -78,12 +78,7 @@ import { WebGPUBackend } from "../src/backends/webgpu/WebGPUBackend";
 
 // SoftwareBackend setup
 const softwareBackend = new SoftwareBackend({
-	rasterMode: "tile",
 	enableEarlyZPrepass: true,
-	tile: {
-		tileSize: 32,
-		workerCount: 4,
-	},
 });
 
 // WebGLBackend setup
@@ -171,3 +166,10 @@ bun tests/static/webgpu/test_webgpu_frame_executor_resilience.mjs
 This optimization is backward compatible. Existing materials default to `depthWrite === true` and preserve prior rendering behavior.
 
 Mask `ShaderMaterial` users must provide the appropriate backend-specific depth-discard fragments (a `fragment-depth` chunk for WebGL, or `depthFragmentCode`/`depthFragmentEntryPoint` for WebGPU) to participate in the Early-Z prepass optimization.
+
+`SoftwareBackend` now has one scanline rasterization path. The public
+`SoftwareRasterMode` and `SoftwareTileOptions` types, the
+`SoftwareBackendOptions.rasterMode` and `SoftwareBackendOptions.tile` options,
+and the `SoftwareBackend.requestedRasterMode` and
+`SoftwareBackend.activeRasterMode` properties are removed. Callers must delete
+tile and raster-mode configuration; `enableEarlyZPrepass` remains supported.

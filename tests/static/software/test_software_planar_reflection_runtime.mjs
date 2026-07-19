@@ -236,7 +236,6 @@ function testReflectionPassPublishesRuntime() {
 async function testRuntimeCompositeBlendsReflectionColor() {
 	const rasterizer = new Rasterizer();
 	const mainPass = new SoftwareMainPass(rasterizer, {
-		mode: "scanline",
 		enableEarlyZPrepass: false,
 	});
 	const mirrorPlane = { normal: { x: 0, y: 0, z: 1 }, constant: 0 };
@@ -278,7 +277,6 @@ async function testRuntimeCompositeBlendsReflectionColor() {
 async function testRuntimeCompositeSamplesScaledReflectionBuffer() {
 	const rasterizer = new Rasterizer();
 	const mainPass = new SoftwareMainPass(rasterizer, {
-		mode: "scanline",
 		enableEarlyZPrepass: false,
 	});
 	const mirrorPlane = { normal: { x: 0, y: 0, z: 1 }, constant: 0 };
@@ -388,7 +386,6 @@ function testRuntimeCompositeHonorsAlphaMask() {
 async function testReflectionPassCompositeAfterMainPass() {
 	const rasterizer = new Rasterizer();
 	const mainPass = new SoftwareMainPass(rasterizer, {
-		mode: "scanline",
 		enableEarlyZPrepass: false,
 	});
 	const reflectionPass = new SoftwareReflectionPass(rasterizer);

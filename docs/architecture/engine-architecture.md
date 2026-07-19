@@ -15,7 +15,7 @@ may reference this file, but the contracts here apply to all contributions.
 IgnisRenderer is a TypeScript rendering engine with three primary backend
 families:
 
-- `SoftwareBackend`: a multi-threaded CPU rasterizer with modular executors for
+- `SoftwareBackend`: a CPU scanline rasterizer with backend-owned passes for
   rasterization, light evaluation, and post-processing.
 - `WebGPUBackend`: a hardware-accelerated backend with delegated registries for
   resources, bindings, and frame execution.
@@ -97,7 +97,7 @@ through dedicated simulation stages and backend-owned runtimes.
 ### Worker Infrastructure Contract
 
 - `src/workers/WorkerScheduler` owns the Web Worker pool for parallel tasks such
-  as software rasterization.
+  as environment IBL prefiltering and worker-backed physics adapters.
 - `src/workers/transports.ts` owns efficient zero-copy transport behavior using
   `SharedArrayBuffer` where available.
 - Worker-facing payload contracts must avoid backend-specific public API leaks.
@@ -132,3 +132,7 @@ Changes to backend instance lifecycle, ECS component names, `Node`
 synchronization semantics, simulation stage ownership, or worker transport
 payloads may be breaking changes. Such changes must update corresponding
 contract documents, tests, and migration notes in the same PR.
+
+`SoftwareBackend` uses a single scanline rasterization path. The former tile
+raster mode and its worker-binning payloads are removed rather than retained as
+a backend execution alternative.

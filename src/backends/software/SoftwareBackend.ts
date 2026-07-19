@@ -49,8 +49,7 @@ import {
 	type TAAOptions,
 } from "../../postprocess/passes/TemporalAntiAliasingPass";
 import { DefaultParticleSimulator } from "../../simulation/particles/DefaultParticleSimulator";
-import { type SoftwareBackendOptions, type SoftwareRasterMode } from "./types";
-import { DEFAULT_SOFTWARE_RASTER_MODE } from "./constants";
+import type { SoftwareBackendOptions } from "./types";
 import {
 	assertShaderDirectiveProfileRegistryComplete,
 	DEFAULT_SHADER_DIRECTIVE_PROFILE_REGISTRY,
@@ -62,8 +61,6 @@ import {
 
 export type {
 	SoftwareBackendOptions,
-	SoftwareRasterMode,
-	SoftwareTileOptions,
 } from "./types";
 
 type SoftwarePassHandler = (
@@ -144,7 +141,6 @@ export class SoftwareBackend implements IRenderBackend {
 			}),
 	});
 	public readonly extensions = createRenderBackendExtensionRegistry([]);
-	public readonly requestedRasterMode: SoftwareRasterMode;
 	public readonly profile: RenderBackendProfile = {
 		id: "software",
 		capabilities: {
@@ -199,14 +195,11 @@ export class SoftwareBackend implements IRenderBackend {
 	private _offscreenCanvas: OffscreenCanvas | null = null;
 	private _offscreenCtx: OffscreenCanvasRenderingContext2D | null = null;
 	private _options: SoftwareBackendOptions;
-	private _activeRasterMode: SoftwareRasterMode;
 	private readonly _passHandlers: Map<FramePass["stage"], SoftwarePassHandler>;
 
 	public constructor(options: SoftwareBackendOptions = {}) {
 		assertShaderDirectiveProfileRegistryComplete(DEFAULT_SHADER_DIRECTIVE_PROFILE_REGISTRY);
 		this._options = options;
-		this.requestedRasterMode = options.rasterMode ?? DEFAULT_SOFTWARE_RASTER_MODE;
-		this._activeRasterMode = this.requestedRasterMode;
 		this._passHandlers = this._createPassHandlers();
 		this._ensureRuntime();
 	}
@@ -217,10 +210,6 @@ export class SoftwareBackend implements IRenderBackend {
 		}
 		this._attachContext = context;
 		this._attached = true;
-	}
-
-	public get activeRasterMode(): SoftwareRasterMode {
-		return this._activeRasterMode;
 	}
 
 	/**
@@ -256,8 +245,6 @@ export class SoftwareBackend implements IRenderBackend {
 		this._rasterizer = new Rasterizer();
 		this._shadowPass = new SoftwareShadowPass(this._rasterizer);
 		this._mainPass = new SoftwareMainPass(this._rasterizer, {
-			mode: this.requestedRasterMode,
-			tile: this._options.tile,
 			enableEarlyZPrepass: this._options.enableEarlyZPrepass,
 		});
 		this._particlePass = new SoftwareParticlePass();
@@ -265,7 +252,6 @@ export class SoftwareBackend implements IRenderBackend {
 		this._particleSimulator = new DefaultParticleSimulator({
 			backendTag: this.profile.id,
 		});
-		this._syncActiveRasterMode();
 	}
 
 	public getAttachments(size: RenderSurfaceSize): FrameAttachments {
@@ -720,11 +706,6 @@ export class SoftwareBackend implements IRenderBackend {
 		this._rasterizer = null;
 	}
 
-	private _syncActiveRasterMode(): void {
-		const mode = this._mainPass?.getActiveMode();
-		this._activeRasterMode = mode ?? this.requestedRasterMode;
-	}
-
 	private _createPassHandlers(): Map<FramePass["stage"], SoftwarePassHandler> {
 		return new Map<FramePass["stage"], SoftwarePassHandler>([
 			["animation-sim", () => {}],
@@ -765,7 +746,6 @@ export class SoftwareBackend implements IRenderBackend {
 						context,
 						this._resolveOpaqueReflectivePackets(packets),
 					);
-					this._syncActiveRasterMode();
 				},
 			],
 			[
@@ -779,7 +759,6 @@ export class SoftwareBackend implements IRenderBackend {
 						context.scene.transparentPackets,
 					);
 					await this._mainPass.render(context, packets, true);
-					this._syncActiveRasterMode();
 				},
 			],
 			[

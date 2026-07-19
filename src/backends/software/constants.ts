@@ -1,4 +1,3 @@
-import type { SoftwareRasterMode } from "./types";
 import {
 	DEFAULT_GAMMA,
 	FXAA_EDGE_THRESHOLD_MIN,
@@ -53,9 +52,6 @@ export const VolumetricConstants = Object.freeze({
 	MIN_SCENE_BOUNDS_RADIUS: 1.0,
 	TEMPORAL_ACCUMULATION_FACTOR: 0.95,
 });
-
-export const DEFAULT_SOFTWARE_RASTER_MODE: SoftwareRasterMode = "scanline";
-export const DEFAULT_SOFTWARE_TILE_SIZE = 32;
 
 export const CoreConstants = Object.freeze({
 	EPSILON: 1e-6,
