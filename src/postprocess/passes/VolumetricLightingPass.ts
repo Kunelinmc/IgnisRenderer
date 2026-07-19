@@ -15,11 +15,9 @@ import type { ICommandEncoder } from "../../backends/ICommandEncoder";
 import {
 	createLightContribution,
 	evaluateLightContribution,
-} from "../../backends/software/LightEvaluator";
-import {
-	createSoftwareShadowSampler,
-	getSoftwareShadowRuntimeMap,
-} from "../../backends/software/passes/SoftwareShadowPass";
+} from "../../lights/runtime/lightEvaluator";
+import type { RGB } from "../../foundation/Color";
+import type { ShadowCastingLight } from "../../lights";
 import {
 	MAX_EXPOSURE,
 	MAX_VOLUMETRIC_LIGHTS,
@@ -184,6 +182,11 @@ export const DEFAULT_VOLUMETRIC_OPTIONS: Required<
 /** @internal Software context supplied to the built-in volumetric lighting implementation. */
 export interface SoftwareVolumetricLightingContext {
 	readonly canvasContext: CanvasRenderingContext2D | null;
+	readonly sampleShadow?: (
+		light: ShadowCastingLight,
+		worldPoint: IVector3,
+		normal?: IVector3 | null,
+	) => RGB;
 }
 
 /** @internal WebGPU context supplied to the built-in volumetric lighting implementation. */
@@ -251,7 +254,7 @@ export class SoftwareVolumetricLightingImplementation
 
 	public execute(
 		request: PostProcessPassRequest<VolumetricOptions>,
-		_context: SoftwareVolumetricLightingContext | undefined
+		softwareContext: SoftwareVolumetricLightingContext | undefined
 	): PostProcessPassResult {
 		if (
 			!request.frameContext.attachments.pixels ||
@@ -262,7 +265,7 @@ export class SoftwareVolumetricLightingImplementation
 		this._applyVolumetricLight(request.frameContext, {
 			...DEFAULT_VOLUMETRIC_OPTIONS,
 			...(request.options ?? {}),
-		});
+		}, softwareContext?.sampleShadow);
 		return { ran: true };
 	}
 
@@ -511,7 +514,8 @@ export class SoftwareVolumetricLightingImplementation
 
 	private _applyVolumetricLight(
 		context: FrameContext,
-		options: VolumetricOptions = {}
+		options: VolumetricOptions = {},
+		sampleShadow?: SoftwareVolumetricLightingContext["sampleShadow"]
 	): void {
 		const depthBuffer = context.attachments.depthBuffer;
 		const maxRayDistance = Math.max(
@@ -600,11 +604,7 @@ export class SoftwareVolumetricLightingImplementation
 		const sigmaS = sigmaT * scatteringAlbedo;
 
 		const shadowsEnabled = context.features.enableShadows;
-		const shadowSampler = createSoftwareShadowSampler(
-			context.shadowMaps,
-			getSoftwareShadowRuntimeMap(context.transient),
-			{ camera: context.viewCamera }
-		);
+		const shadowSampler = sampleShadow ?? (() => ({ r: 1, g: 1, b: 1 }));
 		const shadowInterval = Math.round(
 			clamp(
 				this._toFiniteNumber(options.shadowSampleInterval, 1),

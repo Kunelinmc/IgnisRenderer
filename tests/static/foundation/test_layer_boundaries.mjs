@@ -96,6 +96,15 @@ function run() {
 					`${relPath} imports software lighting implementation "${specifier}"`
 				);
 			}
+
+			if (
+				relPath.startsWith("src/shaders/software/") &&
+				specifier.includes("backends/software/")
+			) {
+				violations.push(
+					`${relPath} imports a Software backend implementation "${specifier}"`
+				);
+			}
 		}
 	}
 
