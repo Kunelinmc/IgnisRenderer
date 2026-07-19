@@ -314,6 +314,7 @@ export class WebGLBackend implements IRenderBackend {
 			return;
 		}
 		this._contextLost = true;
+		this._frameGraphRuntime?.abortGraphAnalysis?.(info);
 		const detail =
 			typeof info?.message === "string" && info.message.length > 0 ? `: ${info.message}` : "";
 		Logger.warn(
@@ -374,6 +375,10 @@ export class WebGLBackend implements IRenderBackend {
 		}
 		this._validatePassDependencies(pass);
 		if (pass.stage === "particle-sim") {
+			this._frameGraphRuntime.recordOpaqueGraphStage?.(
+				pass.stage,
+				"Particle simulation executes outside the logical frame graph.",
+			);
 			this._particleSimulator?.simulate(context, this._resolveParticleDeltaTime(context));
 			this._particleSimulator?.emitRenderBatches(context);
 			this._markPassExecuted(pass.stage);
@@ -412,10 +417,32 @@ export class WebGLBackend implements IRenderBackend {
 		if (!context) {
 			throw new Error("WebGL backend cannot end a frame before beginFrame.");
 		}
-		this._frameGraphRuntime.endFrame(context);
-		this._particleSimulator?.endFrame();
-		this._postProcessRuntime.commitFrame();
-		this._activeContext = null;
+		const finish = () => {
+			try {
+				this._particleSimulator?.endFrame();
+				this._postProcessRuntime.commitFrame();
+				this._frameGraphRuntime.commitGraphAnalysis?.();
+				this._activeContext = null;
+			} catch (error) {
+				this._frameGraphRuntime.abortGraphAnalysis?.(error);
+				throw error;
+			}
+		};
+		let result: void | Promise<void>;
+		try {
+			result = this._frameGraphRuntime.endFrame(context);
+		} catch (error) {
+			this._frameGraphRuntime.abortGraphAnalysis?.(error);
+			throw error;
+		}
+		if (result && typeof (result as Promise<void>).then === "function") {
+			void (result as Promise<void>).then(finish).catch((error) => {
+				this._frameGraphRuntime?.abortGraphAnalysis?.(error);
+				throw error;
+			});
+			return;
+		}
+		finish();
 	}
 
 	/** @internal Renderer frame-coordination coverage report. */
@@ -425,15 +452,30 @@ export class WebGLBackend implements IRenderBackend {
 
 	public async abortFrame(_error?: unknown): Promise<void> {
 		if (this._contextLost) {
+			this._frameGraphRuntime?.abortGraphAnalysis?.(_error);
 			return;
 		}
-		await this._postProcessRuntime.abortFrame(_error);
-		this._frameGraphRuntime?.abortFrame();
-		this._particleSimulator?.endFrame();
+		let abortError: unknown = null;
+		try {
+			await this._postProcessRuntime.abortFrame(_error);
+		} catch (error) {
+			abortError = error;
+		}
+		try {
+			this._frameGraphRuntime?.abortFrame(_error);
+		} catch (error) {
+			abortError ??= error;
+		}
+		try {
+			this._particleSimulator?.endFrame();
+		} catch (error) {
+			abortError ??= error;
+		}
 		this._activeContext = null;
 		this._executedPasses.clear();
 		this._plannedPasses.clear();
 		this._plannedPassOrder.clear();
+		if (abortError) throw abortError;
 	}
 
 	public async warmup(context: FrameContext, options: WarmupOptions = {}): Promise<WarmupReport> {

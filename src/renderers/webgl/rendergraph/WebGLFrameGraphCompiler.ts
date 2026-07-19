@@ -1,3 +1,13 @@
+import { RenderGraphStateTracker } from "../../../rendergraph/RenderGraphStateTracker";
+import type {
+	RenderGraphDiagnostic,
+	RenderGraphNode,
+	RenderGraphResourceDescriptor,
+	RenderGraphTrackerDebugState,
+	RenderGraphTransition,
+	RenderGraphUsage,
+	RenderGraphValidationRule,
+} from "../../../rendergraph/types";
 import type {
 	WebGLCompiledFrameGraphStage,
 	WebGLFrameGraphBarrier,
@@ -5,7 +15,6 @@ import type {
 	WebGLFrameGraphNode,
 	WebGLFrameGraphResourceDebugState,
 	WebGLFrameGraphResourceId,
-	WebGLFrameGraphResourceRef,
 	WebGLFrameGraphResourceUsage,
 	WebGLFrameGraphStagePlan,
 } from "./types";
@@ -20,74 +29,80 @@ const SUPPORTED_WEBGL_RESOURCE_USAGES = new Set<WebGLFrameGraphResourceUsage>([
 	"present",
 ]);
 
-interface WebGLFrameGraphResourceState {
-	id: WebGLFrameGraphResourceId;
-	initialized: boolean;
-	lastNodeId: string | null;
-	lastAccess: "create" | "read" | "write" | "destroy" | null;
-	lastUsage: WebGLFrameGraphResourceUsage | null;
-}
+type SharedWebGLNode = RenderGraphNode<
+	WebGLFrameGraphNode,
+	WebGLFrameGraphNode["kind"]
+>;
 
-/**
- * Tracks WebGL internal frame graph resource lifetimes and unsafe texture use.
- */
+/** Tracks WebGL frame graph state through the shared logical analyzer. */
 export class WebGLFrameGraphCompiler {
-	private readonly _resources = new Map<
-		WebGLFrameGraphResourceId,
-		WebGLFrameGraphResourceState
-	>();
+	private readonly _tracker: RenderGraphStateTracker<
+		WebGLFrameGraphNode,
+		WebGLFrameGraphNode["kind"]
+	>;
 	private readonly _compiledStages: WebGLCompiledFrameGraphStage[] = [];
 	private readonly _barriers: WebGLFrameGraphBarrier[] = [];
 	private readonly _diagnostics: WebGLFrameGraphDiagnostic[] = [];
 
-	/**
-	 * Resets per-frame WebGL graph state.
-	 *
-	 * @internal WebGL frame graph lifecycle hook.
-	 * @param initialResources Resources already owned by the active frame.
-	 * @returns Nothing.
-	 * @sideEffects Clears prior graph debug state.
-	 */
+	public constructor() {
+		this._tracker = new RenderGraphStateTracker({
+			allowImplicitResources: true,
+			rules: [createWebGLValidationRule()],
+		});
+	}
+
 	public beginFrame(initialResources: readonly WebGLFrameGraphResourceId[]): void {
-		this._resources.clear();
+		const state = this._tracker.getDebugState().state;
+		if (state === "active" || state === "sealed") {
+			this._tracker.abort(
+				new Error("A new WebGL frame superseded an uncommitted graph attempt."),
+			);
+		}
 		this._compiledStages.length = 0;
 		this._barriers.length = 0;
 		this._diagnostics.length = 0;
-		for (const id of initialResources) {
-			this._resources.set(id, {
-				id,
-				initialized: true,
-				lastNodeId: null,
-				lastAccess: "create",
-				lastUsage: "external",
-			});
-		}
+		this._tracker.beginFrame(initialResources.map(toImportedDescriptor));
 	}
 
-	/**
-	 * Records and validates one planned WebGL graph stage.
-	 *
-	 * @internal Owned by `WebGLFrameGraphRuntime`.
-	 * @param plan Stage plan from `WebGLFrameGraphPlanner`.
-	 * @returns Compiled stage diagnostics and barriers.
-	 * @sideEffects Updates resource state for later stages.
-	 */
-	public compileStage(
-		plan: WebGLFrameGraphStagePlan
-	): WebGLCompiledFrameGraphStage {
-		const barriersStart = this._barriers.length;
-		const diagnosticsStart = this._diagnostics.length;
-		for (const node of plan.nodes) {
-			this._recordNode(node);
+	public compileStage(plan: WebGLFrameGraphStagePlan): WebGLCompiledFrameGraphStage {
+		const analyzed = this._tracker.appendStage({
+			nodes: plan.nodes.map(toSharedNode),
+		});
+		if (plan.pass.stage === "postprocess") {
+			this._tracker.markCompleteness("coarse");
 		}
+		const barriers = analyzed.transitions
+			.filter((transition) => transition.reason !== undefined)
+			.map(toWebGLBarrier);
+		const diagnostics = analyzed.diagnostics
+			.map(toWebGLDiagnostic)
+			.filter((diagnostic): diagnostic is WebGLFrameGraphDiagnostic => !!diagnostic);
+		this._barriers.push(...barriers);
+		this._diagnostics.push(...diagnostics);
 		const compiled: WebGLCompiledFrameGraphStage = {
 			pass: plan.pass,
 			nodes: plan.nodes.slice(),
-			barriers: this._barriers.slice(barriersStart),
-			diagnostics: this._diagnostics.slice(diagnosticsStart),
+			barriers,
+			diagnostics,
 		};
 		this._compiledStages.push(compiled);
 		return compiled;
+	}
+
+	public seal(): void {
+		this._tracker.seal();
+	}
+
+	public commit(): void {
+		this._tracker.commit();
+	}
+
+	public abort(error?: unknown): void {
+		this._tracker.abort(error);
+	}
+
+	public recordOpaqueStage(stage: string, message: string): void {
+		this._tracker.recordOpaqueStage(stage, message);
 	}
 
 	public getCompiledStages(): readonly WebGLCompiledFrameGraphStage[] {
@@ -103,213 +118,217 @@ export class WebGLFrameGraphCompiler {
 	}
 
 	public getResourceDebugState(): readonly WebGLFrameGraphResourceDebugState[] {
-		return Array.from(this._resources.values())
-			.sort((a, b) => a.id.localeCompare(b.id))
-			.map((state) => ({
-				id: state.id,
-				initialized: state.initialized,
-				lastNodeId: state.lastNodeId,
-				lastAccess: state.lastAccess,
-				lastUsage: state.lastUsage,
-			}));
+		return this._tracker.getResourceDebugState().map((state) => ({
+			id: state.id,
+			initialized: state.active,
+			lastNodeId: state.lastNodeId,
+			lastAccess: toLegacyAccess(state.lastAccess),
+			lastUsage:
+				state.lastUsage ? toWebGLUsage(state.lastUsage)
+				: state.lastAccess === "create" ? "external"
+				: null,
+		}));
 	}
 
-	private _recordNode(node: WebGLFrameGraphNode): void {
-		this._validateNodeResourceUsages(node);
-		this._validateFeedbackLoop(node);
-		for (const mutation of node.creates ?? []) {
-			const state = this._getOrCreateResourceState(mutation.id);
-			if (state.initialized && !mutation.optional) {
-				this._diagnostics.push({
-					severity: "error",
-					nodeId: node.id,
-					resource: mutation.id,
-					code: "duplicate-create",
-					message:
-						`WebGL frame graph node "${node.id}" creates already ` +
-						`active resource "${mutation.id}".`,
-				});
-			}
-			state.initialized = true;
-			state.lastNodeId = node.id;
-			state.lastAccess = "create";
-			state.lastUsage = mutation.usage ?? state.lastUsage ?? "external";
-		}
-		for (const mutation of node.requires ?? []) {
-			const state = this._getOrCreateResourceState(mutation.id);
-			if (!state.initialized && !mutation.optional) {
-				this._diagnostics.push({
-					severity: "error",
-					nodeId: node.id,
-					resource: mutation.id,
-					code: "missing-resource",
-					message:
-						`WebGL frame graph node "${node.id}" requires missing ` +
-						`resource "${mutation.id}".`,
-				});
-			}
-		}
-		for (const read of node.reads ?? []) {
-			this._recordRead(node, read);
-		}
-		for (const write of node.writes ?? []) {
-			this._recordWrite(node, write);
-		}
-		for (const mutation of node.destroys ?? []) {
-			const state = this._getOrCreateResourceState(mutation.id);
-			if (!state.initialized && !mutation.optional) {
-				this._diagnostics.push({
-					severity: "error",
-					nodeId: node.id,
-					resource: mutation.id,
-					code: "destroy-before-create",
-					message:
-						`WebGL frame graph node "${node.id}" destroys inactive ` +
-						`resource "${mutation.id}".`,
-				});
-			}
-			state.initialized = false;
-			state.lastNodeId = node.id;
-			state.lastAccess = "destroy";
-			state.lastUsage = mutation.usage ?? state.lastUsage;
-		}
+	public getGraphAnalysis(): RenderGraphTrackerDebugState {
+		return this._tracker.getDebugState();
 	}
+}
 
-	private _recordRead(
-		node: WebGLFrameGraphNode,
-		read: WebGLFrameGraphResourceRef
-	): void {
-		const state = this._getOrCreateResourceState(read.id);
-		if (!state.initialized) {
-			if (!read.optional) {
-				this._diagnostics.push({
+function createWebGLValidationRule(): RenderGraphValidationRule<
+	WebGLFrameGraphNode,
+	WebGLFrameGraphNode["kind"]
+> {
+	return {
+		validateNode(node) {
+			const source = node.payload;
+			if (!source) return [];
+			const diagnostics: RenderGraphDiagnostic[] = [];
+			for (const ref of [...(source.reads ?? []), ...(source.writes ?? [])]) {
+				if (SUPPORTED_WEBGL_RESOURCE_USAGES.has(ref.usage)) continue;
+				diagnostics.push({
+					phase: "lower",
+					enforcement: "enforced",
 					severity: "error",
-					nodeId: node.id,
-					resource: read.id,
-					code: "read-before-create",
-					message:
-						`WebGL frame graph node "${node.id}" reads inactive ` +
-						`resource "${read.id}".`,
-				});
-			} else {
-				return;
-			}
-		}
-		this._recordUsageTransition(node, state, read.usage, "read");
-		state.lastNodeId = node.id;
-		state.lastAccess = "read";
-		state.lastUsage = read.usage;
-	}
-
-	private _recordWrite(
-		node: WebGLFrameGraphNode,
-		write: WebGLFrameGraphResourceRef
-	): void {
-		const state = this._getOrCreateResourceState(write.id);
-		this._recordUsageTransition(node, state, write.usage, "write");
-		state.initialized = true;
-		state.lastNodeId = node.id;
-		state.lastAccess = "write";
-		state.lastUsage = write.usage;
-	}
-
-	private _recordUsageTransition(
-		node: WebGLFrameGraphNode,
-		state: WebGLFrameGraphResourceState,
-		nextUsage: WebGLFrameGraphResourceUsage,
-		nextAccess: "read" | "write"
-	): void {
-		if (!state.lastUsage || !state.lastAccess || state.lastAccess === "create") {
-			return;
-		}
-		if (state.lastUsage === nextUsage && state.lastAccess === nextAccess) {
-			return;
-		}
-		this._barriers.push({
-			resource: state.id,
-			beforeNodeId: state.lastNodeId,
-			nodeId: node.id,
-			fromUsage: state.lastUsage,
-			toUsage: nextUsage,
-			reason: this._resolveBarrierReason(state.lastAccess, nextAccess),
-		});
-	}
-
-	private _validateNodeResourceUsages(node: WebGLFrameGraphNode): void {
-		for (const ref of [
-			...(node.reads ?? []),
-			...(node.writes ?? []),
-		]) {
-			if (!SUPPORTED_WEBGL_RESOURCE_USAGES.has(ref.usage)) {
-				this._diagnostics.push({
-					severity: "error",
-					nodeId: node.id,
-					resource: ref.id,
 					code: "unsupported-node-resource",
+					backend: "webgl",
+					stage: source.stage,
+					nodeId: source.id,
+					resourceId: ref.id,
 					message:
-						`WebGL frame graph node "${node.id}" references ` +
+						`WebGL frame graph node "${source.id}" references ` +
 						`unsupported usage "${String(ref.usage)}" for resource ` +
 						`"${ref.id}".`,
 				});
 			}
-		}
-	}
-
-	private _validateFeedbackLoop(node: WebGLFrameGraphNode): void {
-		const sampled = new Set(
-			(node.reads ?? [])
-				.filter((read) => read.usage === "texture-sampling")
-				.map((read) => read.id)
-		);
-		for (const write of node.writes ?? []) {
-			if (
-				sampled.has(write.id) &&
-				(write.usage === "framebuffer-color" ||
-					write.usage === "framebuffer-depth")
-			) {
-				this._diagnostics.push({
+			const sampled = new Set(
+				(source.reads ?? [])
+					.filter((read) => read.usage === "texture-sampling")
+					.map((read) => read.id),
+			);
+			for (const write of source.writes ?? []) {
+				if (
+					!sampled.has(write.id) ||
+					(write.usage !== "framebuffer-color" &&
+						write.usage !== "framebuffer-depth")
+				) {
+					continue;
+				}
+				diagnostics.push({
+					phase: "lower",
+					enforcement: "enforced",
 					severity: "error",
-					nodeId: node.id,
-					resource: write.id,
 					code: "texture-feedback-loop",
+					backend: "webgl",
+					stage: source.stage,
+					nodeId: source.id,
+					resourceId: write.id,
 					message:
-						`WebGL frame graph node "${node.id}" samples and writes ` +
+						`WebGL frame graph node "${source.id}" samples and writes ` +
 						`resource "${write.id}" in the same framebuffer pass.`,
 				});
 			}
-		}
-	}
+			return diagnostics;
+		},
+	};
+}
 
-	private _resolveBarrierReason(
-		lastAccess: WebGLFrameGraphResourceState["lastAccess"],
-		nextAccess: "read" | "write"
-	): WebGLFrameGraphBarrier["reason"] {
-		if (lastAccess === "write" && nextAccess === "read") {
-			return "read-after-write";
-		}
-		if (lastAccess === "read" && nextAccess === "write") {
-			return "write-after-read";
-		}
-		if (lastAccess === "write" && nextAccess === "write") {
-			return "write-after-write";
-		}
-		return "usage-transition";
-	}
+function toImportedDescriptor(id: string): RenderGraphResourceDescriptor {
+	return {
+		id,
+		origin: "imported",
+		kind: "external",
+		residency: "frame",
+		initialContent: "unknown",
+	};
+}
 
-	private _getOrCreateResourceState(
-		id: WebGLFrameGraphResourceId
-	): WebGLFrameGraphResourceState {
-		let state = this._resources.get(id);
-		if (!state) {
-			state = {
-				id,
-				initialized: false,
-				lastNodeId: null,
-				lastAccess: null,
-				lastUsage: null,
-			};
-			this._resources.set(id, state);
-		}
-		return state;
+function toSharedNode(node: WebGLFrameGraphNode): SharedWebGLNode {
+	return {
+		id: node.id,
+		stage: node.stage,
+		kind: node.kind,
+		label: node.label,
+		requires: node.requires?.map((requirement) => ({
+			resource: requirement.id,
+			optional: requirement.optional,
+		})),
+		creates: node.creates?.map((mutation) => ({
+			resource: mutation.id,
+			usage: mutation.usage ? toSharedUsage(mutation.usage) : undefined,
+			optional: mutation.optional,
+		})),
+		resources: [
+			...(node.reads ?? []).map((ref) => ({
+				resource: ref.id,
+				access: "read" as const,
+				usage: toSharedUsage(ref.usage),
+				optional: ref.optional,
+			})),
+			...(node.writes ?? []).map((ref) => ({
+				resource: ref.id,
+				access: "write" as const,
+				usage: toSharedUsage(ref.usage),
+				optional: ref.optional,
+			})),
+		],
+		destroys: node.destroys?.map((mutation) => ({
+			resource: mutation.id,
+			usage: mutation.usage ? toSharedUsage(mutation.usage) : undefined,
+			optional: mutation.optional,
+		})),
+		payload: node,
+	};
+}
+
+function toSharedUsage(usage: WebGLFrameGraphResourceUsage): RenderGraphUsage {
+	switch (usage) {
+		case "framebuffer-color":
+			return "color-attachment";
+		case "framebuffer-depth":
+			return "depth-attachment";
+		case "texture-sampling":
+			return "sampled";
+		case "copy-source":
+			return "copy-source";
+		case "copy-target":
+			return "copy-target";
+		case "present":
+			return "present";
+		case "external":
+			return "sampled";
+		default:
+			return "storage";
 	}
+}
+
+function toWebGLUsage(usage: RenderGraphUsage): WebGLFrameGraphResourceUsage {
+	switch (usage) {
+		case "color-attachment":
+			return "framebuffer-color";
+		case "depth-attachment":
+			return "framebuffer-depth";
+		case "sampled":
+			return "texture-sampling";
+		case "copy-source":
+			return "copy-source";
+		case "copy-target":
+			return "copy-target";
+		case "present":
+			return "present";
+		default:
+			return "external";
+	}
+}
+
+function toWebGLBarrier(transition: RenderGraphTransition): WebGLFrameGraphBarrier {
+	return {
+		resource: transition.resourceId,
+		beforeNodeId: transition.fromNodeId ?? null,
+		nodeId: transition.nodeId,
+		fromUsage:
+			transition.previousUsage ? toWebGLUsage(transition.previousUsage) : null,
+		toUsage: toWebGLUsage(transition.usage),
+		reason: transition.reason ?? "usage-transition",
+	};
+}
+
+function toWebGLDiagnostic(
+	diagnostic: RenderGraphDiagnostic,
+): WebGLFrameGraphDiagnostic | null {
+	if (
+		diagnostic.code !== "read-before-create" &&
+		diagnostic.code !== "duplicate-create" &&
+		diagnostic.code !== "missing-resource" &&
+		diagnostic.code !== "texture-feedback-loop" &&
+		diagnostic.code !== "unsupported-node-resource" &&
+		diagnostic.code !== "destroy-before-create"
+	) {
+		return null;
+	}
+	return {
+		severity: diagnostic.severity,
+		nodeId: diagnostic.nodeId ?? "unknown",
+		resource: diagnostic.resourceId ?? "unknown",
+		code: diagnostic.code,
+		message: toWebGLDiagnosticMessage(diagnostic),
+	};
+}
+
+function toWebGLDiagnosticMessage(diagnostic: RenderGraphDiagnostic): string {
+	if (diagnostic.code === "duplicate-create") {
+		return `WebGL frame graph node "${diagnostic.nodeId}" creates already ` +
+			`active resource "${diagnostic.resourceId}".`;
+	}
+	if (diagnostic.code === "missing-resource") {
+		return `WebGL frame graph node "${diagnostic.nodeId}" requires missing ` +
+			`resource "${diagnostic.resourceId}".`;
+	}
+	return diagnostic.message.replace("Render graph node", "WebGL frame graph node");
+}
+
+function toLegacyAccess(
+	access: "create" | "read" | "write" | "read-write" | "destroy" | null,
+): "create" | "read" | "write" | "destroy" | null {
+	return access === "read-write" ? "write" : access;
 }

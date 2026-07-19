@@ -107,6 +107,7 @@ function createExecutor(events, options = {}) {
 			events.push("particles:additive");
 		},
 		presentFrame() {
+			if (options.presentError) throw options.presentError;
 			events.push("present");
 		},
 		finishFrame() {
@@ -136,6 +137,7 @@ function testRuntimeExecutesOpaqueNodesInOrder() {
 	runtime.beginFrame(context);
 	runtime.executePass(createPass("main-opaque"), context);
 	runtime.endFrame(context);
+	runtime.commitGraphAnalysis();
 
 	assert.deepEqual(events, [
 		"begin",
@@ -151,6 +153,11 @@ function testRuntimeExecutesOpaqueNodesInOrder() {
 		"main-opaque:opaque-scene:frame",
 		"webgl-present:present:frame",
 	]);
+	assert.equal(runtime.getDebugState().graphAnalysis.state, "committed");
+	assert.equal(
+		runtime.getDebugState().graphAnalysis.lastSuccessful.state,
+		"committed",
+	);
 }
 
 function testRuntimeDelegatesPostProcessNode() {
@@ -212,6 +219,27 @@ function testRuntimeDebugCapturesUnsupportedStage() {
 	]);
 }
 
+function testFailedPresentPreservesLastSuccessfulAnalysis() {
+	const events = [];
+	const options = {};
+	const runtime = createRuntime(events, options);
+	const context = createContext();
+
+	runtime.beginFrame(context);
+	runtime.endFrame(context);
+	runtime.commitGraphAnalysis();
+	const successful = runtime.getDebugState().graphAnalysis.lastSuccessful;
+
+	const error = new Error("present failed");
+	options.presentError = error;
+	runtime.beginFrame(context);
+	assert.throws(() => runtime.endFrame(context), /present failed/);
+	runtime.abortFrame(error);
+	const analysis = runtime.getDebugState().graphAnalysis;
+	assert.equal(analysis.lastAttempt.state, "aborted");
+	assert.equal(analysis.lastSuccessful, successful);
+}
+
 function testNodeRegistryRejectsMissingAndDuplicateOwners() {
 	assert.throws(
 		() => new WebGLFrameNodeExecutorRegistry([]),
@@ -232,6 +260,7 @@ function run() {
 	testRuntimeDelegatesPostProcessNode();
 	testRuntimePlansOITParticleFlow();
 	testRuntimeDebugCapturesUnsupportedStage();
+	testFailedPresentPreservesLastSuccessfulAnalysis();
 	testNodeRegistryRejectsMissingAndDuplicateOwners();
 	console.log("WebGL frame graph runtime tests passed");
 }

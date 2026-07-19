@@ -103,6 +103,10 @@ export class WebGLFrameGraphRuntime {
 			typeof this._executor.hasCustomRenderPass === "function" &&
 			this._executor.hasCustomRenderPass(pass, context)
 		) {
+			this._compiler.recordOpaqueStage(
+				pass.stage,
+				`Custom render pass "${pass.stage}" executes outside the logical graph.`,
+			);
 			return this._executor.executeCustomRenderPass(pass, context);
 		}
 		const plan = this._planner.planStage(
@@ -138,6 +142,7 @@ export class WebGLFrameGraphRuntime {
 		const result = this._compileAndExecute(plan, context);
 		const finish = () => {
 			this._executor.finishFrame();
+			this._compiler.seal();
 			this._active = false;
 			this._nodeState.earlyZPacketIds = new Set<string>();
 		};
@@ -154,8 +159,9 @@ export class WebGLFrameGraphRuntime {
 	 * @returns Nothing.
 	 * @sideEffects Clears executor frame state without presenting.
 	 */
-	public abortFrame(): void {
+	public abortFrame(error?: unknown): void {
 		this._executor.abortFrame();
+		this._compiler.abort(error);
 		this._active = false;
 		this._nodeState.earlyZPacketIds = new Set<string>();
 	}
@@ -174,11 +180,27 @@ export class WebGLFrameGraphRuntime {
 				...this._compiler.getDiagnostics(),
 				...this._runtimeDiagnostics,
 			],
+			graphAnalysis: this._compiler.getGraphAnalysis(),
 			postProcess: this._postProcessRuntime.getDebugState?.() ?? {
 				lastAttempt: null,
 				lastSuccessful: null,
 			},
 		};
+	}
+
+	/** @internal Completes graph analysis after all backend transaction commits. */
+	public commitGraphAnalysis(): void {
+		this._compiler.commit();
+	}
+
+	/** @internal Aborts graph analysis without changing native frame ownership. */
+	public abortGraphAnalysis(error?: unknown): void {
+		this._compiler.abort(error);
+	}
+
+	/** @internal Records a backend pass that bypasses logical resource analysis. */
+	public recordOpaqueGraphStage(stage: string, message: string): void {
+		this._compiler.recordOpaqueStage(stage, message);
 	}
 
 	private _compileAndExecute(
