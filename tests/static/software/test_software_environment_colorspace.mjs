@@ -21,12 +21,12 @@ function createCamera() {
 }
 
 function testSkyboxRendererDecodesSRGBToLinear() {
-	const environment = new Texture(
-		new Uint8ClampedArray([128, 64, 32, 255]),
-		1,
-		1,
-		"sRGB"
-	);
+	const environment = new Texture({
+		data: new Uint8ClampedArray([128, 64, 32, 255]),
+		width: 1,
+		height: 1,
+		colorSpace: "sRGB",
+	});
 	const pixels = new Uint8ClampedArray(4);
 
 	SkyboxRenderer.render(
@@ -48,12 +48,12 @@ function testSkyboxRendererDecodesSRGBToLinear() {
 }
 
 function testSkyboxRendererPreservesLinearTextureValues() {
-	const environment = new Texture(
-		new Uint8ClampedArray([128, 64, 32, 255]),
-		1,
-		1,
-		"Linear"
-	);
+	const environment = new Texture({
+		data: new Uint8ClampedArray([128, 64, 32, 255]),
+		width: 1,
+		height: 1,
+		colorSpace: "Linear",
+	});
 	const pixels = new Uint8ClampedArray(4);
 
 	SkyboxRenderer.render(
@@ -69,7 +69,12 @@ function testSkyboxRendererPreservesLinearTextureValues() {
 }
 
 function testSkyboxRendererPreservesHDRTextureValues() {
-	const environment = new Texture(new Float32Array([1, 0.5, 0.25, 1]), 1, 1, "HDR");
+	const environment = new Texture({
+		data: new Float32Array([1, 0.5, 0.25, 1]),
+		width: 1,
+		height: 1,
+		colorSpace: "HDR",
+	});
 	const pixels = new Uint8ClampedArray(4);
 
 	SkyboxRenderer.render(

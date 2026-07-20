@@ -14,12 +14,12 @@ import {
 import { TestRenderBackend } from "../../helpers/TestRenderBackend.mjs";
 
 function createPrefilteredMap(seed = 1) {
-	return new Texture(
-		new Float32Array([seed, seed * 0.5, seed * 0.25, 1]),
-		1,
-		1,
-		"HDR"
-	);
+	return new Texture({
+		data: new Float32Array([seed, seed * 0.5, seed * 0.25, 1]),
+		width: 1,
+		height: 1,
+		colorSpace: "HDR",
+	});
 }
 
 async function withPrefilterStub(handler, run) {

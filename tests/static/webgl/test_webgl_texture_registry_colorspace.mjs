@@ -113,7 +113,12 @@ function createTextureRegistryTestGL(options = {}) {
 }
 
 function createSolidTexture(colorSpace) {
-	return new Texture(new Uint8Array([128, 64, 32, 255]), 1, 1, colorSpace);
+	return new Texture({
+		data: new Uint8Array([128, 64, 32, 255]),
+		width: 1,
+		height: 1,
+		colorSpace: colorSpace,
+	});
 }
 
 function testEnvironmentTextureRespectsTextureColorSpace() {
@@ -150,12 +155,12 @@ function testEnvironmentTextureLimitsMaxMipLevelToUploadedChain() {
 	const gl = createTextureRegistryTestGL();
 	const registry = new WebGLTextureRegistry(gl, () => {});
 
-	const envTexture = new Texture(
-		new Float32Array(128 * 64 * 4),
-		128,
-		64,
-		"HDR"
-	);
+	const envTexture = new Texture({
+		data: new Float32Array(128 * 64 * 4),
+		width: 128,
+		height: 64,
+		colorSpace: "HDR",
+	});
 	envTexture.mipmaps = [
 		new Float32Array(128 * 64 * 4),
 		new Float32Array(64 * 32 * 4),
@@ -177,7 +182,12 @@ function testEnvironmentTextureLimitsMaxMipLevelToUploadedChain() {
 function testMipmapFilterGeneratesMipChainWhenOnlyBaseLevelExists() {
 	const gl = createTextureRegistryTestGL();
 	const registry = new WebGLTextureRegistry(gl, () => {});
-	const texture = new Texture(new Uint8Array(4 * 4 * 4), 4, 4, "sRGB");
+	const texture = new Texture({
+		data: new Uint8Array(4 * 4 * 4),
+		width: 4,
+		height: 4,
+		colorSpace: "sRGB",
+	});
 	texture.minFilter = "LinearMipmapLinear";
 
 	registry.getBaseColorTexture(texture);
@@ -198,7 +208,12 @@ function testMipmapFilterGeneratesMipChainWhenOnlyBaseLevelExists() {
 function testLinearFilterSkipsMipmapGenerationForSingleLevelTexture() {
 	const gl = createTextureRegistryTestGL();
 	const registry = new WebGLTextureRegistry(gl, () => {});
-	const texture = new Texture(new Uint8Array(4 * 4 * 4), 4, 4, "sRGB");
+	const texture = new Texture({
+		data: new Uint8Array(4 * 4 * 4),
+		width: 4,
+		height: 4,
+		colorSpace: "sRGB",
+	});
 	texture.minFilter = "Linear";
 
 	registry.getBaseColorTexture(texture);
@@ -219,7 +234,12 @@ function testLinearFilterSkipsMipmapGenerationForSingleLevelTexture() {
 function testNearestMipmapLinearMapsToNearestMipmapLinear() {
 	const gl = createTextureRegistryTestGL();
 	const registry = new WebGLTextureRegistry(gl, () => {});
-	const texture = new Texture(new Uint8Array(4 * 4 * 4), 4, 4, "sRGB");
+	const texture = new Texture({
+		data: new Uint8Array(4 * 4 * 4),
+		width: 4,
+		height: 4,
+		colorSpace: "sRGB",
+	});
 	texture.mipmaps = [
 		new Uint8Array(4 * 4 * 4),
 		new Uint8Array(2 * 2 * 4),
@@ -240,7 +260,7 @@ function testNearestMipmapLinearMapsToNearestMipmapLinear() {
 function testEnvironmentSpecularFloatMipChainUploadsAsRGBA16F() {
 	const gl = createTextureRegistryTestGL({ floatLinearExtension: true });
 	const registry = new WebGLTextureRegistry(gl, () => {});
-	const envTexture = new Texture(null, 2, 1, "HDR");
+	const envTexture = new Texture({ data: null, width: 2, height: 1, colorSpace: "HDR" });
 	envTexture.mipmaps = [
 		new Float32Array([2, 0.5, 0.25, 1, 4, 2, 1, 1]),
 		new Float32Array([3, 1.5, 0.75, 1]),
@@ -266,12 +286,12 @@ function testEnvironmentSpecularFloatUploadFallsBackToRGBA32F() {
 		floatLinearExtension: true,
 	});
 	const registry = new WebGLTextureRegistry(gl, () => {});
-	const envTexture = new Texture(
-		new Float32Array([2, 0.5, 0.25, 1]),
-		1,
-		1,
-		"HDR"
-	);
+	const envTexture = new Texture({
+		data: new Float32Array([2, 0.5, 0.25, 1]),
+		width: 1,
+		height: 1,
+		colorSpace: "HDR",
+	});
 
 	registry.getEnvironmentSpecularTexture(envTexture);
 
@@ -285,12 +305,12 @@ function testEnvironmentSpecularFloatUploadFallsBackToRGBA32F() {
 function testEnvironmentSpecularKeepsFloatCacheSeparateFromBaseColor() {
 	const gl = createTextureRegistryTestGL({ floatLinearExtension: true });
 	const registry = new WebGLTextureRegistry(gl, () => {});
-	const texture = new Texture(
-		new Float32Array([2, 0.5, 0.25, 1]),
-		1,
-		1,
-		"HDR"
-	);
+	const texture = new Texture({
+		data: new Float32Array([2, 0.5, 0.25, 1]),
+		width: 1,
+		height: 1,
+		colorSpace: "HDR",
+	});
 
 	registry.getBaseColorTexture(texture);
 	registry.getEnvironmentSpecularTexture(texture);
@@ -351,7 +371,12 @@ function testDeferredBaseColorTextureUploadsOnBeginFrame() {
 			pendingEvents++;
 		},
 	});
-	const texture = new Texture(new Uint8Array(4 * 4 * 4), 4, 4, "sRGB");
+	const texture = new Texture({
+		data: new Uint8Array(4 * 4 * 4),
+		width: 4,
+		height: 4,
+		colorSpace: "sRGB",
+	});
 	texture.minFilter = "LinearMipmapLinear";
 
 	const firstResolved = registry.getBaseColorTexture(texture);
@@ -381,7 +406,12 @@ function testDeferredBaseColorTextureReusesPendingTarget() {
 	const registry = new WebGLTextureRegistry(gl, () => {}, {
 		uploadScheduling: "deferred",
 	});
-	const texture = new Texture(new Uint8Array(4 * 4 * 4), 4, 4, "sRGB");
+	const texture = new Texture({
+		data: new Uint8Array(4 * 4 * 4),
+		width: 4,
+		height: 4,
+		colorSpace: "sRGB",
+	});
 
 	const firstResolved = registry.getBaseColorTexture(texture);
 	const createdAfterFirstResolve = gl.createdTextureCount;
@@ -405,8 +435,18 @@ function testDeferredTextureUploadBudgetUploadsOnePerFrame() {
 		maxUploadsPerFrame: 1,
 		maxUploadBytesPerFrame: 1,
 	});
-	const textureA = new Texture(new Uint8Array(2 * 2 * 4), 2, 2, "sRGB");
-	const textureB = new Texture(new Uint8Array(2 * 2 * 4), 2, 2, "sRGB");
+	const textureA = new Texture({
+		data: new Uint8Array(2 * 2 * 4),
+		width: 2,
+		height: 2,
+		colorSpace: "sRGB",
+	});
+	const textureB = new Texture({
+		data: new Uint8Array(2 * 2 * 4),
+		width: 2,
+		height: 2,
+		colorSpace: "sRGB",
+	});
 
 	registry.getBaseColorTexture(textureA);
 	registry.getBaseColorTexture(textureB);
@@ -441,7 +481,7 @@ function testDeferredTextureUploadDefaultCountBudgetUploadsFourPerFrame() {
 	});
 	const textures = Array.from(
 		{ length: 4 },
-		() => new Texture(new Uint8Array(2 * 2 * 4), 2, 2, "sRGB")
+		() => new Texture({ data: new Uint8Array(2 * 2 * 4), width: 2, height: 2, colorSpace: "sRGB" })
 	);
 
 	for (const texture of textures) {
@@ -466,18 +506,18 @@ function testDeferredTextureUploadDefaultByteBudgetAllowsThirtyTwoMiB() {
 		maxUploadsPerFrame: 2,
 	});
 	const size = 2048;
-	const textureA = new Texture(
-		new Uint8Array(size * size * 4),
-		size,
-		size,
-		"sRGB"
-	);
-	const textureB = new Texture(
-		new Uint8Array(size * size * 4),
-		size,
-		size,
-		"sRGB"
-	);
+	const textureA = new Texture({
+		data: new Uint8Array(size * size * 4),
+		width: size,
+		height: size,
+		colorSpace: "sRGB",
+	});
+	const textureB = new Texture({
+		data: new Uint8Array(size * size * 4),
+		width: size,
+		height: size,
+		colorSpace: "sRGB",
+	});
 
 	registry.getBaseColorTexture(textureA);
 	registry.getBaseColorTexture(textureB);

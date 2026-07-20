@@ -158,12 +158,12 @@ export class SobelNormalMapper {
 		this._invertY = !!options.invertY;
 		this._heightSource = normalizeHeightSource(options.heightSource);
 		this._overrideComputeFacade = options.computeFacade ?? null;
-		this._destTexture = new Texture(
-			null,
-			Math.max(1, _source.width | 0),
-			Math.max(1, _source.height | 0),
-			"Linear"
-		);
+		this._destTexture = new Texture({
+			data: null,
+			width: Math.max(1, _source.width | 0),
+			height: Math.max(1, _source.height | 0),
+			colorSpace: "Linear",
+		});
 	}
 
 	public get normalMap(): Texture {

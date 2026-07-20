@@ -43,7 +43,12 @@ function executeTask(
 	}
 
 	const env = payload.envMap;
-	const envMap = new Texture(env.data, env.width, env.height, env.colorSpace);
+	const envMap = new Texture({
+		data: env.data,
+		width: env.width,
+		height: env.height,
+		colorSpace: env.colorSpace,
+	});
 	const mip = prefilterEnvMapMipLevel(
 		envMap,
 		payload.level,

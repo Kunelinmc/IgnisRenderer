@@ -35,15 +35,18 @@ export interface TextureMipLevel {
 	rowsPerImage?: number;
 }
 
-export interface TextureDescriptor {
+export interface TextureBaseParams {
+	colorSpace?: TextureColorSpace;
+	label?: string;
+	usageHint?: "color" | "data" | "normal" | "depth" | "compressed";
+}
+
+export interface TextureParams extends TextureBaseParams {
 	data?: TextureData | null;
 	width?: number;
 	height?: number;
 	format?: TextureFormat;
-	colorSpace?: TextureColorSpace;
 	levels?: TextureMipLevel[];
-	label?: string;
-	usageHint?: "color" | "data" | "normal" | "depth" | "compressed";
 }
 
 /**
@@ -78,50 +81,35 @@ export class Texture {
 	levels: TextureMipLevel[];
 	version: number;
 	label?: string;
-	usageHint?: TextureDescriptor["usageHint"];
+	usageHint?: TextureBaseParams["usageHint"];
 	private _isDynamicTexture: boolean;
 	private _isLoadErrorFallback: boolean;
 
-	constructor(descriptor?: TextureDescriptor);
-	constructor(
-		data?: TextureData | null,
-		width?: number,
-		height?: number,
-		colorSpace?: TextureColorSpace
-	);
-	constructor(
-		dataOrDescriptor: TextureData | TextureDescriptor | null = null,
-		width: number = 0,
-		height: number = 0,
-		colorSpace: TextureColorSpace = "sRGB"
-	) {
-		const descriptor =
-			isTextureDescriptor(dataOrDescriptor) ?
-				dataOrDescriptor
-			:	{
-					data: dataOrDescriptor,
-					width,
-					height,
-					colorSpace,
-				};
-		const resolvedColorSpace = descriptor.colorSpace ?? "sRGB";
-		const resolvedData = descriptor.data ?? descriptor.levels?.[0]?.data ?? null;
+	/**
+	 * Creates a texture from one parameter object.
+	 */
+	constructor(params: TextureParams = {}) {
+		if (!params || typeof params !== "object" || ArrayBuffer.isView(params)) {
+			throw new TypeError("Texture requires a parameter object.");
+		}
+		const resolvedColorSpace = params.colorSpace ?? "sRGB";
+		const resolvedData = params.data ?? params.levels?.[0]?.data ?? null;
 		const resolvedWidth = Math.max(
 			0,
-			Math.floor(descriptor.width ?? descriptor.levels?.[0]?.width ?? width ?? 0)
+			Math.floor(params.width ?? params.levels?.[0]?.width ?? 0)
 		);
 		const resolvedHeight = Math.max(
 			0,
-			Math.floor(descriptor.height ?? descriptor.levels?.[0]?.height ?? height ?? 0)
+			Math.floor(params.height ?? params.levels?.[0]?.height ?? 0)
 		);
 
 		this.data = resolvedData;
 		this.width = resolvedWidth;
 		this.height = resolvedHeight;
 		this.format =
-			descriptor.format ??
+			params.format ??
 			inferDefaultTextureFormat(resolvedData, resolvedColorSpace);
-		this.formatExplicit = !!descriptor.format;
+		this.formatExplicit = !!params.format;
 		this.wrapS = "Repeat";
 		this.wrapT = "Repeat";
 		this.minFilter = "Linear";
@@ -131,7 +119,7 @@ export class Texture {
 		this.rotation = 0;
 		this.colorSpace = resolvedColorSpace;
 		this.levels = normalizeTextureLevels(
-			descriptor.levels,
+			params.levels,
 			resolvedData,
 			resolvedWidth,
 			resolvedHeight
@@ -140,8 +128,8 @@ export class Texture {
 			.map((level) => level.data)
 			.filter((levelData): levelData is TextureData => !!levelData);
 		this.version = 0;
-		this.label = descriptor.label;
-		this.usageHint = descriptor.usageHint;
+		this.label = params.label;
+		this.usageHint = params.usageHint;
 		this._isDynamicTexture = false;
 		this._isLoadErrorFallback = false;
 	}
@@ -355,22 +343,6 @@ export class Texture {
 			a: data[idx + 3],
 		};
 	}
-}
-
-function isTextureDescriptor(value: unknown): value is TextureDescriptor {
-	return (
-		!!value &&
-		typeof value === "object" &&
-		!ArrayBuffer.isView(value) &&
-		("data" in value ||
-			"width" in value ||
-			"height" in value ||
-			"colorSpace" in value ||
-			"levels" in value ||
-			"format" in value ||
-			"usageHint" in value ||
-			"label" in value)
-	);
 }
 
 function inferDefaultTextureFormat(

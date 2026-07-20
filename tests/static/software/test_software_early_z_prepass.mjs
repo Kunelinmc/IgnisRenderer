@@ -270,11 +270,11 @@ async function testScanlinePrepassParity() {
 }
 
 async function testMaskPacketParity() {
-	const maskMap = new Texture(
-		new Uint8ClampedArray([255, 255, 255, 0]),
-		1,
-		1
-	);
+	const maskMap = new Texture({
+		data: new Uint8ClampedArray([255, 255, 255, 0]),
+		width: 1,
+		height: 1,
+	});
 	const packets = [
 		createTrianglePacket("mask-far-blue", { r: 0, g: 0, b: 255 }, { zOffset: -0.2 }),
 		createTrianglePacket("mask-front-transparent", { r: 255, g: 0, b: 0 }, {

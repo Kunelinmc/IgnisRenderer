@@ -22,7 +22,7 @@ function createTestTexture(width = 16, height = 8) {
 		data[i + 2] = (pixelIndex * 47) % 255;
 		data[i + 3] = 255;
 	}
-	return new Texture(data, width, height, "sRGB");
+	return new Texture({ data: data, width: width, height: height, colorSpace: "sRGB" });
 }
 
 async function testClassPrefiltersOnCPU() {
@@ -38,7 +38,12 @@ async function testClassPrefiltersOnCPU() {
 }
 
 async function testHelperPreservesHDRRadiance() {
-	const texture = new Texture(new Float32Array([4, 2, 1, 1]), 1, 1, "HDR");
+	const texture = new Texture({
+		data: new Float32Array([4, 2, 1, 1]),
+		width: 1,
+		height: 1,
+		colorSpace: "HDR",
+	});
 	const result = await prefilterEnvironmentIBL(texture, {
 		acceleration: "cpu",
 		maxSampleWidth: 1,
@@ -89,7 +94,12 @@ async function testAutoFallsBackWhenWebGPUPathFails() {
 }
 
 async function testWebGPUPrefilterUsesRGBA16FloatForHDR() {
-	const texture = new Texture(new Float32Array([4, 2, 1, 1]), 1, 1, "HDR");
+	const texture = new Texture({
+		data: new Float32Array([4, 2, 1, 1]),
+		width: 1,
+		height: 1,
+		colorSpace: "HDR",
+	});
 	const backend = new FakeWebGPUBackend();
 	const prefilter = new IBLPrefilter(backend);
 	const result = await prefilter.prefilter(texture, {

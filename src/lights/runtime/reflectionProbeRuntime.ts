@@ -558,12 +558,12 @@ export function buildReflectionProbeAtlasTexture(
 		atlasMipmaps.push(mipData);
 	}
 
-	const atlas = new Texture(
-		atlasMipmaps[0] as Texture["data"],
-		baseWidth * maps.length,
-		baseHeight,
-		baseMap.colorSpace
-	);
+	const atlas = new Texture({
+		data: atlasMipmaps[0] as Texture["data"],
+		width: baseWidth * maps.length,
+		height: baseHeight,
+		colorSpace: baseMap.colorSpace,
+	});
 	atlas.wrapS = "Clamp";
 	atlas.wrapT = "Clamp";
 	atlas.minFilter = "Linear";

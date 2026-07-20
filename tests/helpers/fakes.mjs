@@ -1234,7 +1234,12 @@ export class FakeRenderer {
 
 export class FakeDynamicTexture extends Texture {
 	constructor(framesToUpdate) {
-		super(new Uint8ClampedArray([255, 255, 255, 255]), 1, 1, "sRGB");
+		super({
+			data: new Uint8ClampedArray([255, 255, 255, 255]),
+			width: 1,
+			height: 1,
+			colorSpace: "sRGB",
+		});
 		this._framesToUpdate = framesToUpdate;
 		this._registerAsDynamicTexture();
 	}

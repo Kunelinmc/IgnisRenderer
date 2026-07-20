@@ -16,7 +16,12 @@ function getLastBufferWriteValues(backend) {
 async function testInitUpdateAndInvalidationFlow() {
 	const backend = new FakeWebGPUBackend();
 	const renderer = new FakeRenderer(backend);
-	const source = new Texture(new Uint8ClampedArray(4), 15, 9, "sRGB");
+	const source = new Texture({
+		data: new Uint8ClampedArray(4),
+		width: 15,
+		height: 9,
+		colorSpace: "sRGB",
+	});
 	const mapper = new SobelNormalMapper(source);
 
 	await mapper.init(renderer);
@@ -44,7 +49,12 @@ async function testInitUpdateAndInvalidationFlow() {
 async function testAttachRunsOnPostAnimationAndDetachStops() {
 	const backend = new FakeWebGPUBackend();
 	const renderer = new FakeRenderer(backend);
-	const source = new Texture(new Uint8ClampedArray(4), 8, 8, "sRGB");
+	const source = new Texture({
+		data: new Uint8ClampedArray(4),
+		width: 8,
+		height: 8,
+		colorSpace: "sRGB",
+	});
 	const mapper = new SobelNormalMapper(source);
 
 	await mapper.attach(renderer);
@@ -75,7 +85,12 @@ async function testAttachRunsOnPostAnimationAndDetachStops() {
 async function testDestroyReleasesResources() {
 	const backend = new FakeWebGPUBackend();
 	const renderer = new FakeRenderer(backend);
-	const source = new Texture(new Uint8ClampedArray(4), 4, 4, "sRGB");
+	const source = new Texture({
+		data: new Uint8ClampedArray(4),
+		width: 4,
+		height: 4,
+		colorSpace: "sRGB",
+	});
 	const mapper = new SobelNormalMapper(source);
 
 	await mapper.init(renderer);
@@ -94,7 +109,12 @@ async function testInjectedComputeFacadeSupportsNonWebGPUBackend() {
 	computeFacade.resolveTextureForSlot = (texture, slotIndex) =>
 		computeFacade.getTextureForSlot(texture, slotIndex);
 	const renderer = new FakeRenderer({ type: "webgl" });
-	const source = new Texture(new Uint8ClampedArray(4), 6, 5, "sRGB");
+	const source = new Texture({
+		data: new Uint8ClampedArray(4),
+		width: 6,
+		height: 5,
+		colorSpace: "sRGB",
+	});
 	const mapper = new SobelNormalMapper(source, {
 		computeFacade,
 		strength: 2,
@@ -118,7 +138,12 @@ async function testInjectedComputeFacadeSupportsNonWebGPUBackend() {
 async function testHeightSourceControlsUniformAndInvalidation() {
 	const backend = new FakeWebGPUBackend();
 	const renderer = new FakeRenderer(backend);
-	const source = new Texture(new Uint8ClampedArray(4), 8, 8, "sRGB");
+	const source = new Texture({
+		data: new Uint8ClampedArray(4),
+		width: 8,
+		height: 8,
+		colorSpace: "sRGB",
+	});
 	const mapper = new SobelNormalMapper(source, {
 		heightSource: "blue",
 	});

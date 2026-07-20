@@ -95,7 +95,7 @@ export class TextureLoader extends Loader {
 		ctx.drawImage(source, 0, 0);
 
 		const imageData = ctx.getImageData(0, 0, width, height);
-		return new Texture(imageData.data, width, height);
+		return new Texture({ data: imageData.data, width: width, height: height });
 	}
 
 	/**
@@ -112,7 +112,7 @@ export class TextureLoader extends Loader {
 		a: number = 255
 	): Texture {
 		const data = new Uint8ClampedArray([r, g, b, a]);
-		return new Texture(data, 1, 1);
+		return new Texture({ data: data, width: 1, height: 1 });
 	}
 
 	/**

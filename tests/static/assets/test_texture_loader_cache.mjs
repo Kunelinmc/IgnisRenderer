@@ -25,7 +25,7 @@ function createResponse(bytes) {
 }
 
 function createTexture(marker) {
-	return new Texture(new Uint8ClampedArray([marker, 0, 0, 255]), 1, 1);
+	return new Texture({ data: new Uint8ClampedArray([marker, 0, 0, 255]), width: 1, height: 1 });
 }
 
 async function testSharedCacheAcrossInstances() {

@@ -174,12 +174,12 @@ export function convertCubeTextureToEquirect(
 		mipmaps.push(convertedLevel);
 	}
 
-	const converted = new Texture(
-		mipmaps[0] as Texture["data"],
-		targetWidth,
-		targetHeight,
-		texture.colorSpace
-	);
+	const converted = new Texture({
+		data: mipmaps[0] as Texture["data"],
+		width: targetWidth,
+		height: targetHeight,
+		colorSpace: texture.colorSpace,
+	});
 	converted.wrapS = "Repeat";
 	converted.wrapT = "Clamp";
 	converted.minFilter = "Linear";

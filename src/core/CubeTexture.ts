@@ -2,7 +2,7 @@ import { clamp } from "../maths/Common";
 import type { RGBA } from "../foundation/Color";
 import type { IVector3 } from "../maths/types";
 import { TextureFormat } from "../backends/types";
-import { Texture, type TextureColorSpace } from "./Texture";
+import { Texture, type TextureBaseParams } from "./Texture";
 
 export type CubeTextureFaceData = Uint8Array | Uint8ClampedArray | Float32Array;
 
@@ -15,11 +15,10 @@ export enum CubeTextureFace {
 	NegativeZ = 5,
 }
 
-export interface CubeTextureParams {
+export interface CubeTextureParams extends TextureBaseParams {
 	faces: CubeTextureFaceData[];
 	faceMipmaps?: CubeTextureFaceData[][];
 	size?: number;
-	colorSpace?: TextureColorSpace;
 }
 
 export interface CubeFaceUV {
@@ -40,13 +39,25 @@ const CUBE_TEXTURE_EPSILON = 1e-6;
 export class CubeTexture extends Texture {
 	private _facesByMipLevel: CubeTextureFaceData[][];
 
+	/**
+	 * Creates a cubemap from one parameter object containing all six faces.
+	 */
 	constructor(params: CubeTextureParams) {
+		if (!params || typeof params !== "object") {
+			throw new TypeError("CubeTexture requires a parameter object.");
+		}
 		const inferredSize = inferCubeFaceSize(params.faces);
 		const requestedSize =
 			typeof params.size === "number" && Number.isFinite(params.size) ?
 				Math.max(CUBE_TEXTURE_MIN_SIZE, Math.floor(params.size))
 			:	inferredSize;
-		super(null, requestedSize, requestedSize, params.colorSpace ?? "sRGB");
+		super({
+			width: requestedSize,
+			height: requestedSize,
+			colorSpace: params.colorSpace,
+			label: params.label,
+			usageHint: params.usageHint,
+		});
 		this.wrapS = "Clamp";
 		this.wrapT = "Clamp";
 		this.magFilter = "Linear";
@@ -108,6 +119,8 @@ export class CubeTexture extends Texture {
 		this.width = requestedSize;
 		this.height = requestedSize;
 		this.colorSpace = params.colorSpace ?? this.colorSpace;
+		this.label = params.label ?? this.label;
+		this.usageHint = params.usageHint ?? this.usageHint;
 		this.format =
 			this.colorSpace === "HDR" ?
 				TextureFormat.RGBA16Float

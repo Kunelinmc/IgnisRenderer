@@ -22,12 +22,12 @@ async function waitForCondition(predicate, message, count = 32) {
 async function testRegistryAutoGeneratesMipmapChainForMipmapMinFilter() {
 	const backend = new FakeWebGPUBackend();
 	const registry = new WebGPUTextureRegistry(backend);
-	const texture = new Texture(
-		new Uint8ClampedArray(8 * 4 * 4).fill(255),
-		8,
-		4,
-		"sRGB"
-	);
+	const texture = new Texture({
+		data: new Uint8ClampedArray(8 * 4 * 4).fill(255),
+		width: 8,
+		height: 4,
+		colorSpace: "sRGB",
+	});
 	texture.minFilter = "LinearMipmapLinear";
 
 	registry.getTextureForSlot(texture, WEBGPU_TEXTURE_SLOT.BASE_COLOR);
@@ -56,12 +56,12 @@ async function testRegistryAutoGeneratesMipmapChainForMipmapMinFilter() {
 function testRegistryKeepsExplicitMipmapsAuthoritative() {
 	const backend = new FakeWebGPUBackend();
 	const registry = new WebGPUTextureRegistry(backend);
-	const texture = new Texture(
-		new Uint8ClampedArray(8 * 4 * 4).fill(255),
-		8,
-		4,
-		"sRGB"
-	);
+	const texture = new Texture({
+		data: new Uint8ClampedArray(8 * 4 * 4).fill(255),
+		width: 8,
+		height: 4,
+		colorSpace: "sRGB",
+	});
 	texture.mipmaps = [
 		texture.data,
 		new Uint8ClampedArray(4 * 2 * 4).fill(128),

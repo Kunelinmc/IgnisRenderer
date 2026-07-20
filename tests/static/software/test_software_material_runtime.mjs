@@ -118,14 +118,14 @@ function testDepthWriteReflectsTransparentPassAndMaterialState() {
 
 function testAlphaMaskUsesSharedTextureSampling() {
 	const runtime = new SoftwareMaterialRuntime();
-	const texture = new Texture(
-		new Uint8ClampedArray([
+	const texture = new Texture({
+		data: new Uint8ClampedArray([
 			255, 255, 255, 64,
 			255, 255, 255, 192,
 		]),
-		2,
-		1
-	);
+		width: 2,
+		height: 1,
+	});
 	texture.wrapS = "Clamp";
 	texture.wrapT = "Clamp";
 	texture.offset.x = 0.25;

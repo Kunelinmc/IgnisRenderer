@@ -195,7 +195,7 @@ function testRuntimeCacheDirtyBehavior() {
 
 function testReflectionProbeCaptureDefaultsAndClone() {
 	const probe = new ReflectionProbe();
-	const rawTexture = new Texture(null, 0, 0, "HDR");
+	const rawTexture = new Texture({ data: null, width: 0, height: 0, colorSpace: "HDR" });
 	const cubeTexture = createTinyCubeTexture([
 		new Float32Array([0, 0, 0, 1]),
 		new Float32Array([0, 0, 0, 1]),
@@ -204,7 +204,7 @@ function testReflectionProbeCaptureDefaultsAndClone() {
 		new Float32Array([0, 0, 0, 1]),
 		new Float32Array([0, 0, 0, 1]),
 	]);
-	const prefilteredTexture = new Texture(null, 0, 0, "HDR");
+	const prefilteredTexture = new Texture({ data: null, width: 0, height: 0, colorSpace: "HDR" });
 	probe.capture
 		.bindRawTexture(rawTexture)
 		.bindCubeTexture(cubeTexture)
@@ -240,7 +240,7 @@ function testReflectionProbeCaptureDefaultsAndClone() {
 
 function testReflectionProbeCaptureOutputBindingsCanBeCleared() {
 	const probe = new ReflectionProbe();
-	const rawTexture = new Texture(null, 0, 0, "HDR");
+	const rawTexture = new Texture({ data: null, width: 0, height: 0, colorSpace: "HDR" });
 	const cubeTexture = createTinyCubeTexture([
 		new Float32Array([0, 0, 0, 1]),
 		new Float32Array([0, 0, 0, 1]),
@@ -249,7 +249,7 @@ function testReflectionProbeCaptureOutputBindingsCanBeCleared() {
 		new Float32Array([0, 0, 0, 1]),
 		new Float32Array([0, 0, 0, 1]),
 	]);
-	const prefilteredTexture = new Texture(null, 0, 0, "HDR");
+	const prefilteredTexture = new Texture({ data: null, width: 0, height: 0, colorSpace: "HDR" });
 
 	probe.capture
 		.bindRawTexture(rawTexture)
@@ -442,7 +442,7 @@ function createTinyCubeTexture(faces) {
 
 function createTinyEquirectTexture(value) {
 	const data = new Float32Array([value, value, value, 1]);
-	const texture = new Texture(data, 1, 1, "HDR");
+	const texture = new Texture({ data: data, width: 1, height: 1, colorSpace: "HDR" });
 	texture.mipmaps = [new Float32Array(data)];
 	return texture;
 }
@@ -464,7 +464,12 @@ function createEquirectTexture(value, width, height, mipCount) {
 		}
 		mipmaps.push(mipData);
 	}
-	const texture = new Texture(mipmaps[0], resolvedWidth, resolvedHeight, "HDR");
+	const texture = new Texture({
+		data: mipmaps[0],
+		width: resolvedWidth,
+		height: resolvedHeight,
+		colorSpace: "HDR",
+	});
 	texture.mipmaps = mipmaps;
 	texture.data = mipmaps[0];
 	return texture;

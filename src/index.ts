@@ -259,7 +259,12 @@ export * from "./particles";
 export * from "./physics";
 export * from "./lights";
 export * from "./lights/shadows";
-export { Texture, type TextureColorSpace } from "./core/Texture";
+export {
+	Texture,
+	type TextureBaseParams,
+	type TextureColorSpace,
+	type TextureParams,
+} from "./core/Texture";
 export {
 	CubeTexture,
 	CubeTextureFace,

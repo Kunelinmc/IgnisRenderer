@@ -1,4 +1,4 @@
-import { Texture, type TextureColorSpace } from "./Texture";
+import { Texture, type TextureBaseParams } from "./Texture";
 
 type CanvasTextureContext2D =
 	| CanvasRenderingContext2D
@@ -24,8 +24,8 @@ const CANVAS_MUTATING_METHODS = [
 	"reset",
 ] as const;
 
-export interface CanvasTextureParams {
-	colorSpace?: TextureColorSpace;
+export interface CanvasTextureParams extends TextureBaseParams {
+	context: CanvasTextureContext2D;
 	/**
 	 * Auto-registers this texture into the global dynamic-texture update loop.
 	 */
@@ -60,17 +60,22 @@ export class CanvasTexture extends Texture {
 	private _lastUpdateTimeMs: number;
 	private _minUpdateIntervalMs: number;
 
-	constructor(
-		context: CanvasTextureContext2D,
-		params: CanvasTextureParams = {}
-	) {
+	/**
+	 * Creates a dynamic canvas texture from one parameter object.
+	 */
+	constructor(params: CanvasTextureParams) {
+		if (!params || typeof params !== "object" || !("context" in params)) {
+			throw new TypeError("CanvasTexture requires a parameter object.");
+		}
+		const { context } = params;
 		const canvas = CanvasTexture._resolveCanvas(context);
-		super(
-			null,
-			Math.max(0, canvas.width | 0),
-			Math.max(0, canvas.height | 0),
-			params.colorSpace ?? "sRGB"
-		);
+		super({
+			width: Math.max(0, canvas.width | 0),
+			height: Math.max(0, canvas.height | 0),
+			colorSpace: params.colorSpace,
+			label: params.label,
+			usageHint: params.usageHint,
+		});
 
 		this.context = context;
 		this.canvas = canvas;

@@ -11,7 +11,7 @@ function createTestTexture(width = 32, height = 16) {
 		data[i + 2] = (pixelIndex * 47) % 255;
 		data[i + 3] = 255;
 	}
-	return new Texture(data, width, height, "sRGB");
+	return new Texture({ data: data, width: width, height: height, colorSpace: "sRGB" });
 }
 
 function testProjectsEnvironmentTextureToSH() {
@@ -24,7 +24,12 @@ function testProjectsEnvironmentTextureToSH() {
 }
 
 function testProjectionHonorsSampleLimits() {
-	const texture = new Texture(new Float32Array([4, 2, 1, 1]), 1, 1, "HDR");
+	const texture = new Texture({
+		data: new Float32Array([4, 2, 1, 1]),
+		width: 1,
+		height: 1,
+		colorSpace: "HDR",
+	});
 	const sh = projectEnvironmentTextureToSH(texture, {
 		maxSampleWidth: 1,
 		maxSampleHeight: 1,
@@ -49,7 +54,12 @@ function testProjectionSupportsAbortSignal() {
 
 function testProjectionRejectsInvalidTexture() {
 	assert.throws(
-		() => projectEnvironmentTextureToSH(new Texture(null, 0, 0, "sRGB")),
+		() => projectEnvironmentTextureToSH(new Texture({
+			data: null,
+			width: 0,
+			height: 0,
+			colorSpace: "sRGB",
+		})),
 		/valid environment texture/
 	);
 }

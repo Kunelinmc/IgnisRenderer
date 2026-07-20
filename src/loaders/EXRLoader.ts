@@ -659,7 +659,12 @@ class EXRScanlineParser {
 	}
 
 	private _createTexture(): Texture {
-		const texture = new Texture(this._output, this._width, this._height, "HDR");
+		const texture = new Texture({
+			data: this._output,
+			width: this._width,
+			height: this._height,
+			colorSpace: "HDR",
+		});
 		texture.wrapS = "Repeat";
 		texture.wrapT = "Clamp";
 		texture.minFilter = "Linear";
@@ -785,7 +790,12 @@ function resolveEnvironmentTarget(target: EXREnvironmentTarget): Environment {
 }
 
 function createLoadErrorFallbackTexture(): Texture {
-	const texture = new Texture(new Float32Array([0, 0, 0, 1]), 1, 1, "HDR");
+	const texture = new Texture({
+		data: new Float32Array([0, 0, 0, 1]),
+		width: 1,
+		height: 1,
+		colorSpace: "HDR",
+	});
 	texture.wrapS = "Repeat";
 	texture.wrapT = "Clamp";
 	texture.markAsLoadErrorFallback();

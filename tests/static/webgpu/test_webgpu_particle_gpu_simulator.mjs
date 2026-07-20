@@ -323,7 +323,12 @@ async function testRenderResourcesPrefersGPUDrawBatches() {
 		label: "TestParticleIndirect",
 	});
 	backend.writeBuffer(indirectBuffer, new Uint32Array([6, 3, 0, 0]));
-	const texture = new Texture(new Uint8Array([255, 255, 255, 255]), 1, 1, "sRGB");
+	const texture = new Texture({
+		data: new Uint8Array([255, 255, 255, 255]),
+		width: 1,
+		height: 1,
+		colorSpace: "sRGB",
+	});
 	context.transient.set(WEBGPU_PARTICLE_DRAW_BATCHES_KEY, [
 		{
 			systemId: "particleSystem-gpu",

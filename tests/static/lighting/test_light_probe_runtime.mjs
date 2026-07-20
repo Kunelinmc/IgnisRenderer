@@ -98,8 +98,8 @@ function testConstructorAndLocalizedClone() {
 
 function testCaptureOutputBindingsAreRuntimeOnly() {
 	const probe = new LightProbe({});
-	const rawA = new Texture(null, 0, 0, "HDR");
-	const rawB = new Texture(null, 0, 0, "HDR");
+	const rawA = new Texture({ data: null, width: 0, height: 0, colorSpace: "HDR" });
+	const rawB = new Texture({ data: null, width: 0, height: 0, colorSpace: "HDR" });
 	const cube = createCubeTexture();
 
 	assert.equal(probe.capture.bindRawTexture(rawA), probe.capture);

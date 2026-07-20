@@ -63,7 +63,7 @@ function testVideoTextureUsesRequestVideoFrameCallback() {
 
 	try {
 		const video = new FakeVideo({ supportsRVFC: true });
-		const texture = new VideoTexture(video);
+		const texture = new VideoTexture({ video });
 		const context = contexts[0];
 		assert.ok(context);
 		assert.equal(context.getImageDataCalls, 1);
@@ -91,6 +91,14 @@ function testVideoTextureUsesRequestVideoFrameCallback() {
 	}
 }
 
+function testVideoTextureRejectsLegacyPositionalInitialization() {
+	const video = new FakeVideo({ supportsRVFC: false });
+	assert.throws(
+		() => new VideoTexture(video),
+		/VideoTexture requires a parameter object/
+	);
+}
+
 function testVideoTextureFallsBackWithoutRVFC() {
 	const { contexts, restore } = installCanvasMock(
 		(width, height, callIndex) => {
@@ -108,7 +116,7 @@ function testVideoTextureFallsBackWithoutRVFC() {
 
 	try {
 		const video = new FakeVideo({ supportsRVFC: false });
-		const texture = new VideoTexture(video);
+		const texture = new VideoTexture({ video });
 		const context = contexts[0];
 		assert.ok(context);
 		assert.equal(context.getImageDataCalls, 1);
@@ -144,7 +152,7 @@ function testWebGPURegistryUsesExternalVideoUploadPath() {
 
 	try {
 		const video = new FakeVideo({ supportsRVFC: true });
-		const texture = new VideoTexture(video);
+		const texture = new VideoTexture({ video });
 		const backend = new FakeWebGPUBackend();
 		const registry = new WebGPUTextureRegistry(backend);
 
@@ -189,7 +197,7 @@ async function testWebGPURegistryGeneratesMipmapsAfterVideoUpload() {
 
 	try {
 		const video = new FakeVideo({ supportsRVFC: true });
-		const texture = new VideoTexture(video);
+		const texture = new VideoTexture({ video });
 		texture.minFilter = "LinearMipmapLinear";
 		const backend = new FakeWebGPUBackend();
 		const registry = new WebGPUTextureRegistry(backend);
@@ -223,6 +231,7 @@ async function testWebGPURegistryGeneratesMipmapsAfterVideoUpload() {
 }
 
 async function run() {
+	testVideoTextureRejectsLegacyPositionalInitialization();
 	testVideoTextureUsesRequestVideoFrameCallback();
 	testVideoTextureFallsBackWithoutRVFC();
 	testWebGPURegistryUsesExternalVideoUploadPath();

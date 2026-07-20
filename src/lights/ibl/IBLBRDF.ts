@@ -35,7 +35,7 @@ export class IBLBRDF {
 			}
 		}
 
-		return new Texture(data, width, height, "HDR");
+		return new Texture({ data: data, width: width, height: height, colorSpace: "HDR" });
 	}
 
 	private static _integrateBRDF(

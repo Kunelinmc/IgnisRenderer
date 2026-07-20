@@ -53,16 +53,16 @@ import { GLTFLoader } from "../src/loaders/GLTFLoader";
 import { Texture } from "../src/core/Texture";
 
 const loader = new GLTFLoader();
-const iridescenceTexture = new Texture(
-	new Uint8ClampedArray([255, 0, 0, 255]),
-	1,
-	1
-);
-const thicknessTexture = new Texture(
-	new Uint8ClampedArray([0, 128, 0, 255]),
-	1,
-	1
-);
+const iridescenceTexture = new Texture({
+	data: new Uint8ClampedArray([255, 0, 0, 255]),
+	width: 1,
+	height: 1,
+});
+const thicknessTexture = new Texture({
+	data: new Uint8ClampedArray([0, 128, 0, 255]),
+	width: 1,
+	height: 1,
+});
 
 const [material] = loader.parseMaterials(
 	{
@@ -94,11 +94,11 @@ import { GLTFLoader } from "../src/loaders/GLTFLoader";
 import { Texture } from "../src/core/Texture";
 
 const loader = new GLTFLoader();
-const anisotropyTexture = new Texture(
-	new Uint8ClampedArray([255, 128, 64, 255]),
-	1,
-	1
-);
+const anisotropyTexture = new Texture({
+	data: new Uint8ClampedArray([255, 128, 64, 255]),
+	width: 1,
+	height: 1,
+});
 
 const [material] = loader.parseMaterials(
 	{

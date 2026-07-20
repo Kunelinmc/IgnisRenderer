@@ -15,7 +15,14 @@ integer data textures, or pre-compressed block texture payloads.
 ## API/Contract
 
 - `Texture` must expose `format: TextureFormat`.
-- `Texture` may be constructed from a descriptor:
+- Every public `*Texture` constructor must accept exactly one parameter object.
+- `Texture` must accept `TextureParams`; positional `data`, `width`, `height`,
+  and `colorSpace` arguments must not be supported.
+- `CanvasTextureParams` and `VideoTextureParams` must include their required
+  `context` and `video` sources respectively.
+- Texture parameter types should extend `TextureBaseParams` for shared
+  `colorSpace`, `label`, and `usageHint` metadata.
+- `Texture` may be constructed from `TextureParams`:
 
 ```ts
 const texture = new Texture({
@@ -101,6 +108,8 @@ const rgba = readback.toRGBAFloat32();
 
 ## Compatibility / Breaking Changes
 
-`Texture` now has a descriptor-based construction path and explicit `format`
-metadata. The legacy positional constructor remains available during migration, but
-new code should use the descriptor form when the texture format matters.
+All `*Texture` constructors now accept one parameter object. The positional
+`Texture(data, width, height, colorSpace)`, `CanvasTexture(context, options)`,
+and `VideoTexture(video, options)` forms have been removed. Callers must move
+the source and options into `TextureParams`, `CanvasTextureParams`, or
+`VideoTextureParams`.

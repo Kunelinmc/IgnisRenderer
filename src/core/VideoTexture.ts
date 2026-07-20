@@ -1,4 +1,4 @@
-import { Texture, type TextureColorSpace } from "./Texture";
+import { Texture, type TextureBaseParams } from "./Texture";
 
 type VideoTextureContext2D =
 	| CanvasRenderingContext2D
@@ -19,8 +19,8 @@ const VIDEO_FRAME_CALLBACK_EVENTS = [
 	"emptied",
 ] as const;
 
-export interface VideoTextureParams {
-	colorSpace?: TextureColorSpace;
+export interface VideoTextureParams extends TextureBaseParams {
+	video: HTMLVideoElement;
 }
 
 /**
@@ -41,8 +41,19 @@ export class VideoTexture extends Texture {
 	private _onPlaybackStateChanged: () => void;
 	private _onVideoFramePresented: (now: number, metadata: unknown) => void;
 
-	constructor(video: HTMLVideoElement, params: VideoTextureParams = {}) {
-		super(null, 0, 0, params.colorSpace ?? "sRGB");
+	/**
+	 * Creates a dynamic video texture from one parameter object.
+	 */
+	constructor(params: VideoTextureParams) {
+		if (!params || typeof params !== "object" || !("video" in params)) {
+			throw new TypeError("VideoTexture requires a parameter object.");
+		}
+		const { video } = params;
+		super({
+			colorSpace: params.colorSpace,
+			label: params.label,
+			usageHint: params.usageHint,
+		});
 		if (!video) {
 			throw new Error("VideoTexture requires a valid HTMLVideoElement");
 		}

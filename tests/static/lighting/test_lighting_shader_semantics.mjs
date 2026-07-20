@@ -326,11 +326,11 @@ function testTransmissionVolumeAttenuationColorsAmbientLight() {
 
 function testPBRNormalMapFallbackWithoutTangent() {
 	const material = new PBRMaterial();
-	material.normalMap = new Texture(
-		new Uint8ClampedArray([255, 128, 128, 255]),
-		1,
-		1
-	);
+	material.normalMap = new Texture({
+		data: new Uint8ClampedArray([255, 128, 128, 255]),
+		width: 1,
+		height: 1,
+	});
 
 	const evaluator = new PBREvaluator(material);
 	const face = {
@@ -498,7 +498,7 @@ function testMaskShadowDepthWriteUsesAlphaCutoff() {
 		alphaMode: "MASK",
 		alphaCutoff: 0.5,
 		opacity: 1,
-		map: new Texture(new Uint8ClampedArray([255, 255, 255, 0]), 1, 1),
+		map: new Texture({ data: new Uint8ClampedArray([255, 255, 255, 0]), width: 1, height: 1 }),
 	});
 
 	clearShadowTarget();
@@ -512,11 +512,11 @@ function testMaskShadowDepthWriteUsesAlphaCutoff() {
 		"Fully transparent mask texels should not write to shadow depth"
 	);
 
-	maskMaterial.map = new Texture(
-		new Uint8ClampedArray([255, 255, 255, 255]),
-		1,
-		1
-	);
+	maskMaterial.map = new Texture({
+		data: new Uint8ClampedArray([255, 255, 255, 255]),
+		width: 1,
+		height: 1,
+	});
 	clearShadowTarget();
 	rasterizer.drawDepthTriangle(makeTri(), shadowTarget, maskMaterial);
 	const wroteOpaque = shadowTarget.depthBuffer.some((d) => Number.isFinite(d));

@@ -342,12 +342,12 @@ function testMaterialAdaptation() {
 	assert.equal(pbrUVData.textureSlots[2].transformB[1], 3);
 	pbr.anisotropyStrength = 0.75;
 	pbr.anisotropyRotation = Math.PI / 2;
-	pbr.anisotropyMap = new Texture(
-		new Uint8ClampedArray([255, 128, 128, 255]),
-		1,
-		1,
-		"Linear"
-	);
+	pbr.anisotropyMap = new Texture({
+		data: new Uint8ClampedArray([255, 128, 128, 255]),
+		width: 1,
+		height: 1,
+		colorSpace: "Linear",
+	});
 	pbr.anisotropyMapUV = 2;
 	const pbrAnisotropyData = createWebGPUMaterialUniformData(pbr);
 	assert.ok(Math.abs(pbrAnisotropyData.anisotropyParams[0] - 0.75) < 1e-6);
@@ -1042,7 +1042,12 @@ async function testWebGPUShaderConstantTokenInjection() {
 }
 
 function createTinyTexture(mips = 1) {
-	const texture = new Texture(new Float32Array([1, 1, 1, 1]), 1, 1, "HDR");
+	const texture = new Texture({
+		data: new Float32Array([1, 1, 1, 1]),
+		width: 1,
+		height: 1,
+		colorSpace: "HDR",
+	});
 	texture.mipmaps = Array.from(
 		{ length: mips },
 		() => new Float32Array([1, 1, 1, 1])
@@ -2537,12 +2542,12 @@ async function testWebGPUOITParticlePipelinesSplitAlphaAndAdditive() {
 		createMainFrameOptions()
 	);
 
-	const texture = new Texture(
-		new Uint8Array([255, 255, 255, 255]),
-		1,
-		1,
-		"sRGB"
-	);
+	const texture = new Texture({
+		data: new Uint8Array([255, 255, 255, 255]),
+		width: 1,
+		height: 1,
+		colorSpace: "sRGB",
+	});
 	const context = {
 		camera: frame.camera,
 		attachments: { width: 16, height: 16 },
@@ -3236,12 +3241,12 @@ async function testParticleUVLayoutAndUniformBinding() {
 		createMainFrameOptions()
 	);
 
-	const texture = new Texture(
-		new Uint8Array([255, 255, 255, 255]),
-		1,
-		1,
-		"sRGB"
-	);
+	const texture = new Texture({
+		data: new Uint8Array([255, 255, 255, 255]),
+		width: 1,
+		height: 1,
+		colorSpace: "sRGB",
+	});
 	texture.repeat = { x: 2, y: 3 };
 	texture.offset = { x: 0.25, y: -0.5 };
 	texture.rotation = Math.PI / 4;
@@ -3873,12 +3878,12 @@ async function testParticleBindingCacheEvictsStaleSystems() {
 		createMainFrameOptions()
 	);
 
-	const texture = new Texture(
-		new Uint8Array([255, 255, 255, 255]),
-		1,
-		1,
-		"sRGB"
-	);
+	const texture = new Texture({
+		data: new Uint8Array([255, 255, 255, 255]),
+		width: 1,
+		height: 1,
+		colorSpace: "sRGB",
+	});
 	const context = {
 		camera: frame.camera,
 		attachments: { width: 16, height: 16 },
@@ -3992,12 +3997,12 @@ async function testRenderResourcesDestroyCleansParticleAndGeometryResources() {
 	assert.ok(draw && draw.length > 0);
 	const geometryDraw = draw[0];
 
-	const texture = new Texture(
-		new Uint8Array([255, 255, 255, 255]),
-		1,
-		1,
-		"sRGB"
-	);
+	const texture = new Texture({
+		data: new Uint8Array([255, 255, 255, 255]),
+		width: 1,
+		height: 1,
+		colorSpace: "sRGB",
+	});
 	const context = {
 		camera: frame.camera,
 		attachments: { width: 16, height: 16 },
@@ -4102,12 +4107,12 @@ function testWebGPUGeometryRegistryReleaseGeometryDestroysBuffers() {
 function testDynamicTextureReuploadOnVersionChange() {
 	const backend = new FakeBackend();
 	const registry = new WebGPUTextureRegistry(backend);
-	const texture = new Texture(
-		new Uint8ClampedArray([10, 20, 30, 255]),
-		1,
-		1,
-		"sRGB"
-	);
+	const texture = new Texture({
+		data: new Uint8ClampedArray([10, 20, 30, 255]),
+		width: 1,
+		height: 1,
+		colorSpace: "sRGB",
+	});
 
 	const first = registry.getTextureForSlot(
 		texture,
@@ -4137,12 +4142,12 @@ function testDynamicTextureReuploadOnVersionChange() {
 function testHDRTextureUploadsAsRGBA16Float() {
 	const backend = new FakeBackend();
 	const registry = new WebGPUTextureRegistry(backend);
-	const texture = new Texture(
-		new Float32Array([2, 1, 0.5, 1]),
-		1,
-		1,
-		"HDR"
-	);
+	const texture = new Texture({
+		data: new Float32Array([2, 1, 0.5, 1]),
+		width: 1,
+		height: 1,
+		colorSpace: "HDR",
+	});
 
 	registry.getTextureForSlot(texture, WEBGPU_TEXTURE_SLOT.BASE_COLOR);
 
@@ -4159,12 +4164,12 @@ function testHDRTextureUploadsAsRGBA16Float() {
 function testSamplerCacheInvalidatesWhenTextureSamplerStateChanges() {
 	const backend = new FakeBackend();
 	const registry = new WebGPUTextureRegistry(backend);
-	const texture = new Texture(
-		new Uint8ClampedArray([255, 255, 255, 255]),
-		1,
-		1,
-		"sRGB"
-	);
+	const texture = new Texture({
+		data: new Uint8ClampedArray([255, 255, 255, 255]),
+		width: 1,
+		height: 1,
+		colorSpace: "sRGB",
+	});
 	const samplerA = registry.getSamplerForTexture(texture);
 	assert.equal(backend.samplerDescs.length, 1);
 

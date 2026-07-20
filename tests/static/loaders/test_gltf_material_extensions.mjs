@@ -20,11 +20,11 @@ function reflectanceFromIor(ior) {
 
 function testUnlitExtensionParsing() {
 	const loader = new GLTFLoader();
-	const baseTex = new Texture(
-		new Uint8ClampedArray([255, 255, 255, 255]),
-		1,
-		1
-	);
+	const baseTex = new Texture({
+		data: new Uint8ClampedArray([255, 255, 255, 255]),
+		width: 1,
+		height: 1,
+	});
 
 	const materials = loader.parseMaterials(
 		{
@@ -112,12 +112,12 @@ function testPBRMaterialIorSetterSyncsReflectance() {
 
 function testSpecularExtensionParsing() {
 	const loader = new GLTFLoader();
-	const specTex = new Texture(new Uint8ClampedArray([0, 0, 0, 128]), 1, 1);
-	const specColorTex = new Texture(
-		new Uint8ClampedArray([255, 255, 255, 255]),
-		1,
-		1
-	);
+	const specTex = new Texture({ data: new Uint8ClampedArray([0, 0, 0, 128]), width: 1, height: 1 });
+	const specColorTex = new Texture({
+		data: new Uint8ClampedArray([255, 255, 255, 255]),
+		width: 1,
+		height: 1,
+	});
 
 	const materials = loader.parseMaterials(
 		{
@@ -153,16 +153,16 @@ function testSpecularExtensionParsing() {
 
 function testIridescenceExtensionParsingAndEvaluation() {
 	const loader = new GLTFLoader();
-	const iridescenceTex = new Texture(
-		new Uint8ClampedArray([128, 0, 0, 255]),
-		1,
-		1
-	);
-	const thicknessTex = new Texture(
-		new Uint8ClampedArray([0, 64, 0, 255]),
-		1,
-		1
-	);
+	const iridescenceTex = new Texture({
+		data: new Uint8ClampedArray([128, 0, 0, 255]),
+		width: 1,
+		height: 1,
+	});
+	const thicknessTex = new Texture({
+		data: new Uint8ClampedArray([0, 64, 0, 255]),
+		width: 1,
+		height: 1,
+	});
 
 	const [mat] = loader.parseMaterials(
 		{
@@ -230,11 +230,11 @@ function testIridescenceExtensionParsingAndEvaluation() {
 
 function testAnisotropyExtensionParsingAndEvaluation() {
 	const loader = new GLTFLoader();
-	const anisotropyTex = new Texture(
-		new Uint8ClampedArray([255, 128, 64, 255]),
-		1,
-		1
-	);
+	const anisotropyTex = new Texture({
+		data: new Uint8ClampedArray([255, 128, 64, 255]),
+		width: 1,
+		height: 1,
+	});
 
 	const [mat] = loader.parseMaterials(
 		{
@@ -292,11 +292,11 @@ function testAnisotropyExtensionParsingAndEvaluation() {
 
 function testSharedBaseColorTextureDoesNotCloneWithoutOverrides() {
 	const loader = new GLTFLoader();
-	const baseTex = new Texture(
-		new Uint8ClampedArray([255, 255, 255, 255]),
-		1,
-		1
-	);
+	const baseTex = new Texture({
+		data: new Uint8ClampedArray([255, 255, 255, 255]),
+		width: 1,
+		height: 1,
+	});
 
 	const materials = loader.parseMaterials(
 		{
@@ -323,11 +323,11 @@ function testSharedBaseColorTextureDoesNotCloneWithoutOverrides() {
 
 function testTextureTransformStillCreatesDistinctTextureInstance() {
 	const loader = new GLTFLoader();
-	const baseTex = new Texture(
-		new Uint8ClampedArray([255, 255, 255, 255]),
-		1,
-		1
-	);
+	const baseTex = new Texture({
+		data: new Uint8ClampedArray([255, 255, 255, 255]),
+		width: 1,
+		height: 1,
+	});
 
 	const [material] = loader.parseMaterials(
 		{
@@ -490,7 +490,7 @@ function testLinearFactorsStayLinearAcrossLoaderAndEvaluator() {
 function testGLTFMaterialTexturesUseExpectedColorSpaces() {
 	const loader = new GLTFLoader();
 	const makeTexture = () =>
-		new Texture(new Uint8ClampedArray([255, 255, 255, 255]), 1, 1);
+		new Texture({ data: new Uint8ClampedArray([255, 255, 255, 255]), width: 1, height: 1 });
 
 	const textures = Array.from({ length: 13 }, makeTexture);
 	const [mat] = loader.parseMaterials(
@@ -547,11 +547,11 @@ function testGLTFMaterialTexturesUseExpectedColorSpaces() {
 
 function testTexCoordAboveOnePreservesUVSet() {
 	const loader = new GLTFLoader();
-	const texture = new Texture(
-		new Uint8ClampedArray([255, 255, 255, 255]),
-		1,
-		1
-	);
+	const texture = new Texture({
+		data: new Uint8ClampedArray([255, 255, 255, 255]),
+		width: 1,
+		height: 1,
+	});
 
 	const [baseTexCoordMaterial] = loader.parseMaterials(
 		{

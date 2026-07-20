@@ -89,7 +89,7 @@ function createEnvironmentTexture(width = 32, height = 16) {
 		data[i + 2] = (pixel * 53) % 255;
 		data[i + 3] = 255;
 	}
-	return new Texture(data, width, height, "sRGB");
+	return new Texture({ data: data, width: width, height: height, colorSpace: "sRGB" });
 }
 
 function createRendererFixture() {

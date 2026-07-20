@@ -32,7 +32,7 @@ function createMockInput() {
 
 function create1x1Texture(r, g, b, a = 255, colorSpace = "sRGB") {
 	const data = new Uint8ClampedArray([r, g, b, a]);
-	return new Texture(data, 1, 1, colorSpace);
+	return new Texture({ data: data, width: 1, height: 1, colorSpace: colorSpace });
 }
 
 function assertColorClose(actual, expected, tolerance = 0.001) {
@@ -303,8 +303,8 @@ function testUV2ChannelUsesThirdUVSet() {
 		albedo: { r: 255, g: 255, b: 255 },
 		albedoMapUV: UVChannel.UV2,
 	});
-	material.map = new Texture(
-		new Uint8ClampedArray([
+	material.map = new Texture({
+		data: new Uint8ClampedArray([
 			255,
 			0,
 			0,
@@ -314,9 +314,9 @@ function testUV2ChannelUsesThirdUVSet() {
 			0,
 			255,
 		]),
-		2,
-		1
-	);
+		width: 2,
+		height: 1,
+	});
 
 	const evaluator = new PBREvaluator(material);
 	const face = createMockFace();
@@ -339,8 +339,8 @@ function testUV3ChannelUsesFourthUVSet() {
 		albedo: { r: 255, g: 255, b: 255 },
 		albedoMapUV: UVChannel.UV3,
 	});
-	material.map = new Texture(
-		new Uint8ClampedArray([
+	material.map = new Texture({
+		data: new Uint8ClampedArray([
 			255,
 			0,
 			0,
@@ -350,9 +350,9 @@ function testUV3ChannelUsesFourthUVSet() {
 			0,
 			255,
 		]),
-		2,
-		1
-	);
+		width: 2,
+		height: 1,
+	});
 
 	const evaluator = new PBREvaluator(material);
 	const face = createMockFace();

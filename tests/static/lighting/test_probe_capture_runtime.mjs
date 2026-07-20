@@ -10,12 +10,12 @@ import { IBLPrefilter } from "../../../src/lights/ibl/IBLPrefilter.ts";
 import { ProbeCaptureRuntime } from "../../../src/lights/runtime/ProbeCaptureRuntime.ts";
 
 function createPrefilteredMap(seed = 1) {
-	return new Texture(
-		new Float32Array([seed, seed * 0.5, seed * 0.25, 1]),
-		1,
-		1,
-		"HDR"
-	);
+	return new Texture({
+		data: new Float32Array([seed, seed * 0.5, seed * 0.25, 1]),
+		width: 1,
+		height: 1,
+		colorSpace: "HDR",
+	});
 }
 
 async function withPrefilterStub(handler, run) {
@@ -108,7 +108,7 @@ async function testLightProbeManualCaptureProjectsSHWithoutPrefilter() {
 async function testLightProbeCaptureWritesBoundTextures() {
 	const runtime = new ProbeCaptureRuntime();
 	const scene = new Scene();
-	const rawTexture = new Texture(null, 0, 0, "HDR");
+	const rawTexture = new Texture({ data: null, width: 0, height: 0, colorSpace: "HDR" });
 	const cubeTexture = createBoundCubeTexture();
 	const probe = scene.add(
 		new LightProbe({
@@ -213,9 +213,9 @@ async function testReflectionProbeCaptureWritesBoundPrefilteredTexture() {
 		async () => {
 			const runtime = new ProbeCaptureRuntime();
 			const scene = new Scene();
-			const rawTexture = new Texture(null, 0, 0, "HDR");
+			const rawTexture = new Texture({ data: null, width: 0, height: 0, colorSpace: "HDR" });
 			const cubeTexture = createBoundCubeTexture();
-			const prefilteredTexture = new Texture(null, 0, 0, "HDR");
+			const prefilteredTexture = new Texture({ data: null, width: 0, height: 0, colorSpace: "HDR" });
 			const probe = scene.add(
 				new ReflectionProbe({
 					source: "capturedScene",

@@ -22,7 +22,7 @@ function nearlyEqual(actual, expected, epsilon = 1e-4) {
 	assert.ok(Math.abs(actual - expected) <= epsilon, `${actual} != ${expected}`);
 }
 
-function testTextureDescriptorKeepsMipLevelMetadata() {
+function testTextureParamsKeepMipLevelMetadata() {
 	const texture = new Texture({
 		width: 2,
 		height: 1,
@@ -42,6 +42,13 @@ function testTextureDescriptorKeepsMipLevelMetadata() {
 	assert.equal(texture.mipmaps.length, 1);
 	assert.equal(texture.getMipLevelDescriptor(0)?.width, 2);
 	assert.equal(texture.getMipLevelDescriptor(0)?.data?.[1], 200);
+}
+
+function testTextureRejectsLegacyPositionalInitialization() {
+	assert.throws(
+		() => new Texture(new Uint8Array([255, 255, 255, 255])),
+		/Texture requires a parameter object/
+	);
 }
 
 function testTextureFormatRegistryHandlesCompressedBlocks() {
@@ -207,7 +214,8 @@ async function testComputeRuntimeRejectsPackedRGBAReadback() {
 }
 
 async function run() {
-	testTextureDescriptorKeepsMipLevelMetadata();
+	testTextureParamsKeepMipLevelMetadata();
+	testTextureRejectsLegacyPositionalInitialization();
 	testTextureFormatRegistryHandlesCompressedBlocks();
 	testWebGPUUploadExtractsNarrowUnormChannels();
 	testWebGPUUploadRespectsExplicitMipDimensions();

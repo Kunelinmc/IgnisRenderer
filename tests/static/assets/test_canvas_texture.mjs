@@ -13,6 +13,14 @@ function createFakeContext(width = 2, height = 1) {
 	return { canvas, context };
 }
 
+function testCanvasTextureRejectsLegacyPositionalInitialization() {
+	const { context } = createFakeContext();
+	assert.throws(
+		() => new CanvasTexture(context),
+		/CanvasTexture requires a parameter object/
+	);
+}
+
 async function waitForCondition(predicate, message, count = 32) {
 	for (let i = 0; i < count; i++) {
 		if (predicate()) {
@@ -26,7 +34,7 @@ async function waitForCondition(predicate, message, count = 32) {
 
 function testCanvasTextureTracksContextMutations() {
 	const { context } = createFakeContext();
-	const texture = new CanvasTexture(context);
+	const texture = new CanvasTexture({ context });
 	try {
 		assert.equal(context.getImageDataCalls, 1);
 		assert.equal(texture.update(1), false);
@@ -48,7 +56,8 @@ function testCanvasTextureTracksContextMutations() {
 
 function testCanvasTextureRespectsUpdateInterval() {
 	const { context } = createFakeContext();
-	const texture = new CanvasTexture(context, {
+	const texture = new CanvasTexture({
+		context,
 		minUpdateIntervalMs: 20,
 	});
 	try {
@@ -66,7 +75,7 @@ function testCanvasTextureRespectsUpdateInterval() {
 
 function testCanvasTextureDynamicUpdateIntegration() {
 	const { context } = createFakeContext();
-	const texture = new CanvasTexture(context);
+	const texture = new CanvasTexture({ context });
 	try {
 		assert.equal(Texture.updateDynamicTextures(0), false);
 		context.drawImage(null, 0, 0);
@@ -79,7 +88,7 @@ function testCanvasTextureDynamicUpdateIntegration() {
 
 function testWebGPURegistryUsesExternalCanvasUploadPath() {
 	const { context } = createFakeContext();
-	const texture = new CanvasTexture(context);
+	const texture = new CanvasTexture({ context });
 	const backend = new FakeWebGPUBackend();
 	const registry = new WebGPUTextureRegistry(backend);
 
@@ -109,7 +118,7 @@ function testWebGPURegistryUsesExternalCanvasUploadPath() {
 
 async function testWebGPURegistryGeneratesMipmapsAfterCanvasUpload() {
 	const { context } = createFakeContext();
-	const texture = new CanvasTexture(context);
+	const texture = new CanvasTexture({ context });
 	texture.minFilter = "LinearMipmapLinear";
 	const backend = new FakeWebGPUBackend();
 	const registry = new WebGPUTextureRegistry(backend);
@@ -141,6 +150,7 @@ async function testWebGPURegistryGeneratesMipmapsAfterCanvasUpload() {
 }
 
 async function run() {
+	testCanvasTextureRejectsLegacyPositionalInitialization();
 	testCanvasTextureTracksContextMutations();
 	testCanvasTextureRespectsUpdateInterval();
 	testCanvasTextureDynamicUpdateIntegration();

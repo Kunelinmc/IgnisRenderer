@@ -28,7 +28,12 @@ export class HDRLoader extends Loader {
 				scope: "HDRLoader",
 			});
 			// Return a simple 1x1 black HDR texture on error
-			return new Texture(new Float32Array([0, 0, 0, 1]), 1, 1, "HDR");
+			return new Texture({
+				data: new Float32Array([0, 0, 0, 1]),
+				width: 1,
+				height: 1,
+				colorSpace: "HDR",
+			});
 		}
 	}
 
@@ -163,6 +168,6 @@ export class HDRLoader extends Loader {
 			}
 		}
 
-		return new Texture(floatData, width, height, "HDR");
+		return new Texture({ data: floatData, width: width, height: height, colorSpace: "HDR" });
 	}
 }

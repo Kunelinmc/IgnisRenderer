@@ -836,7 +836,12 @@ function testLightProbeAmbientAndReflectionProbeSpecularCollection() {
 	const warn = (key, message) => warnings.push({ key, message });
 	const sh = SH.empty();
 	sh[0] = { r: 120, g: 60, b: 30 };
-	const probeMap = new Texture(new Float32Array(4 * 2 * 4), 4, 2, "HDR");
+	const probeMap = new Texture({
+		data: new Float32Array(4 * 2 * 4),
+		width: 4,
+		height: 2,
+		colorSpace: "HDR",
+	});
 	probeMap.mipmaps = [
 		new Float32Array(4 * 2 * 4),
 		new Float32Array(2 * 1 * 4),

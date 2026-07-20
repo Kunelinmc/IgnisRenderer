@@ -977,12 +977,12 @@ function buildCapturedEnvironmentMap(task: CaptureTaskState): Texture | null {
 		task.captureWidth,
 		task.captureHeight
 	);
-	const texture = new Texture(
-		equirectData,
-		task.captureWidth,
-		task.captureHeight,
-		"HDR"
-	);
+	const texture = new Texture({
+		data: equirectData,
+		width: task.captureWidth,
+		height: task.captureHeight,
+		colorSpace: "HDR",
+	});
 	texture.wrapS = "Repeat";
 	texture.wrapT = "Clamp";
 	texture.minFilter = "Linear";
