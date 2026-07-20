@@ -1,5 +1,3 @@
 export * from "./types";
-export * from "./IAnimationSimulator";
-export * from "./DefaultAnimationSimulator";
 export * from "./AnimationRuntime";
 export * from "./SoftwareAnimationDeformer";
