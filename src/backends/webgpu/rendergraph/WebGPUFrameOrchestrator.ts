@@ -20,11 +20,11 @@ import type {
 import type { WebGPUFrameServiceOwner } from "../WebGPUFrameServiceOwner";
 import { WebGPUHiZBuilder } from "../WebGPUHiZBuilder";
 import type { BackendPostProcessRuntime } from "../../../postprocess/BackendPostProcessRuntime";
+import type { RenderGraphDiagnostic } from "../../../rendergraph/types";
 
 import {
 	isWebGPUPostProcessContextMetadata,
 	type WebGPUFrameTargets,
-	type WebGPUPostProcessContextMetadata,
 } from "../WebGPUPostProcessContracts";
 import {
 	WebGPUPostProcessRuntime,
@@ -71,7 +71,11 @@ import {
 import { WebGPUFrameSession } from "./WebGPUFrameSession";
 import { WebGPUFrameCommitter, type WebGPUFrameCommitDebugState } from "./WebGPUFrameCommitter";
 import { WebGPUFrameFeatureAnalyzer, type WebGPUFrameFeatureAnalysis } from "./WebGPUFrameFeatureAnalyzer";
-import { collectActiveWebGPUFrameGraphResources } from "./WebGPUFrameGraphResourceCatalog";
+import {
+	collectActiveWebGPUFrameGraphResources,
+	collectWebGPUFrameGraphResourceCatalog,
+	WEBGPU_FRAME_GRAPH_RESOURCES,
+} from "./WebGPUFrameGraphResourceCatalog";
 import { WebGPUPostProcessBridge } from "./WebGPUPostProcessBridge";
 import { WebGPUTransparencyRuntime } from "./WebGPUTransparencyRuntime";
 import { WebGPUDeferredLightingPass } from "./WebGPUDeferredLightingPass";
@@ -94,8 +98,11 @@ import {
 } from "../../../pipeline/OcclusionCulling";
 import type {
 	WebGPUCompiledFrameGraphStage,
+	WebGPUFrameGraphFramePlan,
 	WebGPUFrameGraphDebugState,
 	WebGPUFrameGraphNode,
+	WebGPUFrameGraphPlannerState,
+	WebGPUFrameGraphStagePlan,
 	WebGPUFrameGraphValidationMode,
 } from "./types";
 import { WebGPUPresentPass } from "./WebGPUPresentPass";
@@ -155,6 +162,8 @@ export class WebGPUFrameOrchestrator {
 	private _lastCompiledGraphStages: WebGPUCompiledFrameGraphStage[] = [];
 	private _lastExecutedGraphNodeIds: string[] = [];
 	private _lastCommitDebugState: WebGPUFrameCommitDebugState | null = null;
+	private _wholeFrameGraphCompiled = false;
+	private readonly _graphPhysicalResources = new Map<string, IRenderTexture>();
 
 	constructor(
 		host: WebGPUFrameHost,
@@ -248,9 +257,7 @@ export class WebGPUFrameOrchestrator {
 			},
 		);
 		this._nodeRuntimes = this._createNodeRuntimes();
-		this._nodeExecutors = WebGPUFrameNodeExecutorRegistry.fromRuntimes(
-			this._nodeRuntimes,
-		);
+		this._nodeExecutors = WebGPUFrameNodeExecutorRegistry.fromRuntimes(this._nodeRuntimes);
 	}
 
 	private get _encoder(): ICommandEncoder | null {
@@ -260,7 +267,9 @@ export class WebGPUFrameOrchestrator {
 	private set _encoder(value: ICommandEncoder | null) {
 		if (!this._session) {
 			if (value !== null) {
-				throw new Error("WebGPUFrameOrchestrator cannot assign an encoder outside an active frame.");
+				throw new Error(
+					"WebGPUFrameOrchestrator cannot assign an encoder outside an active frame.",
+				);
 			}
 			return;
 		}
@@ -288,8 +297,11 @@ export class WebGPUFrameOrchestrator {
 	}
 
 	private get _mrtEnabled(): boolean {
-		return this._session?.configuration?.mrtSupported ??
-			this._lastConfiguration?.mrtSupported ?? true;
+		return (
+			this._session?.configuration?.mrtSupported ??
+			this._lastConfiguration?.mrtSupported ??
+			true
+		);
 	}
 
 	private get _deferredEnabled(): boolean {
@@ -365,14 +377,19 @@ export class WebGPUFrameOrchestrator {
 		this._lastPlannedGraphNodes = [];
 		this._lastCompiledGraphStages = [];
 		this._lastExecutedGraphNodeIds = [];
+		this._wholeFrameGraphCompiled = false;
 		this._occlusionRuntime.beginFrame(context);
 		const targetWidth = this._resolveAttachmentDimension(context.attachments.width);
 		const targetHeight = this._resolveAttachmentDimension(context.attachments.height);
 
 		if (targetWidth <= 0 || targetHeight <= 0) {
-			this._graphCompiler.beginFrame([]);
 			this._destroyFrameTargets();
 			this._session = WebGPUFrameSession.createSkipped(context);
+			if (context.framePlan) {
+				this._compileWholeFrameGraph(context);
+			} else {
+				this._graphCompiler.beginFrame([]);
+			}
 			return;
 		}
 
@@ -404,7 +421,17 @@ export class WebGPUFrameOrchestrator {
 			analysis,
 			committer: new WebGPUFrameCommitter(this._host),
 		});
-		this._graphCompiler.beginFrame(this._collectInitialGraphResources());
+		if (context.framePlan) {
+			try {
+				this._compileWholeFrameGraph(context);
+			} catch (error) {
+				this._graphCompiler.abort(error);
+				this._clearActiveSession();
+				throw error;
+			}
+		} else {
+			this._graphCompiler.beginFrame(this._collectInitialGraphResources());
+		}
 		this.prepareFrameResources(context);
 	}
 
@@ -459,20 +486,24 @@ export class WebGPUFrameOrchestrator {
 		forceForwardMrt: boolean,
 	): WebGPUFrameConfiguration {
 		const device = this._host.device;
-		return this._configurationResolver.resolve(analysis, {
-			maxColorAttachments: device?.limits?.maxColorAttachments ?? 8,
-			maxColorAttachmentBytesPerSample:
-				device?.limits?.maxColorAttachmentBytesPerSample ?? 32,
-			maxStorageTexturesPerShaderStage:
-				device?.limits?.maxStorageTexturesPerShaderStage ?? 4,
-		}, {
-			enableEarlyZPrepass: this._enableEarlyZPrepass,
-			enableDeferredLighting: this._enableDeferredLighting,
-			sampleCount: this._msaa.sampleCount,
-			supportsInFrameTextureCopy: typeof encoder.copyTextureToTexture === "function",
-			forceDeferredFallback,
-			forceForwardMrt,
-		});
+		return this._configurationResolver.resolve(
+			analysis,
+			{
+				maxColorAttachments: device?.limits?.maxColorAttachments ?? 8,
+				maxColorAttachmentBytesPerSample:
+					device?.limits?.maxColorAttachmentBytesPerSample ?? 32,
+				maxStorageTexturesPerShaderStage:
+					device?.limits?.maxStorageTexturesPerShaderStage ?? 4,
+			},
+			{
+				enableEarlyZPrepass: this._enableEarlyZPrepass,
+				enableDeferredLighting: this._enableDeferredLighting,
+				sampleCount: this._msaa.sampleCount,
+				supportsInFrameTextureCopy: typeof encoder.copyTextureToTexture === "function",
+				forceDeferredFallback,
+				forceForwardMrt,
+			},
+		);
 	}
 
 	private _emitConfigurationDiagnostics(diagnostics: readonly WebGPUFrameDiagnostic[]): void {
@@ -488,9 +519,10 @@ export class WebGPUFrameOrchestrator {
 		key: string,
 		result: Exclude<WebGPUFrameTargetEnsureResult, { status: "ready" }>,
 	): void {
-		const message = key === WEBGPU_DEFERRED_RUNTIME_FALLBACK_KEY
-			? "WebGPU deferred frame target allocation failed; retrying with legacy MRT forward path."
-			: `WebGPU ${this._msaa.sampleCount}x MSAA target allocation failed; retrying at 1x.`;
+		const message =
+			key === WEBGPU_DEFERRED_RUNTIME_FALLBACK_KEY
+				? "WebGPU deferred frame target allocation failed; retrying with legacy MRT forward path."
+				: `WebGPU ${this._msaa.sampleCount}x MSAA target allocation failed; retrying at 1x.`;
 		Logger.warn(`[${key}] ${message} ${String(result.error)}`, {
 			scope: "WebGPUFrameOrchestrator",
 			onceKey: key,
@@ -583,14 +615,22 @@ export class WebGPUFrameOrchestrator {
 				status: this._hiZStatus,
 				width: this._frameTargets?.hiZ?.width ?? 0,
 				height: this._frameTargets?.hiZ?.height ?? 0,
-				mipLevelCount: this._frameTargets?.hiZ ?
-					Math.floor(Math.log2(Math.max(this._frameTargets.hiZ.width, this._frameTargets.hiZ.height))) + 1
-				: 0,
+				mipLevelCount: this._frameTargets?.hiZ
+					? Math.floor(
+							Math.log2(
+								Math.max(
+									this._frameTargets.hiZ.width,
+									this._frameTargets.hiZ.height,
+								),
+							),
+						) + 1
+					: 0,
 				buildCount: this._hiZBuildCount,
 			},
 			lastPlannedNodeIds: this._lastPlannedGraphNodes.map((node) => node.id),
 			lastExecutedNodeIds: this._lastExecutedGraphNodeIds.slice(),
 			compiledStages: this._lastCompiledGraphStages.slice(),
+			compiledGraph: this._graphCompiler.getCompiledFrame()?.graph ?? null,
 			graphResources: this._graphCompiler.getResourceDebugState(),
 			graphBarriers: this._graphCompiler.getBarriers(),
 			graphDiagnostics: this._graphCompiler.getDiagnostics(),
@@ -794,43 +834,33 @@ export class WebGPUFrameOrchestrator {
 		}
 
 		if (this._customRenderTargets.hasPass(pass, context)) {
-			this._graphCompiler.recordOpaqueStage(
-				pass.stage,
-				`Custom render target pass "${pass.stage}" executes outside the logical graph.`,
-			);
+			if (!this._wholeFrameGraphCompiled) {
+				this._graphCompiler.recordOpaqueStage(
+					pass.stage,
+					`Custom render target pass "${pass.stage}" executes outside the logical graph.`,
+				);
+			}
 			await this._customRenderTargets.executePass(pass, context, session.encoder);
+			this._recordPrecompiledStageExecution(pass.stage);
 			return;
 		}
 
-		const plan = this._graphPlanner.planStage(pass, context, {
-			deferredActive: this._deferredEnabled,
-			oitActive: this._oitActive,
-			sceneTargetMode: this.getSceneTargetModeForFrame(),
-			hasFrameTargets: !!this._frameTargets,
-			hasMSAATargets: !!this._msaaTargets,
-			needsTransmissionTargets: !!this._frameTargets?.transmissionSceneColorCopy,
-			needsPlanarReflectionMask: !!this._frameTargets?.planarReflectionMask,
-			needsOcclusionTest: session.configuration?.needsOcclusionTest === true,
-			needsHiZBuild:
-				session.configuration?.needsHiZBuild === true &&
-				this._hiZStatus === "pending",
-			needsPlanarReflectionComposite:
-				session.analysis?.needsPlanarReflection === true,
-			hasOITMeshContributors:
-				session.analysis?.transparency.oitPackets.length > 0,
-			hasTransmissionPackets:
-				(session.analysis?.transparency.transmissionPackets.length ?? 0) > 0,
-			hasAlphaBillboardParticles:
-				session.analysis?.transparency.hasAlphaBillboardParticles === true,
-			hasAdditiveBillboardParticles:
-				session.analysis?.transparency.hasAdditiveBillboardParticles === true,
-		});
+		if (this._wholeFrameGraphCompiled) {
+			const compiled = this._findCompiledStage(pass.stage);
+			if (!compiled || compiled.nodes.length === 0) {
+				this._warnUnsupportedPass(pass);
+				return;
+			}
+			for (const node of compiled.nodes) {
+				await this._nodeExecutors.execute(node, session);
+				this._lastExecutedGraphNodeIds.push(node.id);
+			}
+			return;
+		}
+
+		const plan = this._graphPlanner.planStage(pass, context, this._createPlannerState());
 		if (plan.nodes.length === 0) {
-			const key = `webgpu-pass-unsupported-${pass.stage}`;
-			Logger.warn(
-				`[${key}] WebGPU backend does not support pass "${pass.stage}" yet; skipping`,
-				{ scope: "WebGPUFrameOrchestrator", onceKey: key },
-			);
+			this._warnUnsupportedPass(pass);
 			return;
 		}
 		const compiled = this._graphCompiler.compileStage(plan);
@@ -844,23 +874,26 @@ export class WebGPUFrameOrchestrator {
 	}
 
 	private _createNodeRuntimes(): readonly WebGPUFrameNodeRuntime[] {
-		const scene = new WebGPUSceneNodeRuntime("scene", {
-			"opaque-scene": async (_node, session) => {
-				this._deferredOpaqueFrameState = await this._scenePassRecorder.recordOpaque(
-					session.context,
-					this._deferredEnabled,
-				);
+		const scene = new WebGPUSceneNodeRuntime(
+			"scene",
+			{
+				"frame-setup": async () => {},
+				"opaque-external": async () => {},
+				"opaque-scene": async (_node, session) => {
+					this._deferredOpaqueFrameState = await this._scenePassRecorder.recordOpaque(
+						session.context,
+						this._deferredEnabled,
+					);
+				},
 			},
-		}, {
-			destroy: () => this._depthDirtyClearPass.destroy(),
-			onShaderRuntimeChanged: () => this._depthDirtyClearPass.onShaderRuntimeChanged(),
-		});
+			{
+				destroy: () => this._depthDirtyClearPass.destroy(),
+				onShaderRuntimeChanged: () => this._depthDirtyClearPass.onShaderRuntimeChanged(),
+			},
+		);
 		const shadow = new WebGPUShadowNodeRuntime("shadow", {
 			shadow: async (_node, session) => {
-				await this._resources.renderShadows(
-					session.context,
-					this._encoder ?? undefined,
-				);
+				await this._resources.renderShadows(session.context, this._encoder ?? undefined);
 			},
 			"paged-shadow-page-mark": async (_node, session) => {
 				const request = this._createPagedShadowRequest(session.context);
@@ -888,68 +921,97 @@ export class WebGPUFrameOrchestrator {
 				);
 			},
 		});
-		const reflection = new WebGPUReflectionNodeRuntime("reflection", {
-			"planar-reflection-capture": async (_node, session) => {
-				await this._recordPlanarReflectionPass(session.context);
+		const reflection = new WebGPUReflectionNodeRuntime(
+			"reflection",
+			{
+				"planar-reflection-capture": async (_node, session) => {
+					await this._recordPlanarReflectionPass(session.context);
+				},
+				"planar-reflection-composite": async (_node, session) => {
+					await this._recordPlanarReflectionComposite(session.context);
+				},
 			},
-			"planar-reflection-composite": async (_node, session) => {
-				await this._recordPlanarReflectionComposite(session.context);
+			{
+				destroy: () => this._planarReflectionPass.destroy(),
+				invalidateFrameResources: () => this._planarReflectionPass.destroy(),
+				onShaderRuntimeChanged: () => this._planarReflectionPass.destroy(),
 			},
-		}, {
-			destroy: () => this._planarReflectionPass.destroy(),
-			invalidateFrameResources: () => this._planarReflectionPass.destroy(),
-			onShaderRuntimeChanged: () => this._planarReflectionPass.destroy(),
-		});
-		const deferred = new WebGPUDeferredNodeRuntime("deferred", {
-			"deferred-decal": async (_node, session) => {
-				await this._recordDeferredDecalNode(session.context);
+		);
+		const deferred = new WebGPUDeferredNodeRuntime(
+			"deferred",
+			{
+				"deferred-decal": async (_node, session) => {
+					await this._recordDeferredDecalNode(session.context);
+				},
+				"deferred-lighting": async (_node, session) => {
+					await this._recordDeferredLightingNode(session.context);
+				},
 			},
-			"deferred-lighting": async (_node, session) => {
-				await this._recordDeferredLightingNode(session.context);
+			{
+				invalidateFrameResources: () => this._destroyDeferredBindings(),
+				onShaderRuntimeChanged: () => this._destroyDeferredBindings(),
 			},
-		}, {
-			invalidateFrameResources: () => this._destroyDeferredBindings(),
-			onShaderRuntimeChanged: () => this._destroyDeferredBindings(),
-		});
-		const visibility = new WebGPUVisibilityNodeRuntime("visibility", {
-			"hiz-build": async (_node, session) => {
-				await this._recordHiZBuildNode(session.context);
+		);
+		const visibility = new WebGPUVisibilityNodeRuntime(
+			"visibility",
+			{
+				"hiz-build": async (_node, session) => {
+					await this._recordHiZBuildNode(session.context);
+				},
+				"occlusion-test": async (_node, session) => {
+					await this._recordOcclusionTestNode(session.context);
+				},
 			},
-			"occlusion-test": async (_node, session) => {
-				await this._recordOcclusionTestNode(session.context);
+			{
+				invalidateFrameResources: () => this._occlusionRuntime.invalidateFrameResources(),
+				onShaderRuntimeChanged: () => {
+					this._hiZBuilder.invalidateShaderResources();
+					this._occlusionRuntime.onShaderRuntimeChanged();
+				},
+				destroy: () => {
+					this._occlusionRuntime.destroy();
+					this._hiZBuilder.destroy();
+				},
 			},
-		}, {
-			invalidateFrameResources: () => this._occlusionRuntime.invalidateFrameResources(),
-			onShaderRuntimeChanged: () => {
-				this._hiZBuilder.invalidateShaderResources();
-				this._occlusionRuntime.onShaderRuntimeChanged();
+		);
+		const postProcess = new WebGPUPostProcessNodeRuntime(
+			"post-process",
+			{
+				"post-process": async (_node, session) => {
+					await this._postProcessRuntime.execute(session.context);
+				},
 			},
-			destroy: () => {
-				this._occlusionRuntime.destroy();
-				this._hiZBuilder.destroy();
+			{
+				invalidateFrameResources: () => this._postRuntime.invalidateBindings(),
+				onShaderRuntimeChanged: () => this._postRuntime.onShaderRuntimeChanged(),
+				destroy: () => this._postRuntime.destroy(),
 			},
-		});
-		const postProcess = new WebGPUPostProcessNodeRuntime("post-process", {
-			"post-process": async (_node, session) => {
-				await this._postProcessRuntime.execute(session.context);
+		);
+		const presentation = new WebGPUPresentationNodeRuntime(
+			"presentation",
+			{
+				presentation: async (_node, session) => {
+					if (!session.presented && this._frameTargets) {
+						await this._presentToCanvas(this._frameTargets.sceneColor);
+					}
+				},
 			},
-		}, {
-			invalidateFrameResources: () => this._postRuntime.invalidateBindings(),
-			onShaderRuntimeChanged: () => this._postRuntime.onShaderRuntimeChanged(),
-			destroy: () => this._postRuntime.destroy(),
-		});
-		const presentation = new WebGPUPresentationNodeRuntime("presentation", {
-			presentation: async (_node, session) => {
-				if (!session.presented && this._frameTargets) {
-					await this._presentToCanvas(this._frameTargets.sceneColor);
-				}
+			{
+				invalidateFrameResources: () => this._presentPass.invalidateBindings(),
+				onShaderRuntimeChanged: () => this._presentPass.onShaderRuntimeChanged(),
+				destroy: () => this._presentPass.destroy(),
 			},
-		}, {
-			invalidateFrameResources: () => this._presentPass.invalidateBindings(),
-			onShaderRuntimeChanged: () => this._presentPass.onShaderRuntimeChanged(),
-			destroy: () => this._presentPass.destroy(),
-		});
-		return [scene, shadow, deferred, this._transparencyRuntime, reflection, visibility, postProcess, presentation];
+		);
+		return [
+			scene,
+			shadow,
+			deferred,
+			this._transparencyRuntime,
+			reflection,
+			visibility,
+			postProcess,
+			presentation,
+		];
 	}
 
 	private _createPagedShadowRequest(context: FrameContext): WebGPUPagedShadowFrameRequest {
@@ -976,24 +1038,26 @@ export class WebGPUFrameOrchestrator {
 			return;
 		}
 		session.beginCommit();
-		const finalization = this._graphPlanner.planFinalization(
-			{ stage: "postprocess", executor: "backend", enabled: true, dependsOn: [] },
-			{
-				deferredActive: this._deferredEnabled,
-				oitActive: this._oitActive,
-				sceneTargetMode: this.getSceneTargetModeForFrame(),
-				hasFrameTargets: !!this._frameTargets,
-				hasMSAATargets: !!this._msaaTargets,
-			},
-		);
-		if (finalization.nodes.length > 0) {
-			const compiled = this._graphCompiler.compileStage(finalization);
-			this._handleGraphDiagnostics(compiled);
-			this._lastCompiledGraphStages.push(compiled);
-			this._lastPlannedGraphNodes.push(...finalization.nodes);
-			for (const node of finalization.nodes) {
+		if (this._wholeFrameGraphCompiled) {
+			const compiled = this._findCompiledStage("webgpu-present");
+			for (const node of compiled?.nodes ?? []) {
 				await this._nodeExecutors.execute(node, session);
 				this._lastExecutedGraphNodeIds.push(node.id);
+			}
+		} else {
+			const finalization = this._graphPlanner.planFinalization(
+				{ stage: "postprocess", executor: "backend", enabled: true, dependsOn: [] },
+				this._createPlannerState(),
+			);
+			if (finalization.nodes.length > 0) {
+				const compiled = this._graphCompiler.compileStage(finalization);
+				this._handleGraphDiagnostics(compiled);
+				this._lastCompiledGraphStages.push(compiled);
+				this._lastPlannedGraphNodes.push(...finalization.nodes);
+				for (const node of finalization.nodes) {
+					await this._nodeExecutors.execute(node, session);
+					this._lastExecutedGraphNodeIds.push(node.id);
+				}
 			}
 		}
 		this._graphCompiler.seal();
@@ -1052,6 +1116,7 @@ export class WebGPUFrameOrchestrator {
 
 	/** @internal Records a backend pass that bypasses logical resource analysis. */
 	public recordOpaqueGraphStage(stage: string, message: string): void {
+		if (this._wholeFrameGraphCompiled) return;
 		this._graphCompiler.recordOpaqueStage(stage, message);
 	}
 
@@ -1064,10 +1129,167 @@ export class WebGPUFrameOrchestrator {
 	}
 
 	private _collectInitialGraphResources() {
-		return collectActiveWebGPUFrameGraphResources(
+		return collectActiveWebGPUFrameGraphResources(this._frameTargets, this._msaaTargets);
+	}
+
+	private _compileWholeFrameGraph(context: FrameContext): void {
+		const catalog = collectWebGPUFrameGraphResourceCatalog(
 			this._frameTargets,
 			this._msaaTargets,
+			Math.max(1, this._targetWidth),
+			Math.max(1, this._targetHeight),
+			this._targetMSAASampleCount,
+			this._graphPhysicalResources,
 		);
+		const stages: WebGPUFrameGraphStagePlan[] = [];
+		const shadowDiagnostics: RenderGraphDiagnostic[] = [];
+		const setupPass: FramePass = {
+			stage: "webgpu-setup",
+			executor: "backend",
+			enabled: true,
+			dependsOn: [],
+		};
+		stages.push({
+			pass: setupPass,
+			nodes: [
+				{
+					id: "webgpu-setup:frame-setup",
+					stage: setupPass.stage,
+					kind: "frame-setup",
+					label: "WebGPUFrameSetup",
+					domain: "cpu",
+					retention: "always",
+				},
+			],
+		});
+
+		let hasOpaqueStage = false;
+		let hasPostProcess = false;
+		let lastStage = setupPass.stage;
+		for (const pass of context.framePlan?.backendPasses ?? []) {
+			if (!pass.enabled) continue;
+			let stagePlan: WebGPUFrameGraphStagePlan;
+			const custom = this._customRenderTargets.hasPass(pass, context);
+			if (pass.stage === "particle-sim" || custom) {
+				const reason = custom ? "custom render target" : "particle simulation";
+				stagePlan = {
+					pass,
+					nodes: [
+						{
+							id: `${pass.stage}:opaque-external`,
+							stage: pass.stage,
+							kind: "opaque-external",
+							label: `WebGPUOpaque:${pass.stage}`,
+							domain: "cpu",
+							retention: "always",
+							opaque: true,
+						},
+					],
+				};
+				hasOpaqueStage = true;
+				shadowDiagnostics.push({
+					phase: "compile",
+					enforcement: "shadow",
+					severity: "warning",
+					code: "opaque-stage-effects",
+					stage: pass.stage,
+					message: `WebGPU ${reason} stage "${pass.stage}" has undeclared resource effects.`,
+				});
+			} else {
+				stagePlan = this._graphPlanner.planStage(pass, context, this._createPlannerState());
+				if (stagePlan.nodes.length === 0) this._warnUnsupportedPass(pass);
+			}
+			if (pass.stage === "postprocess") hasPostProcess = true;
+			stages.push(stagePlan);
+			if (stagePlan.nodes.length > 0) lastStage = pass.stage;
+		}
+
+		const presentationPass: FramePass = {
+			stage: "webgpu-present",
+			executor: "backend",
+			enabled: true,
+			dependsOn: [lastStage],
+		};
+		stages.push(
+			this._graphPlanner.planFinalization(presentationPass, this._createPlannerState()),
+		);
+		const framePlan: WebGPUFrameGraphFramePlan = {
+			resources: catalog.resources,
+			bindings: catalog.bindings,
+			stages,
+			exports: [
+				{ name: "presented-color", resource: WEBGPU_FRAME_GRAPH_RESOURCES.canvasColor },
+			],
+			completeness: hasOpaqueStage ? "opaque" : hasPostProcess ? "coarse" : "complete",
+			shadowDiagnostics,
+		};
+		const compiled = this._graphCompiler.compileFrame(framePlan);
+		this._handleWholeFrameGraphDiagnostics(compiled.graph.diagnostics);
+		this._lastCompiledGraphStages = compiled.stages.slice();
+		this._lastPlannedGraphNodes = stages.flatMap((stage) => [...stage.nodes]);
+		this._lastExecutedGraphNodeIds.push("webgpu-setup:frame-setup");
+		this._wholeFrameGraphCompiled = true;
+	}
+
+	private _createPlannerState(): WebGPUFrameGraphPlannerState {
+		const session = this._session;
+		return {
+			deferredActive: this._deferredEnabled,
+			oitActive: this._oitActive,
+			sceneTargetMode: this.getSceneTargetModeForFrame(),
+			hasFrameTargets: !!this._frameTargets,
+			hasMSAATargets: !!this._msaaTargets,
+			needsTransmissionTargets: !!this._frameTargets?.transmissionSceneColorCopy,
+			needsPlanarReflectionMask: !!this._frameTargets?.planarReflectionMask,
+			needsOcclusionTest: session?.configuration?.needsOcclusionTest === true,
+			needsHiZBuild:
+				session?.configuration?.needsHiZBuild === true && this._hiZStatus === "pending",
+			needsPlanarReflectionComposite: session?.analysis?.needsPlanarReflection === true,
+			hasOITMeshContributors: (session?.analysis?.transparency.oitPackets.length ?? 0) > 0,
+			hasTransmissionPackets:
+				(session?.analysis?.transparency.transmissionPackets.length ?? 0) > 0,
+			hasAlphaBillboardParticles:
+				session?.analysis?.transparency.hasAlphaBillboardParticles === true,
+			hasAdditiveBillboardParticles:
+				session?.analysis?.transparency.hasAdditiveBillboardParticles === true,
+		};
+	}
+
+	private _findCompiledStage(stage: string): WebGPUCompiledFrameGraphStage | undefined {
+		return this._graphCompiler
+			.getCompiledStages()
+			.find((compiled) => compiled.pass.stage === stage);
+	}
+
+	private _recordPrecompiledStageExecution(stage: string): void {
+		if (!this._wholeFrameGraphCompiled) return;
+		for (const node of this._findCompiledStage(stage)?.nodes ?? []) {
+			this._lastExecutedGraphNodeIds.push(node.id);
+		}
+	}
+
+	private _warnUnsupportedPass(pass: FramePass): void {
+		const key = `webgpu-pass-unsupported-${pass.stage}`;
+		Logger.warn(`[${key}] WebGPU backend does not support pass "${pass.stage}" yet; skipping`, {
+			scope: "WebGPUFrameOrchestrator",
+			onceKey: key,
+		});
+	}
+
+	private _handleWholeFrameGraphDiagnostics(diagnostics: readonly RenderGraphDiagnostic[]): void {
+		const errors = diagnostics.filter(
+			(diagnostic) =>
+				diagnostic.enforcement === "enforced" && diagnostic.severity === "error",
+		);
+		if (errors.length <= 0) return;
+		const message = `WebGPU internal whole-frame graph validation failed: ${errors
+			.map((diagnostic) => diagnostic.message)
+			.join(" ")}`;
+		if (this._frameGraphValidationMode === "throw") throw new Error(message);
+		Logger.warn(`[webgpu-frame-graph-validation] ${message}`, {
+			scope: "WebGPUFrameOrchestrator",
+			onceKey: "webgpu-frame-graph-validation:whole-frame",
+		});
 	}
 
 	private _handleGraphDiagnostics(compiled: WebGPUCompiledFrameGraphStage): void {
@@ -1097,6 +1319,7 @@ export class WebGPUFrameOrchestrator {
 
 	private _destroyFrameTargets(): void {
 		for (const runtime of this._nodeRuntimes) runtime.invalidateFrameResources?.();
+		this._graphPhysicalResources.clear();
 		this._frameTargetManager.destroyFrameTargets();
 		this._motionHistoryWriteTarget = null;
 		this._postBridge.clearPendingFrameState();
@@ -1278,7 +1501,8 @@ export class WebGPUFrameOrchestrator {
 		} catch (error) {
 			this._hiZStatus = "failed";
 			Logger.warn(
-				`[webgpu-hiz-build-failed] Shared WebGPU Hi-Z build failed; dependent effects will be skipped. ${String(error)}`,
+				`[webgpu-hiz-build-failed] Shared WebGPU Hi-Z build failed; ` +
+					`dependent effects will be skipped. ${String(error)}`,
 				{ scope: "WebGPUFrameOrchestrator", onceKey: "webgpu-hiz-build-failed" },
 			);
 		}

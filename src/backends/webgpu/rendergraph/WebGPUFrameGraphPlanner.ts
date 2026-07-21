@@ -93,7 +93,6 @@ export class WebGPUFrameGraphPlanner {
 				(pass) => [
 					this._node(pass, "post-process", "WebGPUPostProcess", {
 						reads: [
-							this._read(WEBGPU_FRAME_GRAPH_RESOURCES.frameColor, "texture-binding", true),
 							this._read(WEBGPU_FRAME_GRAPH_RESOURCES.frameHiZ, "texture-binding", true),
 						],
 						writes: [

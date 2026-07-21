@@ -7,8 +7,19 @@ import type { WebGPUFrameGraphResourceId } from "./WebGPUFrameGraphResourceCatal
 import type { WebGPUFrameCommitDebugState } from "./WebGPUFrameCommitter";
 import type { PostProcessGraphDebugState } from "../../../postprocess/BackendPostProcessRuntime";
 import type { RenderGraphTrackerDebugState } from "../../../rendergraph/types";
+import type {
+	CompiledRenderGraph,
+	RenderGraphAnalysisCompleteness,
+	RenderGraphDiagnostic,
+	RenderGraphExecutionDomain,
+	RenderGraphExport,
+	RenderGraphPhysicalBinding,
+	RenderGraphResourceDescriptor,
+} from "../../../rendergraph/types";
 
 export const WEBGPU_FRAME_GRAPH_NODE_KINDS = [
+	"frame-setup",
+	"opaque-external",
 	"shadow",
 	"paged-shadow-page-mark",
 	"paged-shadow-page-allocate",
@@ -84,6 +95,10 @@ export interface WebGPUFrameGraphNode {
 	readonly stage: FramePassStage;
 	readonly kind: WebGPUFrameGraphNodeKind;
 	readonly label: string;
+	readonly domain?: RenderGraphExecutionDomain;
+	readonly retention?: "always" | "if-reachable";
+	readonly opaque?: boolean;
+	readonly dependsOn?: readonly string[];
 	readonly creates?: readonly WebGPUFrameGraphResourceMutation[];
 	readonly reads?: readonly WebGPUFrameGraphResourceRef[];
 	readonly writes?: readonly WebGPUFrameGraphResourceRef[];
@@ -93,6 +108,15 @@ export interface WebGPUFrameGraphNode {
 export interface WebGPUFrameGraphStagePlan {
 	readonly pass: FramePass;
 	readonly nodes: readonly WebGPUFrameGraphNode[];
+}
+
+export interface WebGPUFrameGraphFramePlan {
+	readonly resources: readonly RenderGraphResourceDescriptor[];
+	readonly bindings: readonly RenderGraphPhysicalBinding[];
+	readonly stages: readonly WebGPUFrameGraphStagePlan[];
+	readonly exports?: readonly RenderGraphExport[];
+	readonly completeness?: RenderGraphAnalysisCompleteness;
+	readonly shadowDiagnostics?: readonly RenderGraphDiagnostic[];
 }
 
 export type WebGPUFrameGraphValidationMode = "throw" | "warn";
@@ -117,7 +141,8 @@ export interface WebGPUFrameGraphDiagnostic {
 	readonly code:
 		| "read-before-create"
 		| "destroy-before-create"
-		| "duplicate-create";
+		| "duplicate-create"
+		| "physical-feedback-loop";
 	readonly message: string;
 }
 
@@ -126,6 +151,11 @@ export interface WebGPUCompiledFrameGraphStage {
 	readonly nodes: readonly WebGPUFrameGraphNode[];
 	readonly barriers: readonly WebGPUFrameGraphBarrier[];
 	readonly diagnostics: readonly WebGPUFrameGraphDiagnostic[];
+}
+
+export interface WebGPUCompiledFrameGraph {
+	readonly graph: CompiledRenderGraph<WebGPUFrameGraphNode, WebGPUFrameGraphNodeKind>;
+	readonly stages: readonly WebGPUCompiledFrameGraphStage[];
 }
 
 export interface WebGPUFrameGraphResourceDebugState {
@@ -169,6 +199,7 @@ export interface WebGPUFrameGraphDebugState {
 	readonly lastPlannedNodeIds: readonly string[];
 	readonly lastExecutedNodeIds: readonly string[];
 	readonly compiledStages: readonly WebGPUCompiledFrameGraphStage[];
+	readonly compiledGraph: CompiledRenderGraph<WebGPUFrameGraphNode, WebGPUFrameGraphNodeKind> | null;
 	readonly graphResources: readonly WebGPUFrameGraphResourceDebugState[];
 	readonly graphBarriers: readonly WebGPUFrameGraphBarrier[];
 	readonly graphDiagnostics: readonly WebGPUFrameGraphDiagnostic[];

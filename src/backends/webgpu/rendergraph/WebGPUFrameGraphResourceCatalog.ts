@@ -1,5 +1,10 @@
 import type { WebGPUFrameTargets } from "../WebGPUPostProcessContracts";
 import type { WebGPUFrameMSAATargets } from "./WebGPUFrameTargetManager";
+import type { IRenderTexture } from "../../types";
+import type {
+	RenderGraphPhysicalBinding,
+	RenderGraphResourceDescriptor,
+} from "../../../rendergraph/types";
 
 export const WEBGPU_FRAME_GRAPH_RESOURCES = {
 	canvasColor: "canvas:scene-color-main",
@@ -60,6 +65,80 @@ export const WEBGPU_FRAME_GRAPH_RESOURCES = {
 export type WebGPUFrameGraphResourceId =
 	(typeof WEBGPU_FRAME_GRAPH_RESOURCES)[keyof typeof WEBGPU_FRAME_GRAPH_RESOURCES];
 
+export interface WebGPUFrameGraphResourceCatalogSnapshot {
+	readonly resources: readonly RenderGraphResourceDescriptor[];
+	readonly bindings: readonly RenderGraphPhysicalBinding[];
+}
+
+export function collectWebGPUFrameGraphResourceCatalog(
+	targets: WebGPUFrameTargets | null,
+	msaaTargets: WebGPUFrameMSAATargets | null,
+	width: number,
+	height: number,
+	msaaSampleCount: number,
+	physicalResolver?: Map<string, IRenderTexture>,
+): WebGPUFrameGraphResourceCatalogSnapshot {
+	const textures = collectTextureBindings(targets, msaaTargets);
+	physicalResolver?.clear();
+	const resources: RenderGraphResourceDescriptor[] = [];
+	const bindings: RenderGraphPhysicalBinding[] = [];
+	for (const id of Object.values(WEBGPU_FRAME_GRAPH_RESOURCES)) {
+		const texture = textures.get(id);
+		if (texture) {
+			resources.push({
+				id,
+				origin: "imported",
+				kind: "texture",
+				residency: "frame",
+				initialContent: "unknown",
+				format: texture.format ?? texture.requestedFormat,
+				width: texture.width,
+				height: texture.height,
+				depthOrArrayLayers: 1,
+				dimension: "2d",
+				sampleCount: id.startsWith("msaa:") ? Math.max(1, msaaSampleCount) : 1,
+				mipLevelCount: id === WEBGPU_FRAME_GRAPH_RESOURCES.frameHiZ
+					? Math.floor(Math.log2(Math.max(1, texture.width, texture.height))) + 1
+					: 1,
+			});
+			const physicalId = `webgpu:${id}`;
+			bindings.push({ resourceId: id, physicalId, kind: "texture" });
+			physicalResolver?.set(physicalId, texture);
+			continue;
+		}
+		const canvas = id === WEBGPU_FRAME_GRAPH_RESOURCES.canvasColor ||
+			id === WEBGPU_FRAME_GRAPH_RESOURCES.canvasDepth;
+		resources.push(canvas ? {
+			id,
+			origin: "imported",
+			kind: "texture",
+			residency: "external",
+			initialContent: "unknown",
+			width: Math.max(1, width),
+			height: Math.max(1, height),
+			depthOrArrayLayers: 1,
+			dimension: "2d",
+			sampleCount: 1,
+			mipLevelCount: 1,
+		} : {
+			id,
+			origin: "imported",
+			kind: "external",
+			residency: "external",
+			initialContent: "unknown",
+		});
+		bindings.push({
+			resourceId: id,
+			physicalId: `webgpu:${id}`,
+			kind: canvas ? "texture" : "external",
+		});
+	}
+	return Object.freeze({
+		resources: Object.freeze(resources),
+		bindings: Object.freeze(bindings),
+	});
+}
+
 export function collectActiveWebGPUFrameGraphResources(
 	targets: WebGPUFrameTargets | null,
 	msaaTargets: WebGPUFrameMSAATargets | null,
@@ -104,4 +183,48 @@ export function collectActiveWebGPUFrameGraphResources(
 		if (msaaTargets.planarReflectionMask) active.add(r.msaaPlanarReflectionMask);
 	}
 	return Array.from(active);
+}
+
+function collectTextureBindings(
+	targets: WebGPUFrameTargets | null,
+	msaaTargets: WebGPUFrameMSAATargets | null,
+): Map<WebGPUFrameGraphResourceId, IRenderTexture> {
+	const r = WEBGPU_FRAME_GRAPH_RESOURCES;
+	const textures = new Map<WebGPUFrameGraphResourceId, IRenderTexture>();
+	if (targets) {
+		const entries: readonly [WebGPUFrameGraphResourceId, IRenderTexture | null | undefined][] = [
+			[r.frameColor, targets.sceneColorMain], [r.frameDepth, targets.depth],
+			[r.postPing, targets.postPing], [r.postPong, targets.postPong],
+			[r.frameHiZ, targets.hiZ], [r.gbufferAlbedoAlpha, targets.gAlbedoAlpha],
+			[r.gbufferNormalRoughMetal, targets.gNormalRoughMetal],
+			[r.gbufferEmissiveOcclusion, targets.gEmissiveOcclusion],
+			[r.gbufferMotionDepth, targets.gMotionDepth], [r.gbufferSpecular, targets.gSpecular],
+			[r.gbufferCoatSheen, targets.gCoatSheen],
+			[r.gbufferSheenReflectance, targets.gSheenReflectance],
+			[r.gbufferMaterialExt0, targets.gMaterialExt0], [r.gbufferMaterialExt1, targets.gMaterialExt1],
+			[r.gbufferMaterialExt2, targets.gMaterialExt2], [r.gbufferMaterialExt3, targets.gMaterialExt3],
+			[r.oitAccum, targets.oitAccum], [r.oitReveal, targets.oitReveal],
+			[r.oitSceneColorCopy, targets.oitSceneColorCopy],
+			[r.transmissionSceneColorCopy, targets.transmissionSceneColorCopy],
+			[r.transmissionLighting, targets.transmissionLighting],
+			[r.transmissionSurface0, targets.gTransmissionSurface0],
+			[r.transmissionSurface1, targets.gTransmissionSurface1],
+			[r.transmissionSurface2, targets.gTransmissionSurface2],
+			[r.transmissionDepth, targets.transmissionDepth],
+			[r.planarReflectionMask, targets.planarReflectionMask],
+		];
+		for (const [id, texture] of entries) if (texture) textures.set(id, texture);
+	}
+	if (msaaTargets) {
+		const entries: readonly [WebGPUFrameGraphResourceId, IRenderTexture | null | undefined][] = [
+			[r.msaaColor, msaaTargets.sceneColorMain], [r.msaaDepth, msaaTargets.depth],
+			[r.msaaGBufferAlbedoAlpha, msaaTargets.gAlbedoAlpha],
+			[r.msaaGBufferNormalRoughMetal, msaaTargets.gNormalRoughMetal],
+			[r.msaaGBufferEmissiveOcclusion, msaaTargets.gEmissiveOcclusion],
+			[r.msaaGBufferMotionDepth, msaaTargets.gMotionDepth],
+			[r.msaaPlanarReflectionMask, msaaTargets.planarReflectionMask],
+		];
+		for (const [id, texture] of entries) if (texture) textures.set(id, texture);
+	}
+	return textures;
 }
