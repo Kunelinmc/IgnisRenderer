@@ -130,51 +130,76 @@ function createColorFilterPassRequest(frameContext, pass) {
 }
 
 function createWebGPUImplementationContext(runtime, encoder, targets) {
+	const output = targets.sceneColor === targets.postPong ?
+		targets.postPing : targets.postPong;
 	return {
 		encoder,
 		targets,
 		shared: runtime.sharedContext,
-		publishColorTarget: (texture) => {
-			targets.sceneColor = texture;
+		resources: {
+			color: {
+				input: targets.sceneColor,
+				output,
+			},
+			getGBuffer: (semantic) => {
+				switch (semantic) {
+					case "normal":
+					case "roughness":
+					case "metallic":
+						return targets.gNormalRoughMetal ?? null;
+					case "depth":
+					case "motion":
+						return targets.gMotionDepth ?? null;
+					default:
+						return null;
+				}
+			},
+			getHistory: () => null,
+			getTransient: () => null,
+			getShared: () => null,
 		},
 	};
 }
 
+async function executeWebGPUImplementation(
+	implementation,
+	request,
+	runtime,
+	encoder,
+	targets
+) {
+	const context = createWebGPUImplementationContext(runtime, encoder, targets);
+	const result = await implementation.execute(request, context);
+	if (result.ran !== false) {
+		targets.sceneColor = context.resources.color.output;
+	}
+	return result;
+}
+
 async function executeFXAAPass(runtime, encoder, targets, frameContext, pass) {
 	const request = createFXAAPassRequest(frameContext, pass);
-	return request.pass.getImplementation("webgpu").execute(request, {
+	return executeWebGPUImplementation(
+		request.pass.getImplementation("webgpu"),
+		request,
+		runtime,
 		encoder,
-		targets,
-		shared: runtime.sharedContext,
-		publishColorTarget: (texture) => {
-			targets.sceneColor = texture;
-		},
-	});
+		targets
+	);
 }
 
 async function executeBloomPass(runtime, encoder, targets, frameContext) {
 	const request = createBloomPassRequest(frameContext);
-	const result = await request.pass.getImplementation("webgpu").execute(request, {
-		encoder,
-		targets,
-		shared: runtime.sharedContext,
-		publishColorTarget: (texture) => {
-			targets.sceneColor = texture;
-		},
-	});
+	const result = await executeWebGPUImplementation(
+		request.pass.getImplementation("webgpu"), request, runtime, encoder, targets
+	);
 	return { request, result };
 }
 
 async function executeFogPass(runtime, encoder, targets, frameContext) {
 	const request = createFogPassRequest(frameContext);
-	const result = await request.pass.getImplementation("webgpu").execute(request, {
-		encoder,
-		targets,
-		shared: runtime.sharedContext,
-		publishColorTarget: (texture) => {
-			targets.sceneColor = texture;
-		},
-	});
+	const result = await executeWebGPUImplementation(
+		request.pass.getImplementation("webgpu"), request, runtime, encoder, targets
+	);
 	return { request, result };
 }
 
@@ -186,12 +211,9 @@ async function executeMotionBlurPass(
 	pass = new MotionBlurPass({ enabled: true })
 ) {
 	const request = createMotionBlurPassRequest(frameContext, pass);
-	const result = await request.pass
-		.getImplementation("webgpu")
-		.execute(
-			request,
-			createWebGPUImplementationContext(runtime, encoder, targets)
-		);
+	const result = await executeWebGPUImplementation(
+		request.pass.getImplementation("webgpu"), request, runtime, encoder, targets
+	);
 	return { request, result };
 }
 
@@ -203,12 +225,9 @@ async function executeDepthOfFieldPass(
 	pass = new DepthOfFieldPass({ enabled: true })
 ) {
 	const request = createDepthOfFieldPassRequest(frameContext, pass);
-	const result = await request.pass
-		.getImplementation("webgpu")
-		.execute(
-			request,
-			createWebGPUImplementationContext(runtime, encoder, targets)
-		);
+	const result = await executeWebGPUImplementation(
+		request.pass.getImplementation("webgpu"), request, runtime, encoder, targets
+	);
 	return { request, result };
 }
 
@@ -220,12 +239,9 @@ async function executeToneMappingPass(
 	pass = new ToneMappingPass({ enabled: true })
 ) {
 	const request = createToneMappingPassRequest(frameContext, pass);
-	const result = await request.pass
-		.getImplementation("webgpu")
-		.execute(
-			request,
-			createWebGPUImplementationContext(runtime, encoder, targets)
-		);
+	const result = await executeWebGPUImplementation(
+		request.pass.getImplementation("webgpu"), request, runtime, encoder, targets
+	);
 	return { request, result };
 }
 
@@ -237,12 +253,9 @@ async function executeColorFilterPass(
 	pass = new ColorFilterPass({ enabled: true })
 ) {
 	const request = createColorFilterPassRequest(frameContext, pass);
-	const result = await request.pass
-		.getImplementation("webgpu")
-		.execute(
-			request,
-			createWebGPUImplementationContext(runtime, encoder, targets)
-		);
+	const result = await executeWebGPUImplementation(
+		request.pass.getImplementation("webgpu"), request, runtime, encoder, targets
+	);
 	return { request, result };
 }
 
@@ -988,14 +1001,9 @@ async function testBloomImplementationLifecycleReleasesOwnedResources() {
 	);
 	const implementation = request.pass.getImplementation("webgpu");
 
-	await implementation.execute(request, {
-		encoder,
-		targets,
-		shared: runtime.sharedContext,
-		publishColorTarget: (texture) => {
-			targets.sceneColor = texture;
-		},
-	});
+	await executeWebGPUImplementation(
+		implementation, request, runtime, encoder, targets
+	);
 	assert.equal(backend.textureDestroyCalls, 0);
 
 	implementation.invalidate();

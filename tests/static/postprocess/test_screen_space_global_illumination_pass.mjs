@@ -78,7 +78,8 @@ async function testSSGIDescriptorAndWebGPUExecution() {
 	const pass = new ScreenSpaceGlobalIlluminationPass({ enabled: true });
 	assert.equal(pass.id, "ssgi");
 	assert.deepEqual(
-		pass.getRequirements({}).gBuffer,
+		pass.getImplementation("webgpu").describeExecution({}).gBuffer
+			.map((entry) => entry.semantic),
 		["color", "depth", "normal", "albedo"]
 	);
 	assert.equal(
@@ -133,8 +134,16 @@ async function testSSGIDescriptorAndWebGPUExecution() {
 		encoder,
 		targets,
 		shared: runtime.sharedContext,
-		publishColorTarget(texture) {
-			targets.sceneColor = texture;
+		resources: {
+			color: { input: sceneColorMain, output: postPong },
+			getGBuffer(semantic) {
+				return {
+					albedo: gAlbedoAlpha,
+					normal: gNormalRoughMetal,
+					depth: gMotionDepth,
+					color: sceneColorMain,
+				}[semantic] ?? null;
+			},
 		},
 	});
 
@@ -179,7 +188,7 @@ async function testSSGIDescriptorAndWebGPUExecution() {
 		["dispatchWorkgroups", 4, 2, 1],
 		["endComputePass"],
 	]);
-	assert.equal(targets.sceneColor, postPong);
+	assert.equal(targets.sceneColor, sceneColorMain);
 
 	pass.destroy();
 	executePass.destroy();
@@ -238,7 +247,7 @@ async function testSSGIPipelineUsesWebGPUImplementation() {
 		createGBufferBridge() {
 			return createWebGPUGBuffer();
 		},
-		getPassExecutionContext(request) {
+		createPassExecutionContext(request) {
 			if (request.passId !== "ssgi") {
 				return undefined;
 			}
@@ -246,8 +255,16 @@ async function testSSGIPipelineUsesWebGPUImplementation() {
 				encoder,
 				targets,
 				shared: runtime.sharedContext,
-				publishColorTarget(texture) {
-					targets.sceneColor = texture;
+				resources: {
+					color: { input: targets.sceneColor, output: targets.postPong },
+					getGBuffer(semantic) {
+						return {
+							albedo: targets.gAlbedoAlpha,
+							normal: targets.gNormalRoughMetal,
+							depth: targets.gMotionDepth,
+							color: targets.sceneColor,
+						}[semantic] ?? null;
+					},
 				},
 			};
 		},
@@ -255,11 +272,17 @@ async function testSSGIPipelineUsesWebGPUImplementation() {
 			this.fallbackCalls.push(passId);
 			return { ran: true };
 		},
+		completePass() {
+			return { committed: true };
+		},
 		endFrame(request) {
 			this.endFrames.push(request);
 		},
 	};
-	const runtimeBridge = new BackendPostProcessRuntime({ executor });
+	const runtimeBridge = new BackendPostProcessRuntime({
+		executor,
+		backend: { type: "webgpu" },
+	});
 	await runtimeBridge.execute(frameContext);
 
 	assert.deepEqual(executor.endFrames.at(-1).executedPassIds, ["ssgi"]);

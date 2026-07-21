@@ -69,6 +69,10 @@ function createTemporalRequest(overrides = {}) {
 		...overrides,
 		frameContext,
 		histories,
+		gBuffer: overrides.gBuffer ?? { channels: {} },
+		transients: overrides.transients ?? {},
+		options: overrides.options ?? {},
+		startPassId: null,
 	};
 }
 
@@ -84,11 +88,29 @@ function createExecutionContextRequest(passId, request, overrides = {}) {
 		pass.getImplementation?.("webgpu") ?? {
 			id: `${passId}:test`,
 		};
+	const options = request.options ?? pass.normalizeOptions?.({}) ?? {};
+	const declaration = overrides.declaration ?? implementation.describeExecution?.({
+		frameContext: request.frameContext,
+		postProcess: request.postProcess,
+		backend: "webgpu",
+		gBuffer: request.gBuffer,
+		width: request.frameContext?.attachments?.width ?? 64,
+		height: request.frameContext?.attachments?.height ?? 64,
+		options,
+	}) ?? {
+		color: { access: "read", output: "new-version" },
+		histories: [],
+		transients: [],
+		gBuffer: [],
+		shared: [],
+	};
 	return {
 		...request,
 		passId,
 		pass,
 		implementation,
+		options,
+		declaration,
 	};
 }
 
@@ -189,7 +211,7 @@ async function testGammaOwnsWebGPUKernelBeforeRawPresent() {
 		pass: gammaPass,
 		implementation: gammaPass.getImplementation("webgpu"),
 	});
-	const context = executor.getPassExecutionContext(passRequest);
+	const context = executor.createPassExecutionContext(passRequest);
 	const targets = executor.getDebugState().frameTargets;
 
 	assert.equal(
@@ -198,7 +220,8 @@ async function testGammaOwnsWebGPUKernelBeforeRawPresent() {
 	);
 	assert.ok(context.encoder);
 	assert.ok(context.shared);
-	assert.equal(typeof context.publishColorTarget, "function");
+	assert.ok(context.resources.color.input);
+	assert.ok(context.resources.color.output);
 
 	const result = await passRequest.implementation.execute(passRequest, context);
 	executor.completePostProcessPass(passRequest, result);
@@ -238,29 +261,29 @@ async function testTemporalExecutePassUsesPipelineHistories() {
 			},
 		},
 	});
-	const taaContext = executor.getPassExecutionContext(
+	const taaContext = executor.createPassExecutionContext(
 		createExecutionContextRequest("taa", taaRequest)
 	);
 	assert.equal("historyRead" in executor.getDebugState().frameTargets, false);
-	assert.equal(taaContext.historyRead.id, "taa-read");
-	assert.equal(taaContext.historyWrite.id, "taa-write");
-	assert.equal(taaContext.motionHistoryRead.id, "motion-read");
-	assert.equal(taaContext.motionHistoryWrite.id, "motion-write");
-	taaContext.writeMotionHistoryFromCurrent();
+	assert.equal(taaContext.resources.getHistory("taa").read.id, "taa-read");
+	assert.equal(taaContext.resources.getHistory("taa").write.id, "taa-write");
+	assert.equal(taaContext.resources.getHistory("motion").read.id, "motion-read");
+	assert.equal(taaContext.resources.getHistory("motion").write.id, "motion-write");
+	taaContext.resources.copyGBufferToHistory("motion", "motion");
 	assert.equal(
 		executor.getDebugState().motionHistoryWriteTarget.id,
 		"motion-write"
 	);
 
 	const ssrRequest = createTemporalRequest();
-	const ssrContext = executor.getPassExecutionContext(
+	const ssrContext = executor.createPassExecutionContext(
 		createExecutionContextRequest("ssr", ssrRequest)
 	);
 	assert.deepEqual(ssrContext.frameBinding, { id: "frame-binding" });
-	assert.equal(ssrContext.historyRead.id, "ssr-read");
-	assert.equal(ssrContext.historyWrite.id, "ssr-write");
-	assert.equal(ssrContext.motionHistoryRead.id, "motion-read");
-	assert.equal(ssrContext.motionHistoryWrite.id, "motion-write");
+	assert.equal(ssrContext.resources.getHistory("ssr").read.id, "ssr-read");
+	assert.equal(ssrContext.resources.getHistory("ssr").write.id, "ssr-write");
+	assert.equal(ssrContext.resources.getHistory("motion").read.id, "motion-read");
+	assert.equal(ssrContext.resources.getHistory("motion").write.id, "motion-write");
 
 	const ssrefractionRequest = createTemporalRequest({
 		transients: {
@@ -269,73 +292,78 @@ async function testTemporalExecutePassUsesPipelineHistories() {
 			},
 		},
 	});
-	const ssrefractionContext = executor.getPassExecutionContext(
+	const ssrefractionContext = executor.createPassExecutionContext(
 		createExecutionContextRequest("ssrefraction", ssrefractionRequest)
 	);
 	assert.deepEqual(ssrefractionContext.frameBinding, { id: "frame-binding" });
-	assert.equal(ssrefractionContext.refractionRaw.id, "ssrefraction-raw");
-	assert.equal(ssrefractionContext.hiZ, null);
+	assert.equal(
+		ssrefractionContext.resources.getTransient("ssrefraction:raw").id,
+		"ssrefraction-raw"
+	);
+	assert.throws(
+		() => ssrefractionContext.resources.getShared("backend:frame-hiz"),
+		/missing required shared resource/
+	);
 
-	const volumetricContext = executor.getPassExecutionContext(
+	const volumetricContext = executor.createPassExecutionContext(
 		createExecutionContextRequest("volumetric", ssrRequest)
 	);
 	assert.deepEqual(volumetricContext.frameBinding, { id: "frame-binding" });
-	assert.deepEqual(volumetricContext.volumetricLighting, {
+	assert.deepEqual(volumetricContext.getFrameData(WEBGPU_VOLUMETRIC_LIGHTING_DATA), {
 		id: "volumetric-lighting-data",
 	});
 	assert.ok(volumetricContext.shared);
-	assert.equal(volumetricContext.historyRead.id, "vol-read");
-	assert.equal(volumetricContext.historyWrite.id, "vol-write");
-	assert.equal(volumetricContext.reservoirHistoryRead.id, "res-read");
-	assert.equal(volumetricContext.reservoirHistoryWrite.id, "res-write");
-	assert.equal(volumetricContext.motionHistoryRead.id, "motion-read");
-	assert.equal(volumetricContext.motionHistoryWrite.id, "motion-write");
+	assert.equal(volumetricContext.resources.getHistory("volumetric").read.id, "vol-read");
+	assert.equal(volumetricContext.resources.getHistory("volumetric").write.id, "vol-write");
+	assert.equal(
+		volumetricContext.resources.getHistory("volumetric-reservoir").read.id,
+		"res-read"
+	);
+	assert.equal(
+		volumetricContext.resources.getHistory("volumetric-reservoir").write.id,
+		"res-write"
+	);
+	assert.equal(volumetricContext.resources.getHistory("motion").read.id, "motion-read");
+	assert.equal(volumetricContext.resources.getHistory("motion").write.id, "motion-write");
 	executor.abortFrame();
 }
 
-function testCustomImplementationMetadataPacksContext() {
+function testCustomImplementationUsesFixedContext() {
 	const { executor } = createExecutorHarness();
 	const request = createTemporalRequest();
-	const context = executor.getPassExecutionContext(
-		createExecutionContextRequest("custom-webgpu", request, {
+	const passRequest = createExecutionContextRequest("custom-webgpu", request, {
 			pass: {
 				id: "custom-webgpu",
 				builtIn: false,
 			},
 			implementation: {
 				id: "custom-webgpu:test",
-				metadata: {
-					context: {
-						backend: "webgpu",
-						kind: "screen",
-						publishColorTarget: true,
-						frameBinding: true,
-						histories: [
-							{
-								property: "customHistoryWrite",
-								historyId: "taa",
-								side: "write",
-							},
-						],
-					},
-				},
+				describeExecution: () => ({
+					color: { access: "read", output: "new-version" },
+					histories: [{
+						descriptor: { id: "taa", format: "rgba16float" },
+						write: [{ access: "write", usage: "storage" }],
+					}],
+				}),
+				execute: () => ({ ran: true }),
 			},
-		})
-	);
+		});
+	const context = executor.createPassExecutionContext(passRequest);
 
 	assert.ok(context.encoder);
 	assert.equal(Object.isFrozen(context.targets), true);
 	assert.ok(context.shared);
 	assert.deepEqual(context.frameBinding, { id: "frame-binding" });
-	assert.equal(context.customHistoryWrite.id, "taa-write");
+	assert.equal(context.resources.getHistory("taa").write.id, "taa-write");
+	assert.equal("customHistoryWrite" in context, false);
+	assert.equal("publishColorTarget" in context, false);
 	const targets = executor.getDebugState().frameTargets;
-	context.publishColorTarget(targets.postPing);
 	assert.equal(targets.sceneColor, targets.sceneColorMain);
-	executor.completePostProcessPass(
-		createExecutionContextRequest("custom-webgpu", request),
-		{ ran: true }
+	executor.completePostProcessPass(passRequest, { ran: true });
+	assert.equal(
+		executor.getDebugState().frameTargets.sceneColor,
+		context.resources.color.output
 	);
-	assert.equal(executor.getDebugState().frameTargets.sceneColor, targets.postPing);
 	executor.abortFrame();
 }
 
@@ -439,7 +467,12 @@ function testWebGPUOcclusionExtensionDescriptor() {
 
 function testSSRRequirementsExposeMaterialChannels() {
 	const pass = new ScreenSpaceReflectionsPass({ enabled: true });
-	assert.deepEqual(pass.getRequirements({}).gBuffer, [
+	const options = pass.normalizeOptions({});
+	const declaration = pass.getImplementation("webgpu").describeExecution({
+		backend: "webgpu",
+		options,
+	});
+	assert.deepEqual(declaration.gBuffer.map((entry) => entry.semantic), [
 		"depth",
 		"normal",
 		"roughness",
@@ -452,7 +485,7 @@ function testSSRRequirementsExposeMaterialChannels() {
 async function run() {
 	await testGammaOwnsWebGPUKernelBeforeRawPresent();
 	await testTemporalExecutePassUsesPipelineHistories();
-	testCustomImplementationMetadataPacksContext();
+	testCustomImplementationUsesFixedContext();
 	await testWarmupHintsFollowPlanPostProcessPasses();
 	testBackendPostProcessSurfaceKeepsOnlyExecutorBridge();
 	testWebGPUOcclusionExtensionDescriptor();

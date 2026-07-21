@@ -132,7 +132,7 @@ function testParticleOITPlansResolveAndAdditiveParticles() {
 	assert.ok(plan.nodes.every((node) => node.scope === "particles"));
 }
 
-function testPostProcessPlansSingleNode() {
+function testPostProcessIsComposedByFrameRuntime() {
 	const planner = new WebGLFrameGraphPlanner();
 	const plan = planner.planStage(
 		createPass("postprocess"),
@@ -140,7 +140,7 @@ function testPostProcessPlansSingleNode() {
 		createState()
 	);
 
-	assert.deepEqual(plan.nodes.map((node) => node.kind), ["postprocess"]);
+	assert.deepEqual(plan.nodes, []);
 }
 
 function run() {
@@ -150,7 +150,7 @@ function run() {
 	testTransparentOITDefersResolveWhenParticlesExist();
 	testTransparentOITResolvesWithoutParticles();
 	testParticleOITPlansResolveAndAdditiveParticles();
-	testPostProcessPlansSingleNode();
+	testPostProcessIsComposedByFrameRuntime();
 	console.log("WebGL frame graph planner tests passed");
 }
 

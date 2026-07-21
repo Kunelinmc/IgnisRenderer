@@ -1893,10 +1893,10 @@ async function testWholeFramePlanningOccursOnlyAtBeginFrame() {
 	};
 
 	executor.beginFrame(context);
-	assert.equal(plannerCalls, 2);
+	assert.equal(plannerCalls, 1);
 	await executor.executePass(passes[0], context);
 	await executor.executePass(passes[1], context);
-	assert.equal(plannerCalls, 2);
+	assert.equal(plannerCalls, 1);
 	await executor.endFrame();
 
 	const debug = getFrameGraphDebugState(executor);
@@ -1907,6 +1907,25 @@ async function testWholeFramePlanningOccursOnlyAtBeginFrame() {
 		"webgpu-present",
 	]);
 	assert.equal(debug.compiledGraph.completeness, "coarse");
+	const postStage = debug.compiledStages.find(
+		(stage) => stage.pass.stage === "postprocess",
+	);
+	assert.deepEqual(postStage.nodes.map((node) => node.id), [
+		"postprocess:pass:ssao",
+		"postprocess:pass:taa",
+	]);
+	assert.ok(postStage.nodes.every((node) => node.kind === "post-process-pass"));
+	assert.ok(debug.compiledGraph.dependencies.some((edge) =>
+		edge.toNodeId === "postprocess:pass:ssao"));
+	assert.ok(debug.compiledGraph.dependencies.some((edge) =>
+		edge.fromNodeId === "postprocess:pass:ssao" &&
+		edge.toNodeId === "postprocess:pass:taa"));
+	const presentNodeId = debug.compiledStages
+		.find((stage) => stage.pass.stage === "webgpu-present")
+		.nodes.at(-1).id;
+	assert.ok(debug.compiledGraph.dependencies.some((edge) =>
+		edge.fromNodeId === "postprocess:pass:taa" &&
+		edge.toNodeId === presentNodeId));
 }
 
 async function run() {

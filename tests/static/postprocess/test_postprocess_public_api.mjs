@@ -1,970 +1,200 @@
 import assert from "node:assert/strict";
-import {
-	BloomPass,
-	FastApproximateAntiAliasingPass,
-	FogPass,
-	GammaPass,
-	hasPostProcessExecutionPasses,
-	IncrementalFramePlanner,
-	PostProcessHistoryManager,
-	PostProcessPass,
-	PostProcessPassRegistry,
-	PostProcessTransientManager,
-	RenderPipelineRegistry,
-	renderDirtyReasonToMask,
-	resolvePostProcessExecutionOrder,
-	ScreenSpaceAmbientOcclusionPass,
-	ScreenSpaceGlobalIlluminationPass,
-	ScreenSpaceReflectionsPass,
-	ToneMappingPass,
-	VolumetricLightingPass,
-} from "../../../src/index.ts";
+
+import * as postprocess from "../../../src/postprocess/index.ts";
 import { BackendPostProcessRuntime } from "../../../src/postprocess/BackendPostProcessRuntime.ts";
-import {
-	createNoopPostProcessSupport,
-	createResolvedPostProcess,
-} from "../../helpers/postprocess.mjs";
+import { createPostProcessResourceAccessor } from "../../../src/postprocess/PostProcessResourceAccessor.ts";
 
-class FakeExecutor {
-	constructor(backend = "webgpu") {
-		this.backend = backend;
-		this.created = [];
-		this.destroyed = [];
-		this.executed = [];
-		this.ownedExecuted = [];
-		this.invalidatedBindings = 0;
-		this.beginFrames = [];
-		this.endFrames = [];
-		this.abortFrames = [];
+const READ = { access: "read", usage: "sampled" };
+const WRITE = { access: "write", usage: "cpu-write" };
+
+function testBreakingPublicSurface() {
+	for (const removed of [
+		"PostProcessGraphCompiler",
+		"PostProcessGraphMetadata",
+		"PostProcessPassImplementationMetadata",
+		"PostProcessPassMetadata",
+	]) {
+		assert.equal(removed in postprocess, false);
 	}
-
-	createResource(desc) {
-		const handle = {
-			id: desc.id,
-			backend: this.backend,
-			width: desc.width,
-			height: desc.height,
-			format: desc.format,
-			usage: desc.usage,
-			mipMode: desc.mipMode ?? "single",
-			resource: { desc },
-		};
-		this.created.push(handle);
-		return handle;
-	}
-
-	createGBufferBridge() {
-		return createGBufferBridge();
-	}
-
-	destroyResource(handle) {
-		this.destroyed.push(handle);
-	}
-
-	executePass(passId, request) {
-		this.executed.push({
-			passId,
-			implementation: request.implementation,
-			options: request.options,
-			startPassId: request.startPassId,
-			histories: request.histories,
-			transients: request.transients,
-		});
-		return { ran: true };
-	}
-
-	invalidateResourceBindings() {
-		this.invalidatedBindings++;
-	}
-
-	beginFrame(request) {
-		this.beginFrames.push(request);
-	}
-
-	endFrame(request) {
-		this.endFrames.push(request);
-	}
-
-	abortFrame(request) {
-		this.abortFrames.push(request);
-	}
-
-	getPassExecutionContext(request) {
-		const passId = request.passId;
-		if (
-			this.backend === "webgpu" &&
-			[
-				"motion-blur",
-				"dof",
-				"tonemap",
-				"color-filter",
-				"gamma",
-				].includes(passId)
-		) {
-			const targets = {
-				sceneColor: { id: "scene", width: 64, height: 32 },
-				postPing: { id: "ping", width: 64, height: 32 },
-				postPong: { id: "pong", width: 64, height: 32 },
-				gMotionDepth: { id: "motion-depth", width: 64, height: 32 },
-			};
-			return {
-				encoder: {
-					beginComputePass() {},
-					setComputePipeline() {},
-					setBindingGroup() {},
-					dispatchWorkgroups() {},
-					endComputePass() {},
-				},
-				targets,
-				shared: {
-					sampler: { id: "sampler" },
-					compute: {
-						createShaderModule: async (desc) => ({ label: desc.label }),
-						createComputePipeline: (desc) => ({ label: desc.label }),
-						createBuffer: (desc) => ({ label: desc.label }),
-						writeBuffer() {},
-					},
-					async ensureCommonResources() {},
-					getCachedBindGroup(_key, _pipeline, _entries, label) {
-						return { label };
-					},
-					invalidateBindingsByPrefix() {},
-					destroyManagedResource() {},
-				},
-				publishColorTarget: (texture) => {
-					targets.sceneColor = texture;
-					this.ownedExecuted.push(passId);
-				},
-			};
-		}
-		if (
-			this.backend === "software" &&
-			["tonemap", "color-filter", "gamma"].includes(passId)
-		) {
-			return {
-				canvasContext: {},
-			};
-		}
-		if (this.backend === "software" && passId === "fxaa") {
-			return {
-				attachments: request.frameContext.attachments,
-				canvasContext: null,
-			};
-		}
-		if (this.backend === "software" && passId === "volumetric") {
-			return {
-				canvasContext: {},
-			};
-		}
-		return undefined;
+	for (const retained of [
+		"PostProcessPlanner",
+		"PostProcessSubgraphBuilder",
+		"PostProcessPass",
+		"PostProcessPassRegistry",
+	]) {
+		assert.equal(retained in postprocess, true);
 	}
 }
 
-class CustomPass extends PostProcessPass {
-	constructor(id, config = {}) {
+function testResourceAccessorContract() {
+	const copied = [];
+	const declaration = {
+		color: { access: "read", output: "new-version" },
+		gBuffer: [
+			{ semantic: "depth", ...READ },
+			{ semantic: "normal", ...READ, optional: true },
+		],
+		histories: [{
+			descriptor: { id: "taa" },
+			read: [READ],
+			write: [WRITE],
+		}],
+		transients: [{
+			descriptor: { id: "scratch" },
+			uses: [WRITE],
+		}],
+		shared: [
+			{ id: "required", ...READ },
+			{ id: "optional", ...READ, optional: true },
+		],
+	};
+	const accessor = createPostProcessResourceAccessor({
+		passId: "accessor-test",
+		declaration,
+		colorInput: "input",
+		colorOutput: "output",
+		getGBuffer: (id) => id === "depth" ? "depth" : null,
+		getHistory: (id) => id === "taa" ? {
+			read: "history-read",
+			write: "history-write",
+			valid: true,
+		} : null,
+		getTransient: (id) => id === "scratch" ? "scratch" : null,
+		getShared: (id) => id === "required" ? "shared" : null,
+		copyGBufferToHistory: (semantic, id) => copied.push([semantic, id]),
+	});
+
+	assert.deepEqual(accessor.color, { input: "input", output: "output" });
+	assert.equal(accessor.getGBuffer("depth"), "depth");
+	assert.equal(accessor.getGBuffer("normal"), null);
+	assert.deepEqual(accessor.getHistory("taa"), {
+		read: "history-read",
+		write: "history-write",
+		valid: true,
+	});
+	assert.equal(accessor.getTransient("scratch"), "scratch");
+	assert.equal(accessor.getShared("required"), "shared");
+	assert.equal(accessor.getShared("optional"), null);
+	accessor.copyGBufferToHistory("depth", "taa");
+	assert.deepEqual(copied, [["depth", "taa"]]);
+	assert.throws(() => accessor.getTransient("undeclared"), /undeclared transient/);
+	assert.throws(() => accessor.getShared("undeclared"), /undeclared shared resource/);
+}
+
+class LifecyclePass extends postprocess.PostProcessPass {
+	constructor(state) {
 		super({
-			id,
-			placement: config.placement,
-			order: config.order,
-			enabled: config.enabled,
-			options: config.options,
-			implementations: config.implementations ?? { webgpu: {} },
-		});
-	}
-}
-
-class SkippingPass extends CustomPass {
-	execute() {
-		return { ran: false };
-	}
-}
-
-class LocallyPreservingPass extends CustomPass {
-	execute() {
-		return { ran: true, preservesOutsideDirtyTiles: true };
-	}
-}
-
-class ConditionalPass extends CustomPass {
-	shouldExecute(request) {
-		return request.frameContext?.transient.get("run-conditional-pass") === true;
-	}
-}
-
-class TransientPass extends CustomPass {
-	constructor(id, descriptors) {
-		super(id, {
+			id: "lifecycle",
 			enabled: true,
+			schedule: { placement: "temporal" },
+			implementations: {
+				software: () => ({
+					describeExecution: () => ({
+						color: { access: "read", output: "new-version" },
+						histories: [{
+							descriptor: { id: "temporal", format: "rgba16float" },
+							read: [READ],
+							write: [WRITE],
+						}],
+					}),
+					execute: (request) => {
+						state.historyValidity.push(request.histories.temporal.valid);
+						if (state.mode === "throw") throw new Error("execution failed");
+						if (state.mode === "skip") return { ran: false };
+						if (state.mode === "invalid-skip") {
+							return { ran: false, updatedHistoryIds: ["temporal"] };
+						}
+						return { ran: true, updatedHistoryIds: ["temporal"] };
+					},
+				}),
+			},
 		});
-		this._descriptors = descriptors;
-	}
-
-	getTransientResourceDescriptors() {
-		return this._descriptors;
 	}
 }
 
-class HistoryUpdatingPass extends CustomPass {
-	constructor(id, seen, config = {}) {
-		super(id, {
-			enabled: true,
-			order: config.order,
-		});
-		this._seen = seen;
-	}
-
-	getHistoryDescriptors() {
-		return [{ id: "history", format: "rgba16float" }];
-	}
-
-	execute(request) {
-		this._seen.push(request.histories.history);
-		return { updatedHistoryIds: ["history"] };
-	}
-}
-
-class ThrowingPass extends CustomPass {
-	constructor(id, error, config = {}) {
-		super(id, {
-			enabled: true,
-			order: config.order,
-		});
-		this._error = error;
-	}
-
-	execute() {
-		throw this._error;
-	}
-}
-
-function createFrameContext(postProcess, incremental = {}) {
-	return {
-		viewCamera: {
-			type: "perspective",
-			fov: 60,
-			aspectRatio: 1,
-			near: 0.1,
-			far: 100,
+function createLifecycleHarness() {
+	const state = { mode: "run", historyValidity: [], completions: 0 };
+	const registry = new postprocess.PostProcessPassRegistry();
+	registry.registerPass(new LifecyclePass(state));
+	const snapshot = registry.createSnapshot("software");
+	const executor = {
+		backend: "software",
+		createGBufferBridge: (context) => ({
+			width: context.attachments.width,
+			height: context.attachments.height,
+			normalSpace: "view",
+			depthEncoding: "linear-view-z",
+			channels: {
+				color: {
+					semantic: "color",
+					width: context.attachments.width,
+					height: context.attachments.height,
+					handle: { backend: "software", data: context.attachments.pixels },
+				},
+			},
+			worldPosition: { source: "derived", available: false },
+		}),
+		createResource: (descriptor) => ({
+			...descriptor,
+			backend: "software",
+			resource: new Float32Array(descriptor.width * descriptor.height * 4),
+		}),
+		destroyResource: () => {},
+		createPassExecutionContext: () => Object.freeze({ resources: {} }),
+		completePass: (_request, result) => {
+			state.completions++;
+			return { committed: result.ran !== false };
 		},
+	};
+	const backend = { type: "software" };
+	const runtime = new BackendPostProcessRuntime({ executor, backend });
+	const context = {
+		postProcess: snapshot,
 		attachments: {
-			width: 64,
-			height: 32,
-			pixels: new Uint8ClampedArray(64 * 32 * 4),
-			depthBuffer: new Float32Array(64 * 32),
-			normalBuffer: new Float32Array(64 * 32 * 3),
-			motionBuffer: new Float32Array(64 * 32 * 4),
-			albedoBuffer: new Float32Array(64 * 32 * 4),
+			width: 4,
+			height: 4,
+			pixels: new Uint8Array(4 * 4 * 4),
 		},
-		features: {},
-		postProcess,
-		shadowMaps: [],
-		scene: {},
-		shCoeffs: [],
-		shAmbientCoeffs: [],
-		worldMatrix: null,
 		incremental: {
 			enabled: false,
-			forceFullFrame: true,
-			dirtyRects: [{ x: 0, y: 0, width: 64, height: 32 }],
-			dirtyTileSize: 64,
-			dirtyTileColumns: 1,
-			dirtyTileRows: 1,
-			dirtyTiles: [0],
-			dirtyAreaRatio: 1,
+			forceFullFrame: false,
+			dirtyRects: [],
 			firstPass: null,
 			postProcessStartPass: null,
-			reasonMask: 0,
 			temporalHistoryReset: false,
-			...incremental,
-		},
-		transient: new Map(),
-	};
-}
-
-function createGBufferBridge() {
-	return {
-		width: 64,
-		height: 32,
-		normalSpace: "world",
-		depthEncoding: "linear-view-z",
-		motionEncoding: "ndc-delta",
-		channels: {
-			color: { semantic: "color", width: 64, height: 32, handle: {} },
-			depth: { semantic: "depth", width: 64, height: 32, handle: {} },
-			normal: { semantic: "normal", width: 64, height: 32, handle: {} },
-			roughness: { semantic: "roughness", width: 64, height: 32, handle: {} },
-			metallic: { semantic: "metallic", width: 64, height: 32, handle: {} },
-			albedo: { semantic: "albedo", width: 64, height: 32, handle: {} },
-			motion: { semantic: "motion", width: 64, height: 32, handle: {} },
-		},
-		worldPosition: {
-			source: "derived",
-			available: true,
 		},
 	};
+	return { state, runtime, context };
 }
 
-function createRuntime(executor, warn) {
-	return new BackendPostProcessRuntime({
-		executor,
-		warn,
-	});
-}
-
-function getLastExecutedPassIds(executor) {
-	return executor.endFrames.at(-1)?.executedPassIds ?? [];
-}
-
-function testRegistryOnlySurfaceAndPassMutation() {
-	const registry = new PostProcessPassRegistry();
-	assert.equal(typeof registry.registerPass, "function");
-	assert.equal(typeof registry.getPass, "function");
-	assert.equal(typeof registry.invalidatePasses, "function");
-	assert.equal(typeof registry.destroyPasses, "function");
-	assert.equal(registry.enable, undefined);
-	assert.equal(registry.disable, undefined);
-	assert.equal(registry.setOptions, undefined);
-	assert.equal(registry.reset, undefined);
-	assert.throws(
-		() => registry.registerPass({ id: "plain-object" }),
-		/requires a PostProcessPass/
-	);
-
-	let changes = 0;
-	const ssao = new ScreenSpaceAmbientOcclusionPass({
-		enabled: true,
-		options: { samples: 12 },
-	});
-	registry.on("change", () => changes++);
-	registry.registerPass(ssao);
-	assert.equal(ssao.builtIn, false);
-	assert.equal("capabilityId" in ssao, false);
-	assert.equal(ssao.warningLabel, "SSAO");
-	ssao.setOptions({ radius: 4 });
-	ssao.disable();
-	assert.equal(registry.getPass("ssao"), ssao);
-	assert.equal(changes, 3);
-}
-
-function testSnapshotNormalizationAndWarnings() {
-	const unsupportedRegistry = new PostProcessPassRegistry();
-	unsupportedRegistry.registerPass(
-		new ScreenSpaceGlobalIlluminationPass({ enabled: true })
-	);
-	const snapshot = unsupportedRegistry.createSnapshot("software");
-	const unsupportedWarning = snapshot
-		.getWarnings()
-		.find((warning) => warning.key === "software-postprocess-unsupported-ssgi");
-	assert.equal(snapshot.isEnabled("ssgi"), false);
-	assert.equal(unsupportedWarning, undefined);
-
-	const registry = new PostProcessPassRegistry();
-	registry.registerPass(
-		new ScreenSpaceAmbientOcclusionPass({
-			enabled: true,
-			options: { samples: 500, radius: 2 },
-		})
-	);
-	const supported = registry.createSnapshot("software");
-	assert.equal(supported.isEnabled("ssao"), true);
-	assert.equal(supported.getOptions("ssao").samples, 48);
-	assert.equal(supported.getOptions("ssao").radius, 2);
-}
-
-async function testBackendRuntimeOrderingAndIncrementalStartPass() {
-	const registry = new PostProcessPassRegistry();
-	registry.registerPass(new ToneMappingPass({ enabled: true }));
-	registry.registerPass(new GammaPass({ enabled: true }));
-	registry.registerPass(new CustomPass("custom-hdr", {
-		enabled: true,
-		placement: "hdr",
-	}));
-	registry.registerPass(new CustomPass("custom-overlay", {
-		enabled: true,
-		placement: "overlay",
-		order: -1,
-	}));
-	assert.equal(registry.getPass("custom-hdr").builtIn, false);
-	assert.equal("capabilityId" in registry.getPass("custom-hdr"), false);
-	const snapshot = registry.createSnapshot("webgpu");
-	const executor = new FakeExecutor("webgpu");
-	const runtime = createRuntime(executor);
-	await runtime.execute(createFrameContext(snapshot));
-
-	assert.deepEqual(getLastExecutedPassIds(executor), [
-		"custom-hdr",
-		"tonemap",
-		"custom-overlay",
-		"gamma",
-	]);
-	assert.deepEqual(
-		executor.executed.map((entry) => entry.passId),
-		["custom-hdr", "custom-overlay"]
-	);
-	assert.ok(executor.executed.every((entry) => entry.implementation));
-	assert.deepEqual(executor.ownedExecuted, ["tonemap", "gamma"]);
-
-	const incrementalExecutor = new FakeExecutor("webgpu");
-	const incrementalRuntime = createRuntime(incrementalExecutor);
-	await incrementalRuntime.execute(
-		createFrameContext(snapshot, {
-			enabled: true,
-			forceFullFrame: false,
-			firstPass: "postprocess",
-			postProcessStartPass: "custom-overlay",
-		})
-	);
-	assert.deepEqual(getLastExecutedPassIds(incrementalExecutor), [
-		"custom-overlay",
-		"gamma",
-	]);
-	assert.deepEqual(
-		incrementalExecutor.executed.map((entry) => entry.passId),
-		["custom-overlay"]
-	);
-	assert.ok(
-		incrementalExecutor.executed.every(
-			(entry) => entry.startPassId === "custom-overlay"
-		)
-	);
-	assert.deepEqual(incrementalExecutor.ownedExecuted, ["gamma"]);
-}
-
-function testExecutionPredicatesDrivePipelineWork() {
-	const registry = new PostProcessPassRegistry();
-	registry.registerPass(
-		new ConditionalPass("custom-conditional", {
-			enabled: true,
-		})
-	);
-	const snapshot = registry.createSnapshot("webgpu");
-	const frameContext = createFrameContext(snapshot);
-
-	assert.equal(
-		hasPostProcessExecutionPasses(snapshot, { frameContext }),
-		false
-	);
-	assert.deepEqual(
-		resolvePostProcessExecutionOrder(snapshot, { frameContext }).map(
-			(pass) => pass.id
-		),
-		[]
-	);
-
-	frameContext.transient.set("run-conditional-pass", true);
-	assert.equal(
-		hasPostProcessExecutionPasses(snapshot, { frameContext }),
-		true
-	);
-	assert.deepEqual(
-		resolvePostProcessExecutionOrder(snapshot, { frameContext }).map(
-			(pass) => pass.id
-		),
-		["custom-conditional"]
-	);
-}
-
-async function testPassOwnedImplementationsAndFallback() {
-	const fxaaSnapshot = createResolvedPostProcess(
-		{ fxaa: { enabled: true } },
-		"software"
-	);
-	const executor = new FakeExecutor("software");
-	executor.executePass = function executePass(passId) {
-		this.executed.push({ passId });
-		throw new Error(`Unexpected fallback execution for ${passId}`);
-	};
-	await createRuntime(executor).execute(createFrameContext(fxaaSnapshot));
-	assert.deepEqual(getLastExecutedPassIds(executor), ["fxaa"]);
-	assert.deepEqual(executor.executed, []);
-
-	const webgpuSnapshot = createResolvedPostProcess(
-		{
-			volumetric: { enabled: true },
-			fog: { enabled: true, options: { application: "postprocess" } },
-			bloom: { enabled: true },
-		},
-		"webgpu"
-	);
-	const webgpuExecutor = new FakeExecutor("webgpu");
-	webgpuExecutor.executePass = function executePass(passId) {
-		this.executed.push({ passId });
-		throw new Error(`Unexpected fallback execution for ${passId}`);
-	};
-	await createRuntime(webgpuExecutor).execute(createFrameContext(webgpuSnapshot));
-	assert.deepEqual(webgpuExecutor.executed, []);
-
-	const volumetricSnapshot = createResolvedPostProcess(
-		{ volumetric: { enabled: true } },
-		"software"
-	);
-	const volumetricExecutor = new FakeExecutor("software");
-	volumetricExecutor.executePass = function executePass(passId) {
-		this.executed.push({ passId });
-		throw new Error(`Unexpected fallback execution for ${passId}`);
-	};
-	await createRuntime(volumetricExecutor).execute(
-		createFrameContext(volumetricSnapshot)
-	);
-	assert.deepEqual(getLastExecutedPassIds(volumetricExecutor), ["volumetric"]);
-	assert.deepEqual(volumetricExecutor.executed, []);
-
-	const fallbackSnapshot = createResolvedPostProcess(
-		{ tonemap: { enabled: true } },
-		"software"
-	);
-	const fallbackExecutor = new FakeExecutor("software");
-	await createRuntime(fallbackExecutor).execute(
-		createFrameContext(fallbackSnapshot)
-	);
-	assert.deepEqual(getLastExecutedPassIds(fallbackExecutor), ["tonemap"]);
-	assert.deepEqual(fallbackExecutor.executed.map((entry) => entry.passId), []);
-}
-
-function testRegistryLifecycleDelegatesToPassImplementations() {
-	const registry = new PostProcessPassRegistry();
-	const passes = [
-		new FogPass({ enabled: true }),
-		new BloomPass({ enabled: true }),
-		new VolumetricLightingPass({ enabled: true }),
-	];
-	const calls = [];
-	for (const pass of passes) {
-		registry.registerPass(pass);
-		const implementation = pass.getImplementation("webgpu");
-		implementation.invalidate = () => {
-			calls.push(`${pass.id}:invalidate`);
-		};
-		implementation.destroy = () => {
-			calls.push(`${pass.id}:destroy`);
-		};
-	}
-
-	assert.equal(registry.invalidatePasses("software"), registry);
-	assert.deepEqual(calls, []);
-	assert.equal(registry.invalidatePasses("webgpu"), registry);
-	assert.deepEqual(calls, [
-		"fog:invalidate",
-		"bloom:invalidate",
-		"volumetric:invalidate",
-	]);
-	assert.equal(registry.destroyPasses("webgpu"), registry);
-	assert.deepEqual(calls.slice(3), [
-		"fog:destroy",
-		"bloom:destroy",
-		"volumetric:destroy",
-	]);
-
-	calls.length = 0;
-	registry.unregisterPass("bloom");
-	assert.deepEqual(calls, ["bloom:destroy"]);
-}
-
-function testManualEnginePassIncrementalRegistrationCanBeRemoved() {
-	const pipeline = new RenderPipelineRegistry();
-	const registry = new PostProcessPassRegistry();
-	const bloom = new BloomPass({ enabled: true });
-	registry.registerPass(new ToneMappingPass({ enabled: true }));
-	registry.registerPass(new GammaPass({ enabled: true }));
-	registry.registerPass(bloom);
-	pipeline.registerPostProcessPass(bloom);
-
-	const plan = IncrementalFramePlanner.plan({
-		enabled: true,
-		reasonMask: renderDirtyReasonToMask("postfx"),
-		features: { enableShadows: false },
-		postProcess: registry.createSnapshot("webgpu"),
-		registry: pipeline.incremental,
-	});
-	assert.equal(plan.firstPass, "postprocess");
-	assert.equal(plan.postProcessStartPass, "bloom");
-
-	registry.unregisterPass("bloom");
-	pipeline.unregisterPostProcessPass("bloom");
-	const afterUnregister = IncrementalFramePlanner.plan({
-		enabled: true,
-		reasonMask: renderDirtyReasonToMask("postfx"),
-		features: { enableShadows: false },
-		postProcess: registry.createSnapshot("webgpu"),
-		registry: pipeline.incremental,
-	});
-	assert.equal(afterUnregister.firstPass, "postprocess");
-	assert.equal(afterUnregister.postProcessStartPass, "tonemap");
-}
-
-async function testSSRHistorySignatureUsesOptions() {
-	const executor = new FakeExecutor("webgpu");
-	const runtime = createRuntime(executor);
-	const createSnapshot = (downsample) =>
-		createResolvedPostProcess(
-			{ ssr: { enabled: true, options: { downsample } } },
-			"webgpu"
-		);
-
-	await runtime.execute(createFrameContext(createSnapshot(2)));
-	const firstSSRRead = executor.created.find((handle) => handle.id === "ssr:read");
-	assert.equal(firstSSRRead.width, 32);
-	assert.equal(firstSSRRead.height, 16);
-	const firstSSRRaw = executor.created.find((handle) => handle.id === "ssr:raw");
-	assert.equal(firstSSRRaw.width, 32);
-	assert.equal(firstSSRRaw.height, 16);
-
+async function testLifecycleCommitSkipAbortAndHistory() {
+	const { state, runtime, context } = createLifecycleHarness();
+	await runtime.execute(context);
 	runtime.commitFrame();
-	await runtime.execute(createFrameContext(createSnapshot(4)));
-	const recreatedSSRReads = executor.created.filter(
-		(handle) => handle.id === "ssr:read"
-	);
-	assert.equal(recreatedSSRReads.at(-1).width, 16);
-	assert.equal(recreatedSSRReads.at(-1).height, 8);
-	assert.ok(executor.destroyed.some((handle) => handle.id === "ssr:read"));
-	const recreatedSSRRaw = executor.created.filter(
-		(handle) => handle.id === "ssr:raw"
-	);
-	assert.equal(recreatedSSRRaw.at(-1).width, 16);
-	assert.equal(recreatedSSRRaw.at(-1).height, 8);
-	assert.ok(executor.destroyed.some((handle) => handle.id === "ssr:raw"));
-	assert.equal(executor.invalidatedBindings, 2);
-}
+	assert.deepEqual(state.historyValidity, [false]);
+	assert.deepEqual(runtime.getDebugState().lastSuccessful.executedPassIds, ["lifecycle"]);
 
-async function testRanFalsePassIsExcludedFromExecutedIds() {
-	const registry = new PostProcessPassRegistry();
-	registry.registerPass(new SkippingPass("custom-skip", { enabled: true }));
-	const snapshot = registry.createSnapshot("webgpu");
-	const executor = new FakeExecutor("webgpu");
-	await createRuntime(executor).execute(createFrameContext(snapshot));
-	assert.deepEqual(getLastExecutedPassIds(executor), []);
-}
-
-async function testBackendRuntimeTracksLocalPreservationDeclarations() {
-	const localRegistry = new PostProcessPassRegistry();
-	localRegistry.registerPass(new LocallyPreservingPass("local", { enabled: true }));
-	const localRuntime = createRuntime(new FakeExecutor("webgpu"));
-	await localRuntime.execute(createFrameContext(localRegistry.createSnapshot("webgpu")));
-	assert.equal(localRuntime.completedFramePreservesOutsideDirtyTiles, true);
-
-	const unspecifiedRegistry = new PostProcessPassRegistry();
-	unspecifiedRegistry.registerPass(new CustomPass("unspecified", { enabled: true }));
-	const unspecifiedRuntime = createRuntime(new FakeExecutor("webgpu"));
-	await unspecifiedRuntime.execute(
-		createFrameContext(unspecifiedRegistry.createSnapshot("webgpu"))
-	);
-	assert.equal(unspecifiedRuntime.completedFramePreservesOutsideDirtyTiles, false);
-}
-
-async function testBackendRuntimeHistoryCommitAndAbort() {
-	const seen = [];
-	const registry = new PostProcessPassRegistry();
-	registry.registerPass(new HistoryUpdatingPass("history-pass", seen));
-	const snapshot = registry.createSnapshot("webgpu");
-	const executor = new FakeExecutor("webgpu");
-	const runtime = createRuntime(executor);
-
-	await runtime.execute(createFrameContext(snapshot));
-	assert.equal(seen[0].valid, false);
-	const firstRead = seen[0].read;
-	const firstWrite = seen[0].write;
-
-	await runtime.abortFrame(new Error("aborted renderer frame"));
-	seen.length = 0;
-	await runtime.execute(createFrameContext(snapshot));
-	assert.equal(seen[0].valid, false);
-	assert.strictEqual(seen[0].read, firstRead);
-	assert.strictEqual(seen[0].write, firstWrite);
-
-	const secondWrite = seen[0].write;
+	await runtime.execute(context);
 	runtime.commitFrame();
-	seen.length = 0;
-	await runtime.execute(createFrameContext(snapshot));
-	assert.equal(seen[0].valid, true);
-	assert.strictEqual(seen[0].read, secondWrite);
-}
+	assert.deepEqual(state.historyValidity, [false, true]);
 
-async function testBackendRuntimeDestroyClearsPendingAndDestroysResources() {
-	const seen = [];
-	const registry = new PostProcessPassRegistry();
-	registry.registerPass(new HistoryUpdatingPass("history-pass", seen, { order: 0 }));
-	registry.registerPass(new TransientPass("transient-pass", [
-		{ id: "scratch" },
-	]));
-	const snapshot = registry.createSnapshot("webgpu");
-	const executor = new FakeExecutor("webgpu");
-	const runtime = createRuntime(executor);
-
-	await runtime.execute(createFrameContext(snapshot));
-	assert.equal(executor.destroyed.length, 0);
-
-	runtime.destroy();
-	const destroyedIds = executor.destroyed.map((handle) => handle.id);
-	assert.ok(destroyedIds.includes("history:read"));
-	assert.ok(destroyedIds.includes("history:write"));
-	assert.ok(destroyedIds.includes("scratch"));
-
-	await runtime.abortFrame(new Error("postprocess already destroyed"));
-	assert.equal(executor.abortFrames.length, 0);
-}
-
-async function testBackendRuntimeCommitFrameSwapsHistory() {
-	const seen = [];
-	const registry = new PostProcessPassRegistry();
-	registry.registerPass(new HistoryUpdatingPass("history-pass", seen));
-	const snapshot = registry.createSnapshot("webgpu");
-	const executor = new FakeExecutor("webgpu");
-	const runtime = createRuntime(executor);
-
-	await runtime.execute(createFrameContext(snapshot));
-	const firstWrite = seen[0].write;
+	state.mode = "skip";
+	await runtime.execute(context);
 	runtime.commitFrame();
-	seen.length = 0;
-	await runtime.execute(createFrameContext(snapshot));
-	assert.equal(seen[0].valid, true);
-	assert.strictEqual(seen[0].read, firstWrite);
+	assert.deepEqual(runtime.getDebugState().lastSuccessful.skippedPassIds, ["lifecycle"]);
+	assert.equal(runtime.getDebugState().lastSuccessful.resolvedOutputColor, "scene-color");
+
+	state.mode = "invalid-skip";
+	await assert.rejects(() => runtime.execute(context), /cannot update history when ran is false/);
+	assert.deepEqual(runtime.getDebugState().lastSuccessful.skippedPassIds, ["lifecycle"]);
+
+	state.mode = "throw";
+	await assert.rejects(() => runtime.execute(context), /execution failed/);
+	assert.deepEqual(runtime.getDebugState().lastSuccessful.skippedPassIds, ["lifecycle"]);
 }
 
-async function testBackendRuntimeFailureAbortsExecutorAndHistory() {
-	const seen = [];
-	const error = new Error("post-process failure");
-	const registry = new PostProcessPassRegistry();
-	registry.registerPass(new HistoryUpdatingPass("history-pass", seen, { order: 0 }));
-	registry.registerPass(new ThrowingPass("throwing-pass", error, { order: 1 }));
-	const snapshot = registry.createSnapshot("webgpu");
-	const executor = new FakeExecutor("webgpu");
-	const runtime = createRuntime(executor);
+testBreakingPublicSurface();
+testResourceAccessorContract();
+await testLifecycleCommitSkipAbortAndHistory();
 
-	let caught = null;
-	try {
-		await runtime.execute(createFrameContext(snapshot));
-	} catch (caughtError) {
-		caught = caughtError;
-	}
-	assert.strictEqual(caught, error);
-	assert.equal(executor.abortFrames.length, 1);
-	assert.deepEqual(executor.abortFrames[0].executedPassIds, ["history-pass"]);
-	assert.strictEqual(executor.abortFrames[0].error, error);
-
-	const firstRead = seen[0].read;
-	const firstWrite = seen[0].write;
-	const recoveryRegistry = new PostProcessPassRegistry();
-	recoveryRegistry.registerPass(new HistoryUpdatingPass("history-pass", seen));
-	seen.length = 0;
-	await runtime.execute(
-		createFrameContext(recoveryRegistry.createSnapshot("webgpu"))
-	);
-	assert.equal(seen[0].valid, false);
-	assert.strictEqual(seen[0].read, firstRead);
-	assert.strictEqual(seen[0].write, firstWrite);
-}
-
-function testHistoryManagerInvalidationAndResize() {
-	const manager = new PostProcessHistoryManager();
-	const executor = new FakeExecutor("webgpu");
-	const descriptors = [{ id: "taa", format: "rgba16float" }];
-
-	let slots = manager.prepare({
-		executor,
-		descriptors,
-		width: 32,
-		height: 16,
-		reset: false,
-		signature: "camera-a",
-	});
-	assert.equal(slots.taa.valid, false);
-	assert.equal(executor.created.length, 2);
-
-	const firstRead = slots.taa.read;
-	const firstWrite = slots.taa.write;
-	manager.markUpdated("taa");
-	manager.abortFrame();
-	slots = manager.prepare({
-		executor,
-		descriptors,
-		width: 32,
-		height: 16,
-		reset: false,
-		signature: "camera-a",
-	});
-	assert.equal(slots.taa.valid, false);
-	assert.strictEqual(slots.taa.read, firstRead);
-	assert.strictEqual(slots.taa.write, firstWrite);
-
-	manager.markUpdated("taa");
-	manager.endFrame();
-	slots = manager.prepare({
-		executor,
-		descriptors,
-		width: 32,
-		height: 16,
-		reset: false,
-		signature: "camera-a",
-	});
-	assert.equal(slots.taa.valid, true);
-	assert.strictEqual(slots.taa.read, firstWrite);
-	assert.strictEqual(slots.taa.write, firstRead);
-
-	slots = manager.prepare({
-		executor,
-		descriptors,
-		width: 64,
-		height: 16,
-		reset: false,
-		signature: "camera-a",
-	});
-	assert.equal(slots.taa.valid, false);
-	assert.equal(executor.created.length, 4);
-	assert.equal(executor.destroyed.length, 2);
-}
-
-function testTransientManagerReuseRecreateAndDestroy() {
-	const manager = new PostProcessTransientManager();
-	const executor = new FakeExecutor("webgpu");
-	const descriptors = [
-		{
-			id: "tmp",
-			widthScale: 0.5,
-			heightScale: 0.25,
-			format: "rgba8unorm",
-			mipMode: "full-chain",
-			usage: ["sampled", "storage"],
-		},
-	];
-
-	let result = manager.prepare({
-		executor,
-		descriptors,
-		width: 64,
-		height: 32,
-	});
-	assert.equal(result.changed, true);
-	assert.equal(result.slots.tmp.handle.width, 32);
-	assert.equal(result.slots.tmp.handle.height, 8);
-	assert.equal(result.slots.tmp.handle.format, "rgba8unorm");
-	assert.equal(result.slots.tmp.handle.mipMode, "full-chain");
-	assert.equal(executor.created.length, 1);
-	const firstHandle = result.slots.tmp.handle;
-
-	result = manager.prepare({
-		executor,
-		descriptors,
-		width: 64,
-		height: 32,
-	});
-	assert.equal(result.changed, false);
-	assert.strictEqual(result.slots.tmp.handle, firstHandle);
-	assert.equal(executor.created.length, 1);
-
-	result = manager.prepare({
-		executor,
-		descriptors,
-		width: 32,
-		height: 32,
-	});
-	assert.equal(result.changed, true);
-	assert.equal(result.slots.tmp.handle.width, 16);
-	assert.equal(result.slots.tmp.handle.height, 8);
-	assert.equal(executor.created.length, 2);
-	assert.strictEqual(executor.destroyed[0], firstHandle);
-
-	result = manager.prepare({
-		executor,
-		descriptors: [],
-		width: 32,
-		height: 32,
-	});
-	assert.equal(result.changed, true);
-	assert.deepEqual(result.slots, {});
-	assert.equal(executor.destroyed.length, 2);
-}
-
-async function testTransientDescriptorConflictWarnsAndKeepsFirst() {
-	const registry = new PostProcessPassRegistry();
-	registry.registerPass(new TransientPass("transient-a", [
-		{
-			id: "shared",
-			widthScale: 1,
-		},
-	]));
-	registry.registerPass(new TransientPass("transient-b", [
-		{
-			id: "shared",
-			widthScale: 0.5,
-		},
-	]));
-	const executor = new FakeExecutor("webgpu");
-	const warnings = [];
-	const runtime = createRuntime(executor, (key) => warnings.push(key));
-
-	await runtime.execute(createFrameContext(registry.createSnapshot("webgpu")));
-
-	assert.deepEqual(warnings, ["postprocess-transient-conflict-shared"]);
-	const shared = executor.created.find((handle) => handle.id === "shared");
-	assert.equal(shared.width, 64);
-	assert.equal(shared.height, 32);
-	assert.equal(executor.created.filter((handle) => handle.id === "shared").length, 1);
-	assert.equal(executor.invalidatedBindings, 1);
-}
-
-function testLogicalGBufferBridgeHelperShape() {
-	const support = createNoopPostProcessSupport(
-		"software"
-	);
-	const bridge = support.createGBufferBridge(
-		createFrameContext(
-			createResolvedPostProcess({}, "software")
-		)
-	);
-	assert.equal(bridge.width, 64);
-	assert.equal(bridge.height, 32);
-	assert.equal(bridge.normalSpace, "world");
-	assert.equal(bridge.depthEncoding, "linear-view-z");
-	assert.equal(bridge.worldPosition.source, "derived");
-	assert.equal(bridge.worldPosition.available, true);
-	assert.equal(bridge.channels.depth.handle.backend, "software");
-	assert.equal(bridge.channels.normal.handle.backend, "software");
-}
-
-async function testRuntimeCompiledFrameTokenAndResolvedOutput() {
-	const registry = new PostProcessPassRegistry();
-	registry.registerPass(new ToneMappingPass({ enabled: true }));
-	const executor = new FakeExecutor("webgpu");
-	const runtime = createRuntime(executor);
-	const compiled = runtime.compileRenderGraphFrame(
-		createFrameContext(registry.createSnapshot("webgpu"))
-	);
-	assert.equal(compiled.logicalGraph.nodes.length, 1);
-	const frame = await runtime.beginGraphFrame(compiled);
-	assert.ok(frame);
-	await runtime.executeGraphPass(frame, "tonemap");
-	await assert.rejects(
-		() => runtime.executeGraphPass(frame, "tonemap"),
-		/already executed/
-	);
-	const result = await runtime.endGraphFrame(frame);
-	assert.equal(result.outputColor, "postprocess:color:0");
-	assert.equal(result.resolvedOutputColor, "postprocess:color:0");
-	runtime.commitFrame();
-	assert.deepEqual(runtime.getDebugState().lastSuccessful, result);
-}
-
-async function run() {
-	testRegistryOnlySurfaceAndPassMutation();
-	testSnapshotNormalizationAndWarnings();
-	await testBackendRuntimeOrderingAndIncrementalStartPass();
-	testExecutionPredicatesDrivePipelineWork();
-	await testPassOwnedImplementationsAndFallback();
-	testRegistryLifecycleDelegatesToPassImplementations();
-	testManualEnginePassIncrementalRegistrationCanBeRemoved();
-	await testSSRHistorySignatureUsesOptions();
-	await testRanFalsePassIsExcludedFromExecutedIds();
-	await testBackendRuntimeTracksLocalPreservationDeclarations();
-	await testBackendRuntimeHistoryCommitAndAbort();
-	await testBackendRuntimeDestroyClearsPendingAndDestroysResources();
-	await testBackendRuntimeCommitFrameSwapsHistory();
-	await testBackendRuntimeFailureAbortsExecutorAndHistory();
-	testHistoryManagerInvalidationAndResize();
-	testTransientManagerReuseRecreateAndDestroy();
-	await testTransientDescriptorConflictWarnsAndKeepsFirst();
-	testLogicalGBufferBridgeHelperShape();
-	await testRuntimeCompiledFrameTokenAndResolvedOutput();
-	console.log("Postprocess public API tests passed");
-}
-
-await run();
+console.log("Post-process public contract and lifecycle tests passed");

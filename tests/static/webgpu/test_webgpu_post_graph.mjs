@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import {
-	PostProcessGraphCompiler,
+	PostProcessPlanner,
 	resolvePostProcessExecutionOrder,
 } from "../../../src/postprocess/index.ts";
 import { createResolvedPostProcess } from "../../helpers/postprocess.mjs";
@@ -126,7 +126,7 @@ function testFogSceneModeSkipsFogInPipelineOrder() {
 	assert.equal(order.some((pass) => pass.id === "fog"), false);
 }
 
-function testIncrementalStartPassIsResolvedByGraphCompiler() {
+function testIncrementalStartPassIsResolvedByPlanner() {
 	const postProcess = createPostProcess({
 		bloom: { enabled: true },
 		tonemap: { enabled: true },
@@ -140,11 +140,13 @@ function testIncrementalStartPassIsResolvedByGraphCompiler() {
 		firstPass: "postprocess",
 		postProcessStartPass: "color-filter",
 	});
-	const graph = new PostProcessGraphCompiler().compile({
+	const graph = new PostProcessPlanner().plan({
 		frameContext,
 		backend: "webgpu",
 		postProcess,
 		gBuffer: createGBufferBridge(),
+		resolveImplementation: (pass) => pass.getImplementation("webgpu"),
+		isSharedResourceAvailable: () => true,
 	});
 
 	assert.equal(graph.startPassId, "color-filter");
@@ -158,7 +160,7 @@ function testIncrementalStartPassIsResolvedByGraphCompiler() {
 async function run() {
 	testBuiltInOrderUsesPipelineAuthority();
 	testFogSceneModeSkipsFogInPipelineOrder();
-	testIncrementalStartPassIsResolvedByGraphCompiler();
+	testIncrementalStartPassIsResolvedByPlanner();
 	console.log("WebGPU post-process pipeline-order tests passed");
 }
 

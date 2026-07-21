@@ -10,10 +10,44 @@ import {
 	TemporalAntiAliasingPass,
 	ToneMappingPass,
 } from "../../../src/postprocess/index.ts";
-import {
-	WEBGL_SCREEN_POST_PROCESS_CONTEXT_METADATA,
-} from "../../../src/backends/webgl/WebGLPostProcessContracts.ts";
 import { createResolvedPostProcess } from "../../helpers/postprocess.mjs";
+
+function createExecutionContext(executor, request, implementation) {
+	const resolvedImplementation = implementation ?? request.implementation ??
+		request.pass.getImplementation("webgl");
+	request.implementation = resolvedImplementation;
+	request.transients ??= {};
+	request.gBuffer = {
+		channels: {
+			depth: {
+				handle: { backend: "webgl", texture: executor._sceneMotionTexture },
+			},
+			motion: {
+				handle: { backend: "webgl", texture: executor._sceneMotionTexture },
+			},
+			normal: {
+				handle: { backend: "webgl", texture: executor._sceneNormalTexture },
+			},
+		},
+	};
+	request.declaration = resolvedImplementation.describeExecution({
+		backend: "webgl",
+		frameContext: request.frameContext,
+		postProcess: request.postProcess,
+		gBuffer: request.gBuffer,
+		width: executor._width,
+		height: executor._height,
+		options: request.options,
+	});
+	executor.beginPostProcessFrame();
+	return executor.createPassExecutionContext(request);
+}
+
+function completeExecution(executor, request, result) {
+	const completion = executor.completePostProcessPass(request, result);
+	executor.endPostProcessFrame();
+	return completion;
+}
 
 function createFXAATestGL() {
 	const calls = [];
@@ -388,15 +422,13 @@ function testFXAAPassUsesLatestPostSourceAndRebindsPostTarget() {
 		options: frameContext.postProcess.getOptions("fxaa"),
 		startPassId: null,
 	};
-	const context = executor.getPassExecutionContext({
-		...request,
-		implementation: pass.getImplementation("webgl"),
-	});
+	const context = createExecutionContext(executor, request);
 	const result = pass.getImplementation("webgl").execute(
 		request,
 		context
 	);
 	assert.deepEqual(result, { ran: true });
+	completeExecution(executor, request, result);
 
 	const attachmentWrite = gl.calls.find(
 		(call) =>
@@ -454,11 +486,9 @@ function testFXAAPassSkipsWhileProgramPending() {
 		options: frameContext.postProcess.getOptions("fxaa"),
 		startPassId: null,
 	};
-	const context = executor.getPassExecutionContext({
-		...request,
-		implementation: pass.getImplementation("webgl"),
-	});
+	const context = createExecutionContext(executor, request);
 	const result = pass.getImplementation("webgl").execute(request, context);
+	completeExecution(executor, request, result);
 
 	assert.deepEqual(result, { ran: false });
 	assert.equal(tryCalls, 1);
@@ -513,11 +543,9 @@ function testToneMappingPassUsesLatestPostSourceAndRebindsPostTarget() {
 	};
 	const result = pass
 		.getImplementation("webgl")
-		.execute(request, executor.getPassExecutionContext({
-			...request,
-			implementation: pass.getImplementation("webgl"),
-		}));
+		.execute(request, createExecutionContext(executor, request));
 	assert.deepEqual(result, { ran: true });
+	completeExecution(executor, request, result);
 
 	const attachmentWrite = gl.calls.find(
 		(call) =>
@@ -535,7 +563,7 @@ function testToneMappingPassUsesLatestPostSourceAndRebindsPostTarget() {
 	assert.equal(executor._presentSourceTexture, postColor);
 }
 
-function testWebGLContextUsesImplementationMetadataForCustomPassId() {
+function testWebGLContextUsesDeclarationForCustomPassId() {
 	const gl = createFXAATestGL();
 	const executor = new WebGLFrameExecutor(gl);
 	const sceneColor = { id: "scene-color" };
@@ -553,9 +581,10 @@ function testWebGLContextUsesImplementationMetadataForCustomPassId() {
 	executor._height = 360;
 
 	const implementation = {
-		metadata: {
-			context: WEBGL_SCREEN_POST_PROCESS_CONTEXT_METADATA,
-		},
+		describeExecution: () => ({
+			color: { access: "read", output: "new-version" },
+		}),
+		execute: () => ({ ran: true }),
 	};
 	const request = {
 		frameContext: { transient: new Map() },
@@ -569,19 +598,24 @@ function testWebGLContextUsesImplementationMetadataForCustomPassId() {
 		options: {},
 		startPassId: null,
 	};
-	const context = executor.getPassExecutionContext(request);
+	const context = createExecutionContext(executor, request, implementation);
 
 	assert.equal(context.gl, gl);
 	assert.equal(context.sceneColorTexture, sceneColor);
 	assert.equal(context.getSourceTexture(), sourceColor);
-	assert.equal(context.resolveTargetTexture(sourceColor), postColor);
-	context.publishColorTexture(postColor);
+	assert.equal(context.resources.color.input, sourceColor);
+	assert.equal(context.resources.color.output, postColor);
+	assert.equal("publishColorTexture" in context, false);
+	completeExecution(executor, request, { ran: true });
 	assert.equal(executor._presentSourceTexture, postColor);
 }
 
-function testWebGLContextIgnoresMissingOrForeignMetadata() {
+function testWebGLContextRejectsUndeclaredResourceAccess() {
 	const gl = createFXAATestGL();
 	const executor = new WebGLFrameExecutor(gl);
+	executor._sceneColorTexture = { id: "scene-color" };
+	executor._presentSourceTexture = { id: "source-color" };
+	executor._postColorTexture = { id: "post-color" };
 	const request = {
 		frameContext: { transient: new Map() },
 		postProcess: createResolvedPostProcess({}, "webgl"),
@@ -594,27 +628,18 @@ function testWebGLContextIgnoresMissingOrForeignMetadata() {
 		startPassId: null,
 	};
 
-	assert.equal(
-		executor.getPassExecutionContext({
-			...request,
-			implementation: {},
+	const implementation = {
+		describeExecution: () => ({
+			color: { access: "read", output: "new-version" },
 		}),
-		undefined
+		execute: () => ({ ran: true }),
+	};
+	const context = createExecutionContext(executor, request, implementation);
+	assert.throws(
+		() => context.resources.getHistory("missing"),
+		/undeclared history/
 	);
-	assert.equal(
-		executor.getPassExecutionContext({
-			...request,
-			implementation: {
-				metadata: {
-					context: {
-						backend: "webgpu",
-						kind: "screen",
-					},
-				},
-			},
-		}),
-		undefined
-	);
+	executor.abortPostProcessFrame();
 }
 
 function testGammaPassUsesScreenPostProcessFlow() {
@@ -659,10 +684,11 @@ function testGammaPassUsesScreenPostProcessFlow() {
 		startPassId: null,
 		implementation: pass.getImplementation("webgl"),
 	};
-	const context = executor.getPassExecutionContext(request);
+	const context = createExecutionContext(executor, request);
 	const result = pass.getImplementation("webgl").execute(request, context);
 
 	assert.deepEqual(result, { ran: true });
+	completeExecution(executor, request, result);
 
 	const attachmentWrite = gl.calls.find(
 		(call) =>
@@ -1181,19 +1207,17 @@ function testTAAPassDetachesMotionAttachmentAndSanitizesOptions() {
 		options: frameContext.postProcess.getOptions("taa"),
 		startPassId: null,
 	};
-	const context = executor.getPassExecutionContext({
-		...request,
-		implementation: pass.getImplementation("webgl"),
-	});
-	assert.equal(context.historyRead.id, "history-a");
-	assert.equal(context.historyWrite.id, "history-b");
-	assert.equal(context.motionHistoryRead.id, "motion-a");
-	assert.equal(context.motionHistoryWrite.id, "motion-b");
+	const context = createExecutionContext(executor, request);
+	assert.equal(context.resources.getHistory("taa").read.id, "history-a");
+	assert.equal(context.resources.getHistory("taa").write.id, "history-b");
+	assert.equal(context.resources.getHistory("motion").read.id, "motion-a");
+	assert.equal(context.resources.getHistory("motion").write.id, "motion-b");
 	const result = pass.getImplementation("webgl").execute(
 		request,
 		context
 	);
 	assert.deepEqual(result, { ran: true, updatedHistoryIds: ["taa", "motion"] });
+	completeExecution(executor, request, result);
 	assert.equal(executor._taaHistoryValid, true);
 
 	const attachment0Writes = gl.calls.filter(
@@ -1307,29 +1331,25 @@ function testSSAOPassDetachesSecondaryAttachmentForDownsampleTargets() {
 		options: context.postProcess.getOptions("ssao"),
 		startPassId: null,
 	};
-	const passContext = executor.getPassExecutionContext({
-		...request,
-		implementation: pass.getImplementation("webgl"),
-	});
-	assert.equal(passContext.sceneNormalTexture.id, "scene-normal");
-	assert.equal(passContext.ssaoRawTexture.id, "ssao-raw");
-	assert.equal(passContext.ssaoBlurTexture.id, "ssao-blur");
+	const passContext = createExecutionContext(executor, request);
+	assert.equal(passContext.resources.getGBuffer("normal").id, "scene-normal");
+	assert.equal(passContext.resources.getTransient("ssao:raw").id, "ssao-raw");
+	assert.equal(passContext.resources.getTransient("ssao:blur").id, "ssao-blur");
 	const pendingResult = pass.getImplementation("webgl").execute(
 		request,
 		passContext
 	);
 	assert.deepEqual(pendingResult, { ran: false });
+	completeExecution(executor, request, pendingResult);
 	assert.equal(
 		gl.calls.some((call) => call.name === "framebufferTexture2D"),
 		false
 	);
 	programsReady = true;
-	const result =
-		pass.getImplementation("webgl").execute(
-			request,
-			passContext
-		);
+	const readyContext = createExecutionContext(executor, request);
+	const result = pass.getImplementation("webgl").execute(request, readyContext);
 	assert.equal(result.ran, true);
+	completeExecution(executor, request, result);
 
 	const detachCalls = gl.calls.filter(
 		(call) =>
@@ -1576,8 +1596,8 @@ async function run() {
 	testFXAAPassUsesLatestPostSourceAndRebindsPostTarget();
 	testFXAAPassSkipsWhileProgramPending();
 	testToneMappingPassUsesLatestPostSourceAndRebindsPostTarget();
-	testWebGLContextUsesImplementationMetadataForCustomPassId();
-	testWebGLContextIgnoresMissingOrForeignMetadata();
+	testWebGLContextUsesDeclarationForCustomPassId();
+	testWebGLContextRejectsUndeclaredResourceAccess();
 	testGammaPassUsesScreenPostProcessFlow();
 	testFrameTargetsFallbackToRGBA8MotionWithoutFloatExtension();
 	testFrameTargetsCreateOITResourcesWithFloatExtension();

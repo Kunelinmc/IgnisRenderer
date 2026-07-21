@@ -72,15 +72,24 @@ const ENGINE_PASS_FACTORIES = {
 
 class NoopCustomPostProcessPass extends PostProcessPass {
 	constructor(id, request, backendType) {
+		const supplied = request?.implementation ?? request?.implementations?.[backendType];
+		const implementation = supplied ?? {
+			describeExecution: () => ({
+				color: { access: "read-write", output: "preserve" },
+			}),
+			execute: () => ({ ran: true }),
+		};
 		super({
 			id,
-			placement: request?.placement,
-			order: request?.order,
+			schedule: {
+				placement: request?.placement,
+				order: request?.order,
+				incremental: request?.incremental,
+			},
 			enabled: request?.enabled === true,
 			options: request?.options ?? {},
-			incremental: request?.incremental,
 			implementations: {
-				[backendType]: request?.implementation ?? {},
+				[backendType]: () => implementation,
 			},
 		});
 	}
@@ -226,7 +235,7 @@ export function installNoopPostProcessAdapter(
 	const support = createNoopPostProcessAdapter(backend);
 	const runtime = new BackendPostProcessRuntime({
 		executor: support.executor,
-		getPassRegistry: () => target.renderer?.postProcess ?? null,
+		backend: target,
 	});
 	support.runtime = runtime;
 	if (target.capabilities && typeof target.capabilities === "object") {

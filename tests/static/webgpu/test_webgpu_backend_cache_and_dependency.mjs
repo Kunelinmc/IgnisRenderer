@@ -1256,8 +1256,8 @@ async function testEndFrameFailureStillEndsParticleFrameAndClearsPlanner() {
 async function testWarmupAggregatesPhases() {
 	const { backend } = createBackend();
 	backend._postProcessRuntime = {
-		compileWarmupGraph() {
-			return { orderedPasses: [], passes: [] };
+		planWarmup() {
+			return { orderedPasses: [] };
 		},
 	};
 	backend._frameOrchestrator = {

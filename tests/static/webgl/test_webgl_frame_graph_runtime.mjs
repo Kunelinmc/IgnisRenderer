@@ -159,8 +159,108 @@ function createExecutor(events, options = {}) {
 function createRuntime(events, options = {}) {
 	const executor = createExecutor(events, options);
 	const postProcessRuntime = {
-		execute() {
-			events.push("postprocess");
+		buildRenderGraphFrame() {
+			const payload = {
+				passId: "test-pass",
+				color: { access: "read", output: "new-version" },
+				inputColor: "scene-color",
+				plannedOutputColor: "color:0",
+				compatibilityOpaque: false,
+			};
+			return {
+				graph: {
+					passes: options.emptyPostProcess ? [] : [{ id: "test-pass" }],
+				},
+				subgraph: {
+					resources: [
+						{
+							id: "scene-color",
+							origin: "imported",
+							kind: "texture",
+							residency: "frame",
+							initialContent: "valid",
+							format: "rgba8unorm",
+							width: 16,
+							height: 16,
+						},
+						{
+							id: "gbuffer:normal",
+							origin: "imported",
+							kind: "texture",
+							residency: "frame",
+							initialContent: "valid",
+							format: "rgba8unorm",
+							width: 16,
+							height: 16,
+						},
+						{
+							id: "gbuffer:roughness",
+							origin: "imported",
+							kind: "texture",
+							residency: "frame",
+							initialContent: "valid",
+							format: "rgba8unorm",
+							width: 16,
+							height: 16,
+						},
+						{
+							id: "color:0",
+							origin: "graph",
+							kind: "texture",
+							residency: "transient",
+							initialContent: "undefined",
+							format: "rgba8unorm",
+							width: 16,
+							height: 16,
+						},
+					],
+					nodes: [{
+						id: "pass:test-pass",
+						stage: "postprocess",
+						kind: "postprocess-pass",
+						dependsOn: [],
+						creates: ["color:0"],
+						resources: [
+							{ resource: "scene-color", access: "read", usage: "sampled" },
+							{ resource: "gbuffer:normal", access: "read", usage: "sampled" },
+							{ resource: "gbuffer:roughness", access: "read", usage: "sampled" },
+							{ resource: "color:0", access: "write", usage: "color-attachment" },
+						],
+						payload,
+					}],
+					imports: [
+						{ name: "scene-color", resource: "scene-color" },
+						{ name: "gbuffer:normal", resource: "gbuffer:normal" },
+						{ name: "gbuffer:roughness", resource: "gbuffer:roughness" },
+					],
+					outputPorts: [{ name: "color", resource: "color:0" }],
+					exports: [{ name: "color", resource: "color:0" }],
+					outputColor: "color:0",
+					resourceRoles: {
+						"scene-color": "scene-color",
+						"gbuffer:normal": "gbuffer",
+						"gbuffer:roughness": "gbuffer",
+						"color:0": "color-version",
+					},
+				},
+			};
+		},
+		beginGraphFrame(plan) {
+			events.push("postprocess:begin");
+			return { graph: plan.graph, token: {}, compiled: plan };
+		},
+		executeGraphPass(_frame, passId) {
+			events.push(`postprocess:${passId}`);
+			return { ran: options.skipPostProcess !== true };
+		},
+		endGraphFrame() {
+			events.push("postprocess:end");
+		},
+		resolveGraphColor(_frame, color) {
+			return options.skipPostProcess ? "frame:scene-color" : color;
+		},
+		abortFrame() {
+			events.push("postprocess:abort");
 		},
 	};
 	return new WebGLFrameGraphRuntime(executor, postProcessRuntime);
@@ -197,19 +297,47 @@ function testRuntimeExecutesOpaqueNodesInOrder() {
 	);
 }
 
-function testRuntimeDelegatesPostProcessNode() {
+async function testRuntimeDelegatesPostProcessNode() {
 	const events = [];
 	const runtime = createRuntime(events);
-	const context = createContext();
+	const pass = createPass("postprocess");
+	const context = createContext({
+		framePlan: { stageOrder: [], backendPasses: [pass] },
+	});
 
 	runtime.beginFrame(context);
-	runtime.executePass(createPass("postprocess"), context);
+	await runtime.executePass(pass, context);
 
-	assert.ok(events.includes("postprocess"));
+	assert.deepEqual(events.slice(2), [
+		"postprocess:begin",
+		"postprocess:test-pass",
+		"postprocess:end",
+	]);
 	assert.ok(
 		runtime
 			.getDebugState()
-			.lastPlannedNodeIds.includes("postprocess:postprocess:frame")
+			.lastPlannedNodeIds.includes("postprocess:pass:test-pass")
+	);
+}
+
+async function testSkippedPostProcessRecordsExecutionOverlay() {
+	const events = [];
+	const runtime = createRuntime(events, { skipPostProcess: true });
+	const pass = createPass("postprocess");
+	const context = createContext({
+		framePlan: { stageOrder: [], backendPasses: [pass] },
+	});
+	runtime.beginFrame(context);
+	await runtime.executePass(pass, context);
+	assert.deepEqual(
+		runtime.getDebugState().graphAnalysis.current.executionOverlay,
+		{
+			skippedNodeIds: ["postprocess:pass:test-pass"],
+			resourceAliases: [{
+				resourceId: "postprocess:color:0",
+				resolvedResourceId: "frame:scene-color",
+			}],
+		},
 	);
 }
 
@@ -277,7 +405,7 @@ function testFailedPresentPreservesLastSuccessfulAnalysis() {
 	assert.equal(analysis.lastSuccessful, successful);
 }
 
-function testWholeFrameCompilesOnceAndUsesPhysicalAlias() {
+async function testWholeFrameCompilesOnceAndUsesPhysicalAlias() {
 	const events = [];
 	const runtime = createRuntime(events);
 	let plannerCalls = 0;
@@ -296,10 +424,10 @@ function testWholeFrameCompilesOnceAndUsesPhysicalAlias() {
 	});
 
 	runtime.beginFrame(context);
-	assert.equal(plannerCalls, 2);
+	assert.equal(plannerCalls, 1);
 	runtime.executePass(passes[0], context);
-	runtime.executePass(passes[1], context);
-	assert.equal(plannerCalls, 2);
+	await runtime.executePass(passes[1], context);
+	assert.equal(plannerCalls, 1);
 	runtime.endFrame(context);
 
 	const debug = runtime.getDebugState();
@@ -309,10 +437,40 @@ function testWholeFrameCompilesOnceAndUsesPhysicalAlias() {
 		"postprocess",
 		"webgl-present",
 	]);
-	assert.equal(debug.compiledGraph.completeness, "coarse");
+	assert.equal(debug.compiledGraph.completeness, "complete");
 	assert.ok(debug.compiledGraph.dependencies.some((edge) =>
 		edge.physicalId === "webgl:scene-color" &&
-		edge.toNodeId === "postprocess:postprocess:frame"));
+		edge.toNodeId === "postprocess:pass:test-pass"));
+	assert.equal(debug.compiledGraph.transitions.filter((transition) =>
+		transition.nodeId === "postprocess:pass:test-pass" &&
+		transition.resourceId === "frame:normal").length, 2);
+	const presentNodeId = debug.compiledStages
+		.find((stage) => stage.pass.stage === "webgl-present")
+		.nodes.at(-1).id;
+	assert.ok(debug.compiledGraph.dependencies.some((edge) =>
+		edge.fromNodeId === "postprocess:pass:test-pass" &&
+		edge.toNodeId === presentNodeId));
+}
+
+function testEmptyPostProcessChainPresentsSceneColorDirectly() {
+	const events = [];
+	const runtime = createRuntime(events, { emptyPostProcess: true });
+	const passes = [createPass("main-opaque"), createPass("postprocess")];
+	passes[1].dependsOn = ["main-opaque"];
+	const context = createContext({
+		framePlan: { stageOrder: [], backendPasses: passes },
+	});
+	runtime.beginFrame(context);
+	const debug = runtime.getDebugState();
+	assert.deepEqual(
+		debug.compiledStages.find((stage) => stage.pass.stage === "postprocess").nodes,
+		[],
+	);
+	const presentNodeId = debug.compiledStages
+		.find((stage) => stage.pass.stage === "webgl-present")
+		.nodes.at(-1).id;
+	assert.ok(debug.compiledGraph.dependencies.some((edge) =>
+		edge.toNodeId === presentNodeId && edge.physicalId === "webgl:scene-color"));
 }
 
 function testNodeRegistryRejectsMissingAndDuplicateOwners() {
@@ -354,16 +512,18 @@ function testResourceCatalogPreservesScenePresentAlias() {
 	);
 }
 
-function run() {
+async function run() {
 	testRuntimeExecutesOpaqueNodesInOrder();
-	testRuntimeDelegatesPostProcessNode();
+	await testRuntimeDelegatesPostProcessNode();
+	await testSkippedPostProcessRecordsExecutionOverlay();
 	testRuntimePlansOITParticleFlow();
 	testRuntimeDebugCapturesUnsupportedStage();
 	testFailedPresentPreservesLastSuccessfulAnalysis();
-	testWholeFrameCompilesOnceAndUsesPhysicalAlias();
+	await testWholeFrameCompilesOnceAndUsesPhysicalAlias();
+	testEmptyPostProcessChainPresentsSceneColorDirectly();
 	testNodeRegistryRejectsMissingAndDuplicateOwners();
 	testResourceCatalogPreservesScenePresentAlias();
 	console.log("WebGL frame graph runtime tests passed");
 }
 
-run();
+await run();

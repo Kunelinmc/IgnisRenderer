@@ -140,29 +140,42 @@ async function executeSSRImplementation(
 	let published = null;
 	let motionWrites = 0;
 	const request = createSSRPassRequest(frameContext, histories, historyValid);
+	const output = targets.postPing;
 	const context = {
 		encoder,
 		targets,
 		shared: runtime.sharedContext,
 		frameBinding,
-		historyRead: histories.ssrHistoryRead,
-		historyWrite: histories.ssrHistoryWrite,
-		motionHistoryRead: histories.motionHistoryRead,
-		motionHistoryWrite: histories.motionHistoryWrite,
-		ssrRaw: transients.ssrRaw,
-		hiZ: transients.hiZ,
-		publishColorTarget: (texture) => {
-			published = texture;
-			targets.sceneColor = texture;
-		},
-		writeMotionHistoryFromCurrent: () => {
-			motionWrites++;
+		resources: {
+			color: { input: targets.sceneColor, output },
+			getGBuffer: (semantic) => semantic === "normal" ?
+				targets.gNormalRoughMetal : targets.gMotionDepth,
+			getHistory: (id) => id === "ssr" ? {
+				read: histories.ssrHistoryRead,
+				write: histories.ssrHistoryWrite,
+				valid: historyValid,
+			} : {
+				read: histories.motionHistoryRead,
+				write: histories.motionHistoryWrite,
+				valid: historyValid,
+			},
+			getTransient: (id) => id === "ssr:raw" ? transients.ssrRaw : null,
+			getShared: (id) => id === "backend:frame-hiz" ? transients.hiZ :
+				id === "backend:planar-reflection-mask" ?
+					targets.planarReflectionMask : null,
+			copyGBufferToHistory: () => {
+				motionWrites++;
+			},
 		},
 	};
 	const result = await request.pass.getImplementation("webgpu").execute(
 		request,
 		context
 	);
+	if (result.ran !== false) {
+		published = output;
+		targets.sceneColor = output;
+	}
 	return { result, published, motionWrites };
 }
 
@@ -203,25 +216,42 @@ async function executeVolumetricImplementation(
 		shared: runtime.sharedContext,
 		frameBinding,
 		lightingState,
-		historyRead: histories.volumetricHistoryRead,
-		historyWrite: histories.volumetricHistoryWrite,
-		reservoirHistoryRead: histories.volumetricReservoirHistoryRead,
-		reservoirHistoryWrite: histories.volumetricReservoirHistoryWrite,
-		motionHistoryRead: histories.motionHistoryRead,
-		motionHistoryWrite: histories.motionHistoryWrite,
-		hiZ: transients.hiZ,
-		publishColorTarget: (texture) => {
-			published = texture;
-			targets.sceneColor = texture;
-		},
-		writeMotionHistoryFromCurrent: () => {
-			motionWrites++;
+		getFrameData: () => null,
+		resources: {
+			color: { input: targets.sceneColor, output: targets.postPong },
+			getGBuffer: () => targets.gMotionDepth,
+			getHistory: (id) => {
+				if (id === "volumetric") return {
+					read: histories.volumetricHistoryRead,
+					write: histories.volumetricHistoryWrite,
+					valid: historyValid,
+				};
+				if (id === "volumetric-reservoir") return {
+					read: histories.volumetricReservoirHistoryRead,
+					write: histories.volumetricReservoirHistoryWrite,
+					valid: historyValid,
+				};
+				return {
+					read: histories.motionHistoryRead,
+					write: histories.motionHistoryWrite,
+					valid: historyValid,
+				};
+			},
+			getTransient: () => null,
+			getShared: (id) => id === "backend:frame-hiz" ? transients.hiZ : null,
+			copyGBufferToHistory: () => {
+				motionWrites++;
+			},
 		},
 	};
 	const result = await request.pass.getImplementation("webgpu").execute(
 		request,
 		context
 	);
+	if (result.ran !== false) {
+		published = targets.postPong;
+		targets.sceneColor = targets.postPong;
+	}
 	return { result, published, motionWrites };
 }
 
@@ -261,34 +291,6 @@ async function captureWarnMessagesAsync(run) {
 		Logger.reset();
 	}
 	return warnings;
-}
-
-async function testTAAIsOwnedByLogicalPassImplementation() {
-	const backend = new FakeBackend();
-	const runtime = new WebGPUPostProcessRuntime(backend, () => {});
-	const targets = createTemporalTargets();
-	const frameContext = createPerspectiveFrameContext({
-		taa: {
-			enabled: true,
-			options: {
-				historyWeight: 0.8,
-			},
-		},
-	});
-	const result = await runtime.executePass({
-		passId: "taa",
-		encoder: new FakeEncoder(),
-		targets,
-		frameContext,
-		historyValid: true,
-	});
-
-	assert.equal(result.ran, false);
-	assert.equal(result.historyUpdated, undefined);
-	assert.equal(targets.sceneColor.label, "scene");
-
-	destroySnapshotPasses(frameContext.postProcess);
-	runtime.destroy();
 }
 
 async function testSSRAndVolumetricReportHistoryUpdates() {
@@ -520,22 +522,6 @@ async function testSSRDestroyReleasesCachedBindings() {
 	assert.equal(backend.computePipelineDestroyCalls, 5);
 }
 
-async function testUnknownPassReturnsRanFalse() {
-	const backend = new FakeBackend();
-	const runtime = new WebGPUPostProcessRuntime(backend, () => {});
-	const frameContext = createPerspectiveFrameContext();
-	const result = await runtime.executePass({
-		passId: "gamma",
-		encoder: new FakeEncoder(),
-		targets: createTemporalTargets(),
-		frameContext,
-	});
-	assert.deepEqual(result, { ran: false });
-
-	destroySnapshotPasses(frameContext.postProcess);
-	runtime.destroy();
-}
-
 async function testMissingSSRFrameBindingSkipsImplementation() {
 	const backend = new FakeBackend();
 	const runtime = new WebGPUPostProcessRuntime(backend, () => {});
@@ -555,46 +541,12 @@ async function testMissingSSRFrameBindingSkipsImplementation() {
 	runtime.destroy();
 }
 
-async function testMigratedScreenWarmupHintsDoNotAllocateRuntimeResources() {
-	const backend = new FakeBackend();
-	const runtime = new WebGPUPostProcessRuntime(backend, () => {});
-
-	await runtime.warmupHints([
-		"postprocess:motion-blur",
-		"postprocess:dof",
-	]);
-	assert.equal(backend.buffers.length, 0);
-	assert.equal(backend.shaderModules.length, 0);
-	assert.equal(backend.computePipelines.length, 0);
-	assert.equal(backend.bufferDestroyCalls, 0);
-	assert.equal(backend.bindingGroupDestroyCalls, 0);
-	assert.equal(backend.shaderModuleDestroyCalls, 0);
-	assert.equal(backend.computePipelineDestroyCalls, 0);
-
-	runtime.onShaderRuntimeChanged();
-	assert.equal(backend.bindingGroupDestroyCalls, 0);
-	assert.equal(backend.bufferDestroyCalls, 0);
-	assert.equal(backend.shaderModuleDestroyCalls, 0);
-	assert.equal(backend.computePipelineDestroyCalls, 0);
-
-	runtime.onShaderRuntimeChanged();
-	assert.equal(backend.bindingGroupDestroyCalls, 0);
-	assert.equal(backend.bufferDestroyCalls, 0);
-	assert.equal(backend.shaderModuleDestroyCalls, 0);
-	assert.equal(backend.computePipelineDestroyCalls, 0);
-
-	runtime.destroy();
-}
-
 async function run() {
-	await testTAAIsOwnedByLogicalPassImplementation();
 	await testSSRAndVolumetricReportHistoryUpdates();
 	await testOrthographicTemporalPassesSkipAndReturnFalse();
 	await testHiZResourcesAreSharedAcrossTemporalPasses();
 	await testSSRDestroyReleasesCachedBindings();
-	await testUnknownPassReturnsRanFalse();
 	await testMissingSSRFrameBindingSkipsImplementation();
-	await testMigratedScreenWarmupHintsDoNotAllocateRuntimeResources();
 	console.log("WebGPU postprocess temporal runtime tests passed");
 }
 

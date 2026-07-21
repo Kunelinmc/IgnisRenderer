@@ -29,7 +29,7 @@ function createSoftwareExecutor() {
 		createGBufferBridge(context) {
 			return createGBuffer(context);
 		},
-		getPassExecutionContext(request) {
+		createPassExecutionContext(request) {
 			if (request.passId !== "taa") {
 				return undefined;
 			}
@@ -131,9 +131,10 @@ function createGBuffer(context) {
 async function testTAADescriptorAndImplementationRoute() {
 	const pass = new TemporalAntiAliasingPass({ enabled: true });
 	assert.equal(pass.id, "taa");
-	assert.deepEqual(pass.getRequirements({}).gBuffer, ["motion"]);
+	const declaration = pass.getImplementation("software").describeExecution({});
+	assert.deepEqual(declaration.gBuffer.map((entry) => entry.semantic), ["motion"]);
 	assert.deepEqual(
-		pass.getHistoryDescriptors({}).map((history) => history.id),
+		declaration.histories.map((history) => history.descriptor.id),
 		["taa", "motion"]
 	);
 	assert.equal(
@@ -143,7 +144,10 @@ async function testTAADescriptorAndImplementationRoute() {
 
 	const executor = createSoftwareExecutor();
 	const frameContext = createFrameContext();
-	const runtime = new BackendPostProcessRuntime({ executor });
+	const runtime = new BackendPostProcessRuntime({
+		executor,
+		backend: { type: "software" },
+	});
 	await runtime.execute(frameContext);
 
 	assert.deepEqual(executor.fallbackCalls, []);

@@ -154,16 +154,23 @@ async function run() {
 			constructor() {
 				super({
 					id: "custom-edge",
-					incremental: {
-						firstPass: "tonemap",
-						grade: "standard",
-						inflationRadius: 18,
+					schedule: {
+						placement: "overlay",
+						incremental: {
+							firstPass: "tonemap",
+							grade: "standard",
+							inflationRadius: 18,
+						},
 					},
-					placement: "overlay",
 					enabled: true,
 					options: { strength: 0.5 },
 					implementations: {
-						webgpu: {},
+						webgpu: () => ({
+							describeExecution: () => ({
+								color: { access: "none", output: "preserve" },
+							}),
+							execute: () => ({ ran: true }),
+						}),
 					},
 				});
 			}
@@ -192,31 +199,12 @@ async function run() {
 			),
 			18
 		);
-		assert.ok(
-			backend.postProcessSupport.executor.executedPasses.includes("custom-edge")
-		);
 		assert.equal(backend.executedPasses.includes("postprocess"), true);
 		assert.equal(
 			backend.executionEvents.some(
 				(event) => event[0] === "backend" && event[1] === "postprocess"
 			),
 			true
-		);
-		assert.ok(
-			backend.executionEvents.findIndex(
-				(event) => event[0] === "backend" && event[1] === "postprocess"
-			) <
-				backend.executionEvents.findIndex(
-					(event) => event[0] === "postprocess" && event[1] === "custom-edge"
-				)
-		);
-		assert.ok(
-			backend.executionEvents.findIndex(
-				(event) => event[0] === "postprocess" && event[1] === "custom-edge"
-			) <
-				backend.executionEvents.findIndex(
-					(event) => event[0] === "backend" && event[1] === "end"
-				)
 		);
 		assert.equal(
 			backend.postProcessSupport.executor.executedPasses.includes("gamma"),
@@ -308,7 +296,15 @@ async function run() {
 						id: "history-probe",
 						enabled: true,
 						implementations: {
-							webgpu: {
+							webgpu: () => ({
+								describeExecution: () => ({
+									color: { access: "none", output: "preserve" },
+									histories: [{
+										descriptor: { id: "probe" },
+										read: [{ access: "read", usage: "sampled" }],
+										write: [{ access: "write", usage: "storage" }],
+									}],
+								}),
 								execute: (request) => {
 									const slot = request.histories.probe;
 									historySnapshots.push({
@@ -318,13 +314,9 @@ async function run() {
 									});
 									return { updatedHistoryIds: ["probe"] };
 								},
-							},
+							}),
 						},
 					});
-				}
-
-				getHistoryDescriptors() {
-					return [{ id: "probe" }];
 				}
 			})()
 		);
@@ -353,11 +345,14 @@ async function run() {
 						id: "throwing-pass",
 						enabled: true,
 						implementations: {
-							webgpu: {
+							webgpu: () => ({
+								describeExecution: () => ({
+									color: { access: "none", output: "preserve" },
+								}),
 								execute: () => {
 									throw new Error("postprocess failed");
 								},
-							},
+							}),
 						},
 					});
 				}

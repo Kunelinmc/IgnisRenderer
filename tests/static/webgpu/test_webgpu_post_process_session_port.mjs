@@ -9,7 +9,7 @@ const context = { attachments: { width: 8, height: 4 } };
 
 assert.deepEqual(executor.createGBufferBridge(context).channels, {});
 assert.throws(
-	() => executor.getPassExecutionContext({ implementation: {} }),
+	() => executor.createPassExecutionContext({ implementation: {} }),
 	/post-process session is not active/,
 );
 
@@ -18,7 +18,7 @@ const port = {
 	createGBufferBridge() {
 		return { width: 1, height: 1, channels: { color: {} } };
 	},
-	getPassExecutionContext() {
+	createPassExecutionContext() {
 		calls.push("context");
 		return { encoder: {} };
 	},
@@ -31,13 +31,13 @@ const port = {
 };
 executor.bindSession(port);
 assert.throws(() => executor.bindSession(port), /already has an active session/);
-assert.deepEqual(executor.getPassExecutionContext({ implementation: {} }), { encoder: {} });
+assert.deepEqual(executor.createPassExecutionContext({ implementation: {} }), { encoder: {} });
 executor.completePass({}, {});
 executor.invalidateResourceBindings();
 assert.deepEqual(calls, ["context", "complete", "invalidate"]);
 executor.unbindSession(port);
 assert.throws(
-	() => executor.getPassExecutionContext({ implementation: {} }),
+	() => executor.createPassExecutionContext({ implementation: {} }),
 	/post-process session is not active/,
 );
 

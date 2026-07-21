@@ -74,20 +74,29 @@ class CleanupPostProcessPass extends PostProcessPass {
 			enabled: true,
 			implementations: {
 				stub: {
+				describeExecution() {
+					return {
+						color: { access: "read-write", output: "preserve" },
+						histories: [{
+							descriptor: { id: "cleanup-history" },
+							read: [{ access: "read", usage: "cpu-read" }],
+							write: [{ access: "write", usage: "cpu-write" }],
+						}],
+						transients: [{
+							descriptor: { id: "cleanup-transient" },
+							uses: [{ access: "write", usage: "cpu-write" }],
+						}],
+					};
+				},
+				execute() {
+					return { ran: true };
+				},
 					destroy() {
 						events.push("pass-destroy");
 					},
 				},
 			},
 		});
-	}
-
-	getHistoryDescriptors() {
-		return [{ id: "cleanup-history" }];
-	}
-
-	getTransientResourceDescriptors() {
-		return [{ id: "cleanup-transient" }];
 	}
 }
 

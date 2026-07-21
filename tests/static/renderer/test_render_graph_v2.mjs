@@ -221,12 +221,23 @@ function testDCEAllocationAndGenerationReset() {
 	assert.equal(recreatedRead.fromNodeId, undefined);
 	const attempts = new RenderGraphAttemptTracker();
 	attempts.begin(generationGraph);
+	attempts.recordSkippedNode("read-2", [{
+		resourceId: "scratch",
+		resolvedResourceId: "fallback",
+	}]);
 	const scratchState = attempts.getDebugState().current.resources.find(
 		(resource) => resource.id === "scratch",
 	);
 	assert.equal(scratchState.active, true);
 	assert.equal(scratchState.generation, 2);
 	assert.equal(scratchState.lastNodeId, "read-2");
+	assert.deepEqual(attempts.getDebugState().current.executionOverlay, {
+		skippedNodeIds: ["read-2"],
+		resourceAliases: [{ resourceId: "scratch", resolvedResourceId: "fallback" }],
+	});
+	assert.equal(Object.isFrozen(attempts.getDebugState().current.executionOverlay), true);
+	attempts.seal();
+	assert.throws(() => attempts.recordSkippedNode("read-2"), /state "sealed"/);
 }
 
 function testDCEExportRangeAndValidation() {
@@ -289,14 +300,21 @@ function testSubgraphCompositionAndStructuralErrors() {
 	const builder = new RenderGraphBuilder();
 	builder.addResource(texture("parent-source"));
 	builder.addResource(texture("parent-result", "imported"));
+	builder.addNode(node("anchor", []));
 	const composed = builder.addSubgraph(subgraph, {
 		namespace: "post",
 		inputs: { source: "parent-source" },
 		outputs: { result: "parent-result" },
+		dependsOn: ["anchor"],
 	});
 	assert.equal(composed.outputs.result, "parent-result");
+	assert.equal(composed.resources.input, "parent-source");
+	assert.equal(composed.resources.output, "parent-result");
+	assert.equal(composed.nodes.copy, "post:copy");
 	const compiled = compiler.compile(builder.build());
-	assert.deepEqual(compiled.nodes.map((entry) => entry.id), ["post:copy"]);
+	assert.deepEqual(compiled.nodes.map((entry) => entry.id), ["anchor", "post:copy"]);
+	assert.ok(compiled.dependencies.some((entry) =>
+		entry.fromNodeId === "anchor" && entry.toNodeId === "post:copy"));
 	assert.deepEqual(compiled.portResolutions.map((entry) => entry.port), ["source", "result"]);
 	assert.equal(compiled.exports[0].name, "post:result");
 

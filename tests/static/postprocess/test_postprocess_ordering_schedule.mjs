@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import * as ordering from "../../../src/postprocess/ordering.ts";
-import { isPostProcessPassStage } from "../../../src/postprocess/PostProcessGraphCompiler.ts";
+import { isPostProcessPassStage } from "../../../src/postprocess/PostProcessPlanner.ts";
 import {
 	TONE_MAPPING_PASS_INCREMENTAL,
 	TONE_MAPPING_PASS_ORDER,
@@ -49,7 +49,7 @@ function testPipelineStageHelperWorksWithoutPassBarrelImport() {
 function run() {
 	testBuiltinOrderIsDefinedOnPassModules();
 	testPipelineStageHelperWorksWithoutPassBarrelImport();
-	console.log("Postprocess ordering metadata tests passed");
+	console.log("Postprocess ordering schedule tests passed");
 }
 
 run();

@@ -5,7 +5,7 @@ import {
 	ScreenSpaceRefractionsPass,
 	createSSRefractionTraceParams,
 	resolveSSRefractionOptions,
-	PostProcessGraphCompiler,
+	PostProcessPlanner,
 } from "../../../src/postprocess/index.ts";
 import { createResolvedPostProcess } from "../../helpers/postprocess.mjs";
 
@@ -71,9 +71,12 @@ function createGBuffer(includeTransmission = true, includeNormal = true) {
 function testDescriptorAndOptions() {
 	const pass = new ScreenSpaceRefractionsPass({ enabled: true });
 	assert.equal(pass.id, SCREEN_SPACE_REFRACTIONS_PASS_ID);
-	assert.equal(pass.placement, "temporal");
-	assert.equal(pass.order, 215);
-	assert.deepEqual(pass.getRequirements({}).gBuffer, [
+	assert.equal(pass.schedule.placement, "temporal");
+	assert.equal(pass.schedule.order, 215);
+	const declaration = pass.getImplementation("webgpu").describeExecution({
+		options: pass.normalizeOptions({}),
+	});
+	assert.deepEqual(declaration.gBuffer.map((entry) => entry.semantic), [
 		"depth",
 		"motion",
 		"normal",
@@ -160,11 +163,13 @@ async function testPipelineRequiresTransmissionChannel() {
 	const pass = new ScreenSpaceRefractionsPass({ enabled: true });
 	const frameContext = createFrameContext(1);
 	const warnings = [];
-	const graph = new PostProcessGraphCompiler().compile({
+	const graph = new PostProcessPlanner().plan({
 		frameContext,
 		backend: "webgpu",
 		postProcess: frameContext.postProcess,
 		gBuffer: createGBuffer(false),
+		resolveImplementation: (descriptor) => descriptor.getImplementation("webgpu"),
+		isSharedResourceAvailable: () => true,
 		warn(key, message) {
 			warnings.push({ key, message });
 		},
@@ -181,11 +186,13 @@ async function testPipelineRequiresNormalChannel() {
 	const pass = new ScreenSpaceRefractionsPass({ enabled: true });
 	const frameContext = createFrameContext(1);
 	const warnings = [];
-	const graph = new PostProcessGraphCompiler().compile({
+	const graph = new PostProcessPlanner().plan({
 		frameContext,
 		backend: "webgpu",
 		postProcess: frameContext.postProcess,
 		gBuffer: createGBuffer(true, false),
+		resolveImplementation: (descriptor) => descriptor.getImplementation("webgpu"),
+		isSharedResourceAvailable: () => true,
 		warn(key, message) {
 			warnings.push({ key, message });
 		},
@@ -203,22 +210,20 @@ function testTransientDescriptors() {
 		enabled: true,
 		options: { downsample: 2 },
 	});
-	const descriptors = pass.getTransientResourceDescriptors({
+	const declaration = pass.getImplementation("webgpu").describeExecution({
 		backend: "webgpu",
 		width: 64,
 		height: 32,
 		options: pass.normalizeOptions({}),
 	});
+	const descriptors = declaration.transients.map((entry) => entry.descriptor);
 	assert.deepEqual(
 		descriptors.map((descriptor) => descriptor.id),
 		["ssrefraction:raw"]
 	);
 	assert.equal(descriptors[0].widthScale, 0.5);
 	assert.equal(descriptors[0].heightScale, 0.5);
-	assert.deepEqual(
-		pass.getTransientResourceDescriptors({ backend: "software" }),
-		[]
-	);
+	assert.equal(pass.getImplementation("software"), null);
 	pass.destroy();
 }
 

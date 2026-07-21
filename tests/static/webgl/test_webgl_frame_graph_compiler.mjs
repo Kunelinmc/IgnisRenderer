@@ -89,7 +89,7 @@ function testTextureFeedbackLoopDiagnostic() {
 			{
 				id: "node:feedback",
 				stage: "postprocess",
-				kind: "postprocess",
+				kind: "post-process-pass",
 				label: "Feedback",
 				reads: [{ id: "post:color", usage: "texture-sampling" }],
 				writes: [{ id: "post:color", usage: "framebuffer-color" }],
@@ -134,7 +134,7 @@ function testNodeOrderAndBarriersArePreserved() {
 			{
 				id: "node:read",
 				stage: "postprocess",
-				kind: "postprocess",
+				kind: "post-process-pass",
 				label: "Read",
 				reads: [{ id: "frame:scene-color", usage: "texture-sampling" }],
 			},

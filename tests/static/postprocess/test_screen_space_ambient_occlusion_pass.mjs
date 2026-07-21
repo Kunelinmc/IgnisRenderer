@@ -151,7 +151,7 @@ function createSoftwareExecutor() {
 		createGBufferBridge(context) {
 			return createGBuffer(context);
 		},
-		getPassExecutionContext(request) {
+		createPassExecutionContext(request) {
 			if (request.passId !== "ssao") {
 				return undefined;
 			}
@@ -185,7 +185,8 @@ async function testSSAOPipelineUsesPassOwnedImplementation() {
 	const pass = new ScreenSpaceAmbientOcclusionPass({ enabled: true });
 	assert.equal(pass.id, "ssao");
 	assert.deepEqual(
-		pass.getRequirements({}).gBuffer,
+		pass.getImplementation("software").describeExecution({}).gBuffer
+			.map((entry) => entry.semantic),
 		["depth", "normal"]
 	);
 	assert.equal(
@@ -203,7 +204,10 @@ async function testSSAOPipelineUsesPassOwnedImplementation() {
 
 	const executor = createSoftwareExecutor();
 	const frameContext = createSoftwareFrameContext({ samples: 4, radius: 1 });
-	await new BackendPostProcessRuntime({ executor }).execute(frameContext);
+	await new BackendPostProcessRuntime({
+		executor,
+		backend: { type: "software" },
+	}).execute(frameContext);
 
 	assert.deepEqual(executor.endFrames.at(-1).executedPassIds, ["ssao"]);
 	assert.deepEqual(executor.fallbackCalls, []);
@@ -290,12 +294,14 @@ function testGPUSSAOTransientDescriptorsFollowDownsample() {
 			downsample: 99,
 		},
 	});
-	const descriptors = pass.getTransientResourceDescriptors({
+	const request = {
 		backend: "webgpu",
 		options: pass.normalizeOptions(),
 		width: 64,
 		height: 32,
-	});
+	};
+	const descriptors = pass.getImplementation("webgpu")
+		.describeExecution(request).transients.map((entry) => entry.descriptor);
 
 	assert.deepEqual(
 		descriptors.map((descriptor) => descriptor.id),
@@ -306,22 +312,17 @@ function testGPUSSAOTransientDescriptorsFollowDownsample() {
 		[1 / 8, 1 / 8]
 	);
 	assert.deepEqual(
-		pass.getTransientResourceDescriptors({
+		pass.getImplementation("webgl").describeExecution({
 			backend: "webgl",
 			options: pass.normalizeOptions(),
 			width: 64,
 			height: 32,
-		}),
+		}).transients.map((entry) => entry.descriptor),
 		descriptors
 	);
-	assert.deepEqual(
-		pass.getTransientResourceDescriptors({
-			backend: "software",
-			options: pass.normalizeOptions(),
-			width: 64,
-			height: 32,
-		}),
-		[]
+	assert.equal(
+		pass.getImplementation("software").describeExecution(request).transients,
+		undefined
 	);
 }
 
