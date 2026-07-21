@@ -14,6 +14,7 @@ To support decoupled backends, post-process execution is delegated to backend-ow
 ## API/Contract
 
 ### Common Backend Lifecycle
+
 - Backends that support post-processing must set `BackendCapabilities.postProcess = true` and handle `executePass({ stage: "postprocess" }, context)`.
 - A post-process implementation must return `preservesOutsideDirtyTiles: true`
   only when it preserves all pixels outside the current dirty tiles. Omitted
@@ -26,7 +27,10 @@ To support decoupled backends, post-process execution is delegated to backend-ow
   frame succeeds.
 - The logical post-process subgraph must continue using the pure shared
   `RenderGraphCompiler`, but it must remain nested behind one outer backend
-  frame-graph node in V1.
+  frame-graph node in Render Graph V2.
+- `PostProcessRenderGraphAdapter` must expose named imports for imported
+  logical resources and a named `color` output/export for generic subgraph
+  composition. GPU backends must not flatten those internal pass nodes in V2.
 - Shared shadow diagnostics must not fail post-process execution. Only enforced
   error diagnostics may reject the logical subgraph.
 - Empty or clean incremental post-process frames must not begin a post-process
@@ -49,6 +53,7 @@ To support decoupled backends, post-process execution is delegated to backend-ow
 ---
 
 ### WebGPU Execution Contract
+
 - `WebGPUBackend` executes the post-process graph via compute shaders.
 - `WebGPUBackend` must create and destroy its `BackendPostProcessRuntime` with
   the active device session. The runtime must be destroyed before frame and
@@ -78,6 +83,7 @@ To support decoupled backends, post-process execution is delegated to backend-ow
 ---
 
 ### WebGL Execution Contract
+
 - `WebGLBackend` executes post-processing by drawing fullscreen triangles using fragment shaders into ping-pong framebuffers.
 - When the runtime supports at least five draw buffers and color attachments,
   WebGL must expose `albedo`, `roughness`, `metallic`, and `specular` from its
@@ -107,6 +113,7 @@ To support decoupled backends, post-process execution is delegated to backend-ow
 ---
 
 ### Software Execution Contract
+
 - `SoftwareBackend` executes post-processing via CPU-based direct buffer manipulations.
 - The context passed is `SoftwareBuiltinPostProcessContext`, containing `canvasContext`.
 - Passes must fetch the target pixel array from the frame attachments (`request.frameContext.attachments.pixels`).
@@ -116,6 +123,7 @@ To support decoupled backends, post-process execution is delegated to backend-ow
 
 
 ### WebGPU Implementation Example
+
 ```ts
 import { PostProcessPass, type PostProcessPassResolveRequest, type PostProcessTransientDescriptor } from "ignisrenderer";
 
@@ -162,6 +170,7 @@ class CustomWebGPUPass extends PostProcessPass {
 ```
 
 ### WebGL Implementation Example
+
 ```ts
 import { PostProcessPass, type PostProcessPassRequest, type PostProcessPassResult } from "ignisrenderer";
 import { type WebGLScreenPostProcessContext, resolveWebGLTarget, bindWebGLPostTarget } from "ignisrenderer/passes/ScreenPassShared";
@@ -186,6 +195,7 @@ class CustomWebGLImpl {
 ```
 
 ### Software Implementation Example
+
 ```ts
 import { PostProcessPass, type PostProcessPassRequest, type PostProcessPassResult } from "ignisrenderer";
 import { resolveSoftwareDirtyRects, forEachSoftwareDirtyRect } from "ignisrenderer/passes/ScreenPassShared";

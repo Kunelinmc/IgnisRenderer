@@ -2,14 +2,15 @@
 
 ## Scope
 
-This document defines the backend-internal shared Render Graph intermediate
-representation, analyzer, pure compiler, streaming state tracker, diagnostics,
-and integration boundaries used by WebGPU, WebGL, and post-processing.
+This document defines the backend-internal shared Render Graph V2 intermediate
+representation, whole-frame builder, analyzer, compiler, attempt tracker,
+diagnostics, and integration boundaries used by WebGPU, WebGL, and
+post-processing.
 
-The V1 implementation must remain internal. It must not add a public graph
-registration API, expose native handles, flatten post-process passes into
-renderer-level stages, allocate physical resources, or emit native barriers.
-Software rendering may continue without the shared streaming tracker.
+The implementation must remain internal. It must not add a public graph
+registration API, expose native handles, allocate physical resources, assign
+transient aliases, or emit native barriers. Software rendering may continue
+without a backend whole-frame graph.
 
 ## Background
 
@@ -17,33 +18,34 @@ IgnisRenderer has three scheduling layers:
 
 1. `RendererStageGraph` orders renderer-level `FramePass` stages.
 2. WebGPU and WebGL planners expand each backend stage into backend-private
-   nodes and execute those nodes immediately.
+   nodes while `beginFrame()` builds and compiles one complete frame IR.
 3. `PostProcessGraphCompiler` resolves pass eligibility, ordering, logical
    color versions, histories, and transients inside one outer
    `"postprocess"` backend node.
 
-Before V1, WebGPU, WebGL, and post-processing maintained similar but separate
+Before the shared graph layer, WebGPU, WebGL, and post-processing maintained
+similar but separate
 resource-lifetime and transition state machines. This duplicated rules for
 inactive resources, optional access, destroy/recreate, and diagnostics. It
 also made later whole-frame optimization difficult because the debug models
 did not share one canonical resource vocabulary.
 
-V1 extracts logical analysis without changing planner order or backend
-ownership. The data flow is:
+V2 makes the shared compiler authoritative for one complete GPU backend frame
+while preserving planner order and backend ownership. The data flow is:
 
 ```mermaid
 flowchart LR
-	P["Backend or post-process planner"] --> I["Logical IR"]
-	I --> A["Shared analyzer"]
-	A --> C["Pure compiler"]
-	A --> T["Streaming state tracker"]
-	C --> R["Backend rules"]
-	T --> R
+	P["Backend or post-process planner"] --> B["Whole-frame builder"]
+	B --> C["Pure compiler"]
+	C --> A["Dependency and subresource analysis"]
+	A --> D["Opt-in dead-node elimination"]
+	D --> R["Backend stage slices"]
 	R --> E["Backend-private executor"]
 ```
 
-Logical transitions describe ordering facts. They are not WebGPU commands,
-WebGL state changes, or proof that a native barrier is required.
+Logical transitions and allocation requests describe ordering and lifetime
+facts. They are not WebGPU commands, WebGL state changes, native allocations,
+or proof that a native barrier is required.
 
 ## API/Contract
 
@@ -57,29 +59,36 @@ WebGL state changes, or proof that a native barrier is required.
   and backend-specific pass execution.
 - Backend managers and post-process pools must retain native allocation,
   destruction, pooling, and history ownership.
-- The shared analyzer must not inspect native handles, native usage flags, or
-  physical alias identities.
+- The shared analyzer must not inspect native handles or native usage flags.
+  It may compare opaque stable physical IDs supplied by the backend catalog.
 - `Renderer`, `IRenderBackend`, `PostProcessPass`, and custom render-pass
   public contracts must not expose the shared graph.
 
 ### Logical IR
 
-`RenderGraphResourceDescriptor` identifies one logical resource. Descriptors
-must support:
+`RenderGraphResourceDescriptor` identifies one logical resource and must be a
+discriminated texture, buffer, or external descriptor. Texture descriptors
+must retain format, extent, dimension, layers, sample count, mip count, and
+allowed usages when known. Buffer descriptors must retain byte size and
+allowed usages when known. Imported external metadata may be incomplete, but
+graph-owned allocatable resources must be complete.
 
-- `id`, `kind`, and `origin`;
-- `residency` values `"external"`, `"frame"`, `"transient"`, or `"history"`;
-- `initialContent` values `"valid"`, `"undefined"`, or `"unknown"`;
-- optional format, dimensions, and mip metadata.
+`RenderGraphPhysicalBinding` must map one logical resource generation to a
+stable backend-private `physicalId`. It must not contain a native handle.
+Logical resources with the same physical ID must share dependency and hazard
+analysis. V2 supports only full-resource physical bindings.
 
 `RenderGraphResourceRef` must declare canonical access and usage. Optional
-missing references must be ignored completely: they must not create resource
-state, transitions, live ranges, or diagnostics. A subresource range may be
-retained for later analysis, but V1 evaluates the whole logical resource.
+missing references must be ignored completely. Texture references may select
+mip, layer, and aspect ranges. Buffer references may select byte ranges.
+Omitted ranges mean the complete resource. Invalid or out-of-bounds ranges
+must be enforced diagnostics.
 
 `RenderGraphNode<TPayload, TKind>` must preserve backend node kinds and payloads
 through generics. A node may declare `dependsOn`, `requires`, `creates`, ordered
-resource references, `destroys`, and a future-facing execution `domain`.
+resource references, `destroys`, execution `domain`, and retention policy.
+Retention must default to `"always"`; only `"if-reachable"` nodes may be
+removed by dead-node elimination.
 
 Canonical usage mapping must be:
 
@@ -99,14 +108,34 @@ next node, previous and next access, previous and next usage, scope, and
 RAW/WAR/WAW or usage-transition reason.
 
 `RenderGraphLiveRange` must be keyed by `{ resourceId, generation }` and retain
-create, first use, last use, and destroy node identities when present. It is
-analysis data only and must not cause allocation or destruction.
+create, first use, last use, and destroy node identities when present.
+Subresource live ranges must additionally retain normalized texture or buffer
+ranges. Live ranges are analysis data only.
+
+Unbound graph-owned frame or transient generations must produce logical
+allocation requests with compatibility keys and allocate-before/release-after
+node IDs. Backends must not allocate or destroy native resources merely because
+an allocation request exists.
+
+### Whole-Frame Definition and Composition
+
+`RenderGraphBuilder` must build immutable `RenderGraphDefinition` values from
+resources, bindings, nodes, exports, and composed subgraphs. A subgraph must
+declare named imports and exports. Composition must namespace all internal
+resource and node IDs, remap declared ports to parent logical resources, and
+diagnose missing ports or collisions.
+
+WebGPU and WebGL must build the complete enabled backend frame graph during
+`beginFrame()`. Synthetic setup and presentation nodes must be included.
+`executePass()` must execute the already compiled stage slice and must not
+invoke the planner or compiler again.
 
 ### Shared Analyzer
 
-`RenderGraphAnalyzer` must be the only shared resource state machine used by
-the pure compiler and streaming tracker. Existence and content validity must be
-tracked separately.
+`RenderGraphAnalyzer` must be the only shared logical resource state machine.
+Existence and content validity must be tracked separately. Hazard keys must use
+physical identity when a binding is known and logical generation otherwise.
+Only overlapping normalized subresources may produce hazards.
 
 The logical lifecycle is `inactive -> active(generation) -> destroyed`.
 Creating or implicitly reactivating an inactive resource must increment its
@@ -125,17 +154,24 @@ Imported IDs supplied by current backend facades must be active and have
 `initialContent: "unknown"`. Legacy validation must allow reads, while the
 shared analysis emits `read-content-unknown` only as a shadow diagnostic.
 
-### Pure Compiler and Streaming Tracker
+### Pure Whole-Frame Compiler and Attempt Tracker
 
-`RenderGraphCompiler.compile()` must be pure. Each call must create fresh
-analysis state, apply stable topological ordering, and return immutable output.
-Independent nodes must retain declaration order. Duplicate nodes or resources,
-missing dependencies, and cycles must be enforced diagnostics.
-The result must expose enforced `diagnostics` and `shadowDiagnostics` as
-separate arrays.
+`RenderGraphCompiler.compile()` must be pure. Each call must create fresh state,
+validate and normalize the definition, apply stable explicit ordering, infer
+resource dependencies, run opt-in dead-node elimination, and analyze the
+retained graph. Independent retained nodes must preserve declaration order.
+The immutable result must expose declared, retained, and culled nodes; stage
+slices; explicit and inferred dependencies; transitions; logical and
+subresource live ranges; bindings; allocation requests; exports; completeness;
+and separate enforced and shadow diagnostics.
 
-`RenderGraphStateTracker` must preserve append order and must not reorder nodes
-across or within stages. Its lifecycle is:
+Dead-node elimination must seed reachability from graph exports and every node
+whose retention is `"always"`. It must traverse explicit and inferred
+predecessors. It must not run when enforced compile errors exist. V2 does not
+perform dead-store elimination.
+
+`RenderGraphAttemptTracker` must retain one precompiled attempt and preserve the
+compiler's stable order. Its lifecycle is:
 
 ```text
 idle -> active -> sealed -> committed
@@ -143,21 +179,22 @@ idle -> active -> sealed -> committed
 active -----------------> aborted
 ```
 
-The tracker API is `beginFrame(resources)`, `appendStage(plan)`, `seal()`,
-`commit()`, `abort(error?)`, and `getDebugState()`. A new frame may begin after
-a committed or aborted attempt.
+The tracker API is `begin(compiledGraph)`, `seal()`, `commit()`, `abort(error?)`,
+and `getDebugState()`. A new frame may begin after a committed or aborted
+attempt. `RenderGraphStateTracker` remains a legacy compatibility adapter and
+must not be the GPU backend production compiler.
 
-`current` must exist only for an active or sealed attempt. `lastAttempt` must
-retain the latest committed or aborted attempt. `lastSuccessful` must change
-only after backend execution, submission, presentation, post-process history,
-custom-target publication, and deferred lifecycle work all commit.
+`current` must exist only for an active or sealed compiled attempt.
+`lastAttempt` must retain the latest committed or aborted attempt.
+`lastSuccessful` must change only after backend execution, submission,
+presentation, post-process history, custom-target publication, and deferred
+lifecycle work all commit.
 
 ### Backend Facades and Diagnostics
 
-`WebGPUFrameGraphCompiler` and `WebGLFrameGraphCompiler` must remain
-compatibility facades. They must project canonical transitions back to the
-legacy `graphBarriers` shape and preserve `compiledStages`, `graphResources`,
-`graphBarriers`, and `graphDiagnostics`.
+`WebGPUFrameGraphCompiler` and `WebGLFrameGraphCompiler` must compile one
+whole-frame definition. Any legacy stage or barrier debug views must be derived
+from that compiled graph and must not re-run analysis.
 
 Backend debug state must additionally expose grouped `graphAnalysis` state.
 Shadow diagnostics must appear only in
@@ -171,16 +208,16 @@ WebGL rules must continue enforcing `requires`, supported usage, and feedback
 on the same logical texture ID. WebGPU must continue applying `"throw"` or
 `"warn"` only to enforced legacy validation errors.
 
-`graphBarriers` and canonical transitions are diagnostic records. V1 must not
+`graphBarriers` and canonical transitions are diagnostic records. V2 must not
 add native WebGPU barrier commands or treat WebGL state changes as shared
 lowering.
 
 ### Nested and Opaque Coverage
 
-Post-processing must remain one outer backend graph node in V1.
+Post-processing must remain one coarse outer backend graph node in V2.
 `BackendPostProcessRuntime` may compile its internal logical subgraph with the
-pure compiler, but the backend streaming snapshot must mark coverage as
-`"coarse"` when post-processing runs.
+pure compiler, but the backend frame snapshot must mark coverage as `"coarse"`
+when post-processing runs.
 
 Post-process pass eligibility, deterministic ordering, planned color versions,
 resolved color aliases for `{ ran: false }`, transient descriptors, and history
@@ -190,24 +227,26 @@ until complete backend-frame success; abort must discard pending history
 writes.
 
 Custom render-target passes, particle simulation, and other paths that bypass
-backend graph nodes must keep their current execution path. The tracker must
-mark the frame `"opaque"` and emit `opaque-stage-effects` as a shadow diagnostic
-without changing legacy resource state.
+backend graph executors must be represented by always-retained opaque
+placeholder nodes. The attempt must be marked `"opaque"` and emit
+`opaque-stage-effects` as a shadow diagnostic without changing native
+execution.
 
 ### Future Integration Boundary
 
-Future changes should proceed in this order:
+The completed V2 foundation establishes descriptors, bindings, composition,
+whole-frame compilation, DCE, and logical allocation requests. Future changes
+should proceed in this order:
 
-1. Backend resource catalogs provide complete descriptors and a separate
-   physical binding table.
-2. Post-process exports its ordered subgraph through explicit imports, exports,
-   and resolved logical color versions.
-3. Backends construct one complete frame IR before execution.
-4. Analysis adds subresource live ranges, transient aliasing, dead-node
-   elimination, and pass merging.
-5. Custom passes may provide optional logical resource-effect metadata;
+1. Post-process may be flattened into the outer graph after its history and
+   color-version transactions can remain atomic.
+2. A backend allocator may consume allocation requests and assign compatible
+   transient aliases without transferring native ownership to Render Graph.
+3. Pass merging may be introduced after stage-slice debug and failure
+   boundaries are preserved.
+4. Custom passes may provide optional logical resource-effect metadata;
    undeclared effects remain opaque.
-6. Backend-specific synchronization lowering, physical feedback validation,
+5. Backend-specific synchronization lowering, physical feedback validation,
    and multi-domain scheduling may be introduced only after physical bindings
    are explicit.
 
@@ -225,13 +264,13 @@ const compiled = new RenderGraphCompiler().compile({
 });
 ```
 
-Backend stage-by-stage execution must use the streaming tracker through its
-compatibility facade:
+GPU backends must compile the complete frame in `beginFrame()` and consume only
+the precompiled slice during execution:
 
 ```ts
-compiler.beginFrame(initialResourceIds);
-const compiledStage = compiler.compileStage(stagePlan);
-executeNodes(compiledStage.nodes);
+const frame = compiler.compileFrame(framePlan);
+const stage = frame.stages.find((entry) => entry.pass.stage === pass.stage);
+executeNodes(stage?.nodes ?? []);
 compiler.seal();
 
 // Only after all backend and history transactions succeed.
@@ -242,6 +281,7 @@ Validation commands are:
 
 ```bash
 bun tests/static/renderer/test_render_graph_state_tracker.mjs
+bun tests/static/renderer/test_render_graph_v2.mjs
 bun tests/static/webgpu/test_webgpu_frame_graph_compiler.mjs
 bun tests/static/webgl/test_webgl_frame_graph_compiler.mjs
 bun tests/static/webgl/test_webgl_frame_graph_runtime.mjs
@@ -256,6 +296,8 @@ Enforced diagnostics preserve current execution policy:
 | --- | --- |
 | `duplicate-node` | A whole graph declares the same node ID twice. |
 | `duplicate-resource` | A whole graph declares the same resource ID twice. |
+| `physical-descriptor-conflict` | Logical aliases bound to one physical ID have incompatible descriptors. |
+| `invalid-subresource-range` | A texture or buffer range is invalid or outside its descriptor. |
 | `missing-dependency` | A required topological dependency is absent. |
 | `cycle` | Whole-graph dependencies are cyclic. |
 | `read-before-create` | A required read references an inactive resource. |
@@ -275,6 +317,7 @@ Shadow diagnostics add observation without changing execution:
 | `read-before-initialize` | An active resource had undefined logical content. |
 | `use-after-destroy` | Analysis observed access after logical destruction. |
 | `opaque-stage-effects` | A backend path executed without resource-effect metadata. |
+| `external-metadata-unknown` | Backend-owned external metadata cannot be validated. |
 
 Every shared diagnostic must identify phase, enforcement, severity, code,
 message, and available stage, node, resource, and backend context. Shadow
@@ -282,7 +325,7 @@ diagnostics must never be logged by compatibility facades.
 
 ## Compatibility / Breaking Changes
 
-V1 is an internal refactor. Planner order, executor registries, actual command
+V2 is an internal refactor. Planner order, executor registries, actual command
 order, presentation, native allocation, destruction, post-process eligibility,
 color resolution, history, and public APIs remain unchanged.
 
@@ -295,7 +338,7 @@ The permitted internal debug differences are:
 - grouped `graphAnalysis` exposes canonical transitions, live ranges,
   completeness, and shadow diagnostics.
 
-Flattening post-processing, moving native ownership, adding physical aliasing,
-emitting native barriers, or requiring resource metadata from public custom
+Flattening post-processing, moving native ownership, assigning transient
+aliases, emitting native barriers, or requiring resource metadata from public custom
 passes would be separate behavioral or public-contract changes. They require
 their own compatibility review, documentation, and regression tests.

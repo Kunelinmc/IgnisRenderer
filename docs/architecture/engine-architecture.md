@@ -19,7 +19,7 @@ families:
   rasterization, light evaluation, and post-processing.
 - `WebGPUBackend`: a hardware-accelerated backend with delegated registries for
   resources, bindings, and frame execution.
-- `WebGLBackend`: a modern compatibility backend using the current V1/V2 WebGL
+- `WebGLBackend`: a modern compatibility backend using the current V2 WebGL
   architecture documented by backend-specific contracts.
 
 The scene graph is backed by an Entity Component System. `Node` is the

@@ -18,8 +18,10 @@ details such as deferred lighting, OIT, MSAA frame targets, and presentation
 must remain backend-internal.
 
 ## API/Contract
-- `WebGPUFrameGraphPlanner` must create WebGPU internal nodes for one
-  renderer-level `FramePass` through registered stage planners.
+
+- `WebGPUFrameGraphPlanner` must create WebGPU internal nodes for every enabled
+  renderer-level `FramePass` during `beginFrame()` through registered stage
+  planners.
 - Unsupported renderer-level backend pass ids must produce an empty WebGPU
   stage plan; `WebGPUFrameOrchestrator` must warn once and skip execution for
   that pass.
@@ -29,10 +31,12 @@ must remain backend-internal.
   the node.
 - `WebGPUFrameGraphNode.creates` and `WebGPUFrameGraphNode.destroys` may declare
   explicit resource lifetime changes when a future node owns transient targets.
-- `WebGPUFrameGraphCompiler` must preserve node order supplied by the planner.
-- `WebGPUFrameGraphCompiler` must remain a compatibility facade over the
-  shared `RenderGraphStateTracker`. Backend-specific node types, planning, and
-  execution must remain WebGPU-private.
+- `WebGPUFrameGraphCompiler` must compile one whole-frame definition and
+  preserve planner order among retained nodes.
+- `executePass()` must consume a precompiled stage slice and must not plan or
+  compile the stage again.
+- The WebGPU resource catalog must provide complete logical descriptors when
+  metadata is known and stable physical IDs without native handles.
 - `WebGPUFrameGraphCompiler` must emit a diagnostic when a non-optional read or
   destroy references an inactive resource.
 - `WebGPUFrameGraphCompiler` must emit barrier records for read/write or usage
@@ -55,8 +59,9 @@ must remain backend-internal.
 - `WebGPUFrameConfigurationResolver` must consume analyzed feature work and
   resolve only capability gating, effective configuration, and fallback policy.
 - Planner, compiler, orchestrator, and debug state must use the shared typed
-  graph resource catalog. The catalog must collect initial active resources
-  from concrete frame targets.
+  graph resource catalog. The catalog must derive logical descriptors and
+  stable physical bindings from concrete frame targets without exposing native
+  handles.
 - `WebGPUFrameTargetManager` must own WebGPU offscreen frame target allocation,
   pooled texture ownership, and target debug state. It must return allocation
   retry results and must not query or mutate orchestrator state.
@@ -108,8 +113,9 @@ must remain backend-internal.
   recording. `WebGPUBackend` must commit analysis only after submission,
   presentation, deferred lifecycle work, custom target publication, and
   post-process history commit succeed. Any failure must abort analysis.
-- Custom render-target and particle-simulation paths that bypass graph nodes
-  must mark shared analysis coverage as `"opaque"` without changing execution.
+- Custom render-target and particle-simulation paths that bypass graph
+  executors must have always-retained opaque placeholder nodes and must mark
+  shared analysis coverage as `"opaque"` without changing execution.
 - `WebGPUFrameCommitter` must retain labeled command buffers until `endFrame()`,
   submit them one at a time in recording order, and discard all retained work
   when recording is aborted.

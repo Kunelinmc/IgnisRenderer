@@ -15,8 +15,9 @@ nodes so framebuffer, texture, OIT, post-process, and presentation work can be
 validated without keeping pass orchestration inside `WebGLFrameExecutor`.
 
 ## API/Contract
-- `WebGLFrameGraphPlanner` must create WebGL internal nodes for one
-  renderer-level `FramePass`.
+
+- `WebGLFrameGraphPlanner` must create WebGL internal nodes for every enabled
+  renderer-level `FramePass` during `beginFrame()`.
 - `WebGLFrameGraphRuntime` must execute synthetic `scene-clear` and optional
   `environment` nodes during `beginFrame(context)`.
 - `WebGLFrameGraphRuntime` must execute a synthetic `present` node during
@@ -34,10 +35,12 @@ validated without keeping pass orchestration inside `WebGLFrameExecutor`.
 - `WebGLFrameExecutor` must not own renderer-level pass orchestration.
 - WebGL graph and post-process runtimes must depend on narrow internal
   contracts and must not require the concrete `WebGLFrameExecutor` type.
-- `WebGLFrameGraphCompiler` must preserve planner node order.
-- `WebGLFrameGraphCompiler` must remain a compatibility facade over the shared
-  `RenderGraphStateTracker`. WebGL planning, validation rules, and execution
-  must remain backend-private.
+- `WebGLFrameGraphCompiler` must compile one whole-frame definition and
+  preserve planner order among retained nodes.
+- `executePass()` must consume a precompiled stage slice and must not plan or
+  compile the stage again.
+- The WebGL resource catalog must provide complete logical descriptors when
+  metadata is known and stable physical IDs without native handles.
 - `WebGLFrameGraphCompiler` must emit diagnostics for missing resources,
   reads before creation, duplicate creates, unsupported usages, and WebGL
   texture feedback loops.
@@ -51,8 +54,9 @@ validated without keeping pass orchestration inside `WebGLFrameExecutor`.
 - `WebGLFrameGraphRuntime.endFrame` must seal graph analysis after successful
   presentation. `WebGLBackend` must commit analysis only after post-process
   history and backend frame cleanup succeed. Any failure must abort analysis.
-- Custom render passes and particle simulation that bypass graph nodes must
-  mark analysis coverage as `"opaque"` without changing their execution path.
+- Custom render passes and particle simulation that bypass graph executors must
+  have always-retained opaque placeholder nodes and mark analysis coverage as
+  `"opaque"` without changing their execution path.
 - The WebGL internal graph must not add public renderer graph registration APIs.
 
 ## Usage
