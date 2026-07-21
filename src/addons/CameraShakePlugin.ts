@@ -10,17 +10,33 @@ const TAU = Math.PI * 2;
 const EPSILON = 1e-8;
 // 1D Perlin peaks near +/-0.5, so preserve the configured shake amplitude scale.
 const PERLIN_AMPLITUDE_SCALE = 2;
-const POSITION_X_NOISE_SEED = 101;
-const POSITION_Y_NOISE_SEED = 211;
-const POSITION_Z_NOISE_SEED = 307;
-const ROTATION_X_NOISE_SEED = 401;
-const ROTATION_Y_NOISE_SEED = 503;
-const ROTATION_Z_NOISE_SEED = 601;
+
+type ShakeAxis = "x" | "y" | "z";
+
+interface ShakeNoiseChannel {
+	readonly axis: ShakeAxis;
+	readonly phaseOffset: number;
+	readonly seed: number;
+}
+
+const POSITION_NOISE_CHANNELS: readonly ShakeNoiseChannel[] = [
+	{ axis: "x", phaseOffset: 0.713, seed: 101 },
+	{ axis: "y", phaseOffset: 2.173, seed: 211 },
+	{ axis: "z", phaseOffset: 4.631, seed: 307 },
+];
+
+const ROTATION_NOISE_CHANNELS: readonly ShakeNoiseChannel[] = [
+	{ axis: "x", phaseOffset: 1.371, seed: 401 },
+	{ axis: "y", phaseOffset: 3.019, seed: 503 },
+	{ axis: "z", phaseOffset: 5.707, seed: 601 },
+];
 
 const DEFAULT_INTENSITY = 0.8;
 const DEFAULT_DURATION_SECONDS = 0.35;
 const DEFAULT_FREQUENCY_HZ = 22;
 const DEFAULT_FALLOFF_EXPONENT = 2.2;
+const DEFAULT_TRAUMA_DECAY_RATE_PER_SECOND = 1;
+const DEFAULT_TRAUMA_EXPONENT = 2;
 
 const DEFAULT_POSITION_AMPLITUDE: IVector3 = {
 	x: 0.18,
@@ -42,6 +58,8 @@ export interface CameraShakePluginOptions {
 	defaultDurationSeconds?: number;
 	defaultFrequencyHz?: number;
 	defaultFalloffExponent?: number;
+	defaultTraumaDecayRatePerSecond?: number;
+	defaultTraumaExponent?: number;
 	defaultPositionAmplitude?: IVector3;
 	defaultRotationAmplitude?: IVector3;
 }
@@ -85,6 +103,9 @@ export class CameraShakePlugin {
 	private _defaultDurationSeconds = DEFAULT_DURATION_SECONDS;
 	private _defaultFrequencyHz = DEFAULT_FREQUENCY_HZ;
 	private _defaultFalloffExponent = DEFAULT_FALLOFF_EXPONENT;
+	private _defaultTraumaDecayRatePerSecond =
+		DEFAULT_TRAUMA_DECAY_RATE_PER_SECOND;
+	private _defaultTraumaExponent = DEFAULT_TRAUMA_EXPONENT;
 	private _defaultPositionAmplitude = new Vector3(
 		DEFAULT_POSITION_AMPLITUDE.x,
 		DEFAULT_POSITION_AMPLITUDE.y,
@@ -95,6 +116,8 @@ export class CameraShakePlugin {
 		DEFAULT_ROTATION_AMPLITUDE.y,
 		DEFAULT_ROTATION_AMPLITUDE.z
 	);
+	private _trauma = 0;
+	private _traumaElapsedSeconds = 0;
 
 	private _applied = false;
 	private _appliedCamera: Camera | null = null;
@@ -109,9 +132,11 @@ export class CameraShakePlugin {
 	private _orbitRotationQuaternion = new Quaternion();
 	private _orbitRotatedOffset = new Vector3();
 	private _orbitRotatedUp = new Vector3();
+	private _positionShake = new Vector3();
+	private _rotationShake = new Vector3();
 
 	private _onTick = (event: { now: number; deltaTime: number }): void => {
-		if (this._activeShakes.length === 0) return;
+		if (this._activeShakes.length === 0 && this._trauma <= 0) return;
 
 		const deltaTimeSeconds = Math.max(0, event.deltaTime) / 1000;
 		for (let i = this._activeShakes.length - 1; i >= 0; i--) {
@@ -121,8 +146,19 @@ export class CameraShakePlugin {
 				this._activeShakes.splice(i, 1);
 			}
 		}
+		if (this._trauma > 0) {
+			this._traumaElapsedSeconds += deltaTimeSeconds;
+			this._trauma = Math.max(
+				0,
+				this._trauma -
+					this._defaultTraumaDecayRatePerSecond * deltaTimeSeconds
+			);
+			if (this._trauma === 0) {
+				this._traumaElapsedSeconds = 0;
+			}
+		}
 
-		if (this._activeShakes.length > 0) {
+		if (this._activeShakes.length > 0 || this._trauma > 0) {
 			this._renderer?.requestRender("camera");
 		}
 	};
@@ -150,7 +186,14 @@ export class CameraShakePlugin {
 	 * Whether shake is currently active for upcoming frames.
 	 */
 	public get isActive(): boolean {
-		return this._activeShakes.length > 0 || this._applied;
+		return this._activeShakes.length > 0 || this._trauma > 0 || this._applied;
+	}
+
+	/**
+	 * Current normalized Trauma level used by the persistent shake model.
+	 */
+	public get trauma(): number {
+		return this._trauma;
 	}
 
 	/**
@@ -183,6 +226,8 @@ export class CameraShakePlugin {
 		this._renderer = null;
 		this._cameraOverride = null;
 		this._activeShakes.length = 0;
+		this._trauma = 0;
+		this._traumaElapsedSeconds = 0;
 	}
 
 	/**
@@ -256,10 +301,49 @@ export class CameraShakePlugin {
 	}
 
 	/**
+	 * Add a normalized amount to the persistent Trauma shake model.
+	 *
+	 * Trauma accumulates up to `1`, decays linearly over simulation time, and is
+	 * mapped to shake gain with `trauma ** defaultTraumaExponent`. It uses the
+	 * configured default frequency and position/rotation amplitudes.
+	 *
+	 * @param amount Finite Trauma amount to add. Non-positive values are ignored.
+	 * @sideEffects Requests a camera render when the resulting Trauma is positive.
+	 */
+	public addTrauma(amount: number): void {
+		if (!Number.isFinite(amount) || amount <= 0) return;
+		this.setTrauma(this._trauma + amount);
+	}
+
+	/**
+	 * Set the persistent Trauma level directly.
+	 *
+	 * @param value Finite normalized Trauma level, clamped to `[0, 1]`.
+	 * @sideEffects Requests a camera render when the resulting Trauma is positive.
+	 */
+	public setTrauma(value: number): void {
+		if (!Number.isFinite(value)) return;
+
+		const trauma = clamp01(value);
+		if (this._trauma === trauma) return;
+		if (this._trauma === 0 && trauma > 0) {
+			this._traumaElapsedSeconds = 0;
+		}
+		this._trauma = trauma;
+		if (trauma > 0) {
+			this._renderer?.requestRender("camera");
+		} else if (this._activeShakes.length === 0) {
+			this._restoreApplied();
+		}
+	}
+
+	/**
 	 * Stop ongoing shake and restore camera immediately if needed.
 	 */
 	public stop(): void {
 		this._activeShakes.length = 0;
+		this._trauma = 0;
+		this._traumaElapsedSeconds = 0;
 		this._restoreApplied();
 	}
 
@@ -281,6 +365,14 @@ export class CameraShakePlugin {
 			options.defaultFalloffExponent,
 			DEFAULT_FALLOFF_EXPONENT
 		);
+		this._defaultTraumaDecayRatePerSecond = sanitizePositive(
+			options.defaultTraumaDecayRatePerSecond,
+			DEFAULT_TRAUMA_DECAY_RATE_PER_SECOND
+		);
+		this._defaultTraumaExponent = sanitizePositive(
+			options.defaultTraumaExponent,
+			DEFAULT_TRAUMA_EXPONENT
+		);
 		if (hasFiniteVector(options.defaultPositionAmplitude)) {
 			this._defaultPositionAmplitude.copy(options.defaultPositionAmplitude);
 		}
@@ -298,17 +390,13 @@ export class CameraShakePlugin {
 		if (this._applied) {
 			this._restoreApplied();
 		}
-		if (this._activeShakes.length === 0) return;
+		if (this._activeShakes.length === 0 && this._trauma <= 0) return;
 
 		const camera = this._resolveCamera();
 		if (!camera) return;
 
-		let positionX = 0;
-		let positionY = 0;
-		let positionZ = 0;
-		let rotationX = 0;
-		let rotationY = 0;
-		let rotationZ = 0;
+		this._positionShake.set(0, 0, 0);
+		this._rotationShake.set(0, 0, 0);
 		let hasContribution = false;
 
 		for (const shake of this._activeShakes) {
@@ -318,50 +406,37 @@ export class CameraShakePlugin {
 			const gain = shake.intensity * envelope;
 			if (gain <= 1e-6) continue;
 
-			const noiseCoordinate =
-				shake.elapsedSeconds * shake.frequencyHz * TAU;
-			// Independent seeds prevent position and rotation from sampling shifted
-			// segments of the same Perlin field.
-			positionX +=
-				shake.positionAmplitude.x * gain *
-				perlinNoise1D(
-					noiseCoordinate + 0.713,
-					POSITION_X_NOISE_SEED
-				) * PERLIN_AMPLITUDE_SCALE;
-			positionY +=
-				shake.positionAmplitude.y * gain *
-				perlinNoise1D(
-					noiseCoordinate + 2.173,
-					POSITION_Y_NOISE_SEED
-				) * PERLIN_AMPLITUDE_SCALE;
-			positionZ +=
-				shake.positionAmplitude.z * gain *
-				perlinNoise1D(
-					noiseCoordinate + 4.631,
-					POSITION_Z_NOISE_SEED
-				) * PERLIN_AMPLITUDE_SCALE;
-			rotationX +=
-				shake.rotationAmplitude.x * gain *
-				perlinNoise1D(
-					noiseCoordinate + 1.371,
-					ROTATION_X_NOISE_SEED
-				) * PERLIN_AMPLITUDE_SCALE;
-			rotationY +=
-				shake.rotationAmplitude.y * gain *
-				perlinNoise1D(
-					noiseCoordinate + 3.019,
-					ROTATION_Y_NOISE_SEED
-				) * PERLIN_AMPLITUDE_SCALE;
-			rotationZ +=
-				shake.rotationAmplitude.z * gain *
-				perlinNoise1D(
-					noiseCoordinate + 5.707,
-					ROTATION_Z_NOISE_SEED
-				) * PERLIN_AMPLITUDE_SCALE;
+			this._accumulateNoiseShake(
+				shake.elapsedSeconds,
+				shake.frequencyHz,
+				gain,
+				shake.positionAmplitude,
+				shake.rotationAmplitude
+			);
 			hasContribution = true;
 		}
 
+		if (this._trauma > 0) {
+			const gain = Math.pow(this._trauma, this._defaultTraumaExponent);
+			if (gain > 1e-6) {
+				this._accumulateNoiseShake(
+					this._traumaElapsedSeconds,
+					this._defaultFrequencyHz,
+					gain,
+					this._defaultPositionAmplitude,
+					this._defaultRotationAmplitude
+				);
+				hasContribution = true;
+			}
+		}
+
 		if (!hasContribution) return;
+		const positionX = this._positionShake.x;
+		const positionY = this._positionShake.y;
+		const positionZ = this._positionShake.z;
+		const rotationX = this._rotationShake.x;
+		const rotationY = this._rotationShake.y;
+		const rotationZ = this._rotationShake.z;
 
 		this._basePosition.copy(camera.position);
 		this._appliedCamera = camera;
@@ -392,6 +467,48 @@ export class CameraShakePlugin {
 		}
 
 		this._applied = true;
+	}
+
+	private _accumulateNoiseShake(
+		elapsedSeconds: number,
+		frequencyHz: number,
+		gain: number,
+		positionAmplitude: IVector3,
+		rotationAmplitude: IVector3
+	): void {
+		const noiseCoordinate = elapsedSeconds * frequencyHz * TAU;
+		this._accumulateNoiseChannels(
+			noiseCoordinate,
+			gain,
+			positionAmplitude,
+			this._positionShake,
+			POSITION_NOISE_CHANNELS
+		);
+		this._accumulateNoiseChannels(
+			noiseCoordinate,
+			gain,
+			rotationAmplitude,
+			this._rotationShake,
+			ROTATION_NOISE_CHANNELS
+		);
+	}
+
+	private _accumulateNoiseChannels(
+		noiseCoordinate: number,
+		gain: number,
+		amplitude: IVector3,
+		accumulatedShake: IVector3,
+		channels: readonly ShakeNoiseChannel[]
+	): void {
+		for (const channel of channels) {
+			const axis = channel.axis;
+			accumulatedShake[axis] +=
+				amplitude[axis] * gain *
+				perlinNoise1D(
+					noiseCoordinate + channel.phaseOffset,
+					channel.seed
+				) * PERLIN_AMPLITUDE_SCALE;
+		}
 	}
 
 	private _applyOrbitShake(

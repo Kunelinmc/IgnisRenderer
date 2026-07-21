@@ -299,6 +299,101 @@ async function testStackedShakesKeepIndependentEnvelopes() {
 	}
 }
 
+async function testTraumaAccumulatesDecaysAndUsesExponent() {
+	const restoreRuntime = useMockBrowserRuntime();
+	try {
+		const backend = new StubBackend("always");
+		const camera = new Camera();
+		const renderer = new Renderer(backend, TEST_CANVAS, camera);
+		renderer.features.worldMatrix = Matrix4.identity();
+		renderer.postProcess.getPass("gamma")?.disable();
+		renderer.features.enableReflection = false;
+		renderer.features.enableEnvironment = false;
+		renderer.features.enableShadows = false;
+
+		const plugin = new CameraShakePlugin({
+			defaultFrequencyHz: 1,
+			defaultTraumaDecayRatePerSecond: 1,
+			defaultTraumaExponent: 2,
+			defaultPositionAmplitude: { x: 1, y: 0, z: 0 },
+			defaultRotationAmplitude: { x: 0, y: 0, z: 0 },
+		});
+		plugin.attach(renderer);
+
+		plugin.addTrauma(0.4);
+		plugin.addTrauma(0.8);
+		assert.equal(plugin.trauma, 1, "Trauma should accumulate and clamp to 1");
+
+		await renderer.renderFrame(1);
+		const initialExpected = perlinNoise1D(0.713, 101) * 2;
+		assert.ok(
+			Math.abs(backend.beginSnapshots[0].position.x - initialExpected) <= 1e-7,
+			"full Trauma should use a gain of 1"
+		);
+
+		await renderer.renderFrame(101);
+		const elapsedSeconds = 0.1;
+		const expectedTrauma = 0.9;
+		const expectedGain = expectedTrauma ** 2;
+		const expectedPositionX =
+			expectedGain *
+			perlinNoise1D(elapsedSeconds * Math.PI * 2 + 0.713, 101) * 2;
+		assert.ok(Math.abs(plugin.trauma - expectedTrauma) <= 1e-12);
+		assert.ok(
+			Math.abs(
+				backend.beginSnapshots.at(-1).position.x - expectedPositionX
+			) <= 1e-7,
+			"Trauma should decay linearly and map through the configured exponent"
+		);
+
+		plugin.stop();
+		assert.equal(plugin.trauma, 0);
+		assert.equal(plugin.isActive, false);
+		plugin.detach();
+	}
+	finally {
+		restoreRuntime();
+	}
+}
+
+async function testTraumaKeepsOnDemandRendererAwakeUntilDecayCompletes() {
+	const restoreRuntime = useMockBrowserRuntime();
+	try {
+		const backend = new StubBackend("on-demand");
+		const camera = new Camera();
+		const renderer = new Renderer(backend, TEST_CANVAS, camera);
+		renderer.features.worldMatrix = Matrix4.identity();
+		renderer.postProcess.getPass("gamma")?.disable();
+		renderer.features.enableReflection = false;
+		renderer.features.enableEnvironment = false;
+		renderer.features.enableShadows = false;
+
+		const plugin = new CameraShakePlugin({
+			defaultTraumaDecayRatePerSecond: 2,
+		});
+		plugin.attach(renderer);
+		plugin.setTrauma(0.1);
+
+		await renderer.renderFrame(1);
+		assert.equal(backend.beginFrameCount, 1);
+		assert.equal(plugin.isActive, true);
+
+		await renderer.renderFrame(101);
+		assert.equal(plugin.trauma, 0);
+		assert.equal(plugin.isActive, false);
+		assert.equal(
+			backend.beginFrameCount,
+			1,
+			"on-demand rendering should become clean once Trauma reaches zero"
+		);
+
+		plugin.detach();
+	}
+	finally {
+		restoreRuntime();
+	}
+}
+
 async function testOrbitCameraShakeDoesNotDriftPoseBetweenFrames() {
 	const restoreRuntime = useMockBrowserRuntime();
 	try {
@@ -437,6 +532,8 @@ async function testOrbitRotationShakeRotatesAroundPivot() {
 await testShakeAppliedBeforeFrameAndRestoredAfterFrame();
 await testOnDemandSchedulingStaysAwakeWhileShakeIsActive();
 await testStackedShakesKeepIndependentEnvelopes();
+await testTraumaAccumulatesDecaysAndUsesExponent();
+await testTraumaKeepsOnDemandRendererAwakeUntilDecayCompletes();
 await testOrbitCameraShakeDoesNotDriftPoseBetweenFrames();
 await testOrbitRotationShakeRotatesAroundPivot();
 console.log("Camera shake plugin tests passed");
