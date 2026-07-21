@@ -1,5 +1,6 @@
 import type {
 	RenderGraphNode,
+	RenderGraphDefinition,
 	RenderGraphResourceDescriptor,
 	RenderGraphResourceRef,
 	RenderGraphUsage,
@@ -29,7 +30,8 @@ export interface PostProcessRenderGraphNodePayload {
 	readonly compatibilityOpaque: boolean;
 }
 
-export interface PostProcessRenderGraphSubgraph {
+export interface PostProcessRenderGraphSubgraph
+	extends RenderGraphDefinition<PostProcessRenderGraphNodePayload> {
 	readonly resources: readonly RenderGraphResourceDescriptor[];
 	readonly nodes: readonly RenderGraphNode<PostProcessRenderGraphNodePayload>[];
 	readonly outputColor: string;
@@ -41,6 +43,8 @@ export class PostProcessRenderGraphAdapter {
 	public build(graph: CompiledPostProcessGraph): PostProcessRenderGraphSubgraph {
 		const resources: RenderGraphResourceDescriptor[] = [];
 		const roles: Record<string, PostProcessLogicalResourceRole> = {};
+		const colorFormat = graph.gBuffer.channels.color?.format ??
+			(graph.backend === "webgpu" ? "rgba16float" : "rgba8unorm");
 		const addResource = (
 			resource: RenderGraphResourceDescriptor,
 			role: PostProcessLogicalResourceRole
@@ -55,7 +59,7 @@ export class PostProcessRenderGraphAdapter {
 			kind: "texture",
 			residency: "frame",
 			initialContent: "valid",
-			format: graph.gBuffer.channels.color?.format,
+			format: colorFormat,
 			width: graph.width,
 			height: graph.height,
 		}, "scene-color");
@@ -159,7 +163,7 @@ export class PostProcessRenderGraphAdapter {
 					kind: "texture",
 					residency: "transient",
 					initialContent: "undefined",
-					format: graph.gBuffer.channels.color?.format,
+					format: colorFormat,
 					width: graph.width,
 					height: graph.height,
 				}, "color-version");
@@ -193,6 +197,21 @@ export class PostProcessRenderGraphAdapter {
 		return Object.freeze({
 			resources: Object.freeze(resources.slice()),
 			nodes: Object.freeze(nodes.slice()),
+			imports: Object.freeze(resources
+				.filter((resource) => resource.origin === "imported")
+				.map((resource) => Object.freeze({
+					name: resource.id,
+					resource: resource.id,
+					optional: resource.optional,
+				}))),
+			outputPorts: Object.freeze([Object.freeze({
+				name: "color",
+				resource: currentColor,
+			})]),
+			exports: Object.freeze([Object.freeze({
+				name: "color",
+				resource: currentColor,
+			})]),
 			outputColor: currentColor,
 			resourceRoles: Object.freeze({ ...roles }),
 		});
