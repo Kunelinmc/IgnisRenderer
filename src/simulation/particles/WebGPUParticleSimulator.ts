@@ -24,7 +24,7 @@ import {
 import {
 	WEBGPU_PARTICLE_DRAW_BATCHES_KEY,
 	type WebGPUParticleDrawBatch,
-} from "../../backends/webgpu/particleTransient";
+} from "../../backends/webgpu/types";
 import { ShaderSource } from "../../shaders/ShaderSource";
 import { DefaultParticleSimulator } from "./DefaultParticleSimulator";
 import type { IParticleSimulator } from "./IParticleSimulator";

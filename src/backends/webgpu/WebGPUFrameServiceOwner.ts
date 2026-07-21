@@ -112,7 +112,7 @@ import { WEBGPU_PARTICLE_VERTEX_LAYOUTS } from "./bufferLayouts";
 import {
 	WEBGPU_PARTICLE_DRAW_BATCHES_KEY,
 	type WebGPUParticleDrawBatch,
-} from "./particleTransient";
+} from "./types";
 import type { WarmupPhaseCounters, WarmupPlan } from "../../pipeline/WarmupPlanner";
 import { toShaderCompileError } from "../../pipeline/WarmupPlanner";
 import { createWarmupYieldController } from "../../pipeline/WarmupScheduler";
