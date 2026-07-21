@@ -7,7 +7,6 @@ import { SH } from "../../../src/maths/SH.ts";
 import {
 	collectActiveLocalizedLightProbes,
 	collectGlobalLightProbes,
-	computeLightProbeMetric,
 	computeLightProbeRawWeight,
 	selectTopTwoLocalizedLightProbes,
 } from "../../../src/lights/runtime/lightProbeRuntime.ts";
@@ -157,10 +156,11 @@ function testMetricAndBlendCurve() {
 		radius: 4,
 	});
 
-	const boxMetric = computeLightProbeMetric({ x: 1, y: 0, z: 0 }, boxProbe);
-	const sphereMetric = computeLightProbeMetric({ x: 2, y: 0, z: 0 }, sphereProbe);
+	const boxMetric = boxProbe.getMetric({ x: 1, y: 0, z: 0 });
+	const sphereMetric = sphereProbe.getMetric({ x: 2, y: 0, z: 0 });
 	assert.ok(Math.abs(boxMetric - 0.5) < 1e-6);
 	assert.ok(Math.abs(sphereMetric - 0.5) < 1e-6);
+	assert.equal(new LightProbe({}).getMetric({ x: 0, y: 0, z: 0 }), Infinity);
 
 	let previous = Number.POSITIVE_INFINITY;
 	for (let i = 0; i <= 40; i++) {

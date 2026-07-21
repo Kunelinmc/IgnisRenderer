@@ -1,4 +1,3 @@
-import { Matrix4 } from "../../maths/Matrix4";
 import type { IVector3 } from "../../maths/types";
 import {
 	LightType,
@@ -86,7 +85,7 @@ export function limitLocalizedLightProbes(
 
 	const ranked = probes.map((probe) => {
 		const cache = probe.getRuntimeCache();
-		const metric = computeLightProbeMetric(worldPosition, probe);
+		const metric = probe.getMetric(worldPosition);
 		const weight = computeLightProbeRawWeight(
 			metric,
 			cache.effectiveBlendDistance
@@ -131,7 +130,7 @@ export function selectTopTwoLocalizedLightProbes(
 		if (!isLocalizedLightProbe(probe)) continue;
 
 		const cache = probe.getRuntimeCache();
-		const metric = computeLightProbeMetric(worldPosition, probe);
+		const metric = probe.getMetric(worldPosition);
 		const weight = computeLightProbeRawWeight(
 			metric,
 			cache.effectiveBlendDistance
@@ -210,31 +209,6 @@ export function selectTopTwoLocalizedLightProbes(
 		coverage,
 		priority: bestPriority,
 	};
-}
-
-export function computeLightProbeMetric(
-	worldPosition: IVector3,
-	probe: LightProbe
-): number {
-	const cache = probe.getRuntimeCache();
-	const localPosition = Matrix4.transformPoint(cache.worldToProbeMatrix, worldPosition);
-
-	if (probe.shape === "box") {
-		return Math.max(
-			Math.abs(localPosition.x) * cache.invHalfExtents.x,
-			Math.abs(localPosition.y) * cache.invHalfExtents.y,
-			Math.abs(localPosition.z) * cache.invHalfExtents.z
-		);
-	}
-
-	if (probe.shape === "sphere") {
-		return (
-			Math.hypot(localPosition.x, localPosition.y, localPosition.z) *
-			cache.radiusInv
-		);
-	}
-
-	return Number.POSITIVE_INFINITY;
 }
 
 export function computeLightProbeRawWeight(

@@ -25,6 +25,9 @@ probe influence with deterministic overlap resolution.
 - `LightProbe.priority` must be finite and must be sanitized to an integer.
 - `LightProbe.copy()` and `LightProbe.clone()` must preserve SH coefficients and
   localized probe properties.
+- `LightProbe.getMetric(worldPosition)` must return the normalized box or sphere
+  distance at the supplied world-space position and positive infinity for a
+  global probe.
 - `LightProbeRuntimeCache.worldToProbe3x3` must be a `Matrix3` instance.
   Consumers must read its row-major values from `worldToProbe3x3.elements`.
 - Localized `LightProbe` selection must evaluate only probes in the highest
@@ -67,6 +70,8 @@ const courtyardProbe = new LightProbe({
 
 const fallbackProbe = new LightProbe({ sh: SH.empty() });
 fallbackProbe.shape = "global";
+
+const hallwayMetric = hallwayProbe.getMetric({ x: 1, y: 0, z: 0 });
 ```
 
 ```bash
@@ -100,3 +105,5 @@ bun tests/static/lighting/test_light_probe_runtime.mjs
 - Breaking change: `LightProbeRuntimeCache.worldToProbe3x3` is now a `Matrix3`
   instance. Code that read a bare `Matrix3Arr` must read
   `worldToProbe3x3.elements`.
+- Breaking change: `computeLightProbeMetric(worldPosition, probe)` was replaced
+  by `probe.getMetric(worldPosition)`.

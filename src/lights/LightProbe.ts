@@ -252,6 +252,38 @@ export class LightProbe extends Light<LightType.LightProbe> {
 		return this._runtimeCache;
 	}
 
+	/**
+	 * Computes the normalized probe-volume metric at a world-space position.
+	 *
+	 * @param worldPosition - Position to evaluate in world space.
+	 * @returns The normalized box or sphere distance, or positive infinity for
+	 * a global probe.
+	 */
+	public getMetric(worldPosition: IVector3): number {
+		const cache = this.getRuntimeCache();
+		const localPosition = Matrix4.transformPoint(
+			cache.worldToProbeMatrix,
+			worldPosition,
+		);
+
+		if (this.shape === "box") {
+			return Math.max(
+				Math.abs(localPosition.x) * cache.invHalfExtents.x,
+				Math.abs(localPosition.y) * cache.invHalfExtents.y,
+				Math.abs(localPosition.z) * cache.invHalfExtents.z,
+			);
+		}
+
+		if (this.shape === "sphere") {
+			return (
+				Math.hypot(localPosition.x, localPosition.y, localPosition.z) *
+				cache.radiusInv
+			);
+		}
+
+		return Number.POSITIVE_INFINITY;
+	}
+
 	protected override _copyClonePropertiesTo(target: this): void {
 		super._copyClonePropertiesTo(target);
 		target.sh = cloneSHCoefficients(this.sh);
