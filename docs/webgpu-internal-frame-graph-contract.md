@@ -186,5 +186,7 @@ The planner and runtime use internal registries instead of switch statements;
 this does not add public WebGPU frame graph registration APIs. Rejecting
 duplicate frame begins, missing active sessions, and mismatched frame-context
 identity strengthens internal lifecycle validation without changing the public
-renderer API. The shared analyzer does not transfer native resource ownership,
-flatten the nested post-process graph, or change planner and executor order.
+renderer API. WebGPU composes each eligible post-process pass into the
+whole-frame graph under the `"postprocess"` namespace. The shared analyzer does
+not transfer native resource ownership, allocate pool textures, emit native
+barriers, or change planner and executor order.

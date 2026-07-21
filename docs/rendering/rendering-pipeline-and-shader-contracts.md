@@ -90,9 +90,9 @@ The renderer frame pipeline must preserve this logical order:
 
 ### Post-Processing Contract
 
-- `src/postprocess/` owns logical pass descriptors, graph compilation, G-buffer
-  semantic contracts, history resource policies, transient resource policies,
-  and pass-owned implementations for built-in cross-backend passes.
+- `src/postprocess/` owns logical pass scheduling, backend execution
+  declarations, G-buffer semantic contracts, history and transient resource
+  policies, subgraph building, and pass-owned cross-backend implementations.
 - Logical G-buffer semantics must include material properties needed by
   screen-space passes, including `roughness`, `metallic`, and `specular`.
   Backends may pack these values with other G-buffer data, but must expose
@@ -106,9 +106,9 @@ The renderer frame pipeline must preserve this logical order:
 - Post-processing must execute as a backend-owned `"postprocess"` backend pass.
 - Software, WebGL, and WebGPU backends must hold a
   `BackendPostProcessRuntime` when they support post-processing.
-- Backends may expose `IPostProcessExecutor.executePass(passId, request)`.
-- Backends may expose `IPostProcessExecutor.getPassExecutionContext(request)`
-  as an optional low-level helper.
+- Backends must provide fixed execution contexts with declaration-checked
+  resource accessors. They must not dispatch post-process kernels by pass ID or
+  synthesize pass-specific context properties from metadata.
 - Backends may expose `LogicalGBufferBridge`.
 - Backends must not expose public post-process graph registration APIs,
   `renderer.postprocess` backend extensions, or hardcoded pass kernel

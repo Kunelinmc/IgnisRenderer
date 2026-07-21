@@ -29,8 +29,8 @@ backend-owned and executes through the `"postprocess"` backend pass.
 - WebGL context replacement must destroy the post-process resource pool before
   destroying the previous context-scoped WebGL frame services.
 - `WebGLBackend.warmup(context, options)` must use
-  `BackendPostProcessRuntime.compileWarmupGraph(context)` to collect post-process
-  pass descriptors.
+  `BackendPostProcessRuntime.planWarmup(context)` once and reuse that validated
+  declaration plan while warming post-process implementations.
 - `WebGLPostProcessExecutor.createGBufferBridge(context)` must return a
   `LogicalGBufferBridge` that wraps WebGL texture handles.
 - `FogPass` must provide a WebGL implementation and must support both

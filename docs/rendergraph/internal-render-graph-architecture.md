@@ -19,9 +19,10 @@ IgnisRenderer has three scheduling layers:
 1. `RendererStageGraph` orders renderer-level `FramePass` stages.
 2. WebGPU and WebGL planners expand each backend stage into backend-private
    nodes while `beginFrame()` builds and compiles one complete frame IR.
-3. `PostProcessGraphCompiler` resolves pass eligibility, ordering, logical
-   color versions, histories, and transients inside one outer
-   `"postprocess"` backend node.
+3. `PostProcessPlanner` resolves pass eligibility, scheduling, declarations,
+   logical color versions, histories, and transients.
+   `PostProcessSubgraphBuilder` converts the immutable plan into a local
+   subgraph so each eligible pass becomes one outer `"post-process-pass"` node.
 
 Before the shared graph layer, WebGPU, WebGL, and post-processing maintained
 similar but separate
@@ -123,7 +124,9 @@ an allocation request exists.
 resources, bindings, nodes, exports, and composed subgraphs. A subgraph must
 declare named imports and exports. Composition must namespace all internal
 resource and node IDs, remap declared ports to parent logical resources, and
-diagnose missing ports or collisions.
+diagnose missing ports or collisions. Callers may inject parent dependencies
+into every local root node. The composition result must return complete node
+and resource remap tables in addition to resolved named outputs.
 
 WebGPU and WebGL must build the complete enabled backend frame graph during
 `beginFrame()`. Synthetic setup and presentation nodes must be included.
@@ -190,6 +193,13 @@ must not be the GPU backend production compiler.
 presentation, post-process history, custom-target publication, and deferred
 lifecycle work all commit.
 
+Each attempt snapshot must include a frozen `executionOverlay`. Its
+`skippedNodeIds` records retained nodes that returned `{ ran: false }`, and its
+`resourceAliases` maps planned logical outputs to the logical resource actually
+used. Planned transitions and live ranges must remain unchanged. Overlay
+mutation is valid only while the attempt is active; mutation after `seal()`
+must fail.
+
 ### Backend Facades and Diagnostics
 
 `WebGPUFrameGraphCompiler` and `WebGLFrameGraphCompiler` must compile one
@@ -212,19 +222,32 @@ on the same logical texture ID. WebGPU must continue applying `"throw"` or
 add native WebGPU barrier commands or treat WebGL state changes as shared
 lowering.
 
-### Nested and Opaque Coverage
+### Flattened Post-Process and Opaque Coverage
 
-Post-processing must remain one coarse outer backend graph node in V2.
-`BackendPostProcessRuntime` may compile its internal logical subgraph with the
-pure compiler, but the backend frame snapshot must mark coverage as `"coarse"`
-when post-processing runs.
+WebGPU and WebGL must compose post-processing into the authoritative
+whole-frame definition under the `"postprocess"` namespace. The GPU runtime
+must compile post-process eligibility and order once during `beginFrame()` and
+must not compile a nested shared graph. Every retained pass must be an
+always-retained `"post-process-pass"` node executed in outer compiled order.
+Software consumes the logical post-process plan directly. Standalone tests may
+compile a produced subgraph explicitly, but production runtimes must not expose
+or invoke a nested shared-compiler helper.
 
 Post-process pass eligibility, deterministic ordering, planned color versions,
 resolved color aliases for `{ ran: false }`, transient descriptors, and history
-descriptors must not change. A successful pass may publish only the output
-selected for its logical color version. History swaps must remain deferred
+descriptors must come from one execution declaration. A successful pass must
+commit the output assigned to its logical color version automatically. History
+swaps must remain deferred
 until complete backend-frame success; abort must discard pending history
-writes.
+writes. A skipped pass must record its outer node ID and namespaced color alias
+in the attempt execution overlay without changing later passes' physical source
+texture.
+
+Logical post-process transient and color-version resources must be graph-owned
+descriptors. History resources remain backend-owned imported logical resources
+and must not become parent composition ports. Native pools, ping-pong targets,
+history managers, allocation, barriers, and alias ownership remain outside the
+shared graph.
 
 Custom render-target passes, particle simulation, and other paths that bypass
 backend graph executors must be represented by always-retained opaque
@@ -234,19 +257,15 @@ execution.
 
 ### Future Integration Boundary
 
-The completed V2 foundation establishes descriptors, bindings, composition,
-whole-frame compilation, DCE, and logical allocation requests. Future changes
-should proceed in this order:
+The completed V2 foundation establishes descriptors, bindings, post-process
+composition, whole-frame compilation, DCE, and logical allocation requests.
+Future changes should proceed in this order:
 
-1. Post-process may be flattened into the outer graph after its history and
-   color-version transactions can remain atomic.
-2. A backend allocator may consume allocation requests and assign compatible
+1. A backend allocator may consume allocation requests and assign compatible
    transient aliases without transferring native ownership to Render Graph.
-3. Pass merging may be introduced after stage-slice debug and failure
+2. Pass merging may be introduced after stage-slice debug and failure
    boundaries are preserved.
-4. Custom passes may provide optional logical resource-effect metadata;
-   undeclared effects remain opaque.
-5. Backend-specific synchronization lowering, physical feedback validation,
+3. Backend-specific synchronization lowering, physical feedback validation,
    and multi-domain scheduling may be introduced only after physical bindings
    are explicit.
 
@@ -325,9 +344,10 @@ diagnostics must never be logged by compatibility facades.
 
 ## Compatibility / Breaking Changes
 
-V2 is an internal refactor. Planner order, executor registries, actual command
-order, presentation, native allocation, destruction, post-process eligibility,
-color resolution, history, and public APIs remain unchanged.
+Whole-frame post-process composition changes the internal GPU custom-pass
+contract. Planner order, actual command order, presentation, native allocation,
+destruction, post-process eligibility, color resolution, history ownership, and
+public Render Graph APIs remain unchanged.
 
 The permitted internal debug differences are:
 
@@ -338,7 +358,8 @@ The permitted internal debug differences are:
 - grouped `graphAnalysis` exposes canonical transitions, live ranges,
   completeness, and shadow diagnostics.
 
-Flattening post-processing, moving native ownership, assigning transient
-aliases, emitting native barriers, or requiring resource metadata from public custom
-passes would be separate behavioral or public-contract changes. They require
-their own compatibility review, documentation, and regression tests.
+Every backend implementation must provide one complete execution declaration.
+Graph metadata, context-binding metadata, and Software compatibility profiles
+are removed. Missing or incomplete declarations fail planning. Moving native
+ownership, assigning physical transient aliases, emitting native barriers, or
+merging passes remains outside this change.

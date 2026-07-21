@@ -1,74 +1,93 @@
 # Post-Process Cross-Backend Contract
 
 ## Scope
-This document defines the post-process runtime contract for `BackendPostProcessRuntime`, logical post-process passes, and backend-owned execution.
+
+This document defines logical post-process passes, backend implementation
+declarations, fixed execution contexts, and backend-owned execution.
 
 ## Background
-To support decoupled backends, post-processing resources must be isolated per backend runtime. Instead of sharing single implementation instances globally, passes declare factories that allow each backend to instantiate, cache, and manage its own implementations.
+
+Post-process resource behavior previously appeared in pass descriptor methods,
+implementation graph metadata, and backend context-binding metadata. Those
+independent declarations could disagree. The execution declaration is now the
+single source of truth for resource existence, access, usage, and optionality.
 
 ## API/Contract
-- `PostProcessPass`
-	- Must expose backend-specific implementations via a factory mapping.
-- `PostProcessPassImplementationFactory`
-	- Must be typed as: `(backend: IRenderBackend) => PostProcessPassImplementation`.
-- `BackendPostProcessRuntime`
-	- Must be instantiated by each backend.
-	- Must cache instantiated pass implementations in a private registry.
-	- At each frame boundary, must destroy and clear cached implementations for any passes that have been unregistered from the snapshot.
-	- On backend resize, must call `.invalidate()` on all cached implementations.
-	- On backend device loss or destruction, must call `.destroy()` on all cached implementations and clear the cache.
-- `PostProcessPassImplementationMetadata.graph`
-	- May declare backend-agnostic logical resource behavior for an implementation.
-	- `color.access` must be one of `"none"`, `"read"`, or `"read-write"`;
-	  `color.output` must be `"preserve"` or `"new-version"`.
-	- Implementations that publish a GPU color target should declare
-	  `color: { access: "read", output: "new-version" }`. Software
-	  implementations that mutate the current buffer in place should declare
-	  `color: { access: "read-write", output: "preserve" }`.
-	- Built-in implementations are validated strictly for controlled output and
-	  declared history updates. Custom implementations without `graph` metadata
-	  remain compatibility-opaque; arbitrary raw GPU writes cannot be observed.
-	- Required entries in `backendShared` must make the pass ineligible when the
-	  active backend reports that the resource is unavailable. Entries marked
-	  `optional: true` must not affect pass eligibility.
-- `IPostProcessExecutor.isGraphResourceAvailable(resourceId)`
-	- Must report readiness by backend-shared resource id, independently of the
-	  ids of passes that consume the resource.
-	- An omitted callback must treat declared backend-shared resources as
-	  available for compatibility with executors that do not expose such state.
-- `PostProcessGraphExecutionResult`
-	- Must distinguish planned `outputColor` from `resolvedOutputColor` after
-	  skipped-pass aliases are applied.
-	- Must remain backend-internal and contain no native resource handles.
-- `BackendPostProcessRuntime`
-	- Must retain `lastAttempt` and `lastSuccessful` debug snapshots.
-	- Must update `lastSuccessful` only after `commitFrame()` and must preserve it
-	  when a later attempt aborts.
+
+- `PostProcessPassConfig.schedule` must own placement, numeric order, and
+  incremental metadata. Resource behavior must not appear in the schedule.
+- `PostProcessPassImplementation.describeExecution(request)` must return one
+  complete `PostProcessExecutionDeclaration` for the active backend.
+- The declaration must contain `color` and may contain `gBuffer`, `histories`,
+  `transients`, and backend `shared` resource entries.
+- History and transient entries must contain their allocation descriptor and
+  all logical uses. A second descriptor API or graph-metadata overlay must not
+  exist.
+- Required G-buffer or shared resources must make a pass ineligible when they
+  are unavailable. Optional resources must not affect eligibility.
+- Implementations must receive a fixed backend execution context containing a
+  `PostProcessResourceAccessor`. Backends must not synthesize pass-specific
+  context properties from metadata.
+- The accessor must expose assigned color input/output and typed getters for
+  G-buffer, history, transient, and shared resources. Access to an undeclared
+  resource must throw; a missing optional resource must return `null`.
+- `color.output: "new-version"` must receive a backend-assigned output distinct
+  from its input. `color.output: "preserve"` must not receive a new output.
+- `{ ran: true }` must commit the assigned color output automatically.
+  `{ ran: false }` must alias the planned output to its input and must not
+  update history.
+- `PostProcessPassResult.updatedHistoryIds` must contain only declared history
+  IDs with write uses. The runtime must reject updates reported with
+  `{ ran: false }`.
+- A missing active-backend implementation must skip the pass and emit
+  `postprocess-implementation-missing-<passId>`. Backends must not dispatch a
+  fallback kernel by pass ID.
+- Backend runtime implementation instances must remain backend-local and must
+  be invalidated or destroyed with their owning device lifecycle.
 
 ## Usage
-```ts
-import { PostProcessPass, IRenderBackend } from "ignisrenderer";
 
-class CustomPass extends PostProcessPass {
-	constructor() {
-		super({
-			id: "custom-pass",
-			implementations: {
-				webgpu: (backend: IRenderBackend) => new WebGPUPassImpl(backend),
-				webgl: (backend: IRenderBackend) => new WebGLPassImpl(backend),
-			},
-		});
+```ts
+class CustomWebGPUImplementation {
+	public describeExecution(): PostProcessExecutionDeclaration {
+		return {
+			color: { access: "read", output: "new-version" },
+			transients: [{
+				descriptor: { id: "custom:scratch", format: "rgba16float" },
+				uses: [{ access: "write", usage: "storage" }],
+			}],
+		};
+	}
+
+	public execute(request, context): PostProcessPassResult {
+		const source = context.resources.color.input;
+		const target = context.resources.color.output;
+		const scratch = context.resources.getTransient("custom:scratch");
+		// Record commands from source through scratch into target.
+		return { ran: true };
 	}
 }
 ```
 
 ## Errors & Diagnostics
-- Attempting to execute a pass that has no registered factory for the active backend must trigger a fallback pass execution warning.
-- Exceptions thrown in custom pass implementations during execution must abort the post-process runtime frame.
-- A pass that uses a controlled color publication and then reports
-  `{ ran: false }` must fail the active post-process frame. Raw encoder or
-  context writes remain outside that guarantee.
+
+- Malformed declarations must fail planning and identify the backend, pass ID,
+  resource ID, and every detected violation.
+- Duplicate history or transient IDs with incompatible descriptors must fail
+  planning; the runtime must not select the first descriptor.
+- Missing required G-buffer channels must retain the
+  `postprocess-requirement-missing-<passId>` diagnostic.
+- Missing required backend-shared resources must retain the
+  `postprocess-backend-shared-unavailable-<passId>` diagnostic.
+- Exceptions during execution must abort the active post-process transaction.
 
 ## Compatibility / Breaking Changes
-- `PostProcessPass` no longer accepts pre-instantiated implementation objects. It must accept factory functions.
-- The global post-process registry bridge is removed. Caches are strictly scoped to the backend runtime.
+
+- `PostProcessPassImplementation.metadata`, `PostProcessGraphMetadata`, context
+  binding metadata, and controlled publication callbacks are removed.
+- `getRequirements()`, `getHistoryDescriptors()`,
+  `getTransientResourceDescriptors()`, and `getHistorySignature()` are removed.
+- `PostProcessPassConfig.placement`, `order`, and `incremental` move under
+  `schedule`.
+- Custom passes must migrate directly to `describeExecution()` and the fixed
+  resource accessor. No compatibility adapter is provided.

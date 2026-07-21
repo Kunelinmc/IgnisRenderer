@@ -101,4 +101,5 @@ unchanged. The WebGL graph is an internal implementation detail. Tests and
 diagnostic tools may use internal debug state, but application code must not
 depend on it as a stable public API. The shared analyzer does not change
 framebuffer ownership, WebGL state changes, planner order, presentation, or the
-nested post-process execution model.
+backend-owned post-process pool. Eligible post-process passes are composed as
+individual `"post-process-pass"` nodes in the authoritative whole-frame graph.
