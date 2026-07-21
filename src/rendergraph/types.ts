@@ -6,6 +6,9 @@ export type RenderGraphResourceId = string;
 /** @internal Backend-private logical render graph node identifier. */
 export type RenderGraphNodeId = string;
 
+/** @internal Backend-private stable physical resource identifier. */
+export type RenderGraphPhysicalResourceId = string;
+
 /** @internal Logical resource allocation origin. */
 export type RenderGraphResourceOrigin = "imported" | "graph";
 
@@ -19,7 +22,7 @@ export type RenderGraphResourceResidency =
 	| "transient"
 	| "history";
 
-/** @internal Whether the logical contents can be consumed before a graph write. */
+/** @internal Whether logical contents can be consumed before a graph write. */
 export type RenderGraphContentState = "valid" | "undefined" | "unknown";
 
 /** @internal Logical resource access mode. */
@@ -37,34 +40,104 @@ export type RenderGraphUsage =
 	| "cpu-read"
 	| "cpu-write";
 
-/** @internal Execution domain metadata reserved for whole-frame scheduling. */
-export type RenderGraphExecutionDomain =
-	| "graphics"
-	| "compute"
-	| "copy"
-	| "cpu";
+/** @internal Execution domain metadata reserved for backend scheduling. */
+export type RenderGraphExecutionDomain = "graphics" | "compute" | "copy" | "cpu";
 
-/** @internal Optional logical subresource range retained for future analysis. */
-export interface RenderGraphSubresourceRange {
+/** @internal Texture aspect selected by one logical access. */
+export type RenderGraphTextureAspect = "color" | "depth" | "stencil";
+
+/** @internal Optional logical texture range. Omission means the full texture. */
+export interface RenderGraphTextureSubresourceRange {
+	readonly kind: "texture";
 	readonly mipStart?: number;
 	readonly mipCount?: number;
 	readonly layerStart?: number;
 	readonly layerCount?: number;
-	readonly aspect?: "all" | "color" | "depth" | "stencil";
+	readonly aspects?: readonly RenderGraphTextureAspect[];
 }
 
-/** @internal Logical resource descriptor consumed by Render Graph analysis. */
-export interface RenderGraphResourceDescriptor {
+/** @internal Optional logical buffer range. Omission means the full buffer. */
+export interface RenderGraphBufferSubresourceRange {
+	readonly kind: "buffer";
+	readonly offset?: number;
+	readonly size?: number;
+}
+
+/** @internal Logical texture or buffer range retained by analysis. */
+export type RenderGraphSubresourceRange =
+	| RenderGraphTextureSubresourceRange
+	| RenderGraphBufferSubresourceRange;
+
+/** @internal Normalized texture range with concrete bounds. */
+export interface RenderGraphNormalizedTextureRange {
+	readonly kind: "texture";
+	readonly mipStart: number;
+	readonly mipCount: number;
+	readonly layerStart: number;
+	readonly layerCount: number;
+	readonly aspects: readonly RenderGraphTextureAspect[];
+}
+
+/** @internal Normalized buffer range with concrete bounds. */
+export interface RenderGraphNormalizedBufferRange {
+	readonly kind: "buffer";
+	readonly offset: number;
+	readonly size: number;
+}
+
+/** @internal Concrete range used for overlap analysis. */
+export type RenderGraphNormalizedSubresourceRange =
+	| RenderGraphNormalizedTextureRange
+	| RenderGraphNormalizedBufferRange;
+
+interface RenderGraphResourceDescriptorBase {
 	readonly id: RenderGraphResourceId;
 	readonly origin: RenderGraphResourceOrigin;
-	readonly kind?: RenderGraphResourceKind;
 	readonly residency?: RenderGraphResourceResidency;
 	readonly initialContent?: RenderGraphContentState;
 	readonly optional?: boolean;
+}
+
+/** @internal Logical texture descriptor without a native texture handle. */
+export interface RenderGraphTextureDescriptor extends RenderGraphResourceDescriptorBase {
+	readonly kind: "texture";
 	readonly format?: string;
 	readonly width?: number;
 	readonly height?: number;
+	readonly depthOrArrayLayers?: number;
+	readonly dimension?: "1d" | "2d" | "3d";
+	readonly sampleCount?: number;
+	readonly mipLevelCount?: number;
+	readonly allowedUsages?: readonly RenderGraphUsage[];
+	/** @deprecated Use `mipLevelCount`. */
 	readonly mipMode?: "single" | "full-chain";
+}
+
+/** @internal Logical buffer descriptor without a native buffer handle. */
+export interface RenderGraphBufferDescriptor extends RenderGraphResourceDescriptorBase {
+	readonly kind: "buffer";
+	readonly size?: number;
+	readonly allowedUsages?: readonly RenderGraphUsage[];
+}
+
+/** @internal Opaque backend or host resource descriptor. */
+export interface RenderGraphExternalDescriptor extends RenderGraphResourceDescriptorBase {
+	readonly kind: "external";
+	readonly allowedUsages?: readonly RenderGraphUsage[];
+}
+
+/** @internal Logical resource descriptor consumed by Render Graph analysis. */
+export type RenderGraphResourceDescriptor =
+	| RenderGraphTextureDescriptor
+	| RenderGraphBufferDescriptor
+	| RenderGraphExternalDescriptor;
+
+/** @internal Stable logical-to-physical identity without a native handle. */
+export interface RenderGraphPhysicalBinding {
+	readonly resourceId: RenderGraphResourceId;
+	readonly generation?: number;
+	readonly physicalId: RenderGraphPhysicalResourceId;
+	readonly kind: RenderGraphResourceKind;
 }
 
 /** @internal One logical resource access declared by a graph node. */
@@ -92,15 +165,14 @@ export interface RenderGraphResourceRequirement {
 }
 
 /** @internal A backend-private logical render graph node. */
-export interface RenderGraphNode<
-	TPayload = unknown,
-	TKind extends string = string,
-> {
+export interface RenderGraphNode<TPayload = unknown, TKind extends string = string> {
 	readonly id: RenderGraphNodeId;
 	readonly stage: FramePassStage;
 	readonly kind: TKind;
 	readonly label: string;
 	readonly domain?: RenderGraphExecutionDomain;
+	readonly retention?: "always" | "if-reachable";
+	readonly opaque?: boolean;
 	readonly dependsOn?: readonly RenderGraphNodeId[];
 	readonly requires?: readonly RenderGraphResourceRequirement[];
 	readonly creates?: readonly RenderGraphResourceMutation[];
@@ -109,12 +181,55 @@ export interface RenderGraphNode<
 	readonly payload?: TPayload;
 }
 
+/** @internal One final logical graph output used as a DCE root. */
+export interface RenderGraphExport {
+	readonly name?: string;
+	readonly resource: RenderGraphResourceId;
+	readonly subresource?: RenderGraphSubresourceRange;
+}
+
+/** @internal A named subgraph resource port. */
+export interface RenderGraphSubgraphPort {
+	readonly name: string;
+	readonly resource: RenderGraphResourceId;
+	readonly optional?: boolean;
+}
+
+/** @internal One resolved named port retained for graph tooling. */
+export interface RenderGraphPortResolution {
+	readonly namespace?: string;
+	readonly direction: "import" | "export";
+	readonly port: string;
+	readonly resource: RenderGraphResourceId;
+}
+
+/** @internal Immutable input accepted by the whole-frame compiler. */
+export interface RenderGraphDefinition<TPayload = unknown, TKind extends string = string> {
+	readonly resources: readonly RenderGraphResourceDescriptor[];
+	readonly bindings?: readonly RenderGraphPhysicalBinding[];
+	readonly nodes: readonly RenderGraphNode<TPayload, TKind>[];
+	readonly exports?: readonly RenderGraphExport[];
+	readonly imports?: readonly RenderGraphSubgraphPort[];
+	readonly outputPorts?: readonly RenderGraphSubgraphPort[];
+	readonly portResolutions?: readonly RenderGraphPortResolution[];
+	readonly completeness?: RenderGraphAnalysisCompleteness;
+	readonly shadowDiagnostics?: readonly RenderGraphDiagnostic[];
+	readonly buildDiagnostics?: readonly RenderGraphDiagnostic[];
+}
+
 /** @internal Compiler diagnostic classification. */
 export type RenderGraphDiagnosticCode =
 	| "duplicate-node"
 	| "duplicate-resource"
+	| "duplicate-binding"
 	| "missing-dependency"
 	| "cycle"
+	| "invalid-resource-descriptor"
+	| "invalid-subresource-range"
+	| "binding-kind-mismatch"
+	| "missing-binding"
+	| "missing-subgraph-port"
+	| "duplicate-subgraph-port"
 	| "read-before-create"
 	| "duplicate-create"
 	| "destroy-before-create"
@@ -125,8 +240,9 @@ export type RenderGraphDiagnosticCode =
 	| "read-content-unknown"
 	| "read-before-initialize"
 	| "use-after-destroy"
+	| "physical-feedback-loop"
 	| "opaque-stage-effects"
-	| string;
+	| (string & {});
 
 /** @internal Compiler or backend-rule diagnostic for a logical graph. */
 export interface RenderGraphDiagnostic {
@@ -142,17 +258,33 @@ export interface RenderGraphDiagnostic {
 	readonly cause?: unknown;
 }
 
+/** @internal One explicit or inferred ordering edge. */
+export interface RenderGraphDependency {
+	readonly fromNodeId: RenderGraphNodeId;
+	readonly toNodeId: RenderGraphNodeId;
+	readonly kind:
+		| "explicit"
+		| "read-after-write"
+		| "write-after-read"
+		| "write-after-write"
+		| "usage-transition";
+	readonly resourceId?: RenderGraphResourceId;
+	readonly physicalId?: RenderGraphPhysicalResourceId;
+	readonly subresource?: RenderGraphNormalizedSubresourceRange;
+}
+
 /** @internal One logical access transition retained for lowering and diagnostics. */
 export interface RenderGraphTransition {
 	readonly nodeId: RenderGraphNodeId;
 	readonly fromNodeId?: RenderGraphNodeId;
 	readonly resourceId: RenderGraphResourceId;
+	readonly physicalId?: RenderGraphPhysicalResourceId;
 	readonly generation: number;
 	readonly previousAccess?: RenderGraphAccess;
 	readonly previousUsage?: RenderGraphUsage;
 	readonly access: RenderGraphAccess;
 	readonly usage: RenderGraphUsage;
-	readonly subresource?: RenderGraphSubresourceRange;
+	readonly subresource?: RenderGraphNormalizedSubresourceRange;
 	readonly scope: "initial" | "inter-node" | "intra-node";
 	readonly hazard?: "read-after-write" | "write-after-read" | "write-after-write";
 	readonly reason?:
@@ -163,7 +295,7 @@ export interface RenderGraphTransition {
 }
 
 /** @internal One generation-aware logical resource live range. */
-export interface RenderGraphResourceLifetime {
+export interface RenderGraphLiveRange {
 	readonly resourceId: RenderGraphResourceId;
 	readonly generation: number;
 	readonly firstNodeId: RenderGraphNodeId;
@@ -174,8 +306,19 @@ export interface RenderGraphResourceLifetime {
 	readonly destroyedByNodeId?: RenderGraphNodeId;
 }
 
-/** @internal Preferred name for generation-aware resource lifetime output. */
-export type RenderGraphLiveRange = RenderGraphResourceLifetime;
+/** @internal One normalized subresource lifetime. */
+export interface RenderGraphSubresourceLiveRange extends RenderGraphLiveRange {
+	readonly subresource: RenderGraphNormalizedSubresourceRange;
+}
+
+/** @internal Logical allocation intent; it never owns a native allocation. */
+export interface RenderGraphAllocationRequest {
+	readonly resourceId: RenderGraphResourceId;
+	readonly generation: number;
+	readonly compatibilityKey: string;
+	readonly allocateBeforeNodeId: RenderGraphNodeId;
+	readonly releaseAfterNodeId: RenderGraphNodeId;
+}
 
 /** @internal Sanitized state for one logical resource generation. */
 export interface RenderGraphResourceDebugState {
@@ -184,36 +327,40 @@ export interface RenderGraphResourceDebugState {
 	readonly active: boolean;
 	readonly generation: number;
 	readonly content: RenderGraphContentState;
+	readonly physicalId?: RenderGraphPhysicalResourceId;
 	readonly lastNodeId: RenderGraphNodeId | null;
-	readonly lastAccess:
-		| "create"
-		| "read"
-		| "write"
-		| "read-write"
-		| "destroy"
-		| null;
+	readonly lastAccess: "create" | "read" | "write" | "read-write" | "destroy" | null;
 	readonly lastUsage: RenderGraphUsage | null;
 }
 
-/** @internal Immutable logical graph compiler result. */
-export interface CompiledRenderGraph<
-	TPayload = unknown,
-	TKind extends string = string,
-> {
+/** @internal One retained execution slice grouped by renderer pass stage. */
+export interface CompiledRenderGraphStage<TPayload = unknown, TKind extends string = string> {
+	readonly stage: FramePassStage;
 	readonly nodes: readonly RenderGraphNode<TPayload, TKind>[];
+}
+
+/** @internal Immutable logical graph compiler result. */
+export interface CompiledRenderGraph<TPayload = unknown, TKind extends string = string> {
+	readonly declaredNodes: readonly RenderGraphNode<TPayload, TKind>[];
+	readonly nodes: readonly RenderGraphNode<TPayload, TKind>[];
+	readonly culledNodeIds: readonly RenderGraphNodeId[];
+	readonly stages: readonly CompiledRenderGraphStage<TPayload, TKind>[];
 	readonly resources: readonly RenderGraphResourceDescriptor[];
+	readonly bindings: readonly RenderGraphPhysicalBinding[];
+	readonly exports: readonly RenderGraphExport[];
+	readonly portResolutions: readonly RenderGraphPortResolution[];
+	readonly dependencies: readonly RenderGraphDependency[];
 	readonly diagnostics: readonly RenderGraphDiagnostic[];
 	readonly shadowDiagnostics: readonly RenderGraphDiagnostic[];
 	readonly transitions: readonly RenderGraphTransition[];
-	readonly lifetimes: readonly RenderGraphResourceLifetime[];
 	readonly liveRanges: readonly RenderGraphLiveRange[];
+	readonly subresourceLiveRanges: readonly RenderGraphSubresourceLiveRange[];
+	readonly allocationRequests: readonly RenderGraphAllocationRequest[];
+	readonly completeness: RenderGraphAnalysisCompleteness;
 }
 
-/** @internal One streaming stage result produced without reordering nodes. */
-export interface RenderGraphAnalyzedStage<
-	TPayload = unknown,
-	TKind extends string = string,
-> {
+/** @internal One streaming stage result retained for legacy analysis clients. */
+export interface RenderGraphAnalyzedStage<TPayload = unknown, TKind extends string = string> {
 	readonly nodes: readonly RenderGraphNode<TPayload, TKind>[];
 	readonly diagnostics: readonly RenderGraphDiagnostic[];
 	readonly shadowDiagnostics: readonly RenderGraphDiagnostic[];
@@ -223,14 +370,19 @@ export interface RenderGraphAnalyzedStage<
 /** @internal Analysis completeness for graph-visible frame work. */
 export type RenderGraphAnalysisCompleteness = "complete" | "coarse" | "opaque";
 
-/** @internal Immutable snapshot of one streaming graph attempt. */
+/** @internal Immutable snapshot of one graph attempt. */
 export interface RenderGraphAnalysisSnapshot {
 	readonly state: "active" | "sealed" | "committed" | "aborted";
 	readonly completeness: RenderGraphAnalysisCompleteness;
 	readonly nodeIds: readonly RenderGraphNodeId[];
+	readonly declaredNodeIds?: readonly RenderGraphNodeId[];
+	readonly culledNodeIds?: readonly RenderGraphNodeId[];
 	readonly resources: readonly RenderGraphResourceDebugState[];
 	readonly transitions: readonly RenderGraphTransition[];
+	readonly dependencies?: readonly RenderGraphDependency[];
 	readonly liveRanges: readonly RenderGraphLiveRange[];
+	readonly subresourceLiveRanges?: readonly RenderGraphSubresourceLiveRange[];
+	readonly allocationRequests?: readonly RenderGraphAllocationRequest[];
 	readonly diagnostics: readonly RenderGraphDiagnostic[];
 	readonly shadowDiagnostics: readonly RenderGraphDiagnostic[];
 }
@@ -244,10 +396,7 @@ export interface RenderGraphTrackerDebugState {
 }
 
 /** @internal Pure validation extension composed by backend-private facades. */
-export interface RenderGraphValidationRule<
-	TPayload = unknown,
-	TKind extends string = string,
-> {
+export interface RenderGraphValidationRule<TPayload = unknown, TKind extends string = string> {
 	validateNode(
 		node: RenderGraphNode<TPayload, TKind>,
 		context: {
