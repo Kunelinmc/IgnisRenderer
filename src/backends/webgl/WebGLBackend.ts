@@ -22,6 +22,7 @@ import { WebGLFrameExecutor } from "./WebGLFrameExecutor";
 import { WebGLFrameGraphRuntime } from "./rendergraph/WebGLFrameGraphRuntime";
 import { WebGLPostProcessExecutor } from "./WebGLPostProcessExecutor";
 import { BackendPostProcessRuntime } from "../../postprocess/BackendPostProcessRuntime";
+import type { PostProcessPlan } from "../../postprocess/PostProcessPlanner";
 import {
 	MAX_DIRECTIONAL_LIGHTS,
 	MAX_POINT_LIGHTS,
@@ -484,8 +485,10 @@ export class WebGLBackend implements IRenderBackend {
 			throw new Error("WebGL backend has not been initialized.");
 		}
 		let warmupPostProcessPlan: WarmupPostProcessPlan | undefined;
+		let postProcessPlan: PostProcessPlan | undefined;
 		if (options.includePostProcess !== false) {
-			const graph = this._postProcessRuntime.compileWarmupGraph(context);
+			const graph = this._postProcessRuntime.planWarmup(context);
+			postProcessPlan = graph;
 			warmupPostProcessPlan = {
 				passIds: graph.orderedPasses.map((pass) => pass.id),
 				descriptors: graph.orderedPasses.map((pass) => pass.pass),
@@ -497,6 +500,7 @@ export class WebGLBackend implements IRenderBackend {
 				context,
 				plan,
 				options,
+				postProcessPlan,
 			);
 			addWarmupPhase(report, phase);
 			this._reportWarmupProgress(options, phase);

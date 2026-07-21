@@ -18,7 +18,7 @@ export interface WebGLPostProcessDeviceServices {
 	): PostProcessResourceHandle;
 	destroyPostProcessResource(handle: PostProcessResourceHandle): void;
 	createGBufferBridge(context: FrameContext): LogicalGBufferBridge;
-	getPassExecutionContext(request: PostProcessPassExecutionContextRequest): unknown;
+	createPassExecutionContext(request: PostProcessPassExecutionContextRequest): unknown;
 	beginPostProcessFrame(): void;
 	endPostProcessFrame(): void;
 	abortPostProcessFrame(): void;
@@ -96,8 +96,8 @@ export class WebGLPostProcessExecutor implements IPostProcessExecutor {
 	 * @returns Context object expected by the selected WebGL implementation.
 	 * @sideEffects None.
 	 */
-	public getPassExecutionContext(request: PostProcessPassExecutionContextRequest): unknown {
-		return this._host.getDeviceServices()?.getPassExecutionContext(request);
+	public createPassExecutionContext(request: PostProcessPassExecutionContextRequest): unknown {
+		return this._host.getDeviceServices()?.createPassExecutionContext(request);
 	}
 
 	/** @internal Opens the WebGL controlled-publication transaction. */
@@ -120,14 +120,6 @@ export class WebGLPostProcessExecutor implements IPostProcessExecutor {
 	/** @internal Closes the WebGL controlled-publication transaction. */
 	public endFrame(): void {
 		this._host.getDeviceServices()?.endPostProcessFrame();
-	}
-
-	/** @internal Compatibility fallback for passes without a WebGL implementation. */
-	public executePass(
-		_passId: string,
-		_request: PostProcessPassRequest,
-	): PostProcessPassResult {
-		return { ran: false };
 	}
 
 	/** @internal Applies backend-owned effects after a pass result is known. */

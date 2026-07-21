@@ -5,11 +5,11 @@ import type {
 	PostProcessHistorySlots,
 	PostProcessTransientSlots,
 } from "./types";
-import type { CompiledPostProcessGraph } from "./PostProcessGraphCompiler";
+import type { PostProcessPlan } from "./PostProcessPlanner";
 
 export interface PostProcessResourcePoolPrepareRequest {
 	readonly executor: IPostProcessExecutor;
-	readonly graph: CompiledPostProcessGraph;
+	readonly graph: PostProcessPlan;
 	readonly reset: boolean;
 }
 

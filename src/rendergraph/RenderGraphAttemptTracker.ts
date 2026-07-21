@@ -1,6 +1,7 @@
 import type {
 	CompiledRenderGraph,
 	RenderGraphAnalysisSnapshot,
+	RenderGraphResourceAlias,
 	RenderGraphResourceDebugState,
 	RenderGraphTrackerDebugState,
 } from "./types";
@@ -26,6 +27,37 @@ export class RenderGraphAttemptTracker {
 		}
 		this._current = Object.freeze({ ...this._current, state: "sealed" });
 		this._state = "sealed";
+	}
+
+	public recordSkippedNode(
+		nodeId: string,
+		aliases: readonly RenderGraphResourceAlias[] = [],
+	): void {
+		if (this._state !== "active" || !this._current) {
+			throw new Error(
+				`Render graph execution overlay cannot change in state "${this._state}".`,
+			);
+		}
+		if (!this._current.nodeIds.includes(nodeId)) {
+			throw new Error(`Render graph execution overlay has no node "${nodeId}".`);
+		}
+		const skippedNodeIds = this._current.executionOverlay.skippedNodeIds.includes(nodeId)
+			? this._current.executionOverlay.skippedNodeIds
+			: Object.freeze([
+				...this._current.executionOverlay.skippedNodeIds,
+				nodeId,
+			]);
+		const aliasesByResource = new Map(
+			this._current.executionOverlay.resourceAliases.map((alias) => [alias.resourceId, alias]),
+		);
+		for (const alias of aliases) aliasesByResource.set(alias.resourceId, Object.freeze({ ...alias }));
+		this._current = Object.freeze({
+			...this._current,
+			executionOverlay: Object.freeze({
+				skippedNodeIds,
+				resourceAliases: Object.freeze(Array.from(aliasesByResource.values())),
+			}),
+		});
 	}
 
 	public commit(): void {
@@ -73,6 +105,10 @@ function createSnapshot(
 		liveRanges: graph.liveRanges,
 		subresourceLiveRanges: graph.subresourceLiveRanges,
 		allocationRequests: graph.allocationRequests,
+		executionOverlay: Object.freeze({
+			skippedNodeIds: Object.freeze([]),
+			resourceAliases: Object.freeze([]),
+		}),
 		diagnostics: graph.diagnostics,
 		shadowDiagnostics: graph.shadowDiagnostics,
 	});

@@ -9,7 +9,6 @@ import type {
 	PostProcessPassResolveRequest,
 	PostProcessPassWarmupRequest,
 } from "./PostProcessPass";
-import type { PostProcessPlacement } from "./ordering";
 
 /**
  * @deprecated Use `RenderBackendType` from `backends/IRenderBackend`.
@@ -69,11 +68,6 @@ export interface LogicalGBufferBridge {
 		readonly source: "derived";
 		readonly available: boolean;
 	};
-}
-
-export interface PostProcessPassRequirements {
-	readonly gBuffer?: readonly LogicalGBufferSemantic[];
-	readonly history?: readonly string[];
 }
 
 export interface PostProcessBaseResourceDescriptor {
@@ -142,76 +136,87 @@ export interface PostProcessTransientSlot {
 
 export type PostProcessTransientSlots = Record<string, PostProcessTransientSlot>;
 
-export interface PostProcessPassImplementationMetadata<TContextMetadata = unknown> {
-	/**
-	 * Optional backend-agnostic logical resource declaration used by the internal
-	 * post-process render graph. Omit it to use the compatibility profile.
-	 */
-	readonly graph?: PostProcessGraphMetadata;
-	/**
-	 * Backend-specific context declaration consumed by
-	 * `IPostProcessExecutor.getPassExecutionContext`.
-	 *
-	 * @remarks Backends that do not understand this metadata must ignore it.
-	 * @sideEffects None.
-	 */
-	readonly context?: TContextMetadata;
-	/**
-	 * Backend-specific warmup hints owned by this implementation.
-	 *
-	 * @remarks Backends may use these ids to pre-warm internal runtime passes.
-	 * @sideEffects None.
-	 */
-	readonly warmupHints?: readonly string[];
-}
-
-/** @internal Logical color behavior declared by one pass implementation. */
-export interface PostProcessColorFlow {
+/** Logical color behavior declared by one backend implementation. */
+export interface PostProcessColorDeclaration {
 	readonly access: "none" | "read" | "read-write";
 	readonly output: "preserve" | "new-version";
 }
 
-/** @internal One logical use declared by a post-process implementation. */
-export interface PostProcessGraphResourceUse {
+/** One logical resource use declared by a post-process implementation. */
+export interface PostProcessExecutionResourceUse {
 	readonly access: RenderGraphAccess;
 	readonly usage: RenderGraphUsage;
 	readonly optional?: boolean;
 }
 
-/** @internal Per-side logical use of one persistent history resource. */
-export interface PostProcessGraphHistoryUse {
-	readonly read?: readonly PostProcessGraphResourceUse[];
-	readonly write?: readonly PostProcessGraphResourceUse[];
+export interface PostProcessGBufferDeclaration
+	extends PostProcessExecutionResourceUse {
+	readonly semantic: LogicalGBufferSemantic;
 }
 
-/** @internal Backend-agnostic post-process graph declaration. */
-export interface PostProcessGraphMetadata {
-	readonly color: PostProcessColorFlow;
-	readonly histories?: Readonly<Record<string, PostProcessGraphHistoryUse>>;
-	readonly transients?: Readonly<
-		Record<string, readonly PostProcessGraphResourceUse[]>
-	>;
-	readonly backendShared?: readonly (PostProcessGraphResourceUse & {
-		readonly id: string;
-	})[];
-	readonly outputValidation?: "strict" | "compatibility";
+export interface PostProcessHistoryDeclaration {
+	readonly descriptor: PostProcessHistoryDescriptor;
+	readonly read: readonly PostProcessExecutionResourceUse[];
+	readonly write: readonly PostProcessExecutionResourceUse[];
+}
+
+export interface PostProcessTransientDeclaration {
+	readonly descriptor: PostProcessTransientDescriptor;
+	readonly uses: readonly PostProcessExecutionResourceUse[];
+}
+
+export interface PostProcessSharedResourceDeclaration
+	extends PostProcessExecutionResourceUse {
+	readonly id: string;
+}
+
+/** Complete resource contract returned once by one backend implementation. */
+export interface PostProcessExecutionDeclaration {
+	readonly color: PostProcessColorDeclaration;
+	readonly gBuffer?: readonly PostProcessGBufferDeclaration[];
+	readonly histories?: readonly PostProcessHistoryDeclaration[];
+	readonly transients?: readonly PostProcessTransientDeclaration[];
+	readonly shared?: readonly PostProcessSharedResourceDeclaration[];
+}
+
+export interface PostProcessNativeHistorySlot<TResource> {
+	readonly read: TResource | null;
+	readonly write: TResource | null;
+	readonly valid: boolean;
+}
+
+/** Fixed declaration-checked resource view supplied by one backend. */
+export interface PostProcessResourceAccessor<TResource = unknown> {
+	readonly color: {
+		readonly input: TResource | null;
+		readonly output: TResource | null;
+	};
+	getGBuffer(semantic: LogicalGBufferSemantic): TResource | null;
+	getHistory(id: string): PostProcessNativeHistorySlot<TResource>;
+	getTransient(id: string): TResource | null;
+	getShared(id: string): TResource | null;
+	copyGBufferToHistory(
+		semantic: LogicalGBufferSemantic,
+		historyId: string
+	): void | Promise<void>;
 }
 
 export interface PostProcessPassImplementation<
 	TContext = unknown,
 	TOptions = unknown,
-	TContextMetadata = unknown,
 > {
 	readonly id?: string;
+	readonly warmupHints?: readonly string[];
 	/**
-	 * Optional backend-specific implementation metadata.
-	 *
-	 * @remarks This is declarative data used by backend executors to prepare
-	 * implementation-owned contexts and warmup work. Implementations must not
-	 * rely on unsupported backends interpreting this value.
+	 * Returns the complete resource contract for this backend and frame.
+	 * @internal Owned by the post-process planner.
+	 * @param request Resolved options and frame information.
+	 * @returns Immutable logical resource declaration.
 	 * @sideEffects None.
 	 */
-	readonly metadata?: PostProcessPassImplementationMetadata<TContextMetadata>;
+	describeExecution(
+		request: PostProcessPassResolveRequest<TOptions>
+	): PostProcessExecutionDeclaration;
 	/**
 	 * Executes the logical pass through pass-owned backend implementation logic.
 	 *
@@ -220,7 +225,7 @@ export interface PostProcessPassImplementation<
 	 * @returns Pass execution result used for scheduling and history tracking.
 	 * @sideEffects May mutate backend render targets or post-process histories.
 	 */
-	execute?(
+	execute(
 		request: PostProcessPassRequest<TOptions>,
 		context: TContext
 	): PostProcessPassResult | Promise<PostProcessPassResult>;
@@ -268,6 +273,7 @@ export interface PostProcessPassRequest<TOptions = unknown>
 		| null;
 	readonly options: TOptions;
 	readonly startPassId: string | null;
+	readonly declaration: PostProcessExecutionDeclaration;
 }
 
 /**
@@ -284,15 +290,14 @@ export interface PostProcessPassExecutionContextRequest<TOptions = unknown>
 }
 
 export interface PostProcessPassResult {
-	readonly ran?: boolean;
+	readonly ran: boolean;
 	readonly preservesOutsideDirtyTiles?: boolean;
-	readonly historyUpdated?: boolean;
 	readonly updatedHistoryIds?: readonly string[];
 }
 
-/** @internal Backend-owned outcome of controlled pass publication. */
+/** @internal Backend-owned outcome of automatic assigned-color commit. */
 export interface PostProcessPassCompletion {
-	readonly published?: boolean;
+	readonly committed?: boolean;
 	readonly physicalId?: string;
 }
 
@@ -351,13 +356,9 @@ export interface IPostProcessExecutor {
 	 * @sideEffects May create a per-pass backend context and reset pending
 	 * backend pass output state.
 	 */
-	getPassExecutionContext?(
+	createPassExecutionContext?(
 		request: PostProcessPassExecutionContextRequest
 	): unknown;
-	executePass(
-		passId: string,
-		request: PostProcessPassRequest
-	): PostProcessPassResult | Promise<PostProcessPassResult>;
 	/**
 	 * Applies backend-owned side effects recorded while one logical pass ran.
 	 *

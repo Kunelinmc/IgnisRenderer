@@ -7,14 +7,10 @@ import type {
 	RenderBackendType,
 } from "../backends/IRenderBackend";
 import type {
-	IPostProcessExecutor,
 	LogicalGBufferBridge,
-	PostProcessHistoryDescriptor,
 	PostProcessPassImplementation,
 	PostProcessPassRequest,
-	PostProcessPassRequirements,
 	PostProcessPassResult,
-	PostProcessTransientDescriptor,
 } from "./types";
 
 export type PostProcessPassId = string;
@@ -22,6 +18,12 @@ export type PostProcessPassId = string;
 export type PostProcessPassImplementationFactory = (
 	backend: IRenderBackend
 ) => PostProcessPassImplementation;
+
+export interface PostProcessSchedule {
+	readonly placement?: PostProcessPlacement;
+	readonly order?: number;
+	readonly incremental?: PostProcessIncrementalMetadata;
+}
 
 export interface PostProcessPassConfig<TRawOptions = unknown> {
 	readonly id: string;
@@ -39,11 +41,9 @@ export interface PostProcessPassConfig<TRawOptions = unknown> {
 	 * Omit this value to use `id` as the diagnostic label.
 	 */
 	readonly warningLabel?: string;
-	readonly placement?: PostProcessPlacement;
-	readonly order?: number;
+	readonly schedule?: PostProcessSchedule;
 	readonly enabled?: boolean;
 	readonly options?: Partial<TRawOptions>;
-	readonly incremental?: PostProcessIncrementalMetadata;
 	readonly implementations?: Partial<
 		Record<RenderBackendType, PostProcessPassImplementationFactory>
 	>;
@@ -99,9 +99,7 @@ export abstract class PostProcessPass<
 	 * The value is resolved during construction and has no side effects.
 	 */
 	public readonly warningLabel: string;
-	public readonly placement?: PostProcessPlacement;
-	public readonly order?: number;
-	public readonly incremental?: PostProcessIncrementalMetadata;
+	public readonly schedule: Readonly<PostProcessSchedule>;
 	private readonly _implementations: Partial<
 		Record<RenderBackendType, PostProcessPassImplementationFactory>
 	>;
@@ -117,9 +115,7 @@ export abstract class PostProcessPass<
 		this.id = config.id;
 		this.builtIn = config.builtIn === true;
 		this.warningLabel = config.warningLabel ?? config.id;
-		this.placement = config.placement;
-		this.order = config.order;
-		this.incremental = config.incremental;
+		this.schedule = Object.freeze({ ...config.schedule });
 		this._enabled = config.enabled === true;
 		this._initialOptions = clonePlainOptions(config.options);
 		this._options = clonePlainOptions(config.options);
@@ -177,38 +173,6 @@ export abstract class PostProcessPass<
 
 	public isEnabled(_request: PostProcessPassResolveRequest): boolean {
 		return this._enabled;
-	}
-
-	public getRequirements(
-		_request: PostProcessPassResolveRequest<TOptions>
-	): PostProcessPassRequirements {
-		return {};
-	}
-
-	public getHistoryDescriptors(
-		_request: PostProcessPassResolveRequest<TOptions>
-	): readonly PostProcessHistoryDescriptor[] {
-		return [];
-	}
-
-	/**
-	 * Returns transient resource descriptors required for the current frame.
-	 *
-	 * @param _request Resolved pass request with backend, dimensions, and options.
-	 * @returns Single-frame resource descriptors keyed by transient id.
-	 * @remarks The pipeline owns concrete resource allocation and reuse.
-	 * @sideEffects None.
-	 */
-	public getTransientResourceDescriptors(
-		_request: PostProcessPassResolveRequest<TOptions>
-	): readonly PostProcessTransientDescriptor[] {
-		return [];
-	}
-
-	public getHistorySignature(
-		request: PostProcessPassResolveRequest<TOptions>
-	): string {
-		return stableSerialize(request.options ?? this._options);
 	}
 
 	/**
@@ -283,14 +247,15 @@ export abstract class PostProcessPass<
 
 	public execute(
 		request: PostProcessPassRequest<TOptions>,
-		context: unknown,
-		executor: IPostProcessExecutor
+		context: unknown
 	): PostProcessPassResult | Promise<PostProcessPassResult> {
 		const implementation = request.implementation;
-		if (implementation?.execute) {
-			return implementation.execute(request, context);
+		if (!implementation) {
+			throw new Error(
+				`Post-process pass "${this.id}" has no executable implementation.`,
+			);
 		}
-		return executor.executePass(this.id, request);
+		return implementation.execute(request, context);
 	}
 
 	public invalidate(backend?: RenderBackendType): void {
@@ -554,18 +519,4 @@ function mergePlainOptions<TOptions>(
 		...(base as object),
 		...(override as object),
 	} as Partial<TOptions>;
-}
-
-function stableSerialize(value: unknown): string {
-	if (value === null || typeof value !== "object") {
-		return JSON.stringify(value);
-	}
-	if (Array.isArray(value)) {
-		return `[${value.map((entry) => stableSerialize(entry)).join(",")}]`;
-	}
-	const record = value as Record<string, unknown>;
-	const keys = Object.keys(record).sort();
-	return `{${keys
-		.map((key) => `${JSON.stringify(key)}:${stableSerialize(record[key])}`)
-		.join(",")}}`;
 }

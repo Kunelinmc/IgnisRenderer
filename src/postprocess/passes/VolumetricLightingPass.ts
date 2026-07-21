@@ -48,13 +48,13 @@ import {
 	type PostProcessPassConfig,
 	type PostProcessPassResolveRequest,
 } from "../PostProcessPass";
-import { WEBGPU_HIZ_POST_PROCESS_GRAPH_METADATA } from "../graphMetadata";
-import type { PostProcessPassMetadata } from "../ordering";
+import type { PostProcessScheduleEntry } from "../ordering";
+import { createPostProcessExecutionDeclaration } from "../executionDeclarations";
 import type {
 	PostProcessHistoryDescriptor,
 	PostProcessPassImplementation,
 	PostProcessPassRequest,
-	PostProcessPassRequirements,
+	PostProcessResourceAccessor,
 	PostProcessPassResult,
 	PostProcessTransientDescriptor,
 } from "../types";
@@ -76,7 +76,7 @@ export const VOLUMETRIC_LIGHTING_PASS_ORDER = {
 		grade: "cinematic",
 		inflationRadius: 16,
 	},
-} as const satisfies PostProcessPassMetadata;
+} as const satisfies PostProcessScheduleEntry;
 const SOFTWARE_VOLUMETRIC_CONSTANTS = Object.freeze({
 	SIGMA_T_SCALE: VOLUMETRIC_SIGMA_T_SCALE,
 	MIN_RAY_DISTANCE: 0.1,
@@ -195,16 +195,8 @@ export interface WebGPUVolumetricLightingContext {
 	readonly targets?: WebGPUPostProcessFrameTargets;
 	readonly shared: PostProcessSharedContext;
 	readonly frameBinding?: IBindingGroup;
-	readonly volumetricLighting?: WebGPUVolumetricLightingData;
-	readonly hiZ?: IRenderTexture | null;
-	readonly historyRead?: IRenderTexture | null;
-	readonly historyWrite?: IRenderTexture | null;
-	readonly reservoirHistoryRead?: IRenderTexture | null;
-	readonly reservoirHistoryWrite?: IRenderTexture | null;
-	readonly motionHistoryRead?: IRenderTexture | null;
-	readonly motionHistoryWrite?: IRenderTexture | null;
-	publishColorTarget?(texture: IRenderTexture): void;
-	writeMotionHistoryFromCurrent?(): void | Promise<void>;
+	readonly resources: PostProcessResourceAccessor<IRenderTexture>;
+	getFrameData<T>(key: unknown): T | undefined;
 }
 
 interface WebGPUVolumetricResources {
@@ -242,6 +234,16 @@ export class SoftwareVolumetricLightingImplementation
 			VolumetricOptions
 		>
 {
+	public describeExecution() {
+		return createPostProcessExecutionDeclaration("software", {
+			gBuffer: ["depth", "motion"],
+			histories: [
+				{ id: "volumetric", usage: DEFAULT_HISTORY_USAGE },
+				{ id: "volumetric-reservoir", usage: DEFAULT_HISTORY_USAGE },
+				{ id: "motion", usage: MOTION_HISTORY_USAGE },
+			],
+		});
+	}
 	public readonly id = "volumetric:software";
 	private _prevScatterBuf: Float32Array | null = null;
 	private _frameIndex = 0;
@@ -1154,41 +1156,21 @@ export class WebGPUVolumetricLightingImplementation
 		>
 {
 	public readonly id = "volumetric:webgpu";
-	public readonly metadata = {
-		graph: WEBGPU_HIZ_POST_PROCESS_GRAPH_METADATA,
-		context: {
-			backend: "webgpu",
-			kind: "screen",
-			publishColorTarget: true,
-			frameBinding: true,
-			frameData: [
-				{
-					property: "volumetricLighting",
-					key: WEBGPU_VOLUMETRIC_LIGHTING_DATA,
-				},
-			],
+	public describeExecution() {
+		return createPostProcessExecutionDeclaration("webgpu", {
+			gBuffer: ["depth", "motion"],
 			histories: [
-				{ property: "historyRead", historyId: "volumetric", side: "read" },
-				{ property: "historyWrite", historyId: "volumetric", side: "write" },
-				{
-					property: "reservoirHistoryRead",
-					historyId: "volumetric-reservoir",
-					side: "read",
-				},
-				{
-					property: "reservoirHistoryWrite",
-					historyId: "volumetric-reservoir",
-					side: "write",
-				},
-				{ property: "motionHistoryRead", historyId: "motion", side: "read" },
-				{ property: "motionHistoryWrite", historyId: "motion", side: "write" },
+				{ id: "volumetric", usage: DEFAULT_HISTORY_USAGE },
+				{ id: "volumetric-reservoir", usage: DEFAULT_HISTORY_USAGE },
+				{ id: "motion", usage: MOTION_HISTORY_USAGE },
 			],
-			requiresHiZ: true,
-			motionHistoryCopy: {
-				writeProperty: "motionHistoryWrite",
-			},
-		},
-	} as const;
+			shared: [{
+				id: "backend:frame-hiz",
+				access: "read",
+				usage: "sampled",
+			}],
+		});
+	}
 	private _resources = new Map<
 		PostProcessSharedContext,
 		WebGPUVolumetricResources
@@ -1217,7 +1199,7 @@ export class WebGPUVolumetricLightingImplementation
 		if (!ran) {
 			return { ran: false };
 		}
-		await context.writeMotionHistoryFromCurrent?.();
+		await context.resources.copyGBufferToHistory("motion", "motion");
 		return {
 			ran: true,
 			updatedHistoryIds: ["volumetric", "volumetric-reservoir", "motion"],
@@ -1275,27 +1257,37 @@ export class WebGPUVolumetricLightingImplementation
 		const resources = await this._ensureResources(context.shared);
 		const lightCount = this._updateLightBuffer(
 			resources,
-			context.volumetricLighting
+			context.getFrameData<WebGPUVolumetricLightingData>(
+				WEBGPU_VOLUMETRIC_LIGHTING_DATA,
+			),
 		);
+		const hiZ = context.resources.getShared("backend:frame-hiz");
+		const history = context.resources.getHistory("volumetric");
+		const reservoirHistory = context.resources.getHistory("volumetric-reservoir");
+		const motionHistory = context.resources.getHistory("motion");
+		const depthTexture = context.resources.getGBuffer("depth");
+		const input = context.resources.color.input;
 		if (
 			!context.encoder ||
 			!context.targets ||
 			!context.frameBinding ||
-			!context.hiZ ||
+			!hiZ ||
 			!context.shared.sampler ||
 			!resources.pipeline ||
 			!resources.params ||
 			!resources.lightBuffer ||
-			!context.historyRead ||
-			!context.historyWrite ||
-			!context.reservoirHistoryRead ||
-			!context.reservoirHistoryWrite ||
-			!context.motionHistoryRead ||
-			!context.motionHistoryWrite
+			!history.read ||
+			!history.write ||
+			!reservoirHistory.read ||
+			!reservoirHistory.write ||
+			!motionHistory.read ||
+			!motionHistory.write ||
+			!depthTexture ||
+			!input
 		) {
 			return false;
 		}
-		const hiZMips = context.shared.getHiZBuilder().getMipViews(context.hiZ);
+		const hiZMips = context.shared.getHiZBuilder().getMipViews(hiZ);
 		if (hiZMips.length === 0) {
 			return false;
 		}
@@ -1395,8 +1387,8 @@ export class WebGPUVolumetricLightingImplementation
 		context.shared.compute.writeBuffer(
 			resources.params,
 			new Float32Array([
-				1 / Math.max(context.targets.sceneColor.width, 1),
-				1 / Math.max(context.targets.sceneColor.height, 1),
+				1 / Math.max(input.width, 1),
+				1 / Math.max(input.height, 1),
 				samples,
 				weight,
 				exposure,
@@ -1421,30 +1413,28 @@ export class WebGPUVolumetricLightingImplementation
 			])
 		);
 
-		const target =
-			context.targets.sceneColor === context.targets.postPong ?
-				context.targets.postPing
-			:	context.targets.postPong;
+		const target = context.resources.color.output;
+		if (!target) return false;
 		const binding = context.shared.getCachedBindGroup(
 			`volumetric-${target === context.targets.postPing ? "ping" : "pong"}`,
 			resources.pipeline,
 			[
-				{ binding: 0, resource: context.targets.sceneColor },
-				{ binding: 1, resource: context.targets.gMotionDepth },
-				{ binding: 2, resource: context.hiZ },
-				{ binding: 3, resource: context.historyRead },
-				{ binding: 4, resource: context.motionHistoryRead },
+				{ binding: 0, resource: input },
+				{ binding: 1, resource: depthTexture },
+				{ binding: 2, resource: hiZ },
+				{ binding: 3, resource: history.read },
+				{ binding: 4, resource: motionHistory.read },
 				{ binding: 5, resource: context.shared.sampler },
 				{ binding: 6, resource: resources.params },
 				{ binding: 7, resource: target },
-				{ binding: 8, resource: context.historyWrite },
+				{ binding: 8, resource: history.write },
 				{
 					binding: 9,
-					resource: context.reservoirHistoryRead,
+					resource: reservoirHistory.read,
 				},
 				{
 					binding: 10,
-					resource: context.reservoirHistoryWrite,
+					resource: reservoirHistory.write,
 				},
 				{ binding: 11, resource: resources.lightBuffer },
 			],
@@ -1460,7 +1450,6 @@ export class WebGPUVolumetricLightingImplementation
 			1
 		);
 		context.encoder.endComputePass();
-		context.publishColorTarget?.(target);
 		return true;
 	}
 
@@ -1665,9 +1654,12 @@ export class VolumetricLightingPass extends PostProcessPass<
 	public constructor(config: VolumetricLightingPassConfig = {}) {
 		super({
 			...config,
-			...VOLUMETRIC_LIGHTING_PASS_ORDER,
-			incremental:
-				config.incremental ?? VOLUMETRIC_LIGHTING_PASS_ORDER.incremental,
+			id: VOLUMETRIC_LIGHTING_PASS_ORDER.id,
+			schedule: {
+				placement: config.schedule?.placement ?? VOLUMETRIC_LIGHTING_PASS_ORDER.placement,
+				order: config.schedule?.order ?? VOLUMETRIC_LIGHTING_PASS_ORDER.order,
+				incremental: config.schedule?.incremental ?? VOLUMETRIC_LIGHTING_PASS_ORDER.incremental,
+			},
 			warningLabel: "volumetric effects",
 			implementations: {
 				software: () => new SoftwareVolumetricLightingImplementation(),
@@ -1683,24 +1675,4 @@ export class VolumetricLightingPass extends PostProcessPass<
 		};
 	}
 
-	public override getRequirements(): PostProcessPassRequirements {
-		return { gBuffer: ["depth", "motion"] };
-	}
-
-	public override getHistoryDescriptors(): readonly PostProcessHistoryDescriptor[] {
-		return [
-			{ id: "volumetric", usage: DEFAULT_HISTORY_USAGE },
-			{ id: "volumetric-reservoir", usage: DEFAULT_HISTORY_USAGE },
-			{ id: "motion", usage: MOTION_HISTORY_USAGE },
-		];
-	}
-
-	public override getTransientResourceDescriptors(
-		request: PostProcessPassResolveRequest<VolumetricOptions>
-	): readonly PostProcessTransientDescriptor[] {
-		if (request.backend !== "webgpu") {
-			return [];
-		}
-		return [];
-	}
 }

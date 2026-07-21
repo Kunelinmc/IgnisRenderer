@@ -320,6 +320,18 @@ export interface RenderGraphAllocationRequest {
 	readonly releaseAfterNodeId: RenderGraphNodeId;
 }
 
+/** @internal One runtime alias applied when planned graph output was skipped. */
+export interface RenderGraphResourceAlias {
+	readonly resourceId: RenderGraphResourceId;
+	readonly resolvedResourceId: RenderGraphResourceId;
+}
+
+/** @internal Runtime deviations layered over immutable planned graph analysis. */
+export interface RenderGraphExecutionOverlay {
+	readonly skippedNodeIds: readonly RenderGraphNodeId[];
+	readonly resourceAliases: readonly RenderGraphResourceAlias[];
+}
+
 /** @internal Sanitized state for one logical resource generation. */
 export interface RenderGraphResourceDebugState {
 	readonly id: RenderGraphResourceId;
@@ -383,6 +395,7 @@ export interface RenderGraphAnalysisSnapshot {
 	readonly liveRanges: readonly RenderGraphLiveRange[];
 	readonly subresourceLiveRanges?: readonly RenderGraphSubresourceLiveRange[];
 	readonly allocationRequests?: readonly RenderGraphAllocationRequest[];
+	readonly executionOverlay: RenderGraphExecutionOverlay;
 	readonly diagnostics: readonly RenderGraphDiagnostic[];
 	readonly shadowDiagnostics: readonly RenderGraphDiagnostic[];
 }

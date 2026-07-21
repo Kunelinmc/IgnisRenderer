@@ -1,16 +1,14 @@
 import type { FrameContext } from "../../pipeline/types";
 import type {
+	LogicalGBufferSemantic,
+	PostProcessExecutionDeclaration,
 	PostProcessPassExecutionContextRequest,
-	PostProcessPassImplementation,
 	PostProcessPassRequest,
 	PostProcessPassResult,
 	PostProcessPassCompletion,
 } from "../../postprocess";
+import { createPostProcessResourceAccessor } from "../../postprocess/PostProcessResourceAccessor";
 import type { WebGLProgramCompiler } from "./WebGLProgramCompiler";
-import {
-	isWebGLPostProcessContextMetadata,
-	type WebGLPostProcessContextMetadata,
-} from "./WebGLPostProcessContracts";
 
 export interface WebGLPostProcessBridgeCallbacks {
 	getGL(): WebGL2RenderingContext;
@@ -31,7 +29,7 @@ export interface WebGLPostProcessBridgeCallbacks {
 		height: number,
 		context: FrameContext | null
 	): void;
-	publishColorTexture(texture: WebGLTexture): void;
+	commitColorTexture(texture: WebGLTexture): void;
 	markTAAHistoryValid(): void;
 	applyPipelineHistories(request: PostProcessPassRequest): void;
 	warn(key: string, message: string): void;
@@ -40,11 +38,9 @@ export interface WebGLPostProcessBridgeCallbacks {
 /** @internal Packs implementation-declared WebGL post-process execution contexts. */
 export class WebGLPostProcessBridge {
 	private readonly _callbacks: WebGLPostProcessBridgeCallbacks;
-	private _pendingColorTexture: WebGLTexture | null = null;
 	private _expectedColorTexture: WebGLTexture | null = null;
 	private readonly _physicalIds = new WeakMap<WebGLTexture, string>();
 	private _nextPhysicalId = 1;
-	private _pendingMarksTAAHistoryValid = false;
 	private _transactionActive = false;
 
 	/** @internal Starts the runtime-owned controlled-publication transaction. */
@@ -76,23 +72,32 @@ export class WebGLPostProcessBridge {
 	/**
 	 * Provides a WebGL context for a pass-owned implementation.
 	 *
-	 * @internal Called by `WebGLFrameExecutor.getPassExecutionContext`.
+	 * @internal Called by `WebGLFrameExecutor.createPassExecutionContext`.
 	 *
 	 * @param request Current pass-owned implementation context request.
 	 * @returns Context declared by implementation metadata, or `undefined`.
 	 * @sideEffects May synchronize executor temporal-history aliases when the
 	 * implementation declares `syncPipelineHistories`.
 	 */
-	public getPassExecutionContext(request: PostProcessPassExecutionContextRequest): unknown {
+	public createPassExecutionContext(request: PostProcessPassExecutionContextRequest): unknown {
 		if (this._transactionActive) this.clearPendingPassState();
-		const metadata = request.implementation.metadata?.context;
-		if (!isWebGLPostProcessContextMetadata(metadata)) {
-			return undefined;
-		}
-		if (metadata.syncPipelineHistories) {
+		if ((request.declaration.histories?.length ?? 0) > 0) {
 			this._callbacks.applyPipelineHistories(request);
 		}
-		return this._createContext(metadata, request, "execute");
+		const source = this._callbacks.getSourceTexture();
+		this._expectedColorTexture =
+			request.declaration.color.output === "new-version" && source ?
+				this._resolveTargetTexture(source) : null;
+		if (
+			request.declaration.color.output === "new-version" &&
+			!this._expectedColorTexture
+		) {
+			throw new Error(
+				`Post-process pass "${request.passId}" cannot create its required ` +
+					"WebGL color output binding.",
+			);
+		}
+		return this._createContext(request);
 	}
 
 	/** @internal Commits a controlled color publication after a successful pass. */
@@ -101,24 +106,21 @@ export class WebGLPostProcessBridge {
 		result: PostProcessPassResult,
 	): PostProcessPassCompletion {
 		if (!this._transactionActive) return {};
-		const texture = this._pendingColorTexture;
 		const expectedTexture = this._expectedColorTexture;
-		const markTAAHistoryValid = this._pendingMarksTAAHistoryValid;
 		this.clearPendingPassState();
-		if (!texture) return { published: false };
-		if (result.ran === false) {
+		if (result.ran === false || request.declaration.color.output === "preserve") {
+			return { committed: false };
+		}
+		if (!expectedTexture) {
 			throw new Error(
-				`Post-process pass "${request.passId}" published a color texture and then reported ran: false.`,
+				`Post-process pass "${request.passId}" has no required physical color binding.`,
 			);
 		}
-		if (request.pass.builtIn && texture !== expectedTexture) {
-			throw new Error(
-				`Post-process pass "${request.passId}" published a texture other than its assigned graph output.`,
-			);
+		this._callbacks.commitColorTexture(expectedTexture);
+		if (result.updatedHistoryIds?.includes("taa")) {
+			this._callbacks.markTAAHistoryValid();
 		}
-		this._callbacks.publishColorTexture(texture);
-		if (markTAAHistoryValid) this._callbacks.markTAAHistoryValid();
-		return { published: true, physicalId: this._getPhysicalId(texture) };
+		return { committed: true, physicalId: this._getPhysicalId(expectedTexture) };
 	}
 
 	/** @internal Clears an uncommitted pass publication after an aborted frame. */
@@ -137,20 +139,17 @@ export class WebGLPostProcessBridge {
 	 * `undefined`.
 	 * @sideEffects None.
 	 */
-	public getPassWarmupExecutionContext(implementation: PostProcessPassImplementation): unknown {
-		const metadata = implementation.metadata?.context;
-		if (!isWebGLPostProcessContextMetadata(metadata)) {
-			return undefined;
-		}
-		return this._createContext(metadata, null, "warmup");
+	public getPassWarmupExecutionContext(
+		passId: string,
+		declaration: PostProcessExecutionDeclaration,
+	): unknown {
+		return this._createWarmupContext(passId, declaration);
 	}
 
 	private _createContext(
-		metadata: WebGLPostProcessContextMetadata,
-		request: PostProcessPassRequest | null,
-		mode: "execute" | "warmup",
-	): Record<string, unknown> | undefined {
-		const context: Record<string, unknown> = {
+		request: PostProcessPassExecutionContextRequest,
+	): Record<string, unknown> {
+		return Object.freeze({
 			gl: this._callbacks.getGL(),
 			programCompiler: this._callbacks.getProgramCompiler(),
 			fullscreenVao: this._callbacks.getFullscreenVao(),
@@ -159,57 +158,72 @@ export class WebGLPostProcessBridge {
 			width: this._callbacks.getWidth(),
 			height: this._callbacks.getHeight(),
 			getSourceTexture: () => this._callbacks.getSourceTexture(),
-			resolveTargetTexture: (sourceTexture: WebGLTexture) =>
-				this._resolveTargetTexture(sourceTexture),
 			bindColorTarget: (texture: WebGLTexture) => this._callbacks.bindColorTarget(texture),
 			drawFullscreen: (
 				width = this._callbacks.getWidth(),
 				height = this._callbacks.getHeight(),
 				frameContext = this._callbacks.getActiveContext(),
 			) => this._callbacks.drawFullscreen(width, height, frameContext),
-			publishColorTexture: (texture: WebGLTexture) => {
-				if (mode !== "execute") return;
-				if (!this._transactionActive) {
-					this._callbacks.publishColorTexture(texture);
-					if (metadata.markTAAHistoryValidOnPublish) {
-						this._callbacks.markTAAHistoryValid();
-					}
-					return;
-				}
-				this._pendingColorTexture = texture;
-				this._pendingMarksTAAHistoryValid = metadata.markTAAHistoryValidOnPublish === true;
-			},
-		};
+			warn: (key: string, message: string) => this._callbacks.warn(key, message),
+			resources: createPostProcessResourceAccessor<WebGLTexture>({
+				passId: request.passId,
+				declaration: request.declaration,
+				colorInput: this._callbacks.getSourceTexture(),
+				colorOutput: this._expectedColorTexture,
+				getGBuffer: (semantic) => this._getGBufferTexture(request, semantic),
+				getHistory: (id) => {
+					const slot = request.histories[id];
+					return slot ? {
+						read: (slot.read.resource as WebGLTexture | null) ?? null,
+						write: (slot.write.resource as WebGLTexture | null) ?? null,
+						valid: slot.valid,
+					} : null;
+				},
+				getTransient: (id) => this._getTransientTexture(request, id),
+				getShared: () => null,
+			}),
+		});
+	}
 
-		if (metadata.sceneMotionTexture) {
-			context.sceneMotionTexture = this._callbacks.getSceneMotionTexture();
-		}
-		if (metadata.sceneNormalTexture) {
-			context.sceneNormalTexture = this._callbacks.getSceneNormalTexture();
-		}
-		if (metadata.warn) {
-			context.warn = (key: string, message: string) => this._callbacks.warn(key, message);
-		}
-		if (request && mode === "execute") {
-			for (const binding of metadata.histories ?? []) {
-				context[binding.property] =
-					(request.histories[binding.historyId]?.[binding.side]
-						.resource as WebGLTexture | null) ?? null;
-			}
-			for (const binding of metadata.transients ?? []) {
-				context[binding.property] = this._getTransientTexture(
-					request,
-					binding.transientId,
-				);
-			}
-		}
-		return context;
+	private _createWarmupContext(
+		passId: string,
+		declaration: PostProcessExecutionDeclaration,
+	): Record<string, unknown> {
+		return Object.freeze({
+			gl: this._callbacks.getGL(),
+			programCompiler: this._callbacks.getProgramCompiler(),
+			fullscreenVao: this._callbacks.getFullscreenVao(),
+			postFramebuffer: this._callbacks.getPostFramebuffer(),
+			sceneColorTexture: this._callbacks.getSceneColorTexture(),
+			width: this._callbacks.getWidth(),
+			height: this._callbacks.getHeight(),
+			getSourceTexture: (): null => null,
+			bindColorTarget: (texture: WebGLTexture) => this._callbacks.bindColorTarget(texture),
+			drawFullscreen: () => {},
+			warn: (key: string, message: string) => this._callbacks.warn(key, message),
+			resources: createPostProcessResourceAccessor<WebGLTexture>({
+				passId,
+				declaration,
+				colorInput: null,
+				colorOutput: null,
+				getGBuffer: () => null,
+				getHistory: () => null,
+				getTransient: () => null,
+				getShared: () => null,
+			}),
+		});
 	}
 
 	private clearPendingPassState(): void {
-		this._pendingColorTexture = null;
-		this._pendingMarksTAAHistoryValid = false;
 		this._expectedColorTexture = null;
+	}
+
+	private _getGBufferTexture(
+		request: PostProcessPassRequest,
+		semantic: LogicalGBufferSemantic,
+	): WebGLTexture | null {
+		const handle = request.gBuffer.channels[semantic]?.handle;
+		return handle?.backend === "webgl" && "texture" in handle ? handle.texture : null;
 	}
 
 	private _getTransientTexture(

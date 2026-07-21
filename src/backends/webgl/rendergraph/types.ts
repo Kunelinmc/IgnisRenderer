@@ -3,6 +3,7 @@ import type {
 	FramePassStage,
 } from "../../../pipeline/types";
 import type { PostProcessGraphDebugState } from "../../../postprocess/BackendPostProcessRuntime";
+import type { PostProcessSubgraphNodePayload } from "../../../postprocess/PostProcessSubgraphBuilder";
 import type {
 	CompiledRenderGraph,
 	RenderGraphAnalysisCompleteness,
@@ -28,7 +29,7 @@ export type WebGLFrameGraphNodeKind =
 	| "oit-reveal"
 	| "oit-resolve"
 	| "particles"
-	| "postprocess"
+	| "post-process-pass"
 	| "present";
 
 export const WEBGL_FRAME_GRAPH_NODE_KINDS = [
@@ -45,7 +46,7 @@ export const WEBGL_FRAME_GRAPH_NODE_KINDS = [
 	"oit-reveal",
 	"oit-resolve",
 	"particles",
-	"postprocess",
+	"post-process-pass",
 	"present",
 ] as const satisfies readonly WebGLFrameGraphNodeKind[];
 
@@ -89,6 +90,16 @@ export interface WebGLFrameGraphNode {
 	readonly reads?: readonly WebGLFrameGraphResourceRef[];
 	readonly writes?: readonly WebGLFrameGraphResourceRef[];
 	readonly destroys?: readonly WebGLFrameGraphResourceMutation[];
+	readonly postProcess?: PostProcessSubgraphNodePayload;
+}
+
+export interface WebGLComposedFrameGraphStage {
+	readonly namespace: string;
+	readonly definition: import("../../../rendergraph/types").RenderGraphDefinition<
+		WebGLFrameGraphNode,
+		WebGLFrameGraphNodeKind
+	>;
+	readonly inputs: Readonly<Record<string, string>>;
 }
 
 export interface WebGLFrameGraphPlannerState {
@@ -100,6 +111,7 @@ export interface WebGLFrameGraphPlannerState {
 export interface WebGLFrameGraphStagePlan {
 	readonly pass: FramePass;
 	readonly nodes: readonly WebGLFrameGraphNode[];
+	readonly composition?: WebGLComposedFrameGraphStage;
 }
 
 export interface WebGLFrameGraphFramePlan {

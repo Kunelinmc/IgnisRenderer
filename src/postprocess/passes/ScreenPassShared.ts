@@ -5,6 +5,7 @@ import type { IRenderTexture } from "../../backends/types";
 import type { WebGPUPostProcessFrameTargets } from "../../backends/webgpu/WebGPUPostProcessContracts";
 import type { PostProcessSharedContext } from "../../backends/webgpu/postprocess/PostProcessSharedContext";
 import type { WebGLProgramCompiler } from "../../backends/webgl/WebGLProgramCompiler";
+import type { PostProcessResourceAccessor } from "../types";
 export type { IncrementalDirtyRect } from "../../pipeline/incremental";
 
 export type EmptyOptions = Record<string, never>;
@@ -12,6 +13,7 @@ export type EmptyOptions = Record<string, never>;
 /** @internal Software context supplied to built-in screen post-process implementations. */
 export interface SoftwareBuiltinPostProcessContext {
 	readonly canvasContext: CanvasRenderingContext2D | null;
+	readonly resources: PostProcessResourceAccessor<ArrayBufferView>;
 }
 
 /** @internal WebGPU context supplied to built-in screen post-process implementations. */
@@ -19,7 +21,10 @@ export interface WebGPUScreenPostProcessContext {
 	readonly encoder?: ICommandEncoder;
 	readonly targets?: WebGPUPostProcessFrameTargets;
 	readonly shared: PostProcessSharedContext;
-	publishColorTarget?(texture: IRenderTexture): void;
+	readonly resources: PostProcessResourceAccessor<IRenderTexture>;
+	readonly frameBinding?: unknown;
+	readonly lightingState?: unknown;
+	getFrameData<T>(key: unknown): T | undefined;
 }
 
 /** @internal WebGPU runtime context supplied to built-in screen implementations. */
@@ -35,14 +40,13 @@ export interface WebGLScreenPostProcessContext {
 	readonly fullscreenVao: WebGLVertexArrayObject | null;
 	readonly postFramebuffer: WebGLFramebuffer | null;
 	readonly sceneColorTexture: WebGLTexture | null;
-	readonly sceneMotionTexture?: WebGLTexture | null;
 	readonly width: number;
 	readonly height: number;
+	readonly resources: PostProcessResourceAccessor<WebGLTexture>;
 	getSourceTexture(): WebGLTexture | null;
-	resolveTargetTexture(sourceTexture: WebGLTexture): WebGLTexture | null;
 	bindColorTarget(texture: WebGLTexture): void;
 	drawFullscreen(): void;
-	publishColorTexture(texture: WebGLTexture): void;
+	warn(key: string, message: string): void;
 }
 
 export function resolveSoftwareDirtyRects(context: FrameContext): IncrementalDirtyRect[] {
@@ -102,20 +106,13 @@ export function softwareRectIntersectsDirtyRects(
 	return false;
 }
 export function resolveWebGPUTarget(
-	targets: WebGPUPostProcessFrameTargets
+	context: WebGPUScreenPostProcessContext
 ): IRenderTexture {
-	return targets.sceneColor === targets.postPong ?
-			targets.postPing
-		:	targets.postPong;
-}
-
-export function publishWebGPUColorTarget(
-	context: WebGPUScreenPostProcessContext,
-	texture: IRenderTexture
-): void {
-	if (context.publishColorTarget) {
-		context.publishColorTarget(texture);
+	const output = context.resources.color.output;
+	if (!output) {
+		throw new Error("WebGPU post-process pass has no assigned color output.");
 	}
+	return output;
 }
 export interface ResolvedWebGLTarget {
 	readonly source: WebGLTexture;
@@ -132,11 +129,11 @@ export function resolveWebGLTarget(
 	) {
 		return null;
 	}
-	const source = context.getSourceTexture();
+	const source = context.resources.color.input ?? context.getSourceTexture();
 	if (!source) {
 		return null;
 	}
-	const texture = context.resolveTargetTexture(source);
+	const texture = context.resources.color.output;
 	if (!texture) {
 		return null;
 	}

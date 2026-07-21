@@ -11,12 +11,8 @@ import {
 	WEBGPU_2D_COMPUTE_WORKGROUP_SIZE as WORKGROUP_SIZE,
 } from "../../backends/webgpu/constants";
 import {
-	WEBGPU_SCREEN_POST_PROCESS_CONTEXT_METADATA,
 	type WebGPUPostProcessFrameTargets,
 } from "../../backends/webgpu/WebGPUPostProcessContracts";
-import {
-	WEBGL_SCREEN_POST_PROCESS_CONTEXT_METADATA,
-} from "../../backends/webgl/WebGLPostProcessContracts";
 import type { PostProcessSharedContext } from "../../backends/webgpu/postprocess/PostProcessSharedContext";
 import type {
 	WebGLProgramCompiler,
@@ -29,13 +25,14 @@ import {
 	type PostProcessPassConfig,
 	type PostProcessPassResolveRequest,
 } from "../PostProcessPass";
-import type { PostProcessPassMetadata } from "../ordering";
+import type { PostProcessScheduleEntry } from "../ordering";
+import { createPostProcessExecutionDeclaration } from "../executionDeclarations";
 import type {
 	IPostProcessExecutor,
 	PostProcessPassImplementation,
 	PostProcessPassRequest,
-	PostProcessPassRequirements,
 	PostProcessPassResult,
+	PostProcessResourceAccessor,
 } from "../types";
 
 export const FOG_PASS_ID = "fog";
@@ -52,7 +49,7 @@ export const FOG_PASS_ORDER = {
 			(postProcess.getOptions<FogOptions>(FOG_PASS_ID)?.application ??
 				"postprocess") !== "scene",
 	},
-} as const satisfies PostProcessPassMetadata;
+} as const satisfies PostProcessScheduleEntry;
 
 export interface FogOptions {
 	/** Distance falloff model used to convert depth into fog opacity. */
@@ -99,7 +96,7 @@ export interface WebGPUFogContext {
 	readonly encoder?: ICommandEncoder;
 	readonly targets?: WebGPUPostProcessFrameTargets;
 	readonly shared: PostProcessSharedContext;
-	publishColorTarget?(texture: IRenderTexture): void;
+	readonly resources: PostProcessResourceAccessor<IRenderTexture>;
 }
 
 /** @internal WebGL context supplied to the built-in fog implementation. */
@@ -109,14 +106,12 @@ export interface WebGLFogContext {
 	readonly fullscreenVao: WebGLVertexArrayObject | null;
 	readonly postFramebuffer: WebGLFramebuffer | null;
 	readonly sceneColorTexture: WebGLTexture | null;
-	readonly sceneMotionTexture: WebGLTexture | null;
 	readonly width: number;
 	readonly height: number;
+	readonly resources: PostProcessResourceAccessor<WebGLTexture>;
 	getSourceTexture(): WebGLTexture | null;
-	resolveTargetTexture(sourceTexture: WebGLTexture): WebGLTexture | null;
 	bindColorTarget(texture: WebGLTexture): void;
 	drawFullscreen(): void;
-	publishColorTexture(texture: WebGLTexture): void;
 }
 
 interface WebGLFogProgram {
@@ -229,9 +224,9 @@ export class WebGPUFogImplementation
 	implements PostProcessPassImplementation<WebGPUFogContext, FogOptions>
 {
 	public readonly id = "fog:webgpu";
-	public readonly metadata = {
-		context: WEBGPU_SCREEN_POST_PROCESS_CONTEXT_METADATA,
-	};
+	public describeExecution() {
+		return createPostProcessExecutionDeclaration("webgpu", { gBuffer: ["depth"] });
+	}
 	private _resources = new Map<PostProcessSharedContext, WebGPUFogResources>();
 
 	public async warmup(context: WebGPUFogContext | undefined): Promise<void> {
@@ -285,16 +280,18 @@ export class WebGPUFogImplementation
 			return false;
 		}
 		const targets = context.targets;
-		const target =
-			targets.sceneColor === targets.postPong ? targets.postPing : targets.postPong;
+		const target = context.resources.color.output;
+		const input = context.resources.color.input;
+		const depthTexture = context.resources.getGBuffer("depth");
+		if (!target || !input || !depthTexture) return false;
 		resolveFogParamData(request.options, true, resources.paramData);
 		context.shared.compute.writeBuffer(resources.params, resources.paramData);
 		const binding = context.shared.getCachedBindGroup(
 			`fog-${target === targets.postPing ? "ping" : "pong"}`,
 			resources.pipeline,
 			[
-				{ binding: 0, resource: targets.sceneColor },
-				{ binding: 1, resource: targets.gMotionDepth },
+				{ binding: 0, resource: input },
+				{ binding: 1, resource: depthTexture },
 				{ binding: 2, resource: context.shared.sampler },
 				{ binding: 3, resource: resources.params },
 				{ binding: 4, resource: target },
@@ -310,7 +307,6 @@ export class WebGPUFogImplementation
 			1
 		);
 		context.encoder.endComputePass();
-		context.publishColorTarget?.(target);
 		return true;
 	}
 
@@ -365,12 +361,9 @@ export class WebGLFogImplementation
 	implements PostProcessPassImplementation<WebGLFogContext, FogOptions>
 {
 	public readonly id = "fog:webgl";
-	public readonly metadata = {
-		context: {
-			...WEBGL_SCREEN_POST_PROCESS_CONTEXT_METADATA,
-			sceneMotionTexture: true,
-		},
-	};
+	public describeExecution() {
+		return createPostProcessExecutionDeclaration("webgl", { gBuffer: ["depth"] });
+	}
 	private _fogParams0 = new Float32Array(4);
 	private _fogParams1 = new Float32Array(4);
 	private _programCompiler: WebGLProgramCompiler | null = null;
@@ -397,19 +390,16 @@ export class WebGLFogImplementation
 		context: WebGLFogContext
 	): PostProcessPassResult {
 		if (
-			!context.sceneMotionTexture ||
 			!context.postFramebuffer ||
 			!context.sceneColorTexture ||
 			!context.fullscreenVao
 		) {
 			return { ran: false };
 		}
-		const sourceTexture = context.getSourceTexture();
-		if (!sourceTexture) {
-			return { ran: false };
-		}
-		const targetTexture = context.resolveTargetTexture(sourceTexture);
-		if (!targetTexture) {
+		const sourceTexture = context.resources.color.input;
+		const targetTexture = context.resources.color.output;
+		const motionTexture = context.resources.getGBuffer("depth");
+		if (!sourceTexture || !targetTexture || !motionTexture) {
 			return { ran: false };
 		}
 
@@ -437,7 +427,7 @@ export class WebGLFogImplementation
 		gl.activeTexture(gl.TEXTURE0);
 		gl.bindTexture(gl.TEXTURE_2D, sourceTexture);
 		gl.activeTexture(gl.TEXTURE1);
-		gl.bindTexture(gl.TEXTURE_2D, context.sceneMotionTexture);
+		gl.bindTexture(gl.TEXTURE_2D, motionTexture);
 
 		const uniforms = fogProgram.uniforms;
 		if (uniforms.sceneColor) {
@@ -454,7 +444,6 @@ export class WebGLFogImplementation
 		}
 		context.drawFullscreen();
 		gl.bindVertexArray(null);
-		context.publishColorTexture(targetTexture);
 		return { ran: true };
 	}
 
@@ -510,8 +499,12 @@ export class FogPass extends PostProcessPass<FogOptions, FogOptions> {
 	public constructor(config: FogPassConfig = {}) {
 		super({
 			...config,
-			...FOG_PASS_ORDER,
-			incremental: config.incremental ?? FOG_PASS_ORDER.incremental,
+			id: FOG_PASS_ORDER.id,
+			schedule: {
+				placement: config.schedule?.placement ?? FOG_PASS_ORDER.placement,
+				order: config.schedule?.order ?? FOG_PASS_ORDER.order,
+				incremental: config.schedule?.incremental ?? FOG_PASS_ORDER.incremental,
+			},
 			warningLabel: "fog",
 			implementations: {
 				webgpu: () => new WebGPUFogImplementation(),
@@ -527,10 +520,6 @@ export class FogPass extends PostProcessPass<FogOptions, FogOptions> {
 		};
 	}
 
-	public override getRequirements(): PostProcessPassRequirements {
-		return { gBuffer: ["depth"] };
-	}
-
 	public override shouldExecute(
 		request: PostProcessPassResolveRequest<FogOptions>
 	): boolean {
@@ -539,12 +528,11 @@ export class FogPass extends PostProcessPass<FogOptions, FogOptions> {
 
 	public override execute(
 		request: PostProcessPassRequest<FogOptions>,
-		context: unknown,
-		executor: IPostProcessExecutor
+		context: unknown
 	): PostProcessPassResult | Promise<PostProcessPassResult> {
 		if ((request.options.application ?? "postprocess") === "scene") {
 			return { ran: false };
 		}
-		return super.execute(request, context, executor);
+		return super.execute(request, context);
 	}
 }

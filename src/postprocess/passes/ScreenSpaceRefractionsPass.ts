@@ -20,12 +20,12 @@ import {
 	type PostProcessPassConfig,
 	type PostProcessPassResolveRequest,
 } from "../PostProcessPass";
-import { WEBGPU_HIZ_POST_PROCESS_GRAPH_METADATA } from "../graphMetadata";
-import type { PostProcessPassMetadata } from "../ordering";
+import type { PostProcessScheduleEntry } from "../ordering";
+import { createPostProcessExecutionDeclaration } from "../executionDeclarations";
 import type {
 	PostProcessPassImplementation,
 	PostProcessPassRequest,
-	PostProcessPassRequirements,
+	PostProcessResourceAccessor,
 	PostProcessPassResult,
 	PostProcessTransientDescriptor,
 } from "../types";
@@ -40,8 +40,12 @@ export const SCREEN_SPACE_REFRACTIONS_PASS_ORDER = {
 		grade: "cinematic",
 		inflationRadius: 16,
 	},
-} as const satisfies PostProcessPassMetadata;
+} as const satisfies PostProcessScheduleEntry;
 const WEBGPU_SSREFRACTION_RAW_TRANSIENT_ID = "ssrefraction:raw";
+const WEBGPU_TRANSMISSION_SCENE_COLOR = "backend:transmission-scene-color";
+const WEBGPU_TRANSMISSION_LIGHTING = "backend:transmission-lighting";
+const WEBGPU_TRANSMISSION_SURFACE_1 = "backend:transmission-surface-1";
+const WEBGPU_TRANSMISSION_SURFACE_2 = "backend:transmission-surface-2";
 
 export interface SSRefractionOptions {
 	/** Maximum ray-march iterations per refraction ray. */
@@ -117,9 +121,7 @@ export interface WebGPUSSRefractionContext {
 	readonly targets?: WebGPUPostProcessFrameTargets;
 	readonly shared: PostProcessSharedContext;
 	readonly frameBinding?: IBindingGroup;
-	readonly refractionRaw?: IRenderTexture | null;
-	readonly hiZ?: IRenderTexture | null;
-	publishColorTarget?(texture: IRenderTexture): void;
+	readonly resources: PostProcessResourceAccessor<IRenderTexture>;
 }
 
 interface WebGPUSSRefractionResources {
@@ -254,22 +256,24 @@ export class WebGPUScreenSpaceRefractionsImplementation
 	implements PostProcessPassImplementation<WebGPUSSRefractionContext>
 {
 	public readonly id = "ssrefraction:webgpu";
-	public readonly metadata = {
-		graph: WEBGPU_HIZ_POST_PROCESS_GRAPH_METADATA,
-		context: {
-			backend: "webgpu",
-			kind: "screen",
-			publishColorTarget: true,
-			frameBinding: true,
-			transients: [
-				{
-					property: "refractionRaw",
-					transientId: WEBGPU_SSREFRACTION_RAW_TRANSIENT_ID,
-				},
-			],
-			requiresHiZ: true,
-		},
-	} as const;
+	public describeExecution(
+		request: PostProcessPassResolveRequest<ResolvedSSRefractionOptions>
+	) {
+		return createPostProcessExecutionDeclaration("webgpu", {
+			gBuffer: ["depth", "motion", "normal", "transmission"],
+			transients: resolveSSRefractionTransientDescriptors(request),
+			shared: [{
+				id: "backend:frame-hiz",
+				access: "read",
+				usage: "sampled",
+			}, ...[
+				WEBGPU_TRANSMISSION_SCENE_COLOR,
+				WEBGPU_TRANSMISSION_LIGHTING,
+				WEBGPU_TRANSMISSION_SURFACE_1,
+				WEBGPU_TRANSMISSION_SURFACE_2,
+			].map((id) => ({ id, access: "read" as const, usage: "sampled" as const }))],
+		});
+	}
 	private _resources = new Map<
 		PostProcessSharedContext,
 		WebGPUSSRefractionResources
@@ -340,36 +344,44 @@ export class WebGPUScreenSpaceRefractionsImplementation
 	): Promise<boolean> {
 		const resources = await this._ensureResources(context.shared);
 		const targets = context.targets;
+		const raw = context.resources.getTransient(WEBGPU_SSREFRACTION_RAW_TRANSIENT_ID);
+		const hiZ = context.resources.getShared("backend:frame-hiz");
+		const depthTexture = context.resources.getGBuffer("depth");
+		const normalTexture = context.resources.getGBuffer("normal");
+		const transmissionSurface0 = context.resources.getGBuffer("transmission");
+		const transmissionSceneColor = context.resources.getShared(WEBGPU_TRANSMISSION_SCENE_COLOR);
+		const transmissionLighting = context.resources.getShared(WEBGPU_TRANSMISSION_LIGHTING);
+		const transmissionSurface1 = context.resources.getShared(WEBGPU_TRANSMISSION_SURFACE_1);
+		const transmissionSurface2 = context.resources.getShared(WEBGPU_TRANSMISSION_SURFACE_2);
+		const input = context.resources.color.input;
 		if (
 			!context.encoder ||
 			!context.frameBinding ||
-			!context.refractionRaw ||
-			!context.hiZ ||
+			!raw ||
+			!hiZ ||
 			!context.shared.sampler ||
 			!resources.tracePipeline ||
 			!resources.composePipeline ||
 			!resources.traceParams ||
 			!resources.composeParams ||
 			!targets ||
-			!targets.postPing ||
-			!targets.postPong ||
-			!targets.gMotionDepth ||
-			!targets.gNormalRoughMetal ||
-			!targets.transmissionSceneColorCopy ||
-			!targets.transmissionLighting ||
-			!targets.gTransmissionSurface0 ||
-			!targets.gTransmissionSurface1 ||
-			!targets.gTransmissionSurface2
+			!depthTexture ||
+			!normalTexture ||
+			!transmissionSceneColor ||
+			!transmissionLighting ||
+			!transmissionSurface0 ||
+			!transmissionSurface1 ||
+			!transmissionSurface2
+			|| !input
 		) {
 			return false;
 		}
 
-		const hiZMips = context.shared.getHiZBuilder().getMipViews(context.hiZ);
+		const hiZMips = context.shared.getHiZBuilder().getMipViews(hiZ);
 		if (hiZMips.length === 0) {
 			return false;
 		}
 
-		const raw = context.refractionRaw;
 		const options = resolveSSRefractionOptions(
 			request.options as SSRefractionOptions
 		);
@@ -387,16 +399,16 @@ export class WebGPUScreenSpaceRefractionsImplementation
 			"ssrefraction-trace",
 			resources.tracePipeline,
 			[
-				{ binding: 0, resource: targets.transmissionSceneColorCopy },
-				{ binding: 1, resource: targets.gTransmissionSurface0 },
-				{ binding: 2, resource: targets.gTransmissionSurface1 },
-				{ binding: 3, resource: targets.gTransmissionSurface2 },
-				{ binding: 4, resource: targets.gMotionDepth },
-				{ binding: 5, resource: context.hiZ },
+				{ binding: 0, resource: transmissionSceneColor },
+				{ binding: 1, resource: transmissionSurface0 },
+				{ binding: 2, resource: transmissionSurface1 },
+				{ binding: 3, resource: transmissionSurface2 },
+				{ binding: 4, resource: depthTexture },
+				{ binding: 5, resource: hiZ },
 				{ binding: 6, resource: context.shared.sampler },
 				{ binding: 7, resource: resources.traceParams },
 				{ binding: 8, resource: raw },
-				{ binding: 9, resource: targets.gNormalRoughMetal },
+				{ binding: 9, resource: normalTexture },
 			],
 			"WebGPUSSRefraction_TraceBinding"
 		);
@@ -411,8 +423,8 @@ export class WebGPUScreenSpaceRefractionsImplementation
 		);
 		context.encoder.endComputePass();
 
-		const composeTarget =
-			targets.sceneColor === targets.postPing ? targets.postPong : targets.postPing;
+		const composeTarget = context.resources.color.output;
+		if (!composeTarget) return false;
 		context.shared.compute.writeBuffer(
 			resources.composeParams,
 			new Float32Array([
@@ -426,9 +438,9 @@ export class WebGPUScreenSpaceRefractionsImplementation
 			`ssrefraction-compose-${composeTarget === targets.postPing ? "ping" : "pong"}`,
 			resources.composePipeline,
 			[
-				{ binding: 0, resource: targets.sceneColor },
+				{ binding: 0, resource: input },
 				{ binding: 1, resource: raw },
-				{ binding: 2, resource: targets.transmissionLighting },
+				{ binding: 2, resource: transmissionLighting },
 				{ binding: 3, resource: context.shared.sampler },
 				{ binding: 4, resource: resources.composeParams },
 				{ binding: 5, resource: composeTarget },
@@ -444,7 +456,6 @@ export class WebGPUScreenSpaceRefractionsImplementation
 			1
 		);
 		context.encoder.endComputePass();
-		context.publishColorTarget?.(composeTarget);
 		return true;
 	}
 
@@ -570,9 +581,12 @@ export class ScreenSpaceRefractionsPass extends PostProcessPass<
 	public constructor(config: ScreenSpaceRefractionsPassConfig = {}) {
 		super({
 			...config,
-			...SCREEN_SPACE_REFRACTIONS_PASS_ORDER,
-			incremental:
-				config.incremental ?? SCREEN_SPACE_REFRACTIONS_PASS_ORDER.incremental,
+			id: SCREEN_SPACE_REFRACTIONS_PASS_ORDER.id,
+			schedule: {
+				placement: config.schedule?.placement ?? SCREEN_SPACE_REFRACTIONS_PASS_ORDER.placement,
+				order: config.schedule?.order ?? SCREEN_SPACE_REFRACTIONS_PASS_ORDER.order,
+				incremental: config.schedule?.incremental ?? SCREEN_SPACE_REFRACTIONS_PASS_ORDER.incremental,
+			},
 			warningLabel: "screen-space refractions",
 			implementations: {
 				webgpu: () => new WebGPUScreenSpaceRefractionsImplementation(),
@@ -582,16 +596,6 @@ export class ScreenSpaceRefractionsPass extends PostProcessPass<
 
 	public override normalizeOptions(): ResolvedSSRefractionOptions {
 		return resolveSSRefractionOptions(this.getRawOptions());
-	}
-
-	public override getRequirements(): PostProcessPassRequirements {
-		return { gBuffer: ["depth", "motion", "normal", "transmission"] };
-	}
-
-	public override getTransientResourceDescriptors(
-		request: PostProcessPassResolveRequest<ResolvedSSRefractionOptions>
-	): readonly PostProcessTransientDescriptor[] {
-		return resolveSSRefractionTransientDescriptors(request);
 	}
 
 	public override shouldExecute(

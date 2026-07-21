@@ -740,8 +740,10 @@ export class IncrementalRegistry {
 			typeof passOrId === "string" ?
 				metadata ?? {}
 			:	{
-					...(passOrId.order === undefined ? {} : { order: passOrId.order }),
-					...(passOrId.incremental ?? {}),
+					...(passOrId.schedule.order === undefined ? {} : {
+						order: passOrId.schedule.order,
+					}),
+					...(passOrId.schedule.incremental ?? {}),
 					...(metadata ?? {}),
 				};
 		const builtIn =
@@ -758,8 +760,8 @@ export class IncrementalRegistry {
 			!builtIn &&
 			metadata === undefined &&
 			typeof passOrId !== "string" &&
-			passOrId.incremental === undefined &&
-			passOrId.order === undefined
+			passOrId.schedule.incremental === undefined &&
+			passOrId.schedule.order === undefined
 		) {
 			return;
 		}
@@ -768,7 +770,7 @@ export class IncrementalRegistry {
 			builtIn &&
 			metadata === undefined &&
 			typeof passOrId !== "string" &&
-			passOrId.incremental === undefined
+			passOrId.schedule.incremental === undefined
 		) {
 			return;
 		}

@@ -65,15 +65,9 @@ export class WebGPUFrameFeatureAnalyzer {
 			backend: "webgpu",
 			frameContext: context,
 		});
-		const needsPostProcessGBuffer = postProcessPasses.some((resolved) => {
-			if (!resolved.pass.builtIn) return true;
-			return (resolved.pass.getRequirements({
-				frameContext: context,
-				postProcess: context.postProcess,
-				backend: "webgpu",
-				options: resolved.options,
-			}).gBuffer?.length ?? 0) > 0;
-		});
+		// Target discovery precedes declaration planning. Provision the shared
+		// G-buffer conservatively so `describeExecution()` remains single-shot.
+		const needsPostProcessGBuffer = postProcessPasses.length > 0;
 		const needsPlanarReflection =
 			context.features.enableReflection && context.scene.reflectivePackets.length > 0;
 		const needsOcclusionTargets =

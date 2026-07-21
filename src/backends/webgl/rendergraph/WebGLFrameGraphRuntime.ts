@@ -3,10 +3,18 @@ import type {
 	FramePass,
 } from "../../../pipeline/types";
 import { Logger } from "../../../foundation/Logger";
-import type { BackendPostProcessRuntime } from "../../../postprocess/BackendPostProcessRuntime";
-import type { RenderGraphDiagnostic } from "../../../rendergraph/types";
+import type {
+	BackendPostProcessRuntime,
+	PostProcessExecutionPlan,
+	PostProcessRenderGraphFrame,
+} from "../../../postprocess/BackendPostProcessRuntime";
+import type {
+	RenderGraphDiagnostic,
+	RenderGraphResourceDescriptor,
+} from "../../../rendergraph/types";
 import { WebGLFrameGraphCompiler } from "./WebGLFrameGraphCompiler";
 import { WebGLFrameGraphPlanner } from "./WebGLFrameGraphPlanner";
+import { createWebGLPostProcessGraphComposition } from "./WebGLPostProcessGraphAdapter";
 import {
 	WebGLFrameNodeExecutorRegistry,
 	type WebGLFrameNodeServices,
@@ -52,6 +60,8 @@ export class WebGLFrameGraphRuntime {
 	private _lastExecutedGraphNodeIds: string[] = [];
 	private _runtimeDiagnostics: WebGLFrameGraphDiagnostic[] = [];
 	private _wholeFrameGraphCompiled = false;
+	private _postProcessGraphFrame: PostProcessRenderGraphFrame | null = null;
+	private _postProcessOutputColor = "frame:scene-color";
 
 	public constructor(
 		executor: WebGLFrameExecutionFacade,
@@ -82,6 +92,8 @@ export class WebGLFrameGraphRuntime {
 		this._lastExecutedGraphNodeIds = [];
 		this._runtimeDiagnostics = [];
 		this._wholeFrameGraphCompiled = false;
+		this._postProcessGraphFrame = null;
+		this._postProcessOutputColor = "frame:scene-color";
 		this._executor.beginFrame(context);
 		if (context.framePlan) {
 			try {
@@ -132,6 +144,9 @@ export class WebGLFrameGraphRuntime {
 		}
 		if (this._wholeFrameGraphCompiled) {
 			const compiled = this._findCompiledStage(pass.stage);
+			if (pass.stage === "postprocess") {
+				return this._executePostProcessStage(compiled, context);
+			}
 			if (!compiled || compiled.nodes.length <= 0) {
 				this._warnUnsupportedPass(pass);
 				return;
@@ -233,6 +248,7 @@ export class WebGLFrameGraphRuntime {
 	private _compileWholeFrameGraph(context: FrameContext): void {
 		const catalog = this._executor.collectFrameGraphResourceCatalog();
 		const stages: WebGLFrameGraphStagePlan[] = [];
+		const postProcessImportResources: RenderGraphResourceDescriptor[] = [];
 		const shadowDiagnostics: RenderGraphDiagnostic[] = [];
 		const setupPass = this._createSyntheticPass("webgl-begin-frame");
 		stages.push({
@@ -241,7 +257,6 @@ export class WebGLFrameGraphRuntime {
 		});
 
 		let lastStage = setupPass.stage;
-		let hasPostProcess = false;
 		let hasOpaqueStage = false;
 		for (const pass of context.framePlan?.backendPasses ?? []) {
 			if (!pass.enabled) continue;
@@ -272,6 +287,25 @@ export class WebGLFrameGraphRuntime {
 					stage: pass.stage,
 					message: `WebGL ${reason} stage "${pass.stage}" has undeclared resource effects.`,
 				});
+			} else if (pass.stage === "postprocess") {
+				const frame = this._postProcessRuntime.buildRenderGraphFrame(context);
+				this._postProcessGraphFrame = frame;
+				if (frame.graph.passes.length > 0) {
+					const composition = createWebGLPostProcessGraphComposition(frame);
+					postProcessImportResources.push(...composition.importResources);
+					this._postProcessOutputColor = composition.outputColor;
+					stagePlan = {
+						pass,
+						nodes: [],
+						composition: {
+							namespace: "postprocess",
+							definition: composition.definition,
+							inputs: composition.inputs,
+						},
+					};
+				} else {
+					stagePlan = { pass, nodes: [] };
+				}
 			} else {
 				stagePlan = this._planner.planStage(
 					pass,
@@ -280,9 +314,8 @@ export class WebGLFrameGraphRuntime {
 				);
 				if (stagePlan.nodes.length <= 0) this._warnUnsupportedPass(pass);
 			}
-			if (pass.stage === "postprocess") hasPostProcess = true;
 			stages.push(stagePlan);
-			if (stagePlan.nodes.length > 0) lastStage = pass.stage;
+			if (stagePlan.nodes.length > 0 || stagePlan.composition) lastStage = pass.stage;
 		}
 
 		const presentPass: FramePass = {
@@ -291,19 +324,22 @@ export class WebGLFrameGraphRuntime {
 			enabled: true,
 			dependsOn: [lastStage],
 		};
-		stages.push({ pass: presentPass, nodes: this._planner.planPresent() });
+		stages.push({
+			pass: presentPass,
+			nodes: this._planner.planPresent(this._postProcessOutputColor),
+		});
 		const framePlan: WebGLFrameGraphFramePlan = {
-			resources: catalog.resources,
+			resources: [...catalog.resources, ...postProcessImportResources],
 			bindings: catalog.bindings,
 			stages,
 			exports: [{ name: "presented-color", resource: "canvas:color" }],
-			completeness: hasOpaqueStage ? "opaque" : hasPostProcess ? "coarse" : "complete",
+			completeness: hasOpaqueStage ? "opaque" : "complete",
 			shadowDiagnostics,
 		};
 		const compiled = this._compiler.compileFrame(framePlan);
 		this._handleWholeFrameGraphDiagnostics(compiled.graph.diagnostics);
 		this._lastCompiledGraphStages = compiled.stages.slice();
-		this._lastPlannedGraphNodes = stages.flatMap((stage) => [...stage.nodes]);
+		this._lastPlannedGraphNodes = compiled.stages.flatMap((stage) => [...stage.nodes]);
 		this._wholeFrameGraphCompiled = true;
 	}
 
@@ -330,6 +366,42 @@ export class WebGLFrameGraphRuntime {
 			}
 		}
 		return chain ?? undefined;
+	}
+
+	private async _executePostProcessStage(
+		compiled: WebGLCompiledFrameGraphStage | undefined,
+		_context: FrameContext,
+	): Promise<void> {
+		const graphFrame = this._postProcessGraphFrame;
+		const nodes = (compiled?.nodes ?? []).filter((node) => !!node.postProcess);
+		if (!graphFrame || nodes.length === 0) return;
+		const plan: PostProcessExecutionPlan = {
+			graph: graphFrame.graph,
+			outputColor: this._postProcessOutputColor,
+			nodes: nodes.map((node) => ({
+				...node.postProcess!,
+				nodeId: node.id,
+			})),
+		};
+		const frame = await this._postProcessRuntime.beginGraphFrame(plan);
+		if (!frame) return;
+		try {
+			for (const node of plan.nodes) {
+				const result = await this._postProcessRuntime.executeGraphPass(frame, node.passId);
+				this._lastExecutedGraphNodeIds.push(node.nodeId);
+				if (result.ran === false && node.plannedOutputColor) {
+					this._compiler.recordSkippedNode(
+						node.nodeId,
+						node.plannedOutputColor,
+						this._postProcessRuntime.resolveGraphColor(frame, node.plannedOutputColor),
+					);
+				}
+			}
+			await this._postProcessRuntime.endGraphFrame(frame);
+		} catch (error) {
+			await this._postProcessRuntime.abortFrame(error);
+			throw error;
+		}
 	}
 
 	private _recordCompiledStageExecution(stage: string): void {

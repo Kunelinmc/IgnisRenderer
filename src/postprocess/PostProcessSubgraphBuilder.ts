@@ -5,11 +5,12 @@ import type {
 	RenderGraphResourceRef,
 	RenderGraphUsage,
 } from "../rendergraph/types";
-import type { CompiledPostProcessGraph } from "./PostProcessGraphCompiler";
+import type { PostProcessPlan } from "./PostProcessPlanner";
+import { resolvePostProcessResourceDescriptor } from "./resourceDescriptors";
 import type {
-	PostProcessColorFlow,
-	PostProcessGraphMetadata,
-	PostProcessGraphResourceUse,
+	PostProcessColorDeclaration,
+	PostProcessExecutionDeclaration,
+	PostProcessExecutionResourceUse,
 } from "./types";
 
 export type PostProcessLogicalResourceRole =
@@ -21,26 +22,24 @@ export type PostProcessLogicalResourceRole =
 	| "backend-shared"
 	| "color-version";
 
-export interface PostProcessRenderGraphNodePayload {
+export interface PostProcessSubgraphNodePayload {
 	readonly passId: string;
-	readonly color: PostProcessColorFlow;
+	readonly color: PostProcessColorDeclaration;
 	readonly inputColor: string | null;
 	readonly plannedOutputColor: string | null;
-	readonly outputValidation: "strict" | "compatibility";
-	readonly compatibilityOpaque: boolean;
 }
 
-export interface PostProcessRenderGraphSubgraph
-	extends RenderGraphDefinition<PostProcessRenderGraphNodePayload> {
+export interface PostProcessSubgraph
+	extends RenderGraphDefinition<PostProcessSubgraphNodePayload> {
 	readonly resources: readonly RenderGraphResourceDescriptor[];
-	readonly nodes: readonly RenderGraphNode<PostProcessRenderGraphNodePayload>[];
+	readonly nodes: readonly RenderGraphNode<PostProcessSubgraphNodePayload>[];
 	readonly outputColor: string;
 	readonly resourceRoles: Readonly<Record<string, PostProcessLogicalResourceRole>>;
 }
 
 /** @internal Builds a logical post-process subgraph without native resources. */
-export class PostProcessRenderGraphAdapter {
-	public build(graph: CompiledPostProcessGraph): PostProcessRenderGraphSubgraph {
+export class PostProcessSubgraphBuilder {
+	public build(graph: PostProcessPlan): PostProcessSubgraph {
 		const resources: RenderGraphResourceDescriptor[] = [];
 		const roles: Record<string, PostProcessLogicalResourceRole> = {};
 		const colorFormat = graph.gBuffer.channels.color?.format ??
@@ -54,7 +53,7 @@ export class PostProcessRenderGraphAdapter {
 			roles[resource.id] = role;
 		};
 		addResource({
-			id: "frame:scene-color",
+			id: "scene-color",
 			origin: "imported",
 			kind: "texture",
 			residency: "frame",
@@ -65,8 +64,9 @@ export class PostProcessRenderGraphAdapter {
 		}, "scene-color");
 		for (const [semantic, channel] of Object.entries(graph.gBuffer.channels)) {
 			if (!channel || semantic === "color") continue;
+			const resourceSemantic = semantic === "world-position" ? "depth" : semantic;
 			addResource({
-				id: `frame:gbuffer:${semantic}`,
+				id: `gbuffer:${resourceSemantic}`,
 				origin: "imported",
 				kind: "texture",
 				residency: "frame",
@@ -77,52 +77,60 @@ export class PostProcessRenderGraphAdapter {
 			}, "gbuffer");
 		}
 		for (const descriptor of graph.historyDescriptors) {
+			const resolved = resolvePostProcessResourceDescriptor(
+				descriptor,
+				graph.width,
+				graph.height,
+			);
 			addResource({
-				id: `postprocess:history:${descriptor.id}:read`,
+				id: `history:${descriptor.id}:read`,
 				origin: "imported",
 				kind: "texture",
 				residency: "history",
 				initialContent: "unknown",
-				format: descriptor.format,
-				width: graph.width,
-				height: graph.height,
+				format: resolved.format,
+				width: resolved.width,
+				height: resolved.height,
 			}, "history-read");
 			addResource({
-				id: `postprocess:history:${descriptor.id}:write`,
+				id: `history:${descriptor.id}:write`,
 				origin: "imported",
 				kind: "texture",
 				residency: "history",
 				initialContent: "undefined",
-				format: descriptor.format,
-				width: graph.width,
-				height: graph.height,
+				format: resolved.format,
+				width: resolved.width,
+				height: resolved.height,
 			}, "history-write");
 		}
 		for (const descriptor of graph.transientDescriptors) {
+			const resolved = resolvePostProcessResourceDescriptor(
+				descriptor,
+				graph.width,
+				graph.height,
+				{ includeMipMode: true },
+			);
 			addResource({
-				id: `postprocess:transient:${descriptor.id}`,
-				origin: "imported",
+				id: `transient:${descriptor.id}`,
+				origin: "graph",
 				kind: "texture",
 				residency: "transient",
 				initialContent: "undefined",
-				format: descriptor.format,
-				width: graph.width,
-				height: graph.height,
-				mipMode: descriptor.mipMode ?? "single",
+				format: resolved.format,
+				width: resolved.width,
+				height: resolved.height,
+				mipMode: resolved.mipMode,
 			}, "transient");
 		}
 
-		const nodes: RenderGraphNode<PostProcessRenderGraphNodePayload>[] = [];
-		let currentColor = "frame:scene-color";
+		const nodes: RenderGraphNode<PostProcessSubgraphNodePayload>[] = [];
+		let currentColor = "scene-color";
 		let previousNodeId: string | null = null;
 		for (let index = 0; index < graph.passes.length; index++) {
 			const pass = graph.passes[index];
-			const metadata = pass.graphMetadata;
-			const color = metadata?.color ?? this._defaultColorFlow(graph.backend);
-			const compatibilityOpaque = pass.compatibilityOpaque;
-			const outputValidation = metadata?.outputValidation ??
-				(pass.pass.builtIn ? "strict" : "compatibility");
-			const nodeId = `postprocess:${pass.id}`;
+			const declaration = pass.declaration;
+			const color = declaration.color;
+			const nodeId = `pass:${pass.id}`;
 			const refs: RenderGraphResourceRef[] = [];
 			const inputColor = color.access === "none" ? null : currentColor;
 			if (inputColor) {
@@ -132,16 +140,19 @@ export class PostProcessRenderGraphAdapter {
 					usage: this._colorInputUsage(graph.backend),
 				});
 			}
-			for (const semantic of pass.requirements.gBuffer ?? []) {
+			for (const gBufferUse of declaration.gBuffer ?? []) {
+				const semantic = gBufferUse.semantic;
+				const resourceSemantic = semantic === "world-position" ? "depth" : semantic;
 				refs.push({
-					resource: semantic === "color" ? "frame:scene-color" : `frame:gbuffer:${semantic}`,
-					access: "read",
-					usage: "sampled",
+					resource: semantic === "color" ? "scene-color" : `gbuffer:${resourceSemantic}`,
+					access: gBufferUse.access,
+					usage: gBufferUse.usage,
+					optional: gBufferUse.optional,
 				});
 			}
-			this._appendHistoryRefs(refs, pass.historyIds, metadata, graph.backend);
-			this._appendTransientRefs(refs, pass.transientIds, metadata, graph.backend);
-			for (const shared of metadata?.backendShared ?? []) {
+			this._appendHistoryRefs(refs, declaration.histories ?? []);
+			this._appendTransientRefs(refs, declaration.transients ?? []);
+			for (const shared of declaration.shared ?? []) {
 				addResource({
 					id: shared.id,
 					origin: "imported",
@@ -156,7 +167,7 @@ export class PostProcessRenderGraphAdapter {
 			const creates: string[] = [];
 			let plannedOutputColor: string | null = null;
 			if (color.output === "new-version") {
-				plannedOutputColor = `postprocess:color:${index}`;
+				plannedOutputColor = `color:${index}`;
 				addResource({
 					id: plannedOutputColor,
 					origin: "graph",
@@ -188,8 +199,6 @@ export class PostProcessRenderGraphAdapter {
 					color,
 					inputColor,
 					plannedOutputColor,
-					outputValidation,
-					compatibilityOpaque,
 				},
 			});
 			previousNodeId = nodeId;
@@ -217,66 +226,42 @@ export class PostProcessRenderGraphAdapter {
 		});
 	}
 
-	private _defaultColorFlow(backend: CompiledPostProcessGraph["backend"]): PostProcessColorFlow {
-		return backend === "software" ?
-			{ access: "read-write", output: "preserve" }
-			: { access: "read", output: "new-version" };
-	}
-
-	private _colorInputUsage(backend: CompiledPostProcessGraph["backend"]): RenderGraphUsage {
+	private _colorInputUsage(backend: PostProcessPlan["backend"]): RenderGraphUsage {
 		return backend === "software" ? "cpu-read" : "sampled";
 	}
 
-	private _colorOutputUsage(backend: CompiledPostProcessGraph["backend"]): RenderGraphUsage {
+	private _colorOutputUsage(backend: PostProcessPlan["backend"]): RenderGraphUsage {
 		return backend === "webgl" ? "color-attachment" : backend === "software" ? "cpu-write" : "storage";
 	}
 
 	private _appendHistoryRefs(
 		refs: RenderGraphResourceRef[],
-		ids: readonly string[],
-		metadata: PostProcessGraphMetadata | null,
-		backend: CompiledPostProcessGraph["backend"]
+		declarations: NonNullable<PostProcessExecutionDeclaration["histories"]>
 	): void {
-		for (const id of ids) {
-			const declaration = metadata?.histories?.[id];
-			const read = declaration?.read ?? [{
-				access: "read",
-				usage: backend === "software" ? "cpu-read" : "sampled",
-			}];
-			const write = declaration?.write ?? [{
-				access: "write",
-				usage:
-					backend === "webgl" ? "color-attachment"
-					: backend === "software" ? "cpu-write"
-					: "storage",
-			}];
-			this._appendUses(refs, `postprocess:history:${id}:read`, read);
-			this._appendUses(refs, `postprocess:history:${id}:write`, write);
+		for (const declaration of declarations) {
+			const id = declaration.descriptor.id;
+			this._appendUses(refs, `history:${id}:read`, declaration.read);
+			this._appendUses(refs, `history:${id}:write`, declaration.write);
 		}
 	}
 
 	private _appendTransientRefs(
 		refs: RenderGraphResourceRef[],
-		ids: readonly string[],
-		metadata: PostProcessGraphMetadata | null,
-		backend: CompiledPostProcessGraph["backend"]
+		declarations: NonNullable<PostProcessExecutionDeclaration["transients"]>
 	): void {
-		for (const id of ids) {
-			const uses = metadata?.transients?.[id] ?? [{
-				access: "read-write",
-				usage:
-					backend === "webgl" ? "color-attachment"
-					: backend === "software" ? "cpu-write"
-					: "storage",
-			}];
-			this._appendUses(refs, `postprocess:transient:${id}`, uses);
+		for (const declaration of declarations) {
+			this._appendUses(
+				refs,
+				`transient:${declaration.descriptor.id}`,
+				declaration.uses,
+			);
 		}
 	}
 
 	private _appendUses(
 		refs: RenderGraphResourceRef[],
 		resource: string,
-		uses: readonly PostProcessGraphResourceUse[]
+		uses: readonly PostProcessExecutionResourceUse[]
 	): void {
 		for (const use of uses) {
 			refs.push({

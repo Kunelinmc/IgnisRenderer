@@ -195,10 +195,10 @@ export class WebGLFrameExecutor {
 		return this._services.createGBufferBridge(context);
 	}
 
-	public getPassExecutionContext(
+	public createPassExecutionContext(
 		request: PostProcessPassExecutionContextRequest,
 	): unknown {
-		return this._services.getPassExecutionContext(request);
+		return this._services.createPassExecutionContext(request);
 	}
 
 	public beginPostProcessFrame(): void {

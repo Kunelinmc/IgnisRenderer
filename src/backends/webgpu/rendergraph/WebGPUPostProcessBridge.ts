@@ -1,6 +1,8 @@
 import type { FrameContext } from "../../../pipeline/types";
 import type {
 	LogicalGBufferBridge,
+	LogicalGBufferSemantic,
+	PostProcessExecutionDeclaration,
 	PostProcessPassExecutionContextRequest,
 	PostProcessPassRequest,
 	PostProcessPassResult,
@@ -8,6 +10,8 @@ import type {
 	PostProcessResourceDescriptor,
 	PostProcessResourceHandle,
 } from "../../../postprocess";
+import { createPostProcessResourceAccessor } from "../../../postprocess/PostProcessResourceAccessor";
+import { WEBGPU_HIZ_SHARED_RESOURCE } from "../../../postprocess/executionDeclarations";
 import { Logger } from "../../../foundation/Logger";
 import type { ICommandEncoder } from "../../ICommandEncoder";
 import {
@@ -18,11 +22,9 @@ import {
 import { tryGetTextureFormatInfo } from "../../TextureFormatInfo";
 import type { WebGPUFrameHost } from "./WebGPUFrameHost";
 import type { WebGPUPreparedFrameResources } from "../WebGPUResourceContracts";
-import {
-	isWebGPUPostProcessContextMetadata,
-	type WebGPUFrameTargets,
-	type WebGPUPostProcessContextMetadata,
-	type WebGPUPostProcessFrameTargets,
+import type {
+	WebGPUFrameTargets,
+	WebGPUPostProcessFrameTargets,
 } from "../WebGPUPostProcessContracts";
 import { WebGPUPostProcessRuntime } from "../WebGPUPostProcessRuntime";
 
@@ -37,15 +39,13 @@ export interface WebGPUPostProcessBridgeCallbacks {
 }
 
 /**
- * Packs WebGPU-specific post-process helpers and validates published targets.
+ * Packs the fixed WebGPU post-process context and commits assigned targets.
  */
 export class WebGPUPostProcessBridge {
 	private readonly _host: WebGPUFrameHost;
 	private readonly _runtime: WebGPUPostProcessRuntime;
 	private readonly _callbacks: WebGPUPostProcessBridgeCallbacks;
-	private _pendingColorTarget: IRenderTexture | null = null;
 	private _expectedColorTarget: IRenderTexture | null = null;
-	private _pendingColorTargetStrict = false;
 	private readonly _physicalIds = new WeakMap<object, string>();
 	private _nextPhysicalId = 1;
 
@@ -202,142 +202,163 @@ export class WebGPUPostProcessBridge {
 		};
 	}
 
-	public getPassExecutionContext(request: PostProcessPassExecutionContextRequest): unknown {
+	public createPassExecutionContext(request: PostProcessPassExecutionContextRequest): unknown {
 		if (!this._callbacks.getEncoder() || !this._callbacks.getFrameTargets()) {
-			return undefined;
+			throw new Error(
+				`Post-process pass "${request.passId}" cannot create its required ` +
+					"WebGPU execution context.",
+			);
 		}
-		const metadata = request.implementation.metadata?.context;
-		if (!isWebGPUPostProcessContextMetadata(metadata)) {
-			return undefined;
-		}
-		this._pendingColorTarget = null;
-		this._pendingColorTargetStrict = request.pass.builtIn;
 		const targets = this._callbacks.getFrameTargets();
-		this._expectedColorTarget = targets ?
+		this._expectedColorTarget = request.declaration.color.output === "new-version" && targets ?
 			(targets.sceneColor === targets.postPong ? targets.postPing : targets.postPong) : null;
+		if (
+			request.declaration.color.output === "new-version" &&
+			!this._expectedColorTarget
+		) {
+			throw new Error(
+				`Post-process pass "${request.passId}" cannot create its required ` +
+					"WebGPU color output binding.",
+			);
+		}
 		if (targets && this._expectedColorTarget === targets.sceneColor) {
 			throw new Error("WebGPU post-process graph selected one texture for sampled input and storage output.");
 		}
-		return this._createContext(metadata, request, "execute");
+		return this._createContext(request);
 	}
 
-	public getPassWarmupExecutionContext(metadata: WebGPUPostProcessContextMetadata): unknown {
-		return this._createContext(metadata, null, "warmup");
+	public getPassWarmupExecutionContext(
+		passId: string,
+		declaration: PostProcessExecutionDeclaration,
+	): unknown {
+		return this._createWarmupContext(passId, declaration);
 	}
 
 	public completePass(
 		request: PostProcessPassRequest,
 		result: PostProcessPassResult
 	): PostProcessPassCompletion {
-		const colorTarget = this._pendingColorTarget;
 		const expectedColorTarget = this._expectedColorTarget;
-		const strictTarget = this._pendingColorTargetStrict;
-		this._pendingColorTarget = null;
 		this._expectedColorTarget = null;
-		this._pendingColorTargetStrict = false;
 		const targets = this._callbacks.getFrameTargets();
-		if (result.ran === false && colorTarget) {
+		if (result.ran === false || request.declaration.color.output === "preserve") {
+			return { committed: false };
+		}
+		if (!expectedColorTarget || !targets) {
 			throw new Error(
-				`Post-process pass "${request.passId}" published a color target and then reported ran: false.`,
+				`Post-process pass "${request.passId}" has no required physical color binding.`,
 			);
 		}
-		if (result.ran === false || !colorTarget || !targets) {
-			return { published: false };
-		}
-		if (!this._isOwnedColorTarget(colorTarget, targets)) {
+		if (!this._isOwnedColorTarget(expectedColorTarget, targets)) {
 			Logger.warn(
 				`[webgpu-postprocess-color-target-unowned] ` +
-					`Post-process pass "${request.passId}" published a color target ` +
+					`Post-process pass "${request.passId}" received a color target ` +
 					"that is not owned by the active WebGPU frame; ignoring it.",
 				{
 					scope: "WebGPUFrameOrchestrator",
 					onceKey: `webgpu-postprocess-color-target-unowned:${request.passId}`,
 				},
 			);
-			return { published: false };
+			return { committed: false };
 		}
-		if (strictTarget && colorTarget !== expectedColorTarget) {
-			throw new Error(
-				`Post-process pass "${request.passId}" published a target other than its assigned graph output.`,
-			);
-		}
-		targets.sceneColor = colorTarget;
-		return { published: true, physicalId: this._getPhysicalId(colorTarget) };
+		targets.sceneColor = expectedColorTarget;
+		return { committed: true, physicalId: this._getPhysicalId(expectedColorTarget) };
 	}
 
 	public clearPendingFrameState(): void {
-		this._pendingColorTarget = null;
 		this._expectedColorTarget = null;
-		this._pendingColorTargetStrict = false;
 	}
 
 	private _createContext(
-		metadata: WebGPUPostProcessContextMetadata,
-		request: PostProcessPassRequest | null,
-		mode: "execute" | "warmup",
+		request: PostProcessPassExecutionContextRequest,
 	): Record<string, unknown> | undefined {
-		if (
-			mode === "execute" &&
-			(!this._callbacks.getEncoder() || !this._callbacks.getFrameTargets())
-		) {
-			return undefined;
-		}
-		if (metadata.kind === "present") {
-			return {
-				targets: this._createFrameTargetsView(),
-				presentToCanvas: (source: IRenderTexture) =>
-					this._callbacks.presentToCanvas(source),
-				warmupPresent: () => this._callbacks.warmupPresent(),
-			};
-		}
-
-		const context: Record<string, unknown> = {
+		const frameResources = this._callbacks.requireFrameResources();
+		return Object.freeze({
 			encoder: this._callbacks.getEncoder() ?? undefined,
 			targets: this._createFrameTargetsView(),
 			shared: this._runtime.sharedContext,
-		};
-		if (metadata.requiresHiZ && mode === "execute") {
-			context.hiZ = this._createFrameTargetsView()?.hiZ ?? null;
-		}
-		if (metadata.publishColorTarget && mode === "execute") {
-			context.publishColorTarget = (texture: IRenderTexture): void => {
-				this._pendingColorTarget = texture;
-			};
-		}
-		if (metadata.frameBinding && mode === "execute") {
-			context.frameBinding = this._callbacks.requireFrameResources().frameBinding;
-		}
-		if (metadata.lightingState && mode === "execute") {
-			context.lightingState = this._callbacks.requireFrameResources().lightingState;
-		}
-		if (metadata.frameData && mode === "execute") {
-			const featureData = this._callbacks.requireFrameResources().featureData;
-			for (const binding of metadata.frameData) {
-				context[binding.property] = featureData.get(binding.key);
-			}
-		}
-		if (request && mode === "execute") {
-			for (const binding of metadata.histories ?? []) {
-				context[binding.property] = this._getHistoryTexture(
-					request,
-					binding.historyId,
-					binding.side,
-				);
-			}
-			for (const binding of metadata.transients ?? []) {
-				context[binding.property] = this._getTransientTexture(request, binding.transientId);
-			}
-			const motionCopy = metadata.motionHistoryCopy;
-			if (motionCopy) {
-				const method = motionCopy.method ?? "writeMotionHistoryFromCurrent";
-				context[method] = (): void => {
+			frameBinding: frameResources.frameBinding,
+			lightingState: frameResources.lightingState,
+			getFrameData: <T>(key: unknown): T | undefined =>
+				frameResources.featureData.get(key as never) as T | undefined,
+			resources: createPostProcessResourceAccessor<IRenderTexture>({
+				passId: request.passId,
+				declaration: request.declaration,
+				colorInput: this._callbacks.getFrameTargets()?.sceneColor ?? null,
+				colorOutput: this._expectedColorTarget,
+				getGBuffer: (semantic) => this._getGBufferTexture(request, semantic),
+				getHistory: (id) => {
+					const slot = request.histories[id];
+					return slot ? {
+						read: (slot.read.resource as IRenderTexture | null) ?? null,
+						write: (slot.write.resource as IRenderTexture | null) ?? null,
+						valid: slot.valid,
+					} : null;
+				},
+				getTransient: (id) => this._getTransientTexture(request, id),
+				getShared: (id) => this._getSharedTexture(id),
+				copyGBufferToHistory: (_semantic, historyId) => {
 					this._callbacks.setMotionHistoryWriteTarget(
-						(context[motionCopy.writeProperty] as IRenderTexture | null) ?? null,
+						this._getHistoryTexture(request, historyId, "write"),
 					);
-				};
-			}
+				},
+			}),
+		});
+	}
+
+	private _createWarmupContext(
+		passId: string,
+		declaration: PostProcessExecutionDeclaration,
+	): Record<string, unknown> {
+		const unavailable = (): null => null;
+		return Object.freeze({
+			encoder: undefined,
+			targets: undefined,
+			shared: this._runtime.sharedContext,
+			frameBinding: undefined,
+			lightingState: undefined,
+			getFrameData: (): undefined => undefined,
+			resources: createPostProcessResourceAccessor<IRenderTexture>({
+				passId,
+				declaration,
+				colorInput: null,
+				colorOutput: null,
+				getGBuffer: unavailable,
+				getHistory: () => null,
+				getTransient: unavailable,
+				getShared: unavailable,
+			}),
+		});
+	}
+
+	private _getGBufferTexture(
+		request: PostProcessPassRequest,
+		semantic: LogicalGBufferSemantic,
+	): IRenderTexture | null {
+		const handle = request.gBuffer.channels[semantic]?.handle;
+		return handle?.backend === "webgpu" && "texture" in handle ?
+			(handle.texture as IRenderTexture | null) ?? null : null;
+	}
+
+	private _getSharedTexture(id: string): IRenderTexture | null {
+		const targets = this._callbacks.getFrameTargets();
+		if (!targets) return null;
+		switch (id) {
+			case WEBGPU_HIZ_SHARED_RESOURCE.id:
+				return this._callbacks.isHiZReady() ? targets.hiZ ?? null : null;
+			case "backend:transmission-scene-color":
+				return targets.transmissionSceneColorCopy ?? null;
+			case "backend:transmission-lighting":
+				return targets.transmissionLighting ?? null;
+			case "backend:transmission-surface-1":
+				return targets.gTransmissionSurface1 ?? null;
+			case "backend:transmission-surface-2":
+				return targets.gTransmissionSurface2 ?? null;
+			case "backend:planar-reflection-mask":
+				return targets.planarReflectionMask ?? null;
+			default:
+				return null;
 		}
-		return context;
 	}
 
 	private _createFrameTargetsView(): WebGPUPostProcessFrameTargets | undefined {
@@ -346,8 +367,8 @@ export class WebGPUPostProcessBridge {
 			return undefined;
 		}
 		return Object.freeze({
-			...targets,
-			hiZ: this._callbacks.isHiZReady() ? targets.hiZ : null,
+			postPing: targets.postPing,
+			postPong: targets.postPong,
 		});
 	}
 

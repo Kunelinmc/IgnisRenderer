@@ -16,6 +16,7 @@ import {
 	type WarmupPostProcessPlan,
 } from "../../pipeline/WarmupPlanner";
 import type { BackendPostProcessRuntime } from "../../postprocess/BackendPostProcessRuntime";
+import type { PostProcessPlan } from "../../postprocess/PostProcessPlanner";
 import type { WebGPUFrameOrchestrator } from "./rendergraph/WebGPUFrameOrchestrator";
 import type { WebGPUFrameServiceOwner } from "./WebGPUFrameServiceOwner";
 
@@ -40,8 +41,10 @@ export class WebGPUWarmupCoordinator {
 		}
 
 		let warmupPostProcessPlan: WarmupPostProcessPlan | undefined;
+		let postProcessPlan: PostProcessPlan | undefined;
 		if (options.includePostProcess !== false) {
-			const graph = this._host.postProcessRuntime.compileWarmupGraph(context);
+			const graph = this._host.postProcessRuntime.planWarmup(context);
+			postProcessPlan = graph;
 			warmupPostProcessPlan = {
 				passIds: graph.orderedPasses.map((pass) => pass.id),
 				descriptors: graph.orderedPasses.map((pass) => pass.pass),
@@ -53,7 +56,8 @@ export class WebGPUWarmupCoordinator {
 			const framePhase = await this._host.frameOrchestrator.warmup(
 				context,
 				plan,
-				options
+				options,
+				postProcessPlan,
 			);
 			addWarmupPhase(report, framePhase);
 			this._reportWarmupProgress(options, framePhase);

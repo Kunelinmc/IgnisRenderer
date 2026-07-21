@@ -16,9 +16,6 @@ import {
 	WEBGPU_2D_COMPUTE_WORKGROUP_SIZE as WORKGROUP_SIZE,
 } from "../../backends/webgpu/constants";
 import type { WebGPUPostProcessFrameTargets } from "../../backends/webgpu/WebGPUPostProcessContracts";
-import {
-	WEBGL_SCREEN_POST_PROCESS_CONTEXT_METADATA,
-} from "../../backends/webgl/WebGLPostProcessContracts";
 import type { PostProcessSharedContext } from "../../backends/webgpu/postprocess/PostProcessSharedContext";
 import type {
 	WebGLProgramCompiler,
@@ -32,14 +29,15 @@ import {
 } from "../../maths/Misc";
 import { ShaderSource } from "../../shaders/ShaderSource";
 import { PostProcessPass, type PostProcessPassConfig } from "../PostProcessPass";
-import type { PostProcessPassMetadata } from "../ordering";
+import type { PostProcessScheduleEntry } from "../ordering";
+import { createPostProcessExecutionDeclaration } from "../executionDeclarations";
 import type {
 	PostProcessHistoryDescriptor,
 	PostProcessPassImplementation,
 	PostProcessPassRequest,
 	PostProcessPassResult,
 	PostProcessHistorySlots,
-	PostProcessPassRequirements,
+	PostProcessResourceAccessor,
 } from "../types";
 
 const DEFAULT_HISTORY_USAGE = ["sampled", "storage", "render-target"] as const;
@@ -53,7 +51,7 @@ export const TEMPORAL_ANTI_ALIASING_PASS_ORDER = {
 		grade: "cinematic",
 		inflationRadius: 8,
 	},
-} as const satisfies PostProcessPassMetadata;
+} as const satisfies PostProcessScheduleEntry;
 
 export const TAA_HISTORY_WEIGHT_RANGE: [number, number] = [0, 0.99];
 export const TAA_DEPTH_THRESHOLD_RANGE: [number, number] = [1e-4, 1];
@@ -130,12 +128,7 @@ export interface WebGPUTAAContext {
 	readonly encoder: ICommandEncoder;
 	readonly targets: WebGPUPostProcessFrameTargets;
 	readonly shared: PostProcessSharedContext;
-	readonly historyRead: IRenderTexture | null;
-	readonly historyWrite: IRenderTexture | null;
-	readonly motionHistoryRead: IRenderTexture | null;
-	readonly motionHistoryWrite: IRenderTexture | null;
-	publishColorTarget(texture: IRenderTexture): void;
-	writeMotionHistoryFromCurrent(): void | Promise<void>;
+	readonly resources: PostProcessResourceAccessor<IRenderTexture>;
 }
 
 /** @internal WebGL context supplied to the built-in TAA implementation. */
@@ -145,16 +138,10 @@ export interface WebGLTAAContext {
 	readonly fullscreenVao: WebGLVertexArrayObject | null;
 	readonly postFramebuffer: WebGLFramebuffer | null;
 	readonly sceneColorTexture: WebGLTexture | null;
-	readonly sceneMotionTexture: WebGLTexture | null;
 	readonly width: number;
 	readonly height: number;
-	readonly historyRead: WebGLTexture | null;
-	readonly historyWrite: WebGLTexture | null;
-	readonly motionHistoryRead: WebGLTexture | null;
-	readonly motionHistoryWrite: WebGLTexture | null;
+	readonly resources: PostProcessResourceAccessor<WebGLTexture>;
 	getSourceTexture(): WebGLTexture | null;
-	resolveTargetTexture(sourceTexture: WebGLTexture): WebGLTexture | null;
-	publishColorTexture(texture: WebGLTexture): void;
 	warn(key: string, message: string): void;
 }
 
@@ -298,6 +285,15 @@ export class SoftwareTemporalAntiAliasingImplementation
 	implements PostProcessPassImplementation<SoftwareTAAContext>
 {
 	public readonly id = "taa:software";
+	public describeExecution() {
+		return createPostProcessExecutionDeclaration("software", {
+			gBuffer: ["motion"],
+			histories: [
+				{ id: "taa", usage: DEFAULT_HISTORY_USAGE },
+				{ id: "motion", usage: ["sampled", "copy-dst", "render-target"] },
+			],
+		});
+	}
 
 	public execute(
 		request: PostProcessPassRequest,
@@ -469,23 +465,16 @@ export class WebGPUTemporalAntiAliasingImplementation
 	implements PostProcessPassImplementation<WebGPUTAAContext>
 {
 	public readonly id = "taa:webgpu";
-	public readonly metadata = {
-		context: {
-			backend: "webgpu",
-			kind: "screen",
-			publishColorTarget: true,
+	public describeExecution() {
+		return createPostProcessExecutionDeclaration("webgpu", {
+			gBuffer: ["motion"],
 			histories: [
-				{ property: "historyRead", historyId: "taa", side: "read" },
-				{ property: "historyWrite", historyId: "taa", side: "write" },
-				{ property: "motionHistoryRead", historyId: "motion", side: "read" },
-				{ property: "motionHistoryWrite", historyId: "motion", side: "write" },
+				{ id: "taa", usage: DEFAULT_HISTORY_USAGE },
+				{ id: "motion", usage: ["sampled", "copy-dst", "render-target"] },
 			],
-			motionHistoryCopy: {
-				writeProperty: "motionHistoryWrite",
-			},
-		},
-		warmupHints: ["postprocess:taa"],
-	} as const;
+		});
+	}
+	public readonly warmupHints = ["postprocess:taa"] as const;
 	private _resources = new Map<PostProcessSharedContext, WebGPUTAAResources>();
 
 	public async warmup?(
@@ -507,7 +496,7 @@ export class WebGPUTemporalAntiAliasingImplementation
 		if (!ran) {
 			return { ran: false };
 		}
-		await context.writeMotionHistoryFromCurrent();
+		await context.resources.copyGBufferToHistory("motion", "motion");
 		return { ran: true, updatedHistoryIds: ["taa", "motion"] };
 	}
 
@@ -544,21 +533,27 @@ export class WebGPUTemporalAntiAliasingImplementation
 		context: WebGPUTAAContext
 	): Promise<boolean> {
 		const resources = await this._ensureResources(context.shared);
+		const history = context.resources.getHistory("taa");
+		const motionHistory = context.resources.getHistory("motion");
+		const motionTexture = context.resources.getGBuffer("motion");
+		const input = context.resources.color.input;
 		if (
 			!context.shared.sampler ||
 			!resources.pipeline ||
 			!resources.params ||
-			!context.historyRead ||
-			!context.historyWrite ||
-			!context.motionHistoryRead ||
-			!context.motionHistoryWrite
+			!history.read ||
+			!history.write ||
+			!motionHistory.read ||
+			!motionHistory.write ||
+			!motionTexture ||
+			!input
 		) {
 			return false;
 		}
 
 		const targets = context.targets;
-		const target =
-			targets.sceneColor === targets.postPong ? targets.postPing : targets.postPong;
+		const target = context.resources.color.output;
+		if (!target) return false;
 		const params = createTAAKernelParams(
 			target.width,
 			target.height,
@@ -574,14 +569,14 @@ export class WebGPUTemporalAntiAliasingImplementation
 			`taa-${target === targets.postPing ? "ping" : "pong"}`,
 			resources.pipeline,
 			[
-				{ binding: 0, resource: targets.sceneColor },
-				{ binding: 1, resource: context.historyRead },
-				{ binding: 2, resource: targets.gMotionDepth },
-				{ binding: 3, resource: context.motionHistoryRead },
+				{ binding: 0, resource: input },
+				{ binding: 1, resource: history.read },
+				{ binding: 2, resource: motionTexture },
+				{ binding: 3, resource: motionHistory.read },
 				{ binding: 4, resource: context.shared.sampler },
 				{ binding: 5, resource: resources.params },
 				{ binding: 6, resource: target },
-				{ binding: 7, resource: context.historyWrite },
+				{ binding: 7, resource: history.write },
 			],
 			"WebGPUTAA_Binding"
 		);
@@ -595,7 +590,6 @@ export class WebGPUTemporalAntiAliasingImplementation
 			1
 		);
 		context.encoder.endComputePass();
-		context.publishColorTarget(target);
 		return true;
 	}
 
@@ -644,21 +638,15 @@ export class WebGLTemporalAntiAliasingImplementation
 	implements PostProcessPassImplementation<WebGLTAAContext>
 {
 	public readonly id = "taa:webgl";
-	public readonly metadata = {
-		context: {
-			...WEBGL_SCREEN_POST_PROCESS_CONTEXT_METADATA,
-			sceneMotionTexture: true,
+	public describeExecution() {
+		return createPostProcessExecutionDeclaration("webgl", {
+			gBuffer: ["motion"],
 			histories: [
-				{ property: "historyRead", historyId: "taa", side: "read" },
-				{ property: "historyWrite", historyId: "taa", side: "write" },
-				{ property: "motionHistoryRead", historyId: "motion", side: "read" },
-				{ property: "motionHistoryWrite", historyId: "motion", side: "write" },
+				{ id: "taa", usage: DEFAULT_HISTORY_USAGE },
+				{ id: "motion", usage: ["sampled", "copy-dst", "render-target"] },
 			],
-			syncPipelineHistories: true,
-			markTAAHistoryValidOnPublish: true,
-			warn: true,
-		},
-	} as const;
+		});
+	}
 	private _programCompiler: WebGLProgramCompiler | null = null;
 	private _programSlot: WebGLProgramSlot<WebGLTAAProgram> | null = null;
 
@@ -683,6 +671,11 @@ export class WebGLTemporalAntiAliasingImplementation
 		context: WebGLTAAContext
 	): PostProcessPassResult {
 		const gl = context.gl;
+		const motionTexture = context.resources.getGBuffer("motion");
+		const history = context.resources.getHistory("taa");
+		const motionHistory = context.resources.getHistory("motion");
+		const sourceTexture = context.resources.color.input;
+		const targetTexture = context.resources.color.output;
 		const maxDrawBuffers = Number(gl.getParameter(gl.MAX_DRAW_BUFFERS) ?? 4);
 		if (maxDrawBuffers < 3) {
 			context.warn(
@@ -692,23 +685,16 @@ export class WebGLTemporalAntiAliasingImplementation
 			return { ran: false };
 		}
 		if (
-			!context.sceneMotionTexture ||
+			!motionTexture ||
 			!context.postFramebuffer ||
 			!context.fullscreenVao ||
-			!context.historyRead ||
-			!context.historyWrite ||
-			!context.motionHistoryRead ||
-			!context.motionHistoryWrite
+			!history.read ||
+			!history.write ||
+			!motionHistory.read ||
+			!motionHistory.write ||
+			!sourceTexture ||
+			!targetTexture
 		) {
-			return { ran: false };
-		}
-
-		const sourceTexture = context.getSourceTexture();
-		if (!sourceTexture) {
-			return { ran: false };
-		}
-		const targetTexture = context.resolveTargetTexture(sourceTexture);
-		if (!targetTexture) {
 			return { ran: false };
 		}
 
@@ -729,14 +715,14 @@ export class WebGLTemporalAntiAliasingImplementation
 			gl.FRAMEBUFFER,
 			gl.COLOR_ATTACHMENT1,
 			gl.TEXTURE_2D,
-			context.historyWrite,
+			history.write,
 			0
 		);
 		gl.framebufferTexture2D(
 			gl.FRAMEBUFFER,
 			gl.COLOR_ATTACHMENT2,
 			gl.TEXTURE_2D,
-			context.motionHistoryWrite,
+			motionHistory.write,
 			0
 		);
 		gl.drawBuffers([
@@ -755,11 +741,11 @@ export class WebGLTemporalAntiAliasingImplementation
 		gl.activeTexture(gl.TEXTURE0);
 		gl.bindTexture(gl.TEXTURE_2D, sourceTexture);
 		gl.activeTexture(gl.TEXTURE1);
-		gl.bindTexture(gl.TEXTURE_2D, context.historyRead);
+		gl.bindTexture(gl.TEXTURE_2D, history.read);
 		gl.activeTexture(gl.TEXTURE2);
-		gl.bindTexture(gl.TEXTURE_2D, context.sceneMotionTexture);
+		gl.bindTexture(gl.TEXTURE_2D, motionTexture);
 		gl.activeTexture(gl.TEXTURE3);
-		gl.bindTexture(gl.TEXTURE_2D, context.motionHistoryRead);
+		gl.bindTexture(gl.TEXTURE_2D, motionHistory.read);
 
 		const uniforms = program.uniforms;
 		if (uniforms.sceneColor) gl.uniform1i(uniforms.sceneColor, 0);
@@ -818,7 +804,6 @@ export class WebGLTemporalAntiAliasingImplementation
 		);
 		gl.drawBuffers([gl.COLOR_ATTACHMENT0]);
 		gl.bindVertexArray(null);
-		context.publishColorTexture(targetTexture);
 		return { ran: true, updatedHistoryIds: ["taa", "motion"] };
 	}
 
@@ -884,9 +869,12 @@ export class TemporalAntiAliasingPass extends PostProcessPass<
 	public constructor(config: TemporalAntiAliasingPassConfig = {}) {
 		super({
 			...config,
-			...TEMPORAL_ANTI_ALIASING_PASS_ORDER,
-			incremental:
-				config.incremental ?? TEMPORAL_ANTI_ALIASING_PASS_ORDER.incremental,
+			id: TEMPORAL_ANTI_ALIASING_PASS_ORDER.id,
+			schedule: {
+				placement: config.schedule?.placement ?? TEMPORAL_ANTI_ALIASING_PASS_ORDER.placement,
+				order: config.schedule?.order ?? TEMPORAL_ANTI_ALIASING_PASS_ORDER.order,
+				incremental: config.schedule?.incremental ?? TEMPORAL_ANTI_ALIASING_PASS_ORDER.incremental,
+			},
 			warningLabel: "TAA",
 			implementations: {
 				software: () => new SoftwareTemporalAntiAliasingImplementation(),
@@ -900,16 +888,6 @@ export class TemporalAntiAliasingPass extends PostProcessPass<
 		return resolveTAAOptions(this.getRawOptions());
 	}
 
-	public override getRequirements(): PostProcessPassRequirements {
-		return { gBuffer: ["motion"] };
-	}
-
-	public override getHistoryDescriptors(): readonly PostProcessHistoryDescriptor[] {
-		return [
-			{ id: "taa", usage: DEFAULT_HISTORY_USAGE },
-			{ id: "motion", usage: ["sampled", "copy-dst", "render-target"] },
-		];
-	}
 }
 
 function samplePixel(

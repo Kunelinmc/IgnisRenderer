@@ -1,4 +1,5 @@
 import { RenderGraphAttemptTracker } from "../../../rendergraph/RenderGraphAttemptTracker";
+import { RenderGraphBuilder } from "../../../rendergraph/RenderGraphBuilder";
 import { RenderGraphCompiler } from "../../../rendergraph/RenderGraphCompiler";
 import type {
 	CompiledRenderGraph,
@@ -39,9 +40,10 @@ export class WebGPUFrameGraphCompiler {
 	private _legacyStages: WebGPUFrameGraphStagePlan[] = [];
 
 	public compileFrame(plan: WebGPUFrameGraphFramePlan): WebGPUCompiledFrameGraph {
-		const definition = createDefinition(plan);
-		const graph = this._compiler.compile(definition);
-		const stages = plan.stages.map((stage) => projectStage(stage, graph));
+		const built = createDefinition(plan);
+		const graph = this._compiler.compile(built.definition);
+		const stages = plan.stages.map((stage) =>
+			projectStage(stage, built.stageNodeIds.get(stage) ?? [], graph));
 		this._compiled = Object.freeze({ graph, stages: Object.freeze(stages) });
 		this._lastFramePlan = plan;
 		this._attempts.begin(graph);
@@ -111,6 +113,17 @@ export class WebGPUFrameGraphCompiler {
 		this._attempts.abort(error);
 	}
 
+	public recordSkippedNode(
+		nodeId: string,
+		resourceId?: string,
+		resolvedResourceId?: string,
+	): void {
+		this._attempts.recordSkippedNode(
+			nodeId,
+			resourceId && resolvedResourceId ? [{ resourceId, resolvedResourceId }] : [],
+		);
+	}
+
 	public recordOpaqueStage(stage: string, message: string): void {
 		if (!this._lastFramePlan) return;
 		const diagnostic: RenderGraphDiagnostic = {
@@ -167,46 +180,68 @@ export class WebGPUFrameGraphCompiler {
 	}
 }
 
+interface BuiltWebGPUFrameDefinition {
+	readonly definition: RenderGraphDefinition<WebGPUFrameGraphNode, WebGPUFrameGraphNode["kind"]>;
+	readonly stageNodeIds: ReadonlyMap<WebGPUFrameGraphStagePlan, readonly string[]>;
+}
+
 function createDefinition(
 	plan: WebGPUFrameGraphFramePlan,
-): RenderGraphDefinition<WebGPUFrameGraphNode, WebGPUFrameGraphNode["kind"]> {
-	const nodes: SharedWebGPUNode[] = [];
+): BuiltWebGPUFrameDefinition {
+	const builder = new RenderGraphBuilder<WebGPUFrameGraphNode, WebGPUFrameGraphNode["kind"]>();
+	for (const resource of plan.resources) builder.addResource(resource);
+	for (const binding of plan.bindings) builder.addBinding(binding);
+	for (const diagnostic of plan.shadowDiagnostics ?? []) builder.addShadowDiagnostic(diagnostic);
+	builder.markCompleteness(plan.completeness ?? "complete");
+	const stageNodeIds = new Map<WebGPUFrameGraphStagePlan, readonly string[]>();
 	const terminalByStage = new Map<string, string>();
 	for (const stage of plan.stages) {
+		const dependencyNodes = (stage.pass.dependsOn ?? [])
+			.map((dependencyStage) => terminalByStage.get(dependencyStage))
+			.filter((nodeId): nodeId is string => !!nodeId);
+		if (stage.composition) {
+			const composed = builder.addSubgraph(stage.composition.definition, {
+				namespace: stage.composition.namespace,
+				inputs: stage.composition.inputs,
+				dependsOn: dependencyNodes,
+			});
+			const ids = stage.composition.definition.nodes
+				.map((node) => composed.nodes[node.id])
+				.filter((nodeId): nodeId is string => !!nodeId);
+			stageNodeIds.set(stage, Object.freeze(ids));
+			if (ids.length > 0) terminalByStage.set(stage.pass.stage, ids[ids.length - 1]);
+			continue;
+		}
 		let previousNodeId: string | null = null;
+		const ids: string[] = [];
 		for (let index = 0; index < stage.nodes.length; index++) {
 			const node = stage.nodes[index];
 			const dependsOn = new Set(node.dependsOn ?? []);
 			if (previousNodeId) dependsOn.add(previousNodeId);
-			if (index === 0) {
-				for (const dependencyStage of stage.pass.dependsOn ?? []) {
-					const dependencyNode = terminalByStage.get(dependencyStage);
-					if (dependencyNode) dependsOn.add(dependencyNode);
-				}
-			}
-			nodes.push(toSharedNode(node, Array.from(dependsOn)));
+			if (index === 0) for (const dependencyNode of dependencyNodes) dependsOn.add(dependencyNode);
+			builder.addNode(toSharedNode(node, Array.from(dependsOn)));
+			ids.push(node.id);
 			previousNodeId = node.id;
 		}
+		stageNodeIds.set(stage, Object.freeze(ids));
 		if (previousNodeId) terminalByStage.set(stage.pass.stage, previousNodeId);
 	}
+	for (const exported of plan.exports ?? []) builder.addExport(exported);
 	return {
-		resources: plan.resources,
-		bindings: plan.bindings,
-		nodes,
-		exports: plan.exports,
-		completeness: plan.completeness,
-		shadowDiagnostics: plan.shadowDiagnostics,
+		definition: builder.build(),
+		stageNodeIds,
 	};
 }
 
 function projectStage(
 	stage: WebGPUFrameGraphStagePlan,
+	stageNodeIds: readonly string[],
 	graph: CompiledRenderGraph<WebGPUFrameGraphNode, WebGPUFrameGraphNode["kind"]>,
 ): WebGPUCompiledFrameGraphStage {
-	const declaredIds = new Set(stage.nodes.map((node) => node.id));
+	const declaredIds = new Set(stageNodeIds);
 	const nodes = graph.nodes
 		.filter((node) => declaredIds.has(node.id))
-		.map((node) => node.payload!);
+		.map((node) => remapComposedNode(stage, node.id, node.payload!));
 	const retainedIds = new Set(nodes.map((node) => node.id));
 	const barriers = graph.transitions
 		.filter((transition) => retainedIds.has(transition.nodeId) && transition.reason !== undefined)
@@ -221,6 +256,31 @@ function projectStage(
 		barriers: Object.freeze(barriers),
 		diagnostics: Object.freeze(diagnostics),
 	});
+}
+
+function remapComposedNode(
+	stage: WebGPUFrameGraphStagePlan,
+	nodeId: string,
+	node: WebGPUFrameGraphNode,
+): WebGPUFrameGraphNode {
+	if (!stage.composition || !node.postProcess) return node.id === nodeId ? node : { ...node, id: nodeId };
+	const remapResource = (resourceId: string | null): string | null => {
+		if (!resourceId) return null;
+		const port = stage.composition!.definition.imports?.find(
+			(candidate) => candidate.resource === resourceId,
+		);
+		return (port && stage.composition!.inputs[port.name]) ??
+			`${stage.composition!.namespace}:${resourceId}`;
+	};
+	return {
+		...node,
+		id: nodeId,
+		postProcess: {
+			...node.postProcess,
+			inputColor: remapResource(node.postProcess.inputColor),
+			plannedOutputColor: remapResource(node.postProcess.plannedOutputColor),
+		},
+	};
 }
 
 function toImportedDescriptor(id: WebGPUFrameGraphResourceId): RenderGraphResourceDescriptor {

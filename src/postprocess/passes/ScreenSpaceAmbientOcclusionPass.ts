@@ -18,12 +18,8 @@ import {
 	WEBGPU_2D_COMPUTE_WORKGROUP_SIZE as WORKGROUP_SIZE,
 } from "../../backends/webgpu/constants";
 import {
-	WEBGPU_SCREEN_POST_PROCESS_CONTEXT_METADATA,
 	type WebGPUPostProcessFrameTargets,
 } from "../../backends/webgpu/WebGPUPostProcessContracts";
-import {
-	WEBGL_SCREEN_POST_PROCESS_CONTEXT_METADATA,
-} from "../../backends/webgl/WebGLPostProcessContracts";
 import type { PostProcessSharedContext } from "../../backends/webgpu/postprocess/PostProcessSharedContext";
 import type {
 	WebGLProgramCompiler,
@@ -36,12 +32,13 @@ import {
 	type PostProcessPassConfig,
 	type PostProcessPassResolveRequest,
 } from "../PostProcessPass";
-import type { PostProcessPassMetadata } from "../ordering";
+import type { PostProcessScheduleEntry } from "../ordering";
+import { createPostProcessExecutionDeclaration } from "../executionDeclarations";
 import type {
 	PostProcessPassImplementation,
 	PostProcessPassRequest,
 	PostProcessPassResult,
-	PostProcessPassRequirements,
+	PostProcessResourceAccessor,
 	PostProcessTransientDescriptor,
 } from "../types";
 import {
@@ -62,7 +59,7 @@ export const SCREEN_SPACE_AMBIENT_OCCLUSION_PASS_ORDER = {
 		grade: "standard",
 		inflationRadius: 8,
 	},
-} as const satisfies PostProcessPassMetadata;
+} as const satisfies PostProcessScheduleEntry;
 const SSAO_RAW_TRANSIENT_ID = "ssao:raw";
 const SSAO_BLUR_TRANSIENT_ID = "ssao:blur";
 
@@ -129,9 +126,7 @@ export interface WebGPUSSAOContext {
 	readonly encoder?: ICommandEncoder;
 	readonly targets?: WebGPUPostProcessFrameTargets;
 	readonly shared: PostProcessSharedContext;
-	readonly aoRaw?: IRenderTexture | null;
-	readonly aoBlur?: IRenderTexture | null;
-	publishColorTarget?(texture: IRenderTexture): void;
+	readonly resources: PostProcessResourceAccessor<IRenderTexture>;
 }
 
 /** @internal WebGL context supplied to the built-in SSAO implementation. */
@@ -141,21 +136,16 @@ export interface WebGLSSAOContext {
 	readonly fullscreenVao: WebGLVertexArrayObject | null;
 	readonly postFramebuffer: WebGLFramebuffer | null;
 	readonly sceneColorTexture: WebGLTexture | null;
-	readonly sceneMotionTexture: WebGLTexture | null;
-	readonly sceneNormalTexture: WebGLTexture | null;
-	readonly ssaoRawTexture: WebGLTexture | null;
-	readonly ssaoBlurTexture: WebGLTexture | null;
 	readonly width: number;
 	readonly height: number;
+	readonly resources: PostProcessResourceAccessor<WebGLTexture>;
 	getSourceTexture(): WebGLTexture | null;
-	resolveTargetTexture(sourceTexture: WebGLTexture): WebGLTexture | null;
 	bindColorTarget(texture: WebGLTexture): void;
 	drawFullscreen(
 		width: number,
 		height: number,
 		frameContext: FrameContext | null
 	): void;
-	publishColorTexture(texture: WebGLTexture): void;
 }
 
 interface WebGLSSAORawProgram {
@@ -338,6 +328,11 @@ export class SoftwareScreenSpaceAmbientOcclusionImplementation
 	implements PostProcessPassImplementation<SoftwareSSAOContext>
 {
 	public readonly id = "ssao:software";
+	public describeExecution() {
+		return createPostProcessExecutionDeclaration("software", {
+			gBuffer: ["depth", "normal"],
+		});
+	}
 	private _kernel: IVector3[] = [];
 	private _noise: IVector3[] = [];
 	private _aoBuffer: Float32Array | null = null;
@@ -584,21 +579,17 @@ export class WebGPUScreenSpaceAmbientOcclusionImplementation
 	implements PostProcessPassImplementation<WebGPUSSAOContext>
 {
 	public readonly id = "ssao:webgpu";
-	public readonly metadata = {
-		context: {
-			...WEBGPU_SCREEN_POST_PROCESS_CONTEXT_METADATA,
+	public describeExecution(request: PostProcessPassResolveRequest<ResolvedSSAOOptions>) {
+		const options = resolveSSAOOptions(request.options);
+		const scale = 1 / options.downsample;
+		return createPostProcessExecutionDeclaration("webgpu", {
+			gBuffer: ["depth", "normal"],
 			transients: [
-				{
-					property: "aoRaw",
-					transientId: SSAO_RAW_TRANSIENT_ID,
-				},
-				{
-					property: "aoBlur",
-					transientId: SSAO_BLUR_TRANSIENT_ID,
-				},
+				{ id: SSAO_RAW_TRANSIENT_ID, widthScale: scale, heightScale: scale },
+				{ id: SSAO_BLUR_TRANSIENT_ID, widthScale: scale, heightScale: scale },
 			],
-		},
-	};
+		});
+	}
 	private _resources = new Map<PostProcessSharedContext, WebGPUSSAOResources>();
 
 	public async warmup(context: WebGPUSSAOContext | undefined): Promise<void> {
@@ -661,11 +652,19 @@ export class WebGPUScreenSpaceAmbientOcclusionImplementation
 		context: WebGPUSSAOContext
 	): Promise<boolean> {
 		const resources = await this._ensureResources(context.shared);
+		const aoRaw = context.resources.getTransient(SSAO_RAW_TRANSIENT_ID);
+		const aoBlur = context.resources.getTransient(SSAO_BLUR_TRANSIENT_ID);
+		const depthTexture = context.resources.getGBuffer("depth");
+		const normalTexture = context.resources.getGBuffer("normal");
+		const input = context.resources.color.input;
 		if (
 			!context.encoder ||
 			!context.targets ||
-			!context.aoRaw ||
-			!context.aoBlur ||
+			!aoRaw ||
+			!aoBlur ||
+			!depthTexture ||
+			!normalTexture ||
+			!input ||
 			!context.shared.sampler ||
 			!resources.rawPipeline ||
 			!resources.blurPipeline ||
@@ -676,16 +675,14 @@ export class WebGPUScreenSpaceAmbientOcclusionImplementation
 		}
 
 		const targets = context.targets;
-		const aoRaw = context.aoRaw;
-		const aoBlur = context.aoBlur;
 		const options = resolveSSAOOptions(request.options as SSAOOptions);
 		resources.frameIndex = (resources.frameIndex + 1) % 1024;
 		const writeParams = (blurDirX: number, blurDirY: number): void => {
 			context.shared.compute.writeBuffer(
 				resources.params!,
 				createSSAOKernelParams(
-					targets.sceneColor.width,
-					targets.sceneColor.height,
+					input.width,
+					input.height,
 					aoRaw.width,
 					aoRaw.height,
 					options,
@@ -702,8 +699,8 @@ export class WebGPUScreenSpaceAmbientOcclusionImplementation
 			"ssao-raw",
 			resources.rawPipeline,
 			[
-				{ binding: 0, resource: targets.gNormalRoughMetal },
-				{ binding: 1, resource: targets.gMotionDepth },
+				{ binding: 0, resource: normalTexture },
+				{ binding: 1, resource: depthTexture },
 				{ binding: 2, resource: context.shared.sampler },
 				{ binding: 3, resource: resources.params },
 				{ binding: 4, resource: aoRaw },
@@ -725,7 +722,7 @@ export class WebGPUScreenSpaceAmbientOcclusionImplementation
 			resources.blurPipeline,
 			[
 				{ binding: 0, resource: aoRaw },
-				{ binding: 1, resource: targets.gMotionDepth },
+				{ binding: 1, resource: depthTexture },
 				{ binding: 2, resource: context.shared.sampler },
 				{ binding: 3, resource: resources.params },
 				{ binding: 4, resource: aoBlur },
@@ -748,7 +745,7 @@ export class WebGPUScreenSpaceAmbientOcclusionImplementation
 			resources.blurPipeline,
 			[
 				{ binding: 0, resource: aoBlur },
-				{ binding: 1, resource: targets.gMotionDepth },
+				{ binding: 1, resource: depthTexture },
 				{ binding: 2, resource: context.shared.sampler },
 				{ binding: 3, resource: resources.params },
 				{ binding: 4, resource: aoRaw },
@@ -765,13 +762,13 @@ export class WebGPUScreenSpaceAmbientOcclusionImplementation
 		);
 		context.encoder.endComputePass();
 
-		const combineTarget =
-			targets.sceneColor === targets.postPing ? targets.postPong : targets.postPing;
+		const combineTarget = context.resources.color.output;
+		if (!combineTarget) return false;
 		binding = context.shared.getCachedBindGroup(
 			`ssao-combine-${combineTarget === targets.postPing ? "ping" : "pong"}`,
 			resources.combinePipeline,
 			[
-				{ binding: 0, resource: targets.sceneColor },
+				{ binding: 0, resource: input },
 				{ binding: 1, resource: aoRaw },
 				{ binding: 2, resource: context.shared.sampler },
 				{ binding: 3, resource: resources.params },
@@ -788,7 +785,6 @@ export class WebGPUScreenSpaceAmbientOcclusionImplementation
 			1
 		);
 		context.encoder.endComputePass();
-		context.publishColorTarget?.(combineTarget);
 		return true;
 	}
 
@@ -857,23 +853,17 @@ export class WebGLScreenSpaceAmbientOcclusionImplementation
 	implements PostProcessPassImplementation<WebGLSSAOContext>
 {
 	public readonly id = "ssao:webgl";
-	public readonly metadata = {
-		context: {
-			...WEBGL_SCREEN_POST_PROCESS_CONTEXT_METADATA,
-			sceneMotionTexture: true,
-			sceneNormalTexture: true,
+	public describeExecution(request: PostProcessPassResolveRequest<ResolvedSSAOOptions>) {
+		const options = resolveSSAOOptions(request.options);
+		const scale = 1 / options.downsample;
+		return createPostProcessExecutionDeclaration("webgl", {
+			gBuffer: ["depth", "normal"],
 			transients: [
-				{
-					property: "ssaoRawTexture",
-					transientId: SSAO_RAW_TRANSIENT_ID,
-				},
-				{
-					property: "ssaoBlurTexture",
-					transientId: SSAO_BLUR_TRANSIENT_ID,
-				},
+				{ id: SSAO_RAW_TRANSIENT_ID, widthScale: scale, heightScale: scale },
+				{ id: SSAO_BLUR_TRANSIENT_ID, widthScale: scale, heightScale: scale },
 			],
-		},
-	};
+		});
+	}
 	private _programCompiler: WebGLProgramCompiler | null = null;
 	private _rawProgramSlot: WebGLProgramSlot<WebGLSSAORawProgram> | null = null;
 	private _blurProgramSlot: WebGLProgramSlot<WebGLSSAOBlurProgram> | null = null;
@@ -904,26 +894,25 @@ export class WebGLScreenSpaceAmbientOcclusionImplementation
 		request: PostProcessPassRequest,
 		context: WebGLSSAOContext
 	): PostProcessPassResult {
+		const depthTexture = context.resources.getGBuffer("depth");
+		const normalTexture = context.resources.getGBuffer("normal");
+		const ssaoRawTexture = context.resources.getTransient(SSAO_RAW_TRANSIENT_ID);
+		const ssaoBlurTexture = context.resources.getTransient(SSAO_BLUR_TRANSIENT_ID);
+		const sourceTexture = context.resources.color.input;
+		const targetTexture = context.resources.color.output;
 		if (
 			!context.postFramebuffer ||
 			!context.sceneColorTexture ||
-			!context.sceneMotionTexture ||
-			!context.sceneNormalTexture ||
-			!context.ssaoRawTexture ||
-			!context.ssaoBlurTexture ||
+			!depthTexture ||
+			!normalTexture ||
+			!ssaoRawTexture ||
+			!ssaoBlurTexture ||
+			!sourceTexture ||
+			!targetTexture ||
 			!context.fullscreenVao
 		) {
 			return { ran: false };
 		}
-		const sourceTexture = context.getSourceTexture();
-		if (!sourceTexture) {
-			return { ran: false };
-		}
-		const targetTexture = context.resolveTargetTexture(sourceTexture);
-		if (!targetTexture) {
-			return { ran: false };
-		}
-
 		const gl = context.gl;
 		this._ensureProgramSlots(context.programCompiler);
 		const rawProgram = this._rawProgramSlot!.tryGet();
@@ -961,13 +950,13 @@ export class WebGLScreenSpaceAmbientOcclusionImplementation
 		gl.disable(gl.DEPTH_TEST);
 		gl.disable(gl.BLEND);
 
-		context.bindColorTarget(context.ssaoRawTexture);
+		context.bindColorTarget(ssaoRawTexture);
 		gl.viewport(0, 0, aoWidth, aoHeight);
 		gl.useProgram(rawProgram.program);
 		gl.activeTexture(gl.TEXTURE0);
-		gl.bindTexture(gl.TEXTURE_2D, context.sceneNormalTexture);
+		gl.bindTexture(gl.TEXTURE_2D, normalTexture);
 		gl.activeTexture(gl.TEXTURE1);
-		gl.bindTexture(gl.TEXTURE_2D, context.sceneMotionTexture);
+		gl.bindTexture(gl.TEXTURE_2D, depthTexture);
 		if (rawProgram.uniforms.normalMap) gl.uniform1i(rawProgram.uniforms.normalMap, 0);
 		if (rawProgram.uniforms.depthMap) gl.uniform1i(rawProgram.uniforms.depthMap, 1);
 		if (rawProgram.uniforms.invSize) {
@@ -1035,13 +1024,13 @@ export class WebGLScreenSpaceAmbientOcclusionImplementation
 		}
 		context.drawFullscreen(aoWidth, aoHeight, request.frameContext);
 
-		context.bindColorTarget(context.ssaoBlurTexture);
+		context.bindColorTarget(ssaoBlurTexture);
 		gl.viewport(0, 0, aoWidth, aoHeight);
 		gl.useProgram(blurProgram.program);
 		gl.activeTexture(gl.TEXTURE0);
-		gl.bindTexture(gl.TEXTURE_2D, context.ssaoRawTexture);
+		gl.bindTexture(gl.TEXTURE_2D, ssaoRawTexture);
 		gl.activeTexture(gl.TEXTURE1);
-		gl.bindTexture(gl.TEXTURE_2D, context.sceneMotionTexture);
+		gl.bindTexture(gl.TEXTURE_2D, depthTexture);
 		if (blurProgram.uniforms.sourceMap) gl.uniform1i(blurProgram.uniforms.sourceMap, 0);
 		if (blurProgram.uniforms.depthMap) gl.uniform1i(blurProgram.uniforms.depthMap, 1);
 		if (blurProgram.uniforms.invSize) {
@@ -1067,12 +1056,12 @@ export class WebGLScreenSpaceAmbientOcclusionImplementation
 		}
 		context.drawFullscreen(aoWidth, aoHeight, request.frameContext);
 
-		context.bindColorTarget(context.ssaoRawTexture);
+		context.bindColorTarget(ssaoRawTexture);
 		gl.viewport(0, 0, aoWidth, aoHeight);
 		gl.activeTexture(gl.TEXTURE0);
-		gl.bindTexture(gl.TEXTURE_2D, context.ssaoBlurTexture);
+		gl.bindTexture(gl.TEXTURE_2D, ssaoBlurTexture);
 		gl.activeTexture(gl.TEXTURE1);
-		gl.bindTexture(gl.TEXTURE_2D, context.sceneMotionTexture);
+		gl.bindTexture(gl.TEXTURE_2D, depthTexture);
 		if (blurProgram.uniforms.pass) {
 			gl.uniform4f(blurProgram.uniforms.pass, 0, 1, params[14], params[15]);
 		}
@@ -1084,7 +1073,7 @@ export class WebGLScreenSpaceAmbientOcclusionImplementation
 		gl.activeTexture(gl.TEXTURE0);
 		gl.bindTexture(gl.TEXTURE_2D, sourceTexture);
 		gl.activeTexture(gl.TEXTURE1);
-		gl.bindTexture(gl.TEXTURE_2D, context.ssaoRawTexture);
+		gl.bindTexture(gl.TEXTURE_2D, ssaoRawTexture);
 		if (combineProgram.uniforms.sceneColor) {
 			gl.uniform1i(combineProgram.uniforms.sceneColor, 0);
 		}
@@ -1102,7 +1091,6 @@ export class WebGLScreenSpaceAmbientOcclusionImplementation
 		}
 		context.drawFullscreen(context.width, context.height, request.frameContext);
 		gl.bindVertexArray(null);
-		context.publishColorTexture(targetTexture);
 		return { ran: true };
 	}
 
@@ -1207,10 +1195,12 @@ export class ScreenSpaceAmbientOcclusionPass extends PostProcessPass<
 	public constructor(config: ScreenSpaceAmbientOcclusionPassConfig = {}) {
 		super({
 			...config,
-			...SCREEN_SPACE_AMBIENT_OCCLUSION_PASS_ORDER,
-			incremental:
-				config.incremental ??
-				SCREEN_SPACE_AMBIENT_OCCLUSION_PASS_ORDER.incremental,
+			id: SCREEN_SPACE_AMBIENT_OCCLUSION_PASS_ORDER.id,
+			schedule: {
+				placement: config.schedule?.placement ?? SCREEN_SPACE_AMBIENT_OCCLUSION_PASS_ORDER.placement,
+				order: config.schedule?.order ?? SCREEN_SPACE_AMBIENT_OCCLUSION_PASS_ORDER.order,
+				incremental: config.schedule?.incremental ?? SCREEN_SPACE_AMBIENT_OCCLUSION_PASS_ORDER.incremental,
+			},
 			warningLabel: "SSAO",
 			implementations: {
 				software: () => new SoftwareScreenSpaceAmbientOcclusionImplementation(),
@@ -1224,31 +1214,6 @@ export class ScreenSpaceAmbientOcclusionPass extends PostProcessPass<
 		return resolveSSAOOptions(this.getRawOptions());
 	}
 
-	public override getRequirements(): PostProcessPassRequirements {
-		return { gBuffer: ["depth", "normal"] };
-	}
-
-	public override getTransientResourceDescriptors(
-		request: PostProcessPassResolveRequest<ResolvedSSAOOptions>
-	): readonly PostProcessTransientDescriptor[] {
-		if (request.backend !== "webgpu" && request.backend !== "webgl") {
-			return [];
-		}
-		const options = resolveSSAOOptions(request.options);
-		const scale = 1 / options.downsample;
-		return [
-			{
-				id: SSAO_RAW_TRANSIENT_ID,
-				widthScale: scale,
-				heightScale: scale,
-			},
-			{
-				id: SSAO_BLUR_TRANSIENT_ID,
-				widthScale: scale,
-				heightScale: scale,
-			},
-		];
-	}
 }
 
 function reconstructViewPos(

@@ -23,7 +23,7 @@ export interface BuiltinPostProcessOrderEntry {
 	readonly order: number;
 }
 
-export interface PostProcessPassMetadata
+export interface PostProcessScheduleEntry
 	extends BuiltinPostProcessOrderEntry {
 	readonly incremental: PostProcessIncrementalMetadata;
 }

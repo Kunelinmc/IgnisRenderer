@@ -34,6 +34,7 @@ import {
 	type WebGLProgramWarmupPriority,
 } from "./WebGLProgramWarmupQueue";
 import type { BackendPostProcessRuntime } from "../../postprocess/BackendPostProcessRuntime";
+import type { PostProcessPlan } from "../../postprocess/PostProcessPlanner";
 
 export interface WebGLWarmupCoordinatorServices {
 	getPrograms(): WebGLProgramLibrary;
@@ -57,6 +58,7 @@ export class WebGLWarmupCoordinator {
 		context: FrameContext,
 		plan: WarmupPlan,
 		options: WarmupOptions = {},
+		postProcessPlan?: PostProcessPlan,
 	): Promise<WarmupPhaseCounters> {
 		const yieldController = createWarmupYieldController(options);
 		const queue = new WebGLProgramWarmupQueue();
@@ -153,17 +155,21 @@ export class WebGLWarmupCoordinator {
 			);
 		}
 
-		const graph = this._services.postProcessRuntime.compileWarmupGraph(context);
+		const graph = postProcessPlan ?? (plan.includePostProcess ?
+			this._services.postProcessRuntime.planWarmup(context) : null);
 		const warmed = new Set<string>();
 		for (const passId of plan.postProcessPasses) {
 			if (warmed.has(passId)) continue;
-			const compiled = graph.passes.find((pass) => pass.id === passId);
+			const compiled = graph?.passes.find((pass) => pass.id === passId);
 			const implementation = compiled?.implementation;
 			if (typeof implementation?.warmup !== "function") continue;
 			warmed.add(passId);
 			enqueue(`WebGLPostWarmup:${passId}`, "postprocess", async () => {
 				const warmupContext =
-					this._services.postProcess.getPassWarmupExecutionContext(implementation);
+					this._services.postProcess.getPassWarmupExecutionContext(
+						compiled.id,
+						compiled.declaration,
+					);
 				await implementation.warmup?.(warmupContext, {
 					frameContext: context,
 					postProcess: context.postProcess,

@@ -4,12 +4,6 @@ import { type IComputePipeline, type IShaderModule } from "../../backends/types"
 import {
 	WEBGPU_2D_COMPUTE_WORKGROUP_SIZE as WEBGPU_WORKGROUP_SIZE,
 } from "../../backends/webgpu/constants";
-import {
-	WEBGPU_SCREEN_POST_PROCESS_CONTEXT_METADATA,
-} from "../../backends/webgpu/WebGPUPostProcessContracts";
-import {
-	WEBGL_SCREEN_POST_PROCESS_CONTEXT_METADATA,
-} from "../../backends/webgl/WebGLPostProcessContracts";
 import type { PostProcessSharedContext } from "../../backends/webgpu/postprocess/PostProcessSharedContext";
 import type {
 	WebGLProgramCompiler,
@@ -18,7 +12,8 @@ import type {
 import { ShaderSource } from "../../shaders/ShaderSource";
 import type { PostProcessIncrementalMetadata } from "../../pipeline/incremental";
 import { PostProcessPass, type PostProcessPassConfig } from "../PostProcessPass";
-import type { PostProcessPassMetadata } from "../ordering";
+import type { PostProcessScheduleEntry } from "../ordering";
+import { createPostProcessExecutionDeclaration } from "../executionDeclarations";
 import type {
 	PostProcessPassImplementation,
 	PostProcessPassRequest,
@@ -27,7 +22,6 @@ import type {
 import {
 	bindWebGLPostTarget,
 	forEachSoftwareDirtyRect,
-	publishWebGPUColorTarget,
 	resolveSoftwareDirtyRects,
 	resolveWebGLTarget,
 	resolveWebGPUTarget,
@@ -55,7 +49,7 @@ export const TONE_MAPPING_PASS_ORDER = {
 	placement: "hdr",
 	order: 600,
 	incremental: TONE_MAPPING_PASS_INCREMENTAL,
-} as const satisfies PostProcessPassMetadata;
+} as const satisfies PostProcessScheduleEntry;
 export type WebGPUToneMappingContext = WebGPURuntimePostProcessContext;
 export type WebGLToneMappingContext = WebGLScreenPostProcessContext;
 
@@ -64,6 +58,9 @@ export class SoftwareToneMappingImplementation
 	implements PostProcessPassImplementation<SoftwareBuiltinPostProcessContext>
 {
 	public readonly id = "tonemap:software";
+	public describeExecution() {
+		return createPostProcessExecutionDeclaration("software");
+	}
 
 	public execute(
 		request: PostProcessPassRequest,
@@ -102,9 +99,9 @@ export class WebGPUToneMappingImplementation
 	implements PostProcessPassImplementation<WebGPUToneMappingContext, EmptyOptions>
 {
 	public readonly id = "tonemap:webgpu";
-	public readonly metadata = {
-		context: WEBGPU_SCREEN_POST_PROCESS_CONTEXT_METADATA,
-	};
+	public describeExecution() {
+		return createPostProcessExecutionDeclaration("webgpu");
+	}
 	private _resources =
 		new Map<PostProcessSharedContext, WebGPUToneMappingResources>();
 
@@ -158,12 +155,14 @@ export class WebGPUToneMappingImplementation
 			return false;
 		}
 		const targets = context.targets;
-		const target = resolveWebGPUTarget(targets);
+		const target = resolveWebGPUTarget(context);
+		const input = context.resources.color.input;
+		if (!input) return false;
 		const binding = context.shared.getCachedBindGroup(
 			`tonemap-${target === targets.postPing ? "ping" : "pong"}`,
 			resources.pipeline,
 			[
-				{ binding: 0, resource: targets.sceneColor },
+				{ binding: 0, resource: input },
 				{ binding: 1, resource: target },
 			],
 			"WebGPUToneMapping_Binding"
@@ -177,7 +176,6 @@ export class WebGPUToneMappingImplementation
 			1
 		);
 		context.encoder.endComputePass();
-		publishWebGPUColorTarget(context, target);
 		return true;
 	}
 
@@ -220,9 +218,9 @@ export class WebGLToneMappingImplementation
 	implements PostProcessPassImplementation<WebGLToneMappingContext, EmptyOptions>
 {
 	public readonly id = "tonemap:webgl";
-	public readonly metadata = {
-		context: WEBGL_SCREEN_POST_PROCESS_CONTEXT_METADATA,
-	};
+	public describeExecution() {
+		return createPostProcessExecutionDeclaration("webgl");
+	}
 	private _programCompiler: WebGLProgramCompiler | null = null;
 	private _programSlot: WebGLProgramSlot<WebGLToneMappingProgram> | null = null;
 
@@ -253,7 +251,6 @@ export class WebGLToneMappingImplementation
 		}
 		context.drawFullscreen();
 		gl.bindVertexArray(null);
-		context.publishColorTexture(target.texture);
 		return { ran: true };
 	}
 
@@ -298,15 +295,17 @@ export class ToneMappingPass extends PostProcessPass<EmptyOptions, EmptyOptions>
 			| "id"
 			| "builtIn"
 			| "warningLabel"
-			| "placement"
-			| "order"
 			| "implementations"
 		> = {}
 	) {
 		super({
 			...config,
-			...TONE_MAPPING_PASS_ORDER,
-			incremental: config.incremental ?? TONE_MAPPING_PASS_ORDER.incremental,
+			id: TONE_MAPPING_PASS_ORDER.id,
+			schedule: {
+				placement: config.schedule?.placement ?? TONE_MAPPING_PASS_ORDER.placement,
+				order: config.schedule?.order ?? TONE_MAPPING_PASS_ORDER.order,
+				incremental: config.schedule?.incremental ?? TONE_MAPPING_PASS_ORDER.incremental,
+			},
 			builtIn: true,
 			warningLabel: "tone mapping",
 			implementations: {

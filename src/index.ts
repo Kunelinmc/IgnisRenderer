@@ -83,15 +83,7 @@ export {
 export { WebGPUBackend } from "./backends/webgpu/WebGPUBackend";
 export { WebGLBackend } from "./backends/webgl/WebGLBackend";
 export {
-	WEBGPU_PRESENT_POST_PROCESS_CONTEXT_METADATA,
-	WEBGPU_SCREEN_POST_PROCESS_CONTEXT_METADATA,
-	isWebGPUPostProcessContextMetadata,
-	type WebGPUPostProcessContextKind,
-	type WebGPUPostProcessContextMetadata,
 	type WebGPUPostProcessFrameTargets,
-	type WebGPUPostProcessHistoryBindingMetadata,
-	type WebGPUPostProcessHistorySide,
-	type WebGPUPostProcessMotionHistoryCopyMetadata,
 } from "./backends/webgpu/WebGPUPostProcessContracts";
 export type { IWebGPUComputeFacade } from "./backends/webgpu/ComputeFacade";
 export { resolveWebGPUComputeFacade } from "./backends/webgpu/ComputeFacade";

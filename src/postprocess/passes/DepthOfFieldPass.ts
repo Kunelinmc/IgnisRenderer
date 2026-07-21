@@ -9,12 +9,6 @@ import {
 import {
 	WEBGPU_2D_COMPUTE_WORKGROUP_SIZE as WEBGPU_WORKGROUP_SIZE,
 } from "../../backends/webgpu/constants";
-import {
-	WEBGPU_SCREEN_POST_PROCESS_CONTEXT_METADATA,
-} from "../../backends/webgpu/WebGPUPostProcessContracts";
-import {
-	WEBGL_SCREEN_POST_PROCESS_CONTEXT_METADATA,
-} from "../../backends/webgl/WebGLPostProcessContracts";
 import type { PostProcessSharedContext } from "../../backends/webgpu/postprocess/PostProcessSharedContext";
 import {
 	DOF_CHROMATIC_ABERRATION_RANGE,
@@ -30,16 +24,15 @@ import type {
 } from "../../backends/webgl/WebGLProgramCompiler";
 import { ShaderSource } from "../../shaders/ShaderSource";
 import { PostProcessPass, type PostProcessPassConfig } from "../PostProcessPass";
-import type { PostProcessPassMetadata } from "../ordering";
+import type { PostProcessScheduleEntry } from "../ordering";
+import { createPostProcessExecutionDeclaration } from "../executionDeclarations";
 import type {
 	PostProcessPassImplementation,
 	PostProcessPassRequest,
-	PostProcessPassRequirements,
 	PostProcessPassResult,
 } from "../types";
 import {
 	bindWebGLPostTarget,
-	publishWebGPUColorTarget,
 	resolveWebGLTarget,
 	resolveWebGPUTarget,
 	type WebGLScreenPostProcessContext,
@@ -68,7 +61,7 @@ export const DEPTH_OF_FIELD_PASS_ORDER = {
 		grade: "cinematic",
 		inflationRadius: 32,
 	},
-} as const satisfies PostProcessPassMetadata;
+} as const satisfies PostProcessScheduleEntry;
 export interface DOFOptions {
 	/** Focus plane distance in the depth units consumed by the backend. */
 	focusDistance?: number;
@@ -130,9 +123,9 @@ export class WebGPUDepthOfFieldImplementation
 	implements PostProcessPassImplementation<WebGPUDepthOfFieldContext, DOFOptions>
 {
 	public readonly id = "dof:webgpu";
-	public readonly metadata = {
-		context: WEBGPU_SCREEN_POST_PROCESS_CONTEXT_METADATA,
-	};
+	public describeExecution() {
+		return createPostProcessExecutionDeclaration("webgpu", { gBuffer: ["depth"] });
+	}
 	private _resources =
 		new Map<PostProcessSharedContext, WebGPUDepthOfFieldResources>();
 
@@ -189,7 +182,10 @@ export class WebGPUDepthOfFieldImplementation
 			return false;
 		}
 		const targets = context.targets;
-		const target = resolveWebGPUTarget(targets);
+		const target = resolveWebGPUTarget(context);
+		const input = context.resources.color.input;
+		const depthTexture = context.resources.getGBuffer("depth");
+		if (!input || !depthTexture) return false;
 		const options = request.options ?? DEFAULT_DOF_OPTIONS;
 		const focusDistance = Math.max(
 			0.01,
@@ -254,8 +250,8 @@ export class WebGPUDepthOfFieldImplementation
 			`dof-${target === targets.postPing ? "ping" : "pong"}`,
 			resources.pipeline,
 			[
-				{ binding: 0, resource: targets.sceneColor },
-				{ binding: 1, resource: targets.gMotionDepth },
+				{ binding: 0, resource: input },
+				{ binding: 1, resource: depthTexture },
 				{ binding: 2, resource: context.shared.sampler },
 				{ binding: 3, resource: resources.params },
 				{ binding: 4, resource: target },
@@ -271,7 +267,6 @@ export class WebGPUDepthOfFieldImplementation
 			1
 		);
 		context.encoder.endComputePass();
-		publishWebGPUColorTarget(context, target);
 		return true;
 	}
 
@@ -322,12 +317,9 @@ export class WebGLDepthOfFieldImplementation
 	implements PostProcessPassImplementation<WebGLDepthOfFieldContext, DOFOptions>
 {
 	public readonly id = "dof:webgl";
-	public readonly metadata = {
-		context: {
-			...WEBGL_SCREEN_POST_PROCESS_CONTEXT_METADATA,
-			sceneMotionTexture: true,
-		},
-	};
+	public describeExecution() {
+		return createPostProcessExecutionDeclaration("webgl", { gBuffer: ["depth"] });
+	}
 	private _programCompiler: WebGLProgramCompiler | null = null;
 	private _programSlot: WebGLProgramSlot<WebGLDepthOfFieldProgram> | null = null;
 
@@ -341,7 +333,8 @@ export class WebGLDepthOfFieldImplementation
 		request: PostProcessPassRequest<DOFOptions>,
 		context: WebGLDepthOfFieldContext | undefined
 	): PostProcessPassResult {
-		if (!context?.sceneMotionTexture) {
+		const depthTexture = context?.resources.getGBuffer("depth");
+		if (!context || !depthTexture) {
 			return { ran: false };
 		}
 		const target = resolveWebGLTarget(context);
@@ -407,7 +400,7 @@ export class WebGLDepthOfFieldImplementation
 		gl.activeTexture(gl.TEXTURE0);
 		gl.bindTexture(gl.TEXTURE_2D, target.source);
 		gl.activeTexture(gl.TEXTURE1);
-		gl.bindTexture(gl.TEXTURE_2D, context.sceneMotionTexture);
+		gl.bindTexture(gl.TEXTURE_2D, depthTexture);
 		const uniforms = program.uniforms;
 		if (uniforms.sourceMap) gl.uniform1i(uniforms.sourceMap, 0);
 		if (uniforms.motionDepthMap) gl.uniform1i(uniforms.motionDepthMap, 1);
@@ -441,7 +434,6 @@ export class WebGLDepthOfFieldImplementation
 		}
 		context.drawFullscreen();
 		gl.bindVertexArray(null);
-		context.publishColorTexture(target.texture);
 		return { ran: true };
 	}
 
@@ -501,8 +493,12 @@ export class DepthOfFieldPass extends PostProcessPass<DOFOptions, DOFOptions> {
 	public constructor(config: DepthOfFieldPassConfig = {}) {
 		super({
 			...config,
-			...DEPTH_OF_FIELD_PASS_ORDER,
-			incremental: config.incremental ?? DEPTH_OF_FIELD_PASS_ORDER.incremental,
+			id: DEPTH_OF_FIELD_PASS_ORDER.id,
+			schedule: {
+				placement: config.schedule?.placement ?? DEPTH_OF_FIELD_PASS_ORDER.placement,
+				order: config.schedule?.order ?? DEPTH_OF_FIELD_PASS_ORDER.order,
+				incremental: config.schedule?.incremental ?? DEPTH_OF_FIELD_PASS_ORDER.incremental,
+			},
 			warningLabel: "depth of field",
 			implementations: {
 				webgpu: () => new WebGPUDepthOfFieldImplementation(),
@@ -518,7 +514,4 @@ export class DepthOfFieldPass extends PostProcessPass<DOFOptions, DOFOptions> {
 		};
 	}
 
-	public override getRequirements(): PostProcessPassRequirements {
-		return { gBuffer: ["depth"] };
-	}
 }

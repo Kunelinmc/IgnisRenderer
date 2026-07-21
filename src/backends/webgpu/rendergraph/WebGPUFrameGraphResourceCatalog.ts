@@ -62,8 +62,7 @@ export const WEBGPU_FRAME_GRAPH_RESOURCES = {
 	occlusionResults: "occlusion:results",
 } as const;
 
-export type WebGPUFrameGraphResourceId =
-	(typeof WEBGPU_FRAME_GRAPH_RESOURCES)[keyof typeof WEBGPU_FRAME_GRAPH_RESOURCES];
+export type WebGPUFrameGraphResourceId = string;
 
 export interface WebGPUFrameGraphResourceCatalogSnapshot {
 	readonly resources: readonly RenderGraphResourceDescriptor[];

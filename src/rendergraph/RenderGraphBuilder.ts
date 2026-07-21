@@ -14,11 +14,14 @@ export interface RenderGraphSubgraphComposition {
 	readonly namespace: string;
 	readonly inputs?: Readonly<Record<string, string>>;
 	readonly outputs?: Readonly<Record<string, string>>;
+	readonly dependsOn?: readonly string[];
 }
 
 /** @internal Result of composing one namespaced subgraph. */
 export interface RenderGraphSubgraphCompositionResult {
 	readonly outputs: Readonly<Record<string, string>>;
+	readonly resources: Readonly<Record<string, string>>;
+	readonly nodes: Readonly<Record<string, string>>;
 }
 
 /** @internal Mutable construction helper that emits an immutable definition. */
@@ -76,7 +79,7 @@ export class RenderGraphBuilder<TPayload = unknown, TKind extends string = strin
 				"missing-subgraph-port",
 				"Render graph subgraph composition requires a non-empty namespace.",
 			));
-			return { outputs: Object.freeze({}) };
+			return emptyCompositionResult();
 		}
 		const resourceMap = new Map<string, string>();
 		const omittedOptionalImports = new Set<string>();
@@ -176,10 +179,16 @@ export class RenderGraphBuilder<TPayload = unknown, TKind extends string = strin
 				));
 				continue;
 			}
+			const externalDependencies = (node.dependsOn?.length ?? 0) === 0
+				? composition.dependsOn ?? []
+				: [];
 			this._nodes.push({
 				...node,
 				id: remappedNodeId,
-				dependsOn: node.dependsOn?.map((id) => nodeMap.get(id) ?? namespaceId(namespace, id)),
+				dependsOn: [
+					...(node.dependsOn?.map((id) => nodeMap.get(id) ?? namespaceId(namespace, id)) ?? []),
+					...externalDependencies,
+				],
 				requires: node.requires?.map((requirement) => ({
 					...requirement,
 					resource: remapResource(resourceMap, namespace, requirement.resource),
@@ -202,7 +211,11 @@ export class RenderGraphBuilder<TPayload = unknown, TKind extends string = strin
 		this._buildDiagnostics.push(...(subgraph.buildDiagnostics ?? []));
 		this._shadowDiagnostics.push(...(subgraph.shadowDiagnostics ?? []));
 		this.markCompleteness(subgraph.completeness ?? "complete");
-		return { outputs: Object.freeze(resolvedOutputs) };
+		return {
+			outputs: Object.freeze(resolvedOutputs),
+			resources: Object.freeze(Object.fromEntries(resourceMap)),
+			nodes: Object.freeze(Object.fromEntries(nodeMap)),
+		};
 	}
 
 	public build(): RenderGraphDefinition<TPayload, TKind> {
@@ -217,6 +230,14 @@ export class RenderGraphBuilder<TPayload = unknown, TKind extends string = strin
 			shadowDiagnostics: Object.freeze(this._shadowDiagnostics.slice()),
 		});
 	}
+}
+
+function emptyCompositionResult(): RenderGraphSubgraphCompositionResult {
+	return {
+		outputs: Object.freeze({}),
+		resources: Object.freeze({}),
+		nodes: Object.freeze({}),
+	};
 }
 
 function areDescriptorsCompatible(

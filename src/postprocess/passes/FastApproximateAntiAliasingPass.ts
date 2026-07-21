@@ -17,12 +17,8 @@ import {
 	WEBGPU_2D_COMPUTE_WORKGROUP_SIZE as WORKGROUP_SIZE,
 } from "../../backends/webgpu/constants";
 import {
-	WEBGPU_SCREEN_POST_PROCESS_CONTEXT_METADATA,
 	type WebGPUPostProcessFrameTargets,
 } from "../../backends/webgpu/WebGPUPostProcessContracts";
-import {
-	WEBGL_SCREEN_POST_PROCESS_CONTEXT_METADATA,
-} from "../../backends/webgl/WebGLPostProcessContracts";
 import type { PostProcessSharedContext } from "../../backends/webgpu/postprocess/PostProcessSharedContext";
 import type {
 	WebGLProgramCompiler,
@@ -32,11 +28,13 @@ import { clamp } from "../../maths/Common";
 import { ceilDiv } from "../../maths/Misc";
 import { ShaderSource } from "../../shaders/ShaderSource";
 import { PostProcessPass, type PostProcessPassConfig } from "../PostProcessPass";
-import type { PostProcessPassMetadata } from "../ordering";
+import type { PostProcessScheduleEntry } from "../ordering";
+import { createPostProcessExecutionDeclaration } from "../executionDeclarations";
 import type {
 	PostProcessPassImplementation,
 	PostProcessPassRequest,
 	PostProcessPassResult,
+	PostProcessResourceAccessor,
 } from "../types";
 import {
 	forEachSoftwareDirtyRect,
@@ -53,7 +51,7 @@ export const FAST_APPROXIMATE_ANTI_ALIASING_PASS_ORDER = {
 		grade: "light",
 		inflationRadius: 2,
 	},
-} as const satisfies PostProcessPassMetadata;
+} as const satisfies PostProcessScheduleEntry;
 
 interface SampledByteColor {
 	r: number;
@@ -73,7 +71,7 @@ export interface WebGPUFXAAContext {
 	readonly encoder?: ICommandEncoder;
 	readonly targets?: WebGPUPostProcessFrameTargets;
 	readonly shared: PostProcessSharedContext;
-	publishColorTarget?(texture: IRenderTexture): void;
+	readonly resources: PostProcessResourceAccessor<IRenderTexture>;
 }
 
 /** @internal WebGL context supplied to the built-in FXAA implementation. */
@@ -85,11 +83,10 @@ export interface WebGLFXAAContext {
 	readonly sceneColorTexture: WebGLTexture | null;
 	readonly width: number;
 	readonly height: number;
+	readonly resources: PostProcessResourceAccessor<WebGLTexture>;
 	getSourceTexture(): WebGLTexture | null;
-	resolveTargetTexture(sourceTexture: WebGLTexture): WebGLTexture | null;
 	bindColorTarget(texture: WebGLTexture): void;
 	drawFullscreen(): void;
-	publishColorTexture(texture: WebGLTexture): void;
 }
 
 interface WebGLFXAAProgram {
@@ -134,6 +131,9 @@ export class SoftwareFastApproximateAntiAliasingImplementation
 	implements PostProcessPassImplementation<SoftwareFXAAContext>
 {
 	public readonly id = "fxaa:software";
+	public describeExecution() {
+		return createPostProcessExecutionDeclaration("software");
+	}
 	private _output: Uint8ClampedArray | null = null;
 	private _luma: Float32Array | null = null;
 
@@ -334,9 +334,9 @@ export class WebGPUFastApproximateAntiAliasingImplementation
 	implements PostProcessPassImplementation<WebGPUFXAAContext>
 {
 	public readonly id = "fxaa:webgpu";
-	public readonly metadata = {
-		context: WEBGPU_SCREEN_POST_PROCESS_CONTEXT_METADATA,
-	};
+	public describeExecution() {
+		return createPostProcessExecutionDeclaration("webgpu");
+	}
 	private _resources = new Map<PostProcessSharedContext, WebGPUFXAAResources>();
 
 	public async warmup(context: WebGPUFXAAContext | undefined): Promise<void> {
@@ -396,8 +396,9 @@ export class WebGPUFastApproximateAntiAliasingImplementation
 			return false;
 		}
 		const targets = context.targets;
-		const target =
-			targets.sceneColor === targets.postPong ? targets.postPing : targets.postPong;
+		const target = context.resources.color.output;
+		const input = context.resources.color.input;
+		if (!target || !input) return false;
 		context.shared.compute.writeBuffer(
 			resources.params,
 			createFXAAKernelParams(target.width, target.height) as unknown as BufferSource
@@ -406,7 +407,7 @@ export class WebGPUFastApproximateAntiAliasingImplementation
 			`fxaa-${target === targets.postPing ? "ping" : "pong"}`,
 			resources.pipeline,
 			[
-				{ binding: 0, resource: targets.sceneColor },
+				{ binding: 0, resource: input },
 				{ binding: 1, resource: context.shared.sampler },
 				{ binding: 2, resource: resources.params },
 				{ binding: 3, resource: target },
@@ -422,7 +423,6 @@ export class WebGPUFastApproximateAntiAliasingImplementation
 			1
 		);
 		context.encoder.endComputePass();
-		context.publishColorTarget?.(target);
 		return true;
 	}
 
@@ -471,9 +471,9 @@ export class WebGLFastApproximateAntiAliasingImplementation
 	implements PostProcessPassImplementation<WebGLFXAAContext>
 {
 	public readonly id = "fxaa:webgl";
-	public readonly metadata = {
-		context: WEBGL_SCREEN_POST_PROCESS_CONTEXT_METADATA,
-	};
+	public describeExecution() {
+		return createPostProcessExecutionDeclaration("webgl");
+	}
 	private _programCompiler: WebGLProgramCompiler | null = null;
 	private _programSlot: WebGLProgramSlot<WebGLFXAAProgram> | null = null;
 
@@ -497,12 +497,9 @@ export class WebGLFastApproximateAntiAliasingImplementation
 		) {
 			return { ran: false };
 		}
-		const sourceTexture = context.getSourceTexture();
-		if (!sourceTexture) {
-			return { ran: false };
-		}
-		const targetTexture = context.resolveTargetTexture(sourceTexture);
-		if (!targetTexture) {
+		const sourceTexture = context.resources.color.input;
+		const targetTexture = context.resources.color.output;
+		if (!sourceTexture || !targetTexture) {
 			return { ran: false };
 		}
 
@@ -535,7 +532,6 @@ export class WebGLFastApproximateAntiAliasingImplementation
 		}
 		context.drawFullscreen();
 		gl.bindVertexArray(null);
-		context.publishColorTexture(targetTexture);
 		return { ran: true };
 	}
 
@@ -589,10 +585,15 @@ export class FastApproximateAntiAliasingPass extends PostProcessPass<
 	public constructor(config: FastApproximateAntiAliasingPassConfig = {}) {
 		super({
 			...config,
-			...FAST_APPROXIMATE_ANTI_ALIASING_PASS_ORDER,
-			incremental:
-				config.incremental ??
-				FAST_APPROXIMATE_ANTI_ALIASING_PASS_ORDER.incremental,
+			id: FAST_APPROXIMATE_ANTI_ALIASING_PASS_ORDER.id,
+			schedule: {
+				placement: config.schedule?.placement ??
+					FAST_APPROXIMATE_ANTI_ALIASING_PASS_ORDER.placement,
+				order: config.schedule?.order ??
+					FAST_APPROXIMATE_ANTI_ALIASING_PASS_ORDER.order,
+				incremental: config.schedule?.incremental ??
+					FAST_APPROXIMATE_ANTI_ALIASING_PASS_ORDER.incremental,
+			},
 			warningLabel: "FXAA",
 			implementations: {
 				software: () => new SoftwareFastApproximateAntiAliasingImplementation(),

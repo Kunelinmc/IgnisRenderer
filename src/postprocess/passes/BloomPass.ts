@@ -9,12 +9,8 @@ import {
 	type IShaderModule,
 } from "../../backends/types";
 import {
-	WEBGPU_SCREEN_POST_PROCESS_CONTEXT_METADATA,
 	type WebGPUPostProcessFrameTargets,
 } from "../../backends/webgpu/WebGPUPostProcessContracts";
-import {
-	WEBGL_SCREEN_POST_PROCESS_CONTEXT_METADATA,
-} from "../../backends/webgl/WebGLPostProcessContracts";
 import {
 	WEBGPU_2D_COMPUTE_WORKGROUP_SIZE as WORKGROUP_SIZE,
 } from "../../backends/webgpu/constants";
@@ -33,11 +29,13 @@ import {
 	PostProcessPass,
 	type PostProcessPassConfig,
 } from "../PostProcessPass";
-import type { PostProcessPassMetadata } from "../ordering";
+import type { PostProcessScheduleEntry } from "../ordering";
+import { createPostProcessExecutionDeclaration } from "../executionDeclarations";
 import type {
 	PostProcessPassImplementation,
 	PostProcessPassRequest,
 	PostProcessPassResult,
+	PostProcessResourceAccessor,
 } from "../types";
 
 export const BLOOM_PASS_ID = "bloom";
@@ -50,7 +48,7 @@ export const BLOOM_PASS_ORDER = {
 		grade: "standard",
 		inflationRadius: 48,
 	},
-} as const satisfies PostProcessPassMetadata;
+} as const satisfies PostProcessScheduleEntry;
 
 export interface BloomOptions {
 	/** Luminance threshold above which pixels contribute to bloom. */
@@ -88,7 +86,7 @@ export interface WebGPUBloomContext {
 	readonly encoder?: ICommandEncoder;
 	readonly targets?: WebGPUPostProcessFrameTargets;
 	readonly shared: PostProcessSharedContext;
-	publishColorTarget?(texture: IRenderTexture): void;
+	readonly resources: PostProcessResourceAccessor<IRenderTexture>;
 }
 
 /** @internal WebGL context supplied to the built-in bloom implementation. */
@@ -100,11 +98,10 @@ export interface WebGLBloomContext {
 	readonly sceneColorTexture: WebGLTexture | null;
 	readonly width: number;
 	readonly height: number;
+	readonly resources: PostProcessResourceAccessor<WebGLTexture>;
 	getSourceTexture(): WebGLTexture | null;
-	resolveTargetTexture(sourceTexture: WebGLTexture): WebGLTexture | null;
 	bindColorTarget(texture: WebGLTexture): void;
 	drawFullscreen(): void;
-	publishColorTexture(texture: WebGLTexture): void;
 }
 
 interface WebGLBloomProgram {
@@ -146,9 +143,9 @@ export class WebGPUBloomImplementation
 	implements PostProcessPassImplementation<WebGPUBloomContext, BloomOptions>
 {
 	public readonly id = "bloom:webgpu";
-	public readonly metadata = {
-		context: WEBGPU_SCREEN_POST_PROCESS_CONTEXT_METADATA,
-	};
+	public describeExecution() {
+		return createPostProcessExecutionDeclaration("webgpu");
+	}
 	private _resources = new Map<PostProcessSharedContext, WebGPUBloomResources>();
 
 	public async warmup(context: WebGPUBloomContext | undefined): Promise<void> {
@@ -262,6 +259,8 @@ export class WebGPUBloomImplementation
 		}
 
 		const targets = context.targets;
+		const input = context.resources.color.input;
+		if (!input) return false;
 		const options = request.options ?? {};
 		const threshold = Math.max(
 			0,
@@ -286,8 +285,8 @@ export class WebGPUBloomImplementation
 			8
 		);
 
-		const srcW = targets.sceneColor.width;
-		const srcH = targets.sceneColor.height;
+		const srcW = input.width;
+		const srcH = input.height;
 		this._ensureMipTextures(resources, srcW, srcH, requestedMips);
 		if (resources.mipCount === 0) {
 			return false;
@@ -308,7 +307,7 @@ export class WebGPUBloomImplementation
 			"bloom-ds-0",
 			resources.downsamplePipeline,
 			[
-				{ binding: 0, resource: targets.sceneColor },
+				{ binding: 0, resource: input },
 				{ binding: 1, resource: context.shared.sampler },
 				{ binding: 2, resource: resources.downsampleParams },
 				{ binding: 3, resource: dsDst },
@@ -454,8 +453,8 @@ export class WebGPUBloomImplementation
 		}
 
 		const bloomResult = mips[resources.mipCount - 1][0];
-		const target =
-			targets.sceneColor === targets.postPong ? targets.postPing : targets.postPong;
+		const target = context.resources.color.output;
+		if (!target) return false;
 		context.shared.compute.writeBuffer(
 			resources.compositeParams,
 			new Float32Array([
@@ -469,7 +468,7 @@ export class WebGPUBloomImplementation
 			`bloom-comp-${target === targets.postPing ? "ping" : "pong"}`,
 			resources.compositePipeline,
 			[
-				{ binding: 0, resource: targets.sceneColor },
+				{ binding: 0, resource: input },
 				{ binding: 1, resource: bloomResult },
 				{ binding: 2, resource: context.shared.sampler },
 				{ binding: 3, resource: resources.compositeParams },
@@ -486,7 +485,6 @@ export class WebGPUBloomImplementation
 			1
 		);
 		context.encoder.endComputePass();
-		context.publishColorTarget?.(target);
 		return true;
 	}
 
@@ -686,9 +684,9 @@ export class WebGLBloomImplementation
 	implements PostProcessPassImplementation<WebGLBloomContext, BloomOptions>
 {
 	public readonly id = "bloom:webgl";
-	public readonly metadata = {
-		context: WEBGL_SCREEN_POST_PROCESS_CONTEXT_METADATA,
-	};
+	public describeExecution() {
+		return createPostProcessExecutionDeclaration("webgl");
+	}
 	private _programCompiler: WebGLProgramCompiler | null = null;
 	private _programSlot: WebGLProgramSlot<WebGLBloomProgram> | null = null;
 
@@ -712,12 +710,9 @@ export class WebGLBloomImplementation
 		) {
 			return { ran: false };
 		}
-		const sourceTexture = context.getSourceTexture();
-		if (!sourceTexture) {
-			return { ran: false };
-		}
-		const targetTexture = context.resolveTargetTexture(sourceTexture);
-		if (!targetTexture) {
+		const sourceTexture = context.resources.color.input;
+		const targetTexture = context.resources.color.output;
+		if (!sourceTexture || !targetTexture) {
 			return { ran: false };
 		}
 
@@ -778,7 +773,6 @@ export class WebGLBloomImplementation
 		}
 		context.drawFullscreen();
 		gl.bindVertexArray(null);
-		context.publishColorTexture(targetTexture);
 		return { ran: true };
 	}
 
@@ -830,8 +824,12 @@ export class BloomPass extends PostProcessPass<BloomOptions, BloomOptions> {
 	public constructor(config: BloomPassConfig = {}) {
 		super({
 			...config,
-			...BLOOM_PASS_ORDER,
-			incremental: config.incremental ?? BLOOM_PASS_ORDER.incremental,
+			id: BLOOM_PASS_ORDER.id,
+			schedule: {
+				placement: config.schedule?.placement ?? BLOOM_PASS_ORDER.placement,
+				order: config.schedule?.order ?? BLOOM_PASS_ORDER.order,
+				incremental: config.schedule?.incremental ?? BLOOM_PASS_ORDER.incremental,
+			},
 			warningLabel: "bloom",
 			implementations: {
 				webgpu: () => new WebGPUBloomImplementation(),

@@ -69,7 +69,7 @@ export class WebGLFrameNodeExecutorRegistry {
 
 	public static fromServices(
 		services: WebGLFrameNodeServices,
-		postProcessRuntime: BackendPostProcessRuntime,
+		_postProcessRuntime: BackendPostProcessRuntime,
 		state: WebGLFrameNodeExecutionState,
 	): WebGLFrameNodeExecutorRegistry {
 		return new WebGLFrameNodeExecutorRegistry([
@@ -119,7 +119,9 @@ export class WebGLFrameNodeExecutorRegistry {
 				}
 				services.renderParticlesLegacy(context);
 			}],
-			["postprocess", (_node, context) => postProcessRuntime.execute(context)],
+			["post-process-pass", () => {
+				throw new Error("WebGL post-process pass nodes require the stage transaction coordinator.");
+			}],
 			["present", () => services.presentFrame()],
 		]);
 	}

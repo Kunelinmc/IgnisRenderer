@@ -1,9 +1,9 @@
 import type { FrameContext } from "../../pipeline/types";
 import type {
 	LogicalGBufferBridge,
+	PostProcessExecutionDeclaration,
 	PostProcessPassCompletion,
 	PostProcessPassExecutionContextRequest,
-	PostProcessPassImplementation,
 	PostProcessPassRequest,
 	PostProcessPassResult,
 	PostProcessResourceDescriptor,
@@ -53,7 +53,7 @@ export class WebGLPostProcessServices {
 			bindColorTarget: (texture) => host.targets.bindPostSingleColorTarget(texture),
 			drawFullscreen: (width, height, context) =>
 				host.drawFullscreen(width, height, context),
-			publishColorTexture: (texture) => {
+			commitColorTexture: (texture) => {
 				host.targets._presentSourceTexture = texture;
 			},
 			markTAAHistoryValid: () => {
@@ -138,16 +138,17 @@ export class WebGLPostProcessServices {
 		return this._host.targets.createGBufferBridge(context);
 	}
 
-	public getPassExecutionContext(
+	public createPassExecutionContext(
 		request: PostProcessPassExecutionContextRequest,
 	): unknown {
-		return this._bridge.getPassExecutionContext(request);
+		return this._bridge.createPassExecutionContext(request);
 	}
 
 	public getPassWarmupExecutionContext(
-		implementation: PostProcessPassImplementation,
+		passId: string,
+		declaration: PostProcessExecutionDeclaration,
 	): unknown {
-		return this._bridge.getPassWarmupExecutionContext(implementation);
+		return this._bridge.getPassWarmupExecutionContext(passId, declaration);
 	}
 
 	public beginFrame(): void {

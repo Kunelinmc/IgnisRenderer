@@ -12,18 +12,18 @@ import {
 	WEBGPU_2D_COMPUTE_WORKGROUP_SIZE as WORKGROUP_SIZE,
 } from "../../backends/webgpu/constants";
 import {
-	WEBGPU_SCREEN_POST_PROCESS_CONTEXT_METADATA,
 	type WebGPUPostProcessFrameTargets,
 } from "../../backends/webgpu/WebGPUPostProcessContracts";
 import type { PostProcessSharedContext } from "../../backends/webgpu/postprocess/PostProcessSharedContext";
 import { ShaderSource } from "../../shaders/ShaderSource";
 import { PostProcessPass, type PostProcessPassConfig } from "../PostProcessPass";
-import type { PostProcessPassMetadata } from "../ordering";
+import type { PostProcessScheduleEntry } from "../ordering";
+import { createPostProcessExecutionDeclaration } from "../executionDeclarations";
 import type {
 	PostProcessPassImplementation,
 	PostProcessPassRequest,
 	PostProcessPassResult,
-	PostProcessPassRequirements,
+	PostProcessResourceAccessor,
 } from "../types";
 
 const SSGI_MAX_SAMPLES = 16;
@@ -37,7 +37,7 @@ export const SCREEN_SPACE_GLOBAL_ILLUMINATION_PASS_ORDER = {
 		grade: "standard",
 		inflationRadius: 12,
 	},
-} as const satisfies PostProcessPassMetadata;
+} as const satisfies PostProcessScheduleEntry;
 
 export interface SSGIOptions {
 	/** Indirect-light sample count, clamped to backend limits. */
@@ -97,7 +97,7 @@ export interface WebGPUSSGIContext {
 	readonly encoder?: ICommandEncoder;
 	readonly targets?: WebGPUPostProcessFrameTargets;
 	readonly shared: PostProcessSharedContext;
-	publishColorTarget?(texture: IRenderTexture): void;
+	readonly resources: PostProcessResourceAccessor<IRenderTexture>;
 }
 
 interface WebGPUSSGIResources {
@@ -185,9 +185,11 @@ export class WebGPUScreenSpaceGlobalIlluminationImplementation
 	implements PostProcessPassImplementation<WebGPUSSGIContext>
 {
 	public readonly id = "ssgi:webgpu";
-	public readonly metadata = {
-		context: WEBGPU_SCREEN_POST_PROCESS_CONTEXT_METADATA,
-	};
+	public describeExecution() {
+		return createPostProcessExecutionDeclaration("webgpu", {
+			gBuffer: ["color", "depth", "normal", "albedo"],
+		});
+	}
 	private _resources = new Map<PostProcessSharedContext, WebGPUSSGIResources>();
 
 	public async warmup(context: WebGPUSSGIContext | undefined): Promise<void> {
@@ -251,8 +253,12 @@ export class WebGPUScreenSpaceGlobalIlluminationImplementation
 		}
 
 		const targets = context.targets;
-		const target =
-			targets.sceneColor === targets.postPong ? targets.postPing : targets.postPong;
+		const target = context.resources.color.output;
+		const albedoTexture = context.resources.getGBuffer("albedo");
+		const normalTexture = context.resources.getGBuffer("normal");
+		const depthTexture = context.resources.getGBuffer("depth");
+		const input = context.resources.color.input;
+		if (!target || !input || !albedoTexture || !normalTexture || !depthTexture) return false;
 		const options = resolveSSGIOptions(request.options as SSGIOptions);
 		context.shared.compute.writeBuffer(
 			resources.params,
@@ -262,10 +268,10 @@ export class WebGPUScreenSpaceGlobalIlluminationImplementation
 			`ssgi-${target === targets.postPing ? "ping" : "pong"}`,
 			resources.pipeline,
 			[
-				{ binding: 0, resource: targets.sceneColor },
-				{ binding: 1, resource: targets.gAlbedoAlpha },
-				{ binding: 2, resource: targets.gNormalRoughMetal },
-				{ binding: 3, resource: targets.gMotionDepth },
+				{ binding: 0, resource: input },
+				{ binding: 1, resource: albedoTexture },
+				{ binding: 2, resource: normalTexture },
+				{ binding: 3, resource: depthTexture },
 				{ binding: 4, resource: context.shared.sampler },
 				{ binding: 5, resource: resources.params },
 				{ binding: 6, resource: target },
@@ -281,7 +287,6 @@ export class WebGPUScreenSpaceGlobalIlluminationImplementation
 			1
 		);
 		context.encoder.endComputePass();
-		context.publishColorTarget?.(target);
 		return true;
 	}
 
@@ -343,10 +348,12 @@ export class ScreenSpaceGlobalIlluminationPass extends PostProcessPass<
 	public constructor(config: ScreenSpaceGlobalIlluminationPassConfig = {}) {
 		super({
 			...config,
-			...SCREEN_SPACE_GLOBAL_ILLUMINATION_PASS_ORDER,
-			incremental:
-				config.incremental ??
-				SCREEN_SPACE_GLOBAL_ILLUMINATION_PASS_ORDER.incremental,
+			id: SCREEN_SPACE_GLOBAL_ILLUMINATION_PASS_ORDER.id,
+			schedule: {
+				placement: config.schedule?.placement ?? SCREEN_SPACE_GLOBAL_ILLUMINATION_PASS_ORDER.placement,
+				order: config.schedule?.order ?? SCREEN_SPACE_GLOBAL_ILLUMINATION_PASS_ORDER.order,
+				incremental: config.schedule?.incremental ?? SCREEN_SPACE_GLOBAL_ILLUMINATION_PASS_ORDER.incremental,
+			},
 			warningLabel: "SSGI",
 			implementations: {
 				webgpu: () => new WebGPUScreenSpaceGlobalIlluminationImplementation(),
@@ -358,7 +365,4 @@ export class ScreenSpaceGlobalIlluminationPass extends PostProcessPass<
 		return resolveSSGIOptions(this.getRawOptions());
 	}
 
-	public override getRequirements(): PostProcessPassRequirements {
-		return { gBuffer: ["color", "depth", "normal", "albedo"] };
-	}
 }

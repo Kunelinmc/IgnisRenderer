@@ -10,7 +10,7 @@ import type {
 	WarmupReport,
 } from "../backends/IRenderBackend";
 import type { PostProcessPass } from "../postprocess/PostProcessPass";
-import { resolvePostProcessExecutionOrder } from "../postprocess/PostProcessGraphCompiler";
+import { resolvePostProcessExecutionOrder } from "../postprocess/PostProcessPlanner";
 
 export type WarmupSceneTargetMode = "single" | "mrt";
 

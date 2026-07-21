@@ -9,12 +9,6 @@ import {
 import {
 	WEBGPU_2D_COMPUTE_WORKGROUP_SIZE as WEBGPU_WORKGROUP_SIZE,
 } from "../../backends/webgpu/constants";
-import {
-	WEBGPU_SCREEN_POST_PROCESS_CONTEXT_METADATA,
-} from "../../backends/webgpu/WebGPUPostProcessContracts";
-import {
-	WEBGL_SCREEN_POST_PROCESS_CONTEXT_METADATA,
-} from "../../backends/webgl/WebGLPostProcessContracts";
 import type { PostProcessSharedContext } from "../../backends/webgpu/postprocess/PostProcessSharedContext";
 import {
 	MOTION_BLUR_CENTER_WEIGHT_RANGE,
@@ -30,16 +24,15 @@ import type {
 } from "../../backends/webgl/WebGLProgramCompiler";
 import { ShaderSource } from "../../shaders/ShaderSource";
 import { PostProcessPass, type PostProcessPassConfig } from "../PostProcessPass";
-import type { PostProcessPassMetadata } from "../ordering";
+import type { PostProcessScheduleEntry } from "../ordering";
+import { createPostProcessExecutionDeclaration } from "../executionDeclarations";
 import type {
 	PostProcessPassImplementation,
 	PostProcessPassRequest,
-	PostProcessPassRequirements,
 	PostProcessPassResult,
 } from "../types";
 import {
 	bindWebGLPostTarget,
-	publishWebGPUColorTarget,
 	resolveWebGLTarget,
 	resolveWebGPUTarget,
 	type WebGLScreenPostProcessContext,
@@ -67,7 +60,7 @@ export const MOTION_BLUR_PASS_ORDER = {
 		grade: "cinematic",
 		inflationRadius: 24,
 	},
-} as const satisfies PostProcessPassMetadata;
+} as const satisfies PostProcessScheduleEntry;
 export interface MotionBlurOptions {
 	/** Virtual shutter duration multiplier. Higher values lengthen blur trails. */
 	shutterScale?: number;
@@ -114,9 +107,11 @@ export class WebGPUMotionBlurImplementation
 	implements PostProcessPassImplementation<WebGPUMotionBlurContext, MotionBlurOptions>
 {
 	public readonly id = "motion-blur:webgpu";
-	public readonly metadata = {
-		context: WEBGPU_SCREEN_POST_PROCESS_CONTEXT_METADATA,
-	};
+	public describeExecution() {
+		return createPostProcessExecutionDeclaration("webgpu", {
+			gBuffer: ["depth", "motion"],
+		});
+	}
 	private _resources =
 		new Map<PostProcessSharedContext, WebGPUMotionBlurResources>();
 
@@ -183,7 +178,10 @@ export class WebGPUMotionBlurImplementation
 			return false;
 		}
 		const targets = context.targets;
-		const target = resolveWebGPUTarget(targets);
+		const target = resolveWebGPUTarget(context);
+		const input = context.resources.color.input;
+		const motionTexture = context.resources.getGBuffer("motion");
+		if (!input || !motionTexture) return false;
 		const options = request.options ?? DEFAULT_MOTION_BLUR_OPTIONS;
 		const shutterScale = clamp(
 			finiteOr(options.shutterScale, DEFAULT_MOTION_BLUR_OPTIONS.shutterScale),
@@ -230,8 +228,8 @@ export class WebGPUMotionBlurImplementation
 			`motion-blur-${target === targets.postPing ? "ping" : "pong"}`,
 			resources.pipeline,
 			[
-				{ binding: 0, resource: targets.sceneColor },
-				{ binding: 1, resource: targets.gMotionDepth },
+				{ binding: 0, resource: input },
+				{ binding: 1, resource: motionTexture },
 				{ binding: 2, resource: context.shared.sampler },
 				{ binding: 3, resource: resources.params },
 				{ binding: 4, resource: target },
@@ -247,7 +245,6 @@ export class WebGPUMotionBlurImplementation
 			1
 		);
 		context.encoder.endComputePass();
-		publishWebGPUColorTarget(context, target);
 		return true;
 	}
 
@@ -301,12 +298,11 @@ export class WebGLMotionBlurImplementation
 	implements PostProcessPassImplementation<WebGLMotionBlurContext, MotionBlurOptions>
 {
 	public readonly id = "motion-blur:webgl";
-	public readonly metadata = {
-		context: {
-			...WEBGL_SCREEN_POST_PROCESS_CONTEXT_METADATA,
-			sceneMotionTexture: true,
-		},
-	};
+	public describeExecution() {
+		return createPostProcessExecutionDeclaration("webgl", {
+			gBuffer: ["depth", "motion"],
+		});
+	}
 	private _programCompiler: WebGLProgramCompiler | null = null;
 	private _programSlot: WebGLProgramSlot<WebGLMotionBlurProgram> | null = null;
 
@@ -320,7 +316,8 @@ export class WebGLMotionBlurImplementation
 		request: PostProcessPassRequest<MotionBlurOptions>,
 		context: WebGLMotionBlurContext | undefined
 	): PostProcessPassResult {
-		if (!context?.sceneMotionTexture) {
+		const motionTexture = context?.resources.getGBuffer("motion");
+		if (!context || !motionTexture) {
 			return { ran: false };
 		}
 		const target = resolveWebGLTarget(context);
@@ -369,7 +366,7 @@ export class WebGLMotionBlurImplementation
 		gl.activeTexture(gl.TEXTURE0);
 		gl.bindTexture(gl.TEXTURE_2D, target.source);
 		gl.activeTexture(gl.TEXTURE1);
-		gl.bindTexture(gl.TEXTURE_2D, context.sceneMotionTexture);
+		gl.bindTexture(gl.TEXTURE_2D, motionTexture);
 		const uniforms = program.uniforms;
 		if (uniforms.sourceMap) gl.uniform1i(uniforms.sourceMap, 0);
 		if (uniforms.motionDepthMap) gl.uniform1i(uniforms.motionDepthMap, 1);
@@ -394,7 +391,6 @@ export class WebGLMotionBlurImplementation
 		}
 		context.drawFullscreen();
 		gl.bindVertexArray(null);
-		context.publishColorTexture(target.texture);
 		return { ran: true };
 	}
 
@@ -454,8 +450,12 @@ export class MotionBlurPass extends PostProcessPass<
 	public constructor(config: MotionBlurPassConfig = {}) {
 		super({
 			...config,
-			...MOTION_BLUR_PASS_ORDER,
-			incremental: config.incremental ?? MOTION_BLUR_PASS_ORDER.incremental,
+			id: MOTION_BLUR_PASS_ORDER.id,
+			schedule: {
+				placement: config.schedule?.placement ?? MOTION_BLUR_PASS_ORDER.placement,
+				order: config.schedule?.order ?? MOTION_BLUR_PASS_ORDER.order,
+				incremental: config.schedule?.incremental ?? MOTION_BLUR_PASS_ORDER.incremental,
+			},
 			warningLabel: "motion blur",
 			implementations: {
 				webgpu: () => new WebGPUMotionBlurImplementation(),
@@ -471,9 +471,6 @@ export class MotionBlurPass extends PostProcessPass<
 		};
 	}
 
-	public override getRequirements(): PostProcessPassRequirements {
-		return { gBuffer: ["depth", "motion"] };
-	}
 }
 function uploadWebGPUMotionBlurParams(
 	shared: PostProcessSharedContext,

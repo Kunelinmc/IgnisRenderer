@@ -66,7 +66,7 @@ export function resolvePostProcessResourceDescriptor(
 /**
  * Creates a descriptor key for graph-level conflict detection.
  *
- * @internal Owned by `PostProcessGraphCompiler`.
+ * @internal Owned by `PostProcessPlanner`.
  * @param descriptor Logical descriptor declared by a pass.
  * @param options Optional key composition flags.
  * @returns Stable descriptor compatibility key.

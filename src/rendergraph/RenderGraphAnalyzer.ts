@@ -219,6 +219,10 @@ export class RenderGraphAnalyzer<TPayload = unknown, TKind extends string = stri
 			resources: this.getResourceDebugState(),
 			transitions: this.getTransitions(),
 			liveRanges: this.getLiveRanges(),
+			executionOverlay: Object.freeze({
+				skippedNodeIds: Object.freeze([]),
+				resourceAliases: Object.freeze([]),
+			}),
 			diagnostics: this.getDiagnostics(),
 			shadowDiagnostics: this.getShadowDiagnostics(),
 		});

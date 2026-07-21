@@ -101,7 +101,7 @@ export class WebGLFrameGraphPlanner {
 	 * @returns Present node.
 	 * @sideEffects None.
 	 */
-	public planPresent(): WebGLFrameGraphNode[] {
+	public planPresent(sourceResource = "frame:scene-color"): WebGLFrameGraphNode[] {
 		const pass = {
 			stage: "webgl-present",
 			executor: "backend",
@@ -110,7 +110,7 @@ export class WebGLFrameGraphPlanner {
 		} satisfies FramePass;
 		return [
 			this._node(pass, "present", "WebGLPresent", {
-				reads: [this._read("frame:present-source", "texture-sampling", true)],
+				reads: [this._read(sourceResource, "texture-sampling")],
 				writes: [this._write("canvas:color", "present")],
 			}),
 		];
@@ -188,21 +188,6 @@ export class WebGLFrameGraphPlanner {
 								],
 							}),
 						],
-			],
-			[
-				"postprocess",
-				(pass) => [
-					this._node(pass, "postprocess", "WebGLPostProcess", {
-						reads: [
-							this._read("frame:motion-depth", "texture-sampling", true),
-							this._read("frame:normal", "texture-sampling", true),
-						],
-						writes: [
-							this._write("post:color", "framebuffer-color", true),
-							this._write("frame:present-source", "copy-target"),
-						],
-					}),
-				],
 			],
 		]);
 	}

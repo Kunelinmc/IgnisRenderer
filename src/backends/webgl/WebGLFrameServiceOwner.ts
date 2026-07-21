@@ -670,10 +670,10 @@ export class WebGLFrameServiceOwner {
 		return this._targets.createGBufferBridge(context);
 	}
 
-	public getPassExecutionContext(
+	public createPassExecutionContext(
 		request: PostProcessPassExecutionContextRequest
 	): unknown {
-		return this._postProcess.getPassExecutionContext(request);
+		return this._postProcess.createPassExecutionContext(request);
 	}
 
 	/** @internal Opens controlled output publication for a runtime post-process frame. */
@@ -1074,23 +1074,9 @@ export class WebGLFrameServiceOwner {
 	}
 
 	private _requiresMaterialGBuffer(context: FrameContext): boolean {
-		for (const resolved of context.postProcess.getEnabledPasses()) {
-			const requirements = resolved.pass.getRequirements({
-				frameContext: context,
-				postProcess: context.postProcess,
-				backend: "webgl",
-				options: resolved.options,
-			});
-			if (requirements.gBuffer?.some((semantic) =>
-				semantic === "albedo" ||
-				semantic === "roughness" ||
-				semantic === "metallic" ||
-				semantic === "specular"
-			)) {
-				return true;
-			}
-		}
-		return false;
+		// Frame-target discovery precedes planner execution. Allocate the material
+		// attachments conservatively without resolving declarations twice.
+		return context.postProcess.getEnabledPasses().length > 0;
 	}
 
 	private _destroyFrameTargets(): void {

@@ -21,7 +21,7 @@ import type { WebGPUFrameHost } from "./rendergraph/WebGPUFrameHost";
 
 export interface WebGPUPostProcessSessionPort {
 	createGBufferBridge(context: FrameContext): LogicalGBufferBridge;
-	getPassExecutionContext(request: PostProcessPassExecutionContextRequest): unknown;
+	createPassExecutionContext(request: PostProcessPassExecutionContextRequest): unknown;
 	completePass(
 		request: PostProcessPassRequest,
 		result: PostProcessPassResult,
@@ -105,16 +105,9 @@ export class WebGPUPostProcessExecutor implements IPostProcessExecutor {
 		};
 	}
 
-	public getPassExecutionContext(request: PostProcessPassExecutionContextRequest): unknown {
+	public createPassExecutionContext(request: PostProcessPassExecutionContextRequest): unknown {
 		return this._requireSession("create post-process pass context")
-			.getPassExecutionContext(request);
-	}
-
-	public executePass(
-		_passId: string,
-		_request: PostProcessPassRequest,
-	): PostProcessPassResult {
-		return { ran: false };
+			.createPassExecutionContext(request);
 	}
 
 	public completePass(

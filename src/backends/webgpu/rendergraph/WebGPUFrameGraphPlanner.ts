@@ -65,6 +65,7 @@ export class WebGPUFrameGraphPlanner {
 	public planFinalization(
 		pass: FramePass,
 		state: WebGPUFrameGraphPlannerState,
+		sourceResource: WebGPUFrameGraphResourceId = WEBGPU_FRAME_GRAPH_RESOURCES.frameColor,
 	): WebGPUFrameGraphStagePlan {
 		const r = WEBGPU_FRAME_GRAPH_RESOURCES;
 		return {
@@ -72,7 +73,7 @@ export class WebGPUFrameGraphPlanner {
 			nodes:
 				state.hasFrameTargets === true
 					? [this._node(pass, "presentation", "WebGPUPresentation", {
-							reads: [this._read(r.frameColor, "texture-binding")],
+							reads: [this._read(sourceResource, "texture-binding")],
 							writes: [this._write(r.canvasColor, "present")],
 						})]
 					: [],
@@ -88,19 +89,6 @@ export class WebGPUFrameGraphPlanner {
 		) => WebGPUFrameGraphNode[]
 	> {
 		return new Map([
-			[
-				"postprocess",
-				(pass) => [
-					this._node(pass, "post-process", "WebGPUPostProcess", {
-						reads: [
-							this._read(WEBGPU_FRAME_GRAPH_RESOURCES.frameHiZ, "texture-binding", true),
-						],
-						writes: [
-							this._write(WEBGPU_FRAME_GRAPH_RESOURCES.frameColor, "storage-binding", true),
-						],
-					}),
-				],
-			],
 			["shadow", (pass, context) => this._createShadowNodes(pass, context)],
 			[
 				"reflection",

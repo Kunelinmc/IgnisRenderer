@@ -19,11 +19,19 @@ import type {
 } from "../WebGPUResourceContracts";
 import type { WebGPUFrameServiceOwner } from "../WebGPUFrameServiceOwner";
 import { WebGPUHiZBuilder } from "../WebGPUHiZBuilder";
-import type { BackendPostProcessRuntime } from "../../../postprocess/BackendPostProcessRuntime";
-import type { RenderGraphDiagnostic } from "../../../rendergraph/types";
+import type {
+	BackendPostProcessRuntime,
+	PostProcessExecutionPlan,
+	PostProcessRenderGraphFrame,
+} from "../../../postprocess/BackendPostProcessRuntime";
+import type { PostProcessPlan } from "../../../postprocess/PostProcessPlanner";
+import type {
+	RenderGraphDiagnostic,
+	RenderGraphResourceDescriptor,
+} from "../../../rendergraph/types";
+import { createWebGPUPostProcessGraphComposition } from "./WebGPUPostProcessGraphAdapter";
 
 import {
-	isWebGPUPostProcessContextMetadata,
 	type WebGPUFrameTargets,
 } from "../WebGPUPostProcessContracts";
 import {
@@ -163,6 +171,8 @@ export class WebGPUFrameOrchestrator {
 	private _lastExecutedGraphNodeIds: string[] = [];
 	private _lastCommitDebugState: WebGPUFrameCommitDebugState | null = null;
 	private _wholeFrameGraphCompiled = false;
+	private _postProcessGraphFrame: PostProcessRenderGraphFrame | null = null;
+	private _postProcessOutputColor: string = WEBGPU_FRAME_GRAPH_RESOURCES.frameColor;
 	private readonly _graphPhysicalResources = new Map<string, IRenderTexture>();
 
 	constructor(
@@ -369,6 +379,8 @@ export class WebGPUFrameOrchestrator {
 	}
 
 	public beginFrame(context: FrameContext): void {
+		this._postProcessGraphFrame = null;
+		this._postProcessOutputColor = WEBGPU_FRAME_GRAPH_RESOURCES.frameColor;
 		if (this._session) {
 			throw new Error("WebGPUFrameOrchestrator already has an active frame session.");
 		}
@@ -648,19 +660,37 @@ export class WebGPUFrameOrchestrator {
 		return this._frameResources;
 	}
 
-	public getPassExecutionContext(request: PostProcessPassExecutionContextRequest): unknown {
-		return this._postBridge.getPassExecutionContext(request);
+	public createPassExecutionContext(request: PostProcessPassExecutionContextRequest): unknown {
+		return this._postBridge.createPassExecutionContext(request);
 	}
 
 	public createPostProcessSessionPort(): WebGPUPostProcessSessionPort {
 		return {
 			createGBufferBridge: (context) => this.createGBufferBridge(context),
-			getPassExecutionContext: (request) => this.getPassExecutionContext(request),
+			createPassExecutionContext: (request) => this.createPassExecutionContext(request),
 			completePass: (request, result) => this.completePostProcessPass(request, result),
 			isGraphResourceAvailable: (resourceId) =>
-				resourceId === "backend:frame-hiz" && this._hiZStatus === "ready",
+				this._isPostProcessSharedResourceAvailable(resourceId),
 			invalidateResourceBindings: () => this.invalidatePostProcessBindings(),
 		};
+	}
+
+	private _isPostProcessSharedResourceAvailable(resourceId: string): boolean {
+		const targets = this._frameTargets;
+		switch (resourceId) {
+			case "backend:frame-hiz": return this._hiZStatus === "ready";
+			case "backend:transmission-scene-color":
+				return !!targets?.transmissionSceneColorCopy;
+			case "backend:transmission-lighting":
+				return !!targets?.transmissionLighting;
+			case "backend:transmission-surface-1":
+				return !!targets?.gTransmissionSurface1;
+			case "backend:transmission-surface-2":
+				return !!targets?.gTransmissionSurface2;
+			case "backend:planar-reflection-mask":
+				return !!targets?.planarReflectionMask;
+			default: return false;
+		}
 	}
 
 	/**
@@ -716,6 +746,7 @@ export class WebGPUFrameOrchestrator {
 		context: FrameContext,
 		plan: WarmupPlan,
 		options: WarmupOptions = {},
+		postProcessPlan?: PostProcessPlan,
 	): Promise<WarmupPhaseCounters> {
 		let total = 1;
 		let compiled = 0;
@@ -732,34 +763,14 @@ export class WebGPUFrameOrchestrator {
 		await yieldController.yieldIfNeeded();
 
 		const postRuntime = this._postProcessRuntime;
-		const warmupGraph = postRuntime.compileWarmupGraph(context);
-		const hints = new Set<string>();
-		if (plan.includePostProcess) {
-			for (const passId of plan.postProcessPasses) {
-				const compiledPass = warmupGraph.passes.find((p) => p.id === passId);
-				const implementation = compiledPass?.implementation;
-				for (const hint of implementation?.metadata?.warmupHints ?? []) {
-					hints.add(hint);
-				}
-			}
-		}
-		if (hints.size > 0) {
-			total += hints.size;
-			const postWarmup = await this._postRuntime.warmupHints(Array.from(hints));
-			compiled += postWarmup.compiled;
-			failed += postWarmup.failed;
-			if (postWarmup.errors.length > 0) {
-				errors.push(...postWarmup.errors);
-			}
-			await yieldController.yieldIfNeeded();
-		}
-
+		const warmupGraph = postProcessPlan ?? (plan.includePostProcess ?
+			postRuntime.planWarmup(context) : null);
 		const warmedPassImplementations = new Set<string>();
 		for (const passId of plan.postProcessPasses) {
 			if (warmedPassImplementations.has(passId)) {
 				continue;
 			}
-			const compiledPass = warmupGraph.passes.find((p) => p.id === passId);
+			const compiledPass = warmupGraph?.passes.find((p) => p.id === passId);
 			const implementation = compiledPass?.implementation;
 			if (typeof implementation?.warmup !== "function") {
 				continue;
@@ -767,7 +778,10 @@ export class WebGPUFrameOrchestrator {
 			warmedPassImplementations.add(passId);
 			total++;
 			try {
-				const warmupContext = this._getPassWarmupExecutionContext(implementation);
+				const warmupContext = this._postBridge.getPassWarmupExecutionContext(
+					compiledPass.id,
+					compiledPass.declaration,
+				);
 				await implementation.warmup(warmupContext, {
 					frameContext: context,
 					postProcess: context.postProcess,
@@ -791,14 +805,6 @@ export class WebGPUFrameOrchestrator {
 			failed,
 			errors,
 		};
-	}
-
-	private _getPassWarmupExecutionContext(implementation: PostProcessPassImplementation): unknown {
-		const metadata = implementation.metadata?.context;
-		if (!isWebGPUPostProcessContextMetadata(metadata)) {
-			return undefined;
-		}
-		return this._postBridge.getPassWarmupExecutionContext(metadata);
 	}
 
 	/**
@@ -847,6 +853,10 @@ export class WebGPUFrameOrchestrator {
 
 		if (this._wholeFrameGraphCompiled) {
 			const compiled = this._findCompiledStage(pass.stage);
+			if (pass.stage === "postprocess") {
+				await this._executePostProcessStage(compiled);
+				return;
+			}
 			if (!compiled || compiled.nodes.length === 0) {
 				this._warnUnsupportedPass(pass);
 				return;
@@ -977,8 +987,10 @@ export class WebGPUFrameOrchestrator {
 		const postProcess = new WebGPUPostProcessNodeRuntime(
 			"post-process",
 			{
-				"post-process": async (_node, session) => {
-					await this._postProcessRuntime.execute(session.context);
+				"post-process-pass": async () => {
+					throw new Error(
+						"WebGPU post-process pass nodes require the stage transaction coordinator.",
+					);
 				},
 			},
 			{
@@ -1142,6 +1154,7 @@ export class WebGPUFrameOrchestrator {
 			this._graphPhysicalResources,
 		);
 		const stages: WebGPUFrameGraphStagePlan[] = [];
+		const postProcessImportResources: RenderGraphResourceDescriptor[] = [];
 		const shadowDiagnostics: RenderGraphDiagnostic[] = [];
 		const setupPass: FramePass = {
 			stage: "webgpu-setup",
@@ -1164,7 +1177,6 @@ export class WebGPUFrameOrchestrator {
 		});
 
 		let hasOpaqueStage = false;
-		let hasPostProcess = false;
 		let lastStage = setupPass.stage;
 		for (const pass of context.framePlan?.backendPasses ?? []) {
 			if (!pass.enabled) continue;
@@ -1195,13 +1207,31 @@ export class WebGPUFrameOrchestrator {
 					stage: pass.stage,
 					message: `WebGPU ${reason} stage "${pass.stage}" has undeclared resource effects.`,
 				});
+			} else if (pass.stage === "postprocess") {
+				const frame = this._postProcessRuntime.buildRenderGraphFrame(context);
+				this._postProcessGraphFrame = frame;
+				if (frame.graph.passes.length > 0) {
+					const composition = createWebGPUPostProcessGraphComposition(frame);
+					postProcessImportResources.push(...composition.importResources);
+					this._postProcessOutputColor = composition.outputColor;
+					stagePlan = {
+						pass,
+						nodes: [],
+						composition: {
+							namespace: "postprocess",
+							definition: composition.definition,
+							inputs: composition.inputs,
+						},
+					};
+				} else {
+					stagePlan = { pass, nodes: [] };
+				}
 			} else {
 				stagePlan = this._graphPlanner.planStage(pass, context, this._createPlannerState());
 				if (stagePlan.nodes.length === 0) this._warnUnsupportedPass(pass);
 			}
-			if (pass.stage === "postprocess") hasPostProcess = true;
 			stages.push(stagePlan);
-			if (stagePlan.nodes.length > 0) lastStage = pass.stage;
+			if (stagePlan.nodes.length > 0 || stagePlan.composition) lastStage = pass.stage;
 		}
 
 		const presentationPass: FramePass = {
@@ -1211,24 +1241,63 @@ export class WebGPUFrameOrchestrator {
 			dependsOn: [lastStage],
 		};
 		stages.push(
-			this._graphPlanner.planFinalization(presentationPass, this._createPlannerState()),
+			this._graphPlanner.planFinalization(
+				presentationPass,
+				this._createPlannerState(),
+				this._postProcessOutputColor,
+			),
 		);
 		const framePlan: WebGPUFrameGraphFramePlan = {
-			resources: catalog.resources,
+			resources: [...catalog.resources, ...postProcessImportResources],
 			bindings: catalog.bindings,
 			stages,
 			exports: [
 				{ name: "presented-color", resource: WEBGPU_FRAME_GRAPH_RESOURCES.canvasColor },
 			],
-			completeness: hasOpaqueStage ? "opaque" : hasPostProcess ? "coarse" : "complete",
+			completeness: hasOpaqueStage ? "opaque" : "complete",
 			shadowDiagnostics,
 		};
 		const compiled = this._graphCompiler.compileFrame(framePlan);
 		this._handleWholeFrameGraphDiagnostics(compiled.graph.diagnostics);
 		this._lastCompiledGraphStages = compiled.stages.slice();
-		this._lastPlannedGraphNodes = stages.flatMap((stage) => [...stage.nodes]);
+		this._lastPlannedGraphNodes = compiled.stages.flatMap((stage) => [...stage.nodes]);
 		this._lastExecutedGraphNodeIds.push("webgpu-setup:frame-setup");
 		this._wholeFrameGraphCompiled = true;
+	}
+
+	private async _executePostProcessStage(
+		compiled: WebGPUCompiledFrameGraphStage | undefined,
+	): Promise<void> {
+		const graphFrame = this._postProcessGraphFrame;
+		const nodes = (compiled?.nodes ?? []).filter((node) => !!node.postProcess);
+		if (!graphFrame || nodes.length === 0) return;
+		const plan: PostProcessExecutionPlan = {
+			graph: graphFrame.graph,
+			outputColor: this._postProcessOutputColor,
+			nodes: nodes.map((node) => ({
+				...node.postProcess!,
+				nodeId: node.id,
+			})),
+		};
+		const frame = await this._postProcessRuntime.beginGraphFrame(plan);
+		if (!frame) return;
+		try {
+			for (const node of plan.nodes) {
+				const result = await this._postProcessRuntime.executeGraphPass(frame, node.passId);
+				this._lastExecutedGraphNodeIds.push(node.nodeId);
+				if (result.ran === false && node.plannedOutputColor) {
+					this._graphCompiler.recordSkippedNode(
+						node.nodeId,
+						node.plannedOutputColor,
+						this._postProcessRuntime.resolveGraphColor(frame, node.plannedOutputColor),
+					);
+				}
+			}
+			await this._postProcessRuntime.endGraphFrame(frame);
+		} catch (error) {
+			await this._postProcessRuntime.abortFrame(error);
+			throw error;
+		}
 	}
 
 	private _createPlannerState(): WebGPUFrameGraphPlannerState {

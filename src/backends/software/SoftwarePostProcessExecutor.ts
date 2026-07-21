@@ -2,14 +2,13 @@ import type { FrameContext } from "../../pipeline/types";
 import type {
 	IPostProcessExecutor,
 	LogicalGBufferBridge,
+	LogicalGBufferSemantic,
 	PostProcessPassExecutionContextRequest,
-	PostProcessPassRequest,
-	PostProcessPassResult,
 	PostProcessResourceDescriptor,
 	PostProcessResourceHandle,
 } from "../../postprocess";
+import { createPostProcessResourceAccessor } from "../../postprocess/PostProcessResourceAccessor";
 import type { SoftwareVolumetricLightingContext } from "../../postprocess/passes/VolumetricLightingPass";
-import type { SoftwareBuiltinPostProcessContext } from "../../postprocess/passes/ScreenPassShared";
 
 export interface SoftwarePostProcessExecutorHost {
 	getCanvasContext(): CanvasRenderingContext2D | null;
@@ -69,64 +68,44 @@ export class SoftwarePostProcessExecutor implements IPostProcessExecutor {
 	}
 
 	/**
-	 * Executes one logical software post-process pass.
-	 *
-	 * @param passId Logical pass id.
-	 * @param request Current pass request.
-	 * @returns Execution result for pipeline history tracking.
-	 * @sideEffects Mutates the current software color buffer or canvas output.
-	 */
-	public executePass(
-		passId: string,
-		request: PostProcessPassRequest
-	): PostProcessPassResult {
-		void passId;
-		void request;
-		return { ran: false };
-	}
-
-	/**
 	 * Provides CPU helper objects for pass-owned software implementations.
 	 *
 	 * @param request Pass-owned implementation context request.
 	 * @returns Context object expected by the selected software implementation.
 	 * @sideEffects None.
 	 */
-	public getPassExecutionContext(
+	public createPassExecutionContext(
 		request: PostProcessPassExecutionContextRequest
 	): unknown {
-		switch (request.passId) {
-			case "ssao":
-				return {
-					attachments: request.frameContext.attachments,
-				};
-			case "taa":
-				return {
-					attachments: request.frameContext.attachments,
-				};
-			case "volumetric": {
-				const context: SoftwareVolumetricLightingContext = {
-					canvasContext: this._host.getCanvasContext(),
-					sampleShadow: this._host.getShadowSampler(request.frameContext),
-				};
-				return context;
-			}
-			case "fxaa":
-				return {
-					attachments: request.frameContext.attachments,
-					canvasContext: this._host.getCanvasContext(),
-				};
-			case "tonemap":
-			case "color-filter":
-			case "gamma": {
-				const context: SoftwareBuiltinPostProcessContext = {
-					canvasContext: this._host.getCanvasContext(),
-				};
-				return context;
-			}
-			default:
-				return undefined;
-		}
+		const getGBuffer = (semantic: LogicalGBufferSemantic) => {
+			const handle = request.gBuffer.channels[semantic]?.handle;
+			return handle?.backend === "software" && "data" in handle ? handle.data : null;
+		};
+		const context: SoftwareVolumetricLightingContext & Record<string, unknown> = {
+			attachments: request.frameContext.attachments,
+			canvasContext: this._host.getCanvasContext(),
+			sampleShadow: this._host.getShadowSampler(request.frameContext),
+			resources: createPostProcessResourceAccessor<ArrayBufferView>({
+				passId: request.passId,
+				declaration: request.declaration,
+				colorInput: request.frameContext.attachments.pixels ?? null,
+				colorOutput: request.declaration.color.output === "preserve" ?
+					request.frameContext.attachments.pixels ?? null : null,
+				getGBuffer: (semantic) => getGBuffer(semantic),
+				getHistory: (id) => {
+					const slot = request.histories[id];
+					return slot ? {
+						read: slot.read.resource as ArrayBufferView,
+						write: slot.write.resource as ArrayBufferView,
+						valid: slot.valid,
+					} : null;
+				},
+				getTransient: (id) =>
+					(request.transients[id]?.handle.resource as ArrayBufferView | null) ?? null,
+				getShared: () => null,
+			}),
+		};
+		return Object.freeze(context);
 	}
 }
 

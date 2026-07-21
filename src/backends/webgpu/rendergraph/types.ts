@@ -6,6 +6,7 @@ import type { WebGPUSceneTargetMode } from "../WebGPUScenePassDescriptors";
 import type { WebGPUFrameGraphResourceId } from "./WebGPUFrameGraphResourceCatalog";
 import type { WebGPUFrameCommitDebugState } from "./WebGPUFrameCommitter";
 import type { PostProcessGraphDebugState } from "../../../postprocess/BackendPostProcessRuntime";
+import type { PostProcessSubgraphNodePayload } from "../../../postprocess/PostProcessSubgraphBuilder";
 import type { RenderGraphTrackerDebugState } from "../../../rendergraph/types";
 import type {
 	CompiledRenderGraph,
@@ -42,7 +43,7 @@ export const WEBGPU_FRAME_GRAPH_NODE_KINDS = [
 	"transmission",
 	"particle-alpha-forward",
 	"particle-additive",
-	"post-process",
+	"post-process-pass",
 	"presentation",
 ] as const;
 
@@ -103,11 +104,22 @@ export interface WebGPUFrameGraphNode {
 	readonly reads?: readonly WebGPUFrameGraphResourceRef[];
 	readonly writes?: readonly WebGPUFrameGraphResourceRef[];
 	readonly destroys?: readonly WebGPUFrameGraphResourceMutation[];
+	readonly postProcess?: PostProcessSubgraphNodePayload;
+}
+
+export interface WebGPUComposedFrameGraphStage {
+	readonly namespace: string;
+	readonly definition: import("../../../rendergraph/types").RenderGraphDefinition<
+		WebGPUFrameGraphNode,
+		WebGPUFrameGraphNodeKind
+	>;
+	readonly inputs: Readonly<Record<string, string>>;
 }
 
 export interface WebGPUFrameGraphStagePlan {
 	readonly pass: FramePass;
 	readonly nodes: readonly WebGPUFrameGraphNode[];
+	readonly composition?: WebGPUComposedFrameGraphStage;
 }
 
 export interface WebGPUFrameGraphFramePlan {
