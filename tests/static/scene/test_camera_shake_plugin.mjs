@@ -4,6 +4,8 @@ import {
 	CameraShakePlugin,
 	Matrix4,
 	OrbitCamera,
+	perlinNoise1D,
+	Quaternion,
 	Renderer,
 	Vector3,
 } from "../../../src/index.ts";
@@ -225,6 +227,78 @@ async function testOnDemandSchedulingStaysAwakeWhileShakeIsActive() {
 	}
 }
 
+async function testStackedShakesKeepIndependentEnvelopes() {
+	const restoreRuntime = useMockBrowserRuntime();
+	try {
+		const backend = new StubBackend("always");
+		const camera = new Camera();
+		const renderer = new Renderer(backend, TEST_CANVAS, camera);
+		renderer.features.worldMatrix = Matrix4.identity();
+		renderer.postProcess.getPass("gamma")?.disable();
+		renderer.features.enableReflection = false;
+		renderer.features.enableEnvironment = false;
+		renderer.features.enableShadows = false;
+
+		const plugin = new CameraShakePlugin({
+			defaultFalloffExponent: 2,
+		});
+		plugin.attach(renderer);
+		const firstPositionAmplitude = { x: 1, y: 0, z: 0 };
+		const firstRotationAmplitude = { x: 1, y: 0, z: 0 };
+		plugin.trigger({
+			intensity: 0.5,
+			durationSeconds: 1,
+			frequencyHz: 1,
+			positionAmplitude: firstPositionAmplitude,
+			rotationAmplitude: firstRotationAmplitude,
+		});
+		firstPositionAmplitude.x = 99;
+		firstRotationAmplitude.x = 99;
+
+		await renderer.renderFrame(1);
+		await renderer.renderFrame(101);
+
+		plugin.trigger({
+			intensity: 0.25,
+			durationSeconds: 0.5,
+			frequencyHz: 2,
+			positionAmplitude: { x: 2, y: 0, z: 0 },
+			rotationAmplitude: { x: 0, y: 0, z: 0 },
+		});
+		await renderer.renderFrame(101);
+
+		const firstElapsedSeconds = 0.1;
+		const firstEnvelope = Math.pow(1 - firstElapsedSeconds / 1, 2);
+		const firstPhase = firstElapsedSeconds * 1 * Math.PI * 2;
+		const firstContribution =
+			1 * 0.5 * firstEnvelope *
+			perlinNoise1D(firstPhase + 0.713, 101) * 2;
+		const secondContribution =
+			2 * 0.25 * perlinNoise1D(0.713, 101) * 2;
+		const expectedRotationX =
+			1 * 0.5 * firstEnvelope *
+			perlinNoise1D(firstPhase + 1.371, 401) * 2;
+		const expectedQuaternion = new Quaternion()
+			.fromEuler(expectedRotationX, 0, 0)
+			.normalize();
+		const stackedSnapshot = backend.beginSnapshots.at(-1);
+
+		assert.ok(
+			Math.abs(
+				stackedSnapshot.position.x -
+				(firstContribution + secondContribution)
+			) <= 1e-7,
+			"each stacked shake should retain its own elapsed envelope and frequency"
+		);
+		assertQuaternionClose(stackedSnapshot.quaternion, expectedQuaternion);
+
+		plugin.detach();
+	}
+	finally {
+		restoreRuntime();
+	}
+}
+
 async function testOrbitCameraShakeDoesNotDriftPoseBetweenFrames() {
 	const restoreRuntime = useMockBrowserRuntime();
 	try {
@@ -362,6 +436,7 @@ async function testOrbitRotationShakeRotatesAroundPivot() {
 
 await testShakeAppliedBeforeFrameAndRestoredAfterFrame();
 await testOnDemandSchedulingStaysAwakeWhileShakeIsActive();
+await testStackedShakesKeepIndependentEnvelopes();
 await testOrbitCameraShakeDoesNotDriftPoseBetweenFrames();
 await testOrbitRotationShakeRotatesAroundPivot();
 console.log("Camera shake plugin tests passed");

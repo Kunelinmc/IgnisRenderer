@@ -1,12 +1,21 @@
 import type { Renderer } from "../rendering/Renderer";
 import { Camera } from "../cameras/Camera";
 import { OrbitCamera } from "../cameras/OrbitCamera";
+import { perlinNoise1D } from "../maths/Noise";
 import { Quaternion } from "../maths/Quaternion";
 import { Vector3 } from "../maths/Vector3";
 import type { IVector3 } from "../maths/types";
 
 const TAU = Math.PI * 2;
 const EPSILON = 1e-8;
+// 1D Perlin peaks near +/-0.5, so preserve the configured shake amplitude scale.
+const PERLIN_AMPLITUDE_SCALE = 2;
+const POSITION_X_NOISE_SEED = 101;
+const POSITION_Y_NOISE_SEED = 211;
+const POSITION_Z_NOISE_SEED = 307;
+const ROTATION_X_NOISE_SEED = 401;
+const ROTATION_Y_NOISE_SEED = 503;
+const ROTATION_Z_NOISE_SEED = 601;
 
 const DEFAULT_INTENSITY = 0.8;
 const DEFAULT_DURATION_SECONDS = 0.35;
@@ -48,6 +57,16 @@ export interface CameraShakeImpulse {
 	rotationAmplitude?: IVector3;
 }
 
+interface ActiveCameraShake {
+	elapsedSeconds: number;
+	intensity: number;
+	durationSeconds: number;
+	frequencyHz: number;
+	falloffExponent: number;
+	positionAmplitude: Vector3;
+	rotationAmplitude: Vector3;
+}
+
 /**
  * Event-driven camera shake plugin.
  *
@@ -60,22 +79,7 @@ export class CameraShakePlugin {
 	private _renderer: Renderer | null = null;
 	private _cameraOverride: Camera | null = null;
 
-	private _active = false;
-	private _elapsedSeconds = 0;
-	private _intensity = 0;
-	private _durationSeconds = DEFAULT_DURATION_SECONDS;
-	private _frequencyHz = DEFAULT_FREQUENCY_HZ;
-	private _falloffExponent = DEFAULT_FALLOFF_EXPONENT;
-	private _positionAmplitude = new Vector3(
-		DEFAULT_POSITION_AMPLITUDE.x,
-		DEFAULT_POSITION_AMPLITUDE.y,
-		DEFAULT_POSITION_AMPLITUDE.z
-	);
-	private _rotationAmplitude = new Vector3(
-		DEFAULT_ROTATION_AMPLITUDE.x,
-		DEFAULT_ROTATION_AMPLITUDE.y,
-		DEFAULT_ROTATION_AMPLITUDE.z
-	);
+	private _activeShakes: ActiveCameraShake[] = [];
 
 	private _defaultIntensity = DEFAULT_INTENSITY;
 	private _defaultDurationSeconds = DEFAULT_DURATION_SECONDS;
@@ -107,18 +111,20 @@ export class CameraShakePlugin {
 	private _orbitRotatedUp = new Vector3();
 
 	private _onTick = (event: { now: number; deltaTime: number }): void => {
-		if (!this._active) return;
+		if (this._activeShakes.length === 0) return;
 
 		const deltaTimeSeconds = Math.max(0, event.deltaTime) / 1000;
-		this._elapsedSeconds += deltaTimeSeconds;
-		if (this._elapsedSeconds >= this._durationSeconds) {
-			this._active = false;
-			this._intensity = 0;
-			this._elapsedSeconds = this._durationSeconds;
-			return;
+		for (let i = this._activeShakes.length - 1; i >= 0; i--) {
+			const shake = this._activeShakes[i];
+			shake.elapsedSeconds += deltaTimeSeconds;
+			if (shake.elapsedSeconds >= shake.durationSeconds) {
+				this._activeShakes.splice(i, 1);
+			}
 		}
 
-		this._renderer?.requestRender("camera");
+		if (this._activeShakes.length > 0) {
+			this._renderer?.requestRender("camera");
+		}
 	};
 
 	private _onPostAnimation = (): void => {
@@ -144,7 +150,7 @@ export class CameraShakePlugin {
 	 * Whether shake is currently active for upcoming frames.
 	 */
 	public get isActive(): boolean {
-		return this._active || this._applied;
+		return this._activeShakes.length > 0 || this._applied;
 	}
 
 	/**
@@ -176,8 +182,7 @@ export class CameraShakePlugin {
 		this._restoreApplied();
 		this._renderer = null;
 		this._cameraOverride = null;
-		this._active = false;
-		this._intensity = 0;
+		this._activeShakes.length = 0;
 	}
 
 	/**
@@ -196,7 +201,7 @@ export class CameraShakePlugin {
 	}
 
 	/**
-	 * Start or stack a camera shake impulse.
+	 * Start or stack an independently timed camera shake impulse.
 	 */
 	public trigger(impulse: CameraShakeImpulse = {}): void {
 		const intensity = clamp01(
@@ -230,19 +235,23 @@ export class CameraShakePlugin {
 					z: this._defaultRotationAmplitude.z,
 				};
 
-		const remainingDuration =
-			this._active ?
-				Math.max(0, this._durationSeconds - this._elapsedSeconds)
-			:	0;
-
-		this._intensity = clamp01(this._intensity + intensity);
-		this._durationSeconds = Math.max(durationSeconds, remainingDuration);
-		this._elapsedSeconds = 0;
-		this._frequencyHz = frequencyHz;
-		this._positionAmplitude.copy(positionAmplitude);
-		this._rotationAmplitude.copy(rotationAmplitude);
-		this._falloffExponent = this._defaultFalloffExponent;
-		this._active = true;
+		this._activeShakes.push({
+			elapsedSeconds: 0,
+			intensity,
+			durationSeconds,
+			frequencyHz,
+			falloffExponent: this._defaultFalloffExponent,
+			positionAmplitude: new Vector3(
+				positionAmplitude.x,
+				positionAmplitude.y,
+				positionAmplitude.z
+			),
+			rotationAmplitude: new Vector3(
+				rotationAmplitude.x,
+				rotationAmplitude.y,
+				rotationAmplitude.z
+			),
+		});
 		this._renderer?.requestRender("camera");
 	}
 
@@ -250,9 +259,7 @@ export class CameraShakePlugin {
 	 * Stop ongoing shake and restore camera immediately if needed.
 	 */
 	public stop(): void {
-		this._active = false;
-		this._intensity = 0;
-		this._elapsedSeconds = 0;
+		this._activeShakes.length = 0;
 		this._restoreApplied();
 	}
 
@@ -291,30 +298,70 @@ export class CameraShakePlugin {
 		if (this._applied) {
 			this._restoreApplied();
 		}
-		if (!this._active) return;
+		if (this._activeShakes.length === 0) return;
 
 		const camera = this._resolveCamera();
 		if (!camera) return;
 
-		const duration = Math.max(this._durationSeconds, 1e-4);
-		const t = Math.min(1, this._elapsedSeconds / duration);
-		const envelope = Math.pow(1 - t, this._falloffExponent);
-		const gain = this._intensity * envelope;
-		if (gain <= 1e-6) return;
+		let positionX = 0;
+		let positionY = 0;
+		let positionZ = 0;
+		let rotationX = 0;
+		let rotationY = 0;
+		let rotationZ = 0;
+		let hasContribution = false;
 
-		const phase = this._elapsedSeconds * this._frequencyHz * TAU;
-		const positionX =
-			this._positionAmplitude.x * gain * sampleNoise(phase, 0.713);
-		const positionY =
-			this._positionAmplitude.y * gain * sampleNoise(phase, 2.173);
-		const positionZ =
-			this._positionAmplitude.z * gain * sampleNoise(phase, 4.631);
-		const rotationX =
-			this._rotationAmplitude.x * gain * sampleNoise(phase, 1.371);
-		const rotationY =
-			this._rotationAmplitude.y * gain * sampleNoise(phase, 3.019);
-		const rotationZ =
-			this._rotationAmplitude.z * gain * sampleNoise(phase, 5.707);
+		for (const shake of this._activeShakes) {
+			const duration = Math.max(shake.durationSeconds, 1e-4);
+			const t = Math.min(1, shake.elapsedSeconds / duration);
+			const envelope = Math.pow(1 - t, shake.falloffExponent);
+			const gain = shake.intensity * envelope;
+			if (gain <= 1e-6) continue;
+
+			const noiseCoordinate =
+				shake.elapsedSeconds * shake.frequencyHz * TAU;
+			// Independent seeds prevent position and rotation from sampling shifted
+			// segments of the same Perlin field.
+			positionX +=
+				shake.positionAmplitude.x * gain *
+				perlinNoise1D(
+					noiseCoordinate + 0.713,
+					POSITION_X_NOISE_SEED
+				) * PERLIN_AMPLITUDE_SCALE;
+			positionY +=
+				shake.positionAmplitude.y * gain *
+				perlinNoise1D(
+					noiseCoordinate + 2.173,
+					POSITION_Y_NOISE_SEED
+				) * PERLIN_AMPLITUDE_SCALE;
+			positionZ +=
+				shake.positionAmplitude.z * gain *
+				perlinNoise1D(
+					noiseCoordinate + 4.631,
+					POSITION_Z_NOISE_SEED
+				) * PERLIN_AMPLITUDE_SCALE;
+			rotationX +=
+				shake.rotationAmplitude.x * gain *
+				perlinNoise1D(
+					noiseCoordinate + 1.371,
+					ROTATION_X_NOISE_SEED
+				) * PERLIN_AMPLITUDE_SCALE;
+			rotationY +=
+				shake.rotationAmplitude.y * gain *
+				perlinNoise1D(
+					noiseCoordinate + 3.019,
+					ROTATION_Y_NOISE_SEED
+				) * PERLIN_AMPLITUDE_SCALE;
+			rotationZ +=
+				shake.rotationAmplitude.z * gain *
+				perlinNoise1D(
+					noiseCoordinate + 5.707,
+					ROTATION_Z_NOISE_SEED
+				) * PERLIN_AMPLITUDE_SCALE;
+			hasContribution = true;
+		}
+
+		if (!hasContribution) return;
 
 		this._basePosition.copy(camera.position);
 		this._appliedCamera = camera;
@@ -512,13 +559,6 @@ function hasFiniteVector(value: IVector3 | undefined): value is IVector3 {
 		Number.isFinite(value.x) &&
 		Number.isFinite(value.y) &&
 		Number.isFinite(value.z)
-	);
-}
-
-function sampleNoise(phase: number, seed: number): number {
-	return (
-		Math.sin(phase + seed) * 0.7 +
-		Math.sin(phase * 1.731 + seed * 1.618) * 0.3
 	);
 }
 
