@@ -3,9 +3,20 @@ import type {
 	FramePassStage,
 } from "../../../pipeline/types";
 import type { PostProcessGraphDebugState } from "../../../postprocess/BackendPostProcessRuntime";
-import type { RenderGraphTrackerDebugState } from "../../../rendergraph/types";
+import type {
+	CompiledRenderGraph,
+	RenderGraphAnalysisCompleteness,
+	RenderGraphDiagnostic,
+	RenderGraphExecutionDomain,
+	RenderGraphExport,
+	RenderGraphPhysicalBinding,
+	RenderGraphResourceDescriptor,
+	RenderGraphTrackerDebugState,
+} from "../../../rendergraph/types";
 
 export type WebGLFrameGraphNodeKind =
+	| "frame-setup"
+	| "opaque-external"
 	| "shadow"
 	| "scene-clear"
 	| "environment"
@@ -21,6 +32,8 @@ export type WebGLFrameGraphNodeKind =
 	| "present";
 
 export const WEBGL_FRAME_GRAPH_NODE_KINDS = [
+	"frame-setup",
+	"opaque-external",
 	"shadow",
 	"scene-clear",
 	"environment",
@@ -67,6 +80,10 @@ export interface WebGLFrameGraphNode {
 	readonly kind: WebGLFrameGraphNodeKind;
 	readonly label: string;
 	readonly scope?: WebGLFrameGraphNodeScope;
+	readonly domain?: RenderGraphExecutionDomain;
+	readonly retention?: "always" | "if-reachable";
+	readonly opaque?: boolean;
+	readonly dependsOn?: readonly string[];
 	readonly creates?: readonly WebGLFrameGraphResourceMutation[];
 	readonly requires?: readonly WebGLFrameGraphResourceMutation[];
 	readonly reads?: readonly WebGLFrameGraphResourceRef[];
@@ -83,6 +100,20 @@ export interface WebGLFrameGraphPlannerState {
 export interface WebGLFrameGraphStagePlan {
 	readonly pass: FramePass;
 	readonly nodes: readonly WebGLFrameGraphNode[];
+}
+
+export interface WebGLFrameGraphFramePlan {
+	readonly resources: readonly RenderGraphResourceDescriptor[];
+	readonly bindings: readonly RenderGraphPhysicalBinding[];
+	readonly stages: readonly WebGLFrameGraphStagePlan[];
+	readonly exports?: readonly RenderGraphExport[];
+	readonly completeness?: RenderGraphAnalysisCompleteness;
+	readonly shadowDiagnostics?: readonly RenderGraphDiagnostic[];
+}
+
+export interface WebGLFrameGraphResourceCatalogSnapshot {
+	readonly resources: readonly RenderGraphResourceDescriptor[];
+	readonly bindings: readonly RenderGraphPhysicalBinding[];
 }
 
 export interface WebGLFrameGraphBarrier {
@@ -120,6 +151,11 @@ export interface WebGLCompiledFrameGraphStage {
 	readonly diagnostics: readonly WebGLFrameGraphDiagnostic[];
 }
 
+export interface WebGLCompiledFrameGraph {
+	readonly graph: CompiledRenderGraph<WebGLFrameGraphNode, WebGLFrameGraphNodeKind>;
+	readonly stages: readonly WebGLCompiledFrameGraphStage[];
+}
+
 export interface WebGLFrameGraphResourceDebugState {
 	readonly id: WebGLFrameGraphResourceId;
 	readonly initialized: boolean;
@@ -135,6 +171,7 @@ export interface WebGLFrameGraphDebugState {
 	readonly lastPlannedNodeIds: readonly string[];
 	readonly lastExecutedNodeIds: readonly string[];
 	readonly compiledStages: readonly WebGLCompiledFrameGraphStage[];
+	readonly compiledGraph: CompiledRenderGraph<WebGLFrameGraphNode, WebGLFrameGraphNodeKind> | null;
 	readonly graphResources: readonly WebGLFrameGraphResourceDebugState[];
 	readonly graphBarriers: readonly WebGLFrameGraphBarrier[];
 	readonly graphDiagnostics: readonly WebGLFrameGraphDiagnostic[];

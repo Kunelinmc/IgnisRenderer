@@ -11,6 +11,9 @@ import type {
 import type { RenderTargetReadbackOptions } from "../../rendering/CustomRenderTargets";
 import type { TextureReadbackResult } from "../IComputeRuntime";
 import type { ShaderBackendCompileStage, ShaderRuntime } from "../../shaders/runtime";
+import type {
+	WebGLFrameGraphResourceCatalogSnapshot,
+} from "./rendergraph/types";
 
 import {
 	WebGLFrameServiceOwner,
@@ -78,6 +81,10 @@ export class WebGLFrameExecutor {
 
 	public collectFrameGraphResources(): readonly string[] {
 		return this._services.collectFrameGraphResources();
+	}
+
+	public collectFrameGraphResourceCatalog(): WebGLFrameGraphResourceCatalogSnapshot {
+		return this._services.collectFrameGraphResourceCatalog();
 	}
 
 	public renderShadowNode(context: FrameContext): void {

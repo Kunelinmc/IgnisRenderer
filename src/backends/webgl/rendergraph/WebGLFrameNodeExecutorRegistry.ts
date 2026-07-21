@@ -73,6 +73,8 @@ export class WebGLFrameNodeExecutorRegistry {
 		state: WebGLFrameNodeExecutionState,
 	): WebGLFrameNodeExecutorRegistry {
 		return new WebGLFrameNodeExecutorRegistry([
+			["frame-setup", () => {}],
+			["opaque-external", () => {}],
 			["scene-clear", (_node, context) => services.clearFrameTargets(context)],
 			["environment", (_node, context) => services.renderEnvironmentNode(context)],
 			["shadow", (_node, context) => services.renderShadowNode(context)],

@@ -194,7 +194,6 @@ export class WebGLFrameGraphPlanner {
 				(pass) => [
 					this._node(pass, "postprocess", "WebGLPostProcess", {
 						reads: [
-							this._read("frame:scene-color", "texture-sampling"),
 							this._read("frame:motion-depth", "texture-sampling", true),
 							this._read("frame:normal", "texture-sampling", true),
 						],

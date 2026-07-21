@@ -591,6 +591,13 @@ export class WebGLFrameServiceOwner {
 		);
 	}
 
+	public collectFrameGraphResourceCatalog() {
+		return this._targets.collectGraphResourceCatalog(
+			this._shadowAtlasTexture,
+			this._shadowTransmittanceTexture,
+		);
+	}
+
 	public renderShadowNode(context: FrameContext): void {
 		this._shadow.render(context);
 	}

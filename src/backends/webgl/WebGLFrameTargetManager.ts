@@ -5,6 +5,13 @@ import type {
 	LogicalGBufferSemantic,
 } from "../../postprocess";
 import { DEFAULT_SSAO_OPTIONS } from "../../postprocess/passes/ScreenSpaceAmbientOcclusionPass";
+import type {
+	RenderGraphPhysicalBinding,
+	RenderGraphResourceDescriptor,
+} from "../../rendergraph/types";
+import type {
+	WebGLFrameGraphResourceCatalogSnapshot,
+} from "./rendergraph/types";
 
 import {
 	bindWebGLOITSingleColorTarget,
@@ -50,6 +57,7 @@ export class WebGLFrameTargetManager implements WebGLFrameTargetLifecycleHost {
 	public _targetMaterialGBufferEnabled = false;
 	public _ssaoFrameIndex = 0;
 	public _supportsFloatColorBuffer: boolean | null = null;
+	private readonly _graphPhysicalResources = new Map<string, object>();
 
 	public constructor(
 		gl: WebGL2RenderingContext,
@@ -81,6 +89,7 @@ export class WebGLFrameTargetManager implements WebGLFrameTargetLifecycleHost {
 	}
 
 	public destroy(): void {
+		this._graphPhysicalResources.clear();
 		destroyWebGLFrameTargets(this);
 	}
 
@@ -104,6 +113,93 @@ export class WebGLFrameTargetManager implements WebGLFrameTargetLifecycleHost {
 		if (shadowAtlasTexture) resources.add("shadow:atlas");
 		if (shadowTransmittanceTexture) resources.add("shadow:transmittance");
 		return Array.from(resources);
+	}
+
+	/** @internal Returns descriptor and stable physical identity metadata only. */
+	public collectGraphResourceCatalog(
+		shadowAtlasTexture: WebGLTexture | null,
+		shadowTransmittanceTexture: WebGLTexture | null,
+	): WebGLFrameGraphResourceCatalogSnapshot {
+		const resources: RenderGraphResourceDescriptor[] = [];
+		const bindings: RenderGraphPhysicalBinding[] = [];
+		this._graphPhysicalResources.clear();
+		const width = Math.max(1, this._targetWidth);
+		const height = Math.max(1, this._targetHeight);
+		const addTexture = (
+			id: string,
+			handle: WebGLTexture | WebGLRenderbuffer | null,
+			format?: string,
+			physicalId = `webgl:slot:${id}`,
+		): void => {
+			if (!handle) return;
+			resources.push({
+				id,
+				origin: "imported",
+				kind: "texture",
+				residency: "frame",
+				initialContent: "unknown",
+				format,
+				width,
+				height,
+				depthOrArrayLayers: 1,
+				dimension: "2d",
+				sampleCount: 1,
+				mipLevelCount: 1,
+			});
+			bindings.push({
+				resourceId: id,
+				physicalId,
+				kind: "texture",
+			});
+			this._graphPhysicalResources.set(physicalId, handle);
+		};
+		addTexture("frame:scene-color", this._sceneColorTexture, this._sceneColorFormat);
+		const presentPhysicalId = this._presentSourceTexture === this._sceneColorTexture
+			? "webgl:slot:frame:scene-color"
+			: this._presentSourceTexture === this._postColorTexture
+				? "webgl:slot:post:color"
+				: "webgl:slot:frame:present-source";
+		addTexture("frame:present-source", this._presentSourceTexture ?? this._sceneColorTexture,
+			this._sceneColorFormat, presentPhysicalId);
+		addTexture("frame:motion-depth", this._sceneMotionTexture, this._sceneMotionFormat);
+		addTexture("frame:normal", this._sceneNormalTexture, this._sceneNormalFormat);
+		addTexture("frame:albedo", this._sceneAlbedoTexture, this._sceneAlbedoFormat);
+		addTexture("frame:specular", this._sceneSpecularTexture, this._sceneSpecularFormat);
+		addTexture("frame:depth", this._sceneDepthBuffer, "depth24plus-stencil8");
+		addTexture("post:color", this._postColorTexture, this._postColorFormat);
+		addTexture("post:ssao-raw", this._ssaoRawTexture, this._ssaoColorFormat);
+		addTexture("post:ssao-blur", this._ssaoBlurTexture, this._ssaoColorFormat);
+		addTexture("oit:accum", this._oitAccumTexture, "rgba16float");
+		addTexture("oit:reveal", this._oitRevealTexture, "r16float");
+		addTexture("shadow:atlas", shadowAtlasTexture, "depth");
+		addTexture("shadow:transmittance", shadowTransmittanceTexture, "rgba8unorm");
+		resources.push({
+			id: "canvas:color",
+			origin: "imported",
+			kind: "texture",
+			residency: "external",
+			initialContent: "unknown",
+			width,
+			height,
+			depthOrArrayLayers: 1,
+			dimension: "2d",
+			sampleCount: 1,
+			mipLevelCount: 1,
+		});
+		bindings.push({
+			resourceId: "canvas:color",
+			physicalId: "webgl:canvas-color",
+			kind: "texture",
+		});
+		return Object.freeze({
+			resources: Object.freeze(resources),
+			bindings: Object.freeze(bindings),
+		});
+	}
+
+	/** @internal Resolves backend-owned native state outside the logical graph. */
+	public resolveGraphPhysicalResource(physicalId: string): object | null {
+		return this._graphPhysicalResources.get(physicalId) ?? null;
 	}
 
 	public createGBufferBridge(context: FrameContext): LogicalGBufferBridge {

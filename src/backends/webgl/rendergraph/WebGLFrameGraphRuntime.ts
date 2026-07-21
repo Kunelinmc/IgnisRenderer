@@ -4,6 +4,7 @@ import type {
 } from "../../../pipeline/types";
 import { Logger } from "../../../foundation/Logger";
 import type { BackendPostProcessRuntime } from "../../../postprocess/BackendPostProcessRuntime";
+import type { RenderGraphDiagnostic } from "../../../rendergraph/types";
 import { WebGLFrameGraphCompiler } from "./WebGLFrameGraphCompiler";
 import { WebGLFrameGraphPlanner } from "./WebGLFrameGraphPlanner";
 import {
@@ -14,8 +15,10 @@ import type {
 	WebGLCompiledFrameGraphStage,
 	WebGLFrameGraphDebugState,
 	WebGLFrameGraphDiagnostic,
+	WebGLFrameGraphFramePlan,
 	WebGLFrameGraphNode,
 	WebGLFrameGraphPlannerState,
+	WebGLFrameGraphResourceCatalogSnapshot,
 	WebGLFrameGraphStagePlan,
 } from "./types";
 
@@ -26,6 +29,7 @@ export interface WebGLFrameExecutionFacade extends WebGLFrameNodeServices {
 	isOITActive(): boolean;
 	hasPresentedInFrame(): boolean;
 	collectFrameGraphResources(): readonly string[];
+	collectFrameGraphResourceCatalog(): WebGLFrameGraphResourceCatalogSnapshot;
 	hasCustomRenderPass(pass: FramePass, context: FrameContext): boolean;
 	executeCustomRenderPass(pass: FramePass, context: FrameContext): Promise<void>;
 }
@@ -47,6 +51,7 @@ export class WebGLFrameGraphRuntime {
 	private _lastCompiledGraphStages: WebGLCompiledFrameGraphStage[] = [];
 	private _lastExecutedGraphNodeIds: string[] = [];
 	private _runtimeDiagnostics: WebGLFrameGraphDiagnostic[] = [];
+	private _wholeFrameGraphCompiled = false;
 
 	public constructor(
 		executor: WebGLFrameExecutionFacade,
@@ -76,7 +81,20 @@ export class WebGLFrameGraphRuntime {
 		this._lastCompiledGraphStages = [];
 		this._lastExecutedGraphNodeIds = [];
 		this._runtimeDiagnostics = [];
+		this._wholeFrameGraphCompiled = false;
 		this._executor.beginFrame(context);
+		if (context.framePlan) {
+			try {
+				this._compileWholeFrameGraph(context);
+				this._executeCompiledStage("webgl-begin-frame", context);
+			} catch (error) {
+				this._compiler.abort(error);
+				this._executor.abortFrame();
+				this._active = false;
+				throw error;
+			}
+			return;
+		}
 		this._compiler.beginFrame(this._executor.collectFrameGraphResources());
 		const pass = this._createSyntheticPass("webgl-begin-frame");
 		const plan: WebGLFrameGraphStagePlan = {
@@ -103,11 +121,22 @@ export class WebGLFrameGraphRuntime {
 			typeof this._executor.hasCustomRenderPass === "function" &&
 			this._executor.hasCustomRenderPass(pass, context)
 		) {
-			this._compiler.recordOpaqueStage(
-				pass.stage,
-				`Custom render pass "${pass.stage}" executes outside the logical graph.`,
-			);
-			return this._executor.executeCustomRenderPass(pass, context);
+			if (!this._wholeFrameGraphCompiled) {
+				this._compiler.recordOpaqueStage(
+					pass.stage,
+					`Custom render pass "${pass.stage}" executes outside the logical graph.`,
+				);
+			}
+			const result = this._executor.executeCustomRenderPass(pass, context);
+			return result.then(() => this._recordCompiledStageExecution(pass.stage));
+		}
+		if (this._wholeFrameGraphCompiled) {
+			const compiled = this._findCompiledStage(pass.stage);
+			if (!compiled || compiled.nodes.length <= 0) {
+				this._warnUnsupportedPass(pass);
+				return;
+			}
+			return this._executeCompiledStage(pass.stage, context);
 		}
 		const plan = this._planner.planStage(
 			pass,
@@ -115,11 +144,7 @@ export class WebGLFrameGraphRuntime {
 			this._createPlannerState(context)
 		);
 		if (plan.nodes.length <= 0) {
-			const key = `webgl-frame-graph-stage-unsupported-${pass.stage}`;
-			Logger.warn(
-				`[${key}] WebGL frame graph has no nodes for pass "${pass.stage}"; skipping.`,
-				{ scope: "WebGLFrameGraphRuntime", onceKey: key }
-			);
+			this._warnUnsupportedPass(pass);
 			return;
 		}
 		return this._compileAndExecute(plan, context);
@@ -134,12 +159,12 @@ export class WebGLFrameGraphRuntime {
 	 * @sideEffects May present to canvas and clears executor frame state.
 	 */
 	public endFrame(context: FrameContext): void | Promise<void> {
-		const pass = this._createSyntheticPass("webgl-present");
-		const plan: WebGLFrameGraphStagePlan = {
-			pass,
-			nodes: this._planner.planPresent(),
-		};
-		const result = this._compileAndExecute(plan, context);
+		const result = this._wholeFrameGraphCompiled
+			? this._executeCompiledStage("webgl-present", context)
+			: this._compileAndExecute({
+				pass: this._createSyntheticPass("webgl-present"),
+				nodes: this._planner.planPresent(),
+			}, context);
 		const finish = () => {
 			this._executor.finishFrame();
 			this._compiler.seal();
@@ -174,6 +199,7 @@ export class WebGLFrameGraphRuntime {
 			lastPlannedNodeIds: this._lastPlannedGraphNodes.map((node) => node.id),
 			lastExecutedNodeIds: this._lastExecutedGraphNodeIds.slice(),
 			compiledStages: this._lastCompiledGraphStages.slice(),
+			compiledGraph: this._compiler.getCompiledFrame()?.graph ?? null,
 			graphResources: this._compiler.getResourceDebugState(),
 			graphBarriers: this._compiler.getBarriers(),
 			graphDiagnostics: [
@@ -200,7 +226,138 @@ export class WebGLFrameGraphRuntime {
 
 	/** @internal Records a backend pass that bypasses logical resource analysis. */
 	public recordOpaqueGraphStage(stage: string, message: string): void {
+		if (this._wholeFrameGraphCompiled) return;
 		this._compiler.recordOpaqueStage(stage, message);
+	}
+
+	private _compileWholeFrameGraph(context: FrameContext): void {
+		const catalog = this._executor.collectFrameGraphResourceCatalog();
+		const stages: WebGLFrameGraphStagePlan[] = [];
+		const shadowDiagnostics: RenderGraphDiagnostic[] = [];
+		const setupPass = this._createSyntheticPass("webgl-begin-frame");
+		stages.push({
+			pass: setupPass,
+			nodes: this._planner.planBeginFrame(context, this._createPlannerState(context)),
+		});
+
+		let lastStage = setupPass.stage;
+		let hasPostProcess = false;
+		let hasOpaqueStage = false;
+		for (const pass of context.framePlan?.backendPasses ?? []) {
+			if (!pass.enabled) continue;
+			let stagePlan: WebGLFrameGraphStagePlan;
+			const custom =
+				typeof this._executor.hasCustomRenderPass === "function" &&
+				this._executor.hasCustomRenderPass(pass, context);
+			if (pass.stage === "particle-sim" || custom) {
+				const reason = custom ? "custom render target" : "particle simulation";
+				stagePlan = {
+					pass,
+					nodes: [{
+						id: `${pass.stage}:opaque-external:frame`,
+						stage: pass.stage,
+						kind: "opaque-external",
+						label: `WebGLOpaque:${pass.stage}`,
+						domain: "cpu",
+						retention: "always",
+						opaque: true,
+					}],
+				};
+				hasOpaqueStage = true;
+				shadowDiagnostics.push({
+					phase: "compile",
+					enforcement: "shadow",
+					severity: "warning",
+					code: "opaque-stage-effects",
+					stage: pass.stage,
+					message: `WebGL ${reason} stage "${pass.stage}" has undeclared resource effects.`,
+				});
+			} else {
+				stagePlan = this._planner.planStage(
+					pass,
+					context,
+					this._createPlannerState(context),
+				);
+				if (stagePlan.nodes.length <= 0) this._warnUnsupportedPass(pass);
+			}
+			if (pass.stage === "postprocess") hasPostProcess = true;
+			stages.push(stagePlan);
+			if (stagePlan.nodes.length > 0) lastStage = pass.stage;
+		}
+
+		const presentPass: FramePass = {
+			stage: "webgl-present",
+			executor: "backend",
+			enabled: true,
+			dependsOn: [lastStage],
+		};
+		stages.push({ pass: presentPass, nodes: this._planner.planPresent() });
+		const framePlan: WebGLFrameGraphFramePlan = {
+			resources: catalog.resources,
+			bindings: catalog.bindings,
+			stages,
+			exports: [{ name: "presented-color", resource: "canvas:color" }],
+			completeness: hasOpaqueStage ? "opaque" : hasPostProcess ? "coarse" : "complete",
+			shadowDiagnostics,
+		};
+		const compiled = this._compiler.compileFrame(framePlan);
+		this._handleWholeFrameGraphDiagnostics(compiled.graph.diagnostics);
+		this._lastCompiledGraphStages = compiled.stages.slice();
+		this._lastPlannedGraphNodes = stages.flatMap((stage) => [...stage.nodes]);
+		this._wholeFrameGraphCompiled = true;
+	}
+
+	private _findCompiledStage(stage: string): WebGLCompiledFrameGraphStage | undefined {
+		return this._compiler.getCompiledStages().find(
+			(compiled) => compiled.pass.stage === stage,
+		);
+	}
+
+	private _executeCompiledStage(
+		stage: string,
+		context: FrameContext,
+	): void | Promise<void> {
+		const compiled = this._findCompiledStage(stage);
+		let chain: Promise<void> | null = null;
+		for (const node of compiled?.nodes ?? []) {
+			if (chain) {
+				chain = chain.then(() => this._executeGraphNode(node, context));
+			} else {
+				const result = this._executeGraphNode(node, context);
+				if (result && typeof (result as Promise<void>).then === "function") {
+					chain = result as Promise<void>;
+				}
+			}
+		}
+		return chain ?? undefined;
+	}
+
+	private _recordCompiledStageExecution(stage: string): void {
+		if (!this._wholeFrameGraphCompiled) return;
+		for (const node of this._findCompiledStage(stage)?.nodes ?? []) {
+			this._lastExecutedGraphNodeIds.push(node.id);
+		}
+	}
+
+	private _warnUnsupportedPass(pass: FramePass): void {
+		const key = `webgl-frame-graph-stage-unsupported-${pass.stage}`;
+		Logger.warn(
+			`[${key}] WebGL frame graph has no nodes for pass "${pass.stage}"; skipping.`,
+			{ scope: "WebGLFrameGraphRuntime", onceKey: key },
+		);
+	}
+
+	private _handleWholeFrameGraphDiagnostics(
+		diagnostics: readonly RenderGraphDiagnostic[],
+	): void {
+		const errors = diagnostics.filter((diagnostic) =>
+			diagnostic.enforcement === "enforced" && diagnostic.severity === "error",
+		);
+		if (errors.length <= 0) return;
+		throw new Error(
+			`WebGL internal whole-frame graph validation failed: ` +
+				errors.map((diagnostic) => diagnostic.message).join(" "),
+		);
 	}
 
 	private _compileAndExecute(
