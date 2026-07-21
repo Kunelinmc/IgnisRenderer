@@ -1866,6 +1866,49 @@ function testOITRuntimeFallbackWarnsWithoutEncoderCopy() {
 	}
 }
 
+async function testWholeFramePlanningOccursOnlyAtBeginFrame() {
+	const backend = new FakeBackend();
+	const executor = new WebGPUFrameExecutor(backend, createResourcesStub());
+	const context = createFrameContext(64, 64);
+	context.incremental = {
+		enabled: false,
+		forceFullFrame: true,
+		dirtyRects: [],
+	};
+	const passes = [
+		{ stage: "main-opaque", executor: "backend", enabled: true, dependsOn: [] },
+		{
+			stage: "postprocess",
+			executor: "backend",
+			enabled: true,
+			dependsOn: ["main-opaque"],
+		},
+	];
+	context.framePlan = { stageOrder: [], backendPasses: passes };
+	let plannerCalls = 0;
+	const originalPlanStage = executor._graphPlanner.planStage.bind(executor._graphPlanner);
+	executor._graphPlanner.planStage = (...args) => {
+		plannerCalls++;
+		return originalPlanStage(...args);
+	};
+
+	executor.beginFrame(context);
+	assert.equal(plannerCalls, 2);
+	await executor.executePass(passes[0], context);
+	await executor.executePass(passes[1], context);
+	assert.equal(plannerCalls, 2);
+	await executor.endFrame();
+
+	const debug = getFrameGraphDebugState(executor);
+	assert.deepEqual(debug.compiledStages.map((stage) => stage.pass.stage), [
+		"webgpu-setup",
+		"main-opaque",
+		"postprocess",
+		"webgpu-present",
+	]);
+	assert.equal(debug.compiledGraph.completeness, "coarse");
+}
+
 async function run() {
 	await testZeroSizedFrameSkipsEncoderAndLegacyDepthPath();
 	await testDebugStateRetainsNodesFromEveryCompiledStage();
@@ -1902,6 +1945,7 @@ async function run() {
 	testDeferredLightingWarnsWhenRequestedButMRTUnavailable();
 	await testOITMSAAFallsBackToLegacyAndWarns();
 	testOITRuntimeFallbackWarnsWithoutEncoderCopy();
+	await testWholeFramePlanningOccursOnlyAtBeginFrame();
 	console.log("WebGPU frame executor resilience tests passed");
 }
 

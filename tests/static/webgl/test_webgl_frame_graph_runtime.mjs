@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { WebGLFrameGraphRuntime } from "../../../src/backends/webgl/rendergraph/WebGLFrameGraphRuntime.ts";
 import { WebGLFrameNodeExecutorRegistry } from "../../../src/backends/webgl/rendergraph/WebGLFrameNodeExecutorRegistry.ts";
+import { WebGLFrameTargetManager } from "../../../src/backends/webgl/WebGLFrameTargetManager.ts";
 
 function createContext(overrides = {}) {
 	return {
@@ -62,6 +63,42 @@ function createExecutor(events, options = {}) {
 				resources.push("oit:accum", "oit:reveal");
 			}
 			return resources;
+		},
+		collectFrameGraphResourceCatalog() {
+			const ids = [
+				"frame:scene-color",
+				"frame:motion-depth",
+				"frame:normal",
+				"frame:depth",
+				"frame:present-source",
+				"post:color",
+				"canvas:color",
+			];
+			if (options.oitActive) ids.push("oit:accum", "oit:reveal");
+			return {
+				resources: ids.map((id) => ({
+					id,
+					origin: "imported",
+					kind: "texture",
+					residency: id === "canvas:color" ? "external" : "frame",
+					initialContent: "unknown",
+					format: "rgba8unorm",
+					width: 16,
+					height: 16,
+					depthOrArrayLayers: 1,
+					dimension: "2d",
+					sampleCount: 1,
+					mipLevelCount: 1,
+				})),
+				bindings: ids.map((id) => ({
+					resourceId: id,
+					physicalId:
+						id === "frame:scene-color" || id === "frame:present-source"
+							? "webgl:scene-color"
+							: `webgl:${id}`,
+					kind: "texture",
+				})),
+			};
 		},
 		renderShadowNode() {
 			events.push("shadow");
@@ -240,6 +277,44 @@ function testFailedPresentPreservesLastSuccessfulAnalysis() {
 	assert.equal(analysis.lastSuccessful, successful);
 }
 
+function testWholeFrameCompilesOnceAndUsesPhysicalAlias() {
+	const events = [];
+	const runtime = createRuntime(events);
+	let plannerCalls = 0;
+	const originalPlanStage = runtime._planner.planStage.bind(runtime._planner);
+	runtime._planner.planStage = (...args) => {
+		plannerCalls++;
+		return originalPlanStage(...args);
+	};
+	const passes = [createPass("main-opaque"), createPass("postprocess")];
+	passes[1].dependsOn = ["main-opaque"];
+	const context = createContext({
+		framePlan: {
+			stageOrder: [],
+			backendPasses: passes,
+		},
+	});
+
+	runtime.beginFrame(context);
+	assert.equal(plannerCalls, 2);
+	runtime.executePass(passes[0], context);
+	runtime.executePass(passes[1], context);
+	assert.equal(plannerCalls, 2);
+	runtime.endFrame(context);
+
+	const debug = runtime.getDebugState();
+	assert.deepEqual(debug.compiledStages.map((stage) => stage.pass.stage), [
+		"webgl-begin-frame",
+		"main-opaque",
+		"postprocess",
+		"webgl-present",
+	]);
+	assert.equal(debug.compiledGraph.completeness, "coarse");
+	assert.ok(debug.compiledGraph.dependencies.some((edge) =>
+		edge.physicalId === "webgl:scene-color" &&
+		edge.toNodeId === "postprocess:postprocess:frame"));
+}
+
 function testNodeRegistryRejectsMissingAndDuplicateOwners() {
 	assert.throws(
 		() => new WebGLFrameNodeExecutorRegistry([]),
@@ -255,13 +330,34 @@ function testNodeRegistryRejectsMissingAndDuplicateOwners() {
 	);
 }
 
+function testResourceCatalogPreservesScenePresentAlias() {
+	const manager = new WebGLFrameTargetManager({}, 4096, 4096);
+	const sceneColor = {};
+	manager._targetWidth = 32;
+	manager._targetHeight = 16;
+	manager._sceneColorTexture = sceneColor;
+	manager._presentSourceTexture = sceneColor;
+	const catalog = manager.collectGraphResourceCatalog(null, null);
+	const sceneBinding = catalog.bindings.find((entry) =>
+		entry.resourceId === "frame:scene-color");
+	const presentBinding = catalog.bindings.find((entry) =>
+		entry.resourceId === "frame:present-source");
+	assert.equal(sceneBinding.physicalId, presentBinding.physicalId);
+	assert.equal(
+		manager.resolveGraphPhysicalResource(sceneBinding.physicalId),
+		sceneColor,
+	);
+}
+
 function run() {
 	testRuntimeExecutesOpaqueNodesInOrder();
 	testRuntimeDelegatesPostProcessNode();
 	testRuntimePlansOITParticleFlow();
 	testRuntimeDebugCapturesUnsupportedStage();
 	testFailedPresentPreservesLastSuccessfulAnalysis();
+	testWholeFrameCompilesOnceAndUsesPhysicalAlias();
 	testNodeRegistryRejectsMissingAndDuplicateOwners();
+	testResourceCatalogPreservesScenePresentAlias();
 	console.log("WebGL frame graph runtime tests passed");
 }
 
