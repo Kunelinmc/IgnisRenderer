@@ -7,6 +7,8 @@ import type {
 	RenderGraphDiagnostic,
 	RenderGraphLiveRange,
 	RenderGraphNode,
+	RenderGraphNormalizedSubresourceRange,
+	RenderGraphPhysicalBinding,
 	RenderGraphResourceDebugState,
 	RenderGraphResourceDescriptor,
 	RenderGraphResourceId,
@@ -16,6 +18,10 @@ import type {
 	RenderGraphUsage,
 	RenderGraphValidationRule,
 } from "./types";
+import {
+	normalizeRenderGraphSubresource,
+	renderGraphSubresourcesOverlap,
+} from "./subresources";
 
 interface MutableRenderGraphLiveRange {
 	resourceId: RenderGraphResourceId;
@@ -44,6 +50,15 @@ interface RenderGraphAnalyzerResourceState {
 	implicitCreateReported: boolean;
 }
 
+interface RenderGraphAnalyzerAccessState {
+	readonly nodeId: string;
+	readonly resourceId: RenderGraphResourceId;
+	readonly generation: number;
+	readonly access: RenderGraphAccess;
+	readonly usage: RenderGraphUsage;
+	readonly subresource: RenderGraphNormalizedSubresourceRange | undefined;
+}
+
 export interface RenderGraphAnalyzerOptions<TPayload = unknown, TKind extends string = string> {
 	readonly allowImplicitResources?: boolean;
 	readonly validateStreamingDependencies?: boolean;
@@ -65,6 +80,8 @@ export class RenderGraphAnalyzer<TPayload = unknown, TKind extends string = stri
 	private readonly _liveRangeByGeneration = new Map<string, MutableRenderGraphLiveRange>();
 	private readonly _nodeIds = new Set<string>();
 	private readonly _orderedNodeIds: string[] = [];
+	private readonly _bindings = new Map<string, RenderGraphPhysicalBinding>();
+	private readonly _accessHistory = new Map<string, RenderGraphAnalyzerAccessState[]>();
 	private _completeness: RenderGraphAnalysisCompleteness = "complete";
 
 	constructor(options: RenderGraphAnalyzerOptions<TPayload, TKind> = {}) {
@@ -73,7 +90,10 @@ export class RenderGraphAnalyzer<TPayload = unknown, TKind extends string = stri
 		this._rules = options.rules ?? [];
 	}
 
-	public reset(resources: readonly RenderGraphResourceDescriptor[]): void {
+	public reset(
+		resources: readonly RenderGraphResourceDescriptor[],
+		bindings: readonly RenderGraphPhysicalBinding[] = [],
+	): void {
 		this._resources.clear();
 		this._transitions.length = 0;
 		this._diagnostics.length = 0;
@@ -81,7 +101,12 @@ export class RenderGraphAnalyzer<TPayload = unknown, TKind extends string = stri
 		this._liveRangeByGeneration.clear();
 		this._nodeIds.clear();
 		this._orderedNodeIds.length = 0;
+		this._bindings.clear();
+		this._accessHistory.clear();
 		this._completeness = "complete";
+		for (const binding of bindings) {
+			this._bindings.set(bindingKey(binding.resourceId, binding.generation), binding);
+		}
 		for (const descriptor of resources) {
 			if (this._resources.has(descriptor.id)) continue;
 			const active = descriptor.origin === "imported";
@@ -175,6 +200,7 @@ export class RenderGraphAnalyzer<TPayload = unknown, TKind extends string = stri
 						active: state.active,
 						generation: state.generation,
 						content: state.content,
+						physicalId: this._resolveBinding(state)?.physicalId,
 						lastNodeId: state.lastNodeId,
 						lastAccess: state.lastEvent,
 						lastUsage: state.lastUsage,
@@ -281,7 +307,7 @@ export class RenderGraphAnalyzer<TPayload = unknown, TKind extends string = stri
 				nodeId: node.id,
 				resourceId: resolved.resource,
 				message:
-					`Render graph node "${node.id}" creates active ` +
+					`Render graph node "${node.id}" creates already active ` +
 					`resource "${resolved.resource}".`,
 			});
 		}
@@ -297,6 +323,7 @@ export class RenderGraphAnalyzer<TPayload = unknown, TKind extends string = stri
 		state.unknownReadReported = false;
 		state.undefinedReadReported = false;
 		state.implicitCreateReported = false;
+		this._clearLogicalHazardHistory(state);
 		this._touchLiveRange(state, node.id, { createdByNodeId: node.id });
 	}
 
@@ -310,6 +337,14 @@ export class RenderGraphAnalyzer<TPayload = unknown, TKind extends string = stri
 		if (!state.active && ref.optional) return;
 		const reads = ref.access !== "write";
 		const writes = ref.access !== "read";
+		const normalized = normalizeRenderGraphSubresource(state.descriptor, ref.subresource, {
+			nodeId: node.id,
+			stage: node.stage,
+		});
+		if (normalized.diagnostic) {
+			this._diagnostics.push(normalized.diagnostic);
+			return;
+		}
 		const wasInactive = !state.active;
 		if (reads && wasInactive) {
 			this._diagnostics.push({
@@ -341,8 +376,14 @@ export class RenderGraphAnalyzer<TPayload = unknown, TKind extends string = stri
 		}
 		if (writes && wasInactive) this._activateImplicitWrite(state, node);
 		if (reads && !wasInactive) this._recordContentDiagnostic(state, node);
-		const previousAccess = state.lastAccess ?? undefined;
-		const previousUsage = previousAccess ? (state.lastUsage ?? undefined) : undefined;
+		const physicalId = this._resolveBinding(state)?.physicalId;
+		const hazardKey = physicalId
+			? physicalId
+			: `${state.descriptor.id}\u0000${state.generation}`;
+		const history = this._accessHistory.get(hazardKey) ?? [];
+		const previous = findLastOverlappingAccess(history, normalized.range);
+		const previousAccess = previous?.access;
+		const previousUsage = previous?.usage;
 		const hazard = resolveHazard(previousAccess, ref.access);
 		const reason = resolveTransitionReason(
 			previousAccess,
@@ -353,17 +394,18 @@ export class RenderGraphAnalyzer<TPayload = unknown, TKind extends string = stri
 		);
 		this._transitions.push({
 			nodeId: node.id,
-			fromNodeId: previousAccess ? (state.lastNodeId ?? undefined) : undefined,
+			fromNodeId: previous?.nodeId,
 			resourceId: ref.resource,
+			physicalId,
 			generation: state.generation,
 			previousAccess,
 			previousUsage,
 			access: ref.access,
 			usage: ref.usage,
-			subresource: ref.subresource,
+			subresource: normalized.range,
 			scope: !previousAccess
 				? "initial"
-				: state.lastNodeId === node.id
+				: previous?.nodeId === node.id
 					? "intra-node"
 					: "inter-node",
 			hazard,
@@ -373,6 +415,15 @@ export class RenderGraphAnalyzer<TPayload = unknown, TKind extends string = stri
 		state.lastEvent = ref.access;
 		state.lastAccess = ref.access;
 		state.lastUsage = ref.usage;
+		history.push({
+			nodeId: node.id,
+			resourceId: state.descriptor.id,
+			generation: state.generation,
+			access: ref.access,
+			usage: ref.usage,
+			subresource: normalized.range,
+		});
+		this._accessHistory.set(hazardKey, history);
 		if (writes) state.content = "valid";
 		this._touchLiveRange(state, node.id, { use: true });
 	}
@@ -409,6 +460,7 @@ export class RenderGraphAnalyzer<TPayload = unknown, TKind extends string = stri
 		state.lastAccess = null;
 		state.lastUsage = resolved.usage ?? state.lastUsage;
 		state.wasDestroyed = true;
+		this._clearLogicalHazardHistory(state);
 	}
 
 	private _activateImplicitWrite(
@@ -424,6 +476,7 @@ export class RenderGraphAnalyzer<TPayload = unknown, TKind extends string = stri
 		state.wasDestroyed = false;
 		state.unknownReadReported = false;
 		state.undefinedReadReported = false;
+		this._clearLogicalHazardHistory(state);
 		if (!state.implicitCreateReported) {
 			this._diagnostics.push({
 				phase: "compile",
@@ -570,6 +623,47 @@ export class RenderGraphAnalyzer<TPayload = unknown, TKind extends string = stri
 		}
 		return liveRange;
 	}
+
+	private _resolveBinding(
+		state: RenderGraphAnalyzerResourceState,
+	): RenderGraphPhysicalBinding | undefined {
+		return this._bindings.get(bindingKey(state.descriptor.id, state.generation)) ??
+			this._bindings.get(bindingKey(state.descriptor.id, undefined));
+	}
+
+	private _clearLogicalHazardHistory(state: RenderGraphAnalyzerResourceState): void {
+		const binding = this._resolveBinding(state);
+		if (!binding?.physicalId) {
+			this._accessHistory.delete(`${state.descriptor.id}\u0000${state.generation}`);
+			return;
+		}
+		const history = this._accessHistory.get(binding.physicalId);
+		if (!history) return;
+		const retained = history.filter(
+			(access) => access.resourceId !== state.descriptor.id,
+		);
+		if (retained.length > 0) {
+			this._accessHistory.set(binding.physicalId, retained);
+		} else {
+			this._accessHistory.delete(binding.physicalId);
+		}
+	}
+}
+
+function bindingKey(resourceId: string, generation: number | undefined): string {
+	return `${resourceId}\u0000${generation ?? "*"}`;
+}
+
+function findLastOverlappingAccess(
+	history: readonly RenderGraphAnalyzerAccessState[],
+	subresource: RenderGraphNormalizedSubresourceRange | undefined,
+): RenderGraphAnalyzerAccessState | undefined {
+	for (let index = history.length - 1; index >= 0; index--) {
+		if (renderGraphSubresourcesOverlap(history[index].subresource, subresource)) {
+			return history[index];
+		}
+	}
+	return undefined;
 }
 
 function resolveMutation(mutation: RenderGraphResourceMutation): {
