@@ -684,7 +684,7 @@ function testFrameTargetsFallbackToRGBA8MotionWithoutFloatExtension() {
 	let executor;
 	const warnings = captureWarnMessages(() => {
 		executor = new WebGLFrameExecutor(gl);
-		executor._ensureFrameTargets(320, 180, 1);
+		executor._ensureFrameTargets(320, 180, false);
 	});
 
 	assert.equal(
@@ -693,8 +693,8 @@ function testFrameTargetsFallbackToRGBA8MotionWithoutFloatExtension() {
 	);
 	assert.equal(
 		gl.createdTextures.length,
-		6,
-		"frame targets must not allocate post-process history textures"
+		4,
+		"frame targets must not allocate pass-owned post-process textures"
 	);
 	const bridge = executor.createGBufferBridge({
 		attachments: { width: 320, height: 180 },
@@ -715,15 +715,15 @@ function testFrameTargetsCreateOITResourcesWithFloatExtension() {
 	const gl = createFrameTargetTestGL({ floatExtension: true });
 	const executor = new WebGLFrameExecutor(gl);
 
-	executor._ensureFrameTargets(320, 180, 1);
+	executor._ensureFrameTargets(320, 180, false);
 
 	assert.ok(executor._oitFramebuffer);
 	assert.ok(executor._oitAccumTexture);
 	assert.ok(executor._oitRevealTexture);
 	assert.equal(
 		gl.createdTextures.length,
-		8,
-		"float frame targets include OIT attachments but no histories"
+		6,
+		"float frame targets include OIT attachments but no pass-owned textures"
 	);
 	const bridge = executor.createGBufferBridge({
 		attachments: { width: 320, height: 180 },
@@ -741,7 +741,7 @@ function testMaterialGBufferBridgeUsesFiveAttachmentsWhenSupported() {
 	});
 	const executor = new WebGLFrameExecutor(gl);
 
-	executor._ensureFrameTargets(320, 180, 1, true);
+	executor._ensureFrameTargets(320, 180, true);
 	const bridge = executor.createGBufferBridge({
 		attachments: { width: 320, height: 180 },
 	});
@@ -761,7 +761,7 @@ function testMaterialGBufferFallsBackBelowFiveAttachments() {
 	let executor;
 	const warnings = captureWarnMessages(() => {
 		executor = new WebGLFrameExecutor(gl);
-		executor._ensureFrameTargets(320, 180, 1, true);
+		executor._ensureFrameTargets(320, 180, true);
 	});
 	const bridge = executor.createGBufferBridge({
 		attachments: { width: 320, height: 180 },
@@ -1259,12 +1259,11 @@ function testSSAOPassDetachesSecondaryAttachmentForDownsampleTargets() {
 	executor._sceneColorTexture = { id: "scene-color" };
 	executor._sceneMotionTexture = { id: "scene-motion" };
 	executor._sceneNormalTexture = { id: "scene-normal" };
-	executor._ssaoRawTexture = { id: "ssao-raw" };
-	executor._ssaoBlurTexture = { id: "ssao-blur" };
 	executor._fullscreenVao = { id: "fullscreen-vao" };
 	executor._width = 1280;
 	executor._height = 720;
-	executor._targetSSAODownsample = 2;
+	const ssaoRawTexture = { id: "ssao-raw" };
+	const ssaoBlurTexture = { id: "ssao-blur" };
 
 	const identity = [
 		[1, 0, 0, 0],
@@ -1293,6 +1292,16 @@ function testSSAOPassDetachesSecondaryAttachmentForDownsampleTargets() {
 		postProcess: context.postProcess,
 		gBuffer: {},
 		histories: {},
+		transients: {
+			"ssao:raw": {
+				id: "ssao:raw",
+				handle: { resource: ssaoRawTexture },
+			},
+			"ssao:blur": {
+				id: "ssao:blur",
+				handle: { resource: ssaoBlurTexture },
+			},
+		},
 		pass,
 		passId: "ssao",
 		options: context.postProcess.getOptions("ssao"),
@@ -1305,7 +1314,6 @@ function testSSAOPassDetachesSecondaryAttachmentForDownsampleTargets() {
 	assert.equal(passContext.sceneNormalTexture.id, "scene-normal");
 	assert.equal(passContext.ssaoRawTexture.id, "ssao-raw");
 	assert.equal(passContext.ssaoBlurTexture.id, "ssao-blur");
-	assert.equal(passContext.ssaoDownsample, 2);
 	const pendingResult = pass.getImplementation("webgl").execute(
 		request,
 		passContext

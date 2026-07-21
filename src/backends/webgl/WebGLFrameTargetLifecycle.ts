@@ -1,4 +1,3 @@
-import { DEFAULT_SSAO_OPTIONS } from "../../postprocess/passes/ScreenSpaceAmbientOcclusionPass";
 import { Logger } from "../../foundation/Logger";
 
 export type WebGLFrameTargetFormat = "rgba16float" | "rgba8unorm";
@@ -26,15 +25,10 @@ export interface WebGLFrameTargetLifecycleHost {
 	_postFramebuffer: WebGLFramebuffer | null;
 	_postColorTexture: WebGLTexture | null;
 	_postColorFormat: WebGLFrameTargetFormat;
-	_ssaoRawTexture: WebGLTexture | null;
-	_ssaoBlurTexture: WebGLTexture | null;
-	_ssaoColorFormat: WebGLFrameTargetFormat;
 	_presentSourceTexture: WebGLTexture | null;
 	_targetWidth: number;
 	_targetHeight: number;
-	_targetSSAODownsample: number;
 	_targetMaterialGBufferEnabled: boolean;
-	_ssaoFrameIndex: number;
 	_supportsFloatColorBuffer: boolean | null;
 }
 
@@ -171,7 +165,6 @@ export function ensureWebGLFrameTargets(
 	host: WebGLFrameTargetLifecycleHost,
 	width: number,
 	height: number,
-	ssaoDownsample: number,
 	materialGBufferRequested: boolean
 ): void {
 	const supportsFloatColorBuffer = !!host._gl.getExtension(
@@ -192,11 +185,8 @@ export function ensureWebGLFrameTargets(
 				host._oitRevealTexture)) &&
 		host._postFramebuffer &&
 		host._postColorTexture &&
-		host._ssaoRawTexture &&
-		host._ssaoBlurTexture &&
 		host._targetWidth === width &&
 		host._targetHeight === height &&
-		host._targetSSAODownsample === ssaoDownsample &&
 		host._targetMaterialGBufferEnabled === materialGBufferRequested
 	) {
 		return;
@@ -242,8 +232,6 @@ export function ensureWebGLFrameTargets(
 			{ scope: "WebGLFrameTargetLifecycle", onceKey: key }
 		);
 	}
-	const aoWidth = Math.max(1, Math.floor(width / Math.max(ssaoDownsample, 1)));
-	const aoHeight = Math.max(1, Math.floor(height / Math.max(ssaoDownsample, 1)));
 	host._supportsFloatColorBuffer = supportsFloatColorBuffer;
 	if (!supportsFloatColorBuffer) {
 		const key = "webgl-hdr-float-unsupported";
@@ -314,21 +302,6 @@ export function ensureWebGLFrameTargets(
 		colorInternalFormat,
 		colorType
 	);
-	const ssaoRawTexture = createColorTexture(
-		gl,
-		aoWidth,
-		aoHeight,
-		colorInternalFormat,
-		colorType
-	);
-	const ssaoBlurTexture = createColorTexture(
-		gl,
-		aoWidth,
-		aoHeight,
-		colorInternalFormat,
-		colorType
-	);
-
 	const cleanupAllocatedTargets = (): void => {
 		if (sceneFramebuffer) {
 			gl.deleteFramebuffer(sceneFramebuffer);
@@ -366,12 +339,6 @@ export function ensureWebGLFrameTargets(
 		if (postColorTexture) {
 			gl.deleteTexture(postColorTexture);
 		}
-		if (ssaoRawTexture) {
-			gl.deleteTexture(ssaoRawTexture);
-		}
-		if (ssaoBlurTexture) {
-			gl.deleteTexture(ssaoBlurTexture);
-		}
 	};
 
 	if (
@@ -384,9 +351,7 @@ export function ensureWebGLFrameTargets(
 		(supportsFloatColorBuffer &&
 			(!oitFramebuffer || !oitAccumTexture || !oitRevealTexture)) ||
 		!postFramebuffer ||
-		!postColorTexture ||
-		!ssaoRawTexture ||
-		!ssaoBlurTexture
+		!postColorTexture
 	) {
 		cleanupAllocatedTargets();
 		throw new Error("Failed to create WebGL frame targets");
@@ -534,15 +499,10 @@ export function ensureWebGLFrameTargets(
 	host._postFramebuffer = postFramebuffer;
 	host._postColorTexture = postColorTexture;
 	host._postColorFormat = colorFormat;
-	host._ssaoRawTexture = ssaoRawTexture;
-	host._ssaoBlurTexture = ssaoBlurTexture;
-	host._ssaoColorFormat = colorFormat;
 	host._presentSourceTexture = sceneColorTexture;
 	host._targetWidth = width;
 	host._targetHeight = height;
-	host._targetSSAODownsample = ssaoDownsample;
 	host._targetMaterialGBufferEnabled = materialGBufferRequested;
-	host._ssaoFrameIndex = 0;
 }
 
 export function destroyWebGLFrameTargets(
@@ -604,20 +564,9 @@ export function destroyWebGLFrameTargets(
 		host._postColorTexture = null;
 	}
 	host._postColorFormat = "rgba8unorm";
-	if (host._ssaoRawTexture) {
-		gl.deleteTexture(host._ssaoRawTexture);
-		host._ssaoRawTexture = null;
-	}
-	if (host._ssaoBlurTexture) {
-		gl.deleteTexture(host._ssaoBlurTexture);
-		host._ssaoBlurTexture = null;
-	}
-	host._ssaoColorFormat = "rgba8unorm";
 	host._presentSourceTexture = null;
 	host._targetWidth = 0;
 	host._targetHeight = 0;
-	host._targetSSAODownsample = DEFAULT_SSAO_OPTIONS.downsample;
 	host._targetMaterialGBufferEnabled = false;
-	host._ssaoFrameIndex = 0;
 	host._supportsFloatColorBuffer = null;
 }

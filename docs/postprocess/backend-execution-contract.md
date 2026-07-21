@@ -101,6 +101,11 @@ To support decoupled backends, post-process execution is delegated to backend-ow
   - `bindColorTarget(texture)`: Bind the target texture as the framebuffer attachment.
   - `drawFullscreen()`: Draw the fullscreen triangle.
   - `publishColorTexture(texture)`: Notify the runtime of the final written texture.
+- WebGL passes requesting temporary resources must declare them through
+  `getTransientResourceDescriptors(request)`. The runtime must allocate only
+  the eligible logical subgraph's transients and inject their `WebGLTexture`
+  handles through implementation context metadata. Frame-target managers must
+  not allocate or publish pass-specific transient resources.
 - WebGL must treat `publishColorTexture(texture)` as pending until the pass
   result is known. Presentation must read the last successfully resolved
 	color texture, not a planned ping-pong target.

@@ -24,7 +24,6 @@ export interface WebGLPostProcessServicesHost {
 	getHeight(): number;
 	getActiveContext(): FrameContext | null;
 	drawFullscreen(width: number, height: number, context: FrameContext | null): void;
-	nextFrameJitter(): number;
 }
 
 /** Context-scoped WebGL post-process resources and publication bridge. */
@@ -44,11 +43,8 @@ export class WebGLPostProcessServices {
 			getSceneColorTexture: () => host.targets._sceneColorTexture,
 			getSceneMotionTexture: () => host.targets._sceneMotionTexture,
 			getSceneNormalTexture: () => host.targets._sceneNormalTexture,
-			getSSAORawTexture: () => host.targets._ssaoRawTexture,
-			getSSAOBlurTexture: () => host.targets._ssaoBlurTexture,
 			getWidth: () => host.getWidth(),
 			getHeight: () => host.getHeight(),
-			getSSAODownsample: () => host.targets._targetSSAODownsample,
 			getActiveContext: () => host.getActiveContext(),
 			getSourceTexture: () =>
 				host.targets._presentSourceTexture ?? host.targets._sceneColorTexture,
@@ -63,7 +59,6 @@ export class WebGLPostProcessServices {
 			markTAAHistoryValid: () => {
 				this._historyValid = true;
 			},
-			nextFrameJitter: () => host.nextFrameJitter(),
 			applyPipelineHistories: (request) => {
 				if (request.histories.taa) {
 					this._historyValid = request.histories.taa.valid;

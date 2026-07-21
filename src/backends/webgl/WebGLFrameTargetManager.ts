@@ -4,7 +4,6 @@ import type {
 	LogicalGBufferChannel,
 	LogicalGBufferSemantic,
 } from "../../postprocess";
-import { DEFAULT_SSAO_OPTIONS } from "../../postprocess/passes/ScreenSpaceAmbientOcclusionPass";
 import type {
 	RenderGraphPhysicalBinding,
 	RenderGraphResourceDescriptor,
@@ -47,15 +46,10 @@ export class WebGLFrameTargetManager implements WebGLFrameTargetLifecycleHost {
 	public _postFramebuffer: WebGLFramebuffer | null = null;
 	public _postColorTexture: WebGLTexture | null = null;
 	public _postColorFormat: WebGLFrameTargetFormat = "rgba8unorm";
-	public _ssaoRawTexture: WebGLTexture | null = null;
-	public _ssaoBlurTexture: WebGLTexture | null = null;
-	public _ssaoColorFormat: WebGLFrameTargetFormat = "rgba8unorm";
 	public _presentSourceTexture: WebGLTexture | null = null;
 	public _targetWidth = 0;
 	public _targetHeight = 0;
-	public _targetSSAODownsample = DEFAULT_SSAO_OPTIONS.downsample;
 	public _targetMaterialGBufferEnabled = false;
-	public _ssaoFrameIndex = 0;
 	public _supportsFloatColorBuffer: boolean | null = null;
 	private readonly _graphPhysicalResources = new Map<string, object>();
 
@@ -72,14 +66,12 @@ export class WebGLFrameTargetManager implements WebGLFrameTargetLifecycleHost {
 	public ensure(
 		width: number,
 		height: number,
-		ssaoDownsample: number,
 		materialGBufferRequested: boolean,
 	): void {
 		ensureWebGLFrameTargets(
 			this,
 			width,
 			height,
-			ssaoDownsample,
 			materialGBufferRequested,
 		);
 	}
@@ -106,8 +98,6 @@ export class WebGLFrameTargetManager implements WebGLFrameTargetLifecycleHost {
 		if (this._sceneNormalTexture) resources.add("frame:normal");
 		if (this._sceneDepthBuffer) resources.add("frame:depth");
 		if (this._postColorTexture) resources.add("post:color");
-		if (this._ssaoRawTexture) resources.add("post:ssao-raw");
-		if (this._ssaoBlurTexture) resources.add("post:ssao-blur");
 		if (this._oitAccumTexture) resources.add("oit:accum");
 		if (this._oitRevealTexture) resources.add("oit:reveal");
 		if (shadowAtlasTexture) resources.add("shadow:atlas");
@@ -167,8 +157,6 @@ export class WebGLFrameTargetManager implements WebGLFrameTargetLifecycleHost {
 		addTexture("frame:specular", this._sceneSpecularTexture, this._sceneSpecularFormat);
 		addTexture("frame:depth", this._sceneDepthBuffer, "depth24plus-stencil8");
 		addTexture("post:color", this._postColorTexture, this._postColorFormat);
-		addTexture("post:ssao-raw", this._ssaoRawTexture, this._ssaoColorFormat);
-		addTexture("post:ssao-blur", this._ssaoBlurTexture, this._ssaoColorFormat);
 		addTexture("oit:accum", this._oitAccumTexture, "rgba16float");
 		addTexture("oit:reveal", this._oitRevealTexture, "r16float");
 		addTexture("shadow:atlas", shadowAtlasTexture, "depth");

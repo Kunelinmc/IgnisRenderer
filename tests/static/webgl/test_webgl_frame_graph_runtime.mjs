@@ -338,6 +338,11 @@ function testResourceCatalogPreservesScenePresentAlias() {
 	manager._sceneColorTexture = sceneColor;
 	manager._presentSourceTexture = sceneColor;
 	const catalog = manager.collectGraphResourceCatalog(null, null);
+	assert.equal(
+		catalog.resources.some((entry) => entry.id.startsWith("post:ssao-")),
+		false,
+		"pass-owned SSAO transients must remain inside the post-process subgraph",
+	);
 	const sceneBinding = catalog.bindings.find((entry) =>
 		entry.resourceId === "frame:scene-color");
 	const presentBinding = catalog.bindings.find((entry) =>

@@ -11,16 +11,21 @@ export interface WebGLPostProcessHistoryBindingMetadata {
 	readonly side: WebGLPostProcessHistorySide;
 }
 
+/** @internal WebGL pass-owned implementation transient binding metadata. */
+export interface WebGLPostProcessTransientBindingMetadata {
+	readonly property: string;
+	readonly transientId: string;
+}
+
 /** @internal WebGL pass-owned implementation context metadata. */
 export interface WebGLPostProcessContextMetadata {
 	readonly backend: "webgl";
 	readonly kind: WebGLPostProcessContextKind;
 	readonly sceneMotionTexture?: boolean;
 	readonly sceneNormalTexture?: boolean;
-	readonly ssaoTargets?: boolean;
-	readonly frameJitter?: boolean;
 	readonly warn?: boolean;
 	readonly histories?: readonly WebGLPostProcessHistoryBindingMetadata[];
+	readonly transients?: readonly WebGLPostProcessTransientBindingMetadata[];
 	readonly syncPipelineHistories?: boolean;
 	readonly markTAAHistoryValidOnPublish?: boolean;
 }

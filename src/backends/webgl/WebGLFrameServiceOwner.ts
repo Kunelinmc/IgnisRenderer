@@ -19,11 +19,6 @@ import type {
 	PostProcessResourceHandle,
 } from "../../postprocess";
 import {
-	DEFAULT_SSAO_OPTIONS,
-	resolveSSAODownsample,
-	type SSAOOptions,
-} from "../../postprocess/passes/ScreenSpaceAmbientOcclusionPass";
-import {
 	DEFAULT_FOG_OPTIONS,
 	resolveFogUniformParams,
 	type FogOptions,
@@ -310,31 +305,12 @@ export class WebGLFrameServiceOwner {
 	public set _postColorTexture(value: WebGLTexture | null) {
 		this._targets._postColorTexture = value;
 	}
-	public get _ssaoRawTexture(): WebGLTexture | null {
-		return this._targets._ssaoRawTexture;
-	}
-	public set _ssaoRawTexture(value: WebGLTexture | null) {
-		this._targets._ssaoRawTexture = value;
-	}
-	public get _ssaoBlurTexture(): WebGLTexture | null {
-		return this._targets._ssaoBlurTexture;
-	}
-	public set _ssaoBlurTexture(value: WebGLTexture | null) {
-		this._targets._ssaoBlurTexture = value;
-	}
 	public get _presentSourceTexture(): WebGLTexture | null {
 		return this._targets._presentSourceTexture;
 	}
 	public set _presentSourceTexture(value: WebGLTexture | null) {
 		this._targets._presentSourceTexture = value;
 	}
-	public get _targetSSAODownsample(): number {
-		return this._targets._targetSSAODownsample;
-	}
-	public set _targetSSAODownsample(value: number) {
-		this._targets._targetSSAODownsample = value;
-	}
-
 	constructor(
 		gl: WebGL2RenderingContext,
 		shaderRuntime?: ShaderRuntime,
@@ -463,7 +439,6 @@ export class WebGLFrameServiceOwner {
 			getActiveContext: () => this._session.context,
 			drawFullscreen: (width, height, context) =>
 				this._fullscreen.draw(width, height, context),
-			nextFrameJitter: () => this._nextSSAOFrameJitter(),
 		});
 		this._transparency = new WebGLTransparencyRuntime({
 			gl: this._gl,
@@ -508,16 +483,9 @@ export class WebGLFrameServiceOwner {
 		this._customRenderTargets.sync(context);
 		this._session.begin(context);
 		this._scene.beginFrame();
-		const ssaoOptions =
-			context.postProcess.getOptions<SSAOOptions>("ssao") ??
-			DEFAULT_SSAO_OPTIONS;
-		const ssaoDownsample = resolveSSAODownsample(
-			ssaoOptions.downsample
-		);
 		this._ensureFrameTargets(
 			this._session.width,
 			this._session.height,
-			ssaoDownsample,
 			this._requiresMaterialGBuffer(context)
 		);
 		this._transparency.beginFrame(context);
@@ -1089,11 +1057,6 @@ export class WebGLFrameServiceOwner {
 		this._targets.bindPostSingleColorTarget(texture);
 	}
 
-	private _nextSSAOFrameJitter(): number {
-		this._targets._ssaoFrameIndex = (this._targets._ssaoFrameIndex + 1) % 1024;
-		return this._targets._ssaoFrameIndex / 1024;
-	}
-
 	private _bindOITSingleColorTarget(texture: WebGLTexture): void {
 		this._targets.bindOITSingleColorTarget(texture);
 	}
@@ -1101,13 +1064,11 @@ export class WebGLFrameServiceOwner {
 	private _ensureFrameTargets(
 		width: number,
 		height: number,
-		ssaoDownsample: number,
 		materialGBufferRequested: boolean
 	): void {
 		this._targets.ensure(
 			width,
 			height,
-			ssaoDownsample,
 			materialGBufferRequested,
 		);
 	}

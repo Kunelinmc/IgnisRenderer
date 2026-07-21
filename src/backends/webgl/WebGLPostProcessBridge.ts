@@ -20,11 +20,8 @@ export interface WebGLPostProcessBridgeCallbacks {
 	getSceneColorTexture(): WebGLTexture | null;
 	getSceneMotionTexture(): WebGLTexture | null;
 	getSceneNormalTexture(): WebGLTexture | null;
-	getSSAORawTexture(): WebGLTexture | null;
-	getSSAOBlurTexture(): WebGLTexture | null;
 	getWidth(): number;
 	getHeight(): number;
-	getSSAODownsample(): number;
 	getActiveContext(): FrameContext | null;
 	getSourceTexture(): WebGLTexture | null;
 	resolveTargetTexture(sourceTexture: WebGLTexture): WebGLTexture | null;
@@ -36,7 +33,6 @@ export interface WebGLPostProcessBridgeCallbacks {
 	): void;
 	publishColorTexture(texture: WebGLTexture): void;
 	markTAAHistoryValid(): void;
-	nextFrameJitter(): number;
 	applyPipelineHistories(request: PostProcessPassRequest): void;
 	warn(key: string, message: string): void;
 }
@@ -191,14 +187,6 @@ export class WebGLPostProcessBridge {
 		if (metadata.sceneNormalTexture) {
 			context.sceneNormalTexture = this._callbacks.getSceneNormalTexture();
 		}
-		if (metadata.ssaoTargets) {
-			context.ssaoRawTexture = this._callbacks.getSSAORawTexture();
-			context.ssaoBlurTexture = this._callbacks.getSSAOBlurTexture();
-			context.ssaoDownsample = this._callbacks.getSSAODownsample();
-		}
-		if (metadata.frameJitter) {
-			context.nextFrameJitter = () => this._callbacks.nextFrameJitter();
-		}
 		if (metadata.warn) {
 			context.warn = (key: string, message: string) => this._callbacks.warn(key, message);
 		}
@@ -208,6 +196,12 @@ export class WebGLPostProcessBridge {
 					(request.histories[binding.historyId]?.[binding.side]
 						.resource as WebGLTexture | null) ?? null;
 			}
+			for (const binding of metadata.transients ?? []) {
+				context[binding.property] = this._getTransientTexture(
+					request,
+					binding.transientId,
+				);
+			}
 		}
 		return context;
 	}
@@ -216,6 +210,14 @@ export class WebGLPostProcessBridge {
 		this._pendingColorTexture = null;
 		this._pendingMarksTAAHistoryValid = false;
 		this._expectedColorTexture = null;
+	}
+
+	private _getTransientTexture(
+		request: PostProcessPassRequest,
+		id: string,
+	): WebGLTexture | null {
+		const slot = request.transients[id];
+		return (slot?.handle.resource as WebGLTexture | null) ?? null;
 	}
 
 	private _resolveTargetTexture(sourceTexture: WebGLTexture): WebGLTexture | null {

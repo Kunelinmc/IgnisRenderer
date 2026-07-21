@@ -63,8 +63,8 @@ export const SCREEN_SPACE_AMBIENT_OCCLUSION_PASS_ORDER = {
 		inflationRadius: 8,
 	},
 } as const satisfies PostProcessPassMetadata;
-const WEBGPU_SSAO_RAW_TRANSIENT_ID = "ssao:raw";
-const WEBGPU_SSAO_BLUR_TRANSIENT_ID = "ssao:blur";
+const SSAO_RAW_TRANSIENT_ID = "ssao:raw";
+const SSAO_BLUR_TRANSIENT_ID = "ssao:blur";
 
 export interface SSAOOptions {
 	/** Ambient-occlusion sample count, rounded and clamped to backend limits. */
@@ -147,11 +147,9 @@ export interface WebGLSSAOContext {
 	readonly ssaoBlurTexture: WebGLTexture | null;
 	readonly width: number;
 	readonly height: number;
-	readonly ssaoDownsample: number;
 	getSourceTexture(): WebGLTexture | null;
 	resolveTargetTexture(sourceTexture: WebGLTexture): WebGLTexture | null;
 	bindColorTarget(texture: WebGLTexture): void;
-	nextFrameJitter(): number;
 	drawFullscreen(
 		width: number,
 		height: number,
@@ -592,11 +590,11 @@ export class WebGPUScreenSpaceAmbientOcclusionImplementation
 			transients: [
 				{
 					property: "aoRaw",
-					transientId: WEBGPU_SSAO_RAW_TRANSIENT_ID,
+					transientId: SSAO_RAW_TRANSIENT_ID,
 				},
 				{
 					property: "aoBlur",
-					transientId: WEBGPU_SSAO_BLUR_TRANSIENT_ID,
+					transientId: SSAO_BLUR_TRANSIENT_ID,
 				},
 			],
 		},
@@ -864,14 +862,23 @@ export class WebGLScreenSpaceAmbientOcclusionImplementation
 			...WEBGL_SCREEN_POST_PROCESS_CONTEXT_METADATA,
 			sceneMotionTexture: true,
 			sceneNormalTexture: true,
-			ssaoTargets: true,
-			frameJitter: true,
+			transients: [
+				{
+					property: "ssaoRawTexture",
+					transientId: SSAO_RAW_TRANSIENT_ID,
+				},
+				{
+					property: "ssaoBlurTexture",
+					transientId: SSAO_BLUR_TRANSIENT_ID,
+				},
+			],
 		},
 	};
 	private _programCompiler: WebGLProgramCompiler | null = null;
 	private _rawProgramSlot: WebGLProgramSlot<WebGLSSAORawProgram> | null = null;
 	private _blurProgramSlot: WebGLProgramSlot<WebGLSSAOBlurProgram> | null = null;
 	private _combineProgramSlot: WebGLProgramSlot<WebGLSSAOCombineProgram> | null = null;
+	private _frameIndex = 0;
 
 	public warmup(context: WebGLSSAOContext | undefined): void {
 		if (!context) {
@@ -928,11 +935,11 @@ export class WebGLScreenSpaceAmbientOcclusionImplementation
 		const options = resolveSSAOOptions(request.options as SSAOOptions);
 		const aoWidth = Math.max(
 			1,
-			Math.floor(context.width / Math.max(context.ssaoDownsample, 1))
+			Math.floor(context.width / options.downsample)
 		);
 		const aoHeight = Math.max(
 			1,
-			Math.floor(context.height / Math.max(context.ssaoDownsample, 1))
+			Math.floor(context.height / options.downsample)
 		);
 		const params = createSSAOKernelParams(
 			context.width,
@@ -943,7 +950,7 @@ export class WebGLScreenSpaceAmbientOcclusionImplementation
 			request.frameContext.viewCamera,
 			1,
 			0,
-			context.nextFrameJitter()
+			this._nextFrameJitter()
 		);
 		const view = request.frameContext.viewCamera.viewMatrix.elements;
 		const cameraPosition = request.frameContext.viewCamera.getWorldPosition();
@@ -1107,6 +1114,17 @@ export class WebGLScreenSpaceAmbientOcclusionImplementation
 		this._blurProgramSlot = null;
 		this._combineProgramSlot = null;
 		this._programCompiler = null;
+		this._frameIndex = 0;
+	}
+
+	/** @internal Resets the pass-owned temporal noise phase after invalidation. */
+	public invalidate(): void {
+		this._frameIndex = 0;
+	}
+
+	private _nextFrameJitter(): number {
+		this._frameIndex = (this._frameIndex + 1) % 1024;
+		return this._frameIndex / 1024;
 	}
 
 	private _ensureProgramSlots(compiler: WebGLProgramCompiler): void {
@@ -1213,19 +1231,19 @@ export class ScreenSpaceAmbientOcclusionPass extends PostProcessPass<
 	public override getTransientResourceDescriptors(
 		request: PostProcessPassResolveRequest<ResolvedSSAOOptions>
 	): readonly PostProcessTransientDescriptor[] {
-		if (request.backend !== "webgpu") {
+		if (request.backend !== "webgpu" && request.backend !== "webgl") {
 			return [];
 		}
 		const options = resolveSSAOOptions(request.options);
 		const scale = 1 / options.downsample;
 		return [
 			{
-				id: WEBGPU_SSAO_RAW_TRANSIENT_ID,
+				id: SSAO_RAW_TRANSIENT_ID,
 				widthScale: scale,
 				heightScale: scale,
 			},
 			{
-				id: WEBGPU_SSAO_BLUR_TRANSIENT_ID,
+				id: SSAO_BLUR_TRANSIENT_ID,
 				widthScale: scale,
 				heightScale: scale,
 			},

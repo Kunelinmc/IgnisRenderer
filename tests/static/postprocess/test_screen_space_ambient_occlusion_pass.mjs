@@ -283,7 +283,7 @@ function testSSAOOptionHelpersClampAndPackParams() {
 	assert.equal(params[15], 0.25);
 }
 
-function testWebGPUSSAOTransientDescriptorsFollowDownsample() {
+function testGPUSSAOTransientDescriptorsFollowDownsample() {
 	const pass = new ScreenSpaceAmbientOcclusionPass({
 		enabled: true,
 		options: {
@@ -307,6 +307,15 @@ function testWebGPUSSAOTransientDescriptorsFollowDownsample() {
 	);
 	assert.deepEqual(
 		pass.getTransientResourceDescriptors({
+			backend: "webgl",
+			options: pass.normalizeOptions(),
+			width: 64,
+			height: 32,
+		}),
+		descriptors
+	);
+	assert.deepEqual(
+		pass.getTransientResourceDescriptors({
 			backend: "software",
 			options: pass.normalizeOptions(),
 			width: 64,
@@ -319,5 +328,5 @@ function testWebGPUSSAOTransientDescriptorsFollowDownsample() {
 await testSSAOPipelineUsesPassOwnedImplementation();
 testSoftwareSSAOModifiesPixelsAndSkipsMissingBuffers();
 testSSAOOptionHelpersClampAndPackParams();
-testWebGPUSSAOTransientDescriptorsFollowDownsample();
+testGPUSSAOTransientDescriptorsFollowDownsample();
 console.log("ScreenSpaceAmbientOcclusionPass tests passed");
