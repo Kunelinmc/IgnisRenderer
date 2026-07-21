@@ -103,9 +103,9 @@ const FRAME_CAMERA_UNIFORM_PACKER = createStructuredBufferPacker<
 		]),
 		packVec4("options", (input) => [
 			input.enableLighting ? 1 : 0,
-			input.enableGamma ? 1 : 0,
+			0, // Reserved to preserve the published frame uniform layout.
 			input.enableShadows ? 1 : 0,
-			input.encodeGammaInShader ? 1 : 0,
+			0, // Reserved to keep post-process state out of scene uniforms.
 		]),
 		packVec4("environmentOptionsA", (input) => [
 			input.enableSH ? 1 : 0,

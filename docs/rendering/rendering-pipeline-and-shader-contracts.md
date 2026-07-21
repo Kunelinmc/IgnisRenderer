@@ -131,6 +131,9 @@ The renderer frame pipeline must preserve this logical order:
 - Depth of Field must support focus distance, focus range, bokeh behavior, and
   chromatic aberration where implemented.
 - FXAA must remain available for broad compatibility.
+- WebGPU gamma correction must be controlled by the backend post-process
+  runtime. Frame camera uniforms must not duplicate the gamma pass enablement
+  state.
 
 ### WebGPU Deferred Lighting Contract
 

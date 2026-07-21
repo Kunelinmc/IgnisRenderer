@@ -258,13 +258,10 @@ function createFrameInput() {
 			createReflectionProbe(1),
 		],
 		enableLighting: true,
-		enableGamma: false,
 		enableShadows: true,
 		enableSH: true,
 		enableClusteredLighting: true,
-		encodeGammaInShader: true,
 		hasSHAmbient: false,
-		hasEnvironment: true,
 		environmentIsLinear: false,
 		hasEnvSpecular: true,
 		hasEnvSpecularFallback: true,
@@ -309,7 +306,7 @@ function testFrameUniformPacking() {
 		4, 5, 6, 7,
 	]);
 	assert.deepEqual(readVec(WEBGPU_FRAME_CAMERA_UNIFORM_LAYOUT, cameraData, "lightCounts", 4), [1, 1, 1, 2]);
-	assert.deepEqual(readVec(WEBGPU_FRAME_CAMERA_UNIFORM_LAYOUT, cameraData, "options", 4), [1, 0, 1, 1]);
+	assert.deepEqual(readVec(WEBGPU_FRAME_CAMERA_UNIFORM_LAYOUT, cameraData, "options", 4), [1, 0, 1, 0]);
 	assert.deepEqual(readVec(WEBGPU_FRAME_CAMERA_UNIFORM_LAYOUT, cameraData, "environmentOptionsA", 4), [
 		1, 0, 7, 1,
 	]);

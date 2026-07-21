@@ -36,7 +36,6 @@ import { PARTICLE_TRANSIENT_BATCHES_KEY } from "../../pipeline/types";
 import {
 	DEFAULT_FOG_OPTIONS,
 	FOG_PASS_ID,
-	GAMMA_PASS_ID,
 	TEMPORAL_ANTI_ALIASING_PASS_ID,
 	type FogOptions,
 	type TAAOptions,
@@ -232,15 +231,10 @@ export class WebGPUFrameBindingCache {
 			reflectionProbeCount: environmentState.reflectionProbeCount,
 			reflectionProbes: environmentState.reflectionProbes,
 			enableLighting: features.enableLighting,
-			enableGamma: features.postProcess.isEnabled(GAMMA_PASS_ID),
 			enableShadows: features.enableShadows,
 			enableClusteredLighting: features.enableClusteredLighting,
-			encodeGammaInShader:
-				features.postProcess.isEnabled(GAMMA_PASS_ID) &&
-				sceneTargetMode === "single",
 			enableSH: environmentState.enableSH,
 			hasSHAmbient: environmentState.hasSHAmbient,
-			hasEnvironment: !!environmentState.environmentTexture,
 			environmentIsLinear:
 				!environmentState.environmentTexture ||
 				environmentState.environmentTexture.colorSpace !== "sRGB",

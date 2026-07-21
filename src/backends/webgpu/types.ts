@@ -343,13 +343,10 @@ export interface WebGPUFrameUniformInput {
 	reflectionProbeCount: number;
 	reflectionProbes: WebGPUReflectionProbeUniform[];
 	enableLighting: boolean;
-	enableGamma: boolean;
 	enableShadows: boolean;
 	enableSH: boolean;
 	enableClusteredLighting: boolean;
-	encodeGammaInShader: boolean;
 	hasSHAmbient: boolean;
-	hasEnvironment: boolean;
 	environmentIsLinear: boolean;
 	hasEnvSpecular: boolean;
 	hasEnvSpecularFallback: boolean;

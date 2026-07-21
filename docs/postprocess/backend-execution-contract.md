@@ -79,6 +79,9 @@ To support decoupled backends, post-process execution is delegated to backend-ow
   exists.
 - WebGPU must expose the `specular` logical channel from `gSpecular.rgba` when
   `gSpecular` exists.
+- WebGPU scene frame uniforms and scene shaders must not branch on built-in
+  post-process pass identifiers. Gamma correction must execute through the
+  backend post-process runtime.
 
 ---
 

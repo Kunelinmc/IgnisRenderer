@@ -46,6 +46,15 @@ The frame packers share `WebGPUFrameUniformInput` and target these
 | `packFrameShadowUniformData` | `15` | `FrameShadowUniforms` | 5,760 bytes |
 | `packFrameEnvironmentUniformData` | `16` | `FrameEnvironmentUniforms` | 4,208 bytes |
 
+`FrameCameraUniforms.options` must preserve its four-lane layout. The lanes
+must contain lighting enablement in `x`, zero in the reserved `y` lane, shadow
+enablement in `z`, and zero in the reserved `w` lane.
+`WebGPUFrameUniformInput` must not contain a gamma pass enablement field;
+backend post-process runtime state owns that decision.
+`WebGPUFrameUniformInput` must only expose values written by at least one frame
+packer. Backend resource-presence state that is not represented in a frame
+uniform layout must remain outside this input contract.
+
 ## Usage
 
 ```ts
