@@ -12,8 +12,6 @@ export class OrbitCamera extends Camera {
 	public maxPhi: number;
 	public minDistance: number;
 	public maxDistance: number;
-	public lookSensitivity: number;
-	public zoomSensitivity: number;
 
 	constructor(target: IVector3 = new Vector3(0, 0, 0), distance = 400) {
 		super();
@@ -26,9 +24,6 @@ export class OrbitCamera extends Camera {
 		this.maxPhi = Math.PI - 0.01;
 		this.minDistance = 10;
 		this.maxDistance = 2000;
-
-		this.lookSensitivity = 0.005;
-		this.zoomSensitivity = 0.5;
 
 		this.updatePosition();
 	}
@@ -58,14 +53,16 @@ export class OrbitCamera extends Camera {
 		return Matrix4.lookAt(this.position, target, this.up);
 	}
 
-	public rotate(dx: number, dy: number): void {
-		this.theta -= dx * this.lookSensitivity;
-		this.phi -= dy * this.lookSensitivity;
+	/** Rotates the camera by azimuth and polar angle deltas in radians. */
+	public rotate(deltaTheta: number, deltaPhi: number): void {
+		this.theta -= deltaTheta;
+		this.phi -= deltaPhi;
 		this.updatePosition();
 	}
 
-	public zoom(delta: number): void {
-		this.distance += delta * this.zoomSensitivity;
+	/** Changes the orbit distance by a world-space distance delta. */
+	public zoom(deltaDistance: number): void {
+		this.distance += deltaDistance;
 		this.updatePosition();
 	}
 
@@ -84,7 +81,5 @@ export class OrbitCamera extends Camera {
 		target.maxPhi = this.maxPhi;
 		target.minDistance = this.minDistance;
 		target.maxDistance = this.maxDistance;
-		target.lookSensitivity = this.lookSensitivity;
-		target.zoomSensitivity = this.zoomSensitivity;
 	}
 }

@@ -126,8 +126,6 @@ async function bootDemo(): Promise<DemoState> {
 	camera.phi = 1.05; // Elevation angle
 	camera.minDistance = 6;
 	camera.maxDistance = 35;
-	camera.lookSensitivity = 0.005;
-	camera.zoomSensitivity = 0.02;
 	camera.updatePosition();
 
 	// Setup Scene
@@ -568,6 +566,8 @@ function updateHUD(state: DemoState, deltaTimeSeconds: number): void {
 // Event Bindings & Orbit Controls
 // ----------------------------------------------------
 function bindOrbitControls(state: DemoState): void {
+	const lookSensitivity = 0.005;
+	const zoomSensitivity = 0.02;
 	const activePointers: Map<number, { x: number; y: number }> = new Map();
 	let prevPinchDist = 0;
 
@@ -589,7 +589,7 @@ function bindOrbitControls(state: DemoState): void {
 			const dx = event.clientX - prev.x;
 			const dy = event.clientY - prev.y;
 			if (dx !== 0 || dy !== 0) {
-				state.camera.rotate(dx, dy);
+				state.camera.rotate(dx * lookSensitivity, dy * lookSensitivity);
 				state.scene.updateWorldMatrices();
 				state.renderer.requestRender("camera");
 			}
@@ -601,7 +601,7 @@ function bindOrbitControls(state: DemoState): void {
 			const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
 			const delta = prevPinchDist - dist;
 
-			state.camera.zoom(delta);
+			state.camera.zoom(delta * zoomSensitivity);
 			state.scene.updateWorldMatrices();
 			state.renderer.requestRender("camera");
 
@@ -625,7 +625,7 @@ function bindOrbitControls(state: DemoState): void {
 		"wheel",
 		(event) => {
 			event.preventDefault();
-			state.camera.zoom(event.deltaY);
+			state.camera.zoom(event.deltaY * zoomSensitivity);
 			state.scene.updateWorldMatrices();
 			state.renderer.requestRender("camera");
 		},

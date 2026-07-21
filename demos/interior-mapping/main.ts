@@ -434,7 +434,6 @@ function createCamera(): OrbitCamera {
 	camera.phi = Math.PI / 2;
 	camera.minDistance = 2;
 	camera.maxDistance = 20;
-	camera.zoomSensitivity = 0.01;
 	camera.updatePosition();
 	return camera;
 }
@@ -568,6 +567,8 @@ async function createTweakpane(demo: DemoState): Promise<void> {
 }
 
 function bindOrbitControls(demo: DemoState): void {
+	const lookSensitivity = 0.005;
+	const zoomSensitivity = 0.01;
 	const activePointers = new Map<number, PointerEvent>();
 	let lastX = 0;
 	let lastY = 0;
@@ -599,7 +600,7 @@ function bindOrbitControls(demo: DemoState): void {
 			lastX = event.clientX;
 			lastY = event.clientY;
 			if (dx === 0 && dy === 0) return;
-			demo.camera.rotate(dx, dy);
+			demo.camera.rotate(dx * lookSensitivity, dy * lookSensitivity);
 			requestSceneRender(demo);
 		} else if (activePointers.size === 2) {
 			const pts = Array.from(activePointers.values());
@@ -609,7 +610,7 @@ function bindOrbitControls(demo: DemoState): void {
 			);
 			const diff = lastPinchDistance - currentDistance;
 			if (Math.abs(diff) > 0.5) {
-				demo.camera.zoom(diff * 1.5);
+				demo.camera.zoom(diff * 1.5 * zoomSensitivity);
 				requestSceneRender(demo);
 				lastPinchDistance = currentDistance;
 			}
@@ -641,7 +642,7 @@ function bindOrbitControls(demo: DemoState): void {
 		"wheel",
 		(event) => {
 			event.preventDefault();
-			demo.camera.zoom(event.deltaY);
+			demo.camera.zoom(event.deltaY * zoomSensitivity);
 			requestSceneRender(demo);
 		},
 		{ passive: false },

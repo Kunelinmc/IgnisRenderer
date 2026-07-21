@@ -5,15 +5,11 @@ import { Vector3 } from "../maths/Vector3";
 export class FPSCamera extends Camera {
 	public yaw: number;
 	public pitch: number;
-	public moveSpeed: number;
-	public lookSensitivity: number;
 
 	constructor() {
 		super();
 		this.yaw = 0;
 		this.pitch = 0;
-		this.moveSpeed = 10;
-		this.lookSensitivity = 2e-3;
 
 		this.updateRotation();
 	}
@@ -29,9 +25,10 @@ export class FPSCamera extends Camera {
 		this.updateMatrices();
 	}
 
-	public rotate(dx: number, dy: number): void {
-		this.yaw -= dx * this.lookSensitivity;
-		this.pitch -= dy * this.lookSensitivity;
+	/** Rotates the camera by yaw and pitch angle deltas in radians. */
+	public rotate(deltaYaw: number, deltaPitch: number): void {
+		this.yaw -= deltaYaw;
+		this.pitch -= deltaPitch;
 		this.updateRotation();
 	}
 
@@ -74,7 +71,5 @@ export class FPSCamera extends Camera {
 		super._copyClonePropertiesTo(target);
 		target.yaw = this.yaw;
 		target.pitch = this.pitch;
-		target.moveSpeed = this.moveSpeed;
-		target.lookSensitivity = this.lookSensitivity;
 	}
 }
