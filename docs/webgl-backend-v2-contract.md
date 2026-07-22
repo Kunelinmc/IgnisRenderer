@@ -147,6 +147,8 @@ bun tests/static/webgl/test_webgl_frame_executor_fxaa.mjs
   `WebGLBackend.postProcess.unregisterPass(id)` are removed.
 - `WebGLBackend.postProcessAdapter`, `WebGLBackend.postProcessExecutor`, and
   `WebGLBackend.createPostProcessGBufferBridge(context)` are removed.
+- `WebGLBackend.postProcessRuntime` is removed. Post-process execution remains
+  backend-owned and is not part of the public backend contract.
 - Public WebGL custom post-process passes must migrate to `PostProcessPass`
   instances registered through `renderer.postProcess.registerPass(pass)`.
 - Forward-lighting point-light budget changed from `4` to `16` to match the

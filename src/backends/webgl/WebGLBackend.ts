@@ -95,9 +95,6 @@ export class WebGLBackend implements IRenderBackend {
 				onceKey: key,
 			}),
 	});
-	public get postProcessRuntime(): BackendPostProcessRuntime {
-		return this._postProcessRuntime;
-	}
 	public readonly extensions = createRenderBackendExtensionRegistry([]);
 	public readonly profile: RenderBackendProfile = {
 		id: "webgl",
@@ -143,8 +140,6 @@ export class WebGLBackend implements IRenderBackend {
 	private _height = 1;
 	public readonly shaderRuntime: ShaderRuntime;
 	private _shaderCompileStage: ShaderBackendCompileStage;
-	private _validatePrograms = false;
-	private _enableEarlyZPrepass = true;
 	private _executedPasses = new Set<FramePass["stage"]>();
 	private _plannedPasses = new Set<FramePass["stage"]>();
 	private _plannedPassOrder = new Map<FramePass["stage"], number>();
@@ -154,8 +149,6 @@ export class WebGLBackend implements IRenderBackend {
 	constructor(options: WebGLBackendOptions = {}) {
 		this._options = options;
 		const shaderMode = options.shaderMode ?? "warn";
-		this._validatePrograms = options.validatePrograms === true;
-		this._enableEarlyZPrepass = options.enableEarlyZPrepass !== false;
 		this.shaderRuntime = new ShaderRuntime({
 			mode: shaderMode,
 		});
@@ -184,7 +177,7 @@ export class WebGLBackend implements IRenderBackend {
 	 * @sideEffects None.
 	 */
 	public isEarlyZPrepassEnabled(): boolean {
-		return this._enableEarlyZPrepass;
+		return this._options.enableEarlyZPrepass !== false;
 	}
 
 	/**
@@ -575,8 +568,8 @@ export class WebGLBackend implements IRenderBackend {
 			this.shaderRuntime,
 			this._shaderCompileStage,
 			{
-				validatePrograms: this._validatePrograms,
-				enableEarlyZPrepass: this._enableEarlyZPrepass,
+				validatePrograms: this._options.validatePrograms === true,
+				enableEarlyZPrepass: this._options.enableEarlyZPrepass !== false,
 				onProgramCompilePending: () => this._emitProgramCompilePendingEvent(),
 				onTextureUploadPending: () => this._emitTextureUploadPendingEvent(),
 				postProcessRuntime: this._postProcessRuntime,
