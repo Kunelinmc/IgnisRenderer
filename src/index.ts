@@ -184,7 +184,6 @@ export {
 export type {
 	IBLPrefilterAcceleration,
 	IBLPrefilterBackendSource,
-	IBLPrefilterConstructorOptions,
 	IBLPrefilterOptions,
 	IBLPrefilterProgress,
 } from "./lights/ibl/IBLPrefilter";

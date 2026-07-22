@@ -27,8 +27,17 @@ flowchart TD
 ```
 
 ## API/Contract
-- `IBLPrefilter` must accept an optional `WebGPUBackend` or
+- `IBLPrefilter` must accept an optional `IRenderBackend`, `WebGPUBackend`, or
   `IWebGPUComputeFacade` source at construction time.
+- The `IBLPrefilter` constructor must accept only an
+  `IBLPrefilterBackendSource` or `null`; constructor option wrapper objects must
+  not be supported.
+- When an `IRenderBackend` is provided, `IBLPrefilter` must resolve WebGPU
+  acceleration through `WEBGPU_COMPUTE_EXTENSION` and must not inspect or cast
+  the backend to a concrete backend class.
+- `IBLPrefilter` must use the resolved compute facade only when its device and
+  queue are available. It must not attach, initialize, restore, or destroy the
+  provided backend.
 - `IBLPrefilter.prefilter(envMap, options)` must return an HDR `Texture` whose
   `mipmaps` encode roughness levels.
 - `prefilterEnvironmentIBL(envMap, options)` must provide a one-shot helper with
@@ -38,12 +47,19 @@ flowchart TD
   specular IBL data.
 - `IBLPrefilterOptions` must use `maxSampleWidth`, `maxSampleHeight`, and
   `maxMipLevels` for output limits.
-- `IBLPrefilterOptions.acceleration` must support `auto`, `worker`, `cpu`, and
-  `webgpu`.
-- If `acceleration` is `webgpu`, a direct `WebGPUBackend` or
-  `IWebGPUComputeFacade` source must be provided.
+- `IBLPrefilterOptions.acceleration` must support `auto`, `single-thread`,
+  `multi-thread`, and `webgpu`.
+- `single-thread` must execute prefiltering synchronously on the calling
+  JavaScript thread. `multi-thread` must distribute mip work through the Worker
+  scheduler.
+- If `acceleration` is `webgpu`, a direct WebGPU compute source or an
+  `IRenderBackend` exposing `WEBGPU_COMPUTE_EXTENSION` must be provided.
 - If `acceleration` is `auto`, WebGPU may be used when a valid WebGPU source is
-  available; otherwise worker or CPU fallback may be used.
+  available and ready; otherwise multi-thread or single-thread fallback may be
+  used.
+- If `acceleration` is `webgpu`, an `IRenderBackend` without the WebGPU compute
+  extension or with an unavailable WebGPU device or queue must cause a
+  descriptive error.
 - `IBLPrefilter` and `prefilterEnvironmentIBL` must not resolve `Renderer`
   instances or renderer-like `{ backend }` wrappers as compute sources.
 - `Renderer` must not expose environment IBL prefilter or update methods.
@@ -52,7 +68,7 @@ flowchart TD
 
 ## Usage
 ```ts
-const prefilter = new IBLPrefilter(webgpuBackend);
+const prefilter = new IBLPrefilter(renderBackend);
 const prefilteredMap = await prefilter.prefilter(environmentTexture, {
 	acceleration: "auto",
 	maxSampleWidth: 128,
@@ -93,7 +109,8 @@ bun tests/static/lighting/test_ibl_prefilter.mjs
   aborted.
 - Explicit `webgpu` acceleration must throw when no `WebGPUBackend` or
   `IWebGPUComputeFacade` source is available.
-- Explicit `worker` acceleration must throw when the Worker API is unavailable.
+- Explicit `multi-thread` acceleration must throw when the Worker API is
+  unavailable.
 
 ## Compatibility / Breaking Changes
 This change is breaking.
@@ -105,5 +122,11 @@ This change is breaking.
 removed. Consumers must use `projectEnvironmentTextureToSH` for SH data and
 `IBLPrefilter` or `prefilterEnvironmentIBL` for specular prefilter textures.
 `Renderer` instances and renderer-like `{ backend }` wrappers are no longer
-accepted as compute sources. Consumers must pass a direct `WebGPUBackend`,
-`IWebGPUComputeFacade`, or compatible `WebGPUComputeFacadeSource`.
+accepted as compute sources. Consumers may pass an `IRenderBackend`, a direct
+`WebGPUBackend`, an `IWebGPUComputeFacade`, or a compatible
+`WebGPUComputeFacadeSource`.
+The `cpu` and `worker` acceleration values are replaced by `single-thread` and
+`multi-thread`, respectively.
+`IBLPrefilterConstructorOptions` is removed. Consumers must pass an
+`IBLPrefilterBackendSource` directly to the `IBLPrefilter` constructor and keep
+per-call settings in `IBLPrefilterOptions`.

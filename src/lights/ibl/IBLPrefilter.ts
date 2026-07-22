@@ -18,6 +18,8 @@ import type {
 	IComputeKernel,
 	IComputeRuntime,
 } from "../../backends/IComputeRuntime";
+import type { IRenderBackend } from "../../backends/IRenderBackend";
+import { WEBGPU_COMPUTE_EXTENSION } from "../../backends/BackendExtensions";
 import type { WebGPUComputeFacadeSource } from "../../backends/webgpu/ComputeFacade";
 import { ComputeRuntime } from "../../backends/webgpu/ComputeRuntime";
 import {
@@ -81,11 +83,7 @@ export interface IBLPrefilterMipData {
 	data: Float32Array;
 }
 
-export type IBLPrefilterAcceleration =
-	| "auto"
-	| "worker"
-	| "cpu"
-	| "webgpu";
+export type IBLPrefilterAcceleration = "auto" | "single-thread" | "multi-thread" | "webgpu";
 
 export interface IBLPrefilterProgress {
 	phase: "prefilter";
@@ -94,7 +92,7 @@ export interface IBLPrefilterProgress {
 	detail?: string;
 }
 
-export type IBLPrefilterBackendSource = WebGPUComputeFacadeSource;
+export type IBLPrefilterBackendSource = IRenderBackend | WebGPUComputeFacadeSource;
 
 export interface IBLPrefilterOptions {
 	signal?: AbortSignal | null;
@@ -108,11 +106,6 @@ export interface IBLPrefilterOptions {
 	maxMipLevels?: number;
 }
 
-export interface IBLPrefilterConstructorOptions {
-	backend?: IBLPrefilterBackendSource | null;
-	computeSource?: WebGPUComputeFacadeSource | null;
-}
-
 export interface ResolvedIBLPrefilterOptions {
 	maxSampleWidth: number;
 	maxSampleHeight: number;
@@ -121,9 +114,15 @@ export interface ResolvedIBLPrefilterOptions {
 
 interface IBLPrefilterRuntimeOptions {
 	signal?: AbortSignal | null;
-	acceleration?: IBLPrefilterAcceleration;
+	acceleration: IBLPrefilterAcceleration;
 	workerCount?: number;
 	computeSource: WebGPUComputeFacadeSource | null;
+	computeUnavailableReason: string | null;
+}
+
+interface IBLPrefilterComputeSourceResolution {
+	source: WebGPUComputeFacadeSource | null;
+	unavailableReason: string | null;
 }
 
 function createIBLPrefilterAbortError(): Error {
@@ -135,6 +134,20 @@ function createIBLPrefilterAbortError(): Error {
 function assertPrefilterNotAborted(signal?: AbortSignal | null): void {
 	if (!signal?.aborted) return;
 	throw createIBLPrefilterAbortError();
+}
+
+function assertIBLPrefilterAcceleration(
+	acceleration: unknown,
+): asserts acceleration is IBLPrefilterAcceleration {
+	if (
+		acceleration === "auto" ||
+		acceleration === "single-thread" ||
+		acceleration === "multi-thread" ||
+		acceleration === "webgpu"
+	) {
+		return;
+	}
+	throw new Error(`Unsupported IBL prefilter acceleration "${String(acceleration)}".`);
 }
 
 function resolveTextureIsLinear(texture: Texture): boolean {
@@ -875,12 +888,10 @@ function prefilterEnvMapOnCPU(
 	);
 }
 
-function canUseWorkerAcceleration(options: IBLPrefilterRuntimeOptions): boolean {
+function canUseMultiThreadAcceleration(options: IBLPrefilterRuntimeOptions): boolean {
 	return (
-		options.acceleration === "worker" ||
-		(options.acceleration !== "cpu" &&
-			options.acceleration !== "webgpu" &&
-			Platform.hasWorker())
+		(options.acceleration === "multi-thread" || options.acceleration === "auto") &&
+		Platform.hasWorker()
 	);
 }
 
@@ -888,7 +899,7 @@ function canUseWebGPUAcceleration(options: IBLPrefilterRuntimeOptions): boolean 
 	if (options.acceleration === "webgpu") {
 		return true;
 	}
-	if (options.acceleration === "cpu" || options.acceleration === "worker") {
+	if (options.acceleration === "single-thread" || options.acceleration === "multi-thread") {
 		return false;
 	}
 	return !!options.computeSource;
@@ -902,7 +913,9 @@ async function prefilterEnvMapOnWebGPU(
 ): Promise<Texture> {
 	if (!options.computeSource) {
 		throw new Error(
-			"WebGPU acceleration was requested for IBL prefiltering, but no WebGPU backend or compute source was provided."
+			options.computeUnavailableReason ??
+				"WebGPU acceleration was requested for IBL prefiltering, but no " +
+					"WebGPU backend or compute source was provided.",
 		);
 	}
 	return prefilterEnvMapWithWebGPU(
@@ -935,18 +948,14 @@ async function prefilterEnvMap(
 		}
 	}
 
-	if (!canUseWorkerAcceleration(options)) {
-		if (options.acceleration === "worker") {
+	if (!canUseMultiThreadAcceleration(options)) {
+		if (options.acceleration === "multi-thread") {
 			throw new Error(
-				"Worker acceleration was requested for IBL prefiltering, but Worker API is unavailable."
+				"Multi-thread acceleration was requested for IBL prefiltering, " +
+					"but the Worker API is unavailable.",
 			);
 		}
-		return prefilterEnvMapOnCPU(
-			envMap,
-			options,
-			prefilterOptions,
-			onMipComplete
-		);
+		return prefilterEnvMapOnCPU(envMap, options, prefilterOptions, onMipComplete);
 	}
 
 	try {
@@ -957,7 +966,7 @@ async function prefilterEnvMap(
 			onMipComplete
 		);
 	} catch (error) {
-		if (options.acceleration === "worker") {
+		if (options.acceleration === "multi-thread") {
 			throw error;
 		}
 		return prefilterEnvMapOnCPU(
@@ -969,18 +978,7 @@ async function prefilterEnvMap(
 	}
 }
 
-function isConstructorOptions(
-	source: IBLPrefilterBackendSource | IBLPrefilterConstructorOptions | null
-): source is IBLPrefilterConstructorOptions {
-	if (!source || typeof source !== "object") {
-		return false;
-	}
-	return "backend" in source || "computeSource" in source;
-}
-
-function isPotentialWebGPUComputeSource(
-	source: unknown
-): source is WebGPUComputeFacadeSource {
+function isPotentialWebGPUComputeSource(source: unknown): source is WebGPUComputeFacadeSource {
 	if (!source || typeof source !== "object") {
 		return false;
 	}
@@ -988,13 +986,56 @@ function isPotentialWebGPUComputeSource(
 	return typeof type === "string" ? type === "webgpu" : true;
 }
 
-function resolveComputeSource(
-	source: WebGPUComputeFacadeSource | IBLPrefilterBackendSource | null
-): WebGPUComputeFacadeSource | null {
-	if (!isPotentialWebGPUComputeSource(source)) {
-		return null;
+function isRenderBackend(source: unknown): source is IRenderBackend {
+	if (!source || typeof source !== "object") {
+		return false;
 	}
-	return source;
+	const candidate = source as Partial<IRenderBackend>;
+	return (
+		!!candidate.profile &&
+		!!candidate.extensions &&
+		typeof candidate.extensions.getBackendExtension === "function" &&
+		typeof candidate.attach === "function" &&
+		typeof candidate.initialize === "function"
+	);
+}
+
+function isComputeFacadeReady(source: WebGPUComputeFacadeSource): boolean {
+	const candidate = source as {
+		device?: GPUDevice | null;
+		queue?: GPUQueue | null;
+	};
+	return !!candidate.device && !!candidate.queue;
+}
+
+function resolveComputeSource(
+	source: IBLPrefilterBackendSource | null,
+): IBLPrefilterComputeSourceResolution {
+	if (isRenderBackend(source)) {
+		const computeFacade = source.extensions.getBackendExtension(WEBGPU_COMPUTE_EXTENSION);
+		if (!computeFacade) {
+			return {
+				source: null,
+				unavailableReason:
+					`Render backend "${source.profile.id}" does not expose the ` +
+					"WebGPU compute extension.",
+			};
+		}
+		if (!isComputeFacadeReady(computeFacade)) {
+			return {
+				source: null,
+				unavailableReason:
+					`Render backend "${source.profile.id}" WebGPU device or queue ` +
+					"is unavailable. Initialize or restore the backend before " +
+					"requesting WebGPU IBL prefiltering.",
+			};
+		}
+		return { source: computeFacade, unavailableReason: null };
+	}
+	if (!isPotentialWebGPUComputeSource(source)) {
+		return { source: null, unavailableReason: null };
+	}
+	return { source, unavailableReason: null };
 }
 
 /**
@@ -1002,32 +1043,23 @@ function resolveComputeSource(
  *
  * @remarks The class may run independently from `Renderer`. Passing a WebGPU
  * backend or compute facade enables GPU acceleration; all
- * other sources use worker/CPU fallback according to `acceleration`.
+ * other sources use multi-thread or single-thread fallback according to
+ * `acceleration`.
  */
 export class IBLPrefilter {
 	private readonly _backend: IBLPrefilterBackendSource | null;
-	private readonly _computeSource: WebGPUComputeFacadeSource | null;
 
 	/**
 	 * Creates a standalone environment IBL prefilter service.
 	 *
-	 * @param source Optional WebGPU backend, WebGPU compute source, or
-	 * constructor options. Passing a WebGPU-capable source enables GPU
-	 * acceleration when requested or selected by `auto`.
+	 * @param source Optional render backend or WebGPU compute source. Render
+	 * backends expose GPU acceleration through their extension registry when
+	 * requested or selected by `auto`.
 	 * @constraints The source must outlive calls to `prefilter()`.
 	 * @sideEffects None.
 	 */
-	public constructor(
-		source: IBLPrefilterBackendSource | IBLPrefilterConstructorOptions | null =
-			null
-	) {
-		if (isConstructorOptions(source)) {
-			this._backend = source.backend ?? null;
-			this._computeSource = source.computeSource ?? null;
-		} else {
-			this._backend = source;
-			this._computeSource = null;
-		}
+	constructor(source: IBLPrefilterBackendSource | null = null) {
+		this._backend = source;
 	}
 
 	/**
@@ -1040,39 +1072,32 @@ export class IBLPrefilter {
 	 * @sideEffects May allocate transient worker or WebGPU resources and destroy
 	 * them before resolving.
 	 */
-	public async prefilter(
-		envMap: Texture,
-		options: IBLPrefilterOptions = {}
-	): Promise<Texture> {
+	public async prefilter(envMap: Texture, options: IBLPrefilterOptions = {}): Promise<Texture> {
 		assertPrefilterNotAborted(options.signal);
 		const sampledEnvironment = ensureEnvironmentTextureEquirect(envMap);
-		if (
-			!sampledEnvironment ||
-			!isTextureReadyForEnvironment(sampledEnvironment)
-		) {
+		if (!sampledEnvironment || !isTextureReadyForEnvironment(sampledEnvironment)) {
 			throw new Error(
-				"IBL prefilter requires a valid environment texture (2D equirect or cubemap)."
+				"IBL prefilter requires a valid environment texture (2D equirect or cubemap).",
 			);
 		}
 
 		const prefilterOptions = resolveIBLPrefilterOptions(options);
 		const totalMipLevels = prefilterOptions.maxMipLevels;
 		let completed = 0;
-		const computeSource = resolveComputeSource(
-			options.computeSource ??
-				this._computeSource ??
-				options.backend ??
-				this._backend ??
-				null
+		const acceleration = options.acceleration ?? "auto";
+		assertIBLPrefilterAcceleration(acceleration);
+		const computeResolution = resolveComputeSource(
+			options.computeSource ?? options.backend ?? this._backend ?? null,
 		);
 
 		return prefilterEnvMap(
 			sampledEnvironment,
 			{
 				signal: options.signal ?? null,
-				acceleration: options.acceleration ?? "auto",
+				acceleration,
 				workerCount: options.workerCount,
-				computeSource,
+				computeSource: computeResolution.source,
+				computeUnavailableReason: computeResolution.unavailableReason,
 			},
 			prefilterOptions,
 			(level) => {
@@ -1083,7 +1108,7 @@ export class IBLPrefilter {
 					total: totalMipLevels,
 					detail: `mip ${level + 1}/${totalMipLevels}`,
 				});
-			}
+			},
 		);
 	}
 }
@@ -1103,9 +1128,6 @@ export async function prefilterEnvironmentIBL(
 	envMap: Texture,
 	options: IBLPrefilterOptions = {}
 ): Promise<Texture> {
-	const prefilter = new IBLPrefilter({
-		backend: options.backend ?? null,
-		computeSource: options.computeSource ?? null,
-	});
+	const prefilter = new IBLPrefilter(options.backend ?? null);
 	return prefilter.prefilter(envMap, options);
 }
