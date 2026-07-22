@@ -573,7 +573,7 @@ export interface FastApproximateAntiAliasingPassConfig
 		PostProcessPassConfig<Record<string, never>>,
 		| "id"
 		| "builtIn"
-		| "warningLabel"
+		| "label"
 		| "placement"
 		| "order"
 		| "implementations"
@@ -598,7 +598,7 @@ export class FastApproximateAntiAliasingPass extends PostProcessPass<
 				incremental: config.schedule?.incremental ??
 					FAST_APPROXIMATE_ANTI_ALIASING_PASS_ORDER.incremental,
 			},
-			warningLabel: "FXAA",
+			label: "FXAA",
 			implementations: {
 				software: () => new SoftwareFastApproximateAntiAliasingImplementation(),
 				webgpu: () => new WebGPUFastApproximateAntiAliasingImplementation(),

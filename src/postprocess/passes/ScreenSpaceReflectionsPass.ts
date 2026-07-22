@@ -599,7 +599,7 @@ export interface ScreenSpaceReflectionsPassConfig
 		PostProcessPassConfig<SSROptions>,
 		| "id"
 		| "builtIn"
-		| "warningLabel"
+		| "label"
 		| "placement"
 		| "order"
 		| "implementations"
@@ -621,7 +621,7 @@ export class ScreenSpaceReflectionsPass extends PostProcessPass<
 				order: config.schedule?.order ?? SCREEN_SPACE_REFLECTIONS_PASS_ORDER.order,
 				incremental: config.schedule?.incremental ?? SCREEN_SPACE_REFLECTIONS_PASS_ORDER.incremental,
 			},
-			warningLabel: "SSR",
+			label: "SSR",
 			implementations: {
 				webgpu: () => new WebGPUScreenSpaceReflectionsImplementation(),
 			},

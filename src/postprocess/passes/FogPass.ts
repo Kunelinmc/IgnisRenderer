@@ -497,7 +497,7 @@ export interface FogPassConfig
 		PostProcessPassConfig<FogOptions>,
 		| "id"
 		| "builtIn"
-		| "warningLabel"
+		| "label"
 		| "placement"
 		| "order"
 		| "implementations"
@@ -516,7 +516,7 @@ export class FogPass extends PostProcessPass<FogOptions, FogOptions> {
 				order: config.schedule?.order ?? FOG_PASS_ORDER.order,
 				incremental: config.schedule?.incremental ?? FOG_PASS_ORDER.incremental,
 			},
-			warningLabel: "fog",
+			label: "fog",
 			implementations: {
 				webgpu: () => new WebGPUFogImplementation(),
 				webgl: () => new WebGLFogImplementation(),

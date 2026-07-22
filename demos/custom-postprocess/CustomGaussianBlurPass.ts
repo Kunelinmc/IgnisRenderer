@@ -441,7 +441,7 @@ export class CustomGaussianBlurPass extends PostProcessPass<
 			PostProcessPassConfig<CustomGaussianBlurOptions>,
 			| "id"
 			| "builtIn"
-			| "warningLabel"
+			| "label"
 			| "placement"
 			| "order"
 			| "implementations"
@@ -453,7 +453,7 @@ export class CustomGaussianBlurPass extends PostProcessPass<
 			placement: "present",
 			order: 850,
 			builtIn: false,
-			warningLabel: "custom gaussian blur",
+			label: "custom gaussian blur",
 			implementations: {
 				software: () => new SoftwareCustomGaussianBlurImplementation(),
 				webgpu: () => new WebGPUCustomGaussianBlurImplementation(),

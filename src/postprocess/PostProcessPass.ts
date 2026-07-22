@@ -36,11 +36,11 @@ export interface PostProcessPassConfig<TRawOptions = unknown> {
 	 */
 	readonly builtIn?: boolean;
 	/**
-	 * Human-readable pass name used in unsupported-pass diagnostics.
+	 * Human-readable pass name for diagnostics and consumer-facing metadata.
 	 *
-	 * Omit this value to use `id` as the diagnostic label.
+	 * Omit this value to use `id` as the label.
 	 */
-	readonly warningLabel?: string;
+	readonly label?: string;
 	readonly schedule?: PostProcessSchedule;
 	readonly enabled?: boolean;
 	readonly options?: Partial<TRawOptions>;
@@ -94,11 +94,11 @@ export abstract class PostProcessPass<
 	 */
 	public readonly builtIn: boolean;
 	/**
-	 * Human-readable pass name used by diagnostics.
+	 * Human-readable pass name for diagnostics and consumer-facing metadata.
 	 *
 	 * The value is resolved during construction and has no side effects.
 	 */
-	public readonly warningLabel: string;
+	public readonly label: string;
 	public readonly schedule: Readonly<PostProcessSchedule>;
 	private readonly _implementations: Partial<
 		Record<RenderBackendType, PostProcessPassImplementationFactory>
@@ -114,7 +114,7 @@ export abstract class PostProcessPass<
 		}
 		this.id = config.id;
 		this.builtIn = config.builtIn === true;
-		this.warningLabel = config.warningLabel ?? config.id;
+		this.label = config.label ?? config.id;
 		this.schedule = Object.freeze({ ...config.schedule });
 		this._enabled = config.enabled === true;
 		this._initialOptions = clonePlainOptions(config.options);
@@ -437,7 +437,7 @@ export class PostProcessPassRegistrySnapshot {
 						key: `${backendType}-postprocess-unsupported-${pass.id}`,
 						message:
 							`${backendType} backend does not support ` +
-							`${pass.warningLabel} post-processing; disabling it`,
+							`${pass.label} post-processing; disabling it`,
 					});
 				}
 				continue;

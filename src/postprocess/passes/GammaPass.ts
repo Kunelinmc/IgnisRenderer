@@ -332,7 +332,7 @@ export class GammaPass extends PostProcessPass<EmptyOptions, EmptyOptions> {
 	public constructor(
 		config: Omit<
 			PostProcessPassConfig<EmptyOptions>,
-			"id" | "builtIn" | "warningLabel" | "implementations"
+			"id" | "builtIn" | "label" | "implementations"
 		> = {},
 	) {
 		super({
@@ -344,7 +344,7 @@ export class GammaPass extends PostProcessPass<EmptyOptions, EmptyOptions> {
 				incremental: config.schedule?.incremental ?? GAMMA_PASS_ORDER.incremental,
 			},
 			builtIn: true,
-			warningLabel: "gamma correction",
+			label: "gamma correction",
 			implementations: {
 				software: () => new SoftwareGammaImplementation(),
 				webgpu: () => new WebGPUGammaImplementation(),

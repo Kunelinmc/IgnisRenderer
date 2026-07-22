@@ -339,7 +339,7 @@ export interface ScreenSpaceGlobalIlluminationPassConfig
 		PostProcessPassConfig<SSGIOptions>,
 		| "id"
 		| "builtIn"
-		| "warningLabel"
+		| "label"
 		| "placement"
 		| "order"
 		| "implementations"
@@ -361,7 +361,7 @@ export class ScreenSpaceGlobalIlluminationPass extends PostProcessPass<
 				order: config.schedule?.order ?? SCREEN_SPACE_GLOBAL_ILLUMINATION_PASS_ORDER.order,
 				incremental: config.schedule?.incremental ?? SCREEN_SPACE_GLOBAL_ILLUMINATION_PASS_ORDER.incremental,
 			},
-			warningLabel: "SSGI",
+			label: "SSGI",
 			implementations: {
 				webgpu: () => new WebGPUScreenSpaceGlobalIlluminationImplementation(),
 			},

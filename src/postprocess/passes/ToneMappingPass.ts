@@ -298,7 +298,7 @@ export class ToneMappingPass extends PostProcessPass<EmptyOptions, EmptyOptions>
 			PostProcessPassConfig<EmptyOptions>,
 			| "id"
 			| "builtIn"
-			| "warningLabel"
+			| "label"
 			| "implementations"
 		> = {}
 	) {
@@ -311,7 +311,7 @@ export class ToneMappingPass extends PostProcessPass<EmptyOptions, EmptyOptions>
 				incremental: config.schedule?.incremental ?? TONE_MAPPING_PASS_ORDER.incremental,
 			},
 			builtIn: true,
-			warningLabel: "tone mapping",
+			label: "tone mapping",
 			implementations: {
 				software: () => new SoftwareToneMappingImplementation(),
 				webgpu: () => new WebGPUToneMappingImplementation(),

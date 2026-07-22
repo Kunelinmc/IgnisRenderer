@@ -1663,7 +1663,7 @@ export interface VolumetricLightingPassConfig
 		PostProcessPassConfig<VolumetricOptions>,
 		| "id"
 		| "builtIn"
-		| "warningLabel"
+		| "label"
 		| "placement"
 		| "order"
 		| "implementations"
@@ -1685,7 +1685,7 @@ export class VolumetricLightingPass extends PostProcessPass<
 				order: config.schedule?.order ?? VOLUMETRIC_LIGHTING_PASS_ORDER.order,
 				incremental: config.schedule?.incremental ?? VOLUMETRIC_LIGHTING_PASS_ORDER.incremental,
 			},
-			warningLabel: "volumetric effects",
+			label: "volumetric effects",
 			implementations: {
 				software: () => new SoftwareVolumetricLightingImplementation(),
 				webgpu: () => new WebGPUVolumetricLightingImplementation(),

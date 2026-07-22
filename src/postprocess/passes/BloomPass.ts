@@ -814,7 +814,7 @@ export interface BloomPassConfig
 		PostProcessPassConfig<BloomOptions>,
 		| "id"
 		| "builtIn"
-		| "warningLabel"
+		| "label"
 		| "placement"
 		| "order"
 		| "implementations"
@@ -833,7 +833,7 @@ export class BloomPass extends PostProcessPass<BloomOptions, BloomOptions> {
 				order: config.schedule?.order ?? BLOOM_PASS_ORDER.order,
 				incremental: config.schedule?.incremental ?? BLOOM_PASS_ORDER.incremental,
 			},
-			warningLabel: "bloom",
+			label: "bloom",
 			implementations: {
 				webgpu: () => new WebGPUBloomImplementation(),
 				webgl: () => new WebGLBloomImplementation(),

@@ -461,7 +461,7 @@ export interface ColorFilterPassConfig
 		PostProcessPassConfig<ColorFilterOptions>,
 		| "id"
 		| "builtIn"
-		| "warningLabel"
+		| "label"
 		| "placement"
 		| "order"
 		| "implementations"
@@ -483,7 +483,7 @@ export class ColorFilterPass extends PostProcessPass<
 				order: config.schedule?.order ?? COLOR_FILTER_PASS_ORDER.order,
 				incremental: config.schedule?.incremental ?? COLOR_FILTER_PASS_ORDER.incremental,
 			},
-			warningLabel: "color filter",
+			label: "color filter",
 			implementations: {
 				software: () => new SoftwareColorFilterImplementation(),
 				webgpu: () => new WebGPUColorFilterImplementation(),

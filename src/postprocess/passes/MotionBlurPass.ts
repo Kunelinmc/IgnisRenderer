@@ -446,7 +446,7 @@ export interface MotionBlurPassConfig
 		PostProcessPassConfig<MotionBlurOptions>,
 		| "id"
 		| "builtIn"
-		| "warningLabel"
+		| "label"
 		| "placement"
 		| "order"
 		| "implementations"
@@ -468,7 +468,7 @@ export class MotionBlurPass extends PostProcessPass<
 				order: config.schedule?.order ?? MOTION_BLUR_PASS_ORDER.order,
 				incremental: config.schedule?.incremental ?? MOTION_BLUR_PASS_ORDER.incremental,
 			},
-			warningLabel: "motion blur",
+			label: "motion blur",
 			implementations: {
 				webgpu: () => new WebGPUMotionBlurImplementation(),
 				webgl: () => new WebGLMotionBlurImplementation(),

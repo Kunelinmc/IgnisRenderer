@@ -1206,7 +1206,7 @@ export interface ScreenSpaceAmbientOcclusionPassConfig
 		PostProcessPassConfig<SSAOOptions>,
 		| "id"
 		| "builtIn"
-		| "warningLabel"
+		| "label"
 		| "placement"
 		| "order"
 		| "implementations"
@@ -1228,7 +1228,7 @@ export class ScreenSpaceAmbientOcclusionPass extends PostProcessPass<
 				order: config.schedule?.order ?? SCREEN_SPACE_AMBIENT_OCCLUSION_PASS_ORDER.order,
 				incremental: config.schedule?.incremental ?? SCREEN_SPACE_AMBIENT_OCCLUSION_PASS_ORDER.incremental,
 			},
-			warningLabel: "SSAO",
+			label: "SSAO",
 			implementations: {
 				software: () => new SoftwareScreenSpaceAmbientOcclusionImplementation(),
 				webgpu: () => new WebGPUScreenSpaceAmbientOcclusionImplementation(),

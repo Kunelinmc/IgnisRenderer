@@ -16,6 +16,8 @@ single source of truth for resource existence, access, usage, and optionality.
 
 - `PostProcessPassConfig.schedule` must own placement, numeric order, and
   incremental metadata. Resource behavior must not appear in the schedule.
+- `PostProcessPassConfig.label` may provide a human-readable pass name for
+  diagnostics and consumer-facing metadata. It defaults to `id`.
 - `PostProcessPassImplementation.describeExecution(request)` must return one
   complete `PostProcessExecutionDeclaration` for the active backend.
 - Engine-owned implementations must compose explicit typed color and resource
@@ -86,6 +88,8 @@ class CustomWebGPUImplementation {
 
 ## Compatibility / Breaking Changes
 
+- `PostProcessPassConfig.warningLabel` and `PostProcessPass.warningLabel` are
+  renamed to `label`. Consumers must migrate to the new generic label name.
 - `createPostProcessExecutionDeclaration()` is removed. Built-in passes compose
   immutable backend color policies and typed resource-use records directly.
 - `PostProcessPassImplementation.metadata`, `PostProcessGraphMetadata`, context

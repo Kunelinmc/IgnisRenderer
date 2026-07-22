@@ -580,7 +580,7 @@ export interface ScreenSpaceRefractionsPassConfig
 		PostProcessPassConfig<SSRefractionOptions>,
 		| "id"
 		| "builtIn"
-		| "warningLabel"
+		| "label"
 		| "placement"
 		| "order"
 		| "implementations"
@@ -602,7 +602,7 @@ export class ScreenSpaceRefractionsPass extends PostProcessPass<
 				order: config.schedule?.order ?? SCREEN_SPACE_REFRACTIONS_PASS_ORDER.order,
 				incremental: config.schedule?.incremental ?? SCREEN_SPACE_REFRACTIONS_PASS_ORDER.incremental,
 			},
-			warningLabel: "screen-space refractions",
+			label: "screen-space refractions",
 			implementations: {
 				webgpu: () => new WebGPUScreenSpaceRefractionsImplementation(),
 			},

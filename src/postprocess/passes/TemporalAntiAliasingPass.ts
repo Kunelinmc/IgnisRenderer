@@ -878,7 +878,7 @@ export interface TemporalAntiAliasingPassConfig
 		PostProcessPassConfig<TAAOptions>,
 		| "id"
 		| "builtIn"
-		| "warningLabel"
+		| "label"
 		| "placement"
 		| "order"
 		| "implementations"
@@ -900,7 +900,7 @@ export class TemporalAntiAliasingPass extends PostProcessPass<
 				order: config.schedule?.order ?? TEMPORAL_ANTI_ALIASING_PASS_ORDER.order,
 				incremental: config.schedule?.incremental ?? TEMPORAL_ANTI_ALIASING_PASS_ORDER.incremental,
 			},
-			warningLabel: "TAA",
+			label: "TAA",
 			implementations: {
 				software: () => new SoftwareTemporalAntiAliasingImplementation(),
 				webgpu: () => new WebGPUTemporalAntiAliasingImplementation(),

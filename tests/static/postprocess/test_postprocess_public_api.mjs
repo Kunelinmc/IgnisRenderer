@@ -26,6 +26,17 @@ function testBreakingPublicSurface() {
 	}
 }
 
+class LabelPass extends postprocess.PostProcessPass {
+	constructor(config = {}) {
+		super({ id: "label-pass", ...config });
+	}
+}
+
+function testPassLabelContract() {
+	assert.equal(new LabelPass().label, "label-pass");
+	assert.equal(new LabelPass({ label: "Readable pass" }).label, "Readable pass");
+}
+
 function testResourceAccessorContract() {
 	const copied = [];
 	const declaration = {
@@ -194,6 +205,7 @@ async function testLifecycleCommitSkipAbortAndHistory() {
 }
 
 testBreakingPublicSurface();
+testPassLabelContract();
 testResourceAccessorContract();
 await testLifecycleCommitSkipAbortAndHistory();
 

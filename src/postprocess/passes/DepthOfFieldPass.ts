@@ -491,7 +491,7 @@ export interface DepthOfFieldPassConfig
 		PostProcessPassConfig<DOFOptions>,
 		| "id"
 		| "builtIn"
-		| "warningLabel"
+		| "label"
 		| "placement"
 		| "order"
 		| "implementations"
@@ -510,7 +510,7 @@ export class DepthOfFieldPass extends PostProcessPass<DOFOptions, DOFOptions> {
 				order: config.schedule?.order ?? DEPTH_OF_FIELD_PASS_ORDER.order,
 				incremental: config.schedule?.incremental ?? DEPTH_OF_FIELD_PASS_ORDER.incremental,
 			},
-			warningLabel: "depth of field",
+			label: "depth of field",
 			implementations: {
 				webgpu: () => new WebGPUDepthOfFieldImplementation(),
 				webgl: () => new WebGLDepthOfFieldImplementation(),
