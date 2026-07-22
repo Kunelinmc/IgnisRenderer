@@ -8,7 +8,7 @@ import {
 	type IRenderBuffer,
 	type IShaderModule,
 } from "../../backends/types";
-import type { PostProcessSharedContext } from "../../backends/webgpu/postprocess/PostProcessSharedContext";
+import type { WebGPUPostProcessServices } from "../../backends/webgpu/WebGPUPostProcessContracts";
 import type {
 	WebGLProgramCompiler,
 	WebGLProgramSlot,
@@ -17,7 +17,11 @@ import { ShaderSource } from "../../shaders/ShaderSource";
 import type { PostProcessIncrementalMetadata } from "../../pipeline/incremental";
 import { PostProcessPass, type PostProcessPassConfig } from "../PostProcessPass";
 import type { PostProcessScheduleEntry } from "../ordering";
-import { createPostProcessExecutionDeclaration } from "../executionDeclarations";
+import {
+	SOFTWARE_IN_PLACE_EXECUTION,
+	WEBGL_VERSIONED_EXECUTION,
+	WEBGPU_VERSIONED_EXECUTION,
+} from "../executionDeclarations";
 import type {
 	PostProcessPassImplementation,
 	PostProcessPassRequest,
@@ -53,7 +57,7 @@ export const GAMMA_PASS_ORDER = {
 export class SoftwareGammaImplementation implements PostProcessPassImplementation<SoftwareBuiltinPostProcessContext> {
 	public readonly id = "gamma:software";
 	public describeExecution() {
-		return createPostProcessExecutionDeclaration("software");
+		return SOFTWARE_IN_PLACE_EXECUTION;
 	}
 	private readonly _sRGBLUT = new Uint8Array(256);
 	private _lutBuilt = false;
@@ -117,7 +121,7 @@ export class SoftwareGammaImplementation implements PostProcessPassImplementatio
 }
 
 interface WebGPUGammaResources {
-	shared: PostProcessSharedContext;
+	shared: WebGPUPostProcessServices;
 	module: IShaderModule | null;
 	pipeline: IComputePipeline | null;
 	params: IRenderBuffer | null;
@@ -138,9 +142,9 @@ export class WebGPUGammaImplementation implements PostProcessPassImplementation<
 > {
 	public readonly id = "gamma:webgpu";
 	public describeExecution() {
-		return createPostProcessExecutionDeclaration("webgpu");
+		return WEBGPU_VERSIONED_EXECUTION;
 	}
-	private _resources = new Map<PostProcessSharedContext, WebGPUGammaResources>();
+	private _resources = new Map<WebGPUPostProcessServices, WebGPUGammaResources>();
 
 	public async warmup(context: WebGPUGammaContext | undefined): Promise<void> {
 		if (context) {
@@ -210,7 +214,7 @@ export class WebGPUGammaImplementation implements PostProcessPassImplementation<
 	}
 
 	private async _ensureResources(
-		shared: PostProcessSharedContext,
+		shared: WebGPUPostProcessServices,
 	): Promise<WebGPUGammaResources> {
 		let resources = this._resources.get(shared);
 		if (!resources) {
@@ -260,7 +264,7 @@ export class WebGLGammaImplementation implements PostProcessPassImplementation<
 > {
 	public readonly id = "gamma:webgl";
 	public describeExecution() {
-		return createPostProcessExecutionDeclaration("webgl");
+		return WEBGL_VERSIONED_EXECUTION;
 	}
 	private _programCompiler: WebGLProgramCompiler | null = null;
 	private _programSlot: WebGLProgramSlot<WebGLGammaProgram> | null = null;

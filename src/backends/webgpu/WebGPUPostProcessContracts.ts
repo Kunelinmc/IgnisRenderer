@@ -1,4 +1,32 @@
-import type { IRenderTexture } from "../types";
+import type {
+	IBindingGroup,
+	IComputePipeline,
+	IRenderTexture,
+	ISampler,
+} from "../types";
+import type { IWebGPUComputeFacade } from "./ComputeFacade";
+import type { PostProcessCopyHelper } from "./postprocess/PostProcessCopyHelper";
+import type { WebGPUHiZBuilder } from "./WebGPUHiZBuilder";
+
+/** @internal Narrow device-lifetime services available to WebGPU passes. */
+export interface WebGPUPostProcessServices {
+	readonly compute: IWebGPUComputeFacade;
+	readonly frameBindGroupLayout: GPUBindGroupLayout | null;
+	readonly sampler: ISampler | null;
+	getHiZBuilder(): WebGPUHiZBuilder;
+	getCopyHelper(): PostProcessCopyHelper;
+	warn(key: string, message: string): void;
+	ensureCommonResources(): Promise<void>;
+	getCachedBindGroup(
+		key: string,
+		pipeline: IComputePipeline,
+		entries: Array<{ binding: number; resource: unknown }>,
+		label: string
+	): IBindingGroup;
+	invalidateBindingsByPrefix(prefix: string): void;
+	destroyManagedResource(resource: unknown, description?: string): void;
+	destroyBindingGroup(group: IBindingGroup | null): void;
+}
 
 /** @internal WebGPU frame target set exposed to pass-owned implementations. */
 export interface WebGPUFrameTargets {

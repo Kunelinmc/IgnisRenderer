@@ -55,6 +55,9 @@ Render Graph.
 
 - The fixed WebGPU context must expose the command encoder, frame services,
   shared post-process services, and a typed resource accessor.
+- `WebGPUPostProcessRuntime` must directly own common sampler, bind-group cache,
+  copy-helper, and Hi-Z service access. A second shared-context lifecycle owner
+  must not exist.
 - Hi-Z must be declared as required shared resource
   `"backend:frame-hiz"` and obtained through `getShared()`.
 - Frame bindings, lighting state, and feature data are backend services, not
@@ -110,6 +113,9 @@ class CustomPass extends PostProcessPass {
 
 ## Compatibility / Breaking Changes
 
+- `PostProcessSharedContext` and the `sharedContext` runtime indirection are
+  removed. Built-in WebGPU contexts receive `WebGPUPostProcessRuntime` through
+  the narrow `WebGPUPostProcessServices` contract.
 - Nested `PostProcessGraphCompiler` execution and
   `PostProcessRenderGraphAdapter` are replaced by planning plus subgraph
   building.

@@ -276,7 +276,7 @@ export class WebGPUPostProcessBridge {
 		return Object.freeze({
 			encoder: this._callbacks.getEncoder() ?? undefined,
 			targets: this._createFrameTargetsView(),
-			shared: this._runtime.sharedContext,
+			shared: this._runtime,
 			frameBinding: frameResources.frameBinding,
 			lightingState: frameResources.lightingState,
 			getFrameData: <T>(key: unknown): T | undefined =>
@@ -314,7 +314,7 @@ export class WebGPUPostProcessBridge {
 		return Object.freeze({
 			encoder: undefined,
 			targets: undefined,
-			shared: this._runtime.sharedContext,
+			shared: this._runtime,
 			frameBinding: undefined,
 			lightingState: undefined,
 			getFrameData: (): undefined => undefined,

@@ -9,7 +9,7 @@ import { ShaderSource } from "../../../shaders/ShaderSource";
 import {
 	WEBGPU_2D_COMPUTE_WORKGROUP_SIZE as WORKGROUP_SIZE,
 } from "../constants";
-import type { PostProcessSharedContext } from "./PostProcessSharedContext";
+import type { WebGPUPostProcessServices } from "../WebGPUPostProcessContracts";
 
 /**
  * Request for an ordered WebGPU post-process texture copy.
@@ -44,17 +44,17 @@ export interface PostProcessCopyTextureRequest {
  * command encoder so pass ordering is preserved.
  */
 export class PostProcessCopyHelper {
-	private _shared: PostProcessSharedContext;
+	private _services: WebGPUPostProcessServices;
 	private _module: IShaderModule | null = null;
 	private _pipeline: IComputePipeline | null = null;
 
 	/**
 	 * Creates a helper bound to one shared WebGPU post-process context.
 	 *
-	 * @param shared Shared context that owns helper resources.
+	 * @param services Runtime services that own helper resources.
 	 */
-	public constructor(shared: PostProcessSharedContext) {
-		this._shared = shared;
+	public constructor(services: WebGPUPostProcessServices) {
+		this._services = services;
 	}
 
 	/**
@@ -66,7 +66,7 @@ export class PostProcessCopyHelper {
 	public async ensureResources(): Promise<void> {
 		if (!this._module) {
 			const shader = await ShaderSource.load("webgpu.postprocess.copy.composite");
-			this._module = await this._shared.compute.createShaderModule({
+			this._module = await this._services.compute.createShaderModule({
 				label: "PostProcessCopyShader",
 				code: shader.code,
 				sourceMap: shader.sourceMap,
@@ -76,7 +76,7 @@ export class PostProcessCopyHelper {
 			});
 		}
 		if (!this._pipeline) {
-			this._pipeline = await this._shared.compute.createComputePipeline({
+			this._pipeline = await this._services.compute.createComputePipeline({
 				label: "PostProcessCopyPipeline",
 				compute: { module: this._module, entryPoint: "csMain" },
 			});
@@ -102,7 +102,7 @@ export class PostProcessCopyHelper {
 		}
 		const label = request.label ?? "WebGPUPost_Copy";
 		const cacheKey = this._resolveCacheKey(request.cacheKey);
-		const binding = this._shared.getCachedBindGroup(
+		const binding = this._services.getCachedBindGroup(
 			cacheKey,
 			this._pipeline,
 			[
@@ -139,12 +139,12 @@ export class PostProcessCopyHelper {
 	 * @sideEffects Releases managed WebGPU resources and cached copy bindings.
 	 */
 	public destroy(): void {
-		this._shared.invalidateBindingsByPrefix("copy-");
-		this._shared.destroyManagedResource(
+		this._services.invalidateBindingsByPrefix("copy-");
+		this._services.destroyManagedResource(
 			this._pipeline,
 			"post-process copy pipeline"
 		);
-		this._shared.destroyManagedResource(
+		this._services.destroyManagedResource(
 			this._module,
 			"post-process copy shader module"
 		);

@@ -109,6 +109,9 @@ The renderer frame pipeline must preserve this logical order:
 - Backends must provide fixed execution contexts with declaration-checked
   resource accessors. They must not dispatch post-process kernels by pass ID or
   synthesize pass-specific context properties from metadata.
+- WebGPU common post-process services must be owned directly by its device
+  runtime and exposed through a narrow capability contract; an additional
+  shared-context owner must not duplicate that lifecycle.
 - Backends may expose `LogicalGBufferBridge`.
 - Backends must not expose public post-process graph registration APIs,
   `renderer.postprocess` backend extensions, or hardcoded pass kernel

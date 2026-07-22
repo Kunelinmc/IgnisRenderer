@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { Logger } from "../../../src/foundation/Logger.ts";
 import {
 	ScreenSpaceReflectionsPass,
 	VolumetricLightingPass,
@@ -144,7 +143,7 @@ async function executeSSRImplementation(
 	const context = {
 		encoder,
 		targets,
-		shared: runtime.sharedContext,
+		shared: runtime,
 		frameBinding,
 		resources: {
 			color: { input: targets.sceneColor, output },
@@ -213,7 +212,7 @@ async function executeVolumetricImplementation(
 	const context = {
 		encoder,
 		targets,
-		shared: runtime.sharedContext,
+		shared: runtime,
 		frameBinding,
 		lightingState,
 		getFrameData: () => null,
@@ -272,25 +271,6 @@ function destroySnapshotPasses(snapshot) {
 	for (const resolved of snapshot.getEnabledPasses()) {
 		resolved.pass.destroy();
 	}
-}
-
-async function captureWarnMessagesAsync(run) {
-	const warnings = [];
-	Logger.configure({
-		level: "warn",
-		sink: {
-			warn: (...args) => {
-				warnings.push(args.map((arg) => String(arg)).join(" "));
-			},
-		},
-		resetOnceKeys: true,
-	});
-	try {
-		await run();
-	} finally {
-		Logger.reset();
-	}
-	return warnings;
 }
 
 async function testSSRAndVolumetricReportHistoryUpdates() {
@@ -352,7 +332,11 @@ async function testSSRAndVolumetricReportHistoryUpdates() {
 
 async function testOrthographicTemporalPassesSkipAndReturnFalse() {
 	const backend = new FakeBackend();
-	const runtime = new WebGPUPostProcessRuntime(backend, () => {});
+	const warnings = [];
+	const runtime = new WebGPUPostProcessRuntime(
+		backend,
+		(key, message) => warnings.push(`[${key}] ${message}`)
+	);
 	const frameContext = {
 		viewCamera: {
 			type: "orthographic",
@@ -363,26 +347,24 @@ async function testOrthographicTemporalPassesSkipAndReturnFalse() {
 	};
 	const frameBinding = { label: "frame-binding" };
 
-	const warnings = await captureWarnMessagesAsync(async () => {
-		const ssrRun = await executeSSRImplementation(backend, runtime, {
-			targets: createTemporalTargets(),
-			frameContext,
-			historyValid: true,
-			frameBinding,
-		});
-		assert.deepEqual(ssrRun.result, { ran: false });
-		assert.equal(ssrRun.motionWrites, 0);
-
-		const volumetricRun = await executeVolumetricImplementation(backend, runtime, {
-			targets: createTemporalTargets(),
-			frameContext,
-			historyValid: true,
-			frameBinding,
-			lightingState: null,
-		});
-		assert.deepEqual(volumetricRun.result, { ran: false });
-		assert.equal(volumetricRun.motionWrites, 0);
+	const ssrRun = await executeSSRImplementation(backend, runtime, {
+		targets: createTemporalTargets(),
+		frameContext,
+		historyValid: true,
+		frameBinding,
 	});
+	assert.deepEqual(ssrRun.result, { ran: false });
+	assert.equal(ssrRun.motionWrites, 0);
+
+	const volumetricRun = await executeVolumetricImplementation(backend, runtime, {
+		targets: createTemporalTargets(),
+		frameContext,
+		historyValid: true,
+		frameBinding,
+		lightingState: null,
+	});
+	assert.deepEqual(volumetricRun.result, { ran: false });
+	assert.equal(volumetricRun.motionWrites, 0);
 
 	assert.equal(warnings.length, 2);
 	assert.equal(
@@ -413,7 +395,7 @@ async function testHiZResourcesAreSharedAcrossTemporalPasses() {
 		volumetric: { enabled: true },
 	});
 	const encoder = new FakeEncoder(backend);
-	await runtime.sharedContext.getHiZBuilder().build({
+	await runtime.getHiZBuilder().build({
 		encoder,
 		depth: targets.gMotionDepth,
 		hiZ: transients.hiZ,

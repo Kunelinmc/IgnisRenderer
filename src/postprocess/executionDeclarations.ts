@@ -1,53 +1,45 @@
-import type { RenderBackendType } from "../backends/IRenderBackend";
 import type {
-	LogicalGBufferSemantic,
 	PostProcessExecutionDeclaration,
-	PostProcessHistoryDescriptor,
+	PostProcessExecutionResourceUse,
 	PostProcessSharedResourceDeclaration,
-	PostProcessTransientDescriptor,
 } from "./types";
 
-export interface PostProcessExecutionDeclarationOptions {
-	readonly gBuffer?: readonly LogicalGBufferSemantic[];
-	readonly histories?: readonly PostProcessHistoryDescriptor[];
-	readonly transients?: readonly PostProcessTransientDescriptor[];
-	readonly shared?: readonly PostProcessSharedResourceDeclaration[];
-	readonly color?: PostProcessExecutionDeclaration["color"];
-}
+export const POST_PROCESS_CPU_READ = Object.freeze({
+	access: "read",
+	usage: "cpu-read",
+} as const satisfies PostProcessExecutionResourceUse);
 
-/** @internal Creates the complete declaration used by engine-owned passes. */
-export function createPostProcessExecutionDeclaration(
-	backend: RenderBackendType,
-	options: PostProcessExecutionDeclarationOptions = {}
-): PostProcessExecutionDeclaration {
-	const writeUsage = backend === "webgl" ? "color-attachment" :
-		backend === "software" ? "cpu-write" : "storage";
-	const readUsage = backend === "software" ? "cpu-read" : "sampled";
-	return {
-		color: options.color ?? (backend === "software" ? {
-			access: "read-write",
-			output: "preserve",
-		} : {
-			access: "read",
-			output: "new-version",
-		}),
-		gBuffer: options.gBuffer?.map((semantic) => ({
-			semantic,
-			access: "read",
-			usage: readUsage,
-		})),
-		histories: options.histories?.map((descriptor) => ({
-			descriptor,
-			read: [{ access: "read", usage: readUsage }],
-			write: [{ access: "write", usage: writeUsage }],
-		})),
-		transients: options.transients?.map((descriptor) => ({
-			descriptor,
-			uses: [{ access: "write", usage: writeUsage }],
-		})),
-		shared: options.shared,
-	};
-}
+export const POST_PROCESS_CPU_WRITE = Object.freeze({
+	access: "write",
+	usage: "cpu-write",
+} as const satisfies PostProcessExecutionResourceUse);
+
+export const POST_PROCESS_SAMPLED_READ = Object.freeze({
+	access: "read",
+	usage: "sampled",
+} as const satisfies PostProcessExecutionResourceUse);
+
+export const POST_PROCESS_STORAGE_WRITE = Object.freeze({
+	access: "write",
+	usage: "storage",
+} as const satisfies PostProcessExecutionResourceUse);
+
+export const POST_PROCESS_COLOR_ATTACHMENT_WRITE = Object.freeze({
+	access: "write",
+	usage: "color-attachment",
+} as const satisfies PostProcessExecutionResourceUse);
+
+export const SOFTWARE_IN_PLACE_EXECUTION = Object.freeze({
+	color: { access: "read-write", output: "preserve" },
+} as const satisfies PostProcessExecutionDeclaration);
+
+export const WEBGPU_VERSIONED_EXECUTION = Object.freeze({
+	color: { access: "read", output: "new-version" },
+} as const satisfies PostProcessExecutionDeclaration);
+
+export const WEBGL_VERSIONED_EXECUTION = Object.freeze({
+	color: { access: "read", output: "new-version" },
+} as const satisfies PostProcessExecutionDeclaration);
 
 export const WEBGPU_HIZ_SHARED_RESOURCE = Object.freeze({
 	id: "backend:frame-hiz",

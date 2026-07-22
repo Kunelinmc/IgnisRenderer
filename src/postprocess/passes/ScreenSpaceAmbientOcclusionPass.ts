@@ -19,8 +19,8 @@ import {
 } from "../../backends/webgpu/constants";
 import {
 	type WebGPUPostProcessFrameTargets,
+	type WebGPUPostProcessServices,
 } from "../../backends/webgpu/WebGPUPostProcessContracts";
-import type { PostProcessSharedContext } from "../../backends/webgpu/postprocess/PostProcessSharedContext";
 import type {
 	WebGLProgramCompiler,
 	WebGLProgramSlot,
@@ -33,8 +33,17 @@ import {
 	type PostProcessPassResolveRequest,
 } from "../PostProcessPass";
 import type { PostProcessScheduleEntry } from "../ordering";
-import { createPostProcessExecutionDeclaration } from "../executionDeclarations";
+import {
+	POST_PROCESS_COLOR_ATTACHMENT_WRITE,
+	POST_PROCESS_CPU_READ,
+	POST_PROCESS_SAMPLED_READ,
+	POST_PROCESS_STORAGE_WRITE,
+	SOFTWARE_IN_PLACE_EXECUTION,
+	WEBGL_VERSIONED_EXECUTION,
+	WEBGPU_VERSIONED_EXECUTION,
+} from "../executionDeclarations";
 import type {
+	PostProcessExecutionDeclaration,
 	PostProcessPassImplementation,
 	PostProcessPassRequest,
 	PostProcessPassResult,
@@ -125,7 +134,7 @@ export interface SoftwareSSAOContext {
 export interface WebGPUSSAOContext {
 	readonly encoder?: ICommandEncoder;
 	readonly targets?: WebGPUPostProcessFrameTargets;
-	readonly shared: PostProcessSharedContext;
+	readonly shared: WebGPUPostProcessServices;
 	readonly resources: PostProcessResourceAccessor<IRenderTexture>;
 }
 
@@ -185,7 +194,7 @@ interface WebGLSSAOCombineProgram {
 }
 
 interface WebGPUSSAOResources {
-	shared: PostProcessSharedContext;
+	shared: WebGPUPostProcessServices;
 	module: IShaderModule | null;
 	rawPipeline: IComputePipeline | null;
 	blurPipeline: IComputePipeline | null;
@@ -329,9 +338,13 @@ export class SoftwareScreenSpaceAmbientOcclusionImplementation
 {
 	public readonly id = "ssao:software";
 	public describeExecution() {
-		return createPostProcessExecutionDeclaration("software", {
-			gBuffer: ["depth", "normal"],
-		});
+		return {
+			...SOFTWARE_IN_PLACE_EXECUTION,
+			gBuffer: (["depth", "normal"] as const).map((semantic) => ({
+				semantic,
+				...POST_PROCESS_CPU_READ,
+			})),
+		} satisfies PostProcessExecutionDeclaration;
 	}
 	private _kernel: IVector3[] = [];
 	private _noise: IVector3[] = [];
@@ -582,15 +595,22 @@ export class WebGPUScreenSpaceAmbientOcclusionImplementation
 	public describeExecution(request: PostProcessPassResolveRequest<ResolvedSSAOOptions>) {
 		const options = resolveSSAOOptions(request.options);
 		const scale = 1 / options.downsample;
-		return createPostProcessExecutionDeclaration("webgpu", {
-			gBuffer: ["depth", "normal"],
+		return {
+			...WEBGPU_VERSIONED_EXECUTION,
+			gBuffer: (["depth", "normal"] as const).map((semantic) => ({
+				semantic,
+				...POST_PROCESS_SAMPLED_READ,
+			})),
 			transients: [
 				{ id: SSAO_RAW_TRANSIENT_ID, widthScale: scale, heightScale: scale },
 				{ id: SSAO_BLUR_TRANSIENT_ID, widthScale: scale, heightScale: scale },
-			],
-		});
+			].map((descriptor) => ({
+				descriptor,
+				uses: [POST_PROCESS_STORAGE_WRITE],
+			})),
+		} satisfies PostProcessExecutionDeclaration;
 	}
-	private _resources = new Map<PostProcessSharedContext, WebGPUSSAOResources>();
+	private _resources = new Map<WebGPUPostProcessServices, WebGPUSSAOResources>();
 
 	public async warmup(context: WebGPUSSAOContext | undefined): Promise<void> {
 		if (context) {
@@ -789,7 +809,7 @@ export class WebGPUScreenSpaceAmbientOcclusionImplementation
 	}
 
 	private async _ensureResources(
-		shared: PostProcessSharedContext
+		shared: WebGPUPostProcessServices
 	): Promise<WebGPUSSAOResources> {
 		let resources = this._resources.get(shared);
 		if (!resources) {
@@ -856,13 +876,20 @@ export class WebGLScreenSpaceAmbientOcclusionImplementation
 	public describeExecution(request: PostProcessPassResolveRequest<ResolvedSSAOOptions>) {
 		const options = resolveSSAOOptions(request.options);
 		const scale = 1 / options.downsample;
-		return createPostProcessExecutionDeclaration("webgl", {
-			gBuffer: ["depth", "normal"],
+		return {
+			...WEBGL_VERSIONED_EXECUTION,
+			gBuffer: (["depth", "normal"] as const).map((semantic) => ({
+				semantic,
+				...POST_PROCESS_SAMPLED_READ,
+			})),
 			transients: [
 				{ id: SSAO_RAW_TRANSIENT_ID, widthScale: scale, heightScale: scale },
 				{ id: SSAO_BLUR_TRANSIENT_ID, widthScale: scale, heightScale: scale },
-			],
-		});
+			].map((descriptor) => ({
+				descriptor,
+				uses: [POST_PROCESS_COLOR_ATTACHMENT_WRITE],
+			})),
+		} satisfies PostProcessExecutionDeclaration;
 	}
 	private _programCompiler: WebGLProgramCompiler | null = null;
 	private _rawProgramSlot: WebGLProgramSlot<WebGLSSAORawProgram> | null = null;

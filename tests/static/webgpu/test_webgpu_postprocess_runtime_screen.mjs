@@ -135,7 +135,7 @@ function createWebGPUImplementationContext(runtime, encoder, targets) {
 	return {
 		encoder,
 		targets,
-		shared: runtime.sharedContext,
+		shared: runtime,
 		resources: {
 			color: {
 				input: targets.sceneColor,

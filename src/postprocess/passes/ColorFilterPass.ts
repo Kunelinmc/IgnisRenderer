@@ -9,7 +9,7 @@ import {
 import {
 	WEBGPU_2D_COMPUTE_WORKGROUP_SIZE as WEBGPU_WORKGROUP_SIZE,
 } from "../../backends/webgpu/constants";
-import type { PostProcessSharedContext } from "../../backends/webgpu/postprocess/PostProcessSharedContext";
+import type { WebGPUPostProcessServices } from "../../backends/webgpu/WebGPUPostProcessContracts";
 import { sanitizeFiniteClamped } from "../../backends/webgl/WebGLFrameMath";
 import type {
 	WebGLProgramCompiler,
@@ -18,7 +18,11 @@ import type {
 import { ShaderSource } from "../../shaders/ShaderSource";
 import { PostProcessPass, type PostProcessPassConfig } from "../PostProcessPass";
 import type { PostProcessScheduleEntry } from "../ordering";
-import { createPostProcessExecutionDeclaration } from "../executionDeclarations";
+import {
+	SOFTWARE_IN_PLACE_EXECUTION,
+	WEBGL_VERSIONED_EXECUTION,
+	WEBGPU_VERSIONED_EXECUTION,
+} from "../executionDeclarations";
 import type {
 	PostProcessPassImplementation,
 	PostProcessPassRequest,
@@ -90,7 +94,7 @@ export class SoftwareColorFilterImplementation
 {
 	public readonly id = "color-filter:software";
 	public describeExecution() {
-		return createPostProcessExecutionDeclaration("software");
+		return SOFTWARE_IN_PLACE_EXECUTION;
 	}
 
 	public execute(
@@ -151,7 +155,7 @@ export class SoftwareColorFilterImplementation
 	}
 }
 interface WebGPUColorFilterResources {
-	shared: PostProcessSharedContext;
+	shared: WebGPUPostProcessServices;
 	module: IShaderModule | null;
 	pipeline: IComputePipeline | null;
 	params: IRenderBuffer | null;
@@ -163,10 +167,10 @@ export class WebGPUColorFilterImplementation
 {
 	public readonly id = "color-filter:webgpu";
 	public describeExecution() {
-		return createPostProcessExecutionDeclaration("webgpu");
+		return WEBGPU_VERSIONED_EXECUTION;
 	}
 	private _resources =
-		new Map<PostProcessSharedContext, WebGPUColorFilterResources>();
+		new Map<WebGPUPostProcessServices, WebGPUColorFilterResources>();
 
 	public async warmup(
 		context: WebGPUColorFilterContext | undefined
@@ -288,7 +292,7 @@ export class WebGPUColorFilterImplementation
 	}
 
 	private async _ensureResources(
-		shared: PostProcessSharedContext
+		shared: WebGPUPostProcessServices
 	): Promise<WebGPUColorFilterResources> {
 		let resources = this._resources.get(shared);
 		if (!resources) {
@@ -337,7 +341,7 @@ export class WebGLColorFilterImplementation
 {
 	public readonly id = "color-filter:webgl";
 	public describeExecution() {
-		return createPostProcessExecutionDeclaration("webgl");
+		return WEBGL_VERSIONED_EXECUTION;
 	}
 	private _programCompiler: WebGLProgramCompiler | null = null;
 	private _programSlot: WebGLProgramSlot<WebGLColorFilterProgram> | null = null;

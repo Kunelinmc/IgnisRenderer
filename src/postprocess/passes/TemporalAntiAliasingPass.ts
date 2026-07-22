@@ -15,8 +15,10 @@ import {
 import {
 	WEBGPU_2D_COMPUTE_WORKGROUP_SIZE as WORKGROUP_SIZE,
 } from "../../backends/webgpu/constants";
-import type { WebGPUPostProcessFrameTargets } from "../../backends/webgpu/WebGPUPostProcessContracts";
-import type { PostProcessSharedContext } from "../../backends/webgpu/postprocess/PostProcessSharedContext";
+import type {
+	WebGPUPostProcessFrameTargets,
+	WebGPUPostProcessServices,
+} from "../../backends/webgpu/WebGPUPostProcessContracts";
 import type {
 	WebGLProgramCompiler,
 	WebGLProgramSlot,
@@ -30,8 +32,18 @@ import {
 import { ShaderSource } from "../../shaders/ShaderSource";
 import { PostProcessPass, type PostProcessPassConfig } from "../PostProcessPass";
 import type { PostProcessScheduleEntry } from "../ordering";
-import { createPostProcessExecutionDeclaration } from "../executionDeclarations";
+import {
+	POST_PROCESS_COLOR_ATTACHMENT_WRITE,
+	POST_PROCESS_CPU_READ,
+	POST_PROCESS_CPU_WRITE,
+	POST_PROCESS_SAMPLED_READ,
+	POST_PROCESS_STORAGE_WRITE,
+	SOFTWARE_IN_PLACE_EXECUTION,
+	WEBGL_VERSIONED_EXECUTION,
+	WEBGPU_VERSIONED_EXECUTION,
+} from "../executionDeclarations";
 import type {
+	PostProcessExecutionDeclaration,
 	PostProcessHistoryDescriptor,
 	PostProcessPassImplementation,
 	PostProcessPassRequest,
@@ -41,6 +53,13 @@ import type {
 } from "../types";
 
 const DEFAULT_HISTORY_USAGE = ["sampled", "storage", "render-target"] as const;
+const TAA_HISTORY_DESCRIPTORS = [{
+	id: "taa",
+	usage: DEFAULT_HISTORY_USAGE,
+}, {
+	id: "motion",
+	usage: ["sampled", "copy-dst", "render-target"],
+}] as const satisfies readonly PostProcessHistoryDescriptor[];
 export const TEMPORAL_ANTI_ALIASING_PASS_ID = "taa";
 export const TEMPORAL_ANTI_ALIASING_PASS_ORDER = {
 	id: TEMPORAL_ANTI_ALIASING_PASS_ID,
@@ -127,7 +146,7 @@ export interface SoftwareTAAContext {
 export interface WebGPUTAAContext {
 	readonly encoder: ICommandEncoder;
 	readonly targets: WebGPUPostProcessFrameTargets;
-	readonly shared: PostProcessSharedContext;
+	readonly shared: WebGPUPostProcessServices;
 	readonly resources: PostProcessResourceAccessor<IRenderTexture>;
 }
 
@@ -170,7 +189,7 @@ interface SampledColor {
 }
 
 interface WebGPUTAAResources {
-	shared: PostProcessSharedContext;
+	shared: WebGPUPostProcessServices;
 	module: IShaderModule | null;
 	pipeline: IComputePipeline | null;
 	params: IRenderBuffer | null;
@@ -286,13 +305,15 @@ export class SoftwareTemporalAntiAliasingImplementation
 {
 	public readonly id = "taa:software";
 	public describeExecution() {
-		return createPostProcessExecutionDeclaration("software", {
-			gBuffer: ["motion"],
-			histories: [
-				{ id: "taa", usage: DEFAULT_HISTORY_USAGE },
-				{ id: "motion", usage: ["sampled", "copy-dst", "render-target"] },
-			],
-		});
+		return {
+			...SOFTWARE_IN_PLACE_EXECUTION,
+			gBuffer: [{ semantic: "motion", ...POST_PROCESS_CPU_READ }],
+			histories: TAA_HISTORY_DESCRIPTORS.map((descriptor) => ({
+				descriptor,
+				read: [POST_PROCESS_CPU_READ],
+				write: [POST_PROCESS_CPU_WRITE],
+			})),
+		} satisfies PostProcessExecutionDeclaration;
 	}
 
 	public execute(
@@ -466,16 +487,18 @@ export class WebGPUTemporalAntiAliasingImplementation
 {
 	public readonly id = "taa:webgpu";
 	public describeExecution() {
-		return createPostProcessExecutionDeclaration("webgpu", {
-			gBuffer: ["motion"],
-			histories: [
-				{ id: "taa", usage: DEFAULT_HISTORY_USAGE },
-				{ id: "motion", usage: ["sampled", "copy-dst", "render-target"] },
-			],
-		});
+		return {
+			...WEBGPU_VERSIONED_EXECUTION,
+			gBuffer: [{ semantic: "motion", ...POST_PROCESS_SAMPLED_READ }],
+			histories: TAA_HISTORY_DESCRIPTORS.map((descriptor) => ({
+				descriptor,
+				read: [POST_PROCESS_SAMPLED_READ],
+				write: [POST_PROCESS_STORAGE_WRITE],
+			})),
+		} satisfies PostProcessExecutionDeclaration;
 	}
 	public readonly warmupHints = ["postprocess:taa"] as const;
-	private _resources = new Map<PostProcessSharedContext, WebGPUTAAResources>();
+	private _resources = new Map<WebGPUPostProcessServices, WebGPUTAAResources>();
 
 	public async warmup?(
 		context: WebGPUTAAContext | undefined
@@ -594,7 +617,7 @@ export class WebGPUTemporalAntiAliasingImplementation
 	}
 
 	private async _ensureResources(
-		shared: PostProcessSharedContext
+		shared: WebGPUPostProcessServices
 	): Promise<WebGPUTAAResources> {
 		let resources = this._resources.get(shared);
 		if (!resources) {
@@ -639,13 +662,15 @@ export class WebGLTemporalAntiAliasingImplementation
 {
 	public readonly id = "taa:webgl";
 	public describeExecution() {
-		return createPostProcessExecutionDeclaration("webgl", {
-			gBuffer: ["motion"],
-			histories: [
-				{ id: "taa", usage: DEFAULT_HISTORY_USAGE },
-				{ id: "motion", usage: ["sampled", "copy-dst", "render-target"] },
-			],
-		});
+		return {
+			...WEBGL_VERSIONED_EXECUTION,
+			gBuffer: [{ semantic: "motion", ...POST_PROCESS_SAMPLED_READ }],
+			histories: TAA_HISTORY_DESCRIPTORS.map((descriptor) => ({
+				descriptor,
+				read: [POST_PROCESS_SAMPLED_READ],
+				write: [POST_PROCESS_COLOR_ATTACHMENT_WRITE],
+			})),
+		} satisfies PostProcessExecutionDeclaration;
 	}
 	private _programCompiler: WebGLProgramCompiler | null = null;
 	private _programSlot: WebGLProgramSlot<WebGLTAAProgram> | null = null;

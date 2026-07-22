@@ -9,7 +9,7 @@ import {
 import {
 	WEBGPU_2D_COMPUTE_WORKGROUP_SIZE as WEBGPU_WORKGROUP_SIZE,
 } from "../../backends/webgpu/constants";
-import type { PostProcessSharedContext } from "../../backends/webgpu/postprocess/PostProcessSharedContext";
+import type { WebGPUPostProcessServices } from "../../backends/webgpu/WebGPUPostProcessContracts";
 import {
 	MOTION_BLUR_CENTER_WEIGHT_RANGE,
 	MOTION_BLUR_DEPTH_REJECT_RANGE,
@@ -25,8 +25,13 @@ import type {
 import { ShaderSource } from "../../shaders/ShaderSource";
 import { PostProcessPass, type PostProcessPassConfig } from "../PostProcessPass";
 import type { PostProcessScheduleEntry } from "../ordering";
-import { createPostProcessExecutionDeclaration } from "../executionDeclarations";
+import {
+	POST_PROCESS_SAMPLED_READ,
+	WEBGL_VERSIONED_EXECUTION,
+	WEBGPU_VERSIONED_EXECUTION,
+} from "../executionDeclarations";
 import type {
+	PostProcessExecutionDeclaration,
 	PostProcessPassImplementation,
 	PostProcessPassRequest,
 	PostProcessPassResult,
@@ -95,7 +100,7 @@ export type WebGPUMotionBlurContext = WebGPURuntimePostProcessContext;
 export type WebGLMotionBlurContext = WebGLScreenPostProcessContext;
 
 interface WebGPUMotionBlurResources {
-	shared: PostProcessSharedContext;
+	shared: WebGPUPostProcessServices;
 	module: IShaderModule | null;
 	pipeline: IComputePipeline | null;
 	params: IRenderBuffer | null;
@@ -108,12 +113,16 @@ export class WebGPUMotionBlurImplementation
 {
 	public readonly id = "motion-blur:webgpu";
 	public describeExecution() {
-		return createPostProcessExecutionDeclaration("webgpu", {
-			gBuffer: ["depth", "motion"],
-		});
+		return {
+			...WEBGPU_VERSIONED_EXECUTION,
+			gBuffer: (["depth", "motion"] as const).map((semantic) => ({
+				semantic,
+				...POST_PROCESS_SAMPLED_READ,
+			})),
+		} satisfies PostProcessExecutionDeclaration;
 	}
 	private _resources =
-		new Map<PostProcessSharedContext, WebGPUMotionBlurResources>();
+		new Map<WebGPUPostProcessServices, WebGPUMotionBlurResources>();
 
 	public async warmup(
 		context: WebGPUMotionBlurContext | undefined
@@ -249,7 +258,7 @@ export class WebGPUMotionBlurImplementation
 	}
 
 	private async _ensureResources(
-		shared: PostProcessSharedContext
+		shared: WebGPUPostProcessServices
 	): Promise<WebGPUMotionBlurResources> {
 		let resources = this._resources.get(shared);
 		if (!resources) {
@@ -299,9 +308,12 @@ export class WebGLMotionBlurImplementation
 {
 	public readonly id = "motion-blur:webgl";
 	public describeExecution() {
-		return createPostProcessExecutionDeclaration("webgl", {
-			gBuffer: ["depth", "motion"],
-		});
+		return {
+			...WEBGL_VERSIONED_EXECUTION,
+			gBuffer: (["depth", "motion"] as const).map(
+				(semantic) => ({ semantic, ...POST_PROCESS_SAMPLED_READ })
+			),
+		} satisfies PostProcessExecutionDeclaration;
 	}
 	private _programCompiler: WebGLProgramCompiler | null = null;
 	private _programSlot: WebGLProgramSlot<WebGLMotionBlurProgram> | null = null;
@@ -473,7 +485,7 @@ export class MotionBlurPass extends PostProcessPass<
 
 }
 function uploadWebGPUMotionBlurParams(
-	shared: PostProcessSharedContext,
+	shared: WebGPUPostProcessServices,
 	resources: WebGPUMotionBlurResources,
 	width: number,
 	height: number,

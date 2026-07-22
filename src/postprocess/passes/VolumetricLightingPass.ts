@@ -37,8 +37,10 @@ import {
 	WEBGPU_VOLUMETRIC_LIGHT_STRIDE_FLOATS as VOLUMETRIC_LIGHT_STRIDE_FLOATS,
 } from "../../backends/webgpu/constants";
 import { getWebGPUVolumetricLightLayout } from "../../backends/webgpu/bufferLayouts";
-import type { WebGPUPostProcessFrameTargets } from "../../backends/webgpu/WebGPUPostProcessContracts";
-import type { PostProcessSharedContext } from "../../backends/webgpu/postprocess/PostProcessSharedContext";
+import type {
+	WebGPUPostProcessFrameTargets,
+	WebGPUPostProcessServices,
+} from "../../backends/webgpu/WebGPUPostProcessContracts";
 import { WEBGPU_VOLUMETRIC_LIGHTING_DATA } from "../../backends/webgpu/WebGPUFrameFeatureModules";
 import type { WebGPUVolumetricLightingData } from "../../backends/webgpu/types";
 import { ceilDiv, finiteOr } from "../../maths/Misc";
@@ -49,8 +51,17 @@ import {
 	type PostProcessPassResolveRequest,
 } from "../PostProcessPass";
 import type { PostProcessScheduleEntry } from "../ordering";
-import { createPostProcessExecutionDeclaration } from "../executionDeclarations";
+import {
+	POST_PROCESS_CPU_READ,
+	POST_PROCESS_CPU_WRITE,
+	POST_PROCESS_SAMPLED_READ,
+	POST_PROCESS_STORAGE_WRITE,
+	SOFTWARE_IN_PLACE_EXECUTION,
+	WEBGPU_HIZ_SHARED_RESOURCE,
+	WEBGPU_VERSIONED_EXECUTION,
+} from "../executionDeclarations";
 import type {
+	PostProcessExecutionDeclaration,
 	PostProcessHistoryDescriptor,
 	PostProcessPassImplementation,
 	PostProcessPassRequest,
@@ -66,6 +77,16 @@ import {
 
 const DEFAULT_HISTORY_USAGE = ["sampled", "storage", "render-target"] as const;
 const MOTION_HISTORY_USAGE = ["sampled", "copy-dst", "render-target"] as const;
+const VOLUMETRIC_HISTORY_DESCRIPTORS = [{
+	id: "volumetric",
+	usage: DEFAULT_HISTORY_USAGE,
+}, {
+	id: "volumetric-reservoir",
+	usage: DEFAULT_HISTORY_USAGE,
+}, {
+	id: "motion",
+	usage: MOTION_HISTORY_USAGE,
+}] as const satisfies readonly PostProcessHistoryDescriptor[];
 export const VOLUMETRIC_LIGHTING_PASS_ID = "volumetric";
 export const VOLUMETRIC_LIGHTING_PASS_ORDER = {
 	id: VOLUMETRIC_LIGHTING_PASS_ID,
@@ -193,14 +214,14 @@ export interface SoftwareVolumetricLightingContext {
 export interface WebGPUVolumetricLightingContext {
 	readonly encoder?: ICommandEncoder;
 	readonly targets?: WebGPUPostProcessFrameTargets;
-	readonly shared: PostProcessSharedContext;
+	readonly shared: WebGPUPostProcessServices;
 	readonly frameBinding?: IBindingGroup;
 	readonly resources: PostProcessResourceAccessor<IRenderTexture>;
 	getFrameData<T>(key: unknown): T | undefined;
 }
 
 interface WebGPUVolumetricResources {
-	shared: PostProcessSharedContext;
+	shared: WebGPUPostProcessServices;
 	module: IShaderModule | null;
 	pipeline: IComputePipeline | null;
 	params: IRenderBuffer | null;
@@ -235,14 +256,18 @@ export class SoftwareVolumetricLightingImplementation
 		>
 {
 	public describeExecution() {
-		return createPostProcessExecutionDeclaration("software", {
-			gBuffer: ["depth", "motion"],
-			histories: [
-				{ id: "volumetric", usage: DEFAULT_HISTORY_USAGE },
-				{ id: "volumetric-reservoir", usage: DEFAULT_HISTORY_USAGE },
-				{ id: "motion", usage: MOTION_HISTORY_USAGE },
-			],
-		});
+		return {
+			...SOFTWARE_IN_PLACE_EXECUTION,
+			gBuffer: (["depth", "motion"] as const).map((semantic) => ({
+				semantic,
+				...POST_PROCESS_CPU_READ,
+			})),
+			histories: VOLUMETRIC_HISTORY_DESCRIPTORS.map((descriptor) => ({
+				descriptor,
+				read: [POST_PROCESS_CPU_READ],
+				write: [POST_PROCESS_CPU_WRITE],
+			})),
+		} satisfies PostProcessExecutionDeclaration;
 	}
 	public readonly id = "volumetric:software";
 	private _prevScatterBuf: Float32Array | null = null;
@@ -1157,22 +1182,22 @@ export class WebGPUVolumetricLightingImplementation
 {
 	public readonly id = "volumetric:webgpu";
 	public describeExecution() {
-		return createPostProcessExecutionDeclaration("webgpu", {
-			gBuffer: ["depth", "motion"],
-			histories: [
-				{ id: "volumetric", usage: DEFAULT_HISTORY_USAGE },
-				{ id: "volumetric-reservoir", usage: DEFAULT_HISTORY_USAGE },
-				{ id: "motion", usage: MOTION_HISTORY_USAGE },
-			],
-			shared: [{
-				id: "backend:frame-hiz",
-				access: "read",
-				usage: "sampled",
-			}],
-		});
+		return {
+			...WEBGPU_VERSIONED_EXECUTION,
+			gBuffer: (["depth", "motion"] as const).map((semantic) => ({
+				semantic,
+				...POST_PROCESS_SAMPLED_READ,
+			})),
+			histories: VOLUMETRIC_HISTORY_DESCRIPTORS.map((descriptor) => ({
+				descriptor,
+				read: [POST_PROCESS_SAMPLED_READ],
+				write: [POST_PROCESS_STORAGE_WRITE],
+			})),
+			shared: [WEBGPU_HIZ_SHARED_RESOURCE],
+		} satisfies PostProcessExecutionDeclaration;
 	}
 	private _resources = new Map<
-		PostProcessSharedContext,
+		WebGPUPostProcessServices,
 		WebGPUVolumetricResources
 	>();
 
@@ -1532,7 +1557,7 @@ export class WebGPUVolumetricLightingImplementation
 	}
 
 	private async _ensureResources(
-		shared: PostProcessSharedContext
+		shared: WebGPUPostProcessServices
 	): Promise<WebGPUVolumetricResources> {
 		let resources = this._resources.get(shared);
 		if (!resources) {

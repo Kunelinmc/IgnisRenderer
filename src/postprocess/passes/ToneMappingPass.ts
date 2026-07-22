@@ -4,7 +4,7 @@ import { type IComputePipeline, type IShaderModule } from "../../backends/types"
 import {
 	WEBGPU_2D_COMPUTE_WORKGROUP_SIZE as WEBGPU_WORKGROUP_SIZE,
 } from "../../backends/webgpu/constants";
-import type { PostProcessSharedContext } from "../../backends/webgpu/postprocess/PostProcessSharedContext";
+import type { WebGPUPostProcessServices } from "../../backends/webgpu/WebGPUPostProcessContracts";
 import type {
 	WebGLProgramCompiler,
 	WebGLProgramSlot,
@@ -13,7 +13,11 @@ import { ShaderSource } from "../../shaders/ShaderSource";
 import type { PostProcessIncrementalMetadata } from "../../pipeline/incremental";
 import { PostProcessPass, type PostProcessPassConfig } from "../PostProcessPass";
 import type { PostProcessScheduleEntry } from "../ordering";
-import { createPostProcessExecutionDeclaration } from "../executionDeclarations";
+import {
+	SOFTWARE_IN_PLACE_EXECUTION,
+	WEBGL_VERSIONED_EXECUTION,
+	WEBGPU_VERSIONED_EXECUTION,
+} from "../executionDeclarations";
 import type {
 	PostProcessPassImplementation,
 	PostProcessPassRequest,
@@ -59,7 +63,7 @@ export class SoftwareToneMappingImplementation
 {
 	public readonly id = "tonemap:software";
 	public describeExecution() {
-		return createPostProcessExecutionDeclaration("software");
+		return SOFTWARE_IN_PLACE_EXECUTION;
 	}
 
 	public execute(
@@ -90,7 +94,7 @@ export class SoftwareToneMappingImplementation
 	}
 }
 interface WebGPUToneMappingResources {
-	shared: PostProcessSharedContext;
+	shared: WebGPUPostProcessServices;
 	module: IShaderModule | null;
 	pipeline: IComputePipeline | null;
 }
@@ -100,10 +104,10 @@ export class WebGPUToneMappingImplementation
 {
 	public readonly id = "tonemap:webgpu";
 	public describeExecution() {
-		return createPostProcessExecutionDeclaration("webgpu");
+		return WEBGPU_VERSIONED_EXECUTION;
 	}
 	private _resources =
-		new Map<PostProcessSharedContext, WebGPUToneMappingResources>();
+		new Map<WebGPUPostProcessServices, WebGPUToneMappingResources>();
 
 	public async warmup(
 		context: WebGPUToneMappingContext | undefined
@@ -180,7 +184,7 @@ export class WebGPUToneMappingImplementation
 	}
 
 	private async _ensureResources(
-		shared: PostProcessSharedContext
+		shared: WebGPUPostProcessServices
 	): Promise<WebGPUToneMappingResources> {
 		let resources = this._resources.get(shared);
 		if (!resources) {
@@ -219,7 +223,7 @@ export class WebGLToneMappingImplementation
 {
 	public readonly id = "tonemap:webgl";
 	public describeExecution() {
-		return createPostProcessExecutionDeclaration("webgl");
+		return WEBGL_VERSIONED_EXECUTION;
 	}
 	private _programCompiler: WebGLProgramCompiler | null = null;
 	private _programSlot: WebGLProgramSlot<WebGLToneMappingProgram> | null = null;

@@ -12,8 +12,8 @@ import {
 } from "../../backends/webgpu/constants";
 import {
 	type WebGPUPostProcessFrameTargets,
+	type WebGPUPostProcessServices,
 } from "../../backends/webgpu/WebGPUPostProcessContracts";
-import type { PostProcessSharedContext } from "../../backends/webgpu/postprocess/PostProcessSharedContext";
 import type {
 	WebGLProgramCompiler,
 	WebGLProgramSlot,
@@ -26,9 +26,14 @@ import {
 	type PostProcessPassResolveRequest,
 } from "../PostProcessPass";
 import type { PostProcessScheduleEntry } from "../ordering";
-import { createPostProcessExecutionDeclaration } from "../executionDeclarations";
+import {
+	POST_PROCESS_SAMPLED_READ,
+	WEBGL_VERSIONED_EXECUTION,
+	WEBGPU_VERSIONED_EXECUTION,
+} from "../executionDeclarations";
 import type {
 	IPostProcessExecutor,
+	PostProcessExecutionDeclaration,
 	PostProcessPassImplementation,
 	PostProcessPassRequest,
 	PostProcessPassResult,
@@ -95,7 +100,7 @@ export const DEFAULT_FOG_OPTIONS: Required<
 export interface WebGPUFogContext {
 	readonly encoder?: ICommandEncoder;
 	readonly targets?: WebGPUPostProcessFrameTargets;
-	readonly shared: PostProcessSharedContext;
+	readonly shared: WebGPUPostProcessServices;
 	readonly resources: PostProcessResourceAccessor<IRenderTexture>;
 }
 
@@ -125,7 +130,7 @@ interface WebGLFogProgram {
 }
 
 interface WebGPUFogResources {
-	shared: PostProcessSharedContext;
+	shared: WebGPUPostProcessServices;
 	module: IShaderModule | null;
 	pipeline: IComputePipeline | null;
 	params: IRenderBuffer | null;
@@ -225,9 +230,12 @@ export class WebGPUFogImplementation
 {
 	public readonly id = "fog:webgpu";
 	public describeExecution() {
-		return createPostProcessExecutionDeclaration("webgpu", { gBuffer: ["depth"] });
+		return {
+			...WEBGPU_VERSIONED_EXECUTION,
+			gBuffer: [{ semantic: "depth", ...POST_PROCESS_SAMPLED_READ }],
+		} satisfies PostProcessExecutionDeclaration;
 	}
-	private _resources = new Map<PostProcessSharedContext, WebGPUFogResources>();
+	private _resources = new Map<WebGPUPostProcessServices, WebGPUFogResources>();
 
 	public async warmup(context: WebGPUFogContext | undefined): Promise<void> {
 		if (context) {
@@ -311,7 +319,7 @@ export class WebGPUFogImplementation
 	}
 
 	private async _ensureResources(
-		shared: PostProcessSharedContext
+		shared: WebGPUPostProcessServices
 	): Promise<WebGPUFogResources> {
 		let resources = this._resources.get(shared);
 		if (!resources) {
@@ -362,7 +370,10 @@ export class WebGLFogImplementation
 {
 	public readonly id = "fog:webgl";
 	public describeExecution() {
-		return createPostProcessExecutionDeclaration("webgl", { gBuffer: ["depth"] });
+		return {
+			...WEBGL_VERSIONED_EXECUTION,
+			gBuffer: [{ semantic: "depth", ...POST_PROCESS_SAMPLED_READ }],
+		} satisfies PostProcessExecutionDeclaration;
 	}
 	private _fogParams0 = new Float32Array(4);
 	private _fogParams1 = new Float32Array(4);

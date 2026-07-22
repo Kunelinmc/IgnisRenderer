@@ -18,6 +18,9 @@ single source of truth for resource existence, access, usage, and optionality.
   incremental metadata. Resource behavior must not appear in the schedule.
 - `PostProcessPassImplementation.describeExecution(request)` must return one
   complete `PostProcessExecutionDeclaration` for the active backend.
+- Engine-owned implementations must compose explicit typed color and resource
+  uses. A backend-name factory that infers access or usage must not be the
+  source of an implementation declaration.
 - The declaration must contain `color` and may contain `gBuffer`, `histories`,
   `transients`, and backend `shared` resource entries.
 - History and transient entries must contain their allocation descriptor and
@@ -83,6 +86,8 @@ class CustomWebGPUImplementation {
 
 ## Compatibility / Breaking Changes
 
+- `createPostProcessExecutionDeclaration()` is removed. Built-in passes compose
+  immutable backend color policies and typed resource-use records directly.
 - `PostProcessPassImplementation.metadata`, `PostProcessGraphMetadata`, context
   binding metadata, and controlled publication callbacks are removed.
 - `getRequirements()`, `getHistoryDescriptors()`,

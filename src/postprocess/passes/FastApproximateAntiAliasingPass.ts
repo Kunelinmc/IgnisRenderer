@@ -19,7 +19,7 @@ import {
 import {
 	type WebGPUPostProcessFrameTargets,
 } from "../../backends/webgpu/WebGPUPostProcessContracts";
-import type { PostProcessSharedContext } from "../../backends/webgpu/postprocess/PostProcessSharedContext";
+import type { WebGPUPostProcessServices } from "../../backends/webgpu/WebGPUPostProcessContracts";
 import type {
 	WebGLProgramCompiler,
 	WebGLProgramSlot,
@@ -29,7 +29,11 @@ import { ceilDiv } from "../../maths/Misc";
 import { ShaderSource } from "../../shaders/ShaderSource";
 import { PostProcessPass, type PostProcessPassConfig } from "../PostProcessPass";
 import type { PostProcessScheduleEntry } from "../ordering";
-import { createPostProcessExecutionDeclaration } from "../executionDeclarations";
+import {
+	SOFTWARE_IN_PLACE_EXECUTION,
+	WEBGL_VERSIONED_EXECUTION,
+	WEBGPU_VERSIONED_EXECUTION,
+} from "../executionDeclarations";
 import type {
 	PostProcessPassImplementation,
 	PostProcessPassRequest,
@@ -70,7 +74,7 @@ export interface SoftwareFXAAContext {
 export interface WebGPUFXAAContext {
 	readonly encoder?: ICommandEncoder;
 	readonly targets?: WebGPUPostProcessFrameTargets;
-	readonly shared: PostProcessSharedContext;
+	readonly shared: WebGPUPostProcessServices;
 	readonly resources: PostProcessResourceAccessor<IRenderTexture>;
 }
 
@@ -98,7 +102,7 @@ interface WebGLFXAAProgram {
 }
 
 interface WebGPUFXAAResources {
-	shared: PostProcessSharedContext;
+	shared: WebGPUPostProcessServices;
 	module: IShaderModule | null;
 	pipeline: IComputePipeline | null;
 	params: IRenderBuffer | null;
@@ -132,7 +136,7 @@ export class SoftwareFastApproximateAntiAliasingImplementation
 {
 	public readonly id = "fxaa:software";
 	public describeExecution() {
-		return createPostProcessExecutionDeclaration("software");
+		return SOFTWARE_IN_PLACE_EXECUTION;
 	}
 	private _output: Uint8ClampedArray | null = null;
 	private _luma: Float32Array | null = null;
@@ -335,9 +339,9 @@ export class WebGPUFastApproximateAntiAliasingImplementation
 {
 	public readonly id = "fxaa:webgpu";
 	public describeExecution() {
-		return createPostProcessExecutionDeclaration("webgpu");
+		return WEBGPU_VERSIONED_EXECUTION;
 	}
-	private _resources = new Map<PostProcessSharedContext, WebGPUFXAAResources>();
+	private _resources = new Map<WebGPUPostProcessServices, WebGPUFXAAResources>();
 
 	public async warmup(context: WebGPUFXAAContext | undefined): Promise<void> {
 		if (context) {
@@ -427,7 +431,7 @@ export class WebGPUFastApproximateAntiAliasingImplementation
 	}
 
 	private async _ensureResources(
-		shared: PostProcessSharedContext
+		shared: WebGPUPostProcessServices
 	): Promise<WebGPUFXAAResources> {
 		let resources = this._resources.get(shared);
 		if (!resources) {
@@ -472,7 +476,7 @@ export class WebGLFastApproximateAntiAliasingImplementation
 {
 	public readonly id = "fxaa:webgl";
 	public describeExecution() {
-		return createPostProcessExecutionDeclaration("webgl");
+		return WEBGL_VERSIONED_EXECUTION;
 	}
 	private _programCompiler: WebGLProgramCompiler | null = null;
 	private _programSlot: WebGLProgramSlot<WebGLFXAAProgram> | null = null;

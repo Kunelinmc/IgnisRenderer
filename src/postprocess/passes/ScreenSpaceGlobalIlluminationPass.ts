@@ -13,13 +13,17 @@ import {
 } from "../../backends/webgpu/constants";
 import {
 	type WebGPUPostProcessFrameTargets,
+	type WebGPUPostProcessServices,
 } from "../../backends/webgpu/WebGPUPostProcessContracts";
-import type { PostProcessSharedContext } from "../../backends/webgpu/postprocess/PostProcessSharedContext";
 import { ShaderSource } from "../../shaders/ShaderSource";
 import { PostProcessPass, type PostProcessPassConfig } from "../PostProcessPass";
 import type { PostProcessScheduleEntry } from "../ordering";
-import { createPostProcessExecutionDeclaration } from "../executionDeclarations";
+import {
+	POST_PROCESS_SAMPLED_READ,
+	WEBGPU_VERSIONED_EXECUTION,
+} from "../executionDeclarations";
 import type {
+	PostProcessExecutionDeclaration,
 	PostProcessPassImplementation,
 	PostProcessPassRequest,
 	PostProcessPassResult,
@@ -96,12 +100,12 @@ export type ResolvedSSGIOptions = Required<
 export interface WebGPUSSGIContext {
 	readonly encoder?: ICommandEncoder;
 	readonly targets?: WebGPUPostProcessFrameTargets;
-	readonly shared: PostProcessSharedContext;
+	readonly shared: WebGPUPostProcessServices;
 	readonly resources: PostProcessResourceAccessor<IRenderTexture>;
 }
 
 interface WebGPUSSGIResources {
-	shared: PostProcessSharedContext;
+	shared: WebGPUPostProcessServices;
 	module: IShaderModule | null;
 	pipeline: IComputePipeline | null;
 	params: IRenderBuffer | null;
@@ -186,11 +190,14 @@ export class WebGPUScreenSpaceGlobalIlluminationImplementation
 {
 	public readonly id = "ssgi:webgpu";
 	public describeExecution() {
-		return createPostProcessExecutionDeclaration("webgpu", {
-			gBuffer: ["color", "depth", "normal", "albedo"],
-		});
+		return {
+			...WEBGPU_VERSIONED_EXECUTION,
+			gBuffer: (["color", "depth", "normal", "albedo"] as const).map(
+				(semantic) => ({ semantic, ...POST_PROCESS_SAMPLED_READ })
+			),
+		} satisfies PostProcessExecutionDeclaration;
 	}
-	private _resources = new Map<PostProcessSharedContext, WebGPUSSGIResources>();
+	private _resources = new Map<WebGPUPostProcessServices, WebGPUSSGIResources>();
 
 	public async warmup(context: WebGPUSSGIContext | undefined): Promise<void> {
 		if (context) {
@@ -291,7 +298,7 @@ export class WebGPUScreenSpaceGlobalIlluminationImplementation
 	}
 
 	private async _ensureResources(
-		shared: PostProcessSharedContext
+		shared: WebGPUPostProcessServices
 	): Promise<WebGPUSSGIResources> {
 		let resources = this._resources.get(shared);
 		if (!resources) {

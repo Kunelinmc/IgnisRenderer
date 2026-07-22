@@ -10,8 +10,10 @@ import {
 import {
 	WEBGPU_2D_COMPUTE_WORKGROUP_SIZE as WORKGROUP_SIZE,
 } from "../../backends/webgpu/constants";
-import type { WebGPUPostProcessFrameTargets } from "../../backends/webgpu/WebGPUPostProcessContracts";
-import type { PostProcessSharedContext } from "../../backends/webgpu/postprocess/PostProcessSharedContext";
+import type {
+	WebGPUPostProcessFrameTargets,
+	WebGPUPostProcessServices,
+} from "../../backends/webgpu/WebGPUPostProcessContracts";
 import type { ICommandEncoder } from "../../backends/ICommandEncoder";
 import { ceilDiv, finiteOr } from "../../maths/Misc";
 import { ShaderSource } from "../../shaders/ShaderSource";
@@ -21,8 +23,13 @@ import {
 	type PostProcessPassResolveRequest,
 } from "../PostProcessPass";
 import type { PostProcessScheduleEntry } from "../ordering";
-import { createPostProcessExecutionDeclaration } from "../executionDeclarations";
+import {
+	POST_PROCESS_SAMPLED_READ,
+	POST_PROCESS_STORAGE_WRITE,
+	WEBGPU_VERSIONED_EXECUTION,
+} from "../executionDeclarations";
 import type {
+	PostProcessExecutionDeclaration,
 	PostProcessPassImplementation,
 	PostProcessPassRequest,
 	PostProcessResourceAccessor,
@@ -119,13 +126,13 @@ export type ResolvedSSRefractionOptions = Required<
 export interface WebGPUSSRefractionContext {
 	readonly encoder?: ICommandEncoder;
 	readonly targets?: WebGPUPostProcessFrameTargets;
-	readonly shared: PostProcessSharedContext;
+	readonly shared: WebGPUPostProcessServices;
 	readonly frameBinding?: IBindingGroup;
 	readonly resources: PostProcessResourceAccessor<IRenderTexture>;
 }
 
 interface WebGPUSSRefractionResources {
-	shared: PostProcessSharedContext;
+	shared: WebGPUPostProcessServices;
 	module: IShaderModule | null;
 	tracePipeline: IComputePipeline | null;
 	composePipeline: IComputePipeline | null;
@@ -259,9 +266,17 @@ export class WebGPUScreenSpaceRefractionsImplementation
 	public describeExecution(
 		request: PostProcessPassResolveRequest<ResolvedSSRefractionOptions>
 	) {
-		return createPostProcessExecutionDeclaration("webgpu", {
-			gBuffer: ["depth", "motion", "normal", "transmission"],
-			transients: resolveSSRefractionTransientDescriptors(request),
+		return {
+			...WEBGPU_VERSIONED_EXECUTION,
+			gBuffer: (["depth", "motion", "normal", "transmission"] as const).map(
+				(semantic) => ({ semantic, ...POST_PROCESS_SAMPLED_READ })
+			),
+			transients: resolveSSRefractionTransientDescriptors(request).map(
+				(descriptor) => ({
+					descriptor,
+					uses: [POST_PROCESS_STORAGE_WRITE],
+				})
+			),
 			shared: [{
 				id: "backend:frame-hiz",
 				access: "read",
@@ -272,10 +287,10 @@ export class WebGPUScreenSpaceRefractionsImplementation
 				WEBGPU_TRANSMISSION_SURFACE_1,
 				WEBGPU_TRANSMISSION_SURFACE_2,
 			].map((id) => ({ id, access: "read" as const, usage: "sampled" as const }))],
-		});
+		} satisfies PostProcessExecutionDeclaration;
 	}
 	private _resources = new Map<
-		PostProcessSharedContext,
+		WebGPUPostProcessServices,
 		WebGPUSSRefractionResources
 	>();
 
@@ -460,7 +475,7 @@ export class WebGPUScreenSpaceRefractionsImplementation
 	}
 
 	private async _ensureResources(
-		shared: PostProcessSharedContext
+		shared: WebGPUPostProcessServices
 	): Promise<WebGPUSSRefractionResources> {
 		let resources = this._resources.get(shared);
 		if (!resources) {

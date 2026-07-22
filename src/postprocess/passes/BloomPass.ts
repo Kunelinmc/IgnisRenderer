@@ -10,11 +10,11 @@ import {
 } from "../../backends/types";
 import {
 	type WebGPUPostProcessFrameTargets,
+	type WebGPUPostProcessServices,
 } from "../../backends/webgpu/WebGPUPostProcessContracts";
 import {
 	WEBGPU_2D_COMPUTE_WORKGROUP_SIZE as WORKGROUP_SIZE,
 } from "../../backends/webgpu/constants";
-import type { PostProcessSharedContext } from "../../backends/webgpu/postprocess/PostProcessSharedContext";
 import type {
 	WebGLProgramCompiler,
 	WebGLProgramSlot,
@@ -30,7 +30,10 @@ import {
 	type PostProcessPassConfig,
 } from "../PostProcessPass";
 import type { PostProcessScheduleEntry } from "../ordering";
-import { createPostProcessExecutionDeclaration } from "../executionDeclarations";
+import {
+	WEBGL_VERSIONED_EXECUTION,
+	WEBGPU_VERSIONED_EXECUTION,
+} from "../executionDeclarations";
 import type {
 	PostProcessPassImplementation,
 	PostProcessPassRequest,
@@ -85,7 +88,7 @@ export const DEFAULT_BLOOM_OPTIONS: Required<
 export interface WebGPUBloomContext {
 	readonly encoder?: ICommandEncoder;
 	readonly targets?: WebGPUPostProcessFrameTargets;
-	readonly shared: PostProcessSharedContext;
+	readonly shared: WebGPUPostProcessServices;
 	readonly resources: PostProcessResourceAccessor<IRenderTexture>;
 }
 
@@ -114,7 +117,7 @@ interface WebGLBloomProgram {
 }
 
 interface WebGPUBloomResources {
-	shared: PostProcessSharedContext;
+	shared: WebGPUPostProcessServices;
 	downsampleModule: IShaderModule | null;
 	blurHModule: IShaderModule | null;
 	blurVModule: IShaderModule | null;
@@ -144,9 +147,9 @@ export class WebGPUBloomImplementation
 {
 	public readonly id = "bloom:webgpu";
 	public describeExecution() {
-		return createPostProcessExecutionDeclaration("webgpu");
+		return WEBGPU_VERSIONED_EXECUTION;
 	}
-	private _resources = new Map<PostProcessSharedContext, WebGPUBloomResources>();
+	private _resources = new Map<WebGPUPostProcessServices, WebGPUBloomResources>();
 
 	public async warmup(context: WebGPUBloomContext | undefined): Promise<void> {
 		if (context) {
@@ -489,7 +492,7 @@ export class WebGPUBloomImplementation
 	}
 
 	private async _ensureResources(
-		shared: PostProcessSharedContext
+		shared: WebGPUPostProcessServices
 	): Promise<WebGPUBloomResources> {
 		let resources = this._resources.get(shared);
 		if (!resources) {
@@ -596,7 +599,7 @@ export class WebGPUBloomImplementation
 	}
 
 	private async _createModule(
-		shared: PostProcessSharedContext,
+		shared: WebGPUPostProcessServices,
 		part: WebGPUPostProcessShaderPart,
 		label: string
 	): Promise<IShaderModule> {
@@ -685,7 +688,7 @@ export class WebGLBloomImplementation
 {
 	public readonly id = "bloom:webgl";
 	public describeExecution() {
-		return createPostProcessExecutionDeclaration("webgl");
+		return WEBGL_VERSIONED_EXECUTION;
 	}
 	private _programCompiler: WebGLProgramCompiler | null = null;
 	private _programSlot: WebGLProgramSlot<WebGLBloomProgram> | null = null;

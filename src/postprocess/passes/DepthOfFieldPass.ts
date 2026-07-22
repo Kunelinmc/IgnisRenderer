@@ -9,7 +9,7 @@ import {
 import {
 	WEBGPU_2D_COMPUTE_WORKGROUP_SIZE as WEBGPU_WORKGROUP_SIZE,
 } from "../../backends/webgpu/constants";
-import type { PostProcessSharedContext } from "../../backends/webgpu/postprocess/PostProcessSharedContext";
+import type { WebGPUPostProcessServices } from "../../backends/webgpu/WebGPUPostProcessContracts";
 import {
 	DOF_CHROMATIC_ABERRATION_RANGE,
 	DOF_DEPTH_CURVE_RANGE,
@@ -25,8 +25,13 @@ import type {
 import { ShaderSource } from "../../shaders/ShaderSource";
 import { PostProcessPass, type PostProcessPassConfig } from "../PostProcessPass";
 import type { PostProcessScheduleEntry } from "../ordering";
-import { createPostProcessExecutionDeclaration } from "../executionDeclarations";
+import {
+	POST_PROCESS_SAMPLED_READ,
+	WEBGL_VERSIONED_EXECUTION,
+	WEBGPU_VERSIONED_EXECUTION,
+} from "../executionDeclarations";
 import type {
+	PostProcessExecutionDeclaration,
 	PostProcessPassImplementation,
 	PostProcessPassRequest,
 	PostProcessPassResult,
@@ -112,7 +117,7 @@ export type WebGPUDepthOfFieldContext = WebGPURuntimePostProcessContext;
 export type WebGLDepthOfFieldContext = WebGLScreenPostProcessContext;
 
 interface WebGPUDepthOfFieldResources {
-	shared: PostProcessSharedContext;
+	shared: WebGPUPostProcessServices;
 	module: IShaderModule | null;
 	pipeline: IComputePipeline | null;
 	params: IRenderBuffer | null;
@@ -124,10 +129,13 @@ export class WebGPUDepthOfFieldImplementation
 {
 	public readonly id = "dof:webgpu";
 	public describeExecution() {
-		return createPostProcessExecutionDeclaration("webgpu", { gBuffer: ["depth"] });
+		return {
+			...WEBGPU_VERSIONED_EXECUTION,
+			gBuffer: [{ semantic: "depth", ...POST_PROCESS_SAMPLED_READ }],
+		} satisfies PostProcessExecutionDeclaration;
 	}
 	private _resources =
-		new Map<PostProcessSharedContext, WebGPUDepthOfFieldResources>();
+		new Map<WebGPUPostProcessServices, WebGPUDepthOfFieldResources>();
 
 	public async warmup(
 		context: WebGPUDepthOfFieldContext | undefined
@@ -271,7 +279,7 @@ export class WebGPUDepthOfFieldImplementation
 	}
 
 	private async _ensureResources(
-		shared: PostProcessSharedContext
+		shared: WebGPUPostProcessServices
 	): Promise<WebGPUDepthOfFieldResources> {
 		let resources = this._resources.get(shared);
 		if (!resources) {
@@ -318,7 +326,10 @@ export class WebGLDepthOfFieldImplementation
 {
 	public readonly id = "dof:webgl";
 	public describeExecution() {
-		return createPostProcessExecutionDeclaration("webgl", { gBuffer: ["depth"] });
+		return {
+			...WEBGL_VERSIONED_EXECUTION,
+			gBuffer: [{ semantic: "depth", ...POST_PROCESS_SAMPLED_READ }],
+		} satisfies PostProcessExecutionDeclaration;
 	}
 	private _programCompiler: WebGLProgramCompiler | null = null;
 	private _programSlot: WebGLProgramSlot<WebGLDepthOfFieldProgram> | null = null;

@@ -5,11 +5,18 @@ import { FakeBackend } from "../../helpers/webgpu_postprocess_runtime_test_helpe
 
 function testRuntimeOnlyOwnsSharedServices() {
 	const backend = new FakeBackend();
-	const runtime = new WebGPUPostProcessRuntime(backend, () => {});
-	assert.ok(runtime.sharedContext);
+	const warnings = [];
+	const runtime = new WebGPUPostProcessRuntime(
+		backend,
+		(key, message) => warnings.push([key, message])
+	);
+	assert.ok(runtime.compute);
+	assert.equal("sharedContext" in runtime, false);
 	assert.equal("executePass" in runtime, false);
 	assert.equal("registerRuntimePass" in runtime, false);
 	assert.equal("warmupHints" in runtime, false);
+	runtime.warn("test-warning", "runtime owns diagnostics");
+	assert.deepEqual(warnings, [["test-warning", "runtime owns diagnostics"]]);
 	assert.equal(backend.shaderModules.length, 0);
 	assert.equal(backend.computePipelines.length, 0);
 	assert.equal(backend.buffers.length, 0);

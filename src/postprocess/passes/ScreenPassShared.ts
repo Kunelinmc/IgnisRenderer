@@ -2,8 +2,10 @@ import type { FrameContext } from "../../pipeline/types";
 import type { IncrementalDirtyRect } from "../../pipeline/incremental";
 import type { ICommandEncoder } from "../../backends/ICommandEncoder";
 import type { IRenderTexture } from "../../backends/types";
-import type { WebGPUPostProcessFrameTargets } from "../../backends/webgpu/WebGPUPostProcessContracts";
-import type { PostProcessSharedContext } from "../../backends/webgpu/postprocess/PostProcessSharedContext";
+import type {
+	WebGPUPostProcessFrameTargets,
+	WebGPUPostProcessServices,
+} from "../../backends/webgpu/WebGPUPostProcessContracts";
 import type { WebGLProgramCompiler } from "../../backends/webgl/WebGLProgramCompiler";
 import type { PostProcessResourceAccessor } from "../types";
 export type { IncrementalDirtyRect } from "../../pipeline/incremental";
@@ -20,7 +22,7 @@ export interface SoftwareBuiltinPostProcessContext {
 export interface WebGPUScreenPostProcessContext {
 	readonly encoder?: ICommandEncoder;
 	readonly targets?: WebGPUPostProcessFrameTargets;
-	readonly shared: PostProcessSharedContext;
+	readonly shared: WebGPUPostProcessServices;
 	readonly resources: PostProcessResourceAccessor<IRenderTexture>;
 	readonly frameBinding?: unknown;
 	readonly lightingState?: unknown;

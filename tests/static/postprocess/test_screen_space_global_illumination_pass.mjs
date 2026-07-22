@@ -133,7 +133,7 @@ async function testSSGIDescriptorAndWebGPUExecution() {
 	const result = await implementation.execute(request, {
 		encoder,
 		targets,
-		shared: runtime.sharedContext,
+		shared: runtime,
 		resources: {
 			color: { input: sceneColorMain, output: postPong },
 			getGBuffer(semantic) {
@@ -254,7 +254,7 @@ async function testSSGIPipelineUsesWebGPUImplementation() {
 			return {
 				encoder,
 				targets,
-				shared: runtime.sharedContext,
+				shared: runtime,
 				resources: {
 					color: { input: targets.sceneColor, output: targets.postPong },
 					getGBuffer(semantic) {

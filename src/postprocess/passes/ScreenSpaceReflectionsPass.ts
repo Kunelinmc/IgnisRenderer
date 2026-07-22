@@ -11,8 +11,10 @@ import {
 import {
 	WEBGPU_2D_COMPUTE_WORKGROUP_SIZE as WORKGROUP_SIZE,
 } from "../../backends/webgpu/constants";
-import type { WebGPUPostProcessFrameTargets } from "../../backends/webgpu/WebGPUPostProcessContracts";
-import type { PostProcessSharedContext } from "../../backends/webgpu/postprocess/PostProcessSharedContext";
+import type {
+	WebGPUPostProcessFrameTargets,
+	WebGPUPostProcessServices,
+} from "../../backends/webgpu/WebGPUPostProcessContracts";
 import { ceilDiv, finiteOr } from "../../maths/Misc";
 import { ShaderSource } from "../../shaders/ShaderSource";
 import {
@@ -21,8 +23,13 @@ import {
 	type PostProcessPassResolveRequest,
 } from "../PostProcessPass";
 import type { PostProcessScheduleEntry } from "../ordering";
-import { createPostProcessExecutionDeclaration } from "../executionDeclarations";
+import {
+	POST_PROCESS_SAMPLED_READ,
+	POST_PROCESS_STORAGE_WRITE,
+	WEBGPU_VERSIONED_EXECUTION,
+} from "../executionDeclarations";
 import type {
+	PostProcessExecutionDeclaration,
 	PostProcessHistoryDescriptor,
 	PostProcessHistorySlots,
 	PostProcessPassImplementation,
@@ -119,13 +126,13 @@ export type ResolvedSSROptions = Required<
 export interface WebGPUSSRContext {
 	readonly encoder?: ICommandEncoder;
 	readonly targets?: WebGPUPostProcessFrameTargets;
-	readonly shared: PostProcessSharedContext;
+	readonly shared: WebGPUPostProcessServices;
 	readonly frameBinding?: IBindingGroup;
 	readonly resources: PostProcessResourceAccessor<IRenderTexture>;
 }
 
 interface WebGPUSSRResources {
-	shared: PostProcessSharedContext;
+	shared: WebGPUPostProcessServices;
 	module: IShaderModule | null;
 	tracePipeline: IComputePipeline | null;
 	composePipeline: IComputePipeline | null;
@@ -252,13 +259,30 @@ export class WebGPUScreenSpaceReflectionsImplementation
 	public describeExecution(request: PostProcessPassResolveRequest<ResolvedSSROptions>) {
 		const options = resolveSSROptions(request.options);
 		const scale = 1 / options.downsample;
-		return createPostProcessExecutionDeclaration("webgpu", {
-			gBuffer: ["depth", "normal", "roughness", "metallic", "motion"],
-			histories: resolveSSRHistoryDescriptors(request),
+		return {
+			...WEBGPU_VERSIONED_EXECUTION,
+			gBuffer: ([
+				"depth",
+				"normal",
+				"roughness",
+				"metallic",
+				"motion",
+			] as const).map((semantic) => ({
+				semantic,
+				...POST_PROCESS_SAMPLED_READ,
+			})),
+			histories: resolveSSRHistoryDescriptors(request).map((descriptor) => ({
+				descriptor,
+				read: [POST_PROCESS_SAMPLED_READ],
+				write: [POST_PROCESS_STORAGE_WRITE],
+			})),
 			transients: [{
-				id: WEBGPU_SSR_RAW_TRANSIENT_ID,
-				widthScale: scale,
-				heightScale: scale,
+				descriptor: {
+					id: WEBGPU_SSR_RAW_TRANSIENT_ID,
+					widthScale: scale,
+					heightScale: scale,
+				},
+				uses: [POST_PROCESS_STORAGE_WRITE],
 			}],
 			shared: [{
 				id: "backend:frame-hiz",
@@ -270,9 +294,9 @@ export class WebGPUScreenSpaceReflectionsImplementation
 				usage: "sampled",
 				optional: true,
 			}],
-		});
+		} satisfies PostProcessExecutionDeclaration;
 	}
-	private _resources = new Map<PostProcessSharedContext, WebGPUSSRResources>();
+	private _resources = new Map<WebGPUPostProcessServices, WebGPUSSRResources>();
 
 	public async warmup(context: WebGPUSSRContext | undefined): Promise<void> {
 		if (context) {
@@ -473,7 +497,7 @@ export class WebGPUScreenSpaceReflectionsImplementation
 	}
 
 	private async _ensureResources(
-		shared: PostProcessSharedContext
+		shared: WebGPUPostProcessServices
 	): Promise<WebGPUSSRResources> {
 		let resources = this._resources.get(shared);
 		if (!resources) {
