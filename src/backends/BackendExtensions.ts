@@ -1,5 +1,5 @@
 import type { OcclusionCullingBackendAdapter } from "../pipeline/OcclusionCulling";
-import type { ProbeWebGPUCaptureSource } from "../lights/runtime/ProbeCaptureRuntime";
+import type { ProbeCaptureSource } from "../lights/runtime/ProbeCaptureRuntime";
 import type { IWebGPUComputeFacade } from "./webgpu/ComputeFacade";
 
 export const RENDERER_OCCLUSION_CULLING_EXTENSION_ID =
@@ -133,7 +133,7 @@ export const OCCLUSION_CULLING_EXTENSION: RenderBackendExtensionKey<
 };
 
 export const PROBE_CAPTURE_EXTENSION: RenderBackendExtensionKey<
-	ProbeWebGPUCaptureSource
+	ProbeCaptureSource
 > = {
 	id: RENDERER_PROBE_CAPTURE_EXTENSION_ID,
 };

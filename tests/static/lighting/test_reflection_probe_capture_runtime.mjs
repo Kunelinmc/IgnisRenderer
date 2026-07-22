@@ -326,7 +326,7 @@ async function testCaptureRuntimeSchedulesNearestProbeFirst() {
 				nowMs: 0,
 				frameContext: {},
 				cameraWorldPosition: { x: 0, y: 0, z: 0 },
-				webgpuCaptureSource: {
+				captureSource: {
 					async captureProbeFace(request) {
 						captureOrder.push(request.targetId);
 						return createCapturedFace(request.faceSize, 1);
@@ -440,7 +440,7 @@ async function testCaptureRuntimeBudgetDowngradesResolution() {
 					scene,
 					nowMs: i * 16,
 					frameContext: {},
-					webgpuCaptureSource: {
+					captureSource: {
 						async captureProbeFace(request) {
 							capturedFaceSizes.push(request.faceSize);
 							await new Promise((resolve) => setTimeout(resolve, 1));
@@ -485,7 +485,7 @@ async function testCaptureRuntimeForwardsMeshCaptureFlags() {
 				scene,
 				nowMs: 0,
 				frameContext: {},
-				webgpuCaptureSource: {
+				captureSource: {
 					async captureProbeFace(request) {
 						capturedFlags.push({
 							includeEnvironment: request.includeEnvironment,

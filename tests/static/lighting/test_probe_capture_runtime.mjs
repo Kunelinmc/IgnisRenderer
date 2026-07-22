@@ -130,7 +130,7 @@ async function testLightProbeCaptureWritesBoundTextures() {
 			scene,
 			nowMs: step * 16,
 			frameContext: {},
-			webgpuCaptureSource: {
+			captureSource: {
 				async captureProbeFace(request) {
 					return createCapturedFace(request.faceSize, 0.6);
 				},
@@ -189,7 +189,7 @@ async function testSharedCaptureUpdatesLightAndReflectionProbe() {
 					scene,
 					nowMs: step * 16,
 					frameContext: {},
-					webgpuCaptureSource: {
+					captureSource: {
 						async captureProbeFace(request) {
 							faceCaptureCount++;
 							return createCapturedFace(request.faceSize, 0.75);
@@ -237,7 +237,7 @@ async function testReflectionProbeCaptureWritesBoundPrefilteredTexture() {
 					scene,
 					nowMs: step * 16,
 					frameContext: {},
-					webgpuCaptureSource: {
+					captureSource: {
 						async captureProbeFace(request) {
 							return createCapturedFace(request.faceSize, 0.8);
 						},

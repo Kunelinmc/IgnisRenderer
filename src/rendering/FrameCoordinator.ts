@@ -535,7 +535,7 @@ export class FrameCoordinator {
 			frameDirtyReasonMask: state.frameDirtyReasonMask,
 			frameContext: state.context,
 			cameraWorldPosition,
-			webgpuCaptureSource: delegate.getBackendExtension(PROBE_CAPTURE_EXTENSION),
+			captureSource: delegate.getBackendExtension(PROBE_CAPTURE_EXTENSION),
 		});
 	}
 

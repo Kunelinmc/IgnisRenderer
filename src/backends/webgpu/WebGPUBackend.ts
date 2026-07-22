@@ -47,7 +47,7 @@ import { WebGPUMSAAController, type WebGPUMSAAControllerHost } from "./WebGPUMSA
 import { WebGPUBackendPassDispatcher } from "./WebGPUBackendPassDispatcher";
 import { WebGPUWarmupCoordinator } from "./WebGPUWarmupCoordinator";
 import { WebGPUReflectionProbeCapturePass } from "./WebGPUReflectionProbeCapturePass";
-import type { ProbeWebGPUCaptureFaceRequest } from "../../lights/runtime/ProbeCaptureRuntime";
+import type { ProbeCaptureFaceRequest } from "../../lights/runtime/ProbeCaptureRuntime";
 import { WebGPUFrameServiceOwner } from "./WebGPUFrameServiceOwner";
 import type { WebGPUCommandSchedulerHost } from "./WebGPUBackendContracts";
 import {
@@ -416,7 +416,7 @@ export class WebGPUBackend implements IRenderBackend {
 				id: PROBE_CAPTURE_EXTENSION.id,
 				insertionPoints: ["renderer:probe-capture"],
 				api: {
-					captureProbeFace: (request: ProbeWebGPUCaptureFaceRequest) =>
+					captureProbeFace: (request: ProbeCaptureFaceRequest) =>
 						this.captureProbeFace(request),
 				},
 			},
@@ -885,7 +885,7 @@ export class WebGPUBackend implements IRenderBackend {
 	}
 
 	public async captureProbeFace(
-		request: ProbeWebGPUCaptureFaceRequest,
+		request: ProbeCaptureFaceRequest,
 	): Promise<Float32Array | null> {
 		if (!this._reflectionProbeCapturePass) {
 			return null;

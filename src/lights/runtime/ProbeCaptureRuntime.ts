@@ -132,7 +132,7 @@ interface CaptureLightingState {
 	areaLights: CapturedLocalLight[];
 }
 
-export interface ProbeWebGPUCaptureFaceRequest {
+export interface ProbeCaptureFaceRequest {
 	frameContext: FrameContext;
 	targetId: string;
 	targetKind: ProbeCaptureTargetKind;
@@ -147,9 +147,9 @@ export interface ProbeWebGPUCaptureFaceRequest {
 	includeShadows: boolean;
 }
 
-export interface ProbeWebGPUCaptureSource {
+export interface ProbeCaptureSource {
 	captureProbeFace(
-		request: ProbeWebGPUCaptureFaceRequest
+		request: ProbeCaptureFaceRequest
 	): Promise<Float32Array | null>;
 }
 
@@ -159,7 +159,7 @@ export interface ProbeCaptureRuntimeExecuteContext {
 	frameDirtyReasonMask?: number | null;
 	frameContext?: FrameContext | null;
 	cameraWorldPosition?: IVector3 | null;
-	webgpuCaptureSource?: ProbeWebGPUCaptureSource | null;
+	captureSource?: ProbeCaptureSource | null;
 }
 
 export interface ProbeCaptureRuntimeOptions {
@@ -318,7 +318,7 @@ export class ProbeCaptureRuntime {
 		const useMeshCapture =
 			primaryTarget.includeMeshes &&
 			!!context.frameContext &&
-			!!context.webgpuCaptureSource;
+			!!context.captureSource;
 		if (primaryTarget.includeMeshes && !useMeshCapture) {
 			Logger.warn(
 				"[probe-mesh-capture-unsupported] Probe scene mesh capture requested without a compatible GPU face capture source; falling back to environment background and analytic lights only.",
@@ -453,12 +453,12 @@ export class ProbeCaptureRuntime {
 		if (
 			task.useMeshCapture &&
 			context.frameContext &&
-			context.webgpuCaptureSource &&
+			context.captureSource &&
 			task.includeMeshes
 		) {
 			try {
 				const captured =
-					await context.webgpuCaptureSource.captureProbeFace({
+					await context.captureSource.captureProbeFace({
 						frameContext: context.frameContext,
 						targetId: task.targets[0]?.id ?? "unknown",
 						targetKind: task.targets[0]?.kind ?? "reflection",

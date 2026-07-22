@@ -23,7 +23,7 @@ import {
 } from "../../pipeline/types";
 import type { ResolvedPostProcessState } from "../../postprocess";
 import type { IncrementalFrameContext } from "../../pipeline/incremental";
-import type { ProbeWebGPUCaptureFaceRequest } from "../../lights/runtime/ProbeCaptureRuntime";
+import type { ProbeCaptureFaceRequest } from "../../lights/runtime/ProbeCaptureRuntime";
 import { LightType } from "../../lights";
 import { ComputeRuntime } from "./ComputeRuntime";
 import type {
@@ -77,7 +77,7 @@ export class WebGPUReflectionProbeCapturePass {
 	}
 
 	public async captureFace(
-		request: ProbeWebGPUCaptureFaceRequest
+		request: ProbeCaptureFaceRequest
 	): Promise<Float32Array | null> {
 		const faceSize = Math.max(1, Math.floor(request.faceSize));
 		if (faceSize <= 0) {
@@ -446,7 +446,7 @@ function buildCapturePreparedScene(
 	includeEnvironment: boolean,
 	includeTransparent: boolean,
 	includeParticles: boolean,
-	targetKind: ProbeWebGPUCaptureFaceRequest["targetKind"],
+	targetKind: ProbeCaptureFaceRequest["targetKind"],
 	targetId: string
 ): PreparedScene {
 	const baseScene = frameContext.scene;
@@ -539,7 +539,7 @@ function buildCapturePreparedScene(
 
 function filterCapturePreparedSceneLights(
 	lights: PreparedScene["lights"],
-	targetKind: ProbeWebGPUCaptureFaceRequest["targetKind"],
+	targetKind: ProbeCaptureFaceRequest["targetKind"],
 	targetId: string
 ): PreparedScene["lights"] {
 	if (targetKind !== "grid") {

@@ -155,7 +155,7 @@ All graphics commands are recorded through a backend-agnostic `ICommandEncoder`.
 - `OCCLUSION_CULLING_EXTENSION`
   - Must expose an `OcclusionCullingBackendAdapter` API.
 - `PROBE_CAPTURE_EXTENSION`
-  - Must expose a `ProbeWebGPUCaptureSource` API.
+  - Must expose a backend-agnostic `ProbeCaptureSource` API.
 - `WEBGPU_COMPUTE_EXTENSION`
   - Must expose an `IWebGPUComputeFacade` API.
 - Identity Persistence:
