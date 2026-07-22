@@ -12,7 +12,7 @@ analysis is defined by `docs/rendergraph/internal-render-graph-architecture.md`.
 `WebGLBackend` exposes renderer-owned frame lifecycle methods. Internally,
 `WebGLFrameGraphRuntime` expands renderer-level `FramePass` entries into WebGL
 nodes so framebuffer, texture, OIT, post-process, and presentation work can be
-validated without keeping pass orchestration inside `WebGLFrameExecutor`.
+validated without keeping pass orchestration inside `WebGLFrameServiceOwner`.
 
 ## API/Contract
 
@@ -22,19 +22,18 @@ validated without keeping pass orchestration inside `WebGLFrameExecutor`.
   `environment` nodes during `beginFrame(context)`.
 - `WebGLFrameGraphRuntime` must execute a synthetic `present` node during
   `endFrame(context)`.
-- `WebGLFrameExecutor` must remain a thin aggregate facade for frame begin,
-  finish, abort, resize, and service lifetime coordination.
 - `WebGLFrameServiceOwner` must construct device-scoped WebGL frame services
-  and destroy them in dependency order.
+  and destroy them in dependency order. It must directly provide frame begin,
+  finish, abort, resize, and service lifetime coordination.
 - Each WebGL frame runtime must own and destroy the native handles it creates.
   Frame-sized attachments must be owned exclusively by
   `WebGLFrameTargetManager`; post-process histories must be owned exclusively
   by `BackendPostProcessRuntime` resource pools.
 - `WebGLFrameNodeExecutorRegistry` must assign every WebGL graph node kind to
   exactly one executor and must reject missing or duplicate registrations.
-- `WebGLFrameExecutor` must not own renderer-level pass orchestration.
+- `WebGLFrameServiceOwner` must not own renderer-level pass orchestration.
 - WebGL graph and post-process runtimes must depend on narrow internal
-  contracts and must not require the concrete `WebGLFrameExecutor` type.
+  contracts and must not require the concrete `WebGLFrameServiceOwner` type.
 - `WebGLFrameGraphCompiler` must compile one whole-frame definition and
   preserve planner order among retained nodes.
 - `executePass()` must consume a precompiled stage slice and must not plan or
@@ -103,3 +102,5 @@ depend on it as a stable public API. The shared analyzer does not change
 framebuffer ownership, WebGL state changes, planner order, presentation, or the
 backend-owned post-process pool. Eligible post-process passes are composed as
 individual `"post-process-pass"` nodes in the authoritative whole-frame graph.
+`WebGLFrameExecutor` is removed; `WebGLFrameServiceOwner` now directly owns
+the internal frame-service lifecycle.

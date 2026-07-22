@@ -276,7 +276,7 @@ async function testInitAndPassRouting() {
 	assert.equal(backend.profile.id, "webgl");
 	assert.equal(backend.profile.frameScheduling, "on-demand");
 	assert.equal(backend.isEarlyZPrepassEnabled(), true);
-	assert.equal(backend._frameExecutor._enableEarlyZPrepass, true);
+	assert.equal(backend._frameServices._enableEarlyZPrepass, true);
 	assert.equal("passExecutors" in backend, false);
 	assert.deepEqual(backend.profile.capabilities, {
 		sh: true,
@@ -294,7 +294,7 @@ async function testInitAndPassRouting() {
 	assert.equal("postProcessCapabilities" in backend, false);
 
 	const calls = [];
-	backend._frameExecutor = {
+	backend._frameServices = {
 		resize(width, height) {
 			calls.push(["resize", width, height]);
 		},
@@ -412,7 +412,7 @@ async function testEarlyZPrepassOptionCanDisable() {
 	await backend.initialize();
 
 	assert.equal(backend.isEarlyZPrepassEnabled(), false);
-	assert.equal(backend._frameExecutor._enableEarlyZPrepass, false);
+	assert.equal(backend._frameServices._enableEarlyZPrepass, false);
 }
 
 async function testContextLostAndRestored() {
@@ -425,7 +425,7 @@ async function testContextLostAndRestored() {
 	});
 	await backend.initialize();
 
-	const originalExecutor = backend._frameExecutor;
+	const originalServices = backend._frameServices;
 	let prevented = false;
 	const warnings = captureWarnMessages(() => {
 		canvas.dispatch("webglcontextlost", {
@@ -440,7 +440,7 @@ async function testContextLostAndRestored() {
 
 		canvas.dispatch("webglcontextrestored", {});
 		assert.equal(backend._contextLost, false);
-		assert.notStrictEqual(backend._frameExecutor, originalExecutor);
+		assert.notStrictEqual(backend._frameServices, originalServices);
 	});
 
 	assert.equal(
@@ -458,7 +458,7 @@ async function testPublicLifecycleMethods() {
 	const backend = createWebGLSession({}, canvas);
 	await backend.initialize();
 
-	const originalExecutor = backend._frameExecutor;
+	const originalServices = backend._frameServices;
 	const warnings = captureWarnMessages(() => {
 		backend.onDeviceLost({
 			reason: "manual-test",
@@ -468,7 +468,7 @@ async function testPublicLifecycleMethods() {
 
 		backend.restore();
 		assert.equal(backend._contextLost, false);
-		assert.notStrictEqual(backend._frameExecutor, originalExecutor);
+		assert.notStrictEqual(backend._frameServices, originalServices);
 	});
 
 	assert.equal(
@@ -544,7 +544,7 @@ function createDependencyContext() {
 function testBackendPlanOmitsRendererOwnedPostProcessStage() {
 	const backend = createWebGLSession({}, {});
 	const context = createDependencyContext();
-	backend._frameExecutor = {
+	backend._frameServices = {
 		resize() {},
 		destroy() {},
 	};

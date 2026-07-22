@@ -18,7 +18,7 @@ import type {
 } from "../IRenderBackend";
 import type { RenderTargetReadbackOptions } from "../../rendering/CustomRenderTargets";
 import type { TextureReadbackResult } from "../IComputeRuntime";
-import { WebGLFrameExecutor } from "./WebGLFrameExecutor";
+import { WebGLFrameServiceOwner } from "./WebGLFrameServiceOwner";
 import { WebGLFrameGraphRuntime } from "./rendergraph/WebGLFrameGraphRuntime";
 import { WebGLPostProcessExecutor } from "./WebGLPostProcessExecutor";
 import { BackendPostProcessRuntime } from "../../postprocess/BackendPostProcessRuntime";
@@ -86,7 +86,7 @@ export interface WebGLBackendOptions {
 export class WebGLBackend implements IRenderBackend {
 	private readonly _postProcessRuntime = new BackendPostProcessRuntime({
 		executor: new WebGLPostProcessExecutor({
-			getDeviceServices: () => this._frameExecutor,
+			getDeviceServices: () => this._frameServices,
 		}),
 		backend: this,
 		warn: (key, message) =>
@@ -128,7 +128,7 @@ export class WebGLBackend implements IRenderBackend {
 	private readonly _options: WebGLBackendOptions;
 	private _canvas: HTMLCanvasElement | null = null;
 	private _gl: WebGL2RenderingContext | null = null;
-	private _frameExecutor: WebGLFrameExecutor | null = null;
+	private _frameServices: WebGLFrameServiceOwner | null = null;
 	private _frameGraphRuntime: WebGLFrameGraphRuntime | null = null;
 	private _particleSimulator: DefaultParticleSimulator | null = null;
 	private _activeContext: FrameContext | null = null;
@@ -331,7 +331,7 @@ export class WebGLBackend implements IRenderBackend {
 		this._height = toSafeDimension(height);
 		if (this._contextLost) return;
 		this._postProcessRuntime.invalidateFrameSized();
-		this._frameExecutor?.resize(this._width, this._height);
+		this._frameServices?.resize(this._width, this._height);
 	}
 
 	public getAttachments(size: RenderSurfaceSize): {
@@ -347,7 +347,7 @@ export class WebGLBackend implements IRenderBackend {
 
 	public beginFrame(context: FrameContext): void {
 		this._completedFrameCoverage = "full-frame";
-		if (!this._frameExecutor || !this._frameGraphRuntime) {
+		if (!this._frameServices || !this._frameGraphRuntime) {
 			throw new Error("WebGL backend has not been initialized.");
 		}
 		if (this._contextLost) {
@@ -361,7 +361,7 @@ export class WebGLBackend implements IRenderBackend {
 	}
 
 	public executePass(pass: FramePass, context: FrameContext): void | Promise<void> {
-		if (!this._frameExecutor || !this._frameGraphRuntime) {
+		if (!this._frameServices || !this._frameGraphRuntime) {
 			throw new Error("WebGL backend has not been initialized.");
 		}
 		if (this._contextLost) {
@@ -397,14 +397,14 @@ export class WebGLBackend implements IRenderBackend {
 		attachmentIndex?: number,
 		options?: RenderTargetReadbackOptions,
 	): Promise<TextureReadbackResult> {
-		if (!this._frameExecutor) {
+		if (!this._frameServices) {
 			return Promise.reject(new Error("WebGL backend has not been initialized."));
 		}
-		return this._frameExecutor.readCustomRenderTargetColor(id, attachmentIndex, options);
+		return this._frameServices.readCustomRenderTargetColor(id, attachmentIndex, options);
 	}
 
 	public endFrame(): void {
-		if (!this._frameExecutor || !this._frameGraphRuntime || this._contextLost) {
+		if (!this._frameServices || !this._frameGraphRuntime || this._contextLost) {
 			return;
 		}
 		const context = this._activeContext;
@@ -474,7 +474,7 @@ export class WebGLBackend implements IRenderBackend {
 
 	public async warmup(context: FrameContext, options: WarmupOptions = {}): Promise<WarmupReport> {
 		const report = createWarmupReport(this.profile.id);
-		if (!this._frameExecutor) {
+		if (!this._frameServices) {
 			throw new Error("WebGL backend has not been initialized.");
 		}
 		let warmupPostProcessPlan: WarmupPostProcessPlan | undefined;
@@ -489,7 +489,7 @@ export class WebGLBackend implements IRenderBackend {
 		}
 		const plan = buildWarmupPlan(context, options, warmupPostProcessPlan);
 		try {
-			const phase = await this._frameExecutor.warmupCoordinator.warmup(
+			const phase = await this._frameServices.warmupCoordinator.warmup(
 				context,
 				plan,
 				options,
@@ -514,8 +514,8 @@ export class WebGLBackend implements IRenderBackend {
 
 	public destroy(): void {
 		this._postProcessRuntime.destroy();
-		this._frameExecutor?.destroy();
-		this._frameExecutor = null;
+		this._frameServices?.destroy();
+		this._frameServices = null;
 		this._frameGraphRuntime = null;
 		this._particleSimulator = null;
 		this._gl = null;
@@ -562,8 +562,8 @@ export class WebGLBackend implements IRenderBackend {
 
 		this._gl = gl;
 		this._postProcessRuntime.destroy();
-		this._frameExecutor?.destroy();
-		this._frameExecutor = new WebGLFrameExecutor(
+		this._frameServices?.destroy();
+		this._frameServices = new WebGLFrameServiceOwner(
 			gl,
 			this.shaderRuntime,
 			this._shaderCompileStage,
@@ -576,11 +576,11 @@ export class WebGLBackend implements IRenderBackend {
 			},
 		);
 		this._frameGraphRuntime = new WebGLFrameGraphRuntime(
-			this._frameExecutor,
+			this._frameServices,
 			this._postProcessRuntime,
 		);
 		this._contextLost = false;
-		this._frameExecutor.resize(this._width, this._height);
+		this._frameServices.resize(this._width, this._height);
 		this._debugInfo = this._createDebugInfo(gl);
 	}
 

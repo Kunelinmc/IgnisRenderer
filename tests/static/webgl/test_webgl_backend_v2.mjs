@@ -2914,7 +2914,7 @@ async function testWebGLBackendWarmupDelegatesToCoordinator() {
 		surface: { canvas: {} },
 		events: { emit: () => {} },
 	});
-	backend._frameExecutor = {
+	backend._frameServices = {
 		warmupCoordinator: {
 			warmup() {
 				return {
