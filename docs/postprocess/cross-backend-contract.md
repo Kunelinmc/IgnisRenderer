@@ -105,3 +105,5 @@ class CustomWebGPUImplementation {
   resource accessor. No compatibility adapter is provided.
 - The WebGPU shared post-process copy helper is removed. Pass-local temporal
   results must be written directly to declared history resources.
+- `WebGPUGammaContext` is removed. Gamma implementations use the shared
+  `WebGPUScreenPostProcessContext` contract directly.

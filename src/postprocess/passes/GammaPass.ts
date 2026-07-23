@@ -36,9 +36,8 @@ import {
 	type EmptyOptions,
 	type SoftwareBuiltinPostProcessContext,
 	type WebGLScreenPostProcessContext,
-	type WebGPUGammaContext,
+	type WebGPUScreenPostProcessContext,
 } from "./ScreenPassShared";
-export type { WebGPUGammaContext } from "./ScreenPassShared";
 
 export const GAMMA_PASS_ID = "gamma";
 export const GAMMA_PASS_INCREMENTAL = {
@@ -137,7 +136,7 @@ interface WebGLGammaProgram {
 
 /** @internal WebGPU implementation for the built-in gamma pass. */
 export class WebGPUGammaImplementation implements PostProcessPassImplementation<
-	WebGPUGammaContext,
+	WebGPUScreenPostProcessContext,
 	EmptyOptions
 > {
 	public readonly id = "gamma:webgpu";
@@ -146,7 +145,9 @@ export class WebGPUGammaImplementation implements PostProcessPassImplementation<
 	}
 	private _resources = new Map<WebGPUPostProcessServices, WebGPUGammaResources>();
 
-	public async warmup(context: WebGPUGammaContext | undefined): Promise<void> {
+	public async warmup(
+		context: WebGPUScreenPostProcessContext | undefined,
+	): Promise<void> {
 		if (context) {
 			await this._ensureResources(context.shared);
 		}
@@ -154,7 +155,7 @@ export class WebGPUGammaImplementation implements PostProcessPassImplementation<
 
 	public async execute(
 		_request: PostProcessPassRequest<EmptyOptions>,
-		context: WebGPUGammaContext | undefined,
+		context: WebGPUScreenPostProcessContext | undefined,
 	): Promise<PostProcessPassResult> {
 		if (!context?.encoder || !context.targets) {
 			return { ran: false };
@@ -182,7 +183,9 @@ export class WebGPUGammaImplementation implements PostProcessPassImplementation<
 		this._resources.clear();
 	}
 
-	private async _runGammaKernel(context: WebGPUGammaContext): Promise<boolean> {
+	private async _runGammaKernel(
+		context: WebGPUScreenPostProcessContext,
+	): Promise<boolean> {
 		const resources = await this._ensureResources(context.shared);
 		if (!context.encoder || !context.targets || !resources.pipeline || !resources.params) {
 			return false;

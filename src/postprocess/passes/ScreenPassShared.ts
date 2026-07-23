@@ -32,9 +32,6 @@ export interface WebGPUScreenPostProcessContext {
 /** @internal WebGPU runtime context supplied to built-in screen implementations. */
 export type WebGPURuntimePostProcessContext = WebGPUScreenPostProcessContext;
 
-/** @internal WebGPU context supplied to the built-in gamma implementation. */
-export type WebGPUGammaContext = WebGPUScreenPostProcessContext;
-
 /** @internal WebGL context supplied to built-in screen post-process implementations. */
 export interface WebGLScreenPostProcessContext {
 	readonly gl: WebGL2RenderingContext;
