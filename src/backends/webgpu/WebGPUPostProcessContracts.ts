@@ -5,7 +5,6 @@ import type {
 	ISampler,
 } from "../types";
 import type { IWebGPUComputeFacade } from "./ComputeFacade";
-import type { PostProcessCopyHelper } from "./postprocess/PostProcessCopyHelper";
 import type { WebGPUHiZBuilder } from "./WebGPUHiZBuilder";
 
 /** @internal Narrow device-lifetime services available to WebGPU passes. */
@@ -14,7 +13,6 @@ export interface WebGPUPostProcessServices {
 	readonly frameBindGroupLayout: GPUBindGroupLayout | null;
 	readonly sampler: ISampler | null;
 	getHiZBuilder(): WebGPUHiZBuilder;
-	getCopyHelper(): PostProcessCopyHelper;
 	warn(key: string, message: string): void;
 	ensureCommonResources(): Promise<void>;
 	getCachedBindGroup(

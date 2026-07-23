@@ -41,6 +41,9 @@ single source of truth for resource existence, access, usage, and optionality.
 - `{ ran: true }` must commit the assigned color output automatically.
   `{ ran: false }` must alias the planned output to its input and must not
   update history.
+- A backend implementation may consume a history write resource after writing
+  it in the same pass. The history write declaration must include every
+  applicable use, including both storage write and sampled read.
 - `PostProcessPassResult.updatedHistoryIds` must contain only declared history
   IDs with write uses. The runtime must reject updates reported with
   `{ ran: false }`.
@@ -100,3 +103,5 @@ class CustomWebGPUImplementation {
   `schedule`.
 - Custom passes must migrate directly to `describeExecution()` and the fixed
   resource accessor. No compatibility adapter is provided.
+- The WebGPU shared post-process copy helper is removed. Pass-local temporal
+  results must be written directly to declared history resources.

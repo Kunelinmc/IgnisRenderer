@@ -299,7 +299,6 @@ All entries in this section are pass-local `group(0)` unless stated otherwise.
 
 | Shader / pass | Bindings |
 | --- | --- |
-| `copy.wgsl` | `0 srcTex` texture, `1 dstTex` write storage texture |
 | `toneMapping.wgsl` | `0 srcTex` texture, `1 outTex` write storage texture |
 | `colorFilter.wgsl` | `0 srcTex` texture, `1 linearSampler` sampler, `2 params` uniform, `3 outTex` write storage texture |
 | `fxaa.wgsl` | `0 srcTex` texture, `1 linearSampler` sampler, `2 params` uniform, `3 outTex` write storage texture |

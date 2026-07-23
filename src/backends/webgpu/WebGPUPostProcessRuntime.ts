@@ -3,7 +3,6 @@ import { AddressMode, FilterMode } from "../types";
 import type { IWebGPUComputeFacade } from "./ComputeFacade";
 import type { WebGPUPostProcessServices } from "./WebGPUPostProcessContracts";
 import { WebGPUHiZBuilder } from "./WebGPUHiZBuilder";
-import { PostProcessCopyHelper } from "./postprocess/PostProcessCopyHelper";
 
 interface CachedBindGroup {
 	group: IBindingGroup;
@@ -17,7 +16,6 @@ export class WebGPUPostProcessRuntime implements WebGPUPostProcessServices {
 	private _sampler: ISampler | null = null;
 	private _hiZBuilder: WebGPUHiZBuilder | null;
 	private readonly _ownsHiZBuilder: boolean;
-	private _copyHelper: PostProcessCopyHelper | null = null;
 	private readonly _bindGroupCache = new Map<string, CachedBindGroup>();
 	private readonly _frameBindGroupLayout: GPUBindGroupLayout | null;
 
@@ -52,19 +50,6 @@ export class WebGPUPostProcessRuntime implements WebGPUPostProcessServices {
 			this._hiZBuilder = new WebGPUHiZBuilder(this._compute);
 		}
 		return this._hiZBuilder;
-	}
-
-	/**
-	 * Returns the shared copy helper used by WebGPU post-process passes.
-	 *
-	 * @returns Lazily allocated helper owned by this runtime.
-	 * @sideEffects Allocates the helper object on first use.
-	 */
-	public getCopyHelper(): PostProcessCopyHelper {
-		if (!this._copyHelper) {
-			this._copyHelper = new PostProcessCopyHelper(this);
-		}
-		return this._copyHelper;
 	}
 
 	public warn(key: string, message: string): void {
@@ -129,8 +114,6 @@ export class WebGPUPostProcessRuntime implements WebGPUPostProcessServices {
 	public onShaderRuntimeChanged(): void {
 		this._destroyCachedBindGroups();
 		if (this._ownsHiZBuilder) this._hiZBuilder?.invalidateShaderResources();
-		this._copyHelper?.destroy();
-		this._copyHelper = null;
 	}
 
 	public destroy(): void {
@@ -138,8 +121,6 @@ export class WebGPUPostProcessRuntime implements WebGPUPostProcessServices {
 			this._hiZBuilder?.destroy();
 			this._hiZBuilder = null;
 		}
-		this._copyHelper?.destroy();
-		this._copyHelper = null;
 		this._destroyCachedBindGroups();
 		this.destroyManagedResource(this._sampler, "post-process sampler");
 		this._sampler = null;

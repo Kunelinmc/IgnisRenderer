@@ -56,8 +56,12 @@ Render Graph.
 - The fixed WebGPU context must expose the command encoder, frame services,
   shared post-process services, and a typed resource accessor.
 - `WebGPUPostProcessRuntime` must directly own common sampler, bind-group cache,
-  copy-helper, and Hi-Z service access. A second shared-context lifecycle owner
-  must not exist.
+  and Hi-Z service access. A second shared-context lifecycle owner must not
+  exist.
+- Pass implementations should write final temporal results directly to their
+  declared history write resource when that resource is also consumed later in
+  the same pass. They must declare every storage-write and sampled-read use and
+  must not introduce a shared copy service for pass-local transfers.
 - Hi-Z must be declared as required shared resource
   `"backend:frame-hiz"` and obtained through `getShared()`.
 - Frame bindings, lighting state, and feature data are backend services, not

@@ -47,7 +47,6 @@ export type WebGPUPostProcessShaderPart =
 	| "toneMapping"
 	| "colorFilter"
 	| "fxaa"
-	| "copy"
 	| "sobelNormal";
 
 export type WebGPUShadowShaderPart =
@@ -135,7 +134,6 @@ export const WEBGPU_POST_PROCESS_SHADER_FILES: Record<
 	toneMapping: "./webgpu/postprocess/toneMapping.wgsl",
 	colorFilter: "./webgpu/postprocess/colorFilter.wgsl",
 	fxaa: "./webgpu/postprocess/fxaa.wgsl",
-	copy: "./webgpu/postprocess/copy.wgsl",
 	sobelNormal: "./webgpu/postprocess/sobelNormal.wgsl",
 };
 

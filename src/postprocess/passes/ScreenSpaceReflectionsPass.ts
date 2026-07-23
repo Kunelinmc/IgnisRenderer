@@ -36,7 +36,6 @@ import type {
 	PostProcessPassRequest,
 	PostProcessPassResult,
 	PostProcessResourceAccessor,
-	PostProcessTransientDescriptor,
 } from "../types";
 
 const DEFAULT_HISTORY_USAGE = ["sampled", "storage", "render-target"] as const;
@@ -52,7 +51,6 @@ export const SCREEN_SPACE_REFLECTIONS_PASS_ORDER = {
 		inflationRadius: 16,
 	},
 } as const satisfies PostProcessScheduleEntry;
-const WEBGPU_SSR_RAW_TRANSIENT_ID = "ssr:raw";
 
 export interface SSROptions {
 	/** Maximum ray-march iterations per reflection ray. */
@@ -252,48 +250,38 @@ export function resolveSSRHistoryDescriptors(
  * WebGPU implementation of the cross-backend screen-space reflections pass.
  */
 /** @internal WebGPU implementation for the built-in SSR pass. */
-export class WebGPUScreenSpaceReflectionsImplementation
-	implements PostProcessPassImplementation<WebGPUSSRContext>
-{
+export class WebGPUScreenSpaceReflectionsImplementation implements PostProcessPassImplementation<WebGPUSSRContext> {
 	public readonly id = "ssr:webgpu";
 	public describeExecution(request: PostProcessPassResolveRequest<ResolvedSSROptions>) {
-		const options = resolveSSROptions(request.options);
-		const scale = 1 / options.downsample;
 		return {
 			...WEBGPU_VERSIONED_EXECUTION,
-			gBuffer: ([
-				"depth",
-				"normal",
-				"roughness",
-				"metallic",
-				"motion",
-			] as const).map((semantic) => ({
-				semantic,
-				...POST_PROCESS_SAMPLED_READ,
-			})),
+			gBuffer: (["depth", "normal", "roughness", "metallic", "motion"] as const).map(
+				(semantic) => ({
+					semantic,
+					...POST_PROCESS_SAMPLED_READ,
+				}),
+			),
 			histories: resolveSSRHistoryDescriptors(request).map((descriptor) => ({
 				descriptor,
 				read: [POST_PROCESS_SAMPLED_READ],
-				write: [POST_PROCESS_STORAGE_WRITE],
+				write:
+					descriptor.id === "ssr"
+						? [POST_PROCESS_STORAGE_WRITE, POST_PROCESS_SAMPLED_READ]
+						: [POST_PROCESS_STORAGE_WRITE],
 			})),
-			transients: [{
-				descriptor: {
-					id: WEBGPU_SSR_RAW_TRANSIENT_ID,
-					widthScale: scale,
-					heightScale: scale,
+			shared: [
+				{
+					id: "backend:frame-hiz",
+					access: "read",
+					usage: "sampled",
 				},
-				uses: [POST_PROCESS_STORAGE_WRITE],
-			}],
-			shared: [{
-				id: "backend:frame-hiz",
-				access: "read",
-				usage: "sampled",
-			}, {
-				id: "backend:planar-reflection-mask",
-				access: "read",
-				usage: "sampled",
-				optional: true,
-			}],
+				{
+					id: "backend:planar-reflection-mask",
+					access: "read",
+					usage: "sampled",
+					optional: true,
+				},
+			],
 		} satisfies PostProcessExecutionDeclaration;
 	}
 	private _resources = new Map<WebGPUPostProcessServices, WebGPUSSRResources>();
@@ -306,7 +294,7 @@ export class WebGPUScreenSpaceReflectionsImplementation
 
 	public async execute(
 		request: PostProcessPassRequest,
-		context: WebGPUSSRContext | undefined
+		context: WebGPUSSRContext | undefined,
 	): Promise<PostProcessPassResult> {
 		if (!context?.encoder || !context.targets || !context.frameBinding) {
 			return { ran: false };
@@ -314,7 +302,7 @@ export class WebGPUScreenSpaceReflectionsImplementation
 		if (request.frameContext.viewCamera.type === CameraType.Orthographic) {
 			context.shared.warn(
 				"webgpu-ssr-orthographic-disabled",
-				"WebGPU SSR is disabled for orthographic cameras."
+				"WebGPU SSR is disabled for orthographic cameras.",
 			);
 			return { ran: false };
 		}
@@ -334,25 +322,19 @@ export class WebGPUScreenSpaceReflectionsImplementation
 
 	public destroy(): void {
 		for (const resources of this._resources.values()) {
-			resources.shared.destroyManagedResource(
-				resources.tracePipeline,
-				"SSR trace pipeline"
-			);
+			resources.shared.destroyManagedResource(resources.tracePipeline, "SSR trace pipeline");
 			resources.shared.destroyManagedResource(
 				resources.composePipeline,
-				"SSR compose pipeline"
+				"SSR compose pipeline",
 			);
-			resources.shared.destroyManagedResource(
-				resources.module,
-				"SSR shader module"
-			);
+			resources.shared.destroyManagedResource(resources.module, "SSR shader module");
 			resources.shared.destroyManagedResource(
 				resources.traceParams,
-				"SSR trace params buffer"
+				"SSR trace params buffer",
 			);
 			resources.shared.destroyManagedResource(
 				resources.composeParams,
-				"SSR compose params buffer"
+				"SSR compose params buffer",
 			);
 			resources.shared.invalidateBindingsByPrefix("ssr-");
 			resources.module = null;
@@ -368,10 +350,9 @@ export class WebGPUScreenSpaceReflectionsImplementation
 
 	private async _runSSRKernel(
 		request: PostProcessPassRequest,
-		context: WebGPUSSRContext
+		context: WebGPUSSRContext,
 	): Promise<boolean> {
 		const resources = await this._ensureResources(context.shared);
-		const ssrRaw = context.resources.getTransient(WEBGPU_SSR_RAW_TRANSIENT_ID);
 		const hiZ = context.resources.getShared("backend:frame-hiz");
 		const history = context.resources.getHistory("ssr");
 		const motionHistory = context.resources.getHistory("motion");
@@ -379,14 +360,11 @@ export class WebGPUScreenSpaceReflectionsImplementation
 		const depthTexture = context.resources.getGBuffer("depth");
 		const motionTexture = context.resources.getGBuffer("motion");
 		const input = context.resources.color.input;
-		const planarReflectionMask = context.resources.getShared(
-			"backend:planar-reflection-mask",
-		);
+		const planarReflectionMask = context.resources.getShared("backend:planar-reflection-mask");
 		if (
 			!context.encoder ||
 			!context.targets ||
 			!context.frameBinding ||
-			!ssrRaw ||
 			!hiZ ||
 			!context.shared.sampler ||
 			!resources.tracePipeline ||
@@ -399,8 +377,8 @@ export class WebGPUScreenSpaceReflectionsImplementation
 			!motionHistory.write ||
 			!normalTexture ||
 			!depthTexture ||
-			!motionTexture
-			|| !input
+			!motionTexture ||
+			!input
 		) {
 			return false;
 		}
@@ -415,13 +393,13 @@ export class WebGPUScreenSpaceReflectionsImplementation
 		context.shared.compute.writeBuffer(
 			resources.traceParams,
 			createSSRTraceParams(
-				ssrRaw.width,
-				ssrRaw.height,
+				history.write.width,
+				history.write.height,
 				options,
 				hiZMips.length - 1,
 				resolveSSRHistoryValid(request.histories),
-				resources.frameIndex
-			) as unknown as BufferSource
+				resources.frameIndex,
+			) as unknown as BufferSource,
 		);
 
 		let binding = context.shared.getCachedBindGroup(
@@ -436,28 +414,20 @@ export class WebGPUScreenSpaceReflectionsImplementation
 				{ binding: 5, resource: motionHistory.read },
 				{ binding: 6, resource: context.shared.sampler },
 				{ binding: 7, resource: resources.traceParams },
-				{ binding: 8, resource: ssrRaw },
+				{ binding: 8, resource: history.write },
 			],
-			"WebGPUSSR_TraceBinding"
+			"WebGPUSSR_TraceBinding",
 		);
 		context.encoder.beginComputePass({ label: "WebGPUSSR_TraceTemporal" });
 		context.encoder.setComputePipeline(resources.tracePipeline);
 		context.encoder.setBindingGroup(0, binding);
 		context.encoder.setBindingGroup(1, context.frameBinding);
 		context.encoder.dispatchWorkgroups(
-			ceilDiv(ssrRaw.width, WORKGROUP_SIZE),
-			ceilDiv(ssrRaw.height, WORKGROUP_SIZE),
-			1
+			ceilDiv(history.write.width, WORKGROUP_SIZE),
+			ceilDiv(history.write.height, WORKGROUP_SIZE),
+			1,
 		);
 		context.encoder.endComputePass();
-
-		await context.shared.getCopyHelper().copyTexture({
-			encoder: context.encoder,
-			source: ssrRaw,
-			destination: history.write,
-			cacheKey: "copy-ssr-history",
-			label: "WebGPUPost_Copy",
-		});
 
 		const composeTarget = context.resources.color.output;
 		if (!composeTarget) return false;
@@ -468,21 +438,21 @@ export class WebGPUScreenSpaceReflectionsImplementation
 				1 / Math.max(composeTarget.height, 1),
 				0,
 				0,
-			]) as unknown as BufferSource
+			]) as unknown as BufferSource,
 		);
 		binding = context.shared.getCachedBindGroup(
 			`ssr-compose-${composeTarget === targets.postPing ? "ping" : "pong"}`,
 			resources.composePipeline,
 			[
 				{ binding: 0, resource: input },
-				{ binding: 1, resource: ssrRaw },
+				{ binding: 1, resource: history.write },
 				{ binding: 2, resource: motionTexture },
 				{ binding: 3, resource: context.shared.sampler },
 				{ binding: 4, resource: resources.composeParams },
 				{ binding: 5, resource: composeTarget },
 				{ binding: 6, resource: planarReflectionMask },
 			],
-			"WebGPUSSR_ComposeBinding"
+			"WebGPUSSR_ComposeBinding",
 		);
 		context.encoder.beginComputePass({ label: "WebGPUSSR_Compose" });
 		context.encoder.setComputePipeline(resources.composePipeline);
@@ -490,15 +460,13 @@ export class WebGPUScreenSpaceReflectionsImplementation
 		context.encoder.dispatchWorkgroups(
 			ceilDiv(composeTarget.width, WORKGROUP_SIZE),
 			ceilDiv(composeTarget.height, WORKGROUP_SIZE),
-			1
+			1,
 		);
 		context.encoder.endComputePass();
 		return true;
 	}
 
-	private async _ensureResources(
-		shared: WebGPUPostProcessServices
-	): Promise<WebGPUSSRResources> {
+	private async _ensureResources(shared: WebGPUPostProcessServices): Promise<WebGPUSSRResources> {
 		let resources = this._resources.get(shared);
 		if (!resources) {
 			resources = {
@@ -553,10 +521,7 @@ export class WebGPUScreenSpaceReflectionsImplementation
 				});
 				resources.tracePipelineLayout = shared.compute.createPipelineLayout({
 					label: "WebGPUSSRTrace_PipelineLayout",
-					bindGroupLayouts: [
-						resources.traceGroupLayout0,
-						shared.frameBindGroupLayout,
-					],
+					bindGroupLayouts: [resources.traceGroupLayout0, shared.frameBindGroupLayout],
 				});
 				resources.tracePipeline = await shared.compute.createComputePipeline({
 					label: "WebGPUSSRTracePipeline",
@@ -608,18 +573,17 @@ export interface ScreenSpaceReflectionsPassConfig
 /**
  * Stateful logical screen-space reflections pass.
  */
-export class ScreenSpaceReflectionsPass extends PostProcessPass<
-	SSROptions,
-	ResolvedSSROptions
-> {
-	public constructor(config: ScreenSpaceReflectionsPassConfig = {}) {
+export class ScreenSpaceReflectionsPass extends PostProcessPass<SSROptions, ResolvedSSROptions> {
+	constructor(config: ScreenSpaceReflectionsPassConfig = {}) {
 		super({
 			...config,
 			id: SCREEN_SPACE_REFLECTIONS_PASS_ORDER.id,
 			schedule: {
-				placement: config.schedule?.placement ?? SCREEN_SPACE_REFLECTIONS_PASS_ORDER.placement,
+				placement:
+					config.schedule?.placement ?? SCREEN_SPACE_REFLECTIONS_PASS_ORDER.placement,
 				order: config.schedule?.order ?? SCREEN_SPACE_REFLECTIONS_PASS_ORDER.order,
-				incremental: config.schedule?.incremental ?? SCREEN_SPACE_REFLECTIONS_PASS_ORDER.incremental,
+				incremental:
+					config.schedule?.incremental ?? SCREEN_SPACE_REFLECTIONS_PASS_ORDER.incremental,
 			},
 			label: "SSR",
 			implementations: {
@@ -631,7 +595,6 @@ export class ScreenSpaceReflectionsPass extends PostProcessPass<
 	public override normalizeOptions(): ResolvedSSROptions {
 		return resolveSSROptions(this.getRawOptions());
 	}
-
 }
 
 function clampDownsample(value: unknown, fallback: number): number {

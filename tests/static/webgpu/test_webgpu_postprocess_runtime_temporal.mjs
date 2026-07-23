@@ -158,7 +158,7 @@ async function executeSSRImplementation(
 				write: histories.motionHistoryWrite,
 				valid: historyValid,
 			},
-			getTransient: (id) => id === "ssr:raw" ? transients.ssrRaw : null,
+			getTransient: () => null,
 			getShared: (id) => id === "backend:frame-hiz" ? transients.hiZ :
 				id === "backend:planar-reflection-mask" ?
 					targets.planarReflectionMask : null,
@@ -279,6 +279,7 @@ async function testSSRAndVolumetricReportHistoryUpdates() {
 	const frameBinding = { label: "frame-binding" };
 
 	const ssrTargets = createTemporalTargets(32, 16);
+	const ssrHistories = createTemporalHistories(16, 8);
 	const ssrFrameContext = createPerspectiveFrameContext({
 		ssr: {
 			enabled: true,
@@ -289,6 +290,7 @@ async function testSSRAndVolumetricReportHistoryUpdates() {
 	});
 	const ssrRun = await executeSSRImplementation(backend, runtime, {
 		targets: ssrTargets,
+		histories: ssrHistories,
 		frameContext: ssrFrameContext,
 		historyValid: true,
 		frameBinding,
@@ -300,6 +302,36 @@ async function testSSRAndVolumetricReportHistoryUpdates() {
 	assert.strictEqual(ssrRun.published, ssrTargets.postPing);
 	assert.strictEqual(ssrTargets.sceneColor, ssrTargets.postPing);
 	assert.equal(ssrRun.motionWrites, 1);
+	const ssrImplementation = ssrFrameContext.postProcess
+		.getPass("ssr")
+		.pass.getImplementation("webgpu");
+	const ssrDeclaration = ssrImplementation.describeExecution({
+		options: ssrFrameContext.postProcess.getOptions("ssr"),
+	});
+	assert.equal(ssrDeclaration.transients, undefined);
+	assert.deepEqual(
+		ssrDeclaration.histories
+			.find((entry) => entry.descriptor.id === "ssr")
+			.write,
+		[
+			{ access: "write", usage: "storage" },
+			{ access: "read", usage: "sampled" },
+		]
+	);
+	const traceBinding = backend.bindingGroups.find(
+		(group) => group.label === "WebGPUSSR_TraceBinding"
+	);
+	const composeBinding = backend.bindingGroups.find(
+		(group) => group.label === "WebGPUSSR_ComposeBinding"
+	);
+	assert.strictEqual(
+		traceBinding.entries[8].resource,
+		ssrHistories.ssrHistoryWrite
+	);
+	assert.strictEqual(
+		composeBinding.entries[1].resource,
+		ssrHistories.ssrHistoryWrite
+	);
 
 	const volumetricTargets = createTemporalTargets(32, 16);
 	const volumetricFrameContext = createPerspectiveFrameContext({
@@ -486,7 +518,7 @@ async function testSSRDestroyReleasesCachedBindings() {
 		frameContext,
 		historyValid: true,
 	});
-	assert.equal(backend.bindingGroups.length, 3);
+	assert.equal(backend.bindingGroups.length, 2);
 
 	const ssrPass = frameContext.postProcess.getEnabledPasses()
 		.find((resolved) => resolved.id === "ssr")?.pass;
@@ -499,9 +531,9 @@ async function testSSRDestroyReleasesCachedBindings() {
 	assert.equal(backend.bufferDestroyCalls, 2);
 
 	runtime.destroy();
-	assert.equal(backend.bindingGroupDestroyCalls, 3);
-	assert.equal(backend.shaderModuleDestroyCalls, 3);
-	assert.equal(backend.computePipelineDestroyCalls, 5);
+	assert.equal(backend.bindingGroupDestroyCalls, 2);
+	assert.equal(backend.shaderModuleDestroyCalls, 2);
+	assert.equal(backend.computePipelineDestroyCalls, 4);
 }
 
 async function testMissingSSRFrameBindingSkipsImplementation() {
