@@ -90,7 +90,7 @@ function testWebGPURegistryUsesExternalCanvasUploadPath() {
 	const { context } = createFakeContext();
 	const texture = new CanvasTexture({ context });
 	const backend = new FakeWebGPUBackend();
-	const registry = new WebGPUTextureRegistry(backend);
+	const registry = new WebGPUTextureRegistry(backend, backend);
 
 	try {
 		registry.getTextureForSlot(texture, WEBGPU_TEXTURE_SLOT.BASE_COLOR);
@@ -121,7 +121,7 @@ async function testWebGPURegistryGeneratesMipmapsAfterCanvasUpload() {
 	const texture = new CanvasTexture({ context });
 	texture.minFilter = "LinearMipmapLinear";
 	const backend = new FakeWebGPUBackend();
-	const registry = new WebGPUTextureRegistry(backend);
+	const registry = new WebGPUTextureRegistry(backend, backend);
 
 	try {
 		registry.getTextureForSlot(texture, WEBGPU_TEXTURE_SLOT.BASE_COLOR);

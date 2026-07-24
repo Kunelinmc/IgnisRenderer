@@ -81,7 +81,6 @@ import {
 	type PipelineDesc,
 	type SamplerDesc,
 	type ShaderModuleDesc,
-	type TextureDataLayout,
 	type TextureDesc,
 	TextureFormat,
 	TextureUsage,
@@ -556,7 +555,11 @@ export class WebGPUBackend implements IRenderBackend {
 			this._configureContext();
 			this._recreateDepthTexture();
 
-			this._resources = new WebGPUFrameServiceOwner(this, this._msaaController);
+			this._resources = new WebGPUFrameServiceOwner(
+				this,
+				this._resourceManager,
+				this._msaaController,
+			);
 			await this._resources.init();
 			this._frameHost = this._createFrameHost();
 			this._postProcessExecutor = new WebGPUPostProcessExecutor(this._frameHost);
@@ -943,15 +946,6 @@ export class WebGPUBackend implements IRenderBackend {
 		this._resourceManager.writeBuffer(buffer, data, offset);
 	}
 
-	public writeTexture(
-		texture: IRenderTexture,
-		data: BufferSource,
-		desc: TextureDataLayout,
-		size: { width: number; height: number; depthOrArrayLayers?: number },
-	): void {
-		this._resourceManager.writeTexture(texture, data, desc, size);
-	}
-
 	public copyTextureToTexture(
 		source: {
 			texture: IRenderTexture;
@@ -1087,10 +1081,6 @@ export class WebGPUBackend implements IRenderBackend {
 			writeBuffer: (buffer, data, offset) => {
 				assertActive("write frame buffers");
 				backend.writeBuffer(buffer, data, offset);
-			},
-			writeTexture: (texture, data, desc, size) => {
-				assertActive("write frame textures");
-				backend.writeTexture(texture, data, desc, size);
 			},
 			getCanvasColorTexture: () => {
 				assertActive("resolve frame canvas color");

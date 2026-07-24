@@ -31,6 +31,7 @@ import {
 	type IShaderModule,
 } from "../types";
 import type { WebGPUBackend } from "./WebGPUBackend";
+import type { WebGPUResourceManager } from "./WebGPUResourceManager";
 import { SINGLE_SAMPLE_WEBGPU_MSAA_CONTEXT, type WebGPUMSAAContext } from "./WebGPUMSAAController";
 import { resolveWebGPUComputeFacade } from "./ComputeFacade";
 import type { IWebGPUComputeFacade } from "./ComputeFacade";
@@ -272,6 +273,7 @@ class WebGPUFrameResourceScopeHandle implements WebGPUFrameResourceScopeContract
 /** @internal WebGPU backend-private composition and shared-resource owner. */
 export class WebGPUFrameServiceOwner {
 	private _backend: WebGPUBackend;
+	private _resourceManager: WebGPUResourceManager;
 	private _msaa: WebGPUMSAAContext;
 	private _computeFacade: IWebGPUComputeFacade;
 	private _layouts: ReturnType<typeof createWebGPUPipelineLayouts>;
@@ -300,9 +302,11 @@ export class WebGPUFrameServiceOwner {
 
 	constructor(
 		backend: WebGPUBackend,
+		resourceManager: WebGPUResourceManager,
 		msaa: WebGPUMSAAContext = SINGLE_SAMPLE_WEBGPU_MSAA_CONTEXT,
 	) {
 		this._backend = backend;
+		this._resourceManager = resourceManager;
 		this._msaa = msaa;
 		this._computeFacade = resolveWebGPUComputeFacade(backend);
 		const device = backend.device;
@@ -311,7 +315,7 @@ export class WebGPUFrameServiceOwner {
 		}
 		this._layouts = createWebGPUPipelineLayouts(device);
 		this._geometryRegistry = new WebGPUGeometryRegistry(backend);
-		this._textureRegistry = new WebGPUTextureRegistry(backend);
+		this._textureRegistry = new WebGPUTextureRegistry(backend, resourceManager);
 		this._shadowAtlases = new WebGPUShadowAtlasAllocator(backend);
 		this._pipelineLibrary = new WebGPUPipelineLibrary(backend, this._layouts, {
 			listenToShaderRuntime: false,
@@ -326,7 +330,11 @@ export class WebGPUFrameServiceOwner {
 			this._geometryRegistry,
 			this._shadowAtlases,
 		);
-		this._pagedShadowRuntime = new WebGPUPagedShadowRuntime(backend, this._shadowPass);
+		this._pagedShadowRuntime = new WebGPUPagedShadowRuntime(
+			backend,
+			resourceManager,
+			this._shadowPass,
+		);
 	}
 
 	public async init(): Promise<void> {
@@ -1084,6 +1092,7 @@ export class WebGPUFrameServiceOwner {
 		scope = {
 			frameBindings: new WebGPUFrameBindingCache(
 				this._backend,
+				this._resourceManager,
 				this._layouts,
 				this._textureRegistry,
 				this._shadowAtlases,

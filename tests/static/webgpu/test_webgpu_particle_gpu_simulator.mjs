@@ -306,7 +306,7 @@ async function testWebGPUParticleSimulatorMixesComputeAndCpuFallbackBatches() {
 
 async function testRenderResourcesPrefersGPUDrawBatches() {
 	const backend = new FakeBackend();
-	const resources = new WebGPURenderResources(backend);
+	const resources = new WebGPURenderResources(backend, backend);
 	await resources.init();
 
 	const context = createContext([]);
@@ -371,7 +371,7 @@ async function testRenderResourcesPrefersGPUDrawBatches() {
 
 function testRenderResourcesBuildsParticleMeshDrawPackets() {
 	const backend = new FakeBackend();
-	const resources = new WebGPURenderResources(backend);
+	const resources = new WebGPURenderResources(backend, backend);
 	const opaqueMaterial = new Material({ name: "particle-opaque" });
 	const transparentMaterial = new Material({
 		name: "particle-transparent",

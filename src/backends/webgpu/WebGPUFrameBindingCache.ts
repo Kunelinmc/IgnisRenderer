@@ -12,6 +12,7 @@ import {
 	TextureUsage,
 } from "../types";
 import type { WebGPUDeviceResourceHost } from "./WebGPUDeviceResourceHost";
+import type { WebGPUResourceManager } from "./WebGPUResourceManager";
 import {
 	WEBGPU_FRAME_CAMERA_UNIFORM_BYTE_SIZE,
 	WEBGPU_FRAME_ENVIRONMENT_UNIFORM_BYTE_SIZE,
@@ -84,6 +85,7 @@ export interface WebGPUFrameBindingPrepareOptions {
 
 export class WebGPUFrameBindingCache {
 	private _backend: WebGPUDeviceResourceHost;
+	private _resourceManager: WebGPUResourceManager;
 	private _layouts: WebGPUPipelineLayouts;
 	private _textureRegistry: WebGPUTextureRegistry;
 	private _shadowAtlases: WebGPUShadowAtlasAllocator;
@@ -133,12 +135,14 @@ export class WebGPUFrameBindingCache {
 
 	constructor(
 		backend: WebGPUDeviceResourceHost,
+		resourceManager: WebGPUResourceManager,
 		layouts: WebGPUPipelineLayouts,
 		textureRegistry: WebGPUTextureRegistry,
 		shadowAtlases: WebGPUShadowAtlasAllocator,
 		pagedShadowRuntime: WebGPUPagedShadowRuntime
 	) {
 		this._backend = backend;
+		this._resourceManager = resourceManager;
 		this._layouts = layouts;
 		this._textureRegistry = textureRegistry;
 		this._shadowAtlases = shadowAtlases;
@@ -402,7 +406,7 @@ export class WebGPUFrameBindingCache {
 			this._irradianceProbeGridTextureGridId !== grid.id
 		) {
 			const data = this._packIrradianceProbeGridTextureData(grid);
-			this._backend.writeTexture(
+			this._resourceManager.writeTexture(
 				this._ownedIrradianceProbeGridTexture,
 				data as Float32Array<ArrayBuffer>,
 				{ bytesPerRow: width * 4 * 4, rowsPerImage: height },

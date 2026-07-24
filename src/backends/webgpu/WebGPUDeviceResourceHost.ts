@@ -12,7 +12,6 @@ import type {
 	PipelineDesc,
 	SamplerDesc,
 	ShaderModuleDesc,
-	TextureDataLayout,
 	TextureDesc,
 	TextureFormat,
 } from "../types";
@@ -44,10 +43,4 @@ export interface WebGPUDeviceResourceHost {
 		desc?: GPUTextureViewDescriptor,
 	): GPUTextureView;
 	writeBuffer(buffer: IRenderBuffer, data: BufferSource, offset?: number): void;
-	writeTexture(
-		texture: IRenderTexture,
-		data: BufferSource,
-		desc: TextureDataLayout,
-		size: { width: number; height: number; depthOrArrayLayers?: number },
-	): void;
 }

@@ -154,7 +154,7 @@ function testWebGPURegistryUsesExternalVideoUploadPath() {
 		const video = new FakeVideo({ supportsRVFC: true });
 		const texture = new VideoTexture({ video });
 		const backend = new FakeWebGPUBackend();
-		const registry = new WebGPUTextureRegistry(backend);
+		const registry = new WebGPUTextureRegistry(backend, backend);
 
 		registry.getTextureForSlot(texture, WEBGPU_TEXTURE_SLOT.BASE_COLOR);
 		assert.equal(backend.createTextureCalls.length, 1);
@@ -200,7 +200,7 @@ async function testWebGPURegistryGeneratesMipmapsAfterVideoUpload() {
 		const texture = new VideoTexture({ video });
 		texture.minFilter = "LinearMipmapLinear";
 		const backend = new FakeWebGPUBackend();
-		const registry = new WebGPUTextureRegistry(backend);
+		const registry = new WebGPUTextureRegistry(backend, backend);
 
 		registry.getTextureForSlot(texture, WEBGPU_TEXTURE_SLOT.BASE_COLOR);
 		assert.equal(backend.createTextureCalls[0].mipLevelCount, 2);

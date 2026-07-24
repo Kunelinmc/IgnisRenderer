@@ -53,6 +53,11 @@ export interface WebGPUResourceManagerHost {
 	runValidationScope<T>(label: string, operation: () => T): T;
 }
 
+/**
+ * Owns WebGPU-native resource creation and queue-backed resource uploads.
+ *
+ * @internal Owned by `WebGPUBackend`; applications must use `Renderer`.
+ */
 export class WebGPUResourceManager {
 	constructor(private _host: WebGPUResourceManagerHost) {}
 

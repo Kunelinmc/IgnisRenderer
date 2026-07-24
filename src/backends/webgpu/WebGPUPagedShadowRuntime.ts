@@ -23,6 +23,7 @@ import {
 	type IShaderModule,
 } from "../types";
 import type { WebGPUDeviceResourceHost } from "./WebGPUDeviceResourceHost";
+import type { WebGPUResourceManager } from "./WebGPUResourceManager";
 import type { WebGPUShadowPass } from "./WebGPUShadowPass";
 import { tryGetNativeWebGPUCommandEncoder } from "./WebGPUCommandEncoder";
 import {
@@ -165,6 +166,7 @@ interface DrawCounterReadbackSlot {
  */
 export class WebGPUPagedShadowRuntime {
 	private _backend: WebGPUDeviceResourceHost;
+	private _resourceManager: WebGPUResourceManager;
 	private _shadowPass: WebGPUShadowPass;
 	private _frameId = 0;
 	private _lastRequest: WebGPUPagedShadowFrameRequest | null = null;
@@ -256,8 +258,13 @@ export class WebGPUPagedShadowRuntime {
 	private _drawCounterReadbackSlots: DrawCounterReadbackSlot[] = [];
 	private _drawCounterReadbackCursor = 0;
 
-	constructor(backend: WebGPUDeviceResourceHost, shadowPass: WebGPUShadowPass) {
+	constructor(
+		backend: WebGPUDeviceResourceHost,
+		resourceManager: WebGPUResourceManager,
+		shadowPass: WebGPUShadowPass,
+	) {
 		this._backend = backend;
+		this._resourceManager = resourceManager;
 		this._shadowPass = shadowPass;
 	}
 
@@ -1998,7 +2005,7 @@ export class WebGPUPagedShadowRuntime {
 				usage: TextureUsage.TextureBinding | TextureUsage.CopyDst,
 				label: "WebGPUPagedShadowFallbackPageTableTexture",
 			});
-			this._backend.writeTexture(
+			this._resourceManager.writeTexture(
 				this._fallbackPageTableTexture,
 				new Uint32Array([WEBGPU_PAGED_SHADOW_NON_RESIDENT]),
 				{},

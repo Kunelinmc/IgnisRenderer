@@ -12,6 +12,7 @@ import {
 import { getTextureFormatInfo } from "../TextureFormatInfo";
 import { Logger } from "../../foundation/Logger";
 import type { WebGPUDeviceResourceHost } from "./WebGPUDeviceResourceHost";
+import type { WebGPUResourceManager } from "./WebGPUResourceManager";
 import { tryGetWebGPUTextureHandle } from "./WebGPUResourceAccess";
 import {
 	createTextureMipUploadLevels,
@@ -39,6 +40,7 @@ interface SamplerCacheEntry {
 
 export class WebGPUTextureRegistry {
 	private _backend: WebGPUDeviceResourceHost;
+	private _resourceManager: WebGPUResourceManager;
 	private _textureCache = new WeakMap<Texture, TextureCacheEntry>();
 	private _samplerCache = new WeakMap<Texture, SamplerCacheEntry>();
 	private _uploadedVersionCache = new WeakMap<Texture, number>();
@@ -50,8 +52,12 @@ export class WebGPUTextureRegistry {
 	private _neutralNormalTexture: IRenderTexture | null = null;
 	private _whiteSampler: ISampler | null = null;
 
-	constructor(backend: WebGPUDeviceResourceHost) {
+	constructor(
+		backend: WebGPUDeviceResourceHost,
+		resourceManager: WebGPUResourceManager,
+	) {
 		this._backend = backend;
+		this._resourceManager = resourceManager;
 	}
 
 	public getTextureForSlot(
@@ -153,7 +159,7 @@ export class WebGPUTextureRegistry {
 				const uploads = createTextureMipUploadLevels(texture, cacheEntry.format);
 				for (const upload of uploads) {
 					const uploadData = this._toArrayBufferBackedView(upload.data);
-					this._backend.writeTexture(
+					this._resourceManager.writeTexture(
 						cacheEntry.resource,
 						uploadData,
 						{
@@ -277,7 +283,7 @@ export class WebGPUTextureRegistry {
 				label: "WebGPUWhiteTexture",
 			});
 			const data = new Uint8Array(256).fill(255);
-			this._backend.writeTexture(
+			this._resourceManager.writeTexture(
 				this._whiteTexture,
 				new Uint8Array(data),
 				{ bytesPerRow: 256, rowsPerImage: 1 },
@@ -303,7 +309,7 @@ export class WebGPUTextureRegistry {
 			data[1] = 128;
 			data[2] = 255;
 			data[3] = 255;
-			this._backend.writeTexture(
+			this._resourceManager.writeTexture(
 				this._neutralNormalTexture,
 				new Uint8Array(data),
 				{ bytesPerRow: 256, rowsPerImage: 1 },
