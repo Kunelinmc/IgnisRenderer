@@ -53,6 +53,9 @@ must remain backend-internal.
   recording, submission, and validation operations required by the frame
   subsystem. Frame graph services and runtimes must not depend on
   `WebGPUBackend`.
+- `WebGPUFrameHost` operations must delegate directly to their owning resource,
+  pipeline, binding-group, command-scheduler, or canvas-target service. They
+  must not call forwarding methods on `WebGPUBackend`.
 - `WebGPUFrameFeatureAnalyzer` must scan scene, particle, reflection,
   visibility, and post-process work exactly once per frame without applying
   device capability fallbacks.
@@ -75,6 +78,9 @@ must remain backend-internal.
   composition root. It owns device-lifetime scene, texture, deferred, shadow,
   and particle-render resources; consumers must receive only the corresponding
   narrow resource-provider capability.
+- `WebGPUFrameServiceOwner` must receive `WebGPUDeviceResourceHost` and
+  `IWebGPUComputeFacade` dependencies explicitly. It must not resolve compute
+  capabilities from a concrete `WebGPUBackend`.
 - `WebGPUFrameResourceScope` must own frame bindings and clustered-lighting
   state. The orchestrator owns the main scope, each planar target owns one
   persistent capture scope, and probe capture must destroy its temporary scope

@@ -2,8 +2,14 @@ import assert from "node:assert/strict";
 import { SobelNormalMapper } from "../../../src/addons/SobelNormalMapper.ts";
 import { Texture } from "../../../src/core/Texture.ts";
 import { ShaderSource } from "../../../src/shaders/ShaderSource.ts";
+import { createWebGPUComputeFacade } from "../../../src/backends/webgpu/ComputeFacade.ts";
 
 import { FakeWebGPUBackend, FakeRenderer } from "../../helpers/fakes.mjs";
+
+function createRenderer(backend) {
+	backend.computeFacade = createWebGPUComputeFacade(backend);
+	return new FakeRenderer(backend);
+}
 
 function getLastBufferWriteValues(backend) {
 	const write = backend.writeCalls
@@ -15,7 +21,7 @@ function getLastBufferWriteValues(backend) {
 
 async function testInitUpdateAndInvalidationFlow() {
 	const backend = new FakeWebGPUBackend();
-	const renderer = new FakeRenderer(backend);
+	const renderer = createRenderer(backend);
 	const source = new Texture({
 		data: new Uint8ClampedArray(4),
 		width: 15,
@@ -48,7 +54,7 @@ async function testInitUpdateAndInvalidationFlow() {
 
 async function testAttachRunsOnPostAnimationAndDetachStops() {
 	const backend = new FakeWebGPUBackend();
-	const renderer = new FakeRenderer(backend);
+	const renderer = createRenderer(backend);
 	const source = new Texture({
 		data: new Uint8ClampedArray(4),
 		width: 8,
@@ -84,7 +90,7 @@ async function testAttachRunsOnPostAnimationAndDetachStops() {
 
 async function testDestroyReleasesResources() {
 	const backend = new FakeWebGPUBackend();
-	const renderer = new FakeRenderer(backend);
+	const renderer = createRenderer(backend);
 	const source = new Texture({
 		data: new Uint8ClampedArray(4),
 		width: 4,
@@ -105,9 +111,8 @@ async function testDestroyReleasesResources() {
 }
 
 async function testInjectedComputeFacadeSupportsNonWebGPUBackend() {
-	const computeFacade = new FakeWebGPUBackend();
-	computeFacade.resolveTextureForSlot = (texture, slotIndex) =>
-		computeFacade.getTextureForSlot(texture, slotIndex);
+	const computeHost = new FakeWebGPUBackend();
+	const computeFacade = createWebGPUComputeFacade(computeHost);
 	const renderer = new FakeRenderer({ type: "webgl" });
 	const source = new Texture({
 		data: new Uint8ClampedArray(4),
@@ -123,21 +128,21 @@ async function testInjectedComputeFacadeSupportsNonWebGPUBackend() {
 
 	await mapper.init(renderer);
 	assert.equal(mapper.isInitialized, true);
-	assert.equal(computeFacade.registeredExternalTextures.length, 1);
-	assert.equal(computeFacade.registeredExternalTextures[0].texture, mapper.normalMap);
+	assert.equal(computeHost.registeredExternalTextures.length, 1);
+	assert.equal(computeHost.registeredExternalTextures[0].texture, mapper.normalMap);
 
 	assert.equal(mapper.update(), true);
-	assert.equal(computeFacade.submits, 1);
-	assert.deepEqual(computeFacade.dispatches[0], [1, 1, 1]);
-	assert.equal(computeFacade.bufferWrites.length, 1);
+	assert.equal(computeHost.submits, 1);
+	assert.deepEqual(computeHost.dispatches[0], [1, 1, 1]);
+	assert.equal(computeHost.bufferWrites.length, 1);
 
 	mapper.destroy();
-	assert.equal(computeFacade.unregisteredExternalTextures.length >= 1, true);
+	assert.equal(computeHost.unregisteredExternalTextures.length >= 1, true);
 }
 
 async function testHeightSourceControlsUniformAndInvalidation() {
 	const backend = new FakeWebGPUBackend();
-	const renderer = new FakeRenderer(backend);
+	const renderer = createRenderer(backend);
 	const source = new Texture({
 		data: new Uint8ClampedArray(4),
 		width: 8,

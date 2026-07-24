@@ -96,6 +96,7 @@ import {
 } from "../../../src/backends/webgpu/constants.ts";
 import { WebGPUGeometryRegistry } from "../../../src/backends/webgpu/WebGPUGeometryRegistry.ts";
 import { WebGPUTextureRegistry } from "../../../src/backends/webgpu/WebGPUTextureRegistry.ts";
+import { createWebGPUComputeFacade } from "../../../src/backends/webgpu/ComputeFacade.ts";
 import { createResolvedPostProcess } from "../../helpers/postprocess.mjs";
 
 globalThis.GPUShaderStage ??= {
@@ -116,8 +117,27 @@ function createMainFrameOptions(options = {}) {
 	};
 }
 
-function testBackendDoesNotExposeTextureUploadForwarder() {
-	assert.equal("writeTexture" in WebGPUBackend.prototype, false);
+function testBackendDoesNotExposeDeviceServiceForwarders() {
+	for (const method of [
+		"createBuffer",
+		"createTexture",
+		"createSampler",
+		"createShaderModule",
+		"createPipeline",
+		"createComputePipeline",
+		"createBindingGroup",
+		"createTextureView",
+		"createCommandEncoder",
+		"writeBuffer",
+		"writeTexture",
+		"copyTextureToTexture",
+		"submit",
+		"getTextureForSlot",
+		"registerExternalTexture",
+		"unregisterExternalTexture",
+	]) {
+		assert.equal(method in WebGPUBackend.prototype, false, method);
+	}
 }
 
 import {
@@ -1590,11 +1610,15 @@ function testWebGPUFrameFeatureRegistryGatesVolumetricLighting() {
 	assert.equal(clusteredVolumetric.lights.length, 1);
 }
 
-function testRenderResourcesResolveComputeFacadeFromBackend() {
+function testRenderResourcesConsumeInjectedComputeFacade() {
 	const backend = new FakeBackend();
-const resources = new WebGPURenderResources(backend, backend);
+	const resources = new WebGPURenderResources(
+		backend,
+		backend,
+		createWebGPUComputeFacade(backend),
+	);
 
-	assert.equal(backend.getComputeFacadeCalls, 1);
+	assert.equal(backend.getComputeFacadeCalls, 0);
 	assert.equal(
 		typeof resources._computeFacade.createComputePipeline,
 		"function"
@@ -1616,7 +1640,7 @@ function testRenderResourcesLeaveShaderRuntimeSubscriptionToBackend() {
 			};
 		},
 	};
-	const resources = new WebGPURenderResources(backend, backend);
+	const resources = new WebGPURenderResources(backend, backend, createWebGPUComputeFacade(backend));
 
 	assert.equal(listenerCount, 0);
 
@@ -1651,7 +1675,7 @@ async function testRenderResourcesUseCopyDstForUploads() {
 	]);
 	const packet = createPacket(model);
 	const frame = createFrame(packet);
-	const resources = new WebGPURenderResources(backend, backend);
+	const resources = new WebGPURenderResources(backend, backend, createWebGPUComputeFacade(backend));
 
 	await resources.init();
 	const frameResources = resources.prepareFrame(
@@ -1806,7 +1830,7 @@ async function testWebGPUBlendMaterialsUseTransparentPipelineState() {
 	const frame = createFrame(packet);
 	frame.opaquePackets = [];
 	frame.transparentPackets = [packet];
-	const resources = new WebGPURenderResources(backend, backend);
+	const resources = new WebGPURenderResources(backend, backend, createWebGPUComputeFacade(backend));
 
 	await resources.init();
 	const frameResources = resources.prepareFrame(
@@ -1872,7 +1896,7 @@ async function testWebGPUTransmissionMaterialsUseTransparentPipelineState() {
 	const frame = createFrame(packet);
 	frame.opaquePackets = [];
 	frame.transparentPackets = [packet];
-	const resources = new WebGPURenderResources(backend, backend);
+	const resources = new WebGPURenderResources(backend, backend, createWebGPUComputeFacade(backend));
 
 	await resources.init();
 	const frameResources = resources.prepareFrame(
@@ -1930,7 +1954,7 @@ async function testWebGPUEarlyZPrepassOpaquePipelineHasDepthOnlyState() {
 	const model = createModel([new PBRMaterial()]);
 	const packet = createPacket(model);
 	const frame = createFrame(packet);
-	const resources = new WebGPURenderResources(backend, backend);
+	const resources = new WebGPURenderResources(backend, backend, createWebGPUComputeFacade(backend));
 
 	await resources.init();
 	const frameResources = resources.prepareFrame(
@@ -1978,7 +2002,7 @@ async function testWebGPUEarlyZPrepassMaskPipelineUsesMaskDepthFragment() {
 	const model = createModel([material]);
 	const packet = createPacket(model);
 	const frame = createFrame(packet);
-	const resources = new WebGPURenderResources(backend, backend);
+	const resources = new WebGPURenderResources(backend, backend, createWebGPUComputeFacade(backend));
 
 	await resources.init();
 	const frameResources = resources.prepareFrame(
@@ -2025,7 +2049,7 @@ async function testWebGPUEarlyZColorPipelineUsesReadOnlyDepthState() {
 	const model = createModel([new PBRMaterial()]);
 	const packet = createPacket(model);
 	const frame = createFrame(packet);
-	const resources = new WebGPURenderResources(backend, backend);
+	const resources = new WebGPURenderResources(backend, backend, createWebGPUComputeFacade(backend));
 
 	await resources.init();
 	const frameResources = resources.prepareFrame(
@@ -2092,7 +2116,7 @@ fn customVs(@location(0) position: vec3<f32>) -> @builtin(position) vec4<f32> {
 	const supportedModel = createModel([shaderMaterial]);
 	const supportedPacket = createPacket(supportedModel);
 	const frame = createFrame(supportedPacket);
-	const resources = new WebGPURenderResources(backend, backend);
+	const resources = new WebGPURenderResources(backend, backend, createWebGPUComputeFacade(backend));
 
 	await resources.init();
 	const frameResources = resources.prepareFrame(
@@ -2198,7 +2222,7 @@ fn customFs() -> @location(0) vec4<f32> {
 	const model = createModel([shaderMaterial]);
 	const packet = createPacket(model);
 	const frame = createFrame(packet);
-	const resources = new WebGPURenderResources(backend, backend);
+	const resources = new WebGPURenderResources(backend, backend, createWebGPUComputeFacade(backend));
 
 	await resources.init();
 	const frameResources = resources.prepareFrame(
@@ -2292,7 +2316,7 @@ fn customFs() -> @location(0) vec4<f32> {
 	const model = createModel([shaderMaterial]);
 	const packet = createPacket(model);
 	const frame = createFrame(packet);
-	const resources = new WebGPURenderResources(backend, backend);
+	const resources = new WebGPURenderResources(backend, backend, createWebGPUComputeFacade(backend));
 
 	await resources.init();
 	const frameResources = resources.prepareFrame(
@@ -2379,7 +2403,7 @@ async function testWebGPUOITTransparentPipelineUsesDualTargets() {
 	const frame = createFrame(packet);
 	frame.opaquePackets = [];
 	frame.transparentPackets = [packet];
-	const resources = new WebGPURenderResources(backend, backend);
+	const resources = new WebGPURenderResources(backend, backend, createWebGPUComputeFacade(backend));
 
 	await resources.init();
 	const frameResources = resources.prepareFrame(
@@ -2453,7 +2477,7 @@ async function testWebGPUOITTransmissionMaterialsStayLegacyPipeline() {
 	const frame = createFrame(packet);
 	frame.opaquePackets = [];
 	frame.transparentPackets = [packet];
-	const resources = new WebGPURenderResources(backend, backend);
+	const resources = new WebGPURenderResources(backend, backend, createWebGPUComputeFacade(backend));
 
 	await resources.init();
 	const frameResources = resources.prepareFrame(
@@ -2507,7 +2531,7 @@ async function testWebGPUOITParticlePipelinesSplitAlphaAndAdditive() {
 	const model = createModel([new PBRMaterial()]);
 	const packet = createPacket(model);
 	const frame = createFrame(packet);
-	const resources = new WebGPURenderResources(backend, backend);
+	const resources = new WebGPURenderResources(backend, backend, createWebGPUComputeFacade(backend));
 	await resources.init();
 
 	const features = resolveFeatureState(
@@ -2675,7 +2699,7 @@ async function testWebGPUEnvironmentCombinationsRegression() {
 	const model = createModel([new PBRMaterial()]);
 	const packet = createPacket(model);
 	const baseScene = createFrame(packet);
-	const resources = new WebGPURenderResources(backend, backend);
+	const resources = new WebGPURenderResources(backend, backend, createWebGPUComputeFacade(backend));
 	await resources.init();
 
 	const caps = {
@@ -2778,7 +2802,7 @@ async function testScopedSceneTargetModesUseDistinctBindings() {
 		createTinyTexture(1),
 		createTinyTexture(1)
 	);
-	const resources = new WebGPURenderResources(backend, backend);
+	const resources = new WebGPURenderResources(backend, backend, createWebGPUComputeFacade(backend));
 	await resources.init();
 
 	const features = resolveFeatureState(
@@ -2874,7 +2898,7 @@ async function testSampleCountOverrideUsesSingleSampleCapturePipelines() {
 		createTinyTexture(1),
 		createTinyTexture(1)
 	);
-	const resources = new WebGPURenderResources(backend, backend, msaa);
+	const resources = new WebGPURenderResources(backend, backend, createWebGPUComputeFacade(backend), msaa);
 	await resources.init();
 
 	const features = resolveFeatureState(
@@ -3043,6 +3067,7 @@ async function testReflectionProbeCaptureUsesCanvasAttachmentFormats() {
 		includeParticles: false,
 		includeShadows: false,
 	});
+	backend.computeFacade = createWebGPUComputeFacade(backend);
 	const capturePass = new WebGPUReflectionProbeCapturePass(backend, resources);
 	const probeCache = probe.getRuntimeCache();
 	const result = await capturePass.captureFace({
@@ -3181,6 +3206,7 @@ async function testReflectionProbeCaptureUsesParentWorldPositionAsOrigin() {
 	modelRoot.addChild(probe);
 	probe.position.set(2, 0, 0);
 	modelRoot.updateWorldMatrix();
+	backend.computeFacade = createWebGPUComputeFacade(backend);
 	const capturePass = new WebGPUReflectionProbeCapturePass(backend, resources);
 	const probeCache = probe.getRuntimeCache();
 
@@ -3208,7 +3234,7 @@ async function testParticleUVLayoutAndUniformBinding() {
 	const model = createModel([new PBRMaterial()]);
 	const packet = createPacket(model);
 	const frame = createFrame(packet);
-	const resources = new WebGPURenderResources(backend, backend);
+	const resources = new WebGPURenderResources(backend, backend, createWebGPUComputeFacade(backend));
 
 	await resources.init();
 	const features = resolveFeatureState(
@@ -3346,7 +3372,7 @@ async function testFrameBindingReplacementDestroysOldBinding() {
 	const model = createModel([new PBRMaterial()]);
 	const packet = createPacket(model);
 	const frame = createFrame(packet);
-	const resources = new WebGPURenderResources(backend, backend);
+	const resources = new WebGPURenderResources(backend, backend, createWebGPUComputeFacade(backend));
 	await resources.init();
 
 	const features = resolveFeatureState(
@@ -3473,7 +3499,7 @@ async function testWebGPUPrepareFrameTemporalStateModes() {
 	const backend = new FakeBackend();
 	const model = createModel([new PBRMaterial()]);
 	const packet = createPacket(model);
-	const resources = new WebGPURenderResources(backend, backend);
+	const resources = new WebGPURenderResources(backend, backend, createWebGPUComputeFacade(backend));
 	await resources.init();
 
 	const features = resolveFeatureState(
@@ -3627,7 +3653,7 @@ async function testWebGPUPrepareFrameTemporalStateModes() {
 
 async function testSceneFrameBindingLayoutMatchesFallbackEnvironmentContract() {
 	const backend = new FakeBackend();
-	const resources = new WebGPURenderResources(backend, backend);
+	const resources = new WebGPURenderResources(backend, backend, createWebGPUComputeFacade(backend));
 	await resources.init();
 
 	const sceneLayout = backend.device.bindGroupLayouts.find(
@@ -3682,7 +3708,7 @@ async function testParticleShadowVolumeBufferUpdatesForDirectionalSlice() {
 	frame.lights = [light];
 	frame.shadowMaps = new Map([[light, renderSet]]);
 
-	const resources = new WebGPURenderResources(backend, backend);
+	const resources = new WebGPURenderResources(backend, backend, createWebGPUComputeFacade(backend));
 	await resources.init();
 	const features = resolveFeatureState(
 		{
@@ -3787,7 +3813,7 @@ async function testShadowAtlasSizeTracksShadowMapsWhenLightingDisabled() {
 	shadowRenderSet.slices[0].shadowMap.viewProjectionMatrix = Matrix4.identity();
 	frame.lights = [light];
 	frame.shadowMaps = new Map([[light, shadowRenderSet]]);
-	const resources = new WebGPURenderResources(backend, backend);
+	const resources = new WebGPURenderResources(backend, backend, createWebGPUComputeFacade(backend));
 	await resources.init();
 	const features = resolveFeatureState(
 		{
@@ -3846,7 +3872,7 @@ async function testParticleBindingCacheEvictsStaleSystems() {
 	const model = createModel([new PBRMaterial()]);
 	const packet = createPacket(model);
 	const frame = createFrame(packet);
-	const resources = new WebGPURenderResources(backend, backend);
+	const resources = new WebGPURenderResources(backend, backend, createWebGPUComputeFacade(backend));
 	await resources.init();
 
 	const features = resolveFeatureState(
@@ -3962,7 +3988,7 @@ async function testRenderResourcesDestroyCleansParticleAndGeometryResources() {
 	const model = createModel([new PBRMaterial()]);
 	const packet = createPacket(model);
 	const frame = createFrame(packet);
-	const resources = new WebGPURenderResources(backend, backend);
+	const resources = new WebGPURenderResources(backend, backend, createWebGPUComputeFacade(backend));
 	await resources.init();
 
 	const features = resolveFeatureState(
@@ -4183,12 +4209,12 @@ function testSamplerCacheInvalidatesWhenTextureSamplerStateChanges() {
 }
 
 async function run() {
-	testBackendDoesNotExposeTextureUploadForwarder();
+	testBackendDoesNotExposeDeviceServiceForwarders();
 	testMatrixPackingAndDepthRemap();
 	testTransformComposition();
 	testMaterialAdaptation();
 	testFeatureGate();
-	testRenderResourcesResolveComputeFacadeFromBackend();
+	testRenderResourcesConsumeInjectedComputeFacade();
 	testRenderResourcesLeaveShaderRuntimeSubscriptionToBackend();
 	testFrameExecutorConsumesComputeFacadeFromHost();
 	await testSceneShaderCoverage();

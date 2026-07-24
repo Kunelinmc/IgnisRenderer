@@ -158,6 +158,10 @@ All graphics commands are recorded through a backend-agnostic `ICommandEncoder`.
   - Must expose a backend-agnostic `ProbeCaptureSource` API.
 - `WEBGPU_COMPUTE_EXTENSION`
   - Must expose an `IWebGPUComputeFacade` API.
+  - WebGPU compute callers must obtain buffer, texture, sampler, shader,
+    binding, upload, and command capabilities through this extension.
+  - `WebGPUBackend` must not expose backend-specific resource, pipeline,
+    binding-group, or command-scheduler forwarding methods.
 - Identity Persistence:
   - Extension API objects must maintain the same object identity for the lifetime of the backend runtime.
 - Device Loss Behavior:
@@ -390,6 +394,13 @@ const readback = await renderer.renderTargets.readColor("inspect", 0);
 - Backend profile, capability, extension, and frame lifecycle methods are read from the attached backend runtime.
 - `IRenderBackend.executeSharedPass` is removed.
 - Extensions must be queried via typed keys rather than raw string identifiers.
+- `WebGPUBackend.createBuffer`, `createTexture`, `createSampler`,
+  `createShaderModule`, `createPipeline`, `createComputePipeline`,
+  `createBindingGroup`, `createTextureView`, `createCommandEncoder`,
+  `writeBuffer`, `copyTextureToTexture`, `submit`, `getTextureForSlot`,
+  `registerExternalTexture`, and `unregisterExternalTexture` are removed.
+  Applications requiring WebGPU compute or texture-bridge operations must use
+  `WEBGPU_COMPUTE_EXTENSION`.
 - `getNativeWebGPUCommandEncoder` is removed from `ICommandEncoder`. Code that requires ordered texture copies must use `copyTextureToTexture`. WebGPU-internal passes that need native WebGPU objects must resolve them through WebGPU-owned helpers instead of the shared renderer contract.
 - SoftwareBackend does not support custom render targets.
 - `SoftwareBackend` exposes only its scanline rasterization path.

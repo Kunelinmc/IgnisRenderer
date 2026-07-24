@@ -6,6 +6,10 @@ import {
 	resetWebGPUComputeFacadeCacheForTesting,
 	resolveWebGPUComputeFacade,
 } from "../../../src/backends/webgpu/computeFacade.ts";
+import {
+	createRenderBackendExtensionRegistry,
+	WEBGPU_COMPUTE_EXTENSION,
+} from "../../../src/backends/BackendExtensions.ts";
 import { FakeWebGPUBackend } from "../../helpers/fakes.mjs";
 
 async function testFacadeDelegatesAndCaches() {
@@ -48,6 +52,13 @@ async function testFacadeDelegatesAndCaches() {
 		usage: 0,
 	});
 	assert.equal(texture.kind, "texture");
+	facadeA.writeTexture(
+		texture,
+		new Uint8Array(256),
+		{ bytesPerRow: 256, rowsPerImage: 1 },
+		{ width: 1, height: 1 },
+	);
+	assert.equal(backend.textureWrites.length, 1);
 
 	const slotResource = facadeA.resolveTextureForSlot({ id: "source" }, 2);
 	assert.equal(slotResource.kind, "slot-texture");
@@ -113,9 +124,17 @@ async function testFacadeDelegatesAndCaches() {
 }
 
 function testResolverSupportsBackendAndFacade() {
-	const backend = new FakeWebGPUBackend();
-	const facade = createWebGPUComputeFacade(backend);
-	backend.getComputeFacade = () => facade;
+	const host = new FakeWebGPUBackend();
+	const facade = createWebGPUComputeFacade(host);
+	const backend = {
+		extensions: createRenderBackendExtensionRegistry([
+			{
+				id: WEBGPU_COMPUTE_EXTENSION.id,
+				insertionPoints: ["application:webgpu-compute"],
+				api: facade,
+			},
+		]),
+	};
 
 	const fromBackend = resolveWebGPUComputeFacade(backend);
 	assert.equal(fromBackend, facade);
@@ -128,14 +147,14 @@ function testResolverRejectsRendererLikeSource() {
 	const backend = new FakeWebGPUBackend();
 	assert.throws(
 		() => resolveWebGPUComputeFacade({ backend }),
-		/Failed to resolve WebGPU compute facade/
+		/neither a WebGPU compute facade nor an IRenderBackend/
 	);
 }
 
 function testResolverRejectsNonWebGPUBackend() {
 	assert.throws(
 		() => resolveWebGPUComputeFacade({ type: "webgl" }),
-		/WebGPU compute facade requires WebGPU backend/
+		/neither a WebGPU compute facade nor an IRenderBackend/
 	);
 }
 
@@ -151,7 +170,7 @@ function testCacheInvalidationRecreatesFacade() {
 	assert.equal(getWebGPUComputeFacadeCacheStats().entryCount, 1);
 }
 
-function testResolverRejectsIncompleteBackendLike() {
+function testResolverRejectsBackendLikeDuckTyping() {
 	const missingSampler = {
 		type: "webgpu",
 		createShaderModule: async () => ({}),
@@ -169,7 +188,7 @@ function testResolverRejectsIncompleteBackendLike() {
 	};
 	assert.throws(
 		() => resolveWebGPUComputeFacade(missingSampler),
-		/Failed to resolve WebGPU compute facade/
+		/neither a WebGPU compute facade nor an IRenderBackend/
 	);
 
 	const missingTextureView = {
@@ -189,7 +208,7 @@ function testResolverRejectsIncompleteBackendLike() {
 	};
 	assert.throws(
 		() => resolveWebGPUComputeFacade(missingTextureView),
-		/Failed to resolve WebGPU compute facade/
+		/neither a WebGPU compute facade nor an IRenderBackend/
 	);
 }
 
@@ -199,7 +218,7 @@ export async function run() {
 	testResolverRejectsRendererLikeSource();
 	testResolverRejectsNonWebGPUBackend();
 	testCacheInvalidationRecreatesFacade();
-	testResolverRejectsIncompleteBackendLike();
+	testResolverRejectsBackendLikeDuckTyping();
 	console.log("WebGPU compute facade tests passed");
 }
 

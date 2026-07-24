@@ -16,7 +16,7 @@ import {
 	type IRenderBuffer,
 } from "../../backends/types";
 import { ComputeRuntime } from "../../backends/webgpu/ComputeRuntime";
-import type { WebGPUComputeFacadeSource } from "../../backends/webgpu/ComputeFacade";
+import type { IWebGPUComputeFacade } from "../../backends/webgpu/ComputeFacade";
 import {
 	WEBGPU_PARTICLE_INSTANCE_FLOATS,
 	WEBGPU_PARTICLE_INSTANCE_STRIDE,
@@ -30,17 +30,8 @@ import { DefaultParticleSimulator } from "./DefaultParticleSimulator";
 import type { IParticleSimulator } from "./IParticleSimulator";
 import { MAX_STEP_SECONDS } from "./constants";
 
-type WebGPUParticleSimulatorBackend = WebGPUComputeFacadeSource & {
-	createBuffer(desc: BufferDesc): IRenderBuffer;
-	writeBuffer(
-		buffer: IRenderBuffer,
-		data: BufferSource,
-		offset?: number
-	): void;
-};
-
 interface WebGPUParticleSimulatorOptions {
-	backend: WebGPUParticleSimulatorBackend;
+	backend: IWebGPUComputeFacade;
 	backendTag?: string;
 	computeRuntime?: IComputeRuntime;
 	maxParticlesPerSystem?: number;
@@ -80,7 +71,7 @@ const GPU_PARTICLE_SPACE_LOCAL = 0;
 const GPU_PARTICLE_SPACE_WORLD = 1;
 
 export class WebGPUParticleSimulator implements IParticleSimulator {
-	private _backend: WebGPUParticleSimulatorBackend;
+	private _backend: IWebGPUComputeFacade;
 	private _cpuSimulator: DefaultParticleSimulator;
 	private _computeRuntime: IComputeRuntime | null = null;
 	private _ownsComputeRuntime = false;

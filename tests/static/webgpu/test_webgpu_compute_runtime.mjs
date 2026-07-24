@@ -5,9 +5,15 @@ import {
 	TextureUsage,
 } from "../../../src/backends/types.ts";
 import { ComputeRuntime } from "../../../src/backends/webgpu/ComputeRuntime.ts";
+import { createWebGPUComputeFacade } from "../../../src/backends/webgpu/ComputeFacade.ts";
 import { float32ToFloat16Bits } from "../../../src/foundation/Float16.ts";
 
 import { FakeWebGPUBackend } from "../../helpers/fakes.mjs";
+
+function createRuntime() {
+	const backend = new FakeWebGPUBackend();
+	return new ComputeRuntime(createWebGPUComputeFacade(backend));
+}
 
 function toUint8Array(data) {
 	if (data instanceof Uint8Array) {
@@ -21,7 +27,7 @@ function nearlyEqual(actual, expected, epsilon = 1e-6) {
 }
 
 async function testReadTextureSkipsPaddingInNormalizedConversion() {
-	const runtime = new ComputeRuntime(new FakeWebGPUBackend());
+	const runtime = createRuntime();
 	const texture = runtime.createTexture({
 		width: 3,
 		height: 2,
@@ -62,7 +68,7 @@ async function testReadTextureSkipsPaddingInNormalizedConversion() {
 }
 
 async function testReadTextureNormalizesBGRA8Unorm() {
-	const runtime = new ComputeRuntime(new FakeWebGPUBackend());
+	const runtime = createRuntime();
 	const texture = runtime.createTexture({
 		width: 1,
 		height: 1,
@@ -100,7 +106,7 @@ async function testReadTextureNormalizesBGRA8Unorm() {
 }
 
 async function testReadTextureDecodesRGBA16FloatWithPadding() {
-	const runtime = new ComputeRuntime(new FakeWebGPUBackend());
+	const runtime = createRuntime();
 	const texture = runtime.createTexture({
 		width: 3,
 		height: 2,
@@ -156,7 +162,7 @@ async function testReadTextureDecodesRGBA16FloatWithPadding() {
 }
 
 async function testKernelSchemaValidation() {
-	const runtime = new ComputeRuntime(new FakeWebGPUBackend());
+	const runtime = createRuntime();
 	await assert.rejects(
 		runtime.createKernel({
 			code: "@compute @workgroup_size(1) fn csMain() {}",
@@ -180,7 +186,7 @@ async function testKernelSchemaValidation() {
 }
 
 async function testDispatchValidationRules() {
-	const runtime = new ComputeRuntime(new FakeWebGPUBackend());
+	const runtime = createRuntime();
 	const kernel = await runtime.createKernel({
 		code: "@compute @workgroup_size(1) fn csMain() {}",
 		bindings: [{ key: "params", binding: 0, type: "buffer" }],
@@ -226,7 +232,7 @@ async function testDispatchValidationRules() {
 }
 
 async function testRuntimeOwnedResourceDestroyIsDeferredUntilDispatchDone() {
-	const runtime = new ComputeRuntime(new FakeWebGPUBackend());
+	const runtime = createRuntime();
 	const kernel = await runtime.createKernel({
 		code: "@compute @workgroup_size(1) fn csMain() {}",
 		bindings: [{ key: "params", binding: 0, type: "buffer" }],
@@ -248,7 +254,7 @@ async function testRuntimeOwnedResourceDestroyIsDeferredUntilDispatchDone() {
 }
 
 async function testGetResourceStatsForDebugging() {
-	const runtime = new ComputeRuntime(new FakeWebGPUBackend());
+	const runtime = createRuntime();
 	const kernel = await runtime.createKernel({
 		code: "@compute @workgroup_size(1) fn csMain() {}",
 		bindings: [{ key: "params", binding: 0, type: "buffer" }],

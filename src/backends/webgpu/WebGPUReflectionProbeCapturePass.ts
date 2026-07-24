@@ -5,6 +5,7 @@ import { Matrix4 } from "../../maths/Matrix4";
 import type { IVector3, Matrix3Arr } from "../../maths/types";
 import type { MeshInstance } from "../../meshes";
 import type { IPrimitive } from "../../core/types";
+import type { ICommandEncoder } from "../ICommandEncoder";
 import type {
 	DrawPacket,
 	FrameContext,
@@ -32,8 +33,8 @@ import type {
 	WebGPUParticleRenderProvider,
 	WebGPUSceneResourceProvider,
 } from "./WebGPUResourceContracts";
-import type { WebGPUBackend } from "./WebGPUBackend";
-import { TextureFormat, TextureUsage } from "../types";
+import type { WebGPUFrameHost } from "./rendergraph/WebGPUFrameHost";
+import { TextureFormat, TextureUsage, type IRenderTexture } from "../types";
 import { submitWebGPUDraws } from "./WebGPUDrawSubmission";
 import {
 	CustomRenderPassRegistrySnapshot,
@@ -59,21 +60,21 @@ const CUBE_FACE_UP_VECTORS: IVector3[] = [
 ];
 
 export class WebGPUReflectionProbeCapturePass {
-	private _backend: WebGPUBackend;
+	private _backend: WebGPUFrameHost;
 	private _resources: WebGPUFrameResourceProvider &
 		WebGPUSceneResourceProvider &
 		WebGPUParticleRenderProvider;
 	private _readbackRuntime: ComputeRuntime;
 
 	constructor(
-		backend: WebGPUBackend,
+		backend: WebGPUFrameHost,
 		resources: WebGPUFrameResourceProvider &
 			WebGPUSceneResourceProvider &
 			WebGPUParticleRenderProvider
 	) {
 		this._backend = backend;
 		this._resources = resources;
-		this._readbackRuntime = new ComputeRuntime(backend);
+		this._readbackRuntime = new ComputeRuntime(backend.computeFacade);
 	}
 
 	public async captureFace(
@@ -205,7 +206,7 @@ export class WebGPUReflectionProbeCapturePass {
 	}
 
 	private async _recordSceneCapture(
-		encoder: ReturnType<WebGPUBackend["createCommandEncoder"]>,
+		encoder: ICommandEncoder,
 		context: FrameContext,
 		targets: CaptureRenderTargets,
 		includeEnvironment: boolean,
@@ -284,7 +285,7 @@ export class WebGPUReflectionProbeCapturePass {
 	}
 
 	private async _recordEnvironmentCapturePass(
-		encoder: ReturnType<WebGPUBackend["createCommandEncoder"]>,
+		encoder: ICommandEncoder,
 		targets: CaptureRenderTargets,
 		frameResources: WebGPUPreparedFrameResources
 	): Promise<boolean> {
@@ -322,16 +323,16 @@ export class WebGPUReflectionProbeCapturePass {
 }
 
 interface CaptureRenderTargets {
-	sceneColor: ReturnType<WebGPUBackend["createTexture"]>;
-	gAlbedoAlpha: ReturnType<WebGPUBackend["createTexture"]>;
-	gNormalRoughMetal: ReturnType<WebGPUBackend["createTexture"]>;
-	gEmissiveOcclusion: ReturnType<WebGPUBackend["createTexture"]>;
-	gMotionDepth: ReturnType<WebGPUBackend["createTexture"]>;
-	depth: ReturnType<WebGPUBackend["createTexture"]>;
+	sceneColor: IRenderTexture;
+	gAlbedoAlpha: IRenderTexture;
+	gNormalRoughMetal: IRenderTexture;
+	gEmissiveOcclusion: IRenderTexture;
+	gMotionDepth: IRenderTexture;
+	depth: IRenderTexture;
 }
 
 function createCaptureRenderTargets(
-	backend: WebGPUBackend,
+	backend: WebGPUFrameHost,
 	faceSize: number,
 	faceIndex: number
 ): CaptureRenderTargets {

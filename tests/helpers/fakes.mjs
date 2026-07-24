@@ -570,6 +570,10 @@ export class FakeWebGPUBackend {
 		return this;
 	}
 
+	resolveTextureForSlot(texture, slotIndex) {
+		return this.getTextureForSlot(texture, slotIndex);
+	}
+
 	assertDeviceOperational() {}
 
 	isEarlyZPrepassEnabled() { return true; }
@@ -1218,7 +1222,7 @@ export class FakeRenderer {
 			return this.backend.getBackendExtension(key);
 		}
 		if (this.backend && (key === "webgpu.compute" || (key && key.id === "webgpu.compute"))) {
-			return this.backend;
+			return this.backend.computeFacade ?? this.backend;
 		}
 		return null;
 	}

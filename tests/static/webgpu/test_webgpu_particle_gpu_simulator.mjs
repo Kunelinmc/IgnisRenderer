@@ -17,6 +17,7 @@ import { ParticleBlendMode } from "../../../src/particles/types.ts";
 import { BufferUsage } from "../../../src/backends/types.ts";
 import { WebGPUFrameServiceOwner as WebGPURenderResources } from "../../../src/backends/webgpu/WebGPUFrameServiceOwner.ts";
 import { WebGPUParticleSimulator } from "../../../src/simulation/particles/WebGPUParticleSimulator.ts";
+import { createWebGPUComputeFacade } from "../../../src/backends/webgpu/ComputeFacade.ts";
 import { WEBGPU_PARTICLE_DRAW_BATCHES_KEY } from "../../../src/backends/webgpu/types.ts";
 import {
 	FakeCommandEncoder as FakeRenderEncoder,
@@ -157,7 +158,7 @@ function createTriangleMesh(material = new Material({ name: "ParticleMesh" })) {
 function testWebGPUParticleSimulatorPublishesDrawBatches() {
 	const backend = new FakeBackend();
 	const simulator = new WebGPUParticleSimulator({
-		backend,
+		backend: createWebGPUComputeFacade(backend),
 		backendTag: "webgpu-test",
 		maxParticlesPerSystem: 1024,
 	});
@@ -194,7 +195,7 @@ function testWebGPUParticleSimulatorPublishesDrawBatches() {
 async function testWebGPUParticleSimulatorDispatchesComputeSimulation() {
 	const backend = new FakeBackend();
 	const simulator = new WebGPUParticleSimulator({
-		backend,
+		backend: createWebGPUComputeFacade(backend),
 		backendTag: "webgpu-test",
 		maxParticlesPerSystem: 1024,
 	});
@@ -249,7 +250,7 @@ async function testWebGPUParticleSimulatorDispatchesComputeSimulation() {
 async function testWebGPUParticleSimulatorMixesComputeAndCpuFallbackBatches() {
 	const backend = new FakeBackend();
 	const simulator = new WebGPUParticleSimulator({
-		backend,
+		backend: createWebGPUComputeFacade(backend),
 		backendTag: "webgpu-test",
 		maxParticlesPerSystem: 1024,
 	});
@@ -306,7 +307,7 @@ async function testWebGPUParticleSimulatorMixesComputeAndCpuFallbackBatches() {
 
 async function testRenderResourcesPrefersGPUDrawBatches() {
 	const backend = new FakeBackend();
-	const resources = new WebGPURenderResources(backend, backend);
+	const resources = new WebGPURenderResources(backend, backend, createWebGPUComputeFacade(backend));
 	await resources.init();
 
 	const context = createContext([]);
@@ -371,7 +372,7 @@ async function testRenderResourcesPrefersGPUDrawBatches() {
 
 function testRenderResourcesBuildsParticleMeshDrawPackets() {
 	const backend = new FakeBackend();
-	const resources = new WebGPURenderResources(backend, backend);
+	const resources = new WebGPURenderResources(backend, backend, createWebGPUComputeFacade(backend));
 	const opaqueMaterial = new Material({ name: "particle-opaque" });
 	const transparentMaterial = new Material({
 		name: "particle-transparent",

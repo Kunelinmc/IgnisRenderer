@@ -16,6 +16,7 @@ import {
 	createTextureMipUploadData,
 } from "../../../src/backends/webgpu/texture.ts";
 import { ComputeRuntime } from "../../../src/backends/webgpu/ComputeRuntime.ts";
+import { createWebGPUComputeFacade } from "../../../src/backends/webgpu/ComputeFacade.ts";
 import { FakeWebGPUBackend } from "../../helpers/fakes.mjs";
 
 function nearlyEqual(actual, expected, epsilon = 1e-4) {
@@ -140,7 +141,7 @@ function testWebGPUUploadConvertsFloat16Formats() {
 
 async function testComputeRuntimeReadsNarrowFormatsAsRGBA() {
 	const backend = new FakeWebGPUBackend();
-	const runtime = new ComputeRuntime(backend);
+	const runtime = new ComputeRuntime(createWebGPUComputeFacade(backend));
 	const texture = runtime.createTexture({
 		width: 2,
 		height: 1,
@@ -180,7 +181,7 @@ async function testComputeRuntimeReadsNarrowFormatsAsRGBA() {
 
 async function testComputeRuntimeRejectsPackedRGBAReadback() {
 	const backend = new FakeWebGPUBackend();
-	const runtime = new ComputeRuntime(backend);
+	const runtime = new ComputeRuntime(createWebGPUComputeFacade(backend));
 	const texture = runtime.createTexture({
 		width: 1,
 		height: 1,

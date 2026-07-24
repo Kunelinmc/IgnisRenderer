@@ -199,6 +199,22 @@ function createBackend(options = undefined) {
 			queueSubmissions.push(commands);
 		},
 	};
+	// Exercise the backend-owned services directly now that WebGPUBackend no
+	// longer exposes their operations as public forwarding methods.
+	backend.createSampler = (desc) => backend._pipelineCache.createSampler(desc);
+	backend.createShaderModule = (desc) =>
+		backend._pipelineCache.createShaderModule(desc);
+	backend.createPipeline = (desc) =>
+		backend._pipelineCache.createPipeline(desc);
+	backend.createComputePipeline = (desc) =>
+		backend._pipelineCache.createComputePipeline(desc);
+	backend.createBuffer = (desc) => backend._resourceManager.createBuffer(desc);
+	backend.createTexture = (desc) => backend._resourceManager.createTexture(desc);
+	backend.createBindingGroup = (desc) =>
+		backend._bindingGroupCache.createBindingGroup(desc);
+	backend.createCommandEncoder = () =>
+		backend._commandScheduler.createCommandEncoder();
+	backend.submit = (commands) => backend._commandScheduler.submit(commands);
 	return { backend, device, queueSubmissions };
 }
 

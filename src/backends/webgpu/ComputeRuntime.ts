@@ -147,7 +147,6 @@ interface KernelResourceSet {
 
 export class ComputeRuntime implements IComputeRuntime {
 	private _computeFacade: IWebGPUComputeFacade;
-	private _context: WebGPUComputeContext;
 	private _destroyed = false;
 	private _ownedResources = new Set<OwnedResourceRecord>();
 	private _ownedResourceByObject = new WeakMap<object, OwnedResourceRecord>();
@@ -163,7 +162,7 @@ export class ComputeRuntime implements IComputeRuntime {
 
 	constructor(source: WebGPUComputeFacadeSource) {
 		this._computeFacade = resolveWebGPUComputeFacade(source);
-		this._context = resolveWebGPUComputeContext(source);
+		resolveWebGPUComputeContext(this._computeFacade);
 	}
 
 	public createBuffer(desc: BufferDesc): IRenderBuffer {
@@ -224,26 +223,23 @@ export class ComputeRuntime implements IComputeRuntime {
 				"ComputeRuntime.writeTexture() requires layout.bytesPerRow to be a positive number."
 			);
 		}
-		const gpuTexture = getWebGPUTexture(texture).texture;
-		this._context.queue.writeTexture(
-			{
-				texture: gpuTexture,
-				mipLevel: Math.max(0, Math.floor(layout.mipLevel ?? 0)),
-			},
+		this._computeFacade.writeTexture(
+			texture,
 			data,
 			{
 				offset: layout.offset ?? 0,
 				bytesPerRow,
 				rowsPerImage: layout.rowsPerImage ?? size.height,
+				mipLevel: Math.max(0, Math.floor(layout.mipLevel ?? 0)),
 			},
 			{
 				width: Math.max(1, Math.floor(size.width)),
 				height: Math.max(1, Math.floor(size.height)),
 				depthOrArrayLayers: Math.max(
 					1,
-					Math.floor(size.depthOrArrayLayers ?? 1)
+					Math.floor(size.depthOrArrayLayers ?? 1),
 				),
-			}
+			},
 		);
 	}
 
@@ -319,14 +315,15 @@ export class ComputeRuntime implements IComputeRuntime {
 			return createBufferReadbackResult(new Uint8Array(0));
 		}
 		const sourceBuffer = resolveGPUBufferHandle(options.buffer);
-		const readbackBuffer = this._context.device.createBuffer({
+		const context = resolveWebGPUComputeContext(this._computeFacade);
+		const readbackBuffer = context.device.createBuffer({
 			label: "ComputeRuntimeReadBuffer",
 			size: Math.max(4, size),
 			usage: WEBGPU_BUFFER_USAGE_COPY_DST | WEBGPU_BUFFER_USAGE_MAP_READ,
 		});
 
 		try {
-			const encoder = this._context.device.createCommandEncoder({
+			const encoder = context.device.createCommandEncoder({
 				label: "ComputeRuntimeReadBufferEncoder",
 			});
 			encoder.copyBufferToBuffer(
@@ -336,7 +333,7 @@ export class ComputeRuntime implements IComputeRuntime {
 				0,
 				size
 			);
-			this._context.queue.submit([encoder.finish()]);
+			context.queue.submit([encoder.finish()]);
 			await readbackBuffer.mapAsync(WEBGPU_MAP_MODE_READ, 0, size);
 			const mapped = readbackBuffer.getMappedRange(0, size);
 			const bytes = new Uint8Array(mapped.slice(0));
@@ -379,14 +376,15 @@ export class ComputeRuntime implements IComputeRuntime {
 			"readTexture.mipLevel"
 		);
 		const sourceTexture = getWebGPUTexture(options.texture).texture;
-		const readbackBuffer = this._context.device.createBuffer({
+		const context = resolveWebGPUComputeContext(this._computeFacade);
+		const readbackBuffer = context.device.createBuffer({
 			label: "ComputeRuntimeReadTextureBuffer",
 			size: Math.max(4, readbackSize),
 			usage: WEBGPU_BUFFER_USAGE_COPY_DST | WEBGPU_BUFFER_USAGE_MAP_READ,
 		});
 
 		try {
-			const encoder = this._context.device.createCommandEncoder({
+			const encoder = context.device.createCommandEncoder({
 				label: "ComputeRuntimeReadTextureEncoder",
 			});
 			encoder.copyTextureToBuffer(
@@ -406,7 +404,7 @@ export class ComputeRuntime implements IComputeRuntime {
 					depthOrArrayLayers: 1,
 				}
 			);
-			this._context.queue.submit([encoder.finish()]);
+			context.queue.submit([encoder.finish()]);
 			await readbackBuffer.mapAsync(WEBGPU_MAP_MODE_READ, 0, readbackSize);
 			const mapped = readbackBuffer.getMappedRange(0, readbackSize);
 			const bytes = new Uint8Array(mapped.slice(0));
@@ -521,7 +519,9 @@ export class ComputeRuntime implements IComputeRuntime {
 		let ticketDone: Promise<void>;
 		try {
 			this._submitCommands([commandBuffer]);
-			ticketDone = this._context.queue.onSubmittedWorkDone();
+			ticketDone = resolveWebGPUComputeContext(
+				this._computeFacade,
+			).queue.onSubmittedWorkDone();
 		} catch (error) {
 			this._destroySafely(bindGroup, `${kernel.label} bind group`);
 			this._releaseRetainedOwnedResources(retained);

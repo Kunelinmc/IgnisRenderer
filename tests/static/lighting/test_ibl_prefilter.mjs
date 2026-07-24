@@ -8,6 +8,7 @@ import {
 import { sampleEnvironmentTextureSpecular } from "../../../src/lights/runtime/environmentMapRuntime.ts";
 import { WEBGPU_COMPUTE_EXTENSION } from "../../../src/backends/BackendExtensions.ts";
 import { TextureFormat } from "../../../src/backends/types.ts";
+import { createWebGPUComputeFacade } from "../../../src/backends/webgpu/ComputeFacade.ts";
 
 import { FakeWebGPUBackend } from "../../helpers/fakes.mjs";
 
@@ -27,7 +28,9 @@ function createTestTexture(width = 16, height = 8) {
 	return new Texture({ data: data, width: width, height: height, colorSpace: "sRGB" });
 }
 
-function createRenderBackend(computeFacade) {
+function createRenderBackend(computeHost) {
+	const computeFacade =
+		computeHost ? createWebGPUComputeFacade(computeHost) : null;
 	return {
 		profile: { id: computeFacade ? "webgpu" : "software" },
 		attach() {},
@@ -140,7 +143,7 @@ async function testWebGPUPrefilterUsesRGBA16FloatForHDR() {
 		colorSpace: "HDR",
 	});
 	const backend = new FakeWebGPUBackend();
-	const prefilter = new IBLPrefilter(backend);
+	const prefilter = new IBLPrefilter(createWebGPUComputeFacade(backend));
 	const result = await prefilter.prefilter(texture, {
 		acceleration: "webgpu",
 		maxSampleWidth: 1,

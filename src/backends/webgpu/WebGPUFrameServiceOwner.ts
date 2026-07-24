@@ -30,10 +30,9 @@ import {
 	type ISampler,
 	type IShaderModule,
 } from "../types";
-import type { WebGPUBackend } from "./WebGPUBackend";
+import type { WebGPUDeviceResourceHost } from "./WebGPUDeviceResourceHost";
 import type { WebGPUResourceManager } from "./WebGPUResourceManager";
 import { SINGLE_SAMPLE_WEBGPU_MSAA_CONTEXT, type WebGPUMSAAContext } from "./WebGPUMSAAController";
-import { resolveWebGPUComputeFacade } from "./ComputeFacade";
 import type { IWebGPUComputeFacade } from "./ComputeFacade";
 import {
 	ANIMATION_WEBGPU_JOINT_MATRICES_KEY,
@@ -272,7 +271,7 @@ class WebGPUFrameResourceScopeHandle implements WebGPUFrameResourceScopeContract
 
 /** @internal WebGPU backend-private composition and shared-resource owner. */
 export class WebGPUFrameServiceOwner {
-	private _backend: WebGPUBackend;
+	private _backend: WebGPUDeviceResourceHost;
 	private _resourceManager: WebGPUResourceManager;
 	private _msaa: WebGPUMSAAContext;
 	private _computeFacade: IWebGPUComputeFacade;
@@ -301,14 +300,15 @@ export class WebGPUFrameServiceOwner {
 	private _destroyed = false;
 
 	constructor(
-		backend: WebGPUBackend,
+		backend: WebGPUDeviceResourceHost,
 		resourceManager: WebGPUResourceManager,
+		computeFacade: IWebGPUComputeFacade,
 		msaa: WebGPUMSAAContext = SINGLE_SAMPLE_WEBGPU_MSAA_CONTEXT,
 	) {
 		this._backend = backend;
 		this._resourceManager = resourceManager;
 		this._msaa = msaa;
-		this._computeFacade = resolveWebGPUComputeFacade(backend);
+		this._computeFacade = computeFacade;
 		const device = backend.device;
 		if (!device) {
 			throw new Error("WebGPU backend is not initialized; cannot create render resources.");

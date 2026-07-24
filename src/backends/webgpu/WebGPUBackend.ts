@@ -95,8 +95,8 @@ import { ShaderSource } from "../../shaders/ShaderSource";
 import type { Texture } from "../../core/Texture";
 import {
 	createWebGPUComputeFacade,
-	invalidateWebGPUComputeFacade,
 	type IWebGPUComputeFacade,
+	type WebGPUComputeFacadeHost,
 } from "./ComputeFacade";
 import { Logger } from "../../foundation/Logger";
 
@@ -308,6 +308,8 @@ export class WebGPUBackend implements IRenderBackend {
 	private readonly _resourceManager: WebGPUResourceManager;
 	private readonly _pipelineCache: WebGPUPipelineCache;
 	private readonly _bindingGroupCache: WebGPUBindingGroupCache;
+	private readonly _computeFacadeHost: WebGPUComputeFacadeHost;
+	private readonly _computeFacade: IWebGPUComputeFacade;
 	private readonly _passDispatcher: WebGPUBackendPassDispatcher;
 	private readonly _warmupCoordinator: WebGPUWarmupCoordinator;
 
@@ -401,7 +403,8 @@ export class WebGPUBackend implements IRenderBackend {
 		});
 		this._commandScheduler = new WebGPUCommandScheduler(this._createCommandSchedulerHost());
 		this._resourceManager = new WebGPUResourceManager(this._createResourceManagerHost());
-		const computeFacade = createWebGPUComputeFacade(this);
+		this._computeFacadeHost = this._createComputeFacadeHost();
+		this._computeFacade = createWebGPUComputeFacade(this._computeFacadeHost);
 		this.extensions = createRenderBackendExtensionRegistry([
 			{
 				id: RENDERER_OCCLUSION_CULLING_EXTENSION_ID,
@@ -422,7 +425,7 @@ export class WebGPUBackend implements IRenderBackend {
 			{
 				id: WEBGPU_COMPUTE_EXTENSION.id,
 				insertionPoints: ["application:webgpu-compute"],
-				api: computeFacade,
+				api: this._computeFacade,
 			},
 		]);
 		this.shaderRuntime.onDidChange(() => {
@@ -436,10 +439,6 @@ export class WebGPUBackend implements IRenderBackend {
 		}
 		this._attachContext = context;
 		this._attached = true;
-	}
-
-	public getComputeFacade(): IWebGPUComputeFacade {
-		return createWebGPUComputeFacade(this);
 	}
 
 	public getShaderDirectiveCacheTag(): string {
@@ -555,13 +554,14 @@ export class WebGPUBackend implements IRenderBackend {
 			this._configureContext();
 			this._recreateDepthTexture();
 
+			this._frameHost = this._createFrameHost();
 			this._resources = new WebGPUFrameServiceOwner(
-				this,
+				this._frameHost,
 				this._resourceManager,
+				this._computeFacade,
 				this._msaaController,
 			);
 			await this._resources.init();
-			this._frameHost = this._createFrameHost();
 			this._postProcessExecutor = new WebGPUPostProcessExecutor(this._frameHost);
 			this._postProcessRuntime = new BackendPostProcessRuntime({
 				executor: this._postProcessExecutor,
@@ -578,11 +578,11 @@ export class WebGPUBackend implements IRenderBackend {
 				this._msaaController,
 			);
 			this._reflectionProbeCapturePass = new WebGPUReflectionProbeCapturePass(
-				this,
+				this._frameHost,
 				this._resources,
 			);
 			this._particleSimulator = new WebGPUParticleSimulator({
-				backend: this,
+				backend: this._computeFacade,
 				backendTag: this.profile.id,
 				maxParticlesPerSystem: WEBGPU_MAX_PARTICLES_PER_SYSTEM,
 			});
@@ -843,7 +843,10 @@ export class WebGPUBackend implements IRenderBackend {
 		return this._completedFrameCoverage;
 	}
 
-	public getTextureForSlot(texture: Texture | null, slotIndex: number): IRenderTexture {
+	private _resolveTextureForSlot(
+		texture: Texture | null,
+		slotIndex: number,
+	): IRenderTexture {
 		this._assertDeviceOperational("resolve texture resources");
 		if (!this._resources) {
 			throw new Error(
@@ -853,7 +856,7 @@ export class WebGPUBackend implements IRenderBackend {
 		return this._resources.getTextureForSlot(texture, slotIndex);
 	}
 
-	public registerExternalTexture(
+	private _registerExternalTexture(
 		texture: Texture,
 		resource: IRenderTexture,
 		uploadedVersion: number = texture.version,
@@ -868,7 +871,7 @@ export class WebGPUBackend implements IRenderBackend {
 		this._resources.registerExternalTexture(texture, resource, uploadedVersion, mipLevelCount);
 	}
 
-	public unregisterExternalTexture(texture: Texture): void {
+	private _unregisterExternalTexture(texture: Texture): void {
 		if (!this._resources) {
 			return;
 		}
@@ -905,83 +908,9 @@ export class WebGPUBackend implements IRenderBackend {
 		}
 		this._destroyPostProcessResourcesForReset();
 		this._rollbackInitializationState();
-		invalidateWebGPUComputeFacade(this);
+		this._computeFacade.destroy();
 		this._deviceLost = false;
 		this._deviceLostInfo = null;
-	}
-
-	public createBuffer(desc: BufferDesc): IRenderBuffer {
-		return this._resourceManager.createBuffer(desc);
-	}
-
-	public createTexture(desc: TextureDesc): IRenderTexture {
-		return this._resourceManager.createTexture(desc);
-	}
-
-	public createSampler(desc: SamplerDesc): ISampler {
-		return this._pipelineCache.createSampler(desc);
-	}
-
-	public async createShaderModule(desc: ShaderModuleDesc): Promise<IShaderModule> {
-		return this._pipelineCache.createShaderModule(desc);
-	}
-
-	public async createPipeline(desc: PipelineDesc): Promise<IRenderPipeline> {
-		return this._pipelineCache.createPipeline(desc);
-	}
-
-	public async createComputePipeline(desc: ComputePipelineDesc): Promise<IComputePipeline> {
-		return this._pipelineCache.createComputePipeline(desc);
-	}
-
-	public createBindingGroup(desc: BindingGroupDesc): IBindingGroup {
-		return this._bindingGroupCache.createBindingGroup(desc);
-	}
-
-	public createCommandEncoder(): ICommandEncoder {
-		return this._commandScheduler.createCommandEncoder();
-	}
-
-	public writeBuffer(buffer: IRenderBuffer, data: BufferSource, offset: number = 0): void {
-		this._resourceManager.writeBuffer(buffer, data, offset);
-	}
-
-	public copyTextureToTexture(
-		source: {
-			texture: IRenderTexture;
-			origin?: GPUOrigin3D;
-			aspect?: GPUTextureAspect;
-		},
-		destination: {
-			texture: IRenderTexture;
-			origin?: GPUOrigin3D;
-			aspect?: GPUTextureAspect;
-		},
-		copySize: { width: number; height: number; depthOrArrayLayers?: number },
-	): void {
-		this._commandScheduler.copyTextureToTexture(source, destination, copySize);
-	}
-
-	public submit(commands: ICommandBuffer[]): void {
-		this._commandScheduler.submit(commands);
-	}
-
-	public getCanvasColorTexture(): IRenderTexture {
-		if (!this.context || !this.canvas) {
-			throw new Error("WebGPU not initialized");
-		}
-		return this._canvasTargets.getCanvasColorTexture(this.context, this.canvas);
-	}
-
-	public getCanvasDepthTexture(): IRenderTexture {
-		return this._canvasTargets.getCanvasDepthTexture();
-	}
-
-	public createTextureView(
-		texture: IRenderTexture,
-		desc?: GPUTextureViewDescriptor,
-	): GPUTextureView {
-		return this._resourceManager.createTextureView(texture, desc);
 	}
 
 	public getCurrentColorView(): GPUTextureView {
@@ -1010,6 +939,61 @@ export class WebGPUBackend implements IRenderBackend {
 		return this._commandScheduler.createPassTimestampWrites(label);
 	}
 
+	private _createComputeFacadeHost(): WebGPUComputeFacadeHost {
+		const backend = this;
+		return {
+			get device() {
+				return backend.device;
+			},
+			get queue() {
+				return backend.queue;
+			},
+			createSampler: (desc) => this._pipelineCache.createSampler(desc),
+			createShaderModule: (desc) =>
+				this._pipelineCache.createShaderModule(desc),
+			createComputePipeline: (desc) =>
+				this._pipelineCache.createComputePipeline(desc),
+			createBuffer: (desc) => this._resourceManager.createBuffer(desc),
+			createTexture: (desc) => this._resourceManager.createTexture(desc),
+			createBindingGroup: (desc) =>
+				this._bindingGroupCache.createBindingGroup(desc),
+			createBindGroupLayout: (desc) => {
+				this._assertDeviceOperational("create compute binding group layouts");
+				return this.device.createBindGroupLayout(desc);
+			},
+			createPipelineLayout: (desc) => {
+				this._assertDeviceOperational("create compute pipeline layouts");
+				return this.device.createPipelineLayout(desc);
+			},
+			createTextureView: (texture, desc) =>
+				this._resourceManager.createTextureView(texture, desc),
+			createCommandEncoder: () =>
+				this._commandScheduler.createCommandEncoder(),
+			submit: (commands) => this._commandScheduler.submit(commands),
+			writeBuffer: (buffer, data, offset) =>
+				this._resourceManager.writeBuffer(buffer, data, offset),
+			writeTexture: (texture, data, desc, size) =>
+				this._resourceManager.writeTexture(texture, data, desc, size),
+			resolveTextureForSlot: (texture, slotIndex) =>
+				this._resolveTextureForSlot(texture, slotIndex),
+			registerExternalTexture: (
+				texture,
+				resource,
+				uploadedVersion,
+				mipLevelCount,
+			) => {
+				this._registerExternalTexture(
+					texture,
+					resource,
+					uploadedVersion,
+					mipLevelCount,
+				);
+			},
+			unregisterExternalTexture: (texture) =>
+				this._unregisterExternalTexture(texture),
+		};
+	}
+
 	private _createFrameHost(): WebGPUFrameHost {
 		const backend: WebGPUBackend = this;
 		const device = this.device;
@@ -1028,7 +1012,7 @@ export class WebGPUBackend implements IRenderBackend {
 			queue,
 			canvasFormat: this.canvasFormat,
 			canvasDepthFormat: this.canvasDepthFormat,
-			computeFacade: this.getComputeFacade(),
+			computeFacade: this._computeFacade,
 			get postProcessRuntime() {
 				return backend.postProcessRuntime;
 			},
@@ -1040,55 +1024,61 @@ export class WebGPUBackend implements IRenderBackend {
 			},
 			createBuffer: (desc) => {
 				assertActive("create frame buffers");
-				return backend.createBuffer(desc);
+				return backend._resourceManager.createBuffer(desc);
 			},
 			createTexture: (desc) => {
 				assertActive("create frame textures");
-				return backend.createTexture(desc);
+				return backend._resourceManager.createTexture(desc);
 			},
 			createSampler: (desc) => {
 				assertActive("create frame samplers");
-				return backend.createSampler(desc);
+				return backend._pipelineCache.createSampler(desc);
 			},
 			createShaderModule: (desc) => {
 				assertActive("create frame shader modules");
-				return backend.createShaderModule(desc);
+				return backend._pipelineCache.createShaderModule(desc);
 			},
 			createPipeline: (desc) => {
 				assertActive("create frame pipelines");
-				return backend.createPipeline(desc);
+				return backend._pipelineCache.createPipeline(desc);
 			},
 			createComputePipeline: (desc) => {
 				assertActive("create frame compute pipelines");
-				return backend.createComputePipeline(desc);
+				return backend._pipelineCache.createComputePipeline(desc);
 			},
 			createBindingGroup: (desc) => {
 				assertActive("create frame binding groups");
-				return backend.createBindingGroup(desc);
+				return backend._bindingGroupCache.createBindingGroup(desc);
 			},
 			createTextureView: (texture, desc) => {
 				assertActive("create frame texture views");
-				return backend.createTextureView(texture, desc);
+				return backend._resourceManager.createTextureView(texture, desc);
 			},
 			createCommandEncoder: () => {
 				assertActive("create frame command encoders");
-				return backend.createCommandEncoder();
+				return backend._commandScheduler.createCommandEncoder();
 			},
 			submit: (commands) => {
 				assertActive("submit frame command buffers");
-				backend.submit(commands);
+				backend._commandScheduler.submit(commands);
 			},
 			writeBuffer: (buffer, data, offset) => {
 				assertActive("write frame buffers");
-				backend.writeBuffer(buffer, data, offset);
+				backend._resourceManager.writeBuffer(buffer, data, offset);
 			},
 			getCanvasColorTexture: () => {
 				assertActive("resolve frame canvas color");
-				return backend.getCanvasColorTexture();
+				if (!backend.context || !backend.canvas) {
+					throw new Error("WebGPU not initialized");
+				}
+				return backend._canvasTargets.getCanvasColorTexture(
+					backend.context,
+					backend.canvas,
+				);
 			},
 			getCanvasDepthTexture: () => {
 				assertActive("resolve frame canvas depth");
-				return backend.getCanvasDepthTexture();
+				return backend._canvasTargets.getCanvasDepthTexture();
 			},
 			assertDeviceOperational: assertActive,
 		};
@@ -1201,7 +1191,13 @@ export class WebGPUBackend implements IRenderBackend {
 				return this.getCurrentDepthView();
 			},
 			getCanvasColorTexture: () => {
-				return this.getCanvasColorTexture();
+				if (!this.context || !this.canvas) {
+					throw new Error("WebGPU not initialized");
+				}
+				return this._canvasTargets.getCanvasColorTexture(
+					this.context,
+					this.canvas,
+				);
 			},
 		};
 	}
@@ -1665,7 +1661,7 @@ export class WebGPUBackend implements IRenderBackend {
 			return;
 		}
 		this._canvasTargets.recreateDepthTexture(this.canvas, this.canvasDepthFormat, (desc) =>
-			this.createTexture(desc),
+			this._resourceManager.createTexture(desc),
 		);
 	}
 

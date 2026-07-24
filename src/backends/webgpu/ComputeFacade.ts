@@ -1,5 +1,7 @@
 import type { Texture } from "../../core/Texture";
+import type { IRenderBackend } from "../IRenderBackend";
 import type { ICommandBuffer, ICommandEncoder } from "../ICommandEncoder";
+import { WEBGPU_COMPUTE_EXTENSION } from "../BackendExtensions";
 import type {
 	BindingGroupDesc,
 	BufferDesc,
@@ -12,9 +14,9 @@ import type {
 	IShaderModule,
 	SamplerDesc,
 	ShaderModuleDesc,
+	TextureDataLayout,
 	TextureDesc,
 } from "../types";
-import type { WebGPUBackend } from "./WebGPUBackend";
 import { Logger } from "../../foundation/Logger";
 
 export const WEBGPU_COMPUTE_FACADE_BRAND = Symbol(
@@ -31,8 +33,13 @@ type ResolveTextureForSlotMethod = (
 	slotIndex: number
 ) => IRenderTexture;
 
-export interface IWebGPUComputeBackendLike {
-	type?: unknown;
+/**
+ * Backend-private operations used to implement the public WebGPU compute
+ * extension without exposing device services on `WebGPUBackend`.
+ *
+ * @internal Owned by `WebGPUBackend`.
+ */
+export interface WebGPUComputeFacadeHost {
 	device: GPUDevice | null;
 	queue?: GPUQueue | null;
 	createSampler(desc: SamplerDesc): ISampler;
@@ -57,9 +64,13 @@ export interface IWebGPUComputeBackendLike {
 		data: BufferSource,
 		offset?: number
 	): void;
-	getComputeFacade?: () => IWebGPUComputeFacade | null | undefined;
-	resolveTextureForSlot?: ResolveTextureForSlotMethod;
-	getTextureForSlot?: ResolveTextureForSlotMethod;
+	writeTexture(
+		texture: IRenderTexture,
+		data: BufferSource,
+		desc: TextureDataLayout,
+		size: { width: number; height: number; depthOrArrayLayers?: number }
+	): void;
+	resolveTextureForSlot: ResolveTextureForSlotMethod;
 	registerExternalTexture(
 		texture: Texture,
 		resource: IRenderTexture,
@@ -70,9 +81,8 @@ export interface IWebGPUComputeBackendLike {
 }
 
 export type WebGPUComputeFacadeSource =
-	| WebGPUBackend
-	| IWebGPUComputeFacade
-	| IWebGPUComputeBackendLike;
+	| IRenderBackend
+	| IWebGPUComputeFacade;
 
 export interface IWebGPUComputeFacade {
 	readonly [WEBGPU_COMPUTE_FACADE_BRAND]: true;
@@ -93,6 +103,12 @@ export interface IWebGPUComputeFacade {
 	createCommandEncoder(): ICommandEncoder;
 	submit(commands: ICommandBuffer[]): void;
 	writeBuffer(buffer: IRenderBuffer, data: BufferSource, offset?: number): void;
+	writeTexture(
+		texture: IRenderTexture,
+		data: BufferSource,
+		desc: TextureDataLayout,
+		size: { width: number; height: number; depthOrArrayLayers?: number }
+	): void;
 	resolveTextureForSlot(
 		texture: Texture | null,
 		slotIndex: number
@@ -107,167 +123,8 @@ export interface IWebGPUComputeFacade {
 	destroy(): void;
 }
 
-let WEBGPU_COMPUTE_FACADE_CACHE = new WeakMap<
-	WebGPUBackend,
-	IWebGPUComputeFacade
->();
+let WEBGPU_COMPUTE_FACADE_CACHE = new WeakMap<object, IWebGPUComputeFacade>();
 let WEBGPU_COMPUTE_FACADE_CACHE_ENTRY_COUNT = 0;
-
-class WebGPUBackendComputeFacade implements IWebGPUComputeFacade {
-	public readonly [WEBGPU_COMPUTE_FACADE_BRAND] = true;
-
-	private _destroyed = false;
-	private _trackedExternalTextures = new Set<Texture>();
-
-	constructor(
-		private _backend: WebGPUBackend,
-		private _onDestroy: () => void
-	) {}
-
-	public get device(): GPUDevice | null {
-		return this._backend.device;
-	}
-
-	public get queue(): GPUQueue | null {
-		return this._backend.queue;
-	}
-
-	private _assertAlive(operation: string): void {
-		if (this._destroyed) {
-			throw new Error(
-				`WebGPU compute facade is destroyed; cannot ${operation}.`
-			);
-		}
-	}
-
-	public createSampler(desc: SamplerDesc): ISampler {
-		this._assertAlive("create samplers");
-		return this._backend.createSampler(desc);
-	}
-
-	public createShaderModule(desc: ShaderModuleDesc): Promise<IShaderModule> {
-		this._assertAlive("create shader modules");
-		return this._backend.createShaderModule(desc);
-	}
-
-	public createComputePipeline(desc: ComputePipelineDesc): Promise<IComputePipeline> {
-		this._assertAlive("create compute pipelines");
-		return this._backend.createComputePipeline(desc);
-	}
-
-	public createBuffer(desc: BufferDesc): IRenderBuffer {
-		this._assertAlive("create buffers");
-		return this._backend.createBuffer(desc);
-	}
-
-	public createTexture(desc: TextureDesc): IRenderTexture {
-		this._assertAlive("create textures");
-		return this._backend.createTexture(desc);
-	}
-
-	public createBindingGroup(desc: BindingGroupDesc): IBindingGroup {
-		this._assertAlive("create binding groups");
-		return this._backend.createBindingGroup(desc);
-	}
-
-	public createBindGroupLayout(
-		desc: GPUBindGroupLayoutDescriptor
-	): GPUBindGroupLayout {
-		this._assertAlive("create bind group layouts");
-		const device = resolveLayoutDevice(this._backend, "createBindGroupLayout");
-		return device.createBindGroupLayout(desc);
-	}
-
-	public createPipelineLayout(
-		desc: GPUPipelineLayoutDescriptor
-	): GPUPipelineLayout {
-		this._assertAlive("create pipeline layouts");
-		const device = resolveLayoutDevice(this._backend, "createPipelineLayout");
-		return device.createPipelineLayout(desc);
-	}
-
-	public createTextureView(
-		texture: IRenderTexture,
-		desc?: GPUTextureViewDescriptor
-	): GPUTextureView {
-		this._assertAlive("create texture views");
-		const createTextureView = (this._backend as IWebGPUComputeBackendLike)
-			.createTextureView;
-		if (typeof createTextureView !== "function") {
-			throw new Error("WebGPU backend does not expose createTextureView().");
-		}
-		return createTextureView.call(this._backend, texture, desc);
-	}
-
-	public createCommandEncoder(): ICommandEncoder {
-		this._assertAlive("create command encoders");
-		return this._backend.createCommandEncoder();
-	}
-
-	public submit(commands: ICommandBuffer[]): void {
-		this._assertAlive("submit command buffers");
-		this._backend.submit(commands);
-	}
-
-	public writeBuffer(
-		buffer: IRenderBuffer,
-		data: BufferSource,
-		offset: number = 0
-	): void {
-		this._assertAlive("write buffers");
-		this._backend.writeBuffer(buffer, data, offset);
-	}
-
-	public resolveTextureForSlot(
-		texture: Texture | null,
-		slotIndex: number
-	): IRenderTexture {
-		this._assertAlive("resolve texture slots");
-		return this._backend.getTextureForSlot(texture, slotIndex);
-	}
-
-	public registerExternalTexture(
-		texture: Texture,
-		resource: IRenderTexture,
-		uploadedVersion: number = texture.version,
-		mipLevelCount: number = 1
-	): void {
-		this._assertAlive("register external textures");
-		this._backend.registerExternalTexture(
-			texture,
-			resource,
-			uploadedVersion,
-			mipLevelCount
-		);
-		this._trackedExternalTextures.add(texture);
-	}
-
-	public unregisterExternalTexture(texture: Texture): void {
-		this._assertAlive("unregister external textures");
-		this._backend.unregisterExternalTexture(texture);
-		this._trackedExternalTextures.delete(texture);
-	}
-
-	public destroy(): void {
-		if (this._destroyed) {
-			return;
-		}
-		this._destroyed = true;
-		const trackedTextures = Array.from(this._trackedExternalTextures);
-		this._trackedExternalTextures.clear();
-		for (const texture of trackedTextures) {
-			try {
-				this._backend.unregisterExternalTexture(texture);
-			} catch (error) {
-				Logger.warn(
-					`WebGPU compute facade failed to unregister external texture during destroy(): ${String(error)}`,
-					{ scope: "WebGPUComputeFacade" }
-				);
-			}
-		}
-		this._onDestroy();
-	}
-}
 
 interface AdaptedFacadeOps {
 	deviceSource: { device?: GPUDevice | null; queue?: GPUQueue | null };
@@ -291,6 +148,12 @@ interface AdaptedFacadeOps {
 		data: BufferSource,
 		offset?: number
 	) => void;
+	writeTexture: (
+		texture: IRenderTexture,
+		data: BufferSource,
+		desc: TextureDataLayout,
+		size: { width: number; height: number; depthOrArrayLayers?: number }
+	) => void;
 	resolveTextureForSlot: ResolveTextureForSlotMethod;
 	registerExternalTexture: (
 		texture: Texture,
@@ -300,6 +163,7 @@ interface AdaptedFacadeOps {
 	) => void;
 	unregisterExternalTexture: (texture: Texture) => void;
 	layoutDeviceSource: { device?: GPUDevice | null };
+	onDestroy?: () => void;
 }
 
 function createAdaptedFacade(ops: AdaptedFacadeOps): IWebGPUComputeFacade {
@@ -384,6 +248,10 @@ function createAdaptedFacade(ops: AdaptedFacadeOps): IWebGPUComputeFacade {
 			assertAlive("write buffers");
 			ops.writeBuffer(buffer, data, offset);
 		},
+		writeTexture: (texture, data, desc, size) => {
+			assertAlive("write textures");
+			ops.writeTexture(texture, data, desc, size);
+		},
 		resolveTextureForSlot: (texture, slotIndex) => {
 			assertAlive("resolve texture slots");
 			return ops.resolveTextureForSlot(texture, slotIndex);
@@ -425,6 +293,7 @@ function createAdaptedFacade(ops: AdaptedFacadeOps): IWebGPUComputeFacade {
 					);
 				}
 			}
+			ops.onDestroy?.();
 		},
 	};
 }
@@ -445,6 +314,7 @@ function hasComputeFacadeMethodSurface(
 		typeof candidate.createCommandEncoder === "function" &&
 		typeof candidate.submit === "function" &&
 		typeof candidate.writeBuffer === "function" &&
+		typeof candidate.writeTexture === "function" &&
 		typeof candidate.resolveTextureForSlot === "function" &&
 		typeof candidate.registerExternalTexture === "function" &&
 		typeof candidate.unregisterExternalTexture === "function" &&
@@ -467,129 +337,6 @@ function isWebGPUComputeFacade(value: unknown): value is IWebGPUComputeFacade {
 	return hasComputeFacadeMethodSurface(candidate);
 }
 
-function bindMethod<
-	TMethod extends (...args: any[]) => any = (...args: any[]) => any,
->(target: object, methodName: string): TMethod | null {
-	const method = (target as Record<string, unknown>)[methodName];
-	if (typeof method !== "function") {
-		return null;
-	}
-	return method.bind(target) as TMethod;
-}
-
-function tryCreateFacadeFromBackendLike(
-	value: unknown
-): IWebGPUComputeFacade | null {
-	if (!value || typeof value !== "object") {
-		return null;
-	}
-
-	const sourceObject = value as object;
-	const source = value as IWebGPUComputeBackendLike;
-	const createSampler = bindMethod<(desc: SamplerDesc) => ISampler>(
-		sourceObject,
-		"createSampler"
-	);
-	const createShaderModule = bindMethod<
-		(desc: ShaderModuleDesc) => Promise<IShaderModule>
-	>(sourceObject, "createShaderModule");
-	const createComputePipeline = bindMethod<
-		(desc: ComputePipelineDesc) => Promise<IComputePipeline>
-	>(sourceObject, "createComputePipeline");
-	const createBuffer = bindMethod<(desc: BufferDesc) => IRenderBuffer>(
-		sourceObject,
-		"createBuffer"
-	);
-	const createTexture = bindMethod<(desc: TextureDesc) => IRenderTexture>(
-		sourceObject,
-		"createTexture"
-	);
-	const createBindingGroup = bindMethod<
-		(desc: BindingGroupDesc) => IBindingGroup
-	>(sourceObject, "createBindingGroup");
-	const createTextureView = bindMethod<CreateTextureViewMethod>(
-		sourceObject,
-		"createTextureView"
-	);
-	const createCommandEncoder = bindMethod<() => ICommandEncoder>(
-		sourceObject,
-		"createCommandEncoder"
-	);
-	const submit = bindMethod<(commands: ICommandBuffer[]) => void>(
-		sourceObject,
-		"submit"
-	);
-	const writeBuffer = bindMethod<
-		(buffer: IRenderBuffer, data: BufferSource, offset?: number) => void
-	>(sourceObject, "writeBuffer");
-	const registerExternalTexture = bindMethod<
-		(
-			texture: Texture,
-			resource: IRenderTexture,
-			uploadedVersion?: number,
-			mipLevelCount?: number
-		) => void
-	>(sourceObject, "registerExternalTexture");
-	const unregisterExternalTexture = bindMethod<(texture: Texture) => void>(
-		sourceObject,
-		"unregisterExternalTexture"
-	);
-
-	if (
-		!createSampler ||
-		!createShaderModule ||
-		!createComputePipeline ||
-		!createBuffer ||
-		!createTexture ||
-		!createBindingGroup ||
-		!createTextureView ||
-		!createCommandEncoder ||
-		!submit ||
-		!writeBuffer ||
-		!registerExternalTexture ||
-		!unregisterExternalTexture
-	) {
-		return null;
-	}
-
-	const resolveTextureForSlot =
-		bindMethod<ResolveTextureForSlotMethod>(
-			sourceObject,
-			"resolveTextureForSlot"
-		) ??
-		bindMethod<ResolveTextureForSlotMethod>(sourceObject, "getTextureForSlot");
-	if (!resolveTextureForSlot) {
-		return null;
-	}
-
-	const createBindGroupLayout = bindMethod<
-		(desc: GPUBindGroupLayoutDescriptor) => GPUBindGroupLayout
-	>(sourceObject, "createBindGroupLayout");
-	const createPipelineLayout = bindMethod<
-		(desc: GPUPipelineLayoutDescriptor) => GPUPipelineLayout
-	>(sourceObject, "createPipelineLayout");
-
-	return createAdaptedFacade({
-		deviceSource: source,
-		createSampler,
-		createShaderModule,
-		createComputePipeline,
-		createBuffer,
-		createTexture,
-		createBindingGroup,
-		createBindGroupLayout,
-		createPipelineLayout,
-		createTextureView,
-		createCommandEncoder,
-		submit,
-		writeBuffer,
-		resolveTextureForSlot,
-		registerExternalTexture,
-		unregisterExternalTexture,
-		layoutDeviceSource: source,
-	});
-}
-
 function resolveLayoutDevice(
 	source: { device?: GPUDevice | null },
 	operation: "createBindGroupLayout" | "createPipelineLayout"
@@ -610,26 +357,26 @@ function resolveLayoutDevice(
 	return device;
 }
 
-function getCachedFacade(backend: WebGPUBackend): IWebGPUComputeFacade | null {
-	return WEBGPU_COMPUTE_FACADE_CACHE.get(backend) ?? null;
+function getCachedFacade(host: object): IWebGPUComputeFacade | null {
+	return WEBGPU_COMPUTE_FACADE_CACHE.get(host) ?? null;
 }
 
 function setCachedFacade(
-	backend: WebGPUBackend,
+	host: object,
 	facade: IWebGPUComputeFacade
 ): void {
-	const hadEntry = WEBGPU_COMPUTE_FACADE_CACHE.has(backend);
-	WEBGPU_COMPUTE_FACADE_CACHE.set(backend, facade);
+	const hadEntry = WEBGPU_COMPUTE_FACADE_CACHE.has(host);
+	WEBGPU_COMPUTE_FACADE_CACHE.set(host, facade);
 	if (!hadEntry) {
 		WEBGPU_COMPUTE_FACADE_CACHE_ENTRY_COUNT++;
 	}
 }
 
 function removeCachedFacade(
-	backend: WebGPUBackend
+	host: object
 ): IWebGPUComputeFacade | null {
-	const cached = WEBGPU_COMPUTE_FACADE_CACHE.get(backend) ?? null;
-	if (cached && WEBGPU_COMPUTE_FACADE_CACHE.delete(backend)) {
+	const cached = WEBGPU_COMPUTE_FACADE_CACHE.get(host) ?? null;
+	if (cached && WEBGPU_COMPUTE_FACADE_CACHE.delete(host)) {
 		WEBGPU_COMPUTE_FACADE_CACHE_ENTRY_COUNT = Math.max(
 			0,
 			WEBGPU_COMPUTE_FACADE_CACHE_ENTRY_COUNT - 1
@@ -647,15 +394,12 @@ export function getWebGPUComputeFacadeCacheStats(): {
 }
 
 export function resetWebGPUComputeFacadeCacheForTesting(): void {
-	WEBGPU_COMPUTE_FACADE_CACHE = new WeakMap<
-		WebGPUBackend,
-		IWebGPUComputeFacade
-	>();
+	WEBGPU_COMPUTE_FACADE_CACHE = new WeakMap<object, IWebGPUComputeFacade>();
 	WEBGPU_COMPUTE_FACADE_CACHE_ENTRY_COUNT = 0;
 }
 
-export function invalidateWebGPUComputeFacade(backend: WebGPUBackend): void {
-	const cached = removeCachedFacade(backend);
+export function invalidateWebGPUComputeFacade(host: object): void {
+	const cached = removeCachedFacade(host);
 	if (!cached) {
 		return;
 	}
@@ -670,16 +414,53 @@ export function invalidateWebGPUComputeFacade(backend: WebGPUBackend): void {
 }
 
 export function createWebGPUComputeFacade(
-	backend: WebGPUBackend
+	host: WebGPUComputeFacadeHost
 ): IWebGPUComputeFacade {
-	const cached = getCachedFacade(backend);
+	const cached = getCachedFacade(host);
 	if (cached) {
 		return cached;
 	}
-	const facade = new WebGPUBackendComputeFacade(backend, () => {
-		removeCachedFacade(backend);
+	const facade = createAdaptedFacade({
+		deviceSource: host,
+		createSampler: (desc) => host.createSampler(desc),
+		createShaderModule: (desc) => host.createShaderModule(desc),
+		createComputePipeline: (desc) => host.createComputePipeline(desc),
+		createBuffer: (desc) => host.createBuffer(desc),
+		createTexture: (desc) => host.createTexture(desc),
+		createBindingGroup: (desc) => host.createBindingGroup(desc),
+		createBindGroupLayout:
+			host.createBindGroupLayout ?
+				(desc) => host.createBindGroupLayout!(desc)
+			:	null,
+		createPipelineLayout:
+			host.createPipelineLayout ?
+				(desc) => host.createPipelineLayout!(desc)
+			:	null,
+		createTextureView: (texture, desc) =>
+			host.createTextureView(texture, desc),
+		createCommandEncoder: () => host.createCommandEncoder(),
+		submit: (commands) => host.submit(commands),
+		writeBuffer: (buffer, data, offset) =>
+			host.writeBuffer(buffer, data, offset),
+		writeTexture: (texture, data, desc, size) =>
+			host.writeTexture(texture, data, desc, size),
+		resolveTextureForSlot: (texture, slotIndex) =>
+			host.resolveTextureForSlot(texture, slotIndex),
+		registerExternalTexture: (texture, resource, uploadedVersion, mipLevelCount) =>
+			host.registerExternalTexture(
+				texture,
+				resource,
+				uploadedVersion,
+				mipLevelCount,
+			),
+		unregisterExternalTexture: (texture) =>
+			host.unregisterExternalTexture(texture),
+		layoutDeviceSource: host,
+		onDestroy: () => {
+			removeCachedFacade(host);
+		},
 	});
-	setCachedFacade(backend, facade);
+	setCachedFacade(host, facade);
 	return facade;
 }
 
@@ -696,30 +477,18 @@ export function resolveWebGPUComputeFacade(
 		return source;
 	}
 
-	const sourceType = (source as { type?: unknown }).type;
-	if (
-		typeof sourceType === "string" &&
-		sourceType.length > 0 &&
-		sourceType !== "webgpu"
-	) {
+	const extensions = (source as Partial<IRenderBackend>).extensions;
+	if (!extensions || typeof extensions.getBackendExtension !== "function") {
 		throw new Error(
-			`WebGPU compute facade requires WebGPU backend, received "${sourceType}".`
+			'The provided source is neither a WebGPU compute facade nor an IRenderBackend exposing "webgpu.compute".'
 		);
 	}
-
-	const directFacade = (source as {
-		getComputeFacade?: () => IWebGPUComputeFacade | null | undefined;
-	}).getComputeFacade?.call(source);
-	if (directFacade && isWebGPUComputeFacade(directFacade)) {
-		return directFacade;
-	}
-
-	const adapted = tryCreateFacadeFromBackendLike(source);
-	if (adapted) {
-		return adapted;
+	const facade = extensions.getBackendExtension(WEBGPU_COMPUTE_EXTENSION);
+	if (facade && isWebGPUComputeFacade(facade)) {
+		return facade;
 	}
 
 	throw new Error(
-		"Failed to resolve WebGPU compute facade from provided source."
+		'The provided render backend does not expose the "webgpu.compute" extension.'
 	);
 }
