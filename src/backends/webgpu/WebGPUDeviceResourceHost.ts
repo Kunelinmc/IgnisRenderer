@@ -31,6 +31,7 @@ export interface WebGPUDeviceResourceHost {
 		getMode?: () => "strict" | "warn" | "silent";
 		onDidChange?: (listener: () => void) => () => void;
 	};
+	getShaderDirectiveCacheTag?(): string;
 	createBuffer(desc: BufferDesc): IRenderBuffer;
 	createTexture(desc: TextureDesc): IRenderTexture;
 	createSampler(desc: SamplerDesc): ISampler;

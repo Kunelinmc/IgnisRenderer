@@ -1056,11 +1056,8 @@ export class WebGPUPipelineLibrary {
 	}
 
 	private _getDirectiveCacheTag(): string {
-		const backend = this._backend as unknown as {
-			getShaderDirectiveCacheTag?: () => string;
-		};
-		if (typeof backend.getShaderDirectiveCacheTag === "function") {
-			return backend.getShaderDirectiveCacheTag();
+		if (typeof this._backend.getShaderDirectiveCacheTag === "function") {
+			return this._backend.getShaderDirectiveCacheTag();
 		}
 		return "none";
 	}

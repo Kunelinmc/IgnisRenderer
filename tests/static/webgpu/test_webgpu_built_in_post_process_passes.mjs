@@ -8,6 +8,7 @@ import {
 } from "../../../src/postprocess/index.ts";
 import { WebGPUBackend } from "../../../src/backends/webgpu/WebGPUBackend.ts";
 import {
+	PROBE_CAPTURE_EXTENSION,
 	RENDERER_OCCLUSION_CULLING_EXTENSION_ID,
 	RENDERER_OCCLUSION_VISIBILITY_INSERTION_POINT,
 	WEBGPU_OCCLUSION_AFTER_DEPTH_INSERTION_POINT,
@@ -465,6 +466,20 @@ function testWebGPUOcclusionExtensionDescriptor() {
 	assert.equal(typeof extension.api.resetOcclusionCulling, "function");
 }
 
+async function testProbeCaptureRemainsExtensionOnly() {
+	const backend = new WebGPUBackend();
+	backend.attach({
+		surface: { canvas: {} },
+		events: { emit: () => {} },
+	});
+	const extension = backend.extensions.requireBackendExtension(
+		PROBE_CAPTURE_EXTENSION
+	);
+
+	assert.equal(await extension.captureProbeFace({}), null);
+	assert.equal("captureProbeFace" in backend, false);
+}
+
 function testSSRRequirementsExposeMaterialChannels() {
 	const pass = new ScreenSpaceReflectionsPass({ enabled: true });
 	const options = pass.normalizeOptions({});
@@ -489,6 +504,7 @@ async function run() {
 	await testWarmupHintsFollowPlanPostProcessPasses();
 	testBackendPostProcessSurfaceKeepsOnlyExecutorBridge();
 	testWebGPUOcclusionExtensionDescriptor();
+	await testProbeCaptureRemainsExtensionOnly();
 	testSSRRequirementsExposeMaterialChannels();
 	console.log("WebGPU post-process executor tests passed");
 }

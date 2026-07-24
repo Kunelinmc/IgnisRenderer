@@ -237,22 +237,6 @@ export class WebGPUBackend implements IRenderBackend {
 		return this._context;
 	}
 
-	/**
-	 * Returns the active GPU device handle for diagnostics and advanced tooling.
-	 * The backend owns device lifecycle and prevents external reassignment.
-	 */
-	public get device(): GPUDevice | null {
-		return this._device;
-	}
-
-	/**
-	 * Returns the active queue associated with `device`.
-	 * Queue ownership remains internal to keep backend state coherent.
-	 */
-	public get queue(): GPUQueue | null {
-		return this._queue;
-	}
-
 	public canvasFormat: TextureFormat = TextureFormat.BGRA8Unorm;
 	public canvasDepthFormat: TextureFormat = TextureFormat.Depth24Plus;
 	public readonly shaderRuntime: ShaderRuntime;
@@ -295,20 +279,20 @@ export class WebGPUBackend implements IRenderBackend {
 				})
 			: null;
 	private _warmupLogCompilationInfo = false;
-	private readonly _msaaController: WebGPUMSAAController;
 	private _enableEarlyZPrepass = true;
 	private _enableDeferredLighting = true;
 	private _enableOcclusionCulling = true;
 	private _frameGraphValidationMode: "throw" | "warn" = "throw";
 	private _completedFrameCoverage: RenderBackendCompletedFrameCoverage = "full-frame";
 	private _shaderCompileStage: ShaderBackendCompileStage;
-	private readonly _shaderModuleCompiler: WebGPUShaderModuleCompiler;
+
 	private readonly _framePlanner = new FramePassPlanValidator("WebGPU");
+	private readonly _msaaController: WebGPUMSAAController;
+	private readonly _shaderModuleCompiler: WebGPUShaderModuleCompiler;
 	private readonly _commandScheduler: WebGPUCommandScheduler;
 	private readonly _resourceManager: WebGPUResourceManager;
 	private readonly _pipelineCache: WebGPUPipelineCache;
 	private readonly _bindingGroupCache: WebGPUBindingGroupCache;
-	private readonly _computeFacadeHost: WebGPUComputeFacadeHost;
 	private readonly _computeFacade: IWebGPUComputeFacade;
 	private readonly _passDispatcher: WebGPUBackendPassDispatcher;
 	private readonly _warmupCoordinator: WebGPUWarmupCoordinator;
@@ -403,8 +387,7 @@ export class WebGPUBackend implements IRenderBackend {
 		});
 		this._commandScheduler = new WebGPUCommandScheduler(this._createCommandSchedulerHost());
 		this._resourceManager = new WebGPUResourceManager(this._createResourceManagerHost());
-		this._computeFacadeHost = this._createComputeFacadeHost();
-		this._computeFacade = createWebGPUComputeFacade(this._computeFacadeHost);
+		this._computeFacade = createWebGPUComputeFacade(this._createComputeFacadeHost());
 		this.extensions = createRenderBackendExtensionRegistry([
 			{
 				id: RENDERER_OCCLUSION_CULLING_EXTENSION_ID,
@@ -419,7 +402,7 @@ export class WebGPUBackend implements IRenderBackend {
 				insertionPoints: ["renderer:probe-capture"],
 				api: {
 					captureProbeFace: (request: ProbeCaptureFaceRequest) =>
-						this.captureProbeFace(request),
+						this._captureProbeFace(request),
 				},
 			},
 			{
@@ -439,21 +422,6 @@ export class WebGPUBackend implements IRenderBackend {
 		}
 		this._attachContext = context;
 		this._attached = true;
-	}
-
-	public getShaderDirectiveCacheTag(): string {
-		return this._shaderCompileStage.getCacheFingerprintTag();
-	}
-
-	/**
-	 * Returns whether the backend may run WebGPU occlusion culling work.
-	 *
-	 * @returns `true` when the runtime may expose a visibility provider and
-	 * encode the internal occlusion-test node.
-	 * @sideEffects None.
-	 */
-	public isOcclusionCullingEnabled(): boolean {
-		return this._enableOcclusionCulling;
 	}
 
 	/**
@@ -536,10 +504,10 @@ export class WebGPUBackend implements IRenderBackend {
 		this._queue = requestedDevice.queue;
 		this._debugInfo = this._createDebugInfo(adapter, requestedDevice);
 		requestedDevice.lost.then((info) => {
-			if (this.device !== requestedDevice) {
+			if (this._device !== requestedDevice) {
 				return info;
 			}
-			this.onDeviceLost(info);
+			this._handleDeviceLost(this._normalizeDeviceLostInfo(info));
 			this._requireAttachContext().events.emit({ type: "device-lost", info });
 			return info;
 		});
@@ -553,7 +521,6 @@ export class WebGPUBackend implements IRenderBackend {
 			this._context = context;
 			this._configureContext();
 			this._recreateDepthTexture();
-
 			this._frameHost = this._createFrameHost();
 			this._resources = new WebGPUFrameServiceOwner(
 				this._frameHost,
@@ -592,16 +559,6 @@ export class WebGPUBackend implements IRenderBackend {
 		}
 	}
 
-	/**
-	 * Marks WebGPU device resources as lost.
-	 *
-	 * @internal Backend lifecycle hook used by `GPUDevice.lost` handling and
-	 * renderer recovery paths.
-	 */
-	public onDeviceLost(info?: RenderBackendDeviceLostInfo): void {
-		this._handleDeviceLost(this._normalizeDeviceLostInfo(info));
-	}
-
 	public async restore(): Promise<void> {
 		if (!this._canvas) {
 			throw new Error("WebGPU backend cannot restore before a canvas has been initialized.");
@@ -610,14 +567,14 @@ export class WebGPUBackend implements IRenderBackend {
 		const activeRecovery = this._deviceRecoveryPromise;
 		if (activeRecovery) {
 			await activeRecovery;
-			if (this.device && this.queue && !this._deviceLost) {
+			if (this._device && this._queue && !this._deviceLost) {
 				return;
 			}
 		}
 
 		this._deviceRecoveryNonce++;
 		this._deviceRecoveryPromise = null;
-		if (!this._deviceLost && this.queue) {
+		if (!this._deviceLost && this._queue) {
 			this._commandScheduler.submitPendingCopyCommands();
 		}
 		this._destroyPostProcessResourcesForReset();
@@ -629,7 +586,7 @@ export class WebGPUBackend implements IRenderBackend {
 
 	public resize(size: RenderSurfaceSize): void {
 		const { width, height } = size;
-		if (!this.device || !this.context || !this.canvas) {
+		if (!this._device || !this.context || !this.canvas) {
 			return;
 		}
 		const { width: resolvedWidth, height: resolvedHeight } = this._resolveResizeDimensions(
@@ -665,7 +622,7 @@ export class WebGPUBackend implements IRenderBackend {
 		resolvedHeight: number,
 		options: { invalidateFrameTargets?: boolean } = {},
 	): boolean {
-		if (!this.device || !this.context || !this.canvas) {
+		if (!this._device || !this.context || !this.canvas) {
 			return false;
 		}
 		if (this.canvas.width !== resolvedWidth || this.canvas.height !== resolvedHeight) {
@@ -843,10 +800,7 @@ export class WebGPUBackend implements IRenderBackend {
 		return this._completedFrameCoverage;
 	}
 
-	private _resolveTextureForSlot(
-		texture: Texture | null,
-		slotIndex: number,
-	): IRenderTexture {
+	private _resolveTextureForSlot(texture: Texture | null, slotIndex: number): IRenderTexture {
 		this._assertDeviceOperational("resolve texture resources");
 		if (!this._resources) {
 			throw new Error(
@@ -878,19 +832,7 @@ export class WebGPUBackend implements IRenderBackend {
 		this._resources.unregisterExternalTexture(texture);
 	}
 
-	/**
-	 * Returns the scene target mode selected for the current WebGPU frame.
-	 *
-	 * @returns `"gbuffer"` for deferred opaque lighting, `"mrt"` for legacy
-	 * MRT rendering, `"color"` for HDR color-only offscreen rendering, or
-	 * `"single"` for direct canvas fallback.
-	 * @sideEffects None.
-	 */
-	public getFrameSceneTargetMode(): "gbuffer" | "mrt" | "color" | "single" {
-		return this._frameOrchestrator?.getSceneTargetModeForFrame() ?? "single";
-	}
-
-	public async captureProbeFace(
+	private async _captureProbeFace(
 		request: ProbeCaptureFaceRequest,
 	): Promise<Float32Array | null> {
 		if (!this._reflectionProbeCapturePass) {
@@ -903,7 +845,7 @@ export class WebGPUBackend implements IRenderBackend {
 		this._destroyRequested = true;
 		this._deviceRecoveryNonce++;
 		this._deviceRecoveryPromise = null;
-		if (!this._deviceLost && this.queue) {
+		if (!this._deviceLost && this._queue) {
 			this._commandScheduler.submitPendingCopyCommands();
 		}
 		this._destroyPostProcessResourcesForReset();
@@ -913,62 +855,32 @@ export class WebGPUBackend implements IRenderBackend {
 		this._deviceLostInfo = null;
 	}
 
-	public getCurrentColorView(): GPUTextureView {
-		if (!this.context) {
-			throw new Error("WebGPU canvas context is not initialized.");
-		}
-
-		return this._canvasTargets.getCurrentColorView(this.context);
-	}
-
-	public getCurrentDepthView(): GPUTextureView {
-		return this._canvasTargets.getCurrentDepthView();
-	}
-
-	public getTimestampDurationsMs(): ReadonlyMap<string, number> {
-		return this._commandScheduler.getTimestampDurationsMs();
-	}
-
-	public createPassTimestampWrites(label: string):
-		| {
-				querySet: GPUQuerySet;
-				beginningOfPassWriteIndex: number;
-				endOfPassWriteIndex: number;
-		  }
-		| undefined {
-		return this._commandScheduler.createPassTimestampWrites(label);
-	}
-
 	private _createComputeFacadeHost(): WebGPUComputeFacadeHost {
 		const backend = this;
 		return {
 			get device() {
-				return backend.device;
+				return backend._device;
 			},
 			get queue() {
-				return backend.queue;
+				return backend._queue;
 			},
 			createSampler: (desc) => this._pipelineCache.createSampler(desc),
-			createShaderModule: (desc) =>
-				this._pipelineCache.createShaderModule(desc),
-			createComputePipeline: (desc) =>
-				this._pipelineCache.createComputePipeline(desc),
+			createShaderModule: (desc) => this._pipelineCache.createShaderModule(desc),
+			createComputePipeline: (desc) => this._pipelineCache.createComputePipeline(desc),
 			createBuffer: (desc) => this._resourceManager.createBuffer(desc),
 			createTexture: (desc) => this._resourceManager.createTexture(desc),
-			createBindingGroup: (desc) =>
-				this._bindingGroupCache.createBindingGroup(desc),
+			createBindingGroup: (desc) => this._bindingGroupCache.createBindingGroup(desc),
 			createBindGroupLayout: (desc) => {
 				this._assertDeviceOperational("create compute binding group layouts");
-				return this.device.createBindGroupLayout(desc);
+				return this._device!.createBindGroupLayout(desc);
 			},
 			createPipelineLayout: (desc) => {
 				this._assertDeviceOperational("create compute pipeline layouts");
-				return this.device.createPipelineLayout(desc);
+				return this._device!.createPipelineLayout(desc);
 			},
 			createTextureView: (texture, desc) =>
 				this._resourceManager.createTextureView(texture, desc),
-			createCommandEncoder: () =>
-				this._commandScheduler.createCommandEncoder(),
+			createCommandEncoder: () => this._commandScheduler.createCommandEncoder(),
 			submit: (commands) => this._commandScheduler.submit(commands),
 			writeBuffer: (buffer, data, offset) =>
 				this._resourceManager.writeBuffer(buffer, data, offset),
@@ -976,33 +888,22 @@ export class WebGPUBackend implements IRenderBackend {
 				this._resourceManager.writeTexture(texture, data, desc, size),
 			resolveTextureForSlot: (texture, slotIndex) =>
 				this._resolveTextureForSlot(texture, slotIndex),
-			registerExternalTexture: (
-				texture,
-				resource,
-				uploadedVersion,
-				mipLevelCount,
-			) => {
-				this._registerExternalTexture(
-					texture,
-					resource,
-					uploadedVersion,
-					mipLevelCount,
-				);
+			registerExternalTexture: (texture, resource, uploadedVersion, mipLevelCount) => {
+				this._registerExternalTexture(texture, resource, uploadedVersion, mipLevelCount);
 			},
-			unregisterExternalTexture: (texture) =>
-				this._unregisterExternalTexture(texture),
+			unregisterExternalTexture: (texture) => this._unregisterExternalTexture(texture),
 		};
 	}
 
 	private _createFrameHost(): WebGPUFrameHost {
 		const backend: WebGPUBackend = this;
-		const device = this.device;
-		const queue = this.queue;
+		const device = this._device;
+		const queue = this._queue;
 		if (!device || !queue) {
 			throw new Error("WebGPU backend cannot create a frame host without a device.");
 		}
 		const assertActive = (operation: string): void => {
-			if (backend.device !== device || backend.queue !== queue) {
+			if (backend._device !== device || backend._queue !== queue) {
 				throw new Error(`WebGPU frame host is no longer active; cannot ${operation}.`);
 			}
 			backend._assertDeviceOperational(operation);
@@ -1022,6 +923,7 @@ export class WebGPUBackend implements IRenderBackend {
 			get shaderRuntime() {
 				return backend.shaderRuntime;
 			},
+			getShaderDirectiveCacheTag: () => backend._shaderCompileStage.getCacheFingerprintTag(),
 			createBuffer: (desc) => {
 				assertActive("create frame buffers");
 				return backend._resourceManager.createBuffer(desc);
@@ -1088,7 +990,7 @@ export class WebGPUBackend implements IRenderBackend {
 		const thisRef = this;
 		return {
 			get device() {
-				return thisRef.device;
+				return thisRef._device;
 			},
 			get canvasFormat() {
 				return thisRef.canvasFormat;
@@ -1107,7 +1009,7 @@ export class WebGPUBackend implements IRenderBackend {
 		const thisRef = this;
 		return {
 			get device() {
-				return thisRef.device;
+				return thisRef._device;
 			},
 			get shaderModuleCompiler() {
 				return thisRef._shaderModuleCompiler;
@@ -1137,7 +1039,7 @@ export class WebGPUBackend implements IRenderBackend {
 		const thisRef = this;
 		return {
 			get device() {
-				return thisRef.device;
+				return thisRef._device;
 			},
 			get frameSerial() {
 				return thisRef._frameSerial;
@@ -1161,10 +1063,10 @@ export class WebGPUBackend implements IRenderBackend {
 		const thisRef = this;
 		return {
 			get device() {
-				return thisRef.device;
+				return thisRef._device;
 			},
 			get queue() {
-				return thisRef.queue;
+				return thisRef._queue;
 			},
 			assertDeviceOperational: (operation) => {
 				this._assertDeviceOperational(operation);
@@ -1182,22 +1084,22 @@ export class WebGPUBackend implements IRenderBackend {
 				return this._isFrameActive();
 			},
 			createPassTimestampWrites: (label) => {
-				return this.createPassTimestampWrites(label);
+				return this._commandScheduler.createPassTimestampWrites(label);
 			},
 			getCurrentColorView: () => {
-				return this.getCurrentColorView();
+				if (!this._context) {
+					throw new Error("WebGPU canvas context is not initialized.");
+				}
+				return this._canvasTargets.getCurrentColorView(this._context);
 			},
 			getCurrentDepthView: () => {
-				return this.getCurrentDepthView();
+				return this._canvasTargets.getCurrentDepthView();
 			},
 			getCanvasColorTexture: () => {
 				if (!this.context || !this.canvas) {
 					throw new Error("WebGPU not initialized");
 				}
-				return this._canvasTargets.getCanvasColorTexture(
-					this.context,
-					this.canvas,
-				);
+				return this._canvasTargets.getCanvasColorTexture(this.context, this.canvas);
 			},
 		};
 	}
@@ -1206,10 +1108,10 @@ export class WebGPUBackend implements IRenderBackend {
 		const thisRef = this;
 		return {
 			get device() {
-				return thisRef.device;
+				return thisRef._device;
 			},
 			get queue() {
-				return thisRef.queue;
+				return thisRef._queue;
 			},
 			assertDeviceOperational: (operation: string) => {
 				this._assertDeviceOperational(operation);
@@ -1402,9 +1304,9 @@ export class WebGPUBackend implements IRenderBackend {
 			}
 			this._context = null;
 		}
-		if (this.device) {
+		if (this._device) {
 			try {
-				this.device.destroy();
+				this._device.destroy();
 			} catch (error) {
 				this._reportNonFatalError("device destroy", error);
 			}
@@ -1441,9 +1343,7 @@ export class WebGPUBackend implements IRenderBackend {
 		};
 	}
 
-	private _assertDeviceOperational(
-		operation: string,
-	): asserts this is this & { device: GPUDevice; queue: GPUQueue } {
+	private _assertDeviceOperational(operation: string): void {
 		if (this._deviceLost) {
 			const reason =
 				typeof this._deviceLostInfo?.reason === "string" &&
@@ -1453,7 +1353,7 @@ export class WebGPUBackend implements IRenderBackend {
 			const message = this._deviceLostInfo?.message ?? "unknown cause";
 			throw new Error(`WebGPU device is lost${reason}; cannot ${operation}: ${message}`);
 		}
-		if (!this.device || !this.queue) {
+		if (!this._device || !this._queue) {
 			throw new Error(`WebGPU backend is not initialized; cannot ${operation}.`);
 		}
 	}
@@ -1526,13 +1426,13 @@ export class WebGPUBackend implements IRenderBackend {
 	}
 
 	private _selectCanvasDepthFormat(): TextureFormat {
-		if (!this.device) {
+		if (!this._device) {
 			return TextureFormat.Depth24Plus;
 		}
 		const candidates: TextureFormat[] = [TextureFormat.Depth24Plus, TextureFormat.Depth32Float];
 		for (const candidate of candidates) {
 			try {
-				const probe = this.device.createTexture({
+				const probe = this._device.createTexture({
 					size: [1, 1, 1],
 					format: candidate as GPUTextureFormat,
 					usage: GPUTextureUsage.RENDER_ATTACHMENT,
@@ -1650,14 +1550,14 @@ export class WebGPUBackend implements IRenderBackend {
 	}
 
 	private _configureContext(): void {
-		if (!this.context || !this.canvas || !this.device) {
+		if (!this.context || !this.canvas || !this._device) {
 			return;
 		}
-		this._canvasTargets.configureContext(this.context, this.device, this.canvasFormat);
+		this._canvasTargets.configureContext(this.context, this._device, this.canvasFormat);
 	}
 
 	private _recreateDepthTexture(): void {
-		if (!this.device || !this.canvas) {
+		if (!this._device || !this.canvas) {
 			return;
 		}
 		this._canvasTargets.recreateDepthTexture(this.canvas, this.canvasDepthFormat, (desc) =>

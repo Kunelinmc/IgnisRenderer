@@ -119,6 +119,17 @@ function createMainFrameOptions(options = {}) {
 
 function testBackendDoesNotExposeDeviceServiceForwarders() {
 	for (const method of [
+		"device",
+		"queue",
+		"getShaderDirectiveCacheTag",
+		"isOcclusionCullingEnabled",
+		"onDeviceLost",
+		"getFrameSceneTargetMode",
+		"captureProbeFace",
+		"getCurrentColorView",
+		"getCurrentDepthView",
+		"getTimestampDurationsMs",
+		"createPassTimestampWrites",
 		"createBuffer",
 		"createTexture",
 		"createSampler",

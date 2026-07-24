@@ -228,6 +228,16 @@ function createDeferred() {
 	return { promise, resolve, reject };
 }
 
+function testFrameHostOwnsShaderDirectiveCacheTag() {
+	const { backend } = createBackend();
+	const host = backend._createFrameHost();
+
+	assert.equal(
+		host.getShaderDirectiveCacheTag(),
+		backend._shaderCompileStage.getCacheFingerprintTag()
+	);
+}
+
 async function waitForCondition(predicate, message, count = 32) {
 	for (let i = 0; i < count; i++) {
 		if (predicate()) {
@@ -918,7 +928,7 @@ async function testDeferredResizeInvalidatesFrameTargets() {
 	assert.equal(invalidateCalls, 1);
 }
 
-async function testPublicDeviceLifecycleMethods() {
+async function testDeviceLifecycleInternals() {
 	const { backend } = createBackend();
 	let resourcesDestroyed = false;
 	backend._resources = {
@@ -929,7 +939,7 @@ async function testPublicDeviceLifecycleMethods() {
 
 	Logger.configure({ level: "silent", resetOnceKeys: true });
 	try {
-		backend.onDeviceLost({
+		backend._handleDeviceLost({
 			reason: "destroyed",
 			message: "simulated loss",
 		});
@@ -940,8 +950,8 @@ async function testPublicDeviceLifecycleMethods() {
 	assert.equal(backend._deviceLost, true);
 	assert.equal(backend._deviceLostInfo.message, "simulated loss");
 	assert.equal(resourcesDestroyed, true);
-	assert.equal(backend.device, null);
-	assert.equal(backend.queue, null);
+	assert.equal(backend._device, null);
+	assert.equal(backend._queue, null);
 
 	await assert.rejects(
 		() => backend.restore(),
@@ -970,7 +980,7 @@ function testAutomaticDeviceLossDestroysPostProcessBeforeRollback() {
 
 	Logger.configure({ level: "silent", resetOnceKeys: true });
 	try {
-		backend.onDeviceLost({
+		backend._handleDeviceLost({
 			reason: "destroyed",
 			message: "simulated loss",
 		});
@@ -1305,6 +1315,7 @@ async function testWarmupAggregatesPhases() {
 }
 
 async function run() {
+	testFrameHostOwnsShaderDirectiveCacheTag();
 	await testShaderModuleCacheUsesHashKey();
 	await testShaderModuleRetryWithinSingleRequest();
 	await testShaderModuleCompilationInfoErrorThrowsMappedError();
@@ -1324,7 +1335,7 @@ async function run() {
 	await testResizeDuringActiveFrameDefersResourceInvalidation();
 	await testShaderRuntimeChangeDuringActiveFrameDefersInvalidation();
 	await testDeferredResizeInvalidatesFrameTargets();
-	await testPublicDeviceLifecycleMethods();
+	await testDeviceLifecycleInternals();
 	testAutomaticDeviceLossDestroysPostProcessBeforeRollback();
 	testMapBindingResourceRejectsPrimitive();
 	testCreateTextureClampsPublicDimensions();

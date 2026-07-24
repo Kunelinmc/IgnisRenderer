@@ -162,6 +162,7 @@ All graphics commands are recorded through a backend-agnostic `ICommandEncoder`.
     binding, upload, and command capabilities through this extension.
   - `WebGPUBackend` must not expose backend-specific resource, pipeline,
     binding-group, or command-scheduler forwarding methods.
+  - `WebGPUBackend` must not expose native `GPUDevice` or `GPUQueue` handles.
 - Identity Persistence:
   - Extension API objects must maintain the same object identity for the lifetime of the backend runtime.
 - Device Loss Behavior:
@@ -401,6 +402,14 @@ const readback = await renderer.renderTargets.readColor("inspect", 0);
   `registerExternalTexture`, and `unregisterExternalTexture` are removed.
   Applications requiring WebGPU compute or texture-bridge operations must use
   `WEBGPU_COMPUTE_EXTENSION`.
+- `WebGPUBackend.device` and `WebGPUBackend.queue` are removed. Native WebGPU
+  handles remain backend-private.
+- `WebGPUBackend.getShaderDirectiveCacheTag`,
+  `isOcclusionCullingEnabled`, `onDeviceLost`, `getFrameSceneTargetMode`,
+  `captureProbeFace`, `getCurrentColorView`, `getCurrentDepthView`,
+  `getTimestampDurationsMs`, and `createPassTimestampWrites` are removed.
+  Backend lifecycle and command helpers remain internal, and probe capture must
+  be requested through `PROBE_CAPTURE_EXTENSION`.
 - `getNativeWebGPUCommandEncoder` is removed from `ICommandEncoder`. Code that requires ordered texture copies must use `copyTextureToTexture`. WebGPU-internal passes that need native WebGPU objects must resolve them through WebGPU-owned helpers instead of the shared renderer contract.
 - SoftwareBackend does not support custom render targets.
 - `SoftwareBackend` exposes only its scanline rasterization path.
