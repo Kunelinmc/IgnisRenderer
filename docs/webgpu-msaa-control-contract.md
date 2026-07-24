@@ -4,16 +4,19 @@ This document defines the constructor-only MSAA configuration contract for
 `WebGPUBackend`.
 
 ## Background
-WebGPU rendering uses MSAA by default. MSAA quality is selected when the
-backend is created and remains internal to the WebGPU runtime thereafter.
+WebGPU rendering uses single-sample rendering by default so deferred lighting
+can activate when its other runtime requirements are available. Applications
+may request MSAA when the backend is created, and the selected quality remains
+internal to the WebGPU runtime thereafter.
 
 ## API/Contract
 - `WebGPUBackendOptions.msaaSampleCount?: number`
 	- Input contract: accepts a finite number. The value is floored and clamped
 	  to at least `1`.
-	- Behavior contract: omitted values request the default `4x` preference.
-	  `1` disables multisampling. The active count may be lower than requested
-	  when device capabilities do not support the requested count.
+	- Behavior contract: omitted values request the default `1x` sample count.
+	  Values greater than `1` request multisampling. The active count may be
+	  lower than requested when device capabilities do not support the requested
+	  count.
 	- Error contract: non-finite values must throw a configuration error.
 - MSAA runtime control is internal. `WebGPUBackend` must not expose
 	`getMSAASampleCount()`, `setMSAAEnabled()`, or `setMSAASampleCount()`.
@@ -40,4 +43,5 @@ bun tests/static/webgpu/test_webgpu_backend_cache_and_dependency.mjs
 
 ## Compatibility / Breaking Changes
 This change is breaking. Runtime MSAA methods and `enableMSAA` are removed;
-use `msaaSampleCount` when creating `WebGPUBackend`.
+use `msaaSampleCount` when creating `WebGPUBackend`. The default sample count
+is `1x`; applications that require MSAA must request it explicitly.

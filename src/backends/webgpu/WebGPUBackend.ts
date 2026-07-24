@@ -1,5 +1,4 @@
 /// <reference types="@webgpu/types" />
-import { type ICommandBuffer, type ICommandEncoder } from "../ICommandEncoder";
 import type {
 	IRenderBackend,
 	BackendCapabilities,
@@ -68,20 +67,7 @@ import {
 } from "./constants";
 import {
 	BufferUsage,
-	type BindingGroupDesc,
-	type BufferDesc,
-	type ComputePipelineDesc,
-	type IBindingGroup,
-	type IComputePipeline,
-	type IRenderBuffer,
-	type IRenderPipeline,
 	type IRenderTexture,
-	type ISampler,
-	type IShaderModule,
-	type PipelineDesc,
-	type SamplerDesc,
-	type ShaderModuleDesc,
-	type TextureDesc,
 	TextureFormat,
 	TextureUsage,
 } from "../types";

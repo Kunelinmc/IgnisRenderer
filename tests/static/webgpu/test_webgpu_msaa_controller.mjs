@@ -48,7 +48,7 @@ function createController({ device, sampleCount } = {}) {
 function testDefaultsAndNormalization() {
 	const defaultController = createController();
 	defaultController.controller.activateDevice();
-	assert.equal(defaultController.controller.sampleCount, 4);
+	assert.equal(defaultController.controller.sampleCount, 1);
 
 	const configuredController = createController({ sampleCount: 3 });
 	configuredController.controller.activateDevice();

@@ -1,9 +1,12 @@
-import { WEBGPU_MRT_COLOR_BYTES_PER_SAMPLE, WEBGPU_MRT_COLOR_TARGET_COUNT } from "./constants";
+import {
+	WEBGPU_DEFAULT_MSAA_SAMPLE_COUNT,
+	WEBGPU_MRT_COLOR_BYTES_PER_SAMPLE,
+	WEBGPU_MRT_COLOR_TARGET_COUNT,
+} from "./constants";
 import { TextureFormat } from "../types";
 import type { WebGPUObjectIdentity } from "./WebGPUObjectIdentity";
 
 const WEBGPU_MSAA_SAMPLE_CANDIDATES = [16, 8, 4, 2, 1];
-const WEBGPU_DEFAULT_MSAA_SAMPLE_COUNT = 4;
 
 /** @internal WebGPU rendering dependency contract. */
 export interface WebGPUMSAAContext {

@@ -779,6 +779,8 @@ async function testMSAAConfigurationClampsAndRuntimeFallbackInvalidatesCaches() 
 
 function testMSAAPublicControlIsRemovedAndLegacyOptionFails() {
 	const { backend } = createBackend();
+	backend._msaaController.activateDevice();
+	assert.equal(backend._msaaController.sampleCount, 1);
 	assert.equal(typeof backend.getMSAASampleCount, "undefined");
 	assert.equal(typeof backend.setMSAAEnabled, "undefined");
 	assert.equal(typeof backend.setMSAASampleCount, "undefined");
