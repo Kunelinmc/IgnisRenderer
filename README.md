@@ -46,6 +46,7 @@ IgnisRenderer/
 |   |-- rendering/     Public renderer interface
 |   |-- backends/      Software, WebGL, and WebGPU implementations
 |   |-- pipeline/      Frame preparation and rendering flow
+|   |-- rendergraph/   Shared render graph building and compilation
 |   |-- postprocess/   Screen-space visual effects
 |   |-- shaders/       Shader programs for each backend
 |   |-- ecs/           Internal scene data storage
