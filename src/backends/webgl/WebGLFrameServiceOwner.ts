@@ -97,8 +97,10 @@ import {
 } from "./WebGLSceneProgramVariants";
 import { WebGLCustomRenderTargetRuntime } from "./WebGLCustomRenderTargetRuntime";
 import type { FramePass } from "../../pipeline/types";
-import type { RenderTargetReadbackOptions } from "../../rendering/CustomRenderTargets";
-import type { TextureReadbackResult } from "../IComputeRuntime";
+import type {
+	RenderTargetReadbackOptions,
+	RenderTargetReadbackResult,
+} from "../../rendering/CustomRenderTargets";
 import { WebGLSceneRuntime } from "./WebGLSceneRuntime";
 
 export interface WebGLFrameServiceOwnerOptions {
@@ -428,7 +430,9 @@ export class WebGLFrameServiceOwner {
 			getHeight: () => this._session.height,
 		});
 		this._clusteredLighting = new WebGLClusteredLightingRuntime(gl);
-		this._customRenderTargets = new WebGLCustomRenderTargetRuntime(gl);
+		this._customRenderTargets = new WebGLCustomRenderTargetRuntime(gl, {
+			restoreFrameState: (context) => this._restoreCustomRenderPassState(context),
+		});
 		this._postProcess = new WebGLPostProcessServices({
 			gl: this._gl,
 			targets: this._targets,
@@ -648,11 +652,51 @@ export class WebGLFrameServiceOwner {
 		return this._customRenderTargets.executePass(pass, context);
 	}
 
+	private _restoreCustomRenderPassState(context: FrameContext): void {
+		const gl = this._gl;
+		const sceneFramebuffer = this._targets._sceneFramebuffer;
+		gl.bindFramebuffer(gl.FRAMEBUFFER, sceneFramebuffer);
+		gl.viewport(0, 0, context.attachments.width, context.attachments.height);
+		if (sceneFramebuffer) {
+			const drawBuffers =
+				this._targets._materialGBufferEnabled ?
+					[
+						gl.COLOR_ATTACHMENT0,
+						gl.COLOR_ATTACHMENT1,
+						gl.COLOR_ATTACHMENT2,
+						gl.COLOR_ATTACHMENT3,
+						gl.COLOR_ATTACHMENT4,
+					]
+				:	this._targets._sceneNormalTexture ?
+					[
+						gl.COLOR_ATTACHMENT0,
+						gl.COLOR_ATTACHMENT1,
+						gl.COLOR_ATTACHMENT2,
+					]
+				:	[gl.COLOR_ATTACHMENT0, gl.COLOR_ATTACHMENT1];
+			gl.drawBuffers(drawBuffers);
+		} else {
+			gl.drawBuffers([gl.BACK]);
+		}
+		gl.disable(gl.SCISSOR_TEST);
+		gl.disable(gl.BLEND);
+		gl.disable(gl.CULL_FACE);
+		gl.enable(gl.DEPTH_TEST);
+		gl.depthMask(true);
+		gl.depthFunc(gl.LESS);
+		gl.colorMask(true, true, true, true);
+		gl.useProgram(null);
+		gl.bindVertexArray(null);
+		gl.bindBuffer(gl.ARRAY_BUFFER, null);
+		gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, null);
+		gl.activeTexture(gl.TEXTURE0);
+	}
+
 	public readCustomRenderTargetColor(
 		id: string,
 		attachmentIndex?: number,
 		options?: RenderTargetReadbackOptions
-	): Promise<TextureReadbackResult> {
+	): Promise<RenderTargetReadbackResult> {
 		return this._customRenderTargets.readColor(id, attachmentIndex, options);
 	}
 

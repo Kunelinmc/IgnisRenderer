@@ -9,8 +9,8 @@ import type {
 	CustomRenderTargetExecutionTarget,
 	RenderTargetDescriptor,
 	RenderTargetReadbackOptions,
+	RenderTargetReadbackResult,
 } from "../../../rendering/CustomRenderTargets";
-import type { TextureReadbackResult } from "../../IComputeRuntime";
 import {
 	TextureFormat,
 	TextureUsage,
@@ -67,19 +67,16 @@ export class WebGPUCustomRenderTargetRuntime {
 			) {
 				continue;
 			}
-			this._destroyTarget(descriptor.id);
 			if (sampleCount !== 1) {
-				const key = `webgpu-custom-render-target-msaa-unsupported-${descriptor.id}`;
-				Logger.warn(
-					`[${key}] WebGPU custom render target "${descriptor.id}" sampleCount=${sampleCount} is not supported in v1; disabling the target.`,
-					{ scope: "WebGPUCustomRenderTargetRuntime", onceKey: key }
+				throw new Error(
+					`WebGPU custom render target "${descriptor.id}" sampleCount must be 1.`
 				);
-				continue;
 			}
-			this._targets.set(
-				descriptor.id,
-				this._createTarget(descriptor, width, height, sampleCount)
-			);
+			const replacement = this._createTarget(descriptor, width, height, sampleCount);
+			this._targets.set(descriptor.id, replacement);
+			if (current) {
+				this._destroyTargetResources(current);
+			}
 		}
 	}
 
@@ -130,7 +127,7 @@ export class WebGPUCustomRenderTargetRuntime {
 		id: string,
 		attachmentIndex = 0,
 		options: RenderTargetReadbackOptions = {}
-	): Promise<TextureReadbackResult> {
+	): Promise<RenderTargetReadbackResult> {
 		if (!this._lastSuccessfulFrame) {
 			throw new Error(
 				`Render target "${id}" cannot be read before a successful frame completes.`
@@ -146,17 +143,20 @@ export class WebGPUCustomRenderTargetRuntime {
 				`Render target "${id}" color attachment ${attachmentIndex} is unavailable.`
 			);
 		}
-		const format =
-			options.format ??
-			target.descriptor.color[attachmentIndex]?.format ??
+		const width = resolveReadbackDimension(id, "width", options.width, target.width);
+		const height = resolveReadbackDimension(id, "height", options.height, target.height);
+		const format = target.descriptor.color[attachmentIndex]?.format ??
 			TextureFormat.RGBA8Unorm;
-		return this._getReadbackRuntime().readTexture({
+		const result = await this._getReadbackRuntime().readTexture({
 			texture,
-			width: options.width ?? target.width,
-			height: options.height ?? target.height,
+			width,
+			height,
 			format,
-			bytesPerPixel: options.bytesPerPixel,
 		});
+		return {
+			...result,
+			origin: "top-left",
+		};
 	}
 
 	public destroy(): void {
@@ -181,25 +181,31 @@ export class WebGPUCustomRenderTargetRuntime {
 		height: number,
 		sampleCount: number
 	): WebGPUCustomRenderTarget {
-		const color = descriptor.color.map((attachment, index) =>
-			this._host.createTexture({
-				width,
-				height,
-				format: attachment.format,
-				sampleCount,
-				usage:
-					TextureUsage.RenderAttachment |
-					TextureUsage.TextureBinding |
-					TextureUsage.CopySrc |
-					TextureUsage.CopyDst,
-				label:
-					attachment.label ??
-					`WebGPUCustomRenderTarget_${descriptor.id}_Color${index}`,
-			})
-		);
-		const depth =
-			descriptor.depth ?
-				this._host.createTexture({
+		const color: IRenderTexture[] = [];
+		let depth: IRenderTexture | null = null;
+		try {
+			for (let index = 0; index < descriptor.color.length; index++) {
+				const attachment = descriptor.color[index];
+				const texture = this._host.createTexture({
+					width,
+					height,
+					format: attachment.format,
+					sampleCount,
+					usage:
+						TextureUsage.RenderAttachment |
+						TextureUsage.TextureBinding |
+						TextureUsage.CopySrc |
+						TextureUsage.CopyDst,
+					label:
+						attachment.label ??
+						`WebGPUCustomRenderTarget_${descriptor.id}_Color${index}`,
+				});
+				color.push(texture);
+				assertExactTextureFormat(descriptor.id, `color attachment ${index}`, texture,
+					attachment.format);
+			}
+			if (descriptor.depth) {
+				depth = this._host.createTexture({
 					width,
 					height,
 					format: descriptor.depth.format,
@@ -211,16 +217,29 @@ export class WebGPUCustomRenderTargetRuntime {
 					label:
 						descriptor.depth.label ??
 						`WebGPUCustomRenderTarget_${descriptor.id}_Depth`,
-				})
-			:	null;
-		return {
-			descriptor,
-			width,
-			height,
-			sampleCount,
-			color,
-			depth,
-		};
+				});
+				assertExactTextureFormat(
+					descriptor.id,
+					"depth attachment",
+					depth,
+					descriptor.depth.format
+				);
+			}
+			return {
+				descriptor,
+				width,
+				height,
+				sampleCount,
+				color,
+				depth,
+			};
+		} catch (error) {
+			for (const texture of color) {
+				texture.destroy();
+			}
+			depth?.destroy();
+			throw error;
+		}
 	}
 
 	private _destroyTarget(id: string): void {
@@ -228,11 +247,15 @@ export class WebGPUCustomRenderTargetRuntime {
 		if (!target) {
 			return;
 		}
+		this._destroyTargetResources(target);
+		this._targets.delete(id);
+	}
+
+	private _destroyTargetResources(target: WebGPUCustomRenderTarget): void {
 		for (const texture of target.color) {
 			texture.destroy();
 		}
 		target.depth?.destroy();
-		this._targets.delete(id);
 	}
 
 	private _createResourceFacade(): CustomRenderPassResourceFacade {
@@ -298,4 +321,34 @@ function targetDescriptorsEqual(
 	b: RenderTargetDescriptor
 ): boolean {
 	return JSON.stringify(a) === JSON.stringify(b);
+}
+
+function assertExactTextureFormat(
+	id: string,
+	attachment: string,
+	texture: IRenderTexture,
+	requestedFormat: TextureFormat
+): void {
+	const actualFormat = texture.format ?? texture.requestedFormat;
+	if (actualFormat !== requestedFormat || texture.formatFallbackReason) {
+		throw new Error(
+			`WebGPU custom render target "${id}" ${attachment} requested ` +
+				`"${requestedFormat}" but received "${actualFormat ?? "unknown"}".`
+		);
+	}
+}
+
+function resolveReadbackDimension(
+	id: string,
+	name: "width" | "height",
+	requested: number | undefined,
+	limit: number
+): number {
+	const value = requested ?? limit;
+	if (!Number.isInteger(value) || value <= 0 || value > limit) {
+		throw new Error(
+			`Render target "${id}" readback ${name} must be between 1 and ${limit}.`
+		);
+	}
+	return value;
 }

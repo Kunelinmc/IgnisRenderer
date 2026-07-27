@@ -8,8 +8,8 @@ import type {
 	CustomRenderTargetExecutionTarget,
 	RenderTargetDescriptor,
 	RenderTargetReadbackOptions,
+	RenderTargetReadbackResult,
 } from "../../rendering/CustomRenderTargets";
-import type { TextureReadbackResult } from "../IComputeRuntime";
 import {
 	AddressMode,
 	BufferUsage,
@@ -47,10 +47,19 @@ import type {
 	IndexFormat,
 } from "../types";
 import { Logger } from "../../foundation/Logger";
+import { float16BitsToFloat32, float32ToFloat16Bits } from "../../foundation/Float16";
+import { getTextureFormatInfo } from "../TextureFormatInfo";
+import {
+	isWebGLFloatColorRenderTargetFormat,
+	resolveWebGLColorRenderTargetFormat,
+	resolveWebGLDepthRenderTargetFormat,
+	type WebGLColorRenderTargetFormat,
+} from "./WebGLRenderTargetFormat";
 
 interface WebGLCustomTexture extends IRenderTexture {
-	_gpuResource: WebGLTexture | WebGLRenderbuffer;
-	_webglTargetKind: "texture" | "renderbuffer";
+	_gpuResource: WebGLTexture;
+	_webglTargetKind: "texture";
+	_webglColorFormat?: WebGLColorRenderTargetFormat;
 }
 
 interface WebGLCustomBuffer extends IRenderBuffer {
@@ -87,13 +96,28 @@ interface WebGLCustomRenderTarget {
 	depth: WebGLCustomTexture | null;
 }
 
+export interface WebGLCustomRenderTargetRuntimeOptions {
+	/** @internal Restores the WebGL frame executor baseline after a custom pass. */
+	readonly restoreFrameState?: (context: FrameContext) => void;
+}
+
 export class WebGLCustomRenderTargetRuntime {
 	private readonly _gl: WebGL2RenderingContext;
+	private readonly _restoreFrameState: (context: FrameContext) => void;
+	private readonly _supportsFloatColorBuffer: boolean;
 	private readonly _targets = new Map<string, WebGLCustomRenderTarget>();
 	private _lastSuccessfulFrame = false;
 
-	public constructor(gl: WebGL2RenderingContext) {
+	public constructor(
+		gl: WebGL2RenderingContext,
+		options: WebGLCustomRenderTargetRuntimeOptions = {}
+	) {
 		this._gl = gl;
+		this._restoreFrameState =
+			options.restoreFrameState ?? ((context) => restoreNeutralFrameState(gl, context));
+		this._supportsFloatColorBuffer =
+			typeof gl.getExtension === "function" &&
+			Boolean(gl.getExtension("EXT_color_buffer_float"));
 	}
 
 	public sync(context: FrameContext): void {
@@ -108,6 +132,7 @@ export class WebGLCustomRenderTargetRuntime {
 			const width = resolveTargetWidth(descriptor, context.attachments.width);
 			const height = resolveTargetHeight(descriptor, context.attachments.height);
 			const sampleCount = descriptor.sampleCount ?? 1;
+			this._validateDescriptor(descriptor, width, height, sampleCount);
 			const current = this._targets.get(descriptor.id);
 			if (
 				current &&
@@ -118,16 +143,70 @@ export class WebGLCustomRenderTargetRuntime {
 			) {
 				continue;
 			}
-			this._destroyTarget(descriptor.id);
-			if (sampleCount !== 1) {
-				const key = `webgl-custom-render-target-msaa-unsupported-${descriptor.id}`;
-				Logger.warn(
-					`[${key}] WebGL custom render target "${descriptor.id}" sampleCount=${sampleCount} is not supported in v1; disabling the target.`,
-					{ scope: "WebGLCustomRenderTargetRuntime", onceKey: key }
-				);
-				continue;
+			const replacement = this._createTarget(descriptor, width, height);
+			this._targets.set(descriptor.id, replacement);
+			if (current) {
+				this._destroyTargetResources(current);
 			}
-			this._targets.set(descriptor.id, this._createTarget(descriptor, width, height));
+		}
+	}
+
+	private _validateDescriptor(
+		descriptor: RenderTargetDescriptor,
+		width: number,
+		height: number,
+		sampleCount: number
+	): void {
+		if (sampleCount !== 1) {
+			throw new Error(
+				`WebGL custom render target "${descriptor.id}" sampleCount must be 1.`
+			);
+		}
+		const gl = this._gl;
+		const maxTextureSize = resolveWebGLLimit(gl, gl.MAX_TEXTURE_SIZE, 1);
+		if (width > maxTextureSize || height > maxTextureSize) {
+			throw new Error(
+				`WebGL custom render target "${descriptor.id}" dimensions ${width}x${height} ` +
+					`exceed MAX_TEXTURE_SIZE=${maxTextureSize}.`
+			);
+		}
+		const maxDrawBuffers = resolveWebGLLimit(gl, gl.MAX_DRAW_BUFFERS, 1);
+		const maxColorAttachments = resolveWebGLLimit(gl, gl.MAX_COLOR_ATTACHMENTS, 1);
+		const colorLimit = Math.min(maxDrawBuffers, maxColorAttachments);
+		if (descriptor.color.length > colorLimit) {
+			throw new Error(
+				`WebGL custom render target "${descriptor.id}" exceeds the runtime ` +
+					`color attachment limit ${colorLimit}.`
+			);
+		}
+		for (let index = 0; index < descriptor.color.length; index++) {
+			const format = descriptor.color[index].format;
+			const resolved = resolveWebGLColorRenderTargetFormat(
+				gl,
+				format,
+				this._supportsFloatColorBuffer
+			);
+			if (!resolved) {
+				if (isWebGLFloatColorRenderTargetFormat(format)) {
+					throw new Error(
+						`WebGL custom render target "${descriptor.id}" requires ` +
+							`EXT_color_buffer_float for color attachment ${index}.`
+					);
+				}
+				throw new Error(
+					`WebGL custom render target "${descriptor.id}" color attachment ` +
+						`${index} format "${format}" is unsupported.`
+				);
+			}
+		}
+		if (
+			descriptor.depth &&
+			!resolveWebGLDepthRenderTargetFormat(gl, descriptor.depth.format)
+		) {
+			throw new Error(
+				`WebGL custom render target "${descriptor.id}" depth format ` +
+					`"${descriptor.depth.format}" is unsupported.`
+			);
 		}
 	}
 
@@ -149,15 +228,22 @@ export class WebGLCustomRenderTargetRuntime {
 			);
 			return;
 		}
-		await descriptor.execute({
-			backend: "webgl",
-			frameContext: context,
-			encoder: new WebGLCustomCommandEncoder(this._gl),
-			target: toExecutionTarget(target),
-			width: target.width,
-			height: target.height,
-			resources: createWebGLResourceFacade(this._gl),
-		} satisfies CustomRenderPassContext);
+		const encoder = new WebGLCustomCommandEncoder(this._gl);
+		try {
+			await descriptor.execute({
+				backend: "webgl",
+				frameContext: context,
+				encoder,
+				target: toExecutionTarget(target),
+				width: target.width,
+				height: target.height,
+				resources: createWebGLResourceFacade(this._gl),
+			} satisfies CustomRenderPassContext);
+			encoder.finish();
+		} finally {
+			encoder.cleanup();
+			this._restoreFrameState(context);
+		}
 	}
 
 	public markFrameCommitted(): void {
@@ -172,7 +258,7 @@ export class WebGLCustomRenderTargetRuntime {
 		id: string,
 		attachmentIndex = 0,
 		options: RenderTargetReadbackOptions = {}
-	): Promise<TextureReadbackResult> {
+	): Promise<RenderTargetReadbackResult> {
 		if (!this._lastSuccessfulFrame) {
 			throw new Error(
 				`Render target "${id}" cannot be read before a successful frame completes.`
@@ -182,34 +268,49 @@ export class WebGLCustomRenderTargetRuntime {
 		if (!target) {
 			throw new Error(`Render target "${id}" is unavailable.`);
 		}
-		if (!target.color[attachmentIndex]) {
+		const texture = target.color[attachmentIndex];
+		if (!texture) {
 			throw new Error(
 				`Render target "${id}" color attachment ${attachmentIndex} is unavailable.`
 			);
 		}
 		const gl = this._gl;
-		const width = Math.max(1, Math.floor(options.width ?? target.width));
-		const height = Math.max(1, Math.floor(options.height ?? target.height));
-		const format =
-			options.format ??
-			target.descriptor.color[attachmentIndex]?.format ??
+		const width = resolveReadbackDimension(id, "width", options.width, target.width);
+		const height = resolveReadbackDimension(id, "height", options.height, target.height);
+		const format = target.descriptor.color[attachmentIndex]?.format ??
 			TextureFormat.RGBA8Unorm;
-		const floatRead = format === TextureFormat.RGBA16Float ||
-			format === TextureFormat.RGBA32Float;
-		const bytesPerPixel = options.bytesPerPixel ?? (floatRead ? 16 : 4);
+		const resolved = texture._webglColorFormat;
+		if (!resolved) {
+			throw new Error(
+				`Render target "${id}" color attachment ${attachmentIndex} has no readback format.`
+			);
+		}
+		const bytesPerPixel = resolved.bytesPerPixel;
 		const bytesPerRow = width * bytesPerPixel;
 		let bytes: Uint8Array;
 		gl.bindFramebuffer(gl.FRAMEBUFFER, target.framebuffer);
-		gl.readBuffer(gl.COLOR_ATTACHMENT0 + attachmentIndex);
-		if (floatRead) {
-			const data = new Float32Array(width * height * 4);
-			gl.readPixels(0, 0, width, height, gl.RGBA, gl.FLOAT, data);
-			bytes = new Uint8Array(data.buffer.slice(0));
-		} else {
-			bytes = new Uint8Array(width * height * 4);
-			gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, bytes);
+		try {
+			gl.readBuffer(gl.COLOR_ATTACHMENT0 + attachmentIndex);
+			if (resolved.readType === gl.FLOAT) {
+				const data = new Float32Array(width * height * resolved.channelCount);
+				gl.readPixels(0, 0, width, height, resolved.format, gl.FLOAT, data);
+				bytes = resolved.repackFloat16 ? packFloat16(data) :
+					new Uint8Array(data.buffer.slice(0));
+			} else {
+				bytes = new Uint8Array(width * height * resolved.channelCount);
+				gl.readPixels(
+					0,
+					0,
+					width,
+					height,
+					resolved.format,
+					resolved.readType,
+					bytes
+				);
+			}
+		} finally {
+			gl.bindFramebuffer(gl.FRAMEBUFFER, null);
 		}
-		gl.bindFramebuffer(gl.FRAMEBUFFER, null);
 		return createTextureReadbackResult({
 			bytes,
 			width,
@@ -217,6 +318,7 @@ export class WebGLCustomRenderTargetRuntime {
 			format,
 			bytesPerPixel,
 			bytesPerRow,
+			origin: "bottom-left",
 		});
 	}
 
@@ -237,65 +339,79 @@ export class WebGLCustomRenderTargetRuntime {
 		if (!framebuffer) {
 			throw new Error(`Failed to create WebGL custom framebuffer "${descriptor.id}".`);
 		}
-		const color = descriptor.color.map((attachment, index) =>
-			createWebGLColorTexture(
-				gl,
+		const color: WebGLCustomTexture[] = [];
+		let depth: WebGLCustomTexture | null = null;
+		try {
+			for (let index = 0; index < descriptor.color.length; index++) {
+				const attachment = descriptor.color[index];
+				color.push(
+					createWebGLColorTexture(
+						gl,
+						width,
+						height,
+						attachment.format,
+						this._supportsFloatColorBuffer,
+						attachment.label ??
+							`WebGLCustomRenderTarget_${descriptor.id}_Color${index}`
+					)
+				);
+			}
+			if (descriptor.depth) {
+				depth = createWebGLDepthTexture(
+					gl,
+					width,
+					height,
+					descriptor.depth.format,
+					descriptor.depth.label ??
+						`WebGLCustomRenderTarget_${descriptor.id}_Depth`
+				);
+			}
+			gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
+			for (let index = 0; index < color.length; index++) {
+				gl.framebufferTexture2D(
+					gl.FRAMEBUFFER,
+					gl.COLOR_ATTACHMENT0 + index,
+					gl.TEXTURE_2D,
+					color[index]._gpuResource,
+					0
+				);
+			}
+			if (depth) {
+				gl.framebufferTexture2D(
+					gl.FRAMEBUFFER,
+					gl.DEPTH_ATTACHMENT,
+					gl.TEXTURE_2D,
+					depth._gpuResource,
+					0
+				);
+			}
+			gl.drawBuffers(color.map((_texture, index) => gl.COLOR_ATTACHMENT0 + index));
+			const status = gl.checkFramebufferStatus(gl.FRAMEBUFFER);
+			if (status !== gl.FRAMEBUFFER_COMPLETE) {
+				throw new Error(
+					`WebGL custom framebuffer "${descriptor.id}" is incomplete ` +
+						`(status=0x${status.toString(16)}).`
+				);
+			}
+			return {
+				descriptor,
 				width,
 				height,
-				attachment.format,
-				`WebGLCustomRenderTarget_${descriptor.id}_Color${index}`
-			)
-		);
-		const depth = descriptor.depth ?
-			createWebGLDepthRenderbuffer(
-				gl,
-				width,
-				height,
-				descriptor.depth.format,
-				`WebGLCustomRenderTarget_${descriptor.id}_Depth`
-			)
-		:	null;
-
-		gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
-		for (let index = 0; index < color.length; index++) {
-			gl.framebufferTexture2D(
-				gl.FRAMEBUFFER,
-				gl.COLOR_ATTACHMENT0 + index,
-				gl.TEXTURE_2D,
-				color[index]._gpuResource as WebGLTexture,
-				0
-			);
-		}
-		if (depth) {
-			gl.framebufferRenderbuffer(
-				gl.FRAMEBUFFER,
-				gl.DEPTH_ATTACHMENT,
-				gl.RENDERBUFFER,
-				depth._gpuResource as WebGLRenderbuffer
-			);
-		}
-		gl.drawBuffers(color.map((_texture, index) => gl.COLOR_ATTACHMENT0 + index));
-		const status = gl.checkFramebufferStatus(gl.FRAMEBUFFER);
-		gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-		if (status !== gl.FRAMEBUFFER_COMPLETE) {
+				sampleCount: 1,
+				framebuffer,
+				color,
+				depth,
+			};
+		} catch (error) {
 			for (const texture of color) {
 				texture.destroy();
 			}
 			depth?.destroy();
 			gl.deleteFramebuffer(framebuffer);
-			throw new Error(
-				`WebGL custom framebuffer "${descriptor.id}" is incomplete (status=0x${status.toString(16)}).`
-			);
+			throw error;
+		} finally {
+			gl.bindFramebuffer(gl.FRAMEBUFFER, null);
 		}
-		return {
-			descriptor,
-			width,
-			height,
-			sampleCount: 1,
-			framebuffer,
-			color,
-			depth,
-		};
 	}
 
 	private _destroyTarget(id: string): void {
@@ -303,12 +419,16 @@ export class WebGLCustomRenderTargetRuntime {
 		if (!target) {
 			return;
 		}
+		this._destroyTargetResources(target);
+		this._targets.delete(id);
+	}
+
+	private _destroyTargetResources(target: WebGLCustomRenderTarget): void {
 		for (const texture of target.color) {
 			texture.destroy();
 		}
 		target.depth?.destroy();
 		this._gl.deleteFramebuffer(target.framebuffer);
-		this._targets.delete(id);
 	}
 }
 
@@ -319,12 +439,22 @@ class WebGLCustomCommandEncoder implements ICommandEncoder {
 	private readonly _vertexBuffers = new Map<number, IRenderBuffer>();
 	private _indexBuffer: IRenderBuffer | null = null;
 	private _indexFormat: IndexFormat = "uint16";
+	private _discardAttachments: number[] = [];
 
 	public constructor(gl: WebGL2RenderingContext) {
 		this._gl = gl;
 	}
 
 	public beginRenderPass(desc: RenderPassDesc): void {
+		if (this._framebuffer) {
+			throw new Error("WebGL custom render pass is already active.");
+		}
+		for (const attachment of desc.colorAttachments) {
+			if (attachment.resolveTarget) {
+				throw new Error("WebGL custom render passes do not support resolve targets.");
+			}
+		}
+		const size = resolveRenderPassSize(desc);
 		const gl = this._gl;
 		const framebuffer = gl.createFramebuffer();
 		if (!framebuffer) {
@@ -341,13 +471,6 @@ class WebGLCustomCommandEncoder implements ICommandEncoder {
 				texture,
 				0
 			);
-			if (attachment.loadOp === "clear") {
-				gl.clearBufferfv(
-					gl.COLOR,
-					index,
-					colorClearValueToArray(attachment)
-				);
-			}
 		});
 		if (desc.colorAttachments.length > 0) {
 			gl.drawBuffers(
@@ -358,6 +481,27 @@ class WebGLCustomCommandEncoder implements ICommandEncoder {
 		}
 		if (desc.depthStencilAttachment) {
 			this._attachDepth(desc.depthStencilAttachment);
+		}
+		const status = gl.checkFramebufferStatus(gl.FRAMEBUFFER);
+		if (status !== gl.FRAMEBUFFER_COMPLETE) {
+			this.cleanup();
+			throw new Error(
+				`WebGL custom render pass framebuffer is incomplete ` +
+					`(status=0x${status.toString(16)}).`
+			);
+		}
+		gl.viewport(0, 0, size.width, size.height);
+		gl.disable(gl.SCISSOR_TEST);
+		desc.colorAttachments.forEach((attachment, index) => {
+			if (attachment.loadOp === "clear") {
+				gl.clearBufferfv(
+					gl.COLOR,
+					index,
+					colorClearValueToArray(attachment)
+				);
+			}
+		});
+		if (desc.depthStencilAttachment) {
 			if (desc.depthStencilAttachment.depthLoadOp === "clear") {
 				gl.clearBufferfv(
 					gl.DEPTH,
@@ -367,6 +511,12 @@ class WebGLCustomCommandEncoder implements ICommandEncoder {
 					])
 				);
 			}
+		}
+		this._discardAttachments = desc.colorAttachments.flatMap((attachment, index) =>
+			attachment.storeOp === "discard" ? [gl.COLOR_ATTACHMENT0 + index] : []
+		);
+		if (desc.depthStencilAttachment?.depthStoreOp === "discard") {
+			this._discardAttachments.push(gl.DEPTH_ATTACHMENT);
 		}
 		void desc.label;
 	}
@@ -409,8 +559,14 @@ class WebGLCustomCommandEncoder implements ICommandEncoder {
 		instanceCount = 1,
 		firstIndex = 0,
 		baseVertex = 0,
-		_firstInstance = 0
+		firstInstance = 0
 	): void {
+		if (baseVertex !== 0) {
+			throw new Error("WebGL custom indexed draws require baseVertex=0.");
+		}
+		if (firstInstance !== 0) {
+			throw new Error("WebGL custom indexed draws require firstInstance=0.");
+		}
 		const pipeline = this._requirePipeline();
 		const indexBuffer = this._indexBuffer as WebGLCustomBuffer | null;
 		if (!indexBuffer?._webglBuffer) {
@@ -432,7 +588,6 @@ class WebGLCustomCommandEncoder implements ICommandEncoder {
 			);
 			return;
 		}
-		void baseVertex;
 		gl.drawElements(mode, indexCount, indexType, firstIndex * indexSize);
 	}
 
@@ -440,8 +595,11 @@ class WebGLCustomCommandEncoder implements ICommandEncoder {
 		vertexCount: number,
 		instanceCount = 1,
 		firstVertex = 0,
-		_firstInstance = 0
+		firstInstance = 0
 	): void {
+		if (firstInstance !== 0) {
+			throw new Error("WebGL custom draws require firstInstance=0.");
+		}
 		const pipeline = this._requirePipeline();
 		this._bindVertexBuffers(pipeline);
 		const gl = this._gl;
@@ -453,6 +611,7 @@ class WebGLCustomCommandEncoder implements ICommandEncoder {
 		gl.drawArrays(mode, firstVertex, vertexCount);
 	}
 	public setScissorRect(x: number, y: number, width: number, height: number): void {
+		this._gl.enable(this._gl.SCISSOR_TEST);
 		this._gl.scissor(x, y, width, height);
 	}
 	public copyTextureToTexture(
@@ -463,20 +622,43 @@ class WebGLCustomCommandEncoder implements ICommandEncoder {
 		throw new Error("WebGL custom render passes do not support texture copies.");
 	}
 	public endRenderPass(): void {
+		if (!this._framebuffer) {
+			throw new Error("WebGL custom render pass is not active.");
+		}
+		if (this._discardAttachments.length > 0) {
+			this._gl.invalidateFramebuffer(
+				this._gl.FRAMEBUFFER,
+				this._discardAttachments
+			);
+		}
 		this._gl.bindFramebuffer(this._gl.FRAMEBUFFER, null);
+		this._gl.deleteFramebuffer(this._framebuffer);
+		this._framebuffer = null;
+		this._discardAttachments = [];
+	}
+	public setComputePipeline(_pipeline: IComputePipeline): void {
+		throw new Error("WebGL custom render passes do not support compute pipelines.");
+	}
+	public dispatchWorkgroups(): void {
+		throw new Error("WebGL custom render passes do not support compute dispatch.");
+	}
+	public endComputePass(): void {
+		throw new Error("WebGL custom render passes do not support compute passes.");
+	}
+	public finish(): ICommandBuffer {
 		if (this._framebuffer) {
+			throw new Error("WebGL custom render pass callback left a pass active.");
+		}
+		return {};
+	}
+
+	public cleanup(): void {
+		if (this._framebuffer) {
+			this._gl.bindFramebuffer(this._gl.FRAMEBUFFER, null);
 			this._gl.deleteFramebuffer(this._framebuffer);
 			this._framebuffer = null;
 		}
-	}
-	public setComputePipeline(_pipeline: IComputePipeline): void {}
-	public dispatchWorkgroups(): void {}
-	public endComputePass(): void {}
-	public finish(): ICommandBuffer {
-		if (this._framebuffer) {
-			throw new Error("Pass still active");
-		}
-		return {};
+		this._discardAttachments = [];
 	}
 
 	private _requirePipeline(): WebGLCustomPipeline {
@@ -509,23 +691,11 @@ class WebGLCustomCommandEncoder implements ICommandEncoder {
 		if (!resource) {
 			return;
 		}
-		if (
-			(attachment.view as WebGLCustomTexture | undefined)?._webglTargetKind ===
-			"renderbuffer"
-		) {
-			this._gl.framebufferRenderbuffer(
-				this._gl.FRAMEBUFFER,
-				this._gl.DEPTH_ATTACHMENT,
-				this._gl.RENDERBUFFER,
-				resource
-			);
-			return;
-		}
 		this._gl.framebufferTexture2D(
 			this._gl.FRAMEBUFFER,
 			this._gl.DEPTH_ATTACHMENT,
 			this._gl.TEXTURE_2D,
-			resource as WebGLTexture,
+			resource,
 			0
 		);
 	}
@@ -536,16 +706,103 @@ function createWebGLColorTexture(
 	width: number,
 	height: number,
 	format: TextureFormat,
+	floatColorSupported: boolean,
 	label: string
 ): WebGLCustomTexture {
 	const texture = gl.createTexture();
 	if (!texture) {
 		throw new Error(`Failed to create ${label}.`);
 	}
-	const resolved = resolveColorFormat(gl, format);
+	const resolved = resolveWebGLColorRenderTargetFormat(
+		gl,
+		format,
+		floatColorSupported
+	);
+	if (!resolved) {
+		gl.deleteTexture(texture);
+		throw new Error(`Unsupported WebGL custom render target format "${format}".`);
+	}
 	gl.bindTexture(gl.TEXTURE_2D, texture);
-	gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-	gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+	gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+	gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+	gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+	gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+	gl.texImage2D(
+		gl.TEXTURE_2D,
+		0,
+		resolved.internalFormat,
+		width,
+		height,
+		0,
+		resolved.format,
+		resolved.allocationType,
+		null
+	);
+	gl.bindTexture(gl.TEXTURE_2D, null);
+	return {
+		width,
+		height,
+		format,
+		requestedFormat: format,
+		_gpuResource: texture,
+		_webglTargetKind: "texture",
+		_webglColorFormat: resolved,
+		destroy: () => gl.deleteTexture(texture),
+	};
+}
+
+function createWebGLTexture(
+	gl: WebGL2RenderingContext,
+	desc: TextureDesc
+): WebGLCustomTexture {
+	if (desc.dimension && desc.dimension !== "2d") {
+		throw new Error("WebGL custom render pass textures only support 2d dimension.");
+	}
+	if ((desc.sampleCount ?? 1) !== 1) {
+		throw new Error("WebGL custom render pass textures only support sampleCount=1.");
+	}
+	if (isDepthFormat(desc.format) && (desc.usage & TextureUsage.RenderAttachment) !== 0) {
+		return createWebGLDepthTexture(
+			gl,
+			desc.width,
+			desc.height,
+			desc.format,
+			desc.label ?? "WebGLCustomTexture_Depth"
+		);
+	}
+	const requiresRenderableFloat =
+		(desc.usage & TextureUsage.RenderAttachment) !== 0;
+	return createWebGLColorTexture(
+		gl,
+		desc.width,
+		desc.height,
+		desc.format,
+		!requiresRenderableFloat ||
+			(typeof gl.getExtension === "function" &&
+				Boolean(gl.getExtension("EXT_color_buffer_float"))),
+		desc.label ?? "WebGLCustomTexture_Color"
+	);
+}
+
+function createWebGLDepthTexture(
+	gl: WebGL2RenderingContext,
+	width: number,
+	height: number,
+	format: TextureFormat,
+	label: string
+): WebGLCustomTexture {
+	const texture = gl.createTexture();
+	if (!texture) {
+		throw new Error(`Failed to create ${label}.`);
+	}
+	const resolved = resolveWebGLDepthRenderTargetFormat(gl, format);
+	if (!resolved) {
+		gl.deleteTexture(texture);
+		throw new Error(`Unsupported WebGL custom depth format "${format}".`);
+	}
+	gl.bindTexture(gl.TEXTURE_2D, texture);
+	gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+	gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
 	gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
 	gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
 	gl.texImage2D(
@@ -569,80 +826,6 @@ function createWebGLColorTexture(
 		_webglTargetKind: "texture",
 		destroy: () => gl.deleteTexture(texture),
 	};
-}
-
-function createWebGLTexture(
-	gl: WebGL2RenderingContext,
-	desc: TextureDesc
-): WebGLCustomTexture {
-	if (desc.dimension && desc.dimension !== "2d") {
-		throw new Error("WebGL custom render pass textures only support 2d dimension.");
-	}
-	if ((desc.sampleCount ?? 1) !== 1) {
-		throw new Error("WebGL custom render pass textures only support sampleCount=1.");
-	}
-	if (isDepthFormat(desc.format) && (desc.usage & TextureUsage.RenderAttachment) !== 0) {
-		return createWebGLDepthRenderbuffer(
-			gl,
-			desc.width,
-			desc.height,
-			desc.format,
-			desc.label ?? "WebGLCustomTexture_Depth"
-		);
-	}
-	return createWebGLColorTexture(
-		gl,
-		desc.width,
-		desc.height,
-		desc.format,
-		desc.label ?? "WebGLCustomTexture_Color"
-	);
-}
-
-function createWebGLDepthRenderbuffer(
-	gl: WebGL2RenderingContext,
-	width: number,
-	height: number,
-	format: TextureFormat,
-	label: string
-): WebGLCustomTexture {
-	const renderbuffer = gl.createRenderbuffer();
-	if (!renderbuffer) {
-		throw new Error(`Failed to create ${label}.`);
-	}
-	gl.bindRenderbuffer(gl.RENDERBUFFER, renderbuffer);
-	gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT24, width, height);
-	gl.bindRenderbuffer(gl.RENDERBUFFER, null);
-	return {
-		width,
-		height,
-		format,
-		requestedFormat: format,
-		_gpuResource: renderbuffer,
-		_webglTargetKind: "renderbuffer",
-		destroy: () => gl.deleteRenderbuffer(renderbuffer),
-	};
-}
-
-function resolveColorFormat(
-	gl: WebGL2RenderingContext,
-	format: TextureFormat
-): { internalFormat: number; format: number; type: number } {
-	switch (format) {
-		case TextureFormat.RGBA16Float:
-		case TextureFormat.RGBA32Float:
-			return {
-				internalFormat: gl.RGBA16F,
-				format: gl.RGBA,
-				type: gl.HALF_FLOAT,
-			};
-		default:
-			return {
-				internalFormat: gl.RGBA8,
-				format: gl.RGBA,
-				type: gl.UNSIGNED_BYTE,
-			};
-	}
 }
 
 function isDepthFormat(format: TextureFormat): boolean {
@@ -1091,6 +1274,86 @@ function resolveTargetHeight(
 	);
 }
 
+function resolveWebGLLimit(
+	gl: WebGL2RenderingContext,
+	parameter: number,
+	fallback: number
+): number {
+	if (typeof gl.getParameter !== "function" || !Number.isFinite(parameter)) {
+		return fallback;
+	}
+	const value = Number(gl.getParameter(parameter));
+	return Number.isFinite(value) && value > 0 ? Math.floor(value) : fallback;
+}
+
+function resolveReadbackDimension(
+	id: string,
+	name: "width" | "height",
+	requested: number | undefined,
+	limit: number
+): number {
+	const value = requested ?? limit;
+	if (!Number.isInteger(value) || value <= 0 || value > limit) {
+		throw new Error(
+			`Render target "${id}" readback ${name} must be between 1 and ${limit}.`
+		);
+	}
+	return value;
+}
+
+function resolveRenderPassSize(desc: RenderPassDesc): {
+	width: number;
+	height: number;
+} {
+	const textures: IRenderTexture[] = [];
+	for (const attachment of desc.colorAttachments) {
+		if (!attachment.view) {
+			throw new Error("WebGL custom render pass color attachments require a texture.");
+		}
+		textures.push(attachment.view);
+	}
+	if (desc.depthStencilAttachment) {
+		if (!desc.depthStencilAttachment.view) {
+			throw new Error("WebGL custom render pass depth attachment requires a texture.");
+		}
+		textures.push(desc.depthStencilAttachment.view);
+	}
+	const first = textures[0];
+	if (!first) {
+		throw new Error("WebGL custom render pass requires at least one attachment.");
+	}
+	for (const texture of textures) {
+		if (texture.width !== first.width || texture.height !== first.height) {
+			throw new Error("WebGL custom render pass attachment dimensions must match.");
+		}
+	}
+	return {
+		width: first.width,
+		height: first.height,
+	};
+}
+
+function restoreNeutralFrameState(
+	gl: WebGL2RenderingContext,
+	context: FrameContext
+): void {
+	gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+	gl.viewport(0, 0, context.attachments.width, context.attachments.height);
+	gl.drawBuffers([gl.BACK]);
+	gl.disable(gl.SCISSOR_TEST);
+	gl.disable(gl.BLEND);
+	gl.disable(gl.CULL_FACE);
+	gl.enable(gl.DEPTH_TEST);
+	gl.depthMask(true);
+	gl.depthFunc(gl.LESS);
+	gl.colorMask(true, true, true, true);
+	gl.useProgram(null);
+	gl.bindVertexArray(null);
+	gl.bindBuffer(gl.ARRAY_BUFFER, null);
+	gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, null);
+	gl.activeTexture(gl.TEXTURE0);
+}
+
 function createTextureReadbackResult(input: {
 	bytes: Uint8Array;
 	width: number;
@@ -1098,7 +1361,8 @@ function createTextureReadbackResult(input: {
 	format: TextureFormat;
 	bytesPerPixel: number;
 	bytesPerRow: number;
-}): TextureReadbackResult {
+	origin: "bottom-left";
+}): RenderTargetReadbackResult {
 	return {
 		bytes: input.bytes,
 		width: input.width,
@@ -1106,37 +1370,85 @@ function createTextureReadbackResult(input: {
 		format: input.format,
 		bytesPerPixel: input.bytesPerPixel,
 		bytesPerRow: input.bytesPerRow,
+		origin: input.origin,
 		toFloat32: () =>
 			new Float32Array(
 				input.bytes.buffer,
 				input.bytes.byteOffset,
 				Math.floor(input.bytes.byteLength / 4)
 			),
-		toRGBAFloat32: () => {
-			if (input.bytesPerPixel === 16) {
-				return new Float32Array(
-					input.bytes.buffer.slice(
-						input.bytes.byteOffset,
-						input.bytes.byteOffset + input.bytes.byteLength
-					)
-				);
-			}
-			return normalizeRGBA8(input.bytes, input.width, input.height);
-		},
-		toNormalizedRGBA8Float32: () =>
-			normalizeRGBA8(input.bytes, input.width, input.height),
+		toRGBAFloat32: () => decodeTextureReadbackToRGBAFloat32(input),
+		toNormalizedRGBA8Float32: () => decodeNormalizedRGBA8Readback(input),
 	};
 }
 
-function normalizeRGBA8(
-	bytes: Uint8Array,
-	width: number,
-	height: number
-): Float32Array {
-	const out = new Float32Array(width * height * 4);
-	const count = Math.min(out.length, bytes.length);
-	for (let i = 0; i < count; i++) {
-		out[i] = bytes[i] / 255;
+function decodeTextureReadbackToRGBAFloat32(input: {
+	bytes: Uint8Array;
+	width: number;
+	height: number;
+	format: TextureFormat;
+	bytesPerPixel: number;
+	bytesPerRow: number;
+}): Float32Array {
+	const info = getTextureFormatInfo(input.format);
+	if (
+		info.formatClass !== "color" ||
+		(info.componentType !== "unorm" && info.componentType !== "float")
+	) {
+		throw new Error(
+			`toRGBAFloat32() does not support texture format "${input.format}".`
+		);
 	}
-	return out;
+	const output = new Float32Array(input.width * input.height * 4);
+	const view = new DataView(
+		input.bytes.buffer,
+		input.bytes.byteOffset,
+		input.bytes.byteLength
+	);
+	const componentBytes = info.bytesPerBlock / info.channelCount;
+	for (let y = 0; y < input.height; y++) {
+		for (let x = 0; x < input.width; x++) {
+			const sourcePixel = y * input.bytesPerRow + x * input.bytesPerPixel;
+			const destinationPixel = (y * input.width + x) * 4;
+			output[destinationPixel + 3] = 1;
+			for (let channel = 0; channel < info.channelCount; channel++) {
+				const offset = sourcePixel + channel * componentBytes;
+				output[destinationPixel + channel] =
+					info.componentType === "unorm" ? view.getUint8(offset) / 255
+					: componentBytes === 2 ?
+						float16BitsToFloat32(view.getUint16(offset, true))
+					:	view.getFloat32(offset, true);
+			}
+		}
+	}
+	return output;
+}
+
+function decodeNormalizedRGBA8Readback(input: {
+	bytes: Uint8Array;
+	width: number;
+	height: number;
+	format: TextureFormat;
+	bytesPerPixel: number;
+	bytesPerRow: number;
+}): Float32Array {
+	const info = getTextureFormatInfo(input.format);
+	if (
+		info.componentType !== "unorm" ||
+		info.bytesPerBlock !== info.channelCount
+	) {
+		throw new Error(
+			"toNormalizedRGBA8Float32() is only supported for 8-bit unorm formats."
+		);
+	}
+	return decodeTextureReadbackToRGBAFloat32(input);
+}
+
+function packFloat16(values: Float32Array): Uint8Array {
+	const bytes = new Uint8Array(values.length * 2);
+	const view = new DataView(bytes.buffer);
+	for (let index = 0; index < values.length; index++) {
+		view.setUint16(index * 2, float32ToFloat16Bits(values[index]), true);
+	}
+	return bytes;
 }

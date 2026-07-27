@@ -52,6 +52,11 @@ const texture = new Texture({
   cannot provide the requested format, `IRenderTexture.requestedFormat` should keep
   the requested value and `IRenderTexture.formatFallbackReason` should describe the
   fallback.
+- Persistent custom render targets are stricter than general texture uploads:
+  their actual attachment format must equal the requested format, and
+  unsupported backend formats must throw instead of falling back.
+- `RenderTargetReadbackResult` must report bytes in the attachment's actual
+  format and must expose the backend-native row `origin`.
 - sRGB textures should prefer sRGB GPU formats. Shader-side sRGB decode must be
   skipped when the sampled backend texture format performs hardware sRGB decode.
 - Compressed texture formats must accept pre-compressed block data only. This
@@ -103,6 +108,8 @@ const rgba = readback.toRGBAFloat32();
   packed readback formats.
 - Backends should warn once when a requested texture format falls back to another
   actual format.
+- Custom render target allocation must throw instead of applying a format
+  fallback.
 - Compressed uploads must provide block payloads matching the requested block layout.
   Missing or undersized payloads are treated as zero-filled or truncated raw bytes.
 
@@ -113,3 +120,7 @@ All `*Texture` constructors now accept one parameter object. The positional
 and `VideoTexture(video, options)` forms have been removed. Callers must move
 the source and options into `TextureParams`, `CanvasTextureParams`, or
 `VideoTextureParams`.
+
+`RenderTargetReadbackOptions.format` and `bytesPerPixel` are removed. Custom
+target readback always uses the attachment's actual format and standard byte
+layout.

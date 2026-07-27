@@ -59,6 +59,23 @@ backend-owned and executes through the `"postprocess"` backend pass.
   `postProcessAdapter`, or `createPostProcessGBufferBridge(context)` members.
 - The backend must validate pass dependency order per frame and must treat
   `skipPass` as an executed stage.
+- WebGL custom color targets must support exact storage for `r8unorm`,
+  `rg8unorm`, `rgba8unorm`, `rgba8unorm-srgb`, `r16float`, `rg16float`,
+  `rgba16float`, `r32float`, `rg32float`, and `rgba32float`.
+- Float custom color targets must require `EXT_color_buffer_float`; they must
+  not fall back to normalized formats.
+- WebGL custom depth targets must use sampleable depth textures. Supported
+  formats are `depth16unorm`, `depth24plus`, and `depth32float`.
+- WebGL custom targets must reject stencil formats, unsupported formats,
+  attachment counts beyond `MAX_DRAW_BUFFERS` or `MAX_COLOR_ATTACHMENTS`, and
+  incomplete framebuffers.
+- WebGL custom render passes must set the viewport from their attachments,
+  enable scissor testing when a scissor rect is set, and restore the
+  frame-executor baseline state on success or failure.
+- WebGL custom render passes must reject compute commands, texture copies,
+  resolve targets, non-zero `baseVertex`, and non-zero `firstInstance`.
+- WebGL custom target readback must preserve native bottom-left row order and
+  must return bytes matching the exact attachment format.
 - SH lighting must use 16 coefficients and must be uploaded through
   texture-backed data for shader sampling.
 - Clustered lighting must be CPU-built with tile and z-slice partitioning.
@@ -128,6 +145,12 @@ bun tests/static/webgl/test_webgl_frame_executor_fxaa.mjs
   attachments.
 - `"<backend>-postprocess-unsupported-<passId>"`: triggered when an enabled
   renderer-default built-in post-process pass has no WebGL implementation.
+- `WebGL custom render target "<id>" requires EXT_color_buffer_float.`:
+  triggered when an exact float attachment cannot be allocated.
+- `WebGL custom render target "<id>" exceeds the runtime color attachment limit.`:
+  triggered when MRT requirements exceed WebGL limits.
+- `WebGL custom framebuffer "<id>" is incomplete`: triggered when attachment
+  allocation produced an invalid framebuffer.
 
 ## Compatibility / Breaking Changes
 - Public backend type name remains `WebGLBackend`.
@@ -158,3 +181,7 @@ bun tests/static/webgl/test_webgl_frame_executor_fxaa.mjs
   the existing `color`, `depth`, `motion`, and `normal` bridge channels. Passes
   requiring omitted material channels are skipped through the shared
   post-process requirement diagnostics.
+- Custom render targets no longer fall back to approximate color or depth
+  formats. Unsupported descriptors now fail the frame during target
+  configuration.
+- Custom depth attachments changed from renderbuffers to sampleable textures.

@@ -41,13 +41,18 @@ class CustomTargetBackend extends TestRenderBackend {
 
 	readRenderTargetColor(id, attachmentIndex = 0, options = {}) {
 		this.readRequests.push({ id, attachmentIndex, options });
+		const format = attachmentIndex === 1 ?
+			TextureFormat.RGBA16Float
+		:	TextureFormat.RGBA8Unorm;
+		const bytesPerPixel = attachmentIndex === 1 ? 8 : 4;
 		return Promise.resolve({
-			bytes: new Uint8Array([1, 2, 3, 4]),
+			bytes: new Uint8Array((options.width ?? 1) * (options.height ?? 1) * bytesPerPixel),
 			width: options.width ?? 1,
 			height: options.height ?? 1,
-			format: options.format ?? TextureFormat.RGBA8Unorm,
-			bytesPerPixel: options.bytesPerPixel ?? 4,
-			bytesPerRow: options.bytesPerPixel ?? 4,
+			format,
+			bytesPerPixel,
+			bytesPerRow: (options.width ?? 1) * bytesPerPixel,
+			origin: "top-left",
 			toFloat32: () => new Float32Array(1),
 			toRGBAFloat32: () => new Float32Array(4),
 			toNormalizedRGBA8Float32: () => new Float32Array(4),
@@ -118,10 +123,11 @@ async function testRegistryAndFrameSnapshot() {
 	const readback = await renderer.renderTargets.readColor("inspect", 1, {
 		width: 2,
 		height: 2,
-		format: TextureFormat.RGBA16Float,
-		bytesPerPixel: 16,
 	});
 	assert.equal(readback.width, 2);
+	assert.equal(readback.format, TextureFormat.RGBA16Float);
+	assert.equal(readback.bytesPerPixel, 8);
+	assert.equal(readback.origin, "top-left");
 	assert.equal(backend.readRequests[0].id, "inspect");
 	assert.equal(backend.readRequests[0].attachmentIndex, 1);
 	await assert.rejects(
@@ -139,10 +145,80 @@ async function testRegistryAndFrameSnapshot() {
 	);
 }
 
+function testStrictRegistryTransactionsAndDependencies() {
+	const { renderer } = createRenderer();
+	assert.throws(
+		() => renderer.renderPasses.register({
+			id: "missing-target-pass",
+			target: "missing",
+			execute() {},
+		}),
+		/target "missing" is not registered/
+	);
+	assert.equal(renderer.renderPasses.get("missing-target-pass"), null);
+
+	renderer.renderTargets.register({
+		id: "strict",
+		size: { mode: "fixed", width: 4, height: 4 },
+		color: [{ format: TextureFormat.RGBA8Unorm }],
+	});
+	assert.throws(
+		() => renderer.renderPasses.register({
+			id: "main-opaque",
+			target: "strict",
+			execute() {},
+		}),
+		/Cannot register built-in pipeline stage/
+	);
+	assert.equal(renderer.renderPasses.get("main-opaque"), null);
+
+	renderer.renderPasses.register({
+		id: "strict-pass",
+		target: "strict",
+		execute() {},
+	});
+	assert.throws(
+		() => renderer.renderTargets.unregister("strict"),
+		/referenced by custom render pass "strict-pass"/
+	);
+	assert.ok(renderer.renderTargets.get("strict"));
+	renderer.renderPasses.unregister("strict-pass");
+	renderer.renderTargets.unregister("strict");
+	assert.equal(renderer.renderTargets.get("strict"), null);
+
+	assert.throws(
+		() => renderer.renderTargets.register({
+			id: "msaa",
+			size: { mode: "fixed", width: 4, height: 4 },
+			color: [{ format: TextureFormat.RGBA8Unorm }],
+			sampleCount: 4,
+		}),
+		/sampleCount must be 1/
+	);
+	assert.throws(
+		() => renderer.renderTargets.register({
+			id: "bad-color",
+			size: { mode: "fixed", width: 4, height: 4 },
+			color: [{ format: TextureFormat.Depth32Float }],
+		}),
+		/renderable color format/
+	);
+	assert.throws(
+		() => renderer.renderTargets.register({
+			id: "bad-depth",
+			size: { mode: "fixed", width: 4, height: 4 },
+			color: [{ format: TextureFormat.RGBA8Unorm }],
+			depth: { format: TextureFormat.RGBA8Unorm },
+		}),
+		/renderable depth-only format/
+	);
+}
+
 async function run() {
 	const originalWindow = globalThis.window;
 	try {
 		globalThis.window = { devicePixelRatio: 1 };
+		testStrictRegistryTransactionsAndDependencies();
 		await testRegistryAndFrameSnapshot();
 		console.log("Renderer custom render target tests passed");
 	} finally {
@@ -151,4 +227,3 @@ async function run() {
 }
 
 await run();
-

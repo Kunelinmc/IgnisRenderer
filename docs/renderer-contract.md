@@ -188,11 +188,28 @@ All graphics commands are recorded through a backend-agnostic `ICommandEncoder`.
 - `RenderTargetDescriptor.color` must contain at least one color attachment.
 - `RenderTargetDescriptor.depth` may define one depth attachment.
 - `RenderTargetDescriptor.sampleCount` defaults to `1`.
-- `Renderer.renderTargets.readColor(id, attachmentIndex, options)` must return a `Promise<TextureReadbackResult>`.
+- Custom render targets currently support only `sampleCount = 1`; registration
+  with another value must throw.
+- Color attachments must use color formats, and depth attachments must use
+  depth-only formats.
+- `Renderer.renderTargets.readColor(id, attachmentIndex, options)` must return a
+  `Promise<RenderTargetReadbackResult>`.
+- `RenderTargetReadbackOptions` may restrict `width` and `height`, but must not
+  reinterpret the attachment format or bytes-per-pixel layout.
+- `RenderTargetReadbackResult.origin` must be `"top-left"` for WebGPU and
+  `"bottom-left"` for WebGL.
 - `readColor` must read only the most recent successfully completed frame.
-- `readColor` must reject before the first successful frame, after an invalid target id, or for an invalid color attachment index.
+- `readColor` must reject before the first successful frame, after an invalid
+  target id, for an invalid color attachment index, or when the requested
+  dimensions exceed the target.
 - `Renderer.renderPasses.register(descriptor)` must register a backend pass stage with the same `id`.
 - `CustomRenderPassDescriptor.target` must reference a registered custom render target.
+- Custom pass registration must be transactional. Failed target validation or
+  pipeline-stage registration must not retain the pass descriptor or emit a
+  registry change.
+- A custom pass id must not replace a built-in pipeline stage.
+- A render target referenced by a registered custom pass must not be
+  unregistered until the dependent pass is unregistered.
 - `CustomRenderPassDescriptor.execute(context)` must receive an `ICommandEncoder`, `CustomRenderTargetExecutionTarget`, `FrameContext`, backend id, dimensions, and a backend-owned resource facade.
 - Custom render pass callbacks must not receive native backend handles.
 - WebGPU and WebGL backends must support custom render targets, custom render passes, and color readback.
@@ -379,11 +396,22 @@ const readback = await renderer.renderTargets.readColor("inspect", 0);
 - `webgpu-oit-disabled-runtime` is logged when WebGPU OIT is enabled but the active encoder cannot record in-frame texture copies.
 - `Render target "<id>" is already registered.` is thrown for duplicate target ids.
 - `Custom render pass "<id>" is already registered.` is thrown for duplicate pass ids.
+- `Custom render pass "<id>" target "<target>" is not registered.` is thrown
+  when registering a pass before its target.
+- `Render target "<id>" is referenced by custom render pass "<pass>".` is
+  thrown when unregistering a target that is still in use.
+- `Render target "<id>" sampleCount must be 1.` is thrown for unsupported MSAA.
 - `Render target "<id>" cannot be read before a successful frame completes.` is thrown when readback is requested too early.
 - `software-custom-render-targets-unsupported` is logged when SoftwareBackend skips a custom render pass.
-- `<backend>-custom-render-target-msaa-unsupported-<id>` is logged when a backend cannot allocate a requested sample count.
 
 ## Compatibility / Breaking Changes
+- `RenderTargetReadbackOptions.format` and `bytesPerPixel` are removed.
+  `readColor` always returns the attachment's actual storage format.
+- `Renderer.renderTargets` now rejects unsupported sample counts and invalid
+  color/depth format kinds during registration instead of disabling the target
+  during frame execution.
+- `Renderer.renderPasses` now requires target-before-pass registration, and
+  targets with dependent passes must be unregistered after those passes.
 - `RenderFrameResult` requires an `incremental` property on both rendered and clean result branches. This is a breaking TypeScript API change.
 - `Renderer.renderScene()` is deprecated and retained only for compatibility. Applications must use `Renderer.renderFrame()` for manual rendering or `Renderer.renderLoop()` for automatic scheduling. Neither `renderFrame()` nor the deprecated alias schedules subsequent frames based on backend `frameScheduling`.
 - `IRenderBackend.createSession(context)` and public backend session APIs are removed.

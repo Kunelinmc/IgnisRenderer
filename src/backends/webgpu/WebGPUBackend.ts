@@ -11,8 +11,10 @@ import type {
 	WarmupOptions,
 	WarmupReport,
 } from "../IRenderBackend";
-import type { RenderTargetReadbackOptions } from "../../rendering/CustomRenderTargets";
-import type { TextureReadbackResult } from "../IComputeRuntime";
+import type {
+	RenderTargetReadbackOptions,
+	RenderTargetReadbackResult,
+} from "../../rendering/CustomRenderTargets";
 import { type FrameAttachments, type FrameContext, type FramePass } from "../../pipeline/types";
 import type {
 	NormalizedOcclusionCullingOptions,
@@ -681,7 +683,7 @@ export class WebGPUBackend implements IRenderBackend {
 		id: string,
 		attachmentIndex?: number,
 		options?: RenderTargetReadbackOptions,
-	): Promise<TextureReadbackResult> {
+	): Promise<RenderTargetReadbackResult> {
 		if (!this._frameOrchestrator) {
 			return Promise.reject(new Error("WebGPU backend has not been initialized."));
 		}

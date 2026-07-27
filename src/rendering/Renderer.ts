@@ -73,8 +73,8 @@ import {
 	CustomRenderPassRegistry,
 	RenderTargetRegistry,
 	type RenderTargetReadbackOptions,
+	type RenderTargetReadbackResult,
 } from "./CustomRenderTargets";
-import type { TextureReadbackResult } from "../backends/IComputeRuntime";
 import {
 	FrameCoordinator,
 	type FrameCoordinatorDelegate,
@@ -185,8 +185,10 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 				id: string,
 				attachmentIndex: number,
 				options?: RenderTargetReadbackOptions
-			): Promise<TextureReadbackResult> =>
+			): Promise<RenderTargetReadbackResult> =>
 				this._readRenderTargetColor(id, attachmentIndex, options),
+			getReferencingPassId: (id) =>
+				this.renderPasses?.getReferencingPassId(id) ?? null,
 		});
 		this.renderPasses = new CustomRenderPassRegistry({
 			registerPipelineStage: (pass) => {
@@ -204,6 +206,7 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 				});
 			},
 			unregisterPipelineStage: (id) => this.pipeline.unregisterPipelineStage(id),
+			isRenderTargetRegistered: (id) => this.renderTargets.get(id) !== null,
 		});
 
 		this.postProcess = new PostProcessPassRegistry();
@@ -867,7 +870,7 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 		id: string,
 		attachmentIndex: number,
 		options?: RenderTargetReadbackOptions
-	): Promise<TextureReadbackResult> {
+	): Promise<RenderTargetReadbackResult> {
 		const read = this._backend.readRenderTargetColor;
 		if (typeof read !== "function") {
 			return Promise.reject(

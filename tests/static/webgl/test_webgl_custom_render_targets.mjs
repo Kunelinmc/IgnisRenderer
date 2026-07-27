@@ -11,7 +11,7 @@ import {
 } from "../../../src/rendering/CustomRenderTargets.ts";
 import { createResolvedPostProcess } from "../../helpers/postprocess.mjs";
 
-function createFakeGL() {
+function createFakeGL(options = {}) {
 	let nextId = 1;
 	const calls = [];
 	const gl = {
@@ -22,12 +22,29 @@ function createFakeGL() {
 		ARRAY_BUFFER: 0x8892,
 		ELEMENT_ARRAY_BUFFER: 0x8893,
 		STATIC_DRAW: 0x88e4,
+		MAX_TEXTURE_SIZE: 0x0d33,
+		MAX_DRAW_BUFFERS: 0x8824,
+		MAX_COLOR_ATTACHMENTS: 0x8cdf,
 		COLOR_ATTACHMENT0: 0x8ce0,
+		COLOR_ATTACHMENT1: 0x8ce1,
 		DEPTH_ATTACHMENT: 0x8d00,
 		FRAMEBUFFER_COMPLETE: 0x8cd5,
+		DEPTH_COMPONENT16: 0x81a5,
 		DEPTH_COMPONENT24: 0x81a6,
+		DEPTH_COMPONENT32F: 0x8cac,
+		DEPTH_COMPONENT: 0x1902,
+		R8: 0x8229,
+		RG8: 0x822b,
 		RGBA8: 0x8058,
+		SRGB8_ALPHA8: 0x8c43,
+		R16F: 0x822d,
+		RG16F: 0x822f,
 		RGBA16F: 0x881a,
+		R32F: 0x822e,
+		RG32F: 0x8230,
+		RGBA32F: 0x8814,
+		RED: 0x1903,
+		RG: 0x8227,
 		RGBA: 0x1908,
 		UNSIGNED_BYTE: 0x1401,
 		HALF_FLOAT: 0x140b,
@@ -56,6 +73,7 @@ function createFakeGL() {
 		CCW: 0x0901,
 		DEPTH_TEST: 0x0b71,
 		BLEND: 0x0be2,
+		SCISSOR_TEST: 0x0c11,
 		ALWAYS: 0x0207,
 		NEVER: 0x0200,
 		EQUAL: 0x0202,
@@ -65,6 +83,18 @@ function createFakeGL() {
 		LESS: 0x0201,
 		COLOR: 0x1800,
 		DEPTH: 0x1801,
+		getExtension: (name) =>
+			name === "EXT_color_buffer_float" && options.floatColorSupported !== false ?
+				{}
+			:	null,
+		getParameter: (parameter) => {
+			if (parameter === gl.MAX_TEXTURE_SIZE) return options.maxTextureSize ?? 4096;
+			if (parameter === gl.MAX_DRAW_BUFFERS) return options.maxDrawBuffers ?? 4;
+			if (parameter === gl.MAX_COLOR_ATTACHMENTS) {
+				return options.maxColorAttachments ?? 4;
+			}
+			return 0;
+		},
 		createFramebuffer: () => ({ id: nextId++, kind: "framebuffer" }),
 		deleteFramebuffer: (value) => calls.push(["deleteFramebuffer", value]),
 		createTexture: () => ({ id: nextId++, kind: "texture" }),
@@ -88,6 +118,9 @@ function createFakeGL() {
 		getProgramInfoLog: () => "",
 		deleteProgram: (value) => calls.push(["deleteProgram", value]),
 		useProgram: (...args) => calls.push(["useProgram", ...args]),
+		viewport: (...args) => calls.push(["viewport", ...args]),
+		colorMask: (...args) => calls.push(["colorMask", ...args]),
+		bindVertexArray: (...args) => calls.push(["bindVertexArray", ...args]),
 		disable: (...args) => calls.push(["disable", ...args]),
 		enable: (...args) => calls.push(["enable", ...args]),
 		cullFace: (...args) => calls.push(["cullFace", ...args]),
@@ -116,10 +149,15 @@ function createFakeGL() {
 		framebufferTexture2D: (...args) => calls.push(["framebufferTexture2D", ...args]),
 		framebufferRenderbuffer: (...args) => calls.push(["framebufferRenderbuffer", ...args]),
 		drawBuffers: (...args) => calls.push(["drawBuffers", ...args]),
-		checkFramebufferStatus: () => gl.FRAMEBUFFER_COMPLETE,
+		checkFramebufferStatus: () =>
+			options.framebufferStatus ?? gl.FRAMEBUFFER_COMPLETE,
+		invalidateFramebuffer: (...args) => calls.push(["invalidateFramebuffer", ...args]),
 		readBuffer: (...args) => calls.push(["readBuffer", ...args]),
 		readPixels: (_x, _y, width, height, _format, _type, out) => {
 			calls.push(["readPixels", width, height]);
+			if (options.readPixelsThrows) {
+				throw new Error("read-pixels-failed");
+			}
 			for (let i = 0; i < width * height * 4; i++) {
 				out[i] = i & 0xff;
 			}
@@ -130,7 +168,17 @@ function createFakeGL() {
 	return gl;
 }
 
-function createContext(passExecute) {
+function createContext(passExecute, targetDescriptor = {}) {
+	const descriptor = {
+		id: "inspect",
+		size: { mode: "canvas-scale", scale: 0.5 },
+		color: [
+			{ format: TextureFormat.RGBA8Unorm },
+			{ format: TextureFormat.RGBA8Unorm },
+		],
+		depth: { format: TextureFormat.Depth32Float },
+		...targetDescriptor,
+	};
 	return {
 		backendProfile: {
 			id: "webgl",
@@ -143,17 +191,7 @@ function createContext(passExecute) {
 		attachments: { width: 128, height: 64 },
 		features: {},
 		postProcess: createResolvedPostProcess("webgl"),
-		renderTargets: new RenderTargetRegistrySnapshot([
-			{
-				id: "inspect",
-				size: { mode: "canvas-scale", scale: 0.5 },
-				color: [
-					{ format: TextureFormat.RGBA8Unorm },
-					{ format: TextureFormat.RGBA8Unorm },
-				],
-				depth: { format: TextureFormat.Depth32Float },
-			},
-		]),
+		renderTargets: new RenderTargetRegistrySnapshot([descriptor]),
 		customRenderPasses: new CustomRenderPassRegistrySnapshot([
 			{
 				id: "inspect-pass",
@@ -221,7 +259,7 @@ async function testWebGLCustomTargetExecutionAndReadback() {
 			colorAttachments: passContext.target.color.map((attachment) => ({
 				view: attachment.texture,
 				loadOp: "clear",
-				storeOp: "store",
+				storeOp: "discard",
 				clearValue: { r: 1, g: 0, b: 0, a: 1 },
 			})),
 			depthStencilAttachment: {
@@ -233,6 +271,7 @@ async function testWebGLCustomTargetExecutionAndReadback() {
 		});
 		passContext.encoder.setPipeline(pipeline);
 		passContext.encoder.setVertexBuffer(0, vertexBuffer);
+		passContext.encoder.setScissorRect(0, 0, passContext.width, passContext.height);
 		passContext.encoder.draw(3);
 		passContext.encoder.endRenderPass();
 	});
@@ -247,6 +286,22 @@ async function testWebGLCustomTargetExecutionAndReadback() {
 	assert.equal(observed.height, 32);
 	assert.ok(gl.calls.some((call) => call[0] === "framebufferTexture2D"));
 	assert.ok(gl.calls.some((call) => call[0] === "drawArrays"));
+	assert.ok(
+		gl.calls.some((call) =>
+			call[0] === "viewport" && call[3] === 64 && call[4] === 32
+		)
+	);
+	assert.ok(
+		gl.calls.some((call) => call[0] === "enable" && call[1] === gl.SCISSOR_TEST)
+	);
+	assert.ok(gl.calls.some((call) => call[0] === "invalidateFramebuffer"));
+	assert.ok(
+		gl.calls.some((call) =>
+			call[0] === "framebufferTexture2D" && call[2] === gl.DEPTH_ATTACHMENT
+		)
+	);
+	const restoredViewports = gl.calls.filter((call) => call[0] === "viewport");
+	assert.deepEqual(restoredViewports.at(-1), ["viewport", 0, 0, 128, 64]);
 
 	await assert.rejects(() => runtime.readColor("inspect", 0), /successful frame/);
 	runtime.markFrameCommitted();
@@ -254,9 +309,196 @@ async function testWebGLCustomTargetExecutionAndReadback() {
 	assert.equal(readback.width, 64);
 	assert.equal(readback.height, 32);
 	assert.equal(readback.bytes[1], 1);
+	assert.equal(readback.bytesPerPixel, 4);
+	assert.equal(readback.origin, "bottom-left");
+	await assert.rejects(() => runtime.readColor("inspect", 1, { width: 65 }), /between/);
 	runtime.destroy();
 	assert.ok(gl.calls.some((call) => call[0] === "deleteTexture"));
 }
 
+function testWebGLStrictFormatValidation() {
+	const noFloatGL = createFakeGL({ floatColorSupported: false });
+	const noFloatRuntime = new WebGLCustomRenderTargetRuntime(noFloatGL);
+	const floatContext = createContext(() => {}, {
+		color: [{ format: TextureFormat.RGBA16Float }],
+		depth: null,
+	});
+	assert.throws(
+		() => noFloatRuntime.sync(floatContext),
+		/EXT_color_buffer_float/
+	);
+
+	const limitedGL = createFakeGL({ maxDrawBuffers: 1, maxColorAttachments: 1 });
+	const limitedRuntime = new WebGLCustomRenderTargetRuntime(limitedGL);
+	assert.throws(
+		() => limitedRuntime.sync(createContext(() => {})),
+		/color attachment limit 1/
+	);
+
+	const unsupportedGL = createFakeGL();
+	const unsupportedRuntime = new WebGLCustomRenderTargetRuntime(unsupportedGL);
+	const unsupportedContext = createContext(() => {}, {
+		color: [{ format: TextureFormat.BGRA8Unorm }],
+		depth: null,
+	});
+	assert.throws(
+		() => unsupportedRuntime.sync(unsupportedContext),
+		/unsupported/
+	);
+}
+
+function testWebGLCoreFormatMappings() {
+	const colorFormats = [
+		[TextureFormat.R8Unorm, "R8"],
+		[TextureFormat.RG8Unorm, "RG8"],
+		[TextureFormat.RGBA8Unorm, "RGBA8"],
+		[TextureFormat.RGBA8UnormSrgb, "SRGB8_ALPHA8"],
+		[TextureFormat.R16Float, "R16F"],
+		[TextureFormat.RG16Float, "RG16F"],
+		[TextureFormat.RGBA16Float, "RGBA16F"],
+		[TextureFormat.R32Float, "R32F"],
+		[TextureFormat.RG32Float, "RG32F"],
+		[TextureFormat.RGBA32Float, "RGBA32F"],
+	];
+	for (const [format, constantName] of colorFormats) {
+		const gl = createFakeGL();
+		const runtime = new WebGLCustomRenderTargetRuntime(gl);
+		runtime.sync(createContext(() => {}, {
+			color: [{ format }],
+			depth: null,
+		}));
+		const allocation = gl.calls.find((call) => call[0] === "texImage2D");
+		assert.equal(allocation[3], gl[constantName], format);
+		runtime.destroy();
+	}
+
+	const depthFormats = [
+		[TextureFormat.Depth16Unorm, "DEPTH_COMPONENT16"],
+		[TextureFormat.Depth24Plus, "DEPTH_COMPONENT24"],
+		[TextureFormat.Depth32Float, "DEPTH_COMPONENT32F"],
+	];
+	for (const [format, constantName] of depthFormats) {
+		const gl = createFakeGL();
+		const runtime = new WebGLCustomRenderTargetRuntime(gl);
+		runtime.sync(createContext(() => {}, {
+			color: [{ format: TextureFormat.RGBA8Unorm }],
+			depth: { format },
+		}));
+		const allocations = gl.calls.filter((call) => call[0] === "texImage2D");
+		assert.equal(allocations.at(-1)[3], gl[constantName], format);
+		assert.ok(
+			gl.calls.some((call) =>
+				call[0] === "framebufferTexture2D" &&
+				call[2] === gl.DEPTH_ATTACHMENT
+			)
+		);
+		runtime.destroy();
+	}
+}
+
+function testWebGLIncompleteFramebufferIsTransactional() {
+	const gl = createFakeGL({ framebufferStatus: 0x8cd6 });
+	const runtime = new WebGLCustomRenderTargetRuntime(gl);
+	assert.throws(
+		() => runtime.sync(createContext(() => {})),
+		/incomplete/
+	);
+	assert.equal(
+		gl.calls.filter((call) => call[0] === "deleteTexture").length,
+		3
+	);
+	assert.equal(
+		gl.calls.filter((call) => call[0] === "deleteFramebuffer").length,
+		1
+	);
+}
+
+async function testWebGLPassFailureRestoresState() {
+	const gl = createFakeGL();
+	const runtime = new WebGLCustomRenderTargetRuntime(gl);
+	const context = createContext((passContext) => {
+		passContext.encoder.beginRenderPass({
+			colorAttachments: [{
+				view: passContext.target.color[0].texture,
+				loadOp: "clear",
+				storeOp: "store",
+			}],
+		});
+		throw new Error("custom-pass-failed");
+	});
+	runtime.sync(context);
+	await assert.rejects(
+		() => runtime.executePass(
+			{ stage: "inspect-pass", executor: "backend", enabled: true, dependsOn: [] },
+			context
+		),
+		/custom-pass-failed/
+	);
+	assert.ok(gl.calls.some((call) => call[0] === "deleteFramebuffer"));
+	const viewports = gl.calls.filter((call) => call[0] === "viewport");
+	assert.deepEqual(viewports.at(-1), ["viewport", 0, 0, 128, 64]);
+	assert.ok(
+		gl.calls.some((call) => call[0] === "bindVertexArray" && call[1] === null)
+	);
+
+	const unfinishedGL = createFakeGL();
+	const unfinishedRuntime = new WebGLCustomRenderTargetRuntime(unfinishedGL);
+	const unfinishedContext = createContext((passContext) => {
+		passContext.encoder.beginRenderPass({
+			colorAttachments: [{
+				view: passContext.target.color[0].texture,
+				loadOp: "load",
+				storeOp: "store",
+			}],
+		});
+	});
+	unfinishedRuntime.sync(unfinishedContext);
+	await assert.rejects(
+		() => unfinishedRuntime.executePass(
+			{ stage: "inspect-pass", executor: "backend", enabled: true, dependsOn: [] },
+			unfinishedContext
+		),
+		/left a pass active/
+	);
+	const unfinishedViewports = unfinishedGL.calls.filter(
+		(call) => call[0] === "viewport"
+	);
+	assert.deepEqual(unfinishedViewports.at(-1), ["viewport", 0, 0, 128, 64]);
+}
+
+async function testWebGLFloat16ReadbackLayout() {
+	const gl = createFakeGL();
+	const runtime = new WebGLCustomRenderTargetRuntime(gl);
+	const context = createContext(() => {}, {
+		color: [{ format: TextureFormat.RGBA16Float }],
+		depth: null,
+	});
+	runtime.sync(context);
+	runtime.markFrameCommitted();
+	const readback = await runtime.readColor("inspect", 0, { width: 1, height: 1 });
+	assert.equal(readback.format, TextureFormat.RGBA16Float);
+	assert.equal(readback.bytesPerPixel, 8);
+	assert.equal(readback.bytes.length, 8);
+	assert.equal(readback.toRGBAFloat32().length, 4);
+
+	const failingGL = createFakeGL({ readPixelsThrows: true });
+	const failingRuntime = new WebGLCustomRenderTargetRuntime(failingGL);
+	failingRuntime.sync(context);
+	failingRuntime.markFrameCommitted();
+	await assert.rejects(
+		() => failingRuntime.readColor("inspect", 0, { width: 1, height: 1 }),
+		/read-pixels-failed/
+	);
+	const framebufferBinds = failingGL.calls.filter(
+		(call) => call[0] === "bindFramebuffer"
+	);
+	assert.equal(framebufferBinds.at(-1)[2], null);
+}
+
 await testWebGLCustomTargetExecutionAndReadback();
+testWebGLStrictFormatValidation();
+testWebGLCoreFormatMappings();
+testWebGLIncompleteFramebufferIsTransactional();
+await testWebGLPassFailureRestoresState();
+await testWebGLFloat16ReadbackLayout();
 console.log("WebGL custom render target tests passed");

@@ -115,8 +115,10 @@ import type {
 } from "./types";
 import { WebGPUPresentPass } from "./WebGPUPresentPass";
 import { WebGPUCustomRenderTargetRuntime } from "./WebGPUCustomRenderTargetRuntime";
-import type { RenderTargetReadbackOptions } from "../../../rendering/CustomRenderTargets";
-import type { TextureReadbackResult } from "../../IComputeRuntime";
+import type {
+	RenderTargetReadbackOptions,
+	RenderTargetReadbackResult,
+} from "../../../rendering/CustomRenderTargets";
 import type { WebGPUPostProcessSessionPort } from "../WebGPUPostProcessExecutor";
 import { SINGLE_SAMPLE_WEBGPU_MSAA_CONTEXT } from "../WebGPUMSAAController";
 
@@ -1136,7 +1138,7 @@ export class WebGPUFrameOrchestrator {
 		id: string,
 		attachmentIndex?: number,
 		options?: RenderTargetReadbackOptions,
-	): Promise<TextureReadbackResult> {
+	): Promise<RenderTargetReadbackResult> {
 		return this._customRenderTargets.readColor(id, attachmentIndex, options);
 	}
 

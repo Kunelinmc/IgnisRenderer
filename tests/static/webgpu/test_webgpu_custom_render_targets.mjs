@@ -23,15 +23,20 @@ class FakeEncoder {
 }
 
 class FakeBackend {
-	constructor() {
+	constructor(options = {}) {
 		this.createdTextures = [];
+		this.fallbackFormat = options.fallbackFormat ?? null;
 	}
 	createTexture(desc) {
+		const fallback = this.fallbackFormat?.requested === desc.format ?
+			this.fallbackFormat.actual
+		:	null;
 		const texture = {
 			width: desc.width,
 			height: desc.height,
-			format: desc.format,
+			format: fallback ?? desc.format,
 			requestedFormat: desc.format,
+			formatFallbackReason: fallback ? "test fallback" : undefined,
 			descriptor: desc,
 			destroyed: false,
 			destroy() {
@@ -157,9 +162,47 @@ async function testWebGPUCustomTargetExecution() {
 	assert.equal(observed.target.color.length, 2);
 	assert.equal(encoder.calls[0][0], "beginRenderPass");
 	await assert.rejects(() => runtime.readColor("gbuf", 0), /successful frame/);
+	runtime._readbackRuntime = {
+		async readTexture(options) {
+			return {
+				bytes: new Uint8Array(options.width * options.height * 4),
+				width: options.width,
+				height: options.height,
+				format: options.format,
+				bytesPerPixel: 4,
+				bytesPerRow: options.width * 4,
+				toFloat32: () => new Float32Array(),
+				toRGBAFloat32: () => new Float32Array(),
+				toNormalizedRGBA8Float32: () => new Float32Array(),
+			};
+		},
+		destroy() {},
+	};
+	runtime.markFrameCommitted();
+	const readback = await runtime.readColor("gbuf", 0, { width: 2, height: 2 });
+	assert.equal(readback.origin, "top-left");
+	assert.equal(readback.format, TextureFormat.RGBA8Unorm);
+	await assert.rejects(() => runtime.readColor("gbuf", 0, { width: 33 }), /between/);
 	runtime.destroy();
 	assert.equal(backend.createdTextures.every((texture) => texture.destroyed), true);
 }
 
+function testWebGPURejectsFormatFallbackTransactionally() {
+	const backend = new FakeBackend({
+		fallbackFormat: {
+			requested: TextureFormat.RGBA16Float,
+			actual: TextureFormat.RGBA8Unorm,
+		},
+	});
+	const runtime = new WebGPUCustomRenderTargetRuntime(backend);
+	assert.throws(
+		() => runtime.sync(createContext(() => {})),
+		/requested "rgba16float" but received "rgba8unorm"/
+	);
+	assert.equal(backend.createdTextures.length, 2);
+	assert.equal(backend.createdTextures.every((texture) => texture.destroyed), true);
+}
+
 await testWebGPUCustomTargetExecution();
+testWebGPURejectsFormatFallbackTransactionally();
 console.log("WebGPU custom render target tests passed");

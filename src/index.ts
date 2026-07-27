@@ -44,6 +44,8 @@ export {
 	type RenderTargetDescriptor,
 	type RenderTargetHandle,
 	type RenderTargetReadbackOptions,
+	type RenderTargetReadbackOrigin,
+	type RenderTargetReadbackResult,
 	type RenderTargetRegistryChange,
 	type RenderTargetSizeDescriptor,
 } from "./rendering/CustomRenderTargets";

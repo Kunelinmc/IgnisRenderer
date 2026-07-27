@@ -5,8 +5,8 @@ import type {
 } from "../pipeline/types";
 import type {
 	RenderTargetReadbackOptions,
+	RenderTargetReadbackResult,
 } from "../rendering/CustomRenderTargets";
-import type { TextureReadbackResult } from "./IComputeRuntime";
 import type { RenderDirtyReason } from "../pipeline/incremental";
 import type { IShadowBackendCapabilities } from "../lights/shadows";
 import type { ShaderCompileError } from "../shaders/runtime";
@@ -223,7 +223,7 @@ export interface IRenderBackend {
 		id: string,
 		attachmentIndex?: number,
 		options?: RenderTargetReadbackOptions
-	): Promise<TextureReadbackResult>;
+	): Promise<RenderTargetReadbackResult>;
 	warmup?(
 		context: FrameContext,
 		options?: WarmupOptions

@@ -16,8 +16,10 @@ import type {
 	WarmupOptions,
 	WarmupReport,
 } from "../IRenderBackend";
-import type { RenderTargetReadbackOptions } from "../../rendering/CustomRenderTargets";
-import type { TextureReadbackResult } from "../IComputeRuntime";
+import type {
+	RenderTargetReadbackOptions,
+	RenderTargetReadbackResult,
+} from "../../rendering/CustomRenderTargets";
 import { WebGLFrameServiceOwner } from "./WebGLFrameServiceOwner";
 import { WebGLFrameGraphRuntime } from "./rendergraph/WebGLFrameGraphRuntime";
 import { WebGLPostProcessExecutor } from "./WebGLPostProcessExecutor";
@@ -396,7 +398,7 @@ export class WebGLBackend implements IRenderBackend {
 		id: string,
 		attachmentIndex?: number,
 		options?: RenderTargetReadbackOptions,
-	): Promise<TextureReadbackResult> {
+	): Promise<RenderTargetReadbackResult> {
 		if (!this._frameServices) {
 			return Promise.reject(new Error("WebGL backend has not been initialized."));
 		}

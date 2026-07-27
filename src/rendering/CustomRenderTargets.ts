@@ -1,5 +1,6 @@
 import { EventEmitter } from "../core/EventEmitter";
 import type { TextureReadbackResult } from "../backends/IComputeRuntime";
+import { getTextureFormatInfo } from "../backends/TextureFormatInfo";
 import type { ICommandEncoder } from "../backends/ICommandEncoder";
 import type {
 	BindingGroupDesc,
@@ -58,8 +59,12 @@ export interface RenderTargetDescriptor {
 export interface RenderTargetReadbackOptions {
 	readonly width?: number;
 	readonly height?: number;
-	readonly format?: TextureFormat;
-	readonly bytesPerPixel?: number;
+}
+
+export type RenderTargetReadbackOrigin = "top-left" | "bottom-left";
+
+export interface RenderTargetReadbackResult extends TextureReadbackResult {
+	readonly origin: RenderTargetReadbackOrigin;
 }
 
 export interface RenderTargetHandle {
@@ -126,7 +131,9 @@ export interface RenderTargetRegistryOptions {
 		id: string,
 		attachmentIndex: number,
 		options?: RenderTargetReadbackOptions
-	) => Promise<TextureReadbackResult>;
+	) => Promise<RenderTargetReadbackResult>;
+	/** @internal Renderer registry coordination hook. */
+	readonly getReferencingPassId?: (id: string) => FramePassStage | null;
 }
 
 export class RenderTargetRegistry extends EventEmitter<{
@@ -134,10 +141,12 @@ export class RenderTargetRegistry extends EventEmitter<{
 }> {
 	private readonly _targets = new Map<string, RenderTargetDescriptor>();
 	private readonly _readColor?: RenderTargetRegistryOptions["readColor"];
+	private readonly _getReferencingPassId?: RenderTargetRegistryOptions["getReferencingPassId"];
 
 	public constructor(options: RenderTargetRegistryOptions = {}) {
 		super();
 		this._readColor = options.readColor;
+		this._getReferencingPassId = options.getReferencingPassId;
 	}
 
 	public register(descriptor: RenderTargetDescriptor): RenderTargetHandle {
@@ -151,9 +160,16 @@ export class RenderTargetRegistry extends EventEmitter<{
 	}
 
 	public unregister(id: string): void {
-		if (!this._targets.delete(id)) {
+		if (!this._targets.has(id)) {
 			return;
 		}
+		const passId = this._getReferencingPassId?.(id) ?? null;
+		if (passId) {
+			throw new Error(
+				`Render target "${id}" is referenced by custom render pass "${passId}".`
+			);
+		}
+		this._targets.delete(id);
 		this.emit("change", { id, reason: "unregister" });
 	}
 
@@ -174,7 +190,7 @@ export class RenderTargetRegistry extends EventEmitter<{
 		id: string,
 		attachmentIndex = 0,
 		options?: RenderTargetReadbackOptions
-	): Promise<TextureReadbackResult> {
+	): Promise<RenderTargetReadbackResult> {
 		if (!this._targets.has(id)) {
 			return Promise.reject(new Error(`Render target "${id}" is not registered.`));
 		}
@@ -195,6 +211,7 @@ export class RenderTargetRegistry extends EventEmitter<{
 				new Error("Render target readback is unavailable for this renderer.")
 			);
 		}
+		validateReadbackOptions(id, options);
 		return this._readColor(id, attachmentIndex, options);
 	}
 
@@ -233,6 +250,7 @@ export class RenderTargetRegistrySnapshot {
 export interface CustomRenderPassRegistryOptions {
 	readonly registerPipelineStage: (descriptor: CustomRenderPassDescriptor) => void;
 	readonly unregisterPipelineStage: (id: FramePassStage) => void;
+	readonly isRenderTargetRegistered: (id: string) => boolean;
 }
 
 export class CustomRenderPassRegistry extends EventEmitter<{
@@ -251,8 +269,13 @@ export class CustomRenderPassRegistry extends EventEmitter<{
 		if (this._passes.has(normalized.id)) {
 			throw new Error(`Custom render pass "${normalized.id}" is already registered.`);
 		}
-		this._passes.set(normalized.id, normalized);
+		if (!this._options.isRenderTargetRegistered(normalized.target)) {
+			throw new Error(
+				`Custom render pass "${normalized.id}" target "${normalized.target}" is not registered.`
+			);
+		}
 		this._options.registerPipelineStage(normalized);
+		this._passes.set(normalized.id, normalized);
 		this.emit("change", { id: normalized.id, reason: "register" });
 	}
 
@@ -271,6 +294,16 @@ export class CustomRenderPassRegistry extends EventEmitter<{
 
 	public getDescriptors(): readonly CustomRenderPassDescriptor[] {
 		return Array.from(this._passes.values()).map(cloneCustomRenderPassDescriptor);
+	}
+
+	/** @internal Used by the renderer target registry to enforce dependencies. */
+	public getReferencingPassId(target: string): FramePassStage | null {
+		for (const pass of this._passes.values()) {
+			if (pass.target === target) {
+				return pass.id;
+			}
+		}
+		return null;
 	}
 
 	public createSnapshot(): CustomRenderPassRegistrySnapshot {
@@ -312,8 +345,8 @@ function normalizeRenderTargetDescriptor(
 		throw new Error(`Render target "${descriptor.id}" requires at least one color attachment.`);
 	}
 	const sampleCount = descriptor.sampleCount ?? 1;
-	if (!Number.isInteger(sampleCount) || sampleCount < 1) {
-		throw new Error(`Render target "${descriptor.id}" sampleCount must be a positive integer.`);
+	if (sampleCount !== 1) {
+		throw new Error(`Render target "${descriptor.id}" sampleCount must be 1.`);
 	}
 	validateSizeDescriptor(descriptor.id, descriptor.size);
 	return {
@@ -326,11 +359,35 @@ function normalizeRenderTargetDescriptor(
 					`Render target "${descriptor.id}" color attachment ${index} requires a format.`
 				);
 			}
+			const info = getTextureFormatInfo(attachment.format);
+			if (info.formatClass !== "color" || !info.isRenderable) {
+				throw new Error(
+					`Render target "${descriptor.id}" color attachment ${index} requires a renderable color format.`
+				);
+			}
 			return { ...attachment };
 		}),
-		depth: descriptor.depth ? { ...descriptor.depth } : null,
+		depth: normalizeDepthAttachment(descriptor),
 		sampleCount,
 	};
+}
+
+function normalizeDepthAttachment(
+	descriptor: RenderTargetDescriptor
+): RenderTargetDepthAttachmentDescriptor | null {
+	if (!descriptor.depth) {
+		return null;
+	}
+	if (!descriptor.depth.format) {
+		throw new Error(`Render target "${descriptor.id}" depth attachment requires a format.`);
+	}
+	const info = getTextureFormatInfo(descriptor.depth.format);
+	if (info.formatClass !== "depth" || !info.isRenderable) {
+		throw new Error(
+			`Render target "${descriptor.id}" depth attachment requires a renderable depth-only format.`
+		);
+	}
+	return { ...descriptor.depth };
 }
 
 function validateSizeDescriptor(id: string, size: RenderTargetSizeDescriptor): void {
@@ -391,4 +448,18 @@ function cloneCustomRenderPassDescriptor(
 		...descriptor,
 		dependsOn: descriptor.dependsOn?.slice(),
 	};
+}
+
+function validateReadbackOptions(
+	id: string,
+	options: RenderTargetReadbackOptions | undefined
+): void {
+	for (const [name, value] of [
+		["width", options?.width],
+		["height", options?.height],
+	] as const) {
+		if (value !== undefined && (!Number.isInteger(value) || value <= 0)) {
+			throw new Error(`Render target "${id}" readback ${name} must be a positive integer.`);
+		}
+	}
 }
