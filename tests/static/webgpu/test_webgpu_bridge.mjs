@@ -740,8 +740,14 @@ function testScenePipelineLimitConstantsMatchLayout() {
 		WEBGPU_DECAL_REQUIRED_FRAGMENT_SAMPLED_TEXTURE_COUNT
 	);
 	assert.equal(
+		WEBGPU_DECAL_REQUIRED_FRAGMENT_SAMPLED_TEXTURE_COUNT,
+		28,
+		"the decal fragment layout must retain its 28 sampled textures"
+	);
+	assert.equal(
 		WEBGPU_REQUIRED_FRAGMENT_SAMPLED_TEXTURE_COUNT,
-		decalSampledTextureCount
+		decalSampledTextureCount,
+		"device negotiation must request the decal sampled-texture limit"
 	);
 	assert.equal(
 		layouts.deferredLightingPipelineLayout.desc.bindGroupLayouts[1],

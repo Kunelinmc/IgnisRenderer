@@ -14,6 +14,10 @@ backend-owned and executes through the `"postprocess"` backend pass.
 - `WebGLBackend` must report core `profile.capabilities.sh = true`.
 - `WebGLBackend` must report `profile.capabilities.clusteredLighting = true`.
 - `WebGLBackend` must report `profile.capabilities.postProcess = true`.
+- Projected decals are temporarily not applicable to `WebGLBackend`.
+  `WebGLBackend` must ignore prepared `DecalPacket` instances without capability
+  probing, receiver planning, resource allocation, decal passes, diagnostics,
+  or changes to forward frame output.
 - `WebGLBackend` must not expose `postProcessCapabilities`.
 - WebGL post-process support must be derived from pass-owned WebGL
   implementations.

@@ -36,6 +36,7 @@ struct FrameCameraUniforms {
 struct DecalUniforms {
 	worldToLocal: mat4x4<f32>,
 	localToWorld: mat4x4<f32>,
+	normalToWorld: mat4x4<f32>,
 	projectorParams: vec4<f32>,
 	baseColorFactor: vec4<f32>,
 	emissiveFactor: vec4<f32>,
@@ -177,6 +178,36 @@ fn safeNormalize(value: vec3<f32>, fallback: vec3<f32>) -> vec3<f32> {
 	return select(fallback, value / max(len, EPSILON), len > EPSILON);
 }
 
+fn rotateAnisotropyDirection(
+	direction: vec2<f32>,
+	rotation: vec2<f32>
+) -> vec2<f32> {
+	return vec2<f32>(
+		direction.x * rotation.x - direction.y * rotation.y,
+		direction.x * rotation.y + direction.y * rotation.x
+	);
+}
+
+fn orthogonalizeTangent(
+	direction: vec3<f32>,
+	resolvedNormal: vec3<f32>
+) -> vec3<f32> {
+	let normal = safeNormalize(resolvedNormal, vec3<f32>(0.0, 0.0, 1.0));
+	let fallbackAxis = select(
+		vec3<f32>(0.0, 1.0, 0.0),
+		vec3<f32>(1.0, 0.0, 0.0),
+		abs(normal.y) > 0.999
+	);
+	let fallback = safeNormalize(
+		cross(fallbackAxis, normal),
+		vec3<f32>(1.0, 0.0, 0.0)
+	);
+	return safeNormalize(
+		direction - normal * dot(normal, direction),
+		fallback
+	);
+}
+
 fn srgbChannelToLinear(value: f32) -> f32 {
 	return select(
 		pow(max(value, 0.0), 2.2),
@@ -314,6 +345,10 @@ fn transformLocalDirection(direction: vec3<f32>) -> vec3<f32> {
 	return safeNormalize((decal.localToWorld * vec4<f32>(direction, 0.0)).xyz, direction);
 }
 
+fn transformLocalNormal(direction: vec3<f32>) -> vec3<f32> {
+	return safeNormalize((decal.normalToWorld * vec4<f32>(direction, 0.0)).xyz, direction);
+}
+
 fn getChannelMode(index: u32) -> u32 {
 	let vectorIndex = index / 4u;
 	let componentIndex = index % 4u;
@@ -382,7 +417,11 @@ fn projectorOpacity(localPosition: vec3<f32>, baseAlpha: f32) -> f32 {
 	}
 	let edgeFade = max(decal.projectorParams.y, 0.0);
 	let fade = select(1.0, saturate(distanceToEdge / max(edgeFade, EPSILON)), edgeFade > 0.0);
-	return saturate(decal.projectorParams.x * baseAlpha * fade);
+	let sourceAlpha = saturate(decal.baseColorFactor.a * baseAlpha);
+	if (decal.materialFlags.y > 0.5 && sourceAlpha < decal.surfaceParams0.w) {
+		return 0.0;
+	}
+	return saturate(decal.projectorParams.x * sourceAlpha * fade);
 }
 
 @fragment
@@ -518,7 +557,7 @@ fn fsMain(input: VSOut) -> GBufferOutput {
 		),
 		vec3<f32>(0.0, 0.0, 1.0)
 	);
-	let decalNormal = transformLocalDirection(decalNormalLocal);
+	let decalNormal = transformLocalNormal(decalNormalLocal);
 	let clearcoatNormalLocal = safeNormalize(
 		vec3<f32>(
 			(clearcoatNormalSample.rg * 2.0 - vec2<f32>(1.0)) *
@@ -527,7 +566,7 @@ fn fsMain(input: VSOut) -> GBufferOutput {
 		),
 		vec3<f32>(0.0, 0.0, 1.0)
 	);
-	let clearcoatNormal = transformLocalDirection(clearcoatNormalLocal);
+	let clearcoatNormal = transformLocalNormal(clearcoatNormalLocal);
 
 	let roughness = clamp(decal.surfaceParams0.x * mrSample.g, 0.04, 1.0);
 	let metalness = clamp(decal.surfaceParams0.y * mrSample.b, 0.0, 1.0);
@@ -577,6 +616,10 @@ fn fsMain(input: VSOut) -> GBufferOutput {
 		anisotropyDirection = anisotropySample.rg * 2.0 - vec2<f32>(1.0);
 		anisotropyStrength = clamp(anisotropyStrength * anisotropySample.b, 0.0, 1.0);
 	}
+	anisotropyDirection = rotateAnisotropyDirection(
+		anisotropyDirection,
+		decal.anisotropyParams.yz
+	);
 	let anisotropyLocal = safeNormalize(
 		vec3<f32>(anisotropyDirection.x, anisotropyDirection.y, 0.0),
 		vec3<f32>(1.0, 0.0, 0.0)
@@ -646,8 +689,12 @@ fn fsMain(input: VSOut) -> GBufferOutput {
 		getChannelMode(17u),
 		opacity
 	);
+	let resolvedAnisotropyTangent = orthogonalizeTangent(
+		blendedAnisotropyTangent,
+		blendedNormal
+	);
 	materialExt3 = vec4<f32>(
-		encodeNormalForGBuffer(blendedAnisotropyTangent),
+		encodeNormalForGBuffer(resolvedAnisotropyTangent),
 		clamp(blendScalar(materialExt3.z, anisotropyStrength, getChannelMode(17u), opacity), 0.0, 1.0),
 		materialExt3.w
 	);
@@ -726,6 +773,10 @@ fn transformLocalDirectionFrom(d: DecalUniforms, direction: vec3<f32>) -> vec3<f
 	return safeNormalize((d.localToWorld * vec4<f32>(direction, 0.0)).xyz, direction);
 }
 
+fn transformLocalNormalFrom(d: DecalUniforms, direction: vec3<f32>) -> vec3<f32> {
+	return safeNormalize((d.normalToWorld * vec4<f32>(direction, 0.0)).xyz, direction);
+}
+
 fn getChannelModeFrom(d: DecalUniforms, index: u32) -> u32 {
 	let vectorIndex = index / 4u;
 	let componentIndex = index % 4u;
@@ -753,7 +804,11 @@ fn projectorOpacityFrom(
 	}
 	let edgeFade = max(d.projectorParams.y, 0.0);
 	let fade = select(1.0, saturate(distanceToEdge / max(edgeFade, EPSILON)), edgeFade > 0.0);
-	return saturate(d.projectorParams.x * baseAlpha * fade);
+	let sourceAlpha = saturate(d.baseColorFactor.a * baseAlpha);
+	if (d.materialFlags.y > 0.5 && sourceAlpha < d.surfaceParams0.w) {
+		return 0.0;
+	}
+	return saturate(d.projectorParams.x * sourceAlpha * fade);
 }
 
 fn makeDecalEvaluation(
@@ -959,7 +1014,7 @@ fn applyDecalToGBuffer(
 		),
 		vec3<f32>(0.0, 0.0, 1.0)
 	);
-	let decalNormal = transformLocalDirectionFrom(d, decalNormalLocal);
+	let decalNormal = transformLocalNormalFrom(d, decalNormalLocal);
 	let clearcoatNormalLocal = safeNormalize(
 		vec3<f32>(
 			(clearcoatNormalSample.rg * 2.0 - vec2<f32>(1.0)) *
@@ -968,7 +1023,7 @@ fn applyDecalToGBuffer(
 		),
 		vec3<f32>(0.0, 0.0, 1.0)
 	);
-	let clearcoatNormal = transformLocalDirectionFrom(d, clearcoatNormalLocal);
+	let clearcoatNormal = transformLocalNormalFrom(d, clearcoatNormalLocal);
 
 	let roughness = clamp(d.surfaceParams0.x * mrSample.g, 0.04, 1.0);
 	let metalness = clamp(d.surfaceParams0.y * mrSample.b, 0.0, 1.0);
@@ -1018,6 +1073,10 @@ fn applyDecalToGBuffer(
 		anisotropyDirection = anisotropySample.rg * 2.0 - vec2<f32>(1.0);
 		anisotropyStrength = clamp(anisotropyStrength * anisotropySample.b, 0.0, 1.0);
 	}
+	anisotropyDirection = rotateAnisotropyDirection(
+		anisotropyDirection,
+		d.anisotropyParams.yz
+	);
 	let anisotropyLocal = safeNormalize(
 		vec3<f32>(anisotropyDirection.x, anisotropyDirection.y, 0.0),
 		vec3<f32>(1.0, 0.0, 0.0)
@@ -1087,8 +1146,12 @@ fn applyDecalToGBuffer(
 		getChannelModeFrom(d, 17u),
 		opacity
 	);
+	let resolvedAnisotropyTangent = orthogonalizeTangent(
+		blendedAnisotropyTangent,
+		blendedNormal
+	);
 	materialExt3 = vec4<f32>(
-		encodeNormalForGBuffer(blendedAnisotropyTangent),
+		encodeNormalForGBuffer(resolvedAnisotropyTangent),
 		clamp(blendScalar(materialExt3.z, anisotropyStrength, getChannelModeFrom(d, 17u), opacity), 0.0, 1.0),
 		materialExt3.w
 	);

@@ -7,10 +7,15 @@ This document defines the projected texture decal contract for
 
 WebGPU must apply box-projected decals to the deferred G-buffer after opaque
 geometry and before deferred lighting. Software must apply projected decals
-after base material evaluation and before lighting. WebGL does not currently
-execute decals and must preserve the existing forward opaque output.
+after base material evaluation and before lighting. Projected decals are
+temporarily not applicable to WebGL. WebGL must ignore prepared `DecalPacket`
+instances and preserve the existing forward opaque output.
 
 Backend-internal decal execution must not add renderer-level frame stages.
+
+WebGL must not probe decal capabilities, build receiver or surface plans,
+allocate decal resources, execute decal passes, or emit decal-support
+diagnostics while projected decals remain not applicable to that backend.
 
 ## Background
 
@@ -44,6 +49,10 @@ decals. Any device limit, material binding, texture binding, storage-texture, or
 tile/bin overflow that prevents exact ordered batching must fall back to the
 per-decal ordered path.
 
+WebGPU device negotiation must require at least `28`
+`maxSampledTexturesPerShaderStage` bindings so the complete decal material
+surface and G-buffer snapshot can coexist in the fragment stage.
+
 `Decal.channelBlendModes` may set per-channel blend behavior. Supported modes
 are `disabled`, `lerp`, `replace`, `multiply`, `add`, and `normal`.
 
@@ -53,16 +62,17 @@ component operations. `normal` must perform normalized direction blending for
 `normal`, `clearcoatNormal`, and `anisotropy`; for scalar and color channels it
 must behave as `lerp`. `multiply` and `add` must not modify direction channels.
 
-Software decal coverage must be the product of `Decal.opacity`, material factor
-alpha, base-color texture alpha, and edge fade. `AlphaMode.Mask` must reject
-Software decal coverage when the resolved material alpha is below
-`alphaCutoff`. A decal must not reclassify an opaque receiver into the
+Software and WebGPU decal coverage must be the product of `Decal.opacity`,
+material factor alpha, base-color texture alpha, and edge fade.
+`AlphaMode.Mask` must reject decal coverage when the resolved material alpha is
+below `alphaCutoff`. A decal must not reclassify an opaque receiver into the
 transparent pass.
 
-Software normal and clearcoat-normal projection must use the inverse-transpose
-projector normal transform. Software anisotropy tangents must use the projector
-linear transform and must be orthogonalized against the resolved receiver
-normal.
+Software and WebGPU normal and clearcoat-normal projection must use the
+inverse-transpose projector normal transform. Software and WebGPU anisotropy
+tangents must rotate the sampled tangent-space direction by the material
+anisotropy rotation, use the projector linear transform, and be orthogonalized
+against the resolved receiver normal after direction blending.
 
 Software must normalize decal source colors to linear space before blending.
 When a legacy Phong surface stores encoded color values, Software must adapt the
@@ -142,8 +152,8 @@ scene.add(decal);
 `Decal` instances with a non-invertible world matrix must be skipped during
 prepared-scene construction.
 
-WebGPU devices that cannot bind the required decal sampled textures and samplers
-must skip the decal pass for that frame.
+WebGPU adapters that cannot provide the required decal sampled textures must
+fail device negotiation with the standard WebGPU minimum-limit diagnostic.
 
 ## Compatibility / Breaking Changes
 
@@ -153,5 +163,5 @@ include the same field to keep texture transform offsets valid.
 
 Decals do not affect transparent objects, particles, shadows, reflection
 captures, or receivers that cannot provide the built-in material surface
-contract. WebGL remains unsupported and must skip decals without changing frame
-output.
+contract. WebGL decal applicability may be introduced by a future contract
+change; until then, WebGL must ignore decals without changing frame output.

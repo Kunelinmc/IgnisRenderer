@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+
 import { Material } from "../../../src/materials/Material.ts";
+import { ShaderMaterial } from "../../../src/materials/ShaderMaterial.ts";
 import { Matrix4 } from "../../../src/maths/Matrix4.ts";
 import { WebGPUDeferredDecalPass } from "../../../src/backends/webgpu/rendergraph/WebGPUDeferredDecalPass.ts";
 import {
@@ -28,7 +31,7 @@ function createDecalPacket(id, material, overrides = {}) {
 		material,
 		worldMatrix: Matrix4.identity(),
 		inverseWorldMatrix: Matrix4.identity(),
-		normalMatrix: Matrix4.identity(),
+		normalMatrix: overrides.normalMatrix ?? Matrix4.identity(),
 		worldBounds: {
 			center: { x: 0, y: 0, z: 0 },
 			radius: overrides.radius ?? 10,
@@ -199,9 +202,16 @@ async function testMixedMaterialsFallBackInExactOrder() {
 	const packets = [
 		createDecalPacket("decal-a", new Material({ name: "first" }), {
 			sceneOrder: 0,
+			opacity: 0.25,
+			normalMatrix: [
+				[2, 3, 4],
+				[5, 6, 7],
+				[8, 9, 10],
+			],
 		}),
 		createDecalPacket("decal-b", new Material({ name: "second" }), {
 			sceneOrder: 1,
+			opacity: 0.75,
 		}),
 	];
 	const { backend, encoder, pass } = createPassHarness({
@@ -235,6 +245,59 @@ async function testMixedMaterialsFallBackInExactOrder() {
 	assert.equal(
 		encoder.calls.some((call) => call[0] === "beginComputePass"),
 		false
+	);
+	const materialBindings = backend.bindingGroups.filter((group) =>
+		group.label.startsWith("WebGPUDecalMaterialBinding_")
+	);
+	const uniformBuffers = materialBindings.map(
+		(group) => group.entries.find((entry) => entry.binding === 0).resource
+	);
+	assert.equal(materialBindings.length, 2);
+	assert.notEqual(uniformBuffers[0], uniformBuffers[1]);
+	assert.deepEqual(
+		uniformBuffers.map((buffer) => buffer.label),
+		["WebGPUDecalUniform_0", "WebGPUDecalUniform_1"]
+	);
+	const firstUniform = uniformBuffers[0]._gpuResource.lastWrite.data;
+	const secondUniform = uniformBuffers[1]._gpuResource.lastWrite.data;
+	assert.deepEqual(Array.from(firstUniform.slice(32, 48)), [
+		2, 5, 8, 0,
+		3, 6, 9, 0,
+		4, 7, 10, 0,
+		0, 0, 0, 1,
+	]);
+	assert.equal(firstUniform[48], 0.25);
+	assert.equal(secondUniform[48], 0.75);
+}
+
+async function testSeparateBatchDispatchesUseDistinctBuffers() {
+	const material = new Material({ name: "multi-dispatch" });
+	const packets = [
+		createDecalPacket("decal-a", material, { sceneOrder: 0 }),
+		createDecalPacket("decal-b", material, { sceneOrder: 1 }),
+	];
+	const { backend, pass } = createPassHarness({
+		dirtyRects: [
+			{ x: 4, y: 6, width: 8, height: 8 },
+			{ x: 40, y: 42, width: 8, height: 8 },
+		],
+	});
+	const count = await pass.recordDecalPass(createFrameContext(packets));
+	const batchBindings = backend.bindingGroups.filter(
+		(group) => group.label === "WebGPUDecalBatchBinding"
+	);
+
+	assert.equal(count, 2);
+	assert.equal(batchBindings.length, 2);
+	for (let binding = 0; binding < 4; binding++) {
+		assert.notEqual(
+			batchBindings[0].entries[binding].resource,
+			batchBindings[1].entries[binding].resource
+		);
+	}
+	assert.deepEqual(
+		batchBindings.map((group) => group.entries[0].resource.label),
+		["WebGPUDecalBatchParams_0", "WebGPUDecalBatchParams_1"]
 	);
 }
 
@@ -289,9 +352,61 @@ async function testReceiverSpatialCullSkipsUnmatchedDecal() {
 	assert.equal(encoder.calls.length, 0);
 }
 
+async function testShaderMaterialDecalSourceIsSkipped() {
+	const material = new ShaderMaterial({
+		vertexShader: "",
+		fragmentShader: "",
+	});
+	const packet = createDecalPacket("shader-decal", material);
+	const { backend, encoder, pass } = createPassHarness();
+	const count = await pass.recordDecalPass(createFrameContext([packet]));
+
+	assert.equal(count, 0);
+	assert.equal(backend.encoderCopyCalls.length, 0);
+	assert.equal(encoder.calls.length, 0);
+}
+
+function testShaderRotatesAndOrthogonalizesAnisotropyTangent() {
+	const source = readFileSync(
+		new URL(
+			"../../../src/shaders/webgpu/scene/decal.wgsl",
+			import.meta.url
+		),
+		"utf8"
+	);
+	const rotationCalls = source.match(
+		/rotateAnisotropyDirection\(\s*anisotropyDirection,\s*(?:decal|d)\.anisotropyParams\.yz\s*\)/g
+	);
+	const orthogonalizationCalls = source.match(
+		new RegExp(
+			"let resolvedAnisotropyTangent = orthogonalizeTangent\\(" +
+				"\\s*blendedAnisotropyTangent,\\s*blendedNormal\\s*\\);",
+			"g"
+		)
+	);
+	const resolvedEncodes = source.match(
+		/encodeNormalForGBuffer\(resolvedAnisotropyTangent\)/g
+	);
+
+	assert.match(
+		source,
+		/direction\.x \* rotation\.x - direction\.y \* rotation\.y/
+	);
+	assert.match(
+		source,
+		/direction\.x \* rotation\.y \+ direction\.y \* rotation\.x/
+	);
+	assert.equal(rotationCalls?.length, 2);
+	assert.equal(orthogonalizationCalls?.length, 2);
+	assert.equal(resolvedEncodes?.length, 2);
+}
+
 await testSameMaterialDecalsUseBatchDispatchAndClippedCopy();
 await testMixedMaterialsFallBackInExactOrder();
+await testSeparateBatchDispatchesUseDistinctBuffers();
 await testStorageLimitFallsBackWithoutReordering();
 await testReceiverSpatialCullSkipsUnmatchedDecal();
+await testShaderMaterialDecalSourceIsSkipped();
+testShaderRotatesAndOrthogonalizesAnisotropyTangent();
 
 console.log("WebGPU deferred decal pass tests passed");
