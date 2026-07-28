@@ -283,7 +283,16 @@ async function testTemporalExecutePassUsesPipelineHistories() {
 		"motion-write"
 	);
 
-	const ssrRequest = createTemporalRequest();
+	const ssrRequest = createTemporalRequest({
+		transients: {
+			"ssr:denoise-a": {
+				handle: { resource: { id: "ssr-denoise-a" } },
+			},
+			"ssr:denoise-b": {
+				handle: { resource: { id: "ssr-denoise-b" } },
+			},
+		},
+	});
 	const ssrContext = executor.createPassExecutionContext(
 		createExecutionContextRequest("ssr", ssrRequest)
 	);
@@ -292,6 +301,14 @@ async function testTemporalExecutePassUsesPipelineHistories() {
 	assert.equal(ssrContext.resources.getHistory("ssr").write.id, "ssr-write");
 	assert.equal(ssrContext.resources.getHistory("motion").read.id, "motion-read");
 	assert.equal(ssrContext.resources.getHistory("motion").write.id, "motion-write");
+	assert.equal(
+		ssrContext.resources.getTransient("ssr:denoise-a").id,
+		"ssr-denoise-a"
+	);
+	assert.equal(
+		ssrContext.resources.getTransient("ssr:denoise-b").id,
+		"ssr-denoise-b"
+	);
 
 	const ssgiRequest = createTemporalRequest({
 		transients: {
@@ -325,6 +342,9 @@ async function testTemporalExecutePassUsesPipelineHistories() {
 			"ssrefraction:raw": {
 				handle: { resource: { id: "ssrefraction-raw" } },
 			},
+			"ssrefraction:denoise-scratch": {
+				handle: { resource: { id: "ssrefraction-denoise-scratch" } },
+			},
 		},
 	});
 	const ssrefractionContext = executor.createPassExecutionContext(
@@ -334,6 +354,11 @@ async function testTemporalExecutePassUsesPipelineHistories() {
 	assert.equal(
 		ssrefractionContext.resources.getTransient("ssrefraction:raw").id,
 		"ssrefraction-raw"
+	);
+	assert.equal(
+		ssrefractionContext.resources
+			.getTransient("ssrefraction:denoise-scratch").id,
+		"ssrefraction-denoise-scratch"
 	);
 	assert.throws(
 		() => ssrefractionContext.resources.getShared("backend:frame-hiz"),

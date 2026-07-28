@@ -219,10 +219,12 @@ function testTransientDescriptors() {
 	const descriptors = declaration.transients.map((entry) => entry.descriptor);
 	assert.deepEqual(
 		descriptors.map((descriptor) => descriptor.id),
-		["ssrefraction:raw"]
+		["ssrefraction:raw", "ssrefraction:denoise-scratch"]
 	);
 	assert.equal(descriptors[0].widthScale, 0.5);
 	assert.equal(descriptors[0].heightScale, 0.5);
+	assert.equal(descriptors[1].widthScale, 0.5);
+	assert.equal(descriptors[1].heightScale, 0.5);
 	assert.equal(pass.getImplementation("software"), null);
 	pass.destroy();
 }

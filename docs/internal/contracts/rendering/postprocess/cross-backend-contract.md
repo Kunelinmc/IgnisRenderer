@@ -52,6 +52,10 @@ single source of truth for resource existence, access, usage, and optionality.
   fallback kernel by pass ID.
 - Backend runtime implementation instances must remain backend-local and must
   be invalidated or destroyed with their owning device lifecycle.
+- Shared backend services may generalize backend-specific implementation
+  details without changing the logical pass contract. The WebGPU denoiser is
+  internal to WebGPU execution; Software and WebGL implementations must not be
+  required to expose or emulate that service.
 
 ## Usage
 
@@ -107,3 +111,7 @@ class CustomWebGPUImplementation {
   results must be written directly to declared history resources.
 - `WebGPUGammaContext` is removed. Gamma implementations use the shared
   `WebGPUScreenPostProcessContext` contract directly.
+- WebGPU SSGI, SSR, screen-space refractions, and SSAO now use the
+  device-lifetime shared denoiser. This changes only WebGPU filtering results
+  and internal transient usage; logical pass IDs and non-WebGPU behavior remain
+  compatible.

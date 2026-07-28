@@ -5,6 +5,7 @@ import type {
 	ISampler,
 } from "../types";
 import type { IWebGPUComputeFacade } from "./ComputeFacade";
+import type { WebGPUDenoiser } from "./WebGPUDenoiser";
 import type { WebGPUHiZBuilder } from "./WebGPUHiZBuilder";
 
 /** @internal Narrow device-lifetime services available to WebGPU passes. */
@@ -12,6 +13,7 @@ export interface WebGPUPostProcessServices {
 	readonly compute: IWebGPUComputeFacade;
 	readonly frameBindGroupLayout: GPUBindGroupLayout | null;
 	readonly sampler: ISampler | null;
+	getDenoiser(): WebGPUDenoiser;
 	getHiZBuilder(): WebGPUHiZBuilder;
 	warn(key: string, message: string): void;
 	ensureCommonResources(): Promise<void>;

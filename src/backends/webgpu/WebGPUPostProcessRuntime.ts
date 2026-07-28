@@ -2,6 +2,7 @@ import type { IBindingGroup, IComputePipeline, ISampler } from "../types";
 import { AddressMode, FilterMode } from "../types";
 import type { IWebGPUComputeFacade } from "./ComputeFacade";
 import type { WebGPUPostProcessServices } from "./WebGPUPostProcessContracts";
+import { WebGPUDenoiser } from "./WebGPUDenoiser";
 import { WebGPUHiZBuilder } from "./WebGPUHiZBuilder";
 
 interface CachedBindGroup {
@@ -14,6 +15,7 @@ export class WebGPUPostProcessRuntime implements WebGPUPostProcessServices {
 	private readonly _compute: IWebGPUComputeFacade;
 	private readonly _warn: (key: string, message: string) => void;
 	private _sampler: ISampler | null = null;
+	private _denoiser: WebGPUDenoiser | null = null;
 	private _hiZBuilder: WebGPUHiZBuilder | null;
 	private readonly _ownsHiZBuilder: boolean;
 	private readonly _bindGroupCache = new Map<string, CachedBindGroup>();
@@ -42,6 +44,14 @@ export class WebGPUPostProcessRuntime implements WebGPUPostProcessServices {
 
 	public get sampler(): ISampler | null {
 		return this._sampler;
+	}
+
+	/** @internal Returns the device-lifetime shared post-process denoiser. */
+	public getDenoiser(): WebGPUDenoiser {
+		if (!this._denoiser) {
+			this._denoiser = new WebGPUDenoiser(this._compute);
+		}
+		return this._denoiser;
 	}
 
 	/** @internal Returns the frame-graph-owned shared Hi-Z builder. */
@@ -109,14 +119,18 @@ export class WebGPUPostProcessRuntime implements WebGPUPostProcessServices {
 	 */
 	public invalidateBindings(): void {
 		this._destroyCachedBindGroups();
+		this._denoiser?.invalidateBindings();
 	}
 
 	public onShaderRuntimeChanged(): void {
 		this._destroyCachedBindGroups();
+		this._denoiser?.invalidateShaderResources();
 		if (this._ownsHiZBuilder) this._hiZBuilder?.invalidateShaderResources();
 	}
 
 	public destroy(): void {
+		this._denoiser?.destroy();
+		this._denoiser = null;
 		if (this._ownsHiZBuilder) {
 			this._hiZBuilder?.destroy();
 			this._hiZBuilder = null;

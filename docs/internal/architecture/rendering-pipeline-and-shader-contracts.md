@@ -112,6 +112,13 @@ The renderer frame pipeline must preserve this logical order:
 - WebGPU common post-process services must be owned directly by its device
   runtime and exposed through a narrow capability contract; an additional
   shared-context owner must not duplicate that lifecycle.
+- `WebGPUPostProcessRuntime` must own one lazy `WebGPUDenoiser` service. The
+  service owns denoise shaders, pipelines, parameter buffers, and binding
+  caches, while each consuming pass must declare and obtain its source,
+  scratch, output, depth, and normal textures through the post-process graph.
+- The shared WebGPU denoiser must provide a fast separable bilateral mode and a
+  quality separable À-trous mode. Quality mode must use dilation steps `1`,
+  `2`, and `4`; both modes must preserve depth and normal discontinuities.
 - Backends may expose `LogicalGBufferBridge`.
 - Backends must not expose public post-process graph registration APIs,
   `renderer.postprocess` backend extensions, or hardcoded pass kernel
@@ -119,12 +126,14 @@ The renderer frame pipeline must preserve this logical order:
 
 ### Built-In Post-Processing Pass Contract
 
-- SSAO must provide screen-space ambient occlusion with depth-aware bilateral
-  blur.
+- SSAO must provide screen-space ambient occlusion. WebGPU SSAO must use the
+  shared denoiser's fast scalar-signal mode; other backends may retain their
+  backend-specific depth-aware bilateral blur.
 - WebGPU SSGI must reconstruct perspective-camera surfaces from linear view
   depth, trace cosine-weighted hemisphere rays through the shared Hi-Z
   resource, own temporal history independently of TAA, and apply separable
-  depth/normal-aware denoising before composition.
+  depth/normal-aware denoising before composition. Its default denoise path
+  must use the shared quality mode.
 - WebGPU SSGI must skip orthographic cameras without committing temporal
   history.
 - TAA must provide temporal anti-aliasing with variance clamping and history
@@ -132,6 +141,8 @@ The renderer frame pipeline must preserve this logical order:
 - SSR must use Hi-Z tracing for screen-space reflections and must declare
   `depth`, `normal`, `roughness`, `metallic`, and `motion` G-buffer
   requirements.
+- WebGPU SSR and screen-space refractions must use the shared denoiser's fast
+  radiance-confidence mode before composition.
 - Volumetric lighting must support ReSTIR-style reservoir spatiotemporal
   importance resampling where implemented.
 - Bloom must support HDR thresholding and soft-knee curves.

@@ -30,6 +30,7 @@ export type WebGPUSceneShaderPart =
 export type WebGPUPostProcessShaderPart =
 	| "ssao"
 	| "ssgi"
+	| "denoise"
 	| "taa"
 	| "hiz"
 	| "ssr"
@@ -117,6 +118,7 @@ export const WEBGPU_POST_PROCESS_SHADER_FILES: Record<
 > = {
 	ssao: "./webgpu/postprocess/ssao.wgsl",
 	ssgi: "./webgpu/postprocess/ssgi.wgsl",
+	denoise: "./webgpu/postprocess/denoise.wgsl",
 	taa: "./webgpu/postprocess/taa.wgsl",
 	hiz: "./webgpu/postprocess/hiz.wgsl",
 	ssr: "./webgpu/postprocess/ssr.wgsl",

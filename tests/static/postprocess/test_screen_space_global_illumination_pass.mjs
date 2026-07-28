@@ -295,7 +295,13 @@ function testOptionsAndParameterPacking() {
 		8,
 		resolveSSGIOptions()
 	);
-	assert.deepEqual(Array.from(denoise), [1 / 16, 1 / 8, 2, 24, 16, 0, 0, 0]);
+	assert.deepEqual(Array.from(denoise.slice(0, 5)), [
+		1 / 16,
+		1 / 8,
+		2,
+		24,
+		16,
+	]);
 
 	const compose = writeSSGIComposeParams(
 		new Float32Array(8),
@@ -377,21 +383,15 @@ async function testFourStageExecutionAndTemporalContinuity() {
 	assert.deepEqual(harness.copied, [["motion", "motion"]]);
 	const gpuResources = getSSGIResources(harness.backend);
 	assert.equal(gpuResources.modules.length, 1);
-	assert.equal(gpuResources.pipelines.length, 4);
+	assert.equal(gpuResources.pipelines.length, 2);
 	assert.deepEqual(
 		gpuResources.pipelines.map((pipeline) => pipeline.desc.compute.entryPoint),
-		[
-			"csTraceTemporal",
-			"csDenoiseHorizontal",
-			"csDenoiseVertical",
-			"csCompose",
-		]
+		["csTraceTemporal", "csCompose"]
 	);
 	assert.deepEqual(
 		gpuResources.buffers.map((buffer) => [buffer.label, buffer.size]),
 		[
 			["WebGPUSSGITraceParams", 80],
-			["WebGPUSSGIDenoiseParams", 32],
 			["WebGPUSSGIComposeParams", 32],
 		]
 	);
@@ -402,7 +402,7 @@ async function testFourStageExecutionAndTemporalContinuity() {
 		gpuResources.modules[0].desc.code.includes("fn csTraceTemporal")
 	);
 	assert.equal(
-		gpuResources.modules[0].desc.code.includes("SAMPLE_OFFSETS"),
+		gpuResources.modules[0].desc.code.includes("csDenoiseHorizontal"),
 		false
 	);
 
@@ -411,7 +411,7 @@ async function testFourStageExecutionAndTemporalContinuity() {
 	);
 	assert.deepEqual(
 		ssgiBindings.map((group) => group.desc.entries.length),
-		[9, 6, 6, 8]
+		[9, 8]
 	);
 	assert.equal(ssgiBindings[0].desc.entries[0].resource, harness.textures.scene);
 	assert.equal(ssgiBindings[0].desc.entries[3].resource, harness.textures.hiZ);
@@ -424,26 +424,42 @@ async function testFourStageExecutionAndTemporalContinuity() {
 		harness.textures.ssgiWrite
 	);
 	assert.equal(
-		ssgiBindings[3].desc.entries[2].resource,
+		ssgiBindings[1].desc.entries[2].resource,
 		harness.textures.albedo
 	);
 	assert.equal(
-		ssgiBindings[3].desc.entries[7].resource,
+		ssgiBindings[1].desc.entries[7].resource,
 		harness.textures.output
+	);
+	const denoiseBindings = harness.backend.bindingGroups.filter(
+		(group) => group.label.startsWith("WebGPUDenoise_ssgi")
+	);
+	assert.equal(denoiseBindings.length, 6);
+	assert.equal(
+		denoiseBindings.every((group) => group.desc.entries.length === 6),
+		true
 	);
 
 	assert.deepEqual(
 		harness.encoder.calls.filter((call) => call[0] === "beginComputePass"),
 		[
 			["beginComputePass", "WebGPUSSGI_TraceTemporal"],
-			["beginComputePass", "WebGPUSSGI_DenoiseHorizontal"],
-			["beginComputePass", "WebGPUSSGI_DenoiseVertical"],
+			["beginComputePass", "WebGPUDenoise_ssgi_quality_H_1"],
+			["beginComputePass", "WebGPUDenoise_ssgi_quality_V_1"],
+			["beginComputePass", "WebGPUDenoise_ssgi_quality_H_2"],
+			["beginComputePass", "WebGPUDenoise_ssgi_quality_V_2"],
+			["beginComputePass", "WebGPUDenoise_ssgi_quality_H_4"],
+			["beginComputePass", "WebGPUDenoise_ssgi_quality_V_4"],
 			["beginComputePass", "WebGPUSSGI_Compose"],
 		]
 	);
 	assert.deepEqual(
 		harness.encoder.calls.filter((call) => call[0] === "dispatchWorkgroups"),
 		[
+			["dispatchWorkgroups", 2, 1, 1],
+			["dispatchWorkgroups", 2, 1, 1],
+			["dispatchWorkgroups", 2, 1, 1],
+			["dispatchWorkgroups", 2, 1, 1],
 			["dispatchWorkgroups", 2, 1, 1],
 			["dispatchWorkgroups", 2, 1, 1],
 			["dispatchWorkgroups", 2, 1, 1],
@@ -455,35 +471,42 @@ async function testFourStageExecutionAndTemporalContinuity() {
 		[
 			["setBindingGroup", 0, "WebGPUSSGI_TraceBinding"],
 			["setBindingGroup", 1, "frame-binding"],
-			["setBindingGroup", 0, "WebGPUSSGI_DenoiseHorizontalBinding"],
-			["setBindingGroup", 0, "WebGPUSSGI_DenoiseVerticalBinding"],
+			["setBindingGroup", 0, "WebGPUDenoise_ssgi_horizontal_0"],
+			["setBindingGroup", 0, "WebGPUDenoise_ssgi_vertical_0"],
+			["setBindingGroup", 0, "WebGPUDenoise_ssgi_horizontal_1"],
+			["setBindingGroup", 0, "WebGPUDenoise_ssgi_vertical_1"],
+			["setBindingGroup", 0, "WebGPUDenoise_ssgi_horizontal_2"],
+			["setBindingGroup", 0, "WebGPUDenoise_ssgi_vertical_2"],
 			["setBindingGroup", 0, "WebGPUSSGI_ComposeBinding"],
 		]
 	);
 	assert.equal(gpuResources.buffers[0].lastWrite[15], 0);
 
+	harness.context.encoder = new FakeEncoder();
 	await implementation.execute(createRequest({}, true), harness.context);
 	assert.equal(gpuResources.buffers[0].lastWrite[15], 1);
 	const bindingsAfterSecondFrame = harness.backend.createBindingGroupCalls;
+	harness.context.encoder = new FakeEncoder();
 	await implementation.execute(createRequest({}, true), harness.context);
 	assert.equal(
 		harness.backend.createBindingGroupCalls,
 		bindingsAfterSecondFrame
 	);
 
-	const callsBeforeOrthographic = harness.encoder.calls.length;
+	const callsBeforeOrthographic = harness.context.encoder.calls.length;
 	const orthographic = await implementation.execute(
 		createRequest({}, true, CameraType.Orthographic),
 		harness.context
 	);
 	assert.deepEqual(orthographic, { ran: false });
-	assert.equal(harness.encoder.calls.length, callsBeforeOrthographic);
+	assert.equal(harness.context.encoder.calls.length, callsBeforeOrthographic);
 	assert.equal(harness.copied.length, 3);
 	assert.deepEqual(harness.warnings, [[
 		"webgpu-ssgi-orthographic-disabled",
 		"WebGPU SSGI is disabled for orthographic cameras.",
 	]]);
 
+	harness.context.encoder = new FakeEncoder();
 	await implementation.execute(createRequest({}, true), harness.context);
 	assert.equal(gpuResources.buffers[0].lastWrite[15], 0);
 
@@ -510,12 +533,14 @@ async function testFailurePathsAndResourceInvalidation() {
 	assert.equal(harness.encoder.calls.length, 0);
 
 	await implementation.execute(createRequest({}, true), harness.context);
+	harness.context.encoder = new FakeEncoder();
 	harness.setFailMotionCopy(true);
 	await assert.rejects(
 		implementation.execute(createRequest({}, true), harness.context),
 		/motion copy failed/
 	);
 	harness.setFailMotionCopy(false);
+	harness.context.encoder = new FakeEncoder();
 	await implementation.execute(createRequest({}, true), harness.context);
 	const resourcesBeforeInvalidate = getSSGIResources(harness.backend);
 	assert.equal(resourcesBeforeInvalidate.buffers[0].lastWrite[15], 0);
@@ -535,11 +560,11 @@ async function testFailurePathsAndResourceInvalidation() {
 
 	await implementation.warmup(harness.context);
 	const resourcesAfterWarmup = getSSGIResources(harness.backend);
-	assert.equal(resourcesAfterWarmup.pipelines.length, 8);
-	assert.equal(resourcesAfterWarmup.buffers.length, 6);
+	assert.equal(resourcesAfterWarmup.pipelines.length, 4);
+	assert.equal(resourcesAfterWarmup.buffers.length, 4);
 	assert.equal(resourcesAfterWarmup.modules.length, 2);
 	assert.equal(
-		resourcesAfterWarmup.pipelines.slice(4).every(
+		resourcesAfterWarmup.pipelines.slice(2).every(
 			(pipeline) => !pipeline.destroyed
 		),
 		true

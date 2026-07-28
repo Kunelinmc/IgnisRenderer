@@ -185,44 +185,6 @@ fn csRaw(@builtin(global_invocation_id) gid: vec3<u32>) {
 }
 
 @compute @workgroup_size(8, 8, 1)
-fn csBlur(@builtin(global_invocation_id) gid: vec3<u32>) {
-	let size = textureDimensions(outTex);
-	if (gid.x >= size.x || gid.y >= size.y) { return; }
-	let coord = vec2<i32>(gid.xy);
-	let uv = (vec2<f32>(gid.xy) + vec2<f32>(0.5)) * params.invSize.zw;
-	let centerDepth = textureSampleLevel(texB, linearSampler, uv, 0.0).z;
-	let radius = clamp(i32(params.blurProj.x + 0.5), i32(1), i32(4));
-	let blurSharpness = max(params.blurProj.y, 1e-3);
-	let horizontal = abs(params.passParams.x) >= abs(params.passParams.y);
-	let axis = select(vec2<i32>(0, 1), vec2<i32>(1, 0), horizontal);
-	var sum = 0.0;
-	var weightSum = 0.0;
-	for (var tap: i32 = -4; tap <= 4; tap = tap + 1) {
-		if (abs(tap) > radius) { continue; }
-		let sampleCoord = clamp(
-			coord + axis * tap,
-			vec2<i32>(0, 0),
-			vec2<i32>(i32(size.x) - 1, i32(size.y) - 1)
-		);
-		let sampleUv = (vec2<f32>(sampleCoord) + vec2<f32>(0.5)) * params.invSize.zw;
-		let sampleDepth = textureSampleLevel(texB, linearSampler, sampleUv, 0.0).z;
-		let depthDelta = abs(sampleDepth - centerDepth);
-		let bilateral = exp(-depthDelta * blurSharpness);
-		let spatial = 1.0 - (abs(f32(tap)) / f32(radius + 1));
-		let weight = bilateral * max(spatial, 0.0);
-		let sampleAo = textureLoad(texA, sampleCoord, 0).x;
-		sum += sampleAo * weight;
-		weightSum += weight;
-	}
-	let ao = select(
-		textureLoad(texA, coord, 0).x,
-		sum / max(weightSum, 1e-4),
-		weightSum > 0.0
-	);
-	textureStore(outTex, coord, vec4<f32>(ao, ao, ao, 1.0));
-}
-
-@compute @workgroup_size(8, 8, 1)
 fn csCombine(@builtin(global_invocation_id) gid: vec3<u32>) {
 	let size = textureDimensions(outTex);
 	if (gid.x >= size.x || gid.y >= size.y) { return; }

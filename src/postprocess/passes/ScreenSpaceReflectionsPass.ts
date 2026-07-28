@@ -36,10 +36,13 @@ import type {
 	PostProcessPassRequest,
 	PostProcessPassResult,
 	PostProcessResourceAccessor,
+	PostProcessTransientDescriptor,
 } from "../types";
 
 const DEFAULT_HISTORY_USAGE = ["sampled", "storage", "render-target"] as const;
 const MOTION_HISTORY_USAGE = ["sampled", "copy-dst", "render-target"] as const;
+const SSR_DENOISE_A_ID = "ssr:denoise-a";
+const SSR_DENOISE_B_ID = "ssr:denoise-b";
 export const SCREEN_SPACE_REFLECTIONS_PASS_ID = "ssr";
 export const SCREEN_SPACE_REFLECTIONS_PASS_ORDER = {
 	id: SCREEN_SPACE_REFLECTIONS_PASS_ID,
@@ -240,9 +243,41 @@ export function resolveSSRHistoryDescriptors(
 			id: "ssr",
 			widthScale: scale,
 			heightScale: scale,
+			format: "rgba16float",
 			usage: DEFAULT_HISTORY_USAGE,
 		},
 		{ id: "motion", usage: MOTION_HISTORY_USAGE },
+	];
+}
+
+/**
+ * Resolves transient targets used by WebGPU SSR denoising.
+ *
+ * @param request Current backend and resolved-option request.
+ * @returns Two trace-resolution ping-pong targets for the shared denoiser.
+ * @sideEffects None.
+ */
+function resolveSSRTransientDescriptors(
+	request: PostProcessPassResolveRequest<ResolvedSSROptions>
+): readonly PostProcessTransientDescriptor[] {
+	if (request.backend && request.backend !== "webgpu") {
+		return [];
+	}
+	const options = resolveSSROptions(request.options);
+	const scale = 1 / options.downsample;
+	return [
+		{
+			id: SSR_DENOISE_A_ID,
+			widthScale: scale,
+			heightScale: scale,
+			format: "rgba16float",
+		},
+		{
+			id: SSR_DENOISE_B_ID,
+			widthScale: scale,
+			heightScale: scale,
+			format: "rgba16float",
+		},
 	];
 }
 
@@ -269,6 +304,12 @@ export class WebGPUScreenSpaceReflectionsImplementation implements PostProcessPa
 						? [POST_PROCESS_STORAGE_WRITE, POST_PROCESS_SAMPLED_READ]
 						: [POST_PROCESS_STORAGE_WRITE],
 			})),
+			transients: resolveSSRTransientDescriptors(request).map(
+				(descriptor) => ({
+					descriptor,
+					uses: [POST_PROCESS_STORAGE_WRITE, POST_PROCESS_SAMPLED_READ],
+				})
+			),
 			shared: [
 				{
 					id: "backend:frame-hiz",
@@ -356,6 +397,8 @@ export class WebGPUScreenSpaceReflectionsImplementation implements PostProcessPa
 		const hiZ = context.resources.getShared("backend:frame-hiz");
 		const history = context.resources.getHistory("ssr");
 		const motionHistory = context.resources.getHistory("motion");
+		const denoiseA = context.resources.getTransient(SSR_DENOISE_A_ID);
+		const denoiseB = context.resources.getTransient(SSR_DENOISE_B_ID);
 		const normalTexture = context.resources.getGBuffer("normal");
 		const depthTexture = context.resources.getGBuffer("depth");
 		const motionTexture = context.resources.getGBuffer("motion");
@@ -375,6 +418,8 @@ export class WebGPUScreenSpaceReflectionsImplementation implements PostProcessPa
 			!history.write ||
 			!motionHistory.read ||
 			!motionHistory.write ||
+			!denoiseA ||
+			!denoiseB ||
 			!normalTexture ||
 			!depthTexture ||
 			!motionTexture ||
@@ -429,6 +474,26 @@ export class WebGPUScreenSpaceReflectionsImplementation implements PostProcessPa
 		);
 		context.encoder.endComputePass();
 
+		const denoiseResult = await context.shared.getDenoiser().encode({
+			scope: "ssr",
+			encoder: context.encoder,
+			source: history.write,
+			scratch: denoiseA,
+			output: denoiseB,
+			depth: depthTexture,
+			normal: normalTexture,
+			sampler: context.shared.sampler,
+			options: {
+				mode: "fast",
+				signal: "radiance-confidence",
+				radius: 2,
+				depthPhi: 48,
+				normalPhi: 32,
+				valuePhi: 2,
+				confidenceFloor: 0.05,
+			},
+		});
+
 		const composeTarget = context.resources.color.output;
 		if (!composeTarget) return false;
 		context.shared.compute.writeBuffer(
@@ -445,7 +510,7 @@ export class WebGPUScreenSpaceReflectionsImplementation implements PostProcessPa
 			resources.composePipeline,
 			[
 				{ binding: 0, resource: input },
-				{ binding: 1, resource: history.write },
+				{ binding: 1, resource: denoiseResult.texture },
 				{ binding: 2, resource: motionTexture },
 				{ binding: 3, resource: context.shared.sampler },
 				{ binding: 4, resource: resources.composeParams },
@@ -484,6 +549,7 @@ export class WebGPUScreenSpaceReflectionsImplementation implements PostProcessPa
 		}
 		await shared.ensureCommonResources();
 		await shared.getHiZBuilder().ensureResources();
+		await shared.getDenoiser().ensureResources();
 		if (!resources.module) {
 			const shader = await ShaderSource.load("webgpu.postprocess.ssr.composite");
 			resources.module = await shared.compute.createShaderModule({

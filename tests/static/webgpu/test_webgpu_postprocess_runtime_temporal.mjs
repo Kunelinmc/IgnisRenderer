@@ -28,6 +28,8 @@ function createTemporalTargets(width = 32, height = 16) {
 function createTemporalTransients(width = 32, height = 16) {
 	return {
 		ssrRaw: createTexture(width, height, "ssr-raw"),
+		ssrDenoiseA: createTexture(width, height, "ssr-denoise-a"),
+		ssrDenoiseB: createTexture(width, height, "ssr-denoise-b"),
 		hiZ: createTexture(width, height, "hiz"),
 	};
 }
@@ -127,8 +129,8 @@ async function executeSSRImplementation(
 			targets.sceneColor.height
 		),
 		transients = createTemporalTransients(
-			targets.sceneColor.width,
-			targets.sceneColor.height
+			histories.ssrHistoryWrite.width,
+			histories.ssrHistoryWrite.height
 		),
 		encoder = new FakeEncoder(backend),
 	} = options;
@@ -158,7 +160,10 @@ async function executeSSRImplementation(
 				write: histories.motionHistoryWrite,
 				valid: historyValid,
 			},
-			getTransient: () => null,
+			getTransient: (id) => ({
+				"ssr:denoise-a": transients.ssrDenoiseA,
+				"ssr:denoise-b": transients.ssrDenoiseB,
+			})[id] ?? null,
 			getShared: (id) => id === "backend:frame-hiz" ? transients.hiZ :
 				id === "backend:planar-reflection-mask" ?
 					targets.planarReflectionMask : null,
@@ -175,7 +180,7 @@ async function executeSSRImplementation(
 		published = output;
 		targets.sceneColor = output;
 	}
-	return { result, published, motionWrites };
+	return { result, published, motionWrites, transients, encoder };
 }
 
 async function executeVolumetricImplementation(
@@ -308,7 +313,10 @@ async function testSSRAndVolumetricReportHistoryUpdates() {
 	const ssrDeclaration = ssrImplementation.describeExecution({
 		options: ssrFrameContext.postProcess.getOptions("ssr"),
 	});
-	assert.equal(ssrDeclaration.transients, undefined);
+	assert.deepEqual(
+		ssrDeclaration.transients.map((entry) => entry.descriptor.id),
+		["ssr:denoise-a", "ssr:denoise-b"]
+	);
 	assert.deepEqual(
 		ssrDeclaration.histories
 			.find((entry) => entry.descriptor.id === "ssr")
@@ -330,7 +338,7 @@ async function testSSRAndVolumetricReportHistoryUpdates() {
 	);
 	assert.strictEqual(
 		composeBinding.entries[1].resource,
-		ssrHistories.ssrHistoryWrite
+		ssrRun.transients.ssrDenoiseB
 	);
 
 	const volumetricTargets = createTemporalTargets(32, 16);
@@ -518,7 +526,7 @@ async function testSSRDestroyReleasesCachedBindings() {
 		frameContext,
 		historyValid: true,
 	});
-	assert.equal(backend.bindingGroups.length, 2);
+	assert.equal(backend.bindingGroups.length, 4);
 
 	const ssrPass = frameContext.postProcess.getEnabledPasses()
 		.find((resolved) => resolved.id === "ssr")?.pass;
@@ -531,9 +539,19 @@ async function testSSRDestroyReleasesCachedBindings() {
 	assert.equal(backend.bufferDestroyCalls, 2);
 
 	runtime.destroy();
-	assert.equal(backend.bindingGroupDestroyCalls, 2);
-	assert.equal(backend.shaderModuleDestroyCalls, 2);
-	assert.equal(backend.computePipelineDestroyCalls, 4);
+	assert.equal(
+		backend.bindingGroupDestroyCalls,
+		backend.bindingGroups.length
+	);
+	assert.equal(
+		backend.shaderModuleDestroyCalls,
+		backend.shaderModules.length
+	);
+	assert.equal(
+		backend.computePipelineDestroyCalls,
+		backend.computePipelines.length
+	);
+	assert.equal(backend.bufferDestroyCalls, backend.buffers.length);
 }
 
 async function testMissingSSRFrameBindingSkipsImplementation() {

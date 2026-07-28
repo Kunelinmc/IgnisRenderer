@@ -153,16 +153,12 @@ interface WebGPUSSGIResources {
 	shared: WebGPUPostProcessServices;
 	module: IShaderModule | null;
 	tracePipeline: IComputePipeline | null;
-	denoiseHorizontalPipeline: IComputePipeline | null;
-	denoiseVerticalPipeline: IComputePipeline | null;
 	composePipeline: IComputePipeline | null;
 	traceParams: IRenderBuffer | null;
-	denoiseParams: IRenderBuffer | null;
 	composeParams: IRenderBuffer | null;
 	traceGroupLayout0: GPUBindGroupLayout | null;
 	tracePipelineLayout: GPUPipelineLayout | null;
 	traceParamData: Float32Array;
-	denoiseParamData: Float32Array;
 	composeParamData: Float32Array;
 	frameIndex: number;
 	historyContinuity: boolean;
@@ -314,7 +310,11 @@ export function writeSSGITraceParams(
 }
 
 /**
- * Packs bilateral denoise parameters into a pre-allocated float array.
+ * Packs the legacy SSGI denoise parameter layout.
+ *
+ * The shared WebGPU denoiser does not consume this layout. This helper remains
+ * available so existing tooling that inspects resolved SSGI settings does not
+ * break.
  *
  * @param target Eight-float destination array.
  * @param width Denoise target width.
@@ -567,11 +567,8 @@ export class WebGPUScreenSpaceGlobalIlluminationImplementation
 			!output ||
 			!context.shared.sampler ||
 			!resources.tracePipeline ||
-			!resources.denoiseHorizontalPipeline ||
-			!resources.denoiseVerticalPipeline ||
 			!resources.composePipeline ||
 			!resources.traceParams ||
-			!resources.denoiseParams ||
 			!resources.composeParams
 		) {
 			return false;
@@ -597,15 +594,6 @@ export class WebGPUScreenSpaceGlobalIlluminationImplementation
 				hiZMips.length - 1,
 				historyValid,
 				resources.frameIndex
-			) as unknown as BufferSource
-		);
-		context.shared.compute.writeBuffer(
-			resources.denoiseParams,
-			writeSSGIDenoiseParams(
-				resources.denoiseParamData,
-				denoiseA.width,
-				denoiseA.height,
-				options
 			) as unknown as BufferSource
 		);
 		context.shared.compute.writeBuffer(
@@ -648,55 +636,25 @@ export class WebGPUScreenSpaceGlobalIlluminationImplementation
 		);
 		context.encoder.endComputePass();
 
-		binding = context.shared.getCachedBindGroup(
-			`ssgi-denoise-horizontal-${parity}`,
-			resources.denoiseHorizontalPipeline,
-			[
-				{ binding: 0, resource: history.write },
-				{ binding: 1, resource: normalTexture },
-				{ binding: 2, resource: depthTexture },
-				{ binding: 3, resource: context.shared.sampler },
-				{ binding: 4, resource: resources.denoiseParams },
-				{ binding: 5, resource: denoiseA },
-			],
-			"WebGPUSSGI_DenoiseHorizontalBinding"
-		);
-		context.encoder.beginComputePass({
-			label: "WebGPUSSGI_DenoiseHorizontal",
+		const denoiseResult = await context.shared.getDenoiser().encode({
+			scope: "ssgi",
+			encoder: context.encoder,
+			source: history.write,
+			scratch: denoiseA,
+			output: denoiseB,
+			depth: depthTexture,
+			normal: normalTexture,
+			sampler: context.shared.sampler,
+			options: {
+				mode: "quality",
+				signal: "radiance-confidence",
+				radius: options.denoiseRadius,
+				depthPhi: options.denoiseDepthPhi,
+				normalPhi: options.denoiseNormalPhi,
+				valuePhi: 2,
+				confidenceFloor: 0.05,
+			},
 		});
-		context.encoder.setComputePipeline(resources.denoiseHorizontalPipeline);
-		context.encoder.setBindingGroup(0, binding);
-		context.encoder.dispatchWorkgroups(
-			ceilDiv(denoiseA.width, WORKGROUP_SIZE),
-			ceilDiv(denoiseA.height, WORKGROUP_SIZE),
-			1
-		);
-		context.encoder.endComputePass();
-
-		binding = context.shared.getCachedBindGroup(
-			"ssgi-denoise-vertical",
-			resources.denoiseVerticalPipeline,
-			[
-				{ binding: 0, resource: denoiseA },
-				{ binding: 1, resource: normalTexture },
-				{ binding: 2, resource: depthTexture },
-				{ binding: 3, resource: context.shared.sampler },
-				{ binding: 4, resource: resources.denoiseParams },
-				{ binding: 5, resource: denoiseB },
-			],
-			"WebGPUSSGI_DenoiseVerticalBinding"
-		);
-		context.encoder.beginComputePass({
-			label: "WebGPUSSGI_DenoiseVertical",
-		});
-		context.encoder.setComputePipeline(resources.denoiseVerticalPipeline);
-		context.encoder.setBindingGroup(0, binding);
-		context.encoder.dispatchWorkgroups(
-			ceilDiv(denoiseB.width, WORKGROUP_SIZE),
-			ceilDiv(denoiseB.height, WORKGROUP_SIZE),
-			1
-		);
-		context.encoder.endComputePass();
 
 		const targets = context.targets;
 		binding = context.shared.getCachedBindGroup(
@@ -704,7 +662,7 @@ export class WebGPUScreenSpaceGlobalIlluminationImplementation
 			resources.composePipeline,
 			[
 				{ binding: 0, resource: input },
-				{ binding: 1, resource: denoiseB },
+				{ binding: 1, resource: denoiseResult.texture },
 				{ binding: 2, resource: albedoTexture },
 				{ binding: 3, resource: normalTexture },
 				{ binding: 4, resource: depthTexture },
@@ -735,16 +693,12 @@ export class WebGPUScreenSpaceGlobalIlluminationImplementation
 				shared,
 				module: null,
 				tracePipeline: null,
-				denoiseHorizontalPipeline: null,
-				denoiseVerticalPipeline: null,
 				composePipeline: null,
 				traceParams: null,
-				denoiseParams: null,
 				composeParams: null,
 				traceGroupLayout0: null,
 				tracePipelineLayout: null,
 				traceParamData: new Float32Array(SSGI_TRACE_PARAM_FLOATS),
-				denoiseParamData: new Float32Array(SSGI_DENOISE_PARAM_FLOATS),
 				composeParamData: new Float32Array(SSGI_COMPOSE_PARAM_FLOATS),
 				frameIndex: 0,
 				historyContinuity: false,
@@ -753,6 +707,7 @@ export class WebGPUScreenSpaceGlobalIlluminationImplementation
 		}
 		await shared.ensureCommonResources();
 		await shared.getHiZBuilder().ensureResources();
+		await shared.getDenoiser().ensureResources();
 		if (!resources.module) {
 			const shader = await ShaderSource.load(
 				"webgpu.postprocess.ssgi.composite"
@@ -818,26 +773,6 @@ export class WebGPUScreenSpaceGlobalIlluminationImplementation
 				});
 			}
 		}
-		if (!resources.denoiseHorizontalPipeline) {
-			resources.denoiseHorizontalPipeline =
-				await shared.compute.createComputePipeline({
-					label: "WebGPUSSGIDenoiseHorizontalPipeline",
-					compute: {
-						module: resources.module,
-						entryPoint: "csDenoiseHorizontal",
-					},
-				});
-		}
-		if (!resources.denoiseVerticalPipeline) {
-			resources.denoiseVerticalPipeline =
-				await shared.compute.createComputePipeline({
-					label: "WebGPUSSGIDenoiseVerticalPipeline",
-					compute: {
-						module: resources.module,
-						entryPoint: "csDenoiseVertical",
-					},
-				});
-		}
 		if (!resources.composePipeline) {
 			resources.composePipeline = await shared.compute.createComputePipeline({
 				label: "WebGPUSSGIComposePipeline",
@@ -848,13 +783,6 @@ export class WebGPUScreenSpaceGlobalIlluminationImplementation
 			resources.traceParams = shared.compute.createBuffer({
 				label: "WebGPUSSGITraceParams",
 				size: SSGI_TRACE_PARAM_FLOATS * 4,
-				usage: BufferUsage.Uniform | BufferUsage.CopyDst,
-			});
-		}
-		if (!resources.denoiseParams) {
-			resources.denoiseParams = shared.compute.createBuffer({
-				label: "WebGPUSSGIDenoiseParams",
-				size: SSGI_DENOISE_PARAM_FLOATS * 4,
 				usage: BufferUsage.Uniform | BufferUsage.CopyDst,
 			});
 		}
@@ -884,14 +812,6 @@ export class WebGPUScreenSpaceGlobalIlluminationImplementation
 			"SSGI trace pipeline"
 		);
 		resources.shared.destroyManagedResource(
-			resources.denoiseHorizontalPipeline,
-			"SSGI horizontal denoise pipeline"
-		);
-		resources.shared.destroyManagedResource(
-			resources.denoiseVerticalPipeline,
-			"SSGI vertical denoise pipeline"
-		);
-		resources.shared.destroyManagedResource(
 			resources.composePipeline,
 			"SSGI compose pipeline"
 		);
@@ -904,21 +824,14 @@ export class WebGPUScreenSpaceGlobalIlluminationImplementation
 			"SSGI trace params buffer"
 		);
 		resources.shared.destroyManagedResource(
-			resources.denoiseParams,
-			"SSGI denoise params buffer"
-		);
-		resources.shared.destroyManagedResource(
 			resources.composeParams,
 			"SSGI compose params buffer"
 		);
 		resources.shared.invalidateBindingsByPrefix("ssgi-");
 		resources.module = null;
 		resources.tracePipeline = null;
-		resources.denoiseHorizontalPipeline = null;
-		resources.denoiseVerticalPipeline = null;
 		resources.composePipeline = null;
 		resources.traceParams = null;
-		resources.denoiseParams = null;
 		resources.composeParams = null;
 		resources.traceGroupLayout0 = null;
 		resources.tracePipelineLayout = null;
@@ -943,7 +856,7 @@ export class ScreenSpaceGlobalIlluminationPass extends PostProcessPass<
 	SSGIOptions,
 	ResolvedSSGIOptions
 > {
-	public constructor(config: ScreenSpaceGlobalIlluminationPassConfig = {}) {
+	constructor(config: ScreenSpaceGlobalIlluminationPassConfig = {}) {
 		super({
 			...config,
 			id: SCREEN_SPACE_GLOBAL_ILLUMINATION_PASS_ORDER.id,
@@ -951,17 +864,14 @@ export class ScreenSpaceGlobalIlluminationPass extends PostProcessPass<
 				placement:
 					config.schedule?.placement ??
 					SCREEN_SPACE_GLOBAL_ILLUMINATION_PASS_ORDER.placement,
-				order:
-					config.schedule?.order ??
-					SCREEN_SPACE_GLOBAL_ILLUMINATION_PASS_ORDER.order,
+				order: config.schedule?.order ?? SCREEN_SPACE_GLOBAL_ILLUMINATION_PASS_ORDER.order,
 				incremental:
 					config.schedule?.incremental ??
 					SCREEN_SPACE_GLOBAL_ILLUMINATION_PASS_ORDER.incremental,
 			},
 			label: "SSGI",
 			implementations: {
-				webgpu: () =>
-					new WebGPUScreenSpaceGlobalIlluminationImplementation(),
+				webgpu: () => new WebGPUScreenSpaceGlobalIlluminationImplementation(),
 			},
 		});
 	}

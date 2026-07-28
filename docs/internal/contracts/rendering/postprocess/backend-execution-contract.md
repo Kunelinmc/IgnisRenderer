@@ -62,8 +62,18 @@ Render Graph.
 - The fixed WebGPU context must expose the command encoder, frame services,
   shared post-process services, and a typed resource accessor.
 - `WebGPUPostProcessRuntime` must directly own common sampler, bind-group cache,
-  and Hi-Z service access. A second shared-context lifecycle owner must not
-  exist.
+  Hi-Z service access, and one lazy `WebGPUDenoiser`. A second shared-context
+  lifecycle owner must not exist.
+- `WebGPUDenoiser` must own its shader modules, compute pipelines, uniform
+  buffers, and binding cache. It must invalidate texture bindings on resize,
+  invalidate shader-owned resources on shader runtime changes, and release all
+  owned resources with `WebGPUPostProcessRuntime`.
+- `WebGPUDenoiser` must not allocate graph textures, submit command buffers, or
+  advance the color target. A consuming pass must declare every denoise source,
+  scratch, and output use and pass the graph-owned textures to the service.
+- A consuming pass may denoise back into its source only when it provides a
+  distinct scratch texture and declares the source for both storage write and
+  sampled read.
 - Pass implementations should write final temporal results directly to their
   declared history write resource when that resource is also consumed later in
   the same pass. They must declare every storage-write and sampled-read use and

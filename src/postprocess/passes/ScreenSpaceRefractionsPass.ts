@@ -49,6 +49,8 @@ export const SCREEN_SPACE_REFRACTIONS_PASS_ORDER = {
 	},
 } as const satisfies PostProcessScheduleEntry;
 const WEBGPU_SSREFRACTION_RAW_TRANSIENT_ID = "ssrefraction:raw";
+const WEBGPU_SSREFRACTION_DENOISE_SCRATCH_ID =
+	"ssrefraction:denoise-scratch";
 const WEBGPU_TRANSMISSION_SCENE_COLOR = "backend:transmission-scene-color";
 const WEBGPU_TRANSMISSION_LIGHTING = "backend:transmission-lighting";
 const WEBGPU_TRANSMISSION_SURFACE_1 = "backend:transmission-surface-1";
@@ -241,7 +243,7 @@ export function createSSRefractionTraceParams(
 export function resolveSSRefractionTransientDescriptors(
 	request: PostProcessPassResolveRequest<ResolvedSSRefractionOptions>
 ): readonly PostProcessTransientDescriptor[] {
-	if (request.backend !== "webgpu") {
+	if (request.backend && request.backend !== "webgpu") {
 		return [];
 	}
 	const options = resolveSSRefractionOptions(request.options);
@@ -251,6 +253,13 @@ export function resolveSSRefractionTransientDescriptors(
 			id: WEBGPU_SSREFRACTION_RAW_TRANSIENT_ID,
 			widthScale: scale,
 			heightScale: scale,
+			format: "rgba16float",
+		},
+		{
+			id: WEBGPU_SSREFRACTION_DENOISE_SCRATCH_ID,
+			widthScale: scale,
+			heightScale: scale,
+			format: "rgba16float",
 		},
 	];
 }
@@ -274,7 +283,10 @@ export class WebGPUScreenSpaceRefractionsImplementation
 			transients: resolveSSRefractionTransientDescriptors(request).map(
 				(descriptor) => ({
 					descriptor,
-					uses: [POST_PROCESS_STORAGE_WRITE],
+					uses: [
+						POST_PROCESS_STORAGE_WRITE,
+						POST_PROCESS_SAMPLED_READ,
+					],
 				})
 			),
 			shared: [{
@@ -360,6 +372,9 @@ export class WebGPUScreenSpaceRefractionsImplementation
 		const resources = await this._ensureResources(context.shared);
 		const targets = context.targets;
 		const raw = context.resources.getTransient(WEBGPU_SSREFRACTION_RAW_TRANSIENT_ID);
+		const denoiseScratch = context.resources.getTransient(
+			WEBGPU_SSREFRACTION_DENOISE_SCRATCH_ID
+		);
 		const hiZ = context.resources.getShared("backend:frame-hiz");
 		const depthTexture = context.resources.getGBuffer("depth");
 		const normalTexture = context.resources.getGBuffer("normal");
@@ -373,6 +388,7 @@ export class WebGPUScreenSpaceRefractionsImplementation
 			!context.encoder ||
 			!context.frameBinding ||
 			!raw ||
+			!denoiseScratch ||
 			!hiZ ||
 			!context.shared.sampler ||
 			!resources.tracePipeline ||
@@ -438,6 +454,26 @@ export class WebGPUScreenSpaceRefractionsImplementation
 		);
 		context.encoder.endComputePass();
 
+		await context.shared.getDenoiser().encode({
+			scope: "ssrefraction",
+			encoder: context.encoder,
+			source: raw,
+			scratch: denoiseScratch,
+			output: raw,
+			depth: depthTexture,
+			normal: normalTexture,
+			sampler: context.shared.sampler,
+			options: {
+				mode: "fast",
+				signal: "radiance-confidence",
+				radius: 2,
+				depthPhi: 48,
+				normalPhi: 24,
+				valuePhi: 1.5,
+				confidenceFloor: 0.05,
+			},
+		});
+
 		const composeTarget = context.resources.color.output;
 		if (!composeTarget) return false;
 		context.shared.compute.writeBuffer(
@@ -493,6 +529,7 @@ export class WebGPUScreenSpaceRefractionsImplementation
 		}
 		await shared.ensureCommonResources();
 		await shared.getHiZBuilder().ensureResources();
+		await shared.getDenoiser().ensureResources();
 		if (!resources.module) {
 			const shader =
 				await ShaderSource.load(
@@ -593,14 +630,16 @@ export class ScreenSpaceRefractionsPass extends PostProcessPass<
 	SSRefractionOptions,
 	ResolvedSSRefractionOptions
 > {
-	public constructor(config: ScreenSpaceRefractionsPassConfig = {}) {
+	constructor(config: ScreenSpaceRefractionsPassConfig = {}) {
 		super({
 			...config,
 			id: SCREEN_SPACE_REFRACTIONS_PASS_ORDER.id,
 			schedule: {
-				placement: config.schedule?.placement ?? SCREEN_SPACE_REFRACTIONS_PASS_ORDER.placement,
+				placement:
+					config.schedule?.placement ?? SCREEN_SPACE_REFRACTIONS_PASS_ORDER.placement,
 				order: config.schedule?.order ?? SCREEN_SPACE_REFRACTIONS_PASS_ORDER.order,
-				incremental: config.schedule?.incremental ?? SCREEN_SPACE_REFRACTIONS_PASS_ORDER.incremental,
+				incremental:
+					config.schedule?.incremental ?? SCREEN_SPACE_REFRACTIONS_PASS_ORDER.incremental,
 			},
 			label: "screen-space refractions",
 			implementations: {
@@ -614,11 +653,11 @@ export class ScreenSpaceRefractionsPass extends PostProcessPass<
 	}
 
 	public override shouldExecute(
-		request: PostProcessPassResolveRequest<ResolvedSSRefractionOptions>
+		request: PostProcessPassResolveRequest<ResolvedSSRefractionOptions>,
 	): boolean {
 		return (
 			request.frameContext?.scene.transparentPackets.some((packet) =>
-				materialUsesTransmission(packet.material)
+				materialUsesTransmission(packet.material),
 			) ?? false
 		);
 	}

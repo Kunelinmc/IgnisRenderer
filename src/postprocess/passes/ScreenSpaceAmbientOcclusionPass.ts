@@ -197,7 +197,6 @@ interface WebGPUSSAOResources {
 	shared: WebGPUPostProcessServices;
 	module: IShaderModule | null;
 	rawPipeline: IComputePipeline | null;
-	blurPipeline: IComputePipeline | null;
 	combinePipeline: IComputePipeline | null;
 	params: IRenderBuffer | null;
 	frameIndex: number;
@@ -602,11 +601,24 @@ export class WebGPUScreenSpaceAmbientOcclusionImplementation
 				...POST_PROCESS_SAMPLED_READ,
 			})),
 			transients: [
-				{ id: SSAO_RAW_TRANSIENT_ID, widthScale: scale, heightScale: scale },
-				{ id: SSAO_BLUR_TRANSIENT_ID, widthScale: scale, heightScale: scale },
+				{
+					id: SSAO_RAW_TRANSIENT_ID,
+					widthScale: scale,
+					heightScale: scale,
+					format: "rgba16float",
+				},
+				{
+					id: SSAO_BLUR_TRANSIENT_ID,
+					widthScale: scale,
+					heightScale: scale,
+					format: "rgba16float",
+				},
 			].map((descriptor) => ({
 				descriptor,
-				uses: [POST_PROCESS_STORAGE_WRITE],
+				uses: [
+					POST_PROCESS_STORAGE_WRITE,
+					POST_PROCESS_SAMPLED_READ,
+				],
 			})),
 		} satisfies PostProcessExecutionDeclaration;
 	}
@@ -642,10 +654,6 @@ export class WebGPUScreenSpaceAmbientOcclusionImplementation
 				"SSAO raw pipeline"
 			);
 			resources.shared.destroyManagedResource(
-				resources.blurPipeline,
-				"SSAO blur pipeline"
-			);
-			resources.shared.destroyManagedResource(
 				resources.combinePipeline,
 				"SSAO combine pipeline"
 			);
@@ -660,7 +668,6 @@ export class WebGPUScreenSpaceAmbientOcclusionImplementation
 			resources.shared.invalidateBindingsByPrefix("ssao-");
 			resources.module = null;
 			resources.rawPipeline = null;
-			resources.blurPipeline = null;
 			resources.combinePipeline = null;
 			resources.params = null;
 		}
@@ -687,7 +694,6 @@ export class WebGPUScreenSpaceAmbientOcclusionImplementation
 			!input ||
 			!context.shared.sampler ||
 			!resources.rawPipeline ||
-			!resources.blurPipeline ||
 			!resources.combinePipeline ||
 			!resources.params
 		) {
@@ -697,24 +703,20 @@ export class WebGPUScreenSpaceAmbientOcclusionImplementation
 		const targets = context.targets;
 		const options = resolveSSAOOptions(request.options as SSAOOptions);
 		resources.frameIndex = (resources.frameIndex + 1) % 1024;
-		const writeParams = (blurDirX: number, blurDirY: number): void => {
-			context.shared.compute.writeBuffer(
-				resources.params!,
-				createSSAOKernelParams(
-					input.width,
-					input.height,
-					aoRaw.width,
-					aoRaw.height,
-					options,
-					request.frameContext.viewCamera,
-					blurDirX,
-					blurDirY,
-					resources.frameIndex / 1024
-				) as unknown as BufferSource
-			);
-		};
-
-		writeParams(1, 0);
+		context.shared.compute.writeBuffer(
+			resources.params,
+			createSSAOKernelParams(
+				input.width,
+				input.height,
+				aoRaw.width,
+				aoRaw.height,
+				options,
+				request.frameContext.viewCamera,
+				0,
+				0,
+				resources.frameIndex / 1024
+			) as unknown as BufferSource
+		);
 		let binding = context.shared.getCachedBindGroup(
 			"ssao-raw",
 			resources.rawPipeline,
@@ -737,50 +739,25 @@ export class WebGPUScreenSpaceAmbientOcclusionImplementation
 		);
 		context.encoder.endComputePass();
 
-		binding = context.shared.getCachedBindGroup(
-			"ssao-blur-h",
-			resources.blurPipeline,
-			[
-				{ binding: 0, resource: aoRaw },
-				{ binding: 1, resource: depthTexture },
-				{ binding: 2, resource: context.shared.sampler },
-				{ binding: 3, resource: resources.params },
-				{ binding: 4, resource: aoBlur },
-			],
-			"WebGPUSSAO_BlurBinding"
-		);
-		context.encoder.beginComputePass({ label: "WebGPUSSAO_Blur" });
-		context.encoder.setComputePipeline(resources.blurPipeline);
-		context.encoder.setBindingGroup(0, binding);
-		context.encoder.dispatchWorkgroups(
-			ceilDiv(aoBlur.width, WORKGROUP_SIZE),
-			ceilDiv(aoBlur.height, WORKGROUP_SIZE),
-			1
-		);
-		context.encoder.endComputePass();
-
-		writeParams(0, 1);
-		binding = context.shared.getCachedBindGroup(
-			"ssao-blur-v",
-			resources.blurPipeline,
-			[
-				{ binding: 0, resource: aoBlur },
-				{ binding: 1, resource: depthTexture },
-				{ binding: 2, resource: context.shared.sampler },
-				{ binding: 3, resource: resources.params },
-				{ binding: 4, resource: aoRaw },
-			],
-			"WebGPUSSAO_BlurBindingVertical"
-		);
-		context.encoder.beginComputePass({ label: "WebGPUSSAO_BlurVertical" });
-		context.encoder.setComputePipeline(resources.blurPipeline);
-		context.encoder.setBindingGroup(0, binding);
-		context.encoder.dispatchWorkgroups(
-			ceilDiv(aoRaw.width, WORKGROUP_SIZE),
-			ceilDiv(aoRaw.height, WORKGROUP_SIZE),
-			1
-		);
-		context.encoder.endComputePass();
+		await context.shared.getDenoiser().encode({
+			scope: "ssao",
+			encoder: context.encoder,
+			source: aoRaw,
+			scratch: aoBlur,
+			output: aoRaw,
+			depth: depthTexture,
+			normal: normalTexture,
+			sampler: context.shared.sampler,
+			options: {
+				mode: "fast",
+				signal: "scalar",
+				radius: options.blurRadius,
+				depthPhi: options.blurSharpness,
+				normalPhi: 16,
+				valuePhi: 0,
+				confidenceFloor: 1,
+			},
+		});
 
 		const combineTarget = context.resources.color.output;
 		if (!combineTarget) return false;
@@ -817,7 +794,6 @@ export class WebGPUScreenSpaceAmbientOcclusionImplementation
 				shared,
 				module: null,
 				rawPipeline: null,
-				blurPipeline: null,
 				combinePipeline: null,
 				params: null,
 				frameIndex: 0,
@@ -825,6 +801,7 @@ export class WebGPUScreenSpaceAmbientOcclusionImplementation
 			this._resources.set(shared, resources);
 		}
 		await shared.ensureCommonResources();
+		await shared.getDenoiser().ensureResources();
 		if (!resources.module) {
 			const shader = await ShaderSource.load("webgpu.postprocess.ssao.composite");
 			resources.module = await shared.compute.createShaderModule({
@@ -840,12 +817,6 @@ export class WebGPUScreenSpaceAmbientOcclusionImplementation
 			resources.rawPipeline = await shared.compute.createComputePipeline({
 				label: "WebGPUSSAORawPipeline",
 				compute: { module: resources.module, entryPoint: "csRaw" },
-			});
-		}
-		if (!resources.blurPipeline) {
-			resources.blurPipeline = await shared.compute.createComputePipeline({
-				label: "WebGPUSSAOBlurPipeline",
-				compute: { module: resources.module, entryPoint: "csBlur" },
 			});
 		}
 		if (!resources.combinePipeline) {
@@ -883,8 +854,18 @@ export class WebGLScreenSpaceAmbientOcclusionImplementation
 				...POST_PROCESS_SAMPLED_READ,
 			})),
 			transients: [
-				{ id: SSAO_RAW_TRANSIENT_ID, widthScale: scale, heightScale: scale },
-				{ id: SSAO_BLUR_TRANSIENT_ID, widthScale: scale, heightScale: scale },
+				{
+					id: SSAO_RAW_TRANSIENT_ID,
+					widthScale: scale,
+					heightScale: scale,
+					format: "rgba16float",
+				},
+				{
+					id: SSAO_BLUR_TRANSIENT_ID,
+					widthScale: scale,
+					heightScale: scale,
+					format: "rgba16float",
+				},
 			].map((descriptor) => ({
 				descriptor,
 				uses: [POST_PROCESS_COLOR_ATTACHMENT_WRITE],
@@ -1219,14 +1200,18 @@ export class ScreenSpaceAmbientOcclusionPass extends PostProcessPass<
 	SSAOOptions,
 	ResolvedSSAOOptions
 > {
-	public constructor(config: ScreenSpaceAmbientOcclusionPassConfig = {}) {
+	constructor(config: ScreenSpaceAmbientOcclusionPassConfig = {}) {
 		super({
 			...config,
 			id: SCREEN_SPACE_AMBIENT_OCCLUSION_PASS_ORDER.id,
 			schedule: {
-				placement: config.schedule?.placement ?? SCREEN_SPACE_AMBIENT_OCCLUSION_PASS_ORDER.placement,
+				placement:
+					config.schedule?.placement ??
+					SCREEN_SPACE_AMBIENT_OCCLUSION_PASS_ORDER.placement,
 				order: config.schedule?.order ?? SCREEN_SPACE_AMBIENT_OCCLUSION_PASS_ORDER.order,
-				incremental: config.schedule?.incremental ?? SCREEN_SPACE_AMBIENT_OCCLUSION_PASS_ORDER.incremental,
+				incremental:
+					config.schedule?.incremental ??
+					SCREEN_SPACE_AMBIENT_OCCLUSION_PASS_ORDER.incremental,
 			},
 			label: "SSAO",
 			implementations: {
@@ -1240,7 +1225,6 @@ export class ScreenSpaceAmbientOcclusionPass extends PostProcessPass<
 	public override normalizeOptions(): ResolvedSSAOOptions {
 		return resolveSSAOOptions(this.getRawOptions());
 	}
-
 }
 
 function reconstructViewPos(

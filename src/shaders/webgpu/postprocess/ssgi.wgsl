@@ -33,16 +33,6 @@ struct TraceParams {
 	_pad0: vec4<f32>,
 }
 
-struct DenoiseParams {
-	invTraceSize: vec2<f32>,
-	radius: f32,
-	depthPhi: f32,
-	normalPhi: f32,
-	_pad0: f32,
-	_pad1: f32,
-	_pad2: f32,
-}
-
 struct ComposeParams {
 	invFullSize: vec2<f32>,
 	invTraceSize: vec2<f32>,
@@ -65,14 +55,6 @@ var traceOut: texture_storage_2d<rgba16float, write>;
 
 @group(1) @binding(0) var<uniform> frame: FrameCameraUniforms;
 
-@group(0) @binding(0) var denoiseSource: texture_2d<f32>;
-@group(0) @binding(1) var denoiseNormalRoughMetal: texture_2d<f32>;
-@group(0) @binding(2) var denoiseMotionDepth: texture_2d<f32>;
-@group(0) @binding(3) var denoiseSampler: sampler;
-@group(0) @binding(4) var<uniform> denoiseParams: DenoiseParams;
-@group(0) @binding(5)
-var denoiseOut: texture_storage_2d<rgba16float, write>;
-
 @group(0) @binding(0) var composeSceneColor: texture_2d<f32>;
 @group(0) @binding(1) var composeSSGI: texture_2d<f32>;
 @group(0) @binding(2) var composeAlbedo: texture_2d<f32>;
@@ -86,7 +68,6 @@ var composeOut: texture_storage_2d<rgba16float, write>;
 const MAX_RAYS_PER_PIXEL = 4;
 const MAX_TRACE_STEPS = 64;
 const MAX_BINARY_SEARCH_STEPS = 8;
-const MAX_DENOISE_RADIUS = 4;
 const LUMINANCE = vec3<f32>(0.2126, 0.7152, 0.0722);
 
 struct CameraBasis {
@@ -536,135 +517,6 @@ fn csTraceTemporal(@builtin(global_invocation_id) gid: vec3<u32>) {
 		coord,
 		vec4<f32>(max(current.rgb, vec3<f32>(0.0)), current.a)
 	);
-}
-
-fn denoise(direction: vec2<f32>, coord: vec2<i32>, uv: vec2<f32>) {
-	let centerDepth = textureSampleLevel(
-		denoiseMotionDepth,
-		denoiseSampler,
-		uv,
-		0.0
-	).z;
-	if (centerDepth <= 0.0) {
-		textureStore(denoiseOut, coord, vec4<f32>(0.0));
-		return;
-	}
-	let centerNormal = decodeWorldNormal(
-		textureSampleLevel(
-			denoiseNormalRoughMetal,
-			denoiseSampler,
-			uv,
-			0.0
-		).xy
-	);
-	let radius = i32(clamp(
-		denoiseParams.radius,
-		1.0,
-		f32(MAX_DENOISE_RADIUS)
-	));
-	var radiance = vec3<f32>(0.0);
-	var confidence = 0.0;
-	var weightSum = 0.0;
-	for (
-		var offset = -MAX_DENOISE_RADIUS;
-		offset <= MAX_DENOISE_RADIUS;
-		offset = offset + 1
-	) {
-		if (abs(offset) > radius) {
-			continue;
-		}
-		let sampleUv = clamp(
-			uv +
-				direction *
-				f32(offset) *
-				denoiseParams.invTraceSize,
-			vec2<f32>(0.0),
-			vec2<f32>(1.0)
-		);
-		let sampleDepth = textureSampleLevel(
-			denoiseMotionDepth,
-			denoiseSampler,
-			sampleUv,
-			0.0
-		).z;
-		if (sampleDepth <= 0.0) {
-			continue;
-		}
-		let sampleNormal = decodeWorldNormal(
-			textureSampleLevel(
-				denoiseNormalRoughMetal,
-				denoiseSampler,
-				sampleUv,
-				0.0
-			).xy
-		);
-		let sampleValue = max(
-			textureSampleLevel(
-				denoiseSource,
-				denoiseSampler,
-				sampleUv,
-				0.0
-			),
-			vec4<f32>(0.0)
-		);
-		let normalizedOffset = f32(offset) / f32(radius);
-		let spatialWeight = exp(-0.5 * normalizedOffset * normalizedOffset);
-		let relativeDepth =
-			abs(sampleDepth - centerDepth) /
-			max(max(sampleDepth, centerDepth), 1e-4);
-		let depthWeight = exp(
-			-relativeDepth * max(denoiseParams.depthPhi, 0.001)
-		);
-		let normalWeight = pow(
-			max(dot(centerNormal, sampleNormal), 0.0),
-			max(denoiseParams.normalPhi, 0.001)
-		);
-		let confidenceWeight = mix(0.05, 1.0, clamp(sampleValue.a, 0.0, 1.0));
-		let weight =
-			spatialWeight * depthWeight * normalWeight * confidenceWeight;
-		radiance += sampleValue.rgb * weight;
-		confidence += sampleValue.a * weight;
-		weightSum += weight;
-	}
-	let inverseWeight = select(
-		0.0,
-		1.0 / max(weightSum, 1e-6),
-		weightSum > 0.0
-	);
-	textureStore(
-		denoiseOut,
-		coord,
-		vec4<f32>(
-			max(radiance * inverseWeight, vec3<f32>(0.0)),
-			clamp(confidence * inverseWeight, 0.0, 1.0)
-		)
-	);
-}
-
-@compute @workgroup_size(8, 8, 1)
-fn csDenoiseHorizontal(@builtin(global_invocation_id) gid: vec3<u32>) {
-	let size = textureDimensions(denoiseOut);
-	if (gid.x >= size.x || gid.y >= size.y) {
-		return;
-	}
-	let coord = vec2<i32>(gid.xy);
-	let uv =
-		(vec2<f32>(gid.xy) + vec2<f32>(0.5)) *
-		denoiseParams.invTraceSize;
-	denoise(vec2<f32>(1.0, 0.0), coord, uv);
-}
-
-@compute @workgroup_size(8, 8, 1)
-fn csDenoiseVertical(@builtin(global_invocation_id) gid: vec3<u32>) {
-	let size = textureDimensions(denoiseOut);
-	if (gid.x >= size.x || gid.y >= size.y) {
-		return;
-	}
-	let coord = vec2<i32>(gid.xy);
-	let uv =
-		(vec2<f32>(gid.xy) + vec2<f32>(0.5)) *
-		denoiseParams.invTraceSize;
-	denoise(vec2<f32>(0.0, 1.0), coord, uv);
 }
 
 @compute @workgroup_size(8, 8, 1)
