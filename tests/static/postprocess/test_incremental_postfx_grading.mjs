@@ -48,7 +48,7 @@ function testResolvePostProcessGrade() {
 	);
 	assert.equal(
 		resolvePostProcessGrade(createPostProcess(enable("ssgi"))),
-		"standard"
+		"cinematic"
 	);
 	assert.equal(
 		resolvePostProcessGrade(createPostProcess(enable("dof"))),
@@ -70,7 +70,7 @@ function testComputePostProcessInflationRadius() {
 	);
 	assert.equal(
 		computePostProcessInflationRadius(createPostProcess(enable("ssgi"))),
-		12
+		24
 	);
 	assert.equal(
 		computePostProcessInflationRadius(

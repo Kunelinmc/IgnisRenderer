@@ -997,7 +997,10 @@ export class WebGPUFrameOrchestrator {
 			},
 			{
 				invalidateFrameResources: () => this._postRuntime.invalidateBindings(),
-				onShaderRuntimeChanged: () => this._postRuntime.onShaderRuntimeChanged(),
+				onShaderRuntimeChanged: () => {
+					this._postRuntime.onShaderRuntimeChanged();
+					this._postProcessRuntime.invalidateImplementations();
+				},
 				destroy: () => this._postRuntime.destroy(),
 			},
 		);

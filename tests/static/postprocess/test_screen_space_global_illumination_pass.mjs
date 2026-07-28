@@ -1,12 +1,17 @@
 import assert from "node:assert/strict";
 
-import {
-	ScreenSpaceGlobalIlluminationPass,
-	createSSGIKernelParams,
-	resolveSSGIOptions,
-} from "../../../src/postprocess/index.ts";
 import { CameraType } from "../../../src/cameras/Camera.ts";
-import { BackendPostProcessRuntime } from "../../../src/postprocess/BackendPostProcessRuntime.ts";
+import {
+	DEFAULT_SSGI_OPTIONS,
+	ScreenSpaceGlobalIlluminationPass,
+	resolveSSGIHistoryDescriptors,
+	resolveSSGIHistoryValid,
+	resolveSSGIOptions,
+	resolveSSGITransientDescriptors,
+	writeSSGIComposeParams,
+	writeSSGIDenoiseParams,
+	writeSSGITraceParams,
+} from "../../../src/postprocess/index.ts";
 import { WebGPUPostProcessRuntime } from "../../../src/backends/webgpu/WebGPUPostProcessRuntime.ts";
 import {
 	FakeBackend,
@@ -14,315 +19,551 @@ import {
 	assertClose,
 	createTexture,
 } from "../../helpers/webgpu_postprocess_runtime_test_helpers.mjs";
-import {
-	createResolvedPostProcess,
-} from "../../helpers/postprocess.mjs";
 
-function createWebGPUGBuffer(width = 32, height = 16) {
+function createGBuffer(width = 32, height = 16) {
 	return {
 		width,
 		height,
 		normalSpace: "world",
-		depthEncoding: "hardware",
+		depthEncoding: "linear-view-z",
+		motionEncoding: "ndc-delta",
 		channels: {
-			color: {},
 			depth: {},
 			normal: {},
 			albedo: {},
+			metallic: {},
+			motion: {},
 		},
-		worldPosition: {
-			source: "derived",
-			available: true,
-		},
+		worldPosition: { source: "derived", available: true },
 	};
 }
 
-function createIncremental(width, height) {
+function createRequest(options = {}, historyValid = false, cameraType = CameraType.Perspective) {
 	return {
-		enabled: false,
-		forceFullFrame: true,
-		dirtyRects: [{ x: 0, y: 0, width, height }],
-		dirtyTileSize: 64,
-		dirtyTileColumns: 1,
-		dirtyTileRows: 1,
-		dirtyTiles: [0],
-		dirtyAreaRatio: 1,
-		firstPass: null,
-		postProcessStartPass: null,
-		reasonMask: 0,
-		temporalHistoryReset: false,
-	};
-}
-
-function createRequest(frameContext) {
-	const pass = new ScreenSpaceGlobalIlluminationPass({ enabled: true });
-	return {
-		frameContext,
-		postProcess: frameContext.postProcess,
-		gBuffer: createWebGPUGBuffer(),
-		histories: {},
-		pass,
+		frameContext: {
+			viewCamera: {
+				type: cameraType,
+				fov: 60,
+				aspectRatio: 2,
+				near: 0.1,
+				far: 100,
+			},
+		},
+		gBuffer: createGBuffer(),
+		histories: {
+			ssgi: { valid: historyValid },
+			motion: { valid: historyValid },
+		},
 		passId: "ssgi",
-		options: frameContext.postProcess.getOptions("ssgi"),
+		options,
 		startPassId: null,
 	};
 }
 
-function destroySnapshotPasses(snapshot) {
-	for (const resolved of snapshot.getEnabledPasses()) {
-		resolved.pass.destroy();
-	}
+function createHarness() {
+	const backend = new FakeBackend();
+	const warnings = [];
+	const runtime = new WebGPUPostProcessRuntime(
+		backend,
+		(key, message) => warnings.push([key, message])
+	);
+	const encoder = new FakeEncoder();
+	const textures = {
+		scene: createTexture(32, 16, "scene"),
+		output: createTexture(32, 16, "output"),
+		albedo: createTexture(32, 16, "g-albedo"),
+		normal: createTexture(32, 16, "g-normal"),
+		motionDepth: createTexture(32, 16, "g-motion-depth"),
+		hiZ: createTexture(32, 16, "hiz"),
+		ssgiRead: createTexture(16, 8, "ssgi-read"),
+		ssgiWrite: createTexture(16, 8, "ssgi-write"),
+		motionRead: createTexture(32, 16, "motion-read"),
+		motionWrite: createTexture(32, 16, "motion-write"),
+		denoiseA: createTexture(16, 8, "denoise-a"),
+		denoiseB: createTexture(16, 8, "denoise-b"),
+	};
+	const copied = [];
+	let failMotionCopy = false;
+	const resources = {
+		color: { input: textures.scene, output: textures.output },
+		getGBuffer(semantic) {
+			return {
+				albedo: textures.albedo,
+				depth: textures.motionDepth,
+				metallic: textures.normal,
+				motion: textures.motionDepth,
+				normal: textures.normal,
+			}[semantic] ?? null;
+		},
+		getHistory(id) {
+			return {
+				ssgi: { read: textures.ssgiRead, write: textures.ssgiWrite },
+				motion: { read: textures.motionRead, write: textures.motionWrite },
+			}[id] ?? { read: null, write: null };
+		},
+		getTransient(id) {
+			return {
+				"ssgi:denoise-a": textures.denoiseA,
+				"ssgi:denoise-b": textures.denoiseB,
+			}[id] ?? null;
+		},
+		getShared(id) {
+			return id === "backend:frame-hiz" ? textures.hiZ : null;
+		},
+		async copyGBufferToHistory(semantic, id) {
+			if (failMotionCopy) {
+				throw new Error("motion copy failed");
+			}
+			copied.push([semantic, id]);
+		},
+	};
+	const context = {
+		encoder,
+		targets: {
+			sceneColor: textures.scene,
+			postPing: textures.output,
+			postPong: createTexture(32, 16, "pong"),
+			gAlbedoAlpha: textures.albedo,
+			gNormalRoughMetal: textures.normal,
+			gMotionDepth: textures.motionDepth,
+		},
+		shared: runtime,
+		frameBinding: { label: "frame-binding" },
+		resources,
+	};
+	return {
+		backend,
+		context,
+		copied,
+		encoder,
+		resources,
+		runtime,
+		setFailMotionCopy(value) {
+			failMotionCopy = value;
+		},
+		textures,
+		warnings,
+	};
 }
 
-async function testSSGIDescriptorAndWebGPUExecution() {
+function getSSGIResources(backend) {
+	return {
+		pipelines: backend.computePipelines.filter(
+			(resource) => resource.label.startsWith("WebGPUSSGI")
+		),
+		buffers: backend.buffers.filter(
+			(resource) => resource.label.startsWith("WebGPUSSGI")
+		),
+		modules: backend.shaderModules.filter(
+			(resource) => resource.label === "WebGPUSSGIShader"
+		),
+	};
+}
+
+function testExecutionDeclaration() {
 	const pass = new ScreenSpaceGlobalIlluminationPass({ enabled: true });
+	const implementation = pass.getImplementation("webgpu");
+	const declaration = implementation.describeExecution({
+		options: { downsample: 2 },
+	});
+
 	assert.equal(pass.id, "ssgi");
+	assert.equal(pass.getImplementation("software"), null);
 	assert.deepEqual(
-		pass.getImplementation("webgpu").describeExecution({}).gBuffer
-			.map((entry) => entry.semantic),
-		["color", "depth", "normal", "albedo"]
+		declaration.gBuffer.map((entry) => entry.semantic),
+		["depth", "normal", "albedo", "metallic", "motion"]
 	);
-	assert.equal(
-		typeof pass.getImplementation("webgpu").execute,
-		"function"
+	assert.deepEqual(
+		declaration.shared.map((entry) => entry.id),
+		["backend:frame-hiz"]
 	);
-	assert.equal(
-		pass.getImplementation("software"),
-		null
-	);
-
-	const backend = new FakeBackend();
-	const runtime = new WebGPUPostProcessRuntime(backend, () => {});
-	const encoder = new FakeEncoder();
-	const sceneColorMain = createTexture(32, 16, "scene");
-	const postPing = createTexture(32, 16, "ping");
-	const postPong = createTexture(32, 16, "pong");
-	const gAlbedoAlpha = createTexture(32, 16, "g-albedo");
-	const gNormalRoughMetal = createTexture(32, 16, "g-normal");
-	const gMotionDepth = createTexture(32, 16, "g-motion-depth");
-	const targets = {
-		sceneColor: sceneColorMain,
-		postPing,
-		postPong,
-		gAlbedoAlpha,
-		gNormalRoughMetal,
-		gMotionDepth,
-	};
-	const frameContext = {
-		features: {},
-		postProcess: createResolvedPostProcess({
-			ssgi: {
-				enabled: true,
-				options: {
-					radius: 4,
-					intensity: 0.5,
-					falloff: 1.8,
-					depthPhi: 1.4,
-					normalPhi: 2.5,
-					albedoBoost: 1.2,
-					samples: 24,
-				},
+	assert.deepEqual(
+		declaration.histories.map((entry) => ({
+			id: entry.descriptor.id,
+			widthScale: entry.descriptor.widthScale ?? 1,
+			heightScale: entry.descriptor.heightScale ?? 1,
+			usage: entry.descriptor.usage,
+			writeAccess: entry.write.map((use) => use.access),
+		})),
+		[
+			{
+				id: "ssgi",
+				widthScale: 0.5,
+				heightScale: 0.5,
+				usage: ["sampled", "storage", "render-target"],
+				writeAccess: ["write", "read"],
 			},
-		}),
-	};
-	const executePass = new ScreenSpaceGlobalIlluminationPass({
-		enabled: true,
-	});
-	const implementation = executePass.getImplementation("webgpu");
-	const request = createRequest(frameContext);
-	const result = await implementation.execute(request, {
-		encoder,
-		targets,
-		shared: runtime,
-		resources: {
-			color: { input: sceneColorMain, output: postPong },
-			getGBuffer(semantic) {
-				return {
-					albedo: gAlbedoAlpha,
-					normal: gNormalRoughMetal,
-					depth: gMotionDepth,
-					color: sceneColorMain,
-				}[semantic] ?? null;
+			{
+				id: "motion",
+				widthScale: 1,
+				heightScale: 1,
+				usage: ["sampled", "copy-dst", "render-target"],
+				writeAccess: ["write"],
 			},
-		},
+		]
+	);
+	assert.deepEqual(
+		declaration.transients.map((entry) => ({
+			id: entry.descriptor.id,
+			widthScale: entry.descriptor.widthScale,
+			heightScale: entry.descriptor.heightScale,
+			access: entry.uses.map((use) => use.access),
+		})),
+		[
+			{
+				id: "ssgi:denoise-a",
+				widthScale: 0.5,
+				heightScale: 0.5,
+				access: ["write", "read"],
+			},
+			{
+				id: "ssgi:denoise-b",
+				widthScale: 0.5,
+				heightScale: 0.5,
+				access: ["write", "read"],
+			},
+		]
+	);
+	assert.equal(pass.schedule.incremental.grade, "cinematic");
+	assert.equal(pass.schedule.incremental.firstPass, "ssgi");
+	assert.equal(pass.schedule.incremental.inflationRadius, 8);
+	pass.destroy();
+}
+
+function testOptionsAndParameterPacking() {
+	assert.deepEqual(resolveSSGIOptions(), DEFAULT_SSGI_OPTIONS);
+	const options = resolveSSGIOptions({
+		downsample: 3,
+		raysPerPixel: 99.8,
+		maxSteps: 3.9,
+		binarySearchSteps: 99,
+		maxDistance: -1,
+		thickness: Number.POSITIVE_INFINITY,
+		normalBias: -2,
+		distanceFalloffExponent: 99,
+		edgeFade: -1,
+		intensity: -1,
+		historyWeight: 4,
+		disocclusionDepthThreshold: 0,
+		historyClamp: 99,
+		denoiseRadius: 9.8,
+		denoiseDepthPhi: 0,
+		denoiseNormalPhi: Number.NaN,
+	});
+	assert.deepEqual(options, {
+		downsample: 4,
+		raysPerPixel: 4,
+		maxSteps: 4,
+		binarySearchSteps: 8,
+		maxDistance: 8,
+		thickness: 0.2,
+		normalBias: 0,
+		distanceFalloffExponent: 8,
+		edgeFade: 0,
+		intensity: 0,
+		historyWeight: 0.98,
+		disocclusionDepthThreshold: 0.001,
+		historyClamp: 16,
+		denoiseRadius: 4,
+		denoiseDepthPhi: 24,
+		denoiseNormalPhi: 16,
 	});
 
-	assert.equal(result.ran, true);
-	assert.equal(backend.samplers.length, 1);
-	assert.equal(backend.shaderModules.length, 1);
-	assert.equal(backend.shaderModules[0].label, "WebGPUSSGIShader");
-	assert.ok(backend.shaderModules[0].desc.code.includes("SAMPLE_OFFSETS"));
-	assert.ok(backend.shaderModules[0].desc.code.includes("MAX_SSGI_SAMPLES"));
-	assert.equal(backend.computePipelines.length, 1);
-	assert.equal(backend.computePipelines[0].label, "WebGPUSSGIPipeline");
-	assert.equal(backend.buffers.length, 1);
-	assert.equal(backend.buffers[0].desc.label, "WebGPUSSGIParams");
-	assert.equal(backend.buffers[0].desc.size, 48);
-	assert.equal(backend.bindingGroups.length, 1);
-	assert.equal(backend.bindingGroups[0].desc.entries.length, 7);
-	assert.equal(backend.bindingGroups[0].desc.entries[0].resource, sceneColorMain);
-	assert.equal(backend.bindingGroups[0].desc.entries[1].resource, gAlbedoAlpha);
-	assert.equal(
-		backend.bindingGroups[0].desc.entries[2].resource,
-		gNormalRoughMetal
+	const trace = writeSSGITraceParams(
+		new Float32Array(20),
+		16,
+		8,
+		resolveSSGIOptions(),
+		5,
+		true,
+		7
 	);
-	assert.equal(backend.bindingGroups[0].desc.entries[3].resource, gMotionDepth);
-	assert.equal(backend.bindingGroups[0].desc.entries[6].resource, postPong);
+	assert.equal(trace.length, 20);
+	assertClose(trace[0], 1 / 16);
+	assertClose(trace[1], 1 / 8);
+	assert.equal(trace[2], 8);
+	assert.equal(trace[7], 1);
+	assert.equal(trace[8], 24);
+	assert.equal(trace[9], 3);
+	assert.equal(trace[10], 5);
+	assert.equal(trace[11], 7);
+	assert.equal(trace[15], 1);
 
-	const params = backend.buffers[0].lastWrite;
-	assert.equal(params.length, 12);
-	assertClose(params[0], 1 / 32);
-	assertClose(params[1], 1 / 16);
-	assertClose(params[2], 4);
-	assertClose(params[3], 0.5);
-	assertClose(params[4], 1.8);
-	assertClose(params[5], 1.4);
-	assertClose(params[6], 2.5);
-	assertClose(params[7], 1.2);
-	assertClose(params[8], 16);
+	const denoise = writeSSGIDenoiseParams(
+		new Float32Array(8),
+		16,
+		8,
+		resolveSSGIOptions()
+	);
+	assert.deepEqual(Array.from(denoise), [1 / 16, 1 / 8, 2, 24, 16, 0, 0, 0]);
 
-	assert.deepEqual(encoder.calls, [
-		["beginComputePass", "WebGPUSSGI"],
-		["setComputePipeline", "WebGPUSSGIPipeline"],
-		["setBindingGroup", 0, "WebGPUSSGI_Binding"],
-		["dispatchWorkgroups", 4, 2, 1],
-		["endComputePass"],
-	]);
-	assert.equal(targets.sceneColor, sceneColorMain);
+	const compose = writeSSGIComposeParams(
+		new Float32Array(8),
+		32,
+		16,
+		16,
+		8,
+		resolveSSGIOptions()
+	);
+	assert.deepEqual(
+		Array.from(compose.slice(0, 4)),
+		[1 / 32, 1 / 16, 1 / 16, 1 / 8]
+	);
+	assertClose(compose[4], 0.35);
+	assert.deepEqual(Array.from(compose.slice(5)), [24, 16, 0]);
+	assert.throws(
+		() => writeSSGITraceParams(
+			new Float32Array(4),
+			1,
+			1,
+			resolveSSGIOptions(),
+			0,
+			false,
+			0
+		),
+		/20 floats/
+	);
+	assert.equal(
+		resolveSSGIHistoryValid(
+			{ ssgi: { valid: true }, motion: { valid: true } },
+			true
+		),
+		true
+	);
+	assert.equal(
+		resolveSSGIHistoryValid(
+			{ ssgi: { valid: true }, motion: { valid: false } },
+			true
+		),
+		false
+	);
+
+	const request = { options: { downsample: 4 } };
+	assert.deepEqual(
+		resolveSSGIHistoryDescriptors(request).map((descriptor) => ({
+			id: descriptor.id,
+			widthScale: descriptor.widthScale,
+		})),
+		[
+			{ id: "ssgi", widthScale: 0.25 },
+			{ id: "motion", widthScale: undefined },
+		]
+	);
+	assert.deepEqual(
+		resolveSSGITransientDescriptors(request).map((descriptor) => ({
+			id: descriptor.id,
+			widthScale: descriptor.widthScale,
+		})),
+		[
+			{ id: "ssgi:denoise-a", widthScale: 0.25 },
+			{ id: "ssgi:denoise-b", widthScale: 0.25 },
+		]
+	);
+}
+
+async function testFourStageExecutionAndTemporalContinuity() {
+	const harness = createHarness();
+	const pass = new ScreenSpaceGlobalIlluminationPass({ enabled: true });
+	const implementation = pass.getImplementation("webgpu");
+	const firstResult = await implementation.execute(
+		createRequest({}, true),
+		harness.context
+	);
+
+	assert.deepEqual(firstResult, {
+		ran: true,
+		updatedHistoryIds: ["ssgi", "motion"],
+	});
+	assert.deepEqual(harness.copied, [["motion", "motion"]]);
+	const gpuResources = getSSGIResources(harness.backend);
+	assert.equal(gpuResources.modules.length, 1);
+	assert.equal(gpuResources.pipelines.length, 4);
+	assert.deepEqual(
+		gpuResources.pipelines.map((pipeline) => pipeline.desc.compute.entryPoint),
+		[
+			"csTraceTemporal",
+			"csDenoiseHorizontal",
+			"csDenoiseVertical",
+			"csCompose",
+		]
+	);
+	assert.deepEqual(
+		gpuResources.buffers.map((buffer) => [buffer.label, buffer.size]),
+		[
+			["WebGPUSSGITraceParams", 80],
+			["WebGPUSSGIDenoiseParams", 32],
+			["WebGPUSSGIComposeParams", 32],
+		]
+	);
+	assert.ok(
+		gpuResources.modules[0].desc.code.includes("fn cosineHemisphereDirection")
+	);
+	assert.ok(
+		gpuResources.modules[0].desc.code.includes("fn csTraceTemporal")
+	);
+	assert.equal(
+		gpuResources.modules[0].desc.code.includes("SAMPLE_OFFSETS"),
+		false
+	);
+
+	const ssgiBindings = harness.backend.bindingGroups.filter(
+		(group) => group.label.startsWith("WebGPUSSGI")
+	);
+	assert.deepEqual(
+		ssgiBindings.map((group) => group.desc.entries.length),
+		[9, 6, 6, 8]
+	);
+	assert.equal(ssgiBindings[0].desc.entries[0].resource, harness.textures.scene);
+	assert.equal(ssgiBindings[0].desc.entries[3].resource, harness.textures.hiZ);
+	assert.equal(
+		ssgiBindings[0].desc.entries[4].resource,
+		harness.textures.ssgiRead
+	);
+	assert.equal(
+		ssgiBindings[0].desc.entries[8].resource,
+		harness.textures.ssgiWrite
+	);
+	assert.equal(
+		ssgiBindings[3].desc.entries[2].resource,
+		harness.textures.albedo
+	);
+	assert.equal(
+		ssgiBindings[3].desc.entries[7].resource,
+		harness.textures.output
+	);
+
+	assert.deepEqual(
+		harness.encoder.calls.filter((call) => call[0] === "beginComputePass"),
+		[
+			["beginComputePass", "WebGPUSSGI_TraceTemporal"],
+			["beginComputePass", "WebGPUSSGI_DenoiseHorizontal"],
+			["beginComputePass", "WebGPUSSGI_DenoiseVertical"],
+			["beginComputePass", "WebGPUSSGI_Compose"],
+		]
+	);
+	assert.deepEqual(
+		harness.encoder.calls.filter((call) => call[0] === "dispatchWorkgroups"),
+		[
+			["dispatchWorkgroups", 2, 1, 1],
+			["dispatchWorkgroups", 2, 1, 1],
+			["dispatchWorkgroups", 2, 1, 1],
+			["dispatchWorkgroups", 4, 2, 1],
+		]
+	);
+	assert.deepEqual(
+		harness.encoder.calls.filter((call) => call[0] === "setBindingGroup"),
+		[
+			["setBindingGroup", 0, "WebGPUSSGI_TraceBinding"],
+			["setBindingGroup", 1, "frame-binding"],
+			["setBindingGroup", 0, "WebGPUSSGI_DenoiseHorizontalBinding"],
+			["setBindingGroup", 0, "WebGPUSSGI_DenoiseVerticalBinding"],
+			["setBindingGroup", 0, "WebGPUSSGI_ComposeBinding"],
+		]
+	);
+	assert.equal(gpuResources.buffers[0].lastWrite[15], 0);
+
+	await implementation.execute(createRequest({}, true), harness.context);
+	assert.equal(gpuResources.buffers[0].lastWrite[15], 1);
+	const bindingsAfterSecondFrame = harness.backend.createBindingGroupCalls;
+	await implementation.execute(createRequest({}, true), harness.context);
+	assert.equal(
+		harness.backend.createBindingGroupCalls,
+		bindingsAfterSecondFrame
+	);
+
+	const callsBeforeOrthographic = harness.encoder.calls.length;
+	const orthographic = await implementation.execute(
+		createRequest({}, true, CameraType.Orthographic),
+		harness.context
+	);
+	assert.deepEqual(orthographic, { ran: false });
+	assert.equal(harness.encoder.calls.length, callsBeforeOrthographic);
+	assert.equal(harness.copied.length, 3);
+	assert.deepEqual(harness.warnings, [[
+		"webgpu-ssgi-orthographic-disabled",
+		"WebGPU SSGI is disabled for orthographic cameras.",
+	]]);
+
+	await implementation.execute(createRequest({}, true), harness.context);
+	assert.equal(gpuResources.buffers[0].lastWrite[15], 0);
 
 	pass.destroy();
-	executePass.destroy();
-	request.pass.destroy();
-	destroySnapshotPasses(frameContext.postProcess);
-	runtime.destroy();
+	harness.runtime.destroy();
 }
 
-async function testSSGIPipelineUsesWebGPUImplementation() {
-	const backend = new FakeBackend();
-	const runtime = new WebGPUPostProcessRuntime(backend, () => {});
-	const encoder = new FakeEncoder();
-	const targets = {
-		sceneColor: createTexture(32, 16, "scene"),
-		postPing: createTexture(32, 16, "ping"),
-		postPong: createTexture(32, 16, "pong"),
-		gAlbedoAlpha: createTexture(32, 16, "g-albedo"),
-		gNormalRoughMetal: createTexture(32, 16, "g-normal"),
-		gMotionDepth: createTexture(32, 16, "g-motion-depth"),
+async function testFailurePathsAndResourceInvalidation() {
+	const harness = createHarness();
+	const pass = new ScreenSpaceGlobalIlluminationPass({ enabled: true });
+	const implementation = pass.getImplementation("webgpu");
+	const missingContext = {
+		...harness.context,
+		resources: {
+			...harness.resources,
+			getShared: () => null,
+		},
 	};
-	const frameContext = {
-		camera: {
-			type: CameraType.Perspective,
-			fov: 60,
-			aspectRatio: 2,
-			near: 0.1,
-			far: 100,
-		},
-		features: {},
-		attachments: {
-			width: 32,
-			height: 16,
-		},
-		postProcess: createResolvedPostProcess(
-			{ ssgi: { enabled: true } },
-			"webgpu"
+	assert.deepEqual(
+		await implementation.execute(createRequest({}, true), missingContext),
+		{ ran: false }
+	);
+	assert.deepEqual(harness.copied, []);
+	assert.equal(harness.encoder.calls.length, 0);
+
+	await implementation.execute(createRequest({}, true), harness.context);
+	harness.setFailMotionCopy(true);
+	await assert.rejects(
+		implementation.execute(createRequest({}, true), harness.context),
+		/motion copy failed/
+	);
+	harness.setFailMotionCopy(false);
+	await implementation.execute(createRequest({}, true), harness.context);
+	const resourcesBeforeInvalidate = getSSGIResources(harness.backend);
+	assert.equal(resourcesBeforeInvalidate.buffers[0].lastWrite[15], 0);
+
+	const bindingDestroyCount = harness.backend.bindingGroupDestroyCalls;
+	implementation.invalidate();
+	assert.equal(
+		resourcesBeforeInvalidate.pipelines.every((pipeline) => pipeline.destroyed),
+		true
+	);
+	assert.equal(
+		resourcesBeforeInvalidate.buffers.every((buffer) => buffer.destroyed),
+		true
+	);
+	assert.equal(resourcesBeforeInvalidate.modules[0].destroyed, true);
+	assert.ok(harness.backend.bindingGroupDestroyCalls > bindingDestroyCount);
+
+	await implementation.warmup(harness.context);
+	const resourcesAfterWarmup = getSSGIResources(harness.backend);
+	assert.equal(resourcesAfterWarmup.pipelines.length, 8);
+	assert.equal(resourcesAfterWarmup.buffers.length, 6);
+	assert.equal(resourcesAfterWarmup.modules.length, 2);
+	assert.equal(
+		resourcesAfterWarmup.pipelines.slice(4).every(
+			(pipeline) => !pipeline.destroyed
 		),
-		incremental: createIncremental(32, 16),
-		transient: new Map(),
-	};
-	const executor = {
-		backend: "webgpu",
-		fallbackCalls: [],
-		endFrames: [],
-		createResource(desc) {
-			return {
-				id: desc.id,
-				backend: "webgpu",
-				width: desc.width,
-				height: desc.height,
-				format: desc.format,
-				resource: createTexture(desc.width, desc.height, desc.id),
-			};
-		},
-		destroyResource() {},
-		createGBufferBridge() {
-			return createWebGPUGBuffer();
-		},
-		createPassExecutionContext(request) {
-			if (request.passId !== "ssgi") {
-				return undefined;
-			}
-			return {
-				encoder,
-				targets,
-				shared: runtime,
-				resources: {
-					color: { input: targets.sceneColor, output: targets.postPong },
-					getGBuffer(semantic) {
-						return {
-							albedo: targets.gAlbedoAlpha,
-							normal: targets.gNormalRoughMetal,
-							depth: targets.gMotionDepth,
-							color: targets.sceneColor,
-						}[semantic] ?? null;
-					},
-				},
-			};
-		},
-		executePass(passId) {
-			this.fallbackCalls.push(passId);
-			return { ran: true };
-		},
-		completePass() {
-			return { committed: true };
-		},
-		endFrame(request) {
-			this.endFrames.push(request);
-		},
-	};
-	const runtimeBridge = new BackendPostProcessRuntime({
-		executor,
-		backend: { type: "webgpu" },
-	});
-	await runtimeBridge.execute(frameContext);
+		true
+	);
 
-	assert.deepEqual(executor.endFrames.at(-1).executedPassIds, ["ssgi"]);
-	assert.deepEqual(executor.fallbackCalls, []);
-	assert.deepEqual(encoder.calls.slice(0, 2), [
-		["beginComputePass", "WebGPUSSGI"],
-		["setComputePipeline", "WebGPUSSGIPipeline"],
-	]);
-
-	destroySnapshotPasses(frameContext.postProcess);
-	runtime.destroy();
+	implementation.destroy();
+	assert.equal(
+		resourcesAfterWarmup.pipelines.every((pipeline) => pipeline.destroyed),
+		true
+	);
+	assert.equal(
+		resourcesAfterWarmup.buffers.every((buffer) => buffer.destroyed),
+		true
+	);
+	assert.equal(
+		resourcesAfterWarmup.modules.every((module) => module.destroyed),
+		true
+	);
+	pass.destroy();
+	harness.runtime.destroy();
 }
 
-function testSSGIOptionHelpersClampAndPackParams() {
-	const options = resolveSSGIOptions({
-		samples: 99,
-		radius: -3,
-		intensity: -1,
-		falloff: 0,
-		depthPhi: 0,
-		normalPhi: 0,
-		albedoBoost: -1,
-	});
-	assert.equal(options.samples, 16);
-	assert.equal(options.radius, 1);
-	assert.equal(options.intensity, 0);
-	assert.equal(options.falloff, 0.1);
-	assert.equal(options.depthPhi, 0.01);
-	assert.equal(options.normalPhi, 0.1);
-	assert.equal(options.albedoBoost, 0);
-
-	const params = createSSGIKernelParams(64, 32, options);
-	assert.equal(params.length, 12);
-	assert.equal(params[0], 1 / 64);
-	assert.equal(params[1], 1 / 32);
-	assert.equal(params[2], 1);
-	assert.equal(params[8], 16);
-}
-
-await testSSGIDescriptorAndWebGPUExecution();
-await testSSGIPipelineUsesWebGPUImplementation();
-testSSGIOptionHelpersClampAndPackParams();
+testExecutionDeclaration();
+testOptionsAndParameterPacking();
+await testFourStageExecutionAndTemporalContinuity();
+await testFailurePathsAndResourceInvalidation();
 console.log("ScreenSpaceGlobalIlluminationPass tests passed");

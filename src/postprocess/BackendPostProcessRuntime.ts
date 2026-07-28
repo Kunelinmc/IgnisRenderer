@@ -534,11 +534,23 @@ export class BackendPostProcessRuntime {
 	 */
 	public invalidateFrameSized(): void {
 		this._resources.invalidateFrameSized(this._executor);
-		for (const impl of this._implementations.values()) {
-			impl.invalidate?.();
-		}
+		this.invalidateImplementations();
 		for (const pass of this._observedPasses) {
 			pass.invalidate();
+		}
+	}
+
+	/**
+	 * Invalidates backend pass implementation resources without resetting
+	 * history or frame-sized resource ownership.
+	 *
+	 * @internal Called by backend shader-runtime invalidation paths.
+	 * @returns Nothing.
+	 * @sideEffects Invalidates or destroys implementation-owned GPU resources.
+	 */
+	public invalidateImplementations(): void {
+		for (const impl of this._implementations.values()) {
+			impl.invalidate?.();
 		}
 	}
 

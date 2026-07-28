@@ -1,8 +1,8 @@
-import { clamp } from "../../maths/Common";
-import { ceilDiv, finiteOr } from "../../maths/Misc";
+import { CameraType } from "../../cameras/Camera";
 import type { ICommandEncoder } from "../../backends/ICommandEncoder";
 import {
 	BufferUsage,
+	type IBindingGroup,
 	type IComputePipeline,
 	type IRenderBuffer,
 	type IRenderTexture,
@@ -11,26 +11,45 @@ import {
 import {
 	WEBGPU_2D_COMPUTE_WORKGROUP_SIZE as WORKGROUP_SIZE,
 } from "../../backends/webgpu/constants";
-import {
-	type WebGPUPostProcessFrameTargets,
-	type WebGPUPostProcessServices,
+import type {
+	WebGPUPostProcessFrameTargets,
+	WebGPUPostProcessServices,
 } from "../../backends/webgpu/WebGPUPostProcessContracts";
+import { clamp } from "../../maths/Common";
+import { ceilDiv, finiteOr } from "../../maths/Misc";
 import { ShaderSource } from "../../shaders/ShaderSource";
-import { PostProcessPass, type PostProcessPassConfig } from "../PostProcessPass";
+import {
+	PostProcessPass,
+	type PostProcessPassConfig,
+	type PostProcessPassResolveRequest,
+} from "../PostProcessPass";
 import type { PostProcessScheduleEntry } from "../ordering";
 import {
 	POST_PROCESS_SAMPLED_READ,
+	POST_PROCESS_STORAGE_WRITE,
+	WEBGPU_HIZ_SHARED_RESOURCE,
 	WEBGPU_VERSIONED_EXECUTION,
 } from "../executionDeclarations";
 import type {
 	PostProcessExecutionDeclaration,
+	PostProcessHistoryDescriptor,
+	PostProcessHistorySlots,
 	PostProcessPassImplementation,
 	PostProcessPassRequest,
 	PostProcessPassResult,
 	PostProcessResourceAccessor,
+	PostProcessTransientDescriptor,
 } from "../types";
 
-const SSGI_MAX_SAMPLES = 16;
+const DEFAULT_HISTORY_USAGE = ["sampled", "storage", "render-target"] as const;
+const MOTION_HISTORY_USAGE = ["sampled", "copy-dst", "render-target"] as const;
+const SSGI_HISTORY_ID = "ssgi";
+const SSGI_DENOISE_A_ID = "ssgi:denoise-a";
+const SSGI_DENOISE_B_ID = "ssgi:denoise-b";
+const SSGI_TRACE_PARAM_FLOATS = 20;
+const SSGI_DENOISE_PARAM_FLOATS = 8;
+const SSGI_COMPOSE_PARAM_FLOATS = 8;
+
 export const SCREEN_SPACE_GLOBAL_ILLUMINATION_PASS_ID = "ssgi";
 export const SCREEN_SPACE_GLOBAL_ILLUMINATION_PASS_ORDER = {
 	id: SCREEN_SPACE_GLOBAL_ILLUMINATION_PASS_ID,
@@ -38,62 +57,87 @@ export const SCREEN_SPACE_GLOBAL_ILLUMINATION_PASS_ORDER = {
 	order: 110,
 	incremental: {
 		firstPass: "ssgi",
-		grade: "standard",
-		inflationRadius: 12,
+		grade: "cinematic",
+		inflationRadius: 8,
 	},
 } as const satisfies PostProcessScheduleEntry;
 
 export interface SSGIOptions {
-	/** Indirect-light sample count, clamped to backend limits. */
-	samples?: number;
-	/** Screen-space sampling radius for bounced light. */
-	radius?: number;
+	/** Internal trace-buffer divisor. Supported values are `1`, `2`, and `4`. */
+	downsample?: 1 | 2 | 4;
+	/** Cosine-weighted hemisphere rays traced per pixel. */
+	raysPerPixel?: number;
+	/** Maximum Hi-Z marching iterations per ray. */
+	maxSteps?: number;
+	/** Binary hit-refinement iterations after a ray reaches mip zero. */
+	binarySearchSteps?: number;
+	/** Maximum world-space trace distance. */
+	maxDistance?: number;
+	/** World-space depth tolerance used to accept ray hits. */
+	thickness?: number;
+	/** World-space surface offset used to suppress self-intersection. */
+	normalBias?: number;
+	/** Exponent applied to normalized ray-distance attenuation. */
+	distanceFalloffExponent?: number;
+	/** Screen-edge fade distance used to hide missing off-screen radiance. */
+	edgeFade?: number;
 	/** Indirect diffuse lighting multiplier. */
 	intensity?: number;
-	/** Distance falloff exponent for indirect samples. */
-	falloff?: number;
-	/** Depth sensitivity for rejecting samples across geometry breaks. */
-	depthPhi?: number;
-	/** Normal sensitivity for rejecting samples from unrelated surfaces. */
-	normalPhi?: number;
-	/** Albedo multiplier used to brighten diffuse bounce color. */
-	albedoBoost?: number;
-	/** Allows backend-specific experimental SSGI options. */
-	[key: string]: unknown;
+	/** Temporal history blend factor. */
+	historyWeight?: number;
+	/** Relative depth threshold used to reject disoccluded history. */
+	disocclusionDepthThreshold?: number;
+	/** Maximum luminance ratio retained from valid temporal history. */
+	historyClamp?: number;
+	/** Radius of each separable bilateral denoise pass. */
+	denoiseRadius?: number;
+	/** Relative-depth edge sensitivity used by the denoiser. */
+	denoiseDepthPhi?: number;
+	/** World-normal edge sensitivity used by the denoiser. */
+	denoiseNormalPhi?: number;
 }
 
 export const DEFAULT_SSGI_OPTIONS: Required<
 	Pick<
 		SSGIOptions,
-		| "samples"
-		| "radius"
+		| "downsample"
+		| "raysPerPixel"
+		| "maxSteps"
+		| "binarySearchSteps"
+		| "maxDistance"
+		| "thickness"
+		| "normalBias"
+		| "distanceFalloffExponent"
+		| "edgeFade"
 		| "intensity"
-		| "falloff"
-		| "depthPhi"
-		| "normalPhi"
-		| "albedoBoost"
+		| "historyWeight"
+		| "disocclusionDepthThreshold"
+		| "historyClamp"
+		| "denoiseRadius"
+		| "denoiseDepthPhi"
+		| "denoiseNormalPhi"
 	>
 > = {
-	samples: 8,
-	radius: 3,
+	downsample: 2,
+	raysPerPixel: 1,
+	maxSteps: 24,
+	binarySearchSteps: 3,
+	maxDistance: 8,
+	thickness: 0.2,
+	normalBias: 0.05,
+	distanceFalloffExponent: 2,
+	edgeFade: 0.1,
 	intensity: 0.35,
-	falloff: 1.5,
-	depthPhi: 1.25,
-	normalPhi: 2,
-	albedoBoost: 1,
+	historyWeight: 0.9,
+	disocclusionDepthThreshold: 0.02,
+	historyClamp: 2,
+	denoiseRadius: 2,
+	denoiseDepthPhi: 24,
+	denoiseNormalPhi: 16,
 };
 
 export type ResolvedSSGIOptions = Required<
-	Pick<
-		SSGIOptions,
-		| "samples"
-		| "radius"
-		| "intensity"
-		| "falloff"
-		| "depthPhi"
-		| "normalPhi"
-		| "albedoBoost"
-	>
+	Pick<SSGIOptions, keyof typeof DEFAULT_SSGI_OPTIONS>
 >;
 
 /** @internal WebGPU context supplied to the built-in SSGI implementation. */
@@ -101,14 +145,27 @@ export interface WebGPUSSGIContext {
 	readonly encoder?: ICommandEncoder;
 	readonly targets?: WebGPUPostProcessFrameTargets;
 	readonly shared: WebGPUPostProcessServices;
+	readonly frameBinding?: IBindingGroup;
 	readonly resources: PostProcessResourceAccessor<IRenderTexture>;
 }
 
 interface WebGPUSSGIResources {
 	shared: WebGPUPostProcessServices;
 	module: IShaderModule | null;
-	pipeline: IComputePipeline | null;
-	params: IRenderBuffer | null;
+	tracePipeline: IComputePipeline | null;
+	denoiseHorizontalPipeline: IComputePipeline | null;
+	denoiseVerticalPipeline: IComputePipeline | null;
+	composePipeline: IComputePipeline | null;
+	traceParams: IRenderBuffer | null;
+	denoiseParams: IRenderBuffer | null;
+	composeParams: IRenderBuffer | null;
+	traceGroupLayout0: GPUBindGroupLayout | null;
+	tracePipelineLayout: GPUPipelineLayout | null;
+	traceParamData: Float32Array;
+	denoiseParamData: Float32Array;
+	composeParamData: Float32Array;
+	frameIndex: number;
+	historyContinuity: boolean;
 }
 
 /**
@@ -121,83 +178,302 @@ interface WebGPUSSGIResources {
 export function resolveSSGIOptions(
 	options?: SSGIOptions | null
 ): ResolvedSSGIOptions {
+	const maxDistance = Math.max(
+		0.001,
+		positiveFiniteOr(
+			options?.maxDistance,
+			DEFAULT_SSGI_OPTIONS.maxDistance
+		)
+	);
 	return {
-		radius: clamp(finiteOr(options?.radius, DEFAULT_SSGI_OPTIONS.radius), 1, 6),
-		samples: clamp(
-			Math.floor(finiteOr(options?.samples, DEFAULT_SSGI_OPTIONS.samples)),
+		downsample: resolveSSGIDownsample(options?.downsample),
+		raysPerPixel: clampInteger(
+			options?.raysPerPixel,
+			DEFAULT_SSGI_OPTIONS.raysPerPixel,
 			1,
-			SSGI_MAX_SAMPLES
+			4
+		),
+		maxSteps: clampInteger(
+			options?.maxSteps,
+			DEFAULT_SSGI_OPTIONS.maxSteps,
+			4,
+			64
+		),
+		binarySearchSteps: clampInteger(
+			options?.binarySearchSteps,
+			DEFAULT_SSGI_OPTIONS.binarySearchSteps,
+			0,
+			8
+		),
+		maxDistance,
+		thickness: clamp(
+			finiteOr(options?.thickness, DEFAULT_SSGI_OPTIONS.thickness),
+			0.001,
+			maxDistance
+		),
+		normalBias: Math.max(
+			0,
+			finiteOr(options?.normalBias, DEFAULT_SSGI_OPTIONS.normalBias)
+		),
+		distanceFalloffExponent: clamp(
+			finiteOr(
+				options?.distanceFalloffExponent,
+				DEFAULT_SSGI_OPTIONS.distanceFalloffExponent
+			),
+			0.25,
+			8
+		),
+		edgeFade: clamp(
+			finiteOr(options?.edgeFade, DEFAULT_SSGI_OPTIONS.edgeFade),
+			0,
+			0.5
 		),
 		intensity: Math.max(
 			0,
 			finiteOr(options?.intensity, DEFAULT_SSGI_OPTIONS.intensity)
 		),
-		falloff: Math.max(
-			0.1,
-			finiteOr(options?.falloff, DEFAULT_SSGI_OPTIONS.falloff)
-		),
-		depthPhi: Math.max(
-			0.01,
-			finiteOr(options?.depthPhi, DEFAULT_SSGI_OPTIONS.depthPhi)
-		),
-		normalPhi: Math.max(
-			0.1,
-			finiteOr(options?.normalPhi, DEFAULT_SSGI_OPTIONS.normalPhi)
-		),
-		albedoBoost: Math.max(
+		historyWeight: clamp(
+			finiteOr(options?.historyWeight, DEFAULT_SSGI_OPTIONS.historyWeight),
 			0,
-			finiteOr(options?.albedoBoost, DEFAULT_SSGI_OPTIONS.albedoBoost)
+			0.98
+		),
+		disocclusionDepthThreshold: clamp(
+			finiteOr(
+				options?.disocclusionDepthThreshold,
+				DEFAULT_SSGI_OPTIONS.disocclusionDepthThreshold
+			),
+			0.001,
+			0.25
+		),
+		historyClamp: clamp(
+			finiteOr(options?.historyClamp, DEFAULT_SSGI_OPTIONS.historyClamp),
+			1,
+			16
+		),
+		denoiseRadius: clampInteger(
+			options?.denoiseRadius,
+			DEFAULT_SSGI_OPTIONS.denoiseRadius,
+			1,
+			4
+		),
+		denoiseDepthPhi: positiveFiniteOr(
+			options?.denoiseDepthPhi,
+			DEFAULT_SSGI_OPTIONS.denoiseDepthPhi
+		),
+		denoiseNormalPhi: positiveFiniteOr(
+			options?.denoiseNormalPhi,
+			DEFAULT_SSGI_OPTIONS.denoiseNormalPhi
 		),
 	};
 }
 
 /**
- * Creates packed SSGI shader parameters.
+ * Packs trace and temporal parameters into a pre-allocated float array.
  *
- * @param width Target width.
- * @param height Target height.
+ * @param target Twenty-float destination array.
+ * @param width Trace target width.
+ * @param height Trace target height.
  * @param options Resolved SSGI options.
- * @returns Twelve float parameters expected by the SSGI compute shader.
- * @sideEffects None.
+ * @param maxHiZMip Maximum available Hi-Z mip index.
+ * @param historyValid Whether temporal history may be sampled.
+ * @param frameIndex Temporal stochastic sampling frame index.
+ * @returns The supplied destination array.
+ * @sideEffects Overwrites `target`.
  */
-export function createSSGIKernelParams(
+export function writeSSGITraceParams(
+	target: Float32Array,
+	width: number,
+	height: number,
+	options: ResolvedSSGIOptions,
+	maxHiZMip: number,
+	historyValid: boolean,
+	frameIndex: number
+): Float32Array {
+	assertParamTarget(target, SSGI_TRACE_PARAM_FLOATS, "trace");
+	target[0] = 1 / Math.max(width, 1);
+	target[1] = 1 / Math.max(height, 1);
+	target[2] = options.maxDistance;
+	target[3] = options.thickness;
+	target[4] = options.normalBias;
+	target[5] = options.distanceFalloffExponent;
+	target[6] = options.edgeFade;
+	target[7] = options.raysPerPixel;
+	target[8] = options.maxSteps;
+	target[9] = options.binarySearchSteps;
+	target[10] = Math.max(0, maxHiZMip);
+	target[11] = frameIndex;
+	target[12] = options.historyWeight;
+	target[13] = options.disocclusionDepthThreshold;
+	target[14] = options.historyClamp;
+	target[15] = historyValid ? 1 : 0;
+	target[16] = 0;
+	target[17] = 0;
+	target[18] = 0;
+	target[19] = 0;
+	return target;
+}
+
+/**
+ * Packs bilateral denoise parameters into a pre-allocated float array.
+ *
+ * @param target Eight-float destination array.
+ * @param width Denoise target width.
+ * @param height Denoise target height.
+ * @param options Resolved SSGI options.
+ * @returns The supplied destination array.
+ * @sideEffects Overwrites `target`.
+ */
+export function writeSSGIDenoiseParams(
+	target: Float32Array,
 	width: number,
 	height: number,
 	options: ResolvedSSGIOptions
 ): Float32Array {
-	return new Float32Array([
-		1 / Math.max(width, 1),
-		1 / Math.max(height, 1),
-		options.radius,
-		options.intensity,
-		options.falloff,
-		options.depthPhi,
-		options.normalPhi,
-		options.albedoBoost,
-		options.samples,
-		0,
-		0,
-		0,
-	]);
+	assertParamTarget(target, SSGI_DENOISE_PARAM_FLOATS, "denoise");
+	target[0] = 1 / Math.max(width, 1);
+	target[1] = 1 / Math.max(height, 1);
+	target[2] = options.denoiseRadius;
+	target[3] = options.denoiseDepthPhi;
+	target[4] = options.denoiseNormalPhi;
+	target[5] = 0;
+	target[6] = 0;
+	target[7] = 0;
+	return target;
 }
 
 /**
- * WebGPU implementation of the screen-space global illumination pass.
+ * Packs full-resolution composition parameters into a pre-allocated array.
+ *
+ * @param target Eight-float destination array.
+ * @param width Full-resolution output width.
+ * @param height Full-resolution output height.
+ * @param traceWidth Filtered SSGI width.
+ * @param traceHeight Filtered SSGI height.
+ * @param options Resolved SSGI options.
+ * @returns The supplied destination array.
+ * @sideEffects Overwrites `target`.
  */
+export function writeSSGIComposeParams(
+	target: Float32Array,
+	width: number,
+	height: number,
+	traceWidth: number,
+	traceHeight: number,
+	options: ResolvedSSGIOptions
+): Float32Array {
+	assertParamTarget(target, SSGI_COMPOSE_PARAM_FLOATS, "compose");
+	target[0] = 1 / Math.max(width, 1);
+	target[1] = 1 / Math.max(height, 1);
+	target[2] = 1 / Math.max(traceWidth, 1);
+	target[3] = 1 / Math.max(traceHeight, 1);
+	target[4] = options.intensity;
+	target[5] = options.denoiseDepthPhi;
+	target[6] = options.denoiseNormalPhi;
+	target[7] = 0;
+	return target;
+}
+
+/**
+ * Resolves whether SSGI may consume temporal history this frame.
+ *
+ * @param histories Current frame history slots.
+ * @param implementationContinuous Whether the previous implementation frame ran.
+ * @returns `true` when radiance and motion history are valid and continuous.
+ * @sideEffects None.
+ */
+export function resolveSSGIHistoryValid(
+	histories: PostProcessHistorySlots,
+	implementationContinuous: boolean
+): boolean {
+	return implementationContinuous &&
+		(histories[SSGI_HISTORY_ID]?.valid ?? false) &&
+		(histories.motion?.valid ?? false);
+}
+
+/**
+ * Resolves dynamic history resources required by SSGI.
+ *
+ * @param request Current backend and resolved-option request.
+ * @returns Half-resolution radiance history and full-resolution motion history.
+ * @sideEffects None.
+ */
+export function resolveSSGIHistoryDescriptors(
+	request: PostProcessPassResolveRequest<ResolvedSSGIOptions>
+): readonly PostProcessHistoryDescriptor[] {
+	const options = resolveSSGIOptions(request.options);
+	const scale = 1 / options.downsample;
+	return [
+		{
+			id: SSGI_HISTORY_ID,
+			widthScale: scale,
+			heightScale: scale,
+			format: "rgba16float",
+			usage: DEFAULT_HISTORY_USAGE,
+		},
+		{ id: "motion", usage: MOTION_HISTORY_USAGE },
+	];
+}
+
+/**
+ * Resolves half-resolution denoise resources required by SSGI.
+ *
+ * @param request Current backend and resolved-option request.
+ * @returns Horizontal and vertical denoise targets.
+ * @sideEffects None.
+ */
+export function resolveSSGITransientDescriptors(
+	request: PostProcessPassResolveRequest<ResolvedSSGIOptions>
+): readonly PostProcessTransientDescriptor[] {
+	const options = resolveSSGIOptions(request.options);
+	const scale = 1 / options.downsample;
+	return [
+		{
+			id: SSGI_DENOISE_A_ID,
+			widthScale: scale,
+			heightScale: scale,
+			format: "rgba16float",
+		},
+		{
+			id: SSGI_DENOISE_B_ID,
+			widthScale: scale,
+			heightScale: scale,
+			format: "rgba16float",
+		},
+	];
+}
+
 /** @internal WebGPU implementation for the built-in SSGI pass. */
 export class WebGPUScreenSpaceGlobalIlluminationImplementation
 	implements PostProcessPassImplementation<WebGPUSSGIContext>
 {
 	public readonly id = "ssgi:webgpu";
-	public describeExecution() {
+	private _resources = new Map<WebGPUPostProcessServices, WebGPUSSGIResources>();
+
+	public describeExecution(
+		request: PostProcessPassResolveRequest<ResolvedSSGIOptions>
+	) {
 		return {
 			...WEBGPU_VERSIONED_EXECUTION,
-			gBuffer: (["color", "depth", "normal", "albedo"] as const).map(
-				(semantic) => ({ semantic, ...POST_PROCESS_SAMPLED_READ })
+			gBuffer: (
+				["depth", "normal", "albedo", "metallic", "motion"] as const
+			).map((semantic) => ({ semantic, ...POST_PROCESS_SAMPLED_READ })),
+			histories: resolveSSGIHistoryDescriptors(request).map((descriptor) => ({
+				descriptor,
+				read: [POST_PROCESS_SAMPLED_READ],
+				write:
+					descriptor.id === SSGI_HISTORY_ID ?
+						[POST_PROCESS_STORAGE_WRITE, POST_PROCESS_SAMPLED_READ]
+					:	[POST_PROCESS_STORAGE_WRITE],
+			})),
+			transients: resolveSSGITransientDescriptors(request).map(
+				(descriptor) => ({
+					descriptor,
+					uses: [POST_PROCESS_STORAGE_WRITE, POST_PROCESS_SAMPLED_READ],
+				})
 			),
+			shared: [WEBGPU_HIZ_SHARED_RESOURCE],
 		} satisfies PostProcessExecutionDeclaration;
 	}
-	private _resources = new Map<WebGPUPostProcessServices, WebGPUSSGIResources>();
 
 	public async warmup(context: WebGPUSSGIContext | undefined): Promise<void> {
 		if (context) {
@@ -209,37 +485,49 @@ export class WebGPUScreenSpaceGlobalIlluminationImplementation
 		request: PostProcessPassRequest,
 		context: WebGPUSSGIContext | undefined
 	): Promise<PostProcessPassResult> {
-		if (!context?.encoder || !context.targets) {
+		if (!context?.encoder || !context.targets || !context.frameBinding) {
+			this._breakHistoryContinuity(context?.shared);
 			return { ran: false };
 		}
-		const ran = await this._runSSGIKernel(request, context);
-		return ran ? { ran: true } : { ran: false };
+		if (request.frameContext.viewCamera.type === CameraType.Orthographic) {
+			context.shared.warn(
+				"webgpu-ssgi-orthographic-disabled",
+				"WebGPU SSGI is disabled for orthographic cameras."
+			);
+			this._breakHistoryContinuity(context.shared);
+			return { ran: false };
+		}
+		let ran = false;
+		try {
+			ran = await this._runSSGIKernel(request, context);
+			if (ran) {
+				await context.resources.copyGBufferToHistory("motion", "motion");
+			}
+		} catch (error) {
+			this._breakHistoryContinuity(context.shared);
+			throw error;
+		}
+		if (!ran) {
+			this._breakHistoryContinuity(context.shared);
+			return { ran: false };
+		}
+		const resources = this._resources.get(context.shared);
+		if (resources) {
+			resources.historyContinuity = true;
+		}
+		return { ran: true, updatedHistoryIds: [SSGI_HISTORY_ID, "motion"] };
 	}
 
 	public invalidate(): void {
 		for (const resources of this._resources.values()) {
-			resources.shared.invalidateBindingsByPrefix("ssgi-");
+			resources.historyContinuity = false;
+			this._destroyResources(resources);
 		}
 	}
 
 	public destroy(): void {
 		for (const resources of this._resources.values()) {
-			resources.shared.destroyManagedResource(
-				resources.pipeline,
-				"SSGI pipeline"
-			);
-			resources.shared.destroyManagedResource(
-				resources.module,
-				"SSGI shader module"
-			);
-			resources.shared.destroyManagedResource(
-				resources.params,
-				"SSGI params buffer"
-			);
-			resources.shared.invalidateBindingsByPrefix("ssgi-");
-			resources.module = null;
-			resources.pipeline = null;
-			resources.params = null;
+			this._destroyResources(resources);
 		}
 		this._resources.clear();
 	}
@@ -249,48 +537,189 @@ export class WebGPUScreenSpaceGlobalIlluminationImplementation
 		context: WebGPUSSGIContext
 	): Promise<boolean> {
 		const resources = await this._ensureResources(context.shared);
+		const hiZ = context.resources.getShared("backend:frame-hiz");
+		const history = context.resources.getHistory(SSGI_HISTORY_ID);
+		const motionHistory = context.resources.getHistory("motion");
+		const denoiseA = context.resources.getTransient(SSGI_DENOISE_A_ID);
+		const denoiseB = context.resources.getTransient(SSGI_DENOISE_B_ID);
+		const normalTexture = context.resources.getGBuffer("normal");
+		const depthTexture = context.resources.getGBuffer("depth");
+		const albedoTexture = context.resources.getGBuffer("albedo");
+		const motionTexture = context.resources.getGBuffer("motion");
+		const input = context.resources.color.input;
+		const output = context.resources.color.output;
 		if (
 			!context.encoder ||
 			!context.targets ||
+			!context.frameBinding ||
+			!hiZ ||
+			!history.read ||
+			!history.write ||
+			!motionHistory.read ||
+			!motionHistory.write ||
+			!denoiseA ||
+			!denoiseB ||
+			!normalTexture ||
+			!depthTexture ||
+			!albedoTexture ||
+			!motionTexture ||
+			!input ||
+			!output ||
 			!context.shared.sampler ||
-			!resources.pipeline ||
-			!resources.params
+			!resources.tracePipeline ||
+			!resources.denoiseHorizontalPipeline ||
+			!resources.denoiseVerticalPipeline ||
+			!resources.composePipeline ||
+			!resources.traceParams ||
+			!resources.denoiseParams ||
+			!resources.composeParams
 		) {
 			return false;
 		}
 
-		const targets = context.targets;
-		const target = context.resources.color.output;
-		const albedoTexture = context.resources.getGBuffer("albedo");
-		const normalTexture = context.resources.getGBuffer("normal");
-		const depthTexture = context.resources.getGBuffer("depth");
-		const input = context.resources.color.input;
-		if (!target || !input || !albedoTexture || !normalTexture || !depthTexture) return false;
+		const hiZMips = context.shared.getHiZBuilder().getMipViews(hiZ);
+		if (hiZMips.length === 0) {
+			return false;
+		}
+		resources.frameIndex = (resources.frameIndex + 1) % 1024;
 		const options = resolveSSGIOptions(request.options as SSGIOptions);
-		context.shared.compute.writeBuffer(
-			resources.params,
-			createSSGIKernelParams(target.width, target.height, options) as unknown as BufferSource
+		const historyValid = resolveSSGIHistoryValid(
+			request.histories,
+			resources.historyContinuity
 		);
-		const binding = context.shared.getCachedBindGroup(
-			`ssgi-${target === targets.postPing ? "ping" : "pong"}`,
-			resources.pipeline,
+		context.shared.compute.writeBuffer(
+			resources.traceParams,
+			writeSSGITraceParams(
+				resources.traceParamData,
+				history.write.width,
+				history.write.height,
+				options,
+				hiZMips.length - 1,
+				historyValid,
+				resources.frameIndex
+			) as unknown as BufferSource
+		);
+		context.shared.compute.writeBuffer(
+			resources.denoiseParams,
+			writeSSGIDenoiseParams(
+				resources.denoiseParamData,
+				denoiseA.width,
+				denoiseA.height,
+				options
+			) as unknown as BufferSource
+		);
+		context.shared.compute.writeBuffer(
+			resources.composeParams,
+			writeSSGIComposeParams(
+				resources.composeParamData,
+				output.width,
+				output.height,
+				denoiseB.width,
+				denoiseB.height,
+				options
+			) as unknown as BufferSource
+		);
+
+		const parity = resources.frameIndex & 1;
+		let binding = context.shared.getCachedBindGroup(
+			`ssgi-trace-${parity}`,
+			resources.tracePipeline,
 			[
 				{ binding: 0, resource: input },
-				{ binding: 1, resource: albedoTexture },
-				{ binding: 2, resource: normalTexture },
-				{ binding: 3, resource: depthTexture },
-				{ binding: 4, resource: context.shared.sampler },
-				{ binding: 5, resource: resources.params },
-				{ binding: 6, resource: target },
+				{ binding: 1, resource: normalTexture },
+				{ binding: 2, resource: depthTexture },
+				{ binding: 3, resource: hiZ },
+				{ binding: 4, resource: history.read },
+				{ binding: 5, resource: motionHistory.read },
+				{ binding: 6, resource: context.shared.sampler },
+				{ binding: 7, resource: resources.traceParams },
+				{ binding: 8, resource: history.write },
 			],
-			"WebGPUSSGI_Binding"
+			"WebGPUSSGI_TraceBinding"
 		);
-		context.encoder.beginComputePass({ label: "WebGPUSSGI" });
-		context.encoder.setComputePipeline(resources.pipeline);
+		context.encoder.beginComputePass({ label: "WebGPUSSGI_TraceTemporal" });
+		context.encoder.setComputePipeline(resources.tracePipeline);
+		context.encoder.setBindingGroup(0, binding);
+		context.encoder.setBindingGroup(1, context.frameBinding);
+		context.encoder.dispatchWorkgroups(
+			ceilDiv(history.write.width, WORKGROUP_SIZE),
+			ceilDiv(history.write.height, WORKGROUP_SIZE),
+			1
+		);
+		context.encoder.endComputePass();
+
+		binding = context.shared.getCachedBindGroup(
+			`ssgi-denoise-horizontal-${parity}`,
+			resources.denoiseHorizontalPipeline,
+			[
+				{ binding: 0, resource: history.write },
+				{ binding: 1, resource: normalTexture },
+				{ binding: 2, resource: depthTexture },
+				{ binding: 3, resource: context.shared.sampler },
+				{ binding: 4, resource: resources.denoiseParams },
+				{ binding: 5, resource: denoiseA },
+			],
+			"WebGPUSSGI_DenoiseHorizontalBinding"
+		);
+		context.encoder.beginComputePass({
+			label: "WebGPUSSGI_DenoiseHorizontal",
+		});
+		context.encoder.setComputePipeline(resources.denoiseHorizontalPipeline);
 		context.encoder.setBindingGroup(0, binding);
 		context.encoder.dispatchWorkgroups(
-			ceilDiv(target.width, WORKGROUP_SIZE),
-			ceilDiv(target.height, WORKGROUP_SIZE),
+			ceilDiv(denoiseA.width, WORKGROUP_SIZE),
+			ceilDiv(denoiseA.height, WORKGROUP_SIZE),
+			1
+		);
+		context.encoder.endComputePass();
+
+		binding = context.shared.getCachedBindGroup(
+			"ssgi-denoise-vertical",
+			resources.denoiseVerticalPipeline,
+			[
+				{ binding: 0, resource: denoiseA },
+				{ binding: 1, resource: normalTexture },
+				{ binding: 2, resource: depthTexture },
+				{ binding: 3, resource: context.shared.sampler },
+				{ binding: 4, resource: resources.denoiseParams },
+				{ binding: 5, resource: denoiseB },
+			],
+			"WebGPUSSGI_DenoiseVerticalBinding"
+		);
+		context.encoder.beginComputePass({
+			label: "WebGPUSSGI_DenoiseVertical",
+		});
+		context.encoder.setComputePipeline(resources.denoiseVerticalPipeline);
+		context.encoder.setBindingGroup(0, binding);
+		context.encoder.dispatchWorkgroups(
+			ceilDiv(denoiseB.width, WORKGROUP_SIZE),
+			ceilDiv(denoiseB.height, WORKGROUP_SIZE),
+			1
+		);
+		context.encoder.endComputePass();
+
+		const targets = context.targets;
+		binding = context.shared.getCachedBindGroup(
+			`ssgi-compose-${output === targets.postPing ? "ping" : "pong"}`,
+			resources.composePipeline,
+			[
+				{ binding: 0, resource: input },
+				{ binding: 1, resource: denoiseB },
+				{ binding: 2, resource: albedoTexture },
+				{ binding: 3, resource: normalTexture },
+				{ binding: 4, resource: depthTexture },
+				{ binding: 5, resource: context.shared.sampler },
+				{ binding: 6, resource: resources.composeParams },
+				{ binding: 7, resource: output },
+			],
+			"WebGPUSSGI_ComposeBinding"
+		);
+		context.encoder.beginComputePass({ label: "WebGPUSSGI_Compose" });
+		context.encoder.setComputePipeline(resources.composePipeline);
+		context.encoder.setBindingGroup(0, binding);
+		context.encoder.dispatchWorkgroups(
+			ceilDiv(output.width, WORKGROUP_SIZE),
+			ceilDiv(output.height, WORKGROUP_SIZE),
 			1
 		);
 		context.encoder.endComputePass();
@@ -302,12 +731,32 @@ export class WebGPUScreenSpaceGlobalIlluminationImplementation
 	): Promise<WebGPUSSGIResources> {
 		let resources = this._resources.get(shared);
 		if (!resources) {
-			resources = { shared, module: null, pipeline: null, params: null };
+			resources = {
+				shared,
+				module: null,
+				tracePipeline: null,
+				denoiseHorizontalPipeline: null,
+				denoiseVerticalPipeline: null,
+				composePipeline: null,
+				traceParams: null,
+				denoiseParams: null,
+				composeParams: null,
+				traceGroupLayout0: null,
+				tracePipelineLayout: null,
+				traceParamData: new Float32Array(SSGI_TRACE_PARAM_FLOATS),
+				denoiseParamData: new Float32Array(SSGI_DENOISE_PARAM_FLOATS),
+				composeParamData: new Float32Array(SSGI_COMPOSE_PARAM_FLOATS),
+				frameIndex: 0,
+				historyContinuity: false,
+			};
 			this._resources.set(shared, resources);
 		}
 		await shared.ensureCommonResources();
+		await shared.getHiZBuilder().ensureResources();
 		if (!resources.module) {
-			const shader = await ShaderSource.load("webgpu.postprocess.ssgi.composite");
+			const shader = await ShaderSource.load(
+				"webgpu.postprocess.ssgi.composite"
+			);
 			resources.module = await shared.compute.createShaderModule({
 				label: "WebGPUSSGIShader",
 				code: shader.code,
@@ -317,20 +766,162 @@ export class WebGPUScreenSpaceGlobalIlluminationImplementation
 				sourceKind: "postprocess",
 			});
 		}
-		if (!resources.pipeline) {
-			resources.pipeline = await shared.compute.createComputePipeline({
-				label: "WebGPUSSGIPipeline",
-				compute: { module: resources.module, entryPoint: "csMain" },
+		if (!resources.tracePipeline) {
+			if (shared.frameBindGroupLayout) {
+				resources.traceGroupLayout0 = shared.compute.createBindGroupLayout({
+					label: "WebGPUSSGITrace_GroupLayout0",
+					entries: [
+						{ binding: 0, visibility: GPUShaderStage.COMPUTE, texture: {} },
+						{ binding: 1, visibility: GPUShaderStage.COMPUTE, texture: {} },
+						{ binding: 2, visibility: GPUShaderStage.COMPUTE, texture: {} },
+						{ binding: 3, visibility: GPUShaderStage.COMPUTE, texture: {} },
+						{ binding: 4, visibility: GPUShaderStage.COMPUTE, texture: {} },
+						{ binding: 5, visibility: GPUShaderStage.COMPUTE, texture: {} },
+						{ binding: 6, visibility: GPUShaderStage.COMPUTE, sampler: {} },
+						{
+							binding: 7,
+							visibility: GPUShaderStage.COMPUTE,
+							buffer: { type: "uniform" },
+						},
+						{
+							binding: 8,
+							visibility: GPUShaderStage.COMPUTE,
+							storageTexture: {
+								format: "rgba16float",
+								access: "write-only",
+							},
+						},
+					],
+				});
+				resources.tracePipelineLayout = shared.compute.createPipelineLayout({
+					label: "WebGPUSSGITrace_PipelineLayout",
+					bindGroupLayouts: [
+						resources.traceGroupLayout0,
+						shared.frameBindGroupLayout,
+					],
+				});
+				resources.tracePipeline = await shared.compute.createComputePipeline({
+					label: "WebGPUSSGITracePipeline",
+					layout: resources.tracePipelineLayout,
+					compute: {
+						module: resources.module,
+						entryPoint: "csTraceTemporal",
+					},
+				});
+			} else {
+				resources.tracePipeline = await shared.compute.createComputePipeline({
+					label: "WebGPUSSGITracePipeline",
+					compute: {
+						module: resources.module,
+						entryPoint: "csTraceTemporal",
+					},
+				});
+			}
+		}
+		if (!resources.denoiseHorizontalPipeline) {
+			resources.denoiseHorizontalPipeline =
+				await shared.compute.createComputePipeline({
+					label: "WebGPUSSGIDenoiseHorizontalPipeline",
+					compute: {
+						module: resources.module,
+						entryPoint: "csDenoiseHorizontal",
+					},
+				});
+		}
+		if (!resources.denoiseVerticalPipeline) {
+			resources.denoiseVerticalPipeline =
+				await shared.compute.createComputePipeline({
+					label: "WebGPUSSGIDenoiseVerticalPipeline",
+					compute: {
+						module: resources.module,
+						entryPoint: "csDenoiseVertical",
+					},
+				});
+		}
+		if (!resources.composePipeline) {
+			resources.composePipeline = await shared.compute.createComputePipeline({
+				label: "WebGPUSSGIComposePipeline",
+				compute: { module: resources.module, entryPoint: "csCompose" },
 			});
 		}
-		if (!resources.params) {
-			resources.params = shared.compute.createBuffer({
-				label: "WebGPUSSGIParams",
-				size: 12 * 4,
+		if (!resources.traceParams) {
+			resources.traceParams = shared.compute.createBuffer({
+				label: "WebGPUSSGITraceParams",
+				size: SSGI_TRACE_PARAM_FLOATS * 4,
+				usage: BufferUsage.Uniform | BufferUsage.CopyDst,
+			});
+		}
+		if (!resources.denoiseParams) {
+			resources.denoiseParams = shared.compute.createBuffer({
+				label: "WebGPUSSGIDenoiseParams",
+				size: SSGI_DENOISE_PARAM_FLOATS * 4,
+				usage: BufferUsage.Uniform | BufferUsage.CopyDst,
+			});
+		}
+		if (!resources.composeParams) {
+			resources.composeParams = shared.compute.createBuffer({
+				label: "WebGPUSSGIComposeParams",
+				size: SSGI_COMPOSE_PARAM_FLOATS * 4,
 				usage: BufferUsage.Uniform | BufferUsage.CopyDst,
 			});
 		}
 		return resources;
+	}
+
+	private _breakHistoryContinuity(
+		shared: WebGPUPostProcessServices | undefined
+	): void {
+		if (!shared) return;
+		const resources = this._resources.get(shared);
+		if (resources) {
+			resources.historyContinuity = false;
+		}
+	}
+
+	private _destroyResources(resources: WebGPUSSGIResources): void {
+		resources.shared.destroyManagedResource(
+			resources.tracePipeline,
+			"SSGI trace pipeline"
+		);
+		resources.shared.destroyManagedResource(
+			resources.denoiseHorizontalPipeline,
+			"SSGI horizontal denoise pipeline"
+		);
+		resources.shared.destroyManagedResource(
+			resources.denoiseVerticalPipeline,
+			"SSGI vertical denoise pipeline"
+		);
+		resources.shared.destroyManagedResource(
+			resources.composePipeline,
+			"SSGI compose pipeline"
+		);
+		resources.shared.destroyManagedResource(
+			resources.module,
+			"SSGI shader module"
+		);
+		resources.shared.destroyManagedResource(
+			resources.traceParams,
+			"SSGI trace params buffer"
+		);
+		resources.shared.destroyManagedResource(
+			resources.denoiseParams,
+			"SSGI denoise params buffer"
+		);
+		resources.shared.destroyManagedResource(
+			resources.composeParams,
+			"SSGI compose params buffer"
+		);
+		resources.shared.invalidateBindingsByPrefix("ssgi-");
+		resources.module = null;
+		resources.tracePipeline = null;
+		resources.denoiseHorizontalPipeline = null;
+		resources.denoiseVerticalPipeline = null;
+		resources.composePipeline = null;
+		resources.traceParams = null;
+		resources.denoiseParams = null;
+		resources.composeParams = null;
+		resources.traceGroupLayout0 = null;
+		resources.tracePipelineLayout = null;
 	}
 }
 
@@ -357,13 +948,20 @@ export class ScreenSpaceGlobalIlluminationPass extends PostProcessPass<
 			...config,
 			id: SCREEN_SPACE_GLOBAL_ILLUMINATION_PASS_ORDER.id,
 			schedule: {
-				placement: config.schedule?.placement ?? SCREEN_SPACE_GLOBAL_ILLUMINATION_PASS_ORDER.placement,
-				order: config.schedule?.order ?? SCREEN_SPACE_GLOBAL_ILLUMINATION_PASS_ORDER.order,
-				incremental: config.schedule?.incremental ?? SCREEN_SPACE_GLOBAL_ILLUMINATION_PASS_ORDER.incremental,
+				placement:
+					config.schedule?.placement ??
+					SCREEN_SPACE_GLOBAL_ILLUMINATION_PASS_ORDER.placement,
+				order:
+					config.schedule?.order ??
+					SCREEN_SPACE_GLOBAL_ILLUMINATION_PASS_ORDER.order,
+				incremental:
+					config.schedule?.incremental ??
+					SCREEN_SPACE_GLOBAL_ILLUMINATION_PASS_ORDER.incremental,
 			},
 			label: "SSGI",
 			implementations: {
-				webgpu: () => new WebGPUScreenSpaceGlobalIlluminationImplementation(),
+				webgpu: () =>
+					new WebGPUScreenSpaceGlobalIlluminationImplementation(),
 			},
 		});
 	}
@@ -371,5 +969,37 @@ export class ScreenSpaceGlobalIlluminationPass extends PostProcessPass<
 	public override normalizeOptions(): ResolvedSSGIOptions {
 		return resolveSSGIOptions(this.getRawOptions());
 	}
+}
 
+function resolveSSGIDownsample(value: unknown): 1 | 2 | 4 {
+	const finite = finiteOr(value, DEFAULT_SSGI_OPTIONS.downsample);
+	if (finite <= 1) return 1;
+	if (finite <= 2) return 2;
+	return 4;
+}
+
+function clampInteger(
+	value: unknown,
+	fallback: number,
+	minimum: number,
+	maximum: number
+): number {
+	return clamp(Math.floor(finiteOr(value, fallback)), minimum, maximum);
+}
+
+function positiveFiniteOr(value: unknown, fallback: number): number {
+	const finite = finiteOr(value, fallback);
+	return finite > 0 ? finite : fallback;
+}
+
+function assertParamTarget(
+	target: Float32Array,
+	expectedLength: number,
+	label: string
+): void {
+	if (target.length !== expectedLength) {
+		throw new Error(
+			`SSGI ${label} parameter target must contain ${expectedLength} floats.`
+		);
+	}
 }

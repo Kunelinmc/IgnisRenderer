@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import {
 	GammaPass,
+	ScreenSpaceGlobalIlluminationPass,
 	ScreenSpaceRefractionsPass,
 	ScreenSpaceReflectionsPass,
 	TemporalAntiAliasingPass,
@@ -22,6 +23,7 @@ import { createResolvedPostProcess } from "../../helpers/postprocess.mjs";
 const BUILTIN_PASS_BY_ID = new Map([
 	["gamma", new GammaPass({ enabled: true })],
 	["taa", new TemporalAntiAliasingPass({ enabled: true })],
+	["ssgi", new ScreenSpaceGlobalIlluminationPass({ enabled: true })],
 	["ssr", new ScreenSpaceReflectionsPass({ enabled: true })],
 	["ssrefraction", new ScreenSpaceRefractionsPass({ enabled: true })],
 	["volumetric", new VolumetricLightingPass({ enabled: true })],
@@ -47,6 +49,11 @@ function createTemporalRequest(overrides = {}) {
 			valid: true,
 			read: { resource: { id: "ssr-read" } },
 			write: { resource: { id: "ssr-write" } },
+		},
+		ssgi: {
+			valid: true,
+			read: { resource: { id: "ssgi-read" } },
+			write: { resource: { id: "ssgi-write" } },
 		},
 		volumetric: {
 			valid: true,
@@ -285,6 +292,33 @@ async function testTemporalExecutePassUsesPipelineHistories() {
 	assert.equal(ssrContext.resources.getHistory("ssr").write.id, "ssr-write");
 	assert.equal(ssrContext.resources.getHistory("motion").read.id, "motion-read");
 	assert.equal(ssrContext.resources.getHistory("motion").write.id, "motion-write");
+
+	const ssgiRequest = createTemporalRequest({
+		transients: {
+			"ssgi:denoise-a": {
+				handle: { resource: { id: "ssgi-denoise-a" } },
+			},
+			"ssgi:denoise-b": {
+				handle: { resource: { id: "ssgi-denoise-b" } },
+			},
+		},
+	});
+	const ssgiContext = executor.createPassExecutionContext(
+		createExecutionContextRequest("ssgi", ssgiRequest)
+	);
+	assert.deepEqual(ssgiContext.frameBinding, { id: "frame-binding" });
+	assert.equal(ssgiContext.resources.getHistory("ssgi").read.id, "ssgi-read");
+	assert.equal(ssgiContext.resources.getHistory("ssgi").write.id, "ssgi-write");
+	assert.equal(ssgiContext.resources.getHistory("motion").read.id, "motion-read");
+	assert.equal(ssgiContext.resources.getHistory("motion").write.id, "motion-write");
+	assert.equal(
+		ssgiContext.resources.getTransient("ssgi:denoise-a").id,
+		"ssgi-denoise-a"
+	);
+	assert.equal(
+		ssgiContext.resources.getTransient("ssgi:denoise-b").id,
+		"ssgi-denoise-b"
+	);
 
 	const ssrefractionRequest = createTemporalRequest({
 		transients: {

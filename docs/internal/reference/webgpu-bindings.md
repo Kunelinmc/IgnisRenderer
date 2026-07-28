@@ -311,7 +311,10 @@ All entries in this section are pass-local `group(0)` unless stated otherwise.
 | `bloomUpsample.wgsl` | `0 srcTex` texture, `1 blendTex` texture, `2 linearSampler` sampler, `3 params` uniform, `4 dstTex` write storage texture |
 | `bloomComposite.wgsl` | `0 sceneTex` texture, `1 bloomTex` texture, `2 linearSampler` sampler, `3 params` uniform, `4 dstTex` write storage texture |
 | `ssao.wgsl` | `0 texA` texture, `1 texB` texture, `2 linearSampler` sampler, `3 params` uniform, `4 outTex` write storage texture |
-| `ssgi.wgsl` | `0 sceneColor` texture, `1 gAlbedoAlpha` texture, `2 gNormalRoughMetal` texture, `3 gMotionDepth` texture, `4 linearSampler` sampler, `5 params` uniform, `6 outTex` write storage texture |
+| `ssgi.wgsl` trace/temporal | `0 sceneColor` texture, `1 gNormalRoughMetal` texture, `2 gMotionDepth` texture, `3 hiZ` texture, `4 ssgiHistory` texture, `5 motionHistory` texture, `6 linearSampler` sampler, `7 traceParams` uniform, `8 outSSGIHistory` write storage texture |
+| `ssgi.wgsl` trace frame group | `group(1) binding(0) frame` uniform. Runtime supplies the shared scene frame bind group. |
+| `ssgi.wgsl` denoise | `0 sourceSSGI` texture, `1 gNormalRoughMetal` texture, `2 gMotionDepth` texture, `3 linearSampler` sampler, `4 denoiseParams` uniform, `5 outDenoised` write storage texture |
+| `ssgi.wgsl` compose | `0 composeScene` texture, `1 composeSSGI` texture, `2 composeAlbedo` texture, `3 composeNormalRoughMetal` texture, `4 composeMotionDepth` texture, `5 composeSampler` sampler, `6 composeParams` uniform, `7 composeOut` write storage texture |
 | `taa.wgsl` | `0 currentColor` texture, `1 historyColor` texture, `2 motionDepth` texture, `3 motionHistory` texture, `4 linearSampler` sampler, `5 params` uniform, `6 outColor` write storage texture, `7 outHistory` write storage texture |
 | `hiz.wgsl` depth seed | `0 depthTex` texture, `1 outTex` write storage texture |
 | `hiz.wgsl` mip downsample | `0 srcTex` texture, `1 dstTex` write storage texture |

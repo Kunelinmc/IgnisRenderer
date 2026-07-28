@@ -121,6 +121,12 @@ The renderer frame pipeline must preserve this logical order:
 
 - SSAO must provide screen-space ambient occlusion with depth-aware bilateral
   blur.
+- WebGPU SSGI must reconstruct perspective-camera surfaces from linear view
+  depth, trace cosine-weighted hemisphere rays through the shared Hi-Z
+  resource, own temporal history independently of TAA, and apply separable
+  depth/normal-aware denoising before composition.
+- WebGPU SSGI must skip orthographic cameras without committing temporal
+  history.
 - TAA must provide temporal anti-aliasing with variance clamping and history
   rectification.
 - SSR must use Hi-Z tracing for screen-space reflections and must declare

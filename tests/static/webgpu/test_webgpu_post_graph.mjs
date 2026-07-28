@@ -157,10 +157,53 @@ function testIncrementalStartPassIsResolvedByPlanner() {
 	assert.equal(graph.frameContext.incremental.postProcessStartPass, "color-filter");
 }
 
+function testSSGIRequiresHiZAndSharesMotionHistory() {
+	const planner = new PostProcessPlanner();
+	const unavailableWarnings = [];
+	const ssgiOnly = createPostProcess({ ssgi: { enabled: true } });
+	const unavailable = planner.plan({
+		frameContext: createFrameContext(ssgiOnly),
+		backend: "webgpu",
+		postProcess: ssgiOnly,
+		gBuffer: createGBufferBridge(),
+		resolveImplementation: (pass) => pass.getImplementation("webgpu"),
+		isSharedResourceAvailable: () => false,
+		warn: (key, message) => unavailableWarnings.push([key, message]),
+	});
+	assert.deepEqual(unavailable.passes, []);
+	assert.deepEqual(unavailableWarnings, [[
+		"postprocess-backend-shared-unavailable-ssgi",
+		"Post-process pass \"ssgi\" requires unavailable shared resource " +
+			"\"backend:frame-hiz\"; skipping it",
+	]]);
+
+	const temporal = createPostProcess({
+		ssgi: { enabled: true },
+		taa: { enabled: true },
+		ssr: { enabled: true },
+	});
+	const graph = planner.plan({
+		frameContext: createFrameContext(temporal),
+		backend: "webgpu",
+		postProcess: temporal,
+		gBuffer: createGBufferBridge(),
+		resolveImplementation: (pass) => pass.getImplementation("webgpu"),
+		isSharedResourceAvailable: () => true,
+	});
+	const motionDescriptors = graph.historyDescriptors.filter(
+		(descriptor) => descriptor.id === "motion"
+	);
+	assert.deepEqual(motionDescriptors, [{
+		id: "motion",
+		usage: ["sampled", "copy-dst", "render-target"],
+	}]);
+}
+
 async function run() {
 	testBuiltInOrderUsesPipelineAuthority();
 	testFogSceneModeSkipsFogInPipelineOrder();
 	testIncrementalStartPassIsResolvedByPlanner();
+	testSSGIRequiresHiZAndSharesMotionHistory();
 	console.log("WebGPU post-process pipeline-order tests passed");
 }
 
