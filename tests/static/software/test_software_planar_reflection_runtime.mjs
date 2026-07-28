@@ -432,6 +432,9 @@ function testReflectionCaptureDisablesRecursiveComposite() {
 	let camera;
 	let cameraSnapshot;
 	const fakeRasterizer = {
+		prepareFragmentProgram() {
+			return {};
+		},
 		drawTriangle(_pts, _face, _pixels, context) {
 			assert.equal(camera.viewMatrix, cameraSnapshot.viewMatrix);
 			assert.equal(camera.projectionMatrix, cameraSnapshot.projectionMatrix);

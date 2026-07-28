@@ -37,4 +37,15 @@ const publicIndex = read("../../../src/index.ts");
 assert.equal(
 	/public\s+\{\s*Rasterizer\s*\}|export\s+\{\s*Rasterizer\s*\}/.test(publicIndex), false);
 
+const rasterizerSource = read("../../../src/backends/software/Rasterizer.ts");
+const drawTriangleDeclaration = rasterizerSource.match(
+	/public drawTriangle\([\s\S]*?\n\t\): void \{/
+);
+assert.ok(drawTriangleDeclaration, "Rasterizer.drawTriangle declaration must exist");
+assert.equal(
+	drawTriangleDeclaration[0].includes("decalPackets"),
+	false,
+	"Rasterizer.drawTriangle must consume a prepared fragment program"
+);
+
 console.log("Software backend boundary tests passed");

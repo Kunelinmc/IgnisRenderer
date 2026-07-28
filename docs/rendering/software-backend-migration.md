@@ -34,6 +34,15 @@ capture must not mutate the application `Camera` instance used by the main view.
   later `attach()` or `initialize()` call.
 - `Rasterizer` is no longer exported from the package root. Applications must
   use `SoftwareBackend`; direct deep imports are unsupported internal APIs.
+- Software opaque rasterization must apply prepared decals after base material
+  evaluation and before lighting. Candidate filtering may occur per draw packet,
+  but the projector box, receiver mask, coverage, and channel blend checks must
+  occur at fragment rate.
+- Software decal shading must avoid per-fragment allocation and must write the
+  resolved decal normal to the normal buffer used by post-processing.
+- Software decal material colors must be normalized to linear space before
+  blending. Legacy encoded Phong surface storage must be adapted at the
+  material-surface boundary.
 
 ## Usage
 

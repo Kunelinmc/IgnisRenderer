@@ -10,6 +10,7 @@ import type { ShadowRenderSet } from "../lights/shadows/ShadowMapping";
 import type { IPrimitive } from "../core/types";
 import { DEFAULT_PRIMITIVE_DRAW_TOPOLOGY } from "../core/types";
 import type { Decal } from "../decals";
+import { resolveDecalReceiverLayerMask } from "../decals/evaluation";
 import { MeshInstance } from "../meshes";
 import {
 	buildOcclusionCandidate,
@@ -441,7 +442,9 @@ export class PreparedSceneBuilder {
 		if (!material || material instanceof ShaderMaterial) {
 			return null;
 		}
-		const receiverLayerMask = decal.receiverLayerMask >>> 0;
+		const receiverLayerMask = resolveDecalReceiverLayerMask(
+			decal.receiverLayerMask
+		);
 		if (receiverLayerMask === 0) {
 			return null;
 		}

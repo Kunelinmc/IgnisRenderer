@@ -12,10 +12,9 @@ import type {
  */
 export class GouraudLitShader extends LitShader<PhongSurfaceProperties> {
 	public shade(input: FragmentInput): FragmentOutput | null {
-		const surface = this._evaluator.evaluate(
-			input,
-			this._face
-		) as PhongSurfaceProperties | null;
+		const surface = this._evaluateSurface(input) as
+			| PhongSurfaceProperties
+			| null;
 		if (!surface) return null;
 
 		const res = this._cachedColor;

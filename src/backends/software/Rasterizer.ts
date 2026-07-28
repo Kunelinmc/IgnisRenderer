@@ -24,14 +24,25 @@ import type { Texture } from "../../core/Texture";
 import type { SoftwareShadowRenderTarget } from "./passes/SoftwareShadowPass";
 import type { TemporalJitterFrameState } from "../cross/TemporalJitterState";
 import { SoftwareTriangleInterpolator } from "./Interpolator";
-import { SoftwareMaterialRuntime } from "./SoftwareMaterialRuntime";
+import {
+	SoftwareMaterialRuntime,
+	type SoftwareFragmentProgram,
+} from "./SoftwareMaterialRuntime";
+import type { DecalPacket } from "../../pipeline/types";
 
 export interface RasterizerLike {
+	prepareFragmentProgram(
+		face: ProjectedFace,
+		context: RasterizerContext,
+		isTransparent?: boolean,
+		decalPackets?: readonly DecalPacket[]
+	): SoftwareFragmentProgram;
 	drawTriangle(
 		pts: ProjectedVertex[],
 		face: ProjectedFace,
 		pixels: Uint8ClampedArray,
 		context: RasterizerContext,
+		program: SoftwareFragmentProgram,
 		isTransparent?: boolean
 	): void;
 	drawCameraDepthTriangle(
@@ -112,6 +123,28 @@ export class Rasterizer implements RasterizerLike {
 		u4: 0,
 		v4: 0,
 	};
+
+	/**
+	 * @internal
+	 * Owned by the Software rasterization subsystem; backend orchestration should
+	 * use `SoftwareMainPass`. Prepares the material program for an immediately
+	 * following triangle draw. Software passes must not retain the returned program
+	 * across another prepare call because shaders and surface modifiers are reusable
+	 * mutable state.
+	 */
+	public prepareFragmentProgram(
+		face: ProjectedFace,
+		context: RasterizerContext,
+		isTransparent: boolean = false,
+		decalPackets?: readonly DecalPacket[]
+	): SoftwareFragmentProgram {
+		return this._materialRuntime.prepareFragmentProgram(
+			face,
+			context,
+			isTransparent,
+			decalPackets
+		);
+	}
 
 	public drawDepthTriangle(
 		pts: ProjectedVertex[],
@@ -468,6 +501,7 @@ export class Rasterizer implements RasterizerLike {
 		face: ProjectedFace,
 		pixels: Uint8ClampedArray,
 		context: RasterizerContext,
+		program: SoftwareFragmentProgram,
 		isTransparent: boolean = false
 	): void {
 		const { width, height, depthBuffer } = context;
@@ -483,11 +517,6 @@ export class Rasterizer implements RasterizerLike {
 			clipRect ?
 				Math.min(height - 1, Math.floor(clipRect.maxY))
 			:	height - 1;
-		const program = this._materialRuntime.prepareFragmentProgram(
-			face,
-			context,
-			isTransparent
-		);
 		const material = program.material;
 
 		if (!depthBuffer) return;
@@ -571,7 +600,12 @@ export class Rasterizer implements RasterizerLike {
 
 								if (context.normalBuffer) {
 									const nIdx = bufIdx * 3;
-									const nView = Matrix4.transformNormal(viewMat, input.normal);
+									const surfaceNormal =
+										program.getSurfaceNormal() ?? input.normal;
+									const nView = Matrix4.transformNormal(
+										viewMat,
+										surfaceNormal
+									);
 									const nLen = Math.hypot(nView.x, nView.y, nView.z) || 1;
 									context.normalBuffer[nIdx] = nView.x / nLen;
 									context.normalBuffer[nIdx + 1] = nView.y / nLen;

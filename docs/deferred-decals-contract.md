@@ -1,13 +1,16 @@
-# Deferred Decals Contract
+# Projected Decals Contract
 
 ## Scope
 
-This document defines the first-version texture decal contract for
+This document defines the projected texture decal contract for
 `IgnisRenderer`.
 
-The v1 implementation is WebGPU-only and applies box-projected decals to the
-deferred G-buffer after opaque geometry and before deferred lighting. Software
-and WebGL backends must skip decals without changing frame output.
+WebGPU must apply box-projected decals to the deferred G-buffer after opaque
+geometry and before deferred lighting. Software must apply projected decals
+after base material evaluation and before lighting. WebGL does not currently
+execute decals and must preserve the existing forward opaque output.
+
+Backend-internal decal execution must not add renderer-level frame stages.
 
 ## Background
 
@@ -15,10 +18,9 @@ Decals reuse existing `Material` classes instead of introducing a dedicated
 decal material type. Decal-specific projector and blending state lives on
 `Decal`.
 
-The deferred decal pass must preserve `Decal.priority` and scene traversal order
-for overlapping decals. WebGPU may group contiguous compatible decals into an
-ordered segment, snapshot the current G-buffer once for that segment, apply the
-segment decals in sorted order, then write the updated G-buffer. Decals that
+Supporting backends must preserve `Decal.priority` and scene traversal order for
+overlapping decals. WebGPU may group contiguous compatible decals into an
+ordered segment only when the observable result is unchanged. Decals that
 cannot be grouped must use an ordered fallback path.
 
 ## API/Contract
@@ -26,14 +28,13 @@ cannot be grouped must use an ordered fallback path.
 `Node.renderLayers` must be an unsigned bitmask. The default value is `1`
 (layer bit 0).
 
-`Decal.material` may reference any existing `Material`. `ShaderMaterial` is not
-executed by v1 decal rendering and must be skipped.
+`Decal.material` may reference any built-in `Material`. `ShaderMaterial` is not
+executed as a decal source and must be skipped.
 
 `Decal.receiverLayerMask` must match receiver pixels through
-`MeshInstance.renderLayers & Decal.receiverLayerMask`. WebGPU v1 stores receiver
-layer masks in `gMaterialExt3.w`, an `rgba16float` channel, so only bits `0..10`
-are guaranteed exact in the shader. Higher bits may be used by CPU-side APIs but
-must not be relied on for WebGPU v1 decal receiver tests.
+`MeshInstance.renderLayers & Decal.receiverLayerMask`. Bits `0..10` are the
+cross-backend guaranteed receiver range. Higher bits may be used by CPU-side
+APIs but must not be relied on for cross-backend decal receiver tests.
 
 `Decal.priority` must sort decals in ascending order. Decals with equal priority
 must retain scene traversal order.
@@ -45,6 +46,28 @@ per-decal ordered path.
 
 `Decal.channelBlendModes` may set per-channel blend behavior. Supported modes
 are `disabled`, `lerp`, `replace`, `multiply`, `add`, and `normal`.
+
+`disabled` must preserve the receiver value. `lerp` and `replace` must perform
+opacity-weighted replacement. `multiply` and `add` must perform weighted
+component operations. `normal` must perform normalized direction blending for
+`normal`, `clearcoatNormal`, and `anisotropy`; for scalar and color channels it
+must behave as `lerp`. `multiply` and `add` must not modify direction channels.
+
+Software decal coverage must be the product of `Decal.opacity`, material factor
+alpha, base-color texture alpha, and edge fade. `AlphaMode.Mask` must reject
+Software decal coverage when the resolved material alpha is below
+`alphaCutoff`. A decal must not reclassify an opaque receiver into the
+transparent pass.
+
+Software normal and clearcoat-normal projection must use the inverse-transpose
+projector normal transform. Software anisotropy tangents must use the projector
+linear transform and must be orthogonalized against the resolved receiver
+normal.
+
+Software must normalize decal source colors to linear space before blending.
+When a legacy Phong surface stores encoded color values, Software must adapt the
+value at the surface-modifier boundary so lighting observes the same linear
+result as a PBR receiver.
 
 Incremental rendering must track `DecalPacket` additions, removals, projector
 transform changes, `Decal.material` state, `Decal.receiverLayerMask`,
@@ -61,8 +84,22 @@ The default channel modes must be:
 {
 	baseColor: "lerp",
 	normal: "normal",
+	roughness: "lerp",
+	metalness: "lerp",
+	emissive: "lerp",
+	occlusion: "lerp",
+	specular: "lerp",
+	specularColor: "lerp",
+	clearcoat: "lerp",
+	clearcoatRoughness: "lerp",
 	clearcoatNormal: "normal",
-	roughness: "lerp"
+	sheenColor: "lerp",
+	sheenRoughness: "lerp",
+	transmission: "lerp",
+	thickness: "lerp",
+	iridescence: "lerp",
+	iridescenceThickness: "lerp",
+	anisotropy: "lerp",
 }
 ```
 
@@ -110,9 +147,11 @@ must skip the decal pass for that frame.
 
 ## Compatibility / Breaking Changes
 
-The WebGPU `ModelUniforms` layout adds `nodeRenderLayers` before
+The WebGPU `ModelUniforms` layout includes `nodeRenderLayers` before
 `textureTransformA`. Custom WebGPU shaders that redeclare `ModelUniforms` must
-add the same field to keep texture transform offsets valid.
+include the same field to keep texture transform offsets valid.
 
-V1 decals do not affect transparent objects, particles, shadows, reflection
-captures, or non-WebGPU backends.
+Decals do not affect transparent objects, particles, shadows, reflection
+captures, or receivers that cannot provide the built-in material surface
+contract. WebGL remains unsupported and must skip decals without changing frame
+output.

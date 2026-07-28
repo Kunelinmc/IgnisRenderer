@@ -25,7 +25,7 @@ export class LitShader<
 	}
 
 	public shade(input: FragmentInput): FragmentOutput | null {
-		const surface = this._evaluator.evaluate(input, this._face);
+		const surface = this._evaluateSurface(input);
 		if (!surface) return null;
 		this._lastOpacity = surface.opacity;
 

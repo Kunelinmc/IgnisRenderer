@@ -1,6 +1,10 @@
 import { AlphaMode } from "../../../materials/Material";
 import { Projector } from "../Projector";
-import type { DrawPacket, FrameContext } from "../../../pipeline/types";
+import type {
+	DecalPacket,
+	DrawPacket,
+	FrameContext,
+} from "../../../pipeline/types";
 import type {
 	ProjectedFace,
 	ProjectedVertex,
@@ -15,6 +19,7 @@ import {
 interface ProjectedTriangleWorkItem {
 	pts: [ProjectedVertex, ProjectedVertex, ProjectedVertex];
 	face: ProjectedFace;
+	decalPackets: readonly DecalPacket[];
 }
 
 interface RasterClipRect {
@@ -126,6 +131,9 @@ function collectProjectedTriangles(
 	const frameHeight = context.attachments.height;
 
 	for (const packet of packets) {
+		const decalPackets = transparent ?
+				EMPTY_DECAL_PACKETS
+			:	collectPacketDecals(packet, context.scene.decalPackets);
 		const faces = Projector.projectPacket(packet, context);
 		if (transparent) {
 			faces.sort((left, right) => right.depthInfo.avg - left.depthInfo.avg);
@@ -137,6 +145,7 @@ function collectProjectedTriangles(
 				const triangle: ProjectedTriangleWorkItem = {
 					pts: [projected[0], projected[i], projected[i + 1]],
 					face,
+					decalPackets,
 				};
 				if (
 					dirtyRects &&
@@ -156,6 +165,36 @@ function collectProjectedTriangles(
 	}
 
 	return triangles;
+}
+
+const EMPTY_DECAL_PACKETS: readonly DecalPacket[] = [];
+
+function collectPacketDecals(
+	packet: DrawPacket,
+	decals: readonly DecalPacket[]
+): readonly DecalPacket[] {
+	let result: DecalPacket[] | null = null;
+	for (const decal of decals) {
+		if (
+			(packet.meshInstance.renderLayers & decal.receiverLayerMask) === 0 ||
+			!boundingSpheresIntersect(packet, decal)
+		) {
+			continue;
+		}
+		(result ??= []).push(decal);
+	}
+	return result ?? EMPTY_DECAL_PACKETS;
+}
+
+function boundingSpheresIntersect(
+	packet: DrawPacket,
+	decal: DecalPacket
+): boolean {
+	const dx = packet.worldBounds.center.x - decal.worldBounds.center.x;
+	const dy = packet.worldBounds.center.y - decal.worldBounds.center.y;
+	const dz = packet.worldBounds.center.z - decal.worldBounds.center.z;
+	const radius = packet.worldBounds.radius + decal.worldBounds.radius;
+	return dx * dx + dy * dy + dz * dz <= radius * radius;
 }
 
 function resolveDirtyClipRects(context: FrameContext): RasterClipRect[] {
@@ -342,11 +381,18 @@ export class SoftwareMainPass implements SoftwarePassLike<
 			}
 		}
 		for (const triangle of triangles) {
+			const program = this._rasterizer.prepareFragmentProgram(
+				triangle.face,
+				rasterizerContext,
+				transparent,
+				triangle.decalPackets
+			);
 			this._rasterizer.drawTriangle(
 				triangle.pts,
 				triangle.face,
 				context.attachments.pixels!,
 				rasterizerContext,
+				program,
 				transparent
 			);
 		}

@@ -69,7 +69,8 @@ export interface DecalParams extends NodeParams {
 }
 
 /**
- * A box projector that modifies receiver G-buffer material channels.
+ * A box projector that modifies opaque receiver material channels before
+ * lighting.
  */
 export class Decal extends Node {
 	/** Existing engine material reused as the source of decal textures/factors. */

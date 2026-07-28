@@ -146,6 +146,10 @@ The renderer frame pipeline must preserve this logical order:
   frame-pass stages for Software or WebGL.
 - Detailed WebGPU deferred requirements must follow
   `docs/webgpu-deferred-lighting-contract.md`.
+- Projected decals may introduce backend-internal fragment material mutation in
+  Software. The implementation must follow
+  `docs/deferred-decals-contract.md` and must not add renderer-level frame-pass
+  stages.
 
 ### WebGL Post-Process Program Contract
 

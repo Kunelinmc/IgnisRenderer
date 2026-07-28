@@ -27,6 +27,7 @@ export interface ShaderContext {
 	brdfLUT: Texture | null;
 	enableShadows: boolean;
 	enableSH: boolean;
+	surfaceModifier?: ISurfaceModifier;
 }
 
 export interface FragmentOutput {
@@ -105,6 +106,15 @@ export interface PhongSurfaceProperties extends BaseSurfaceProperties {
 
 export type SurfaceProperties = PBRSurfaceProperties | PhongSurfaceProperties;
 
+/**
+ * @internal Backend-owned hook that modifies evaluated material properties
+ * before lighting.
+ */
+export interface ISurfaceModifier {
+	readonly active: boolean;
+	apply(input: FragmentInput, surface: SurfaceProperties): void;
+}
+
 export interface IMaterialEvaluator<
 	T extends SurfaceProperties = SurfaceProperties,
 > {
@@ -128,5 +138,6 @@ export interface IShader {
 	setEvaluator(evaluator: IMaterialEvaluator): void;
 	initialize(face: ProjectedFace, context: ShaderContext): void;
 	getOpacity(): number;
+	getSurfaceNormal(): IVector3 | null;
 	shade(input: FragmentInput): FragmentOutput | null;
 }

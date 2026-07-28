@@ -18,7 +18,7 @@ export class FlatLitShader<
 	public initialize(face: ProjectedFace, context: ShaderContext): void {
 		super.initialize(face, context);
 		const map = face.material?.map;
-		if (!map) {
+		if (!map && !context.surfaceModifier?.active) {
 			const output = this.shade({
 				zCam: 0,
 				u: 0,

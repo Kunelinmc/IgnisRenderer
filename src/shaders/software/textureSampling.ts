@@ -17,13 +17,41 @@ export function sampleSoftwareTextureMap(
 	u: number,
 	v: number
 ): RGBA | null {
-	if (!map || !map.data) return null;
-	if (map.width <= 0 || map.height <= 0) return null;
+	const sample: RGBA = { r: 0, g: 0, b: 0, a: 1 };
+	return sampleSoftwareTextureMapInto(map, u, v, sample) ? sample : null;
+}
 
-	const uv = resolveSoftwareTextureUV(map, u, v);
+/**
+ * Samples into caller-owned storage so fragment hot paths can avoid allocations.
+ *
+ * @internal Owned by software material and decal evaluation.
+ */
+export function sampleSoftwareTextureMapInto(
+	map: TextureLike | undefined,
+	u: number,
+	v: number,
+	out: RGBA
+): boolean {
+	if (!map || !map.data) return false;
+	if (map.width <= 0 || map.height <= 0) return false;
 
-	let tx = Math.floor(uv.u * map.width);
-	let ty = Math.floor(uv.v * map.height);
+	let uu = u * map.repeat.x;
+	let vv = v * map.repeat.y;
+
+	if (map.rotation !== 0) {
+		const c = Math.cos(map.rotation);
+		const s = Math.sin(map.rotation);
+		const ru = uu * c - vv * s;
+		vv = uu * s + vv * c;
+		uu = ru;
+	}
+	uu += map.offset.x;
+	vv += map.offset.y;
+	uu = wrapSoftwareTextureCoordinate(uu, map.wrapS);
+	vv = wrapSoftwareTextureCoordinate(vv, map.wrapT);
+
+	let tx = Math.floor(uu * map.width);
+	let ty = Math.floor(vv * map.height);
 
 	tx = Math.max(0, Math.min(map.width - 1, tx));
 	ty = Math.max(0, Math.min(map.height - 1, ty));
@@ -33,24 +61,22 @@ export function sampleSoftwareTextureMap(
 		const isFloat = map.data instanceof Float32Array;
 		const colorScale = isFloat ? 255 : 1;
 		const alphaRaw = map.data[idx + 3];
-		return {
-			r: Math.max(0, Math.min(255, (map.data[idx] ?? 0) * colorScale)),
-			g: Math.max(0, Math.min(255, (map.data[idx + 1] ?? 0) * colorScale)),
-			b: Math.max(0, Math.min(255, (map.data[idx + 2] ?? 0) * colorScale)),
-			a:
-				alphaRaw === undefined ? 1
-				: isFloat ? clamp(alphaRaw)
-				: clamp(alphaRaw / 255),
-		};
+		out.r = Math.max(0, Math.min(255, (map.data[idx] ?? 0) * colorScale));
+		out.g = Math.max(0, Math.min(255, (map.data[idx + 1] ?? 0) * colorScale));
+		out.b = Math.max(0, Math.min(255, (map.data[idx + 2] ?? 0) * colorScale));
+		out.a =
+			alphaRaw === undefined ? 1
+			: isFloat ? clamp(alphaRaw)
+			: clamp(alphaRaw / 255);
+		return true;
 	}
 
 	const alpha = map.data[idx + 3] ?? 255;
-	return {
-		r: map.data[idx],
-		g: map.data[idx + 1],
-		b: map.data[idx + 2],
-		a: alpha / 255,
-	};
+	out.r = map.data[idx];
+	out.g = map.data[idx + 1];
+	out.b = map.data[idx + 2];
+	out.a = alpha / 255;
+	return true;
 }
 
 /**
@@ -72,39 +98,15 @@ export function sampleSoftwareTextureAlpha(
 	return sample ? sample.a : 1;
 }
 
-function resolveSoftwareTextureUV(
-	map: NonNullable<TextureLike>,
-	u: number,
-	v: number
-): { u: number; v: number } {
-	let uu = u * map.repeat.x;
-	let vv = v * map.repeat.y;
-
-	if (map.rotation !== 0) {
-		const c = Math.cos(map.rotation);
-		const s = Math.sin(map.rotation);
-		const ru = uu * c - vv * s;
-		const rv = uu * s + vv * c;
-		uu = ru;
-		vv = rv;
+function wrapSoftwareTextureCoordinate(
+	value: number,
+	mode: NonNullable<TextureLike>["wrapS"]
+): number {
+	if (mode === "Repeat") return value - Math.floor(value);
+	if (mode === "MirroredRepeat") {
+		const iteration = Math.floor(value);
+		const fraction = value - iteration;
+		return Math.abs(iteration) % 2 === 1 ? 1 - fraction : fraction;
 	}
-
-	uu += map.offset.x;
-	vv += map.offset.y;
-
-	if (map.wrapS === "Repeat") uu = uu - Math.floor(uu);
-	else if (map.wrapS === "MirroredRepeat") {
-		const iter = Math.floor(uu);
-		uu = uu - iter;
-		if (Math.abs(iter) % 2 === 1) uu = 1.0 - uu;
-	} else uu = clamp(uu);
-
-	if (map.wrapT === "Repeat") vv = vv - Math.floor(vv);
-	else if (map.wrapT === "MirroredRepeat") {
-		const iter = Math.floor(vv);
-		vv = vv - iter;
-		if (Math.abs(iter) % 2 === 1) vv = 1.0 - vv;
-	} else vv = clamp(vv);
-
-	return { u: uu, v: vv };
+	return clamp(value);
 }

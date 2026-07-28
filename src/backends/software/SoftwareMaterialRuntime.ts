@@ -32,6 +32,8 @@ import type {
 	IVector3,
 	SHCoefficients,
 } from "../../maths/types";
+import type { DecalPacket } from "../../pipeline/types";
+import { SoftwareDecalSurfaceModifier } from "./SoftwareDecalSurfaceModifier";
 
 /**
  * @internal
@@ -63,6 +65,7 @@ export interface SoftwareFragmentProgram {
 	readonly shouldWriteDepth: boolean;
 	shade(input: FragmentInput): FragmentOutput | null;
 	getOpacity(): number;
+	getSurfaceNormal(): IVector3 | null;
 }
 
 class ShaderFragmentProgram implements SoftwareFragmentProgram {
@@ -79,6 +82,10 @@ class ShaderFragmentProgram implements SoftwareFragmentProgram {
 	public getOpacity(): number {
 		return this._shader.getOpacity();
 	}
+
+	public getSurfaceNormal(): IVector3 | null {
+		return this._shader.getSurfaceNormal();
+	}
 }
 
 /**
@@ -90,6 +97,7 @@ export class SoftwareMaterialRuntime {
 	private _evaluators: Map<string, IMaterialEvaluator> = new Map();
 	private _strategies: Map<string, ILightingStrategy> = new Map();
 	private _shaderCache: Map<string, IShader> = new Map();
+	private _decalSurfaceModifier = new SoftwareDecalSurfaceModifier();
 
 	public constructor() {
 		this._defaultMaterial = new Material();
@@ -122,7 +130,8 @@ export class SoftwareMaterialRuntime {
 	public prepareFragmentProgram(
 		face: ProjectedFace,
 		context: SoftwareMaterialRuntimeContext,
-		transparent: boolean
+		transparent: boolean,
+		decalPackets?: readonly DecalPacket[]
 	): SoftwareFragmentProgram {
 		const material = this.resolveMaterial(face.material);
 		const shadingModel = material.shading || ShadingModel.Flat;
@@ -147,7 +156,9 @@ export class SoftwareMaterialRuntime {
 			brdfLUT: IBLBRDF.getLUT(),
 			enableShadows: !!context.enableShadows,
 			enableSH: !!context.enableSH,
+			surfaceModifier: this._decalSurfaceModifier,
 		};
+		this._decalSurfaceModifier.prepare(transparent ? null : decalPackets);
 		shader.initialize(face, shaderContext);
 
 		return new ShaderFragmentProgram(

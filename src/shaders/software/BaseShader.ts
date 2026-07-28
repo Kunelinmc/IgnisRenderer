@@ -17,6 +17,7 @@ export abstract class BaseShader<
 	protected _cachedColor: RGB = { r: 0, g: 0, b: 0 };
 	protected _cachedOutput: FragmentOutput = { color: this._cachedColor };
 	protected _lastOpacity = 1;
+	protected _lastSurfaceNormal: T["normal"] | null = null;
 
 	constructor(protected _evaluator: IMaterialEvaluator<T>) {}
 
@@ -31,6 +32,21 @@ export abstract class BaseShader<
 
 	public getOpacity(): number {
 		return this._lastOpacity;
+	}
+
+	public getSurfaceNormal(): T["normal"] | null {
+		return this._lastSurfaceNormal;
+	}
+
+	protected _evaluateSurface(input: FragmentInput): T | null {
+		const surface = this._evaluator.evaluate(input, this._face);
+		if (!surface) {
+			this._lastSurfaceNormal = null;
+			return null;
+		}
+		this._context.surfaceModifier?.apply(input, surface);
+		this._lastSurfaceNormal = surface.normal;
+		return surface;
 	}
 
 	abstract shade(input: FragmentInput): FragmentOutput | null;

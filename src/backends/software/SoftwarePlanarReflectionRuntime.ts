@@ -577,12 +577,18 @@ export class SoftwarePlanarReflectionRuntime {
 			enableSH: context.features.enableSH,
 			enableShadows: context.features.enableShadows,
 		};
+		const program = this._rasterizer.prepareFragmentProgram(
+			face,
+			rasterizerContext,
+			isTransparent
+		);
 
 		this._rasterizer.drawTriangle(
 			pts,
 			face,
 			pixels,
 			rasterizerContext,
+			program,
 			isTransparent
 		);
 	}
