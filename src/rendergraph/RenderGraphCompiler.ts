@@ -638,6 +638,7 @@ function appendPhysicalFeedbackDiagnostics<TPayload, TKind extends string>(
 		transitionsByNode.set(transition.nodeId, entries);
 	}
 	for (const node of nodes) {
+		if (node.internalAccesses === "ordered") continue;
 		const sampled = new Map<string, string>();
 		for (const transition of transitionsByNode.get(node.id) ?? []) {
 			if (transition.access === "write" || transition.usage !== "sampled") continue;

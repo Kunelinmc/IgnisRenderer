@@ -1164,6 +1164,53 @@ function testPassPlanAllowsParticleStageBeforeMainOpaque() {
 	);
 }
 
+async function testPostProcessSessionBindsBeforeFrameGraphPlanning() {
+	const { backend } = createBackend();
+	const calls = [];
+	const port = {};
+	backend._resources = {
+		beginFrameResourceLifecycle() {},
+	};
+	backend._postProcessExecutor = {
+		bindSession(boundPort) {
+			assert.strictEqual(boundPort, port);
+			calls.push("bind-session");
+		},
+		unbindSession(boundPort) {
+			assert.strictEqual(boundPort, port);
+			calls.push("unbind-session");
+		},
+	};
+	backend._frameOrchestrator = {
+		createPostProcessSessionPort() {
+			calls.push("create-session");
+			return port;
+		},
+		beginFrame() {
+			calls.push("plan-frame");
+			assert.deepEqual(calls, [
+				"create-session",
+				"bind-session",
+				"plan-frame",
+			]);
+		},
+		abortFrame() {
+			calls.push("abort-frame");
+		},
+	};
+
+	backend.beginFrame(createFrameContext());
+	assert.strictEqual(backend._postProcessSessionPort, port);
+	await backend.abortFrame(new Error("test cleanup"));
+	assert.deepEqual(calls, [
+		"create-session",
+		"bind-session",
+		"plan-frame",
+		"abort-frame",
+		"unbind-session",
+	]);
+}
+
 async function testAbortFrameClearsPlannerAndDelegatesWithoutEndFrame() {
 	const { backend } = createBackend();
 	let executorAbortCalls = 0;
@@ -1344,6 +1391,7 @@ async function run() {
 	testCommandBufferOwnershipAndOneShotSubmit();
 	testBackendPlanOmitsRendererOwnedPostProcessStage();
 	testPassPlanAllowsParticleStageBeforeMainOpaque();
+	await testPostProcessSessionBindsBeforeFrameGraphPlanning();
 	await testAbortFrameClearsPlannerAndDelegatesWithoutEndFrame();
 	await testEndFrameFailureStillEndsParticleFrameAndClearsPlanner();
 	await testWarmupAggregatesPhases();

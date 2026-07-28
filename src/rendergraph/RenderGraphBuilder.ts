@@ -244,8 +244,8 @@ function areDescriptorsCompatible(
 	parent: RenderGraphResourceDescriptor,
 	child: RenderGraphResourceDescriptor,
 ): boolean {
-	if (parent.kind !== child.kind) return false;
 	if (parent.kind === "external" || child.kind === "external") return true;
+	if (parent.kind !== child.kind) return false;
 	if (parent.kind === "buffer" && child.kind === "buffer") {
 		return parent.size === undefined || child.size === undefined || parent.size === child.size;
 	}

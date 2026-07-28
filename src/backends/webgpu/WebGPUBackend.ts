@@ -643,12 +643,12 @@ export class WebGPUBackend implements IRenderBackend {
 		this._executedPasses.clear();
 		this._particleSimulator?.beginFrame(context);
 		this._resources.beginFrameResourceLifecycle();
-		this._frameOrchestrator.beginFrame(context);
 		const postProcessPort = this._frameOrchestrator.createPostProcessSessionPort();
 		if (postProcessPort) {
 			this._postProcessExecutor?.bindSession(postProcessPort);
 		}
 		this._postProcessSessionPort = postProcessPort;
+		this._frameOrchestrator.beginFrame(context);
 	}
 
 	public executePass(pass: FramePass, context: FrameContext): Promise<void> | void {

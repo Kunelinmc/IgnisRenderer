@@ -1,5 +1,6 @@
 import type { DrawPacket, FrameContext } from "../../../pipeline/types";
 import {
+	SCREEN_SPACE_GLOBAL_ILLUMINATION_PASS_ID,
 	SCREEN_SPACE_REFLECTIONS_PASS_ID,
 	SCREEN_SPACE_REFRACTIONS_PASS_ID,
 	VOLUMETRIC_LIGHTING_PASS_ID,
@@ -11,6 +12,7 @@ import { ParticleBlendMode } from "../../../particles";
 import { materialSupportsWebGPUDeferredLighting } from "../material";
 
 const SHARED_HIZ_POSTPROCESS_PASS_IDS = new Set([
+	SCREEN_SPACE_GLOBAL_ILLUMINATION_PASS_ID,
 	SCREEN_SPACE_REFLECTIONS_PASS_ID,
 	SCREEN_SPACE_REFRACTIONS_PASS_ID,
 	VOLUMETRIC_LIGHTING_PASS_ID,

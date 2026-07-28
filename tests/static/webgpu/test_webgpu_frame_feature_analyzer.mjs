@@ -33,6 +33,19 @@ assert.equal(analysis.needsPlanarReflectionMask, true);
 assert.equal(analysis.needsOcclusionTargets, true);
 assert.equal(analysis.needsHiZTarget, true);
 
+const ssgiContext = createContext();
+ssgiContext.features.enableOIT = false;
+ssgiContext.features.enableReflection = false;
+ssgiContext.features.enableOcclusionCulling = false;
+ssgiContext.postProcess = createResolvedPostProcess({ ssgi: true }, "webgpu");
+ssgiContext.scene.opaquePackets = [];
+ssgiContext.scene.transparentPackets = [];
+ssgiContext.scene.reflectivePackets = [];
+ssgiContext.scene.occlusion = { eligibleCandidateCount: 0 };
+const ssgiAnalysis = new WebGPUFrameFeatureAnalyzer().analyze(ssgiContext);
+assert.equal(ssgiAnalysis.needsPostProcessGBuffer, true);
+assert.equal(ssgiAnalysis.needsHiZTarget, true);
+
 const transmissionOnly = createContext();
 transmissionOnly.scene.transparentPackets = [{ material: { transmissionFactor: 1 } }];
 const transmissionAnalysis = new WebGPUFrameFeatureAnalyzer().analyze(transmissionOnly);

@@ -40,6 +40,13 @@ const noWork = resolve(createContext());
 assert.equal(noWork.sceneTargetMode, "single");
 assert.equal(noWork.targetRequirements, null);
 
+const ssgiContext = createContext();
+ssgiContext.postProcess = createResolvedPostProcess({ ssgi: true }, "webgpu");
+const ssgi = resolve(ssgiContext);
+assert.equal(ssgi.sceneTargetMode, "mrt");
+assert.equal(ssgi.targetRequirements.needsPostProcessTargets, true);
+assert.equal(ssgi.targetRequirements.needsHiZTarget, true);
+
 const oitContext = createContext();
 oitContext.features.enableOIT = true;
 oitContext.scene.transparentPackets.push({ material: {} });

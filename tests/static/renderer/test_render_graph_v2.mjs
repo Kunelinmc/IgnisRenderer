@@ -286,6 +286,29 @@ function testDCEExportRangeAndValidation() {
 	assert.equal(invalid.culledNodeIds.length, 0);
 }
 
+function testOrderedIntraNodeTextureAccesses() {
+	const resources = [texture("feedback")];
+	const accesses = [
+		{ resource: "feedback", access: "write", usage: "storage" },
+		{ resource: "feedback", access: "read", usage: "sampled" },
+	];
+	const simultaneous = compiler.compile({
+		resources,
+		nodes: [node("simultaneous-feedback", accesses)],
+	});
+	assert.ok(simultaneous.diagnostics.some(
+		(entry) => entry.code === "physical-feedback-loop",
+	));
+
+	const ordered = compiler.compile({
+		resources,
+		nodes: [node("ordered-feedback", accesses, { internalAccesses: "ordered" })],
+	});
+	assert.ok(!ordered.diagnostics.some(
+		(entry) => entry.code === "physical-feedback-loop",
+	));
+}
+
 function testSubgraphCompositionAndStructuralErrors() {
 	const subgraph = {
 		resources: [texture("input"), texture("output", "graph")],
@@ -333,6 +356,31 @@ function testSubgraphCompositionAndStructuralErrors() {
 	assert.ok(!optionalGraph.diagnostics.some((entry) => entry.code === "missing-resource"));
 	assert.ok(!optionalGraph.resources.some((entry) => entry.id === "optional-child:optional-input"));
 
+	const externalImport = new RenderGraphBuilder();
+	externalImport.addResource(texture("backend-texture"));
+	externalImport.addSubgraph({
+		resources: [{
+			id: "backend-resource",
+			origin: "imported",
+			kind: "external",
+			residency: "external",
+			initialContent: "unknown",
+		}],
+		imports: [{ name: "backend-resource", resource: "backend-resource" }],
+		nodes: [node("consume-backend-resource", [{
+			resource: "backend-resource",
+			access: "read",
+			usage: "sampled",
+		}])],
+	}, {
+		namespace: "external-child",
+		inputs: { "backend-resource": "backend-texture" },
+	});
+	const externalImportGraph = compiler.compile(externalImport.build());
+	assert.ok(!externalImportGraph.diagnostics.some(
+		(entry) => entry.code === "incompatible-subgraph-port",
+	));
+
 	const incompatible = new RenderGraphBuilder();
 	incompatible.addResource(texture("parent-source"));
 	incompatible.addResource({
@@ -364,5 +412,6 @@ function testSubgraphCompositionAndStructuralErrors() {
 testSubresourceAndPhysicalHazards();
 testDCEAllocationAndGenerationReset();
 testDCEExportRangeAndValidation();
+testOrderedIntraNodeTextureAccesses();
 testSubgraphCompositionAndStructuralErrors();
 console.log("Render Graph V2 tests passed");

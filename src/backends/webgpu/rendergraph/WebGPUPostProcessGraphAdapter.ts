@@ -40,6 +40,7 @@ function toWebGPUNode(
 	return {
 		...node,
 		kind: "post-process-pass",
+		internalAccesses: "ordered",
 		payload: {
 			id: node.id,
 			stage: node.stage,

@@ -680,7 +680,7 @@ export class WebGPUFrameOrchestrator {
 	private _isPostProcessSharedResourceAvailable(resourceId: string): boolean {
 		const targets = this._frameTargets;
 		switch (resourceId) {
-			case "backend:frame-hiz": return this._hiZStatus === "ready";
+			case "backend:frame-hiz": return !!targets?.hiZ;
 			case "backend:transmission-scene-color":
 				return !!targets?.transmissionSceneColorCopy;
 			case "backend:transmission-lighting":

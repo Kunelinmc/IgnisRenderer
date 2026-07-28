@@ -173,6 +173,12 @@ export interface RenderGraphNode<TPayload = unknown, TKind extends string = stri
 	readonly domain?: RenderGraphExecutionDomain;
 	readonly retention?: "always" | "if-reachable";
 	readonly opaque?: boolean;
+	/**
+	 * Indicates that the node contains multiple backend operations whose
+	 * declared accesses execute in order. Inter-node hazards remain visible,
+	 * while sampled/write overlap inside this node is not simultaneous.
+	 */
+	readonly internalAccesses?: "ordered";
 	readonly dependsOn?: readonly RenderGraphNodeId[];
 	readonly requires?: readonly RenderGraphResourceRequirement[];
 	readonly creates?: readonly RenderGraphResourceMutation[];

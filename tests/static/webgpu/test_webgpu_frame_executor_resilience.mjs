@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
 import { WebGPUFrameOrchestrator as WebGPUFrameExecutor } from "../../../src/backends/webgpu/rendergraph/WebGPUFrameOrchestrator.ts";
+import { WebGPUPostProcessExecutor } from "../../../src/backends/webgpu/WebGPUPostProcessExecutor.ts";
 import { Logger } from "../../../src/foundation/Logger.ts";
 import { Camera } from "../../../src/cameras/Camera.ts";
 import { Material } from "../../../src/materials/Material.ts";
 import { PBRMaterial } from "../../../src/materials/PBRMaterial.ts";
 import { Matrix4 } from "../../../src/maths/Matrix4.ts";
+import { BackendPostProcessRuntime } from "../../../src/postprocess/BackendPostProcessRuntime.ts";
 
 import { FakeWebGPUBackend as FakeBackend } from "../../helpers/fakes.mjs";
 import { createResolvedPostProcess } from "../../helpers/postprocess.mjs";
@@ -809,6 +811,29 @@ function testGBufferBridgeReportsAllocatedWebGPUFormats() {
 	assert.equal(
 		bridge.channels.depth.handle.texture,
 		getFrameTargets(executor).gMotionDepth
+	);
+
+	executor.abortFrame();
+}
+
+function testHiZIsPlannableBeforeItsBuildExecutes() {
+	const backend = new FakeBackend();
+	const executor = new WebGPUFrameExecutor(backend, createResourcesStub());
+	const context = createFrameContext(64, 64);
+	context.postProcess = createResolvedPostProcess({
+		ssgi: { enabled: true },
+	}, "webgpu");
+
+	executor.beginFrame(context);
+	const targets = getFrameTargets(executor);
+	const debug = getFrameGraphDebugState(executor);
+	const port = executor.createPostProcessSessionPort();
+
+	assert.ok(targets.hiZ);
+	assert.equal(debug.hiZ.status, "pending");
+	assert.equal(
+		port.isGraphResourceAvailable("backend:frame-hiz"),
+		true,
 	);
 
 	executor.abortFrame();
@@ -1928,6 +1953,54 @@ async function testWholeFramePlanningOccursOnlyAtBeginFrame() {
 		edge.toNodeId === presentNodeId));
 }
 
+function testSSGIWholeFrameGraphCompilation() {
+	const backend = new FakeBackend();
+	const postProcessExecutor = new WebGPUPostProcessExecutor(backend);
+	backend.postProcessRuntime = new BackendPostProcessRuntime({
+		executor: postProcessExecutor,
+		backend,
+	});
+	const executor = new WebGPUFrameExecutor(backend, createResourcesStub());
+	const postProcessPort = executor.createPostProcessSessionPort();
+	postProcessExecutor.bindSession(postProcessPort);
+	const context = createFrameContext(64, 64);
+	context.postProcess = createResolvedPostProcess({
+		ssgi: { enabled: true },
+	}, "webgpu");
+	context.incremental = {
+		enabled: false,
+		forceFullFrame: true,
+		dirtyRects: [],
+	};
+	context.framePlan = {
+		stageOrder: [],
+		backendPasses: [
+			{ stage: "main-opaque", executor: "backend", enabled: true, dependsOn: [] },
+			{
+				stage: "postprocess",
+				executor: "backend",
+				enabled: true,
+				dependsOn: ["main-opaque"],
+			},
+		],
+	};
+
+	executor.beginFrame(context);
+	const debug = getFrameGraphDebugState(executor);
+	const ssgiNode = debug.compiledGraph.nodes.find(
+		(node) => node.id === "postprocess:pass:ssgi",
+	);
+	assert.ok(ssgiNode);
+	assert.equal(ssgiNode.internalAccesses, "ordered");
+	assert.ok(!debug.compiledGraph.diagnostics.some(
+		(entry) =>
+			entry.code === "incompatible-subgraph-port" ||
+			entry.code === "physical-feedback-loop",
+	));
+	executor.abortFrame();
+	postProcessExecutor.unbindSession(postProcessPort);
+}
+
 async function run() {
 	await testZeroSizedFrameSkipsEncoderAndLegacyDepthPath();
 	await testDebugStateRetainsNodesFromEveryCompiledStage();
@@ -1946,6 +2019,7 @@ async function run() {
 	await testLegacyMainPassScalesDirtyRectsToCanvasTarget();
 	testFrameTargetsSkipOptionalTargetsWhenUnused();
 	testGBufferBridgeReportsAllocatedWebGPUFormats();
+	testHiZIsPlannableBeforeItsBuildExecutes();
 	testFrameTargetsAllocateAndReleaseOptionalTargetsWhenNeeded();
 	testFrameTargetsSkippedWhenFrameHasNoOffscreenWork();
 	testTransmissionTargetsAllocateOnlyWhenRefractionHasWork();
@@ -1965,6 +2039,7 @@ async function run() {
 	await testOITMSAAFallsBackToLegacyAndWarns();
 	testOITRuntimeFallbackWarnsWithoutEncoderCopy();
 	await testWholeFramePlanningOccursOnlyAtBeginFrame();
+	testSSGIWholeFrameGraphCompilation();
 	console.log("WebGPU frame executor resilience tests passed");
 }
 
