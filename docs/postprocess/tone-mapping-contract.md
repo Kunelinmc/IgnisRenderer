@@ -23,7 +23,11 @@ IgnisRenderer's main scene color is rendered and stored in HDR formats (e.g. `rg
 ```ts
 import { Renderer, ToneMappingPass, WebGPUBackend } from "ignisrenderer";
 
-const renderer = new Renderer(new WebGPUBackend(), canvas, camera);
+const renderer = new Renderer({
+	backend: new WebGPUBackend(),
+	canvas,
+	camera,
+});
 
 // Tone mapping is enabled by default. To disable:
 const toneMapPass = renderer.postProcess.getPass<ToneMappingPass>("tonemap");

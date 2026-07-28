@@ -143,7 +143,11 @@ function createPostProcessFrameContext(postProcess) {
 
 async function testRendererPostProcessCleanupBridge(canvas) {
 	const backend = new StubBackend();
-	const renderer = new Renderer(backend, canvas, new Camera());
+	const renderer = new Renderer({
+		backend,
+		canvas,
+		camera: new Camera(),
+	});
 	const events = [];
 	renderer.postProcess.registerPass(new CleanupPostProcessPass(events));
 	const postProcess = renderer.postProcess.createSnapshot("stub");
@@ -178,7 +182,7 @@ async function run() {
 			},
 		};
 		const camera = new Camera();
-		const renderer = new Renderer(backend, canvas, camera);
+		const renderer = new Renderer({ backend, canvas, camera });
 		const rendererEvents = [];
 		renderer.on("devicelost", (event) => {
 			rendererEvents.push([

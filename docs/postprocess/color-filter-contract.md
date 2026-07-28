@@ -26,7 +26,11 @@ The renderer provides post-process effects through `renderer.postProcess`. The `
 ```ts
 import { ColorFilterPass, Renderer, WebGPUBackend } from "ignisrenderer";
 
-const renderer = new Renderer(new WebGPUBackend(), canvas, camera);
+const renderer = new Renderer({
+	backend: new WebGPUBackend(),
+	canvas,
+	camera,
+});
 const colorFilter = new ColorFilterPass({ enabled: true });
 renderer.postProcess.registerPass(colorFilter);
 colorFilter.setOptions({

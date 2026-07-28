@@ -68,7 +68,7 @@ async function run() {
 			},
 		};
 		const camera = new Camera();
-		const renderer = new Renderer(backend, canvas, camera);
+		const renderer = new Renderer({ backend, canvas, camera });
 
 		const replacementCamera = new Camera();
 		renderer.scene.add(replacementCamera);

@@ -74,7 +74,7 @@ import { Renderer } from "../src/rendering/Renderer";
 import { WebGPUBackend } from "../src/backends/webgpu/WebGPUBackend";
 
 const backend = new WebGPUBackend();
-const renderer = new Renderer(backend, canvas, camera);
+const renderer = new Renderer({ backend, canvas, camera });
 await renderer.initialize();
 
 renderer.features.enableOcclusionCulling = true;
@@ -89,7 +89,11 @@ await renderer.renderFrame(performance.now());
 const disabledBackend = new WebGPUBackend({
 	enableOcclusionCulling: false,
 });
-const disabledRenderer = new Renderer(disabledBackend, canvas, camera);
+const disabledRenderer = new Renderer({
+	backend: disabledBackend,
+	canvas,
+	camera,
+});
 
 console.assert(
 	disabledRenderer.backendProfile.capabilities.occlusionCulling === false

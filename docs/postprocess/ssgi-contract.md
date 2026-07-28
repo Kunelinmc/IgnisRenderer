@@ -43,7 +43,11 @@ import {
 	WebGPUBackend,
 } from "ignisrenderer";
 
-const renderer = new Renderer(new WebGPUBackend(), canvas, camera);
+const renderer = new Renderer({
+	backend: new WebGPUBackend(),
+	canvas,
+	camera,
+});
 renderer.postProcess.registerPass(new ScreenSpaceGlobalIlluminationPass({
 	enabled: true,
 	options: {

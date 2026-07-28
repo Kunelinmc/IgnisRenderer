@@ -41,7 +41,11 @@ introduced.
 ```ts
 import { Renderer, ToneMappingPass, WebGPUBackend } from "../src";
 
-const renderer = new Renderer(new WebGPUBackend(), canvas, camera);
+const renderer = new Renderer({
+	backend: new WebGPUBackend(),
+	canvas,
+	camera,
+});
 renderer.postProcess.getPass<ToneMappingPass>("tonemap")?.enable();
 renderer.requestRender("hdr-internal");
 ```

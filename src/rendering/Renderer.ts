@@ -158,21 +158,14 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 	private _lastKnownSceneVersion = 0;
 	private _deviceScaleFactor = 1;
 
-	constructor(options: RendererOptions | IRenderBackend, canvasParam?: HTMLCanvasElement, cameraParam?: Camera | null) {
+	/**
+	 * Creates a renderer attached to the supplied backend and canvas.
+	 *
+	 * @param options Renderer dependencies and optional initial camera.
+	 */
+	constructor(options: RendererOptions) {
 		super();
-		let backend: IRenderBackend;
-		let canvas: HTMLCanvasElement;
-		let camera: Camera | null = null;
-		if (options && typeof options === "object" && "canvas" in options) {
-			const opts = options as RendererOptions;
-			backend = opts.backend;
-			canvas = opts.canvas;
-			camera = opts.camera ?? null;
-		} else {
-			backend = options as IRenderBackend;
-			canvas = canvasParam!;
-			camera = cameraParam ?? null;
-		}
+		const { backend, canvas, camera = null } = options;
 
 		this._canvas = canvas;
 		this.logger = Logger;
@@ -184,11 +177,10 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 			readColor: (
 				id: string,
 				attachmentIndex: number,
-				options?: RenderTargetReadbackOptions
+				options?: RenderTargetReadbackOptions,
 			): Promise<RenderTargetReadbackResult> =>
 				this._readRenderTargetColor(id, attachmentIndex, options),
-			getReferencingPassId: (id) =>
-				this.renderPasses?.getReferencingPassId(id) ?? null,
+			getReferencingPassId: (id) => this.renderPasses?.getReferencingPassId(id) ?? null,
 		});
 		this.renderPasses = new CustomRenderPassRegistry({
 			registerPipelineStage: (pass) => {
@@ -247,8 +239,8 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 		});
 
 		backend.attach({
-				surface: { canvas },
-				events: { emit: (event) => this._handleBackendEvent(event) },
+			surface: { canvas },
+			events: { emit: (event) => this._handleBackendEvent(event) },
 		});
 
 		this.backendProfile = backend.profile;
@@ -291,17 +283,14 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 			this._camera.fov = 60;
 		}
 
-		this._camera.aspectRatio = this._getSafeAspectRatio(
-			this.canvas.width,
-			this.canvas.height
-		);
+		this._camera.aspectRatio = this._getSafeAspectRatio(this.canvas.width, this.canvas.height);
 		this._camera.updateMatrices();
 	}
 
 	/**
 	 * Initializes the attached rendering backend and sets up default resource registries.
 	 * Must be called before performing any rendering actions.
-	 * 
+	 *
 	 * @throws {Error} If the renderer is already initialized or has been destroyed.
 	 * @returns A promise that resolves when initialization is complete.
 	 */
@@ -317,7 +306,7 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 
 	/**
 	 * Restores the renderer after context loss or disposal. Re-initializes runtime and resets coordinators.
-	 * 
+	 *
 	 * @returns A promise that resolves when the restore process completes.
 	 */
 	public async restore(): Promise<void> {
@@ -333,7 +322,7 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 	/**
 	 * Disposes all allocated GPU resources, stops the render loop, and cleans up event listeners.
 	 * Once destroyed, the renderer instance can no longer be used.
-	 * 
+	 *
 	 * @returns A promise that resolves when disposal is complete.
 	 */
 	public async destroy(): Promise<void> {
@@ -389,7 +378,7 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 
 	/**
 	 * Gets the active shadow maps mapping.
-	 * 
+	 *
 	 * @internal Owned by the pipeline stage system.
 	 */
 	public get shadowMaps(): Map<ShadowCastingLight, ShadowRenderSet> {
@@ -398,7 +387,7 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 
 	/**
 	 * Gets the current spherical harmonics coefficients.
-	 * 
+	 *
 	 * @internal Owned by the spherical harmonics lighting subsystem.
 	 */
 	public get shCoeffs(): SHCoefficients {
@@ -407,7 +396,7 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 
 	/**
 	 * Gets the current ambient spherical harmonics coefficients.
-	 * 
+	 *
 	 * @internal Owned by the spherical harmonics lighting subsystem.
 	 */
 	public get shAmbientCoeffs(): SHCoefficients {
@@ -416,7 +405,7 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 
 	/**
 	 * Gets the timestamp of the last executed frame.
-	 * 
+	 *
 	 * @internal Owned by the frame execution scheduling subsystem.
 	 */
 	public get lastTime(): number {
@@ -425,7 +414,7 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 
 	/**
 	 * Sets the global spherical harmonics coefficients.
-	 * 
+	 *
 	 * @internal Owned by the spherical harmonics lighting subsystem. Preferred alternative: update lighting sources in the scene.
 	 * @param coeffs The new spherical harmonics coefficients.
 	 */
@@ -435,7 +424,7 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 
 	/**
 	 * Sets the ambient spherical harmonics coefficients.
-	 * 
+	 *
 	 * @internal Owned by the spherical harmonics lighting subsystem. Preferred alternative: update ambient lights in the scene.
 	 * @param coeffs The new ambient spherical harmonics coefficients.
 	 */
@@ -445,7 +434,7 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 
 	/**
 	 * Updates the active shadow map registry.
-	 * 
+	 *
 	 * @internal Owned by the shadow mapping subsystem.
 	 * @param shadowMaps The new shadow map collection mapping.
 	 */
@@ -455,7 +444,7 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 
 	/**
 	 * Sets stats for the last incremental frame.
-	 * 
+	 *
 	 * @internal Owned by the incremental rendering subsystem.
 	 * @param stats The stats to store.
 	 */
@@ -465,7 +454,7 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 
 	/**
 	 * Retrieves an extension interface supported by the active rendering backend.
-	 * 
+	 *
 	 * @template TApi The extension api type.
 	 * @param key The key identifying the requested extension.
 	 * @returns The extension instance if supported, otherwise null.
@@ -476,7 +465,7 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 
 	/**
 	 * Retrieves an extension interface supported by the active rendering backend, throwing if not available.
-	 * 
+	 *
 	 * @template TApi The extension api type.
 	 * @param key The key identifying the requested extension.
 	 * @throws {Error} If the extension is not supported by the backend.
@@ -500,7 +489,7 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 
 	/**
 	 * Emits a post-animation event.
-	 * 
+	 *
 	 * @internal Owned by the FrameCoordinator subsystem. Preferred alternative: subscribe to `RendererEvents.postanimation` instead of calling `emitPostAnimation` directly.
 	 * @param now The current timestamp.
 	 * @param deltaTime The elapsed time since the last frame.
@@ -527,7 +516,7 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 
 	/**
 	 * Logs a warning event with the renderer logger prefix.
-	 * 
+	 *
 	 * @internal Owned by the logging/diagnostics subsystem.
 	 * @param key Unique key for deduping warnings.
 	 * @param message Warning message.
@@ -541,7 +530,7 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 
 	/**
 	 * Triggers the rendering of a single frame. This checks initialization and runs the execution coordinator.
-	 * 
+	 *
 	 * @param nowMs The current animation frame timestamp in milliseconds.
 	 * @throws {Error} If another frame is already rendering concurrently.
 	 * @returns A promise resolving to the frame render result (rendered or skipped).
@@ -552,17 +541,17 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 		}
 		this._assertRuntimeReady("renderFrame");
 		if (this._activeFramePromise) {
-			return Promise.reject(
-				new Error("Renderer.renderFrame() cannot run concurrently.")
-			);
+			return Promise.reject(new Error("Renderer.renderFrame() cannot run concurrently."));
 		}
 		const operation = this._renderFrame(nowMs);
 		this._activeFramePromise = operation;
-		operation.catch(() => {}).finally(() => {
-			if (this._activeFramePromise === operation) {
-				this._activeFramePromise = null;
-			}
-		});
+		operation
+			.catch(() => {})
+			.finally(() => {
+				if (this._activeFramePromise === operation) {
+					this._activeFramePromise = null;
+				}
+			});
 		return operation;
 	}
 
@@ -590,10 +579,9 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 				requestId = null;
 				void this.renderFrame(nowMs)
 					.catch((error) => {
-						this.logger.error(
-							["Renderer render loop frame failed.", error],
-							{ scope: "Renderer" }
-						);
+						this.logger.error(["Renderer render loop frame failed.", error], {
+							scope: "Renderer",
+						});
 					})
 					.finally(scheduleNextFrame);
 			});
@@ -696,7 +684,7 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 			hasParticleSystems,
 			hasActiveAnimations,
 			deltaTimeSeconds,
-			transient
+			transient,
 		);
 
 		this.emit("frameend", { now, deltaTime: this._deltaTime });
@@ -705,7 +693,7 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 
 	/**
 	 * Warmup system execution to precompile shaders/pipelines and initialize cache buffers.
-	 * 
+	 *
 	 * @param options Warmup planning options.
 	 * @returns A promise resolving to the warmup report detailing compiled pipeline count.
 	 */
@@ -726,15 +714,10 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 		const resolved = resolveFeatureState(
 			this.features,
 			this.backendProfile.capabilities,
-			this.backendProfile.id
+			this.backendProfile.id,
 		);
-		const resolvedPostProcess = this.postProcess.createSnapshot(
-			this.backendProfile.id
-		);
-		for (const warning of [
-			...resolved.warnings,
-			...resolvedPostProcess.getWarnings(),
-		]) {
+		const resolvedPostProcess = this.postProcess.createSnapshot(this.backendProfile.id);
+		for (const warning of [...resolved.warnings, ...resolvedPostProcess.getWarnings()]) {
 			this.logger.warn(`[${warning.key}] ${warning.message}`, {
 				scope: "Renderer",
 				onceKey: warning.key,
@@ -753,7 +736,7 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 		const incrementalFrameContext = this._createInitialIncrementalFrameContext(
 			renderDirtyReasonToMask("unknown"),
 			fullFrameRect,
-			fullFrameTiles
+			fullFrameTiles,
 		);
 		const context = this._coordinator.createWarmupContext(
 			this,
@@ -761,7 +744,7 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 			resolved,
 			resolvedPostProcess,
 			transient,
-			incrementalFrameContext
+			incrementalFrameContext,
 		);
 		return this._coordinator.warmup(this, context, options);
 	}
@@ -785,14 +768,14 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 
 		this._camera.aspectRatio = this._getSafeAspectRatio(
 			this._canvas.width,
-			this._canvas.height
+			this._canvas.height,
 		);
 		this._camera.updateMatrices();
 	}
 
 	/**
 	 * Requests a frame redraw by marking the frame as dirty with a specific reason.
-	 * 
+	 *
 	 * @param reason The reason triggering the redraw request.
 	 */
 	public requestRender(reason: RenderDirtyReason = "unknown"): void {
@@ -801,7 +784,7 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 
 	/**
 	 * Binds a new active scene to the renderer and resets the execution coordinator.
-	 * 
+	 *
 	 * @param scene The new Scene graph instance.
 	 */
 	public setScene(scene: Scene): void {
@@ -820,7 +803,7 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 
 	/**
 	 * Binds a new active camera to the renderer and resets the execution coordinator.
-	 * 
+	 *
 	 * @param camera The new Camera instance.
 	 */
 	public setCamera(camera: Camera): void {
@@ -832,7 +815,7 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 
 	/**
 	 * Binds a physics simulation system instance to update and query colliders/rigid bodies.
-	 * 
+	 *
 	 * @param physicsSystem The physics system instance or null to unbind.
 	 */
 	public setPhysicsSystem(physicsSystem: PhysicsSystem | null): void {
@@ -850,7 +833,7 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 
 	/**
 	 * Registers a callback hook that populates custom transient store data before every frame.
-	 * 
+	 *
 	 * @param contributor The contributor function.
 	 */
 	public registerFrameTransientContributor(contributor: FrameTransientContributor): void {
@@ -859,7 +842,7 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 
 	/**
 	 * Unregisters a previously registered frame transient contributor callback.
-	 * 
+	 *
 	 * @param contributor The contributor function.
 	 */
 	public unregisterFrameTransientContributor(contributor: FrameTransientContributor): void {
@@ -869,14 +852,14 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 	private _readRenderTargetColor(
 		id: string,
 		attachmentIndex: number,
-		options?: RenderTargetReadbackOptions
+		options?: RenderTargetReadbackOptions,
 	): Promise<RenderTargetReadbackResult> {
 		const read = this._backend.readRenderTargetColor;
 		if (typeof read !== "function") {
 			return Promise.reject(
 				new Error(
-					`${this.backendProfile.id} backend does not support render target readback.`
-				)
+					`${this.backendProfile.id} backend does not support render target readback.`,
+				),
 			);
 		}
 		return read.call(this._backend, id, attachmentIndex, options);
@@ -884,7 +867,7 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 
 	/**
 	 * Configures incremental rendering options such as tile sizing and dirty rect maximums.
-	 * 
+	 *
 	 * @param options Partial incremental rendering configurations.
 	 */
 	public setIncrementalRendering(options: Partial<IncrementalRenderingOptions>): void {
@@ -906,7 +889,7 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 
 	/**
 	 * Retrieves the current active configuration options for incremental rendering.
-	 * 
+	 *
 	 * @returns A copy of the incremental rendering options.
 	 */
 	public getIncrementalRenderingOptions(): IncrementalRenderingOptions {
@@ -915,7 +898,7 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 
 	/**
 	 * Retrieves planner statistics for the last successfully completed frame.
-	 * 
+	 *
 	 * @returns The last successful frame planner stats, or null if no frame completed.
 	 * Prefer the `incremental` value returned by `renderFrame()` for per-frame data.
 	 */
@@ -940,9 +923,7 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 	 */
 	public updateSH(): void {
 		if (!this._coordinator) {
-			throw new Error(
-				"Renderer.updateSH() requires the renderer-owned FrameCoordinator."
-			);
+			throw new Error("Renderer.updateSH() requires the renderer-owned FrameCoordinator.");
 		}
 		this._coordinator.updateSH(this);
 	}
@@ -1024,15 +1005,12 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 		fullFrameRect: ReturnType<typeof makeFullScreenRect>;
 		fullFrameTiles: DirtyTileCoverage;
 	} {
-		const fullFrameRect = makeFullScreenRect(
-			this._canvas.width,
-			this._canvas.height
-		);
+		const fullFrameRect = makeFullScreenRect(this._canvas.width, this._canvas.height);
 		const fullFrameTiles = buildDirtyTileCoverage(
 			[fullFrameRect],
 			fullFrameRect.width,
 			fullFrameRect.height,
-			this._incrementalOptions.dirtyTileSize
+			this._incrementalOptions.dirtyTileSize,
 		);
 		return {
 			fullFrameRect,
@@ -1043,7 +1021,7 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 	private _createInitialIncrementalFrameContext(
 		reasonMask: number,
 		fullFrameRect: ReturnType<typeof makeFullScreenRect>,
-		fullFrameTiles: DirtyTileCoverage
+		fullFrameTiles: DirtyTileCoverage,
 	): any {
 		return {
 			enabled: true,
@@ -1068,11 +1046,11 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 	private _assertCameraInScene(
 		scene: Scene,
 		camera: Camera,
-		caller: "setScene" | "setCamera" | "renderScene"
+		caller: "setScene" | "setCamera" | "renderScene",
 	): void {
 		if (scene.contains(camera)) return;
 		throw new Error(
-			`Renderer.${caller} requires the active camera to belong to the active scene graph`
+			`Renderer.${caller} requires the active camera to belong to the active scene graph`,
 		);
 	}
 }

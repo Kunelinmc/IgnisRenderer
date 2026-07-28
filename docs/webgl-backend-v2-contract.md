@@ -104,7 +104,7 @@ backend-owned and executes through the `"postprocess"` backend pass.
 import { FogPass, Renderer, WebGLBackend } from "../src";
 
 const backend = new WebGLBackend();
-const renderer = new Renderer(backend, canvas, camera);
+const renderer = new Renderer({ backend, canvas, camera });
 renderer.features.enableSH = true;
 renderer.features.enableClusteredLighting = true;
 renderer.features.clusteredLightingOptions = {

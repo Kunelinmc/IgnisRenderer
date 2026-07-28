@@ -67,7 +67,7 @@ import { Renderer } from "../src/rendering/Renderer";
 import { WebGLBackend } from "../src/backends/webgl/WebGLBackend";
 
 const backend = new WebGLBackend();
-const renderer = new Renderer(backend, canvas, camera);
+const renderer = new Renderer({ backend, canvas, camera });
 await renderer.initialize();
 
 renderer.features.enableOIT = true;

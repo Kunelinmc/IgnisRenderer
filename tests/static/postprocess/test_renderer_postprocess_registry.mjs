@@ -145,7 +145,11 @@ async function run() {
 				return { width: 320, height: 180 };
 			},
 		};
-		const renderer = new Renderer(backend, canvas, new Camera());
+		const renderer = new Renderer({
+			backend,
+			canvas,
+			camera: new Camera(),
+		});
 		renderer.features.enableShadows = false;
 		renderer.features.enableReflection = false;
 		renderer.features.enableEnvironment = false;
@@ -222,7 +226,11 @@ async function run() {
 		);
 
 		const noopBackend = new RegistryBackend();
-		const noopRenderer = new Renderer(noopBackend, canvas, new Camera());
+		const noopRenderer = new Renderer({
+			backend: noopBackend,
+			canvas,
+			camera: new Camera(),
+		});
 		noopRenderer.features.enableShadows = false;
 		noopRenderer.features.enableReflection = false;
 		noopRenderer.features.enableEnvironment = false;
@@ -245,11 +253,11 @@ async function run() {
 			},
 		});
 		const missingAdapterBackend = new NoAdapterBackend();
-		const missingAdapterRenderer = new Renderer(
-			missingAdapterBackend,
+		const missingAdapterRenderer = new Renderer({
+			backend: missingAdapterBackend,
 			canvas,
-			new Camera()
-		);
+			camera: new Camera(),
+		});
 		missingAdapterRenderer.features.enableShadows = false;
 		missingAdapterRenderer.features.enableReflection = false;
 		missingAdapterRenderer.features.enableEnvironment = false;
@@ -282,7 +290,11 @@ async function run() {
 
 		const historySnapshots = [];
 		const historyBackend = new RegistryBackend();
-		const historyRenderer = new Renderer(historyBackend, canvas, new Camera());
+		const historyRenderer = new Renderer({
+			backend: historyBackend,
+			canvas,
+			camera: new Camera(),
+		});
 		historyRenderer.setIncrementalRendering({ enabled: false });
 		historyRenderer.features.enableShadows = false;
 		historyRenderer.features.enableReflection = false;
@@ -332,7 +344,11 @@ async function run() {
 		assert.equal(historySnapshots[1].write, "probe:read");
 
 		const throwingBackend = new RegistryBackend();
-		const throwingRenderer = new Renderer(throwingBackend, canvas, new Camera());
+		const throwingRenderer = new Renderer({
+			backend: throwingBackend,
+			canvas,
+			camera: new Camera(),
+		});
 		throwingRenderer.features.enableShadows = false;
 		throwingRenderer.features.enableReflection = false;
 		throwingRenderer.features.enableEnvironment = false;

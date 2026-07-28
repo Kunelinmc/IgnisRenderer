@@ -71,7 +71,7 @@ async function run() {
 			},
 		};
 		const camera = new Camera();
-		const renderer = new Renderer(backend, canvas, camera);
+		const renderer = new Renderer({ backend, canvas, camera });
 		renderer.features.enableShadows = false;
 		renderer.features.enableEnvironment = false;
 		renderer.postProcess.getPass("gamma")?.disable();

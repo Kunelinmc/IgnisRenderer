@@ -14,6 +14,11 @@ All graphics commands are recorded through a backend-agnostic `ICommandEncoder`.
 ## API/Contract
 
 ### 1. Frame Scheduling & Loop (`Renderer`)
+- `new Renderer(options)`
+  - Input contract: must accept exactly one `RendererOptions` object containing
+    `backend`, `canvas`, and the optional `camera`.
+  - Constraint: positional `backend`, `canvas`, and `camera` constructor
+    arguments are not supported.
 - `Renderer.renderLoop()`
   - Behavior contract: must schedule frames through `requestAnimationFrame`.
   - Behavior contract: must await each `renderFrame(nowMs)` call before scheduling the next frame.
@@ -405,6 +410,8 @@ const readback = await renderer.renderTargets.readColor("inspect", 0);
 - `software-custom-render-targets-unsupported` is logged when SoftwareBackend skips a custom render pass.
 
 ## Compatibility / Breaking Changes
+- `Renderer` construction now requires a single `RendererOptions` object.
+  The positional `new Renderer(backend, canvas, camera)` form is removed.
 - `RenderTargetReadbackOptions.format` and `bytesPerPixel` are removed.
   `readColor` always returns the attachment's actual storage format.
 - `Renderer.renderTargets` now rejects unsupported sample counts and invalid
