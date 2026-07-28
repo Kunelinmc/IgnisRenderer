@@ -15,6 +15,9 @@ import type { IWebGPUComputeFacade } from "./ComputeFacade";
 import { WEBGPU_2D_COMPUTE_WORKGROUP_SIZE as WORKGROUP_SIZE } from "./constants";
 
 const DENOISE_PARAM_FLOATS = 16;
+const DENOISE_TILE_HALO = 8;
+const MAX_DENOISE_RADIUS = 4;
+const MAX_DENOISE_STEP_WIDTH = 4;
 const QUALITY_STEPS = [1, 2, 4] as const;
 
 export type WebGPUDenoiseMode = "fast" | "quality";
@@ -124,7 +127,7 @@ export function resolveWebGPUDenoiseOptions(
 					options?.radius,
 					DEFAULT_WEBGPU_DENOISE_OPTIONS.radius,
 					1,
-					4
+					MAX_DENOISE_RADIUS
 				),
 		depthPhi: nonNegativeFiniteOr(
 			options?.depthPhi,
@@ -174,14 +177,41 @@ export function writeWebGPUDenoiseParams(
 				`${DENOISE_PARAM_FLOATS} floats; received ${target.length}.`
 		);
 	}
-	target[0] = 1 / Math.max(width, 1);
-	target[1] = 1 / Math.max(height, 1);
-	target[2] = options.radius;
-	target[3] = Math.max(1, Math.floor(stepWidth));
-	target[4] = options.depthPhi;
-	target[5] = options.normalPhi;
-	target[6] = options.valuePhi;
-	target[7] = options.confidenceFloor;
+	const radius = clampInteger(
+		options.radius,
+		DEFAULT_WEBGPU_DENOISE_OPTIONS.radius,
+		1,
+		MAX_DENOISE_RADIUS
+	);
+	// Keep the dilated filter footprint inside the shader's fixed tile halo.
+	const maximumStepWidth = Math.min(
+		MAX_DENOISE_STEP_WIDTH,
+		Math.max(1, Math.floor(DENOISE_TILE_HALO / radius))
+	);
+	target[0] = 1 / Math.max(finiteOr(width, 1), 1);
+	target[1] = 1 / Math.max(finiteOr(height, 1), 1);
+	target[2] = radius;
+	target[3] = clampInteger(stepWidth, 1, 1, maximumStepWidth);
+	target[4] = nonNegativeFiniteOr(
+		options.depthPhi,
+		DEFAULT_WEBGPU_DENOISE_OPTIONS.depthPhi
+	);
+	target[5] = nonNegativeFiniteOr(
+		options.normalPhi,
+		DEFAULT_WEBGPU_DENOISE_OPTIONS.normalPhi
+	);
+	target[6] = nonNegativeFiniteOr(
+		options.valuePhi,
+		DEFAULT_WEBGPU_DENOISE_OPTIONS.valuePhi
+	);
+	target[7] = clamp(
+		finiteOr(
+			options.confidenceFloor,
+			DEFAULT_WEBGPU_DENOISE_OPTIONS.confidenceFloor
+		),
+		0,
+		1
+	);
 	target[8] = options.signal === "scalar" ? 1 : 0;
 	target[9] = options.mode === "quality" ? 1 : 0;
 	target[10] = 0;

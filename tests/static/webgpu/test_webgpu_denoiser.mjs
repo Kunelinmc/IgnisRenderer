@@ -7,6 +7,9 @@ import {
 	writeWebGPUDenoiseParams,
 } from "../../../src/backends/webgpu/WebGPUDenoiser.ts";
 import {
+	embeddedShaderSources,
+} from "../../../src/shaders/generated/embeddedShaderSources.ts";
+import {
 	WebGPUPostProcessRuntime,
 } from "../../../src/backends/webgpu/WebGPUPostProcessRuntime.ts";
 import {
@@ -73,6 +76,32 @@ function testOptionsAndParameterPacking() {
 	]);
 	assert.ok(Math.abs(params[7] - 0.05) <= 1e-6);
 	assert.deepEqual(Array.from(params.slice(8, 10)), [1, 1]);
+	const oversizedFootprint = writeWebGPUDenoiseParams(
+		new Float32Array(16),
+		Number.NaN,
+		Number.POSITIVE_INFINITY,
+		99,
+		{
+			...DEFAULT_WEBGPU_DENOISE_OPTIONS,
+			radius: 4,
+			depthPhi: -1,
+			normalPhi: Number.NaN,
+			valuePhi: Number.POSITIVE_INFINITY,
+			confidenceFloor: -2,
+		}
+	);
+	assert.deepEqual(Array.from(oversizedFootprint.slice(0, 4)), [
+		1,
+		1,
+		4,
+		2,
+	]);
+	assert.deepEqual(Array.from(oversizedFootprint.slice(4, 8)), [
+		0,
+		DEFAULT_WEBGPU_DENOISE_OPTIONS.normalPhi,
+		DEFAULT_WEBGPU_DENOISE_OPTIONS.valuePhi,
+		0,
+	]);
 	assert.throws(
 		() => writeWebGPUDenoiseParams(
 			new Float32Array(4),
@@ -83,6 +112,20 @@ function testOptionsAndParameterPacking() {
 		),
 		/16 floats/
 	);
+}
+
+function testShaderDefensiveFiltering() {
+	const shader =
+		embeddedShaderSources["./webgpu/postprocess/denoise.wgsl"];
+	assert.ok(shader);
+	assert.match(shader, /max\(TILE_HALO \/ radius, 1\)/);
+	assert.match(shader, /centerIndex >= TILE_COUNT/);
+	assert.match(shader, /sampleIndexSigned < 0/);
+	assert.match(shader, /sampleIndexSigned >= i32\(TILE_COUNT\)/);
+	assert.match(shader, /signalValueDistance/);
+	assert.match(shader, /log\(1\.0 \+ sampleValue\)/);
+	assert.match(shader, /mix\(centerSignal\.a, neighborhoodConfidence/);
+	assert.match(shader, /mix\(1\.0, rawValueWeight, valueTrust\)/);
 }
 
 async function testFastAndQualityDispatches() {
@@ -244,6 +287,7 @@ async function testRuntimeOwnershipAndInvalidation() {
 }
 
 testOptionsAndParameterPacking();
+testShaderDefensiveFiltering();
 await testFastAndQualityDispatches();
 await testSourceOverwriteAndValidation();
 await testRuntimeOwnershipAndInvalidation();

@@ -119,6 +119,13 @@ The renderer frame pipeline must preserve this logical order:
 - The shared WebGPU denoiser must provide a fast separable bilateral mode and a
   quality separable À-trous mode. Quality mode must use dilation steps `1`,
   `2`, and `4`; both modes must preserve depth and normal discontinuities.
+- WebGPU denoise parameter packing must constrain the filter footprint to the
+  shader tile halo. The shader must also reject computed workgroup indices
+  outside its tile before converting them to unsigned indices.
+- Radiance-confidence denoising must weight radiance by sample reliability and
+  blend output confidence according to reliable neighborhood support. Signal
+  edge weights should use HDR-aware luminance differences and must weaken value
+  rejection when either compared signal has low confidence.
 - Backends may expose `LogicalGBufferBridge`.
 - Backends must not expose public post-process graph registration APIs,
   `renderer.postprocess` backend extensions, or hardcoded pass kernel

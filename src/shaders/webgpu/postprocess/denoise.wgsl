@@ -24,11 +24,13 @@ const WORKGROUP_SIZE = 8u;
 const TILE_EXTENT = 24u;
 const TILE_COUNT = 192u;
 const TILE_HALO = 8i;
+const MAX_FINITE_VALUE = 3.4e38;
+const MAX_SIGNAL_VALUE = 65504.0;
 const LUMINANCE = vec3<f32>(0.2126, 0.7152, 0.0722);
 
-var<workgroup> tileSignal: array<vec4<f32>, 192>;
-var<workgroup> tileDepth: array<f32, 192>;
-var<workgroup> tileNormal: array<vec4<f32>, 192>;
+var<workgroup> tileSignal: array<vec4<f32>, TILE_COUNT>;
+var<workgroup> tileDepth: array<f32, TILE_COUNT>;
+var<workgroup> tileNormal: array<vec4<f32>, TILE_COUNT>;
 
 fn signNotZero2(value: vec2<f32>) -> vec2<f32> {
 	return vec2<f32>(
@@ -124,13 +126,36 @@ fn loadVerticalTile(
 
 fn sanitizeSignal(value: vec4<f32>) -> vec4<f32> {
 	if (params.signalMode > 0.5) {
-		let scalar = clamp(value.x, 0.0, 1.0);
+		let nonNanScalar = select(value.x, 0.0, value.x != value.x);
+		let scalar = clamp(nonNanScalar, 0.0, 1.0);
 		return vec4<f32>(vec3<f32>(scalar), 1.0);
 	}
-	return vec4<f32>(
-		max(value.rgb, vec3<f32>(0.0)),
-		clamp(value.a, 0.0, 1.0)
+	let nonNanColor = select(
+		value.rgb,
+		vec3<f32>(0.0),
+		value.rgb != value.rgb
 	);
+	let nonNanConfidence = select(value.a, 0.0, value.a != value.a);
+	return vec4<f32>(
+		clamp(nonNanColor, vec3<f32>(0.0), vec3<f32>(MAX_SIGNAL_VALUE)),
+		clamp(nonNanConfidence, 0.0, 1.0)
+	);
+}
+
+fn validDepth(value: f32) -> bool {
+	return value == value &&
+		value > 0.0 &&
+		abs(value) <= MAX_FINITE_VALUE;
+}
+
+fn safeNonNegative(value: f32) -> f32 {
+	let nonNanValue = select(value, 0.0, value != value);
+	return clamp(nonNanValue, 0.0, MAX_SIGNAL_VALUE);
+}
+
+fn safePositiveInteger(value: f32, maximum: i32) -> i32 {
+	let nonNanValue = select(value, 1.0, value != value);
+	return i32(clamp(nonNanValue, 1.0, f32(maximum)));
 }
 
 fn signalValue(value: vec4<f32>) -> f32 {
@@ -139,6 +164,13 @@ fn signalValue(value: vec4<f32>) -> f32 {
 		clamp(value.x, 0.0, 1.0),
 		params.signalMode > 0.5
 	);
+}
+
+fn signalValueDistance(centerValue: f32, sampleValue: f32) -> f32 {
+	if (params.signalMode > 0.5) {
+		return abs(sampleValue - centerValue);
+	}
+	return abs(log(1.0 + sampleValue) - log(1.0 + centerValue));
 }
 
 fn spatialWeight(offset: i32, radius: i32) -> f32 {
@@ -157,15 +189,31 @@ fn spatialWeight(offset: i32, radius: i32) -> f32 {
 }
 
 fn filterTile(centerIndex: u32, axisStride: i32) -> vec4<f32> {
+	if (centerIndex >= TILE_COUNT) {
+		return vec4<f32>(0.0);
+	}
 	let centerSignal = sanitizeSignal(tileSignal[centerIndex]);
 	let centerDepth = tileDepth[centerIndex];
-	if (centerDepth <= 0.0) {
+	if (!validDepth(centerDepth)) {
 		return centerSignal;
 	}
 	let centerNormal = tileNormal[centerIndex].xyz;
 	let centerValue = signalValue(centerSignal);
-	let radius = i32(clamp(params.radius, 1.0, 4.0));
-	let stepWidth = i32(clamp(params.stepWidth, 1.0, 4.0));
+	let radius = safePositiveInteger(params.radius, 4);
+	let requestedStepWidth = safePositiveInteger(params.stepWidth, 4);
+	// Keep the footprint within the preloaded halo even for malformed uniforms.
+	let stepWidth = min(
+		requestedStepWidth,
+		max(TILE_HALO / radius, 1)
+	);
+	let depthPhi = safeNonNegative(params.depthPhi);
+	let normalPhi = safeNonNegative(params.normalPhi);
+	let valuePhi = safeNonNegative(params.valuePhi);
+	let confidenceFloor = clamp(
+		safeNonNegative(params.confidenceFloor),
+		0.0,
+		1.0
+	);
 	var colorSum = vec3<f32>(0.0);
 	var scalarSum = 0.0;
 	var confidenceSum = 0.0;
@@ -177,9 +225,14 @@ fn filterTile(centerIndex: u32, axisStride: i32) -> vec4<f32> {
 			continue;
 		}
 		let tileOffset = offset * stepWidth * axisStride;
-		let sampleIndex = u32(i32(centerIndex) + tileOffset);
+		let sampleIndexSigned = i32(centerIndex) + tileOffset;
+		if (sampleIndexSigned < 0 ||
+			sampleIndexSigned >= i32(TILE_COUNT)) {
+			continue;
+		}
+		let sampleIndex = u32(sampleIndexSigned);
 		let sampleDepth = tileDepth[sampleIndex];
-		if (sampleDepth <= 0.0) {
+		if (!validDepth(sampleDepth)) {
 			continue;
 		}
 		let sampleSignal = sanitizeSignal(tileSignal[sampleIndex]);
@@ -189,26 +242,31 @@ fn filterTile(centerIndex: u32, axisStride: i32) -> vec4<f32> {
 			max(max(sampleDepth, centerDepth), 1e-4);
 		let depthWeight = select(
 			1.0,
-			exp(-relativeDepth * params.depthPhi),
-			params.depthPhi > 0.0
+			exp(-relativeDepth * depthPhi),
+			depthPhi > 0.0
 		);
 		let normalWeight = select(
 			1.0,
 			pow(
 				max(dot(centerNormal, sampleNormal), 0.0),
-				max(params.normalPhi, 0.001)
+				max(normalPhi, 0.001)
 			),
-			params.normalPhi > 0.0
+			normalPhi > 0.0
 		);
 		let sampleValue = signalValue(sampleSignal);
-		let relativeValue =
-			abs(sampleValue - centerValue) /
-			max(max(sampleValue, centerValue), 1e-3);
-		let valueWeight = select(
+		let valueDistance = signalValueDistance(centerValue, sampleValue);
+		let rawValueWeight = select(
 			1.0,
-			exp(-relativeValue * params.valuePhi),
-			params.valuePhi > 0.0
+			exp(-valueDistance * valuePhi),
+			valuePhi > 0.0
 		);
+		let valueTrust = select(
+			min(centerSignal.a, sampleSignal.a),
+			1.0,
+			params.signalMode > 0.5
+		);
+		// Radiance differences only represent edges when both values are reliable.
+		let valueWeight = mix(1.0, rawValueWeight, valueTrust);
 		let baseWeight =
 			spatialWeight(offset, radius) *
 			depthWeight *
@@ -221,7 +279,7 @@ fn filterTile(centerIndex: u32, axisStride: i32) -> vec4<f32> {
 			signalWeightSum += baseWeight;
 		} else {
 			let reliability = mix(
-				params.confidenceFloor,
+				confidenceFloor,
 				1.0,
 				sampleSignal.a
 			);
@@ -239,9 +297,20 @@ fn filterTile(centerIndex: u32, axisStride: i32) -> vec4<f32> {
 		let scalar = clamp(scalarSum / signalWeightSum, 0.0, 1.0);
 		return vec4<f32>(vec3<f32>(scalar), 1.0);
 	}
+	let neighborhoodConfidence = clamp(
+		confidenceSum / baseWeightSum,
+		0.0,
+		1.0
+	);
+	let reliableSupport = clamp(
+		signalWeightSum / baseWeightSum,
+		0.0,
+		1.0
+	);
+	// Low-reliability neighborhoods adjust confidence conservatively.
 	return vec4<f32>(
 		max(colorSum / signalWeightSum, vec3<f32>(0.0)),
-		clamp(confidenceSum / baseWeightSum, 0.0, 1.0)
+		mix(centerSignal.a, neighborhoodConfidence, reliableSupport)
 	);
 }
 
