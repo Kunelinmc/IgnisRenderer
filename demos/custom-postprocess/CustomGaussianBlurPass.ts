@@ -13,17 +13,9 @@ import {
 	type IShaderModule,
 } from "../../src/backends/types";
 
-import {
-	WEBGPU_SCREEN_POST_PROCESS_CONTEXT_METADATA,
-} from "../../src/backends/webgpu/WebGPUPostProcessContracts";
-
-import {
-	WEBGL_SCREEN_POST_PROCESS_CONTEXT_METADATA,
-} from "../../src/backends/webgl/WebGLPostProcessContracts";
-
 import type {
-	PostProcessSharedContext,
-} from "../../src/backends/webgpu/postprocess/PostProcessSharedContext";
+	WebGPUPostProcessServices,
+} from "../../src/backends/webgpu/WebGPUPostProcessContracts";
 
 import type {
 	WebGLProgramCompiler,
@@ -35,7 +27,6 @@ import { ShaderSource } from "../../src/shaders/ShaderSource";
 import {
 	bindWebGLPostTarget,
 	forEachSoftwareDirtyRect,
-	publishWebGPUColorTarget,
 	resolveSoftwareDirtyRects,
 	resolveWebGLTarget,
 	resolveWebGPUTarget,
@@ -46,6 +37,11 @@ import {
 
 import { ceilDiv } from "../../src/maths/Misc";
 import { WEBGPU_2D_COMPUTE_WORKGROUP_SIZE } from "../../src/backends/webgpu/constants";
+import {
+	SOFTWARE_IN_PLACE_EXECUTION,
+	WEBGL_VERSIONED_EXECUTION,
+	WEBGPU_VERSIONED_EXECUTION,
+} from "../../src/postprocess/executionDeclarations";
 
 // Import raw shaders via Vite ?raw queries
 import blurShaderWGSL from "./shaders/blur.wgsl?raw";
@@ -75,6 +71,10 @@ export class SoftwareCustomGaussianBlurImplementation
 	implements PostProcessPassImplementation<SoftwareBuiltinPostProcessContext, CustomGaussianBlurOptions>
 {
 	public readonly id = "custom-gaussian-blur:software";
+
+	public describeExecution() {
+		return SOFTWARE_IN_PLACE_EXECUTION;
+	}
 
 	public execute(
 		request: PostProcessPassRequest<CustomGaussianBlurOptions>,
@@ -154,7 +154,7 @@ export class SoftwareCustomGaussianBlurImplementation
 // WebGPU Implementation
 // -----------------------------------------------------------------------------
 interface WebGPUMapResources {
-	shared: PostProcessSharedContext;
+	shared: WebGPUPostProcessServices;
 	module: IShaderModule | null;
 	pipeline: IComputePipeline | null;
 	params: IRenderBuffer | null;
@@ -165,11 +165,12 @@ export class WebGPUCustomGaussianBlurImplementation
 	implements PostProcessPassImplementation<WebGPURuntimePostProcessContext, CustomGaussianBlurOptions>
 {
 	public readonly id = "custom-gaussian-blur:webgpu";
-	public readonly metadata = {
-		context: WEBGPU_SCREEN_POST_PROCESS_CONTEXT_METADATA,
-	};
 
-	private _resources = new Map<PostProcessSharedContext, WebGPUMapResources>();
+	public describeExecution() {
+		return WEBGPU_VERSIONED_EXECUTION;
+	}
+
+	private _resources = new Map<WebGPUPostProcessServices, WebGPUMapResources>();
 
 	public async warmup(
 		context: WebGPURuntimePostProcessContext | undefined
@@ -233,7 +234,11 @@ export class WebGPUCustomGaussianBlurImplementation
 		}
 
 		const targets = context.targets;
-		const target = resolveWebGPUTarget(targets);
+		const target = resolveWebGPUTarget(context);
+		const input = context.resources.color.input;
+		if (!input) {
+			return false;
+		}
 
 		const options = {
 			...DEFAULT_CUSTOM_GAUSSIAN_BLUR_OPTIONS,
@@ -253,7 +258,7 @@ export class WebGPUCustomGaussianBlurImplementation
 			`custom-blur-${target === targets.postPing ? "ping" : "pong"}`,
 			resources.pipeline,
 			[
-				{ binding: 0, resource: targets.sceneColor },
+				{ binding: 0, resource: input },
 				{ binding: 1, resource: resources.params },
 				{ binding: 2, resource: target },
 			],
@@ -270,12 +275,11 @@ export class WebGPUCustomGaussianBlurImplementation
 		);
 		context.encoder.endComputePass();
 
-		publishWebGPUColorTarget(context, target);
 		return true;
 	}
 
 	private async _ensureResources(
-		shared: PostProcessSharedContext
+		shared: WebGPUPostProcessServices
 	): Promise<WebGPUMapResources> {
 		let resources = this._resources.get(shared);
 		if (!resources) {
@@ -335,9 +339,10 @@ export class WebGLCustomGaussianBlurImplementation
 	implements PostProcessPassImplementation<WebGLScreenPostProcessContext, CustomGaussianBlurOptions>
 {
 	public readonly id = "custom-gaussian-blur:webgl";
-	public readonly metadata = {
-		context: WEBGL_SCREEN_POST_PROCESS_CONTEXT_METADATA,
-	};
+
+	public describeExecution() {
+		return WEBGL_VERSIONED_EXECUTION;
+	}
 
 	private _programCompiler: WebGLProgramCompiler | null = null;
 	private _programSlot: WebGLProgramSlot<WebGLBlurProgram> | null = null;
@@ -396,7 +401,6 @@ export class WebGLCustomGaussianBlurImplementation
 		// Cleanup bindings
 		gl.bindVertexArray(null);
 
-		context.publishColorTexture(target.texture);
 		return { ran: true };
 	}
 
@@ -442,16 +446,14 @@ export class CustomGaussianBlurPass extends PostProcessPass<
 			| "id"
 			| "builtIn"
 			| "label"
-			| "placement"
-			| "order"
+			| "schedule"
 			| "implementations"
 		> = {}
 	) {
 		super({
 			...config,
 			id: CUSTOM_GAUSSIAN_BLUR_PASS_ID,
-			placement: "present",
-			order: 850,
+			schedule: { placement: "present", order: 850 },
 			builtIn: false,
 			label: "custom gaussian blur",
 			implementations: {
