@@ -110,4 +110,6 @@ probe.position.set(10, 0, -5);
 - **Default Feature Flags**: The new options `includeMeshes`, `includeTransparent`, `includeParticles`, and `includeShadows` default to `true`.
 - **Projection Matrix Structuring**: `ReflectionProbeRuntimeCache.worldToProbe3x3` is a `Matrix3` instance. Downstream shaders or binders reading raw values must retrieve row-major arrays from `worldToProbe3x3.elements`.
 - **Pipeline Stage Renaming**: The legacy renderer stage `reflection-probe-capture` has been unified under `probe-capture`.
-- **Obsolete Documentation**: The document `docs/reflection-probe-captured-scene-webgpu-v1-contract.md` has been deprecated and replaced by this document.
+- **Obsolete Documentation**: The former
+  `reflection-probe-captured-scene-webgpu-v1-contract.md` document has been
+  deprecated and replaced by this document.

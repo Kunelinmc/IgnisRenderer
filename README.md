@@ -67,10 +67,13 @@ IgnisRenderer/
 |   |-- static/        Headless and contract tests
 |   |-- browser/       Browser integration tests
 |   `-- benchmarks/    Performance benchmarks
-|-- docs/              Architecture and contributor documentation
+|-- docs/              Public API and contributor documentation
 |-- scripts/           Build and maintenance scripts
 `-- assets/            Images and sample assets
 ```
+
+See the [documentation index](docs/README.md) for public API guidance,
+architecture, internal contracts, and contribution workflows.
 
 ## License
 

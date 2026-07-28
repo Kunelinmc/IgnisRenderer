@@ -5,7 +5,7 @@
 This document defines the internal WebGPU frame graph used behind
 `WebGPUFrameOrchestrator`. It does not define renderer-level frame stages or public
 post-process registration APIs. Shared logical analysis is defined by
-`docs/rendergraph/internal-render-graph-architecture.md`.
+`docs/internal/architecture/internal-render-graph-architecture.md`.
 
 ## Background
 

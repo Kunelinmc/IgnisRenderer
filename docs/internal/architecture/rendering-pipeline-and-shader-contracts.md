@@ -145,10 +145,11 @@ The renderer frame pipeline must preserve this logical order:
 - This split must remain WebGPU-internal and must not add global renderer
   frame-pass stages for Software or WebGL.
 - Detailed WebGPU deferred requirements must follow
-  `docs/webgpu-deferred-lighting-contract.md`.
+  `docs/internal/contracts/rendering/backends/webgpu/webgpu-deferred-lighting-contract.md`.
 - Projected decals may introduce backend-internal material mutation only in
   Software and WebGPU. The implementation must follow
-  `docs/deferred-decals-contract.md` and must not add renderer-level frame-pass
+  `docs/internal/contracts/rendering/features/deferred-decals-contract.md` and
+  must not add renderer-level frame-pass
   stages.
 
 ### WebGL Post-Process Program Contract

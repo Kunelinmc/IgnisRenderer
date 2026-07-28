@@ -7,4 +7,6 @@ dist/
 .DS_Store
 Thumbs.db
 public/
+!docs/public/
+!docs/public/**
 .obsidian/

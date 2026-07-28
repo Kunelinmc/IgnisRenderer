@@ -5,7 +5,8 @@
 This document defines the backend-internal WebGL frame graph used behind
 `WebGLBackend`. It does not define renderer-level stages, public
 post-process registration APIs, or public Render Graph APIs. Shared logical
-analysis is defined by `docs/rendergraph/internal-render-graph-architecture.md`.
+analysis is defined by
+`docs/internal/architecture/internal-render-graph-architecture.md`.
 
 ## Background
 
