@@ -1,27 +1,18 @@
 import type { DrawPacket, FrameContext } from "../../../pipeline/types";
 import {
-	SCREEN_SPACE_GLOBAL_ILLUMINATION_PASS_ID,
 	SCREEN_SPACE_REFLECTIONS_PASS_ID,
 	SCREEN_SPACE_REFRACTIONS_PASS_ID,
-	VOLUMETRIC_LIGHTING_PASS_ID,
-	resolvePostProcessExecutionOrder,
-	type ResolvedPostProcessPass,
+	type PlannedPostProcessPass,
 } from "../../../postprocess";
+import { WEBGPU_HIZ_SHARED_RESOURCE } from "../../../postprocess/executionDeclarations";
 import { materialUsesTransmission } from "../../../materials/transparency";
 import { ParticleBlendMode } from "../../../particles";
 import { materialSupportsWebGPUDeferredLighting } from "../material";
 
-const SHARED_HIZ_POSTPROCESS_PASS_IDS = new Set([
-	SCREEN_SPACE_GLOBAL_ILLUMINATION_PASS_ID,
-	SCREEN_SPACE_REFLECTIONS_PASS_ID,
-	SCREEN_SPACE_REFRACTIONS_PASS_ID,
-	VOLUMETRIC_LIGHTING_PASS_ID,
-]);
-
 export interface WebGPUFrameFeatureAnalysis {
 	readonly particleOpaquePackets: readonly DrawPacket[];
 	readonly particleTransparentPackets: readonly DrawPacket[];
-	readonly postProcessPasses: readonly ResolvedPostProcessPass[];
+	readonly postProcessPasses: readonly PlannedPostProcessPass[];
 	readonly hasDeferredLightingWork: boolean;
 	readonly oitRequested: boolean;
 	readonly hasOITWork: boolean;
@@ -53,22 +44,20 @@ export interface WebGPUTransparencyAnalysis {
 export interface WebGPUFrameFeatureAnalysisOptions {
 	readonly particleOpaquePackets?: readonly DrawPacket[];
 	readonly particleTransparentPackets?: readonly DrawPacket[];
+	readonly postProcessPasses: readonly PlannedPostProcessPass[];
 }
 
 /** Scans desired WebGPU frame work without applying capability policy. */
 export class WebGPUFrameFeatureAnalyzer {
 	public analyze(
 		context: FrameContext,
-		options: WebGPUFrameFeatureAnalysisOptions = {},
+		options: WebGPUFrameFeatureAnalysisOptions,
 	): WebGPUFrameFeatureAnalysis {
 		const particleOpaquePackets = options.particleOpaquePackets ?? [];
 		const particleTransparentPackets = options.particleTransparentPackets ?? [];
-		const postProcessPasses = resolvePostProcessExecutionOrder(context.postProcess, {
-			backend: "webgpu",
-			frameContext: context,
-		});
-		// Target discovery precedes declaration planning. Provision the shared
-		// G-buffer conservatively so `describeExecution()` remains single-shot.
+		const postProcessPasses = options.postProcessPasses;
+		// Declarations are retained before target allocation, so discovery can
+		// remain data-driven without describing an implementation twice.
 		const needsPostProcessGBuffer = postProcessPasses.length > 0;
 		const needsPlanarReflection =
 			context.features.enableReflection && context.scene.reflectivePackets.length > 0;
@@ -78,7 +67,11 @@ export class WebGPUFrameFeatureAnalyzer {
 		const needsHiZTarget =
 			needsOcclusionTargets ||
 			postProcessPasses.some((resolved) =>
-				SHARED_HIZ_POSTPROCESS_PASS_IDS.has(resolved.id),
+				resolved.declaration.shared?.some(
+					(resource) =>
+						resource.id === WEBGPU_HIZ_SHARED_RESOURCE.id &&
+						resource.optional !== true,
+				) === true,
 			);
 		const transparency = this._analyzeTransparency(
 			context,

@@ -136,8 +136,8 @@ function testOrderingSlicingAvailabilityAndSingleDescribe() {
 	]);
 	assert.equal(descriptions, 1);
 	assert.deepEqual(warnings.map((entry) => entry.key), [
-		"postprocess-requirement-missing-required-motion",
 		"postprocess-implementation-missing-missing",
+		"postprocess-requirement-missing-required-motion",
 	]);
 
 	const sliced = plan(registry, {
@@ -182,8 +182,56 @@ function testDescriptorsAndDeterministicSignature() {
 	assert.equal(first.signature, second.signature);
 }
 
+function testDeclarationPlanFinalizesAvailabilityWithoutRedescribing() {
+	let descriptions = 0;
+	const registry = new PostProcessPassRegistry();
+	registry.registerPass(new TestPass({
+		id: "shared-reader",
+		declaration: null,
+		describe: () => {
+			descriptions++;
+			return {
+				color: COLOR,
+				shared: [{ id: "backend:frame-hiz", ...READ }],
+			};
+		},
+	}));
+	const context = frame();
+	const snapshot = registry.createSnapshot("software");
+	const planner = new PostProcessPlanner();
+	const declarations = planner.describe({
+		postProcess: snapshot,
+		backend: "software",
+		frameContext: context,
+		gBuffer: gBuffer(),
+		resolveImplementation: (pass) => pass.getImplementation("software"),
+	});
+	assert.equal(descriptions, 1);
+	assert.deepEqual(declarations.passes.map((entry) => entry.id), ["shared-reader"]);
+
+	const warnings = [];
+	const unavailable = planner.finalize(declarations, {
+		gBuffer: gBuffer(),
+		isSharedResourceAvailable: () => false,
+		warn: (key, message) => warnings.push({ key, message }),
+	});
+	assert.equal(descriptions, 1);
+	assert.deepEqual(unavailable.passes, []);
+	assert.deepEqual(warnings.map((entry) => entry.key), [
+		"postprocess-backend-shared-unavailable-shared-reader",
+	]);
+
+	const available = planner.finalize(declarations, {
+		gBuffer: gBuffer(),
+		isSharedResourceAvailable: () => true,
+	});
+	assert.equal(descriptions, 1);
+	assert.deepEqual(available.passes.map((entry) => entry.id), ["shared-reader"]);
+}
+
 testOrderingSlicingAvailabilityAndSingleDescribe();
 testDescriptorsAndDeterministicSignature();
+testDeclarationPlanFinalizesAvailabilityWithoutRedescribing();
 
 // Keep the conflict assertion separate so its message checks backend, pass and resource.
 {

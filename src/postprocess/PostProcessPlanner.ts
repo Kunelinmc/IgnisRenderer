@@ -42,7 +42,7 @@ export interface PostProcessExecutionOrderContext {
 	readonly frameContext?: FrameContext;
 }
 
-export interface PostProcessPlanRequest {
+export interface PostProcessDeclarationPlanRequest {
 	readonly postProcess: PostProcessPassRegistrySnapshot;
 	readonly backend: RenderBackendType;
 	readonly frameContext: FrameContext;
@@ -52,8 +52,16 @@ export interface PostProcessPlanRequest {
 	readonly resolveImplementation: (
 		pass: PostProcessPass
 	) => PostProcessPassImplementation | null;
+}
+
+export interface PostProcessPlanFinalizationRequest {
+	readonly gBuffer: LogicalGBufferBridge;
+	readonly warn?: (key: string, message: string) => void;
 	readonly isSharedResourceAvailable?: (resourceId: string) => boolean;
 }
+
+export interface PostProcessPlanRequest
+	extends PostProcessDeclarationPlanRequest, PostProcessPlanFinalizationRequest {}
 
 export interface PlannedPostProcessPass<TOptions = unknown>
 	extends ResolvedPostProcessPass<TOptions> {
@@ -61,6 +69,19 @@ export interface PlannedPostProcessPass<TOptions = unknown>
 	readonly declaration: PostProcessExecutionDeclaration;
 	readonly historyIds: readonly string[];
 	readonly transientIds: readonly string[];
+}
+
+/** @internal Immutable per-frame declarations awaiting availability filtering. */
+export interface PostProcessDeclarationPlan {
+	readonly backend: RenderBackendType;
+	readonly postProcess: PostProcessPassRegistrySnapshot;
+	readonly frameContext: FrameContext;
+	readonly gBuffer: LogicalGBufferBridge;
+	readonly width: number;
+	readonly height: number;
+	readonly orderedPasses: readonly ResolvedPostProcessPass[];
+	readonly passes: readonly PlannedPostProcessPass[];
+	readonly startPassId: string | null;
 }
 
 export interface PostProcessPlan {
@@ -101,6 +122,22 @@ export function hasPostProcessExecutionPasses(
 /** @internal Resolves one immutable backend post-process plan. */
 export class PostProcessPlanner {
 	public plan(request: PostProcessPlanRequest): PostProcessPlan {
+		return this.finalize(this.describe(request), request);
+	}
+
+	/**
+	 * Resolves and retains immutable declarations before backend target allocation.
+	 *
+	 * @internal Owned by GPU backend frame planning.
+	 * @param request Backend, frame, implementation, and provisional G-buffer
+	 * inputs used to describe the active passes.
+	 * @returns Immutable declarations that must be finalized for the same frame.
+	 * @sideEffects May instantiate backend-local pass implementations and emit
+	 * missing-implementation diagnostics.
+	 */
+	public describe(
+		request: PostProcessDeclarationPlanRequest,
+	): PostProcessDeclarationPlan {
 		const warn = request.warn ?? (() => {});
 		const orderedPasses = resolvePostProcessExecutionOrder(request.postProcess, {
 			backend: request.backend,
@@ -132,9 +169,6 @@ export class PostProcessPlanner {
 				implementation.describeExecution(resolveRequest),
 			);
 			this._validateDeclaration(request.backend, resolved.id, declaration);
-			if (!this._isEligible(resolved.id, declaration, request, warn)) {
-				continue;
-			}
 			passes.push(Object.freeze({
 				...resolved,
 				implementation,
@@ -148,8 +182,6 @@ export class PostProcessPlanner {
 			}));
 		}
 
-		const historyDescriptors = this._collectHistoryDescriptors(request.backend, passes);
-		const transientDescriptors = this._collectTransientDescriptors(request.backend, passes);
 		return Object.freeze({
 			backend: request.backend,
 			postProcess: request.postProcess,
@@ -160,9 +192,47 @@ export class PostProcessPlanner {
 			orderedPasses: Object.freeze(orderedPasses),
 			passes: Object.freeze(passes),
 			startPassId,
+		});
+	}
+
+	/**
+	 * Filters retained declarations against allocated backend resources.
+	 *
+	 * @internal This method must not resolve passes or call `describeExecution()`.
+	 * @param declarations Immutable declarations produced for the active frame.
+	 * @param request Allocated G-buffer and shared-resource availability.
+	 * @returns Immutable executable plan containing only eligible passes.
+	 * @sideEffects May emit missing-resource diagnostics.
+	 */
+	public finalize(
+		declarations: PostProcessDeclarationPlan,
+		request: PostProcessPlanFinalizationRequest,
+	): PostProcessPlan {
+		const warn = request.warn ?? (() => {});
+		const passes = declarations.passes.filter((pass) =>
+			this._isEligible(pass.id, pass.declaration, request, warn)
+		);
+		const historyDescriptors = this._collectHistoryDescriptors(
+			declarations.backend,
+			passes,
+		);
+		const transientDescriptors = this._collectTransientDescriptors(
+			declarations.backend,
+			passes,
+		);
+		return Object.freeze({
+			backend: declarations.backend,
+			postProcess: declarations.postProcess,
+			frameContext: declarations.frameContext,
+			gBuffer: request.gBuffer,
+			width: declarations.width,
+			height: declarations.height,
+			orderedPasses: declarations.orderedPasses,
+			passes: Object.freeze(passes),
+			startPassId: declarations.startPassId,
 			historyDescriptors: Object.freeze(historyDescriptors),
 			transientDescriptors: Object.freeze(transientDescriptors),
-			signature: this._createSignature(request.frameContext, passes),
+			signature: this._createSignature(declarations.frameContext, passes),
 		});
 	}
 
@@ -263,7 +333,7 @@ export class PostProcessPlanner {
 	private _isEligible(
 		passId: string,
 		declaration: PostProcessExecutionDeclaration,
-		request: PostProcessPlanRequest,
+		request: PostProcessPlanFinalizationRequest,
 		warn: (key: string, message: string) => void
 	): boolean {
 		for (const entry of declaration.gBuffer ?? []) {
@@ -379,7 +449,7 @@ export class PostProcessPlanner {
 
 	private _createResolveRequest<TOptions>(
 		resolved: ResolvedPostProcessPass<TOptions>,
-		request: PostProcessPlanRequest,
+		request: PostProcessDeclarationPlanRequest,
 		width: number,
 		height: number
 	): PostProcessPassResolveRequest<TOptions> {

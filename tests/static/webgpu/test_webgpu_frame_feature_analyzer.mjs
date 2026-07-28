@@ -22,7 +22,38 @@ function createContext() {
 	};
 }
 
-const analysis = new WebGPUFrameFeatureAnalyzer().analyze(createContext());
+function postProcessPasses(context) {
+	return Array.from(context.postProcess.getEnabledPasses()).map((resolved) => {
+		const implementation = resolved.pass.getImplementation("webgpu");
+		const declaration = implementation.describeExecution({
+			backend: "webgpu",
+			frameContext: context,
+			postProcess: context.postProcess,
+			width: context.attachments?.width ?? 1,
+			height: context.attachments?.height ?? 1,
+			options: resolved.options,
+		});
+		return {
+			...resolved,
+			implementation,
+			declaration,
+			historyIds: (declaration.histories ?? []).map(
+				(entry) => entry.descriptor.id,
+			),
+			transientIds: (declaration.transients ?? []).map(
+				(entry) => entry.descriptor.id,
+			),
+		};
+	});
+}
+
+function analyze(context, passes = postProcessPasses(context)) {
+	return new WebGPUFrameFeatureAnalyzer().analyze(context, {
+		postProcessPasses: passes,
+	});
+}
+
+const analysis = analyze(createContext());
 assert.equal(analysis.hasDeferredLightingWork, true);
 assert.equal(analysis.oitRequested, true);
 assert.equal(analysis.hasOITWork, true);
@@ -42,13 +73,35 @@ ssgiContext.scene.opaquePackets = [];
 ssgiContext.scene.transparentPackets = [];
 ssgiContext.scene.reflectivePackets = [];
 ssgiContext.scene.occlusion = { eligibleCandidateCount: 0 };
-const ssgiAnalysis = new WebGPUFrameFeatureAnalyzer().analyze(ssgiContext);
+const ssgiAnalysis = analyze(ssgiContext);
 assert.equal(ssgiAnalysis.needsPostProcessGBuffer, true);
 assert.equal(ssgiAnalysis.needsHiZTarget, true);
 
+const customHiZContext = createContext();
+customHiZContext.features.enableOcclusionCulling = false;
+customHiZContext.scene.occlusion = { eligibleCandidateCount: 0 };
+customHiZContext.postProcess = createResolvedPostProcess({}, "webgpu");
+const customHiZAnalysis = analyze(customHiZContext, [{
+	id: "custom-hiz-consumer",
+	pass: {},
+	options: {},
+	implementation: {},
+	declaration: {
+		color: { access: "read", output: "new-version" },
+		shared: [{
+			id: "backend:frame-hiz",
+			access: "read",
+			usage: "sampled",
+		}],
+	},
+	historyIds: [],
+	transientIds: [],
+}]);
+assert.equal(customHiZAnalysis.needsHiZTarget, true);
+
 const transmissionOnly = createContext();
 transmissionOnly.scene.transparentPackets = [{ material: { transmissionFactor: 1 } }];
-const transmissionAnalysis = new WebGPUFrameFeatureAnalyzer().analyze(transmissionOnly);
+const transmissionAnalysis = analyze(transmissionOnly);
 assert.equal(transmissionAnalysis.transparency.hasOITContributors, false);
 assert.equal(transmissionAnalysis.transparency.transmissionPackets.length, 1);
 
@@ -58,7 +111,7 @@ additiveOnly.scene.particleSystems = [{
 	visible: true,
 	templates: [{ shape: { kind: "billboard", blendMode: "additive" } }],
 }];
-const additiveAnalysis = new WebGPUFrameFeatureAnalyzer().analyze(additiveOnly);
+const additiveAnalysis = analyze(additiveOnly);
 assert.equal(additiveAnalysis.transparency.hasOITContributors, false);
 assert.equal(additiveAnalysis.transparency.hasAdditiveBillboardParticles, true);
 

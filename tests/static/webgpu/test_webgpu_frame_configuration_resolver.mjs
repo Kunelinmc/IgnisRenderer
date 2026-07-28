@@ -21,8 +21,35 @@ function createContext() {
 	};
 }
 
+function postProcessPasses(context) {
+	return Array.from(context.postProcess.getEnabledPasses()).map((resolved) => {
+		const implementation = resolved.pass.getImplementation("webgpu");
+		const declaration = implementation.describeExecution({
+			backend: "webgpu",
+			frameContext: context,
+			postProcess: context.postProcess,
+			width: context.attachments?.width ?? 1,
+			height: context.attachments?.height ?? 1,
+			options: resolved.options,
+		});
+		return {
+			...resolved,
+			implementation,
+			declaration,
+			historyIds: (declaration.histories ?? []).map(
+				(entry) => entry.descriptor.id,
+			),
+			transientIds: (declaration.transients ?? []).map(
+				(entry) => entry.descriptor.id,
+			),
+		};
+	});
+}
+
 function resolve(context, overrides = {}) {
-	const analysis = new WebGPUFrameFeatureAnalyzer().analyze(context);
+	const analysis = new WebGPUFrameFeatureAnalyzer().analyze(context, {
+		postProcessPasses: postProcessPasses(context),
+	});
 	return new WebGPUFrameConfigurationResolver().resolve(analysis, {
 		maxColorAttachments: 8,
 		maxColorAttachmentBytesPerSample: 64,
@@ -82,7 +109,9 @@ const deferred = resolve(deferredContext);
 assert.equal(deferred.sceneTargetMode, "gbuffer");
 assert.equal(deferred.deferredActive, true);
 
-const unsupportedAnalysis = new WebGPUFrameFeatureAnalyzer().analyze(deferredContext);
+const unsupportedAnalysis = new WebGPUFrameFeatureAnalyzer().analyze(deferredContext, {
+	postProcessPasses: [],
+});
 const unsupported = new WebGPUFrameConfigurationResolver().resolve(unsupportedAnalysis, {
 	maxColorAttachments: 1,
 	maxColorAttachmentBytesPerSample: 16,

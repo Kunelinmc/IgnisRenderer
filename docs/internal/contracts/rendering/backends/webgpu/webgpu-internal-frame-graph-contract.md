@@ -59,6 +59,12 @@ must remain backend-internal.
 - `WebGPUFrameFeatureAnalyzer` must scan scene, particle, reflection,
   visibility, and post-process work exactly once per frame without applying
   device capability fallbacks.
+- `WebGPUFrameFeatureAnalyzer` must derive post-process frame-target
+  requirements from retained `PostProcessExecutionDeclaration` values. It must
+  not identify resource consumers through built-in post-process pass IDs.
+- WebGPU post-process declarations must be planned before frame-target
+  allocation, finalized against allocated G-buffer and shared-resource
+  availability, and reused for whole-frame graph composition.
 - `WebGPUFrameConfigurationResolver` must consume analyzed feature work and
   resolve only capability gating, effective configuration, and fallback policy.
 - Planner, compiler, orchestrator, and debug state must use the shared typed
@@ -138,7 +144,8 @@ must remain backend-internal.
 - The internal WebGPU graph must not add global renderer-level stages for
   Software or WebGL.
 - The frame graph may allocate a shared full-chain `frame:hiz` target when
-  occlusion culling or a built-in Hi-Z consumer is active. A `hiz-build` node
+  occlusion culling or a declared required Hi-Z consumer is active. A
+  `hiz-build` node
   must run after opaque depth is available and before `occlusion-test`.
 - `WebGPUHiZBuilder` owns Hi-Z shader, pipeline, mip-view, and binding caches.
   `WebGPUFrameTargetManager` owns the `frame:hiz` texture lifetime.

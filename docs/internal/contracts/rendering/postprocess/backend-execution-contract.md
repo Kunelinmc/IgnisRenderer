@@ -19,6 +19,12 @@ Render Graph.
 - `PostProcessPlanner` must resolve enabled passes, deterministic schedule
   order, incremental start, active-backend implementation, execution
   declaration, eligibility, and resource descriptors exactly once per frame.
+- GPU backends that allocate frame targets from post-process requirements must
+  retain a declaration plan before allocation, then finalize resource
+  availability from that retained plan after allocation.
+- Availability finalization must reuse the retained execution declarations. It
+  must not resolve pass order, instantiate implementations, or call
+  `describeExecution()` again.
 - An implementation's `describeExecution()` must be called at most once for
   one planned frame. The immutable returned declaration must be retained by the
   plan and reused by subgraph building and execution.

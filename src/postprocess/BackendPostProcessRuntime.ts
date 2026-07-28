@@ -1,6 +1,7 @@
 import type { FrameContext } from "../pipeline/types";
 import {
 	PostProcessPlanner,
+	type PostProcessDeclarationPlan,
 	type PostProcessPlan,
 } from "./PostProcessPlanner";
 import { PostProcessResourcePool } from "./PostProcessResourcePool";
@@ -159,13 +160,57 @@ export class BackendPostProcessRuntime {
 	 * @sideEffects May emit diagnostics through the configured warning sink.
 	 */
 	public planFrame(context: FrameContext): PostProcessPlan {
-		const graph = this._planner.plan({
+		return this.finalizeFrame(this.describeFrame(context), context);
+	}
+
+	/**
+	 * Resolves immutable declarations before a GPU backend allocates frame targets.
+	 *
+	 * @internal GPU frame orchestrators must retain and finalize this exact plan.
+	 * @param context Active renderer frame context.
+	 * @returns Immutable declaration plan for target discovery.
+	 * @sideEffects May instantiate backend-local pass implementations and emit
+	 * diagnostics.
+	 */
+	public describeFrame(context: FrameContext): PostProcessDeclarationPlan {
+		const declarations = this._planner.describe({
 			postProcess: context.postProcess,
 			backend: this._executor.backend,
 			frameContext: context,
-			gBuffer: this._executor.createGBufferBridge(context),
+			gBuffer: this._createWarmupGBuffer(context),
 			warn: this._warn,
 			resolveImplementation: (pass) => this._resolveImplementation(pass),
+		});
+		this._observePasses(declarations);
+		return declarations;
+	}
+
+	/**
+	 * Finalizes one retained declaration plan against allocated frame resources.
+	 *
+	 * @internal This method does not resolve pass order or call
+	 * `describeExecution()`.
+	 * @param declarations Declaration plan created for `context`.
+	 * @param context Active renderer frame context with allocated targets.
+	 * @returns Immutable executable plan filtered by resource availability.
+	 * @sideEffects May emit missing-resource diagnostics.
+	 */
+	public finalizeFrame(
+		declarations: PostProcessDeclarationPlan,
+		context: FrameContext,
+	): PostProcessPlan {
+		if (
+			declarations.backend !== this._executor.backend ||
+			declarations.frameContext !== context ||
+			declarations.postProcess !== context.postProcess
+		) {
+			throw new Error(
+				"Post-process declaration plan does not belong to the active backend frame.",
+			);
+		}
+		const graph = this._planner.finalize(declarations, {
+			gBuffer: this._executor.createGBufferBridge(context),
+			warn: this._warn,
 			isSharedResourceAvailable: (resourceId) =>
 				this._executor.isGraphResourceAvailable?.(resourceId) ?? true,
 		});
@@ -174,8 +219,13 @@ export class BackendPostProcessRuntime {
 	}
 
 	/** @internal Builds one local logical subgraph for outer whole-frame composition. */
-	public buildRenderGraphFrame(context: FrameContext): PostProcessRenderGraphFrame {
-		const graph = this.planFrame(context);
+	public buildRenderGraphFrame(
+		context: FrameContext,
+		declarations?: PostProcessDeclarationPlan,
+	): PostProcessRenderGraphFrame {
+		const graph = declarations
+			? this.finalizeFrame(declarations, context)
+			: this.planFrame(context);
 		return Object.freeze({ graph, subgraph: this._subgraphBuilder.build(graph) });
 	}
 
@@ -574,7 +624,9 @@ export class BackendPostProcessRuntime {
 		this._pendingFrame = null;
 	}
 
-	private _observePasses(graph: PostProcessPlan): void {
+	private _observePasses(
+		graph: PostProcessPlan | PostProcessDeclarationPlan,
+	): void {
 		for (const resolved of graph.passes) {
 			this._observedPasses.add(resolved.pass);
 		}

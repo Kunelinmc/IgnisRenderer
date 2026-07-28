@@ -30,7 +30,10 @@ export {
 	isPostProcessPassStage,
 	resolvePostProcessExecutionOrder,
 	type PlannedPostProcessPass,
+	type PostProcessDeclarationPlan,
+	type PostProcessDeclarationPlanRequest,
 	type PostProcessPlan,
+	type PostProcessPlanFinalizationRequest,
 	type PostProcessPlanRequest,
 	type PostProcessExecutionOrderContext,
 } from "./PostProcessPlanner";

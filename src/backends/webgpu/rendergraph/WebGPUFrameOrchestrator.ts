@@ -407,6 +407,7 @@ export class WebGPUFrameOrchestrator {
 			return;
 		}
 
+		const postProcessDeclarations = this._postProcessRuntime.describeFrame(context);
 		const encoder = this._host.createCommandEncoder();
 		this._customRenderTargets.sync(context);
 		const analysis = this._featureAnalyzer.analyze(context, {
@@ -418,6 +419,7 @@ export class WebGPUFrameOrchestrator {
 				includeOpaque: false,
 				includeTransparent: true,
 			}),
+			postProcessPasses: postProcessDeclarations.passes,
 		});
 		const configuration = this._configureFrameTargets(
 			context,
@@ -435,16 +437,20 @@ export class WebGPUFrameOrchestrator {
 			analysis,
 			committer: new WebGPUFrameCommitter(this._host),
 		});
-		if (context.framePlan) {
-			try {
+		try {
+			this._postProcessGraphFrame = this._postProcessRuntime.buildRenderGraphFrame(
+				context,
+				postProcessDeclarations,
+			);
+			if (context.framePlan) {
 				this._compileWholeFrameGraph(context);
-			} catch (error) {
-				this._graphCompiler.abort(error);
-				this._clearActiveSession();
-				throw error;
+			} else {
+				this._graphCompiler.beginFrame(this._collectInitialGraphResources());
 			}
-		} else {
-			this._graphCompiler.beginFrame(this._collectInitialGraphResources());
+		} catch (error) {
+			this._graphCompiler.abort(error);
+			this._clearActiveSession();
+			throw error;
 		}
 		this.prepareFrameResources(context);
 	}
@@ -1213,9 +1219,8 @@ export class WebGPUFrameOrchestrator {
 					message: `WebGPU ${reason} stage "${pass.stage}" has undeclared resource effects.`,
 				});
 			} else if (pass.stage === "postprocess") {
-				const frame = this._postProcessRuntime.buildRenderGraphFrame(context);
-				this._postProcessGraphFrame = frame;
-				if (frame.graph.passes.length > 0) {
+				const frame = this._postProcessGraphFrame;
+				if (frame && frame.graph.passes.length > 0) {
 					const composition = createWebGPUPostProcessGraphComposition(frame);
 					postProcessImportResources.push(...composition.importResources);
 					this._postProcessOutputColor = composition.outputColor;
