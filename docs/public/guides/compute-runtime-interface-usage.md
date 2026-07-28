@@ -1,163 +1,188 @@
-# ComputeRuntime Interface Usage
+# Using ComputeRuntime
 
 ## Scope
 
-This document describes how to use `ComputeRuntime` for WebGPU compute jobs.
+Use `ComputeRuntime` to run application-defined WGSL compute work on the WebGPU
+backend. It provides a compact API for creating GPU resources, uploading data,
+dispatching kernels, and reading results back into JavaScript.
 
-`ComputeRuntime` must be constructed from a WebGPU compute source. Valid sources
-are `WebGPUBackend`, `IWebGPUComputeFacade`, or a WebGPU backend-like object
-that exposes the compute, texture, command submission, `device`, and `queue`
-surface required by `WebGPUComputeFacadeSource`. `Renderer` instances and
-renderer-like `{ backend }` wrappers are not valid sources.
-When a source is an `IWebGPUComputeFacade`, its `device`, `queue`, and
-`createComputePipeline(desc)` members must be available, and
-`createComputePipeline(desc)` must return `Promise<IComputePipeline>`.
+This guide covers the public `ComputeRuntime` workflow. It is intended for
+WebGPU applications that need general-purpose GPU work alongside rendering.
 
 ## Background
 
-`ComputeRuntime` provides a backend-facing compute abstraction for creating GPU
-resources, dispatching WGSL compute kernels, and reading results back to CPU
-memory. Texture readback uses WebGPU copy alignment, so callers must decode rows
-through `TextureReadbackResult` helpers instead of assuming tightly packed data.
+A compute job usually follows this lifecycle:
+
+1. Initialize a `WebGPUBackend`.
+2. Create a `ComputeRuntime` from that backend.
+3. Create the buffers, textures, and samplers needed by the job.
+4. Compile a kernel with `createKernel()`.
+5. Dispatch the kernel and await its completion ticket.
+6. Read back any CPU-visible results.
+7. Destroy the runtime when the compute resources are no longer needed.
+
+`ComputeRuntime` implements `IComputeRuntime`, so application code can depend
+on the interface while using the WebGPU implementation today.
 
 ## API/Contract
 
-- `createBuffer(desc)` must create an `IRenderBuffer`.
-- `createTexture(desc)` must create an `IRenderTexture`.
-- `createSampler(desc)` must create an `ISampler`.
-- WebGPU compute facade sources must implement
-  `createComputePipeline(desc): Promise<IComputePipeline>`.
-- WebGPU compute sources must expose an initialized WebGPU `device` and `queue`
-  before `writeTexture`, `readBuffer`, `readTexture`, or dispatch completion
-  tracking can be used.
-- `ComputeRuntime` must not resolve `Renderer` instances, renderer-like
-  `{ backend }` wrappers, or recursive source objects.
-- `writeBuffer(buffer, data, offset?)` must upload buffer bytes.
-- `writeTexture(texture, data, layout, size)` must upload texture bytes and
-  requires positive `layout.bytesPerRow`.
-- `createKernel(descriptor)` must receive unique binding keys and binding
-  indices, and each binding `type` must be `"buffer"`, `"texture"`, or
-  `"sampler"`.
-- `dispatch(options)` must provide resources matching the kernel schema and
-  exactly one of `dispatch` or `dispatch2D`.
-- `readBuffer(options)` must return `BufferReadbackResult`.
-- `readTexture(options)` must return `TextureReadbackResult` with `bytes`,
-  `width`, `height`, `format`, `bytesPerPixel`, `bytesPerRow`, `toFloat32()`,
-  `toRGBAFloat32()`, and `toNormalizedRGBA8Float32()`.
-- `toRGBAFloat32()` must decode `RGBA8Unorm`, `BGRA8Unorm`, and `RGBA16Float`
-  readbacks to an unpadded `Float32Array` in RGBA order.
-- `toNormalizedRGBA8Float32()` must only support `RGBA8Unorm` and `BGRA8Unorm`.
-- `destroy()` must release owned runtime resources.
+### Creating a runtime
 
-## Usage
+Construct `ComputeRuntime` with an initialized `WebGPUBackend` or an
+`IWebGPUComputeFacade`. Keep a reference to the backend when you create your
+`Renderer`; the renderer itself is not a compute source.
 
 ```ts
 import {
-	BufferUsage,
 	ComputeRuntime,
-	TextureFormat,
-	TextureUsage,
-	type IComputeRuntime,
-	type WebGPUBackend,
-} from "../src";
-import { WEBGPU_COMPUTE_EXTENSION } from "../src/backends/BackendExtensions";
+	Renderer,
+	WebGPUBackend,
+} from "ignisrenderer";
 
-declare const backend: WebGPUBackend;
-
-async function run(runtime: IComputeRuntime): Promise<Float32Array> {
-	const texture = runtime.createTexture({
-		label: "OutputTexture",
-		width: 16,
-		height: 16,
-		format: TextureFormat.RGBA16Float,
-		usage: TextureUsage.StorageBinding | TextureUsage.CopySrc,
-	});
-	const params = runtime.createBuffer({
-		label: "Params",
-		size: 16,
-		usage: BufferUsage.Uniform | BufferUsage.CopyDst,
-	});
-
-	runtime.writeBuffer(params, new Float32Array([16, 16, 0, 0]));
-
-	const kernel = await runtime.createKernel({
-		label: "FillTexture",
-		code: `
-@group(0) @binding(0) var outTex: texture_storage_2d<rgba16float, write>;
-@group(0) @binding(1) var<uniform> params: vec4<f32>;
-
-@compute @workgroup_size(8, 8, 1)
-fn csMain(@builtin(global_invocation_id) id: vec3<u32>) {
-	if (id.x >= u32(params.x) || id.y >= u32(params.y)) {
-		return;
-	}
-	textureStore(outTex, vec2<i32>(id.xy), vec4<f32>(2.0, 1.0, 0.5, 1.0));
-}
-`,
-		bindings: [
-			{ key: "outTex", binding: 0, type: "texture" },
-			{ key: "params", binding: 1, type: "buffer" },
-		],
-		workgroupSize: { x: 8, y: 8, z: 1 },
-	});
-
-	await kernel.dispatch({
-		resources: { outTex: texture, params },
-		dispatch2D: { width: 16, height: 16 },
-	}).done;
-
-	const readback = await runtime.readTexture({
-		texture,
-		format: TextureFormat.RGBA16Float,
-	});
-	const pixels = readback.toRGBAFloat32();
-
-	kernel.destroy();
-	texture.destroy();
-	params.destroy();
-	return pixels;
-}
+const backend = new WebGPUBackend();
+const renderer = new Renderer({ backend, canvas });
+await renderer.initialize();
 
 const runtime = new ComputeRuntime(backend);
-const pixels = await run(runtime);
-runtime.destroy();
-console.log(pixels[0]);
 ```
 
-Applications that only have a `Renderer` must resolve the backend-owned compute
-extension outside `ComputeRuntime`, then construct the runtime from that
-extension:
+The backend must finish initialization before the runtime is created, because
+compute submission and readback require an active WebGPU device and queue.
+
+### Resources and uploads
+
+- `createBuffer()`, `createTexture()`, and `createSampler()` create resources
+  owned by the runtime.
+- `writeBuffer()` uploads bytes to a buffer and supports an optional byte
+  offset.
+- `writeTexture()` uploads texture data. Supply a positive `bytesPerRow` that
+  matches the uploaded layout.
+
+Choose usage flags for every operation you plan to perform. For example, a
+texture written by a kernel and later read by JavaScript needs both
+storage-binding and copy-source usage.
+
+### Kernels and dispatch
+
+`createKernel()` compiles WGSL asynchronously and returns an `IComputeKernel`.
+Its binding schema describes the resources managed in bind group 0:
+
+- Every `key` and binding index is unique.
+- Each binding type is `"buffer"`, `"texture"`, or `"sampler"`.
+- The resources passed to `dispatch()` use the same keys and compatible types.
+- The default WGSL entry point is `csMain`.
+- `workgroupSize` should match the shader's `@workgroup_size`.
+
+Choose one dispatch form:
+
+- `dispatch: { x, y, z }` supplies workgroup counts directly.
+- `dispatch2D: { width, height, depth? }` supplies logical dimensions.
+  `ComputeRuntime` converts width and height to workgroup counts using the
+  kernel's `workgroupSize`.
+
+`dispatch()` returns a `ComputeDispatchTicket`. Await `ticket.done` before
+reading results or releasing resources used by that dispatch.
+
+### Readback and cleanup
+
+`readBuffer()` returns raw bytes and a `toFloat32()` helper.
+
+`readTexture()` returns the raw WebGPU copy layout together with image
+dimensions and conversion helpers. Prefer `toRGBAFloat32()` when you need a
+tightly packed RGBA array; it removes row padding and supports
+`RGBA8Unorm`, `BGRA8Unorm`, and `RGBA16Float`.
+
+`toNormalizedRGBA8Float32()` is available for `RGBA8Unorm` and `BGRA8Unorm`
+when all channels should be normalized to the 0–1 range.
+
+Call `destroy()` on short-lived kernels, buffers, or textures when they are no
+longer needed. Calling `runtime.destroy()` releases everything still owned by
+the runtime, including samplers, and makes the runtime unavailable for further
+work.
+
+## Usage
+
+The following minimal job shows runtime setup, kernel creation, binding, and
+dispatch using only exports from the package entry point:
 
 ```ts
-const compute = renderer.requireBackendExtension(WEBGPU_COMPUTE_EXTENSION);
-const runtime = new ComputeRuntime(compute);
+import {
+	ComputeRuntime,
+	Renderer,
+	WebGPUBackend,
+	type IComputeRuntime,
+} from "ignisrenderer";
+
+async function runKernel(runtime: IComputeRuntime): Promise<void> {
+	const sampler = runtime.createSampler({
+		label: "ComputeSampler",
+	});
+
+	const kernel = await runtime.createKernel({
+		label: "ComputeExample",
+		code: `
+@group(0) @binding(0) var computeSampler: sampler;
+
+@compute @workgroup_size(1, 1, 1)
+fn csMain() {}
+`,
+		bindings: [
+			{ key: "computeSampler", binding: 0, type: "sampler" },
+		],
+		workgroupSize: { x: 1, y: 1, z: 1 },
+	});
+
+	const ticket = kernel.dispatch({
+		resources: { computeSampler: sampler },
+		dispatch: { x: 1, y: 1, z: 1 },
+	});
+	await ticket.done;
+
+	kernel.destroy();
+}
+
+const backend = new WebGPUBackend();
+const renderer = new Renderer({ backend, canvas });
+await renderer.initialize();
+
+const runtime = new ComputeRuntime(backend);
+try {
+	await runKernel(runtime);
+} finally {
+	runtime.destroy();
+	await renderer.destroy();
+}
 ```
 
 ## Errors & Diagnostics
 
-- `ComputeRuntime requires a webgpuSource that exposes an initialized GPU device and queue.`
-  triggers when the source cannot resolve a WebGPU `device` and `queue`.
-- `Failed to resolve WebGPU compute facade from provided source.` triggers when
-  a renderer-like wrapper or incomplete backend-like source is passed.
-- Kernel creation must throw for duplicate binding keys, duplicate binding
-  indices, or unsupported binding types.
-- Dispatch must throw when required resources are missing, resource types do not
-  match the schema, or both `dispatch` and `dispatch2D` are supplied.
-- `toNormalizedRGBA8Float32()` must throw for non-8-bit readback formats.
-- `toRGBAFloat32()` must throw for unsupported texture formats.
-- Runtime methods must throw after `destroy()` is called.
+- The runtime reports that it needs an initialized device and queue: call
+  `renderer.initialize()` before constructing the runtime, and pass the
+  initialized backend rather than the renderer.
+- Kernel creation reports a duplicate key or binding: make every schema key and
+  binding index unique, and match the WGSL declarations.
+- Dispatch reports a missing or mismatched resource: compare each
+  `resources` entry with the kernel's binding schema.
+- Dispatch rejects its dimensions: provide exactly one of `dispatch` or
+  `dispatch2D`, using positive integers.
+- Texture upload rejects `bytesPerRow`: provide a positive row stride that
+  matches the source data and WebGPU's requirements for the copy.
+- Texture conversion rejects the format: use `toRGBAFloat32()` only with a
+  supported format, or inspect `readback.bytes` and `bytesPerRow` directly.
+- A method reports that the runtime or kernel is destroyed: create a new
+  runtime or kernel instead of reusing a released instance.
 
 ## Compatibility / Breaking Changes
 
-`IWebGPUComputeFacade.createComputePipeline(desc)` now returns
-`Promise<IComputePipeline>`. Consumers that call the facade directly must
-`await` pipeline creation before creating bind groups, dispatching kernels, or
-passing the pipeline to WebGPU helper code.
+`ComputeRuntime` accepts direct WebGPU compute sources. It no longer unwraps a
+`Renderer` or an object shaped like `{ backend }`. Applications should keep
+the `WebGPUBackend` reference used to construct the renderer and pass that
+backend to `ComputeRuntime`.
 
-`toRGBAFloat32()` remains additive. Existing `toNormalizedRGBA8Float32()`
-callers remain valid for `RGBA8Unorm` and `BGRA8Unorm` readbacks.
+Custom `IWebGPUComputeFacade` implementations return
+`Promise<IComputePipeline>` from `createComputePipeline()`. Await pipeline
+creation before using pipeline-dependent resources.
 
-`ComputeRuntime` no longer accepts `Renderer` instances or renderer-like
-`{ backend }` source wrappers. Callers must pass a `WebGPUBackend`, a
-backend-owned `IWebGPUComputeFacade`, or another direct
-`WebGPUComputeFacadeSource`.
+Existing `toNormalizedRGBA8Float32()` calls remain supported for
+`RGBA8Unorm` and `BGRA8Unorm`. Use `toRGBAFloat32()` when code also needs
+`RGBA16Float` readback or a single format-aware RGBA conversion path.
