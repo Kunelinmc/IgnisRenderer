@@ -1967,6 +1967,9 @@ function testSSGIWholeFrameGraphCompilation() {
 	context.postProcess = createResolvedPostProcess({
 		ssgi: { enabled: true },
 	}, "webgpu");
+	context.scene.transparentPackets = [
+		{ id: "glass", material: { transmissionFactor: 1 } },
+	];
 	context.incremental = {
 		enabled: false,
 		forceFullFrame: true,
@@ -1977,10 +1980,16 @@ function testSSGIWholeFrameGraphCompilation() {
 		backendPasses: [
 			{ stage: "main-opaque", executor: "backend", enabled: true, dependsOn: [] },
 			{
-				stage: "postprocess",
+				stage: "main-transparent",
 				executor: "backend",
 				enabled: true,
 				dependsOn: ["main-opaque"],
+			},
+			{
+				stage: "postprocess",
+				executor: "backend",
+				enabled: true,
+				dependsOn: ["main-transparent"],
 			},
 		],
 	};

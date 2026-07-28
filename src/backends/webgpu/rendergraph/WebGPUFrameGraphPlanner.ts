@@ -580,9 +580,20 @@ export class WebGPUFrameGraphPlanner {
 		if (!state.needsTransmissionTargets) {
 			return resources;
 		}
+		const frameAttachmentIds = new Set<WebGPUFrameGraphResourceId>([
+			WEBGPU_FRAME_GRAPH_RESOURCES.frameColor,
+			WEBGPU_FRAME_GRAPH_RESOURCES.frameDepth,
+			WEBGPU_FRAME_GRAPH_RESOURCES.canvasColor,
+			WEBGPU_FRAME_GRAPH_RESOURCES.canvasDepth,
+		]);
 		return {
-			reads: [...(resources.reads ?? []), ...this._createTransmissionReads(state)],
-			writes: [...(resources.writes ?? []), ...this._createTransmissionWrites(state)],
+			reads: [
+				...(resources.reads ?? []).filter(
+					(resource) => !frameAttachmentIds.has(resource.id),
+				),
+				...this._createTransmissionReads(state),
+			],
+			writes: this._createTransmissionWrites(state),
 		};
 	}
 
@@ -641,7 +652,7 @@ export class WebGPUFrameGraphPlanner {
 			...this._createPagedShadowLightingReads(context),
 		];
 		if (loadExistingColor) {
-			reads.push(this._read(sceneColor, "texture-binding", true));
+			reads.push(this._read(sceneColor, "render-attachment", true));
 			reads.push(this._read(depth, "depth-attachment", true));
 		}
 		return {

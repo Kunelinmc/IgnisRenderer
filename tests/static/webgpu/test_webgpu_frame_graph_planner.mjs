@@ -237,6 +237,58 @@ function run() {
 		]
 	);
 
+	const transmission = planner.planStage(
+		createPass("main-transparent"),
+		context,
+		createState({
+			hasOITMeshContributors: false,
+			hasTransmissionPackets: true,
+		})
+	);
+	assert.deepEqual(
+		transmission.nodes.map((node) => node.kind),
+		["transmission"]
+	);
+	assert.equal(
+		transmission.nodes[0].reads.find(
+			(read) => read.id === "frame:scene-color-main"
+		)?.usage,
+		"render-attachment"
+	);
+
+	const transmissionCapture = planner.planStage(
+		createPass("main-transparent"),
+		context,
+		createState({
+			hasOITMeshContributors: false,
+			hasTransmissionPackets: true,
+			needsTransmissionTargets: true,
+		})
+	);
+	assert.deepEqual(
+		transmissionCapture.nodes.map((node) => node.kind),
+		["transmission"]
+	);
+	assert.equal(
+		transmissionCapture.nodes[0].reads.find(
+			(read) => read.id === "frame:scene-color-main"
+		)?.usage,
+		"copy-src"
+	);
+	assert.equal(
+		transmissionCapture.nodes[0].writes.some(
+			(write) =>
+				write.id === "frame:scene-color-main" ||
+				write.id === "frame:depth"
+		),
+		false
+	);
+	assert.ok(
+		transmissionCapture.nodes[0].writes.some(
+			(write) => write.id === "transmission:scene-color-copy"
+		)
+	);
+
 	const unknown = planner.planStage(
 		createPass("custom-pass"),
 		context,
