@@ -1931,6 +1931,14 @@ async function testWholeFramePlanningOccursOnlyAtBeginFrame() {
 		"postprocess",
 		"webgpu-present",
 	]);
+	assert.equal(debug.compiledGraph.resources.some(
+		(resource) =>
+			resource.id === "shadow-atlas" ||
+			resource.id.startsWith("paged-shadow:"),
+	), false);
+	assert.equal(debug.compiledGraph.shadowDiagnostics.some((diagnostic) =>
+		diagnostic.resourceId === "shadow-atlas" ||
+		diagnostic.resourceId?.startsWith("paged-shadow:")), false);
 	assert.equal(debug.compiledGraph.completeness, "coarse");
 	const postStage = debug.compiledStages.find(
 		(stage) => stage.pass.stage === "postprocess",
@@ -1951,6 +1959,39 @@ async function testWholeFramePlanningOccursOnlyAtBeginFrame() {
 	assert.ok(debug.compiledGraph.dependencies.some((edge) =>
 		edge.fromNodeId === "postprocess:pass:taa" &&
 		edge.toNodeId === presentNodeId));
+}
+
+function testWholeFrameShadowCatalogFollowsFramePlan() {
+	const backend = new FakeBackend();
+	const executor = new WebGPUFrameExecutor(backend, createResourcesStub());
+	const context = createFrameContext(64, 64);
+	context.postProcess = createResolvedPostProcess({}, "webgpu");
+	const shadowPass = {
+		stage: "shadow",
+		executor: "backend",
+		enabled: true,
+		dependsOn: [],
+	};
+	const opaquePass = {
+		stage: "main-opaque",
+		executor: "backend",
+		enabled: true,
+		dependsOn: ["shadow"],
+	};
+	context.framePlan = {
+		stageOrder: [],
+		backendPasses: [shadowPass, opaquePass],
+	};
+
+	executor.beginFrame(context);
+	const graph = getFrameGraphDebugState(executor).compiledGraph;
+	assert.ok(graph.resources.some(
+		(resource) => resource.id === "shadow-atlas",
+	));
+	assert.equal(graph.shadowDiagnostics.some((diagnostic) =>
+		diagnostic.code === "read-content-unknown" &&
+		diagnostic.resourceId === "shadow-atlas"), false);
+	executor.abortFrame();
 }
 
 function testSSGIWholeFrameGraphCompilation() {
@@ -2048,6 +2089,7 @@ async function run() {
 	await testOITMSAAFallsBackToLegacyAndWarns();
 	testOITRuntimeFallbackWarnsWithoutEncoderCopy();
 	await testWholeFramePlanningOccursOnlyAtBeginFrame();
+	testWholeFrameShadowCatalogFollowsFramePlan();
 	testSSGIWholeFrameGraphCompilation();
 	console.log("WebGPU frame executor resilience tests passed");
 }

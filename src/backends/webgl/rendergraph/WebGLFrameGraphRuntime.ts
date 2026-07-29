@@ -37,7 +37,9 @@ export interface WebGLFrameExecutionFacade extends WebGLFrameNodeServices {
 	isOITActive(): boolean;
 	hasPresentedInFrame(): boolean;
 	collectFrameGraphResources(): readonly string[];
-	collectFrameGraphResourceCatalog(): WebGLFrameGraphResourceCatalogSnapshot;
+	collectFrameGraphResourceCatalog(
+		includeShadowResources?: boolean,
+	): WebGLFrameGraphResourceCatalogSnapshot;
 	hasCustomRenderPass(pass: FramePass, context: FrameContext): boolean;
 	executeCustomRenderPass(pass: FramePass, context: FrameContext): Promise<void>;
 }
@@ -246,7 +248,12 @@ export class WebGLFrameGraphRuntime {
 	}
 
 	private _compileWholeFrameGraph(context: FrameContext): void {
-		const catalog = this._executor.collectFrameGraphResourceCatalog();
+		const includeShadowResources = context.framePlan?.backendPasses.some(
+			(pass) => pass.enabled && pass.stage === "shadow",
+		) === true;
+		const catalog = this._executor.collectFrameGraphResourceCatalog(
+			includeShadowResources,
+		);
 		const stages: WebGLFrameGraphStagePlan[] = [];
 		const postProcessImportResources: RenderGraphResourceDescriptor[] = [];
 		const shadowDiagnostics: RenderGraphDiagnostic[] = [];

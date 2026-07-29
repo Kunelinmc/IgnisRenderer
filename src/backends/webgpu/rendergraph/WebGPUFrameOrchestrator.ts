@@ -1156,6 +1156,9 @@ export class WebGPUFrameOrchestrator {
 	}
 
 	private _compileWholeFrameGraph(context: FrameContext): void {
+		const includeShadowResources = context.framePlan?.backendPasses.some(
+			(pass) => pass.enabled && pass.stage === "shadow",
+		) === true;
 		const catalog = collectWebGPUFrameGraphResourceCatalog(
 			this._frameTargets,
 			this._msaaTargets,
@@ -1163,6 +1166,7 @@ export class WebGPUFrameOrchestrator {
 			Math.max(1, this._targetHeight),
 			this._targetMSAASampleCount,
 			this._graphPhysicalResources,
+			includeShadowResources,
 		);
 		const stages: WebGPUFrameGraphStagePlan[] = [];
 		const postProcessImportResources: RenderGraphResourceDescriptor[] = [];

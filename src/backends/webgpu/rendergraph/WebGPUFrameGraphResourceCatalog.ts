@@ -76,12 +76,14 @@ export function collectWebGPUFrameGraphResourceCatalog(
 	height: number,
 	msaaSampleCount: number,
 	physicalResolver?: Map<string, IRenderTexture>,
+	includeShadowResources = true,
 ): WebGPUFrameGraphResourceCatalogSnapshot {
 	const textures = collectTextureBindings(targets, msaaTargets);
 	physicalResolver?.clear();
 	const resources: RenderGraphResourceDescriptor[] = [];
 	const bindings: RenderGraphPhysicalBinding[] = [];
 	for (const id of Object.values(WEBGPU_FRAME_GRAPH_RESOURCES)) {
+		if (!includeShadowResources && isShadowResource(id)) continue;
 		const texture = textures.get(id);
 		if (texture) {
 			resources.push({
@@ -136,6 +138,11 @@ export function collectWebGPUFrameGraphResourceCatalog(
 		resources: Object.freeze(resources),
 		bindings: Object.freeze(bindings),
 	});
+}
+
+function isShadowResource(id: WebGPUFrameGraphResourceId): boolean {
+	return id === WEBGPU_FRAME_GRAPH_RESOURCES.shadowAtlas ||
+		id.startsWith("paged-shadow:");
 }
 
 export function collectActiveWebGPUFrameGraphResources(

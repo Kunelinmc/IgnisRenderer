@@ -563,10 +563,11 @@ export class WebGLFrameServiceOwner {
 		);
 	}
 
-	public collectFrameGraphResourceCatalog() {
+	public collectFrameGraphResourceCatalog(includeShadowResources = true) {
 		return this._targets.collectGraphResourceCatalog(
 			this._shadowAtlasTexture,
 			this._shadowTransmittanceTexture,
+			includeShadowResources,
 		);
 	}
 

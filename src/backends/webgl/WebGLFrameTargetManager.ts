@@ -105,10 +105,14 @@ export class WebGLFrameTargetManager implements WebGLFrameTargetLifecycleHost {
 		return Array.from(resources);
 	}
 
-	/** @internal Returns descriptor and stable physical identity metadata only. */
+	/**
+	 * @internal Returns descriptor and stable physical identity metadata only.
+	 * Shadow slots are declared only for frames that schedule shadow work.
+	 */
 	public collectGraphResourceCatalog(
 		shadowAtlasTexture: WebGLTexture | null,
 		shadowTransmittanceTexture: WebGLTexture | null,
+		includeShadowResources = true,
 	): WebGLFrameGraphResourceCatalogSnapshot {
 		const resources: RenderGraphResourceDescriptor[] = [];
 		const bindings: RenderGraphPhysicalBinding[] = [];
@@ -166,17 +170,19 @@ export class WebGLFrameTargetManager implements WebGLFrameTargetLifecycleHost {
 		addTexture("post:color", this._postColorTexture, this._postColorFormat);
 		addTexture("oit:accum", this._oitAccumTexture, "rgba16float");
 		addTexture("oit:reveal", this._oitRevealTexture, "r16float");
-		const lazyShadowSlot = {
-			declareWithoutHandle: true,
-			extent: "unknown",
-		} as const;
-		addTexture("shadow:atlas", shadowAtlasTexture, "depth", lazyShadowSlot);
-		addTexture(
-			"shadow:transmittance",
-			shadowTransmittanceTexture,
-			"rgba8unorm",
-			lazyShadowSlot,
-		);
+		if (includeShadowResources) {
+			const lazyShadowSlot = {
+				declareWithoutHandle: true,
+				extent: "unknown",
+			} as const;
+			addTexture("shadow:atlas", shadowAtlasTexture, "depth", lazyShadowSlot);
+			addTexture(
+				"shadow:transmittance",
+				shadowTransmittanceTexture,
+				"rgba8unorm",
+				lazyShadowSlot,
+			);
+		}
 		resources.push({
 			id: "canvas:color",
 			origin: "imported",

@@ -78,4 +78,20 @@ assert.ok(catalog.bindings.some((entry) =>
 	entry.resourceId === WEBGPU_FRAME_GRAPH_RESOURCES.frameColor &&
 	entry.kind === "texture"));
 
+const catalogWithoutShadows = collectWebGPUFrameGraphResourceCatalog(
+	null,
+	null,
+	128,
+	64,
+	1,
+	undefined,
+	false,
+);
+assert.equal(catalogWithoutShadows.resources.some((entry) =>
+	entry.id === WEBGPU_FRAME_GRAPH_RESOURCES.shadowAtlas ||
+	entry.id.startsWith("paged-shadow:")), false);
+assert.equal(catalogWithoutShadows.bindings.some((entry) =>
+	entry.resourceId === WEBGPU_FRAME_GRAPH_RESOURCES.shadowAtlas ||
+	entry.resourceId.startsWith("paged-shadow:")), false);
+
 console.log("WebGPU frame resource catalog tests passed");

@@ -76,7 +76,7 @@ function createExecutor(events, options = {}) {
 			}
 			return resources;
 		},
-		collectFrameGraphResourceCatalog() {
+		collectFrameGraphResourceCatalog(includeShadowResources = true) {
 			const ids = [
 				"frame:scene-color",
 				"frame:motion-depth",
@@ -87,6 +87,9 @@ function createExecutor(events, options = {}) {
 				"canvas:color",
 			];
 			if (options.oitActive) ids.push("oit:accum", "oit:reveal");
+			if (includeShadowResources) {
+				ids.push("shadow:atlas", "shadow:transmittance");
+			}
 			return {
 				resources: ids.map((id) => ({
 					id,
@@ -453,6 +456,12 @@ async function testWholeFrameCompilesOnceAndUsesPhysicalAlias() {
 		"postprocess",
 		"webgl-present",
 	]);
+	assert.equal(debug.compiledGraph.resources.some((resource) =>
+		resource.id === "shadow:atlas" ||
+		resource.id === "shadow:transmittance"), false);
+	assert.equal(debug.compiledGraph.shadowDiagnostics.some((diagnostic) =>
+		diagnostic.resourceId === "shadow:atlas" ||
+		diagnostic.resourceId === "shadow:transmittance"), false);
 	assert.equal(debug.compiledGraph.completeness, "complete");
 	assert.ok(debug.compiledGraph.dependencies.some((edge) =>
 		edge.physicalId === "webgl:scene-color" &&
@@ -466,6 +475,32 @@ async function testWholeFrameCompilesOnceAndUsesPhysicalAlias() {
 	assert.ok(debug.compiledGraph.dependencies.some((edge) =>
 		edge.fromNodeId === "postprocess:pass:test-pass" &&
 		edge.toNodeId === presentNodeId));
+}
+
+function testWholeFrameShadowCatalogFollowsFramePlan() {
+	const events = [];
+	const runtime = createRuntime(events);
+	const shadowPass = createPass("shadow");
+	const opaquePass = createPass("main-opaque");
+	opaquePass.dependsOn = ["shadow"];
+	const context = createContext({
+		framePlan: {
+			stageOrder: [],
+			backendPasses: [shadowPass, opaquePass],
+		},
+	});
+
+	runtime.beginFrame(context);
+	const graph = runtime.getDebugState().compiledGraph;
+	assert.ok(graph.resources.some((resource) => resource.id === "shadow:atlas"));
+	assert.ok(graph.resources.some(
+		(resource) => resource.id === "shadow:transmittance",
+	));
+	assert.equal(graph.shadowDiagnostics.some((diagnostic) =>
+		diagnostic.code === "read-content-unknown" &&
+		(diagnostic.resourceId === "shadow:atlas" ||
+			diagnostic.resourceId === "shadow:transmittance")), false);
+	runtime.abortFrame();
 }
 
 function testEmptyPostProcessChainPresentsSceneColorDirectly() {
@@ -559,6 +594,17 @@ function testResourceCatalogPreservesScenePresentAlias() {
 		manager.resolveGraphPhysicalResource(shadowTransmittanceBinding.physicalId),
 		null,
 	);
+	const catalogWithoutShadows = manager.collectGraphResourceCatalog(
+		null,
+		null,
+		false,
+	);
+	assert.equal(catalogWithoutShadows.resources.some((entry) =>
+		entry.id === "shadow:atlas" ||
+		entry.id === "shadow:transmittance"), false);
+	assert.equal(catalogWithoutShadows.bindings.some((entry) =>
+		entry.resourceId === "shadow:atlas" ||
+		entry.resourceId === "shadow:transmittance"), false);
 
 	const boundCatalog = manager.collectGraphResourceCatalog(
 		shadowAtlas,
@@ -634,6 +680,7 @@ async function run() {
 	testRuntimeDebugCapturesUnsupportedStage();
 	testFailedPresentPreservesLastSuccessfulAnalysis();
 	await testWholeFrameCompilesOnceAndUsesPhysicalAlias();
+	testWholeFrameShadowCatalogFollowsFramePlan();
 	testEmptyPostProcessChainPresentsSceneColorDirectly();
 	testNodeRegistryRejectsMissingAndDuplicateOwners();
 	testResourceCatalogPreservesScenePresentAlias();
