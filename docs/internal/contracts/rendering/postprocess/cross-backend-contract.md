@@ -24,7 +24,16 @@ single source of truth for resource existence, access, usage, and optionality.
   uses. A backend-name factory that infers access or usage must not be the
   source of an implementation declaration.
 - The declaration must contain `color` and may contain `gBuffer`, `histories`,
-  `transients`, and backend `shared` resource entries.
+  `transients`, backend `shared` resource entries, and `frameRequirements`.
+- `frameRequirements` must use the pipeline-owned
+  `FramePreparationRequirements` contract. Post-process declarations are
+  requirement producers; backend frame preparation is the consumer.
+- `frameRequirements.cameraJitter` must declare the pre-scene camera sampling
+  sequence and normalized scale required by the implementation. Backends must
+  consume the finalized aggregate instead of identifying a pass by ID.
+- The planner must aggregate frame requirements only from eligible passes.
+  Identical camera-jitter requirements may be coalesced; incompatible
+  requirements must fail planning and identify every conflicting pass.
 - History and transient entries must contain their allocation descriptor and
   all logical uses. A second descriptor API or graph-metadata overlay must not
   exist.
@@ -92,9 +101,15 @@ class CustomWebGPUImplementation {
 - Missing required backend-shared resources must retain the
   `postprocess-backend-shared-unavailable-<passId>` diagnostic.
 - Exceptions during execution must abort the active post-process transaction.
+- Temporal camera state derived from frame requirements must remain tentative
+  until the enclosing backend frame commits. Abort must restore the previous
+  jitter sequence and view-projection state.
 
 ## Compatibility / Breaking Changes
 
+- `PostProcessFrameRequirements` and
+  `PostProcessCameraJitterRequirement` are replaced by the pipeline-owned
+  `FramePreparationRequirements` and `CameraJitterRequirement` types.
 - `PostProcessPassConfig.warningLabel` and `PostProcessPass.warningLabel` are
   renamed to `label`. Consumers must migrate to the new generic label name.
 - `createPostProcessExecutionDeclaration()` is removed. Built-in passes compose

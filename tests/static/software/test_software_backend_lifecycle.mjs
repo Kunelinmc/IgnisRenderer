@@ -4,8 +4,8 @@ import { SoftwareBackend } from "../../../src/backends/software/SoftwareBackend.
 import { Camera } from "../../../src/cameras/Camera.ts";
 import { Matrix4 } from "../../../src/maths/Matrix4.ts";
 import {
-	SOFTWARE_TAA_RENDER_STATE_KEY,
-} from "../../../src/postprocess/passes/TemporalAntiAliasingPass.ts";
+	SOFTWARE_TEMPORAL_RENDER_STATE_KEY,
+} from "../../../src/backends/software/SoftwareTemporalRenderState.ts";
 import { createResolvedPostProcess } from "../../helpers/postprocess.mjs";
 
 function createBackend(events = []) {
@@ -105,13 +105,13 @@ async function testAbortIsIdempotentAndRollsBackTemporalState() {
 	await backend.initialize();
 	const first = createContext(backend, { taa: true });
 	backend.beginFrame(first);
-	const firstState = first.transient.get(SOFTWARE_TAA_RENDER_STATE_KEY);
+	const firstState = first.transient.get(SOFTWARE_TEMPORAL_RENDER_STATE_KEY);
 	await backend.abortFrame();
 	await backend.abortFrame();
 
 	const second = createContext(backend, { taa: true });
 	backend.beginFrame(second);
-	const secondState = second.transient.get(SOFTWARE_TAA_RENDER_STATE_KEY);
+	const secondState = second.transient.get(SOFTWARE_TEMPORAL_RENDER_STATE_KEY);
 	assert.deepEqual(secondState.jitter, firstState.jitter);
 	assert.equal(secondState.previousViewProjection, null);
 	await backend.abortFrame();
@@ -127,7 +127,7 @@ async function testCommitAndPresentationFailureDoNotAdvanceTemporalHistory() {
 	const beforeFailure = createContext(backend, { taa: true });
 	backend.beginFrame(beforeFailure);
 	const expectedHistory = beforeFailure.transient.get(
-		SOFTWARE_TAA_RENDER_STATE_KEY
+		SOFTWARE_TEMPORAL_RENDER_STATE_KEY
 	).previousViewProjection;
 	const originalPresent = backend._surface.present;
 	backend._surface.present = () => {
@@ -140,7 +140,7 @@ async function testCommitAndPresentationFailureDoNotAdvanceTemporalHistory() {
 	const afterFailure = createContext(backend, { taa: true });
 	backend.beginFrame(afterFailure);
 	assert.equal(
-		afterFailure.transient.get(SOFTWARE_TAA_RENDER_STATE_KEY).previousViewProjection,
+		afterFailure.transient.get(SOFTWARE_TEMPORAL_RENDER_STATE_KEY).previousViewProjection,
 		expectedHistory
 	);
 	await backend.abortFrame();

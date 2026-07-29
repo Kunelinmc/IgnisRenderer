@@ -1,3 +1,4 @@
+import type { FramePreparationRequirements } from "../../../pipeline/FrameRequirements";
 import type { DrawPacket, FrameContext, FramePass } from "../../../pipeline/types";
 import type {
 	LogicalGBufferBridge,
@@ -452,7 +453,10 @@ export class WebGPUFrameOrchestrator {
 			this._clearActiveSession();
 			throw error;
 		}
-		this.prepareFrameResources(context);
+		this.prepareFrameResources(
+			context,
+			this._postProcessGraphFrame.graph.frameRequirements,
+		);
 	}
 
 	private _configureFrameTargets(
@@ -557,13 +561,17 @@ export class WebGPUFrameOrchestrator {
 	 * rejected before an encoder was created.
 	 * @sideEffects Writes frame uniforms and clustered lighting buffers.
 	 */
-	public prepareFrameResources(context: FrameContext): WebGPUPreparedFrameResources | null {
+	public prepareFrameResources(
+		context: FrameContext,
+		frameRequirements: FramePreparationRequirements,
+	): WebGPUPreparedFrameResources | null {
 		if (!this._frameContext || !this._encoder) {
 			this._frameResources = null;
 			return null;
 		}
 		this._frameResources = this._mainFrameScope.prepare(context, {
 			sceneTargetMode: this.getSceneTargetModeForFrame(),
+			frameRequirements,
 		});
 		return this._frameResources;
 	}

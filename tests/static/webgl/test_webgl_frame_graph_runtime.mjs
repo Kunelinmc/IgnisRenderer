@@ -14,6 +14,11 @@ import {
 import {
 	WebGLFrameTargetManager,
 } from "../../../src/backends/webgl/WebGLFrameTargetManager.ts";
+import {
+	WebGLTemporalFrameState,
+} from "../../../src/backends/webgl/WebGLTemporalFrameState.ts";
+import { CameraType } from "../../../src/cameras/Camera.ts";
+import { Matrix4 } from "../../../src/maths/Matrix4.ts";
 
 function createContext(overrides = {}) {
 	return {
@@ -45,11 +50,43 @@ function createPass(stage) {
 	};
 }
 
+function testWebGLTemporalStateRollsBackAbortedFrames() {
+	const temporal = new WebGLTemporalFrameState();
+	const context = {
+		viewCamera: {
+			type: CameraType.Perspective,
+			viewProjectionMatrix: new Matrix4(),
+		},
+		attachments: { width: 32, height: 16 },
+		incremental: { temporalHistoryReset: false },
+	};
+	const requirements = {
+		cameraJitter: { sequence: "halton-2-3", scale: 1 },
+	};
+	temporal.beginFrame(context, requirements);
+	const first = Array.from(temporal.jitterCurrentPrev);
+	temporal.abortFrame();
+	temporal.beginFrame(context, requirements);
+	assert.deepEqual(Array.from(temporal.jitterCurrentPrev), first);
+	temporal.commitFrame();
+
+	context.viewCamera.viewProjectionMatrix = new Matrix4([
+		[1, 0, 0, 4],
+		[0, 1, 0, 0],
+		[0, 0, 1, 0],
+		[0, 0, 0, 1],
+	]);
+	temporal.beginFrame(context, requirements);
+	assert.ok(temporal.previousViewProjection);
+	temporal.abortFrame();
+}
+
 function createExecutor(events, options = {}) {
 	return {
 		beginFrame() {
 			events.push("begin");
 		},
+		beginTemporalFrame() {},
 		clearFrameTargets() {
 			events.push("clear");
 		},
@@ -177,6 +214,19 @@ function createExecutor(events, options = {}) {
 function createRuntime(events, options = {}) {
 	const executor = createExecutor(events, options);
 	const postProcessRuntime = {
+		describeFrame(context) {
+			return {
+				backend: "webgl",
+				postProcess: context.postProcess,
+				frameContext: context,
+				gBuffer: {},
+				width: 16,
+				height: 16,
+				orderedPasses: [],
+				passes: [],
+				startPassId: null,
+			};
+		},
 		buildRenderGraphFrame() {
 			const payload = {
 				passId: "test-pass",
@@ -188,6 +238,7 @@ function createRuntime(events, options = {}) {
 			return {
 				graph: {
 					passes: options.emptyPostProcess ? [] : [{ id: "test-pass" }],
+					frameRequirements: {},
 				},
 				subgraph: {
 					resources: [
@@ -673,6 +724,7 @@ function testFirstShadowFrameCompilesWithLazyTargets() {
 }
 
 async function run() {
+	testWebGLTemporalStateRollsBackAbortedFrames();
 	testRuntimeExecutesOpaqueNodesInOrder();
 	await testRuntimeDelegatesPostProcessNode();
 	await testSkippedPostProcessRecordsExecutionOverlay();

@@ -13,9 +13,9 @@ import type { DrawPacket, FrameContext } from "../../pipeline/types";
 import { GeometryBuilder } from "../../meshes/GeometryBuilder";
 import { ANIMATION_SOFTWARE_DEFORMED_GEOMETRY_KEY } from "../../simulation/animation/types";
 import {
-	SOFTWARE_TAA_RENDER_STATE_KEY,
-	type SoftwareTAARenderState,
-} from "../../postprocess/passes/TemporalAntiAliasingPass";
+	SOFTWARE_TEMPORAL_RENDER_STATE_KEY,
+	type SoftwareTemporalRenderState,
+} from "./SoftwareTemporalRenderState";
 
 interface ClippedVertexPair {
 	view: IVertex;
@@ -38,7 +38,7 @@ export interface SoftwareProjectionView {
 	readonly camera: SoftwareProjectionCamera;
 	readonly width: number;
 	readonly height: number;
-	readonly temporalState?: SoftwareTAARenderState | null;
+	readonly temporalState?: SoftwareTemporalRenderState | null;
 	readonly trackTemporalHistory?: boolean;
 }
 
@@ -55,14 +55,14 @@ export class Projector {
 		const targetHeight = projectionView?.height ?? overrideSize?.height ?? context.attachments.height;
 		const projectionMatrix = camera.projectionMatrix;
 		const viewMatrix = camera.viewMatrix;
-		const taaState = projectionView ?
+		const temporalState = projectionView ?
 			(projectionView.temporalState ?? null)
-		: context.transient.get(SOFTWARE_TAA_RENDER_STATE_KEY);
+		: context.transient.get(SOFTWARE_TEMPORAL_RENDER_STATE_KEY);
 		const trackTemporalHistory = projectionView?.trackTemporalHistory !== false;
 		const previousWorldMatrix =
-			taaState?.previousWorldMatrices.get(packet.id) ?? packet.worldMatrix;
+			temporalState?.previousWorldMatrices.get(packet.id) ?? packet.worldMatrix;
 		if (trackTemporalHistory) {
-			taaState?.currentWorldMatrices.set(packet.id, packet.worldMatrix.clone());
+			temporalState?.currentWorldMatrices.set(packet.id, packet.worldMatrix.clone());
 		}
 		const projectedFaces: ProjectedFace[] = [];
 
@@ -187,8 +187,10 @@ export class Projector {
 				const ndcX = projected.x / safeW;
 				const ndcY = projected.y / safeW;
 				const ndcZ = projected.z / safeW;
-				const jitteredNdcX = ndcX + (taaState?.currentJitter[0] ?? 0);
-				const jitteredNdcY = ndcY + (taaState?.currentJitter[1] ?? 0);
+				const jitteredNdcX =
+					ndcX + (temporalState?.currentJitter[0] ?? 0);
+				const jitteredNdcY =
+					ndcY + (temporalState?.currentJitter[1] ?? 0);
 
 				projectedVerts.push({
 					x: (jitteredNdcX * 0.5 + 0.5) * targetWidth,

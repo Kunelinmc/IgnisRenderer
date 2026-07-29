@@ -18,15 +18,12 @@ import type {
 	PostProcessResourceDescriptor,
 	PostProcessResourceHandle,
 } from "../../postprocess";
+import type { FramePreparationRequirements } from "../../pipeline/FrameRequirements";
 import {
 	DEFAULT_FOG_OPTIONS,
 	resolveFogUniformParams,
 	type FogOptions,
 } from "../../postprocess/passes/FogPass";
-import {
-	DEFAULT_TAA_OPTIONS,
-	type TAAOptions,
-} from "../../postprocess/passes/TemporalAntiAliasingPass";
 import { IBLBRDF } from "../../lights/ibl/IBLBRDF";
 import {
 	collectWebGLLights,
@@ -85,8 +82,8 @@ import {
 	type WebGLParticleRenderOptions,
 } from "./WebGLParticlePass";
 import { BackendPostProcessRuntime } from "../../postprocess/BackendPostProcessRuntime";
-import { TemporalJitterState } from "../cross/TemporalJitterState";
 import { WebGLPostProcessServices } from "./WebGLPostProcessServices";
+import { WebGLTemporalFrameState } from "./WebGLTemporalFrameState";
 import { WebGLWarmupCoordinator } from "./WebGLWarmupCoordinator";
 import { WebGLTransparencyRuntime } from "./WebGLTransparencyRuntime";
 import {
@@ -125,7 +122,7 @@ export class WebGLFrameServiceOwner {
 	private _shadow: WebGLShadowRuntime;
 	private _particlePass: WebGLParticlePass;
 	private _targets: WebGLFrameTargetManager;
-	private _temporalJitterState = new TemporalJitterState();
+	private readonly _temporalFrameState = new WebGLTemporalFrameState();
 	private _scene: WebGLSceneRuntime;
 	private _fullscreen: WebGLFullscreenRenderer;
 	private readonly _session = new WebGLFrameSession();
@@ -224,20 +221,11 @@ export class WebGLFrameServiceOwner {
 	public set _lightState(value: WebGLLightState | null) {
 		this._session.lightState = value;
 	}
-	public get _taaJitter(): Float32Array {
-		return this._session.temporalJitter;
+	public get _temporalJitterCurrentPrev(): Float32Array {
+		return this._temporalFrameState.jitterCurrentPrev;
 	}
-	public get _prevViewProjection(): Float32Array | null {
-		return this._postProcess.previousViewProjection;
-	}
-	public set _prevViewProjection(value: Float32Array | null) {
-		this._postProcess.previousViewProjection = value;
-	}
-	public get _taaHistoryValid(): boolean {
-		return this._postProcess.historyValid;
-	}
-	public set _taaHistoryValid(value: boolean) {
-		this._postProcess.historyValid = value;
+	public get _previousViewProjection(): Float32Array | null {
+		return this._temporalFrameState.previousViewProjection;
 	}
 	public get _fullscreenVao(): WebGLVertexArrayObject | null {
 		return this._fullscreen._vao;
@@ -481,7 +469,10 @@ export class WebGLFrameServiceOwner {
 		return this._shadow.atlasTileSize;
 	}
 
-	public beginFrame(context: FrameContext): void {
+	public beginFrame(
+		context: FrameContext,
+		materialGBufferRequested = false,
+	): void {
 		this._programCompiler.beginFrame();
 		this._textures.beginFrame();
 		this._customRenderTargets.sync(context);
@@ -490,7 +481,7 @@ export class WebGLFrameServiceOwner {
 		this._ensureFrameTargets(
 			this._session.width,
 			this._session.height,
-			this._requiresMaterialGBuffer(context)
+			materialGBufferRequested,
 		);
 		this._transparency.beginFrame(context);
 		this._targets._presentSourceTexture = this._targets._sceneColorTexture;
@@ -516,28 +507,17 @@ export class WebGLFrameServiceOwner {
 			this._maxTextureSize
 		);
 
-		const taaEnabled = context.postProcess.isEnabled("taa");
-		const taaOptions =
-			context.postProcess.getOptions<TAAOptions>("taa") ?? DEFAULT_TAA_OPTIONS;
-		const temporalJitter = this._temporalJitterState.next({
-			enabled: taaEnabled,
-			isOrthographic: context.viewCamera.type === CameraType.Orthographic,
-			width: this._session.width,
-			height: this._session.height,
-			jitterScale: taaOptions.jitterScale ?? DEFAULT_TAA_OPTIONS.jitterScale,
-			reset: context.incremental.temporalHistoryReset,
-		});
-		this._session.temporalJitter[0] = temporalJitter[0];
-		this._session.temporalJitter[1] = temporalJitter[1];
-		this._session.temporalJitter[2] = temporalJitter[2];
-		this._session.temporalJitter[3] = temporalJitter[3];
-		if (!taaEnabled) {
-			this._taaHistoryValid = false;
-		}
-		if (context.incremental.temporalHistoryReset) {
-			this._taaHistoryValid = false;
-			this._prevViewProjection = null;
-		}
+	}
+
+	public beginTemporalFrame(
+		context: FrameContext,
+		frameRequirements: FramePreparationRequirements,
+	): void {
+		this._temporalFrameState.beginFrame(context, frameRequirements);
+	}
+
+	public commitTemporalFrame(): void {
+		this._temporalFrameState.commitFrame();
 	}
 
 	public clearFrameTargets(context: FrameContext): void {
@@ -749,6 +729,7 @@ export class WebGLFrameServiceOwner {
 	}
 
 	public abortFrame(): void {
+		this._temporalFrameState.abortFrame();
 		this._postProcess.abortFrame();
 		this._customRenderTargets.markFrameAborted();
 		this._session.abort();
@@ -761,6 +742,7 @@ export class WebGLFrameServiceOwner {
 	public resize(width: number, height: number): void {
 		this._session.width = toSafeDimension(width);
 		this._session.height = toSafeDimension(height);
+		this._temporalFrameState.reset();
 		this._destroyFrameTargets();
 	}
 
@@ -788,6 +770,7 @@ export class WebGLFrameServiceOwner {
 		this._textures.destroy();
 		this._programs.destroy();
 		this._programCompiler.destroy();
+		this._temporalFrameState.reset();
 		this._session.finish();
 	}
 
@@ -1120,12 +1103,6 @@ export class WebGLFrameServiceOwner {
 			height,
 			materialGBufferRequested,
 		);
-	}
-
-	private _requiresMaterialGBuffer(context: FrameContext): boolean {
-		// Frame-target discovery precedes planner execution. Allocate the material
-		// attachments conservatively without resolving declarations twice.
-		return context.postProcess.getEnabledPasses().length > 0;
 	}
 
 	private _destroyFrameTargets(): void {

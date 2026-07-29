@@ -91,6 +91,13 @@ must remain backend-internal.
   state. The orchestrator owns the main scope, each planar target owns one
   persistent capture scope, and probe capture must destroy its temporary scope
   in a `finally` block. Prepared-frame data must not expose a string scope key.
+- Scope callers must use `WebGPUFrameScopePrepareOptions`; the frame service
+  adapter must inject its private scope key through
+  `WebGPUFrameServicePrepareOptions`. Distinct option shapes must not share one
+  interface name.
+- `WebGPUFrameBindingCache` must delegate temporal camera transaction state to
+  the cross-backend `TemporalFrameState`. It may retain only the current
+  snapshot needed by same-frame reuse and GPU uniform packing.
 - `WebGPUDeviceResourceHost` must be the dependency boundary for registries and
   device runtimes. Such modules must not import the complete `WebGPUBackend`.
 - Shared shader invalidation and destruction must be routed through

@@ -30,6 +30,7 @@ import type {
 	JointMatrixMap,
 	MorphWeightMap,
 } from "../../simulation/animation/types";
+import type { FramePreparationRequirements } from "../../pipeline/FrameRequirements";
 import type {
 	WebGPUPagedShadowFrameRequest,
 	WebGPUPagedShadowSamplingResources,
@@ -96,9 +97,10 @@ export interface WebGPUParticleMeshPacketOptions {
 }
 
 /** @internal Scoped frame preparation options. */
-export interface WebGPUPrepareFrameOptions {
+export interface WebGPUFrameScopePrepareOptions {
 	readonly sceneTargetMode: WebGPUSceneTargetMode;
 	readonly temporalStateMode?: WebGPUTemporalStateMode;
+	readonly frameRequirements?: FramePreparationRequirements;
 }
 
 /** @internal Prepared data and bindings for one WebGPU frame scope. */
@@ -120,7 +122,7 @@ export interface WebGPUPreparedFrameResources {
 export interface WebGPUFrameResourceScope {
 	prepare(
 		context: FrameContext,
-		options: WebGPUPrepareFrameOptions,
+		options: WebGPUFrameScopePrepareOptions,
 	): WebGPUPreparedFrameResources;
 	updateParticleShadowVolumes(
 		context: FrameContext,

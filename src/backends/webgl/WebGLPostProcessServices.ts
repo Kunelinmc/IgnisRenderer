@@ -30,8 +30,6 @@ export interface WebGLPostProcessServicesHost {
 export class WebGLPostProcessServices {
 	private readonly _host: WebGLPostProcessServicesHost;
 	private readonly _bridge: WebGLPostProcessBridge;
-	private _historyValid = false;
-	private _previousViewProjection: Float32Array | null = null;
 
 	public constructor(host: WebGLPostProcessServicesHost) {
 		this._host = host;
@@ -56,36 +54,12 @@ export class WebGLPostProcessServices {
 			commitColorTexture: (texture) => {
 				host.targets._presentSourceTexture = texture;
 			},
-			markTAAHistoryValid: () => {
-				this._historyValid = true;
-			},
-			applyPipelineHistories: (request) => {
-				if (request.histories.taa) {
-					this._historyValid = request.histories.taa.valid;
-				}
-			},
 			warn: (key, message) =>
 				Logger.warn(`[${key}] ${message}`, {
 					scope: "WebGLPostProcessServices",
 					onceKey: key,
 				}),
 		});
-	}
-
-	public get historyValid(): boolean {
-		return this._historyValid;
-	}
-
-	public set historyValid(value: boolean) {
-		this._historyValid = value;
-	}
-
-	public get previousViewProjection(): Float32Array | null {
-		return this._previousViewProjection;
-	}
-
-	public set previousViewProjection(value: Float32Array | null) {
-		this._previousViewProjection = value;
 	}
 
 	public createResource(

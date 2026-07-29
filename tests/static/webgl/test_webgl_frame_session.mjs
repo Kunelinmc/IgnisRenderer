@@ -21,15 +21,13 @@ function testSessionClearsActiveFrameState() {
 	assert.equal(session.lightState, null);
 }
 
-function testAbortClearsTemporalFrameState() {
+function testAbortClearsActiveFrameState() {
 	const session = new WebGLFrameSession();
 	session.begin({ attachments: { width: 1, height: 1 } });
-	session.temporalJitter.set([1, 2, 3, 4]);
 	session.presented = true;
 	session.abort();
 	assert.equal(session.context, null);
 	assert.equal(session.presented, false);
-	assert.deepEqual([...session.temporalJitter], [0, 0, 0, 0]);
 }
 
 function testServiceOwnerRequiresExplicitPostProcessRuntime() {
@@ -40,6 +38,6 @@ function testServiceOwnerRequiresExplicitPostProcessRuntime() {
 }
 
 testSessionClearsActiveFrameState();
-testAbortClearsTemporalFrameState();
+testAbortClearsActiveFrameState();
 testServiceOwnerRequiresExplicitPostProcessRuntime();
 console.log("WebGL frame session tests passed");

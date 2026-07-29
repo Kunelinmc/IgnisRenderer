@@ -255,11 +255,15 @@ export class BackendPostProcessRuntime {
 	 *
 	 * @internal Called from `IRenderBackend.executePass()`.
 	 * @param context Active renderer frame context.
+	 * @param retainedPlan Optional plan prepared before scene execution.
 	 * @returns Promise that resolves after executor pass hooks complete.
 	 * @sideEffects Allocates resources, mutates backend frame targets, and records
 	 * pending history writes without committing them.
 	 */
-	public async execute(context: FrameContext): Promise<void> {
+	public async execute(
+		context: FrameContext,
+		retainedPlan?: PostProcessPlan,
+	): Promise<void> {
 		this._completedFramePreservesOutsideDirtyTiles = true;
 		if (
 			context.incremental.enabled &&
@@ -278,7 +282,14 @@ export class BackendPostProcessRuntime {
 					this._implementations.delete(pass);
 				}
 			}
-			const compiled = this._createExecutionPlan(this.planFrame(context));
+			if (retainedPlan && retainedPlan.frameContext !== context) {
+				throw new Error(
+					"Retained post-process plan does not belong to the active frame.",
+				);
+			}
+			const compiled = this._createExecutionPlan(
+				retainedPlan ?? this.planFrame(context),
+			);
 			if (compiled.graph.passes.length <= 0) return;
 			const frame = await this.beginGraphFrame(compiled);
 			if (!frame) return;

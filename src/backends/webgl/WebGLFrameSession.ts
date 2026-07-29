@@ -8,7 +8,6 @@ export class WebGLFrameSession {
 	public width = 1;
 	public height = 1;
 	public lightState: WebGLLightState | null = null;
-	public readonly temporalJitter = new Float32Array(4);
 	public presented = false;
 
 	public begin(context: FrameContext): void {
@@ -26,6 +25,5 @@ export class WebGLFrameSession {
 	public abort(): void {
 		this.finish();
 		this.presented = false;
-		this.temporalJitter.fill(0);
 	}
 }

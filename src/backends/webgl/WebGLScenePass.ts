@@ -10,7 +10,6 @@ import {
 	isFiniteMatrix,
 	toColumnMajorMat3,
 	toColumnMajorMat4,
-	toFiniteColumnMajorMat4,
 } from "./WebGLFrameMath";
 import {
 	resolveMaterialUniforms,
@@ -79,8 +78,6 @@ export interface WebGLScenePassHost {
 	_activeDrawBuffers?: number[];
 	_modelMatrixCache: Map<string, Float32Array>;
 	_modelMatrixKeysThisFrame: Set<string>;
-	_prevViewProjection: Float32Array | null;
-	_taaHistoryValid: boolean;
 	_isIncrementalPartial(context: FrameContext | null | undefined): boolean;
 	_resolveDirtyRects(
 		context: FrameContext | null | undefined,
@@ -287,22 +284,6 @@ export function renderWebGLPackets(
 		}
 	} finally {
 		host._oitPassMode = previousOITPassMode;
-	}
-
-	const currentViewProjection = toFiniteColumnMajorMat4(
-		context.viewCamera.viewProjectionMatrix
-	);
-	if (!currentViewProjection) {
-		logWebGLScenePassWarning(
-			"webgl-camera-view-projection-invalid",
-			"WebGL camera view-projection matrix is non-finite; resetting temporal history."
-		);
-		host._prevViewProjection = null;
-		host._taaHistoryValid = false;
-	} else if (host._prevViewProjection) {
-		host._prevViewProjection.set(currentViewProjection);
-	} else {
-		host._prevViewProjection = currentViewProjection;
 	}
 
 	gl.depthMask(true);

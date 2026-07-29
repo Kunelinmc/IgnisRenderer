@@ -1,6 +1,7 @@
 import type {
 	FrameContext,
 } from "../pipeline/types";
+import type { FramePreparationRequirements } from "../pipeline/FrameRequirements";
 import type { RenderGraphAccess, RenderGraphUsage } from "../rendergraph/types";
 import type { RenderBackendType } from "../backends/IRenderBackend";
 import type {
@@ -170,13 +171,15 @@ export interface PostProcessSharedResourceDeclaration
 	readonly id: string;
 }
 
-/** Complete resource contract returned once by one backend implementation. */
+/** Complete execution contract returned once by one backend implementation. */
 export interface PostProcessExecutionDeclaration {
 	readonly color: PostProcessColorDeclaration;
 	readonly gBuffer?: readonly PostProcessGBufferDeclaration[];
 	readonly histories?: readonly PostProcessHistoryDeclaration[];
 	readonly transients?: readonly PostProcessTransientDeclaration[];
 	readonly shared?: readonly PostProcessSharedResourceDeclaration[];
+	/** Generic pre-scene effects required before this implementation executes. */
+	readonly frameRequirements?: FramePreparationRequirements;
 }
 
 export interface PostProcessNativeHistorySlot<TResource> {

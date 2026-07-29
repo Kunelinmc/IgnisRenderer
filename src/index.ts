@@ -176,6 +176,10 @@ export {
 	type RenderPipelineFramePlanOptions,
 } from "./pipeline/RenderPipelineRegistry";
 export type { RendererStageDefinition } from "./pipeline/RendererStageGraph";
+export type {
+	CameraJitterRequirement,
+	FramePreparationRequirements,
+} from "./pipeline/FrameRequirements";
 export {
 	IBL_PREFILTER_MAX_MIP_LEVELS,
 	IBL_PREFILTER_MAX_SAMPLE_HEIGHT,

@@ -1230,7 +1230,7 @@ function testTAAPassDetachesMotionAttachmentAndSanitizesOptions() {
 	);
 	assert.deepEqual(result, { ran: true, updatedHistoryIds: ["taa", "motion"] });
 	completeExecution(executor, request, result);
-	assert.equal(executor._taaHistoryValid, true);
+	assert.equal("_taaHistoryValid" in executor, false);
 
 	const attachment0Writes = gl.calls.filter(
 		(call) =>

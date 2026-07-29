@@ -8,6 +8,8 @@ import type {
 	PostProcessExecutionPlan,
 	PostProcessRenderGraphFrame,
 } from "../../../postprocess/BackendPostProcessRuntime";
+import type { PostProcessDeclarationPlan } from "../../../postprocess/PostProcessPlanner";
+import type { FramePreparationRequirements } from "../../../pipeline/FrameRequirements";
 import type {
 	RenderGraphDiagnostic,
 	RenderGraphResourceDescriptor,
@@ -30,8 +32,19 @@ import type {
 	WebGLFrameGraphStagePlan,
 } from "./types";
 
+const WEBGL_MATERIAL_GBUFFER_SEMANTICS = new Set([
+	"albedo",
+	"roughness",
+	"metallic",
+	"specular",
+]);
+
 export interface WebGLFrameExecutionFacade extends WebGLFrameNodeServices {
-	beginFrame(context: FrameContext): void;
+	beginFrame(context: FrameContext, materialGBufferRequested: boolean): void;
+	beginTemporalFrame(
+		context: FrameContext,
+		frameRequirements: FramePreparationRequirements,
+	): void;
 	finishFrame(): void;
 	abortFrame(): void;
 	isOITActive(): boolean;
@@ -96,7 +109,21 @@ export class WebGLFrameGraphRuntime {
 		this._wholeFrameGraphCompiled = false;
 		this._postProcessGraphFrame = null;
 		this._postProcessOutputColor = "frame:scene-color";
-		this._executor.beginFrame(context);
+		const postProcessDeclarations =
+			this._postProcessRuntime.describeFrame(context);
+		this._executor.beginFrame(
+			context,
+			this._requiresMaterialGBuffer(postProcessDeclarations),
+		);
+		this._postProcessGraphFrame =
+			this._postProcessRuntime.buildRenderGraphFrame(
+				context,
+				postProcessDeclarations,
+			);
+		this._executor.beginTemporalFrame(
+			context,
+			this._postProcessGraphFrame.graph.frameRequirements,
+		);
 		if (context.framePlan) {
 			try {
 				this._compileWholeFrameGraph(context);
@@ -295,7 +322,12 @@ export class WebGLFrameGraphRuntime {
 					message: `WebGL ${reason} stage "${pass.stage}" has undeclared resource effects.`,
 				});
 			} else if (pass.stage === "postprocess") {
-				const frame = this._postProcessRuntime.buildRenderGraphFrame(context);
+				const frame = this._postProcessGraphFrame;
+				if (!frame) {
+					throw new Error(
+						"WebGL post-process graph frame was not prepared before compilation.",
+					);
+				}
 				this._postProcessGraphFrame = frame;
 				if (frame.graph.passes.length > 0) {
 					const composition = createWebGLPostProcessGraphComposition(frame);
@@ -496,6 +528,16 @@ export class WebGLFrameGraphRuntime {
 				context.scene.environment.backgroundEnabled &&
 				!!context.scene.environment.backgroundTexture,
 		};
+	}
+
+	private _requiresMaterialGBuffer(
+		declarations: PostProcessDeclarationPlan,
+	): boolean {
+		return declarations.passes.some((pass) =>
+			pass.declaration.gBuffer?.some((entry) =>
+				WEBGL_MATERIAL_GBUFFER_SEMANTICS.has(entry.semantic),
+			) === true,
+		);
 	}
 
 	private _isIncrementalPartial(context: FrameContext): boolean {

@@ -13,8 +13,8 @@ import type { Rasterizer, RasterizerContext } from "../Rasterizer";
 import { createSoftwareShadowSampler, getSoftwareShadowRuntimeMap } from "./SoftwareShadowPass";
 import type { SoftwarePassLike } from "./types";
 import {
-	SOFTWARE_TAA_RENDER_STATE_KEY,
-} from "../../../postprocess/passes/TemporalAntiAliasingPass";
+	SOFTWARE_TEMPORAL_RENDER_STATE_KEY,
+} from "../SoftwareTemporalRenderState";
 
 interface ProjectedTriangleWorkItem {
 	pts: [ProjectedVertex, ProjectedVertex, ProjectedVertex];
@@ -101,7 +101,7 @@ function createRasterizerContext(context: FrameContext): RasterizerContext {
 		depthBuffer: context.attachments.depthBuffer!,
 		normalBuffer: context.attachments.normalBuffer,
 		motionBuffer: context.attachments.motionBuffer,
-		taa: context.transient.get(SOFTWARE_TAA_RENDER_STATE_KEY),
+		temporal: context.transient.get(SOFTWARE_TEMPORAL_RENDER_STATE_KEY),
 		camera: {
 			position: context.viewCamera.getWorldPosition(),
 			viewMatrix: context.viewCamera.viewMatrix,

@@ -37,17 +37,19 @@ import { PARTICLE_TRANSIENT_BATCHES_KEY } from "../../pipeline/types";
 import {
 	DEFAULT_FOG_OPTIONS,
 	FOG_PASS_ID,
-	TEMPORAL_ANTI_ALIASING_PASS_ID,
 	type FogOptions,
-	type TAAOptions,
 } from "../../postprocess";
+import type { FramePreparationRequirements } from "../../pipeline/FrameRequirements";
 import { CameraType } from "../../cameras/Camera";
 import { WebGPUTextureRegistry } from "./WebGPUTextureRegistry";
 import { WebGPUShadowAtlasAllocator } from "./WebGPUShadowAtlasAllocator";
 import type { WebGPUPagedShadowRuntime } from "./WebGPUPagedShadowRuntime";
 import type { WebGPUPipelineLayouts } from "./WebGPUPipelineLayouts";
 import { finiteOr } from "../../maths/Misc";
-import { TemporalJitterState } from "../cross/TemporalJitterState";
+import {
+	TemporalFrameState,
+	type TemporalFrameSnapshot,
+} from "../cross/TemporalFrameState";
 import type { WebGPUSceneTargetMode } from "./WebGPUPipelineLibrary";
 import { clamp } from "../../maths/Common";
 import type { Matrix4 } from "../../maths/Matrix4";
@@ -81,6 +83,7 @@ export type WebGPUTemporalStateMode = "advance" | "reuse" | "disabled";
 export interface WebGPUFrameBindingPrepareOptions {
 	readonly temporalStateMode?: WebGPUTemporalStateMode;
 	readonly temporalHistoryReset?: boolean;
+	readonly frameRequirements?: FramePreparationRequirements;
 }
 
 export class WebGPUFrameBindingCache {
@@ -124,14 +127,8 @@ export class WebGPUFrameBindingCache {
 	private _envSpecularSampler: ISampler | null = null;
 	private _envSpecularFallbackSampler: ISampler | null = null;
 	private _shadowComparisonSampler: ISampler | null = null;
-	private _prevViewProjection:
-		| PreparedScene["camera"]["viewProjectionMatrix"]
-		| null = null;
-	private _currentFramePrevViewProjection:
-		| PreparedScene["camera"]["viewProjectionMatrix"]
-		| null = null;
-	private _temporalJitterState = new TemporalJitterState();
-	private _temporalJitterCurrentPrev: [number, number, number, number] = [0, 0, 0, 0];
+	private readonly _temporalFrameState = new TemporalFrameState();
+	private _currentTemporalSnapshot: TemporalFrameSnapshot | null = null;
 
 	constructor(
 		backend: WebGPUDeviceResourceHost,
@@ -194,22 +191,17 @@ export class WebGPUFrameBindingCache {
 			);
 		}
 		const temporalStateMode = options.temporalStateMode ?? "advance";
-		const prevViewProjection = this._resolvePreviousViewProjection(
+		const temporal = this._resolveTemporalFrameUniforms(
 			frame,
-			temporalStateMode,
-			options.temporalHistoryReset === true
-		);
-		const temporalJitter = this._computeTemporalJitter(
-			features,
-			isOrthographic,
+			options.frameRequirements ?? {},
 			renderWidth,
 			renderHeight,
 			temporalStateMode,
-			options.temporalHistoryReset === true
+			options.temporalHistoryReset === true,
 		);
 		const frameUniformInput: WebGPUFrameUniformInput = {
 			viewProjectionMatrix: frame.camera.viewProjectionMatrix,
-			prevViewProjectionMatrix: prevViewProjection,
+			prevViewProjectionMatrix: temporal.previousViewProjection,
 			cameraPosition: frame.camera.getWorldPosition(),
 			environmentRight: [viewElements[0][0], viewElements[0][1], viewElements[0][2]],
 			environmentUp: [viewElements[1][0], viewElements[1][1], viewElements[1][2]],
@@ -248,7 +240,7 @@ export class WebGPUFrameBindingCache {
 			envSpecularMaxMipLevel: environmentState.envSpecularMaxMipLevel,
 			envSpecularFallbackMaxMipLevel:
 				environmentState.envSpecularFallbackMaxMipLevel,
-			taaJitterCurrentPrev: temporalJitter,
+			taaJitterCurrentPrev: temporal.jitterCurrentPrev,
 		};
 
 		this._backend.writeBuffer(
@@ -275,9 +267,6 @@ export class WebGPUFrameBindingCache {
 			this._getEnvironmentBackgroundParamsBuffer(),
 			this._packEnvironmentBackgroundParams(frame)
 		);
-		if (temporalStateMode === "advance") {
-			this._prevViewProjection = frame.camera.viewProjectionMatrix.clone();
-		}
 		this._writeParticleShadowVolumeData(
 			new Float32Array(PARTICLE_SHADOW_VOLUME_FALLBACK_FLOATS)
 		);
@@ -446,59 +435,78 @@ export class WebGPUFrameBindingCache {
 		return data;
 	}
 
-	private _computeTemporalJitter(
-		features: WebGPUFeatureState,
-		isOrthographic: boolean,
+	private _resolveTemporalFrameUniforms(
+		frame: PreparedScene,
+		frameRequirements: FramePreparationRequirements,
 		renderWidth: number,
 		renderHeight: number,
 		temporalStateMode: WebGPUTemporalStateMode,
-		temporalHistoryReset: boolean
-	): [number, number, number, number] {
+		temporalHistoryReset: boolean,
+	): {
+		previousViewProjection: PreparedScene["camera"]["viewProjectionMatrix"];
+		jitterCurrentPrev: [number, number, number, number];
+	} {
 		if (temporalStateMode === "disabled") {
-			return [0, 0, 0, 0];
+			return {
+				previousViewProjection: frame.camera.viewProjectionMatrix,
+				jitterCurrentPrev: [0, 0, 0, 0],
+			};
 		}
 		if (temporalStateMode === "reuse") {
-			return this._temporalJitterCurrentPrev;
+			const snapshot = this._currentTemporalSnapshot;
+			return {
+				previousViewProjection:
+					snapshot?.previousViewProjection ??
+					frame.camera.viewProjectionMatrix,
+				jitterCurrentPrev: snapshot ?
+					[
+						snapshot.jitterCurrentPrev[0],
+						snapshot.jitterCurrentPrev[1],
+						snapshot.jitterCurrentPrev[2],
+						snapshot.jitterCurrentPrev[3],
+					] : [0, 0, 0, 0],
+			};
 		}
-
-		const jitter = this._temporalJitterState.next({
-			enabled: features.postProcess.isEnabled(TEMPORAL_ANTI_ALIASING_PASS_ID),
-			isOrthographic,
-			width: renderWidth,
-			height: renderHeight,
-			jitterScale: features.postProcess
-				.getOptions<TAAOptions>(TEMPORAL_ANTI_ALIASING_PASS_ID)
-				?.jitterScale,
-			reset: temporalHistoryReset,
-		});
-		this._temporalJitterCurrentPrev = jitter;
-		return jitter;
-	}
-
-	private _resolvePreviousViewProjection(
-		frame: PreparedScene,
-		temporalStateMode: WebGPUTemporalStateMode,
-		temporalHistoryReset: boolean
-	): PreparedScene["camera"]["viewProjectionMatrix"] {
-		if (temporalStateMode === "disabled" || temporalHistoryReset) {
-			if (temporalStateMode === "advance") {
-				this._currentFramePrevViewProjection =
-					frame.camera.viewProjectionMatrix.clone();
-			}
-			return frame.camera.viewProjectionMatrix;
-		}
-		if (temporalStateMode === "reuse") {
-			return (
-				this._currentFramePrevViewProjection ??
-				this._prevViewProjection ??
-				frame.camera.viewProjectionMatrix
+		if (this._currentTemporalSnapshot) {
+			throw new Error(
+				"WebGPU temporal frame state advanced more than once in one frame.",
 			);
 		}
+		const snapshot = this._temporalFrameState.beginFrame({
+			camera: frame.camera,
+			width: renderWidth,
+			height: renderHeight,
+			frameRequirements,
+			reset: temporalHistoryReset,
+		});
+		this._currentTemporalSnapshot = snapshot;
+		return {
+			previousViewProjection:
+				snapshot.previousViewProjection ??
+				frame.camera.viewProjectionMatrix,
+			jitterCurrentPrev: [
+				snapshot.jitterCurrentPrev[0],
+				snapshot.jitterCurrentPrev[1],
+				snapshot.jitterCurrentPrev[2],
+				snapshot.jitterCurrentPrev[3],
+			],
+		};
+	}
 
-		const prevViewProjection =
-			this._prevViewProjection ?? frame.camera.viewProjectionMatrix;
-		this._currentFramePrevViewProjection = prevViewProjection.clone();
-		return prevViewProjection;
+	public commitTemporalFrame(): void {
+		this._temporalFrameState.commitFrame();
+		this._currentTemporalSnapshot = null;
+	}
+
+	public abortTemporalFrame(): void {
+		this._temporalFrameState.abortFrame();
+		this._currentTemporalSnapshot = null;
+	}
+
+	/** @internal Owned by the WebGPU frame service lifecycle. */
+	public resetTemporalState(): void {
+		this._temporalFrameState.reset();
+		this._currentTemporalSnapshot = null;
 	}
 
 	public getSceneBinding(): IBindingGroup {
@@ -918,10 +926,7 @@ export class WebGPUFrameBindingCache {
 		this._environmentSampler = null;
 		this._envSpecularSampler = null;
 		this._envSpecularFallbackSampler = null;
-		this._prevViewProjection = null;
-		this._currentFramePrevViewProjection = null;
-		this._temporalJitterState.reset();
-		this._temporalJitterCurrentPrev = [0, 0, 0, 0];
+		this.resetTemporalState();
 	}
 
 	private _destroyBindingGroup(group: IBindingGroup | null): void {

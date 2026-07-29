@@ -82,7 +82,7 @@ export interface RasterizerContext {
 	} | null;
 	normalBuffer?: Float32Array | null;
 	motionBuffer?: Float32Array | null;
-	taa?: TemporalJitterFrameState & {
+	temporal?: TemporalJitterFrameState & {
 		previousViewProjection: Matrix4 | null;
 	};
 	camera: {
@@ -664,9 +664,9 @@ export class Rasterizer implements RasterizerLike {
 		const currentNdcY = 1 - ((y + 0.5) / Math.max(1, context.height)) * 2;
 		let previousNdcX = currentNdcX;
 		let previousNdcY = currentNdcY;
-		if (context.taa?.previousViewProjection) {
+		if (context.temporal?.previousViewProjection) {
 			const previousClip = Matrix4.transformPoint(
-				context.taa.previousViewProjection,
+				context.temporal.previousViewProjection,
 				previousWorld
 			);
 			const previousW =
@@ -676,9 +676,9 @@ export class Rasterizer implements RasterizerLike {
 					CoreConstants.EPSILON
 				:	-CoreConstants.EPSILON;
 			previousNdcX =
-				previousClip.x / previousW + context.taa.previousJitter[0];
+				previousClip.x / previousW + context.temporal.previousJitter[0];
 			previousNdcY =
-				previousClip.y / previousW + context.taa.previousJitter[1];
+				previousClip.y / previousW + context.temporal.previousJitter[1];
 		}
 		const offset = pixelIndex << 2;
 		motionBuffer[offset] = currentNdcX - previousNdcX;

@@ -1,4 +1,8 @@
 import type { RenderBackendType } from "../backends/IRenderBackend";
+import type {
+	CameraJitterRequirement,
+	FramePreparationRequirements,
+} from "../pipeline/FrameRequirements";
 import type { FrameContext } from "../pipeline/types";
 import {
 	DEFAULT_POST_PROCESS_PLACEMENT,
@@ -96,6 +100,7 @@ export interface PostProcessPlan {
 	readonly startPassId: string | null;
 	readonly historyDescriptors: readonly PostProcessHistoryDescriptor[];
 	readonly transientDescriptors: readonly PostProcessTransientDescriptor[];
+	readonly frameRequirements: FramePreparationRequirements;
 	readonly signature: string;
 }
 
@@ -220,6 +225,7 @@ export class PostProcessPlanner {
 			declarations.backend,
 			passes,
 		);
+		const frameRequirements = this._collectFrameRequirements(passes);
 		return Object.freeze({
 			backend: declarations.backend,
 			postProcess: declarations.postProcess,
@@ -232,6 +238,7 @@ export class PostProcessPlanner {
 			startPassId: declarations.startPassId,
 			historyDescriptors: Object.freeze(historyDescriptors),
 			transientDescriptors: Object.freeze(transientDescriptors),
+			frameRequirements,
 			signature: this._createSignature(declarations.frameContext, passes),
 		});
 	}
@@ -299,6 +306,19 @@ export class PostProcessPlanner {
 			if (!entry.id) violations.push("shared resource id is required");
 			this._validateUses([entry], `shared resource "${entry.id}"`, violations);
 		}
+		const cameraJitter = declaration.frameRequirements?.cameraJitter;
+		if (cameraJitter) {
+			if (cameraJitter.sequence !== "halton-2-3") {
+				violations.push("camera jitter sequence is invalid");
+			}
+			if (
+				typeof cameraJitter.scale !== "number" ||
+				!Number.isFinite(cameraJitter.scale) ||
+				cameraJitter.scale < 0
+			) {
+				violations.push("camera jitter scale must be a finite non-negative number");
+			}
+		}
 		if (violations.length > 0) {
 			throw new Error(
 				`Post-process pass "${passId}" has invalid ${backend} execution declaration: ` +
@@ -362,6 +382,34 @@ export class PostProcessPlanner {
 			}
 		}
 		return true;
+	}
+
+	private _collectFrameRequirements(
+		passes: readonly PlannedPostProcessPass[],
+	): FramePreparationRequirements {
+		let cameraJitter: CameraJitterRequirement | undefined;
+		let cameraJitterPassId: string | undefined;
+		for (const pass of passes) {
+			const requirement = pass.declaration.frameRequirements?.cameraJitter;
+			if (!requirement) continue;
+			if (!cameraJitter) {
+				cameraJitter = requirement;
+				cameraJitterPassId = pass.id;
+				continue;
+			}
+			if (
+				cameraJitter.sequence !== requirement.sequence ||
+				cameraJitter.scale !== requirement.scale
+			) {
+				throw new Error(
+					`Post-process passes "${cameraJitterPassId}" and "${pass.id}" ` +
+						"declare incompatible camera jitter requirements.",
+				);
+			}
+		}
+		return Object.freeze({
+			...(cameraJitter ? { cameraJitter } : {}),
+		});
 	}
 
 	private _collectHistoryDescriptors(

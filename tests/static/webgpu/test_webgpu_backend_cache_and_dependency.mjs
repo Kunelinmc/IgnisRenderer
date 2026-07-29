@@ -812,11 +812,17 @@ function testCreateBufferMappedAtCreationExposesUnmap() {
 function testResizeUsesProvidedDimensions() {
 	const { backend, device } = createBackend();
 	let invalidateCalls = 0;
+	let temporalResetCalls = 0;
 	backend._canvas = { width: 1, height: 1 };
 	backend._context = {
 		configure(config) {
 			device.configureCalls++;
 			assert.equal(config.device, device);
+		},
+	};
+	backend._resources = {
+		resetTemporalState() {
+			temporalResetCalls++;
 		},
 	};
 	backend._frameOrchestrator = {
@@ -831,6 +837,7 @@ function testResizeUsesProvidedDimensions() {
 	assert.equal(backend.canvas.height, 240);
 	assert.equal(device.configureCalls, 1);
 	assert.equal(invalidateCalls, 1);
+	assert.equal(temporalResetCalls, 1);
 }
 
 async function testResizeDuringActiveFrameDefersResourceInvalidation() {

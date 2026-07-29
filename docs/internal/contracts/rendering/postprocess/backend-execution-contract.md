@@ -25,6 +25,9 @@ Render Graph.
 - Availability finalization must reuse the retained execution declarations. It
   must not resolve pass order, instantiate implementations, or call
   `describeExecution()` again.
+- Finalization must aggregate pre-scene frame requirements from eligible
+  passes. Scene preparation must consume that retained aggregate and must not
+  query pass IDs or pass-specific option types.
 - An implementation's `describeExecution()` must be called at most once for
   one planned frame. The immutable returned declaration must be retained by the
   plan and reused by subgraph building and execution.
@@ -54,6 +57,12 @@ Render Graph.
 - History writes must remain pending until the enclosing backend frame commits.
   Abort, device loss, execution failure, and `{ ran: false }` must not commit
   them.
+- Camera jitter and previous transform state must use the same enclosing frame
+  transaction boundary. A failed or aborted frame must not advance either
+  state.
+- Software, WebGL, and WebGPU temporal camera services must delegate that
+  transaction to `TemporalFrameState`. Backend binding caches must not
+  duplicate jitter checkpoints or pending previous-view-projection ownership.
 - Warmup must use the same planner and declaration validation with synthetic
   availability. It must not allocate frame resources.
 

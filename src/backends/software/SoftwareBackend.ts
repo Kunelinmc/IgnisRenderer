@@ -31,16 +31,9 @@ import {
 	type ShadowBackendCapabilities,
 } from "../../pipeline/ShadowMetadata";
 import { FrameAttachments } from "../../pipeline/types";
-import { CameraType } from "../../cameras/Camera";
-import {
-	TemporalJitterState,
-	type TemporalJitterCheckpoint,
-} from "../cross/TemporalJitterState";
-import {
-	DEFAULT_TAA_OPTIONS,
-	SOFTWARE_TAA_RENDER_STATE_KEY,
-	type TAAOptions,
-} from "../../postprocess/passes/TemporalAntiAliasingPass";
+import { TemporalFrameState } from "../cross/TemporalFrameState";
+import { SOFTWARE_TEMPORAL_RENDER_STATE_KEY } from "./SoftwareTemporalRenderState";
+import type { PostProcessPlan } from "../../postprocess/PostProcessPlanner";
 import {
 	assertShaderDirectiveProfileRegistryComplete,
 	DEFAULT_SHADER_DIRECTIVE_PROFILE_REGISTRY,
@@ -68,7 +61,6 @@ type SoftwareBackendState =
 	| "destroyed";
 
 interface SoftwareTemporalCommit {
-	previousViewProjection: FrameContext["viewCamera"]["viewProjectionMatrix"];
 	previousWorldMatrices: Map<string, FrameContext["worldMatrix"]>;
 }
 
@@ -166,11 +158,9 @@ export class SoftwareBackend implements IRenderBackend {
 	private _state: SoftwareBackendState = "detached";
 	private readonly _surface = new SoftwareSurfaceRuntime();
 	private _executor: SoftwarePassExecutor | null = null;
-	private _temporalJitterState = new TemporalJitterState();
-	private _previousViewProjection: FrameContext["viewCamera"]["viewProjectionMatrix"] | null =
-		null;
+	private readonly _temporalFrameState = new TemporalFrameState();
 	private _previousWorldMatrices = new Map<string, FrameContext["worldMatrix"]>();
-	private _temporalCheckpoint: TemporalJitterCheckpoint | null = null;
+	private _postProcessPlan: PostProcessPlan | null = null;
 	private readonly _frameRuntime = new SoftwareFrameRuntime();
 	private _options: SoftwareBackendOptions;
 	private readonly _passHandlers: Map<FramePass["stage"], SoftwarePassHandler>;
@@ -280,6 +270,7 @@ export class SoftwareBackend implements IRenderBackend {
 	private _applyResize(size: RenderSurfaceSize): void {
 		this._surface.resize(size);
 		this._executor?.invalidateFrameSized();
+		this._resetTemporalState();
 	}
 
 	public beginFrame(context: FrameContext): void {
@@ -291,8 +282,9 @@ export class SoftwareBackend implements IRenderBackend {
 		this._state = "frame-active";
 		this._frameRuntime.begin(context);
 		this._executor?.beginFrame(context);
-		this._temporalCheckpoint = this._temporalJitterState.createCheckpoint();
-		this._prepareTAARenderState(context);
+		this._postProcessPlan =
+			this._executor?.planPostProcessFrame(context) ?? null;
+		this._prepareTemporalRenderState(context);
 
 		const pixels = context.attachments.pixels!;
 		const depthBuffer = context.attachments.depthBuffer!;
@@ -437,18 +429,19 @@ export class SoftwareBackend implements IRenderBackend {
 	public endFrame(): void {
 		const context = this._requireActiveContext(this._frameRuntime.activeContext, "endFrame");
 		this._executor?.endParticleFrame();
-		const temporalCommit = this._prepareTAARenderCommit(context);
+		const temporalCommit = this._prepareTemporalRenderCommit(context);
 
 		this._surface.present();
 
 		this._executor?.commitFrame();
-		this._commitTAARenderState(temporalCommit);
+		this._temporalFrameState.commitFrame();
+		this._commitTemporalRenderState(temporalCommit);
 		if (this._canPreserveNonDirtyTiles(context)) {
 			this._frameRuntime.complete(true);
 		} else {
 			this._frameRuntime.complete(false);
 		}
-		this._temporalCheckpoint = null;
+		this._postProcessPlan = null;
 		this._state = "ready";
 		this._flushPendingResize();
 	}
@@ -475,10 +468,8 @@ export class SoftwareBackend implements IRenderBackend {
 		} catch (error) {
 			abortError ??= error;
 		} finally {
-			if (this._temporalCheckpoint) {
-				this._temporalJitterState.restoreCheckpoint(this._temporalCheckpoint);
-			}
-			this._temporalCheckpoint = null;
+			this._temporalFrameState.abortFrame();
+			this._postProcessPlan = null;
 			this._frameRuntime.abort();
 			if (this._state === "frame-active") {
 				this._state = "ready";
@@ -488,41 +479,45 @@ export class SoftwareBackend implements IRenderBackend {
 		if (abortError) throw abortError;
 	}
 
-	private _prepareTAARenderState(context: FrameContext): void {
-		const taaOptions = context.postProcess.getOptions<TAAOptions>("taa") ?? DEFAULT_TAA_OPTIONS;
-		const taaEnabled = context.postProcess.isEnabled("taa");
-		const jitter = this._temporalJitterState.nextFrameState({
-			enabled: taaEnabled,
-			isOrthographic: context.viewCamera.type === CameraType.Orthographic,
+	private _prepareTemporalRenderState(context: FrameContext): void {
+		const snapshot = this._temporalFrameState.beginFrame({
+			camera: context.viewCamera,
 			width: context.attachments.width,
 			height: context.attachments.height,
-			jitterScale: taaOptions.jitterScale ?? DEFAULT_TAA_OPTIONS.jitterScale,
+			frameRequirements: this._postProcessPlan?.frameRequirements ?? {},
 			reset: context.incremental.temporalHistoryReset,
 		});
-		const resetHistory = !taaEnabled || context.incremental.temporalHistoryReset;
-		context.transient.set(SOFTWARE_TAA_RENDER_STATE_KEY, {
-			...jitter,
-			previousViewProjection: resetHistory ? null : this._previousViewProjection,
+		const resetHistory = context.incremental.temporalHistoryReset;
+		context.transient.set(SOFTWARE_TEMPORAL_RENDER_STATE_KEY, {
+			currentJitter: [
+				snapshot.jitterCurrentPrev[0],
+				snapshot.jitterCurrentPrev[1],
+			],
+			previousJitter: [
+				snapshot.jitterCurrentPrev[2],
+				snapshot.jitterCurrentPrev[3],
+			],
+			previousViewProjection: snapshot.previousViewProjection,
 			currentViewProjection: context.viewCamera.viewProjectionMatrix,
 			previousWorldMatrices: resetHistory ? new Map() : this._previousWorldMatrices,
 			currentWorldMatrices: new Map(),
 		});
 	}
 
-	private _prepareTAARenderCommit(context: FrameContext): SoftwareTemporalCommit | null {
-		const state = context.transient.get(SOFTWARE_TAA_RENDER_STATE_KEY);
+	private _prepareTemporalRenderCommit(
+		context: FrameContext,
+	): SoftwareTemporalCommit | null {
+		const state = context.transient.get(SOFTWARE_TEMPORAL_RENDER_STATE_KEY);
 		if (!state) {
 			return null;
 		}
 		return {
-			previousViewProjection: context.viewCamera.viewProjectionMatrix.clone(),
 			previousWorldMatrices: new Map(state.currentWorldMatrices),
 		};
 	}
 
-	private _commitTAARenderState(commit: SoftwareTemporalCommit | null): void {
+	private _commitTemporalRenderState(commit: SoftwareTemporalCommit | null): void {
 		if (!commit) return;
-		this._previousViewProjection = commit.previousViewProjection;
 		this._previousWorldMatrices = commit.previousWorldMatrices;
 	}
 
@@ -682,17 +677,22 @@ export class SoftwareBackend implements IRenderBackend {
 			[
 				"postprocess",
 				async (context) => {
-					await this._executor?.executePostProcess(context);
+					if (!this._postProcessPlan) {
+						throw new Error("Software post-process plan is unavailable.");
+					}
+					await this._executor?.executePostProcess(
+						context,
+						this._postProcessPlan,
+					);
 				},
 			],
 		]);
 	}
 
 	private _resetTemporalState(): void {
-		this._temporalJitterState.reset();
-		this._previousViewProjection = null;
+		this._temporalFrameState.reset();
 		this._previousWorldMatrices.clear();
-		this._temporalCheckpoint = null;
+		this._postProcessPlan = null;
 	}
 
 	private _flushPendingResize(): void {

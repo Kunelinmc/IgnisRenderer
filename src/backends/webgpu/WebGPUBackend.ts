@@ -623,6 +623,7 @@ export class WebGPUBackend implements IRenderBackend {
 		this._bindingGroupCache.clear();
 		this._recreateDepthTexture();
 		this._postProcessRuntime?.invalidateFrameSized();
+		this._resources?.resetTemporalState?.();
 		if (options.invalidateFrameTargets !== false) {
 			this._frameOrchestrator?.invalidateFrameTargets();
 		}
@@ -735,6 +736,7 @@ export class WebGPUBackend implements IRenderBackend {
 		try {
 			this._postProcessRuntime?.commitFrame();
 			this._frameOrchestrator?.commitGraphAnalysis?.();
+			this._resources?.commitTemporalFrame?.();
 		} catch (error) {
 			this._frameOrchestrator?.abortGraphAnalysis?.(error);
 			throw error;
@@ -765,6 +767,7 @@ export class WebGPUBackend implements IRenderBackend {
 				}
 			}
 		} finally {
+			this._resources?.abortTemporalFrame?.();
 			this._postProcessExecutor?.unbindSession(this._postProcessSessionPort ?? undefined);
 			this._postProcessSessionPort = null;
 			this._frameActive = false;

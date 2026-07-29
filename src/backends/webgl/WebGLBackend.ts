@@ -418,6 +418,7 @@ export class WebGLBackend implements IRenderBackend {
 				this._particleSimulator?.endFrame();
 				this._postProcessRuntime.commitFrame();
 				this._frameGraphRuntime.commitGraphAnalysis?.();
+				this._frameServices?.commitTemporalFrame?.();
 				this._activeContext = null;
 			} catch (error) {
 				this._frameGraphRuntime.abortGraphAnalysis?.(error);

@@ -4,6 +4,7 @@ import type { SoftwareBackendOptions } from "./SoftwareBackend";
 import { Rasterizer } from "./Rasterizer";
 import { SoftwarePostProcessExecutor } from "./SoftwarePostProcessExecutor";
 import { BackendPostProcessRuntime } from "../../postprocess/BackendPostProcessRuntime";
+import type { PostProcessPlan } from "../../postprocess/PostProcessPlanner";
 import { SoftwareMainPass } from "./passes/SoftwareMainPass";
 import { SoftwareParticlePass } from "./passes/SoftwareParticlePass";
 import { SoftwareReflectionPass } from "./passes/SoftwareReflectionPass";
@@ -100,8 +101,15 @@ export class SoftwarePassExecutor {
 		this._particlePass.render(context);
 	}
 
-	public executePostProcess(context: FrameContext): Promise<void> {
-		return this._postProcessRuntime.execute(context);
+	public planPostProcessFrame(context: FrameContext): PostProcessPlan {
+		return this._postProcessRuntime.planFrame(context);
+	}
+
+	public executePostProcess(
+		context: FrameContext,
+		plan: PostProcessPlan,
+	): Promise<void> {
+		return this._postProcessRuntime.execute(context, plan);
 	}
 
 	public commitFrame(): void {

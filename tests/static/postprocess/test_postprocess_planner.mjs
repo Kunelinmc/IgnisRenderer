@@ -277,4 +277,56 @@ for (const [id, declaration] of [
 	);
 }
 
+{
+	const registry = new PostProcessPassRegistry();
+	for (const id of ["jitter-a", "jitter-b"]) {
+		registry.registerPass(new TestPass({
+			id,
+			declaration: {
+				color: COLOR,
+				frameRequirements: {
+					cameraJitter: { sequence: "halton-2-3", scale: 1 },
+				},
+			},
+		}));
+	}
+	assert.deepEqual(plan(registry).result.frameRequirements, {
+		cameraJitter: { sequence: "halton-2-3", scale: 1 },
+	});
+}
+
+{
+	const registry = new PostProcessPassRegistry();
+	for (const [id, scale] of [["jitter-a", 1], ["jitter-b", 0.5]]) {
+		registry.registerPass(new TestPass({
+			id,
+			declaration: {
+				color: COLOR,
+				frameRequirements: {
+					cameraJitter: { sequence: "halton-2-3", scale },
+				},
+			},
+		}));
+	}
+	assert.throws(
+		() => plan(registry),
+		(error) => /jitter-a/.test(error.message) && /jitter-b/.test(error.message),
+	);
+}
+
+{
+	const registry = new PostProcessPassRegistry();
+	registry.registerPass(new TestPass({
+		id: "ineligible-jitter",
+		declaration: {
+			color: COLOR,
+			gBuffer: [{ semantic: "motion", ...READ }],
+			frameRequirements: {
+				cameraJitter: { sequence: "halton-2-3", scale: 1 },
+			},
+		},
+	}));
+	assert.deepEqual(plan(registry).result.frameRequirements, {});
+}
+
 console.log("Post-process planner tests passed");

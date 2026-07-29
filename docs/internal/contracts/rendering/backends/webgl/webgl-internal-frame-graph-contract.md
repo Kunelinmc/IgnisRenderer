@@ -35,6 +35,12 @@ validated without keeping pass orchestration inside `WebGLFrameServiceOwner`.
 - `WebGLFrameServiceOwner` must not own renderer-level pass orchestration.
 - WebGL graph and post-process runtimes must depend on narrow internal
   contracts and must not require the concrete `WebGLFrameServiceOwner` type.
+- The frame graph runtime must retain one post-process declaration plan,
+  configure frame targets, finalize that plan, and pass only generic finalized
+  frame requirements to frame services before scene execution.
+- WebGL temporal camera state must commit only after post-process histories
+  commit. Frame abort must restore the tentative jitter sequence and previous
+  view-projection state.
 - `WebGLFrameGraphCompiler` must compile one whole-frame definition and
   preserve planner order among retained nodes.
 - `executePass()` must consume a precompiled stage slice and must not plan or

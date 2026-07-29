@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 
 import { TemporalJitterState } from "../../../src/backends/cross/TemporalJitterState.ts";
+import { TemporalFrameState } from "../../../src/backends/cross/TemporalFrameState.ts";
+import { CameraType } from "../../../src/cameras/Camera.ts";
+import { Matrix4 } from "../../../src/maths/Matrix4.ts";
 import { computeHaltonJitterNDC } from "../../../src/maths/Misc.ts";
 
 function testPerspectiveJitterTracksPreviousSample() {
@@ -87,7 +90,72 @@ function testFrameStateSnapshotUsesCurrentAndPreviousJitter() {
 	});
 }
 
+function testTemporalFrameTransactionCommitsAndRollsBack() {
+	const state = new TemporalFrameState();
+	const requirements = {
+		cameraJitter: { sequence: "halton-2-3", scale: 1 },
+	};
+	const firstMatrix = new Matrix4([
+		[1, 0, 0, 1],
+		[0, 1, 0, 0],
+		[0, 0, 1, 0],
+		[0, 0, 0, 1],
+	]);
+	const secondMatrix = new Matrix4([
+		[1, 0, 0, 2],
+		[0, 1, 0, 0],
+		[0, 0, 1, 0],
+		[0, 0, 0, 1],
+	]);
+	const camera = {
+		type: CameraType.Perspective,
+		viewProjectionMatrix: firstMatrix,
+	};
+	const first = state.beginFrame({
+		camera,
+		width: 100,
+		height: 50,
+		frameRequirements: requirements,
+	});
+	state.abortFrame();
+	const retry = state.beginFrame({
+		camera,
+		width: 100,
+		height: 50,
+		frameRequirements: requirements,
+	});
+	assert.deepEqual(retry.jitterCurrentPrev, first.jitterCurrentPrev);
+	assert.equal(retry.previousViewProjection, null);
+	state.commitFrame();
+
+	camera.viewProjectionMatrix = secondMatrix;
+	const second = state.beginFrame({
+		camera,
+		width: 100,
+		height: 50,
+		frameRequirements: requirements,
+	});
+	assert.deepEqual(
+		second.previousViewProjection?.elements,
+		firstMatrix.elements,
+	);
+	state.abortFrame();
+	const afterAbort = state.beginFrame({
+		camera,
+		width: 100,
+		height: 50,
+		frameRequirements: {},
+	});
+	assert.deepEqual(
+		afterAbort.previousViewProjection?.elements,
+		firstMatrix.elements,
+	);
+	assert.deepEqual(afterAbort.jitterCurrentPrev, [0, 0, 0, 0]);
+	state.abortFrame();
+}
+
 testPerspectiveJitterTracksPreviousSample();
 testOrthographicAndResetReturnZeroHistory();
 testFrameStateSnapshotUsesCurrentAndPreviousJitter();
+testTemporalFrameTransactionCommitsAndRollsBack();
 console.log("Temporal jitter state tests passed");

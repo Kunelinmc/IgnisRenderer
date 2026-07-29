@@ -1,9 +1,5 @@
-import {
-	defineTransientKey,
-	type FrameAttachments,
-} from "../../pipeline/types";
-import type { Matrix4 } from "../../maths/Matrix4";
-import type { TemporalJitterFrameState } from "../../backends/cross/TemporalJitterState";
+import type { FrameAttachments } from "../../pipeline/types";
+import type { FramePreparationRequirements } from "../../pipeline/FrameRequirements";
 import type { ICommandEncoder } from "../../backends/ICommandEncoder";
 import {
 	BufferUsage,
@@ -30,7 +26,11 @@ import {
 	reprojectHistoryUv,
 } from "../../maths/Misc";
 import { ShaderSource } from "../../shaders/ShaderSource";
-import { PostProcessPass, type PostProcessPassConfig } from "../PostProcessPass";
+import {
+	PostProcessPass,
+	type PostProcessPassConfig,
+	type PostProcessPassResolveRequest,
+} from "../PostProcessPass";
 import type { PostProcessScheduleEntry } from "../ordering";
 import {
 	POST_PROCESS_COLOR_ATTACHMENT_WRITE,
@@ -126,16 +126,6 @@ export type ResolvedTAAOptions = Required<
 		| "sharpen"
 	>
 >;
-
-export interface SoftwareTAARenderState extends TemporalJitterFrameState {
-	readonly previousViewProjection: Matrix4 | null;
-	readonly currentViewProjection: Matrix4;
-	readonly previousWorldMatrices: ReadonlyMap<string, Matrix4>;
-	readonly currentWorldMatrices: Map<string, Matrix4>;
-}
-
-export const SOFTWARE_TAA_RENDER_STATE_KEY =
-	defineTransientKey<SoftwareTAARenderState>("postprocess:taa-software-state");
 
 /** @internal Software context supplied to the built-in TAA implementation. */
 export interface SoftwareTAAContext {
@@ -267,6 +257,17 @@ export function resolveTAAHistoryValid(
 	return (histories.taa?.valid ?? false) && (histories.motion?.valid ?? false);
 }
 
+function createTAAFrameRequirements(
+	options: TAAOptions | ResolvedTAAOptions | undefined,
+): FramePreparationRequirements {
+	return {
+		cameraJitter: {
+			sequence: "halton-2-3",
+			scale: resolveTAAOptions(options).jitterScale,
+		},
+	};
+}
+
 /**
  * Creates the packed GPU parameter buffer shared by WebGPU and WebGL TAA.
  *
@@ -304,9 +305,10 @@ export class SoftwareTemporalAntiAliasingImplementation
 	implements PostProcessPassImplementation<SoftwareTAAContext>
 {
 	public readonly id = "taa:software";
-	public describeExecution() {
+	public describeExecution(request: PostProcessPassResolveRequest<ResolvedTAAOptions>) {
 		return {
 			...SOFTWARE_IN_PLACE_EXECUTION,
+			frameRequirements: createTAAFrameRequirements(request.options),
 			gBuffer: [{ semantic: "motion", ...POST_PROCESS_CPU_READ }],
 			histories: TAA_HISTORY_DESCRIPTORS.map((descriptor) => ({
 				descriptor,
@@ -486,9 +488,10 @@ export class WebGPUTemporalAntiAliasingImplementation
 	implements PostProcessPassImplementation<WebGPUTAAContext>
 {
 	public readonly id = "taa:webgpu";
-	public describeExecution() {
+	public describeExecution(request: PostProcessPassResolveRequest<ResolvedTAAOptions>) {
 		return {
 			...WEBGPU_VERSIONED_EXECUTION,
+			frameRequirements: createTAAFrameRequirements(request.options),
 			gBuffer: [{ semantic: "motion", ...POST_PROCESS_SAMPLED_READ }],
 			histories: TAA_HISTORY_DESCRIPTORS.map((descriptor) => ({
 				descriptor,
@@ -661,9 +664,10 @@ export class WebGLTemporalAntiAliasingImplementation
 	implements PostProcessPassImplementation<WebGLTAAContext>
 {
 	public readonly id = "taa:webgl";
-	public describeExecution() {
+	public describeExecution(request: PostProcessPassResolveRequest<ResolvedTAAOptions>) {
 		return {
 			...WEBGL_VERSIONED_EXECUTION,
+			frameRequirements: createTAAFrameRequirements(request.options),
 			gBuffer: [{ semantic: "motion", ...POST_PROCESS_SAMPLED_READ }],
 			histories: TAA_HISTORY_DESCRIPTORS.map((descriptor) => ({
 				descriptor,

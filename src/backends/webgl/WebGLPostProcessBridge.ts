@@ -30,8 +30,6 @@ export interface WebGLPostProcessBridgeCallbacks {
 		context: FrameContext | null
 	): void;
 	commitColorTexture(texture: WebGLTexture): void;
-	markTAAHistoryValid(): void;
-	applyPipelineHistories(request: PostProcessPassRequest): void;
 	warn(key: string, message: string): void;
 }
 
@@ -76,14 +74,10 @@ export class WebGLPostProcessBridge {
 	 *
 	 * @param request Current pass-owned implementation context request.
 	 * @returns Context declared by implementation metadata, or `undefined`.
-	 * @sideEffects May synchronize executor temporal-history aliases when the
-	 * implementation declares `syncPipelineHistories`.
+	 * @sideEffects Resolves the pass output binding for controlled publication.
 	 */
 	public createPassExecutionContext(request: PostProcessPassExecutionContextRequest): unknown {
 		if (this._transactionActive) this.clearPendingPassState();
-		if ((request.declaration.histories?.length ?? 0) > 0) {
-			this._callbacks.applyPipelineHistories(request);
-		}
 		const source = this._callbacks.getSourceTexture();
 		this._expectedColorTexture =
 			request.declaration.color.output === "new-version" && source ?
@@ -117,9 +111,6 @@ export class WebGLPostProcessBridge {
 			);
 		}
 		this._callbacks.commitColorTexture(expectedTexture);
-		if (result.updatedHistoryIds?.includes("taa")) {
-			this._callbacks.markTAAHistoryValid();
-		}
 		return { committed: true, physicalId: this._getPhysicalId(expectedTexture) };
 	}
 

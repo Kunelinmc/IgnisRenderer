@@ -2805,6 +2805,7 @@ async function testWebGPUEnvironmentCombinationsRegression() {
 		assert.equal(!!environmentResources, scenario.expectEnvironment);
 		const draw = await resources.getDrawResources(packet, frameResources);
 		assert.ok(draw);
+		resources.commitTemporalFrame();
 	}
 }
 
@@ -3434,6 +3435,7 @@ async function testFrameBindingReplacementDestroysOldBinding() {
 	assert.ok(firstEnvironment);
 	const firstBinding = firstEnvironment.frameBinding;
 	assert.equal(firstBinding.destroyed, false);
+	resources.commitTemporalFrame();
 
 	const secondFrameResources = resources.prepareFrame(
 		createFrameContext(
@@ -3547,6 +3549,9 @@ async function testWebGPUPrepareFrameTemporalStateModes() {
 	);
 	const width = 16;
 	const height = 8;
+	const temporalFrameRequirements = {
+		cameraJitter: { sequence: "halton-2-3", scale: 1 },
+	};
 	const previousViewProjection = new Matrix4([
 		[1, 0, 0, 10],
 		[0, 1, 0, 20],
@@ -3580,12 +3585,15 @@ async function testWebGPUPrepareFrameTemporalStateModes() {
 		width,
 		height
 	);
-	resources.prepareFrame(previousContext, createMainFrameOptions());
+	resources.prepareFrame(previousContext, createMainFrameOptions({
+		frameRequirements: temporalFrameRequirements,
+	}));
 	const firstJitter = computeHaltonJitterNDC(0, width, height, 1);
 	assertArrayNearlyEqual(
 		readLatestFrameCameraUniformField(backend, "taaJitterCurrentPrev"),
 		[firstJitter[0], firstJitter[1], 0, 0]
 	);
+	resources.commitTemporalFrame();
 
 	const currentContext = createWebGPUFrameContextForTemporalTest(
 		currentFrame,
@@ -3594,7 +3602,9 @@ async function testWebGPUPrepareFrameTemporalStateModes() {
 		width,
 		height
 	);
-	resources.prepareFrame(currentContext, createMainFrameOptions());
+	resources.prepareFrame(currentContext, createMainFrameOptions({
+		frameRequirements: temporalFrameRequirements,
+	}));
 	const secondJitter = computeHaltonJitterNDC(1, width, height, 1);
 	assertArrayNearlyEqual(
 		readLatestFrameCameraUniformField(backend, "prevViewProjection"),
@@ -3618,6 +3628,7 @@ async function testWebGPUPrepareFrameTemporalStateModes() {
 		createMainFrameOptions({
 			scopeKey: "capture",
 			temporalStateMode: "disabled",
+			frameRequirements: temporalFrameRequirements,
 		})
 	);
 	assertArrayNearlyEqual(
@@ -3631,7 +3642,10 @@ async function testWebGPUPrepareFrameTemporalStateModes() {
 
 	resources.prepareFrame(
 		currentContext,
-		createMainFrameOptions({ temporalStateMode: "reuse" })
+		createMainFrameOptions({
+			temporalStateMode: "reuse",
+			frameRequirements: temporalFrameRequirements,
+		})
 	);
 	assertArrayNearlyEqual(
 		readLatestFrameCameraUniformField(backend, "prevViewProjection"),
@@ -3641,13 +3655,17 @@ async function testWebGPUPrepareFrameTemporalStateModes() {
 		readLatestFrameCameraUniformField(backend, "taaJitterCurrentPrev"),
 		[secondJitter[0], secondJitter[1], firstJitter[0], firstJitter[1]]
 	);
+	resources.commitTemporalFrame();
 
-	resources.prepareFrame(currentContext, createMainFrameOptions());
+	resources.prepareFrame(currentContext, createMainFrameOptions({
+		frameRequirements: temporalFrameRequirements,
+	}));
 	const thirdJitter = computeHaltonJitterNDC(2, width, height, 1);
 	assertArrayNearlyEqual(
 		readLatestFrameCameraUniformField(backend, "taaJitterCurrentPrev"),
 		[thirdJitter[0], thirdJitter[1], secondJitter[0], secondJitter[1]]
 	);
+	resources.commitTemporalFrame();
 
 	const resetContext = createWebGPUFrameContextForTemporalTest(
 		currentFrame,
@@ -3657,7 +3675,9 @@ async function testWebGPUPrepareFrameTemporalStateModes() {
 		height,
 		true
 	);
-	resources.prepareFrame(resetContext, createMainFrameOptions());
+	resources.prepareFrame(resetContext, createMainFrameOptions({
+		frameRequirements: temporalFrameRequirements,
+	}));
 	assertArrayNearlyEqual(
 		readLatestFrameCameraUniformField(backend, "prevViewProjection"),
 		Array.from(packMatrix4ForWGSL(currentViewProjection))
@@ -3666,6 +3686,26 @@ async function testWebGPUPrepareFrameTemporalStateModes() {
 		readLatestFrameCameraUniformField(backend, "taaJitterCurrentPrev"),
 		[firstJitter[0], firstJitter[1], 0, 0]
 	);
+
+	resources.commitTemporalFrame();
+	resources.beginFrameResourceLifecycle();
+	resources.prepareFrame(currentContext, createMainFrameOptions({
+		frameRequirements: temporalFrameRequirements,
+	}));
+	const abortedJitter = readLatestFrameCameraUniformField(
+		backend,
+		"taaJitterCurrentPrev",
+	);
+	resources.abortTemporalFrame();
+	resources.beginFrameResourceLifecycle();
+	resources.prepareFrame(currentContext, createMainFrameOptions({
+		frameRequirements: temporalFrameRequirements,
+	}));
+	assertArrayNearlyEqual(
+		readLatestFrameCameraUniformField(backend, "taaJitterCurrentPrev"),
+		abortedJitter,
+	);
+	resources.abortTemporalFrame();
 }
 
 async function testSceneFrameBindingLayoutMatchesFallbackEnvironmentContract() {
@@ -3987,6 +4027,7 @@ async function testParticleBindingCacheEvictsStaleSystems() {
 	const uvBuffer = particleBinding.desc.entries[2].resource;
 	assert.ok(uvBuffer);
 	assert.equal(uvBuffer.destroyed, false);
+	resources.commitTemporalFrame();
 
 	for (let i = 0; i < 130; i++) {
 		resources.beginFrameResourceLifecycle();
@@ -3994,6 +4035,7 @@ async function testParticleBindingCacheEvictsStaleSystems() {
 			createFrameContext(frame, features),
 			createMainFrameOptions()
 		);
+		resources.commitTemporalFrame();
 	}
 
 	assert.equal(particleBinding.destroyed, true);

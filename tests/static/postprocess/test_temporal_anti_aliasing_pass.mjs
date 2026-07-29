@@ -137,6 +137,9 @@ async function testTAADescriptorAndImplementationRoute() {
 		declaration.histories.map((history) => history.descriptor.id),
 		["taa", "motion"]
 	);
+	assert.deepEqual(declaration.frameRequirements, {
+		cameraJitter: { sequence: "halton-2-3", scale: 1 },
+	});
 	assert.equal(
 		typeof pass.getImplementation("software").execute,
 		"function"

@@ -109,6 +109,16 @@ The renderer frame pipeline must preserve this logical order:
 - Backends must provide fixed execution contexts with declaration-checked
   resource accessors. They must not dispatch post-process kernels by pass ID or
   synthesize pass-specific context properties from metadata.
+- Pass-owned implementations may declare generic pre-scene frame requirements.
+  Backends must consume the finalized aggregate without importing the owning
+  pass or inspecting pass-specific options.
+- `src/pipeline/FrameRequirements.ts` must define backend-agnostic
+  `FramePreparationRequirements`. Post-process declarations may contribute
+  requirements, but post-process must not own the requirement type consumed by
+  backend frame preparation.
+- `TemporalFrameState` must own the shared camera-jitter sequence, previous
+  view-projection state, and frame transaction. Backend adapters may retain
+  only the current snapshot and backend-specific packed representation.
 - WebGPU common post-process services must be owned directly by its device
   runtime and exposed through a narrow capability contract; an additional
   shared-context owner must not duplicate that lifecycle.

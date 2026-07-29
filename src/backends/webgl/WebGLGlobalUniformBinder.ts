@@ -150,8 +150,8 @@ export interface WebGLGlobalUniformBinderHost {
 	_particleShadowVolumeAtlasSize: Float32Array;
 	_particleShadowVolumeGridSize: Float32Array;
 	_particleShadowVolumeSliceParams: Float32Array;
-	_taaJitter: Float32Array;
-	_prevViewProjection: Float32Array | null;
+	_temporalJitterCurrentPrev: Float32Array;
+	_previousViewProjection: Float32Array | null;
 	_shAmbientTexture: WebGLTexture | null;
 	_shAmbientTextureWidth: number;
 	_shAmbientTextureHeight: number;
@@ -799,11 +799,12 @@ export function bindWebGLGlobalUniforms(
 	gl.activeTexture(gl.TEXTURE0 + WEBGL_TEXTURE_UNIT_BASE_MAP);
 
 	if (uniforms.taaJitter) {
-		gl.uniform4fv(uniforms.taaJitter, host._taaJitter);
+		gl.uniform4fv(uniforms.taaJitter, host._temporalJitterCurrentPrev);
 	}
 	if (uniforms.prevViewProjection) {
 		const prevViewProjection = sanitizeFloat32Array(
-			host._prevViewProjection ?? toColumnMajorMat4(context.viewCamera.viewProjectionMatrix),
+			host._previousViewProjection ??
+				toColumnMajorMat4(context.viewCamera.viewProjectionMatrix),
 			0
 		);
 		if (prevViewProjection.hadInvalid) {
