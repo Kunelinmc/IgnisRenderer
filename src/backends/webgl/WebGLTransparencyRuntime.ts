@@ -31,6 +31,7 @@ export class WebGLTransparencyRuntime {
 	private readonly _host: WebGLTransparencyRuntimeHost;
 	private _active = false;
 	private _hasContributors = false;
+	private _sceneColorCopyReady = false;
 	private _transparentPackets: DrawPacket[] = [];
 	private _legacyPackets: DrawPacket[] = [];
 
@@ -41,6 +42,7 @@ export class WebGLTransparencyRuntime {
 	public beginFrame(context: FrameContext): void {
 		this._configure(context);
 		this._hasContributors = false;
+		this._sceneColorCopyReady = false;
 		this._transparentPackets = [];
 		this._legacyPackets = [];
 	}
@@ -48,6 +50,7 @@ export class WebGLTransparencyRuntime {
 	public abortFrame(): void {
 		this._active = false;
 		this._hasContributors = false;
+		this._sceneColorCopyReady = false;
 		this._transparentPackets = [];
 		this._legacyPackets = [];
 	}
@@ -117,8 +120,15 @@ export class WebGLTransparencyRuntime {
 		this._hasContributors = true;
 	}
 
+	public copySceneColor(context: FrameContext): void {
+		this._sceneColorCopyReady =
+			this._hasContributors && this._copySceneColor(context);
+	}
+
 	public resolve(context: FrameContext): void {
-		if (this._hasContributors) this._resolveComposition(context);
+		if (this._hasContributors && this._sceneColorCopyReady) {
+			this._resolveComposition(context);
+		}
 	}
 
 	public renderLegacy(context: FrameContext): void {
@@ -128,6 +138,7 @@ export class WebGLTransparencyRuntime {
 		this._transparentPackets = [];
 		this._legacyPackets = [];
 		this._hasContributors = false;
+		this._sceneColorCopyReady = false;
 	}
 
 	public renderLegacyTransparent(context: FrameContext): void {
@@ -240,8 +251,7 @@ export class WebGLTransparencyRuntime {
 			!targets._postColorTexture ||
 			!targets._oitAccumTexture ||
 			!targets._oitRevealTexture ||
-			!this._host.getFullscreenVao() ||
-			!this._copySceneColor(context)
+			!this._host.getFullscreenVao()
 		) return;
 		const program = this._host.getPrograms().tryGetOITResolveProgram();
 		if (!program) return;

@@ -46,6 +46,11 @@ validated without keeping pass orchestration inside `WebGLFrameServiceOwner`.
   texture feedback loops.
 - WebGL OIT graph nodes must use separate `oit-accum` and `oit-reveal` nodes
   because WebGL cannot assign different blend states per attachment.
+- WebGL OIT scene-color copy and composition must use separate
+  `oit-copy-scene-color` and `oit-resolve` nodes. The copy node must read
+  `frame:scene-color` and write `post:color`; the resolve node must read
+  `post:color`, `oit:accum`, and `oit:reveal` before writing
+  `frame:scene-color`.
 - WebGL frame graph debug state may be exposed through backend-internal hooks.
 - Legacy barrier records must be projections of shared logical transitions;
   they must not represent native WebGL synchronization commands.

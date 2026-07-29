@@ -223,17 +223,29 @@ export class WebGLFrameGraphPlanner {
 		];
 		if (!state.hasParticleSystems) {
 			nodes.push(
+				this._node(
+					pass,
+					"oit-copy-scene-color",
+					"WebGLOITTransparentSceneColorCopy",
+					{
+						scope: "transparent",
+						reads: [
+							this._read("frame:scene-color", "texture-sampling"),
+						],
+						writes: [
+							this._write("post:color", "framebuffer-color"),
+						],
+					},
+				),
 				this._node(pass, "oit-resolve", "WebGLOITTransparentResolve", {
 					scope: "transparent",
 					reads: [
-						this._read("post:color", "texture-sampling", true),
+						this._read("post:color", "texture-sampling"),
 						this._read("oit:accum", "texture-sampling"),
 						this._read("oit:reveal", "texture-sampling"),
 					],
 					writes: [
-						this._write("post:color", "copy-target", true),
 						this._write("frame:scene-color", "framebuffer-color"),
-						this._write("frame:present-source", "copy-target"),
 					],
 				}),
 				this._node(pass, "transparent-legacy", "WebGLOITLegacyTransparent", {
@@ -272,17 +284,29 @@ export class WebGLFrameGraphPlanner {
 				requires: [{ id: "oit:reveal" }],
 				writes: [this._write("oit:reveal", "framebuffer-color")],
 			}),
+			this._node(
+				pass,
+				"oit-copy-scene-color",
+				"WebGLOITParticleSceneColorCopy",
+				{
+					scope: "particles",
+					reads: [
+						this._read("frame:scene-color", "texture-sampling"),
+					],
+					writes: [
+						this._write("post:color", "framebuffer-color"),
+					],
+				},
+			),
 			this._node(pass, "oit-resolve", "WebGLOITParticleResolve", {
 				scope: "particles",
 				reads: [
-					this._read("post:color", "texture-sampling", true),
+					this._read("post:color", "texture-sampling"),
 					this._read("oit:accum", "texture-sampling"),
 					this._read("oit:reveal", "texture-sampling"),
 				],
 				writes: [
-					this._write("post:color", "copy-target", true),
 					this._write("frame:scene-color", "framebuffer-color"),
-					this._write("frame:present-source", "copy-target"),
 				],
 			}),
 			this._node(pass, "transparent-legacy", "WebGLOITParticleLegacyTransparent", {

@@ -20,6 +20,7 @@ export interface WebGLFrameNodeServices {
 	prepareOITTransparent(context: FrameContext): void;
 	renderOITTransparentAccum(context: FrameContext): void;
 	renderOITTransparentReveal(context: FrameContext): void;
+	copySceneColorForOIT(context: FrameContext): void;
 	resolveOIT(context: FrameContext): void;
 	renderOITLegacyTransparent(context: FrameContext): void;
 	prepareOITParticles(): void;
@@ -111,6 +112,8 @@ export class WebGLFrameNodeExecutorRegistry {
 				}
 				services.renderOITTransparentReveal(context);
 			}],
+			["oit-copy-scene-color", (_node, context) =>
+				services.copySceneColorForOIT(context)],
 			["oit-resolve", (_node, context) => services.resolveOIT(context)],
 			["particles", (node, context) => {
 				if (node.scope === "particles") {

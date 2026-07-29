@@ -134,6 +134,9 @@ function createExecutor(events, options = {}) {
 		renderOITTransparentReveal() {
 			events.push("oit-reveal:transparent");
 		},
+		copySceneColorForOIT() {
+			events.push("oit-copy-scene-color");
+		},
 		resolveOIT() {
 			events.push("oit-resolve");
 		},
@@ -377,6 +380,7 @@ function testRuntimePlansOITParticleFlow() {
 		"oit-clear:particles",
 		"oit-accum:particles",
 		"oit-reveal:particles",
+		"oit-copy-scene-color",
 		"oit-resolve",
 		"oit-legacy",
 		"particles:additive",

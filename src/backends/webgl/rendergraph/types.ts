@@ -27,6 +27,7 @@ export type WebGLFrameGraphNodeKind =
 	| "oit-clear"
 	| "oit-accum"
 	| "oit-reveal"
+	| "oit-copy-scene-color"
 	| "oit-resolve"
 	| "particles"
 	| "post-process-pass"
@@ -44,6 +45,7 @@ export const WEBGL_FRAME_GRAPH_NODE_KINDS = [
 	"oit-clear",
 	"oit-accum",
 	"oit-reveal",
+	"oit-copy-scene-color",
 	"oit-resolve",
 	"particles",
 	"post-process-pass",

@@ -884,6 +884,10 @@ function testOITTransparentAndParticleExecutionOrder() {
 	executor.transparency._resolveComposition = () => {
 		events.push("resolve");
 	};
+	executor.transparency._copySceneColor = () => {
+		events.push("copy-scene-color");
+		return true;
+	};
 	executor.scene.renderPackets = (_context, packets, _transparent, options = {}) => {
 		events.push(
 			`packets:${options.blendMode ?? "legacy"}:${options.oitPassMode ?? 0}:${packets.length}`
@@ -912,6 +916,7 @@ function testOITTransparentAndParticleExecutionOrder() {
 	executor.prepareOITParticles();
 	executor.renderOITParticleAccum(context);
 	executor.renderOITParticleReveal(context);
+	executor.copySceneColorForOIT(context);
 	executor.resolveOIT(context);
 	executor.renderOITLegacyTransparent(context);
 	executor.renderOITAdditiveParticles(context);
@@ -922,6 +927,7 @@ function testOITTransparentAndParticleExecutionOrder() {
 		"packets:oit-reveal:2:1",
 		"particles:alpha:1",
 		"particles:alpha:2",
+		"copy-scene-color",
 		"resolve",
 		"packets:legacy:0:1",
 		"particles:additive:0",
@@ -949,6 +955,10 @@ function testOITTransparentResolvesImmediatelyWithoutParticles() {
 	executor.transparency._resolveComposition = () => {
 		events.push("resolve");
 	};
+	executor.transparency._copySceneColor = () => {
+		events.push("copy-scene-color");
+		return true;
+	};
 	executor.scene.renderPackets = (_context, packets, _transparent, options = {}) => {
 		events.push(
 			`packets:${options.blendMode ?? "legacy"}:${options.oitPassMode ?? 0}:${packets.length}`
@@ -968,6 +978,7 @@ function testOITTransparentResolvesImmediatelyWithoutParticles() {
 	executor.prepareOITTransparent(context);
 	executor.renderOITTransparentAccum(context);
 	executor.renderOITTransparentReveal(context);
+	executor.copySceneColorForOIT(context);
 	executor.resolveOIT(context);
 	executor.renderOITLegacyTransparent(context);
 
@@ -975,6 +986,7 @@ function testOITTransparentResolvesImmediatelyWithoutParticles() {
 		"clear",
 		"packets:oit-accum:1:1",
 		"packets:oit-reveal:2:1",
+		"copy-scene-color",
 		"resolve",
 		"packets:legacy:0:1",
 	]);

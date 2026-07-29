@@ -601,6 +601,10 @@ export class WebGLFrameServiceOwner {
 		this._transparency.renderTransparentReveal(context);
 	}
 
+	public copySceneColorForOIT(context: FrameContext): void {
+		this._transparency.copySceneColor(context);
+	}
+
 	public resolveOIT(context: FrameContext): void {
 		this._transparency.resolve(context);
 	}

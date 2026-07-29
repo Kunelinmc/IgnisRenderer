@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+
+import { WebGLFrameGraphCompiler } from "../../../src/backends/webgl/rendergraph/WebGLFrameGraphCompiler.ts";
 import { WebGLFrameGraphPlanner } from "../../../src/backends/webgl/rendergraph/WebGLFrameGraphPlanner.ts";
 
 function createContext(overrides = {}) {
@@ -108,9 +110,59 @@ function testTransparentOITResolvesWithoutParticles() {
 		"oit-clear",
 		"oit-accum",
 		"oit-reveal",
+		"oit-copy-scene-color",
 		"oit-resolve",
 		"transparent-legacy",
 	]);
+	const copyNode = plan.nodes.find((node) =>
+		node.kind === "oit-copy-scene-color");
+	const resolveNode = plan.nodes.find((node) => node.kind === "oit-resolve");
+	assert.deepEqual(copyNode.reads, [{
+		id: "frame:scene-color",
+		usage: "texture-sampling",
+		optional: false,
+	}]);
+	assert.deepEqual(copyNode.writes, [{
+		id: "post:color",
+		usage: "framebuffer-color",
+		optional: false,
+	}]);
+	assert.deepEqual(resolveNode.reads.map((read) => read.id), [
+		"post:color",
+		"oit:accum",
+		"oit:reveal",
+	]);
+	assert.deepEqual(resolveNode.writes.map((write) => write.id), [
+		"frame:scene-color",
+	]);
+
+	const compiler = new WebGLFrameGraphCompiler();
+	compiler.beginFrame([
+		"frame:scene-color",
+		"frame:depth",
+		"post:color",
+		"oit:accum",
+		"oit:reveal",
+	]);
+	compiler.compileStage(plan);
+	const transitions = compiler.getCompiledFrame().graph.transitions;
+	assert.ok(transitions.some((transition) =>
+		transition.nodeId === copyNode.id &&
+		transition.resourceId === "frame:scene-color" &&
+		transition.access === "read"));
+	assert.ok(transitions.some((transition) =>
+		transition.fromNodeId === copyNode.id &&
+		transition.nodeId === resolveNode.id &&
+		transition.resourceId === "post:color" &&
+		transition.reason === "read-after-write"));
+	assert.ok(transitions.some((transition) =>
+		transition.fromNodeId === copyNode.id &&
+		transition.nodeId === resolveNode.id &&
+		transition.resourceId === "frame:scene-color" &&
+		transition.reason === "write-after-read"));
+	assert.equal(transitions.some((transition) =>
+		transition.resourceId === "post:color" &&
+		transition.scope === "intra-node"), false);
 }
 
 function testParticleOITPlansResolveAndAdditiveParticles() {
@@ -125,6 +177,7 @@ function testParticleOITPlansResolveAndAdditiveParticles() {
 		"oit-clear",
 		"oit-accum",
 		"oit-reveal",
+		"oit-copy-scene-color",
 		"oit-resolve",
 		"transparent-legacy",
 		"particles",
