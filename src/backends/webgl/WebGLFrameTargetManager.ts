@@ -119,9 +119,14 @@ export class WebGLFrameTargetManager implements WebGLFrameTargetLifecycleHost {
 			id: string,
 			handle: WebGLTexture | WebGLRenderbuffer | null,
 			format?: string,
-			physicalId = `webgl:slot:${id}`,
+			options: {
+				readonly physicalId?: string;
+				readonly declareWithoutHandle?: boolean;
+				readonly extent?: "frame" | "unknown";
+			} = {},
 		): void => {
-			if (!handle) return;
+			if (!handle && !options.declareWithoutHandle) return;
+			const physicalId = options.physicalId ?? `webgl:slot:${id}`;
 			resources.push({
 				id,
 				origin: "imported",
@@ -129,19 +134,21 @@ export class WebGLFrameTargetManager implements WebGLFrameTargetLifecycleHost {
 				residency: "frame",
 				initialContent: "unknown",
 				format,
-				width,
-				height,
-				depthOrArrayLayers: 1,
-				dimension: "2d",
-				sampleCount: 1,
-				mipLevelCount: 1,
+				...(options.extent === "unknown" ? {} : {
+					width,
+					height,
+					depthOrArrayLayers: 1,
+					dimension: "2d" as const,
+					sampleCount: 1,
+					mipLevelCount: 1,
+				}),
 			});
 			bindings.push({
 				resourceId: id,
 				physicalId,
 				kind: "texture",
 			});
-			this._graphPhysicalResources.set(physicalId, handle);
+			if (handle) this._graphPhysicalResources.set(physicalId, handle);
 		};
 		addTexture("frame:scene-color", this._sceneColorTexture, this._sceneColorFormat);
 		const presentPhysicalId = this._presentSourceTexture === this._sceneColorTexture
@@ -150,7 +157,7 @@ export class WebGLFrameTargetManager implements WebGLFrameTargetLifecycleHost {
 				? "webgl:slot:post:color"
 				: "webgl:slot:frame:present-source";
 		addTexture("frame:present-source", this._presentSourceTexture ?? this._sceneColorTexture,
-			this._sceneColorFormat, presentPhysicalId);
+			this._sceneColorFormat, { physicalId: presentPhysicalId });
 		addTexture("frame:motion-depth", this._sceneMotionTexture, this._sceneMotionFormat);
 		addTexture("frame:normal", this._sceneNormalTexture, this._sceneNormalFormat);
 		addTexture("frame:albedo", this._sceneAlbedoTexture, this._sceneAlbedoFormat);
@@ -159,8 +166,17 @@ export class WebGLFrameTargetManager implements WebGLFrameTargetLifecycleHost {
 		addTexture("post:color", this._postColorTexture, this._postColorFormat);
 		addTexture("oit:accum", this._oitAccumTexture, "rgba16float");
 		addTexture("oit:reveal", this._oitRevealTexture, "r16float");
-		addTexture("shadow:atlas", shadowAtlasTexture, "depth");
-		addTexture("shadow:transmittance", shadowTransmittanceTexture, "rgba8unorm");
+		const lazyShadowSlot = {
+			declareWithoutHandle: true,
+			extent: "unknown",
+		} as const;
+		addTexture("shadow:atlas", shadowAtlasTexture, "depth", lazyShadowSlot);
+		addTexture(
+			"shadow:transmittance",
+			shadowTransmittanceTexture,
+			"rgba8unorm",
+			lazyShadowSlot,
+		);
 		resources.push({
 			id: "canvas:color",
 			origin: "imported",
