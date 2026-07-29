@@ -91,6 +91,7 @@ function createProgramLibrary(gl, warn, shaderRuntime, shaderCompileStage) {
 function createTestBuiltinSceneVariant(overrides = {}) {
 	return {
 		output: overrides.output ?? "single",
+		materialGBuffer: overrides.materialGBuffer ?? false,
 		oit: overrides.oit ?? false,
 		scene: {
 			shadows: false,
@@ -298,6 +299,8 @@ function createScenePassCaptureGL() {
 		COLOR_ATTACHMENT0: 0x8ce0,
 		COLOR_ATTACHMENT1: 0x8ce1,
 		COLOR_ATTACHMENT2: 0x8ce2,
+		COLOR_ATTACHMENT3: 0x8ce3,
+		COLOR_ATTACHMENT4: 0x8ce4,
 		NONE: 0,
 		TEXTURE0: 0x84c0,
 		TEXTURE_2D: 0x0de1,
@@ -1096,8 +1099,13 @@ async function testProgramLibraryCachesBuiltinSceneVariants() {
 	const baseMapVariant = createTestBuiltinSceneVariant({
 		material: { baseMap: true },
 	});
+	const materialGBufferVariant = createTestBuiltinSceneVariant({
+		output: "mrt",
+		materialGBuffer: true,
+	});
 	await prepareTestBuiltinSceneVariant(noMapVariant);
 	await prepareTestBuiltinSceneVariant(baseMapVariant);
+	await prepareTestBuiltinSceneVariant(materialGBufferVariant);
 
 	const gl = createProgramCaptureGL();
 	const library = createProgramLibrary(gl, () => {});
@@ -1108,10 +1116,18 @@ async function testProgramLibraryCachesBuiltinSceneVariants() {
 		"single",
 		baseMapVariant
 	);
+	const withMaterialGBuffer = library.getSceneProgram(
+		new Material(),
+		"mrt",
+		materialGBufferVariant
+	);
 
 	assert.strictEqual(first, second);
 	assert.notStrictEqual(first, withBaseMap);
-	assert.equal(gl.programCount, 2);
+	assert.equal(first.colorOutputCount, 1);
+	assert.equal(withBaseMap.colorOutputCount, 1);
+	assert.equal(withMaterialGBuffer.colorOutputCount, 5);
+	assert.equal(gl.programCount, 3);
 	assert.ok(
 		gl.shaderSources.some(
 			(entry) =>
@@ -1209,6 +1225,8 @@ function testProgramLibraryShaderMaterialCachesPerSceneTargetMode() {
 	assert.strictEqual(singleA, singleB);
 	assert.strictEqual(mrtA, mrtB);
 	assert.notStrictEqual(singleA, mrtA);
+	assert.equal(singleA.colorOutputCount, 1);
+	assert.equal(mrtA.colorOutputCount, 3);
 	assert.equal(gl.programCount, 2);
 	assert.ok(
 		gl.shaderSources.some((entry) => entry.source === CUSTOM_WEBGL_FRAGMENT)
@@ -2838,7 +2856,7 @@ function testShaderMaterialCustomTextureBinding() {
 	}
 }
 
-function testShaderMaterialDrawBuffersMismatchResolution() {
+function testSceneProgramDrawBuffersMatchFragmentOutputCount() {
 	const gl = createScenePassCaptureGL();
 	const material = new ShaderMaterial({
 		uniformBindings: [],
@@ -2893,6 +2911,74 @@ function testShaderMaterialDrawBuffersMismatchResolution() {
 		[gl.COLOR_ATTACHMENT0],
 		[gl.COLOR_ATTACHMENT0, gl.COLOR_ATTACHMENT1, gl.COLOR_ATTACHMENT2],
 	]);
+
+	host._activeDrawBuffers = [
+		gl.COLOR_ATTACHMENT0,
+		gl.COLOR_ATTACHMENT1,
+		gl.COLOR_ATTACHMENT2,
+		gl.COLOR_ATTACHMENT3,
+		gl.COLOR_ATTACHMENT4,
+	];
+	gl.calls.drawBuffers = [];
+	drawWebGLPacket(host, {
+		program: {},
+		uniforms: {},
+		targetMode: "mrt",
+		colorOutputCount: 3,
+	}, packet, false, {});
+	assert.deepEqual(gl.calls.drawBuffers, [
+		[
+			gl.COLOR_ATTACHMENT0,
+			gl.COLOR_ATTACHMENT1,
+			gl.COLOR_ATTACHMENT2,
+		],
+		[
+			gl.COLOR_ATTACHMENT0,
+			gl.COLOR_ATTACHMENT1,
+			gl.COLOR_ATTACHMENT2,
+			gl.COLOR_ATTACHMENT3,
+			gl.COLOR_ATTACHMENT4,
+		],
+	]);
+
+	gl.calls.drawBuffers = [];
+	drawWebGLPacket(host, {
+		program: {},
+		uniforms: {},
+		targetMode: "mrt",
+		colorOutputCount: 5,
+	}, packet, false, {});
+	assert.deepEqual(gl.calls.drawBuffers, []);
+
+	const drawError = new Error("draw failed");
+	const originalDrawElements = gl.drawElements;
+	gl.drawElements = () => {
+		throw drawError;
+	};
+	assert.throws(
+		() => drawWebGLPacket(host, {
+			program: {},
+			uniforms: {},
+			targetMode: "mrt",
+			colorOutputCount: 3,
+		}, packet, false, {}),
+		(error) => error === drawError,
+	);
+	assert.deepEqual(gl.calls.drawBuffers, [
+		[
+			gl.COLOR_ATTACHMENT0,
+			gl.COLOR_ATTACHMENT1,
+			gl.COLOR_ATTACHMENT2,
+		],
+		[
+			gl.COLOR_ATTACHMENT0,
+			gl.COLOR_ATTACHMENT1,
+			gl.COLOR_ATTACHMENT2,
+			gl.COLOR_ATTACHMENT3,
+			gl.COLOR_ATTACHMENT4,
+		],
+	]);
+	gl.drawElements = originalDrawElements;
 }
 
 function testWebGLBackendParticleDeltaTimeClamp() {
@@ -3103,7 +3189,7 @@ async function run() {
 	testEarlyZPrepassUsesDirtyRectPacketSelection();
 	testShaderMaterialCustomUniformBinding();
 	testShaderMaterialCustomTextureBinding();
-	testShaderMaterialDrawBuffersMismatchResolution();
+	testSceneProgramDrawBuffersMatchFragmentOutputCount();
 	testWebGLBackendParticleDeltaTimeClamp();
 	await testWebGLBackendWarmupDelegatesToCoordinator();
 	console.log("WebGL backend v2 unit tests passed");

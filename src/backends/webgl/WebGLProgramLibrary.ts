@@ -83,6 +83,7 @@ export interface WebGLSceneProgram {
 	program: WebGLProgram;
 	uniforms: WebGLSceneUniforms;
 	targetMode?: ShaderTargetMode;
+	colorOutputCount?: 1 | 3 | 5;
 }
 
 export interface WebGLEnvironmentProgram {
@@ -918,6 +919,10 @@ export class WebGLProgramLibrary {
 			},
 		);
 		sceneProgram.targetMode = normalizedVariant.output;
+		sceneProgram.colorOutputCount =
+			normalizedVariant.output === "single" ? 1
+			: normalizedVariant.materialGBuffer ? 5
+			: 3;
 		this._builtinScenePrograms.set(cacheKey, {
 			program: sceneProgram,
 			directiveTag,
@@ -1036,6 +1041,8 @@ export class WebGLProgramLibrary {
 				(chunk) => chunk.stage === "fragment" && chunk.mode === "mrt"
 			);
 			sceneProgram.targetMode = mode === "mrt" && !hasMrtChunk ? "single" : mode;
+			sceneProgram.colorOutputCount =
+				sceneProgram.targetMode === "single" ? 1 : 3;
 		} catch (error) {
 			if (!this._isWarnMode()) {
 				throw error;

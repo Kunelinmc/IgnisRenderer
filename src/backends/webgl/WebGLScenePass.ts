@@ -423,11 +423,6 @@ export function drawWebGLPacket(
 	}
 
 	const activeDrawBuffers = host._activeDrawBuffers;
-	let drawBuffersModified = false;
-	if (activeDrawBuffers && sceneProgram.targetMode === "single" && activeDrawBuffers.length > 1) {
-		gl.drawBuffers([gl.COLOR_ATTACHMENT0]);
-		drawBuffersModified = true;
-	}
 
 	if (packet.meshInstance.skeleton) {
 		logWebGLScenePassWarning(
@@ -894,17 +889,27 @@ export function drawWebGLPacket(
 		options.earlyZColor === true && !transparentPass && material.depthWrite;
 	gl.depthFunc(earlyZColor ? gl.LEQUAL : gl.LESS);
 	gl.depthMask(earlyZColor ? false : !transparentPass && material.depthWrite);
-	gl.drawElements(
-		geometry.topology,
-		geometry.indexCount,
-		geometry.indexType,
-		0
-	);
-	gl.bindVertexArray(null);
-
-	if (drawBuffersModified && activeDrawBuffers) {
-		gl.drawBuffers(activeDrawBuffers);
+	const colorOutputCount =
+		sceneProgram.colorOutputCount ??
+		(sceneProgram.targetMode === "single" ? 1 : 3);
+	const compatibleDrawBuffers =
+		activeDrawBuffers && activeDrawBuffers.length > colorOutputCount ?
+			activeDrawBuffers.slice(0, colorOutputCount)
+		:	null;
+	if (compatibleDrawBuffers) gl.drawBuffers(compatibleDrawBuffers);
+	try {
+		gl.drawElements(
+			geometry.topology,
+			geometry.indexCount,
+			geometry.indexType,
+			0
+		);
+	} finally {
+		if (compatibleDrawBuffers && activeDrawBuffers) {
+			gl.drawBuffers(activeDrawBuffers);
+		}
 	}
+	gl.bindVertexArray(null);
 }
 
 function resolveWebGLDepthPrepassProgram(
