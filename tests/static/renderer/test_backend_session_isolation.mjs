@@ -4,6 +4,7 @@ import { Renderer } from "../../../src/rendering/Renderer.ts";
 import { SoftwareBackend } from "../../../src/backends/software/SoftwareBackend.ts";
 import { WebGLBackend } from "../../../src/backends/webgl/WebGLBackend.ts";
 import { WebGPUBackend } from "../../../src/backends/webgpu/WebGPUBackend.ts";
+import { createWebGPUDebugInfo } from "../../../src/backends/webgpu/WebGPUDeviceCapabilities.ts";
 import { WEBGPU_COMPUTE_EXTENSION } from "../../../src/backends/BackendExtensions.ts";
 
 function attachBackend(backend, canvas = {}, events = []) {
@@ -134,7 +135,7 @@ function testWebGPUDebugInfoSnapshotFromMocks() {
 		features: new Set(["timestamp-query", "indirect-first-instance"]),
 	};
 
-	const debugInfo = backend._createDebugInfo(adapter, device);
+	const debugInfo = createWebGPUDebugInfo(adapter, device);
 	assert.equal(debugInfo.available, true);
 	assert.equal(debugInfo.device.vendor, "nvidia");
 	assert.equal(debugInfo.device.architecture, "ada");
@@ -153,7 +154,7 @@ function testWebGPUDebugInfoSnapshotFromMocks() {
 
 function testWebGPUDebugInfoHandlesMissingAdapterInfo() {
 	const backend = new WebGPUBackend();
-	const debugInfo = backend._createDebugInfo(
+	const debugInfo = createWebGPUDebugInfo(
 		{
 			limits: {
 				maxTextureDimension2D: 2048,

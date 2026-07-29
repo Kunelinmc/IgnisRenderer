@@ -1,14 +1,13 @@
-import type {
-	BufferDesc,
-	IRenderBuffer,
-	IRenderTexture,
-	TextureDataLayout,
-	TextureDesc,
-} from "../types";
 import {
-	getTextureFormatFallback,
-	textureFormatRequiresFeature,
-} from "../TextureFormatInfo";
+	BufferUsage,
+	type BufferDesc,
+	type IRenderBuffer,
+	type IRenderTexture,
+	type TextureDataLayout,
+	type TextureDesc,
+	TextureUsage,
+} from "../types";
+import { getTextureFormatFallback, textureFormatRequiresFeature } from "../TextureFormatInfo";
 import { Logger } from "../../foundation/Logger";
 import {
 	attachWebGPUTexture,
@@ -34,21 +33,16 @@ export interface WebGPUResourceManagerHost {
 	readonly device: GPUDevice | null;
 	readonly queue: GPUQueue | null;
 	assertDeviceOperational(operation: string): void;
-	mapBufferUsage(usage: number): GPUBufferUsageFlags;
-	mapTextureUsage(usage: number): GPUTextureUsageFlags;
 	resolveSupportedMSAASampleCount(
 		requested: number,
-		probeFormats?: readonly GPUTextureFormat[]
+		probeFormats?: readonly GPUTextureFormat[],
 	): number;
-	resolvePositiveInteger(value: number, fallback: number): number;
-	toUint8View(data: BufferSource): Uint8Array;
-	tryUnmapBuffer(buffer: GPUBuffer | null): void;
 	createManagedDestroy(
 		target: object,
 		options: {
 			label: string;
 			dispose: () => void;
-		}
+		},
 	): () => void;
 	runValidationScope<T>(label: string, operation: () => T): T;
 }
@@ -68,7 +62,7 @@ export class WebGPUResourceManager {
 		const mappedAtCreation = hasInitialData || !!desc.mappedAtCreation;
 		const gpuBuffer = device.createBuffer({
 			size: desc.size,
-			usage: this._host.mapBufferUsage(desc.usage),
+			usage: mapBufferUsage(desc.usage),
 			mappedAtCreation,
 			label: desc.label,
 		});
@@ -76,7 +70,7 @@ export class WebGPUResourceManager {
 			const source = desc.initialData as BufferSource;
 			const mappedRange = gpuBuffer.getMappedRange();
 			const target = new Uint8Array(mappedRange);
-			const srcView = this._host.toUint8View(source);
+			const srcView = toUint8View(source);
 			const copyLength = Math.min(target.byteLength, srcView.byteLength);
 			target.set(srcView.subarray(0, copyLength), 0);
 			gpuBuffer.unmap();
@@ -89,12 +83,12 @@ export class WebGPUResourceManager {
 			_gpuResource: gpuBuffer,
 		} as InternalRenderBuffer;
 		buffer.unmap = () => {
-			this._host.tryUnmapBuffer(gpuBuffer);
+			tryUnmapBuffer(gpuBuffer);
 		};
 		buffer.destroy = this._host.createManagedDestroy(buffer, {
 			label: desc.label ?? "WebGPUBuffer",
 			dispose: () => {
-				this._host.tryUnmapBuffer(gpuBuffer);
+				tryUnmapBuffer(gpuBuffer);
 				gpuBuffer.destroy();
 			},
 		});
@@ -105,16 +99,10 @@ export class WebGPUResourceManager {
 		this._host.assertDeviceOperational("create textures");
 		const device = this._requireDevice("create textures");
 		const dimension = (desc.dimension ?? "2d") as GPUTextureDimension;
-		const resolvedWidth = this._host.resolvePositiveInteger(desc.width, 1);
-		const resolvedHeight = this._host.resolvePositiveInteger(desc.height, 1);
-		const depthOrArrayLayers = this._host.resolvePositiveInteger(
-			desc.depthOrArrayLayers ?? 1,
-			1
-		);
-		const formatResolution = resolveWebGPUTextureFormat(
-			desc.format,
-			device.features
-		);
+		const resolvedWidth = resolvePositiveInteger(desc.width, 1);
+		const resolvedHeight = resolvePositiveInteger(desc.height, 1);
+		const depthOrArrayLayers = resolvePositiveInteger(desc.depthOrArrayLayers ?? 1, 1);
+		const formatResolution = resolveWebGPUTextureFormat(desc.format, device.features);
 		const requestedSampleCount = Math.max(1, Math.floor(desc.sampleCount ?? 1));
 		const sampleCount =
 			dimension === "2d"
@@ -137,12 +125,12 @@ export class WebGPUResourceManager {
 			dimension,
 			sampleCount,
 			format: formatResolution.format as GPUTextureFormat,
-			usage: this._host.mapTextureUsage(desc.usage),
+			usage: mapTextureUsage(desc.usage),
 			mipLevelCount: Math.max(1, desc.mipLevelCount ?? 1),
 			viewFormats:
-				formatResolution.format === desc.format ?
-					(desc.viewFormats as GPUTextureFormat[] | undefined)
-				:	undefined,
+				formatResolution.format === desc.format
+					? (desc.viewFormats as GPUTextureFormat[] | undefined)
+					: undefined,
 			label: desc.label,
 		};
 		if (formatResolution.reason) {
@@ -172,11 +160,7 @@ export class WebGPUResourceManager {
 		return texture;
 	}
 
-	public writeBuffer(
-		buffer: IRenderBuffer,
-		data: BufferSource,
-		offset: number = 0
-	): void {
+	public writeBuffer(buffer: IRenderBuffer, data: BufferSource, offset: number = 0): void {
 		this._host.assertDeviceOperational("write buffers");
 		this._requireQueue("write buffers").writeBuffer(getWebGPUBuffer(buffer), offset, data);
 	}
@@ -185,7 +169,7 @@ export class WebGPUResourceManager {
 		texture: IRenderTexture,
 		data: BufferSource,
 		desc: TextureDataLayout,
-		size: { width: number; height: number; depthOrArrayLayers?: number }
+		size: { width: number; height: number; depthOrArrayLayers?: number },
 	): void {
 		this._host.assertDeviceOperational("write textures");
 		const gpuTexture = getWebGPUTexture(texture).texture;
@@ -200,13 +184,13 @@ export class WebGPUResourceManager {
 				bytesPerRow: desc.bytesPerRow,
 				rowsPerImage: desc.rowsPerImage,
 			},
-			size
+			size,
 		);
 	}
 
 	public createTextureView(
 		texture: IRenderTexture,
-		desc?: GPUTextureViewDescriptor
+		desc?: GPUTextureViewDescriptor,
 	): GPUTextureView {
 		this._host.assertDeviceOperational("create texture views");
 		const gpuTexture = getWebGPUTexture(texture);
@@ -235,9 +219,69 @@ export class WebGPUResourceManager {
 	}
 }
 
+function resolvePositiveInteger(value: number, fallback: number): number {
+	if (!Number.isFinite(value)) {
+		return fallback;
+	}
+	return Math.max(1, Math.floor(value));
+}
+
+function toUint8View(data: BufferSource): Uint8Array {
+	if (data instanceof ArrayBuffer) {
+		return new Uint8Array(data);
+	}
+	return new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+}
+
+function tryUnmapBuffer(buffer: GPUBuffer | null): void {
+	if (!buffer || (buffer.mapState ?? "unmapped") === "unmapped") {
+		return;
+	}
+	try {
+		buffer.unmap();
+	} catch (error) {
+		Logger.warn(`WebGPU buffer unmap failed: ${String(error)}`, {
+			scope: "WebGPUResourceManager",
+		});
+	}
+}
+
+function mapBufferUsage(usage: number): GPUBufferUsageFlags {
+	let flags = 0;
+	if (usage & BufferUsage.Vertex) flags |= GPUBufferUsage.VERTEX;
+	if (usage & BufferUsage.Index) flags |= GPUBufferUsage.INDEX;
+	if (usage & BufferUsage.Uniform) flags |= GPUBufferUsage.UNIFORM;
+	if (usage & BufferUsage.Storage) flags |= GPUBufferUsage.STORAGE;
+	if (usage & BufferUsage.CopySrc) flags |= GPUBufferUsage.COPY_SRC;
+	if (usage & BufferUsage.CopyDst) flags |= GPUBufferUsage.COPY_DST;
+	if (usage & BufferUsage.MapRead) flags |= GPUBufferUsage.MAP_READ;
+	if (usage & BufferUsage.MapWrite) flags |= GPUBufferUsage.MAP_WRITE;
+	if (usage & BufferUsage.Indirect) flags |= GPUBufferUsage.INDIRECT;
+	return flags;
+}
+
+function mapTextureUsage(usage: number): GPUTextureUsageFlags {
+	let flags = 0;
+	if (usage & TextureUsage.CopySrc) flags |= GPUTextureUsage.COPY_SRC;
+	if (usage & TextureUsage.CopyDst) flags |= GPUTextureUsage.COPY_DST;
+	if (usage & TextureUsage.TextureBinding) {
+		flags |= GPUTextureUsage.TEXTURE_BINDING;
+	}
+	if (usage & TextureUsage.StorageBinding) {
+		flags |= GPUTextureUsage.STORAGE_BINDING;
+	}
+	if (usage & TextureUsage.RenderAttachment) {
+		flags |= GPUTextureUsage.RENDER_ATTACHMENT;
+	}
+	if (usage & TextureUsage.ComputeStorage) {
+		flags |= GPUTextureUsage.STORAGE_BINDING;
+	}
+	return flags;
+}
+
 function resolveWebGPUTextureFormat(
 	format: TextureDesc["format"],
-	features: GPUSupportedFeatures | undefined
+	features: GPUSupportedFeatures | undefined,
 ): { format: TextureDesc["format"]; reason?: string } {
 	if (!textureFormatRequiresFeature(format, features)) {
 		return { format };

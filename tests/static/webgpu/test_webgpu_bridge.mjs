@@ -146,6 +146,7 @@ function testBackendDoesNotExposeDeviceServiceForwarders() {
 		"getTextureForSlot",
 		"registerExternalTexture",
 		"unregisterExternalTexture",
+		"postProcessRuntime",
 	]) {
 		assert.equal(method in WebGPUBackend.prototype, false, method);
 	}

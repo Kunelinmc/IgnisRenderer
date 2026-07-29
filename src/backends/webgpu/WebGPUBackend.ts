@@ -58,20 +58,8 @@ import {
 import type { IParticleSimulator } from "../../simulation/particles/IParticleSimulator";
 import { WebGPUParticleSimulator } from "../../simulation/particles/WebGPUParticleSimulator";
 import {
-	WEBGPU_DEFERRED_COLOR_BYTES_PER_SAMPLE,
-	WEBGPU_DEFERRED_COLOR_TARGET_COUNT,
-	WEBGPU_DEFERRED_STORAGE_TEXTURE_COUNT,
-	WEBGPU_MRT_COLOR_BYTES_PER_SAMPLE,
-	WEBGPU_MRT_COLOR_TARGET_COUNT,
-	WEBGPU_REQUIRED_FRAGMENT_SAMPLED_TEXTURE_COUNT,
-	WEBGPU_SCENE_REQUIRED_FRAGMENT_SAMPLER_COUNT,
-	WEBGPU_REQUIRED_FRAGMENT_STORAGE_BUFFER_COUNT,
-} from "./constants";
-import {
-	BufferUsage,
 	type IRenderTexture,
 	TextureFormat,
-	TextureUsage,
 } from "../types";
 import {
 	ShaderBackendCompileStage,
@@ -86,6 +74,12 @@ import {
 	type IWebGPUComputeFacade,
 	type WebGPUComputeFacadeHost,
 } from "./ComputeFacade";
+import {
+	assertWebGPUMinimumLimits,
+	createWebGPUDebugInfo,
+	createWebGPURequiredLimits,
+	selectSupportedWebGPUFeatures,
+} from "./WebGPUDeviceCapabilities";
 import { Logger } from "../../foundation/Logger";
 
 const DEVICE_RECOVERY_MAX_ATTEMPTS = 3;
@@ -99,65 +93,14 @@ const WEBGPU_DEBUG_INFO_UNINITIALIZED: RenderBackendDebugInfo = {
 	unavailableReason: "WebGPU backend has not been initialized.",
 };
 
-const WEBGPU_DEBUG_LIMIT_KEYS = [
-	"maxTextureDimension2D",
-	"maxTextureArrayLayers",
-	"maxBindGroups",
-	"maxBindingsPerBindGroup",
-	"maxBufferSize",
-	"maxStorageBufferBindingSize",
-	"maxUniformBufferBindingSize",
-	"maxSampledTexturesPerShaderStage",
-	"maxSamplersPerShaderStage",
-	"maxStorageBuffersPerShaderStage",
-	"maxStorageTexturesPerShaderStage",
-	"maxColorAttachments",
-	"maxColorAttachmentBytesPerSample",
-] as const;
-
-const WEBGPU_OPTIONAL_DEVICE_FEATURES = [
-	"timestamp-query",
-	"indirect-first-instance",
-] as const satisfies readonly GPUFeatureName[];
-
-const WEBGPU_REQUIRED_DEVICE_LIMITS = [
-	{
-		name: "maxSampledTexturesPerShaderStage",
-		minimum: WEBGPU_REQUIRED_FRAGMENT_SAMPLED_TEXTURE_COUNT,
-		description: "WebGPU pipeline sampled texture count",
-	},
-	{
-		name: "maxSamplersPerShaderStage",
-		minimum: WEBGPU_SCENE_REQUIRED_FRAGMENT_SAMPLER_COUNT,
-		description: "scene pipeline sampler count",
-	},
-	{
-		name: "maxStorageBuffersPerShaderStage",
-		minimum: WEBGPU_REQUIRED_FRAGMENT_STORAGE_BUFFER_COUNT,
-		description: "WebGPU pipeline storage buffer count",
-	},
-] as const satisfies readonly WebGPUMinimumLimit[];
-
-const WEBGPU_COLOR_ATTACHMENT_LIMIT_TIERS = [
-	WEBGPU_DEFERRED_COLOR_TARGET_COUNT,
-	WEBGPU_MRT_COLOR_TARGET_COUNT,
-] as const;
-
-const WEBGPU_COLOR_ATTACHMENT_BYTE_LIMIT_TIERS = [
-	WEBGPU_DEFERRED_COLOR_BYTES_PER_SAMPLE,
-	WEBGPU_MRT_COLOR_BYTES_PER_SAMPLE,
-] as const;
-
-type WebGPURequiredLimitName =
-	| "maxSampledTexturesPerShaderStage"
-	| "maxSamplersPerShaderStage"
-	| "maxStorageBuffersPerShaderStage";
-
-interface WebGPUMinimumLimit {
-	name: WebGPURequiredLimitName;
-	minimum: number;
-	description: string;
-}
+type WebGPUBackendState =
+	| "detached"
+	| "attached"
+	| "initializing"
+	| "ready"
+	| "restoring"
+	| "lost"
+	| "destroyed";
 
 export interface WebGPUBackendOptions {
 	shaderMode?: ShaderRuntimeMode;
@@ -186,12 +129,6 @@ export class WebGPUBackend implements IRenderBackend {
 	private _postProcessExecutor: WebGPUPostProcessExecutor | null = null;
 	private _postProcessRuntime: BackendPostProcessRuntime | null = null;
 	private _postProcessSessionPort: WebGPUPostProcessSessionPort | null = null;
-	public get postProcessRuntime(): BackendPostProcessRuntime {
-		if (!this._postProcessRuntime) {
-			throw new Error("WebGPU post-process runtime is not initialized.");
-		}
-		return this._postProcessRuntime;
-	}
 	private readonly _occlusionCullingExtensionApi: OcclusionCullingBackendAdapter = {
 		getVisibilityProvider: (options: NormalizedOcclusionCullingOptions) =>
 			this._frameOrchestrator?.getOcclusionVisibilityProvider(options) ?? null,
@@ -203,7 +140,8 @@ export class WebGPUBackend implements IRenderBackend {
 	public readonly profile: RenderBackendProfile;
 
 	private _attachContext: RenderBackendAttachContext | null = null;
-	private _attached = false;
+	private _state: WebGPUBackendState = "detached";
+	private _lifecycleEpoch = 0;
 	private _canvas: HTMLCanvasElement | null = null;
 	private _context: GPUCanvasContext | null = null;
 	private _device: GPUDevice | null = null;
@@ -236,19 +174,17 @@ export class WebGPUBackend implements IRenderBackend {
 	private _frameHost: WebGPUFrameHost | null = null;
 	private _reflectionProbeCapturePass: WebGPUReflectionProbeCapturePass | null = null;
 	private _particleSimulator: IParticleSimulator | null = null;
-	private _deviceLost = false;
 	private _deviceLostInfo: RenderBackendDeviceLostInfo | null = null;
 	private readonly _objectIdentity = new WebGPUObjectIdentity(() => {
 		this._handleObjectIdentityRebase();
 	});
-	private _destroyRequested = false;
-	private _deviceRecoveryNonce = 0;
 	private _deviceRecoveryPromise: Promise<void> | null = null;
 	private _frameSerial = 0;
 	private _executedPasses = new Set<FramePass["stage"]>();
 	private _plannedPasses = new Set<FramePass["stage"]>();
 	private _plannedPassOrder = new Map<FramePass["stage"], number>();
 	private _frameActive = false;
+	private _activeFrameContext: FrameContext | null = null;
 	private _pendingResize: {
 		width: number;
 		height: number;
@@ -405,11 +341,11 @@ export class WebGPUBackend implements IRenderBackend {
 	}
 
 	public attach(context: RenderBackendAttachContext): void {
-		if (this._attached) {
+		if (this._state !== "detached") {
 			throw new Error("WebGPUBackend is already attached to a renderer.");
 		}
 		this._attachContext = context;
-		this._attached = true;
+		this._state = "attached";
 	}
 
 	/**
@@ -452,9 +388,29 @@ export class WebGPUBackend implements IRenderBackend {
 	}
 
 	public async initialize(): Promise<void> {
+		this._requireLifecycleState("initialize", ["attached"]);
+		const epoch = ++this._lifecycleEpoch;
+		this._state = "initializing";
+
+		try {
+			await this._initializeDeviceRuntime(epoch, "initializing");
+			this._assertLifecycleOperation(epoch, "initializing", "complete initialization");
+			this._state = "ready";
+		} catch (error) {
+			if (this._isLifecycleOperationCurrent(epoch, "initializing")) {
+				this._releaseDeviceRuntime();
+				this._state = "attached";
+			}
+			throw error;
+		}
+	}
+
+	private async _initializeDeviceRuntime(
+		epoch: number,
+		expectedState: "initializing" | "restoring",
+	): Promise<void> {
 		const canvas = this._requireAttachContext().surface.canvas;
 		this._canvas = canvas;
-		this._destroyRequested = false;
 
 		if (!navigator.gpu) {
 			throw new Error("WebGPU not supported on this browser.");
@@ -463,12 +419,14 @@ export class WebGPUBackend implements IRenderBackend {
 		const adapter = await navigator.gpu.requestAdapter({
 			powerPreference: "high-performance",
 		});
+		this._assertLifecycleOperation(epoch, expectedState, "request a WebGPU adapter");
 		if (!adapter) {
 			throw new Error("No appropriate GPUAdapter found.");
 		}
 		await ShaderSource.prepare("webgpu.utility.mipmapBlit.raw");
+		this._assertLifecycleOperation(epoch, expectedState, "prepare WebGPU shaders");
 
-		let requestedDevice: GPUDevice;
+		let requestedDevice: GPUDevice | null = null;
 		try {
 			const requiredLimits = createWebGPURequiredLimits(adapter.limits);
 			const requiredFeatures = selectSupportedWebGPUFeatures(adapter);
@@ -476,21 +434,41 @@ export class WebGPUBackend implements IRenderBackend {
 				requiredFeatures: requiredFeatures.length > 0 ? requiredFeatures : undefined,
 				requiredLimits: requiredLimits as any,
 			});
+			if (!this._isLifecycleOperationCurrent(epoch, expectedState)) {
+				requestedDevice.destroy();
+				requestedDevice = null;
+				this._assertLifecycleOperation(
+					epoch,
+					expectedState,
+					"publish a WebGPU device",
+				);
+			}
 			assertWebGPUMinimumLimits(requestedDevice.limits, "Requested WebGPU device");
 		} catch (error) {
+			requestedDevice?.destroy();
 			throw new Error(`Failed to request WebGPU device: ${error}`);
 		}
 
-		const context = canvas.getContext("webgpu");
-		if (!context) {
-			throw new Error("Failed to acquire WebGPU canvas context.");
+		let context: GPUCanvasContext | null = null;
+		try {
+			context = canvas.getContext("webgpu");
+			if (!context) {
+				throw new Error("Failed to acquire WebGPU canvas context.");
+			}
+			this._assertLifecycleOperation(
+				epoch,
+				expectedState,
+				"acquire a WebGPU canvas context",
+			);
+		} catch (error) {
+			requestedDevice.destroy();
+			throw error;
 		}
 
-		this._deviceLost = false;
 		this._deviceLostInfo = null;
 		this._device = requestedDevice;
 		this._queue = requestedDevice.queue;
-		this._debugInfo = this._createDebugInfo(adapter, requestedDevice);
+		this._debugInfo = createWebGPUDebugInfo(adapter, requestedDevice);
 		requestedDevice.lost.then((info) => {
 			if (this._device !== requestedDevice) {
 				return info;
@@ -500,76 +478,87 @@ export class WebGPUBackend implements IRenderBackend {
 			return info;
 		});
 
-		try {
-			this._errorScopes = new WebGPUErrorScopeHelper(requestedDevice);
-			this.canvasDepthFormat = this._selectCanvasDepthFormat();
-			this.canvasFormat = navigator.gpu.getPreferredCanvasFormat() as TextureFormat;
-			this._msaaController.activateDevice();
-			this._commandScheduler.initTimestampResources();
-			this._context = context;
-			this._configureContext();
-			this._recreateDepthTexture();
-			this._frameHost = this._createFrameHost();
-			this._resources = new WebGPUFrameServiceOwner(
-				this._frameHost,
-				this._resourceManager,
-				this._computeFacade,
-				this._msaaController,
-			);
-			await this._resources.init();
-			this._postProcessExecutor = new WebGPUPostProcessExecutor(this._frameHost);
-			this._postProcessRuntime = new BackendPostProcessRuntime({
-				executor: this._postProcessExecutor,
-				backend: this,
-				warn: (key, message) =>
-					Logger.warn(`[${key}] ${message}`, {
-						scope: "WebGPUBackend",
-						onceKey: key,
-					}),
-			});
-			this._frameOrchestrator = new WebGPUFrameOrchestrator(
-				this._frameHost,
-				this._resources,
-				this._msaaController,
-			);
-			this._reflectionProbeCapturePass = new WebGPUReflectionProbeCapturePass(
-				this._frameHost,
-				this._resources,
-			);
-			this._particleSimulator = new WebGPUParticleSimulator({
-				backend: this._computeFacade,
-				backendTag: this.profile.id,
-				maxParticlesPerSystem: WEBGPU_MAX_PARTICLES_PER_SYSTEM,
-			});
-		} catch (error) {
-			this._rollbackInitializationState();
-			throw error;
-		}
+		this._errorScopes = new WebGPUErrorScopeHelper(requestedDevice);
+		this.canvasDepthFormat = this._selectCanvasDepthFormat();
+		this.canvasFormat = navigator.gpu.getPreferredCanvasFormat() as TextureFormat;
+		this._msaaController.activateDevice();
+		this._commandScheduler.initTimestampResources();
+		this._context = context;
+		this._configureContext();
+		this._recreateDepthTexture();
+		this._frameHost = this._createFrameHost();
+		this._resources = new WebGPUFrameServiceOwner(
+			this._frameHost,
+			this._resourceManager,
+			this._computeFacade,
+			this._msaaController,
+		);
+		await this._resources.init();
+		this._postProcessExecutor = new WebGPUPostProcessExecutor(this._frameHost);
+		this._postProcessRuntime = new BackendPostProcessRuntime({
+			executor: this._postProcessExecutor,
+			backend: this,
+			warn: (key, message) =>
+				Logger.warn(`[${key}] ${message}`, {
+					scope: "WebGPUBackend",
+					onceKey: key,
+				}),
+		});
+		this._frameOrchestrator = new WebGPUFrameOrchestrator(
+			this._frameHost,
+			this._resources,
+			this._msaaController,
+		);
+		this._reflectionProbeCapturePass = new WebGPUReflectionProbeCapturePass(
+			this._frameHost,
+			this._resources,
+		);
+		this._particleSimulator = new WebGPUParticleSimulator({
+			backend: this._computeFacade,
+			backendTag: this.profile.id,
+			maxParticlesPerSystem: WEBGPU_MAX_PARTICLES_PER_SYSTEM,
+		});
+		this._assertLifecycleOperation(
+			epoch,
+			expectedState,
+			"complete WebGPU runtime initialization",
+		);
 	}
 
 	public async restore(): Promise<void> {
-		if (!this._canvas) {
+		if (!this._canvas || this._state === "detached" || this._state === "attached") {
 			throw new Error("WebGPU backend cannot restore before a canvas has been initialized.");
 		}
 
-		const activeRecovery = this._deviceRecoveryPromise;
-		if (activeRecovery) {
+		while (this._deviceRecoveryPromise) {
+			const activeRecovery = this._deviceRecoveryPromise;
 			await activeRecovery;
-			if (this._device && this._queue && !this._deviceLost) {
+			if (this._state === "ready" && this._device && this._queue) {
 				return;
 			}
 		}
 
-		this._deviceRecoveryNonce++;
+		this._requireLifecycleState("restore", ["ready", "lost"]);
+		const previousState = this._state;
+		const epoch = ++this._lifecycleEpoch;
+		this._state = "restoring";
 		this._deviceRecoveryPromise = null;
-		if (!this._deviceLost && this._queue) {
-			this._commandScheduler.submitPendingCopyCommands();
+		try {
+			if (previousState === "ready" && this._queue) {
+				this._commandScheduler.submitPendingCopyCommands();
+			}
+			this._releaseDeviceRuntime();
+			await this._initializeDeviceRuntime(epoch, "restoring");
+			this._assertLifecycleOperation(epoch, "restoring", "complete restoration");
+			this._deviceLostInfo = null;
+			this._state = "ready";
+		} catch (error) {
+			if (this._isLifecycleOperationCurrent(epoch, "restoring")) {
+				this._releaseDeviceRuntime();
+				this._state = "lost";
+			}
+			throw error;
 		}
-		this._destroyPostProcessResourcesForReset();
-		this._rollbackInitializationState();
-		this._deviceLost = false;
-		this._deviceLostInfo = null;
-		await this.initialize();
 	}
 
 	public resize(size: RenderSurfaceSize): void {
@@ -631,11 +620,21 @@ export class WebGPUBackend implements IRenderBackend {
 	}
 
 	public beginFrame(context: FrameContext): void {
+		this._requireReady("beginFrame");
+		if (this._frameActive) {
+			throw new Error(
+				`WebGPUBackend.beginFrame() requires no active frame; current state is "${this._state}".`,
+			);
+		}
+		if (!context || typeof context !== "object") {
+			throw new Error("WebGPUBackend.beginFrame() requires a valid FrameContext.");
+		}
 		if (!this._resources || !this._frameOrchestrator) {
 			throw new Error("WebGPU backend has not been initialized.");
 		}
 
 		this._frameActive = true;
+		this._activeFrameContext = context;
 		this._completedFrameCoverage = "full-frame";
 		this._frameSerial++;
 		this._commandScheduler.submitPendingCopyCommands();
@@ -653,6 +652,13 @@ export class WebGPUBackend implements IRenderBackend {
 	}
 
 	public executePass(pass: FramePass, context: FrameContext): Promise<void> | void {
+		this._requireReady("executePass");
+		this._requireActiveFrame("executePass");
+		if (context !== this._activeFrameContext) {
+			throw new Error(
+				"WebGPU frame pass context must match the context passed to beginFrame().",
+			);
+		}
 		if (!this._frameOrchestrator) {
 			throw new Error("WebGPU backend has not been initialized.");
 		}
@@ -677,6 +683,7 @@ export class WebGPUBackend implements IRenderBackend {
 	}
 
 	public skipPass(pass: FramePass): void {
+		this._requireActiveFrame("skipPass");
 		this._markPassExecuted(pass.stage);
 	}
 
@@ -696,6 +703,7 @@ export class WebGPUBackend implements IRenderBackend {
 	}
 
 	public async endFrame(): Promise<void> {
+		this._requireActiveFrame("endFrame");
 		const wasActive = this._frameActive;
 		let frameError: unknown = null;
 		try {
@@ -717,6 +725,7 @@ export class WebGPUBackend implements IRenderBackend {
 			this._postProcessExecutor?.unbindSession(this._postProcessSessionPort ?? undefined);
 			this._postProcessSessionPort = null;
 			this._frameActive = false;
+			this._activeFrameContext = null;
 			this._clearFramePlannerState();
 		}
 
@@ -771,6 +780,7 @@ export class WebGPUBackend implements IRenderBackend {
 			this._postProcessExecutor?.unbindSession(this._postProcessSessionPort ?? undefined);
 			this._postProcessSessionPort = null;
 			this._frameActive = false;
+			this._activeFrameContext = null;
 			this._clearFramePlannerState();
 		}
 		try {
@@ -833,56 +843,104 @@ export class WebGPUBackend implements IRenderBackend {
 	}
 
 	public destroy(): void {
-		this._destroyRequested = true;
-		this._deviceRecoveryNonce++;
-		this._deviceRecoveryPromise = null;
-		if (!this._deviceLost && this._queue) {
-			this._commandScheduler.submitPendingCopyCommands();
+		if (this._state === "destroyed") {
+			return;
 		}
-		this._destroyPostProcessResourcesForReset();
-		this._rollbackInitializationState();
+		++this._lifecycleEpoch;
+		const wasReady = this._state === "ready";
+		this._state = "destroyed";
+		this._deviceRecoveryPromise = null;
+		if (wasReady && this._queue) {
+			try {
+				this._commandScheduler.submitPendingCopyCommands();
+			} catch (error) {
+				this._reportNonFatalError("pending copy submission during destroy", error);
+			}
+		}
+		this._releaseDeviceRuntime();
 		this._computeFacade.destroy();
-		this._deviceLost = false;
 		this._deviceLostInfo = null;
 	}
 
 	private _createComputeFacadeHost(): WebGPUComputeFacadeHost {
 		const backend = this;
+		const assertReady = (operation: string): void => {
+			backend._requireReady(`compute extension ${operation}`);
+		};
 		return {
 			get device() {
-				return backend._device;
+				return backend._state === "ready" ? backend._device : null;
 			},
 			get queue() {
-				return backend._queue;
+				return backend._state === "ready" ? backend._queue : null;
 			},
-			createSampler: (desc) => this._pipelineCache.createSampler(desc),
-			createShaderModule: (desc) => this._pipelineCache.createShaderModule(desc),
-			createComputePipeline: (desc) => this._pipelineCache.createComputePipeline(desc),
-			createBuffer: (desc) => this._resourceManager.createBuffer(desc),
-			createTexture: (desc) => this._resourceManager.createTexture(desc),
-			createBindingGroup: (desc) => this._bindingGroupCache.createBindingGroup(desc),
+			createSampler: (desc) => {
+				assertReady("create samplers");
+				return this._pipelineCache.createSampler(desc);
+			},
+			createShaderModule: (desc) => {
+				assertReady("create shader modules");
+				return this._pipelineCache.createShaderModule(desc);
+			},
+			createComputePipeline: (desc) => {
+				assertReady("create compute pipelines");
+				return this._pipelineCache.createComputePipeline(desc);
+			},
+			createBuffer: (desc) => {
+				assertReady("create buffers");
+				return this._resourceManager.createBuffer(desc);
+			},
+			createTexture: (desc) => {
+				assertReady("create textures");
+				return this._resourceManager.createTexture(desc);
+			},
+			createBindingGroup: (desc) => {
+				assertReady("create binding groups");
+				return this._bindingGroupCache.createBindingGroup(desc);
+			},
 			createBindGroupLayout: (desc) => {
-				this._assertDeviceOperational("create compute binding group layouts");
+				assertReady("create binding group layouts");
 				return this._device!.createBindGroupLayout(desc);
 			},
 			createPipelineLayout: (desc) => {
-				this._assertDeviceOperational("create compute pipeline layouts");
+				assertReady("create pipeline layouts");
 				return this._device!.createPipelineLayout(desc);
 			},
-			createTextureView: (texture, desc) =>
-				this._resourceManager.createTextureView(texture, desc),
-			createCommandEncoder: () => this._commandScheduler.createCommandEncoder(),
-			submit: (commands) => this._commandScheduler.submit(commands),
-			writeBuffer: (buffer, data, offset) =>
-				this._resourceManager.writeBuffer(buffer, data, offset),
-			writeTexture: (texture, data, desc, size) =>
-				this._resourceManager.writeTexture(texture, data, desc, size),
-			resolveTextureForSlot: (texture, slotIndex) =>
-				this._resolveTextureForSlot(texture, slotIndex),
+			createTextureView: (texture, desc) => {
+				assertReady("create texture views");
+				return this._resourceManager.createTextureView(texture, desc);
+			},
+			createCommandEncoder: () => {
+				assertReady("create command encoders");
+				return this._commandScheduler.createCommandEncoder();
+			},
+			submit: (commands) => {
+				assertReady("submit command buffers");
+				this._commandScheduler.submit(commands);
+			},
+			writeBuffer: (buffer, data, offset) => {
+				assertReady("write buffers");
+				this._resourceManager.writeBuffer(buffer, data, offset);
+			},
+			writeTexture: (texture, data, desc, size) => {
+				assertReady("write textures");
+				this._resourceManager.writeTexture(texture, data, desc, size);
+			},
+			resolveTextureForSlot: (texture, slotIndex) => {
+				assertReady("resolve texture slots");
+				return this._resolveTextureForSlot(texture, slotIndex);
+			},
 			registerExternalTexture: (texture, resource, uploadedVersion, mipLevelCount) => {
+				assertReady("register external textures");
 				this._registerExternalTexture(texture, resource, uploadedVersion, mipLevelCount);
 			},
-			unregisterExternalTexture: (texture) => this._unregisterExternalTexture(texture),
+			unregisterExternalTexture: (texture) => {
+				if (this._state === "destroyed") {
+					return;
+				}
+				assertReady("unregister external textures");
+				this._unregisterExternalTexture(texture);
+			},
 		};
 	}
 
@@ -906,7 +964,11 @@ export class WebGPUBackend implements IRenderBackend {
 			canvasDepthFormat: this.canvasDepthFormat,
 			computeFacade: this._computeFacade,
 			get postProcessRuntime() {
-				return backend.postProcessRuntime;
+				const runtime = backend._postProcessRuntime;
+				if (!runtime) {
+					throw new Error("WebGPU post-process runtime is not initialized.");
+				}
+				return runtime;
 			},
 			enableEarlyZPrepass: this._enableEarlyZPrepass,
 			enableDeferredLighting: this._enableDeferredLighting,
@@ -1107,26 +1169,11 @@ export class WebGPUBackend implements IRenderBackend {
 			assertDeviceOperational: (operation: string) => {
 				this._assertDeviceOperational(operation);
 			},
-			mapBufferUsage: (usage: number) => {
-				return this._mapBufferUsage(usage);
-			},
-			mapTextureUsage: (usage: number) => {
-				return this._mapTextureUsage(usage);
-			},
 			resolveSupportedMSAASampleCount: (
 				requested: number,
 				probeFormats?: readonly GPUTextureFormat[],
 			) => {
 				return this._msaaController.resolveSupportedSampleCount(requested, probeFormats);
-			},
-			resolvePositiveInteger: (value: number, fallback: number) => {
-				return this._resolvePositiveInteger(value, fallback);
-			},
-			toUint8View: (data: BufferSource) => {
-				return this._toUint8View(data);
-			},
-			tryUnmapBuffer: (buffer: GPUBuffer | null) => {
-				this._tryUnmapBuffer(buffer);
 			},
 			createManagedDestroy: (
 				target: object,
@@ -1158,10 +1205,12 @@ export class WebGPUBackend implements IRenderBackend {
 	}
 
 	private _handleDeviceLost(info: RenderBackendDeviceLostInfo): void {
-		if (this._deviceLost) {
+		if (this._state === "destroyed" || this._state === "lost") {
 			return;
 		}
-		this._deviceLost = true;
+		++this._lifecycleEpoch;
+		this._deviceRecoveryPromise = null;
+		this._state = "lost";
 		this._deviceLostInfo = info;
 		this._frameOrchestrator?.abortGraphAnalysis?.(info);
 		const reason =
@@ -1169,16 +1218,15 @@ export class WebGPUBackend implements IRenderBackend {
 		Logger.error(`WebGPU device was lost${reason}: ${info.message}`, {
 			scope: "WebGPUBackend",
 		});
-		this._destroyPostProcessResourcesForReset();
-		this._rollbackInitializationState();
-		if (this._destroyRequested || info.reason === "destroyed") {
+		this._releaseDeviceRuntime();
+		if (info.reason === "destroyed") {
 			return;
 		}
 		this._scheduleDeviceRecovery(info);
 	}
 
 	private _scheduleDeviceRecovery(info: RenderBackendDeviceLostInfo): void {
-		if (this._deviceRecoveryPromise || this._destroyRequested) {
+		if (this._deviceRecoveryPromise || this._state === "destroyed") {
 			return;
 		}
 		const canvas = this.canvas;
@@ -1188,10 +1236,11 @@ export class WebGPUBackend implements IRenderBackend {
 			});
 			return;
 		}
-		const nonce = ++this._deviceRecoveryNonce;
-		this._deviceRecoveryPromise = this._recoverDeviceAfterLoss(canvas, nonce, info).finally(
+		const epoch = ++this._lifecycleEpoch;
+		this._state = "restoring";
+		this._deviceRecoveryPromise = this._recoverDeviceAfterLoss(epoch, info).finally(
 			() => {
-				if (this._deviceRecoveryNonce === nonce) {
+				if (this._lifecycleEpoch === epoch) {
 					this._deviceRecoveryPromise = null;
 				}
 			},
@@ -1199,34 +1248,42 @@ export class WebGPUBackend implements IRenderBackend {
 	}
 
 	private async _recoverDeviceAfterLoss(
-		canvas: HTMLCanvasElement,
-		nonce: number,
+		epoch: number,
 		info: RenderBackendDeviceLostInfo,
 	): Promise<void> {
 		let lastError: unknown = null;
 		for (let attempt = 1; attempt <= DEVICE_RECOVERY_MAX_ATTEMPTS; attempt++) {
-			if (this._destroyRequested || nonce !== this._deviceRecoveryNonce) {
+			if (!this._isLifecycleOperationCurrent(epoch, "restoring")) {
 				return;
 			}
 			try {
-				await this.initialize();
-				if (this._destroyRequested || nonce !== this._deviceRecoveryNonce) {
-					this._rollbackInitializationState();
-					return;
-				}
+				await this._initializeDeviceRuntime(epoch, "restoring");
+				this._assertLifecycleOperation(
+					epoch,
+					"restoring",
+					"complete automatic device recovery",
+				);
 				Logger.warn(`WebGPU device recovery succeeded on attempt ${attempt}.`, {
 					scope: "WebGPUBackend",
 				});
 				this._deviceLostInfo = null;
+				this._state = "ready";
 				this._requireAttachContext().events.emit({ type: "device-restored" });
 				return;
 			} catch (error) {
+				if (!this._isLifecycleOperationCurrent(epoch, "restoring")) {
+					return;
+				}
+				this._releaseDeviceRuntime();
 				lastError = error;
 				this._reportNonFatalError(`device recovery attempt ${attempt}`, error);
 				if (attempt < DEVICE_RECOVERY_MAX_ATTEMPTS) {
 					await this._delayMs(DEVICE_RECOVERY_BASE_DELAY_MS * attempt);
 				}
 			}
+		}
+		if (this._isLifecycleOperationCurrent(epoch, "restoring")) {
+			this._state = "lost";
 		}
 		const reason =
 			typeof info.reason === "string" && info.reason.length > 0 ? ` (${info.reason})` : "";
@@ -1250,92 +1307,79 @@ export class WebGPUBackend implements IRenderBackend {
 		return reason ? { reason, message } : { message };
 	}
 
-	private _destroyPostProcessResourcesForReset(): void {
-		this._postProcessRuntime?.destroy();
-		this._postProcessRuntime = null;
-	}
+	private _releaseDeviceRuntime(): void {
+		const cleanup = (scope: string, operation: () => void): void => {
+			try {
+				operation();
+			} catch (error) {
+				this._reportNonFatalError(`runtime cleanup ${scope}`, error);
+			}
+		};
 
-	private _rollbackInitializationState(): void {
-		this._commandScheduler.reset();
-		this._postProcessRuntime?.destroy();
+		const postProcessRuntime = this._postProcessRuntime;
 		this._postProcessRuntime = null;
-		this._postProcessExecutor?.unbindSession();
+		if (postProcessRuntime) {
+			cleanup("post-process runtime", () => postProcessRuntime.destroy());
+		}
+		const postProcessExecutor = this._postProcessExecutor;
 		this._postProcessExecutor = null;
 		this._postProcessSessionPort = null;
-		this._reflectionProbeCapturePass?.destroy();
+		if (postProcessExecutor) {
+			cleanup("post-process session", () => postProcessExecutor.unbindSession());
+		}
+		const reflectionProbeCapturePass = this._reflectionProbeCapturePass;
 		this._reflectionProbeCapturePass = null;
-		this._frameOrchestrator?.destroy();
+		if (reflectionProbeCapturePass) {
+			cleanup("reflection probe capture", () => reflectionProbeCapturePass.destroy());
+		}
+		const frameOrchestrator = this._frameOrchestrator;
 		this._frameOrchestrator = null;
 		this._frameHost = null;
-		this._resources?.destroy();
+		if (frameOrchestrator) {
+			cleanup("frame orchestrator", () => frameOrchestrator.destroy());
+		}
+		const resources = this._resources;
 		this._resources = null;
+		if (resources) {
+			cleanup("frame resources", () => resources.destroy());
+		}
 		const particleSimulator = this._particleSimulator as
 			| ({ destroy?: () => void } & IParticleSimulator)
 			| null;
-		particleSimulator?.destroy?.();
 		this._particleSimulator = null;
-		this._canvasTargets.release();
+		if (particleSimulator?.destroy) {
+			cleanup("particle simulator", () => particleSimulator.destroy!());
+		}
+		cleanup("canvas targets", () => this._canvasTargets.release());
 		this._resetCurrentCanvasTargets();
 		this._errorScopes = null;
-		this._pipelineCache.reset();
-		this._bindingGroupCache.clear();
-		this._objectIdentity.reset();
+		cleanup("command scheduler", () => this._commandScheduler.reset());
+		cleanup("pipeline cache", () => this._pipelineCache.reset());
+		cleanup("binding-group cache", () => this._bindingGroupCache.clear());
+		cleanup("object identity", () => this._objectIdentity.reset());
+		cleanup("MSAA controller", () => this._msaaController.resetDevice());
 		this._frameSerial = 0;
 		this._frameActive = false;
+		this._activeFrameContext = null;
 		this._pendingResize = null;
 		this._pendingShaderRuntimeInvalidation = false;
 		this._clearFramePlannerState();
-		this._msaaController.resetDevice();
 		this._debugInfo = WEBGPU_DEBUG_INFO_UNINITIALIZED;
 		if (this.context) {
-			try {
-				this.context.unconfigure();
-			} catch (error) {
-				this._reportNonFatalError("context unconfigure", error);
-			}
+			const context = this.context;
 			this._context = null;
+			cleanup("context unconfigure", () => context.unconfigure());
 		}
 		if (this._device) {
-			try {
-				this._device.destroy();
-			} catch (error) {
-				this._reportNonFatalError("device destroy", error);
-			}
+			const device = this._device;
+			this._device = null;
+			cleanup("device destroy", () => device.destroy());
 		}
-		this._device = null;
 		this._queue = null;
 	}
 
-	private _createDebugInfo(adapter: GPUAdapter, device: GPUDevice): RenderBackendDebugInfo {
-		const adapterInfo = resolveWebGPUAdapterInfo(adapter, device);
-		const raw = collectWebGPUAdapterRaw(adapterInfo);
-		const deviceInfo =
-			adapterInfo || Object.keys(raw).length > 0
-				? {
-						vendor: normalizeDebugString(adapterInfo?.vendor),
-						architecture: normalizeDebugString(adapterInfo?.architecture),
-						device: normalizeDebugString(adapterInfo?.device),
-						description: normalizeDebugString(adapterInfo?.description),
-						isFallbackAdapter:
-							typeof adapterInfo?.isFallbackAdapter === "boolean"
-								? adapterInfo.isFallbackAdapter
-								: undefined,
-						raw: Object.keys(raw).length > 0 ? raw : undefined,
-					}
-				: undefined;
-
-		return {
-			backend: "webgpu",
-			api: "webgpu",
-			available: true,
-			device: deviceInfo,
-			limits: collectWebGPULimits(adapter, device),
-			features: collectWebGPUFeatures(device.features),
-		};
-	}
-
 	private _assertDeviceOperational(operation: string): void {
-		if (this._deviceLost) {
+		if (this._state === "lost") {
 			const reason =
 				typeof this._deviceLostInfo?.reason === "string" &&
 				this._deviceLostInfo.reason.length > 0
@@ -1344,16 +1388,21 @@ export class WebGPUBackend implements IRenderBackend {
 			const message = this._deviceLostInfo?.message ?? "unknown cause";
 			throw new Error(`WebGPU device is lost${reason}; cannot ${operation}: ${message}`);
 		}
+		if (this._state === "destroyed") {
+			throw new Error(`WebGPU backend is destroyed; cannot ${operation}.`);
+		}
+		if (
+			this._state !== "initializing" &&
+			this._state !== "restoring" &&
+			this._state !== "ready"
+		) {
+			throw new Error(
+				`WebGPU backend lifecycle state is "${this._state}"; cannot ${operation}.`,
+			);
+		}
 		if (!this._device || !this._queue) {
 			throw new Error(`WebGPU backend is not initialized; cannot ${operation}.`);
 		}
-	}
-
-	private _resolvePositiveInteger(value: number, fallback: number): number {
-		if (!Number.isFinite(value)) {
-			return Math.max(1, Math.floor(fallback));
-		}
-		return Math.max(1, Math.floor(value));
 	}
 
 	private _resetCurrentCanvasTargets(): void {
@@ -1405,7 +1454,7 @@ export class WebGPUBackend implements IRenderBackend {
 	}
 
 	private _isFrameActive(): boolean {
-		return this._frameActive || this._plannedPasses.size > 0 || this._executedPasses.size > 0;
+		return this._frameActive;
 	}
 
 	private _getFramePlannerState(): FramePassPlanValidatorState {
@@ -1502,25 +1551,6 @@ export class WebGPUBackend implements IRenderBackend {
 		);
 	}
 
-	private _isBufferMapped(buffer: GPUBuffer | null): boolean {
-		if (!buffer) {
-			return false;
-		}
-		const state = (buffer as GPUBuffer & { mapState?: GPUBufferMapState }).mapState;
-		return (state ?? "unmapped") !== "unmapped";
-	}
-
-	private _tryUnmapBuffer(buffer: GPUBuffer | null): void {
-		if (!this._isBufferMapped(buffer) || !buffer) {
-			return;
-		}
-		try {
-			buffer.unmap();
-		} catch (error) {
-			this._reportNonFatalError("buffer.unmap", error);
-		}
-	}
-
 	private _delayMs(milliseconds: number): Promise<void> {
 		return new Promise((resolve) => {
 			setTimeout(resolve, Math.max(0, Math.floor(milliseconds)));
@@ -1531,13 +1561,6 @@ export class WebGPUBackend implements IRenderBackend {
 		Logger.warn(`WebGPU backend ${scope} failed: ${String(error)}`, {
 			scope: "WebGPUBackend",
 		});
-	}
-
-	private _toUint8View(data: BufferSource): Uint8Array {
-		if (data instanceof ArrayBuffer) {
-			return new Uint8Array(data);
-		}
-		return new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
 	}
 
 	private _configureContext(): void {
@@ -1556,59 +1579,54 @@ export class WebGPUBackend implements IRenderBackend {
 		);
 	}
 
-	private _mapBufferUsage(usage: number): GPUBufferUsageFlags {
-		let flags = 0;
-		if (usage & BufferUsage.Vertex) {
-			flags |= GPUBufferUsage.VERTEX;
+	private _requireLifecycleState(
+		operation: string,
+		allowedStates: readonly WebGPUBackendState[],
+	): void {
+		if (allowedStates.includes(this._state)) {
+			return;
 		}
-		if (usage & BufferUsage.Index) {
-			flags |= GPUBufferUsage.INDEX;
-		}
-		if (usage & BufferUsage.Uniform) {
-			flags |= GPUBufferUsage.UNIFORM;
-		}
-		if (usage & BufferUsage.Storage) {
-			flags |= GPUBufferUsage.STORAGE;
-		}
-		if (usage & BufferUsage.CopySrc) {
-			flags |= GPUBufferUsage.COPY_SRC;
-		}
-		if (usage & BufferUsage.CopyDst) {
-			flags |= GPUBufferUsage.COPY_DST;
-		}
-		if (usage & BufferUsage.MapRead) {
-			flags |= GPUBufferUsage.MAP_READ;
-		}
-		if (usage & BufferUsage.MapWrite) {
-			flags |= GPUBufferUsage.MAP_WRITE;
-		}
-		if (usage & BufferUsage.Indirect) {
-			flags |= GPUBufferUsage.INDIRECT;
-		}
-		return flags;
+		throw new Error(
+			`WebGPUBackend.${operation}() is invalid in lifecycle state "${this._state}".`,
+		);
 	}
 
-	private _mapTextureUsage(usage: number): GPUTextureUsageFlags {
-		let flags = 0;
-		if (usage & TextureUsage.CopySrc) {
-			flags |= GPUTextureUsage.COPY_SRC;
+	private _isLifecycleOperationCurrent(
+		epoch: number,
+		expectedState: "initializing" | "restoring",
+	): boolean {
+		return this._lifecycleEpoch === epoch && this._state === expectedState;
+	}
+
+	private _assertLifecycleOperation(
+		epoch: number,
+		expectedState: "initializing" | "restoring",
+		operation: string,
+	): void {
+		if (this._isLifecycleOperationCurrent(epoch, expectedState)) {
+			return;
 		}
-		if (usage & TextureUsage.CopyDst) {
-			flags |= GPUTextureUsage.COPY_DST;
+		throw new Error(
+			`WebGPU lifecycle changed while attempting to ${operation}; current state is "${this._state}".`,
+		);
+	}
+
+	private _requireReady(operation: string): void {
+		if (this._state === "ready" && this._device && this._queue) {
+			return;
 		}
-		if (usage & TextureUsage.TextureBinding) {
-			flags |= GPUTextureUsage.TEXTURE_BINDING;
+		throw new Error(
+			`WebGPUBackend.${operation}() requires lifecycle state "ready"; current state is "${this._state}".`,
+		);
+	}
+
+	private _requireActiveFrame(operation: string): void {
+		if (this._frameActive) {
+			return;
 		}
-		if (usage & TextureUsage.StorageBinding) {
-			flags |= GPUTextureUsage.STORAGE_BINDING;
-		}
-		if (usage & TextureUsage.RenderAttachment) {
-			flags |= GPUTextureUsage.RENDER_ATTACHMENT;
-		}
-		if (usage & TextureUsage.ComputeStorage) {
-			flags |= GPUTextureUsage.STORAGE_BINDING;
-		}
-		return flags;
+		throw new Error(
+			`WebGPUBackend.${operation}() requires an active frame; current lifecycle state is "${this._state}".`,
+		);
 	}
 
 	private _requireAttachContext(): RenderBackendAttachContext {
@@ -1616,139 +1634,5 @@ export class WebGPUBackend implements IRenderBackend {
 			throw new Error("WebGPUBackend.attach() must be called before initialize().");
 		}
 		return this._attachContext;
-	}
-}
-
-type WebGPUAdapterInfoLike = Partial<GPUAdapterInfo> & {
-	readonly isFallbackAdapter?: boolean;
-};
-
-function resolveWebGPUAdapterInfo(
-	adapter: GPUAdapter,
-	device: GPUDevice,
-): WebGPUAdapterInfoLike | null {
-	const deviceInfo = (device as { adapterInfo?: WebGPUAdapterInfoLike }).adapterInfo;
-	if (deviceInfo) {
-		return deviceInfo;
-	}
-	return (adapter as { info?: WebGPUAdapterInfoLike }).info ?? null;
-}
-
-function collectWebGPUAdapterRaw(
-	info: WebGPUAdapterInfoLike | null,
-): Record<string, string | number | boolean> {
-	if (!info) {
-		return {};
-	}
-	const raw: Record<string, string | number | boolean> = {};
-	for (const key of [
-		"vendor",
-		"architecture",
-		"device",
-		"description",
-		"isFallbackAdapter",
-		"subgroupMinSize",
-		"subgroupMaxSize",
-	] as const) {
-		const value = info[key];
-		if (
-			(typeof value === "string" && value.length > 0) ||
-			typeof value === "number" ||
-			typeof value === "boolean"
-		) {
-			raw[key] = value;
-		}
-	}
-	return raw;
-}
-
-function collectWebGPULimits(adapter: GPUAdapter, device: GPUDevice): Record<string, number> {
-	const limits: Record<string, number> = {};
-	for (const key of WEBGPU_DEBUG_LIMIT_KEYS) {
-		const value = readNumericLimit(device.limits, key) ?? readNumericLimit(adapter.limits, key);
-		if (typeof value === "number") {
-			limits[key] = value;
-		}
-	}
-	return limits;
-}
-
-function readNumericLimit(limits: unknown, key: string): number | undefined {
-	const value = (limits as Record<string, unknown> | null | undefined)?.[key];
-	return typeof value === "number" && Number.isFinite(value) ? value : undefined;
-}
-
-function collectWebGPUFeatures(features: unknown): readonly string[] {
-	if (!features || typeof (features as Iterable<string>)[Symbol.iterator] !== "function") {
-		return [];
-	}
-	try {
-		return Array.from(features as Iterable<string>, (feature) => String(feature)).sort();
-	} catch {
-		return [];
-	}
-}
-
-function normalizeDebugString(value: unknown): string | undefined {
-	return typeof value === "string" && value.length > 0 ? value : undefined;
-}
-
-function createWebGPURequiredLimits(limits: GPUSupportedLimits): Record<string, number> {
-	assertWebGPUMinimumLimits(limits, "WebGPU adapter");
-
-	const requiredLimits: Record<string, number> = {
-		maxSampledTexturesPerShaderStage: WEBGPU_REQUIRED_FRAGMENT_SAMPLED_TEXTURE_COUNT,
-		maxSamplersPerShaderStage: WEBGPU_SCENE_REQUIRED_FRAGMENT_SAMPLER_COUNT,
-	};
-	const maxColorAttachments = selectHighestSupportedLimitTier(
-		limits.maxColorAttachments,
-		WEBGPU_COLOR_ATTACHMENT_LIMIT_TIERS,
-	);
-	const maxColorAttachmentBytesPerSample = selectHighestSupportedLimitTier(
-		limits.maxColorAttachmentBytesPerSample,
-		WEBGPU_COLOR_ATTACHMENT_BYTE_LIMIT_TIERS,
-	);
-
-	if (maxColorAttachments !== undefined) {
-		requiredLimits.maxColorAttachments = maxColorAttachments;
-	}
-	if (maxColorAttachmentBytesPerSample !== undefined) {
-		requiredLimits.maxColorAttachmentBytesPerSample = maxColorAttachmentBytesPerSample;
-	}
-	if (limits.maxStorageTexturesPerShaderStage >= WEBGPU_DEFERRED_STORAGE_TEXTURE_COUNT) {
-		requiredLimits.maxStorageTexturesPerShaderStage = WEBGPU_DEFERRED_STORAGE_TEXTURE_COUNT;
-	}
-	if (limits.maxTextureDimension2D > 0) {
-		requiredLimits.maxTextureDimension2D = limits.maxTextureDimension2D;
-	}
-	if (limits.maxStorageBuffersPerShaderStage >= WEBGPU_REQUIRED_FRAGMENT_STORAGE_BUFFER_COUNT) {
-		requiredLimits.maxStorageBuffersPerShaderStage = limits.maxStorageBuffersPerShaderStage;
-	}
-
-	return requiredLimits;
-}
-
-function selectSupportedWebGPUFeatures(adapter: GPUAdapter): GPUFeatureName[] {
-	if (typeof adapter.features?.has !== "function") {
-		return [];
-	}
-	return WEBGPU_OPTIONAL_DEVICE_FEATURES.filter((feature) => adapter.features.has(feature));
-}
-
-function selectHighestSupportedLimitTier(
-	available: number,
-	tiers: readonly number[],
-): number | undefined {
-	return tiers.find((tier) => available >= tier);
-}
-
-function assertWebGPUMinimumLimits(limits: GPUSupportedLimits, owner: string): void {
-	for (const { name, minimum, description } of WEBGPU_REQUIRED_DEVICE_LIMITS) {
-		const available = limits[name];
-		if (available < minimum) {
-			throw new Error(
-				`${owner} ${name} (${available}) is below required ${description} (${minimum}).`,
-			);
-		}
 	}
 }

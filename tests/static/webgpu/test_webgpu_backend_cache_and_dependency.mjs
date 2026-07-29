@@ -199,6 +199,7 @@ function createBackend(options = undefined) {
 			queueSubmissions.push(commands);
 		},
 	};
+	backend._state = "ready";
 	// Exercise the backend-owned services directly now that WebGPUBackend no
 	// longer exposes their operations as public forwarding methods.
 	backend.createSampler = (desc) => backend._pipelineCache.createSampler(desc);
@@ -433,7 +434,7 @@ async function testStaleShaderModuleCreationRejectsAfterRollback() {
 		"stale shader module creation should start"
 	);
 
-	backend._rollbackInitializationState();
+	backend._releaseDeviceRuntime();
 	compilationInfo.resolve({ messages: [] });
 	await assert.rejects(
 		() => shaderPromise,
@@ -465,7 +466,7 @@ async function testStaleShaderModulePromiseDoesNotClearRecoveredInFlight() {
 		"old shader module creation should start"
 	);
 
-	backend._rollbackInitializationState();
+	backend._releaseDeviceRuntime();
 	const newDevice = new FakeDevice();
 	const newCompilationInfo = createDeferred();
 	newDevice.createShaderModule = (desc) => {
@@ -670,7 +671,7 @@ async function testStaleRenderPipelineCreationRejectsAfterRollback() {
 		() => backend.getWebGPUCacheDebugStats().pipeline.renderPipelineInFlight === 1,
 		"Expected render pipeline creation to be in flight"
 	);
-	backend._rollbackInitializationState();
+	backend._releaseDeviceRuntime();
 	deferred.resolve({
 		desc,
 		getBindGroupLayout() {
@@ -956,7 +957,7 @@ async function testDeviceLifecycleInternals() {
 		Logger.reset();
 	}
 
-	assert.equal(backend._deviceLost, true);
+	assert.equal(backend._state, "lost");
 	assert.equal(backend._deviceLostInfo.message, "simulated loss");
 	assert.equal(resourcesDestroyed, true);
 	assert.equal(backend._device, null);
