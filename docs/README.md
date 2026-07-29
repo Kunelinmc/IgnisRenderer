@@ -36,7 +36,8 @@ point.
 
 Package consumers should start with:
 
-- [Interaction API](public/api/interaction.md)
+- [Renderer API](public/apis/renderer.md)
+- [Interaction API](public/apis/interaction.md)
 - [ComputeRuntime usage](public/guides/compute-runtime-interface-usage.md)
 
 Contributors should start with:
