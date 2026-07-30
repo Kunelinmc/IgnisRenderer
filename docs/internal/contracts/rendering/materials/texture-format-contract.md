@@ -48,6 +48,23 @@ const texture = new Texture({
 - `TextureData` must be `Uint8Array`, `Uint8ClampedArray`, or `Float32Array`.
   Wider integer, depth, stencil, packed, and compressed payloads must be supplied as
   raw bytes through `Uint8Array`.
+- Raw textures must use `data` or `levels` as their CPU-side source.
+- `CanvasTexture` and `VideoTexture` must use their external canvas or video as
+  the source of truth. They must keep `data`, `levels`, and `mipmaps` empty
+  instead of retaining a duplicate CPU pixel buffer.
+- `Texture.sourceKind` must expose the immutable source lifecycle
+  classification `"static"` or `"dynamic"`. Plain `Texture` instances must be
+  `"static"`; `CanvasTexture` and `VideoTexture` instances must be `"dynamic"`.
+- `Texture.getUploadSource()` must be the polymorphic backend upload contract:
+  raw textures return `TextureData`, while dynamic textures return a
+  `TexImageSource`. Backends must not detect source ownership through concrete
+  texture subclasses.
+- `Texture.readPixelData()` may read external-source pixels on demand for CPU
+  consumers. Backends should cache that result by texture `version` when
+  repeated CPU sampling is required.
+- External-source changes must advance the global texture content revision.
+  Each `Renderer` must compare that revision independently so dynamic updates
+  do not require a global collection of live `Texture` instances.
 - `IRenderTexture.format` should report the actual backend format. If a backend
   cannot provide the requested format, `IRenderTexture.requestedFormat` should keep
   the requested value and `IRenderTexture.formatFallbackReason` should describe the

@@ -26,6 +26,9 @@ export type TextureData =
 	| Uint8ClampedArray
 	| Float32Array;
 
+export type TextureSource = TextureData | TexImageSource;
+export type TextureSourceKind = "static" | "dynamic";
+
 export interface TextureMipLevel {
 	data: TextureData | null;
 	width: number;
@@ -53,7 +56,7 @@ export interface TextureParams extends TextureBaseParams {
  * Texture class to store image data and metadata for UV mapping.
  */
 export class Texture {
-	private static _dynamicTextures = new Set<Texture>();
+	private static _contentRevision = 0;
 
 	data: TextureData | null;
 	width: number;
@@ -82,7 +85,7 @@ export class Texture {
 	version: number;
 	label?: string;
 	usageHint?: TextureBaseParams["usageHint"];
-	private _isDynamicTexture: boolean;
+	public readonly sourceKind: TextureSourceKind = "static";
 	private _isLoadErrorFallback: boolean;
 
 	/**
@@ -130,7 +133,6 @@ export class Texture {
 		this.version = 0;
 		this.label = params.label;
 		this.usageHint = params.usageHint;
-		this._isDynamicTexture = false;
 		this._isLoadErrorFallback = false;
 	}
 
@@ -224,39 +226,54 @@ export class Texture {
 	 */
 	public markNeedsUpdate(): void {
 		this.version++;
+		Texture._contentRevision++;
 	}
 
 	/**
-	 * Per-frame update hook for animated textures (e.g. video).
-	 * Returns true when texture content changed this frame.
+	 * Monotonic revision advanced whenever any texture content changes.
+	 *
+	 * Renderers compare this value independently without retaining textures.
+	 */
+	public static get contentRevision(): number {
+		return Texture._contentRevision;
+	}
+
+	/**
+	 * Releases resources owned by specialized texture sources.
+	 */
+	public dispose(): void {}
+
+	/**
+	 * Reads pixels for CPU consumers.
+	 *
+	 * External-source textures may perform a readback. Repeated consumers
+	 * should cache the returned data by `version`.
+	 *
+	 * @param level Mipmap level to read.
+	 * @returns Pixel data for the requested level, or `null` when unavailable.
+	 */
+	public readPixelData(level: number = 0): TextureData | null {
+		return this.getMipLevelDescriptor(level)?.data ?? null;
+	}
+
+	/**
+	 * Returns the backend upload source without forcing external pixel readback.
+	 *
+	 * Raw textures return typed-array data. External textures override this
+	 * method to return their canvas or video source.
+	 *
+	 * @param level Mipmap level to resolve.
+	 * @returns A raw or external upload source, or `null` when unavailable.
+	 */
+	public getUploadSource(level: number = 0): TextureSource | null {
+		return this.readPixelData(level);
+	}
+
+	/**
+	 * Per-source update hook. Static textures do not update automatically.
 	 */
 	public update(_timeMs: number = 0): boolean {
 		return false;
-	}
-
-	/**
-	 * Releases dynamic-texture bookkeeping.
-	 */
-	public dispose(): void {
-		if (!this._isDynamicTexture) return;
-		Texture._dynamicTextures.delete(this);
-		this._isDynamicTexture = false;
-	}
-
-	protected _registerAsDynamicTexture(): void {
-		if (this._isDynamicTexture) return;
-		this._isDynamicTexture = true;
-		Texture._dynamicTextures.add(this);
-	}
-
-	public static updateDynamicTextures(timeMs: number = 0): boolean {
-		let updated = false;
-		for (const texture of Texture._dynamicTextures) {
-			if (texture.update(timeMs)) {
-				updated = true;
-			}
-		}
-		return updated;
 	}
 
 	/**
@@ -270,15 +287,12 @@ export class Texture {
 	 * Samples the texture at given UV coordinates and mipmap level.
 	 */
 	public sampleLevel(u: number, v: number, level: number = 0): RGBA {
-		if (this.mipmaps.length === 0) return { r: 255, g: 255, b: 255, a: 255 };
-
-		const maxLevel = this.mipmaps.length - 1;
+		const maxLevel = Math.max(0, this.mipmaps.length - 1);
 		const l = Math.max(0, Math.min(maxLevel, level));
 
 		const lWidth = Math.max(1, this.width >> Math.floor(l));
 		const lHeight = Math.max(1, this.height >> Math.floor(l));
-		const levelDescriptor = this.getMipLevelDescriptor(Math.floor(l));
-		const data = levelDescriptor?.data ?? null;
+		const data = this.readPixelData(Math.floor(l));
 
 		if (!data) return { r: 255, g: 255, b: 255, a: 255 };
 

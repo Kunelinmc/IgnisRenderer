@@ -1,4 +1,10 @@
-import { Texture, type TextureBaseParams } from "./Texture";
+import {
+	Texture,
+	type TextureBaseParams,
+	type TextureData,
+	type TextureSource,
+	type TextureSourceKind,
+} from "./Texture";
 
 type VideoTextureContext2D =
 	| CanvasRenderingContext2D
@@ -10,6 +16,7 @@ const VIDEO_INVALIDATION_EVENTS = [
 	"seeking",
 	"seeked",
 	"ratechange",
+	"timeupdate",
 ] as const;
 
 const VIDEO_FRAME_CALLBACK_EVENTS = [
@@ -27,10 +34,12 @@ export interface VideoTextureParams extends TextureBaseParams {
  * Dynamic texture that pulls frames from an HTMLVideoElement.
  */
 export class VideoTexture extends Texture {
+	public override readonly sourceKind: TextureSourceKind = "dynamic";
+
 	public readonly video: HTMLVideoElement;
 
-	private _canvas: HTMLCanvasElement | OffscreenCanvas;
-	private _context: VideoTextureContext2D;
+	private _readbackCanvas: HTMLCanvasElement | OffscreenCanvas | null;
+	private _readbackContext: VideoTextureContext2D | null;
 	private _lastVideoTime: number;
 	private _forceRefresh: boolean;
 	private _pendingVideoFrame: boolean;
@@ -59,8 +68,8 @@ export class VideoTexture extends Texture {
 		}
 
 		this.video = video;
-		this._canvas = this._createCanvas();
-		this._context = this._createContext(this._canvas);
+		this._readbackCanvas = null;
+		this._readbackContext = null;
 		this._lastVideoTime = -1;
 		this._forceRefresh = true;
 		this._pendingVideoFrame = true;
@@ -70,30 +79,36 @@ export class VideoTexture extends Texture {
 		this._onVideoInvalidated = () => {
 			this._forceRefresh = true;
 			this._pendingVideoFrame = true;
+			this.update(this._getCurrentTimeMs());
 			this._scheduleVideoFrameCallback();
 		};
 		this._onPlaybackStateChanged = () => {
 			this._scheduleVideoFrameCallback();
 		};
-		this._onVideoFramePresented = () => {
+		this._onVideoFramePresented = (now) => {
 			this._videoFrameCallbackHandle = null;
 			this._pendingVideoFrame = true;
 			this._forceRefresh = true;
+			this.update(now);
 			this._scheduleVideoFrameCallback();
 		};
 
-		this._registerAsDynamicTexture();
 		this._bindVideoEvents();
 		this._scheduleVideoFrameCallback();
 		this.update();
 	}
 
 	public invalidate(): void {
+		if (this._isDisposed) return;
 		this._forceRefresh = true;
 		this._pendingVideoFrame = true;
+		this.update(this._getCurrentTimeMs());
 	}
 
 	public override update(_timeMs: number = 0): boolean {
+		if (this._isDisposed) {
+			return false;
+		}
 		const video = this.video;
 		if (video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
 			return false;
@@ -114,34 +129,8 @@ export class VideoTexture extends Texture {
 			return false;
 		}
 
-		if (this._canvas.width !== width || this._canvas.height !== height) {
-			this._canvas.width = width;
-			this._canvas.height = height;
-		}
-
-		try {
-			this._context.drawImage(video, 0, 0, width, height);
-			const frameData = this._context.getImageData(0, 0, width, height).data;
-
-			if (
-				!(this.data instanceof Uint8ClampedArray) ||
-				this.data.length !== frameData.length
-			) {
-				this.data = new Uint8ClampedArray(frameData);
-			} else {
-				this.data.set(frameData);
-			}
-		} catch (error) {
-			const reason =
-				error instanceof Error ? error.message : "Unknown canvas error";
-			throw new Error(
-				`VideoTexture failed to read frame data. Ensure video CORS/canvas access is allowed: ${reason}`
-			);
-		}
-
 		this.width = width;
 		this.height = height;
-		this.mipmaps = this.data ? [this.data] : [];
 		this._lastVideoTime = currentTime;
 		this._forceRefresh = false;
 		this._pendingVideoFrame = false;
@@ -149,10 +138,60 @@ export class VideoTexture extends Texture {
 		return true;
 	}
 
+	public override readPixelData(level: number = 0): TextureData | null {
+		if (
+			level !== 0 ||
+			this._isDisposed ||
+			this.width <= 0 ||
+			this.height <= 0
+		) {
+			return null;
+		}
+		if (!this._readbackCanvas) {
+			this._readbackCanvas = this._createCanvas();
+			this._readbackContext = this._createContext(this._readbackCanvas);
+		}
+		if (
+			this._readbackCanvas.width !== this.width ||
+			this._readbackCanvas.height !== this.height
+		) {
+			this._readbackCanvas.width = this.width;
+			this._readbackCanvas.height = this.height;
+		}
+		try {
+			this._readbackContext!.drawImage(
+				this.video,
+				0,
+				0,
+				this.width,
+				this.height
+			);
+			return this._readbackContext!.getImageData(
+				0,
+				0,
+				this.width,
+				this.height
+			).data;
+		} catch (error) {
+			const reason =
+				error instanceof Error ? error.message : "Unknown canvas error";
+			throw new Error(
+				`VideoTexture failed to read frame data. Ensure video CORS/canvas access is allowed: ${reason}`
+			);
+		}
+	}
+
+	public override getUploadSource(level: number = 0): TextureSource | null {
+		return level === 0 && !this._isDisposed ? this.video : null;
+	}
+
 	public override dispose(): void {
+		if (this._isDisposed) return;
 		this._isDisposed = true;
 		this._unbindVideoEvents();
 		this._cancelVideoFrameCallback();
+		this._readbackCanvas = null;
+		this._readbackContext = null;
 		super.dispose();
 	}
 
@@ -260,5 +299,9 @@ export class VideoTexture extends Texture {
 			typeof maybe2D.drawImage === "function" &&
 			typeof maybe2D.getImageData === "function"
 		);
+	}
+
+	private _getCurrentTimeMs(): number {
+		return typeof performance !== "undefined" ? performance.now() : Date.now();
 	}
 }

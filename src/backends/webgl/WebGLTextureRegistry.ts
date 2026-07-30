@@ -560,9 +560,29 @@ export class WebGLTextureRegistry {
 		for (let level = 0; level < mipCount; level++) {
 			const width = Math.max(1, texture.width >> level);
 			const height = Math.max(1, texture.height >> level);
+			const externalSource =
+				level === 0 && mipCount === 1 ?
+					resolveExternalTextureSource(texture.getUploadSource(level))
+				:	null;
+			if (
+				externalSource &&
+				uploadFormat.format === gl.RGBA &&
+				uploadFormat.type === gl.UNSIGNED_BYTE
+			) {
+				gl.texImage2D(
+					gl.TEXTURE_2D,
+					level,
+					uploadFormat.internalFormat,
+					uploadFormat.format,
+					uploadFormat.type,
+					externalSource
+				);
+				continue;
+			}
 			const source =
 				texture.mipmaps[level] ??
 				(level === 0 ? texture.data : null) ??
+				texture.readPixelData(level) ??
 				texture.mipmaps[0] ??
 				null;
 
@@ -1026,6 +1046,12 @@ function hasFloat32PixelData(texture: Texture): boolean {
 		}
 	}
 	return false;
+}
+
+function resolveExternalTextureSource(
+	source: ReturnType<Texture["getUploadSource"]>
+): TexImageSource | null {
+	return source && !ArrayBuffer.isView(source) ? source : null;
 }
 
 function createUploadData(

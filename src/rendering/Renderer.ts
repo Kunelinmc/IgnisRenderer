@@ -156,6 +156,7 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 	private _frameDirty = true;
 	private _pendingDirtyReasonMask = renderDirtyReasonToMask("unknown");
 	private _lastKnownSceneVersion = 0;
+	private _lastKnownTextureRevision = Texture.contentRevision;
 	private _deviceScaleFactor = 1;
 
 	/**
@@ -630,8 +631,10 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 		if (this.animationAutoRender && hasActiveAnimations) {
 			this._pendingDirtyReasonMask |= renderDirtyReasonToMask("transform");
 		}
-		const hasDynamicTextureUpdates = Texture.updateDynamicTextures(now);
-		if (hasDynamicTextureUpdates) {
+		const textureRevision = Texture.contentRevision;
+		const hasTextureUpdates = textureRevision !== this._lastKnownTextureRevision;
+		if (hasTextureUpdates) {
+			this._lastKnownTextureRevision = textureRevision;
 			this._pendingDirtyReasonMask |= renderDirtyReasonToMask("texture");
 			this._frameDirty = true;
 		}

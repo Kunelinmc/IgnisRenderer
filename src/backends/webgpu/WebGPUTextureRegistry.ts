@@ -1,6 +1,4 @@
 import type { Texture } from "../../core/Texture";
-import { CanvasTexture } from "../../core/CanvasTexture";
-import { VideoTexture } from "../../core/VideoTexture";
 import {
 	AddressMode,
 	FilterMode,
@@ -75,7 +73,7 @@ export class WebGPUTextureRegistry {
 
 		let cacheEntry = this._textureCache.get(texture);
 		const externalImageCopyCompatible =
-			texture instanceof VideoTexture || texture instanceof CanvasTexture;
+			resolveExternalTextureSource(texture) !== null;
 		const uploadFormat =
 			externalImageCopyCompatible ?
 				resolveExternalImageCopyFormat(texture)
@@ -83,9 +81,7 @@ export class WebGPUTextureRegistry {
 		if (
 			!cacheEntry &&
 			(!this._isTextureDimensionValid(texture.width, texture.height) ||
-				(!texture.data &&
-					!(texture instanceof VideoTexture) &&
-					!(texture instanceof CanvasTexture)))
+				(!texture.data && !externalImageCopyCompatible))
 		) {
 			return (
 					slotIndex === WEBGPU_TEXTURE_SLOT.NORMAL ||
@@ -142,14 +138,12 @@ export class WebGPUTextureRegistry {
 
 		const uploadedVersion = this._uploadedVersionCache.get(texture);
 		if (uploadedVersion !== texture.version) {
-			const usedExternalImageFastPath =
-				texture instanceof VideoTexture &&
-				this._tryUploadVideoFrame(texture, cacheEntry.resource);
-			const usedCanvasFastPath =
-				texture instanceof CanvasTexture &&
-				this._tryUploadCanvasFrame(texture, cacheEntry.resource);
+			const usedExternalImageFastPath = this._tryUploadExternalSource(
+				texture,
+				cacheEntry.resource
+			);
 
-			if (!usedExternalImageFastPath && !usedCanvasFastPath) {
+			if (!usedExternalImageFastPath) {
 				if (
 					getTextureFormatInfo(uploadFormat).isCompressed &&
 					cacheEntry.format !== uploadFormat
@@ -455,8 +449,8 @@ export class WebGPUTextureRegistry {
 		);
 	}
 
-	private _tryUploadVideoFrame(
-		texture: VideoTexture,
+	private _tryUploadExternalSource(
+		texture: Texture,
 		target: IRenderTexture
 	): boolean {
 		if (texture.mipmaps.length > 1) {
@@ -468,56 +462,9 @@ export class WebGPUTextureRegistry {
 			return false;
 		}
 
-		const video = texture.video;
-		if (
-			!video ||
-			video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA ||
-			!this._isTextureDimensionValid(video.videoWidth, video.videoHeight)
-		) {
-			return false;
-		}
-
-		try {
-			const gpuTexture = tryGetWebGPUTextureHandle(target);
-			if (!gpuTexture) {
-				return false;
-			}
-			queue.copyExternalImageToTexture(
-				{
-					source: video,
-				},
-				{
-					texture: gpuTexture,
-				},
-				{
-					width: texture.width,
-					height: texture.height,
-					depthOrArrayLayers: 1,
-				}
-			);
-			return true;
-		} catch {
-			return false;
-		}
-	}
-
-	private _tryUploadCanvasFrame(
-		texture: CanvasTexture,
-		target: IRenderTexture
-	): boolean {
-		if (texture.mipmaps.length > 1) {
-			return false;
-		}
-
-		const queue = this._backend.queue;
-		if (!queue || typeof queue.copyExternalImageToTexture !== "function") {
-			return false;
-		}
-
-		const source = texture.canvas;
+		const source = resolveExternalTextureSource(texture);
 		if (
 			!source ||
-			!this._isTextureDimensionValid(source.width, source.height) ||
 			texture.width <= 0 ||
 			texture.height <= 0
 		) {
@@ -634,4 +581,9 @@ function resolveExternalImageCopyFormat(texture: Texture): TextureFormat {
 		default:
 			return TextureFormat.RGBA8Unorm;
 	}
+}
+
+function resolveExternalTextureSource(texture: Texture): TexImageSource | null {
+	const source = texture.getUploadSource(0);
+	return source && !ArrayBuffer.isView(source) ? source : null;
 }

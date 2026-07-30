@@ -1,4 +1,10 @@
-import { Texture, type TextureBaseParams } from "./Texture";
+import {
+	Texture,
+	type TextureBaseParams,
+	type TextureData,
+	type TextureSource,
+	type TextureSourceKind,
+} from "./Texture";
 
 type CanvasTextureContext2D =
 	| CanvasRenderingContext2D
@@ -27,7 +33,7 @@ const CANVAS_MUTATING_METHODS = [
 export interface CanvasTextureParams extends TextureBaseParams {
 	context: CanvasTextureContext2D;
 	/**
-	 * Auto-registers this texture into the global dynamic-texture update loop.
+	 * Automatically publishes tracked canvas mutations to renderers.
 	 */
 	autoUpdate?: boolean;
 	/**
@@ -44,6 +50,8 @@ export interface CanvasTextureParams extends TextureBaseParams {
  * Dynamic texture that pulls pixels from a Canvas 2D rendering context.
  */
 export class CanvasTexture extends Texture {
+	public override readonly sourceKind: TextureSourceKind = "dynamic";
+
 	public readonly context: CanvasTextureContext2D;
 	public readonly canvas: CanvasTextureCanvas;
 	public readonly autoUpdate: boolean;
@@ -59,6 +67,7 @@ export class CanvasTexture extends Texture {
 	private _dirty: boolean;
 	private _lastUpdateTimeMs: number;
 	private _minUpdateIntervalMs: number;
+	private _scheduledUpdateHandle: ReturnType<typeof setTimeout> | null;
 
 	/**
 	 * Creates a dynamic canvas texture from one parameter object.
@@ -86,10 +95,8 @@ export class CanvasTexture extends Texture {
 		this._dirty = true;
 		this._lastUpdateTimeMs = -Infinity;
 		this._minUpdateIntervalMs = Math.max(0, params.minUpdateIntervalMs ?? 0);
+		this._scheduledUpdateHandle = null;
 
-		if (this.autoUpdate) {
-			this._registerAsDynamicTexture();
-		}
 		if (this.trackContextMutations) {
 			this._attachContextMutationTracking();
 		}
@@ -104,6 +111,9 @@ export class CanvasTexture extends Texture {
 		if (this._isDisposed) return;
 		this._forceRefresh = true;
 		this._dirty = true;
+		if (this.autoUpdate) {
+			this._scheduleAutoUpdate();
+		}
 	}
 
 	public override update(timeMs: number = 0): boolean {
@@ -136,16 +146,27 @@ export class CanvasTexture extends Texture {
 			}
 		}
 
+		this.width = width;
+		this.height = height;
+		this._forceRefresh = false;
+		this._dirty = false;
+		this._lastUpdateTimeMs =
+			Number.isFinite(timeMs) ? timeMs : this._getCurrentTimeMs();
+		this.markNeedsUpdate();
+		return true;
+	}
+
+	public override readPixelData(level: number = 0): TextureData | null {
+		if (level !== 0 || this._isDisposed || this.width <= 0 || this.height <= 0) {
+			return null;
+		}
 		try {
-			const frameData = this.context.getImageData(0, 0, width, height).data;
-			if (
-				!(this.data instanceof Uint8ClampedArray) ||
-				this.data.length !== frameData.length
-			) {
-				this.data = new Uint8ClampedArray(frameData);
-			} else {
-				this.data.set(frameData);
-			}
+			return this.context.getImageData(
+				0,
+				0,
+				this.width,
+				this.height
+			).data;
 		} catch (error) {
 			const reason =
 				error instanceof Error ? error.message : "Unknown canvas error";
@@ -153,21 +174,19 @@ export class CanvasTexture extends Texture {
 				`CanvasTexture failed to read canvas pixels. Ensure canvas CORS/canvas access is allowed: ${reason}`
 			);
 		}
+	}
 
-		this.width = width;
-		this.height = height;
-		this.mipmaps = this.data ? [this.data] : [];
-		this._forceRefresh = false;
-		this._dirty = false;
-		this._lastUpdateTimeMs =
-			Number.isFinite(timeMs) ? timeMs : performance.now();
-		this.markNeedsUpdate();
-		return true;
+	public override getUploadSource(level: number = 0): TextureSource | null {
+		return level === 0 && !this._isDisposed ? this.canvas : null;
 	}
 
 	public override dispose(): void {
 		if (this._isDisposed) return;
 		this._isDisposed = true;
+		if (this._scheduledUpdateHandle !== null) {
+			clearTimeout(this._scheduledUpdateHandle);
+			this._scheduledUpdateHandle = null;
+		}
 		this._detachContextMutationTracking();
 		super.dispose();
 	}
@@ -175,6 +194,34 @@ export class CanvasTexture extends Texture {
 	private _markDirtyFromContextMutation(): void {
 		if (this._isDisposed) return;
 		this._dirty = true;
+		if (this.autoUpdate) {
+			this._scheduleAutoUpdate();
+		}
+	}
+
+	private _scheduleAutoUpdate(): void {
+		if (this._scheduledUpdateHandle !== null || this._isDisposed) {
+			return;
+		}
+		const nowMs = this._getCurrentTimeMs();
+		const elapsed = nowMs - this._lastUpdateTimeMs;
+		const remainingMs =
+			this._forceRefresh ? 0
+			: Number.isFinite(elapsed) ?
+				Math.max(0, this._minUpdateIntervalMs - elapsed)
+			:	0;
+		if (remainingMs <= 0) {
+			this.update(nowMs);
+			return;
+		}
+		this._scheduledUpdateHandle = setTimeout(() => {
+			this._scheduledUpdateHandle = null;
+			this.update(this._getCurrentTimeMs());
+		}, remainingMs);
+	}
+
+	private _getCurrentTimeMs(): number {
+		return typeof performance !== "undefined" ? performance.now() : Date.now();
 	}
 
 	private _attachContextMutationTracking(): void {
@@ -198,10 +245,11 @@ export class CanvasTexture extends Texture {
 					state.originals.set(methodName, original);
 					const listeners = state.listeners;
 					context[methodName] = (...args: unknown[]) => {
+						const result = original.apply(this.context, args);
 						for (const listener of listeners) {
 							listener._markDirtyFromContextMutation();
 						}
-						return original.apply(this.context, args);
+						return result;
 					};
 				} catch {
 					state.originals.delete(methodName);

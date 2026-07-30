@@ -9,6 +9,7 @@ import {
 	type ShaderContext,
 	type FragmentInput,
 } from "../../shaders";
+import { hasSoftwareTextureData } from "../../shaders/software/textureSampling";
 import { clamp } from "../../maths/Common";
 import {
 	type SceneLight,
@@ -158,7 +159,7 @@ export class Rasterizer implements RasterizerLike {
 			(
 				alphaMode === AlphaMode.Mask &&
 				material?.map &&
-				material.map.data &&
+				hasSoftwareTextureData(material.map) &&
 				material.map.width > 0 &&
 				material.map.height > 0
 			) ?

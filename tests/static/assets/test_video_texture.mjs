@@ -64,24 +64,32 @@ function testVideoTextureUsesRequestVideoFrameCallback() {
 	try {
 		const video = new FakeVideo({ supportsRVFC: true });
 		const texture = new VideoTexture({ video });
-		const context = contexts[0];
-		assert.ok(context);
-		assert.equal(context.getImageDataCalls, 1);
+		assert.equal(contexts.length, 0);
+		assert.equal(texture.data, null);
+		assert.equal(texture.sourceKind, "dynamic");
+		assert.deepEqual(texture.levels, []);
+		assert.deepEqual(texture.mipmaps, []);
+		assert.equal(texture.getUploadSource(), video);
 
 		const noFrameUpdate = texture.update();
 		assert.equal(noFrameUpdate, false);
-		assert.equal(context.getImageDataCalls, 1);
 
+		const versionBeforeFrame = texture.version;
 		video.presentFrame(1 / 30);
 		const hasFrameUpdate = texture.update();
-		assert.equal(hasFrameUpdate, true);
-		assert.equal(context.getImageDataCalls, 2);
+		assert.equal(hasFrameUpdate, false);
+		assert.ok(texture.version > versionBeforeFrame);
+		assert.equal(contexts.length, 0);
 
 		const sampled = texture.sample(0.1, 0.5);
-		assert.equal(sampled.r, 20);
-		assert.equal(sampled.g, 20);
-		assert.equal(sampled.b, 20);
+		const context = contexts[0];
+		assert.ok(context);
+		assert.equal(context.getImageDataCalls, 1);
+		assert.equal(sampled.r, 10);
+		assert.equal(sampled.g, 10);
+		assert.equal(sampled.b, 10);
 		assert.equal(sampled.a, 255);
+		assert.equal(texture.data, null);
 
 		texture.dispose();
 		assert.ok(video.cancelCalls >= 1);
@@ -117,18 +125,17 @@ function testVideoTextureFallsBackWithoutRVFC() {
 	try {
 		const video = new FakeVideo({ supportsRVFC: false });
 		const texture = new VideoTexture({ video });
-		const context = contexts[0];
-		assert.ok(context);
-		assert.equal(context.getImageDataCalls, 1);
+		assert.equal(contexts.length, 0);
+		assert.equal(texture.data, null);
 
 		const noAdvance = texture.update();
 		assert.equal(noAdvance, false);
-		assert.equal(context.getImageDataCalls, 1);
 
 		video.currentTime = 0.2;
 		const advanced = texture.update();
 		assert.equal(advanced, true);
-		assert.equal(context.getImageDataCalls, 2);
+		assert.equal(contexts.length, 0);
+		assert.equal(texture.data, null);
 
 		texture.dispose();
 	} finally {
@@ -170,7 +177,6 @@ function testWebGPURegistryUsesExternalVideoUploadPath() {
 		assert.equal(backend.writeCalls.length, 0);
 
 		video.presentFrame(1 / 24);
-		texture.update();
 		registry.getTextureForSlot(texture, WEBGPU_TEXTURE_SLOT.BASE_COLOR);
 		assert.equal(backend.copyCalls.length, 2);
 		assert.equal(backend.writeCalls.length, 0);
@@ -213,7 +219,6 @@ async function testWebGPURegistryGeneratesMipmapsAfterVideoUpload() {
 		assert.equal(backend.recordedRenderPasses.length, 1);
 
 		video.presentFrame(1 / 24);
-		texture.update();
 		registry.getTextureForSlot(texture, WEBGPU_TEXTURE_SLOT.BASE_COLOR);
 		assert.equal(backend.copyCalls.length, 2);
 		await waitForCondition(

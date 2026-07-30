@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import { Texture } from "../../../src/core/Texture.ts";
+import { CanvasTexture } from "../../../src/core/CanvasTexture.ts";
 import { WebGLTextureRegistry } from "../../../src/backends/webgl/WebGLTextureRegistry.ts";
 import { TextureFormat } from "../../../src/backends/types.ts";
+import { FakeCanvas } from "../../helpers/fakes.mjs";
 
 function createTextureRegistryTestGL(options = {}) {
 	let textureId = 0;
@@ -66,17 +68,30 @@ function createTextureRegistryTestGL(options = {}) {
 		texParameteri(target, pname, value) {
 			textureParameterCalls.push({ target, pname, value });
 		},
-		texImage2D(
-			target,
-			level,
-			internalFormat,
-			width,
-			height,
-			border,
-			format,
-			type,
-			pixels
-		) {
+		texImage2D(...args) {
+			if (args.length === 6) {
+				const [target, level, internalFormat, format, type, source] = args;
+				texImage2DCalls.push({
+					target,
+					level,
+					internalFormat,
+					format,
+					type,
+					source,
+				});
+				return;
+			}
+			const [
+				target,
+				level,
+				internalFormat,
+				width,
+				height,
+				border,
+				format,
+				type,
+				pixels,
+			] = args;
 			texImage2DCalls.push({
 				target,
 				level,
@@ -149,6 +164,26 @@ function testBaseColorTextureRemainsSrgbByDefault() {
 
 	assert.equal(registry.getBaseColorTexture(srgbTexture).isLinear, false);
 	assert.equal(registry.getBaseColorTexture(linearTexture).isLinear, true);
+}
+
+function testCanvasTextureUploadsExternalSourceWithoutPixelCopy() {
+	const gl = createTextureRegistryTestGL();
+	const registry = new WebGLTextureRegistry(gl, () => {});
+	const canvas = new FakeCanvas(2, 1);
+	const context = canvas.getContext("2d");
+	const texture = new CanvasTexture({ context });
+
+	try {
+		registry.getBaseColorTexture(texture);
+
+		assert.equal(gl.texImage2DCalls.length, 1);
+		assert.equal(gl.texImage2DCalls[0].source, canvas);
+		assert.equal(context.getImageDataCalls, 0);
+		assert.equal(texture.data, null);
+	} finally {
+		texture.dispose();
+		registry.destroy();
+	}
 }
 
 function testEnvironmentTextureLimitsMaxMipLevelToUploadedChain() {
@@ -536,6 +571,7 @@ function testDeferredTextureUploadDefaultByteBudgetAllowsThirtyTwoMiB() {
 function run() {
 	testEnvironmentTextureRespectsTextureColorSpace();
 	testBaseColorTextureRemainsSrgbByDefault();
+	testCanvasTextureUploadsExternalSourceWithoutPixelCopy();
 	testEnvironmentTextureLimitsMaxMipLevelToUploadedChain();
 	testMipmapFilterGeneratesMipChainWhenOnlyBaseLevelExists();
 	testLinearFilterSkipsMipmapGenerationForSingleLevelTexture();

@@ -261,6 +261,8 @@ export {
 	type TextureBaseParams,
 	type TextureColorSpace,
 	type TextureParams,
+	type TextureSource,
+	type TextureSourceKind,
 } from "./core/Texture";
 export {
 	CubeTexture,

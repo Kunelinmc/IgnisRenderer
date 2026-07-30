@@ -2,6 +2,14 @@ import type { RGBA } from "../../foundation/Color";
 import { clamp } from "../../maths/Common";
 import type { TextureLike } from "../../materials";
 
+const softwareTextureDataCache = new WeakMap<
+	NonNullable<TextureLike>,
+	{
+		version: number;
+		data: ReturnType<NonNullable<TextureLike>["readPixelData"]>;
+	}
+>();
+
 /**
  * @internal
  * Samples a software-rendered material texture with engine UV transforms.
@@ -32,8 +40,10 @@ export function sampleSoftwareTextureMapInto(
 	v: number,
 	out: RGBA
 ): boolean {
-	if (!map || !map.data) return false;
+	if (!map) return false;
 	if (map.width <= 0 || map.height <= 0) return false;
+	const data = resolveSoftwareTextureData(map);
+	if (!data) return false;
 
 	let uu = u * map.repeat.x;
 	let vv = v * map.repeat.y;
@@ -58,12 +68,12 @@ export function sampleSoftwareTextureMapInto(
 
 	const idx = (ty * map.width + tx) << 2;
 	if (map.colorSpace === "HDR" || map.colorSpace === "Linear") {
-		const isFloat = map.data instanceof Float32Array;
+		const isFloat = data instanceof Float32Array;
 		const colorScale = isFloat ? 255 : 1;
-		const alphaRaw = map.data[idx + 3];
-		out.r = Math.max(0, Math.min(255, (map.data[idx] ?? 0) * colorScale));
-		out.g = Math.max(0, Math.min(255, (map.data[idx + 1] ?? 0) * colorScale));
-		out.b = Math.max(0, Math.min(255, (map.data[idx + 2] ?? 0) * colorScale));
+		const alphaRaw = data[idx + 3];
+		out.r = Math.max(0, Math.min(255, (data[idx] ?? 0) * colorScale));
+		out.g = Math.max(0, Math.min(255, (data[idx + 1] ?? 0) * colorScale));
+		out.b = Math.max(0, Math.min(255, (data[idx + 2] ?? 0) * colorScale));
 		out.a =
 			alphaRaw === undefined ? 1
 			: isFloat ? clamp(alphaRaw)
@@ -71,12 +81,23 @@ export function sampleSoftwareTextureMapInto(
 		return true;
 	}
 
-	const alpha = map.data[idx + 3] ?? 255;
-	out.r = map.data[idx];
-	out.g = map.data[idx + 1];
-	out.b = map.data[idx + 2];
+	const alpha = data[idx + 3] ?? 255;
+	out.r = data[idx];
+	out.g = data[idx + 1];
+	out.b = data[idx + 2];
 	out.a = alpha / 255;
 	return true;
+}
+
+/**
+ * Returns whether a software texture has readable pixel data.
+ *
+ * @internal Owned by software material and shadow evaluation.
+ */
+export function hasSoftwareTextureData(
+	map: TextureLike | undefined
+): boolean {
+	return !!map && resolveSoftwareTextureData(map) !== null;
 }
 
 /**
@@ -96,6 +117,24 @@ export function sampleSoftwareTextureAlpha(
 ): number {
 	const sample = sampleSoftwareTextureMap(map, u, v);
 	return sample ? sample.a : 1;
+}
+
+function resolveSoftwareTextureData(
+	map: NonNullable<TextureLike>
+): ReturnType<NonNullable<TextureLike>["readPixelData"]> {
+	if (map.data) {
+		return map.data;
+	}
+	const cached = softwareTextureDataCache.get(map);
+	if (cached?.version === map.version) {
+		return cached.data;
+	}
+	const data = map.readPixelData(0);
+	softwareTextureDataCache.set(map, {
+		version: map.version,
+		data,
+	});
+	return data;
 }
 
 function wrapSoftwareTextureCoordinate(

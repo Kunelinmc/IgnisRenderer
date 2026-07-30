@@ -72,7 +72,8 @@ export function createTextureMipUploadData(
 		1,
 		Math.floor(levelDescriptor?.height ?? texture.height >> level)
 	);
-	const sourceData = levelDescriptor?.data ?? null;
+	const sourceData =
+		levelDescriptor?.data ?? texture.readPixelData(level);
 	const pixelData = createTextureFormatUploadData(sourceData, width, height, format);
 	const unalignedBytesPerRow =
 		levelDescriptor?.bytesPerRow ?? getTextureFormatBytesPerRow(format, width);

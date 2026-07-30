@@ -237,7 +237,7 @@ async function run() {
 			"invalidate",
 		]);
 
-		const dynamicTexture = new FakeDynamicTexture(2);
+		const dynamicTexture = new FakeDynamicTexture();
 		const originalWarn = console.warn;
 		const warnedMessages = [];
 		console.warn = (message) => warnedMessages.push(message);
@@ -250,6 +250,7 @@ async function run() {
 		}
 
 		await renderer.renderFrame(0);
+		dynamicTexture.presentFrame();
 		await renderer.renderFrame(16);
 		await renderer.renderFrame(32);
 

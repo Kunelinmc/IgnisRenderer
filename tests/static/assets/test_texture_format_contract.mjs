@@ -38,6 +38,7 @@ function testTextureParamsKeepMipLevelMetadata() {
 		],
 	});
 
+	assert.equal(texture.sourceKind, "static");
 	assert.equal(texture.format, TextureFormat.R8Unorm);
 	assert.equal(texture.data?.[0], 32);
 	assert.equal(texture.mipmaps.length, 1);
