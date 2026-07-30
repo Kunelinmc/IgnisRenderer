@@ -26,7 +26,7 @@ import {
 } from "../ibl/IBLPrefilter";
 import {
 	directionFromEquirectUV,
-	sampleEnvironmentTextureLevel,
+	sampleEnvironmentTextureLevelLinear,
 } from "./environmentMapRuntime";
 import { RENDER_DIRTY_REASON_MASK } from "../../pipeline/incremental";
 
@@ -1403,15 +1403,62 @@ function sampleCubeFaces(
 	direction: IVector3
 ): RGBLinear {
 	const { face, uc, vc } = directionToCubeFaceUV(direction);
-	const x = Math.max(0, Math.min(faceSize - 1, Math.floor((uc + 1) * 0.5 * faceSize)));
-	const y = Math.max(0, Math.min(faceSize - 1, Math.floor((1 - (vc + 1) * 0.5) * faceSize)));
-	const data = cubeFaces[face];
-	const index = (y * faceSize + x) * 4;
+	const pixelX = (uc + 1) * 0.5 * faceSize - 0.5;
+	const pixelY = (1 - (vc + 1) * 0.5) * faceSize - 0.5;
+	const x0 = Math.floor(pixelX);
+	const y0 = Math.floor(pixelY);
+	const tx = pixelX - x0;
+	const ty = pixelY - y0;
+	const topLeft = sampleCubeFacePixel(cubeFaces, faceSize, face, x0, y0);
+	const topRight = sampleCubeFacePixel(cubeFaces, faceSize, face, x0 + 1, y0);
+	const bottomLeft = sampleCubeFacePixel(cubeFaces, faceSize, face, x0, y0 + 1);
+	const bottomRight = sampleCubeFacePixel(cubeFaces, faceSize, face, x0 + 1, y0 + 1);
+	return {
+		r: bilerp(topLeft.r, topRight.r, bottomLeft.r, bottomRight.r, tx, ty),
+		g: bilerp(topLeft.g, topRight.g, bottomLeft.g, bottomRight.g, tx, ty),
+		b: bilerp(topLeft.b, topRight.b, bottomLeft.b, bottomRight.b, tx, ty),
+	};
+}
+
+function sampleCubeFacePixel(
+	cubeFaces: Float32Array[],
+	faceSize: number,
+	face: number,
+	x: number,
+	y: number
+): RGBLinear {
+	let resolvedFace = face;
+	let resolvedX = x;
+	let resolvedY = y;
+	if (x < 0 || x >= faceSize || y < 0 || y >= faceSize) {
+		const direction = directionFromCubeFace(face, x, y, faceSize);
+		const resolved = directionToCubeFaceUV(direction);
+		resolvedFace = resolved.face;
+		resolvedX = Math.floor((resolved.uc + 1) * 0.5 * faceSize);
+		resolvedY = Math.floor((1 - (resolved.vc + 1) * 0.5) * faceSize);
+	}
+	resolvedX = Math.max(0, Math.min(faceSize - 1, resolvedX));
+	resolvedY = Math.max(0, Math.min(faceSize - 1, resolvedY));
+	const data = cubeFaces[resolvedFace];
+	const index = (resolvedY * faceSize + resolvedX) * 4;
 	return {
 		r: data[index],
 		g: data[index + 1],
 		b: data[index + 2],
 	};
+}
+
+function bilerp(
+	topLeft: number,
+	topRight: number,
+	bottomLeft: number,
+	bottomRight: number,
+	tx: number,
+	ty: number
+): number {
+	const top = topLeft + (topRight - topLeft) * tx;
+	const bottom = bottomLeft + (bottomRight - bottomLeft) * tx;
+	return top + (bottom - top) * ty;
 }
 
 function directionToCubeFaceUV(direction: IVector3): {
@@ -1468,23 +1515,11 @@ function sampleEnvironmentBackgroundLinear(
 	environmentBackgroundTexture: Texture,
 	direction: IVector3
 ): RGBLinear {
-	const sample = sampleEnvironmentTextureLevel(
+	return sampleEnvironmentTextureLevelLinear(
 		environmentBackgroundTexture,
 		direction,
 		0
 	);
-	if (environmentBackgroundTexture.colorSpace === "sRGB") {
-		return {
-			r: sRGBToLinear(sample.r / 255),
-			g: sRGBToLinear(sample.g / 255),
-			b: sRGBToLinear(sample.b / 255),
-		};
-	}
-	return {
-		r: sample.r / 255,
-		g: sample.g / 255,
-		b: sample.b / 255,
-	};
 }
 
 function toLinearColor(

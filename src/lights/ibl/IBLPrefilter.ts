@@ -318,7 +318,7 @@ export function prefilterEnvMapMipLevel(
 		assertPrefilterNotAborted(signal);
 		const theta = ((j + 0.5) / height) * Math.PI;
 		for (let i = 0; i < width; i++) {
-			const phi = ((i + 0.5) / width) * 2 * Math.PI;
+			const phi = ((i + 0.5) / width) * 2 * Math.PI - Math.PI;
 			normal.x = Math.sin(theta) * Math.sin(phi);
 			normal.y = Math.cos(theta);
 			normal.z = Math.sin(theta) * Math.cos(phi);
@@ -352,7 +352,7 @@ export function buildPrefilteredTexture(
 	mipData: IBLPrefilterMipData[]
 ): Texture {
 	const sorted = [...mipData].sort((left, right) => left.level - right.level);
-	return new Texture({
+	const texture = new Texture({
 		data: sorted[0]?.data ?? null,
 		width: baseWidth,
 		height: baseHeight,
@@ -365,6 +365,11 @@ export function buildPrefilteredTexture(
 		})),
 		usageHint: "color",
 	});
+	texture.wrapS = "Repeat";
+	texture.wrapT = "Clamp";
+	texture.minFilter = "Linear";
+	texture.magFilter = "Linear";
+	return texture;
 }
 
 export function prefilterEnvMapCPU(

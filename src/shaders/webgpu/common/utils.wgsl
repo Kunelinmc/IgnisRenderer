@@ -1180,17 +1180,63 @@ fn directionToEquirectUV(direction: vec3<f32>) -> vec2<f32> {
 	return vec2<f32>((phi + PI) / (2.0 * PI), theta / PI);
 }
 
+fn sampleEnvironmentSpecularAtlasMip(
+	uv: vec2<f32>,
+	layer: u32,
+	layerCount: u32,
+	level: f32
+) -> vec3<f32> {
+	let atlasDimensions = textureDimensions(envSpecularTexture, u32(level));
+	let atlasWidth = f32(atlasDimensions.x);
+	let layerWidth = max(atlasWidth / f32(layerCount), 1.0);
+	let localX = fract(uv.x) * layerWidth - 0.5;
+	let x0 = floor(localX);
+	let blend = fract(localX);
+	let wrappedX0 = select(x0, layerWidth - 1.0, x0 < 0.0);
+	let wrappedX1 = select(wrappedX0 + 1.0, 0.0, wrappedX0 + 1.0 >= layerWidth);
+	let layerOffset = f32(layer) * layerWidth;
+	let uv0 = vec2<f32>((layerOffset + wrappedX0 + 0.5) / atlasWidth, uv.y);
+	let uv1 = vec2<f32>((layerOffset + wrappedX1 + 0.5) / atlasWidth, uv.y);
+	let sample0 = textureSampleLevel(
+		envSpecularTexture,
+		envSpecularSampler,
+		uv0,
+		level
+	).rgb;
+	let sample1 = textureSampleLevel(
+		envSpecularTexture,
+		envSpecularSampler,
+		uv1,
+		level
+	).rgb;
+	return mix(sample0, sample1, blend);
+}
+
 fn sampleEnvironmentSpecularFromDirection(
 	direction: vec3<f32>,
 	roughness: f32,
 	layer: u32,
 	layerCount: u32
 ) -> vec3<f32> {
-	var uv = directionToEquirectUV(safeNormalize(direction, vec3<f32>(0.0, 1.0, 0.0)));
-	if (layerCount > 1u) {
-		uv.x = (uv.x + f32(layer)) / f32(layerCount);
-	}
+	let uv = directionToEquirectUV(safeNormalize(direction, vec3<f32>(0.0, 1.0, 0.0)));
 	let level = clamp(roughness, 0.0, 1.0) * envSpecularMaxMipLevel();
+	if (layerCount > 1u) {
+		let level0 = floor(level);
+		let level1 = ceil(level);
+		let sample0 = sampleEnvironmentSpecularAtlasMip(
+			uv,
+			layer,
+			layerCount,
+			level0
+		);
+		let sample1 = sampleEnvironmentSpecularAtlasMip(
+			uv,
+			layer,
+			layerCount,
+			level1
+		);
+		return mix(sample0, sample1, fract(level));
+	}
 	var sampled = textureSampleLevel(
 		envSpecularTexture,
 		envSpecularSampler,

@@ -358,6 +358,31 @@ function testAtlasCacheInvalidatesWhenProbeTextureObjectChanges() {
 	assert.notEqual(secondAtlas, firstAtlas);
 }
 
+function testAtlasKeepsProbePixelsInSeparateHorizontalLayers() {
+	const firstProbe = new ReflectionProbe({
+		prefilteredMap: createEquirectTexture(0.2, 4, 2, 2),
+	});
+	const secondProbe = new ReflectionProbe({
+		prefilteredMap: createEquirectTexture(0.8, 4, 2, 2),
+	});
+	const atlas = buildReflectionProbeAtlasTexture([firstProbe, secondProbe]);
+	assert.ok(atlas);
+	assert.equal(atlas.width, 8);
+	assert.equal(atlas.height, 2);
+	assert.equal(atlas.wrapS, "Clamp");
+	assert.equal(atlas.wrapT, "Clamp");
+
+	const mip0 = atlas.mipmaps[0];
+	assert.ok(mip0 instanceof Float32Array);
+	for (let y = 0; y < 2; y++) {
+		for (let x = 0; x < 8; x++) {
+			const expected = x < 4 ? 0.2 : 0.8;
+			const index = (y * 8 + x) * 4;
+			assert.ok(Math.abs(mip0[index] - expected) < 1e-6);
+		}
+	}
+}
+
 function testCollectReflectionProbeEnvironmentKeepsAtlasWhenProbeFormatsDiffer() {
 	const lowQualityMap = createEquirectTexture(0.2, 1, 1, 1);
 	const highQualityMap = createEquirectTexture(0.8, 8, 4, 4);
@@ -494,6 +519,7 @@ function run() {
 	testReflectionProbeRequestCaptureFlags();
 	testCubemapSpecularSamplingAndAtlasBuild();
 	testAtlasCacheInvalidatesWhenProbeTextureObjectChanges();
+	testAtlasKeepsProbePixelsInSeparateHorizontalLayers();
 	testCollectReflectionProbeEnvironmentKeepsAtlasWhenProbeFormatsDiffer();
 	testReflectionProbeCollectionKeepsFullSoftwareSetAndCameraRelevantHardwareSubset();
 	testReflectionProbeSamplingFallsBackOutsideLocalizedCoverage();

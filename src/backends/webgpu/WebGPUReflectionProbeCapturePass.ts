@@ -64,7 +64,8 @@ export class WebGPUReflectionProbeCapturePass {
 	private _resources: WebGPUFrameResourceProvider &
 		WebGPUSceneResourceProvider &
 		WebGPUParticleRenderProvider;
-	private _readbackRuntime: ComputeRuntime;
+	private _readbackRuntime: ComputeRuntime | null = null;
+	private _destroyed = false;
 
 	constructor(
 		backend: WebGPUFrameHost,
@@ -74,7 +75,6 @@ export class WebGPUReflectionProbeCapturePass {
 	) {
 		this._backend = backend;
 		this._resources = resources;
-		this._readbackRuntime = new ComputeRuntime(backend.computeFacade);
 	}
 
 	public async captureFace(
@@ -185,7 +185,7 @@ export class WebGPUReflectionProbeCapturePass {
 			}
 
 			this._backend.submit([encoder.finish()]);
-			const readback = await this._readbackRuntime.readTexture({
+			const readback = await this._getReadbackRuntime().readTexture({
 				texture: captureTargets.sceneColor,
 				width: faceSize,
 				height: faceSize,
@@ -202,7 +202,24 @@ export class WebGPUReflectionProbeCapturePass {
 	}
 
 	public destroy(): void {
-		this._readbackRuntime.destroy();
+		if (this._destroyed) {
+			return;
+		}
+		this._destroyed = true;
+		this._readbackRuntime?.destroy();
+		this._readbackRuntime = null;
+	}
+
+	private _getReadbackRuntime(): ComputeRuntime {
+		if (this._destroyed) {
+			throw new Error(
+				"WebGPU reflection probe capture pass is destroyed; cannot read back captures."
+			);
+		}
+		if (!this._readbackRuntime) {
+			this._readbackRuntime = new ComputeRuntime(this._backend.computeFacade);
+		}
+		return this._readbackRuntime;
 	}
 
 	private async _recordSceneCapture(

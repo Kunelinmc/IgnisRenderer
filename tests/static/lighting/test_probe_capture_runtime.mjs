@@ -8,6 +8,7 @@ import { LightProbe } from "../../../src/lights/LightProbe.ts";
 import { ReflectionProbe } from "../../../src/lights/ReflectionProbe.ts";
 import { IBLPrefilter } from "../../../src/lights/ibl/IBLPrefilter.ts";
 import { ProbeCaptureRuntime } from "../../../src/lights/runtime/ProbeCaptureRuntime.ts";
+import { directionFromEquirectUV } from "../../../src/lights/runtime/environmentMapRuntime.ts";
 
 function createPrefilteredMap(seed = 1) {
 	return new Texture({
@@ -37,6 +38,44 @@ function createCapturedFace(faceSize, seed = 1) {
 		data[i + 1] = seed * 0.5;
 		data[i + 2] = seed * 0.25;
 		data[i + 3] = 1;
+	}
+	return data;
+}
+
+function createDirectionalCapturedFace(faceIndex, faceSize) {
+	const data = new Float32Array(faceSize * faceSize * 4);
+	for (let y = 0; y < faceSize; y++) {
+		for (let x = 0; x < faceSize; x++) {
+			const u = (2 * (x + 0.5)) / faceSize - 1;
+			const v = 1 - (2 * (y + 0.5)) / faceSize;
+			let direction;
+			switch (faceIndex) {
+				case 0:
+					direction = { x: 1, y: v, z: -u };
+					break;
+				case 1:
+					direction = { x: -1, y: v, z: u };
+					break;
+				case 2:
+					direction = { x: u, y: 1, z: -v };
+					break;
+				case 3:
+					direction = { x: u, y: -1, z: v };
+					break;
+				case 4:
+					direction = { x: u, y: v, z: 1 };
+					break;
+				default:
+					direction = { x: -u, y: v, z: -1 };
+					break;
+			}
+			const length = Math.hypot(direction.x, direction.y, direction.z);
+			const index = (y * faceSize + x) * 4;
+			data[index] = direction.x / length * 0.5 + 0.5;
+			data[index + 1] = direction.y / length * 0.5 + 0.5;
+			data[index + 2] = direction.z / length * 0.5 + 0.5;
+			data[index + 3] = 1;
+		}
 	}
 	return data;
 }
@@ -258,6 +297,121 @@ async function testReflectionProbeCaptureWritesBoundPrefilteredTexture() {
 	);
 }
 
+async function testSoftwareCapturePreservesHDREnvironmentRadiance() {
+	await withPrefilterStub(
+		async (envMap) => envMap,
+		async () => {
+			const runtime = new ProbeCaptureRuntime({ captureBudgetMs: 100 });
+			const scene = new Scene();
+			scene.environment.backgroundTexture = new Texture({
+				data: new Float32Array([
+					4, 2, 1, 1,
+					4, 2, 1, 1,
+				]),
+				width: 2,
+				height: 1,
+				colorSpace: "HDR",
+			});
+			const rawTexture = new Texture({
+				data: null,
+				width: 0,
+				height: 0,
+				colorSpace: "HDR",
+			});
+			const probe = scene.add(
+				new ReflectionProbe({
+					source: "capturedScene",
+					captureUpdateMode: "manual",
+					captureResolution: { width: 16, height: 8 },
+					includeMeshes: false,
+					includeEnvironment: true,
+				})
+			);
+			probe.capture.bindRawTexture(rawTexture);
+			scene.updateWorldMatrices();
+			probe.requestCapture();
+
+			await driveRuntimeUntil(
+				runtime,
+				(step) => ({ scene, nowMs: step * 16 }),
+				() => probe.prefilteredMap !== null
+			);
+
+			assert.ok(rawTexture.data instanceof Float32Array);
+			for (let index = 0; index < rawTexture.data.length; index += 4) {
+				assert.ok(Math.abs(rawTexture.data[index] - 4) < 1e-6);
+				assert.ok(Math.abs(rawTexture.data[index + 1] - 2) < 1e-6);
+				assert.ok(Math.abs(rawTexture.data[index + 2] - 1) < 1e-6);
+			}
+		}
+	);
+}
+
+async function testCubemapConversionUsesSeamAwareBilinearSampling() {
+	await withPrefilterStub(
+		async (envMap) => envMap,
+		async () => {
+			const runtime = new ProbeCaptureRuntime({ captureBudgetMs: 100 });
+			const scene = new Scene();
+			const rawTexture = new Texture({
+				data: null,
+				width: 0,
+				height: 0,
+				colorSpace: "HDR",
+			});
+			const probe = scene.add(
+				new ReflectionProbe({
+					source: "capturedScene",
+					captureUpdateMode: "manual",
+					captureResolution: { width: 32, height: 16 },
+					includeMeshes: true,
+					includeEnvironment: false,
+				})
+			);
+			probe.capture.bindRawTexture(rawTexture);
+			scene.updateWorldMatrices();
+			probe.requestCapture();
+
+			await driveRuntimeUntil(
+				runtime,
+				(step) => ({
+					scene,
+					nowMs: step * 16,
+					frameContext: {},
+					captureSource: {
+						async captureProbeFace(request) {
+							return createDirectionalCapturedFace(
+								request.faceIndex,
+								request.faceSize
+							);
+						},
+					},
+				}),
+				() => probe.prefilteredMap !== null
+			);
+
+			assert.ok(rawTexture.data instanceof Float32Array);
+			let maxError = 0;
+			for (let y = 0; y < rawTexture.height; y++) {
+				for (let x = 0; x < rawTexture.width; x++) {
+					const expected = directionFromEquirectUV(
+						(x + 0.5) / rawTexture.width,
+						(y + 0.5) / rawTexture.height
+					);
+					const index = (y * rawTexture.width + x) * 4;
+					maxError = Math.max(
+						maxError,
+						Math.abs(rawTexture.data[index] - (expected.x * 0.5 + 0.5)),
+						Math.abs(rawTexture.data[index + 1] - (expected.y * 0.5 + 0.5)),
+						Math.abs(rawTexture.data[index + 2] - (expected.z * 0.5 + 0.5))
+					);
+				}
+			}
+			assert.ok(maxError < 0.04, `Cubemap conversion max error was ${maxError}`);
+		}
+	);
+}
+
 async function testSharedCaptureSkipsStaleLightProbeResult() {
 	const deferredPrefilter = createDeferred();
 	let prefilterCallCount = 0;
@@ -395,6 +549,8 @@ async function run() {
 	await testLightProbeCaptureWritesBoundTextures();
 	await testSharedCaptureUpdatesLightAndReflectionProbe();
 	await testReflectionProbeCaptureWritesBoundPrefilteredTexture();
+	await testSoftwareCapturePreservesHDREnvironmentRadiance();
+	await testCubemapConversionUsesSeamAwareBilinearSampling();
 	await testSharedCaptureSkipsStaleLightProbeResult();
 	await testGridManualCellAndWholeGridCaptureRequests();
 	await testGridOnSceneDirtyCaptureDoesNotSelfTriggerOrStarveCells();

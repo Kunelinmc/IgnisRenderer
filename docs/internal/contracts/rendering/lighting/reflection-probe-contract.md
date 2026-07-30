@@ -40,6 +40,21 @@ When initializing a `ReflectionProbe` or passing options to its constructor `Ref
 - **Recursion Prevention**:
   - During a probe capture render pass, the features `enableReflection` and `enableSSR` must be forced to `false` to avoid feedback loops.
   - Shadow mapping must reuse the main frame's shadow maps; a dedicated shadow map render pass must not be triggered for the probe.
+- **WebGPU Lifecycle**:
+  - `WebGPUReflectionProbeCapturePass` must not resolve a `ComputeRuntime`
+    while `WebGPUBackend` is still initializing.
+  - The capture readback runtime must be created lazily on the first capture,
+    after the backend compute facade exposes its initialized device and queue.
+- **Capture Sampling**:
+  - Cubemap faces must use the order `+X`, `-X`, `+Y`, `-Y`, `+Z`, `-Z`.
+  - Cubemap-to-equirectangular conversion and final shader sampling must use
+    `phi = u * 2 * PI - PI` and `theta = v * PI`.
+  - Float-backed HDR capture input must preserve radiance values above `1`.
+  - Prefiltered equirectangular textures must repeat horizontally and clamp
+    vertically.
+  - A multi-probe atlas must isolate linear filtering between probes. The
+    runtime must preserve horizontal longitude wrapping inside each layer and
+    must not let filtering cross into an adjacent probe layer.
 
 ### Backend Support Matrix
 The following table outlines features and fallback behaviors across backends:

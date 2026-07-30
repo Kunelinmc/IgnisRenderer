@@ -3086,8 +3086,17 @@ async function testReflectionProbeCaptureUsesCanvasAttachmentFormats() {
 		includeParticles: false,
 		includeShadows: false,
 	});
-	backend.computeFacade = createWebGPUComputeFacade(backend);
+	const readyComputeFacade = createWebGPUComputeFacade(backend);
+	backend.computeFacade = new Proxy(readyComputeFacade, {
+		get(target, property, receiver) {
+			if (property === "device" || property === "queue") {
+				return null;
+			}
+			return Reflect.get(target, property, receiver);
+		},
+	});
 	const capturePass = new WebGPUReflectionProbeCapturePass(backend, resources);
+	backend.computeFacade = readyComputeFacade;
 	const probeCache = probe.getRuntimeCache();
 	const result = await capturePass.captureFace({
 		frameContext,

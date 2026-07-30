@@ -40,6 +40,12 @@ flowchart TD
   provided backend.
 - `IBLPrefilter.prefilter(envMap, options)` must return an HDR `Texture` whose
   `mipmaps` encode roughness levels.
+- Equirectangular input and output directions must use
+  `phi = u * 2 * PI - PI` and `theta = v * PI`, matching runtime and shader
+  environment sampling.
+- Prefiltered equirectangular output must use horizontal repeat and vertical
+  clamp addressing. Sampling across the longitude seam may wrap, while the
+  north and south poles must not wrap into each other.
 - `prefilterEnvironmentIBL(envMap, options)` must provide a one-shot helper with
   the same behavior as constructing `IBLPrefilter` and calling `prefilter`.
 - `projectEnvironmentTextureToSH(envMap, options)` must project a valid

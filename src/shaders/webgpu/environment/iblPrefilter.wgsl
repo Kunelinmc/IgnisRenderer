@@ -133,7 +133,7 @@ fn csMain(@builtin(global_invocation_id) globalId: vec3<u32>) {
 	let outputSize = vec2<f32>(f32(params.outputWidth), f32(params.outputHeight));
 	let uv = (vec2<f32>(vec2<u32>(globalId.xy)) + vec2<f32>(0.5)) / outputSize;
 	let theta = uv.y * PI;
-	let phi = uv.x * TWO_PI;
+	let phi = uv.x * TWO_PI - PI;
 	let normal = vec3<f32>(
 		sin(theta) * sin(phi),
 		cos(theta),

@@ -5,7 +5,10 @@ import {
 	IBLPrefilter,
 	prefilterEnvironmentIBL,
 } from "../../../src/lights/ibl/IBLPrefilter.ts";
-import { sampleEnvironmentTextureSpecular } from "../../../src/lights/runtime/environmentMapRuntime.ts";
+import {
+	directionFromEquirectUV,
+	sampleEnvironmentTextureSpecular,
+} from "../../../src/lights/runtime/environmentMapRuntime.ts";
 import { WEBGPU_COMPUTE_EXTENSION } from "../../../src/backends/BackendExtensions.ts";
 import { TextureFormat } from "../../../src/backends/types.ts";
 import { createWebGPUComputeFacade } from "../../../src/backends/webgpu/ComputeFacade.ts";
@@ -110,6 +113,60 @@ async function testHelperPreservesHDRRadiance() {
 	nearlyEqual(sample.r, 4);
 	nearlyEqual(sample.g, 2);
 	nearlyEqual(sample.b, 1);
+}
+
+async function testPrefilterPreservesDirectionAndEquirectWrapModes() {
+	const width = 16;
+	const height = 8;
+	const data = new Float32Array(width * height * 4);
+	for (let y = 0; y < height; y++) {
+		for (let x = 0; x < width; x++) {
+			const direction = directionFromEquirectUV(
+				(x + 0.5) / width,
+				(y + 0.5) / height
+			);
+			const index = (y * width + x) * 4;
+			data[index] = direction.x * 0.5 + 0.5;
+			data[index + 1] = direction.y * 0.5 + 0.5;
+			data[index + 2] = direction.z * 0.5 + 0.5;
+			data[index + 3] = 1;
+		}
+	}
+	const texture = new Texture({
+		data,
+		width,
+		height,
+		colorSpace: "HDR",
+	});
+	const result = await prefilterEnvironmentIBL(texture, {
+		acceleration: "single-thread",
+		maxSampleWidth: width,
+		maxSampleHeight: height,
+		maxMipLevels: 1,
+	});
+
+	const plusZ = sampleEnvironmentTextureSpecular(
+		result,
+		{ x: 0, y: 0, z: 1 },
+		0
+	);
+	const minusZ = sampleEnvironmentTextureSpecular(
+		result,
+		{ x: 0, y: 0, z: -1 },
+		0
+	);
+	const plusX = sampleEnvironmentTextureSpecular(
+		result,
+		{ x: 1, y: 0, z: 0 },
+		0
+	);
+	assert.ok(plusZ.b > 0.9, `Expected +Z blue encoding, received ${plusZ.b}`);
+	assert.ok(minusZ.b < 0.1, `Expected -Z blue encoding, received ${minusZ.b}`);
+	assert.ok(plusX.r > 0.9, `Expected +X red encoding, received ${plusX.r}`);
+	assert.equal(result.wrapS, "Repeat");
+	assert.equal(result.wrapT, "Clamp");
+	assert.equal(result.minFilter, "Linear");
+	assert.equal(result.magFilter, "Linear");
 }
 
 async function testExplicitWebGPURejectsNonWebGPUBackend() {
@@ -248,6 +305,7 @@ async function run() {
 	await testLegacyAccelerationValuesAreRejected();
 	await testMultiThreadRequiresWorkerAPI();
 	await testHelperPreservesHDRRadiance();
+	await testPrefilterPreservesDirectionAndEquirectWrapModes();
 	await testExplicitWebGPURejectsNonWebGPUBackend();
 	await testAutoFallsBackWhenWebGPUPathFails();
 	await testWebGPUPrefilterUsesRGBA16FloatForHDR();
