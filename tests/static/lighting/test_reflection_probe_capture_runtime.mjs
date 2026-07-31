@@ -637,14 +637,17 @@ async function testRendererCaptureStageRunsWithoutReflectivePackets() {
 		capturedProbe.requestCapture();
 
 		let captureStageCalls = 0;
+		let captureContext = null;
 		renderer._probeCaptureRuntime = {
-			execute() {
+			execute(context) {
 				captureStageCalls++;
+				captureContext = context;
 			},
 		};
 
 		await renderer.renderFrame(16);
 		assert.equal(captureStageCalls, 1);
+		assert.equal(captureContext.backend, backend);
 		assert.equal(backend.executedStages.includes("reflection"), false);
 	} finally {
 		globalThis.window = originalWindow;

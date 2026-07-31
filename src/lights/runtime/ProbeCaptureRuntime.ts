@@ -2,6 +2,7 @@ import type { Scene } from "../../core/Scene";
 import type { CubeTextureFaceData } from "../../core/CubeTexture";
 import { Texture } from "../../core/Texture";
 import type { TextureMipLevel } from "../../core/Texture";
+import type { IRenderBackend } from "../../backends/IRenderBackend";
 import { Logger } from "../../foundation/Logger";
 import {
 	LightType,
@@ -20,10 +21,7 @@ import type { IVector3, SHCoefficients } from "../../maths/types";
 import { Vector3 } from "../../maths/Vector3";
 import type { FrameContext } from "../../pipeline/types";
 import { projectEnvironmentTextureToSH } from "../ibl/EnvironmentSH";
-import {
-	prefilterEnvironmentIBL,
-	type IBLPrefilterOptions,
-} from "../ibl/IBLPrefilter";
+import { IBLPrefilter, type IBLPrefilterOptions } from "../ibl/IBLPrefilter";
 import {
 	directionFromEquirectUV,
 	sampleEnvironmentTextureLevelLinear,
@@ -160,6 +158,7 @@ export interface ProbeCaptureRuntimeExecuteContext {
 	frameContext?: FrameContext | null;
 	cameraWorldPosition?: IVector3 | null;
 	captureSource?: ProbeCaptureSource | null;
+	backend?: IRenderBackend | null;
 }
 
 export interface ProbeCaptureRuntimeOptions {
@@ -431,7 +430,7 @@ export class ProbeCaptureRuntime {
 			return;
 		}
 
-		await this._runCaptureResolve(task, environmentMap);
+		await this._runCaptureResolve(task, environmentMap, context.backend ?? null);
 		if (this._activeTask?.taskId === task.taskId) {
 			this._activeTask = null;
 		}
@@ -488,7 +487,8 @@ export class ProbeCaptureRuntime {
 
 	private async _runCaptureResolve(
 		task: CaptureTaskState,
-		environmentMap: Texture
+		environmentMap: Texture,
+		backend: IRenderBackend | null
 	): Promise<void> {
 		const needsPrefilter = task.targets.some(
 			(target) => target.kind === "reflection"
@@ -512,10 +512,8 @@ export class ProbeCaptureRuntime {
 					maxSampleHeight
 				),
 			};
-			prefilteredMap = await prefilterEnvironmentIBL(
-				environmentMap,
-				prefilterOptions
-			);
+			const prefilter = new IBLPrefilter(backend);
+			prefilteredMap = await prefilter.prefilter(environmentMap, prefilterOptions);
 		}
 
 		for (const target of task.targets) {

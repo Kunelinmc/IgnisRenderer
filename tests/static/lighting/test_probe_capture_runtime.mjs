@@ -194,9 +194,12 @@ async function testLightProbeCaptureWritesBoundTextures() {
 async function testSharedCaptureUpdatesLightAndReflectionProbe() {
 	let prefilterCallCount = 0;
 	let faceCaptureCount = 0;
+	let prefilterBackend = null;
+	const backend = {};
 	await withPrefilterStub(
-		async () => {
+		async function () {
 			prefilterCallCount++;
+			prefilterBackend = this._backend;
 			return createPrefilteredMap(2);
 		},
 		async () => {
@@ -228,6 +231,7 @@ async function testSharedCaptureUpdatesLightAndReflectionProbe() {
 					scene,
 					nowMs: step * 16,
 					frameContext: {},
+					backend,
 					captureSource: {
 						async captureProbeFace(request) {
 							faceCaptureCount++;
@@ -240,6 +244,7 @@ async function testSharedCaptureUpdatesLightAndReflectionProbe() {
 
 			assert.equal(faceCaptureCount, 6);
 			assert.equal(prefilterCallCount, 1);
+			assert.equal(prefilterBackend, backend);
 			assert.ok(lightProbe.sh[0].r > 0);
 			assert.ok(reflectionProbe.prefilteredMap);
 		}

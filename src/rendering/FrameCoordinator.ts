@@ -536,6 +536,7 @@ export class FrameCoordinator {
 			frameContext: state.context,
 			cameraWorldPosition,
 			captureSource: delegate.getBackendExtension(PROBE_CAPTURE_EXTENSION),
+			backend: this._backend,
 		});
 	}
 
