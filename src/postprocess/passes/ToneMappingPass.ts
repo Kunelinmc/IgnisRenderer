@@ -1,6 +1,11 @@
 import { clamp } from "../../maths/Common";
 import { ceilDiv } from "../../maths/Misc";
-import { type IComputePipeline, type IShaderModule } from "../../backends/types";
+import {
+	BufferUsage,
+	type IComputePipeline,
+	type IRenderBuffer,
+	type IShaderModule,
+} from "../../backends/types";
 import {
 	WEBGPU_2D_COMPUTE_WORKGROUP_SIZE as WEBGPU_WORKGROUP_SIZE,
 } from "../../backends/webgpu/constants";
@@ -23,6 +28,7 @@ import type {
 	PostProcessPassRequest,
 	PostProcessPassResult,
 } from "../types";
+import type { IRenderBackend } from "../../backends/IRenderBackend";
 import {
 	bindWebGLPostTarget,
 	forEachSoftwareDirtyRect,
@@ -46,6 +52,7 @@ interface WebGLToneMappingProgram {
 	readonly program: WebGLProgram;
 	readonly uniforms: {
 		readonly sourceMap: WebGLUniformLocation | null;
+		readonly exposure: WebGLUniformLocation | null;
 	};
 }
 export const TONE_MAPPING_PASS_ORDER = {
@@ -62,6 +69,11 @@ export class SoftwareToneMappingImplementation
 	implements PostProcessPassImplementation<SoftwareBuiltinPostProcessContext>
 {
 	public readonly id = "tonemap:software";
+	private readonly _backend: IRenderBackend | undefined;
+
+	public constructor(backend?: IRenderBackend) {
+		this._backend = backend;
+	}
 	public describeExecution() {
 		return SOFTWARE_IN_PLACE_EXECUTION;
 	}
@@ -76,14 +88,15 @@ export class SoftwareToneMappingImplementation
 		}
 		const dirtyRects = resolveSoftwareDirtyRects(request.frameContext);
 		const width = request.frameContext.attachments.width;
+		const exposure = resolveBackendExposure(this._backend);
 		forEachSoftwareDirtyRect(dirtyRects, (rect) => {
 			for (let y = rect.minY; y <= rect.maxY; y++) {
 				const row = y * width;
 				for (let x = rect.minX; x <= rect.maxX; x++) {
 					const index = (row + x) << 2;
-					const red = applyAcesToneMap(pixels[index] / 255);
-					const green = applyAcesToneMap(pixels[index + 1] / 255);
-					const blue = applyAcesToneMap(pixels[index + 2] / 255);
+					const red = applyAcesToneMap((pixels[index] / 255) * exposure);
+					const green = applyAcesToneMap((pixels[index + 1] / 255) * exposure);
+					const blue = applyAcesToneMap((pixels[index + 2] / 255) * exposure);
 					pixels[index] = Math.round(red * 255);
 					pixels[index + 1] = Math.round(green * 255);
 					pixels[index + 2] = Math.round(blue * 255);
@@ -97,6 +110,8 @@ interface WebGPUToneMappingResources {
 	shared: WebGPUPostProcessServices;
 	module: IShaderModule | null;
 	pipeline: IComputePipeline | null;
+	params: IRenderBuffer | null;
+	paramData: Float32Array<ArrayBuffer>;
 }
 /** @internal WebGPU implementation for the built-in tone mapping pass. */
 export class WebGPUToneMappingImplementation
@@ -144,9 +159,14 @@ export class WebGPUToneMappingImplementation
 				resources.module,
 				"tone mapping shader module"
 			);
+			resources.shared.destroyManagedResource(
+				resources.params,
+				"tone mapping params buffer",
+			);
 			resources.shared.invalidateBindingsByPrefix("tonemap-");
 			resources.module = null;
 			resources.pipeline = null;
+			resources.params = null;
 		}
 		this._resources.clear();
 	}
@@ -155,9 +175,21 @@ export class WebGPUToneMappingImplementation
 		context: WebGPUToneMappingContext
 	): Promise<boolean> {
 		const resources = await this._ensureResources(context.shared);
-		if (!context.encoder || !context.targets || !resources.pipeline) {
+		if (
+			!context.encoder ||
+			!context.targets ||
+			!resources.pipeline ||
+			!resources.params
+		) {
 			return false;
 		}
+		const display = context.shared.getDisplayOutputState?.();
+		resources.paramData[0] = display?.requested.exposure ?? 1;
+		resources.paramData[1] = display?.requested.hdrHeadroom ?? 4;
+		resources.paramData[2] =
+			display?.activeDynamicRange === "hdr" ? 1 : 0;
+		resources.paramData[3] = 0;
+		context.shared.compute.writeBuffer(resources.params, resources.paramData);
 		const targets = context.targets;
 		const target = resolveWebGPUTarget(context);
 		const input = context.resources.color.input;
@@ -167,7 +199,8 @@ export class WebGPUToneMappingImplementation
 			resources.pipeline,
 			[
 				{ binding: 0, resource: input },
-				{ binding: 1, resource: target },
+				{ binding: 1, resource: resources.params },
+				{ binding: 2, resource: target },
 			],
 			"WebGPUToneMapping_Binding"
 		);
@@ -192,6 +225,8 @@ export class WebGPUToneMappingImplementation
 				shared,
 				module: null,
 				pipeline: null,
+				params: null,
+				paramData: new Float32Array(4),
 			};
 			this._resources.set(shared, resources);
 		}
@@ -214,6 +249,13 @@ export class WebGPUToneMappingImplementation
 				compute: { module: resources.module, entryPoint: "csMain" },
 			});
 		}
+		if (!resources.params) {
+			resources.params = shared.compute.createBuffer({
+				label: "WebGPUToneMappingParams",
+				size: 16,
+				usage: BufferUsage.Uniform | BufferUsage.CopyDst,
+			});
+		}
 		return resources;
 	}
 }
@@ -222,6 +264,11 @@ export class WebGLToneMappingImplementation
 	implements PostProcessPassImplementation<WebGLToneMappingContext, EmptyOptions>
 {
 	public readonly id = "tonemap:webgl";
+	private readonly _backend: IRenderBackend | undefined;
+
+	public constructor(backend?: IRenderBackend) {
+		this._backend = backend;
+	}
 	public describeExecution() {
 		return WEBGL_VERSIONED_EXECUTION;
 	}
@@ -253,6 +300,12 @@ export class WebGLToneMappingImplementation
 		if (program.uniforms.sourceMap) {
 			gl.uniform1i(program.uniforms.sourceMap, 0);
 		}
+		if (program.uniforms.exposure) {
+			gl.uniform1f(
+				program.uniforms.exposure,
+				resolveBackendExposure(this._backend),
+			);
+		}
 		context.drawFullscreen();
 		gl.bindVertexArray(null);
 		return { ran: true };
@@ -281,6 +334,10 @@ export class WebGLToneMappingImplementation
 						sourceMap: gl.getUniformLocation(
 							webglProgram,
 							"uSourceMap"
+						),
+						exposure: gl.getUniformLocation(
+							webglProgram,
+							"uExposure",
 						),
 					},
 				}),
@@ -312,10 +369,14 @@ export class ToneMappingPass extends PostProcessPass<EmptyOptions, EmptyOptions>
 			},
 			builtIn: true,
 			label: "tone mapping",
+			colorContract: config.colorContract ?? {
+				input: "scene-linear-hdr",
+				output: "display-linear",
+			},
 			implementations: {
-				software: () => new SoftwareToneMappingImplementation(),
+				software: (backend) => new SoftwareToneMappingImplementation(backend),
 				webgpu: () => new WebGPUToneMappingImplementation(),
-				webgl: () => new WebGLToneMappingImplementation(),
+				webgl: (backend) => new WebGLToneMappingImplementation(backend),
 			},
 		});
 	}
@@ -328,4 +389,11 @@ function applyAcesToneMap(value: number): number {
 	const e = 0.14;
 	const mapped = (value * (a * value + b)) / (value * (c * value + d) + e);
 	return clamp(mapped, 0, 1);
+}
+
+function resolveBackendExposure(backend?: IRenderBackend): number {
+	if (!backend) return 1;
+	const getter = (backend as Partial<IRenderBackend>).getDisplayOutputState;
+	return typeof getter === "function" ?
+		getter.call(backend).requested.exposure : 1;
 }

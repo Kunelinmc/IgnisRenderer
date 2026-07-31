@@ -29,6 +29,16 @@ export type {
 export { Renderer } from "./rendering/Renderer";
 export type { RenderFrameResult, RendererEvents } from "./rendering/Renderer";
 export {
+	DEFAULT_DISPLAY_OUTPUT_OPTIONS,
+	type DisplayColorSpace,
+	type DisplayDynamicRange,
+	type DisplayOutputFallbackReason,
+	type DisplayOutputMode,
+	type DisplayOutputOptions,
+	type DisplayOutputState,
+	type ResolvedDisplayOutputOptions,
+} from "./rendering/DisplayOutput";
+export {
 	CustomRenderPassRegistry,
 	CustomRenderPassRegistrySnapshot,
 	RenderTargetRegistry,

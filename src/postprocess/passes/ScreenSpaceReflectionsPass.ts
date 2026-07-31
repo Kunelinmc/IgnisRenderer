@@ -652,6 +652,10 @@ export class ScreenSpaceReflectionsPass extends PostProcessPass<SSROptions, Reso
 					config.schedule?.incremental ?? SCREEN_SPACE_REFLECTIONS_PASS_ORDER.incremental,
 			},
 			label: "SSR",
+			colorContract: config.colorContract ?? {
+				input: "scene-linear-hdr",
+				output: "scene-linear-hdr",
+			},
 			implementations: {
 				webgpu: () => new WebGPUScreenSpaceReflectionsImplementation(),
 			},

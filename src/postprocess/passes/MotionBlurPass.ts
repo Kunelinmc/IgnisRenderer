@@ -469,6 +469,10 @@ export class MotionBlurPass extends PostProcessPass<
 				incremental: config.schedule?.incremental ?? MOTION_BLUR_PASS_ORDER.incremental,
 			},
 			label: "motion blur",
+			colorContract: config.colorContract ?? {
+				input: "scene-linear-hdr",
+				output: "scene-linear-hdr",
+			},
 			implementations: {
 				webgpu: () => new WebGPUMotionBlurImplementation(),
 				webgl: () => new WebGLMotionBlurImplementation(),

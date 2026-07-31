@@ -14,6 +14,7 @@ fn applyColorFilter(color: vec3<f32>) -> vec3<f32> {
 	let contrast = params.filterParams0.z;
 	let temperature = params.filterParams0.w;
 	let tint = params.filterParams1.x;
+	let outputMaximum = max(params.filterParams1.y, 1.0);
 
 	var filtered = color + vec3<f32>(brightness);
 	let luma = dot(filtered, vec3<f32>(0.2126, 0.7152, 0.0722));
@@ -24,7 +25,7 @@ fn applyColorFilter(color: vec3<f32>) -> vec3<f32> {
 		-tint * 0.1,
 		-temperature * 0.1 + tint * 0.05
 	);
-	return clamp(filtered, vec3<f32>(0.0), vec3<f32>(1.0));
+	return clamp(filtered, vec3<f32>(0.0), vec3<f32>(outputMaximum));
 }
 
 @compute @workgroup_size(8, 8, 1)

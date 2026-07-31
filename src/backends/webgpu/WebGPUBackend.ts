@@ -81,6 +81,15 @@ import {
 	selectSupportedWebGPUFeatures,
 } from "./WebGPUDeviceCapabilities";
 import { Logger } from "../../foundation/Logger";
+import { WebGPUDisplayOutputManager } from "./WebGPUDisplayOutputManager";
+import {
+	DEFAULT_DISPLAY_OUTPUT_OPTIONS,
+	createSDRDisplayOutputState,
+	displayOutputStatesEqual,
+	type DisplayOutputOptions,
+	type DisplayOutputState,
+	type ResolvedDisplayOutputOptions,
+} from "../../rendering/DisplayOutput";
 
 const DEVICE_RECOVERY_MAX_ATTEMPTS = 3;
 const DEVICE_RECOVERY_BASE_DELAY_MS = 100;
@@ -189,6 +198,19 @@ export class WebGPUBackend implements IRenderBackend {
 		width: number;
 		height: number;
 	} | null = null;
+	private readonly _displayOutput = new WebGPUDisplayOutputManager(
+		DEFAULT_DISPLAY_OUTPUT_OPTIONS,
+	);
+	private _displayOutputState = createSDRDisplayOutputState(
+		DEFAULT_DISPLAY_OUTPUT_OPTIONS,
+	);
+	private _canvasConfiguration: GPUCanvasConfiguration | null = null;
+	private _preferredCanvasFormat: TextureFormat = TextureFormat.BGRA8Unorm;
+	private _pendingDisplayOutput: {
+		requested: ResolvedDisplayOutputOptions;
+		resolve: Array<(state: DisplayOutputState) => void>;
+		reject: Array<(error: unknown) => void>;
+	} | null = null;
 	private _pendingShaderRuntimeInvalidation = false;
 	private _debugInfo: RenderBackendDebugInfo = WEBGPU_DEBUG_INFO_UNINITIALIZED;
 
@@ -238,6 +260,7 @@ export class WebGPUBackend implements IRenderBackend {
 		this._enableOcclusionCulling = options.enableOcclusionCulling !== false;
 		this._frameGraphValidationMode = options.frameGraphValidation === "warn" ? "warn" : "throw";
 		const capabilities: BackendCapabilities = {
+			displayHDR: true,
 			sh: true,
 			shadows: true,
 			reflection: true,
@@ -345,6 +368,12 @@ export class WebGPUBackend implements IRenderBackend {
 			throw new Error("WebGPUBackend is already attached to a renderer.");
 		}
 		this._attachContext = context;
+		const displayOutput = this._displayOutput.setRequested(
+			context.surface.displayOutput,
+		);
+		this._displayOutputState = createSDRDisplayOutputState(
+			displayOutput,
+		);
 		this._state = "attached";
 	}
 
@@ -357,6 +386,33 @@ export class WebGPUBackend implements IRenderBackend {
 	 */
 	public getDebugInfo(): RenderBackendDebugInfo {
 		return this._debugInfo;
+	}
+
+	public getDisplayOutputState(): DisplayOutputState {
+		return this._displayOutputState;
+	}
+
+	public setDisplayOutput(
+		options: DisplayOutputOptions,
+	): Promise<DisplayOutputState> {
+		this._requireReady("setDisplayOutput");
+		const requested = this._displayOutput.setRequested(options);
+		if (this._isFrameActive()) {
+			return new Promise<DisplayOutputState>((resolve, reject) => {
+				if (this._pendingDisplayOutput) {
+					this._pendingDisplayOutput.requested = requested;
+					this._pendingDisplayOutput.resolve.push(resolve);
+					this._pendingDisplayOutput.reject.push(reject);
+				} else {
+					this._pendingDisplayOutput = {
+						requested,
+						resolve: [resolve],
+						reject: [reject],
+					};
+				}
+			});
+		}
+		return Promise.resolve(this._applyDisplayOutput(requested, true));
 	}
 
 	/**
@@ -396,6 +452,9 @@ export class WebGPUBackend implements IRenderBackend {
 			await this._initializeDeviceRuntime(epoch, "initializing");
 			this._assertLifecycleOperation(epoch, "initializing", "complete initialization");
 			this._state = "ready";
+			this._displayOutput.observeDynamicRange(() => {
+				this._refreshDynamicRangeOutput();
+			});
 		} catch (error) {
 			if (this._isLifecycleOperationCurrent(epoch, "initializing")) {
 				this._releaseDeviceRuntime();
@@ -480,11 +539,12 @@ export class WebGPUBackend implements IRenderBackend {
 
 		this._errorScopes = new WebGPUErrorScopeHelper(requestedDevice);
 		this.canvasDepthFormat = this._selectCanvasDepthFormat();
-		this.canvasFormat = navigator.gpu.getPreferredCanvasFormat() as TextureFormat;
+		this._preferredCanvasFormat =
+			navigator.gpu.getPreferredCanvasFormat() as TextureFormat;
 		this._msaaController.activateDevice();
 		this._commandScheduler.initTimestampResources();
 		this._context = context;
-		this._configureContext();
+		this._applyDisplayOutput(this._displayOutput.requested, false);
 		this._recreateDepthTexture();
 		this._frameHost = this._createFrameHost();
 		this._resources = new WebGPUFrameServiceOwner(
@@ -849,6 +909,7 @@ export class WebGPUBackend implements IRenderBackend {
 		++this._lifecycleEpoch;
 		const wasReady = this._state === "ready";
 		this._state = "destroyed";
+		this._displayOutput.stopObservingDynamicRange();
 		this._deviceRecoveryPromise = null;
 		if (wasReady && this._queue) {
 			try {
@@ -960,7 +1021,12 @@ export class WebGPUBackend implements IRenderBackend {
 		return {
 			device,
 			queue,
-			canvasFormat: this.canvasFormat,
+			get canvasFormat() {
+				return backend.canvasFormat;
+			},
+			get displayOutputState() {
+				return backend._displayOutputState;
+			},
 			canvasDepthFormat: this.canvasDepthFormat,
 			computeFacade: this._computeFacade,
 			get postProcessRuntime() {
@@ -1363,6 +1429,12 @@ export class WebGPUBackend implements IRenderBackend {
 		this._activeFrameContext = null;
 		this._pendingResize = null;
 		this._pendingShaderRuntimeInvalidation = false;
+		const pendingDisplayOutput = this._pendingDisplayOutput;
+		this._pendingDisplayOutput = null;
+		for (const reject of pendingDisplayOutput?.reject ?? []) {
+			reject(new Error("WebGPU backend was released before display output changed."));
+		}
+		this._canvasConfiguration = null;
 		this._clearFramePlannerState();
 		this._debugInfo = WEBGPU_DEBUG_INFO_UNINITIALIZED;
 		if (this.context) {
@@ -1517,11 +1589,25 @@ export class WebGPUBackend implements IRenderBackend {
 		}
 		const applyShaderRuntimeInvalidation = this._pendingShaderRuntimeInvalidation;
 		const pendingResize = this._pendingResize;
+		const pendingDisplayOutput = this._pendingDisplayOutput;
 		this._pendingShaderRuntimeInvalidation = false;
 		this._pendingResize = null;
+		this._pendingDisplayOutput = null;
 
 		if (applyShaderRuntimeInvalidation) {
 			this._applyShaderRuntimeChanged();
+		}
+
+		if (pendingDisplayOutput) {
+			try {
+				const state = this._applyDisplayOutput(
+					pendingDisplayOutput.requested,
+					true,
+				);
+				for (const resolve of pendingDisplayOutput.resolve) resolve(state);
+			} catch (error) {
+				for (const reject of pendingDisplayOutput.reject) reject(error);
+			}
 		}
 
 		let needsFrameTargetInvalidation = false;
@@ -1567,7 +1653,92 @@ export class WebGPUBackend implements IRenderBackend {
 		if (!this.context || !this.canvas || !this._device) {
 			return;
 		}
-		this._canvasTargets.configureContext(this.context, this._device, this.canvasFormat);
+		this._canvasConfiguration ??= {
+			device: this._device,
+			format: this.canvasFormat as GPUTextureFormat,
+			alphaMode: "premultiplied",
+			usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC,
+		};
+		this._canvasTargets.configureContext(
+			this.context,
+			this._canvasConfiguration,
+			this.canvasFormat,
+		);
+	}
+
+	private _applyDisplayOutput(
+		requested: ResolvedDisplayOutputOptions,
+		emitChange: boolean,
+	): DisplayOutputState {
+		if (!this.context || !this._device) {
+			this._displayOutput.setRequested(requested);
+			this._displayOutputState = createSDRDisplayOutputState(requested);
+			return this._displayOutputState;
+		}
+		const previous = this._displayOutputState;
+		this._displayOutput.setRequested(requested);
+		const resolved = this._displayOutput.configure(
+			this.context,
+			this._device,
+			this._preferredCanvasFormat,
+		);
+		const formatChanged = this.canvasFormat !== resolved.format;
+		this.canvasFormat = resolved.format;
+		this._canvasConfiguration = resolved.canvas;
+		this._displayOutputState = resolved.state;
+		this._configureContext();
+
+		if (formatChanged) {
+			this._pipelineCache.clearPipelineCaches();
+			this._bindingGroupCache.clear();
+			this._msaaController.clearCapabilityCache();
+			this._frameOrchestrator?.onDisplayOutputChanged();
+		} else {
+			this._frameOrchestrator?.invalidatePostProcessBindings();
+		}
+		this._resetCurrentCanvasTargets();
+
+		if (resolved.state.fallbackReason) {
+			const configurationFailed =
+				resolved.state.fallbackReason ===
+				"hdr-context-configuration-failed";
+			const key = configurationFailed ?
+				"display-hdr-configuration-failed" : "display-hdr-unavailable";
+			if (requested.mode === "hdr" || configurationFailed) {
+				Logger.warn(
+					`[${key}] WebGPU Display HDR fell back to SDR ` +
+					`(${resolved.state.fallbackReason}).`,
+					{ scope: "WebGPUBackend", onceKey: key },
+				);
+			}
+		}
+		if (emitChange && !displayOutputStatesEqual(previous, resolved.state)) {
+			this._requireAttachContext().events.emit({
+				type: "display-output-change",
+				previous,
+				current: resolved.state,
+			});
+		}
+		return resolved.state;
+	}
+
+	private _refreshDynamicRangeOutput(): void {
+		if (this._state !== "ready") return;
+		const requested = this._displayOutput.requested;
+		if (requested.mode === "sdr") return;
+		if (this._isFrameActive()) {
+			if (this._pendingDisplayOutput) {
+				this._pendingDisplayOutput.requested = requested;
+			} else {
+				this._pendingDisplayOutput = {
+					requested,
+					resolve: [],
+					reject: [],
+				};
+			}
+			return;
+		}
+		this._applyDisplayOutput(requested, true);
 	}
 
 	private _recreateDepthTexture(): void {

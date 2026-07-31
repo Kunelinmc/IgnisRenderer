@@ -10,6 +10,7 @@ import {
 import { normalizeOcclusionCullingOptions } from "./OcclusionCulling";
 
 const FEATURE_WARNING_KEYS: Record<keyof BackendCapabilities, string> = {
+	displayHDR: "feature-display-hdr-unsupported",
 	sh: "feature-sh",
 	shadows: "feature-shadows",
 	reflection: "feature-reflection",
@@ -24,6 +25,7 @@ const FEATURE_WARNING_KEYS: Record<keyof BackendCapabilities, string> = {
 };
 
 const FEATURE_WARNING_LABELS: Record<keyof BackendCapabilities, string> = {
+	displayHDR: "Display HDR",
 	sh: "spherical harmonics",
 	shadows: "shadows",
 	reflection: "planar reflections",

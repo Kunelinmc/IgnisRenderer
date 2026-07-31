@@ -36,6 +36,9 @@ Construct `Renderer` with one options object:
 - `backend`: a new backend instance dedicated to this renderer.
 - `camera`: an optional initial `Camera`. If it has no parent, the renderer
   adds it to the default scene.
+- `displayOutput`: optional display settings. SDR is the default. Use
+  `mode: "auto"` to activate WebGPU HDR only when the current browser and
+  display support it, or `mode: "hdr"` to request HDR with observable fallback.
 
 Call `initialize()` before performing optional setup that needs an initialized
 graphics device. Although the first `renderFrame()` can initialize the renderer
@@ -94,6 +97,13 @@ Subscribe with `renderer.on()` to observe commonly useful lifecycle events:
 - `framestart` and `frameend`: emitted around a rendered frame.
 - `devicelost`: reports that the active graphics device or context was lost.
 - `devicerestored`: reports that restoration completed.
+- `displayoutputchange`: reports runtime HDR/SDR transitions and their resolved
+  state.
+
+Use `getDisplayOutputState()` after initialization to inspect the active
+dynamic range, color space, and fallback reason. Use
+`setDisplayOutput({ mode, exposure, hdrHeadroom })` to switch modes without
+recreating the renderer. Reconfiguration waits for an active frame to finish.
 
 `getBackendDebugInfo()` returns a best-effort diagnostic snapshot. Check its
 `available` property before reading optional device, limit, or feature fields.
@@ -129,9 +139,15 @@ if (!canvas) {
 const renderer = new Renderer({
 	canvas,
 	backend: new WebGPUBackend(),
+	displayOutput: { mode: "auto" },
 });
 
 await renderer.initialize();
+
+const output = renderer.getDisplayOutputState();
+if (output?.fallbackReason) {
+	console.warn("Display HDR fallback:", output.fallbackReason);
+}
 
 const resizeObserver = new ResizeObserver(() => {
 	renderer.resizeCanvas();
@@ -202,6 +218,10 @@ await renderer.destroy();
 - A backend is unavailable in the current browser: select a supported backend
   and create a new renderer. Do not attach the existing backend instance to a
   replacement renderer.
+- An explicit HDR request resolves to SDR: inspect `fallbackReason`. Rendering
+  remains usable, so this condition does not reject initialization.
+- `DisplayOutputOptions.exposure` or `hdrHeadroom` is outside its documented
+  range: provide exposure in `[0, 64]` and headroom in `[1, 16]`.
 
 ## Compatibility / Breaking Changes
 
@@ -214,3 +234,7 @@ compatibility alias.
 
 Backend instances are single-use renderer dependencies. Code that replaces or
 recreates a renderer must also construct a new backend instance.
+
+Display HDR is currently implemented only by WebGPU. WebGL and Software resolve
+display output to SDR. Existing code remains SDR unless it opts into `"auto"`
+or `"hdr"`.

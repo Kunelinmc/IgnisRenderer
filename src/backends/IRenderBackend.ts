@@ -11,6 +11,11 @@ import type { RenderDirtyReason } from "../pipeline/incremental";
 import type { IShadowBackendCapabilities } from "../lights/shadows";
 import type { ShaderCompileError } from "../shaders/runtime";
 import type { RenderBackendExtensionRegistry } from "./BackendExtensions";
+import type {
+	DisplayOutputOptions,
+	DisplayOutputState,
+	ResolvedDisplayOutputOptions,
+} from "../rendering/DisplayOutput";
 
 export type KnownBackendType = "software" | "webgpu" | "webgl";
 export type RenderBackendType = KnownBackendType | (string & {});
@@ -97,6 +102,7 @@ export interface RenderBackendDebugInfo {
 }
 
 export interface BackendCapabilities {
+	displayHDR: boolean;
 	sh: boolean;
 	shadows: boolean;
 	reflection: boolean;
@@ -132,6 +138,7 @@ export type RenderBackendCompletedFrameCoverage =
 
 export interface RenderSurface {
 	readonly canvas: HTMLCanvasElement;
+	readonly displayOutput: ResolvedDisplayOutputOptions;
 }
 
 export interface RenderSurfaceSize {
@@ -155,6 +162,11 @@ export type RenderBackendEvent =
 			info?: RenderBackendDeviceLostInfo;
 	  }
 	| { type: "device-restored" }
+	| {
+			type: "display-output-change";
+			previous: DisplayOutputState;
+			current: DisplayOutputState;
+	  }
 	| { type: "render-invalidated"; reason: RenderDirtyReason }
 	| { type: "resource-lifecycle"; event: RendererBackendResourceEvent };
 
@@ -198,6 +210,18 @@ export interface IRenderBackend {
 	 * @sideEffects None. Implementations must not initialize backend resources.
 	 */
 	getDebugInfo(): RenderBackendDebugInfo;
+	/**
+	 * Returns the resolved display-output state.
+	 *
+	 * @internal Owned by the Renderer display-output facade.
+	 */
+	getDisplayOutputState(): DisplayOutputState;
+	/**
+	 * Reconfigures the presentation output without rebuilding the backend.
+	 *
+	 * @internal Owned by the Renderer display-output facade.
+	 */
+	setDisplayOutput(options: DisplayOutputOptions): Promise<DisplayOutputState>;
 	/**
 	 * Rebuilds backend device or graphics context resources after loss.
 	 */

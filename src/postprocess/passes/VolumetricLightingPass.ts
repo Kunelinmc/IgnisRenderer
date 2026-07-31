@@ -1686,6 +1686,10 @@ export class VolumetricLightingPass extends PostProcessPass<
 				incremental: config.schedule?.incremental ?? VOLUMETRIC_LIGHTING_PASS_ORDER.incremental,
 			},
 			label: "volumetric effects",
+			colorContract: config.colorContract ?? {
+				input: "scene-linear-hdr",
+				output: "scene-linear-hdr",
+			},
 			implementations: {
 				software: () => new SoftwareVolumetricLightingImplementation(),
 				webgpu: () => new WebGPUVolumetricLightingImplementation(),

@@ -2,8 +2,10 @@ import type { FrameContext } from "../../../pipeline/types";
 import type { ICommandEncoder } from "../../ICommandEncoder";
 import {
 	AddressMode,
+	BufferUsage,
 	FilterMode,
 	type IBindingGroup,
+	type IRenderBuffer,
 	type IRenderPipeline,
 	type IRenderTexture,
 	type ISampler,
@@ -11,6 +13,7 @@ import {
 } from "../../types";
 import type { WebGPUFrameHost } from "./WebGPUFrameHost";
 import { ShaderSource } from "../../../shaders/ShaderSource";
+import type { PostProcessColorDomain } from "../../../postprocess/PostProcessPass";
 
 export interface WebGPUPresentDirtyRect {
 	readonly x: number;
@@ -23,10 +26,11 @@ export interface WebGPUPresentRequest {
 	readonly encoder: ICommandEncoder;
 	readonly frameContext: FrameContext | null;
 	readonly source: IRenderTexture;
+	readonly colorDomain: PostProcessColorDomain;
 	readonly resolveDirtyRects: (
 		context: FrameContext | null,
 		targetWidth: number,
-		targetHeight: number
+		targetHeight: number,
 	) => readonly WebGPUPresentDirtyRect[];
 }
 
@@ -40,8 +44,10 @@ export class WebGPUPresentPass {
 	private _sampler: ISampler | null = null;
 	private _binding: IBindingGroup | null = null;
 	private _bindingSource: IRenderTexture | null = null;
+	private _params: IRenderBuffer | null = null;
+	private readonly _paramData = new Float32Array(4);
 
-	public constructor(host: WebGPUFrameHost) {
+	constructor(host: WebGPUFrameHost) {
 		this._host = host;
 	}
 
@@ -51,9 +57,15 @@ export class WebGPUPresentPass {
 
 	public async present(request: WebGPUPresentRequest): Promise<void> {
 		await this._ensureResources();
-		if (!this._pipeline || !this._sampler) {
+		if (!this._pipeline || !this._sampler || !this._params) {
 			return;
 		}
+		const display = this._host.displayOutputState;
+		this._paramData[0] = display?.requested.exposure ?? 1;
+		this._paramData[1] = display?.requested.hdrHeadroom ?? 4;
+		this._paramData[2] = display?.activeDynamicRange === "hdr" ? 1 : 0;
+		this._paramData[3] = encodeColorDomain(request.colorDomain);
+		this._host.writeBuffer(this._params, this._paramData);
 
 		if (!this._binding || this._bindingSource !== request.source) {
 			this._destroyBindingGroup(this._binding);
@@ -63,6 +75,7 @@ export class WebGPUPresentPass {
 				entries: [
 					{ binding: 0, resource: request.source },
 					{ binding: 1, resource: this._sampler },
+					{ binding: 2, resource: this._params },
 				],
 				label: "WebGPUPresentBinding",
 			});
@@ -77,13 +90,13 @@ export class WebGPUPresentPass {
 		// WebGPU canvas swap-chain textures do not provide a cross-frame content
 		// preservation guarantee. Composite the whole target instead of relying on
 		// a `load` operation for non-dirty tiles.
-		const dirtyRects = incrementalPartial ?
-			[{ x: 0, y: 0, width: canvasTarget.width, height: canvasTarget.height }]
-		: request.resolveDirtyRects(
-				request.frameContext,
-				canvasTarget.width,
-				canvasTarget.height,
-			);
+		const dirtyRects = incrementalPartial
+			? [{ x: 0, y: 0, width: canvasTarget.width, height: canvasTarget.height }]
+			: request.resolveDirtyRects(
+					request.frameContext,
+					canvasTarget.width,
+					canvasTarget.height,
+				);
 		request.encoder.beginRenderPass({
 			label: "WebGPUPresentPass",
 			colorAttachments: [
@@ -97,12 +110,7 @@ export class WebGPUPresentPass {
 		request.encoder.setPipeline(this._pipeline);
 		request.encoder.setBindingGroup(0, this._binding);
 		for (const rect of dirtyRects) {
-			request.encoder.setScissorRect?.(
-				rect.x,
-				rect.y,
-				rect.width,
-				rect.height
-			);
+			request.encoder.setScissorRect?.(rect.x, rect.y, rect.width, rect.height);
 			request.encoder.draw(3);
 		}
 		request.encoder.endRenderPass();
@@ -118,9 +126,11 @@ export class WebGPUPresentPass {
 		this._destroyManagedResource(this._shaderModule);
 		this._destroyManagedResource(this._pipeline);
 		this._destroyManagedResource(this._sampler);
+		this._destroyManagedResource(this._params);
 		this._shaderModule = null;
 		this._pipeline = null;
 		this._sampler = null;
+		this._params = null;
 		this.invalidateBindings();
 	}
 
@@ -171,7 +181,13 @@ export class WebGPUPresentPass {
 				addressModeV: AddressMode.ClampToEdge,
 			});
 		}
-
+		if (!this._params) {
+			this._params = this._host.createBuffer({
+				label: "WebGPUPresentParams",
+				size: 16,
+				usage: BufferUsage.Uniform | BufferUsage.CopyDst,
+			});
+		}
 	}
 
 	private _destroyBindingGroup(group: IBindingGroup | null): void {
@@ -186,5 +202,16 @@ export class WebGPUPresentPass {
 		if (typeof destroyFn === "function") {
 			destroyFn.call(resource);
 		}
+	}
+}
+
+function encodeColorDomain(domain: PostProcessColorDomain): number {
+	switch (domain) {
+		case "scene-linear-hdr":
+			return 0;
+		case "display-linear":
+			return 1;
+		case "display-encoded":
+			return 2;
 	}
 }

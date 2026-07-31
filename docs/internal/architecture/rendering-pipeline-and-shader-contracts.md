@@ -53,8 +53,11 @@ The renderer frame pipeline must preserve this logical order:
 ### Color and Lighting Contract
 
 - Lighting and shading calculations must run in linear space.
-- Encoding and decoding must assume gamma 2.2 unless a more specific contract
-  overrides it.
+- Display encoding and texture decoding must use the piecewise sRGB transfer
+  function unless a more specific texture contract overrides it.
+- The renderer working space must remain linear sRGB. WebGPU Display HDR output
+  must convert final linear color to Display-P3 before applying its transfer
+  encoding.
 - Shaders must treat textures as sRGB by default and decode samples to linear
   space.
 - Linear textures, such as normal maps and roughness maps, must be flagged to
@@ -140,6 +143,15 @@ The renderer frame pipeline must preserve this logical order:
 - Backends must not expose public post-process graph registration APIs,
   `renderer.postprocess` backend extensions, or hardcoded pass kernel
   orchestration that belongs in `src/postprocess/passes/`.
+- Post-process planning must track `scene-linear-hdr`, `display-linear`, and
+  `display-encoded` color domains. Built-in passes must declare their input and
+  output domains.
+- A custom pass without a domain declaration must remain executable and be
+  treated as domain-preserving. HDR execution must report the missing
+  declaration through a stable diagnostic.
+- The backend present pass must complete any missing output mapping from the
+  final planned color domain. Disabling tone mapping or gamma correction must
+  not allow an unencoded linear target to be copied directly to the canvas.
 
 ### Built-In Post-Processing Pass Contract
 

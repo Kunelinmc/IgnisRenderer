@@ -279,6 +279,7 @@ async function testInitAndPassRouting() {
 	assert.equal(backend._frameServices._enableEarlyZPrepass, true);
 	assert.equal("passExecutors" in backend, false);
 	assert.deepEqual(backend.profile.capabilities, {
+		displayHDR: false,
 		sh: true,
 		shadows: true,
 		reflection: false,

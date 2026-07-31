@@ -14,6 +14,15 @@ import type {
 } from "./types";
 
 export type PostProcessPassId = string;
+export type PostProcessColorDomain =
+	| "scene-linear-hdr"
+	| "display-linear"
+	| "display-encoded";
+
+export interface PostProcessColorContract {
+	readonly input: PostProcessColorDomain;
+	readonly output: PostProcessColorDomain;
+}
 
 export type PostProcessPassImplementationFactory = (
 	backend: IRenderBackend
@@ -44,6 +53,7 @@ export interface PostProcessPassConfig<TRawOptions = unknown> {
 	readonly schedule?: PostProcessSchedule;
 	readonly enabled?: boolean;
 	readonly options?: Partial<TRawOptions>;
+	readonly colorContract?: PostProcessColorContract;
 	readonly implementations?: Partial<
 		Record<RenderBackendType, PostProcessPassImplementationFactory>
 	>;
@@ -100,6 +110,7 @@ export abstract class PostProcessPass<
 	 */
 	public readonly label: string;
 	public readonly schedule: Readonly<PostProcessSchedule>;
+	public readonly colorContract: Readonly<PostProcessColorContract> | null;
 	private readonly _implementations: Partial<
 		Record<RenderBackendType, PostProcessPassImplementationFactory>
 	>;
@@ -116,6 +127,8 @@ export abstract class PostProcessPass<
 		this.builtIn = config.builtIn === true;
 		this.label = config.label ?? config.id;
 		this.schedule = Object.freeze({ ...config.schedule });
+		this.colorContract = config.colorContract ?
+			Object.freeze({ ...config.colorContract }) : null;
 		this._enabled = config.enabled === true;
 		this._initialOptions = clonePlainOptions(config.options);
 		this._options = clonePlainOptions(config.options);

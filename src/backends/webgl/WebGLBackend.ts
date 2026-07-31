@@ -60,6 +60,13 @@ import {
 import {
 	createRenderBackendExtensionRegistry,
 } from "../BackendExtensions";
+import {
+	DEFAULT_DISPLAY_OUTPUT_OPTIONS,
+	displayOutputStatesEqual,
+	resolveSDROnlyDisplayOutput,
+	type DisplayOutputOptions,
+	type DisplayOutputState,
+} from "../../rendering/DisplayOutput";
 
 const MAX_PARTICLE_SIM_DELTA_TIME_SECONDS = 0.5;
 const WEBGL_DEBUG_INFO_UNINITIALIZED: RenderBackendDebugInfo = {
@@ -101,6 +108,7 @@ export class WebGLBackend implements IRenderBackend {
 	public readonly profile: RenderBackendProfile = {
 		id: "webgl",
 		capabilities: {
+			displayHDR: false,
 			sh: true,
 			shadows: true,
 			reflection: false,
@@ -147,6 +155,9 @@ export class WebGLBackend implements IRenderBackend {
 	private _plannedPassOrder = new Map<FramePass["stage"], number>();
 	private readonly _framePlanner = new FramePassPlanValidator("WebGL");
 	private _debugInfo: RenderBackendDebugInfo = WEBGL_DEBUG_INFO_UNINITIALIZED;
+	private _displayOutputState = resolveSDROnlyDisplayOutput(
+		DEFAULT_DISPLAY_OUTPUT_OPTIONS,
+	);
 
 	constructor(options: WebGLBackendOptions = {}) {
 		this._options = options;
@@ -169,6 +180,9 @@ export class WebGLBackend implements IRenderBackend {
 			throw new Error("WebGLBackend is already attached to a renderer.");
 		}
 		this._attachContext = context;
+		this._displayOutputState = resolveSDROnlyDisplayOutput(
+			context.surface.displayOutput,
+		);
 		this._attached = true;
 	}
 
@@ -193,8 +207,40 @@ export class WebGLBackend implements IRenderBackend {
 		return this._debugInfo;
 	}
 
+	public getDisplayOutputState(): DisplayOutputState {
+		return this._displayOutputState;
+	}
+
+	public async setDisplayOutput(
+		options: DisplayOutputOptions,
+	): Promise<DisplayOutputState> {
+		const previous = this._displayOutputState;
+		const current = resolveSDROnlyDisplayOutput(options, previous.requested);
+		this._displayOutputState = current;
+		if (current.fallbackReason === "backend-unsupported") {
+			Logger.warn(
+				"[display-hdr-unavailable] WebGLBackend supports SDR presentation only.",
+				{ scope: "WebGLBackend", onceKey: "display-hdr-unavailable" },
+			);
+		}
+		if (!displayOutputStatesEqual(previous, current)) {
+			this._requireAttachContext().events.emit({
+				type: "display-output-change",
+				previous,
+				current,
+			});
+		}
+		return current;
+	}
+
 	public async initialize(): Promise<void> {
 		const canvas = this._requireAttachContext().surface.canvas;
+		if (this._displayOutputState.fallbackReason === "backend-unsupported") {
+			Logger.warn(
+				"[display-hdr-unavailable] WebGLBackend supports SDR presentation only.",
+				{ scope: "WebGLBackend", onceKey: "display-hdr-unavailable" },
+			);
+		}
 		this._ensureParticleSimulator();
 		this._canvas = canvas;
 		this._installContextLifecycleListeners(canvas);

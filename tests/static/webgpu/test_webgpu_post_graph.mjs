@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import {
 	PostProcessPlanner,
+	PostProcessPass,
+	PostProcessPassRegistry,
 	resolvePostProcessExecutionOrder,
 } from "../../../src/postprocess/index.ts";
 import { createResolvedPostProcess } from "../../helpers/postprocess.mjs";
@@ -199,11 +201,110 @@ function testSSGIRequiresHiZAndSharesMotionHistory() {
 	}]);
 }
 
+function planColorDomains(overrides, warnings = []) {
+	const postProcess = createPostProcess(overrides);
+	const frameContext = createFrameContext(postProcess);
+	return new PostProcessPlanner().plan({
+		frameContext,
+		backend: "webgpu",
+		postProcess,
+		gBuffer: createGBufferBridge(),
+		resolveImplementation: (pass) => pass.getImplementation("webgpu"),
+		isSharedResourceAvailable: () => true,
+		warn: (key, message) => warnings.push([key, message]),
+		displayOutput: {
+			requested: { mode: "hdr", exposure: 1, hdrHeadroom: 4 },
+			activeDynamicRange: "hdr",
+			colorSpace: "display-p3",
+		},
+	});
+}
+
+function testColorDomainPlanning() {
+	let warnings = [];
+	let graph = planColorDomains({
+		tonemap: { enabled: true },
+		gamma: { enabled: true },
+	}, warnings);
+	assert.equal(graph.initialColorDomain, "scene-linear-hdr");
+	assert.equal(graph.outputColorDomain, "display-encoded");
+	assert.deepEqual(warnings, []);
+
+	warnings = [];
+	graph = planColorDomains({
+		tonemap: { enabled: false },
+		gamma: { enabled: true },
+	}, warnings);
+	assert.deepEqual(graph.passes.map((pass) => pass.id), []);
+	assert.equal(graph.outputColorDomain, "scene-linear-hdr");
+	assert.equal(
+		warnings.some(([key]) =>
+			key === "postprocess-color-domain-mismatch-gamma"
+		),
+		true,
+	);
+
+	graph = planColorDomains({
+		tonemap: { enabled: true },
+		gamma: { enabled: false },
+	});
+	assert.equal(graph.outputColorDomain, "display-linear");
+}
+
+class LegacyHDRPass extends PostProcessPass {
+	constructor() {
+		super({
+			id: "legacy-hdr",
+			enabled: true,
+			implementations: {
+				webgpu: () => ({
+					describeExecution: () => ({
+						color: { access: "read", output: "new-version" },
+					}),
+					execute: () => ({ ran: true }),
+				}),
+			},
+		});
+	}
+}
+
+function testUndeclaredHDRCustomPassWarnsButRuns() {
+	const registry = new PostProcessPassRegistry();
+	registry.registerPass(new LegacyHDRPass());
+	const postProcess = registry.createSnapshot("webgpu");
+	const frameContext = createFrameContext(postProcess);
+	const warnings = [];
+	const graph = new PostProcessPlanner().plan({
+		frameContext,
+		backend: "webgpu",
+		postProcess,
+		gBuffer: createGBufferBridge(),
+		resolveImplementation: (pass) => pass.getImplementation("webgpu"),
+		isSharedResourceAvailable: () => true,
+		warn: (key, message) => warnings.push([key, message]),
+		displayOutput: {
+			requested: { mode: "hdr", exposure: 1, hdrHeadroom: 4 },
+			activeDynamicRange: "hdr",
+			colorSpace: "display-p3",
+		},
+	});
+	assert.deepEqual(graph.passes.map((pass) => pass.id), ["legacy-hdr"]);
+	assert.equal(graph.outputColorDomain, "scene-linear-hdr");
+	assert.equal(
+		warnings.some(([key]) =>
+			key === "postprocess-color-domain-undeclared-legacy-hdr"
+		),
+		true,
+	);
+}
+
 async function run() {
 	testBuiltInOrderUsesPipelineAuthority();
 	testFogSceneModeSkipsFogInPipelineOrder();
 	testIncrementalStartPassIsResolvedByPlanner();
 	testSSGIRequiresHiZAndSharesMotionHistory();
+	testColorDomainPlanning();
+	testUndeclaredHDRCustomPassWarnsButRuns();
 	console.log("WebGPU post-process pipeline-order tests passed");
 }
 

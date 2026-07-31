@@ -1580,6 +1580,7 @@ async function testWarmupCollectsPostProcessHintsFromPlanOrder() {
 				fxaa: { enabled: true },
 				gamma: { enabled: true },
 				bloom: { enabled: true },
+				tonemap: { enabled: true },
 			}),
 		},
 		{

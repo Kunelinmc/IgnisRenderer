@@ -1,9 +1,15 @@
 import { createRenderBackendExtensionRegistry } from "../../src/backends/BackendExtensions.ts";
+import {
+	DEFAULT_DISPLAY_OUTPUT_OPTIONS,
+	createSDRDisplayOutputState,
+	resolveDisplayOutputOptions,
+} from "../../src/rendering/DisplayOutput.ts";
 
 export class TestRenderBackend {
 	constructor() {
 		this.type = "test";
 		this.capabilities = {
+			displayHDR: false,
 			sh: false,
 			shadows: false,
 			reflection: false,
@@ -20,6 +26,9 @@ export class TestRenderBackend {
 		this.extensions = createRenderBackendExtensionRegistry([]);
 		this.attachContext = null;
 		this.attached = false;
+		this.displayOutputState = createSDRDisplayOutputState(
+			DEFAULT_DISPLAY_OUTPUT_OPTIONS,
+		);
 	}
 
 	get profile() {
@@ -44,6 +53,13 @@ export class TestRenderBackend {
 			throw new Error("TestRenderBackend is already attached to a renderer.");
 		}
 		this.attachContext = context;
+		const requested = resolveDisplayOutputOptions(
+			context.surface.displayOutput,
+		);
+		this.displayOutputState = createSDRDisplayOutputState(
+			requested,
+			requested.mode === "hdr" ? "backend-unsupported" : undefined,
+		);
 		this.attached = true;
 	}
 
@@ -56,6 +72,29 @@ export class TestRenderBackend {
 			available: false,
 			unavailableReason: "Test backend has not been initialized.",
 		};
+	}
+
+	getDisplayOutputState() {
+		return this.displayOutputState;
+	}
+
+	async setDisplayOutput(options) {
+		const previous = this.displayOutputState;
+		const requested = resolveDisplayOutputOptions(
+			options,
+			previous.requested,
+		);
+		const current = createSDRDisplayOutputState(
+			requested,
+			requested.mode === "hdr" ? "backend-unsupported" : undefined,
+		);
+		this.displayOutputState = current;
+		this.attachContext.events.emit({
+			type: "display-output-change",
+			previous,
+			current,
+		});
+		return current;
 	}
 
 	async restore() {}

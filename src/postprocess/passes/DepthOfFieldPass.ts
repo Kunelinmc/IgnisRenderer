@@ -511,6 +511,10 @@ export class DepthOfFieldPass extends PostProcessPass<DOFOptions, DOFOptions> {
 				incremental: config.schedule?.incremental ?? DEPTH_OF_FIELD_PASS_ORDER.incremental,
 			},
 			label: "depth of field",
+			colorContract: config.colorContract ?? {
+				input: "scene-linear-hdr",
+				output: "scene-linear-hdr",
+			},
 			implementations: {
 				webgpu: () => new WebGPUDepthOfFieldImplementation(),
 				webgl: () => new WebGLDepthOfFieldImplementation(),

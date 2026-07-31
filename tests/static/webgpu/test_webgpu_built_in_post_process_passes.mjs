@@ -248,13 +248,13 @@ async function testGammaOwnsWebGPUKernelBeforeRawPresent() {
 	await executor.endFrame();
 	assert.equal(
 		backend.buffers.some((buffer) => buffer.label === "WebGPUPresentParams"),
-		false
+		true
 	);
 	const presentBinding = backend.bindingGroups.find(
 		(group) => group.label === "WebGPUPresentBinding"
 	);
 	assert.ok(presentBinding);
-	assert.equal(presentBinding.entries.length, 2);
+	assert.equal(presentBinding.entries.length, 3);
 }
 
 async function testTemporalExecutePassUsesPipelineHistories() {

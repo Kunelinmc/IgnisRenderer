@@ -517,6 +517,10 @@ export class FogPass extends PostProcessPass<FogOptions, FogOptions> {
 				incremental: config.schedule?.incremental ?? FOG_PASS_ORDER.incremental,
 			},
 			label: "fog",
+			colorContract: config.colorContract ?? {
+				input: "scene-linear-hdr",
+				output: "scene-linear-hdr",
+			},
 			implementations: {
 				webgpu: () => new WebGPUFogImplementation(),
 				webgl: () => new WebGLFogImplementation(),

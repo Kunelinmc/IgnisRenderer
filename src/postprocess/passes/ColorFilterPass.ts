@@ -264,7 +264,9 @@ export class WebGPUColorFilterImplementation
 			-1,
 			1
 		);
-		data[5] = 0;
+		const display = context.shared.getDisplayOutputState?.();
+		data[5] = display?.activeDynamicRange === "hdr" ?
+			(display.requested.hdrHeadroom ?? 4) : 1;
 		data[6] = 0;
 		data[7] = 0;
 		context.shared.compute.writeBuffer(resources.params, data);
@@ -484,6 +486,10 @@ export class ColorFilterPass extends PostProcessPass<
 				incremental: config.schedule?.incremental ?? COLOR_FILTER_PASS_ORDER.incremental,
 			},
 			label: "color filter",
+			colorContract: config.colorContract ?? {
+				input: "display-linear",
+				output: "display-linear",
+			},
 			implementations: {
 				software: () => new SoftwareColorFilterImplementation(),
 				webgpu: () => new WebGPUColorFilterImplementation(),

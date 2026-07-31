@@ -55,17 +55,12 @@ export class WebGPUCanvasTargetManager {
 
 	public configureContext(
 		context: GPUCanvasContext,
-		device: GPUDevice,
-		format: TextureFormat
+		configuration: GPUCanvasConfiguration,
+		format: TextureFormat,
 	): void {
 		this.resetCurrentCanvasTargets();
 		this._canvasFormat = format;
-		context.configure({
-			device,
-			format: format as GPUTextureFormat,
-			alphaMode: "premultiplied",
-			usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC,
-		});
+		context.configure(configuration);
 	}
 
 	public recreateDepthTexture(

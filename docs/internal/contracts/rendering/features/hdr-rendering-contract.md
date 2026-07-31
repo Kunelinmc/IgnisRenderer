@@ -1,69 +1,100 @@
 # HDR Rendering Contract
+
 ## Scope
-This document defines the cross-backend HDR rendering contract for IgnisRenderer.
-It covers internal HDR scene storage, SDR presentation, backend fallback behavior,
-and the reserved design space for future Display HDR output.
+
+This document defines internal HDR storage, Display HDR presentation, color
+domains, capability negotiation, and SDR fallback behavior across rendering
+backends.
 
 ## Background
-IgnisRenderer lighting calculations are linear and may produce values above `1.0`.
-GPU backends must preserve those values through scene rendering, OIT, bloom, and
-tone mapping whenever the runtime supports floating-point color attachments.
-Final canvas presentation remains SDR unless a future public Display HDR API is
-introduced.
+
+IgnisRenderer performs lighting in a linear sRGB working space whose values may
+exceed `1.0`. WebGPU preserves that range in floating-point scene and
+post-process targets. Display HDR is an optional presentation mode; SDR remains
+the compatibility default.
+
+Display HDR uses relative headroom above SDR white. It does not define absolute
+nits, HDR10 metadata, PQ, HLG, or automatic exposure.
 
 ## API/Contract
-- `WebGPUBackend` must store main scene color, post-process ping-pong targets,
-  and OIT color resolve inputs in `rgba16float` textures when rendering through
-  the render graph.
-- WebGPU environment background rendering must not clamp linear HDR radiance when
-  writing to an offscreen HDR scene target.
-- WebGPU environment background rendering must clamp only when the shader writes
-  directly to a gamma-encoded single/canvas target.
-- WebGPU present output must remain SDR and must clamp the final display color to
-  `[0.0, 1.0]`.
-- `WebGLBackend` must use `rgba16float` scene, motion-depth, post-process, TAA,
-  SSAO, and OIT accumulation attachments only when `EXT_color_buffer_float` is
-  available.
-- `WebGLBackend` must fall back to `rgba8unorm` color, motion-depth, and
-  post-process attachments when `EXT_color_buffer_float` is unavailable.
-- `WebGLBackend` must report the actual runtime attachment formats in
-  `LogicalGBufferBridge` channels.
-- WebGL post-process resources requested as `rgba16float` must return a handle
-  with `format: "rgba8unorm"` when the float color attachment extension is
-  unavailable.
-- `SoftwareBackend` is an SDR fallback. It may run tone mapping and gamma passes
-  over byte color buffers, but it must not claim internal HDR preservation.
-- Display HDR output is not a public API. A future implementation may add a
-  renderer-level display output contract, but it must keep SDR presentation as
-  the default compatibility path.
+
+- `RendererOptions.displayOutput` may request `"sdr"`, `"auto"`, or `"hdr"`.
+  The default must be `"sdr"`, with exposure `1.0` and HDR headroom `4.0`.
+- Exposure must be finite and within `[0, 64]`. HDR headroom must be finite and
+  within `[1, 16]`. Invalid values must throw `RangeError`.
+- `Renderer.getDisplayOutputState()` must return `null` before initialization
+  and the backend-resolved state afterwards.
+- `Renderer.setDisplayOutput()` must merge partial settings with the current
+  requested state and reconfigure presentation only at a frame boundary.
+- `"auto"` must enable HDR only when the display reports high dynamic range,
+  the canvas tone-mapping API is observable, and the requested configuration
+  can be verified.
+- An explicit `"hdr"` request must use the same requirements. If any
+  requirement fails, rendering must continue in SDR and report a fallback
+  reason.
+- WebGPU HDR presentation must use an `rgba16float` canvas, Display-P3 color
+  space, and extended canvas tone mapping.
+- SDR presentation must use the user agent's preferred 8-bit canvas format,
+  sRGB color space, and standard tone mapping when that member is supported.
+- WebGL and Software are Display SDR backends. They must resolve `"auto"` to
+  SDR without a warning and resolve explicit `"hdr"` to SDR with
+  `backend-unsupported`.
+- `WebGPUBackend` must preserve scene, post-process, and OIT radiance in
+  `rgba16float` render targets.
+- The logical post-process color domains are `scene-linear-hdr`,
+  `display-linear`, and `display-encoded`.
+- Built-in passes must declare their input and output domains. A declared pass
+  whose input does not match the current domain must be skipped with a stable
+  diagnostic.
+- A custom pass without a color contract must be treated as domain-preserving.
+  It must continue to run; HDR output must emit a stable warning.
+- Presentation must complete any missing tone mapping, gamut conversion, or
+  transfer encoding based on the final post-process domain.
+- SDR mapping must use ACES fitted tone mapping and the piecewise sRGB transfer
+  function. HDR mapping must apply exposure, a hue-preserving soft shoulder,
+  linear-sRGB to linear Display-P3 conversion, and extended sRGB encoding
+  without clamping encoded RGB to `1.0`.
 
 ## Usage
+
 ```ts
-import { Renderer, ToneMappingPass, WebGPUBackend } from "../src";
+import { Renderer, WebGPUBackend } from "ignisrenderer";
 
 const renderer = new Renderer({
 	backend: new WebGPUBackend(),
 	canvas,
-	camera,
+	displayOutput: {
+		mode: "auto",
+		exposure: 1,
+		hdrHeadroom: 4,
+	},
 });
-renderer.postProcess.getPass<ToneMappingPass>("tonemap")?.enable();
-renderer.requestRender("hdr-internal");
-```
 
-```bash
-bun tests/static/webgpu/test_webgpu_bridge.mjs
-bun tests/static/webgl/test_webgl_frame_executor_fxaa.mjs
+await renderer.initialize();
+console.log(renderer.getDisplayOutputState());
+
+await renderer.setDisplayOutput({ mode: "hdr" });
 ```
 
 ## Errors & Diagnostics
-- `webgl-hdr-float-unsupported`: triggered when `EXT_color_buffer_float` is not
-  available and WebGL falls back from HDR-capable float attachments to `RGBA8`.
-- If `tonemap` is disabled, HDR highlights may hard-clip during SDR presentation.
-- If a backend loses its frame targets, post-process histories must be recreated
-  before they are reused.
+
+- `display-hdr-unavailable`: an explicit HDR request cannot be activated.
+- `display-hdr-configuration-failed`: the browser rejected or ignored the HDR
+  canvas configuration.
+- `postprocess-color-domain-undeclared-<id>`: an HDR custom pass has no color
+  contract and is assumed to preserve its input domain.
+- `postprocess-color-domain-mismatch-<id>`: a declared pass was skipped because
+  its expected input domain did not match the current domain.
+- Display fallback reasons are `backend-unsupported`,
+  `display-not-hdr-capable`, `canvas-tone-mapping-unsupported`, and
+  `hdr-context-configuration-failed`.
 
 ## Compatibility / Breaking Changes
-- SDR canvas presentation remains the default behavior.
-- No public Display HDR API is introduced by this contract.
-- WebGL bridge format reporting changes from hardcoded `rgba16float` values to
-  actual runtime attachment formats.
+
+- SDR remains the default display mode.
+- Existing post-process pass IDs and enable/disable behavior remain available.
+- Existing custom passes remain executable without a color contract.
+- WebGPU SDR output changes from a gamma `2.2` approximation to exact piecewise
+  sRGB encoding.
+- WebGL floating-point internal targets remain governed by runtime extension
+  support and do not imply Display HDR support.

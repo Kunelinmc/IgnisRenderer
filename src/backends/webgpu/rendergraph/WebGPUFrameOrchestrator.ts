@@ -26,6 +26,7 @@ import type {
 	PostProcessRenderGraphFrame,
 } from "../../../postprocess/BackendPostProcessRuntime";
 import type { PostProcessPlan } from "../../../postprocess/PostProcessPlanner";
+import type { PostProcessColorDomain } from "../../../postprocess/PostProcessPass";
 import type {
 	RenderGraphDiagnostic,
 	RenderGraphResourceDescriptor,
@@ -176,6 +177,8 @@ export class WebGPUFrameOrchestrator {
 	private _wholeFrameGraphCompiled = false;
 	private _postProcessGraphFrame: PostProcessRenderGraphFrame | null = null;
 	private _postProcessOutputColor: string = WEBGPU_FRAME_GRAPH_RESOURCES.frameColor;
+	private _postProcessOutputColorDomain: PostProcessColorDomain =
+		"scene-linear-hdr";
 	private readonly _graphPhysicalResources = new Map<string, IRenderTexture>();
 
 	constructor(
@@ -207,6 +210,7 @@ export class WebGPUFrameOrchestrator {
 				}),
 			resources.sceneFrameLayout,
 			this._hiZBuilder,
+			() => this._host.displayOutputState,
 		);
 		this._postBridge = new WebGPUPostProcessBridge(host, this._postRuntime, {
 			getEncoder: () => this._encoder,
@@ -384,6 +388,7 @@ export class WebGPUFrameOrchestrator {
 	public beginFrame(context: FrameContext): void {
 		this._postProcessGraphFrame = null;
 		this._postProcessOutputColor = WEBGPU_FRAME_GRAPH_RESOURCES.frameColor;
+		this._postProcessOutputColorDomain = "scene-linear-hdr";
 		if (this._session) {
 			throw new Error("WebGPUFrameOrchestrator already has an active frame session.");
 		}
@@ -743,6 +748,11 @@ export class WebGPUFrameOrchestrator {
 	}
 
 	public invalidatePostProcessBindings(): void {
+		this._postRuntime.invalidateBindings();
+	}
+
+	public onDisplayOutputChanged(): void {
+		this._presentPass.onShaderRuntimeChanged();
 		this._postRuntime.invalidateBindings();
 	}
 
@@ -1236,6 +1246,8 @@ export class WebGPUFrameOrchestrator {
 					const composition = createWebGPUPostProcessGraphComposition(frame);
 					postProcessImportResources.push(...composition.importResources);
 					this._postProcessOutputColor = composition.outputColor;
+					this._postProcessOutputColorDomain =
+						frame.graph.outputColorDomain;
 					stagePlan = {
 						pass,
 						nodes: [],
@@ -1303,6 +1315,7 @@ export class WebGPUFrameOrchestrator {
 		};
 		const frame = await this._postProcessRuntime.beginGraphFrame(plan);
 		if (!frame) return;
+		let executedColorDomain = plan.graph.initialColorDomain;
 		try {
 			for (const node of plan.nodes) {
 				const result = await this._postProcessRuntime.executeGraphPass(frame, node.passId);
@@ -1314,7 +1327,16 @@ export class WebGPUFrameOrchestrator {
 						this._postProcessRuntime.resolveGraphColor(frame, node.plannedOutputColor),
 					);
 				}
+				if (result.ran !== false) {
+					const plannedPass = plan.graph.passes.find(
+						(pass) => pass.id === node.passId,
+					);
+					if (plannedPass?.pass.colorContract?.input === executedColorDomain) {
+						executedColorDomain = plannedPass.pass.colorContract.output;
+					}
+				}
 			}
+			this._postProcessOutputColorDomain = executedColorDomain;
 			await this._postProcessRuntime.endGraphFrame(frame);
 		} catch (error) {
 			await this._postProcessRuntime.abortFrame(error);
@@ -1468,6 +1490,7 @@ export class WebGPUFrameOrchestrator {
 			encoder: this._encoder,
 			frameContext: this._frameContext,
 			source,
+			colorDomain: this._postProcessOutputColorDomain,
 			resolveDirtyRects: (context, width, height) =>
 				this._recordingContext.resolveDirtyRects(context, width, height),
 		});

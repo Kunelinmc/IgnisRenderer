@@ -194,6 +194,13 @@ export class WebGPUGammaImplementation implements PostProcessPassImplementation<
 		const target = resolveWebGPUTarget(context);
 		const input = context.resources.color.input;
 		if (!input) return false;
+		const display = context.shared.getDisplayOutputState?.();
+		resources.paramData[0] =
+			display?.activeDynamicRange === "hdr" ? 1 : 0;
+		resources.paramData[1] = display?.requested.hdrHeadroom ?? 4;
+		resources.paramData[2] = 0;
+		resources.paramData[3] = 0;
+		context.shared.compute.writeBuffer(resources.params, resources.paramData);
 		const binding = context.shared.getCachedBindGroup(
 			`gamma-${target === targets.postPing ? "ping" : "pong"}`,
 			resources.pipeline,
@@ -253,8 +260,6 @@ export class WebGPUGammaImplementation implements PostProcessPassImplementation<
 				size: 16,
 				usage: BufferUsage.Uniform | BufferUsage.CopyDst,
 			});
-			resources.paramData[0] = DEFAULT_GAMMA;
-			shared.compute.writeBuffer(resources.params, resources.paramData);
 		}
 		return resources;
 	}
@@ -348,6 +353,10 @@ export class GammaPass extends PostProcessPass<EmptyOptions, EmptyOptions> {
 			},
 			builtIn: true,
 			label: "gamma correction",
+			colorContract: config.colorContract ?? {
+				input: "display-linear",
+				output: "display-encoded",
+			},
 			implementations: {
 				software: () => new SoftwareGammaImplementation(),
 				webgpu: () => new WebGPUGammaImplementation(),

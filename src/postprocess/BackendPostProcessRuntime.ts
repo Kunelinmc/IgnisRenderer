@@ -24,6 +24,14 @@ import type {
 	PostProcessPassResult,
 } from "./types";
 import type { PostProcessPass } from "./PostProcessPass";
+import {
+	DEFAULT_DISPLAY_OUTPUT_OPTIONS,
+	createSDRDisplayOutputState,
+} from "../rendering/DisplayOutput";
+
+const DEFAULT_POST_PROCESS_DISPLAY_OUTPUT = createSDRDisplayOutputState(
+	DEFAULT_DISPLAY_OUTPUT_OPTIONS,
+);
 
 export interface BackendPostProcessRuntimeOptions {
 	readonly executor: IPostProcessExecutor;
@@ -180,6 +188,7 @@ export class BackendPostProcessRuntime {
 			gBuffer: this._createWarmupGBuffer(context),
 			warn: this._warn,
 			resolveImplementation: (pass) => this._resolveImplementation(pass),
+			displayOutput: this._getDisplayOutputState(),
 		});
 		this._observePasses(declarations);
 		return declarations;
@@ -245,9 +254,20 @@ export class BackendPostProcessRuntime {
 			gBuffer: this._createWarmupGBuffer(context),
 			warn: () => {},
 			resolveImplementation: (pass) => this._resolveImplementation(pass),
+			displayOutput: this._getDisplayOutputState(),
 		});
 		this._observePasses(graph);
 		return graph;
+	}
+
+	private _getDisplayOutputState(): ReturnType<
+		IRenderBackend["getDisplayOutputState"]
+	> {
+		const getter = (
+			this._backend as Partial<IRenderBackend>
+		).getDisplayOutputState;
+		return typeof getter === "function" ?
+			getter.call(this._backend) : DEFAULT_POST_PROCESS_DISPLAY_OUTPUT;
 	}
 
 	/**

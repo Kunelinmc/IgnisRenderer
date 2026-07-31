@@ -599,6 +599,10 @@ export class FastApproximateAntiAliasingPass extends PostProcessPass<
 					FAST_APPROXIMATE_ANTI_ALIASING_PASS_ORDER.incremental,
 			},
 			label: "FXAA",
+			colorContract: config.colorContract ?? {
+				input: "display-linear",
+				output: "display-linear",
+			},
 			implementations: {
 				software: () => new SoftwareFastApproximateAntiAliasingImplementation(),
 				webgpu: () => new WebGPUFastApproximateAntiAliasingImplementation(),

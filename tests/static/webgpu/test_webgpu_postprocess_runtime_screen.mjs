@@ -354,12 +354,17 @@ async function testToneMappingPassImplementationUsesDedicatedPipeline() {
 	assert.equal(backend.computePipelines.length, 1);
 	assert.equal(backend.computePipelines[0].label, "WebGPUToneMappingPipeline");
 	assert.equal(backend.bindingGroups.length, 1);
-	assert.equal(backend.bindingGroups[0].desc.entries.length, 2);
+	assert.equal(backend.bindingGroups[0].desc.entries.length, 3);
 	assert.equal(
 		backend.bindingGroups[0].desc.entries[0].resource,
 		sceneColorMain
 	);
-	assert.equal(backend.bindingGroups[0].desc.entries[1].resource, postPong);
+	assert.equal(
+		backend.bindingGroups[0].desc.entries[1].resource,
+		backend.buffers[0],
+	);
+	assert.equal(backend.bindingGroups[0].desc.entries[2].resource, postPong);
+	assert.equal(backend.buffers[0].desc.label, "WebGPUToneMappingParams");
 	assert.deepEqual(encoder.calls, [
 		["beginComputePass", "WebGPUToneMapping"],
 		["setComputePipeline", "WebGPUToneMappingPipeline"],
@@ -959,7 +964,7 @@ async function testDestroyReleasesToneMappingImplementationResources() {
 	assert.equal(backend.shaderModuleDestroyCalls, 1);
 	assert.equal(backend.computePipelineDestroyCalls, 1);
 	assert.equal(backend.samplerDestroyCalls, 0);
-	assert.equal(backend.bufferDestroyCalls, 0);
+	assert.equal(backend.bufferDestroyCalls, 1);
 	assert.equal(backend.bindingGroupDestroyCalls, 1);
 	assert.deepEqual(
 		backend.shaderModules
@@ -980,7 +985,7 @@ async function testDestroyReleasesToneMappingImplementationResources() {
 	assert.equal(backend.shaderModuleDestroyCalls, 1);
 	assert.equal(backend.computePipelineDestroyCalls, 1);
 	assert.equal(backend.samplerDestroyCalls, 0);
-	assert.equal(backend.bufferDestroyCalls, 0);
+	assert.equal(backend.bufferDestroyCalls, 1);
 	assert.equal(backend.bindingGroupDestroyCalls, 1);
 
 	destroySnapshotPasses(frameContext.postProcess);

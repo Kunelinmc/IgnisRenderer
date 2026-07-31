@@ -905,6 +905,10 @@ export class TemporalAntiAliasingPass extends PostProcessPass<
 				incremental: config.schedule?.incremental ?? TEMPORAL_ANTI_ALIASING_PASS_ORDER.incremental,
 			},
 			label: "TAA",
+			colorContract: config.colorContract ?? {
+				input: "scene-linear-hdr",
+				output: "scene-linear-hdr",
+			},
 			implementations: {
 				software: () => new SoftwareTemporalAntiAliasingImplementation(),
 				webgpu: () => new WebGPUTemporalAntiAliasingImplementation(),

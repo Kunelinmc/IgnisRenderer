@@ -1214,6 +1214,10 @@ export class ScreenSpaceAmbientOcclusionPass extends PostProcessPass<
 					SCREEN_SPACE_AMBIENT_OCCLUSION_PASS_ORDER.incremental,
 			},
 			label: "SSAO",
+			colorContract: config.colorContract ?? {
+				input: "scene-linear-hdr",
+				output: "scene-linear-hdr",
+			},
 			implementations: {
 				software: () => new SoftwareScreenSpaceAmbientOcclusionImplementation(),
 				webgpu: () => new WebGPUScreenSpaceAmbientOcclusionImplementation(),

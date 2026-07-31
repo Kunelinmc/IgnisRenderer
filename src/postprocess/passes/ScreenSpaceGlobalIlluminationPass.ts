@@ -870,6 +870,10 @@ export class ScreenSpaceGlobalIlluminationPass extends PostProcessPass<
 					SCREEN_SPACE_GLOBAL_ILLUMINATION_PASS_ORDER.incremental,
 			},
 			label: "SSGI",
+			colorContract: config.colorContract ?? {
+				input: "scene-linear-hdr",
+				output: "scene-linear-hdr",
+			},
 			implementations: {
 				webgpu: () => new WebGPUScreenSpaceGlobalIlluminationImplementation(),
 			},

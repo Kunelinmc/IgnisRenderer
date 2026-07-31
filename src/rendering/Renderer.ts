@@ -84,6 +84,11 @@ import { LightType, ReflectionProbe, type ShadowCastingLight } from "../lights";
 import type { ShadowRenderSet } from "../lights/shadows/ShadowMapping";
 import { Matrix4 } from "../maths/Matrix4";
 import { Texture } from "../core/Texture";
+import {
+	resolveDisplayOutputOptions,
+	type DisplayOutputOptions,
+	type DisplayOutputState,
+} from "./DisplayOutput";
 
 export type {
 	IncrementalFrameStats,
@@ -102,6 +107,12 @@ export interface RendererEvents {
 		},
 	];
 	devicerestored: [{ backend: RenderBackendType }];
+	displayoutputchange: [
+		{
+			previous: DisplayOutputState;
+			current: DisplayOutputState;
+		},
+	];
 	backendresourceevent: [RendererBackendResourceEvent];
 	postanimation: [
 		{
@@ -119,6 +130,7 @@ export interface RendererOptions {
 	readonly canvas: HTMLCanvasElement;
 	readonly backend: IRenderBackend;
 	readonly camera?: Camera | null;
+	readonly displayOutput?: DisplayOutputOptions;
 }
 
 export class Renderer extends EventEmitter<RendererEvents> implements FrameCoordinatorDelegate {
@@ -167,6 +179,7 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 	constructor(options: RendererOptions) {
 		super();
 		const { backend, canvas, camera = null } = options;
+		const displayOutput = resolveDisplayOutputOptions(options.displayOutput);
 
 		this._canvas = canvas;
 		this.logger = Logger;
@@ -240,7 +253,7 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 		});
 
 		backend.attach({
-			surface: { canvas },
+			surface: { canvas, displayOutput },
 			events: { emit: (event) => this._handleBackendEvent(event) },
 		});
 
@@ -486,6 +499,41 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 	 */
 	public getBackendDebugInfo(): RenderBackendDebugInfo {
 		return this._backend.getDebugInfo();
+	}
+
+	/**
+	 * Returns the active display-output state after initialization.
+	 *
+	 * @returns The resolved output state, or `null` before initialization.
+	 * @sideEffects None.
+	 */
+	public getDisplayOutputState(): DisplayOutputState | null {
+		return this._initialized ? this._backend.getDisplayOutputState() : null;
+	}
+
+	/**
+	 * Updates display-output settings at a safe frame boundary.
+	 *
+	 * @param options Partial settings merged with the current requested state.
+	 * @returns The resolved output state after backend negotiation.
+	 * @constraints The renderer must be initialized and not destroyed.
+	 * @sideEffects May reconfigure the presentation surface and invalidate a frame.
+	 */
+	public async setDisplayOutput(
+		options: Partial<DisplayOutputOptions>,
+	): Promise<DisplayOutputState> {
+		this._assertRuntimeReady("setDisplayOutput");
+		const activeFrame = this._activeFramePromise;
+		if (activeFrame) {
+			try {
+				await activeFrame;
+			} catch {
+				// The frame path owns cleanup; output reconfiguration remains valid.
+			}
+		}
+		const current = this._backend.getDisplayOutputState();
+		const requested = resolveDisplayOutputOptions(options, current.requested);
+		return this._backend.setDisplayOutput(requested);
 	}
 
 	/**
@@ -981,6 +1029,13 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 				this._coordinator.reset();
 				this.resizeCanvas();
 				this.emit("devicerestored", { backend: this.backendProfile.id });
+				return;
+			case "display-output-change":
+				this._markFrameDirty("postfx");
+				this.emit("displayoutputchange", {
+					previous: event.previous,
+					current: event.current,
+				});
 				return;
 			case "render-invalidated":
 				this._markFrameDirty(event.reason);

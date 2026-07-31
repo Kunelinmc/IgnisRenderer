@@ -834,6 +834,10 @@ export class BloomPass extends PostProcessPass<BloomOptions, BloomOptions> {
 				incremental: config.schedule?.incremental ?? BLOOM_PASS_ORDER.incremental,
 			},
 			label: "bloom",
+			colorContract: config.colorContract ?? {
+				input: "scene-linear-hdr",
+				output: "scene-linear-hdr",
+			},
 			implementations: {
 				webgpu: () => new WebGPUBloomImplementation(),
 				webgl: () => new WebGLBloomImplementation(),

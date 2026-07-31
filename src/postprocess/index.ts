@@ -225,6 +225,8 @@ export {
 	getEnabledCustomPostProcessPassIds,
 	hasEnabledCustomPostProcessPass,
 	type PostProcessPassChange,
+	type PostProcessColorContract,
+	type PostProcessColorDomain,
 	type PostProcessPassConfig,
 	type PostProcessPassId,
 	type PostProcessPassRegistryChange,

@@ -21,6 +21,7 @@ function run() {
 	assert.equal(webgl.profile.id, "webgl");
 
 	assert.deepEqual(software.profile.capabilities, {
+		displayHDR: false,
 		sh: true,
 		shadows: true,
 		reflection: true,
@@ -36,6 +37,7 @@ function run() {
 	assert.equal("postProcessCapabilities" in software, false);
 
 	assert.deepEqual(webgpu.profile.capabilities, {
+		displayHDR: true,
 		sh: true,
 		shadows: true,
 		reflection: true,
@@ -58,6 +60,7 @@ function run() {
 	assert.equal("postProcessCapabilities" in webgpu, false);
 
 	assert.deepEqual(webgl.profile.capabilities, {
+		displayHDR: false,
 		sh: true,
 		shadows: true,
 		reflection: false,

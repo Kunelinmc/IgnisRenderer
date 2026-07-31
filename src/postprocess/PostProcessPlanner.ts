@@ -14,8 +14,10 @@ import type {
 	PostProcessPass,
 	PostProcessPassRegistrySnapshot,
 	PostProcessPassResolveRequest,
+	PostProcessColorDomain,
 	ResolvedPostProcessPass,
 } from "./PostProcessPass";
+import type { DisplayOutputState } from "../rendering/DisplayOutput";
 import { createPostProcessScaledResourceDescriptorKey } from "./resourceDescriptors";
 import type {
 	LogicalGBufferBridge,
@@ -56,6 +58,7 @@ export interface PostProcessDeclarationPlanRequest {
 	readonly resolveImplementation: (
 		pass: PostProcessPass
 	) => PostProcessPassImplementation | null;
+	readonly displayOutput?: DisplayOutputState;
 }
 
 export interface PostProcessPlanFinalizationRequest {
@@ -86,6 +89,7 @@ export interface PostProcessDeclarationPlan {
 	readonly orderedPasses: readonly ResolvedPostProcessPass[];
 	readonly passes: readonly PlannedPostProcessPass[];
 	readonly startPassId: string | null;
+	readonly initialColorDomain: PostProcessColorDomain;
 }
 
 export interface PostProcessPlan {
@@ -98,10 +102,12 @@ export interface PostProcessPlan {
 	readonly orderedPasses: readonly ResolvedPostProcessPass[];
 	readonly passes: readonly PlannedPostProcessPass[];
 	readonly startPassId: string | null;
+	readonly initialColorDomain: PostProcessColorDomain;
 	readonly historyDescriptors: readonly PostProcessHistoryDescriptor[];
 	readonly transientDescriptors: readonly PostProcessTransientDescriptor[];
 	readonly frameRequirements: FramePreparationRequirements;
 	readonly signature: string;
+	readonly outputColorDomain: PostProcessColorDomain;
 }
 
 export function resolvePostProcessExecutionOrder(
@@ -151,6 +157,10 @@ export class PostProcessPlanner {
 		const startPassId = request.startPassId ??
 			this._resolveIncrementalStartPass(request.frameContext, orderedPasses);
 		const slicedPasses = this._sliceFromStartPass(orderedPasses, startPassId);
+		const initialColorDomain = this._resolveInitialColorDomain(
+			orderedPasses,
+			slicedPasses,
+		);
 		const width = Math.max(1, request.gBuffer.width);
 		const height = Math.max(1, request.gBuffer.height);
 		const passes: PlannedPostProcessPass[] = [];
@@ -163,6 +173,17 @@ export class PostProcessPlanner {
 					`Post-process pass "${resolved.id}" has no ${request.backend} implementation; skipping it`,
 				);
 				continue;
+			}
+			if (
+				!resolved.pass.colorContract &&
+				!resolved.pass.builtIn &&
+				request.displayOutput?.activeDynamicRange === "hdr"
+			) {
+				warn(
+					`postprocess-color-domain-undeclared-${resolved.id}`,
+					`HDR post-process pass "${resolved.id}" has no color domain; ` +
+						"assuming it preserves the current domain.",
+				);
 			}
 			const resolveRequest = this._createResolveRequest(
 				resolved,
@@ -197,6 +218,7 @@ export class PostProcessPlanner {
 			orderedPasses: Object.freeze(orderedPasses),
 			passes: Object.freeze(passes),
 			startPassId,
+			initialColorDomain,
 		});
 	}
 
@@ -214,9 +236,24 @@ export class PostProcessPlanner {
 		request: PostProcessPlanFinalizationRequest,
 	): PostProcessPlan {
 		const warn = request.warn ?? (() => {});
-		const passes = declarations.passes.filter((pass) =>
+		const eligiblePasses = declarations.passes.filter((pass) =>
 			this._isEligible(pass.id, pass.declaration, request, warn)
 		);
+		const passes: PlannedPostProcessPass[] = [];
+		let outputColorDomain = declarations.initialColorDomain;
+		for (const pass of eligiblePasses) {
+			const contract = pass.pass.colorContract;
+			if (contract && contract.input !== outputColorDomain) {
+				warn(
+					`postprocess-color-domain-mismatch-${pass.id}`,
+					`Post-process pass "${pass.id}" expects "${contract.input}" but ` +
+						`received "${outputColorDomain}"; skipping it.`,
+				);
+				continue;
+			}
+			passes.push(pass);
+			if (contract) outputColorDomain = contract.output;
+		}
 		const historyDescriptors = this._collectHistoryDescriptors(
 			declarations.backend,
 			passes,
@@ -236,11 +273,28 @@ export class PostProcessPlanner {
 			orderedPasses: declarations.orderedPasses,
 			passes: Object.freeze(passes),
 			startPassId: declarations.startPassId,
+			initialColorDomain: declarations.initialColorDomain,
 			historyDescriptors: Object.freeze(historyDescriptors),
 			transientDescriptors: Object.freeze(transientDescriptors),
 			frameRequirements,
 			signature: this._createSignature(declarations.frameContext, passes),
+			outputColorDomain,
 		});
+	}
+
+	private _resolveInitialColorDomain(
+		orderedPasses: readonly ResolvedPostProcessPass[],
+		slicedPasses: readonly ResolvedPostProcessPass[],
+	): PostProcessColorDomain {
+		const first = slicedPasses[0];
+		if (!first) return "scene-linear-hdr";
+		let domain: PostProcessColorDomain = "scene-linear-hdr";
+		for (const pass of orderedPasses) {
+			if (pass === first) break;
+			const contract = pass.pass.colorContract;
+			if (contract?.input === domain) domain = contract.output;
+		}
+		return domain;
 	}
 
 	private _validateDeclaration(

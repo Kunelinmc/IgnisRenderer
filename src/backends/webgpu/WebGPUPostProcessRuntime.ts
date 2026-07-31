@@ -4,6 +4,15 @@ import type { IWebGPUComputeFacade } from "./ComputeFacade";
 import type { WebGPUPostProcessServices } from "./WebGPUPostProcessContracts";
 import { WebGPUDenoiser } from "./WebGPUDenoiser";
 import { WebGPUHiZBuilder } from "./WebGPUHiZBuilder";
+import type { DisplayOutputState } from "../../rendering/DisplayOutput";
+import {
+	DEFAULT_DISPLAY_OUTPUT_OPTIONS,
+	createSDRDisplayOutputState,
+} from "../../rendering/DisplayOutput";
+
+const DEFAULT_WEBGPU_DISPLAY_OUTPUT = createSDRDisplayOutputState(
+	DEFAULT_DISPLAY_OUTPUT_OPTIONS,
+);
 
 interface CachedBindGroup {
 	group: IBindingGroup;
@@ -20,18 +29,22 @@ export class WebGPUPostProcessRuntime implements WebGPUPostProcessServices {
 	private readonly _ownsHiZBuilder: boolean;
 	private readonly _bindGroupCache = new Map<string, CachedBindGroup>();
 	private readonly _frameBindGroupLayout: GPUBindGroupLayout | null;
+	private readonly _getDisplayOutputState: () => DisplayOutputState;
 
 	constructor(
 		computeFacade: IWebGPUComputeFacade,
 		warn: (key: string, message: string) => void,
 		frameBindGroupLayout?: GPUBindGroupLayout,
-		hiZBuilder?: WebGPUHiZBuilder
+		hiZBuilder?: WebGPUHiZBuilder,
+		getDisplayOutputState?: () => DisplayOutputState,
 	) {
 		this._compute = computeFacade;
 		this._warn = warn;
 		this._frameBindGroupLayout = frameBindGroupLayout ?? null;
 		this._hiZBuilder = hiZBuilder ?? null;
 		this._ownsHiZBuilder = !hiZBuilder;
+		this._getDisplayOutputState =
+			getDisplayOutputState ?? (() => DEFAULT_WEBGPU_DISPLAY_OUTPUT);
 	}
 
 	public get compute(): IWebGPUComputeFacade {
@@ -44,6 +57,10 @@ export class WebGPUPostProcessRuntime implements WebGPUPostProcessServices {
 
 	public get sampler(): ISampler | null {
 		return this._sampler;
+	}
+
+	public getDisplayOutputState(): DisplayOutputState {
+		return this._getDisplayOutputState();
 	}
 
 	/** @internal Returns the device-lifetime shared post-process denoiser. */

@@ -3,6 +3,7 @@ precision highp float;
 
 in vec2 vUv;
 uniform sampler2D uSourceMap;
+uniform float uExposure;
 
 out vec4 fragColor;
 
@@ -20,6 +21,6 @@ vec3 acesFitted(vec3 color) {
 
 void main() {
 	vec4 sampled = texture(uSourceMap, vUv);
-	vec3 mapped = acesFitted(max(sampled.rgb, vec3(0.0)));
+	vec3 mapped = acesFitted(max(sampled.rgb * uExposure, vec3(0.0)));
 	fragColor = vec4(mapped, sampled.a);
 }

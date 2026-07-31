@@ -42,6 +42,13 @@ import { Logger } from "../../foundation/Logger";
 import {
 	createRenderBackendExtensionRegistry,
 } from "../BackendExtensions";
+import {
+	DEFAULT_DISPLAY_OUTPUT_OPTIONS,
+	displayOutputStatesEqual,
+	resolveSDROnlyDisplayOutput,
+	type DisplayOutputOptions,
+	type DisplayOutputState,
+} from "../../rendering/DisplayOutput";
 
 export interface SoftwareBackendOptions {
 	enableEarlyZPrepass?: boolean;
@@ -130,6 +137,7 @@ export class SoftwareBackend implements IRenderBackend {
 	public readonly profile: RenderBackendProfile = {
 		id: "software",
 		capabilities: {
+			displayHDR: false,
 			sh: true,
 			shadows: true,
 			reflection: true,
@@ -164,6 +172,9 @@ export class SoftwareBackend implements IRenderBackend {
 	private readonly _frameRuntime = new SoftwareFrameRuntime();
 	private _options: SoftwareBackendOptions;
 	private readonly _passHandlers: Map<FramePass["stage"], SoftwarePassHandler>;
+	private _displayOutputState = resolveSDROnlyDisplayOutput(
+		DEFAULT_DISPLAY_OUTPUT_OPTIONS,
+	);
 
 	public constructor(options: SoftwareBackendOptions = {}) {
 		assertShaderDirectiveProfileRegistryComplete(DEFAULT_SHADER_DIRECTIVE_PROFILE_REGISTRY);
@@ -177,6 +188,9 @@ export class SoftwareBackend implements IRenderBackend {
 			throw new Error("SoftwareBackend is already attached to a renderer.");
 		}
 		this._attachContext = context;
+		this._displayOutputState = resolveSDROnlyDisplayOutput(
+			context.surface.displayOutput,
+		);
 		this._surface.attach(context.surface.canvas);
 		this._state = "attached";
 	}
@@ -197,6 +211,32 @@ export class SoftwareBackend implements IRenderBackend {
 		};
 	}
 
+	public getDisplayOutputState(): DisplayOutputState {
+		return this._displayOutputState;
+	}
+
+	public async setDisplayOutput(
+		options: DisplayOutputOptions,
+	): Promise<DisplayOutputState> {
+		const previous = this._displayOutputState;
+		const current = resolveSDROnlyDisplayOutput(options, previous.requested);
+		this._displayOutputState = current;
+		if (current.fallbackReason === "backend-unsupported") {
+			Logger.warn(
+				"[display-hdr-unavailable] SoftwareBackend supports SDR presentation only.",
+				{ scope: "SoftwareBackend", onceKey: "display-hdr-unavailable" },
+			);
+		}
+		if (!displayOutputStatesEqual(previous, current)) {
+			this._requireAttachContext().events.emit({
+				type: "display-output-change",
+				previous,
+				current,
+			});
+		}
+		return current;
+	}
+
 	public async initialize(): Promise<void> {
 		if (this._state !== "attached") {
 			this._throwForInitializeState();
@@ -206,6 +246,12 @@ export class SoftwareBackend implements IRenderBackend {
 			this._surface.initialize();
 			this._ensureRuntime();
 			this._state = "ready";
+			if (this._displayOutputState.fallbackReason === "backend-unsupported") {
+				Logger.warn(
+					"[display-hdr-unavailable] SoftwareBackend supports SDR presentation only.",
+					{ scope: "SoftwareBackend", onceKey: "display-hdr-unavailable" },
+				);
+			}
 		} catch (error) {
 			this._state = "attached";
 			throw error;

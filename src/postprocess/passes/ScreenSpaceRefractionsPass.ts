@@ -642,6 +642,10 @@ export class ScreenSpaceRefractionsPass extends PostProcessPass<
 					config.schedule?.incremental ?? SCREEN_SPACE_REFRACTIONS_PASS_ORDER.incremental,
 			},
 			label: "screen-space refractions",
+			colorContract: config.colorContract ?? {
+				input: "scene-linear-hdr",
+				output: "scene-linear-hdr",
+			},
 			implementations: {
 				webgpu: () => new WebGPUScreenSpaceRefractionsImplementation(),
 			},
