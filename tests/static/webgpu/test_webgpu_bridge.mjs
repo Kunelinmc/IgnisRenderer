@@ -46,6 +46,7 @@ import { ShaderMaterial } from "../../../src/materials/ShaderMaterial.ts";
 import { Texture } from "../../../src/core/Texture.ts";
 import { CubeTexture } from "../../../src/core/CubeTexture.ts";
 import { float16BitsToFloat32 } from "../../../src/foundation/Float16.ts";
+import { Logger } from "../../../src/foundation/Logger.ts";
 import { Scene } from "../../../src/core/Scene.ts";
 import { Node } from "../../../src/core/Node.ts";
 import { UnlitMaterial } from "../../../src/materials/UnlitMaterial.ts";
@@ -1664,6 +1665,53 @@ function testRenderResourcesLeaveShaderRuntimeSubscriptionToBackend() {
 
 	resources.destroy();
 	assert.equal(listenerCount, 0);
+}
+
+async function testRenderResourcesLogPointLightLimitOnlyOnce() {
+	const backend = new FakeBackend();
+	const resources = new WebGPURenderResources(
+		backend,
+		backend,
+		createWebGPUComputeFacade(backend),
+	);
+	const warnings = [];
+	Logger.configure({
+		level: "warn",
+		sink: { warn: (...args) => warnings.push(args) },
+		resetOnceKeys: true,
+	});
+
+	try {
+		await resources.init();
+		const model = createModel([new PBRMaterial()]);
+		const frame = createFrame(createPacket(model));
+		frame.lights = Array.from(
+			{ length: MAX_POINT_LIGHTS + 1 },
+			() => new PointLight(),
+		);
+		const context = createFrameContextWithFeatures(
+			frame,
+			{ enableLighting: true },
+			{ clusteredLighting: false },
+		);
+
+		resources.prepareFrame(context, createMainFrameOptions());
+		resources.prepareFrame(
+			context,
+			createMainFrameOptions({ temporalStateMode: "reuse" }),
+		);
+
+		const pointLimitWarnings = warnings.filter((args) =>
+			args.some(
+				(value) =>
+					typeof value === "string" && value.includes("[webgpu-point-limit]"),
+			),
+		);
+		assert.equal(pointLimitWarnings.length, 1);
+	} finally {
+		resources.destroy();
+		Logger.reset();
+	}
 }
 
 function testFrameExecutorConsumesComputeFacadeFromHost() {
@@ -4285,6 +4333,7 @@ async function run() {
 	testFeatureGate();
 	testRenderResourcesConsumeInjectedComputeFacade();
 	testRenderResourcesLeaveShaderRuntimeSubscriptionToBackend();
+	await testRenderResourcesLogPointLightLimitOnlyOnce();
 	testFrameExecutorConsumesComputeFacadeFromHost();
 	await testSceneShaderCoverage();
 	await testGBufferSlotShaderABI();

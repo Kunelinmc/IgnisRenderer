@@ -665,6 +665,7 @@ export class WebGPUFrameServiceOwner {
 		for (const warning of lightingState.warnings) {
 			Logger.warn(`[${warning.key}] ${warning.message}`, {
 				scope: "WebGPUFrameServiceOwner",
+				onceKey: warning.key,
 			});
 		}
 		const featureData = this._frameFeatureRegistry.prepareFrame({
@@ -680,6 +681,7 @@ export class WebGPUFrameServiceOwner {
 		for (const warning of clusteredLightingData?.warnings ?? []) {
 			Logger.warn(`[${warning.key}] ${warning.message}`, {
 				scope: "WebGPUFrameServiceOwner",
+				onceKey: warning.key,
 			});
 		}
 
@@ -691,6 +693,7 @@ export class WebGPUFrameServiceOwner {
 		for (const warning of environmentState.warnings) {
 			Logger.warn(`[${warning.key}] ${warning.message}`, {
 				scope: "WebGPUFrameServiceOwner",
+				onceKey: warning.key,
 			});
 		}
 
@@ -1219,6 +1222,7 @@ export class WebGPUFrameServiceOwner {
 		for (const warning of solidMaterialData.warnings) {
 			Logger.warn(`[${warning.key}] ${warning.message}`, {
 				scope: "WebGPUFrameServiceOwner",
+				onceKey: warning.key,
 			});
 		}
 

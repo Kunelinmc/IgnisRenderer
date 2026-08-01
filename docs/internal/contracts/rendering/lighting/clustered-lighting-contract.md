@@ -228,6 +228,9 @@ fn getClusterIndex(fragCoord: vec4<f32>, viewDepth: f32) -> u32 {
 
 ## Errors & Diagnostics
 
+- `webgpu-point-limit`: Emitted once per logger lifecycle when WebGPU forward
+  shading skips point lights beyond `MAX_POINT_LIGHTS`. Repeated frames that
+  remain over budget must not emit the warning again.
 - `webgl-clustered-fragment-light-budget` / `webgpu-clustered-light-budget`: Emitted once if the active scene light count exceeds the configured `maxLights` budget.
 - `webgl-clustered-perspective-only` / `webgpu-clustered-perspective-only`: Emitted once when clustered lighting is enabled on a non-perspective camera.
 - `webgl-clustered-invalid-depth-range`: Emitted once on the WebGL backend if the camera near/far depth range is negative, zero, or too small for log slicing.
