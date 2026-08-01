@@ -39,10 +39,23 @@ backend-owned and executes through the `"postprocess"` backend pass.
 - WebGL fragment IBL prefiltering must require `EXT_color_buffer_float` and
   either `OES_texture_float_linear` or `OES_texture_half_float_linear`.
 - `WebGLContextWorkQueue` must serialize frame lifecycle operations, backend
-  passes, fragment IBL prefilter work, and custom render-target readback.
+  passes, fragment IBL prefilter work, custom render-target readback, warmup,
+  and frame-sized maintenance.
+- A frame pass or frame-end operation must reserve ownership before awaiting
+  pass-boundary work. A concurrent pass must reject with `active-pass`; a
+  concurrent frame-end operation must reject with `active-frame`.
 - The queue must permit fragment IBL prefiltering at an active frame pass
   boundary. It must reject context work requested while a backend pass callback
   is executing and must reject idle-only work while any frame is active.
+- WebGL warmup requested at a safe active-frame boundary must wait for frame
+  release and execute before a subsequent frame begins. Warmup requested while
+  a backend pass callback is active must reject. Each released frame must fix
+  the deferred warmup batch eligible before the next frame so work enqueued by
+  that batch cannot starve rendering.
+- WebGL resize must update desired dimensions synchronously and schedule one
+  keyed, latest-wins maintenance operation. Active-frame resize must not destroy
+  frame resources until frame-end or frame-abort cleanup, and that cleanup must
+  await the maintenance operation before settling.
 - The queue must restore the active scene framebuffer baseline after
   pass-boundary auxiliary work and the default framebuffer baseline after idle
   work. IBL execution must additionally restore pixel-pack state.
@@ -53,6 +66,12 @@ backend-owned and executes through the `"postprocess"` backend pass.
   policy must remain queued and late-bind to the restored context generation;
   pending readback must reject because framebuffer contents do not survive
   restoration.
+- Context loss must reject boundary waiters and pending or active warmup, and
+  warmup must observe the queue abort signal between compilation and
+  finalization slices. Warmup must not replay on the restored generation.
+- Pending resize maintenance must not replay after context loss. Context
+  restoration must initialize the restored frame services with the latest
+  desired dimensions.
 - WebGL fragment IBL prefiltering must use transient input, output, and
   framebuffer resources and must delete them on success, cancellation,
   context loss, or failure.

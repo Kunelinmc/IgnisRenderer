@@ -55,6 +55,7 @@ import {
 	type WarmupPostProcessPlan,
 } from "../../pipeline/WarmupPlanner";
 import { Logger } from "../../foundation/Logger";
+import { WebGLContextWorkError } from "../../foundation/Error";
 import {
 	FramePassPlanValidator,
 	type FramePassPlanValidatorState,
@@ -394,9 +395,26 @@ export class WebGLBackend implements IRenderBackend {
 		const { width, height } = size;
 		this._width = toSafeDimension(width);
 		this._height = toSafeDimension(height);
-		if (this._contextLost) return;
-		this._postProcessRuntime.invalidateFrameSized();
-		this._frameServices?.resize(this._width, this._height);
+		if (this._contextLost || !this._frameServices) return;
+		void this._contextWorkQueue.enqueueMaintenance({
+			key: "resize",
+			label: "frame-resize",
+			contextLossPolicy: "reject",
+			execute: (scope) => {
+				this._postProcessRuntime.invalidateFrameSized();
+				scope.services.frame.resize(this._width, this._height);
+			},
+		}).catch((error) => {
+			if (
+				error instanceof WebGLContextWorkError &&
+				(error.code === "context-lost" || error.code === "destroyed")
+			) {
+				return;
+			}
+			Logger.warn(`WebGL deferred resize failed: ${String(error)}`, {
+				scope: "WebGLBackend",
+			});
+		});
 	}
 
 	public getAttachments(size: RenderSurfaceSize): {
@@ -543,28 +561,36 @@ export class WebGLBackend implements IRenderBackend {
 			};
 		}
 		const plan = buildWarmupPlan(context, options, warmupPostProcessPlan);
-		try {
-			const phase = await this._frameServices.warmupCoordinator.warmup(
-				context,
-				plan,
-				options,
-				postProcessPlan,
-			);
-			addWarmupPhase(report, phase);
-			this._reportWarmupProgress(options, phase);
-		} catch (error) {
-			const failedPhase = {
-				phase: "webgl-warmup",
-				total: 1,
-				compiled: 0,
-				skipped: 0,
-				failed: 1,
-				errors: [toShaderCompileError(error, this.profile.id, "WebGLWarmup")],
-			};
-			addWarmupPhase(report, failedPhase);
-			this._reportWarmupProgress(options, failedPhase);
-		}
-		return finalizeWarmupReport(report);
+		return this._contextWorkQueue.enqueue({
+			label: "webgl-warmup",
+			framePolicy: "idle-deferred",
+			contextLossPolicy: "reject",
+			execute: async (scope) => {
+				try {
+					const phase = await scope.services.frame.warmupCoordinator.warmup(
+						context,
+						plan,
+						options,
+						postProcessPlan,
+						scope.signal,
+					);
+					addWarmupPhase(report, phase);
+					this._reportWarmupProgress(options, phase);
+				} catch (error) {
+					const failedPhase = {
+						phase: "webgl-warmup",
+						total: 1,
+						compiled: 0,
+						skipped: 0,
+						failed: 1,
+						errors: [toShaderCompileError(error, this.profile.id, "WebGLWarmup")],
+					};
+					addWarmupPhase(report, failedPhase);
+					this._reportWarmupProgress(options, failedPhase);
+				}
+				return finalizeWarmupReport(report);
+			},
+		});
 	}
 
 	public destroy(): void {

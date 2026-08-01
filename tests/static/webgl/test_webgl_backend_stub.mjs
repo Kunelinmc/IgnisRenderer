@@ -459,10 +459,13 @@ async function testContextLostAndRestored() {
 		assert.equal(backend._contextLost, true);
 		assert.equal(deviceLostInfos.length, 1);
 		assert.equal(deviceLostInfos[0].reason, "context-lost");
+		backend.resize({ width: 777, height: 333 });
 
 		canvas.dispatch("webglcontextrestored", {});
 		assert.equal(backend._contextLost, false);
 		assert.notStrictEqual(backend._frameServices, originalServices);
+		assert.equal(backend._frameServices._session.width, 777);
+		assert.equal(backend._frameServices._session.height, 333);
 	});
 
 	assert.equal(
@@ -671,6 +674,77 @@ async function testEndFramePromiseAndReadbackScheduling() {
 	backend.destroy();
 }
 
+async function testWarmupAndResizeUseContextWorkScheduling() {
+	const backend = createWebGLSession({}, {});
+	const context = createDependencyContext();
+	context.scene.opaquePackets = [];
+	const log = [];
+	installFrameServices(backend, {
+		resize(width, height) {
+			log.push(`resize:${width}x${height}`);
+		},
+		warmupCoordinator: {
+			warmup(_context, _plan, _options, _postProcessPlan, signal) {
+				assert.equal(signal instanceof AbortSignal, true);
+				log.push("warmup");
+				return {
+					phase: "webgl-programs",
+					total: 1,
+					compiled: 1,
+					skipped: 0,
+					failed: 0,
+					errors: [],
+				};
+			},
+		},
+		restoreContextWorkBaseline() {
+			log.push("baseline");
+		},
+		commitTemporalFrame() {},
+		destroy() {},
+	});
+	backend._frameGraphRuntime = {
+		beginFrame() {
+			log.push("begin");
+		},
+		executePass() {},
+		endFrame() {
+			log.push("end");
+		},
+		abortFrame() {},
+		commitGraphAnalysis() {},
+		abortGraphAnalysis() {},
+	};
+	backend._particleSimulator = {
+		beginFrame() {},
+		simulate() {},
+		emitRenderBatches() {},
+		endFrame() {},
+	};
+	backend._postProcessRuntime.commitFrame = () => undefined;
+	backend._contextWorkQueue.bindContext();
+
+	await backend.beginFrame(context);
+	const warmup = backend.warmup(context, {
+		includeCorePasses: false,
+		includePostProcess: false,
+		includeShadowPass: false,
+		includeParticles: false,
+	});
+	backend.resize({ width: 320, height: 180 });
+	backend.resize({ width: 640, height: 360 });
+	await Promise.resolve();
+	assert.equal(log.includes("warmup"), false);
+	assert.equal(log.some((entry) => entry.startsWith("resize:")), false);
+	await backend.endFrame();
+	assert.equal(log.filter((entry) => entry.startsWith("resize:")).length, 1);
+	assert.ok(log.includes("resize:640x360"));
+	await warmup;
+	assert.ok(log.indexOf("end") < log.indexOf("resize:640x360"));
+	assert.ok(log.indexOf("resize:640x360") < log.indexOf("warmup"));
+	backend.destroy();
+}
+
 async function run() {
 	await testInitRequiresWebGL2();
 	await testInitAndPassRouting();
@@ -683,6 +757,7 @@ async function run() {
 	testParticleDeltaTimeIsClampedToSafeMaximum();
 	await testBackendPlanOmitsRendererOwnedPostProcessStage();
 	await testEndFramePromiseAndReadbackScheduling();
+	await testWarmupAndResizeUseContextWorkScheduling();
 	console.log("WebGL backend v2 tests passed");
 }
 

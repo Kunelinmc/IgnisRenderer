@@ -78,7 +78,8 @@ export class WebGLProgramWarmupQueue {
 
 	public async run(
 		yieldController: WarmupYieldController,
-		_options: WarmupOptions = {}
+		_options: WarmupOptions = {},
+		signal?: AbortSignal | null,
 	): Promise<WebGLProgramWarmupQueueResult> {
 		const pending = new Map<string, PendingWarmupHandle>();
 		const errors: WebGLProgramWarmupQueueError[] = [];
@@ -87,8 +88,10 @@ export class WebGLProgramWarmupQueue {
 		let failed = 0;
 
 		for (const item of this._sortedItems()) {
+			assertWarmupNotAborted(signal);
 			try {
 				const handles = await item.action();
+				assertWarmupNotAborted(signal);
 				for (const handle of handles) {
 					pending.set(handle.label, {
 						label: handle.label,
@@ -105,30 +108,38 @@ export class WebGLProgramWarmupQueue {
 				errors,
 				this._maxFinalizesPerSlice
 			);
+			assertWarmupNotAborted(signal);
 			compiled += progress.compiled;
 			failed += progress.failed;
 			if (progress.compiled > 0 || progress.failed > 0) {
 				await this._waitForSlice();
+				assertWarmupNotAborted(signal);
 			}
 			await yieldController.yieldIfNeeded();
+			assertWarmupNotAborted(signal);
 		}
 
 		while (pending.size > 0) {
+			assertWarmupNotAborted(signal);
 			const progress = await this._finalizeReadyHandles(
 				pending,
 				errors,
 				this._maxFinalizesPerSlice
 			);
+			assertWarmupNotAborted(signal);
 			compiled += progress.compiled;
 			failed += progress.failed;
 			if (progress.compiled === 0 && progress.failed === 0) {
 				await this._waitForSlice();
+				assertWarmupNotAborted(signal);
 				continue;
 			}
 			if (pending.size > 0) {
 				await this._waitForSlice();
+				assertWarmupNotAborted(signal);
 			}
 			await yieldController.yieldIfNeeded();
+			assertWarmupNotAborted(signal);
 		}
 
 		return {
@@ -183,6 +194,14 @@ export class WebGLProgramWarmupQueue {
 		}
 		return { compiled, failed };
 	}
+}
+
+function assertWarmupNotAborted(signal?: AbortSignal | null): void {
+	if (!signal?.aborted) return;
+	const error = new Error("WebGL program warmup was aborted.");
+	error.name = "AbortError";
+	(error as { cause?: unknown }).cause = signal.reason;
+	throw error;
 }
 
 function waitForWebGLWarmupSlice(): Promise<void> {

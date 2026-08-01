@@ -218,11 +218,23 @@ The renderer frame pipeline must preserve this logical order:
 - WebGL2 fragment prefiltering must execute outside the renderer frame graph,
   acquire backend-owned context work ownership, restore the active or idle
   WebGL baseline, and return CPU-backed HDR mip data.
-- WebGL frame lifecycle operations, backend passes, IBL prefilter work, and
-  custom render-target readback must serialize through the backend-internal
-  `WebGLContextWorkQueue`. A pass-boundary IBL request may execute within the
-  active frame ownership; work requested while a backend pass callback is
-  active must reject instead of waiting on the same frame.
+- WebGL frame lifecycle operations, backend passes, IBL prefilter work, custom
+  render-target readback, warmup, and frame-sized maintenance must serialize
+  through the backend-internal `WebGLContextWorkQueue`.
+- Frame pass and frame-end operations must reserve queue ownership before
+  waiting for pass-boundary auxiliary work. Concurrent frame operations must
+  reject instead of overlapping or silently reordering execution.
+- A pass-boundary IBL request may execute within active frame ownership. Work
+  requested while a backend pass callback is active must reject instead of
+  waiting on the same frame.
+- WebGL warmup requested at a safe active-frame boundary must execute after
+  that frame releases ownership and before the next frame begins. Warmup must
+  retain ownership across cooperative scheduling yields and must abort without
+  replay when its WebGL context generation is lost.
+- WebGL frame-sized maintenance must coalesce repeated resize requests, apply
+  only the latest dimensions, and complete before the frame-end or frame-abort
+  promise settles or the next frame begins. Context restoration must apply the
+  latest desired dimensions directly to the restored generation.
 - `Renderer` must not schedule environment SH projection or IBL prefilter work
   or expose environment IBL update APIs.
 - Applications and tools must invoke `IBLPrefilter` or

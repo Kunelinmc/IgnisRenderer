@@ -1804,6 +1804,34 @@ async function testProgramWarmupQueueReportsStaleHandles() {
 	assert.match(String(result.errors[0].error), /stale handle/);
 }
 
+async function testProgramWarmupQueueObservesAbortSignal() {
+	const controller = new AbortController();
+	let sliceCount = 0;
+	const queue = new WebGLProgramWarmupQueue({
+		waitForSlice: async () => {
+			sliceCount++;
+			controller.abort(new Error("context lost"));
+		},
+	});
+	queue.enqueue({
+		label: "pending",
+		priority: "core",
+		action: () => [{
+			label: "pending",
+			isComplete: () => false,
+			finalize: () => {
+				throw new Error("should not finalize");
+			},
+		}],
+	});
+
+	await assert.rejects(
+		queue.run({ yieldIfNeeded: async () => {} }, {}, controller.signal),
+		(error) => error?.name === "AbortError",
+	);
+	assert.equal(sliceCount, 1);
+}
+
 function testLightCollectorShadowBias() {
 	const light = new DirectionalLight();
 	const shadowMap = new ShadowMap(1024, {
@@ -3015,7 +3043,9 @@ async function testWebGLBackendWarmupDelegatesToCoordinator() {
 				},
 			},
 		},
+		restoreContextWorkBaseline() {},
 	};
+	backend._contextWorkQueue.bindContext();
 	const report = await backend.warmup({
 		viewCamera: {},
 		attachments: { width: 1, height: 1 },
@@ -3165,6 +3195,7 @@ async function run() {
 	await testProgramWarmupQueuePrioritizesCoreWork();
 	await testProgramWarmupQueueFinalizesOneProgramPerSlice();
 	await testProgramWarmupQueueReportsStaleHandles();
+	await testProgramWarmupQueueObservesAbortSignal();
 	testLightCollectorShadowBias();
 	testLightCollectorPCSSShadowParams();
 	testLightCollectorDirectionalCSMShadowData();

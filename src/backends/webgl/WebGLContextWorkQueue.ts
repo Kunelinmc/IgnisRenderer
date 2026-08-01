@@ -1,6 +1,9 @@
 import { WebGLContextWorkError } from "../../foundation/Error";
 
-export type WebGLContextWorkFramePolicy = "between-passes" | "idle-only";
+export type WebGLContextWorkFramePolicy =
+	| "between-passes"
+	| "idle-only"
+	| "idle-deferred";
 export type WebGLContextLossPolicy = "retain-pending" | "reject";
 
 export interface WebGLContextWorkScope<TServices> {
@@ -17,6 +20,14 @@ export interface WebGLContextWorkRequest<T, TServices> {
 	execute(scope: WebGLContextWorkScope<TServices>): T | Promise<T>;
 }
 
+/** @internal Keyed WebGL maintenance owned by `WebGLContextWorkQueue`. */
+export interface WebGLContextMaintenanceRequest<TServices> {
+	key: string;
+	label: string;
+	contextLossPolicy: WebGLContextLossPolicy;
+	execute(scope: WebGLContextWorkScope<TServices>): void | Promise<void>;
+}
+
 export interface WebGLContextWorkQueueOptions<TServices> {
 	resolveServices(): TServices | null;
 	restoreBaseline(
@@ -29,7 +40,14 @@ export interface WebGLContextWorkDebugSnapshot {
 	readonly state: "not-initialized" | "ready" | "context-lost" | "destroyed";
 	readonly generation: number;
 	readonly activeLabel: string | null;
-	readonly activeStage: "frame-begin" | "frame-pass" | "auxiliary" | "frame-end" | "frame-abort" | null;
+	readonly activeStage:
+		| "frame-begin"
+		| "frame-pass"
+		| "auxiliary"
+		| "maintenance"
+		| "frame-end"
+		| "frame-abort"
+		| null;
 	readonly frameState:
 		| "idle"
 		| "beginning"
@@ -52,7 +70,13 @@ interface PendingAuxiliary<T, TServices> {
 	request: WebGLContextWorkRequest<T, TServices>;
 	deferred: Deferred<T>;
 	frameId: number | null;
+	deferredOrder: number | null;
 	abortHandler: (() => void) | null;
+}
+
+interface PendingMaintenance<TServices> {
+	request: WebGLContextMaintenanceRequest<TServices>;
+	deferreds: Deferred<void>[];
 }
 
 interface PendingFrame<TServices> {
@@ -66,6 +90,12 @@ interface ActiveExecution {
 	lossDeferred: Deferred<never>;
 }
 
+interface FrameOperationReservation {
+	kind: "pass" | "end";
+	label: string;
+	token: symbol;
+}
+
 /** @internal Owned by one WebGL backend for its complete device lifetime. */
 export class WebGLContextWorkQueue<TServices> {
 	private readonly _options: WebGLContextWorkQueueOptions<TServices>;
@@ -77,9 +107,14 @@ export class WebGLContextWorkQueue<TServices> {
 	private _frameState: WebGLContextWorkDebugSnapshot["frameState"] = "idle";
 	private _frameId = 0;
 	private _pendingAuxiliary: PendingAuxiliary<unknown, TServices>[] = [];
+	private _pendingMaintenance: PendingMaintenance<TServices>[] = [];
 	private _pendingFrames: PendingFrame<TServices>[] = [];
 	private _frameBoundaryWaiters: Deferred<void>[] = [];
+	private _maintenanceWaiters: Deferred<void>[] = [];
 	private _allowAuxiliaryBeforeNextFrame = false;
+	private _nextDeferredOrder = 0;
+	private _deferredBatchCutoff: number | null = null;
+	private _frameOperationReservation: FrameOperationReservation | null = null;
 	private _scheduling = false;
 
 	public constructor(options: WebGLContextWorkQueueOptions<TServices>) {
@@ -114,6 +149,18 @@ export class WebGLContextWorkQueue<TServices> {
 			const frame = this._pendingFrames.shift()!;
 			frame.deferred.reject(new WebGLContextWorkError("context-lost", frame.label));
 		}
+		for (let index = this._pendingMaintenance.length - 1; index >= 0; index--) {
+			const item = this._pendingMaintenance[index];
+			if (item.request.contextLossPolicy !== "reject") continue;
+			this._pendingMaintenance.splice(index, 1);
+			const maintenanceError = new WebGLContextWorkError(
+				"context-lost",
+				item.request.label,
+			);
+			for (const deferred of item.deferreds) deferred.reject(maintenanceError);
+		}
+		for (const waiter of this._frameBoundaryWaiters.splice(0)) waiter.reject(error);
+		for (const waiter of this._maintenanceWaiters.splice(0)) waiter.reject(error);
 		if (this._frameState !== "idle") this._frameState = "abort-required";
 	}
 
@@ -126,11 +173,16 @@ export class WebGLContextWorkQueue<TServices> {
 		} catch (error) {
 			return Promise.reject(error);
 		}
-		if (this._frameState !== "idle" || this._pendingFrames.length > 0) {
+		if (
+			this._frameState !== "idle" ||
+			this._pendingFrames.length > 0 ||
+			this._frameOperationReservation
+		) {
 			return Promise.reject(new WebGLContextWorkError("active-frame", label));
 		}
 		const deferred = createDeferred<void>();
 		this._pendingFrames.push({ label, execute, deferred });
+		this._sealDeferredBatch();
 		this._schedule();
 		return deferred.promise;
 	}
@@ -139,22 +191,22 @@ export class WebGLContextWorkQueue<TServices> {
 		label: string,
 		execute: (scope: WebGLContextWorkScope<TServices>) => void | Promise<void>,
 	): Promise<void> {
-		this._assertReady(label);
-		if (this._frameState !== "between-passes") {
-			throw new WebGLContextWorkError(
-				this._frameState === "active-pass" ? "active-pass" : "active-frame",
-				label,
-			);
-		}
-		await this._waitForFrameBoundaryAuxiliary();
-		this._assertReady(label);
-		this._frameState = "active-pass";
+		const reservation = this._reserveFrameOperation("pass", label);
 		try {
+			await this._waitForFrameBoundaryAuxiliary();
+			this._assertReservedFrameOperation(reservation);
+			this._assertReady(label);
+			if (this._frameState !== "between-passes") {
+				throw new WebGLContextWorkError("active-frame", label);
+			}
+			this._frameState = "active-pass";
 			await this._runContextExecution("frame-pass", label, execute);
 			this._frameState = "between-passes";
 		} catch (error) {
-			this._frameState = "abort-required";
+			this._markAbortRequired();
 			throw error;
+		} finally {
+			this._releaseFrameOperation(reservation);
 		}
 	}
 
@@ -162,19 +214,23 @@ export class WebGLContextWorkQueue<TServices> {
 		label: string,
 		execute: (scope: WebGLContextWorkScope<TServices>) => void | Promise<void>,
 	): Promise<void> {
-		this._assertReady(label);
-		if (this._frameState !== "between-passes") {
-			throw new WebGLContextWorkError("active-frame", label);
-		}
-		await this._waitForFrameBoundaryAuxiliary();
-		this._assertReady(label);
-		this._frameState = "ending";
+		const reservation = this._reserveFrameOperation("end", label);
 		try {
+			await this._waitForFrameBoundaryAuxiliary();
+			this._assertReservedFrameOperation(reservation);
+			this._assertReady(label);
+			if (this._frameState !== "between-passes") {
+				throw new WebGLContextWorkError("active-frame", label);
+			}
+			this._frameState = "ending";
 			await this._runContextExecution("frame-end", label, execute);
 			this._releaseFrame();
+			await this._waitForMaintenance();
 		} catch (error) {
-			this._frameState = "abort-required";
+			this._markAbortRequired();
 			throw error;
+		} finally {
+			this._releaseFrameOperation(reservation);
 		}
 	}
 
@@ -184,6 +240,11 @@ export class WebGLContextWorkQueue<TServices> {
 	): Promise<void> {
 		this._assertNotDestroyed(label);
 		if (this._frameState === "idle") return;
+		this._frameOperationReservation = null;
+		const reservationError = new WebGLContextWorkError("active-frame", label);
+		for (const waiter of this._frameBoundaryWaiters.splice(0)) {
+			waiter.reject(reservationError);
+		}
 		this._frameState = "aborting";
 		this._activeLabel = label;
 		this._activeStage = "frame-abort";
@@ -197,6 +258,7 @@ export class WebGLContextWorkQueue<TServices> {
 			this._activeStage = null;
 			this._releaseFrame();
 		}
+		await this._waitForMaintenance();
 		if (error) throw error;
 	}
 
@@ -230,7 +292,12 @@ export class WebGLContextWorkQueue<TServices> {
 		const item: PendingAuxiliary<T, TServices> = {
 			request,
 			deferred,
-			frameId: this._frameState === "idle" ? null : this._frameId,
+			frameId:
+				request.framePolicy === "idle-deferred" || this._frameState === "idle" ?
+					null
+				: this._frameId,
+			deferredOrder:
+				request.framePolicy === "idle-deferred" ? this._nextDeferredOrder++ : null,
 			abortHandler: null,
 		};
 		if (request.signal) {
@@ -242,11 +309,47 @@ export class WebGLContextWorkQueue<TServices> {
 					this._pendingAuxiliary.splice(index, 1);
 					deferred.reject(createAbortError(request.signal?.reason));
 					this._notifyFrameBoundary();
+					this._schedule();
 				}
 			};
 			request.signal.addEventListener("abort", item.abortHandler, { once: true });
 		}
 		this._pendingAuxiliary.push(item as PendingAuxiliary<unknown, TServices>);
+		this._schedule();
+		return deferred.promise;
+	}
+
+	/**
+	 * Coalesces pending maintenance by key and executes the latest request while idle.
+	 *
+	 * @internal WebGL backend lifecycle coordination only.
+	 */
+	public enqueueMaintenance(
+		request: WebGLContextMaintenanceRequest<TServices>,
+	): Promise<void> {
+		try {
+			this._assertNotDestroyed(request.label);
+			if (this._state === "not-initialized") {
+				throw new WebGLContextWorkError("not-initialized", request.label);
+			}
+			if (this._state === "context-lost" && request.contextLossPolicy === "reject") {
+				throw new WebGLContextWorkError("context-lost", request.label);
+			}
+		} catch (error) {
+			return Promise.reject(error);
+		}
+
+		const deferred = createDeferred<void>();
+		const pending = this._pendingMaintenance.find(
+			(item) => item.request.key === request.key,
+		);
+		if (pending) {
+			// Every caller observes completion of the one latest-wins operation.
+			pending.request = request;
+			pending.deferreds.push(deferred);
+		} else {
+			this._pendingMaintenance.push({ request, deferreds: [deferred] });
+		}
 		this._schedule();
 		return deferred.promise;
 	}
@@ -263,10 +366,17 @@ export class WebGLContextWorkQueue<TServices> {
 			this._detachAbort(item);
 			item.deferred.reject(new WebGLContextWorkError("destroyed", item.request.label));
 		}
+		for (const item of this._pendingMaintenance.splice(0)) {
+			for (const deferred of item.deferreds) {
+				deferred.reject(new WebGLContextWorkError("destroyed", item.request.label));
+			}
+		}
 		for (const frame of this._pendingFrames.splice(0)) {
 			frame.deferred.reject(new WebGLContextWorkError("destroyed", frame.label));
 		}
 		for (const waiter of this._frameBoundaryWaiters.splice(0)) waiter.reject(error);
+		for (const waiter of this._maintenanceWaiters.splice(0)) waiter.reject(error);
+		this._frameOperationReservation = null;
 		this._frameState = "idle";
 	}
 
@@ -306,7 +416,34 @@ export class WebGLContextWorkQueue<TServices> {
 		}
 		if (this._frameState !== "idle") return;
 
-		const auxiliary = this._pendingAuxiliary.find((candidate) => candidate.frameId === null);
+		const maintenance = this._pendingMaintenance[0];
+		if (maintenance) {
+			this._pendingMaintenance.shift();
+			await this._runMaintenance(maintenance);
+			this._schedule();
+			return;
+		}
+		this._notifyMaintenance();
+
+		const deferredAuxiliary = this._findEligibleDeferredAuxiliary();
+		if (deferredAuxiliary) {
+			this._removeAuxiliary(deferredAuxiliary);
+			await this._runAuxiliary(deferredAuxiliary, false);
+			this._schedule();
+			return;
+		}
+		if (this._deferredBatchCutoff !== null) {
+			this._deferredBatchCutoff = null;
+			if (this._pendingFrames.length === 0) {
+				this._schedule();
+				return;
+			}
+		}
+
+		const auxiliary = this._pendingAuxiliary.find(
+			(candidate) =>
+				candidate.frameId === null && candidate.request.framePolicy !== "idle-deferred",
+		);
 		const frame = this._pendingFrames[0];
 		if (auxiliary && (!frame || this._allowAuxiliaryBeforeNextFrame)) {
 			this._allowAuxiliaryBeforeNextFrame = false;
@@ -325,7 +462,7 @@ export class WebGLContextWorkQueue<TServices> {
 				frame.deferred.resolve();
 				this._schedule();
 			} catch (error) {
-				this._frameState = "abort-required";
+				this._markAbortRequired();
 				frame.deferred.reject(error);
 			}
 			return;
@@ -334,6 +471,27 @@ export class WebGLContextWorkQueue<TServices> {
 			this._removeAuxiliary(auxiliary);
 			await this._runAuxiliary(auxiliary, false);
 			this._schedule();
+		}
+	}
+
+	private async _runMaintenance(item: PendingMaintenance<TServices>): Promise<void> {
+		try {
+			await this._runContextExecution(
+				"maintenance",
+				item.request.label,
+				async (scope) => {
+					try {
+						await item.request.execute(scope);
+					} finally {
+						await this._options.restoreBaseline(scope, false);
+					}
+				},
+			);
+			for (const deferred of item.deferreds) deferred.resolve();
+		} catch (error) {
+			for (const deferred of item.deferreds) deferred.reject(error);
+		} finally {
+			this._notifyMaintenance();
 		}
 	}
 
@@ -370,6 +528,12 @@ export class WebGLContextWorkQueue<TServices> {
 		userSignal?: AbortSignal | null,
 	): Promise<T> {
 		this._assertReady(label);
+		if (this._activeExecution) {
+			throw new WebGLContextWorkError(
+				this._frameState === "active-pass" ? "active-pass" : "active-frame",
+				label,
+			);
+		}
 		const services = this._options.resolveServices();
 		if (!services) throw new WebGLContextWorkError("not-initialized", label);
 		const controller = new AbortController();
@@ -393,15 +557,28 @@ export class WebGLContextWorkQueue<TServices> {
 		try {
 			return await Promise.race([execution, lossDeferred.promise]);
 		} finally {
-			void execution.catch(() => undefined).finally(() => {
-				if (abortHandler) userSignal?.removeEventListener("abort", abortHandler);
-				if (this._activeExecution !== active) return;
-				this._activeExecution = null;
-				this._activeLabel = null;
-				this._activeStage = null;
-				this._schedule();
-			});
+			if (controller.signal.aborted) {
+				void execution.catch(() => undefined).finally(() => {
+					this._clearActiveExecution(active, userSignal, abortHandler);
+				});
+			} else {
+				this._clearActiveExecution(active, userSignal, abortHandler);
+			}
 		}
+	}
+
+	private _clearActiveExecution(
+		active: ActiveExecution,
+		userSignal?: AbortSignal | null,
+		abortHandler?: (() => void) | null,
+	): void {
+		if (abortHandler) userSignal?.removeEventListener("abort", abortHandler);
+		if (this._activeExecution !== active) return;
+		this._activeExecution = null;
+		this._activeLabel = null;
+		this._activeStage = null;
+		this._notifyMaintenance();
+		this._schedule();
 	}
 
 	private async _waitForFrameBoundaryAuxiliary(): Promise<void> {
@@ -421,6 +598,28 @@ export class WebGLContextWorkQueue<TServices> {
 		for (const waiter of this._frameBoundaryWaiters.splice(0)) waiter.resolve();
 	}
 
+	private async _waitForMaintenance(): Promise<void> {
+		while (
+			this._pendingMaintenance.length > 0 ||
+			this._activeStage === "maintenance"
+		) {
+			const waiter = createDeferred<void>();
+			this._maintenanceWaiters.push(waiter);
+			this._schedule();
+			await waiter.promise;
+		}
+	}
+
+	private _notifyMaintenance(): void {
+		if (
+			this._pendingMaintenance.length > 0 ||
+			this._activeStage === "maintenance"
+		) {
+			return;
+		}
+		for (const waiter of this._maintenanceWaiters.splice(0)) waiter.resolve();
+	}
+
 	private _releaseFrame(): void {
 		for (let index = this._pendingAuxiliary.length - 1; index >= 0; index--) {
 			const item = this._pendingAuxiliary[index];
@@ -428,8 +627,63 @@ export class WebGLContextWorkQueue<TServices> {
 		}
 		this._frameState = "idle";
 		this._allowAuxiliaryBeforeNextFrame = true;
+		this._sealDeferredBatch();
 		this._notifyFrameBoundary();
 		this._schedule();
+	}
+
+	private _findEligibleDeferredAuxiliary(): PendingAuxiliary<unknown, TServices> | null {
+		for (const item of this._pendingAuxiliary) {
+			if (item.request.framePolicy !== "idle-deferred") continue;
+			if (
+				this._deferredBatchCutoff !== null &&
+				item.deferredOrder !== null &&
+				item.deferredOrder > this._deferredBatchCutoff
+			) {
+				continue;
+			}
+			return item;
+		}
+		return null;
+	}
+
+	private _sealDeferredBatch(): void {
+		// Capture an order cutoff so arrivals during this drain wait for the next frame.
+		this._deferredBatchCutoff = this._nextDeferredOrder - 1;
+	}
+
+	private _reserveFrameOperation(
+		kind: FrameOperationReservation["kind"],
+		label: string,
+	): FrameOperationReservation {
+		this._assertReady(label);
+		if (this._frameOperationReservation) {
+			throw new WebGLContextWorkError(kind === "pass" ? "active-pass" : "active-frame", label);
+		}
+		if (this._frameState !== "between-passes") {
+			throw new WebGLContextWorkError(
+				this._frameState === "active-pass" ? "active-pass" : "active-frame",
+				label,
+			);
+		}
+		const reservation = { kind, label, token: Symbol(label) };
+		this._frameOperationReservation = reservation;
+		return reservation;
+	}
+
+	private _assertReservedFrameOperation(reservation: FrameOperationReservation): void {
+		if (this._frameOperationReservation?.token === reservation.token) return;
+		throw new WebGLContextWorkError("active-frame", reservation.label);
+	}
+
+	private _releaseFrameOperation(reservation: FrameOperationReservation): void {
+		if (this._frameOperationReservation?.token !== reservation.token) return;
+		this._frameOperationReservation = null;
+	}
+
+	private _markAbortRequired(): void {
+		if (this._state === "destroyed" || this._frameState === "idle") return;
+		this._frameState = "abort-required";
 	}
 
 	private _removeAuxiliary(item: PendingAuxiliary<unknown, TServices>): void {

@@ -59,6 +59,7 @@ export class WebGLWarmupCoordinator {
 		plan: WarmupPlan,
 		options: WarmupOptions = {},
 		postProcessPlan?: PostProcessPlan,
+		signal?: AbortSignal | null,
 	): Promise<WarmupPhaseCounters> {
 		const yieldController = createWarmupYieldController(options);
 		const queue = new WebGLProgramWarmupQueue();
@@ -183,7 +184,7 @@ export class WebGLWarmupCoordinator {
 			this._services.getPrograms().warmupPresentProgram(),
 		);
 
-		const result = await queue.run(yieldController, options);
+		const result = await queue.run(yieldController, options, signal);
 		return {
 			phase: "webgl-programs",
 			total: result.handles + result.enqueueFailures,
