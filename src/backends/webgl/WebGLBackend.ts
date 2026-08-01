@@ -20,7 +20,9 @@ import type {
 	RenderTargetReadbackOptions,
 	RenderTargetReadbackResult,
 } from "../../rendering/CustomRenderTargets";
-import { WebGLFrameServiceOwner } from "./WebGLFrameServiceOwner";
+import type { WebGLFrameServiceOwner } from "./WebGLFrameServiceOwner";
+import { WebGLContextServiceOwner } from "./WebGLContextServiceOwner";
+import { WebGLBackendExtensionOwner } from "./WebGLBackendExtensions";
 import { WebGLFrameGraphRuntime } from "./rendergraph/WebGLFrameGraphRuntime";
 import { WebGLPostProcessExecutor } from "./WebGLPostProcessExecutor";
 import { BackendPostProcessRuntime } from "../../postprocess/BackendPostProcessRuntime";
@@ -57,9 +59,8 @@ import {
 	FramePassPlanValidator,
 	type FramePassPlanValidatorState,
 } from "../../pipeline/FramePassPlanValidator";
-import {
-	createRenderBackendExtensionRegistry,
-} from "../BackendExtensions";
+import type { RenderBackendExtensionRegistry } from "../BackendExtensions";
+import { WebGLContextWorkQueue } from "./WebGLContextWorkQueue";
 import {
 	DEFAULT_DISPLAY_OUTPUT_OPTIONS,
 	displayOutputStatesEqual,
@@ -104,7 +105,7 @@ export class WebGLBackend implements IRenderBackend {
 				onceKey: key,
 			}),
 	});
-	public readonly extensions = createRenderBackendExtensionRegistry([]);
+	public readonly extensions: RenderBackendExtensionRegistry;
 	public readonly profile: RenderBackendProfile = {
 		id: "webgl",
 		capabilities: {
@@ -138,7 +139,7 @@ export class WebGLBackend implements IRenderBackend {
 	private readonly _options: WebGLBackendOptions;
 	private _canvas: HTMLCanvasElement | null = null;
 	private _gl: WebGL2RenderingContext | null = null;
-	private _frameServices: WebGLFrameServiceOwner | null = null;
+	private _contextServices: WebGLContextServiceOwner | null = null;
 	private _frameGraphRuntime: WebGLFrameGraphRuntime | null = null;
 	private _particleSimulator: DefaultParticleSimulator | null = null;
 	private _activeContext: FrameContext | null = null;
@@ -158,9 +159,24 @@ export class WebGLBackend implements IRenderBackend {
 	private _displayOutputState = resolveSDROnlyDisplayOutput(
 		DEFAULT_DISPLAY_OUTPUT_OPTIONS,
 	);
+	private readonly _contextWorkQueue =
+		new WebGLContextWorkQueue<WebGLContextServiceOwner>({
+		resolveServices: () => this._contextServices,
+		restoreBaseline: (scope) => scope.services.restoreContextWorkBaseline(),
+	});
+	private readonly _extensionOwner: WebGLBackendExtensionOwner;
+
+	private get _frameServices(): WebGLFrameServiceOwner | null {
+		return this._contextServices?.frame ?? null;
+	}
 
 	constructor(options: WebGLBackendOptions = {}) {
 		this._options = options;
+		this._extensionOwner = new WebGLBackendExtensionOwner({
+			contextWorkQueue: this._contextWorkQueue,
+			resolveContextServices: () => this._contextServices,
+		});
+		this.extensions = this._extensionOwner.registry;
 		const shaderMode = options.shaderMode ?? "warn";
 		this.shaderRuntime = new ShaderRuntime({
 			mode: shaderMode,
@@ -356,6 +372,7 @@ export class WebGLBackend implements IRenderBackend {
 			return;
 		}
 		this._contextLost = true;
+		this._contextWorkQueue.suspend();
 		this._frameGraphRuntime?.abortGraphAnalysis?.(info);
 		const detail =
 			typeof info?.message === "string" && info.message.length > 0 ? `: ${info.message}` : "";
@@ -393,47 +410,42 @@ export class WebGLBackend implements IRenderBackend {
 		};
 	}
 
-	public beginFrame(context: FrameContext): void {
+	public beginFrame(context: FrameContext): Promise<void> {
 		this._completedFrameCoverage = "full-frame";
 		if (!this._frameServices || !this._frameGraphRuntime) {
-			throw new Error("WebGL backend has not been initialized.");
+			return Promise.reject(new Error("WebGL backend has not been initialized."));
 		}
-		if (this._contextLost) {
-			return;
-		}
-		this._executedPasses.clear();
-		this._activeContext = context;
-		this._prepareFramePassPlan(context);
-		this._particleSimulator?.beginFrame(context);
-		this._frameGraphRuntime.beginFrame(context);
+		return this._contextWorkQueue.beginFrame("frame-begin", () => {
+			this._executedPasses.clear();
+			this._activeContext = context;
+			this._prepareFramePassPlan(context);
+			this._particleSimulator?.beginFrame(context);
+			this._frameGraphRuntime!.beginFrame(context);
+		});
 	}
 
-	public executePass(pass: FramePass, context: FrameContext): void | Promise<void> {
+	public executePass(pass: FramePass, context: FrameContext): Promise<void> {
 		if (!this._frameServices || !this._frameGraphRuntime) {
-			throw new Error("WebGL backend has not been initialized.");
+			return Promise.reject(new Error("WebGL backend has not been initialized."));
 		}
-		if (this._contextLost) {
-			return;
-		}
-		this._validatePassDependencies(pass);
-		if (pass.stage === "particle-sim") {
-			this._frameGraphRuntime.recordOpaqueGraphStage?.(
-				pass.stage,
-				"Particle simulation executes outside the logical frame graph.",
-			);
-			this._particleSimulator?.simulate(context, this._resolveParticleDeltaTime(context));
-			this._particleSimulator?.emitRenderBatches(context);
-			this._markPassExecuted(pass.stage);
-			return;
-		}
-		const result = this._frameGraphRuntime.executePass(pass, context);
-		if (result && typeof (result as Promise<void>).then === "function") {
-			return (result as Promise<void>).then(() => {
+		return this._contextWorkQueue.runFramePass(`frame-pass:${pass.stage}`, async () => {
+			this._validatePassDependencies(pass);
+			if (pass.stage === "particle-sim") {
+				this._frameGraphRuntime!.recordOpaqueGraphStage?.(
+					pass.stage,
+					"Particle simulation executes outside the logical frame graph.",
+				);
+				this._particleSimulator?.simulate(
+					context,
+					this._resolveParticleDeltaTime(context),
+				);
+				this._particleSimulator?.emitRenderBatches(context);
 				this._markPassExecuted(pass.stage);
-			});
-		}
-		this._markPassExecuted(pass.stage);
-		return result;
+				return;
+			}
+			await this._frameGraphRuntime!.executePass(pass, context);
+			this._markPassExecuted(pass.stage);
+		});
 	}
 
 	public skipPass(pass: FramePass): void {
@@ -445,47 +457,42 @@ export class WebGLBackend implements IRenderBackend {
 		attachmentIndex?: number,
 		options?: RenderTargetReadbackOptions,
 	): Promise<RenderTargetReadbackResult> {
-		if (!this._frameServices) {
-			return Promise.reject(new Error("WebGL backend has not been initialized."));
-		}
-		return this._frameServices.readCustomRenderTargetColor(id, attachmentIndex, options);
+		return this._contextWorkQueue.enqueue({
+			label: `render-target-readback:${id}`,
+			framePolicy: "idle-only",
+			contextLossPolicy: "reject",
+			execute: (scope) =>
+				scope.services.frame.readCustomRenderTargetColor(
+					id,
+					attachmentIndex,
+					options,
+				),
+		});
 	}
 
-	public endFrame(): void {
-		if (!this._frameServices || !this._frameGraphRuntime || this._contextLost) {
-			return;
+	public endFrame(): Promise<void> {
+		if (!this._frameServices || !this._frameGraphRuntime) {
+			return Promise.reject(new Error("WebGL backend has not been initialized."));
 		}
 		const context = this._activeContext;
 		if (!context) {
-			throw new Error("WebGL backend cannot end a frame before beginFrame.");
+			return Promise.reject(
+				new Error("WebGL backend cannot end a frame before beginFrame."),
+			);
 		}
-		const finish = () => {
+		return this._contextWorkQueue.endFrame("frame-end", async () => {
 			try {
+				await this._frameGraphRuntime!.endFrame(context);
 				this._particleSimulator?.endFrame();
 				this._postProcessRuntime.commitFrame();
-				this._frameGraphRuntime.commitGraphAnalysis?.();
+				this._frameGraphRuntime!.commitGraphAnalysis?.();
 				this._frameServices?.commitTemporalFrame?.();
 				this._activeContext = null;
 			} catch (error) {
-				this._frameGraphRuntime.abortGraphAnalysis?.(error);
+				this._frameGraphRuntime!.abortGraphAnalysis?.(error);
 				throw error;
 			}
-		};
-		let result: void | Promise<void>;
-		try {
-			result = this._frameGraphRuntime.endFrame(context);
-		} catch (error) {
-			this._frameGraphRuntime.abortGraphAnalysis?.(error);
-			throw error;
-		}
-		if (result && typeof (result as Promise<void>).then === "function") {
-			void (result as Promise<void>).then(finish).catch((error) => {
-				this._frameGraphRuntime?.abortGraphAnalysis?.(error);
-				throw error;
-			});
-			return;
-		}
-		finish();
+		});
 	}
 
 	/** @internal Renderer frame-coordination coverage report. */
@@ -494,31 +501,30 @@ export class WebGLBackend implements IRenderBackend {
 	}
 
 	public async abortFrame(_error?: unknown): Promise<void> {
-		if (this._contextLost) {
+		await this._contextWorkQueue.abortFrame("frame-abort", async () => {
+			let abortError: unknown = null;
+			try {
+				await this._postProcessRuntime.abortFrame(_error);
+			} catch (error) {
+				abortError = error;
+			}
+			try {
+				this._frameGraphRuntime?.abortFrame(_error);
+			} catch (error) {
+				abortError ??= error;
+			}
+			try {
+				this._particleSimulator?.endFrame();
+			} catch (error) {
+				abortError ??= error;
+			}
 			this._frameGraphRuntime?.abortGraphAnalysis?.(_error);
-			return;
-		}
-		let abortError: unknown = null;
-		try {
-			await this._postProcessRuntime.abortFrame(_error);
-		} catch (error) {
-			abortError = error;
-		}
-		try {
-			this._frameGraphRuntime?.abortFrame(_error);
-		} catch (error) {
-			abortError ??= error;
-		}
-		try {
-			this._particleSimulator?.endFrame();
-		} catch (error) {
-			abortError ??= error;
-		}
-		this._activeContext = null;
-		this._executedPasses.clear();
-		this._plannedPasses.clear();
-		this._plannedPassOrder.clear();
-		if (abortError) throw abortError;
+			this._activeContext = null;
+			this._executedPasses.clear();
+			this._plannedPasses.clear();
+			this._plannedPassOrder.clear();
+			if (abortError) throw abortError;
+		});
 	}
 
 	public async warmup(context: FrameContext, options: WarmupOptions = {}): Promise<WarmupReport> {
@@ -562,9 +568,10 @@ export class WebGLBackend implements IRenderBackend {
 	}
 
 	public destroy(): void {
+		this._contextWorkQueue.destroy();
 		this._postProcessRuntime.destroy();
-		this._frameServices?.destroy();
-		this._frameServices = null;
+		this._contextServices?.destroy();
+		this._contextServices = null;
 		this._frameGraphRuntime = null;
 		this._particleSimulator = null;
 		this._gl = null;
@@ -611,8 +618,8 @@ export class WebGLBackend implements IRenderBackend {
 
 		this._gl = gl;
 		this._postProcessRuntime.destroy();
-		this._frameServices?.destroy();
-		this._frameServices = new WebGLFrameServiceOwner(
+		this._contextServices?.destroy();
+		this._contextServices = new WebGLContextServiceOwner(
 			gl,
 			this.shaderRuntime,
 			this._shaderCompileStage,
@@ -624,13 +631,15 @@ export class WebGLBackend implements IRenderBackend {
 				postProcessRuntime: this._postProcessRuntime,
 			},
 		);
+		const frameServices = this._contextServices.frame;
 		this._frameGraphRuntime = new WebGLFrameGraphRuntime(
-			this._frameServices,
+			frameServices,
 			this._postProcessRuntime,
 		);
 		this._contextLost = false;
-		this._frameServices.resize(this._width, this._height);
+		frameServices.resize(this._width, this._height);
 		this._debugInfo = this._createDebugInfo(gl);
+		this._contextWorkQueue.bindContext();
 	}
 
 	private _createDebugInfo(gl: WebGL2RenderingContext): RenderBackendDebugInfo {

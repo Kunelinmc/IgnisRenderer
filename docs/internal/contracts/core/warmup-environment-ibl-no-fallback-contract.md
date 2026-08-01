@@ -1,15 +1,19 @@
 # Warmup Environment IBL Contract
+
 ## Scope
+
 This document defines the `Renderer.warmup()` contract for environment IBL.
 The contract covers warmup side effects, fallback behavior, and migration to
 standalone SH projection and `IBLPrefilter`.
 
 ## Background
+
 Environment IBL prefiltering is now an explicit application or tooling step.
 Warmup prepares renderer/backend resources only; it must not derive lighting
 probe data from `Environment.iblTexture`.
 
 ## API/Contract
+
 - `WarmupOptions` must not expose `allowEnvironmentSpecularFallback`.
 - `WarmupOptions` must not expose `includeEnvironmentIBLBake`.
 - `WarmupOptions` must not expose `environmentIBLBake`.
@@ -25,6 +29,7 @@ probe data from `Environment.iblTexture`.
   `ReflectionProbe.prefilteredMap`.
 
 ## Usage
+
 ```ts
 await renderer.warmup();
 ```
@@ -36,7 +41,7 @@ const sh = projectEnvironmentTextureToSH(environmentTexture, {
 });
 
 const prefilteredMap = await prefilterEnvironmentIBL(environmentTexture, {
-	backend: webgpuBackend,
+	service: { backend: webgpuBackend },
 	acceleration: "auto",
 	maxSampleWidth: 128,
 	maxSampleHeight: 64,
@@ -52,6 +57,7 @@ bun tests/static/renderer/test_renderer_warmup_lightprobe.mjs
 ```
 
 ## Errors & Diagnostics
+
 - `Renderer.warmup()` must not emit environment SH projection or IBL prefilter
   progress events.
 - `Renderer.warmup()` must not warn when `environment.iblTexture` is missing,
@@ -62,6 +68,7 @@ bun tests/static/renderer/test_renderer_warmup_lightprobe.mjs
   `prefilterEnvironmentIBL`, not from `Renderer.warmup()`.
 
 ## Compatibility / Breaking Changes
+
 This change is breaking.
 `WarmupOptions.includeEnvironmentIBLBake` and
 `WarmupOptions.environmentIBLBake` are removed. Consumers must invoke

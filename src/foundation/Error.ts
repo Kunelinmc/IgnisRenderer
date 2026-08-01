@@ -169,6 +169,40 @@ export class WebGPUFramePartialSubmitError extends Error {
 	}
 }
 
+export type WebGLContextWorkErrorCode =
+	| "not-initialized"
+	| "active-frame"
+	| "active-pass"
+	| "context-lost"
+	| "destroyed";
+
+/** @internal Used by the WebGL backend context work scheduler. */
+export class WebGLContextWorkError extends Error {
+	public readonly code: WebGLContextWorkErrorCode;
+
+	public constructor(code: WebGLContextWorkErrorCode, label?: string) {
+		const suffix = label && label.length > 0 ? ` [${label}]` : "";
+		super(buildWebGLContextWorkErrorMessage(code) + suffix);
+		this.name = "WebGLContextWorkError";
+		this.code = code;
+	}
+}
+
+function buildWebGLContextWorkErrorMessage(code: WebGLContextWorkErrorCode): string {
+	switch (code) {
+		case "not-initialized":
+			return "WebGL context work queue has not been initialized.";
+		case "active-frame":
+			return "WebGL context work requires an idle frame.";
+		case "active-pass":
+			return "WebGL context work cannot be requested from an active backend pass.";
+		case "context-lost":
+			return "WebGL context was lost before the work completed.";
+		case "destroyed":
+			return "WebGL context work queue has been destroyed.";
+	}
+}
+
 export function mapShaderCompilerMessages(
 	messages: readonly ShaderCompilerMessage[],
 	code: string,

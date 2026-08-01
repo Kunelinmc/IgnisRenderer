@@ -566,7 +566,7 @@ export function buildReflectionProbeAtlasTexture(
 	});
 	atlas.wrapS = "Clamp";
 	atlas.wrapT = "Clamp";
-	atlas.minFilter = "Linear";
+	atlas.minFilter = mipCount > 1 ? "LinearMipmapLinear" : "Linear";
 	atlas.magFilter = "Linear";
 	atlas.mipmaps = atlasMipmaps;
 	atlas.data = atlasMipmaps[0] as Texture["data"];

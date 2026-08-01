@@ -1,16 +1,20 @@
 # Environment IBL Renderer Update Removal Contract
+
 ## Scope
+
 This document defines the removal contract for Renderer-owned environment IBL
 runtime updates. The contract covers removed APIs, renderer pipeline behavior,
 and the replacement path through standalone SH projection and `IBLPrefilter`.
 
 ## Background
+
 Environment IBL update work previously lived in `Renderer` and could be driven
 incrementally from scene environment changes. That ownership made prefiltering
 depend on frame scheduling and backend selection inside `Renderer`. Environment
 IBL prefiltering is now an explicit operation owned by applications or tooling.
 
 ## API/Contract
+
 - `Renderer.setEnvironmentIBLUpdateOptions(options)` must not exist.
 - `Renderer.getEnvironmentIBLUpdateOptions()` must not exist.
 - `Renderer.requestEnvironmentIBLUpdate()` must not exist.
@@ -29,6 +33,7 @@ IBL prefiltering is now an explicit operation owned by applications or tooling.
   the target probes explicitly.
 
 ## Usage
+
 ```ts
 const sh = projectEnvironmentTextureToSH(environmentTexture, {
 	maxSampleWidth: 128,
@@ -40,7 +45,7 @@ for (const lightProbe of environmentLightProbes) {
 }
 
 const prefilteredMap = await prefilterEnvironmentIBL(environmentTexture, {
-	backend: webgpuBackend,
+	service: { backend: webgpuBackend },
 	acceleration: "auto",
 	maxSampleWidth: 128,
 	maxSampleHeight: 64,
@@ -60,6 +65,7 @@ bun tests/static/lighting/test_ibl_prefilter.mjs
 ```
 
 ## Errors & Diagnostics
+
 - Renderer frame execution must not emit `environment-ibl` or
   `environment-ibl-complete` dirty reasons.
 - Environment SH projection failures must be surfaced by
@@ -70,6 +76,7 @@ bun tests/static/lighting/test_ibl_prefilter.mjs
   dirty reason such as `lighting`.
 
 ## Compatibility / Breaking Changes
+
 This change is breaking. Renderer-owned environment IBL update APIs, the
 `environment-ibl-update` pipeline stage, `bakeEnvironmentIBLFromEnvironmentMap`,
 and `EnvironmentIBLBake*` types are removed. Consumers must migrate to explicit

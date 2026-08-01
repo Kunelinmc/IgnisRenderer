@@ -1,8 +1,28 @@
 import assert from "node:assert/strict";
 import { Logger } from "../../../src/foundation/Logger.ts";
 import { WebGLBackend } from "../../../src/backends/webgl/WebGLBackend.ts";
+import { IBL_PREFILTER_EXECUTOR_EXTENSION } from "../../../src/backends/BackendExtensions.ts";
 import { PARTICLE_SIM_DELTA_TIME_SECONDS_KEY } from "../../../src/pipeline/types.ts";
 import { createResolvedPostProcess } from "../../helpers/postprocess.mjs";
+
+function installFrameServices(backend, frame) {
+	backend._contextServices = {
+		frame,
+		iblPrefilter: {
+			getAvailability: () => ({
+				state: "unsupported",
+				acceptsRequests: false,
+				reason: "not used by this test",
+			}),
+		},
+		restoreContextWorkBaseline() {
+			frame.restoreContextWorkBaseline?.();
+		},
+		destroy() {
+			frame.destroy?.();
+		},
+	};
+}
 
 function createFakeWebGL2Context(options = {}) {
 	const debugInfo = options.debugRendererInfo;
@@ -94,6 +114,7 @@ function createFakeWebGL2Context(options = {}) {
 					UNMASKED_RENDERER_WEBGL: debugInfo.UNMASKED_RENDERER_WEBGL,
 				};
 			}
+			if (supportedExtensions.includes(name)) return {};
 			return null;
 		},
 		getSupportedExtensions() {
@@ -295,14 +316,14 @@ async function testInitAndPassRouting() {
 	assert.equal("postProcessCapabilities" in backend, false);
 
 	const calls = [];
-	backend._frameServices = {
+	installFrameServices(backend, {
 		resize(width, height) {
 			calls.push(["resize", width, height]);
 		},
 		destroy() {
 			calls.push(["destroy"]);
 		},
-	};
+	});
 	backend._frameGraphRuntime = {
 		beginFrame(context) {
 			calls.push(["begin", context]);
@@ -325,16 +346,16 @@ async function testInitAndPassRouting() {
 	};
 
 	backend.resize({ width: 800, height: 600 });
-	backend.beginFrame({ frameId: 1 });
-	backend.executePass({ stage: "main-opaque" }, { frameId: 1 });
-	backend.executePass(
+	await backend.beginFrame({ frameId: 1 });
+	await backend.executePass({ stage: "main-opaque" }, { frameId: 1 });
+	await backend.executePass(
 		{ stage: "particle-sim" },
 		{ transient: new Map([["pipeline:particle-delta-time-seconds", 0.016]]) }
 	);
-	backend.executePass({ stage: "particles" }, { frameId: 1 });
-	backend.executePass({ stage: "shadow" }, { frameId: 1 });
-	backend.executePass({ stage: "shadow" }, { frameId: 1 });
-	backend.endFrame();
+	await backend.executePass({ stage: "particles" }, { frameId: 1 });
+	await backend.executePass({ stage: "shadow" }, { frameId: 1 });
+	await backend.executePass({ stage: "shadow" }, { frameId: 1 });
+	await backend.endFrame();
 	backend.destroy();
 
 	assert.deepEqual(calls, [
@@ -454,6 +475,35 @@ async function testContextLostAndRestored() {
 	);
 }
 
+async function testIBLPrefilterExecutorExtensionPersistsAcrossContextRestore() {
+	const requiredExtensions = [
+		"EXT_color_buffer_float",
+		"OES_texture_float_linear",
+	];
+	const canvas = createFakeCanvas(
+		createFakeWebGL2Context({ supportedExtensions: requiredExtensions }),
+	);
+	const backend = createWebGLSession({}, canvas);
+	const facade = backend.extensions.getBackendExtension(
+		IBL_PREFILTER_EXECUTOR_EXTENSION,
+	);
+	assert.ok(facade);
+	assert.equal(facade.getAvailability().state, "temporarily-unavailable");
+
+	await backend.initialize();
+	assert.equal(facade.getAvailability().state, "ready");
+	backend.onDeviceLost({ reason: "test" });
+	assert.equal(facade.getAvailability().state, "temporarily-unavailable");
+	backend.restore();
+	assert.strictEqual(
+		backend.extensions.getBackendExtension(
+			IBL_PREFILTER_EXECUTOR_EXTENSION,
+		),
+		facade,
+	);
+	assert.equal(facade.getAvailability().state, "ready");
+}
+
 async function testPublicLifecycleMethods() {
 	const canvas = createFakeCanvas(createFakeWebGL2Context());
 	const backend = createWebGLSession({}, canvas);
@@ -542,13 +592,13 @@ function createDependencyContext() {
 	};
 }
 
-function testBackendPlanOmitsRendererOwnedPostProcessStage() {
+async function testBackendPlanOmitsRendererOwnedPostProcessStage() {
 	const backend = createWebGLSession({}, {});
 	const context = createDependencyContext();
-	backend._frameServices = {
+	installFrameServices(backend, {
 		resize() {},
 		destroy() {},
-	};
+	});
 	backend._frameGraphRuntime = {
 		beginFrame() {},
 		executePass() {},
@@ -561,10 +611,64 @@ function testBackendPlanOmitsRendererOwnedPostProcessStage() {
 		emitRenderBatches() {},
 		endFrame() {},
 	};
+	backend._contextWorkQueue.bindContext();
 
-	backend.beginFrame(context);
+	await backend.beginFrame(context);
 	assert.equal(backend._plannedPasses.has("postprocess"), false);
 	assert.equal(backend._plannedPassOrder.has("postprocess"), false);
+	await backend.abortFrame();
+	backend.destroy();
+}
+
+async function testEndFramePromiseAndReadbackScheduling() {
+	const backend = createWebGLSession({}, {});
+	const context = createDependencyContext();
+	let resolveEnd;
+	const endGate = new Promise((resolve) => {
+		resolveEnd = resolve;
+	});
+	let readbackCalls = 0;
+	installFrameServices(backend, {
+		readCustomRenderTargetColor: async () => {
+			readbackCalls++;
+			return { data: new Uint8Array([1, 2, 3, 4]), width: 1, height: 1 };
+		},
+		restoreContextWorkBaseline() {},
+		commitTemporalFrame() {},
+		destroy() {},
+	});
+	backend._frameGraphRuntime = {
+		beginFrame() {},
+		executePass() {},
+		endFrame: () => endGate,
+		abortFrame() {},
+		commitGraphAnalysis() {},
+		abortGraphAnalysis() {},
+	};
+	backend._particleSimulator = {
+		beginFrame() {},
+		simulate() {},
+		emitRenderBatches() {},
+		endFrame() {},
+	};
+	backend._postProcessRuntime.commitFrame = () => undefined;
+	backend._contextWorkQueue.bindContext();
+
+	await backend.beginFrame(context);
+	await assert.rejects(
+		backend.readRenderTargetColor("scene"),
+		(error) => error?.code === "active-frame",
+	);
+	const ending = backend.endFrame();
+	await Promise.resolve();
+	assert.equal(backend._activeContext, context);
+	resolveEnd();
+	await ending;
+	assert.equal(backend._activeContext, null);
+	const result = await backend.readRenderTargetColor("scene");
+	assert.deepEqual(Array.from(result.data), [1, 2, 3, 4]);
+	assert.equal(readbackCalls, 1);
+	backend.destroy();
 }
 
 async function run() {
@@ -574,9 +678,11 @@ async function run() {
 	await testDebugInfoFallsBackToMaskedWebGLStrings();
 	await testEarlyZPrepassOptionCanDisable();
 	await testContextLostAndRestored();
+	await testIBLPrefilterExecutorExtensionPersistsAcrossContextRestore();
 	await testPublicLifecycleMethods();
 	testParticleDeltaTimeIsClampedToSafeMaximum();
-	testBackendPlanOmitsRendererOwnedPostProcessStage();
+	await testBackendPlanOmitsRendererOwnedPostProcessStage();
+	await testEndFramePromiseAndReadbackScheduling();
 	console.log("WebGL backend v2 tests passed");
 }
 

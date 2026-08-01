@@ -9,6 +9,7 @@ export type WebGLShaderPart =
 	| "sceneDepthPrepassFragment"
 	| "environmentVertex"
 	| "environmentFragment"
+	| "iblPrefilterFragment"
 	| "presentVertex"
 	| "presentFragment"
 	| "particleVertex"
@@ -56,6 +57,7 @@ export const WEBGL_SHADER_PARTS: readonly WebGLShaderPart[] = [
 	"sceneDepthPrepassFragment",
 	"environmentVertex",
 	"environmentFragment",
+	"iblPrefilterFragment",
 	"presentVertex",
 	"presentFragment",
 	"particleVertex",
@@ -110,6 +112,7 @@ export const WEBGL_SHADER_FILES: Record<WebGLShaderPart, string> = {
 	sceneDepthPrepassFragment: "./webgl/scene/sceneDepthPrepassFragment.glsl",
 	environmentVertex: "./webgl/environment/environmentVertex.glsl",
 	environmentFragment: "./webgl/environment/environmentFragment.glsl",
+	iblPrefilterFragment: "./webgl/environment/iblPrefilterFragment.glsl",
 	presentVertex: "./webgl/utility/presentVertex.glsl",
 	presentFragment: "./webgl/utility/presentFragment.glsl",
 	particleVertex: "./webgl/particles/particleVertex.glsl",

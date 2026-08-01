@@ -1,4 +1,5 @@
 import type { TextureColorSpace } from "../../../core/Texture";
+import type { IBLPrefilterMipPlan } from "../IBLPrefilterExecutor";
 
 export type IBLPrefilterWorkerTextureData =
 	| Uint8ClampedArray
@@ -15,10 +16,7 @@ export interface IBLPrefilterWorkerEnvMapPayload {
 export interface IBLPrefilterWorkerTaskPayload {
 	type: "prefilter-mip";
 	envMap: IBLPrefilterWorkerEnvMapPayload;
-	baseWidth: number;
-	baseHeight: number;
-	maxMipLevels: number;
-	level: number;
+	mipPlan: IBLPrefilterMipPlan;
 }
 
 export interface IBLPrefilterWorkerTaskResult {

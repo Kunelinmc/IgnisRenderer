@@ -660,8 +660,10 @@ export class WebGLFrameServiceOwner {
 					]
 				:	[gl.COLOR_ATTACHMENT0, gl.COLOR_ATTACHMENT1];
 			gl.drawBuffers(drawBuffers);
+			gl.readBuffer(gl.COLOR_ATTACHMENT0);
 		} else {
 			gl.drawBuffers([gl.BACK]);
+			gl.readBuffer(gl.BACK);
 		}
 		gl.disable(gl.SCISSOR_TEST);
 		gl.disable(gl.BLEND);
@@ -675,6 +677,33 @@ export class WebGLFrameServiceOwner {
 		gl.bindBuffer(gl.ARRAY_BUFFER, null);
 		gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, null);
 		gl.activeTexture(gl.TEXTURE0);
+		gl.bindTexture(gl.TEXTURE_2D, null);
+	}
+
+	/** @internal Restores the queue-owned baseline after auxiliary context work. */
+	public restoreContextWorkBaseline(): void {
+		if (this._session.context) {
+			this._restoreCustomRenderPassState(this._session.context);
+			return;
+		}
+		const gl = this._gl;
+		gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+		gl.viewport(0, 0, this._session.width, this._session.height);
+		gl.drawBuffers([gl.BACK]);
+		gl.readBuffer(gl.BACK);
+		gl.disable(gl.SCISSOR_TEST);
+		gl.disable(gl.BLEND);
+		gl.disable(gl.CULL_FACE);
+		gl.enable(gl.DEPTH_TEST);
+		gl.depthMask(true);
+		gl.depthFunc(gl.LESS);
+		gl.colorMask(true, true, true, true);
+		gl.useProgram(null);
+		gl.bindVertexArray(null);
+		gl.bindBuffer(gl.ARRAY_BUFFER, null);
+		gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, null);
+		gl.activeTexture(gl.TEXTURE0);
+		gl.bindTexture(gl.TEXTURE_2D, null);
 	}
 
 	public readCustomRenderTargetColor(

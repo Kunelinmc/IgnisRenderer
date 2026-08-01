@@ -2,7 +2,6 @@ import type { Scene } from "../../core/Scene";
 import type { CubeTextureFaceData } from "../../core/CubeTexture";
 import { Texture } from "../../core/Texture";
 import type { TextureMipLevel } from "../../core/Texture";
-import type { IRenderBackend } from "../../backends/IRenderBackend";
 import { Logger } from "../../foundation/Logger";
 import {
 	LightType,
@@ -21,11 +20,17 @@ import type { IVector3, SHCoefficients } from "../../maths/types";
 import { Vector3 } from "../../maths/Vector3";
 import type { FrameContext } from "../../pipeline/types";
 import { projectEnvironmentTextureToSH } from "../ibl/EnvironmentSH";
-import { IBLPrefilter, type IBLPrefilterOptions } from "../ibl/IBLPrefilter";
+import {
+	IBLPrefilter,
+	type IBLPrefilterOptions,
+	type IBLPrefilterServiceOptions,
+} from "../ibl/IBLPrefilter";
 import {
 	directionFromEquirectUV,
 	sampleEnvironmentTextureLevelLinear,
 } from "./environmentMapRuntime";
+
+type ProbeCaptureIBLBackend = NonNullable<IBLPrefilterServiceOptions["backend"]>;
 import { RENDER_DIRTY_REASON_MASK } from "../../pipeline/incremental";
 
 const DIRECTIONAL_LOBE_EXPONENT = 96;
@@ -158,7 +163,7 @@ export interface ProbeCaptureRuntimeExecuteContext {
 	frameContext?: FrameContext | null;
 	cameraWorldPosition?: IVector3 | null;
 	captureSource?: ProbeCaptureSource | null;
-	backend?: IRenderBackend | null;
+	backend?: ProbeCaptureIBLBackend | null;
 }
 
 export interface ProbeCaptureRuntimeOptions {
@@ -488,7 +493,7 @@ export class ProbeCaptureRuntime {
 	private async _runCaptureResolve(
 		task: CaptureTaskState,
 		environmentMap: Texture,
-		backend: IRenderBackend | null
+		backend: ProbeCaptureIBLBackend | null
 	): Promise<void> {
 		const needsPrefilter = task.targets.some(
 			(target) => target.kind === "reflection"
@@ -512,7 +517,7 @@ export class ProbeCaptureRuntime {
 					maxSampleHeight
 				),
 			};
-			const prefilter = new IBLPrefilter(backend);
+			const prefilter = new IBLPrefilter({ backend });
 			prefilteredMap = await prefilter.prefilter(environmentMap, prefilterOptions);
 		}
 

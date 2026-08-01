@@ -1,16 +1,20 @@
 # WebGL Backend V2 Contract
+
 ## Scope
+
 This document defines the Phase 1 contract for `WebGLBackend` V2 in
 IgnisRenderer. `WebGLBackend` must keep the public constructor and type name
 unchanged.
 
 ## Background
+
 The previous WebGL path provided a V1-style pass execution and feature subset.
 Phase 1 of V2 must align orchestration semantics with WebGPU while keeping
 WebGL-specific implementation constraints. WebGL post-processing is now
 backend-owned and executes through the `"postprocess"` backend pass.
 
 ## API/Contract
+
 - `WebGLBackend` must report core `profile.capabilities.sh = true`.
 - `WebGLBackend` must report `profile.capabilities.clusteredLighting = true`.
 - `WebGLBackend` must report `profile.capabilities.postProcess = true`.
@@ -22,6 +26,39 @@ backend-owned and executes through the `"postprocess"` backend pass.
 - WebGL post-process support must be derived from pass-owned WebGL
   implementations.
 - `WebGLBackend.extensions` must not expose `renderer.postprocess`.
+- `WebGLBackend.extensions` must expose the stable
+  `IBL_PREFILTER_EXECUTOR_EXTENSION` facade for WebGL2 fragment-based IBL
+  prefiltering.
+- The IBL prefilter facade must remain identity-stable across WebGL context
+  loss and restoration. It must reject work while uninitialized, retain an
+  explicit WebGL request while context-lost, and resume delegation to restored
+  context-scoped services.
+- The stable facade and IBL scheduling policy must be owned by the WebGL
+  extension owner rather than `WebGLBackend`. The context-generation runtime
+  must be owned beside, not inside, `WebGLFrameServiceOwner`.
+- WebGL fragment IBL prefiltering must require `EXT_color_buffer_float` and
+  either `OES_texture_float_linear` or `OES_texture_half_float_linear`.
+- `WebGLContextWorkQueue` must serialize frame lifecycle operations, backend
+  passes, fragment IBL prefilter work, and custom render-target readback.
+- The queue must permit fragment IBL prefiltering at an active frame pass
+  boundary. It must reject context work requested while a backend pass callback
+  is executing and must reject idle-only work while any frame is active.
+- The queue must restore the active scene framebuffer baseline after
+  pass-boundary auxiliary work and the default framebuffer baseline after idle
+  work. IBL execution must additionally restore pixel-pack state.
+- When a frame and auxiliary work are both waiting, the queue must execute at
+  most one auxiliary item between complete frames. It may drain auxiliary work
+  continuously when no frame is waiting.
+- Context loss must reject active context work. Pending work with a retain
+  policy must remain queued and late-bind to the restored context generation;
+  pending readback must reject because framebuffer contents do not survive
+  restoration.
+- WebGL fragment IBL prefiltering must use transient input, output, and
+  framebuffer resources and must delete them on success, cancellation,
+  context loss, or failure.
+- `WebGLBackend.endFrame()` must return and settle the complete asynchronous
+  present and commit operation before the context work queue releases frame
+  ownership.
 - `WebGLBackend.executePass({ stage: "postprocess" }, context)` must delegate
   to backend-owned post-process runtime execution.
 - `WebGLBackend.endFrame()` must commit post-process histories only after the
@@ -100,6 +137,7 @@ backend-owned and executes through the `"postprocess"` backend pass.
   `fragment-mrt` is absent.
 
 ## Usage
+
 ```ts
 import { FogPass, Renderer, WebGLBackend } from "../src";
 
@@ -130,6 +168,7 @@ bun tests/static/webgl/test_webgl_frame_executor_fxaa.mjs
 ```
 
 ## Errors & Diagnostics
+
 - `webgl-clustered-perspective-only`: triggered when
   `enableClusteredLighting` is `true` on a non-perspective camera.
 - `webgl-clustered-light-budget`: triggered when light count exceeds
@@ -155,8 +194,17 @@ bun tests/static/webgl/test_webgl_frame_executor_fxaa.mjs
   triggered when MRT requirements exceed WebGL limits.
 - `WebGL custom framebuffer "<id>" is incomplete`: triggered when attachment
   allocation produced an invalid framebuffer.
+- `WebGL IBL prefilter acceleration requires ...`: triggered when required
+  floating-point render-target or filtering extensions are unavailable.
+- `WebGL IBL prefilter framebuffer is incomplete at mip <level>`: triggered
+  when a transient RGBA16F output mip cannot be attached for rendering.
+- `WebGL context work "<label>" cannot run while frame pass "<stage>" is
+  active.`: triggered when work would wait on the pass that requested it.
+- `WebGL render-target readback cannot run while a frame is active.`: triggered
+  when `readColor` is requested before the current frame completes.
 
 ## Compatibility / Breaking Changes
+
 - Public backend type name remains `WebGLBackend`.
 - `WebGLBackend` is now an attached backend runtime. It exposes
   `attach(context)`, profile, extensions, and frame lifecycle methods directly.

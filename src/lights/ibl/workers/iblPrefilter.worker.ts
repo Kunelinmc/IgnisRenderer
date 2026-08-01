@@ -1,5 +1,5 @@
 import { Texture } from "../../../core/Texture";
-import { prefilterEnvMapMipLevel } from "../IBLPrefilter";
+import { prefilterEnvMapMipLevel } from "../IBLPrefilterCPUExecutor";
 import type {
 	IBLPrefilterWorkerTaskPayload,
 	IBLPrefilterWorkerTaskResult,
@@ -51,10 +51,7 @@ function executeTask(
 	});
 	const mip = prefilterEnvMapMipLevel(
 		envMap,
-		payload.level,
-		payload.baseWidth,
-		payload.baseHeight,
-		payload.maxMipLevels
+		payload.mipPlan,
 	);
 
 	return {

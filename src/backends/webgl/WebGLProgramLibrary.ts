@@ -101,6 +101,19 @@ export interface WebGLEnvironmentProgram {
 	};
 }
 
+export interface WebGLIBLPrefilterProgram {
+	program: WebGLProgram;
+	uniforms: {
+		environmentMap: WebGLUniformLocation | null;
+		outputSize: WebGLUniformLocation | null;
+		sourceSize: WebGLUniformLocation | null;
+		roughness: WebGLUniformLocation | null;
+		sampleCount: WebGLUniformLocation | null;
+		sourceIsLinear: WebGLUniformLocation | null;
+		sourceMipLevelCount: WebGLUniformLocation | null;
+	};
+}
+
 export interface WebGLPresentProgram {
 	program: WebGLProgram;
 	uniforms: {
@@ -205,6 +218,7 @@ export class WebGLProgramLibrary {
 	private _customSceneDepthPrepassPrograms = new Map<string, WebGLSceneProgram>();
 	private _missingDepthPrepassShaderMaterialWarnings = new Set<number>();
 	private _environmentProgram: WebGLEnvironmentProgram | null = null;
+	private _iblPrefilterProgram: WebGLIBLPrefilterProgram | null = null;
 	private _presentProgram: WebGLPresentProgram | null = null;
 	private _particleProgram: WebGLParticleProgram | null = null;
 	private _shadowDepthProgram: WebGLShadowDepthProgram | null = null;
@@ -1286,6 +1300,39 @@ export class WebGLProgramLibrary {
 		return this._environmentProgram;
 	}
 
+	public getIBLPrefilterProgram(): WebGLIBLPrefilterProgram {
+		if (this._iblPrefilterProgram) {
+			return this._iblPrefilterProgram;
+		}
+		const program = this._createProgram(
+			this._shaderSource("environmentVertex"),
+			this._shaderSource("iblPrefilterFragment"),
+			"WebGLIBLPrefilterProgram",
+		);
+		this._iblPrefilterProgram = {
+			program,
+			uniforms: {
+				environmentMap: this._gl.getUniformLocation(
+					program,
+					"uEnvironmentMap",
+				),
+				outputSize: this._gl.getUniformLocation(program, "uOutputSize"),
+				sourceSize: this._gl.getUniformLocation(program, "uSourceSize"),
+				roughness: this._gl.getUniformLocation(program, "uRoughness"),
+				sampleCount: this._gl.getUniformLocation(program, "uSampleCount"),
+				sourceIsLinear: this._gl.getUniformLocation(
+					program,
+					"uSourceIsLinear",
+				),
+				sourceMipLevelCount: this._gl.getUniformLocation(
+					program,
+					"uSourceMipLevelCount",
+				),
+			},
+		};
+		return this._iblPrefilterProgram;
+	}
+
 	public getPresentProgram(): WebGLPresentProgram {
 		if (this._presentProgram) {
 			return this._presentProgram;
@@ -1695,6 +1742,10 @@ export class WebGLProgramLibrary {
 		if (this._environmentProgram) {
 			this._gl.deleteProgram(this._environmentProgram.program);
 			this._environmentProgram = null;
+		}
+		if (this._iblPrefilterProgram) {
+			this._gl.deleteProgram(this._iblPrefilterProgram.program);
+			this._iblPrefilterProgram = null;
 		}
 		if (this._presentProgram) {
 			this._gl.deleteProgram(this._presentProgram.program);

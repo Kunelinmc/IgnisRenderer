@@ -211,8 +211,18 @@ The renderer frame pipeline must preserve this logical order:
 
 - `WarmupPlanner` must pre-compile required pipelines and resources before
   rendering based on scene features.
-- `IBLPrefilter` owns CPU, worker, and WebGPU environment specular prefiltering
-  as a standalone service.
+- `IBLPrefilter` owns backend-agnostic planning, selection, CPU and Worker
+  execution, progress, and result assembly as a standalone service. WebGPU and
+  WebGL own their GPU executor implementations behind the shared IBL executor
+  extension.
+- WebGL2 fragment prefiltering must execute outside the renderer frame graph,
+  acquire backend-owned context work ownership, restore the active or idle
+  WebGL baseline, and return CPU-backed HDR mip data.
+- WebGL frame lifecycle operations, backend passes, IBL prefilter work, and
+  custom render-target readback must serialize through the backend-internal
+  `WebGLContextWorkQueue`. A pass-boundary IBL request may execute within the
+  active frame ownership; work requested while a backend pass callback is
+  active must reject instead of waiting on the same frame.
 - `Renderer` must not schedule environment SH projection or IBL prefilter work
   or expose environment IBL update APIs.
 - Applications and tools must invoke `IBLPrefilter` or

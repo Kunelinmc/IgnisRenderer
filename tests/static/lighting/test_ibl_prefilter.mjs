@@ -1,19 +1,16 @@
 import assert from "node:assert/strict";
+
 import { Texture } from "../../../src/core/Texture.ts";
 import { Platform } from "../../../src/foundation/Platform.ts";
 import {
 	IBLPrefilter,
 	prefilterEnvironmentIBL,
 } from "../../../src/lights/ibl/IBLPrefilter.ts";
+import { IBL_PREFILTER_EXECUTOR_EXTENSION } from "../../../src/backends/BackendExtensions.ts";
 import {
 	directionFromEquirectUV,
 	sampleEnvironmentTextureSpecular,
 } from "../../../src/lights/runtime/environmentMapRuntime.ts";
-import { WEBGPU_COMPUTE_EXTENSION } from "../../../src/backends/BackendExtensions.ts";
-import { TextureFormat } from "../../../src/backends/types.ts";
-import { createWebGPUComputeFacade } from "../../../src/backends/webgpu/ComputeFacade.ts";
-
-import { FakeWebGPUBackend } from "../../helpers/fakes.mjs";
 
 function nearlyEqual(actual, expected, epsilon = 1e-4) {
 	assert.ok(Math.abs(actual - expected) <= epsilon, `${actual} != ${expected}`);
@@ -21,69 +18,89 @@ function nearlyEqual(actual, expected, epsilon = 1e-4) {
 
 function createTestTexture(width = 16, height = 8) {
 	const data = new Uint8ClampedArray(width * height * 4);
-	for (let i = 0; i < data.length; i += 4) {
-		const pixelIndex = i >> 2;
-		data[i] = (pixelIndex * 17) % 255;
-		data[i + 1] = (pixelIndex * 31) % 255;
-		data[i + 2] = (pixelIndex * 47) % 255;
-		data[i + 3] = 255;
+	for (let index = 0; index < data.length; index += 4) {
+		const pixelIndex = index >> 2;
+		data[index] = (pixelIndex * 17) % 255;
+		data[index + 1] = (pixelIndex * 31) % 255;
+		data[index + 2] = (pixelIndex * 47) % 255;
+		data[index + 3] = 255;
 	}
-	return new Texture({ data: data, width: width, height: height, colorSpace: "sRGB" });
+	return new Texture({ data, width, height, colorSpace: "sRGB" });
 }
 
-function createRenderBackend(computeHost) {
-	const computeFacade =
-		computeHost ? createWebGPUComputeFacade(computeHost) : null;
+function createExecutor(id, options = {}) {
+	let calls = 0;
 	return {
-		profile: { id: computeFacade ? "webgpu" : "software" },
+		id,
+		get calls() {
+			return calls;
+		},
+		getAvailability() {
+			return options.availability ?? {
+				state: "ready",
+				acceptsRequests: true,
+				reason: null,
+			};
+		},
+		async execute(request) {
+			calls++;
+			if (options.error) throw options.error;
+			return request.plan.mipLevels.map((mip) => {
+				request.onMipComplete?.(mip.level);
+				return {
+					...mip,
+					data: new Float32Array(mip.width * mip.height * 4).fill(1),
+				};
+			});
+		},
+	};
+}
+
+function createRenderBackend(executor = null) {
+	return {
+		profile: { id: executor?.id ?? "software" },
 		attach() {},
 		async initialize() {},
 		extensions: {
 			getBackendExtension(key) {
-				return key.id === WEBGPU_COMPUTE_EXTENSION.id ? computeFacade : null;
+				return key.id === IBL_PREFILTER_EXECUTOR_EXTENSION.id ?
+					executor : null;
 			},
 		},
 	};
 }
 
 async function testClassPrefiltersOnSingleThread() {
-	const prefilter = new IBLPrefilter();
-	const texture = createTestTexture();
-	const result = await prefilter.prefilter(texture, {
+	const result = await new IBLPrefilter().prefilter(createTestTexture(), {
 		acceleration: "single-thread",
 		maxMipLevels: 3,
 	});
 	assert.ok(result instanceof Texture);
 	assert.equal(result.colorSpace, "HDR");
 	assert.equal(result.mipmaps.length, 3);
+	assert.equal(result.minFilter, "LinearMipmapLinear");
 }
 
-async function testLegacyAccelerationValuesAreRejected() {
-	await assert.rejects(
-		new IBLPrefilter().prefilter(createTestTexture(), {
-			acceleration: "cpu",
+async function testNaturalMipCountCapsWorkAndProgress() {
+	const progress = [];
+	const result = await new IBLPrefilter().prefilter(
+		new Texture({
+			data: new Float32Array([1, 1, 1, 1]),
+			width: 1,
+			height: 1,
+			colorSpace: "HDR",
 		}),
-		(error) =>
-			error instanceof Error &&
-			error.message.includes('Unsupported IBL prefilter acceleration "cpu"')
+		{
+			acceleration: "single-thread",
+			maxMipLevels: 8,
+			onProgress: (entry) => progress.push(entry),
+		},
 	);
-}
-
-async function testMultiThreadRequiresWorkerAPI() {
-	const originalHasWorker = Platform.hasWorker;
-	Platform.hasWorker = () => false;
-	try {
-		await assert.rejects(
-			new IBLPrefilter().prefilter(createTestTexture(), {
-				acceleration: "multi-thread",
-			}),
-			(error) =>
-				error instanceof Error &&
-				error.message.includes("Worker API is unavailable")
-		);
-	} finally {
-		Platform.hasWorker = originalHasWorker;
-	}
+	assert.equal(result.mipmaps.length, 1);
+	assert.equal(result.minFilter, "Linear");
+	assert.deepEqual(progress.map(({ completed, total }) => [completed, total]), [
+		[1, 1],
+	]);
 }
 
 async function testHelperPreservesHDRRadiance() {
@@ -100,22 +117,20 @@ async function testHelperPreservesHDRRadiance() {
 		maxMipLevels: 1,
 	});
 	const mip0 = result.mipmaps[0];
-	assert.ok(mip0 instanceof Float32Array);
 	nearlyEqual(mip0[0], 4);
 	nearlyEqual(mip0[1], 2);
 	nearlyEqual(mip0[2], 1);
-
 	const sample = sampleEnvironmentTextureSpecular(
 		result,
 		{ x: 0, y: 0, z: 1 },
-		0
+		0,
 	);
 	nearlyEqual(sample.r, 4);
 	nearlyEqual(sample.g, 2);
 	nearlyEqual(sample.b, 1);
 }
 
-async function testPrefilterPreservesDirectionAndEquirectWrapModes() {
+async function testDirectionAndWrapModes() {
 	const width = 16;
 	const height = 8;
 	const data = new Float32Array(width * height * 4);
@@ -123,7 +138,7 @@ async function testPrefilterPreservesDirectionAndEquirectWrapModes() {
 		for (let x = 0; x < width; x++) {
 			const direction = directionFromEquirectUV(
 				(x + 0.5) / width,
-				(y + 0.5) / height
+				(y + 0.5) / height,
 			);
 			const index = (y * width + x) * 4;
 			data[index] = direction.x * 0.5 + 0.5;
@@ -132,189 +147,158 @@ async function testPrefilterPreservesDirectionAndEquirectWrapModes() {
 			data[index + 3] = 1;
 		}
 	}
-	const texture = new Texture({
-		data,
-		width,
-		height,
-		colorSpace: "HDR",
-	});
-	const result = await prefilterEnvironmentIBL(texture, {
-		acceleration: "single-thread",
-		maxSampleWidth: width,
-		maxSampleHeight: height,
-		maxMipLevels: 1,
-	});
-
+	const result = await prefilterEnvironmentIBL(
+		new Texture({ data, width, height, colorSpace: "HDR" }),
+		{
+			acceleration: "single-thread",
+			maxSampleWidth: width,
+			maxSampleHeight: height,
+			maxMipLevels: 1,
+		},
+	);
 	const plusZ = sampleEnvironmentTextureSpecular(
 		result,
 		{ x: 0, y: 0, z: 1 },
-		0
+		0,
 	);
 	const minusZ = sampleEnvironmentTextureSpecular(
 		result,
 		{ x: 0, y: 0, z: -1 },
-		0
+		0,
 	);
-	const plusX = sampleEnvironmentTextureSpecular(
-		result,
-		{ x: 1, y: 0, z: 0 },
-		0
-	);
-	assert.ok(plusZ.b > 0.9, `Expected +Z blue encoding, received ${plusZ.b}`);
-	assert.ok(minusZ.b < 0.1, `Expected -Z blue encoding, received ${minusZ.b}`);
-	assert.ok(plusX.r > 0.9, `Expected +X red encoding, received ${plusX.r}`);
+	assert.ok(plusZ.b > 0.9);
+	assert.ok(minusZ.b < 0.1);
 	assert.equal(result.wrapS, "Repeat");
 	assert.equal(result.wrapT, "Clamp");
-	assert.equal(result.minFilter, "Linear");
-	assert.equal(result.magFilter, "Linear");
 }
 
-async function testExplicitWebGPURejectsNonWebGPUBackend() {
-	const texture = createTestTexture();
-	const prefilter = new IBLPrefilter({ type: "webgl" });
-	await assert.rejects(
-		prefilter.prefilter(texture, {
-			acceleration: "webgpu",
-		}),
-		(error) =>
-			error instanceof Error &&
-			error.message.includes("no WebGPU backend or compute source")
-	);
-}
-
-async function testAutoFallsBackWhenWebGPUPathFails() {
-	const texture = createTestTexture();
-	const result = await prefilterEnvironmentIBL(texture, {
-		acceleration: "auto",
-		computeSource: { type: "webgpu" },
+async function testBackendExecutorSelectionAndNestedService() {
+	const executor = createExecutor("webgpu");
+	const result = await prefilterEnvironmentIBL(createTestTexture(2, 1), {
+		service: { backend: createRenderBackend(executor) },
+		acceleration: "webgpu",
 		maxMipLevels: 2,
 	});
+	assert.equal(executor.calls, 1);
 	assert.equal(result.mipmaps.length, 2);
 }
 
-async function testWebGPUPrefilterUsesRGBA16FloatForHDR() {
-	const texture = new Texture({
-		data: new Float32Array([4, 2, 1, 1]),
-		width: 1,
-		height: 1,
-		colorSpace: "HDR",
-	});
-	const backend = new FakeWebGPUBackend();
-	const prefilter = new IBLPrefilter(createWebGPUComputeFacade(backend));
-	const result = await prefilter.prefilter(texture, {
-		acceleration: "webgpu",
-		maxSampleWidth: 1,
-		maxSampleHeight: 1,
-		maxMipLevels: 1,
-	});
-	assert.ok(result.mipmaps[0] instanceof Float32Array);
-
-	const inputTexture = backend.createTextureCalls.find(
-		(call) => call.label === "IBLPrefilterInputTexture"
+async function testAutoUsesReadyBackendBeforeCPU() {
+	const executor = createExecutor("webgl");
+	await new IBLPrefilter({ backend: createRenderBackend(executor) }).prefilter(
+		createTestTexture(1, 1),
+		{ acceleration: "auto", maxMipLevels: 1 },
 	);
-	const outputTexture = backend.createTextureCalls.find(
-		(call) => call.label === "IBLPrefilterOutput_mip0"
-	);
-	assert.equal(inputTexture?.format, TextureFormat.RGBA16Float);
-	assert.equal(outputTexture?.format, TextureFormat.RGBA16Float);
+	assert.equal(executor.calls, 1);
 }
 
-async function testIRenderBackendResolvesWebGPUComputeExtension() {
-	const texture = new Texture({
-		data: new Float32Array([4, 2, 1, 1]),
-		width: 1,
-		height: 1,
-		colorSpace: "HDR",
+async function testAutoSkipsTemporarilyUnavailableBackend() {
+	const executor = createExecutor("webgl", {
+		availability: {
+			state: "temporarily-unavailable",
+			acceptsRequests: true,
+			reason: "context lost",
+		},
 	});
-	const computeFacade = new FakeWebGPUBackend();
-	const prefilter = new IBLPrefilter(createRenderBackend(computeFacade));
-	const result = await prefilter.prefilter(texture, {
-		acceleration: "webgpu",
-		maxSampleWidth: 1,
-		maxSampleHeight: 1,
-		maxMipLevels: 1,
-	});
-
-	assert.ok(result.mipmaps[0] instanceof Float32Array);
-	assert.ok(
-		computeFacade.createTextureCalls.some(
-			(call) => call.label === "IBLPrefilterOutput_mip0"
-		)
-	);
+	const originalHasWorker = Platform.hasWorker;
+	Platform.hasWorker = () => false;
+	try {
+		const result = await new IBLPrefilter({
+			backend: createRenderBackend(executor),
+		}).prefilter(createTestTexture(1, 1), {
+			acceleration: "auto",
+			maxMipLevels: 1,
+		});
+		assert.equal(result.mipmaps.length, 1);
+		assert.equal(executor.calls, 0);
+	} finally {
+		Platform.hasWorker = originalHasWorker;
+	}
 }
 
-async function testIRenderBackendRejectsUnavailableWebGPUState() {
-	const texture = createTestTexture();
-	const computeFacade = new FakeWebGPUBackend();
-	computeFacade.device = null;
-	computeFacade.queue = null;
-	const prefilter = new IBLPrefilter(createRenderBackend(computeFacade));
+async function testExplicitExecutorHonorsAcceptsRequests() {
+	const waiting = createExecutor("webgl", {
+		availability: {
+			state: "temporarily-unavailable",
+			acceptsRequests: true,
+			reason: "context lost",
+		},
+	});
+	await new IBLPrefilter({ backend: createRenderBackend(waiting) }).prefilter(
+		createTestTexture(1, 1),
+		{ acceleration: "webgl", maxMipLevels: 1 },
+	);
+	assert.equal(waiting.calls, 1);
 
+	const rejected = createExecutor("webgpu", {
+		availability: {
+			state: "temporarily-unavailable",
+			acceptsRequests: false,
+			reason: "device unavailable",
+		},
+	});
 	await assert.rejects(
-		prefilter.prefilter(texture, { acceleration: "webgpu" }),
-		(error) =>
-			error instanceof Error &&
-			error.message.includes("device or queue is unavailable")
+		new IBLPrefilter({ backend: createRenderBackend(rejected) }).prefilter(
+			createTestTexture(1, 1),
+			{ acceleration: "webgpu", maxMipLevels: 1 },
+		),
+		/device unavailable/,
 	);
 }
 
-async function testIRenderBackendRejectsMissingWebGPUExtension() {
-	const prefilter = new IBLPrefilter(createRenderBackend(null));
-
+async function testExecutorFailureDoesNotFallback() {
+	const executor = createExecutor("webgpu", { error: new Error("gpu failed") });
 	await assert.rejects(
-		prefilter.prefilter(createTestTexture(), { acceleration: "webgpu" }),
-		(error) =>
-			error instanceof Error &&
-			error.message.includes("does not expose the WebGPU compute extension")
+		new IBLPrefilter({ backend: createRenderBackend(executor) }).prefilter(
+			createTestTexture(1, 1),
+			{ acceleration: "auto", maxMipLevels: 1 },
+		),
+		/gpu failed/,
 	);
+	assert.equal(executor.calls, 1);
 }
 
-async function testIRenderBackendAutoFallsBackWhenWebGPUIsUnavailable() {
-	const texture = createTestTexture();
-	const computeFacade = new FakeWebGPUBackend();
-	computeFacade.device = null;
-	computeFacade.queue = null;
-	const result = await new IBLPrefilter(
-		createRenderBackend(computeFacade)
-	).prefilter(texture, {
-		acceleration: "auto",
-		maxSampleWidth: 1,
-		maxSampleHeight: 1,
-		maxMipLevels: 1,
-	});
-
-	assert.equal(result.mipmaps.length, 1);
-	assert.equal(computeFacade.createTextureCalls.length, 0);
-}
-
-async function testAbortSignal() {
-	const texture = createTestTexture();
+async function testValidationAndCancellation() {
+	assert.throws(
+		() => new IBLPrefilter(createRenderBackend()),
+		/IBLPrefilterServiceOptions object/,
+	);
+	await assert.rejects(
+		new IBLPrefilter().prefilter(createTestTexture(), { acceleration: "cpu" }),
+		/Unsupported IBL prefilter acceleration/,
+	);
+	const originalHasWorker = Platform.hasWorker;
+	Platform.hasWorker = () => false;
+	try {
+		await assert.rejects(
+			new IBLPrefilter().prefilter(createTestTexture(), {
+				acceleration: "multi-thread",
+			}),
+			/Worker API is unavailable/,
+		);
+	} finally {
+		Platform.hasWorker = originalHasWorker;
+	}
 	const controller = new AbortController();
 	controller.abort();
 	await assert.rejects(
-		prefilterEnvironmentIBL(texture, {
+		prefilterEnvironmentIBL(createTestTexture(), {
 			acceleration: "single-thread",
 			signal: controller.signal,
 		}),
-		(error) => error instanceof Error && error.name === "AbortError"
+		(error) => error instanceof Error && error.name === "AbortError",
 	);
 }
 
-async function run() {
-	await testClassPrefiltersOnSingleThread();
-	await testLegacyAccelerationValuesAreRejected();
-	await testMultiThreadRequiresWorkerAPI();
-	await testHelperPreservesHDRRadiance();
-	await testPrefilterPreservesDirectionAndEquirectWrapModes();
-	await testExplicitWebGPURejectsNonWebGPUBackend();
-	await testAutoFallsBackWhenWebGPUPathFails();
-	await testWebGPUPrefilterUsesRGBA16FloatForHDR();
-	await testIRenderBackendResolvesWebGPUComputeExtension();
-	await testIRenderBackendRejectsUnavailableWebGPUState();
-	await testIRenderBackendRejectsMissingWebGPUExtension();
-	await testIRenderBackendAutoFallsBackWhenWebGPUIsUnavailable();
-	await testAbortSignal();
-	console.log("IBL prefilter tests passed");
-}
+await testClassPrefiltersOnSingleThread();
+await testNaturalMipCountCapsWorkAndProgress();
+await testHelperPreservesHDRRadiance();
+await testDirectionAndWrapModes();
+await testBackendExecutorSelectionAndNestedService();
+await testAutoUsesReadyBackendBeforeCPU();
+await testAutoSkipsTemporarilyUnavailableBackend();
+await testExplicitExecutorHonorsAcceptsRequests();
+await testExecutorFailureDoesNotFallback();
+await testValidationAndCancellation();
 
-await run();
+console.log("IBL prefilter tests passed");

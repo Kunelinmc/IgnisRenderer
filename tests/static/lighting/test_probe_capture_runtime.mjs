@@ -195,15 +195,22 @@ async function testSharedCaptureUpdatesLightAndReflectionProbe() {
 	let prefilterCallCount = 0;
 	let faceCaptureCount = 0;
 	let prefilterBackend = null;
-	const backend = {};
+	const backend = {
+		profile: { id: "probe-test" },
+		extensions: {
+			getBackendExtension() {
+				return undefined;
+			},
+		},
+	};
 	await withPrefilterStub(
 		async function () {
 			prefilterCallCount++;
-			prefilterBackend = this._backend;
+			prefilterBackend = this._service.backend;
 			return createPrefilteredMap(2);
 		},
 		async () => {
-			const runtime = new ProbeCaptureRuntime();
+			const runtime = new ProbeCaptureRuntime({ captureBudgetMs: 100 });
 			const scene = new Scene();
 			const lightProbe = scene.add(
 				new LightProbe({
@@ -255,7 +262,7 @@ async function testReflectionProbeCaptureWritesBoundPrefilteredTexture() {
 	await withPrefilterStub(
 		async () => createPrefilteredMap(4),
 		async () => {
-			const runtime = new ProbeCaptureRuntime();
+			const runtime = new ProbeCaptureRuntime({ captureBudgetMs: 100 });
 			const scene = new Scene();
 			const rawTexture = new Texture({ data: null, width: 0, height: 0, colorSpace: "HDR" });
 			const cubeTexture = createBoundCubeTexture();

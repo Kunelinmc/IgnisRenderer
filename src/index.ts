@@ -199,9 +199,10 @@ export {
 } from "./lights/ibl/IBLPrefilter";
 export type {
 	IBLPrefilterAcceleration,
-	IBLPrefilterBackendSource,
 	IBLPrefilterOptions,
 	IBLPrefilterProgress,
+	IBLPrefilterServiceOptions,
+	PrefilterEnvironmentIBLOptions,
 } from "./lights/ibl/IBLPrefilter";
 export {
 	projectEnvironmentTextureToSH,

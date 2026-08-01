@@ -3000,17 +3000,19 @@ async function testWebGLBackendWarmupDelegatesToCoordinator() {
 		surface: { canvas: {} },
 		events: { emit: () => {} },
 	});
-	backend._frameServices = {
-		warmupCoordinator: {
-			warmup() {
-				return {
-					phase: "webgl-programs",
-					total: 3,
-					compiled: 2,
-					skipped: 1,
-					failed: 0,
-					errors: [],
-				};
+	backend._contextServices = {
+		frame: {
+			warmupCoordinator: {
+				warmup() {
+					return {
+						phase: "webgl-programs",
+						total: 3,
+						compiled: 2,
+						skipped: 1,
+						failed: 0,
+						errors: [],
+					};
+				},
 			},
 		},
 	};

@@ -1,9 +1,11 @@
 # Renderer and Backend Core Contract
 
 ## Scope
+
 This document defines the core lifecycle, frame scheduling, command recording, extension registry, and custom render targets contract for `Renderer`, `IRenderBackend`, and their related interfaces.
 
 ## Background
+
 In IgnisRenderer, the `Renderer` acts as the main application-facing facade. It coordinates with an attached backend instance implementing `IRenderBackend`.
 The core rendering loop requires deterministic frame lifecycle hooks (`beginFrame`, `executePass`, `endFrame`, `abortFrame`) managed by a `FrameCoordinator`.
 GPU devices may be lost or restored at runtime, necessitating a robust, backend-agnostic device lifecycle recovery contract.
@@ -14,6 +16,7 @@ All graphics commands are recorded through a backend-agnostic `ICommandEncoder`.
 ## API/Contract
 
 ### 1. Frame Scheduling & Loop (`Renderer`)
+
 - `new Renderer(options)`
   - Input contract: must accept exactly one `RendererOptions` object containing
     `backend`, `canvas`, and the optional `camera`.
@@ -41,6 +44,7 @@ All graphics commands are recorded through a backend-agnostic `ICommandEncoder`.
   - Behavior contract: must stop the active render loop before waiting for an in-progress frame and destroying the attached backend.
 
 ### 2. Device Lifecycle (`Renderer` & `IRenderBackend`)
+
 - `IRenderBackend.attach(context)`
   - Behavior contract: must bind the backend instance to one renderer-owned surface and event sink.
   - Constraint: each backend instance may be attached only once.
@@ -100,6 +104,7 @@ All graphics commands are recorded through a backend-agnostic `ICommandEncoder`.
   - Must handle `webglcontextrestored` by restoring state and emitting `device-restored`.
 
 ### 3. Frame Execution Lifecycle (`IRenderBackend`)
+
 - `FrameContext.viewCamera`
   - Output contract: must provide the active view/projection camera for the
     current frame or secondary capture context.
@@ -147,6 +152,7 @@ All graphics commands are recorded through a backend-agnostic `ICommandEncoder`.
   - Deferred updates must be flushed immediately after `endFrame` or `abortFrame` clears the active frame state.
 
 ### 4. Extension Registry
+
 - `IRenderBackend`
   - Must expose a `RenderBackendExtensionRegistry`.
   - Must preserve extension object identity for the lifetime of the backend.
@@ -168,13 +174,26 @@ All graphics commands are recorded through a backend-agnostic `ICommandEncoder`.
   - `WebGPUBackend` must not expose backend-specific resource, pipeline,
     binding-group, or command-scheduler forwarding methods.
   - `WebGPUBackend` must not expose native `GPUDevice` or `GPUQueue` handles.
+- `IBL_PREFILTER_EXECUTOR_EXTENSION`
+  - Must expose a backend-owned generic executor API consumed by
+    `IBLPrefilter`.
+  - WebGPU and WebGL implementations must use the same request, availability,
+    and CPU-backed mip result contract.
+  - The WebGL implementation must delegate to context-scoped fragment-pass
+    services without exposing native `WebGLTexture` handles.
+  - The extension API object must remain identity-stable across WebGL context
+    restoration.
 - Identity Persistence:
   - Extension API objects must maintain the same object identity for the lifetime of the backend runtime.
 - Device Loss Behavior:
-  - During a device-lost state, invoking operations on extension APIs must throw a clear, descriptive error.
+  - During a device-lost state, extension operations must follow their
+    documented retry policy. Explicit WebGL IBL work may wait for context
+    restoration; extensions without a retry policy must throw a clear,
+    descriptive error.
   - After `restore()` completes, the existing extension API objects must resume normal operation.
 
 ### 5. Command Recording (`ICommandEncoder`)
+
 - `ICommandEncoder.beginRenderPass(desc)` must begin a render pass.
 - `ICommandEncoder.beginComputePass(desc?)` must begin a compute pass.
 - `ICommandEncoder.copyTextureToTexture(source, destination, copySize)` may record an in-frame texture copy.
@@ -187,6 +206,7 @@ All graphics commands are recorded through a backend-agnostic `ICommandEncoder`.
 - `ICommandEncoder` must not expose native backend command encoders through the shared contract.
 
 ### 6. Custom Render Targets (`Renderer.renderTargets` & `Renderer.renderPasses`)
+
 - `Renderer.renderTargets.register(descriptor)` must register one persistent custom render target.
 - `RenderTargetDescriptor.id` must be unique within the renderer.
 - `RenderTargetDescriptor.size` must use `canvas-scale` or `fixed`.
@@ -204,6 +224,8 @@ All graphics commands are recorded through a backend-agnostic `ICommandEncoder`.
 - `RenderTargetReadbackResult.origin` must be `"top-left"` for WebGPU and
   `"bottom-left"` for WebGL.
 - `readColor` must read only the most recent successfully completed frame.
+- WebGL `readColor` must serialize through the backend context work queue and
+  must reject while a renderer frame is active.
 - `readColor` must reject before the first successful frame, after an invalid
   target id, for an invalid color attachment index, or when the requested
   dimensions exceed the target.
@@ -223,6 +245,7 @@ All graphics commands are recorded through a backend-agnostic `ICommandEncoder`.
 ## Usage
 
 ### 1. Initialization and Lifecycle
+
 ```ts
 import { Renderer, WebGPUBackend } from "ignisrenderer";
 
@@ -245,6 +268,7 @@ await renderer.restore();
 ```
 
 ### 2. Backend Debug Info
+
 ```ts
 const debugInfo = renderer.getBackendDebugInfo();
 if (debugInfo.available) {
@@ -256,6 +280,7 @@ if (debugInfo.available) {
 ```
 
 ### 3. Frame Loop Control
+
 ```ts
 // Start automatic rendering loop
 const stopRenderLoop = renderer.renderLoop();
@@ -268,6 +293,7 @@ await renderer.renderFrame(performance.now());
 ```
 
 ### 4. Incremental Frame Coverage
+
 ```ts
 const result = await renderer.renderFrame(performance.now());
 const { plannedCoverage, finalOutputCoverage } = result.incremental;
@@ -278,6 +304,7 @@ console.info(finalOutputCoverage.reusableTileRanges);
 ```
 
 ### 5. Frame Coordinator Execution (Internal / Backend Implementation)
+
 ```ts
 // Inside FrameCoordinator execution loop
 try {
@@ -297,6 +324,7 @@ try {
 ```
 
 ### 6. Querying Extensions
+
 ```ts
 import { WEBGPU_COMPUTE_EXTENSION } from "ignisrenderer";
 
@@ -307,6 +335,7 @@ if (compute) {
 ```
 
 ### 7. In-Frame Command Recording and Texture Copying
+
 ```ts
 encoder.beginRenderPass({
 	label: "TransparentAccumulation",
@@ -342,6 +371,7 @@ encoder.endRenderPass();
 ```
 
 ### 8. Custom Render Targets & Passes
+
 ```ts
 import { TextureFormat, type CustomRenderPassContext } from "ignisrenderer";
 
@@ -384,6 +414,7 @@ const readback = await renderer.renderTargets.readColor("inspect", 0);
 ```
 
 ## Errors & Diagnostics
+
 - `Renderer render loop frame failed.`: logged when a frame rejects. The original error must be included in the diagnostic, and the loop must continue.
 - `Renderer.renderFrame() cannot run concurrently.`: returned when another frame is still active.
 - Errors from manually awaited `renderFrame()` calls must continue to reject to the caller without automatic logging by `Renderer`.
@@ -410,6 +441,7 @@ const readback = await renderer.renderTargets.readColor("inspect", 0);
 - `software-custom-render-targets-unsupported` is logged when SoftwareBackend skips a custom render pass.
 
 ## Compatibility / Breaking Changes
+
 - `Renderer` construction now requires a single `RendererOptions` object.
   The positional `new Renderer(backend, canvas, camera)` form is removed.
 - `RenderTargetReadbackOptions.format` and `bytesPerPixel` are removed.

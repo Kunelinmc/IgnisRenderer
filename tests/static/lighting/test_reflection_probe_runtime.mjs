@@ -371,6 +371,7 @@ function testAtlasKeepsProbePixelsInSeparateHorizontalLayers() {
 	assert.equal(atlas.height, 2);
 	assert.equal(atlas.wrapS, "Clamp");
 	assert.equal(atlas.wrapT, "Clamp");
+	assert.equal(atlas.minFilter, "LinearMipmapLinear");
 
 	const mip0 = atlas.mipmaps[0];
 	assert.ok(mip0 instanceof Float32Array);
