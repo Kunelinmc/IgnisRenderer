@@ -11,7 +11,6 @@ import type {
 	PostProcessResourceHandle,
 } from "../../../postprocess";
 import { createPostProcessResourceAccessor } from "../../../postprocess/PostProcessResourceAccessor";
-import { WEBGPU_HIZ_SHARED_RESOURCE } from "../../../postprocess/executionDeclarations";
 import { Logger } from "../../../foundation/Logger";
 import type { ICommandEncoder } from "../../ICommandEncoder";
 import {
@@ -27,6 +26,7 @@ import type {
 	WebGPUPostProcessFrameTargets,
 } from "../WebGPUPostProcessContracts";
 import { WebGPUPostProcessRuntime } from "../WebGPUPostProcessRuntime";
+import { getWebGPUPostProcessSharedResourceDescriptor } from "./WebGPUPostProcessSharedResourceCatalog";
 
 export interface WebGPUPostProcessBridgeCallbacks {
 	getEncoder(): ICommandEncoder | null;
@@ -341,24 +341,10 @@ export class WebGPUPostProcessBridge {
 	}
 
 	private _getSharedTexture(id: string): IRenderTexture | null {
-		const targets = this._callbacks.getFrameTargets();
-		if (!targets) return null;
-		switch (id) {
-			case WEBGPU_HIZ_SHARED_RESOURCE.id:
-				return this._callbacks.isHiZReady() ? targets.hiZ ?? null : null;
-			case "backend:transmission-scene-color":
-				return targets.transmissionSceneColorCopy ?? null;
-			case "backend:transmission-lighting":
-				return targets.transmissionLighting ?? null;
-			case "backend:transmission-surface-1":
-				return targets.gTransmissionSurface1 ?? null;
-			case "backend:transmission-surface-2":
-				return targets.gTransmissionSurface2 ?? null;
-			case "backend:planar-reflection-mask":
-				return targets.planarReflectionMask ?? null;
-			default:
-				return null;
-		}
+		return getWebGPUPostProcessSharedResourceDescriptor(id)?.resolveTexture({
+			targets: this._callbacks.getFrameTargets(),
+			isHiZReady: this._callbacks.isHiZReady(),
+		}) ?? null;
 	}
 
 	private _createFrameTargetsView(): WebGPUPostProcessFrameTargets | undefined {

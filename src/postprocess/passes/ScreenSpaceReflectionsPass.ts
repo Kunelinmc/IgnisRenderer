@@ -24,6 +24,7 @@ import {
 } from "../PostProcessPass";
 import type { PostProcessScheduleEntry } from "../ordering";
 import {
+	POST_PROCESS_SHARED_RESOURCE_IDS,
 	POST_PROCESS_SAMPLED_READ,
 	POST_PROCESS_STORAGE_WRITE,
 	WEBGPU_VERSIONED_EXECUTION,
@@ -312,12 +313,12 @@ export class WebGPUScreenSpaceReflectionsImplementation implements PostProcessPa
 			),
 			shared: [
 				{
-					id: "backend:frame-hiz",
+					id: POST_PROCESS_SHARED_RESOURCE_IDS.frameHiZ,
 					access: "read",
 					usage: "sampled",
 				},
 				{
-					id: "backend:planar-reflection-mask",
+					id: POST_PROCESS_SHARED_RESOURCE_IDS.planarReflectionMask,
 					access: "read",
 					usage: "sampled",
 					optional: true,
@@ -394,7 +395,9 @@ export class WebGPUScreenSpaceReflectionsImplementation implements PostProcessPa
 		context: WebGPUSSRContext,
 	): Promise<boolean> {
 		const resources = await this._ensureResources(context.shared);
-		const hiZ = context.resources.getShared("backend:frame-hiz");
+		const hiZ = context.resources.getShared(
+			POST_PROCESS_SHARED_RESOURCE_IDS.frameHiZ,
+		);
 		const history = context.resources.getHistory("ssr");
 		const motionHistory = context.resources.getHistory("motion");
 		const denoiseA = context.resources.getTransient(SSR_DENOISE_A_ID);
@@ -403,7 +406,9 @@ export class WebGPUScreenSpaceReflectionsImplementation implements PostProcessPa
 		const depthTexture = context.resources.getGBuffer("depth");
 		const motionTexture = context.resources.getGBuffer("motion");
 		const input = context.resources.color.input;
-		const planarReflectionMask = context.resources.getShared("backend:planar-reflection-mask");
+		const planarReflectionMask = context.resources.getShared(
+			POST_PROCESS_SHARED_RESOURCE_IDS.planarReflectionMask,
+		);
 		if (
 			!context.encoder ||
 			!context.targets ||

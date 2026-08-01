@@ -131,6 +131,9 @@ All graphics commands are recorded through a backend-agnostic `ICommandEncoder`.
   - Behavior contract: temporal histories, completed coverage, and custom render
     target publication must commit only after every frame command buffer and
     post-submit hook succeeds.
+  - Behavior contract: backend logical frame state must commit before deferred
+    resize, display-output, or shader-runtime invalidation destroys frame-owned
+    resources.
   - Error contract: a backend that submits more than one command buffer must
     distinguish a failure before any submission from a failure after partial
     submission. WebGPU must expose structured submitted and pending command
@@ -149,7 +152,9 @@ All graphics commands are recorded through a backend-agnostic `ICommandEncoder`.
 	- Backends must defer resize and shader runtime compilation updates while a frame is active.
 	- Backend-internal frame-target recovery may synchronously select a safe
 	  rendering configuration before the first render command is recorded.
-  - Deferred updates must be flushed immediately after `endFrame` or `abortFrame` clears the active frame state.
+  - Deferred updates must be flushed immediately after `endFrame` or
+    `abortFrame` reaches a terminal transaction state and clears the active
+    frame state.
 
 ### 4. Extension Registry
 

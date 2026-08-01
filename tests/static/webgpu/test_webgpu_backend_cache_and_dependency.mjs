@@ -219,6 +219,29 @@ function createBackend(options = undefined) {
 	return { backend, device, queueSubmissions };
 }
 
+function installActiveFrameTransaction(backend) {
+	const transaction = {
+		isOpen: true,
+		state: "recording",
+		async commit() {
+			await backend._frameOrchestrator?.endFrame?.();
+			this.isOpen = false;
+			this.state = "committed";
+		},
+		async abort(error) {
+			backend._frameOrchestrator?.abortFrame?.(error);
+			this.isOpen = false;
+			this.state = "aborted";
+		},
+		invalidate() {
+			this.isOpen = false;
+			this.state = "invalidated";
+		},
+	};
+	backend._activeFrameTransaction = transaction;
+	return transaction;
+}
+
 function createDeferred() {
 	let resolve;
 	let reject;
@@ -858,7 +881,7 @@ async function testResizeDuringActiveFrameDefersResourceInvalidation() {
 			invalidateCalls++;
 		},
 	};
-	backend._frameActive = true;
+	installActiveFrameTransaction(backend);
 
 	backend.resize({ width: 320.9, height: 240.2 });
 	assert.equal(backend.canvas.width, 1);
@@ -891,7 +914,7 @@ async function testShaderRuntimeChangeDuringActiveFrameDefersInvalidation() {
 		},
 	};
 	await createCachedRenderPipeline(backend);
-	backend._frameActive = true;
+	installActiveFrameTransaction(backend);
 
 	backend.shaderRuntime.setMode("warn");
 	assert.equal(backend.shaderRuntime.getMode(), "warn");
@@ -912,6 +935,70 @@ async function testShaderRuntimeChangeDuringActiveFrameDefersInvalidation() {
 	assert.equal(backend._pendingShaderRuntimeInvalidation, false);
 }
 
+async function testFrameCommitsBeforeDeferredShaderInvalidation() {
+	const { backend } = createBackend();
+	const calls = [];
+	backend._resources = {
+		beginFrameResourceLifecycle() {},
+		commitTemporalFrame() {
+			calls.push("temporal-commit");
+		},
+		abortTemporalFrame() {
+			calls.push("temporal-abort");
+		},
+		onShaderRuntimeChanged() {
+			calls.push("resources-invalidate");
+		},
+	};
+	backend._postProcessRuntime = {
+		commitFrame() {
+			calls.push("post-process-commit");
+		},
+		abortFrame() {
+			calls.push("post-process-abort");
+		},
+		destroy() {
+			calls.push("post-process-destroy");
+		},
+	};
+	backend._frameOrchestrator = {
+		createPostProcessSessionPort() {
+			return null;
+		},
+		beginFrame() {},
+		async endFrame(postSubmit) {
+			calls.push("submit");
+			await postSubmit?.();
+		},
+		commitFrameState() {
+			calls.push("frame-state-commit");
+		},
+		abortRecording() {
+			calls.push("recording-abort");
+		},
+		abortFrameState() {
+			calls.push("frame-state-abort");
+		},
+		onShaderRuntimeChanged() {
+			calls.push("orchestrator-invalidate");
+		},
+	};
+
+	backend.beginFrame(createFrameContext());
+	backend.shaderRuntime.setMode("warn");
+	await backend.endFrame();
+
+	assert.deepEqual(calls, [
+		"submit",
+		"post-process-commit",
+		"temporal-commit",
+		"frame-state-commit",
+		"post-process-destroy",
+		"orchestrator-invalidate",
+		"resources-invalidate",
+	]);
+}
+
 async function testDeferredResizeInvalidatesFrameTargets() {
 	const { backend, device } = createBackend();
 	let invalidateCalls = 0;
@@ -928,7 +1015,7 @@ async function testDeferredResizeInvalidatesFrameTargets() {
 			invalidateCalls++;
 		},
 	};
-	backend._frameActive = true;
+	installActiveFrameTransaction(backend);
 
 	backend.resize({ width: 10, height: 12 });
 	await backend.abortFrame();
@@ -1053,6 +1140,7 @@ function testBackendPlanOmitsRendererOwnedPostProcessStage() {
 	backend._resources = {
 		beginFrameResourceLifecycle() {},
 		prepareFrame() {},
+		abortTemporalFrame() {},
 	};
 	backend._frameOrchestrator = {
 		beginFrame() {},
@@ -1102,6 +1190,7 @@ function testPassPlanAllowsParticleStageBeforeMainOpaque() {
 	backend._resources = {
 		beginFrameResourceLifecycle() {},
 		prepareFrame() {},
+		abortTemporalFrame() {},
 	};
 	backend._frameOrchestrator = {
 		beginFrame() {},
@@ -1178,6 +1267,7 @@ async function testPostProcessSessionBindsBeforeFrameGraphPlanning() {
 	const port = {};
 	backend._resources = {
 		beginFrameResourceLifecycle() {},
+		abortTemporalFrame() {},
 	};
 	backend._postProcessExecutor = {
 		bindSession(boundPort) {
@@ -1202,13 +1292,17 @@ async function testPostProcessSessionBindsBeforeFrameGraphPlanning() {
 				"plan-frame",
 			]);
 		},
-		abortFrame() {
+		abortRecording() {
 			calls.push("abort-frame");
 		},
+		abortFrameState() {},
 	};
 
 	backend.beginFrame(createFrameContext());
-	assert.strictEqual(backend._postProcessSessionPort, port);
+	assert.strictEqual(
+		backend._activeFrameTransaction._postProcessSessionPort,
+		port,
+	);
 	await backend.abortFrame(new Error("test cleanup"));
 	assert.deepEqual(calls, [
 		"create-session",
@@ -1227,6 +1321,7 @@ async function testAbortFrameClearsPlannerAndDelegatesWithoutEndFrame() {
 	backend._resources = {
 		beginFrameResourceLifecycle() {},
 		prepareFrame() {},
+		abortTemporalFrame() {},
 	};
 	backend._frameOrchestrator = {
 		beginFrame() {},
@@ -1238,9 +1333,10 @@ async function testAbortFrameClearsPlannerAndDelegatesWithoutEndFrame() {
 		endFrame() {
 			executorEndCalls++;
 		},
-		abortFrame() {
+		abortRecording() {
 			executorAbortCalls++;
 		},
+		abortFrameState() {},
 		destroy() {},
 		invalidateFrameTargets() {},
 		createPostProcessSessionPort() {
@@ -1284,7 +1380,7 @@ async function testAbortFrameClearsPlannerAndDelegatesWithoutEndFrame() {
 	assert.equal(backend._plannedPasses.size, 0);
 	assert.equal(backend._plannedPassOrder.size, 0);
 	assert.equal(backend._executedPasses.size, 0);
-	assert.equal(backend._frameActive, false);
+	assert.equal(backend._activeFrameTransaction, null);
 }
 
 async function testEndFrameFailureStillEndsParticleFrameAndClearsPlanner() {
@@ -1294,6 +1390,7 @@ async function testEndFrameFailureStillEndsParticleFrameAndClearsPlanner() {
 	backend._resources = {
 		beginFrameResourceLifecycle() {},
 		prepareFrame() {},
+		abortTemporalFrame() {},
 	};
 	backend._frameOrchestrator = {
 		beginFrame() {},
@@ -1304,7 +1401,8 @@ async function testEndFrameFailureStillEndsParticleFrameAndClearsPlanner() {
 		endFrame() {
 			throw error;
 		},
-		abortFrame() {},
+		abortRecording() {},
+		abortFrameState() {},
 		destroy() {},
 		invalidateFrameTargets() {},
 		createPostProcessSessionPort() {
@@ -1333,7 +1431,7 @@ async function testEndFrameFailureStillEndsParticleFrameAndClearsPlanner() {
 	assert.equal(backend._plannedPasses.size, 0);
 	assert.equal(backend._plannedPassOrder.size, 0);
 	assert.equal(backend._executedPasses.size, 0);
-	assert.equal(backend._frameActive, false);
+	assert.equal(backend._activeFrameTransaction, null);
 }
 
 async function testWarmupAggregatesPhases() {
@@ -1391,6 +1489,7 @@ async function run() {
 	testResizeUsesProvidedDimensions();
 	await testResizeDuringActiveFrameDefersResourceInvalidation();
 	await testShaderRuntimeChangeDuringActiveFrameDefersInvalidation();
+	await testFrameCommitsBeforeDeferredShaderInvalidation();
 	await testDeferredResizeInvalidatesFrameTargets();
 	await testDeviceLifecycleInternals();
 	testAutomaticDeviceLossDestroysPostProcessBeforeRollback();

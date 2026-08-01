@@ -91,6 +91,13 @@ Render Graph.
   `"backend:frame-hiz"` and obtained through `getShared()`.
 - Frame bindings, lighting state, and feature data are backend services, not
   graph-resource metadata.
+- Built-in shared-resource IDs must be resolved through one WebGPU catalog that
+  defines graph bindings, allocation groups, availability, and execution-time
+  texture access. Unknown custom IDs must remain unavailable.
+- WebGPU frame-target requirements must be derived from retained execution
+  declarations. Feature analysis must not infer consumers from built-in pass
+  IDs. An optional planar-reflection-mask declaration must still request mask
+  allocation so the pass may consume it when available.
 - Motion history copies must use
   `copyGBufferToHistory("motion", historyId)` and must validate both the source
   read and history write declarations.

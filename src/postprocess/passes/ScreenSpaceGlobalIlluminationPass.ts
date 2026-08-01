@@ -537,7 +537,7 @@ export class WebGPUScreenSpaceGlobalIlluminationImplementation
 		context: WebGPUSSGIContext
 	): Promise<boolean> {
 		const resources = await this._ensureResources(context.shared);
-		const hiZ = context.resources.getShared("backend:frame-hiz");
+		const hiZ = context.resources.getShared(WEBGPU_HIZ_SHARED_RESOURCE.id);
 		const history = context.resources.getHistory(SSGI_HISTORY_ID);
 		const motionHistory = context.resources.getHistory("motion");
 		const denoiseA = context.resources.getTransient(SSGI_DENOISE_A_ID);

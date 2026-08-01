@@ -9,6 +9,7 @@ import type {
 
 import { WEBGPU_FRAME_GRAPH_RESOURCES as r } from "./WebGPUFrameGraphResourceCatalog";
 import type { WebGPUFrameGraphNode, WebGPUFrameGraphNodeKind } from "./types";
+import { getWebGPUPostProcessSharedResourceDescriptor } from "./WebGPUPostProcessSharedResourceCatalog";
 
 export interface WebGPUPostProcessGraphComposition {
 	readonly definition: RenderGraphDefinition<WebGPUFrameGraphNode, WebGPUFrameGraphNodeKind>;
@@ -63,6 +64,8 @@ function resolveInputs(frame: PostProcessRenderGraphFrame): Record<string, strin
 }
 
 function resolveInputResource(port: string): string | null {
+	const sharedResource = getWebGPUPostProcessSharedResourceDescriptor(port);
+	if (sharedResource) return sharedResource.graphResourceId;
 	switch (port) {
 		case "scene-color": return r.frameColor;
 		case "gbuffer:depth":
@@ -75,12 +78,6 @@ function resolveInputResource(port: string): string | null {
 		case "gbuffer:transmission": return r.transmissionSurface0;
 		case "gbuffer:emissive":
 		case "gbuffer:occlusion": return r.gbufferEmissiveOcclusion;
-		case "backend:frame-hiz": return r.frameHiZ;
-		case "backend:transmission-scene-color": return r.transmissionSceneColorCopy;
-		case "backend:transmission-lighting": return r.transmissionLighting;
-		case "backend:transmission-surface-1": return r.transmissionSurface1;
-		case "backend:transmission-surface-2": return r.transmissionSurface2;
-		case "backend:planar-reflection-mask": return r.planarReflectionMask;
 		default: return port.startsWith("history:") ? `postprocess-import:${port}` : null;
 	}
 }

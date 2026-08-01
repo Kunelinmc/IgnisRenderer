@@ -67,19 +67,20 @@ function createReadyFrameBackend(options = {}) {
 				throw options.executeError;
 			}
 		},
-		endFrame() {
+		async endFrame(postSubmit) {
 			calls.push("orchestrator:end");
 			if (options.endError) {
 				throw options.endError;
 			}
+			await postSubmit?.();
 		},
-		abortFrame() {
+		abortRecording() {
 			calls.push("orchestrator:abort");
 		},
-		abortGraphAnalysis() {
+		abortFrameState() {
 			calls.push("orchestrator:abort-analysis");
 		},
-		commitGraphAnalysis() {
+		commitFrameState() {
 			calls.push("orchestrator:commit-analysis");
 		},
 	};
@@ -362,8 +363,7 @@ async function testFrameGuardsRunBeforeSideEffects() {
 	);
 	assert.equal(calls.includes("orchestrator:execute"), false);
 	await backend.abortFrame();
-	assert.equal(backend._frameActive, false);
-	assert.equal(backend._activeFrameContext, null);
+	assert.equal(backend._activeFrameTransaction, null);
 }
 
 async function testFrameOperationsRequireActiveFrame() {
@@ -387,11 +387,10 @@ async function testFailedBeginCanBeAborted() {
 	const { backend, calls } = createReadyFrameBackend({ beginError });
 
 	assert.throws(() => backend.beginFrame(createFrameContext()), beginError);
-	assert.equal(backend._frameActive, true);
+	assert.equal(backend._activeFrameTransaction, null);
 	await backend.abortFrame(beginError);
 
-	assert.equal(backend._frameActive, false);
-	assert.equal(backend._activeFrameContext, null);
+	assert.equal(backend._activeFrameTransaction, null);
 	assert.ok(calls.includes("orchestrator:abort"));
 	assert.ok(calls.includes("resources:abort"));
 	assert.ok(calls.includes("particles:end"));
@@ -410,9 +409,9 @@ async function testFailedPassAndEndCanBeAborted() {
 			),
 		passError,
 	);
-	assert.equal(passRuntime.backend._frameActive, true);
+	assert.equal(passRuntime.backend._activeFrameTransaction?.isOpen, true);
 	await passRuntime.backend.abortFrame(passError);
-	assert.equal(passRuntime.backend._frameActive, false);
+	assert.equal(passRuntime.backend._activeFrameTransaction, null);
 
 	const endError = new Error("simulated end failure");
 	const endRuntime = createReadyFrameBackend({ endError });

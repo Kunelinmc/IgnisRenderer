@@ -51,4 +51,3 @@ export class WebGPUTransparencyNodeRuntime extends CallbackNodeRuntime {}
 export class WebGPUReflectionNodeRuntime extends CallbackNodeRuntime {}
 export class WebGPUVisibilityNodeRuntime extends CallbackNodeRuntime {}
 export class WebGPUPostProcessNodeRuntime extends CallbackNodeRuntime {}
-export class WebGPUPresentationNodeRuntime extends CallbackNodeRuntime {}

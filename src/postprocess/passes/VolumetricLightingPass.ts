@@ -1286,7 +1286,7 @@ export class WebGPUVolumetricLightingImplementation
 				WEBGPU_VOLUMETRIC_LIGHTING_DATA,
 			),
 		);
-		const hiZ = context.resources.getShared("backend:frame-hiz");
+		const hiZ = context.resources.getShared(WEBGPU_HIZ_SHARED_RESOURCE.id);
 		const history = context.resources.getHistory("volumetric");
 		const reservoirHistory = context.resources.getHistory("volumetric-reservoir");
 		const motionHistory = context.resources.getHistory("motion");

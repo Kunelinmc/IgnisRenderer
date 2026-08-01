@@ -24,6 +24,7 @@ import {
 } from "../PostProcessPass";
 import type { PostProcessScheduleEntry } from "../ordering";
 import {
+	POST_PROCESS_SHARED_RESOURCE_IDS,
 	POST_PROCESS_SAMPLED_READ,
 	POST_PROCESS_STORAGE_WRITE,
 	WEBGPU_VERSIONED_EXECUTION,
@@ -51,10 +52,14 @@ export const SCREEN_SPACE_REFRACTIONS_PASS_ORDER = {
 const WEBGPU_SSREFRACTION_RAW_TRANSIENT_ID = "ssrefraction:raw";
 const WEBGPU_SSREFRACTION_DENOISE_SCRATCH_ID =
 	"ssrefraction:denoise-scratch";
-const WEBGPU_TRANSMISSION_SCENE_COLOR = "backend:transmission-scene-color";
-const WEBGPU_TRANSMISSION_LIGHTING = "backend:transmission-lighting";
-const WEBGPU_TRANSMISSION_SURFACE_1 = "backend:transmission-surface-1";
-const WEBGPU_TRANSMISSION_SURFACE_2 = "backend:transmission-surface-2";
+const WEBGPU_TRANSMISSION_SCENE_COLOR =
+	POST_PROCESS_SHARED_RESOURCE_IDS.transmissionSceneColor;
+const WEBGPU_TRANSMISSION_LIGHTING =
+	POST_PROCESS_SHARED_RESOURCE_IDS.transmissionLighting;
+const WEBGPU_TRANSMISSION_SURFACE_1 =
+	POST_PROCESS_SHARED_RESOURCE_IDS.transmissionSurface1;
+const WEBGPU_TRANSMISSION_SURFACE_2 =
+	POST_PROCESS_SHARED_RESOURCE_IDS.transmissionSurface2;
 
 export interface SSRefractionOptions {
 	/** Maximum ray-march iterations per refraction ray. */
@@ -290,7 +295,7 @@ export class WebGPUScreenSpaceRefractionsImplementation
 				})
 			),
 			shared: [{
-				id: "backend:frame-hiz",
+				id: POST_PROCESS_SHARED_RESOURCE_IDS.frameHiZ,
 				access: "read",
 				usage: "sampled",
 			}, ...[
@@ -375,7 +380,9 @@ export class WebGPUScreenSpaceRefractionsImplementation
 		const denoiseScratch = context.resources.getTransient(
 			WEBGPU_SSREFRACTION_DENOISE_SCRATCH_ID
 		);
-		const hiZ = context.resources.getShared("backend:frame-hiz");
+		const hiZ = context.resources.getShared(
+			POST_PROCESS_SHARED_RESOURCE_IDS.frameHiZ,
+		);
 		const depthTexture = context.resources.getGBuffer("depth");
 		const normalTexture = context.resources.getGBuffer("normal");
 		const transmissionSurface0 = context.resources.getGBuffer("transmission");

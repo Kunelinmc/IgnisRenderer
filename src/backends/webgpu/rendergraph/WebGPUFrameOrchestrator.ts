@@ -70,7 +70,6 @@ import {
 } from "./WebGPUFrameNodeExecutorRegistry";
 import {
 	WebGPUDeferredNodeRuntime,
-	WebGPUPresentationNodeRuntime,
 	WebGPUPostProcessNodeRuntime,
 	WebGPUReflectionNodeRuntime,
 	WebGPUSceneNodeRuntime,
@@ -115,8 +114,9 @@ import type {
 	WebGPUFrameGraphStagePlan,
 	WebGPUFrameGraphValidationMode,
 } from "./types";
-import { WebGPUPresentPass } from "./WebGPUPresentPass";
 import { WebGPUCustomRenderTargetRuntime } from "./WebGPUCustomRenderTargetRuntime";
+import { getWebGPUPostProcessSharedResourceDescriptor } from "./WebGPUPostProcessSharedResourceCatalog";
+import { WebGPUPresentationRuntime } from "./WebGPUPresentationRuntime";
 import type {
 	RenderTargetReadbackOptions,
 	RenderTargetReadbackResult,
@@ -157,7 +157,7 @@ export class WebGPUFrameOrchestrator {
 	private _recordingContext: WebGPUFrameGraphRecordingContext;
 	private _depthDirtyClearPass: WebGPUDepthDirtyClearPass;
 	private _planarReflectionPass: WebGPUPlanarReflectionPass;
-	private _presentPass: WebGPUPresentPass;
+	private _presentationRuntime: WebGPUPresentationRuntime;
 	private _customRenderTargets: WebGPUCustomRenderTargetRuntime;
 	private _frameTargetManager: WebGPUFrameTargetManager;
 	private _transparencyRuntime: WebGPUTransparencyRuntime;
@@ -212,19 +212,7 @@ export class WebGPUFrameOrchestrator {
 			this._hiZBuilder,
 			() => this._host.displayOutputState,
 		);
-		this._postBridge = new WebGPUPostProcessBridge(host, this._postRuntime, {
-			getEncoder: () => this._encoder,
-			getFrameTargets: () => this._frameTargets,
-			isHiZReady: () => this._hiZStatus === "ready",
-			requireFrameResources: () => this._requireFrameResources(),
-			presentToCanvas: (source) => this._presentToCanvas(source),
-			warmupPresent: () => this._ensurePresentResources(),
-			setMotionHistoryWriteTarget: (texture) => {
-				this._motionHistoryWriteTarget = texture;
-			},
-		});
 		this._planarReflectionPass = new WebGPUPlanarReflectionPass(host, resources);
-		this._presentPass = new WebGPUPresentPass(host);
 		this._customRenderTargets = new WebGPUCustomRenderTargetRuntime(host);
 		this._frameTargetManager = new WebGPUFrameTargetManager(host);
 		this._recordingContext = {
@@ -247,6 +235,22 @@ export class WebGPUFrameOrchestrator {
 			selectTransparentSubsetForRect: (context, packets, rect) =>
 				this._dirtyRectResolver.selectTransparentSubsetForRect(context, packets, rect),
 		};
+		this._presentationRuntime = new WebGPUPresentationRuntime(host, {
+			recording: this._recordingContext,
+			getOutputColorDomain: () => this._postProcessOutputColorDomain,
+		});
+		this._postBridge = new WebGPUPostProcessBridge(host, this._postRuntime, {
+			getEncoder: () => this._encoder,
+			getFrameTargets: () => this._frameTargets,
+			isHiZReady: () => this._hiZStatus === "ready",
+			requireFrameResources: () => this._requireFrameResources(),
+			presentToCanvas: (source) =>
+				this._presentationRuntime.present(source, this._requireActiveSession()),
+			warmupPresent: () => this._presentationRuntime.warmup(),
+			setMotionHistoryWriteTarget: (texture) => {
+				this._motionHistoryWriteTarget = texture;
+			},
+		});
 		this._depthDirtyClearPass = new WebGPUDepthDirtyClearPass(host);
 		this._deferredLightingPass = new WebGPUDeferredLightingPass(host, resources, {
 			recordingContext: this._recordingContext,
@@ -303,14 +307,6 @@ export class WebGPUFrameOrchestrator {
 
 	private set _frameResources(value: WebGPUPreparedFrameResources | null) {
 		if (this._session) this._session.resources = value;
-	}
-
-	private get _hasPresentedInFrame(): boolean {
-		return this._session?.presented ?? false;
-	}
-
-	private set _hasPresentedInFrame(value: boolean) {
-		if (this._session) this._session.presented = value;
 	}
 
 	private get _mrtEnabled(): boolean {
@@ -681,6 +677,13 @@ export class WebGPUFrameOrchestrator {
 		return this._frameResources;
 	}
 
+	private _requireActiveSession(): WebGPUFrameSession {
+		if (!this._session) {
+			throw new Error("WebGPU frame session is unavailable.");
+		}
+		return this._session;
+	}
+
 	public createPassExecutionContext(request: PostProcessPassExecutionContextRequest): unknown {
 		return this._postBridge.createPassExecutionContext(request);
 	}
@@ -697,21 +700,8 @@ export class WebGPUFrameOrchestrator {
 	}
 
 	private _isPostProcessSharedResourceAvailable(resourceId: string): boolean {
-		const targets = this._frameTargets;
-		switch (resourceId) {
-			case "backend:frame-hiz": return !!targets?.hiZ;
-			case "backend:transmission-scene-color":
-				return !!targets?.transmissionSceneColorCopy;
-			case "backend:transmission-lighting":
-				return !!targets?.transmissionLighting;
-			case "backend:transmission-surface-1":
-				return !!targets?.gTransmissionSurface1;
-			case "backend:transmission-surface-2":
-				return !!targets?.gTransmissionSurface2;
-			case "backend:planar-reflection-mask":
-				return !!targets?.planarReflectionMask;
-			default: return false;
-		}
+		return getWebGPUPostProcessSharedResourceDescriptor(resourceId)
+			?.isAllocated(this._frameTargets) ?? false;
 	}
 
 	/**
@@ -752,7 +742,7 @@ export class WebGPUFrameOrchestrator {
 	}
 
 	public onDisplayOutputChanged(): void {
-		this._presentPass.onShaderRuntimeChanged();
+		this._presentationRuntime.onShaderRuntimeChanged();
 		this._postRuntime.invalidateBindings();
 	}
 
@@ -780,7 +770,7 @@ export class WebGPUFrameOrchestrator {
 		const errors: ShaderCompileError[] = [];
 		const yieldController = createWarmupYieldController(options);
 		try {
-			await this._ensurePresentResources();
+			await this._presentationRuntime.warmup();
 			compiled++;
 		} catch (error) {
 			failed++;
@@ -1028,21 +1018,6 @@ export class WebGPUFrameOrchestrator {
 				destroy: () => this._postRuntime.destroy(),
 			},
 		);
-		const presentation = new WebGPUPresentationNodeRuntime(
-			"presentation",
-			{
-				presentation: async (_node, session) => {
-					if (!session.presented && this._frameTargets) {
-						await this._presentToCanvas(this._frameTargets.sceneColor);
-					}
-				},
-			},
-			{
-				invalidateFrameResources: () => this._presentPass.invalidateBindings(),
-				onShaderRuntimeChanged: () => this._presentPass.onShaderRuntimeChanged(),
-				destroy: () => this._presentPass.destroy(),
-			},
-		);
 		return [
 			scene,
 			shadow,
@@ -1051,7 +1026,7 @@ export class WebGPUFrameOrchestrator {
 			reflection,
 			visibility,
 			postProcess,
-			presentation,
+			this._presentationRuntime,
 		];
 	}
 
@@ -1068,14 +1043,20 @@ export class WebGPUFrameOrchestrator {
 		};
 	}
 
-	public async endFrame(): Promise<void> {
+	public async endFrame(
+		postSubmit?: () => void | Promise<void>,
+	): Promise<void> {
 		const session = this._session;
 		if (!session) {
 			throw new Error("WebGPUFrameOrchestrator has no active frame session.");
 		}
 		if (session.state === "skipped") {
 			this._graphCompiler.seal();
-			this._clearActiveSession();
+			try {
+				await postSubmit?.();
+			} finally {
+				this._clearActiveSession();
+			}
 			return;
 		}
 		session.beginCommit();
@@ -1127,9 +1108,9 @@ export class WebGPUFrameOrchestrator {
 			}
 			committer.enqueueEncoder("main:final", encoder);
 			session.encoder = null;
-			await committer.commit(() => {
-				this._customRenderTargets.markFrameCommitted();
+			await committer.commit(async () => {
 				this._occlusionRuntime.scheduleQueuedReadbacks();
+				await postSubmit?.();
 			});
 		} finally {
 			this._lastCommitDebugState = committer.getDebugState();
@@ -1137,22 +1118,39 @@ export class WebGPUFrameOrchestrator {
 		}
 	}
 
-	public abortFrame(error?: unknown): void {
+	/** @internal Discards active native frame recording without logical publication. */
+	public abortRecording(_error?: unknown): void {
 		this._session?.committer?.abort();
 		this._lastCommitDebugState = this._session?.committer?.getDebugState() ?? null;
-		this._customRenderTargets.markFrameAborted();
-		this._graphCompiler.abort(error);
 		this._clearActiveSession();
 	}
 
-	/** @internal Completes graph analysis after all backend transaction commits. */
-	public commitGraphAnalysis(): void {
+	/** @internal Publishes logical frame state after every post-submit commit succeeds. */
+	public commitFrameState(): void {
+		this._customRenderTargets.markFrameCommitted();
 		this._graphCompiler.commit();
 	}
 
-	/** @internal Aborts graph analysis without changing native frame ownership. */
-	public abortGraphAnalysis(error?: unknown): void {
+	/** @internal Aborts unpublished logical frame state. */
+	public abortFrameState(error?: unknown): void {
+		this._customRenderTargets.markFrameAborted();
 		this._graphCompiler.abort(error);
+	}
+
+	/** @internal Compatibility wrapper for direct frame-runtime tests. */
+	public abortFrame(error?: unknown): void {
+		this.abortRecording(error);
+		this.abortFrameState(error);
+	}
+
+	/** @internal Compatibility alias; new code must use `commitFrameState()`. */
+	public commitGraphAnalysis(): void {
+		this.commitFrameState();
+	}
+
+	/** @internal Compatibility alias; new code must use `abortFrameState()`. */
+	public abortGraphAnalysis(error?: unknown): void {
+		this.abortFrameState(error);
 	}
 
 	/** @internal Records a backend pass that bypasses logical resource analysis. */
@@ -1478,23 +1476,6 @@ export class WebGPUFrameOrchestrator {
 	private _destroyDeferredBindings(): void {
 		this._deferredLightingPass.destroyBindings();
 		this._deferredDecalPass.destroyBindings();
-	}
-
-	private async _ensurePresentResources(): Promise<void> {
-		await this._presentPass.warmup();
-	}
-
-	private async _presentToCanvas(source: IRenderTexture): Promise<void> {
-		if (!this._encoder) return;
-		await this._presentPass.present({
-			encoder: this._encoder,
-			frameContext: this._frameContext,
-			source,
-			colorDomain: this._postProcessOutputColorDomain,
-			resolveDirtyRects: (context, width, height) =>
-				this._recordingContext.resolveDirtyRects(context, width, height),
-		});
-		this._hasPresentedInFrame = true;
 	}
 
 	private _buildParticleMeshDrawPackets(

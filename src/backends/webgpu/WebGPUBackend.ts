@@ -33,7 +33,7 @@ import { WebGPUErrorScopeHelper } from "./WebGPUErrorScopeHelper";
 import { WebGPUFrameOrchestrator } from "./rendergraph/WebGPUFrameOrchestrator";
 import type { WebGPUFrameHost } from "./rendergraph/WebGPUFrameHost";
 import { WebGPUPostProcessExecutor } from "./WebGPUPostProcessExecutor";
-import type { WebGPUPostProcessSessionPort } from "./WebGPUPostProcessExecutor";
+import { WebGPUFrameTransaction } from "./WebGPUFrameTransaction";
 import { BackendPostProcessRuntime } from "../../postprocess/BackendPostProcessRuntime";
 import { WebGPUCommandScheduler } from "./WebGPUCommandScheduler";
 import { WebGPUCanvasTargetManager } from "./WebGPUCanvasTargetManager";
@@ -139,7 +139,7 @@ export interface WebGPUBackendOptions {
 export class WebGPUBackend implements IRenderBackend {
 	private _postProcessExecutor: WebGPUPostProcessExecutor | null = null;
 	private _postProcessRuntime: BackendPostProcessRuntime | null = null;
-	private _postProcessSessionPort: WebGPUPostProcessSessionPort | null = null;
+	private _activeFrameTransaction: WebGPUFrameTransaction | null = null;
 	private readonly _occlusionCullingExtensionApi: OcclusionCullingBackendAdapter = {
 		getVisibilityProvider: (options: NormalizedOcclusionCullingOptions) =>
 			this._frameOrchestrator?.getOcclusionVisibilityProvider(options) ?? null,
@@ -194,8 +194,6 @@ export class WebGPUBackend implements IRenderBackend {
 	private _executedPasses = new Set<FramePass["stage"]>();
 	private _plannedPasses = new Set<FramePass["stage"]>();
 	private _plannedPassOrder = new Map<FramePass["stage"], number>();
-	private _frameActive = false;
-	private _activeFrameContext: FrameContext | null = null;
 	private _pendingResize: {
 		width: number;
 		height: number;
@@ -692,7 +690,7 @@ export class WebGPUBackend implements IRenderBackend {
 
 	public beginFrame(context: FrameContext): void {
 		this._requireReady("beginFrame");
-		if (this._frameActive) {
+		if (this._activeFrameTransaction?.isOpen) {
 			throw new Error(
 				`WebGPUBackend.beginFrame() requires no active frame; current state is "${this._state}".`,
 			);
@@ -704,32 +702,36 @@ export class WebGPUBackend implements IRenderBackend {
 			throw new Error("WebGPU backend has not been initialized.");
 		}
 
-		this._frameActive = true;
-		this._activeFrameContext = context;
 		this._completedFrameCoverage = "full-frame";
 		this._frameSerial++;
 		this._commandScheduler.submitPendingCopyCommands();
 		this._bindingGroupCache.evictStale();
 		this._prepareFramePassPlan(context);
 		this._executedPasses.clear();
-		this._particleSimulator?.beginFrame(context);
-		this._resources.beginFrameResourceLifecycle();
-		const postProcessPort = this._frameOrchestrator.createPostProcessSessionPort();
-		if (postProcessPort) {
-			this._postProcessExecutor?.bindSession(postProcessPort);
+		const transaction = new WebGPUFrameTransaction(context, {
+			orchestrator: this._frameOrchestrator,
+			resources: this._resources,
+			particleSimulator: this._particleSimulator,
+			postProcessRuntime: this._postProcessRuntime,
+			postProcessExecutor: this._postProcessExecutor,
+			reportCleanupError: (scope, error) => this._reportNonFatalError(scope, error),
+		});
+		this._activeFrameTransaction = transaction;
+		try {
+			transaction.begin();
+		} catch (error) {
+			if (this._activeFrameTransaction === transaction) {
+				this._activeFrameTransaction = null;
+			}
+			this._clearFramePlannerState();
+			throw error;
 		}
-		this._postProcessSessionPort = postProcessPort;
-		this._frameOrchestrator.beginFrame(context);
 	}
 
 	public executePass(pass: FramePass, context: FrameContext): Promise<void> | void {
 		this._requireReady("executePass");
-		this._requireActiveFrame("executePass");
-		if (context !== this._activeFrameContext) {
-			throw new Error(
-				"WebGPU frame pass context must match the context passed to beginFrame().",
-			);
-		}
+		const transaction = this._requireActiveFrame("executePass");
+		transaction.assertRecordingContext(context);
 		if (!this._frameOrchestrator) {
 			throw new Error("WebGPU backend has not been initialized.");
 		}
@@ -774,29 +776,16 @@ export class WebGPUBackend implements IRenderBackend {
 	}
 
 	public async endFrame(): Promise<void> {
-		this._requireActiveFrame("endFrame");
-		const wasActive = this._frameActive;
+		const transaction = this._requireActiveFrame("endFrame");
 		let frameError: unknown = null;
 		try {
-			await this._frameOrchestrator?.endFrame();
+			await transaction.commit();
 		} catch (error) {
 			frameError = error;
-		}
-		try {
-			if (wasActive) {
-				this._particleSimulator?.endFrame();
-			}
-		} catch (error) {
-			if (!frameError) {
-				frameError = error;
-			} else {
-				this._reportNonFatalError("particle frame cleanup", error);
-			}
 		} finally {
-			this._postProcessExecutor?.unbindSession(this._postProcessSessionPort ?? undefined);
-			this._postProcessSessionPort = null;
-			this._frameActive = false;
-			this._activeFrameContext = null;
+			if (this._activeFrameTransaction === transaction) {
+				this._activeFrameTransaction = null;
+			}
 			this._clearFramePlannerState();
 		}
 
@@ -809,61 +798,27 @@ export class WebGPUBackend implements IRenderBackend {
 				this._reportNonFatalError("deferred lifecycle flush after failed frame", error);
 			}
 		}
-		if (frameError) {
-			this._frameOrchestrator?.abortGraphAnalysis?.(frameError);
-			throw frameError;
-		}
-		try {
-			this._postProcessRuntime?.commitFrame();
-			this._frameOrchestrator?.commitGraphAnalysis?.();
-			this._resources?.commitTemporalFrame?.();
-		} catch (error) {
-			this._frameOrchestrator?.abortGraphAnalysis?.(error);
-			throw error;
-		}
+		if (frameError) throw frameError;
 	}
 
 	public async abortFrame(_error?: unknown): Promise<void> {
-		const wasActive = this._frameActive;
-		let abortError: unknown = null;
+		const transaction = this._activeFrameTransaction;
 		try {
-			try {
-				await this._postProcessRuntime?.abortFrame(_error);
-			} catch (error) {
-				abortError = error;
-			}
-			try {
-				this._frameOrchestrator?.abortFrame(_error);
-			} catch (error) {
-				if (!abortError) abortError = error;
-				else this._reportNonFatalError("frame graph abort", error);
-			}
-			if (wasActive) {
-				try {
-					this._particleSimulator?.endFrame();
-				} catch (error) {
-					if (!abortError) abortError = error;
-					else this._reportNonFatalError("particle frame cleanup", error);
-				}
-			}
+			await transaction?.abort(_error);
 		} finally {
-			this._resources?.abortTemporalFrame?.();
-			this._postProcessExecutor?.unbindSession(this._postProcessSessionPort ?? undefined);
-			this._postProcessSessionPort = null;
-			this._frameActive = false;
-			this._activeFrameContext = null;
+			if (this._activeFrameTransaction === transaction) {
+				this._activeFrameTransaction = null;
+			}
 			this._clearFramePlannerState();
 		}
 		try {
 			this._flushDeferredLifecycleChanges();
 		} catch (error) {
-			if (!abortError) {
-				throw error;
+			if (_error !== undefined) {
+				this._reportNonFatalError("deferred lifecycle flush after failed abort", error);
+				return;
 			}
-			this._reportNonFatalError("deferred lifecycle flush after failed abort", error);
-		}
-		if (abortError) {
-			throw abortError;
+			throw error;
 		}
 	}
 
@@ -1289,7 +1244,6 @@ export class WebGPUBackend implements IRenderBackend {
 		this._deviceRecoveryPromise = null;
 		this._state = "lost";
 		this._deviceLostInfo = info;
-		this._frameOrchestrator?.abortGraphAnalysis?.(info);
 		const reason =
 			typeof info.reason === "string" && info.reason.length > 0 ? ` (${info.reason})` : "";
 		Logger.error(`WebGPU device was lost${reason}: ${info.message}`, {
@@ -1392,6 +1346,11 @@ export class WebGPUBackend implements IRenderBackend {
 				this._reportNonFatalError(`runtime cleanup ${scope}`, error);
 			}
 		};
+		const activeTransaction = this._activeFrameTransaction;
+		this._activeFrameTransaction = null;
+		if (activeTransaction) {
+			cleanup("active frame transaction", () => activeTransaction.invalidate());
+		}
 
 		const postProcessRuntime = this._postProcessRuntime;
 		this._postProcessRuntime = null;
@@ -1400,7 +1359,6 @@ export class WebGPUBackend implements IRenderBackend {
 		}
 		const postProcessExecutor = this._postProcessExecutor;
 		this._postProcessExecutor = null;
-		this._postProcessSessionPort = null;
 		if (postProcessExecutor) {
 			cleanup("post-process session", () => postProcessExecutor.unbindSession());
 		}
@@ -1436,8 +1394,6 @@ export class WebGPUBackend implements IRenderBackend {
 		cleanup("object identity", () => this._objectIdentity.reset());
 		cleanup("MSAA controller", () => this._msaaController.resetDevice());
 		this._frameSerial = 0;
-		this._frameActive = false;
-		this._activeFrameContext = null;
 		this._pendingResize = null;
 		this._pendingShaderRuntimeInvalidation = false;
 		const pendingDisplayOutput = this._pendingDisplayOutput;
@@ -1537,7 +1493,7 @@ export class WebGPUBackend implements IRenderBackend {
 	}
 
 	private _isFrameActive(): boolean {
-		return this._frameActive;
+		return this._activeFrameTransaction?.isOpen === true;
 	}
 
 	private _getFramePlannerState(): FramePassPlanValidatorState {
@@ -1802,9 +1758,10 @@ export class WebGPUBackend implements IRenderBackend {
 		);
 	}
 
-	private _requireActiveFrame(operation: string): void {
-		if (this._frameActive) {
-			return;
+	private _requireActiveFrame(operation: string): WebGPUFrameTransaction {
+		const transaction = this._activeFrameTransaction;
+		if (transaction?.isOpen) {
+			return transaction;
 		}
 		throw new Error(
 			`WebGPUBackend.${operation}() requires an active frame; current lifecycle state is "${this._state}".`,

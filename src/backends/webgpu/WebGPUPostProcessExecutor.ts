@@ -35,7 +35,7 @@ export class WebGPUPostProcessExecutor implements IPostProcessExecutor {
 	public readonly backend = "webgpu";
 	private _sessionPort: WebGPUPostProcessSessionPort | null = null;
 
-	public constructor(private readonly _host: WebGPUFrameHost) {}
+	constructor(private readonly _host: WebGPUFrameHost) {}
 
 	public bindSession(port: WebGPUPostProcessSessionPort): void {
 		if (this._sessionPort) {
@@ -89,8 +89,10 @@ export class WebGPUPostProcessExecutor implements IPostProcessExecutor {
 	}
 
 	public createGBufferBridge(context: FrameContext): LogicalGBufferBridge {
-		return this._sessionPort?.createGBufferBridge(context) ??
-			this._createFallbackGBufferBridge(context);
+		return (
+			this._sessionPort?.createGBufferBridge(context) ??
+			this._createFallbackGBufferBridge(context)
+		);
 	}
 
 	public isGraphResourceAvailable(resourceId: string): boolean {
@@ -106,8 +108,9 @@ export class WebGPUPostProcessExecutor implements IPostProcessExecutor {
 	}
 
 	public createPassExecutionContext(request: PostProcessPassExecutionContextRequest): unknown {
-		return this._requireSession("create post-process pass context")
-			.createPassExecutionContext(request);
+		return this._requireSession("create post-process pass context").createPassExecutionContext(
+			request,
+		);
 	}
 
 	public completePass(

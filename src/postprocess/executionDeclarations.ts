@@ -41,8 +41,20 @@ export const WEBGL_VERSIONED_EXECUTION = Object.freeze({
 	color: { access: "read", output: "new-version" },
 } as const satisfies PostProcessExecutionDeclaration);
 
+export const POST_PROCESS_SHARED_RESOURCE_IDS = Object.freeze({
+	frameHiZ: "backend:frame-hiz",
+	planarReflectionMask: "backend:planar-reflection-mask",
+	transmissionSceneColor: "backend:transmission-scene-color",
+	transmissionLighting: "backend:transmission-lighting",
+	transmissionSurface1: "backend:transmission-surface-1",
+	transmissionSurface2: "backend:transmission-surface-2",
+} as const);
+
+export type BuiltInPostProcessSharedResourceId =
+	(typeof POST_PROCESS_SHARED_RESOURCE_IDS)[keyof typeof POST_PROCESS_SHARED_RESOURCE_IDS];
+
 export const WEBGPU_HIZ_SHARED_RESOURCE = Object.freeze({
-	id: "backend:frame-hiz",
+	id: POST_PROCESS_SHARED_RESOURCE_IDS.frameHiZ,
 	access: "read",
 	usage: "sampled",
 } as const satisfies PostProcessSharedResourceDeclaration);

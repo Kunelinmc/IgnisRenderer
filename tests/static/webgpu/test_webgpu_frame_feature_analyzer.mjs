@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 
 import { PBRMaterial } from "../../../src/materials/PBRMaterial.ts";
 import { WebGPUFrameFeatureAnalyzer } from "../../../src/backends/webgpu/rendergraph/WebGPUFrameFeatureAnalyzer.ts";
+import { POST_PROCESS_SHARED_RESOURCE_IDS } from "../../../src/postprocess/executionDeclarations.ts";
 import { createResolvedPostProcess } from "../../helpers/postprocess.mjs";
 
 function createContext() {
@@ -99,11 +100,59 @@ const customHiZAnalysis = analyze(customHiZContext, [{
 }]);
 assert.equal(customHiZAnalysis.needsHiZTarget, true);
 
+const customMaskContext = createContext();
+customMaskContext.features.enableReflection = false;
+customMaskContext.scene.reflectivePackets = [];
+const customMaskAnalysis = analyze(customMaskContext, [{
+	id: "custom-mask-consumer",
+	declaration: {
+		color: { access: "read", output: "new-version" },
+		shared: [{
+			id: POST_PROCESS_SHARED_RESOURCE_IDS.planarReflectionMask,
+			access: "read",
+			usage: "sampled",
+			optional: true,
+		}],
+	},
+}]);
+assert.equal(customMaskAnalysis.needsPlanarReflectionMask, true);
+
+const passIdOnlyContext = createContext();
+passIdOnlyContext.features.enableReflection = false;
+passIdOnlyContext.scene.reflectivePackets = [];
+const passIdOnlyAnalysis = analyze(passIdOnlyContext, [{
+	id: "ssr",
+	declaration: { color: { access: "read", output: "new-version" } },
+}]);
+assert.equal(passIdOnlyAnalysis.needsPlanarReflectionMask, false);
+
 const transmissionOnly = createContext();
 transmissionOnly.scene.transparentPackets = [{ material: { transmissionFactor: 1 } }];
 const transmissionAnalysis = analyze(transmissionOnly);
 assert.equal(transmissionAnalysis.transparency.hasOITContributors, false);
 assert.equal(transmissionAnalysis.transparency.transmissionPackets.length, 1);
+
+const customTransmissionPasses = [{
+	id: "custom-transmission-consumer",
+	declaration: {
+		color: { access: "read", output: "new-version" },
+		shared: [{
+			id: POST_PROCESS_SHARED_RESOURCE_IDS.transmissionSceneColor,
+			access: "read",
+			usage: "sampled",
+		}],
+	},
+}];
+assert.equal(
+	analyze(transmissionOnly, customTransmissionPasses).needsTransmissionTargets,
+	true,
+);
+const noTransmissionPackets = createContext();
+noTransmissionPackets.scene.transparentPackets = [];
+assert.equal(
+	analyze(noTransmissionPackets, customTransmissionPasses).needsTransmissionTargets,
+	false,
+);
 
 const additiveOnly = createContext();
 additiveOnly.scene.transparentPackets = [];

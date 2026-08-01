@@ -129,9 +129,10 @@ must remain backend-internal.
 - `WebGPUFrameOrchestrator.abortFrame` must remain idempotent when no session is
   active.
 - `WebGPUFrameOrchestrator.endFrame` must seal graph analysis after final graph
-  recording. `WebGPUBackend` must commit analysis only after submission,
-  presentation, deferred lifecycle work, custom target publication, and
-  post-process history commit succeed. Any failure must abort analysis.
+  recording. `WebGPUFrameTransaction` must coordinate submission and
+  post-submit logical commits. It must commit post-process history, temporal
+  state, custom target publication, and graph analysis before deferred
+  lifecycle invalidation runs. Any failure must abort unpublished state.
 - Custom render-target and particle-simulation paths that bypass graph
   executors must have always-retained opaque placeholder nodes and must mark
   shared analysis coverage as `"opaque"` without changing execution.
@@ -148,6 +149,9 @@ must remain backend-internal.
   adding a node kind produces a TypeScript error until an executor is supplied.
 - A planned graph node with no runtime executor must throw because it indicates
   an internal planner/runtime mismatch.
+- `WebGPUPresentationRuntime` must own the presentation node executor and the
+  `WebGPUPresentPass` resource lifecycle. `WebGPUFrameOrchestrator` must only
+  compose that runtime and provide its narrow recording context.
 - The internal WebGPU graph must not add global renderer-level stages for
   Software or WebGL.
 - The frame graph may allocate a shared full-chain `frame:hiz` target when

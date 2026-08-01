@@ -1,13 +1,12 @@
 import type { DrawPacket, FrameContext } from "../../../pipeline/types";
-import {
-	SCREEN_SPACE_REFLECTIONS_PASS_ID,
-	SCREEN_SPACE_REFRACTIONS_PASS_ID,
-	type PlannedPostProcessPass,
-} from "../../../postprocess";
-import { WEBGPU_HIZ_SHARED_RESOURCE } from "../../../postprocess/executionDeclarations";
+import type { PlannedPostProcessPass } from "../../../postprocess";
 import { materialUsesTransmission } from "../../../materials/transparency";
 import { ParticleBlendMode } from "../../../particles";
 import { materialSupportsWebGPUDeferredLighting } from "../material";
+import {
+	getWebGPUPostProcessSharedResourceDescriptor,
+	type WebGPUPostProcessAllocationGroup,
+} from "./WebGPUPostProcessSharedResourceCatalog";
 
 export interface WebGPUFrameFeatureAnalysis {
 	readonly particleOpaquePackets: readonly DrawPacket[];
@@ -64,15 +63,10 @@ export class WebGPUFrameFeatureAnalyzer {
 		const needsOcclusionTargets =
 			context.features.enableOcclusionCulling === true &&
 			(context.scene.occlusion?.eligibleCandidateCount ?? 0) > 0;
+		const sharedAllocationGroups = this._collectSharedAllocationGroups(postProcessPasses);
 		const needsHiZTarget =
 			needsOcclusionTargets ||
-			postProcessPasses.some((resolved) =>
-				resolved.declaration.shared?.some(
-					(resource) =>
-						resource.id === WEBGPU_HIZ_SHARED_RESOURCE.id &&
-						resource.optional !== true,
-				) === true,
-			);
+			sharedAllocationGroups.has("hiz");
 		const transparency = this._analyzeTransparency(
 			context,
 			particleTransparentPackets,
@@ -92,19 +86,33 @@ export class WebGPUFrameFeatureAnalyzer {
 			needsPlanarReflection,
 			needsPlanarReflectionMask:
 				needsPlanarReflection ||
-				postProcessPasses.some((resolved) =>
-					resolved.id === SCREEN_SPACE_REFLECTIONS_PASS_ID,
-				),
+				sharedAllocationGroups.has("planar-reflection-mask"),
 			needsTransmissionTargets:
-				postProcessPasses.some((resolved) =>
-					resolved.id === SCREEN_SPACE_REFRACTIONS_PASS_ID,
-				) &&
+				sharedAllocationGroups.has("transmission") &&
 				particleTransparentPackets
 					.concat(context.scene.transparentPackets)
 					.some((packet) => materialUsesTransmission(packet.material)),
 			needsOcclusionTargets,
 			needsHiZTarget,
 		};
+	}
+
+	private _collectSharedAllocationGroups(
+		passes: readonly PlannedPostProcessPass[],
+	): ReadonlySet<WebGPUPostProcessAllocationGroup> {
+		const groups = new Set<WebGPUPostProcessAllocationGroup>();
+		for (const pass of passes) {
+			for (const resource of pass.declaration.shared ?? []) {
+				const descriptor = getWebGPUPostProcessSharedResourceDescriptor(resource.id);
+				if (
+					descriptor &&
+					(resource.optional !== true || descriptor.allocateWhenOptional)
+				) {
+					groups.add(descriptor.allocationGroup);
+				}
+			}
+		}
+		return groups;
 	}
 
 	private _analyzeTransparency(
