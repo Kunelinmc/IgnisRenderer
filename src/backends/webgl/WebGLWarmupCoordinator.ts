@@ -201,17 +201,21 @@ export class WebGLWarmupCoordinator {
 		const environment = context.scene?.environment;
 		return collectWebGLLights(
 			context.scene?.lights ?? [],
-			context.features?.enableLighting ?? false,
-			context.features?.enableShadows ?? false,
-			context.shadowMaps ?? new Map(),
-			context.features?.enableSH ?? false,
-			environment?.lightingEnabled ? environment.iblTexture : null,
-			context.features?.enableClusteredLighting ?? false,
-			context.viewCamera?.getWorldPosition ?
-				context.viewCamera.getWorldPosition(
-					WEBGL_REFLECTION_PROBE_CAMERA_WORLD_POSITION_SCRATCH,
-				)
-			: null,
+			{
+				enableLighting: context.features?.enableLighting ?? false,
+				enableShadows: context.features?.enableShadows ?? false,
+				shadowMaps: context.shadowMaps,
+				enableSH: context.features?.enableSH ?? false,
+				environmentTexture:
+					environment?.lightingEnabled ? environment.iblTexture : null,
+				enableClusteredLighting:
+					context.features?.enableClusteredLighting ?? false,
+				cameraWorldPosition: context.viewCamera?.getWorldPosition ?
+					context.viewCamera.getWorldPosition(
+						WEBGL_REFLECTION_PROBE_CAMERA_WORLD_POSITION_SCRATCH,
+					)
+				:	null,
+			}
 		);
 	}
 

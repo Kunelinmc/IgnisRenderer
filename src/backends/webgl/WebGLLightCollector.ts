@@ -153,64 +153,41 @@ type WebGLLightCollectorWarn = (key: string, message: string) => void;
 type WebGLLightCollectorShadowMapLookup =
 	ReadonlyMap<ShadowCastingLight, ShadowRenderSet>;
 
+/**
+ * Configuration for collecting backend-ready WebGL lighting state.
+ *
+ * @internal WebGL backend frame preparation owns this contract.
+ */
+export interface WebGLLightCollectorOptions {
+	enableLighting: boolean;
+	warn?: WebGLLightCollectorWarn;
+	enableShadows?: boolean;
+	shadowMaps?: WebGLLightCollectorShadowMapLookup;
+	enableSH?: boolean;
+	environmentTexture?: Texture | null;
+	enableClusteredLighting?: boolean;
+	cameraWorldPosition?: IVector3 | null;
+}
+
+/**
+ * Collects scene lights into the bounded state consumed by WebGL shaders.
+ *
+ * @internal WebGL backend frame preparation owns light collection.
+ */
 export function collectWebGLLights(
 	lights: SceneLight[],
-	enableLighting: boolean,
-	warnOrEnableShadows: WebGLLightCollectorWarn | boolean = false,
-	enableShadowsOrShadowMaps:
-		| boolean
-		| WebGLLightCollectorShadowMapLookup = false,
-	shadowMapsOrEnableSH?: WebGLLightCollectorShadowMapLookup | boolean,
-	enableSHOrEnvironment: boolean | Texture | null = false,
-	environmentOrEnableClusteredLighting: Texture | null | boolean = null,
-	enableClusteredLightingOrCameraWorldPositionMaybe:
-		| boolean
-		| IVector3
-		| null = false,
-	cameraWorldPositionMaybe: IVector3 | null = null
+	options: WebGLLightCollectorOptions
 ): WebGLLightState {
-	let warn: WebGLLightCollectorWarn | undefined;
-	let enableShadows = false;
-	let shadowMaps: WebGLLightCollectorShadowMapLookup | undefined;
-	let enableSH = false;
-	let environmentTexture: Texture | null = null;
-	let enableClusteredLighting = false;
-	let cameraWorldPosition: IVector3 | null = null;
-	if (typeof warnOrEnableShadows === "function") {
-		warn = warnOrEnableShadows;
-		enableShadows = enableShadowsOrShadowMaps === true;
-		shadowMaps =
-			isShadowMapLookup(shadowMapsOrEnableSH) ?
-				shadowMapsOrEnableSH
-			:	undefined;
-		enableSH = typeof enableSHOrEnvironment === "boolean" ? enableSHOrEnvironment : false;
-		environmentTexture =
-			isTextureOrNull(environmentOrEnableClusteredLighting) ?
-				environmentOrEnableClusteredLighting
-			:	null;
-		enableClusteredLighting =
-			typeof enableClusteredLightingOrCameraWorldPositionMaybe === "boolean" ?
-				enableClusteredLightingOrCameraWorldPositionMaybe
-			:	false;
-		cameraWorldPosition = isVector3Like(cameraWorldPositionMaybe) ? cameraWorldPositionMaybe : null;
-	} else {
-		enableShadows = warnOrEnableShadows === true;
-		shadowMaps =
-			isShadowMapLookup(enableShadowsOrShadowMaps) ?
-				enableShadowsOrShadowMaps
-			:	undefined;
-		enableSH = typeof shadowMapsOrEnableSH === "boolean" ? shadowMapsOrEnableSH : false;
-		environmentTexture = isTextureOrNull(enableSHOrEnvironment) ? enableSHOrEnvironment : null;
-		enableClusteredLighting =
-			typeof environmentOrEnableClusteredLighting === "boolean" ?
-				environmentOrEnableClusteredLighting
-			:	false;
-		cameraWorldPosition =
-			isVector3Like(enableClusteredLightingOrCameraWorldPositionMaybe) ?
-				enableClusteredLightingOrCameraWorldPositionMaybe
-			:	isVector3Like(cameraWorldPositionMaybe) ? cameraWorldPositionMaybe
-			:	null;
-	}
+	const {
+		enableLighting,
+		warn,
+		enableShadows = false,
+		shadowMaps,
+		enableSH = false,
+		environmentTexture = null,
+		enableClusteredLighting = false,
+		cameraWorldPosition = null,
+	} = options;
 	const emitWarning: WebGLLightCollectorWarn = (key, message) => {
 		warn?.(key, message);
 		logWebGLLightCollectorWarning(key, message);
@@ -531,31 +508,6 @@ function logWebGLLightCollectorWarning(key: string, message: string): void {
 		scope: "WebGLLightCollector",
 		onceKey: key,
 	});
-}
-
-function isShadowMapLookup(
-	value: unknown
-): value is WebGLLightCollectorShadowMapLookup {
-	return (
-		typeof value === "object" &&
-		value !== null &&
-		"get" in value &&
-		typeof (value as { get?: unknown }).get === "function"
-	);
-}
-
-function isTextureOrNull(value: unknown): value is Texture | null {
-	return value === null || value instanceof Texture;
-}
-
-function isVector3Like(value: unknown): value is IVector3 {
-	return (
-		typeof value === "object" &&
-		value !== null &&
-		"x" in value &&
-		"y" in value &&
-		"z" in value
-	);
 }
 
 function mapParallaxModeCode(probe: ReflectionProbe): 0 | 1 | 2 {

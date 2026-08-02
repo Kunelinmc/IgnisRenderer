@@ -468,17 +468,20 @@ export class WebGLFrameServiceOwner {
 		this._shadow.beginFrame(context);
 		this._session.lightState = collectWebGLLights(
 			context.scene.lights,
-			context.features.enableLighting,
-			context.features.enableShadows,
-			context.shadowMaps,
-			context.features.enableSH,
-			context.scene.environment.lightingEnabled ?
-				context.scene.environment.iblTexture
-			:	null,
-			context.features.enableClusteredLighting,
-			context.viewCamera.getWorldPosition(
-				WEBGL_REFLECTION_PROBE_CAMERA_WORLD_POSITION_SCRATCH,
-			),
+			{
+				enableLighting: context.features.enableLighting,
+				enableShadows: context.features.enableShadows,
+				shadowMaps: context.shadowMaps,
+				enableSH: context.features.enableSH,
+				environmentTexture: context.scene.environment.lightingEnabled ?
+					context.scene.environment.iblTexture
+				:	null,
+				enableClusteredLighting:
+					context.features.enableClusteredLighting,
+				cameraWorldPosition: context.viewCamera.getWorldPosition(
+					WEBGL_REFLECTION_PROBE_CAMERA_WORLD_POSITION_SCRATCH,
+				),
+			}
 		);
 		this._shadow.prepareFrame(context, this._session.lightState);
 		this._clusteredLighting.prepare(

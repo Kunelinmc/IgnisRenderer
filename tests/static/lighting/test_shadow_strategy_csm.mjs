@@ -678,12 +678,11 @@ function testSpotLightCSMUsesCascadeSlices() {
 
 	const webglLighting = collectWebGLLights(
 		[light],
-		true,
-		true,
-		shadowMaps,
-		false,
-		null,
-		false
+		{
+			enableLighting: true,
+			enableShadows: true,
+			shadowMaps,
+		}
 	);
 	assert.equal(webglLighting.spotShadows[0]?.strategyType, "csm");
 	assert.equal(webglLighting.spotShadows[0]?.cascadeCount, 4);
