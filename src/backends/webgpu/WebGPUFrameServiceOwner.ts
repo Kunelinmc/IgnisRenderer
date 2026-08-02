@@ -1,10 +1,4 @@
 import type { Texture } from "../../core/Texture";
-import {
-	DRAW_PACKET_FLAG_REFLECTIVE,
-	DRAW_PACKET_FLAG_SHADOW_CASTER,
-	DRAW_PACKET_FLAG_SHADOW_TRANSMITTER,
-	DRAW_PACKET_FLAG_TRANSPARENT,
-} from "../../pipeline/types";
 import type {
 	DrawPacket,
 	FrameContext,
@@ -20,6 +14,7 @@ import {
 	type ISampler,
 } from "../types";
 import type { WebGPUDeviceResourceHost } from "./WebGPUDeviceResourceHost";
+import { getWebGPUParticleMeshFramePackets } from "./particleMeshFramePackets";
 import type { WebGPUResourceManager } from "./WebGPUResourceManager";
 import { SINGLE_SAMPLE_WEBGPU_MSAA_CONTEXT, type WebGPUMSAAContext } from "./WebGPUMSAAController";
 import type { IWebGPUComputeFacade } from "./ComputeFacade";
@@ -93,7 +88,7 @@ import type {
 	WebGPUEnvironmentResourceOptions,
 	WebGPUFrameResourceScope as WebGPUFrameResourceScopeContract,
 	WebGPUFrameScopePrepareOptions,
-	WebGPUParticleRenderProvider,
+	WebGPUParticleBillboardRenderer,
 	WebGPUPreparedFrameResources as WebGPUPreparedFrameResourcesContract,
 } from "./WebGPUResourceContracts";
 import { WebGPUParticleRenderResources } from "./WebGPUParticleRenderResources";
@@ -407,25 +402,14 @@ export class WebGPUFrameServiceOwner {
 		context: FrameContext,
 		encoder?: ICommandEncoder | null,
 	): Promise<void> {
-		const shadowPackets = this._particleRenderResources.buildParticleMeshDrawPackets(
-			context,
-			{
-				includeOpaque: false,
-				includeTransparent: false,
-				includeShadowCasters: true,
-				includeShadowTransmitters: true,
-			},
-		);
-		if (shadowPackets.length <= 0) {
+		const particleMeshPackets = getWebGPUParticleMeshFramePackets(context);
+		if (
+			particleMeshPackets.shadowCasters.length <= 0 &&
+			particleMeshPackets.shadowTransmitters.length <= 0
+		) {
 			await this._shadowPass.render(context, encoder);
 			return;
 		}
-		const particleShadowCasters = shadowPackets.filter(
-			(packet) => (packet.passFlags & DRAW_PACKET_FLAG_SHADOW_CASTER) !== 0,
-		);
-		const particleShadowTransmitters = shadowPackets.filter(
-			(packet) => (packet.passFlags & DRAW_PACKET_FLAG_SHADOW_TRANSMITTER) !== 0,
-		);
 		await this._shadowPass.render(
 			{
 				...context,
@@ -433,11 +417,11 @@ export class WebGPUFrameServiceOwner {
 					...context.scene,
 					shadowCasterPackets: [
 						...context.scene.shadowCasterPackets,
-						...particleShadowCasters,
+						...particleMeshPackets.shadowCasters,
 					],
 					shadowTransmitterPackets: [
 						...context.scene.shadowTransmitterPackets,
-						...particleShadowTransmitters,
+						...particleMeshPackets.shadowTransmitters,
 					],
 				},
 			},
@@ -471,24 +455,14 @@ export class WebGPUFrameServiceOwner {
 		const renderHeight = Math.max(1, context.attachments.height || 1);
 		const temporalHistoryReset = context.incremental?.temporalHistoryReset === true;
 		const shadowMaps = context.shadowMaps;
-		const particleMeshShadowPackets =
-			this._particleRenderResources.buildParticleMeshDrawPackets(context, {
-				includeOpaque: false,
-				includeTransparent: false,
-				includeShadowCasters: true,
-				includeShadowTransmitters: true,
-			});
+		const particleMeshPackets = getWebGPUParticleMeshFramePackets(context);
 		const shadowCasterPackets = [
 			...scene.shadowCasterPackets,
-			...particleMeshShadowPackets.filter(
-				(packet) => (packet.passFlags & DRAW_PACKET_FLAG_SHADOW_CASTER) !== 0,
-			),
+			...particleMeshPackets.shadowCasters,
 		];
 		const shadowTransmitterPackets = [
 			...scene.shadowTransmitterPackets,
-			...particleMeshShadowPackets.filter(
-				(packet) => (packet.passFlags & DRAW_PACKET_FLAG_SHADOW_TRANSMITTER) !== 0,
-			),
+			...particleMeshPackets.shadowTransmitters,
 		];
 		const temporalStateMode = resolvedOptions.temporalStateMode ?? "advance";
 		const featureState: WebGPUFeatureState = {
@@ -955,7 +929,7 @@ export class WebGPUFrameServiceOwner {
 	}
 
 	/** @internal Returns the owner-managed particle rendering capability. */
-	public getParticleRenderProvider(): WebGPUParticleRenderProvider {
+	public getParticleBillboardRenderer(): WebGPUParticleBillboardRenderer {
 		return this._particleRenderResources;
 	}
 

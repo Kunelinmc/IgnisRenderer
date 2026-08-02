@@ -7,13 +7,15 @@ import { Material } from "../../../src/materials/Material.ts";
 import { PBRMaterial } from "../../../src/materials/PBRMaterial.ts";
 import { Matrix4 } from "../../../src/maths/Matrix4.ts";
 import { BackendPostProcessRuntime } from "../../../src/postprocess/BackendPostProcessRuntime.ts";
+import { getWebGPUParticleMeshFramePackets } from "../../../src/backends/webgpu/particleMeshFramePackets.ts";
+import { PARTICLE_MESH_TRANSIENT_BATCHES_KEY } from "../../../src/pipeline/types.ts";
 
 import { FakeWebGPUBackend as FakeBackend } from "../../helpers/fakes.mjs";
 import { createResolvedPostProcess } from "../../helpers/postprocess.mjs";
 
 class WebGPUFrameExecutor extends WebGPUFrameOrchestrator {
-	constructor(host, resources, msaa, options, particleResources = resources) {
-		super(host, resources, particleResources, msaa, options);
+	constructor(host, resources, msaa, options, particleRenderer = resources) {
+		super(host, resources, particleRenderer, msaa, options);
 	}
 }
 
@@ -34,17 +36,22 @@ function createPreparedFrameResources(options = {}) {
 	};
 }
 
-function createFrameScopeAdapter(resources) {
+function createFrameScopeAdapter(resources, state = {}) {
 	return {
 		prepare: (context, options) => resources.prepareFrame(context, options),
-		updateParticleShadowVolumes() {},
+		updateParticleShadowVolumes(context) {
+			state.particleShadowVolumeUpdates ??= [];
+			state.particleShadowVolumeUpdates.push(context);
+		},
 		destroy() {},
+		_state: state,
 	};
 }
 
 function createResourcesStub() {
+	const state = {};
 	return {
-		createFrameScope() { return createFrameScopeAdapter(this); },
+		createFrameScope() { return createFrameScopeAdapter(this, state); },
 		sceneFrameLayout: {},
 		prepareFrame(_context, options = {}) {
 			return createPreparedFrameResources(options);
@@ -58,9 +65,7 @@ function createResourcesStub() {
 			return null;
 		},
 		async renderParticles() {},
-		buildParticleMeshDrawPackets() {
-			return [];
-		},
+		_state: state,
 	};
 }
 
@@ -95,9 +100,6 @@ function createModeTrackingResourcesStub() {
 			return null;
 		},
 		async renderParticles() {},
-		buildParticleMeshDrawPackets() {
-			return [];
-		},
 		_state: state,
 	};
 }
@@ -249,9 +251,6 @@ function createOITSequencingResourcesStub() {
 			encoder.endRenderPass();
 			return options.pipelineMode === "oit" ? 1 : 1;
 		},
-		buildParticleMeshDrawPackets() {
-			return [];
-		},
 		_state: state,
 	};
 }
@@ -288,9 +287,6 @@ function createDeferredLightingResourcesStub() {
 			return [drawResource];
 		},
 		async renderParticles() {},
-		buildParticleMeshDrawPackets() {
-			return [];
-		},
 		getGBufferWriteLayout() {
 			return { id: "gbuffer-write-layout" };
 		},
@@ -376,9 +372,6 @@ function createPlanarReflectionResourcesStub() {
 			return [drawResource];
 		},
 		async renderParticles() {},
-		buildParticleMeshDrawPackets() {
-			return [];
-		},
 		getPlanarReflectionLayout() {
 			return { id: "planar-reflection-layout" };
 		},
@@ -1993,6 +1986,83 @@ async function testWholeFramePlanningOccursOnlyAtBeginFrame() {
 		edge.toNodeId === presentNodeId));
 }
 
+function testParticleSimulationDefersFrameSealing() {
+	const backend = new FakeBackend();
+	const resources = createResourcesStub();
+	const executor = new WebGPUFrameExecutor(backend, resources);
+	const context = createFrameContext(64, 64);
+	context.postProcess = createResolvedPostProcess({}, "webgpu");
+	const particlePass = {
+		stage: "particle-sim",
+		executor: "backend",
+		enabled: true,
+		dependsOn: [],
+	};
+	const opaquePass = {
+		stage: "main-opaque",
+		executor: "backend",
+		enabled: true,
+		dependsOn: ["particle-sim"],
+	};
+	context.framePlan = {
+		stageOrder: [],
+		backendPasses: [particlePass, opaquePass],
+	};
+
+	executor.beginFrame(context);
+	assert.equal(backend.createCommandEncoderCalls, 0);
+	assert.equal(getFrameGraphDebugState(executor).compiledGraph, null);
+
+	const material = new Material({ name: "simulated-mesh-particle" });
+	const primitive = {
+		id: "simulated-mesh-particle-primitive",
+		material,
+		geometry: {},
+		boundingSphere: {
+			center: { x: 0, y: 0, z: 0 },
+			radius: 1,
+		},
+	};
+	const mesh = {
+		primitives: [primitive],
+		defaultMorphWeights: [],
+	};
+	context.transient.set(PARTICLE_MESH_TRANSIENT_BATCHES_KEY, [
+		{
+			kind: "mesh",
+			systemId: "simulated-system",
+			templateIndex: 0,
+			mesh,
+			primitive,
+			material,
+			receiveShadows: true,
+			castShadows: true,
+			shadowDensity: 1,
+			shadowSoftness: 1,
+			particles: [
+				{
+					templateIndex: 0,
+					position: { x: 0, y: 0, z: -2 },
+					previousPosition: { x: 0, y: 0, z: -2 },
+					size: 1,
+					color: { r: 255, g: 255, b: 255, a: 1 },
+					rotation: 0,
+					previousRotation: 0,
+					depth: 2,
+				},
+			],
+		},
+	]);
+
+	executor.sealParticleSimulation(context);
+	assert.equal(backend.createCommandEncoderCalls, 1);
+	assert.equal(getWebGPUParticleMeshFramePackets(context).opaque.length, 1);
+	assert.ok(getFrameGraphDebugState(executor).compiledGraph);
+	assert.equal(resources._state.particleShadowVolumeUpdates.length, 1);
+	assert.strictEqual(resources._state.particleShadowVolumeUpdates[0], context);
+	executor.abortFrame();
+}
+
 function testWholeFrameShadowCatalogFollowsFramePlan() {
 	const backend = new FakeBackend();
 	const executor = new WebGPUFrameExecutor(backend, createResourcesStub());
@@ -2121,6 +2191,7 @@ async function run() {
 	await testOITMSAAFallsBackToLegacyAndWarns();
 	testOITRuntimeFallbackWarnsWithoutEncoderCopy();
 	await testWholeFramePlanningOccursOnlyAtBeginFrame();
+	testParticleSimulationDefersFrameSealing();
 	testWholeFrameShadowCatalogFollowsFramePlan();
 	testSSGIWholeFrameGraphCompilation();
 	console.log("WebGPU frame executor resilience tests passed");

@@ -18,8 +18,23 @@ This document defines particle templates, mesh-particle rendering, simulation in
 - `ParticleTemplate.shape.kind: "mesh"` must render the referenced
   `MeshAsset` primitives through their own primitive materials.
 - WebGPU must emit mesh particle draw packets from
-  `PARTICLE_MESH_TRANSIENT_BATCHES_KEY` and render them through the regular
-  mesh material pipeline.
+	`PARTICLE_MESH_TRANSIENT_BATCHES_KEY` and render them through the regular
+	mesh material pipeline.
+- WebGPU must prepare one frame-local mesh-particle packet set after particle
+	simulation completes and before frame feature analysis begins.
+- A prepared mesh-particle packet set must create each current-view
+	`DrawPacket` once and expose classified packet lists for opaque, transparent,
+	shadow-caster, shadow-transmitter, reflective, and complete draw work.
+- Main-frame feature analysis, resource preparation, and pass recording must
+	reuse the same prepared packet objects. They must not rebuild packets from
+	`PARTICLE_MESH_TRANSIENT_BATCHES_KEY` at individual consumption sites.
+- Renderer frame planning for WebGPU must inspect visible mesh-particle
+	templates so transparent-material and shadow-casting templates retain their
+	required `main-transparent` and `shadow` backend passes before simulation
+	has emitted the current frame's packets.
+- Reflection and probe capture views must prepare their own packet set after
+	rebasing particle depth for the capture camera. Packet sets must not be
+	reused across views or retained across frames.
 - WebGPU mesh particles must support opaque, transparent, OIT, and mesh shadow
   caster/transmitter passes according to each primitive material.
 - WebGLBackend and SoftwareBackend must skip mesh particle templates and emit

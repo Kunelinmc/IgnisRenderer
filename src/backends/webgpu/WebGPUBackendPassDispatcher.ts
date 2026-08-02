@@ -40,7 +40,7 @@ export class WebGPUBackendPassDispatcher {
 			simulator?.simulate(context, deltaTimeSeconds);
 			simulator?.emitRenderBatches(context);
 		}
-		this._host.frameOrchestrator?.updateParticleShadowVolumes(context);
+		this._host.frameOrchestrator?.sealParticleSimulation?.(context);
 	}
 
 	private _resolveParticleDeltaTime(context: FrameContext): number {

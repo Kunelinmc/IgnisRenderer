@@ -27,10 +27,14 @@ import type { IncrementalFrameContext } from "../../pipeline/incremental";
 import type { ProbeCaptureFaceRequest } from "../../lights/runtime/ProbeCaptureRuntime";
 import { LightType } from "../../lights";
 import { ComputeRuntime } from "./ComputeRuntime";
+import {
+	getWebGPUParticleMeshFramePackets,
+	prepareWebGPUParticleMeshFramePackets,
+} from "./particleMeshFramePackets";
 import type {
 	WebGPUPreparedFrameResources,
 	WebGPUFrameResourceProvider,
-	WebGPUParticleRenderProvider,
+	WebGPUParticleBillboardRenderer,
 	WebGPUSceneResourceProvider,
 } from "./WebGPUResourceContracts";
 import type { WebGPUFrameHost } from "./rendergraph/WebGPUFrameHost";
@@ -61,20 +65,20 @@ const CUBE_FACE_UP_VECTORS: IVector3[] = [
 
 export class WebGPUReflectionProbeCapturePass {
 	private _backend: WebGPUFrameHost;
-	private _resources: WebGPUFrameResourceProvider &
+	private _captureResources: WebGPUFrameResourceProvider &
 		WebGPUSceneResourceProvider;
-	private _particleResources: WebGPUParticleRenderProvider;
+	private _particleRenderer: WebGPUParticleBillboardRenderer;
 	private _readbackRuntime: ComputeRuntime | null = null;
 	private _destroyed = false;
 
 	constructor(
 		backend: WebGPUFrameHost,
-		resources: WebGPUFrameResourceProvider & WebGPUSceneResourceProvider,
-		particleResources: WebGPUParticleRenderProvider,
+		captureResources: WebGPUFrameResourceProvider & WebGPUSceneResourceProvider,
+		particleRenderer: WebGPUParticleBillboardRenderer,
 	) {
 		this._backend = backend;
-		this._resources = resources;
-		this._particleResources = particleResources;
+		this._captureResources = captureResources;
+		this._particleRenderer = particleRenderer;
 	}
 
 	public async captureFace(
@@ -138,12 +142,13 @@ export class WebGPUReflectionProbeCapturePass {
 			incremental: createFullFrameIncrementalContext(faceSize),
 			transient: captureTransient,
 		};
+		prepareWebGPUParticleMeshFramePackets(captureContext);
 		const captureTargets = createCaptureRenderTargets(
 			this._backend,
 			faceSize,
 			resolvedFaceIndex
 		);
-		const scope = this._resources.createFrameScope();
+		const scope = this._captureResources.createFrameScope();
 		let frameResources: WebGPUPreparedFrameResources | null = null;
 
 		try {
@@ -152,7 +157,7 @@ export class WebGPUReflectionProbeCapturePass {
 				temporalStateMode: "disabled",
 			});
 			const encoder = this._backend.createCommandEncoder();
-			await this._resources.buildClusteredLighting(encoder, frameResources);
+			await this._captureResources.buildClusteredLighting(encoder, frameResources);
 			await this._recordSceneCapture(
 				encoder,
 				captureContext,
@@ -161,7 +166,7 @@ export class WebGPUReflectionProbeCapturePass {
 				frameResources
 			);
 			if (request.includeParticles) {
-				await this._particleResources.renderParticles(
+				await this._particleRenderer.renderParticles(
 					encoder,
 					captureContext,
 					{
@@ -282,11 +287,11 @@ export class WebGPUReflectionProbeCapturePass {
 		const packets = [
 			...context.scene.opaquePackets,
 			...context.scene.transparentPackets,
-			...this._buildParticleMeshDrawPackets(context),
+			...getWebGPUParticleMeshFramePackets(context).all,
 		];
 		await submitWebGPUDraws({
 			encoder,
-			resources: this._resources,
+			resources: this._captureResources,
 			frameResources,
 			packets,
 			resolveDrawOptions: () => ({
@@ -297,17 +302,13 @@ export class WebGPUReflectionProbeCapturePass {
 		encoder.endRenderPass();
 	}
 
-	private _buildParticleMeshDrawPackets(context: FrameContext): DrawPacket[] {
-		return this._particleResources.buildParticleMeshDrawPackets(context);
-	}
-
 	private async _recordEnvironmentCapturePass(
 		encoder: ICommandEncoder,
 		targets: CaptureRenderTargets,
 		frameResources: WebGPUPreparedFrameResources
 	): Promise<boolean> {
 		const environmentResources =
-			await this._resources.getEnvironmentResources(frameResources, "mrt", {
+			await this._captureResources.getEnvironmentResources(frameResources, "mrt", {
 				sampleCountOverride: 1,
 			});
 		if (!environmentResources) {

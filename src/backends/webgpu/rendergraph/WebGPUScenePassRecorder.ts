@@ -5,6 +5,7 @@ import type {
 	DrawPacket,
 	FrameContext,
 } from "../../../pipeline/types";
+import { getWebGPUParticleMeshFramePackets } from "../particleMeshFramePackets";
 import { materialSupportsWebGPUDeferredLighting } from "../material";
 import { GBufferSlot } from "../constants";
 import {
@@ -13,7 +14,7 @@ import {
 } from "../WebGPUDrawSubmission";
 import type {
 	WebGPUPreparedFrameResources,
- 	WebGPUParticleRenderProvider,
+	WebGPUParticleBillboardRenderer,
 	WebGPUSceneResourceProvider,
 } from "../WebGPUResourceContracts";
 import type { WebGPUSceneTargetMode } from "../WebGPUScenePassDescriptors";
@@ -41,23 +42,23 @@ export interface WebGPUScenePassRecorderCallbacks {
  */
 export class WebGPUScenePassRecorder {
 	private readonly _host: WebGPUFrameHost;
-	private readonly _resources: WebGPUSceneResourceProvider;
-	private readonly _particleResources: WebGPUParticleRenderProvider;
+	private readonly _sceneResources: WebGPUSceneResourceProvider;
+	private readonly _particleRenderer: WebGPUParticleBillboardRenderer;
 	private readonly _recordingContext: WebGPUFrameGraphRecordingContext;
 	private readonly _depthDirtyClearPass: WebGPUDepthDirtyClearPass;
 	private readonly _callbacks: WebGPUScenePassRecorderCallbacks;
 
 	public constructor(
 		host: WebGPUFrameHost,
-		resources: WebGPUSceneResourceProvider,
-		particleResources: WebGPUParticleRenderProvider,
+		sceneResources: WebGPUSceneResourceProvider,
+		particleRenderer: WebGPUParticleBillboardRenderer,
 		recordingContext: WebGPUFrameGraphRecordingContext,
 		depthDirtyClearPass: WebGPUDepthDirtyClearPass,
 		callbacks: WebGPUScenePassRecorderCallbacks
 	) {
 		this._host = host;
-		this._resources = resources;
-		this._particleResources = particleResources;
+		this._sceneResources = sceneResources;
+		this._particleRenderer = particleRenderer;
 		this._recordingContext = recordingContext;
 		this._depthDirtyClearPass = depthDirtyClearPass;
 		this._callbacks = callbacks;
@@ -79,10 +80,7 @@ export class WebGPUScenePassRecorder {
 		const targets = this._recordingContext.getFrameTargets();
 		const opaquePackets = [
 			...context.scene.opaquePackets,
-			...this._buildParticleMeshDrawPackets(context, {
-				includeOpaque: true,
-				includeTransparent: false,
-			}),
+			...getWebGPUParticleMeshFramePackets(context).opaque,
 		];
 		if (
 			!deferredEnabled ||
@@ -145,7 +143,7 @@ export class WebGPUScenePassRecorder {
 		const encoder = this._recordingContext.getEncoder();
 		if (!encoder) return;
 		const frameResources = this._recordingContext.requireFrameResources();
-		await this._resources.buildClusteredLighting(encoder, frameResources);
+		await this._sceneResources.buildClusteredLighting(encoder, frameResources);
 		if (
 			!this._recordingContext.isMRTEnabled() ||
 			!this._recordingContext.getFrameTargets()
@@ -177,16 +175,6 @@ export class WebGPUScenePassRecorder {
 		);
 	}
 
-	private _buildParticleMeshDrawPackets(
-		context: FrameContext,
-		options: {
-			includeOpaque?: boolean;
-			includeTransparent?: boolean;
-		}
-	): DrawPacket[] {
-		return this._particleResources.buildParticleMeshDrawPackets(context, options);
-	}
-
 	/**
 	 * Records a canvas-backed forward pass.
 	 *
@@ -206,7 +194,7 @@ export class WebGPUScenePassRecorder {
 		const encoder = this._recordingContext.getEncoder();
 		if (!encoder) return;
 		const frameResources = this._recordingContext.requireFrameResources();
-		await this._resources.buildClusteredLighting(encoder, frameResources);
+		await this._sceneResources.buildClusteredLighting(encoder, frameResources);
 		const incrementalPartial =
 			this._recordingContext.isIncrementalPartial(context);
 		const colorTexture = this._host.getCanvasColorTexture();
@@ -273,7 +261,7 @@ export class WebGPUScenePassRecorder {
 
 		if (shouldClearAttachments) {
 			const environmentResources =
-				await this._resources.getEnvironmentResources(frameResources, "single");
+				await this._sceneResources.getEnvironmentResources(frameResources, "single");
 			if (environmentResources) {
 				encoder.setPipeline(environmentResources.pipeline);
 				encoder.setBindingGroup(0, environmentResources.frameBinding);
@@ -283,7 +271,7 @@ export class WebGPUScenePassRecorder {
 
 		await submitWebGPUDraws({
 			encoder,
-			resources: this._resources,
+			resources: this._sceneResources,
 			frameResources,
 			packets,
 			dirtyRects,
@@ -322,7 +310,7 @@ export class WebGPUScenePassRecorder {
 			return;
 		}
 		const frameResources = this._recordingContext.requireFrameResources();
-		await this._resources.buildClusteredLighting(encoder, frameResources);
+		await this._sceneResources.buildClusteredLighting(encoder, frameResources);
 		const targets = this._recordingContext.getFrameTargets();
 		if (!this._recordingContext.isMRTEnabled() || !targets) {
 			await this.recordLegacyMainPass(context, packets, false, false);
@@ -366,7 +354,7 @@ export class WebGPUScenePassRecorder {
 			);
 			await submitWebGPUDraws({
 				encoder,
-				resources: this._resources,
+				resources: this._sceneResources,
 				frameResources,
 				packets,
 				dirtyRects,
@@ -442,7 +430,7 @@ export class WebGPUScenePassRecorder {
 		);
 		await submitWebGPUDraws({
 			encoder,
-			resources: this._resources,
+			resources: this._sceneResources,
 			frameResources,
 			packets,
 			dirtyRects,
@@ -546,7 +534,7 @@ export class WebGPUScenePassRecorder {
 		});
 		await submitWebGPUDraws({
 			encoder,
-			resources: this._resources,
+			resources: this._sceneResources,
 			frameResources,
 			packets,
 			resolveDrawOptions: () => ({
@@ -578,7 +566,7 @@ export class WebGPUScenePassRecorder {
 				this._recordingContext.getSceneTargetMode() === "color" ?
 					"color"
 				:	"mrt";
-			await this._particleResources.renderParticles(
+			await this._particleRenderer.renderParticles(
 				encoder,
 				context,
 				{
@@ -606,7 +594,7 @@ export class WebGPUScenePassRecorder {
 			return;
 		}
 
-		await this._particleResources.renderParticles(
+		await this._particleRenderer.renderParticles(
 			encoder,
 			context,
 			{
@@ -654,7 +642,7 @@ export class WebGPUScenePassRecorder {
 		}
 
 		const frameResources = this._recordingContext.requireFrameResources();
-		await this._resources.buildClusteredLighting(encoder, frameResources);
+		await this._sceneResources.buildClusteredLighting(encoder, frameResources);
 		const incrementalPartial =
 			this._recordingContext.isIncrementalPartial(context);
 		const sceneColorAttachment = targets.sceneColorMain;
@@ -679,7 +667,7 @@ export class WebGPUScenePassRecorder {
 		let environmentDrawn = false;
 		if (shouldClearAttachments) {
 			const environmentResources =
-				await this._resources.getEnvironmentResources(
+				await this._sceneResources.getEnvironmentResources(
 					frameResources,
 					"gbuffer"
 				);
@@ -798,7 +786,7 @@ export class WebGPUScenePassRecorder {
 
 		await submitWebGPUDraws({
 			encoder,
-			resources: this._resources,
+			resources: this._sceneResources,
 			frameResources,
 			packets,
 			dirtyRects,
@@ -873,7 +861,7 @@ export class WebGPUScenePassRecorder {
 		let environmentDrawn = false;
 		if (shouldClearAttachments) {
 			const environmentResources =
-				await this._resources.getEnvironmentResources(frameResources, "mrt");
+				await this._sceneResources.getEnvironmentResources(frameResources, "mrt");
 			if (environmentResources) {
 				encoder.beginRenderPass({
 					label: "WebGPUEnvironmentMRT",
@@ -980,7 +968,7 @@ export class WebGPUScenePassRecorder {
 
 		await submitWebGPUDraws({
 			encoder,
-			resources: this._resources,
+			resources: this._sceneResources,
 			frameResources,
 			packets,
 			dirtyRects,
@@ -1040,7 +1028,7 @@ export class WebGPUScenePassRecorder {
 		let environmentDrawn = false;
 		if (shouldClearAttachments) {
 			const environmentResources =
-				await this._resources.getEnvironmentResources(frameResources, "color");
+				await this._sceneResources.getEnvironmentResources(frameResources, "color");
 			if (environmentResources) {
 				encoder.beginRenderPass({
 					label: "WebGPUEnvironmentColor",
@@ -1122,7 +1110,7 @@ export class WebGPUScenePassRecorder {
 
 		await submitWebGPUDraws({
 			encoder,
-			resources: this._resources,
+			resources: this._sceneResources,
 			frameResources,
 			packets,
 			dirtyRects,
@@ -1176,7 +1164,7 @@ export class WebGPUScenePassRecorder {
 
 		const submission = await submitWebGPUDraws({
 			encoder,
-			resources: this._resources,
+			resources: this._sceneResources,
 			frameResources: this._recordingContext.requireFrameResources(),
 			packets,
 			dirtyRects,

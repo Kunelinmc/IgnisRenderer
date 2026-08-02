@@ -7,7 +7,11 @@ import type { WebGPUDeferredOpaqueFrameState } from "./WebGPUScenePassRecorder";
 import type { WebGPUFrameFeatureAnalysis } from "./WebGPUFrameFeatureAnalyzer";
 import type { WebGPUFrameCommitter } from "./WebGPUFrameCommitter";
 
-export type WebGPUFrameSessionState = "recording" | "committing" | "skipped";
+export type WebGPUFrameSessionState =
+	| "preparing"
+	| "recording"
+	| "committing"
+	| "skipped";
 
 export type WebGPUFrameHiZStatus = "unavailable" | "pending" | "ready" | "failed";
 
@@ -76,6 +80,18 @@ export class WebGPUFrameSession {
 			options.hiZStatus,
 			options.analysis,
 			options.committer,
+		);
+	}
+
+	public static createPreparing(context: FrameContext): WebGPUFrameSession {
+		return new WebGPUFrameSession(
+			context,
+			null,
+			"preparing",
+			null,
+			"unavailable",
+			null,
+			null,
 		);
 	}
 

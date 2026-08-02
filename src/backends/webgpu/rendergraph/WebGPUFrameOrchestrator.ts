@@ -16,11 +16,16 @@ import type { WebGPUFrameHost } from "./WebGPUFrameHost";
 import type { WebGPUMSAAContext } from "../WebGPUMSAAController";
 import type {
 	WebGPUFrameResourceScope,
-	WebGPUParticleRenderProvider,
+	WebGPUParticleBillboardRenderer,
 	WebGPUPreparedFrameResources,
+	WebGPUShadowRenderProvider,
 } from "../WebGPUResourceContracts";
 import type { WebGPUFrameServiceOwner } from "../WebGPUFrameServiceOwner";
 import { WebGPUHiZBuilder } from "../WebGPUHiZBuilder";
+import {
+	getWebGPUParticleMeshFramePackets,
+	prepareWebGPUParticleMeshFramePackets,
+} from "../particleMeshFramePackets";
 import type {
 	BackendPostProcessRuntime,
 	PostProcessExecutionPlan,
@@ -140,8 +145,7 @@ export interface WebGPUFrameOrchestratorOptions {
 
 export class WebGPUFrameOrchestrator {
 	private _host: WebGPUFrameHost;
-	private _resources: WebGPUFrameServiceOwner;
-	private readonly _particleResources: WebGPUParticleRenderProvider;
+	private readonly _shadowRenderer: WebGPUShadowRenderProvider;
 	private readonly _mainFrameScope: WebGPUFrameResourceScope;
 	private _msaa: WebGPUMSAAContext;
 	private _session: WebGPUFrameSession | null = null;
@@ -186,8 +190,8 @@ export class WebGPUFrameOrchestrator {
 
 	constructor(
 		host: WebGPUFrameHost,
-		resources: WebGPUFrameServiceOwner,
-		particleResources: WebGPUParticleRenderProvider,
+		frameServiceOwner: WebGPUFrameServiceOwner,
+		particleRenderer: WebGPUParticleBillboardRenderer,
 		msaa: WebGPUMSAAContext = SINGLE_SAMPLE_WEBGPU_MSAA_CONTEXT,
 		options: WebGPUFrameOrchestratorOptions = {
 			enableEarlyZPrepass: host.enableEarlyZPrepass,
@@ -196,9 +200,8 @@ export class WebGPUFrameOrchestrator {
 		},
 	) {
 		this._host = host;
-		this._resources = resources;
-		this._particleResources = particleResources;
-		this._mainFrameScope = resources.createFrameScope();
+		this._shadowRenderer = frameServiceOwner;
+		this._mainFrameScope = frameServiceOwner.createFrameScope();
 		this._msaa = msaa;
 		this._enableEarlyZPrepass = options.enableEarlyZPrepass;
 		this._enableDeferredLighting = options.enableDeferredLighting;
@@ -213,11 +216,11 @@ export class WebGPUFrameOrchestrator {
 					scope: "WebGPUFrameOrchestrator",
 					onceKey: key,
 				}),
-			resources.sceneFrameLayout,
+			frameServiceOwner.sceneFrameLayout,
 			this._hiZBuilder,
 			() => this._host.displayOutputState,
 		);
-		this._planarReflectionPass = new WebGPUPlanarReflectionPass(host, resources);
+		this._planarReflectionPass = new WebGPUPlanarReflectionPass(host, frameServiceOwner);
 		this._customRenderTargets = new WebGPUCustomRenderTargetRuntime(host);
 		this._frameTargetManager = new WebGPUFrameTargetManager(host);
 		this._recordingContext = {
@@ -257,16 +260,16 @@ export class WebGPUFrameOrchestrator {
 			},
 		});
 		this._depthDirtyClearPass = new WebGPUDepthDirtyClearPass(host);
-		this._deferredLightingPass = new WebGPUDeferredLightingPass(host, resources, {
+		this._deferredLightingPass = new WebGPUDeferredLightingPass(host, frameServiceOwner, {
 			recordingContext: this._recordingContext,
 		});
-		this._deferredDecalPass = new WebGPUDeferredDecalPass(host, resources, {
+		this._deferredDecalPass = new WebGPUDeferredDecalPass(host, frameServiceOwner, {
 			recordingContext: this._recordingContext,
 		});
 		this._scenePassRecorder = new WebGPUScenePassRecorder(
 			host,
-			resources,
-			particleResources,
+			frameServiceOwner,
+			particleRenderer,
 			this._recordingContext,
 			this._depthDirtyClearPass,
 			{
@@ -276,8 +279,8 @@ export class WebGPUFrameOrchestrator {
 		this._occlusionRuntime = new WebGPUOcclusionCullingRuntime(host);
 		this._transparencyRuntime = new WebGPUTransparencyRuntime(
 			host,
-			resources,
-			particleResources,
+			frameServiceOwner,
+			particleRenderer,
 			this._recordingContext,
 			this._scenePassRecorder,
 			{
@@ -415,38 +418,67 @@ export class WebGPUFrameOrchestrator {
 			}
 			return;
 		}
+		this._session = WebGPUFrameSession.createPreparing(context);
+		if (this._requiresParticleSimulation(context)) {
+			return;
+		}
+		this._sealFrame(context, targetWidth, targetHeight);
+	}
 
-		const postProcessDeclarations = this._postProcessRuntime.describeFrame(context);
-		const encoder = this._host.createCommandEncoder();
-		this._customRenderTargets.sync(context);
-		const analysis = this._featureAnalyzer.analyze(context, {
-			particleOpaquePackets: this._buildParticleMeshDrawPackets(context, {
-				includeOpaque: true,
-				includeTransparent: false,
-			}),
-			particleTransparentPackets: this._buildParticleMeshDrawPackets(context, {
-				includeOpaque: false,
-				includeTransparent: true,
-			}),
-			postProcessPasses: postProcessDeclarations.passes,
-		});
-		const configuration = this._configureFrameTargets(
+	/** @internal Seals deferred frame preparation after particle simulation. */
+	public sealParticleSimulation(context: FrameContext): void {
+		const session = this._session;
+		if (!session) {
+			throw new Error("WebGPUFrameOrchestrator has no active frame session.");
+		}
+		session.assertContext(context);
+		if (session.state === "skipped" || session.state === "recording") {
+			return;
+		}
+		if (session.state !== "preparing") {
+			throw new Error(
+				`WebGPU frame session cannot seal from state "${session.state}".`,
+			);
+		}
+		this._sealFrame(
 			context,
-			analysis,
-			encoder,
-			targetWidth,
-			targetHeight,
+			this._resolveAttachmentDimension(context.attachments.width),
+			this._resolveAttachmentDimension(context.attachments.height),
 		);
-		this._lastConfiguration = configuration;
-		this._session = WebGPUFrameSession.createRecording({
-			context,
-			configuration,
-			encoder,
-			hiZStatus: this._frameTargets?.hiZ ? "pending" : "unavailable",
-			analysis,
-			committer: new WebGPUFrameCommitter(this._host),
-		});
+		this.updateParticleShadowVolumes(context);
+	}
+
+	private _sealFrame(
+		context: FrameContext,
+		targetWidth: number,
+		targetHeight: number,
+	): void {
 		try {
+			const particleMeshPackets = prepareWebGPUParticleMeshFramePackets(context);
+			const postProcessDeclarations = this._postProcessRuntime.describeFrame(context);
+			const encoder = this._host.createCommandEncoder();
+			this._customRenderTargets.sync(context);
+			const analysis = this._featureAnalyzer.analyze(context, {
+				particleOpaquePackets: particleMeshPackets.opaque,
+				particleTransparentPackets: particleMeshPackets.transparent,
+				postProcessPasses: postProcessDeclarations.passes,
+			});
+			const configuration = this._configureFrameTargets(
+				context,
+				analysis,
+				encoder,
+				targetWidth,
+				targetHeight,
+			);
+			this._lastConfiguration = configuration;
+			this._session = WebGPUFrameSession.createRecording({
+				context,
+				configuration,
+				encoder,
+				hiZStatus: this._frameTargets?.hiZ ? "pending" : "unavailable",
+				analysis,
+				committer: new WebGPUFrameCommitter(this._host),
+			});
 			this._postProcessGraphFrame = this._postProcessRuntime.buildRenderGraphFrame(
 				context,
 				postProcessDeclarations,
@@ -464,6 +496,14 @@ export class WebGPUFrameOrchestrator {
 		this.prepareFrameResources(
 			context,
 			this._postProcessGraphFrame.graph.frameRequirements,
+		);
+	}
+
+	private _requiresParticleSimulation(context: FrameContext): boolean {
+		return (
+			context.framePlan?.backendPasses.some(
+				(pass) => pass.stage === "particle-sim" && pass.enabled,
+			) === true
 		);
 	}
 
@@ -926,30 +966,33 @@ export class WebGPUFrameOrchestrator {
 		);
 		const shadow = new WebGPUShadowNodeRuntime("shadow", {
 			shadow: async (_node, session) => {
-				await this._resources.renderShadows(session.context, this._encoder ?? undefined);
+				await this._shadowRenderer.renderShadows(
+					session.context,
+					this._encoder ?? undefined,
+				);
 			},
 			"paged-shadow-page-mark": async (_node, session) => {
 				const request = this._createPagedShadowRequest(session.context);
-				this._resources.preparePagedShadowFrame(request);
-				await this._resources.recordPagedShadowPageMarkPass(request);
+				this._shadowRenderer.preparePagedShadowFrame(request);
+				await this._shadowRenderer.recordPagedShadowPageMarkPass(request);
 			},
 			"paged-shadow-page-allocate": async (_node, session) => {
-				await this._resources.recordPagedShadowPageAllocationPass(
+				await this._shadowRenderer.recordPagedShadowPageAllocationPass(
 					this._createPagedShadowRequest(session.context),
 				);
 			},
 			"paged-shadow-page-table-copy": async (_node, session) => {
-				await this._resources.recordPagedShadowPageTableCopyPass(
+				await this._shadowRenderer.recordPagedShadowPageTableCopyPass(
 					this._createPagedShadowRequest(session.context),
 				);
 			},
 			"paged-shadow-depth": async (_node, session) => {
-				await this._resources.recordPagedShadowDepthPass(
+				await this._shadowRenderer.recordPagedShadowDepthPass(
 					this._createPagedShadowRequest(session.context),
 				);
 			},
 			"paged-shadow-feedback": async (_node, session) => {
-				await this._resources.recordPagedShadowFeedbackPass(
+				await this._shadowRenderer.recordPagedShadowFeedbackPass(
 					this._createPagedShadowRequest(session.context),
 				);
 			},
@@ -1039,12 +1082,19 @@ export class WebGPUFrameOrchestrator {
 
 	private _createPagedShadowRequest(context: FrameContext): WebGPUPagedShadowFrameRequest {
 		const frameTargets = this._frameTargets;
+		const particleMeshPackets = getWebGPUParticleMeshFramePackets(context);
 		return {
 			context,
 			encoder: this._encoder,
 			renderSets: context.shadowMaps,
-			shadowCasterPackets: context.scene.shadowCasterPackets,
-			shadowTransmitterPackets: context.scene.shadowTransmitterPackets,
+			shadowCasterPackets: [
+				...context.scene.shadowCasterPackets,
+				...particleMeshPackets.shadowCasters,
+			],
+			shadowTransmitterPackets: [
+				...context.scene.shadowTransmitterPackets,
+				...particleMeshPackets.shadowTransmitters,
+			],
 			feedbackDepthTexture: frameTargets?.depth ?? null,
 			feedbackMotionDepthTexture: frameTargets?.gMotionDepth ?? null,
 		};
@@ -1486,16 +1536,6 @@ export class WebGPUFrameOrchestrator {
 	private _destroyDeferredBindings(): void {
 		this._deferredLightingPass.destroyBindings();
 		this._deferredDecalPass.destroyBindings();
-	}
-
-	private _buildParticleMeshDrawPackets(
-		context: FrameContext,
-		options: {
-			includeOpaque?: boolean;
-			includeTransparent?: boolean;
-		},
-	): DrawPacket[] {
-		return this._particleResources.buildParticleMeshDrawPackets(context, options);
 	}
 
 	private async _recordPlanarReflectionPass(context: FrameContext): Promise<void> {

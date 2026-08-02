@@ -2,8 +2,6 @@ import type { Texture } from "../../core/Texture";
 import type {
 	DrawPacket,
 	FrameContext,
-	ParticleMeshRenderBatch,
-	ParticleMeshRenderItem,
 } from "../../pipeline/types";
 import type { ICommandEncoder } from "../ICommandEncoder";
 import type {
@@ -87,15 +85,6 @@ export interface WebGPUParticleRenderOptions {
 	sampleCountOverride?: number;
 }
 
-/** @internal Mesh particle packet filters. */
-export interface WebGPUParticleMeshPacketOptions {
-	includeOpaque?: boolean;
-	includeTransparent?: boolean;
-	includeShadowCasters?: boolean;
-	includeShadowTransmitters?: boolean;
-	includeReflective?: boolean;
-}
-
 /** @internal Scoped frame preparation options. */
 export interface WebGPUFrameScopePrepareOptions {
 	readonly sceneTargetMode: WebGPUSceneTargetMode;
@@ -170,12 +159,8 @@ export interface WebGPUTextureResourceProvider {
 	unregisterExternalTexture(texture: Texture): void;
 }
 
-/** @internal Billboard rendering and mesh-particle packet capability. */
-export interface WebGPUParticleRenderProvider {
-	buildParticleMeshDrawPackets(
-		context: FrameContext,
-		options?: WebGPUParticleMeshPacketOptions,
-	): DrawPacket[];
+/** @internal Billboard particle pass-recording capability. */
+export interface WebGPUParticleBillboardRenderer {
 	renderParticles(
 		encoder: ICommandEncoder,
 		context: FrameContext,
@@ -206,13 +191,19 @@ export interface WebGPUPlanarReflectionResourceProvider {
 
 /** @internal Regular and paged-shadow recording capability. */
 export interface WebGPUShadowRenderProvider {
+	renderShadows(
+		context: FrameContext,
+		encoder?: ICommandEncoder | null,
+	): Promise<void>;
 	preparePagedShadowFrame(request: WebGPUPagedShadowFrameRequest): void;
-	recordPagedShadowPageMarkPass(request: WebGPUPagedShadowFrameRequest): Promise<void>;
-	recordPagedShadowPageAllocationPass(request: WebGPUPagedShadowFrameRequest): Promise<void>;
-	recordPagedShadowPageTableCopyPass(request: WebGPUPagedShadowFrameRequest): Promise<void>;
+	recordPagedShadowPageMarkPass(request: WebGPUPagedShadowFrameRequest): void | Promise<void>;
+	recordPagedShadowPageAllocationPass(
+		request: WebGPUPagedShadowFrameRequest,
+	): void | Promise<void>;
+	recordPagedShadowPageTableCopyPass(
+		request: WebGPUPagedShadowFrameRequest,
+	): void | Promise<void>;
 	recordPagedShadowDepthPass(request: WebGPUPagedShadowFrameRequest): Promise<void>;
-	recordPagedShadowFeedbackPass(request: WebGPUPagedShadowFrameRequest): Promise<void>;
+	recordPagedShadowFeedbackPass(request: WebGPUPagedShadowFrameRequest): void | Promise<void>;
 	getPagedShadowSamplingResources(): WebGPUPagedShadowSamplingResources;
 }
-
-export type { ParticleMeshRenderBatch, ParticleMeshRenderItem };

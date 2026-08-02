@@ -49,9 +49,11 @@ imports and exports. `RenderGraphCompiler` validates one complete definition,
 applies stable ordering, infers resource dependencies, optionally removes
 unreachable nodes, and emits stage slices for backend execution.
 
-GPU backends compile the complete enabled frame during `beginFrame()`.
-`executePass()` consumes the already compiled slice for the renderer stage and
-does not invoke another shared compiler.
+GPU backends compile the complete enabled frame before the first graph-owned
+backend pass executes. WebGPU normally compiles during `beginFrame()`; when
+`particle-sim` is enabled, it defers compilation until that out-of-graph stage
+has emitted current-frame render batches. Graph-owned `executePass()` calls
+consume already compiled slices and do not invoke another shared compiler.
 
 Post-processing is flattened into the same graph. Each eligible logical pass
 becomes an outer post-process node, while resource declarations and color

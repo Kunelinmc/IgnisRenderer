@@ -2,14 +2,8 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 import { Texture } from "../../../src/core/Texture.ts";
-import { Material, AlphaMode } from "../../../src/materials/Material.ts";
-import { MeshAsset } from "../../../src/meshes/MeshAsset.ts";
 import { ParticleBlendMode } from "../../../src/particles/types.ts";
 import {
-	DRAW_PACKET_FLAG_SHADOW_CASTER,
-	DRAW_PACKET_FLAG_SHADOW_TRANSMITTER,
-	DRAW_PACKET_FLAG_TRANSPARENT,
-	PARTICLE_MESH_TRANSIENT_BATCHES_KEY,
 	PARTICLE_TRANSIENT_BATCHES_KEY,
 	createTransientStore,
 } from "../../../src/pipeline/types.ts";
@@ -28,143 +22,18 @@ globalThis.GPUShaderStage ??= {
 	COMPUTE: 4,
 };
 
-function createTriangleMesh(material) {
-	return MeshAsset.fromFaces([
-		{
-			material,
-			vertices: [
-				{ x: 0, y: 0, z: 0, normal: { x: 0, y: 0, z: 1 } },
-				{ x: 1, y: 0, z: 0, normal: { x: 0, y: 0, z: 1 } },
-				{ x: 0, y: 1, z: 0, normal: { x: 0, y: 0, z: 1 } },
-			],
-		},
-	]);
-}
-
-function createMeshBatch({
-	systemId,
-	templateIndex,
-	templateId,
-	mesh,
-	material,
-	position,
-	size,
-	depth,
-}) {
-	return {
-		kind: "mesh",
-		systemId,
-		templateIndex,
-		templateId,
-		mesh,
-		primitive: mesh.primitives[0],
-		material,
-		receiveShadows: true,
-		castShadows: true,
-		shadowDensity: 1,
-		shadowSoftness: 1,
-		particles: [
-			{
-				templateIndex,
-				position,
-				previousPosition: { ...position, x: position.x - 1 },
-				size,
-				color: { r: 255, g: 255, b: 255, a: 1 },
-				rotation: 0.25,
-				previousRotation: 0,
-				depth,
-			},
-		],
-	};
-}
-
-function testOwnerExposesStableNarrowParticleProvider() {
+function testOwnerExposesStableNarrowParticleRenderer() {
 	const backend = new FakeWebGPUBackend();
 	const owner = new WebGPUFrameServiceOwner(
 		backend,
 		backend,
 		createWebGPUComputeFacade(backend),
 	);
-	const first = owner.getParticleRenderProvider();
-	const second = owner.getParticleRenderProvider();
+	const first = owner.getParticleBillboardRenderer();
+	const second = owner.getParticleBillboardRenderer();
 	assert.ok(first instanceof WebGPUParticleRenderResources);
 	assert.equal(first, second);
 	owner.destroy();
-	owner.destroy();
-}
-
-function testMeshParticlePacketConstruction() {
-	const backend = new FakeWebGPUBackend();
-	const owner = new WebGPUFrameServiceOwner(
-		backend,
-		backend,
-		createWebGPUComputeFacade(backend),
-	);
-	const particles = owner.getParticleRenderProvider();
-	const opaqueMaterial = new Material({ name: "particle-opaque" });
-	const transparentMaterial = new Material({
-		name: "particle-transparent",
-		alphaMode: AlphaMode.Blend,
-		opacity: 0.5,
-	});
-	const opaqueMesh = createTriangleMesh(opaqueMaterial);
-	const transparentMesh = createTriangleMesh(transparentMaterial);
-	const context = { transient: createTransientStore() };
-	context.transient.set(PARTICLE_MESH_TRANSIENT_BATCHES_KEY, [
-		createMeshBatch({
-			systemId: "particle-system",
-			templateIndex: 0,
-			templateId: "opaque-shard",
-			mesh: opaqueMesh,
-			material: opaqueMaterial,
-			position: { x: 1, y: 2, z: 3 },
-			size: 2,
-			depth: 4,
-		}),
-		createMeshBatch({
-			systemId: "particle-system",
-			templateIndex: 1,
-			templateId: "transparent-shard",
-			mesh: transparentMesh,
-			material: transparentMaterial,
-			position: { x: 0, y: 0, z: 0 },
-			size: 1,
-			depth: 2,
-		}),
-	]);
-
-	const opaquePackets = particles.buildParticleMeshDrawPackets(context, {
-		includeOpaque: true,
-		includeTransparent: false,
-	});
-	const transparentPackets = particles.buildParticleMeshDrawPackets(context, {
-		includeOpaque: false,
-		includeTransparent: true,
-	});
-	const shadowPackets = particles.buildParticleMeshDrawPackets(context, {
-		includeOpaque: false,
-		includeTransparent: false,
-		includeShadowCasters: true,
-		includeShadowTransmitters: true,
-	});
-
-	assert.equal(opaquePackets.length, 1);
-	assert.equal(opaquePackets[0].material, opaqueMaterial);
-	assert.equal(
-		opaquePackets[0].worldBounds.radius,
-		opaqueMesh.primitives[0].boundingSphere.radius * 2,
-	);
-	assert.ok(
-		(opaquePackets[0].passFlags & DRAW_PACKET_FLAG_SHADOW_CASTER) !== 0,
-	);
-	assert.equal(transparentPackets.length, 1);
-	assert.ok(
-		(transparentPackets[0].passFlags & DRAW_PACKET_FLAG_TRANSPARENT) !== 0,
-	);
-	assert.ok(
-		(transparentPackets[0].passFlags & DRAW_PACKET_FLAG_SHADOW_TRANSMITTER) !== 0,
-	);
-	assert.equal(shadowPackets.length, 2);
 	owner.destroy();
 }
 
@@ -222,7 +91,7 @@ async function testBillboardPipelinesBindingsScissorAndLifecycle() {
 		createWebGPUComputeFacade(backend),
 	);
 	await owner.init();
-	const particles = owner.getParticleRenderProvider();
+	const particles = owner.getParticleBillboardRenderer();
 	const texture = new Texture({
 		data: new Uint8Array([255, 255, 255, 255]),
 		width: 1,
@@ -337,7 +206,7 @@ async function testGPUIndirectDrawAndFallback() {
 		createWebGPUComputeFacade(backend),
 	);
 	await owner.init();
-	const particles = owner.getParticleRenderProvider();
+	const particles = owner.getParticleBillboardRenderer();
 	const texture = new Texture({
 		data: new Uint8Array([255, 255, 255, 255]),
 		width: 1,
@@ -420,7 +289,7 @@ async function testParticleBindingCacheEviction() {
 	transient.set(PARTICLE_TRANSIENT_BATCHES_KEY, [
 		createBillboardBatch("particle-evict", ParticleBlendMode.Alpha, texture),
 	]);
-	await owner.getParticleRenderProvider().renderParticles(
+	await owner.getParticleBillboardRenderer().renderParticles(
 		new FakeCommandEncoder(backend),
 		createBillboardContext(transient),
 		createParticleTargets(),
@@ -439,7 +308,7 @@ async function testParticleBindingCacheEviction() {
 	owner.destroy();
 }
 
-function testOwnerSourceContainsNoParticleRenderingImplementation() {
+function testParticleOwnershipAndExecutionBoundaries() {
 	const ownerSource = readFileSync(
 		new URL(
 			"../../../src/backends/webgpu/WebGPUFrameServiceOwner.ts",
@@ -447,15 +316,32 @@ function testOwnerSourceContainsNoParticleRenderingImplementation() {
 		),
 		"utf8",
 	);
+	const particleResourceSource = readFileSync(
+		new URL(
+			"../../../src/backends/webgpu/WebGPUParticleRenderResources.ts",
+			import.meta.url,
+		),
+		"utf8",
+	);
+	const orchestratorSource = readFileSync(
+		new URL(
+			"../../../src/backends/webgpu/rendergraph/WebGPUFrameOrchestrator.ts",
+			import.meta.url,
+		),
+		"utf8",
+	);
 	assert.doesNotMatch(ownerSource, /_particlePipelineAlpha/);
 	assert.doesNotMatch(ownerSource, /public async renderParticles/);
 	assert.doesNotMatch(ownerSource, /ShaderSource\.load\("webgpu\.particle\.composite"\)/);
+	assert.match(ownerSource, /private _particleRenderResources:/);
+	assert.doesNotMatch(particleResourceSource, /ParticleMeshFramePackets/);
+	assert.doesNotMatch(orchestratorSource, /_particle(Resources|Renderer)/);
+	assert.match(orchestratorSource, /prepareWebGPUParticleMeshFramePackets\(context\)/);
 }
 
-testOwnerExposesStableNarrowParticleProvider();
-testMeshParticlePacketConstruction();
+testOwnerExposesStableNarrowParticleRenderer();
 await testBillboardPipelinesBindingsScissorAndLifecycle();
 await testGPUIndirectDrawAndFallback();
 await testParticleBindingCacheEviction();
-testOwnerSourceContainsNoParticleRenderingImplementation();
+testParticleOwnershipAndExecutionBoundaries();
 console.log("WebGPU particle render resources tests passed");

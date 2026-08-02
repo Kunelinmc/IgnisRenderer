@@ -7,8 +7,9 @@ This document defines WebGPU frame-graph execution, deferred lighting, presentat
 ### Internal frame graph
 
 - `WebGPUFrameGraphPlanner` must create WebGPU internal nodes for every enabled
-  renderer-level `FramePass` during `beginFrame()` through registered stage
-  planners.
+  renderer-level `FramePass` during frame sealing through registered stage
+  planners. Sealing normally occurs in `beginFrame()` and may follow
+  `particle-sim` as defined below.
 - Unsupported renderer-level backend pass ids must produce an empty WebGPU
   stage plan; `WebGPUFrameOrchestrator` must warn once and skip execution for
   that pass.
@@ -72,12 +73,18 @@ This document defines WebGPU frame-graph execution, deferred lighting, presentat
   and particle-render resources; consumers must receive only the corresponding
   narrow resource-provider capability.
 - `WebGPUFrameServiceOwner` must own particle-render resources through a
-  delegated `WebGPUParticleRenderResources` service. Billboard rendering and
-  mesh-particle draw-packet construction must live in that service, while frame
-  scopes retain particle-shadow-volume binding ownership.
-- Particle-render consumers must receive `WebGPUParticleRenderProvider`
-  separately from scene, frame-scope, and shadow capabilities. They must not
-  resolve particle rendering through the concrete `WebGPUFrameServiceOwner`.
+	delegated `WebGPUParticleRenderResources` service. The service must own only
+	billboard pipelines, buffers, bindings, and pass recording; frame scopes
+	retain particle-shadow-volume binding ownership.
+- Mesh-particle draw packets must be prepared without WebGPU device resources
+	by the backend-private particle frame-preparation utility. The prepared set
+	must be scoped to one frame view and shared by frame analysis, resource
+	preparation, and pass recording.
+- Billboard-pass consumers must receive `WebGPUParticleBillboardRenderer`
+	separately from scene, frame-scope, and shadow capabilities. The frame
+	orchestrator may pass this capability to leaf recording runtimes during
+	construction, but must not retain it as orchestrator state or resolve it
+	through the concrete `WebGPUFrameServiceOwner`.
 - `WebGPUFrameServiceOwner` must receive `WebGPUDeviceResourceHost` and
   `IWebGPUComputeFacade` dependencies explicitly. It must not resolve compute
   capabilities from a concrete `WebGPUBackend`.
@@ -112,7 +119,22 @@ This document defines WebGPU frame-graph execution, deferred lighting, presentat
 - Planar reflection composite must be an explicit graph node after opaque or
   deferred output and before transparency.
 - `WebGPUFrameSession` must own the mutable state for one frame and must expose
-  a lifecycle state of `"recording"`, `"committing"`, or `"skipped"`.
+  a lifecycle state of `"preparing"`, `"recording"`, `"committing"`, or
+  `"skipped"`.
+- When the renderer frame plan includes `particle-sim`,
+  `WebGPUFrameOrchestrator.beginFrame()` must create a `"preparing"` session
+  without analyzing features, allocating frame targets, preparing frame
+  resources, or compiling the whole-frame graph.
+- After `particle-sim` emits current-frame render batches, the WebGPU backend
+  must prepare the mesh-particle packet set and seal the session before any
+  graph-owned backend pass executes. Sealing must perform feature analysis,
+  target configuration, resource preparation, and whole-frame compilation
+  exactly once.
+- Sealing a `particle-sim` session must update the main frame scope's particle
+  shadow-volume bindings after resource preparation, so billboard and mesh
+  particle shadow volumes consume the current frame's emitted batches.
+- Frames without an enabled `particle-sim` pass must seal during
+  `beginFrame()`.
 - Zero-sized frames must use a `"skipped"` session without allocating an
   encoder. They must still preserve the `beginFrame`/`endFrame` lifecycle.
 - `WebGPUFrameOrchestrator.beginFrame` must reject while another session is

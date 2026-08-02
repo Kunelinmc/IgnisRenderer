@@ -306,7 +306,7 @@ async function testRenderResourcesPrefersGPUDrawBatches() {
 
 	const encoder = new FakeRenderEncoder();
 	const renderTarget = { width: 16, height: 16, destroy() {} };
-	const renderedCount = await resources.getParticleRenderProvider().renderParticles(
+	const renderedCount = await resources.getParticleBillboardRenderer().renderParticles(
 		encoder,
 		context,
 		{

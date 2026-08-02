@@ -13,7 +13,7 @@ import {
 } from "../../types";
 import { submitWebGPUDraws } from "../WebGPUDrawSubmission";
 import type {
-	WebGPUParticleRenderProvider,
+	WebGPUParticleBillboardRenderer,
 	WebGPUSceneResourceProvider,
 } from "../WebGPUResourceContracts";
 import type { WebGPUSceneTargetMode } from "../WebGPUScenePassDescriptors";
@@ -67,8 +67,8 @@ export class WebGPUTransparencyRuntime implements WebGPUFrameNodeRuntime {
 
 	public constructor(
 		private readonly _host: WebGPUFrameHost,
-		private readonly _resources: WebGPUSceneResourceProvider,
-		private readonly _particleResources: WebGPUParticleRenderProvider,
+		private readonly _sceneResources: WebGPUSceneResourceProvider,
+		private readonly _particleRenderer: WebGPUParticleBillboardRenderer,
 		private readonly _recordingContext: WebGPUFrameGraphRecordingContext,
 		private readonly _sceneRecorder: WebGPUScenePassRecorder,
 		private readonly _diagnostics: WebGPUFrameDiagnosticSink,
@@ -170,7 +170,7 @@ export class WebGPUTransparencyRuntime implements WebGPUFrameNodeRuntime {
 			return;
 		}
 		const frameResources = this._recordingContext.requireFrameResources();
-		await this._resources.buildClusteredLighting(encoder, frameResources);
+		await this._sceneResources.buildClusteredLighting(encoder, frameResources);
 		const depthAttachment = this._recordingContext.getMSAATargets()?.depth ?? targets.depth;
 		encoder.beginRenderPass({
 			label: "WebGPUOITMeshAccumulate",
@@ -191,7 +191,7 @@ export class WebGPUTransparencyRuntime implements WebGPUFrameNodeRuntime {
 		);
 		await submitWebGPUDraws({
 			encoder,
-			resources: this._resources,
+			resources: this._sceneResources,
 			frameResources,
 			packets: analysis.oitPackets.slice(),
 			dirtyRects,
@@ -217,7 +217,7 @@ export class WebGPUTransparencyRuntime implements WebGPUFrameNodeRuntime {
 			await this._recordLegacyParticles(session, [ParticleBlendMode.Alpha]);
 			return;
 		}
-		await this._particleResources.renderParticles(
+		await this._particleRenderer.renderParticles(
 			encoder,
 			session.context,
 			{
@@ -298,7 +298,7 @@ export class WebGPUTransparencyRuntime implements WebGPUFrameNodeRuntime {
 		const targets = this._recordingContext.getFrameTargets();
 		if (!encoder || !targets) return;
 		const msaaTargets = this._recordingContext.getMSAATargets();
-		await this._particleResources.renderParticles(
+		await this._particleRenderer.renderParticles(
 			encoder,
 			session.context,
 			{

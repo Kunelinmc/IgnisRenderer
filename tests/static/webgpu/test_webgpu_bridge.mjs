@@ -2693,7 +2693,7 @@ async function testWebGPUOITParticlePipelinesSplitAlphaAndAdditive() {
 	};
 	const encoder = new FakeRenderEncoder();
 	const renderTarget = { width: 16, height: 16, destroy() {} };
-	const alphaCount = await resources.getParticleRenderProvider().renderParticles(
+	const alphaCount = await resources.getParticleBillboardRenderer().renderParticles(
 		encoder,
 		context,
 		{
@@ -2721,7 +2721,7 @@ async function testWebGPUOITParticlePipelinesSplitAlphaAndAdditive() {
 	);
 	assert.equal(alphaCount, 1);
 
-	const additiveCount = await resources.getParticleRenderProvider().renderParticles(
+	const additiveCount = await resources.getParticleBillboardRenderer().renderParticles(
 		encoder,
 		context,
 		{
@@ -3127,9 +3127,6 @@ async function testReflectionProbeCaptureUsesCanvasAttachmentFormats() {
 		async renderParticles() {
 			return 0;
 		},
-		buildParticleMeshDrawPackets() {
-			return [];
-		},
 	};
 	const probe = new ReflectionProbe({
 		includeMeshes: false,
@@ -3274,9 +3271,6 @@ async function testReflectionProbeCaptureUsesParentWorldPositionAsOrigin() {
 		async renderParticles() {
 			return 0;
 		},
-		buildParticleMeshDrawPackets() {
-			return [];
-		},
 	};
 	const modelRoot = new Node();
 	modelRoot.position.set(3, 0, 0);
@@ -3404,7 +3398,7 @@ async function testParticleUVLayoutAndUniformBinding() {
 
 	const encoder = new FakeRenderEncoder();
 	const renderTarget = { width: 16, height: 16, destroy() {} };
-	await resources.getParticleRenderProvider().renderParticles(
+	await resources.getParticleBillboardRenderer().renderParticles(
 		encoder,
 		context,
 		{
@@ -4072,7 +4066,7 @@ async function testParticleBindingCacheEvictsStaleSystems() {
 	};
 	const encoder = new FakeRenderEncoder();
 	const renderTarget = { width: 16, height: 16, destroy() {} };
-	await resources.getParticleRenderProvider().renderParticles(
+	await resources.getParticleBillboardRenderer().renderParticles(
 		encoder,
 		context,
 		{
@@ -4193,7 +4187,7 @@ async function testRenderResourcesDestroyCleansParticleAndGeometryResources() {
 	};
 	const encoder = new FakeRenderEncoder();
 	const renderTarget = { width: 16, height: 16, destroy() {} };
-	await resources.getParticleRenderProvider().renderParticles(
+	await resources.getParticleBillboardRenderer().renderParticles(
 		encoder,
 		context,
 		{

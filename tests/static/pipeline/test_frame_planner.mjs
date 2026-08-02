@@ -6,6 +6,7 @@ import {
 } from "../../../src/pipeline/defaultPipeline.ts";
 import { createResolvedPostProcess } from "../../helpers/postprocess.mjs";
 import { ParticleBlendMode } from "../../../src/particles/types.ts";
+import { AlphaMode, Material } from "../../../src/materials/Material.ts";
 
 function createFrame(overrides = {}) {
 	return {
@@ -160,6 +161,56 @@ function run() {
 	assert.deepEqual(
 		plan.find((pass) => pass.stage === "main-opaque")?.dependsOn,
 		["reflection", "shadow"]
+	);
+
+	const transparentMeshMaterial = new Material({
+		name: "transparent-mesh-particle",
+		alphaMode: AlphaMode.Blend,
+		opacity: 0.5,
+	});
+	const meshParticleFrame = createFrame({
+		particleSystems: [
+			{
+				visible: true,
+				templates: [
+					{
+						castShadows: true,
+						shape: {
+							kind: "mesh",
+							mesh: {
+								primitives: [
+									{
+										material: transparentMeshMaterial,
+										visible: true,
+										castShadows: true,
+									},
+								],
+							},
+						},
+					},
+				],
+			},
+		],
+		transparentPackets: [],
+		shadowCasterPackets: [],
+		shadowTransmitterPackets: [],
+	});
+	const meshParticlePlan = FramePlanner.buildFramePlan(
+		meshParticleFrame,
+		baseResolved,
+		createPostProcess(),
+		{
+			backendType: "webgpu",
+			backendCapabilities,
+		},
+	).backendPasses;
+	assert.equal(
+		meshParticlePlan.find((pass) => pass.stage === "main-transparent")?.enabled,
+		true,
+	);
+	assert.equal(
+		meshParticlePlan.find((pass) => pass.stage === "shadow")?.enabled,
+		true,
 	);
 
 	const particleCasterPlan = FramePlanner.build(
