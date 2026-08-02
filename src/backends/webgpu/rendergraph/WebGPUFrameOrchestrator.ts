@@ -16,6 +16,7 @@ import type { WebGPUFrameHost } from "./WebGPUFrameHost";
 import type { WebGPUMSAAContext } from "../WebGPUMSAAController";
 import type {
 	WebGPUFrameResourceScope,
+	WebGPUParticleRenderProvider,
 	WebGPUPreparedFrameResources,
 } from "../WebGPUResourceContracts";
 import type { WebGPUFrameServiceOwner } from "../WebGPUFrameServiceOwner";
@@ -140,6 +141,7 @@ export interface WebGPUFrameOrchestratorOptions {
 export class WebGPUFrameOrchestrator {
 	private _host: WebGPUFrameHost;
 	private _resources: WebGPUFrameServiceOwner;
+	private readonly _particleResources: WebGPUParticleRenderProvider;
 	private readonly _mainFrameScope: WebGPUFrameResourceScope;
 	private _msaa: WebGPUMSAAContext;
 	private _session: WebGPUFrameSession | null = null;
@@ -185,6 +187,7 @@ export class WebGPUFrameOrchestrator {
 	constructor(
 		host: WebGPUFrameHost,
 		resources: WebGPUFrameServiceOwner,
+		particleResources: WebGPUParticleRenderProvider,
 		msaa: WebGPUMSAAContext = SINGLE_SAMPLE_WEBGPU_MSAA_CONTEXT,
 		options: WebGPUFrameOrchestratorOptions = {
 			enableEarlyZPrepass: host.enableEarlyZPrepass,
@@ -194,6 +197,7 @@ export class WebGPUFrameOrchestrator {
 	) {
 		this._host = host;
 		this._resources = resources;
+		this._particleResources = particleResources;
 		this._mainFrameScope = resources.createFrameScope();
 		this._msaa = msaa;
 		this._enableEarlyZPrepass = options.enableEarlyZPrepass;
@@ -262,6 +266,7 @@ export class WebGPUFrameOrchestrator {
 		this._scenePassRecorder = new WebGPUScenePassRecorder(
 			host,
 			resources,
+			particleResources,
 			this._recordingContext,
 			this._depthDirtyClearPass,
 			{
@@ -272,6 +277,7 @@ export class WebGPUFrameOrchestrator {
 		this._transparencyRuntime = new WebGPUTransparencyRuntime(
 			host,
 			resources,
+			particleResources,
 			this._recordingContext,
 			this._scenePassRecorder,
 			{
@@ -1489,16 +1495,7 @@ export class WebGPUFrameOrchestrator {
 			includeTransparent?: boolean;
 		},
 	): DrawPacket[] {
-		const resources = this._resources as WebGPUFrameServiceOwner & {
-			buildParticleMeshDrawPackets?: (
-				context: FrameContext,
-				options: {
-					includeOpaque?: boolean;
-					includeTransparent?: boolean;
-				},
-			) => DrawPacket[];
-		};
-		return resources.buildParticleMeshDrawPackets?.(context, options) ?? [];
+		return this._particleResources.buildParticleMeshDrawPackets(context, options);
 	}
 
 	private async _recordPlanarReflectionPass(context: FrameContext): Promise<void> {

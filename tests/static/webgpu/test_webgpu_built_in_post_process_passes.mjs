@@ -18,6 +18,15 @@ import { WebGPUFrameOrchestrator as WebGPUFrameExecutor } from "../../../src/bac
 import { WebGPUFrameFeatureDataStore } from "../../../src/backends/webgpu/FrameFeatures.ts";
 import { WEBGPU_VOLUMETRIC_LIGHTING_DATA } from "../../../src/backends/webgpu/WebGPUFrameFeatureModules.ts";
 import { FakeWebGPUBackend as FakeBackend } from "../../helpers/fakes.mjs";
+
+const particleResources = {
+	buildParticleMeshDrawPackets() {
+		return [];
+	},
+	async renderParticles() {
+		return 0;
+	},
+};
 import { createResolvedPostProcess } from "../../helpers/postprocess.mjs";
 
 const BUILTIN_PASS_BY_ID = new Map([
@@ -166,9 +175,8 @@ function createExecutorHarness(postProcessRequest = {
 		async getDrawResources() {
 			return null;
 		},
-		async renderParticles() {},
 	};
-	const executor = new WebGPUFrameExecutor(backend, resources);
+	const executor = new WebGPUFrameExecutor(backend, resources, particleResources);
 	const frameContext = {
 		camera: {},
 		attachments: { width: 64, height: 64 },
@@ -439,7 +447,7 @@ async function testWarmupHintsFollowPlanPostProcessPasses() {
 			};
 		},
 	};
-	const executor = new WebGPUFrameExecutor(backend, resources);
+	const executor = new WebGPUFrameExecutor(backend, resources, particleResources);
 
 	const emptyWarmup = await executor.warmup(
 		{

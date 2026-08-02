@@ -71,6 +71,13 @@ This document defines WebGPU frame-graph execution, deferred lighting, presentat
   composition root. It owns device-lifetime scene, texture, deferred, shadow,
   and particle-render resources; consumers must receive only the corresponding
   narrow resource-provider capability.
+- `WebGPUFrameServiceOwner` must own particle-render resources through a
+  delegated `WebGPUParticleRenderResources` service. Billboard rendering and
+  mesh-particle draw-packet construction must live in that service, while frame
+  scopes retain particle-shadow-volume binding ownership.
+- Particle-render consumers must receive `WebGPUParticleRenderProvider`
+  separately from scene, frame-scope, and shadow capabilities. They must not
+  resolve particle rendering through the concrete `WebGPUFrameServiceOwner`.
 - `WebGPUFrameServiceOwner` must receive `WebGPUDeviceResourceHost` and
   `IWebGPUComputeFacade` dependencies explicitly. It must not resolve compute
   capabilities from a concrete `WebGPUBackend`.

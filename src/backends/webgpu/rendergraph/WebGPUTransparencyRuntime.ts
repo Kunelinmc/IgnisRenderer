@@ -67,8 +67,8 @@ export class WebGPUTransparencyRuntime implements WebGPUFrameNodeRuntime {
 
 	public constructor(
 		private readonly _host: WebGPUFrameHost,
-		private readonly _resources: WebGPUSceneResourceProvider &
-			WebGPUParticleRenderProvider,
+		private readonly _resources: WebGPUSceneResourceProvider,
+		private readonly _particleResources: WebGPUParticleRenderProvider,
 		private readonly _recordingContext: WebGPUFrameGraphRecordingContext,
 		private readonly _sceneRecorder: WebGPUScenePassRecorder,
 		private readonly _diagnostics: WebGPUFrameDiagnosticSink,
@@ -217,7 +217,7 @@ export class WebGPUTransparencyRuntime implements WebGPUFrameNodeRuntime {
 			await this._recordLegacyParticles(session, [ParticleBlendMode.Alpha]);
 			return;
 		}
-		await this._resources.renderParticles(
+		await this._particleResources.renderParticles(
 			encoder,
 			session.context,
 			{
@@ -298,7 +298,7 @@ export class WebGPUTransparencyRuntime implements WebGPUFrameNodeRuntime {
 		const targets = this._recordingContext.getFrameTargets();
 		if (!encoder || !targets) return;
 		const msaaTargets = this._recordingContext.getMSAATargets();
-		await this._resources.renderParticles(
+		await this._particleResources.renderParticles(
 			encoder,
 			session.context,
 			{

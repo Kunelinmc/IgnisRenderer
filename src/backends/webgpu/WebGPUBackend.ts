@@ -576,11 +576,13 @@ export class WebGPUBackend implements IRenderBackend {
 		this._frameOrchestrator = new WebGPUFrameOrchestrator(
 			this._frameHost,
 			this._resources,
+			this._resources.getParticleRenderProvider(),
 			this._msaaController,
 		);
 		this._reflectionProbeCapturePass = new WebGPUReflectionProbeCapturePass(
 			this._frameHost,
 			this._resources,
+			this._resources.getParticleRenderProvider(),
 		);
 		this._particleSimulator = new WebGPUParticleSimulator({
 			backend: this._computeFacade,

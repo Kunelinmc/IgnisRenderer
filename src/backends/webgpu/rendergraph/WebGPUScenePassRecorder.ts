@@ -41,21 +41,23 @@ export interface WebGPUScenePassRecorderCallbacks {
  */
 export class WebGPUScenePassRecorder {
 	private readonly _host: WebGPUFrameHost;
-	private readonly _resources: WebGPUSceneResourceProvider &
-		WebGPUParticleRenderProvider;
+	private readonly _resources: WebGPUSceneResourceProvider;
+	private readonly _particleResources: WebGPUParticleRenderProvider;
 	private readonly _recordingContext: WebGPUFrameGraphRecordingContext;
 	private readonly _depthDirtyClearPass: WebGPUDepthDirtyClearPass;
 	private readonly _callbacks: WebGPUScenePassRecorderCallbacks;
 
 	public constructor(
 		host: WebGPUFrameHost,
-		resources: WebGPUSceneResourceProvider & WebGPUParticleRenderProvider,
+		resources: WebGPUSceneResourceProvider,
+		particleResources: WebGPUParticleRenderProvider,
 		recordingContext: WebGPUFrameGraphRecordingContext,
 		depthDirtyClearPass: WebGPUDepthDirtyClearPass,
 		callbacks: WebGPUScenePassRecorderCallbacks
 	) {
 		this._host = host;
 		this._resources = resources;
+		this._particleResources = particleResources;
 		this._recordingContext = recordingContext;
 		this._depthDirtyClearPass = depthDirtyClearPass;
 		this._callbacks = callbacks;
@@ -182,7 +184,7 @@ export class WebGPUScenePassRecorder {
 			includeTransparent?: boolean;
 		}
 	): DrawPacket[] {
-		return this._resources.buildParticleMeshDrawPackets(context, options);
+		return this._particleResources.buildParticleMeshDrawPackets(context, options);
 	}
 
 	/**
@@ -576,7 +578,7 @@ export class WebGPUScenePassRecorder {
 				this._recordingContext.getSceneTargetMode() === "color" ?
 					"color"
 				:	"mrt";
-			await this._resources.renderParticles(
+			await this._particleResources.renderParticles(
 				encoder,
 				context,
 				{
@@ -604,7 +606,7 @@ export class WebGPUScenePassRecorder {
 			return;
 		}
 
-		await this._resources.renderParticles(
+		await this._particleResources.renderParticles(
 			encoder,
 			context,
 			{

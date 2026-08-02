@@ -63,6 +63,7 @@ to Software or WebGL.
 | Frame graph planner/compiler | Node expansion, ordering, logical resources, dependencies, stage slices, and diagnostics |
 | Feature runtimes | Shadow, scene, deferred, transparency, reflection, visibility, post-process, and presentation commands |
 | Resource owners | Native texture, buffer, pipeline, binding, pool, and frame-target lifetimes |
+| Particle render resources | Billboard pipelines, particle buffers and bindings, and mesh-particle draw-packet construction |
 | Post-process runtime | Logical plan, declarations, histories, transients, and history transactions |
 | Frame committer | Labeled command-buffer retention and ordered submission |
 
@@ -97,6 +98,7 @@ backend-owned post-process and frame services in lifecycle order.
 | Cross-backend post-process effect | `src/postprocess/passes/` |
 | Frame-sized WebGPU target | Frame target manager and graph resource catalog |
 | Device-lifetime feature resource | Frame service owner or delegated registry |
+| Particle billboard or mesh-packet rendering | Owner-managed particle render resources exposed through a narrow provider |
 | Backend-agnostic graph analysis | `src/rendergraph/` |
 | WebGPU-specific validation | WebGPU graph facade |
 

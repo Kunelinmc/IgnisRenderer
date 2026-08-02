@@ -1726,7 +1726,11 @@ function testFrameExecutorConsumesComputeFacadeFromHost() {
 			};
 		},
 	};
-	const executor = new WebGPUFrameExecutor(backend, resourcesStub);
+	const executor = new WebGPUFrameExecutor(
+		backend,
+		resourcesStub,
+		resourcesStub,
+	);
 
 	assert.equal(backend.getComputeFacadeCalls, 0);
 	assert.equal(typeof executor.getDebugState, "function");
@@ -2689,7 +2693,7 @@ async function testWebGPUOITParticlePipelinesSplitAlphaAndAdditive() {
 	};
 	const encoder = new FakeRenderEncoder();
 	const renderTarget = { width: 16, height: 16, destroy() {} };
-	const alphaCount = await resources.renderParticles(
+	const alphaCount = await resources.getParticleRenderProvider().renderParticles(
 		encoder,
 		context,
 		{
@@ -2717,7 +2721,7 @@ async function testWebGPUOITParticlePipelinesSplitAlphaAndAdditive() {
 	);
 	assert.equal(alphaCount, 1);
 
-	const additiveCount = await resources.renderParticles(
+	const additiveCount = await resources.getParticleRenderProvider().renderParticles(
 		encoder,
 		context,
 		{
@@ -3143,7 +3147,11 @@ async function testReflectionProbeCaptureUsesCanvasAttachmentFormats() {
 			return Reflect.get(target, property, receiver);
 		},
 	});
-	const capturePass = new WebGPUReflectionProbeCapturePass(backend, resources);
+	const capturePass = new WebGPUReflectionProbeCapturePass(
+		backend,
+		resources,
+		resources,
+	);
 	backend.computeFacade = readyComputeFacade;
 	const probeCache = probe.getRuntimeCache();
 	const result = await capturePass.captureFace({
@@ -3283,7 +3291,11 @@ async function testReflectionProbeCaptureUsesParentWorldPositionAsOrigin() {
 	probe.position.set(2, 0, 0);
 	modelRoot.updateWorldMatrix();
 	backend.computeFacade = createWebGPUComputeFacade(backend);
-	const capturePass = new WebGPUReflectionProbeCapturePass(backend, resources);
+	const capturePass = new WebGPUReflectionProbeCapturePass(
+		backend,
+		resources,
+		resources,
+	);
 	const probeCache = probe.getRuntimeCache();
 
 	await capturePass.captureFace({
@@ -3392,7 +3404,7 @@ async function testParticleUVLayoutAndUniformBinding() {
 
 	const encoder = new FakeRenderEncoder();
 	const renderTarget = { width: 16, height: 16, destroy() {} };
-	await resources.renderParticles(
+	await resources.getParticleRenderProvider().renderParticles(
 		encoder,
 		context,
 		{
@@ -4060,7 +4072,7 @@ async function testParticleBindingCacheEvictsStaleSystems() {
 	};
 	const encoder = new FakeRenderEncoder();
 	const renderTarget = { width: 16, height: 16, destroy() {} };
-	await resources.renderParticles(
+	await resources.getParticleRenderProvider().renderParticles(
 		encoder,
 		context,
 		{
@@ -4181,7 +4193,7 @@ async function testRenderResourcesDestroyCleansParticleAndGeometryResources() {
 	};
 	const encoder = new FakeRenderEncoder();
 	const renderTarget = { width: 16, height: 16, destroy() {} };
-	await resources.renderParticles(
+	await resources.getParticleRenderProvider().renderParticles(
 		encoder,
 		context,
 		{

@@ -62,19 +62,19 @@ const CUBE_FACE_UP_VECTORS: IVector3[] = [
 export class WebGPUReflectionProbeCapturePass {
 	private _backend: WebGPUFrameHost;
 	private _resources: WebGPUFrameResourceProvider &
-		WebGPUSceneResourceProvider &
-		WebGPUParticleRenderProvider;
+		WebGPUSceneResourceProvider;
+	private _particleResources: WebGPUParticleRenderProvider;
 	private _readbackRuntime: ComputeRuntime | null = null;
 	private _destroyed = false;
 
 	constructor(
 		backend: WebGPUFrameHost,
-		resources: WebGPUFrameResourceProvider &
-			WebGPUSceneResourceProvider &
-			WebGPUParticleRenderProvider
+		resources: WebGPUFrameResourceProvider & WebGPUSceneResourceProvider,
+		particleResources: WebGPUParticleRenderProvider,
 	) {
 		this._backend = backend;
 		this._resources = resources;
+		this._particleResources = particleResources;
 	}
 
 	public async captureFace(
@@ -161,7 +161,7 @@ export class WebGPUReflectionProbeCapturePass {
 				frameResources
 			);
 			if (request.includeParticles) {
-				await this._resources.renderParticles(
+				await this._particleResources.renderParticles(
 					encoder,
 					captureContext,
 					{
@@ -298,7 +298,7 @@ export class WebGPUReflectionProbeCapturePass {
 	}
 
 	private _buildParticleMeshDrawPackets(context: FrameContext): DrawPacket[] {
-		return this._resources.buildParticleMeshDrawPackets(context);
+		return this._particleResources.buildParticleMeshDrawPackets(context);
 	}
 
 	private async _recordEnvironmentCapturePass(

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { WebGPUFrameOrchestrator as WebGPUFrameExecutor } from "../../../src/backends/webgpu/rendergraph/WebGPUFrameOrchestrator.ts";
+import { WebGPUFrameOrchestrator } from "../../../src/backends/webgpu/rendergraph/WebGPUFrameOrchestrator.ts";
 import { WebGPUPostProcessExecutor } from "../../../src/backends/webgpu/WebGPUPostProcessExecutor.ts";
 import { Logger } from "../../../src/foundation/Logger.ts";
 import { Camera } from "../../../src/cameras/Camera.ts";
@@ -10,6 +10,12 @@ import { BackendPostProcessRuntime } from "../../../src/postprocess/BackendPostP
 
 import { FakeWebGPUBackend as FakeBackend } from "../../helpers/fakes.mjs";
 import { createResolvedPostProcess } from "../../helpers/postprocess.mjs";
+
+class WebGPUFrameExecutor extends WebGPUFrameOrchestrator {
+	constructor(host, resources, msaa, options, particleResources = resources) {
+		super(host, resources, particleResources, msaa, options);
+	}
+}
 
 function createPreparedFrameResources(options = {}) {
 	return {
@@ -618,7 +624,9 @@ function testShaderRuntimeInvalidationDefersDuringActiveFrame() {
 async function testLegacyMainPassForcesSingleSceneTargetMode() {
 	const backend = new FakeBackend();
 	const resources = createModeTrackingResourcesStub();
-	const executor = new WebGPUFrameExecutor(backend, resources);
+	const executor = new WebGPUFrameExecutor(
+		backend, resources, undefined, undefined, resources,
+	);
 	const context = createFrameContext(64, 64);
 	context.scene.opaquePackets = [{ id: "packet" }];
 	context.postProcess = createResolvedPostProcess({});
@@ -680,7 +688,9 @@ async function testMainOpaqueDisablesEarlyZWhenConfiguredOff() {
 	const backend = new FakeBackend();
 	backend.enableEarlyZPrepass = false;
 	const resources = createModeTrackingResourcesStub();
-	const executor = new WebGPUFrameExecutor(backend, resources);
+	const executor = new WebGPUFrameExecutor(
+		backend, resources, undefined, undefined, resources,
+	);
 	const context = createFrameContext(64, 64);
 	context.scene.opaquePackets = [{ id: "packet" }];
 
@@ -955,7 +965,9 @@ async function testPlanarReflectionCaptureAndCompositeSequencing() {
 	const backend = new FakeBackend();
 	backend.device.limits.maxStorageTexturesPerShaderStage = 0;
 	const resources = createPlanarReflectionResourcesStub();
-	const executor = new WebGPUFrameExecutor(backend, resources);
+	const executor = new WebGPUFrameExecutor(
+		backend, resources, undefined, undefined, resources,
+	);
 	const context = createFrameContext(64, 64);
 	const camera = new Camera();
 	camera.position.set(0, 2, 5);
@@ -1074,7 +1086,9 @@ async function testPlanarReflectionUsesColorTargetsWithoutPostProcess() {
 	const backend = new FakeBackend();
 	backend.device.limits.maxStorageTexturesPerShaderStage = 0;
 	const resources = createPlanarReflectionResourcesStub();
-	const executor = new WebGPUFrameExecutor(backend, resources);
+	const executor = new WebGPUFrameExecutor(
+		backend, resources, undefined, undefined, resources,
+	);
 	const context = createFrameContext(64, 64);
 	const camera = new Camera();
 	camera.position.set(0, 2, 5);
@@ -1334,7 +1348,9 @@ async function testPlanarReflectionCaptureUsesMirroredCameraAndCenterSide() {
 	const backend = new FakeBackend();
 	backend.device.limits.maxStorageTexturesPerShaderStage = 0;
 	const resources = createPlanarReflectionResourcesStub();
-	const executor = new WebGPUFrameExecutor(backend, resources);
+	const executor = new WebGPUFrameExecutor(
+		backend, resources, undefined, undefined, resources,
+	);
 	const context = createFrameContext(64, 64);
 	const camera = new Camera();
 	camera.position.set(0, 2, 5);
@@ -1410,7 +1426,9 @@ async function testPlanarReflectionCaptureUsesMirroredCameraAndCenterSide() {
 async function testOITTransparentAndParticleExecutionOrder() {
 	const backend = createOITBackend();
 	const resources = createOITSequencingResourcesStub();
-	const executor = new WebGPUFrameExecutor(backend, resources);
+	const executor = new WebGPUFrameExecutor(
+		backend, resources, undefined, undefined, resources,
+	);
 	const context = createFrameContext(64, 64);
 	context.features.enableOIT = true;
 	context.scene.transparentPackets = [
@@ -1506,7 +1524,9 @@ async function testOITTransparentAndParticleExecutionOrder() {
 async function testOITTransparentResolvesImmediatelyWithoutParticles() {
 	const backend = createOITBackend();
 	const resources = createOITSequencingResourcesStub();
-	const executor = new WebGPUFrameExecutor(backend, resources);
+	const executor = new WebGPUFrameExecutor(
+		backend, resources, undefined, undefined, resources,
+	);
 	const context = createFrameContext(64, 64);
 	context.features.enableOIT = true;
 	context.scene.transparentPackets = [
@@ -1589,7 +1609,9 @@ async function testOITTransparentResolvesImmediatelyWithoutParticles() {
 async function testScreenSpaceRefractionCapturesTransmissionPackets() {
 	const backend = createOITBackend();
 	const resources = createOITSequencingResourcesStub();
-	const executor = new WebGPUFrameExecutor(backend, resources);
+	const executor = new WebGPUFrameExecutor(
+		backend, resources, undefined, undefined, resources,
+	);
 	const context = createFrameContext(64, 64);
 	context.postProcess = createResolvedPostProcess(
 		{ ssrefraction: { enabled: true } },
@@ -1653,7 +1675,9 @@ async function testScreenSpaceRefractionCapturesTransmissionPackets() {
 async function testDeferredLightingBindsUnusedGroupOnePlaceholder() {
 	const backend = new FakeBackend();
 	const resources = createDeferredLightingResourcesStub();
-	const executor = new WebGPUFrameExecutor(backend, resources);
+	const executor = new WebGPUFrameExecutor(
+		backend, resources, undefined, undefined, resources,
+	);
 	const context = createFrameContext(64, 64);
 	context.scene.opaquePackets = [
 		{
@@ -1711,7 +1735,9 @@ async function testDeferredLightingBindsUnusedGroupOnePlaceholder() {
 async function testDeferredLightingKeepsTransmissionOutOfGBuffer() {
 	const backend = new FakeBackend();
 	const resources = createDeferredLightingResourcesStub();
-	const executor = new WebGPUFrameExecutor(backend, resources);
+	const executor = new WebGPUFrameExecutor(
+		backend, resources, undefined, undefined, resources,
+	);
 	const context = createFrameContext(64, 64);
 	context.scene.opaquePackets = [
 		{
@@ -1752,7 +1778,9 @@ async function testDeferredLightingCanBeExplicitlyDisabled() {
 	const backend = new FakeBackend();
 	backend.enableDeferredLighting = false;
 	const resources = createDeferredLightingResourcesStub();
-	const executor = new WebGPUFrameExecutor(backend, resources);
+	const executor = new WebGPUFrameExecutor(
+		backend, resources, undefined, undefined, resources,
+	);
 	const context = createFrameContext(64, 64);
 	context.scene.opaquePackets = [
 		{
@@ -1795,7 +1823,9 @@ function testDeferredLightingWarnsWhenRequestedButMRTUnavailable() {
 	backend.device.limits.maxColorAttachments = 1;
 	backend.device.limits.maxColorAttachmentBytesPerSample = 16;
 	const resources = createModeTrackingResourcesStub();
-	const executor = new WebGPUFrameExecutor(backend, resources);
+	const executor = new WebGPUFrameExecutor(
+		backend, resources, undefined, undefined, resources,
+	);
 	const context = createFrameContext(64, 64);
 	const warnings = [];
 
@@ -1865,7 +1895,9 @@ function testOITRuntimeFallbackWarnsWithoutEncoderCopy() {
 		return encoder;
 	};
 	const resources = createModeTrackingResourcesStub();
-	const executor = new WebGPUFrameExecutor(backend, resources);
+	const executor = new WebGPUFrameExecutor(
+		backend, resources, undefined, undefined, resources,
+	);
 	const context = createFrameContext(64, 64);
 	context.features.enableOIT = true;
 	context.scene.transparentPackets = [{ id: "transparent", material: {} }];
