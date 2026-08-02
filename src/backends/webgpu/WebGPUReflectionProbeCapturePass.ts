@@ -9,13 +9,15 @@ import type { ICommandEncoder } from "../ICommandEncoder";
 import type {
 	DrawPacket,
 	FrameContext,
-	ParticleMeshRenderBatch,
-	ParticleMeshRenderItem,
 	ParticleRenderBatch,
 	ParticleRenderItem,
 	PreparedScene,
 	ResolvedFeatureState,
 } from "../../pipeline/types";
+import type {
+	FramePacketProvider,
+	PreparedFramePacketSet,
+} from "../../pipeline/FramePacketContributorRegistry";
 import {
 	DRAW_PACKET_FLAG_TRANSPARENT,
 	PARTICLE_MESH_TRANSIENT_BATCHES_KEY,
@@ -27,10 +29,6 @@ import type { IncrementalFrameContext } from "../../pipeline/incremental";
 import type { ProbeCaptureFaceRequest } from "../../lights/runtime/ProbeCaptureRuntime";
 import { LightType } from "../../lights";
 import { ComputeRuntime } from "./ComputeRuntime";
-import {
-	getWebGPUParticleMeshFramePackets,
-	prepareWebGPUParticleMeshFramePackets,
-} from "./particleMeshFramePackets";
 import type {
 	WebGPUPreparedFrameResources,
 	WebGPUFrameResourceProvider,
@@ -68,16 +66,19 @@ export class WebGPUReflectionProbeCapturePass {
 	private _captureResources: WebGPUFrameResourceProvider &
 		WebGPUSceneResourceProvider;
 	private _particleRenderer: WebGPUParticleBillboardRenderer;
+	private readonly _framePacketProvider: FramePacketProvider;
 	private _readbackRuntime: ComputeRuntime | null = null;
 	private _destroyed = false;
 
 	constructor(
 		backend: WebGPUFrameHost,
 		captureResources: WebGPUFrameResourceProvider & WebGPUSceneResourceProvider,
+		framePacketProvider: FramePacketProvider,
 		particleRenderer: WebGPUParticleBillboardRenderer,
 	) {
 		this._backend = backend;
 		this._captureResources = captureResources;
+		this._framePacketProvider = framePacketProvider;
 		this._particleRenderer = particleRenderer;
 	}
 
@@ -142,7 +143,10 @@ export class WebGPUReflectionProbeCapturePass {
 			incremental: createFullFrameIncrementalContext(faceSize),
 			transient: captureTransient,
 		};
-		prepareWebGPUParticleMeshFramePackets(captureContext);
+		const framePackets = this._framePacketProvider.prepare(
+			captureContext,
+			"probe-capture",
+		);
 		const captureTargets = createCaptureRenderTargets(
 			this._backend,
 			faceSize,
@@ -154,6 +158,7 @@ export class WebGPUReflectionProbeCapturePass {
 		try {
 			frameResources = scope.prepare(captureContext, {
 				sceneTargetMode: "mrt",
+				framePackets,
 				temporalStateMode: "disabled",
 			});
 			const encoder = this._backend.createCommandEncoder();
@@ -163,6 +168,7 @@ export class WebGPUReflectionProbeCapturePass {
 				captureContext,
 				captureTargets,
 				request.includeEnvironment,
+				framePackets,
 				frameResources
 			);
 			if (request.includeParticles) {
@@ -232,6 +238,7 @@ export class WebGPUReflectionProbeCapturePass {
 		context: FrameContext,
 		targets: CaptureRenderTargets,
 		includeEnvironment: boolean,
+		framePackets: PreparedFramePacketSet,
 		frameResources: WebGPUPreparedFrameResources
 	): Promise<void> {
 		const drewEnvironment = includeEnvironment ?
@@ -284,11 +291,7 @@ export class WebGPUReflectionProbeCapturePass {
 			},
 		});
 
-		const packets = [
-			...context.scene.opaquePackets,
-			...context.scene.transparentPackets,
-			...getWebGPUParticleMeshFramePackets(context).all,
-		];
+		const packets = framePackets.all.slice();
 		await submitWebGPUDraws({
 			encoder,
 			resources: this._captureResources,
@@ -744,52 +747,9 @@ function populateParticleBatchesForCapture(
 	}
 	captureTransient.set(PARTICLE_TRANSIENT_BATCHES_KEY, rebasedBatches);
 
-	const sourceMeshBatches =
-		frameContext.transient.get(PARTICLE_MESH_TRANSIENT_BATCHES_KEY) ?? [];
-	const rebasedMeshBatches: ParticleMeshRenderBatch[] = [];
-	for (const batch of sourceMeshBatches) {
-		const particles: ParticleMeshRenderItem[] = [];
-		for (const particle of batch.particles) {
-			const cameraSpace = Matrix4.transformPoint(
-				captureCamera.viewMatrix,
-				particle.position
-			);
-			const depth = -cameraSpace.z;
-			if (depth <= 0) continue;
-			particles.push({
-				templateIndex: particle.templateIndex,
-				position: {
-					x: particle.position.x,
-					y: particle.position.y,
-					z: particle.position.z,
-				},
-				previousPosition: {
-					x: particle.previousPosition.x,
-					y: particle.previousPosition.y,
-					z: particle.previousPosition.z,
-				},
-				size: particle.size,
-				color: {
-					r: particle.color.r,
-					g: particle.color.g,
-					b: particle.color.b,
-					a: particle.color.a,
-				},
-				rotation: particle.rotation,
-				previousRotation: particle.previousRotation,
-				depth,
-			});
-		}
-		particles.sort((left, right) => right.depth - left.depth);
-		if (particles.length <= 0) continue;
-		rebasedMeshBatches.push({
-			...batch,
-			particles,
-		});
-	}
 	captureTransient.set(
 		PARTICLE_MESH_TRANSIENT_BATCHES_KEY,
-		rebasedMeshBatches
+		frameContext.transient.get(PARTICLE_MESH_TRANSIENT_BATCHES_KEY) ?? [],
 	);
 }
 

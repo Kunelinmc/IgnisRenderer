@@ -3,6 +3,7 @@ import type {
 	DrawPacket,
 	FrameContext,
 } from "../../pipeline/types";
+import type { PreparedFramePacketSet } from "../../pipeline/FramePacketContributorRegistry";
 import type { ICommandEncoder } from "../ICommandEncoder";
 import type {
 	IBindingGroup,
@@ -88,6 +89,7 @@ export interface WebGPUParticleRenderOptions {
 /** @internal Scoped frame preparation options. */
 export interface WebGPUFrameScopePrepareOptions {
 	readonly sceneTargetMode: WebGPUSceneTargetMode;
+	readonly framePackets: PreparedFramePacketSet;
 	readonly temporalStateMode?: WebGPUTemporalStateMode;
 	readonly frameRequirements?: FramePreparationRequirements;
 }
@@ -193,6 +195,7 @@ export interface WebGPUPlanarReflectionResourceProvider {
 export interface WebGPUShadowRenderProvider {
 	renderShadows(
 		context: FrameContext,
+		framePackets: PreparedFramePacketSet,
 		encoder?: ICommandEncoder | null,
 	): Promise<void>;
 	preparePagedShadowFrame(request: WebGPUPagedShadowFrameRequest): void;

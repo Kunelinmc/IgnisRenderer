@@ -330,13 +330,23 @@ function testParticleOwnershipAndExecutionBoundaries() {
 		),
 		"utf8",
 	);
+	const packetConsumerSources = [
+		"../../../src/backends/webgpu/rendergraph/WebGPUScenePassRecorder.ts",
+		"../../../src/backends/webgpu/WebGPUFrameServiceOwner.ts",
+		"../../../src/backends/webgpu/WebGPUReflectionProbeCapturePass.ts",
+	].map((path) => readFileSync(new URL(path, import.meta.url), "utf8"));
 	assert.doesNotMatch(ownerSource, /_particlePipelineAlpha/);
 	assert.doesNotMatch(ownerSource, /public async renderParticles/);
 	assert.doesNotMatch(ownerSource, /ShaderSource\.load\("webgpu\.particle\.composite"\)/);
 	assert.match(ownerSource, /private _particleRenderResources:/);
 	assert.doesNotMatch(particleResourceSource, /ParticleMeshFramePackets/);
 	assert.doesNotMatch(orchestratorSource, /_particle(Resources|Renderer)/);
-	assert.match(orchestratorSource, /prepareWebGPUParticleMeshFramePackets\(context\)/);
+	assert.doesNotMatch(orchestratorSource, /ParticleMesh/);
+	assert.match(orchestratorSource, /_framePacketProvider\.prepare\(context, "main"\)/);
+	for (const source of packetConsumerSources) {
+		assert.doesNotMatch(source, /ParticleMesh/);
+		assert.doesNotMatch(source, /particleMeshFramePackets/);
+	}
 }
 
 testOwnerExposesStableNarrowParticleRenderer();

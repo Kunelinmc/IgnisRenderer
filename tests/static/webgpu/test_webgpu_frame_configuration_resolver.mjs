@@ -48,6 +48,7 @@ function postProcessPasses(context) {
 
 function resolve(context, overrides = {}) {
 	const analysis = new WebGPUFrameFeatureAnalyzer().analyze(context, {
+		framePackets: createFramePackets(context),
 		postProcessPasses: postProcessPasses(context),
 	});
 	return new WebGPUFrameConfigurationResolver().resolve(analysis, {
@@ -61,6 +62,17 @@ function resolve(context, overrides = {}) {
 		supportsInFrameTextureCopy: true,
 		...overrides,
 	});
+}
+
+function createFramePackets(context) {
+	return {
+		all: [...context.scene.opaquePackets, ...context.scene.transparentPackets],
+		opaque: context.scene.opaquePackets,
+		transparent: context.scene.transparentPackets,
+		shadowCasters: context.scene.shadowCasterPackets ?? [],
+		shadowTransmitters: context.scene.shadowTransmitterPackets ?? [],
+		reflective: context.scene.reflectivePackets,
+	};
 }
 
 const noWork = resolve(createContext());
@@ -110,6 +122,7 @@ assert.equal(deferred.sceneTargetMode, "gbuffer");
 assert.equal(deferred.deferredActive, true);
 
 const unsupportedAnalysis = new WebGPUFrameFeatureAnalyzer().analyze(deferredContext, {
+	framePackets: createFramePackets(deferredContext),
 	postProcessPasses: [],
 });
 const unsupported = new WebGPUFrameConfigurationResolver().resolve(unsupportedAnalysis, {

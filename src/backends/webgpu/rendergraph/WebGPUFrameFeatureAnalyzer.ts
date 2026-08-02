@@ -1,4 +1,5 @@
 import type { DrawPacket, FrameContext } from "../../../pipeline/types";
+import type { PreparedFramePacketSet } from "../../../pipeline/FramePacketContributorRegistry";
 import type { PlannedPostProcessPass } from "../../../postprocess";
 import { materialUsesTransmission } from "../../../materials/transparency";
 import { ParticleBlendMode } from "../../../particles";
@@ -9,8 +10,7 @@ import {
 } from "./WebGPUPostProcessSharedResourceCatalog";
 
 export interface WebGPUFrameFeatureAnalysis {
-	readonly particleOpaquePackets: readonly DrawPacket[];
-	readonly particleTransparentPackets: readonly DrawPacket[];
+	readonly framePackets: PreparedFramePacketSet;
 	readonly postProcessPasses: readonly PlannedPostProcessPass[];
 	readonly hasDeferredLightingWork: boolean;
 	readonly oitRequested: boolean;
@@ -41,8 +41,7 @@ export interface WebGPUTransparencyAnalysis {
 }
 
 export interface WebGPUFrameFeatureAnalysisOptions {
-	readonly particleOpaquePackets?: readonly DrawPacket[];
-	readonly particleTransparentPackets?: readonly DrawPacket[];
+	readonly framePackets: PreparedFramePacketSet;
 	readonly postProcessPasses: readonly PlannedPostProcessPass[];
 }
 
@@ -52,8 +51,7 @@ export class WebGPUFrameFeatureAnalyzer {
 		context: FrameContext,
 		options: WebGPUFrameFeatureAnalysisOptions,
 	): WebGPUFrameFeatureAnalysis {
-		const particleOpaquePackets = options.particleOpaquePackets ?? [];
-		const particleTransparentPackets = options.particleTransparentPackets ?? [];
+		const framePackets = options.framePackets;
 		const postProcessPasses = options.postProcessPasses;
 		// Declarations are retained before target allocation, so discovery can
 		// remain data-driven without describing an implementation twice.
@@ -69,14 +67,12 @@ export class WebGPUFrameFeatureAnalyzer {
 			sharedAllocationGroups.has("hiz");
 		const transparency = this._analyzeTransparency(
 			context,
-			particleTransparentPackets,
+			framePackets.transparent,
 		);
 		return {
-			particleOpaquePackets,
-			particleTransparentPackets,
+			framePackets,
 			postProcessPasses,
-			hasDeferredLightingWork: particleOpaquePackets
-				.concat(context.scene.opaquePackets)
+			hasDeferredLightingWork: framePackets.opaque
 				.some((packet) => materialSupportsWebGPUDeferredLighting(packet.material)),
 			oitRequested: context.features.enableOIT === true,
 			hasOITWork: transparency.hasOITContributors,
@@ -89,8 +85,7 @@ export class WebGPUFrameFeatureAnalyzer {
 				sharedAllocationGroups.has("planar-reflection-mask"),
 			needsTransmissionTargets:
 				sharedAllocationGroups.has("transmission") &&
-				particleTransparentPackets
-					.concat(context.scene.transparentPackets)
+				framePackets.transparent
 					.some((packet) => materialUsesTransmission(packet.material)),
 			needsOcclusionTargets,
 			needsHiZTarget,
@@ -117,18 +112,11 @@ export class WebGPUFrameFeatureAnalyzer {
 
 	private _analyzeTransparency(
 		context: FrameContext,
-		particleTransparentPackets: readonly DrawPacket[],
+		transparentPackets: readonly DrawPacket[],
 	): WebGPUTransparencyAnalysis {
 		const oitPackets: DrawPacket[] = [];
 		const transmissionPackets: DrawPacket[] = [];
-		for (const packet of context.scene.transparentPackets) {
-			if (materialUsesTransmission(packet.material)) {
-				transmissionPackets.push(packet);
-			} else {
-				oitPackets.push(packet);
-			}
-		}
-		for (const packet of particleTransparentPackets) {
+		for (const packet of transparentPackets) {
 			if (materialUsesTransmission(packet.material)) {
 				transmissionPackets.push(packet);
 			} else {

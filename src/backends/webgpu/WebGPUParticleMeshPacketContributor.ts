@@ -11,136 +11,82 @@ import {
 	DRAW_PACKET_FLAG_SHADOW_TRANSMITTER,
 	DRAW_PACKET_FLAG_TRANSPARENT,
 	PARTICLE_MESH_TRANSIENT_BATCHES_KEY,
-	defineTransientKey,
+	type DrawPacket,
+	type ParticleMeshRenderBatch,
+	type ParticleMeshRenderItem,
 } from "../../pipeline/types";
 import type {
-	DrawPacket,
-	FrameContext,
-	ParticleMeshRenderBatch,
-	ParticleMeshRenderItem,
-} from "../../pipeline/types";
+	FramePacketContributor,
+	FramePacketContributorContext,
+	FramePacketSink,
+} from "../../pipeline/FramePacketContributorRegistry";
 
-/** @internal Current-view mesh-particle packets shared by WebGPU frame consumers. */
-export interface WebGPUParticleMeshFramePackets {
-	readonly all: readonly DrawPacket[];
-	readonly opaque: readonly DrawPacket[];
-	readonly transparent: readonly DrawPacket[];
-	readonly shadowCasters: readonly DrawPacket[];
-	readonly shadowTransmitters: readonly DrawPacket[];
-	readonly reflective: readonly DrawPacket[];
-}
+/** @internal Produces WebGPU mesh-particle packets for main and probe views. */
+export class WebGPUParticleMeshPacketContributor
+	implements FramePacketContributor
+{
+	public readonly id = "webgpu:particle-mesh";
 
-export const WEBGPU_PARTICLE_MESH_FRAME_PACKETS_KEY =
-	defineTransientKey<WebGPUParticleMeshFramePackets>(
-		"webgpu:particle-mesh-frame-packets",
-	);
+	public supports(context: FramePacketContributorContext): boolean {
+		return context.purpose !== "planar-reflection";
+	}
 
-const UNPREPARED_PARTICLE_MESH_FRAME_PACKETS: WebGPUParticleMeshFramePackets =
-	Object.freeze({
-		all: Object.freeze([]),
-		opaque: Object.freeze([]),
-		transparent: Object.freeze([]),
-		shadowCasters: Object.freeze([]),
-		shadowTransmitters: Object.freeze([]),
-		reflective: Object.freeze([]),
-	});
-
-/**
- * Prepares the active view's mesh-particle packets once after simulation.
- *
- * @internal Owned by WebGPU frame and capture preparation. Callers must use a
- * distinct transient store for each view and frame.
- */
-export function prepareWebGPUParticleMeshFramePackets(
-	context: FrameContext,
-): WebGPUParticleMeshFramePackets {
-	const prepared = context.transient.get(WEBGPU_PARTICLE_MESH_FRAME_PACKETS_KEY);
-	if (prepared) return prepared;
-
-	const batches = context.transient.get(PARTICLE_MESH_TRANSIENT_BATCHES_KEY);
-	if (!batches || batches.length === 0) {
-		const empty = createEmptyParticleMeshFramePackets();
-		context.transient.set(
-			WEBGPU_PARTICLE_MESH_FRAME_PACKETS_KEY,
-			empty,
+	public contribute(
+		context: FramePacketContributorContext,
+		sink: FramePacketSink,
+	): void {
+		const batches = context.frameContext.transient.get(
+			PARTICLE_MESH_TRANSIENT_BATCHES_KEY,
 		);
-		return empty;
-	}
+		if (!batches || batches.length <= 0) {
+			return;
+		}
 
-	const all: DrawPacket[] = [];
-	for (const batch of batches) {
-		for (let particleIndex = 0; particleIndex < batch.particles.length; particleIndex++) {
-			all.push(
-				createParticleMeshPacket(
-					batch,
-					batch.particles[particleIndex],
-					particleIndex,
-				),
-			);
+		const packets: DrawPacket[] = [];
+		for (const batch of batches) {
+			for (let particleIndex = 0; particleIndex < batch.particles.length; particleIndex++) {
+				const particle = batch.particles[particleIndex];
+				const sortDepth = this._resolveSortDepth(context, particle);
+				if (sortDepth === null) {
+					continue;
+				}
+				packets.push(
+					createParticleMeshPacket(
+						batch,
+						particle,
+						particleIndex,
+						sortDepth,
+					),
+				);
+			}
 		}
-	}
-	all.sort(compareParticleMeshPackets);
-
-	const opaque: DrawPacket[] = [];
-	const transparent: DrawPacket[] = [];
-	const shadowCasters: DrawPacket[] = [];
-	const shadowTransmitters: DrawPacket[] = [];
-	const reflective: DrawPacket[] = [];
-	for (const packet of all) {
-		const flags = packet.passFlags;
-		if ((flags & DRAW_PACKET_FLAG_TRANSPARENT) !== 0) {
-			transparent.push(packet);
-		} else {
-			opaque.push(packet);
-		}
-		if ((flags & DRAW_PACKET_FLAG_SHADOW_CASTER) !== 0) {
-			shadowCasters.push(packet);
-		}
-		if ((flags & DRAW_PACKET_FLAG_SHADOW_TRANSMITTER) !== 0) {
-			shadowTransmitters.push(packet);
-		}
-		if ((flags & DRAW_PACKET_FLAG_REFLECTIVE) !== 0) {
-			reflective.push(packet);
+		packets.sort(compareParticleMeshPackets);
+		for (const packet of packets) {
+			sink.add(packet);
 		}
 	}
 
-	const result: WebGPUParticleMeshFramePackets = {
-		all,
-		opaque,
-		transparent,
-		shadowCasters,
-		shadowTransmitters,
-		reflective,
-	};
-	context.transient.set(WEBGPU_PARTICLE_MESH_FRAME_PACKETS_KEY, result);
-	return result;
-}
-
-/** @internal Returns packets prepared for the active WebGPU frame view. */
-export function getWebGPUParticleMeshFramePackets(
-	context: FrameContext,
-): WebGPUParticleMeshFramePackets {
-	return (
-		context.transient.get(WEBGPU_PARTICLE_MESH_FRAME_PACKETS_KEY) ??
-		UNPREPARED_PARTICLE_MESH_FRAME_PACKETS
-	);
-}
-
-function createEmptyParticleMeshFramePackets(): WebGPUParticleMeshFramePackets {
-	return {
-		all: [],
-		opaque: [],
-		transparent: [],
-		shadowCasters: [],
-		shadowTransmitters: [],
-		reflective: [],
-	};
+	private _resolveSortDepth(
+		context: FramePacketContributorContext,
+		particle: ParticleMeshRenderItem,
+	): number | null {
+		if (context.purpose !== "probe-capture") {
+			return particle.depth;
+		}
+		const cameraSpace = Matrix4.transformPoint(
+			context.frameContext.viewCamera.viewMatrix,
+			particle.position,
+		);
+		const depth = -cameraSpace.z;
+		return depth > 0 ? depth : null;
+	}
 }
 
 function createParticleMeshPacket(
 	batch: ParticleMeshRenderBatch,
 	particle: ParticleMeshRenderItem,
 	particleIndex: number,
+	sortDepth: number,
 ): DrawPacket {
 	const material = batch.material;
 	const isTransparent = isMaterialTransparentPass(material);
@@ -202,7 +148,7 @@ function createParticleMeshPacket(
 			},
 			radius: batch.primitive.boundingSphere.radius * Math.max(0.001, particle.size),
 		},
-		sortDepth: particle.depth,
+		sortDepth,
 		pipelineKey: [
 			material.type,
 			material.shading,

@@ -1,4 +1,5 @@
 import type { FrameContext } from "../../../pipeline/types";
+import type { PreparedFramePacketSet } from "../../../pipeline/FramePacketContributorRegistry";
 import type { ICommandEncoder } from "../../ICommandEncoder";
 import type { IRenderTexture } from "../../types";
 import type { WebGPUPreparedFrameResources } from "../WebGPUResourceContracts";
@@ -26,6 +27,7 @@ interface WebGPURecordingFrameSessionOptions {
 	readonly encoder: ICommandEncoder;
 	readonly hiZStatus: WebGPUFrameHiZStatus;
 	readonly analysis: WebGPUFrameFeatureAnalysis;
+	readonly framePackets: PreparedFramePacketSet;
 	readonly committer: WebGPUFrameCommitter;
 }
 
@@ -47,6 +49,7 @@ export class WebGPUFrameSession {
 	public hiZStatus: WebGPUFrameHiZStatus;
 	public hiZBuildCount = 0;
 	public readonly analysis: WebGPUFrameFeatureAnalysis | null;
+	public readonly framePackets: PreparedFramePacketSet | null;
 	public readonly committer: WebGPUFrameCommitter | null;
 	public transparencyMode: WebGPUTransparencyMode;
 
@@ -57,6 +60,7 @@ export class WebGPUFrameSession {
 		encoder: ICommandEncoder | null,
 		hiZStatus: WebGPUFrameHiZStatus,
 		analysis: WebGPUFrameFeatureAnalysis | null,
+		framePackets: PreparedFramePacketSet | null,
 		committer: WebGPUFrameCommitter | null,
 	) {
 		this.context = context;
@@ -65,6 +69,7 @@ export class WebGPUFrameSession {
 		this.encoder = encoder;
 		this.hiZStatus = hiZStatus;
 		this.analysis = analysis;
+		this.framePackets = framePackets;
 		this.committer = committer;
 		this.transparencyMode = configuration?.transparencyMode ?? "legacy";
 	}
@@ -79,6 +84,7 @@ export class WebGPUFrameSession {
 			options.encoder,
 			options.hiZStatus,
 			options.analysis,
+			options.framePackets,
 			options.committer,
 		);
 	}
@@ -92,6 +98,7 @@ export class WebGPUFrameSession {
 			"unavailable",
 			null,
 			null,
+			null,
 		);
 	}
 
@@ -102,6 +109,7 @@ export class WebGPUFrameSession {
 			"skipped",
 			null,
 			"unavailable",
+			null,
 			null,
 			null,
 		);

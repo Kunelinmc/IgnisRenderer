@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
 
+import { Camera } from "../../../src/cameras/Camera.ts";
 import { Material, AlphaMode } from "../../../src/materials/Material.ts";
 import { MeshAsset } from "../../../src/meshes/MeshAsset.ts";
 import {
-	getWebGPUParticleMeshFramePackets,
-	prepareWebGPUParticleMeshFramePackets,
-} from "../../../src/backends/webgpu/particleMeshFramePackets.ts";
+	FramePacketContributorRegistry,
+} from "../../../src/pipeline/FramePacketContributorRegistry.ts";
+import { WebGPUParticleMeshPacketContributor } from "../../../src/backends/webgpu/WebGPUParticleMeshPacketContributor.ts";
 import { WebGPUBackendPassDispatcher } from "../../../src/backends/webgpu/WebGPUBackendPassDispatcher.ts";
 import {
 	DRAW_PACKET_FLAG_SHADOW_CASTER,
@@ -66,6 +67,20 @@ function createMeshBatch({
 	};
 }
 
+function createPacketContext() {
+	return {
+		transient: createTransientStore(),
+		viewCamera: new Camera(),
+		scene: {
+			opaquePackets: [],
+			transparentPackets: [],
+			shadowCasterPackets: [],
+			shadowTransmitterPackets: [],
+			reflectivePackets: [],
+		},
+	};
+}
+
 function testMeshParticleFramePreparation() {
 	const opaqueMaterial = new Material({ name: "particle-opaque" });
 	const transparentMaterial = new Material({
@@ -75,7 +90,7 @@ function testMeshParticleFramePreparation() {
 	});
 	const opaqueMesh = createTriangleMesh(opaqueMaterial);
 	const transparentMesh = createTriangleMesh(transparentMaterial);
-	const context = { transient: createTransientStore() };
+	const context = createPacketContext();
 	context.transient.set(PARTICLE_MESH_TRANSIENT_BATCHES_KEY, [
 		createMeshBatch({
 			systemId: "particle-system",
@@ -83,7 +98,7 @@ function testMeshParticleFramePreparation() {
 			templateId: "opaque-shard",
 			mesh: opaqueMesh,
 			material: opaqueMaterial,
-			position: { x: 1, y: 2, z: 3 },
+			position: { x: 1, y: 2, z: -3 },
 			size: 2,
 			depth: 4,
 		}),
@@ -93,15 +108,16 @@ function testMeshParticleFramePreparation() {
 			templateId: "transparent-shard",
 			mesh: transparentMesh,
 			material: transparentMaterial,
-			position: { x: 0, y: 0, z: 0 },
+			position: { x: 0, y: 0, z: -2 },
 			size: 1,
 			depth: 2,
 		}),
 	]);
 
-	const packets = prepareWebGPUParticleMeshFramePackets(context);
-	assert.strictEqual(prepareWebGPUParticleMeshFramePackets(context), packets);
-	assert.strictEqual(getWebGPUParticleMeshFramePackets(context), packets);
+	const registry = new FramePacketContributorRegistry();
+	registry.register(new WebGPUParticleMeshPacketContributor());
+	const packets = registry.prepare(context, "main");
+	assert.strictEqual(registry.prepare(context, "main"), packets);
 	assert.equal(packets.all.length, 2);
 	assert.equal(packets.opaque.length, 1);
 	assert.equal(packets.transparent.length, 1);
@@ -125,12 +141,16 @@ function testMeshParticleFramePreparation() {
 	assert.ok(
 		(packets.transparent[0].passFlags & DRAW_PACKET_FLAG_SHADOW_TRANSMITTER) !== 0,
 	);
-	const emptyViewA = { transient: createTransientStore() };
-	const emptyViewB = { transient: createTransientStore() };
+	const emptyViewA = createPacketContext();
+	const emptyViewB = createPacketContext();
 	assert.notStrictEqual(
-		prepareWebGPUParticleMeshFramePackets(emptyViewA),
-		prepareWebGPUParticleMeshFramePackets(emptyViewB),
+		registry.prepare(emptyViewA, "main"),
+		registry.prepare(emptyViewB, "main"),
 	);
+	const probePackets = registry.prepare(context, "probe-capture");
+	assert.equal(probePackets.all.length, 2);
+	assert.notStrictEqual(probePackets.all[0], packets.all[0]);
+	assert.equal(registry.prepare(context, "planar-reflection").all.length, 0);
 }
 
 async function testSimulationSealsFrameAfterBatchEmission() {

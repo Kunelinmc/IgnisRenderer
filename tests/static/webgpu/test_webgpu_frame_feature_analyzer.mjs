@@ -50,8 +50,20 @@ function postProcessPasses(context) {
 
 function analyze(context, passes = postProcessPasses(context)) {
 	return new WebGPUFrameFeatureAnalyzer().analyze(context, {
+		framePackets: createFramePackets(context),
 		postProcessPasses: passes,
 	});
+}
+
+function createFramePackets(context) {
+	return {
+		all: [...context.scene.opaquePackets, ...context.scene.transparentPackets],
+		opaque: context.scene.opaquePackets,
+		transparent: context.scene.transparentPackets,
+		shadowCasters: context.scene.shadowCasterPackets ?? [],
+		shadowTransmitters: context.scene.shadowTransmitterPackets ?? [],
+		reflective: context.scene.reflectivePackets,
+	};
 }
 
 const analysis = analyze(createContext());

@@ -1,5 +1,9 @@
 import { CameraType } from "../../cameras/Camera";
 import type { DrawPacket, FrameContext, PreparedScene } from "../../pipeline/types";
+import type {
+	FramePacketProvider,
+	PreparedFramePacketSet,
+} from "../../pipeline/FramePacketContributorRegistry";
 import { createTransientStore } from "../../pipeline/types";
 import { PreparedSceneBuilder } from "../../pipeline/PreparedSceneBuilder";
 import { Matrix4 } from "../../maths/Matrix4";
@@ -65,6 +69,7 @@ export class WebGPUPlanarReflectionPass {
 	private _resources: WebGPUFrameResourceProvider &
 		WebGPUSceneResourceProvider &
 		WebGPUPlanarReflectionResourceProvider;
+	private readonly _framePacketProvider: FramePacketProvider;
 	private _targets = new Map<string, PlanarReflectionTargetSet>();
 	private _activeReflections: ActivePlanarReflection[] = [];
 	private _bindings = new Map<IRenderTexture, IBindingGroup>();
@@ -73,10 +78,12 @@ export class WebGPUPlanarReflectionPass {
 		backend: WebGPUFrameHost,
 		resources: WebGPUFrameResourceProvider &
 			WebGPUSceneResourceProvider &
-			WebGPUPlanarReflectionResourceProvider
+			WebGPUPlanarReflectionResourceProvider,
+		framePacketProvider: FramePacketProvider,
 	) {
 		this._backend = backend;
 		this._resources = resources;
+		this._framePacketProvider = framePacketProvider;
 	}
 
 	/**
@@ -134,8 +141,13 @@ export class WebGPUPlanarReflectionPass {
 					width,
 					height
 				);
+				const framePackets = this._framePacketProvider.prepare(
+					captureContext,
+					"planar-reflection",
+				);
 				const frameResources = targets.scope.prepare(captureContext, {
 					sceneTargetMode: "color",
+					framePackets,
 					temporalStateMode: "disabled",
 				});
 				const encoder = this._backend.createCommandEncoder();
@@ -143,6 +155,7 @@ export class WebGPUPlanarReflectionPass {
 				await this._recordCapture(
 					encoder,
 					captureContext,
+					framePackets,
 					targets,
 					frameResources
 				);
@@ -289,6 +302,7 @@ export class WebGPUPlanarReflectionPass {
 	private async _recordCapture(
 		encoder: ICommandEncoder,
 		context: FrameContext,
+		framePackets: PreparedFramePacketSet,
 		targets: PlanarReflectionTargetSet,
 		frameResources: WebGPUPreparedFrameResources
 	): Promise<void> {
@@ -316,10 +330,7 @@ export class WebGPUPlanarReflectionPass {
 			},
 		});
 
-		const packets = [
-			...context.scene.opaquePackets,
-			...context.scene.transparentPackets,
-		];
+		const packets = framePackets.all.slice();
 		await submitWebGPUDraws({
 			encoder,
 			resources: this._resources,

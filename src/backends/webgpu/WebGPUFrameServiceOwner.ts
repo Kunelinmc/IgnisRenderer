@@ -14,7 +14,10 @@ import {
 	type ISampler,
 } from "../types";
 import type { WebGPUDeviceResourceHost } from "./WebGPUDeviceResourceHost";
-import { getWebGPUParticleMeshFramePackets } from "./particleMeshFramePackets";
+import {
+	createBaselineFramePacketSet,
+	type PreparedFramePacketSet,
+} from "../../pipeline/FramePacketContributorRegistry";
 import type { WebGPUResourceManager } from "./WebGPUResourceManager";
 import { SINGLE_SAMPLE_WEBGPU_MSAA_CONTEXT, type WebGPUMSAAContext } from "./WebGPUMSAAController";
 import type { IWebGPUComputeFacade } from "./ComputeFacade";
@@ -244,6 +247,7 @@ export class WebGPUFrameServiceOwner {
 		context: FrameContext,
 		plan: WarmupPlan,
 		options: WarmupOptions = {},
+		framePackets: PreparedFramePacketSet = createBaselineFramePacketSet(context),
 	): Promise<WarmupPhaseCounters> {
 		let total = 0;
 		let compiled = 0;
@@ -258,6 +262,7 @@ export class WebGPUFrameServiceOwner {
 			warmupResources = this.prepareFrame(context, {
 				scopeKey: warmupScopeKey,
 				sceneTargetMode: plan.sceneTargetMode,
+				framePackets,
 				temporalStateMode: "disabled",
 			});
 		} catch (error) {
@@ -302,6 +307,7 @@ export class WebGPUFrameServiceOwner {
 				reflectionResources = this.prepareFrame(context, {
 					scopeKey: "warmup-planar-reflection",
 					sceneTargetMode: "color",
+					framePackets,
 					temporalStateMode: "disabled",
 				});
 
@@ -400,29 +406,16 @@ export class WebGPUFrameServiceOwner {
 
 	public async renderShadows(
 		context: FrameContext,
+		framePackets: WebGPUFrameServicePrepareOptions["framePackets"],
 		encoder?: ICommandEncoder | null,
 	): Promise<void> {
-		const particleMeshPackets = getWebGPUParticleMeshFramePackets(context);
-		if (
-			particleMeshPackets.shadowCasters.length <= 0 &&
-			particleMeshPackets.shadowTransmitters.length <= 0
-		) {
-			await this._shadowPass.render(context, encoder);
-			return;
-		}
 		await this._shadowPass.render(
 			{
 				...context,
 				scene: {
 					...context.scene,
-					shadowCasterPackets: [
-						...context.scene.shadowCasterPackets,
-						...particleMeshPackets.shadowCasters,
-					],
-					shadowTransmitterPackets: [
-						...context.scene.shadowTransmitterPackets,
-						...particleMeshPackets.shadowTransmitters,
-					],
+					shadowCasterPackets: framePackets.shadowCasters.slice(),
+					shadowTransmitterPackets: framePackets.shadowTransmitters.slice(),
 				},
 			},
 			encoder,
@@ -444,7 +437,7 @@ export class WebGPUFrameServiceOwner {
 		context: FrameContext,
 		options: WebGPUFrameServicePrepareOptions,
 	): WebGPUFrameServicePreparedResources {
-		const resolvedOptions = this._resolvePrepareFrameOptions(options);
+		const resolvedOptions = this._resolvePrepareFrameOptions(context, options);
 		const jointMatrixMap = context.transient.get(ANIMATION_WEBGPU_JOINT_MATRICES_KEY) ?? null;
 		const morphWeightMap = context.transient.get(ANIMATION_WEBGPU_MORPH_WEIGHTS_KEY) ?? null;
 		const scene = context.scene;
@@ -455,15 +448,8 @@ export class WebGPUFrameServiceOwner {
 		const renderHeight = Math.max(1, context.attachments.height || 1);
 		const temporalHistoryReset = context.incremental?.temporalHistoryReset === true;
 		const shadowMaps = context.shadowMaps;
-		const particleMeshPackets = getWebGPUParticleMeshFramePackets(context);
-		const shadowCasterPackets = [
-			...scene.shadowCasterPackets,
-			...particleMeshPackets.shadowCasters,
-		];
-		const shadowTransmitterPackets = [
-			...scene.shadowTransmitterPackets,
-			...particleMeshPackets.shadowTransmitters,
-		];
+		const shadowCasterPackets = resolvedOptions.framePackets.shadowCasters.slice();
+		const shadowTransmitterPackets = resolvedOptions.framePackets.shadowTransmitters.slice();
 		const temporalStateMode = resolvedOptions.temporalStateMode ?? "advance";
 		const featureState: WebGPUFeatureState = {
 			enableLighting: features.enableLighting,
@@ -938,6 +924,7 @@ export class WebGPUFrameServiceOwner {
 	}
 
 	private _resolvePrepareFrameOptions(
+		context: FrameContext,
 		options: WebGPUFrameServicePrepareOptions | undefined,
 	): WebGPUFrameServicePrepareOptions {
 		if (!options) {
@@ -954,6 +941,7 @@ export class WebGPUFrameServiceOwner {
 		return {
 			scopeKey: options.scopeKey,
 			sceneTargetMode: options.sceneTargetMode,
+			framePackets: options.framePackets ?? createBaselineFramePacketSet(context),
 			temporalStateMode: options?.temporalStateMode,
 			frameRequirements: options.frameRequirements,
 		};

@@ -5,7 +5,7 @@ import type {
 	DrawPacket,
 	FrameContext,
 } from "../../../pipeline/types";
-import { getWebGPUParticleMeshFramePackets } from "../particleMeshFramePackets";
+import type { PreparedFramePacketSet } from "../../../pipeline/FramePacketContributorRegistry";
 import { materialSupportsWebGPUDeferredLighting } from "../material";
 import { GBufferSlot } from "../constants";
 import {
@@ -75,13 +75,11 @@ export class WebGPUScenePassRecorder {
 	 */
 	public async recordOpaque(
 		context: FrameContext,
+		framePackets: PreparedFramePacketSet,
 		deferredEnabled: boolean
 	): Promise<WebGPUDeferredOpaqueFrameState | null> {
 		const targets = this._recordingContext.getFrameTargets();
-		const opaquePackets = [
-			...context.scene.opaquePackets,
-			...getWebGPUParticleMeshFramePackets(context).opaque,
-		];
+		const opaquePackets = framePackets.opaque.slice();
 		if (
 			!deferredEnabled ||
 			!this._recordingContext.isMRTEnabled() ||

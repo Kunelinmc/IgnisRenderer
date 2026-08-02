@@ -76,10 +76,18 @@ This document defines WebGPU frame-graph execution, deferred lighting, presentat
 	delegated `WebGPUParticleRenderResources` service. The service must own only
 	billboard pipelines, buffers, bindings, and pass recording; frame scopes
 	retain particle-shadow-volume binding ownership.
-- Mesh-particle draw packets must be prepared without WebGPU device resources
-	by the backend-private particle frame-preparation utility. The prepared set
-	must be scoped to one frame view and shared by frame analysis, resource
-	preparation, and pass recording.
+- `FramePacketContributorRegistry` is a cross-backend internal composition
+	contract. A backend must register contributors before its first preparation;
+	registration must be sealed once preparation begins.
+- WebGPU must register its mesh-particle packet contributor with that registry.
+	The contributor must prepare packets without WebGPU device resources.
+- The registry must compose baseline prepared-scene packets and contributor
+	packets into one view-local `PreparedFramePacketSet`. Frame analysis, resource
+	preparation, pass recording, and capture recording must consume that set
+	instead of particle-specific packet accessors.
+- Packet-set cache identity must include the registry, prepared scene, view
+	camera, and view purpose. Cloned transients must not reuse a main-view set for
+	a secondary capture view.
 - Billboard-pass consumers must receive `WebGPUParticleBillboardRenderer`
 	separately from scene, frame-scope, and shadow capabilities. The frame
 	orchestrator may pass this capability to leaf recording runtimes during
@@ -126,10 +134,10 @@ This document defines WebGPU frame-graph execution, deferred lighting, presentat
   without analyzing features, allocating frame targets, preparing frame
   resources, or compiling the whole-frame graph.
 - After `particle-sim` emits current-frame render batches, the WebGPU backend
-  must prepare the mesh-particle packet set and seal the session before any
-  graph-owned backend pass executes. Sealing must perform feature analysis,
-  target configuration, resource preparation, and whole-frame compilation
-  exactly once.
+	must prepare the main view's composed frame packet set and seal the session
+	before any graph-owned backend pass executes. Sealing must perform feature
+	analysis, target configuration, resource preparation, and whole-frame
+	compilation exactly once.
 - Sealing a `particle-sim` session must update the main frame scope's particle
   shadow-volume bindings after resource preparation, so billboard and mesh
   particle shadow volumes consume the current frame's emitted batches.

@@ -20,21 +20,23 @@ This document defines particle templates, mesh-particle rendering, simulation in
 - WebGPU must emit mesh particle draw packets from
 	`PARTICLE_MESH_TRANSIENT_BATCHES_KEY` and render them through the regular
 	mesh material pipeline.
-- WebGPU must prepare one frame-local mesh-particle packet set after particle
-	simulation completes and before frame feature analysis begins.
-- A prepared mesh-particle packet set must create each current-view
-	`DrawPacket` once and expose classified packet lists for opaque, transparent,
-	shadow-caster, shadow-transmitter, reflective, and complete draw work.
-- Main-frame feature analysis, resource preparation, and pass recording must
-	reuse the same prepared packet objects. They must not rebuild packets from
-	`PARTICLE_MESH_TRANSIENT_BATCHES_KEY` at individual consumption sites.
+- WebGPU must register mesh-particle packet production with the internal frame
+	packet contributor registry. The contributor must prepare current-view
+	`DrawPacket` objects after particle simulation and before frame analysis.
+- The composed frame packet set must expose opaque, transparent, shadow-caster,
+	shadow-transmitter, reflective, and complete draw work. Frame analysis,
+	resource preparation, and pass recording must reuse the same packet objects.
+- Individual consumers must not rebuild mesh packets from
+	`PARTICLE_MESH_TRANSIENT_BATCHES_KEY` or depend on a particle-specific packet
+	accessor.
 - Renderer frame planning for WebGPU must inspect visible mesh-particle
 	templates so transparent-material and shadow-casting templates retain their
 	required `main-transparent` and `shadow` backend passes before simulation
 	has emitted the current frame's packets.
-- Reflection and probe capture views must prepare their own packet set after
-	rebasing particle depth for the capture camera. Packet sets must not be
-	reused across views or retained across frames.
+- Probe capture views must prepare their own packet set and resolve mesh-particle
+	depth for the capture camera. Packet sets must not be reused across views or
+	retained across frames. Planar reflection capture must exclude mesh-particle
+	contributors because particle reflection is unsupported.
 - WebGPU mesh particles must support opaque, transparent, OIT, and mesh shadow
   caster/transmitter passes according to each primitive material.
 - WebGLBackend and SoftwareBackend must skip mesh particle templates and emit

@@ -33,7 +33,8 @@ native resource lifetimes.
 2. `WebGPUBackend.beginFrame()` establishes the backend transaction. Frames
    without particle simulation proceed directly to frame sealing.
 3. When enabled, the `particle-sim` pass emits current-frame render batches.
-4. Frame sealing prepares one mesh-particle packet set for the active view.
+4. Frame sealing composes one view-local frame packet set from prepared-scene
+   packets and registered backend contributors.
 5. Frame analysis identifies desired scene and post-process work.
 6. Configuration resolution applies capabilities and fallback policy.
 7. Target managers allocate or reuse frame-sized resources.
@@ -67,7 +68,7 @@ to Software or WebGL.
 | Feature runtimes | Shadow, scene, deferred, transparency, reflection, visibility, post-process, and presentation commands |
 | Resource owners | Native texture, buffer, pipeline, binding, pool, and frame-target lifetimes |
 | Particle render resources | Owner-managed billboard pipelines, particle buffers, bindings, and pass recording |
-| Mesh-particle frame preparation | Backend-private, device-independent conversion and classification of current-view particle batches |
+| Frame packet contributors | Backend-composed, device-independent conversion of supplemental current-view draw work |
 | Post-process runtime | Logical plan, declarations, histories, transients, and history transactions |
 | Frame committer | Labeled command-buffer retention and ordered submission |
 
@@ -103,7 +104,7 @@ backend-owned post-process and frame services in lifecycle order.
 | Frame-sized WebGPU target | Frame target manager and graph resource catalog |
 | Device-lifetime feature resource | Frame service owner or delegated registry |
 | Particle billboard rendering | Owner-managed particle render resources exposed only to leaf recording runtimes |
-| Mesh-particle draw-packet construction | Backend-private frame preparation with no device-resource ownership |
+| Supplemental draw-packet construction | Backend packet contributor with no device-resource ownership |
 | Backend-agnostic graph analysis | `src/rendergraph/` |
 | WebGPU-specific validation | WebGPU graph facade |
 

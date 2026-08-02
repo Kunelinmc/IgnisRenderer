@@ -1,6 +1,10 @@
 import type { FramePreparationRequirements } from "../../../pipeline/FrameRequirements";
 import type { DrawPacket, FrameContext, FramePass } from "../../../pipeline/types";
 import type {
+	FramePacketProvider,
+	PreparedFramePacketSet,
+} from "../../../pipeline/FramePacketContributorRegistry";
+import type {
 	LogicalGBufferBridge,
 	PostProcessPassExecutionContextRequest,
 	PostProcessPassImplementation,
@@ -22,10 +26,6 @@ import type {
 } from "../WebGPUResourceContracts";
 import type { WebGPUFrameServiceOwner } from "../WebGPUFrameServiceOwner";
 import { WebGPUHiZBuilder } from "../WebGPUHiZBuilder";
-import {
-	getWebGPUParticleMeshFramePackets,
-	prepareWebGPUParticleMeshFramePackets,
-} from "../particleMeshFramePackets";
 import type {
 	BackendPostProcessRuntime,
 	PostProcessExecutionPlan,
@@ -146,6 +146,7 @@ export interface WebGPUFrameOrchestratorOptions {
 export class WebGPUFrameOrchestrator {
 	private _host: WebGPUFrameHost;
 	private readonly _shadowRenderer: WebGPUShadowRenderProvider;
+	private readonly _framePacketProvider: FramePacketProvider;
 	private readonly _mainFrameScope: WebGPUFrameResourceScope;
 	private _msaa: WebGPUMSAAContext;
 	private _session: WebGPUFrameSession | null = null;
@@ -191,6 +192,7 @@ export class WebGPUFrameOrchestrator {
 	constructor(
 		host: WebGPUFrameHost,
 		frameServiceOwner: WebGPUFrameServiceOwner,
+		framePacketProvider: FramePacketProvider,
 		particleRenderer: WebGPUParticleBillboardRenderer,
 		msaa: WebGPUMSAAContext = SINGLE_SAMPLE_WEBGPU_MSAA_CONTEXT,
 		options: WebGPUFrameOrchestratorOptions = {
@@ -201,6 +203,7 @@ export class WebGPUFrameOrchestrator {
 	) {
 		this._host = host;
 		this._shadowRenderer = frameServiceOwner;
+		this._framePacketProvider = framePacketProvider;
 		this._mainFrameScope = frameServiceOwner.createFrameScope();
 		this._msaa = msaa;
 		this._enableEarlyZPrepass = options.enableEarlyZPrepass;
@@ -220,7 +223,11 @@ export class WebGPUFrameOrchestrator {
 			this._hiZBuilder,
 			() => this._host.displayOutputState,
 		);
-		this._planarReflectionPass = new WebGPUPlanarReflectionPass(host, frameServiceOwner);
+		this._planarReflectionPass = new WebGPUPlanarReflectionPass(
+			host,
+			frameServiceOwner,
+			framePacketProvider,
+		);
 		this._customRenderTargets = new WebGPUCustomRenderTargetRuntime(host);
 		this._frameTargetManager = new WebGPUFrameTargetManager(host);
 		this._recordingContext = {
@@ -454,13 +461,12 @@ export class WebGPUFrameOrchestrator {
 		targetHeight: number,
 	): void {
 		try {
-			const particleMeshPackets = prepareWebGPUParticleMeshFramePackets(context);
+			const framePackets = this._framePacketProvider.prepare(context, "main");
 			const postProcessDeclarations = this._postProcessRuntime.describeFrame(context);
 			const encoder = this._host.createCommandEncoder();
 			this._customRenderTargets.sync(context);
 			const analysis = this._featureAnalyzer.analyze(context, {
-				particleOpaquePackets: particleMeshPackets.opaque,
-				particleTransparentPackets: particleMeshPackets.transparent,
+				framePackets,
 				postProcessPasses: postProcessDeclarations.passes,
 			});
 			const configuration = this._configureFrameTargets(
@@ -477,6 +483,7 @@ export class WebGPUFrameOrchestrator {
 				encoder,
 				hiZStatus: this._frameTargets?.hiZ ? "pending" : "unavailable",
 				analysis,
+				framePackets,
 				committer: new WebGPUFrameCommitter(this._host),
 			});
 			this._postProcessGraphFrame = this._postProcessRuntime.buildRenderGraphFrame(
@@ -619,6 +626,7 @@ export class WebGPUFrameOrchestrator {
 		}
 		this._frameResources = this._mainFrameScope.prepare(context, {
 			sceneTargetMode: this.getSceneTargetModeForFrame(),
+			framePackets: this._requireFramePackets(),
 			frameRequirements,
 		});
 		return this._frameResources;
@@ -729,6 +737,19 @@ export class WebGPUFrameOrchestrator {
 			throw new Error("WebGPU frame session is unavailable.");
 		}
 		return this._session;
+	}
+
+	private _requireFramePackets(): PreparedFramePacketSet {
+		return this._requireSessionFramePackets(this._requireActiveSession());
+	}
+
+	private _requireSessionFramePackets(
+		session: WebGPUFrameSession,
+	): PreparedFramePacketSet {
+		if (!session.framePackets) {
+			throw new Error("WebGPU frame session has no prepared frame packets.");
+		}
+		return session.framePackets;
 	}
 
 	public createPassExecutionContext(request: PostProcessPassExecutionContextRequest): unknown {
@@ -955,6 +976,7 @@ export class WebGPUFrameOrchestrator {
 				"opaque-scene": async (_node, session) => {
 					this._deferredOpaqueFrameState = await this._scenePassRecorder.recordOpaque(
 						session.context,
+						this._requireSessionFramePackets(session),
 						this._deferredEnabled,
 					);
 				},
@@ -968,6 +990,7 @@ export class WebGPUFrameOrchestrator {
 			shadow: async (_node, session) => {
 				await this._shadowRenderer.renderShadows(
 					session.context,
+					this._requireSessionFramePackets(session),
 					this._encoder ?? undefined,
 				);
 			},
@@ -1082,19 +1105,13 @@ export class WebGPUFrameOrchestrator {
 
 	private _createPagedShadowRequest(context: FrameContext): WebGPUPagedShadowFrameRequest {
 		const frameTargets = this._frameTargets;
-		const particleMeshPackets = getWebGPUParticleMeshFramePackets(context);
+		const framePackets = this._requireFramePackets();
 		return {
 			context,
 			encoder: this._encoder,
 			renderSets: context.shadowMaps,
-			shadowCasterPackets: [
-				...context.scene.shadowCasterPackets,
-				...particleMeshPackets.shadowCasters,
-			],
-			shadowTransmitterPackets: [
-				...context.scene.shadowTransmitterPackets,
-				...particleMeshPackets.shadowTransmitters,
-			],
+			shadowCasterPackets: framePackets.shadowCasters.slice(),
+			shadowTransmitterPackets: framePackets.shadowTransmitters.slice(),
 			feedbackDepthTexture: frameTargets?.depth ?? null,
 			feedbackMotionDepthTexture: frameTargets?.gMotionDepth ?? null,
 		};

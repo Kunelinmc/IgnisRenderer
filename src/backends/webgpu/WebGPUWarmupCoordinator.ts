@@ -19,12 +19,14 @@ import type { BackendPostProcessRuntime } from "../../postprocess/BackendPostPro
 import type { PostProcessPlan } from "../../postprocess/PostProcessPlanner";
 import type { WebGPUFrameOrchestrator } from "./rendergraph/WebGPUFrameOrchestrator";
 import type { WebGPUFrameServiceOwner } from "./WebGPUFrameServiceOwner";
+import type { FramePacketProvider } from "../../pipeline/FramePacketContributorRegistry";
 
 export interface WebGPUWarmupCoordinatorHost {
 	readonly profile: RenderBackendProfile;
 	readonly frameOrchestrator: WebGPUFrameOrchestrator | null;
 	readonly resources: WebGPUFrameServiceOwner | null;
 	readonly postProcessRuntime: BackendPostProcessRuntime;
+	readonly framePacketProvider: FramePacketProvider;
 	setWarmupLogCompilationInfo(enabled: boolean): void;
 }
 
@@ -51,6 +53,7 @@ export class WebGPUWarmupCoordinator {
 			};
 		}
 		const plan = buildWarmupPlan(context, options, warmupPostProcessPlan);
+		const framePackets = this._host.framePacketProvider.createBaseline(context);
 		this._host.setWarmupLogCompilationInfo(options.logCompilationInfo === true);
 		try {
 			const framePhase = await this._host.frameOrchestrator.warmup(
@@ -64,7 +67,8 @@ export class WebGPUWarmupCoordinator {
 			const resourcePhase = await this._host.resources.warmup(
 				context,
 				plan,
-				options
+				options,
+				framePackets,
 			);
 			addWarmupPhase(report, resourcePhase);
 			this._reportWarmupProgress(options, resourcePhase);

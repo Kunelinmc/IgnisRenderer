@@ -7,7 +7,8 @@ import { Material } from "../../../src/materials/Material.ts";
 import { PBRMaterial } from "../../../src/materials/PBRMaterial.ts";
 import { Matrix4 } from "../../../src/maths/Matrix4.ts";
 import { BackendPostProcessRuntime } from "../../../src/postprocess/BackendPostProcessRuntime.ts";
-import { getWebGPUParticleMeshFramePackets } from "../../../src/backends/webgpu/particleMeshFramePackets.ts";
+import { FramePacketContributorRegistry } from "../../../src/pipeline/FramePacketContributorRegistry.ts";
+import { WebGPUParticleMeshPacketContributor } from "../../../src/backends/webgpu/WebGPUParticleMeshPacketContributor.ts";
 import { PARTICLE_MESH_TRANSIENT_BATCHES_KEY } from "../../../src/pipeline/types.ts";
 
 import { FakeWebGPUBackend as FakeBackend } from "../../helpers/fakes.mjs";
@@ -15,7 +16,9 @@ import { createResolvedPostProcess } from "../../helpers/postprocess.mjs";
 
 class WebGPUFrameExecutor extends WebGPUFrameOrchestrator {
 	constructor(host, resources, msaa, options, particleRenderer = resources) {
-		super(host, resources, particleRenderer, msaa, options);
+		const framePackets = new FramePacketContributorRegistry();
+		framePackets.register(new WebGPUParticleMeshPacketContributor());
+		super(host, resources, framePackets, particleRenderer, msaa, options);
 	}
 }
 
@@ -2056,7 +2059,7 @@ function testParticleSimulationDefersFrameSealing() {
 
 	executor.sealParticleSimulation(context);
 	assert.equal(backend.createCommandEncoderCalls, 1);
-	assert.equal(getWebGPUParticleMeshFramePackets(context).opaque.length, 1);
+	assert.equal(executor._session.framePackets.opaque.length, 1);
 	assert.ok(getFrameGraphDebugState(executor).compiledGraph);
 	assert.equal(resources._state.particleShadowVolumeUpdates.length, 1);
 	assert.strictEqual(resources._state.particleShadowVolumeUpdates[0], context);

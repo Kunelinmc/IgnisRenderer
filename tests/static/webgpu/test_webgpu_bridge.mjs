@@ -29,6 +29,7 @@ import { WebGPUReflectionProbeCapturePass } from "../../../src/backends/webgpu/W
 import { WebGPUBackend } from "../../../src/backends/webgpu/WebGPUBackend.ts";
 import { createWebGPUPipelineLayouts } from "../../../src/backends/webgpu/WebGPUPipelineLayouts.ts";
 import { resolveFeatureState } from "../../../src/pipeline/FeatureResolver.ts";
+import { FramePacketContributorRegistry } from "../../../src/pipeline/FramePacketContributorRegistry.ts";
 import { BufferUsage, TextureFormat } from "../../../src/backends/types.ts";
 import { LightProbe } from "../../../src/lights/LightProbe.ts";
 import { AreaLight } from "../../../src/lights/AreaLight.ts";
@@ -1729,6 +1730,7 @@ function testFrameExecutorConsumesComputeFacadeFromHost() {
 	const executor = new WebGPUFrameExecutor(
 		backend,
 		resourcesStub,
+		new FramePacketContributorRegistry(),
 		resourcesStub,
 	);
 
@@ -3147,6 +3149,7 @@ async function testReflectionProbeCaptureUsesCanvasAttachmentFormats() {
 	const capturePass = new WebGPUReflectionProbeCapturePass(
 		backend,
 		resources,
+		new FramePacketContributorRegistry(),
 		resources,
 	);
 	backend.computeFacade = readyComputeFacade;
@@ -3288,6 +3291,7 @@ async function testReflectionProbeCaptureUsesParentWorldPositionAsOrigin() {
 	const capturePass = new WebGPUReflectionProbeCapturePass(
 		backend,
 		resources,
+		new FramePacketContributorRegistry(),
 		resources,
 	);
 	const probeCache = probe.getRuntimeCache();

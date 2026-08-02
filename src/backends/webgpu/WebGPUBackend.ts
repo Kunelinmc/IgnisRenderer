@@ -49,8 +49,10 @@ import { WebGPUMSAAController, type WebGPUMSAAControllerHost } from "./WebGPUMSA
 import { WebGPUBackendPassDispatcher } from "./WebGPUBackendPassDispatcher";
 import { WebGPUWarmupCoordinator } from "./WebGPUWarmupCoordinator";
 import { WebGPUReflectionProbeCapturePass } from "./WebGPUReflectionProbeCapturePass";
+import { WebGPUParticleMeshPacketContributor } from "./WebGPUParticleMeshPacketContributor";
 import type { ProbeCaptureFaceRequest } from "../../lights/runtime/ProbeCaptureRuntime";
 import { WebGPUFrameServiceOwner } from "./WebGPUFrameServiceOwner";
+import { FramePacketContributorRegistry } from "../../pipeline/FramePacketContributorRegistry";
 import type { WebGPUCommandSchedulerHost } from "./WebGPUBackendContracts";
 import {
 	FramePassPlanValidator,
@@ -243,6 +245,7 @@ export class WebGPUBackend implements IRenderBackend {
 	private readonly _iblPrefilterExecutor: WebGPUIBLPrefilterExecutor;
 	private readonly _passDispatcher: WebGPUBackendPassDispatcher;
 	private readonly _warmupCoordinator: WebGPUWarmupCoordinator;
+	private readonly _framePacketRegistry = new FramePacketContributorRegistry();
 
 	constructor(options: WebGPUBackendOptions = {}) {
 		if (Object.prototype.hasOwnProperty.call(options, "enableMSAA")) {
@@ -316,6 +319,7 @@ export class WebGPUBackend implements IRenderBackend {
 				return thisRef._postProcessRuntime;
 			},
 		});
+		this._framePacketRegistry.register(new WebGPUParticleMeshPacketContributor());
 		this._warmupCoordinator = new WebGPUWarmupCoordinator({
 			get profile() {
 				return thisRef.profile;
@@ -328,6 +332,9 @@ export class WebGPUBackend implements IRenderBackend {
 			},
 			get postProcessRuntime() {
 				return thisRef._postProcessRuntime;
+			},
+			get framePacketProvider() {
+				return thisRef._framePacketRegistry;
 			},
 			setWarmupLogCompilationInfo: (enabled) => {
 				this._warmupLogCompilationInfo = enabled;
@@ -576,12 +583,14 @@ export class WebGPUBackend implements IRenderBackend {
 		this._frameOrchestrator = new WebGPUFrameOrchestrator(
 			this._frameHost,
 			this._resources,
+			this._framePacketRegistry,
 			this._resources.getParticleBillboardRenderer(),
 			this._msaaController,
 		);
 		this._reflectionProbeCapturePass = new WebGPUReflectionProbeCapturePass(
 			this._frameHost,
 			this._resources,
+			this._framePacketRegistry,
 			this._resources.getParticleBillboardRenderer(),
 		);
 		this._particleSimulator = new WebGPUParticleSimulator({
