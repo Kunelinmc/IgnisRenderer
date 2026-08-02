@@ -47,6 +47,25 @@ validated without keeping pass orchestration inside `WebGLFrameServiceOwner`.
   compile the stage again.
 - The WebGL resource catalog must provide complete logical descriptors when
   metadata is known and stable physical IDs without native handles.
+- `WebGLFrameTargetManager` must describe only scene, OIT, and post-process
+  targets that it owns. `WebGLShadowRuntime` must separately describe prepared
+  shadow resources, and `WebGLFrameServiceOwner` must merge both catalogs before
+  whole-frame compilation.
+- A retained shadow stage must declare `shadow:atlas`,
+  `shadow:transmittance`, and `shadow:particle-volume` only when their prepared
+  physical resources exist. A frame without a retained shadow stage must omit
+  all three descriptors and bindings.
+- `shadow:particle-volume` must use `r32float`, frame residency, dimensions
+  derived from the fixed WebGL particle-shadow grid constants, and a stable
+  physical ID. The shadow node must optionally write it as `copy-target` after
+  particle simulation has completed.
+- Opaque scene nodes and every legacy or OIT transparent raster node must
+  optionally read `shadow:particle-volume` as `texture-sampling`. Particle
+  rendering nodes must not declare that read while their shader does not
+  consume the texture.
+- Render Graph shadow descriptors must describe logical extent and physical
+  identity only. Native atlas and particle-volume allocation and destruction
+  must remain owned by the shadow runtime and raster pass.
 - `WebGLFrameGraphCompiler` must emit diagnostics for missing resources,
   reads before creation, duplicate creates, unsupported usages, and WebGL
   texture feedback loops.

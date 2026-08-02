@@ -1080,22 +1080,14 @@ function testEndFramePrunesStaleModelMatrixCache() {
 	assert.equal(executor._modelMatrixCache.has("drop"), false);
 }
 
-function testShadowSkinningWarningKeyIsStable() {
+function testShadowSamplingStateIsTheSingleStableDependency() {
 	const gl = createFXAATestGL();
 	const executor = new WebGLFrameExecutor(gl);
-	const warnings = captureWarnMessages(() => {
-		executor._shadowPass.drawShadowPacket(
-			{ uniforms: { mvp: null } },
-			{ meshInstance: { id: "mesh-a", skeleton: {} } },
-			{}
-		);
-	});
-
-	assert.ok(
-		warnings.some(
-			(warning) => warning.includes("[webgl-shadow-skinning-unsupported]")
-		)
-	);
+	const first = executor.getShadowSamplingState();
+	const second = executor.getShadowSamplingState();
+	assert.equal(first, second);
+	assert.equal(first.enabled, false);
+	assert.equal("_shadowPass" in executor, false);
 }
 
 function testTransparentRenderPacketsConfiguresBlendAndDepthState() {
@@ -1624,7 +1616,7 @@ async function run() {
 	testMainOpaqueCanDisableEarlyZPrepass();
 	testSceneFramebufferFailureCleansAllAllocatedTargets();
 	testEndFramePrunesStaleModelMatrixCache();
-	testShadowSkinningWarningKeyIsStable();
+	testShadowSamplingStateIsTheSingleStableDependency();
 	testTransparentRenderPacketsConfiguresBlendAndDepthState();
 	testTAAPassDetachesMotionAttachmentAndSanitizesOptions();
 	testSSAOPassDetachesSecondaryAttachmentForDownsampleTargets();

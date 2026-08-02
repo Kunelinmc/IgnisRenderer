@@ -85,6 +85,7 @@ function createExecutor(events, options = {}) {
 	return {
 		beginFrame() {
 			events.push("begin");
+			if (options.beginError) throw options.beginError;
 		},
 		beginTemporalFrame() {},
 		clearFrameTargets() {
@@ -125,7 +126,11 @@ function createExecutor(events, options = {}) {
 			];
 			if (options.oitActive) ids.push("oit:accum", "oit:reveal");
 			if (includeShadowResources) {
-				ids.push("shadow:atlas", "shadow:transmittance");
+				ids.push(
+					"shadow:atlas",
+					"shadow:transmittance",
+					"shadow:particle-volume",
+				);
 			}
 			return {
 				resources: ids.map((id) => ({
@@ -366,6 +371,14 @@ function testRuntimeExecutesOpaqueNodesInOrder() {
 	);
 }
 
+function testBeginFrameFailureAbortsPreparedServices() {
+	const events = [];
+	const failure = new Error("shadow allocation failed");
+	const runtime = createRuntime(events, { beginError: failure });
+	assert.throws(() => runtime.beginFrame(createContext()), failure);
+	assert.deepEqual(events, ["begin", "abort"]);
+}
+
 async function testRuntimeDelegatesPostProcessNode() {
 	const events = [];
 	const runtime = createRuntime(events);
@@ -509,10 +522,12 @@ async function testWholeFrameCompilesOnceAndUsesPhysicalAlias() {
 	]);
 	assert.equal(debug.compiledGraph.resources.some((resource) =>
 		resource.id === "shadow:atlas" ||
-		resource.id === "shadow:transmittance"), false);
+		resource.id === "shadow:transmittance" ||
+		resource.id === "shadow:particle-volume"), false);
 	assert.equal(debug.compiledGraph.shadowDiagnostics.some((diagnostic) =>
 		diagnostic.resourceId === "shadow:atlas" ||
-		diagnostic.resourceId === "shadow:transmittance"), false);
+		diagnostic.resourceId === "shadow:transmittance" ||
+		diagnostic.resourceId === "shadow:particle-volume"), false);
 	assert.equal(debug.compiledGraph.completeness, "complete");
 	assert.ok(debug.compiledGraph.dependencies.some((edge) =>
 		edge.physicalId === "webgl:scene-color" &&
@@ -547,10 +562,14 @@ function testWholeFrameShadowCatalogFollowsFramePlan() {
 	assert.ok(graph.resources.some(
 		(resource) => resource.id === "shadow:transmittance",
 	));
+	assert.ok(graph.resources.some(
+		(resource) => resource.id === "shadow:particle-volume",
+	));
 	assert.equal(graph.shadowDiagnostics.some((diagnostic) =>
 		diagnostic.code === "read-content-unknown" &&
 		(diagnostic.resourceId === "shadow:atlas" ||
-			diagnostic.resourceId === "shadow:transmittance")), false);
+			diagnostic.resourceId === "shadow:transmittance" ||
+			diagnostic.resourceId === "shadow:particle-volume")), false);
 	runtime.abortFrame();
 }
 
@@ -593,13 +612,11 @@ function testNodeRegistryRejectsMissingAndDuplicateOwners() {
 function testResourceCatalogPreservesScenePresentAlias() {
 	const manager = new WebGLFrameTargetManager({}, 4096, 4096);
 	const sceneColor = {};
-	const shadowAtlas = {};
-	const shadowTransmittance = {};
 	manager._targetWidth = 32;
 	manager._targetHeight = 16;
 	manager._sceneColorTexture = sceneColor;
 	manager._presentSourceTexture = sceneColor;
-	const catalog = manager.collectGraphResourceCatalog(null, null);
+	const catalog = manager.collectGraphResourceCatalog();
 	assert.equal(
 		catalog.resources.some((entry) => entry.id.startsWith("post:ssao-")),
 		false,
@@ -614,82 +631,44 @@ function testResourceCatalogPreservesScenePresentAlias() {
 		manager.resolveGraphPhysicalResource(sceneBinding.physicalId),
 		sceneColor,
 	);
-	const shadowAtlasResource = catalog.resources.find((entry) =>
-		entry.id === "shadow:atlas");
-	const shadowTransmittanceResource = catalog.resources.find((entry) =>
-		entry.id === "shadow:transmittance");
-	const shadowAtlasBinding = catalog.bindings.find((entry) =>
-		entry.resourceId === "shadow:atlas");
-	const shadowTransmittanceBinding = catalog.bindings.find((entry) =>
-		entry.resourceId === "shadow:transmittance");
-	assert.ok(shadowAtlasResource);
-	assert.ok(shadowTransmittanceResource);
-	assert.ok(shadowAtlasBinding);
-	assert.ok(shadowTransmittanceBinding);
-	assert.equal(shadowAtlasResource.kind, "texture");
-	assert.equal(shadowAtlasResource.width, undefined);
-	assert.equal(shadowAtlasResource.height, undefined);
-	assert.equal(shadowTransmittanceResource.kind, "texture");
-	assert.equal(shadowTransmittanceResource.width, undefined);
-	assert.equal(shadowTransmittanceResource.height, undefined);
-	assert.equal(shadowAtlasBinding.physicalId, "webgl:slot:shadow:atlas");
-	assert.equal(
-		shadowTransmittanceBinding.physicalId,
-		"webgl:slot:shadow:transmittance",
-	);
-	assert.equal(
-		manager.resolveGraphPhysicalResource(shadowAtlasBinding.physicalId),
-		null,
-	);
-	assert.equal(
-		manager.resolveGraphPhysicalResource(shadowTransmittanceBinding.physicalId),
-		null,
-	);
-	const catalogWithoutShadows = manager.collectGraphResourceCatalog(
-		null,
-		null,
-		false,
-	);
-	assert.equal(catalogWithoutShadows.resources.some((entry) =>
+	assert.equal(catalog.resources.some((entry) =>
 		entry.id === "shadow:atlas" ||
-		entry.id === "shadow:transmittance"), false);
-	assert.equal(catalogWithoutShadows.bindings.some((entry) =>
+		entry.id === "shadow:transmittance" ||
+		entry.id === "shadow:particle-volume"), false);
+	assert.equal(catalog.bindings.some((entry) =>
 		entry.resourceId === "shadow:atlas" ||
-		entry.resourceId === "shadow:transmittance"), false);
-
-	const boundCatalog = manager.collectGraphResourceCatalog(
-		shadowAtlas,
-		shadowTransmittance,
-	);
-	const boundShadowAtlas = boundCatalog.bindings.find((entry) =>
-		entry.resourceId === "shadow:atlas");
-	const boundShadowTransmittance = boundCatalog.bindings.find((entry) =>
-		entry.resourceId === "shadow:transmittance");
-	assert.ok(boundShadowAtlas);
-	assert.ok(boundShadowTransmittance);
-	assert.equal(boundShadowAtlas.physicalId, shadowAtlasBinding.physicalId);
-	assert.equal(
-		boundShadowTransmittance.physicalId,
-		shadowTransmittanceBinding.physicalId,
-	);
-	assert.equal(
-		manager.resolveGraphPhysicalResource(boundShadowAtlas.physicalId),
-		shadowAtlas,
-	);
-	assert.equal(
-		manager.resolveGraphPhysicalResource(boundShadowTransmittance.physicalId),
-		shadowTransmittance,
-	);
+		entry.resourceId === "shadow:transmittance" ||
+		entry.resourceId === "shadow:particle-volume"), false);
 }
 
-function testFirstShadowFrameCompilesWithLazyTargets() {
+function testPreparedShadowResourcesCompileWithPhysicalBindings() {
 	const manager = new WebGLFrameTargetManager({}, 4096, 4096);
 	manager._targetWidth = 32;
 	manager._targetHeight = 16;
 	manager._sceneColorTexture = {};
 	manager._sceneMotionTexture = {};
 	manager._sceneDepthBuffer = {};
-	const catalog = manager.collectGraphResourceCatalog(null, null);
+	const frameCatalog = manager.collectGraphResourceCatalog();
+	const shadowResources = [
+		{ id: "shadow:atlas", format: "depth", width: 1024, height: 768 },
+		{ id: "shadow:transmittance", format: "rgba8unorm", width: 1024, height: 768 },
+		{ id: "shadow:particle-volume", format: "r32float", width: 512, height: 1024 },
+	].map((resource) => ({
+		...resource,
+		origin: "imported",
+		kind: "texture",
+		residency: "frame",
+		initialContent: "unknown",
+		depthOrArrayLayers: 1,
+		dimension: "2d",
+		sampleCount: 1,
+		mipLevelCount: 1,
+	}));
+	const shadowBindings = shadowResources.map((resource) => ({
+		resourceId: resource.id,
+		physicalId: `webgl:slot:${resource.id}`,
+		kind: "texture",
+	}));
 	const planner = new WebGLFrameGraphPlanner();
 	const shadowPass = createPass("shadow");
 	const opaquePass = createPass("main-opaque");
@@ -701,8 +680,8 @@ function testFirstShadowFrameCompilesWithLazyTargets() {
 		hasEnvironmentBackground: false,
 	};
 	const compiled = new WebGLFrameGraphCompiler().compileFrame({
-		resources: catalog.resources,
-		bindings: catalog.bindings,
+		resources: [...frameCatalog.resources, ...shadowResources],
+		bindings: [...frameCatalog.bindings, ...shadowBindings],
 		stages: [
 			planner.planStage(shadowPass, context, state),
 			planner.planStage(opaquePass, context, state),
@@ -721,11 +700,17 @@ function testFirstShadowFrameCompilesWithLazyTargets() {
 		transition.nodeId === "main-opaque:opaque-scene:frame" &&
 		transition.resourceId === "shadow:atlas" &&
 		transition.reason === "read-after-write"));
+	assert.ok(compiled.graph.transitions.some((transition) =>
+		transition.fromNodeId === "shadow:shadow:frame" &&
+		transition.nodeId === "main-opaque:opaque-scene:frame" &&
+		transition.resourceId === "shadow:particle-volume" &&
+		transition.reason === "read-after-write"));
 }
 
 async function run() {
 	testWebGLTemporalStateRollsBackAbortedFrames();
 	testRuntimeExecutesOpaqueNodesInOrder();
+	testBeginFrameFailureAbortsPreparedServices();
 	await testRuntimeDelegatesPostProcessNode();
 	await testSkippedPostProcessRecordsExecutionOverlay();
 	testRuntimePlansOITParticleFlow();
@@ -736,7 +721,7 @@ async function run() {
 	testEmptyPostProcessChainPresentsSceneColorDirectly();
 	testNodeRegistryRejectsMissingAndDuplicateOwners();
 	testResourceCatalogPreservesScenePresentAlias();
-	testFirstShadowFrameCompilesWithLazyTargets();
+	testPreparedShadowResourcesCompileWithPhysicalBindings();
 	console.log("WebGL frame graph runtime tests passed");
 }
 

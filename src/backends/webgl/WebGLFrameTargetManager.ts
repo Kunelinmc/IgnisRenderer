@@ -89,10 +89,7 @@ export class WebGLFrameTargetManager implements WebGLFrameTargetLifecycleHost {
 		destroyWebGLFrameTargets(this);
 	}
 
-	public collectGraphResources(
-		shadowAtlasTexture: WebGLTexture | null,
-		shadowTransmittanceTexture: WebGLTexture | null,
-	): readonly string[] {
+	public collectGraphResources(): readonly string[] {
 		const resources = new Set<string>();
 		if (this._sceneColorTexture) {
 			resources.add("frame:scene-color");
@@ -104,20 +101,14 @@ export class WebGLFrameTargetManager implements WebGLFrameTargetLifecycleHost {
 		if (this._postColorTexture) resources.add("post:color");
 		if (this._oitAccumTexture) resources.add("oit:accum");
 		if (this._oitRevealTexture) resources.add("oit:reveal");
-		if (shadowAtlasTexture) resources.add("shadow:atlas");
-		if (shadowTransmittanceTexture) resources.add("shadow:transmittance");
 		return Array.from(resources);
 	}
 
 	/**
 	 * @internal Returns descriptor and stable physical identity metadata only.
-	 * Shadow slots are declared only for frames that schedule shadow work.
+	 * Shadow resources are described separately by `WebGLShadowRuntime`.
 	 */
-	public collectGraphResourceCatalog(
-		shadowAtlasTexture: WebGLTexture | null,
-		shadowTransmittanceTexture: WebGLTexture | null,
-		includeShadowResources = true,
-	): WebGLFrameGraphResourceCatalogSnapshot {
+	public collectGraphResourceCatalog(): WebGLFrameGraphResourceCatalogSnapshot {
 		const resources: RenderGraphResourceDescriptor[] = [];
 		const bindings: RenderGraphPhysicalBinding[] = [];
 		this._graphPhysicalResources.clear();
@@ -127,13 +118,9 @@ export class WebGLFrameTargetManager implements WebGLFrameTargetLifecycleHost {
 			id: string,
 			handle: WebGLTexture | WebGLRenderbuffer | null,
 			format?: string,
-			options: {
-				readonly physicalId?: string;
-				readonly declareWithoutHandle?: boolean;
-				readonly extent?: "frame" | "unknown";
-			} = {},
+			options: { readonly physicalId?: string } = {},
 		): void => {
-			if (!handle && !options.declareWithoutHandle) return;
+			if (!handle) return;
 			const physicalId = options.physicalId ?? `webgl:slot:${id}`;
 			resources.push({
 				id: renderGraphResourceId(id),
@@ -142,14 +129,12 @@ export class WebGLFrameTargetManager implements WebGLFrameTargetLifecycleHost {
 				residency: "frame",
 				initialContent: "unknown",
 				format,
-				...(options.extent === "unknown" ? {} : {
-					width,
-					height,
-					depthOrArrayLayers: 1,
-					dimension: "2d" as const,
-					sampleCount: 1,
-					mipLevelCount: 1,
-				}),
+				width,
+				height,
+				depthOrArrayLayers: 1,
+				dimension: "2d" as const,
+				sampleCount: 1,
+				mipLevelCount: 1,
 			});
 			bindings.push({
 				resourceId: renderGraphResourceId(id),
@@ -174,19 +159,6 @@ export class WebGLFrameTargetManager implements WebGLFrameTargetLifecycleHost {
 		addTexture("post:color", this._postColorTexture, this._postColorFormat);
 		addTexture("oit:accum", this._oitAccumTexture, "rgba16float");
 		addTexture("oit:reveal", this._oitRevealTexture, "r16float");
-		if (includeShadowResources) {
-			const lazyShadowSlot = {
-				declareWithoutHandle: true,
-				extent: "unknown",
-			} as const;
-			addTexture("shadow:atlas", shadowAtlasTexture, "depth", lazyShadowSlot);
-			addTexture(
-				"shadow:transmittance",
-				shadowTransmittanceTexture,
-				"rgba8unorm",
-				lazyShadowSlot,
-			);
-		}
 		resources.push({
 			id: renderGraphResourceId("canvas:color"),
 			origin: "imported",

@@ -10,6 +10,7 @@ import { AlphaMode, Material } from "../../../src/materials/Material.ts";
 import { PBRMaterial } from "../../../src/materials/PBRMaterial.ts";
 import { ShaderMaterial } from "../../../src/materials/ShaderMaterial.ts";
 import { Matrix4 } from "../../../src/maths/Matrix4.ts";
+import { Logger } from "../../../src/foundation/Logger.ts";
 import { SH } from "../../../src/maths/SH.ts";
 import { Texture } from "../../../src/core/Texture.ts";
 import { CubeTexture } from "../../../src/core/CubeTexture.ts";
@@ -30,7 +31,7 @@ import {
 	renderWebGLEarlyZPrepass,
 	renderWebGLPackets,
 } from "../../../src/backends/webgl/WebGLScenePass.ts";
-import { WebGLShadowPass } from "../../../src/backends/webgl/WebGLShadowPass.ts";
+import { WebGLShadowRasterPass } from "../../../src/backends/webgl/WebGLShadowRasterPass.ts";
 import {
 	MAX_DIRECTIONAL_LIGHTS,
 	MAX_POINT_LIGHTS,
@@ -399,6 +400,51 @@ function createScenePassCaptureGL() {
 			calls.drawElements.push({ mode, count, type, offset });
 		},
 	};
+}
+
+function createShadowRasterCaptureGL() {
+	const gl = createScenePassCaptureGL();
+	let handle = 0;
+	gl.DEPTH_ATTACHMENT = 0x8d00;
+	gl.DEPTH_COMPONENT24 = 0x81a6;
+	gl.DEPTH_COMPONENT = 0x1902;
+	gl.UNSIGNED_INT = 0x1405;
+	gl.RGBA8 = 0x8058;
+	gl.RGBA = 0x1908;
+	gl.UNSIGNED_BYTE = 0x1401;
+	gl.TEXTURE_MIN_FILTER = 0x2801;
+	gl.TEXTURE_MAG_FILTER = 0x2800;
+	gl.TEXTURE_WRAP_S = 0x2802;
+	gl.TEXTURE_WRAP_T = 0x2803;
+	gl.NEAREST = 0x2600;
+	gl.CLAMP_TO_EDGE = 0x812f;
+	gl.FRAMEBUFFER_COMPLETE = 0x8cd5;
+	gl.DEPTH_BUFFER_BIT = 0x0100;
+	gl.COLOR_BUFFER_BIT = 0x4000;
+	gl.ZERO = 0;
+	gl.ONE = 1;
+	gl.SRC_COLOR = 0x0300;
+	gl.calls.viewport = [];
+	gl.calls.deletedTextures = [];
+	gl.calls.deletedFramebuffers = [];
+	gl.createTexture = () => ({ id: `shadow-texture-${++handle}` });
+	gl.createFramebuffer = () => ({ id: `shadow-framebuffer-${++handle}` });
+	gl.deleteTexture = (texture) => gl.calls.deletedTextures.push(texture);
+	gl.deleteFramebuffer = (framebuffer) =>
+		gl.calls.deletedFramebuffers.push(framebuffer);
+	gl.texParameteri = () => {};
+	gl.texImage2D = () => {};
+	gl.framebufferTexture2D = () => {};
+	gl.readBuffer = () => {};
+	gl.checkFramebufferStatus = () => gl.FRAMEBUFFER_COMPLETE;
+	gl.clearDepth = () => {};
+	gl.clear = () => {};
+	gl.blendFuncSeparate = () => {};
+	gl.clearColor = () => {};
+	gl.viewport = (x, y, width, height) => {
+		gl.calls.viewport.push({ x, y, width, height });
+	};
+	return gl;
 }
 
 function createProgramCaptureGL() {
@@ -780,24 +826,34 @@ function createShadowPassHost(gl, options = {}) {
 				};
 			},
 		},
-		_setCullMode() {
-			cullModeCalls++;
-		},
-		getLightState() {
-			return null;
-		},
-		getSceneFramebuffer() {
-			return null;
-		},
-		getViewportSize() {
-			return { width: 64, height: 64 };
-		},
-		getMaxTextureSize() {
-			return 4096;
-		},
+		maxTextureSize: 4096,
 		get cullModeCalls() {
 			return cullModeCalls;
 		},
+	};
+}
+
+function createShadowRasterPlan({ casterPackets = [], transmitterPackets = [] } = {}) {
+	return {
+		atlasTileSize: 64,
+		atlasWidth: 256,
+		atlasHeight: 192,
+		slices: [{
+			kind: "directional",
+			lightIndex: 0,
+			cascadeIndex: 0,
+			viewportX: 8,
+			viewportY: 16,
+			viewportWidth: 32,
+			viewportHeight: 32,
+			viewProjectionMatrix: Matrix4.identity(),
+		}],
+		sliceCount: 1,
+		casterPackets,
+		transmitterPackets,
+		baselineFramebuffer: { id: "scene-framebuffer" },
+		baselineViewportWidth: 320,
+		baselineViewportHeight: 180,
 	};
 }
 
@@ -1987,37 +2043,100 @@ function testSceneShaderUsesFlippedShadowNormal() {
 	assert.ok(shader.fragment.includes("sampleParticleShadowVolumeTransmittance"));
 }
 
-function testShadowPassDisablesCullFaceForDepthAndTransmittance() {
-	const gl = createScenePassCaptureGL();
+function testShadowRasterPassConsumesResolvedPlanAndRestoresBaseline() {
+	const gl = createShadowRasterCaptureGL();
 	const host = createShadowPassHost(gl);
-	const pass = new WebGLShadowPass(host);
+	const pass = new WebGLShadowRasterPass(host);
 	const material = new Material({
 		doubleSided: false,
 		cullMode: "front",
 	});
 	const packet = createShadowPacket(material);
-	const depthProgram = {
-		program: { id: "shadow-depth" },
-		uniforms: { mvp: "uMvp" },
-	};
-	const transmittanceProgram = {
-		program: { id: "shadow-transmittance" },
-		uniforms: {
-			mvp: "uMvp",
-			transmittance: "uTransmittance",
-		},
-	};
+	const plan = createShadowRasterPlan({
+		casterPackets: [packet],
+		transmitterPackets: [packet],
+	});
 
-	pass.drawShadowPacket(depthProgram, packet, Matrix4.identity());
-	pass.drawShadowTransmittancePacket(
-		transmittanceProgram,
-		packet,
-		Matrix4.identity()
-	);
+	const prepared = pass.prepare(plan);
+	assert.equal(prepared.atlasTileSize, 64);
+	gl.calls.disable.length = 0;
+	gl.calls.viewport.length = 0;
+	pass.render(plan);
 
 	assert.equal(host.cullModeCalls, 0);
-	assert.deepEqual(gl.calls.disable, [gl.CULL_FACE, gl.CULL_FACE]);
+	assert.equal(
+		gl.calls.disable.filter((capability) => capability === gl.CULL_FACE).length,
+		3
+	);
 	assert.equal(gl.calls.drawElements.length, 2);
+	assert.deepEqual(gl.calls.viewport[0], { x: 8, y: 16, width: 32, height: 32 });
+	assert.deepEqual(gl.calls.viewport.at(-1), { x: 0, y: 0, width: 320, height: 180 });
+	pass.destroy();
+}
+
+function testShadowRasterPassCleansPartialAllocationAndRestoresOnDrawError() {
+	const incompleteGL = createShadowRasterCaptureGL();
+	incompleteGL.checkFramebufferStatus = () => 0x8cd6;
+	const incompletePass = new WebGLShadowRasterPass(
+		createShadowPassHost(incompleteGL)
+	);
+	assert.throws(
+		() => incompletePass.prepare(createShadowRasterPlan()),
+		/WebGL shadow framebuffer is incomplete/
+	);
+	assert.equal(incompleteGL.calls.deletedTextures.length, 2);
+	assert.equal(incompleteGL.calls.deletedFramebuffers.length, 1);
+	assert.deepEqual(incompleteGL.calls.viewport.at(-1), {
+		x: 0,
+		y: 0,
+		width: 320,
+		height: 180,
+	});
+
+	const throwingGL = createShadowRasterCaptureGL();
+	const throwingPass = new WebGLShadowRasterPass(createShadowPassHost(throwingGL));
+	const packet = createShadowPacket(new Material());
+	const plan = createShadowRasterPlan({ casterPackets: [packet] });
+	throwingPass.prepare(plan);
+	throwingGL.calls.viewport.length = 0;
+	throwingGL.drawElements = () => {
+		throw new Error("draw failed");
+	};
+	assert.throws(() => throwingPass.render(plan), /draw failed/);
+	assert.deepEqual(throwingGL.calls.viewport.at(-1), {
+		x: 0,
+		y: 0,
+		width: 320,
+		height: 180,
+	});
+	throwingPass.destroy();
+}
+
+function testShadowRasterPassKeepsSkinningDiagnosticKey() {
+	const gl = createShadowRasterCaptureGL();
+	const pass = new WebGLShadowRasterPass(createShadowPassHost(gl));
+	const packet = createShadowPacket(new Material());
+	packet.meshInstance.skeleton = {};
+	const warnings = [];
+	Logger.configure({
+		level: "warn",
+		resetOnceKeys: true,
+		sink: {
+			warn(...args) {
+				warnings.push(args.join(" "));
+			},
+		},
+	});
+	try {
+		const plan = createShadowRasterPlan({ casterPackets: [packet] });
+		pass.prepare(plan);
+		pass.render(plan);
+	} finally {
+		pass.destroy();
+		Logger.reset();
+	}
+	assert.ok(warnings.some((warning) =>
+		warning.includes("[webgl-shadow-skinning-unsupported]")));
 }
 
 function testSceneShaderIncludesReflectionProbeUniforms() {
@@ -3202,7 +3321,9 @@ async function run() {
 	testSceneShaderBackLitShadowGuard();
 	testSceneShaderKeepsClusteredFragmentLightLimitPlaceholder();
 	testSceneShaderUsesFlippedShadowNormal();
-	testShadowPassDisablesCullFaceForDepthAndTransmittance();
+	testShadowRasterPassConsumesResolvedPlanAndRestoresBaseline();
+	testShadowRasterPassCleansPartialAllocationAndRestoresOnDrawError();
+	testShadowRasterPassKeepsSkinningDiagnosticKey();
 	testSceneShaderIncludesReflectionProbeUniforms();
 	testSceneShaderIncludesLocalizedLightProbeUniforms();
 	testSceneShaderFitsCommonWebGLTextureUnitLimit();

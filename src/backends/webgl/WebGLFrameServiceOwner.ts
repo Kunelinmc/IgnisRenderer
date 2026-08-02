@@ -70,7 +70,10 @@ import {
 	uploadWebGLLocalLightProbeCoefficients,
 	uploadWebGLSHAmbientCoefficients,
 } from "./WebGLGlobalUniformBinder";
-import { WebGLShadowRuntime } from "./WebGLShadowRuntime";
+import {
+	WebGLShadowRuntime,
+	type WebGLShadowSamplingState,
+} from "./WebGLShadowRuntime";
 import {
 	bindWebGLShaderMaterialUniforms,
 	bindWebGLShaderMaterialTextures,
@@ -172,22 +175,6 @@ export class WebGLFrameServiceOwner {
 
 	public get _modelMatrixKeysThisFrame(): Set<string> {
 		return this._scene.modelMatrixKeysThisFrame;
-	}
-
-	public get _shadowPass() {
-		return this._shadow.pass;
-	}
-	public get _particleShadowVolumeTexture(): WebGLTexture | null {
-		return this._shadow.particleVolumeTexture;
-	}
-	public get _particleShadowVolumeAtlasSize(): Float32Array {
-		return this._shadow.particleVolumeAtlasSize;
-	}
-	public get _particleShadowVolumeGridSize(): Float32Array {
-		return this._shadow.particleVolumeGridSize;
-	}
-	public get _particleShadowVolumeSliceParams(): Float32Array {
-		return this._shadow.particleVolumeSliceParams;
 	}
 
 	/** @internal Transitional access for typed WebGL draw-helper contracts. */
@@ -410,10 +397,9 @@ export class WebGLFrameServiceOwner {
 			gl: this._gl,
 			programs: this._programs,
 			geometry: this._geometry,
-			targets: this._targets,
 			maxTextureSize: this._maxTextureSize,
 			maxTextureImageUnits: this._maxTextureImageUnits,
-			getLightState: () => this._session.lightState,
+			getSceneFramebuffer: () => this._targets._sceneFramebuffer,
 			getWidth: () => this._session.width,
 			getHeight: () => this._session.height,
 		});
@@ -457,16 +443,9 @@ export class WebGLFrameServiceOwner {
 		});
 	}
 
-	public get _shadowAtlasTexture(): WebGLTexture | null {
-		return this._shadow.atlasTexture;
-	}
-
-	public get _shadowTransmittanceTexture(): WebGLTexture | null {
-		return this._shadow.transmittanceTexture;
-	}
-
-	public get _shadowAtlasTileSize(): number {
-		return this._shadow.atlasTileSize;
+	/** @internal Returns the single readonly shadow-consumer dependency. */
+	public getShadowSamplingState(): WebGLShadowSamplingState {
+		return this._shadow.getSamplingState();
 	}
 
 	public beginFrame(
@@ -487,20 +466,21 @@ export class WebGLFrameServiceOwner {
 		this._targets._presentSourceTexture = this._targets._sceneColorTexture;
 		this._oitPassMode = 0;
 		this._shadow.beginFrame(context);
-			this._session.lightState = collectWebGLLights(
-				context.scene.lights,
-				context.features.enableLighting,
-				context.features.enableShadows,
-				context.shadowMaps,
-				context.features.enableSH,
-				context.scene.environment.lightingEnabled ?
-					context.scene.environment.iblTexture
-				:	null,
-				context.features.enableClusteredLighting,
-				context.viewCamera.getWorldPosition(
-					WEBGL_REFLECTION_PROBE_CAMERA_WORLD_POSITION_SCRATCH
-				)
-			);
+		this._session.lightState = collectWebGLLights(
+			context.scene.lights,
+			context.features.enableLighting,
+			context.features.enableShadows,
+			context.shadowMaps,
+			context.features.enableSH,
+			context.scene.environment.lightingEnabled ?
+				context.scene.environment.iblTexture
+			:	null,
+			context.features.enableClusteredLighting,
+			context.viewCamera.getWorldPosition(
+				WEBGL_REFLECTION_PROBE_CAMERA_WORLD_POSITION_SCRATCH,
+			),
+		);
+		this._shadow.prepareFrame(context, this._session.lightState);
 		this._clusteredLighting.prepare(
 			context,
 			this._session.lightState,
@@ -537,22 +517,31 @@ export class WebGLFrameServiceOwner {
 	}
 
 	public collectFrameGraphResources(): readonly string[] {
-		return this._targets.collectGraphResources(
-			this._shadowAtlasTexture,
-			this._shadowTransmittanceTexture,
-		);
+		const resources = new Set(this._targets.collectGraphResources());
+		for (const descriptor of this._shadow.describeGraphResources().resources) {
+			resources.add(descriptor.id);
+		}
+		return Array.from(resources);
 	}
 
 	public collectFrameGraphResourceCatalog(includeShadowResources = true) {
-		return this._targets.collectGraphResourceCatalog(
-			this._shadowAtlasTexture,
-			this._shadowTransmittanceTexture,
-			includeShadowResources,
-		);
+		const frameCatalog = this._targets.collectGraphResourceCatalog();
+		if (!includeShadowResources) return frameCatalog;
+		const shadowCatalog = this._shadow.describeGraphResources();
+		return Object.freeze({
+			resources: Object.freeze([
+				...frameCatalog.resources,
+				...shadowCatalog.resources,
+			]),
+			bindings: Object.freeze([
+				...frameCatalog.bindings,
+				...shadowCatalog.bindings,
+			]),
+		});
 	}
 
 	public renderShadowNode(context: FrameContext): void {
-		this._shadow.render(context);
+		this._shadow.renderPreparedFrame(context);
 	}
 
 	public renderOpaqueDepthPrepass(context: FrameContext): Set<string> {
@@ -623,6 +612,7 @@ export class WebGLFrameServiceOwner {
 	public finishFrame(): void {
 		this._customRenderTargets.markFrameCommitted();
 		this._scene.finishFrame();
+		this._shadow.abortFrame();
 		this._session.finish();
 	}
 
@@ -758,6 +748,7 @@ export class WebGLFrameServiceOwner {
 	}
 
 	public abortFrame(): void {
+		this._shadow.abortFrame();
 		this._temporalFrameState.abortFrame();
 		this._postProcess.abortFrame();
 		this._customRenderTargets.markFrameAborted();
@@ -910,7 +901,8 @@ export class WebGLFrameServiceOwner {
 			this._oitPassMode,
 			{
 				lightState: this._session.lightState,
-				enableShadowTransmittance: !!this._shadowTransmittanceTexture,
+				enableShadowTransmittance:
+					this.getShadowSamplingState().transmittanceAvailable,
 				enableIrradianceProbeGrid: this._irradianceProbeGridSamplingSupported,
 			},
 			this._targets._materialGBufferEnabled

@@ -145,6 +145,24 @@ backend-owned and executes through the `"postprocess"` backend pass.
   and a warning key must be emitted.
 - Forward-lighting uniform budgets must clamp to `4` directional lights, `16`
   point lights, and `8` spot lights.
+- `WebGLShadowRuntime` must be the sole frame-aware entry point for the WebGL
+  shadow subsystem. It must own shadow metadata synchronization, reusable frame
+  planning, particle-volume state, and the identity-stable sampling state read
+  by scene consumers.
+- `WebGLShadowRasterPass` must consume only a prepared
+  `WebGLShadowRasterPlan`. It must not inspect `FrameContext`, light collection
+  state, particle transients, or frame-target services, and it must exclusively
+  own the shadow framebuffer, depth atlas, and transmittance atlas.
+- WebGL frame preparation must synchronize shadow metadata before light
+  collection, prepare shadow plans and predictable native targets after light
+  collection, and compile the frame graph only after those targets are known.
+  The shadow graph node must execute only the prepared plan.
+- Shadow consumers must obtain atlas, transmittance, particle-volume, and
+  availability data through one readonly sampling-state contract. Runtime-owned
+  typed arrays must remain identity-stable and must not be mutated by consumers.
+- Shadow frame abort must clear pending plans and active sampling availability
+  while retaining reusable native resources. Missing shader programs must
+  disable sampling for the frame without discarding prepared targets.
 - PBR materials with `transmissionFactor > 0` must be treated as transparent
   pass submissions even when `alphaMode` is `OPAQUE`.
 - WebGL PBR shading must consume transmission through `uPBR.w` and must modulate

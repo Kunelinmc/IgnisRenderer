@@ -9,6 +9,10 @@ import {
 	MAX_SPOT_LIGHTS,
 } from "../constants";
 import {
+	WEBGL_TEXTURE_UNIT_PARTICLE_SHADOW_VOLUME,
+	WEBGL_TEXTURE_UNIT_SHADOW_TRANSMITTANCE,
+} from "./constants";
+import {
 	finiteOr,
 	flattenLocalLightProbeRows,
 	flattenLocalLightProbeVec4,
@@ -28,6 +32,7 @@ import {
 } from "./WebGLFrameMath";
 import type { WebGLLightState, WebGLClusteredLight } from "./WebGLLightCollector";
 import type { WebGLSceneProgram } from "./WebGLProgramLibrary";
+import type { WebGLShadowSamplingState } from "./WebGLShadowRuntime";
 
 const WEBGL_TEXTURE_UNIT_BASE_MAP = 0;
 const WEBGL_TEXTURE_UNIT_SHADOW_ATLAS = 1;
@@ -38,9 +43,7 @@ const WEBGL_TEXTURE_UNIT_CLUSTER_INDEX = 6;
 const WEBGL_TEXTURE_UNIT_CLUSTER_LIGHT = 7;
 const WEBGL_TEXTURE_UNIT_LOCAL_LIGHT_PROBE_SH = 4;
 const WEBGL_TEXTURE_UNIT_ENV_SPECULAR_FALLBACK = 13;
-const WEBGL_TEXTURE_UNIT_PARTICLE_SHADOW_VOLUME = 14;
 const WEBGL_TEXTURE_UNIT_IRRADIANCE_PROBE_GRID_SH = 15;
-const WEBGL_TEXTURE_UNIT_SHADOW_TRANSMITTANCE = 16;
 const SH_COEFFICIENT_COUNT = 16;
 const SH_AMBIENT_UNIFORM_VALUES = new Float32Array(SH_COEFFICIENT_COUNT * 3);
 const IRRADIANCE_PROBE_GRID_ROW = new Float32Array(4);
@@ -141,15 +144,9 @@ export interface WebGLGlobalUniformBinderHost {
 			lightTexHeight: number;
 		};
 	};
-	_shadowAtlasTexture: WebGLTexture | null;
-	_shadowTransmittanceTexture: WebGLTexture | null;
-	_shadowAtlasTileSize: number;
+	getShadowSamplingState(): WebGLShadowSamplingState;
 	_maxTextureImageUnits: number;
 	_irradianceProbeGridSamplingSupported: boolean;
-	_particleShadowVolumeTexture: WebGLTexture | null;
-	_particleShadowVolumeAtlasSize: Float32Array;
-	_particleShadowVolumeGridSize: Float32Array;
-	_particleShadowVolumeSliceParams: Float32Array;
 	_temporalJitterCurrentPrev: Float32Array;
 	_previousViewProjection: Float32Array | null;
 	_shAmbientTexture: WebGLTexture | null;
@@ -542,22 +539,17 @@ export function bindWebGLGlobalUniforms(
 	if (uniforms.enableLighting) {
 		gl.uniform1i(uniforms.enableLighting, context.features.enableLighting ? 1 : 0);
 	}
-	const shadowsEnabled =
-		context.features.enableShadows &&
-		!!host._shadowAtlasTexture &&
-		host._shadowAtlasTileSize > 0;
+	const shadowSampling = host.getShadowSamplingState();
+	const shadowsEnabled = context.features.enableShadows && shadowSampling.enabled;
 	if (uniforms.enableShadows) {
 		gl.uniform1i(uniforms.enableShadows, shadowsEnabled ? 1 : 0);
 	}
 	if (uniforms.shadowAtlas) {
 		gl.activeTexture(gl.TEXTURE0 + WEBGL_TEXTURE_UNIT_SHADOW_ATLAS);
-		gl.bindTexture(gl.TEXTURE_2D, host._shadowAtlasTexture);
+		gl.bindTexture(gl.TEXTURE_2D, shadowSampling.atlasTexture);
 		gl.uniform1i(uniforms.shadowAtlas, WEBGL_TEXTURE_UNIT_SHADOW_ATLAS);
 	}
-	const hasShadowTransmittance =
-		shadowsEnabled &&
-		!!host._shadowTransmittanceTexture &&
-		host._maxTextureImageUnits > WEBGL_TEXTURE_UNIT_SHADOW_TRANSMITTANCE;
+	const hasShadowTransmittance = shadowSampling.transmittanceAvailable;
 	if (uniforms.shadowTransmittanceAtlasAvailable) {
 		gl.uniform1i(
 			uniforms.shadowTransmittanceAtlasAvailable,
@@ -566,17 +558,17 @@ export function bindWebGLGlobalUniforms(
 	}
 	if (uniforms.shadowTransmittanceAtlas && hasShadowTransmittance) {
 		gl.activeTexture(gl.TEXTURE0 + WEBGL_TEXTURE_UNIT_SHADOW_TRANSMITTANCE);
-		gl.bindTexture(gl.TEXTURE_2D, host._shadowTransmittanceTexture);
+		gl.bindTexture(gl.TEXTURE_2D, shadowSampling.transmittanceTexture);
 		gl.uniform1i(
 			uniforms.shadowTransmittanceAtlas,
 			WEBGL_TEXTURE_UNIT_SHADOW_TRANSMITTANCE
 		);
 	}
-	if (uniforms.particleShadowVolumeAtlas) {
+	if (uniforms.particleShadowVolumeAtlas && shadowSampling.particleVolumeTexture) {
 		gl.activeTexture(
 			gl.TEXTURE0 + WEBGL_TEXTURE_UNIT_PARTICLE_SHADOW_VOLUME
 		);
-		gl.bindTexture(gl.TEXTURE_2D, host._particleShadowVolumeTexture);
+		gl.bindTexture(gl.TEXTURE_2D, shadowSampling.particleVolumeTexture);
 		gl.uniform1i(
 			uniforms.particleShadowVolumeAtlas,
 			WEBGL_TEXTURE_UNIT_PARTICLE_SHADOW_VOLUME
@@ -585,20 +577,20 @@ export function bindWebGLGlobalUniforms(
 	if (uniforms.particleShadowVolumeAtlasSize) {
 		gl.uniform2f(
 			uniforms.particleShadowVolumeAtlasSize,
-			host._particleShadowVolumeAtlasSize[0],
-			host._particleShadowVolumeAtlasSize[1]
+			shadowSampling.particleVolumeAtlasSize[0],
+			shadowSampling.particleVolumeAtlasSize[1]
 		);
 	}
 	if (uniforms.particleShadowVolumeGridSize) {
 		gl.uniform4fv(
 			uniforms.particleShadowVolumeGridSize,
-			host._particleShadowVolumeGridSize
+			shadowSampling.particleVolumeGridSize as Float32Array
 		);
 	}
 	if (uniforms.particleShadowVolumeSliceParams) {
 		gl.uniform4fv(
 			uniforms.particleShadowVolumeSliceParams,
-			host._particleShadowVolumeSliceParams
+			shadowSampling.particleVolumeSliceParams as Float32Array
 		);
 	}
 

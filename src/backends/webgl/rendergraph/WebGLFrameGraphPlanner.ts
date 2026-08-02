@@ -132,6 +132,7 @@ export class WebGLFrameGraphPlanner {
 						writes: [
 							this._write("shadow:atlas", "framebuffer-depth"),
 							this._write("shadow:transmittance", "framebuffer-color", true),
+							this._write("shadow:particle-volume", "copy-target", true),
 						],
 					}),
 				],
@@ -147,6 +148,7 @@ export class WebGLFrameGraphPlanner {
 							this._read("frame:depth", "framebuffer-depth", true),
 							this._read("shadow:atlas", "texture-sampling", true),
 							this._read("shadow:transmittance", "texture-sampling", true),
+							this._read("shadow:particle-volume", "texture-sampling", true),
 						],
 						writes: [
 							this._write("frame:scene-color", "framebuffer-color"),
@@ -211,13 +213,23 @@ export class WebGLFrameGraphPlanner {
 			this._node(pass, "oit-accum", "WebGLOITTransparentAccum", {
 				scope: "transparent",
 				requires: [{ id: "oit:accum" }],
-				reads: [this._read("frame:depth", "framebuffer-depth", true)],
+				reads: [
+					this._read("frame:depth", "framebuffer-depth", true),
+					this._read("shadow:atlas", "texture-sampling", true),
+					this._read("shadow:transmittance", "texture-sampling", true),
+					this._read("shadow:particle-volume", "texture-sampling", true),
+				],
 				writes: [this._write("oit:accum", "framebuffer-color")],
 			}),
 			this._node(pass, "oit-reveal", "WebGLOITTransparentReveal", {
 				scope: "transparent",
 				requires: [{ id: "oit:reveal" }],
-				reads: [this._read("frame:depth", "framebuffer-depth", true)],
+				reads: [
+					this._read("frame:depth", "framebuffer-depth", true),
+					this._read("shadow:atlas", "texture-sampling", true),
+					this._read("shadow:transmittance", "texture-sampling", true),
+					this._read("shadow:particle-volume", "texture-sampling", true),
+				],
 				writes: [this._write("oit:reveal", "framebuffer-color")],
 			}),
 		];
@@ -250,7 +262,12 @@ export class WebGLFrameGraphPlanner {
 				}),
 				this._node(pass, "transparent-legacy", "WebGLOITLegacyTransparent", {
 					scope: "transparent",
-					reads: [this._read("frame:depth", "framebuffer-depth", true)],
+					reads: [
+						this._read("frame:depth", "framebuffer-depth", true),
+						this._read("shadow:atlas", "texture-sampling", true),
+						this._read("shadow:transmittance", "texture-sampling", true),
+						this._read("shadow:particle-volume", "texture-sampling", true),
+					],
 					writes: [
 						this._write("frame:scene-color", "framebuffer-color"),
 						this._write("frame:depth", "framebuffer-depth", true),
@@ -329,6 +346,7 @@ export class WebGLFrameGraphPlanner {
 				this._read("frame:depth", "framebuffer-depth", true),
 				this._read("shadow:atlas", "texture-sampling", true),
 				this._read("shadow:transmittance", "texture-sampling", true),
+				this._read("shadow:particle-volume", "texture-sampling", true),
 			],
 			writes: [
 				this._write("frame:scene-color", "framebuffer-color"),

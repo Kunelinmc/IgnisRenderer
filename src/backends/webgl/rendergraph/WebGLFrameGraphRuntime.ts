@@ -112,10 +112,16 @@ export class WebGLFrameGraphRuntime {
 		this._postProcessOutputColor = "frame:scene-color";
 		const postProcessDeclarations =
 			this._postProcessRuntime.describeFrame(context);
-		this._executor.beginFrame(
-			context,
-			this._requiresMaterialGBuffer(postProcessDeclarations),
-		);
+		try {
+			this._executor.beginFrame(
+				context,
+				this._requiresMaterialGBuffer(postProcessDeclarations),
+			);
+		} catch (error) {
+			this._executor.abortFrame();
+			this._active = false;
+			throw error;
+		}
 		this._postProcessGraphFrame =
 			this._postProcessRuntime.buildRenderGraphFrame(
 				context,

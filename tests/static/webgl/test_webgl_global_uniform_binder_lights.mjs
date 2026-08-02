@@ -93,8 +93,20 @@ function createBinderHost(gl, pointLights) {
 				};
 			},
 		},
-		_shadowAtlasTexture: null,
-		_shadowAtlasTileSize: 0,
+		getShadowSamplingState() {
+			return {
+				enabled: false,
+				atlasTexture: null,
+				transmittanceTexture: null,
+				atlasTileSize: 0,
+				transmittanceAvailable: false,
+				particleVolumeTexture: null,
+				particleVolumeActiveSliceCount: 0,
+				particleVolumeAtlasSize: new Float32Array(2),
+				particleVolumeGridSize: new Float32Array(4),
+				particleVolumeSliceParams: new Float32Array(16),
+			};
+		},
 		_temporalJitterCurrentPrev: new Float32Array([0, 0, 0, 0]),
 		_previousViewProjection: null,
 		_shAmbientTexture: null,
