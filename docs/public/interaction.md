@@ -1,6 +1,8 @@
 # Interaction
 
-## Scope
+Use the interaction APIs for picking, hover, selection, drag selection, and transform controls while retaining application ownership of event wiring and visuals.
+
+## Overview
 
 Use the interaction API to add hover, click, selection, drag selection, and
 transform controls to scene nodes. The main entry point is
@@ -9,8 +11,6 @@ transform controls to scene nodes. The main entry point is
 
 This API handles picking and interaction state. Your application remains in
 control of event wiring, selection visuals, and when to render the next frame.
-
-## Background
 
 A basic interaction setup has three parts:
 
@@ -25,9 +25,11 @@ node, so the same scene objects can be used with or without the interaction
 system. A `Renderer` is not required; you can also attach an optional
 `PhysicsSystem` when physics-based picking is available.
 
-## API/Contract
+## API
 
-### Creating and attaching a controller
+### Interaction workflow
+
+#### Creating and attaching a controller
 
 `InteractionController` accepts these commonly used options:
 
@@ -40,7 +42,7 @@ system. A `Renderer` is not required; you can also attach an optional
 Call `attach(scene, camera, physicsSystem?)` before forwarding input. Calling
 `detach()` or `dispose()` clears hover, selection, drag, and gizmo state.
 
-### Registering nodes
+#### Registering nodes
 
 An `Interactable` can include:
 
@@ -55,7 +57,7 @@ An `Interactable` can include:
 Each callback receives the node, its entity id, the interaction phase, the
 current selection, and the latest pointer state.
 
-### Forwarding input and reading state
+#### Forwarding input and reading state
 
 `updatePointer()` accepts `"move"`, `"down"`, `"up"`, `"leave"`, `"cancel"`,
 and `"key"` events. Pointer coordinates are viewport-local pixels; use the same
@@ -83,6 +85,8 @@ or a left click commits the transform, while `Escape` or a right click cancels
 it. `Q` toggles world/local space, and `.` toggles the transform pivot.
 
 ## Usage
+
+### Interaction workflow
 
 ```ts
 import {
@@ -149,7 +153,9 @@ If your application renders only on demand, request a new frame after an
 interaction changes a visual state. `InteractionController` does not submit
 rendering work itself.
 
-## Errors & Diagnostics
+## Troubleshooting
+
+### Interaction workflow
 
 - Nothing can be selected: confirm that `attach()` uses the active scene and
   camera, and that the node is registered in `controller.interactables`.
@@ -164,7 +170,9 @@ rendering work itself.
 - State changes but the display does not: request or render another frame in
   your application.
 
-## Compatibility / Breaking Changes
+## Compatibility
+
+### Interaction workflow
 
 Current code should use `InteractionController` and register nodes through
 `controller.interactables`. The earlier `InteractionManager` API and ECS-based
@@ -182,3 +190,8 @@ When migrating older code:
 
 `InteractableComponent` remains as a deprecated alias for `Interactable`, but
 new code should use `Interactable`.
+
+## Related Documents
+
+- [Renderer](renderer.md)
+- [Geometry contract](../contracts/geometry.md)

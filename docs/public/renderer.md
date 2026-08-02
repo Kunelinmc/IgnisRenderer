@@ -1,6 +1,8 @@
 # Renderer
 
-## Scope
+Use `Renderer` to display a `Scene`, manage frame execution, configure post-processing, handle backend events, and release resources.
+
+## Overview
 
 Use `Renderer` as the main entry point for displaying a `Scene` on an
 `HTMLCanvasElement`. This guide covers the public application workflow:
@@ -10,8 +12,6 @@ canvas resizing and device events, and releasing resources.
 The examples use only exports from the package root. Backend implementation,
 frame pipeline internals, and native graphics handles are outside the scope of
 this document.
-
-## Background
 
 A renderer needs a canvas and one rendering backend. IgnisRenderer provides
 `WebGPUBackend`, `WebGLBackend`, and `SoftwareBackend`; choose the backend that
@@ -26,9 +26,21 @@ Applications can use these defaults through `renderer.scene` and
 `renderer.camera`, or bind their own objects with `setScene()` and
 `setCamera()`.
 
-## API/Contract
+This guide describes the WebGPU screen-space global illumination pass exposed
+by `ScreenSpaceGlobalIlluminationPass`.
 
-### Creating a renderer
+SSGI traces a small number of diffuse rays through the visible frame depth
+hierarchy. It reuses temporal history and depth/normal-aware filtering to keep
+the default cost suitable for real-time rendering.
+
+SSGI is limited to geometry and radiance already visible on screen. It must not
+be treated as a replacement for probes, baked lighting, or path tracing.
+
+## API
+
+### Renderer workflow
+
+#### Creating a renderer
 
 Construct `Renderer` with one options object:
 
@@ -44,7 +56,7 @@ Call `initialize()` before performing optional setup that needs an initialized
 graphics device. Although the first `renderFrame()` can initialize the renderer
 automatically, explicit initialization makes startup failures easier to handle.
 
-### Scene and camera
+#### Scene and camera
 
 Read the active objects from `renderer.scene` and `renderer.camera`.
 
@@ -56,7 +68,7 @@ Changes to the active scene normally make a future frame eligible for
 rendering. Call `requestRender()` after application state changes that are not
 represented by the scene, camera, textures, or other renderer-managed objects.
 
-### Rendering frames
+#### Rendering frames
 
 Choose one frame scheduling style:
 
@@ -80,7 +92,7 @@ if (!result.rendered) {
 `renderScene()` is a deprecated alias. New code should use `renderFrame()` or
 `renderLoop()`.
 
-### Canvas size
+#### Canvas size
 
 `initialize()` calls `resizeCanvas()` once. Call it again whenever the canvas
 element's displayed size changes. It updates the drawing buffer for the current
@@ -88,7 +100,7 @@ device pixel ratio and refreshes the camera aspect ratio.
 
 For layouts that can resize without a window resize, prefer `ResizeObserver`.
 
-### Events and diagnostics
+#### Events and diagnostics
 
 Subscribe with `renderer.on()` to observe commonly useful lifecycle events:
 
@@ -110,7 +122,7 @@ recreating the renderer. Reconfiguration waits for an active frame to finish.
 Diagnostic identifiers can be absent or redacted and should not be used for
 feature decisions.
 
-### Cleanup
+#### Cleanup
 
 Keep the stop function returned by `renderLoop()` when the application needs to
 pause rendering. Call `destroy()` when the renderer is no longer needed.
@@ -118,7 +130,19 @@ Destruction stops the active loop, waits for an in-progress frame, and releases
 renderer resources. A destroyed renderer cannot be reused; create a new
 renderer and backend instead.
 
+### Screen-space global illumination
+
+- The built-in implementation supports WebGPU perspective cameras.
+- The default trace runs at half resolution with one ray per pixel.
+- The pass owns its temporal history and does not require TAA.
+- `maxDistance`, `thickness`, and `normalBias` use world-space units.
+- `downsample`, `raysPerPixel`, and `maxSteps` control the primary performance
+  cost.
+- Orthographic cameras must skip the pass and preserve the input color.
+
 ## Usage
+
+### Renderer workflow
 
 The following example creates a renderer, uses its default scene and camera,
 keeps the canvas resolution synchronized with its displayed size, and cleans
@@ -201,7 +225,30 @@ await renderer.renderFrame(performance.now());
 await renderer.destroy();
 ```
 
-## Errors & Diagnostics
+### Screen-space global illumination
+
+```ts
+import { ScreenSpaceGlobalIlluminationPass } from "ignisrenderer";
+
+renderer.postProcess.registerPass(new ScreenSpaceGlobalIlluminationPass({
+	enabled: true,
+	options: {
+		downsample: 2,
+		raysPerPixel: 1,
+		maxSteps: 24,
+		maxDistance: 8,
+		historyWeight: 0.9,
+	},
+}));
+```
+
+Applications should lower `maxSteps` before increasing `downsample` when SSGI
+exceeds the desired GPU budget. Increasing `raysPerPixel` improves convergence
+but multiplies the trace work directly.
+
+## Troubleshooting
+
+### Renderer workflow
 
 - `Renderer.initialize(): already initialized.`: call `initialize()` only once.
   Rendering methods can be used after that promise resolves.
@@ -223,7 +270,18 @@ await renderer.destroy();
 - `DisplayOutputOptions.exposure` or `hdrHeadroom` is outside its documented
   range: provide exposure in `[0, 64]` and headroom in `[1, 16]`.
 
-## Compatibility / Breaking Changes
+### Screen-space global illumination
+
+- `webgpu-ssgi-orthographic-disabled` means the active camera is not supported.
+- A missing `depth`, `normal`, `albedo`, `metallic`, or `motion` G-buffer
+  semantic makes the pass ineligible.
+- A missing `backend:frame-hiz` shared resource makes the pass ineligible.
+- History is discarded after resize, camera reset, declaration changes, or
+  option changes.
+
+## Compatibility
+
+### Renderer workflow
 
 `Renderer` requires a single options object. The positional
 `new Renderer(backend, canvas, camera)` form is not supported.
@@ -238,3 +296,15 @@ recreates a renderer must also construct a new backend instance.
 Display HDR is currently implemented only by WebGPU. WebGL and Software resolve
 display output to SDR. Existing code remains SDR unless it opts into `"auto"`
 or `"hdr"`.
+
+### Screen-space global illumination
+
+The ray-marched implementation replaces the former screen-neighborhood gather.
+The removed options and their replacements are documented in the
+[migration guidance](../migrations/README.md).
+
+## Related Documents
+
+- [Interaction](interaction.md)
+- [Compute runtime](compute-runtime.md)
+- [Renderer contract](../contracts/renderer.md)
