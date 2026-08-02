@@ -20,26 +20,25 @@ reference documents when a task touches the relevant subsystem.
 These are contributor-facing project documents that `AGENTS.md` links as
 required references. Read them before changing related behavior:
 
-- `docs/architecture/engine-architecture.md`: backend roles, ECS and
+- `docs/architecture/engine.md`: backend roles, ECS and
   scene graph synchronization, simulation ownership, foundation utilities,
   and workers.
-- `docs/architecture/rendering-pipeline-and-shader-contracts.md`:
+- `docs/architecture/rendering.md`:
   frame pipeline stages, coordinate system, matrix conventions, color space,
   shader layout, vertex attributes, post-processing, and
   resource/performance constraints.
-- `docs/contracts/renderer-contract.md`: renderer/backend
+- `docs/contracts/renderer.md`: renderer/backend
   lifecycle, frame scheduling, device lifecycle, extension registry, and
   render target contracts.
-- `docs/contracts/backend-execution-contract.md`
-  and
-  `docs/contracts/cross-backend-contract.md`:
+- `docs/contracts/postprocess.md`:
   post-process runtime ownership and cross-backend pass behavior.
-- `docs/contributing/commit-message-guidelines.md`: required commit header
+- `docs/contributing/README.md`: documentation workflow and required commit
+  header
   format, approved types, body/footer rules, and examples. Read before
   committing.
-- Backend-specific contract files in `docs/contracts/` when changing
-  WebGPU, WebGL, Software, warmup, lighting, shadows, materials, or loader
-  behavior.
+- Relevant subsystem files under `docs/contracts/`, including
+  `docs/contracts/webgpu.md` and `docs/contracts/webgl.md`, when changing
+  backend, warmup, lighting, shadows, materials, or loader behavior.
 
 ## Build & Test Commands
 
@@ -123,27 +122,30 @@ required references. Read them before changing related behavior:
 
 ### Docs Writing Guidelines
 
-- These rules apply to `docs/**/*.md`. They do not apply to `README*.md` unless
-  explicitly requested.
+- These rules apply to every Markdown file under `docs/`.
 - Use `docs/public/` only for consumer-facing documentation based on exports
   from `src/index.ts`.
-- Place normative implementation and backend contracts under
-  `docs/contracts/`, architecture under `docs/architecture/`, maintainer
-  references under `docs/reference/`, and migrations under `docs/migrations/`.
-- Place repository workflows under `docs/contributing/`. Documents that mix
-  public behavior with implementation requirements must remain under
-  `docs/contracts/` until their public guidance is split out.
+- Place normative implementation and backend contracts under `docs/contracts/`,
+  architecture under `docs/architecture/`, maintainer references under
+  `docs/reference/`, migrations under `docs/migrations/`, and repository
+  workflows under `docs/contributing/`.
+- Maintained Markdown paths must use `docs/<category>/<document>.md`. Do not add
+  nested subsystem directories.
+- Architecture documents explain responsibility, flow, and design boundaries.
+  Normative lifecycle, fallback, diagnostic, and compatibility requirements
+  must live in contracts.
+- A single effect, capability, probe behavior, loader variant, material
+  property, shader option, or backend pass must be a section of its owning
+  subsystem document rather than a standalone document.
 - Do not add documents directly under `docs/` except for `docs/README.md`.
 - Use English by default. Keep technical terms in their canonical form.
-- Every new or updated document in `docs/` must follow this section order:
-  1. `# Title`
-  2. `## Scope`
-  3. `## Background`
-  4. `## API/Contract`
-  5. `## Usage`
-  6. `## Errors & Diagnostics`
-  7. `## Compatibility / Breaking Changes`
-- Use RFC-style wording with `must`, `should`, and `may`.
+- Every document must start with one `#` title and use only the sections needed
+  by its document type. Follow `docs/contributing/README.md` for document
+  shapes.
+- Do not add editorial feature versions such as `v1`, `v2`, or `phase 1` to
+  filenames, titles, or prose. Preserve versions that are part of real API
+  identifiers, formats, protocols, or shader directives.
+- Use RFC-style wording with `must`, `should`, and `may` in normative contracts.
 - Wrap contract names, types, functions, and parameters in backticks.
 - Do not add host-local Markdown links or absolute local filesystem paths to
   documentation. Use repo-relative paths in backticks for code references, or
@@ -206,5 +208,5 @@ required references. Read them before changing related behavior:
 - Use the smallest accurate approved type.
 - Use `!` and `BREAKING CHANGE:` for breaking API, behavior, file layout,
   shader contract, or backend contract changes.
-- Read `docs/contributing/commit-message-guidelines.md` before creating
+- Read `docs/contributing/README.md` before creating
   commits.

@@ -1,65 +1,57 @@
-# Documentation
+# IgnisRenderer Documentation
 
-## Scope
+IgnisRenderer documentation is organized by audience and durable ownership.
+Start with a public workflow when using the package, or with architecture and
+contracts when changing the engine.
 
-This document is the entry point for IgnisRenderer documentation. The
-documentation tree separates package-consumer guidance from contributor-facing
-contracts, architecture, reference material, migrations, and workflows.
+## Package Consumers
 
-## Background
+- [Renderer](public/renderer.md): renderer creation, frames, post-processing,
+  backend events, sizing, and cleanup.
+- [Interaction](public/interaction.md): picking, hover, selection, drag
+  selection, and transform controls.
+- [Compute Runtime](public/compute-runtime.md): application-defined WebGPU
+  compute resources, kernels, dispatch, and readback.
 
-The supported public API boundary is the package root exported by
-`src/index.ts`. Subsystem `index.ts` files are not automatically supported
-package entry points.
+## Architecture
 
-Existing documents that combine public behavior with backend or implementation
-requirements remain intact under `contracts/`. They may be split into
-dedicated public documentation in a later documentation phase.
+- [Engine architecture](architecture/engine.md): engine layers, ECS, simulation,
+  backend ownership, foundation services, and workers.
+- [Rendering architecture](architecture/rendering.md): portable frame flow,
+  data conventions, shaders, lighting, materials, and post-processing.
+- [Render Graph architecture](architecture/render-graph.md): whole-frame logical
+  graph composition, analysis, compilation, and attempt tracking.
+- [WebGPU architecture](architecture/webgpu.md): WebGPU frame planning,
+  execution, resources, submission, and failure boundaries.
 
-## API/Contract
+## Contracts
 
-Documentation must be placed according to its primary audience and purpose:
+- [Renderer](contracts/renderer.md)
+- [Compute](contracts/compute.md)
+- [Geometry](contracts/geometry.md)
+- [Physics](contracts/physics.md)
+- [Loaders](contracts/loaders.md)
+- [Rendering features](contracts/rendering.md)
+- [Lighting](contracts/lighting.md)
+- [Shadows](contracts/shadows.md)
+- [Materials](contracts/materials.md)
+- [Particles](contracts/particles.md)
+- [Shaders](contracts/shaders.md)
+- [Post-processing](contracts/postprocess.md)
+- [WebGPU backend](contracts/webgpu.md)
+- [WebGL backend](contracts/webgl.md)
 
-| Directory | Content |
-| --- | --- |
-| `public/` | Consumer-facing API documentation and usage guides |
-| `architecture/` | Engine and rendering architecture |
-| `contracts/` | Normative implementation and backend contracts |
-| `reference/` | Maintainer reference material |
-| `migrations/` | Historical and active migration contracts |
-| `contributing/` | Repository contribution workflows |
+## Maintainer Resources
 
-New documents must not be added directly under `docs/` except for this entry
-point.
+- [WebGPU bindings reference](reference/webgpu-bindings.md)
+- [Migration guidance](migrations/README.md)
+- [Contributing documentation](contributing/README.md)
 
-## Usage
+## Documentation Policy
 
-Package consumers should start with:
-
-- [Renderer API](public/renderer.md)
-- [Interaction API](public/interaction.md)
-- [ComputeRuntime usage](public/compute-runtime-interface-usage.md)
-
-Contributors should start with:
-
-- [Engine architecture](architecture/engine-architecture.md)
-- [Rendering contracts](architecture/rendering-pipeline-and-shader-contracts.md)
-- [Renderer and backend core contract](contracts/renderer-contract.md)
-- [Commit message guidelines](contributing/commit-message-guidelines.md)
-
-## Errors & Diagnostics
-
-If a documentation link fails after the directory migration, search for the
-unchanged filename under `docs/public/`, `docs/contracts/`, or another
-top-level documentation category. Repository references must use the new
-canonical path.
-
-Documents that primarily specify implementation behavior must be moved to the
-appropriate `contracts/` subsystem instead of being added to
-`public/`.
-
-## Compatibility / Breaking Changes
-
-The documentation paths were reorganized without compatibility stubs. Existing
-filenames and document content remain unchanged, but links to the previous
-locations must be updated.
+The documentation tree stays shallow: maintained Markdown files live at
+`docs/<category>/<document>.md`. Small features are sections of their owning
+subsystem document rather than standalone files. Architecture explains design;
+contracts contain normative behavior. See the
+[contributing documentation](contributing/README.md) for authoring and commit
+rules.
