@@ -5,13 +5,15 @@ import type {
 	RenderGraphDefinition,
 	RenderGraphNode,
 	RenderGraphResourceDescriptor,
+	RenderGraphResourceId,
 } from "../../../rendergraph/types";
+import { renderGraphResourceId } from "../../../rendergraph/types";
 
 import type { WebGLFrameGraphNode, WebGLFrameGraphNodeKind } from "./types";
 
 export interface WebGLPostProcessGraphComposition {
 	readonly definition: RenderGraphDefinition<WebGLFrameGraphNode, WebGLFrameGraphNodeKind>;
-	readonly inputs: Readonly<Record<string, string>>;
+	readonly inputs: Readonly<Record<string, RenderGraphResourceId>>;
 	readonly importResources: readonly RenderGraphResourceDescriptor[];
 	readonly outputColor: string;
 }
@@ -51,8 +53,10 @@ function toWebGLNode(
 	};
 }
 
-function resolveInputs(frame: PostProcessRenderGraphFrame): Record<string, string> {
-	const inputs: Record<string, string> = {};
+function resolveInputs(
+	frame: PostProcessRenderGraphFrame,
+): Record<string, RenderGraphResourceId> {
+	const inputs: Record<string, RenderGraphResourceId> = {};
 	for (const port of frame.subgraph.imports ?? []) {
 		const resource = resolveInputResource(port.name);
 		if (resource) inputs[port.name] = resource;
@@ -60,23 +64,25 @@ function resolveInputs(frame: PostProcessRenderGraphFrame): Record<string, strin
 	return inputs;
 }
 
-function resolveInputResource(port: string): string | null {
+function resolveInputResource(port: string): RenderGraphResourceId | null {
 	switch (port) {
-		case "scene-color": return "frame:scene-color";
+		case "scene-color": return renderGraphResourceId("frame:scene-color");
 		case "gbuffer:depth":
-		case "gbuffer:motion": return "frame:motion-depth";
+		case "gbuffer:motion": return renderGraphResourceId("frame:motion-depth");
 		case "gbuffer:normal":
 		case "gbuffer:roughness":
-		case "gbuffer:metallic": return "frame:normal";
-		case "gbuffer:albedo": return "frame:albedo";
-		case "gbuffer:specular": return "frame:specular";
-		default: return port.startsWith("history:") ? `postprocess-import:${port}` : null;
+		case "gbuffer:metallic": return renderGraphResourceId("frame:normal");
+		case "gbuffer:albedo": return renderGraphResourceId("frame:albedo");
+		case "gbuffer:specular": return renderGraphResourceId("frame:specular");
+		default: return port.startsWith("history:")
+			? renderGraphResourceId(`postprocess-import:${port}`)
+			: null;
 	}
 }
 
 function resolveImportResources(
 	frame: PostProcessRenderGraphFrame,
-	inputs: Readonly<Record<string, string>>,
+	inputs: Readonly<Record<string, RenderGraphResourceId>>,
 ): RenderGraphResourceDescriptor[] {
 	const resources: RenderGraphResourceDescriptor[] = [];
 	for (const port of frame.subgraph.imports ?? []) {

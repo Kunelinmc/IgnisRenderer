@@ -5,6 +5,10 @@ import type {
 	RenderGraphPhysicalBinding,
 	RenderGraphResourceDescriptor,
 } from "../../../rendergraph/types";
+import {
+	renderGraphPhysicalResourceId,
+	renderGraphResourceId,
+} from "../../../rendergraph/types";
 
 export const WEBGPU_FRAME_GRAPH_RESOURCES = {
 	canvasColor: "canvas:scene-color-main",
@@ -87,7 +91,7 @@ export function collectWebGPUFrameGraphResourceCatalog(
 		const texture = textures.get(id);
 		if (texture) {
 			resources.push({
-				id,
+				id: renderGraphResourceId(id),
 				origin: "imported",
 				kind: "texture",
 				residency: "frame",
@@ -103,14 +107,18 @@ export function collectWebGPUFrameGraphResourceCatalog(
 					: 1,
 			});
 			const physicalId = `webgpu:${id}`;
-			bindings.push({ resourceId: id, physicalId, kind: "texture" });
+			bindings.push({
+				resourceId: renderGraphResourceId(id),
+				physicalId: renderGraphPhysicalResourceId(physicalId),
+				kind: "texture",
+			});
 			physicalResolver?.set(physicalId, texture);
 			continue;
 		}
 		const canvas = id === WEBGPU_FRAME_GRAPH_RESOURCES.canvasColor ||
 			id === WEBGPU_FRAME_GRAPH_RESOURCES.canvasDepth;
 		resources.push(canvas ? {
-			id,
+			id: renderGraphResourceId(id),
 			origin: "imported",
 			kind: "texture",
 			residency: "external",
@@ -122,15 +130,15 @@ export function collectWebGPUFrameGraphResourceCatalog(
 			sampleCount: 1,
 			mipLevelCount: 1,
 		} : {
-			id,
+			id: renderGraphResourceId(id),
 			origin: "imported",
 			kind: "external",
 			residency: "external",
 			initialContent: "unknown",
 		});
 		bindings.push({
-			resourceId: id,
-			physicalId: `webgpu:${id}`,
+			resourceId: renderGraphResourceId(id),
+			physicalId: renderGraphPhysicalResourceId(`webgpu:${id}`),
 			kind: canvas ? "texture" : "external",
 		});
 	}

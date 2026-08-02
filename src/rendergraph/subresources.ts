@@ -1,5 +1,6 @@
 import type {
 	RenderGraphDiagnostic,
+	RenderGraphNodeId,
 	RenderGraphNormalizedSubresourceRange,
 	RenderGraphResourceDescriptor,
 	RenderGraphSubresourceRange,
@@ -17,7 +18,7 @@ export function normalizeRenderGraphSubresource(
 	descriptor: RenderGraphResourceDescriptor,
 	range: RenderGraphSubresourceRange | undefined,
 	context: {
-		readonly nodeId?: string;
+		readonly nodeId?: RenderGraphNodeId;
 		readonly stage?: string;
 	},
 ): {
@@ -156,7 +157,7 @@ function normalizeAspects(
 
 function invalidRange(
 	descriptor: RenderGraphResourceDescriptor,
-	context: { readonly nodeId?: string; readonly stage?: string },
+	context: { readonly nodeId?: RenderGraphNodeId; readonly stage?: string },
 	message: string,
 ): {
 	readonly range: undefined;

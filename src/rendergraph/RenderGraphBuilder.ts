@@ -1,27 +1,33 @@
+import {
+	renderGraphNodeId,
+	renderGraphResourceId,
+} from "./types";
 import type {
 	RenderGraphDefinition,
 	RenderGraphDiagnostic,
 	RenderGraphExport,
 	RenderGraphNode,
+	RenderGraphNodeId,
 	RenderGraphPhysicalBinding,
 	RenderGraphPortResolution,
 	RenderGraphResourceDescriptor,
+	RenderGraphResourceId,
 	RenderGraphResourceMutation,
 } from "./types";
 
 /** @internal Port mappings used when composing one logical subgraph. */
 export interface RenderGraphSubgraphComposition {
 	readonly namespace: string;
-	readonly inputs?: Readonly<Record<string, string>>;
-	readonly outputs?: Readonly<Record<string, string>>;
-	readonly dependsOn?: readonly string[];
+	readonly inputs?: Readonly<Record<string, RenderGraphResourceId>>;
+	readonly outputs?: Readonly<Record<string, RenderGraphResourceId>>;
+	readonly dependsOn?: readonly RenderGraphNodeId[];
 }
 
 /** @internal Result of composing one namespaced subgraph. */
 export interface RenderGraphSubgraphCompositionResult {
-	readonly outputs: Readonly<Record<string, string>>;
-	readonly resources: Readonly<Record<string, string>>;
-	readonly nodes: Readonly<Record<string, string>>;
+	readonly outputs: Readonly<Record<string, RenderGraphResourceId>>;
+	readonly resources: Readonly<Record<string, RenderGraphResourceId>>;
+	readonly nodes: Readonly<Record<string, RenderGraphNodeId>>;
 }
 
 /** @internal Mutable construction helper that emits an immutable definition. */
@@ -81,8 +87,8 @@ export class RenderGraphBuilder<TPayload = unknown, TKind extends string = strin
 			));
 			return emptyCompositionResult();
 		}
-		const resourceMap = new Map<string, string>();
-		const omittedOptionalImports = new Set<string>();
+		const resourceMap = new Map<RenderGraphResourceId, RenderGraphResourceId>();
+		const omittedOptionalImports = new Set<RenderGraphResourceId>();
 		for (const port of subgraph.imports ?? []) {
 			const parentId = composition.inputs?.[port.name];
 			if (!parentId) {
@@ -103,9 +109,10 @@ export class RenderGraphBuilder<TPayload = unknown, TKind extends string = strin
 				resource: parentId,
 			});
 		}
-		const resolvedOutputs: Record<string, string> = {};
+		const resolvedOutputs: Record<string, RenderGraphResourceId> = {};
 		for (const port of subgraph.outputPorts ?? []) {
-			const parentId = composition.outputs?.[port.name] ?? namespaceId(namespace, port.resource);
+			const parentId = composition.outputs?.[port.name] ??
+				namespaceResourceId(namespace, port.resource);
 			resourceMap.set(port.resource, parentId);
 			resolvedOutputs[port.name] = parentId;
 			this._portResolutions.push({
@@ -121,7 +128,7 @@ export class RenderGraphBuilder<TPayload = unknown, TKind extends string = strin
 			);
 			const mappedId = resourceMap.get(descriptor.id);
 			const omittedOptionalImport = importPort?.optional === true && mappedId === undefined;
-			const remappedId = mappedId ?? namespaceId(namespace, descriptor.id);
+			const remappedId = mappedId ?? namespaceResourceId(namespace, descriptor.id);
 			resourceMap.set(descriptor.id, remappedId);
 			if (omittedOptionalImport) {
 				omittedOptionalImports.add(descriptor.id);
@@ -161,12 +168,15 @@ export class RenderGraphBuilder<TPayload = unknown, TKind extends string = strin
 			}
 			this._resources.push({ ...descriptor, id: remappedId });
 		}
-		const nodeMap = new Map(subgraph.nodes.map((node) => [node.id, namespaceId(namespace, node.id)]));
+		const nodeMap = new Map(
+			subgraph.nodes.map((node) => [node.id, namespaceNodeId(namespace, node.id)]),
+		);
 		for (const binding of subgraph.bindings ?? []) {
 			if (omittedOptionalImports.has(binding.resourceId)) continue;
 			this._bindings.push({
 				...binding,
-				resourceId: resourceMap.get(binding.resourceId) ?? namespaceId(namespace, binding.resourceId),
+				resourceId: resourceMap.get(binding.resourceId) ??
+					namespaceResourceId(namespace, binding.resourceId),
 			});
 		}
 		for (const node of subgraph.nodes) {
@@ -186,7 +196,8 @@ export class RenderGraphBuilder<TPayload = unknown, TKind extends string = strin
 				...node,
 				id: remappedNodeId,
 				dependsOn: [
-					...(node.dependsOn?.map((id) => nodeMap.get(id) ?? namespaceId(namespace, id)) ?? []),
+					...(node.dependsOn?.map((id) =>
+						nodeMap.get(id) ?? namespaceNodeId(namespace, id)) ?? []),
 					...externalDependencies,
 				],
 				requires: node.requires?.map((requirement) => ({
@@ -264,21 +275,28 @@ function areDescriptorsCompatible(
 	);
 }
 
-function namespaceId(namespace: string, id: string): string {
-	return `${namespace}:${id}`;
+function namespaceResourceId(
+	namespace: string,
+	id: RenderGraphResourceId,
+): RenderGraphResourceId {
+	return renderGraphResourceId(`${namespace}:${id}`);
+}
+
+function namespaceNodeId(namespace: string, id: RenderGraphNodeId): RenderGraphNodeId {
+	return renderGraphNodeId(`${namespace}:${id}`);
 }
 
 function remapResource(
-	resourceMap: ReadonlyMap<string, string>,
+	resourceMap: ReadonlyMap<RenderGraphResourceId, RenderGraphResourceId>,
 	namespace: string,
-	resourceId: string,
-): string {
-	return resourceMap.get(resourceId) ?? namespaceId(namespace, resourceId);
+	resourceId: RenderGraphResourceId,
+): RenderGraphResourceId {
+	return resourceMap.get(resourceId) ?? namespaceResourceId(namespace, resourceId);
 }
 
 function remapMutations(
 	mutations: readonly RenderGraphResourceMutation[] | undefined,
-	resourceMap: ReadonlyMap<string, string>,
+	resourceMap: ReadonlyMap<RenderGraphResourceId, RenderGraphResourceId>,
 	namespace: string,
 ): readonly RenderGraphResourceMutation[] | undefined {
 	return mutations?.map((mutation) =>
@@ -291,7 +309,11 @@ function remapMutations(
 	);
 }
 
-function buildError(code: string, message: string, resourceId?: string): RenderGraphDiagnostic {
+function buildError(
+	code: string,
+	message: string,
+	resourceId?: RenderGraphResourceId,
+): RenderGraphDiagnostic {
 	return {
 		phase: "build",
 		enforcement: "enforced",

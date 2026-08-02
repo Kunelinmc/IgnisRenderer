@@ -1,13 +1,20 @@
 import type { FramePassStage } from "../pipeline/types";
+import type {
+	RenderGraphNodeId,
+	RenderGraphPhysicalResourceId,
+	RenderGraphResourceId,
+} from "./ids";
 
-/** @internal Backend-private logical render graph resource identifier. */
-export type RenderGraphResourceId = string;
-
-/** @internal Backend-private logical render graph node identifier. */
-export type RenderGraphNodeId = string;
-
-/** @internal Backend-private stable physical resource identifier. */
-export type RenderGraphPhysicalResourceId = string;
+export {
+	renderGraphNodeId,
+	renderGraphPhysicalResourceId,
+	renderGraphResourceId,
+} from "./ids";
+export type {
+	RenderGraphNodeId,
+	RenderGraphPhysicalResourceId,
+	RenderGraphResourceId,
+} from "./ids";
 
 /** @internal Logical resource allocation origin. */
 export type RenderGraphResourceOrigin = "imported" | "graph";

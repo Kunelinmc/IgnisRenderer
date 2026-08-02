@@ -5,7 +5,9 @@ import type {
 	RenderGraphDefinition,
 	RenderGraphNode,
 	RenderGraphResourceDescriptor,
+	RenderGraphResourceId,
 } from "../../../rendergraph/types";
+import { renderGraphResourceId } from "../../../rendergraph/types";
 
 import { WEBGPU_FRAME_GRAPH_RESOURCES as r } from "./WebGPUFrameGraphResourceCatalog";
 import type { WebGPUFrameGraphNode, WebGPUFrameGraphNodeKind } from "./types";
@@ -13,7 +15,7 @@ import { getWebGPUPostProcessSharedResourceDescriptor } from "./WebGPUPostProces
 
 export interface WebGPUPostProcessGraphComposition {
 	readonly definition: RenderGraphDefinition<WebGPUFrameGraphNode, WebGPUFrameGraphNodeKind>;
-	readonly inputs: Readonly<Record<string, string>>;
+	readonly inputs: Readonly<Record<string, RenderGraphResourceId>>;
 	readonly importResources: readonly RenderGraphResourceDescriptor[];
 	readonly outputColor: string;
 }
@@ -54,8 +56,10 @@ function toWebGPUNode(
 	};
 }
 
-function resolveInputs(frame: PostProcessRenderGraphFrame): Record<string, string> {
-	const inputs: Record<string, string> = {};
+function resolveInputs(
+	frame: PostProcessRenderGraphFrame,
+): Record<string, RenderGraphResourceId> {
+	const inputs: Record<string, RenderGraphResourceId> = {};
 	for (const port of frame.subgraph.imports ?? []) {
 		const resource = resolveInputResource(port.name);
 		if (resource) inputs[port.name] = resource;
@@ -63,28 +67,30 @@ function resolveInputs(frame: PostProcessRenderGraphFrame): Record<string, strin
 	return inputs;
 }
 
-function resolveInputResource(port: string): string | null {
+function resolveInputResource(port: string): RenderGraphResourceId | null {
 	const sharedResource = getWebGPUPostProcessSharedResourceDescriptor(port);
-	if (sharedResource) return sharedResource.graphResourceId;
+	if (sharedResource) return renderGraphResourceId(sharedResource.graphResourceId);
 	switch (port) {
-		case "scene-color": return r.frameColor;
+		case "scene-color": return renderGraphResourceId(r.frameColor);
 		case "gbuffer:depth":
-		case "gbuffer:motion": return r.gbufferMotionDepth;
+		case "gbuffer:motion": return renderGraphResourceId(r.gbufferMotionDepth);
 		case "gbuffer:normal":
 		case "gbuffer:roughness":
-		case "gbuffer:metallic": return r.gbufferNormalRoughMetal;
-		case "gbuffer:albedo": return r.gbufferAlbedoAlpha;
-		case "gbuffer:specular": return r.gbufferSpecular;
-		case "gbuffer:transmission": return r.transmissionSurface0;
+		case "gbuffer:metallic": return renderGraphResourceId(r.gbufferNormalRoughMetal);
+		case "gbuffer:albedo": return renderGraphResourceId(r.gbufferAlbedoAlpha);
+		case "gbuffer:specular": return renderGraphResourceId(r.gbufferSpecular);
+		case "gbuffer:transmission": return renderGraphResourceId(r.transmissionSurface0);
 		case "gbuffer:emissive":
-		case "gbuffer:occlusion": return r.gbufferEmissiveOcclusion;
-		default: return port.startsWith("history:") ? `postprocess-import:${port}` : null;
+		case "gbuffer:occlusion": return renderGraphResourceId(r.gbufferEmissiveOcclusion);
+		default: return port.startsWith("history:")
+			? renderGraphResourceId(`postprocess-import:${port}`)
+			: null;
 	}
 }
 
 function resolveImportResources(
 	frame: PostProcessRenderGraphFrame,
-	inputs: Readonly<Record<string, string>>,
+	inputs: Readonly<Record<string, RenderGraphResourceId>>,
 ): RenderGraphResourceDescriptor[] {
 	const resources: RenderGraphResourceDescriptor[] = [];
 	for (const port of frame.subgraph.imports ?? []) {

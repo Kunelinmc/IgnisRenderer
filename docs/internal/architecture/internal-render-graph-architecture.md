@@ -67,6 +67,13 @@ or proof that a native barrier is required.
 
 ### Logical IR
 
+`RenderGraphResourceId`, `RenderGraphNodeId`, and
+`RenderGraphPhysicalResourceId` must be distinct branded string types. Callers
+must use `renderGraphResourceId()`, `renderGraphNodeId()`, or
+`renderGraphPhysicalResourceId()` when values enter the shared graph layer.
+The brands are compile-time-only and must not change the runtime string
+representation.
+
 `RenderGraphResourceDescriptor` identifies one logical resource and must be a
 discriminated texture, buffer, or external descriptor. Texture descriptors
 must retain format, extent, dimension, layers, sample count, mip count, and

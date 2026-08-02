@@ -1,7 +1,13 @@
+import {
+	renderGraphNodeId,
+	renderGraphResourceId,
+} from "../rendergraph/types";
 import type {
 	RenderGraphNode,
+	RenderGraphNodeId,
 	RenderGraphDefinition,
 	RenderGraphResourceDescriptor,
+	RenderGraphResourceId,
 	RenderGraphResourceRef,
 	RenderGraphUsage,
 } from "../rendergraph/types";
@@ -25,15 +31,15 @@ export type PostProcessLogicalResourceRole =
 export interface PostProcessSubgraphNodePayload {
 	readonly passId: string;
 	readonly color: PostProcessColorDeclaration;
-	readonly inputColor: string | null;
-	readonly plannedOutputColor: string | null;
+	readonly inputColor: RenderGraphResourceId | null;
+	readonly plannedOutputColor: RenderGraphResourceId | null;
 }
 
 export interface PostProcessSubgraph
 	extends RenderGraphDefinition<PostProcessSubgraphNodePayload> {
 	readonly resources: readonly RenderGraphResourceDescriptor[];
 	readonly nodes: readonly RenderGraphNode<PostProcessSubgraphNodePayload>[];
-	readonly outputColor: string;
+	readonly outputColor: RenderGraphResourceId;
 	readonly resourceRoles: Readonly<Record<string, PostProcessLogicalResourceRole>>;
 }
 
@@ -53,7 +59,7 @@ export class PostProcessSubgraphBuilder {
 			roles[resource.id] = role;
 		};
 		addResource({
-			id: "scene-color",
+			id: renderGraphResourceId("scene-color"),
 			origin: "imported",
 			kind: "texture",
 			residency: "frame",
@@ -66,7 +72,7 @@ export class PostProcessSubgraphBuilder {
 			if (!channel || semantic === "color") continue;
 			const resourceSemantic = semantic === "world-position" ? "depth" : semantic;
 			addResource({
-				id: `gbuffer:${resourceSemantic}`,
+				id: renderGraphResourceId(`gbuffer:${resourceSemantic}`),
 				origin: "imported",
 				kind: "texture",
 				residency: "frame",
@@ -83,7 +89,7 @@ export class PostProcessSubgraphBuilder {
 				graph.height,
 			);
 			addResource({
-				id: `history:${descriptor.id}:read`,
+				id: renderGraphResourceId(`history:${descriptor.id}:read`),
 				origin: "imported",
 				kind: "texture",
 				residency: "history",
@@ -93,7 +99,7 @@ export class PostProcessSubgraphBuilder {
 				height: resolved.height,
 			}, "history-read");
 			addResource({
-				id: `history:${descriptor.id}:write`,
+				id: renderGraphResourceId(`history:${descriptor.id}:write`),
 				origin: "imported",
 				kind: "texture",
 				residency: "history",
@@ -111,7 +117,7 @@ export class PostProcessSubgraphBuilder {
 				{ includeMipMode: true },
 			);
 			addResource({
-				id: `transient:${descriptor.id}`,
+				id: renderGraphResourceId(`transient:${descriptor.id}`),
 				origin: "graph",
 				kind: "texture",
 				residency: "transient",
@@ -124,13 +130,13 @@ export class PostProcessSubgraphBuilder {
 		}
 
 		const nodes: RenderGraphNode<PostProcessSubgraphNodePayload>[] = [];
-		let currentColor = "scene-color";
-		let previousNodeId: string | null = null;
+		let currentColor = renderGraphResourceId("scene-color");
+		let previousNodeId: RenderGraphNodeId | null = null;
 		for (let index = 0; index < graph.passes.length; index++) {
 			const pass = graph.passes[index];
 			const declaration = pass.declaration;
 			const color = declaration.color;
-			const nodeId = `pass:${pass.id}`;
+			const nodeId = renderGraphNodeId(`pass:${pass.id}`);
 			const refs: RenderGraphResourceRef[] = [];
 			const inputColor = color.access === "none" ? null : currentColor;
 			if (inputColor) {
@@ -144,7 +150,9 @@ export class PostProcessSubgraphBuilder {
 				const semantic = gBufferUse.semantic;
 				const resourceSemantic = semantic === "world-position" ? "depth" : semantic;
 				refs.push({
-					resource: semantic === "color" ? "scene-color" : `gbuffer:${resourceSemantic}`,
+					resource: renderGraphResourceId(
+						semantic === "color" ? "scene-color" : `gbuffer:${resourceSemantic}`,
+					),
 					access: gBufferUse.access,
 					usage: gBufferUse.usage,
 					optional: gBufferUse.optional,
@@ -154,20 +162,25 @@ export class PostProcessSubgraphBuilder {
 			this._appendTransientRefs(refs, declaration.transients ?? []);
 			for (const shared of declaration.shared ?? []) {
 				addResource({
-					id: shared.id,
+					id: renderGraphResourceId(shared.id),
 					origin: "imported",
 					kind: "external",
 					residency: "external",
 					initialContent: "unknown",
 					optional: shared.optional,
 				}, "backend-shared");
-				refs.push({ resource: shared.id, access: shared.access, usage: shared.usage, optional: shared.optional });
+				refs.push({
+					resource: renderGraphResourceId(shared.id),
+					access: shared.access,
+					usage: shared.usage,
+					optional: shared.optional,
+				});
 			}
 
-			const creates: string[] = [];
-			let plannedOutputColor: string | null = null;
+			const creates: RenderGraphResourceId[] = [];
+			let plannedOutputColor: RenderGraphResourceId | null = null;
 			if (color.output === "new-version") {
-				plannedOutputColor = `color:${index}`;
+				plannedOutputColor = renderGraphResourceId(`color:${index}`);
 				addResource({
 					id: plannedOutputColor,
 					origin: "graph",
@@ -265,7 +278,7 @@ export class PostProcessSubgraphBuilder {
 	): void {
 		for (const use of uses) {
 			refs.push({
-				resource,
+				resource: renderGraphResourceId(resource),
 				access: use.access,
 				usage: use.usage,
 				optional: use.optional,

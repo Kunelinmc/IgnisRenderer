@@ -16,6 +16,7 @@ import type {
 	RenderGraphExport,
 	RenderGraphPhysicalBinding,
 	RenderGraphResourceDescriptor,
+	RenderGraphResourceId,
 } from "../../../rendergraph/types";
 
 export const WEBGPU_FRAME_GRAPH_NODE_KINDS = [
@@ -113,7 +114,7 @@ export interface WebGPUComposedFrameGraphStage {
 		WebGPUFrameGraphNode,
 		WebGPUFrameGraphNodeKind
 	>;
-	readonly inputs: Readonly<Record<string, string>>;
+	readonly inputs: Readonly<Record<string, RenderGraphResourceId>>;
 }
 
 export interface WebGPUFrameGraphStagePlan {

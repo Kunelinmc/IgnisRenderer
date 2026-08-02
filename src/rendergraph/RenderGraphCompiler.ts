@@ -14,8 +14,12 @@ import type {
 	RenderGraphExport,
 	RenderGraphLiveRange,
 	RenderGraphNode,
+	RenderGraphNodeId,
 	RenderGraphPhysicalBinding,
+	RenderGraphPhysicalResourceId,
+	RenderGraphPortResolution,
 	RenderGraphResourceDescriptor,
+	RenderGraphResourceId,
 	RenderGraphResourceMutation,
 	RenderGraphSubresourceLiveRange,
 	RenderGraphTransition,
@@ -46,7 +50,7 @@ export class RenderGraphCompiler {
 				resource: port.resource,
 			})),
 		], resources, diagnostics);
-		const declarationIndex = new Map<string, number>();
+		const declarationIndex = new Map<RenderGraphNodeId, number>();
 		for (let index = 0; index < nodes.length; index++) {
 			declarationIndex.set(nodes[index].id, index);
 		}
@@ -137,7 +141,7 @@ function collectResources(
 	diagnostics: RenderGraphDiagnostic[],
 	shadowDiagnostics: RenderGraphDiagnostic[],
 ): RenderGraphResourceDescriptor[] {
-	const resources = new Map<string, RenderGraphResourceDescriptor>();
+	const resources = new Map<RenderGraphResourceId, RenderGraphResourceDescriptor>();
 	for (const descriptor of input) {
 		if (resources.has(descriptor.id)) {
 			diagnostics.push(errorDiagnostic(
@@ -205,7 +209,10 @@ function collectBindings(
 ): RenderGraphPhysicalBinding[] {
 	const descriptors = new Map(resources.map((resource) => [resource.id, resource]));
 	const bindings = new Map<string, RenderGraphPhysicalBinding>();
-	const descriptorsByPhysical = new Map<string, RenderGraphResourceDescriptor>();
+	const descriptorsByPhysical = new Map<
+		RenderGraphPhysicalResourceId,
+		RenderGraphResourceDescriptor
+	>();
 	for (const binding of input) {
 		if (
 			!binding.physicalId ||
@@ -293,7 +300,7 @@ function collectNodes<TPayload, TKind extends string>(
 	input: readonly RenderGraphNode<TPayload, TKind>[],
 	diagnostics: RenderGraphDiagnostic[],
 ): RenderGraphNode<TPayload, TKind>[] {
-	const nodes = new Map<string, RenderGraphNode<TPayload, TKind>>();
+	const nodes = new Map<RenderGraphNodeId, RenderGraphNode<TPayload, TKind>>();
 	for (const node of input) {
 		if (nodes.has(node.id)) {
 			diagnostics.push(errorDiagnostic(
@@ -343,12 +350,7 @@ function collectExports(
 }
 
 function collectPortResolutions(
-	input: readonly {
-		readonly namespace?: string;
-		readonly direction: "import" | "export";
-		readonly port: string;
-		readonly resource: string;
-	}[],
+	input: readonly RenderGraphPortResolution[],
 	resources: readonly RenderGraphResourceDescriptor[],
 	diagnostics: RenderGraphDiagnostic[],
 ) {
@@ -380,12 +382,12 @@ function collectPortResolutions(
 
 function stableOrder<TPayload, TKind extends string>(
 	nodes: readonly RenderGraphNode<TPayload, TKind>[],
-	declarationIndex: ReadonlyMap<string, number>,
+	declarationIndex: ReadonlyMap<RenderGraphNodeId, number>,
 	diagnostics: RenderGraphDiagnostic[],
 	dependencies: RenderGraphDependency[],
 ): RenderGraphNode<TPayload, TKind>[] {
 	const byId = new Map(nodes.map((node) => [node.id, node]));
-	const dependents = new Map<string, string[]>();
+	const dependents = new Map<RenderGraphNodeId, RenderGraphNodeId[]>();
 	const indegree = new Map(nodes.map((node) => [node.id, 0]));
 	for (const node of nodes) {
 		for (const dependencyId of node.dependsOn ?? []) {
@@ -528,7 +530,7 @@ function inferDependencies(
 }
 
 function createInferredDependency(
-	fromNodeId: string,
+	fromNodeId: RenderGraphNodeId,
 	transition: RenderGraphTransition,
 	kind: RenderGraphDependency["kind"],
 ): RenderGraphDependency {
@@ -561,9 +563,9 @@ function collectReachableNodeIds<TPayload, TKind extends string>(
 	dependencies: readonly RenderGraphDependency[],
 	exports: readonly RenderGraphExport[],
 	resources: readonly RenderGraphResourceDescriptor[],
-): Set<string> {
-	const reachable = new Set<string>();
-	const pending: string[] = [];
+): Set<RenderGraphNodeId> {
+	const reachable = new Set<RenderGraphNodeId>();
+	const pending: RenderGraphNodeId[] = [];
 	for (const node of nodes) {
 		if (mustAlwaysRetain(node, resources)) {
 			reachable.add(node.id);
@@ -591,7 +593,7 @@ function collectReachableNodeIds<TPayload, TKind extends string>(
 			break;
 		}
 	}
-	const predecessors = new Map<string, string[]>();
+	const predecessors = new Map<RenderGraphNodeId, RenderGraphNodeId[]>();
 	for (const dependency of dependencies) {
 		const entries = predecessors.get(dependency.toNodeId) ?? [];
 		entries.push(dependency.fromNodeId);
@@ -631,7 +633,7 @@ function appendPhysicalFeedbackDiagnostics<TPayload, TKind extends string>(
 	diagnostics: RenderGraphDiagnostic[],
 ): void {
 	const descriptorById = new Map(resources.map((resource) => [resource.id, resource]));
-	const transitionsByNode = new Map<string, RenderGraphTransition[]>();
+	const transitionsByNode = new Map<RenderGraphNodeId, RenderGraphTransition[]>();
 	for (const transition of transitions) {
 		const entries = transitionsByNode.get(transition.nodeId) ?? [];
 		entries.push(transition);
@@ -639,7 +641,7 @@ function appendPhysicalFeedbackDiagnostics<TPayload, TKind extends string>(
 	}
 	for (const node of nodes) {
 		if (node.internalAccesses === "ordered") continue;
-		const sampled = new Map<string, string>();
+		const sampled = new Map<string, RenderGraphResourceId>();
 		for (const transition of transitionsByNode.get(node.id) ?? []) {
 			if (transition.access === "write" || transition.usage !== "sampled") continue;
 			const physicalId = transition.physicalId ??

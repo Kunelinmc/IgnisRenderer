@@ -8,6 +8,10 @@ import type {
 	RenderGraphPhysicalBinding,
 	RenderGraphResourceDescriptor,
 } from "../../rendergraph/types";
+import {
+	renderGraphPhysicalResourceId,
+	renderGraphResourceId,
+} from "../../rendergraph/types";
 import type {
 	WebGLFrameGraphResourceCatalogSnapshot,
 } from "./rendergraph/types";
@@ -132,7 +136,7 @@ export class WebGLFrameTargetManager implements WebGLFrameTargetLifecycleHost {
 			if (!handle && !options.declareWithoutHandle) return;
 			const physicalId = options.physicalId ?? `webgl:slot:${id}`;
 			resources.push({
-				id,
+				id: renderGraphResourceId(id),
 				origin: "imported",
 				kind: "texture",
 				residency: "frame",
@@ -148,8 +152,8 @@ export class WebGLFrameTargetManager implements WebGLFrameTargetLifecycleHost {
 				}),
 			});
 			bindings.push({
-				resourceId: id,
-				physicalId,
+				resourceId: renderGraphResourceId(id),
+				physicalId: renderGraphPhysicalResourceId(physicalId),
 				kind: "texture",
 			});
 			if (handle) this._graphPhysicalResources.set(physicalId, handle);
@@ -184,7 +188,7 @@ export class WebGLFrameTargetManager implements WebGLFrameTargetLifecycleHost {
 			);
 		}
 		resources.push({
-			id: "canvas:color",
+			id: renderGraphResourceId("canvas:color"),
 			origin: "imported",
 			kind: "texture",
 			residency: "external",
@@ -197,8 +201,8 @@ export class WebGLFrameTargetManager implements WebGLFrameTargetLifecycleHost {
 			mipLevelCount: 1,
 		});
 		bindings.push({
-			resourceId: "canvas:color",
-			physicalId: "webgl:canvas-color",
+			resourceId: renderGraphResourceId("canvas:color"),
+			physicalId: renderGraphPhysicalResourceId("webgl:canvas-color"),
 			kind: "texture",
 		});
 		return Object.freeze({

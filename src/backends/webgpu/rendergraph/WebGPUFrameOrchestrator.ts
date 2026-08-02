@@ -31,6 +31,7 @@ import type {
 	RenderGraphDiagnostic,
 	RenderGraphResourceDescriptor,
 } from "../../../rendergraph/types";
+import { renderGraphResourceId } from "../../../rendergraph/types";
 import { createWebGPUPostProcessGraphComposition } from "./WebGPUPostProcessGraphAdapter";
 
 import {
@@ -1284,7 +1285,10 @@ export class WebGPUFrameOrchestrator {
 			bindings: catalog.bindings,
 			stages,
 			exports: [
-				{ name: "presented-color", resource: WEBGPU_FRAME_GRAPH_RESOURCES.canvasColor },
+				{
+					name: "presented-color",
+					resource: renderGraphResourceId(WEBGPU_FRAME_GRAPH_RESOURCES.canvasColor),
+				},
 			],
 			completeness: hasOpaqueStage ? "opaque" : "complete",
 			shadowDiagnostics,

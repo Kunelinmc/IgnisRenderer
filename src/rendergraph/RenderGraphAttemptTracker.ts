@@ -1,8 +1,11 @@
 import type {
 	CompiledRenderGraph,
 	RenderGraphAnalysisSnapshot,
+	RenderGraphNodeId,
+	RenderGraphPhysicalResourceId,
 	RenderGraphResourceAlias,
 	RenderGraphResourceDebugState,
+	RenderGraphResourceId,
 	RenderGraphTrackerDebugState,
 } from "./types";
 
@@ -30,7 +33,7 @@ export class RenderGraphAttemptTracker {
 	}
 
 	public recordSkippedNode(
-		nodeId: string,
+		nodeId: RenderGraphNodeId,
 		aliases: readonly RenderGraphResourceAlias[] = [],
 	): void {
 		if (this._state !== "active" || !this._current) {
@@ -154,9 +157,9 @@ function createResourceStates(
 
 function resolvePhysicalId(
 	graph: CompiledRenderGraph,
-	resourceId: string,
+	resourceId: RenderGraphResourceId,
 	generation: number,
-): string | undefined {
+): RenderGraphPhysicalResourceId | undefined {
 	return graph.bindings.find(
 		(binding) => binding.resourceId === resourceId && binding.generation === generation,
 	)?.physicalId ?? graph.bindings.find(

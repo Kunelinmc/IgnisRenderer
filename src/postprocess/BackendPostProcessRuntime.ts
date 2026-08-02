@@ -1,4 +1,5 @@
 import type { FrameContext } from "../pipeline/types";
+import { renderGraphResourceId } from "../rendergraph/types";
 import {
 	PostProcessPlanner,
 	type PostProcessDeclarationPlan,
@@ -136,13 +137,13 @@ export class BackendPostProcessRuntime {
 	}
 
 	private _createExecutionPlan(graph: PostProcessPlan): PostProcessExecutionFrame {
-		let currentColor = "scene-color";
+		let currentColor = renderGraphResourceId("scene-color");
 		const nodes = graph.passes.map((pass, index) => {
 			const inputColor = pass.declaration.color.access === "none" ?
 				null : currentColor;
 			const plannedOutputColor =
 				pass.declaration.color.output === "new-version" ?
-					`color:${index}` : null;
+					renderGraphResourceId(`color:${index}`) : null;
 			if (plannedOutputColor) currentColor = plannedOutputColor;
 			return Object.freeze({
 				passId: pass.id,

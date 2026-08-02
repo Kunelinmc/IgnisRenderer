@@ -7,6 +7,7 @@ import type {
 	RenderGraphDiagnostic,
 	RenderGraphLiveRange,
 	RenderGraphNode,
+	RenderGraphNodeId,
 	RenderGraphNormalizedSubresourceRange,
 	RenderGraphPhysicalBinding,
 	RenderGraphResourceDebugState,
@@ -26,12 +27,12 @@ import {
 interface MutableRenderGraphLiveRange {
 	resourceId: RenderGraphResourceId;
 	generation: number;
-	firstNodeId: string;
-	lastNodeId: string;
-	createdByNodeId?: string;
-	firstUseNodeId?: string;
-	lastUseNodeId?: string;
-	destroyedByNodeId?: string;
+	firstNodeId: RenderGraphNodeId;
+	lastNodeId: RenderGraphNodeId;
+	createdByNodeId?: RenderGraphNodeId;
+	firstUseNodeId?: RenderGraphNodeId;
+	lastUseNodeId?: RenderGraphNodeId;
+	destroyedByNodeId?: RenderGraphNodeId;
 }
 
 interface RenderGraphAnalyzerResourceState {
@@ -40,7 +41,7 @@ interface RenderGraphAnalyzerResourceState {
 	generation: number;
 	everActivated: boolean;
 	content: RenderGraphContentState;
-	lastNodeId: string | null;
+	lastNodeId: RenderGraphNodeId | null;
 	lastEvent: RenderGraphResourceDebugState["lastAccess"];
 	lastAccess: RenderGraphAccess | null;
 	lastUsage: RenderGraphUsage | null;
@@ -51,7 +52,7 @@ interface RenderGraphAnalyzerResourceState {
 }
 
 interface RenderGraphAnalyzerAccessState {
-	readonly nodeId: string;
+	readonly nodeId: RenderGraphNodeId;
 	readonly resourceId: RenderGraphResourceId;
 	readonly generation: number;
 	readonly access: RenderGraphAccess;
@@ -78,8 +79,8 @@ export class RenderGraphAnalyzer<TPayload = unknown, TKind extends string = stri
 	private readonly _diagnostics: RenderGraphDiagnostic[] = [];
 	private readonly _liveRanges: MutableRenderGraphLiveRange[] = [];
 	private readonly _liveRangeByGeneration = new Map<string, MutableRenderGraphLiveRange>();
-	private readonly _nodeIds = new Set<string>();
-	private readonly _orderedNodeIds: string[] = [];
+	private readonly _nodeIds = new Set<RenderGraphNodeId>();
+	private readonly _orderedNodeIds: RenderGraphNodeId[] = [];
 	private readonly _bindings = new Map<string, RenderGraphPhysicalBinding>();
 	private readonly _accessHistory = new Map<string, RenderGraphAnalyzerAccessState[]>();
 	private _completeness: RenderGraphAnalysisCompleteness = "complete";
@@ -597,9 +598,9 @@ export class RenderGraphAnalyzer<TPayload = unknown, TKind extends string = stri
 
 	private _touchLiveRange(
 		state: RenderGraphAnalyzerResourceState,
-		nodeId: string,
+		nodeId: RenderGraphNodeId,
 		options: {
-			readonly createdByNodeId?: string;
+			readonly createdByNodeId?: RenderGraphNodeId;
 			readonly use?: boolean;
 		} = {},
 	): MutableRenderGraphLiveRange {

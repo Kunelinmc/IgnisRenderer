@@ -14,6 +14,7 @@ import type {
 	RenderGraphDiagnostic,
 	RenderGraphResourceDescriptor,
 } from "../../../rendergraph/types";
+import { renderGraphResourceId } from "../../../rendergraph/types";
 import { WebGLFrameGraphCompiler } from "./WebGLFrameGraphCompiler";
 import { WebGLFrameGraphPlanner } from "./WebGLFrameGraphPlanner";
 import { createWebGLPostProcessGraphComposition } from "./WebGLPostProcessGraphAdapter";
@@ -371,7 +372,10 @@ export class WebGLFrameGraphRuntime {
 			resources: [...catalog.resources, ...postProcessImportResources],
 			bindings: catalog.bindings,
 			stages,
-			exports: [{ name: "presented-color", resource: "canvas:color" }],
+			exports: [{
+				name: "presented-color",
+				resource: renderGraphResourceId("canvas:color"),
+			}],
 			completeness: hasOpaqueStage ? "opaque" : "complete",
 			shadowDiagnostics,
 		};

@@ -1,12 +1,19 @@
 import { RenderGraphAttemptTracker } from "../../../rendergraph/RenderGraphAttemptTracker";
 import { RenderGraphBuilder } from "../../../rendergraph/RenderGraphBuilder";
 import { RenderGraphCompiler } from "../../../rendergraph/RenderGraphCompiler";
+import {
+	renderGraphNodeId,
+	renderGraphPhysicalResourceId,
+	renderGraphResourceId,
+} from "../../../rendergraph/types";
 import type {
 	CompiledRenderGraph,
 	RenderGraphDefinition,
 	RenderGraphDiagnostic,
 	RenderGraphNode,
+	RenderGraphNodeId,
 	RenderGraphResourceDescriptor,
+	RenderGraphResourceId,
 	RenderGraphResourceRef,
 	RenderGraphTrackerDebugState,
 	RenderGraphTransition,
@@ -58,7 +65,7 @@ export class WebGPUFrameGraphCompiler {
 			resources: this._legacyResources,
 			bindings: this._legacyResources.map((resource) => ({
 				resourceId: resource.id,
-				physicalId: `webgpu:${resource.id}`,
+				physicalId: renderGraphPhysicalResourceId(`webgpu:${resource.id}`),
 				kind: resource.kind,
 			})),
 			stages: [],
@@ -68,7 +75,9 @@ export class WebGPUFrameGraphCompiler {
 	/** @internal Legacy test adapter; production backends must use `compileFrame`. */
 	public compileStage(plan: WebGPUFrameGraphStagePlan): WebGPUCompiledFrameGraphStage {
 		this._legacyStages.push(plan);
-		const knownResources = new Set(this._legacyResources.map((resource) => resource.id));
+		const knownResources = new Set<string>(
+			this._legacyResources.map((resource) => resource.id),
+		);
 		for (const node of plan.nodes) {
 			const referenced = [
 				...(node.creates ?? []).map((mutation) => mutation.id),
@@ -80,7 +89,7 @@ export class WebGPUFrameGraphCompiler {
 				if (knownResources.has(id)) continue;
 				knownResources.add(id);
 				this._legacyResources.push({
-					id,
+					id: renderGraphResourceId(id),
 					origin: "graph",
 					kind: "external",
 					residency: "frame",
@@ -90,7 +99,7 @@ export class WebGPUFrameGraphCompiler {
 		}
 		const bindings = this._legacyResources.map((resource) => ({
 			resourceId: resource.id,
-			physicalId: `webgpu:${resource.id}`,
+			physicalId: renderGraphPhysicalResourceId(`webgpu:${resource.id}`),
 			kind: resource.kind,
 		}));
 		const compiled = this.compileFrame({
@@ -119,8 +128,11 @@ export class WebGPUFrameGraphCompiler {
 		resolvedResourceId?: string,
 	): void {
 		this._attempts.recordSkippedNode(
-			nodeId,
-			resourceId && resolvedResourceId ? [{ resourceId, resolvedResourceId }] : [],
+			renderGraphNodeId(nodeId),
+			resourceId && resolvedResourceId ? [{
+				resourceId: renderGraphResourceId(resourceId),
+				resolvedResourceId: renderGraphResourceId(resolvedResourceId),
+			}] : [],
 		);
 	}
 
@@ -182,7 +194,7 @@ export class WebGPUFrameGraphCompiler {
 
 interface BuiltWebGPUFrameDefinition {
 	readonly definition: RenderGraphDefinition<WebGPUFrameGraphNode, WebGPUFrameGraphNode["kind"]>;
-	readonly stageNodeIds: ReadonlyMap<WebGPUFrameGraphStagePlan, readonly string[]>;
+	readonly stageNodeIds: ReadonlyMap<WebGPUFrameGraphStagePlan, readonly RenderGraphNodeId[]>;
 }
 
 function createDefinition(
@@ -193,12 +205,12 @@ function createDefinition(
 	for (const binding of plan.bindings) builder.addBinding(binding);
 	for (const diagnostic of plan.shadowDiagnostics ?? []) builder.addShadowDiagnostic(diagnostic);
 	builder.markCompleteness(plan.completeness ?? "complete");
-	const stageNodeIds = new Map<WebGPUFrameGraphStagePlan, readonly string[]>();
-	const terminalByStage = new Map<string, string>();
+	const stageNodeIds = new Map<WebGPUFrameGraphStagePlan, readonly RenderGraphNodeId[]>();
+	const terminalByStage = new Map<string, RenderGraphNodeId>();
 	for (const stage of plan.stages) {
 		const dependencyNodes = (stage.pass.dependsOn ?? [])
 			.map((dependencyStage) => terminalByStage.get(dependencyStage))
-			.filter((nodeId): nodeId is string => !!nodeId);
+			.filter((nodeId): nodeId is RenderGraphNodeId => !!nodeId);
 		if (stage.composition) {
 			const composed = builder.addSubgraph(stage.composition.definition, {
 				namespace: stage.composition.namespace,
@@ -207,21 +219,24 @@ function createDefinition(
 			});
 			const ids = stage.composition.definition.nodes
 				.map((node) => composed.nodes[node.id])
-				.filter((nodeId): nodeId is string => !!nodeId);
+				.filter((nodeId): nodeId is RenderGraphNodeId => !!nodeId);
 			stageNodeIds.set(stage, Object.freeze(ids));
 			if (ids.length > 0) terminalByStage.set(stage.pass.stage, ids[ids.length - 1]);
 			continue;
 		}
-		let previousNodeId: string | null = null;
-		const ids: string[] = [];
+		let previousNodeId: RenderGraphNodeId | null = null;
+		const ids: RenderGraphNodeId[] = [];
 		for (let index = 0; index < stage.nodes.length; index++) {
 			const node = stage.nodes[index];
-			const dependsOn = new Set(node.dependsOn ?? []);
+			const sharedNodeId = renderGraphNodeId(node.id);
+			const dependsOn = new Set(
+				(node.dependsOn ?? []).map(renderGraphNodeId),
+			);
 			if (previousNodeId) dependsOn.add(previousNodeId);
 			if (index === 0) for (const dependencyNode of dependencyNodes) dependsOn.add(dependencyNode);
 			builder.addNode(toSharedNode(node, Array.from(dependsOn)));
-			ids.push(node.id);
-			previousNodeId = node.id;
+			ids.push(sharedNodeId);
+			previousNodeId = sharedNodeId;
 		}
 		stageNodeIds.set(stage, Object.freeze(ids));
 		if (previousNodeId) terminalByStage.set(stage.pass.stage, previousNodeId);
@@ -235,7 +250,7 @@ function createDefinition(
 
 function projectStage(
 	stage: WebGPUFrameGraphStagePlan,
-	stageNodeIds: readonly string[],
+	stageNodeIds: readonly RenderGraphNodeId[],
 	graph: CompiledRenderGraph<WebGPUFrameGraphNode, WebGPUFrameGraphNode["kind"]>,
 ): WebGPUCompiledFrameGraphStage {
 	const declaredIds = new Set(stageNodeIds);
@@ -260,17 +275,20 @@ function projectStage(
 
 function remapComposedNode(
 	stage: WebGPUFrameGraphStagePlan,
-	nodeId: string,
+	nodeId: RenderGraphNodeId,
 	node: WebGPUFrameGraphNode,
 ): WebGPUFrameGraphNode {
 	if (!stage.composition || !node.postProcess) return node.id === nodeId ? node : { ...node, id: nodeId };
-	const remapResource = (resourceId: string | null): string | null => {
+	const remapResource = (
+		resourceId: RenderGraphResourceId | null,
+	): RenderGraphResourceId | null => {
 		if (!resourceId) return null;
 		const port = stage.composition!.definition.imports?.find(
 			(candidate) => candidate.resource === resourceId,
 		);
-		return (port && stage.composition!.inputs[port.name]) ??
-			`${stage.composition!.namespace}:${resourceId}`;
+		return (port && stage.composition!.inputs[port.name]) ?? renderGraphResourceId(
+			`${stage.composition!.namespace}:${resourceId}`,
+		);
 	};
 	return {
 		...node,
@@ -285,7 +303,7 @@ function remapComposedNode(
 
 function toImportedDescriptor(id: WebGPUFrameGraphResourceId): RenderGraphResourceDescriptor {
 	return {
-		id,
+		id: renderGraphResourceId(id),
 		origin: "imported",
 		kind: "external",
 		residency: "frame",
@@ -293,11 +311,14 @@ function toImportedDescriptor(id: WebGPUFrameGraphResourceId): RenderGraphResour
 	};
 }
 
-function toSharedNode(node: WebGPUFrameGraphNode, dependsOn: readonly string[]): SharedWebGPUNode {
+function toSharedNode(
+	node: WebGPUFrameGraphNode,
+	dependsOn: readonly RenderGraphNodeId[],
+): SharedWebGPUNode {
 	const resources: RenderGraphResourceRef[] = [];
 	for (const ref of node.reads ?? []) {
 		resources.push({
-			resource: ref.id,
+			resource: renderGraphResourceId(ref.id),
 			access: "read",
 			usage: toSharedUsage(ref.usage),
 			optional: ref.optional,
@@ -305,14 +326,14 @@ function toSharedNode(node: WebGPUFrameGraphNode, dependsOn: readonly string[]):
 	}
 	for (const ref of node.writes ?? []) {
 		resources.push({
-			resource: ref.id,
+			resource: renderGraphResourceId(ref.id),
 			access: "write",
 			usage: toSharedUsage(ref.usage),
 			optional: ref.optional,
 		});
 	}
 	return {
-		id: node.id,
+		id: renderGraphNodeId(node.id),
 		stage: node.stage,
 		kind: node.kind,
 		label: node.label,
@@ -321,13 +342,13 @@ function toSharedNode(node: WebGPUFrameGraphNode, dependsOn: readonly string[]):
 		opaque: node.opaque,
 		dependsOn,
 		creates: node.creates?.map((mutation) => ({
-			resource: mutation.id,
+			resource: renderGraphResourceId(mutation.id),
 			usage: mutation.usage ? toSharedUsage(mutation.usage) : undefined,
 			optional: mutation.optional,
 		})),
 		resources,
 		destroys: node.destroys?.map((mutation) => ({
-			resource: mutation.id,
+			resource: renderGraphResourceId(mutation.id),
 			usage: mutation.usage ? toSharedUsage(mutation.usage) : undefined,
 			optional: mutation.optional,
 		})),

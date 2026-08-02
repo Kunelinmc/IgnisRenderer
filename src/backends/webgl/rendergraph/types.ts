@@ -12,6 +12,7 @@ import type {
 	RenderGraphExport,
 	RenderGraphPhysicalBinding,
 	RenderGraphResourceDescriptor,
+	RenderGraphResourceId,
 	RenderGraphTrackerDebugState,
 } from "../../../rendergraph/types";
 
@@ -101,7 +102,7 @@ export interface WebGLComposedFrameGraphStage {
 		WebGLFrameGraphNode,
 		WebGLFrameGraphNodeKind
 	>;
-	readonly inputs: Readonly<Record<string, string>>;
+	readonly inputs: Readonly<Record<string, RenderGraphResourceId>>;
 }
 
 export interface WebGLFrameGraphPlannerState {
