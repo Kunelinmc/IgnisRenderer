@@ -38,7 +38,7 @@ Standalone compute and post-process kernels generally use `group(0)` for
 pass-local resources. Some kernels use `group(1)` for the shared frame bind
 group.
 
-## API/Contract
+## Binding Tables
 
 ### Shared WGSL Math Constants
 
@@ -346,7 +346,7 @@ The supported `type` values are:
 `extraBindGroups` must not target group `0`, because group `0` is managed by
 the kernel schema.
 
-## Usage
+## Maintenance
 
 Use this command to verify WGSL binding declarations:
 
@@ -364,7 +364,7 @@ When adding a new binding, update the WGSL declaration, the TypeScript layout or
 kernel schema, the resource population site, and this document in the same
 change.
 
-## Errors & Diagnostics
+## Diagnostics
 
 - A shader validation error for a missing binding is triggered when WGSL
   declares a binding that is absent from the pipeline layout.
@@ -378,7 +378,7 @@ change.
   binding indices, unsupported binding types, missing required resources, or
   `extraBindGroups` targeting group `0`.
 
-## Compatibility / Breaking Changes
+## Compatibility
 
 Changing any binding index, group index, or resource type is a breaking shader
 contract change. A compatible change may add a binding only when every affected
@@ -391,3 +391,10 @@ The former monolithic `FrameUniforms` binding is split across
 binding `16`. Custom WGSL that reads lights, shadows, or probe data through
 `frame` must migrate those reads to `frameLights`, `frameShadows`, or
 `frameEnvironment`; camera and global setting fields remain on `frame`.
+
+## Related Documents
+
+- [WebGPU architecture](../architecture/webgpu.md)
+- [WebGPU contract](../contracts/webgpu.md)
+- [Shader contract](../contracts/shaders.md)
+- [Compute runtime guide](../public/compute-runtime.md)
