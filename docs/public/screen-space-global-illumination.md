@@ -58,4 +58,4 @@ but multiplies the trace work directly.
 
 The ray-marched implementation replaces the former screen-neighborhood gather.
 The removed options and their replacements are documented in
-`docs/internal/migrations/ssgi-ray-marching-migration.md`.
+`docs/migrations/ssgi-ray-marching-migration.md`.

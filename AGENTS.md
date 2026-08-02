@@ -20,24 +20,24 @@ reference documents when a task touches the relevant subsystem.
 These are contributor-facing project documents that `AGENTS.md` links as
 required references. Read them before changing related behavior:
 
-- `docs/internal/architecture/engine-architecture.md`: backend roles, ECS and
+- `docs/architecture/engine-architecture.md`: backend roles, ECS and
   scene graph synchronization, simulation ownership, foundation utilities,
   and workers.
-- `docs/internal/architecture/rendering-pipeline-and-shader-contracts.md`:
+- `docs/architecture/rendering-pipeline-and-shader-contracts.md`:
   frame pipeline stages, coordinate system, matrix conventions, color space,
   shader layout, vertex attributes, post-processing, and
   resource/performance constraints.
-- `docs/internal/contracts/core/renderer-contract.md`: renderer/backend
+- `docs/contracts/renderer-contract.md`: renderer/backend
   lifecycle, frame scheduling, device lifecycle, extension registry, and
   render target contracts.
-- `docs/internal/contracts/rendering/postprocess/backend-execution-contract.md`
+- `docs/contracts/backend-execution-contract.md`
   and
-  `docs/internal/contracts/rendering/postprocess/cross-backend-contract.md`:
+  `docs/contracts/cross-backend-contract.md`:
   post-process runtime ownership and cross-backend pass behavior.
 - `docs/contributing/commit-message-guidelines.md`: required commit header
   format, approved types, body/footer rules, and examples. Read before
   committing.
-- Backend-specific contract files in `docs/internal/contracts/` when changing
+- Backend-specific contract files in `docs/contracts/` when changing
   WebGPU, WebGL, Software, warmup, lighting, shadows, materials, or loader
   behavior.
 
@@ -128,13 +128,11 @@ required references. Read them before changing related behavior:
 - Use `docs/public/` only for consumer-facing documentation based on exports
   from `src/index.ts`.
 - Place normative implementation and backend contracts under
-  `docs/internal/contracts/`, architecture under
-  `docs/internal/architecture/`, maintainer references under
-  `docs/internal/reference/`, and migrations under
-  `docs/internal/migrations/`.
+  `docs/contracts/`, architecture under `docs/architecture/`, maintainer
+  references under `docs/reference/`, and migrations under `docs/migrations/`.
 - Place repository workflows under `docs/contributing/`. Documents that mix
   public behavior with implementation requirements must remain under
-  `docs/internal/contracts/` until their public guidance is split out.
+  `docs/contracts/` until their public guidance is split out.
 - Do not add documents directly under `docs/` except for `docs/README.md`.
 - Use English by default. Keep technical terms in their canonical form.
 - Every new or updated document in `docs/` must follow this section order:

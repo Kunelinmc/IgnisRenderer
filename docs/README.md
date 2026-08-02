@@ -13,7 +13,7 @@ The supported public API boundary is the package root exported by
 package entry points.
 
 Existing documents that combine public behavior with backend or implementation
-requirements remain intact under `internal/contracts/`. They may be split into
+requirements remain intact under `contracts/`. They may be split into
 dedicated public documentation in a later documentation phase.
 
 ## API/Contract
@@ -23,10 +23,10 @@ Documentation must be placed according to its primary audience and purpose:
 | Directory | Content |
 | --- | --- |
 | `public/` | Consumer-facing API documentation and usage guides |
-| `internal/architecture/` | Engine and rendering architecture |
-| `internal/contracts/` | Normative implementation and backend contracts |
-| `internal/reference/` | Maintainer reference material |
-| `internal/migrations/` | Historical and active migration contracts |
+| `architecture/` | Engine and rendering architecture |
+| `contracts/` | Normative implementation and backend contracts |
+| `reference/` | Maintainer reference material |
+| `migrations/` | Historical and active migration contracts |
 | `contributing/` | Repository contribution workflows |
 
 New documents must not be added directly under `docs/` except for this entry
@@ -36,25 +36,26 @@ point.
 
 Package consumers should start with:
 
-- [Renderer API](public/apis/renderer.md)
-- [Interaction API](public/apis/interaction.md)
-- [ComputeRuntime usage](public/guides/compute-runtime-interface-usage.md)
+- [Renderer API](public/renderer.md)
+- [Interaction API](public/interaction.md)
+- [ComputeRuntime usage](public/compute-runtime-interface-usage.md)
 
 Contributors should start with:
 
-- [Engine architecture](internal/architecture/engine-architecture.md)
-- [Rendering contracts](internal/architecture/rendering-pipeline-and-shader-contracts.md)
-- [Renderer and backend core contract](internal/contracts/core/renderer-contract.md)
+- [Engine architecture](architecture/engine-architecture.md)
+- [Rendering contracts](architecture/rendering-pipeline-and-shader-contracts.md)
+- [Renderer and backend core contract](contracts/renderer-contract.md)
 - [Commit message guidelines](contributing/commit-message-guidelines.md)
 
 ## Errors & Diagnostics
 
 If a documentation link fails after the directory migration, search for the
-unchanged filename under `docs/public/`, `docs/internal/`, or
-`docs/contributing/`. Repository references must use the new canonical path.
+unchanged filename under `docs/public/`, `docs/contracts/`, or another
+top-level documentation category. Repository references must use the new
+canonical path.
 
 Documents that primarily specify implementation behavior must be moved to the
-appropriate `internal/contracts/` subsystem instead of being added to
+appropriate `contracts/` subsystem instead of being added to
 `public/`.
 
 ## Compatibility / Breaking Changes

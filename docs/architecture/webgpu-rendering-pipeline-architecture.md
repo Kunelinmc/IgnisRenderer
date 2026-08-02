@@ -330,11 +330,11 @@ Read these normative references before changing the corresponding behavior:
 - [Engine architecture](engine-architecture.md)
 - [Rendering pipeline and shader contracts](rendering-pipeline-and-shader-contracts.md)
 - [Internal Render Graph architecture](internal-render-graph-architecture.md)
-- [Renderer and backend core contract](../contracts/core/renderer-contract.md)
-- [WebGPU internal frame graph contract](../contracts/rendering/backends/webgpu/webgpu-internal-frame-graph-contract.md)
-- [WebGPU deferred lighting contract](../contracts/rendering/backends/webgpu/webgpu-deferred-lighting-contract.md)
-- [Post-process backend execution contract](../contracts/rendering/postprocess/backend-execution-contract.md)
-- [Post-process cross-backend contract](../contracts/rendering/postprocess/cross-backend-contract.md)
+- [Renderer and backend core contract](../contracts/renderer-contract.md)
+- [WebGPU internal frame graph contract](../contracts/webgpu-internal-frame-graph-contract.md)
+- [WebGPU deferred lighting contract](../contracts/webgpu-deferred-lighting-contract.md)
+- [Post-process backend execution contract](../contracts/backend-execution-contract.md)
+- [Post-process cross-backend contract](../contracts/cross-backend-contract.md)
 
 Relevant validation commands are:
 
