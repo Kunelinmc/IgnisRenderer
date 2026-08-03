@@ -101,9 +101,6 @@ export class WebGPUOcclusionCullingRuntime {
 		this._lastCompletedFrameIndex = -1;
 	}
 
-	public invalidateFrameResources(): void {
-	}
-
 	public onShaderRuntimeChanged(): void {
 		this._destroyPipeline(this._occlusionPipeline);
 		this._destroyShaderModule(this._occlusionModule);
@@ -113,7 +110,6 @@ export class WebGPUOcclusionCullingRuntime {
 
 	public destroy(): void {
 		this.resetVisibility();
-		this.invalidateFrameResources();
 		this._destroyBuffer(this._candidateBuffer);
 		this._destroyBuffer(this._resultBuffer);
 		this._destroyBuffer(this._paramsBuffer);

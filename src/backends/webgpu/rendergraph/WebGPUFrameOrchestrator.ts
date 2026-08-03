@@ -1062,7 +1062,6 @@ export class WebGPUFrameOrchestrator {
 				},
 			},
 			{
-				invalidateFrameResources: () => this._occlusionRuntime.invalidateFrameResources(),
 				onShaderRuntimeChanged: () => {
 					this._hiZBuilder.invalidateShaderResources();
 					this._occlusionRuntime.onShaderRuntimeChanged();
@@ -1512,7 +1511,6 @@ export class WebGPUFrameOrchestrator {
 		this._motionHistoryWriteTarget = null;
 		this._postBridge.clearPendingFrameState();
 		this._deferredOpaqueFrameState = null;
-		this._occlusionRuntime.invalidateFrameResources();
 	}
 
 	private _clearActiveSession(flushPendingLifecycle = true): void {
