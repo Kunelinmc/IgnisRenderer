@@ -192,14 +192,16 @@ required references. Read them before changing related behavior:
 ## Collaboration Workflow
 
 1. Keep changes scoped to the requested subsystem and existing architecture.
-2. Do not modify files, launch Playwright browser tests, or install modules
+2. When adding features, do not optimize solely for delivery speed. Evaluate
+   architectural fit, extensibility, maintainability, and long-term tradeoffs.
+3. Do not modify files, launch Playwright browser tests, or install modules
    unless the user explicitly requests that specific action.
-3. Avoid large-scale refactoring unless explicitly requested.
-4. Add or update regression tests for new behavior and bug fixes.
-5. When changing public APIs or behavior, update relevant `docs/` first, then
+4. Avoid large-scale refactoring unless explicitly requested.
+5. Add or update regression tests for new behavior and bug fixes.
+6. When changing public APIs or behavior, update relevant `docs/` first, then
    update tests in the same change.
-6. Update `AGENTS.md` only when high-priority agent guidance changes.
-7. When architecture changes, audit stale descriptions in `AGENTS.md`, `docs/`,
+7. Update `AGENTS.md` only when high-priority agent guidance changes.
+8. When architecture changes, audit stale descriptions in `AGENTS.md`, `docs/`,
    `README*.md`, and relevant code comments.
 
 ## Commit Message Guidelines
