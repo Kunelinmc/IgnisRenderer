@@ -267,7 +267,7 @@ console.assert(material.depthWrite === false);
 
 ```bash
 bun tests/static/shaders/test_shader_material.mjs
-bun tests/static/webgpu/test_webgpu_bridge.mjs
+bun tests/static/webgpu/test_webgpu_bridge_material_pipelines.mjs
 bun tests/static/software/test_software_early_z_prepass.mjs
 ```
 
@@ -342,8 +342,8 @@ and preserve prior rendering behavior.
 ## Verification
 
 ```bash
-bun tests/static/webgpu/test_webgpu_bridge.mjs
-bun tests/static/webgl/test_webgl_backend_v2.mjs
+bun tests/static/webgpu/test_webgpu_bridge_material_pipelines.mjs
+bun tests/static/webgl/test_webgl_backend_material_early_z.mjs
 bunx tsc --noEmit
 ```
 

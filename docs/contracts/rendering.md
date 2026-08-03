@@ -456,11 +456,11 @@ fn fsDepthMask() {
 bun tests/static/software/test_software_early_z_prepass.mjs
 
 # WebGL Backend tests
-bun tests/static/webgl/test_webgl_backend_v2.mjs
+bun tests/static/webgl/test_webgl_backend_material_early_z.mjs
 
 # WebGPU Backend tests
-bun tests/static/webgpu/test_webgpu_bridge.mjs
-bun tests/static/webgpu/test_webgpu_frame_executor_resilience.mjs
+bun tests/static/webgpu/test_webgpu_bridge_material_pipelines.mjs
+bun tests/static/webgpu/test_webgpu_frame_executor_targets_msaa.mjs
 ```
 
 ### Projected decals
@@ -621,8 +621,8 @@ change; until then, WebGL must ignore decals without changing frame output.
 ## Verification
 
 ```bash
-bun tests/static/webgpu/test_webgpu_bridge.mjs
-bun tests/static/webgl/test_webgl_backend_v2.mjs
+bun tests/run_all.mjs tests/static/webgpu
+bun tests/run_all.mjs tests/static/webgl
 bunx tsc --noEmit
 ```
 

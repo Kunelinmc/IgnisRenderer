@@ -121,8 +121,8 @@ This document defines the current WebGL backend lifecycle, frame graph, resource
   attachment counts beyond `MAX_DRAW_BUFFERS` or `MAX_COLOR_ATTACHMENTS`, and
   incomplete framebuffers.
 - WebGL custom render passes must set the viewport from their attachments,
-  enable scissor testing when a scissor rect is set, and restore the
-  frame-executor baseline state on success or failure.
+	enable scissor testing when a scissor rect is set, and restore the
+	frame-executor baseline state on success or failure.
 - WebGL custom render passes must reject compute commands, texture copies,
   resolve targets, non-zero `baseVertex`, and non-zero `firstInstance`.
 - WebGL custom target readback must preserve native bottom-left row order and
@@ -267,7 +267,7 @@ renderer.requestRender();
 ```
 
 ```bash
-bun tests/static/webgl/test_webgl_backend_v2.mjs
+bun tests/run_all.mjs tests/static/webgl
 bun tests/static/webgl/test_webgl_frame_executor_fxaa.mjs
 ```
 
@@ -371,7 +371,7 @@ bun tests/static/webgl/test_webgl_frame_graph_runtime.mjs
   instances registered through `renderer.postProcess.registerPass(pass)`.
 - Forward-lighting point-light budget changed from `4` to `16` to match the
   WebGPU backend budget.
-- Test entrypoint is `tests/static/webgl/test_webgl_backend_v2.mjs`.
+- Test entrypoints use the `tests/static/webgl/test_webgl_backend_*.mjs` prefix.
 - WebGL applications on runtimes with fewer than five color attachments retain
   the existing `color`, `depth`, `motion`, and `normal` bridge channels. Passes
   requiring omitted material channels are skipped through the shared
@@ -396,7 +396,7 @@ the internal frame-service lifecycle.
 ## Verification
 
 ```bash
-bun tests/static/webgl/test_webgl_backend_v2.mjs
+bun tests/run_all.mjs tests/static/webgl
 bun tests/static/webgl/test_webgl_backend_stub.mjs
 bunx tsc --noEmit
 ```

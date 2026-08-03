@@ -377,7 +377,7 @@ const backend = new WebGPUBackend({
 bun tests/static/webgpu/test_webgpu_frame_graph_compiler.mjs
 bun tests/static/webgpu/test_webgpu_frame_graph_planner.mjs
 bun tests/static/webgpu/test_webgpu_frame_node_executor_registry.mjs
-bun tests/static/webgpu/test_webgpu_frame_executor_resilience.mjs
+bun tests/static/webgpu/test_webgpu_frame_executor_whole_frame_planning.mjs
 ```
 
 ### Deferred lighting
@@ -409,8 +409,8 @@ const material = new ShaderMaterial({
 
 ```bash
 bun tests/static/shaders/test_shader_material.mjs
-bun tests/static/webgpu/test_webgpu_bridge.mjs
-bun tests/static/webgpu/test_webgpu_frame_executor_resilience.mjs
+bun tests/static/webgpu/test_webgpu_bridge_material_pipelines.mjs
+bun tests/static/webgpu/test_webgpu_frame_executor_transparency_deferred.mjs
 ```
 
 ### MSAA configuration
@@ -440,7 +440,7 @@ const mirror = new Material({
 
 ```bash
 bun tests/static/renderer/test_backend_capabilities.mjs
-bun tests/static/webgpu/test_webgpu_frame_executor_resilience.mjs
+bun tests/static/webgpu/test_webgpu_frame_executor_reflection_refraction.mjs
 ```
 
 The WebGPU frame planner should schedule the `reflection` frame pass when
@@ -639,7 +639,7 @@ at bindings `14`, `15`, and `16` respectively.
 ## Verification
 
 ```bash
-bun tests/static/webgpu/test_webgpu_bridge.mjs
+bun tests/run_all.mjs tests/static/webgpu
 bun tests/static/webgpu/test_webgpu_post_graph.mjs
 bunx tsc --noEmit
 ```

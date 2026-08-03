@@ -70,9 +70,9 @@ required references. Read them before changing related behavior:
   `bun tests/static/animation/test_animation_state_blendtree.mjs`
 - Physics: `bun tests/static/physics/test_physics_system_bindings.mjs`,
   `bun tests/static/physics/test_physics_adapter_contract.mjs`
-- WebGPU: `bun tests/static/webgpu/test_webgpu_bridge.mjs`,
+- WebGPU: `bun tests/run_all.mjs tests/static/webgpu`,
   `bun tests/static/webgpu/test_webgpu_post_graph.mjs`
-- WebGL: `bun tests/static/webgl/test_webgl_backend_v2.mjs`,
+- WebGL: `bun tests/run_all.mjs tests/static/webgl`,
   `bun tests/static/webgl/test_webgl_backend_stub.mjs`
 
 ## Code Style Guidelines

@@ -187,8 +187,9 @@ void main() {
 ```bash
 bun tests/static/shaders/test_shader_material.mjs
 bun tests/static/shaders/test_shader_runtime.mjs
-bun tests/static/webgpu/test_webgpu_bridge.mjs
-bun tests/static/webgl/test_webgl_backend_v2.mjs
+bun tests/static/webgpu/test_webgpu_bridge_shader_contracts.mjs
+bun tests/static/webgl/test_webgl_backend_program_library.mjs
+bun tests/static/webgl/test_webgl_backend_scene_shadow_contracts.mjs
 ```
 
 ## Diagnostics

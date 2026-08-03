@@ -293,7 +293,7 @@ The feature is additive. Existing opaque shadow behavior must remain unchanged.
 
 ```bash
 bun run test:lighting
-bun tests/static/webgpu/test_webgpu_bridge.mjs
+bun tests/static/webgpu/test_webgpu_bridge_lighting_environment.mjs
 bunx tsc --noEmit
 ```
 
