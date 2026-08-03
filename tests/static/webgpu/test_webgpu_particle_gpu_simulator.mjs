@@ -311,6 +311,7 @@ async function testRenderResourcesPrefersGPUDrawBatches() {
 		context,
 		{
 			label: "WebGPUParticlesGPUIndirect_Test",
+			sampleCount: 1,
 			colorAttachments: [
 				{
 					view: renderTarget,

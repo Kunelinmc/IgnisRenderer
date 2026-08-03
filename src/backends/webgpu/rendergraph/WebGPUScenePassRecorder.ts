@@ -569,6 +569,7 @@ export class WebGPUScenePassRecorder {
 				context,
 				{
 					label: "WebGPUParticlesMRT",
+					sampleCount: this._recordingContext.getTargetMSAASampleCount(),
 					colorAttachments: [
 						{
 							view:
@@ -597,6 +598,7 @@ export class WebGPUScenePassRecorder {
 			context,
 			{
 				label: "WebGPUParticlesSingle",
+				sampleCount: 1,
 				colorAttachments: [
 					{
 						view: this._host.getCanvasColorTexture(),

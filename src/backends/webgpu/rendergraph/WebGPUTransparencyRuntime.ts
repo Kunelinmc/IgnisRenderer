@@ -222,11 +222,12 @@ export class WebGPUTransparencyRuntime implements WebGPUFrameNodeRuntime {
 			session.context,
 			{
 				label: "WebGPUParticlesOIT",
+				sampleCount: 1,
 				colorAttachments: [
 					{ view: targets.oitAccum, loadOp: "load", storeOp: "store" },
 					{ view: targets.oitReveal, loadOp: "load", storeOp: "store" },
 				],
-				depth: this._recordingContext.getMSAATargets()?.depth ?? targets.depth,
+				depth: targets.depth,
 			},
 			this._recordingContext.requireFrameResources(),
 			this._resolveSceneTargetMode(),
@@ -304,6 +305,7 @@ export class WebGPUTransparencyRuntime implements WebGPUFrameNodeRuntime {
 			{
 				label: includeBlendModes[0] === ParticleBlendMode.Additive ?
 					"WebGPUParticlesMRT_Additive" : "WebGPUParticlesMRT_Alpha",
+				sampleCount: this._recordingContext.getTargetMSAASampleCount(),
 				colorAttachments: [{
 					view: msaaTargets?.sceneColorMain ?? targets.sceneColorMain,
 					resolveTarget: msaaTargets ? targets.sceneColorMain : undefined,

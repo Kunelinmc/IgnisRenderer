@@ -212,7 +212,6 @@ export class WebGPUFrameServiceOwner {
 			backend,
 			this._layouts,
 			this._textureRegistry,
-			this._msaa,
 		);
 		this._deferredResources = new WebGPUDeferredResources(backend, this._layouts, () =>
 			this._pipelineLibrary.getDeferredLightingPipeline(),

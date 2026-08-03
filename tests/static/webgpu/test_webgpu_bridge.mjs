@@ -2700,6 +2700,7 @@ async function testWebGPUOITParticlePipelinesSplitAlphaAndAdditive() {
 		context,
 		{
 			label: "WebGPUParticlesOIT_Test",
+			sampleCount: 1,
 			colorAttachments: [
 				{
 					view: renderTarget,
@@ -2728,6 +2729,7 @@ async function testWebGPUOITParticlePipelinesSplitAlphaAndAdditive() {
 		context,
 		{
 			label: "WebGPUParticlesAdd_Test",
+			sampleCount: 1,
 			colorAttachments: [
 				{
 					view: renderTarget,
@@ -3407,6 +3409,7 @@ async function testParticleUVLayoutAndUniformBinding() {
 		context,
 		{
 			label: "WebGPUParticles_TestUV",
+			sampleCount: 1,
 			colorAttachments: [
 				{
 					view: renderTarget,
@@ -4075,6 +4078,7 @@ async function testParticleBindingCacheEvictsStaleSystems() {
 		context,
 		{
 			label: "WebGPUParticles_TestEvict",
+			sampleCount: 1,
 			colorAttachments: [
 				{
 					view: renderTarget,
@@ -4196,6 +4200,7 @@ async function testRenderResourcesDestroyCleansParticleAndGeometryResources() {
 		context,
 		{
 			label: "WebGPUParticles_TestDestroy",
+			sampleCount: 1,
 			colorAttachments: [
 				{
 					view: renderTarget,

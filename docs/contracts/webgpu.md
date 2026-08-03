@@ -76,6 +76,9 @@ This document defines WebGPU frame-graph execution, deferred lighting, presentat
 	delegated `WebGPUParticleRenderResources` service. The service must own only
 	billboard pipelines, buffers, bindings, and pass recording; frame scopes
 	retain particle-shadow-volume binding ownership.
+- `WebGPUParticleRenderResources` must select particle pipeline sample counts
+	from the concrete particle pass-target descriptor. It must not depend on the
+	backend MSAA controller or backend-wide MSAA state.
 - `FramePacketContributorRegistry` is a cross-backend internal composition
 	contract. A backend must register contributors before its first preparation;
 	registration must be sealed once preparation begins.

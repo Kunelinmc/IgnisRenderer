@@ -28,10 +28,6 @@ import {
 	WEBGPU_PARTICLE_UV_UNIFORM_SIZE,
 } from "./constants";
 import type { WebGPUDeviceResourceHost } from "./WebGPUDeviceResourceHost";
-import {
-	SINGLE_SAMPLE_WEBGPU_MSAA_CONTEXT,
-	type WebGPUMSAAContext,
-} from "./WebGPUMSAAController";
 import type { WebGPUPipelineLayouts } from "./WebGPUPipelineLayouts";
 import type { WebGPUSceneTargetMode } from "./WebGPUPipelineLibrary";
 import type {
@@ -79,7 +75,6 @@ export class WebGPUParticleRenderResources implements WebGPUParticleBillboardRen
 		private readonly _backend: WebGPUDeviceResourceHost,
 		private readonly _layouts: WebGPUPipelineLayouts,
 		private readonly _textures: WebGPUTextureResourceProvider,
-		private readonly _msaa: WebGPUMSAAContext = SINGLE_SAMPLE_WEBGPU_MSAA_CONTEXT,
 	) {}
 
 	/** Advances particle binding-cache lifetime for a new frame. */
@@ -90,7 +85,7 @@ export class WebGPUParticleRenderResources implements WebGPUParticleBillboardRen
 
 	/** Compiles the legacy particle resources required by warmup. */
 	public async warmup(mode: WebGPUSceneTargetMode): Promise<void> {
-		await this._ensureParticleResources(mode, 1, "legacy");
+		await this._ensureParticleResources(mode, 1, "legacy", 1);
 	}
 
 	public async renderParticles(
@@ -108,7 +103,7 @@ export class WebGPUParticleRenderResources implements WebGPUParticleBillboardRen
 		}
 		const includeBlendModes = options.includeBlendModes ?? null;
 		const pipelineMode = options.pipelineMode ?? "legacy";
-		const sampleCount = this._resolveSampleCount(mode, options.sampleCountOverride);
+		const sampleCount = this._normalizeSampleCount(targets.sampleCount);
 		const particlePipelineKey = this._createParticlePipelineCacheKey(mode, sampleCount);
 		const gpuBatches = context.transient.get(WEBGPU_PARTICLE_DRAW_BATCHES_KEY);
 		if (gpuBatches && gpuBatches.length > 0) {
@@ -129,7 +124,7 @@ export class WebGPUParticleRenderResources implements WebGPUParticleBillboardRen
 					frameResources,
 					mode,
 					pipelineMode,
-					options.sampleCountOverride,
+					sampleCount,
 					drawBatches,
 				);
 			}
@@ -158,7 +153,7 @@ export class WebGPUParticleRenderResources implements WebGPUParticleBillboardRen
 			mode,
 			totalParticles,
 			pipelineMode,
-			options.sampleCountOverride,
+			sampleCount,
 		);
 		if (!this._particleInstanceBuffer || !this._particleQuadBuffer) return 0;
 
@@ -276,7 +271,7 @@ export class WebGPUParticleRenderResources implements WebGPUParticleBillboardRen
 		frameResources: WebGPUPreparedFrameResources,
 		mode: WebGPUSceneTargetMode,
 		pipelineMode: "legacy" | "oit",
-		sampleCountOverride: number | undefined,
+		sampleCount: number,
 		drawBatches: readonly WebGPUParticleDrawBatch[],
 	): Promise<number> {
 		const totalParticles = drawBatches.reduce(
@@ -284,9 +279,8 @@ export class WebGPUParticleRenderResources implements WebGPUParticleBillboardRen
 			0,
 		);
 		if (totalParticles <= 0) return 0;
-		await this._ensureParticleResources(mode, 0, pipelineMode, sampleCountOverride);
+		await this._ensureParticleResources(mode, 0, pipelineMode, sampleCount);
 		if (!this._particleQuadBuffer) return 0;
-		const sampleCount = this._resolveSampleCount(mode, sampleCountOverride);
 		const pipelineKey = this._createParticlePipelineCacheKey(mode, sampleCount);
 		const pipelines = this._resolveParticlePipelines(pipelineKey, pipelineMode);
 		if (!pipelines) return 0;
@@ -524,7 +518,7 @@ export class WebGPUParticleRenderResources implements WebGPUParticleBillboardRen
 		mode: WebGPUSceneTargetMode,
 		totalParticles: number,
 		pipelineMode: "legacy" | "oit",
-		sampleCountOverride?: number,
+		sampleCount: number,
 	): Promise<void> {
 		if (!this._particleShaderModule) {
 			const shader = await ShaderSource.load("webgpu.particle.composite");
@@ -552,10 +546,10 @@ export class WebGPUParticleRenderResources implements WebGPUParticleBillboardRen
 
 		this._ensureParticleInstanceBuffer(totalParticles);
 		if (pipelineMode === "oit") {
-			await this._ensureParticlePipeline(mode, "oit-alpha", sampleCountOverride);
+			await this._ensureParticlePipeline(mode, "oit-alpha", sampleCount);
 		} else {
-			await this._ensureParticlePipeline(mode, "alpha", sampleCountOverride);
-			await this._ensureParticlePipeline(mode, "additive", sampleCountOverride);
+			await this._ensureParticlePipeline(mode, "alpha", sampleCount);
+			await this._ensureParticlePipeline(mode, "additive", sampleCount);
 		}
 	}
 
@@ -591,7 +585,7 @@ export class WebGPUParticleRenderResources implements WebGPUParticleBillboardRen
 	private _ensureParticlePipeline(
 		mode: WebGPUSceneTargetMode,
 		pipelineType: "alpha" | "additive" | "oit-alpha",
-		sampleCountOverride?: number,
+		sampleCount: number,
 	): Promise<void> {
 		const cache =
 			pipelineType === "additive"
@@ -599,7 +593,6 @@ export class WebGPUParticleRenderResources implements WebGPUParticleBillboardRen
 				: pipelineType === "oit-alpha"
 					? this._particlePipelineOITAlpha
 					: this._particlePipelineAlpha;
-		const sampleCount = this._resolveSampleCount(mode, sampleCountOverride);
 		const cacheKey = this._createParticlePipelineCacheKey(mode, sampleCount);
 		if (cache.has(cacheKey) || !this._particleShaderModule) return Promise.resolve();
 
@@ -712,15 +705,11 @@ export class WebGPUParticleRenderResources implements WebGPUParticleBillboardRen
 		return `${mode}|msaa:${sampleCount}`;
 	}
 
-	private _resolveSampleCount(
-		mode: WebGPUSceneTargetMode,
-		sampleCountOverride?: number,
-	): number {
-		if (mode !== "mrt" && mode !== "color") return 1;
-		if (Number.isFinite(sampleCountOverride)) {
-			return Math.max(1, Math.floor(sampleCountOverride as number));
+	private _normalizeSampleCount(sampleCount: number): number {
+		if (!Number.isFinite(sampleCount)) {
+			throw new Error("WebGPU particle pass sampleCount must be a finite number.");
 		}
-		return this._msaa.sampleCount;
+		return Math.max(1, Math.floor(sampleCount));
 	}
 
 	private _createParticleUVTransformData(texture: ParticleRenderBatch["texture"]) {

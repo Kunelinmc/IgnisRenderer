@@ -177,6 +177,7 @@ export class WebGPUReflectionProbeCapturePass {
 					captureContext,
 					{
 						label: "WebGPUReflectionProbeCaptureParticles",
+						sampleCount: 1,
 						colorAttachments: [
 							{
 								view: captureTargets.sceneColor,
@@ -190,7 +191,6 @@ export class WebGPUReflectionProbeCapturePass {
 					"mrt",
 					{
 						pipelineMode: "legacy",
-						sampleCountOverride: 1,
 					}
 				);
 			}

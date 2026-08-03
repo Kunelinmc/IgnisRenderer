@@ -55,6 +55,7 @@ export interface WebGPUEnvironmentDrawResources {
 
 /** @internal Render-pass attachments accepted by the billboard particle renderer. */
 export interface WebGPUParticlePassTargets {
+	readonly sampleCount: number;
 	colorAttachments: Array<{
 		view: unknown;
 		resolveTarget?: unknown;
@@ -83,7 +84,6 @@ export interface WebGPUEnvironmentResourceOptions {
 export interface WebGPUParticleRenderOptions {
 	includeBlendModes?: readonly ParticleBlendMode[];
 	pipelineMode?: "legacy" | "oit";
-	sampleCountOverride?: number;
 }
 
 /** @internal Scoped frame preparation options. */

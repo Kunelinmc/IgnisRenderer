@@ -68,10 +68,11 @@ function createBillboardContext(transient) {
 	};
 }
 
-function createParticleTargets() {
+function createParticleTargets(sampleCount = 1) {
 	const target = { width: 50, height: 25, destroy() {} };
 	return {
 		label: "WebGPUParticles_ResourcesTest",
+		sampleCount,
 		colorAttachments: [
 			{
 				view: target,
@@ -271,6 +272,44 @@ async function testGPUIndirectDrawAndFallback() {
 	owner.destroy();
 }
 
+async function testParticlePipelinesUsePassTargetSampleCount() {
+	const backend = new FakeWebGPUBackend();
+	const owner = new WebGPUFrameServiceOwner(
+		backend,
+		backend,
+		createWebGPUComputeFacade(backend),
+	);
+	await owner.init();
+	const transient = createTransientStore();
+	transient.set(PARTICLE_TRANSIENT_BATCHES_KEY, [
+		createBillboardBatch(
+			"particle-msaa",
+			ParticleBlendMode.Alpha,
+			new Texture({
+				data: new Uint8Array([255, 255, 255, 255]),
+				width: 1,
+				height: 1,
+				colorSpace: "sRGB",
+			}),
+		),
+	]);
+
+	await owner.getParticleBillboardRenderer().renderParticles(
+		new FakeCommandEncoder(backend),
+		createBillboardContext(transient),
+		createParticleTargets(4),
+		{ frameBinding: { label: "frame-binding" } },
+		"mrt",
+	);
+
+	const pipeline = backend.pipelines.find(
+		(entry) => entry.label === "WebGPUParticlePipeline_alpha_mrt",
+	);
+	assert.ok(pipeline);
+	assert.equal(pipeline.desc.sampleCount, 4);
+	owner.destroy();
+}
+
 async function testParticleBindingCacheEviction() {
 	const backend = new FakeWebGPUBackend();
 	const owner = new WebGPUFrameServiceOwner(
@@ -340,6 +379,10 @@ function testParticleOwnershipAndExecutionBoundaries() {
 	assert.doesNotMatch(ownerSource, /ShaderSource\.load\("webgpu\.particle\.composite"\)/);
 	assert.match(ownerSource, /private _particleRenderResources:/);
 	assert.doesNotMatch(particleResourceSource, /ParticleMeshFramePackets/);
+	assert.doesNotMatch(
+		particleResourceSource,
+		/WebGPUMSAAController|WebGPUMSAAContext|\b_msaa\b/,
+	);
 	assert.doesNotMatch(orchestratorSource, /_particle(Resources|Renderer)/);
 	assert.doesNotMatch(orchestratorSource, /ParticleMesh/);
 	assert.match(orchestratorSource, /_framePacketProvider\.prepare\(context, "main"\)/);
@@ -351,6 +394,7 @@ function testParticleOwnershipAndExecutionBoundaries() {
 
 testOwnerExposesStableNarrowParticleRenderer();
 await testBillboardPipelinesBindingsScissorAndLifecycle();
+await testParticlePipelinesUsePassTargetSampleCount();
 await testGPUIndirectDrawAndFallback();
 await testParticleBindingCacheEviction();
 testParticleOwnershipAndExecutionBoundaries();
