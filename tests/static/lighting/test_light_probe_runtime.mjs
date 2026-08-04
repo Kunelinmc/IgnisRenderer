@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { CubeTexture } from "../../../src/core/CubeTexture.ts";
+import { Scene } from "../../../src/core/Scene.ts";
 import { Texture } from "../../../src/core/Texture.ts";
 import { LightProbe } from "../../../src/lights/LightProbe.ts";
 import { Matrix3 } from "../../../src/maths/Matrix3.ts";
@@ -146,6 +147,38 @@ function testCopyPreservesLocalizedState() {
 	assert.equal(target.source, source.source);
 }
 
+function testSHMutationsAndCaptureRequestsInvalidateLighting() {
+	const scene = new Scene();
+	const probe = scene.add(new LightProbe({
+		sh: SH.empty(),
+		source: "capturedScene",
+		captureUpdateMode: "manual",
+	}));
+
+	let version = scene.version;
+	probe.sh[0].r = 12;
+	assert.ok(scene.version > version);
+
+	version = scene.version;
+	probe.sh[1] = { r: 3, g: 2, b: 1 };
+	assert.ok(scene.version > version);
+
+	version = scene.version;
+	probe.sh = SH.empty();
+	assert.ok(scene.version > version);
+
+	version = scene.version;
+	probe.requestCapture();
+	assert.ok(scene.version > version);
+	assert.equal(probe.captureRequestToken, 1);
+
+	version = scene.version;
+	const captureRevision = probe.captureRevision;
+	probe.writeCapturedSH(SH.empty());
+	assert.equal(scene.version, version + 1);
+	assert.equal(probe.captureRevision, captureRevision + 1);
+}
+
 function testMetricAndBlendCurve() {
 	const boxProbe = createLocalizedProbe({
 		shape: "box",
@@ -248,6 +281,7 @@ function run() {
 	testConstructorAndLocalizedClone();
 	testCaptureOutputBindingsAreRuntimeOnly();
 	testCopyPreservesLocalizedState();
+	testSHMutationsAndCaptureRequestsInvalidateLighting();
 	testMetricAndBlendCurve();
 	testPrioritySelectionAndTieBreak();
 	testCollectionSeparatesGlobalAndLocalizedProbes();

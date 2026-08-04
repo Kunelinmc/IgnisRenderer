@@ -54,13 +54,13 @@ export interface LightProbeParams extends LightParams {
 const LIGHT_PROBE_NUMERIC_EPSILON = 1e-6;
 const LIGHT_PROBE_MIN_BLEND_DISTANCE = 0.01;
 const LIGHT_PROBE_BLEND_FLOOR_RATIO = 0.1;
+const SH_COEFFICIENT_COMPONENTS = new Set<PropertyKey>(["r", "g", "b"]);
 
 /**
  * LightProbe stores spherical harmonics coefficients for diffuse irradiance.
  * Baking/projection from environment maps lives in pipeline helpers.
  */
 export class LightProbe extends Light<LightType.LightProbe> {
-	public sh: SHCoefficients;
 	public shape: LightProbeShape;
 	public radius: number;
 	public halfExtents: Vector3;
@@ -99,6 +99,23 @@ export class LightProbe extends Light<LightType.LightProbe> {
 	private _lastPriority: number;
 	private _captureRequestToken = 0;
 	private _captureRevision = 0;
+	private _sh: SHCoefficients = SH.empty();
+	private _shProxy: SHCoefficients | null = null;
+	private _shStorageInitialized = false;
+	private _suppressSHMutationTracking = 0;
+
+	/** Mutable probe-owned spherical harmonics coefficients. */
+	public get sh(): SHCoefficients {
+		if (!this._shProxy) {
+			this._shProxy = this._createSHProxy();
+		}
+		return this._shProxy;
+	}
+
+	public set sh(value: SHCoefficients) {
+		this._replaceSHStorage(value);
+		this._markTrackedSHMutation("lighting");
+	}
 
 	/**
 	 * Creates a light probe from a single parameter object.
@@ -111,7 +128,7 @@ export class LightProbe extends Light<LightType.LightProbe> {
 	constructor(params: LightProbeParams) {
 		const resolvedParams = validateLightProbeParams(params);
 		super(LightType.LightProbe, resolvedParams);
-		this.sh = cloneSHCoefficients(resolvedParams.sh);
+		this._replaceSHStorage(resolvedParams.sh);
 		this.shape = sanitizeLightProbeShape(resolvedParams.shape ?? "global");
 		this.radius = sanitizeLightProbeRadius(resolvedParams.radius ?? 5);
 		this.halfExtents = new Vector3();
@@ -157,6 +174,7 @@ export class LightProbe extends Light<LightType.LightProbe> {
 		for (let i = 0; i < this._matrixSignature.length; i++) {
 			this._matrixSignature[i] = Number.NaN;
 		}
+		this._shStorageInitialized = true;
 	}
 
 	protected override _createCloneInstance(): this {
@@ -165,12 +183,7 @@ export class LightProbe extends Light<LightType.LightProbe> {
 
 	public copy(source: LightProbe | SHCoefficients): LightProbe {
 		const sourceSH = source instanceof LightProbe ? source.sh : source;
-		for (let i = 0; i < this.sh.length; i++) {
-			const coefficient = sourceSH[i];
-			this.sh[i].r = coefficient?.r ?? 0;
-			this.sh[i].g = coefficient?.g ?? 0;
-			this.sh[i].b = coefficient?.b ?? 0;
-		}
+		this._copySHCoefficients(sourceSH, "lighting");
 
 		if (source instanceof LightProbe) {
 			this.shape = sanitizeLightProbeShape(source.shape);
@@ -202,10 +215,26 @@ export class LightProbe extends Light<LightType.LightProbe> {
 	 * Requests a fresh captured-scene probe update.
 	 *
 	 * @returns Nothing.
-	 * @sideEffects Increments `captureRequestToken` and `captureRevision`.
+	 * @sideEffects Increments `captureRequestToken` and `captureRevision`, and
+	 * invalidates scene lighting when attached.
 	 */
 	public requestCapture(): void {
 		this._captureRequestToken++;
+		this._captureRevision++;
+		this.scene?.invalidate("lighting");
+	}
+
+	/**
+	 * Writes captured spherical harmonics and invalidates the probe-capture path.
+	 *
+	 * @internal Owned by `ProbeCaptureRuntime`; applications should assign `sh`.
+	 * @param coefficients Captured radiance SH coefficients to copy.
+	 * @returns Nothing.
+	 * @sideEffects Increments `captureRevision` and invalidates the attached scene
+	 * with the non-capture-relevant `probe-capture` reason.
+	 */
+	public writeCapturedSH(coefficients: SHCoefficients): void {
+		this._copySHCoefficients(coefficients, "probe-capture");
 		this._captureRevision++;
 	}
 
@@ -330,6 +359,83 @@ export class LightProbe extends Light<LightType.LightProbe> {
 		return false;
 	}
 
+	private _replaceSHStorage(coefficients?: SHCoefficients | null): void {
+		const cloned = cloneSHCoefficients(coefficients);
+		for (let i = 0; i < cloned.length; i++) {
+			cloned[i] = this._trackSHCoefficient(cloned[i]);
+		}
+		this._sh = cloned;
+		this._shProxy = null;
+	}
+
+	private _createSHProxy(): SHCoefficients {
+		return new Proxy(this._sh, {
+			set: (target, property, value) => {
+				const coefficientIndex = resolveArrayIndexProperty(property);
+				if (coefficientIndex === null) {
+					const previous = Reflect.get(target, property);
+					const applied = Reflect.set(target, property, value);
+					if (applied && previous !== value) {
+						this._markTrackedSHMutation("lighting");
+					}
+					return applied;
+				}
+				target[coefficientIndex] = this._trackSHCoefficient(
+					value as SHCoefficients[number]
+				);
+				this._markTrackedSHMutation("lighting");
+				return true;
+			},
+		});
+	}
+
+	private _trackSHCoefficient(
+		coefficient: SHCoefficients[number] | undefined
+	): SHCoefficients[number] {
+		const values = {
+			r: coefficient?.r ?? 0,
+			g: coefficient?.g ?? 0,
+			b: coefficient?.b ?? 0,
+		};
+		const target = {};
+		for (const component of SH_COEFFICIENT_COMPONENTS) {
+			const key = component as "r" | "g" | "b";
+			Object.defineProperty(target, key, {
+				enumerable: true,
+				configurable: true,
+				get: () => values[key],
+				set: (value: number) => {
+					if (values[key] === value) return;
+					values[key] = value;
+					this._markTrackedSHMutation("lighting");
+				},
+			});
+		}
+		return target as SHCoefficients[number];
+	}
+
+	private _copySHCoefficients(
+		coefficients: SHCoefficients,
+		dirtyReason: "lighting" | "probe-capture"
+	): void {
+		this._suppressSHMutationTracking++;
+		try {
+			copySHCoefficients(this._sh, coefficients);
+		} finally {
+			this._suppressSHMutationTracking--;
+		}
+		this._markTrackedSHMutation(dirtyReason);
+	}
+
+	private _markTrackedSHMutation(
+		dirtyReason: "lighting" | "probe-capture"
+	): void {
+		if (!this._shStorageInitialized || this._suppressSHMutationTracking > 0) {
+			return;
+		}
+		this.scene?.invalidate(dirtyReason);
+	}
+
 	private _updateRuntimeCache(): void {
 		const world = this.worldMatrix;
 		world.copyTo(this._runtimeCache.probeToWorldMatrix);
@@ -444,6 +550,25 @@ function cloneSHCoefficients(coefficients?: SHCoefficients | null): SHCoefficien
 		g: coefficient.g,
 		b: coefficient.b,
 	}));
+}
+
+function copySHCoefficients(
+	target: SHCoefficients,
+	source: SHCoefficients
+): void {
+	for (let i = 0; i < target.length; i++) {
+		const coefficient = source[i];
+		target[i].r = coefficient?.r ?? 0;
+		target[i].g = coefficient?.g ?? 0;
+		target[i].b = coefficient?.b ?? 0;
+	}
+}
+
+function resolveArrayIndexProperty(property: PropertyKey): number | null {
+	if (typeof property !== "string") return null;
+	if (property === "" || `${Number(property)}` !== property) return null;
+	const index = Number(property);
+	return Number.isInteger(index) && index >= 0 ? index : null;
 }
 
 function sanitizeLightProbeShape(value: LightProbeShape): LightProbeShape {

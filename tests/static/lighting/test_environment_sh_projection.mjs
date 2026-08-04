@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { Texture } from "../../../src/core/Texture.ts";
 import { projectEnvironmentTextureToSH } from "../../../src/lights/ibl/EnvironmentSH.ts";
+import { SH } from "../../../src/maths/SH.ts";
 
 function createTestTexture(width = 32, height = 16) {
 	const data = new Uint8ClampedArray(width * height * 4);
@@ -64,11 +65,78 @@ function testProjectionRejectsInvalidTexture() {
 	);
 }
 
+function testProjectionPreservesEquirectangularDirection() {
+	const width = 64;
+	const height = 32;
+	const data = new Uint8ClampedArray(width * height * 4);
+	for (let y = 0; y < height; y++) {
+		const theta = ((y + 0.5) / height) * Math.PI;
+		const sinTheta = Math.sin(theta);
+		for (let x = 0; x < width; x++) {
+			const phi = ((x + 0.5) / width) * Math.PI * 2 - Math.PI;
+			const value = Math.round(Math.max(0, sinTheta * Math.sin(phi)) * 255);
+			const index = (y * width + x) * 4;
+			data[index] = value;
+			data[index + 1] = value;
+			data[index + 2] = value;
+			data[index + 3] = 255;
+		}
+	}
+
+	const sh = projectEnvironmentTextureToSH(new Texture({
+		data,
+		width,
+		height,
+		colorSpace: "sRGB",
+	}), {
+		maxSampleWidth: width,
+		maxSampleHeight: height,
+	});
+	const positiveX = SH.calculateIrradiance({ x: 1, y: 0, z: 0 }, sh).r;
+	const negativeX = SH.calculateIrradiance({ x: -1, y: 0, z: 0 }, sh).r;
+	assert.ok(
+		positiveX > negativeX * 10,
+		`Expected +X environment irradiance to dominate, got +X=${positiveX}, -X=${negativeX}`
+	);
+}
+
+function testProjectionNormalizesTextureStorageTypes() {
+	const linearByte = projectEnvironmentTextureToSH(new Texture({
+		data: new Uint8Array([128, 128, 128, 255]),
+		width: 1,
+		height: 1,
+		colorSpace: "Linear",
+	}));
+	const linearFloat = projectEnvironmentTextureToSH(new Texture({
+		data: new Float32Array([128 / 255, 128 / 255, 128 / 255, 1]),
+		width: 1,
+		height: 1,
+		colorSpace: "Linear",
+	}));
+	assert.ok(Math.abs(linearByte[0].r - linearFloat[0].r) < 1e-4);
+
+	const srgbByte = projectEnvironmentTextureToSH(new Texture({
+		data: new Uint8Array([128, 128, 128, 255]),
+		width: 1,
+		height: 1,
+		colorSpace: "sRGB",
+	}));
+	const srgbFloat = projectEnvironmentTextureToSH(new Texture({
+		data: new Float32Array([128 / 255, 128 / 255, 128 / 255, 1]),
+		width: 1,
+		height: 1,
+		colorSpace: "sRGB",
+	}));
+	assert.ok(Math.abs(srgbByte[0].r - srgbFloat[0].r) < 1e-4);
+}
+
 function run() {
 	testProjectsEnvironmentTextureToSH();
 	testProjectionHonorsSampleLimits();
 	testProjectionSupportsAbortSignal();
 	testProjectionRejectsInvalidTexture();
+	testProjectionPreservesEquirectangularDirection();
+	testProjectionNormalizesTextureStorageTypes();
 	console.log("Environment SH projection tests passed");
 }
 

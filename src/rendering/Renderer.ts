@@ -270,7 +270,7 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 		// its fields are mutable and can be configured by external consumers post-construction.
 		// At runtime, these requested features are resolved and validated against the actual
 		// backend capabilities (see `resolveFeatureState`).
-		this.features = {
+		const requestedFeatures: RendererFeatures = {
 			enableLighting: true,
 			enableSH: false,
 			enableShadows: true,
@@ -283,6 +283,16 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 			occlusionCullingOptions: {},
 			worldMatrix: Matrix4.identity(),
 		};
+		this.features = new Proxy(requestedFeatures, {
+			set: (target, property, value) => {
+				const previous = Reflect.get(target, property);
+				const applied = Reflect.set(target, property, value);
+				if (applied && previous !== value) {
+					this._markFrameDirty(property === "enableSH" ? "lighting" : "unknown");
+				}
+				return applied;
+			},
+		});
 
 		this._scene = new Scene();
 		this._lastKnownSceneVersion = this._scene.version;
@@ -773,9 +783,6 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 				scope: "Renderer",
 				onceKey: warning.key,
 			});
-		}
-		if (this.features.enableSH) {
-			this.updateSH();
 		}
 		const frame = PreparedSceneBuilder.build({
 			scene: this._scene,

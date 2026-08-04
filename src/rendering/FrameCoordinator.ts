@@ -449,9 +449,6 @@ export class FrameCoordinator {
 		delegate: FrameCoordinatorDelegate,
 		state: RenderSceneFrameState,
 	): Promise<void> {
-		if (delegate.features.enableSH) {
-			this.updateSH(delegate);
-		}
 		// Build a baseline shadow map — PreparedSceneBuilder only maps shadow-
 		// caster geometry, it does not depend on actual shadow map content.
 		// Use an empty map here to avoid the destructive side effect of
@@ -716,11 +713,16 @@ export class FrameCoordinator {
 			height: delegate.canvas.height,
 		});
 
-		// Build SH if not done
-		const shCoeffs =
-			delegate.scene.version === 0 ? SH.empty() : this.updateSH(delegate).shCoeffs;
-		const shAmbientCoeffs =
-			delegate.scene.version === 0 ? SH.empty() : this.updateSH(delegate).shAmbientCoeffs;
+		let shCoeffs = SH.empty();
+		let shAmbientCoeffs = SH.empty();
+		if (resolved.enableSH && delegate.scene.version !== 0) {
+			const shState = this.updateSH(delegate);
+			shCoeffs = shState.shCoeffs;
+			shAmbientCoeffs = shState.shAmbientCoeffs;
+		} else {
+			delegate.setSHCoefficients(shCoeffs);
+			delegate.setSHAmbientCoefficients(shAmbientCoeffs);
+		}
 
 		return {
 			backendProfile: this._backend.profile,

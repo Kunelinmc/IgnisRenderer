@@ -31,6 +31,10 @@ This document defines the lifecycle, scheduling, warmup, incremental rendering, 
 - `Renderer.updateSH()`
   - Behavior contract: must delegate spherical harmonics updates to the renderer-owned `FrameCoordinator`.
   - Constraint: must throw when the renderer-owned `FrameCoordinator` is unavailable and must not execute a fallback SH implementation.
+- `Renderer.features.enableSH`
+  - Behavior contract: changing the requested SH feature state must invalidate
+    scene lighting so an on-demand backend evaluates the new state on the next
+    `renderFrame()` call.
 - `Renderer.destroy()`
   - Behavior contract: must stop the active render loop before waiting for an in-progress frame and destroying the attached backend.
 

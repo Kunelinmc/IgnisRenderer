@@ -30,10 +30,6 @@ function assertProjectionNotAborted(signal?: AbortSignal | null): void {
 	throw createEnvironmentSHProjectionAbortError();
 }
 
-function resolveTextureIsLinear(texture: Texture): boolean {
-	return texture.colorSpace === "HDR" || texture.colorSpace === "Linear";
-}
-
 function sanitizeProjectionDimension(
 	value: number | undefined,
 	fallback: number
@@ -57,6 +53,21 @@ function decodeSRGBToLinear01(value255: number): number {
 		return SRGB_TO_LINEAR_LUT[value255];
 	}
 	return sRGBToLinear(value255 / 255);
+}
+
+function decodeEnvironmentChannelToLinear255(
+	value: number,
+	colorSpace: Texture["colorSpace"],
+	sourceIsFloat: boolean
+): number {
+	if (sourceIsFloat) {
+		const linearValue = colorSpace === "sRGB" ? sRGBToLinear(value) : value;
+		return linearValue * 255;
+	}
+	if (colorSpace === "sRGB") {
+		return decodeSRGBToLinear01(value) * 255;
+	}
+	return value;
 }
 
 /**
@@ -89,7 +100,7 @@ export function projectEnvironmentTextureToSH(
 	}
 
 	const sh = SH.empty();
-	const sourceIsLinear = resolveTextureIsLinear(sampledEnvironment);
+	const sourceIsFloat = data instanceof Float32Array;
 	const maxSampleWidth = sanitizeProjectionDimension(
 		options.maxSampleWidth,
 		IBL_PREFILTER_MAX_SAMPLE_WIDTH
@@ -115,25 +126,28 @@ export function projectEnvironmentTextureToSH(
 		const j = Math.floor((sj + 0.5) * stepY);
 
 		for (let si = 0; si < sampleWidth; si++) {
-			const phi = (si + 0.5) * dPhi;
+			const phi = (si + 0.5) * dPhi - Math.PI;
 			const x = sinTheta * Math.sin(phi);
 			const y = cosTheta;
 			const z = sinTheta * Math.cos(phi);
 			const basis = SH.evalBasis({ x, y, z });
 			const i = Math.floor((si + 0.5) * stepX);
 			const idx = (j * width + i) * 4;
-			const r =
-				sourceIsLinear ?
-					data[idx] * 255
-				:	decodeSRGBToLinear01(data[idx]) * 255;
-			const g =
-				sourceIsLinear ?
-					data[idx + 1] * 255
-				:	decodeSRGBToLinear01(data[idx + 1]) * 255;
-			const b =
-				sourceIsLinear ?
-					data[idx + 2] * 255
-				:	decodeSRGBToLinear01(data[idx + 2]) * 255;
+			const r = decodeEnvironmentChannelToLinear255(
+				data[idx],
+				sampledEnvironment.colorSpace,
+				sourceIsFloat
+			);
+			const g = decodeEnvironmentChannelToLinear255(
+				data[idx + 1],
+				sampledEnvironment.colorSpace,
+				sourceIsFloat
+			);
+			const b = decodeEnvironmentChannelToLinear255(
+				data[idx + 2],
+				sampledEnvironment.colorSpace,
+				sourceIsFloat
+			);
 
 			for (let k = 0; k < sh.length; k++) {
 				const basisWeight = basis[k] * weight;

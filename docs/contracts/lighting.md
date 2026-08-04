@@ -151,6 +151,10 @@ The cached culling state and bindings must be invalidated when:
 - `projectEnvironmentTextureToSH(envMap, options)` must project a valid
   environment texture into radiance SH coefficients and must not prefilter
   specular IBL data.
+- Environment SH projection must interpret byte-backed texture channels in the
+  `0..255` domain and `Float32Array` channels in the normalized or HDR linear
+  domain. Equivalent byte-backed and float-backed inputs must project to the
+  same radiance after color-space decoding.
 - `IBLPrefilterOptions` must use `maxSampleWidth`, `maxSampleHeight`, and
   `maxMipLevels` for output limits.
 - `IBLPrefilterOptions.acceleration` must support `auto`, `single-thread`,
@@ -244,6 +248,9 @@ Consumers must read its row-major values from `worldToGrid3x3.elements`.
 - `LightProbe` must accept only `new LightProbe({ ...params })`.
 - Empty probes must be constructed with `new LightProbe({})`.
 - Authored SH coefficients must be passed as `new LightProbe({ sh })`.
+- `LightProbe.sh` must expose mutable probe-owned storage. Assignment of the SH
+  array, replacement of one coefficient, or mutation of a coefficient component
+  must invalidate scene lighting when the probe is attached to a scene.
 - `LightProbe` must not expose `color` or `intensity`; SH coefficients must
   carry the probe radiance scale directly.
 - `LightProbe.shape` must support `"global"`, `"sphere"`, and `"box"`.
@@ -289,7 +296,8 @@ Consumers must read its row-major values from `worldToGrid3x3.elements`.
 - `LightProbe.includeEnvironment`, `includeMeshes`, `includeTransparent`,
   `includeParticles`, and `includeShadows` must default to `true`.
 - `LightProbe.requestCapture()` must increment `captureRequestToken` and
-  `captureRevision`.
+  `captureRevision` and must invalidate scene lighting so an on-demand renderer
+  executes the requested capture.
 - `ProbeCaptureRuntime` must capture `LightProbe` instances only when
   `source === "capturedScene"`.
 - `ProbeCaptureRuntime` must write captured low-frequency radiance to

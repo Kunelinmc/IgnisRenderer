@@ -128,8 +128,9 @@ This document defines the current WebGL backend lifecycle, frame graph, resource
   resolve targets, non-zero `baseVertex`, and non-zero `firstInstance`.
 - WebGL custom target readback must preserve native bottom-left row order and
   must return bytes matching the exact attachment format.
-- SH lighting must use 16 coefficients and must be uploaded through
-  texture-backed data for shader sampling.
+- SH lighting must use 16 coefficients. Global SH coefficients must use the
+  scene uniform array; localized light-probe and irradiance-grid coefficients
+  must use texture-backed data for shader sampling.
 - Clustered lighting must be CPU-built with tile and z-slice partitioning.
 - Clustered lighting must provide runtime fallback to legacy forward lighting
   when requirements are not met.

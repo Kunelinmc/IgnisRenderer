@@ -551,9 +551,7 @@ export class ProbeCaptureRuntime {
 					grid.writeCapturedCellSH(target.cellIndex, sh);
 				} else {
 					const lightProbe = probe as LightProbe;
-					copySHCoefficients(lightProbe.sh, sh);
-					lightProbe.markCaptureUpdated();
-					task.scene.invalidate("probe-capture");
+					lightProbe.writeCapturedSH(sh);
 				}
 			}
 
@@ -1056,18 +1054,6 @@ function cloneTextureLevels(levels: TextureMipLevel[]): TextureMipLevel[] {
 		bytesPerRow: level.bytesPerRow,
 		rowsPerImage: level.rowsPerImage,
 	}));
-}
-
-function copySHCoefficients(
-	target: SHCoefficients,
-	source: SHCoefficients
-): void {
-	const coeffCount = Math.min(target.length, source.length);
-	for (let i = 0; i < coeffCount; i++) {
-		target[i].r = source[i].r;
-		target[i].g = source[i].g;
-		target[i].b = source[i].b;
-	}
 }
 
 function squaredDistanceToProbe(from: IVector3, to: IVector3): number {
