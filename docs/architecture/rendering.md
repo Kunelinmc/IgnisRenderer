@@ -24,6 +24,11 @@ renderer stage into several native passes as long as the shared ordering and
 transaction boundaries remain intact. WebGPU deferred lighting, for example,
 is an internal expansion of `main-opaque`, not an additional global stage.
 
+Before the frame plan is created, `FrameCoordinator` composes prepared scene
+work, subsystem render intent, post-process intent, and resolved render support
+into backend-neutral `FramePassRequirements`. The default pipeline consumes
+that snapshot and does not branch on backend identifiers or capability objects.
+
 ## Data Conventions
 
 IgnisRenderer uses a right-handed world, linear-light shading, and explicit

@@ -270,6 +270,7 @@ export class WebGPUBackend implements IRenderBackend {
 			reflection: true,
 			environment: true,
 			postProcess: true,
+			meshParticles: true,
 			clusteredLighting: true,
 			oit: true,
 			occlusionCulling: this._enableOcclusionCulling,

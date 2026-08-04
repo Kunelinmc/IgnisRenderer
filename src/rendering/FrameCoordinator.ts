@@ -17,6 +17,7 @@ import { CSGMeshInstance } from "../meshes/CSGMeshInstance";
 import { LODMeshInstance } from "../meshes/LODMeshInstance";
 import { resolveFeatureState } from "../pipeline/FeatureResolver";
 import {
+	hasPostProcessExecutionPasses,
 	PostProcessPassRegistry,
 	type ResolvedPostProcessState,
 } from "../postprocess";
@@ -40,6 +41,7 @@ import {
 	type TransientStore,
 } from "../pipeline/types";
 import { RenderPipelineRegistry } from "../pipeline/RenderPipelineRegistry";
+import { resolveFramePassRequirements } from "../pipeline/FramePassRequirements";
 import type {
 	RendererFeatures,
 	FrameTransientContributor,
@@ -502,6 +504,21 @@ export class FrameCoordinator {
 			state.transient,
 			state.incrementalFrameContext,
 		);
+		const capabilities = this._backend.profile.capabilities;
+		const requirements = resolveFramePassRequirements({
+			frame: state.frame,
+			features: state.resolved,
+			support: {
+				meshParticles: capabilities.meshParticles,
+				postProcess: capabilities.postProcess,
+			},
+			hasPostProcessWork:
+				capabilities.postProcess &&
+				hasPostProcessExecutionPasses(state.resolvedPostProcess, {
+					backend: this._backend.profile.id,
+					frameContext: context,
+				}),
+		});
 		state.context = {
 			...context,
 			framePlan: delegate.pipeline.createFramePlan({
@@ -510,6 +527,7 @@ export class FrameCoordinator {
 				features: state.resolved,
 				postProcess: state.resolvedPostProcess,
 				transient: state.transient,
+				requirements,
 				backendType: this._backend.profile.id,
 				backendCapabilities: this._backend.profile.capabilities,
 				incremental: state.incrementalFrameContext,

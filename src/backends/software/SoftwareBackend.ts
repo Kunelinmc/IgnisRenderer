@@ -143,6 +143,7 @@ export class SoftwareBackend implements IRenderBackend {
 			reflection: true,
 			environment: true,
 			postProcess: true,
+			meshParticles: false,
 			clusteredLighting: false,
 			oit: false,
 			occlusionCulling: false,

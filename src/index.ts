@@ -187,6 +187,10 @@ export {
 } from "./pipeline/RenderPipelineRegistry";
 export type { RendererStageDefinition } from "./pipeline/RendererStageGraph";
 export type {
+	FramePassRenderSupport,
+	FramePassRequirements,
+} from "./pipeline/FramePassRequirements";
+export type {
 	CameraJitterRequirement,
 	FramePreparationRequirements,
 } from "./pipeline/FrameRequirements";

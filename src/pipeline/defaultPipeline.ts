@@ -1,11 +1,6 @@
 import type {
 	RenderPipelineStageRegistration,
 } from "./RenderPipelineRegistry";
-import { DEFAULT_PRIMITIVE_DRAW_TOPOLOGY } from "../core/types";
-import { isMaterialTransparentPass } from "../materials/transparency";
-import type { ParticleSystem } from "../particles";
-import { hasParticleShadowCasters } from "./ParticleShadowVolume";
-import { hasPostProcessExecutionPasses } from "../postprocess";
 
 /**
  * Creates the built-in renderer pipeline stage registrations shared by
@@ -46,21 +41,15 @@ export function createDefaultPipelineStages(): RenderPipelineStageRegistration[]
 			kind: "backend-pass",
 			dependsOn: ["prepared-scene-build"],
 			enabled: (context) => context.hasParticleSystems,
-			shouldRun: ({ frame }) => (frame.particleSystems?.length ?? 0) > 0,
+			shouldRun: ({ requirements }) =>
+				requirements.requiredPasses.has("particle-sim"),
 		},
 		{
 			id: "shadow",
 			kind: "backend-pass",
 			dependsOn: ["prepared-scene-build", "particle-sim"],
-			shouldRun: ({ frame, features, backendType }) =>
-				features.enableShadows &&
-				(frame.shadowCasterPackets.length > 0 ||
-					frame.shadowTransmitterPackets.length > 0 ||
-					hasParticleShadowCasters(frame.particleSystems) ||
-					hasWebGPUMeshParticleShadowCasters(
-						frame.particleSystems,
-						backendType,
-					)),
+			shouldRun: ({ requirements }) =>
+				requirements.requiredPasses.has("shadow"),
 		},
 		{
 			id: "probe-capture",
@@ -71,90 +60,37 @@ export function createDefaultPipelineStages(): RenderPipelineStageRegistration[]
 			id: "reflection",
 			kind: "backend-pass",
 			dependsOn: ["prepared-scene-build", "probe-capture"],
-			shouldRun: ({ frame, features }) =>
-				features.enableReflection && frame.reflectivePackets.length > 0,
+			shouldRun: ({ requirements }) =>
+				requirements.requiredPasses.has("reflection"),
 		},
 		{
 			id: "main-opaque",
 			kind: "backend-pass",
 			dependsOn: ["reflection", "shadow"],
+			shouldRun: ({ requirements }) =>
+				requirements.requiredPasses.has("main-opaque"),
 		},
 		{
 			id: "main-transparent",
 			kind: "backend-pass",
 			dependsOn: ["main-opaque"],
-			shouldRun: ({ frame, backendType }) =>
-				frame.transparentPackets.length > 0 ||
-				hasWebGPUTransparentMeshParticles(
-					frame.particleSystems,
-					backendType,
-				),
+			shouldRun: ({ requirements }) =>
+				requirements.requiredPasses.has("main-transparent"),
 		},
 		{
 			id: "particles",
 			kind: "backend-pass",
 			dependsOn: ["main-transparent"],
-			shouldRun: ({ frame }) => (frame.particleSystems?.length ?? 0) > 0,
+			shouldRun: ({ requirements }) =>
+				requirements.requiredPasses.has("particles"),
 		},
 		{
 			id: "postprocess",
 			kind: "backend-pass",
 			dependsOn: ["particles"],
-			shouldRun: ({
-				backendCapabilities,
-				backendType,
-				frameContext,
-				postProcess,
-			}) =>
-				backendCapabilities?.postProcess === true &&
-				hasPostProcessExecutionPasses(postProcess, {
-					backend: backendType,
-					frameContext,
-				}),
+			shouldRun: ({ requirements }) =>
+				requirements.requiredPasses.has("postprocess"),
 		},
 		{ id: "sync-out", kind: "renderer", dependsOn: ["postprocess"] },
 	];
-}
-
-function hasWebGPUTransparentMeshParticles(
-	systems: readonly ParticleSystem[] | null | undefined,
-	backendType: string | undefined,
-): boolean {
-	if (backendType !== "webgpu" || !systems) return false;
-	return systems.some(
-		(system) =>
-			system.visible !== false &&
-			system.templates?.some(
-				(template) =>
-					template.shape.kind === "mesh" &&
-					template.shape.mesh.primitives.some(
-						(primitive) =>
-							primitive.visible !== false &&
-							isMaterialTransparentPass(primitive.material),
-					),
-			),
-	);
-}
-
-function hasWebGPUMeshParticleShadowCasters(
-	systems: readonly ParticleSystem[] | null | undefined,
-	backendType: string | undefined,
-): boolean {
-	if (backendType !== "webgpu" || !systems) return false;
-	return systems.some(
-		(system) =>
-			system.visible !== false &&
-			system.templates?.some(
-				(template) =>
-					template.shape.kind === "mesh" &&
-					(template.castShadows ?? true) &&
-					template.shape.mesh.primitives.some(
-						(primitive) =>
-							primitive.visible !== false &&
-							primitive.castShadows !== false &&
-							(primitive.topology ?? DEFAULT_PRIMITIVE_DRAW_TOPOLOGY) ===
-								DEFAULT_PRIMITIVE_DRAW_TOPOLOGY,
-					),
-			),
-	);
 }

@@ -29,10 +29,14 @@ This document defines particle templates, mesh-particle rendering, simulation in
 - Individual consumers must not rebuild mesh packets from
 	`PARTICLE_MESH_TRANSIENT_BATCHES_KEY` or depend on a particle-specific packet
 	accessor.
-- Renderer frame planning for WebGPU must inspect visible mesh-particle
-	templates so transparent-material and shadow-casting templates retain their
-	required `main-transparent` and `shadow` backend passes before simulation
-	has emitted the current frame's packets.
+- The particle subsystem must expose backend-neutral render intent for visible
+	mesh-particle templates before simulation emits the current frame's packets.
+	The intent must identify transparent-material and shadow-casting template
+	work without comparing backend identifiers.
+- Renderer frame planning must include that intent in `FramePassRequirements`
+	when resolved render support enables mesh particles, so the
+	`main-transparent` and `shadow` backend passes remain available for emitted
+	mesh packets.
 - Probe capture views must prepare their own packet set and resolve mesh-particle
 	depth for the capture camera. Packet sets must not be reused across views or
 	retained across frames. Planar reflection capture must exclude mesh-particle

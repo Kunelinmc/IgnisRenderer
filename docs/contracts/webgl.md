@@ -9,6 +9,7 @@ This document defines the current WebGL backend lifecycle, frame graph, resource
 - `WebGLBackend` must report core `profile.capabilities.sh = true`.
 - `WebGLBackend` must report `profile.capabilities.clusteredLighting = true`.
 - `WebGLBackend` must report `profile.capabilities.postProcess = true`.
+- `WebGLBackend` must report `profile.capabilities.meshParticles = false`.
 - Projected decals are temporarily not applicable to `WebGLBackend`.
   `WebGLBackend` must ignore prepared `DecalPacket` instances without capability
   probing, receiver planning, resource allocation, decal passes, diagnostics,

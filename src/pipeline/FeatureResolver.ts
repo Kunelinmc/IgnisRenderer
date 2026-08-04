@@ -9,34 +9,33 @@ import {
 } from "./types";
 import { normalizeOcclusionCullingOptions } from "./OcclusionCulling";
 
-const FEATURE_WARNING_KEYS: Record<keyof BackendCapabilities, string> = {
-	displayHDR: "feature-display-hdr-unsupported",
+type RendererFeatureCapability =
+	| "sh"
+	| "shadows"
+	| "reflection"
+	| "environment"
+	| "oit"
+	| "clusteredLighting"
+	| "occlusionCulling";
+
+const FEATURE_WARNING_KEYS: Record<RendererFeatureCapability, string> = {
 	sh: "feature-sh",
 	shadows: "feature-shadows",
 	reflection: "feature-reflection",
 	environment: "feature-environment",
-	postProcess: "feature-postprocess",
 	oit: "feature-oit",
 	clusteredLighting: "feature-clustered-lighting",
 	occlusionCulling: "feature-occlusion-culling",
-	customRenderTargets: "feature-custom-render-targets",
-	customRenderPasses: "feature-custom-render-passes",
-	renderTargetReadback: "feature-render-target-readback",
 };
 
-const FEATURE_WARNING_LABELS: Record<keyof BackendCapabilities, string> = {
-	displayHDR: "Display HDR",
+const FEATURE_WARNING_LABELS: Record<RendererFeatureCapability, string> = {
 	sh: "spherical harmonics",
 	shadows: "shadows",
 	reflection: "planar reflections",
 	environment: "environment rendering",
-	postProcess: "post-processing",
 	oit: "order-independent transparency",
 	clusteredLighting: "clustered lighting",
 	occlusionCulling: "occlusion culling",
-	customRenderTargets: "custom render targets",
-	customRenderPasses: "custom render passes",
-	renderTargetReadback: "render target readback",
 };
 
 export function resolveFeatureState(
@@ -112,7 +111,7 @@ export function resolveFeatureState(
 function resolveBooleanFeature(
 	requested: boolean | undefined,
 	supported: boolean,
-	feature: keyof BackendCapabilities,
+	feature: RendererFeatureCapability,
 	backendType: RenderBackendType,
 	warnings: ResolvedFeatureState["warnings"]
 ): boolean {

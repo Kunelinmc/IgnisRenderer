@@ -28,6 +28,7 @@ import type {
 	BackendCapabilities,
 	RenderBackendType,
 } from "../backends/IRenderBackend";
+import type { FramePassRequirements } from "./FramePassRequirements";
 
 export type RenderPipelineStageKind =
 	| "renderer"
@@ -38,7 +39,11 @@ export interface RenderPipelineStageRunContext {
 	features: ResolvedFeatureState;
 	postProcess: ResolvedPostProcessState;
 	transient: TransientStore;
+	/** Backend-neutral built-in pass requirements resolved for this frame. */
+	requirements: FramePassRequirements;
+	/** @deprecated Built-in stages consume `requirements`. */
 	backendType?: RenderBackendType;
+	/** @deprecated Built-in stages consume `requirements`. */
 	backendCapabilities?: BackendCapabilities;
 	frameContext?: FrameContext;
 	incremental?: IncrementalFrameContext;
@@ -72,7 +77,11 @@ export interface RenderPipelineFramePlanOptions {
 	features: ResolvedFeatureState;
 	postProcess: ResolvedPostProcessState;
 	transient: TransientStore;
+	/** Backend-neutral built-in pass requirements resolved for this frame. */
+	requirements: FramePassRequirements;
+	/** @deprecated Retained for custom stage predicate compatibility. */
 	backendType?: RenderBackendType;
+	/** @deprecated Retained for custom stage predicate compatibility. */
 	backendCapabilities?: BackendCapabilities;
 	incremental?: IncrementalFrameContext;
 	frameContext?: FrameContext;
@@ -238,6 +247,7 @@ export class RenderPipelineRegistry {
 					features: options.features,
 					postProcess: options.postProcess,
 					transient: options.transient,
+					requirements: options.requirements,
 					backendType: options.backendType,
 					backendCapabilities: options.backendCapabilities,
 					frameContext: options.frameContext,

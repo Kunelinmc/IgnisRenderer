@@ -47,6 +47,7 @@ function run() {
 		clusteredLighting: false,
 		oit: false,
 		postProcess: true,
+		meshParticles: true,
 	};
 
 	const frame = createFrame({
@@ -200,7 +201,7 @@ function run() {
 		baseResolved,
 		createPostProcess(),
 		{
-			backendType: "webgpu",
+			backendType: "custom-mesh-backend",
 			backendCapabilities,
 		},
 	).backendPasses;
@@ -210,6 +211,60 @@ function run() {
 	);
 	assert.equal(
 		meshParticlePlan.find((pass) => pass.stage === "shadow")?.enabled,
+		true,
+	);
+	const unsupportedMeshParticlePlan = FramePlanner.buildFramePlan(
+		meshParticleFrame,
+		baseResolved,
+		createPostProcess(),
+		{
+			backendType: "webgpu",
+			backendCapabilities: {
+				...backendCapabilities,
+				meshParticles: false,
+			},
+		},
+	).backendPasses;
+	assert.equal(
+		unsupportedMeshParticlePlan.find(
+			(pass) => pass.stage === "main-transparent",
+		)?.enabled,
+		false,
+	);
+	assert.equal(
+		unsupportedMeshParticlePlan.find((pass) => pass.stage === "shadow")
+			?.enabled,
+		false,
+	);
+	const explicitRequirementsPlan = FramePlanner.buildFramePlan(
+		createFrame(),
+		baseResolved,
+		createPostProcess(),
+		{
+			backendType: "software",
+			backendCapabilities: {
+				...backendCapabilities,
+				meshParticles: false,
+				postProcess: false,
+			},
+			requirements: {
+				requiredPasses: new Set([
+					"main-opaque",
+					"main-transparent",
+					"postprocess",
+				]),
+			},
+		},
+	).backendPasses;
+	assert.equal(
+		explicitRequirementsPlan.find(
+			(pass) => pass.stage === "main-transparent",
+		)?.enabled,
+		true,
+	);
+	assert.equal(
+		explicitRequirementsPlan.find((pass) => pass.stage === "postprocess")
+			?.enabled,
 		true,
 	);
 

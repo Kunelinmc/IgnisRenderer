@@ -70,6 +70,11 @@ This document defines the lifecycle, scheduling, warmup, incremental rendering, 
   - `device`: may contain best-effort adapter identifiers including `vendor`, `renderer`, `architecture`, `device`, `description`, `isFallbackAdapter`, `driverVersion`, and `raw`.
   - `limits`: may contain selected numeric API limits.
   - `features`: may contain sorted backend feature or extension names.
+- `BackendCapabilities.meshParticles`
+  - Output contract: must be `true` only when the backend can render mesh
+    particle templates through the regular mesh material pipeline.
+  - Behavior contract: renderer frame planning must use this capability instead
+    of comparing backend identifiers.
 - `IRenderBackend.restore()`
   - Behavior contract: must rebuild the graphics context and device resources after loss.
   - Behavior contract: must trigger resource recovery and emit `device-restored` when complete.
@@ -95,6 +100,16 @@ This document defines the lifecycle, scheduling, warmup, incremental rendering, 
   - Must handle `webglcontextrestored` by restoring state and emitting `device-restored`.
 
 #### 3. Frame Execution Lifecycle (`IRenderBackend`)
+
+- Before creating `FrameContext.framePlan`, `FrameCoordinator` must resolve one
+  backend-neutral `FramePassRequirements` snapshot from prepared scene work,
+  subsystem render intent, post-process execution intent, and resolved backend
+  support.
+- Built-in pipeline-stage predicates must consume `FramePassRequirements` and
+  must not inspect backend identifiers or backend capability objects directly.
+- `FrameContext.framePlan` must remain the authoritative source of enabled
+  backend passes. A backend must not add renderer-level passes after
+  `beginFrame()` to compensate for missing requirements.
 
 - `FrameContext.viewCamera`
   - Output contract: must provide the active view/projection camera for the
@@ -598,6 +613,12 @@ bun tests/static/renderer/test_renderer_warmup_lightprobe.mjs
 
 ### Renderer and backend lifecycle
 
+- `BackendCapabilities` now requires `meshParticles`. Custom backends must set
+  it to `true` only when mesh particle templates contribute regular mesh draw
+  packets.
+- `RenderPipelineFramePlanOptions` and `RenderPipelineStageRunContext` now
+  require `FramePassRequirements`. Built-in stages no longer derive pass
+  enablement from backend identifiers or backend capability objects.
 - `Renderer` construction now requires a single `RendererOptions` object.
   The positional `new Renderer(backend, canvas, camera)` form is removed.
 - `RenderTargetReadbackOptions.format` and `bytesPerPixel` are removed.

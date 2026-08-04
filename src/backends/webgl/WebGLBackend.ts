@@ -116,6 +116,7 @@ export class WebGLBackend implements IRenderBackend {
 			reflection: false,
 			environment: true,
 			postProcess: true,
+			meshParticles: false,
 			clusteredLighting: true,
 			oit: true,
 			occlusionCulling: false,

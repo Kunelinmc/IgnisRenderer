@@ -170,6 +170,8 @@ export interface BackendCapabilities {
 	environment: boolean;
 	/** Whether post-processing is supported. */
 	postProcess: boolean;
+	/** Whether mesh particle templates render through regular mesh packets. */
+	meshParticles: boolean;
 	/** Whether clustered lighting is supported. */
 	clusteredLighting: boolean;
 	/** Whether weighted or order-independent transparency is supported. */

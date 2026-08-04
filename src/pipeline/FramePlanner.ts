@@ -7,7 +7,10 @@ import {
 	type TransientStore,
 	createTransientStore,
 } from "./types";
-import { type ResolvedPostProcessState } from "../postprocess";
+import {
+	hasPostProcessExecutionPasses,
+	type ResolvedPostProcessState,
+} from "../postprocess";
 import type { IncrementalFrameContext } from "./incremental";
 import type { RendererStageDefinition } from "./RendererStageGraph";
 import { RenderPipelineRegistry } from "./RenderPipelineRegistry";
@@ -16,11 +19,17 @@ import type {
 	BackendCapabilities,
 	RenderBackendType,
 } from "../backends/IRenderBackend";
+import {
+	resolveFramePassRequirements,
+	type FramePassRequirements,
+} from "./FramePassRequirements";
 
 export interface FramePlannerBuildOptions {
 	registry?: RenderPipelineRegistry;
 	stageOrder?: readonly RendererStageDefinition[];
 	transient?: TransientStore;
+	/** Optional authoritative pass requirements for tests and orchestration. */
+	requirements?: FramePassRequirements;
 	backendType?: RenderBackendType;
 	backendCapabilities?: BackendCapabilities;
 	incremental?: IncrementalFrameContext;
@@ -79,12 +88,31 @@ export class FramePlanner {
 				},
 				() => {}
 			);
+		const requirements =
+			options.requirements ??
+			resolveFramePassRequirements({
+				frame,
+				features,
+				support: {
+					meshParticles:
+						options.backendCapabilities?.meshParticles === true,
+					postProcess:
+						options.backendCapabilities?.postProcess === true,
+				},
+				hasPostProcessWork:
+					options.backendCapabilities?.postProcess === true &&
+					hasPostProcessExecutionPasses(postProcess, {
+						backend: options.backendType,
+						frameContext: options.frameContext,
+					}),
+			});
 		return registry.createFramePlan({
 			stageOrder,
 			frame,
 			features,
 			postProcess,
 			transient: options.transient ?? createTransientStore(),
+			requirements,
 			backendType: options.backendType,
 			backendCapabilities: options.backendCapabilities,
 			incremental: options.incremental,

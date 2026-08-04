@@ -306,6 +306,7 @@ async function testInitAndPassRouting() {
 		reflection: false,
 		environment: true,
 		clusteredLighting: true,
+		meshParticles: false,
 		oit: true,
 		occlusionCulling: false,
 		postProcess: true,

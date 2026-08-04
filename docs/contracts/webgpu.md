@@ -84,6 +84,9 @@ This document defines WebGPU frame-graph execution, deferred lighting, presentat
 	registration must be sealed once preparation begins.
 - WebGPU must register its mesh-particle packet contributor with that registry.
 	The contributor must prepare packets without WebGPU device resources.
+- `WebGPUBackend` must report `profile.capabilities.meshParticles = true` so
+	renderer-owned requirement resolution retains mesh-particle rendering passes
+	without depending on the `"webgpu"` backend identifier.
 - The registry must compose baseline prepared-scene packets and contributor
 	packets into one view-local `PreparedFramePacketSet`. Frame analysis, resource
 	preparation, pass recording, and capture recording must consume that set
