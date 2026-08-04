@@ -171,7 +171,7 @@ export class WebGPUClusteredLightingRuntime {
 	private _compute: IWebGPUComputeFacade;
 	private _sceneLayout: GPUBindGroupLayout;
 	private _frameLayout: GPUBindGroupLayout;
-	private _warn: (key: string, message: string) => void;
+	private _warn: (key: string, message: string) => void = () => {};
 	private _warningKeys = new Set<string>();
 	private _state: FrameClusterState = {
 		enabled: false,
@@ -225,12 +225,20 @@ export class WebGPUClusteredLightingRuntime {
 	constructor(
 		computeFacade: IWebGPUComputeFacade,
 		sceneLayout: GPUBindGroupLayout,
-		frameLayout: GPUBindGroupLayout,
-		warn: (key: string, message: string) => void
+		frameLayout: GPUBindGroupLayout
 	) {
 		this._compute = computeFacade;
 		this._sceneLayout = sceneLayout;
 		this._frameLayout = frameLayout;
+	}
+
+	/**
+	 * Installs the clustered-lighting warning sink.
+	 *
+	 * @internal Owned by the WebGPU frame-service warning bridge. Renderer
+	 * consumers should use the configured logger instead.
+	 */
+	public onWarn(warn: (key: string, message: string) => void): void {
 		this._warn = warn;
 	}
 

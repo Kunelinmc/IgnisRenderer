@@ -306,8 +306,7 @@ function testRuntimeWritesClampedActiveLightCount() {
 	const runtime = new WebGPUClusteredLightingRuntime(
 		compute,
 		{},
-		{},
-		() => {}
+		{}
 	);
 	runtime.prepareFrame(
 		{
@@ -352,8 +351,7 @@ function testRuntimeWritesClusteredAreaSoAData() {
 	const runtime = new WebGPUClusteredLightingRuntime(
 		compute,
 		{},
-		{},
-		() => {}
+		{}
 	);
 	runtime.prepareFrame(
 		{
@@ -433,8 +431,7 @@ async function testRuntimeDispatchesGatherComputePasses() {
 	const runtime = new WebGPUClusteredLightingRuntime(
 		compute,
 		{ label: "scene-layout" },
-		{ label: "frame-layout" },
-		() => {}
+		{ label: "frame-layout" }
 	);
 	runtime.prepareFrame(
 		{
@@ -486,7 +483,7 @@ async function testRuntimeDispatchesGatherComputePasses() {
 async function testRuntimeRetainsScatterABPath() {
 	globalThis.GPUShaderStage ??= { COMPUTE: 4 };
 	const compute = new ClusteredComputeRecorder();
-	const runtime = new WebGPUClusteredLightingRuntime(compute, {}, {}, () => {});
+	const runtime = new WebGPUClusteredLightingRuntime(compute, {}, {});
 	runtime.prepareFrame(
 		{ camera: { type: CameraType.Perspective, near: 0.1, far: 100 } },
 		{
@@ -519,7 +516,7 @@ async function testRuntimeRetainsScatterABPath() {
 async function testRuntimeSkipsStaticCullAndSelectiveUploads() {
 	globalThis.GPUShaderStage ??= { COMPUTE: 4 };
 	const compute = new ClusteredComputeRecorder();
-	const runtime = new WebGPUClusteredLightingRuntime(compute, {}, {}, () => {});
+	const runtime = new WebGPUClusteredLightingRuntime(compute, {}, {});
 	const light = createClusteredLight(0);
 	const frame = { camera: { type: CameraType.Perspective, near: 0.1, far: 100 } };
 	const features = {
@@ -587,9 +584,9 @@ function testRuntimeClampsWebGPULimits() {
 	const runtime = new WebGPUClusteredLightingRuntime(
 		compute,
 		{},
-		{},
-		(key, message) => warnings.push({ key, message })
+		{}
 	);
+	runtime.onWarn((key, message) => warnings.push({ key, message }));
 	const lights = Array.from(
 		{ length: WEBGPU_CLUSTERED_MAX_LIGHTS + 1 },
 		(_, index) => createClusteredLight(index)

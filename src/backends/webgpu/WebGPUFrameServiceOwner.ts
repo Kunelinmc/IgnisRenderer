@@ -970,6 +970,16 @@ export class WebGPUFrameServiceOwner {
 		if (scope) {
 			return scope;
 		}
+		const clusteredLighting = new WebGPUClusteredLightingRuntime(
+			this._computeFacade,
+			this._layouts.clusteredSceneBindGroupLayout,
+			this._layouts.sceneFrameBindGroupLayout,
+		);
+		clusteredLighting.onWarn((key, message) =>
+			Logger.warn(`[${key}] ${message}`, {
+				scope: "WebGPUClusteredLightingRuntime",
+			})
+		);
 		scope = {
 			frameBindings: new WebGPUFrameBindingCache(
 				this._backend,
@@ -979,15 +989,7 @@ export class WebGPUFrameServiceOwner {
 				this._shadowAtlases,
 				this._pagedShadowRuntime,
 			),
-			clusteredLighting: new WebGPUClusteredLightingRuntime(
-				this._computeFacade,
-				this._layouts.clusteredSceneBindGroupLayout,
-				this._layouts.sceneFrameBindGroupLayout,
-				(key, message) =>
-					Logger.warn(`[${key}] ${message}`, {
-						scope: "WebGPUClusteredLightingRuntime",
-					}),
-			),
+			clusteredLighting,
 			prepared: null,
 		};
 		this._frameScopes.set(scopeKey, scope);
