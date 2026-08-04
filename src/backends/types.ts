@@ -230,8 +230,6 @@ export interface ShaderModuleDesc {
 	/** Optional material identifier for diagnostics and warmup reporting */
 	materialId?: string;
 	logCompilationInfo?: boolean;
-	/** Optional software implementation of the shader */
-	softwareDelegate?: Function;
 }
 
 export interface PipelineDesc {
