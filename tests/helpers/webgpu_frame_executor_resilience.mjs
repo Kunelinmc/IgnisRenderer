@@ -17,7 +17,16 @@ class WebGPUFrameExecutor extends WebGPUFrameOrchestrator {
 	constructor(host, resources, msaa, options, particleRenderer = resources) {
 		const framePackets = new FramePacketContributorRegistry();
 		framePackets.register(new WebGPUParticleMeshPacketContributor());
-		super(host, resources, framePackets, particleRenderer, msaa, options);
+		const sampleCounts = msaa ?? createMSAAContext(1);
+		super(
+			host,
+			resources,
+			framePackets,
+			particleRenderer,
+			sampleCounts,
+			sampleCounts.sampleCount,
+			options,
+		);
 	}
 }
 
@@ -158,6 +167,15 @@ function createMSAAContext(initialSampleCount = 1) {
 		},
 		resolveSupportedSampleCount(requested) {
 			return Math.max(1, Math.floor(requested));
+		},
+		resolveDomainSampleCount(domain, requested, formats) {
+			return {
+				domain,
+				requestedSampleCount: Math.max(1, Math.floor(requested)),
+				sampleCount,
+				signature: `${domain}|${formats.slice().sort().join(",")}`,
+				runtimeFallbackActive: sampleCount === 1 && initialSampleCount > 1,
+			};
 		},
 		fallbackToSingleSample() {
 			if (sampleCount === 1) {
@@ -357,7 +375,7 @@ function createPlanarReflectionResourcesStub() {
 		async getEnvironmentResources(_frameResources, sceneTargetMode, options = {}) {
 			state.environmentOptions.push({
 				sceneTargetMode: sceneTargetMode ?? null,
-				sampleCountOverride: options.sampleCountOverride ?? null,
+				sampleCount: options.sampleCount ?? null,
 			});
 			return null;
 		},
@@ -366,7 +384,7 @@ function createPlanarReflectionResourcesStub() {
 				packetId: packet.id,
 				sceneTargetMode: options.sceneTargetMode ?? null,
 				drawMode: options.drawMode ?? "default",
-				sampleCountOverride: options.sampleCountOverride ?? null,
+				sampleCount: options.sampleCount ?? null,
 			});
 			state.events.push(
 				`draw:${packet.id}:${options.sceneTargetMode ?? "default"}:${options.drawMode ?? "default"}`

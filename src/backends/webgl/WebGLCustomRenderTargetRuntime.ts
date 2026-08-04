@@ -863,10 +863,12 @@ function toExecutionTarget(
 		color: target.color.map((texture, index) => ({
 			texture,
 			format: target.descriptor.color[index].format,
+			resolveTexture: null,
 		})),
 		depth: target.depth && target.descriptor.depth ? {
 			texture: target.depth,
 			format: target.descriptor.depth.format,
+			resolveTexture: null,
 		} : null,
 	};
 }

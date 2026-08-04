@@ -190,14 +190,30 @@ function testStrictRegistryTransactionsAndDependencies() {
 	renderer.renderTargets.unregister("strict");
 	assert.equal(renderer.renderTargets.get("strict"), null);
 
+	const multisampled = renderer.renderTargets.register({
+		id: "msaa",
+		size: { mode: "fixed", width: 4, height: 4 },
+		color: [{ format: TextureFormat.RGBA8Unorm }],
+		sampleCount: 4.9,
+	});
+	assert.equal(multisampled.descriptor.sampleCount, 4);
+	renderer.renderTargets.unregister("msaa");
+	const clamped = renderer.renderTargets.register({
+		id: "clamped-samples",
+		size: { mode: "fixed", width: 4, height: 4 },
+		color: [{ format: TextureFormat.RGBA8Unorm }],
+		sampleCount: 0,
+	});
+	assert.equal(clamped.descriptor.sampleCount, 1);
+	renderer.renderTargets.unregister("clamped-samples");
 	assert.throws(
 		() => renderer.renderTargets.register({
-			id: "msaa",
+			id: "invalid-samples",
 			size: { mode: "fixed", width: 4, height: 4 },
 			color: [{ format: TextureFormat.RGBA8Unorm }],
-			sampleCount: 4,
+			sampleCount: Number.NaN,
 		}),
-		/sampleCount must be 1/
+		/sampleCount must be a finite number/,
 	);
 	assert.throws(
 		() => renderer.renderTargets.register({

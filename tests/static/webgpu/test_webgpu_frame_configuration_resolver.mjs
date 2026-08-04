@@ -47,6 +47,8 @@ function postProcessPasses(context) {
 }
 
 function resolve(context, overrides = {}) {
+	const sampleCount = overrides.sampleCount ?? 1;
+	const { sampleCount: _sampleCount, ...rest } = overrides;
 	const analysis = new WebGPUFrameFeatureAnalyzer().analyze(context, {
 		framePackets: createFramePackets(context),
 		postProcessPasses: postProcessPasses(context),
@@ -58,9 +60,14 @@ function resolve(context, overrides = {}) {
 	}, {
 		enableEarlyZPrepass: true,
 		enableDeferredLighting: true,
-		sampleCount: 1,
+		samplePlan: {
+			requestedSampleCount: sampleCount,
+			sampleCount,
+			selectionSignature: "test",
+			runtimeFallbackActive: false,
+		},
 		supportsInFrameTextureCopy: true,
-		...overrides,
+		...rest,
 	});
 }
 
@@ -120,6 +127,12 @@ deferredContext.scene.opaquePackets.push({ material: new PBRMaterial({ anisotrop
 const deferred = resolve(deferredContext);
 assert.equal(deferred.sceneTargetMode, "gbuffer");
 assert.equal(deferred.deferredActive, true);
+const deferredMsaa = resolve(deferredContext, { sampleCount: 4 });
+assert.equal(deferredMsaa.deferredActive, false);
+assert.equal(deferredMsaa.sceneTargetMode, "color");
+
+const sceneMsaa = resolve(createContext(), { sampleCount: 4 });
+assert.equal(sceneMsaa.sceneTargetMode, "color");
 
 const unsupportedAnalysis = new WebGPUFrameFeatureAnalyzer().analyze(deferredContext, {
 	framePackets: createFramePackets(deferredContext),
@@ -132,7 +145,12 @@ const unsupported = new WebGPUFrameConfigurationResolver().resolve(unsupportedAn
 }, {
 	enableEarlyZPrepass: true,
 	enableDeferredLighting: true,
-	sampleCount: 1,
+	samplePlan: {
+		requestedSampleCount: 1,
+		sampleCount: 1,
+		selectionSignature: "test",
+		runtimeFallbackActive: false,
+	},
 	supportsInFrameTextureCopy: true,
 });
 assert.equal(unsupported.sceneTargetMode, "single");

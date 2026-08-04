@@ -317,6 +317,12 @@ async function testWebGLCustomTargetExecutionAndReadback() {
 }
 
 function testWebGLStrictFormatValidation() {
+	const multisampleRuntime = new WebGLCustomRenderTargetRuntime(createFakeGL());
+	assert.throws(
+		() => multisampleRuntime.sync(createContext(() => {}, { sampleCount: 4 })),
+		/WebGL custom render target "inspect" sampleCount must be 1/,
+	);
+
 	const noFloatGL = createFakeGL({ floatColorSupported: false });
 	const noFloatRuntime = new WebGLCustomRenderTargetRuntime(noFloatGL);
 	const floatContext = createContext(() => {}, {

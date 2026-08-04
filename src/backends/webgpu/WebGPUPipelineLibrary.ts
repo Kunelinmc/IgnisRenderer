@@ -18,10 +18,6 @@ import {
 } from "../../materials/ShaderMaterial";
 import type { IRenderPipeline, IShaderModule } from "../types";
 import type { WebGPUDeviceResourceHost } from "./WebGPUDeviceResourceHost";
-import {
-	SINGLE_SAMPLE_WEBGPU_MSAA_CONTEXT,
-	type WebGPUMSAAContext,
-} from "./WebGPUMSAAController";
 import type { WebGPUPipelineLayouts } from "./WebGPUPipelineLayouts";
 import { Logger } from "../../foundation/Logger";
 import { GBufferSlot } from "./constants";
@@ -110,13 +106,11 @@ interface WebGPUSceneProgram {
 
 interface WebGPUPipelineLibraryOptions {
 	listenToShaderRuntime?: boolean;
-	msaaContext?: WebGPUMSAAContext;
 }
 
 export class WebGPUPipelineLibrary {
 	private _backend: WebGPUDeviceResourceHost;
 	private _layouts: WebGPUPipelineLayouts;
-	private _msaa: WebGPUMSAAContext;
 	private _disposeShaderRuntimeListener: (() => void) | null = null;
 	private _sceneShaderModule: IShaderModule | null = null;
 	private _sceneShaderDirectiveTag = "";
@@ -140,7 +134,6 @@ export class WebGPUPipelineLibrary {
 	) {
 		this._backend = backend;
 		this._layouts = layouts;
-		this._msaa = options.msaaContext ?? SINGLE_SAMPLE_WEBGPU_MSAA_CONTEXT;
 		const shaderRuntime = this._getShaderRuntime();
 		const listenToShaderRuntime = options.listenToShaderRuntime !== false;
 		if (
@@ -192,16 +185,16 @@ export class WebGPUPipelineLibrary {
 		topology: PrimitiveDrawTopology = DEFAULT_PRIMITIVE_DRAW_TOPOLOGY,
 		transparentMode: WebGPUTransparentPipelineMode = "default",
 		drawMode: WebGPUScenePipelineDrawMode = "default",
-		sampleCountOverride?: number
+		sampleCount: number
 	): Promise<IRenderPipeline> {
 		const descriptor = resolveWebGPUScenePassDescriptor(
 			mode,
 			transparentMode,
 			drawMode
 		);
-		const sampleCount = this._resolveSampleCount(
+		const resolvedSampleCount = this._resolveSampleCount(
 			descriptor.sceneTargetMode,
-			sampleCountOverride
+			sampleCount
 		);
 		const depthFormat = this._resolveSceneDepthFormat(
 			descriptor.sceneTargetMode
@@ -218,7 +211,7 @@ export class WebGPUPipelineLibrary {
 			cached.descriptorKey === descriptor.pipelineKeyPart &&
 			cached.shaderKey === initialShaderKey &&
 			cached.depthFormat === depthFormat &&
-			cached.sampleCount === sampleCount &&
+			cached.sampleCount === resolvedSampleCount &&
 			cached.topology === topology
 		) {
 			return cached.pipeline;
@@ -226,7 +219,7 @@ export class WebGPUPipelineLibrary {
 
 		const initialCacheKey =
 			`${pipelineKey}|${descriptor.pipelineKeyPart}|${initialShaderKey}` +
-			`|topology:${topology}|depth:${depthFormat}|msaa:${sampleCount}`;
+			`|topology:${topology}|depth:${depthFormat}|msaa:${resolvedSampleCount}`;
 		let pipeline = this._pipelineCache.get(initialCacheKey);
 		if (!pipeline) {
 			pipeline = await this._createPipeline(
@@ -234,13 +227,13 @@ export class WebGPUPipelineLibrary {
 				descriptor,
 				isWireframe,
 				topology,
-				sampleCountOverride
+				resolvedSampleCount
 			);
 		}
 		const finalShaderKey = this._getShaderCacheKey(material);
 		const finalCacheKey =
 			`${pipelineKey}|${descriptor.pipelineKeyPart}|${finalShaderKey}` +
-			`|topology:${topology}|depth:${depthFormat}|msaa:${sampleCount}`;
+			`|topology:${topology}|depth:${depthFormat}|msaa:${resolvedSampleCount}`;
 		const cachedFinalPipeline = this._pipelineCache.get(finalCacheKey);
 		if (cachedFinalPipeline) {
 			pipeline = cachedFinalPipeline;
@@ -256,7 +249,7 @@ export class WebGPUPipelineLibrary {
 			descriptorKey: descriptor.pipelineKeyPart,
 			shaderKey: finalShaderKey,
 			depthFormat,
-			sampleCount,
+			sampleCount: resolvedSampleCount,
 			topology,
 			pipeline,
 		});
@@ -269,7 +262,7 @@ export class WebGPUPipelineLibrary {
 		descriptor: WebGPUScenePassDescriptor,
 		isWireframe: boolean,
 		topology: PrimitiveDrawTopology,
-		sampleCountOverride?: number
+		sampleCount: number
 	): Promise<IRenderPipeline> {
 		const mode = descriptor.sceneTargetMode;
 		if (descriptor.drawMode === "planar-reflection-composite") {
@@ -278,10 +271,10 @@ export class WebGPUPipelineLibrary {
 				descriptor,
 				isWireframe,
 				topology,
-				sampleCountOverride
+				sampleCount
 			);
 		}
-		const sampleCount = this._resolveSampleCount(mode, sampleCountOverride);
+		const resolvedSampleCount = this._resolveSampleCount(mode, sampleCount);
 		const { pipelineKey } = createWebGPUMaterialUniformData(
 			material,
 			isWireframe
@@ -340,7 +333,7 @@ export class WebGPUPipelineLibrary {
 					: depthWrite && !isTransparent,
 				depthCompare: isEarlyZColor ? "less-equal" : "less",
 			},
-			sampleCount,
+			sampleCount: resolvedSampleCount,
 		} as any);
 	}
 
@@ -349,10 +342,10 @@ export class WebGPUPipelineLibrary {
 		descriptor: WebGPUScenePassDescriptor,
 		isWireframe: boolean,
 		topology: PrimitiveDrawTopology,
-		sampleCountOverride?: number
+		sampleCount: number
 	): Promise<IRenderPipeline> {
 		const mode = descriptor.sceneTargetMode;
-		const sampleCount = this._resolveSampleCount(mode, sampleCountOverride);
+		const resolvedSampleCount = this._resolveSampleCount(mode, sampleCount);
 		const depthFormat = this._resolveSceneDepthFormat(mode);
 		const { pipelineKey } = createWebGPUMaterialUniformData(
 			material,
@@ -399,7 +392,7 @@ export class WebGPUPipelineLibrary {
 				depthWriteEnabled: false,
 				depthCompare: "less-equal",
 			},
-			sampleCount,
+			sampleCount: resolvedSampleCount,
 		} as any);
 	}
 
@@ -408,7 +401,7 @@ export class WebGPUPipelineLibrary {
 		mode: WebGPUSceneTargetMode = "single",
 		isWireframe = false,
 		topology: PrimitiveDrawTopology = DEFAULT_PRIMITIVE_DRAW_TOPOLOGY,
-		sampleCountOverride?: number
+		sampleCount: number
 	): Promise<IRenderPipeline | null> {
 		const descriptor = resolveWebGPUScenePassDescriptor(
 			mode,
@@ -422,7 +415,7 @@ export class WebGPUPipelineLibrary {
 			return null;
 		}
 		const isMask = isMaterialMask(material);
-		const sampleCount = this._resolveSampleCount(mode, sampleCountOverride);
+		const resolvedSampleCount = this._resolveSampleCount(mode, sampleCount);
 		const depthFormat = this._resolveSceneDepthFormat(mode);
 		const { pipelineKey } = createWebGPUMaterialUniformData(
 			material,
@@ -433,7 +426,7 @@ export class WebGPUPipelineLibrary {
 			`earlyz|${pipelineKey}|${descriptor.pipelineKeyPart}|` +
 			`mask:${isMask ? 1 : 0}|` +
 			`wire:${isWireframe ? 1 : 0}|topology:${topology}|` +
-			`depth:${depthFormat}|msaa:${sampleCount}|shader:${shaderKey}`;
+			`depth:${depthFormat}|msaa:${resolvedSampleCount}|shader:${shaderKey}`;
 		const cached = this._earlyZPrepassCache.get(cacheKey);
 		if (cached) {
 			return cached;
@@ -467,7 +460,7 @@ export class WebGPUPipelineLibrary {
 				depthWriteEnabled: true,
 				depthCompare: "less",
 			},
-			sampleCount,
+			sampleCount: resolvedSampleCount,
 		};
 		if (resolved.fragmentModule && resolved.fragmentEntryPoint) {
 			desc.fragment = {
@@ -805,11 +798,11 @@ export class WebGPUPipelineLibrary {
 
 	public async getEnvironmentPipeline(
 		mode: WebGPUSceneTargetMode = "single",
-		sampleCountOverride?: number
+		sampleCount: number
 	): Promise<IRenderPipeline> {
-		const sampleCount = this._resolveSampleCount(mode, sampleCountOverride);
+		const resolvedSampleCount = this._resolveSampleCount(mode, sampleCount);
 		const depthFormat = this._resolveSceneDepthFormat(mode);
-		const cacheKey = `${mode}|depth:${depthFormat}|msaa:${sampleCount}`;
+		const cacheKey = `${mode}|depth:${depthFormat}|msaa:${resolvedSampleCount}`;
 		const cached = this._environmentPipelines.get(cacheKey);
 		if (cached) {
 			return cached;
@@ -842,7 +835,7 @@ export class WebGPUPipelineLibrary {
 				depthWriteEnabled: false,
 				depthCompare: "always",
 			},
-			sampleCount,
+			sampleCount: resolvedSampleCount,
 		} as any);
 		this._environmentPipelines.set(cacheKey, pipeline);
 		return pipeline;
@@ -893,15 +886,15 @@ export class WebGPUPipelineLibrary {
 
 	private _resolveSampleCount(
 		mode: WebGPUSceneTargetMode,
-		sampleCountOverride?: number
+		sampleCount: number
 	): number {
 		if (mode !== "mrt" && mode !== "color") {
 			return 1;
 		}
-		if (Number.isFinite(sampleCountOverride)) {
-			return Math.max(1, Math.floor(sampleCountOverride as number));
+		if (!Number.isFinite(sampleCount)) {
+			throw new Error("WebGPU scene pipeline sampleCount must be a finite number.");
 		}
-		return this._msaa.sampleCount;
+		return Math.max(1, Math.floor(sampleCount));
 	}
 
 	private _resolveShaderMaterialMode(

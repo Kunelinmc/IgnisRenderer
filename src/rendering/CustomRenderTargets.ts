@@ -52,6 +52,7 @@ export interface RenderTargetDescriptor {
 	readonly size: RenderTargetSizeDescriptor;
 	readonly color: readonly RenderTargetColorAttachmentDescriptor[];
 	readonly depth?: RenderTargetDepthAttachmentDescriptor | null;
+	/** Finite request normalized by flooring and clamping to at least `1`. */
 	readonly sampleCount?: number;
 	readonly label?: string;
 }
@@ -73,8 +74,11 @@ export interface RenderTargetHandle {
 }
 
 export interface CustomRenderTargetAttachment {
+	/** Actual texture attached while recording the render pass. */
 	readonly texture: IRenderTexture;
 	readonly format: TextureFormat;
+	/** Single-sample color result, or `null` when no automatic resolve exists. */
+	readonly resolveTexture: IRenderTexture | null;
 }
 
 export interface CustomRenderTargetExecutionTarget {
@@ -344,10 +348,13 @@ function normalizeRenderTargetDescriptor(
 	if (!descriptor.color || descriptor.color.length <= 0) {
 		throw new Error(`Render target "${descriptor.id}" requires at least one color attachment.`);
 	}
-	const sampleCount = descriptor.sampleCount ?? 1;
-	if (sampleCount !== 1) {
-		throw new Error(`Render target "${descriptor.id}" sampleCount must be 1.`);
+	const requestedSampleCount = descriptor.sampleCount ?? 1;
+	if (!Number.isFinite(requestedSampleCount)) {
+		throw new Error(
+			`Render target "${descriptor.id}" sampleCount must be a finite number.`,
+		);
 	}
+	const sampleCount = Math.max(1, Math.floor(requestedSampleCount));
 	validateSizeDescriptor(descriptor.id, descriptor.size);
 	return {
 		id: descriptor.id,

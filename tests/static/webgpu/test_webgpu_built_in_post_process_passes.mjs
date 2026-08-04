@@ -25,6 +25,21 @@ const particleRenderer = {
 		return 0;
 	},
 };
+
+const singleSampleResolver = {
+	resolveDomainSampleCount(domain, requestedSampleCount, formats) {
+		return {
+			domain,
+			requestedSampleCount,
+			sampleCount: 1,
+			signature: `${domain}|${formats.join(",")}`,
+			runtimeFallbackActive: false,
+		};
+	},
+	fallbackToSingleSample() {
+		return false;
+	},
+};
 import { createResolvedPostProcess } from "../../helpers/postprocess.mjs";
 
 const BUILTIN_PASS_BY_ID = new Map([
@@ -179,6 +194,8 @@ function createExecutorHarness(postProcessRequest = {
 		resources,
 		new FramePacketContributorRegistry(),
 		particleRenderer,
+		singleSampleResolver,
+		1,
 	);
 	const frameContext = {
 		camera: {},
@@ -455,6 +472,8 @@ async function testWarmupHintsFollowPlanPostProcessPasses() {
 		resources,
 		new FramePacketContributorRegistry(),
 		particleRenderer,
+		singleSampleResolver,
+		1,
 	);
 
 	const emptyWarmup = await executor.warmup(

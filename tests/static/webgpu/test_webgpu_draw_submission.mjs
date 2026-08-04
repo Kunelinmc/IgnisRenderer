@@ -89,6 +89,7 @@ async function testDefaultSubmissionFiltersDirtyRectsAndTracksPackets() {
 		resolveDrawOptions: (packet, rect) => ({
 			sceneTargetMode: packet.id === "a" ? "gbuffer" : "mrt",
 			drawMode: rect?.x === 0 ? "early-z-prepass" : "default",
+			sampleCount: 1,
 		}),
 	});
 
@@ -129,6 +130,7 @@ async function testSubmissionSupportsExtraAndReplacementBindings() {
 		resources,
 		frameResources: createFrameResources(),
 		packets: [{ id: "gbuffer" }],
+		resolveDrawOptions: () => ({ sampleCount: 1 }),
 		resolveBindings: (draw) => [
 			...getDefaultWebGPUDrawBindings(draw),
 			{ slot: 3, group: { id: "gbuffer-write" } },
@@ -139,6 +141,7 @@ async function testSubmissionSupportsExtraAndReplacementBindings() {
 		resources,
 		frameResources: createFrameResources(),
 		packets: [{ id: "planar" }],
+		resolveDrawOptions: () => ({ sampleCount: 1 }),
 		resolveBindings: (draw) => [
 			{ slot: 0, group: draw.frameBinding },
 			{ slot: 1, group: draw.modelBinding },

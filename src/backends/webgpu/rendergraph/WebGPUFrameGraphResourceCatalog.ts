@@ -78,7 +78,7 @@ export function collectWebGPUFrameGraphResourceCatalog(
 	msaaTargets: WebGPUFrameMSAATargets | null,
 	width: number,
 	height: number,
-	msaaSampleCount: number,
+	sampleCount: number,
 	physicalResolver?: Map<string, IRenderTexture>,
 	includeShadowResources = true,
 ): WebGPUFrameGraphResourceCatalogSnapshot {
@@ -101,7 +101,7 @@ export function collectWebGPUFrameGraphResourceCatalog(
 				height: texture.height,
 				depthOrArrayLayers: 1,
 				dimension: "2d",
-				sampleCount: id.startsWith("msaa:") ? Math.max(1, msaaSampleCount) : 1,
+				sampleCount: id.startsWith("msaa:") ? Math.max(1, sampleCount) : 1,
 				mipLevelCount: id === WEBGPU_FRAME_GRAPH_RESOURCES.frameHiZ
 					? Math.floor(Math.log2(Math.max(1, texture.width, texture.height))) + 1
 					: 1,

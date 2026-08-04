@@ -313,7 +313,7 @@ async function testPlanarReflectionCaptureKeepsMSAAFrameTargetsAlive() {
 	);
 	assert.ok(captureDrawOptions);
 	assert.equal(captureDrawOptions.sceneTargetMode, "color");
-	assert.equal(captureDrawOptions.sampleCountOverride, 1);
+	assert.equal(captureDrawOptions.sampleCount, 1);
 	const compositePass = backend.recordedRenderPasses.find(
 		(pass) => pass.label === "WebGPUPlanarReflectionComposite"
 	);

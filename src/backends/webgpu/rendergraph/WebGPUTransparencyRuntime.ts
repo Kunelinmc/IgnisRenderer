@@ -200,6 +200,7 @@ export class WebGPUTransparencyRuntime implements WebGPUFrameNodeRuntime {
 			resolveDrawOptions: () => ({
 				sceneTargetMode: this._resolveSceneTargetMode(),
 				transparentPipelineMode: "oit",
+				sampleCount: 1,
 			}),
 		});
 		encoder.endRenderPass();
@@ -305,7 +306,7 @@ export class WebGPUTransparencyRuntime implements WebGPUFrameNodeRuntime {
 			{
 				label: includeBlendModes[0] === ParticleBlendMode.Additive ?
 					"WebGPUParticlesMRT_Additive" : "WebGPUParticlesMRT_Alpha",
-				sampleCount: this._recordingContext.getTargetMSAASampleCount(),
+				sampleCount: this._recordingContext.getSampleCount(),
 				colorAttachments: [{
 					view: msaaTargets?.sceneColorMain ?? targets.sceneColorMain,
 					resolveTarget: msaaTargets ? targets.sceneColorMain : undefined,

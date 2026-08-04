@@ -558,6 +558,10 @@ export class FakeWebGPUBackend {
 
 	getCanvasColorTexture() { return this.canvasColorTexture; }
 	getCanvasDepthTexture() { return this.canvasDepthTexture; }
+	onMainTargetSampleCountRuntimeFallback() {
+		this.mainTargetSampleCountFallbacks =
+			(this.mainTargetSampleCountFallbacks ?? 0) + 1;
+	}
 	getCanvasRenderTargetSize() {
 		return {
 			width: Math.max(1, Math.floor(this.canvasColorTexture.width ?? 1)),

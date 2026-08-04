@@ -62,9 +62,10 @@ This document defines WebGPU frame-graph execution, deferred lighting, presentat
 - `WebGPUFrameTargetManager` must own WebGPU offscreen frame target allocation,
   pooled texture ownership, and target debug state. It must return allocation
   retry results and must not query or mutate orchestrator state.
-- The backend-internal MSAA controller must own sample-count configuration,
-  device capability probing, resolved runtime state, and persistent `1x`
-  fallback state. It must not own frame textures.
+- The backend-internal sample-count resolver must own request normalization,
+  device capability probing, capability caches, and domain-scoped persistent
+  `1x` fallback state. It must not own frame textures or one backend-wide
+  active sample count.
 - `WebGPUFrameOrchestrator` must own a single active frame scope and orchestrate
   target retry, frame lifecycle, and node execution; it must not own texture
   pool allocation logic.
@@ -267,20 +268,37 @@ This document defines WebGPU frame-graph execution, deferred lighting, presentat
 	  `environmentBasisRight.w` and `halfHeight` in `environmentBasisUp.w`.
 	- `environmentBasisBackward.w` must remain the orthographic flag.
 
-### MSAA configuration
+### Sample-count configuration
 
-- `WebGPUBackendOptions.msaaSampleCount?: number`
+- `WebGPUBackendOptions.sampleCount?: number`
 	- Input contract: accepts a finite number. The value is floored and clamped
 	  to at least `1`.
 	- Behavior contract: omitted values request the default `1x` sample count.
-	  Values greater than `1` request multisampling. The active count may be
-	  lower than requested when device capabilities do not support the requested
-	  count.
+	  Values greater than `1` request main-scene multisampling. The active count
+	  may be lower than requested when device capabilities do not support the
+	  requested count. Custom render targets use their own descriptor count.
 	- Error contract: non-finite values must throw a configuration error.
-- MSAA runtime control is internal. `WebGPUBackend` must not expose
+- Sample-count runtime control is internal. `WebGPUBackend` must not expose
 	`getMSAASampleCount()`, `setMSAAEnabled()`, or `setMSAASampleCount()`.
-- The legacy `enableMSAA` option is removed. JavaScript callers that supply it
-	must receive a deterministic error directing them to `msaaSampleCount`.
+- The legacy `enableMSAA`, `msaaSampleCount`, and `sceneSampleCount` options are
+	removed. JavaScript callers that supply any of them must receive a deterministic
+	error directing them to `sampleCount`.
+
+### Custom render-target sample counts
+
+- Each custom render target must use an independent sample-count domain named
+	`custom-target:<id>`.
+- Selection must use the normalized request and the complete color/depth format
+	set. Every attachment in one target must use the same effective sample count.
+- When the effective count is greater than `1`, each color attachment must own
+	a multisampled render texture and a single-sample resolve texture. Depth must
+	remain multisampled and must not receive an automatic resolve texture.
+- Allocation failure must destroy every partially allocated render, resolve,
+	and depth texture, pin only that target signature to `1x`, and retry during
+	the same synchronization operation. The pin must survive resize and clear
+	only when the device runtime is reset.
+- Custom pass pipelines must use `context.target.sampleCount`, and color
+	readback must use `resolveTexture` when it is present.
 
 ### Planar reflections
 
@@ -416,12 +434,12 @@ bun tests/static/webgpu/test_webgpu_bridge_material_pipelines.mjs
 bun tests/static/webgpu/test_webgpu_frame_executor_transparency_deferred.mjs
 ```
 
-### MSAA configuration
+### Sample-count configuration
 
 ```ts
 import { WebGPUBackend } from "../src/backends/webgpu/WebGPUBackend";
 
-const backend = new WebGPUBackend({ msaaSampleCount: 1 });
+const backend = new WebGPUBackend({ sampleCount: 1 });
 ```
 
 ```bash
@@ -547,13 +565,18 @@ const packed = packer.pack({
 - Shader compile diagnostics for opt-in `ShaderMaterial` deferred chunks must
   follow the existing `ShaderMaterial` strict/warn/silent runtime behavior.
 
-### MSAA configuration
+### Sample-count configuration
 
 - Requested MSAA counts that are unsupported must be clamped to the highest
   supported count that does not exceed the request, and may end at `1x`.
-- A frame-target allocation failure may log `webgpu-msaa-runtime-fallback-1x`
+- A frame-target allocation failure may log
+  `webgpu-scene-sample-count-runtime-fallback-1x`
   and retry at `1x` before recording render commands. The fallback remains
   active until the device runtime is reinitialized.
+- A custom-target allocation failure may log
+  `webgpu-custom-target-sample-count-runtime-fallback-1x`. Its fallback applies
+  only to the matching device, target domain, normalized request, and attachment
+  signature, and remains active until the device runtime is reinitialized.
 
 ### Planar reflections
 
@@ -608,11 +631,12 @@ materials may use deferred lighting by default when runtime limits allow it.
 Transparent, OIT, transmission, particles, `SoftwareBackend`, `WebGLBackend`,
 and reflection probe capture keep their existing paths.
 
-### MSAA configuration
+### Sample-count configuration
 
-This change is breaking. Runtime MSAA methods and `enableMSAA` are removed;
-use `msaaSampleCount` when creating `WebGPUBackend`. The default sample count
-is `1x`; applications that require MSAA must request it explicitly.
+This change is breaking. Runtime MSAA methods, `enableMSAA`,
+`msaaSampleCount`, and `sceneSampleCount` are removed; use `sampleCount` when
+creating `WebGPUBackend`. The default scene sample count is `1x`; applications
+that require multisampled main-scene rendering must request it explicitly.
 
 ### Planar reflections
 

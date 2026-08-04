@@ -1,21 +1,5 @@
 import type { ICommandBuffer, ICommandEncoder } from "../../ICommandEncoder";
-import type {
-	BindingGroupDesc,
-	BufferDesc,
-	ComputePipelineDesc,
-	IBindingGroup,
-	IComputePipeline,
-	IRenderBuffer,
-	IRenderPipeline,
-	IRenderTexture,
-	ISampler,
-	IShaderModule,
-	PipelineDesc,
-	SamplerDesc,
-	ShaderModuleDesc,
-	TextureDesc,
-	TextureFormat,
-} from "../../types";
+import type { IRenderTexture } from "../../types";
 import type { IWebGPUComputeFacade } from "../ComputeFacade";
 import type { BackendPostProcessRuntime } from "../../../postprocess/BackendPostProcessRuntime";
 import type { WebGPUDeviceResourceHost } from "../WebGPUDeviceResourceHost";
@@ -37,5 +21,6 @@ export interface WebGPUFrameHost extends WebGPUDeviceResourceHost {
 	submit(commands: ICommandBuffer[]): void;
 	getCanvasColorTexture(): IRenderTexture;
 	getCanvasDepthTexture(): IRenderTexture;
+	onMainTargetSampleCountRuntimeFallback(): void;
 	assertDeviceOperational(operation: string): void;
 }

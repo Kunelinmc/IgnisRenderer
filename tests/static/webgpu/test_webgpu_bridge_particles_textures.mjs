@@ -565,7 +565,9 @@ async function testRenderResourcesDestroyCleansParticleAndGeometryResources() {
 		createFrameContext(frame, features),
 		createMainFrameOptions()
 	);
-	const draw = await resources.getDrawResources(packet, frameResources);
+	const draw = await resources.getDrawResources(packet, frameResources, {
+		sampleCount: 1,
+	});
 	assert.ok(draw && draw.length > 0);
 	const geometryDraw = draw[0];
 

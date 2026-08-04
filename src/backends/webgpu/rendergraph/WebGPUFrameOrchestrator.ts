@@ -15,9 +15,9 @@ import type {
 	PostProcessResourceHandle,
 } from "../../../postprocess";
 import type { ICommandEncoder } from "../../ICommandEncoder";
-import type { IRenderTexture } from "../../types";
+import { TextureFormat, type IRenderTexture } from "../../types";
 import type { WebGPUFrameHost } from "./WebGPUFrameHost";
-import type { WebGPUMSAAContext } from "../WebGPUMSAAController";
+import type { WebGPUSampleCountResolver } from "../WebGPUSampleCountResolver";
 import type {
 	WebGPUFrameResourceScope,
 	WebGPUParticleBillboardRenderer,
@@ -69,6 +69,7 @@ import {
 	WebGPUFrameConfigurationResolver,
 	type WebGPUFrameConfiguration,
 	type WebGPUFrameDiagnostic,
+	type WebGPUFrameSamplePlan,
 } from "./WebGPUFrameConfigurationResolver";
 import { WebGPUFrameGraphPlanner } from "./WebGPUFrameGraphPlanner";
 import { WebGPUFrameGraphCompiler } from "./WebGPUFrameGraphCompiler";
@@ -129,10 +130,10 @@ import type {
 	RenderTargetReadbackResult,
 } from "../../../rendering/CustomRenderTargets";
 import type { WebGPUPostProcessSessionPort } from "../WebGPUPostProcessExecutor";
-import { SINGLE_SAMPLE_WEBGPU_MSAA_CONTEXT } from "../WebGPUMSAAController";
 
 const WEBGPU_DEFERRED_RUNTIME_FALLBACK_KEY = "webgpu-deferred-runtime-fallback";
-const WEBGPU_MSAA_RUNTIME_FALLBACK_KEY = "webgpu-msaa-runtime-fallback-1x";
+const WEBGPU_MAIN_TARGET_SAMPLE_COUNT_RUNTIME_FALLBACK_KEY =
+	"webgpu-scene-sample-count-runtime-fallback-1x";
 const WEBGPU_OIT_DISABLED_MRT_KEY = "webgpu-oit-disabled-mrt-unavailable";
 const WEBGPU_OIT_DISABLED_MSAA_KEY = "webgpu-oit-disabled-msaa";
 const WEBGPU_OIT_DISABLED_RUNTIME_KEY = "webgpu-oit-disabled-runtime";
@@ -148,7 +149,8 @@ export class WebGPUFrameOrchestrator {
 	private readonly _shadowRenderer: WebGPUShadowRenderProvider;
 	private readonly _framePacketProvider: FramePacketProvider;
 	private readonly _mainFrameScope: WebGPUFrameResourceScope;
-	private _msaa: WebGPUMSAAContext;
+	private readonly _sampleCountResolver: WebGPUSampleCountResolver;
+	private readonly _requestedSampleCount: number;
 	private _session: WebGPUFrameSession | null = null;
 	private _lastConfiguration: WebGPUFrameConfiguration | null = null;
 	private _postRuntime: WebGPUPostProcessRuntime;
@@ -185,8 +187,7 @@ export class WebGPUFrameOrchestrator {
 	private _wholeFrameGraphCompiled = false;
 	private _postProcessGraphFrame: PostProcessRenderGraphFrame | null = null;
 	private _postProcessOutputColor: string = WEBGPU_FRAME_GRAPH_RESOURCES.frameColor;
-	private _postProcessOutputColorDomain: PostProcessColorDomain =
-		"scene-linear-hdr";
+	private _postProcessOutputColorDomain: PostProcessColorDomain = "scene-linear-hdr";
 	private readonly _graphPhysicalResources = new Map<string, IRenderTexture>();
 
 	constructor(
@@ -194,7 +195,8 @@ export class WebGPUFrameOrchestrator {
 		frameServiceOwner: WebGPUFrameServiceOwner,
 		framePacketProvider: FramePacketProvider,
 		particleRenderer: WebGPUParticleBillboardRenderer,
-		msaa: WebGPUMSAAContext = SINGLE_SAMPLE_WEBGPU_MSAA_CONTEXT,
+		sampleCountResolver: WebGPUSampleCountResolver,
+		requestedSampleCount: number,
 		options: WebGPUFrameOrchestratorOptions = {
 			enableEarlyZPrepass: host.enableEarlyZPrepass,
 			enableDeferredLighting: host.enableDeferredLighting,
@@ -205,7 +207,8 @@ export class WebGPUFrameOrchestrator {
 		this._shadowRenderer = frameServiceOwner;
 		this._framePacketProvider = framePacketProvider;
 		this._mainFrameScope = frameServiceOwner.createFrameScope();
-		this._msaa = msaa;
+		this._sampleCountResolver = sampleCountResolver;
+		this._requestedSampleCount = requestedSampleCount;
 		this._enableEarlyZPrepass = options.enableEarlyZPrepass;
 		this._enableDeferredLighting = options.enableDeferredLighting;
 		this._frameGraphValidationMode = options.frameGraphValidationMode;
@@ -228,7 +231,7 @@ export class WebGPUFrameOrchestrator {
 			frameServiceOwner,
 			framePacketProvider,
 		);
-		this._customRenderTargets = new WebGPUCustomRenderTargetRuntime(host);
+		this._customRenderTargets = new WebGPUCustomRenderTargetRuntime(host, sampleCountResolver);
 		this._frameTargetManager = new WebGPUFrameTargetManager(host);
 		this._recordingContext = {
 			getEncoder: () => this._encoder,
@@ -236,7 +239,7 @@ export class WebGPUFrameOrchestrator {
 			getMSAATargets: () => this._msaaTargets,
 			getTargetWidth: () => this._targetWidth,
 			getTargetHeight: () => this._targetHeight,
-			getTargetMSAASampleCount: () => this._targetMSAASampleCount,
+			getSampleCount: () => this._targetSampleCount,
 			getSceneTargetMode: () => this._targetSceneTargetMode,
 			isMRTEnabled: () => this._mrtEnabled,
 			isEarlyZPrepassEnabled: () => this._enableEarlyZPrepass,
@@ -390,8 +393,8 @@ export class WebGPUFrameOrchestrator {
 		return this._frameTargetManager.targetHeight;
 	}
 
-	private get _targetMSAASampleCount(): number {
-		return this._frameTargetManager.targetMSAASampleCount;
+	private get _targetSampleCount(): number {
+		return this._frameTargetManager.targetSampleCount;
 	}
 
 	private get _targetSceneTargetMode(): WebGPUSceneTargetMode {
@@ -443,9 +446,7 @@ export class WebGPUFrameOrchestrator {
 			return;
 		}
 		if (session.state !== "preparing") {
-			throw new Error(
-				`WebGPU frame session cannot seal from state "${session.state}".`,
-			);
+			throw new Error(`WebGPU frame session cannot seal from state "${session.state}".`);
 		}
 		this._sealFrame(
 			context,
@@ -455,11 +456,7 @@ export class WebGPUFrameOrchestrator {
 		this.updateParticleShadowVolumes(context);
 	}
 
-	private _sealFrame(
-		context: FrameContext,
-		targetWidth: number,
-		targetHeight: number,
-	): void {
+	private _sealFrame(context: FrameContext, targetWidth: number, targetHeight: number): void {
 		try {
 			const framePackets = this._framePacketProvider.prepare(context, "main");
 			const postProcessDeclarations = this._postProcessRuntime.describeFrame(context);
@@ -500,10 +497,7 @@ export class WebGPUFrameOrchestrator {
 			this._clearActiveSession();
 			throw error;
 		}
-		this.prepareFrameResources(
-			context,
-			this._postProcessGraphFrame.graph.frameRequirements,
-		);
+		this.prepareFrameResources(context, this._postProcessGraphFrame.graph.frameRequirements);
 	}
 
 	private _requiresParticleSimulation(context: FrameContext): boolean {
@@ -523,7 +517,7 @@ export class WebGPUFrameOrchestrator {
 	): WebGPUFrameConfiguration {
 		let forceDeferredFallback = false;
 		let forceForwardMrt = false;
-		for (let attempts = 0; attempts < 3; attempts++) {
+		for (let attempts = 0; attempts < 8; attempts++) {
 			const configuration = this._resolveFrameConfiguration(
 				context,
 				analysis,
@@ -539,7 +533,7 @@ export class WebGPUFrameOrchestrator {
 			const result = this._frameTargetManager.ensureFrameTargets({
 				width,
 				height,
-				sampleCount: this._msaa.sampleCount,
+				sampleCount: configuration.samplePlan.sampleCount,
 				requirements: configuration.targetRequirements,
 			});
 			if (result.status === "ready") return configuration;
@@ -549,10 +543,20 @@ export class WebGPUFrameOrchestrator {
 				this._warnFrameTargetRetry(WEBGPU_DEFERRED_RUNTIME_FALLBACK_KEY, result);
 				continue;
 			}
-			if (!this._msaa.fallbackToSingleSample()) {
+			const failedSampleCount = configuration.samplePlan.sampleCount;
+			if (
+				!this._sampleCountResolver.fallbackToSingleSample(
+					configuration.samplePlan.selectionSignature,
+				)
+			) {
 				throw result.error;
 			}
-			this._warnFrameTargetRetry(WEBGPU_MSAA_RUNTIME_FALLBACK_KEY, result);
+			this._host.onMainTargetSampleCountRuntimeFallback();
+			this._warnFrameTargetRetry(
+				WEBGPU_MAIN_TARGET_SAMPLE_COUNT_RUNTIME_FALLBACK_KEY,
+				result,
+				failedSampleCount,
+			);
 		}
 		throw new Error("WebGPU frame target allocation did not converge after fallback.");
 	}
@@ -565,24 +569,91 @@ export class WebGPUFrameOrchestrator {
 		forceForwardMrt: boolean,
 	): WebGPUFrameConfiguration {
 		const device = this._host.device;
-		return this._configurationResolver.resolve(
-			analysis,
-			{
-				maxColorAttachments: device?.limits?.maxColorAttachments ?? 8,
-				maxColorAttachmentBytesPerSample:
-					device?.limits?.maxColorAttachmentBytesPerSample ?? 32,
-				maxStorageTexturesPerShaderStage:
-					device?.limits?.maxStorageTexturesPerShaderStage ?? 4,
-			},
-			{
+		const capabilities = {
+			maxColorAttachments: device?.limits?.maxColorAttachments ?? 8,
+			maxColorAttachmentBytesPerSample:
+				device?.limits?.maxColorAttachmentBytesPerSample ?? 32,
+			maxStorageTexturesPerShaderStage: device?.limits?.maxStorageTexturesPerShaderStage ?? 4,
+		};
+		let samplePlan: WebGPUFrameSamplePlan = {
+			requestedSampleCount: this._requestedSampleCount,
+			sampleCount: this._requestedSampleCount,
+			selectionSignature: "main-scene:pending",
+			runtimeFallbackActive: false,
+		};
+		const visited = new Set<string>();
+		for (let attempts = 0; attempts < 6; attempts++) {
+			const configuration = this._configurationResolver.resolve(analysis, capabilities, {
 				enableEarlyZPrepass: this._enableEarlyZPrepass,
 				enableDeferredLighting: this._enableDeferredLighting,
-				sampleCount: this._msaa.sampleCount,
+				samplePlan,
 				supportsInFrameTextureCopy: typeof encoder.copyTextureToTexture === "function",
 				forceDeferredFallback,
 				forceForwardMrt,
-			},
-		);
+			});
+			const formats = this._getSampleCountProbeFormats(configuration);
+			const nextPlan =
+				formats.length === 0
+					? {
+							requestedSampleCount: this._requestedSampleCount,
+							sampleCount: 1,
+							selectionSignature: "main-scene:single",
+							runtimeFallbackActive: false,
+						}
+					: this._toFrameSamplePlan(
+							this._sampleCountResolver.resolveDomainSampleCount(
+								"main-scene",
+								this._requestedSampleCount,
+								formats,
+							),
+							samplePlan.sampleCount,
+						);
+			if (
+				nextPlan.sampleCount === samplePlan.sampleCount &&
+				nextPlan.selectionSignature === samplePlan.selectionSignature
+			) {
+				return configuration;
+			}
+			const stateKey = `${nextPlan.sampleCount}|${nextPlan.selectionSignature}`;
+			if (visited.has(stateKey)) {
+				throw new Error("WebGPU scene sample-count planning did not converge.");
+			}
+			visited.add(stateKey);
+			samplePlan = nextPlan;
+		}
+		throw new Error("WebGPU scene sample-count planning exceeded its retry limit.");
+	}
+
+	private _toFrameSamplePlan(
+		selection: ReturnType<WebGPUSampleCountResolver["resolveDomainSampleCount"]>,
+		upperBound: number,
+	): WebGPUFrameSamplePlan {
+		return {
+			requestedSampleCount: selection.requestedSampleCount,
+			sampleCount: Math.min(upperBound, selection.sampleCount),
+			selectionSignature: selection.signature,
+			runtimeFallbackActive: selection.runtimeFallbackActive,
+		};
+	}
+
+	private _getSampleCountProbeFormats(
+		configuration: WebGPUFrameConfiguration,
+	): GPUTextureFormat[] {
+		const requirements = configuration.targetRequirements;
+		if (!requirements) {
+			return [];
+		}
+		const formats = new Set<GPUTextureFormat>([
+			TextureFormat.RGBA16Float as GPUTextureFormat,
+			TextureFormat.Depth32Float as GPUTextureFormat,
+		]);
+		if (requirements.sceneTargetMode === "mrt" || requirements.sceneTargetMode === "gbuffer") {
+			formats.add(TextureFormat.RGBA8Unorm as GPUTextureFormat);
+		}
+		if (requirements.needsPlanarReflectionMask) {
+			formats.add(TextureFormat.R8Unorm as GPUTextureFormat);
+		}
+		return Array.from(formats);
 	}
 
 	private _emitConfigurationDiagnostics(diagnostics: readonly WebGPUFrameDiagnostic[]): void {
@@ -597,11 +668,12 @@ export class WebGPUFrameOrchestrator {
 	private _warnFrameTargetRetry(
 		key: string,
 		result: Exclude<WebGPUFrameTargetEnsureResult, { status: "ready" }>,
+		failedSampleCount?: number,
 	): void {
 		const message =
 			key === WEBGPU_DEFERRED_RUNTIME_FALLBACK_KEY
 				? "WebGPU deferred frame target allocation failed; retrying with legacy MRT forward path."
-				: `WebGPU ${this._msaa.sampleCount}x MSAA target allocation failed; retrying at 1x.`;
+				: `WebGPU ${failedSampleCount ?? 1}x scene sample-count target allocation failed; retrying at 1x.`;
 		Logger.warn(`[${key}] ${message} ${String(result.error)}`, {
 			scope: "WebGPUFrameOrchestrator",
 			onceKey: key,
@@ -743,9 +815,7 @@ export class WebGPUFrameOrchestrator {
 		return this._requireSessionFramePackets(this._requireActiveSession());
 	}
 
-	private _requireSessionFramePackets(
-		session: WebGPUFrameSession,
-	): PreparedFramePacketSet {
+	private _requireSessionFramePackets(session: WebGPUFrameSession): PreparedFramePacketSet {
 		if (!session.framePackets) {
 			throw new Error("WebGPU frame session has no prepared frame packets.");
 		}
@@ -768,8 +838,11 @@ export class WebGPUFrameOrchestrator {
 	}
 
 	private _isPostProcessSharedResourceAvailable(resourceId: string): boolean {
-		return getWebGPUPostProcessSharedResourceDescriptor(resourceId)
-			?.isAllocated(this._frameTargets) ?? false;
+		return (
+			getWebGPUPostProcessSharedResourceDescriptor(resourceId)?.isAllocated(
+				this._frameTargets,
+			) ?? false
+		);
 	}
 
 	/**
@@ -847,8 +920,8 @@ export class WebGPUFrameOrchestrator {
 		await yieldController.yieldIfNeeded();
 
 		const postRuntime = this._postProcessRuntime;
-		const warmupGraph = postProcessPlan ?? (plan.includePostProcess ?
-			postRuntime.planWarmup(context) : null);
+		const warmupGraph =
+			postProcessPlan ?? (plan.includePostProcess ? postRuntime.planWarmup(context) : null);
 		const warmedPassImplementations = new Set<string>();
 		for (const passId of plan.postProcessPasses) {
 			if (warmedPassImplementations.has(passId)) {
@@ -1116,9 +1189,7 @@ export class WebGPUFrameOrchestrator {
 		};
 	}
 
-	public async endFrame(
-		postSubmit?: () => void | Promise<void>,
-	): Promise<void> {
+	public async endFrame(postSubmit?: () => void | Promise<void>): Promise<void> {
 		const session = this._session;
 		if (!session) {
 			throw new Error("WebGPUFrameOrchestrator has no active frame session.");
@@ -1245,15 +1316,16 @@ export class WebGPUFrameOrchestrator {
 	}
 
 	private _compileWholeFrameGraph(context: FrameContext): void {
-		const includeShadowResources = context.framePlan?.backendPasses.some(
-			(pass) => pass.enabled && pass.stage === "shadow",
-		) === true;
+		const includeShadowResources =
+			context.framePlan?.backendPasses.some(
+				(pass) => pass.enabled && pass.stage === "shadow",
+			) === true;
 		const catalog = collectWebGPUFrameGraphResourceCatalog(
 			this._frameTargets,
 			this._msaaTargets,
 			Math.max(1, this._targetWidth),
 			Math.max(1, this._targetHeight),
-			this._targetMSAASampleCount,
+			this._targetSampleCount,
 			this._graphPhysicalResources,
 			includeShadowResources,
 		);
@@ -1317,8 +1389,7 @@ export class WebGPUFrameOrchestrator {
 					const composition = createWebGPUPostProcessGraphComposition(frame);
 					postProcessImportResources.push(...composition.importResources);
 					this._postProcessOutputColor = composition.outputColor;
-					this._postProcessOutputColorDomain =
-						frame.graph.outputColorDomain;
+					this._postProcessOutputColorDomain = frame.graph.outputColorDomain;
 					stagePlan = {
 						pass,
 						nodes: [],
@@ -1402,9 +1473,7 @@ export class WebGPUFrameOrchestrator {
 					);
 				}
 				if (result.ran !== false) {
-					const plannedPass = plan.graph.passes.find(
-						(pass) => pass.id === node.passId,
-					);
+					const plannedPass = plan.graph.passes.find((pass) => pass.id === node.passId);
 					if (plannedPass?.pass.colorContract?.input === executedColorDomain) {
 						executedColorDomain = plannedPass.pass.colorContract.output;
 					}
@@ -1577,6 +1646,7 @@ export class WebGPUFrameOrchestrator {
 			frameResources: this._requireFrameResources(),
 			frameTargets: this._frameTargets,
 			msaaTargets: this._msaaTargets as WebGPUPlanarReflectionMSAATargets | null,
+			sampleCount: this._lastConfiguration?.samplePlan.sampleCount ?? 1,
 		});
 	}
 

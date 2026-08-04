@@ -91,7 +91,7 @@ export interface WebGPUPipelineCacheHost {
 	readonly warmupLogCompilationInfo: boolean;
 	readonly objectIdentity: WebGPUObjectIdentity;
 	assertDeviceOperational(operation: string): void;
-	resolveSupportedMSAASampleCount(
+	resolveSupportedSampleCount(
 		requested: number,
 		probeFormats?: readonly GPUTextureFormat[]
 	): number;
@@ -726,7 +726,7 @@ export class WebGPUPipelineCache {
 		layout: GPUPipelineLayout | GPUAutoLayoutMode,
 	): GPURenderPipelineDescriptor {
 		const probeFormats = this._getRenderPipelineProbeFormats(desc);
-		const sampleCount = this._host.resolveSupportedMSAASampleCount(
+		const sampleCount = this._host.resolveSupportedSampleCount(
 			Math.max(1, Math.floor(desc.sampleCount ?? 1)),
 			probeFormats,
 		);
@@ -849,7 +849,7 @@ export class WebGPUPipelineCache {
 		parts.push(`primitive.cull:${desc.primitive?.cullMode ?? "none"}`);
 		parts.push(`primitive.front:${desc.primitive?.frontFace ?? "ccw"}`);
 		const probeFormats = this._getRenderPipelineProbeFormats(desc);
-		const sampleCount = this._host.resolveSupportedMSAASampleCount(
+		const sampleCount = this._host.resolveSupportedSampleCount(
 			Math.max(1, Math.floor(desc.sampleCount ?? 1)),
 			probeFormats,
 		);

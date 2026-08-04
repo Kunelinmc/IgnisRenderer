@@ -299,7 +299,7 @@ export class WebGPUReflectionProbeCapturePass {
 			packets,
 			resolveDrawOptions: () => ({
 				sceneTargetMode: "mrt",
-				sampleCountOverride: 1,
+				sampleCount: 1,
 			}),
 		});
 		encoder.endRenderPass();
@@ -312,7 +312,7 @@ export class WebGPUReflectionProbeCapturePass {
 	): Promise<boolean> {
 		const environmentResources =
 			await this._captureResources.getEnvironmentResources(frameResources, "mrt", {
-				sampleCountOverride: 1,
+				sampleCount: 1,
 			});
 		if (!environmentResources) {
 			return false;

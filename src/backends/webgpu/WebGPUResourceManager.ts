@@ -33,7 +33,7 @@ export interface WebGPUResourceManagerHost {
 	readonly device: GPUDevice | null;
 	readonly queue: GPUQueue | null;
 	assertDeviceOperational(operation: string): void;
-	resolveSupportedMSAASampleCount(
+	resolveSupportedSampleCount(
 		requested: number,
 		probeFormats?: readonly GPUTextureFormat[],
 	): number;
@@ -106,7 +106,7 @@ export class WebGPUResourceManager {
 		const requestedSampleCount = Math.max(1, Math.floor(desc.sampleCount ?? 1));
 		const sampleCount =
 			dimension === "2d"
-				? this._host.resolveSupportedMSAASampleCount(requestedSampleCount, [
+				? this._host.resolveSupportedSampleCount(requestedSampleCount, [
 						formatResolution.format as GPUTextureFormat,
 					])
 				: 1;

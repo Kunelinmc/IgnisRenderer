@@ -59,6 +59,7 @@ export interface WebGPUPlanarReflectionCompositeRequest {
 	frameResources: WebGPUPreparedFrameResources;
 	frameTargets: WebGPUFrameTargets;
 	msaaTargets: WebGPUPlanarReflectionMSAATargets | null;
+	sampleCount: number;
 }
 
 /**
@@ -262,6 +263,7 @@ export class WebGPUPlanarReflectionPass {
 			resolveDrawOptions: () => ({
 				sceneTargetMode: "mrt",
 				drawMode: "planar-reflection-composite",
+				sampleCount: request.sampleCount,
 			}),
 			resolveBindings: (draw, packet) => {
 				const reflection = activeByKey.get(
@@ -339,7 +341,7 @@ export class WebGPUPlanarReflectionPass {
 			resolveDrawOptions: () => ({
 				sceneTargetMode: "color",
 				drawMode: "reflection-capture",
-				sampleCountOverride: 1,
+				sampleCount: 1,
 			}),
 		});
 		encoder.endRenderPass();
@@ -352,7 +354,7 @@ export class WebGPUPlanarReflectionPass {
 	): Promise<boolean> {
 		const environmentResources =
 			await this._resources.getEnvironmentResources(frameResources, "color", {
-				sampleCountOverride: 1,
+				sampleCount: 1,
 			});
 		if (!environmentResources) {
 			return false;

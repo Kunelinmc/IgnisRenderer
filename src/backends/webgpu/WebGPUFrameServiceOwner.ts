@@ -19,7 +19,6 @@ import {
 	type PreparedFramePacketSet,
 } from "../../pipeline/FramePacketContributorRegistry";
 import type { WebGPUResourceManager } from "./WebGPUResourceManager";
-import { SINGLE_SAMPLE_WEBGPU_MSAA_CONTEXT, type WebGPUMSAAContext } from "./WebGPUMSAAController";
 import type { IWebGPUComputeFacade } from "./ComputeFacade";
 import {
 	ANIMATION_WEBGPU_JOINT_MATRICES_KEY,
@@ -168,7 +167,6 @@ class WebGPUFrameResourceScopeHandle implements WebGPUFrameResourceScopeContract
 export class WebGPUFrameServiceOwner {
 	private _backend: WebGPUDeviceResourceHost;
 	private _resourceManager: WebGPUResourceManager;
-	private _msaa: WebGPUMSAAContext;
 	private _computeFacade: IWebGPUComputeFacade;
 	private _layouts: ReturnType<typeof createWebGPUPipelineLayouts>;
 	private _geometryRegistry: WebGPUGeometryRegistry;
@@ -190,11 +188,9 @@ export class WebGPUFrameServiceOwner {
 		backend: WebGPUDeviceResourceHost,
 		resourceManager: WebGPUResourceManager,
 		computeFacade: IWebGPUComputeFacade,
-		msaa: WebGPUMSAAContext = SINGLE_SAMPLE_WEBGPU_MSAA_CONTEXT,
 	) {
 		this._backend = backend;
 		this._resourceManager = resourceManager;
-		this._msaa = msaa;
 		this._computeFacade = computeFacade;
 		const device = backend.device;
 		if (!device) {
@@ -206,7 +202,6 @@ export class WebGPUFrameServiceOwner {
 		this._shadowAtlases = new WebGPUShadowAtlasAllocator(backend);
 		this._pipelineLibrary = new WebGPUPipelineLibrary(backend, this._layouts, {
 			listenToShaderRuntime: false,
-			msaaContext: this._msaa,
 		});
 		this._particleRenderResources = new WebGPUParticleRenderResources(
 			backend,
@@ -272,7 +267,9 @@ export class WebGPUFrameServiceOwner {
 		if (plan.enableEnvironment && warmupResources) {
 			total++;
 			try {
-				await this.getEnvironmentResources(warmupResources);
+				await this.getEnvironmentResources(warmupResources, plan.sceneTargetMode, {
+					sampleCount: 1,
+				});
 				compiled++;
 			} catch (error) {
 				failed++;
@@ -286,7 +283,7 @@ export class WebGPUFrameServiceOwner {
 			total++;
 			try {
 				const resources = warmupResources
-					? await this.getDrawResources(packet, warmupResources)
+					? await this.getDrawResources(packet, warmupResources, { sampleCount: 1 })
 					: null;
 				if (resources && resources.length > 0) {
 					compiled++;
@@ -317,6 +314,7 @@ export class WebGPUFrameServiceOwner {
 							? await this.getDrawResources(packet, reflectionResources, {
 									sceneTargetMode: "color",
 									drawMode: "reflection-capture",
+									sampleCount: 1,
 								})
 							: null;
 						if (resources && resources.length > 0) {
@@ -344,6 +342,7 @@ export class WebGPUFrameServiceOwner {
 							? await this.getDrawResources(packet, reflectionResources, {
 									sceneTargetMode: "mrt",
 									drawMode: "planar-reflection-composite",
+									sampleCount: 1,
 								})
 							: null;
 						if (resources && resources.length > 0) {
@@ -1054,13 +1053,13 @@ export class WebGPUFrameServiceOwner {
 	public async getDrawResources(
 		packet: DrawPacket,
 		frameResources: WebGPUFrameServicePreparedResources,
-		options: WebGPUDrawResourceOptions = {},
+		options: WebGPUDrawResourceOptions,
 	): Promise<WebGPUDrawResources[] | null> {
 		const prepared = this._requirePreparedFrameResources(frameResources, "getDrawResources");
 		const transparentPipelineMode = options.transparentPipelineMode ?? "default";
 		const sceneTargetMode = options.sceneTargetMode ?? prepared.sceneTargetMode;
 		const drawMode = options.drawMode ?? "default";
-		const sampleCountOverride = options.sampleCountOverride;
+		const sampleCount = options.sampleCount;
 		const results: WebGPUDrawResources[] = [];
 		const geometry = this._geometryRegistry.getGeometry(packet.primitive);
 		const topology = geometry.topology;
@@ -1084,7 +1083,7 @@ export class WebGPUFrameServiceOwner {
 						sceneTargetMode,
 						false,
 						topology,
-						sampleCountOverride,
+						sampleCount,
 					)
 				: await this._pipelineLibrary.getPipeline(
 						packet.material,
@@ -1093,7 +1092,7 @@ export class WebGPUFrameServiceOwner {
 						topology,
 						transparentPipelineMode,
 						drawMode,
-						sampleCountOverride,
+						sampleCount,
 					);
 		if (!solidPipeline) {
 			return null;
@@ -1144,7 +1143,7 @@ export class WebGPUFrameServiceOwner {
 				topology,
 				transparentPipelineMode,
 				drawMode,
-				sampleCountOverride,
+				sampleCount,
 			);
 			const wireTextures = await Promise.all(
 				wireMaterialData.textureSlots.map((slot, index) =>
@@ -1184,14 +1183,14 @@ export class WebGPUFrameServiceOwner {
 
 	public async getEnvironmentResources(
 		frameResources: WebGPUFrameServicePreparedResources,
-		sceneTargetMode?: WebGPUSceneTargetMode,
-		options: WebGPUEnvironmentResourceOptions = {},
+		sceneTargetMode: WebGPUSceneTargetMode,
+		options: WebGPUEnvironmentResourceOptions,
 	): Promise<WebGPUEnvironmentDrawResources | null> {
 		const prepared = this._requirePreparedFrameResources(
 			frameResources,
 			"getEnvironmentResources",
 		);
-		const resolvedSceneTargetMode = sceneTargetMode ?? prepared.sceneTargetMode;
+		const resolvedSceneTargetMode = sceneTargetMode;
 		if (
 			!prepared.featureState.enableEnvironment ||
 			!prepared.environmentState.environmentTexture
@@ -1201,7 +1200,7 @@ export class WebGPUFrameServiceOwner {
 
 		const pipeline = await this._pipelineLibrary.getEnvironmentPipeline(
 			resolvedSceneTargetMode,
-			options.sampleCountOverride,
+			options.sampleCount,
 		);
 		const frameBinding = prepared.environmentBinding;
 

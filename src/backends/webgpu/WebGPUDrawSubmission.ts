@@ -23,7 +23,7 @@ export interface WebGPUDrawResourceProvider {
 	getDrawResources(
 		packet: DrawPacket,
 		frameResources: WebGPUPreparedFrameResources,
-		options?: WebGPUDrawResourceOptions
+		options: WebGPUDrawResourceOptions
 	): Promise<WebGPUDrawResources[] | null>;
 }
 
@@ -37,7 +37,7 @@ export interface WebGPUDrawSubmissionRequest {
 		packets: DrawPacket[],
 		rect: WebGPUDrawSubmissionRect
 	) => DrawPacket[];
-	resolveDrawOptions?: (
+	resolveDrawOptions: (
 		packet: DrawPacket,
 		rect: WebGPUDrawSubmissionRect | null
 	) => WebGPUDrawResourceOptions;
@@ -78,7 +78,7 @@ export async function submitWebGPUDraws(
 			const resourcesList = await request.resources.getDrawResources(
 				packet,
 				request.frameResources,
-				request.resolveDrawOptions?.(packet, rect) ?? {}
+				request.resolveDrawOptions(packet, rect)
 			);
 			if (!resourcesList || resourcesList.length <= 0) {
 				continue;

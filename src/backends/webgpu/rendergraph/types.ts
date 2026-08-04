@@ -182,7 +182,7 @@ export interface WebGPUFrameGraphResourceDebugState {
 export interface WebGPUFrameGraphTargetDebugState {
 	readonly width: number;
 	readonly height: number;
-	readonly msaaSampleCount: number;
+	readonly sampleCount: number;
 	readonly texturePoolOwnerCount: number;
 	readonly frameTargets: unknown;
 	readonly msaaTargets: unknown;

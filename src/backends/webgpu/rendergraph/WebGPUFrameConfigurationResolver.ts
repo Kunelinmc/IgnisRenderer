@@ -18,10 +18,17 @@ export interface WebGPUFrameCapabilitySnapshot {
 export interface WebGPUFrameConfigurationOptions {
 	readonly enableDeferredLighting: boolean;
 	readonly enableEarlyZPrepass: boolean;
-	readonly sampleCount: number;
+	readonly samplePlan: WebGPUFrameSamplePlan;
 	readonly supportsInFrameTextureCopy: boolean;
 	readonly forceDeferredFallback?: boolean;
 	readonly forceForwardMrt?: boolean;
+}
+
+export interface WebGPUFrameSamplePlan {
+	readonly requestedSampleCount: number;
+	readonly sampleCount: number;
+	readonly selectionSignature: string;
+	readonly runtimeFallbackActive: boolean;
 }
 
 export interface WebGPUFrameDiagnostic {
@@ -40,6 +47,7 @@ export interface WebGPUFrameConfiguration {
 	readonly needsHiZBuild: boolean;
 	readonly needsOcclusionTest: boolean;
 	readonly enableEarlyZPrepass: boolean;
+	readonly samplePlan: WebGPUFrameSamplePlan;
 	readonly diagnostics: readonly WebGPUFrameDiagnostic[];
 }
 
@@ -79,7 +87,7 @@ export class WebGPUFrameConfigurationResolver {
 
 		const deferredSupported =
 			mrtSupported &&
-			options.sampleCount === 1 &&
+			options.samplePlan.sampleCount === 1 &&
 			capabilities.maxColorAttachments >= WEBGPU_DEFERRED_COLOR_TARGET_COUNT &&
 			capabilities.maxColorAttachmentBytesPerSample >=
 				WEBGPU_DEFERRED_COLOR_BYTES_PER_SAMPLE &&
@@ -100,20 +108,20 @@ export class WebGPUFrameConfigurationResolver {
 		const deferredActive = wantsDeferred && deferredSupported;
 		const oitActive =
 			mrtSupported &&
-			options.sampleCount === 1 &&
+			options.samplePlan.sampleCount === 1 &&
 			options.supportsInFrameTextureCopy &&
 			analysis.oitRequested &&
 			analysis.transparency.hasOITContributors;
 		if (analysis.oitRequested && analysis.transparency.hasOITContributors && !oitActive) {
 			diagnostics.push({
 				code:
-					options.sampleCount > 1
+					options.samplePlan.sampleCount > 1
 						? "webgpu-oit-disabled-msaa"
 						: !mrtSupported
 							? "webgpu-oit-disabled-mrt-unavailable"
 							: "webgpu-oit-disabled-runtime",
 				message:
-					options.sampleCount > 1
+					options.samplePlan.sampleCount > 1
 						? "WebGPU OIT v1 only supports sampleCount=1; falling back to legacy transparent rendering."
 						: !mrtSupported
 							? "WebGPU OIT requires MRT scene targets; falling back to legacy transparent rendering."
@@ -121,6 +129,7 @@ export class WebGPUFrameConfigurationResolver {
 			});
 		}
 		const hasOffscreenWork =
+			options.samplePlan.sampleCount > 1 ||
 			deferredActive ||
 			analysis.needsPostProcessTargets ||
 			analysis.needsPlanarReflection ||
@@ -158,6 +167,7 @@ export class WebGPUFrameConfigurationResolver {
 			needsHiZBuild: analysis.needsHiZTarget,
 			needsOcclusionTest: analysis.needsOcclusionTargets,
 			enableEarlyZPrepass: options.enableEarlyZPrepass,
+			samplePlan: options.samplePlan,
 			diagnostics,
 		};
 	}

@@ -170,6 +170,21 @@ function testFrameExecutorConsumesComputeFacadeFromHost() {
 		resourcesStub,
 		new FramePacketContributorRegistry(),
 		resourcesStub,
+		{
+			resolveDomainSampleCount(domain, requestedSampleCount, formats) {
+				return {
+					domain,
+					requestedSampleCount,
+					sampleCount: 1,
+					signature: `${domain}|${formats.join(",")}`,
+					runtimeFallbackActive: false,
+				};
+			},
+			fallbackToSingleSample() {
+				return false;
+			},
+		},
+		1,
 	);
 
 	assert.equal(backend.getComputeFacadeCalls, 0);
@@ -215,7 +230,9 @@ async function testRenderResourcesUseCopyDstForUploads() {
 		createMainFrameOptions()
 	);
 
-	const draw = await resources.getDrawResources(packet, frameResources);
+	const draw = await resources.getDrawResources(packet, frameResources, {
+		sampleCount: 1,
+	});
 
 	assert.ok(draw);
 	const firstDraw = draw[0];

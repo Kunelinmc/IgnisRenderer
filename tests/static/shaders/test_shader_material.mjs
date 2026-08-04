@@ -190,13 +190,17 @@ async function testWGSLProgramSelection() {
 		fragmentMRTEntryPoint: "customFsMRT",
 	});
 
-	const singlePipeline = await library.getPipeline(material, "single");
+	const singlePipeline = await library.getPipeline(
+		material, "single", false, undefined, undefined, undefined, 1,
+	);
 	assert.equal(singlePipeline.desc.layout.id, "scene-layout");
 	assert.equal(singlePipeline.desc.vertex.entryPoint, "customVs");
 	assert.equal(singlePipeline.desc.fragment.entryPoint, "customFsSingle");
 	assert.equal(singlePipeline.desc.fragment.targets.length, 1);
 
-	const mrtPipeline = await library.getPipeline(material, "mrt");
+	const mrtPipeline = await library.getPipeline(
+		material, "mrt", false, undefined, undefined, undefined, 1,
+	);
 	assert.equal(mrtPipeline.desc.layout.id, "scene-layout");
 	assert.equal(mrtPipeline.desc.vertex.entryPoint, "customVs");
 	assert.equal(mrtPipeline.desc.fragment.entryPoint, "customFsMRT");
@@ -208,8 +212,12 @@ async function testWGSLProgramSelection() {
 	assert.ok(moduleCodes.includes(WGSL_FRAGMENT_MRT));
 
 	const pipelineCountBefore = backend.pipelines.length;
-	await library.getPipeline(material, "single");
-	await library.getPipeline(material, "mrt");
+	await library.getPipeline(
+		material, "single", false, undefined, undefined, undefined, 1,
+	);
+	await library.getPipeline(
+		material, "mrt", false, undefined, undefined, undefined, 1,
+	);
 	assert.equal(backend.pipelines.length, pipelineCountBefore);
 }
 
@@ -242,7 +250,9 @@ async function testWebGPUDeferredProgramSelection() {
 	assert.equal(program.fragmentEntryPoint, "customFsDeferred");
 	assert.equal(program.fragmentCode.includes("DeferredOut"), true);
 
-	const pipeline = await library.getPipeline(material, "gbuffer");
+	const pipeline = await library.getPipeline(
+		material, "gbuffer", false, undefined, undefined, undefined, 1,
+	);
 	assert.equal(pipeline.desc.layout.id, "scene-gbuffer-layout");
 	assert.equal(pipeline.desc.fragment.entryPoint, "customFsDeferred");
 	assert.equal(pipeline.desc.fragment.targets.length, 7);
@@ -352,8 +362,12 @@ async function testGLSLProgramUsesTranspiler() {
 		fragmentMRTEntryPoint: "customFsMRT",
 	});
 
-	await library.getPipeline(material, "mrt");
-	await library.getPipeline(material, "single");
+	await library.getPipeline(
+		material, "mrt", false, undefined, undefined, undefined, 1,
+	);
+	await library.getPipeline(
+		material, "single", false, undefined, undefined, undefined, 1,
+	);
 
 	assert.ok(transpilerCalls.some((call) => call.stage === "vertex"));
 	assert.ok(transpilerCalls.some((call) => call.stage === "fragment-mrt"));
@@ -384,7 +398,9 @@ async function testGLSLWithoutTranspilerThrows() {
 	});
 
 	await assert.rejects(
-		() => library.getPipeline(material, "single"),
+		() => library.getPipeline(
+			material, "single", false, undefined, undefined, undefined, 1,
+		),
 		/glslToWgsl transpiler/
 	);
 }
@@ -416,7 +432,9 @@ async function testWarnModeFallbackToBuiltinShader() {
 
 	let pipeline = null;
 	const warnings = await captureWarnMessagesAsync(async () => {
-		pipeline = await library.getPipeline(material, "single");
+		pipeline = await library.getPipeline(
+			material, "single", false, undefined, undefined, undefined, 1,
+		);
 	});
 	assert.equal(pipeline.desc.vertex.entryPoint, "vsMain");
 	assert.equal(pipeline.desc.fragment.entryPoint, "fsMainSingle");

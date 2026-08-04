@@ -259,7 +259,9 @@ export class WebGPUScenePassRecorder {
 
 		if (shouldClearAttachments) {
 			const environmentResources =
-				await this._sceneResources.getEnvironmentResources(frameResources, "single");
+				await this._sceneResources.getEnvironmentResources(frameResources, "single", {
+					sampleCount: 1,
+				});
 			if (environmentResources) {
 				encoder.setPipeline(environmentResources.pipeline);
 				encoder.setBindingGroup(0, environmentResources.frameBinding);
@@ -281,6 +283,7 @@ export class WebGPUScenePassRecorder {
 				),
 			resolveDrawOptions: (packet) => ({
 				sceneTargetMode: "single",
+				sampleCount: 1,
 				drawMode:
 					earlyZExecuted && earlyZPacketIds.has(packet.id) ?
 						"early-z-color"
@@ -365,6 +368,7 @@ export class WebGPUScenePassRecorder {
 				resolveDrawOptions: () => ({
 					sceneTargetMode: "color",
 					transparentPipelineMode: "transmission",
+					sampleCount: this._recordingContext.getSampleCount(),
 				}),
 			});
 			encoder.endRenderPass();
@@ -441,6 +445,7 @@ export class WebGPUScenePassRecorder {
 			resolveDrawOptions: () => ({
 				sceneTargetMode: "mrt",
 				transparentPipelineMode: "transmission",
+				sampleCount: this._recordingContext.getSampleCount(),
 			}),
 		});
 		encoder.endRenderPass();
@@ -538,7 +543,7 @@ export class WebGPUScenePassRecorder {
 			resolveDrawOptions: () => ({
 				sceneTargetMode: "mrt",
 				transparentPipelineMode: "transmission-capture",
-				sampleCountOverride: 1,
+				sampleCount: 1,
 			}),
 		});
 		encoder.endRenderPass();
@@ -569,7 +574,7 @@ export class WebGPUScenePassRecorder {
 				context,
 				{
 					label: "WebGPUParticlesMRT",
-					sampleCount: this._recordingContext.getTargetMSAASampleCount(),
+				sampleCount: this._recordingContext.getSampleCount(),
 					colorAttachments: [
 						{
 							view:
@@ -669,7 +674,8 @@ export class WebGPUScenePassRecorder {
 			const environmentResources =
 				await this._sceneResources.getEnvironmentResources(
 					frameResources,
-					"gbuffer"
+					"gbuffer",
+					{ sampleCount: 1 },
 				);
 			if (environmentResources) {
 				encoder.beginRenderPass({
@@ -798,6 +804,7 @@ export class WebGPUScenePassRecorder {
 				),
 			resolveDrawOptions: (packet) => ({
 				sceneTargetMode: "gbuffer",
+				sampleCount: 1,
 				drawMode:
 					earlyZExecuted && earlyZPacketIds.has(packet.id) ?
 						"early-z-color"
@@ -853,7 +860,7 @@ export class WebGPUScenePassRecorder {
 				encoder,
 				depthAttachment,
 				TextureFormat.Depth32Float,
-				msaaTargets ? this._recordingContext.getTargetMSAASampleCount() : 1,
+				msaaTargets ? this._recordingContext.getSampleCount() : 1,
 				dirtyRects
 			);
 		}
@@ -861,7 +868,9 @@ export class WebGPUScenePassRecorder {
 		let environmentDrawn = false;
 		if (shouldClearAttachments) {
 			const environmentResources =
-				await this._sceneResources.getEnvironmentResources(frameResources, "mrt");
+				await this._sceneResources.getEnvironmentResources(frameResources, "mrt", {
+					sampleCount: this._recordingContext.getSampleCount(),
+				});
 			if (environmentResources) {
 				encoder.beginRenderPass({
 					label: "WebGPUEnvironmentMRT",
@@ -980,6 +989,7 @@ export class WebGPUScenePassRecorder {
 				),
 			resolveDrawOptions: (packet) => ({
 				sceneTargetMode: "mrt",
+				sampleCount: this._recordingContext.getSampleCount(),
 				drawMode:
 					earlyZExecuted && earlyZPacketIds.has(packet.id) ?
 						"early-z-color"
@@ -1020,7 +1030,7 @@ export class WebGPUScenePassRecorder {
 				encoder,
 				depthAttachment,
 				TextureFormat.Depth32Float,
-				msaaTargets ? this._recordingContext.getTargetMSAASampleCount() : 1,
+				msaaTargets ? this._recordingContext.getSampleCount() : 1,
 				dirtyRects
 			);
 		}
@@ -1028,7 +1038,9 @@ export class WebGPUScenePassRecorder {
 		let environmentDrawn = false;
 		if (shouldClearAttachments) {
 			const environmentResources =
-				await this._sceneResources.getEnvironmentResources(frameResources, "color");
+				await this._sceneResources.getEnvironmentResources(frameResources, "color", {
+					sampleCount: this._recordingContext.getSampleCount(),
+				});
 			if (environmentResources) {
 				encoder.beginRenderPass({
 					label: "WebGPUEnvironmentColor",
@@ -1122,6 +1134,7 @@ export class WebGPUScenePassRecorder {
 				),
 			resolveDrawOptions: (packet) => ({
 				sceneTargetMode: "color",
+				sampleCount: this._recordingContext.getSampleCount(),
 				drawMode:
 					earlyZExecuted && earlyZPacketIds.has(packet.id) ?
 						"early-z-color"
@@ -1177,6 +1190,10 @@ export class WebGPUScenePassRecorder {
 			resolveDrawOptions: () => ({
 				sceneTargetMode,
 				drawMode: "early-z-prepass",
+				sampleCount:
+					sceneTargetMode === "single"
+						? 1
+						: this._recordingContext.getSampleCount(),
 			}),
 		});
 

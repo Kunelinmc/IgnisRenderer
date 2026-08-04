@@ -20,7 +20,7 @@ export interface WebGPUFrameGraphRecordingContext {
 	getMSAATargets(): WebGPUFrameMSAATargets | null;
 	getTargetWidth(): number;
 	getTargetHeight(): number;
-	getTargetMSAASampleCount(): number;
+	getSampleCount(): number;
 	getSceneTargetMode(): WebGPUSceneTargetMode;
 	isMRTEnabled(): boolean;
 	isEarlyZPrepassEnabled(): boolean;

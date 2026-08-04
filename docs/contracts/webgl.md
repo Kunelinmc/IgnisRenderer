@@ -126,6 +126,9 @@ This document defines the current WebGL backend lifecycle, frame graph, resource
 	frame-executor baseline state on success or failure.
 - WebGL custom render passes must reject compute commands, texture copies,
   resolve targets, non-zero `baseVertex`, and non-zero `firstInstance`.
+- WebGL custom target descriptors may retain normalized multisample requests,
+  but frame synchronization must reject `sampleCount > 1`; WebGL custom targets
+  remain single-sampled.
 - WebGL custom target readback must preserve native bottom-left row order and
   must return bytes matching the exact attachment format.
 - SH lighting must use 16 coefficients. Global SH coefficients must use the

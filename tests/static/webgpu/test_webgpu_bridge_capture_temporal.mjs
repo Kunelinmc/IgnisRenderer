@@ -165,10 +165,15 @@ async function testWebGPUEnvironmentCombinationsRegression() {
 			createMainFrameOptions()
 		);
 
-		const environmentResources =
-			await resources.getEnvironmentResources(frameResources);
+		const environmentResources = await resources.getEnvironmentResources(
+			frameResources,
+			"mrt",
+			{ sampleCount: 1 },
+		);
 		assert.equal(!!environmentResources, scenario.expectEnvironment);
-		const draw = await resources.getDrawResources(packet, frameResources);
+		const draw = await resources.getDrawResources(packet, frameResources, {
+			sampleCount: 1,
+		});
 		assert.ok(draw);
 		resources.commitTemporalFrame();
 	}
@@ -234,14 +239,18 @@ async function testScopedSceneTargetModesUseDistinctBindings() {
 
 	const captureDrawResources = await resources.getDrawResources(
 		packet,
-		captureFrameResources
+		captureFrameResources,
+		{ sceneTargetMode: "mrt", sampleCount: 1 },
 	);
 	assert.ok(captureDrawResources);
 	assert.equal(captureDrawResources[0].pipeline.label.endsWith("_mrt"), true);
 	assert.equal(mainFrameResources.frameBinding, mainFrameBinding);
 
-	const environmentResources =
-		await resources.getEnvironmentResources(mainFrameResources);
+	const environmentResources = await resources.getEnvironmentResources(
+		mainFrameResources,
+		"single",
+		{ sampleCount: 1 },
+	);
 	assert.ok(environmentResources);
 	assert.equal(
 		environmentResources.pipeline.label,
@@ -255,7 +264,7 @@ async function testScopedSceneTargetModesUseDistinctBindings() {
 	const drawResources = await resources.getDrawResources(
 		packet,
 		mainFrameResources,
-		{ sceneTargetMode: "single" }
+		{ sceneTargetMode: "single", sampleCount: 1 },
 	);
 	assert.ok(drawResources);
 	assert.equal(drawResources[0].pipeline.label.endsWith("_single"), true);
@@ -319,7 +328,8 @@ async function testSampleCountOverrideUsesSingleSampleCapturePipelines() {
 
 	const mainDrawResources = await resources.getDrawResources(
 		packet,
-		frameResources
+		frameResources,
+		{ sceneTargetMode: "mrt", sampleCount: 4 },
 	);
 	assert.ok(mainDrawResources);
 	assert.equal(mainDrawResources[0].pipeline.desc.sampleCount, 4);
@@ -330,20 +340,23 @@ async function testSampleCountOverrideUsesSingleSampleCapturePipelines() {
 		{
 			sceneTargetMode: "mrt",
 			drawMode: "reflection-capture",
-			sampleCountOverride: 1,
+			sampleCount: 1,
 		}
 	);
 	assert.ok(captureDrawResources);
 	assert.equal(captureDrawResources[0].pipeline.desc.sampleCount, 1);
 
-	const mainEnvironment =
-		await resources.getEnvironmentResources(frameResources, "mrt");
+	const mainEnvironment = await resources.getEnvironmentResources(
+		frameResources,
+		"mrt",
+		{ sampleCount: 4 },
+	);
 	assert.ok(mainEnvironment);
 	assert.equal(mainEnvironment.pipeline.desc.sampleCount, 4);
 
 	const captureEnvironment =
 		await resources.getEnvironmentResources(frameResources, "mrt", {
-			sampleCountOverride: 1,
+			sampleCount: 1,
 		});
 	assert.ok(captureEnvironment);
 	assert.equal(captureEnvironment.pipeline.desc.sampleCount, 1);
@@ -671,7 +684,11 @@ async function testFrameBindingReplacementDestroysOldBinding() {
 		createMainFrameOptions()
 	);
 	const firstEnvironment =
-		await resources.getEnvironmentResources(firstFrameResources);
+		await resources.getEnvironmentResources(
+			firstFrameResources,
+			"mrt",
+			{ sampleCount: 1 },
+		);
 	assert.ok(firstEnvironment);
 	const firstBinding = firstEnvironment.frameBinding;
 	assert.equal(firstBinding.destroyed, false);
@@ -693,7 +710,11 @@ async function testFrameBindingReplacementDestroysOldBinding() {
 	assert.equal(firstBinding.destroyed, true);
 
 	const secondEnvironment =
-		await resources.getEnvironmentResources(secondFrameResources);
+		await resources.getEnvironmentResources(
+			secondFrameResources,
+			"mrt",
+			{ sampleCount: 1 },
+		);
 	assert.ok(secondEnvironment);
 	assert.notEqual(secondEnvironment.frameBinding, firstBinding);
 }

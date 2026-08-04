@@ -72,12 +72,12 @@ export interface WebGPUDrawResourceOptions {
 	transparentPipelineMode?: WebGPUTransparentPipelineMode;
 	sceneTargetMode?: WebGPUSceneTargetMode;
 	drawMode?: WebGPUScenePipelineDrawMode;
-	sampleCountOverride?: number;
+	sampleCount: number;
 }
 
 /** @internal Environment pipeline selection. */
 export interface WebGPUEnvironmentResourceOptions {
-	sampleCountOverride?: number;
+	sampleCount: number;
 }
 
 /** @internal Billboard particle pipeline selection. */
@@ -131,12 +131,12 @@ export interface WebGPUSceneResourceProvider {
 	getDrawResources(
 		packet: DrawPacket,
 		frameResources: WebGPUPreparedFrameResources,
-		options?: WebGPUDrawResourceOptions,
+		options: WebGPUDrawResourceOptions,
 	): Promise<WebGPUDrawResources[] | null>;
 	getEnvironmentResources(
 		frameResources: WebGPUPreparedFrameResources,
-		sceneTargetMode?: WebGPUSceneTargetMode,
-		options?: WebGPUEnvironmentResourceOptions,
+		sceneTargetMode: WebGPUSceneTargetMode,
+		options: WebGPUEnvironmentResourceOptions,
 	): Promise<WebGPUEnvironmentDrawResources | null>;
 	buildClusteredLighting(
 		encoder: ICommandEncoder,

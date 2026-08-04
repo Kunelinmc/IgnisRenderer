@@ -62,14 +62,17 @@ async function testMSAAAllocationFallbackPersistsForDeviceRuntime() {
 		assert.equal(msaa.sampleCount, 1);
 		assert.equal(getFrameGraphDebugState(executor).msaaTargets, null);
 		assert.equal(
-			getFrameGraphDebugState(executor).targetManager.msaaSampleCount,
+			getFrameGraphDebugState(executor).targetManager.sampleCount,
 			1
 		);
 		assert.equal(multisampleAllocationAttempts, 1);
 		assert.equal(
-			warnings.filter((warning) => warning.includes("[webgpu-msaa-runtime-fallback-1x]")).length,
+			warnings.filter((warning) =>
+				warning.includes("[webgpu-scene-sample-count-runtime-fallback-1x]")
+			).length,
 			1
 		);
+		assert.ok(warnings.some((warning) => warning.includes("4x scene sample-count")));
 
 		await executor.endFrame();
 		executor.beginFrame(context);

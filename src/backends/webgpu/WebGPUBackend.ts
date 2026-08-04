@@ -45,7 +45,10 @@ import {
 	type WebGPUBindingGroupCacheHost,
 } from "./WebGPUBindingGroupCache";
 import { WebGPUObjectIdentity } from "./WebGPUObjectIdentity";
-import { WebGPUMSAAController, type WebGPUMSAAControllerHost } from "./WebGPUMSAAController";
+import {
+	WebGPUSampleCountResolver,
+	type WebGPUSampleCountResolverHost,
+} from "./WebGPUSampleCountResolver";
 import { WebGPUBackendPassDispatcher } from "./WebGPUBackendPassDispatcher";
 import { WebGPUWarmupCoordinator } from "./WebGPUWarmupCoordinator";
 import { WebGPUReflectionProbeCapturePass } from "./WebGPUReflectionProbeCapturePass";
@@ -118,7 +121,7 @@ type WebGPUBackendState =
 export interface WebGPUBackendOptions {
 	shaderMode?: ShaderRuntimeMode;
 	directiveHook?: ShaderDirectiveCompileHook | null;
-	msaaSampleCount?: number;
+	sampleCount?: number;
 	enableEarlyZPrepass?: boolean;
 	/**
 	 * Enables WebGPU deferred opaque lighting when runtime limits allow it.
@@ -235,7 +238,8 @@ export class WebGPUBackend implements IRenderBackend {
 	private _shaderCompileStage: ShaderBackendCompileStage;
 
 	private readonly _framePlanner = new FramePassPlanValidator("WebGPU");
-	private readonly _msaaController: WebGPUMSAAController;
+	private readonly _sampleCountResolver: WebGPUSampleCountResolver;
+	private readonly _requestedSampleCount: number;
 	private readonly _shaderModuleCompiler: WebGPUShaderModuleCompiler;
 	private readonly _commandScheduler: WebGPUCommandScheduler;
 	private readonly _resourceManager: WebGPUResourceManager;
@@ -250,15 +254,29 @@ export class WebGPUBackend implements IRenderBackend {
 	constructor(options: WebGPUBackendOptions = {}) {
 		if (Object.prototype.hasOwnProperty.call(options, "enableMSAA")) {
 			throw new Error(
-				"WebGPUBackendOptions.enableMSAA was removed; use msaaSampleCount: 1 to disable MSAA or msaaSampleCount: 4 to request 4x MSAA.",
+				"WebGPUBackendOptions.enableMSAA was removed; use sampleCount: 1 to disable multisampling or sampleCount: 4 to request 4x main-scene sampling.",
+			);
+		}
+		if (Object.prototype.hasOwnProperty.call(options, "msaaSampleCount")) {
+			throw new Error(
+				"WebGPUBackendOptions.msaaSampleCount was removed; use sampleCount instead.",
+			);
+		}
+		if (Object.prototype.hasOwnProperty.call(options, "sceneSampleCount")) {
+			throw new Error(
+				"WebGPUBackendOptions.sceneSampleCount was removed; use sampleCount instead.",
 			);
 		}
 		const shaderMode = options.shaderMode ?? "strict";
 		const thisRef = this;
-		this._msaaController = new WebGPUMSAAController(
-			this._createMSAAControllerHost(),
-			options.msaaSampleCount,
+		this._sampleCountResolver = new WebGPUSampleCountResolver(
+			this._createSampleCountResolverHost(),
 		);
+		this._requestedSampleCount =
+			this._sampleCountResolver.normalizeRequestedSampleCount(
+				options.sampleCount,
+				"WebGPU sampleCount",
+			);
 		this._enableEarlyZPrepass = options.enableEarlyZPrepass !== false;
 		this._enableDeferredLighting = options.enableDeferredLighting !== false;
 		this._enableOcclusionCulling = options.enableOcclusionCulling !== false;
@@ -558,7 +576,6 @@ export class WebGPUBackend implements IRenderBackend {
 		this.canvasDepthFormat = this._selectCanvasDepthFormat();
 		this._preferredCanvasFormat =
 			navigator.gpu.getPreferredCanvasFormat() as TextureFormat;
-		this._msaaController.activateDevice();
 		this._commandScheduler.initTimestampResources();
 		this._context = context;
 		this._applyDisplayOutput(this._displayOutput.requested, false);
@@ -568,7 +585,6 @@ export class WebGPUBackend implements IRenderBackend {
 			this._frameHost,
 			this._resourceManager,
 			this._computeFacade,
-			this._msaaController,
 		);
 		await this._resources.init();
 		this._postProcessExecutor = new WebGPUPostProcessExecutor(this._frameHost);
@@ -586,7 +602,8 @@ export class WebGPUBackend implements IRenderBackend {
 			this._resources,
 			this._framePacketRegistry,
 			this._resources.getParticleBillboardRenderer(),
-			this._msaaController,
+			this._sampleCountResolver,
+			this._requestedSampleCount,
 		);
 		this._reflectionProbeCapturePass = new WebGPUReflectionProbeCapturePass(
 			this._frameHost,
@@ -1079,26 +1096,23 @@ export class WebGPUBackend implements IRenderBackend {
 				assertActive("resolve frame canvas depth");
 				return backend._canvasTargets.getCanvasDepthTexture();
 			},
+			onMainTargetSampleCountRuntimeFallback: () => {
+				assertActive("apply scene sample-count fallback");
+				backend._onMainTargetSampleCountRuntimeFallback();
+			},
 			assertDeviceOperational: assertActive,
 		};
 	}
 
-	private _createMSAAControllerHost(): WebGPUMSAAControllerHost {
+	private _createSampleCountResolverHost(): WebGPUSampleCountResolverHost {
 		const thisRef = this;
 		return {
 			get device() {
 				return thisRef._device;
 			},
-			get canvasFormat() {
-				return thisRef.canvasFormat;
-			},
-			get canvasDepthFormat() {
-				return thisRef.canvasDepthFormat;
-			},
 			get objectIdentity() {
 				return thisRef._objectIdentity;
 			},
-			onRuntimeFallback: () => this._onMSAARuntimeFallback(),
 		};
 	}
 
@@ -1120,8 +1134,11 @@ export class WebGPUBackend implements IRenderBackend {
 			assertDeviceOperational: (operation) => {
 				this._assertDeviceOperational(operation);
 			},
-			resolveSupportedMSAASampleCount: (requested, probeFormats) => {
-				return this._msaaController.resolveSupportedSampleCount(requested, probeFormats);
+			resolveSupportedSampleCount: (requested, probeFormats) => {
+				return this._sampleCountResolver.resolveSupportedSampleCount(
+					requested,
+					probeFormats ?? [],
+				);
 			},
 			createManagedDestroy: (target, options) => {
 				return this._createManagedDestroy(target, options);
@@ -1213,11 +1230,14 @@ export class WebGPUBackend implements IRenderBackend {
 			assertDeviceOperational: (operation: string) => {
 				this._assertDeviceOperational(operation);
 			},
-			resolveSupportedMSAASampleCount: (
+			resolveSupportedSampleCount: (
 				requested: number,
 				probeFormats?: readonly GPUTextureFormat[],
 			) => {
-				return this._msaaController.resolveSupportedSampleCount(requested, probeFormats);
+				return this._sampleCountResolver.resolveSupportedSampleCount(
+					requested,
+					probeFormats ?? [],
+				);
 			},
 			createManagedDestroy: (
 				target: object,
@@ -1404,7 +1424,7 @@ export class WebGPUBackend implements IRenderBackend {
 		cleanup("pipeline cache", () => this._pipelineCache.reset());
 		cleanup("binding-group cache", () => this._bindingGroupCache.clear());
 		cleanup("object identity", () => this._objectIdentity.reset());
-		cleanup("MSAA controller", () => this._msaaController.resetDevice());
+		cleanup("sample-count resolver", () => this._sampleCountResolver.resetDevice());
 		this._frameSerial = 0;
 		this._pendingResize = null;
 		this._pendingShaderRuntimeInvalidation = false;
@@ -1538,8 +1558,7 @@ export class WebGPUBackend implements IRenderBackend {
 		return TextureFormat.Depth24Plus;
 	}
 
-	private _onMSAARuntimeFallback(): void {
-		this._pipelineCache.clearPipelineCaches();
+	private _onMainTargetSampleCountRuntimeFallback(): void {
 		this._bindingGroupCache.clear();
 		this._postProcessRuntime?.invalidateFrameSized();
 		this._resetCurrentCanvasTargets();
@@ -1609,7 +1628,7 @@ export class WebGPUBackend implements IRenderBackend {
 	private _handleObjectIdentityRebase(): void {
 		this._pipelineCache.clearPipelineCaches();
 		this._bindingGroupCache.clear();
-		this._msaaController.clearCapabilityCache();
+		this._sampleCountResolver.clearCapabilityCache();
 		Logger.warn(
 			"WebGPU object-id space rebased; related caches were cleared to avoid unbounded growth.",
 			{ scope: "WebGPUBackend" },
@@ -1670,7 +1689,7 @@ export class WebGPUBackend implements IRenderBackend {
 		if (formatChanged) {
 			this._pipelineCache.clearPipelineCaches();
 			this._bindingGroupCache.clear();
-			this._msaaController.clearCapabilityCache();
+			this._sampleCountResolver.clearCapabilityCache();
 			this._frameOrchestrator?.onDisplayOutputChanged();
 		} else {
 			this._frameOrchestrator?.invalidatePostProcessBindings();

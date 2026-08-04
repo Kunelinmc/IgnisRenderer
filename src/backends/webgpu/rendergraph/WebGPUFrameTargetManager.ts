@@ -42,7 +42,7 @@ export type WebGPUFrameTargetEnsureResult =
 export interface WebGPUFrameTargetManagerDebugState {
 	readonly width: number;
 	readonly height: number;
-	readonly msaaSampleCount: number;
+	readonly sampleCount: number;
 	readonly texturePoolOwnerCount: number;
 	readonly sceneTargetMode: WebGPUSceneTargetMode;
 	readonly needsPostProcessTargets: boolean;
@@ -62,7 +62,7 @@ export class WebGPUFrameTargetManager {
 	private _msaaTargets: WebGPUFrameMSAATargets | null = null;
 	private _targetWidth = 0;
 	private _targetHeight = 0;
-	private _targetMSAASampleCount = 1;
+	private _targetSampleCount = 1;
 	private _targetSceneTargetMode: WebGPUSceneTargetMode = "single";
 	private _targetNeedsPostProcessTargets = false;
 	private _targetNeedsOITTargets = false;
@@ -92,8 +92,8 @@ export class WebGPUFrameTargetManager {
 		return this._targetHeight;
 	}
 
-	public get targetMSAASampleCount(): number {
-		return this._targetMSAASampleCount;
+	public get targetSampleCount(): number {
+		return this._targetSampleCount;
 	}
 
 	public get targetSceneTargetMode(): WebGPUSceneTargetMode {
@@ -108,7 +108,7 @@ export class WebGPUFrameTargetManager {
 		return {
 			width: this._targetWidth,
 			height: this._targetHeight,
-			msaaSampleCount: this._targetMSAASampleCount,
+			sampleCount: this._targetSampleCount,
 			texturePoolOwnerCount: this._texturePoolOwners.size,
 			sceneTargetMode: this._targetSceneTargetMode,
 			needsPostProcessTargets: this._targetNeedsPostProcessTargets,
@@ -121,8 +121,7 @@ export class WebGPUFrameTargetManager {
 	}
 
 	public ensureFrameTargets(input: WebGPUFrameTargetEnsureInput): WebGPUFrameTargetEnsureResult {
-		const { width, height, requirements } = input;
-		const msaaSampleCount = input.sampleCount;
+		const { width, height, requirements, sampleCount } = input;
 		if (width <= 0 || height <= 0) {
 			this.destroyFrameTargets();
 			return { status: "ready" };
@@ -132,7 +131,7 @@ export class WebGPUFrameTargetManager {
 			this._frameTargets &&
 			this._targetWidth === width &&
 			this._targetHeight === height &&
-			this._targetMSAASampleCount === msaaSampleCount &&
+			this._targetSampleCount === sampleCount &&
 			this._targetSceneTargetMode === requirements.sceneTargetMode &&
 			this._targetNeedsPostProcessTargets === requirements.needsPostProcessTargets &&
 			this._targetNeedsOITTargets === requirements.needsOITTargets &&
@@ -168,7 +167,7 @@ export class WebGPUFrameTargetManager {
 			this.destroyFrameTargets();
 			this._targetWidth = width;
 			this._targetHeight = height;
-			this._targetMSAASampleCount = msaaSampleCount;
+			this._targetSampleCount = sampleCount;
 			this._targetSceneTargetMode = requirements.sceneTargetMode;
 			this._targetNeedsPostProcessTargets = requirements.needsPostProcessTargets;
 			this._targetNeedsOITTargets = requirements.needsOITTargets;
@@ -533,12 +532,12 @@ export class WebGPUFrameTargetManager {
 						TextureFormat.R8Unorm,
 					)
 				: null;
-			const useMSAA = msaaSampleCount > 1;
-			const msaaPoolKey = `msaa-${msaaSampleCount}`;
+			const useMSAA = sampleCount > 1;
+			const msaaPoolKey = `msaa-${sampleCount}`;
 			const msaaPoolOptions: TexturePoolOptions = {
 				usage: TextureUsage.RenderAttachment,
-				sampleCount: msaaSampleCount,
-				label: `WebGPUMSAA_${msaaSampleCount}x`,
+				sampleCount,
+				label: `WebGPUMSAA_${sampleCount}x`,
 			};
 			const nextMSAATargets: WebGPUFrameMSAATargets | null = useMSAA
 				? {
@@ -646,7 +645,7 @@ export class WebGPUFrameTargetManager {
 			if (requirements.sceneTargetMode === "gbuffer") {
 				return { status: "retry-legacy-mrt", error };
 			}
-			if (msaaSampleCount > 1) {
+			if (sampleCount > 1) {
 				return { status: "retry-single-sample", error };
 			}
 			throw error;
@@ -676,7 +675,7 @@ export class WebGPUFrameTargetManager {
 		this._msaaTargets = null;
 		this._targetWidth = 0;
 		this._targetHeight = 0;
-		this._targetMSAASampleCount = 1;
+		this._targetSampleCount = 1;
 		this._targetSceneTargetMode = "single";
 		this._targetNeedsPostProcessTargets = false;
 		this._targetNeedsOITTargets = false;

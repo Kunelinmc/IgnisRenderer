@@ -110,7 +110,9 @@ async function testWebGPUBlendMaterialsUseTransparentPipelineState() {
 		createMainFrameOptions()
 	);
 
-	const draw = await resources.getDrawResources(packet, frameResources);
+	const draw = await resources.getDrawResources(packet, frameResources, {
+		sampleCount: 1,
+	});
 	assert.ok(draw && draw.length > 0);
 	const pipelineDesc = draw[0].pipeline.desc;
 	assert.equal(pipelineDesc.depthStencil.depthWriteEnabled, false);
@@ -176,7 +178,9 @@ async function testWebGPUTransmissionMaterialsUseTransparentPipelineState() {
 		createMainFrameOptions()
 	);
 
-	const draw = await resources.getDrawResources(packet, frameResources);
+	const draw = await resources.getDrawResources(packet, frameResources, {
+		sampleCount: 1,
+	});
 	assert.ok(draw && draw.length > 0);
 	const pipelineDesc = draw[0].pipeline.desc;
 	assert.equal(pipelineDesc.depthStencil.depthWriteEnabled, false);
@@ -236,6 +240,7 @@ async function testWebGPUEarlyZPrepassOpaquePipelineHasDepthOnlyState() {
 
 	const draw = await resources.getDrawResources(packet, frameResources, {
 		drawMode: "early-z-prepass",
+		sampleCount: 1,
 	});
 	assert.ok(draw && draw.length > 0);
 	const pipelineDesc = draw[0].pipeline.desc;
@@ -284,6 +289,7 @@ async function testWebGPUEarlyZPrepassMaskPipelineUsesMaskDepthFragment() {
 
 	const draw = await resources.getDrawResources(packet, frameResources, {
 		drawMode: "early-z-prepass",
+		sampleCount: 1,
 	});
 	assert.ok(draw && draw.length > 0);
 	const pipelineDesc = draw[0].pipeline.desc;
@@ -331,6 +337,7 @@ async function testWebGPUEarlyZColorPipelineUsesReadOnlyDepthState() {
 
 	const draw = await resources.getDrawResources(packet, frameResources, {
 		drawMode: "early-z-color",
+		sampleCount: 1,
 	});
 	assert.ok(draw && draw.length > 0);
 	const pipelineDesc = draw[0].pipeline.desc;
@@ -401,6 +408,7 @@ fn customVs(@location(0) position: vec3<f32>) -> @builtin(position) vec4<f32> {
 		frameResources,
 		{
 			drawMode: "early-z-prepass",
+			sampleCount: 1,
 		}
 	);
 	assert.ok(supportedDraw && supportedDraw.length > 0);
@@ -433,6 +441,7 @@ fn customVs(@location(0) position: vec3<f32>) -> @builtin(position) vec4<f32> {
 		frameResources,
 		{
 			drawMode: "early-z-prepass",
+			sampleCount: 1,
 		}
 	);
 	assert.equal(unsupportedDraw, null);
@@ -505,11 +514,13 @@ fn customFs() -> @location(0) vec4<f32> {
 	const prepassDraw = await resources.getDrawResources(packet, frameResources, {
 		sceneTargetMode: "single",
 		drawMode: "early-z-prepass",
+		sampleCount: 1,
 	});
 	assert.equal(prepassDraw, null);
 
 	const draw = await resources.getDrawResources(packet, frameResources, {
 		sceneTargetMode: "single",
+		sampleCount: 1,
 	});
 	assert.ok(draw && draw.length > 0);
 	const pipelineDesc = draw[0].pipeline.desc;
@@ -522,6 +533,7 @@ fn customFs() -> @location(0) vec4<f32> {
 		{
 			sceneTargetMode: "single",
 			drawMode: "early-z-color",
+			sampleCount: 1,
 		}
 	);
 	assert.ok(earlyZColorDraw && earlyZColorDraw.length > 0);
@@ -596,7 +608,9 @@ fn customFs() -> @location(0) vec4<f32> {
 		createMainFrameOptions()
 	);
 
-	const firstDraw = await resources.getDrawResources(packet, frameResources);
+	const firstDraw = await resources.getDrawResources(packet, frameResources, {
+		sampleCount: 1,
+	});
 	assert.ok(firstDraw && firstDraw.length > 0);
 	const firstUniformEntry = firstDraw[0].modelBinding.desc.entries.find(
 		(entry) => entry.binding === WEBGPU_MODEL_BINDING_SHADER_UNIFORMS
@@ -616,7 +630,9 @@ fn customFs() -> @location(0) vec4<f32> {
 
 	const firstResource = firstUniformEntry.resource;
 	shaderMaterial.setUniform("time", 2);
-	const secondDraw = await resources.getDrawResources(packet, frameResources);
+	const secondDraw = await resources.getDrawResources(packet, frameResources, {
+		sampleCount: 1,
+	});
 	const secondUniformEntry = secondDraw[0].modelBinding.desc.entries.find(
 		(entry) => entry.binding === WEBGPU_MODEL_BINDING_SHADER_UNIFORMS
 	);
@@ -633,7 +649,9 @@ fn customFs() -> @location(0) vec4<f32> {
 		type: "mat4x4f",
 		value: Matrix4.identity(),
 	});
-	const thirdDraw = await resources.getDrawResources(packet, frameResources);
+	const thirdDraw = await resources.getDrawResources(packet, frameResources, {
+		sampleCount: 1,
+	});
 	const thirdUniformEntry = thirdDraw[0].modelBinding.desc.entries.find(
 		(entry) => entry.binding === WEBGPU_MODEL_BINDING_SHADER_UNIFORMS
 	);
@@ -687,6 +705,7 @@ async function testWebGPUOITTransparentPipelineUsesDualTargets() {
 
 	const draw = await resources.getDrawResources(packet, frameResources, {
 		transparentPipelineMode: "oit",
+		sampleCount: 1,
 	});
 	assert.ok(draw && draw.length > 0);
 	const pipelineDesc = draw[0].pipeline.desc;
@@ -761,6 +780,7 @@ async function testWebGPUOITTransmissionMaterialsStayLegacyPipeline() {
 
 	const draw = await resources.getDrawResources(packet, frameResources, {
 		transparentPipelineMode: "transmission",
+		sampleCount: 1,
 	});
 	assert.ok(draw && draw.length > 0);
 	const pipelineDesc = draw[0].pipeline.desc;

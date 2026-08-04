@@ -228,8 +228,16 @@ This document defines the lifecycle, scheduling, warmup, incremental rendering, 
 - `RenderTargetDescriptor.color` must contain at least one color attachment.
 - `RenderTargetDescriptor.depth` may define one depth attachment.
 - `RenderTargetDescriptor.sampleCount` defaults to `1`.
-- Custom render targets currently support only `sampleCount = 1`; registration
-  with another value must throw.
+- `RenderTargetDescriptor.sampleCount` must accept a finite number, floor it,
+  and clamp it to at least `1`. The descriptor retains the normalized request;
+  the execution target reports the backend-resolved count.
+- WebGL custom render targets support only `sampleCount = 1` and must reject a
+  larger normalized request during backend frame synchronization.
+- For a multisampled WebGPU color attachment, `texture` is the render
+  attachment and `resolveTexture` is its single-sample result. Single-sample
+  color attachments and all depth attachments expose `resolveTexture = null`.
+- WebGPU custom render-target readback must read `resolveTexture` when present.
+  Multisampled depth attachments do not receive an automatic depth resolve.
 - Color attachments must use color formats, and depth attachments must use
   depth-only formats.
 - `Renderer.renderTargets.readColor(id, attachmentIndex, options)` must return a
@@ -583,7 +591,9 @@ bun tests/static/renderer/test_renderer_warmup_lightprobe.mjs
   when registering a pass before its target.
 - `Render target "<id>" is referenced by custom render pass "<pass>".` is
   thrown when unregistering a target that is still in use.
-- `Render target "<id>" sampleCount must be 1.` is thrown for unsupported MSAA.
+- `Render target "<id>" sampleCount must be a finite number.` is thrown for an
+  invalid request. WebGL reports its backend-specific `sampleCount must be 1`
+  error during frame synchronization for a normalized multisample request.
 - `Render target "<id>" cannot be read before a successful frame completes.` is thrown when readback is requested too early.
 - `software-custom-render-targets-unsupported` is logged when SoftwareBackend skips a custom render pass.
 

@@ -783,38 +783,59 @@ function testBindingGroupHashCollisionBucketSafety() {
 	backend.setBindingGroupHashOverrideForTesting(null);
 }
 
-async function testMSAAConfigurationClampsAndRuntimeFallbackInvalidatesCaches() {
-	const { backend } = createBackend({ msaaSampleCount: 8 });
-	backend._msaaController.activateDevice();
+async function testSampleCountClampsAndDomainFallbackPreservesPipelineCache() {
+	const { backend } = createBackend({ sampleCount: 8 });
 	await createCachedRenderPipeline(backend);
 	assert.equal(
 		backend.getWebGPUCacheDebugStats().pipeline.renderPipelineEntries,
 		1
 	);
 
-	assert.equal(backend._msaaController.sampleCount, 4);
-	assert.equal(backend._msaaController.fallbackToSingleSample(), true);
-	assert.equal(backend._msaaController.sampleCount, 1);
+	const selection = backend._sampleCountResolver.resolveDomainSampleCount(
+		"main-scene",
+		backend._requestedSampleCount,
+		["rgba16float", "depth32float"],
+	);
+	assert.equal(selection.sampleCount, 4);
+	assert.equal(
+		backend._sampleCountResolver.fallbackToSingleSample(selection.signature),
+		true,
+	);
+	assert.equal(
+		backend._sampleCountResolver.resolveDomainSampleCount(
+			"main-scene",
+			backend._requestedSampleCount,
+			["rgba16float", "depth32float"],
+		).sampleCount,
+		1,
+	);
 	assert.equal(
 		backend.getWebGPUCacheDebugStats().pipeline.renderPipelineEntries,
-		0
+		1,
 	);
 }
 
 function testMSAAPublicControlIsRemovedAndLegacyOptionFails() {
 	const { backend } = createBackend();
-	backend._msaaController.activateDevice();
-	assert.equal(backend._msaaController.sampleCount, 1);
+	assert.equal(backend._requestedSampleCount, 1);
 	assert.equal(typeof backend.getMSAASampleCount, "undefined");
 	assert.equal(typeof backend.setMSAAEnabled, "undefined");
 	assert.equal(typeof backend.setMSAASampleCount, "undefined");
 	assert.throws(
 		() => new WebGPUBackend({ enableMSAA: false }),
-		/msaaSampleCount: 1/
+		/sampleCount: 1/
 	);
 	assert.throws(
-		() => new WebGPUBackend({ msaaSampleCount: Number.NaN }),
+		() => new WebGPUBackend({ sampleCount: Number.NaN }),
 		/finite number/
+	);
+	assert.throws(
+		() => new WebGPUBackend({ msaaSampleCount: 4 }),
+		/sampleCount/
+	);
+	assert.throws(
+		() => new WebGPUBackend({ sceneSampleCount: 4 }),
+		/sampleCount/
 	);
 }
 
@@ -1483,7 +1504,7 @@ async function run() {
 	await testStaleRenderPipelineCreationRejectsAfterRollback();
 	testBindingGroupCacheUsesHashedKey();
 	testBindingGroupHashCollisionBucketSafety();
-	await testMSAAConfigurationClampsAndRuntimeFallbackInvalidatesCaches();
+	await testSampleCountClampsAndDomainFallbackPreservesPipelineCache();
 	testMSAAPublicControlIsRemovedAndLegacyOptionFails();
 	testCreateBufferMappedAtCreationExposesUnmap();
 	testResizeUsesProvidedDimensions();
