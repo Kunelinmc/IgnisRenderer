@@ -3,7 +3,7 @@ import {
 	type BuiltInPostProcessSharedResourceId,
 } from "../../../postprocess/executionDeclarations";
 import type { IRenderTexture } from "../../types";
-import type { WebGPUFrameTargets } from "../WebGPUPostProcessContracts";
+import type { WebGPUFrameTargets } from "../WebGPUFrameTargetContracts";
 
 import {
 	WEBGPU_FRAME_GRAPH_RESOURCES,

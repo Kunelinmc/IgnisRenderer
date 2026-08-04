@@ -21,10 +21,8 @@ import {
 import { tryGetTextureFormatInfo } from "../../TextureFormatInfo";
 import type { WebGPUFrameHost } from "./WebGPUFrameHost";
 import type { WebGPUPreparedFrameResources } from "../WebGPUResourceContracts";
-import type {
-	WebGPUFrameTargets,
-	WebGPUPostProcessFrameTargets,
-} from "../WebGPUPostProcessContracts";
+import type { WebGPUFrameTargets } from "../WebGPUFrameTargetContracts";
+import type { WebGPUPostProcessFrameTargets } from "../WebGPUPostProcessContracts";
 import { WebGPUPostProcessRuntime } from "../WebGPUPostProcessRuntime";
 import { getWebGPUPostProcessSharedResourceDescriptor } from "./WebGPUPostProcessSharedResourceCatalog";
 

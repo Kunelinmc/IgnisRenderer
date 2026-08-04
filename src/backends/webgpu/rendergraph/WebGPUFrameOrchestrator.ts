@@ -42,7 +42,7 @@ import { createWebGPUPostProcessGraphComposition } from "./WebGPUPostProcessGrap
 
 import {
 	type WebGPUFrameTargets,
-} from "../WebGPUPostProcessContracts";
+} from "../WebGPUFrameTargetContracts";
 import {
 	WebGPUPostProcessRuntime,
 } from "../WebGPUPostProcessRuntime";

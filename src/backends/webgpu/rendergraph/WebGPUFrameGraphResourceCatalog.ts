@@ -1,4 +1,4 @@
-import type { WebGPUFrameTargets } from "../WebGPUPostProcessContracts";
+import type { WebGPUFrameTargets } from "../WebGPUFrameTargetContracts";
 import type { WebGPUFrameMSAATargets } from "./WebGPUFrameTargetManager";
 import type { IRenderTexture } from "../../types";
 import type {

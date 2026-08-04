@@ -1,4 +1,4 @@
-import type { WebGPUFrameTargets } from "../WebGPUPostProcessContracts";
+import type { WebGPUFrameTargets } from "../WebGPUFrameTargetContracts";
 import type { WebGPUSceneTargetMode } from "../WebGPUScenePassDescriptors";
 import type { WebGPUFrameHost } from "./WebGPUFrameHost";
 import {

@@ -19,7 +19,7 @@ import type {
 	WebGPUPlanarReflectionResourceProvider,
 	WebGPUSceneResourceProvider,
 } from "./WebGPUResourceContracts";
-import type { WebGPUFrameTargets } from "./WebGPUPostProcessContracts";
+import type { WebGPUFrameTargets } from "./WebGPUFrameTargetContracts";
 import {
 	submitWebGPUDraws,
 } from "./WebGPUDrawSubmission";

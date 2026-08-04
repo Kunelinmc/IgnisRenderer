@@ -7,7 +7,7 @@ import type {
 } from "../../../pipeline/types";
 import type { ICommandEncoder } from "../../ICommandEncoder";
 import type { WebGPUPreparedFrameResources } from "../WebGPUResourceContracts";
-import type { WebGPUFrameTargets } from "../WebGPUPostProcessContracts";
+import type { WebGPUFrameTargets } from "../WebGPUFrameTargetContracts";
 import type { WebGPUSceneTargetMode } from "../WebGPUScenePassDescriptors";
 import type { WebGPUFrameMSAATargets } from "./WebGPUFrameTargetManager";
 

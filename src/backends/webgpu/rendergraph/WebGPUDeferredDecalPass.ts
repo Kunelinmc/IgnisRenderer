@@ -47,7 +47,7 @@ import type {
 	WebGPUDeferredResourceProvider,
 	WebGPUTextureResourceProvider,
 } from "../WebGPUResourceContracts";
-import type { WebGPUFrameTargets } from "../WebGPUPostProcessContracts";
+import type { WebGPUFrameTargets } from "../WebGPUFrameTargetContracts";
 import type { WebGPUFrameGraphRecordingContext } from "./WebGPUFrameGraphRecordingContext";
 
 export interface WebGPUDeferredDecalPassCallbacks {

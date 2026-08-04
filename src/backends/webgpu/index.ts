@@ -12,4 +12,5 @@ export * from "./ComputeRuntime";
 export * from "./FrameFeatures";
 export * from "./WebGPUClusteredLightingRuntime";
 export * from "./WebGPUFrameFeatureModules";
+export * from "./WebGPUFrameTargetContracts";
 export * from "./WebGPUPostProcessContracts";
