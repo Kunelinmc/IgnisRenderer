@@ -6,6 +6,10 @@ import {
 	type DisplayOutputState,
 	type ResolvedDisplayOutputOptions,
 } from "../../rendering/DisplayOutput";
+import {
+	Platform,
+	type PlatformMediaQueryList,
+} from "../../foundation/Platform";
 import type { TextureFormat } from "../types";
 
 export interface WebGPUDisplayOutputConfiguration {
@@ -26,7 +30,7 @@ interface ExtendedGPUCanvasConfiguration extends GPUCanvasConfiguration {
  */
 export class WebGPUDisplayOutputManager {
 	private _requested: ResolvedDisplayOutputOptions;
-	private _mediaQuery: MediaQueryList | null = null;
+	private _mediaQuery: PlatformMediaQueryList | null = null;
 	private _mediaQueryListener: (() => void) | null = null;
 
 	public constructor(requested: ResolvedDisplayOutputOptions) {
@@ -44,8 +48,8 @@ export class WebGPUDisplayOutputManager {
 
 	public observeDynamicRange(onChange: () => void): void {
 		this.stopObservingDynamicRange();
-		if (typeof matchMedia !== "function") return;
-		const mediaQuery = matchMedia("(dynamic-range: high)");
+		const mediaQuery = Platform.getHighDynamicRangeMediaQuery();
+		if (!mediaQuery) return;
 		const listener = (): void => onChange();
 		mediaQuery.addEventListener?.("change", listener);
 		this._mediaQuery = mediaQuery;
@@ -69,8 +73,7 @@ export class WebGPUDisplayOutputManager {
 			return this._configureSDR(context, device, preferredFormat);
 		}
 		const displayIsHDR = this._mediaQuery?.matches ??
-			(typeof matchMedia === "function" &&
-				matchMedia("(dynamic-range: high)").matches);
+			Platform.getHighDynamicRangeMediaQuery()?.matches ?? false;
 		if (!displayIsHDR) {
 			return this._configureSDRFallback(
 				context,

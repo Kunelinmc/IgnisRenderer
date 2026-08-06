@@ -146,6 +146,30 @@ function testWebGL2DetectionCaching() {
 	assert.equal(getContextCallCount, 1);
 }
 
+function testHighDynamicRangeMediaQuery() {
+	let matches = true;
+	let callCount = 0;
+	const fakeScope = {
+		matchMedia(query) {
+			callCount += 1;
+			assert.equal(query, "(dynamic-range: high)");
+			return {
+				get matches() {
+					return matches;
+				},
+			};
+		},
+	};
+
+	const query = Platform.getHighDynamicRangeMediaQuery(fakeScope);
+	assert.equal(query.matches, true);
+	matches = false;
+	assert.equal(query.matches, false);
+	assert.notEqual(Platform.getHighDynamicRangeMediaQuery(fakeScope), query);
+	assert.equal(callCount, 2);
+	assert.equal(Platform.getHighDynamicRangeMediaQuery({}), null);
+}
+
 function run() {
 	testNodeRuntimeDetection();
 	testSyntheticBrowserScopeDetection();
@@ -153,6 +177,7 @@ function run() {
 	testFallbackHardwareConcurrency();
 	testTouchAndMobileDetection();
 	testWebGL2DetectionCaching();
+	testHighDynamicRangeMediaQuery();
 	console.log("Platform detection tests passed");
 }
 

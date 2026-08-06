@@ -32,6 +32,12 @@ interface PlatformCanvasProbeLike {
 	getContext?: (contextId: string, options?: unknown) => unknown;
 }
 
+export interface PlatformMediaQueryList {
+	readonly matches: boolean;
+	addEventListener?: (type: "change", listener: () => void) => void;
+	removeEventListener?: (type: "change", listener: () => void) => void;
+}
+
 interface PlatformScopeLike {
 	process?: PlatformProcessLike;
 	window?: unknown;
@@ -45,6 +51,7 @@ interface PlatformScopeLike {
 	crossOriginIsolated?: boolean;
 	self?: unknown;
 	importScripts?: unknown;
+	matchMedia?: (query: string) => PlatformMediaQueryList;
 }
 
 export interface PlatformFeatureSummary {
@@ -354,6 +361,20 @@ export class Platform {
 			cache.hasWebGPU = detected;
 		}
 		return detected;
+	}
+
+	/**
+	 * Returns the live high-dynamic-range display media query when available.
+	 *
+	 * The returned query must not be treated as a stable capability because its
+	 * `matches` value may change when the active display or system settings change.
+	 */
+	public static getHighDynamicRangeMediaQuery(
+		scope: unknown = globalThis,
+	): PlatformMediaQueryList | null {
+		const resolved = resolveScope(scope);
+		if (typeof resolved.matchMedia !== "function") return null;
+		return resolved.matchMedia("(dynamic-range: high)");
 	}
 
 	/**
