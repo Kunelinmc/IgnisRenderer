@@ -59,7 +59,6 @@ import { WebGPUShadowPass } from "./WebGPUShadowPass";
 import {
 	WebGPUPagedShadowRuntime,
 	type WebGPUPagedShadowFrameRequest,
-	type WebGPUPagedShadowSamplingResources,
 } from "./WebGPUPagedShadowRuntime";
 import {
 	resolveShadowCasterBounds,
@@ -612,19 +611,6 @@ export class WebGPUFrameServiceOwner {
 		this._frameScopes.delete(scopeKey);
 	}
 
-	public getFrameBinding(
-		frameResources: WebGPUFrameServicePreparedResources,
-	): IBindingGroup {
-		return this._requirePreparedFrameResources(frameResources, "getFrameBinding").frameBinding;
-	}
-
-	public getClusteredSceneBinding(
-		frameResources: WebGPUFrameServicePreparedResources,
-	): IBindingGroup {
-		return this._requirePreparedFrameResources(frameResources, "getClusteredSceneBinding")
-			.clusteredSceneBinding;
-	}
-
 	/**
 	 * Returns the bind group layout used by G-buffer geometry shaders to write
 	 * deferred storage payload textures.
@@ -799,13 +785,6 @@ export class WebGPUFrameServiceOwner {
 		return this._pagedShadowRuntime.recordFeedbackPass(request);
 	}
 
-	/**
-	 * @internal WebGPU frame binding hook.
-	 */
-	public getPagedShadowSamplingResources(): WebGPUPagedShadowSamplingResources {
-		return this._pagedShadowRuntime.getSamplingResources();
-	}
-
 	public async buildClusteredLighting(
 		encoder: ICommandEncoder,
 		frameResources: WebGPUFrameServicePreparedResources,
@@ -870,13 +849,6 @@ export class WebGPUFrameServiceOwner {
 		this._shadowAtlases.destroy();
 		this._textureRegistry.destroy();
 		this._geometryRegistry.destroy();
-	}
-
-	public getLightingState(
-		frameResources: WebGPUFrameServicePreparedResources,
-	): WebGPULightingState {
-		return this._requirePreparedFrameResources(frameResources, "getLightingState")
-			.lightingState;
 	}
 
 	public getTextureForSlot(texture: Texture | null, slotIndex: number): IRenderTexture {

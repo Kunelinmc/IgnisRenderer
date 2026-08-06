@@ -387,7 +387,7 @@ async function testShadowAtlasSizeTracksShadowMapsWhenLightingDisabled() {
 		createFrameContext(frame, features),
 		createMainFrameOptions()
 	);
-	const frameBinding = resources.getFrameBinding(frameResources);
+	const frameBinding = frameResources.frameBinding;
 	const shadowAtlasEntry = frameBinding.desc.entries.find(
 		(entry) => entry.binding === 1
 	);

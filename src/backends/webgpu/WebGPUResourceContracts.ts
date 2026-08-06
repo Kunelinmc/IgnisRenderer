@@ -30,10 +30,7 @@ import type {
 	MorphWeightMap,
 } from "../../simulation/animation/types";
 import type { FramePreparationRequirements } from "../../pipeline/FrameRequirements";
-import type {
-	WebGPUPagedShadowFrameRequest,
-	WebGPUPagedShadowSamplingResources,
-} from "./WebGPUPagedShadowRuntime";
+import type { WebGPUPagedShadowFrameRequest } from "./WebGPUPagedShadowRuntime";
 import type { ParticleBlendMode } from "../../particles";
 
 /** @internal WebGPU scene draw resolution result. */
@@ -208,5 +205,4 @@ export interface WebGPUShadowRenderProvider {
 	): void | Promise<void>;
 	recordPagedShadowDepthPass(request: WebGPUPagedShadowFrameRequest): Promise<void>;
 	recordPagedShadowFeedbackPass(request: WebGPUPagedShadowFrameRequest): void | Promise<void>;
-	getPagedShadowSamplingResources(): WebGPUPagedShadowSamplingResources;
 }

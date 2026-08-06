@@ -316,14 +316,8 @@ function createDeferredLightingResourcesStub() {
 		async getDeferredLightingPipeline() {
 			return { id: "deferred-lighting-pipeline" };
 		},
-		getFrameBinding() {
-			return { id: "frame-binding" };
-		},
 		getDeferredUnusedBinding() {
 			return state.deferredUnusedBinding;
-		},
-		getClusteredSceneBinding() {
-			return { id: "clustered-binding" };
 		},
 		_state: state,
 	};
