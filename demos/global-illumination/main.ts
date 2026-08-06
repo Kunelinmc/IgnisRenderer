@@ -138,7 +138,7 @@ async function startDemo(): Promise<void> {
 
 	const backend = new WebGPUBackend({
 		enableDeferredLighting: false,
-		msaaSampleCount: 1,
+		sampleCount: 1,
 	});
 	const renderer = new Renderer({
 		backend,
