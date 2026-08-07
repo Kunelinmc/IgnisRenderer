@@ -349,6 +349,57 @@ async function testDeferredLightingCanBeExplicitlyDisabled() {
 	);
 }
 
+async function testDeferredPipelineFailureFallsBackBeforeGBufferCommands() {
+	const backend = new FakeBackend();
+	const resources = createDeferredLightingResourcesStub();
+	resources.getDeferredLightingPipeline = async () => {
+		throw new Error("simulated deferred pipeline failure");
+	};
+	const executor = new WebGPUFrameExecutor(
+		backend, resources, undefined, undefined, resources,
+	);
+	const context = createFrameContext(64, 64);
+	context.scene.opaquePackets = [
+		{
+			id: "deferred-pipeline-fallback",
+			material: new PBRMaterial({ anisotropyStrength: 0.8 }),
+		},
+	];
+	const warnings = [];
+	Logger.configure({
+		level: "warn",
+		resetOnceKeys: true,
+		sink: {
+			warn: (...args) =>
+				warnings.push(args.map((arg) => String(arg)).join(" ")),
+		},
+	});
+	try {
+		executor.beginFrame(context);
+		await executor.executePass(
+			{ stage: "main-opaque", executor: "backend", enabled: true },
+			context
+		);
+		const labels = backend.recordedRenderPasses.map((pass) => pass.label);
+		assert.equal(labels.some((label) => label.startsWith("WebGPUGBuffer")), false);
+		assert.ok(labels.some((label) => label.startsWith("WebGPUMainMRT")));
+		assert.equal(
+			warnings.filter((warning) =>
+				warning.includes("[webgpu-deferred-runtime-fallback]")
+			).length,
+			1
+		);
+		assert.ok(
+			resources._state.events.includes(
+				"draw:deferred-pipeline-fallback:mrt:early-z-color"
+			)
+		);
+	} finally {
+		Logger.reset();
+		executor.destroy();
+	}
+}
+
 function testDeferredLightingWarnsWhenRequestedButMRTUnavailable() {
 	const backend = new FakeBackend();
 	backend.device.limits.maxColorAttachments = 1;
@@ -373,7 +424,7 @@ function testDeferredLightingWarnsWhenRequestedButMRTUnavailable() {
 		assert.equal(executor.getSceneTargetModeForFrame(), "single");
 		assert.equal(
 			warnings.some((warning) =>
-				warning.includes("[webgpu-deferred-disabled-mrt]")
+				warning.includes("[webgpu-deferred-disabled-attachments]")
 			),
 			true
 		);
@@ -461,6 +512,7 @@ async function run() {
 		await testDeferredLightingBindsUnusedGroupOnePlaceholder();
 		await testDeferredLightingKeepsTransmissionOutOfGBuffer();
 		await testDeferredLightingCanBeExplicitlyDisabled();
+		await testDeferredPipelineFailureFallsBackBeforeGBufferCommands();
 		await testDeferredLightingWarnsWhenRequestedButMRTUnavailable();
 		await testOITMSAAFallsBackToLegacyAndWarns();
 		await testOITRuntimeFallbackWarnsWithoutEncoderCopy();

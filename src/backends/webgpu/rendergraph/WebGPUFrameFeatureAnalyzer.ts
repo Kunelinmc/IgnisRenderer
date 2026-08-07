@@ -3,7 +3,11 @@ import type { PreparedFramePacketSet } from "../../../pipeline/FramePacketContri
 import type { PlannedPostProcessPass } from "../../../postprocess";
 import { materialUsesTransmission } from "../../../materials/transparency";
 import { ParticleBlendMode } from "../../../particles";
-import { materialSupportsWebGPUDeferredLighting } from "../material";
+import {
+	materialRequiresExtendedWebGPUGBuffer,
+	materialSupportsWebGPUDeferredLighting,
+} from "../material";
+import type { WebGPUDeferredGBufferLayout } from "../constants";
 import {
 	getWebGPUPostProcessSharedResourceDescriptor,
 	type WebGPUPostProcessAllocationGroup,
@@ -13,6 +17,7 @@ export interface WebGPUFrameFeatureAnalysis {
 	readonly framePackets: PreparedFramePacketSet;
 	readonly postProcessPasses: readonly PlannedPostProcessPass[];
 	readonly hasDeferredLightingWork: boolean;
+	readonly deferredGBufferLayout: WebGPUDeferredGBufferLayout;
 	readonly oitRequested: boolean;
 	readonly hasOITWork: boolean;
 	readonly transparency: WebGPUTransparencyAnalysis;
@@ -69,11 +74,19 @@ export class WebGPUFrameFeatureAnalyzer {
 			context,
 			framePackets.transparent,
 		);
+		const deferredGBufferLayout: WebGPUDeferredGBufferLayout =
+			(context.scene.decalPackets?.length ?? 0) > 0 ||
+			framePackets.opaque.some((packet) =>
+				materialRequiresExtendedWebGPUGBuffer(packet.material)
+			)
+				? "extended"
+				: "base";
 		return {
 			framePackets,
 			postProcessPasses,
 			hasDeferredLightingWork: framePackets.opaque
 				.some((packet) => materialSupportsWebGPUDeferredLighting(packet.material)),
+			deferredGBufferLayout,
 			oitRequested: context.features.enableOIT === true,
 			hasOITWork: transparency.hasOITContributors,
 			transparency,

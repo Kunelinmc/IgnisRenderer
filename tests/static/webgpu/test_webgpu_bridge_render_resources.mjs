@@ -279,7 +279,7 @@ async function testRenderResourcesUseCopyDstForUploads() {
 	assert.equal(firstDraw.pipeline.desc.fragment.targets.length, 5);
 	assert.deepEqual(
 		firstDraw.pipeline.desc.fragment.targets.map((target) => target.format),
-		["rgba16float", "rgba8unorm", "rgba16float", "rgba16float", "rgba16float"]
+		["rgba16float", "rgba8unorm", "rgba8unorm", "rgba16float", "rgba16float"]
 	);
 	const modelBindingIndices = firstDraw.modelBinding.desc.entries.map(
 		(entry) => entry.binding

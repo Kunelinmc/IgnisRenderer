@@ -6,9 +6,7 @@
 @group(3) @binding(5) var gCoatSheenIn: texture_2d<f32>;
 @group(3) @binding(6) var gSheenReflectanceIn: texture_2d<f32>;
 @group(3) @binding(7) var gMaterialExt0In: texture_2d<f32>;
-@group(3) @binding(8) var gMaterialExt1In: texture_2d<f32>;
-@group(3) @binding(9) var gMaterialExt2In: texture_2d<f32>;
-@group(3) @binding(10) var gMaterialExt3In: texture_2d<f32>;
+@group(3) @binding(8) var gMaterialExt3In: texture_2d<u32>;
 
 struct DeferredVSOut {
 	@builtin(position) position: vec4<f32>,
@@ -36,10 +34,6 @@ struct DeferredSurface {
 	sheenColor: vec3<f32>,
 	sheenRoughness: f32,
 	reflectance: f32,
-	ior: f32,
-	thickness: f32,
-	attenuationColor: vec3<f32>,
-	attenuationDistance: f32,
 	iridescence: f32,
 	iridescenceIor: f32,
 	iridescenceThickness: f32,
@@ -130,16 +124,55 @@ fn loadDeferredSurface(input: DeferredVSOut) -> DeferredSurface {
 	let normalRoughMetal = textureLoad(gNormalRoughMetalIn, coord, 0);
 	let emissiveOcclusion = textureLoad(gEmissiveOcclusionIn, coord, 0);
 	let motionDepth = textureLoad(gMotionDepthIn, coord, 0);
-	let specular = textureLoad(gSpecularIn, coord, 0);
-	let coatSheen = textureLoad(gCoatSheenIn, coord, 0);
-	let sheenReflectance = textureLoad(gSheenReflectanceIn, coord, 0);
-	let materialExt0 = textureLoad(gMaterialExt0In, coord, 0);
-	let materialExt1 = textureLoad(gMaterialExt1In, coord, 0);
-	let materialExt2 = textureLoad(gMaterialExt2In, coord, 0);
-	let materialExt3 = textureLoad(gMaterialExt3In, coord, 0);
+	let materialWord = decodeDeferredMaterialWord(motionDepth.w);
+	let shadingModel = deferredShadingModel(materialWord);
+	let isPhong = shadingModel == SHADING_PHONG || shadingModel == SHADING_FLAT;
+	let hasClearcoat = deferredHasFeature(
+		materialWord,
+		DEFERRED_MATERIAL_CLEARCOAT_BIT
+	);
+	let hasSheen = deferredHasFeature(materialWord, DEFERRED_MATERIAL_SHEEN_BIT);
+	let hasIridescence = deferredHasFeature(
+		materialWord,
+		DEFERRED_MATERIAL_IRIDESCENCE_BIT
+	);
+	let hasAnisotropy = deferredHasFeature(
+		materialWord,
+		DEFERRED_MATERIAL_ANISOTROPY_BIT
+	);
+	let hasSpecular = deferredHasFeature(
+		materialWord,
+		DEFERRED_MATERIAL_SPECULAR_BIT
+	);
+	var specular = vec4<f32>(1.0);
+	var coatSheen = vec4<f32>(0.0, 0.04, 0.0, 1.3);
+	var sheenReflectance = vec4<f32>(0.0, 0.0, 0.0, 0.5);
+	var materialExt0 = vec4<f32>(0.5, 0.5, 0.0, 0.0);
+	var materialExt3 = vec4<u32>(0u);
+	if (isPhong || hasSpecular) {
+		specular = textureLoad(gSpecularIn, coord, 0);
+	}
+	if (hasClearcoat || hasSheen || hasIridescence) {
+		coatSheen = textureLoad(gCoatSheenIn, coord, 0);
+	}
+	if (isPhong || hasSheen || hasSpecular) {
+		sheenReflectance = textureLoad(gSheenReflectanceIn, coord, 0);
+	}
+	if (hasClearcoat || hasIridescence) {
+		materialExt0 = textureLoad(gMaterialExt0In, coord, 0);
+	}
+	if (hasAnisotropy) {
+		materialExt3 = textureLoad(gMaterialExt3In, coord, 0);
+	}
 	let normal = decodeDeferredNormal(normalRoughMetal.xy);
-	let clearcoatNormal = decodeDeferredNormal(materialExt0.xy);
-	let anisotropyTangentCandidate = decodeDeferredNormal(materialExt3.xy);
+	let clearcoatNormal = select(
+		normal,
+		decodeDeferredNormal(materialExt0.xy),
+		hasClearcoat
+	);
+	let anisotropyTangentCandidate = decodeDeferredNormal(
+		decodeDeferredExt3Normal(materialExt3.xy)
+	);
 	let anisotropyTangent = safeNormalize(
 		anisotropyTangentCandidate -
 			normal * dot(normal, anisotropyTangentCandidate),
@@ -166,25 +199,21 @@ fn loadDeferredSurface(input: DeferredVSOut) -> DeferredSurface {
 		max(emissiveOcclusion.rgb, vec3<f32>(0.0)),
 		clamp(emissiveOcclusion.a, 0.0, 1.0),
 		max(motionDepth.z, 0.0),
-		u32(clamp(floor(motionDepth.w + 0.5), 0.0, 3.0)),
+		shadingModel,
 		clamp(specular.rgb, vec3<f32>(0.0), vec3<f32>(1.0)),
-		clamp(specular.a, 0.0, 1.0),
+		select(clamp(specular.a, 0.0, 1.0), max(specular.a, 0.0), isPhong),
 		clamp(coatSheen.x, 0.0, 1.0),
 		clamp(coatSheen.y, 0.04, 1.0),
 		clearcoatNormal,
 		clamp(sheenReflectance.rgb, vec3<f32>(0.0), vec3<f32>(1.0)),
 		clamp(coatSheen.z, 0.0, 1.0),
 		clamp(sheenReflectance.a, 0.0, 1.0),
-		max(materialExt0.z, 1.0),
+		clamp(materialExt0.z, 0.0, 1.0),
+		max(coatSheen.w, 1.0),
 		max(materialExt0.w, 0.0),
-		clamp(materialExt1.rgb, vec3<f32>(0.0001), vec3<f32>(1.0)),
-		materialExt1.a,
-		clamp(materialExt2.x, 0.0, 1.0),
-		max(materialExt2.y, 1.0),
-		max(materialExt2.z, 0.0),
 		anisotropyTangent,
 		anisotropyBitangent,
-		clamp(materialExt3.z, 0.0, 1.0),
+		decodeDeferredExt3Strength(materialExt3.z),
 		input.position.xy
 	);
 }
@@ -212,101 +241,32 @@ fn evaluateDeferredPBRLight(
 	radiance: vec3<f32>,
 	shadow: vec3<f32>
 ) -> vec3<f32> {
-	let nDotL = max(dot(surface.normal, lightDirection), 0.0);
-	if (nDotL <= 0.0) {
-		return vec3<f32>(0.0);
-	}
-
-	let halfVector = safeNormalize(
-		surface.viewDir + lightDirection,
-		surface.viewDir
-	);
-	let fresnel = resolveIridescenceFresnel(
-		max(dot(halfVector, surface.viewDir), 0.0),
-		pbr.realF0,
-		surface.iridescence,
-		surface.iridescenceThickness,
-		surface.iridescenceIor
-	);
-	var specular = vec3<f32>(0.0);
-	if (surface.anisotropyStrength > EPSILON) {
-		specular = resolveAnisotropicSpecular(
-			fresnel,
+	return evaluateOpaquePBRLight(
+		OpaquePBRSurfaceInput(
+			surface.normal,
+			surface.viewDir,
+			surface.albedo,
+			pbr.realF0,
 			surface.roughness,
+			surface.metalness,
+			0.0,
+			pbr.energyCompensation,
+			surface.iridescence,
+			surface.iridescenceIor,
+			surface.iridescenceThickness,
+			surface.anisotropyTangent,
+			surface.anisotropyBitangent,
 			surface.anisotropyStrength,
-			nDotL,
-			pbr.nDotV,
-			max(dot(surface.normal, halfVector), 0.0),
-			dot(surface.anisotropyTangent, surface.viewDir),
-			dot(surface.anisotropyBitangent, surface.viewDir),
-			dot(surface.anisotropyTangent, lightDirection),
-			dot(surface.anisotropyBitangent, lightDirection),
-			dot(surface.anisotropyTangent, halfVector),
-			dot(surface.anisotropyBitangent, halfVector)
-		);
-	} else {
-		let ndf = distributionGGX(surface.normal, halfVector, surface.roughness);
-		let geometry = geometrySmith(pbr.nDotV, nDotL, surface.roughness);
-		let denominator = max(4.0 * pbr.nDotV * nDotL, 0.0001);
-		specular = (ndf * geometry * fresnel) / denominator;
-	}
-	specular = specular * pbr.energyCompensation;
-	let kd =
-		diffuseFresnelWeight(fresnel, surface.iridescence) *
-		(1.0 - surface.metalness);
-	let diffuse = (kd * surface.albedo) / PI;
-
-	var clearcoatSpecular = vec3<f32>(0.0);
-	var clearcoatFresnel = vec3<f32>(0.0);
-	let ncDotV = max(dot(surface.clearcoatNormal, surface.viewDir), PBR_MIN_NDOTV);
-	if (surface.clearcoat > 0.0) {
-		let ncDotL = max(dot(surface.clearcoatNormal, lightDirection), 0.0);
-		if (ncDotL > 0.0) {
-			let ccHalfVector = safeNormalize(
-				surface.viewDir + lightDirection,
-				surface.viewDir
-			);
-			let hccDotV = max(dot(ccHalfVector, surface.viewDir), 0.0);
-			let ccNdf = distributionGGX(
-				surface.clearcoatNormal,
-				ccHalfVector,
-				surface.clearcoatRoughness
-			);
-			let ccGeometry = geometrySmithClearcoat(
-				ncDotV,
-				ncDotL,
-				surface.clearcoatRoughness
-			);
-			let ccF = fresnelSchlickScalar(hccDotV, 0.04);
-			let ccDenom = max(4.0 * ncDotV * ncDotL, 0.0001);
-			clearcoatSpecular = vec3<f32>((ccNdf * ccGeometry * ccF) / ccDenom);
-			clearcoatFresnel = vec3<f32>(ccF);
-		}
-	}
-
-	var sheenSpecular = vec3<f32>(0.0);
-	var albedoSheenScaling = vec3<f32>(1.0);
-	let maxSheenColor = max(max(surface.sheenColor.x, surface.sheenColor.y), surface.sheenColor.z);
-	if (maxSheenColor > 0.0) {
-		let nDotH = max(dot(surface.normal, halfVector), 0.0);
-		let sheenNdf = distributionCharlie(
-			nDotH,
-			max(surface.sheenRoughness, 0.04)
-		);
-		let sheenVisibility = visibilityAshikhmin(nDotL, pbr.nDotV);
-		sheenSpecular = surface.sheenColor * sheenNdf * sheenVisibility;
-		let hDotV = max(dot(halfVector, surface.viewDir), 0.0);
-		let sheenFresnel = fresnelSchlick(hDotV, surface.sheenColor);
-		albedoSheenScaling = max(vec3<f32>(0.0), vec3<f32>(1.0) - sheenFresnel);
-	}
-
-	let clearcoatAttenuation = vec3<f32>(1.0) - clearcoatFresnel * surface.clearcoat;
-	let baseLayerAttenuation = clearcoatAttenuation * albedoSheenScaling;
-	return (
-		(diffuse + specular) * baseLayerAttenuation +
-		clearcoatSpecular * surface.clearcoat +
-		sheenSpecular * clearcoatAttenuation
-	) * nDotL * radiance * shadow;
+			surface.clearcoat,
+			surface.clearcoatRoughness,
+			surface.clearcoatNormal,
+			surface.sheenColor,
+			surface.sheenRoughness
+		),
+		lightDirection,
+		radiance,
+		shadow
+	);
 }
 
 fn evaluateDeferredPBR(surface: DeferredSurface) -> vec3<f32> {
@@ -677,14 +637,11 @@ fn evaluateDeferredPhong(surface: DeferredSurface) -> vec3<f32> {
 			lightDirection,
 			surface.linearDepth
 		);
-		let halfVector = safeNormalize(
-			surface.viewDir + lightDirection,
-			surface.viewDir
+		direct += evaluateOpaquePhongLight(
+			surface.normal, surface.viewDir, surface.albedo,
+			surface.specularColor, shininess, lightDirection,
+			frameLights.directionalLights[i].color.xyz, shadow
 		);
-		let specFactor = pow(max(dot(surface.normal, halfVector), 0.0), shininess);
-		let radiance = frameLights.directionalLights[i].color.xyz * shadow;
-		direct += radiance * nDotL * surface.albedo;
-		direct += radiance * specFactor * surface.specularColor;
 	}
 
 	if (isClusteredLightingEnabled()) {
@@ -720,17 +677,11 @@ fn evaluateDeferredPhong(surface: DeferredSurface) -> vec3<f32> {
 					if (nDotL <= 0.0) {
 						continue;
 					}
-					let halfVector = safeNormalize(
-						surface.viewDir + lightDirection,
-						surface.viewDir
+					direct += evaluateOpaquePhongLight(
+						surface.normal, surface.viewDir, surface.albedo,
+						surface.specularColor, shininess, lightDirection,
+						areaLight.radiance, vec3<f32>(1.0)
 					);
-					let specFactor = pow(
-						max(dot(surface.normal, halfVector), 0.0),
-						shininess
-					);
-					direct += areaLight.radiance * nDotL * surface.albedo;
-					direct +=
-						areaLight.radiance * specFactor * surface.specularColor;
 				}
 				continue;
 			}
@@ -779,14 +730,11 @@ fn evaluateDeferredPhong(surface: DeferredSurface) -> vec3<f32> {
 			if (nDotL <= 0.0) {
 				continue;
 			}
-			let halfVector = safeNormalize(
-				surface.viewDir + lightDirection,
-				surface.viewDir
+			direct += evaluateOpaquePhongLight(
+				surface.normal, surface.viewDir, surface.albedo,
+				surface.specularColor, shininess, lightDirection,
+				colorInner.xyz * attenuation, shadow
 			);
-			let specFactor = pow(max(dot(surface.normal, halfVector), 0.0), shininess);
-			let radiance = colorInner.xyz * attenuation * shadow;
-			direct += radiance * nDotL * surface.albedo;
-			direct += radiance * specFactor * surface.specularColor;
 		}
 	} else {
 		let pointCount = u32(frame.lightCounts.y + 0.5);
@@ -803,16 +751,13 @@ fn evaluateDeferredPhong(surface: DeferredSurface) -> vec3<f32> {
 			if (nDotL <= 0.0) {
 				continue;
 			}
-			let halfVector = safeNormalize(
-				surface.viewDir + lightDirection,
-				surface.viewDir
-			);
-			let specFactor = pow(max(dot(surface.normal, halfVector), 0.0), shininess);
-			let radiance =
+			direct += evaluateOpaquePhongLight(
+				surface.normal, surface.viewDir, surface.albedo,
+				surface.specularColor, shininess, lightDirection,
 				frameLights.pointLights[i].color.xyz *
-				pointAttenuation(distanceSq, lightRange);
-			direct += radiance * nDotL * surface.albedo;
-			direct += radiance * specFactor * surface.specularColor;
+					pointAttenuation(distanceSq, lightRange),
+				vec3<f32>(1.0)
+			);
 		}
 
 		let spotCount = u32(frame.lightCounts.z + 0.5);
@@ -847,18 +792,13 @@ fn evaluateDeferredPhong(surface: DeferredSurface) -> vec3<f32> {
 				surface.shadowNormal,
 				lightDirection
 			);
-			let halfVector = safeNormalize(
-				surface.viewDir + lightDirection,
-				surface.viewDir
-			);
-			let specFactor = pow(max(dot(surface.normal, halfVector), 0.0), shininess);
-			let radiance =
+			direct += evaluateOpaquePhongLight(
+				surface.normal, surface.viewDir, surface.albedo,
+				surface.specularColor, shininess, lightDirection,
 				frameLights.spotLights[i].colorInner.xyz *
-				pointAttenuation(distanceSq, lightRange) *
-				coneAttenuation *
-				shadow;
-			direct += radiance * nDotL * surface.albedo;
-			direct += radiance * specFactor * surface.specularColor;
+					pointAttenuation(distanceSq, lightRange) * coneAttenuation,
+				shadow
+			);
 		}
 	}
 
@@ -883,17 +823,11 @@ fn evaluateDeferredPhong(surface: DeferredSurface) -> vec3<f32> {
 				if (nDotL <= 0.0) {
 					continue;
 				}
-				let halfVector = safeNormalize(
-					surface.viewDir + lightDirection,
-					surface.viewDir
+				direct += evaluateOpaquePhongLight(
+					surface.normal, surface.viewDir, surface.albedo,
+					surface.specularColor, shininess, lightDirection,
+					areaLight.radiance, vec3<f32>(1.0)
 				);
-				let specFactor = pow(
-					max(dot(surface.normal, halfVector), 0.0),
-					shininess
-				);
-				direct += areaLight.radiance * nDotL * surface.albedo;
-				direct +=
-					areaLight.radiance * specFactor * surface.specularColor;
 			}
 		}
 	}

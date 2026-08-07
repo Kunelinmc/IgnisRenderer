@@ -105,6 +105,12 @@ const texture = new Texture({
 - `WebGPUBackend` deferred lighting must encode the resolved anisotropy tangent
   and strength in its G-buffer extension payload and must use them for direct
   anisotropic specular and environment reflection direction.
+- The WebGPU compact deferred payload must preserve `PhongMaterial.shininess`
+  as an unclamped FP16 value. The same channel may store the normalized PBR
+  specular factor only when the packed shading model is `PBR`.
+- WebGPU deferred material feature bits must be derived from resolved material
+  values. Missing feature bits must select the documented neutral defaults and
+  must not trigger extension texture loads.
 
 ### Depth writes
 

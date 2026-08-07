@@ -185,12 +185,14 @@ export class WebGPUPipelineLibrary {
 		topology: PrimitiveDrawTopology = DEFAULT_PRIMITIVE_DRAW_TOPOLOGY,
 		transparentMode: WebGPUTransparentPipelineMode = "default",
 		drawMode: WebGPUScenePipelineDrawMode = "default",
-		sampleCount: number
+		sampleCount: number,
+		deferredGBufferLayout: "base" | "extended" = "extended"
 	): Promise<IRenderPipeline> {
 		const descriptor = resolveWebGPUScenePassDescriptor(
 			mode,
 			transparentMode,
-			drawMode
+			drawMode,
+			deferredGBufferLayout
 		);
 		const resolvedSampleCount = this._resolveSampleCount(
 			descriptor.sceneTargetMode,
@@ -490,13 +492,13 @@ export class WebGPUPipelineLibrary {
 			: ALPHA_BLEND_STATE;
 		const motionBlend = !isTransparent ? undefined : ALPHA_BLEND_STATE;
 
-		if (fragmentTargetKind === "gbuffer") {
+		if (fragmentTargetKind === "gbuffer" || fragmentTargetKind === "gbuffer-base") {
 			const targets: ColorTargetState[] = [];
 			targets[GBufferSlot.AlbedoAlpha] = {
 				format: TextureFormat.RGBA8Unorm,
 			};
 			targets[GBufferSlot.NormalRoughMetal] = {
-				format: TextureFormat.RGBA16Float,
+				format: TextureFormat.RGBA8Unorm,
 			};
 			targets[GBufferSlot.EmissiveOcclusion] = {
 				format: TextureFormat.RGBA16Float,
@@ -504,6 +506,9 @@ export class WebGPUPipelineLibrary {
 			targets[GBufferSlot.MotionDepth] = {
 				format: TextureFormat.RGBA16Float,
 			};
+			if (fragmentTargetKind === "gbuffer-base") {
+				return targets;
+			}
 			targets[GBufferSlot.Specular] = {
 				format: TextureFormat.RGBA16Float,
 			};
@@ -511,7 +516,7 @@ export class WebGPUPipelineLibrary {
 				format: TextureFormat.RGBA16Float,
 			};
 			targets[GBufferSlot.SheenReflectance] = {
-				format: TextureFormat.RGBA16Float,
+				format: TextureFormat.RGBA8Unorm,
 			};
 			return targets;
 		}
@@ -560,7 +565,7 @@ export class WebGPUPipelineLibrary {
 				writeMask: isTransparent ? COLOR_WRITE_NONE : undefined,
 			},
 			{
-				format: TextureFormat.RGBA16Float,
+				format: TextureFormat.RGBA8Unorm,
 				writeMask: isTransparent ? COLOR_WRITE_NONE : undefined,
 			},
 			{
@@ -587,6 +592,7 @@ export class WebGPUPipelineLibrary {
 				vertexEntryPoint: "vsMain",
 				fragmentEntryPoint:
 					descriptor.shaderEntryMode === "gbuffer" ? "fsMainGBuffer"
+					: descriptor.shaderEntryMode === "gbuffer-base" ? "fsMainGBufferBase"
 					: descriptor.shaderEntryMode === "oit" ? "fsMainOIT"
 					: descriptor.shaderEntryMode === "transmission-capture" ?
 						"fsMainTransmissionCapture"
@@ -638,6 +644,7 @@ export class WebGPUPipelineLibrary {
 				vertexEntryPoint: "vsMain",
 				fragmentEntryPoint:
 					descriptor.shaderEntryMode === "gbuffer" ? "fsMainGBuffer"
+					: descriptor.shaderEntryMode === "gbuffer-base" ? "fsMainGBufferBase"
 					: descriptor.shaderEntryMode === "oit" ? "fsMainOIT"
 					: descriptor.shaderEntryMode === "transmission-capture" ?
 						"fsMainTransmissionCapture"

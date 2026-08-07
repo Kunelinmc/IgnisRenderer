@@ -139,8 +139,7 @@ const DECAL_BATCH_WORKGROUP_SIZE = 8;
  */
 export class WebGPUDeferredDecalPass {
 	private readonly _host: WebGPUFrameHost;
-	private readonly _resources: WebGPUDeferredResourceProvider &
-		WebGPUTextureResourceProvider;
+	private readonly _resources: WebGPUDeferredResourceProvider & WebGPUTextureResourceProvider;
 	private readonly _recordingContext: WebGPUFrameGraphRecordingContext;
 	private _uniformBuffers: IRenderBuffer[] = [];
 	private _uniformBufferCursor = 0;
@@ -153,10 +152,10 @@ export class WebGPUDeferredDecalPass {
 	private _outputBindingSources: unknown[] = [];
 	private _materialBindingSlots: DecalMaterialBindingCacheEntry[] = [];
 
-	public constructor(
+	constructor(
 		host: WebGPUFrameHost,
 		resources: WebGPUDeferredResourceProvider & WebGPUTextureResourceProvider,
-		callbacks: WebGPUDeferredDecalPassCallbacks
+		callbacks: WebGPUDeferredDecalPassCallbacks,
 	) {
 		this._host = host;
 		this._resources = resources;
@@ -199,6 +198,7 @@ export class WebGPUDeferredDecalPass {
 		const targets = this._recordingContext.getFrameTargets();
 		const supportsDecals = this._deviceSupportsDecalPipeline();
 		const decalPackets = context.scene.decalPackets;
+		this._warnUnsupportedDeferredChannels(decalPackets);
 		if (
 			!encoder ||
 			!targets ||
@@ -211,7 +211,7 @@ export class WebGPUDeferredDecalPass {
 				Logger.warn(
 					`[${key}] WebGPU device limits cannot bind the full decal ` +
 						"material surface; decals are skipped for this frame.",
-					{ scope: "WebGPUDeferredDecalPass", onceKey: key }
+					{ scope: "WebGPUDeferredDecalPass", onceKey: key },
 				);
 			}
 			return 0;
@@ -222,7 +222,7 @@ export class WebGPUDeferredDecalPass {
 			return 0;
 		}
 		const activeDecals = decalPackets.filter((packet) =>
-			hasSupportedLayerMask(packet.receiverLayerMask)
+			hasSupportedLayerMask(packet.receiverLayerMask),
 		);
 		if (activeDecals.length <= 0) {
 			return 0;
@@ -236,14 +236,14 @@ export class WebGPUDeferredDecalPass {
 		const dirtyRects = this._recordingContext.resolveDirtyRects(
 			context,
 			targetRefs[0].texture.width,
-			targetRefs[0].texture.height
+			targetRefs[0].texture.height,
 		);
 		const workItems = await this._createWorkItems(
 			context,
 			activeDecals,
 			dirtyRects,
 			targetRefs[0].texture.width,
-			targetRefs[0].texture.height
+			targetRefs[0].texture.height,
 		);
 		if (workItems.length <= 0) {
 			return 0;
@@ -260,7 +260,7 @@ export class WebGPUDeferredDecalPass {
 					targetRefs,
 					snapshotReadBinding,
 					frameResources.decalFrameBinding,
-					segment.items
+					segment.items,
 				);
 				continue;
 			}
@@ -273,7 +273,7 @@ export class WebGPUDeferredDecalPass {
 						snapshotReadBinding,
 						this._getGBufferWriteBinding(targetRefs),
 						frameResources.decalFrameBinding,
-						item
+						item,
 					);
 				}
 				continue;
@@ -285,10 +285,75 @@ export class WebGPUDeferredDecalPass {
 				snapshotReadBinding,
 				this._getGBufferWriteBinding(targetRefs),
 				frameResources.decalFrameBinding,
-				segment.item
+				segment.item,
 			);
 		}
 		return drawCount;
+	}
+
+	/** Prepares deferred decal targets, bindings, and pipelines before recording. */
+	public async preflight(context: FrameContext): Promise<void> {
+		const decalPackets = context.scene.decalPackets;
+		if (decalPackets.length <= 0) {
+			return;
+		}
+		this._warnUnsupportedDeferredChannels(decalPackets);
+		const targets = this._recordingContext.getFrameTargets();
+		const targetRefs = targets ? resolveDecalTargets(targets) : null;
+		if (!targetRefs || !this._deviceSupportsDecalPipeline()) {
+			return;
+		}
+		this._ensureSnapshotTextures(targetRefs);
+		this._getSnapshotReadBinding();
+		this._getGBufferWriteBinding(targetRefs);
+		this._uniformBufferCursor = 0;
+		const dirtyRects = this._recordingContext.resolveDirtyRects(
+			context,
+			targetRefs[0].texture.width,
+			targetRefs[0].texture.height,
+		);
+		await this._createWorkItems(
+			context,
+			decalPackets.filter((packet) => hasSupportedLayerMask(packet.receiverLayerMask)),
+			dirtyRects,
+			targetRefs[0].texture.width,
+			targetRefs[0].texture.height,
+		);
+		this._uniformBufferCursor = 0;
+		await this._resources.getDecalPipeline();
+		if (this._deviceSupportsDecalBatchPipeline()) {
+			await this._resources.getDecalBatchPipeline();
+		}
+	}
+
+	private _warnUnsupportedDeferredChannels(packets: readonly DecalPacket[]): void {
+		for (const packet of packets) {
+			const material = packet.material as any;
+			if ((material.transmissionFactor ?? 0) > 0 || material.transmissionMap) {
+				Logger.warn(
+					"[webgpu-deferred-decal-transmission-unsupported] " +
+						"Deferred decals ignore transmission channels.",
+					{
+						scope: "WebGPUDeferredDecalPass",
+						onceKey: "webgpu-deferred-decal-transmission-unsupported",
+					},
+				);
+			}
+			if (
+				(material.thicknessFactor ?? 0) > 0 ||
+				material.thicknessMap ||
+				Number.isFinite(material.attenuationDistance)
+			) {
+				Logger.warn(
+					"[webgpu-deferred-decal-volume-unsupported] " +
+						"Deferred decals ignore thickness and attenuation channels.",
+					{
+						scope: "WebGPUDeferredDecalPass",
+						onceKey: "webgpu-deferred-decal-volume-unsupported",
+					},
+				);
+			}
+		}
 	}
 
 	private async _createWorkItems(
@@ -296,7 +361,7 @@ export class WebGPUDeferredDecalPass {
 		packets: readonly DecalPacket[],
 		dirtyRects: readonly DirtyRect[],
 		width: number,
-		height: number
+		height: number,
 	): Promise<DecalWorkItem[]> {
 		if (dirtyRects.length <= 0) {
 			return [];
@@ -307,16 +372,8 @@ export class WebGPUDeferredDecalPass {
 			if (packet.material instanceof ShaderMaterial) {
 				continue;
 			}
-			const screenRect = computePacketScreenRect(
-				packet,
-				context.viewCamera,
-				width,
-				height
-			);
-			if (
-				screenRect &&
-				!this._hasReceiverCandidate(context, packet, screenRect)
-			) {
+			const screenRect = computePacketScreenRect(packet, context.viewCamera, width, height);
+			if (screenRect && !this._hasReceiverCandidate(context, packet, screenRect)) {
 				continue;
 			}
 			const decalRect = screenRect ?? fullScreenRect;
@@ -328,10 +385,7 @@ export class WebGPUDeferredDecalPass {
 			const materialData = createDecalMaterialUniformData(packet.material);
 			const uniformSlot = this._uniformBufferCursor++;
 			const uniformBuffer = this._getUniformBuffer(uniformSlot);
-			this._host.writeBuffer(
-				uniformBuffer,
-				createDecalUniformData(packet, materialData)
-			);
+			this._host.writeBuffer(uniformBuffer, createDecalUniformData(packet, materialData));
 			items.push({
 				packet,
 				materialData,
@@ -339,7 +393,7 @@ export class WebGPUDeferredDecalPass {
 					packet.material,
 					materialData,
 					uniformBuffer,
-					uniformSlot
+					uniformSlot,
 				),
 				rects,
 				unionRect,
@@ -351,7 +405,7 @@ export class WebGPUDeferredDecalPass {
 	private _hasReceiverCandidate(
 		context: FrameContext,
 		packet: DecalPacket,
-		rect: DirtyRect
+		rect: DirtyRect,
 	): boolean {
 		const spatialIndex = context.scene.spatialIndex;
 		if (!spatialIndex) {
@@ -370,9 +424,7 @@ export class WebGPUDeferredDecalPass {
 		return false;
 	}
 
-	private _buildExecutionSegments(
-		items: readonly DecalWorkItem[]
-	): DecalExecutionSegment[] {
+	private _buildExecutionSegments(items: readonly DecalWorkItem[]): DecalExecutionSegment[] {
 		const segments: DecalExecutionSegment[] = [];
 		let index = 0;
 		while (index < items.length) {
@@ -397,10 +449,7 @@ export class WebGPUDeferredDecalPass {
 		return segments;
 	}
 
-	private _canBatchTogether(
-		left: DecalWorkItem,
-		right: DecalWorkItem
-	): boolean {
+	private _canBatchTogether(left: DecalWorkItem, right: DecalWorkItem): boolean {
 		return left.packet.material === right.packet.material;
 	}
 
@@ -409,7 +458,7 @@ export class WebGPUDeferredDecalPass {
 		targets: readonly DecalTargetRef[],
 		snapshotReadBinding: IBindingGroup,
 		frameBinding: IBindingGroup,
-		items: readonly DecalWorkItem[]
+		items: readonly DecalWorkItem[],
 	): Promise<number> {
 		let dispatchCount = 0;
 		const dispatchRects = mergeSegmentRects(items);
@@ -433,7 +482,7 @@ export class WebGPUDeferredDecalPass {
 			encoder.dispatchWorkgroups(
 				Math.ceil(rect.width / DECAL_BATCH_WORKGROUP_SIZE),
 				Math.ceil(rect.height / DECAL_BATCH_WORKGROUP_SIZE),
-				1
+				1,
 			);
 			encoder.endComputePass();
 			dispatchCount++;
@@ -447,18 +496,18 @@ export class WebGPUDeferredDecalPass {
 		snapshotReadBinding: IBindingGroup,
 		gbufferWriteBinding: IBindingGroup,
 		frameBinding: IBindingGroup,
-		item: DecalWorkItem
+		item: DecalWorkItem,
 	): Promise<number> {
 		const pipeline = await this._resources.getDecalPipeline();
 		const copyRect =
-			typeof encoder.setScissorRect === "function" ?
-				item.unionRect
-			:	{
-					x: 0,
-					y: 0,
-					width: targets[0].texture.width,
-					height: targets[0].texture.height,
-				};
+			typeof encoder.setScissorRect === "function"
+				? item.unionRect
+				: {
+						x: 0,
+						y: 0,
+						width: targets[0].texture.width,
+						height: targets[0].texture.height,
+					};
 		this._copyTargetsToSnapshots(encoder, targets, copyRect);
 		encoder.beginRenderPass({
 			label: `WebGPUDeferredDecal_${item.packet.id}`,
@@ -483,7 +532,7 @@ export class WebGPUDeferredDecalPass {
 
 	private _createBatchData(
 		items: readonly DecalWorkItem[],
-		rect: DirtyRect
+		rect: DirtyRect,
 	): DecalBatchData | null {
 		const tileColumns = Math.max(1, Math.ceil(rect.width / DECAL_BATCH_TILE_SIZE));
 		const tileRows = Math.max(1, Math.ceil(rect.height / DECAL_BATCH_TILE_SIZE));
@@ -499,23 +548,19 @@ export class WebGPUDeferredDecalPass {
 				included.add(decalIndex);
 				const minTileX = Math.max(
 					0,
-					Math.floor((clipped.x - rect.x) / DECAL_BATCH_TILE_SIZE)
+					Math.floor((clipped.x - rect.x) / DECAL_BATCH_TILE_SIZE),
 				);
 				const minTileY = Math.max(
 					0,
-					Math.floor((clipped.y - rect.y) / DECAL_BATCH_TILE_SIZE)
+					Math.floor((clipped.y - rect.y) / DECAL_BATCH_TILE_SIZE),
 				);
 				const maxTileX = Math.min(
 					tileColumns - 1,
-					Math.floor(
-						(clipped.x + clipped.width - 1 - rect.x) / DECAL_BATCH_TILE_SIZE
-					)
+					Math.floor((clipped.x + clipped.width - 1 - rect.x) / DECAL_BATCH_TILE_SIZE),
 				);
 				const maxTileY = Math.min(
 					tileRows - 1,
-					Math.floor(
-						(clipped.y + clipped.height - 1 - rect.y) / DECAL_BATCH_TILE_SIZE
-					)
+					Math.floor((clipped.y + clipped.height - 1 - rect.y) / DECAL_BATCH_TILE_SIZE),
 				);
 				for (let tileY = minTileY; tileY <= maxTileY; tileY++) {
 					for (let tileX = minTileX; tileX <= maxTileX; tileX++) {
@@ -535,7 +580,7 @@ export class WebGPUDeferredDecalPass {
 		for (let index = 0; index < items.length; index++) {
 			decalUniforms.set(
 				createDecalUniformData(items[index].packet, items[index].materialData),
-				index * DECAL_UNIFORM_FLOATS
+				index * DECAL_UNIFORM_FLOATS,
 			);
 		}
 
@@ -582,22 +627,22 @@ export class WebGPUDeferredDecalPass {
 				params: this._createBuffer(
 					params.byteLength,
 					BufferUsage.Uniform | BufferUsage.CopyDst,
-					`WebGPUDecalBatchParams_${slot}`
+					`WebGPUDecalBatchParams_${slot}`,
 				),
 				decals: this._createBuffer(
 					data.decalUniforms.byteLength,
 					BufferUsage.Storage | BufferUsage.CopyDst,
-					`WebGPUDecalBatchUniforms_${slot}`
+					`WebGPUDecalBatchUniforms_${slot}`,
 				),
 				tileHeaders: this._createBuffer(
 					data.tileHeaders.byteLength,
 					BufferUsage.Storage | BufferUsage.CopyDst,
-					`WebGPUDecalBatchTileHeaders_${slot}`
+					`WebGPUDecalBatchTileHeaders_${slot}`,
 				),
 				tileIndices: this._createBuffer(
 					data.tileDecalIndices.byteLength,
 					BufferUsage.Storage | BufferUsage.CopyDst,
-					`WebGPUDecalBatchTileIndices_${slot}`
+					`WebGPUDecalBatchTileIndices_${slot}`,
 				),
 				binding: null,
 				bindingSources: [],
@@ -609,50 +654,37 @@ export class WebGPUDeferredDecalPass {
 			"params",
 			params.byteLength,
 			BufferUsage.Uniform | BufferUsage.CopyDst,
-			`WebGPUDecalBatchParams_${slot}`
+			`WebGPUDecalBatchParams_${slot}`,
 		);
 		buffers.decals = this._resizeBatchBuffer(
 			buffers,
 			"decals",
 			data.decalUniforms.byteLength,
 			BufferUsage.Storage | BufferUsage.CopyDst,
-			`WebGPUDecalBatchUniforms_${slot}`
+			`WebGPUDecalBatchUniforms_${slot}`,
 		);
 		buffers.tileHeaders = this._resizeBatchBuffer(
 			buffers,
 			"tileHeaders",
 			data.tileHeaders.byteLength,
 			BufferUsage.Storage | BufferUsage.CopyDst,
-			`WebGPUDecalBatchTileHeaders_${slot}`
+			`WebGPUDecalBatchTileHeaders_${slot}`,
 		);
 		buffers.tileIndices = this._resizeBatchBuffer(
 			buffers,
 			"tileIndices",
 			data.tileDecalIndices.byteLength,
 			BufferUsage.Storage | BufferUsage.CopyDst,
-			`WebGPUDecalBatchTileIndices_${slot}`
+			`WebGPUDecalBatchTileIndices_${slot}`,
 		);
 		this._host.writeBuffer(buffers.params, toBufferSource(params));
-		this._host.writeBuffer(
-			buffers.decals,
-			toBufferSource(data.decalUniforms)
-		);
-		this._host.writeBuffer(
-			buffers.tileHeaders,
-			toBufferSource(data.tileHeaders)
-		);
-		this._host.writeBuffer(
-			buffers.tileIndices,
-			toBufferSource(data.tileDecalIndices)
-		);
+		this._host.writeBuffer(buffers.decals, toBufferSource(data.decalUniforms));
+		this._host.writeBuffer(buffers.tileHeaders, toBufferSource(data.tileHeaders));
+		this._host.writeBuffer(buffers.tileIndices, toBufferSource(data.tileDecalIndices));
 		return buffers;
 	}
 
-	private _createBuffer(
-		size: number,
-		usage: BufferUsage,
-		label: string
-	): IRenderBuffer {
+	private _createBuffer(size: number, usage: BufferUsage, label: string): IRenderBuffer {
 		const resolvedSize = Math.max(16, alignTo(size, 16));
 		return this._host.createBuffer({
 			size: resolvedSize,
@@ -666,7 +698,7 @@ export class WebGPUDeferredDecalPass {
 		key: "params" | "decals" | "tileHeaders" | "tileIndices",
 		size: number,
 		usage: BufferUsage,
-		label: string
+		label: string,
 	): IRenderBuffer {
 		const current = buffers[key];
 		const resolvedSize = Math.max(16, alignTo(size, 16));
@@ -682,7 +714,7 @@ export class WebGPUDeferredDecalPass {
 
 	private _getBatchBinding(
 		buffers: DecalBatchBufferSet,
-		targets: readonly DecalTargetRef[]
+		targets: readonly DecalTargetRef[],
 	): IBindingGroup {
 		const sources = [
 			buffers.params,
@@ -694,9 +726,7 @@ export class WebGPUDeferredDecalPass {
 		if (
 			buffers.binding &&
 			buffers.bindingSources.length === sources.length &&
-			buffers.bindingSources.every(
-				(source, index) => source === sources[index]
-			)
+			buffers.bindingSources.every((source, index) => source === sources[index])
 		) {
 			return buffers.binding;
 		}
@@ -728,8 +758,7 @@ export class WebGPUDeferredDecalPass {
 		const limits = this._host.device?.limits;
 		const maxSampledTextures =
 			limits?.maxSampledTexturesPerShaderStage ?? Number.POSITIVE_INFINITY;
-		const maxSamplers =
-			limits?.maxSamplersPerShaderStage ?? Number.POSITIVE_INFINITY;
+		const maxSamplers = limits?.maxSamplersPerShaderStage ?? Number.POSITIVE_INFINITY;
 		return (
 			maxSampledTextures >= DECAL_REQUIRED_FRAGMENT_SAMPLED_TEXTURES &&
 			maxSamplers >= DECAL_REQUIRED_FRAGMENT_SAMPLERS
@@ -752,18 +781,12 @@ export class WebGPUDeferredDecalPass {
 	private _ensureSnapshotTextures(targets: readonly DecalTargetRef[]): void {
 		const snapshotKey = targets
 			.map((target) =>
-				[
-					target.texture.width,
-					target.texture.height,
-					target.format,
-					target.label,
-				].join(":")
+				[target.texture.width, target.texture.height, target.format, target.label].join(
+					":",
+				),
 			)
 			.join("|");
-		if (
-			this._snapshotKey === snapshotKey &&
-			this._snapshotTextures.length === targets.length
-		) {
+		if (this._snapshotKey === snapshotKey && this._snapshotTextures.length === targets.length) {
 			return;
 		}
 		this._destroyBindingGroup(this._snapshotReadBinding);
@@ -778,7 +801,7 @@ export class WebGPUDeferredDecalPass {
 				format: target.format,
 				usage: TextureUsage.TextureBinding | TextureUsage.CopyDst,
 				label: `WebGPUDecalSnapshot_${target.label}`,
-			})
+			}),
 		);
 		this._snapshotKey = snapshotKey;
 	}
@@ -797,17 +820,13 @@ export class WebGPUDeferredDecalPass {
 		return this._snapshotReadBinding;
 	}
 
-	private _getGBufferWriteBinding(
-		targets: readonly DecalTargetRef[]
-	): IBindingGroup {
-		const outputTargets = targets.slice(7, 11);
+	private _getGBufferWriteBinding(targets: readonly DecalTargetRef[]): IBindingGroup {
+		const outputTargets = targets.slice(7, 9);
 		const sources = outputTargets.map((target) => target.texture);
 		if (
 			this._outputBinding &&
 			this._outputBindingSources.length === sources.length &&
-			this._outputBindingSources.every(
-				(source, index) => source === sources[index]
-			)
+			this._outputBindingSources.every((source, index) => source === sources[index])
 		) {
 			return this._outputBinding;
 		}
@@ -828,19 +847,19 @@ export class WebGPUDeferredDecalPass {
 		material: Material,
 		materialData: WebGPUMaterialUniformData,
 		uniformBuffer: IRenderBuffer,
-		slot: number
+		slot: number,
 	): Promise<IBindingGroup> {
 		const textures = await Promise.all(
 			materialData.textureSlots.map((slot, index) =>
-				this._resources.getTextureForSlotAsync(slot.map, index)
-			)
+				this._resources.getTextureForSlotAsync(slot.map, index),
+			),
 		);
 		const samplers = materialData.textureSlots.map((slot) =>
-			this._resources.getSamplerForTexture(slot.map)
+			this._resources.getSamplerForTexture(slot.map),
 		);
 		const anisotropyTexture = await this._resources.getTextureForSlotAsync(
 			materialData.anisotropyTexture.map,
-			-1
+			-1,
 		);
 		const cached = this._materialBindingSlots[slot];
 		if (
@@ -890,7 +909,7 @@ export class WebGPUDeferredDecalPass {
 	private _copyTargetsToSnapshots(
 		encoder: ICommandEncoder,
 		targets: readonly DecalTargetRef[],
-		rect: DirtyRect
+		rect: DirtyRect,
 	): void {
 		for (let i = 0; i < targets.length; i++) {
 			encoder.copyTextureToTexture!(
@@ -906,7 +925,7 @@ export class WebGPUDeferredDecalPass {
 					width: rect.width,
 					height: rect.height,
 					depthOrArrayLayers: 1,
-				}
+				},
 			);
 		}
 	}
@@ -1066,8 +1085,6 @@ function resolveDecalTargets(
 		!targets.gCoatSheen ||
 		!targets.gSheenReflectance ||
 		!targets.gMaterialExt0 ||
-		!targets.gMaterialExt1 ||
-		!targets.gMaterialExt2 ||
 		!targets.gMaterialExt3
 	) {
 		return null;
@@ -1080,7 +1097,7 @@ function resolveDecalTargets(
 		},
 		{
 			texture: targets.gNormalRoughMetal,
-			format: TextureFormat.RGBA16Float,
+			format: TextureFormat.RGBA8Unorm,
 			label: "NormalRoughMetal",
 		},
 		{
@@ -1105,7 +1122,7 @@ function resolveDecalTargets(
 		},
 		{
 			texture: targets.gSheenReflectance,
-			format: TextureFormat.RGBA16Float,
+			format: TextureFormat.RGBA8Unorm,
 			label: "SheenReflectance",
 		},
 		{
@@ -1114,18 +1131,8 @@ function resolveDecalTargets(
 			label: "MaterialExt0",
 		},
 		{
-			texture: targets.gMaterialExt1,
-			format: TextureFormat.RGBA16Float,
-			label: "MaterialExt1",
-		},
-		{
-			texture: targets.gMaterialExt2,
-			format: TextureFormat.RGBA16Float,
-			label: "MaterialExt2",
-		},
-		{
 			texture: targets.gMaterialExt3,
-			format: TextureFormat.RGBA16Float,
+			format: TextureFormat.RGBA16Uint,
 			label: "MaterialExt3",
 		},
 	];

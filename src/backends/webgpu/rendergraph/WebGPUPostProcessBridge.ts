@@ -132,7 +132,7 @@ export class WebGPUPostProcessBridge {
 					handle: normalRoughMetalHandle,
 					width,
 					height,
-					format: TextureFormat.RGBA16Float,
+					format: TextureFormat.RGBA8Unorm,
 					encoding: "encoded-world-normal",
 				};
 				channels.roughness = {
@@ -140,7 +140,7 @@ export class WebGPUPostProcessBridge {
 					handle: normalRoughMetalHandle,
 					width,
 					height,
-					format: TextureFormat.RGBA16Float,
+					format: TextureFormat.RGBA8Unorm,
 					encoding: "normal-roughness-metallic.z",
 				};
 				channels.metallic = {
@@ -148,7 +148,7 @@ export class WebGPUPostProcessBridge {
 					handle: normalRoughMetalHandle,
 					width,
 					height,
-					format: TextureFormat.RGBA16Float,
+					format: TextureFormat.RGBA8Unorm,
 					encoding: "normal-roughness-metallic.w",
 				};
 			}

@@ -209,6 +209,27 @@ let anisotropyBitangent = safeNormalize(
 	cross(pbrNormal, anisotropyTangent),
 	fallbackTangentFromNormal(pbrNormal)
 );
+let opaquePBRSurface = OpaquePBRSurfaceInput(
+	pbrNormal,
+	viewDir,
+	albedo,
+	realF0,
+	roughness,
+	metalness,
+	transmission,
+	energyCompensation,
+	iridescence,
+	iridescenceIor,
+	iridescenceThickness,
+	anisotropyTangent,
+	anisotropyBitangent,
+	anisotropyStrength,
+	clearcoat,
+	clearcoatRoughness,
+	clearcoatNormal,
+	sheenColor,
+	sheenRoughness
+);
 let reflectionDir = select(
 	reflectViewDirection(pbrNormal, viewDir),
 	resolveAnisotropicReflectionDirection(

@@ -1,4 +1,8 @@
 import { PARTICLE_QUAD_VERTICES } from "../constants";
+import { TextureFormat } from "../types";
+import { getWebGPURenderTargetPixelByteCost } from "./WebGPUTextureFormatInfo";
+
+export type WebGPUDeferredGBufferLayout = "base" | "extended";
 
 export const WEBGPU_SHADOW_ATLAS_COLUMNS = 4;
 export const WEBGPU_SHADOW_ATLAS_ROWS = 3;
@@ -9,7 +13,7 @@ export const WEBGPU_TEXTURE_SLOT_COUNT = 16;
 export const WEBGPU_TEXTURE_DEDICATED_SAMPLER_SLOT_COUNT = 13;
 export const WEBGPU_SCENE_FRAME_FRAGMENT_TEXTURE_COUNT = 8;
 export const WEBGPU_SCENE_FRAME_FRAGMENT_SAMPLER_COUNT = 3;
-export const WEBGPU_GBUFFER_READ_TEXTURE_COUNT = 11;
+export const WEBGPU_GBUFFER_READ_TEXTURE_COUNT = 9;
 export const WEBGPU_SCENE_REQUIRED_FRAGMENT_SAMPLED_TEXTURE_COUNT =
 	WEBGPU_SCENE_FRAME_FRAGMENT_TEXTURE_COUNT + WEBGPU_TEXTURE_SLOT_COUNT + 1;
 export const WEBGPU_DEFERRED_REQUIRED_FRAGMENT_SAMPLED_TEXTURE_COUNT =
@@ -46,7 +50,19 @@ export const WEBGPU_MODEL_UNIFORM_BYTE_SIZE =
 	WEBGPU_MODEL_UNIFORM_FLOATS * 4;
 export const WEBGPU_MODEL_ANIMATION_UNIFORM_FLOATS = 4;
 export const WEBGPU_MRT_COLOR_TARGET_COUNT = 5;
-export const WEBGPU_MRT_COLOR_BYTES_PER_SAMPLE = 40;
+const WEBGPU_MRT_COLOR_FORMATS = [
+	TextureFormat.RGBA16Float,
+	TextureFormat.RGBA8Unorm,
+	TextureFormat.RGBA8Unorm,
+	TextureFormat.RGBA16Float,
+	TextureFormat.RGBA16Float,
+] as const;
+export const WEBGPU_MRT_COLOR_BYTES_PER_SAMPLE =
+	WEBGPU_MRT_COLOR_FORMATS.reduce(
+		(total, format) =>
+			total + getWebGPURenderTargetPixelByteCost(format),
+		0
+	);
 /**
  * Fixed color-attachment order for the WebGPU deferred G-buffer.
  *
@@ -64,8 +80,39 @@ export enum GBufferSlot {
 
 export const WEBGPU_DEFERRED_COLOR_TARGET_COUNT =
 	GBufferSlot.SheenReflectance + 1;
-export const WEBGPU_DEFERRED_COLOR_BYTES_PER_SAMPLE = 56;
-export const WEBGPU_DEFERRED_STORAGE_TEXTURE_COUNT = 4;
+export const WEBGPU_DEFERRED_COLOR_FORMATS = [
+	TextureFormat.RGBA8Unorm,
+	TextureFormat.RGBA8Unorm,
+	TextureFormat.RGBA16Float,
+	TextureFormat.RGBA16Float,
+	TextureFormat.RGBA16Float,
+	TextureFormat.RGBA16Float,
+	TextureFormat.RGBA8Unorm,
+] as const;
+export const WEBGPU_DEFERRED_COLOR_BYTES_PER_SAMPLE =
+	WEBGPU_DEFERRED_COLOR_FORMATS.reduce(
+		(total, format) =>
+			total + getWebGPURenderTargetPixelByteCost(format),
+		0
+	);
+export const WEBGPU_DEFERRED_BASE_COLOR_TARGET_COUNT = 4;
+export const WEBGPU_DEFERRED_BASE_COLOR_BYTES_PER_SAMPLE =
+	WEBGPU_DEFERRED_COLOR_FORMATS
+		.slice(0, WEBGPU_DEFERRED_BASE_COLOR_TARGET_COUNT)
+		.reduce(
+			(total, format) =>
+				total + getWebGPURenderTargetPixelByteCost(format),
+			0
+		);
+export const WEBGPU_DEFERRED_STORAGE_TEXTURE_COUNT = 2;
+
+export const WEBGPU_DEFERRED_MATERIAL_MODEL_MASK = 0x3;
+export const WEBGPU_DEFERRED_MATERIAL_CLEARCOAT_BIT = 1 << 2;
+export const WEBGPU_DEFERRED_MATERIAL_SHEEN_BIT = 1 << 3;
+export const WEBGPU_DEFERRED_MATERIAL_IRIDESCENCE_BIT = 1 << 4;
+export const WEBGPU_DEFERRED_MATERIAL_ANISOTROPY_BIT = 1 << 5;
+export const WEBGPU_DEFERRED_MATERIAL_SPECULAR_BIT = 1 << 6;
+export const WEBGPU_DEFERRED_RENDER_LAYER_MASK = 0x7ff;
 export const WEBGPU_MAX_MORPH_TARGETS = 8;
 
 export const WEBGPU_SCENE_ATTR_POSITION = 0;

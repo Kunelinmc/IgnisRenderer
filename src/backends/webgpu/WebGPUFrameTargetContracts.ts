@@ -14,8 +14,6 @@ export interface WebGPUFrameTargets {
 	gCoatSheen?: IRenderTexture | null;
 	gSheenReflectance?: IRenderTexture | null;
 	gMaterialExt0?: IRenderTexture | null;
-	gMaterialExt1?: IRenderTexture | null;
-	gMaterialExt2?: IRenderTexture | null;
 	gMaterialExt3?: IRenderTexture | null;
 	depth: IRenderTexture;
 	oitAccum?: IRenderTexture | null;

@@ -151,8 +151,8 @@ function run() {
 	);
 	assert.equal(opaque.nodes[0].label, "WebGPUGBuffer");
 	assert.equal(opaque.nodes[1].label, "WebGPUDeferredDecal");
-	assert.equal(opaque.nodes[1].reads.length, 11);
-	assert.equal(opaque.nodes[1].writes.length, 11);
+	assert.equal(opaque.nodes[1].reads.length, 9);
+	assert.equal(opaque.nodes[1].writes.length, 9);
 	assert.equal(
 		opaque.nodes[1].writes.find(
 			(write) => write.id === "gbuffer:albedo-alpha"
@@ -170,6 +170,27 @@ function run() {
 		opaque.nodes[2].reads.some(
 			(read) => read.id === "gbuffer:albedo-alpha"
 		)
+	);
+	const baseOpaque = planner.planStage(
+		createPass("main-opaque"),
+		context,
+		createState({
+			deferredActive: true,
+			sceneTargetMode: "gbuffer",
+			deferredGBufferLayout: "base",
+		})
+	);
+	assert.equal(
+		baseOpaque.nodes[0].writes.some(
+			(write) => write.id === "gbuffer:specular"
+		),
+		false
+	);
+	assert.equal(
+		baseOpaque.nodes[1].reads.some(
+			(read) => read.id === "gbuffer:specular"
+		),
+		false
 	);
 
 	const opaqueWithoutDecals = planner.planStage(

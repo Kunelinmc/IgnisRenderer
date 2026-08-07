@@ -51,6 +51,8 @@ This document defines cross-backend rendering features, capability gating, pass 
   - OIT must execute after `main-opaque` deferred lighting resolve.
   - `transmission` materials must remain on the legacy transparent path after
     OIT resolve or after alpha particles, matching existing pass ordering.
+  - Deferred opaque payload compaction must not change transparent, OIT,
+    transmission, particle, wireframe, or `depthWrite === false` routing.
 
 ### Occlusion culling
 

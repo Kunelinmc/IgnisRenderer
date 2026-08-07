@@ -208,6 +208,51 @@ export function materialSupportsWebGPUDeferredLighting(
 	return true;
 }
 
+/** Returns whether a deferred material needs the extended G-buffer payload. */
+export function materialRequiresExtendedWebGPUGBuffer(
+	material: Material | null | undefined
+): boolean {
+	if (!material) {
+		return false;
+	}
+	if (material instanceof ShaderMaterial) {
+		return material.hasWebGPUDeferredProgram();
+	}
+	const shadingMode = resolveShadingMode(material);
+	if (shadingMode === 0 || shadingMode === 3) {
+		return true;
+	}
+	if (shadingMode !== 1) {
+		return false;
+	}
+	const mat = material as any;
+	const specularColor = mat.specularColor ?? { r: 255, g: 255, b: 255 };
+	const sheenColor = mat.sheenColorFactor ?? { r: 0, g: 0, b: 0 };
+	return (
+		Math.abs((mat.clearcoat ?? 0)) > 1e-6 ||
+		!!mat.clearcoatMap ||
+		!!mat.clearcoatRoughnessMap ||
+		!!mat.clearcoatNormalMap ||
+		Math.abs(sheenColor.r) > 1e-6 ||
+		Math.abs(sheenColor.g) > 1e-6 ||
+		Math.abs(sheenColor.b) > 1e-6 ||
+		!!mat.sheenColorMap ||
+		!!mat.sheenRoughnessMap ||
+		Math.abs((mat.iridescenceFactor ?? 0)) > 1e-6 ||
+		!!mat.iridescenceMap ||
+		!!mat.iridescenceThicknessMap ||
+		Math.abs((mat.anisotropyStrength ?? 0)) > 1e-6 ||
+		!!mat.anisotropyMap ||
+		Math.abs((mat.specularFactor ?? 1) - 1) > 1e-6 ||
+		Math.abs(specularColor.r - 255) > 1e-6 ||
+		Math.abs(specularColor.g - 255) > 1e-6 ||
+		Math.abs(specularColor.b - 255) > 1e-6 ||
+		!!mat.specularMap ||
+		!!mat.specularColorMap ||
+		Math.abs((mat.reflectance ?? 0.5) - 0.5) > 1e-6
+	);
+}
+
 function createMaterialTextureSlots(
 	material: Material
 ): WebGPUTextureSlotData[] {

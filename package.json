@@ -19,8 +19,9 @@
     "test:sh": "bun tests/static/lighting/test_sh_lighting_regression.mjs",
     "test:winding": "bun tests/static/geometry/test_model_factory_winding.mjs",
     "test:sparse": "bun tests/static/loaders/test_sparse_accessor.mjs",
-    "bench:physics-mesh-v2": "bun tests/benchmarks/bench_physics_mesh_collision_v2.mjs",
-    "bench:spatial-index": "bun tests/benchmarks/bench_spatial_index.mjs"
+		"bench:physics-mesh-v2": "bun tests/benchmarks/bench_physics_mesh_collision_v2.mjs",
+		"bench:webgpu-deferred": "bun tests/benchmarks/bench_webgpu_deferred.mjs",
+		"bench:spatial-index": "bun tests/benchmarks/bench_spatial_index.mjs"
   },
   "keywords": [
     "renderer",

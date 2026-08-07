@@ -23,6 +23,9 @@ import {
 	createWebGPUPipelineLayouts
 } from "../../../src/backends/webgpu/WebGPUPipelineLayouts.ts";
 import {
+	createWebGPURequiredLimits
+} from "../../../src/backends/webgpu/WebGPUDeviceCapabilities.ts";
+import {
 	resolveFeatureState
 } from "../../../src/pipeline/FeatureResolver.ts";
 import {
@@ -55,6 +58,7 @@ import {
 	MAX_SPOT_LIGHTS
 } from "../../../src/backends/constants.ts";
 import {
+	WEBGPU_DEFERRED_BASE_COLOR_BYTES_PER_SAMPLE,
 	WEBGPU_DEFERRED_COLOR_BYTES_PER_SAMPLE,
 	WEBGPU_DEFERRED_COLOR_TARGET_COUNT,
 	WEBGPU_DEFERRED_REQUIRED_FRAGMENT_SAMPLED_TEXTURE_COUNT,
@@ -217,6 +221,12 @@ function testMaterialAdaptation() {
 	assert.equal(phongData.materialFlags[0], 0);
 	assert.equal(phongData.phongAmbientShininess[3], 24);
 	assert.ok(phongData.phongSpecularShading[0] > 0.9);
+	for (const shininess of [0, 1, 32, 128]) {
+		const data = createWebGPUMaterialUniformData(
+			new PhongMaterial({ shininess })
+		);
+		assert.equal(data.phongAmbientShininess[3], shininess);
+	}
 
 	const unlit = new UnlitMaterial({
 		diffuse: { r: 255, g: 32, b: 16 },
@@ -350,11 +360,16 @@ async function testSceneShaderCoverage() {
 	assert.ok(WEBGPU_SCENE_SHADER.includes("sampleEnvironmentSpecular"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("resolveSpecularEnergyCompensation"));
 	assert.ok(
-		(WEBGPU_SCENE_SHADER.match(
-			/specular = specular \* energyCompensation;/g
-		)?.length ?? 0) >= 5
+		(WEBGPU_SCENE_SHADER.match(/evaluateOpaquePBRLight\(/g)?.length ?? 0) >= 6
+	);
+	assert.equal(
+		(WEBGPU_SCENE_SHADER.match(/fn evaluateOpaquePBRLight\(/g)?.length ?? 0),
+		1
 	);
 	assert.ok(WEBGPU_DEFERRED_LIGHTING_SHADER.includes("DeferredPBRContext"));
+	assert.ok(
+		WEBGPU_DEFERRED_LIGHTING_SHADER.includes("evaluateOpaquePBRLight(")
+	);
 	assert.ok(
 		/evaluateAreaLight\(\s*frameLights\.areaLights\[i\],\s*surface\.worldPosition,\s*sampleIndex\s*\)/.test(
 			WEBGPU_DEFERRED_LIGHTING_SHADER
@@ -428,6 +443,16 @@ async function testSceneShaderCoverage() {
 	assert.ok(WEBGPU_SCENE_SHADER.includes("gMaterialExt0Out"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("gMaterialExt3Out"));
 	assert.ok(WEBGPU_DEFERRED_LIGHTING_SHADER.includes("gMaterialExt3In"));
+	assert.ok(WEBGPU_SCENE_SHADER.includes("fn evaluateOpaquePhongLight("));
+	assert.ok(WEBGPU_DEFERRED_LIGHTING_SHADER.includes("fn evaluateOpaquePhongLight("));
+	assert.ok(
+		WEBGPU_SCENE_SHADER.includes("vec4<f32>(phongSpecular, shininess)")
+	);
+	assert.ok(
+		WEBGPU_DEFERRED_LIGHTING_SHADER.includes(
+			"select(clamp(specular.a, 0.0, 1.0), max(specular.a, 0.0), isPhong)"
+		)
+	);
 	assert.ok(WEBGPU_DEFERRED_LIGHTING_SHADER.includes("anisotropyTangent"));
 	assert.ok(
 		WEBGPU_DEFERRED_LIGHTING_SHADER.includes(
@@ -550,8 +575,8 @@ function testScenePipelineLimitConstantsMatchLayout() {
 	);
 	assert.equal(
 		WEBGPU_DECAL_REQUIRED_FRAGMENT_SAMPLED_TEXTURE_COUNT,
-		28,
-		"the decal fragment layout must retain its 28 sampled textures"
+		26,
+		"the compact decal fragment layout must bind 26 sampled textures"
 	);
 	assert.equal(
 		WEBGPU_REQUIRED_FRAGMENT_SAMPLED_TEXTURE_COUNT,
@@ -595,7 +620,7 @@ function testScenePipelineLimitConstantsMatchLayout() {
 		).length,
 		WEBGPU_DEFERRED_STORAGE_TEXTURE_COUNT
 	);
-	assert.equal(layouts.decalBatchBindGroupLayout.desc.entries.length, 15);
+	assert.equal(layouts.decalBatchBindGroupLayout.desc.entries.length, 13);
 	assert.equal(
 		layouts.decalBatchBindGroupLayout.desc.entries.filter(
 			(entry) => (entry.visibility & GPUShaderStage.FRAGMENT) !== 0
@@ -618,7 +643,23 @@ function testScenePipelineLimitConstantsMatchLayout() {
 	);
 	assert.ok(samplerCount <= 16);
 	assert.ok(planarReflectionSamplerCount <= 16);
+	assert.equal(WEBGPU_DEFERRED_BASE_COLOR_BYTES_PER_SAMPLE, 32);
 	assert.equal(WEBGPU_DEFERRED_COLOR_BYTES_PER_SAMPLE, 56);
+	const requiredLimits = createWebGPURequiredLimits({
+		maxSampledTexturesPerShaderStage: 32,
+		maxSamplersPerShaderStage: 16,
+		maxStorageBuffersPerShaderStage: 8,
+		maxStorageTexturesPerShaderStage: 4,
+		maxColorAttachments: 8,
+		maxColorAttachmentBytesPerSample: 128,
+		maxTextureDimension2D: 16384,
+	});
+	assert.equal(requiredLimits.maxColorAttachmentBytesPerSample, 56);
+	assert.equal(
+		WEBGPU_DEFERRED_COLOR_BYTES_PER_SAMPLE +
+			WEBGPU_DEFERRED_STORAGE_TEXTURE_COUNT * 8,
+		72
+	);
 }
 
 function testDecalBatchLayoutHonorsStorageTextureLimit() {

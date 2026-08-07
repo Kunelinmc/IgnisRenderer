@@ -84,16 +84,14 @@ function createTargets(backend, width = 64, height = 64) {
 		sceneColorMain: texture("sceneColorMain", TextureFormat.RGBA16Float),
 		depth: texture("depth", TextureFormat.Depth24Plus),
 		gAlbedoAlpha: texture("gAlbedoAlpha", TextureFormat.RGBA8Unorm),
-		gNormalRoughMetal: texture("gNormalRoughMetal", TextureFormat.RGBA16Float),
+		gNormalRoughMetal: texture("gNormalRoughMetal", TextureFormat.RGBA8Unorm),
 		gEmissiveOcclusion: texture("gEmissiveOcclusion", TextureFormat.RGBA16Float),
 		gMotionDepth: texture("gMotionDepth", TextureFormat.RGBA16Float),
 		gSpecular: texture("gSpecular", TextureFormat.RGBA16Float),
 		gCoatSheen: texture("gCoatSheen", TextureFormat.RGBA16Float),
-		gSheenReflectance: texture("gSheenReflectance", TextureFormat.RGBA16Float),
+		gSheenReflectance: texture("gSheenReflectance", TextureFormat.RGBA8Unorm),
 		gMaterialExt0: texture("gMaterialExt0", TextureFormat.RGBA16Float),
-		gMaterialExt1: texture("gMaterialExt1", TextureFormat.RGBA16Float),
-		gMaterialExt2: texture("gMaterialExt2", TextureFormat.RGBA16Float),
-		gMaterialExt3: texture("gMaterialExt3", TextureFormat.RGBA16Float),
+		gMaterialExt3: texture("gMaterialExt3", TextureFormat.RGBA16Uint),
 	};
 }
 
@@ -182,7 +180,7 @@ async function testSameMaterialDecalsUseBatchDispatchAndClippedCopy() {
 	const count = await pass.recordDecalPass(createFrameContext(packets));
 
 	assert.equal(count, 1);
-	assert.equal(backend.encoderCopyCalls.length, 11);
+	assert.equal(backend.encoderCopyCalls.length, 9);
 	assert.deepEqual(backend.encoderCopyCalls[0][0].origin, { x: 4, y: 6 });
 	assert.deepEqual(backend.encoderCopyCalls[0][1].origin, { x: 4, y: 6 });
 	assert.deepEqual(backend.encoderCopyCalls[0][2], {
@@ -220,7 +218,7 @@ async function testMixedMaterialsFallBackInExactOrder() {
 	const count = await pass.recordDecalPass(createFrameContext(packets));
 
 	assert.equal(count, 2);
-	assert.equal(backend.encoderCopyCalls.length, 22);
+	assert.equal(backend.encoderCopyCalls.length, 18);
 	assert.deepEqual(backend.encoderCopyCalls[0][0].origin, { x: 8, y: 10 });
 	assert.deepEqual(backend.encoderCopyCalls[0][2], {
 		width: 12,
@@ -240,7 +238,7 @@ async function testMixedMaterialsFallBackInExactOrder() {
 	assert.equal(outputBinding.desc.layout.id, "decal-output-layout");
 	assert.deepEqual(
 		outputBinding.entries.map((entry) => entry.binding),
-		[11, 12, 13, 14]
+		[11, 12]
 	);
 	assert.equal(
 		encoder.calls.some((call) => call[0] === "beginComputePass"),
@@ -384,8 +382,8 @@ function testShaderRotatesAndOrthogonalizesAnisotropyTangent() {
 			"g"
 		)
 	);
-	const resolvedEncodes = source.match(
-		/encodeNormalForGBuffer\(resolvedAnisotropyTangent\)/g
+	const resolvedPacks = source.match(
+		/packDeferredExt3\(\s*resolvedAnisotropyTangent,/g
 	);
 
 	assert.match(
@@ -398,7 +396,7 @@ function testShaderRotatesAndOrthogonalizesAnisotropyTangent() {
 	);
 	assert.equal(rotationCalls?.length, 2);
 	assert.equal(orthogonalizationCalls?.length, 2);
-	assert.equal(resolvedEncodes?.length, 2);
+	assert.equal(resolvedPacks?.length, 2);
 }
 
 await testSameMaterialDecalsUseBatchDispatchAndClippedCopy();

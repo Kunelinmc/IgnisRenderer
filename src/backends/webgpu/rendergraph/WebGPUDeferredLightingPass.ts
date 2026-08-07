@@ -24,10 +24,10 @@ export class WebGPUDeferredLightingPass {
 	private _gbufferReadBinding: IBindingGroup | null = null;
 	private _gbufferReadBindingSources: IRenderTexture[] = [];
 
-	public constructor(
+	constructor(
 		host: WebGPUFrameHost,
 		resources: WebGPUDeferredResourceProvider,
-		callbacks: WebGPUDeferredLightingPassCallbacks
+		callbacks: WebGPUDeferredLightingPassCallbacks,
 	) {
 		this._host = host;
 		this._resources = resources;
@@ -43,28 +43,30 @@ export class WebGPUDeferredLightingPass {
 		this._gbufferReadBindingSources = [];
 	}
 
+	/** Ensures all frame-global deferred bindings and resolve pipeline exist. */
+	public async preflight(): Promise<void> {
+		this.getGBufferWriteBinding();
+		this.getGBufferReadBinding();
+		await this._resources.getDeferredLightingPipeline();
+	}
+
 	public getGBufferWriteBinding(): IBindingGroup {
 		const targets = this._recordingContext.getFrameTargets();
-		if (
-			!targets?.gMaterialExt0 ||
-			!targets.gMaterialExt1 ||
-			!targets.gMaterialExt2 ||
-			!targets.gMaterialExt3
-		) {
-			throw new Error("WebGPU deferred G-buffer storage targets are unavailable.");
+		if (!targets) {
+			throw new Error("WebGPU deferred G-buffer targets are unavailable.");
 		}
+		const placeholders =
+			targets.gMaterialExt0 && targets.gMaterialExt3
+				? null
+				: this._resources.getDeferredPlaceholderTextures();
 		const sources = [
-			targets.gMaterialExt0,
-			targets.gMaterialExt1,
-			targets.gMaterialExt2,
-			targets.gMaterialExt3,
+			targets.gMaterialExt0 ?? placeholders!.rgba16Float,
+			targets.gMaterialExt3 ?? placeholders!.rgba16Uint,
 		];
 		if (
 			this._gbufferWriteBinding &&
 			this._gbufferWriteBindingSources.length === sources.length &&
-			this._gbufferWriteBindingSources.every(
-				(source, index) => source === sources[index]
-			)
+			this._gbufferWriteBindingSources.every((source, index) => source === sources[index])
 		) {
 			return this._gbufferWriteBinding;
 		}
@@ -74,8 +76,6 @@ export class WebGPUDeferredLightingPass {
 			entries: [
 				{ binding: 0, resource: sources[0] },
 				{ binding: 1, resource: sources[1] },
-				{ binding: 2, resource: sources[2] },
-				{ binding: 3, resource: sources[3] },
 			],
 			label: "WebGPUGBufferWriteBinding",
 		});
@@ -85,37 +85,34 @@ export class WebGPUDeferredLightingPass {
 
 	public getGBufferReadBinding(): IBindingGroup {
 		const targets = this._recordingContext.getFrameTargets();
-		if (
-			!targets?.gSpecular ||
-			!targets.gCoatSheen ||
-			!targets.gSheenReflectance ||
-			!targets.gMaterialExt0 ||
-			!targets.gMaterialExt1 ||
-			!targets.gMaterialExt2 ||
-			!targets.gMaterialExt3
-		) {
+		if (!targets) {
 			throw new Error("WebGPU deferred G-buffer read targets are unavailable.");
 		}
+		const placeholders =
+			targets.gSpecular &&
+			targets.gCoatSheen &&
+			targets.gSheenReflectance &&
+			targets.gMaterialExt0 &&
+			targets.gMaterialExt3
+				? null
+				: this._resources.getDeferredPlaceholderTextures();
 		const sources: IRenderTexture[] = [];
 		sources[GBufferSlot.AlbedoAlpha] = targets.gAlbedoAlpha;
 		sources[GBufferSlot.NormalRoughMetal] = targets.gNormalRoughMetal;
 		sources[GBufferSlot.EmissiveOcclusion] = targets.gEmissiveOcclusion;
 		sources[GBufferSlot.MotionDepth] = targets.gMotionDepth;
-		sources[GBufferSlot.Specular] = targets.gSpecular;
-		sources[GBufferSlot.CoatSheen] = targets.gCoatSheen;
-		sources[GBufferSlot.SheenReflectance] = targets.gSheenReflectance;
+		sources[GBufferSlot.Specular] = targets.gSpecular ?? placeholders!.rgba16Float;
+		sources[GBufferSlot.CoatSheen] = targets.gCoatSheen ?? placeholders!.rgba16Float;
+		sources[GBufferSlot.SheenReflectance] =
+			targets.gSheenReflectance ?? placeholders!.rgba8Unorm;
 		sources.push(
-			targets.gMaterialExt0,
-			targets.gMaterialExt1,
-			targets.gMaterialExt2,
-			targets.gMaterialExt3
+			targets.gMaterialExt0 ?? placeholders!.rgba16Float,
+			targets.gMaterialExt3 ?? placeholders!.rgba16Uint,
 		);
 		if (
 			this._gbufferReadBinding &&
 			this._gbufferReadBindingSources.length === sources.length &&
-			this._gbufferReadBindingSources.every(
-				(source, index) => source === sources[index]
-			)
+			this._gbufferReadBindingSources.every((source, index) => source === sources[index])
 		) {
 			return this._gbufferReadBinding;
 		}
@@ -134,7 +131,7 @@ export class WebGPUDeferredLightingPass {
 
 	public async recordLightingPass(
 		context: FrameContext,
-		clearSceneColor: boolean
+		clearSceneColor: boolean,
 	): Promise<void> {
 		const encoder = this._recordingContext.getEncoder();
 		const targets = this._recordingContext.getFrameTargets();
@@ -163,7 +160,7 @@ export class WebGPUDeferredLightingPass {
 		const dirtyRects = this._recordingContext.resolveDirtyRects(
 			context,
 			targets.sceneColorMain.width,
-			targets.sceneColorMain.height
+			targets.sceneColorMain.height,
 		);
 		for (const rect of dirtyRects) {
 			encoder.setScissorRect?.(rect.x, rect.y, rect.width, rect.height);

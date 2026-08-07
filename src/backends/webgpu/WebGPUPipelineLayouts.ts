@@ -215,38 +215,25 @@ export function createWebGPUPipelineLayouts(
 				visibility: GPUShaderStage.FRAGMENT,
 				storageTexture: {
 					access: "write-only",
-					format: "rgba16float",
-					viewDimension: "2d",
-				},
-			},
-			{
-				binding: 2,
-				visibility: GPUShaderStage.FRAGMENT,
-				storageTexture: {
-					access: "write-only",
-					format: "rgba16float",
-					viewDimension: "2d",
-				},
-			},
-			{
-				binding: 3,
-				visibility: GPUShaderStage.FRAGMENT,
-				storageTexture: {
-					access: "write-only",
-					format: "rgba16float",
+					format: "rgba16uint",
 					viewDimension: "2d",
 				},
 			},
 		],
 	});
 	const gbufferReadEntries: GPUBindGroupLayoutEntry[] = [];
-	for (let binding = 0; binding < WEBGPU_GBUFFER_READ_TEXTURE_COUNT; binding++) {
+	for (let binding = 0; binding < WEBGPU_GBUFFER_READ_TEXTURE_COUNT - 1; binding++) {
 		gbufferReadEntries.push({
 			binding,
 			visibility: GPUShaderStage.FRAGMENT | GPUShaderStage.COMPUTE,
 			texture: { sampleType: "float" },
 		});
 	}
+	gbufferReadEntries.push({
+		binding: WEBGPU_GBUFFER_READ_TEXTURE_COUNT - 1,
+		visibility: GPUShaderStage.FRAGMENT | GPUShaderStage.COMPUTE,
+		texture: { sampleType: "uint" },
+	});
 	const gbufferReadBindGroupLayout = device.createBindGroupLayout({
 		label: "WebGPUGBufferReadBindGroupLayout",
 		entries: gbufferReadEntries,
@@ -281,18 +268,26 @@ export function createWebGPUPipelineLayouts(
 		label: "WebGPUDecalBindGroupLayout",
 		entries: decalEntries,
 	});
-	const decalOutputEntries: GPUBindGroupLayoutEntry[] = [];
-	for (let binding = 11; binding <= 14; binding++) {
-		decalOutputEntries.push({
-			binding,
+	const decalOutputEntries: GPUBindGroupLayoutEntry[] = [
+		{
+			binding: 11,
 			visibility: GPUShaderStage.FRAGMENT,
 			storageTexture: {
 				access: "write-only",
 				format: "rgba16float",
 				viewDimension: "2d",
 			},
-		});
-	}
+		},
+		{
+			binding: 12,
+			visibility: GPUShaderStage.FRAGMENT,
+			storageTexture: {
+				access: "write-only",
+				format: "rgba16uint",
+				viewDimension: "2d",
+			},
+		},
+	];
 	const decalOutputBindGroupLayout = device.createBindGroupLayout({
 		label: "WebGPUDecalOutputBindGroupLayout",
 		entries: decalOutputEntries,
@@ -332,13 +327,23 @@ export function createWebGPUPipelineLayouts(
 			]
 		:	[];
 	if (decalBatchEntries.length > 0) {
-		for (let binding = 5; binding <= 14; binding++) {
+		const batchFormats = [
+			"rgba8unorm",
+			"rgba16float",
+			"rgba16float",
+			"rgba16float",
+			"rgba16float",
+			"rgba8unorm",
+			"rgba16float",
+			"rgba16uint",
+		] as const;
+		for (let index = 0; index < batchFormats.length; index++) {
 			decalBatchEntries.push({
-				binding,
+				binding: 5 + index,
 				visibility: GPUShaderStage.COMPUTE,
 				storageTexture: {
 					access: "write-only",
-					format: "rgba16float",
+					format: batchFormats[index],
 					viewDimension: "2d",
 				},
 			});

@@ -127,9 +127,15 @@ deferredContext.scene.opaquePackets.push({ material: new PBRMaterial({ anisotrop
 const deferred = resolve(deferredContext);
 assert.equal(deferred.sceneTargetMode, "gbuffer");
 assert.equal(deferred.deferredActive, true);
+assert.equal(deferred.deferredGBufferLayout, "extended");
 const deferredMsaa = resolve(deferredContext, { sampleCount: 4 });
 assert.equal(deferredMsaa.deferredActive, false);
 assert.equal(deferredMsaa.sceneTargetMode, "color");
+assert.ok(
+	deferredMsaa.diagnostics.some(
+		(diagnostic) => diagnostic.code === "webgpu-deferred-disabled-msaa"
+	)
+);
 
 const sceneMsaa = resolve(createContext(), { sampleCount: 4 });
 assert.equal(sceneMsaa.sceneTargetMode, "color");
@@ -155,6 +161,43 @@ const unsupported = new WebGPUFrameConfigurationResolver().resolve(unsupportedAn
 });
 assert.equal(unsupported.sceneTargetMode, "single");
 assert.ok(unsupported.diagnostics.some((diagnostic) => diagnostic.code === "webgpu-mrt-disabled-attachments"));
-assert.ok(unsupported.diagnostics.some((diagnostic) => diagnostic.code === "webgpu-deferred-disabled-mrt"));
+assert.ok(unsupported.diagnostics.some((diagnostic) => diagnostic.code === "webgpu-deferred-disabled-attachments"));
+assert.ok(unsupported.diagnostics.some((diagnostic) => diagnostic.code === "webgpu-deferred-disabled-bytes"));
+assert.ok(unsupported.diagnostics.some((diagnostic) => diagnostic.code === "webgpu-deferred-disabled-storage-textures"));
+
+const baseDeferredContext = createContext();
+baseDeferredContext.scene.opaquePackets.push({ material: new PBRMaterial() });
+const baseDeferred = resolve(baseDeferredContext);
+assert.equal(baseDeferred.deferredGBufferLayout, "base");
+assert.equal(baseDeferred.targetRequirements.deferredGBufferLayout, "base");
+
+const baseLimitedAnalysis = new WebGPUFrameFeatureAnalyzer().analyze(
+	baseDeferredContext,
+	{
+		framePackets: createFramePackets(baseDeferredContext),
+		postProcessPasses: [],
+	},
+);
+const baseLimited = new WebGPUFrameConfigurationResolver().resolve(
+	baseLimitedAnalysis,
+	{
+		maxColorAttachments: 4,
+		maxColorAttachmentBytesPerSample: 32,
+		maxStorageTexturesPerShaderStage: 2,
+	},
+	{
+		enableEarlyZPrepass: true,
+		enableDeferredLighting: true,
+		samplePlan: {
+			requestedSampleCount: 1,
+			sampleCount: 1,
+			selectionSignature: "base-limited",
+			runtimeFallbackActive: false,
+		},
+		supportsInFrameTextureCopy: true,
+	},
+);
+assert.equal(baseLimited.deferredActive, true);
+assert.equal(baseLimited.sceneTargetMode, "gbuffer");
 
 console.log("test_webgpu_frame_configuration_resolver: ok");

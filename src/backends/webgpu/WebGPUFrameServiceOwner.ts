@@ -615,7 +615,7 @@ export class WebGPUFrameServiceOwner {
 	 * Returns the bind group layout used by G-buffer geometry shaders to write
 	 * deferred storage payload textures.
 	 *
-	 * @returns The WebGPU bind group layout for `gMaterialExt0/1/2` writes.
+	 * @returns The WebGPU bind group layout for `gMaterialExt0/3` writes.
 	 * @sideEffects None.
 	 */
 	public getGBufferWriteLayout(): GPUBindGroupLayout {
@@ -686,6 +686,15 @@ export class WebGPUFrameServiceOwner {
 	 */
 	public getDeferredUnusedBinding(): IBindingGroup {
 		return this._deferredResources.getDeferredUnusedBinding();
+	}
+
+	/** @internal Returns device-lifetime deferred placeholder textures. */
+	public getDeferredPlaceholderTextures(): {
+		readonly rgba16Float: IRenderTexture;
+		readonly rgba8Unorm: IRenderTexture;
+		readonly rgba16Uint: IRenderTexture;
+	} {
+		return this._deferredResources.getDeferredPlaceholderTextures();
 	}
 
 	/**
@@ -1065,6 +1074,7 @@ export class WebGPUFrameServiceOwner {
 						transparentPipelineMode,
 						drawMode,
 						sampleCount,
+						options.deferredGBufferLayout,
 					);
 		if (!solidPipeline) {
 			return null;

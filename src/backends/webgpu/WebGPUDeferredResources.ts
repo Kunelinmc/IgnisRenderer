@@ -1,10 +1,12 @@
 import { ShaderSource } from "../../shaders/ShaderSource";
 import {
 	TextureFormat,
+	TextureUsage,
 	type IBindingGroup,
 	type IComputePipeline,
 	type IRenderPipeline,
 	type IShaderModule,
+	type IRenderTexture,
 } from "../types";
 import type { WebGPUDeferredResourceProvider } from "./WebGPUResourceContracts";
 import type { WebGPUPipelineLayouts } from "./WebGPUPipelineLayouts";
@@ -20,6 +22,11 @@ export class WebGPUDeferredResources implements WebGPUDeferredResourceProvider {
 	private _decalPipeline: IRenderPipeline | null = null;
 	private _decalBatchPipeline: IComputePipeline | null = null;
 	private _deferredUnusedBinding: IBindingGroup | null = null;
+	private _placeholderTextures: {
+		rgba16Float: IRenderTexture;
+		rgba8Unorm: IRenderTexture;
+		rgba16Uint: IRenderTexture;
+	} | null = null;
 
 	constructor(
 		private readonly _backend: WebGPUDeviceResourceHost,
@@ -58,6 +65,40 @@ export class WebGPUDeferredResources implements WebGPUDeferredResourceProvider {
 		return this._deferredUnusedBinding;
 	}
 
+	public getDeferredPlaceholderTextures(): {
+		readonly rgba16Float: IRenderTexture;
+		readonly rgba8Unorm: IRenderTexture;
+		readonly rgba16Uint: IRenderTexture;
+	} {
+		if (!this._placeholderTextures) {
+			const usage = TextureUsage.TextureBinding | TextureUsage.StorageBinding;
+			this._placeholderTextures = {
+				rgba16Float: this._backend.createTexture({
+					width: 1,
+					height: 1,
+					format: TextureFormat.RGBA16Float,
+					usage,
+					label: "WebGPUDeferredPlaceholderRGBA16Float",
+				}),
+				rgba8Unorm: this._backend.createTexture({
+					width: 1,
+					height: 1,
+					format: TextureFormat.RGBA8Unorm,
+					usage,
+					label: "WebGPUDeferredPlaceholderRGBA8Unorm",
+				}),
+				rgba16Uint: this._backend.createTexture({
+					width: 1,
+					height: 1,
+					format: TextureFormat.RGBA16Uint,
+					usage,
+					label: "WebGPUDeferredPlaceholderRGBA16Uint",
+				}),
+			};
+		}
+		return this._placeholderTextures;
+	}
+
 	public async getDeferredLightingPipeline(): Promise<IRenderPipeline> {
 		return this._getDeferredLightingPipeline();
 	}
@@ -74,12 +115,12 @@ export class WebGPUDeferredResources implements WebGPUDeferredResourceProvider {
 				entryPoint: "fsMain",
 				targets: [
 					{ format: TextureFormat.RGBA8Unorm },
+					{ format: TextureFormat.RGBA8Unorm },
 					{ format: TextureFormat.RGBA16Float },
 					{ format: TextureFormat.RGBA16Float },
 					{ format: TextureFormat.RGBA16Float },
 					{ format: TextureFormat.RGBA16Float },
-					{ format: TextureFormat.RGBA16Float },
-					{ format: TextureFormat.RGBA16Float },
+					{ format: TextureFormat.RGBA8Unorm },
 				],
 			},
 			primitive: {
@@ -111,6 +152,12 @@ export class WebGPUDeferredResources implements WebGPUDeferredResourceProvider {
 		this._decalBatchPipeline = null;
 		this._destroyBindingGroup(this._deferredUnusedBinding);
 		this._deferredUnusedBinding = null;
+		if (this._placeholderTextures) {
+			this._placeholderTextures.rgba16Float.destroy();
+			this._placeholderTextures.rgba8Unorm.destroy();
+			this._placeholderTextures.rgba16Uint.destroy();
+			this._placeholderTextures = null;
+		}
 	}
 
 	public destroy(): void {

@@ -20,6 +20,7 @@ export type WebGPUSceneFragmentTargetKind =
 	| "single"
 	| "mrt"
 	| "gbuffer"
+	| "gbuffer-base"
 	| "oit"
 	| "transmission-capture"
 	| "depth-only"
@@ -28,6 +29,7 @@ export type WebGPUSceneShaderEntryMode =
 	| "single"
 	| "mrt"
 	| "gbuffer"
+	| "gbuffer-base"
 	| "oit"
 	| "transmission-capture"
 	| "early-z-prepass"
@@ -57,7 +59,8 @@ export interface WebGPUScenePassDescriptor {
 export function resolveWebGPUScenePassDescriptor(
 	sceneTargetMode: WebGPUSceneTargetMode,
 	transparentMode: WebGPUTransparentPipelineMode = "default",
-	drawMode: WebGPUScenePipelineDrawMode = "default"
+	drawMode: WebGPUScenePipelineDrawMode = "default",
+	deferredGBufferLayout: "base" | "extended" = "extended"
 ): WebGPUScenePassDescriptor {
 	const sampleCountMode =
 		sceneTargetMode === "mrt" || sceneTargetMode === "color" ?
@@ -104,14 +107,16 @@ export function resolveWebGPUScenePassDescriptor(
 
 	const fragmentTargetKind =
 		transparentMode === "transmission-capture" ? "transmission-capture" :
-		sceneTargetMode === "gbuffer" ? "gbuffer"
+		sceneTargetMode === "gbuffer" ?
+			deferredGBufferLayout === "base" ? "gbuffer-base" : "gbuffer"
 		: sceneTargetMode === "single" ? "single"
 		: sceneTargetMode === "color" && transparentMode !== "oit" ? "single"
 		: transparentMode === "oit" ? "oit"
 		: "mrt";
 	const shaderEntryMode =
 		transparentMode === "transmission-capture" ? "transmission-capture" :
-		sceneTargetMode === "gbuffer" ? "gbuffer"
+		sceneTargetMode === "gbuffer" ?
+			deferredGBufferLayout === "base" ? "gbuffer-base" : "gbuffer"
 		: sceneTargetMode === "single" ? "single"
 		: sceneTargetMode === "color" && transparentMode !== "oit" ? "single"
 		: transparentMode === "oit" ? "oit"
@@ -132,6 +137,7 @@ export function resolveWebGPUScenePassDescriptor(
 		depthFormatMode,
 		pipelineKeyPart:
 			`${sceneTargetMode}|${transparentMode}|${drawMode}|` +
-			`layout:${pipelineLayoutKind}|targets:${fragmentTargetKind}`,
+			`layout:${pipelineLayoutKind}|targets:${fragmentTargetKind}|` +
+			`gbuffer:${deferredGBufferLayout}`,
 	};
 }

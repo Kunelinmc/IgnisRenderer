@@ -26,8 +26,6 @@ export const WEBGPU_FRAME_GRAPH_RESOURCES = {
 	gbufferCoatSheen: "gbuffer:coat-sheen",
 	gbufferSheenReflectance: "gbuffer:sheen-reflectance",
 	gbufferMaterialExt0: "gbuffer:material-ext0",
-	gbufferMaterialExt1: "gbuffer:material-ext1",
-	gbufferMaterialExt2: "gbuffer:material-ext2",
 	gbufferMaterialExt3: "gbuffer:material-ext3",
 	msaaColor: "msaa:scene-color-main",
 	msaaDepth: "msaa:depth",
@@ -173,8 +171,6 @@ export function collectActiveWebGPUFrameGraphResources(
 		if (targets.gCoatSheen) active.add(r.gbufferCoatSheen);
 		if (targets.gSheenReflectance) active.add(r.gbufferSheenReflectance);
 		if (targets.gMaterialExt0) active.add(r.gbufferMaterialExt0);
-		if (targets.gMaterialExt1) active.add(r.gbufferMaterialExt1);
-		if (targets.gMaterialExt2) active.add(r.gbufferMaterialExt2);
 		if (targets.gMaterialExt3) active.add(r.gbufferMaterialExt3);
 		if (targets.oitAccum) active.add(r.oitAccum);
 		if (targets.oitReveal) active.add(r.oitReveal);
@@ -215,8 +211,8 @@ function collectTextureBindings(
 			[r.gbufferMotionDepth, targets.gMotionDepth], [r.gbufferSpecular, targets.gSpecular],
 			[r.gbufferCoatSheen, targets.gCoatSheen],
 			[r.gbufferSheenReflectance, targets.gSheenReflectance],
-			[r.gbufferMaterialExt0, targets.gMaterialExt0], [r.gbufferMaterialExt1, targets.gMaterialExt1],
-			[r.gbufferMaterialExt2, targets.gMaterialExt2], [r.gbufferMaterialExt3, targets.gMaterialExt3],
+			[r.gbufferMaterialExt0, targets.gMaterialExt0],
+			[r.gbufferMaterialExt3, targets.gMaterialExt3],
 			[r.oitAccum, targets.oitAccum], [r.oitReveal, targets.oitReveal],
 			[r.oitSceneColorCopy, targets.oitSceneColorCopy],
 			[r.transmissionSceneColorCopy, targets.transmissionSceneColorCopy],

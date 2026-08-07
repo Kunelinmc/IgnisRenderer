@@ -32,6 +32,7 @@ import type {
 import type { FramePreparationRequirements } from "../../pipeline/FrameRequirements";
 import type { WebGPUPagedShadowFrameRequest } from "./WebGPUPagedShadowRuntime";
 import type { ParticleBlendMode } from "../../particles";
+import type { WebGPUDeferredGBufferLayout } from "./constants";
 
 /** @internal WebGPU scene draw resolution result. */
 export interface WebGPUDrawResources {
@@ -69,6 +70,7 @@ export interface WebGPUDrawResourceOptions {
 	transparentPipelineMode?: WebGPUTransparentPipelineMode;
 	sceneTargetMode?: WebGPUSceneTargetMode;
 	drawMode?: WebGPUScenePipelineDrawMode;
+	deferredGBufferLayout?: WebGPUDeferredGBufferLayout;
 	sampleCount: number;
 }
 
@@ -178,6 +180,11 @@ export interface WebGPUDeferredResourceProvider {
 	getDecalOutputBindGroupLayout(): GPUBindGroupLayout;
 	getDecalBatchBindGroupLayout(): GPUBindGroupLayout;
 	getDeferredUnusedBinding(): IBindingGroup;
+	getDeferredPlaceholderTextures(): {
+		readonly rgba16Float: IRenderTexture;
+		readonly rgba8Unorm: IRenderTexture;
+		readonly rgba16Uint: IRenderTexture;
+	};
 	getDeferredLightingPipeline(): Promise<IRenderPipeline>;
 	getDecalPipeline(): Promise<IRenderPipeline>;
 	getDecalBatchPipeline(): Promise<IComputePipeline>;

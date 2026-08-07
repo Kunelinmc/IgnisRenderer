@@ -15,6 +15,8 @@ export type WebGPUSceneShaderPart =
 	| "constants"
 	| "definitions"
 	| "utils"
+	| "deferredGBufferCodec"
+	| "surfaceLighting"
 	| "vertexStage"
 	| "fragmentPrelude"
 	| "fragmentPhong"
@@ -78,6 +80,8 @@ export const WEBGPU_SCENE_SHADER_PARTS: readonly WebGPUSceneShaderPart[] = [
 	"constants",
 	"definitions",
 	"utils",
+	"deferredGBufferCodec",
+	"surfaceLighting",
 	"vertexStage",
 	"fragmentPrelude",
 	"fragmentPhong",
@@ -99,6 +103,8 @@ export const WEBGPU_SCENE_SHADER_FILES: Record<WebGPUSceneShaderPart, string> = 
 	constants: "./webgpu/common/constants.wgsl",
 	definitions: "./webgpu/common/definitions.wgsl",
 	utils: "./webgpu/common/utils.wgsl",
+	deferredGBufferCodec: "./webgpu/common/deferredGBufferCodec.wgsl",
+	surfaceLighting: "./webgpu/common/surfaceLighting.wgsl",
 	vertexStage: "./webgpu/scene/vertexStage.wgsl",
 	fragmentPrelude: "./webgpu/scene/fragmentPrelude.wgsl",
 	fragmentPhong: "./webgpu/scene/fragmentPhong.wgsl",

@@ -20,8 +20,6 @@ const resources = collectActiveWebGPUFrameGraphResources({
 	gCoatSheen: null,
 	gSheenReflectance: null,
 	gMaterialExt0: null,
-	gMaterialExt1: null,
-	gMaterialExt2: null,
 	gMaterialExt3: null,
 	oitAccum: null,
 	oitReveal: null,

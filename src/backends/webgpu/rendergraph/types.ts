@@ -3,6 +3,7 @@ import type {
 	FramePassStage,
 } from "../../../pipeline/types";
 import type { WebGPUSceneTargetMode } from "../WebGPUScenePassDescriptors";
+import type { WebGPUDeferredGBufferLayout } from "../constants";
 import type { WebGPUFrameGraphResourceId } from "./WebGPUFrameGraphResourceCatalog";
 import type { WebGPUFrameCommitDebugState } from "./WebGPUFrameCommitter";
 import type { PostProcessGraphDebugState } from "../../../postprocess/BackendPostProcessRuntime";
@@ -55,6 +56,7 @@ export interface WebGPUFrameGraphPlannerState {
 	readonly deferredActive: boolean;
 	readonly oitActive: boolean;
 	readonly sceneTargetMode: WebGPUSceneTargetMode;
+	readonly deferredGBufferLayout?: WebGPUDeferredGBufferLayout;
 	readonly hasFrameTargets?: boolean;
 	readonly hasMSAATargets?: boolean;
 	readonly needsTransmissionTargets?: boolean;
@@ -184,6 +186,7 @@ export interface WebGPUFrameGraphTargetDebugState {
 	readonly height: number;
 	readonly sampleCount: number;
 	readonly texturePoolOwnerCount: number;
+	readonly deferredGBufferLayout: WebGPUDeferredGBufferLayout;
 	readonly frameTargets: unknown;
 	readonly msaaTargets: unknown;
 }

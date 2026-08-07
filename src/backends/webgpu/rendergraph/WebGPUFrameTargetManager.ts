@@ -7,6 +7,7 @@ import {
 	type IRenderTexture,
 } from "../../types";
 import { TexturePool, type TexturePoolOptions } from "../TexturePool";
+import type { WebGPUDeferredGBufferLayout } from "../constants";
 
 export interface WebGPUFrameMSAATargets {
 	sceneColorMain: IRenderTexture;
@@ -25,6 +26,7 @@ export interface WebGPUFrameTargetRequirements {
 	needsTransmissionTargets: boolean;
 	needsPlanarReflectionMask: boolean;
 	needsHiZTarget: boolean;
+	deferredGBufferLayout: WebGPUDeferredGBufferLayout;
 }
 
 export interface WebGPUFrameTargetEnsureInput {
@@ -45,6 +47,7 @@ export interface WebGPUFrameTargetManagerDebugState {
 	readonly sampleCount: number;
 	readonly texturePoolOwnerCount: number;
 	readonly sceneTargetMode: WebGPUSceneTargetMode;
+	readonly deferredGBufferLayout: WebGPUDeferredGBufferLayout;
 	readonly needsPostProcessTargets: boolean;
 	readonly needsOITTargets: boolean;
 	readonly needsTransmissionTargets: boolean;
@@ -69,6 +72,7 @@ export class WebGPUFrameTargetManager {
 	private _targetNeedsTransmissionTargets = false;
 	private _targetNeedsPlanarReflectionMask = false;
 	private _targetNeedsHiZTarget = false;
+	private _targetDeferredGBufferLayout: WebGPUDeferredGBufferLayout = "extended";
 	private _texturePools = new Map<string, TexturePool>();
 	private _texturePoolOwners = new Map<IRenderTexture, TexturePool>();
 
@@ -111,6 +115,7 @@ export class WebGPUFrameTargetManager {
 			sampleCount: this._targetSampleCount,
 			texturePoolOwnerCount: this._texturePoolOwners.size,
 			sceneTargetMode: this._targetSceneTargetMode,
+			deferredGBufferLayout: this._targetDeferredGBufferLayout,
 			needsPostProcessTargets: this._targetNeedsPostProcessTargets,
 			needsOITTargets: this._targetNeedsOITTargets,
 			needsTransmissionTargets: this._targetNeedsTransmissionTargets,
@@ -122,6 +127,7 @@ export class WebGPUFrameTargetManager {
 
 	public ensureFrameTargets(input: WebGPUFrameTargetEnsureInput): WebGPUFrameTargetEnsureResult {
 		const { width, height, requirements, sampleCount } = input;
+		const deferredGBufferLayout = requirements.deferredGBufferLayout ?? "extended";
 		if (width <= 0 || height <= 0) {
 			this.destroyFrameTargets();
 			return { status: "ready" };
@@ -137,7 +143,8 @@ export class WebGPUFrameTargetManager {
 			this._targetNeedsOITTargets === requirements.needsOITTargets &&
 			this._targetNeedsTransmissionTargets === requirements.needsTransmissionTargets &&
 			this._targetNeedsPlanarReflectionMask === requirements.needsPlanarReflectionMask &&
-			this._targetNeedsHiZTarget === requirements.needsHiZTarget
+			this._targetNeedsHiZTarget === requirements.needsHiZTarget &&
+			this._targetDeferredGBufferLayout === deferredGBufferLayout
 		) {
 			this._frameTargets.sceneColor = this._frameTargets.sceneColorMain;
 			return { status: "ready" };
@@ -174,10 +181,13 @@ export class WebGPUFrameTargetManager {
 			this._targetNeedsTransmissionTargets = requirements.needsTransmissionTargets;
 			this._targetNeedsPlanarReflectionMask = requirements.needsPlanarReflectionMask;
 			this._targetNeedsHiZTarget = requirements.needsHiZTarget;
+			this._targetDeferredGBufferLayout = deferredGBufferLayout;
 			const needsBaseGBuffer =
 				requirements.sceneTargetMode === "mrt" ||
 				requirements.sceneTargetMode === "gbuffer";
 			const enableDeferred = requirements.sceneTargetMode === "gbuffer";
+			const enableExtendedDeferred =
+				enableDeferred && deferredGBufferLayout === "extended";
 
 			const sceneColorMain = acquireTexture(
 				"scene-color-main",
@@ -248,7 +258,7 @@ export class WebGPUFrameTargetManager {
 				: null;
 			const gNormalRoughMetal = needsBaseGBuffer
 				? acquireTexture(
-						"gbuffer-rgba16",
+						"gbuffer-normal-rough-metal",
 						{
 							usage:
 								TextureUsage.RenderAttachment |
@@ -256,11 +266,11 @@ export class WebGPUFrameTargetManager {
 								TextureUsage.StorageBinding |
 								TextureUsage.CopySrc |
 								TextureUsage.CopyDst,
-							label: "WebGPUGBuffer_RGBA16",
+							label: "WebGPUGBufferNormalRoughMetalRGBA8",
 						},
 						width,
 						height,
-						TextureFormat.RGBA16Float,
+						TextureFormat.RGBA8Unorm,
 					)
 				: null;
 			const gEmissiveOcclusion = needsBaseGBuffer
@@ -314,7 +324,7 @@ export class WebGPUFrameTargetManager {
 					TextureUsage.CopyDst,
 				label: "WebGPUGBufferDeferredStorageRGBA16",
 			};
-			const gSpecular = enableDeferred
+			const gSpecular = enableExtendedDeferred
 				? acquireTexture(
 						"gbuffer-deferred-color",
 						deferredColorPool,
@@ -323,7 +333,7 @@ export class WebGPUFrameTargetManager {
 						TextureFormat.RGBA16Float,
 					)
 				: null;
-			const gCoatSheen = enableDeferred
+			const gCoatSheen = enableExtendedDeferred
 				? acquireTexture(
 						"gbuffer-deferred-color",
 						deferredColorPool,
@@ -332,16 +342,16 @@ export class WebGPUFrameTargetManager {
 						TextureFormat.RGBA16Float,
 					)
 				: null;
-			const gSheenReflectance = enableDeferred
+			const gSheenReflectance = enableExtendedDeferred
 				? acquireTexture(
 						"gbuffer-deferred-color",
 						deferredColorPool,
 						width,
 						height,
-						TextureFormat.RGBA16Float,
+						TextureFormat.RGBA8Unorm,
 					)
 				: null;
-			const gMaterialExt0 = enableDeferred
+			const gMaterialExt0 = enableExtendedDeferred
 				? acquireTexture(
 						"gbuffer-deferred-storage",
 						deferredStoragePool,
@@ -350,31 +360,16 @@ export class WebGPUFrameTargetManager {
 						TextureFormat.RGBA16Float,
 					)
 				: null;
-			const gMaterialExt1 = enableDeferred
+			const gMaterialExt3 = enableExtendedDeferred
 				? acquireTexture(
-						"gbuffer-deferred-storage",
-						deferredStoragePool,
+						"gbuffer-deferred-storage-uint",
+						{
+							...deferredStoragePool,
+							label: "WebGPUGBufferDeferredStorageRGBA16Uint",
+						},
 						width,
 						height,
-						TextureFormat.RGBA16Float,
-					)
-				: null;
-			const gMaterialExt2 = enableDeferred
-				? acquireTexture(
-						"gbuffer-deferred-storage",
-						deferredStoragePool,
-						width,
-						height,
-						TextureFormat.RGBA16Float,
-					)
-				: null;
-			const gMaterialExt3 = enableDeferred
-				? acquireTexture(
-						"gbuffer-deferred-storage",
-						deferredStoragePool,
-						width,
-						height,
-						TextureFormat.RGBA16Float,
+						TextureFormat.RGBA16Uint,
 					)
 				: null;
 			const depth = acquireTexture(
@@ -618,8 +613,6 @@ export class WebGPUFrameTargetManager {
 				gCoatSheen,
 				gSheenReflectance,
 				gMaterialExt0,
-				gMaterialExt1,
-				gMaterialExt2,
 				gMaterialExt3,
 				depth,
 				oitAccum,
@@ -682,6 +675,7 @@ export class WebGPUFrameTargetManager {
 		this._targetNeedsTransmissionTargets = false;
 		this._targetNeedsPlanarReflectionMask = false;
 		this._targetNeedsHiZTarget = false;
+		this._targetDeferredGBufferLayout = "extended";
 	}
 
 	public destroyTexturePools(): void {

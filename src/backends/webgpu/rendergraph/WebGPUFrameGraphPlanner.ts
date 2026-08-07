@@ -21,10 +21,11 @@ const DEFERRED_GBUFFER_RENDER_RESOURCE_IDS = [
 	"gbuffer:sheen-reflectance",
 ] as const;
 
+const DEFERRED_GBUFFER_BASE_RESOURCE_IDS =
+	DEFERRED_GBUFFER_RENDER_RESOURCE_IDS.slice(0, 4);
+
 const DEFERRED_GBUFFER_STORAGE_RESOURCE_IDS = [
 	"gbuffer:material-ext0",
-	"gbuffer:material-ext1",
-	"gbuffer:material-ext2",
 	"gbuffer:material-ext3",
 ] as const;
 
@@ -117,7 +118,7 @@ export class WebGPUFrameGraphPlanner {
 									pass,
 									"deferred-decal",
 									"WebGPUDeferredDecal",
-									this._createDeferredDecalResources(),
+									this._createDeferredDecalResources(state),
 								),
 							);
 						}
@@ -126,7 +127,7 @@ export class WebGPUFrameGraphPlanner {
 								pass,
 								"deferred-lighting",
 								"WebGPUDeferredLighting",
-								this._createDeferredLightingResources(context),
+								this._createDeferredLightingResources(context, state),
 							),
 						);
 						return this._appendPagedShadowFeedbackNode(
@@ -466,14 +467,15 @@ export class WebGPUFrameGraphPlanner {
 			this._write("gbuffer:motion-depth", "render-attachment"),
 			this._write("frame:depth", "depth-attachment"),
 		];
-		if (state.sceneTargetMode === "gbuffer") {
+		if (
+			state.sceneTargetMode === "gbuffer" &&
+			state.deferredGBufferLayout !== "base"
+		) {
 			writes.push(
 				this._write("gbuffer:specular", "render-attachment"),
 				this._write("gbuffer:coat-sheen", "render-attachment"),
 				this._write("gbuffer:sheen-reflectance", "render-attachment"),
 				this._write("gbuffer:material-ext0", "storage-binding"),
-				this._write("gbuffer:material-ext1", "storage-binding"),
-				this._write("gbuffer:material-ext2", "storage-binding"),
 				this._write("gbuffer:material-ext3", "storage-binding"),
 			);
 		}
@@ -488,9 +490,14 @@ export class WebGPUFrameGraphPlanner {
 		return { reads, writes };
 	}
 
-	private _createDeferredDecalResources(): Pick<WebGPUFrameGraphNode, "reads" | "writes"> {
+	private _createDeferredDecalResources(
+		state: WebGPUFrameGraphPlannerState,
+	): Pick<WebGPUFrameGraphNode, "reads" | "writes"> {
+		const resourceIds = state.deferredGBufferLayout === "base"
+			? DEFERRED_GBUFFER_BASE_RESOURCE_IDS
+			: DEFERRED_GBUFFER_RESOURCE_IDS;
 		return {
-			reads: DEFERRED_GBUFFER_RESOURCE_IDS.map((id) => this._read(id, "copy-src")),
+			reads: resourceIds.map((id) => this._read(id, "copy-src")),
 			writes: [
 				...DEFERRED_GBUFFER_RENDER_RESOURCE_IDS.map((id) =>
 					this._write(id, "render-attachment"),
@@ -504,10 +511,14 @@ export class WebGPUFrameGraphPlanner {
 
 	private _createDeferredLightingResources(
 		context: FrameContext,
+		state: WebGPUFrameGraphPlannerState,
 	): Pick<WebGPUFrameGraphNode, "reads" | "writes"> {
+		const resourceIds = state.deferredGBufferLayout === "base"
+			? DEFERRED_GBUFFER_BASE_RESOURCE_IDS
+			: DEFERRED_GBUFFER_RESOURCE_IDS;
 		return {
 			reads: [
-				...DEFERRED_GBUFFER_RESOURCE_IDS.map((id) => this._read(id, "texture-binding")),
+				...resourceIds.map((id) => this._read(id, "texture-binding")),
 				this._read("shadow-atlas", "texture-binding", true),
 				...this._createPagedShadowLightingReads(context),
 			],

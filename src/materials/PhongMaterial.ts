@@ -24,6 +24,6 @@ export class PhongMaterial extends Material {
 			g: this.diffuse.g,
 			b: this.diffuse.b,
 		};
-		this.shininess = params.shininess || 32;
+		this.shininess = Math.max(params.shininess ?? 32, 0);
 	}
 }

@@ -29,10 +29,10 @@
 				lightDirection,
 				linearDepth
 			);
-			let halfVector = safeNormalize(viewDir + lightDirection, viewDir);
-			let specFactor = select(0.0, pow(max(dot(normal, halfVector), 0.0), shininess), nDotL > 0.0);
-			direct += radiance * shadow * nDotL * baseColor;
-			direct += radiance * shadow * specFactor * phongSpecular;
+			direct += evaluateOpaquePhongLight(
+				normal, viewDir, baseColor, phongSpecular, shininess,
+				lightDirection, radiance, shadow
+			);
 		}
 
 		if (isClusteredLightingEnabled()) {
@@ -70,14 +70,10 @@
 							continue;
 						}
 
-						let halfVector = safeNormalize(viewDir + lightDirection, viewDir);
-						let specFactor = select(
-							0.0,
-							pow(max(dot(normal, halfVector), 0.0), shininess),
-							nDotL > 0.0
+						direct += evaluateOpaquePhongLight(
+							normal, viewDir, baseColor, phongSpecular, shininess,
+							lightDirection, areaLight.radiance, vec3<f32>(1.0)
 						);
-						direct += areaLight.radiance * nDotL * baseColor;
-						direct += areaLight.radiance * specFactor * phongSpecular;
 					}
 					continue;
 				}
@@ -133,10 +129,10 @@
 					continue;
 				}
 
-				let halfVector = safeNormalize(viewDir + lightDirection, viewDir);
-				let specFactor = select(0.0, pow(max(dot(normal, halfVector), 0.0), shininess), nDotL > 0.0);
-				direct += radiance * shadow * nDotL * baseColor;
-				direct += radiance * shadow * specFactor * phongSpecular;
+				direct += evaluateOpaquePhongLight(
+					normal, viewDir, baseColor, phongSpecular, shininess,
+					lightDirection, radiance, shadow
+				);
 			}
 		} else {
 			let pointCount = u32(frame.lightCounts.y + 0.5);
@@ -157,10 +153,10 @@
 					continue;
 				}
 
-				let halfVector = safeNormalize(viewDir + lightDirection, viewDir);
-				let specFactor = select(0.0, pow(max(dot(normal, halfVector), 0.0), shininess), nDotL > 0.0);
-				direct += radiance * nDotL * baseColor;
-				direct += radiance * specFactor * phongSpecular;
+				direct += evaluateOpaquePhongLight(
+					normal, viewDir, baseColor, phongSpecular, shininess,
+					lightDirection, radiance, vec3<f32>(1.0)
+				);
 			}
 
 			let spotCount = u32(frame.lightCounts.z + 0.5);
@@ -201,10 +197,10 @@
 					shadowNormal,
 					lightDirection
 				);
-				let halfVector = safeNormalize(viewDir + lightDirection, viewDir);
-				let specFactor = select(0.0, pow(max(dot(normal, halfVector), 0.0), shininess), nDotL > 0.0);
-				direct += radiance * shadow * nDotL * baseColor;
-				direct += radiance * shadow * specFactor * phongSpecular;
+				direct += evaluateOpaquePhongLight(
+					normal, viewDir, baseColor, phongSpecular, shininess,
+					lightDirection, radiance, shadow
+				);
 			}
 		}
 
@@ -231,14 +227,10 @@
 						continue;
 					}
 
-					let halfVector = safeNormalize(viewDir + lightDirection, viewDir);
-					let specFactor = select(
-						0.0,
-						pow(max(dot(normal, halfVector), 0.0), shininess),
-						nDotL > 0.0
+					direct += evaluateOpaquePhongLight(
+						normal, viewDir, baseColor, phongSpecular, shininess,
+						lightDirection, areaLight.radiance, vec3<f32>(1.0)
 					);
-					direct += areaLight.radiance * nDotL * baseColor;
-					direct += areaLight.radiance * specFactor * phongSpecular;
 				}
 			}
 		}

@@ -206,14 +206,19 @@ This document defines WebGPU frame-graph execution, deferred lighting, presentat
 	  public switch value.
 - Runtime gating contract:
 	- Deferred lighting must require `sampleCount === 1`.
-	- Deferred lighting must require MRT scene targets.
-	- Deferred lighting must require `maxColorAttachments >= 7`.
-	- Deferred lighting must require
+	- Base deferred lighting must require `maxColorAttachments >= 4` and
+	  `maxColorAttachmentBytesPerSample >= 32`.
+	- Extended deferred lighting must require `maxColorAttachments >= 7` and
 	  `maxColorAttachmentBytesPerSample >= 56`.
 	- Deferred lighting must require
-	  `maxStorageTexturesPerShaderStage >= 4`.
+	  `maxStorageTexturesPerShaderStage >= 2`.
+	- Color-attachment byte requirements must be derived through the WebGPU-owned
+	  `getWebGPURenderTargetPixelByteCost()` lookup rather than texel storage size
+	  or duplicated literals. Backend-agnostic `TextureFormatInfo` metadata must
+	  not contain WebGPU-specific attachment costs.
 	- If any requirement is not met, `WebGPUBackend` must use the legacy MRT
-	  forward path and must warn once.
+	  forward path when available, otherwise the single-target forward path,
+	  and must warn once.
 - Pass ordering contract:
 	- `main-opaque` must render environment/background into `sceneColorMain`
 	  before lighting resolve when background rendering is enabled.
@@ -229,23 +234,53 @@ This document defines WebGPU frame-graph execution, deferred lighting, presentat
 	- Transparent, OIT, transmission, and particles must render after opaque
 	  lighting resolve through existing forward paths.
 - G-buffer contract:
+	- The frame analyzer must select `base` or `extended` deferred payload mode.
+	  `ShaderMaterial` deferred chunks and deferred decals must conservatively
+	  select `extended` mode.
+	- `base` mode must expose only `gAlbedoAlpha`, `gNormalRoughMetal`,
+	  `gEmissiveOcclusion`, and `gMotionDepth`. It must use no more than
+	  `24` color bytes per pixel, excluding depth.
+	- `extended` mode may additionally expose `gSpecular`, `gCoatSheen`,
+	  `gSheenReflectance`, `gMaterialExt0`, and `gMaterialExt3`. Its complete
+	  deferred payload must use no more than `60` bytes per pixel, excluding
+	  depth.
 	- Color MRTs must be:
 	  `gAlbedoAlpha`, `gNormalRoughMetal`, `gEmissiveOcclusion`,
 	  `gMotionDepth`, `gSpecular`, `gCoatSheen`, and `gSheenReflectance`.
+	- `gAlbedoAlpha`, `gNormalRoughMetal`, and `gSheenReflectance` must use
+	  `rgba8unorm`. `gEmissiveOcclusion`, `gMotionDepth`, `gSpecular`, and
+	  `gCoatSheen` must use `rgba16float`.
 	- `gNormalRoughMetal.xy` must store the encoded world-space normal,
 	  `gNormalRoughMetal.z` must store roughness, and
 	  `gNormalRoughMetal.w` must store metallic.
-	- `gSpecular.rgb` must store the resolved specular color, and
-	  `gSpecular.a` must store the resolved specular factor.
-	- Deferred storage payload textures must be:
-	  `gMaterialExt0`, `gMaterialExt1`, `gMaterialExt2`, and
-	  `gMaterialExt3`.
-	- `gMotionDepth.w` must store the material shading model.
+	- `gSpecular.rgb` must store the resolved specular color. `gSpecular.a` must
+	  store the PBR specular factor or the unclamped Phong/Flat shininess,
+	  according to the packed shading model.
+	- Deferred storage payload textures must be `gMaterialExt0` as
+	  `rgba16float` and `gMaterialExt3` as `rgba16uint`. Deferred opaque shading
+	  must not store transmission volume or attenuation payloads.
+	- `gMaterialExt0.xy` must store the encoded clearcoat normal,
+	  `gMaterialExt0.z` the iridescence factor, and `gMaterialExt0.w` the
+	  iridescence thickness.
 	- `gMaterialExt3.xy` must store the encoded world-space anisotropy tangent,
 	  `gMaterialExt3.z` must store the resolved anisotropy strength, and
-	  `gMaterialExt3.w` is reserved.
+	  `gMaterialExt3.w` must store the 11-bit receiver render-layer mask.
+	- `gMotionDepth.w` must store an exactly representable packed material word.
+	  Bits `0..1` contain the shading model; higher bits identify clearcoat,
+	  sheen, iridescence, anisotropy, and non-default specular/reflectance data.
+	- Deferred lighting must read the base payload first and must not load an
+	  extension texture when the packed material word says that extension is
+	  absent.
+	- Forward and deferred opaque lighting must use the shared Phong and PBR
+	  direct-light evaluators. Forward-only transmission background and volume
+	  terms must remain outside those shared opaque evaluators.
+	- When no deferred packet or decal needs `gMaterialExt0`, the target manager
+	  must bind a device-lifetime placeholder instead of allocating a full-size
+	  texture.
 	- The deferred lighting shader must branch on `PBR`, `Phong`, `Flat`, and
 	  `Unlit` shading models inside the same fullscreen pass.
+	- `gSpecular.a` must decode as unclamped Phong shininess for `Phong` and
+	  `Flat`, and as a `[0, 1]` specular factor only for `PBR`.
 	- Opaque and mask `PBRMaterial` instances with `anisotropyStrength > 0.0`
 	  or `anisotropyMap` may enter deferred lighting when all runtime gates pass.
 	- `transmissionFactor > 0.0`, `AlphaMode.Blend`, OIT, and transparent
@@ -549,19 +584,21 @@ const packed = packer.pack({
 
 ### Deferred lighting
 
-- `webgpu-deferred-disabled-mrt`:
-  emitted when deferred lighting is requested but MRT scene targets are
-  unavailable.
 - `webgpu-deferred-disabled-msaa`:
   emitted when deferred lighting is unavailable because `sampleCount !== 1`.
 - `webgpu-deferred-disabled-attachments`:
-  emitted when `maxColorAttachments < 7`.
+  emitted when the active base or extended layout exceeds
+  `maxColorAttachments`.
 - `webgpu-deferred-disabled-bytes`:
-  emitted when `maxColorAttachmentBytesPerSample < 56`.
+  emitted when the active base or extended layout exceeds
+  `maxColorAttachmentBytesPerSample`.
 - `webgpu-deferred-disabled-storage-textures`:
-  emitted when `maxStorageTexturesPerShaderStage < 4`.
+  emitted when `maxStorageTexturesPerShaderStage < 2`.
 - `webgpu-deferred-runtime-fallback`:
-  emitted when deferred frame target allocation fails after limits passed.
+  emitted when deferred frame target allocation, binding creation, or pipeline
+  creation fails after limits passed. Pipeline and binding creation must be
+  preflighted before the first G-buffer command so the frame can atomically use
+  legacy forward rendering.
 - Shader compile diagnostics for opt-in `ShaderMaterial` deferred chunks must
   follow the existing `ShaderMaterial` strict/warn/silent runtime behavior.
 

@@ -2,11 +2,14 @@ import type { WebGPUFrameFeatureAnalysis } from "./WebGPUFrameFeatureAnalyzer";
 import {
 	WEBGPU_DEFERRED_COLOR_BYTES_PER_SAMPLE,
 	WEBGPU_DEFERRED_COLOR_TARGET_COUNT,
+	WEBGPU_DEFERRED_BASE_COLOR_BYTES_PER_SAMPLE,
+	WEBGPU_DEFERRED_BASE_COLOR_TARGET_COUNT,
 	WEBGPU_DEFERRED_STORAGE_TEXTURE_COUNT,
 	WEBGPU_MRT_COLOR_BYTES_PER_SAMPLE,
 	WEBGPU_MRT_COLOR_TARGET_COUNT,
 } from "../constants";
 import type { WebGPUSceneTargetMode } from "../WebGPUScenePassDescriptors";
+import type { WebGPUDeferredGBufferLayout } from "../constants";
 import type { WebGPUFrameTargetRequirements } from "./WebGPUFrameTargetManager";
 
 export interface WebGPUFrameCapabilitySnapshot {
@@ -43,6 +46,7 @@ export interface WebGPUFrameConfiguration {
 	readonly oitActive: boolean;
 	readonly transparencyMode: "legacy" | "oit";
 	readonly sceneTargetMode: WebGPUSceneTargetMode;
+	readonly deferredGBufferLayout: WebGPUDeferredGBufferLayout;
 	readonly targetRequirements: WebGPUFrameTargetRequirements | null;
 	readonly needsHiZBuild: boolean;
 	readonly needsOcclusionTest: boolean;
@@ -85,12 +89,19 @@ export class WebGPUFrameConfigurationResolver {
 			}
 		}
 
+		const deferredColorTargetCount =
+			analysis.deferredGBufferLayout === "base"
+				? WEBGPU_DEFERRED_BASE_COLOR_TARGET_COUNT
+				: WEBGPU_DEFERRED_COLOR_TARGET_COUNT;
+		const deferredColorBytesPerSample =
+			analysis.deferredGBufferLayout === "base"
+				? WEBGPU_DEFERRED_BASE_COLOR_BYTES_PER_SAMPLE
+				: WEBGPU_DEFERRED_COLOR_BYTES_PER_SAMPLE;
 		const deferredSupported =
-			mrtSupported &&
 			options.samplePlan.sampleCount === 1 &&
-			capabilities.maxColorAttachments >= WEBGPU_DEFERRED_COLOR_TARGET_COUNT &&
+			capabilities.maxColorAttachments >= deferredColorTargetCount &&
 			capabilities.maxColorAttachmentBytesPerSample >=
-				WEBGPU_DEFERRED_COLOR_BYTES_PER_SAMPLE &&
+				deferredColorBytesPerSample &&
 			capabilities.maxStorageTexturesPerShaderStage >=
 				WEBGPU_DEFERRED_STORAGE_TEXTURE_COUNT;
 		const wantsDeferred =
@@ -98,12 +109,45 @@ export class WebGPUFrameConfigurationResolver {
 			!options.forceDeferredFallback &&
 			analysis.hasDeferredLightingWork;
 		if (options.enableDeferredLighting && !options.forceDeferredFallback && !deferredSupported) {
-			diagnostics.push({
-				code: !mrtSupported ? "webgpu-deferred-disabled-mrt" : "webgpu-deferred-disabled-runtime",
-				message: !mrtSupported
-					? "WebGPU deferred lighting requires MRT scene targets; using the non-deferred fallback path."
-					: "WebGPU deferred lighting requirements are unavailable; using the legacy MRT forward path.",
-			});
+			if (options.samplePlan.sampleCount !== 1) {
+				diagnostics.push({
+					code: "webgpu-deferred-disabled-msaa",
+					message:
+						"WebGPU deferred lighting requires sampleCount=1; using the legacy MRT forward path.",
+				});
+			}
+			if (capabilities.maxColorAttachments < deferredColorTargetCount) {
+				diagnostics.push({
+					code: "webgpu-deferred-disabled-attachments",
+					message:
+						`WebGPU deferred lighting requires ${deferredColorTargetCount} color attachments; ` +
+						`device exposes ${capabilities.maxColorAttachments}.`,
+				});
+			}
+			if (
+				capabilities.maxColorAttachmentBytesPerSample <
+					deferredColorBytesPerSample
+			) {
+				diagnostics.push({
+					code: "webgpu-deferred-disabled-bytes",
+					message:
+						`WebGPU deferred lighting requires ${deferredColorBytesPerSample} ` +
+						"color attachment bytes per sample; " +
+						`device exposes ${capabilities.maxColorAttachmentBytesPerSample}.`,
+				});
+			}
+			if (
+				capabilities.maxStorageTexturesPerShaderStage <
+					WEBGPU_DEFERRED_STORAGE_TEXTURE_COUNT
+			) {
+				diagnostics.push({
+					code: "webgpu-deferred-disabled-storage-textures",
+					message:
+						`WebGPU deferred lighting requires ${WEBGPU_DEFERRED_STORAGE_TEXTURE_COUNT} ` +
+						"storage textures per shader stage; " +
+						`device exposes ${capabilities.maxStorageTexturesPerShaderStage}.`,
+				});
+			}
 		}
 		const deferredActive = wantsDeferred && deferredSupported;
 		const oitActive =
@@ -138,11 +182,13 @@ export class WebGPUFrameConfigurationResolver {
 			analysis.needsOcclusionTargets ||
 			analysis.needsHiZTarget ||
 			options.forceForwardMrt === true;
-		const sceneTargetMode: WebGPUSceneTargetMode = !mrtSupported || !hasOffscreenWork
+		const sceneTargetMode: WebGPUSceneTargetMode =
+			(!mrtSupported && !deferredActive) || !hasOffscreenWork
 			? "single"
 			: deferredActive
 				? "gbuffer"
-				: analysis.needsPostProcessGBuffer ||
+				: options.forceForwardMrt === true ||
+						analysis.needsPostProcessGBuffer ||
 						analysis.needsOcclusionTargets || analysis.needsHiZTarget
 					? "mrt"
 					: "color";
@@ -153,6 +199,7 @@ export class WebGPUFrameConfigurationResolver {
 			oitActive,
 			transparencyMode: oitActive ? "oit" : "legacy",
 			sceneTargetMode,
+			deferredGBufferLayout: analysis.deferredGBufferLayout ?? "extended",
 			targetRequirements:
 				sceneTargetMode === "single"
 					? null
@@ -163,6 +210,8 @@ export class WebGPUFrameConfigurationResolver {
 							needsTransmissionTargets: analysis.needsTransmissionTargets,
 							needsPlanarReflectionMask: analysis.needsPlanarReflectionMask,
 							needsHiZTarget: analysis.needsHiZTarget,
+							deferredGBufferLayout:
+								analysis.deferredGBufferLayout ?? "extended",
 						},
 			needsHiZBuild: analysis.needsHiZTarget,
 			needsOcclusionTest: analysis.needsOcclusionTargets,

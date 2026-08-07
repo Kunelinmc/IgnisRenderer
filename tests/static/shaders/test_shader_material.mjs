@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { Logger } from "../../../src/foundation/Logger.ts";
 import { Matrix4 } from "../../../src/maths/Matrix4.ts";
 import { ShaderMaterial } from "../../../src/materials/ShaderMaterial.ts";
+import { PBRMaterial } from "../../../src/materials/PBRMaterial.ts";
 import { WebGPUPipelineLibrary } from "../../../src/backends/webgpu/WebGPUPipelineLibrary.ts";
 import { ShaderRuntime } from "../../../src/shaders/runtime/index.ts";
 
@@ -268,6 +269,24 @@ async function testWebGPUDeferredProgramSelection() {
 		],
 	});
 	assert.equal(missingOptIn.hasWebGPUDeferredProgram(), false);
+}
+
+async function testBuiltinBaseGBufferPipelineSelection() {
+	const backend = new FakeBackend();
+	backend.shaderRuntime = new ShaderRuntime({ mode: "strict" });
+	const library = new WebGPUPipelineLibrary(backend, createLayouts());
+	const pipeline = await library.getPipeline(
+		new PBRMaterial(),
+		"gbuffer",
+		false,
+		undefined,
+		undefined,
+		undefined,
+		1,
+		"base",
+	);
+	assert.equal(pipeline.desc.fragment.entryPoint, "fsMainGBufferBase");
+	assert.equal(pipeline.desc.fragment.targets.length, 4);
 }
 
 function testResolveWebGPUDepthPrepassProgramContract() {
@@ -981,6 +1000,7 @@ function testUniformBindingInjectDirectivesDecoratePrograms() {
 async function run() {
 	await testWGSLProgramSelection();
 	await testWebGPUDeferredProgramSelection();
+	await testBuiltinBaseGBufferPipelineSelection();
 	testResolveWebGPUDepthPrepassProgramContract();
 	testDepthWriteParamIsInheritedFromMaterial();
 	await testGLSLProgramUsesTranspiler();

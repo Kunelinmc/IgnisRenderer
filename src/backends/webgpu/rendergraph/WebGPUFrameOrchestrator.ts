@@ -284,6 +284,12 @@ export class WebGPUFrameOrchestrator {
 			this._depthDirtyClearPass,
 			{
 				getGBufferWriteBinding: () => this._deferredLightingPass.getGBufferWriteBinding(),
+				getDeferredGBufferLayout: () =>
+					this._session?.configuration?.deferredGBufferLayout ?? "extended",
+				preflightDeferredFrame: async (context) => {
+					await this._deferredLightingPass.preflight();
+					await this._deferredDecalPass.preflight(context);
+				},
 			},
 		);
 		this._occlusionRuntime = new WebGPUOcclusionCullingRuntime(host);
@@ -1493,6 +1499,8 @@ export class WebGPUFrameOrchestrator {
 			deferredActive: this._deferredEnabled,
 			oitActive: this._oitActive,
 			sceneTargetMode: this.getSceneTargetModeForFrame(),
+			deferredGBufferLayout:
+				session?.configuration?.deferredGBufferLayout ?? "extended",
 			hasFrameTargets: !!this._frameTargets,
 			hasMSAATargets: !!this._msaaTargets,
 			needsTransmissionTargets: !!this._frameTargets?.transmissionSceneColorCopy,

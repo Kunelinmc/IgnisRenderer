@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 
 import { PBRMaterial } from "../../../src/materials/PBRMaterial.ts";
+import { ShaderMaterial } from "../../../src/materials/ShaderMaterial.ts";
 import { WebGPUFrameFeatureAnalyzer } from "../../../src/backends/webgpu/rendergraph/WebGPUFrameFeatureAnalyzer.ts";
 import { POST_PROCESS_SHARED_RESOURCE_IDS } from "../../../src/postprocess/executionDeclarations.ts";
 import { createResolvedPostProcess } from "../../helpers/postprocess.mjs";
@@ -68,6 +69,7 @@ function createFramePackets(context) {
 
 const analysis = analyze(createContext());
 assert.equal(analysis.hasDeferredLightingWork, true);
+assert.equal(analysis.deferredGBufferLayout, "extended");
 assert.equal(analysis.oitRequested, true);
 assert.equal(analysis.hasOITWork, true);
 assert.equal(analysis.transparency.oitPackets.length, 1);
@@ -175,5 +177,30 @@ additiveOnly.scene.particleSystems = [{
 const additiveAnalysis = analyze(additiveOnly);
 assert.equal(additiveAnalysis.transparency.hasOITContributors, false);
 assert.equal(additiveAnalysis.transparency.hasAdditiveBillboardParticles, true);
+
+const baseContext = createContext();
+baseContext.scene.opaquePackets = [{ material: new PBRMaterial() }];
+baseContext.scene.transparentPackets = [];
+baseContext.scene.decalPackets = [];
+assert.equal(analyze(baseContext).deferredGBufferLayout, "base");
+
+const decalContext = createContext();
+decalContext.scene.opaquePackets = [{ material: new PBRMaterial() }];
+decalContext.scene.decalPackets = [{}];
+assert.equal(analyze(decalContext).deferredGBufferLayout, "extended");
+
+const customContext = createContext();
+customContext.scene.opaquePackets = [{
+	material: new ShaderMaterial({
+		deferredLighting: true,
+		chunks: [{
+			language: "wgsl",
+			stage: "fragment",
+			mode: "deferred",
+			code: "@fragment fn fsMainDeferred() {}",
+		}],
+	}),
+}];
+assert.equal(analyze(customContext).deferredGBufferLayout, "extended");
 
 console.log("test_webgpu_frame_feature_analyzer: ok");

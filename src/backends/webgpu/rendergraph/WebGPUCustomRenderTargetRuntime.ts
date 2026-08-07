@@ -19,11 +19,11 @@ import {
 import type { WebGPUFrameHost } from "./WebGPUFrameHost";
 import { ComputeRuntime } from "../ComputeRuntime";
 import { Logger } from "../../../foundation/Logger";
-import { getTextureFormatInfo } from "../../TextureFormatInfo";
 import type {
 	WebGPUSampleCountResolver,
 	WebGPUSampleCountSelection,
 } from "../WebGPUSampleCountResolver";
+import { getWebGPURenderTargetPixelByteCost } from "../WebGPUTextureFormatInfo";
 
 const WEBGPU_CUSTOM_TARGET_SAMPLE_COUNT_FALLBACK_KEY =
 	"webgpu-custom-target-sample-count-runtime-fallback-1x";
@@ -52,7 +52,7 @@ export class WebGPUCustomRenderTargetRuntime {
 	private readonly _targets = new Map<string, WebGPUCustomRenderTarget>();
 	private _lastSuccessfulFrame = false;
 
-	public constructor(
+	constructor(
 		host: WebGPUFrameHost,
 		private readonly _sampleCountResolver: WebGPUSampleCountResolver,
 	) {
@@ -95,12 +95,7 @@ export class WebGPUCustomRenderTargetRuntime {
 				this._sampleCountResolver.fallbackToSingleSample(selection.signature);
 				this._warnRuntimeFallback(descriptor.id, selection, error);
 				const fallbackSelection = this._resolveSampleCount(descriptor);
-				replacement = this._createTarget(
-					descriptor,
-					width,
-					height,
-					fallbackSelection,
-				);
+				replacement = this._createTarget(descriptor, width, height, fallbackSelection);
 			}
 			this._targets.set(descriptor.id, replacement);
 			if (current) {
@@ -116,7 +111,7 @@ export class WebGPUCustomRenderTargetRuntime {
 	public async executePass(
 		pass: FramePass,
 		context: FrameContext,
-		encoder: ICommandEncoder
+		encoder: ICommandEncoder,
 	): Promise<void> {
 		const descriptor = context.customRenderPasses.get(pass.stage);
 		if (!descriptor) {
@@ -127,7 +122,7 @@ export class WebGPUCustomRenderTargetRuntime {
 			const key = `webgpu-custom-render-pass-target-missing-${pass.stage}`;
 			Logger.warn(
 				`[${key}] WebGPU custom render pass "${pass.stage}" target "${descriptor.target}" is unavailable; skipping.`,
-				{ scope: "WebGPUCustomRenderTargetRuntime", onceKey: key }
+				{ scope: "WebGPUCustomRenderTargetRuntime", onceKey: key },
 			);
 			return;
 		}
@@ -155,11 +150,11 @@ export class WebGPUCustomRenderTargetRuntime {
 	public async readColor(
 		id: string,
 		attachmentIndex = 0,
-		options: RenderTargetReadbackOptions = {}
+		options: RenderTargetReadbackOptions = {},
 	): Promise<RenderTargetReadbackResult> {
 		if (!this._lastSuccessfulFrame) {
 			throw new Error(
-				`Render target "${id}" cannot be read before a successful frame completes.`
+				`Render target "${id}" cannot be read before a successful frame completes.`,
 			);
 		}
 		const target = this._targets.get(id);
@@ -169,14 +164,13 @@ export class WebGPUCustomRenderTargetRuntime {
 		const attachment = target.color[attachmentIndex];
 		if (!attachment) {
 			throw new Error(
-				`Render target "${id}" color attachment ${attachmentIndex} is unavailable.`
+				`Render target "${id}" color attachment ${attachmentIndex} is unavailable.`,
 			);
 		}
 		const texture = attachment.resolveTexture ?? attachment.texture;
 		const width = resolveReadbackDimension(id, "width", options.width, target.width);
 		const height = resolveReadbackDimension(id, "height", options.height, target.height);
-		const format = target.descriptor.color[attachmentIndex]?.format ??
-			TextureFormat.RGBA8Unorm;
+		const format = target.descriptor.color[attachmentIndex]?.format ?? TextureFormat.RGBA8Unorm;
 		const result = await this._getReadbackRuntime().readTexture({
 			texture,
 			width,
@@ -221,12 +215,13 @@ export class WebGPUCustomRenderTargetRuntime {
 					height,
 					format: attachment.format,
 					sampleCount: selection.sampleCount,
-					usage: selection.sampleCount > 1
-						? TextureUsage.RenderAttachment
-						: TextureUsage.RenderAttachment |
-							TextureUsage.TextureBinding |
-							TextureUsage.CopySrc |
-							TextureUsage.CopyDst,
+					usage:
+						selection.sampleCount > 1
+							? TextureUsage.RenderAttachment
+							: TextureUsage.RenderAttachment |
+								TextureUsage.TextureBinding |
+								TextureUsage.CopySrc |
+								TextureUsage.CopyDst,
 					label:
 						attachment.label ??
 						`WebGPUCustomRenderTarget_${descriptor.id}_Color${index}`,
@@ -236,24 +231,30 @@ export class WebGPUCustomRenderTargetRuntime {
 					resolveTexture: null,
 				};
 				color.push(colorAttachment);
-				assertExactTextureFormat(descriptor.id, `color attachment ${index}`, texture,
-					attachment.format);
-				const resolveTexture = selection.sampleCount > 1
-					? this._host.createTexture({
-							width,
-							height,
-							format: attachment.format,
-							sampleCount: 1,
-							usage:
-								TextureUsage.RenderAttachment |
-								TextureUsage.TextureBinding |
-								TextureUsage.CopySrc |
-								TextureUsage.CopyDst,
-							label:
-								`${attachment.label ??
-									`WebGPUCustomRenderTarget_${descriptor.id}_Color${index}`}_Resolve`,
-						})
-					: null;
+				assertExactTextureFormat(
+					descriptor.id,
+					`color attachment ${index}`,
+					texture,
+					attachment.format,
+				);
+				const resolveTexture =
+					selection.sampleCount > 1
+						? this._host.createTexture({
+								width,
+								height,
+								format: attachment.format,
+								sampleCount: 1,
+								usage:
+									TextureUsage.RenderAttachment |
+									TextureUsage.TextureBinding |
+									TextureUsage.CopySrc |
+									TextureUsage.CopyDst,
+								label: `${
+									attachment.label ??
+									`WebGPUCustomRenderTarget_${descriptor.id}_Color${index}`
+								}_Resolve`,
+							})
+						: null;
 				colorAttachment.resolveTexture = resolveTexture;
 				if (resolveTexture) {
 					assertExactTextureFormat(
@@ -275,14 +276,13 @@ export class WebGPUCustomRenderTargetRuntime {
 						TextureUsage.TextureBinding |
 						(selection.sampleCount === 1 ? TextureUsage.CopySrc : 0),
 					label:
-						descriptor.depth.label ??
-						`WebGPUCustomRenderTarget_${descriptor.id}_Depth`,
+						descriptor.depth.label ?? `WebGPUCustomRenderTarget_${descriptor.id}_Depth`,
 				});
 				assertExactTextureFormat(
 					descriptor.id,
 					"depth attachment",
 					depth,
-					descriptor.depth.format
+					descriptor.depth.format,
 				);
 			}
 			return {
@@ -321,14 +321,10 @@ export class WebGPUCustomRenderTargetRuntime {
 		target.depth?.destroy();
 	}
 
-	private _resolveSampleCount(
-		descriptor: RenderTargetDescriptor,
-	): WebGPUSampleCountSelection {
+	private _resolveSampleCount(descriptor: RenderTargetDescriptor): WebGPUSampleCountSelection {
 		const formats = [
 			...descriptor.color.map((attachment) => attachment.format as GPUTextureFormat),
-			...(descriptor.depth
-				? [descriptor.depth.format as GPUTextureFormat]
-				: []),
+			...(descriptor.depth ? [descriptor.depth.format as GPUTextureFormat] : []),
 		];
 		return this._sampleCountResolver.resolveDomainSampleCount(
 			`custom-target:${descriptor.id}`,
@@ -338,7 +334,7 @@ export class WebGPUCustomRenderTargetRuntime {
 				colorAttachmentCount: descriptor.color.length,
 				colorAttachmentBytesPerSample: descriptor.color.reduce(
 					(total, attachment) =>
-						total + getTextureFormatInfo(attachment.format).bytesPerBlock,
+						total + getWebGPURenderTargetPixelByteCost(attachment.format),
 					0,
 				),
 			},
@@ -356,8 +352,7 @@ export class WebGPUCustomRenderTargetRuntime {
 				`retrying at 1x. ${String(error)}`,
 			{
 				scope: "WebGPUCustomRenderTargetRuntime",
-				onceKey:
-					`${WEBGPU_CUSTOM_TARGET_SAMPLE_COUNT_FALLBACK_KEY}:${selection.signature}`,
+				onceKey: `${WEBGPU_CUSTOM_TARGET_SAMPLE_COUNT_FALLBACK_KEY}:${selection.signature}`,
 			},
 		);
 	}

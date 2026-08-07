@@ -73,6 +73,30 @@ depth/normal-aware denoising. Remove legacy gather-mode configuration and pass
 the current world-space distance and thickness settings directly. WebGL,
 Software, and orthographic WebGPU cameras do not execute SSGI.
 
+## WebGPU Deferred G-buffer
+
+The WebGPU deferred G-buffer shader contract now uses seven compact color
+attachments and two storage payloads. `gMaterialExt1` and `gMaterialExt2` are
+removed. `gMaterialExt3` is `rgba16uint`, and `gMotionDepth.w` contains a packed
+material word rather than a plain shading-model number.
+
+Applications with `ShaderMaterial.deferredLighting === true` must update their
+`fragment-deferred` chunks to the formats and field mapping in the
+[WebGPU contract](../contracts/webgpu.md#deferred-lighting). Existing chunks
+that declare four `rgba16float` storage outputs are not compatible and do not
+receive a legacy adapter. TypeScript construction and entry-point APIs remain
+unchanged.
+
+Custom deferred fragments must emit color locations `0..6` in this order:
+`gAlbedoAlpha`, `gNormalRoughMetal`, `gEmissiveOcclusion`, `gMotionDepth`,
+`gSpecular`, `gCoatSheen`, and `gSheenReflectance`. Group `3`, binding `0` is
+the write-only `rgba16float` `gMaterialExt0Out`; binding `1` is the write-only
+`rgba16uint` `gMaterialExt3Out`. Custom deferred shaders always select the
+extended layout. They must follow the shared material-word and extension packing
+defined by `deferredGBufferCodec.wgsl`; the deferred resolve read ABI is color
+bindings `0..6`, `gMaterialExt0In` at binding `7`, and `gMaterialExt3In` at
+binding `8`.
+
 ## Related Documents
 
 - [Renderer guide](../public/renderer.md)

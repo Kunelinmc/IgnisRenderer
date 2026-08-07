@@ -130,11 +130,10 @@ if (!isClusteredLightingEnabled()) {
 			baseLayerAttenuation = clearcoatAttenuation * albedoSheenScaling;
 		}
 
-		directLight += (
-			((diffuse + specular) * baseLayerAttenuation +
-				clearcoatSpecular * clearcoat +
-				sheenSpecular * clearcoatAttenuation) * nDotL +
-			transmittedDiffuse * transmissionAttenuation * nDotLTransmission
-		) * radiance * shadow;
+		directLight += evaluateOpaquePBRLight(
+			opaquePBRSurface, lightDirection, radiance, shadow
+		);
+		directLight += transmittedDiffuse * transmissionAttenuation *
+			nDotLTransmission * radiance * shadow;
 	}
 }

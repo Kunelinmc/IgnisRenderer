@@ -840,6 +840,8 @@ export class ShaderSource {
 			this._loadWebGPUScenePartComposite("constants"),
 			this._loadWebGPUScenePartComposite("definitions"),
 			this._loadWebGPUScenePartComposite("utils"),
+			this._loadWebGPUScenePartComposite("deferredGBufferCodec"),
+			this._loadWebGPUScenePartComposite("surfaceLighting"),
 			this._loadFileComposite(WEBGPU_FIXED_SHADER_FILES.deferredLighting),
 		]);
 		return composeShaderParts(parts, "<webgpu-deferred-lighting-part>");
@@ -933,7 +935,7 @@ export class ShaderSource {
 			:	this._loadFileRaw(descriptor);
 	}
 
-	private static _loadWebGPUUtilityPart(
+	private static async _loadWebGPUUtilityPart(
 		key: WebGPUUtilityKey
 	): Promise<string | CompositeShaderSource> {
 		const parsed = this._parsePartKey<WebGPUUtilityShaderPart>(
@@ -945,9 +947,17 @@ export class ShaderSource {
 			key: `webgpu.utility.${parsed.part}`,
 			path: WEBGPU_UTILITY_SHADER_FILES[parsed.part],
 		};
-		return parsed.composite ?
-				this._loadFileComposite(descriptor)
-			:	this._loadFileRaw(descriptor);
+		if (!parsed.composite) {
+			return this._loadFileRaw(descriptor);
+		}
+		const shader = await this._loadFileComposite(descriptor);
+		if (parsed.part !== "decal") {
+			return shader;
+		}
+		const codec = await this._loadWebGPUScenePartComposite(
+			"deferredGBufferCodec"
+		);
+		return composeShaderParts([codec, shader], "<webgpu-decal-part>");
 	}
 
 	private static _loadWebGLPart(

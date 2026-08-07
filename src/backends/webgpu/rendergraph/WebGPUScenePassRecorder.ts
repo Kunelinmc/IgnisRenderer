@@ -8,6 +8,7 @@ import type {
 import type { PreparedFramePacketSet } from "../../../pipeline/FramePacketContributorRegistry";
 import { materialSupportsWebGPUDeferredLighting } from "../material";
 import { GBufferSlot } from "../constants";
+import type { WebGPUDeferredGBufferLayout } from "../constants";
 import {
 	getDefaultWebGPUDrawBindings,
 	submitWebGPUDraws,
@@ -26,6 +27,7 @@ import {
 } from "../../types";
 import type { WebGPUDepthDirtyClearPass } from "./WebGPUDepthDirtyClearPass";
 import type { WebGPUFrameGraphRecordingContext } from "./WebGPUFrameGraphRecordingContext";
+import { Logger } from "../../../foundation/Logger";
 
 export interface WebGPUDeferredOpaqueFrameState {
 	readonly fallbackPackets: DrawPacket[];
@@ -35,6 +37,8 @@ export interface WebGPUDeferredOpaqueFrameState {
 
 export interface WebGPUScenePassRecorderCallbacks {
 	getGBufferWriteBinding(): IBindingGroup;
+	getDeferredGBufferLayout(): WebGPUDeferredGBufferLayout;
+	preflightDeferredFrame(context: FrameContext): Promise<void>;
 }
 
 /**
@@ -109,6 +113,21 @@ export class WebGPUScenePassRecorder {
 			return null;
 		}
 
+		try {
+			await this._preflightDeferredPackets(context, deferredPackets);
+		} catch (error) {
+			Logger.warn(
+				"[webgpu-deferred-runtime-fallback] Deferred pipeline or binding " +
+					`creation failed; using the legacy MRT forward path. ${String(error)}`,
+				{
+					scope: "WebGPUScenePassRecorder",
+					onceKey: "webgpu-deferred-runtime-fallback",
+				}
+			);
+			await this.recordMainPass(context, opaquePackets, true, true);
+			return null;
+		}
+
 		const deferredResult = await this._recordDeferredGBufferPass(
 			context,
 			deferredPackets,
@@ -120,6 +139,24 @@ export class WebGPUScenePassRecorder {
 			clearSceneColor: deferredResult?.clearSceneColor ?? false,
 			lightingEnabled: deferredResult !== null,
 		};
+	}
+
+	private async _preflightDeferredPackets(
+		context: FrameContext,
+		packets: readonly DrawPacket[]
+	): Promise<void> {
+		const frameResources = this._recordingContext.requireFrameResources();
+		const deferredGBufferLayout = this._callbacks.getDeferredGBufferLayout();
+		this._callbacks.getGBufferWriteBinding();
+		await this._callbacks.preflightDeferredFrame(context);
+		for (const packet of packets) {
+			await this._sceneResources.getDrawResources(packet, frameResources, {
+				sceneTargetMode: "gbuffer",
+				deferredGBufferLayout,
+				sampleCount: 1,
+				drawMode: "default",
+			});
+		}
 	}
 
 	/**
@@ -633,14 +670,16 @@ export class WebGPUScenePassRecorder {
 		if (!encoder || !targets) {
 			return null;
 		}
+		const deferredGBufferLayout = this._callbacks.getDeferredGBufferLayout();
 		if (
-			!targets.gSpecular ||
-			!targets.gCoatSheen ||
-			!targets.gSheenReflectance ||
-			!targets.gMaterialExt0 ||
-			!targets.gMaterialExt1 ||
-			!targets.gMaterialExt2 ||
-			!targets.gMaterialExt3
+			deferredGBufferLayout === "extended" &&
+			(
+				!targets.gSpecular ||
+				!targets.gCoatSheen ||
+				!targets.gSheenReflectance ||
+				!targets.gMaterialExt0 ||
+				!targets.gMaterialExt3
+			)
 		) {
 			await this.recordMainPass(context, packets, clearAttachments, true);
 			return null;
@@ -751,24 +790,26 @@ export class WebGPUScenePassRecorder {
 			loadOp: shouldClearAttachments ? "clear" : "load",
 			storeOp: "store",
 		};
-		colorAttachments[GBufferSlot.Specular] = {
-			view: targets.gSpecular,
-			clearValue: { r: 0, g: 0, b: 0, a: 0 },
-			loadOp: shouldClearAttachments ? "clear" : "load",
-			storeOp: "store",
-		};
-		colorAttachments[GBufferSlot.CoatSheen] = {
-			view: targets.gCoatSheen,
-			clearValue: { r: 0, g: 0, b: 0, a: 0 },
-			loadOp: shouldClearAttachments ? "clear" : "load",
-			storeOp: "store",
-		};
-		colorAttachments[GBufferSlot.SheenReflectance] = {
-			view: targets.gSheenReflectance,
-			clearValue: { r: 0, g: 0, b: 0, a: 0 },
-			loadOp: shouldClearAttachments ? "clear" : "load",
-			storeOp: "store",
-		};
+		if (deferredGBufferLayout === "extended") {
+			colorAttachments[GBufferSlot.Specular] = {
+				view: targets.gSpecular,
+				clearValue: { r: 0, g: 0, b: 0, a: 0 },
+				loadOp: shouldClearAttachments ? "clear" : "load",
+				storeOp: "store",
+			};
+			colorAttachments[GBufferSlot.CoatSheen] = {
+				view: targets.gCoatSheen,
+				clearValue: { r: 0, g: 0, b: 0, a: 0 },
+				loadOp: shouldClearAttachments ? "clear" : "load",
+				storeOp: "store",
+			};
+			colorAttachments[GBufferSlot.SheenReflectance] = {
+				view: targets.gSheenReflectance,
+				clearValue: { r: 0, g: 0, b: 0, a: 0 },
+				loadOp: shouldClearAttachments ? "clear" : "load",
+				storeOp: "store",
+			};
+		}
 
 		encoder.beginRenderPass({
 			label:
@@ -804,6 +845,7 @@ export class WebGPUScenePassRecorder {
 				),
 			resolveDrawOptions: (packet) => ({
 				sceneTargetMode: "gbuffer",
+				deferredGBufferLayout,
 				sampleCount: 1,
 				drawMode:
 					earlyZExecuted && earlyZPacketIds.has(packet.id) ?

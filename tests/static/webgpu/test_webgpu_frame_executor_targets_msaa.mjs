@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { PBRMaterial } from "../../../src/materials/PBRMaterial.ts";
 
 import * as frameExecutorFixture from "../../helpers/webgpu_frame_executor_resilience.mjs";
 
@@ -256,11 +257,11 @@ function testGBufferBridgeReportsAllocatedWebGPUFormats() {
 	assert.equal(bridge.channels.depth.encoding, "motion-depth.z");
 	assert.equal(bridge.channels.motion.format, "rgba16float");
 	assert.equal(bridge.channels.motion.encoding, "motion-depth.xy");
-	assert.equal(bridge.channels.normal.format, "rgba16float");
+	assert.equal(bridge.channels.normal.format, "rgba8unorm");
 	assert.equal(bridge.channels.normal.encoding, "encoded-world-normal");
-	assert.equal(bridge.channels.roughness.format, "rgba16float");
+	assert.equal(bridge.channels.roughness.format, "rgba8unorm");
 	assert.equal(bridge.channels.roughness.encoding, "normal-roughness-metallic.z");
-	assert.equal(bridge.channels.metallic.format, "rgba16float");
+	assert.equal(bridge.channels.metallic.format, "rgba8unorm");
 	assert.equal(bridge.channels.metallic.encoding, "normal-roughness-metallic.w");
 	assert.equal(bridge.channels.specular, undefined);
 	assert.equal(bridge.channels.albedo.format, "rgba8unorm");
@@ -424,6 +425,82 @@ async function testFrameTargetReuseIgnoresPostProcessDownsampleOptions() {
 	executor.destroy();
 }
 
+async function testDeferredBaseSkipsFrameSizedExtensionTargets() {
+	const backend = new FakeBackend();
+	const executor = new WebGPUFrameExecutor(backend, createResourcesStub());
+	const context = createFrameContext(64, 64);
+	context.postProcess = createResolvedPostProcess({});
+	context.scene.opaquePackets = [{ material: new PBRMaterial() }];
+	executor.beginFrame(context);
+	const targets = getFrameTargets(executor);
+	assert.equal(executor.getSceneTargetModeForFrame(), "gbuffer");
+	assert.equal(
+		getFrameGraphDebugState(executor).targetManager.deferredGBufferLayout,
+		"base"
+	);
+	assert.equal(targets.gSpecular, null);
+	assert.equal(targets.gCoatSheen, null);
+	assert.equal(targets.gSheenReflectance, null);
+	assert.equal(targets.gMaterialExt0, null);
+	assert.equal(targets.gMaterialExt3, null);
+	await executor.endFrame();
+	executor.destroy();
+}
+
+async function testDeferredAllocationFallbackReleasesCompactTargetsAtomically() {
+	const backend = new FakeBackend();
+	const createTexture = backend.createTexture.bind(backend);
+	let failedExtendedAllocation = false;
+	backend.createTexture = (desc) => {
+		if (!failedExtendedAllocation && desc.format === "rgba16uint") {
+			failedExtendedAllocation = true;
+			throw new Error("simulated deferred extension allocation failure");
+		}
+		return createTexture(desc);
+	};
+	const executor = new WebGPUFrameExecutor(backend, createResourcesStub());
+	const context = createFrameContext(64, 64);
+	context.postProcess = createResolvedPostProcess({});
+	context.scene.opaquePackets = [
+		{ material: new PBRMaterial({ anisotropyStrength: 1 }) },
+	];
+	const warnings = [];
+	Logger.configure({
+		level: "warn",
+		resetOnceKeys: true,
+		sink: {
+			warn: (...args) => warnings.push(args.map((arg) => String(arg)).join(" ")),
+		},
+	});
+	try {
+		executor.beginFrame(context);
+		assert.equal(failedExtendedAllocation, true);
+		assert.equal(executor.getSceneTargetModeForFrame(), "mrt");
+		assert.equal(
+			getFrameGraphDebugState(executor).targetManager.sceneTargetMode,
+			"mrt"
+		);
+		assert.equal(
+			warnings.filter((warning) =>
+				warning.includes("[webgpu-deferred-runtime-fallback]")
+			).length,
+			1
+		);
+		const liveCompactTargets = backend.textures.filter(
+			(texture) =>
+				texture.label?.startsWith("WebGPUGBuffer") && !texture.destroyed
+		);
+		assert.equal(
+			liveCompactTargets.some((texture) => texture.format === "rgba16uint"),
+			false
+		);
+		await executor.endFrame();
+	} finally {
+		Logger.reset();
+		executor.destroy();
+	}
+}
+
 async function run() {
 	try {
 		await testFrameTargetAllocationFailureReleasesPartialResources();
@@ -439,6 +516,8 @@ async function run() {
 		await testFrameTargetsSkippedWhenFrameHasNoOffscreenWork();
 		await testTransmissionTargetsAllocateOnlyWhenRefractionHasWork();
 		await testFrameTargetReuseIgnoresPostProcessDownsampleOptions();
+		await testDeferredBaseSkipsFrameSizedExtensionTargets();
+		await testDeferredAllocationFallbackReleasesCompactTargetsAtomically();
 		console.log("WebGPU frame-executor targets/MSAA tests passed");
 	} finally {
 		restoreTestState();
