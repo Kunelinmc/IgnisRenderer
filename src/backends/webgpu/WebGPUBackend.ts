@@ -15,7 +15,12 @@ import type {
 	RenderTargetReadbackOptions,
 	RenderTargetReadbackResult,
 } from "../../rendering/CustomRenderTargets";
-import { type FrameAttachments, type FrameContext, type FramePass } from "../../pipeline/types";
+import {
+	PARTICLE_SIM_DELTA_TIME_SECONDS_KEY,
+	type FrameAttachments,
+	type FrameContext,
+	type FramePass,
+} from "../../pipeline/types";
 import type {
 	NormalizedOcclusionCullingOptions,
 	OcclusionCullingBackendAdapter,
@@ -49,7 +54,6 @@ import {
 	WebGPUSampleCountResolver,
 	type WebGPUSampleCountResolverHost,
 } from "./WebGPUSampleCountResolver";
-import { WebGPUBackendPassDispatcher } from "./WebGPUBackendPassDispatcher";
 import { WebGPUWarmupCoordinator } from "./WebGPUWarmupCoordinator";
 import { WebGPUReflectionProbeCapturePass } from "./WebGPUReflectionProbeCapturePass";
 import { WebGPUParticleMeshPacketContributor } from "./WebGPUParticleMeshPacketContributor";
@@ -140,6 +144,13 @@ export interface WebGPUBackendOptions {
 	 */
 	enableOcclusionCulling?: boolean;
 }
+
+type ParticleSimulatorWithBatchEmit = IParticleSimulator & {
+	simulateAndEmitRenderBatches?: (
+		context: FrameContext,
+		deltaTimeSeconds: number,
+	) => Promise<void>;
+};
 
 export class WebGPUBackend implements IRenderBackend {
 	private _postProcessExecutor: WebGPUPostProcessExecutor | null = null;
@@ -247,7 +258,6 @@ export class WebGPUBackend implements IRenderBackend {
 	private readonly _bindingGroupCache: WebGPUBindingGroupCache;
 	private readonly _computeFacade: IWebGPUComputeFacade;
 	private readonly _iblPrefilterExecutor: WebGPUIBLPrefilterExecutor;
-	private readonly _passDispatcher: WebGPUBackendPassDispatcher;
 	private readonly _warmupCoordinator: WebGPUWarmupCoordinator;
 	private readonly _framePacketRegistry = new FramePacketContributorRegistry();
 
@@ -327,17 +337,6 @@ export class WebGPUBackend implements IRenderBackend {
 		this._shaderModuleCompiler = new WebGPUShaderModuleCompiler(this._shaderCompileStage);
 		this._pipelineCache = new WebGPUPipelineCache(this._createPipelineCacheHost());
 		this._bindingGroupCache = new WebGPUBindingGroupCache(this._createBindingGroupCacheHost());
-		this._passDispatcher = new WebGPUBackendPassDispatcher({
-			get frameOrchestrator() {
-				return thisRef._frameOrchestrator;
-			},
-			get particleSimulator() {
-				return thisRef._particleSimulator;
-			},
-			get postProcessRuntime() {
-				return thisRef._postProcessRuntime;
-			},
-		});
 		this._framePacketRegistry.register(new WebGPUParticleMeshPacketContributor());
 		this._warmupCoordinator = new WebGPUWarmupCoordinator({
 			get profile() {
@@ -766,15 +765,21 @@ export class WebGPUBackend implements IRenderBackend {
 		}
 
 		this._validatePassDependencies(pass);
-		if (pass.stage === "particle-sim") {
-			this._frameOrchestrator.recordOpaqueGraphStage?.(
-				pass.stage,
-				"Particle simulation executes outside the logical frame graph.",
-			);
+		let result: Promise<void> | void;
+		switch (pass.stage) {
+			case "animation-sim":
+				result = undefined;
+				break;
+			case "particle-sim":
+				this._frameOrchestrator.recordOpaqueGraphStage?.(
+					pass.stage,
+					"Particle simulation executes outside the logical frame graph.",
+				);
+				result = this._executeParticleSimulation(context);
+				break;
+			default:
+				result = this._frameOrchestrator.executePass(pass, context);
 		}
-		const dispatched = this._passDispatcher.executePass(pass, context);
-		const result =
-			dispatched === null ? this._frameOrchestrator.executePass(pass, context) : dispatched;
 		if (result && typeof (result as Promise<void>).then === "function") {
 			return (result as Promise<void>).then(() => {
 				this._markPassExecuted(pass.stage);
@@ -782,6 +787,22 @@ export class WebGPUBackend implements IRenderBackend {
 		}
 		this._markPassExecuted(pass.stage);
 		return result;
+	}
+
+	private async _executeParticleSimulation(context: FrameContext): Promise<void> {
+		const value = context.transient.get(PARTICLE_SIM_DELTA_TIME_SECONDS_KEY);
+		const deltaTimeSeconds =
+			typeof value === "number" && Number.isFinite(value)
+				? Math.max(0, value)
+				: 0;
+		const simulator = this._particleSimulator as ParticleSimulatorWithBatchEmit | null;
+		if (simulator?.simulateAndEmitRenderBatches) {
+			await simulator.simulateAndEmitRenderBatches(context, deltaTimeSeconds);
+		} else {
+			simulator?.simulate(context, deltaTimeSeconds);
+			simulator?.emitRenderBatches(context);
+		}
+		this._frameOrchestrator?.sealParticleSimulation?.(context);
 	}
 
 	public skipPass(pass: FramePass): void {

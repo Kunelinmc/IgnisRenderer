@@ -6,8 +6,8 @@ import { MeshAsset } from "../../../src/meshes/MeshAsset.ts";
 import {
 	FramePacketContributorRegistry,
 } from "../../../src/pipeline/FramePacketContributorRegistry.ts";
+import { WebGPUBackend } from "../../../src/backends/webgpu/WebGPUBackend.ts";
 import { WebGPUParticleMeshPacketContributor } from "../../../src/backends/webgpu/WebGPUParticleMeshPacketContributor.ts";
-import { WebGPUBackendPassDispatcher } from "../../../src/backends/webgpu/WebGPUBackendPassDispatcher.ts";
 import {
 	DRAW_PACKET_FLAG_SHADOW_CASTER,
 	DRAW_PACKET_FLAG_SHADOW_TRANSMITTER,
@@ -157,22 +157,36 @@ async function testSimulationSealsFrameAfterBatchEmission() {
 	const events = [];
 	const context = { transient: createTransientStore() };
 	context.transient.set(PARTICLE_SIM_DELTA_TIME_SECONDS_KEY, 0.25);
-	const dispatcher = new WebGPUBackendPassDispatcher({
-		particleSimulator: {
-			async simulateAndEmitRenderBatches(_context, deltaTimeSeconds) {
-				assert.equal(deltaTimeSeconds, 0.25);
-				events.push("simulate");
-			},
+	const backend = new WebGPUBackend();
+	backend._state = "ready";
+	backend._device = {};
+	backend._queue = {};
+	backend._activeFrameTransaction = {
+		isOpen: true,
+		assertRecordingContext(value) {
+			assert.strictEqual(value, context);
 		},
-		frameOrchestrator: {
-			sealParticleSimulation(value) {
-				assert.strictEqual(value, context);
-				events.push("seal");
-			},
+	};
+	backend._particleSimulator = {
+		async simulateAndEmitRenderBatches(_context, deltaTimeSeconds) {
+			assert.equal(deltaTimeSeconds, 0.25);
+			events.push("simulate");
 		},
-		postProcessRuntime: {},
-	});
-	await dispatcher.executePass(
+	};
+	backend._frameOrchestrator = {
+		recordOpaqueGraphStage(stage) {
+			assert.equal(stage, "particle-sim");
+			events.push("record-opaque");
+		},
+		sealParticleSimulation(value) {
+			assert.strictEqual(value, context);
+			events.push("seal");
+		},
+		executePass() {
+			assert.fail("particle simulation must not execute through the frame graph");
+		},
+	};
+	await backend.executePass(
 		{
 			stage: "particle-sim",
 			executor: "backend",
@@ -181,7 +195,7 @@ async function testSimulationSealsFrameAfterBatchEmission() {
 		},
 		context,
 	);
-	assert.deepEqual(events, ["simulate", "seal"]);
+	assert.deepEqual(events, ["record-opaque", "simulate", "seal"]);
 }
 
 testMeshParticleFramePreparation();
