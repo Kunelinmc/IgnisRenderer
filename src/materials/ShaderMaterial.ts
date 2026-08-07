@@ -114,6 +114,12 @@ export interface ResolvedWebGPUShaderProgram {
 	fragmentCode: string;
 	vertexEntryPoint: string;
 	fragmentEntryPoint: string;
+	/**
+	 * @internal Used by the WebGPU pipeline library to match color target writes
+	 * after source fallback. Applications should configure shader chunks and
+	 * entry points through `ShaderMaterialParams` instead.
+	 */
+	fragmentTargetMode: ShaderTargetMode;
 }
 
 export interface ResolvedWebGPUDepthPrepassProgram {
@@ -175,6 +181,11 @@ interface ShaderMaterialUniformTypeInfo {
 	kind: "scalar" | "vector" | "matrix";
 	scalar: "f32" | "i32" | "u32";
 	components: 1 | 2 | 3 | 4 | 16;
+}
+
+interface ResolvedWebGPUStageSource {
+	code: string;
+	stage: ShaderStageKind;
 }
 
 const SHADER_CHUNK_ORDER: readonly ShaderChunkKey[] = [
@@ -549,9 +560,9 @@ export class ShaderMaterial extends Material {
 		mode: ShaderTargetMode,
 		options: ShaderProgramResolveOptions = {}
 	): ResolvedWebGPUShaderProgram {
-		const rawVertexCode = this._resolveWebGPUStageCode("vertex", mode);
+		const vertexSource = this._resolveWebGPUStageCode("vertex", mode);
 		const vertexCode = this._decorateShaderSource(
-			rawVertexCode,
+			vertexSource.code,
 			"wgsl",
 			"vertex",
 			options.enableRuntimeInjects === true
@@ -560,9 +571,9 @@ export class ShaderMaterial extends Material {
 			mode === "deferred" ? "fragment-deferred"
 			: mode === "mrt" ? "fragment-mrt"
 			: "fragment-single";
-		const rawFragmentCode = this._resolveWebGPUStageCode(fragmentStage, mode);
+		const fragmentSource = this._resolveWebGPUStageCode(fragmentStage, mode);
 		const fragmentCode = this._decorateShaderSource(
-			rawFragmentCode,
+			fragmentSource.code,
 			"wgsl",
 			"fragment",
 			options.enableRuntimeInjects === true
@@ -572,11 +583,15 @@ export class ShaderMaterial extends Material {
 			fragmentCode,
 			vertexEntryPoint: this.vertexEntryPoint,
 			fragmentEntryPoint:
-				mode === "deferred" ?
+				fragmentSource.stage === "fragment-deferred" ?
 					this.fragmentDeferredEntryPoint
-				: mode === "mrt" ?
+				: fragmentSource.stage === "fragment-mrt" ?
 					this.fragmentMRTEntryPoint
 				:	this.fragmentSingleEntryPoint,
+			fragmentTargetMode:
+				fragmentSource.stage === "fragment-deferred" ? "deferred"
+				: fragmentSource.stage === "fragment-mrt" ? "mrt"
+				: "single",
 		};
 	}
 
@@ -602,9 +617,9 @@ export class ShaderMaterial extends Material {
 		mode: ShaderTargetMode,
 		options: ShaderProgramResolveOptions = {}
 	): ResolvedWebGPUDepthPrepassProgram | null {
-		const rawVertexCode = this._resolveWebGPUStageCode("vertex", mode);
+		const vertexSource = this._resolveWebGPUStageCode("vertex", mode);
 		const vertexCode = this._decorateShaderSource(
-			rawVertexCode,
+			vertexSource.code,
 			"wgsl",
 			"vertex",
 			options.enableRuntimeInjects === true
@@ -726,7 +741,7 @@ export class ShaderMaterial extends Material {
 	private _resolveWebGPUStageCode(
 		stage: ShaderStageKind,
 		mode: ShaderTargetMode
-	): string {
+	): ResolvedWebGPUStageSource {
 		const wgslSource = this._getChunkStageSource("wgsl", stage, mode);
 		if (wgslSource) {
 			return wgslSource;
@@ -745,13 +760,16 @@ export class ShaderMaterial extends Material {
 			);
 		}
 
-		const transpiled = this._glslToWgsl(glslSource, stage);
+		const transpiled = this._glslToWgsl(glslSource.code, glslSource.stage);
 		if (typeof transpiled !== "string" || transpiled.trim().length === 0) {
 			throw new Error(
-				`ShaderMaterial ${this.name} glslToWgsl transpiler returned empty output for ${stage}`
+				`ShaderMaterial ${this.name} glslToWgsl transpiler returned empty output for ${glslSource.stage}`
 			);
 		}
-		return transpiled;
+		return {
+			code: transpiled,
+			stage: glslSource.stage,
+		};
 	}
 
 	private _resolveWebGPUDepthStageCode(mode: ShaderTargetMode): string | null {
@@ -761,7 +779,7 @@ export class ShaderMaterial extends Material {
 			mode
 		);
 		if (wgslSource) {
-			return wgslSource;
+			return wgslSource.code;
 		}
 
 		const glslSource = this._getChunkStageSource(
@@ -779,7 +797,7 @@ export class ShaderMaterial extends Material {
 			);
 		}
 
-		const transpiled = this._glslToWgsl(glslSource, "fragment-depth");
+		const transpiled = this._glslToWgsl(glslSource.code, "fragment-depth");
 		if (typeof transpiled !== "string" || transpiled.trim().length === 0) {
 			throw new Error(
 				`ShaderMaterial ${this.name} glslToWgsl transpiler returned empty output for fragment-depth`
@@ -960,30 +978,42 @@ export class ShaderMaterial extends Material {
 		language: ShaderChunkLanguage,
 		stage: ShaderStageKind,
 		mode: ShaderTargetMode
-	): string | null {
+	): ResolvedWebGPUStageSource | null {
 		switch (stage) {
-			case "vertex":
-				return this._chunks.get(`webgpu:${language}:vertex`) ?? null;
-			case "fragment-single":
-				return this._chunks.get(`webgpu:${language}:fragment-single`) ?? null;
-			case "fragment-mrt":
-				return (
+			case "vertex": {
+				const code = this._chunks.get(`webgpu:${language}:vertex`);
+				return code ? { code, stage } : null;
+			}
+			case "fragment-single": {
+				const code = this._chunks.get(`webgpu:${language}:fragment-single`);
+				return code ? { code, stage } : null;
+			}
+			case "fragment-mrt": {
+				const mrtCode =
 					mode === "mrt" ?
-						(this._chunks.get(`webgpu:${language}:fragment-mrt`) ??
-							this._chunks.get(`webgpu:${language}:fragment-single`) ??
-							null)
-					:	(this._chunks.get(`webgpu:${language}:fragment-single`) ??
-							null)
+						this._chunks.get(`webgpu:${language}:fragment-mrt`)
+					:	undefined;
+				if (mrtCode) {
+					return { code: mrtCode, stage };
+				}
+				const singleCode = this._chunks.get(
+					`webgpu:${language}:fragment-single`
 				);
-			case "fragment-deferred":
-				return (
+				return singleCode ?
+					{ code: singleCode, stage: "fragment-single" }
+				:	null;
+			}
+			case "fragment-deferred": {
+				const code =
 					mode === "deferred" ?
-						this._chunks.get(`webgpu:${language}:fragment-deferred`) ??
-						null
-					:	null
-				);
-			case "fragment-depth":
-				return this._chunks.get(`webgpu:${language}:fragment-depth`) ?? null;
+						this._chunks.get(`webgpu:${language}:fragment-deferred`)
+					:	undefined;
+				return code ? { code, stage } : null;
+			}
+			case "fragment-depth": {
+				const code = this._chunks.get(`webgpu:${language}:fragment-depth`);
+				return code ? { code, stage } : null;
+			}
 			default:
 				return null;
 		}

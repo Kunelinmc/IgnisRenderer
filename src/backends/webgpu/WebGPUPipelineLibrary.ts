@@ -102,6 +102,7 @@ interface WebGPUSceneProgram {
 	fragmentModule: IShaderModule;
 	vertexEntryPoint: string;
 	fragmentEntryPoint: string;
+	fragmentTargetMode: "single" | "mrt" | "deferred" | null;
 }
 
 interface WebGPUPipelineLibraryOptions {
@@ -293,6 +294,10 @@ export class WebGPUPipelineLibrary {
 			descriptor,
 			isTransparent,
 			usesTransmission
+		);
+		this._disableUnwrittenFragmentTargets(
+			fragmentTargets,
+			sceneProgram.fragmentTargetMode
 		);
 		const depthFormat = this._resolveSceneDepthFormat(mode);
 		const depthWrite = material.depthWrite;
@@ -579,6 +584,18 @@ export class WebGPUPipelineLibrary {
 		];
 	}
 
+	private _disableUnwrittenFragmentTargets(
+		targets: ColorTargetState[],
+		fragmentTargetMode: "single" | "mrt" | "deferred" | null
+	): void {
+		if (fragmentTargetMode !== "single") {
+			return;
+		}
+		for (let index = 1; index < targets.length; index++) {
+			targets[index].writeMask = COLOR_WRITE_NONE;
+		}
+	}
+
 	private async _resolveSceneProgram(
 		material: Material,
 		descriptor: WebGPUScenePassDescriptor
@@ -598,6 +615,7 @@ export class WebGPUPipelineLibrary {
 						"fsMainTransmissionCapture"
 					: descriptor.shaderEntryMode === "mrt" ? "fsMain"
 					:	"fsMainSingle",
+				fragmentTargetMode: null,
 			};
 		}
 
@@ -627,6 +645,7 @@ export class WebGPUPipelineLibrary {
 				fragmentModule,
 				vertexEntryPoint: program.vertexEntryPoint,
 				fragmentEntryPoint: program.fragmentEntryPoint,
+				fragmentTargetMode: program.fragmentTargetMode,
 			};
 		} catch (error) {
 			if (!this._isWarnMode()) {
@@ -650,6 +669,7 @@ export class WebGPUPipelineLibrary {
 						"fsMainTransmissionCapture"
 					: descriptor.shaderEntryMode === "mrt" ? "fsMain"
 					:	"fsMainSingle",
+				fragmentTargetMode: null,
 			};
 		}
 	}

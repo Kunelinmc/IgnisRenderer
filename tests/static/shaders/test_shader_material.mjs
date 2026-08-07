@@ -206,6 +206,7 @@ async function testWGSLProgramSelection() {
 	assert.equal(mrtPipeline.desc.vertex.entryPoint, "customVs");
 	assert.equal(mrtPipeline.desc.fragment.entryPoint, "customFsMRT");
 	assert.equal(mrtPipeline.desc.fragment.targets.length, 5);
+	assert.equal(mrtPipeline.desc.fragment.targets[1].writeMask, undefined);
 
 	const moduleCodes = backend.shaderModules.map((module) => module.desc.code);
 	assert.ok(moduleCodes.includes(WGSL_VERTEX));
@@ -220,6 +221,45 @@ async function testWGSLProgramSelection() {
 		material, "mrt", false, undefined, undefined, undefined, 1,
 	);
 	assert.equal(backend.pipelines.length, pipelineCountBefore);
+}
+
+async function testWebGPUMRTFallsBackToSingleFragmentEntryPoint() {
+	const backend = new FakeBackend();
+	backend.shaderRuntime = new ShaderRuntime({ mode: "strict" });
+	const library = new WebGPUPipelineLibrary(backend, createLayouts());
+	const material = new ShaderMaterial({
+		name: "WGSLMRTFallbackMaterial",
+		chunks: [
+			{
+				language: "wgsl",
+				stage: "vertex",
+				code: WGSL_VERTEX,
+			},
+			{
+				language: "wgsl",
+				stage: "fragment",
+				mode: "single",
+				code: WGSL_FRAGMENT_SINGLE,
+			},
+		],
+		vertexEntryPoint: "customVs",
+		fragmentSingleEntryPoint: "customFsSingle",
+		fragmentMRTEntryPoint: "customFsMRT",
+	});
+
+	const program = material.resolveWebGPUProgram("mrt");
+	assert.equal(program.fragmentCode, WGSL_FRAGMENT_SINGLE);
+	assert.equal(program.fragmentEntryPoint, "customFsSingle");
+	assert.equal(program.fragmentTargetMode, "single");
+
+	const pipeline = await library.getPipeline(
+		material, "mrt", false, undefined, undefined, undefined, 1,
+	);
+	assert.equal(pipeline.desc.fragment.entryPoint, "customFsSingle");
+	assert.equal(pipeline.desc.fragment.targets.length, 5);
+	for (let index = 1; index < pipeline.desc.fragment.targets.length; index++) {
+		assert.equal(pipeline.desc.fragment.targets[index].writeMask, 0);
+	}
 }
 
 async function testWebGPUDeferredProgramSelection() {
@@ -249,6 +289,7 @@ async function testWebGPUDeferredProgramSelection() {
 	assert.equal(material.hasWebGPUDeferredProgram(), true);
 	const program = material.resolveWebGPUProgram("deferred");
 	assert.equal(program.fragmentEntryPoint, "customFsDeferred");
+	assert.equal(program.fragmentTargetMode, "deferred");
 	assert.equal(program.fragmentCode.includes("DeferredOut"), true);
 
 	const pipeline = await library.getPipeline(
@@ -999,6 +1040,7 @@ function testUniformBindingInjectDirectivesDecoratePrograms() {
 
 async function run() {
 	await testWGSLProgramSelection();
+	await testWebGPUMRTFallsBackToSingleFragmentEntryPoint();
 	await testWebGPUDeferredProgramSelection();
 	await testBuiltinBaseGBufferPipelineSelection();
 	testResolveWebGPUDepthPrepassProgramContract();

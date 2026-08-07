@@ -323,6 +323,11 @@ This document defines WebGPU frame-graph execution, deferred lighting, presentat
 	  deferred routing.
 	- `ShaderMaterialParams.fragmentDeferredEntryPoint` must select the deferred
 	  fragment entry point and must default to `fsMainDeferred`.
+	- When MRT rendering falls back from a missing `fragment-mrt` chunk to a
+	  `fragment-single` chunk, the resolved WebGPU program must use
+	  `fragmentSingleEntryPoint`. The pipeline must preserve the MRT attachment
+	  layout while setting every color target after location `0` to a zero write
+	  mask.
 	- A `ShaderMaterial` must enter the G-buffer path only when
 	  `deferredLighting === true` and a WebGPU deferred fragment chunk exists.
 	- Non-opt-in `ShaderMaterial` instances must render after lighting through
