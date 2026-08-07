@@ -264,6 +264,13 @@ This document defines WebGPU frame-graph execution, deferred lighting, presentat
 	  through the legacy MRT forward shader.
 	- Transparent, OIT, transmission, and particles must render after opaque
 	  lighting resolve through existing forward paths.
+- Clustered-lighting compute contract:
+	- Gather culling and overflow resolution must dispatch the cluster grid across
+	  `tilesX`, `tilesY`, and `zSlices`. They must not flatten the complete cluster
+	  count into one dispatch dimension.
+	- Gather and overflow shaders must derive the row-major cluster index from the
+	  three-dimensional workgroup id so large valid frame grids do not exceed
+	  `maxComputeWorkgroupsPerDimension` in a single dimension.
 - G-buffer contract:
 	- The frame analyzer must select `base` or `extended` deferred payload mode.
 	  `ShaderMaterial` deferred chunks and deferred decals must conservatively

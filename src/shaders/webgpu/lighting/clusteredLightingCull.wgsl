@@ -542,17 +542,17 @@ fn csGather(
 	@builtin(workgroup_id) workgroupId: vec3<u32>,
 	@builtin(local_invocation_index) lane: u32
 ) {
-	let clusterIndex = workgroupId.x;
-	if (!clusteredEnabled() || clusterIndex >= clusterParams.clusterCount) {
-		return;
-	}
 	let tilesX = max(clusterParams.tilesX, 1u);
 	let tilesY = max(clusterParams.tilesY, 1u);
 	let tilesPerLayer = tilesX * tilesY;
-	let clusterZ = clusterIndex / tilesPerLayer;
-	let layerIndex = clusterIndex - clusterZ * tilesPerLayer;
-	let clusterY = layerIndex / tilesX;
-	let clusterX = layerIndex - clusterY * tilesX;
+	let clusterX = workgroupId.x;
+	let clusterY = workgroupId.y;
+	let clusterZ = workgroupId.z;
+	// Preserve the row-major cluster layout used by the scatter path and shading.
+	let clusterIndex = clusterX + clusterY * tilesX + clusterZ * tilesPerLayer;
+	if (!clusteredEnabled() || clusterIndex >= clusterParams.clusterCount) {
+		return;
+	}
 	if (lane == 0u) {
 		sharedAABB = buildClusterAABB(clusterX, clusterY, clusterZ);
 		gatherBaseCount = 0u;
@@ -619,7 +619,14 @@ fn csResolveOverflow(
 	@builtin(workgroup_id) workgroupId: vec3<u32>,
 	@builtin(local_invocation_index) lane: u32
 ) {
-	let clusterIndex = workgroupId.x;
+	let tilesX = max(clusterParams.tilesX, 1u);
+	let tilesY = max(clusterParams.tilesY, 1u);
+	let tilesPerLayer = tilesX * tilesY;
+	let clusterX = workgroupId.x;
+	let clusterY = workgroupId.y;
+	let clusterZ = workgroupId.z;
+	// Preserve the row-major cluster layout used by the scatter path and shading.
+	let clusterIndex = clusterX + clusterY * tilesX + clusterZ * tilesPerLayer;
 	if (clusterIndex >= clusterParams.clusterCount) {
 		return;
 	}
@@ -633,13 +640,6 @@ fn csResolveOverflow(
 	if (!workgroupUniformLoad(&isOverflow)) {
 		return;
 	}
-	let tilesX = max(clusterParams.tilesX, 1u);
-	let tilesY = max(clusterParams.tilesY, 1u);
-	let tilesPerLayer = tilesX * tilesY;
-	let clusterZ = clusterIndex / tilesPerLayer;
-	let layerIndex = clusterIndex - clusterZ * tilesPerLayer;
-	let clusterY = layerIndex / tilesX;
-	let clusterX = layerIndex - clusterY * tilesX;
 	if (lane == 0u) {
 		sharedAABB = buildClusterAABB(clusterX, clusterY, clusterZ);
 		atomicStore(&overflowMatchCount, 0u);

@@ -478,9 +478,9 @@ export class WebGPUClusteredLightingRuntime {
 				return;
 			}
 			const clusterDispatch = {
-				x: this._state.clusterCount,
-				y: 1,
-				z: 1,
+				x: this._state.tilesX,
+				y: this._state.tilesY,
+				z: this._state.zSlices,
 			};
 			recordComputePass(
 				encoder,

@@ -471,12 +471,49 @@ async function testRuntimeDispatchesGatherComputePasses() {
 			.map((call) => call[1]),
 		["WebGPUClusteredLightingGather"]
 	);
+	assert.deepEqual(
+		encoder.calls.find((call) => call[0] === "dispatchWorkgroups"),
+		["dispatchWorkgroups", 2, 2, 4]
+	);
 	const sceneBinding = runtime.getSceneBinding();
 	assert.equal(sceneBinding.desc.entries.length, 8);
 	assert.equal(compute.bindGroupLayouts[0].desc.entries.length, 8);
 	assert.deepEqual(
 		compute.bindGroupLayouts[0].desc.entries.map((entry) => entry.binding),
 		[0, 1, 2, 3, 4, 5, 6, 7]
+	);
+}
+
+async function testRuntimeDispatchesLargeGatherGridAcrossDimensions() {
+	globalThis.GPUShaderStage ??= { COMPUTE: 4 };
+	const compute = new ClusteredComputeRecorder();
+	const runtime = new WebGPUClusteredLightingRuntime(compute, {}, {});
+	runtime.prepareFrame(
+		{ camera: { type: CameraType.Perspective, near: 0.1, far: 100 } },
+		{
+			enableLighting: true,
+			enableClusteredLighting: true,
+			clusteredLightingOptions: {
+				maxLights: 9,
+				maxLightsPerCluster: 8,
+				tileSizePx: 40,
+				zSlices: 24,
+			},
+		},
+		{ lights: Array.from({ length: 9 }, (_, index) => createClusteredLight(index)) },
+		2320,
+		2000
+	);
+	const encoder = new ClusteredCommandEncoder();
+	await runtime.build(encoder, {});
+
+	assert.equal(58 * 50 * 24, 69600);
+	assert.deepEqual(
+		encoder.calls.filter((call) => call[0] === "dispatchWorkgroups"),
+		[
+			["dispatchWorkgroups", 58, 50, 24],
+			["dispatchWorkgroups", 58, 50, 24],
+		]
 	);
 }
 
@@ -690,6 +727,13 @@ async function testClusteredCullShaderUsesActiveCountAndTiling() {
 	assert.ok(shader.includes("var<workgroup> overflowScores: array<f32, 1024>;"));
 	assert.ok(shader.includes("fn scoreIsBetter("));
 	assert.ok(shader.includes("let lightIndexA = refA & CLUSTER_LIGHT_INDEX_MASK;"));
+	assert.equal(
+		countOccurrences(
+			shader,
+			"let clusterIndex = clusterX + clusterY * tilesX + clusterZ * tilesPerLayer;"
+		),
+		2
+	);
 	assert.ok(shader.includes("return clusterSliceDepths.depths[min(slice, lastIndex)];"));
 	assert.ok(shader.includes("atomicAdd(&clusterHeaders.headers[clusterIndex].count"));
 	assert.ok(shader.includes("fn resolveLightClusterRange("));
@@ -756,6 +800,7 @@ async function run() {
 	testRuntimeWritesClampedActiveLightCount();
 	testRuntimeWritesClusteredAreaSoAData();
 	await testRuntimeDispatchesGatherComputePasses();
+	await testRuntimeDispatchesLargeGatherGridAcrossDimensions();
 	await testRuntimeRetainsScatterABPath();
 	await testRuntimeSkipsStaticCullAndSelectiveUploads();
 	testRuntimeClampsWebGPULimits();
