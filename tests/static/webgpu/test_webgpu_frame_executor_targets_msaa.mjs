@@ -249,7 +249,7 @@ function testGBufferBridgeReportsAllocatedWebGPUFormats() {
 	const context = createFrameContext(64, 64);
 
 	executor.beginFrame(context);
-	const bridge = executor.createGBufferBridge(context);
+	const bridge = executor.runtimeCapabilities.postProcess.createGBufferBridge(context);
 
 	assert.equal(bridge.depthEncoding, "linear-view-z");
 	assert.equal(bridge.motionEncoding, "ndc-delta");
@@ -301,7 +301,7 @@ function testHiZIsPlannableBeforeItsBuildExecutes() {
 	executor.beginFrame(context);
 	const targets = getFrameTargets(executor);
 	const debug = getFrameGraphDebugState(executor);
-	const port = executor.createPostProcessSessionPort();
+	const port = executor.runtimeCapabilities.postProcess.createSessionPort();
 
 	assert.ok(targets.hiZ);
 	assert.equal(debug.hiZ.status, "pending");
@@ -380,7 +380,7 @@ function testTransmissionTargetsAllocateOnlyWhenRefractionHasWork() {
 	assert.ok(targets.gTransmissionSurface1);
 	assert.ok(targets.gTransmissionSurface2);
 	assert.ok(targets.transmissionDepth);
-	const bridge = executor.createGBufferBridge(context);
+	const bridge = executor.runtimeCapabilities.postProcess.createGBufferBridge(context);
 	assert.equal(
 		bridge.channels.transmission.handle.texture,
 		targets.gTransmissionSurface0

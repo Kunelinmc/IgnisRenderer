@@ -5,8 +5,8 @@ import type { IRenderTexture } from "../../types";
 import type { WebGPUPreparedFrameResources } from "../WebGPUResourceContracts";
 import type { WebGPUFrameConfiguration } from "./WebGPUFrameConfigurationResolver";
 import type { WebGPUDeferredOpaqueFrameState } from "./WebGPUScenePassRecorder";
-import type { WebGPUFrameFeatureAnalysis } from "./WebGPUFrameFeatureAnalyzer";
 import type { WebGPUFrameCommitter } from "./WebGPUFrameCommitter";
+import { WebGPUFrameModuleStateStore } from "./WebGPUFrameGraphModule";
 
 export type WebGPUFrameSessionState =
 	| "preparing"
@@ -26,9 +26,9 @@ interface WebGPURecordingFrameSessionOptions {
 	readonly configuration: WebGPUFrameConfiguration;
 	readonly encoder: ICommandEncoder;
 	readonly hiZStatus: WebGPUFrameHiZStatus;
-	readonly analysis: WebGPUFrameFeatureAnalysis;
 	readonly framePackets: PreparedFramePacketSet;
 	readonly committer: WebGPUFrameCommitter;
+	readonly moduleState: WebGPUFrameModuleStateStore;
 }
 
 /**
@@ -48,9 +48,9 @@ export class WebGPUFrameSession {
 	public deferredOpaqueFrameState: WebGPUDeferredOpaqueFrameState | null = null;
 	public hiZStatus: WebGPUFrameHiZStatus;
 	public hiZBuildCount = 0;
-	public readonly analysis: WebGPUFrameFeatureAnalysis | null;
 	public readonly framePackets: PreparedFramePacketSet | null;
 	public readonly committer: WebGPUFrameCommitter | null;
+	public readonly moduleState: WebGPUFrameModuleStateStore;
 	public transparencyMode: WebGPUTransparencyMode;
 
 	private constructor(
@@ -59,18 +59,18 @@ export class WebGPUFrameSession {
 		state: WebGPUFrameSessionState,
 		encoder: ICommandEncoder | null,
 		hiZStatus: WebGPUFrameHiZStatus,
-		analysis: WebGPUFrameFeatureAnalysis | null,
 		framePackets: PreparedFramePacketSet | null,
 		committer: WebGPUFrameCommitter | null,
+		moduleState: WebGPUFrameModuleStateStore,
 	) {
 		this.context = context;
 		this.configuration = configuration;
 		this.state = state;
 		this.encoder = encoder;
 		this.hiZStatus = hiZStatus;
-		this.analysis = analysis;
 		this.framePackets = framePackets;
 		this.committer = committer;
+		this.moduleState = moduleState;
 		this.transparencyMode = configuration?.transparencyMode ?? "legacy";
 	}
 
@@ -83,13 +83,15 @@ export class WebGPUFrameSession {
 			"recording",
 			options.encoder,
 			options.hiZStatus,
-			options.analysis,
 			options.framePackets,
 			options.committer,
+			options.moduleState,
 		);
 	}
 
 	public static createPreparing(context: FrameContext): WebGPUFrameSession {
+		const moduleState = new WebGPUFrameModuleStateStore();
+		moduleState.seal();
 		return new WebGPUFrameSession(
 			context,
 			null,
@@ -98,11 +100,13 @@ export class WebGPUFrameSession {
 			"unavailable",
 			null,
 			null,
-			null,
+			moduleState,
 		);
 	}
 
 	public static createSkipped(context: FrameContext): WebGPUFrameSession {
+		const moduleState = new WebGPUFrameModuleStateStore();
+		moduleState.seal();
 		return new WebGPUFrameSession(
 			context,
 			null,
@@ -111,7 +115,7 @@ export class WebGPUFrameSession {
 			"unavailable",
 			null,
 			null,
-			null,
+			moduleState,
 		);
 	}
 

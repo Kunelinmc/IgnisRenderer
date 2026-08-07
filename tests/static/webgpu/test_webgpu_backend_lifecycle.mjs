@@ -51,9 +51,13 @@ function createReadyFrameBackend(options = {}) {
 		},
 	};
 	backend._frameOrchestrator = {
-		createPostProcessSessionPort() {
-			calls.push("postprocess:create-session");
-			return null;
+		runtimeCapabilities: {
+			postProcess: {
+				createSessionPort() {
+					calls.push("postprocess:create-session");
+					return null;
+				},
+			},
 		},
 		beginFrame() {
 			calls.push("orchestrator:begin");

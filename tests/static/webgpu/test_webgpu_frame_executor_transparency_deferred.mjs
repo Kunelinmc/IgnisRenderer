@@ -218,7 +218,7 @@ async function testDeferredLightingBindsUnusedGroupOnePlaceholder() {
 	];
 
 	executor.beginFrame(context);
-	const bridge = executor.createGBufferBridge(context);
+	const bridge = executor.runtimeCapabilities.postProcess.createGBufferBridge(context);
 	assert.equal(bridge.channels.specular.format, "rgba16float");
 	assert.equal(bridge.channels.specular.encoding, "specular-color-factor.rgba");
 	assert.equal(

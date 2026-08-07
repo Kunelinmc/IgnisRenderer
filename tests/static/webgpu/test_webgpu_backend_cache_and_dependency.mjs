@@ -983,8 +983,12 @@ async function testFrameCommitsBeforeDeferredShaderInvalidation() {
 		},
 	};
 	backend._frameOrchestrator = {
-		createPostProcessSessionPort() {
-			return null;
+		runtimeCapabilities: {
+			postProcess: {
+				createSessionPort() {
+					return null;
+				},
+			},
 		},
 		beginFrame() {},
 		async endFrame(postSubmit) {
@@ -1164,6 +1168,9 @@ function testBackendPlanOmitsRendererOwnedPostProcessStage() {
 		abortTemporalFrame() {},
 	};
 	backend._frameOrchestrator = {
+		runtimeCapabilities: {
+			postProcess: { createSessionPort: () => null },
+		},
 		beginFrame() {},
 		executePass() {},
 		updateParticleShadowVolumes() {},
@@ -1174,9 +1181,6 @@ function testBackendPlanOmitsRendererOwnedPostProcessStage() {
 		abortFrame() {},
 		destroy() {},
 		invalidateFrameTargets() {},
-		createPostProcessSessionPort() {
-			return null;
-		},
 	};
 	backend._particleSimulator = {
 		beginFrame() {},
@@ -1214,6 +1218,9 @@ function testPassPlanAllowsParticleStageBeforeMainOpaque() {
 		abortTemporalFrame() {},
 	};
 	backend._frameOrchestrator = {
+		runtimeCapabilities: {
+			postProcess: { createSessionPort: () => null },
+		},
 		beginFrame() {},
 		executePass() {},
 		updateParticleShadowVolumes() {},
@@ -1224,9 +1231,6 @@ function testPassPlanAllowsParticleStageBeforeMainOpaque() {
 		abortFrame() {},
 		destroy() {},
 		invalidateFrameTargets() {},
-		createPostProcessSessionPort() {
-			return null;
-		},
 	};
 	backend._particleSimulator = {
 		beginFrame() {},
@@ -1301,9 +1305,13 @@ async function testPostProcessSessionBindsBeforeFrameGraphPlanning() {
 		},
 	};
 	backend._frameOrchestrator = {
-		createPostProcessSessionPort() {
-			calls.push("create-session");
-			return port;
+		runtimeCapabilities: {
+			postProcess: {
+				createSessionPort() {
+					calls.push("create-session");
+					return port;
+				},
+			},
 		},
 		beginFrame() {
 			calls.push("plan-frame");
@@ -1345,6 +1353,9 @@ async function testAbortFrameClearsPlannerAndDelegatesWithoutEndFrame() {
 		abortTemporalFrame() {},
 	};
 	backend._frameOrchestrator = {
+		runtimeCapabilities: {
+			postProcess: { createSessionPort: () => null },
+		},
 		beginFrame() {},
 		executePass() {},
 		updateParticleShadowVolumes() {},
@@ -1360,9 +1371,6 @@ async function testAbortFrameClearsPlannerAndDelegatesWithoutEndFrame() {
 		abortFrameState() {},
 		destroy() {},
 		invalidateFrameTargets() {},
-		createPostProcessSessionPort() {
-			return null;
-		},
 	};
 	backend._particleSimulator = {
 		beginFrame() {},
@@ -1414,6 +1422,9 @@ async function testEndFrameFailureStillEndsParticleFrameAndClearsPlanner() {
 		abortTemporalFrame() {},
 	};
 	backend._frameOrchestrator = {
+		runtimeCapabilities: {
+			postProcess: { createSessionPort: () => null },
+		},
 		beginFrame() {},
 		executePass() {},
 		getPreparedFrameResources() {
@@ -1426,9 +1437,6 @@ async function testEndFrameFailureStillEndsParticleFrameAndClearsPlanner() {
 		abortFrameState() {},
 		destroy() {},
 		invalidateFrameTargets() {},
-		createPostProcessSessionPort() {
-			return null;
-		},
 	};
 	backend._particleSimulator = {
 		beginFrame() {},

@@ -15,6 +15,7 @@ import {
 	WEBGPU_OCCLUSION_AFTER_DEPTH_INSERTION_POINT,
 } from "../../../src/backends/BackendExtensions.ts";
 import { WebGPUFrameOrchestrator as WebGPUFrameExecutor } from "../../../src/backends/webgpu/rendergraph/WebGPUFrameOrchestrator.ts";
+import { createWebGPUFrameRuntimeCompositionFactory } from "../../../src/backends/webgpu/rendergraph/WebGPUFrameRuntimeComposition.ts";
 import { WebGPUFrameFeatureDataStore } from "../../../src/backends/webgpu/FrameFeatures.ts";
 import { FramePacketContributorRegistry } from "../../../src/pipeline/FramePacketContributorRegistry.ts";
 import { WEBGPU_VOLUMETRIC_LIGHTING_DATA } from "../../../src/backends/webgpu/WebGPUFrameFeatureModules.ts";
@@ -40,6 +41,24 @@ const singleSampleResolver = {
 		return false;
 	},
 };
+
+function createFrameExecutor(backend, resources) {
+	const framePackets = new FramePacketContributorRegistry();
+	return new WebGPUFrameExecutor(
+		backend,
+		resources.createFrameScope(),
+		framePackets,
+		singleSampleResolver,
+		1,
+		createWebGPUFrameRuntimeCompositionFactory({
+			host: backend,
+			frameServices: resources,
+			framePackets,
+			particleRenderer,
+			sampleCountResolver: singleSampleResolver,
+		}),
+	);
+}
 import { createResolvedPostProcess } from "../../helpers/postprocess.mjs";
 
 const BUILTIN_PASS_BY_ID = new Map([
@@ -189,14 +208,7 @@ function createExecutorHarness(postProcessRequest = {
 			return null;
 		},
 	};
-	const executor = new WebGPUFrameExecutor(
-		backend,
-		resources,
-		new FramePacketContributorRegistry(),
-		particleRenderer,
-		singleSampleResolver,
-		1,
-	);
+	const executor = createFrameExecutor(backend, resources);
 	const frameContext = {
 		camera: {},
 		attachments: { width: 64, height: 64 },
@@ -247,7 +259,8 @@ async function testGammaOwnsWebGPUKernelBeforeRawPresent() {
 		pass: gammaPass,
 		implementation: gammaPass.getImplementation("webgpu"),
 	});
-	const context = executor.createPassExecutionContext(passRequest);
+	const context = executor.runtimeCapabilities.postProcess
+		.createPassExecutionContext(passRequest);
 	const targets = executor.getDebugState().frameTargets;
 
 	assert.equal(
@@ -260,7 +273,7 @@ async function testGammaOwnsWebGPUKernelBeforeRawPresent() {
 	assert.ok(context.resources.color.output);
 
 	const result = await passRequest.implementation.execute(passRequest, context);
-	executor.completePostProcessPass(passRequest, result);
+	executor.runtimeCapabilities.postProcess.completePass(passRequest, result);
 	assert.deepEqual(result, { ran: true });
 	assert.equal(
 		executor.getDebugState().frameTargets.sceneColor,
@@ -297,7 +310,7 @@ async function testTemporalExecutePassUsesPipelineHistories() {
 			},
 		},
 	});
-	const taaContext = executor.createPassExecutionContext(
+	const taaContext = executor.runtimeCapabilities.postProcess.createPassExecutionContext(
 		createExecutionContextRequest("taa", taaRequest)
 	);
 	assert.equal("historyRead" in executor.getDebugState().frameTargets, false);
@@ -321,7 +334,7 @@ async function testTemporalExecutePassUsesPipelineHistories() {
 			},
 		},
 	});
-	const ssrContext = executor.createPassExecutionContext(
+	const ssrContext = executor.runtimeCapabilities.postProcess.createPassExecutionContext(
 		createExecutionContextRequest("ssr", ssrRequest)
 	);
 	assert.deepEqual(ssrContext.frameBinding, { id: "frame-binding" });
@@ -348,7 +361,7 @@ async function testTemporalExecutePassUsesPipelineHistories() {
 			},
 		},
 	});
-	const ssgiContext = executor.createPassExecutionContext(
+	const ssgiContext = executor.runtimeCapabilities.postProcess.createPassExecutionContext(
 		createExecutionContextRequest("ssgi", ssgiRequest)
 	);
 	assert.deepEqual(ssgiContext.frameBinding, { id: "frame-binding" });
@@ -375,7 +388,7 @@ async function testTemporalExecutePassUsesPipelineHistories() {
 			},
 		},
 	});
-	const ssrefractionContext = executor.createPassExecutionContext(
+	const ssrefractionContext = executor.runtimeCapabilities.postProcess.createPassExecutionContext(
 		createExecutionContextRequest("ssrefraction", ssrefractionRequest)
 	);
 	assert.deepEqual(ssrefractionContext.frameBinding, { id: "frame-binding" });
@@ -393,7 +406,7 @@ async function testTemporalExecutePassUsesPipelineHistories() {
 		/missing required shared resource/
 	);
 
-	const volumetricContext = executor.createPassExecutionContext(
+	const volumetricContext = executor.runtimeCapabilities.postProcess.createPassExecutionContext(
 		createExecutionContextRequest("volumetric", ssrRequest)
 	);
 	assert.deepEqual(volumetricContext.frameBinding, { id: "frame-binding" });
@@ -436,7 +449,8 @@ function testCustomImplementationUsesFixedContext() {
 				execute: () => ({ ran: true }),
 			},
 		});
-	const context = executor.createPassExecutionContext(passRequest);
+	const context = executor.runtimeCapabilities.postProcess
+		.createPassExecutionContext(passRequest);
 
 	assert.ok(context.encoder);
 	assert.equal(Object.isFrozen(context.targets), true);
@@ -447,7 +461,7 @@ function testCustomImplementationUsesFixedContext() {
 	assert.equal("publishColorTarget" in context, false);
 	const targets = executor.getDebugState().frameTargets;
 	assert.equal(targets.sceneColor, targets.sceneColorMain);
-	executor.completePostProcessPass(passRequest, { ran: true });
+	executor.runtimeCapabilities.postProcess.completePass(passRequest, { ran: true });
 	assert.equal(
 		executor.getDebugState().frameTargets.sceneColor,
 		context.resources.color.output
@@ -467,14 +481,7 @@ async function testWarmupHintsFollowPlanPostProcessPasses() {
 			};
 		},
 	};
-	const executor = new WebGPUFrameExecutor(
-		backend,
-		resources,
-		new FramePacketContributorRegistry(),
-		particleRenderer,
-		singleSampleResolver,
-		1,
-	);
+	const executor = createFrameExecutor(backend, resources);
 
 	const emptyWarmup = await executor.warmup(
 		{

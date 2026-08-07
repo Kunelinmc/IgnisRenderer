@@ -225,7 +225,7 @@ async function testWebGPUCustomTargetExecution() {
 		},
 		destroy() {},
 	};
-	runtime.markFrameCommitted();
+	runtime.commitFrameState();
 	const readback = await runtime.readColor("gbuf", 0, { width: 2, height: 2 });
 	assert.equal(readback.origin, "top-left");
 	assert.equal(readback.format, TextureFormat.RGBA8Unorm);
@@ -297,7 +297,7 @@ async function testWebGPUMultisampledTargetUsesResolveTextures() {
 		},
 		destroy() {},
 	};
-	runtime.markFrameCommitted();
+	runtime.commitFrameState();
 	await runtime.readColor("gbuf", 0, { width: 1, height: 1 });
 	assert.equal(readTexture, observed.color[0].resolveTexture);
 	runtime.destroy();

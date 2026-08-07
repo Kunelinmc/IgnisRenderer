@@ -18,7 +18,20 @@ import type {
 } from "../WebGPUResourceContracts";
 import type { WebGPUSceneTargetMode } from "../WebGPUScenePassDescriptors";
 import type { WebGPUFrameGraphRecordingContext } from "./WebGPUFrameGraphRecordingContext";
-import type { WebGPUFrameNodeRuntime } from "./WebGPUFrameNodeRuntimes";
+import type { WebGPUFrameGraphModule } from "./WebGPUFrameGraphModule";
+import type {
+	WebGPUFrameModuleAnalysisInput,
+	WebGPUFrameGraphContribution,
+	WebGPUFrameModuleConfigurationInput,
+	WebGPUFrameModulePlanningInput,
+	WebGPUFrameModuleStateStore,
+} from "./WebGPUFrameGraphModule";
+import type {
+	WebGPUFrameModuleConfigurationContribution,
+} from "./WebGPUFrameConfigurationContribution";
+import { WEBGPU_TRANSPARENCY_FEATURE_ANALYSIS } from "./WebGPUFrameModuleStateKeys";
+import { analyzeWebGPUTransparency } from "./WebGPUFrameFeatureAnalyzer";
+import { WebGPUTransparencyFramePlanner } from "./WebGPUTransparencyFramePlanner";
 import type { WebGPUFrameSession } from "./WebGPUFrameSession";
 import type { WebGPUFrameHost } from "./WebGPUFrameHost";
 import type { WebGPUScenePassRecorder } from "./WebGPUScenePassRecorder";
@@ -34,7 +47,7 @@ export interface WebGPUFrameDiagnosticSink {
  * @internal Owned by the WebGPU frame runtime. Applications should use
  * `Renderer.renderFrame()` instead.
  */
-export class WebGPUTransparencyRuntime implements WebGPUFrameNodeRuntime {
+export class WebGPUTransparencyRuntime implements WebGPUFrameGraphModule {
 	public readonly id = "transparency";
 	public readonly executors = {
 		"transparent-forward": async (_node: unknown, session: WebGPUFrameSession) =>
@@ -56,6 +69,7 @@ export class WebGPUTransparencyRuntime implements WebGPUFrameNodeRuntime {
 		"particle-additive": async (_node: unknown, session: WebGPUFrameSession) =>
 			this._recordLegacyParticles(session, [ParticleBlendMode.Additive]),
 	};
+	private readonly _planner = new WebGPUTransparencyFramePlanner();
 
 	private _resolveShaderModule: IShaderModule | null = null;
 	private _resolvePipeline: IRenderPipeline | null = null;
@@ -73,6 +87,35 @@ export class WebGPUTransparencyRuntime implements WebGPUFrameNodeRuntime {
 		private readonly _sceneRecorder: WebGPUScenePassRecorder,
 		private readonly _diagnostics: WebGPUFrameDiagnosticSink,
 	) {}
+
+	public analyze(
+		input: WebGPUFrameModuleAnalysisInput,
+		state: WebGPUFrameModuleStateStore,
+	): void {
+		state.set(
+			WEBGPU_TRANSPARENCY_FEATURE_ANALYSIS,
+			analyzeWebGPUTransparency(input.context, input.framePackets.transparent),
+		);
+	}
+
+	public contributeConfiguration(
+		input: WebGPUFrameModuleConfigurationInput,
+	): WebGPUFrameModuleConfigurationContribution {
+		const analysis = input.state.require(WEBGPU_TRANSPARENCY_FEATURE_ANALYSIS);
+		const oitRequested = input.context.features.enableOIT === true;
+		return (builder) => builder.setTransparency(analysis, oitRequested);
+	}
+
+	public planStage(
+		input: WebGPUFrameModulePlanningInput,
+	): readonly WebGPUFrameGraphContribution[] {
+		const nodes = this._planner.plan(
+			input.pass,
+			input.context,
+			input.state,
+		);
+		return nodes.length > 0 ? [{ order: 100, nodes }] : [];
+	}
 
 	public beginFrame(_context: FrameContext): void {}
 
@@ -358,8 +401,7 @@ export class WebGPUTransparencyRuntime implements WebGPUFrameNodeRuntime {
 	}
 
 	private _requireTransparencyAnalysis(session: WebGPUFrameSession) {
-		if (!session.analysis) throw new Error("WebGPU transparency execution requires frame analysis.");
-		return session.analysis.transparency;
+		return session.moduleState.require(WEBGPU_TRANSPARENCY_FEATURE_ANALYSIS);
 	}
 
 	private _resolveSceneTargetMode(): Exclude<WebGPUSceneTargetMode, "single"> {

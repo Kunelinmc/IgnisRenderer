@@ -6,6 +6,9 @@ import {
 	WebGPUFrameOrchestrator as WebGPUFrameExecutor
 } from "../../../src/backends/webgpu/rendergraph/WebGPUFrameOrchestrator.ts";
 import {
+	createWebGPUFrameRuntimeCompositionFactory
+} from "../../../src/backends/webgpu/rendergraph/WebGPUFrameRuntimeComposition.ts";
+import {
 	ShaderSource
 } from "../../../src/shaders/ShaderSource.ts";
 import {
@@ -155,6 +158,7 @@ async function testRenderResourcesLogPointLightLimitOnlyOnce() {
 
 function testFrameExecutorConsumesComputeFacadeFromHost() {
 	const backend = new FakeBackend();
+	const framePackets = new FramePacketContributorRegistry();
 	const resourcesStub = {
 		sceneFrameLayout: null,
 		createFrameScope() {
@@ -165,26 +169,33 @@ function testFrameExecutorConsumesComputeFacadeFromHost() {
 			};
 		},
 	};
+	const sampleCountResolver = {
+		resolveDomainSampleCount(domain, requestedSampleCount, formats) {
+			return {
+				domain,
+				requestedSampleCount,
+				sampleCount: 1,
+				signature: `${domain}|${formats.join(",")}`,
+				runtimeFallbackActive: false,
+			};
+		},
+		fallbackToSingleSample() {
+			return false;
+		},
+	};
 	const executor = new WebGPUFrameExecutor(
 		backend,
-		resourcesStub,
-		new FramePacketContributorRegistry(),
-		resourcesStub,
-		{
-			resolveDomainSampleCount(domain, requestedSampleCount, formats) {
-				return {
-					domain,
-					requestedSampleCount,
-					sampleCount: 1,
-					signature: `${domain}|${formats.join(",")}`,
-					runtimeFallbackActive: false,
-				};
-			},
-			fallbackToSingleSample() {
-				return false;
-			},
-		},
+		resourcesStub.createFrameScope(),
+		framePackets,
+		sampleCountResolver,
 		1,
+		createWebGPUFrameRuntimeCompositionFactory({
+			host: backend,
+			frameServices: resourcesStub,
+			framePackets,
+			particleRenderer: resourcesStub,
+			sampleCountResolver,
+		}),
 	);
 
 	assert.equal(backend.getComputeFacadeCalls, 0);

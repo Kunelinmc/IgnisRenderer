@@ -38,9 +38,9 @@ async function testWholeFramePlanningOccursOnlyAtBeginFrame() {
 	];
 	context.framePlan = { stageOrder: [], backendPasses: passes };
 	let plannerCalls = 0;
-	const originalPlanStage = executor._graphPlanner.planStage.bind(executor._graphPlanner);
-	executor._graphPlanner.planStage = (...args) => {
-		plannerCalls++;
+	const originalPlanStage = executor._frameModules.planStage.bind(executor._frameModules);
+	executor._frameModules.planStage = (...args) => {
+		if (args[0]?.pass?.stage === "main-opaque") plannerCalls++;
 		return originalPlanStage(...args);
 	};
 
@@ -206,7 +206,7 @@ function testSSGIWholeFrameGraphCompilation() {
 		backend,
 	});
 	const executor = new WebGPUFrameExecutor(backend, createResourcesStub());
-	const postProcessPort = executor.createPostProcessSessionPort();
+	const postProcessPort = executor.runtimeCapabilities.postProcess.createSessionPort();
 	postProcessExecutor.bindSession(postProcessPort);
 	const context = createFrameContext(64, 64);
 	context.postProcess = createResolvedPostProcess({

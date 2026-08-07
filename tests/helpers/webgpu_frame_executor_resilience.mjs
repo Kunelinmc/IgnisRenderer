@@ -1,4 +1,5 @@
 import { WebGPUFrameOrchestrator } from "../../src/backends/webgpu/rendergraph/WebGPUFrameOrchestrator.ts";
+import { createWebGPUFrameRuntimeCompositionFactory } from "../../src/backends/webgpu/rendergraph/WebGPUFrameRuntimeComposition.ts";
 import { WebGPUPostProcessExecutor } from "../../src/backends/webgpu/WebGPUPostProcessExecutor.ts";
 import { Logger } from "../../src/foundation/Logger.ts";
 import { Camera } from "../../src/cameras/Camera.ts";
@@ -20,11 +21,17 @@ class WebGPUFrameExecutor extends WebGPUFrameOrchestrator {
 		const sampleCounts = msaa ?? createMSAAContext(1);
 		super(
 			host,
-			resources,
+			resources.createFrameScope(),
 			framePackets,
-			particleRenderer,
 			sampleCounts,
 			sampleCounts.sampleCount,
+			createWebGPUFrameRuntimeCompositionFactory({
+				host,
+				frameServices: resources,
+				framePackets,
+				particleRenderer,
+				sampleCountResolver: sampleCounts,
+			}),
 			options,
 		);
 	}

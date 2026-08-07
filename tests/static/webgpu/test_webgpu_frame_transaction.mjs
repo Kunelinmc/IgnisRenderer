@@ -6,9 +6,13 @@ function createRuntime(options = {}) {
 	const calls = [];
 	const port = {};
 	const orchestrator = {
-		createPostProcessSessionPort() {
-			calls.push("create-session");
-			return port;
+		runtimeCapabilities: {
+			postProcess: {
+				createSessionPort() {
+					calls.push("create-session");
+					return port;
+				},
+			},
 		},
 		beginFrame() {
 			calls.push("orchestrator-begin");

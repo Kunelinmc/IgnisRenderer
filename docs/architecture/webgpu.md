@@ -11,16 +11,18 @@ flowchart TB
 	R["Renderer and FrameCoordinator"]
 	B["WebGPUBackend lifecycle facade"]
 	G["WebGPUFrameOrchestrator"]
-	X["Feature runtimes and resource owners"]
+	M["Sealed frame-module registry"]
+	X["Feature modules and resource owners"]
 	W["WebGPU device, queue, and canvas"]
 
 	R -->|"FrameContext and ordered passes"| B
 	B -->|"Narrow frame host and lifecycle"| G
-	G -->|"Typed nodes and prepared resources"| X
+	G -->|"Frame lifecycle and graph dispatch"| M
+	M -->|"Typed nodes and prepared resources"| X
 	X -->|"Command encoding and resources"| W
 ```
 
-Renderer stages express backend-agnostic intent. The WebGPU planner expands
+Renderer stages express backend-agnostic intent. WebGPU feature modules expand
 those stages into internal nodes and logical resource dependencies. Feature
 runtimes record commands, while managers, registries, pools, and services own
 native resource lifetimes.
@@ -35,10 +37,12 @@ native resource lifetimes.
 3. When enabled, the `particle-sim` pass emits current-frame render batches.
 4. Frame sealing composes one view-local frame packet set from prepared-scene
    packets and registered backend contributors.
-5. Frame analysis identifies desired scene and post-process work.
-6. Configuration resolution applies capabilities and fallback policy.
+5. Registered frame modules analyze their feature-owned work into typed frame
+   state.
+6. Configuration resolution aggregates module requirements and applies
+   capabilities and fallback policy.
 7. Target managers allocate or reuse frame-sized resources.
-8. The planner and compiler create one complete frame graph.
+8. Module stage contributions and the compiler create one complete frame graph.
 9. Renderer backend passes execute their precompiled node slices.
 10. Presentation and final copies are recorded.
 11. Labeled command buffers are submitted in order.
@@ -63,9 +67,10 @@ to Software or WebGL.
 | `Renderer` / `FrameCoordinator` | Portable stage order, simulation, prepared scenes, and frame context |
 | `WebGPUBackend` | Attachment, device and canvas lifecycle, frame entrypoints, device loss, extensions, and commit coordination |
 | `WebGPUFrameHost` | Narrow device-scoped access to resources, command recording, submission, and validation |
-| `WebGPUFrameOrchestrator` | Active frame session, configuration, graph composition, stage execution, and presentation finalization |
-| Frame graph planner/compiler | Node expansion, ordering, logical resources, dependencies, stage slices, and diagnostics |
-| Feature runtimes | Shadow, scene, deferred, transparency, reflection, visibility, post-process, and presentation commands |
+| `WebGPUFrameOrchestrator` | Active frame session, target retry, graph compilation and dispatch, submission, and transaction boundaries |
+| Frame-module registry | Initialization-time module registration, validation, deterministic contribution order, lifecycle dispatch, and executor lookup |
+| Feature modules / frame graph compiler | Node expansion, ordering, logical resources, dependencies, stage slices, and diagnostics |
+| Feature modules | Feature analysis, configuration requirements, graph contributions, commands, warmup, and pass-local lifecycle |
 | Resource owners | Native texture, buffer, pipeline, binding, pool, and frame-target lifetimes |
 | Particle render resources | Owner-managed billboard pipelines, particle buffers, bindings, and pass recording |
 | Frame packet contributors | Backend-composed, device-independent conversion of supplemental current-view draw work |
@@ -99,7 +104,7 @@ backend-owned post-process and frame services in lifecycle order.
 | Change | Primary owner |
 | --- | --- |
 | Portable renderer stage | `src/pipeline/` |
-| WebGPU-only work inside a stage | WebGPU graph planner, node executor, and feature runtime |
+| WebGPU-only work inside a stage | Owning WebGPU frame module and its feature runtime |
 | Cross-backend post-process effect | `src/postprocess/passes/` |
 | Frame-sized WebGPU target | Frame target manager and graph resource catalog |
 | Device-lifetime feature resource | Frame service owner or delegated registry |
@@ -107,6 +112,12 @@ backend-owned post-process and frame services in lifecycle order.
 | Supplemental draw-packet construction | Backend packet contributor with no device-resource ownership |
 | Backend-agnostic graph analysis | `src/rendergraph/` |
 | WebGPU-specific validation | WebGPU graph facade |
+
+Frame modules are backend-private and are registered by the WebGPU runtime
+composition root before rendering begins. The registry is sealed before the
+first frame, and module registration order has no execution meaning. Explicit
+same-stage order plus graph resource dependencies determine the compiled
+sequence. This composition boundary does not expose a public frame-graph API.
 
 ## Related Documents
 

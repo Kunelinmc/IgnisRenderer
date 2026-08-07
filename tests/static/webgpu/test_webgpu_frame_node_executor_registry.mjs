@@ -38,18 +38,18 @@ async function testRegistryRejectsMissingExecutor() {
 
 function testRuntimeCompositionRejectsDuplicateAndMissingOwners() {
 	assert.throws(
-		() => WebGPUFrameNodeExecutorRegistry.fromRuntimes([]),
+		() => WebGPUFrameNodeExecutorRegistry.fromModules([]),
 		/missing executors/,
 	);
 	const complete = Object.fromEntries(
 		WEBGPU_FRAME_GRAPH_NODE_KINDS.map((kind) => [kind, async () => {}]),
 	);
 	assert.throws(
-		() => WebGPUFrameNodeExecutorRegistry.fromRuntimes([
+		() => WebGPUFrameNodeExecutorRegistry.fromModules([
 			{ id: "all", executors: complete, destroy() {} },
 			{ id: "duplicate", executors: { shadow: async () => {} }, destroy() {} },
 		]),
-		/duplicate runtime owners/,
+		/duplicate module owners/,
 	);
 }
 

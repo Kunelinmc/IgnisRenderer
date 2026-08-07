@@ -1,5 +1,10 @@
 import assert from "node:assert/strict";
-import { WebGPUFrameGraphPlanner } from "../../../src/backends/webgpu/rendergraph/WebGPUFrameGraphPlanner.ts";
+import { WebGPUDeferredFrameModule } from "../../../src/backends/webgpu/rendergraph/WebGPUDeferredFrameModule.ts";
+import { WebGPUReflectionFrameModule } from "../../../src/backends/webgpu/rendergraph/WebGPUReflectionFrameModule.ts";
+import { WebGPUSceneFrameModule } from "../../../src/backends/webgpu/rendergraph/WebGPUSceneFrameModule.ts";
+import { WebGPUShadowFrameModule } from "../../../src/backends/webgpu/rendergraph/WebGPUShadowFrameModule.ts";
+import { WebGPUTransparencyRuntime } from "../../../src/backends/webgpu/rendergraph/WebGPUTransparencyRuntime.ts";
+import { WebGPUVisibilityFrameModule } from "../../../src/backends/webgpu/rendergraph/WebGPUVisibilityFrameModule.ts";
 
 function createPass(stage) {
 	return {
@@ -22,8 +27,36 @@ function createState(overrides = {}) {
 	};
 }
 
+function createModulePlanner() {
+	const unused = {};
+	const modules = [
+		new WebGPUSceneFrameModule(unused, unused),
+		new WebGPUDeferredFrameModule(unused, unused, unused, unused),
+		new WebGPUReflectionFrameModule(unused, unused, unused),
+		new WebGPUVisibilityFrameModule(unused, unused, unused),
+		new WebGPUShadowFrameModule(unused, unused),
+		new WebGPUTransparencyRuntime(unused, unused, unused, unused, unused, unused),
+	];
+	return {
+		planStage(pass, context, state) {
+			const contributions = modules
+				.flatMap((module) => module.planStage?.({
+					pass,
+					context,
+					state,
+					moduleState: {},
+				}) ?? [])
+				.sort((a, b) => a.order - b.order);
+			return {
+				pass,
+				nodes: contributions.flatMap((contribution) => contribution.nodes ?? []),
+			};
+		},
+	};
+}
+
 function run() {
-	const planner = new WebGPUFrameGraphPlanner();
+	const planner = createModulePlanner();
 	const context = { scene: { decalPackets: [] } };
 	const contextWithDecals = { scene: { decalPackets: [{}] } };
 	const pagedShadowContext = {

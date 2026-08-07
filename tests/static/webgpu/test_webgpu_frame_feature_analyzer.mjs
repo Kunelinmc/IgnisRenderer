@@ -2,7 +2,26 @@ import assert from "node:assert/strict";
 
 import { PBRMaterial } from "../../../src/materials/PBRMaterial.ts";
 import { ShaderMaterial } from "../../../src/materials/ShaderMaterial.ts";
-import { WebGPUFrameFeatureAnalyzer } from "../../../src/backends/webgpu/rendergraph/WebGPUFrameFeatureAnalyzer.ts";
+import { WebGPUDeferredFrameModule } from "../../../src/backends/webgpu/rendergraph/WebGPUDeferredFrameModule.ts";
+import {
+	WebGPUFrameConfigurationModule,
+} from "../../../src/backends/webgpu/rendergraph/WebGPUFrameConfigurationModule.ts";
+import {
+	WebGPUFrameConfigurationBuilder,
+} from "../../../src/backends/webgpu/rendergraph/WebGPUFrameConfigurationContribution.ts";
+import { WebGPUFrameGraphModuleRegistry } from "../../../src/backends/webgpu/rendergraph/WebGPUFrameGraphModuleRegistry.ts";
+import {
+	WEBGPU_DEFERRED_FEATURE_ANALYSIS,
+	WEBGPU_POST_PROCESS_FEATURE_ANALYSIS,
+	WEBGPU_REFLECTION_FEATURE_ANALYSIS,
+	WEBGPU_TRANSPARENCY_FEATURE_ANALYSIS,
+	WEBGPU_VISIBILITY_FEATURE_ANALYSIS,
+} from "../../../src/backends/webgpu/rendergraph/WebGPUFrameModuleStateKeys.ts";
+import { WebGPUPostProcessFrameModule } from "../../../src/backends/webgpu/rendergraph/WebGPUPostProcessFrameModule.ts";
+import { WebGPUReflectionFrameModule } from "../../../src/backends/webgpu/rendergraph/WebGPUReflectionFrameModule.ts";
+import { WebGPUTransparencyRuntime } from "../../../src/backends/webgpu/rendergraph/WebGPUTransparencyRuntime.ts";
+import { WebGPUVisibilityFrameModule } from "../../../src/backends/webgpu/rendergraph/WebGPUVisibilityFrameModule.ts";
+import { WEBGPU_FRAME_GRAPH_NODE_KINDS } from "../../../src/backends/webgpu/rendergraph/types.ts";
 import { POST_PROCESS_SHARED_RESOURCE_IDS } from "../../../src/postprocess/executionDeclarations.ts";
 import { createResolvedPostProcess } from "../../helpers/postprocess.mjs";
 
@@ -49,11 +68,63 @@ function postProcessPasses(context) {
 	});
 }
 
-function analyze(context, passes = postProcessPasses(context)) {
-	return new WebGPUFrameFeatureAnalyzer().analyze(context, {
-		framePackets: createFramePackets(context),
+function prepareModuleAnalysis(context, passes = postProcessPasses(context)) {
+	const unused = {};
+	const modules = [
+		new WebGPUDeferredFrameModule(unused, unused, unused, unused),
+		new WebGPUTransparencyRuntime(unused, unused, unused, unused, unused, unused),
+		new WebGPUReflectionFrameModule(unused, unused, unused),
+		new WebGPUVisibilityFrameModule(unused, unused, unused),
+		new WebGPUPostProcessFrameModule(unused, unused, unused, unused, unused),
+	];
+	const ownedKinds = new Set(
+		modules.flatMap((module) => Object.keys(module.executors)),
+	);
+	const registry = new WebGPUFrameGraphModuleRegistry();
+	registry.register({
+		id: "remaining-executors",
+		executors: Object.fromEntries(
+			WEBGPU_FRAME_GRAPH_NODE_KINDS
+				.filter((kind) => !ownedKinds.has(kind))
+				.map((kind) => [kind, async () => {}]),
+		),
+		destroy() {},
+	});
+	for (const module of modules) registry.register(module);
+	registry.seal();
+	const framePackets = createFramePackets(context);
+	const state = registry.analyze({
+		context,
+		framePackets,
 		postProcessPasses: passes,
 	});
+	return { framePackets, registry, state };
+}
+
+function analyze(context, passes = postProcessPasses(context)) {
+	const { state } = prepareModuleAnalysis(context, passes);
+	const deferred = state.require(WEBGPU_DEFERRED_FEATURE_ANALYSIS);
+	const transparency = state.require(WEBGPU_TRANSPARENCY_FEATURE_ANALYSIS);
+	const reflection = state.require(WEBGPU_REFLECTION_FEATURE_ANALYSIS);
+	const visibility = state.require(WEBGPU_VISIBILITY_FEATURE_ANALYSIS);
+	const postProcess = state.require(WEBGPU_POST_PROCESS_FEATURE_ANALYSIS);
+	return {
+		...deferred,
+		transparency,
+		oitRequested: context.features.enableOIT === true,
+		hasOITWork: transparency.hasOITContributors,
+		needsPostProcessTargets: postProcess.needsPostProcessTargets,
+		needsPostProcessGBuffer: postProcess.needsPostProcessGBuffer,
+		needsPlanarReflection: reflection.needsPlanarReflection,
+		needsPlanarReflectionMask:
+			reflection.needsPlanarReflection || postProcess.needsPlanarReflectionMask,
+		needsTransmissionTargets:
+			postProcess.needsTransmissionTargets &&
+			transparency.transmissionPackets.length > 0,
+		needsOcclusionTargets: visibility.needsOcclusionTargets,
+		needsHiZTarget:
+			visibility.needsOcclusionTargets || postProcess.needsHiZTarget,
+	};
 }
 
 function createFramePackets(context) {
@@ -157,6 +228,67 @@ const customTransmissionPasses = [{
 		}],
 	},
 }];
+
+const singleScanContext = createContext();
+let transmissionFactorReads = 0;
+singleScanContext.scene.transparentPackets = [{
+	material: {
+		get transmissionFactor() {
+			transmissionFactorReads++;
+			return 1;
+		},
+	},
+}];
+const preparedSingleScan = prepareModuleAnalysis(
+	singleScanContext,
+	customTransmissionPasses,
+);
+assert.equal(transmissionFactorReads, 1);
+const contributions = preparedSingleScan.registry.collectConfigurationContributions({
+	context: singleScanContext,
+	state: preparedSingleScan.state,
+});
+const configurationModule = new WebGPUFrameConfigurationModule();
+const incompleteBuilder = new WebGPUFrameConfigurationBuilder(
+	preparedSingleScan.framePackets,
+);
+assert.throws(() => incompleteBuilder.build(), /requires a "deferred" contribution/);
+const duplicateBuilder = new WebGPUFrameConfigurationBuilder(
+	preparedSingleScan.framePackets,
+);
+const deferredContribution = preparedSingleScan.state.require(
+	WEBGPU_DEFERRED_FEATURE_ANALYSIS,
+);
+duplicateBuilder.setDeferred(deferredContribution);
+assert.throws(
+	() => duplicateBuilder.setDeferred(deferredContribution),
+	/duplicate "deferred" contributions/,
+);
+for (let attempt = 0; attempt < 2; attempt++) {
+	const configuration = configurationModule.resolve(
+		preparedSingleScan.framePackets,
+		contributions,
+		{
+			maxColorAttachments: 8,
+			maxColorAttachmentBytesPerSample: 64,
+			maxStorageTexturesPerShaderStage: 4,
+		},
+		{
+			enableEarlyZPrepass: true,
+			enableDeferredLighting: true,
+			samplePlan: {
+				requestedSampleCount: 1,
+				sampleCount: 1,
+				selectionSignature: `test-${attempt}`,
+				runtimeFallbackActive: false,
+			},
+			supportsInFrameTextureCopy: true,
+		},
+	);
+	assert.equal(configuration.targetRequirements.needsTransmissionTargets, true);
+}
+assert.equal(transmissionFactorReads, 1);
+
 assert.equal(
 	analyze(transmissionOnly, customTransmissionPasses).needsTransmissionTargets,
 	true,

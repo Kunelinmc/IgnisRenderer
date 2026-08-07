@@ -24,6 +24,12 @@ import type {
 	WebGPUSampleCountSelection,
 } from "../WebGPUSampleCountResolver";
 import { getWebGPURenderTargetPixelByteCost } from "../WebGPUTextureFormatInfo";
+import type {
+	WebGPUFrameGraphContribution,
+	WebGPUFrameGraphModule,
+	WebGPUFrameModulePlanningInput,
+} from "./WebGPUFrameGraphModule";
+import { createWebGPUFrameGraphNode } from "./WebGPUFrameGraphPlanningUtils";
 
 const WEBGPU_CUSTOM_TARGET_SAMPLE_COUNT_FALLBACK_KEY =
 	"webgpu-custom-target-sample-count-runtime-fallback-1x";
@@ -46,7 +52,9 @@ interface WebGPUCustomRenderTarget {
 /**
  * Owns WebGPU custom render-target allocation, pass execution, and readback.
  */
-export class WebGPUCustomRenderTargetRuntime {
+export class WebGPUCustomRenderTargetRuntime implements WebGPUFrameGraphModule {
+	public readonly id = "custom-render-target";
+	public readonly executors = {};
 	private readonly _host: WebGPUFrameHost;
 	private _readbackRuntime: ComputeRuntime | null = null;
 	private readonly _targets = new Map<string, WebGPUCustomRenderTarget>();
@@ -57,6 +65,25 @@ export class WebGPUCustomRenderTargetRuntime {
 		private readonly _sampleCountResolver: WebGPUSampleCountResolver,
 	) {
 		this._host = host;
+	}
+
+	public planStage(
+		input: WebGPUFrameModulePlanningInput,
+	): readonly WebGPUFrameGraphContribution[] {
+		if (!this.hasPass(input.pass, input.context)) return [];
+		return [{
+			order: 100,
+			nodes: [{
+				...createWebGPUFrameGraphNode(
+					input.pass,
+					"opaque-external",
+					`WebGPUOpaque:${input.pass.stage}`,
+				),
+				domain: "cpu",
+				retention: "always",
+				opaque: true,
+			}],
+		}];
 	}
 
 	public sync(context: FrameContext): void {
@@ -139,11 +166,11 @@ export class WebGPUCustomRenderTargetRuntime {
 		await descriptor.execute(passContext);
 	}
 
-	public markFrameCommitted(): void {
+	public commitFrameState(): void {
 		this._lastSuccessfulFrame = true;
 	}
 
-	public markFrameAborted(): void {
+	public abortFrameState(): void {
 		this._lastSuccessfulFrame = false;
 	}
 

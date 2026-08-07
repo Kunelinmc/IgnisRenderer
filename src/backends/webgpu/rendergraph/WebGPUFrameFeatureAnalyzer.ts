@@ -50,6 +50,28 @@ export interface WebGPUFrameFeatureAnalysisOptions {
 	readonly postProcessPasses: readonly PlannedPostProcessPass[];
 }
 
+export interface WebGPUDeferredFeatureAnalysis {
+	readonly hasDeferredLightingWork: boolean;
+	readonly deferredGBufferLayout: WebGPUDeferredGBufferLayout;
+}
+
+export interface WebGPUPostProcessFeatureAnalysis {
+	readonly postProcessPasses: readonly PlannedPostProcessPass[];
+	readonly needsPostProcessTargets: boolean;
+	readonly needsPostProcessGBuffer: boolean;
+	readonly needsPlanarReflectionMask: boolean;
+	readonly needsTransmissionTargets: boolean;
+	readonly needsHiZTarget: boolean;
+}
+
+export interface WebGPUReflectionFeatureAnalysis {
+	readonly needsPlanarReflection: boolean;
+}
+
+export interface WebGPUVisibilityFeatureAnalysis {
+	readonly needsOcclusionTargets: boolean;
+}
+
 /** Scans desired WebGPU frame work without applying capability policy. */
 export class WebGPUFrameFeatureAnalyzer {
 	public analyze(
@@ -57,115 +79,137 @@ export class WebGPUFrameFeatureAnalyzer {
 		options: WebGPUFrameFeatureAnalysisOptions,
 	): WebGPUFrameFeatureAnalysis {
 		const framePackets = options.framePackets;
-		const postProcessPasses = options.postProcessPasses;
-		// Declarations are retained before target allocation, so discovery can
-		// remain data-driven without describing an implementation twice.
-		const needsPostProcessGBuffer = postProcessPasses.length > 0;
-		const needsPlanarReflection =
-			context.features.enableReflection && context.scene.reflectivePackets.length > 0;
-		const needsOcclusionTargets =
-			context.features.enableOcclusionCulling === true &&
-			(context.scene.occlusion?.eligibleCandidateCount ?? 0) > 0;
-		const sharedAllocationGroups = this._collectSharedAllocationGroups(postProcessPasses);
-		const needsHiZTarget =
-			needsOcclusionTargets ||
-			sharedAllocationGroups.has("hiz");
-		const transparency = this._analyzeTransparency(
-			context,
-			framePackets.transparent,
-		);
-		const deferredGBufferLayout: WebGPUDeferredGBufferLayout =
-			(context.scene.decalPackets?.length ?? 0) > 0 ||
-			framePackets.opaque.some((packet) =>
-				materialRequiresExtendedWebGPUGBuffer(packet.material)
-			)
-				? "extended"
-				: "base";
+		const postProcess = analyzeWebGPUPostProcessFeatures(options.postProcessPasses);
+		const reflection = analyzeWebGPUReflectionFeatures(context);
+		const visibility = analyzeWebGPUVisibilityFeatures(context);
+		const transparency = analyzeWebGPUTransparency(context, framePackets.transparent);
+		const deferred = analyzeWebGPUDeferredFeatures(context, framePackets);
 		return {
 			framePackets,
-			postProcessPasses,
-			hasDeferredLightingWork: framePackets.opaque
-				.some((packet) => materialSupportsWebGPUDeferredLighting(packet.material)),
-			deferredGBufferLayout,
+			postProcessPasses: postProcess.postProcessPasses,
+			hasDeferredLightingWork: deferred.hasDeferredLightingWork,
+			deferredGBufferLayout: deferred.deferredGBufferLayout,
 			oitRequested: context.features.enableOIT === true,
 			hasOITWork: transparency.hasOITContributors,
 			transparency,
-			needsPostProcessTargets: postProcessPasses.length > 0,
-			needsPostProcessGBuffer,
-			needsPlanarReflection,
+			needsPostProcessTargets: postProcess.needsPostProcessTargets,
+			needsPostProcessGBuffer: postProcess.needsPostProcessGBuffer,
+			needsPlanarReflection: reflection.needsPlanarReflection,
 			needsPlanarReflectionMask:
-				needsPlanarReflection ||
-				sharedAllocationGroups.has("planar-reflection-mask"),
-			needsTransmissionTargets:
-				sharedAllocationGroups.has("transmission") &&
-				framePackets.transparent
-					.some((packet) => materialUsesTransmission(packet.material)),
-			needsOcclusionTargets,
-			needsHiZTarget,
+				reflection.needsPlanarReflection || postProcess.needsPlanarReflectionMask,
+			needsTransmissionTargets: postProcess.needsTransmissionTargets &&
+				framePackets.transparent.some((packet) => materialUsesTransmission(packet.material)),
+			needsOcclusionTargets: visibility.needsOcclusionTargets,
+			needsHiZTarget:
+				visibility.needsOcclusionTargets || postProcess.needsHiZTarget,
 		};
 	}
+}
 
-	private _collectSharedAllocationGroups(
-		passes: readonly PlannedPostProcessPass[],
-	): ReadonlySet<WebGPUPostProcessAllocationGroup> {
-		const groups = new Set<WebGPUPostProcessAllocationGroup>();
-		for (const pass of passes) {
-			for (const resource of pass.declaration.shared ?? []) {
-				const descriptor = getWebGPUPostProcessSharedResourceDescriptor(resource.id);
-				if (
-					descriptor &&
-					(resource.optional !== true || descriptor.allocateWhenOptional)
-				) {
-					groups.add(descriptor.allocationGroup);
-				}
-			}
+export function analyzeWebGPUDeferredFeatures(
+	context: FrameContext,
+	framePackets: PreparedFramePacketSet,
+): WebGPUDeferredFeatureAnalysis {
+	return {
+		hasDeferredLightingWork: framePackets.opaque.some((packet) =>
+			materialSupportsWebGPUDeferredLighting(packet.material)),
+		deferredGBufferLayout:
+			(context.scene.decalPackets?.length ?? 0) > 0 ||
+			framePackets.opaque.some((packet) =>
+				materialRequiresExtendedWebGPUGBuffer(packet.material))
+				? "extended"
+				: "base",
+	};
+}
+
+export function analyzeWebGPUPostProcessFeatures(
+	passes: readonly PlannedPostProcessPass[],
+): WebGPUPostProcessFeatureAnalysis {
+	const groups = collectSharedAllocationGroups(passes);
+	return {
+		postProcessPasses: passes,
+		needsPostProcessTargets: passes.length > 0,
+		needsPostProcessGBuffer: passes.length > 0,
+		needsPlanarReflectionMask: groups.has("planar-reflection-mask"),
+		needsTransmissionTargets: groups.has("transmission"),
+		needsHiZTarget: groups.has("hiz"),
+	};
+}
+
+export function analyzeWebGPUReflectionFeatures(
+	context: FrameContext,
+): WebGPUReflectionFeatureAnalysis {
+	return {
+		needsPlanarReflection:
+			context.features.enableReflection && context.scene.reflectivePackets.length > 0,
+	};
+}
+
+export function analyzeWebGPUVisibilityFeatures(
+	context: FrameContext,
+): WebGPUVisibilityFeatureAnalysis {
+	return {
+		needsOcclusionTargets:
+			context.features.enableOcclusionCulling === true &&
+			(context.scene.occlusion?.eligibleCandidateCount ?? 0) > 0,
+	};
+}
+
+export function analyzeWebGPUTransparency(
+	context: FrameContext,
+	transparentPackets: readonly DrawPacket[],
+): WebGPUTransparencyAnalysis {
+	const oitPackets: DrawPacket[] = [];
+	const transmissionPackets: DrawPacket[] = [];
+	for (const packet of transparentPackets) {
+		if (materialUsesTransmission(packet.material)) {
+			transmissionPackets.push(packet);
+		} else {
+			oitPackets.push(packet);
 		}
-		return groups;
 	}
-
-	private _analyzeTransparency(
-		context: FrameContext,
-		transparentPackets: readonly DrawPacket[],
-	): WebGPUTransparencyAnalysis {
-		const oitPackets: DrawPacket[] = [];
-		const transmissionPackets: DrawPacket[] = [];
-		for (const packet of transparentPackets) {
-			if (materialUsesTransmission(packet.material)) {
-				transmissionPackets.push(packet);
-			} else {
-				oitPackets.push(packet);
-			}
+	let hasAlphaBillboardParticles = false;
+	let hasAdditiveBillboardParticles = false;
+	for (const system of context.scene.particleSystems ?? []) {
+		if (system.visible === false) continue;
+		const templates = system.templates;
+		if (!templates) {
+			// Lightweight compatibility contexts have no template classification.
+			hasAlphaBillboardParticles = true;
+			hasAdditiveBillboardParticles = true;
+			continue;
 		}
-		let hasAlphaBillboardParticles = false;
-		let hasAdditiveBillboardParticles = false;
-		for (const system of context.scene.particleSystems ?? []) {
-			if (system.visible === false) continue;
-			const templates = system.templates;
-			if (!templates) {
-				// Test and compatibility frame contexts may provide a lightweight
-				// particle-system descriptor. Preserve the historical particle pass
-				// behavior until a concrete template classification is available.
-				hasAlphaBillboardParticles = true;
+		for (const template of templates) {
+			if (template.shape.kind !== "billboard") continue;
+			if (template.shape.blendMode === ParticleBlendMode.Additive) {
 				hasAdditiveBillboardParticles = true;
-				continue;
-			}
-			for (const template of templates) {
-				if (template.shape.kind !== "billboard") continue;
-				if (template.shape.blendMode === ParticleBlendMode.Additive) {
-					hasAdditiveBillboardParticles = true;
-				} else {
-					hasAlphaBillboardParticles = true;
-				}
+			} else {
+				hasAlphaBillboardParticles = true;
 			}
 		}
-		return {
-			oitPackets,
-			transmissionPackets,
-			legacyTransparentPackets: oitPackets,
-			hasAlphaBillboardParticles,
-			hasAdditiveBillboardParticles,
-			hasOITContributors:
-				oitPackets.length > 0 || hasAlphaBillboardParticles,
-		};
 	}
+	return {
+		oitPackets,
+		transmissionPackets,
+		legacyTransparentPackets: oitPackets,
+		hasAlphaBillboardParticles,
+		hasAdditiveBillboardParticles,
+		hasOITContributors:
+			oitPackets.length > 0 || hasAlphaBillboardParticles,
+	};
+}
+
+function collectSharedAllocationGroups(
+	passes: readonly PlannedPostProcessPass[],
+): ReadonlySet<WebGPUPostProcessAllocationGroup> {
+	const groups = new Set<WebGPUPostProcessAllocationGroup>();
+	for (const pass of passes) {
+		for (const resource of pass.declaration.shared ?? []) {
+			const descriptor = getWebGPUPostProcessSharedResourceDescriptor(resource.id);
+			if (descriptor && (resource.optional !== true || descriptor.allocateWhenOptional)) {
+				groups.add(descriptor.allocationGroup);
+			}
+		}
+	}
+	return groups;
 }

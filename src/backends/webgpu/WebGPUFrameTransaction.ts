@@ -69,7 +69,8 @@ export class WebGPUFrameTransaction {
 			this._services.particleSimulator?.beginFrame(this.context);
 			this._particleFrameActive = this._services.particleSimulator !== null;
 			this._services.resources.beginFrameResourceLifecycle();
-			const port = this._services.orchestrator.createPostProcessSessionPort();
+			const port = this._services.orchestrator.runtimeCapabilities.postProcess
+				.createSessionPort();
 			if (port) {
 				this._services.postProcessExecutor?.bindSession(port);
 			}

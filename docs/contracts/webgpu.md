@@ -6,10 +6,36 @@ This document defines WebGPU frame-graph execution, deferred lighting, presentat
 
 ### Internal frame graph
 
-- `WebGPUFrameGraphPlanner` must create WebGPU internal nodes for every enabled
-  renderer-level `FramePass` during frame sealing through registered stage
-  planners. Sealing normally occurs in `beginFrame()` and may follow
+- Registered frame modules must create WebGPU internal nodes for every enabled
+  renderer-level `FramePass` during frame sealing through their stage
+  contributions. Sealing normally occurs in `beginFrame()` and may follow
   `particle-sim` as defined below.
+- `WebGPUFrameGraphModuleRegistry` must be backend-private. The WebGPU backend
+  must register every built-in frame module during runtime composition and
+  seal the registry before the first frame begins. Applications must not
+  receive a frame-module or frame-graph registration API.
+- A sealed frame-module registry must reject later registration. Sealing must
+  reject duplicate module ids and duplicate or missing node-kind executors.
+  The sealed module list must be immutable at runtime.
+  Stage planning must reject duplicate planned node ids, ambiguous same-stage
+  contribution order, and multiple composed subgraphs for one renderer stage
+  before graph compilation.
+- Frame modules must declare an explicit same-stage contribution order.
+  Registration order must not affect planned graph order.
+- Frame-module analysis must write only module-owned typed frame state.
+  State ownership must use canonical key identity so another module cannot
+  reuse a key id to read or replace foreign analysis.
+  Configuration and planning may read the completed analysis store only after
+  every module has finished analysis.
+- Feature modules must provide configuration input through
+  `contributeConfiguration()` from their retained analysis. The configuration
+  builder must reject missing or duplicate feature contributions and must not
+  rescan scene packets during capability or allocation fallback retries.
+- Scene, shadow, deferred, transparency, reflection, visibility, post-process,
+  presentation, and custom-render-target modules must own their feature-local
+  analysis, graph contribution, node execution, warmup, and lifecycle work.
+  Modules must receive narrow runtime capabilities and must not receive the
+  concrete `WebGPUFrameOrchestrator`.
 - Unsupported renderer-level backend pass ids must produce an empty WebGPU
   stage plan; `WebGPUFrameOrchestrator` must warn once and skip execution for
   that pass.
@@ -44,17 +70,18 @@ This document defines WebGPU frame-graph execution, deferred lighting, presentat
 - `WebGPUFrameHost` operations must delegate directly to their owning resource,
   pipeline, binding-group, command-scheduler, or canvas-target service. They
   must not call forwarding methods on `WebGPUBackend`.
-- `WebGPUFrameFeatureAnalyzer` must scan scene, particle, reflection,
+- Registered frame modules must collectively scan scene, particle, reflection,
   visibility, and post-process work exactly once per frame without applying
   device capability fallbacks.
-- `WebGPUFrameFeatureAnalyzer` must derive post-process frame-target
-  requirements from retained `PostProcessExecutionDeclaration` values. It must
-  not identify resource consumers through built-in post-process pass IDs.
+- The post-process frame module must derive frame-target requirements from
+  retained `PostProcessExecutionDeclaration` values. It must not identify
+  resource consumers through built-in post-process pass IDs.
 - WebGPU post-process declarations must be planned before frame-target
   allocation, finalized against allocated G-buffer and shared-resource
   availability, and reused for whole-frame graph composition.
-- `WebGPUFrameConfigurationResolver` must consume analyzed feature work and
-  resolve only capability gating, effective configuration, and fallback policy.
+- `WebGPUFrameConfigurationResolver` must aggregate completed module analysis
+  and configuration contributions, resolving only capability gating, effective
+  configuration, target requirements, and fallback policy.
 - Planner, compiler, orchestrator, and debug state must use the shared typed
   graph resource catalog. The catalog must derive logical descriptors and
   stable physical bindings from concrete frame targets without exposing native
@@ -120,9 +147,10 @@ This document defines WebGPU frame-graph execution, deferred lighting, presentat
   `WebGPUFrameServiceOwner`; frame-node runtimes may invalidate only their
   pass-local resources.
 - Scene, shadow, deferred, transparency, reflection, visibility, post-process,
-  and presentation runtimes must own their node executors and feature-local
-  pipeline/binding lifecycle. The orchestrator must not provide callback-only
-  runtime wrappers for those features.
+  presentation, and custom-render-target modules must own their node executors
+  and feature-local pipeline/binding lifecycle. The orchestrator must not
+  construct concrete feature runtimes, retain feature passes, or provide
+  callback-only runtime wrappers for those features.
 - Transparency graph nodes must separately represent OIT preparation, target
   clear, mesh accumulation, particle accumulation, resolve, transmission, and
   additive particle work. The OIT scene-color copy must occur in the prepare
@@ -176,6 +204,9 @@ This document defines WebGPU frame-graph execution, deferred lighting, presentat
   `WebGPUFramePartialSubmitError` with submitted and pending command metadata.
 - `WebGPUFrameOrchestrator` must execute graph nodes through
   `WebGPUFrameNodeExecutorRegistry`, keyed by `WebGPUFrameGraphNode.kind`.
+- `WebGPUFrameOrchestrator` must depend only on the sealed frame-module
+  registry and its narrow capability ports. Adding a built-in frame feature
+  must not require an orchestrator change.
 - The node executor table must exhaustively cover `WebGPUFrameGraphNodeKind` so
   adding a node kind produces a TypeScript error until an executor is supplied.
 - A planned graph node with no runtime executor must throw because it indicates
@@ -652,14 +683,15 @@ const packed = packer.pack({
 `getFrameGraphDebugState()` may expose structured internal graph diagnostics,
 barriers, resources, and target-manager state. Tests and diagnostic tooling must
 not depend on private runtime fields when equivalent graph debug data exists.
-The planner and runtime use internal registries instead of switch statements;
+Planning and execution use the internal frame-module registry instead of
+orchestrator switch statements;
 this does not add public WebGPU frame graph registration APIs. Rejecting
 duplicate frame begins, missing active sessions, and mismatched frame-context
 identity strengthens internal lifecycle validation without changing the public
 renderer API. WebGPU composes each eligible post-process pass into the
-whole-frame graph under the `"postprocess"` namespace. The shared analyzer does
-not transfer native resource ownership, allocate pool textures, emit native
-barriers, or change planner and executor order.
+whole-frame graph under the `"postprocess"` namespace. Module-owned analysis
+state does not transfer native resource ownership, allocate pool textures, emit
+native barriers, or change planner and executor order.
 
 ### Deferred lighting
 

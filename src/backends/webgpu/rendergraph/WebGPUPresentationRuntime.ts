@@ -4,8 +4,18 @@ import type { IRenderTexture } from "../../types";
 
 import type { WebGPUFrameHost } from "./WebGPUFrameHost";
 import type { WebGPUFrameGraphRecordingContext } from "./WebGPUFrameGraphRecordingContext";
-import type { WebGPUFrameNodeRuntime } from "./WebGPUFrameNodeRuntimes";
+import type {
+	WebGPUFrameGraphContribution,
+	WebGPUFrameGraphModule,
+	WebGPUFrameModulePlanningInput,
+} from "./WebGPUFrameGraphModule";
+import {
+	createWebGPUFrameGraphNode,
+	readWebGPUFrameGraphResource,
+	writeWebGPUFrameGraphResource,
+} from "./WebGPUFrameGraphPlanningUtils";
 import type { WebGPUFrameSession } from "./WebGPUFrameSession";
+import { WEBGPU_FRAME_GRAPH_RESOURCES } from "./WebGPUFrameGraphResourceCatalog";
 import { WebGPUPresentPass } from "./WebGPUPresentPass";
 
 export interface WebGPUPresentationRuntimeContext {
@@ -22,7 +32,7 @@ export interface WebGPUPresentationRuntimeContext {
  * @internal Owned by `WebGPUFrameOrchestrator`; applications must use
  * `Renderer` display-output APIs.
  */
-export class WebGPUPresentationRuntime implements WebGPUFrameNodeRuntime {
+export class WebGPUPresentationRuntime implements WebGPUFrameGraphModule {
 	public readonly id = "presentation";
 	public readonly executors = {
 		presentation: async (_node: unknown, session: WebGPUFrameSession) => {
@@ -33,7 +43,6 @@ export class WebGPUPresentationRuntime implements WebGPUFrameNodeRuntime {
 	};
 
 	private readonly _pass: WebGPUPresentPass;
-
 	public constructor(
 		host: WebGPUFrameHost,
 		private readonly _context: WebGPUPresentationRuntimeContext,
@@ -42,6 +51,31 @@ export class WebGPUPresentationRuntime implements WebGPUFrameNodeRuntime {
 	}
 
 	public beginFrame(_context: FrameContext): void {}
+
+	public planStage(
+		input: WebGPUFrameModulePlanningInput,
+	): readonly WebGPUFrameGraphContribution[] {
+		if (input.finalization !== true || input.state.hasFrameTargets !== true) {
+			return [];
+		}
+		const source =
+			input.finalColorResource ?? WEBGPU_FRAME_GRAPH_RESOURCES.frameColor;
+		return [{
+			order: 100,
+			nodes: [createWebGPUFrameGraphNode(
+				input.pass,
+				"presentation",
+				"WebGPUPresentation",
+				{
+					reads: [readWebGPUFrameGraphResource(source, "texture-binding")],
+					writes: [writeWebGPUFrameGraphResource(
+						WEBGPU_FRAME_GRAPH_RESOURCES.canvasColor,
+						"present",
+					)],
+				},
+			)],
+		}];
+	}
 
 	public warmup(): Promise<void> {
 		return this._pass.warmup();
@@ -65,6 +99,10 @@ export class WebGPUPresentationRuntime implements WebGPUFrameNodeRuntime {
 
 	public invalidateFrameResources(): void {
 		this._pass.invalidateBindings();
+	}
+
+	public onDisplayOutputChanged(): void {
+		this._pass.onShaderRuntimeChanged();
 	}
 
 	public onShaderRuntimeChanged(): void {

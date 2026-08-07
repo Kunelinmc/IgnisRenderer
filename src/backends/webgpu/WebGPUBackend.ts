@@ -36,6 +36,7 @@ import {
 } from "../BackendExtensions";
 import { WebGPUErrorScopeHelper } from "./WebGPUErrorScopeHelper";
 import { WebGPUFrameOrchestrator } from "./rendergraph/WebGPUFrameOrchestrator";
+import { createWebGPUFrameRuntimeCompositionFactory } from "./rendergraph/WebGPUFrameRuntimeComposition";
 import type { WebGPUFrameHost } from "./rendergraph/WebGPUFrameHost";
 import { WebGPUPostProcessExecutor } from "./WebGPUPostProcessExecutor";
 import { WebGPUFrameTransaction } from "./WebGPUFrameTransaction";
@@ -158,9 +159,10 @@ export class WebGPUBackend implements IRenderBackend {
 	private _activeFrameTransaction: WebGPUFrameTransaction | null = null;
 	private readonly _occlusionCullingExtensionApi: OcclusionCullingBackendAdapter = {
 		getVisibilityProvider: (options: NormalizedOcclusionCullingOptions) =>
-			this._frameOrchestrator?.getOcclusionVisibilityProvider(options) ?? null,
+			this._frameOrchestrator?.runtimeCapabilities.visibility
+				.getVisibilityProvider(options) ?? null,
 		resetOcclusionCulling: () => {
-			this._frameOrchestrator?.resetOcclusionCulling();
+			this._frameOrchestrator?.runtimeCapabilities.visibility.reset();
 		},
 	};
 	public readonly extensions;
@@ -598,11 +600,17 @@ export class WebGPUBackend implements IRenderBackend {
 		});
 		this._frameOrchestrator = new WebGPUFrameOrchestrator(
 			this._frameHost,
-			this._resources,
+			this._resources.createFrameScope(),
 			this._framePacketRegistry,
-			this._resources.getParticleBillboardRenderer(),
 			this._sampleCountResolver,
 			this._requestedSampleCount,
+			createWebGPUFrameRuntimeCompositionFactory({
+				host: this._frameHost,
+				frameServices: this._resources,
+				framePackets: this._framePacketRegistry,
+				particleRenderer: this._resources.getParticleBillboardRenderer(),
+				sampleCountResolver: this._sampleCountResolver,
+			}),
 		);
 		this._reflectionProbeCapturePass = new WebGPUReflectionProbeCapturePass(
 			this._frameHost,
@@ -818,7 +826,11 @@ export class WebGPUBackend implements IRenderBackend {
 		if (!this._frameOrchestrator) {
 			return Promise.reject(new Error("WebGPU backend has not been initialized."));
 		}
-		return this._frameOrchestrator.readRenderTargetColor(id, attachmentIndex, options);
+		return this._frameOrchestrator.runtimeCapabilities.customRenderTargets.readColor(
+			id,
+			attachmentIndex,
+			options,
+		);
 	}
 
 	public async warmup(context: FrameContext, options: WarmupOptions = {}): Promise<WarmupReport> {
@@ -1713,7 +1725,8 @@ export class WebGPUBackend implements IRenderBackend {
 			this._sampleCountResolver.clearCapabilityCache();
 			this._frameOrchestrator?.onDisplayOutputChanged();
 		} else {
-			this._frameOrchestrator?.invalidatePostProcessBindings();
+			this._frameOrchestrator?.runtimeCapabilities.postProcess
+				.invalidateFrameResources();
 		}
 		this._resetCurrentCanvasTargets();
 
