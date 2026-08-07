@@ -431,7 +431,8 @@ export class WebGLShadowRasterPass {
 		gl.depthMask(true);
 		gl.disable(gl.SCISSOR_TEST);
 		gl.colorMask(true, true, true, true);
-		gl.drawBuffers([gl.COLOR_ATTACHMENT0]);
+		gl.bindFramebuffer(gl.FRAMEBUFFER, plan.baselineFramebuffer);
+		gl.drawBuffers([plan.baselineFramebuffer ? gl.COLOR_ATTACHMENT0 : gl.BACK]);
 		gl.bindVertexArray(null);
 		gl.bindFramebuffer(gl.FRAMEBUFFER, plan.baselineFramebuffer);
 		gl.viewport(0, 0, plan.baselineViewportWidth, plan.baselineViewportHeight);

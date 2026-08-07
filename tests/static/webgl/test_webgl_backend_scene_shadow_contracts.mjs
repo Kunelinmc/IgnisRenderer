@@ -73,6 +73,38 @@ function testShadowRasterPassConsumesResolvedPlanAndRestoresBaseline() {
 	pass.destroy();
 }
 
+function testShadowRasterPassRestoresDefaultFramebufferDrawBuffer() {
+	const gl = createShadowRasterCaptureGL();
+	const operations = [];
+	const originalBindFramebuffer = gl.bindFramebuffer;
+	const originalDrawBuffers = gl.drawBuffers;
+	gl.bindFramebuffer = (target, framebuffer) => {
+		operations.push(["bindFramebuffer", framebuffer]);
+		originalBindFramebuffer(target, framebuffer);
+	};
+	gl.drawBuffers = (buffers) => {
+		operations.push(["drawBuffers", [...buffers]]);
+		originalDrawBuffers(buffers);
+	};
+	const pass = new WebGLShadowRasterPass(createShadowPassHost(gl));
+	const plan = createShadowRasterPlan({ baselineFramebuffer: null });
+
+	pass.prepare(plan);
+	assert.deepEqual(operations.slice(-3), [
+		["bindFramebuffer", null],
+		["drawBuffers", [gl.BACK]],
+		["bindFramebuffer", null],
+	]);
+	operations.length = 0;
+	pass.render(plan);
+	assert.deepEqual(operations.slice(-3), [
+		["bindFramebuffer", null],
+		["drawBuffers", [gl.BACK]],
+		["bindFramebuffer", null],
+	]);
+	pass.destroy();
+}
+
 function testShadowRasterPassCleansPartialAllocationAndRestoresOnDrawError() {
 	const incompleteGL = createShadowRasterCaptureGL();
 	incompleteGL.checkFramebufferStatus = () => 0x8cd6;
@@ -238,6 +270,7 @@ await runWebGLBackendFile(
 		testSceneShaderKeepsClusteredFragmentLightLimitPlaceholder,
 		testSceneShaderUsesFlippedShadowNormal,
 		testShadowRasterPassConsumesResolvedPlanAndRestoresBaseline,
+		testShadowRasterPassRestoresDefaultFramebufferDrawBuffer,
 		testShadowRasterPassCleansPartialAllocationAndRestoresOnDrawError,
 		testShadowRasterPassKeepsSkinningDiagnosticKey,
 		testSceneShaderIncludesReflectionProbeUniforms,

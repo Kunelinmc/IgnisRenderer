@@ -379,6 +379,7 @@ export function createShadowRasterCaptureGL() {
 	gl.FRAMEBUFFER_COMPLETE = 0x8cd5;
 	gl.DEPTH_BUFFER_BIT = 0x0100;
 	gl.COLOR_BUFFER_BIT = 0x4000;
+	gl.BACK = 0x0405;
 	gl.ZERO = 0;
 	gl.ONE = 1;
 	gl.SRC_COLOR = 0x0300;
@@ -798,7 +799,11 @@ export function createShadowPassHost(gl, options = {}) {
 	};
 }
 
-export function createShadowRasterPlan({ casterPackets = [], transmitterPackets = [] } = {}) {
+export function createShadowRasterPlan({
+	casterPackets = [],
+	transmitterPackets = [],
+	baselineFramebuffer = { id: "scene-framebuffer" },
+} = {}) {
 	return {
 		atlasTileSize: 64,
 		atlasWidth: 256,
@@ -818,7 +823,7 @@ export function createShadowRasterPlan({ casterPackets = [], transmitterPackets 
 		sliceCount: 1,
 		casterPackets,
 		transmitterPackets,
-		baselineFramebuffer: { id: "scene-framebuffer" },
+		baselineFramebuffer,
 		baselineViewportWidth: 320,
 		baselineViewportHeight: 180,
 	};
