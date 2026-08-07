@@ -11,6 +11,9 @@ import type {
 
 export interface SpatialNode {
 	bounds: BoundingBox;
+	parent: SpatialNode | null;
+	subtreeObjectCount: number;
+	surfaceArea: number;
 	left?: SpatialNode;
 	right?: SpatialNode;
 	objects?: MeshInstance[];
@@ -35,6 +38,12 @@ interface SpatialBuildEntry {
 	centroidX: number;
 	centroidY: number;
 	centroidZ: number;
+}
+
+interface SpatialLeafLocator {
+	leaf: SpatialNode;
+	objectIndex: number;
+	entry: SpatialBuildEntry;
 }
 
 interface SpatialRangeStats {
@@ -84,10 +93,22 @@ export class BVH implements SpatialIndex3D {
 	private _entries: SpatialBuildEntry[];
 	private _meshInstances: MeshInstance[];
 	private _meshInstanceSet: Set<MeshInstance>;
-	private _entryIndexByMeshInstance: Map<MeshInstance, number>;
+	private _leafLocatorByMeshInstance: Map<MeshInstance, SpatialLeafLocator>;
 	private _structureDirty: boolean;
 	private _boundsDirtyMeshInstances: Set<MeshInstance>;
 	private _boundsScratch: BoundingBox;
+	private _qualityCost = 0;
+	private _qualityBaseline = 0;
+	private _fullRebuildCount = 0;
+	private _lastRefitNodeCount = 0;
+	private readonly _queryNodeStack: SpatialNode[] = [];
+	private readonly _queryStatusStack: number[] = [];
+	private readonly _frustumPlaneData = new Float64Array(24);
+	private readonly _rayNodeHeap: SpatialNode[] = [];
+	private readonly _rayDistanceHeap: number[] = [];
+	private readonly _dirtyLeafScratch = new Set<SpatialNode>();
+	private readonly _refitCurrentScratch = new Set<SpatialNode>();
+	private readonly _refitNextScratch = new Set<SpatialNode>();
 
 	constructor(
 		meshInstances: MeshInstance[] = [],
@@ -103,7 +124,7 @@ export class BVH implements SpatialIndex3D {
 		this._entries = [];
 		this._meshInstances = [];
 		this._meshInstanceSet = new Set();
-		this._entryIndexByMeshInstance = new Map();
+		this._leafLocatorByMeshInstance = new Map();
 		this._structureDirty = false;
 		this._boundsDirtyMeshInstances = new Set();
 		this._boundsScratch = createBoundingBox();
@@ -180,6 +201,8 @@ export class BVH implements SpatialIndex3D {
 	 * Rebuilds BVH nodes from current world-space mesh bounds.
 	 */
 	public rebuild(meshInstances?: MeshInstance[]): void {
+		this._fullRebuildCount++;
+		this._lastRefitNodeCount = 0;
 		if (meshInstances) {
 			this._meshInstances = meshInstances.slice();
 			this._meshInstanceSet = new Set(this._meshInstances);
@@ -188,8 +211,10 @@ export class BVH implements SpatialIndex3D {
 		const count = this._meshInstances.length;
 		if (count === 0) {
 			this._entries.length = 0;
-			this._entryIndexByMeshInstance.clear();
+			this._leafLocatorByMeshInstance.clear();
 			this._root = null;
+			this._qualityCost = 0;
+			this._qualityBaseline = 0;
 			this._structureDirty = false;
 			this._boundsDirtyMeshInstances.clear();
 			return;
@@ -198,18 +223,15 @@ export class BVH implements SpatialIndex3D {
 		this._entries = new Array<SpatialBuildEntry>(count);
 		for (let index = 0; index < count; index++) {
 			const meshInstance = this._meshInstances[index];
-			const bounds = meshInstance.getWorldBoundingBox();
+			const bounds = meshInstance.getOwnWorldBoundingBox();
 			this._entries[index] = createBuildEntry(meshInstance, bounds);
 		}
 
+		this._leafLocatorByMeshInstance.clear();
 		this._root = this._buildRange(0, this._entries.length);
-		this._entryIndexByMeshInstance.clear();
-		for (let index = 0; index < this._entries.length; index++) {
-			this._entryIndexByMeshInstance.set(
-				this._entries[index].meshInstance,
-				index
-			);
-		}
+		if (this._root) this._root.parent = null;
+		this._qualityCost = computeTreeQualityCost(this._root);
+		this._qualityBaseline = this._qualityCost;
 		this._structureDirty = false;
 		this._boundsDirtyMeshInstances.clear();
 	}
@@ -230,7 +252,14 @@ export class BVH implements SpatialIndex3D {
 		if (maxResults <= 0) return out;
 		const includeInvisible = options?.includeInvisible === true;
 
-		this._queryNode(this._root, frustum, includeInvisible, maxResults, out);
+		captureFrustumPlaneData(frustum, this._frustumPlaneData);
+		this._queryFrustumIterative(
+			this._root,
+			this._frustumPlaneData,
+			includeInvisible,
+			maxResults,
+			out
+		);
 
 		return out;
 	}
@@ -254,7 +283,7 @@ export class BVH implements SpatialIndex3D {
 		const maxResults = resolveMaxResults(options?.maxResults);
 		if (maxResults <= 0) return out;
 		const includeInvisible = options?.includeInvisible === true;
-		this._queryNodeBounds(
+		this._queryBoundsIterative(
 			this._root,
 			bounds,
 			includeInvisible,
@@ -318,8 +347,23 @@ export class BVH implements SpatialIndex3D {
 			}
 			return out;
 		}
+		if (Number.isFinite(maxResults)) {
+			this._queryTopKRayHits(
+				this._root,
+				origin,
+				normalizedDirection,
+				maxDistance,
+				maxResults,
+				includeInvisible,
+				out
+			);
+			out.sort(compareRayHits);
+			return out;
+		}
 
-		const stack: SpatialNode[] = [this._root];
+		const stack = this._queryNodeStack;
+		stack.length = 0;
+		stack.push(this._root);
 
 		while (stack.length > 0) {
 			const node = stack.pop();
@@ -356,8 +400,8 @@ export class BVH implements SpatialIndex3D {
 				continue;
 			}
 
-			if (node.left) stack.push(node.left);
 			if (node.right) stack.push(node.right);
+			if (node.left) stack.push(node.left);
 		}
 
 		if (out.length === 0) {
@@ -387,7 +431,6 @@ export class BVH implements SpatialIndex3D {
 		maxDistance: number,
 		includeInvisible: boolean
 	): BVHRayHit | null {
-		const stack: Array<{ node: SpatialNode; distance: number }> = [];
 		const rootDistance = intersectRayAABB(
 			origin,
 			normalizedDirection,
@@ -396,14 +439,19 @@ export class BVH implements SpatialIndex3D {
 			root.bounds.max
 		);
 		if (rootDistance === null) return null;
-		stack.push({ node: root, distance: rootDistance });
+		const nodes = this._rayNodeHeap;
+		const distances = this._rayDistanceHeap;
+		nodes.length = 0;
+		distances.length = 0;
+		pushRayNodeMinHeap(nodes, distances, root, rootDistance);
 
 		let best: BVHRayHit | null = null;
 		let bestDistance = maxDistance;
-		while (stack.length > 0) {
-			const current = stack.pop();
-			if (!current || current.distance > bestDistance) continue;
-			const node = current.node;
+		while (nodes.length > 0) {
+			const node = nodes[0];
+			const nodeDistance = distances[0];
+			popRayNodeMinHeap(nodes, distances);
+			if (nodeDistance > bestDistance) break;
 
 			if (node.objects && node.objectBounds) {
 				for (let index = 0; index < node.objects.length; index++) {
@@ -429,45 +477,125 @@ export class BVH implements SpatialIndex3D {
 				continue;
 			}
 
-			let leftDistance: number | null = null;
-			let rightDistance: number | null = null;
-			if (node.left) {
-				leftDistance = intersectRayAABB(
-					origin,
-					normalizedDirection,
-					bestDistance,
-					node.left.bounds.min,
-					node.left.bounds.max
-				);
-			}
-			if (node.right) {
-				rightDistance = intersectRayAABB(
-					origin,
-					normalizedDirection,
-					bestDistance,
-					node.right.bounds.min,
-					node.right.bounds.max
-				);
-			}
+			this._pushRayChild(
+				node.left,
+				origin,
+				normalizedDirection,
+				bestDistance,
+				nodes,
+				distances
+			);
+			this._pushRayChild(
+				node.right,
+				origin,
+				normalizedDirection,
+				bestDistance,
+				nodes,
+				distances
+			);
+		}
+		return best;
+	}
 
-			if (node.left && node.right && leftDistance !== null && rightDistance !== null) {
-				if (leftDistance < rightDistance) {
-					stack.push({ node: node.right, distance: rightDistance });
-					stack.push({ node: node.left, distance: leftDistance });
-				} else {
-					stack.push({ node: node.left, distance: leftDistance });
-					stack.push({ node: node.right, distance: rightDistance });
+	private _queryTopKRayHits(
+		root: SpatialNode,
+		origin: { x: number; y: number; z: number },
+		normalizedDirection: { x: number; y: number; z: number },
+		maxDistance: number,
+		maxResults: number,
+		includeInvisible: boolean,
+		out: BVHRayHit[]
+	): void {
+		const rootDistance = intersectRayAABB(
+			origin,
+			normalizedDirection,
+			maxDistance,
+			root.bounds.min,
+			root.bounds.max
+		);
+		if (rootDistance === null) return;
+
+		const nodes = this._rayNodeHeap;
+		const distances = this._rayDistanceHeap;
+		nodes.length = 0;
+		distances.length = 0;
+		pushRayNodeMinHeap(nodes, distances, root, rootDistance);
+		let traversalMaxDistance = maxDistance;
+
+		while (nodes.length > 0) {
+			const node = nodes[0];
+			const nodeDistance = distances[0];
+			popRayNodeMinHeap(nodes, distances);
+			if (nodeDistance > traversalMaxDistance) break;
+
+			if (node.objects && node.objectBounds) {
+				for (let index = 0; index < node.objects.length; index++) {
+					const meshInstance = node.objects[index];
+					if (!includeInvisible && meshInstance.visible === false) continue;
+					const bounds = node.objectBounds[index];
+					const distance = intersectRayAABB(
+						origin,
+						normalizedDirection,
+						traversalMaxDistance,
+						bounds.min,
+						bounds.max
+					);
+					if (distance === null) continue;
+					if (out.length < maxResults) {
+						pushRayHitMaxHeap(out, { meshInstance, distance });
+					} else if (
+						compareRayCandidate(distance, meshInstance, out[0]) < 0
+					) {
+						out[0] = { meshInstance, distance };
+						siftRayHitMaxHeapDown(out, 0);
+					}
+					if (out.length === maxResults) {
+						traversalMaxDistance = Math.min(
+							maxDistance,
+							out[0].distance
+						);
+					}
 				}
 				continue;
 			}
-			if (node.left && leftDistance !== null) {
-				stack.push({ node: node.left, distance: leftDistance });
-			}
-			if (node.right && rightDistance !== null) {
-				stack.push({ node: node.right, distance: rightDistance });
-			}
+
+			this._pushRayChild(
+				node.left,
+				origin,
+				normalizedDirection,
+				traversalMaxDistance,
+				nodes,
+				distances
+			);
+			this._pushRayChild(
+				node.right,
+				origin,
+				normalizedDirection,
+				traversalMaxDistance,
+				nodes,
+				distances
+			);
 		}
-		return best;
+	}
+
+	private _pushRayChild(
+		child: SpatialNode | undefined,
+		origin: { x: number; y: number; z: number },
+		direction: { x: number; y: number; z: number },
+		maxDistance: number,
+		nodes: SpatialNode[],
+		distances: number[]
+	): void {
+		if (!child) return;
+		const distance = intersectRayAABB(
+			origin,
+			direction,
+			maxDistance,
+			child.bounds.min,
+			child.bounds.max
+		);
+		if (distance === null) return;
+		pushRayNodeMinHeap(nodes, distances, child, distance);
 	}
 
 	private _ensureFresh(): void {
@@ -493,23 +621,48 @@ export class BVH implements SpatialIndex3D {
 			return;
 		}
 
-		const previousRootArea = computeBoundingBoxSurfaceArea(this._root.bounds);
+		const dirtyLeaves = this._dirtyLeafScratch;
+		dirtyLeaves.clear();
+		this._lastRefitNodeCount = 0;
 		for (const meshInstance of this._boundsDirtyMeshInstances) {
-			const entryIndex = this._entryIndexByMeshInstance.get(meshInstance);
-			if (entryIndex === undefined) continue;
-			const entry = this._entries[entryIndex];
-			meshInstance.getWorldBoundingBox(this._boundsScratch);
+			const locator = this._leafLocatorByMeshInstance.get(meshInstance);
+			if (!locator) continue;
+			const entry = locator.entry;
+			meshInstance.getOwnWorldBoundingBox(this._boundsScratch);
 			copyBoundingBoxValues(entry.bounds, this._boundsScratch);
 			entry.centroidX = (entry.bounds.min.x + entry.bounds.max.x) * 0.5;
 			entry.centroidY = (entry.bounds.min.y + entry.bounds.max.y) * 0.5;
 			entry.centroidZ = (entry.bounds.min.z + entry.bounds.max.z) * 0.5;
+			dirtyLeaves.add(locator.leaf);
 		}
 
-		this._refitNode(this._root);
-		const nextRootArea = computeBoundingBoxSurfaceArea(this._root.bounds);
+		let currentLevel = this._refitCurrentScratch;
+		let nextLevel = this._refitNextScratch;
+		currentLevel.clear();
+		nextLevel.clear();
+		for (const leaf of dirtyLeaves) {
+			this._lastRefitNodeCount++;
+			if (this._refitLeaf(leaf) && leaf.parent) {
+				currentLevel.add(leaf.parent);
+			}
+		}
+		while (currentLevel.size > 0) {
+			nextLevel.clear();
+			for (const node of currentLevel) {
+				this._lastRefitNodeCount++;
+				if (this._refitInnerNode(node) && node.parent) {
+					nextLevel.add(node.parent);
+				}
+			}
+			const swap = currentLevel;
+			currentLevel = nextLevel;
+			nextLevel = swap;
+		}
+
 		if (
-			previousRootArea > 0 &&
-			nextRootArea / previousRootArea >= this._rebuildSurfaceAreaInflation
+			this._qualityBaseline > 0 &&
+			this._qualityCost / this._qualityBaseline >=
+				this._rebuildSurfaceAreaInflation
 		) {
 			this.rebuild();
 			return;
@@ -517,31 +670,59 @@ export class BVH implements SpatialIndex3D {
 		this._boundsDirtyMeshInstances.clear();
 	}
 
-	private _refitNode(node: SpatialNode): BoundingBox {
-		if (node.objects && node.objectBounds) {
-			unionBoundingBoxes(node.bounds, node.objectBounds);
-			return node.bounds;
-		}
+	private _refitLeaf(node: SpatialNode): boolean {
+		if (!node.objectBounds) return false;
+		const bounds = node.bounds;
+		const minX = bounds.min.x;
+		const minY = bounds.min.y;
+		const minZ = bounds.min.z;
+		const maxX = bounds.max.x;
+		const maxY = bounds.max.y;
+		const maxZ = bounds.max.z;
+		unionBoundingBoxes(node.bounds, node.objectBounds);
+		return this._finishNodeRefit(node, minX, minY, minZ, maxX, maxY, maxZ);
+	}
 
-		if (!node.left && !node.right) {
-			return node.bounds;
-		}
+	private _refitInnerNode(node: SpatialNode): boolean {
+		const bounds = node.bounds;
+		const minX = bounds.min.x;
+		const minY = bounds.min.y;
+		const minZ = bounds.min.z;
+		const maxX = bounds.max.x;
+		const maxY = bounds.max.y;
+		const maxZ = bounds.max.z;
+		if (!node.left && !node.right) return false;
+		if (!node.left) copyBoundingBoxValues(node.bounds, node.right!.bounds);
+		else if (!node.right) copyBoundingBoxValues(node.bounds, node.left.bounds);
+		else mergeBoundingBoxes(node.bounds, node.left.bounds, node.right.bounds);
+		return this._finishNodeRefit(node, minX, minY, minZ, maxX, maxY, maxZ);
+	}
 
-		if (!node.left) {
-			const rightBounds = this._refitNode(node.right!);
-			copyBoundingBoxValues(node.bounds, rightBounds);
-			return node.bounds;
+	private _finishNodeRefit(
+		node: SpatialNode,
+		minX: number,
+		minY: number,
+		minZ: number,
+		maxX: number,
+		maxY: number,
+		maxZ: number
+	): boolean {
+		const bounds = node.bounds;
+		if (
+			bounds.min.x === minX &&
+			bounds.min.y === minY &&
+			bounds.min.z === minZ &&
+			bounds.max.x === maxX &&
+			bounds.max.y === maxY &&
+			bounds.max.z === maxZ
+		) {
+			return false;
 		}
-		if (!node.right) {
-			const leftBounds = this._refitNode(node.left);
-			copyBoundingBoxValues(node.bounds, leftBounds);
-			return node.bounds;
-		}
-
-		const leftBounds = this._refitNode(node.left);
-		const rightBounds = this._refitNode(node.right);
-		mergeBoundingBoxes(node.bounds, leftBounds, rightBounds);
-		return node.bounds;
+		const previousContribution = node.surfaceArea * node.subtreeObjectCount;
+		node.surfaceArea = computeBoundingBoxSurfaceArea(node.bounds);
+		this._qualityCost +=
+			node.surfaceArea * node.subtreeObjectCount - previousContribution;
+		return true;
 	}
 
 	private _buildRange(start: number, end: number): SpatialNode | null {
@@ -630,11 +811,23 @@ export class BVH implements SpatialIndex3D {
 			objectBounds[index] = entry.bounds;
 		}
 
-		return {
+		const node: SpatialNode = {
 			bounds,
+			parent: null,
+			subtreeObjectCount: count,
+			surfaceArea: computeBoundingBoxSurfaceArea(bounds),
 			objects,
 			objectBounds,
 		};
+		for (let index = 0; index < count; index++) {
+			const entry = this._entries[start + index];
+			this._leafLocatorByMeshInstance.set(entry.meshInstance, {
+				leaf: node,
+				objectIndex: index,
+				entry,
+			});
+		}
+		return node;
 	}
 
 	private _createInnerNode(
@@ -653,110 +846,101 @@ export class BVH implements SpatialIndex3D {
 				left ?? this._createLeafNode(start, fallbackMiddle, bounds);
 			const fallbackRight =
 				right ?? this._createLeafNode(fallbackMiddle, end, bounds);
-			return {
+			const node: SpatialNode = {
 				bounds,
+				parent: null,
+				subtreeObjectCount:
+					fallbackLeft.subtreeObjectCount + fallbackRight.subtreeObjectCount,
+				surfaceArea: computeBoundingBoxSurfaceArea(bounds),
 				left: fallbackLeft,
 				right: fallbackRight,
 			};
+			fallbackLeft.parent = node;
+			fallbackRight.parent = node;
+			return node;
 		}
-		return {
+		const node: SpatialNode = {
 			bounds,
+			parent: null,
+			subtreeObjectCount:
+				left.subtreeObjectCount + right.subtreeObjectCount,
+			surfaceArea: computeBoundingBoxSurfaceArea(bounds),
 			left,
 			right,
 		};
+		left.parent = node;
+		right.parent = node;
+		return node;
 	}
 
-	private _queryNode(
-		node: SpatialNode,
-		frustum: Frustum,
+	private _queryFrustumIterative(
+		root: SpatialNode,
+		planeData: Float64Array,
 		includeInvisible: boolean,
 		maxResults: number,
 		result: MeshInstance[]
-	): boolean {
-		if (result.length >= maxResults) return true;
-
-		const nodeFrustumStatus = classifyAABBFrustum(
-			frustum,
-			node.bounds.min,
-			node.bounds.max
+	): void {
+		const rootStatus = classifyAABBFrustumData(
+			planeData,
+			root.bounds.min,
+			root.bounds.max
 		);
-		if (nodeFrustumStatus === FRUSTUM_OUTSIDE) {
-			return false;
-		}
+		if (rootStatus === FRUSTUM_OUTSIDE) return;
+		const nodes = this._queryNodeStack;
+		const statuses = this._queryStatusStack;
+		nodes.length = 0;
+		statuses.length = 0;
+		nodes.push(root);
+		statuses.push(rootStatus);
 
-		if (node.objects && node.objectBounds) {
-			if (nodeFrustumStatus === FRUSTUM_INSIDE) {
-				return this._appendLeafObjects(
-					node.objects,
-					includeInvisible,
-					maxResults,
-					result
-				);
+		while (nodes.length > 0 && result.length < maxResults) {
+			const node = nodes.pop()!;
+			const status = statuses.pop()!;
+			if (node.objects && node.objectBounds) {
+				if (status === FRUSTUM_INSIDE) {
+					this._appendLeafObjects(
+						node.objects,
+						includeInvisible,
+						maxResults,
+						result
+					);
+				} else {
+					this._appendLeafObjectsWithAABB(
+						node.objects,
+						node.objectBounds,
+						planeData,
+						includeInvisible,
+						maxResults,
+						result
+					);
+				}
+				continue;
 			}
-			return this._appendLeafObjectsWithAABB(
-				node.objects,
-				node.objectBounds,
-				frustum,
-				includeInvisible,
-				maxResults,
-				result
-			);
-		}
 
-		if (nodeFrustumStatus === FRUSTUM_INSIDE) {
-			this._appendSubtree(node, includeInvisible, maxResults, result);
-			return result.length >= maxResults;
+			this._pushFrustumChild(node.right, status, planeData, nodes, statuses);
+			this._pushFrustumChild(node.left, status, planeData, nodes, statuses);
 		}
-
-		if (
-			node.left &&
-			this._queryNode(node.left, frustum, includeInvisible, maxResults, result)
-		) {
-			return true;
-		}
-
-		if (
-			node.right &&
-			this._queryNode(node.right, frustum, includeInvisible, maxResults, result)
-		) {
-			return true;
-		}
-
-		return result.length >= maxResults;
 	}
 
-	private _appendSubtree(
-		node: SpatialNode,
-		includeInvisible: boolean,
-		maxResults: number,
-		result: MeshInstance[]
-	): boolean {
-		if (result.length >= maxResults) return true;
-
-		if (node.objects) {
-			return this._appendLeafObjects(
-				node.objects,
-				includeInvisible,
-				maxResults,
-				result
-			);
-		}
-
-		if (
-			node.left &&
-			this._appendSubtree(node.left, includeInvisible, maxResults, result)
-		) {
-			return true;
-		}
-
-		if (
-			node.right &&
-			this._appendSubtree(node.right, includeInvisible, maxResults, result)
-		) {
-			return true;
-		}
-
-		return result.length >= maxResults;
+	private _pushFrustumChild(
+		child: SpatialNode | undefined,
+		parentStatus: number,
+		planeData: Float64Array,
+		nodes: SpatialNode[],
+		statuses: number[]
+	): void {
+		if (!child) return;
+		const status =
+			parentStatus === FRUSTUM_INSIDE ?
+				FRUSTUM_INSIDE
+			:	classifyAABBFrustumData(
+					planeData,
+					child.bounds.min,
+					child.bounds.max
+				);
+		if (status === FRUSTUM_OUTSIDE) return;
+		nodes.push(child);
+		statuses.push(status);
 	}
 
 	private _appendLeafObjects(
@@ -778,7 +962,7 @@ export class BVH implements SpatialIndex3D {
 	private _appendLeafObjectsWithAABB(
 		objects: MeshInstance[],
 		bounds: BoundingBox[],
-		frustum: Frustum,
+		planeData: Float64Array,
 		includeInvisible: boolean,
 		maxResults: number,
 		result: MeshInstance[]
@@ -792,7 +976,11 @@ export class BVH implements SpatialIndex3D {
 			}
 			const objectBounds = bounds[index];
 			if (
-				classifyAABBFrustum(frustum, objectBounds.min, objectBounds.max) !==
+				classifyAABBFrustumData(
+					planeData,
+					objectBounds.min,
+					objectBounds.max
+				) !==
 				FRUSTUM_OUTSIDE
 			) {
 				result.push(meshInstance);
@@ -801,8 +989,8 @@ export class BVH implements SpatialIndex3D {
 		return result.length >= maxResults;
 	}
 
-	private _queryNodeBounds(
-		node: SpatialNode,
+	private _queryBoundsIterative(
+		root: SpatialNode,
 		queryBounds: {
 			min: { x: number; y: number; z: number };
 			max: { x: number; y: number; z: number };
@@ -810,48 +998,55 @@ export class BVH implements SpatialIndex3D {
 		includeInvisible: boolean,
 		maxResults: number,
 		result: MeshInstance[]
-	): boolean {
-		if (result.length >= maxResults) return true;
-		if (!intersectsAABB(node.bounds, queryBounds)) {
-			return false;
+	): void {
+		if (!intersectsAABB(root.bounds, queryBounds)) return;
+		const nodes = this._queryNodeStack;
+		const statuses = this._queryStatusStack;
+		nodes.length = 0;
+		statuses.length = 0;
+		nodes.push(root);
+		statuses.push(containsAABB(queryBounds, root.bounds) ? 1 : 0);
+		while (nodes.length > 0 && result.length < maxResults) {
+			const node = nodes.pop()!;
+			const contained = statuses.pop()! === 1;
+			if (node.objects && node.objectBounds) {
+				if (contained) {
+					this._appendLeafObjects(
+						node.objects,
+						includeInvisible,
+						maxResults,
+						result
+					);
+				} else {
+					this._appendLeafObjectsWithBounds(
+						node.objects,
+						node.objectBounds,
+						queryBounds,
+						includeInvisible,
+						maxResults,
+						result
+					);
+				}
+				continue;
+			}
+			this._pushBoundsChild(node.right, contained, queryBounds, nodes, statuses);
+			this._pushBoundsChild(node.left, contained, queryBounds, nodes, statuses);
 		}
+	}
 
-		if (node.objects && node.objectBounds) {
-			return this._appendLeafObjectsWithBounds(
-				node.objects,
-				node.objectBounds,
-				queryBounds,
-				includeInvisible,
-				maxResults,
-				result
-			);
-		}
-
-		if (
-			node.left &&
-			this._queryNodeBounds(
-				node.left,
-				queryBounds,
-				includeInvisible,
-				maxResults,
-				result
-			)
-		) {
-			return true;
-		}
-		if (
-			node.right &&
-			this._queryNodeBounds(
-				node.right,
-				queryBounds,
-				includeInvisible,
-				maxResults,
-				result
-			)
-		) {
-			return true;
-		}
-		return result.length >= maxResults;
+	private _pushBoundsChild(
+		child: SpatialNode | undefined,
+		parentContained: boolean,
+		queryBounds: SpatialBounds3D,
+		nodes: SpatialNode[],
+		statuses: number[]
+	): void {
+		if (!child) return;
+		if (!parentContained && !intersectsAABB(child.bounds, queryBounds)) return;
+		nodes.push(child);
+		statuses.push(
+			parentContained || containsAABB(queryBounds, child.bounds) ? 1 : 0
+		);
 	}
 
 	private _appendLeafObjectsWithBounds(
@@ -1274,6 +1469,20 @@ function copyBoundingBoxValues(target: BoundingBox, source: BoundingBox): void {
 	target.max.z = source.max.z;
 }
 
+function computeTreeQualityCost(root: SpatialNode | null): number {
+	if (!root) return 0;
+	let cost = 0;
+	const stack: SpatialNode[] = [root];
+	while (stack.length > 0) {
+		const node = stack.pop();
+		if (!node) continue;
+		cost += node.surfaceArea * node.subtreeObjectCount;
+		if (node.left) stack.push(node.left);
+		if (node.right) stack.push(node.right);
+	}
+	return cost;
+}
+
 function mergeBoundingBoxes(
 	target: BoundingBox,
 	left: BoundingBox,
@@ -1336,22 +1545,36 @@ function unionBoundingBoxes(target: BoundingBox, bounds: BoundingBox[]): void {
 	target.max.z = maxZ;
 }
 
-function classifyAABBFrustum(
+function captureFrustumPlaneData(
 	frustum: Frustum,
+	target: Float64Array
+): void {
+	let offset = 0;
+	for (const plane of frustum.planes) {
+		target[offset++] = plane.normal.x;
+		target[offset++] = plane.normal.y;
+		target[offset++] = plane.normal.z;
+		target[offset++] = plane.constant;
+	}
+}
+
+function classifyAABBFrustumData(
+	planeData: Float64Array,
 	min: { x: number; y: number; z: number },
 	max: { x: number; y: number; z: number }
 ): number {
 	let fullyInside = true;
 
-	for (const plane of frustum.planes) {
-		const nx = plane.normal.x;
-		const ny = plane.normal.y;
-		const nz = plane.normal.z;
+	for (let offset = 0; offset < 24; offset += 4) {
+		const nx = planeData[offset];
+		const ny = planeData[offset + 1];
+		const nz = planeData[offset + 2];
+		const constant = planeData[offset + 3];
 
 		const px = nx >= 0 ? max.x : min.x;
 		const py = ny >= 0 ? max.y : min.y;
 		const pz = nz >= 0 ? max.z : min.z;
-		const positiveDistance = nx * px + ny * py + nz * pz + plane.constant;
+		const positiveDistance = nx * px + ny * py + nz * pz + constant;
 		if (positiveDistance < 0) {
 			return FRUSTUM_OUTSIDE;
 		}
@@ -1360,7 +1583,7 @@ function classifyAABBFrustum(
 		const nyPoint = ny >= 0 ? min.y : max.y;
 		const nzPoint = nz >= 0 ? min.z : max.z;
 		const negativeDistance =
-			nx * nxPoint + ny * nyPoint + nz * nzPoint + plane.constant;
+			nx * nxPoint + ny * nyPoint + nz * nzPoint + constant;
 		if (negativeDistance < 0) {
 			fullyInside = false;
 		}
@@ -1395,6 +1618,95 @@ function compareRayHits(left: SpatialRayHit, right: SpatialRayHit): number {
 		return leftEntity - rightEntity;
 	}
 	return left.meshInstance.id.localeCompare(right.meshInstance.id);
+}
+
+function compareRayCandidate(
+	distance: number,
+	meshInstance: MeshInstance,
+	right: SpatialRayHit
+): number {
+	if (distance !== right.distance) return distance - right.distance;
+	const leftEntity = meshInstance.entityId ?? Number.MAX_SAFE_INTEGER;
+	const rightEntity = right.meshInstance.entityId ?? Number.MAX_SAFE_INTEGER;
+	if (leftEntity !== rightEntity) return leftEntity - rightEntity;
+	return meshInstance.id.localeCompare(right.meshInstance.id);
+}
+
+function pushRayHitMaxHeap(heap: SpatialRayHit[], hit: SpatialRayHit): void {
+	heap.push(hit);
+	let index = heap.length - 1;
+	while (index > 0) {
+		const parent = (index - 1) >> 1;
+		if (compareRayHits(heap[index], heap[parent]) <= 0) break;
+		const swap = heap[index];
+		heap[index] = heap[parent];
+		heap[parent] = swap;
+		index = parent;
+	}
+}
+
+function siftRayHitMaxHeapDown(heap: SpatialRayHit[], start: number): void {
+	let index = start;
+	while (true) {
+		const left = index * 2 + 1;
+		if (left >= heap.length) return;
+		const right = left + 1;
+		let larger = left;
+		if (
+			right < heap.length &&
+			compareRayHits(heap[right], heap[left]) > 0
+		) {
+			larger = right;
+		}
+		if (compareRayHits(heap[larger], heap[index]) <= 0) return;
+		const swap = heap[index];
+		heap[index] = heap[larger];
+		heap[larger] = swap;
+		index = larger;
+	}
+}
+
+function pushRayNodeMinHeap(
+	nodes: SpatialNode[],
+	distances: number[],
+	node: SpatialNode,
+	distance: number
+): void {
+	nodes.push(node);
+	distances.push(distance);
+	let index = nodes.length - 1;
+	while (index > 0) {
+		const parent = (index - 1) >> 1;
+		if (distances[parent] <= distance) break;
+		nodes[index] = nodes[parent];
+		distances[index] = distances[parent];
+		index = parent;
+	}
+	nodes[index] = node;
+	distances[index] = distance;
+}
+
+function popRayNodeMinHeap(
+	nodes: SpatialNode[],
+	distances: number[]
+): void {
+	const lastNode = nodes.pop();
+	const lastDistance = distances.pop();
+	if (!lastNode || lastDistance === undefined || nodes.length === 0) return;
+	let index = 0;
+	while (true) {
+		const left = index * 2 + 1;
+		if (left >= nodes.length) break;
+		const right = left + 1;
+		const smaller =
+			right < nodes.length && distances[right] < distances[left] ? right : left;
+		if (distances[smaller] >= lastDistance) break;
+		nodes[index] = nodes[smaller];
+		distances[index] = distances[smaller];
+		index = smaller;
+	}
+	nodes[index] = lastNode;
+	distances[index] = lastDistance;
 }
 
 function intersectRayAABB(
@@ -1465,5 +1777,19 @@ function intersectsAABB(
 		left.min.y > right.max.y ||
 		left.max.z < right.min.z ||
 		left.min.z > right.max.z
+	);
+}
+
+function containsAABB(
+	container: SpatialBounds3D,
+	contained: BoundingBox
+): boolean {
+	return (
+		container.min.x <= contained.min.x &&
+		container.min.y <= contained.min.y &&
+		container.min.z <= contained.min.z &&
+		container.max.x >= contained.max.x &&
+		container.max.y >= contained.max.y &&
+		container.max.z >= contained.max.z
 	);
 }

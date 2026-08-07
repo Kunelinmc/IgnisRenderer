@@ -63,12 +63,12 @@ export interface BoundingBox {
 
 export interface IPrimitive {
 	readonly id: string;
-	geometry: IPrimitiveGeometry;
-	geometryVersion: number;
+	readonly geometry: IPrimitiveGeometry;
+	readonly geometryVersion: number;
 	topology?: PrimitiveDrawTopology;
 	material: Material;
-	boundingSphere: BoundingSphere;
-	boundingBox: BoundingBox;
+	readonly boundingSphere: BoundingSphere;
+	readonly boundingBox: BoundingBox;
 	visible: boolean;
 	castShadows: boolean;
 	receiveShadows: boolean;

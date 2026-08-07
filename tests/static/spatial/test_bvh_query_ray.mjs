@@ -21,8 +21,16 @@ function run() {
 		2,
 		material
 	);
+	const fartherBox = MeshFactory.createBox(
+		{ x: 0, y: 0, z: -15 },
+		2,
+		2,
+		2,
+		material
+	);
 	scene.add(nearBox);
 	scene.add(farBox);
+	scene.add(fartherBox);
 	scene.updateWorldMatrices();
 
 	const bvh = new BVH(scene.getMeshInstances());
@@ -35,6 +43,15 @@ function run() {
 	assert.equal(hits[0].meshInstance, nearBox);
 	assert.equal(hits[1].meshInstance, farBox);
 	assert.ok(hits[0].distance < hits[1].distance);
+	const topTwo = bvh.queryRayDetailed(
+		{ x: 0, y: 0, z: 0 },
+		{ x: 0, y: 0, z: -1 },
+		{ maxDistance: 100, maxResults: 2 }
+	);
+	assert.deepEqual(
+		topTwo.map((hit) => hit.meshInstance),
+		[nearBox, farBox]
+	);
 
 	const out = [{ meshInstance: farBox, distance: 999 }];
 	const nearestHits = bvh.queryRayDetailedInto(

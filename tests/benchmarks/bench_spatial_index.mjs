@@ -10,6 +10,7 @@ import { HybridSpatialIndex } from "../../src/spatial/HybridSpatialIndex.ts";
 import { LooseOctree } from "../../src/spatial/LooseOctree.ts";
 
 const DEFAULT_SEED = 20260609;
+const QUERY_REPETITIONS = 5;
 
 function parseArgs(argv) {
 	const args = {
@@ -198,29 +199,29 @@ function measureUpdate(index, instances, ratio, iterations, rng, camera) {
 		index.queryFrustumInto(camera.frustum, queryOut, { maxResults: Infinity });
 		samples.push(performance.now() - start);
 	}
-	return average(samples);
+	return median(samples);
 }
 
 function measureFrustumQueries(index, camera, iterations) {
 	const out = [];
-	const start = performance.now();
-	let hits = 0;
-	for (let i = 0; i < iterations; i++) {
+	for (let i = 0; i < Math.min(20, iterations); i++) {
 		index.queryFrustumInto(camera.frustum, out);
-		hits += out.length;
 	}
-	const elapsedMs = performance.now() - start;
-	return {
-		qps: iterations / Math.max(1e-6, elapsedMs / 1000),
-		avgHits: hits / iterations,
-	};
+	return measureQueryBatches(iterations, () => {
+		index.queryFrustumInto(camera.frustum, out);
+		return out.length;
+	});
 }
 
 function measureBoundsQueries(index, iterations, rng) {
 	const out = [];
-	const start = performance.now();
-	let hits = 0;
-	for (let i = 0; i < iterations; i++) {
+	for (let i = 0; i < Math.min(20, iterations); i++) {
+		index.queryBoundsInto(
+			{ min: { x: -12, y: -8, z: -92 }, max: { x: 12, y: 8, z: -68 } },
+			out
+		);
+	}
+	return measureQueryBatches(iterations, () => {
 		const centerX = (rng() - 0.5) * 160;
 		const centerZ = -80 + (rng() - 0.5) * 160;
 		index.queryBoundsInto(
@@ -230,20 +231,21 @@ function measureBoundsQueries(index, iterations, rng) {
 			},
 			out
 		);
-		hits += out.length;
-	}
-	const elapsedMs = performance.now() - start;
-	return {
-		qps: iterations / Math.max(1e-6, elapsedMs / 1000),
-		avgHits: hits / iterations,
-	};
+		return out.length;
+	});
 }
 
 function measureRayQueries(index, iterations, rng, maxResults) {
 	const out = [];
-	const start = performance.now();
-	let hits = 0;
-	for (let i = 0; i < iterations; i++) {
+	for (let i = 0; i < Math.min(20, iterations); i++) {
+		index.queryRayDetailedInto(
+			{ x: 0, y: 0, z: 20 },
+			{ x: 0, y: 0, z: -1 },
+			out,
+			{ maxDistance: 400, maxResults }
+		);
+	}
+	return measureQueryBatches(iterations, () => {
 		const x = (rng() - 0.5) * 120;
 		const y = (rng() - 0.5) * 30;
 		index.queryRayDetailedInto(
@@ -252,12 +254,24 @@ function measureRayQueries(index, iterations, rng, maxResults) {
 			out,
 			{ maxDistance: 400, maxResults }
 		);
-		hits += out.length;
+		return out.length;
+	});
+}
+
+function measureQueryBatches(iterations, query) {
+	const qpsSamples = [];
+	let totalHits = 0;
+	for (let repetition = 0; repetition < QUERY_REPETITIONS; repetition++) {
+		const start = performance.now();
+		for (let i = 0; i < iterations; i++) {
+			totalHits += query();
+		}
+		const elapsedMs = performance.now() - start;
+		qpsSamples.push(iterations / Math.max(1e-6, elapsedMs / 1000));
 	}
-	const elapsedMs = performance.now() - start;
 	return {
-		qps: iterations / Math.max(1e-6, elapsedMs / 1000),
-		avgHits: hits / iterations,
+		qps: median(qpsSamples),
+		avgHits: totalHits / (iterations * QUERY_REPETITIONS),
 	};
 }
 
@@ -267,6 +281,7 @@ function collectScenarioDiagnostics(index, instances, camera, iterations, rng) {
 		staticCount: bucketCounts.staticCount,
 		dynamicCount: bucketCounts.dynamicCount,
 		selectedDynamicBackend: resolveSelectedDynamicBackend(index),
+		updates: collectUpdateDiagnostics(index),
 		dynamicOctree: collectSelectedDynamicOctreeStats(index),
 		queries: {
 			frustum: diagnoseSpatialFrustum(index, camera.frustum),
@@ -300,6 +315,31 @@ function collectScenarioDiagnostics(index, instances, camera, iterations, rng) {
 			}),
 		},
 	};
+}
+
+function collectUpdateDiagnostics(index) {
+	if (index instanceof BVH) {
+		return {
+			fullRebuildCount: index._fullRebuildCount,
+			lastRefitNodeCount: index._lastRefitNodeCount,
+		};
+	}
+	if (index instanceof HybridSpatialIndex) {
+		const indexes = [index._staticBVH, index._dynamicIndex].filter(
+			(value) => value instanceof BVH
+		);
+		return {
+			fullRebuildCount: indexes.reduce(
+				(sum, value) => sum + value._fullRebuildCount,
+				0
+			),
+			lastRefitNodeCount: indexes.reduce(
+				(sum, value) => sum + value._lastRefitNodeCount,
+				0
+			),
+		};
+	}
+	return { fullRebuildCount: 0, lastRefitNodeCount: 0 };
 }
 
 function countDynamicBuckets(instances) {
@@ -871,6 +911,15 @@ function average(values) {
 	return values.reduce((sum, value) => sum + value, 0) / values.length;
 }
 
+function median(values) {
+	if (values.length === 0) return 0;
+	const sorted = [...values].sort((left, right) => left - right);
+	const middle = Math.floor(sorted.length / 2);
+	return sorted.length % 2 === 0 ?
+		(sorted[middle - 1] + sorted[middle]) * 0.5
+	: sorted[middle];
+}
+
 function getConfig(quick) {
 	return quick ?
 			{
@@ -1042,6 +1091,7 @@ async function main() {
 					rayTop1,
 					rayTopN,
 					queryDiagnostics: diagnostics.queries,
+					updateDiagnostics: diagnostics.updates,
 				};
 				scenarios.push(scenario);
 				console.log(

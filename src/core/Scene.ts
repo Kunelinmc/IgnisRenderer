@@ -1,4 +1,3 @@
-import { Matrix4 } from "../maths/Matrix4";
 import { Environment } from "./Environment";
 import { Node } from "./Node";
 import type { BoundingSphere } from "./types";
@@ -23,14 +22,18 @@ import {
 } from "../pipeline/incremental";
 
 const ROOT_PATH = "/sceneRoot";
-const SPATIAL_MATRIX_EPSILON = 1e-8;
 const DEFAULT_SCENE_BOUNDS_RADIUS = 100;
 
 interface SpatialMeshSignature {
 	mesh: MeshInstance["mesh"];
-	bounds: BoundingSphere;
-	matrix: Float32Array;
+	worldBoundsVersion: number;
 	dynamicState: boolean;
+}
+
+interface SceneBoundsSignature {
+	mesh: MeshInstance["mesh"];
+	worldBoundsVersion: number;
+	visible: boolean;
 }
 
 export interface SceneOptions {
@@ -71,7 +74,10 @@ export class Scene {
 		center: { x: 0, y: 0, z: 0 },
 		radius: 0,
 	};
-	private _boundsMeshSpheresByMesh = new WeakMap<MeshInstance["mesh"], BoundingSphere>();
+	private _boundsSignaturesByMeshInstance = new Map<
+		MeshInstance,
+		SceneBoundsSignature
+	>();
 	private _spatialTrackedMeshInstances = new Set<MeshInstance>();
 	private _spatialSignaturesByMeshInstance = new Map<MeshInstance, SpatialMeshSignature>();
 	private _spatialSeenEpochByMeshInstance = new Map<MeshInstance, number>();
@@ -304,7 +310,6 @@ export class Scene {
 
 	public updateWorldMatrices(): void {
 		this.root.updateWorldMatrix();
-		this._boundsDirty = true;
 		this.syncNodeToECS();
 	}
 
@@ -414,7 +419,7 @@ export class Scene {
 	}
 
 	public getBounds(): BoundingSphere {
-		if (!this._boundsDirty && this._haveMeshAssetBoundsChanged()) {
+		if (!this._boundsDirty && this._haveSceneBoundsInputsChanged()) {
 			this._boundsDirty = true;
 		}
 
@@ -458,7 +463,7 @@ export class Scene {
 					Math.sqrt(sizeX * sizeX + sizeY * sizeY + sizeZ * sizeZ) * 0.5;
 			}
 			this._boundsDirty = false;
-			this._syncBoundsMeshAssetSnapshot();
+			this._syncSceneBoundsSignatures();
 		}
 
 		return {
@@ -471,20 +476,33 @@ export class Scene {
 		};
 	}
 
-	private _haveMeshAssetBoundsChanged(): boolean {
-		for (const meshInstance of this.getMeshInstances()) {
-			const meshBounds = meshInstance.mesh.boundingSphere;
-			if (this._boundsMeshSpheresByMesh.get(meshInstance.mesh) !== meshBounds) {
+	private _haveSceneBoundsInputsChanged(): boolean {
+		const meshInstances = this.getMeshInstances();
+		if (this._boundsSignaturesByMeshInstance.size !== meshInstances.length) {
+			return true;
+		}
+		for (const meshInstance of meshInstances) {
+			const signature = this._boundsSignaturesByMeshInstance.get(meshInstance);
+			if (
+				!signature ||
+				signature.mesh !== meshInstance.mesh ||
+				signature.visible !== meshInstance.visible ||
+				signature.worldBoundsVersion !== meshInstance.worldBoundsVersion
+			) {
 				return true;
 			}
 		}
 		return false;
 	}
 
-	private _syncBoundsMeshAssetSnapshot(): void {
-		this._boundsMeshSpheresByMesh = new WeakMap<MeshInstance["mesh"], BoundingSphere>();
+	private _syncSceneBoundsSignatures(): void {
+		this._boundsSignaturesByMeshInstance.clear();
 		for (const meshInstance of this.getMeshInstances()) {
-			this._boundsMeshSpheresByMesh.set(meshInstance.mesh, meshInstance.mesh.boundingSphere);
+			this._boundsSignaturesByMeshInstance.set(meshInstance, {
+				mesh: meshInstance.mesh,
+				worldBoundsVersion: meshInstance.worldBoundsVersion,
+				visible: meshInstance.visible,
+			});
 		}
 	}
 
@@ -579,8 +597,7 @@ function createSpatialMeshSignature(
 ): SpatialMeshSignature {
 	return {
 		mesh: meshInstance.mesh,
-		bounds: meshInstance.mesh.boundingSphere,
-		matrix: captureWorldMatrix(meshInstance.worldMatrix),
+		worldBoundsVersion: meshInstance.worldBoundsVersion,
 		dynamicState: isDynamicSpatialMeshInstance(meshInstance),
 	};
 }
@@ -591,11 +608,11 @@ function updateSpatialMeshSignature(
 ): boolean {
 	let changed = signature.mesh !== meshInstance.mesh;
 	signature.mesh = meshInstance.mesh;
-	const bounds = meshInstance.mesh.boundingSphere;
-	if (!changed && signature.bounds !== bounds) {
+	const worldBoundsVersion = meshInstance.worldBoundsVersion;
+	if (!changed && signature.worldBoundsVersion !== worldBoundsVersion) {
 		changed = true;
 	}
-	signature.bounds = bounds;
+	signature.worldBoundsVersion = worldBoundsVersion;
 
 	const dynamicState = isDynamicSpatialMeshInstance(meshInstance);
 	if (!changed && signature.dynamicState !== dynamicState) {
@@ -603,33 +620,5 @@ function updateSpatialMeshSignature(
 	}
 	signature.dynamicState = dynamicState;
 
-	const elements = meshInstance.worldMatrix.elements;
-	const matrix = signature.matrix;
-	let cursor = 0;
-	for (let row = 0; row < 4; row++) {
-		for (let column = 0; column < 4; column++) {
-			const value = elements[row][column];
-			if (
-				!changed &&
-				Math.abs(matrix[cursor] - value) > SPATIAL_MATRIX_EPSILON
-			) {
-				changed = true;
-			}
-			matrix[cursor] = value;
-			cursor++;
-		}
-	}
 	return changed;
-}
-
-function captureWorldMatrix(matrix: Matrix4): Float32Array {
-	const result = new Float32Array(16);
-	const elements = matrix.elements;
-	let cursor = 0;
-	for (let row = 0; row < 4; row++) {
-		for (let column = 0; column < 4; column++) {
-			result[cursor++] = elements[row][column];
-		}
-	}
-	return result;
 }

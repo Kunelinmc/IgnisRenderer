@@ -202,7 +202,7 @@ function testRebuildCollidersGeometryVersionGate() {
 		"Transform-only updates must not recreate collider"
 	);
 
-	sourceMesh.mesh.primitives[0].geometryVersion += 1;
+	sourceMesh.mesh.markPrimitiveGeometryDirty(sourceMesh.mesh.primitives[0]);
 	const geometryRebuild = physics.rebuildColliders(body);
 	assert.equal(geometryRebuild.length, 1);
 	assert.notEqual(

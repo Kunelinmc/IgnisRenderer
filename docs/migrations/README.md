@@ -28,6 +28,28 @@ The removed surface includes `Renderer.setEnvironmentIBLUpdateOptions`,
 `IBLPrefilterOptions.backend`, `IBLPrefilterOptions.computeSource`, and direct
 WebGPU compute sources are removed.
 
+## Mesh Bounds Mutation
+
+`MeshAsset` no longer observes direct primitive-array mutation or polls
+`IPrimitive.geometryVersion`. Primitive arrays are readonly snapshots and each
+primitive belongs to one mesh asset.
+
+Replace direct mutations with the owning asset API:
+
+```ts
+mesh.addPrimitive(primitive);
+mesh.setPrimitives(primitives);
+mesh.setPrimitiveGeometry(primitive, replacementGeometry);
+
+primitive.geometry.positions[0] = nextX;
+mesh.markPrimitiveGeometryDirty(primitive);
+```
+
+Use `replacePrimitive` and `removePrimitive` for other structural changes.
+Direct writes to `mesh.boundingBox`, `mesh.boundingSphere`,
+`primitive.geometryVersion`, and the `mesh.primitives` array are no longer
+supported.
+
 ## WebGL Context Work
 
 WebGL frame lifecycle operations, warmup, environment prefiltering, maintenance,

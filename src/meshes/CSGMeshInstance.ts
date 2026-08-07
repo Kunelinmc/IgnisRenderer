@@ -208,9 +208,8 @@ export class CSGMeshInstance extends MeshInstance {
 		}
 
 		if (result.ok && result.meshAsset) {
-			const nextVersion = resolveNextGeometryVersion(this.mesh);
 			for (const primitive of result.meshAsset.primitives) {
-				primitive.geometryVersion = nextVersion;
+				result.meshAsset.markPrimitiveGeometryDirty(primitive);
 			}
 			this.mesh = result.meshAsset;
 			this._dirty = false;
@@ -274,12 +273,4 @@ export class CSGMeshInstance extends MeshInstance {
 				}
 			: null;
 	}
-}
-
-function resolveNextGeometryVersion(mesh: MeshAsset): number {
-	let maxVersion = 0;
-	for (const primitive of mesh.primitives) {
-		maxVersion = Math.max(maxVersion, primitive.geometryVersion ?? 0);
-	}
-	return maxVersion + 1;
 }

@@ -4,6 +4,29 @@ This document defines spatial indexing, level-of-detail mesh selection, and cons
 
 ## Contract
 
+### Mesh bounds
+
+- `MeshAsset.primitives` must be a frozen `ReadonlyArray<IPrimitive>` snapshot.
+  Mutating the array passed to the constructor must not mutate the asset.
+- A primitive must belong to at most one `MeshAsset`. Adding a duplicate
+  primitive or a primitive owned by another asset must fail.
+- `MeshAsset.setPrimitives`, `addPrimitive`, `replacePrimitive`, and
+  `removePrimitive` must be the only structural primitive mutation paths.
+- `MeshAsset.setPrimitiveGeometry` must replace primitive geometry, increment
+  `IPrimitive.geometryVersion`, and invalidate only that primitive's cached
+  local bounds.
+- Callers that mutate an existing geometry buffer in place must call
+  `MeshAsset.markPrimitiveGeometryDirty`. Direct writes to
+  `IPrimitive.geometryVersion` are not supported.
+- `MeshAsset.boundingBox` and `MeshAsset.boundingSphere` must be readonly,
+  lazily refreshed derived values. `MeshAsset.boundsVersion` must change for
+  every structural or geometry invalidation.
+- Primitive and model bounding spheres must retain the exact existing
+  AABB-center/max-vertex-distance definition. Implementations must not replace
+  them with conservative primitive-sphere unions.
+- Spatial indexes must use each `MeshInstance`'s own world-space AABB. Public
+  `Node.getWorldBoundingBox()` must retain its subtree aggregate behavior.
+
 ### Spatial indexing
 
 - `Scene.spatialIndexMode` must accept only `"bvh"` or `"hybrid"`.
@@ -54,6 +77,13 @@ This document defines spatial indexing, level-of-detail mesh selection, and cons
   migrates between static and dynamic buckets.
 - `LooseOctree.markDirty(meshInstance)` should update the stored bounds in place
   when the updated AABB remains inside the current loose node.
+- `BVH.markDirty(meshInstance)` should refit only the affected leaf and changed
+  ancestor path when the dirty ratio remains below the rebuild threshold.
+- `BVHOptions.rebuildSurfaceAreaInflation` must compare a tree-wide
+  surface-area quality cost against the most recent full-rebuild baseline.
+- Frustum traversal should append fully contained subtrees without testing
+  descendant bounds. Bounds traversal should do the same when the query AABB
+  fully contains a node AABB.
 - `LooseOctree.queryRayDetailedInto` should tighten its traversal distance when
   finite `maxResults` already has enough hits.
 
@@ -341,6 +371,17 @@ This change is breaking for TypeScript consumers that type against
 - default `Scene.spatialIndexMode` remains `"bvh"`;
 - class-level compatibility wrappers remain available on `BVH`, `LooseOctree`,
   and `HybridSpatialIndex` for direct callers.
+
+### Mesh bounds
+
+This change is breaking for direct primitive and bounds mutation:
+
+- `MeshAsset.primitives` is readonly; use the asset structural mutation
+  methods;
+- `IPrimitive.geometryVersion` and derived bounds are readonly;
+- geometry replacement and in-place buffer edits must use the owning
+  `MeshAsset` mutation methods;
+- a primitive cannot be shared by multiple mesh assets.
 
 ### LOD mesh instances
 

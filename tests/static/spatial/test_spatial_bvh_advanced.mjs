@@ -195,6 +195,46 @@ function testSAHBuildStrategyMatchesMedianResults() {
 	assert.deepEqual(sahHits, medianHits);
 }
 
+function testDirtyRefitOnlyVisitsAncestorPath() {
+	const mesh = createTriangleMesh(new Material({ name: "AncestorRefit" }));
+	const instances = [];
+	for (let index = 0; index < 1024; index++) {
+		instances.push(createMeshInstance(mesh, index * 2, 0, -2));
+	}
+	const bvh = new BVH(instances, { leafSize: 1, rebuildDirtyRatio: 0.5 });
+	let innerRefitCalls = 0;
+	const originalRefit = bvh._refitInnerNode.bind(bvh);
+	bvh._refitInnerNode = (...args) => {
+		innerRefitCalls++;
+		return originalRefit(...args);
+	};
+
+	instances[500].position.y = 3;
+	instances[500].updateWorldMatrix();
+	bvh.markDirty(instances[500]);
+	bvh.queryBoundsInto(
+		{ min: { x: -1, y: -1, z: -3 }, max: { x: 3000, y: 5, z: 1 } },
+		[]
+	);
+	assert.ok(innerRefitCalls > 0);
+	assert.ok(innerRefitCalls < 32, `Expected path refit, got ${innerRefitCalls}`);
+}
+
+function testSpatialBoundsExcludeDescendantMeshes() {
+	const parentMesh = createTriangleMesh(new Material({ name: "ParentOwn" }));
+	const childMesh = createTriangleMesh(new Material({ name: "ChildOwn" }));
+	const parent = createMeshInstance(parentMesh, 0, 0, 0);
+	const child = createMeshInstance(childMesh, 20, 0, 0);
+	parent.addChild(child);
+	parent.updateWorldMatrix();
+	const bvh = new BVH([parent, child], 1);
+	const hits = bvh.queryBounds({
+		min: { x: 19.5, y: -1, z: -1 },
+		max: { x: 21.5, y: 2, z: 1 },
+	});
+	assert.deepEqual(hits, [child]);
+}
+
 function run() {
 	testLeafQueryDoesNotRecomputeBounds();
 	testVisibilityFiltering();
@@ -203,6 +243,8 @@ function run() {
 	testIntoQueriesReuseOutputArrays();
 	testDegenerateSplitDoesNotBreak();
 	testSAHBuildStrategyMatchesMedianResults();
+	testDirtyRefitOnlyVisitsAncestorPath();
+	testSpatialBoundsExcludeDescendantMeshes();
 	console.log("Spatial BVH advanced tests passed");
 }
 

@@ -65,6 +65,11 @@ export class LooseOctree implements SpatialIndex3D {
 	private readonly _leafCapacity: number;
 	private readonly _maxDepth: number;
 	private readonly _looseness: number;
+	private readonly _queryNodeStack: LooseOctreeNode[] = [];
+	private readonly _queryStatusStack: number[] = [];
+	private readonly _frustumPlaneData = new Float64Array(24);
+	private readonly _rayNodeHeap: LooseOctreeNode[] = [];
+	private readonly _rayDistanceHeap: number[] = [];
 
 	constructor(
 		meshInstances: MeshInstance[] = [],
@@ -95,7 +100,7 @@ export class LooseOctree implements SpatialIndex3D {
 		}
 		const entry = this._entriesByMeshInstance.get(meshInstance);
 		if (!entry) return;
-		const bounds = meshInstance.getWorldBoundingBox();
+		const bounds = meshInstance.getOwnWorldBoundingBox();
 		if (containsBoundsInLooseNode(entry.node, bounds, this._looseness)) {
 			copyBoundingBoxValues(entry.bounds, bounds);
 			return;
@@ -106,7 +111,7 @@ export class LooseOctree implements SpatialIndex3D {
 
 	public upsert(meshInstance: MeshInstance): void {
 		this._detachEntry(meshInstance);
-		const bounds = meshInstance.getWorldBoundingBox();
+		const bounds = meshInstance.getOwnWorldBoundingBox();
 		this._insertEntry(meshInstance, bounds);
 	}
 
@@ -133,7 +138,7 @@ export class LooseOctree implements SpatialIndex3D {
 
 		for (let i = 0; i < source.length; i++) {
 			const meshInstance = source[i];
-			const bounds = meshInstance.getWorldBoundingBox();
+			const bounds = meshInstance.getOwnWorldBoundingBox();
 			pending[i] = {
 				meshInstance,
 				bounds,
@@ -166,9 +171,10 @@ export class LooseOctree implements SpatialIndex3D {
 		const maxResults = resolveMaxResults(options?.maxResults);
 		if (maxResults <= 0) return out;
 		const includeInvisible = options?.includeInvisible === true;
-		this._queryNodeFrustum(
+		captureFrustumPlaneData(frustum, this._frustumPlaneData);
+		this._queryFrustumIterative(
 			this._root,
-			frustum,
+			this._frustumPlaneData,
 			includeInvisible,
 			maxResults,
 			out
@@ -193,7 +199,7 @@ export class LooseOctree implements SpatialIndex3D {
 		const maxResults = resolveMaxResults(options?.maxResults);
 		if (maxResults <= 0) return out;
 		const includeInvisible = options?.includeInvisible === true;
-		this._queryNodeBounds(
+		this._queryBoundsIterative(
 			this._root,
 			bounds,
 			includeInvisible,
@@ -252,10 +258,23 @@ export class LooseOctree implements SpatialIndex3D {
 			if (hit) out.push(hit);
 			return out;
 		}
+		if (Number.isFinite(maxResults)) {
+			this._queryTopKRayHits(
+				this._root,
+				origin,
+				normalizedDirection,
+				maxDistance,
+				maxResults,
+				includeInvisible,
+				out
+			);
+			out.sort(compareRayHits);
+			return out;
+		}
 
-		const stack: LooseOctreeNode[] = [this._root];
-		const shouldBoundHits = Number.isFinite(maxResults);
-		let traversalMaxDistance = maxDistance;
+		const stack = this._queryNodeStack;
+		stack.length = 0;
+		stack.push(this._root);
 
 		while (stack.length > 0) {
 			const node = stack.pop();
@@ -271,7 +290,7 @@ export class LooseOctree implements SpatialIndex3D {
 			const nodeDistance = intersectRayAABB(
 				origin,
 				normalizedDirection,
-				traversalMaxDistance,
+				maxDistance,
 				nodeMinX,
 				nodeMinY,
 				nodeMinZ,
@@ -290,7 +309,7 @@ export class LooseOctree implements SpatialIndex3D {
 				const distance = intersectRayAABB(
 					origin,
 					normalizedDirection,
-					traversalMaxDistance,
+					maxDistance,
 					bounds.min.x,
 					bounds.min.y,
 					bounds.min.z,
@@ -303,22 +322,12 @@ export class LooseOctree implements SpatialIndex3D {
 					meshInstance,
 					distance,
 				});
-				if (shouldBoundHits && out.length >= maxResults) {
-					out.sort(compareRayHits);
-					if (out.length > maxResults) {
-						out.length = maxResults;
-					}
-					traversalMaxDistance = Math.min(
-						traversalMaxDistance,
-						out[out.length - 1].distance
-					);
-				}
 			}
 
 			if (!node.children) continue;
-			for (const child of node.children) {
-				if (!child) continue;
-				stack.push(child);
+			for (let index = node.children.length - 1; index >= 0; index--) {
+				const child = node.children[index];
+				if (child) stack.push(child);
 			}
 		}
 
@@ -345,7 +354,6 @@ export class LooseOctree implements SpatialIndex3D {
 		maxDistance: number,
 		includeInvisible: boolean
 	): SpatialRayHit | null {
-		const stack: Array<{ node: LooseOctreeNode; distance: number }> = [];
 		const rootDistance = intersectRayLooseNode(
 			origin,
 			normalizedDirection,
@@ -354,14 +362,19 @@ export class LooseOctree implements SpatialIndex3D {
 			this._looseness
 		);
 		if (rootDistance === null) return null;
-		stack.push({ node: root, distance: rootDistance });
+		const nodes = this._rayNodeHeap;
+		const distances = this._rayDistanceHeap;
+		nodes.length = 0;
+		distances.length = 0;
+		pushLooseRayNodeMinHeap(nodes, distances, root, rootDistance);
 
 		let best: SpatialRayHit | null = null;
 		let bestDistance = maxDistance;
-		while (stack.length > 0) {
-			const current = stack.pop();
-			if (!current || current.distance > bestDistance) continue;
-			const node = current.node;
+		while (nodes.length > 0) {
+			const node = nodes[0];
+			const nodeDistance = distances[0];
+			popLooseRayNodeMinHeap(nodes, distances);
+			if (nodeDistance > bestDistance) break;
 
 			for (let i = 0; i < node.objects.length; i++) {
 				const meshInstance = node.objects[i];
@@ -399,11 +412,88 @@ export class LooseOctree implements SpatialIndex3D {
 					this._looseness
 				);
 				if (distance === null) continue;
-				stack.push({ node: child, distance });
+				pushLooseRayNodeMinHeap(nodes, distances, child, distance);
 			}
-			stack.sort((left, right) => right.distance - left.distance);
 		}
 		return best;
+	}
+
+	private _queryTopKRayHits(
+		root: LooseOctreeNode,
+		origin: { x: number; y: number; z: number },
+		direction: { x: number; y: number; z: number },
+		maxDistance: number,
+		maxResults: number,
+		includeInvisible: boolean,
+		out: SpatialRayHit[]
+	): void {
+		const rootDistance = intersectRayLooseNode(
+			origin,
+			direction,
+			maxDistance,
+			root,
+			this._looseness
+		);
+		if (rootDistance === null) return;
+		const nodes = this._rayNodeHeap;
+		const distances = this._rayDistanceHeap;
+		nodes.length = 0;
+		distances.length = 0;
+		pushLooseRayNodeMinHeap(nodes, distances, root, rootDistance);
+		let traversalMaxDistance = maxDistance;
+
+		while (nodes.length > 0) {
+			const node = nodes[0];
+			const nodeDistance = distances[0];
+			popLooseRayNodeMinHeap(nodes, distances);
+			if (nodeDistance > traversalMaxDistance) break;
+
+			for (let i = 0; i < node.objects.length; i++) {
+				const meshInstance = node.objects[i];
+				if (!includeInvisible && meshInstance.visible === false) continue;
+				const bounds = node.objectBounds[i];
+				const distance = intersectRayAABB(
+					origin,
+					direction,
+					traversalMaxDistance,
+					bounds.min.x,
+					bounds.min.y,
+					bounds.min.z,
+					bounds.max.x,
+					bounds.max.y,
+					bounds.max.z
+				);
+				if (distance === null) continue;
+				if (out.length < maxResults) {
+					pushLooseRayHitMaxHeap(out, { meshInstance, distance });
+				} else if (
+					compareLooseRayCandidate(distance, meshInstance, out[0]) < 0
+				) {
+					out[0] = { meshInstance, distance };
+					siftLooseRayHitMaxHeapDown(out, 0);
+				}
+				if (out.length === maxResults) {
+					traversalMaxDistance = Math.min(
+						maxDistance,
+						out[0].distance
+					);
+				}
+			}
+
+			if (!node.children) continue;
+			for (const child of node.children) {
+				if (!child) continue;
+				const distance = intersectRayLooseNode(
+					origin,
+					direction,
+					traversalMaxDistance,
+					child,
+					this._looseness
+				);
+				if (distance === null) continue;
+				pushLooseRayNodeMinHeap(nodes, distances, child, distance);
+			}
+		}
 	}
 
 	private _insertEntry(meshInstance: MeshInstance, bounds: BoundingBox): void {
@@ -588,157 +678,119 @@ export class LooseOctree implements SpatialIndex3D {
 		}
 	}
 
-	private _queryNodeFrustum(
-		node: LooseOctreeNode,
-		frustum: Frustum,
+	private _queryFrustumIterative(
+		root: LooseOctreeNode,
+		planeData: Float64Array,
 		includeInvisible: boolean,
 		maxResults: number,
 		result: MeshInstance[]
-	): boolean {
-		if (result.length >= maxResults) return true;
-		const looseHalfSize = node.halfSize * this._looseness;
-		const nodeMinX = node.centerX - looseHalfSize;
-		const nodeMinY = node.centerY - looseHalfSize;
-		const nodeMinZ = node.centerZ - looseHalfSize;
-		const nodeMaxX = node.centerX + looseHalfSize;
-		const nodeMaxY = node.centerY + looseHalfSize;
-		const nodeMaxZ = node.centerZ + looseHalfSize;
-		const nodeStatus = classifyAABBFrustum(
-			frustum,
-			nodeMinX,
-			nodeMinY,
-			nodeMinZ,
-			nodeMaxX,
-			nodeMaxY,
-			nodeMaxZ
+	): void {
+		const rootStatus = classifyLooseNodeFrustum(
+			root,
+			this._looseness,
+			planeData
 		);
-		if (nodeStatus === FRUSTUM_OUTSIDE) {
-			return false;
-		}
+		if (rootStatus === FRUSTUM_OUTSIDE) return;
+		const nodes = this._queryNodeStack;
+		const statuses = this._queryStatusStack;
+		nodes.length = 0;
+		statuses.length = 0;
+		nodes.push(root);
+		statuses.push(rootStatus);
 
-		if (nodeStatus === FRUSTUM_INSIDE) {
-			this._appendNodeSubtree(node, includeInvisible, maxResults, result);
-			return result.length >= maxResults;
-		}
+		while (nodes.length > 0 && result.length < maxResults) {
+			const node = nodes.pop()!;
+			const status = statuses.pop()!;
+			for (let i = 0; i < node.objects.length; i++) {
+				if (result.length >= maxResults) return;
+				const meshInstance = node.objects[i];
+				if (!includeInvisible && meshInstance.visible === false) continue;
+				const bounds = node.objectBounds[i];
+				if (
+					status === FRUSTUM_INSIDE ||
+					classifyAABBFrustumData(
+						planeData,
+						bounds.min.x,
+						bounds.min.y,
+						bounds.min.z,
+						bounds.max.x,
+						bounds.max.y,
+						bounds.max.z
+					) !== FRUSTUM_OUTSIDE
+				) {
+					result.push(meshInstance);
+				}
+			}
 
-		for (let i = 0; i < node.objects.length; i++) {
-			if (result.length >= maxResults) return true;
-			const meshInstance = node.objects[i];
-			if (!includeInvisible && meshInstance.visible === false) {
-				continue;
-			}
-			const bounds = node.objectBounds[i];
-			if (
-				classifyAABBFrustum(
-					frustum,
-					bounds.min.x,
-					bounds.min.y,
-					bounds.min.z,
-					bounds.max.x,
-					bounds.max.y,
-					bounds.max.z
-				) !== FRUSTUM_OUTSIDE
-			) {
-				result.push(meshInstance);
+			if (!node.children) continue;
+			for (let i = node.children.length - 1; i >= 0; i--) {
+				const child = node.children[i];
+				if (!child) continue;
+				const childStatus =
+					status === FRUSTUM_INSIDE ?
+						FRUSTUM_INSIDE
+					:	classifyLooseNodeFrustum(
+							child,
+							this._looseness,
+							planeData
+						);
+				if (childStatus === FRUSTUM_OUTSIDE) continue;
+				nodes.push(child);
+				statuses.push(childStatus);
 			}
 		}
-
-		if (!node.children) return result.length >= maxResults;
-		for (const child of node.children) {
-			if (!child) continue;
-			if (
-				this._queryNodeFrustum(
-					child,
-					frustum,
-					includeInvisible,
-					maxResults,
-					result
-				)
-			) {
-				return true;
-			}
-		}
-		return result.length >= maxResults;
 	}
 
-	private _appendNodeSubtree(
-		node: LooseOctreeNode,
+	private _queryBoundsIterative(
+		root: LooseOctreeNode,
+		queryBounds: SpatialBounds3D,
 		includeInvisible: boolean,
 		maxResults: number,
 		result: MeshInstance[]
-	): boolean {
-		for (const meshInstance of node.objects) {
-			if (result.length >= maxResults) return true;
-			if (!includeInvisible && meshInstance.visible === false) {
-				continue;
+	): void {
+		if (!looseNodeIntersectsBounds(root, this._looseness, queryBounds)) return;
+		const nodes = this._queryNodeStack;
+		const statuses = this._queryStatusStack;
+		nodes.length = 0;
+		statuses.length = 0;
+		nodes.push(root);
+		statuses.push(
+			queryContainsLooseNode(queryBounds, root, this._looseness) ? 1 : 0
+		);
+
+		while (nodes.length > 0 && result.length < maxResults) {
+			const node = nodes.pop()!;
+			const contained = statuses.pop()! === 1;
+			for (let i = 0; i < node.objects.length; i++) {
+				if (result.length >= maxResults) return;
+				const meshInstance = node.objects[i];
+				if (!includeInvisible && meshInstance.visible === false) continue;
+				if (contained || intersectsAABB(node.objectBounds[i], queryBounds)) {
+					result.push(meshInstance);
+				}
 			}
-			result.push(meshInstance);
-		}
-		if (!node.children) {
-			return result.length >= maxResults;
-		}
-		for (const child of node.children) {
-			if (!child) continue;
-			if (this._appendNodeSubtree(child, includeInvisible, maxResults, result)) {
-				return true;
+
+			if (!node.children) continue;
+			for (let i = node.children.length - 1; i >= 0; i--) {
+				const child = node.children[i];
+				if (!child) continue;
+				if (
+					!contained &&
+					!looseNodeIntersectsBounds(child, this._looseness, queryBounds)
+				) {
+					continue;
+				}
+				nodes.push(child);
+				statuses.push(
+					contained ||
+						queryContainsLooseNode(queryBounds, child, this._looseness) ?
+						1
+					:	0
+				);
 			}
 		}
-		return result.length >= maxResults;
 	}
 
-	private _queryNodeBounds(
-		node: LooseOctreeNode,
-		queryBounds: {
-			min: { x: number; y: number; z: number };
-			max: { x: number; y: number; z: number };
-		},
-		includeInvisible: boolean,
-		maxResults: number,
-		result: MeshInstance[]
-	): boolean {
-		if (result.length >= maxResults) return true;
-
-		const looseHalfSize = node.halfSize * this._looseness;
-		if (
-			!intersectsAABBValues(
-				node.centerX - looseHalfSize,
-				node.centerY - looseHalfSize,
-				node.centerZ - looseHalfSize,
-				node.centerX + looseHalfSize,
-				node.centerY + looseHalfSize,
-				node.centerZ + looseHalfSize,
-				queryBounds
-			)
-		) {
-			return false;
-		}
-
-		for (let i = 0; i < node.objects.length; i++) {
-			if (result.length >= maxResults) return true;
-			const meshInstance = node.objects[i];
-			if (!includeInvisible && meshInstance.visible === false) continue;
-			if (intersectsAABB(node.objectBounds[i], queryBounds)) {
-				result.push(meshInstance);
-			}
-		}
-
-		if (!node.children) return result.length >= maxResults;
-		for (const child of node.children) {
-			if (!child) continue;
-			if (
-				this._queryNodeBounds(
-					child,
-					queryBounds,
-					includeInvisible,
-					maxResults,
-					result
-				)
-			) {
-				return true;
-			}
-		}
-		return result.length >= maxResults;
-	}
 }
 
 function resolveLeafCapacity(value: number | undefined): number {
@@ -904,8 +956,38 @@ function resolveChildIndexFromPoint(
 	return index;
 }
 
-function classifyAABBFrustum(
+function captureFrustumPlaneData(
 	frustum: Frustum,
+	target: Float64Array
+): void {
+	let offset = 0;
+	for (const plane of frustum.planes) {
+		target[offset++] = plane.normal.x;
+		target[offset++] = plane.normal.y;
+		target[offset++] = plane.normal.z;
+		target[offset++] = plane.constant;
+	}
+}
+
+function classifyLooseNodeFrustum(
+	node: LooseOctreeNode,
+	looseness: number,
+	planeData: Float64Array
+): number {
+	const halfSize = node.halfSize * looseness;
+	return classifyAABBFrustumData(
+		planeData,
+		node.centerX - halfSize,
+		node.centerY - halfSize,
+		node.centerZ - halfSize,
+		node.centerX + halfSize,
+		node.centerY + halfSize,
+		node.centerZ + halfSize
+	);
+}
+
+function classifyAABBFrustumData(
+	planeData: Float64Array,
 	minX: number,
 	minY: number,
 	minZ: number,
@@ -914,29 +996,60 @@ function classifyAABBFrustum(
 	maxZ: number
 ): number {
 	let fullyInside = true;
-	for (const plane of frustum.planes) {
-		const nx = plane.normal.x;
-		const ny = plane.normal.y;
-		const nz = plane.normal.z;
-
+	for (let offset = 0; offset < 24; offset += 4) {
+		const nx = planeData[offset];
+		const ny = planeData[offset + 1];
+		const nz = planeData[offset + 2];
+		const constant = planeData[offset + 3];
 		const px = nx >= 0 ? maxX : minX;
 		const py = ny >= 0 ? maxY : minY;
 		const pz = nz >= 0 ? maxZ : minZ;
-		const positiveDistance = nx * px + ny * py + nz * pz + plane.constant;
-		if (positiveDistance < 0) {
+		if (nx * px + ny * py + nz * pz + constant < 0) {
 			return FRUSTUM_OUTSIDE;
 		}
-
-		const nxPoint = nx >= 0 ? minX : maxX;
-		const nyPoint = ny >= 0 ? minY : maxY;
-		const nzPoint = nz >= 0 ? minZ : maxZ;
-		const negativeDistance =
-			nx * nxPoint + ny * nyPoint + nz * nzPoint + plane.constant;
-		if (negativeDistance < 0) {
+		const negativeX = nx >= 0 ? minX : maxX;
+		const negativeY = ny >= 0 ? minY : maxY;
+		const negativeZ = nz >= 0 ? minZ : maxZ;
+		if (
+			nx * negativeX + ny * negativeY + nz * negativeZ + constant < 0
+		) {
 			fullyInside = false;
 		}
 	}
 	return fullyInside ? FRUSTUM_INSIDE : FRUSTUM_INTERSECT;
+}
+
+function looseNodeIntersectsBounds(
+	node: LooseOctreeNode,
+	looseness: number,
+	bounds: SpatialBounds3D
+): boolean {
+	const halfSize = node.halfSize * looseness;
+	return intersectsAABBValues(
+		node.centerX - halfSize,
+		node.centerY - halfSize,
+		node.centerZ - halfSize,
+		node.centerX + halfSize,
+		node.centerY + halfSize,
+		node.centerZ + halfSize,
+		bounds
+	);
+}
+
+function queryContainsLooseNode(
+	query: SpatialBounds3D,
+	node: LooseOctreeNode,
+	looseness: number
+): boolean {
+	const halfSize = node.halfSize * looseness;
+	return (
+		query.min.x <= node.centerX - halfSize &&
+		query.min.y <= node.centerY - halfSize &&
+		query.min.z <= node.centerZ - halfSize &&
+		query.max.x >= node.centerX + halfSize &&
+		query.max.y >= node.centerY + halfSize &&
+		query.max.z >= node.centerZ + halfSize
+	);
 }
 
 function normalizeRayDirection(
@@ -1077,4 +1190,99 @@ function compareRayHits(left: SpatialRayHit, right: SpatialRayHit): number {
 		return leftEntity - rightEntity;
 	}
 	return left.meshInstance.id.localeCompare(right.meshInstance.id);
+}
+
+function compareLooseRayCandidate(
+	distance: number,
+	meshInstance: MeshInstance,
+	right: SpatialRayHit
+): number {
+	if (distance !== right.distance) return distance - right.distance;
+	const leftEntity = meshInstance.entityId ?? Number.MAX_SAFE_INTEGER;
+	const rightEntity = right.meshInstance.entityId ?? Number.MAX_SAFE_INTEGER;
+	if (leftEntity !== rightEntity) return leftEntity - rightEntity;
+	return meshInstance.id.localeCompare(right.meshInstance.id);
+}
+
+function pushLooseRayHitMaxHeap(
+	heap: SpatialRayHit[],
+	hit: SpatialRayHit
+): void {
+	heap.push(hit);
+	let index = heap.length - 1;
+	while (index > 0) {
+		const parent = (index - 1) >> 1;
+		if (compareRayHits(heap[index], heap[parent]) <= 0) break;
+		const swap = heap[index];
+		heap[index] = heap[parent];
+		heap[parent] = swap;
+		index = parent;
+	}
+}
+
+function siftLooseRayHitMaxHeapDown(
+	heap: SpatialRayHit[],
+	start: number
+): void {
+	let index = start;
+	while (true) {
+		const left = index * 2 + 1;
+		if (left >= heap.length) return;
+		const right = left + 1;
+		let larger = left;
+		if (
+			right < heap.length &&
+			compareRayHits(heap[right], heap[left]) > 0
+		) {
+			larger = right;
+		}
+		if (compareRayHits(heap[larger], heap[index]) <= 0) return;
+		const swap = heap[index];
+		heap[index] = heap[larger];
+		heap[larger] = swap;
+		index = larger;
+	}
+}
+
+function pushLooseRayNodeMinHeap(
+	nodes: LooseOctreeNode[],
+	distances: number[],
+	node: LooseOctreeNode,
+	distance: number
+): void {
+	nodes.push(node);
+	distances.push(distance);
+	let index = nodes.length - 1;
+	while (index > 0) {
+		const parent = (index - 1) >> 1;
+		if (distances[parent] <= distance) break;
+		nodes[index] = nodes[parent];
+		distances[index] = distances[parent];
+		index = parent;
+	}
+	nodes[index] = node;
+	distances[index] = distance;
+}
+
+function popLooseRayNodeMinHeap(
+	nodes: LooseOctreeNode[],
+	distances: number[]
+): void {
+	const lastNode = nodes.pop();
+	const lastDistance = distances.pop();
+	if (!lastNode || lastDistance === undefined || nodes.length === 0) return;
+	let index = 0;
+	while (true) {
+		const left = index * 2 + 1;
+		if (left >= nodes.length) break;
+		const right = left + 1;
+		const smaller =
+			right < nodes.length && distances[right] < distances[left] ? right : left;
+		if (distances[smaller] >= lastDistance) break;
+		nodes[index] = nodes[smaller];
+		distances[index] = distances[smaller];
+		index = smaller;
+	}
+	nodes[index] = lastNode;
+	distances[index] = lastDistance;
 }

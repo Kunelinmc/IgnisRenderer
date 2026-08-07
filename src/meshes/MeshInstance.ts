@@ -1,5 +1,4 @@
 import { Matrix4 } from "../maths/Matrix4";
-import type { IVector3 } from "../maths/types";
 import { Node, type NodeParams } from "../core/Node";
 import { MeshAsset } from "./MeshAsset";
 import type { BoundingBox, BoundingSphere } from "../core/types";
@@ -12,79 +11,188 @@ export interface MeshInstanceParams extends NodeParams {
 }
 
 export class MeshInstance extends Node {
-	public mesh: MeshAsset;
+	private _mesh: MeshAsset;
 	public skeleton: Skeleton | null;
 	public morphWeights: Float32Array[];
-	private _localBoundsCorner: IVector3 = { x: 0, y: 0, z: 0 };
-	private _worldBoundsCorner: IVector3 = { x: 0, y: 0, z: 0 };
+	private readonly _worldBoundingBox: BoundingBox = {
+		min: { x: 0, y: 0, z: 0 },
+		max: { x: 0, y: 0, z: 0 },
+	};
+	private readonly _worldBoundingSphere: BoundingSphere = {
+		center: { x: 0, y: 0, z: 0 },
+		radius: 0,
+	};
+	private readonly _worldBoundsMatrixSnapshot = new Float64Array(16);
+	private _worldBoundsMesh: MeshAsset | null = null;
+	private _worldBoundsMeshVersion = -1;
+	private _worldBoundsVersion = 0;
+	private _worldBoundsInitialized = false;
 
 	constructor(params: MeshInstanceParams) {
 		super({
 			...params,
 			idPrefix: "meshInstance",
 		});
-		this.mesh = params.mesh;
+		this._mesh = params.mesh;
 		this.skeleton = params.skeleton ?? null;
 		this.morphWeights =
 			params.morphWeights?.map((weights) => new Float32Array(weights)) ??
 			this.mesh.defaultMorphWeights.map((weights) => new Float32Array(weights));
 	}
 
+	public get mesh(): MeshAsset {
+		return this._mesh;
+	}
+
+	public set mesh(mesh: MeshAsset) {
+		if (this._mesh === mesh) return;
+		this._mesh = mesh;
+		this._worldBoundsInitialized = false;
+		this.scene?.invalidate("transform");
+	}
+
+	/**
+	 * Monotonic own-world-bounds revision used by `Scene` and spatial indexes.
+	 *
+	 * @internal Owned by scene/spatial synchronization; consumers should query
+	 * bounds instead of depending on this token.
+	 */
+	public get worldBoundsVersion(): number {
+		this._ensureWorldBoundsFresh();
+		return this._worldBoundsVersion;
+	}
+
 	public getWorldBoundingSphere(out?: BoundingSphere): BoundingSphere {
-		const worldCenter = Matrix4.transformPoint(
-			this.worldMatrix,
-			this.mesh.boundingSphere.center
-		);
-		const worldScale = getMaxScaleFromMatrix(this.worldMatrix) || 1;
+		this._ensureWorldBoundsFresh();
 		const target = out ?? {
 			center: { x: 0, y: 0, z: 0 },
 			radius: 0,
 		};
-		target.center.x = worldCenter.x;
-		target.center.y = worldCenter.y;
-		target.center.z = worldCenter.z;
-		target.radius = this.mesh.boundingSphere.radius * worldScale;
+		target.center.x = this._worldBoundingSphere.center.x;
+		target.center.y = this._worldBoundingSphere.center.y;
+		target.center.z = this._worldBoundingSphere.center.z;
+		target.radius = this._worldBoundingSphere.radius;
 		return target;
 	}
 
-	protected override getOwnWorldBoundingBox(out?: BoundingBox): BoundingBox {
-		const box = this.mesh.boundingBox;
-		const localCorner = this._localBoundsCorner;
-		const worldCorner = this._worldBoundsCorner;
-
-		let minX = Infinity;
-		let minY = Infinity;
-		let minZ = Infinity;
-		let maxX = -Infinity;
-		let maxY = -Infinity;
-		let maxZ = -Infinity;
-
-		for (let cornerIndex = 0; cornerIndex < 8; cornerIndex++) {
-			localCorner.x = (cornerIndex & 1) === 0 ? box.min.x : box.max.x;
-			localCorner.y = (cornerIndex & 2) === 0 ? box.min.y : box.max.y;
-			localCorner.z = (cornerIndex & 4) === 0 ? box.min.z : box.max.z;
-			Matrix4.transformPoint(this.worldMatrix, localCorner, worldCorner);
-			if (worldCorner.x < minX) minX = worldCorner.x;
-			if (worldCorner.y < minY) minY = worldCorner.y;
-			if (worldCorner.z < minZ) minZ = worldCorner.z;
-			if (worldCorner.x > maxX) maxX = worldCorner.x;
-			if (worldCorner.y > maxY) maxY = worldCorner.y;
-			if (worldCorner.z > maxZ) maxZ = worldCorner.z;
-		}
-
+	/**
+	 * Copies the world AABB of this instance's own mesh geometry.
+	 *
+	 * @param out - Optional destination reused by the caller.
+	 * @returns `out`, or a new bounding box when `out` is omitted.
+	 * @internal Owned by spatial indexes. Consumers that need subtree aggregate
+	 * bounds should use `Node.getWorldBoundingBox()`.
+	 */
+	public override getOwnWorldBoundingBox(out?: BoundingBox): BoundingBox {
+		this._ensureWorldBoundsFresh();
 		const target =
 			out ??
 			{
 				min: { x: 0, y: 0, z: 0 },
 				max: { x: 0, y: 0, z: 0 },
 			};
-		target.min.x = minX;
-		target.min.y = minY;
-		target.min.z = minZ;
-		target.max.x = maxX;
-		target.max.y = maxY;
-		target.max.z = maxZ;
+		target.min.x = this._worldBoundingBox.min.x;
+		target.min.y = this._worldBoundingBox.min.y;
+		target.min.z = this._worldBoundingBox.min.z;
+		target.max.x = this._worldBoundingBox.max.x;
+		target.max.y = this._worldBoundingBox.max.y;
+		target.max.z = this._worldBoundingBox.max.z;
 		return target;
+	}
+
+	private _ensureWorldBoundsFresh(): void {
+		const meshVersion = this._mesh.boundsVersion;
+		const matrixChanged = this._captureWorldMatrixIfChanged();
+		if (
+			this._worldBoundsInitialized &&
+			!matrixChanged &&
+			this._worldBoundsMesh === this._mesh &&
+			this._worldBoundsMeshVersion === meshVersion
+		) {
+			return;
+		}
+
+		const box = this._mesh.boundingBox;
+		const sphere = this._mesh.boundingSphere;
+		const elements = this.worldMatrix.elements;
+		const centerX = (box.min.x + box.max.x) * 0.5;
+		const centerY = (box.min.y + box.max.y) * 0.5;
+		const centerZ = (box.min.z + box.max.z) * 0.5;
+		const extentX = (box.max.x - box.min.x) * 0.5;
+		const extentY = (box.max.y - box.min.y) * 0.5;
+		const extentZ = (box.max.z - box.min.z) * 0.5;
+		const worldCenterX =
+			elements[0][0] * centerX +
+			elements[0][1] * centerY +
+			elements[0][2] * centerZ +
+			elements[0][3];
+		const worldCenterY =
+			elements[1][0] * centerX +
+			elements[1][1] * centerY +
+			elements[1][2] * centerZ +
+			elements[1][3];
+		const worldCenterZ =
+			elements[2][0] * centerX +
+			elements[2][1] * centerY +
+			elements[2][2] * centerZ +
+			elements[2][3];
+		const worldExtentX =
+			Math.abs(elements[0][0]) * extentX +
+			Math.abs(elements[0][1]) * extentY +
+			Math.abs(elements[0][2]) * extentZ;
+		const worldExtentY =
+			Math.abs(elements[1][0]) * extentX +
+			Math.abs(elements[1][1]) * extentY +
+			Math.abs(elements[1][2]) * extentZ;
+		const worldExtentZ =
+			Math.abs(elements[2][0]) * extentX +
+			Math.abs(elements[2][1]) * extentY +
+			Math.abs(elements[2][2]) * extentZ;
+
+		this._worldBoundingBox.min.x = worldCenterX - worldExtentX;
+		this._worldBoundingBox.min.y = worldCenterY - worldExtentY;
+		this._worldBoundingBox.min.z = worldCenterZ - worldExtentZ;
+		this._worldBoundingBox.max.x = worldCenterX + worldExtentX;
+		this._worldBoundingBox.max.y = worldCenterY + worldExtentY;
+		this._worldBoundingBox.max.z = worldCenterZ + worldExtentZ;
+
+		const sphereCenter = sphere.center;
+		this._worldBoundingSphere.center.x =
+			elements[0][0] * sphereCenter.x +
+			elements[0][1] * sphereCenter.y +
+			elements[0][2] * sphereCenter.z +
+			elements[0][3];
+		this._worldBoundingSphere.center.y =
+			elements[1][0] * sphereCenter.x +
+			elements[1][1] * sphereCenter.y +
+			elements[1][2] * sphereCenter.z +
+			elements[1][3];
+		this._worldBoundingSphere.center.z =
+			elements[2][0] * sphereCenter.x +
+			elements[2][1] * sphereCenter.y +
+			elements[2][2] * sphereCenter.z +
+			elements[2][3];
+		this._worldBoundingSphere.radius =
+			sphere.radius * (getMaxScaleFromMatrix(this.worldMatrix) || 1);
+
+		this._worldBoundsMesh = this._mesh;
+		this._worldBoundsMeshVersion = meshVersion;
+		this._worldBoundsInitialized = true;
+		this._worldBoundsVersion++;
+	}
+
+	private _captureWorldMatrixIfChanged(): boolean {
+		const elements = this.worldMatrix.elements;
+		let changed = !this._worldBoundsInitialized;
+		let cursor = 0;
+		for (let row = 0; row < 4; row++) {
+			for (let column = 0; column < 4; column++) {
+				const value = elements[row][column];
+				if (this._worldBoundsMatrixSnapshot[cursor] !== value) changed = true;
+				this._worldBoundsMatrixSnapshot[cursor++] = value;
+			}
+		}
+		return changed;
 	}
 
 	protected override _createCloneInstance(): this {
