@@ -50,7 +50,7 @@ export const WEBGPU_MODEL_UNIFORM_BYTE_SIZE =
 	WEBGPU_MODEL_UNIFORM_FLOATS * 4;
 export const WEBGPU_MODEL_ANIMATION_UNIFORM_FLOATS = 4;
 export const WEBGPU_MRT_COLOR_TARGET_COUNT = 5;
-const WEBGPU_MRT_COLOR_FORMATS = [
+export const WEBGPU_MRT_COLOR_FORMATS = [
 	TextureFormat.RGBA16Float,
 	TextureFormat.RGBA8Unorm,
 	TextureFormat.RGBA8Unorm,

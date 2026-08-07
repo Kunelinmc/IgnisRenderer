@@ -20,7 +20,7 @@ import type { IRenderPipeline, IShaderModule } from "../types";
 import type { WebGPUDeviceResourceHost } from "./WebGPUDeviceResourceHost";
 import type { WebGPUPipelineLayouts } from "./WebGPUPipelineLayouts";
 import { Logger } from "../../foundation/Logger";
-import { GBufferSlot } from "./constants";
+import { GBufferSlot, WEBGPU_MRT_COLOR_FORMATS } from "./constants";
 import {
 	resolveWebGPUScenePassDescriptor,
 	type WebGPUScenePassDescriptor,
@@ -562,23 +562,23 @@ export class WebGPUPipelineLibrary {
 
 		return [
 			{
-				format: TextureFormat.RGBA16Float,
+				format: WEBGPU_MRT_COLOR_FORMATS[0],
 				blend: colorBlend,
 			},
 			{
-				format: TextureFormat.RGBA8Unorm,
+				format: WEBGPU_MRT_COLOR_FORMATS[1],
 				writeMask: isTransparent ? COLOR_WRITE_NONE : undefined,
 			},
 			{
-				format: TextureFormat.RGBA8Unorm,
+				format: WEBGPU_MRT_COLOR_FORMATS[2],
 				writeMask: isTransparent ? COLOR_WRITE_NONE : undefined,
 			},
 			{
-				format: TextureFormat.RGBA16Float,
+				format: WEBGPU_MRT_COLOR_FORMATS[3],
 				writeMask: isTransparent ? COLOR_WRITE_NONE : undefined,
 			},
 			{
-				format: TextureFormat.RGBA16Float,
+				format: WEBGPU_MRT_COLOR_FORMATS[4],
 				blend: motionBlend,
 			},
 		];

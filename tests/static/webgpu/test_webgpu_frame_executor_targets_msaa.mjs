@@ -85,6 +85,38 @@ async function testMSAAAllocationFallbackPersistsForDeviceRuntime() {
 	}
 }
 
+function testMSAATargetFormatsMatchLegacyMRTPipeline() {
+	const backend = new FakeBackend();
+	const executor = new WebGPUFrameExecutor(
+		backend,
+		createResourcesStub(),
+		createMSAAContext(4)
+	);
+	try {
+		executor.beginFrame(createFrameContext(64, 64));
+		const targets = getMSAATargets(executor);
+		assert.ok(targets);
+		assert.deepEqual(
+			[
+				targets.sceneColorMain,
+				targets.gAlbedoAlpha,
+				targets.gNormalRoughMetal,
+				targets.gEmissiveOcclusion,
+				targets.gMotionDepth,
+			].map((target) => target?.format),
+			[
+				"rgba16float",
+				"rgba8unorm",
+				"rgba8unorm",
+				"rgba16float",
+				"rgba16float",
+			]
+		);
+	} finally {
+		executor.destroy();
+	}
+}
+
 async function testLegacyMainPassForcesSingleSceneTargetMode() {
 	const backend = new FakeBackend();
 	const resources = createModeTrackingResourcesStub();
@@ -505,6 +537,7 @@ async function run() {
 	try {
 		await testFrameTargetAllocationFailureReleasesPartialResources();
 		await testMSAAAllocationFallbackPersistsForDeviceRuntime();
+		testMSAATargetFormatsMatchLegacyMRTPipeline();
 		await testLegacyMainPassForcesSingleSceneTargetMode();
 		await testIncrementalMainPassUsesDepthPartialReuse();
 		await testMainOpaqueDisablesEarlyZWhenConfiguredOff();

@@ -353,6 +353,9 @@ When initializing a `ReflectionProbe` or passing options to its constructor `Ref
     while `WebGPUBackend` is still initializing.
   - The capture readback runtime must be created lazily on the first capture,
     after the backend compute facade exposes its initialized device and queue.
+  - Scene capture render targets must use the shared WebGPU legacy MRT color
+    attachment formats so capture render passes remain compatible with scene
+    pipelines.
 - **Capture Sampling**:
   - Cubemap faces must use the order `+X`, `-X`, `+Y`, `-Y`, `+Z`, `-Z`.
   - Cubemap-to-equirectangular conversion and final shader sampling must use

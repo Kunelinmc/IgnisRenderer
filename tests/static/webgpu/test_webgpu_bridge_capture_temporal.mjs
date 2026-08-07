@@ -362,7 +362,7 @@ async function testSampleCountOverrideUsesSingleSampleCapturePipelines() {
 	assert.equal(captureEnvironment.pipeline.desc.sampleCount, 1);
 }
 
-async function testReflectionProbeCaptureUsesCanvasAttachmentFormats() {
+async function testReflectionProbeCaptureUsesLegacyMRTAttachmentFormats() {
 	const backend = new FakeBackend();
 	backend.canvasFormat = "bgra8unorm";
 	const model = createModel([new PBRMaterial()]);
@@ -495,7 +495,26 @@ async function testReflectionProbeCaptureUsesCanvasAttachmentFormats() {
 	assert.ok(result);
 	assert.equal(result.length, 4);
 	assert.equal(backend.createTextureCalls.length >= 2, true);
-	assert.equal(backend.createTextureCalls[0].format, TextureFormat.RGBA16Float);
+	assert.deepEqual(
+		[
+			"SceneColor",
+			"Albedo",
+			"Normal",
+			"Emissive",
+			"Motion",
+		].map((target) =>
+			backend.createTextureCalls.find((call) =>
+				call.label === `WebGPUReflectionProbeCapture${target}_face0`
+			)?.format
+		),
+		[
+			TextureFormat.RGBA16Float,
+			TextureFormat.RGBA8Unorm,
+			TextureFormat.RGBA8Unorm,
+			TextureFormat.RGBA16Float,
+			TextureFormat.RGBA16Float,
+		]
+	);
 	assert.equal(
 		backend.createTextureCalls.some(
 			(call) => call.format === TextureFormat.Depth32Float
@@ -949,7 +968,7 @@ async function run() {
 		await testWebGPUEnvironmentCombinationsRegression();
 		await testScopedSceneTargetModesUseDistinctBindings();
 		await testSampleCountOverrideUsesSingleSampleCapturePipelines();
-		await testReflectionProbeCaptureUsesCanvasAttachmentFormats();
+		await testReflectionProbeCaptureUsesLegacyMRTAttachmentFormats();
 		await testReflectionProbeCaptureUsesParentWorldPositionAsOrigin();
 		await testFrameBindingReplacementDestroysOldBinding();
 		await testWebGPUPrepareFrameTemporalStateModes();

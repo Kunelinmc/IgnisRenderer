@@ -7,7 +7,10 @@ import {
 	type IRenderTexture,
 } from "../../types";
 import { TexturePool, type TexturePoolOptions } from "../TexturePool";
-import type { WebGPUDeferredGBufferLayout } from "../constants";
+import {
+	WEBGPU_MRT_COLOR_FORMATS,
+	type WebGPUDeferredGBufferLayout,
+} from "../constants";
 
 export interface WebGPUFrameMSAATargets {
 	sceneColorMain: IRenderTexture;
@@ -541,7 +544,7 @@ export class WebGPUFrameTargetManager {
 							msaaPoolOptions,
 							width,
 							height,
-							TextureFormat.RGBA16Float,
+							WEBGPU_MRT_COLOR_FORMATS[0],
 						),
 						gAlbedoAlpha: needsBaseGBuffer
 							? acquireTexture(
@@ -549,7 +552,7 @@ export class WebGPUFrameTargetManager {
 									msaaPoolOptions,
 									width,
 									height,
-									TextureFormat.RGBA8Unorm,
+									WEBGPU_MRT_COLOR_FORMATS[1],
 								)
 							: null,
 						gNormalRoughMetal: needsBaseGBuffer
@@ -558,7 +561,7 @@ export class WebGPUFrameTargetManager {
 									msaaPoolOptions,
 									width,
 									height,
-									TextureFormat.RGBA16Float,
+									WEBGPU_MRT_COLOR_FORMATS[2],
 								)
 							: null,
 						gEmissiveOcclusion: needsBaseGBuffer
@@ -567,7 +570,7 @@ export class WebGPUFrameTargetManager {
 									msaaPoolOptions,
 									width,
 									height,
-									TextureFormat.RGBA16Float,
+									WEBGPU_MRT_COLOR_FORMATS[3],
 								)
 							: null,
 						gMotionDepth: needsBaseGBuffer
@@ -576,7 +579,7 @@ export class WebGPUFrameTargetManager {
 									msaaPoolOptions,
 									width,
 									height,
-									TextureFormat.RGBA16Float,
+									WEBGPU_MRT_COLOR_FORMATS[4],
 								)
 							: null,
 						planarReflectionMask: requirements.needsPlanarReflectionMask

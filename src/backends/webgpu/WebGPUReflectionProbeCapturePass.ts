@@ -38,6 +38,7 @@ import type {
 import type { WebGPUFrameHost } from "./rendergraph/WebGPUFrameHost";
 import { TextureFormat, TextureUsage, type IRenderTexture } from "../types";
 import { submitWebGPUDraws } from "./WebGPUDrawSubmission";
+import { WEBGPU_MRT_COLOR_FORMATS } from "./constants";
 import {
 	CustomRenderPassRegistrySnapshot,
 	RenderTargetRegistrySnapshot,
@@ -361,7 +362,7 @@ function createCaptureRenderTargets(
 		sceneColor: backend.createTexture({
 			width: faceSize,
 			height: faceSize,
-			format: TextureFormat.RGBA16Float,
+			format: WEBGPU_MRT_COLOR_FORMATS[0],
 			usage:
 				TextureUsage.RenderAttachment |
 				TextureUsage.CopySrc |
@@ -371,28 +372,28 @@ function createCaptureRenderTargets(
 		gAlbedoAlpha: backend.createTexture({
 			width: faceSize,
 			height: faceSize,
-			format: TextureFormat.RGBA8Unorm,
+			format: WEBGPU_MRT_COLOR_FORMATS[1],
 			usage: TextureUsage.RenderAttachment,
 			label: `WebGPUReflectionProbeCaptureAlbedo_face${faceIndex}`,
 		}),
 		gNormalRoughMetal: backend.createTexture({
 			width: faceSize,
 			height: faceSize,
-			format: TextureFormat.RGBA16Float,
+			format: WEBGPU_MRT_COLOR_FORMATS[2],
 			usage: TextureUsage.RenderAttachment,
 			label: `WebGPUReflectionProbeCaptureNormal_face${faceIndex}`,
 		}),
 		gEmissiveOcclusion: backend.createTexture({
 			width: faceSize,
 			height: faceSize,
-			format: TextureFormat.RGBA16Float,
+			format: WEBGPU_MRT_COLOR_FORMATS[3],
 			usage: TextureUsage.RenderAttachment,
 			label: `WebGPUReflectionProbeCaptureEmissive_face${faceIndex}`,
 		}),
 		gMotionDepth: backend.createTexture({
 			width: faceSize,
 			height: faceSize,
-			format: TextureFormat.RGBA16Float,
+			format: WEBGPU_MRT_COLOR_FORMATS[4],
 			usage: TextureUsage.RenderAttachment,
 			label: `WebGPUReflectionProbeCaptureMotion_face${faceIndex}`,
 		}),
