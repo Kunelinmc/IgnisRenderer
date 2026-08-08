@@ -177,7 +177,14 @@ function createRenderSet(overrides = {}) {
 		feedbackMode: "screen-feedback",
 		...overrides.paged,
 	};
-	return {
+	const matrix = Matrix4.identity();
+	const slices = [{
+		index: 0, resolution: paged.virtualResolution,
+		view: Matrix4.identity(), projection: Matrix4.identity(), viewProjection: matrix,
+		lightDirection: { x: 0, y: -1, z: 0 }, splitNear: 0, splitFar: 1,
+		shadowMap: { viewProjectionMatrix: matrix },
+	}];
+	const renderSet = {
 		storageMode: "paged",
 		configSignature: overrides.configSignature ?? "paged-test",
 		layout: {
@@ -185,16 +192,15 @@ function createRenderSet(overrides = {}) {
 			regions: [],
 			paged,
 		},
-		slices: [
-			{
-				splitNear: 0,
-				splitFar: 1,
-				shadowMap: {
-					viewProjectionMatrix: Matrix4.identity(),
-				},
-			},
-		],
+		slices,
 	};
+	renderSet.prepared = {
+		light: { id: "sun", type: LightType.Directional }, lightId: "sun",
+		definition: { id: "paged-test", projection: {}, bias: {}, sampling: {} },
+		effectiveTechnique: "cascaded", storage: "paged", pagedSettings: paged,
+		effectiveCascadeCount: 1, effectiveResolution: paged.virtualResolution, slices,
+	};
+	return renderSet;
 }
 
 function createRequest(renderSet, packets, encoder = null) {
@@ -202,6 +208,7 @@ function createRequest(renderSet, packets, encoder = null) {
 		id: "sun",
 		type: LightType.Directional,
 	};
+	renderSet.prepared.light = light;
 	return {
 		context: {
 			features: { enableShadows: true },
@@ -215,7 +222,7 @@ function createRequest(renderSet, packets, encoder = null) {
 			},
 		},
 		encoder,
-		renderSets: new Map([[light, renderSet]]),
+		shadowPlan: { revision: 1, lights: [renderSet.prepared], jobs: [], diagnostics: [], hasRasterWork: true, hasTransmissionWork: false, hasPagedWork: true },
 		shadowCasterPackets: packets,
 		shadowTransmitterPackets: [],
 		feedbackDepthTexture: {
@@ -244,7 +251,7 @@ function createPacket(id, x, y, indexCount = 36) {
 
 function createLayout(renderSet) {
 	return {
-		renderSet,
+		prepared: renderSet.prepared,
 		metadata: renderSet.layout.paged,
 		pageTableBase: 0,
 		pageTableCascadeStride:

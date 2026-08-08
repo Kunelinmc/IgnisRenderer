@@ -2,20 +2,10 @@ import type { Matrix4 } from "../../maths/Matrix4";
 import type { IVector3 } from "../../maths/types";
 import type { ShadowCastingLight } from "..";
 import type { ShadowMapBase } from "./ShadowMapBase";
-import type {
-	ShadowConfig,
-	ShadowRenderSet,
-	ShadowStrategyType,
-} from "./ShadowMapping";
 
-export type BuiltinShadowMapKind = "single" | "variance" | "cascaded" | "paged-shadow";
-export type ShadowMapKind = BuiltinShadowMapKind | (string & {});
+export type ShadowMapKind = "single" | "variance" | "cascaded" | "paged-shadow";
 export type ShadowFilterMode = "pcf" | "vsm";
-export type ShadowBoundLightType =
-	| "directional"
-	| "point"
-	| "spot"
-	| "rectArea";
+export type ShadowBoundLightType = "directional" | "point" | "spot" | "rectArea";
 
 export interface ShadowBiasSettings {
 	constant?: number;
@@ -47,6 +37,12 @@ export interface ShadowMapBaseOptions {
 export type ShadowProjectionPreference = "single" | "cascaded";
 export type ShadowStoragePreference = "atlas" | "paged";
 
+export interface CascadedShadowMapDefaults {
+	directional: number;
+	spot: number;
+	point: number;
+}
+
 export interface ShadowProjectionSnapshot {
 	readonly technique: ShadowProjectionPreference;
 	readonly cascadeCounts?: Readonly<CascadedShadowMapDefaults>;
@@ -56,12 +52,21 @@ export interface ShadowProjectionSnapshot {
 	readonly stabilize?: boolean;
 }
 
-/**
- * Immutable settings captured from a public shadow definition.
- *
- * @internal Owned by the shadow planning subsystem. Consumers should configure
- * shadows through `ShadowMapBase` and its concrete subclasses.
- */
+export type PagedShadowFeedbackMode = "conservative" | "screen-feedback";
+
+/** Immutable logical configuration for a selected paged-shadow light. */
+export interface PreparedPagedShadowSettings {
+	readonly virtualResolution: number;
+	readonly pageSize: number;
+	readonly pageGridSize: number;
+	readonly physicalPageCount: number;
+	readonly clipmapLevels: number;
+	readonly maxPagesPerFrame: number;
+	readonly cacheFrames: number;
+	readonly feedbackMode: PagedShadowFeedbackMode;
+}
+
+/** @internal Immutable authoring input consumed by `ShadowPlanner`. */
 export interface ShadowDefinitionSnapshot {
 	readonly id: string;
 	readonly kind: ShadowMapKind;
@@ -71,20 +76,13 @@ export interface ShadowDefinitionSnapshot {
 	readonly resolution: number;
 	readonly bias: Readonly<Required<ShadowBiasSettings>>;
 	readonly sampling: Readonly<Required<ShadowSamplingSettings>>;
+	readonly pagedSettings?: Readonly<PreparedPagedShadowSettings>;
 	readonly priority: number;
 	readonly revision: number;
 }
 
 /** @internal Listener used by `ShadowManager` to observe shared definitions. */
-export type ShadowDefinitionListener = (
-	definition: ShadowMapBase
-) => void;
-
-export interface CascadedShadowMapDefaults {
-	directional: number;
-	spot: number;
-	point: number;
-}
+export type ShadowDefinitionListener = (definition: ShadowMapBase) => void;
 
 export interface CascadedShadowMapOptions extends ShadowMapBaseOptions {
 	cascadeCounts?: Partial<CascadedShadowMapDefaults>;
@@ -93,8 +91,6 @@ export interface CascadedShadowMapOptions extends ShadowMapBaseOptions {
 	blendRatio?: number;
 	stabilize?: boolean;
 }
-
-export type PagedShadowFeedbackMode = "conservative" | "screen-feedback";
 
 export interface PagedShadowMapOptions extends ShadowMapBaseOptions {
 	virtualResolution?: number;
@@ -109,82 +105,6 @@ export interface PagedShadowMapOptions extends ShadowMapBaseOptions {
 	maxDistance?: number;
 	blendRatio?: number;
 	stabilize?: boolean;
-}
-
-export interface ShadowRuntimeSlice {
-	index: number;
-	view: Matrix4 | null;
-	projection: Matrix4 | null;
-	viewProjection: Matrix4 | null;
-	lightDir: IVector3;
-	splitNear: number;
-	splitFar: number;
-}
-
-export interface ShadowBindingRecord {
-	light: ShadowCastingLight;
-	shadowMapId: string;
-	shadowMapKind: ShadowMapKind;
-	filterMode: ShadowFilterMode;
-	priority: number;
-	renderSet: ShadowRenderSet;
-	cost: number;
-	score: number;
-}
-
-export interface ShadowBudgetDecision {
-	size: number;
-	cascadeCount?: number;
-	enabled: boolean;
-	cost: number;
-}
-
-export interface IShadowBackendCapabilities {
-	backendKey: string;
-	supportsFilterModes: ShadowFilterMode[];
-	/** Explicit projection, storage, and count limits for each light type. */
-	lightTypes?: Partial<Record<ShadowBoundLightType, {
-		readonly projections: readonly ShadowProjectionPreference[];
-		readonly storage: readonly ShadowStoragePreference[];
-		readonly maxLights: number;
-		readonly maxCascadedLights: number;
-	}>>;
-	/** Whether RGB transmission visibility is produced by the shadow runtime. */
-	supportsTransmission?: boolean;
-	/** @deprecated Use `lightTypes.directional.projections`. */
-	supportsDirectionalCSM: boolean;
-	/** @deprecated Use `lightTypes.spot.projections`. */
-	supportsSpotCSM: boolean;
-	/** @deprecated Use `lightTypes.point.projections`. */
-	supportsPointCSM: boolean;
-	maxDynamicShadowCost?: number;
-	supportsPagedShadows?: boolean;
-	supportsPagedShadowRendering?: boolean;
-	maxPagedShadowPages?: number;
-	pagedShadowPageSizeRange?: [number, number];
-}
-
-export interface ShadowSliceAllocation {
-	lightId: string;
-	shadowMapId: string;
-	sliceIndex: number;
-	tileX: number;
-	tileY: number;
-	size: number;
-}
-
-export interface IShadowSliceAllocator {
-	allocate(records: ShadowBindingRecord[]): ShadowSliceAllocation[];
-}
-
-export interface ShadowPassSliceInput {
-	light: ShadowCastingLight;
-	record: ShadowBindingRecord;
-	allocation: ShadowSliceAllocation;
-}
-
-export interface IShadowPassExecutor {
-	executeShadowPass(slices: ShadowPassSliceInput[]): void | Promise<void>;
 }
 
 export interface SceneBounds {
@@ -205,14 +125,30 @@ export interface ShadowStrategyCamera {
 	top?: number | null;
 	up?: IVector3;
 	position?: IVector3;
-	getBounds?: () => {
-		left: number;
-		right: number;
-		bottom: number;
-		top: number;
-	};
+	getBounds?: () => { left: number; right: number; bottom: number; top: number };
 	getWorldPosition?: (target?: IVector3) => IVector3;
 	getWorldDirection?: (localDirection: IVector3, target?: IVector3) => IVector3;
+}
+
+/** @internal Mutable stabilization data retained only by `ShadowPlanner`. */
+export interface ShadowProjectionSliceState {
+	index: number;
+	resolution: number;
+	stabilizedBoundsRadius: number | null;
+	csmStableCenterLightX: number | null;
+	csmStableCenterLightY: number | null;
+	csmStableLightDir: IVector3 | null;
+}
+
+/** @internal Normalized planner-only projection request. */
+export interface ShadowProjectionConfig {
+	readonly technique: ShadowProjectionPreference;
+	readonly resolution: number;
+	readonly cascadeCount: number;
+	readonly lambda: number;
+	readonly maxDistance?: number;
+	readonly blendRatio: number;
+	readonly stabilize: boolean;
 }
 
 export interface ShadowSliceDescriptor {
@@ -223,16 +159,31 @@ export interface ShadowSliceDescriptor {
 	splitFar: number;
 }
 
+/** @internal Projection builder input owned by `ShadowPlanner`. */
 export interface ShadowStrategyBuildContext {
 	light: ShadowCastingLight;
-	renderSet: ShadowRenderSet;
-	config: ShadowConfig;
+	slices: ShadowProjectionSliceState[];
+	config: ShadowProjectionConfig;
 	sceneBounds: SceneBounds;
 	camera?: ShadowStrategyCamera | null;
 }
 
-export interface IShadowStrategyProvider {
-	readonly type: ShadowStrategyType;
-	supports(light: ShadowCastingLight): boolean;
-	build(context: ShadowStrategyBuildContext): ShadowSliceDescriptor[];
+export interface IShadowBackendCapabilities {
+	backendKey: string;
+	supportsFilterModes: ShadowFilterMode[];
+	lightTypes?: Partial<Record<ShadowBoundLightType, {
+		readonly projections: readonly ShadowProjectionPreference[];
+		readonly storage: readonly ShadowStoragePreference[];
+		readonly maxLights: number;
+		readonly maxCascadedLights: number;
+	}>>;
+	supportsTransmission?: boolean;
+	supportsDirectionalCSM: boolean;
+	supportsSpotCSM: boolean;
+	supportsPointCSM: boolean;
+	maxDynamicShadowCost?: number;
+	supportsPagedShadows?: boolean;
+	supportsPagedShadowRendering?: boolean;
+	maxPagedShadowPages?: number;
+	pagedShadowPageSizeRange?: [number, number];
 }

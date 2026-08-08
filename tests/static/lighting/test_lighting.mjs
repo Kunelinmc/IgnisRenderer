@@ -9,6 +9,7 @@ import { Scene } from "../../../src/core/Scene.ts";
 import { evaluateLightContribution } from "../../../src/lights/runtime/lightEvaluator.ts";
 import { Matrix4 } from "../../../src/maths/Matrix4.ts";
 import { SH } from "../../../src/maths/SH.ts";
+import { isShadowCastingLight } from "../../../src/lights/index.ts";
 
 function assertColorClose(actual, expected, tolerance = 1.0) {
 	const dr = Math.abs(actual.r - expected.r);
@@ -68,11 +69,8 @@ function testDirectional() {
 	const shadowMap = scene.shadows.createSingle({ size: 1024 });
 	scene.shadows.bind(light, shadowMap);
 	const boundShadow = scene.shadows.getBoundShadowMap(light);
-	const legacyConfig = scene.shadows.getLegacyShadowConfig(light);
 	assert.equal(boundShadow, shadowMap);
-	assert.ok(legacyConfig);
-	assert.equal(legacyConfig?.strategy, "single-map");
-	assert.equal(legacyConfig?.size, 1024);
+	assert.equal(shadowMap.snapshot().resolution, 1024);
 }
 
 function testPoint() {
@@ -153,6 +151,7 @@ function testArea() {
 		range: 1_000_000,
 		intensity: 1,
 	});
+	assert.equal(isShadowCastingLight(light), true);
 
 	const contribution = evaluateLightContribution(light, {
 		position: { x: 0, y: 10, z: 0 },

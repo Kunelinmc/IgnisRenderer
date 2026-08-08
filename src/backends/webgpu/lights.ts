@@ -9,7 +9,10 @@ import {
 	type ShadowCastingLight,
 	type SpotLight,
 } from "../../lights";
-import type { ShadowRenderSet } from "../../lights/shadows/ShadowMapping";
+import type {
+	PreparedShadowLight,
+	ShadowFramePlan,
+} from "../../pipeline/shadows/ShadowFramePlan";
 import {
 	accumulateAmbientLightColor,
 	accumulateLightProbeFallbackAmbientColor,
@@ -51,7 +54,7 @@ export function collectWebGPULightingCatalog(
 	enableLighting: boolean,
 	enableSH: boolean,
 	enableShadows: boolean = false,
-	shadowMaps?: ReadonlyMap<ShadowCastingLight, ShadowRenderSet>
+	shadowPlan?: ShadowFramePlan
 ): WebGPULightingCatalog {
 	const catalog: WebGPULightingCatalog = {
 		ambientColor: [0, 0, 0],
@@ -67,7 +70,7 @@ export function collectWebGPULightingCatalog(
 				accumulateAmbientLight(catalog, light);
 				break;
 			case LightType.Directional:
-				collectDirectionalLight(catalog, light, enableShadows, shadowMaps);
+				collectDirectionalLight(catalog, light, enableShadows, shadowPlan);
 				break;
 			case LightType.Point:
 				collectPointLight(catalog, light);
@@ -78,7 +81,7 @@ export function collectWebGPULightingCatalog(
 					light,
 					spotShadowIndex++,
 					enableShadows,
-					shadowMaps
+					shadowPlan
 				);
 				break;
 			case LightType.RectArea:
@@ -105,7 +108,7 @@ export function collectWebGPULighting(
 	enableLighting: boolean,
 	enableSH: boolean,
 	enableShadows: boolean = false,
-	shadowMaps?: ReadonlyMap<ShadowCastingLight, ShadowRenderSet>,
+	shadowPlan?: ShadowFramePlan,
 	enableClusteredLighting: boolean = false
 ): WebGPULightingState {
 	return createWebGPULightingState(
@@ -114,7 +117,7 @@ export function collectWebGPULighting(
 			enableLighting,
 			enableSH,
 			enableShadows,
-			shadowMaps
+			shadowPlan
 		),
 		enableClusteredLighting
 	);
@@ -313,7 +316,7 @@ function collectDirectionalLight(
 	catalog: WebGPULightingCatalog,
 	light: DirectionalLight,
 	enableShadows: boolean,
-	shadowMaps?: ReadonlyMap<ShadowCastingLight, ShadowRenderSet>
+	shadowPlan?: ShadowFramePlan
 ): void {
 	const direction = light.getWorldLightDirection();
 	catalog.lights.push({
@@ -333,7 +336,7 @@ function collectDirectionalLight(
 		color: toLinearLightColor(light.color, light.intensity),
 		shadow: resolveWebGPUShadowData(
 			enableShadows,
-			shadowMaps?.get(light as ShadowCastingLight)
+			findPreparedShadow(shadowPlan, light as ShadowCastingLight)
 		),
 		shadowIndex: -1,
 	});
@@ -369,7 +372,7 @@ function collectSpotLight(
 	light: SpotLight,
 	shadowIndex: number,
 	enableShadows: boolean,
-	shadowMaps?: ReadonlyMap<ShadowCastingLight, ShadowRenderSet>
+	shadowPlan?: ShadowFramePlan
 ): void {
 	const position = light.getWorldLightPosition();
 	const direction = light.getWorldLightDirection();
@@ -390,7 +393,7 @@ function collectSpotLight(
 		color: toLinearLightColor(light.color, light.intensity),
 		shadow: resolveWebGPUShadowData(
 			enableShadows,
-			shadowMaps?.get(light as ShadowCastingLight)
+			findPreparedShadow(shadowPlan, light as ShadowCastingLight)
 		),
 		shadowIndex,
 	});
@@ -570,11 +573,24 @@ function pushWarningOnce(
 
 function resolveWebGPUShadowData(
 	enableShadows: boolean,
-	renderSetInput?: ShadowRenderSet
+	prepared?: PreparedShadowLight
 ): WebGPUShadowData {
-	return resolveSharedShadowData(enableShadows, renderSetInput, {
-		keepShadowMapWhenDisabled: true,
-	});
+	return {
+		...resolveSharedShadowData(enableShadows, prepared),
+		atlasTileSize: 0,
+		pagedPageTableBase: 0,
+		pagedPageTableCascadeStride: 0,
+		pagedPhysicalAtlasSize: 0,
+		pagedPhysicalGridSize: 0,
+		pagedPhysicalPageSize: 0,
+	};
+}
+
+function findPreparedShadow(
+	plan: ShadowFramePlan | undefined,
+	light: ShadowCastingLight
+): PreparedShadowLight | undefined {
+	return plan?.lights.find((candidate) => candidate.light === light);
 }
 
 function createDisabledShadowData(): WebGPUShadowData {

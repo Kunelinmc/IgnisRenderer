@@ -3,7 +3,6 @@ import {
 	type ParticleTemplate,
 	type ParticleSystem,
 } from "../particles";
-import type { ShadowMap } from "../lights/shadows/ShadowMapping";
 import type { IVector3 } from "../maths/types";
 import { Matrix4 } from "../maths/Matrix4";
 import type { ParticleRenderBatch } from "./types";
@@ -194,10 +193,10 @@ export function clearParticleShadowVolumeGrid(
 
 export function injectParticleBatchIntoShadowVolume(
 	grid: ParticleShadowVolumeGrid,
-	shadowMap: ShadowMap,
+	viewProjection: Matrix4,
 	batch: ParticleRenderBatch
 ): void {
-	if (!isParticleShadowCastingBatch(batch) || !shadowMap.viewProjectionMatrix) {
+	if (!isParticleShadowCastingBatch(batch)) {
 		return;
 	}
 
@@ -213,7 +212,7 @@ export function injectParticleBatchIntoShadowVolume(
 			continue;
 		}
 		const center = Matrix4.transformPoint(
-			shadowMap.viewProjectionMatrix,
+			viewProjection,
 			particle.position
 		);
 		const w = center.w ?? 0;
@@ -228,7 +227,7 @@ export function injectParticleBatchIntoShadowVolume(
 		}
 
 		const radiusNdc = estimateParticleRadiusNDC(
-			shadowMap.viewProjectionMatrix,
+			viewProjection,
 			particle.position,
 			size * 0.5,
 			w
@@ -274,14 +273,14 @@ export function injectParticleBatchIntoShadowVolume(
 
 export function sampleParticleShadowVolumeTransmittance(
 	grid: ParticleShadowVolumeGrid | null | undefined,
-	shadowMap: ShadowMap,
+	viewProjection: Matrix4,
 	worldPoint: IVector3
 ): number {
-	if (!grid?.active || !shadowMap.viewProjectionMatrix) {
+	if (!grid?.active) {
 		return 1;
 	}
 
-	const clip = Matrix4.transformPoint(shadowMap.viewProjectionMatrix, worldPoint);
+	const clip = Matrix4.transformPoint(viewProjection, worldPoint);
 	const w = clip.w ?? 0;
 	if (w <= 1e-6) {
 		return 1;

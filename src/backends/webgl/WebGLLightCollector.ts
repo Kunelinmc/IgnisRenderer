@@ -8,11 +8,11 @@ import {
 	type SceneLight,
 	type ShadowCastingLight,
 } from "../../lights";
-import {
-	type ShadowMap,
-	type ShadowStrategyType,
-	type ShadowRenderSet,
-} from "../../lights/shadows/ShadowMapping";
+import type {
+	PreparedShadowLight,
+	ShadowFramePlan,
+} from "../../pipeline/shadows/ShadowFramePlan";
+import type { ResolvedShadowStrategy } from "../../lights/runtime/lightingRuntime";
 import type { Matrix4 } from "../../maths/Matrix4";
 import type { IVector3, SHCoefficients } from "../../maths/types";
 import { collectActiveLocalizedLightProbes } from "../../lights/runtime/lightProbeRuntime";
@@ -61,7 +61,7 @@ export interface WebGLSpotLight {
 
 export interface WebGLShadowData {
 	enabled: boolean;
-	strategyType: ShadowStrategyType;
+	strategyType: ResolvedShadowStrategy;
 	cascadeCount: number;
 	cascadeBlendRatio: number;
 	cascadeViewProjectionMatrices: Array<Matrix4 | null>;
@@ -80,7 +80,6 @@ export interface WebGLShadowData {
 	shadowMapBaseSize: number;
 	shadowMapSize: number;
 	atlasTileSize: number;
-	shadowMap: ShadowMap | null;
 }
 
 export interface WebGLLightState {
@@ -150,9 +149,6 @@ export interface WebGLClusteredLight {
 }
 
 type WebGLLightCollectorWarn = (key: string, message: string) => void;
-type WebGLLightCollectorShadowMapLookup =
-	ReadonlyMap<ShadowCastingLight, ShadowRenderSet>;
-
 /**
  * Configuration for collecting backend-ready WebGL lighting state.
  *
@@ -162,7 +158,7 @@ export interface WebGLLightCollectorOptions {
 	enableLighting: boolean;
 	warn?: WebGLLightCollectorWarn;
 	enableShadows?: boolean;
-	shadowMaps?: WebGLLightCollectorShadowMapLookup;
+	shadowPlan?: ShadowFramePlan;
 	enableSH?: boolean;
 	environmentTexture?: Texture | null;
 	enableClusteredLighting?: boolean;
@@ -182,7 +178,7 @@ export function collectWebGLLights(
 		enableLighting,
 		warn,
 		enableShadows = false,
-		shadowMaps,
+		shadowPlan,
 		enableSH = false,
 		environmentTexture = null,
 		enableClusteredLighting = false,
@@ -238,7 +234,7 @@ export function collectWebGLLights(
 				state.directionalShadows.push(
 					resolveWebGLShadowData(
 						enableShadows,
-						shadowMaps?.get(light as ShadowCastingLight)
+						findPreparedShadow(shadowPlan, light as ShadowCastingLight)
 					)
 				);
 				break;
@@ -286,7 +282,7 @@ export function collectWebGLLights(
 				const color = toLinearLightColor(light.color, light.intensity ?? 1);
 				const resolvedShadow = resolveWebGLShadowData(
 					enableShadows,
-					shadowMaps?.get(light as ShadowCastingLight)
+					findPreparedShadow(shadowPlan, light as ShadowCastingLight)
 				);
 				if (enableClusteredLighting) {
 					const forwardShadowIndex = state.spotShadows.length;
@@ -519,7 +515,14 @@ function mapParallaxModeCode(probe: ReflectionProbe): 0 | 1 | 2 {
 
 function resolveWebGLShadowData(
 	enableShadows: boolean,
-	renderSetInput?: ShadowRenderSet | ShadowMap
+	prepared?: PreparedShadowLight
 ): WebGLShadowData {
-	return resolveSharedShadowData(enableShadows, renderSetInput);
+	return { ...resolveSharedShadowData(enableShadows, prepared), atlasTileSize: 0 };
+}
+
+function findPreparedShadow(
+	plan: ShadowFramePlan | undefined,
+	light: ShadowCastingLight
+): PreparedShadowLight | undefined {
+	return plan?.lights.find((candidate) => candidate.light === light);
 }

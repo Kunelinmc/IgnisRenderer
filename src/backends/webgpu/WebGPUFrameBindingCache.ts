@@ -52,7 +52,6 @@ import {
 import type { WebGPUSceneTargetMode } from "./WebGPUPipelineLibrary";
 import { clamp } from "../../maths/Common";
 import type { Matrix4 } from "../../maths/Matrix4";
-import type { ShadowMap } from "../../lights/shadows/ShadowMapping";
 import {
 	createParticleShadowVolumeGrid,
 	hasParticleShadowCastingBatches,
@@ -741,11 +740,8 @@ export class WebGPUFrameBindingCache {
 				continue;
 			}
 			const grid = createParticleShadowVolumeGrid();
-			const shadowMap = {
-				viewProjectionMatrix: matrix,
-			} as ShadowMap;
 			for (const batch of batches ?? []) {
-				injectParticleBatchIntoShadowVolume(grid, shadowMap, batch);
+				injectParticleBatchIntoShadowVolume(grid, matrix, batch);
 			}
 			if (!grid.active) {
 				continue;

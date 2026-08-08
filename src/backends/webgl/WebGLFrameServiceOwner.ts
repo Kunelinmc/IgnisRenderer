@@ -19,7 +19,6 @@ import type {
 	PostProcessResourceHandle,
 } from "../../postprocess";
 import type { FramePreparationRequirements } from "../../pipeline/FrameRequirements";
-import { resolveLegacyShadowMaps } from "../../pipeline/shadows/LegacyShadowPlanAdapter";
 import {
 	DEFAULT_FOG_OPTIONS,
 	resolveFogUniformParams,
@@ -472,7 +471,7 @@ export class WebGLFrameServiceOwner {
 			{
 				enableLighting: context.features.enableLighting,
 				enableShadows: context.features.enableShadows,
-				shadowMaps: resolveLegacyShadowMaps(context.shadowPlan),
+				shadowPlan: context.shadowPlan,
 				enableSH: context.features.enableSH,
 				environmentTexture: context.scene.environment.lightingEnabled ?
 					context.scene.environment.iblTexture

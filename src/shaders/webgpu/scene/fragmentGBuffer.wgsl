@@ -29,6 +29,14 @@ fn buildGBufferOutputExtended(
 	let coord = vec2<i32>(fragCoord);
 	textureStore(gMaterialExt0Out, coord, materialExt0);
 	textureStore(gMaterialExt3Out, coord, materialExt3);
+	var resolvedMaterialWord = decodeDeferredMaterialWord(materialWord);
+	if (model.nodeRenderLayers.y > 0.5) {
+		resolvedMaterialWord =
+			resolvedMaterialWord | DEFERRED_MATERIAL_RECEIVE_SHADOWS_BIT;
+	} else {
+		resolvedMaterialWord =
+			resolvedMaterialWord & ~DEFERRED_MATERIAL_RECEIVE_SHADOWS_BIT;
+	}
 
 	var output: GBufferFragmentOutput;
 	output.gAlbedoAlpha = vec4<f32>(
@@ -47,7 +55,7 @@ fn buildGBufferOutputExtended(
 	output.gMotionDepth = vec4<f32>(
 		clamp(motion, vec2<f32>(-1.0), vec2<f32>(1.0)),
 		max(linearDepth, 0.0),
-		materialWord
+		f32(resolvedMaterialWord)
 	);
 	output.gSpecular = specularData;
 	output.gCoatSheen = coatSheenData;

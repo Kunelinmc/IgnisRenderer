@@ -301,7 +301,7 @@ export function flattenLocalLightProbeVec4(
 export function getMaxShadowSize(values: WebGLShadowData[]): number {
 	let maxSize = 0;
 	for (const shadow of values) {
-		if (!shadow.enabled || !shadow.shadowMap) {
+		if (!shadow.enabled || !shadow.viewProjectionMatrix) {
 			continue;
 		}
 		maxSize = Math.max(maxSize, shadow.shadowMapBaseSize | 0);

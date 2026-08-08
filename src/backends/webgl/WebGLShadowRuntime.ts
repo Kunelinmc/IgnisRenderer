@@ -1,5 +1,4 @@
 import { Logger } from "../../foundation/Logger";
-import type { ShadowMap } from "../../lights/shadows/ShadowMapping";
 import type { Matrix4 } from "../../maths/Matrix4";
 import {
 	createParticleShadowVolumeGrid,
@@ -549,9 +548,8 @@ export class WebGLShadowRuntime {
 				height: WEBGL_PARTICLE_SHADOW_VOLUME_GRID_HEIGHT,
 				depth: WEBGL_PARTICLE_SHADOW_VOLUME_GRID_DEPTH,
 			});
-			const shadowMap = { viewProjectionMatrix: matrix } as ShadowMap;
 			for (const batch of batches ?? []) {
-				injectParticleBatchIntoShadowVolume(grid, shadowMap, batch);
+				injectParticleBatchIntoShadowVolume(grid, matrix, batch);
 			}
 			if (!grid.active) continue;
 			this._packSlice(grid.density, sliceIndex);

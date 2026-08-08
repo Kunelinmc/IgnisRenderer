@@ -8,7 +8,7 @@ import { MeshInstance } from "../../src/meshes/MeshInstance.ts";
 import { resolveFeatureState } from "../../src/pipeline/FeatureResolver.ts";
 import { WEBGPU_FRAME_CAMERA_UNIFORM_LAYOUT } from "../../src/backends/webgpu/bufferLayouts.ts";
 import { createResolvedPostProcess } from "./postprocess.mjs";
-import { createLegacyShadowFramePlan } from "../../src/pipeline/shadows/LegacyShadowPlanAdapter.ts";
+import { EMPTY_SHADOW_FRAME_PLAN } from "../../src/pipeline/shadows/ShadowFramePlan.ts";
 
 function nearlyEqual(actual, expected, epsilon = 1e-6) {
 	assert.ok(Math.abs(actual - expected) <= epsilon, `${actual} != ${expected}`);
@@ -104,17 +104,7 @@ function createFrame(packet) {
 		reflectivePackets: [],
 		decalPackets: [],
 	};
-	Object.defineProperty(frame, "shadowMaps", {
-		enumerable: false,
-		get() {
-			return this._legacyShadowMaps;
-		},
-		set(value) {
-			this._legacyShadowMaps = value;
-			this.shadowPlan = createLegacyShadowFramePlan(value);
-		},
-	});
-	frame.shadowMaps = new Map();
+	frame.shadowPlan = EMPTY_SHADOW_FRAME_PLAN;
 	return frame;
 }
 

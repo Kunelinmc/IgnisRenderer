@@ -3,24 +3,17 @@ import {
 	type IShadowBackendCapabilities,
 	type ShadowDefinitionSnapshot,
 	type ShadowFilterMode,
-	type ShadowMapBase,
+	type ShadowProjectionConfig,
+	type ShadowProjectionSliceState,
 } from "../../lights/shadows";
-import type {
-	PagedShadowLayoutMetadata,
-	ShadowConfig,
-	ShadowRenderSet,
-} from "../../lights/shadows/ShadowMapping";
+import { CascadedShadowMap } from "../../lights/shadows/CascadedShadowMap";
 import type { ShadowManager } from "../../lights/shadows/ShadowManager";
+import type { ShadowMapBase } from "../../lights/shadows/ShadowMapBase";
+import { SingleShadowMap } from "../../lights/shadows/SingleShadowMap";
 import type { IVector3 } from "../../maths/types";
-import {
-	resolveShadowCasterBounds,
-	updateShadowMapMetadata,
-} from "../ShadowMetadata";
+import { Matrix4 } from "../../maths/Matrix4";
+import { resolveShadowCasterBounds } from "./ShadowCasterBounds";
 import type { ShadowStrategyCamera, SceneBounds } from "../../lights/shadows/types";
-import {
-	LegacyShadowPlanAdapter,
-	type LegacyShadowPlanEntry,
-} from "./LegacyShadowPlanAdapter";
 import type {
 	PreparedShadowLight,
 	PreparedShadowSlice,
@@ -42,8 +35,7 @@ interface ShadowPlanCandidate {
 	readonly cascadeCount: number;
 	readonly size: number;
 	readonly cost: number;
-	readonly config: ShadowConfig;
-	readonly adapterEntry: LegacyShadowPlanEntry;
+	readonly projection: ShadowProjectionConfig;
 }
 
 export interface ShadowPlannerOptions {
@@ -65,12 +57,17 @@ export interface ShadowPlannerOptions {
  * @internal `FrameCoordinator` owns one planner per attached backend.
  */
 export class ShadowPlanner {
-	private readonly _legacyAdapter = new LegacyShadowPlanAdapter();
+	private readonly _projectionStates = new Map<ShadowCastingLight, {
+		definitionRevision: number;
+		signature: string;
+		slices: ShadowProjectionSliceState[];
+	}>();
 	private _revision = 0;
 
 	public plan(options: ShadowPlannerOptions): ShadowFramePlan {
 		const diagnostics: ShadowDiagnostic[] = [];
 		if (!options.enableShadows) {
+			this._projectionStates.clear();
 			return this._publish([], [], diagnostics, false, false);
 		}
 
@@ -79,9 +76,6 @@ export class ShadowPlanner {
 			candidates,
 			options.capabilities,
 			diagnostics
-		);
-		const shadowMaps = this._legacyAdapter.reconcile(
-			selected.map((candidate) => candidate.adapterEntry)
 		);
 		// Particle positions are not available until simulation. Keep the full
 		// scene bounds in that case instead of tightening the projection around
@@ -97,16 +91,11 @@ export class ShadowPlanner {
 			options.sceneBounds
 		: meshCasterBounds;
 		const preparedLights: PreparedShadowLight[] = [];
+		const activeLights = new Set<ShadowCastingLight>();
 
 		for (const candidate of selected) {
-			const renderSet = shadowMaps.get(candidate.light);
-			if (!renderSet) continue;
-			updateShadowMapMetadata(renderSet, candidate.light, casterBounds, {
-				camera: options.camera,
-				requestedConfig: candidate.config,
-				skipCapabilityFallback: true,
-			});
-			const slices = this._prepareSlices(renderSet);
+			activeLights.add(candidate.light);
+			const slices = this._prepareSlices(candidate, casterBounds, options.camera);
 			if (slices.length === 0) {
 				diagnostics.push(this._diagnostic(
 					"invalid-projection",
@@ -120,7 +109,7 @@ export class ShadowPlanner {
 				lightId: candidate.light.id,
 				definition: candidate.snapshot,
 				requestedTechnique: candidate.snapshot.projection.technique,
-				effectiveTechnique: candidate.config.strategy === "csm" ?
+				effectiveTechnique: candidate.projection.technique === "cascaded" ?
 					"cascaded"
 				: "single",
 				requestedCascadeCount: candidate.requestedCascadeCount,
@@ -131,6 +120,8 @@ export class ShadowPlanner {
 				fallbackReason: this._resolveFallbackReason(candidate),
 				filterMode: candidate.filterMode,
 				storage: candidate.storage,
+				pagedSettings: candidate.storage === "paged" ?
+					candidate.snapshot.pagedSettings : undefined,
 				priority: candidate.snapshot.priority,
 				cost: candidate.cost,
 				score: candidate.score,
@@ -160,19 +151,16 @@ export class ShadowPlanner {
 				`Backend ${options.capabilities.backendKey} does not support shadow transmission.`
 			));
 		}
+		this._trimProjectionStates(activeLights);
 		return this._publish(
 			preparedLights,
 			jobs,
 			diagnostics,
 			hasTransmissionWork,
 			true,
-			jobs.length > 0 ? shadowMaps : new Map()
 		);
 	}
 
-	public get legacyAdapter(): LegacyShadowPlanAdapter {
-		return this._legacyAdapter;
-	}
 
 	private _collectCandidates(
 		options: ShadowPlannerOptions,
@@ -241,20 +229,13 @@ export class ShadowPlanner {
 				diagnostics
 			);
 			const size = definition.size;
-			const config = this._resolveConfig(
-				definition,
-				light,
+			const projection = this._resolveProjection(
+				snapshot,
 				size,
 				cascadeCount,
 				snapshot.projection.technique === "cascaded" && !supportsCascaded
 			);
 			const cost = definition.estimateCost(light.type, size, cascadeCount);
-			const adapterEntry = this._createAdapterEntry(
-				light,
-				definition,
-				storage,
-				config
-			);
 			candidates.push({
 				light,
 				definition,
@@ -267,8 +248,7 @@ export class ShadowPlanner {
 				cascadeCount,
 				size,
 				cost,
-				config,
-				adapterEntry,
+				projection,
 			});
 		}
 		candidates.sort((left, right) =>
@@ -381,13 +361,12 @@ export class ShadowPlanner {
 		size: number,
 		cascadeCount: number
 	): ShadowPlanCandidate {
-		const config = this._resolveConfig(
-			candidate.definition,
-			candidate.light,
+		const projection = this._resolveProjection(
+			candidate.snapshot,
 			size,
 			cascadeCount,
 			candidate.snapshot.projection.technique === "cascaded" &&
-				candidate.config.strategy === "single-map"
+				candidate.projection.technique === "single"
 		);
 		return {
 			...candidate,
@@ -398,83 +377,91 @@ export class ShadowPlanner {
 				size,
 				cascadeCount
 			),
-			config,
-			adapterEntry: this._createAdapterEntry(
-				candidate.light,
-				candidate.definition,
-				candidate.storage,
-				config
-			),
+			projection,
 		};
 	}
 
-	private _resolveConfig(
-		definition: ShadowMapBase,
-		light: ShadowCastingLight,
+	private _resolveProjection(
+		snapshot: ShadowDefinitionSnapshot,
 		size: number,
 		cascadeCount: number,
 		forceSingle: boolean
-	): ShadowConfig {
-		const requested = definition.toLegacyShadowConfig(light.type, {
-			size,
-			cascadeCount,
-		});
-		if (!forceSingle) return requested;
+	): ShadowProjectionConfig {
+		const requested = snapshot.projection;
 		return {
-			strategy: "single-map",
-			size,
-			priority: definition.priority,
-			params: requested.params,
+			technique: forceSingle ? "single" : requested.technique,
+			resolution: Math.max(1, Math.floor(size)),
+			cascadeCount: forceSingle ? 1 : Math.max(1, Math.floor(cascadeCount)),
+			lambda: Math.max(0, Math.min(1, requested.lambda ?? 0.65)),
+			maxDistance: requested.maxDistance,
+			blendRatio: Math.max(0, Math.min(1, requested.blendRatio ?? 0.1)),
+			stabilize: requested.stabilize !== false,
 		};
 	}
 
-	private _createAdapterEntry(
-		light: ShadowCastingLight,
-		definition: ShadowMapBase,
-		storage: "atlas" | "paged",
-		config: ShadowConfig
-	): LegacyShadowPlanEntry {
-		return {
-			light,
-			config,
-			options: storage === "paged" ? {
-				storageMode: "paged",
-				paged: resolvePagedLayoutMetadata(definition),
-			} : { storageMode: "atlas" },
-		};
-	}
-
-	private _prepareSlices(renderSet: {
-		readonly slices: readonly {
-			readonly index: number;
-			readonly splitNear: number;
-			readonly splitFar: number;
-			readonly shadowMap: {
-				readonly size: number;
-				readonly viewMatrix: PreparedShadowSlice["view"] | null;
-				readonly projectionMatrix: PreparedShadowSlice["projection"] | null;
-				readonly viewProjectionMatrix: PreparedShadowSlice["viewProjection"] | null;
-				readonly latestLightDir: IVector3;
+	private _prepareSlices(
+		candidate: ShadowPlanCandidate,
+		sceneBounds: SceneBounds,
+		camera: ShadowStrategyCamera,
+	): PreparedShadowSlice[] {
+		const sliceCount = resolveProjectionSliceCount(
+			candidate.light,
+			candidate.projection.cascadeCount,
+			candidate.projection.technique,
+		);
+		const signature = [
+			candidate.snapshot.revision,
+			candidate.projection.technique,
+			candidate.projection.resolution,
+			sliceCount,
+		].join(":");
+		let state = this._projectionStates.get(candidate.light);
+		if (!state || state.signature !== signature) {
+			state = {
+				definitionRevision: candidate.snapshot.revision,
+				signature,
+				slices: Array.from({ length: sliceCount }, (_, index) => ({
+					index,
+					resolution: resolveProjectionSliceResolution(candidate.projection),
+					stabilizedBoundsRadius: null,
+					csmStableCenterLightX: null,
+					csmStableCenterLightY: null,
+					csmStableLightDir: null,
+				})),
 			};
-		}[];
-	}): PreparedShadowSlice[] {
-		const slices: PreparedShadowSlice[] = [];
-		for (const slice of renderSet.slices) {
-			const shadowMap = slice.shadowMap;
-			if (!shadowMap.viewMatrix || !shadowMap.projectionMatrix ||
-				!shadowMap.viewProjectionMatrix) continue;
-			slices.push(Object.freeze({
-				index: slice.index,
-				resolution: shadowMap.size,
-				view: freezeMatrix(shadowMap.viewMatrix.clone()),
-				projection: freezeMatrix(shadowMap.projectionMatrix.clone()),
-				viewProjection: freezeMatrix(shadowMap.viewProjectionMatrix.clone()),
-				lightDirection: Object.freeze({ ...shadowMap.latestLightDir }),
-				splitNear: slice.splitNear,
-				splitFar: slice.splitFar,
-			}));
+			this._projectionStates.set(candidate.light, state);
 		}
-		return slices;
+		const descriptors = candidate.projection.technique === "cascaded" ?
+			CascadedShadowMap.buildSlices({
+				light: candidate.light,
+				slices: state.slices,
+				config: candidate.projection,
+				sceneBounds,
+				camera,
+			}) :
+			SingleShadowMap.buildSlices({
+				light: candidate.light,
+				slices: state.slices,
+				config: candidate.projection,
+				sceneBounds,
+				camera,
+			});
+		return descriptors.map((slice, index) => Object.freeze({
+			index,
+			resolution: state.slices[index]?.resolution ?? candidate.projection.resolution,
+			view: freezeMatrix(slice.view.clone()),
+			projection: freezeMatrix(slice.projection.clone()),
+			viewProjection: freezeMatrix(Matrix4.multiply(slice.projection, slice.view)),
+			lightDirection: Object.freeze({ ...slice.lightDir }),
+			splitNear: slice.splitNear,
+			splitFar: slice.splitFar,
+		}));
+	}
+
+	private _trimProjectionStates(activeLights: ReadonlySet<ShadowCastingLight>): void {
+		for (const light of this._projectionStates.keys()) {
+			if (!activeLights.has(light)) this._projectionStates.delete(light);
+		}
 	}
 
 	private _createJobs(
@@ -508,8 +495,7 @@ export class ShadowPlanner {
 		jobs: ShadowRenderJob[],
 		diagnostics: ShadowDiagnostic[],
 		hasTransmissionWork: boolean,
-		publishLegacy: boolean,
-		shadowMaps = new Map<ShadowCastingLight, ShadowRenderSet>()
+		_publishLegacy: boolean,
 	): ShadowFramePlan {
 		const plan: ShadowFramePlan = Object.freeze({
 			revision: ++this._revision,
@@ -520,12 +506,6 @@ export class ShadowPlanner {
 			hasTransmissionWork,
 			hasPagedWork: jobs.some((job) => job.technique === "paged"),
 		});
-		if (publishLegacy) {
-			this._legacyAdapter.publish(
-				plan,
-				shadowMaps
-			);
-		}
 		return plan;
 	}
 
@@ -560,7 +540,7 @@ export class ShadowPlanner {
 	): "atlas" | "paged" {
 		if (definition.kind !== "paged-shadow") return "atlas";
 		const explicit = capabilities.lightTypes?.[lightTypeKey(light)];
-		const layout = resolvePagedLayoutMetadata(definition);
+		const layout = definition.snapshot().pagedSettings;
 		const pageSizeRange = capabilities.pagedShadowPageSizeRange;
 		const hasCompletePagedSupport =
 			light.type === LightType.Directional &&
@@ -598,7 +578,7 @@ export class ShadowPlanner {
 			candidate.cascadeCount !== candidate.requestedCascadeCount ||
 			candidate.size !== candidate.snapshot.resolution ||
 			(candidate.snapshot.projection.technique === "cascaded" &&
-				candidate.config.strategy === "single-map")
+				candidate.projection.technique === "single")
 		) {
 			return candidate.size !== candidate.snapshot.resolution ?
 				"budget-degraded"
@@ -656,13 +636,19 @@ function lightTypeKey(
 	return "rectArea";
 }
 
-function resolvePagedLayoutMetadata(
-	definition: ShadowMapBase
-): PagedShadowLayoutMetadata | undefined {
-	const resolver = (definition as {
-		toLayoutMetadata?: () => PagedShadowLayoutMetadata;
-	}).toLayoutMetadata;
-	return typeof resolver === "function" ? resolver.call(definition) : undefined;
+function resolveProjectionSliceCount(
+	light: ShadowCastingLight,
+	cascadeCount: number,
+	technique: ShadowProjectionConfig["technique"],
+): number {
+	if (technique !== "cascaded") return 1;
+	return light.type === LightType.Point ? Math.max(1, cascadeCount) * 6 :
+		Math.max(1, cascadeCount);
+}
+
+function resolveProjectionSliceResolution(config: ShadowProjectionConfig): number {
+	return config.technique === "cascaded" ?
+		Math.max(1, Math.floor(config.resolution / 2)) : config.resolution;
 }
 
 function freezeMatrix(matrix: import("../../maths/Matrix4").Matrix4) {

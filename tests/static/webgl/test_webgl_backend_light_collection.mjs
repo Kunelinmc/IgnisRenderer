@@ -1,4 +1,22 @@
-import assert from "node:assert/strict";import { AmbientLight } from "../../../src/lights/AmbientLight.ts";import { DirectionalLight } from "../../../src/lights/DirectionalLight.ts";import { LightProbe } from "../../../src/lights/LightProbe.ts";import { PointLight } from "../../../src/lights/PointLight.ts";import { ReflectionProbe } from "../../../src/lights/ReflectionProbe.ts";import { SpotLight } from "../../../src/lights/SpotLight.ts";import { ShadowMap, createShadowRenderSet } from "../../../src/lights/shadows/ShadowMapping.ts";import { Matrix4 } from "../../../src/maths/Matrix4.ts";import { SH } from "../../../src/maths/SH.ts";import { Texture } from "../../../src/core/Texture.ts";import { Node } from "../../../src/core/Node.ts";import { Scene } from "../../../src/core/Scene.ts";import { collectWebGLLights } from "../../../src/backends/webgl/WebGLLightCollector.ts";import { MAX_DIRECTIONAL_LIGHTS, MAX_POINT_LIGHTS, MAX_SPOT_LIGHTS } from "../../../src/backends/constants.ts";import { createTinyCubeTexture, runWebGLBackendFile } from "../../helpers/webgl-backend.mjs";
+import assert from "node:assert/strict";
+import { AmbientLight } from "../../../src/lights/AmbientLight.ts";
+import { DirectionalLight } from "../../../src/lights/DirectionalLight.ts";
+import { LightProbe } from "../../../src/lights/LightProbe.ts";
+import { PointLight } from "../../../src/lights/PointLight.ts";
+import { ReflectionProbe } from "../../../src/lights/ReflectionProbe.ts";
+import { SpotLight } from "../../../src/lights/SpotLight.ts";
+import { Matrix4 } from "../../../src/maths/Matrix4.ts";
+import { SH } from "../../../src/maths/SH.ts";
+import { Texture } from "../../../src/core/Texture.ts";
+import { Node } from "../../../src/core/Node.ts";
+import { Scene } from "../../../src/core/Scene.ts";
+import { collectWebGLLights } from "../../../src/backends/webgl/WebGLLightCollector.ts";
+import {
+	MAX_DIRECTIONAL_LIGHTS,
+	MAX_POINT_LIGHTS,
+	MAX_SPOT_LIGHTS,
+} from "../../../src/backends/constants.ts";
+import { createTinyCubeTexture, runWebGLBackendFile } from "../../helpers/webgl-backend.mjs";
 
 function testLightCollectorLimitsAndWarnings() {
 	const warnings = [];
@@ -38,23 +56,17 @@ function testLightProbeAmbientAndReflectionProbeSpecularCollection() {
 		height: 2,
 		colorSpace: "HDR",
 	});
-	probeMap.mipmaps = [
-		new Float32Array(4 * 2 * 4),
-		new Float32Array(2 * 1 * 4),
-	];
+	probeMap.mipmaps = [new Float32Array(4 * 2 * 4), new Float32Array(2 * 1 * 4)];
 	const lightProbe = new LightProbe({ sh });
 	const reflectionProbe = new ReflectionProbe({
 		prefilteredMap: probeMap,
 		shape: "box",
 	});
 
-	const withoutSH = collectWebGLLights(
-		[lightProbe, reflectionProbe],
-		{
-			enableLighting: true,
-			warn,
-		}
-	);
+	const withoutSH = collectWebGLLights([lightProbe, reflectionProbe], {
+		enableLighting: true,
+		warn,
+	});
 	assert.ok(withoutSH.ambientColor[0] > 0);
 	assert.ok(withoutSH.ambientColor[1] > 0);
 	assert.ok(withoutSH.ambientColor[2] > 0);
@@ -62,20 +74,15 @@ function testLightProbeAmbientAndReflectionProbeSpecularCollection() {
 	assert.equal(withoutSH.reflectionProbeCount, 1);
 	assert.equal(withoutSH.reflectionProbes.length, 1);
 	assert.equal(
-		warnings.some(
-			(warning) => warning.key === "webgl-light-unsupported-lightProbe"
-		),
-		false
+		warnings.some((warning) => warning.key === "webgl-light-unsupported-lightProbe"),
+		false,
 	);
 
-	const withSH = collectWebGLLights(
-		[lightProbe, reflectionProbe],
-		{
-			enableLighting: true,
-			warn,
-			enableSH: true,
-		}
-	);
+	const withSH = collectWebGLLights([lightProbe, reflectionProbe], {
+		enableLighting: true,
+		warn,
+		enableSH: true,
+	});
 	assert.equal(withSH.ambientColor[0], 0);
 	assert.equal(withSH.ambientColor[1], 0);
 	assert.equal(withSH.ambientColor[2], 0);
@@ -96,15 +103,12 @@ function testLightCollectorCollectsLocalizedLightProbes() {
 	localProbe.updateWorldMatrix();
 	localProbe.markRuntimeDirty();
 
-	const state = collectWebGLLights(
-		[globalProbe, localProbe],
-		{
-			enableLighting: true,
-			warn,
-			enableSH: true,
-			cameraWorldPosition: { x: 0, y: 0, z: 0 },
-		}
-	);
+	const state = collectWebGLLights([globalProbe, localProbe], {
+		enableLighting: true,
+		warn,
+		enableSH: true,
+		cameraWorldPosition: { x: 0, y: 0, z: 0 },
+	});
 	assert.equal(state.localLightProbeCount, 1);
 	assert.equal(state.localLightProbes.length, 1);
 	assert.equal(state.localLightProbes[0].priority, 7);
@@ -122,14 +126,11 @@ function testLightCollectorSupportsCubeTextureEnvironmentMaps() {
 		shape: "sphere",
 	});
 
-	const probeState = collectWebGLLights(
-		[reflectionProbe],
-		{
-			enableLighting: true,
-			warn,
-			environmentTexture: cubeEnvironment,
-		}
-	);
+	const probeState = collectWebGLLights([reflectionProbe], {
+		enableLighting: true,
+		warn,
+		environmentTexture: cubeEnvironment,
+	});
 	assert.ok(probeState.envSpecularMap);
 	assert.notEqual(probeState.envSpecularMap, cubeProbeMap);
 	assert.equal(probeState.envSpecularFallbackMap, null);
@@ -137,14 +138,11 @@ function testLightCollectorSupportsCubeTextureEnvironmentMaps() {
 	assert.equal(probeState.envSpecularMap.height, 2);
 	assert.equal(probeState.reflectionProbeCount, 1);
 
-	const environmentState = collectWebGLLights(
-		[],
-		{
-			enableLighting: true,
-			warn,
-			environmentTexture: cubeEnvironment,
-		}
-	);
+	const environmentState = collectWebGLLights([], {
+		enableLighting: true,
+		warn,
+		environmentTexture: cubeEnvironment,
+	});
 	assert.ok(environmentState.envSpecularMap);
 	assert.notEqual(environmentState.envSpecularMap, cubeEnvironment);
 	assert.equal(environmentState.envSpecularFallbackMap, null);
@@ -198,42 +196,30 @@ function testLightCollectorDoesNotExposeEnvironmentSpecularFallbackMap() {
 	const warnings = [];
 	const warn = (key, message) => warnings.push({ key, message });
 	const environment = createTinyCubeTexture(2, 0.5);
-	const state = collectWebGLLights(
-		[],
-		{
-			enableLighting: true,
-			warn,
-			environmentTexture: environment,
-		}
-	);
+	const state = collectWebGLLights([], {
+		enableLighting: true,
+		warn,
+		environmentTexture: environment,
+	});
 	assert.ok(state.envSpecularMap);
 	assert.equal(state.envSpecularFallbackMap, null);
 	assert.equal(state.reflectionProbeCount, 0);
 	assert.equal(state.reflectionProbes.length, 0);
 	assert.equal(
 		warnings.some((warning) => warning.key.startsWith("webgl-environment-")),
-		false
+		false,
 	);
 }
 
 function testLightCollectorShadowBias() {
 	const light = new DirectionalLight();
-	const shadowMap = new ShadowMap(1024, {
-		shadowBias: 0.008,
-		shadowSlopeBias: 0.03,
-		shadowTexelBias: 1,
-		shadowMaxBias: 0.05,
+	const shadowPlan = createShadowPlan(light, { size: 1024 });
+	const state = collectWebGLLights([light], {
+		enableLighting: true,
+		warn: () => {},
+		enableShadows: true,
+		shadowPlan,
 	});
-	shadowMap.viewProjectionMatrix = Matrix4.identity();
-	const state = collectWebGLLights(
-		[light],
-		{
-			enableLighting: true,
-			warn: () => {},
-			enableShadows: true,
-			shadowMaps: new Map([[light, shadowMap]]),
-		}
-	);
 	const shadow = state.directionalShadows[0];
 	assert.ok(shadow.enabled);
 	assert.ok(Math.abs(shadow.depthBias - (0.008 + 1 / 1024)) < 1e-6);
@@ -247,26 +233,16 @@ function testLightCollectorShadowBias() {
 
 function testLightCollectorPCSSShadowParams() {
 	const light = new DirectionalLight();
-	const shadowMap = new ShadowMap(1024, {
-		shadowBias: 0.008,
-		shadowSlopeBias: 0.03,
-		shadowTexelBias: 1,
-		shadowMaxBias: 0.05,
-		shadowPCF: 1.25,
-		shadowRadius: 5,
-		shadowSamples: 24,
-		shadowSearchSamples: 12,
+	const shadowPlan = createShadowPlan(light, {
+		size: 1024,
+		sampling: { pcfRadius: 1.25, radius: 5, samples: 24, searchSamples: 12 },
 	});
-	shadowMap.viewProjectionMatrix = Matrix4.identity();
-	const state = collectWebGLLights(
-		[light],
-		{
-			enableLighting: true,
-			warn: () => {},
-			enableShadows: true,
-			shadowMaps: new Map([[light, shadowMap]]),
-		}
-	);
+	const state = collectWebGLLights([light], {
+		enableLighting: true,
+		warn: () => {},
+		enableShadows: true,
+		shadowPlan,
+	});
 	const shadow = state.directionalShadows[0];
 	assert.equal(shadow.pcfRadius, 1.25);
 	assert.equal(shadow.pcssEnabled, true);
@@ -276,45 +252,27 @@ function testLightCollectorPCSSShadowParams() {
 }
 
 function testLightCollectorDirectionalCSMShadowData() {
-	const scene = new Scene();
 	const light = new DirectionalLight();
-	scene.add(light);
-	scene.shadows.bind(
-		light,
-		scene.shadows.createCascaded({
-			size: 1024,
-			blendRatio: 0.2,
-			cascadeCounts: {
-				directional: 4,
-			},
-		})
-	);
-	const shadowConfig = scene.shadows.getLegacyShadowConfig(light);
-	assert.ok(shadowConfig);
-	const renderSet = createShadowRenderSet(shadowConfig);
-	for (let index = 0; index < renderSet.slices.length; index++) {
-		const slice = renderSet.slices[index];
-		slice.shadowMap.viewProjectionMatrix = Matrix4.identity();
-		slice.splitNear = index * 10;
-		slice.splitFar = (index + 1) * 10;
-	}
+	const shadowPlan = createShadowPlan(light, {
+		size: 512,
+		sliceSize: 256,
+		cascades: 4,
+		blendRatio: 0.2,
+	});
 
-	const state = collectWebGLLights(
-		[light],
-		{
-			enableLighting: true,
-			warn: () => {},
-			enableShadows: true,
-			shadowMaps: new Map([[light, renderSet]]),
-		}
-	);
+	const state = collectWebGLLights([light], {
+		enableLighting: true,
+		warn: () => {},
+		enableShadows: true,
+		shadowPlan,
+	});
 	const shadow = state.directionalShadows[0];
 	assert.equal(shadow.enabled, true);
 	assert.equal(shadow.strategyType, "csm");
 	assert.equal(shadow.cascadeCount, 4);
 	assert.equal(shadow.cascadeBlendRatio, 0.2);
-	assert.equal(shadow.shadowMapBaseSize, 1024);
-	assert.equal(shadow.shadowMapSize, 512);
+	assert.equal(shadow.shadowMapBaseSize, 512);
+	assert.equal(shadow.shadowMapSize, 256);
 	assert.ok(shadow.cascadeViewProjectionMatrices[3]);
 	assert.deepEqual(shadow.cascadeSplits[0], [0, 10, 0, 0]);
 	assert.deepEqual(shadow.cascadeSplits[1], [10, 20, 1, 0]);
@@ -322,15 +280,28 @@ function testLightCollectorDirectionalCSMShadowData() {
 	assert.deepEqual(shadow.cascadeSplits[3], [30, 40, 1, 1]);
 }
 
-await runWebGLBackendFile([
-	testLightCollectorLimitsAndWarnings,
-	testLightProbeAmbientAndReflectionProbeSpecularCollection,
-	testLightCollectorCollectsLocalizedLightProbes,
-	testLightCollectorSupportsCubeTextureEnvironmentMaps,
-	testLightCollectorUsesParentedProbeCaptureOrigin,
-	testLightCollectorUsesProbeCaptureOriginWhenParentedToSceneRoot,
-	testLightCollectorDoesNotExposeEnvironmentSpecularFallbackMap,
-	testLightCollectorShadowBias,
-	testLightCollectorPCSSShadowParams,
-	testLightCollectorDirectionalCSMShadowData,
-], "WebGL light collection tests");
+function createShadowPlan(light, options = {}) {
+	const size = options.size ?? 1024;
+	const sliceSize = options.sliceSize ?? size;
+	const cascades = options.cascades ?? 1;
+	const slices = Array.from({ length: cascades }, (_, index) => ({
+		index, resolution: sliceSize, view: Matrix4.identity(), projection: Matrix4.identity(), viewProjection: Matrix4.identity(), lightDirection: { x: 0, y: -1, z: 0 }, splitNear: index * 10, splitFar: (index + 1) * 10,
+	}));
+	return { revision: 1, jobs: [], diagnostics: [], hasRasterWork: false, hasTransmissionWork: false, hasPagedWork: false, lights: [{ light, lightId: light.id, definition: { bias: { constant: 0.008, slope: 0.03, texel: 1, max: 0.05, normal: 1, normalMin: 0.05 }, sampling: { filterMode: "pcf", pcfRadius: 1, radius: 0, strength: 1, samples: 16, searchSamples: 16 }, projection: { blendRatio: options.blendRatio ?? 0 } }, requestedTechnique: cascades > 1 ? "cascaded" : "single", effectiveTechnique: cascades > 1 ? "cascaded" : "single", requestedCascadeCount: cascades, effectiveCascadeCount: cascades, requestedResolution: size, effectiveResolution: size, sampling: options.sampling ?? { filterMode: "pcf", pcfRadius: 1, radius: 0, strength: 1, samples: 16, searchSamples: 16 }, filterMode: "pcf", storage: "atlas", priority: 0, cost: 1, score: 1, slices }] };
+}
+
+await runWebGLBackendFile(
+	[
+		testLightCollectorLimitsAndWarnings,
+		testLightProbeAmbientAndReflectionProbeSpecularCollection,
+		testLightCollectorCollectsLocalizedLightProbes,
+		testLightCollectorSupportsCubeTextureEnvironmentMaps,
+		testLightCollectorUsesParentedProbeCaptureOrigin,
+		testLightCollectorUsesProbeCaptureOriginWhenParentedToSceneRoot,
+		testLightCollectorDoesNotExposeEnvironmentSpecularFallbackMap,
+		testLightCollectorShadowBias,
+		testLightCollectorPCSSShadowParams,
+		testLightCollectorDirectionalCSMShadowData,
+	],
+	"WebGL light collection tests",
+);

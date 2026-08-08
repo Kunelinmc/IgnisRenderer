@@ -12,7 +12,6 @@ import {
 	MIN_SHADOW_NEAR,
 	SHADOW_NEAR_FAR_GAP,
 } from "../constants";
-import type { ShadowConfig } from "./ShadowMapping";
 import { ShadowMapBase } from "./ShadowMapBase";
 import type {
 	SceneBounds,
@@ -38,15 +37,6 @@ export class SingleShadowMap extends ShadowMapBase {
 
 	constructor(options: ShadowMapBaseOptions = {}) {
 		super(options);
-	}
-
-	public override toLegacyShadowConfig(
-		_lightType: LightType,
-		overrides?: {
-			size?: number;
-		}
-	): ShadowConfig {
-		return this.createSingleMapLegacyConfig(overrides?.size);
 	}
 
 	public static buildSlices(

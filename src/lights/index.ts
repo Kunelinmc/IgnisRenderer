@@ -9,4 +9,4 @@ export * from "./LightProbe";
 export * from "./IrradianceProbeGrid";
 export * from "./ReflectionProbe";
 export * from "./AreaLight";
-export { isShadowCastingLight } from "./shadows/ShadowMapping";
+export { isShadowCastingLight } from "./shadows/isShadowLight";

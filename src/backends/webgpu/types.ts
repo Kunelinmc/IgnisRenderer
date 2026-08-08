@@ -1,6 +1,6 @@
 import type { Matrix4 } from "../../maths/Matrix4";
 import type { IVector3, SHCoefficients } from "../../maths/types";
-import type { getPrimaryShadowMap, ShadowStrategyType } from "../../lights/shadows/ShadowMapping";
+import type { ResolvedShadowStrategy } from "../../lights/runtime/lightingRuntime";
 import type { ClusteredLightingOptions } from "../../pipeline/types";
 import { defineTransientKey } from "../../pipeline/types";
 import type { ResolvedPostProcessState } from "../../postprocess";
@@ -132,7 +132,7 @@ export interface WebGPUVolumetricLightingData {
 
 export interface WebGPUShadowData {
 	enabled: boolean;
-	strategyType: ShadowStrategyType;
+	strategyType: ResolvedShadowStrategy;
 	cascadeCount: number;
 	cascadeBlendRatio: number;
 	cascadeViewProjectionMatrices: Array<Matrix4 | null>;
@@ -159,7 +159,6 @@ export interface WebGPUShadowData {
 	pagedPhysicalAtlasSize: number;
 	pagedPhysicalGridSize: number;
 	pagedPhysicalPageSize: number;
-	shadowMap: ReturnType<typeof getPrimaryShadowMap>;
 }
 
 export interface WebGPULightingState {

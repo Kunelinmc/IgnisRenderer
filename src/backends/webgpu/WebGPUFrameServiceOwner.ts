@@ -59,8 +59,6 @@ import {
 } from "./WebGPUPagedShadowTechnique";
 import { WebGPUShadowRuntime } from "./WebGPUShadowRuntime";
 import type { ShadowCastingLight } from "../../lights";
-import type { ShadowRenderSet } from "../../lights/shadows/ShadowMapping";
-import { resolveLegacyShadowMaps } from "../../pipeline/shadows/LegacyShadowPlanAdapter";
 import { WebGPUTextureRegistry } from "./WebGPUTextureRegistry";
 import type { WarmupPhaseCounters, WarmupPlan } from "../../pipeline/WarmupPlanner";
 import { toShaderCompileError } from "../../pipeline/WarmupPlanner";
@@ -408,7 +406,6 @@ export class WebGPUFrameServiceOwner {
 		const renderWidth = Math.max(1, context.attachments.width || 1);
 		const renderHeight = Math.max(1, context.attachments.height || 1);
 		const temporalHistoryReset = context.incremental?.temporalHistoryReset === true;
-		const shadowMaps = resolveLegacyShadowMaps(context.shadowPlan);
 		const shadowCasterPackets = resolvedOptions.framePackets.shadowCasters.slice();
 		const shadowTransmitterPackets = resolvedOptions.framePackets.shadowTransmitters.slice();
 		const temporalStateMode = resolvedOptions.temporalStateMode ?? "advance";
@@ -428,7 +425,7 @@ export class WebGPUFrameServiceOwner {
 		this._shadowRuntime.preparePaged({
 			context,
 			encoder: null,
-			renderSets: shadowMaps,
+			shadowPlan: context.shadowPlan,
 			shadowCasterPackets,
 			shadowTransmitterPackets,
 		});
@@ -438,7 +435,7 @@ export class WebGPUFrameServiceOwner {
 			features.enableLighting,
 			features.enableSH,
 			features.enableShadows,
-			shadowMaps,
+			context.shadowPlan,
 		);
 		const enableClusteredSurfaceLighting = canPrepareClusteredLighting({
 			scene,
@@ -486,7 +483,7 @@ export class WebGPUFrameServiceOwner {
 		this._shadowRuntime.prepareAtlas(
 			lightingState,
 			this._resolveShadowAtlasTileSize(
-				shadowMaps,
+				context.shadowPlan,
 				features.enableShadows,
 				context.shadowPlan
 			),
@@ -944,7 +941,7 @@ export class WebGPUFrameServiceOwner {
 	}
 
 	private _resolveShadowAtlasTileSize(
-		shadowMaps: ReadonlyMap<ShadowCastingLight, ShadowRenderSet>,
+		shadowPlan: FrameContext["shadowPlan"],
 		enableShadows: boolean,
 		plan: FrameContext["shadowPlan"],
 	): number {
@@ -961,15 +958,13 @@ export class WebGPUFrameServiceOwner {
 				.filter((lightId): lightId is string => typeof lightId === "string")
 		);
 		let tileSize = 0;
-		for (const [light, renderSet] of shadowMaps) {
-			if (!atlasLightIds.has(light.id)) continue;
-			const hasValidSlice = renderSet.slices.some(
-				(slice) => !!slice.shadowMap.viewProjectionMatrix,
-			);
+		for (const prepared of shadowPlan?.lights ?? []) {
+			if (!atlasLightIds.has(prepared.lightId)) continue;
+			const hasValidSlice = prepared.slices.length > 0;
 			if (!hasValidSlice) {
 				continue;
 			}
-			tileSize = Math.max(tileSize, renderSet.size | 0);
+			tileSize = Math.max(tileSize, prepared.effectiveResolution | 0);
 		}
 
 		return Math.max(1, tileSize);

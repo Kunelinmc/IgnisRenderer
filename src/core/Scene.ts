@@ -14,7 +14,7 @@ import {
 	type SpatialIndex3D,
 	type SpatialIndexMode,
 } from "../spatial";
-import { ShadowManager, type ShadowManagerOptions } from "../lights/shadows";
+import { ShadowManager } from "../lights/shadows";
 import {
 	doesRenderDirtyReasonInvalidateSceneBounds,
 	renderDirtyReasonToMask,
@@ -36,9 +36,7 @@ interface SceneBoundsSignature {
 	visible: boolean;
 }
 
-export interface SceneOptions {
-	shadows?: ShadowManagerOptions;
-}
+export interface SceneOptions {}
 
 export interface SceneNodeLifecycleEvent {
 	parent: Node;
@@ -93,7 +91,6 @@ export class Scene {
 		});
 		this.ecs = new ECSWorld();
 		this.shadows = new ShadowManager({
-			...options.shadows,
 			onChange: () => this.invalidate("shadow"),
 		});
 		this.environment = new Environment();

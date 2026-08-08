@@ -1,15 +1,14 @@
 import { LightType } from "..";
-import type { ShadowConfig } from "./ShadowMapping";
 import { ShadowMapBase } from "./ShadowMapBase";
 import type {
 	CascadedShadowMapDefaults,
 	PagedShadowFeedbackMode,
+	PreparedPagedShadowSettings,
 	PagedShadowMapOptions,
 	ShadowBoundLightType,
 	ShadowProjectionSnapshot,
 	ShadowStoragePreference,
 } from "./types";
-import type { PagedShadowLayoutMetadata } from "./ShadowMapping";
 
 const DEFAULT_CASCADE_COUNTS: CascadedShadowMapDefaults = {
 	directional: 4,
@@ -269,6 +268,19 @@ export class PagedShadowMap extends ShadowMapBase {
 		};
 	}
 
+	protected override createPagedSettingsSnapshot(): Readonly<PreparedPagedShadowSettings> {
+		return Object.freeze({
+			virtualResolution: this.virtualResolution,
+			pageSize: this.pageSize,
+			pageGridSize: Math.max(1, Math.floor(this.virtualResolution / this.pageSize)),
+			physicalPageCount: this.physicalPageCount,
+			clipmapLevels: this.clipmapLevels,
+			maxPagesPerFrame: this.maxPagesPerFrame,
+			cacheFrames: this.cacheFrames,
+			feedbackMode: this.feedbackMode,
+		});
+	}
+
 	private _setNumber(
 		key:
 			| "virtualResolution"
@@ -338,46 +350,6 @@ export class PagedShadowMap extends ShadowMapBase {
 		return Math.max(0.01, normalizedPageCount * normalizedPageSize * normalizedPageSize);
 	}
 
-	/**
-	 * Builds the CSM-compatible fallback configuration used by legacy render paths.
-	 *
-	 * @param lightType Light type for the current binding.
-	 * @param overrides Optional budget-selected size or cascade count.
-	 * @returns A CSM shadow config that existing atlas renderers can consume.
-	 */
-	public override toLegacyShadowConfig(
-		lightType: LightType,
-		overrides?: {
-			size?: number;
-			cascadeCount?: number;
-		}
-	): ShadowConfig {
-		const cascadeCount =
-			overrides?.cascadeCount ?? this.resolveCascadeCount(lightType);
-		return this.createCSMLegacyConfig(cascadeCount, {
-			size: overrides?.size,
-			lambda: this.lambda,
-			maxDistance: this.maxDistance,
-			blendRatio: this.blendRatio,
-			stabilize: this.stabilize,
-		});
-	}
-
-	/**
-	 * @internal Shadow scheduling metadata consumed by `ShadowManager`.
-	 */
-	public toLayoutMetadata(): PagedShadowLayoutMetadata {
-		return {
-			virtualResolution: this.virtualResolution,
-			pageSize: this.pageSize,
-			pageGridSize: Math.max(1, Math.floor(this.virtualResolution / this.pageSize)),
-			physicalPageCount: this.physicalPageCount,
-			maxPagesPerFrame: this.maxPagesPerFrame,
-			clipmapLevels: this.clipmapLevels,
-			cacheFrames: this.cacheFrames,
-			feedbackMode: this.feedbackMode,
-		};
-	}
 }
 
 function resolveFinite(value: unknown, fallback: number): number {

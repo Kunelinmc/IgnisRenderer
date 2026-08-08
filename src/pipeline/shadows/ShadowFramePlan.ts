@@ -3,6 +3,7 @@ import type {
 	ShadowDefinitionSnapshot,
 	ShadowFilterMode,
 	ShadowProjectionPreference,
+	PreparedPagedShadowSettings,
 } from "../../lights/shadows";
 import type { Matrix4 } from "../../maths/Matrix4";
 import type { IVector3 } from "../../maths/types";
@@ -51,6 +52,8 @@ export interface PreparedShadowLight {
 	readonly requestedResolution: number;
 	readonly effectiveResolution: number;
 	readonly sampling: ShadowDefinitionSnapshot["sampling"];
+	/** Logical paged configuration; native page-table state remains backend-private. */
+	readonly pagedSettings?: Readonly<PreparedPagedShadowSettings>;
 	readonly fallbackReason?: ShadowDiagnostic["code"];
 	readonly filterMode: ShadowFilterMode;
 	readonly storage: Exclude<ShadowStorageTechnique, "atlas-fallback">;

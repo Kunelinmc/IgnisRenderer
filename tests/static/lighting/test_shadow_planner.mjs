@@ -5,7 +5,6 @@ import { DirectionalLight } from "../../../src/lights/DirectionalLight.ts";
 import { PointLight } from "../../../src/lights/PointLight.ts";
 import { SpotLight } from "../../../src/lights/SpotLight.ts";
 import { ShadowPlanner } from "../../../src/pipeline/shadows/ShadowPlanner.ts";
-import { resolveLegacyShadowMaps } from "../../../src/pipeline/shadows/LegacyShadowPlanAdapter.ts";
 
 function createCamera() {
 	const position = { x: 0, y: 4, z: 16 };
@@ -144,7 +143,7 @@ function testPagedJobsAreExplicitAndCasterGated() {
 	const noCasters = planScene(scene, { intent: createIntent(false) });
 	assert.equal(noCasters.hasRasterWork, false);
 	assert.equal(noCasters.jobs.length, 0);
-	assert.equal(resolveLegacyShadowMaps(noCasters).size, 0);
+	assert.equal(noCasters.lights.length, 1);
 }
 
 function testPagedStorageIsDirectionalOnly() {
@@ -184,7 +183,7 @@ function testSingleCascadeCsmFallbackIsReported() {
 	assert.ok(plan.diagnostics.some((item) => item.code === "projection-fallback"));
 }
 
-function testPlanStaysImmutableWhenLegacyPlacementChanges() {
+function testPlanStaysImmutableAcrossPlanningFrames() {
 	const scene = new Scene();
 	const sun = scene.add(new DirectionalLight());
 	scene.shadows.bind(sun, scene.shadows.createSingle());
@@ -207,17 +206,9 @@ function testPlanStaysImmutableWhenLegacyPlacementChanges() {
 		diagnostics: value.diagnostics,
 	});
 	const before = planHash(plan);
-	const legacy = resolveLegacyShadowMaps(plan);
-	legacy.get(sun).slices[0].atlasRect = {
-		offsetX: 0,
-		offsetY: 0,
-		size: 512,
-		tileSize: 512,
-		localTileX: 0,
-		localTileY: 0,
-		localTileSpan: 1,
-	};
+	const nextPlan = planScene(scene);
 	assert.equal(planHash(plan), before);
+	assert.notEqual(nextPlan, plan);
 	assert.ok(Object.isFrozen(plan));
 	assert.ok(Object.isFrozen(plan.jobs));
 	assert.ok(Object.isFrozen(plan.lights[0].slices[0].view));
@@ -230,7 +221,7 @@ function run() {
 	testPagedJobsAreExplicitAndCasterGated();
 	testPagedStorageIsDirectionalOnly();
 	testSingleCascadeCsmFallbackIsReported();
-	testPlanStaysImmutableWhenLegacyPlacementChanges();
+	testPlanStaysImmutableAcrossPlanningFrames();
 	console.log("Shadow planner tests passed");
 }
 

@@ -11,11 +11,7 @@ import {
 } from "../../shaders";
 import { hasSoftwareTextureData } from "../../shaders/software/textureSampling";
 import { clamp } from "../../maths/Common";
-import {
-	type SceneLight,
-	type ShadowCastingLight,
-} from "../../lights";
-import type { ShadowRenderSet } from "../../lights/shadows/ShadowMapping";
+import type { SceneLight } from "../../lights";
 import type { ProjectedVertex, ProjectedFace } from "../../core/types";
 import {
 	type IVector3,
@@ -91,7 +87,6 @@ export interface RasterizerContext {
 		viewMatrix: Matrix4;
 	};
 	lights: SceneLight[];
-	shadowMaps: Map<ShadowCastingLight, ShadowRenderSet>;
 	sampleShadow?: ShaderContext["sampleShadow"];
 	shAmbientCoeffs: SHCoefficients | null;
 	environmentSpecularTexture?: Texture | null;

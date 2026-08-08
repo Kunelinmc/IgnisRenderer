@@ -694,7 +694,15 @@ fn fsMain(input: VSOut) -> GBufferOutput {
 		resolvedAnisotropyStrength,
 		specular.rgb,
 		select(specular.a, 1.0, isPhong),
-		sheenReflectance.a
+		sheenReflectance.a,
+		select(
+			0.0,
+			1.0,
+			deferredHasFeature(
+				materialWordOld,
+				DEFERRED_MATERIAL_RECEIVE_SHADOWS_BIT
+			)
+		)
 	);
 
 	textureStore(gMaterialExt0Out, coord, materialExt0);
@@ -1143,7 +1151,15 @@ fn applyDecalToGBuffer(
 		resolvedAnisotropyStrength,
 		specular.rgb,
 		select(specular.a, 1.0, isPhong),
-		sheenReflectance.a
+		sheenReflectance.a,
+		select(
+			0.0,
+			1.0,
+			deferredHasFeature(
+				materialWordOld,
+				DEFERRED_MATERIAL_RECEIVE_SHADOWS_BIT
+			)
+		)
 	);
 
 	return makeDecalEvaluation(

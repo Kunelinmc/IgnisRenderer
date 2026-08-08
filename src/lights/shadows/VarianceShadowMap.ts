@@ -1,5 +1,4 @@
 import { LightType } from "..";
-import type { ShadowConfig } from "./ShadowMapping";
 import type { ShadowMapBaseOptions } from "./types";
 import { SingleShadowMap } from "./SingleShadowMap";
 
@@ -124,26 +123,6 @@ export class VarianceShadowMap extends SingleShadowMap {
 		});
 	}
 
-	public override toLegacyShadowConfig(
-		lightType: LightType,
-		overrides?: {
-			size?: number;
-		}
-	): ShadowConfig {
-		const config = super.toLegacyShadowConfig(lightType, overrides);
-		if (config.strategy !== "single-map") {
-			return config;
-		}
-		return {
-			...config,
-			params: {
-				...(config.params ?? {}),
-				shadowMomentBias: this.momentBias,
-				shadowBleedReduction: this.bleedReduction,
-				shadowMinVariance: this.minVariance,
-			},
-		};
-	}
 }
 
 const DEFAULT_VSM_MOMENT_BIAS = 0.0005;

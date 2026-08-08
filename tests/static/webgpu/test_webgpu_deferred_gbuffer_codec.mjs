@@ -7,6 +7,7 @@ import {
 	WEBGPU_DEFERRED_MATERIAL_CLEARCOAT_BIT,
 	WEBGPU_DEFERRED_MATERIAL_IRIDESCENCE_BIT,
 	WEBGPU_DEFERRED_MATERIAL_MODEL_MASK,
+	WEBGPU_DEFERRED_MATERIAL_RECEIVE_SHADOWS_BIT,
 	WEBGPU_DEFERRED_MATERIAL_SHEEN_BIT,
 	WEBGPU_DEFERRED_MATERIAL_SPECULAR_BIT,
 	WEBGPU_DEFERRED_RENDER_LAYER_MASK,
@@ -50,6 +51,7 @@ const featureBits = [
 	WEBGPU_DEFERRED_MATERIAL_IRIDESCENCE_BIT,
 	WEBGPU_DEFERRED_MATERIAL_ANISOTROPY_BIT,
 	WEBGPU_DEFERRED_MATERIAL_SPECULAR_BIT,
+	WEBGPU_DEFERRED_MATERIAL_RECEIVE_SHADOWS_BIT,
 ].reduce((word, bit) => word | bit, 0);
 for (const shadingModel of [0, 1, 2, 3]) {
 	const word = (shadingModel & WEBGPU_DEFERRED_MATERIAL_MODEL_MASK) | featureBits;
@@ -95,6 +97,10 @@ assert.match(codec, /DEFERRED_RENDER_LAYER_MASK: u32 = 0x7ffu/);
 const scene = await ShaderSource.load("webgpu.scene.raw");
 const deferred = await ShaderSource.load("webgpu.deferredLighting.raw");
 const decal = await ShaderSource.load("webgpu.utility.decal.composite");
+assert.match(
+	scene,
+	/resolvedMaterialWord[\s\S]*model\.nodeRenderLayers\.y[\s\S]*DEFERRED_MATERIAL_RECEIVE_SHADOWS_BIT[\s\S]*f32\(resolvedMaterialWord\)/
+);
 for (const source of [scene, deferred, decal.code]) {
 	assert.equal((source.match(/fn encodeDeferredMaterialWord\(/g) ?? []).length, 1);
 	assert.equal((source.match(/fn packDeferredExt3\(/g) ?? []).length, 1);

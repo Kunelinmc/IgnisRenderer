@@ -23,7 +23,6 @@ import {
 	createSoftwareShadowSampler,
 	getSoftwareShadowRuntimeMap,
 } from "./passes/SoftwareShadowPass";
-import { resolveLegacyShadowMaps } from "../../pipeline/shadows/LegacyShadowPlanAdapter";
 
 export const SOFTWARE_PLANAR_REFLECTION_RUNTIME_KEY =
 	defineTransientKey<SoftwarePlanarReflectionRuntime>(
@@ -547,7 +546,7 @@ export class SoftwarePlanarReflectionRuntime {
 		const runtimeMap = getSoftwareShadowRuntimeMap(context.transient);
 		const reflectionCamera = projectionView.camera;
 		const sampleShadow = createSoftwareShadowSampler(
-			resolveLegacyShadowMaps(context.shadowPlan),
+			context.shadowPlan,
 			runtimeMap,
 			{
 				camera: {
@@ -567,7 +566,6 @@ export class SoftwarePlanarReflectionRuntime {
 				viewMatrix: reflectionCamera.viewMatrix,
 			},
 			lights: context.scene.lights,
-			shadowMaps: resolveLegacyShadowMaps(context.shadowPlan),
 			sampleShadow,
 			shAmbientCoeffs: context.shAmbientCoeffs,
 			environmentSpecularTexture:

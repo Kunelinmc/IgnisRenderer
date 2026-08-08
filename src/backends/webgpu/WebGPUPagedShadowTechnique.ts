@@ -1,8 +1,6 @@
 import { LightType, type ShadowCastingLight } from "../../lights";
-import type {
-	PagedShadowLayoutMetadata,
-	ShadowRenderSet,
-} from "../../lights/shadows/ShadowMapping";
+import type { PreparedPagedShadowSettings } from "../../lights/shadows/types";
+import type { PreparedShadowLight, ShadowFramePlan } from "../../pipeline/shadows/ShadowFramePlan";
 import { Matrix4 } from "../../maths/Matrix4";
 import type { IVector3 } from "../../maths/types";
 import type {
@@ -61,7 +59,7 @@ const WEBGPU_MAP_MODE_READ =
 export interface WebGPUPagedShadowFrameRequest {
 	context: FrameContext;
 	encoder: ICommandEncoder | null;
-	renderSets: ReadonlyMap<ShadowCastingLight, ShadowRenderSet>;
+	shadowPlan: ShadowFramePlan;
 	shadowCasterPackets: readonly DrawPacket[];
 	shadowTransmitterPackets: readonly DrawPacket[];
 	feedbackDepthTexture?: IRenderTexture | null;
@@ -132,9 +130,9 @@ export interface WebGPUPagedShadowDebugState {
 	gpuAuthoritative: boolean;
 }
 
-export interface WebGPUPagedShadowRenderSetLayout {
-	renderSet: ShadowRenderSet;
-	metadata: PagedShadowLayoutMetadata;
+export interface WebGPUPagedShadowLayout {
+	prepared: PreparedShadowLight;
+	metadata: Readonly<PreparedPagedShadowSettings>;
 	pageTableBase: number;
 	pageTableCascadeStride: number;
 	cascadeCount: number;
@@ -234,7 +232,7 @@ export class WebGPUPagedShadowTechnique {
 	private _drawParamsData = new Uint32Array(PAGE_DRAW_PARAMS_UINTS);
 	private _feedbackParamsData = new Uint32Array(PAGE_FEEDBACK_PARAMS_UINTS);
 	private _pageTableCopyParamsData = new Uint32Array(4);
-	private _layouts: WebGPUPagedShadowRenderSetLayout[] = [];
+	private _layouts: WebGPUPagedShadowLayout[] = [];
 	private _requestBufferCapacity = 1;
 	private _pageTableBufferLength = 1;
 	private _layoutCapacity = 1;
@@ -282,11 +280,6 @@ export class WebGPUPagedShadowTechnique {
 		const layouts = this._resolvePagedRenderSetLayouts(request);
 		this._layouts = layouts;
 		this._prepareResourceShape(request, layouts);
-		for (const layout of layouts) {
-			layout.metadata.physicalAtlasSize = this._physicalAtlasSize;
-			layout.metadata.physicalGridSize = this._physicalGridSize;
-			layout.metadata.physicalPageSize = this._pageSize;
-		}
 		this._updateGpuFrameInputs(request, layouts);
 	}
 
@@ -665,28 +658,24 @@ export class WebGPUPagedShadowTechnique {
 
 	private _resolvePagedRenderSetLayouts(
 		request: WebGPUPagedShadowFrameRequest
-	): WebGPUPagedShadowRenderSetLayout[] {
-		const layouts: WebGPUPagedShadowRenderSetLayout[] = [];
+	): WebGPUPagedShadowLayout[] {
+		const layouts: WebGPUPagedShadowLayout[] = [];
 		let pageTableCursor = 0;
-		for (const [light, renderSet] of request.renderSets) {
+		for (const prepared of request.shadowPlan?.lights ?? []) {
+			const light = prepared.light;
 			if (
 				light.type !== LightType.Directional ||
-				renderSet.storageMode !== "paged" ||
-				!renderSet.layout.paged
+				prepared.storage !== "paged" ||
+				!prepared.pagedSettings
 			) {
 				continue;
 			}
-			const metadata = renderSet.layout.paged;
+			const metadata = prepared.pagedSettings;
 			const pageGridSize = Math.max(1, metadata.pageGridSize | 0);
-			const cascadeCount = Math.max(1, Math.min(renderSet.slices.length, 4));
+			const cascadeCount = Math.max(1, Math.min(prepared.slices.length, 4));
 			const pageTableCascadeStride = pageGridSize * pageGridSize;
-			metadata.pageTableBase = pageTableCursor;
-			metadata.pageTableCascadeStride = pageTableCascadeStride;
-			metadata.physicalAtlasSize = this._physicalAtlasSize;
-			metadata.physicalGridSize = this._physicalGridSize;
-			metadata.physicalPageSize = metadata.pageSize;
 			layouts.push({
-				renderSet,
+				prepared,
 				metadata,
 				pageTableBase: pageTableCursor,
 				pageTableCascadeStride,
@@ -700,7 +689,7 @@ export class WebGPUPagedShadowTechnique {
 
 	private _prepareResourceShape(
 		request: WebGPUPagedShadowFrameRequest,
-		layouts: readonly WebGPUPagedShadowRenderSetLayout[]
+		layouts: readonly WebGPUPagedShadowLayout[]
 	): void {
 		let pageSize = DEFAULT_FALLBACK_PAGE_SIZE;
 		let physicalPageCount = 1;
@@ -1283,7 +1272,7 @@ export class WebGPUPagedShadowTechnique {
 	}
 
 	private _writePageAddressData(
-		layouts: readonly WebGPUPagedShadowRenderSetLayout[]
+		layouts: readonly WebGPUPagedShadowLayout[]
 	): boolean {
 		const signature = [
 			this._pageTableLength,
@@ -1341,7 +1330,7 @@ export class WebGPUPagedShadowTechnique {
 
 	private _updateGpuFrameInputs(
 		request: WebGPUPagedShadowFrameRequest,
-		layouts: readonly WebGPUPagedShadowRenderSetLayout[]
+		layouts: readonly WebGPUPagedShadowLayout[]
 	): void {
 		const layoutWriteCount = Math.max(
 			PAGE_LAYOUT_UINTS,
@@ -1361,11 +1350,8 @@ export class WebGPUPagedShadowTechnique {
 			this._layoutData[layoutOffset + 5] =
 				layout.metadata.feedbackMode === "screen-feedback" ? 1 : 0;
 			for (let cascadeIndex = 0; cascadeIndex < layout.cascadeCount; cascadeIndex++) {
-				const slice = layout.renderSet.slices[cascadeIndex];
-				const matrix = slice?.shadowMap.viewProjectionMatrix;
-				if (!matrix) {
-					continue;
-				}
+				const matrix = layout.prepared.slices[cascadeIndex]?.viewProjection;
+				if (!matrix) continue;
 				this._setMatrixInFloatArray(
 					matrix,
 					this._cascadeViewProjectionData,
@@ -1445,7 +1431,7 @@ export class WebGPUPagedShadowTechnique {
 			this._frameId <= 1 || layouts.some((layout) =>
 				layout.metadata.feedbackMode !== "screen-feedback"
 			) ? 1 : 0;
-		const maxPagesPerFrame = resolveMaxPagesPerFrame(request.renderSets);
+		const maxPagesPerFrame = resolveMaxPagesPerFrame(request.shadowPlan);
 		this._requestParamsData[0] = this._pageTableLength;
 		this._requestParamsData[1] = casterCount;
 		this._requestParamsData[2] = layouts.length;
@@ -1462,7 +1448,7 @@ export class WebGPUPagedShadowTechnique {
 		this._allocationParamsData[1] = this._requestBufferCapacity;
 		this._allocationParamsData[2] = this._physicalPageCount;
 		this._allocationParamsData[3] = maxPagesPerFrame;
-		this._allocationParamsData[4] = resolveMaxCacheFrames(request.renderSets);
+		this._allocationParamsData[4] = resolveMaxCacheFrames(request.shadowPlan);
 		this._allocationParamsData[5] = this._pageTableLength;
 		this._allocationParamsData[6] = this._projectionsChanged ? 1 : 0;
 		this._allocationParamsData[7] = resolveResidencyScanLimit(
@@ -2021,28 +2007,26 @@ export class WebGPUPagedShadowTechnique {
 
 export function collectWebGPUPagedShadowPageRequests(
 	request: WebGPUPagedShadowFrameRequest,
-	layouts: readonly WebGPUPagedShadowRenderSetLayout[]
+	layouts: readonly WebGPUPagedShadowLayout[]
 ): WebGPUPagedShadowPageRequest[] {
 	const requests = new Map<string, WebGPUPagedShadowPageRequest>();
-	for (const [light, renderSet] of request.renderSets) {
+	for (const prepared of request.shadowPlan?.lights ?? []) {
+		const light = prepared.light;
 		if (light.type !== LightType.Directional) {
 			continue;
 		}
-		const layout = layouts.find((entry) => entry.renderSet === renderSet);
+		const layout = layouts.find((entry) => entry.prepared === prepared);
 		if (!layout) {
 			continue;
 		}
 		for (let cascadeIndex = 0; cascadeIndex < layout.cascadeCount; cascadeIndex++) {
-			const slice = renderSet.slices[cascadeIndex];
-			const viewProjection = slice?.shadowMap.viewProjectionMatrix;
-			if (!viewProjection) {
-				continue;
-			}
+			const viewProjection = prepared.slices[cascadeIndex]?.viewProjection;
+			if (!viewProjection) continue;
 			for (const packet of request.shadowCasterPackets) {
 				addRequestsForPacketBounds(
 					requests,
 					light,
-					renderSet,
+					prepared,
 					layout,
 					cascadeIndex,
 					viewProjection,
@@ -2066,8 +2050,8 @@ export function collectWebGPUPagedShadowPageRequests(
 function addRequestsForPacketBounds(
 	requests: Map<string, WebGPUPagedShadowPageRequest>,
 	light: ShadowCastingLight,
-	renderSet: ShadowRenderSet,
-	layout: WebGPUPagedShadowRenderSetLayout,
+	prepared: PreparedShadowLight,
+	layout: WebGPUPagedShadowLayout,
 	cascadeIndex: number,
 	viewProjection: Matrix4,
 	center: IVector3,
@@ -2089,14 +2073,14 @@ function addRequestsForPacketBounds(
 				cascadeIndex * layout.pageTableCascadeStride +
 				pageY * gridSize +
 				pageX;
-			const key = `${light.id}:${renderSet.configSignature}:${cascadeIndex}:${pageX}:${pageY}`;
+			const key = `${light.id}:${prepared.definition.id}:${cascadeIndex}:${pageX}:${pageY}`;
 			if (requests.has(key)) {
 				continue;
 			}
 			requests.set(key, {
 				key,
 				lightId: light.id,
-				shadowMapId: `${renderSet.configSignature}`,
+				shadowMapId: prepared.definition.id,
 				cascadeIndex,
 				viewProjection,
 				pageX,
@@ -2166,11 +2150,11 @@ function projectSphereToShadowUvBounds(
 }
 
 function resolveMaxPagesPerFrame(
-	renderSets: ReadonlyMap<ShadowCastingLight, ShadowRenderSet>
+	plan: ShadowFramePlan | undefined
 ): number {
 	let maxPages = 1;
-	for (const renderSet of renderSets.values()) {
-		const paged = renderSet.layout.paged;
+	for (const prepared of plan?.lights ?? []) {
+		const paged = prepared.pagedSettings;
 		if (!paged) {
 			continue;
 		}
@@ -2180,11 +2164,11 @@ function resolveMaxPagesPerFrame(
 }
 
 function resolveMaxCacheFrames(
-	renderSets: ReadonlyMap<ShadowCastingLight, ShadowRenderSet>
+	plan: ShadowFramePlan | undefined
 ): number {
 	let cacheFrames = 0;
-	for (const renderSet of renderSets.values()) {
-		const paged = renderSet.layout.paged;
+	for (const prepared of plan?.lights ?? []) {
+		const paged = prepared.pagedSettings;
 		if (!paged) {
 			continue;
 		}

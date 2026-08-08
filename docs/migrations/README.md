@@ -130,11 +130,12 @@ Direct assignment to `enabled`, `size`, `priority`, `bias`, and `sampling`
 remains supported and now invalidates the scene. Prefer `shadow.update({...})`
 when changing multiple settings so the scene is invalidated once.
 
-`ShadowMapRegistry`, `scene.shadows.registerMapType`, and external
-`ShadowMapBase` subclassing are deprecated. Migrate custom kinds to one of the
-built-in definitions before the next declared breaking release. Backend and
-pipeline integrations must consume `ShadowFramePlan` rather than
-`ShadowConfig`, `ShadowRenderSet`, or `Renderer.shadowMaps`.
+`ShadowMapRegistry`, `scene.shadows.registerMapType`, external
+`ShadowMapBase` subclassing, `ShadowConfig`, `ShadowRenderSet`, and
+`Renderer.shadowMaps` are removed. Migrate applications to built-in
+`scene.shadows` definitions; custom backends must consume immutable
+`ShadowFramePlan` directly. There is no compatibility adapter or transition
+window.
 
 ## Related Documents
 

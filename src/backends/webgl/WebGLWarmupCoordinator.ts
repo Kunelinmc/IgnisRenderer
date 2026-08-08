@@ -8,7 +8,6 @@ import {
 	type WarmupPlan,
 } from "../../pipeline/WarmupPlanner";
 import { createWarmupYieldController } from "../../pipeline/WarmupScheduler";
-import { resolveLegacyShadowMaps } from "../../pipeline/shadows/LegacyShadowPlanAdapter";
 import { ShaderSource, type WebGLSceneLightLimits } from "../../shaders/ShaderSource";
 import type { WarmupOptions } from "../IRenderBackend";
 import {
@@ -205,7 +204,7 @@ export class WebGLWarmupCoordinator {
 			{
 				enableLighting: context.features?.enableLighting ?? false,
 				enableShadows: context.features?.enableShadows ?? false,
-				shadowMaps: resolveLegacyShadowMaps(context.shadowPlan),
+				shadowPlan: context.shadowPlan,
 				enableSH: context.features?.enableSH ?? false,
 				environmentTexture:
 					environment?.lightingEnabled ? environment.iblTexture : null,

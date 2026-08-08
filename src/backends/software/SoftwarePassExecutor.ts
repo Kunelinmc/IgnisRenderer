@@ -15,7 +15,6 @@ import {
 	createSoftwareShadowSampler,
 	getSoftwareShadowRuntimeMap,
 } from "./passes/SoftwareShadowPass";
-import { resolveLegacyShadowMaps } from "../../pipeline/shadows/LegacyShadowPlanAdapter";
 
 /** @internal Owns Software-specific passes and per-frame execution resources. */
 export class SoftwarePassExecutor {
@@ -44,7 +43,7 @@ export class SoftwarePassExecutor {
 				getCanvasContext: options.getCanvasContext,
 				getShadowSampler: (context) =>
 					createSoftwareShadowSampler(
-						resolveLegacyShadowMaps(context.shadowPlan),
+						context.shadowPlan,
 						getSoftwareShadowRuntimeMap(context.transient),
 						{ camera: context.viewCamera },
 					),

@@ -14,7 +14,6 @@ import {
 } from "./WebGPUFrameGraphPlanningUtils";
 import type { WebGPUFrameGraphRecordingContext } from "./WebGPUFrameGraphRecordingContext";
 import type { WebGPUFrameSession } from "./WebGPUFrameSession";
-import { resolveLegacyShadowMaps } from "../../../pipeline/shadows/LegacyShadowPlanAdapter";
 
 /** @internal Owns shadow graph-node execution for one WebGPU runtime. */
 export class WebGPUShadowFrameModule implements WebGPUFrameGraphModule {
@@ -70,7 +69,7 @@ export class WebGPUShadowFrameModule implements WebGPUFrameGraphModule {
 		return {
 			context: session.context,
 			encoder: session.encoder,
-			renderSets: resolveLegacyShadowMaps(session.context.shadowPlan),
+			shadowPlan: session.context.shadowPlan,
 			shadowCasterPackets: packets.shadowCasters.slice(),
 			shadowTransmitterPackets: packets.shadowTransmitters.slice(),
 			feedbackDepthTexture: targets?.depth ?? null,
@@ -203,12 +202,10 @@ export class WebGPUShadowFrameModule implements WebGPUFrameGraphModule {
 			input.state.sceneTargetMode === "single"
 		)
 			return [];
-		const hasScreenFeedback = Array.from(
-			resolveLegacyShadowMaps(input.context.shadowPlan).values()
-		).some(
-			(renderSet) =>
-				renderSet.storageMode === "paged" &&
-				renderSet.layout?.paged?.feedbackMode === "screen-feedback",
+		const hasScreenFeedback = input.context.shadowPlan.lights.some(
+			(prepared) =>
+				prepared.storage === "paged" &&
+				prepared.pagedSettings?.feedbackMode === "screen-feedback",
 		);
 		if (!hasScreenFeedback) return [];
 		return [

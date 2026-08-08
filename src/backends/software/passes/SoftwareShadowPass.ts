@@ -5,12 +5,6 @@ import { Vector3 } from "../../../maths/Vector3";
 import type { RGB } from "../../../foundation/Color";
 import { isShadowCastingLight } from "../../../lights";
 import type { ShadowCastingLight } from "../../../lights";
-import {
-	getPrimaryShadowMap,
-	type ShadowMap,
-	type ShadowParams,
-	type ShadowRenderSet,
-} from "../../../lights/shadows/ShadowMapping";
 import type { IVertex, ProjectedVertex } from "../../../core/types";
 import {
 	defineTransientKey,
@@ -18,7 +12,11 @@ import {
 	type FrameContext,
 	type TransientStore,
 } from "../../../pipeline/types";
-import { resolveLegacyShadowMaps } from "../../../pipeline/shadows/LegacyShadowPlanAdapter";
+import type {
+	PreparedShadowLight,
+	PreparedShadowSlice,
+	ShadowFramePlan,
+} from "../../../pipeline/shadows/ShadowFramePlan";
 import {
 	clearParticleShadowVolumeGrid,
 	createParticleShadowVolumeGrid,
@@ -46,9 +44,9 @@ export type SoftwareShadowRuntimeMap = Map<ShadowCastingLight, SoftwareShadowRen
 interface SoftwareShadowSampleContext {
 	worldPoint: IVector3;
 	normal?: IVector3 | null;
-	shadowMap: ShadowMap;
+	shadow: PreparedShadowLight;
+	slice: PreparedShadowSlice;
 	runtimeTarget: SoftwareShadowRenderTarget;
-	params: ShadowParams;
 }
 
 interface SoftwareShadowSamplerCamera {
@@ -157,11 +155,8 @@ export function trimSoftwareShadowRuntimeTargets(
 	targets.length = Math.max(0, sliceCount | 0);
 }
 
-function isWorldPointInsideShadowMap(shadowMap: ShadowMap, worldPoint: IVector3): boolean {
-	if (!shadowMap.viewProjectionMatrix) {
-		return false;
-	}
-	const clip = Matrix4.transformPoint(shadowMap.viewProjectionMatrix, worldPoint);
+function isWorldPointInsideShadowMap(slice: PreparedShadowSlice, worldPoint: IVector3): boolean {
+	const clip = Matrix4.transformPoint(slice.viewProjection, worldPoint);
 	if (clip.w <= 1e-6) {
 		return false;
 	}
@@ -174,9 +169,9 @@ function isWorldPointInsideShadowMap(shadowMap: ShadowMap, worldPoint: IVector3)
 	return uvX >= 0 && uvX <= 1 && uvY >= 0 && uvY <= 1 && ndcZ >= -1 && ndcZ <= 1;
 }
 
-function sampleFromRenderSet(
+function samplePreparedShadow(
 	light: ShadowCastingLight,
-	renderSet: ShadowRenderSet,
+	shadow: PreparedShadowLight,
 	runtimeTargets: SoftwareShadowRenderTarget[] | undefined,
 	worldPoint: IVector3,
 	normal?: IVector3 | null,
@@ -186,31 +181,32 @@ function sampleFromRenderSet(
 		return { r: 1, g: 1, b: 1 };
 	}
 
-	const isCSM = renderSet.effectiveStrategyType === "csm" && renderSet.slices.length > 1;
+	const isCSM = shadow.effectiveTechnique === "cascaded" && shadow.slices.length > 1;
 	if (!isCSM) {
-		const shadowMap = getPrimaryShadowMap(renderSet);
+		const slice = shadow.slices[0];
 		const runtimeTarget = runtimeTargets[0];
-		if (!shadowMap || !runtimeTarget) {
+		if (!slice || !runtimeTarget) {
 			return { r: 1, g: 1, b: 1 };
 		}
-		return sampleSoftwareShadow(shadowMap, runtimeTarget, worldPoint, normal);
+		return sampleSoftwareShadow(shadow, slice, runtimeTarget, worldPoint, normal);
 	}
 
 	if (light.type === "directional") {
 		const selectedIndex = resolveDirectionalCSMSliceIndex(
-			renderSet,
+			shadow,
 			worldPoint,
 			options.camera
 		);
 		if (selectedIndex >= 0) {
-			const selectedSlice = renderSet.slices[selectedIndex];
+			const selectedSlice = shadow.slices[selectedIndex];
 			const selectedRuntimeTarget = runtimeTargets[selectedIndex];
 			if (
 				selectedRuntimeTarget &&
-				selectedSlice?.shadowMap.viewProjectionMatrix
+				selectedSlice
 			) {
 				return sampleSoftwareShadow(
-					selectedSlice.shadowMap,
+					shadow,
+					selectedSlice,
 					selectedRuntimeTarget,
 					worldPoint,
 					normal
@@ -219,44 +215,44 @@ function sampleFromRenderSet(
 		}
 	}
 
-	let fallbackShadowMap: ShadowMap | null = null;
+	let fallbackSlice: PreparedShadowSlice | null = null;
 	let fallbackRuntimeTarget: SoftwareShadowRenderTarget | null = null;
-	for (let index = 0; index < renderSet.slices.length; index++) {
-		const slice = renderSet.slices[index];
+	for (let index = 0; index < shadow.slices.length; index++) {
+		const slice = shadow.slices[index];
 		const runtimeTarget = runtimeTargets[index];
-		if (!runtimeTarget || !slice.shadowMap.viewProjectionMatrix) {
+		if (!runtimeTarget) {
 			continue;
 		}
-		if (!fallbackShadowMap) {
-			fallbackShadowMap = slice.shadowMap;
+		if (!fallbackSlice) {
+			fallbackSlice = slice;
 			fallbackRuntimeTarget = runtimeTarget;
 		}
-		if (isWorldPointInsideShadowMap(slice.shadowMap, worldPoint)) {
-			return sampleSoftwareShadow(slice.shadowMap, runtimeTarget, worldPoint, normal);
+		if (isWorldPointInsideShadowMap(slice, worldPoint)) {
+			return sampleSoftwareShadow(shadow, slice, runtimeTarget, worldPoint, normal);
 		}
 	}
 
-	if (fallbackShadowMap && fallbackRuntimeTarget) {
-		return sampleSoftwareShadow(fallbackShadowMap, fallbackRuntimeTarget, worldPoint, normal);
+	if (fallbackSlice && fallbackRuntimeTarget) {
+		return sampleSoftwareShadow(shadow, fallbackSlice, fallbackRuntimeTarget, worldPoint, normal);
 	}
 
 	return { r: 1, g: 1, b: 1 };
 }
 
 export function createSoftwareShadowSampler(
-	shadowMaps: Map<ShadowCastingLight, ShadowRenderSet>,
+	plan: ShadowFramePlan,
 	runtimeMap: SoftwareShadowRuntimeMap | null,
 	options: SoftwareShadowSamplerOptions = {},
 ): (light: ShadowCastingLight, worldPoint: IVector3, normal?: IVector3 | null) => RGB {
 	return (light: ShadowCastingLight, worldPoint: IVector3, normal?: IVector3 | null): RGB => {
 		if (!runtimeMap) return { r: 1, g: 1, b: 1 };
 
-		const shadowRenderSet = shadowMaps.get(light);
-		if (!shadowRenderSet) return { r: 1, g: 1, b: 1 };
+		const shadow = plan.lights.find((candidate) => candidate.light === light);
+		if (!shadow) return { r: 1, g: 1, b: 1 };
 		const runtimeTargets = runtimeMap.get(light);
-		return sampleFromRenderSet(
+		return samplePreparedShadow(
 			light,
-			shadowRenderSet,
+			shadow,
 			runtimeTargets,
 			worldPoint,
 			normal,
@@ -266,7 +262,7 @@ export function createSoftwareShadowSampler(
 }
 
 function resolveDirectionalCSMSliceIndex(
-	renderSet: ShadowRenderSet,
+	shadow: PreparedShadowLight,
 	worldPoint: IVector3,
 	camera?: SoftwareShadowSamplerCamera | null
 ): number {
@@ -276,11 +272,8 @@ function resolveDirectionalCSMSliceIndex(
 	}
 
 	let fallbackIndex = -1;
-	for (let index = 0; index < renderSet.slices.length; index++) {
-		const slice = renderSet.slices[index];
-		if (!slice.shadowMap.viewProjectionMatrix) {
-			continue;
-		}
+	for (let index = 0; index < shadow.slices.length; index++) {
+		const slice = shadow.slices[index];
 		if (fallbackIndex < 0) {
 			fallbackIndex = index;
 		}
@@ -334,8 +327,9 @@ function getVogelSample(index: number, numSamples: number, theta: number) {
 }
 
 function calculateShadowFactor(ctx: SoftwareShadowSampleContext): RGB {
-	const { worldPoint, normal, shadowMap, runtimeTarget, params } = ctx;
-	const { viewProjectionMatrix, latestLightDir, projectionMatrix } = shadowMap;
+	const { worldPoint, normal, shadow, slice, runtimeTarget } = ctx;
+	const { viewProjection: viewProjectionMatrix, lightDirection: latestLightDir, projection: projectionMatrix } = slice;
+	const { bias: biasSettings, sampling: params } = shadow.definition;
 	const buffer = runtimeTarget.depthBuffer;
 	const transmissionBuffer = runtimeTarget.transmissionBuffer;
 	const size = runtimeTarget.size;
@@ -348,8 +342,8 @@ function calculateShadowFactor(ctx: SoftwareShadowSampleContext): RGB {
 		z: -latestLightDir.z,
 	});
 
-	const normalBias = params.shadowNormalBias ?? 1.0;
-	const normalBiasMin = params.shadowNormalBiasMin ?? 0.05;
+	const normalBias = biasSettings.normal ?? 1.0;
+	const normalBiasMin = biasSettings.normalMin ?? 0.05;
 
 	let offsetPoint = worldPoint;
 	if (normal) {
@@ -395,10 +389,10 @@ function calculateShadowFactor(ctx: SoftwareShadowSampleContext): RGB {
 		return { r: 1.0, g: 1.0, b: 1.0 };
 	}
 
-	const constantBias = params.shadowBias ?? 0.008;
-	const slopeBias = params.shadowSlopeBias ?? 0.03;
-	const texelBias = (params.shadowTexelBias ?? 1.0) * (2.0 / size);
-	const maxBias = params.shadowMaxBias ?? 0.05;
+	const constantBias = biasSettings.constant ?? 0.008;
+	const slopeBias = biasSettings.slope ?? 0.03;
+	const texelBias = (biasSettings.texel ?? 1.0) * (2.0 / size);
+	const maxBias = biasSettings.max ?? 0.05;
 
 	const m = projectionMatrix ? projectionMatrix.elements : null;
 	const isPerspective = m ? Math.abs(m[3][2] + 1.0) < 1e-6 : false;
@@ -419,8 +413,8 @@ function calculateShadowFactor(ctx: SoftwareShadowSampleContext): RGB {
 			)
 		: Math.min(maxBias, constantBias + texelBias);
 
-	const strength = clamp(params.shadowStrength ?? 1.0);
-	const pcfRadiusParams = params.shadowRadius ?? 0;
+	const strength = clamp(params.strength ?? 1.0);
+	const pcfRadiusParams = params.radius ?? 0;
 	const texelSize = 1.0 / size;
 
 	let visibilityR = 0;
@@ -432,8 +426,8 @@ function calculateShadowFactor(ctx: SoftwareShadowSampleContext): RGB {
 		const theta =
 			(worldPoint.x * 12.9898 + worldPoint.y * 78.233 + worldPoint.z * 37.719) %
 			(Math.PI * 2);
-		const numSearchSamples = Math.floor(params.shadowSearchSamples ?? 16);
-		const numSamples = Math.floor(params.shadowSamples ?? 16);
+		const numSearchSamples = Math.floor(params.searchSamples ?? 16);
+		const numSamples = Math.floor(params.samples ?? 16);
 		const maxRadiusUV = pcfRadiusParams * texelSize;
 
 		let numBlockers = 0;
@@ -474,9 +468,12 @@ function calculateShadowFactor(ctx: SoftwareShadowSampleContext): RGB {
 		if (filterRadiusUV < texelSize * 0.1) {
 			return calculateShadowFactor({
 				...ctx,
-				params: {
-					...params,
-					shadowRadius: 0,
+				shadow: {
+					...shadow,
+					definition: {
+						...shadow.definition,
+						sampling: { ...params, radius: 0 },
+					},
 				},
 			});
 		}
@@ -513,8 +510,8 @@ function calculateShadowFactor(ctx: SoftwareShadowSampleContext): RGB {
 		const theta =
 			(worldPoint.x * 12.9898 + worldPoint.y * 78.233 + worldPoint.z * 37.719) %
 			(Math.PI * 2);
-		const pcfRadius = params.shadowPCF ?? 1.5;
-		const numSamples = Math.floor(params.shadowSamples ?? 16);
+		const pcfRadius = params.pcfRadius ?? 1.5;
+		const numSamples = Math.floor(params.samples ?? 16);
 		const radiusUV = pcfRadius * texelSize;
 
 		for (let i = 0; i < numSamples; i++) {
@@ -558,7 +555,8 @@ function calculateShadowFactor(ctx: SoftwareShadowSampleContext): RGB {
 }
 
 export function sampleSoftwareShadow(
-	shadowMap: ShadowMap,
+	shadow: PreparedShadowLight,
+	slice: PreparedShadowSlice,
 	runtimeTarget: SoftwareShadowRenderTarget,
 	worldPoint: IVector3,
 	normal?: IVector3 | null,
@@ -566,13 +564,13 @@ export function sampleSoftwareShadow(
 	const base = calculateShadowFactor({
 		worldPoint,
 		normal,
-		shadowMap,
+		shadow,
+		slice,
 		runtimeTarget,
-		params: shadowMap.params,
 	});
 	const volumeTransmittance = sampleParticleShadowVolumeTransmittance(
 		runtimeTarget.particleVolume,
-		shadowMap,
+		slice.viewProjection,
 		worldPoint
 	);
 	return {
@@ -618,12 +616,12 @@ export class SoftwareShadowPass implements SoftwarePassLike {
 		}
 
 		const frame = context.scene;
-		const shadowMaps = resolveLegacyShadowMaps(context.shadowPlan);
+		const shadowPlan = context.shadowPlan;
 		const shadowLights = this._shadowLightsScratch;
 		shadowLights.length = 0;
-		for (const light of frame.lights) {
-			if (isShadowCastingLight(light)) {
-				shadowLights.push(light);
+		for (const prepared of shadowPlan.lights) {
+			if (isShadowCastingLight(prepared.light)) {
+				shadowLights.push(prepared.light);
 			}
 		}
 		syncSoftwareShadowRuntimeMap(this._runtimeShadowMaps, shadowLights);
@@ -635,27 +633,22 @@ export class SoftwareShadowPass implements SoftwarePassLike {
 		}
 
 		for (const shadowLight of shadowLights) {
-			const shadowRenderSet = shadowMaps.get(shadowLight);
-			if (!shadowRenderSet || shadowRenderSet.slices.length <= 0) {
+			const prepared = shadowPlan.lights.find((candidate) => candidate.light === shadowLight);
+			if (!prepared || prepared.slices.length <= 0) {
 				trimSoftwareShadowRuntimeTargets(this._runtimeShadowMaps, shadowLight, 0);
 				continue;
 			}
 			trimSoftwareShadowRuntimeTargets(
 				this._runtimeShadowMaps,
 				shadowLight,
-				shadowRenderSet.slices.length,
+				prepared.slices.length,
 			);
 
-			for (let sliceIndex = 0; sliceIndex < shadowRenderSet.slices.length; sliceIndex++) {
-				const shadowSlice = shadowRenderSet.slices[sliceIndex];
-				const shadowMap = shadowSlice.shadowMap;
-				const vpMatrix = shadowMap.viewProjectionMatrix;
-				if (!vpMatrix) {
-					continue;
-				}
-
-				const lightDir = shadowMap.latestLightDir;
-				const shadowMapSize = shadowMap.size;
+			for (let sliceIndex = 0; sliceIndex < prepared.slices.length; sliceIndex++) {
+				const shadowSlice = prepared.slices[sliceIndex];
+				const vpMatrix = shadowSlice.viewProjection;
+				const lightDir = shadowSlice.lightDirection;
+				const shadowMapSize = shadowSlice.resolution;
 				const shadowRuntime = ensureSoftwareShadowRenderTarget(
 					this._runtimeShadowMaps,
 					shadowLight,
@@ -709,14 +702,14 @@ export class SoftwareShadowPass implements SoftwarePassLike {
 					}
 				}
 
-				this._injectParticleShadowVolume(context, shadowMap, shadowRuntime);
+				this._injectParticleShadowVolume(context, shadowSlice, shadowRuntime);
 			}
 		}
 	}
 
 	private _injectParticleShadowVolume(
 		context: FrameContext,
-		shadowMap: ShadowMap,
+		shadowSlice: PreparedShadowSlice,
 		shadowRuntime: SoftwareShadowRenderTarget
 	): void {
 		const batches = context.transient.get(PARTICLE_TRANSIENT_BATCHES_KEY);
@@ -726,7 +719,7 @@ export class SoftwareShadowPass implements SoftwarePassLike {
 		for (const batch of batches ?? []) {
 			injectParticleBatchIntoShadowVolume(
 				shadowRuntime.particleVolume,
-				shadowMap,
+				shadowSlice.viewProjection,
 				batch
 			);
 		}

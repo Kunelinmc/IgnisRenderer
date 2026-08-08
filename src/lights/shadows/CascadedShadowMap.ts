@@ -3,7 +3,6 @@ import { Vector3 } from "../../maths/Vector3";
 import type { IVector3 } from "../../maths/types";
 import { LightType, type DirectionalLight, type PointLight, type SpotLight } from "..";
 import { MIN_SHADOW_NEAR, SHADOW_NEAR_FAR_GAP } from "../constants";
-import type { CascadedShadowConfig, ShadowConfig, ShadowMap } from "./ShadowMapping";
 import { ShadowMapBase } from "./ShadowMapBase";
 import { SingleShadowMap } from "./SingleShadowMap";
 import type {
@@ -14,6 +13,8 @@ import type {
 	ShadowBoundLightType,
 	CascadedShadowMapDefaults,
 	CascadedShadowMapOptions,
+	ShadowProjectionConfig,
+	ShadowProjectionSliceState,
 	ShadowProjectionSnapshot,
 } from "./types";
 
@@ -157,28 +158,10 @@ export class CascadedShadowMap extends ShadowMapBase {
 		}
 	}
 
-	public override toLegacyShadowConfig(
-		lightType: LightType,
-		overrides?: {
-			size?: number;
-			cascadeCount?: number;
-		}
-	): ShadowConfig {
-		const cascadeCount =
-			overrides?.cascadeCount ?? this.getCascadeCountForLightType(lightType);
-		return this.createCSMLegacyConfig(cascadeCount, {
-			size: overrides?.size,
-			lambda: this.lambda,
-			maxDistance: this.maxDistance,
-			blendRatio: this.blendRatio,
-			stabilize: this.stabilize,
-		});
-	}
-
 	public static buildSlices(
 		context: ShadowStrategyBuildContext
 	): ShadowSliceDescriptor[] {
-		const config = context.config as CascadedShadowConfig;
+		const config = context.config;
 		if (context.light.type === LightType.Spot) {
 			return CascadedShadowMap.buildSpotCascadeSlices(
 				context.light as SpotLight,
@@ -231,9 +214,8 @@ export class CascadedShadowMap extends ShadowMapBase {
 			context.light as DirectionalLight
 		);
 		const stabilize = config.stabilize !== false;
-		const shadowMapSize =
-			context.renderSet.slices[0]?.shadowMap.size ??
-			Math.max(1, Math.floor(context.renderSet.size / 2));
+		const shadowMapSize = context.slices[0]?.resolution ??
+			Math.max(1, Math.floor(config.resolution / 2));
 		const cornersBuffer: IVector3[] = new Array(8);
 		const slices: ShadowSliceDescriptor[] = [];
 
@@ -259,7 +241,7 @@ export class CascadedShadowMap extends ShadowMapBase {
 					splitNear,
 					splitFar,
 					context.sceneBounds,
-					context.renderSet.slices[index]?.shadowMap
+					context.slices[index]
 				)
 			);
 		}
@@ -287,7 +269,7 @@ export class CascadedShadowMap extends ShadowMapBase {
 	private static buildSpotCascadeSlices(
 		light: SpotLight,
 		sceneBounds: SceneBounds,
-		config: CascadedShadowConfig,
+		config: ShadowProjectionConfig,
 		aspectRatio?: number
 	): ShadowSliceDescriptor[] {
 		const projectionAspectRatio =
@@ -328,7 +310,7 @@ export class CascadedShadowMap extends ShadowMapBase {
 	private static buildPointCubeCascadeSlices(
 		light: PointLight,
 		sceneBounds: SceneBounds,
-		config: CascadedShadowConfig
+		config: ShadowProjectionConfig
 	): ShadowSliceDescriptor[] {
 		const position = Matrix4.transformPoint(light.worldMatrix, {
 			x: 0,
@@ -570,7 +552,7 @@ export class CascadedShadowMap extends ShadowMapBase {
 		splitNear: number,
 		splitFar: number,
 		sceneBounds?: SceneBounds,
-		sliceShadowMap?: ShadowMap
+		sliceShadowMap?: ShadowProjectionSliceState
 	): ShadowSliceDescriptor {
 		let centerX = 0;
 		let centerY = 0;
@@ -595,6 +577,13 @@ export class CascadedShadowMap extends ShadowMapBase {
 			);
 		}
 		const boundsRadius = Math.max(0.001, Math.sqrt(maxRadiusSquared));
+		const stabilizedSceneBounds = sceneBounds ? {
+			center: sceneBounds.center,
+			radius: CascadedShadowMap.resolveStabilizedBoundsRadius(
+				sliceShadowMap,
+				sceneBounds.radius,
+			),
+		} : undefined;
 		let projectionHalfSpan = boundsRadius;
 		if (stabilize) {
 			projectionHalfSpan = Math.max(
@@ -643,16 +632,16 @@ export class CascadedShadowMap extends ShadowMapBase {
 		}
 		let lightDistance = projectionHalfSpan * 2;
 		if (
-			sceneBounds &&
-			Number.isFinite(sceneBounds.radius) &&
-			sceneBounds.radius > 0
+			stabilizedSceneBounds &&
+			Number.isFinite(stabilizedSceneBounds.radius) &&
+			stabilizedSceneBounds.radius > 0
 		) {
-			const dx = sceneBounds.center.x - centerX;
-			const dy = sceneBounds.center.y - centerY;
-			const dz = sceneBounds.center.z - centerZ;
+			const dx = stabilizedSceneBounds.center.x - centerX;
+			const dy = stabilizedSceneBounds.center.y - centerY;
+			const dz = stabilizedSceneBounds.center.z - centerZ;
 			const upstreamDistance =
 				-(dx * lightDir.x + dy * lightDir.y + dz * lightDir.z) +
-				sceneBounds.radius;
+				stabilizedSceneBounds.radius;
 			if (Number.isFinite(upstreamDistance) && upstreamDistance > 0) {
 				lightDistance = Math.max(
 					lightDistance,
@@ -688,13 +677,22 @@ export class CascadedShadowMap extends ShadowMapBase {
 			maxZ = Math.max(maxZ, lightSpace.z);
 		}
 		if (
-			sceneBounds &&
-			Number.isFinite(sceneBounds.radius) &&
-			sceneBounds.radius > 0
+			stabilizedSceneBounds &&
+			Number.isFinite(stabilizedSceneBounds.radius) &&
+			stabilizedSceneBounds.radius > 0
 		) {
-			const lightSpaceCenter = Matrix4.transformPoint(view, sceneBounds.center);
-			minZ = Math.min(minZ, lightSpaceCenter.z - sceneBounds.radius);
-			maxZ = Math.max(maxZ, lightSpaceCenter.z + sceneBounds.radius);
+			const lightSpaceCenter = Matrix4.transformPoint(
+				view,
+				stabilizedSceneBounds.center,
+			);
+			minZ = Math.min(
+				minZ,
+				lightSpaceCenter.z - stabilizedSceneBounds.radius,
+			);
+			maxZ = Math.max(
+				maxZ,
+				lightSpaceCenter.z + stabilizedSceneBounds.radius,
+			);
 		}
 
 		let spanForPadding = 0;
@@ -741,7 +739,7 @@ export class CascadedShadowMap extends ShadowMapBase {
 		projectionHalfSpan: number,
 		texelSize: number,
 		lightDir: IVector3,
-		shadowMap?: ShadowMap
+		shadowMap?: ShadowProjectionSliceState
 	): {
 		x: number;
 		y: number;
@@ -801,7 +799,7 @@ export class CascadedShadowMap extends ShadowMapBase {
 	}
 
 	private static matchesStabilizedLightDirection(
-		shadowMap: ShadowMap | undefined,
+		shadowMap: ShadowProjectionSliceState | undefined,
 		lightDir: IVector3
 	): boolean {
 		const previous = shadowMap?.csmStableLightDir;
@@ -815,10 +813,35 @@ export class CascadedShadowMap extends ShadowMapBase {
 		);
 	}
 
-	private static resetStabilizedCenterLightSpace(shadowMap: ShadowMap): void {
+	private static resetStabilizedCenterLightSpace(shadowMap: ShadowProjectionSliceState): void {
 		shadowMap.csmStableCenterLightX = null;
 		shadowMap.csmStableCenterLightY = null;
 		shadowMap.csmStableLightDir = null;
+	}
+
+	private static resolveStabilizedBoundsRadius(
+		shadowMap: ShadowProjectionSliceState | undefined,
+		radius: number,
+	): number {
+		const safeRadius = Number.isFinite(radius) ? Math.max(radius, 1e-6) : 1e-6;
+		const previousRadius = shadowMap?.stabilizedBoundsRadius;
+		if (
+			typeof previousRadius !== "number" ||
+			!Number.isFinite(previousRadius) ||
+			previousRadius <= 1e-6
+		) {
+			if (shadowMap) shadowMap.stabilizedBoundsRadius = safeRadius;
+			return safeRadius;
+		}
+		if (safeRadius >= previousRadius) {
+			shadowMap!.stabilizedBoundsRadius = safeRadius;
+			return safeRadius;
+		}
+		const stabilizedRadius = previousRadius +
+			(safeRadius - previousRadius) * 0.12;
+		const clampedRadius = Math.max(safeRadius, stabilizedRadius);
+		shadowMap!.stabilizedBoundsRadius = clampedRadius;
+		return clampedRadius;
 	}
 }
 

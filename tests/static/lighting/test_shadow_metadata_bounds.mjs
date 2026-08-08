@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { Camera } from "../../../src/cameras/Camera.ts";
-import { resolveShadowCasterBounds } from "../../../src/pipeline/ShadowMetadata.ts";
+import { resolveShadowCasterBounds } from "../../../src/pipeline/shadows/ShadowCasterBounds.ts";
 import {
 	mergeParticleShadowBounds,
 	resolveParticleShadowCasterBounds,

@@ -1,17 +1,19 @@
 import type { RGB } from "../../foundation/Color";
-import type {
-	ShadowMap,
-	ShadowRenderSet,
-	ShadowStrategyType,
-} from "../../lights/shadows/ShadowMapping";
+import type { PreparedShadowLight } from "../../pipeline/shadows/ShadowFramePlan";
 import { clamp, sRGBToLinear } from "../../maths/Common";
 import type { Matrix4 } from "../../maths/Matrix4";
 
 type RGBLike = Partial<RGB>;
 
+export type ResolvedShadowStrategy = "single-map" | "csm";
+
+/**
+ * Backend-neutral shadow sampling information derived solely from a prepared
+ * frame plan. Backend allocations are deliberately kept out of this record.
+ */
 export interface ResolvedShadowData {
 	enabled: boolean;
-	strategyType: ShadowStrategyType;
+	strategyType: ResolvedShadowStrategy;
 	cascadeCount: number;
 	cascadeBlendRatio: number;
 	cascadeViewProjectionMatrices: Array<Matrix4 | null>;
@@ -29,20 +31,9 @@ export interface ResolvedShadowData {
 	shadowStrength: number;
 	shadowMapBaseSize: number;
 	shadowMapSize: number;
-	atlasTileSize: number;
 	storageMode: "atlas" | "paged";
-	pagedPageTableBase: number;
-	pagedPageTableCascadeStride: number;
 	pagedPageGridSize: number;
 	pagedPageSize: number;
-	pagedPhysicalAtlasSize: number;
-	pagedPhysicalGridSize: number;
-	pagedPhysicalPageSize: number;
-	shadowMap: ShadowMap | null;
-}
-
-export interface ResolveShadowDataOptions {
-	keepShadowMapWhenDisabled?: boolean;
 }
 
 const LIGHT_PROBE_DC_IRRADIANCE_SCALE = Math.PI * 0.282095;
@@ -85,6 +76,7 @@ export function accumulateLightProbeFallbackAmbientColor(
 		(Math.max(0, resolveFiniteNumber(dc.g, 0) * LIGHT_PROBE_DC_IRRADIANCE_SCALE) /
 			255) *
 		resolvedIntensity;
+
 	ambientColor[2] +=
 		(Math.max(0, resolveFiniteNumber(dc.b, 0) * LIGHT_PROBE_DC_IRRADIANCE_SCALE) /
 			255) *
@@ -93,85 +85,20 @@ export function accumulateLightProbeFallbackAmbientColor(
 
 export function resolveShadowData(
 	enableShadows: boolean,
-	renderSetInput?: ShadowRenderSet | ShadowMap,
-	options: ResolveShadowDataOptions = {}
+	prepared?: PreparedShadowLight | null
 ): ResolvedShadowData {
-	const renderSet =
-		renderSetInput &&
-		typeof renderSetInput === "object" &&
-		Array.isArray((renderSetInput as { slices?: unknown }).slices) ?
-			(renderSetInput as ShadowRenderSet)
-		:	null;
-	const legacyShadowMap =
-		!renderSet &&
-		renderSetInput &&
-		typeof renderSetInput === "object" &&
-		"viewProjectionMatrix" in renderSetInput ?
-			(renderSetInput as ShadowMap)
-		:	null;
-	const primarySlice = renderSet?.slices[0] ?? null;
-	const shadowMap = primarySlice?.shadowMap ?? null;
-	const resolvedShadowMap = shadowMap ?? legacyShadowMap;
-
-	if (!enableShadows || !resolvedShadowMap?.viewProjectionMatrix) {
-		return {
-			enabled: false,
-			strategyType: "single-map",
-			cascadeCount: 1,
-			cascadeBlendRatio: 0,
-			cascadeViewProjectionMatrices: [null, null, null, null],
-			cascadeSplits: [
-				[0, 0, 0, 0],
-				[0, 0, 0, 0],
-				[0, 0, 0, 0],
-				[0, 0, 0, 0],
-			],
-			viewProjectionMatrix: null,
-			depthBias: 0,
-			slopeBias: 0,
-			normalBias: 0,
-			normalBiasMin: 0,
-			pcfRadius: 0,
-			pcssEnabled: false,
-			pcssRadius: 0,
-			shadowSamples: 0,
-			shadowSearchSamples: 0,
-			shadowStrength: 0,
-			shadowMapBaseSize: 0,
-			shadowMapSize: 0,
-			atlasTileSize: 0,
-			storageMode: "atlas",
-			pagedPageTableBase: 0,
-			pagedPageTableCascadeStride: 0,
-			pagedPageGridSize: 0,
-			pagedPageSize: 0,
-			pagedPhysicalAtlasSize: 0,
-			pagedPhysicalGridSize: 0,
-			pagedPhysicalPageSize: 0,
-			shadowMap: options.keepShadowMapWhenDisabled ? resolvedShadowMap : null,
-		};
+	const primarySlice = prepared?.slices[0] ?? null;
+	if (!enableShadows || !prepared || !primarySlice) {
+		return createDisabledShadowData();
 	}
 
-	const size = Math.max(1, resolvedShadowMap.size | 0);
-	const texelBias =
-		(resolvedShadowMap.params.shadowTexelBias ?? 1.0) * (1.0 / size);
-	const maxBias = resolvedShadowMap.params.shadowMaxBias ?? 0.05;
-	const depthBias = Math.min(
-		maxBias,
-		(resolvedShadowMap.params.shadowBias ?? 0.008) + texelBias
-	);
-	const pcfRadius = Math.max(1, resolvedShadowMap.params.shadowPCF ?? 1);
-	const pcssRadius = Math.max(0, resolvedShadowMap.params.shadowRadius ?? 0);
-	const pcssEnabled = pcssRadius > 0;
-	const shadowSamples = Math.max(
-		1,
-		Math.min(64, Math.floor(resolvedShadowMap.params.shadowSamples ?? 16))
-	);
-	const shadowSearchSamples = Math.max(
-		1,
-		Math.min(64, Math.floor(resolvedShadowMap.params.shadowSearchSamples ?? 16))
-	);
-
+	const baseSize = Math.max(1, prepared.effectiveResolution | 0);
+	const sliceSize = Math.max(1, primarySlice.resolution | 0);
+	const bias = prepared.definition.bias;
+	const sampling = prepared.sampling;
+	const texelBias = (bias.texel ?? 1) * (1 / sliceSize);
+	const maxBias = bias.max ?? 0.05;
+	const depthBias = Math.min(maxBias, (bias.constant ?? 0.008) + texelBias);
 	const cascadeViewProjectionMatrices: Array<Matrix4 | null> = [
 		null,
 		null,
@@ -184,76 +111,82 @@ export function resolveShadowData(
 		[0, 0, 0, 0],
 		[0, 0, 0, 0],
 	];
-	if (renderSet) {
-		for (let index = 0; index < Math.min(renderSet.slices.length, 4); index++) {
-			const slice = renderSet.slices[index];
-			cascadeViewProjectionMatrices[index] =
-				slice.shadowMap.viewProjectionMatrix ?? null;
-			const localTileX = index % 2;
-			const localTileY = Math.floor(index / 2);
-			cascadeSplits[index] = [
-				Math.max(0, slice.splitNear),
-				Math.max(0, slice.splitFar),
-				localTileX,
-				localTileY,
-			];
-		}
-	} else {
-		cascadeViewProjectionMatrices[0] = resolvedShadowMap.viewProjectionMatrix;
-		cascadeSplits[0] = [0, 1, 0, 0];
+	for (let index = 0; index < Math.min(prepared.slices.length, 4); index++) {
+		const slice = prepared.slices[index];
+		cascadeViewProjectionMatrices[index] = slice.viewProjection;
+		cascadeSplits[index] = [
+			Math.max(0, slice.splitNear),
+			Math.max(0, slice.splitFar),
+			index % 2,
+			Math.floor(index / 2),
+		];
 	}
 
-	const strategyType = renderSet?.effectiveStrategyType ?? "single-map";
-	const availableCascadeCount = cascadeViewProjectionMatrices.reduce(
-		(count, matrix) => (matrix ? count + 1 : count),
-		0
-	);
-	const cascadeCount =
-		strategyType === "csm" ?
-			Math.max(1, Math.min(4, availableCascadeCount || 1))
-		:	1;
-	const cascadeBlendRatio =
-		strategyType === "csm" &&
-		cascadeCount > 1 &&
-		renderSet &&
-		renderSet.resolvedConfig.strategy === "csm" ?
-			Math.max(0, Math.min(1, renderSet.resolvedConfig.blendRatio ?? 0.1))
-		:	0;
-	const paged = renderSet?.storageMode === "paged" ? renderSet.layout.paged : null;
-
+	const strategyType: ResolvedShadowStrategy =
+		prepared.effectiveTechnique === "cascaded" && prepared.slices.length > 1 ?
+			"csm"
+		: 	"single-map";
+	const cascadeCount = strategyType === "csm" ?
+		Math.max(1, Math.min(4, prepared.slices.length))
+	: 1;
+	const pcssRadius = Math.max(0, sampling.radius ?? 0);
 	return {
 		enabled: true,
 		strategyType,
 		cascadeCount,
-		cascadeBlendRatio,
+		cascadeBlendRatio:
+			strategyType === "csm" ? clamp(prepared.definition.projection.blendRatio ?? 0.1, 0, 1) : 0,
 		cascadeViewProjectionMatrices,
 		cascadeSplits,
-		viewProjectionMatrix: resolvedShadowMap.viewProjectionMatrix,
+		viewProjectionMatrix: primarySlice.viewProjection,
 		depthBias,
-		slopeBias: Math.max(0, resolvedShadowMap.params.shadowSlopeBias ?? 0.03),
-		normalBias: Math.max(0, resolvedShadowMap.params.shadowNormalBias ?? 1.0),
-		normalBiasMin: Math.max(
-			0,
-			resolvedShadowMap.params.shadowNormalBiasMin ?? 0.05
-		),
-		pcfRadius: Math.max(1, pcfRadius),
-		pcssEnabled,
+		slopeBias: Math.max(0, bias.slope ?? 0.03),
+		normalBias: Math.max(0, bias.normal ?? 1),
+		normalBiasMin: Math.max(0, bias.normalMin ?? 0.05),
+		pcfRadius: Math.max(1, sampling.pcfRadius ?? 1),
+		pcssEnabled: pcssRadius > 0,
 		pcssRadius,
-		shadowSamples,
-		shadowSearchSamples,
-		shadowStrength: clamp(resolvedShadowMap.params.shadowStrength ?? 1.0, 0, 1),
-		shadowMapBaseSize: Math.max(1, renderSet?.size ?? resolvedShadowMap.size),
-		shadowMapSize: size,
-		atlasTileSize: 0,
-		storageMode: paged ? "paged" : "atlas",
-		pagedPageTableBase: paged?.pageTableBase ?? 0,
-		pagedPageTableCascadeStride: paged?.pageTableCascadeStride ?? 0,
-		pagedPageGridSize: paged?.pageGridSize ?? 0,
-		pagedPageSize: paged?.pageSize ?? 0,
-		pagedPhysicalAtlasSize: paged?.physicalAtlasSize ?? 0,
-		pagedPhysicalGridSize: paged?.physicalGridSize ?? 0,
-		pagedPhysicalPageSize: paged?.physicalPageSize ?? 0,
-		shadowMap: resolvedShadowMap,
+		shadowSamples: Math.max(1, Math.min(64, Math.floor(sampling.samples ?? 16))),
+		shadowSearchSamples: Math.max(
+			1,
+			Math.min(64, Math.floor(sampling.searchSamples ?? 16))
+		),
+		shadowStrength: clamp(sampling.strength ?? 1, 0, 1),
+		// A CSM atlas tile is the logical base resolution, while each
+		// rasterized slice occupies one quadrant of it. WGSL uses the latter
+		// for texel addressing and filter/bias calculations.
+		shadowMapBaseSize: baseSize,
+		shadowMapSize: sliceSize,
+		storageMode: prepared.storage,
+		pagedPageGridSize: prepared.pagedSettings?.pageGridSize ?? 0,
+		pagedPageSize: prepared.pagedSettings?.pageSize ?? 0,
+	};
+}
+
+function createDisabledShadowData(): ResolvedShadowData {
+	return {
+		enabled: false,
+		strategyType: "single-map",
+		cascadeCount: 1,
+		cascadeBlendRatio: 0,
+		cascadeViewProjectionMatrices: [null, null, null, null],
+		cascadeSplits: [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]],
+		viewProjectionMatrix: null,
+		depthBias: 0,
+		slopeBias: 0,
+		normalBias: 0,
+		normalBiasMin: 0,
+		pcfRadius: 0,
+		pcssEnabled: false,
+		pcssRadius: 0,
+		shadowSamples: 0,
+		shadowSearchSamples: 0,
+		shadowStrength: 0,
+		shadowMapBaseSize: 0,
+		shadowMapSize: 0,
+		storageMode: "atlas",
+		pagedPageGridSize: 0,
+		pagedPageSize: 0,
 	};
 }
 
@@ -262,8 +195,5 @@ function resolveColorChannel(value: unknown): number {
 }
 
 function resolveFiniteNumber(value: unknown, fallback: number): number {
-	if (typeof value !== "number" || !Number.isFinite(value)) {
-		return fallback;
-	}
-	return value;
+	return typeof value === "number" && Number.isFinite(value) ? value : fallback;
 }

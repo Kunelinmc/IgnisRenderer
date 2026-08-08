@@ -1,12 +1,6 @@
 import { IdGenerator } from "../../foundation/IdGenerator";
 import { LightType } from "..";
 import type {
-	CascadedShadowConfig,
-	ShadowConfig,
-	ShadowParams,
-	SingleMapShadowConfig,
-} from "./ShadowMapping";
-import type {
 	ShadowBiasSettings,
 	ShadowBoundLightType,
 	ShadowDefinitionListener,
@@ -14,6 +8,7 @@ import type {
 	ShadowFilterMode,
 	ShadowMapKind,
 	ShadowMapBaseOptions,
+	PreparedPagedShadowSettings,
 	ShadowProjectionSnapshot,
 	ShadowSamplingSettings,
 	ShadowStoragePreference,
@@ -158,6 +153,7 @@ export abstract class ShadowMapBase {
 			sampling: Object.freeze({ ...this.sampling }) as Readonly<
 				Required<ShadowSamplingSettings>
 			>,
+			pagedSettings: this.createPagedSettingsSnapshot(),
 			priority: this.priority,
 			revision: this.revision,
 		});
@@ -173,6 +169,11 @@ export abstract class ShadowMapBase {
 
 	protected createProjectionSnapshot(): ShadowProjectionSnapshot {
 		return { technique: "single" };
+	}
+
+	/** @internal Paged definitions override this logical planner snapshot. */
+	protected createPagedSettingsSnapshot(): Readonly<PreparedPagedShadowSettings> | undefined {
+		return undefined;
 	}
 
 	protected _runDefinitionUpdate(apply: () => void): this {
@@ -248,74 +249,9 @@ export abstract class ShadowMapBase {
 		return perSliceCost * sliceMultiplier;
 	}
 
-	/**
-	 * @internal Shadow scheduling hook used by `ShadowManager`.
-	 *
-	 * Resolves the number of logical shadow cascades this map requests for the
-	 * provided light type. Custom shadow maps should override this when their
-	 * `toLegacyShadowConfig` output depends on multiple cascades.
-	 */
+	/** @internal Resolves the requested logical cascade count for one light. */
 	public resolveCascadeCount(_lightType: LightType): number {
 		return 1;
-	}
-
-	public abstract toLegacyShadowConfig(
-		lightType: LightType,
-		overrides?: {
-			size?: number;
-			cascadeCount?: number;
-		}
-	): ShadowConfig;
-
-	protected resolveShadowParams(): ShadowParams {
-		return {
-			shadowBias: this.bias.constant,
-			shadowSlopeBias: this.bias.slope,
-			shadowNormalBias: this.bias.normal,
-			shadowNormalBiasMin: this.bias.normalMin,
-			shadowTexelBias: this.bias.texel,
-			shadowMaxBias: this.bias.max,
-			shadowPCF: this.sampling.pcfRadius,
-			shadowStrength: this.sampling.strength,
-			shadowRadius: this.sampling.radius,
-			shadowSamples: this.sampling.samples,
-			shadowSearchSamples: this.sampling.searchSamples,
-		};
-	}
-
-	protected createSingleMapLegacyConfig(sizeOverride?: number): SingleMapShadowConfig {
-		const size = Math.max(1, Math.floor(sizeOverride ?? this.size));
-		return {
-			strategy: "single-map",
-			size,
-			priority: this.priority,
-			params: this.resolveShadowParams(),
-		};
-	}
-
-	protected createCSMLegacyConfig(
-		cascadeCount: number,
-		options: {
-			size?: number;
-			lambda?: number;
-			maxDistance?: number;
-			blendRatio?: number;
-			stabilize?: boolean;
-		}
-	): CascadedShadowConfig {
-		const size = Math.max(1, Math.floor(options.size ?? this.size));
-		return {
-			strategy: "csm",
-			size,
-			priority: this.priority,
-			params: this.resolveShadowParams(),
-			cascadeCount: clampCascadeCount(cascadeCount),
-			splitMode: "practical",
-			lambda: toFiniteNumber(options.lambda, 0.65),
-			maxDistance: options.maxDistance,
-			blendRatio: toFiniteNumber(options.blendRatio, 0.1),
-			stabilize: options.stabilize !== false,
-		};
 	}
 }
 
@@ -374,11 +310,4 @@ function toFiniteNumber(value: unknown, fallback: number): number {
 		return fallback;
 	}
 	return value;
-}
-
-function clampCascadeCount(value: number): 1 | 2 | 3 | 4 {
-	if (value <= 1) return 1;
-	if (value <= 2) return 2;
-	if (value >= 4) return 4;
-	return 3;
 }
