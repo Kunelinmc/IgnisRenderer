@@ -159,10 +159,14 @@ This document defines logical post-process declarations, planning, backend execu
 
 #### Software
 
-- The fixed Software context must expose canvas, attachment, shadow-sampling
-  services, and a CPU resource accessor.
+- The fixed Software context must expose frame attachments and a CPU resource
+  accessor. It must not synthesize pass-specific canvas or shadow-sampling
+  services.
 - The Software executor must not switch on `passId` to construct different
   context shapes.
+- The built-in volumetric lighting pass provides a WebGPU implementation only;
+  Software and WebGL runtimes must skip it as a missing implementation and emit
+  `postprocess-implementation-missing-volumetric`.
 - In-place CPU effects must declare color `{ access: "read-write", output:
   "preserve" }`.
 

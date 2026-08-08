@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { AmbientLight } from "../../../src/lights/AmbientLight.ts";
 import { DirectionalLight } from "../../../src/lights/DirectionalLight.ts";
 import { LightProbe } from "../../../src/lights/LightProbe.ts";
-import { evaluateLightContribution } from "../../../src/lights/runtime/lightEvaluator.ts";
+import { evaluateLightContribution } from "../../../src/backends/software/LightEvaluator.ts";
 import { SH } from "../../../src/maths/SH.ts";
 import { BlinnPhongStrategy } from "../../../src/shaders/software/BlinnPhongStrategy.ts";
 import { PBRStrategy } from "../../../src/shaders/software/PBRStrategy.ts";

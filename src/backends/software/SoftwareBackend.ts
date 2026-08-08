@@ -286,7 +286,6 @@ export class SoftwareBackend implements IRenderBackend {
 		return new SoftwarePassExecutor({
 			backend: this,
 			backendOptions: this._options,
-			getCanvasContext: () => this._surface.getCanvasContext(),
 		});
 	}
 

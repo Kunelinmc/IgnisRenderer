@@ -11,10 +11,6 @@ import { SoftwareReflectionPass } from "./passes/SoftwareReflectionPass";
 import { SoftwareShadowPass } from "./passes/SoftwareShadowPass";
 import { DefaultParticleSimulator } from "../../simulation/particles/DefaultParticleSimulator";
 import { Logger } from "../../foundation/Logger";
-import {
-	createSoftwareShadowSampler,
-	getSoftwareShadowRuntimeMap,
-} from "./passes/SoftwareShadowPass";
 
 /** @internal Owns Software-specific passes and per-frame execution resources. */
 export class SoftwarePassExecutor {
@@ -30,7 +26,6 @@ export class SoftwarePassExecutor {
 	public constructor(options: {
 		backend: IRenderBackend;
 		backendOptions: SoftwareBackendOptions;
-		getCanvasContext: () => CanvasRenderingContext2D | null;
 	}) {
 		this._mainPass = new SoftwareMainPass(this._rasterizer, {
 			enableEarlyZPrepass: options.backendOptions.enableEarlyZPrepass,
@@ -39,15 +34,7 @@ export class SoftwarePassExecutor {
 			backendTag: options.backend.profile.id,
 		});
 		this._postProcessRuntime = new BackendPostProcessRuntime({
-			executor: new SoftwarePostProcessExecutor({
-				getCanvasContext: options.getCanvasContext,
-				getShadowSampler: (context) =>
-					createSoftwareShadowSampler(
-						context.shadowPlan,
-						getSoftwareShadowRuntimeMap(context.transient),
-						{ camera: context.viewCamera },
-					),
-			}),
+			executor: new SoftwarePostProcessExecutor(),
 			backend: options.backend,
 			warn: (key, message) =>
 				Logger.warn(`[${key}] ${message}`, {

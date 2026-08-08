@@ -19,8 +19,8 @@ const shaderSources = [
 for (const source of shaderSources) {
 	assert.equal(
 		source.includes("backends/software/LightEvaluator"),
-		false,
-		"Software shader strategies must depend on the lighting runtime layer"
+		true,
+		"Software shader strategies must depend on the Software light evaluator"
 	);
 }
 
@@ -30,7 +30,12 @@ const volumetricSource = read(
 assert.equal(
 	volumetricSource.includes("backends/software/passes/SoftwareShadowPass"),
 	false,
-	"Volumetric lighting must receive shadow sampling through its backend-neutral context"
+	"Volumetric lighting must not depend on the Software shadow pass"
+);
+assert.equal(
+	volumetricSource.includes("SoftwareVolumetricLightingImplementation"),
+	false,
+	"Volumetric lighting must not define a Software implementation"
 );
 
 const publicIndex = read("../../../src/index.ts");

@@ -8,23 +8,12 @@ import type {
 	PostProcessResourceHandle,
 } from "../../postprocess";
 import { createPostProcessResourceAccessor } from "../../postprocess/PostProcessResourceAccessor";
-import type { SoftwareVolumetricLightingContext } from "../../postprocess/passes/VolumetricLightingPass";
-
-export interface SoftwarePostProcessExecutorHost {
-	getCanvasContext(): CanvasRenderingContext2D | null;
-	getShadowSampler(context: FrameContext): SoftwareVolumetricLightingContext["sampleShadow"];
-}
 
 /**
  * Executes logical post-process passes on the software backend.
  */
 export class SoftwarePostProcessExecutor implements IPostProcessExecutor {
 	public readonly backend = "software";
-	private _host: SoftwarePostProcessExecutorHost;
-
-	constructor(host: SoftwarePostProcessExecutorHost) {
-		this._host = host;
-	}
 
 	/**
 	 * Allocates a CPU-backed post-process resource.
@@ -81,10 +70,8 @@ export class SoftwarePostProcessExecutor implements IPostProcessExecutor {
 			const handle = request.gBuffer.channels[semantic]?.handle;
 			return handle?.backend === "software" && "data" in handle ? handle.data : null;
 		};
-		const context: SoftwareVolumetricLightingContext & Record<string, unknown> = {
+		const context: Record<string, unknown> = {
 			attachments: request.frameContext.attachments,
-			canvasContext: this._host.getCanvasContext(),
-			sampleShadow: this._host.getShadowSampler(request.frameContext),
 			resources: createPostProcessResourceAccessor<ArrayBufferView>({
 				passId: request.passId,
 				declaration: request.declaration,

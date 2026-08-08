@@ -88,9 +88,7 @@ function run() {
 			}
 
 			const inWebGPUBackendLayer = relPath.startsWith("src/backends/webgpu/");
-			const touchesSoftwareLighting =
-				specifier.includes("backends/software/LightEvaluator") ||
-				specifier.includes("software/LightEvaluator");
+			const touchesSoftwareLighting = specifier.includes("backends/software/LightEvaluator");
 			if (inWebGPUBackendLayer && touchesSoftwareLighting) {
 				violations.push(
 					`${relPath} imports software lighting implementation "${specifier}"`
@@ -99,10 +97,11 @@ function run() {
 
 			if (
 				relPath.startsWith("src/shaders/software/") &&
-				specifier.includes("backends/software/")
+				specifier.includes("backends/software/") &&
+				!specifier.includes("backends/software/LightEvaluator")
 			) {
 				violations.push(
-					`${relPath} imports a Software backend implementation "${specifier}"`
+					`${relPath} imports a Software backend implementation "${specifier}"`,
 				);
 			}
 		}

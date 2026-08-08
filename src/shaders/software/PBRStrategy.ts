@@ -9,7 +9,7 @@ import {
 	createLightContribution,
 	evaluateLightContribution,
 	type SurfacePoint,
-} from "../../lights/runtime/lightEvaluator";
+} from "../../backends/software/LightEvaluator";
 import {
 	GGX_EPSILON,
 	PBR_AMBIENT_FALLBACK_LINEAR,
