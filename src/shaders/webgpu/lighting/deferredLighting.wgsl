@@ -40,6 +40,7 @@ struct DeferredSurface {
 	anisotropyTangent: vec3<f32>,
 	anisotropyBitangent: vec3<f32>,
 	anisotropyStrength: f32,
+	receiveShadows: bool,
 	pixelPosition: vec2<f32>,
 }
 
@@ -144,6 +145,10 @@ fn loadDeferredSurface(input: DeferredVSOut) -> DeferredSurface {
 		materialWord,
 		DEFERRED_MATERIAL_SPECULAR_BIT
 	);
+	let receiveShadows = deferredHasFeature(
+		materialWord,
+		DEFERRED_MATERIAL_RECEIVE_SHADOWS_BIT
+	);
 	var specular = vec4<f32>(1.0);
 	var coatSheen = vec4<f32>(0.0, 0.04, 0.0, 1.3);
 	var sheenReflectance = vec4<f32>(0.0, 0.0, 0.0, 0.5);
@@ -214,7 +219,41 @@ fn loadDeferredSurface(input: DeferredVSOut) -> DeferredSurface {
 		anisotropyTangent,
 		anisotropyBitangent,
 		decodeDeferredExt3Strength(materialExt3.z),
+		receiveShadows,
 		input.position.xy
+	);
+}
+
+fn sampleDeferredDirectionalShadow(
+	surface: DeferredSurface,
+	lightIndex: u32,
+	lightDirection: vec3<f32>
+) -> vec3<f32> {
+	if (!surface.receiveShadows) {
+		return vec3<f32>(1.0);
+	}
+	return sampleDirectionalShadowVisibility(
+		lightIndex,
+		surface.worldPosition,
+		surface.shadowNormal,
+		lightDirection,
+		surface.linearDepth
+	);
+}
+
+fn sampleDeferredSpotShadow(
+	surface: DeferredSurface,
+	shadowIndex: u32,
+	lightDirection: vec3<f32>
+) -> vec3<f32> {
+	if (!surface.receiveShadows) {
+		return vec3<f32>(1.0);
+	}
+	return sampleSpotShadowVisibility(
+		shadowIndex,
+		surface.worldPosition,
+		surface.shadowNormal,
+		lightDirection
 	);
 }
 
@@ -278,13 +317,7 @@ fn evaluateDeferredPBR(surface: DeferredSurface) -> vec3<f32> {
 			frameLights.directionalLights[i].direction.xyz,
 			vec3<f32>(0.0, 1.0, 0.0)
 		);
-		let shadow = sampleDirectionalShadowVisibility(
-			i,
-			surface.worldPosition,
-			surface.shadowNormal,
-			lightDirection,
-			surface.linearDepth
-		);
+		let shadow = sampleDeferredDirectionalShadow(surface, i, lightDirection);
 		directLight += evaluateDeferredPBRLight(
 			surface,
 			pbr,
@@ -365,10 +398,9 @@ fn evaluateDeferredPBR(surface: DeferredSurface) -> vec3<f32> {
 				let shadowIndex =
 					clusterMetadata.values[clusterRef.lightIndex].shadowIndex;
 				if (clusterRef.shadowed && shadowIndex < 8u) {
-					shadow = sampleSpotShadowVisibility(
+					shadow = sampleDeferredSpotShadow(
+						surface,
 						shadowIndex,
-						surface.worldPosition,
-						surface.shadowNormal,
 						lightDirection
 					);
 				}
@@ -433,12 +465,7 @@ fn evaluateDeferredPBR(surface: DeferredSurface) -> vec3<f32> {
 				frameLights.spotLights[i].colorInner.xyz *
 				pointAttenuation(distanceSq, lightRange) *
 				coneAttenuation;
-			let shadow = sampleSpotShadowVisibility(
-				i,
-				surface.worldPosition,
-				surface.shadowNormal,
-				lightDirection
-			);
+			let shadow = sampleDeferredSpotShadow(surface, i, lightDirection);
 			directLight += evaluateDeferredPBRLight(
 				surface,
 				pbr,
@@ -630,13 +657,7 @@ fn evaluateDeferredPhong(surface: DeferredSurface) -> vec3<f32> {
 		if (nDotL <= 0.0) {
 			continue;
 		}
-		let shadow = sampleDirectionalShadowVisibility(
-			i,
-			surface.worldPosition,
-			surface.shadowNormal,
-			lightDirection,
-			surface.linearDepth
-		);
+		let shadow = sampleDeferredDirectionalShadow(surface, i, lightDirection);
 		direct += evaluateOpaquePhongLight(
 			surface.normal, surface.viewDir, surface.albedo,
 			surface.specularColor, shininess, lightDirection,
@@ -716,10 +737,9 @@ fn evaluateDeferredPhong(surface: DeferredSurface) -> vec3<f32> {
 				let shadowIndex =
 					clusterMetadata.values[clusterRef.lightIndex].shadowIndex;
 				if (clusterRef.shadowed && shadowIndex < 8u) {
-					shadow = sampleSpotShadowVisibility(
+					shadow = sampleDeferredSpotShadow(
+						surface,
 						shadowIndex,
-						surface.worldPosition,
-						surface.shadowNormal,
 						lightDirection
 					);
 				}
@@ -786,12 +806,7 @@ fn evaluateDeferredPhong(surface: DeferredSurface) -> vec3<f32> {
 			if (nDotL <= 0.0) {
 				continue;
 			}
-			let shadow = sampleSpotShadowVisibility(
-				i,
-				surface.worldPosition,
-				surface.shadowNormal,
-				lightDirection
-			);
+			let shadow = sampleDeferredSpotShadow(surface, i, lightDirection);
 			direct += evaluateOpaquePhongLight(
 				surface.normal, surface.viewDir, surface.albedo,
 				surface.specularColor, shininess, lightDirection,

@@ -46,12 +46,7 @@ export function hasWebGPUPagedShadowWork(context: FrameContext): boolean {
 	if (context.backendProfile?.shadow?.supportsPagedShadowRendering !== true) {
 		return false;
 	}
-	const shadowMaps = context.shadowMaps;
-	if (!shadowMaps || typeof shadowMaps.values !== "function") return false;
-	for (const renderSet of shadowMaps.values()) {
-		if (renderSet.storageMode === "paged") return true;
-	}
-	return false;
+	return context.shadowPlan.hasPagedWork;
 }
 
 export function createWebGPUPagedShadowLightingReads(
@@ -86,6 +81,11 @@ export function createWebGPUForwardGraphResources(
 		: WEBGPU_FRAME_GRAPH_RESOURCES.frameDepth;
 	const reads: WebGPUFrameGraphResourceRef[] = [
 		readWebGPUFrameGraphResource("shadow-atlas", "texture-binding", true),
+		readWebGPUFrameGraphResource(
+			"shadow-transmittance-atlas",
+			"texture-binding",
+			true,
+		),
 		...createWebGPUPagedShadowLightingReads(context),
 	];
 	if (loadExistingColor) {

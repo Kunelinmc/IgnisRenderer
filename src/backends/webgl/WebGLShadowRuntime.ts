@@ -1,20 +1,11 @@
 import { Logger } from "../../foundation/Logger";
-import { isShadowCastingLight } from "../../lights";
 import type { ShadowMap } from "../../lights/shadows/ShadowMapping";
 import type { Matrix4 } from "../../maths/Matrix4";
 import {
 	createParticleShadowVolumeGrid,
 	hasParticleShadowCastingBatches,
 	injectParticleBatchIntoShadowVolume,
-	mergeParticleShadowBounds,
-	resolveParticleShadowCasterBounds,
 } from "../../pipeline/ParticleShadowVolume";
-import {
-	resolveShadowCasterBounds,
-	selectCSMDirectionalLights,
-	syncShadowMapRegistry,
-	updateShadowMapMetadata,
-} from "../../pipeline/ShadowMetadata";
 import {
 	PARTICLE_TRANSIENT_BATCHES_KEY,
 	type DrawPacket,
@@ -42,7 +33,6 @@ import {
 	WEBGL_PARTICLE_SHADOW_VOLUME_MAX_SLICES,
 	WEBGL_SHADOW_ATLAS_COLUMNS,
 	WEBGL_SHADOW_ATLAS_ROWS,
-	WEBGL_SHADOW_CAPABILITIES,
 	WEBGL_TEXTURE_UNIT_PARTICLE_SHADOW_VOLUME,
 	WEBGL_TEXTURE_UNIT_SHADOW_TRANSMITTANCE,
 } from "./constants";
@@ -187,12 +177,6 @@ export class WebGLShadowRuntime {
 		this._context = context;
 		this._lightState = null;
 		this._clearPreparedFrameState();
-		try {
-			this._syncMetadata(context);
-		} catch (error) {
-			this.abortFrame();
-			throw error;
-		}
 	}
 
 	/** Builds the reusable plan and allocates predictable shadow targets. */
@@ -324,34 +308,6 @@ export class WebGLShadowRuntime {
 		this._context = null;
 		this._lightState = null;
 		this._phase = "destroyed";
-	}
-
-	private _syncMetadata(context: FrameContext): void {
-		const shadowLights = context.scene.lights.filter(isShadowCastingLight);
-		syncShadowMapRegistry(context.shadowMaps, shadowLights);
-		if (!context.features.enableShadows) return;
-		const bounds = resolveShadowCasterBounds(
-			context.scene.shadowCasterPackets,
-			context.scene.sceneBounds,
-		);
-		const combinedBounds = mergeParticleShadowBounds(
-			bounds,
-			resolveParticleShadowCasterBounds(context.scene.particleSystems),
-		);
-		const selectedCSMLights = selectCSMDirectionalLights(
-			shadowLights,
-			WEBGL_SHADOW_CAPABILITIES.maxCsmDirectionalLights,
-		);
-		for (const light of shadowLights) {
-			const renderSet = context.shadowMaps.get(light);
-			if (!renderSet) continue;
-			updateShadowMapMetadata(renderSet, light, combinedBounds, {
-				camera: context.scene.camera,
-				backendCapabilities: WEBGL_SHADOW_CAPABILITIES,
-				allowCSMDirectionalLights: selectedCSMLights,
-				onWarning: (key, message) => this._warn(key, message),
-			});
-		}
 	}
 
 	private _resetPlan(context: FrameContext): void {

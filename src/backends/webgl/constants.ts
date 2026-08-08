@@ -1,5 +1,3 @@
-import type { ShadowBackendCapabilities } from "../../pipeline/ShadowMetadata";
-
 export const WEBGL_SHADOW_ATLAS_COLUMNS = 4;
 export const WEBGL_SHADOW_ATLAS_ROWS = 3;
 
@@ -49,13 +47,3 @@ export const IDENTITY_MATRIX4_COLUMN_MAJOR = new Float32Array([
 ]);
 
 export const SH_COEFFICIENT_COUNT = 16;
-
-export const WEBGL_SHADOW_CAPABILITIES: ShadowBackendCapabilities = {
-	backendKey: "webgl",
-	supportsSingleMap: true,
-	supportsDirectionalCSM: true,
-	supportsSpotCSM: false,
-	supportsPointCSM: false,
-	maxCsmDirectionalLights: 1,
-	maxDynamicShadowCost: 24,
-};

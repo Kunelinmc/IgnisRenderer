@@ -119,6 +119,23 @@ defined by `deferredGBufferCodec.wgsl`; the deferred resolve read ABI is color
 bindings `0..6`, `gMaterialExt0In` at binding `7`, and `gMaterialExt3In` at
 binding `8`.
 
+## Shadow Definitions and Planning
+
+The built-in `scene.shadows.createSingle`, `createVariance`,
+`createCascaded`, `createPaged`, and `bind` workflows remain supported. Built-in
+shadow objects are definition facades; backend-native textures and residency
+are owned by the attached backend runtime.
+
+Direct assignment to `enabled`, `size`, `priority`, `bias`, and `sampling`
+remains supported and now invalidates the scene. Prefer `shadow.update({...})`
+when changing multiple settings so the scene is invalidated once.
+
+`ShadowMapRegistry`, `scene.shadows.registerMapType`, and external
+`ShadowMapBase` subclassing are deprecated. Migrate custom kinds to one of the
+built-in definitions before the next declared breaking release. Backend and
+pipeline integrations must consume `ShadowFramePlan` rather than
+`ShadowConfig`, `ShadowRenderSet`, or `Renderer.shadowMaps`.
+
 ## Related Documents
 
 - [Renderer guide](../public/renderer.md)

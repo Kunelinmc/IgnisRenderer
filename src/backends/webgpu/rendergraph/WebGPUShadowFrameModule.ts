@@ -1,5 +1,5 @@
 import type { WebGPUShadowRenderProvider } from "../WebGPUResourceContracts";
-import type { WebGPUPagedShadowFrameRequest } from "../WebGPUPagedShadowRuntime";
+import type { WebGPUPagedShadowFrameRequest } from "../WebGPUPagedShadowTechnique";
 
 import type {
 	WebGPUFrameGraphContribution,
@@ -14,6 +14,7 @@ import {
 } from "./WebGPUFrameGraphPlanningUtils";
 import type { WebGPUFrameGraphRecordingContext } from "./WebGPUFrameGraphRecordingContext";
 import type { WebGPUFrameSession } from "./WebGPUFrameSession";
+import { resolveLegacyShadowMaps } from "../../../pipeline/shadows/LegacyShadowPlanAdapter";
 
 /** @internal Owns shadow graph-node execution for one WebGPU runtime. */
 export class WebGPUShadowFrameModule implements WebGPUFrameGraphModule {
@@ -69,7 +70,7 @@ export class WebGPUShadowFrameModule implements WebGPUFrameGraphModule {
 		return {
 			context: session.context,
 			encoder: session.encoder,
-			renderSets: session.context.shadowMaps,
+			renderSets: resolveLegacyShadowMaps(session.context.shadowPlan),
 			shadowCasterPackets: packets.shadowCasters.slice(),
 			shadowTransmitterPackets: packets.shadowTransmitters.slice(),
 			feedbackDepthTexture: targets?.depth ?? null,
@@ -86,11 +87,21 @@ export class WebGPUShadowFrameModule implements WebGPUFrameGraphModule {
 
 	private _createShadowNodes(input: WebGPUFrameModulePlanningInput) {
 		if (input.pass.stage !== "shadow") return [];
-		const nodes = [
-			createWebGPUFrameGraphNode(input.pass, "shadow", "WebGPUShadow", {
-				writes: [writeWebGPUFrameGraphResource("shadow-atlas", "render-attachment")],
-			}),
-		];
+		const nodes = [];
+		const hasAtlasWork = !input.context.shadowPlan || input.context.shadowPlan.jobs.some(
+			(job) => job.technique === "atlas" || job.technique === "atlas-fallback"
+		);
+		if (hasAtlasWork) {
+			nodes.push(createWebGPUFrameGraphNode(input.pass, "shadow", "WebGPUShadow", {
+				writes: [
+					writeWebGPUFrameGraphResource("shadow-atlas", "render-attachment"),
+					writeWebGPUFrameGraphResource(
+						"shadow-transmittance-atlas",
+						"render-attachment",
+					),
+				],
+			}));
+		}
 		if (!hasWebGPUPagedShadowWork(input.context)) return nodes;
 		nodes.push(
 			createWebGPUFrameGraphNode(
@@ -192,7 +203,9 @@ export class WebGPUShadowFrameModule implements WebGPUFrameGraphModule {
 			input.state.sceneTargetMode === "single"
 		)
 			return [];
-		const hasScreenFeedback = Array.from(input.context.shadowMaps.values()).some(
+		const hasScreenFeedback = Array.from(
+			resolveLegacyShadowMaps(input.context.shadowPlan).values()
+		).some(
 			(renderSet) =>
 				renderSet.storageMode === "paged" &&
 				renderSet.layout?.paged?.feedbackMode === "screen-feedback",

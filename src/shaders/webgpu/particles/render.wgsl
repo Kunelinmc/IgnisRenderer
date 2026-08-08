@@ -65,6 +65,10 @@ struct ParticleShadowVolumeBuffer {
 @group(0) @binding(6) var<uniform> fog: FogUniforms;
 @group(0) @binding(7) var<storage, read> particleShadowVolumes:
 	ParticleShadowVolumeBuffer;
+@group(0) @binding(8) var shadowTransmittanceAtlas: texture_2d<f32>;
+@group(0) @binding(11) var pagedShadowPageTable: texture_2d<u32>;
+@group(0) @binding(12) var pagedShadowPhysicalDepth: texture_depth_2d;
+@group(0) @binding(13) var shadowComparisonSampler: sampler_comparison;
 @group(0) @binding(15) var<uniform> frameShadows: FrameShadowUniforms;
 
 @group(1) @binding(0) var particleTexture: texture_2d<f32>;
@@ -116,42 +120,191 @@ fn vsMain(input: ParticleVertexInput) -> ParticleVertexOutput {
 	return output;
 }
 
-fn sampleDirectionalShadowVisibility(worldPosition: vec3<f32>) -> f32 {
-	if (frame.options.z < 0.5) {
-		return 1.0;
+fn resolveParticleDirectionalCascade(shadow: ShadowData, linearDepth: f32) -> u32 {
+	let cascadeCount = u32(clamp(floor(shadow.paramsC.z + 0.5), 1.0, 4.0));
+	if (cascadeCount <= 1u || shadow.paramsC.y < 0.5) {
+		return 0u;
 	}
 
-	let shadow = frameShadows.directionalShadows[0];
-	if (shadow.paramsA.x < 0.5) {
-		return 1.0;
+	var selected = cascadeCount - 1u;
+	for (var i = 0u; i < 4u; i = i + 1u) {
+		if (i >= cascadeCount) {
+			break;
+		}
+		if (linearDepth <= shadow.cascadeSplits[i].y) {
+			selected = i;
+			break;
+		}
+	}
+	return selected;
+}
+
+fn sampleParticlePagedShadow(
+	shadow: ShadowData,
+	uv: vec2<f32>,
+	currentDepth: f32,
+	cascadeIndex: u32
+) -> vec3<f32> {
+	let pageGridSize = max(u32(floor(shadow.paramsE.z + 0.5)), 1u);
+	let pageSize = max(i32(floor(shadow.paramsF.z + 0.5)), 1);
+	let physicalGridSize = max(u32(floor(shadow.paramsF.y + 0.5)), 1u);
+	let pageTableBase = u32(max(floor(shadow.paramsE.y + 0.5), 0.0));
+	let cascadeStride = max(
+		u32(floor(shadow.paramsF.w + 0.5)),
+		pageGridSize * pageGridSize
+	);
+	let pageCoord = vec2<u32>(
+		u32(clamp(floor(uv.x * f32(pageGridSize)), 0.0, f32(pageGridSize - 1u))),
+		u32(clamp(floor(uv.y * f32(pageGridSize)), 0.0, f32(pageGridSize - 1u)))
+	);
+	let pageTableWidth = max(textureDimensions(pagedShadowPageTable).x, 1u);
+	let pageTableIndex = pageTableBase + cascadeIndex * cascadeStride +
+		pageCoord.y * pageGridSize + pageCoord.x;
+	let physicalPageIndex = textureLoad(
+		pagedShadowPageTable,
+		vec2<i32>(
+			i32(pageTableIndex % pageTableWidth),
+			i32(pageTableIndex / pageTableWidth)
+		),
+		0
+	).x;
+	if (
+		physicalPageIndex == 0xffffffffu ||
+		physicalPageIndex >= physicalGridSize * physicalGridSize
+	) {
+		return vec3<f32>(1.0);
 	}
 
-	let lightClip = shadow.viewProjection * vec4<f32>(worldPosition, 1.0);
+	let physicalPageCoord = vec2<i32>(
+		i32(physicalPageIndex % physicalGridSize),
+		i32(physicalPageIndex / physicalGridSize)
+	);
+	let localUv = fract(uv * vec2<f32>(f32(pageGridSize)));
+	let atlasPosition = vec2<f32>(physicalPageCoord * pageSize) +
+		localUv * vec2<f32>(f32(pageSize - 1)) + vec2<f32>(0.5);
+	let dimensions = vec2<f32>(textureDimensions(pagedShadowPhysicalDepth));
+	let visibility = textureSampleCompareLevel(
+		pagedShadowPhysicalDepth,
+		shadowComparisonSampler,
+		atlasPosition / max(dimensions, vec2<f32>(1.0)),
+		currentDepth - max(shadow.paramsA.y, 0.0)
+	);
+	let strength = clamp(shadow.paramsB.y, 0.0, 1.0);
+	return vec3<f32>(1.0 - strength + strength * visibility);
+}
+
+fn sampleParticleDirectionalCascade(
+	index: u32,
+	shadow: ShadowData,
+	worldPosition: vec3<f32>,
+	cascadeIndex: u32
+) -> vec3<f32> {
+	let isCSM = shadow.paramsC.y > 0.5 && shadow.paramsC.z > 1.5;
+	let split = shadow.cascadeSplits[cascadeIndex];
+	var shadowMatrix = shadow.viewProjection;
+	if (isCSM) {
+		shadowMatrix = shadow.cascadeViewProjections[cascadeIndex];
+	}
+	let lightClip = shadowMatrix * vec4<f32>(worldPosition, 1.0);
 	if (lightClip.w <= 1e-6) {
-		return 1.0;
+		return vec3<f32>(1.0);
 	}
 
 	let ndc = lightClip.xyz / lightClip.w;
 	let uv = vec2<f32>(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5);
-	if (any(uv < vec2<f32>(0.0, 0.0)) || any(uv > vec2<f32>(1.0, 1.0))) {
-		return 1.0;
+	let currentDepth = ndc.z * 0.5 + 0.5;
+	if (
+		any(uv < vec2<f32>(0.0)) ||
+		any(uv > vec2<f32>(1.0)) ||
+		currentDepth < 0.0 ||
+		currentDepth > 1.0
+	) {
+		return vec3<f32>(1.0);
 	}
 
-	let dimensions = vec2<f32>(textureDimensions(shadowAtlas));
-	let texel = vec2<i32>(
-		clamp(
-			uv * dimensions,
-			vec2<f32>(0.0, 0.0),
-			dimensions - vec2<f32>(1.0, 1.0)
-		)
+	if (shadow.paramsE.x > 0.5) {
+		return sampleParticlePagedShadow(shadow, uv, currentDepth, cascadeIndex) *
+			sampleParticleShadowVolumeTransmittance(
+				0u,
+				index,
+				cascadeIndex,
+				worldPosition
+			);
+	}
+
+	let requestedSize = max(i32(shadow.paramsB.z + 0.5), 1);
+	let tileSize = max(i32(shadow.paramsB.w + 0.5), requestedSize);
+	let localTileSpan = select(1, 2, isCSM);
+	let subTileSize = max(tileSize / localTileSpan, 1);
+	let shadowSize = max(min(requestedSize, subTileSize), 1);
+	let atlasDimensions = textureDimensions(shadowAtlas);
+	let atlasColumns = max(i32(atlasDimensions.x) / tileSize, 1);
+	let tileOffset = vec2<i32>(
+		i32(index % u32(atlasColumns)) * tileSize,
+		i32(index / u32(atlasColumns)) * tileSize
+	) + vec2<i32>(
+		select(0, i32(clamp(floor(split.z + 0.5), 0.0, 1.0)), isCSM) * subTileSize,
+		select(0, i32(clamp(floor(split.w + 0.5), 0.0, 1.0)), isCSM) * subTileSize
 	);
-	let sampledDepth = textureLoad(shadowAtlas, texel, 0);
-	let depthBias = shadow.paramsA.y;
-	let currentDepth = ndc.z * 0.5 + 0.5;
-	let occluded = (currentDepth - depthBias) > sampledDepth;
+	let texelPosition = uv * vec2<f32>(f32(shadowSize - 1));
+	let atlasPosition = vec2<f32>(tileOffset) + texelPosition + vec2<f32>(0.5);
+	let visibility = textureSampleCompareLevel(
+		shadowAtlas,
+		shadowComparisonSampler,
+		atlasPosition / max(vec2<f32>(atlasDimensions), vec2<f32>(1.0)),
+		currentDepth - max(shadow.paramsA.y, 0.0)
+	);
+	let localCoord = vec2<i32>(round(texelPosition));
+	let transmittance = textureLoad(
+		shadowTransmittanceAtlas,
+		tileOffset + clamp(
+			localCoord,
+			vec2<i32>(0),
+			vec2<i32>(shadowSize - 1)
+		),
+		0
+	).rgb;
 	let strength = clamp(shadow.paramsB.y, 0.0, 1.0);
-	return select(1.0, 1.0 - strength, occluded) *
-		sampleParticleShadowVolumeTransmittance(0u, 0u, 0u, worldPosition);
+	return (vec3<f32>(1.0 - strength) + strength * visibility * transmittance) *
+		sampleParticleShadowVolumeTransmittance(
+			0u,
+			index,
+			cascadeIndex,
+			worldPosition
+		);
+}
+
+fn sampleDirectionalShadowVisibility(worldPosition: vec3<f32>) -> vec3<f32> {
+	if (frame.options.z < 0.5) {
+		return vec3<f32>(1.0);
+	}
+
+	let directionalCount = min(
+		u32(max(frame.lightCounts.x + 0.5, 0.0)),
+		u32(__WEBGPU_MAX_DIRECTIONAL_LIGHTS__)
+	);
+	let linearDepth = dot(
+		frame.cameraPosition.xyz - worldPosition,
+		frame.environmentBasisBackward.xyz
+	);
+	var visibility = vec3<f32>(1.0);
+	for (var index = 0u; index < directionalCount; index = index + 1u) {
+		let shadow = frameShadows.directionalShadows[index];
+		if (shadow.paramsA.x < 0.5) {
+			continue;
+		}
+		let cascadeIndex = resolveParticleDirectionalCascade(shadow, linearDepth);
+		visibility = min(
+			visibility,
+			sampleParticleDirectionalCascade(
+				index,
+				shadow,
+				worldPosition,
+				cascadeIndex
+			)
+		);
+	}
+	return visibility;
 }
 
 fn sampleParticleShadowVolumeTransmittance(

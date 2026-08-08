@@ -5,8 +5,7 @@ import { isMaterialTransparentPass } from "../materials/transparency";
 import { Matrix4 } from "../maths/Matrix4";
 import type { Matrix3Arr } from "../maths/types";
 import type { Scene } from "../core/Scene";
-import type { ShadowCastingLight } from "../lights";
-import type { ShadowRenderSet } from "../lights/shadows/ShadowMapping";
+import { EMPTY_SHADOW_FRAME_PLAN } from "./shadows/ShadowFramePlan";
 import type { IPrimitive } from "../core/types";
 import { DEFAULT_PRIMITIVE_DRAW_TOPOLOGY } from "../core/types";
 import type { Decal } from "../decals";
@@ -21,6 +20,7 @@ import {
 import {
 	DRAW_PACKET_FLAG_REFLECTIVE,
 	DRAW_PACKET_FLAG_SHADOW_CASTER,
+	DRAW_PACKET_FLAG_SHADOW_RECEIVER,
 	DRAW_PACKET_FLAG_SHADOW_TRANSMITTER,
 	DRAW_PACKET_FLAG_TRANSPARENT,
 	type DecalPacket,
@@ -38,7 +38,6 @@ export interface PreparedSceneBuildOptions {
 export interface PreparedSceneBuildSource {
 	readonly scene: Scene;
 	readonly camera: Camera;
-	readonly shadowMaps: Map<ShadowCastingLight, ShadowRenderSet>;
 	readonly hasActiveAnimations: boolean;
 }
 
@@ -81,7 +80,7 @@ export class PreparedSceneBuilder {
 			lights: source.lights,
 			particleSystems: source.particleSystems,
 			hasActiveAnimations: source.hasActiveAnimations,
-			shadowMaps: source.shadowMaps,
+			shadowPlan: source.shadowPlan,
 			decals: source.decalPackets.map((packet) => packet.decal),
 			options,
 		});
@@ -121,7 +120,7 @@ export class PreparedSceneBuilder {
 			lights: source.scene.ecs.findLights(),
 			particleSystems: source.scene.ecs.findParticleSystems(),
 			hasActiveAnimations: source.hasActiveAnimations,
-			shadowMaps: source.shadowMaps,
+			shadowPlan: EMPTY_SHADOW_FRAME_PLAN,
 			decals: source.scene.getDecals(),
 			options,
 		});
@@ -184,7 +183,7 @@ export class PreparedSceneBuilder {
 		lights: PreparedScene["lights"];
 		particleSystems: PreparedScene["particleSystems"];
 		hasActiveAnimations: boolean;
-		shadowMaps: PreparedScene["shadowMaps"];
+		shadowPlan: PreparedScene["shadowPlan"];
 		decals: Decal[];
 		options: PreparedSceneBuildOptions;
 	}): PreparedScene {
@@ -254,7 +253,7 @@ export class PreparedSceneBuilder {
 			camera: input.camera,
 			environment: input.environment,
 			meshInstances: input.meshInstances,
-			shadowMaps: input.shadowMaps,
+			shadowPlan: input.shadowPlan,
 			opaquePackets,
 			transparentPackets,
 			shadowCasterPackets,
@@ -373,6 +372,9 @@ export class PreparedSceneBuilder {
 
 		if (isReflective) {
 			passFlags |= DRAW_PACKET_FLAG_REFLECTIVE;
+		}
+		if (primitive.receiveShadows !== false) {
+			passFlags |= DRAW_PACKET_FLAG_SHADOW_RECEIVER;
 		}
 
 		const worldCenter = Matrix4.transformPoint(

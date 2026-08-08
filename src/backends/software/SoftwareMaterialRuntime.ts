@@ -154,7 +154,8 @@ export class SoftwareMaterialRuntime {
 			reflectionProbes,
 			reflectionProbeFallbackMap,
 			brdfLUT: IBLBRDF.getLUT(),
-			enableShadows: !!context.enableShadows,
+			enableShadows:
+				!!context.enableShadows && face.primitive.receiveShadows !== false,
 			enableSH: !!context.enableSH,
 			surfaceModifier: this._decalSurfaceModifier,
 		};

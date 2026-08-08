@@ -15,6 +15,7 @@ import type { SoftwarePassLike } from "./types";
 import {
 	SOFTWARE_TEMPORAL_RENDER_STATE_KEY,
 } from "../SoftwareTemporalRenderState";
+import { resolveLegacyShadowMaps } from "../../../pipeline/shadows/LegacyShadowPlanAdapter";
 
 interface ProjectedTriangleWorkItem {
 	pts: [ProjectedVertex, ProjectedVertex, ProjectedVertex];
@@ -89,7 +90,7 @@ function resolvePreparedSceneEnvironment(
 function createRasterizerContext(context: FrameContext): RasterizerContext {
 	const runtimeMap = getSoftwareShadowRuntimeMap(context.transient);
 	const sampleShadow = createSoftwareShadowSampler(
-		context.shadowMaps,
+		resolveLegacyShadowMaps(context.shadowPlan),
 		runtimeMap,
 		{ camera: context.viewCamera }
 	);
@@ -107,7 +108,7 @@ function createRasterizerContext(context: FrameContext): RasterizerContext {
 			viewMatrix: context.viewCamera.viewMatrix,
 		},
 		lights: context.scene.lights,
-		shadowMaps: context.shadowMaps,
+		shadowMaps: resolveLegacyShadowMaps(context.shadowPlan),
 		sampleShadow,
 		shAmbientCoeffs: context.shAmbientCoeffs,
 		environmentSpecularTexture:

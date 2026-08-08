@@ -97,6 +97,7 @@ export interface WebGLScenePassHost {
 		viewportHeight: number
 	): void;
 	_bindGlobalUniforms(sceneProgram: WebGLSceneProgram, context: FrameContext): void;
+	getShadowSamplingState(): { readonly enabled: boolean };
 	_setCullMode(material: Material): void;
 	_drawPacket(
 		sceneProgram: WebGLSceneProgram,
@@ -519,6 +520,14 @@ export function drawWebGLPacket(
 	}
 	if (sceneProgram.uniforms.normalMatrix) {
 		gl.uniformMatrix3fv(sceneProgram.uniforms.normalMatrix, false, normalMatrix);
+	}
+	if (sceneProgram.uniforms.enableShadows) {
+		gl.uniform1i(
+			sceneProgram.uniforms.enableShadows,
+			context.features.enableShadows &&
+				host.getShadowSamplingState().enabled &&
+				packet.primitive.receiveShadows !== false ? 1 : 0
+		);
 	}
 	if (sceneProgram.uniforms.prevModel) {
 		const cacheKey = packet.id;

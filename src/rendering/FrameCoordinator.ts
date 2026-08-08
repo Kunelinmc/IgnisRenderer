@@ -3,13 +3,11 @@ import {
 	LightProbe,
 	LightType,
 	ReflectionProbe,
-	type ShadowCastingLight,
 } from "../lights";
 import { Matrix4 } from "../maths/Matrix4";
 import { SH } from "../maths/SH";
 import { Vector3 } from "../maths/Vector3";
 import { sRGBToLinear } from "../maths/Common";
-import type { ShadowRenderSet } from "../lights/shadows/ShadowMapping";
 import { PBR_AMBIENT_FALLBACK_LINEAR } from "../lights/constants";
 import { Scene } from "../core/Scene";
 import { Logger } from "../foundation/Logger";
@@ -42,6 +40,12 @@ import {
 } from "../pipeline/types";
 import { RenderPipelineRegistry } from "../pipeline/RenderPipelineRegistry";
 import { resolveFramePassRequirements } from "../pipeline/FramePassRequirements";
+import {
+	hasParticleShadowCasters,
+	resolveParticleShadowCasterBounds,
+} from "../pipeline/ParticleShadowVolume";
+import { resolveParticleRenderIntent } from "../particles/ParticleRenderIntent";
+import { ShadowPlanner } from "../pipeline/shadows/ShadowPlanner";
 import type {
 	RendererFeatures,
 	FrameTransientContributor,
@@ -94,7 +98,6 @@ export interface FrameCoordinatorDelegate {
 
 	setSHCoefficients(coeffs: SHCoefficients): void;
 	setSHAmbientCoefficients(coeffs: SHCoefficients): void;
-	setShadowMaps(shadowMaps: Map<ShadowCastingLight, ShadowRenderSet>): void;
 	setLastIncrementalFrameStats(stats: IncrementalFrameStats | null): void;
 
 	getBackendExtension<T>(key: RenderBackendExtensionKey<T>): T | null;
@@ -129,6 +132,7 @@ export class FrameCoordinator {
 	private readonly _probeCaptureRuntime = new ProbeCaptureRuntime();
 	private readonly _occlusionCullingController: RendererOcclusionCullingController;
 	private readonly _animationRuntime = new AnimationRuntime();
+	private readonly _shadowPlanner = new ShadowPlanner();
 	private readonly _stageExecutors: Map<string, RendererStageExecutor>;
 
 	constructor(backend: IRenderBackend) {
@@ -449,17 +453,10 @@ export class FrameCoordinator {
 		delegate: FrameCoordinatorDelegate,
 		state: RenderSceneFrameState,
 	): Promise<void> {
-		// Build a baseline shadow map — PreparedSceneBuilder only maps shadow-
-		// caster geometry, it does not depend on actual shadow map content.
-		// Use an empty map here to avoid the destructive side effect of
-		// ShadowManager.buildFrameState (which unbinds lights not in the
-		// given light list). The real shadow maps are built later in
-		// _createFrameContext below.
 		const preparedResult = this._preparedSceneCache.build({
 			source: {
 				scene: delegate.scene,
 				camera: delegate.camera,
-				shadowMaps: new Map(),
 				hasActiveAnimations: delegate.animationSystem.hasActiveActions(),
 			},
 			viewportWidth: delegate.canvas.width,
@@ -699,14 +696,34 @@ export class FrameCoordinator {
 		incremental: IncrementalFrameContext,
 	): FrameContext {
 		const cameraPosition = delegate.camera.getWorldPosition(_tmpRendererCameraWorldPosition);
-		const shadowFrameState = delegate.scene.shadows.buildFrameState({
+		const particleIntent = resolveParticleRenderIntent(frame.particleSystems);
+		const particleShadowBounds = resolveParticleShadowCasterBounds(frame.particleSystems);
+		const shadowPlan = this._shadowPlanner.plan({
+			manager: delegate.scene.shadows,
 			lights: frame.lights,
-			enableShadows: resolved.enableShadows,
+			capabilities: this._backend.profile.shadow,
+			camera: delegate.camera,
 			cameraPosition,
-			backendCapabilities: this._backend.profile.shadow,
+			sceneBounds: frame.sceneBounds,
+			casterIntent: {
+				meshPackets: frame.shadowCasterPackets,
+				hasTransparentCasters: frame.shadowTransmitterPackets.length > 0,
+				hasParticleCasters:
+					hasParticleShadowCasters(frame.particleSystems) ||
+					(this._backend.profile.capabilities.meshParticles &&
+						particleIntent.hasShadowCastingMeshTemplates),
+				particleBounds: particleShadowBounds ?? undefined,
+				estimatedParticleCapacity: frame.particleSystems.reduce(
+					(total, system) => total + system.maxParticles,
+					0
+				),
+			},
+			enableShadows: resolved.enableShadows,
+			hasTransmissionCasters: frame.shadowTransmitterPackets.length > 0,
+			needsAtlasFallback:
+				resolved.enableReflection && frame.reflectivePackets.length > 0,
 		});
-		delegate.setShadowMaps(shadowFrameState.shadowMaps);
-		frame.shadowMaps = shadowFrameState.shadowMaps;
+		frame.shadowPlan = shadowPlan;
 
 		const attachments = this._backend.getAttachments({
 			width: delegate.canvas.width,
@@ -732,7 +749,7 @@ export class FrameCoordinator {
 			postProcess,
 			renderTargets: delegate.renderTargets.createSnapshot(),
 			customRenderPasses: delegate.renderPasses.createSnapshot(),
-			shadowMaps: shadowFrameState.shadowMaps,
+			shadowPlan,
 			scene: frame,
 			shCoeffs,
 			shAmbientCoeffs,

@@ -111,6 +111,11 @@ export class WebGPUSceneFrameModule implements WebGPUFrameGraphModule {
 			return {
 				reads: [
 					readWebGPUFrameGraphResource("shadow-atlas", "texture-binding", true),
+					readWebGPUFrameGraphResource(
+						"shadow-transmittance-atlas",
+						"texture-binding",
+						true,
+					),
 					...createWebGPUPagedShadowLightingReads(context),
 				],
 				writes: [
@@ -138,6 +143,11 @@ export class WebGPUSceneFrameModule implements WebGPUFrameGraphModule {
 		}
 		const reads = [
 			readWebGPUFrameGraphResource("shadow-atlas", "texture-binding", true),
+			readWebGPUFrameGraphResource(
+				"shadow-transmittance-atlas",
+				"texture-binding",
+				true,
+			),
 			...createWebGPUPagedShadowLightingReads(context),
 			readWebGPUFrameGraphResource("planar-reflection:capture", "texture-binding", true),
 		];

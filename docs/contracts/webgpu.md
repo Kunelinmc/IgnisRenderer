@@ -151,6 +151,21 @@ This document defines WebGPU frame-graph execution, deferred lighting, presentat
   and feature-local pipeline/binding lifecycle. The orchestrator must not
   construct concrete feature runtimes, retain feature passes, or provide
   callback-only runtime wrappers for those features.
+- `WebGPUShadowRuntime` must be the sole frame-aware WebGPU shadow owner. It
+  must consume `FrameContext.shadowPlan`, own atlas and paged technique
+  executors, contribute their graph nodes and logical resources, and publish
+  backend-private sampling state. It must not mutate the shared plan.
+- `WebGPUAtlasShadowTechnique` must exclusively own atlas allocation and atlas
+  frame execution. `WebGPUPagedShadowTechnique` must exclusively own page
+  residency, page-table, allocation, feedback, and paged frame execution.
+- Both techniques may use one `WebGPUShadowCasterRenderer` for shared caster
+  pipeline and draw encoding. The caster renderer must not own atlas allocation,
+  paged residency, capability decisions, or graph topology.
+- The paged technique must depend on `WebGPUShadowCasterRenderer`, never on the
+  atlas technique. Frame consumers must obtain sampling resources through
+  `WebGPUShadowRuntime` instead of retaining either technique or its allocator.
+- WebGPU paged definitions must enter the conventional atlas path only through
+  an explicit atlas-fallback job in the shared plan.
 - Transparency graph nodes must separately represent OIT preparation, target
   clear, mesh accumulation, particle accumulation, resolve, transmission, and
   additive particle work. The OIT scene-color copy must occur in the prepare

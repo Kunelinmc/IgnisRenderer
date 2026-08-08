@@ -35,12 +35,15 @@ if (!isClusteredLightingEnabled()) {
 			continue;
 		}
 
-		let shadow = sampleSpotShadowVisibility(
-			i,
-			input.worldPosition,
-			pbrShadowNormal,
-			lightDirection
-		);
+		var shadow = vec3<f32>(1.0);
+		if (model.nodeRenderLayers.y > 0.5) {
+			shadow = sampleSpotShadowVisibility(
+				i,
+				input.worldPosition,
+				pbrShadowNormal,
+				lightDirection
+			);
+		}
 		let fView = resolveIridescenceFresnel(
 			nDotV,
 			realF0,

@@ -165,6 +165,12 @@ export class WebGPUTransparencyFramePlanner {
 		return {
 			reads: [
 				readWebGPUFrameGraphResource("frame:depth", "depth-attachment"),
+				readWebGPUFrameGraphResource("shadow-atlas", "texture-binding", true),
+				readWebGPUFrameGraphResource(
+					"shadow-transmittance-atlas",
+					"texture-binding",
+					true,
+				),
 				...createWebGPUPagedShadowLightingReads(context),
 			],
 			writes: [

@@ -547,7 +547,7 @@ function createPlanarCaptureContext(
 		postProcess: capturePostProcess,
 		renderTargets: new RenderTargetRegistrySnapshot(),
 		customRenderPasses: new CustomRenderPassRegistrySnapshot(),
-		shadowMaps: captureScene.shadowMaps,
+		shadowPlan: captureScene.shadowPlan,
 		scene: captureScene,
 		shCoeffs: context.shCoeffs,
 		shAmbientCoeffs: context.shAmbientCoeffs,

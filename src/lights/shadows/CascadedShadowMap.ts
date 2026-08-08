@@ -14,6 +14,7 @@ import type {
 	ShadowBoundLightType,
 	CascadedShadowMapDefaults,
 	CascadedShadowMapOptions,
+	ShadowProjectionSnapshot,
 } from "./types";
 
 const DEFAULT_CASCADE_COUNTS: CascadedShadowMapDefaults = {
@@ -27,29 +28,111 @@ const CSM_LIGHT_DIRECTION_RESET_EPSILON = 1e-4;
 
 export class CascadedShadowMap extends ShadowMapBase {
 	public override readonly kind = "cascaded" as const;
-	public cascadeCounts: CascadedShadowMapDefaults;
-	public lambda: number;
-	public maxDistance?: number;
-	public blendRatio: number;
-	public stabilize: boolean;
+	private readonly _cascadeCounts: CascadedShadowMapDefaults;
+	private _lambda: number;
+	private _maxDistance?: number;
+	private _blendRatio: number;
+	private _stabilize: boolean;
 
 	constructor(options: CascadedShadowMapOptions = {}) {
 		super(options);
-		this.cascadeCounts = {
+		this._cascadeCounts = this._createObservableSettings({
 			directional: clampCascadeCount(
 				resolveFinite(options.cascadeCounts?.directional, 4)
 			),
 			spot: clampCascadeCount(resolveFinite(options.cascadeCounts?.spot, 3)),
 			point: clampCascadeCount(resolveFinite(options.cascadeCounts?.point, 2)),
-		};
-		this.lambda = resolveFinite(options.lambda, 0.65);
-		this.maxDistance =
+		}, {
+			directional: (value) => clampCascadeCount(resolveFinite(value, 4)),
+			spot: (value) => clampCascadeCount(resolveFinite(value, 3)),
+			point: (value) => clampCascadeCount(resolveFinite(value, 2)),
+		});
+		this._lambda = clamp01(resolveFinite(options.lambda, 0.65));
+		this._maxDistance =
 			typeof options.maxDistance === "number" &&
 			Number.isFinite(options.maxDistance) ?
 				Math.max(0.01, options.maxDistance)
 			:	undefined;
-		this.blendRatio = resolveFinite(options.blendRatio, 0.1);
-		this.stabilize = options.stabilize !== false;
+		this._blendRatio = clamp01(resolveFinite(options.blendRatio, 0.1));
+		this._stabilize = options.stabilize !== false;
+	}
+
+	public get cascadeCounts(): CascadedShadowMapDefaults {
+		return this._cascadeCounts;
+	}
+
+	public set cascadeCounts(value: Partial<CascadedShadowMapDefaults>) {
+		this._assignObservableSettings(this._cascadeCounts, value);
+	}
+
+	public get lambda(): number {
+		return this._lambda;
+	}
+
+	public set lambda(value: number) {
+		const normalized = clamp01(resolveFinite(value, 0.65));
+		if (Object.is(this._lambda, normalized)) return;
+		this._lambda = normalized;
+		this._markDefinitionChanged();
+	}
+
+	public get maxDistance(): number | undefined {
+		return this._maxDistance;
+	}
+
+	public set maxDistance(value: number | undefined) {
+		const normalized = typeof value === "number" && Number.isFinite(value) ?
+			Math.max(0.01, value)
+		: undefined;
+		if (Object.is(this._maxDistance, normalized)) return;
+		this._maxDistance = normalized;
+		this._markDefinitionChanged();
+	}
+
+	public get blendRatio(): number {
+		return this._blendRatio;
+	}
+
+	public set blendRatio(value: number) {
+		const normalized = clamp01(resolveFinite(value, 0.1));
+		if (Object.is(this._blendRatio, normalized)) return;
+		this._blendRatio = normalized;
+		this._markDefinitionChanged();
+	}
+
+	public get stabilize(): boolean {
+		return this._stabilize;
+	}
+
+	public set stabilize(value: boolean) {
+		const normalized = value !== false;
+		if (this._stabilize === normalized) return;
+		this._stabilize = normalized;
+		this._markDefinitionChanged();
+	}
+
+	public override update(options: Partial<CascadedShadowMapOptions>): this {
+		return this._runDefinitionUpdate(() => {
+			super.update(options);
+			if (options.cascadeCounts !== undefined) {
+				this.cascadeCounts = options.cascadeCounts;
+			}
+			if (options.lambda !== undefined) this.lambda = options.lambda;
+			if ("maxDistance" in options) this.maxDistance = options.maxDistance;
+			if (options.blendRatio !== undefined) this.blendRatio = options.blendRatio;
+			if (options.stabilize !== undefined) this.stabilize = options.stabilize;
+		});
+	}
+
+	protected override createProjectionSnapshot(): ShadowProjectionSnapshot {
+		return {
+			technique: "cascaded",
+			cascadeCounts: Object.freeze({ ...this.cascadeCounts }),
+			lambda: this.lambda,
+			maxDistance: this.maxDistance,
+			blendRatio: this.blendRatio,
+			stabilize: this.stabilize,
+		};
 	}
 
 	public override resolveCascadeCount(lightType: LightType): number {
@@ -744,6 +827,10 @@ function resolveFinite(value: unknown, fallback: number): number {
 		return fallback;
 	}
 	return value;
+}
+
+function clamp01(value: number): number {
+	return Math.max(0, Math.min(1, value));
 }
 
 function clampCascadeCount(value: number): number {

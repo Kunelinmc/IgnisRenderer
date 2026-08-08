@@ -5,14 +5,14 @@ import type {
 	DecalChannel,
 	DecalChannelBlendModes,
 } from "../decals";
-import type { SceneLight, ShadowCastingLight } from "../lights";
+import type { SceneLight } from "../lights";
 import type { ParticleBlendMode, ParticleSystem } from "../particles";
 import type { Material } from "../materials/Material";
 import type { Matrix4 } from "../maths/Matrix4";
 import type { IVector3, Matrix3Arr, SHCoefficients } from "../maths/types";
 import type { RGBA } from "../foundation/Color";
-import type { ShadowRenderSet } from "../lights/shadows/ShadowMapping";
 import type { DirtyRect, IncrementalFrameContext } from "./incremental";
+import type { ShadowFramePlan } from "./shadows/ShadowFramePlan";
 import type {
 	BoundingSphere,
 	IPrimitive,
@@ -56,6 +56,7 @@ export const DRAW_PACKET_FLAG_TRANSPARENT = 1 << 0;
 export const DRAW_PACKET_FLAG_SHADOW_CASTER = 1 << 1;
 export const DRAW_PACKET_FLAG_SHADOW_TRANSMITTER = 1 << 2;
 export const DRAW_PACKET_FLAG_REFLECTIVE = 1 << 3;
+export const DRAW_PACKET_FLAG_SHADOW_RECEIVER = 1 << 4;
 
 export interface DrawPacket {
 	readonly id: string;
@@ -175,7 +176,7 @@ export interface PreparedScene {
 	camera: Camera;
 	environment: PreparedSceneEnvironment;
 	meshInstances: MeshInstance[];
-	shadowMaps: Map<ShadowCastingLight, ShadowRenderSet>;
+	shadowPlan: ShadowFramePlan;
 	opaquePackets: DrawPacket[];
 	transparentPackets: DrawPacket[];
 	shadowCasterPackets: DrawPacket[];
@@ -230,7 +231,7 @@ export interface FrameContext {
 	readonly postProcess: PostProcessPassRegistrySnapshot;
 	readonly renderTargets: RenderTargetRegistrySnapshot;
 	readonly customRenderPasses: CustomRenderPassRegistrySnapshot;
-	readonly shadowMaps: Map<ShadowCastingLight, ShadowRenderSet>;
+	readonly shadowPlan: ShadowFramePlan;
 	readonly scene: PreparedScene;
 	readonly shCoeffs: SHCoefficients;
 	readonly shAmbientCoeffs: SHCoefficients;

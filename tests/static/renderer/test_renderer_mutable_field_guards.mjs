@@ -84,7 +84,6 @@ async function run() {
 		expectReadonlyAssignment(renderer, "scene", new Scene());
 		expectReadonlyAssignment(renderer, "camera", new Camera());
 		expectReadonlyAssignment(renderer, "lastTime", 123);
-		expectReadonlyAssignment(renderer, "shadowMaps", new Map());
 		expectReadonlyAssignment(renderer, "shCoeffs", []);
 		expectReadonlyAssignment(renderer, "shAmbientCoeffs", []);
 

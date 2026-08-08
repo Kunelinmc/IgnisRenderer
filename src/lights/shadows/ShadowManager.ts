@@ -50,6 +50,8 @@ export interface ShadowFrameBuildOptions {
 
 export interface ShadowManagerOptions {
 	registry?: ShadowMapRegistry;
+	/** @internal Scene invalidation bridge owned by `Scene`. */
+	onChange?: () => void;
 }
 
 export class ShadowManager {
@@ -58,11 +60,14 @@ export class ShadowManager {
 	private _shadowByLight = new Map<ShadowCastingLight, ShadowMapBase>();
 	private _lightsByShadowId = new Map<string, Set<ShadowCastingLight>>();
 	private _shadowRenderSets = new Map<ShadowCastingLight, ShadowRenderSet>();
+	private _definitionUnsubscribers = new Map<string, () => void>();
+	private readonly _onChange?: () => void;
 	private _version = 0;
 	private _lastFrameState = new ShadowFrameState(0, [], new Map());
 
 	constructor(options: ShadowManagerOptions = {}) {
 		this._registry = options.registry ?? createDefaultShadowMapRegistry();
+		this._onChange = options.onChange;
 	}
 
 	/**
@@ -73,6 +78,8 @@ export class ShadowManager {
 	 * @returns This manager for chained registration.
 	 * @throws If `kind` is an empty string.
 	 * @sideEffects Future `create(kind, options)` calls can instantiate the kind.
+	 * @deprecated Custom shadow map kinds are being removed in the next breaking
+	 * release. Use one of the built-in `create*` methods.
 	 */
 	public registerMapType<
 		TShadowMap extends ShadowMapBase,
@@ -139,6 +146,7 @@ export class ShadowManager {
 		}
 
 		this._mapsById.set(shadowMap.id, shadowMap);
+		this._observeShadowMap(shadowMap);
 		this._shadowByLight.set(light, shadowMap);
 		let lights = this._lightsByShadowId.get(shadowMap.id);
 		if (!lights) {
@@ -146,7 +154,7 @@ export class ShadowManager {
 			this._lightsByShadowId.set(shadowMap.id, lights);
 		}
 		lights.add(light);
-		this._version++;
+		this._markChanged();
 	}
 
 	public rebind(light: ShadowCastingLight, shadowMap: ShadowMapBase): void {
@@ -160,7 +168,8 @@ export class ShadowManager {
 		}
 		this._detachBinding(light, existing);
 		this._shadowRenderSets.delete(light);
-		this._version++;
+		this._markChanged();
+		this._lastFrameState = new ShadowFrameState(this._version, [], this._shadowRenderSets);
 	}
 
 	public destroy(shadowMap: ShadowMapBase): void {
@@ -173,15 +182,23 @@ export class ShadowManager {
 		}
 		this._lightsByShadowId.delete(shadowMap.id);
 		this._mapsById.delete(shadowMap.id);
-		this._version++;
+		this._definitionUnsubscribers.get(shadowMap.id)?.();
+		this._definitionUnsubscribers.delete(shadowMap.id);
+		this._markChanged();
+		this._lastFrameState = new ShadowFrameState(this._version, [], this._shadowRenderSets);
 	}
 
 	public clear(): void {
+		for (const unsubscribe of this._definitionUnsubscribers.values()) {
+			unsubscribe();
+		}
+		this._definitionUnsubscribers.clear();
 		this._mapsById.clear();
 		this._shadowByLight.clear();
 		this._lightsByShadowId.clear();
 		this._shadowRenderSets.clear();
-		this._version++;
+		this._markChanged();
+		this._lastFrameState = new ShadowFrameState(this._version, [], this._shadowRenderSets);
 	}
 
 	public get version(): number {
@@ -200,24 +217,16 @@ export class ShadowManager {
 		return shadowMap.toLegacyShadowConfig(light.type);
 	}
 
+	/** @deprecated Use the current `FrameContext.shadowPlan` inside runtimes. */
 	public getLastFrameState(): ShadowFrameState {
 		return this._lastFrameState;
 	}
 
+	/**
+	 * @deprecated Renderer frames are planned by `ShadowPlanner`. This method is
+	 * retained only for custom-map compatibility until the next breaking release.
+	 */
 	public buildFrameState(options: ShadowFrameBuildOptions): ShadowFrameState {
-		const activeLights = new Set<ShadowCastingLight>();
-		for (const light of options.lights) {
-			if (isShadowBindableLightType(light)) {
-				activeLights.add(light);
-			}
-		}
-		for (const light of this._shadowByLight.keys()) {
-			if (activeLights.has(light)) {
-				continue;
-			}
-			this.unbindLight(light);
-		}
-
 		const enabled = options.enableShadows !== false;
 		if (!enabled || options.lights.length <= 0) {
 			this._shadowRenderSets.clear();
@@ -458,7 +467,21 @@ export class ShadowManager {
 
 	private _trackShadowMap(shadowMap: ShadowMapBase): void {
 		this._mapsById.set(shadowMap.id, shadowMap);
+		this._observeShadowMap(shadowMap);
+		this._markChanged();
+	}
+
+	private _observeShadowMap(shadowMap: ShadowMapBase): void {
+		if (this._definitionUnsubscribers.has(shadowMap.id)) return;
+		this._definitionUnsubscribers.set(
+			shadowMap.id,
+			shadowMap.subscribe(() => this._markChanged())
+		);
+	}
+
+	private _markChanged(): void {
 		this._version++;
+		this._onChange?.();
 	}
 }
 

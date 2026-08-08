@@ -2,6 +2,11 @@ import type { ShadowCastingLight } from "..";
 import type { ShadowRenderSet } from "./ShadowMapping";
 import type { ShadowBindingRecord } from "./types";
 
+/**
+ * @deprecated Compatibility snapshot for custom shadow definitions. Renderer
+ * frames use `ShadowFramePlan`; this type will be removed with the legacy
+ * custom-map surface in the next breaking release.
+ */
 export class ShadowFrameState {
 	public readonly version: number;
 	private readonly _records: ShadowBindingRecord[];

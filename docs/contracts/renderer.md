@@ -126,6 +126,15 @@ This document defines the lifecycle, scheduling, warmup, incremental rendering, 
     internal immutable mirrored view over the prepared main-view packets. That
     view must not mutate the application `Camera` or commit main-view temporal
     history.
+- `FrameContext.shadowPlan`
+  - Output contract: must contain the immutable cross-backend shadow plan
+    resolved from scene bindings, prepared caster intent, the active camera,
+    and `RenderBackendProfile.shadow`.
+  - Constraint: backend execution must not mutate the plan or apply a second
+    shared fallback or budget policy.
+  - Late-work contract: current particle and supplemental draw work may be
+    attached after simulation, but it must not change selected techniques or
+    renderer-level pass requirements.
 - `IRenderBackend.beginFrame(context: FrameContext)`
   - Behavior contract: must prepare command encoders, bind presentation attachments, and transition frame state.
   - Constraint: must throw if another frame is already active or if the backend is uninitialized.

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 
 import * as frameExecutorFixture from "../../helpers/webgpu_frame_executor_resilience.mjs";
+import { createLegacyShadowFramePlan } from "../../../src/pipeline/shadows/LegacyShadowPlanAdapter.ts";
 
 const {
 	BackendPostProcessRuntime,
@@ -169,6 +170,11 @@ function testWholeFrameShadowCatalogFollowsFramePlan() {
 	const backend = new FakeBackend();
 	const executor = new WebGPUFrameExecutor(backend, createResourcesStub());
 	const context = createFrameContext(64, 64);
+	context.shadowPlan = createLegacyShadowFramePlan(new Map([[
+		{ id: "shadow-light" },
+		{ storageMode: "atlas", size: 512, slices: [] },
+	]]));
+	context.scene.shadowPlan = context.shadowPlan;
 	context.postProcess = createResolvedPostProcess({}, "webgpu");
 	const shadowPass = {
 		stage: "shadow",

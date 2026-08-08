@@ -10,7 +10,8 @@ The list covers:
 - Core render pipeline layouts in `src/backends/webgpu/WebGPUPipelineLayouts.ts`.
 - Frame, material, particle, clustered-lighting, G-buffer, shadow, present, and
   OIT bindings under `src/backends/webgpu/`, including
-  `rendergraph/WebGPUFrameOrchestrator.ts` and `WebGPUShadowPass.ts`.
+  `rendergraph/WebGPUFrameOrchestrator.ts` and
+  `WebGPUShadowCasterRenderer.ts`.
 - WGSL bindings under `src/shaders/webgpu/`, including
   `parts/definitions.wgsl`, `parts/fragmentGBuffer.wgsl`,
   `deferredLightingShader.wgsl`, `environmentShader.wgsl`,
@@ -243,7 +244,7 @@ indices:
 
 ### Shadow Pass Bindings
 
-`WebGPUShadowPass` uses a dedicated shadow pipeline layout:
+`WebGPUShadowCasterRenderer` uses a dedicated shadow pipeline layout:
 
 | Group | Binding | Shader name | Resource contract |
 | --- | --- | --- | --- |

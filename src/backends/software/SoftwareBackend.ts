@@ -16,20 +16,6 @@ import { SoftwareSurfaceRuntime } from "./SoftwareSurfaceRuntime";
 import { SoftwarePassExecutor } from "./SoftwarePassExecutor";
 import { SoftwareFrameRuntime } from "./SoftwareFrameRuntime";
 import { SkyboxRenderer } from "./SkyboxRenderer";
-import { isShadowCastingLight } from "../../lights";
-import {
-	resolveShadowCasterBounds,
-	syncShadowMapRegistry,
-	updateShadowMapMetadata,
-} from "../../pipeline/ShadowMetadata";
-import {
-	mergeParticleShadowBounds,
-	resolveParticleShadowCasterBounds,
-} from "../../pipeline/ParticleShadowVolume";
-import {
-	selectCSMDirectionalLights,
-	type ShadowBackendCapabilities,
-} from "../../pipeline/ShadowMetadata";
 import { FrameAttachments } from "../../pipeline/types";
 import { TemporalFrameState } from "../cross/TemporalFrameState";
 import { SOFTWARE_TEMPORAL_RENDER_STATE_KEY } from "./SoftwareTemporalRenderState";
@@ -70,16 +56,6 @@ type SoftwareBackendState =
 interface SoftwareTemporalCommit {
 	previousWorldMatrices: Map<string, FrameContext["worldMatrix"]>;
 }
-
-const SOFTWARE_SHADOW_CAPABILITIES: ShadowBackendCapabilities = {
-	backendKey: "software",
-	supportsSingleMap: true,
-	supportsDirectionalCSM: true,
-	supportsSpotCSM: true,
-	supportsPointCSM: true,
-	maxCsmDirectionalLights: 1,
-	maxDynamicShadowCost: 20,
-};
 
 function resolvePreparedSceneEnvironment(scene: FrameContext["scene"]): {
 	backgroundEnabled: boolean;
@@ -154,7 +130,28 @@ export class SoftwareBackend implements IRenderBackend {
 		frameScheduling: "on-demand",
 		shadow: {
 			backendKey: "software",
-			supportsFilterModes: ["pcf", "vsm"],
+			supportsFilterModes: ["pcf"],
+			lightTypes: {
+				directional: {
+					projections: ["single", "cascaded"],
+					storage: ["atlas"],
+					maxLights: 4,
+					maxCascadedLights: 1,
+				},
+				spot: {
+					projections: ["single", "cascaded"],
+					storage: ["atlas"],
+					maxLights: 8,
+					maxCascadedLights: 8,
+				},
+				point: {
+					projections: ["single", "cascaded"],
+					storage: ["atlas"],
+					maxLights: 16,
+					maxCascadedLights: 16,
+				},
+			},
+			supportsTransmission: true,
 			supportsDirectionalCSM: true,
 			supportsSpotCSM: true,
 			supportsPointCSM: true,
@@ -388,36 +385,6 @@ export class SoftwareBackend implements IRenderBackend {
 						}
 					}
 				}
-			}
-		}
-
-		const shadowLights = context.scene.lights.filter(isShadowCastingLight);
-		syncShadowMapRegistry(context.shadowMaps, shadowLights);
-		const shadowCasterBounds = resolveShadowCasterBounds(
-			context.scene.shadowCasterPackets,
-			context.scene.sceneBounds,
-		);
-		const combinedShadowCasterBounds = mergeParticleShadowBounds(
-			shadowCasterBounds,
-			resolveParticleShadowCasterBounds(context.scene.particleSystems),
-		);
-		const selectedCSMLights = selectCSMDirectionalLights(
-			shadowLights,
-			SOFTWARE_SHADOW_CAPABILITIES.maxCsmDirectionalLights,
-		);
-		for (const shadowLight of shadowLights) {
-			const shadowRenderSet = context.shadowMaps.get(shadowLight);
-			if (shadowRenderSet) {
-				updateShadowMapMetadata(shadowRenderSet, shadowLight, combinedShadowCasterBounds, {
-					camera: context.scene.camera,
-					backendCapabilities: SOFTWARE_SHADOW_CAPABILITIES,
-					allowCSMDirectionalLights: selectedCSMLights,
-					onWarning: (key, message) =>
-						Logger.warn(`[${key}] ${message}`, {
-							scope: "SoftwareBackend",
-							onceKey: key,
-						}),
-				});
 			}
 		}
 

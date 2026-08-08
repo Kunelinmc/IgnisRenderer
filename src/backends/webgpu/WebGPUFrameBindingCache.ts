@@ -42,8 +42,7 @@ import {
 import type { FramePreparationRequirements } from "../../pipeline/FrameRequirements";
 import { CameraType } from "../../cameras/Camera";
 import { WebGPUTextureRegistry } from "./WebGPUTextureRegistry";
-import { WebGPUShadowAtlasAllocator } from "./WebGPUShadowAtlasAllocator";
-import type { WebGPUPagedShadowRuntime } from "./WebGPUPagedShadowRuntime";
+import type { WebGPUShadowRuntime } from "./WebGPUShadowRuntime";
 import type { WebGPUPipelineLayouts } from "./WebGPUPipelineLayouts";
 import { finiteOr } from "../../maths/Misc";
 import {
@@ -91,16 +90,14 @@ export class WebGPUFrameBindingCache {
 	private _resourceManager: WebGPUResourceManager;
 	private _layouts: WebGPUPipelineLayouts;
 	private _textureRegistry: WebGPUTextureRegistry;
-	private _shadowAtlases: WebGPUShadowAtlasAllocator;
-	private _pagedShadowRuntime: WebGPUPagedShadowRuntime;
+	private _shadowRuntime: WebGPUShadowRuntime;
 	private _frameCameraUniformBuffer: IRenderBuffer | null = null;
 	private _frameLightUniformBuffer: IRenderBuffer | null = null;
 	private _frameShadowUniformBuffer: IRenderBuffer | null = null;
 	private _frameEnvironmentUniformBuffer: IRenderBuffer | null = null;
 	private _fogUniformBuffer: IRenderBuffer | null = null;
 	private _environmentBackgroundParamsBuffer: IRenderBuffer | null = null;
-	private _environmentBackgroundParamsData: Float32Array<ArrayBuffer> =
-		new Float32Array(4);
+	private _environmentBackgroundParamsData: Float32Array<ArrayBuffer> = new Float32Array(4);
 	private _particleShadowVolumeBuffer: IRenderBuffer | null = null;
 	private _particleShadowVolumeBufferSize = 0;
 	private _fogUniformData: Float32Array<ArrayBuffer> = new Float32Array(8);
@@ -120,9 +117,7 @@ export class WebGPUFrameBindingCache {
 	private _irradianceProbeGridTextureRevision = -1;
 	private _irradianceProbeGridTextureCellCount = 0;
 	private _irradianceProbeGridTextureGridId: string | null = null;
-	private _irradianceProbeGridTextureData = new Float32Array(
-		WEBGPU_SH_COEFFICIENT_COUNT * 4
-	);
+	private _irradianceProbeGridTextureData = new Float32Array(WEBGPU_SH_COEFFICIENT_COUNT * 4);
 	private _environmentSampler: ISampler | null = null;
 	private _envSpecularSampler: ISampler | null = null;
 	private _envSpecularFallbackSampler: ISampler | null = null;
@@ -135,15 +130,13 @@ export class WebGPUFrameBindingCache {
 		resourceManager: WebGPUResourceManager,
 		layouts: WebGPUPipelineLayouts,
 		textureRegistry: WebGPUTextureRegistry,
-		shadowAtlases: WebGPUShadowAtlasAllocator,
-		pagedShadowRuntime: WebGPUPagedShadowRuntime
+		shadowRuntime: WebGPUShadowRuntime,
 	) {
 		this._backend = backend;
 		this._resourceManager = resourceManager;
 		this._layouts = layouts;
 		this._textureRegistry = textureRegistry;
-		this._shadowAtlases = shadowAtlases;
-		this._pagedShadowRuntime = pagedShadowRuntime;
+		this._shadowRuntime = shadowRuntime;
 	}
 
 	public prepare(
@@ -154,7 +147,7 @@ export class WebGPUFrameBindingCache {
 		renderWidth: number,
 		renderHeight: number,
 		sceneTargetMode: WebGPUSceneTargetMode,
-		options: WebGPUFrameBindingPrepareOptions = {}
+		options: WebGPUFrameBindingPrepareOptions = {},
 	): void {
 		const viewElements = frame.camera.viewMatrix.elements;
 		const isOrthographic = frame.camera.type === CameraType.Orthographic;
@@ -173,22 +166,16 @@ export class WebGPUFrameBindingCache {
 				size?: number;
 			};
 			const bounds =
-				typeof orthographicCamera.getBounds === "function" ?
-					orthographicCamera.getBounds()
-				:	{
-						left: -((orthographicCamera.size ?? 100) * aspect) * 0.5,
-						right: ((orthographicCamera.size ?? 100) * aspect) * 0.5,
-						bottom: -((orthographicCamera.size ?? 100) * 0.5),
-						top: (orthographicCamera.size ?? 100) * 0.5,
-					};
-			environmentProjectionX = Math.max(
-				1e-6,
-				Math.abs(bounds.right - bounds.left) * 0.5
-			);
-			environmentProjectionY = Math.max(
-				1e-6,
-				Math.abs(bounds.top - bounds.bottom) * 0.5
-			);
+				typeof orthographicCamera.getBounds === "function"
+					? orthographicCamera.getBounds()
+					: {
+							left: -((orthographicCamera.size ?? 100) * aspect) * 0.5,
+							right: (orthographicCamera.size ?? 100) * aspect * 0.5,
+							bottom: -((orthographicCamera.size ?? 100) * 0.5),
+							top: (orthographicCamera.size ?? 100) * 0.5,
+						};
+			environmentProjectionX = Math.max(1e-6, Math.abs(bounds.right - bounds.left) * 0.5);
+			environmentProjectionY = Math.max(1e-6, Math.abs(bounds.top - bounds.bottom) * 0.5);
 		}
 		const temporalStateMode = options.temporalStateMode ?? "advance";
 		const temporal = this._resolveTemporalFrameUniforms(
@@ -205,11 +192,7 @@ export class WebGPUFrameBindingCache {
 			cameraPosition: frame.camera.getWorldPosition(),
 			environmentRight: [viewElements[0][0], viewElements[0][1], viewElements[0][2]],
 			environmentUp: [viewElements[1][0], viewElements[1][1], viewElements[1][2]],
-			environmentBackward: [
-				viewElements[2][0],
-				viewElements[2][1],
-				viewElements[2][2],
-			],
+			environmentBackward: [viewElements[2][0], viewElements[2][1], viewElements[2][2]],
 			environmentTanHalfFov: environmentProjectionX,
 			environmentAspect: environmentProjectionY,
 			environmentIsOrthographic: isOrthographic,
@@ -238,94 +221,67 @@ export class WebGPUFrameBindingCache {
 			hasEnvSpecularFallback: !!environmentState.envSpecularFallbackTexture,
 			hasBRDFLUT: !!environmentState.brdfLUTTexture,
 			envSpecularMaxMipLevel: environmentState.envSpecularMaxMipLevel,
-			envSpecularFallbackMaxMipLevel:
-				environmentState.envSpecularFallbackMaxMipLevel,
+			envSpecularFallbackMaxMipLevel: environmentState.envSpecularFallbackMaxMipLevel,
 			taaJitterCurrentPrev: temporal.jitterCurrentPrev,
 		};
 
 		this._backend.writeBuffer(
 			this._getFrameCameraUniformBuffer(),
-			packFrameCameraUniformData(frameUniformInput) as Float32Array<ArrayBuffer>
+			packFrameCameraUniformData(frameUniformInput) as Float32Array<ArrayBuffer>,
 		);
 		this._backend.writeBuffer(
 			this._getFrameLightUniformBuffer(),
-			packFrameLightUniformData(frameUniformInput) as Float32Array<ArrayBuffer>
+			packFrameLightUniformData(frameUniformInput) as Float32Array<ArrayBuffer>,
 		);
 		this._backend.writeBuffer(
 			this._getFrameShadowUniformBuffer(),
-			packFrameShadowUniformData(frameUniformInput) as Float32Array<ArrayBuffer>
+			packFrameShadowUniformData(frameUniformInput) as Float32Array<ArrayBuffer>,
 		);
 		this._backend.writeBuffer(
 			this._getFrameEnvironmentUniformBuffer(),
-			packFrameEnvironmentUniformData(frameUniformInput) as Float32Array<ArrayBuffer>
+			packFrameEnvironmentUniformData(frameUniformInput) as Float32Array<ArrayBuffer>,
 		);
-		this._backend.writeBuffer(
-			this._getFogUniformBuffer(),
-			this._packFogUniformData(features)
-		);
+		this._backend.writeBuffer(this._getFogUniformBuffer(), this._packFogUniformData(features));
 		this._backend.writeBuffer(
 			this._getEnvironmentBackgroundParamsBuffer(),
-			this._packEnvironmentBackgroundParams(frame)
+			this._packEnvironmentBackgroundParams(frame),
 		);
 		this._writeParticleShadowVolumeData(
-			new Float32Array(PARTICLE_SHADOW_VOLUME_FALLBACK_FLOATS)
+			new Float32Array(PARTICLE_SHADOW_VOLUME_FALLBACK_FLOATS),
 		);
 
-		const currentShadowAtlas = this._shadowAtlases.atlas;
-		const currentShadowTransmittanceAtlas =
-			this._shadowAtlases.transmittanceAtlas;
-		const currentEnvironment =
-			environmentState.environmentTexture ?
-				this._textureRegistry.getTextureForSlot(
-					environmentState.environmentTexture,
-					0
-				)
-			:	this._textureRegistry.getWhiteTexture();
-		const currentEnvironmentSampler =
-			environmentState.environmentTexture ?
-				this._textureRegistry.getSamplerForTexture(
-					environmentState.environmentTexture
-				)
-			:	this._textureRegistry.getWhiteSampler();
-		const currentEnvSpecular =
-			environmentState.envSpecularTexture ?
-				this._textureRegistry.getTextureForSlot(
-					environmentState.envSpecularTexture,
-					0
-				)
-			:	this._textureRegistry.getWhiteTexture();
-		const currentEnvSpecularSampler =
-			environmentState.envSpecularTexture ?
-				this._textureRegistry.getSamplerForTexture(
-					environmentState.envSpecularTexture
-				)
-			:	this._textureRegistry.getWhiteSampler();
-		const currentEnvSpecularFallback =
-			environmentState.envSpecularFallbackTexture ?
-				this._textureRegistry.getTextureForSlot(
+		const currentShadowAtlas = this._shadowRuntime.atlas;
+		const currentShadowTransmittanceAtlas = this._shadowRuntime.transmittanceAtlas;
+		const currentEnvironment = environmentState.environmentTexture
+			? this._textureRegistry.getTextureForSlot(environmentState.environmentTexture, 0)
+			: this._textureRegistry.getWhiteTexture();
+		const currentEnvironmentSampler = environmentState.environmentTexture
+			? this._textureRegistry.getSamplerForTexture(environmentState.environmentTexture)
+			: this._textureRegistry.getWhiteSampler();
+		const currentEnvSpecular = environmentState.envSpecularTexture
+			? this._textureRegistry.getTextureForSlot(environmentState.envSpecularTexture, 0)
+			: this._textureRegistry.getWhiteTexture();
+		const currentEnvSpecularSampler = environmentState.envSpecularTexture
+			? this._textureRegistry.getSamplerForTexture(environmentState.envSpecularTexture)
+			: this._textureRegistry.getWhiteSampler();
+		const currentEnvSpecularFallback = environmentState.envSpecularFallbackTexture
+			? this._textureRegistry.getTextureForSlot(
 					environmentState.envSpecularFallbackTexture,
-					0
+					0,
 				)
-			:	this._textureRegistry.getWhiteTexture();
-		const currentEnvSpecularFallbackSampler =
-			environmentState.envSpecularFallbackTexture ?
-				this._textureRegistry.getSamplerForTexture(
-					environmentState.envSpecularFallbackTexture
+			: this._textureRegistry.getWhiteTexture();
+		const currentEnvSpecularFallbackSampler = environmentState.envSpecularFallbackTexture
+			? this._textureRegistry.getSamplerForTexture(
+					environmentState.envSpecularFallbackTexture,
 				)
-			:	this._textureRegistry.getWhiteSampler();
-		const currentBRDFLUT =
-			environmentState.brdfLUTTexture ?
-				this._textureRegistry.getTextureForSlot(
-					environmentState.brdfLUTTexture,
-					0
-				)
-			:	this._textureRegistry.getWhiteTexture();
-		const currentIrradianceProbeGrid =
-			this._getIrradianceProbeGridTexture(environmentState);
-		const pagedShadowResources = this._pagedShadowRuntime.getSamplingResources();
+			: this._textureRegistry.getWhiteSampler();
+		const currentBRDFLUT = environmentState.brdfLUTTexture
+			? this._textureRegistry.getTextureForSlot(environmentState.brdfLUTTexture, 0)
+			: this._textureRegistry.getWhiteTexture();
+		const currentIrradianceProbeGrid = this._getIrradianceProbeGridTexture(environmentState);
+		const pagedShadowResources = this._shadowRuntime.getSamplingResources();
 		const currentPagedShadowPageTableTexture = pagedShadowResources.pageTableTexture;
-		const currentPagedShadowPhysicalDepthAtlas =
-			pagedShadowResources.physicalDepthAtlas;
+		const currentPagedShadowPhysicalDepthAtlas = pagedShadowResources.physicalDepthAtlas;
 
 		if (
 			this._shadowAtlas !== currentShadowAtlas ||
@@ -353,8 +309,7 @@ export class WebGPUFrameBindingCache {
 			this._brdfLUTTexture = currentBRDFLUT;
 			this._irradianceProbeGridTexture = currentIrradianceProbeGrid;
 			this._pagedShadowPageTableTexture = currentPagedShadowPageTableTexture;
-			this._pagedShadowPhysicalDepthAtlas =
-				currentPagedShadowPhysicalDepthAtlas;
+			this._pagedShadowPhysicalDepthAtlas = currentPagedShadowPhysicalDepthAtlas;
 			this._environmentSampler = currentEnvironmentSampler;
 			this._envSpecularSampler = currentEnvSpecularSampler;
 			this._envSpecularFallbackSampler = currentEnvSpecularFallbackSampler;
@@ -362,7 +317,7 @@ export class WebGPUFrameBindingCache {
 	}
 
 	private _getIrradianceProbeGridTexture(
-		environmentState: WebGPUEnvironmentState
+		environmentState: WebGPUEnvironmentState,
 	): IRenderTexture {
 		const grid = environmentState.irradianceProbeGrid;
 		if (!grid || grid.cellCount <= 0) {
@@ -399,7 +354,7 @@ export class WebGPUFrameBindingCache {
 				this._ownedIrradianceProbeGridTexture,
 				data as Float32Array<ArrayBuffer>,
 				{ bytesPerRow: width * 4 * 4, rowsPerImage: height },
-				{ width, height, depthOrArrayLayers: 1 }
+				{ width, height, depthOrArrayLayers: 1 },
 			);
 			this._irradianceProbeGridTextureRevision = grid.textureRevision;
 			this._irradianceProbeGridTextureCellCount = height;
@@ -410,7 +365,7 @@ export class WebGPUFrameBindingCache {
 	}
 
 	private _packIrradianceProbeGridTextureData(
-		grid: NonNullable<WebGPUEnvironmentState["irradianceProbeGrid"]>
+		grid: NonNullable<WebGPUEnvironmentState["irradianceProbeGrid"]>,
 	): Float32Array {
 		const width = WEBGPU_SH_COEFFICIENT_COUNT;
 		const height = Math.max(1, Math.floor(grid.cellCount));
@@ -456,21 +411,19 @@ export class WebGPUFrameBindingCache {
 			const snapshot = this._currentTemporalSnapshot;
 			return {
 				previousViewProjection:
-					snapshot?.previousViewProjection ??
-					frame.camera.viewProjectionMatrix,
-				jitterCurrentPrev: snapshot ?
-					[
-						snapshot.jitterCurrentPrev[0],
-						snapshot.jitterCurrentPrev[1],
-						snapshot.jitterCurrentPrev[2],
-						snapshot.jitterCurrentPrev[3],
-					] : [0, 0, 0, 0],
+					snapshot?.previousViewProjection ?? frame.camera.viewProjectionMatrix,
+				jitterCurrentPrev: snapshot
+					? [
+							snapshot.jitterCurrentPrev[0],
+							snapshot.jitterCurrentPrev[1],
+							snapshot.jitterCurrentPrev[2],
+							snapshot.jitterCurrentPrev[3],
+						]
+					: [0, 0, 0, 0],
 			};
 		}
 		if (this._currentTemporalSnapshot) {
-			throw new Error(
-				"WebGPU temporal frame state advanced more than once in one frame.",
-			);
+			throw new Error("WebGPU temporal frame state advanced more than once in one frame.");
 		}
 		const snapshot = this._temporalFrameState.beginFrame({
 			camera: frame.camera,
@@ -482,8 +435,7 @@ export class WebGPUFrameBindingCache {
 		this._currentTemporalSnapshot = snapshot;
 		return {
 			previousViewProjection:
-				snapshot.previousViewProjection ??
-				frame.camera.viewProjectionMatrix,
+				snapshot.previousViewProjection ?? frame.camera.viewProjectionMatrix,
 			jitterCurrentPrev: [
 				snapshot.jitterCurrentPrev[0],
 				snapshot.jitterCurrentPrev[1],
@@ -519,20 +471,17 @@ export class WebGPUFrameBindingCache {
 					{
 						binding: 1,
 						resource:
-							this._shadowAtlas ??
-							this._shadowAtlases.ensureAtlasForTileSize(1),
+							this._shadowAtlas ?? this._shadowRuntime.ensureAtlasForTileSize(1),
 					},
 					{
 						binding: 2,
 						resource:
-							this._envSpecularTexture ??
-							this._textureRegistry.getWhiteTexture(),
+							this._envSpecularTexture ?? this._textureRegistry.getWhiteTexture(),
 					},
 					{
 						binding: 3,
 						resource:
-							this._envSpecularSampler ??
-							this._textureRegistry.getWhiteSampler(),
+							this._envSpecularSampler ?? this._textureRegistry.getWhiteSampler(),
 					},
 					{
 						binding: 4,
@@ -556,9 +505,7 @@ export class WebGPUFrameBindingCache {
 					},
 					{
 						binding: 9,
-						resource:
-							this._brdfLUTTexture ??
-							this._textureRegistry.getWhiteTexture(),
+						resource: this._brdfLUTTexture ?? this._textureRegistry.getWhiteTexture(),
 					},
 					{
 						binding: 10,
@@ -570,13 +517,13 @@ export class WebGPUFrameBindingCache {
 						binding: 11,
 						resource:
 							this._pagedShadowPageTableTexture ??
-							this._pagedShadowRuntime.getSamplingResources().pageTableTexture,
+							this._shadowRuntime.getSamplingResources().pageTableTexture,
 					},
 					{
 						binding: 12,
 						resource:
 							this._pagedShadowPhysicalDepthAtlas ??
-							this._pagedShadowRuntime.getSamplingResources().physicalDepthAtlas,
+							this._shadowRuntime.getSamplingResources().physicalDepthAtlas,
 					},
 					{
 						binding: 13,
@@ -621,9 +568,7 @@ export class WebGPUFrameBindingCache {
 			this._decalFrameBinding = this._backend.createBindingGroup({
 				label: "FrameBinding_decal",
 				layout: this._layouts.decalFrameBindGroupLayout,
-				entries: [
-					{ binding: 0, resource: this._getFrameCameraUniformBuffer() },
-				],
+				entries: [{ binding: 0, resource: this._getFrameCameraUniformBuffer() }],
 			});
 		}
 
@@ -726,7 +671,7 @@ export class WebGPUFrameBindingCache {
 
 	public updateParticleShadowVolumes(
 		context: FrameContext,
-		lightingState: WebGPULightingState
+		lightingState: WebGPULightingState,
 	): void {
 		const data = this._packParticleShadowVolumeData(context, lightingState);
 		this._writeParticleShadowVolumeData(data);
@@ -735,12 +680,9 @@ export class WebGPUFrameBindingCache {
 	private _getParticleShadowVolumeBuffer(requiredByteSize = 0): IRenderBuffer {
 		const byteSize = Math.max(
 			PARTICLE_SHADOW_VOLUME_FALLBACK_FLOATS * 4,
-			Math.ceil(requiredByteSize / 4) * 4
+			Math.ceil(requiredByteSize / 4) * 4,
 		);
-		if (
-			!this._particleShadowVolumeBuffer ||
-			this._particleShadowVolumeBufferSize < byteSize
-		) {
+		if (!this._particleShadowVolumeBuffer || this._particleShadowVolumeBufferSize < byteSize) {
 			this._particleShadowVolumeBuffer?.destroy();
 			this._particleShadowVolumeBuffer = this._backend.createBuffer({
 				size: byteSize,
@@ -761,7 +703,7 @@ export class WebGPUFrameBindingCache {
 
 	private _packParticleShadowVolumeData(
 		context: FrameContext,
-		lightingState: WebGPULightingState
+		lightingState: WebGPULightingState,
 	): Float32Array {
 		const batches = context.transient.get(PARTICLE_TRANSIENT_BATCHES_KEY) as
 			| readonly ParticleRenderBatch[]
@@ -776,17 +718,17 @@ export class WebGPUFrameBindingCache {
 		}
 
 		const cascadeCount =
-			directionalShadow.strategyType === "csm" ?
-				Math.max(1, Math.min(4, directionalShadow.cascadeCount | 0))
-			:	1;
-		const matrices = directionalShadow.strategyType === "csm" ?
-			directionalShadow.cascadeViewProjectionMatrices
-		:	[directionalShadow.viewProjectionMatrix];
+			directionalShadow.strategyType === "csm"
+				? Math.max(1, Math.min(4, directionalShadow.cascadeCount | 0))
+				: 1;
+		const matrices =
+			directionalShadow.strategyType === "csm"
+				? directionalShadow.cascadeViewProjectionMatrices
+				: [directionalShadow.viewProjectionMatrix];
 		const densityOffsetStart = PARTICLE_SHADOW_VOLUME_HEADER_FLOATS;
 		const data = new Float32Array(
 			densityOffsetStart +
-				PARTICLE_SHADOW_VOLUME_DENSITY_FLOATS *
-					PARTICLE_SHADOW_VOLUME_MAX_SLICES
+				PARTICLE_SHADOW_VOLUME_DENSITY_FLOATS * PARTICLE_SHADOW_VOLUME_MAX_SLICES,
 		);
 
 		for (
@@ -812,8 +754,7 @@ export class WebGPUFrameBindingCache {
 			const metaOffset = sliceIndex * PARTICLE_SHADOW_VOLUME_META_FLOATS;
 			writeParticleShadowVolumeMatrix(data, metaOffset, matrix);
 			const densityOffset =
-				densityOffsetStart +
-				sliceIndex * PARTICLE_SHADOW_VOLUME_DENSITY_FLOATS;
+				densityOffsetStart + sliceIndex * PARTICLE_SHADOW_VOLUME_DENSITY_FLOATS;
 			data[metaOffset + 16] = 1;
 			data[metaOffset + 17] = grid.resolution.width;
 			data[metaOffset + 18] = grid.resolution.height;
@@ -825,31 +766,19 @@ export class WebGPUFrameBindingCache {
 		return data;
 	}
 
-	private _packFogUniformData(
-		features: WebGPUFeatureState
-	): Float32Array<ArrayBuffer> {
+	private _packFogUniformData(features: WebGPUFeatureState): Float32Array<ArrayBuffer> {
 		const source =
-			features.postProcess.getOptions<FogOptions>(FOG_PASS_ID) ??
-			DEFAULT_FOG_OPTIONS;
+			features.postProcess.getOptions<FogOptions>(FOG_PASS_ID) ?? DEFAULT_FOG_OPTIONS;
 		const color = source.color ?? DEFAULT_FOG_OPTIONS.color;
-		const start = Math.max(
-			0,
-			finiteOr(source.start, DEFAULT_FOG_OPTIONS.start)
-		);
-		const end = Math.max(
-			start + 1e-4,
-			finiteOr(source.end, DEFAULT_FOG_OPTIONS.end)
-		);
-		const density = Math.max(
-			0,
-			finiteOr(source.density, DEFAULT_FOG_OPTIONS.density)
-		);
+		const start = Math.max(0, finiteOr(source.start, DEFAULT_FOG_OPTIONS.start));
+		const end = Math.max(start + 1e-4, finiteOr(source.end, DEFAULT_FOG_OPTIONS.end));
+		const density = Math.max(0, finiteOr(source.density, DEFAULT_FOG_OPTIONS.density));
 		const sceneFogEnabled =
 			features.postProcess.isEnabled(FOG_PASS_ID) &&
 			(source.application ?? DEFAULT_FOG_OPTIONS.application) === "scene";
-		const strength = sceneFogEnabled ?
-			Math.max(0, finiteOr(source.strength, DEFAULT_FOG_OPTIONS.strength))
-		:	0;
+		const strength = sceneFogEnabled
+			? Math.max(0, finiteOr(source.strength, DEFAULT_FOG_OPTIONS.strength))
+			: 0;
 		const data = this._fogUniformData;
 		data[0] = this._resolveFogMode(source.mode);
 		data[1] = start;
@@ -862,9 +791,7 @@ export class WebGPUFrameBindingCache {
 		return data;
 	}
 
-	private _packEnvironmentBackgroundParams(
-		frame: PreparedScene
-	): Float32Array<ArrayBuffer> {
+	private _packEnvironmentBackgroundParams(frame: PreparedScene): Float32Array<ArrayBuffer> {
 		const environment = resolvePreparedSceneEnvironment(frame);
 		const data = this._environmentBackgroundParamsData;
 		data[0] = clamp(environment.backgroundTintLinear.r, 0, 1);

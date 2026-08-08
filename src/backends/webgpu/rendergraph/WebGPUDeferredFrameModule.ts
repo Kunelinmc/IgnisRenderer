@@ -183,6 +183,11 @@ export class WebGPUDeferredFrameModule implements WebGPUFrameGraphModule {
 				...resourceIds.map((id) =>
 					readWebGPUFrameGraphResource(id, "texture-binding")),
 				readWebGPUFrameGraphResource("shadow-atlas", "texture-binding", true),
+				readWebGPUFrameGraphResource(
+					"shadow-transmittance-atlas",
+					"texture-binding",
+					true,
+				),
 				...createWebGPUPagedShadowLightingReads(input.context),
 			],
 			writes: [

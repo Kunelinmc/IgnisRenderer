@@ -142,16 +142,17 @@ This document defines the current WebGL backend lifecycle, frame graph, resource
 - Forward-lighting uniform budgets must clamp to `4` directional lights, `16`
   point lights, and `8` spot lights.
 - `WebGLShadowRuntime` must be the sole frame-aware entry point for the WebGL
-  shadow subsystem. It must own shadow metadata synchronization, reusable frame
-  planning, particle-volume state, and the identity-stable sampling state read
-  by scene consumers.
+  shadow subsystem. It must consume `FrameContext.shadowPlan` and own physical
+  atlas placement, reusable raster planning, particle-volume state, and the
+  identity-stable sampling state read by scene consumers. It must not rebuild
+  shared projection metadata or apply backend capability fallback.
 - `WebGLShadowRasterPass` must consume only a prepared
   `WebGLShadowRasterPlan`. It must not inspect `FrameContext`, light collection
   state, particle transients, or frame-target services, and it must exclusively
   own the shadow framebuffer, depth atlas, and transmittance atlas.
-- WebGL frame preparation must synchronize shadow metadata before light
-  collection, prepare shadow plans and predictable native targets after light
-  collection, and compile the frame graph only after those targets are known.
+- WebGL frame preparation must consume prepared shadow lights before light
+  packing, prepare predictable native targets, and compile the frame graph only
+  after those targets are known.
   The shadow graph node must execute only the prepared plan.
 - Shadow consumers must obtain atlas, transmittance, particle-volume, and
   availability data through one readonly sampling-state contract. Runtime-owned

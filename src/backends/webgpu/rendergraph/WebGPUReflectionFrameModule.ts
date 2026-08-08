@@ -73,6 +73,10 @@ export class WebGPUReflectionFrameModule implements WebGPUFrameGraphModule {
 							"shadow-atlas",
 							"texture-binding",
 							true,
+						), readWebGPUFrameGraphResource(
+							"shadow-transmittance-atlas",
+							"texture-binding",
+							true,
 						)],
 						writes: [writeWebGPUFrameGraphResource(
 							"planar-reflection:capture",

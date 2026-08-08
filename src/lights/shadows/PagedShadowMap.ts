@@ -6,6 +6,8 @@ import type {
 	PagedShadowFeedbackMode,
 	PagedShadowMapOptions,
 	ShadowBoundLightType,
+	ShadowProjectionSnapshot,
+	ShadowStoragePreference,
 } from "./types";
 import type { PagedShadowLayoutMetadata } from "./ShadowMapping";
 
@@ -29,18 +31,18 @@ const DEFAULT_CACHE_FRAMES = 120;
  */
 export class PagedShadowMap extends ShadowMapBase {
 	public override readonly kind = "paged-shadow" as const;
-	public virtualResolution: number;
-	public pageSize: number;
-	public physicalPageCount: number;
-	public clipmapLevels: number;
-	public maxPagesPerFrame: number;
-	public cacheFrames: number;
-	public feedbackMode: PagedShadowFeedbackMode;
-	public cascadeCounts: CascadedShadowMapDefaults;
-	public lambda: number;
-	public maxDistance?: number;
-	public blendRatio: number;
-	public stabilize: boolean;
+	private _virtualResolution: number;
+	private _pageSize: number;
+	private _physicalPageCount: number;
+	private _clipmapLevels: number;
+	private _maxPagesPerFrame: number;
+	private _cacheFrames: number;
+	private _feedbackMode: PagedShadowFeedbackMode;
+	private readonly _cascadeCounts: CascadedShadowMapDefaults;
+	private _lambda: number;
+	private _maxDistance?: number;
+	private _blendRatio: number;
+	private _stabilize: boolean;
 
 	/**
 	 * Creates a paged shadow map request.
@@ -52,29 +54,29 @@ export class PagedShadowMap extends ShadowMapBase {
 	 */
 	public constructor(options: PagedShadowMapOptions = {}) {
 		super(options);
-		this.virtualResolution = normalizePowerOfTwo(
+		this._virtualResolution = normalizePowerOfTwo(
 			options.virtualResolution,
 			DEFAULT_VIRTUAL_RESOLUTION
 		);
-		this.pageSize = normalizePowerOfTwo(options.pageSize, DEFAULT_PAGE_SIZE);
-		this.physicalPageCount = Math.max(
+		this._pageSize = normalizePowerOfTwo(options.pageSize, DEFAULT_PAGE_SIZE);
+		this._physicalPageCount = Math.max(
 			1,
 			Math.floor(resolveFinite(options.physicalPageCount, DEFAULT_PHYSICAL_PAGE_COUNT))
 		);
-		this.clipmapLevels = Math.max(
+		this._clipmapLevels = Math.max(
 			1,
 			Math.floor(resolveFinite(options.clipmapLevels, DEFAULT_CLIPMAP_LEVELS))
 		);
-		this.maxPagesPerFrame = Math.max(
+		this._maxPagesPerFrame = Math.max(
 			1,
 			Math.floor(resolveFinite(options.maxPagesPerFrame, DEFAULT_MAX_PAGES_PER_FRAME))
 		);
-		this.cacheFrames = Math.max(
+		this._cacheFrames = Math.max(
 			0,
 			Math.floor(resolveFinite(options.cacheFrames, DEFAULT_CACHE_FRAMES))
 		);
-		this.feedbackMode = options.feedbackMode ?? "conservative";
-		this.cascadeCounts = {
+		this._feedbackMode = options.feedbackMode ?? "conservative";
+		this._cascadeCounts = this._createObservableSettings({
 			directional: clampCascadeCount(
 				resolveFinite(options.cascadeCounts?.directional, DEFAULT_CASCADE_COUNTS.directional)
 			),
@@ -84,15 +86,213 @@ export class PagedShadowMap extends ShadowMapBase {
 			point: clampCascadeCount(
 				resolveFinite(options.cascadeCounts?.point, DEFAULT_CASCADE_COUNTS.point)
 			),
-		};
-		this.lambda = clamp01(resolveFinite(options.lambda, 0.65));
-		this.maxDistance =
+		}, {
+			directional: (value) => clampCascadeCount(
+				resolveFinite(value, DEFAULT_CASCADE_COUNTS.directional)
+			),
+			spot: (value) => clampCascadeCount(
+				resolveFinite(value, DEFAULT_CASCADE_COUNTS.spot)
+			),
+			point: (value) => clampCascadeCount(
+				resolveFinite(value, DEFAULT_CASCADE_COUNTS.point)
+			),
+		});
+		this._lambda = clamp01(resolveFinite(options.lambda, 0.65));
+		this._maxDistance =
 			typeof options.maxDistance === "number" &&
 			Number.isFinite(options.maxDistance) ?
 				Math.max(0.01, options.maxDistance)
 			:	undefined;
-		this.blendRatio = clamp01(resolveFinite(options.blendRatio, 0.1));
-		this.stabilize = options.stabilize !== false;
+		this._blendRatio = clamp01(resolveFinite(options.blendRatio, 0.1));
+		this._stabilize = options.stabilize !== false;
+	}
+
+	public get virtualResolution(): number {
+		return this._virtualResolution;
+	}
+
+	public set virtualResolution(value: number) {
+		this._setNumber("virtualResolution", normalizePowerOfTwo(value, DEFAULT_VIRTUAL_RESOLUTION));
+	}
+
+	public get pageSize(): number {
+		return this._pageSize;
+	}
+
+	public set pageSize(value: number) {
+		this._setNumber("pageSize", normalizePowerOfTwo(value, DEFAULT_PAGE_SIZE));
+	}
+
+	public get physicalPageCount(): number {
+		return this._physicalPageCount;
+	}
+
+	public set physicalPageCount(value: number) {
+		this._setNumber(
+			"physicalPageCount",
+			Math.max(1, Math.floor(resolveFinite(value, DEFAULT_PHYSICAL_PAGE_COUNT)))
+		);
+	}
+
+	public get clipmapLevels(): number {
+		return this._clipmapLevels;
+	}
+
+	public set clipmapLevels(value: number) {
+		this._setNumber(
+			"clipmapLevels",
+			Math.max(1, Math.floor(resolveFinite(value, DEFAULT_CLIPMAP_LEVELS)))
+		);
+	}
+
+	public get maxPagesPerFrame(): number {
+		return this._maxPagesPerFrame;
+	}
+
+	public set maxPagesPerFrame(value: number) {
+		this._setNumber(
+			"maxPagesPerFrame",
+			Math.max(1, Math.floor(resolveFinite(value, DEFAULT_MAX_PAGES_PER_FRAME)))
+		);
+	}
+
+	public get cacheFrames(): number {
+		return this._cacheFrames;
+	}
+
+	public set cacheFrames(value: number) {
+		this._setNumber(
+			"cacheFrames",
+			Math.max(0, Math.floor(resolveFinite(value, DEFAULT_CACHE_FRAMES)))
+		);
+	}
+
+	public get feedbackMode(): PagedShadowFeedbackMode {
+		return this._feedbackMode;
+	}
+
+	public set feedbackMode(value: PagedShadowFeedbackMode) {
+		const normalized = value === "screen-feedback" ? value : "conservative";
+		if (this._feedbackMode === normalized) return;
+		this._feedbackMode = normalized;
+		this._markDefinitionChanged();
+	}
+
+	public get cascadeCounts(): CascadedShadowMapDefaults {
+		return this._cascadeCounts;
+	}
+
+	public set cascadeCounts(value: Partial<CascadedShadowMapDefaults>) {
+		this._assignObservableSettings(this._cascadeCounts, value);
+	}
+
+	public get lambda(): number {
+		return this._lambda;
+	}
+
+	public set lambda(value: number) {
+		this._setNumber("lambda", clamp01(resolveFinite(value, 0.65)));
+	}
+
+	public get maxDistance(): number | undefined {
+		return this._maxDistance;
+	}
+
+	public set maxDistance(value: number | undefined) {
+		const normalized = typeof value === "number" && Number.isFinite(value) ?
+			Math.max(0.01, value)
+		: undefined;
+		if (Object.is(this._maxDistance, normalized)) return;
+		this._maxDistance = normalized;
+		this._markDefinitionChanged();
+	}
+
+	public get blendRatio(): number {
+		return this._blendRatio;
+	}
+
+	public set blendRatio(value: number) {
+		this._setNumber("blendRatio", clamp01(resolveFinite(value, 0.1)));
+	}
+
+	public get stabilize(): boolean {
+		return this._stabilize;
+	}
+
+	public set stabilize(value: boolean) {
+		const normalized = value !== false;
+		if (this._stabilize === normalized) return;
+		this._stabilize = normalized;
+		this._markDefinitionChanged();
+	}
+
+	public override update(options: Partial<PagedShadowMapOptions>): this {
+		return this._runDefinitionUpdate(() => {
+			super.update(options);
+			if (options.virtualResolution !== undefined) {
+				this.virtualResolution = options.virtualResolution;
+			}
+			if (options.pageSize !== undefined) this.pageSize = options.pageSize;
+			if (options.physicalPageCount !== undefined) {
+				this.physicalPageCount = options.physicalPageCount;
+			}
+			if (options.clipmapLevels !== undefined) {
+				this.clipmapLevels = options.clipmapLevels;
+			}
+			if (options.maxPagesPerFrame !== undefined) {
+				this.maxPagesPerFrame = options.maxPagesPerFrame;
+			}
+			if (options.cacheFrames !== undefined) this.cacheFrames = options.cacheFrames;
+			if (options.feedbackMode !== undefined) this.feedbackMode = options.feedbackMode;
+			if (options.cascadeCounts !== undefined) {
+				this.cascadeCounts = options.cascadeCounts;
+			}
+			if (options.lambda !== undefined) this.lambda = options.lambda;
+			if ("maxDistance" in options) this.maxDistance = options.maxDistance;
+			if (options.blendRatio !== undefined) this.blendRatio = options.blendRatio;
+			if (options.stabilize !== undefined) this.stabilize = options.stabilize;
+		});
+	}
+
+	protected override get storagePreference(): ShadowStoragePreference {
+		return "paged";
+	}
+
+	protected override createProjectionSnapshot(): ShadowProjectionSnapshot {
+		return {
+			technique: "cascaded",
+			cascadeCounts: Object.freeze({ ...this.cascadeCounts }),
+			lambda: this.lambda,
+			maxDistance: this.maxDistance,
+			blendRatio: this.blendRatio,
+			stabilize: this.stabilize,
+		};
+	}
+
+	private _setNumber(
+		key:
+			| "virtualResolution"
+			| "pageSize"
+			| "physicalPageCount"
+			| "clipmapLevels"
+			| "maxPagesPerFrame"
+			| "cacheFrames"
+			| "lambda"
+			| "blendRatio",
+		value: number
+	): void {
+		const privateKey = `_${key}` as
+			| "_virtualResolution"
+			| "_pageSize"
+			| "_physicalPageCount"
+			| "_clipmapLevels"
+			| "_maxPagesPerFrame"
+			| "_cacheFrames"
+			| "_lambda"
+			| "_blendRatio";
+		if (Object.is(this[privateKey], value)) return;
+		this[privateKey] = value;
+		this._markDefinitionChanged();
 	}
 
 	/**

@@ -8,6 +8,7 @@ import { MeshInstance } from "../../src/meshes/MeshInstance.ts";
 import { resolveFeatureState } from "../../src/pipeline/FeatureResolver.ts";
 import { WEBGPU_FRAME_CAMERA_UNIFORM_LAYOUT } from "../../src/backends/webgpu/bufferLayouts.ts";
 import { createResolvedPostProcess } from "./postprocess.mjs";
+import { createLegacyShadowFramePlan } from "../../src/pipeline/shadows/LegacyShadowPlanAdapter.ts";
 
 function nearlyEqual(actual, expected, epsilon = 1e-6) {
 	assert.ok(Math.abs(actual - expected) <= epsilon, `${actual} != ${expected}`);
@@ -79,7 +80,7 @@ function createPacket(model) {
 
 function createFrame(packet) {
 	const cameraPosition = { x: 0, y: 0, z: 5 };
-	return {
+	const frame = {
 		sceneBounds: packet.mesh.boundingSphere,
 		lights: [],
 		camera: {
@@ -103,6 +104,18 @@ function createFrame(packet) {
 		reflectivePackets: [],
 		decalPackets: [],
 	};
+	Object.defineProperty(frame, "shadowMaps", {
+		enumerable: false,
+		get() {
+			return this._legacyShadowMaps;
+		},
+		set(value) {
+			this._legacyShadowMaps = value;
+			this.shadowPlan = createLegacyShadowFramePlan(value);
+		},
+	});
+	frame.shadowMaps = new Map();
+	return frame;
 }
 
 function createFrameContext(frame, features, options = {}) {
@@ -113,7 +126,7 @@ function createFrameContext(frame, features, options = {}) {
 		attachments: { width, height },
 		features,
 		postProcess: options.postProcess ?? createResolvedPostProcess(),
-		shadowMaps: frame.shadowMaps,
+		shadowPlan: frame.shadowPlan,
 		scene: options.scene ?? frame,
 		shCoeffs: options.shCoeffs ?? SH.empty(),
 		shAmbientCoeffs: options.shAmbientCoeffs ?? SH.empty(),
@@ -238,7 +251,7 @@ function createWebGPUFrameContextForTemporalTest(
 		attachments: { width, height },
 		features,
 		postProcess,
-		shadowMaps: frame.shadowMaps,
+		shadowPlan: frame.shadowPlan,
 		scene: frame,
 		shCoeffs: SH.empty(),
 		shAmbientCoeffs: SH.empty(),

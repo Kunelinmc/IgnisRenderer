@@ -92,7 +92,10 @@ export class Scene {
 			name: "sceneRoot",
 		});
 		this.ecs = new ECSWorld();
-		this.shadows = new ShadowManager(options.shadows);
+		this.shadows = new ShadowManager({
+			...options.shadows,
+			onChange: () => this.invalidate("shadow"),
+		});
 		this.environment = new Environment();
 		this.environment.on("change", () => {
 			this.invalidate("unknown");

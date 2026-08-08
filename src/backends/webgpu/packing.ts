@@ -53,6 +53,7 @@ interface WebGPUModelUniformInput {
 	materialData: WebGPUMaterialUniformData;
 	prevModelMatrix: Matrix4 | number[][];
 	renderLayers: number;
+	receiveShadows: boolean;
 }
 
 const FRAME_CAMERA_UNIFORM_PACKER = createStructuredBufferPacker<
@@ -481,7 +482,7 @@ const MODEL_UNIFORM_PACKER = createStructuredBufferPacker<
 		packVec4("materialFlags", (input) => input.materialData.materialFlags),
 		packVec4("nodeRenderLayers", (input) => [
 			Math.max(0, Math.floor(input.renderLayers)) >>> 0,
-			0,
+			input.receiveShadows ? 1 : 0,
 			0,
 			0,
 		]),
@@ -556,7 +557,8 @@ export function packModelUniformData(
 	normalMatrix: Matrix3Arr | Matrix4,
 	materialData: WebGPUMaterialUniformData,
 	prevModelMatrix: Matrix4 | number[][],
-	renderLayers = 1
+	renderLayers = 1,
+	receiveShadows = true
 ): Float32Array<ArrayBuffer> {
 	return MODEL_UNIFORM_PACKER.pack({
 		modelMatrix,
@@ -564,6 +566,7 @@ export function packModelUniformData(
 		materialData,
 		prevModelMatrix,
 		renderLayers,
+		receiveShadows,
 	});
 }
 
@@ -590,6 +593,7 @@ export function createModelUniformWriter(): WebGPUModelUniformWriter {
  * @param materialData - Packed material scalar and texture transform data.
  * @param prevModelMatrix - Previous-frame model transform for motion vectors.
  * @param renderLayers - Unsigned render-layer mask for this draw packet.
+ * @param receiveShadows - Whether this object samples shadow visibility.
  * @returns The writer-owned `Float32Array`; callers must consume it before
  * reusing the same writer.
  */
@@ -599,7 +603,8 @@ export function writeModelUniformData(
 	normalMatrix: Matrix3Arr | Matrix4,
 	materialData: WebGPUMaterialUniformData,
 	prevModelMatrix: Matrix4 | number[][],
-	renderLayers = 1
+	renderLayers = 1,
+	receiveShadows = true
 ): Float32Array<ArrayBuffer> {
 	return MODEL_UNIFORM_PACKER.packInto(writer, {
 		modelMatrix,
@@ -607,6 +612,7 @@ export function writeModelUniformData(
 		materialData,
 		prevModelMatrix,
 		renderLayers,
+		receiveShadows,
 	});
 }
 

@@ -54,27 +54,13 @@ import type {
 	WebGPUSceneTargetMode,
 	WebGPUTransparentPipelineMode,
 } from "./WebGPUPipelineLibrary";
-import { WebGPUShadowAtlasAllocator } from "./WebGPUShadowAtlasAllocator";
-import { WebGPUShadowPass } from "./WebGPUShadowPass";
 import {
-	WebGPUPagedShadowRuntime,
 	type WebGPUPagedShadowFrameRequest,
-} from "./WebGPUPagedShadowRuntime";
-import {
-	resolveShadowCasterBounds,
-	syncShadowMapRegistry,
-	updateShadowMapMetadata,
-} from "../../pipeline/ShadowMetadata";
-import {
-	mergeParticleShadowBounds,
-	resolveParticleShadowCasterBounds,
-} from "../../pipeline/ParticleShadowVolume";
-import {
-	selectCSMDirectionalLights,
-	type ShadowBackendCapabilities,
-} from "../../pipeline/ShadowMetadata";
-import { isShadowCastingLight, type ShadowCastingLight } from "../../lights";
+} from "./WebGPUPagedShadowTechnique";
+import { WebGPUShadowRuntime } from "./WebGPUShadowRuntime";
+import type { ShadowCastingLight } from "../../lights";
 import type { ShadowRenderSet } from "../../lights/shadows/ShadowMapping";
+import { resolveLegacyShadowMaps } from "../../pipeline/shadows/LegacyShadowPlanAdapter";
 import { WebGPUTextureRegistry } from "./WebGPUTextureRegistry";
 import type { WarmupPhaseCounters, WarmupPlan } from "../../pipeline/WarmupPlanner";
 import { toShaderCompileError } from "../../pipeline/WarmupPlanner";
@@ -93,20 +79,6 @@ import type {
 	WebGPUPreparedFrameResources as WebGPUPreparedFrameResourcesContract,
 } from "./WebGPUResourceContracts";
 import { WebGPUParticleRenderResources } from "./WebGPUParticleRenderResources";
-
-const WEBGPU_SHADOW_CAPABILITIES: ShadowBackendCapabilities = {
-	backendKey: "webgpu",
-	supportsSingleMap: true,
-	supportsDirectionalCSM: true,
-	supportsSpotCSM: false,
-	supportsPointCSM: false,
-	maxCsmDirectionalLights: 1,
-	maxDynamicShadowCost: 48,
-	supportsPagedShadows: true,
-	supportsPagedShadowRendering: true,
-	maxPagedShadowPages: 2048,
-	pagedShadowPageSizeRange: [64, 256],
-};
 
 interface WebGPUFrameServicePrepareOptions extends WebGPUFrameScopePrepareOptions {
 	readonly scopeKey: string;
@@ -170,11 +142,9 @@ export class WebGPUFrameServiceOwner {
 	private _layouts: ReturnType<typeof createWebGPUPipelineLayouts>;
 	private _geometryRegistry: WebGPUGeometryRegistry;
 	private _textureRegistry: WebGPUTextureRegistry;
-	private _shadowAtlases: WebGPUShadowAtlasAllocator;
 	private _pipelineLibrary: WebGPUPipelineLibrary;
 	private _materialBindings: WebGPUMaterialBindingCache;
-	private _shadowPass: WebGPUShadowPass;
-	private _pagedShadowRuntime: WebGPUPagedShadowRuntime;
+	private _shadowRuntime: WebGPUShadowRuntime;
 	private _shadowRuntimeDestroyed = false;
 	private _frameFeatureRegistry = createWebGPUFrameFeatureRegistry();
 	private _frameScopes = new Map<string, WebGPUFrameResourceScope>();
@@ -198,7 +168,6 @@ export class WebGPUFrameServiceOwner {
 		this._layouts = createWebGPUPipelineLayouts(device);
 		this._geometryRegistry = new WebGPUGeometryRegistry(backend);
 		this._textureRegistry = new WebGPUTextureRegistry(backend, resourceManager);
-		this._shadowAtlases = new WebGPUShadowAtlasAllocator(backend);
 		this._pipelineLibrary = new WebGPUPipelineLibrary(backend, this._layouts, {
 			listenToShaderRuntime: false,
 		});
@@ -211,15 +180,10 @@ export class WebGPUFrameServiceOwner {
 			this._pipelineLibrary.getDeferredLightingPipeline(),
 		);
 		this._materialBindings = new WebGPUMaterialBindingCache(backend, this._layouts);
-		this._shadowPass = new WebGPUShadowPass(
-			backend,
-			this._geometryRegistry,
-			this._shadowAtlases,
-		);
-		this._pagedShadowRuntime = new WebGPUPagedShadowRuntime(
+		this._shadowRuntime = new WebGPUShadowRuntime(
 			backend,
 			resourceManager,
-			this._shadowPass,
+			this._geometryRegistry
 		);
 	}
 
@@ -369,7 +333,7 @@ export class WebGPUFrameServiceOwner {
 		if (plan.enableShadows) {
 			total++;
 			try {
-				await this._shadowPass.warmup();
+				await this._shadowRuntime.warmup();
 				compiled++;
 			} catch (error) {
 				failed++;
@@ -406,7 +370,7 @@ export class WebGPUFrameServiceOwner {
 		framePackets: WebGPUFrameServicePrepareOptions["framePackets"],
 		encoder?: ICommandEncoder | null,
 	): Promise<void> {
-		await this._shadowPass.render(
+		await this._shadowRuntime.renderAtlas(
 			{
 				...context,
 				scene: {
@@ -444,7 +408,7 @@ export class WebGPUFrameServiceOwner {
 		const renderWidth = Math.max(1, context.attachments.width || 1);
 		const renderHeight = Math.max(1, context.attachments.height || 1);
 		const temporalHistoryReset = context.incremental?.temporalHistoryReset === true;
-		const shadowMaps = context.shadowMaps;
+		const shadowMaps = resolveLegacyShadowMaps(context.shadowPlan);
 		const shadowCasterPackets = resolvedOptions.framePackets.shadowCasters.slice();
 		const shadowTransmitterPackets = resolvedOptions.framePackets.shadowTransmitters.slice();
 		const temporalStateMode = resolvedOptions.temporalStateMode ?? "advance";
@@ -461,38 +425,7 @@ export class WebGPUFrameServiceOwner {
 			warnings: [],
 		};
 
-		const shadowLights = scene.lights.filter(isShadowCastingLight);
-		syncShadowMapRegistry(shadowMaps, shadowLights);
-		const shadowCasterBounds = resolveShadowCasterBounds(
-			shadowCasterPackets,
-			scene.sceneBounds,
-		);
-		const combinedShadowCasterBounds = mergeParticleShadowBounds(
-			shadowCasterBounds,
-			resolveParticleShadowCasterBounds(scene.particleSystems),
-		);
-		const selectedCSMLights = selectCSMDirectionalLights(
-			shadowLights,
-			WEBGPU_SHADOW_CAPABILITIES.maxCsmDirectionalLights,
-		);
-		if (features.enableShadows) {
-			for (const light of shadowLights) {
-				const shadowRenderSet = shadowMaps.get(light);
-				if (shadowRenderSet) {
-					updateShadowMapMetadata(shadowRenderSet, light, combinedShadowCasterBounds, {
-						camera: scene.camera,
-						backendCapabilities: WEBGPU_SHADOW_CAPABILITIES,
-						allowCSMDirectionalLights: selectedCSMLights,
-						onWarning: (key, message) =>
-							Logger.warn(`[${key}] ${message}`, {
-								scope: "WebGPUFrameServiceOwner",
-								onceKey: key,
-							}),
-					});
-				}
-			}
-		}
-		this._pagedShadowRuntime.prepareFrame({
+		this._shadowRuntime.preparePaged({
 			context,
 			encoder: null,
 			renderSets: shadowMaps,
@@ -550,9 +483,13 @@ export class WebGPUFrameServiceOwner {
 			});
 		}
 
-		this._shadowAtlases.prepare(
+		this._shadowRuntime.prepareAtlas(
 			lightingState,
-			this._resolveShadowAtlasTileSize(scene.shadowMaps, features.enableShadows),
+			this._resolveShadowAtlasTileSize(
+				shadowMaps,
+				features.enableShadows,
+				context.shadowPlan
+			),
 		);
 		const scope = this._getOrCreateFrameScope(resolvedOptions.scopeKey);
 		scope.frameBindings.prepare(
@@ -748,7 +685,7 @@ export class WebGPUFrameServiceOwner {
 	 * @internal WebGPU paged shadow frame graph hook.
 	 */
 	public preparePagedShadowFrame(request: WebGPUPagedShadowFrameRequest): void {
-		this._pagedShadowRuntime.prepareFrame(request);
+		this._shadowRuntime.preparePaged(request);
 	}
 
 	/**
@@ -757,7 +694,7 @@ export class WebGPUFrameServiceOwner {
 	public recordPagedShadowPageMarkPass(
 		request: WebGPUPagedShadowFrameRequest,
 	): void | Promise<void> {
-		return this._pagedShadowRuntime.recordPageMarkPass(request);
+		return this._shadowRuntime.recordPageMark(request);
 	}
 
 	/**
@@ -766,7 +703,7 @@ export class WebGPUFrameServiceOwner {
 	public recordPagedShadowPageAllocationPass(
 		request: WebGPUPagedShadowFrameRequest,
 	): void | Promise<void> {
-		return this._pagedShadowRuntime.recordPageAllocationPass(request);
+		return this._shadowRuntime.recordPageAllocation(request);
 	}
 
 	/**
@@ -775,14 +712,14 @@ export class WebGPUFrameServiceOwner {
 	public recordPagedShadowPageTableCopyPass(
 		request: WebGPUPagedShadowFrameRequest,
 	): void | Promise<void> {
-		return this._pagedShadowRuntime.recordPageTableCopyPass(request);
+		return this._shadowRuntime.recordPageTableCopy(request);
 	}
 
 	/**
 	 * @internal WebGPU paged shadow frame graph hook.
 	 */
 	public recordPagedShadowDepthPass(request: WebGPUPagedShadowFrameRequest): Promise<void> {
-		return this._pagedShadowRuntime.recordDepthPass(request);
+		return this._shadowRuntime.recordPagedDepth(request);
 	}
 
 	/**
@@ -791,7 +728,7 @@ export class WebGPUFrameServiceOwner {
 	public recordPagedShadowFeedbackPass(
 		request: WebGPUPagedShadowFrameRequest,
 	): void | Promise<void> {
-		return this._pagedShadowRuntime.recordFeedbackPass(request);
+		return this._shadowRuntime.recordFeedback(request);
 	}
 
 	public async buildClusteredLighting(
@@ -826,7 +763,7 @@ export class WebGPUFrameServiceOwner {
 		if (this._shadowRuntimeDestroyed) {
 			return;
 		}
-		this._shadowPass.onShaderRuntimeChanged();
+		this._shadowRuntime.onShaderRuntimeChanged();
 	}
 
 	/** @internal Owned by the WebGPU shadow frame runtime. */
@@ -835,8 +772,7 @@ export class WebGPUFrameServiceOwner {
 			return;
 		}
 		this._shadowRuntimeDestroyed = true;
-		this._pagedShadowRuntime.destroy();
-		this._shadowPass.destroy();
+		this._shadowRuntime.destroy();
 	}
 
 	public destroy(): void {
@@ -855,7 +791,6 @@ export class WebGPUFrameServiceOwner {
 		this._frameScopes.clear();
 		this._materialBindings.destroy();
 		this._pipelineLibrary.destroy();
-		this._shadowAtlases.destroy();
 		this._textureRegistry.destroy();
 		this._geometryRegistry.destroy();
 	}
@@ -966,8 +901,7 @@ export class WebGPUFrameServiceOwner {
 				this._resourceManager,
 				this._layouts,
 				this._textureRegistry,
-				this._shadowAtlases,
-				this._pagedShadowRuntime,
+				this._shadowRuntime,
 			),
 			clusteredLighting,
 			prepared: null,
@@ -1012,13 +946,23 @@ export class WebGPUFrameServiceOwner {
 	private _resolveShadowAtlasTileSize(
 		shadowMaps: ReadonlyMap<ShadowCastingLight, ShadowRenderSet>,
 		enableShadows: boolean,
+		plan: FrameContext["shadowPlan"],
 	): number {
 		if (!enableShadows) {
 			return 1;
 		}
 
+		const atlasLightIds = new Set(
+			(plan?.jobs ?? [])
+				.filter((job) =>
+					job.technique === "atlas" || job.technique === "atlas-fallback"
+				)
+				.map((job) => plan.lights[job.lightIndex]?.lightId)
+				.filter((lightId): lightId is string => typeof lightId === "string")
+		);
 		let tileSize = 0;
-		for (const renderSet of shadowMaps.values()) {
+		for (const [light, renderSet] of shadowMaps) {
+			if (!atlasLightIds.has(light.id)) continue;
 			const hasValidSlice = renderSet.slices.some(
 				(slice) => !!slice.shadowMap.viewProjectionMatrix,
 			);

@@ -32,6 +32,10 @@ export interface ShadowMetadataUpdateOptions {
 	backendCapabilities?: ShadowBackendCapabilities;
 	allowCSMDirectionalLights?: Set<ShadowCastingLight> | null;
 	onWarning?: (key: string, message: string) => void;
+	/** @internal Planner-resolved config that must not be re-read from `Scene`. */
+	requestedConfig?: ShadowConfig;
+	/** @internal Prevents backend-era fallback after planner resolution. */
+	skipCapabilityFallback?: boolean;
 }
 
 const _tmpShadowBoundsCameraPosition: IVector3 = { x: 0, y: 0, z: 0 };
@@ -219,7 +223,7 @@ function resolveEffectiveConfig(
 	const capabilities = options?.backendCapabilities;
 	let effective = requested;
 
-	if (requested.strategy === "csm") {
+	if (requested.strategy === "csm" && options?.skipCapabilityFallback !== true) {
 		const supportsCSM =
 			!capabilities ||
 			(light.type === "directional" && capabilities.supportsDirectionalCSM === true) ||
@@ -371,7 +375,8 @@ export function updateShadowMapMetadata(
 	sceneBounds: SceneBounds,
 	options?: ShadowMetadataUpdateOptions
 ): void {
-	const requestedConfig = light.scene?.shadows.getLegacyShadowConfig(light);
+	const requestedConfig =
+		options?.requestedConfig ?? light.scene?.shadows.getLegacyShadowConfig(light);
 	if (!requestedConfig) {
 		resetRenderSetMetadata(renderSet);
 		return;

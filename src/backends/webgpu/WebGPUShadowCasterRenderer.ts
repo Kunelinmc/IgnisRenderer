@@ -15,6 +15,8 @@ import type {
 	FrameContext,
 	PreparedScene,
 } from "../../pipeline/types";
+import { resolveLegacyShadowMaps } from "../../pipeline/shadows/LegacyShadowPlanAdapter";
+import type { ShadowFramePlan } from "../../pipeline/shadows/ShadowFramePlan";
 import {
 	ANIMATION_WEBGPU_JOINT_MATRICES_KEY,
 	ANIMATION_WEBGPU_MORPH_WEIGHTS_KEY,
@@ -54,7 +56,7 @@ import type { WebGPUShadowAtlasAllocator } from "./WebGPUShadowAtlasAllocator";
 import type {
 	WebGPUPagedShadowIndirectRenderResources,
 	WebGPUPagedShadowResidentPage,
-} from "./WebGPUPagedShadowRuntime";
+} from "./WebGPUPagedShadowTechnique";
 
 interface ShadowRenderSlot {
 	shadowMap: ShadowMap;
@@ -111,10 +113,15 @@ interface InstanceBufferGroup {
 const SHADOW_INSTANCE_DATA_UINTS = 12;
 const DRAW_INDEXED_INDIRECT_UINTS = 5;
 
-export class WebGPUShadowPass {
+/**
+ * Encodes shadow-caster draws into targets selected by a shadow technique.
+ *
+ * This renderer owns shared draw pipelines and transient instance resources. It
+ * does not own atlas allocation, paged residency, or frame-graph policy.
+ */
+export class WebGPUShadowCasterRenderer {
 	private _backend: WebGPUDeviceResourceHost;
 	private _geometryRegistry: WebGPUGeometryRegistry;
-	private _shadowAtlases: WebGPUShadowAtlasAllocator;
 	private _depthRemapMatrix = new Matrix4([
 		[1, 0, 0, 0],
 		[0, 1, 0, 0],
@@ -150,29 +157,30 @@ export class WebGPUShadowPass {
 
 	constructor(
 		backend: WebGPUDeviceResourceHost,
-		geometryRegistry: WebGPUGeometryRegistry,
-		shadowAtlases: WebGPUShadowAtlasAllocator
+		geometryRegistry: WebGPUGeometryRegistry
 	) {
 		this._backend = backend;
 		this._geometryRegistry = geometryRegistry;
-		this._shadowAtlases = shadowAtlases;
 	}
 
-	public async render(
+	/** @internal Encodes the atlas technique's caster work. */
+	public async renderAtlas(
 		context: FrameContext,
+		shadowAtlases: WebGPUShadowAtlasAllocator,
 		frameEncoder?: ICommandEncoder | null
 	): Promise<void> {
 		if (!context.features.enableShadows) return;
 
 		const frame = context.scene;
-		const shadowMaps = context.shadowMaps;
-		const slots = this._collectShadowSlots(frame, shadowMaps);
+		const shadowMaps = resolveLegacyShadowMaps(context.shadowPlan);
+		const slots = this._collectShadowSlots(frame, shadowMaps, context.shadowPlan);
+		if (slots.length === 0) return;
 		const maxShadowSize = getMaxShadowSize(slots);
 		const requestedAtlasTileSize = Math.max(1, maxShadowSize);
 		const atlasTexture =
-			this._shadowAtlases.ensureAtlasForTileSize(requestedAtlasTileSize);
-		const transmittanceAtlasTexture = this._shadowAtlases.transmittanceAtlas;
-		const atlasTileSize = Math.max(1, this._shadowAtlases.tileSize);
+			shadowAtlases.ensureAtlasForTileSize(requestedAtlasTileSize);
+		const transmittanceAtlasTexture = shadowAtlases.transmittanceAtlas;
+		const atlasTileSize = Math.max(1, shadowAtlases.tileSize);
 		const atlasView = getWebGPUTexture(atlasTexture).view;
 		const transmittanceAtlasView =
 			transmittanceAtlasTexture ?
@@ -203,7 +211,7 @@ export class WebGPUShadowPass {
 			this._resolveShadowCommandEncoder(frameEncoder);
 
 		const passEncoder = commandEncoder.beginRenderPass({
-			label: "WebGPUShadowPass",
+			label: "WebGPUAtlasShadowPass",
 			colorAttachments: [],
 			depthStencilAttachment: {
 				view: atlasView,
@@ -1435,9 +1443,18 @@ export class WebGPUShadowPass {
 
 	private _collectShadowSlots(
 		scene: PreparedScene,
-		shadowMaps: Map<ShadowCastingLight, ShadowRenderSet>
+		shadowMaps: Map<ShadowCastingLight, ShadowRenderSet>,
+		plan: ShadowFramePlan
 	): ShadowRenderSlot[] {
 		const slots: ShadowRenderSlot[] = [];
+		const atlasLightIds = new Set(
+			plan.jobs
+				.filter((job) =>
+					job.technique === "atlas" || job.technique === "atlas-fallback"
+				)
+				.map((job) => plan.lights[job.lightIndex]?.lightId)
+				.filter((lightId): lightId is string => typeof lightId === "string")
+		);
 		const atlasColumns = Math.max(1, WEBGPU_SHADOW_ATLAS_COLUMNS);
 		let directionalIndex = 0;
 		let spotIndex = 0;
@@ -1447,6 +1464,10 @@ export class WebGPUShadowPass {
 				if (directionalIndex >= MAX_DIRECTIONAL_LIGHTS) continue;
 				if (isShadowCastingLight(light)) {
 					const renderSet = shadowMaps.get(light) ?? null;
+					if (renderSet?.storageMode === "paged" && !atlasLightIds.has(light.id)) {
+						directionalIndex++;
+						continue;
+					}
 					const shadowMap = getPrimaryShadowMap(renderSet);
 					if (shadowMap?.viewProjectionMatrix && renderSet) {
 						const globalTileIndex = directionalIndex;
@@ -1505,6 +1526,10 @@ export class WebGPUShadowPass {
 				if (spotIndex >= MAX_SPOT_LIGHTS) continue;
 				if (isShadowCastingLight(light)) {
 					const renderSet = shadowMaps.get(light) ?? null;
+					if (renderSet?.storageMode === "paged" && !atlasLightIds.has(light.id)) {
+						spotIndex++;
+						continue;
+					}
 					const shadowMap = getPrimaryShadowMap(renderSet);
 					if (shadowMap?.viewProjectionMatrix && renderSet) {
 						const globalTileIndex =

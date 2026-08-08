@@ -30,7 +30,7 @@ import type {
 	MorphWeightMap,
 } from "../../simulation/animation/types";
 import type { FramePreparationRequirements } from "../../pipeline/FrameRequirements";
-import type { WebGPUPagedShadowFrameRequest } from "./WebGPUPagedShadowRuntime";
+import type { WebGPUPagedShadowFrameRequest } from "./WebGPUPagedShadowTechnique";
 import type { ParticleBlendMode } from "../../particles";
 import type { WebGPUDeferredGBufferLayout } from "./constants";
 

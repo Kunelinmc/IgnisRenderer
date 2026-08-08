@@ -24,7 +24,7 @@ import {
 } from "../types";
 import type { WebGPUDeviceResourceHost } from "./WebGPUDeviceResourceHost";
 import type { WebGPUResourceManager } from "./WebGPUResourceManager";
-import type { WebGPUShadowPass } from "./WebGPUShadowPass";
+import type { WebGPUShadowCasterRenderer } from "./WebGPUShadowCasterRenderer";
 import { tryGetNativeWebGPUCommandEncoder } from "./WebGPUCommandEncoder";
 import {
 	getWebGPUBuffer,
@@ -158,16 +158,16 @@ interface DrawCounterReadbackSlot {
 }
 
 /**
- * WebGPU paged shadow runtime.
+ * WebGPU paged shadow technique.
  *
  * The WebGPU path keeps residency, dirty-page compaction, and page-table
  * updates GPU authoritative. CPU work is limited to frame-local layout,
  * cascade, caster bounds, world matrices, and indirect-argument seed uploads.
  */
-export class WebGPUPagedShadowRuntime {
+export class WebGPUPagedShadowTechnique {
 	private _backend: WebGPUDeviceResourceHost;
 	private _resourceManager: WebGPUResourceManager;
-	private _shadowPass: WebGPUShadowPass;
+	private _casterRenderer: WebGPUShadowCasterRenderer;
 	private _frameId = 0;
 	private _lastRequest: WebGPUPagedShadowFrameRequest | null = null;
 	private _preparedContext: FrameContext | null = null;
@@ -261,11 +261,11 @@ export class WebGPUPagedShadowRuntime {
 	constructor(
 		backend: WebGPUDeviceResourceHost,
 		resourceManager: WebGPUResourceManager,
-		shadowPass: WebGPUShadowPass,
+		casterRenderer: WebGPUShadowCasterRenderer,
 	) {
 		this._backend = backend;
 		this._resourceManager = resourceManager;
-		this._shadowPass = shadowPass;
+		this._casterRenderer = casterRenderer;
 	}
 
 	/**
@@ -493,7 +493,7 @@ export class WebGPUPagedShadowRuntime {
 		if (!resources) {
 			return;
 		}
-		await this._shadowPass.renderPagedDepthIndirect(
+		await this._casterRenderer.renderPagedDepthIndirect(
 			request.context,
 			resources,
 			request.encoder,

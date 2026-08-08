@@ -1,40 +1,80 @@
 # Shadow Contract
 
-This document defines shadow configuration, strategies, residency, scheduling, and transparent transmission across backends.
+This document defines shadow definitions, frame planning, backend runtime
+ownership, residency, scheduling, and transparent transmission across backends.
 
 ## Contract
 
-### Shadow configuration
+### Shadow definitions and bindings
 
-- `RenderBackendProfile.shadow`
-	- Must contain shadow capabilities and budgets for the active backend.
-	- `backendKey`: unique backend identifier string.
-	- `supportsFilterModes`: array of supported filter modes (e.g. `"pcf"`, `"vsm"`).
-	- `supportsDirectionalCSM`: boolean indicating directional cascade support.
-	- `supportsSpotCSM`: boolean indicating spot cascade support.
-	- `supportsPointCSM`: boolean indicating point/cube cascade support.
-	- `maxDynamicShadowCost`: numerical budget for dynamic shadow calculations.
-	- `supportsPagedShadows`: optional boolean indicating paged shadow scheduling support.
-	- `supportsPagedShadowRendering`: optional boolean indicating complete paged
-	  shadow rendering support.
-	- `maxPagedShadowPages`: optional physical page budget for paged shadows.
-	- `pagedShadowPageSizeRange`: optional supported page-size range.
+- `RenderBackendProfile.shadow` must be the only shadow-capability source used
+  by shared planning and the attached backend runtime. Backends must not keep a
+  second capability table.
+- Shadow capabilities must explicitly describe supported projection modes per
+  light type, storage modes, filter modes, RGB-transmission support, dynamic
+  cost budget, shadowed-light limits, atlas limits, and paged-resource limits.
 - `scene.shadows`
-	- Must be the single entry point for binding and managing shadow maps.
-	- `create(kind, options)` must create a shadow map through the configured `ShadowMapRegistry`.
-	- `createSingle(options)`, `createVariance(options)`, `createCascaded(options)`, `createPaged(options)`: must remain compatibility helpers for the built-in shadow map kinds.
-	- `registerMapType(kind, factory)` must register user-defined shadow map factories on the manager's registry.
-	- `bind(light, shadowMap)`, `unbindLight(light)`: bind or unbind a shadow map to a light.
-	- `destroy(shadowMap)`: destroy a shadow map and clear its bindings.
-- `ShadowMapRegistry`
-	- Must map each `ShadowMapKind` string to a factory that returns a `ShadowMapBase`.
-	- Must support built-in kinds `single`, `variance`, `cascaded`, and `paged-shadow` through `createDefaultShadowMapRegistry()`.
-	- May register external custom kinds using any non-empty string.
-	- Must throw when `create(kind, options)` is called for an unregistered kind.
+	- Must be the single public entry point for definitions and light bindings.
+	- `createSingle(options)`, `createVariance(options)`,
+	  `createCascaded(options)`, and `createPaged(options)` must create built-in
+	  definition facades without allocating backend resources.
+	- `bind(light, shadowMap)` and `unbindLight(light)` must update persistent
+	  authoring bindings. A light temporarily absent from the active scene graph
+	  must not lose its binding.
+	- `destroy(shadowMap)` must clear bindings owned by that manager and must not
+	  destroy backend-native resources directly.
 - `ShadowMapBase`
-	- Must expose `kind` as the stable map kind recorded in `ShadowBindingRecord.shadowMapKind`.
-	- Must expose `resolveCascadeCount(lightType)` for shadow budget and render-set sizing.
-	- Custom maps that emit a CSM-compatible `ShadowConfig` should override `resolveCascadeCount(lightType)`.
+	- Must behave as a definition facade rather than a native shadow texture.
+	- Must expose normalized observable accessors for `enabled`, `size`,
+	  `priority`, `bias`, and `sampling`.
+	- Must expose `update(partial)` for one atomic definition update.
+	- Every effective setting change must increment `revision` and notify every
+	  manager currently observing the definition exactly once.
+	- A manager notification must invalidate its scene with the `"shadow"`
+	  dirty reason.
+- `ShadowMapRegistry`, `registerMapType`, and external `ShadowMapBase`
+  subclassing are deprecated. They may translate legacy custom definitions to
+  built-in descriptors during the compatibility window, but backend runtimes
+  must not execute arbitrary custom shadow techniques.
+
+### Shadow frame planning
+
+- `ShadowPlanner` must be the only owner of binding selection, capability
+  fallback, budget degradation, projection matrices, cascade splits, logical
+  storage selection, and planning diagnostics.
+- `ShadowPlanner` must publish one `ShadowFramePlan` per renderer frame.
+  Consumers must treat the plan and all nested records as immutable until the
+  frame transaction ends.
+- `ShadowFramePlan` must expose prepared lights, logical render jobs,
+  diagnostics, and `hasRasterWork`, `hasTransmissionWork`, and `hasPagedWork`.
+- A backend must not mutate a `ShadowFramePlan`, rebuild shared shadow
+  metadata, or apply a second capability/budget policy.
+- `FrameContext.shadowPlan` must be the cross-backend shadow input.
+  `FrameContext.shadowMaps`, `ShadowRenderSet`, and `ShadowConfig` are legacy
+  compatibility structures and must not remain in the final runtime path.
+- Shadow pass requirements must be derived from
+  `ShadowFramePlan.hasRasterWork`, not only from caster packet counts.
+- Static and conservative caster intent must be available before the backend
+  frame graph is finalized. Current particle and supplemental packet work may
+  include conservative particle bounds and may be attached later through
+  `ShadowWorkSet`, but it must not change graph
+  topology, selected lights, cascade count, or storage technique.
+- Atlas placement, native handles, framebuffer state, page residency, physical
+  page indices, and backend bindings must not be stored in the shared plan.
+
+### Backend runtime ownership
+
+- Each backend must have one frame-aware shadow runtime. It must own physical
+  allocation, graph contribution, sampling state, execution, abort, and
+  destruction for that backend.
+- A backend shadow runtime may contain atlas and paged technique executors, but
+  those executors must consume explicit jobs from `ShadowFramePlan`.
+- Paged definitions must not be rendered into a conventional atlas unless the
+  plan contains an explicit atlas-fallback job naming the consumer that needs
+  it.
+- Unexpected native allocation failure must disable sampling for the affected
+  frame, return fully lit visibility, and emit a diagnostic without modifying
+  the shared plan.
 
 ### Cascaded shadow maps
 
@@ -52,11 +92,9 @@ This document defines shadow configuration, strategies, residency, scheduling, a
 - Point `CSM` must use full cube cascades with total slice count `cascadeCount * 6`.
 - `cascadeCount` must be normalized to `1..4`.
 - `lambda` and `blendRatio` must be clamped to `[0, 1]`.
-- `ShadowRenderSet` must expose:
-  - `requestedStrategyType`
-  - `effectiveStrategyType`
-  - `resolvedConfig`
-  - `slices[]`
+- `PreparedShadowLight` must expose requested and effective techniques,
+  immutable prepared slices, sampling parameters, cost, priority, and any
+  fallback reason.
 - Dynamic budget selection must rank shadows by `priority`, then `light.intensity`, then camera relation score.
 - Dynamic degradation order must be: reduce cascade count, then reduce resolution, then disable low-score shadows.
 - `VarianceShadowMap` must keep `filterMode: "vsm"` metadata and preserve
@@ -66,12 +104,9 @@ This document defines shadow configuration, strategies, residency, scheduling, a
 ### Paged shadows
 
 - `scene.shadows.createPaged(options)` must create a `PagedShadowMap` with the `kind` property set to `"paged-shadow"`.
-- `ShadowRenderSet.storageMode` must be `"paged"` when the active rendering backend supports paged shadow rendering (i.e. `RenderBackendProfile.shadow.supportsPagedShadowRendering` is `true`).
-- `ShadowRenderSet.storageMode` must be `"atlas"` when the active backend does not support paged shadow rendering.
-- `ShadowRenderSet.layout.regions` must mirror the active slices of the `ShadowRenderSet`.
-- `ShadowLayout.storageMode` must match `ShadowRenderSet.storageMode`.
-- `RenderBackendProfile.shadow.supportsPagedShadows` may advertise backend support for paged shadow scheduling metadata.
-- `RenderBackendProfile.shadow.supportsPagedShadowRendering` must be `true` before a backend may keep `PagedShadowMap` in `"paged"` rendering mode.
+- `ShadowPlanner` must select paged storage only when the active backend profile
+  reports complete paged rendering support; otherwise it must emit an atlas
+  job and a deterministic fallback diagnostic.
 - The rendering backend must support directional paged shadow render sets only. Spot and point lights must use shadow atlas fallback.
 - The GPU residency and dirty-page allocation (including request flags, request compaction, residency allocation, LRU metadata, and dirty physical page compaction) must execute in GPU compute passes. The CPU may upload frame-local caster bounds and issue grouped draw calls, but the GPU must be the authoritative owner of page-table allocation.
 - The GPU page table and residency buffers are authoritative after initialization. CPU mirrors may exist for diagnostics but must not decide page residency.
@@ -273,13 +308,20 @@ meshPrimitive.castShadows = true;
 
 - Lights no longer expose `castShadow`, `shadow`, or strategy mutators.
 - All query of shadow capabilities must go through `renderer.backendProfile.shadow`.
-- Built-in helper methods remain source-compatible, but shadow map creation is now registry-backed.
+- Built-in creation and binding helpers remain source-compatible.
+- Direct writes to built-in definition properties remain source-compatible and
+  now participate in revision tracking and scene invalidation.
+- `update(partial)` is the preferred way to change multiple settings atomically.
+- `ShadowMapRegistry`, `registerMapType`, and external `ShadowMapBase`
+  subclassing are deprecated and will be removed in the next declared breaking
+  release after their compatibility window.
 
 ### Cascaded shadow maps
 
 - Breaking: `castShadow`, `light.shadow`, and light shadow mutator APIs are removed.
 - Existing scenes must migrate to explicit `scene.shadows.create*` and `scene.shadows.bind` calls.
-- Legacy helpers that consume `ShadowConfig` and `ShadowRenderSet` remain valid for backend internals.
+- Backends consume `ShadowFramePlan`; legacy `ShadowConfig` and
+  `ShadowRenderSet` adapters are temporary migration-only internals.
 
 ### Paged shadows
 

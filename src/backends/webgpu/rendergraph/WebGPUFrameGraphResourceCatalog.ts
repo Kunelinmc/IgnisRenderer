@@ -46,6 +46,7 @@ export const WEBGPU_FRAME_GRAPH_RESOURCES = {
 	planarReflectionCapture: "planar-reflection:capture",
 	planarReflectionMask: "planar-reflection:mask",
 	shadowAtlas: "shadow-atlas",
+	shadowTransmittanceAtlas: "shadow-transmittance-atlas",
 	pagedShadowFeedbackFlags: "paged-shadow:feedback-flags",
 	pagedShadowPageRequestFlags: "paged-shadow:page-request-flags",
 	pagedShadowPageRequests: "paged-shadow:page-requests",
@@ -148,6 +149,7 @@ export function collectWebGPUFrameGraphResourceCatalog(
 
 function isShadowResource(id: WebGPUFrameGraphResourceId): boolean {
 	return id === WEBGPU_FRAME_GRAPH_RESOURCES.shadowAtlas ||
+		id === WEBGPU_FRAME_GRAPH_RESOURCES.shadowTransmittanceAtlas ||
 		id.startsWith("paged-shadow:");
 }
 

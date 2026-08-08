@@ -314,7 +314,28 @@ export class WebGPUBackend implements IRenderBackend {
 			frameScheduling: "on-demand",
 			shadow: {
 				backendKey: "webgpu",
-				supportsFilterModes: ["pcf", "vsm"],
+				supportsFilterModes: ["pcf"],
+				lightTypes: {
+					directional: {
+						projections: ["single", "cascaded"],
+						storage: ["atlas", "paged"],
+						maxLights: 4,
+						maxCascadedLights: 1,
+					},
+					spot: {
+						projections: ["single"],
+						storage: ["atlas"],
+						maxLights: 8,
+						maxCascadedLights: 0,
+					},
+					point: {
+						projections: [],
+						storage: [],
+						maxLights: 0,
+						maxCascadedLights: 0,
+					},
+				},
+				supportsTransmission: true,
 				supportsDirectionalCSM: true,
 				supportsSpotCSM: false,
 				supportsPointCSM: false,

@@ -22,13 +22,16 @@
 				continue;
 			}
 
-			let shadow = sampleDirectionalShadowVisibility(
-				i,
-				input.worldPosition,
-				shadowNormal,
-				lightDirection,
-				linearDepth
-			);
+			var shadow = vec3<f32>(1.0);
+			if (model.nodeRenderLayers.y > 0.5) {
+				shadow = sampleDirectionalShadowVisibility(
+					i,
+					input.worldPosition,
+					shadowNormal,
+					lightDirection,
+					linearDepth
+				);
+			}
 			direct += evaluateOpaquePhongLight(
 				normal, viewDir, baseColor, phongSpecular, shininess,
 				lightDirection, radiance, shadow
@@ -111,7 +114,8 @@
 					attenuation *= coneAttenuation;
 					let shadowIndex =
 						clusterMetadata.values[clusterRef.lightIndex].shadowIndex;
-					if (clusterRef.shadowed && shadowIndex < 8u) {
+					if (clusterRef.shadowed && shadowIndex < 8u &&
+						model.nodeRenderLayers.y > 0.5) {
 						shadow = sampleSpotShadowVisibility(
 							shadowIndex,
 							input.worldPosition,
@@ -191,12 +195,15 @@
 					continue;
 				}
 
-				let shadow = sampleSpotShadowVisibility(
-					i,
-					input.worldPosition,
-					shadowNormal,
-					lightDirection
-				);
+				var shadow = vec3<f32>(1.0);
+				if (model.nodeRenderLayers.y > 0.5) {
+					shadow = sampleSpotShadowVisibility(
+						i,
+						input.worldPosition,
+						shadowNormal,
+						lightDirection
+					);
+				}
 				direct += evaluateOpaquePhongLight(
 					normal, viewDir, baseColor, phongSpecular, shininess,
 					lightDirection, radiance, shadow

@@ -24,6 +24,13 @@ renderer stage into several native passes as long as the shared ordering and
 transaction boundaries remain intact. WebGPU deferred lighting, for example,
 is an internal expansion of `main-opaque`, not an additional global stage.
 
+Shadow authoring definitions and persistent light bindings belong to
+`Scene.shadows`. `ShadowPlanner` resolves them once into an immutable
+`ShadowFramePlan` before backend execution. Backend shadow runtimes own physical
+atlas or paged resources and publish backend-private sampling state; they do not
+rewrite the shared plan. Current particle work may attach after simulation as a
+late `ShadowWorkSet` without changing the plan's resource topology.
+
 Before the frame plan is created, `FrameCoordinator` composes prepared scene
 work, subsystem render intent, post-process intent, and resolved render support
 into backend-neutral `FramePassRequirements`. The default pipeline consumes
@@ -86,6 +93,9 @@ runtime without exposing a public backend graph API.
 | Change | Owning area |
 | --- | --- |
 | Cross-backend renderer stage | `src/pipeline/` and renderer contract |
+| Shadow definition or binding | `src/lights/shadows/` and shadow contract |
+| Cross-backend shadow planning | `src/pipeline/shadows/` and shadow contract |
+| Native shadow resources or graph nodes | Owning backend shadow runtime |
 | Backend-private pass expansion | Owning backend runtime and backend contract |
 | Cross-backend post-process pass | `src/postprocess/passes/` and post-process contract |
 | Shader transformation | `src/shaders/runtime/` and shader contract |

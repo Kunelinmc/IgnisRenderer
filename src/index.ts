@@ -123,6 +123,16 @@ export type {
 	RendererFramePlan,
 	RendererFramePlanStage,
 } from "./pipeline/types";
+export type {
+	PreparedShadowLight,
+	PreparedShadowSlice,
+	ShadowStorageTechnique,
+	ShadowCasterIntent,
+	ShadowDiagnostic,
+	ShadowFramePlan,
+	ShadowRenderJob,
+	ShadowWorkSet,
+} from "./pipeline/shadows/ShadowFramePlan";
 export {
 	getEnabledCustomPostProcessPassIds,
 	hasEnabledCustomPostProcessPass,

@@ -1,5 +1,4 @@
 import { resolveParticleRenderIntent } from "../particles/ParticleRenderIntent";
-import { hasParticleShadowCasters } from "./ParticleShadowVolume";
 import type {
 	FramePassStage,
 	PreparedScene,
@@ -59,14 +58,7 @@ export function resolveFramePassRequirements(
 		requiredPasses.add("particle-sim");
 		requiredPasses.add("particles");
 	}
-	if (
-		features.enableShadows &&
-		(frame.shadowCasterPackets.length > 0 ||
-			frame.shadowTransmitterPackets.length > 0 ||
-			hasParticleShadowCasters(frame.particleSystems) ||
-			(support.meshParticles &&
-				particleIntent.hasShadowCastingMeshTemplates))
-	) {
+	if (features.enableShadows && frame.shadowPlan.hasRasterWork) {
 		requiredPasses.add("shadow");
 	}
 	if (features.enableReflection && frame.reflectivePackets.length > 0) {

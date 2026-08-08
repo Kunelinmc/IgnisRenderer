@@ -5,6 +5,7 @@ import { WebGPUSceneFrameModule } from "../../../src/backends/webgpu/rendergraph
 import { WebGPUShadowFrameModule } from "../../../src/backends/webgpu/rendergraph/WebGPUShadowFrameModule.ts";
 import { WebGPUTransparencyRuntime } from "../../../src/backends/webgpu/rendergraph/WebGPUTransparencyRuntime.ts";
 import { WebGPUVisibilityFrameModule } from "../../../src/backends/webgpu/rendergraph/WebGPUVisibilityFrameModule.ts";
+import { createLegacyShadowFramePlan } from "../../../src/pipeline/shadows/LegacyShadowPlanAdapter.ts";
 
 function createPass(stage) {
 	return {
@@ -57,8 +58,30 @@ function createModulePlanner() {
 
 function run() {
 	const planner = createModulePlanner();
-	const context = { scene: { decalPackets: [] } };
+	const atlasMaps = new Map([[
+		{ id: "atlas-light" },
+		{ storageMode: "atlas", size: 512, slices: [] },
+	]]);
+	const context = {
+		scene: { decalPackets: [] },
+		shadowPlan: createLegacyShadowFramePlan(atlasMaps),
+	};
 	const contextWithDecals = { scene: { decalPackets: [{}] } };
+	const pagedMaps = new Map([
+		[
+			{ id: "light-0" },
+			{
+				storageMode: "paged",
+				size: 512,
+				slices: [],
+				layout: {
+					paged: {
+						feedbackMode: "screen-feedback",
+					},
+				},
+			},
+		],
+	]);
 	const pagedShadowContext = {
 		backendProfile: {
 			shadow: {
@@ -66,19 +89,7 @@ function run() {
 				supportsPagedShadowRendering: true,
 			},
 		},
-		shadowMaps: new Map([
-			[
-				{ id: "light-0" },
-				{
-					storageMode: "paged",
-					layout: {
-						paged: {
-							feedbackMode: "screen-feedback",
-						},
-					},
-				},
-			],
-		]),
+		shadowPlan: createLegacyShadowFramePlan(pagedMaps),
 		scene: { decalPackets: [] },
 	};
 
@@ -100,7 +111,6 @@ function run() {
 	assert.deepEqual(
 		pagedShadow.nodes.map((node) => node.kind),
 		[
-			"shadow",
 			"paged-shadow-page-mark",
 			"paged-shadow-page-allocate",
 			"paged-shadow-page-table-copy",
@@ -108,41 +118,41 @@ function run() {
 		]
 	);
 	assert.equal(
-		pagedShadow.nodes[1].writes[0].id,
+		pagedShadow.nodes[0].writes[0].id,
 		"paged-shadow:page-request-flags"
 	);
 	assert.ok(
-		pagedShadow.nodes[1].writes.some(
+		pagedShadow.nodes[0].writes.some(
 			(write) => write.id === "paged-shadow:page-requests"
 		)
 	);
 	assert.ok(
-		pagedShadow.nodes[2].writes.some(
+		pagedShadow.nodes[1].writes.some(
 			(write) => write.id === "paged-shadow:dirty-physical-pages"
 		)
 	);
 	assert.ok(
-		pagedShadow.nodes[4].writes.some(
+		pagedShadow.nodes[3].writes.some(
 			(write) => write.id === "paged-shadow:draw-instances"
 		)
 	);
 	assert.ok(
-		pagedShadow.nodes[4].writes.some(
+		pagedShadow.nodes[3].writes.some(
 			(write) => write.id === "paged-shadow:draw-indirect-args"
 		)
 	);
 	assert.ok(
-		pagedShadow.nodes[4].writes.some(
+		pagedShadow.nodes[3].writes.some(
 			(write) => write.id === "paged-shadow:clear-draw-indirect-args"
 		)
 	);
 	assert.ok(
-		pagedShadow.nodes[4].writes.some(
+		pagedShadow.nodes[3].writes.some(
 			(write) => write.id === "paged-shadow:physical-depth"
 		)
 	);
 	assert.equal(
-		pagedShadow.nodes[4].writes.some(
+		pagedShadow.nodes[3].writes.some(
 			(write) => write.id === "paged-shadow:physical-transmittance"
 		),
 		false

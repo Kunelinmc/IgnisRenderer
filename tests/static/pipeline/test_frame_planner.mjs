@@ -7,6 +7,11 @@ import {
 import { createResolvedPostProcess } from "../../helpers/postprocess.mjs";
 import { ParticleBlendMode } from "../../../src/particles/types.ts";
 import { AlphaMode, Material } from "../../../src/materials/Material.ts";
+import { EMPTY_SHADOW_FRAME_PLAN } from "../../../src/pipeline/shadows/ShadowFramePlan.ts";
+
+function createShadowPlan(hasRasterWork) {
+	return { ...EMPTY_SHADOW_FRAME_PLAN, hasRasterWork };
+}
 
 function createFrame(overrides = {}) {
 	return {
@@ -15,7 +20,7 @@ function createFrame(overrides = {}) {
 		particleSystems: [],
 		hasActiveAnimations: false,
 		camera: null,
-		shadowMaps: new Map(),
+		shadowPlan: EMPTY_SHADOW_FRAME_PLAN,
 		opaquePackets: [{}],
 		transparentPackets: [],
 		shadowCasterPackets: [],
@@ -55,6 +60,7 @@ function run() {
 		shadowCasterPackets: [{}],
 		transparentPackets: [{}],
 		reflectivePackets: [{}],
+		shadowPlan: createShadowPlan(true),
 	});
 	const framePlan = FramePlanner.buildFramePlan(
 		frame,
@@ -195,6 +201,7 @@ function run() {
 		transparentPackets: [],
 		shadowCasterPackets: [],
 		shadowTransmitterPackets: [],
+		shadowPlan: createShadowPlan(true),
 	});
 	const meshParticlePlan = FramePlanner.buildFramePlan(
 		meshParticleFrame,
@@ -214,7 +221,7 @@ function run() {
 		true,
 	);
 	const unsupportedMeshParticlePlan = FramePlanner.buildFramePlan(
-		meshParticleFrame,
+		{ ...meshParticleFrame, shadowPlan: createShadowPlan(false) },
 		baseResolved,
 		createPostProcess(),
 		{
@@ -279,6 +286,7 @@ function run() {
 				},
 			],
 			shadowCasterPackets: [],
+			shadowPlan: createShadowPlan(true),
 		}),
 		baseResolved,
 		createPostProcess()
@@ -299,6 +307,7 @@ function run() {
 				},
 			],
 			shadowCasterPackets: [],
+			shadowPlan: createShadowPlan(false),
 		}),
 		baseResolved,
 		createPostProcess()

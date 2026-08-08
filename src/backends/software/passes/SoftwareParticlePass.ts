@@ -14,6 +14,7 @@ import { createSoftwareShadowSampler, getSoftwareShadowRuntimeMap } from "./Soft
 import { clamp } from "../../../maths/Common";
 import type { SoftwarePassLike } from "./types";
 import { Logger } from "../../../foundation/Logger";
+import { resolveLegacyShadowMaps } from "../../../pipeline/shadows/LegacyShadowPlanAdapter";
 
 const MIN_PARTICLE_PIXEL_RADIUS = 0.5;
 const PARTICLE_RADIAL_FADE_START = 0.4;
@@ -36,7 +37,7 @@ export class SoftwareParticlePass implements SoftwarePassLike {
 
 		const runtimeMap = getSoftwareShadowRuntimeMap(context.transient);
 		const sampleShadow = createSoftwareShadowSampler(
-			context.shadowMaps,
+			resolveLegacyShadowMaps(context.shadowPlan),
 			runtimeMap,
 			{ camera: context.viewCamera }
 		);

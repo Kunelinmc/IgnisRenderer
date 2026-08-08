@@ -17,6 +17,9 @@ export type ShadowMapFactory<
 
 /**
  * Registry for user-defined and built-in shadow map factories.
+ *
+ * @deprecated Custom shadow map kinds are being removed in the next breaking
+ * release. Configure built-in definitions through `ShadowManager.create*`.
  */
 export class ShadowMapRegistry {
 	private readonly _factories = new Map<

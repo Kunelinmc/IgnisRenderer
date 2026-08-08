@@ -392,7 +392,13 @@ async function testPagedShadowClearLayoutMatchesShaderBindings() {
 
 	const source = await ShaderSource.load("webgpu.shadow.pagedShadowClear.raw");
 	const shadowPass = await readFile(
-		path.join(REPO_ROOT, "src", "backends", "webgpu", "WebGPUShadowPass.ts"),
+		path.join(
+			REPO_ROOT,
+			"src",
+			"backends",
+			"webgpu",
+			"WebGPUShadowCasterRenderer.ts",
+		),
 		"utf8"
 	);
 	const layoutStart = shadowPass.indexOf(

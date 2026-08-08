@@ -65,6 +65,7 @@ interface MaterialBindingEntry {
 	hasMaterialSnapshot: boolean;
 	hasPackedUniform: boolean;
 	modelFrame: number;
+	receiveShadows: boolean;
 	animationParamsData: FloatBuffer;
 	jointPayload: FloatBuffer;
 	morphPayload: FloatBuffer;
@@ -321,6 +322,7 @@ export class WebGPUMaterialBindingCache {
 			hasMaterialSnapshot: false,
 			hasPackedUniform: false,
 			modelFrame: -1,
+			receiveShadows: true,
 			animationParamsData: new Float32Array([0, 0, 1, 1]),
 			jointPayload: createJointPayload(1),
 			morphPayload: new Float32Array(2),
@@ -385,6 +387,11 @@ export class WebGPUMaterialBindingCache {
 				entry.hasMaterialSnapshot
 			) || uniformDirty;
 		entry.hasMaterialSnapshot = true;
+		const receiveShadows = packet.primitive?.receiveShadows !== false;
+		if (entry.receiveShadows !== receiveShadows) {
+			entry.receiveShadows = receiveShadows;
+			uniformDirty = true;
+		}
 
 		if (!uniformDirty) {
 			return;
@@ -396,7 +403,8 @@ export class WebGPUMaterialBindingCache {
 			entry.normalMatrix,
 			materialData,
 			entry.previousModelMatrix,
-			packet.meshInstance?.renderLayers ?? 1
+			packet.meshInstance?.renderLayers ?? 1,
+			receiveShadows
 		);
 		this._backend.writeBuffer(entry.uniformBuffer, uniformData);
 		entry.hasPackedUniform = true;

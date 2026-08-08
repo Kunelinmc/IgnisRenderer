@@ -12,13 +12,16 @@ for (var i: u32 = 0u; i < directionalCount; i = i + 1u) {
 		continue;
 	}
 
-	let shadow = sampleDirectionalShadowVisibility(
-		i,
-		input.worldPosition,
-		pbrShadowNormal,
-		lightDirection,
-		linearDepth
-	);
+	var shadow = vec3<f32>(1.0);
+	if (model.nodeRenderLayers.y > 0.5) {
+		shadow = sampleDirectionalShadowVisibility(
+			i,
+			input.worldPosition,
+			pbrShadowNormal,
+			lightDirection,
+			linearDepth
+		);
+	}
 	let fView = resolveIridescenceFresnel(
 		nDotV,
 		realF0,

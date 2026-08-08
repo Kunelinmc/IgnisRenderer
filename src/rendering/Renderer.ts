@@ -80,8 +80,7 @@ import {
 	type FrameCoordinatorDelegate,
 } from "./FrameCoordinator";
 import type { SHCoefficients } from "../maths/types";
-import { LightType, ReflectionProbe, type ShadowCastingLight } from "../lights";
-import type { ShadowRenderSet } from "../lights/shadows/ShadowMapping";
+import { LightType, ReflectionProbe } from "../lights";
 import { Matrix4 } from "../maths/Matrix4";
 import { Texture } from "../core/Texture";
 import {
@@ -159,7 +158,6 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 	private _activeFramePromise: Promise<RenderFrameResult> | null = null;
 	private _destroyPromise: Promise<void> | null = null;
 
-	private _shadowMaps = new Map<ShadowCastingLight, ShadowRenderSet>();
 	private _shCoeffs: SHCoefficients = [] as any;
 	private _shAmbientCoeffs: SHCoefficients = [] as any;
 
@@ -401,15 +399,6 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 	}
 
 	/**
-	 * Gets the active shadow maps mapping.
-	 *
-	 * @internal Owned by the pipeline stage system.
-	 */
-	public get shadowMaps(): Map<ShadowCastingLight, ShadowRenderSet> {
-		return this._shadowMaps;
-	}
-
-	/**
 	 * Gets the current spherical harmonics coefficients.
 	 *
 	 * @internal Owned by the spherical harmonics lighting subsystem.
@@ -454,16 +443,6 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 	 */
 	public setSHAmbientCoefficients(coeffs: SHCoefficients): void {
 		this._shAmbientCoeffs = coeffs;
-	}
-
-	/**
-	 * Updates the active shadow map registry.
-	 *
-	 * @internal Owned by the shadow mapping subsystem.
-	 * @param shadowMaps The new shadow map collection mapping.
-	 */
-	public setShadowMaps(shadowMaps: Map<ShadowCastingLight, ShadowRenderSet>): void {
-		this._shadowMaps = shadowMaps;
 	}
 
 	/**
@@ -787,7 +766,6 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 		const frame = PreparedSceneBuilder.build({
 			scene: this._scene,
 			camera: this._camera,
-			shadowMaps: this._shadowMaps,
 			hasActiveAnimations: this.animationSystem.hasActiveActions(),
 		});
 		const { fullFrameRect, fullFrameTiles } = this._createFullFrameCoverage();

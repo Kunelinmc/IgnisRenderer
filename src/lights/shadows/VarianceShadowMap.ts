@@ -27,13 +27,24 @@ export class VarianceShadowMap extends SingleShadowMap {
 				filterMode: "vsm",
 			},
 		});
-		this._momentBias = DEFAULT_VSM_MOMENT_BIAS;
-		this._bleedReduction = DEFAULT_VSM_BLEED_REDUCTION;
-		this._minVariance = DEFAULT_VSM_MIN_VARIANCE;
-		this.momentBias = options.momentBias ?? DEFAULT_VSM_MOMENT_BIAS;
-		this.bleedReduction =
-			options.bleedReduction ?? DEFAULT_VSM_BLEED_REDUCTION;
-		this.minVariance = options.minVariance ?? DEFAULT_VSM_MIN_VARIANCE;
+		this._momentBias = clampFinite(
+			options.momentBias,
+			DEFAULT_VSM_MOMENT_BIAS,
+			0,
+			1
+		);
+		this._bleedReduction = clampFinite(
+			options.bleedReduction,
+			DEFAULT_VSM_BLEED_REDUCTION,
+			0,
+			1
+		);
+		this._minVariance = clampFinite(
+			options.minVariance,
+			DEFAULT_VSM_MIN_VARIANCE,
+			1e-8,
+			1
+		);
 	}
 
 	public get momentBias(): number {
@@ -41,12 +52,15 @@ export class VarianceShadowMap extends SingleShadowMap {
 	}
 
 	public set momentBias(value: number) {
-		this._momentBias = clampFinite(
+		const normalized = clampFinite(
 			value,
 			DEFAULT_VSM_MOMENT_BIAS,
 			0,
 			1
 		);
+		if (Object.is(this._momentBias, normalized)) return;
+		this._momentBias = normalized;
+		this._markDefinitionChanged();
 	}
 
 	public get bleedReduction(): number {
@@ -54,12 +68,15 @@ export class VarianceShadowMap extends SingleShadowMap {
 	}
 
 	public set bleedReduction(value: number) {
-		this._bleedReduction = clampFinite(
+		const normalized = clampFinite(
 			value,
 			DEFAULT_VSM_BLEED_REDUCTION,
 			0,
 			1
 		);
+		if (Object.is(this._bleedReduction, normalized)) return;
+		this._bleedReduction = normalized;
+		this._markDefinitionChanged();
 	}
 
 	public get minVariance(): number {
@@ -67,12 +84,15 @@ export class VarianceShadowMap extends SingleShadowMap {
 	}
 
 	public set minVariance(value: number) {
-		this._minVariance = clampFinite(
+		const normalized = clampFinite(
 			value,
 			DEFAULT_VSM_MIN_VARIANCE,
 			1e-8,
 			1
 		);
+		if (Object.is(this._minVariance, normalized)) return;
+		this._minVariance = normalized;
+		this._markDefinitionChanged();
 	}
 
 	public setVarianceParameters(options: {
@@ -80,16 +100,28 @@ export class VarianceShadowMap extends SingleShadowMap {
 		bleedReduction?: number;
 		minVariance?: number;
 	}): this {
-		if (options.momentBias !== undefined) {
-			this.momentBias = options.momentBias;
-		}
-		if (options.bleedReduction !== undefined) {
-			this.bleedReduction = options.bleedReduction;
-		}
-		if (options.minVariance !== undefined) {
-			this.minVariance = options.minVariance;
-		}
-		return this;
+		return this._runDefinitionUpdate(() => {
+			if (options.momentBias !== undefined) {
+				this.momentBias = options.momentBias;
+			}
+			if (options.bleedReduction !== undefined) {
+				this.bleedReduction = options.bleedReduction;
+			}
+			if (options.minVariance !== undefined) {
+				this.minVariance = options.minVariance;
+			}
+		});
+	}
+
+	public override update(options: Partial<VarianceShadowMapOptions>): this {
+		return this._runDefinitionUpdate(() => {
+			super.update(options);
+			if (options.momentBias !== undefined) this.momentBias = options.momentBias;
+			if (options.bleedReduction !== undefined) {
+				this.bleedReduction = options.bleedReduction;
+			}
+			if (options.minVariance !== undefined) this.minVariance = options.minVariance;
+		});
 	}
 
 	public override toLegacyShadowConfig(

@@ -127,7 +127,28 @@ export class WebGLBackend implements IRenderBackend {
 		frameScheduling: "on-demand",
 		shadow: {
 			backendKey: "webgl",
-			supportsFilterModes: ["pcf", "vsm"],
+			supportsFilterModes: ["pcf"],
+			lightTypes: {
+				directional: {
+					projections: ["single", "cascaded"],
+					storage: ["atlas"],
+					maxLights: 4,
+					maxCascadedLights: 1,
+				},
+				spot: {
+					projections: ["single"],
+					storage: ["atlas"],
+					maxLights: 8,
+					maxCascadedLights: 0,
+				},
+				point: {
+					projections: [],
+					storage: [],
+					maxLights: 0,
+					maxCascadedLights: 0,
+				},
+			},
+			supportsTransmission: true,
 			supportsDirectionalCSM: true,
 			supportsSpotCSM: false,
 			supportsPointCSM: false,

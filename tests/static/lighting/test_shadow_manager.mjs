@@ -5,6 +5,7 @@ import { PointLight } from "../../../src/lights/PointLight.ts";
 import { SpotLight } from "../../../src/lights/SpotLight.ts";
 import { ShadowMapBase } from "../../../src/lights/shadows/ShadowMapBase.ts";
 import { ShadowMapRegistry } from "../../../src/lights/shadows/ShadowMapRegistry.ts";
+import { SingleShadowMap } from "../../../src/lights/shadows/SingleShadowMap.ts";
 import { updateShadowMapMetadata } from "../../../src/pipeline/ShadowMetadata.ts";
 
 function createSceneBounds(radius = 80) {
@@ -511,6 +512,69 @@ function testPagedShadowMapFallsBackToAtlasWhenUnsupported() {
 	assert.equal(renderSet.resolvedConfig.strategy, "csm");
 }
 
+function testDefinitionAccessorsBatchRevisionAndSceneInvalidation() {
+	const scene = new Scene();
+	const sun = scene.add(new DirectionalLight());
+	const shadow = scene.shadows.createSingle({ size: 512 });
+	scene.shadows.bind(sun, shadow);
+	const biasIdentity = shadow.bias;
+	const samplingIdentity = shadow.sampling;
+
+	let revision = shadow.revision;
+	let sceneVersion = scene.version;
+	shadow.size = 1024;
+	assert.equal(shadow.revision, revision + 1);
+	assert.equal(scene.version, sceneVersion + 1);
+
+	revision = shadow.revision;
+	sceneVersion = scene.version;
+	shadow.bias.constant = 0.025;
+	assert.equal(shadow.bias, biasIdentity);
+	assert.equal(shadow.revision, revision + 1);
+	assert.equal(scene.version, sceneVersion + 1);
+
+	revision = shadow.revision;
+	sceneVersion = scene.version;
+	shadow.update({
+		size: 2048,
+		priority: 7,
+		bias: { slope: 0.02, normal: 0.03 },
+		sampling: { pcfRadius: 2, samples: 24 },
+	});
+	assert.equal(shadow.bias, biasIdentity);
+	assert.equal(shadow.sampling, samplingIdentity);
+	assert.equal(shadow.revision, revision + 1);
+	assert.equal(scene.version, sceneVersion + 1);
+	assert.equal(shadow.size, 2048);
+	assert.equal(shadow.priority, 7);
+	assert.equal(shadow.bias.slope, 0.02);
+	assert.equal(shadow.sampling.samples, 24);
+}
+
+function testSharedDefinitionNotifiesEveryManagerAndSurvivesInactiveFrame() {
+	const firstScene = new Scene();
+	const secondScene = new Scene();
+	const firstLight = firstScene.add(new DirectionalLight());
+	const secondLight = secondScene.add(new DirectionalLight());
+	const shared = new SingleShadowMap({ size: 512 });
+	firstScene.shadows.bind(firstLight, shared);
+	secondScene.shadows.bind(secondLight, shared);
+
+	const firstVersion = firstScene.version;
+	const secondVersion = secondScene.version;
+	shared.sampling.strength = 0.75;
+	assert.equal(firstScene.version, firstVersion + 1);
+	assert.equal(secondScene.version, secondVersion + 1);
+
+	firstScene.shadows.buildFrameState({ lights: [], enableShadows: true });
+	assert.equal(firstScene.shadows.getBoundShadowMap(firstLight), shared);
+	const restored = firstScene.shadows.buildFrameState({
+		lights: [firstLight],
+		enableShadows: true,
+	});
+	assert.equal(restored.records.length, 1);
+}
+
 function run() {
 	testShadowManagerBindingLifecycle();
 	testSceneAcceptsExternalShadowMapRegistry();
@@ -524,6 +588,8 @@ function run() {
 	testShadowLayoutsMirrorSingleAndCSMSlices();
 	testPagedShadowMapBuildsPagedRenderSetMetadata();
 	testPagedShadowMapFallsBackToAtlasWhenUnsupported();
+	testDefinitionAccessorsBatchRevisionAndSceneInvalidation();
+	testSharedDefinitionNotifiesEveryManagerAndSurvivesInactiveFrame();
 	console.log("Shadow manager tests passed");
 }
 

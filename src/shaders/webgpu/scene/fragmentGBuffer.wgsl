@@ -391,7 +391,8 @@ fn evaluateGBuffer(input: VertexOutput) -> GBufferFragmentOutput {
 		anisotropyStrength,
 		specularColor,
 		specularFactor,
-		reflectance
+		reflectance,
+		model.nodeRenderLayers.y
 	);
 	return buildGBufferOutputExtended(
 		input.position.xy,
@@ -519,6 +520,11 @@ fn fsMainGBufferBase(input: VertexOutput) -> GBufferBaseFragmentOutput {
 		materialWord = f32(SHADING_PBR);
 	} else if (doubleSided && dot(normal, viewDir) < 0.0) {
 		normal = -normal;
+	}
+	if (model.nodeRenderLayers.y > 0.5) {
+		materialWord = f32(
+			u32(materialWord) | DEFERRED_MATERIAL_RECEIVE_SHADOWS_BIT
+		);
 	}
 	var output: GBufferBaseFragmentOutput;
 	output.gAlbedoAlpha = vec4<f32>(

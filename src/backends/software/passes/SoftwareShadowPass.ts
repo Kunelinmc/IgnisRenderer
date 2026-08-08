@@ -18,6 +18,7 @@ import {
 	type FrameContext,
 	type TransientStore,
 } from "../../../pipeline/types";
+import { resolveLegacyShadowMaps } from "../../../pipeline/shadows/LegacyShadowPlanAdapter";
 import {
 	clearParticleShadowVolumeGrid,
 	createParticleShadowVolumeGrid,
@@ -617,7 +618,7 @@ export class SoftwareShadowPass implements SoftwarePassLike {
 		}
 
 		const frame = context.scene;
-		const shadowMaps = context.shadowMaps;
+		const shadowMaps = resolveLegacyShadowMaps(context.shadowPlan);
 		const shadowLights = this._shadowLightsScratch;
 		shadowLights.length = 0;
 		for (const light of frame.lights) {

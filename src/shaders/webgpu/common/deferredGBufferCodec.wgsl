@@ -4,6 +4,7 @@ const DEFERRED_MATERIAL_SHEEN_BIT: u32 = 1u << 3u;
 const DEFERRED_MATERIAL_IRIDESCENCE_BIT: u32 = 1u << 4u;
 const DEFERRED_MATERIAL_ANISOTROPY_BIT: u32 = 1u << 5u;
 const DEFERRED_MATERIAL_SPECULAR_BIT: u32 = 1u << 6u;
+const DEFERRED_MATERIAL_RECEIVE_SHADOWS_BIT: u32 = 1u << 7u;
 const DEFERRED_RENDER_LAYER_MASK: u32 = 0x7ffu;
 
 fn encodeDeferredMaterialWord(
@@ -14,7 +15,8 @@ fn encodeDeferredMaterialWord(
 	anisotropyStrength: f32,
 	specularColor: vec3<f32>,
 	specularFactor: f32,
-	reflectance: f32
+	reflectance: f32,
+	receiveShadows: f32
 ) -> f32 {
 	var word = shadingModel & DEFERRED_MATERIAL_MODEL_MASK;
 	if (clearcoat > 1e-6) {
@@ -35,6 +37,9 @@ fn encodeDeferredMaterialWord(
 		abs(reflectance - 0.5) > 1e-6
 	) {
 		word = word | DEFERRED_MATERIAL_SPECULAR_BIT;
+	}
+	if (receiveShadows > 0.5) {
+		word = word | DEFERRED_MATERIAL_RECEIVE_SHADOWS_BIT;
 	}
 	return f32(word);
 }

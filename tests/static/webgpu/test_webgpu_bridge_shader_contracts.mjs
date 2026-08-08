@@ -715,7 +715,7 @@ function testShadowDepthLayoutMatchesTransmittanceShaderBinding() {
 		"utf8"
 	);
 	const shadowPassSource = readFileSync(
-		"src/backends/webgpu/WebGPUShadowPass.ts",
+		"src/backends/webgpu/WebGPUShadowCasterRenderer.ts",
 		"utf8"
 	);
 	const depthLayoutBindingPattern = new RegExp([
@@ -775,6 +775,17 @@ async function testParticleShaderDepthConsistency() {
 	assert.ok(WEBGPU_PARTICLE_SHADER.includes("struct ParticleOITOutput"));
 	assert.ok(WEBGPU_PARTICLE_SHADER.includes("fn fsMainOIT("));
 	assert.ok(WEBGPU_PARTICLE_SHADER.includes("fn resolveParticleOITWeight("));
+	assert.ok(
+		WEBGPU_PARTICLE_SHADER.includes(
+			"for (var index = 0u; index < directionalCount; index = index + 1u)"
+		)
+	);
+	assert.ok(
+		WEBGPU_PARTICLE_SHADER.includes(
+			"@group(0) @binding(8) var shadowTransmittanceAtlas"
+		)
+	);
+	assert.equal(WEBGPU_PARTICLE_SHADER.includes("directionalShadows[0]"), false);
 }
 
 async function testWebGPUShaderConstantTokenInjection() {

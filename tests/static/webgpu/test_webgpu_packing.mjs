@@ -163,7 +163,7 @@ function testModelUniformPacking() {
 	assert.deepEqual(readVec(layout, data, "anisotropyTextureTransformA", 4), [
 		49, 50, 51, 52,
 	]);
-	assert.deepEqual(readVec(layout, data, "nodeRenderLayers", 4), [7, 0, 0, 0]);
+	assert.deepEqual(readVec(layout, data, "nodeRenderLayers", 4), [7, 1, 0, 0]);
 	assert.deepEqual(readVec(layout, data, ["textureTransformA", 1], 4), [
 		105, 106, 107, 108,
 	]);
