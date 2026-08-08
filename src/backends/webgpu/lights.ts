@@ -12,7 +12,7 @@ import {
 import type {
 	PreparedShadowLight,
 	ShadowFramePlan,
-} from "../../pipeline/shadows/ShadowFramePlan";
+} from "../../lights/shadows/ShadowFramePlan";
 import {
 	accumulateAmbientLightColor,
 	accumulateLightProbeFallbackAmbientColor,

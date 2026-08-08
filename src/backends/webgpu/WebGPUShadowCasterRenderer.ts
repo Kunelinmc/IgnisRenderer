@@ -14,7 +14,7 @@ import type {
 	PreparedShadowLight,
 	PreparedShadowSlice,
 	ShadowFramePlan,
-} from "../../pipeline/shadows/ShadowFramePlan";
+} from "../../lights/shadows/ShadowFramePlan";
 import {
 	ANIMATION_WEBGPU_JOINT_MATRICES_KEY,
 	ANIMATION_WEBGPU_MORPH_WEIGHTS_KEY,

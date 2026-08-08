@@ -3,7 +3,7 @@ import { Vector3 } from "../../maths/Vector3";
 import type { IVector3 } from "../../maths/types";
 import { LightType, type DirectionalLight, type PointLight, type SpotLight } from "..";
 import { MIN_SHADOW_NEAR, SHADOW_NEAR_FAR_GAP } from "../constants";
-import { ShadowMapBase } from "./ShadowMapBase";
+import { ShadowMapBase, type ShadowMapBaseOptions } from "./ShadowMapBase";
 import { SingleShadowMap } from "./SingleShadowMap";
 import type {
 	SceneBounds,
@@ -12,11 +12,18 @@ import type {
 	ShadowStrategyCamera,
 	ShadowBoundLightType,
 	CascadedShadowMapDefaults,
-	CascadedShadowMapOptions,
 	ShadowProjectionConfig,
 	ShadowProjectionSliceState,
 	ShadowProjectionSnapshot,
 } from "./types";
+
+export interface CascadedShadowMapOptions extends ShadowMapBaseOptions {
+	cascadeCounts?: Partial<CascadedShadowMapDefaults>;
+	lambda?: number;
+	maxDistance?: number;
+	blendRatio?: number;
+	stabilize?: boolean;
+}
 
 const DEFAULT_CASCADE_COUNTS: CascadedShadowMapDefaults = {
 	directional: 4,

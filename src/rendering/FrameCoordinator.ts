@@ -33,7 +33,6 @@ import { ProbeCaptureRuntime } from "../lights/runtime/ProbeCaptureRuntime";
 import type { RendererStageDefinition } from "../pipeline/RendererStageGraph";
 import { isLocalizedLightProbe } from "../lights/runtime/lightProbeRuntime";
 import {
-	createTransientStore,
 	type FrameContext,
 	type FramePassStage,
 	type TransientStore,
@@ -45,7 +44,7 @@ import {
 	resolveParticleShadowCasterBounds,
 } from "../pipeline/ParticleShadowVolume";
 import { resolveParticleRenderIntent } from "../particles/ParticleRenderIntent";
-import { ShadowPlanner } from "../pipeline/shadows/ShadowPlanner";
+import { ShadowPlanner } from "../lights/shadows/ShadowPlanner";
 import type {
 	RendererFeatures,
 	FrameTransientContributor,
@@ -58,7 +57,6 @@ import {
 	createIncrementalTileCoverage,
 	IncrementalFramePlanner,
 	makeFullScreenRect,
-	renderDirtyReasonToMask,
 	type IncrementalFrameContext,
 	type DirtyTileCoverage,
 	type IncrementalFrameStats,
@@ -132,7 +130,7 @@ export class FrameCoordinator {
 	private readonly _probeCaptureRuntime = new ProbeCaptureRuntime();
 	private readonly _occlusionCullingController: RendererOcclusionCullingController;
 	private readonly _animationRuntime = new AnimationRuntime();
-	private readonly _shadowPlanner = new ShadowPlanner();
+	private readonly _shadowPlannerState = ShadowPlanner.createState();
 	private readonly _stageExecutors: Map<string, RendererStageExecutor>;
 
 	constructor(backend: IRenderBackend) {
@@ -698,7 +696,7 @@ export class FrameCoordinator {
 		const cameraPosition = delegate.camera.getWorldPosition(_tmpRendererCameraWorldPosition);
 		const particleIntent = resolveParticleRenderIntent(frame.particleSystems);
 		const particleShadowBounds = resolveParticleShadowCasterBounds(frame.particleSystems);
-		const shadowPlan = this._shadowPlanner.plan({
+		const shadowPlan = ShadowPlanner.plan({
 			manager: delegate.scene.shadows,
 			lights: frame.lights,
 			capabilities: this._backend.profile.shadow,
@@ -722,7 +720,7 @@ export class FrameCoordinator {
 			hasTransmissionCasters: frame.shadowTransmitterPackets.length > 0,
 			needsAtlasFallback:
 				resolved.enableReflection && frame.reflectivePackets.length > 0,
-		});
+		}, this._shadowPlannerState);
 		frame.shadowPlan = shadowPlan;
 
 		const attachments = this._backend.getAttachments({

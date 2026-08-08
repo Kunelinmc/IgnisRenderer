@@ -1,19 +1,19 @@
-import { LightType, type SceneLight, type ShadowCastingLight } from "../../lights";
+import { LightType, type SceneLight, type ShadowCastingLight } from "..";
 import {
 	type IShadowBackendCapabilities,
 	type ShadowDefinitionSnapshot,
 	type ShadowFilterMode,
 	type ShadowProjectionConfig,
 	type ShadowProjectionSliceState,
-} from "../../lights/shadows";
-import { CascadedShadowMap } from "../../lights/shadows/CascadedShadowMap";
-import type { ShadowManager } from "../../lights/shadows/ShadowManager";
-import type { ShadowMapBase } from "../../lights/shadows/ShadowMapBase";
-import { SingleShadowMap } from "../../lights/shadows/SingleShadowMap";
+} from "./types";
+import { CascadedShadowMap } from "./CascadedShadowMap";
+import type { ShadowManager } from "./ShadowManager";
+import type { ShadowMapBase } from "./ShadowMapBase";
+import { SingleShadowMap } from "./SingleShadowMap";
 import type { IVector3 } from "../../maths/types";
 import { Matrix4 } from "../../maths/Matrix4";
 import { resolveShadowCasterBounds } from "./ShadowCasterBounds";
-import type { ShadowStrategyCamera, SceneBounds } from "../../lights/shadows/types";
+import type { ShadowStrategyCamera, SceneBounds } from "./types";
 import type {
 	PreparedShadowLight,
 	PreparedShadowSlice,
@@ -51,28 +51,56 @@ export interface ShadowPlannerOptions {
 	readonly needsAtlasFallback: boolean;
 }
 
+interface ShadowProjectionHistory {
+	readonly definitionRevision: number;
+	readonly signature: string;
+	readonly slices: ShadowProjectionSliceState[];
+}
+
+/** @internal Per-renderer history consumed by the static shadow planner. */
+export interface ShadowPlannerState {
+	revision: number;
+	readonly projectionStates: Map<ShadowCastingLight, ShadowProjectionHistory>;
+}
+
 /**
  * Resolves all backend-neutral shadow choices into one immutable frame plan.
  *
- * @internal `FrameCoordinator` owns one planner per attached backend.
+ * @internal `FrameCoordinator` owns the state passed to the static planner.
  */
 export class ShadowPlanner {
-	private readonly _projectionStates = new Map<ShadowCastingLight, {
-		definitionRevision: number;
-		signature: string;
-		slices: ShadowProjectionSliceState[];
-	}>();
-	private _revision = 0;
+	/**
+	 * Creates isolated cross-frame state for one renderer coordinator.
+	 *
+	 * @internal `FrameCoordinator` owns this state for its attached backend.
+	 */
+	public static createState(): ShadowPlannerState {
+		return {
+			revision: 0,
+			projectionStates: new Map(),
+		};
+	}
 
-	public plan(options: ShadowPlannerOptions): ShadowFramePlan {
+	/**
+	 * Resolves one immutable, backend-neutral shadow frame plan.
+	 *
+	 * @param options Current scene, camera, caster, and backend capability input.
+	 * @param state Per-renderer projection history and plan revision state.
+	 * @returns The immutable shadow plan consumed by backend runtimes.
+	 * @internal `FrameCoordinator` is the owning caller.
+	 */
+	public static plan(
+		options: ShadowPlannerOptions,
+		state: ShadowPlannerState,
+	): ShadowFramePlan {
 		const diagnostics: ShadowDiagnostic[] = [];
 		if (!options.enableShadows) {
-			this._projectionStates.clear();
-			return this._publish([], [], diagnostics, false, false);
+			state.projectionStates.clear();
+			return ShadowPlanner._publish(state, [], [], diagnostics, false, false);
 		}
 
-		const candidates = this._collectCandidates(options, diagnostics);
-		const selected = this._applyBudget(
+		const candidates = ShadowPlanner._collectCandidates(options, diagnostics);
+		const selected = ShadowPlanner._applyBudget(
 			candidates,
 			options.capabilities,
 			diagnostics
@@ -95,9 +123,14 @@ export class ShadowPlanner {
 
 		for (const candidate of selected) {
 			activeLights.add(candidate.light);
-			const slices = this._prepareSlices(candidate, casterBounds, options.camera);
+			const slices = ShadowPlanner._prepareSlices(
+				state,
+				candidate,
+				casterBounds,
+				options.camera,
+			);
 			if (slices.length === 0) {
-				diagnostics.push(this._diagnostic(
+				diagnostics.push(ShadowPlanner._diagnostic(
 					"invalid-projection",
 					candidate,
 					`Shadow projection for light ${candidate.light.id} produced no valid slices.`
@@ -117,7 +150,7 @@ export class ShadowPlanner {
 				requestedResolution: candidate.snapshot.resolution,
 				effectiveResolution: candidate.size,
 				sampling: candidate.snapshot.sampling,
-				fallbackReason: this._resolveFallbackReason(candidate),
+				fallbackReason: ShadowPlanner._resolveFallbackReason(candidate),
 				filterMode: candidate.filterMode,
 				storage: candidate.storage,
 				pagedSettings: candidate.storage === "paged" ?
@@ -134,7 +167,7 @@ export class ShadowPlanner {
 			options.casterIntent.hasParticleCasters ||
 			options.hasTransmissionCasters;
 		const jobs = hasCasters ?
-			this._createJobs(preparedLights, options.needsAtlasFallback)
+			ShadowPlanner._createJobs(preparedLights, options.needsAtlasFallback)
 		: [];
 		const hasTransmissionWork =
 			options.hasTransmissionCasters &&
@@ -145,14 +178,15 @@ export class ShadowPlanner {
 			options.capabilities.supportsTransmission === false &&
 			selected[0]
 		) {
-			diagnostics.push(this._diagnostic(
+			diagnostics.push(ShadowPlanner._diagnostic(
 				"transmission-unsupported",
 				selected[0],
 				`Backend ${options.capabilities.backendKey} does not support shadow transmission.`
 			));
 		}
-		this._trimProjectionStates(activeLights);
-		return this._publish(
+		ShadowPlanner._trimProjectionStates(state, activeLights);
+		return ShadowPlanner._publish(
+			state,
 			preparedLights,
 			jobs,
 			diagnostics,
@@ -162,7 +196,7 @@ export class ShadowPlanner {
 	}
 
 
-	private _collectCandidates(
+	private static _collectCandidates(
 		options: ShadowPlannerOptions,
 		diagnostics: ShadowDiagnostic[]
 	): ShadowPlanCandidate[] {
@@ -181,7 +215,7 @@ export class ShadowPlanner {
 					message: `Custom shadow kind ${snapshot.kind} is deprecated; planner converted it to a built-in descriptor.`,
 				});
 			}
-			if (!this._supportsLight(light, options.capabilities)) {
+			if (!ShadowPlanner._supportsLight(light, options.capabilities)) {
 				diagnostics.push({
 					code: "unsupported-light-type",
 					severity: "warning",
@@ -196,7 +230,10 @@ export class ShadowPlanner {
 				1,
 				definition.resolveCascadeCount(light.type)
 			);
-			const supportsCascaded = this._supportsCascaded(light, options.capabilities);
+			const supportsCascaded = ShadowPlanner._supportsCascaded(
+				light,
+				options.capabilities,
+			);
 			const cascadeCount = supportsCascaded ? requestedCascadeCount : 1;
 			if (snapshot.projection.technique === "cascaded" && !supportsCascaded) {
 				diagnostics.push({
@@ -222,14 +259,14 @@ export class ShadowPlanner {
 				});
 			}
 
-			const storage = this._resolveStorage(
+			const storage = ShadowPlanner._resolveStorage(
 				definition,
 				options.capabilities,
 				light,
 				diagnostics
 			);
 			const size = definition.size;
-			const projection = this._resolveProjection(
+			const projection = ShadowPlanner._resolveProjection(
 				snapshot,
 				size,
 				cascadeCount,
@@ -240,7 +277,11 @@ export class ShadowPlanner {
 				light,
 				definition,
 				snapshot,
-				score: this._score(light, definition.priority, options.cameraPosition),
+				score: ShadowPlanner._score(
+					light,
+					definition.priority,
+					options.cameraPosition,
+				),
 				requestedFilter,
 				filterMode,
 				storage,
@@ -257,14 +298,14 @@ export class ShadowPlanner {
 			right.score - left.score ||
 			left.light.id.localeCompare(right.light.id)
 		);
-		return this._applyCapabilityLimits(
+		return ShadowPlanner._applyCapabilityLimits(
 			candidates,
 			options.capabilities,
 			diagnostics
 		);
 	}
 
-	private _applyCapabilityLimits(
+	private static _applyCapabilityLimits(
 		candidates: readonly ShadowPlanCandidate[],
 		capabilities: IShadowBackendCapabilities,
 		diagnostics: ShadowDiagnostic[]
@@ -286,7 +327,7 @@ export class ShadowPlanner {
 				candidate.cascadeCount > 1 &&
 				cascadedCount >= limits.maxCascadedLights;
 			if (exceedsLightLimit || exceedsCascadedLimit) {
-				diagnostics.push(this._diagnostic(
+				diagnostics.push(ShadowPlanner._diagnostic(
 					"capability-limit",
 					candidate,
 					`Backend ${capabilities.backendKey} shadow count limit disabled light ${candidate.light.id}.`
@@ -302,7 +343,7 @@ export class ShadowPlanner {
 		return accepted;
 	}
 
-	private _applyBudget(
+	private static _applyBudget(
 		candidates: readonly ShadowPlanCandidate[],
 		capabilities: IShadowBackendCapabilities,
 		diagnostics: ShadowDiagnostic[]
@@ -320,16 +361,19 @@ export class ShadowPlanner {
 				consumed += candidate.cost;
 				continue;
 			}
-			const degraded = this._degrade(candidate, Math.max(0, budget - consumed));
+			const degraded = ShadowPlanner._degrade(
+				candidate,
+				Math.max(0, budget - consumed),
+			);
 			if (!degraded) {
-				diagnostics.push(this._diagnostic(
+				diagnostics.push(ShadowPlanner._diagnostic(
 					"budget-disabled",
 					candidate,
 					`Shadow for light ${candidate.light.id} was disabled by the dynamic shadow budget.`
 				));
 				continue;
 			}
-			diagnostics.push(this._diagnostic(
+			diagnostics.push(ShadowPlanner._diagnostic(
 				"budget-degraded",
 				degraded,
 				`Shadow for light ${candidate.light.id} was degraded to ${degraded.cascadeCount} cascade(s) at ${degraded.size}px.`
@@ -340,28 +384,36 @@ export class ShadowPlanner {
 		return selected;
 	}
 
-	private _degrade(
+	private static _degrade(
 		candidate: ShadowPlanCandidate,
 		remainingBudget: number
 	): ShadowPlanCandidate | null {
 		if (remainingBudget <= 0) return null;
 		for (let cascades = candidate.cascadeCount; cascades >= 1; cascades--) {
-			const degraded = this._withResolution(candidate, candidate.size, cascades);
+			const degraded = ShadowPlanner._withResolution(
+				candidate,
+				candidate.size,
+				cascades,
+			);
 			if (degraded.cost <= remainingBudget) return degraded;
 		}
 		for (let size = Math.floor(candidate.size / 2); size >= 128; size /= 2) {
-			const degraded = this._withResolution(candidate, Math.floor(size), 1);
+			const degraded = ShadowPlanner._withResolution(
+				candidate,
+				Math.floor(size),
+				1,
+			);
 			if (degraded.cost <= remainingBudget) return degraded;
 		}
 		return null;
 	}
 
-	private _withResolution(
+	private static _withResolution(
 		candidate: ShadowPlanCandidate,
 		size: number,
 		cascadeCount: number
 	): ShadowPlanCandidate {
-		const projection = this._resolveProjection(
+		const projection = ShadowPlanner._resolveProjection(
 			candidate.snapshot,
 			size,
 			cascadeCount,
@@ -381,7 +433,7 @@ export class ShadowPlanner {
 		};
 	}
 
-	private _resolveProjection(
+	private static _resolveProjection(
 		snapshot: ShadowDefinitionSnapshot,
 		size: number,
 		cascadeCount: number,
@@ -399,7 +451,8 @@ export class ShadowPlanner {
 		};
 	}
 
-	private _prepareSlices(
+	private static _prepareSlices(
+		state: ShadowPlannerState,
 		candidate: ShadowPlanCandidate,
 		sceneBounds: SceneBounds,
 		camera: ShadowStrategyCamera,
@@ -415,9 +468,9 @@ export class ShadowPlanner {
 			candidate.projection.resolution,
 			sliceCount,
 		].join(":");
-		let state = this._projectionStates.get(candidate.light);
-		if (!state || state.signature !== signature) {
-			state = {
+		let projectionHistory = state.projectionStates.get(candidate.light);
+		if (!projectionHistory || projectionHistory.signature !== signature) {
+			projectionHistory = {
 				definitionRevision: candidate.snapshot.revision,
 				signature,
 				slices: Array.from({ length: sliceCount }, (_, index) => ({
@@ -429,26 +482,27 @@ export class ShadowPlanner {
 					csmStableLightDir: null,
 				})),
 			};
-			this._projectionStates.set(candidate.light, state);
+			state.projectionStates.set(candidate.light, projectionHistory);
 		}
 		const descriptors = candidate.projection.technique === "cascaded" ?
 			CascadedShadowMap.buildSlices({
 				light: candidate.light,
-				slices: state.slices,
+				slices: projectionHistory.slices,
 				config: candidate.projection,
 				sceneBounds,
 				camera,
 			}) :
 			SingleShadowMap.buildSlices({
 				light: candidate.light,
-				slices: state.slices,
+				slices: projectionHistory.slices,
 				config: candidate.projection,
 				sceneBounds,
 				camera,
 			});
 		return descriptors.map((slice, index) => Object.freeze({
 			index,
-			resolution: state.slices[index]?.resolution ?? candidate.projection.resolution,
+			resolution: projectionHistory.slices[index]?.resolution ??
+				candidate.projection.resolution,
 			view: freezeMatrix(slice.view.clone()),
 			projection: freezeMatrix(slice.projection.clone()),
 			viewProjection: freezeMatrix(Matrix4.multiply(slice.projection, slice.view)),
@@ -458,13 +512,16 @@ export class ShadowPlanner {
 		}));
 	}
 
-	private _trimProjectionStates(activeLights: ReadonlySet<ShadowCastingLight>): void {
-		for (const light of this._projectionStates.keys()) {
-			if (!activeLights.has(light)) this._projectionStates.delete(light);
+	private static _trimProjectionStates(
+		state: ShadowPlannerState,
+		activeLights: ReadonlySet<ShadowCastingLight>,
+	): void {
+		for (const light of state.projectionStates.keys()) {
+			if (!activeLights.has(light)) state.projectionStates.delete(light);
 		}
 	}
 
-	private _createJobs(
+	private static _createJobs(
 		lights: readonly PreparedShadowLight[],
 		needsAtlasFallback: boolean
 	): ShadowRenderJob[] {
@@ -490,7 +547,8 @@ export class ShadowPlanner {
 		return jobs;
 	}
 
-	private _publish(
+	private static _publish(
+		state: ShadowPlannerState,
 		lights: PreparedShadowLight[],
 		jobs: ShadowRenderJob[],
 		diagnostics: ShadowDiagnostic[],
@@ -498,7 +556,7 @@ export class ShadowPlanner {
 		_publishLegacy: boolean,
 	): ShadowFramePlan {
 		const plan: ShadowFramePlan = Object.freeze({
-			revision: ++this._revision,
+			revision: ++state.revision,
 			lights: Object.freeze(lights),
 			jobs: Object.freeze(jobs),
 			diagnostics: Object.freeze(diagnostics.map((item) => Object.freeze(item))),
@@ -509,7 +567,7 @@ export class ShadowPlanner {
 		return plan;
 	}
 
-	private _supportsLight(
+	private static _supportsLight(
 		light: ShadowCastingLight,
 		capabilities: IShadowBackendCapabilities
 	): boolean {
@@ -520,7 +578,7 @@ export class ShadowPlanner {
 		return light.type !== LightType.RectArea;
 	}
 
-	private _supportsCascaded(
+	private static _supportsCascaded(
 		light: ShadowCastingLight,
 		capabilities: IShadowBackendCapabilities
 	): boolean {
@@ -532,7 +590,7 @@ export class ShadowPlanner {
 		return false;
 	}
 
-	private _resolveStorage(
+	private static _resolveStorage(
 		definition: ShadowMapBase,
 		capabilities: IShadowBackendCapabilities,
 		light: ShadowCastingLight,
@@ -567,7 +625,7 @@ export class ShadowPlanner {
 		return "atlas";
 	}
 
-	private _resolveFallbackReason(
+	private static _resolveFallbackReason(
 		candidate: ShadowPlanCandidate
 	): ShadowDiagnostic["code"] | undefined {
 		if (candidate.filterMode !== candidate.requestedFilter) return "filter-fallback";
@@ -587,7 +645,7 @@ export class ShadowPlanner {
 		return undefined;
 	}
 
-	private _score(
+	private static _score(
 		light: ShadowCastingLight,
 		priority: number,
 		cameraPosition: IVector3 | null
@@ -602,7 +660,7 @@ export class ShadowPlanner {
 		return score;
 	}
 
-	private _diagnostic(
+	private static _diagnostic(
 		code: ShadowDiagnostic["code"],
 		candidate: ShadowPlanCandidate,
 		message: string

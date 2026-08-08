@@ -1,6 +1,6 @@
 import { LightType, type ShadowCastingLight } from "../../lights";
 import type { PreparedPagedShadowSettings } from "../../lights/shadows/types";
-import type { PreparedShadowLight, ShadowFramePlan } from "../../pipeline/shadows/ShadowFramePlan";
+import type { PreparedShadowLight, ShadowFramePlan } from "../../lights/shadows/ShadowFramePlan";
 import { Matrix4 } from "../../maths/Matrix4";
 import type { IVector3 } from "../../maths/types";
 import type {

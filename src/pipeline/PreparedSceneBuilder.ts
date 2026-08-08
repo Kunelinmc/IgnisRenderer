@@ -5,7 +5,7 @@ import { isMaterialTransparentPass } from "../materials/transparency";
 import { Matrix4 } from "../maths/Matrix4";
 import type { Matrix3Arr } from "../maths/types";
 import type { Scene } from "../core/Scene";
-import { EMPTY_SHADOW_FRAME_PLAN } from "./shadows/ShadowFramePlan";
+import { EMPTY_SHADOW_FRAME_PLAN } from "../lights/shadows/ShadowFramePlan";
 import type { IPrimitive } from "../core/types";
 import { DEFAULT_PRIMITIVE_DRAW_TOPOLOGY } from "../core/types";
 import type { Decal } from "../decals";

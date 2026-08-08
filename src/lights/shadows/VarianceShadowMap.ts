@@ -1,6 +1,6 @@
 import { LightType } from "..";
-import type { ShadowMapBaseOptions } from "./types";
 import { SingleShadowMap } from "./SingleShadowMap";
+import type { ShadowMapBaseOptions } from "./ShadowMapBase";
 
 export interface VarianceShadowMapOptions extends ShadowMapBaseOptions {
 	momentBias?: number;

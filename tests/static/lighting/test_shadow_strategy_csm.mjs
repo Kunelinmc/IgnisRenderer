@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { Scene } from "../../../src/core/Scene.ts";
 import { DirectionalLight } from "../../../src/lights/DirectionalLight.ts";
-import { ShadowPlanner } from "../../../src/pipeline/shadows/ShadowPlanner.ts";
+import { ShadowPlanner } from "../../../src/lights/shadows/ShadowPlanner.ts";
 
 function createCamera() {
 	return {
@@ -21,13 +21,13 @@ function testDirectionalCsmPreparedSlices() {
 		size: 1024, cascadeCounts: { directional: 4 }, blendRatio: 0.2,
 	}));
 	const camera = createCamera();
-	const plan = new ShadowPlanner().plan({
+	const plan = ShadowPlanner.plan({
 		manager: scene.shadows, lights: [sun], camera, cameraPosition: camera.position,
 		sceneBounds: { center: { x: 0, y: 0, z: 0 }, radius: 80 },
 		casterIntent: { meshPackets: [], hasTransparentCasters: false, hasParticleCasters: false, estimatedParticleCapacity: 0 },
 		enableShadows: true,
 		capabilities: { backendKey: "test", supportsFilterModes: ["pcf"], supportsDirectionalCSM: true, supportsSpotCSM: false, supportsPointCSM: false, maxDynamicShadowCost: 128 },
-	});
+	}, ShadowPlanner.createState());
 	assert.equal(plan.lights[0].effectiveTechnique, "cascaded");
 	assert.equal(plan.lights[0].slices.length, 4);
 	assert.ok(plan.lights[0].slices.every((slice) => slice.viewProjection));

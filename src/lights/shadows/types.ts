@@ -25,15 +25,6 @@ export interface ShadowSamplingSettings {
 	searchSamples?: number;
 }
 
-export interface ShadowMapBaseOptions {
-	id?: string;
-	enabled?: boolean;
-	priority?: number;
-	size?: number;
-	bias?: ShadowBiasSettings;
-	sampling?: ShadowSamplingSettings;
-}
-
 export type ShadowProjectionPreference = "single" | "cascaded";
 export type ShadowStoragePreference = "atlas" | "paged";
 
@@ -83,29 +74,6 @@ export interface ShadowDefinitionSnapshot {
 
 /** @internal Listener used by `ShadowManager` to observe shared definitions. */
 export type ShadowDefinitionListener = (definition: ShadowMapBase) => void;
-
-export interface CascadedShadowMapOptions extends ShadowMapBaseOptions {
-	cascadeCounts?: Partial<CascadedShadowMapDefaults>;
-	lambda?: number;
-	maxDistance?: number;
-	blendRatio?: number;
-	stabilize?: boolean;
-}
-
-export interface PagedShadowMapOptions extends ShadowMapBaseOptions {
-	virtualResolution?: number;
-	pageSize?: number;
-	physicalPageCount?: number;
-	clipmapLevels?: number;
-	maxPagesPerFrame?: number;
-	cacheFrames?: number;
-	feedbackMode?: PagedShadowFeedbackMode;
-	cascadeCounts?: Partial<CascadedShadowMapDefaults>;
-	lambda?: number;
-	maxDistance?: number;
-	blendRatio?: number;
-	stabilize?: boolean;
-}
 
 export interface SceneBounds {
 	center: IVector3;

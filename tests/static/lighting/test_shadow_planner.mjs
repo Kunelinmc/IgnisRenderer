@@ -4,7 +4,7 @@ import { Scene } from "../../../src/core/Scene.ts";
 import { DirectionalLight } from "../../../src/lights/DirectionalLight.ts";
 import { PointLight } from "../../../src/lights/PointLight.ts";
 import { SpotLight } from "../../../src/lights/SpotLight.ts";
-import { ShadowPlanner } from "../../../src/pipeline/shadows/ShadowPlanner.ts";
+import { ShadowPlanner } from "../../../src/lights/shadows/ShadowPlanner.ts";
 
 function createCamera() {
 	const position = { x: 0, y: 4, z: 16 };
@@ -76,9 +76,9 @@ function createIntent(hasCasters = true) {
 }
 
 function planScene(scene, options = {}) {
-	const planner = options.planner ?? new ShadowPlanner();
+	const plannerState = options.plannerState ?? ShadowPlanner.createState();
 	const camera = createCamera();
-	return planner.plan({
+	return ShadowPlanner.plan({
 		manager: scene.shadows,
 		lights: scene.ecs.findLights(),
 		capabilities: options.capabilities ?? createCapabilities(),
@@ -89,7 +89,7 @@ function planScene(scene, options = {}) {
 		enableShadows: true,
 		hasTransmissionCasters: false,
 		needsAtlasFallback: options.needsAtlasFallback ?? false,
-	});
+	}, plannerState);
 }
 
 function testCapabilityAndFilterFallbacksAreExplicit() {
@@ -187,7 +187,8 @@ function testPlanStaysImmutableAcrossPlanningFrames() {
 	const scene = new Scene();
 	const sun = scene.add(new DirectionalLight());
 	scene.shadows.bind(sun, scene.shadows.createSingle());
-	const plan = planScene(scene);
+	const plannerState = ShadowPlanner.createState();
+	const plan = planScene(scene, { plannerState });
 	const planHash = (value) => JSON.stringify({
 		revision: value.revision,
 		lights: value.lights.map((light) => ({
@@ -206,9 +207,11 @@ function testPlanStaysImmutableAcrossPlanningFrames() {
 		diagnostics: value.diagnostics,
 	});
 	const before = planHash(plan);
-	const nextPlan = planScene(scene);
+	const nextPlan = planScene(scene, { plannerState });
 	assert.equal(planHash(plan), before);
 	assert.notEqual(nextPlan, plan);
+	assert.equal(nextPlan.revision, plan.revision + 1);
+	assert.equal(planScene(scene).revision, 1);
 	assert.ok(Object.isFrozen(plan));
 	assert.ok(Object.isFrozen(plan.jobs));
 	assert.ok(Object.isFrozen(plan.lights[0].slices[0].view));

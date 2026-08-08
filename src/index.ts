@@ -132,7 +132,7 @@ export type {
 	ShadowFramePlan,
 	ShadowRenderJob,
 	ShadowWorkSet,
-} from "./pipeline/shadows/ShadowFramePlan";
+} from "./lights/shadows/ShadowFramePlan";
 export {
 	getEnabledCustomPostProcessPassIds,
 	hasEnabledCustomPostProcessPass,

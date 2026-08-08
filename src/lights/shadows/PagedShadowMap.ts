@@ -1,14 +1,28 @@
 import { LightType } from "..";
-import { ShadowMapBase } from "./ShadowMapBase";
+import { ShadowMapBase, type ShadowMapBaseOptions } from "./ShadowMapBase";
 import type {
 	CascadedShadowMapDefaults,
 	PagedShadowFeedbackMode,
 	PreparedPagedShadowSettings,
-	PagedShadowMapOptions,
 	ShadowBoundLightType,
 	ShadowProjectionSnapshot,
 	ShadowStoragePreference,
 } from "./types";
+
+export interface PagedShadowMapOptions extends ShadowMapBaseOptions {
+	virtualResolution?: number;
+	pageSize?: number;
+	physicalPageCount?: number;
+	clipmapLevels?: number;
+	maxPagesPerFrame?: number;
+	cacheFrames?: number;
+	feedbackMode?: PagedShadowFeedbackMode;
+	cascadeCounts?: Partial<CascadedShadowMapDefaults>;
+	lambda?: number;
+	maxDistance?: number;
+	blendRatio?: number;
+	stabilize?: boolean;
+}
 
 const DEFAULT_CASCADE_COUNTS: CascadedShadowMapDefaults = {
 	directional: 4,

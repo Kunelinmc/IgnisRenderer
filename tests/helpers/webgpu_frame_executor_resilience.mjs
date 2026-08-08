@@ -10,7 +10,7 @@ import { BackendPostProcessRuntime } from "../../src/postprocess/BackendPostProc
 import { FramePacketContributorRegistry } from "../../src/pipeline/FramePacketContributorRegistry.ts";
 import { WebGPUParticleMeshPacketContributor } from "../../src/backends/webgpu/WebGPUParticleMeshPacketContributor.ts";
 import { PARTICLE_MESH_TRANSIENT_BATCHES_KEY } from "../../src/pipeline/types.ts";
-import { EMPTY_SHADOW_FRAME_PLAN } from "../../src/pipeline/shadows/ShadowFramePlan.ts";
+import { EMPTY_SHADOW_FRAME_PLAN } from "../../src/lights/shadows/ShadowFramePlan.ts";
 
 import { FakeWebGPUBackend as FakeBackend } from "./fakes.mjs";
 import { createResolvedPostProcess } from "./postprocess.mjs";

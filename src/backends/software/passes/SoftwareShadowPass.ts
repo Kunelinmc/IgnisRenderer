@@ -16,7 +16,7 @@ import type {
 	PreparedShadowLight,
 	PreparedShadowSlice,
 	ShadowFramePlan,
-} from "../../../pipeline/shadows/ShadowFramePlan";
+} from "../../../lights/shadows/ShadowFramePlan";
 import {
 	clearParticleShadowVolumeGrid,
 	createParticleShadowVolumeGrid,

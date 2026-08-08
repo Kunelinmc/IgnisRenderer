@@ -12,12 +12,11 @@ import {
 	MIN_SHADOW_NEAR,
 	SHADOW_NEAR_FAR_GAP,
 } from "../constants";
-import { ShadowMapBase } from "./ShadowMapBase";
+import { ShadowMapBase, type ShadowMapBaseOptions } from "./ShadowMapBase";
 import type {
 	SceneBounds,
 	ShadowSliceDescriptor,
 	ShadowStrategyBuildContext,
-	ShadowMapBaseOptions,
 } from "./types";
 
 type PositionalShadowLight = ShadowCastingLight & {

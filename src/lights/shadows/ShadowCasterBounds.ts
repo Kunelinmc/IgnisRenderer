@@ -1,6 +1,6 @@
 import type { IVector3 } from "../../maths/types";
-import type { SceneBounds } from "../../lights/shadows";
-import type { DrawPacket } from "../types";
+import type { DrawPacket } from "../../pipeline/types";
+import type { SceneBounds } from "./types";
 
 interface ShadowBoundsCamera {
 	isSphereInFrustum?: (center: IVector3, radius: number) => boolean;

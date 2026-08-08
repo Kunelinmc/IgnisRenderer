@@ -39,9 +39,11 @@ faces per cascade. Cascade counts are clamped to the built-in range, and
 unsupported projection or storage modes must produce an explicit fallback
 diagnostic.
 
-Projection stabilization history belongs to the planner. It must be reset when
-the definition revision, binding, effective projection shape, technique, or
-resolution changes, and must be removed for inactive or disabled lights.
+Projection stabilization history belongs to per-renderer `ShadowPlannerState`.
+`FrameCoordinator` must pass that state to the static `ShadowPlanner.plan()`
+entrypoint. The state must be reset when the definition revision, binding,
+effective projection shape, technique, or resolution changes, and history must
+be removed for inactive or disabled lights.
 Caster-bound radius shrink must be smoothed while stabilization is active so a
 temporary bounds reduction does not immediately resize the projection.
 

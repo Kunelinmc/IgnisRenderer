@@ -7,7 +7,6 @@ import type {
 	ShadowDefinitionSnapshot,
 	ShadowFilterMode,
 	ShadowMapKind,
-	ShadowMapBaseOptions,
 	PreparedPagedShadowSettings,
 	ShadowProjectionSnapshot,
 	ShadowSamplingSettings,
@@ -15,6 +14,15 @@ import type {
 } from "./types";
 
 const DEFAULT_SHADOW_SIZE = 1024;
+
+export interface ShadowMapBaseOptions {
+	id?: string;
+	enabled?: boolean;
+	priority?: number;
+	size?: number;
+	bias?: ShadowBiasSettings;
+	sampling?: ShadowSamplingSettings;
+}
 
 export abstract class ShadowMapBase {
 	public readonly id: string;

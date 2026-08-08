@@ -1,5 +1,5 @@
 import type { RGB } from "../../foundation/Color";
-import type { PreparedShadowLight } from "../../pipeline/shadows/ShadowFramePlan";
+import type { PreparedShadowLight } from "../shadows/ShadowFramePlan";
 import { clamp, sRGBToLinear } from "../../maths/Common";
 import type { Matrix4 } from "../../maths/Matrix4";
 

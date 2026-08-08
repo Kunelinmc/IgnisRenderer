@@ -1,14 +1,12 @@
 import type { ShadowCastingLight } from "..";
-import { CascadedShadowMap } from "./CascadedShadowMap";
-import { PagedShadowMap } from "./PagedShadowMap";
-import { ShadowMapBase } from "./ShadowMapBase";
+import {
+	CascadedShadowMap,
+	type CascadedShadowMapOptions,
+} from "./CascadedShadowMap";
+import { PagedShadowMap, type PagedShadowMapOptions } from "./PagedShadowMap";
+import { ShadowMapBase, type ShadowMapBaseOptions } from "./ShadowMapBase";
 import { SingleShadowMap } from "./SingleShadowMap";
 import { VarianceShadowMap, type VarianceShadowMapOptions } from "./VarianceShadowMap";
-import type {
-	CascadedShadowMapOptions,
-	PagedShadowMapOptions,
-	ShadowMapBaseOptions,
-} from "./types";
 
 /** @internal Scene owns this invalidation bridge. */
 export interface ShadowManagerOptions {

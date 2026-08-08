@@ -7,7 +7,7 @@ import {
 import { createResolvedPostProcess } from "../../helpers/postprocess.mjs";
 import { ParticleBlendMode } from "../../../src/particles/types.ts";
 import { AlphaMode, Material } from "../../../src/materials/Material.ts";
-import { EMPTY_SHADOW_FRAME_PLAN } from "../../../src/pipeline/shadows/ShadowFramePlan.ts";
+import { EMPTY_SHADOW_FRAME_PLAN } from "../../../src/lights/shadows/ShadowFramePlan.ts";
 
 function createShadowPlan(hasRasterWork) {
 	return { ...EMPTY_SHADOW_FRAME_PLAN, hasRasterWork };

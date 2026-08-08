@@ -11,7 +11,7 @@ import {
 import type {
 	PreparedShadowLight,
 	ShadowFramePlan,
-} from "../../pipeline/shadows/ShadowFramePlan";
+} from "../../lights/shadows/ShadowFramePlan";
 import type { ResolvedShadowStrategy } from "../../lights/runtime/lightingRuntime";
 import type { Matrix4 } from "../../maths/Matrix4";
 import type { IVector3, SHCoefficients } from "../../maths/types";

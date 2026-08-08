@@ -94,7 +94,7 @@ runtime without exposing a public backend graph API.
 | --- | --- |
 | Cross-backend renderer stage | `src/pipeline/` and renderer contract |
 | Shadow definition or binding | `src/lights/shadows/` and shadow contract |
-| Cross-backend shadow planning | `src/pipeline/shadows/` and shadow contract |
+| Cross-backend shadow planning | `src/lights/shadows/` and shadow contract |
 | Native shadow resources or graph nodes | Owning backend shadow runtime |
 | Backend-private pass expansion | Owning backend runtime and backend contract |
 | Cross-backend post-process pass | `src/postprocess/passes/` and post-process contract |
