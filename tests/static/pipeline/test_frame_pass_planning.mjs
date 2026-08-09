@@ -1,9 +1,16 @@
 import assert from "node:assert/strict";
-import { FramePlanner } from "../../../src/pipeline/FramePlanner.ts";
+
 import { RenderPipelineRegistry } from "../../../src/pipeline/RenderPipelineRegistry.ts";
+import {
+	resolveFramePassRequirements,
+} from "../../../src/pipeline/FramePassRequirements.ts";
 import {
 	createDefaultPipelineStages,
 } from "../../../src/pipeline/defaultPipeline.ts";
+import { createTransientStore } from "../../../src/pipeline/types.ts";
+import {
+	hasPostProcessExecutionPasses,
+} from "../../../src/postprocess/index.ts";
 import { createResolvedPostProcess } from "../../helpers/postprocess.mjs";
 import { ParticleBlendMode } from "../../../src/particles/types.ts";
 import { AlphaMode, Material } from "../../../src/materials/Material.ts";
@@ -29,6 +36,57 @@ function createFrame(overrides = {}) {
 		decalPackets: [],
 		...overrides,
 	};
+}
+
+function createFramePlan(frame, features, postProcess, options = {}) {
+	const registry =
+		options.registry ??
+		new RenderPipelineRegistry({
+			stages: createDefaultPipelineStages(),
+		});
+	const stageOrder =
+		options.stageOrder ??
+		registry.getExecutionOrder(
+			{
+				hasActiveAnimations: frame.hasActiveAnimations,
+				hasParticleSystems: (frame.particleSystems?.length ?? 0) > 0,
+			},
+			() => {},
+		);
+	const requirements =
+		options.requirements ??
+		resolveFramePassRequirements({
+			frame,
+			features,
+			support: {
+				meshParticles: options.backendCapabilities?.meshParticles === true,
+				postProcess: options.backendCapabilities?.postProcess === true,
+			},
+			hasPostProcessWork:
+				options.backendCapabilities?.postProcess === true &&
+				hasPostProcessExecutionPasses(postProcess, {
+					backend: options.backendType,
+					frameContext: options.frameContext,
+				}),
+		});
+
+	return registry.createFramePlan({
+		stageOrder,
+		frame,
+		features,
+		postProcess,
+		transient: options.transient ?? createTransientStore(),
+		requirements,
+		backendType: options.backendType,
+		backendCapabilities: options.backendCapabilities,
+		incremental: options.incremental,
+		frameContext: options.frameContext,
+		incrementalStartStageIndex: options.incrementalStartStageIndex,
+	});
+}
+
+function createBackendPasses(frame, features, postProcess) {
+	return Array.from(createFramePlan(frame, features, postProcess).backendPasses);
 }
 
 function run() {
@@ -62,7 +120,7 @@ function run() {
 		reflectivePackets: [{}],
 		shadowPlan: createShadowPlan(true),
 	});
-	const framePlan = FramePlanner.buildFramePlan(
+	const framePlan = createFramePlan(
 		frame,
 		{
 			...baseResolved,
@@ -129,7 +187,7 @@ function run() {
 			framePlan.stageOrder.findIndex((stage) => stage.id === "sync-out")
 	);
 
-	const disabledPlan = FramePlanner.build(
+	const disabledPlan = createBackendPasses(
 		createFrame(),
 		baseResolved,
 		createPostProcess({
@@ -203,7 +261,7 @@ function run() {
 		shadowTransmitterPackets: [],
 		shadowPlan: createShadowPlan(true),
 	});
-	const meshParticlePlan = FramePlanner.buildFramePlan(
+	const meshParticlePlan = createFramePlan(
 		meshParticleFrame,
 		baseResolved,
 		createPostProcess(),
@@ -220,7 +278,7 @@ function run() {
 		meshParticlePlan.find((pass) => pass.stage === "shadow")?.enabled,
 		true,
 	);
-	const unsupportedMeshParticlePlan = FramePlanner.buildFramePlan(
+	const unsupportedMeshParticlePlan = createFramePlan(
 		{ ...meshParticleFrame, shadowPlan: createShadowPlan(false) },
 		baseResolved,
 		createPostProcess(),
@@ -243,7 +301,7 @@ function run() {
 			?.enabled,
 		false,
 	);
-	const explicitRequirementsPlan = FramePlanner.buildFramePlan(
+	const explicitRequirementsPlan = createFramePlan(
 		createFrame(),
 		baseResolved,
 		createPostProcess(),
@@ -275,7 +333,7 @@ function run() {
 		true,
 	);
 
-	const particleCasterPlan = FramePlanner.build(
+	const particleCasterPlan = createBackendPasses(
 		createFrame({
 			particleSystems: [
 				{
@@ -296,7 +354,7 @@ function run() {
 		true
 	);
 
-	const additiveCasterPlan = FramePlanner.build(
+	const additiveCasterPlan = createBackendPasses(
 		createFrame({
 			particleSystems: [
 				{
@@ -317,7 +375,7 @@ function run() {
 		false
 	);
 
-	const sceneFogPlan = FramePlanner.buildFramePlan(
+	const sceneFogPlan = createFramePlan(
 		createFrame(),
 		baseResolved,
 		createPostProcess({
@@ -345,7 +403,7 @@ function run() {
 		dependsOn: ["main-opaque"],
 		shouldRun: () => true,
 	});
-	const customPlan = FramePlanner.buildFramePlan(
+	const customPlan = createFramePlan(
 		createFrame(),
 		baseResolved,
 		createPostProcess(),
@@ -358,7 +416,7 @@ function run() {
 			customBackendStages.indexOf("main-opaque")
 	);
 
-	console.log("Frame planner tests passed");
+	console.log("Frame pass planning tests passed");
 }
 
 run();
