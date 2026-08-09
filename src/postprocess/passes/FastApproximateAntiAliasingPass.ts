@@ -69,6 +69,7 @@ export interface SoftwareFXAAContext {
 	readonly attachments: FrameAttachments;
 	readonly canvasContext: CanvasRenderingContext2D | null;
 	readonly dirtyRects: readonly IncrementalDirtyRect[];
+	readonly resources: PostProcessResourceAccessor<ArrayBufferView>;
 }
 
 /** @internal WebGPU context supplied to the built-in FXAA implementation. */
@@ -139,7 +140,7 @@ export class SoftwareFastApproximateAntiAliasingImplementation
 	public describeExecution() {
 		return SOFTWARE_IN_PLACE_EXECUTION;
 	}
-	private _output: Uint8ClampedArray | null = null;
+	private _output: Float32Array | null = null;
 	private _luma: Float32Array | null = null;
 
 	public execute(
@@ -156,21 +157,18 @@ export class SoftwareFastApproximateAntiAliasingImplementation
 		context: SoftwareFXAAContext
 	): PostProcessPassResult {
 		const { width, height } = context.attachments;
-		let pixels = context.attachments.pixels;
-		let imageData: ImageData | null = null;
-		if (!pixels) {
-			if (!context.canvasContext) {
-				return { ran: false };
-			}
-			imageData = context.canvasContext.getImageData(0, 0, width, height);
-			pixels = imageData.data;
-		}
-		if (width <= 0 || height <= 0 || pixels.length === 0) {
+		const pixels = context.resources.color.input;
+		if (
+			!(pixels instanceof Float32Array) ||
+			width <= 0 ||
+			height <= 0 ||
+			pixels.length === 0
+		) {
 			return { ran: false };
 		}
 
 		if (!this._output || this._output.length !== pixels.length) {
-			this._output = new Uint8ClampedArray(pixels.length);
+			this._output = new Float32Array(pixels.length);
 		}
 		const output = this._output;
 		output.set(pixels);
@@ -186,9 +184,9 @@ export class SoftwareFastApproximateAntiAliasingImplementation
 		const luma = this._luma;
 
 		for (let i = 0, len = pixels.length; i < len; i += 4) {
-			const r = pixels[i] / 255;
-			const g = pixels[i + 1] / 255;
-			const b = pixels[i + 2] / 255;
+			const r = pixels[i];
+			const g = pixels[i + 1];
+			const b = pixels[i + 2];
 			luma[i >> 2] = Math.sqrt(0.2126 * r + 0.7152 * g + 0.0722 * b);
 		}
 
@@ -320,12 +318,7 @@ export class SoftwareFastApproximateAntiAliasingImplementation
 			}
 		});
 
-		if (imageData) {
-			imageData.data.set(output);
-			context.canvasContext?.putImageData(imageData, 0, 0);
-		} else {
-			pixels.set(output);
-		}
+		pixels.set(output);
 		return { ran: true };
 	}
 }
@@ -638,7 +631,7 @@ function sampleLumaBilinear(
 }
 
 function sampleByteBilinear(
-	pixels: Uint8ClampedArray,
+	pixels: Float32Array,
 	width: number,
 	height: number,
 	x: number,

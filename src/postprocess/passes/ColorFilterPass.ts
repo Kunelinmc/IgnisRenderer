@@ -100,8 +100,8 @@ export class SoftwareColorFilterImplementation
 		request: PostProcessPassRequest,
 		context: SoftwareBuiltinPostProcessContext | undefined
 	): PostProcessPassResult {
-		const pixels = request.frameContext.attachments.pixels;
-		if (!context || !pixels || pixels.length === 0) {
+		const pixels = context?.resources.color.input;
+		if (!context || !(pixels instanceof Float32Array) || pixels.length === 0) {
 			return { ran: false };
 		}
 		const options = {
@@ -118,14 +118,16 @@ export class SoftwareColorFilterImplementation
 		const tempShiftG = -tint * 0.1;
 		const tempShiftB = -temperature * 0.1 + tint * 0.05;
 		const width = request.frameContext.attachments.width;
+		const upperBound = context.displayOutput?.activeDynamicRange === "hdr" ?
+			context.displayOutput.requested.hdrHeadroom : 1;
 		forEachSoftwareDirtyRect(dirtyRects, (rect) => {
 			for (let y = rect.minY; y <= rect.maxY; y++) {
 				const row = y * width;
 				for (let x = rect.minX; x <= rect.maxX; x++) {
 					const index = (row + x) << 2;
-					let red = pixels[index] / 255;
-					let green = pixels[index + 1] / 255;
-					let blue = pixels[index + 2] / 255;
+					let red = pixels[index];
+					let green = pixels[index + 1];
+					let blue = pixels[index + 2];
 
 					red += brightness;
 					green += brightness;
@@ -144,9 +146,9 @@ export class SoftwareColorFilterImplementation
 					green += tempShiftG;
 					blue += tempShiftB;
 
-					pixels[index] = Math.round(clamp(red, 0, 1) * 255);
-					pixels[index + 1] = Math.round(clamp(green, 0, 1) * 255);
-					pixels[index + 2] = Math.round(clamp(blue, 0, 1) * 255);
+					pixels[index] = clamp(red, 0, upperBound);
+					pixels[index + 1] = clamp(green, 0, upperBound);
+					pixels[index + 2] = clamp(blue, 0, upperBound);
 				}
 			}
 		});

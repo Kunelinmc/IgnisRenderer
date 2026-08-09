@@ -27,7 +27,7 @@ function testSkyboxRendererDecodesSRGBToLinear() {
 		height: 1,
 		colorSpace: "sRGB",
 	});
-	const pixels = new Uint8ClampedArray(4);
+	const pixels = new Float32Array(4);
 
 	SkyboxRenderer.render(
 		environment,
@@ -38,13 +38,10 @@ function testSkyboxRendererDecodesSRGBToLinear() {
 		1
 	);
 
-	const expectedR = Math.round(sRGBToLinear(128 / 255) * 255);
-	const expectedG = Math.round(sRGBToLinear(64 / 255) * 255);
-	const expectedB = Math.round(sRGBToLinear(32 / 255) * 255);
-	assert.ok(Math.abs(pixels[0] - expectedR) <= 1);
-	assert.ok(Math.abs(pixels[1] - expectedG) <= 1);
-	assert.ok(Math.abs(pixels[2] - expectedB) <= 1);
-	assert.equal(pixels[3], 255);
+	assert.ok(Math.abs(pixels[0] - sRGBToLinear(128 / 255)) <= 1e-6);
+	assert.ok(Math.abs(pixels[1] - sRGBToLinear(64 / 255)) <= 1e-6);
+	assert.ok(Math.abs(pixels[2] - sRGBToLinear(32 / 255)) <= 1e-6);
+	assert.equal(pixels[3], 1);
 }
 
 function testSkyboxRendererPreservesLinearTextureValues() {
@@ -54,7 +51,7 @@ function testSkyboxRendererPreservesLinearTextureValues() {
 		height: 1,
 		colorSpace: "Linear",
 	});
-	const pixels = new Uint8ClampedArray(4);
+	const pixels = new Float32Array(4);
 
 	SkyboxRenderer.render(
 		environment,
@@ -65,17 +62,20 @@ function testSkyboxRendererPreservesLinearTextureValues() {
 		1
 	);
 
-	assert.deepEqual(Array.from(pixels), [128, 64, 32, 255]);
+	assert.ok(Math.abs(pixels[0] - 128 / 255) <= 1e-6);
+	assert.ok(Math.abs(pixels[1] - 64 / 255) <= 1e-6);
+	assert.ok(Math.abs(pixels[2] - 32 / 255) <= 1e-6);
+	assert.equal(pixels[3], 1);
 }
 
 function testSkyboxRendererPreservesHDRTextureValues() {
 	const environment = new Texture({
-		data: new Float32Array([1, 0.5, 0.25, 1]),
+		data: new Float32Array([4, 0.5, 0.25, 1]),
 		width: 1,
 		height: 1,
 		colorSpace: "HDR",
 	});
-	const pixels = new Uint8ClampedArray(4);
+	const pixels = new Float32Array(4);
 
 	SkyboxRenderer.render(
 		environment,
@@ -86,7 +86,10 @@ function testSkyboxRendererPreservesHDRTextureValues() {
 		1
 	);
 
-	assert.deepEqual(Array.from(pixels), [255, 128, 64, 255]);
+	assert.equal(pixels[0], 4);
+	assert.equal(pixels[1], 0.5);
+	assert.equal(pixels[2], 0.25);
+	assert.equal(pixels[3], 1);
 }
 
 function testSkyboxRendererClipsToDirtyRegions() {
@@ -96,7 +99,7 @@ function testSkyboxRendererClipsToDirtyRegions() {
 		height: 1,
 		colorSpace: "Linear",
 	});
-	const pixels = new Uint8ClampedArray(4 * 4 * 4);
+	const pixels = new Float32Array(4 * 4 * 4);
 
 	SkyboxRenderer.render(
 		environment,
@@ -110,10 +113,8 @@ function testSkyboxRendererClipsToDirtyRegions() {
 
 	assert.deepEqual(Array.from(pixels.slice(0, 4)), [0, 0, 0, 0]);
 	const dirtyPixel = (1 * 4 + 1) * 4;
-	assert.deepEqual(
-		Array.from(pixels.slice(dirtyPixel, dirtyPixel + 4)),
-		[128, 64, 32, 255],
-	);
+	assert.ok(Math.abs(pixels[dirtyPixel] - 128 / 255) <= 1e-6);
+	assert.equal(pixels[dirtyPixel + 3], 1);
 }
 
 function run() {

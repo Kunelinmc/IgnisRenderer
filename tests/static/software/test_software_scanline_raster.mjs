@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { Camera } from "../../../src/cameras/Camera.ts";
-import { BasicMaterial, AlphaMode } from "../../../src/materials/index.ts";
+import { BasicMaterial, AlphaMode, PBRMaterial } from "../../../src/materials/index.ts";
 import { Matrix4 } from "../../../src/maths/Matrix4.ts";
 import { SoftwareBackend } from "../../../src/backends/software/SoftwareBackend.ts";
 import { createResolvedPostProcess } from "../../helpers/postprocess.mjs";
@@ -220,6 +220,62 @@ async function testOpaqueScanlineDepthOrdering() {
 	backend.destroy();
 }
 
+async function testRasterPreservesHDRRadiance() {
+	const backend = createSoftwareSession();
+	await backend.initialize();
+	const camera = createCamera();
+	const packet = createTrianglePacket("hdr-emissive", { r: 0, g: 0, b: 0 });
+	const material = new PBRMaterial({
+		albedo: { r: 0, g: 0, b: 0 },
+		emissive: { r: 255, g: 0, b: 0 },
+		emissiveIntensity: 4,
+		doubleSided: true,
+	});
+	packet.material = material;
+	packet.primitive.material = material;
+	const context = createContext(backend, camera, { opaquePackets: [packet] });
+	context.features.enableLighting = true;
+	backend.beginFrame(context);
+	await backend.executePass(
+		{ stage: "main-opaque", executor: "backend", enabled: true },
+		context,
+	);
+	backend.endFrame();
+	const centerPixel =
+		(Math.floor(HEIGHT / 2) * WIDTH + Math.floor(WIDTH / 2)) * 4;
+	assert.ok(backend._surface.getSceneColorTarget()[centerPixel] >= 4);
+	backend.destroy();
+}
+
+async function testTransparentRasterPreservesHDRRadiance() {
+	const backend = createSoftwareSession();
+	await backend.initialize();
+	const camera = createCamera();
+	const packet = createTrianglePacket("hdr-transparent", { r: 0, g: 0, b: 0 });
+	const material = new PBRMaterial({
+		albedo: { r: 0, g: 0, b: 0 },
+		emissive: { r: 255, g: 0, b: 0 },
+		emissiveIntensity: 4,
+		alphaMode: AlphaMode.Blend,
+		opacity: 1,
+		doubleSided: true,
+	});
+	packet.material = material;
+	packet.primitive.material = material;
+	const context = createContext(backend, camera, { transparentPackets: [packet] });
+	context.features.enableLighting = true;
+	backend.beginFrame(context);
+	await backend.executePass(
+		{ stage: "main-transparent", executor: "backend", enabled: true },
+		context,
+	);
+	backend.endFrame();
+	const centerPixel =
+		(Math.floor(HEIGHT / 2) * WIDTH + Math.floor(WIDTH / 2)) * 4;
+	assert.ok(backend._surface.getSceneColorTarget()[centerPixel] >= 4);
+	backend.destroy();
+}
+
 async function testIncrementalRasterClipsOutsideDirtyRegion() {
 	const backend = createSoftwareSession();
 	await backend.initialize();
@@ -276,7 +332,9 @@ async function testTransparentScanlinePreservesPacketOrder() {
 }
 
 async function run() {
-await testOpaqueScanlineDepthOrdering();
+	await testOpaqueScanlineDepthOrdering();
+	await testRasterPreservesHDRRadiance();
+	await testTransparentRasterPreservesHDRRadiance();
 await testIncrementalRasterClipsOutsideDirtyRegion();
 await testTransparentScanlinePreservesPacketOrder();
 	console.log("Software scanline raster tests passed");

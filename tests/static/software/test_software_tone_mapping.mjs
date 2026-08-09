@@ -22,10 +22,10 @@ function createFrameContext(pixels) {
 }
 
 function testToneMappingPreservesAlphaAndDirtyRect() {
-	const pixels = new Uint8ClampedArray([
-		255, 128, 64, 17,
-		128, 160, 192, 99,
-		64, 128, 255, 31,
+	const pixels = new Float32Array([
+		4, 0.5, 0.25, 0.1,
+		2, 1.5, 1.25, 0.4,
+		0.25, 0.5, 4, 0.2,
 	]);
 	const before = Array.from(pixels);
 
@@ -34,6 +34,14 @@ function testToneMappingPreservesAlphaAndDirtyRect() {
 		frameContext: createFrameContext(pixels),
 	}, {
 		dirtyRects: [{ minX: 1, minY: 0, maxX: 1, maxY: 0 }],
+		displayOutput: {
+			requested: { mode: "sdr", exposure: 1, hdrHeadroom: 4 },
+			activeDynamicRange: "sdr",
+			colorSpace: "srgb",
+		},
+		resources: {
+			color: { input: pixels, output: pixels },
+		},
 	});
 
 	assert.deepEqual(Array.from(pixels.slice(0, 4)), before.slice(0, 4));

@@ -33,7 +33,15 @@ function createSoftwareExecutor() {
 			if (request.passId !== "taa") {
 				return undefined;
 			}
-			return { attachments: request.frameContext.attachments };
+			return {
+				attachments: request.frameContext.attachments,
+				resources: {
+					color: {
+						input: request.frameContext.sceneColor,
+						output: request.frameContext.sceneColor,
+					},
+				},
+			};
 		},
 		executePass(passId) {
 			this.fallbackCalls.push(passId);
@@ -52,10 +60,18 @@ function createFrameContext() {
 		64, 32, 16, 255,
 	]);
 	const motionBuffer = new Float32Array(width * height * 4);
+	const sceneColor = new Float32Array(width * height * 4);
+	for (let i = 0; i < width * height; i++) {
+		sceneColor[i << 2] = 4;
+		sceneColor[(i << 2) + 1] = 0.5;
+		sceneColor[(i << 2) + 2] = 0.25;
+		sceneColor[(i << 2) + 3] = 1;
+	}
 	for (let i = 0; i < width * height; i++) {
 		motionBuffer[(i << 2) + 2] = 1;
 	}
 	return {
+		sceneColor,
 		viewCamera: {
 			type: "perspective",
 			fov: 60,
@@ -158,7 +174,11 @@ async function testTAADescriptorAndImplementationRoute() {
 		executor.created.map((handle) => handle.id),
 		["taa:read", "taa:write", "motion:read", "motion:write"]
 	);
-	assert.equal(frameContext.attachments.pixels[0], 64);
+	assert.equal(frameContext.sceneColor[0], 4);
+	assert.equal(
+		executor.created.find((handle) => handle.id === "taa:write").resource[0],
+		4,
+	);
 }
 
 await testTAADescriptorAndImplementationRoute();

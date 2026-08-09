@@ -130,6 +130,7 @@ export type ResolvedTAAOptions = Required<
 /** @internal Software context supplied to the built-in TAA implementation. */
 export interface SoftwareTAAContext {
 	readonly attachments: FrameAttachments;
+	readonly resources: PostProcessResourceAccessor<ArrayBufferView>;
 }
 
 /** @internal WebGPU context supplied to the built-in TAA implementation. */
@@ -305,6 +306,7 @@ export class SoftwareTemporalAntiAliasingImplementation
 	implements PostProcessPassImplementation<SoftwareTAAContext>
 {
 	public readonly id = "taa:software";
+	private _source: Float32Array | null = null;
 	public describeExecution(request: PostProcessPassResolveRequest<ResolvedTAAOptions>) {
 		return {
 			...SOFTWARE_IN_PLACE_EXECUTION,
@@ -333,7 +335,8 @@ export class SoftwareTemporalAntiAliasingImplementation
 		request: PostProcessPassRequest,
 		context: SoftwareTAAContext
 	): boolean {
-		const { pixels, motionBuffer, width, height } = context.attachments;
+		const { motionBuffer, width, height } = context.attachments;
+		const pixels = context.resources.color.input;
 		const historyRead = request.histories.taa?.read.resource as Float32Array | null;
 		const historyWrite = request.histories.taa?.write.resource as Float32Array | null;
 		const motionHistoryRead = request.histories.motion?.read
@@ -341,7 +344,7 @@ export class SoftwareTemporalAntiAliasingImplementation
 		const motionHistoryWrite = request.histories.motion?.write
 			.resource as Float32Array | null;
 		if (
-			!pixels ||
+			!(pixels instanceof Float32Array) ||
 			!motionBuffer ||
 			!historyRead ||
 			!historyWrite ||
@@ -355,7 +358,11 @@ export class SoftwareTemporalAntiAliasingImplementation
 
 		const options = resolveTAAOptions(request.options as TAAOptions);
 		const historyValid = resolveTAAHistoryValid(request.histories);
-		const source = new Uint8ClampedArray(pixels);
+		if (!this._source || this._source.length !== pixels.length) {
+			this._source = new Float32Array(pixels.length);
+		}
+		const source = this._source;
+		source.set(pixels);
 		const invW = 1 / Math.max(1, width);
 		const invH = 1 / Math.max(1, height);
 
@@ -462,10 +469,10 @@ export class SoftwareTemporalAntiAliasingImplementation
 					b: Math.max(0, temporal.b + (temporal.b - blur.b) * sharpen),
 					a: temporal.a,
 				};
-				pixels[rgbaIndex] = Math.round(clamp(out.r, 0, 1) * 255);
-				pixels[rgbaIndex + 1] = Math.round(clamp(out.g, 0, 1) * 255);
-				pixels[rgbaIndex + 2] = Math.round(clamp(out.b, 0, 1) * 255);
-				pixels[rgbaIndex + 3] = Math.round(clamp(out.a, 0, 1) * 255);
+				pixels[rgbaIndex] = out.r;
+				pixels[rgbaIndex + 1] = out.g;
+				pixels[rgbaIndex + 2] = out.b;
+				pixels[rgbaIndex + 3] = clamp(out.a, 0, 1);
 				historyWrite[rgbaIndex] = temporal.r;
 				historyWrite[rgbaIndex + 1] = temporal.g;
 				historyWrite[rgbaIndex + 2] = temporal.b;
@@ -924,7 +931,7 @@ export class TemporalAntiAliasingPass extends PostProcessPass<
 }
 
 function samplePixel(
-	pixels: Uint8ClampedArray,
+	pixels: Float32Array,
 	width: number,
 	height: number,
 	x: number,
@@ -934,10 +941,10 @@ function samplePixel(
 	const sy = Math.max(0, Math.min(height - 1, y));
 	const index = (sy * width + sx) << 2;
 	return {
-		r: pixels[index] / 255,
-		g: pixels[index + 1] / 255,
-		b: pixels[index + 2] / 255,
-		a: pixels[index + 3] / 255,
+		r: pixels[index],
+		g: pixels[index + 1],
+		b: pixels[index + 2],
+		a: pixels[index + 3],
 	};
 }
 
@@ -979,7 +986,7 @@ function sampleFloatPixel(
 }
 
 function collectNeighborhood(
-	pixels: Uint8ClampedArray,
+	pixels: Float32Array,
 	width: number,
 	height: number,
 	x: number,
@@ -995,7 +1002,7 @@ function collectNeighborhood(
 }
 
 function sampleRgb(
-	pixels: Uint8ClampedArray,
+	pixels: Float32Array,
 	width: number,
 	height: number,
 	x: number,
@@ -1006,7 +1013,7 @@ function sampleRgb(
 }
 
 function averageCross(
-	pixels: Uint8ClampedArray,
+	pixels: Float32Array,
 	width: number,
 	height: number,
 	x: number,

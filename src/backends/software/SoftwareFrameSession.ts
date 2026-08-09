@@ -23,7 +23,7 @@ export class SoftwareFrameSession {
 	private _completedCoverage: RenderBackendCompletedFrameCoverage = "full-frame";
 	private _pendingResize: RenderSurfaceSize | null = null;
 
-	public constructor(
+	constructor(
 		private readonly _surface: SoftwareSurfaceRuntime,
 		private readonly _executor: SoftwarePassExecutor,
 	) {}
@@ -43,21 +43,18 @@ export class SoftwareFrameSession {
 		});
 		const resetHistory = context.incremental.temporalHistoryReset;
 		const temporal: SoftwareTemporalRenderState = {
-			currentJitter: [
-				snapshot.jitterCurrentPrev[0],
-				snapshot.jitterCurrentPrev[1],
-			],
-			previousJitter: [
-				snapshot.jitterCurrentPrev[2],
-				snapshot.jitterCurrentPrev[3],
-			],
+			currentJitter: [snapshot.jitterCurrentPrev[0], snapshot.jitterCurrentPrev[1]],
+			previousJitter: [snapshot.jitterCurrentPrev[2], snapshot.jitterCurrentPrev[3]],
 			previousViewProjection: snapshot.previousViewProjection,
 			currentViewProjection: context.viewCamera.viewProjectionMatrix,
-			previousWorldMatrices:
-				resetHistory ? new Map() : this._previousWorldMatrices,
+			previousWorldMatrices: resetHistory ? new Map() : this._previousWorldMatrices,
 			currentWorldMatrices: new Map(),
 		};
-		this._frame = createSoftwareFrameView(context, temporal);
+		this._frame = createSoftwareFrameView(
+			context,
+			temporal,
+			this._surface.getSceneColorTarget(),
+		);
 		this._executor.bindFrame(this._frame);
 		this._prepareAttachments(this._frame);
 	}
@@ -77,12 +74,13 @@ export class SoftwareFrameSession {
 		this._executor.endParticleFrame();
 		const temporalCommit = new Map(frame.temporal.currentWorldMatrices);
 
-		this._surface.present();
+		this._surface.present(frame, this._executor.outputColorDomain);
 		this._executor.commitFrame();
 		this._temporalFrameState.commitFrame();
 		this._previousWorldMatrices = temporalCommit;
-		this._completedCoverage = this._canPreserveNonDirtyTiles(context) ?
-			"dirty-tiles" : "full-frame";
+		this._completedCoverage = this._canPreserveNonDirtyTiles(context)
+			? "dirty-tiles"
+			: "full-frame";
 		this._activeContext = null;
 		this._frame = null;
 		this._flushPendingResize();
@@ -141,9 +139,7 @@ export class SoftwareFrameSession {
 			throw new Error(`SoftwareBackend.${operation}() requires an active frame.`);
 		}
 		if (context !== this._activeContext) {
-			throw new Error(
-				`SoftwareBackend.${operation}() received a foreign frame context.`,
-			);
+			throw new Error(`SoftwareBackend.${operation}() received a foreign frame context.`);
 		}
 		return context;
 	}
@@ -151,13 +147,13 @@ export class SoftwareFrameSession {
 	private _prepareAttachments(frame: SoftwareFrameView): void {
 		const attachments = frame.attachments;
 		if (!frame.incrementalPartial) {
-			const size = attachments.pixels.length >> 2;
+			const size = attachments.color.length >> 2;
 			for (let i = 0; i < size; i++) {
 				const index = i << 2;
-				attachments.pixels[index] = 0;
-				attachments.pixels[index + 1] = 0;
-				attachments.pixels[index + 2] = 0;
-				attachments.pixels[index + 3] = 255;
+				attachments.color[index] = 0;
+				attachments.color[index + 1] = 0;
+				attachments.color[index + 2] = 0;
+				attachments.color[index + 3] = 1;
 			}
 			attachments.depthBuffer.fill(Infinity);
 			attachments.normalBuffer?.fill(0);
@@ -169,10 +165,10 @@ export class SoftwareFrameSession {
 					for (let x = region.minX; x < region.maxXExclusive; x++) {
 						const pixel = rowStart + x;
 						const pixelIndex = pixel << 2;
-						attachments.pixels[pixelIndex] = 0;
-						attachments.pixels[pixelIndex + 1] = 0;
-						attachments.pixels[pixelIndex + 2] = 0;
-						attachments.pixels[pixelIndex + 3] = 255;
+						attachments.color[pixelIndex] = 0;
+						attachments.color[pixelIndex + 1] = 0;
+						attachments.color[pixelIndex + 2] = 0;
+						attachments.color[pixelIndex + 3] = 1;
 						attachments.depthBuffer[pixel] = Infinity;
 						if (attachments.normalBuffer) {
 							const normalIndex = pixel * 3;
@@ -206,7 +202,7 @@ export class SoftwareFrameSession {
 					tintLinear: environment.backgroundTintLinear,
 					exposure: environment.backgroundExposure,
 				},
-				attachments.pixels,
+				attachments.color,
 				frame.camera,
 				attachments.width,
 				attachments.height,

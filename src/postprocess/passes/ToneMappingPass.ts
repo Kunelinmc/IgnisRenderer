@@ -1,4 +1,3 @@
-import { clamp } from "../../maths/Common";
 import { ceilDiv } from "../../maths/Misc";
 import {
 	BufferUsage,
@@ -63,16 +62,62 @@ export const TONE_MAPPING_PASS_ORDER = {
 export type WebGPUToneMappingContext = WebGPURuntimePostProcessContext;
 export type WebGLToneMappingContext = WebGLScreenPostProcessContext;
 
+/** @internal Reference ACES fitted mapping shared by CPU presentation. */
+export function applyACESToneMapping(
+	color: readonly [number, number, number],
+	exposure: number,
+	out: [number, number, number] = [0, 0, 0],
+): [number, number, number] {
+	for (let index = 0; index < 3; index++) {
+		const value = color[index];
+		const exposed = Math.max(0, value * exposure);
+		out[index] = Math.min(1, Math.max(0,
+			(exposed * (2.51 * exposed + 0.03)) /
+			(exposed * (2.43 * exposed + 0.59) + 0.14),
+		));
+	}
+	return out;
+}
+
+/**
+ * Applies the hue-preserving HDR shoulder used by presentation shaders.
+ *
+ * @internal Shared by CPU presentation and numerical contract tests.
+ */
+export function applyHDRSoftShoulder(
+	color: readonly [number, number, number],
+	exposure: number,
+	hdrHeadroom: number,
+	out: [number, number, number] = [0, 0, 0],
+): [number, number, number] {
+	out[0] = Math.max(0, color[0] * exposure);
+	out[1] = Math.max(0, color[1] * exposure);
+	out[2] = Math.max(0, color[2] * exposure);
+	const peak = Math.max(out[0], out[1], out[2]);
+	if (peak <= 1) return out;
+	if (hdrHeadroom <= 1.0001) {
+		out[0] = Math.min(out[0], 1);
+		out[1] = Math.min(out[1], 1);
+		out[2] = Math.min(out[2], 1);
+		return out;
+	}
+	const mappedPeak = 1 + (hdrHeadroom - 1) *
+		(1 - Math.exp(-(peak - 1) / (hdrHeadroom - 1)));
+	const scale = mappedPeak / Math.max(peak, 1e-6);
+	out[0] *= scale;
+	out[1] *= scale;
+	out[2] *= scale;
+	return out;
+}
+
 /** @internal Software implementation for the built-in tone mapping pass. */
 export class SoftwareToneMappingImplementation
 	implements PostProcessPassImplementation<SoftwareBuiltinPostProcessContext>
 {
 	public readonly id = "tonemap:software";
-	private readonly _backend: IRenderBackend | undefined;
+	private readonly _mappedColor: [number, number, number] = [0, 0, 0];
+	private readonly _inputColor: [number, number, number] = [0, 0, 0];
 
-	public constructor(backend?: IRenderBackend) {
-		this._backend = backend;
-	}
 	public describeExecution() {
 		return SOFTWARE_IN_PLACE_EXECUTION;
 	}
@@ -81,24 +126,39 @@ export class SoftwareToneMappingImplementation
 		request: PostProcessPassRequest,
 		context: SoftwareBuiltinPostProcessContext | undefined
 	): PostProcessPassResult {
-		const pixels = request.frameContext.attachments.pixels;
-		if (!context || !pixels || pixels.length === 0) {
+		const pixels = context?.resources.color.input;
+		if (!context || !(pixels instanceof Float32Array) || pixels.length === 0) {
 			return { ran: false };
 		}
 		const dirtyRects = context.dirtyRects;
 		const width = request.frameContext.attachments.width;
-		const exposure = resolveBackendExposure(this._backend);
+		const display = context.displayOutput;
+		const exposure = display?.requested.exposure ?? 1;
+		const hdr = display?.activeDynamicRange === "hdr";
+		const headroom = display?.requested.hdrHeadroom ?? 4;
 		forEachSoftwareDirtyRect(dirtyRects, (rect) => {
 			for (let y = rect.minY; y <= rect.maxY; y++) {
 				const row = y * width;
 				for (let x = rect.minX; x <= rect.maxX; x++) {
 					const index = (row + x) << 2;
-					const red = applyAcesToneMap((pixels[index] / 255) * exposure);
-					const green = applyAcesToneMap((pixels[index + 1] / 255) * exposure);
-					const blue = applyAcesToneMap((pixels[index + 2] / 255) * exposure);
-					pixels[index] = Math.round(red * 255);
-					pixels[index + 1] = Math.round(green * 255);
-					pixels[index + 2] = Math.round(blue * 255);
+					this._inputColor[0] = pixels[index];
+					this._inputColor[1] = pixels[index + 1];
+					this._inputColor[2] = pixels[index + 2];
+					const mapped = hdr ?
+						applyHDRSoftShoulder(
+							this._inputColor,
+							exposure,
+							headroom,
+							this._mappedColor,
+						)
+					:	applyACESToneMapping(
+							this._inputColor,
+							exposure,
+							this._mappedColor,
+						);
+					pixels[index] = mapped[0];
+					pixels[index + 1] = mapped[1];
+					pixels[index + 2] = mapped[2];
 				}
 			}
 		});
@@ -373,23 +433,13 @@ export class ToneMappingPass extends PostProcessPass<EmptyOptions, EmptyOptions>
 				output: "display-linear",
 			},
 			implementations: {
-				software: (backend) => new SoftwareToneMappingImplementation(backend),
+				software: () => new SoftwareToneMappingImplementation(),
 				webgpu: () => new WebGPUToneMappingImplementation(),
 				webgl: (backend) => new WebGLToneMappingImplementation(backend),
 			},
 		});
 	}
 }
-function applyAcesToneMap(value: number): number {
-	const a = 2.51;
-	const b = 0.03;
-	const c = 2.43;
-	const d = 0.59;
-	const e = 0.14;
-	const mapped = (value * (a * value + b)) / (value * (c * value + d) + e);
-	return clamp(mapped, 0, 1);
-}
-
 function resolveBackendExposure(backend?: IRenderBackend): number {
 	if (!backend) return 1;
 	const getter = (backend as Partial<IRenderBackend>).getDisplayOutputState;

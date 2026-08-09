@@ -1,49 +1,76 @@
 import type { FrameAttachments } from "../../pipeline/types";
+import type { PostProcessColorDomain } from "../../postprocess/PostProcessPass";
+import {
+	encodeLinearSRGB,
+	linearSrgbToDisplayP3,
+} from "../../postprocess/passes/GammaPass";
+import {
+	applyACESToneMapping,
+	applyHDRSoftShoulder,
+} from "../../postprocess/passes/ToneMappingPass";
+import type { DisplayOutputState } from "../../rendering/DisplayOutput";
 import type { RenderSurfaceSize } from "../IRenderBackend";
+import {
+	SOFTWARE_HDR_IMAGE_DATA_SETTINGS,
+	SoftwareDisplayOutputManager,
+} from "./SoftwareDisplayOutputManager";
+import type { SoftwareFrameView } from "./SoftwareFrameView";
 
-/** @internal Owns Software backend canvas presentation and CPU frame attachments. */
+/** @internal Presents through a backend-owned context and owns CPU frame targets. */
 export class SoftwareSurfaceRuntime {
-	private _canvas: HTMLCanvasElement | null = null;
-	private _ctx: CanvasRenderingContext2D | null = null;
+	private _context: CanvasRenderingContext2D | null = null;
 	private _pixels: Uint8ClampedArray | null = null;
+	private _sceneColor: Float32Array | null = null;
 	private _depthBuffer: Float32Array | null = null;
 	private _normalBuffer: Float32Array | null = null;
 	private _motionBuffer: Float32Array | null = null;
-	private _frameImageData: ImageData | null = null;
-	private _framePixels: Uint8ClampedArray | null = null;
-	private _framePixelsShared = false;
+	private _sdrImageData: ImageData | null = null;
+	private _hdrImageData: ImageData | null = null;
+	private _hdrPixels: Float16Array | null = null;
 	private _frameWidth = 0;
 	private _frameHeight = 0;
-	private _offscreenCanvas: OffscreenCanvas | null = null;
-	private _offscreenCtx: OffscreenCanvasRenderingContext2D | null = null;
+	private readonly _inputColor: [number, number, number] = [0, 0, 0];
+	private readonly _mappedColor: [number, number, number] = [0, 0, 0];
+	private readonly _p3Color: [number, number, number] = [0, 0, 0];
+	private readonly _encodedColor: [number, number, number] = [0, 0, 0];
 
-	public attach(canvas: HTMLCanvasElement): void {
-		this._canvas = canvas;
-	}
+	constructor(private readonly _displayOutput: SoftwareDisplayOutputManager) {}
 
-	public initialize(): void {
-		const canvas = this._canvas as
-			| (HTMLCanvasElement & { getContext?: HTMLCanvasElement["getContext"] })
-			| null;
-		this._ctx = typeof canvas?.getContext === "function" ? canvas.getContext("2d") : null;
+	public initialize(context: CanvasRenderingContext2D | null): void {
+		this._releaseFrameTargets();
+		this._context = context;
 	}
 
 	public getCanvasContext(): CanvasRenderingContext2D | null {
-		return this._ctx;
+		return this._context;
+	}
+
+	public getSceneColorTarget(): Float32Array {
+		if (!this._sceneColor) {
+			throw new Error("Software backend scene color target is not initialized.");
+		}
+		return this._sceneColor;
 	}
 
 	public getAttachments(size: RenderSurfaceSize): FrameAttachments {
 		const { width, height } = size;
+		const pixelCount = width * height;
 		if (
 			!this._pixels ||
-			this._pixels.length !== width * height * 4 ||
+			this._pixels.length !== pixelCount * 4 ||
+			!this._sceneColor ||
+			this._sceneColor.length !== pixelCount * 4 ||
 			!this._depthBuffer ||
-			this._depthBuffer.length !== width * height
+			this._depthBuffer.length !== pixelCount
 		) {
-			this._pixels = new Uint8ClampedArray(width * height * 4);
-			this._depthBuffer = new Float32Array(width * height);
-			this._normalBuffer = new Float32Array(width * height * 3);
-			this._motionBuffer = new Float32Array(width * height * 4);
+			this._pixels = new Uint8ClampedArray(pixelCount * 4);
+			this._sceneColor = new Float32Array(pixelCount * 4);
+			this._depthBuffer = new Float32Array(pixelCount);
+			this._normalBuffer = new Float32Array(pixelCount * 3);
+			this._motionBuffer = new Float32Array(pixelCount * 4);
+			this._sdrImageData = null;
+			this._hdrImageData = null;
+			this._hdrPixels = null;
 		}
 		this._frameWidth = width;
 		this._frameHeight = height;
@@ -58,61 +85,164 @@ export class SoftwareSurfaceRuntime {
 	}
 
 	public resize(size: RenderSurfaceSize): void {
-		const { width, height } = size;
-		this._frameImageData = null;
-		this._framePixels = null;
-		this._framePixelsShared = false;
-		if (!this._offscreenCanvas && typeof OffscreenCanvas !== "undefined") {
-			this._offscreenCanvas = new OffscreenCanvas(width, height);
-			this._offscreenCtx = this._offscreenCanvas.getContext(
-				"2d",
-			) as OffscreenCanvasRenderingContext2D | null;
-		} else if (this._offscreenCanvas) {
-			this._offscreenCanvas.width = width;
-			this._offscreenCanvas.height = height;
-		}
+		this._frameWidth = size.width;
+		this._frameHeight = size.height;
+		this._releaseFrameTargets();
 	}
 
-	public present(): void {
-		if (!this._ctx) return;
-		const pixels = this._requirePixels();
-		const { width, height } = this._resolveFrameDimensions(pixels);
-		if (
-			!this._frameImageData ||
-			this._framePixels !== pixels ||
-			this._frameImageData.width !== width ||
-			this._frameImageData.height !== height
-		) {
-			this._frameImageData = this._createFrameImageData(pixels, width, height);
-			this._framePixels = pixels;
-		}
-		if (!this._framePixelsShared) {
-			this._frameImageData.data.set(pixels);
-		}
-		if (this._offscreenCtx && this._offscreenCanvas) {
-			this._offscreenCtx.putImageData(this._frameImageData, 0, 0);
-			const bitmap = this._offscreenCanvas.transferToImageBitmap();
-			this._ctx.drawImage(bitmap, 0, 0);
-			bitmap.close();
+	public present(frame: SoftwareFrameView, colorDomain: PostProcessColorDomain): void {
+		const context = this._context;
+		const state = this._displayOutput.state;
+		if (!context) {
+			this._convertRegions(frame, colorDomain, state, null, this._requirePixels());
 			return;
 		}
-		this._ctx.putImageData(this._frameImageData, 0, 0);
+		if (state.activeDynamicRange === "hdr") {
+			const imageData = this._prepareHDRImageData(frame, colorDomain, state);
+			context.putImageData(imageData, 0, 0);
+			return;
+		}
+		const imageData = this._prepareSDRImageData(frame, colorDomain, state);
+		context.putImageData(imageData, 0, 0);
 	}
 
 	public destroy(): void {
-		this._ctx = null;
-		this._canvas = null;
-		this._pixels = null;
-		this._depthBuffer = null;
-		this._normalBuffer = null;
-		this._motionBuffer = null;
-		this._frameImageData = null;
-		this._framePixels = null;
-		this._offscreenCanvas = null;
-		this._offscreenCtx = null;
-		this._framePixelsShared = false;
+		this._context = null;
+		this._releaseFrameTargets();
 		this._frameWidth = 0;
 		this._frameHeight = 0;
+	}
+
+	private _prepareSDRImageData(
+		frame: SoftwareFrameView,
+		colorDomain: PostProcessColorDomain,
+		state: DisplayOutputState,
+	): ImageData {
+		const pixels = this._requirePixels();
+		this._convertRegions(frame, colorDomain, state, null, pixels);
+		if (
+			!this._sdrImageData ||
+			this._sdrImageData.width !== frame.attachments.width ||
+			this._sdrImageData.height !== frame.attachments.height
+		) {
+			try {
+				this._sdrImageData = new ImageData(
+					pixels as ImageDataArray,
+					frame.attachments.width,
+					frame.attachments.height,
+					{ colorSpace: "srgb" },
+				);
+			} catch {
+				this._sdrImageData = new ImageData(
+					frame.attachments.width,
+					frame.attachments.height,
+				);
+			}
+		}
+		if (this._sdrImageData.data !== pixels) {
+			this._sdrImageData.data.set(pixels);
+		}
+		return this._sdrImageData;
+	}
+
+	private _prepareHDRImageData(
+		frame: SoftwareFrameView,
+		colorDomain: PostProcessColorDomain,
+		state: DisplayOutputState,
+	): ImageData {
+		const elementCount = frame.attachments.width * frame.attachments.height * 4;
+		if (!this._hdrPixels || this._hdrPixels.length !== elementCount) {
+			this._hdrPixels = new Float16Array(elementCount);
+			this._hdrImageData = null;
+		}
+		this._convertRegions(frame, colorDomain, state, this._hdrPixels, this._requirePixels());
+		if (
+			!this._hdrImageData ||
+			this._hdrImageData.width !== frame.attachments.width ||
+			this._hdrImageData.height !== frame.attachments.height
+		) {
+			this._hdrImageData = new ImageData(
+				this._hdrPixels as unknown as ImageDataArray,
+				frame.attachments.width,
+				frame.attachments.height,
+				SOFTWARE_HDR_IMAGE_DATA_SETTINGS as ImageDataSettings,
+			);
+		}
+		return this._hdrImageData;
+	}
+
+	private _convertRegions(
+		frame: SoftwareFrameView,
+		colorDomain: PostProcessColorDomain,
+		state: DisplayOutputState,
+		hdrPixels: Float16Array | null,
+		preview: Uint8ClampedArray,
+	): void {
+		const color = frame.attachments.color;
+		const width = frame.attachments.width;
+		for (const region of frame.clipRegions) {
+			for (let y = region.minY; y < region.maxYExclusive; y++) {
+				for (let x = region.minX; x < region.maxXExclusive; x++) {
+					const index = (y * width + x) << 2;
+					const encoded = this._completeColor(
+						color[index],
+						color[index + 1],
+						color[index + 2],
+						colorDomain,
+						state,
+					);
+					const alpha = Math.min(1, Math.max(0, finiteOrZero(color[index + 3])));
+					if (hdrPixels) {
+						hdrPixels[index] = finiteOrZero(encoded[0]);
+						hdrPixels[index + 1] = finiteOrZero(encoded[1]);
+						hdrPixels[index + 2] = finiteOrZero(encoded[2]);
+						hdrPixels[index + 3] = alpha;
+					}
+					preview[index] = Math.round(Math.min(1, Math.max(0, encoded[0])) * 255);
+					preview[index + 1] = Math.round(Math.min(1, Math.max(0, encoded[1])) * 255);
+					preview[index + 2] = Math.round(Math.min(1, Math.max(0, encoded[2])) * 255);
+					preview[index + 3] = Math.round(alpha * 255);
+				}
+			}
+		}
+	}
+
+	private _completeColor(
+		red: number,
+		green: number,
+		blue: number,
+		domain: PostProcessColorDomain,
+		state: DisplayOutputState,
+	): [number, number, number] {
+		const encoded = this._encodedColor;
+		if (domain === "display-encoded") {
+			encoded[0] = finiteOrZero(red);
+			encoded[1] = finiteOrZero(green);
+			encoded[2] = finiteOrZero(blue);
+			return encoded;
+		}
+		const hdr = state.activeDynamicRange === "hdr";
+		const input = this._inputColor;
+		input[0] = finiteOrZero(red);
+		input[1] = finiteOrZero(green);
+		input[2] = finiteOrZero(blue);
+		let linear = input;
+		if (domain === "scene-linear-hdr") {
+			linear = hdr
+				? applyHDRSoftShoulder(
+						input,
+						state.requested.exposure,
+						state.requested.hdrHeadroom,
+						this._mappedColor,
+					)
+				: applyACESToneMapping(linear, state.requested.exposure, this._mappedColor);
+		}
+		if (hdr) linear = linearSrgbToDisplayP3(linear, this._p3Color);
+		const upperBound = hdr ? state.requested.hdrHeadroom : 1;
+		encoded[0] = encodeLinearSRGB(Math.min(upperBound, Math.max(0, linear[0])), hdr);
+		encoded[1] = encodeLinearSRGB(Math.min(upperBound, Math.max(0, linear[1])), hdr);
+		encoded[2] = encodeLinearSRGB(Math.min(upperBound, Math.max(0, linear[2])), hdr);
+		return encoded;
 	}
 
 	private _requirePixels(): Uint8ClampedArray {
@@ -122,37 +252,18 @@ export class SoftwareSurfaceRuntime {
 		return this._pixels;
 	}
 
-	private _resolveFrameDimensions(pixels: Uint8ClampedArray): { width: number; height: number } {
-		const canvas = this._canvas;
-		if (canvas && pixels.length === canvas.width * canvas.height * 4) {
-			return { width: canvas.width, height: canvas.height };
-		}
-		if (
-			this._frameWidth > 0 &&
-			this._frameHeight > 0 &&
-			pixels.length === this._frameWidth * this._frameHeight * 4
-		) {
-			return { width: this._frameWidth, height: this._frameHeight };
-		}
-		const pixelCount = Math.floor(pixels.length / 4);
-		return { width: Math.max(1, pixelCount), height: 1 };
+	private _releaseFrameTargets(): void {
+		this._pixels = null;
+		this._sceneColor = null;
+		this._depthBuffer = null;
+		this._normalBuffer = null;
+		this._motionBuffer = null;
+		this._sdrImageData = null;
+		this._hdrImageData = null;
+		this._hdrPixels = null;
 	}
+}
 
-	private _createFrameImageData(
-		pixels: Uint8ClampedArray,
-		width: number,
-		height: number,
-	): ImageData {
-		try {
-			const imageData = new ImageData(pixels as ImageDataArray, width, height);
-			this._framePixelsShared =
-				imageData.data === pixels || imageData.data.buffer === pixels.buffer;
-			return imageData;
-		} catch {
-			const imageData = new ImageData(width, height);
-			imageData.data.set(pixels.subarray(0, Math.min(imageData.data.length, pixels.length)));
-			this._framePixelsShared = false;
-			return imageData;
-		}
-	}
+function finiteOrZero(value: number): number {
+	return Number.isFinite(value) ? value : 0;
 }

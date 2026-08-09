@@ -67,10 +67,18 @@ function createSoftwareFrameContext(options = {}) {
 	const depthBuffer = new Float32Array(width * height).fill(1);
 	depthBuffer[1 * width + 1] = 5;
 	const normalBuffer = new Float32Array(width * height * 3);
+	const sceneColor = new Float32Array(width * height * 4);
+	for (let i = 0; i < width * height; i++) {
+		sceneColor[i << 2] = 4;
+		sceneColor[(i << 2) + 1] = 2;
+		sceneColor[(i << 2) + 2] = 1;
+		sceneColor[(i << 2) + 3] = 1;
+	}
 	for (let i = 0; i < width * height; i++) {
 		normalBuffer[i * 3 + 2] = 1;
 	}
 	return {
+		sceneColor,
 		viewCamera: createOrthographicCamera(),
 		attachments: {
 			width,
@@ -158,6 +166,12 @@ function createSoftwareExecutor() {
 			return {
 				attachments: request.frameContext.attachments,
 				dirtyRects: [{ minX: 0, minY: 0, maxX: 2, maxY: 2 }],
+				resources: {
+					color: {
+						input: request.frameContext.sceneColor,
+						output: request.frameContext.sceneColor,
+					},
+				},
 			};
 		},
 		executePass(passId) {
@@ -230,17 +244,20 @@ function testSoftwareSSAOModifiesPixelsAndSkipsMissingBuffers() {
 		blurRadius: 1,
 	});
 	const centerIndex = ((1 * frameContext.attachments.width + 1) << 2);
-	const before = frameContext.attachments.pixels[centerIndex];
+	const before = frameContext.sceneColor[centerIndex];
 	const result = implementation.execute(
 		createPassRequest(frameContext, pass),
 		{
 			attachments: frameContext.attachments,
 			dirtyRects: [{ minX: 0, minY: 0, maxX: 2, maxY: 2 }],
+			resources: {
+				color: { input: frameContext.sceneColor, output: frameContext.sceneColor },
+			},
 		}
 	);
 
 	assert.equal(result.ran, true);
-	assert.ok(frameContext.attachments.pixels[centerIndex] < before);
+	assert.ok(frameContext.sceneColor[centerIndex] < before);
 
 	const missing = createSoftwareFrameContext();
 	missing.attachments.normalBuffer = null;
@@ -249,6 +266,9 @@ function testSoftwareSSAOModifiesPixelsAndSkipsMissingBuffers() {
 		{
 			attachments: missing.attachments,
 			dirtyRects: [{ minX: 0, minY: 0, maxX: 2, maxY: 2 }],
+			resources: {
+				color: { input: missing.sceneColor, output: missing.sceneColor },
+			},
 		}
 	);
 	assert.deepEqual(skipped, { ran: false });

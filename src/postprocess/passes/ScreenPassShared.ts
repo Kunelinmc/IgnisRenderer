@@ -7,6 +7,7 @@ import type {
 } from "../../backends/webgpu/WebGPUPostProcessContracts";
 import type { WebGLProgramCompiler } from "../../backends/webgl/WebGLProgramCompiler";
 import type { PostProcessResourceAccessor } from "../types";
+import type { DisplayOutputState } from "../../rendering/DisplayOutput";
 export type { IncrementalDirtyRect } from "../../pipeline/incremental";
 
 export type EmptyOptions = Record<string, never>;
@@ -14,6 +15,7 @@ export type EmptyOptions = Record<string, never>;
 /** @internal Software context supplied to built-in screen post-process implementations. */
 export interface SoftwareBuiltinPostProcessContext {
 	readonly canvasContext: CanvasRenderingContext2D | null;
+	readonly displayOutput?: DisplayOutputState;
 	readonly resources: PostProcessResourceAccessor<ArrayBufferView>;
 	readonly dirtyRects: readonly IncrementalDirtyRect[];
 }
@@ -48,6 +50,11 @@ export interface WebGLScreenPostProcessContext {
 	warn(key: string, message: string): void;
 }
 
+export interface ResolvedWebGLTarget {
+	readonly source: WebGLTexture;
+	readonly texture: WebGLTexture;
+}
+
 export function forEachSoftwareDirtyRect(
 	dirtyRects: readonly IncrementalDirtyRect[],
 	callback: (rect: IncrementalDirtyRect) => void
@@ -79,6 +86,7 @@ export function softwareRectIntersectsDirtyRects(
 	}
 	return false;
 }
+
 export function resolveWebGPUTarget(
 	context: WebGPUScreenPostProcessContext
 ): IRenderTexture {
@@ -87,10 +95,6 @@ export function resolveWebGPUTarget(
 		throw new Error("WebGPU post-process pass has no assigned color output.");
 	}
 	return output;
-}
-export interface ResolvedWebGLTarget {
-	readonly source: WebGLTexture;
-	readonly texture: WebGLTexture;
 }
 
 export function resolveWebGLTarget(

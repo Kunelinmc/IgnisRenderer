@@ -29,19 +29,9 @@ export class GouraudLitShader extends LitShader<PhongSurfaceProperties> {
 		const dg = (albedo.g * (la.g + ld.g)) / 255 + (ls.g * specular.g) / 255;
 		const db = (albedo.b * (la.b + ld.b)) / 255 + (ls.b * specular.b) / 255;
 
-		// Clamp to 0..255 (byte RGB)
-		res.r =
-			dr < 0 ? 0
-			: dr > 255 ? 255
-			: dr;
-		res.g =
-			dg < 0 ? 0
-			: dg > 255 ? 255
-			: dg;
-		res.b =
-			db < 0 ? 0
-			: db > 255 ? 255
-			: db;
+		res.r = Math.max(0, dr / 255);
+		res.g = Math.max(0, dg / 255);
+		res.b = Math.max(0, db / 255);
 
 		return this._cachedOutput;
 	}

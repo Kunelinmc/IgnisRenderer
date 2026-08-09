@@ -83,7 +83,11 @@ export function createSoftwarePassContextForTesting(
 		currentWorldMatrices: new Map(),
 	};
 	return {
-		frame: createSoftwareFrameView(context, temporal),
+		frame: createSoftwareFrameView(
+			context,
+			temporal,
+			new Float32Array(context.attachments.width * context.attachments.height * 4),
+		),
 		services: createSoftwareFrameServices(),
 	};
 }

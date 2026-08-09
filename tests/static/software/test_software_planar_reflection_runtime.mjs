@@ -204,7 +204,7 @@ function createTrianglePacket(id, color, options = {}) {
 
 function createImageBuffer(width, height, data) {
 	return {
-		imageData: new ImageData(new Uint8ClampedArray(data), width, height),
+		color: new Float32Array(data.map((value) => value / 255)),
 		width,
 		height,
 	};
@@ -257,7 +257,7 @@ async function testRuntimeCompositeBlendsReflectionColor() {
 	const runtime = new SoftwarePlanarReflectionRuntime(rasterizer);
 	runtime.reflectionBuffers.set(
 		resolveSoftwarePlanarReflectionPlaneKey(mirrorPlane),
-		createImageBuffer(1, 1, [0, 200, 0, 255])
+		{ color: new Float32Array([0, 4, 0, 1]), width: 1, height: 1 }
 	);
 
 	const passContext = createSoftwarePassContextForTesting(context);
@@ -266,14 +266,13 @@ async function testRuntimeCompositeBlendsReflectionColor() {
 
 	const idx = ((HEIGHT >> 1) * WIDTH + (WIDTH >> 1)) << 2;
 	assert.ok(
-		context.attachments.pixels[idx] > 80 &&
-			context.attachments.pixels[idx] < 120,
+		passContext.frame.attachments.color[idx] > 80 / 255 &&
+			passContext.frame.attachments.color[idx] < 120 / 255,
 		"Main pass should composite reflection red channel"
 	);
 	assert.ok(
-		context.attachments.pixels[idx + 1] > 80 &&
-			context.attachments.pixels[idx + 1] < 120,
-		"Main pass should composite reflection green channel"
+		passContext.frame.attachments.color[idx + 1] > 1.9,
+		"Main pass should preserve HDR reflection radiance"
 	);
 }
 
@@ -324,7 +323,7 @@ async function testRuntimeCompositeSamplesScaledReflectionBuffer() {
 	runtime.composite(passContext, [packet]);
 
 	const idx = ((HEIGHT >> 1) * WIDTH + (WIDTH >> 1)) << 2;
-	assert.equal(context.attachments.pixels[idx], 40);
+	assert.ok(Math.abs(passContext.frame.attachments.color[idx] - 40 / 255) < 1e-6);
 }
 
 function testRuntimeCompositeSkipsMissingBuffer() {
@@ -343,13 +342,14 @@ function testRuntimeCompositeSkipsMissingBuffer() {
 		},
 		{ enableReflection: true }
 	);
-	context.attachments.pixels.fill(100);
+	const passContext = createSoftwarePassContextForTesting(context);
+	passContext.frame.attachments.color.fill(100 / 255);
 	const runtime = new SoftwarePlanarReflectionRuntime(rasterizer);
 
-	runtime.composite(createSoftwarePassContextForTesting(context), [packet]);
+	runtime.composite(passContext, [packet]);
 
 	const idx = ((HEIGHT >> 1) * WIDTH + (WIDTH >> 1)) << 2;
-	assert.equal(context.attachments.pixels[idx], 100);
+	assert.ok(Math.abs(passContext.frame.attachments.color[idx] - 100 / 255) < 1e-6);
 }
 
 function testRuntimeCompositeHonorsAlphaMask() {
@@ -374,17 +374,18 @@ function testRuntimeCompositeHonorsAlphaMask() {
 		},
 		{ enableReflection: true }
 	);
-	context.attachments.pixels.fill(100);
+	const passContext = createSoftwarePassContextForTesting(context);
+	passContext.frame.attachments.color.fill(100 / 255);
 	const runtime = new SoftwarePlanarReflectionRuntime(rasterizer);
 	runtime.reflectionBuffers.set(
 		resolveSoftwarePlanarReflectionPlaneKey(mirrorPlane),
 		createImageBuffer(1, 1, [0, 200, 0, 255])
 	);
 
-	runtime.composite(createSoftwarePassContextForTesting(context), [packet]);
+	runtime.composite(passContext, [packet]);
 
 	const idx = ((HEIGHT >> 1) * WIDTH + (WIDTH >> 1)) << 2;
-	assert.equal(context.attachments.pixels[idx], 100);
+	assert.ok(Math.abs(passContext.frame.attachments.color[idx] - 100 / 255) < 1e-6);
 }
 
 async function testReflectionPassCompositeAfterMainPass() {
@@ -421,13 +422,13 @@ async function testReflectionPassCompositeAfterMainPass() {
 
 	const idx = ((HEIGHT >> 1) * WIDTH + (WIDTH >> 1)) << 2;
 	assert.ok(
-		context.attachments.pixels[idx] > 80 &&
-			context.attachments.pixels[idx] < 120,
+		passContext.frame.attachments.color[idx] > 80 / 255 &&
+			passContext.frame.attachments.color[idx] < 120 / 255,
 		"Composite pass should blend reflection red channel"
 	);
 	assert.ok(
-		context.attachments.pixels[idx + 1] > 80 &&
-			context.attachments.pixels[idx + 1] < 120,
+		passContext.frame.attachments.color[idx + 1] > 80 / 255 &&
+			passContext.frame.attachments.color[idx + 1] < 120 / 255,
 		"Composite pass should blend reflection green channel"
 	);
 }

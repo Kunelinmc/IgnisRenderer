@@ -88,6 +88,27 @@ post-process history.
 The package-root `Rasterizer` export is removed without a public replacement.
 Applications render through `Renderer` configured with `SoftwareBackend`.
 
+## Software HDR Color Pipeline
+
+The Software backend color pipeline is now normalized linear RGBA32F. This is
+a breaking rendering change: lighting and post-process intermediates are no
+longer byte-scaled, radiance above `1.0` is preserved, and previous Software
+screenshots or exact RGBA8 pixel values are not expected to match.
+
+`FrameAttachments.pixels` remains available as an RGBA8 presentation and
+diagnostic preview, but is no longer authoritative scene color. Custom
+Software post-process implementations must replace direct access to that
+buffer with the declaration-checked `context.resources.color` accessor. TAA
+or other custom histories that represent color should use float resources and
+must not clamp HDR radiance to `1.0`.
+
+No Renderer display API changes are required. Continue using
+`RendererOptions.displayOutput`, `setDisplayOutput()`, and
+`getDisplayOutputState()`. Software now attempts Display-P3 Float16 Canvas 2D
+HDR for `"auto"` and `"hdr"`; unsupported browsers and non-HDR displays safely
+fall back to SDR. Callers handling fallback reasons should accept the new
+`canvas-hdr-output-unsupported` value.
+
 ## Screen-Space Global Illumination
 
 WebGPU SSGI uses depth-based ray marching, independent temporal history, and

@@ -119,21 +119,33 @@ This document defines cross-backend rendering features, capability gating, pass 
   and the backend-resolved state afterwards.
 - `Renderer.setDisplayOutput()` must merge partial settings with the current
   requested state and reconfigure presentation only at a frame boundary.
-- `"auto"` must enable HDR only when the display reports high dynamic range,
-  the canvas tone-mapping API is observable, and the requested configuration
-  can be verified.
+- `"auto"` must enable HDR only when the display reports high dynamic range
+  and the backend's requested HDR canvas configuration can be verified.
 - An explicit `"hdr"` request must use the same requirements. If any
   requirement fails, rendering must continue in SDR and report a fallback
   reason.
 - WebGPU HDR presentation must use an `rgba16float` canvas, Display-P3 color
   space, and extended canvas tone mapping.
+- Software HDR presentation must use a Display-P3 Canvas 2D context with
+  `colorType: "float16"` and `rgba-float16` `ImageData`. A detached-canvas
+  put/read probe must verify Float16 storage, Display-P3, and preservation of
+  values above `1.0` before HDR may become active. `SoftwareBackend` must
+  request and own the visible canvas context, provide it to the surface runtime
+  for presentation, and provide it to the display-output manager for
+  verification. The display-output manager must not request the visible context
+  itself.
 - SDR presentation must use the user agent's preferred 8-bit canvas format,
   sRGB color space, and standard tone mapping when that member is supported.
-- WebGL and Software are Display SDR backends. They must resolve `"auto"` to
-  SDR without a warning and resolve explicit `"hdr"` to SDR with
-  `backend-unsupported`.
+- WebGL is a Display SDR backend. It must resolve `"auto"` to SDR without a
+  warning and explicit `"hdr"` to SDR with `backend-unsupported`.
+- Software must resolve `"auto"` and `"hdr"` through its Canvas 2D HDR probe.
+  Probe failure must fall back to SDR without throwing. Explicit HDR failure
+  must report the applicable display, Canvas HDR, or configuration reason.
 - `WebGPUBackend` must preserve scene, post-process, and OIT radiance in
-  `rgba16float` render targets.
+  `rgba16float` render targets. `SoftwareBackend` must preserve authoritative
+  scene and post-process radiance in one reusable RGBA32F target. Its public
+  `FrameAttachments.pixels` remains an RGBA8 presentation and diagnostic
+  buffer and must not be used as authoritative scene color.
 - The logical post-process color domains are `scene-linear-hdr`,
   `display-linear`, and `display-encoded`.
 - Built-in passes must declare their input and output domains. A declared pass
@@ -538,7 +550,8 @@ frames would otherwise produce duplicate warnings.
   its expected input domain did not match the current domain.
 - Display fallback reasons are `backend-unsupported`,
   `display-not-hdr-capable`, `canvas-tone-mapping-unsupported`, and
-  `hdr-context-configuration-failed`.
+  `hdr-context-configuration-failed`. Software Canvas 2D capability failure
+  uses `canvas-hdr-output-unsupported`.
 
 ### Early-Z prepass
 
@@ -591,8 +604,13 @@ post-process graph APIs.
 - SDR remains the default display mode.
 - Existing post-process pass IDs and enable/disable behavior remain available.
 - Existing custom passes remain executable without a color contract.
+- Software custom post-process implementations must migrate from direct
+  `FrameAttachments.pixels` access to `context.resources.color`.
 - WebGPU SDR output changes from a gamma `2.2` approximation to exact piecewise
   sRGB encoding.
+- Software rendering is no longer pixel-compatible with its former RGBA8
+  intermediate pipeline. Lighting, reflections, transparency, particles,
+  histories, and post-processing now use normalized linear RGBA32F values.
 - WebGL floating-point internal targets remain governed by runtime extension
   support and do not imply Display HDR support.
 

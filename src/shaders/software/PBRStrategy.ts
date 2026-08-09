@@ -49,9 +49,8 @@ const SH_IRRADIANCE_FACTORS: readonly number[] = [
  * Cook-Torrance PBR lighting strategy.
  *
  * All material colors entering this strategy are already in linear space,
- * stored in the engine's usual 0..255 range by PBREvaluator. This method
- * normalizes them to 0..1, evaluates BRDF terms in linear space, and returns
- * linear 0..255 for the renderer's existing gamma pass.
+ * stored in the engine's usual 0..255 material range by PBREvaluator. This
+ * method normalizes them to 0..1 and returns normalized linear radiance.
  */
 export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 	private _surfacePoint: SurfacePoint = {
@@ -849,9 +848,9 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 		const finalB = Math.max(0, totalB + ambB + emissiveB);
 
 		return {
-			r: clamp(finalR * 255, 0, 255),
-			g: clamp(finalG * 255, 0, 255),
-			b: clamp(finalB * 255, 0, 255),
+			r: finalR,
+			g: finalG,
+			b: finalB,
 		};
 	}
 

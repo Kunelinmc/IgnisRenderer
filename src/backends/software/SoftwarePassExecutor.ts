@@ -25,24 +25,19 @@ import {
 	type SoftwarePassContext,
 } from "./SoftwareFrameServices";
 import type { SoftwareFrameView } from "./SoftwareFrameView";
+import type { DisplayOutputState } from "../../rendering/DisplayOutput";
 
 type SoftwareStageHandler = () => void | Promise<void>;
 
 /** @internal Owns Software-specific passes and per-frame execution resources. */
 export class SoftwarePassExecutor {
 	private readonly _rasterizer = new Rasterizer();
-	private readonly _softwarePostProcessExecutor = new SoftwarePostProcessExecutor();
-	private readonly _services: SoftwareFrameServices = createSoftwareFrameServices({
-		rasterizer: this._rasterizer,
-		postProcess: this._softwarePostProcessExecutor,
-	});
+	private readonly _softwarePostProcessExecutor: SoftwarePostProcessExecutor;
+	private readonly _services: SoftwareFrameServices;
 	private readonly _mainPass: SoftwareMainPass;
 	private readonly _particlePass = new SoftwareParticlePass();
 	private readonly _shadowPass = new SoftwareShadowPass(this._rasterizer);
-	private readonly _reflectionPass = new SoftwareReflectionPass(
-		this._rasterizer,
-		this._services.reflection,
-	);
+	private readonly _reflectionPass: SoftwareReflectionPass;
 	private readonly _particleSimulator: DefaultParticleSimulator;
 	private readonly _postProcessRuntime: BackendPostProcessRuntime;
 	private readonly _stageHandlers = new Map<FramePass["stage"], SoftwareStageHandler>();
@@ -51,10 +46,24 @@ export class SoftwarePassExecutor {
 	private _passContext: SoftwarePassContext | null = null;
 	private _postProcessPlan: PostProcessPlan | null = null;
 
-	public constructor(options: {
+	constructor(options: {
 		backend: IRenderBackend;
 		backendOptions: SoftwareBackendOptions;
+		getSceneColor: () => Float32Array;
+		getDisplayOutputState: () => DisplayOutputState;
 	}) {
+		this._softwarePostProcessExecutor = new SoftwarePostProcessExecutor(
+			options.getSceneColor,
+			options.getDisplayOutputState,
+		);
+		this._services = createSoftwareFrameServices({
+			rasterizer: this._rasterizer,
+			postProcess: this._softwarePostProcessExecutor,
+		});
+		this._reflectionPass = new SoftwareReflectionPass(
+			this._rasterizer,
+			this._services.reflection,
+		);
 		this._mainPass = new SoftwareMainPass(this._rasterizer, {
 			enableEarlyZPrepass: options.backendOptions.enableEarlyZPrepass,
 		});
@@ -93,7 +102,10 @@ export class SoftwarePassExecutor {
 			throw new Error("SoftwarePassExecutor.bindFrame() requires frame planning.");
 		}
 		this._passContext = Object.freeze({ frame, services: this._services });
-		this._softwarePostProcessExecutor.bindSoftwareFrame(frame);
+		this._softwarePostProcessExecutor.bindSoftwareFrame(
+			frame,
+			this._postProcessPlan.initialColorDomain,
+		);
 		this._shadowPass.bindSamplers(this._passContext);
 		return this._passContext;
 	}
@@ -147,10 +159,7 @@ export class SoftwarePassExecutor {
 				"opaque",
 			);
 			await this._mainPass.render(context, packets, false);
-			this._reflectionPass.composite(
-				context,
-				this._resolveOpaqueReflectivePackets(packets),
-			);
+			this._reflectionPass.composite(context, this._resolveOpaqueReflectivePackets(packets));
 		});
 		this._stageHandlers.set("main-transparent", async () => {
 			const context = this._requirePassContext();
@@ -184,15 +193,14 @@ export class SoftwarePassExecutor {
 		if (!spatialIndex || !frame.incrementalPartial) return packets;
 		const source = this._requireSourceContext();
 		if (source.incremental.dirtyRects.length === 0) return [];
-		return kind === "opaque" ?
-			spatialIndex.queryOpaquePacketsInRects(source.incremental.dirtyRects)
-		:	spatialIndex.queryTransparentPacketsInRects(source.incremental.dirtyRects);
+		return kind === "opaque"
+			? spatialIndex.queryOpaquePacketsInRects(source.incremental.dirtyRects)
+			: spatialIndex.queryTransparentPacketsInRects(source.incremental.dirtyRects);
 	}
 
 	private _resolveOpaqueReflectivePackets(packets: DrawPacket[]): DrawPacket[] {
 		return packets.filter(
-			(packet) =>
-				packet.material.reflectivity > 0 && packet.material.mirrorPlane !== null,
+			(packet) => packet.material.reflectivity > 0 && packet.material.mirrorPlane !== null,
 		);
 	}
 
@@ -235,6 +243,10 @@ export class SoftwarePassExecutor {
 
 	public get completedFramePreservesOutsideDirtyTiles(): boolean {
 		return this._postProcessRuntime.completedFramePreservesOutsideDirtyTiles;
+	}
+
+	public get outputColorDomain(): import("../../postprocess/PostProcessPass").PostProcessColorDomain {
+		return this._softwarePostProcessExecutor.outputColorDomain;
 	}
 
 	public invalidateFrameSized(): void {

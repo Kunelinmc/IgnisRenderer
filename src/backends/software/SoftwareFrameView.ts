@@ -24,6 +24,7 @@ const DEFAULT_SOFTWARE_ENVIRONMENT: PreparedSceneEnvironment = {
 
 /** @internal Validated CPU attachments used by every Software pass. */
 export interface SoftwareFrameAttachments {
+	readonly color: Float32Array;
 	readonly pixels: Uint8ClampedArray;
 	readonly depthBuffer: Float32Array;
 	readonly normalBuffer: Float32Array | null;
@@ -90,8 +91,9 @@ export interface SoftwareParticleFrameState {
 export function createSoftwareFrameView(
 	context: FrameContext,
 	temporal: SoftwareTemporalRenderState,
+	sceneColor?: Float32Array,
 ): SoftwareFrameView {
-	const attachments = validateSoftwareFrameAttachments(context);
+	const attachments = validateSoftwareFrameAttachments(context, sceneColor);
 	const incrementalPartial =
 		context.incremental.enabled &&
 		!context.incremental.forceFullFrame &&
@@ -141,6 +143,7 @@ export function createSoftwareFrameView(
 
 function validateSoftwareFrameAttachments(
 	context: FrameContext,
+	sceneColor?: Float32Array,
 ): SoftwareFrameAttachments {
 	const attachments = context.attachments;
 	const width = attachments.width;
@@ -151,6 +154,13 @@ function validateSoftwareFrameAttachments(
 		);
 	}
 	const pixelCount = width * height;
+	const color = sceneColor ?? createSoftwareTestSceneColor(pixelCount);
+	if (!(color instanceof Float32Array) || color.length !== pixelCount * 4) {
+		throw new Error(
+			`Software frame attachments invalid: authoritative color must be a ` +
+				`Float32Array with length ${pixelCount * 4}.`,
+		);
+	}
 	if (
 		!(attachments.pixels instanceof Uint8ClampedArray) ||
 		attachments.pixels.length !== pixelCount * 4
@@ -192,6 +202,7 @@ function validateSoftwareFrameAttachments(
 		);
 	}
 	return Object.freeze({
+		color,
 		pixels: attachments.pixels,
 		depthBuffer: attachments.depthBuffer,
 		normalBuffer: attachments.normalBuffer ?? null,
@@ -199,6 +210,12 @@ function validateSoftwareFrameAttachments(
 		width,
 		height,
 	});
+}
+
+function createSoftwareTestSceneColor(pixelCount: number): Float32Array {
+	const color = new Float32Array(pixelCount * 4);
+	for (let pixel = 0; pixel < pixelCount; pixel++) color[(pixel << 2) + 3] = 1;
+	return color;
 }
 
 function resolveSoftwareClipRegions(

@@ -49,13 +49,11 @@ export class SoftwarePlanarReflectionRuntime {
 	private readonly _resources: SoftwareReflectionResources;
 	private readonly _renderer = new SoftwareReflectionRenderer();
 	private readonly _compositor = new SoftwareReflectionCompositor();
-	private readonly _renderPlane: SoftwareMirroredPlaneRender = (
-		plane,
-		buffer,
-		context,
-	) => this._renderReflectionForPlane(plane, buffer, context);
-	private readonly _compositeReflectionTriangle: SoftwareReflectionTriangleComposite =
-		(...args) => this._compositeTriangle(...args);
+	private readonly _renderPlane: SoftwareMirroredPlaneRender = (plane, buffer, context) =>
+		this._renderReflectionForPlane(plane, buffer, context);
+	private readonly _compositeReflectionTriangle: SoftwareReflectionTriangleComposite = (
+		...args
+	) => this._compositeTriangle(...args);
 	private _compositeInterpolator: SoftwareTriangleInterpolator =
 		new SoftwareTriangleInterpolator();
 
@@ -65,7 +63,7 @@ export class SoftwarePlanarReflectionRuntime {
 
 	public resolutionScale: number = 0.5;
 
-	public constructor(
+	constructor(
 		rasterizer: Rasterizer,
 		resources: SoftwareReflectionResources = new SoftwareReflectionResources(),
 	) {
@@ -95,9 +93,7 @@ export class SoftwarePlanarReflectionRuntime {
 		);
 	}
 
-	private _collectPlaneInfos(
-		frame: SoftwareFrameView,
-	): Map<string, SoftwareReflectionPlaneInfo> {
+	private _collectPlaneInfos(frame: SoftwareFrameView): Map<string, SoftwareReflectionPlaneInfo> {
 		return this._planner.collect(frame);
 	}
 
@@ -107,7 +103,7 @@ export class SoftwarePlanarReflectionRuntime {
 		context: SoftwarePassContext,
 	): void {
 		const frame = context.frame;
-		const pixels = buffer.imageData.data;
+		const pixels = buffer.color;
 		const environment = frame.scene.environment;
 		const sourceCamera = frame.camera;
 		const originalCameraPosition = sourceCamera.position;
@@ -168,12 +164,12 @@ export class SoftwarePlanarReflectionRuntime {
 					viewMatrix: mirrorViewMatrix,
 				},
 				buffer.width,
-				buffer.height
+				buffer.height,
 			);
 		} else {
 			pixels.fill(0);
 			for (let i = 3; i < pixels.length; i += 4) {
-				pixels[i] = RenderConstants.REFLECTION_BUFFER_ALPHA;
+				pixels[i] = 1;
 			}
 		}
 
@@ -188,24 +184,15 @@ export class SoftwarePlanarReflectionRuntime {
 			const opaqueFaces: ProjectedFace[] = [];
 			const transparentFaces: ProjectedFace[] = [];
 			const planeKey = resolveSoftwarePlanarReflectionPlaneKey(plane);
-			const packets = frame.scene.opaquePackets.concat(
-				frame.scene.transparentPackets
-			);
+			const packets = frame.scene.opaquePackets.concat(frame.scene.transparentPackets);
 
 			for (const packet of packets) {
-				const faces = Projector.projectPacket(
-					packet,
-					frame,
-					true,
-					buffer,
-					projectionView,
-				);
+				const faces = Projector.projectPacket(packet, frame, true, buffer, projectionView);
 
 				for (const face of faces) {
 					if (
-						resolveSoftwarePlanarReflectionPlaneKey(
-							face.material?.mirrorPlane
-						) === planeKey
+						resolveSoftwarePlanarReflectionPlaneKey(face.material?.mirrorPlane) ===
+						planeKey
 					) {
 						continue;
 					}
@@ -224,8 +211,9 @@ export class SoftwarePlanarReflectionRuntime {
 					if (alpha < 0.1) continue;
 					const explicitAlphaMode = face.material?.alphaMode;
 					const alphaMode = explicitAlphaMode || AlphaMode.Opaque;
-					const transmissionTransparent =
-						face.material ? materialUsesTransmission(face.material) : false;
+					const transmissionTransparent = face.material
+						? materialUsesTransmission(face.material)
+						: false;
 					if (
 						alphaMode === AlphaMode.Blend ||
 						transmissionTransparent ||
@@ -250,7 +238,7 @@ export class SoftwarePlanarReflectionRuntime {
 						buffer,
 						context,
 						projectionView,
-						false
+						false,
 					);
 				}
 			}
@@ -268,7 +256,7 @@ export class SoftwarePlanarReflectionRuntime {
 						buffer,
 						context,
 						projectionView,
-						true
+						true,
 					);
 				}
 			}
@@ -278,12 +266,12 @@ export class SoftwarePlanarReflectionRuntime {
 	private _drawReflectionTriangle(
 		pts: ProjectedVertex[],
 		face: ProjectedFace,
-		pixels: Uint8ClampedArray,
+		pixels: Float32Array,
 		depthBuffer: Float32Array,
 		overrideSize: { width: number; height: number },
 		context: SoftwarePassContext,
 		projectionView: SoftwareProjectionView,
-		isTransparent: boolean
+		isTransparent: boolean,
 	): void {
 		const frame = context.frame;
 		const reflectionCamera = projectionView.camera;
@@ -305,29 +293,22 @@ export class SoftwarePlanarReflectionRuntime {
 		const program = this._rasterizer.prepareFragmentProgram(
 			face,
 			rasterizerContext,
-			isTransparent
+			isTransparent,
 		);
 
-		this._rasterizer.drawTriangle(
-			pts,
-			face,
-			pixels,
-			rasterizerContext,
-			program,
-			isTransparent
-		);
+		this._rasterizer.drawTriangle(pts, face, pixels, rasterizerContext, program, isTransparent);
 	}
 
 	private _compositeTriangle(
 		pts: [ProjectedVertex, ProjectedVertex, ProjectedVertex],
 		face: ProjectedFace,
-		pixels: Uint8ClampedArray,
+		pixels: Float32Array,
 		depthBuffer: Float32Array,
 		width: number,
 		height: number,
 		clipRect: SoftwareCompositeClipRect,
 		buffer: SoftwarePlanarReflectionBuffer,
-		reflectivity: number
+		reflectivity: number,
 	): void {
 		const interpolator = this._compositeInterpolator;
 		const verts = interpolator.prepareFragment(pts, face);
@@ -346,7 +327,7 @@ export class SoftwarePlanarReflectionRuntime {
 		const inverseReflectivity = 1 - reflectivity;
 		const scaleX = buffer.width / width;
 		const scaleY = buffer.height / height;
-		const reflectionData = buffer.imageData.data;
+		const reflectionData = buffer.color;
 
 		for (let y = minY; y <= maxY; y++) {
 			const py = y + 0.5;
@@ -383,7 +364,7 @@ export class SoftwarePlanarReflectionRuntime {
 							pixels[pixelIdx + 2] =
 								pixels[pixelIdx + 2] * inverseReflectivity +
 								reflectionData[refIdx + 2] * reflectivity;
-							pixels[pixelIdx + 3] = CoreConstants.OPAQUE_ALPHA;
+							pixels[pixelIdx + 3] = 1;
 						}
 					}
 				}
@@ -394,15 +375,11 @@ export class SoftwarePlanarReflectionRuntime {
 
 	private _passesAlphaMask(
 		material: NonNullable<ProjectedFace["material"]>,
-		span: SoftwareFragmentSpan
+		span: SoftwareFragmentSpan,
 	): boolean {
 		const alpha =
-			sampleSoftwareTextureAlpha(
-				material.map,
-				span.uO * span.zCam,
-				span.vO * span.zCam
-			) * (material.opacity ?? 1);
+			sampleSoftwareTextureAlpha(material.map, span.uO * span.zCam, span.vO * span.zCam) *
+			(material.opacity ?? 1);
 		return alpha >= (material.alphaCutoff ?? 0.5);
 	}
-
 }

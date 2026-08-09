@@ -228,7 +228,7 @@ export class SoftwareMainPass implements SoftwarePassLike<
 	private _enableEarlyZPrepass: boolean;
 	private _earlyDepthBuffer: Float32Array | null = null;
 
-	public constructor(rasterizer: Rasterizer, options: SoftwareMainPassOptions = {}) {
+	constructor(rasterizer: Rasterizer, options: SoftwareMainPassOptions = {}) {
 		this._rasterizer = rasterizer;
 		this._enableEarlyZPrepass = options.enableEarlyZPrepass !== false;
 	}
@@ -286,7 +286,7 @@ export class SoftwareMainPass implements SoftwarePassLike<
 				this._rasterizer.drawTriangle(
 					triangle.pts,
 					triangle.face,
-					frame.attachments.pixels,
+					frame.attachments.color,
 					rasterizerContext,
 					program,
 					transparent,

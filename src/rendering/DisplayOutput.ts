@@ -5,6 +5,7 @@ export type DisplayColorSpace = "srgb" | "display-p3";
 export type DisplayOutputFallbackReason =
 	| "backend-unsupported"
 	| "display-not-hdr-capable"
+	| "canvas-hdr-output-unsupported"
 	| "canvas-tone-mapping-unsupported"
 	| "hdr-context-configuration-failed";
 
@@ -104,47 +105,6 @@ export function displayOutputStatesEqual(
 		left.requested.mode === right.requested.mode &&
 		left.requested.exposure === right.requested.exposure &&
 		left.requested.hdrHeadroom === right.requested.hdrHeadroom;
-}
-
-/**
- * Applies the reference hue-preserving HDR shoulder used by WebGPU shaders.
- *
- * @internal Used for numerical contract tests and non-shader validation.
- */
-export function applyHDRSoftShoulder(
-	color: readonly [number, number, number],
-	exposure: number,
-	hdrHeadroom: number,
-): [number, number, number] {
-	const exposed = color.map((value) => Math.max(0, value * exposure)) as
-		[number, number, number];
-	const peak = Math.max(exposed[0], exposed[1], exposed[2]);
-	if (peak <= 1) return exposed;
-	if (hdrHeadroom <= 1.0001) {
-		return exposed.map((value) => Math.min(value, 1)) as
-			[number, number, number];
-	}
-	const mappedPeak = 1 + (hdrHeadroom - 1) *
-		(1 - Math.exp(-(peak - 1) / (hdrHeadroom - 1)));
-	const scale = mappedPeak / Math.max(peak, 1e-6);
-	return exposed.map((value) => value * scale) as
-		[number, number, number];
-}
-
-/**
- * Converts D65 linear-sRGB values to D65 linear Display-P3.
- *
- * @internal Used for numerical contract tests and non-shader validation.
- */
-export function linearSrgbToDisplayP3(
-	color: readonly [number, number, number],
-): [number, number, number] {
-	const [red, green, blue] = color;
-	return [
-		0.82259287 * red + 0.17753395 * green,
-		0.03319951 * red + 0.9667835 * green,
-		0.01708535 * red + 0.07239572 * green + 0.91030148 * blue,
-	];
 }
 
 function assertFiniteRange(

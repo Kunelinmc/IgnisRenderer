@@ -67,7 +67,7 @@ function testSHAmbientGateForBlinnPhong() {
 	);
 
 	assert.ok(
-		color.r > 1 && color.g > 1 && color.b > 1,
+		color.r > 0 && color.g > 0 && color.b > 0,
 		"Blinn-Phong should still receive ambient when SH is enabled but empty"
 	);
 }
@@ -99,7 +99,7 @@ function testSHAmbientGateForPBR() {
 	);
 
 	assert.ok(
-		color.r > 1 && color.g > 1 && color.b > 1,
+		color.r > 0 && color.g > 0 && color.b > 0,
 		"PBR should still receive ambient when SH is enabled but empty"
 	);
 }
@@ -319,7 +319,7 @@ function testTransmissionVolumeAttenuationColorsAmbientLight() {
 	);
 
 	assert.ok(
-		color.b > 1 && color.r < color.b * 0.25 && color.g < color.b * 0.25,
+		color.b > 0 && color.r < color.b * 0.25 && color.g < color.b * 0.25,
 		"Transmission volume attenuation should tint ambient light with the attenuation color"
 	);
 }
@@ -599,7 +599,7 @@ function testTransmissionOnlyRespondsToBackLighting() {
 		"Front lighting should not create a fake transmission lobe"
 	);
 	assert.ok(
-		backLit.r > frontLit.r + 50,
+		backLit.r > frontLit.r + 50 / 255,
 		"Back lighting should drive the transmission term"
 	);
 }
@@ -654,7 +654,7 @@ function testMetalnessSuppressesTransmission() {
 	);
 
 	assert.ok(
-		dielectric.r > metal.r + 50,
+		dielectric.r > metal.r + 50 / 255,
 		"Metalness should suppress the transmission energy budget"
 	);
 }
@@ -699,7 +699,7 @@ function testTransmissionVolumeAttenuationUsesLinear255Color() {
 	);
 
 	assert.ok(
-		Math.abs(color.r - 128) < 1.5,
+		Math.abs(color.r - 128 / 255) < 1.5 / 255,
 		`Expected mid-gray attenuation near 128, got ${color.r}`
 	);
 }

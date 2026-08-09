@@ -1,6 +1,4 @@
-import { linearToSRGB } from "../../maths/Common";
 import { ceilDiv } from "../../maths/Misc";
-import { DEFAULT_GAMMA } from "../../backends/constants";
 import { WEBGPU_2D_COMPUTE_WORKGROUP_SIZE as WEBGPU_WORKGROUP_SIZE } from "../../backends/webgpu/constants";
 import {
 	BufferUsage,
@@ -51,15 +49,40 @@ export const GAMMA_PASS_ORDER = {
 	incremental: GAMMA_PASS_INCREMENTAL,
 } as const satisfies PostProcessScheduleEntry;
 
+/**
+ * Converts D65 linear-sRGB values to D65 linear Display-P3.
+ *
+ * @internal Shared by CPU presentation and numerical contract tests.
+ */
+export function linearSrgbToDisplayP3(
+	color: readonly [number, number, number],
+	out: [number, number, number] = [0, 0, 0],
+): [number, number, number] {
+	const [red, green, blue] = color;
+	out[0] = 0.82259287 * red + 0.17753395 * green;
+	out[1] = 0.03319951 * red + 0.9667835 * green;
+	out[2] = 0.01708535 * red + 0.07239572 * green + 0.91030148 * blue;
+	return out;
+}
+
+/** @internal Piecewise sRGB transfer function with an optional extended range. */
+export function encodeLinearSRGB(value: number, extended = false): number {
+	const linear = Math.max(0, value);
+	const encoded = linear <= 0.0031308 ?
+		12.92 * linear
+	:	1.055 * Math.pow(linear, 1 / 2.4) - 0.055;
+	return extended ? encoded : Math.min(1, encoded);
+}
+
 /** @internal Software implementation for the built-in gamma pass. */
 export class SoftwareGammaImplementation implements PostProcessPassImplementation<SoftwareBuiltinPostProcessContext> {
 	public readonly id = "gamma:software";
+	private readonly _inputColor: [number, number, number] = [0, 0, 0];
+	private readonly _p3Color: [number, number, number] = [0, 0, 0];
+
 	public describeExecution() {
 		return SOFTWARE_IN_PLACE_EXECUTION;
 	}
-	private readonly _sRGBLUT = new Uint8Array(256);
-	private _lutBuilt = false;
-	private _lastGamma = -1;
 
 	public execute(
 		request: PostProcessPassRequest,
@@ -69,55 +92,37 @@ export class SoftwareGammaImplementation implements PostProcessPassImplementatio
 			return { ran: false };
 		}
 		const width = request.frameContext.attachments.width;
-		const height = request.frameContext.attachments.height;
-		const canvasContext = context?.canvasContext ?? null;
-		let pixels = request.frameContext.attachments.pixels;
-		let imageData: ImageData | null = null;
-		if (!pixels) {
-			if (!canvasContext) {
-				return { ran: false };
-			}
-			imageData = canvasContext.getImageData(0, 0, width, height);
-			pixels = imageData.data;
-		}
-		if (pixels.length === 0) {
+		const pixels = context.resources.color.input;
+		if (!(pixels instanceof Float32Array) || pixels.length === 0) {
 			return { ran: false };
 		}
-		const gamma = request.frameContext.postProcess.isEnabled(GAMMA_PASS_ID) ? DEFAULT_GAMMA : 1;
 		const dirtyRects = context.dirtyRects;
-		this._buildSRGBLUT(gamma);
-		const lut = this._sRGBLUT;
+		const hdr = context.displayOutput?.activeDynamicRange === "hdr";
+		const upperBound = hdr ? (context.displayOutput?.requested.hdrHeadroom ?? 4) : 1;
 		forEachSoftwareDirtyRect(dirtyRects, (rect) => {
 			for (let y = rect.minY; y <= rect.maxY; y++) {
 				const row = y * width;
 				for (let x = rect.minX; x <= rect.maxX; x++) {
 					const i = (row + x) << 2;
-					pixels[i] = lut[pixels[i]];
-					pixels[i + 1] = lut[pixels[i + 1]];
-					pixels[i + 2] = lut[pixels[i + 2]];
+					this._inputColor[0] = pixels[i];
+					this._inputColor[1] = pixels[i + 1];
+					this._inputColor[2] = pixels[i + 2];
+					const linear = hdr
+						? linearSrgbToDisplayP3(this._inputColor, this._p3Color)
+						: this._inputColor;
+					pixels[i] = encodeLinearSRGB(Math.min(upperBound, Math.max(0, linear[0])), hdr);
+					pixels[i + 1] = encodeLinearSRGB(
+						Math.min(upperBound, Math.max(0, linear[1])),
+						hdr,
+					);
+					pixels[i + 2] = encodeLinearSRGB(
+						Math.min(upperBound, Math.max(0, linear[2])),
+						hdr,
+					);
 				}
 			}
 		});
-		if (imageData && canvasContext) {
-			canvasContext.putImageData(imageData, 0, 0);
-		}
 		return { ran: true };
-	}
-
-	private _buildSRGBLUT(gamma: number): void {
-		if (this._lutBuilt && this._lastGamma === gamma) {
-			return;
-		}
-		const isStandardSRGB = Math.abs(gamma - DEFAULT_GAMMA) < 0.001;
-		const invGamma = 1 / gamma;
-		for (let i = 0; i < 256; i++) {
-			const value = i / 255;
-			this._sRGBLUT[i] = isStandardSRGB
-				? Math.round(linearToSRGB(value) * 255)
-				: Math.round(Math.pow(value, invGamma) * 255);
-		}
-		this._lutBuilt = true;
-		this._lastGamma = gamma;
 	}
 }
 
@@ -142,14 +147,13 @@ export class WebGPUGammaImplementation implements PostProcessPassImplementation<
 	EmptyOptions
 > {
 	public readonly id = "gamma:webgpu";
+
 	public describeExecution() {
 		return WEBGPU_VERSIONED_EXECUTION;
 	}
 	private _resources = new Map<WebGPUPostProcessServices, WebGPUGammaResources>();
 
-	public async warmup(
-		context: WebGPUScreenPostProcessContext | undefined,
-	): Promise<void> {
+	public async warmup(context: WebGPUScreenPostProcessContext | undefined): Promise<void> {
 		if (context) {
 			await this._ensureResources(context.shared);
 		}
@@ -185,9 +189,7 @@ export class WebGPUGammaImplementation implements PostProcessPassImplementation<
 		this._resources.clear();
 	}
 
-	private async _runGammaKernel(
-		context: WebGPUScreenPostProcessContext,
-	): Promise<boolean> {
+	private async _runGammaKernel(context: WebGPUScreenPostProcessContext): Promise<boolean> {
 		const resources = await this._ensureResources(context.shared);
 		if (!context.encoder || !context.targets || !resources.pipeline || !resources.params) {
 			return false;
@@ -197,8 +199,7 @@ export class WebGPUGammaImplementation implements PostProcessPassImplementation<
 		const input = context.resources.color.input;
 		if (!input) return false;
 		const display = context.shared.getDisplayOutputState?.();
-		resources.paramData[0] =
-			display?.activeDynamicRange === "hdr" ? 1 : 0;
+		resources.paramData[0] = display?.activeDynamicRange === "hdr" ? 1 : 0;
 		resources.paramData[1] = display?.requested.hdrHeadroom ?? 4;
 		resources.paramData[2] = 0;
 		resources.paramData[3] = 0;

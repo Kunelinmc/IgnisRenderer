@@ -63,9 +63,9 @@ function testLightingDisabledUsesUnlitProgram() {
 	const output = program.shade(createInput());
 
 	assert.ok(output, "Software fragment program should shade visible fragments");
-	assert.equal(output.color.r, 32);
-	assert.equal(output.color.g, 64);
-	assert.equal(output.color.b, 96);
+	assert.equal(output.color.r, 32 / 255);
+	assert.equal(output.color.g, 64 / 255);
+	assert.equal(output.color.b, 96 / 255);
 }
 
 function testPBRMaterialKeepsPBREvaluatorWhenUnlit() {
@@ -82,9 +82,27 @@ function testPBRMaterialKeepsPBREvaluatorWhenUnlit() {
 	const output = program.shade(createInput());
 
 	assert.ok(output, "PBR material should shade through the unlit path");
-	assert.equal(output.color.r, 12);
-	assert.equal(output.color.g, 34);
-	assert.equal(output.color.b, 56);
+	assert.equal(output.color.r, 12 / 255);
+	assert.equal(output.color.g, 34 / 255);
+	assert.equal(output.color.b, 56 / 255);
+}
+
+function testPBREmissiveRadianceCanExceedOne() {
+	const runtime = new SoftwareMaterialRuntime();
+	const material = new PBRMaterial({
+		albedo: { r: 0, g: 0, b: 0 },
+		emissive: { r: 255, g: 128, b: 0 },
+		emissiveIntensity: 4,
+	});
+	const program = runtime.prepareFragmentProgram(
+		createFace(material),
+		createContext({ enableLighting: true }),
+		false,
+	);
+	const output = program.shade(createInput());
+	assert.ok(output);
+	assert.ok(output.color.r >= 4 && output.color.r < 4.01);
+	assert.ok(output.color.g > 1);
 }
 
 function testDepthWriteReflectsTransparentPassAndMaterialState() {
@@ -143,6 +161,7 @@ function testAlphaMaskUsesSharedTextureSampling() {
 function run() {
 	testLightingDisabledUsesUnlitProgram();
 	testPBRMaterialKeepsPBREvaluatorWhenUnlit();
+	testPBREmissiveRadianceCanExceedOne();
 	testDepthWriteReflectsTransparentPassAndMaterialState();
 	testAlphaMaskUsesSharedTextureSampling();
 	console.log("Software material runtime tests passed");

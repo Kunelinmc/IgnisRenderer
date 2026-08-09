@@ -17,7 +17,8 @@ const softwareTextureDataCache = new WeakMap<
  * @param map - Texture to sample. `null` and empty textures return `null`.
  * @param u - Source U coordinate before texture transform.
  * @param v - Source V coordinate before texture transform.
- * @returns RGBA sample in 0..255 RGB units and 0..1 alpha, or `null`.
+ * @returns RGBA sample in 0..255 material units, with Float32 HDR RGB allowed
+ * above 255, and alpha in 0..1; otherwise `null`.
  * @sideEffects None.
  */
 export function sampleSoftwareTextureMap(
@@ -71,9 +72,10 @@ export function sampleSoftwareTextureMapInto(
 		const isFloat = data instanceof Float32Array;
 		const colorScale = isFloat ? 255 : 1;
 		const alphaRaw = data[idx + 3];
-		out.r = Math.max(0, Math.min(255, (data[idx] ?? 0) * colorScale));
-		out.g = Math.max(0, Math.min(255, (data[idx + 1] ?? 0) * colorScale));
-		out.b = Math.max(0, Math.min(255, (data[idx + 2] ?? 0) * colorScale));
+		const maximum = map.colorSpace === "HDR" ? Number.POSITIVE_INFINITY : 255;
+		out.r = Math.max(0, Math.min(maximum, (data[idx] ?? 0) * colorScale));
+		out.g = Math.max(0, Math.min(maximum, (data[idx + 1] ?? 0) * colorScale));
+		out.b = Math.max(0, Math.min(maximum, (data[idx + 2] ?? 0) * colorScale));
 		out.a =
 			alphaRaw === undefined ? 1
 			: isFloat ? clamp(alphaRaw)

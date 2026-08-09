@@ -1,7 +1,7 @@
 import { CameraType } from "../../cameras/Camera";
 import type { Texture } from "../../core/Texture";
 import type { Matrix4 } from "../../maths/Matrix4";
-import { sRGBToLinear } from "../../maths/Common";
+import { sampleEnvironmentTextureLevelLinear } from "../../lights/runtime/environmentMapRuntime";
 
 export interface SkyboxRenderOptions {
 	strength: number;
@@ -32,15 +32,14 @@ export class SkyboxRenderer {
 	public static render(
 		environmentBackgroundTexture: Texture,
 		options: SkyboxRenderOptions,
-		pixels: Uint8ClampedArray,
+		pixels: Float32Array,
 		camera: SoftwareSkyboxCamera,
 		width: number,
 		height: number,
 		clipRegions?: readonly SoftwareSkyboxClipRegion[],
 	): void {
-		const decodeSRGB = environmentBackgroundTexture.colorSpace === "sRGB";
 		const strength = Math.max(0, options.strength);
-		const exposure = Math.max(1e-6, options.exposure);
+		const exposure = Math.max(0, options.exposure);
 		const tint = options.tintLinear;
 		const view = camera.viewMatrix.elements;
 		const right = { x: view[0][0], y: view[0][1], z: view[0][2] };
@@ -78,22 +77,15 @@ export class SkyboxRenderer {
 				const dx = dirX * invLen;
 				const dy = dirY * invLen;
 				const dz = dirZ * invLen;
-				const phi = Math.atan2(dx, dz);
-				const theta = Math.acos(Math.max(-1, Math.min(1, dy)));
-				const u = (phi + Math.PI) / (2 * Math.PI);
-				const v = theta / Math.PI;
-				const color = environmentBackgroundTexture.sample(u, v);
+				const color = sampleEnvironmentTextureLevelLinear(
+					environmentBackgroundTexture,
+					{ x: dx, y: dy, z: dz },
+				);
 				const idx = rowBase + x * 4;
-				const linearR = decodeSRGB ? sRGBToLinear(color.r / 255) : color.r / 255;
-				const linearG = decodeSRGB ? sRGBToLinear(color.g / 255) : color.g / 255;
-				const linearB = decodeSRGB ? sRGBToLinear(color.b / 255) : color.b / 255;
-				const scaledR = linearR * tint.r * exposure * strength;
-				const scaledG = linearG * tint.g * exposure * strength;
-				const scaledB = linearB * tint.b * exposure * strength;
-				pixels[idx] = Math.max(0, Math.min(255, Math.round(scaledR * 255)));
-				pixels[idx + 1] = Math.max(0, Math.min(255, Math.round(scaledG * 255)));
-				pixels[idx + 2] = Math.max(0, Math.min(255, Math.round(scaledB * 255)));
-				pixels[idx + 3] = 255;
+				pixels[idx] = Math.max(0, color.r * tint.r * exposure * strength);
+				pixels[idx + 1] = Math.max(0, color.g * tint.g * exposure * strength);
+				pixels[idx + 2] = Math.max(0, color.b * tint.b * exposure * strength);
+				pixels[idx + 3] = 1;
 			}
 		}
 	}

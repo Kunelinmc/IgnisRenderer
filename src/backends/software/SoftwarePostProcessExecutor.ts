@@ -4,11 +4,15 @@ import type {
 	LogicalGBufferBridge,
 	LogicalGBufferSemantic,
 	PostProcessPassExecutionContextRequest,
+	PostProcessPassRequest,
+	PostProcessPassResult,
 	PostProcessResourceDescriptor,
 	PostProcessResourceHandle,
 } from "../../postprocess";
 import { createPostProcessResourceAccessor } from "../../postprocess/PostProcessResourceAccessor";
 import type { SoftwareFrameView } from "./SoftwareFrameView";
+import type { PostProcessColorDomain } from "../../postprocess/PostProcessPass";
+import type { DisplayOutputState } from "../../rendering/DisplayOutput";
 
 /**
  * Executes logical post-process passes on the software backend.
@@ -16,9 +20,23 @@ import type { SoftwareFrameView } from "./SoftwareFrameView";
 export class SoftwarePostProcessExecutor implements IPostProcessExecutor {
 	public readonly backend = "software";
 	private _activeFrame: SoftwareFrameView | null = null;
+	private _outputColorDomain: PostProcessColorDomain = "scene-linear-hdr";
 
-	public bindSoftwareFrame(frame: SoftwareFrameView): void {
+	constructor(
+		private readonly _getSceneColor?: () => Float32Array,
+		private readonly _getDisplayOutputState?: () => DisplayOutputState,
+	) {}
+
+	public get outputColorDomain(): PostProcessColorDomain {
+		return this._outputColorDomain;
+	}
+
+	public bindSoftwareFrame(
+		frame: SoftwareFrameView,
+		initialColorDomain: PostProcessColorDomain = "scene-linear-hdr",
+	): void {
 		this._activeFrame = frame;
+		this._outputColorDomain = initialColorDomain;
 	}
 
 	public unbindSoftwareFrame(): void {
@@ -32,9 +50,7 @@ export class SoftwarePostProcessExecutor implements IPostProcessExecutor {
 	 * @returns Software resource handle wrapping a `Float32Array`.
 	 * @sideEffects Allocates typed-array storage.
 	 */
-	public createResource(
-		desc: PostProcessResourceDescriptor
-	): PostProcessResourceHandle {
+	public createResource(desc: PostProcessResourceDescriptor): PostProcessResourceHandle {
 		const floatsPerPixel = 4;
 		return {
 			id: desc.id,
@@ -63,7 +79,7 @@ export class SoftwarePostProcessExecutor implements IPostProcessExecutor {
 	 * @sideEffects None.
 	 */
 	public createGBufferBridge(context: FrameContext): LogicalGBufferBridge {
-		return createSoftwareGBufferBridge(context);
+		return createSoftwareGBufferBridge(context, this._resolveSceneColor(context));
 	}
 
 	/**
@@ -73,9 +89,7 @@ export class SoftwarePostProcessExecutor implements IPostProcessExecutor {
 	 * @returns Context object expected by the selected software implementation.
 	 * @sideEffects None.
 	 */
-	public createPassExecutionContext(
-		request: PostProcessPassExecutionContextRequest
-	): unknown {
+	public createPassExecutionContext(request: PostProcessPassExecutionContextRequest): unknown {
 		const getGBuffer = (semantic: LogicalGBufferSemantic) => {
 			const handle = request.gBuffer.channels[semantic]?.handle;
 			return handle?.backend === "software" && "data" in handle ? handle.data : null;
@@ -86,6 +100,8 @@ export class SoftwarePostProcessExecutor implements IPostProcessExecutor {
 		}
 		const context: Record<string, unknown> = {
 			attachments: request.frameContext.attachments,
+			canvasContext: null,
+			displayOutput: this._getDisplayOutputState?.(),
 			dirtyRects: frame.clipRegions.map((region) => ({
 				minX: region.minX,
 				minY: region.minY,
@@ -95,17 +111,21 @@ export class SoftwarePostProcessExecutor implements IPostProcessExecutor {
 			resources: createPostProcessResourceAccessor<ArrayBufferView>({
 				passId: request.passId,
 				declaration: request.declaration,
-				colorInput: request.frameContext.attachments.pixels ?? null,
-				colorOutput: request.declaration.color.output === "preserve" ?
-					request.frameContext.attachments.pixels ?? null : null,
+				colorInput: frame.attachments.color,
+				colorOutput:
+					request.declaration.color.access === "read-write"
+						? frame.attachments.color
+						: null,
 				getGBuffer: (semantic) => getGBuffer(semantic),
 				getHistory: (id) => {
 					const slot = request.histories[id];
-					return slot ? {
-						read: slot.read.resource as ArrayBufferView,
-						write: slot.write.resource as ArrayBufferView,
-						valid: slot.valid,
-					} : null;
+					return slot
+						? {
+								read: slot.read.resource as ArrayBufferView,
+								write: slot.write.resource as ArrayBufferView,
+								valid: slot.valid,
+							}
+						: null;
 				},
 				getTransient: (id) =>
 					(request.transients[id]?.handle.resource as ArrayBufferView | null) ?? null,
@@ -113,6 +133,20 @@ export class SoftwarePostProcessExecutor implements IPostProcessExecutor {
 			}),
 		};
 		return Object.freeze(context);
+	}
+
+	public completePass(request: PostProcessPassRequest, result: PostProcessPassResult): void {
+		if (!result.ran) return;
+		const contract = request.pass.colorContract;
+		if (contract?.input === this._outputColorDomain) {
+			this._outputColorDomain = contract.output;
+		}
+	}
+
+	private _resolveSceneColor(context: FrameContext): Float32Array {
+		if (this._activeFrame) return this._activeFrame.attachments.color;
+		if (this._getSceneColor) return this._getSceneColor();
+		return new Float32Array(context.attachments.width * context.attachments.height * 4);
 	}
 }
 
@@ -124,7 +158,8 @@ export class SoftwarePostProcessExecutor implements IPostProcessExecutor {
  * @sideEffects None.
  */
 export function createSoftwareGBufferBridge(
-	context: FrameContext
+	context: FrameContext,
+	sceneColor?: Float32Array,
 ): LogicalGBufferBridge {
 	const attachments = context.attachments;
 	const width = Math.max(1, attachments.width);
@@ -140,12 +175,12 @@ export function createSoftwareGBufferBridge(
 				semantic: "color",
 				handle: {
 					backend: "software",
-					data: attachments.pixels ?? null,
+					data: sceneColor ?? null,
 					stride: 4,
 				},
 				width,
 				height,
-				format: "rgba8unorm",
+				format: "rgba32float",
 			},
 			depth: attachments.depthBuffer ?
 				{

@@ -9,7 +9,7 @@ import {
 	evaluateLightContribution,
 	type SurfacePoint,
 } from "./LightEvaluator";
-import { clamp, sRGBToLinear } from "../../maths/Common";
+import { sRGBToLinear } from "../../maths/Common";
 import type { IVector3, SHCoefficients } from "../../maths/types";
 import type { RGB } from "../../foundation/Color";
 import type {
@@ -159,9 +159,9 @@ export class BlinnPhongStrategy implements ILightingStrategy<PhongSurfacePropert
 
 		// Shader output stays in linear space; optional gamma encode happens in post-process
 		return {
-			r: clamp(Math.max(0, finalR) * 255, 0, 255),
-			g: clamp(Math.max(0, finalG) * 255, 0, 255),
-			b: clamp(Math.max(0, finalB) * 255, 0, 255),
+			r: Math.max(0, finalR),
+			g: Math.max(0, finalG),
+			b: Math.max(0, finalB),
 		};
 	}
 

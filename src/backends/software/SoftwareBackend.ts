@@ -19,11 +19,13 @@ import { createRenderBackendExtensionRegistry } from "../BackendExtensions";
 import {
 	DEFAULT_DISPLAY_OUTPUT_OPTIONS,
 	displayOutputStatesEqual,
-	resolveSDROnlyDisplayOutput,
+	createSDRDisplayOutputState,
 	type DisplayOutputOptions,
 	type DisplayOutputState,
+	type ResolvedDisplayOutputOptions,
 } from "../../rendering/DisplayOutput";
 import type { SoftwareBackendOptions } from "./SoftwareBackendContracts";
+import { SoftwareDisplayOutputManager } from "./SoftwareDisplayOutputManager";
 
 export type { SoftwareBackendOptions } from "./SoftwareBackendContracts";
 
@@ -42,7 +44,7 @@ export class SoftwareBackend implements IRenderBackend {
 	public readonly profile: RenderBackendProfile = {
 		id: "software",
 		capabilities: {
-			displayHDR: false,
+			displayHDR: true,
 			sh: true,
 			shadows: true,
 			reflection: true,
@@ -91,18 +93,23 @@ export class SoftwareBackend implements IRenderBackend {
 
 	private _attachContext: RenderBackendAttachContext | null = null;
 	private _state: SoftwareBackendState = "detached";
-	private readonly _surface = new SoftwareSurfaceRuntime();
+	private readonly _displayOutput = new SoftwareDisplayOutputManager(
+		DEFAULT_DISPLAY_OUTPUT_OPTIONS,
+	);
+	private readonly _surface = new SoftwareSurfaceRuntime(this._displayOutput);
 	private _executor: SoftwarePassExecutor | null = null;
 	private _session: SoftwareFrameSession | null = null;
 	private readonly _options: SoftwareBackendOptions;
-	private _displayOutputState = resolveSDROnlyDisplayOutput(
-		DEFAULT_DISPLAY_OUTPUT_OPTIONS,
-	);
+	private _displayOutputState = createSDRDisplayOutputState(DEFAULT_DISPLAY_OUTPUT_OPTIONS);
+	private _pendingDynamicRangeRefresh = false;
+	private _pendingDisplayOutput: {
+		requested: ResolvedDisplayOutputOptions;
+		resolve: Array<(state: DisplayOutputState) => void>;
+		reject: Array<(error: unknown) => void>;
+	} | null = null;
 
-	public constructor(options: SoftwareBackendOptions = {}) {
-		assertShaderDirectiveProfileRegistryComplete(
-			DEFAULT_SHADER_DIRECTIVE_PROFILE_REGISTRY,
-		);
+	constructor(options: SoftwareBackendOptions = {}) {
+		assertShaderDirectiveProfileRegistryComplete(DEFAULT_SHADER_DIRECTIVE_PROFILE_REGISTRY);
 		this._options = options;
 		this._createRuntime();
 	}
@@ -112,10 +119,7 @@ export class SoftwareBackend implements IRenderBackend {
 			throw new Error("SoftwareBackend is already attached to a renderer.");
 		}
 		this._attachContext = context;
-		this._displayOutputState = resolveSDROnlyDisplayOutput(
-			context.surface.displayOutput,
-		);
-		this._surface.attach(context.surface.canvas);
+		this._displayOutputState = this._displayOutput.setRequested(context.surface.displayOutput);
 		this._state = "attached";
 	}
 
@@ -133,25 +137,24 @@ export class SoftwareBackend implements IRenderBackend {
 		return this._displayOutputState;
 	}
 
-	public async setDisplayOutput(
-		options: DisplayOutputOptions,
-	): Promise<DisplayOutputState> {
-		const previous = this._displayOutputState;
-		const current = resolveSDROnlyDisplayOutput(options, previous.requested);
-		this._displayOutputState = current;
-		if (current.fallbackReason === "backend-unsupported") {
-			Logger.warn(
-				"[display-hdr-unavailable] SoftwareBackend supports SDR presentation only.",
-				{ scope: "SoftwareBackend", onceKey: "display-hdr-unavailable" },
-			);
-		}
-		if (!displayOutputStatesEqual(previous, current)) {
-			this._requireAttachContext().events.emit({
-				type: "display-output-change",
-				previous,
-				current,
+	public async setDisplayOutput(options: DisplayOutputOptions): Promise<DisplayOutputState> {
+		const current = this._displayOutput.setRequested(options);
+		if (this._state === "frame-active") {
+			return new Promise<DisplayOutputState>((resolve, reject) => {
+				if (this._pendingDisplayOutput) {
+					this._pendingDisplayOutput.requested = current.requested;
+					this._pendingDisplayOutput.resolve.push(resolve);
+					this._pendingDisplayOutput.reject.push(reject);
+				} else {
+					this._pendingDisplayOutput = {
+						requested: current.requested,
+						resolve: [resolve],
+						reject: [reject],
+					};
+				}
 			});
 		}
+		this._commitDisplayOutput(current);
 		return current;
 	}
 
@@ -159,12 +162,23 @@ export class SoftwareBackend implements IRenderBackend {
 		if (this._state !== "attached") this._throwForInitializeState();
 		this._state = "initializing";
 		try {
-			this._surface.initialize();
+			const previous = this._displayOutputState;
+			this._displayOutputState = this._initializeSurface();
+			this._displayOutput.observeDynamicRange(() => {
+				this._handleDynamicRangeChange();
+			});
 			this._ensureRuntime();
 			this._state = "ready";
-			if (this._displayOutputState.fallbackReason === "backend-unsupported") {
+			if (!displayOutputStatesEqual(previous, this._displayOutputState)) {
+				this._emitDisplayOutputChange(previous, this._displayOutputState);
+			}
+			if (
+				this._displayOutputState.requested.mode === "hdr" &&
+				this._displayOutputState.fallbackReason
+			) {
 				Logger.warn(
-					"[display-hdr-unavailable] SoftwareBackend supports SDR presentation only.",
+					`[display-hdr-unavailable] SoftwareBackend could not activate HDR: ` +
+						`${this._displayOutputState.fallbackReason}.`,
 					{ scope: "SoftwareBackend", onceKey: "display-hdr-unavailable" },
 				);
 			}
@@ -182,13 +196,17 @@ export class SoftwareBackend implements IRenderBackend {
 		}
 		this._state = "restoring";
 		try {
-			this._surface.initialize();
+			const previousDisplay = this._displayOutputState;
+			this._displayOutputState = this._initializeSurface();
 			const replacement = this._buildRuntime();
 			const previous = this._executor;
 			this._executor = replacement.executor;
 			this._session = replacement.session;
 			previous?.destroy();
 			this._state = "ready";
+			if (!displayOutputStatesEqual(previousDisplay, this._displayOutputState)) {
+				this._emitDisplayOutputChange(previousDisplay, this._displayOutputState);
+			}
 			this._requireAttachContext().events.emit({ type: "device-restored" });
 		} catch (error) {
 			this._state = "ready";
@@ -198,9 +216,7 @@ export class SoftwareBackend implements IRenderBackend {
 
 	public getAttachments(size: RenderSurfaceSize): FrameAttachments {
 		if (this._state === "detached" || this._state === "destroyed") {
-			throw new Error(
-				"SoftwareBackend.getAttachments() requires attach() to complete.",
-			);
+			throw new Error("SoftwareBackend.getAttachments() requires attach() to complete.");
 		}
 		if (this._state === "frame-active") {
 			throw new Error(
@@ -245,6 +261,7 @@ export class SoftwareBackend implements IRenderBackend {
 		const context = this._requireActiveContext(session.activeContext, "endFrame");
 		session.end(context);
 		this._state = "ready";
+		this._flushPendingDynamicRangeRefresh();
 	}
 
 	/** @internal Returns sanitized post-process graph diagnostics for tests. */
@@ -267,16 +284,24 @@ export class SoftwareBackend implements IRenderBackend {
 			await this._session?.abort(error);
 		} finally {
 			if (this._state === "frame-active") this._state = "ready";
+			this._flushPendingDynamicRangeRefresh();
 		}
 	}
 
 	public destroy(): void {
 		if (this._state === "destroyed") return;
+		const pendingDisplayOutput = this._pendingDisplayOutput;
+		this._pendingDisplayOutput = null;
+		for (const reject of pendingDisplayOutput?.reject ?? []) {
+			reject(new Error("Software backend was destroyed before display output changed."));
+		}
 		this._session?.reset();
 		this._executor?.destroy();
 		this._executor = null;
 		this._session = null;
+		this._displayOutput.destroy();
 		this._surface.destroy();
+		this._pendingDynamicRangeRefresh = false;
 		this._state = "destroyed";
 	}
 
@@ -293,6 +318,8 @@ export class SoftwareBackend implements IRenderBackend {
 		const executor = new SoftwarePassExecutor({
 			backend: this,
 			backendOptions: this._options,
+			getSceneColor: () => this._surface.getSceneColorTarget(),
+			getDisplayOutputState: () => this._displayOutputState,
 		});
 		return {
 			executor,
@@ -302,6 +329,27 @@ export class SoftwareBackend implements IRenderBackend {
 
 	private _ensureRuntime(): void {
 		if (!this._executor || !this._session) this._createRuntime();
+	}
+
+	private _initializeSurface(): DisplayOutputState {
+		const canvas = this._requireAttachContext().surface.canvas;
+		const detection = this._displayOutput.detect(canvas);
+		let context: CanvasRenderingContext2D | null = null;
+		try {
+			context = canvas.getContext("2d", detection.contextSettings);
+		} catch {
+			// Unsupported HDR context settings must fall back without failing setup.
+		}
+		if (!context) {
+			try {
+				context = canvas.getContext("2d", { willReadFrequently: true });
+			} catch {
+				// A canvas that cannot create any 2D context remains unavailable.
+			}
+		}
+		const state = this._displayOutput.configure(context);
+		this._surface.initialize(context);
+		return state;
 	}
 
 	private _requireSession(): SoftwareFrameSession {
@@ -323,9 +371,7 @@ export class SoftwareBackend implements IRenderBackend {
 
 	private _throwForInitializeState(): never {
 		if (this._state === "detached") {
-			throw new Error(
-				"SoftwareBackend.initialize() requires attach() to complete.",
-			);
+			throw new Error("SoftwareBackend.initialize() requires attach() to complete.");
 		}
 		throw new Error(
 			`SoftwareBackend.initialize() requires the attached state; current state is "${this._state}".`,
@@ -334,10 +380,64 @@ export class SoftwareBackend implements IRenderBackend {
 
 	private _requireAttachContext(): RenderBackendAttachContext {
 		if (!this._attachContext) {
-			throw new Error(
-				"SoftwareBackend.attach() must be called before initialize().",
-			);
+			throw new Error("SoftwareBackend.attach() must be called before initialize().");
 		}
 		return this._attachContext;
+	}
+
+	private _handleDynamicRangeChange(): void {
+		if (this._state === "frame-active") {
+			this._pendingDynamicRangeRefresh = true;
+			return;
+		}
+		const current = this._displayOutput.refreshDynamicRange();
+		if (!this._commitDisplayOutput(current)) return;
+		this._requireAttachContext().events.emit({
+			type: "render-invalidated",
+			reason: "display-output",
+		});
+	}
+
+	private _flushPendingDynamicRangeRefresh(): void {
+		if (!this._pendingDynamicRangeRefresh && !this._pendingDisplayOutput) return;
+		const dynamicRangeChanged = this._pendingDynamicRangeRefresh;
+		this._pendingDynamicRangeRefresh = false;
+		const pendingDisplayOutput = this._pendingDisplayOutput;
+		this._pendingDisplayOutput = null;
+		const current = this._displayOutput.refreshDynamicRange();
+		const changed = this._commitDisplayOutput(current);
+		if (dynamicRangeChanged && changed) {
+			this._requireAttachContext().events.emit({
+				type: "render-invalidated",
+				reason: "display-output",
+			});
+		}
+		for (const resolve of pendingDisplayOutput?.resolve ?? []) resolve(current);
+	}
+
+	private _commitDisplayOutput(current: DisplayOutputState): boolean {
+		const previous = this._displayOutputState;
+		this._displayOutputState = current;
+		if (current.requested.mode === "hdr" && current.fallbackReason) {
+			Logger.warn(
+				`[display-hdr-unavailable] SoftwareBackend could not activate HDR: ` +
+					`${current.fallbackReason}.`,
+				{ scope: "SoftwareBackend", onceKey: "display-hdr-unavailable" },
+			);
+		}
+		if (displayOutputStatesEqual(previous, current)) return false;
+		this._emitDisplayOutputChange(previous, current);
+		return true;
+	}
+
+	private _emitDisplayOutputChange(
+		previous: DisplayOutputState,
+		current: DisplayOutputState,
+	): void {
+		this._requireAttachContext().events.emit({
+			type: "display-output-change",
+			previous,
+			current,
+		});
 	}
 }

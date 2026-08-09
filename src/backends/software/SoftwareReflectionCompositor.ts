@@ -16,7 +16,7 @@ export interface SoftwareCompositeClipRect {
 export type SoftwareReflectionTriangleComposite = (
 	triangle: [ProjectedVertex, ProjectedVertex, ProjectedVertex],
 	face: ProjectedFace,
-	pixels: Uint8ClampedArray,
+	pixels: Float32Array,
 	depthBuffer: Float32Array,
 	width: number,
 	height: number,
@@ -37,7 +37,7 @@ export class SoftwareReflectionCompositor {
 		if (!frame.features.enableReflection || packets.length === 0 || buffers.size === 0) {
 			return;
 		}
-		const { pixels, depthBuffer, width, height } = frame.attachments;
+		const { color: pixels, depthBuffer, width, height } = frame.attachments;
 		if (width <= 0 || height <= 0) return;
 		const clipRects = frame.clipRegions.map((region) => ({
 			minX: region.minX,

@@ -21,7 +21,7 @@ function run() {
 	assert.equal(webgl.profile.id, "webgl");
 
 	assert.deepEqual(software.profile.capabilities, {
-		displayHDR: false,
+		displayHDR: true,
 		sh: true,
 		shadows: true,
 		reflection: true,
@@ -101,26 +101,32 @@ function testSoftwareBackendReusesFrameImageData() {
 			new SoftwareBackend(),
 			{ width: 2, height: 2 }
 		);
-		const { pixels } = backend.getAttachments({ width: 2, height: 2 });
-		pixels[0] = 7;
+		const attachments = backend.getAttachments({ width: 2, height: 2 });
+		const color = backend._surface.getSceneColorTarget();
+		color[0] = 7 / 255;
+		color[3] = 1;
 		const putCalls = [];
 
-		backend._surface._ctx = {
+		backend._surface._context = {
 			putImageData(imageData, x, y) {
 				putCalls.push({ imageData, x, y });
 			},
 		};
+		const frame = {
+			attachments: { ...attachments, color },
+			clipRegions: [{ minX: 0, minY: 0, maxXExclusive: 2, maxYExclusive: 2 }],
+		};
 
-		backend._surface.present();
-		pixels[0] = 21;
-		backend._surface.present();
+		backend._surface.present(frame, "display-encoded");
+		color[0] = 21 / 255;
+		backend._surface.present(frame, "display-encoded");
 
 		assert.equal(MockImageData.instances.length, 1);
 		assert.equal(putCalls.length, 2);
 		assert.equal(putCalls[0].x, 0);
 		assert.equal(putCalls[0].y, 0);
 		assert.strictEqual(putCalls[0].imageData, putCalls[1].imageData);
-		assert.strictEqual(putCalls[0].imageData.data, pixels);
+		assert.strictEqual(putCalls[0].imageData.data, attachments.pixels);
 		assert.equal(putCalls[1].imageData.data[0], 21);
 	} finally {
 		globalThis.ImageData = OriginalImageData;
@@ -138,14 +144,19 @@ function testSoftwareBackendHandlesResizeDuringFrame() {
 		const attachments = backend.getAttachments({ width: 2, height: 2 });
 		const putCalls = [];
 
-		attachments.pixels[0] = 99;
-		backend._surface._ctx = {
+		const color = backend._surface.getSceneColorTarget();
+		color[0] = 99 / 255;
+		color[3] = 1;
+		backend._surface._context = {
 			putImageData(imageData, x, y) {
 				putCalls.push({ imageData, x, y });
 			},
 		};
 
-		assert.doesNotThrow(() => backend._surface.present());
+		assert.doesNotThrow(() => backend._surface.present({
+			attachments: { ...attachments, color },
+			clipRegions: [{ minX: 0, minY: 0, maxXExclusive: 2, maxYExclusive: 2 }],
+		}, "display-encoded"));
 		assert.equal(putCalls.length, 1);
 		assert.equal(putCalls[0].imageData.width, 2);
 		assert.equal(putCalls[0].imageData.height, 2);

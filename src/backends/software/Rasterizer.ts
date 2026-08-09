@@ -37,7 +37,7 @@ export interface RasterizerLike {
 	drawTriangle(
 		pts: ProjectedVertex[],
 		face: ProjectedFace,
-		pixels: Uint8ClampedArray,
+		pixels: Float32Array,
 		context: RasterizerContext,
 		program: SoftwareFragmentProgram,
 		isTransparent?: boolean
@@ -500,7 +500,7 @@ export class Rasterizer implements RasterizerLike {
 	public drawTriangle(
 		pts: ProjectedVertex[],
 		face: ProjectedFace,
-		pixels: Uint8ClampedArray,
+		pixels: Float32Array,
 		context: RasterizerContext,
 		program: SoftwareFragmentProgram,
 		isTransparent: boolean = false
@@ -597,7 +597,7 @@ export class Rasterizer implements RasterizerLike {
 								pixels[idx] = finalColor.r;
 								pixels[idx + 1] = finalColor.g;
 								pixels[idx + 2] = finalColor.b;
-								pixels[idx + 3] = 255;
+								pixels[idx + 3] = 1;
 
 								if (context.normalBuffer) {
 									const nIdx = bufIdx * 3;
@@ -634,7 +634,7 @@ export class Rasterizer implements RasterizerLike {
 								pixels[idx] = finalColor.r * alpha + pixels[idx] * invA;
 								pixels[idx + 1] = finalColor.g * alpha + pixels[idx + 1] * invA;
 								pixels[idx + 2] = finalColor.b * alpha + pixels[idx + 2] * invA;
-								pixels[idx + 3] = CoreConstants.OPAQUE_ALPHA;
+								pixels[idx + 3] = 1;
 							}
 						}
 					}
@@ -691,7 +691,7 @@ export class Rasterizer implements RasterizerLike {
 	private _drawWireframe(
 		pts: ProjectedVertex[],
 		face: ProjectedFace,
-		pixels: Uint8ClampedArray,
+		pixels: Float32Array,
 		context: RasterizerContext,
 		isTransparent: boolean = false
 	): void {
@@ -712,7 +712,7 @@ export class Rasterizer implements RasterizerLike {
 		if (!depthBuffer) return;
 		if (clipMinX > clipMaxX || clipMinY > clipMaxY) return;
 
-		const wireColor = { r: 255, g: 255, b: 255 };
+		const wireColor = { r: 1, g: 1, b: 1 };
 		const alpha =
 			isTransparent ? clamp(face.color?.a ?? material.opacity ?? 1) : 1;
 
@@ -762,7 +762,7 @@ export class Rasterizer implements RasterizerLike {
 						pixels[idx] = wireColor.r;
 						pixels[idx + 1] = wireColor.g;
 						pixels[idx + 2] = wireColor.b;
-						pixels[idx + 3] = alpha * CoreConstants.MAX_CHANNEL_VALUE;
+						pixels[idx + 3] = alpha;
 					}
 				}
 				x += xInc;

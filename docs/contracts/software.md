@@ -18,10 +18,19 @@ backend reusable by another renderer.
 
 ## CPU Attachments
 
-The Software color attachment must use one `Uint8ClampedArray` with four RGBA
-entries per pixel. Depth must use one `Float32Array` entry per pixel. Normal
-and motion attachments, when present, must use three and four `Float32Array`
-entries per pixel respectively.
+The Software backend must own one normalized linear HDR scene-color target as
+a `Float32Array` with four RGBA entries per pixel. This RGBA32F target is the
+authoritative color resource for rasterization, reflection, particles, and
+post-processing. It must be allocated only when the surface size changes or
+the backend is restored, and released on destroy.
+
+`FrameAttachments.pixels` must remain a `Uint8ClampedArray` with four RGBA
+entries per pixel for presentation compatibility and diagnostics. Software
+passes must not use it as scene color. Custom Software post-process
+implementations must access authoritative color through
+`context.resources.color`. Depth must use one `Float32Array` entry per pixel.
+Normal and motion attachments, when present, must use three and four
+`Float32Array` entries per pixel respectively.
 
 Frame attachment dimensions and storage lengths must be validated before any
 frame work mutates the attachments. Invalid input must fail with the
@@ -44,6 +53,11 @@ camera state, previous world matrices, and completed incremental coverage are
 committed. Abort must discard all pending transaction state and must not
 advance those histories.
 
+The frame session must track the color domain actually produced by completed
+passes. A skipped or failed pass must not advance the domain. Presentation must
+complete missing tone mapping, gamut conversion, and transfer encoding from
+that actual domain before frame histories and temporal state are committed.
+
 ## Execution Services
 
 Software render passes must receive explicit backend-owned services. Shadow,
@@ -60,6 +74,48 @@ Software must execute the logical `PostProcessPlan` directly and must not
 construct a GPU Render Graph. Post-process, camera jitter, and previous
 transform state must participate in the same Software frame transaction.
 
+Software raster and material shader output must be normalized linear radiance.
+RGB radiance must not be multiplied by `255` or clamped to `1.0`. Physical
+material inputs such as albedo, roughness, metalness, opacity, and alpha-test
+coverage must retain their declared ranges. Environment, emissive, reflection,
+transparent, and additive-particle results may exceed `1.0`.
+
+Built-in SSAO, TAA, FXAA, and color-filter implementations must operate on
+float scene color. TAA history must preserve radiance above `1.0`. HDR color
+filter output may be limited by the requested `hdrHeadroom`, but must not be
+clamped to `1.0`.
+
+## Display Output
+
+`SoftwareBackend.profile.capabilities.displayHDR` must be `true`, indicating
+that the backend can attempt Display HDR. The active state must still be
+resolved from runtime capability probes.
+
+Software Display HDR must use a Display-P3 Canvas 2D context with
+`colorType: "float16"` and `rgba-float16` `ImageData`. Initialization must
+probe a detached canvas for Display-P3 preservation, Float16 put/read support,
+and preservation of RGB values above `1.0`. `SoftwareDisplayOutputManager` must
+not request or own the visible canvas context. `SoftwareBackend` must select,
+request, and own that context based on the probe result, then
+provide the context to the display-output manager for verification and to
+`SoftwareSurfaceRuntime` for presentation. A successful probe must select the
+highest supported Display-P3 Float16 configuration so display-output changes
+can be applied at frame boundaries.
+
+HDR activation additionally requires `(dynamic-range: high)`. Media-query
+changes must re-resolve display output, emit `display-output-change` when the
+observable state changes, and invalidate the complete frame. Probe or
+configuration failure must not throw on unsupported browsers. It must fall
+back to SDR, using `canvas-hdr-output-unsupported` for a failed Canvas 2D HDR
+capability probe and preserving the existing display and configuration
+failure reasons where applicable.
+
+HDR presentation must submit Float16 Display-P3 pixels and may preserve
+encoded values above `1.0`. In HDR mode, `FrameAttachments.pixels` must contain
+only a clipped RGBA8 diagnostic preview. SDR presentation must submit RGBA8
+sRGB pixels. Chromium is the required browser validation target; other browsers
+must use the same probes and fall back to SDR without throwing when unsupported.
+
 ## Pass Ownership
 
 The Software pass executor owns renderer-stage dispatch and unsupported-pass
@@ -74,9 +130,11 @@ temporal history.
 
 ## Compatibility
 
-`SoftwareBackend`, `SoftwareBackendOptions`, backend capabilities, pass order,
-diagnostic keys, and output pixels remain compatible. Software-only internal
-pass interfaces and transient keys are not compatibility surfaces.
+`SoftwareBackend`, `SoftwareBackendOptions`, and pass order remain available.
+The Software color pipeline, backend capability value, custom post-process
+color resource, and output pixels are breaking changes. RGBA8 intermediate
+lighting values and pixel-identical Software screenshots are not compatibility
+surfaces.
 
 ## Verification
 

@@ -128,6 +128,7 @@ export type ResolvedSSAOOptions = Required<
 export interface SoftwareSSAOContext {
 	readonly attachments: FrameAttachments;
 	readonly dirtyRects: readonly IncrementalDirtyRect[];
+	readonly resources: PostProcessResourceAccessor<ArrayBufferView>;
 }
 
 /** @internal WebGPU context supplied to the built-in SSAO implementation. */
@@ -369,10 +370,10 @@ export class SoftwareScreenSpaceAmbientOcclusionImplementation
 		context: SoftwareSSAOContext
 	): PostProcessPassResult {
 		const frameContext = request.frameContext;
-		const pixels = context.attachments.pixels;
+		const pixels = context.resources.color.input;
 		const depthBuffer = context.attachments.depthBuffer;
 		const normalBuffer = context.attachments.normalBuffer;
-		if (!pixels || !depthBuffer || !normalBuffer) {
+		if (!(pixels instanceof Float32Array) || !depthBuffer || !normalBuffer) {
 			return { ran: false };
 		}
 		const dirtyRects = context.dirtyRects;

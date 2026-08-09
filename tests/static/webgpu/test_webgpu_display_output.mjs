@@ -2,10 +2,14 @@ import assert from "node:assert/strict";
 
 import {
 	DEFAULT_DISPLAY_OUTPUT_OPTIONS,
-	applyHDRSoftShoulder,
-	linearSrgbToDisplayP3,
 	resolveDisplayOutputOptions,
 } from "../../../src/rendering/DisplayOutput.ts";
+import {
+	linearSrgbToDisplayP3,
+} from "../../../src/postprocess/passes/GammaPass.ts";
+import {
+	applyHDRSoftShoulder,
+} from "../../../src/postprocess/passes/ToneMappingPass.ts";
 import { linearToSRGB } from "../../../src/maths/Common.ts";
 import {
 	WebGPUDisplayOutputManager,

@@ -53,7 +53,7 @@ export class SoftwareParticlePass implements SoftwarePassLike {
 		const attachments = frame.attachments;
 		const width = attachments.width;
 		const height = attachments.height;
-		const pixels = attachments.pixels;
+		const pixels = attachments.color;
 		const depthBuffer = attachments.depthBuffer;
 		const viewPosition = Matrix4.transformPoint(frame.camera.viewMatrix, particle.position);
 		const depth = -viewPosition.z;
@@ -141,16 +141,16 @@ export class SoftwareParticlePass implements SoftwarePassLike {
 					const alpha = baseAlpha * (texA / 255) * radialMask;
 					if (alpha <= PARTICLE_ALPHA_CUTOFF) continue;
 
-					const srcR = particle.color.r * (texR / 255) * shadowVisibility;
-					const srcG = particle.color.g * (texG / 255) * shadowVisibility;
-					const srcB = particle.color.b * (texB / 255) * shadowVisibility;
+					const srcR = (particle.color.r / 255) * (texR / 255) * shadowVisibility;
+					const srcG = (particle.color.g / 255) * (texG / 255) * shadowVisibility;
+					const srcB = (particle.color.b / 255) * (texB / 255) * shadowVisibility;
 
 					const pixelIndex = bufferIndex << 2;
 					if (batch.blendMode === ParticleBlendMode.Additive) {
-						pixels[pixelIndex] = Math.min(255, pixels[pixelIndex] + srcR * alpha);
-						pixels[pixelIndex + 1] = Math.min(255, pixels[pixelIndex + 1] + srcG * alpha);
-						pixels[pixelIndex + 2] = Math.min(255, pixels[pixelIndex + 2] + srcB * alpha);
-						pixels[pixelIndex + 3] = 255;
+						pixels[pixelIndex] += srcR * alpha;
+						pixels[pixelIndex + 1] += srcG * alpha;
+						pixels[pixelIndex + 2] += srcB * alpha;
+						pixels[pixelIndex + 3] = 1;
 						continue;
 					}
 
@@ -158,7 +158,7 @@ export class SoftwareParticlePass implements SoftwarePassLike {
 					pixels[pixelIndex] = srcR * alpha + pixels[pixelIndex] * invAlpha;
 					pixels[pixelIndex + 1] = srcG * alpha + pixels[pixelIndex + 1] * invAlpha;
 					pixels[pixelIndex + 2] = srcB * alpha + pixels[pixelIndex + 2] * invAlpha;
-					pixels[pixelIndex + 3] = 255;
+					pixels[pixelIndex + 3] = 1;
 				}
 			}
 		}
