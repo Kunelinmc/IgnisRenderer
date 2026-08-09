@@ -98,4 +98,5 @@ simulation, workers, and backends.
 - [Render Graph architecture](render-graph.md)
 - [WebGPU architecture](webgpu.md)
 - [Renderer contract](../contracts/renderer.md)
+- [Software backend contract](../contracts/software.md)
 - [Physics contract](../contracts/physics.md)

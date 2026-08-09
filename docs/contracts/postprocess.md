@@ -297,3 +297,4 @@ bunx tsc --noEmit
 - [Render Graph architecture](../architecture/render-graph.md)
 - [WebGPU contract](webgpu.md)
 - [WebGL contract](webgl.md)
+- [Software backend contract](software.md)

@@ -1,4 +1,5 @@
-import type { FrameAttachments, FrameContext } from "../../pipeline/types";
+import type { FrameAttachments } from "../../pipeline/types";
+import type { IncrementalDirtyRect } from "../../pipeline/incremental";
 import type { ICommandEncoder } from "../../backends/ICommandEncoder";
 import {
 	FXAA_EDGE_THRESHOLD_MIN,
@@ -42,7 +43,6 @@ import type {
 } from "../types";
 import {
 	forEachSoftwareDirtyRect,
-	resolveSoftwareDirtyRects,
 } from "./ScreenPassShared";
 
 export const FAST_APPROXIMATE_ANTI_ALIASING_PASS_ID = "fxaa";
@@ -68,6 +68,7 @@ interface SampledByteColor {
 export interface SoftwareFXAAContext {
 	readonly attachments: FrameAttachments;
 	readonly canvasContext: CanvasRenderingContext2D | null;
+	readonly dirtyRects: readonly IncrementalDirtyRect[];
 }
 
 /** @internal WebGPU context supplied to the built-in FXAA implementation. */
@@ -148,11 +149,10 @@ export class SoftwareFastApproximateAntiAliasingImplementation
 		if (!context) {
 			return { ran: false };
 		}
-		return this._runFXAAKernel(request.frameContext, context);
+		return this._runFXAAKernel(context);
 	}
 
 	private _runFXAAKernel(
-		frameContext: FrameContext,
 		context: SoftwareFXAAContext
 	): PostProcessPassResult {
 		const { width, height } = context.attachments;
@@ -174,7 +174,7 @@ export class SoftwareFastApproximateAntiAliasingImplementation
 		}
 		const output = this._output;
 		output.set(pixels);
-		const dirtyRects = resolveSoftwareDirtyRects(frameContext);
+		const dirtyRects = context.dirtyRects;
 		if (dirtyRects.length === 0) {
 			return { ran: false };
 		}

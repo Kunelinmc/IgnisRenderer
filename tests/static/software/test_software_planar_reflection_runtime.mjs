@@ -9,10 +9,12 @@ import {
 	SoftwareReflectionPass,
 } from "../../../src/backends/software/passes/SoftwareReflectionPass.ts";
 import {
-	getSoftwarePlanarReflectionRuntime,
 	resolveSoftwarePlanarReflectionPlaneKey,
 	SoftwarePlanarReflectionRuntime,
 } from "../../../src/backends/software/SoftwarePlanarReflectionRuntime.ts";
+import {
+	createSoftwarePassContextForTesting,
+} from "../../../src/backends/software/SoftwareFrameServices.ts";
 import { createResolvedPostProcess } from "../../helpers/postprocess.mjs";
 
 const WIDTH = 64;
@@ -225,11 +227,11 @@ function testReflectionPassPublishesRuntime() {
 	const pass = new SoftwareReflectionPass(new Rasterizer());
 	const context = createContext(createCamera(), {}, { enableReflection: true });
 
-	pass.render(context);
+	pass.render(createSoftwarePassContextForTesting(context));
 
 	assert.ok(
-		getSoftwarePlanarReflectionRuntime(context.transient),
-		"Reflection pass should publish its runtime through transient storage"
+		pass.runtime,
+		"Reflection pass should own its runtime explicitly",
 	);
 }
 
@@ -258,8 +260,9 @@ async function testRuntimeCompositeBlendsReflectionColor() {
 		createImageBuffer(1, 1, [0, 200, 0, 255])
 	);
 
-	await mainPass.render(context, [packet], false);
-	runtime.composite(context, [packet]);
+	const passContext = createSoftwarePassContextForTesting(context);
+	await mainPass.render(passContext, [packet], false);
+	runtime.composite(passContext, [packet]);
 
 	const idx = ((HEIGHT >> 1) * WIDTH + (WIDTH >> 1)) << 2;
 	assert.ok(
@@ -316,8 +319,9 @@ async function testRuntimeCompositeSamplesScaledReflectionBuffer() {
 		])
 	);
 
-	await mainPass.render(context, [packet], false);
-	runtime.composite(context, [packet]);
+	const passContext = createSoftwarePassContextForTesting(context);
+	await mainPass.render(passContext, [packet], false);
+	runtime.composite(passContext, [packet]);
 
 	const idx = ((HEIGHT >> 1) * WIDTH + (WIDTH >> 1)) << 2;
 	assert.equal(context.attachments.pixels[idx], 40);
@@ -342,7 +346,7 @@ function testRuntimeCompositeSkipsMissingBuffer() {
 	context.attachments.pixels.fill(100);
 	const runtime = new SoftwarePlanarReflectionRuntime(rasterizer);
 
-	runtime.composite(context, [packet]);
+	runtime.composite(createSoftwarePassContextForTesting(context), [packet]);
 
 	const idx = ((HEIGHT >> 1) * WIDTH + (WIDTH >> 1)) << 2;
 	assert.equal(context.attachments.pixels[idx], 100);
@@ -377,7 +381,7 @@ function testRuntimeCompositeHonorsAlphaMask() {
 		createImageBuffer(1, 1, [0, 200, 0, 255])
 	);
 
-	runtime.composite(context, [packet]);
+	runtime.composite(createSoftwarePassContextForTesting(context), [packet]);
 
 	const idx = ((HEIGHT >> 1) * WIDTH + (WIDTH >> 1)) << 2;
 	assert.equal(context.attachments.pixels[idx], 100);
@@ -404,15 +408,16 @@ async function testReflectionPassCompositeAfterMainPass() {
 		{ enableReflection: true }
 	);
 
-	await mainPass.render(context, [packet], false);
-	reflectionPass.render(context);
-	const runtime = getSoftwarePlanarReflectionRuntime(context.transient);
+	const passContext = createSoftwarePassContextForTesting(context);
+	await mainPass.render(passContext, [packet], false);
+	reflectionPass.render(passContext);
+	const runtime = reflectionPass.runtime;
 	assert.ok(runtime, "Reflection pass should expose the runtime for the frame");
 	runtime.reflectionBuffers.set(
 		resolveSoftwarePlanarReflectionPlaneKey(mirrorPlane),
 		createImageBuffer(1, 1, [0, 200, 0, 255])
 	);
-	reflectionPass.composite(context, [packet]);
+	reflectionPass.composite(passContext, [packet]);
 
 	const idx = ((HEIGHT >> 1) * WIDTH + (WIDTH >> 1)) << 2;
 	assert.ok(
@@ -481,7 +486,7 @@ function testReflectionCaptureDisablesRecursiveComposite() {
 	);
 	const runtime = new SoftwarePlanarReflectionRuntime(fakeRasterizer);
 
-	runtime.render(context);
+	runtime.render(createSoftwarePassContextForTesting(context));
 
 	assert.ok(
 		drawContexts.length > 0,

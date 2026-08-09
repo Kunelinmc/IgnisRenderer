@@ -30,7 +30,6 @@ import type {
 import {
 	bindWebGLPostTarget,
 	forEachSoftwareDirtyRect,
-	resolveSoftwareDirtyRects,
 	resolveWebGLTarget,
 	resolveWebGPUTarget,
 	type EmptyOptions,
@@ -66,6 +65,9 @@ export class SoftwareGammaImplementation implements PostProcessPassImplementatio
 		request: PostProcessPassRequest,
 		context: SoftwareBuiltinPostProcessContext | undefined,
 	): PostProcessPassResult {
+		if (!context) {
+			return { ran: false };
+		}
 		const width = request.frameContext.attachments.width;
 		const height = request.frameContext.attachments.height;
 		const canvasContext = context?.canvasContext ?? null;
@@ -82,7 +84,7 @@ export class SoftwareGammaImplementation implements PostProcessPassImplementatio
 			return { ran: false };
 		}
 		const gamma = request.frameContext.postProcess.isEnabled(GAMMA_PASS_ID) ? DEFAULT_GAMMA : 1;
-		const dirtyRects = resolveSoftwareDirtyRects(request.frameContext);
+		const dirtyRects = context.dirtyRects;
 		this._buildSRGBLUT(gamma);
 		const lut = this._sRGBLUT;
 		forEachSoftwareDirtyRect(dirtyRects, (rect) => {

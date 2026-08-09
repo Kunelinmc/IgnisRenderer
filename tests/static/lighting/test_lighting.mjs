@@ -6,7 +6,7 @@ import { PointLight } from "../../../src/lights/PointLight.ts";
 import { SpotLight } from "../../../src/lights/SpotLight.ts";
 import { LightProbe } from "../../../src/lights/LightProbe.ts";
 import { Scene } from "../../../src/core/Scene.ts";
-import { evaluateLightContribution } from "../../../src/backends/software/LightEvaluator.ts";
+import { evaluateLightContribution } from "../../../src/shaders/software/LightEvaluator.ts";
 import { Matrix4 } from "../../../src/maths/Matrix4.ts";
 import { SH } from "../../../src/maths/SH.ts";
 import { isShadowCastingLight } from "../../../src/lights/index.ts";

@@ -3,18 +3,19 @@ import { Projector } from "../Projector";
 import type {
 	DecalPacket,
 	DrawPacket,
-	FrameContext,
 } from "../../../pipeline/types";
 import type {
 	ProjectedFace,
 	ProjectedVertex,
 } from "../../../core/types";
-import type { Rasterizer, RasterizerContext } from "../Rasterizer";
-import { createSoftwareShadowSampler, getSoftwareShadowRuntimeMap } from "./SoftwareShadowPass";
+import type { Rasterizer } from "../Rasterizer";
 import type { SoftwarePassLike } from "./types";
-import {
-	SOFTWARE_TEMPORAL_RENDER_STATE_KEY,
-} from "../SoftwareTemporalRenderState";
+import type { SoftwarePassContext } from "../SoftwareFrameServices";
+import type {
+	SoftwareClipRegion,
+	SoftwareFrameView,
+} from "../SoftwareFrameView";
+import { createSoftwareRasterizerContext } from "../SoftwareRasterContextFactory";
 
 interface ProjectedTriangleWorkItem {
 	pts: [ProjectedVertex, ProjectedVertex, ProjectedVertex];
@@ -33,107 +34,21 @@ export interface SoftwareMainPassOptions {
 	enableEarlyZPrepass?: boolean;
 }
 
-function resolvePreparedSceneEnvironment(
-	scene: FrameContext["scene"]
-): {
-	backgroundEnabled: boolean;
-	lightingEnabled: boolean;
-	backgroundTexture: any;
-	iblTexture: any;
-	backgroundStrength: number;
-	backgroundTintLinear: { r: number; g: number; b: number };
-	backgroundExposure: number;
-} {
-	const environment = (scene as { environment?: unknown }).environment as
-		| {
-				backgroundEnabled?: boolean;
-				lightingEnabled?: boolean;
-				backgroundTexture?: unknown;
-				iblTexture?: unknown;
-				backgroundStrength?: number;
-				backgroundTintLinear?: { r?: number; g?: number; b?: number };
-				backgroundExposure?: number;
-		  }
-		| undefined;
-	return {
-		backgroundEnabled: environment?.backgroundEnabled ?? true,
-		lightingEnabled: environment?.lightingEnabled ?? true,
-		backgroundTexture:
-			(environment?.backgroundTexture as any | null | undefined) ?? null,
-		iblTexture: (environment?.iblTexture as any | null | undefined) ?? null,
-		backgroundStrength:
-			typeof environment?.backgroundStrength === "number" ?
-				environment.backgroundStrength
-			:	1,
-		backgroundTintLinear: {
-			r:
-				typeof environment?.backgroundTintLinear?.r === "number" ?
-					environment.backgroundTintLinear.r
-				:	1,
-			g:
-				typeof environment?.backgroundTintLinear?.g === "number" ?
-					environment.backgroundTintLinear.g
-				:	1,
-			b:
-				typeof environment?.backgroundTintLinear?.b === "number" ?
-					environment.backgroundTintLinear.b
-				:	1,
-		},
-		backgroundExposure:
-			typeof environment?.backgroundExposure === "number" ?
-				environment.backgroundExposure
-			:	1,
-	};
-}
-
-function createRasterizerContext(context: FrameContext): RasterizerContext {
-	const runtimeMap = getSoftwareShadowRuntimeMap(context.transient);
-	const sampleShadow = createSoftwareShadowSampler(
-		context.shadowPlan,
-		runtimeMap,
-		{ camera: context.viewCamera }
-	);
-	const environment = resolvePreparedSceneEnvironment(context.scene);
-
-	return {
-		width: context.attachments.width,
-		height: context.attachments.height,
-		depthBuffer: context.attachments.depthBuffer!,
-		normalBuffer: context.attachments.normalBuffer,
-		motionBuffer: context.attachments.motionBuffer,
-		temporal: context.transient.get(SOFTWARE_TEMPORAL_RENDER_STATE_KEY),
-		camera: {
-			position: context.viewCamera.getWorldPosition(),
-			viewMatrix: context.viewCamera.viewMatrix,
-		},
-		lights: context.scene.lights,
-		sampleShadow,
-		shAmbientCoeffs: context.shAmbientCoeffs,
-		environmentSpecularTexture:
-			environment.lightingEnabled ?
-				environment.iblTexture
-			:	null,
-		enableLighting: context.features.enableLighting,
-		enableSH: context.features.enableSH,
-		enableShadows: context.features.enableShadows,
-	};
-}
-
 function collectProjectedTriangles(
-	context: FrameContext,
+	frame: SoftwareFrameView,
 	packets: DrawPacket[],
 	transparent: boolean,
 	dirtyRects: RasterClipRect[] | null = null
 ): ProjectedTriangleWorkItem[] {
 	const triangles: ProjectedTriangleWorkItem[] = [];
-	const frameWidth = context.attachments.width;
-	const frameHeight = context.attachments.height;
+	const frameWidth = frame.attachments.width;
+	const frameHeight = frame.attachments.height;
 
 	for (const packet of packets) {
 		const decalPackets = transparent ?
 				EMPTY_DECAL_PACKETS
-			:	collectPacketDecals(packet, context.scene.decalPackets);
-		const faces = Projector.projectPacket(packet, context);
+			:	collectPacketDecals(packet, frame.scene.decalPackets);
+		const faces = Projector.projectPacket(packet, frame);
 		if (transparent) {
 			faces.sort((left, right) => right.depthInfo.avg - left.depthInfo.avg);
 		}
@@ -196,40 +111,13 @@ function boundingSpheresIntersect(
 	return dx * dx + dy * dy + dz * dz <= radius * radius;
 }
 
-function resolveDirtyClipRects(context: FrameContext): RasterClipRect[] {
-	const width = Math.max(1, context.attachments.width);
-	const height = Math.max(1, context.attachments.height);
-	const incremental = context.incremental;
-	if (
-		!incremental.enabled ||
-		incremental.forceFullFrame ||
-		incremental.dirtyRects.length === 0
-	) {
-		return [{
-			minX: 0,
-			minY: 0,
-			maxX: width - 1,
-			maxY: height - 1,
-		}];
-	}
-
-	const dirtyRects: RasterClipRect[] = [];
-	for (const rect of incremental.dirtyRects) {
-		const minX = Math.max(0, Math.floor(rect.x));
-		const minY = Math.max(0, Math.floor(rect.y));
-		const maxX = Math.min(width - 1, Math.ceil(rect.x + rect.width) - 1);
-		const maxY = Math.min(height - 1, Math.ceil(rect.y + rect.height) - 1);
-		if (minX > maxX || minY > maxY) {
-			continue;
-		}
-		dirtyRects.push({
-			minX,
-			minY,
-			maxX,
-			maxY,
-		});
-	}
-	return dirtyRects;
+function resolveDirtyClipRects(frame: SoftwareFrameView): RasterClipRect[] {
+	return frame.clipRegions.map((region: SoftwareClipRegion) => ({
+		minX: region.minX,
+		minY: region.minY,
+		maxX: region.maxXExclusive - 1,
+		maxY: region.maxYExclusive - 1,
+	}));
 }
 
 function clipRectsIntersect(left: RasterClipRect, right: RasterClipRect): boolean {
@@ -303,13 +191,13 @@ function shouldSkipEarlyDepthPrepassTriangle(
 
 function prepareEarlyDepthBuffer(
 	previous: Float32Array | null,
-	context: FrameContext,
+	frame: SoftwareFrameView,
 	dirtyRects: RasterClipRect[]
 ): Float32Array {
-	const width = Math.max(1, context.attachments.width | 0);
-	const height = Math.max(1, context.attachments.height | 0);
+	const width = frame.attachments.width;
+	const height = frame.attachments.height;
 	const size = width * height;
-	const depthBuffer = context.attachments.depthBuffer!;
+	const depthBuffer = frame.attachments.depthBuffer;
 	const next =
 		previous && previous.length === size ? previous : new Float32Array(size);
 	next.set(depthBuffer);
@@ -333,7 +221,7 @@ function prepareEarlyDepthBuffer(
 }
 
 export class SoftwareMainPass implements SoftwarePassLike<
-	[FrameContext, DrawPacket[], boolean],
+	[SoftwarePassContext, DrawPacket[], boolean],
 	Promise<void>
 > {
 	private _rasterizer: Rasterizer;
@@ -346,16 +234,17 @@ export class SoftwareMainPass implements SoftwarePassLike<
 	}
 
 	public async render(
-		context: FrameContext,
+		context: SoftwarePassContext,
 		packets: DrawPacket[],
 		transparent: boolean
 	): Promise<void> {
-		const dirtyRects = resolveDirtyClipRects(context);
+		const frame = context.frame;
+		const dirtyRects = resolveDirtyClipRects(frame);
 		if (dirtyRects.length === 0) {
 			return;
 		}
 		const triangles = collectProjectedTriangles(
-			context,
+			frame,
 			packets,
 			transparent,
 			dirtyRects
@@ -363,38 +252,48 @@ export class SoftwareMainPass implements SoftwarePassLike<
 		if (triangles.length === 0) {
 			return;
 		}
-		const rasterizerContext = createRasterizerContext(context);
-		if (shouldRunEarlyDepthPrepass(transparent, this._enableEarlyZPrepass)) {
+		const rasterizerContext = createSoftwareRasterizerContext(context);
+		const runEarlyDepthPrepass = shouldRunEarlyDepthPrepass(
+			transparent,
+			this._enableEarlyZPrepass,
+		);
+		if (runEarlyDepthPrepass) {
 			this._earlyDepthBuffer = prepareEarlyDepthBuffer(
 				this._earlyDepthBuffer,
-				context,
+				frame,
 				dirtyRects
 			);
 			rasterizerContext.earlyDepthBuffer = this._earlyDepthBuffer;
+		}
+		for (const dirtyRect of dirtyRects) {
+			rasterizerContext.clipRect = dirtyRect;
+			if (runEarlyDepthPrepass) {
+				for (const triangle of triangles) {
+					if (shouldSkipEarlyDepthPrepassTriangle(triangle)) continue;
+					this._rasterizer.drawCameraDepthTriangle(
+						triangle.pts,
+						rasterizerContext,
+					);
+				}
+			}
 			for (const triangle of triangles) {
-				if (shouldSkipEarlyDepthPrepassTriangle(triangle)) continue;
-				this._rasterizer.drawCameraDepthTriangle(
+				const program = this._rasterizer.prepareFragmentProgram(
+					triangle.face,
+					rasterizerContext,
+					transparent,
+					triangle.decalPackets,
+				);
+				this._rasterizer.drawTriangle(
 					triangle.pts,
-					rasterizerContext
+					triangle.face,
+					frame.attachments.pixels,
+					rasterizerContext,
+					program,
+					transparent,
 				);
 			}
 		}
-		for (const triangle of triangles) {
-			const program = this._rasterizer.prepareFragmentProgram(
-				triangle.face,
-				rasterizerContext,
-				transparent,
-				triangle.decalPackets
-			);
-			this._rasterizer.drawTriangle(
-				triangle.pts,
-				triangle.face,
-				context.attachments.pixels!,
-				rasterizerContext,
-				program,
-				transparent
-			);
-		}
+		rasterizerContext.clipRect = null;
 	}
 
 	public destroy(): void {

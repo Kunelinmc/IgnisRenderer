@@ -8,14 +8,12 @@ import type {
 	IVertex,
 	PrimitiveFace,
 } from "../../core/types";
-import { MeshInstance } from "../../meshes";
-import type { DrawPacket, FrameContext } from "../../pipeline/types";
+import type { DrawPacket } from "../../pipeline/types";
 import { GeometryBuilder } from "../../meshes/GeometryBuilder";
-import { ANIMATION_SOFTWARE_DEFORMED_GEOMETRY_KEY } from "../../simulation/animation/types";
 import {
-	SOFTWARE_TEMPORAL_RENDER_STATE_KEY,
 	type SoftwareTemporalRenderState,
 } from "./SoftwareTemporalRenderState";
+import type { SoftwareFrameView } from "./SoftwareFrameView";
 
 interface ClippedVertexPair {
 	view: IVertex;
@@ -45,19 +43,19 @@ export interface SoftwareProjectionView {
 export class Projector {
 	public static projectPacket(
 		packet: DrawPacket,
-		context: FrameContext,
+		frame: SoftwareFrameView,
 		flipCulling: boolean = false,
 		overrideSize?: { width: number; height: number },
 		projectionView?: SoftwareProjectionView,
 	): ProjectedFace[] {
-		const camera = projectionView?.camera ?? context.viewCamera;
-		const targetWidth = projectionView?.width ?? overrideSize?.width ?? context.attachments.width;
-		const targetHeight = projectionView?.height ?? overrideSize?.height ?? context.attachments.height;
+		const camera = projectionView?.camera ?? frame.camera;
+		const targetWidth = projectionView?.width ?? overrideSize?.width ?? frame.attachments.width;
+		const targetHeight = projectionView?.height ?? overrideSize?.height ?? frame.attachments.height;
 		const projectionMatrix = camera.projectionMatrix;
 		const viewMatrix = camera.viewMatrix;
 		const temporalState = projectionView ?
 			(projectionView.temporalState ?? null)
-		: context.transient.get(SOFTWARE_TEMPORAL_RENDER_STATE_KEY);
+			: frame.temporal;
 		const trackTemporalHistory = projectionView?.trackTemporalHistory !== false;
 		const previousWorldMatrix =
 			temporalState?.previousWorldMatrices.get(packet.id) ?? packet.worldMatrix;
@@ -66,7 +64,7 @@ export class Projector {
 		}
 		const projectedFaces: ProjectedFace[] = [];
 
-		for (const face of this.getPacketFacesWithContext(packet, context)) {
+		for (const face of this.getPacketFacesWithFrame(packet, frame)) {
 			const worldVerts: IVertex[] = [];
 			const viewVerts: IVertex[] = [];
 			const previousWorldVerts: IVertex[] = [];
@@ -305,9 +303,9 @@ export class Projector {
 		return faces;
 	}
 
-	public static getPacketFacesWithContext(
+	public static getPacketFacesWithFrame(
 		packet: DrawPacket,
-		context: FrameContext
+		frame: SoftwareFrameView
 	): PrimitiveFace[] {
 		if (
 			(packet.primitive.topology ?? DEFAULT_PRIMITIVE_DRAW_TOPOLOGY) !==
@@ -316,9 +314,7 @@ export class Projector {
 			return [];
 		}
 
-		const overrides = context.transient.get(
-			ANIMATION_SOFTWARE_DEFORMED_GEOMETRY_KEY
-		);
+		const overrides = frame.animationDeformedGeometry;
 		const geometryOverride = overrides?.get(packet.primitive.id);
 		const triangleCount = (packet.geometry.indices.length / 3) | 0;
 		const faces: PrimitiveFace[] = [];

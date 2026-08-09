@@ -32,7 +32,6 @@ import type { IRenderBackend } from "../../backends/IRenderBackend";
 import {
 	bindWebGLPostTarget,
 	forEachSoftwareDirtyRect,
-	resolveSoftwareDirtyRects,
 	resolveWebGLTarget,
 	resolveWebGPUTarget,
 	type EmptyOptions,
@@ -80,13 +79,13 @@ export class SoftwareToneMappingImplementation
 
 	public execute(
 		request: PostProcessPassRequest,
-		_context: SoftwareBuiltinPostProcessContext | undefined
+		context: SoftwareBuiltinPostProcessContext | undefined
 	): PostProcessPassResult {
 		const pixels = request.frameContext.attachments.pixels;
-		if (!pixels || pixels.length === 0) {
+		if (!context || !pixels || pixels.length === 0) {
 			return { ran: false };
 		}
-		const dirtyRects = resolveSoftwareDirtyRects(request.frameContext);
+		const dirtyRects = context.dirtyRects;
 		const width = request.frameContext.attachments.width;
 		const exposure = resolveBackendExposure(this._backend);
 		forEachSoftwareDirtyRect(dirtyRects, (rect) => {

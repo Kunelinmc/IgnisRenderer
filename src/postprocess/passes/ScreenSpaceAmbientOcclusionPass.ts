@@ -52,7 +52,6 @@ import type {
 } from "../types";
 import {
 	forEachSoftwareDirtyRect,
-	resolveSoftwareDirtyRects,
 	type IncrementalDirtyRect,
 } from "./ScreenPassShared";
 
@@ -128,6 +127,7 @@ export type ResolvedSSAOOptions = Required<
 /** @internal Software context supplied to the built-in SSAO implementation. */
 export interface SoftwareSSAOContext {
 	readonly attachments: FrameAttachments;
+	readonly dirtyRects: readonly IncrementalDirtyRect[];
 }
 
 /** @internal WebGPU context supplied to the built-in SSAO implementation. */
@@ -375,7 +375,7 @@ export class SoftwareScreenSpaceAmbientOcclusionImplementation
 		if (!pixels || !depthBuffer || !normalBuffer) {
 			return { ran: false };
 		}
-		const dirtyRects = resolveSoftwareDirtyRects(frameContext);
+		const dirtyRects = context.dirtyRects;
 		if (dirtyRects.length === 0) {
 			return { ran: false };
 		}
@@ -552,7 +552,7 @@ export class SoftwareScreenSpaceAmbientOcclusionImplementation
 		buffer: Float32Array,
 		width: number,
 		height: number,
-		dirtyRects: IncrementalDirtyRect[],
+		dirtyRects: readonly IncrementalDirtyRect[],
 		blurRadius: number
 	): void {
 		if (!this._blurTemp || this._blurTemp.length !== buffer.length) {

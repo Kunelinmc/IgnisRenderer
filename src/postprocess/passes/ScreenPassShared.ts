@@ -1,4 +1,3 @@
-import type { FrameContext } from "../../pipeline/types";
 import type { IncrementalDirtyRect } from "../../pipeline/incremental";
 import type { ICommandEncoder } from "../../backends/ICommandEncoder";
 import type { IRenderTexture } from "../../backends/types";
@@ -16,6 +15,7 @@ export type EmptyOptions = Record<string, never>;
 export interface SoftwareBuiltinPostProcessContext {
 	readonly canvasContext: CanvasRenderingContext2D | null;
 	readonly resources: PostProcessResourceAccessor<ArrayBufferView>;
+	readonly dirtyRects: readonly IncrementalDirtyRect[];
 }
 
 /** @internal WebGPU context supplied to built-in screen post-process implementations. */
@@ -48,33 +48,8 @@ export interface WebGLScreenPostProcessContext {
 	warn(key: string, message: string): void;
 }
 
-export function resolveSoftwareDirtyRects(context: FrameContext): IncrementalDirtyRect[] {
-	const width = Math.max(1, context.attachments.width);
-	const height = Math.max(1, context.attachments.height);
-	const incremental = context.incremental;
-	if (
-		!incremental.enabled ||
-		incremental.forceFullFrame ||
-		incremental.dirtyRects.length === 0
-	) {
-		return [{ minX: 0, minY: 0, maxX: width - 1, maxY: height - 1 }];
-	}
-	const dirtyRects: IncrementalDirtyRect[] = [];
-	for (const rect of incremental.dirtyRects) {
-		const minX = Math.max(0, Math.floor(rect.x));
-		const minY = Math.max(0, Math.floor(rect.y));
-		const maxX = Math.min(width - 1, Math.ceil(rect.x + rect.width) - 1);
-		const maxY = Math.min(height - 1, Math.ceil(rect.y + rect.height) - 1);
-		if (minX > maxX || minY > maxY) {
-			continue;
-		}
-		dirtyRects.push({ minX, minY, maxX, maxY });
-	}
-	return dirtyRects;
-}
-
 export function forEachSoftwareDirtyRect(
-	dirtyRects: IncrementalDirtyRect[],
+	dirtyRects: readonly IncrementalDirtyRect[],
 	callback: (rect: IncrementalDirtyRect) => void
 ): void {
 	for (const rect of dirtyRects) {
@@ -90,7 +65,7 @@ export function softwareRectIntersectsDirtyRects(
 	minY: number,
 	maxX: number,
 	maxY: number,
-	dirtyRects: IncrementalDirtyRect[]
+	dirtyRects: readonly IncrementalDirtyRect[]
 ): boolean {
 	for (const rect of dirtyRects) {
 		if (

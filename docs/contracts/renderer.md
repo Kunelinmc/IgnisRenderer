@@ -714,4 +714,5 @@ bunx tsc --noEmit
 
 - [Engine architecture](../architecture/engine.md)
 - [Rendering contract](rendering.md)
+- [Software backend contract](software.md)
 - [Migration guidance](../migrations/README.md)

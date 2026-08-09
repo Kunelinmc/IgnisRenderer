@@ -31,7 +31,6 @@ import type {
 import {
 	bindWebGLPostTarget,
 	forEachSoftwareDirtyRect,
-	resolveSoftwareDirtyRects,
 	resolveWebGLTarget,
 	resolveWebGPUTarget,
 	type SoftwareBuiltinPostProcessContext,
@@ -99,17 +98,17 @@ export class SoftwareColorFilterImplementation
 
 	public execute(
 		request: PostProcessPassRequest,
-		_context: SoftwareBuiltinPostProcessContext | undefined
+		context: SoftwareBuiltinPostProcessContext | undefined
 	): PostProcessPassResult {
 		const pixels = request.frameContext.attachments.pixels;
-		if (!pixels || pixels.length === 0) {
+		if (!context || !pixels || pixels.length === 0) {
 			return { ran: false };
 		}
 		const options = {
 			...DEFAULT_COLOR_FILTER_OPTIONS,
 			...((request.options as ColorFilterOptions | undefined) ?? {}),
 		};
-		const dirtyRects = resolveSoftwareDirtyRects(request.frameContext);
+		const dirtyRects = context.dirtyRects;
 		const brightness = clamp(finiteOr(options.brightness, 0), -1, 1);
 		const saturation = clamp(finiteOr(options.saturation, 1), 0, 2);
 		const contrast = clamp(finiteOr(options.contrast, 1), 0, 2);

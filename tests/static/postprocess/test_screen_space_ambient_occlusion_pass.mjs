@@ -155,7 +155,10 @@ function createSoftwareExecutor() {
 			if (request.passId !== "ssao") {
 				return undefined;
 			}
-			return { attachments: request.frameContext.attachments };
+			return {
+				attachments: request.frameContext.attachments,
+				dirtyRects: [{ minX: 0, minY: 0, maxX: 2, maxY: 2 }],
+			};
 		},
 		executePass(passId) {
 			this.fallbackCalls.push(passId);
@@ -230,7 +233,10 @@ function testSoftwareSSAOModifiesPixelsAndSkipsMissingBuffers() {
 	const before = frameContext.attachments.pixels[centerIndex];
 	const result = implementation.execute(
 		createPassRequest(frameContext, pass),
-		{ attachments: frameContext.attachments }
+		{
+			attachments: frameContext.attachments,
+			dirtyRects: [{ minX: 0, minY: 0, maxX: 2, maxY: 2 }],
+		}
 	);
 
 	assert.equal(result.ran, true);
@@ -240,7 +246,10 @@ function testSoftwareSSAOModifiesPixelsAndSkipsMissingBuffers() {
 	missing.attachments.normalBuffer = null;
 	const skipped = implementation.execute(
 		createPassRequest(missing, pass),
-		{ attachments: missing.attachments }
+		{
+			attachments: missing.attachments,
+			dirtyRects: [{ minX: 0, minY: 0, maxX: 2, maxY: 2 }],
+		}
 	);
 	assert.deepEqual(skipped, { ran: false });
 }

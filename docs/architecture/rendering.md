@@ -111,3 +111,4 @@ runtime without exposing a public backend graph API.
 - [Rendering contract](../contracts/rendering.md)
 - [Shader contract](../contracts/shaders.md)
 - [Post-process contract](../contracts/postprocess.md)
+- [Software backend contract](../contracts/software.md)

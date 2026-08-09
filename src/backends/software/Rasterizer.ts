@@ -18,7 +18,7 @@ import {
 	type SHCoefficients,
 } from "../../maths/types";
 import type { Texture } from "../../core/Texture";
-import type { SoftwareShadowRenderTarget } from "./passes/SoftwareShadowPass";
+import type { SoftwareShadowRenderTarget } from "./SoftwareShadowContracts";
 import type { TemporalJitterFrameState } from "../cross/TemporalJitterState";
 import { SoftwareTriangleInterpolator } from "./Interpolator";
 import {
@@ -103,6 +103,11 @@ export class Rasterizer implements RasterizerLike {
 		new SoftwareTriangleInterpolator();
 	private _materialRuntime: SoftwareMaterialRuntime =
 		new SoftwareMaterialRuntime();
+
+	/** @internal Material evaluator owned by the Software raster service. */
+	public get materialRuntime(): SoftwareMaterialRuntime {
+		return this._materialRuntime;
+	}
 
 	// Pre-allocated objects for zero-allocation rendering
 	private _fragmentInput: FragmentInput = {

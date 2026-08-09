@@ -8,12 +8,22 @@ import type {
 	PostProcessResourceHandle,
 } from "../../postprocess";
 import { createPostProcessResourceAccessor } from "../../postprocess/PostProcessResourceAccessor";
+import type { SoftwareFrameView } from "./SoftwareFrameView";
 
 /**
  * Executes logical post-process passes on the software backend.
  */
 export class SoftwarePostProcessExecutor implements IPostProcessExecutor {
 	public readonly backend = "software";
+	private _activeFrame: SoftwareFrameView | null = null;
+
+	public bindSoftwareFrame(frame: SoftwareFrameView): void {
+		this._activeFrame = frame;
+	}
+
+	public unbindSoftwareFrame(): void {
+		this._activeFrame = null;
+	}
 
 	/**
 	 * Allocates a CPU-backed post-process resource.
@@ -70,8 +80,18 @@ export class SoftwarePostProcessExecutor implements IPostProcessExecutor {
 			const handle = request.gBuffer.channels[semantic]?.handle;
 			return handle?.backend === "software" && "data" in handle ? handle.data : null;
 		};
+		const frame = this._activeFrame;
+		if (!frame) {
+			throw new Error("Software post-process executor requires an active frame view.");
+		}
 		const context: Record<string, unknown> = {
 			attachments: request.frameContext.attachments,
+			dirtyRects: frame.clipRegions.map((region) => ({
+				minX: region.minX,
+				minY: region.minY,
+				maxX: region.maxXExclusive - 1,
+				maxY: region.maxYExclusive - 1,
+			})),
 			resources: createPostProcessResourceAccessor<ArrayBufferView>({
 				passId: request.passId,
 				declaration: request.declaration,

@@ -27,7 +27,6 @@ import { ShaderSource } from "../../src/shaders/ShaderSource";
 import {
 	bindWebGLPostTarget,
 	forEachSoftwareDirtyRect,
-	resolveSoftwareDirtyRects,
 	resolveWebGLTarget,
 	resolveWebGPUTarget,
 	type SoftwareBuiltinPostProcessContext,
@@ -78,7 +77,7 @@ export class SoftwareCustomGaussianBlurImplementation
 
 	public execute(
 		request: PostProcessPassRequest<CustomGaussianBlurOptions>,
-		_context: SoftwareBuiltinPostProcessContext | undefined
+		context: SoftwareBuiltinPostProcessContext | undefined,
 	): PostProcessPassResult {
 		const pixels = request.frameContext.attachments.pixels;
 		if (!pixels || pixels.length === 0) {
@@ -95,7 +94,7 @@ export class SoftwareCustomGaussianBlurImplementation
 		const width = request.frameContext.attachments.width;
 		const height = request.frameContext.attachments.height;
 
-		const dirtyRects = resolveSoftwareDirtyRects(request.frameContext);
+		const dirtyRects = context?.dirtyRects ?? [];
 
 		// Precompute 2D Gaussian Kernel weights
 		const kernelSize = radius * 2 + 1;

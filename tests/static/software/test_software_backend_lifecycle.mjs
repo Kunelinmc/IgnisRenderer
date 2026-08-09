@@ -1,11 +1,9 @@
 import assert from "node:assert/strict";
 
 import { SoftwareBackend } from "../../../src/backends/software/SoftwareBackend.ts";
+import { createSoftwareFrameView } from "../../../src/backends/software/SoftwareFrameView.ts";
 import { Camera } from "../../../src/cameras/Camera.ts";
 import { Matrix4 } from "../../../src/maths/Matrix4.ts";
-import {
-	SOFTWARE_TEMPORAL_RENDER_STATE_KEY,
-} from "../../../src/backends/software/SoftwareTemporalRenderState.ts";
 import { createResolvedPostProcess } from "../../helpers/postprocess.mjs";
 
 function createBackend(events = []) {
@@ -105,13 +103,13 @@ async function testAbortIsIdempotentAndRollsBackTemporalState() {
 	await backend.initialize();
 	const first = createContext(backend, { taa: true });
 	backend.beginFrame(first);
-	const firstState = first.transient.get(SOFTWARE_TEMPORAL_RENDER_STATE_KEY);
+	const firstState = backend.getTemporalDebugState();
 	await backend.abortFrame();
 	await backend.abortFrame();
 
 	const second = createContext(backend, { taa: true });
 	backend.beginFrame(second);
-	const secondState = second.transient.get(SOFTWARE_TEMPORAL_RENDER_STATE_KEY);
+	const secondState = backend.getTemporalDebugState();
 	assert.deepEqual(secondState.jitter, firstState.jitter);
 	assert.equal(secondState.previousViewProjection, null);
 	await backend.abortFrame();
@@ -126,9 +124,7 @@ async function testCommitAndPresentationFailureDoNotAdvanceTemporalHistory() {
 
 	const beforeFailure = createContext(backend, { taa: true });
 	backend.beginFrame(beforeFailure);
-	const expectedHistory = beforeFailure.transient.get(
-		SOFTWARE_TEMPORAL_RENDER_STATE_KEY
-	).previousViewProjection;
+	const expectedHistory = backend.getTemporalDebugState().previousViewProjection;
 	const originalPresent = backend._surface.present;
 	backend._surface.present = () => {
 		throw new Error("present failed");
@@ -140,7 +136,7 @@ async function testCommitAndPresentationFailureDoNotAdvanceTemporalHistory() {
 	const afterFailure = createContext(backend, { taa: true });
 	backend.beginFrame(afterFailure);
 	assert.equal(
-		afterFailure.transient.get(SOFTWARE_TEMPORAL_RENDER_STATE_KEY).previousViewProjection,
+		backend.getTemporalDebugState().previousViewProjection,
 		expectedHistory
 	);
 	await backend.abortFrame();
@@ -164,8 +160,88 @@ async function testRestoreReportsSuccessAndPreservesRuntimeOnFailure() {
 	await backend.abortFrame();
 }
 
+async function testFrameViewValidatesAttachmentsAndNormalizesRegions() {
+	const backend = createBackend();
+	await backend.initialize();
+	const context = createContext(backend);
+	context.incremental.enabled = true;
+	context.incremental.forceFullFrame = false;
+	context.incremental.dirtyRects = [
+		{ x: -1.25, y: 0.25, width: 2.5, height: 2.25 },
+		{ x: 8, y: 8, width: 1, height: 1 },
+	];
+	const temporal = {
+		currentJitter: [0, 0],
+		previousJitter: [0, 0],
+		previousViewProjection: null,
+		currentViewProjection: context.viewCamera.viewProjectionMatrix,
+		previousWorldMatrices: new Map(),
+		currentWorldMatrices: new Map(),
+	};
+	const frame = createSoftwareFrameView(context, temporal);
+	assert.deepEqual(frame.clipRegions, [
+		{ minX: 0, minY: 0, maxXExclusive: 2, maxYExclusive: 3 },
+	]);
+	const cameraPosition = { ...frame.camera.position };
+	context.viewCamera.position.set(7, 8, 9);
+	assert.deepEqual(frame.camera.position, cameraPosition);
+
+	const malformed = createContext(backend);
+	malformed.attachments.pixels = new Uint8ClampedArray(3);
+	assert.throws(
+		() => createSoftwareFrameView(malformed, temporal),
+		/^Error: Software frame attachments invalid:/,
+	);
+	const invalidTypes = createContext(backend);
+	invalidTypes.attachments.pixels = new Uint8Array(4 * 4 * 4);
+	assert.throws(
+		() => createSoftwareFrameView(invalidTypes, temporal),
+		/^Error: Software frame attachments invalid:/,
+	);
+	const invalidDepth = createContext(backend);
+	invalidDepth.attachments.depthBuffer = new Float64Array(4 * 4);
+	assert.throws(
+		() => createSoftwareFrameView(invalidDepth, temporal),
+		/^Error: Software frame attachments invalid:/,
+	);
+	backend.destroy();
+}
+
+async function testAbortPreservesLastCompletedCoverage() {
+	const backend = createBackend();
+	await backend.initialize();
+	const partial = createContext(backend, { size: { width: 8, height: 8 } });
+	partial.incremental.enabled = true;
+	partial.incremental.forceFullFrame = false;
+	partial.incremental.dirtyRects = [{ x: 0, y: 0, width: 1, height: 1 }];
+	partial.incremental.dirtyTileSize = 4;
+	partial.incremental.dirtyTileColumns = 2;
+	partial.incremental.dirtyTileRows = 2;
+	partial.incremental.dirtyTiles = [0];
+	partial.incremental.temporalHistoryReset = false;
+	backend.beginFrame(partial);
+	backend.endFrame();
+	assert.equal(backend.getCompletedFrameCoverage(), "dirty-tiles");
+
+	const aborted = createContext(backend, { size: { width: 8, height: 8 } });
+	aborted.incremental.enabled = true;
+	aborted.incremental.forceFullFrame = false;
+	aborted.incremental.dirtyRects = [{ x: 0, y: 0, width: 1, height: 1 }];
+	aborted.incremental.dirtyTileSize = 4;
+	aborted.incremental.dirtyTileColumns = 2;
+	aborted.incremental.dirtyTileRows = 2;
+	aborted.incremental.dirtyTiles = [0];
+	aborted.incremental.temporalHistoryReset = false;
+	backend.beginFrame(aborted);
+	await backend.abortFrame(new Error("expected abort"));
+	assert.equal(backend.getCompletedFrameCoverage(), "dirty-tiles");
+	backend.destroy();
+}
+
 await testStrictLifecycleAndDeferredResize();
 await testAbortIsIdempotentAndRollsBackTemporalState();
 await testCommitAndPresentationFailureDoNotAdvanceTemporalHistory();
 await testRestoreReportsSuccessAndPreservesRuntimeOnFailure();
+await testFrameViewValidatesAttachmentsAndNormalizesRegions();
+await testAbortPreservesLastCompletedCoverage();
 console.log("Software backend lifecycle tests passed");

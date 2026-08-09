@@ -220,6 +220,41 @@ async function testOpaqueScanlineDepthOrdering() {
 	backend.destroy();
 }
 
+async function testIncrementalRasterClipsOutsideDirtyRegion() {
+	const backend = createSoftwareSession();
+	await backend.initialize();
+	const camera = createCamera();
+	const context = createContext(backend, camera, {
+		opaquePackets: [createTrianglePacket("incremental", { r: 255, g: 0, b: 0 })],
+	});
+	context.incremental.enabled = true;
+	context.incremental.forceFullFrame = false;
+	context.incremental.dirtyRects = [{ x: 30, y: 30, width: 4, height: 4 }];
+	backend.beginFrame(context);
+	await backend.executePass(
+		{ stage: "main-opaque", executor: "backend", enabled: true },
+		context,
+	);
+	backend.endFrame();
+
+	let dirtyPixels = 0;
+	let outsidePixels = 0;
+	for (let y = 0; y < HEIGHT; y++) {
+		for (let x = 0; x < WIDTH; x++) {
+			const pixel = (y * WIDTH + x) * 4;
+			const lit = context.attachments.pixels[pixel] > 0;
+			if (x >= 30 && x < 34 && y >= 30 && y < 34) {
+				if (lit) dirtyPixels++;
+			} else if (lit) {
+				outsidePixels++;
+			}
+		}
+	}
+	assert.ok(dirtyPixels > 0, "incremental dirty region should be rasterized");
+	assert.equal(outsidePixels, 0, "incremental raster must not write outside dirty regions");
+	backend.destroy();
+}
+
 async function testTransparentScanlinePreservesPacketOrder() {
 	const redPacket = createTrianglePacket(
 		"transparent-red",
@@ -241,8 +276,9 @@ async function testTransparentScanlinePreservesPacketOrder() {
 }
 
 async function run() {
-	await testOpaqueScanlineDepthOrdering();
-	await testTransparentScanlinePreservesPacketOrder();
+await testOpaqueScanlineDepthOrdering();
+await testIncrementalRasterClipsOutsideDirtyRegion();
+await testTransparentScanlinePreservesPacketOrder();
 	console.log("Software scanline raster tests passed");
 }
 

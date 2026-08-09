@@ -21,6 +21,13 @@ export interface SoftwareSkyboxCamera {
 	readonly viewMatrix: Matrix4;
 }
 
+export interface SoftwareSkyboxClipRegion {
+	readonly minX: number;
+	readonly minY: number;
+	readonly maxXExclusive: number;
+	readonly maxYExclusive: number;
+}
+
 export class SkyboxRenderer {
 	public static render(
 		environmentBackgroundTexture: Texture,
@@ -28,7 +35,8 @@ export class SkyboxRenderer {
 		pixels: Uint8ClampedArray,
 		camera: SoftwareSkyboxCamera,
 		width: number,
-		height: number
+		height: number,
+		clipRegions?: readonly SoftwareSkyboxClipRegion[],
 	): void {
 		const decodeSRGB = environmentBackgroundTexture.colorSpace === "sRGB";
 		const strength = Math.max(0, options.strength);
@@ -49,6 +57,18 @@ export class SkyboxRenderer {
 			const rowBase = y * width * 4;
 
 			for (let x = 0; x < width; x++) {
+				if (
+					clipRegions &&
+					!clipRegions.some(
+						(region) =>
+							x >= region.minX &&
+							x < region.maxXExclusive &&
+							y >= region.minY &&
+							y < region.maxYExclusive,
+					)
+				) {
+					continue;
+				}
 				const ndcX = ((x + 0.5) / width) * 2 - 1;
 				const cx = ndcX * aspect * tanHalfFov;
 				const dirX = right.x * cx + up.x * cy - backward.x;

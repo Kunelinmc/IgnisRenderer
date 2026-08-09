@@ -15,6 +15,7 @@ import type {
 	SceneLight,
 } from "../../lights";
 
+/** @internal CPU lighting semantics shared by Software shader strategies. */
 export interface SurfacePoint {
 	position: IVector3;
 	normal?: IVector3;

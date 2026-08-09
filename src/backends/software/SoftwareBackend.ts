@@ -6,28 +6,16 @@ import type {
 	RenderBackendProfile,
 	RenderSurfaceSize,
 } from "../IRenderBackend";
-import {
-	PARTICLE_SIM_DELTA_TIME_SECONDS_KEY,
-	type DrawPacket,
-	type FrameContext,
-	type FramePass,
-} from "../../pipeline/types";
+import type { FrameAttachments, FrameContext, FramePass } from "../../pipeline/types";
 import { SoftwareSurfaceRuntime } from "./SoftwareSurfaceRuntime";
 import { SoftwarePassExecutor } from "./SoftwarePassExecutor";
-import { SoftwareFrameRuntime } from "./SoftwareFrameRuntime";
-import { SkyboxRenderer } from "./SkyboxRenderer";
-import { FrameAttachments } from "../../pipeline/types";
-import { TemporalFrameState } from "../cross/TemporalFrameState";
-import { SOFTWARE_TEMPORAL_RENDER_STATE_KEY } from "./SoftwareTemporalRenderState";
-import type { PostProcessPlan } from "../../postprocess/PostProcessPlanner";
+import { SoftwareFrameSession } from "./SoftwareFrameSession";
 import {
 	assertShaderDirectiveProfileRegistryComplete,
 	DEFAULT_SHADER_DIRECTIVE_PROFILE_REGISTRY,
 } from "../../shaders/runtime";
 import { Logger } from "../../foundation/Logger";
-import {
-	createRenderBackendExtensionRegistry,
-} from "../BackendExtensions";
+import { createRenderBackendExtensionRegistry } from "../BackendExtensions";
 import {
 	DEFAULT_DISPLAY_OUTPUT_OPTIONS,
 	displayOutputStatesEqual,
@@ -35,14 +23,9 @@ import {
 	type DisplayOutputOptions,
 	type DisplayOutputState,
 } from "../../rendering/DisplayOutput";
+import type { SoftwareBackendOptions } from "./SoftwareBackendContracts";
 
-export interface SoftwareBackendOptions {
-	enableEarlyZPrepass?: boolean;
-}
-
-type SoftwarePassHandler = (
-	context: FrameContext
-) => void | Promise<void>;
+export type { SoftwareBackendOptions } from "./SoftwareBackendContracts";
 
 type SoftwareBackendState =
 	| "detached"
@@ -53,61 +36,7 @@ type SoftwareBackendState =
 	| "restoring"
 	| "destroyed";
 
-interface SoftwareTemporalCommit {
-	previousWorldMatrices: Map<string, FrameContext["worldMatrix"]>;
-}
-
-function resolvePreparedSceneEnvironment(scene: FrameContext["scene"]): {
-	backgroundEnabled: boolean;
-	lightingEnabled: boolean;
-	backgroundTexture: any;
-	iblTexture: any;
-	backgroundStrength: number;
-	backgroundTintLinear: { r: number; g: number; b: number };
-	backgroundExposure: number;
-} {
-	const environment = (scene as { environment?: unknown }).environment as
-		| {
-				backgroundEnabled?: boolean;
-				lightingEnabled?: boolean;
-				backgroundTexture?: unknown;
-				iblTexture?: unknown;
-				backgroundStrength?: number;
-				backgroundTintLinear?: { r?: number; g?: number; b?: number };
-				backgroundExposure?: number;
-		  }
-		| undefined;
-	return {
-		backgroundEnabled: environment?.backgroundEnabled ?? true,
-		lightingEnabled: environment?.lightingEnabled ?? true,
-		backgroundTexture:
-			(environment?.backgroundTexture as any | null | undefined) ?? null,
-		iblTexture: (environment?.iblTexture as any | null | undefined) ?? null,
-		backgroundStrength:
-			typeof environment?.backgroundStrength === "number" ?
-				environment.backgroundStrength
-			:	1,
-		backgroundTintLinear: {
-			r:
-				typeof environment?.backgroundTintLinear?.r === "number" ?
-					environment.backgroundTintLinear.r
-				:	1,
-			g:
-				typeof environment?.backgroundTintLinear?.g === "number" ?
-					environment.backgroundTintLinear.g
-				:	1,
-			b:
-				typeof environment?.backgroundTintLinear?.b === "number" ?
-					environment.backgroundTintLinear.b
-				:	1,
-		},
-		backgroundExposure:
-			typeof environment?.backgroundExposure === "number" ?
-				environment.backgroundExposure
-			:	1,
-	};
-}
-
+/** CPU scanline rendering backend and renderer lifecycle facade. */
 export class SoftwareBackend implements IRenderBackend {
 	public readonly extensions = createRenderBackendExtensionRegistry([]);
 	public readonly profile: RenderBackendProfile = {
@@ -164,21 +93,18 @@ export class SoftwareBackend implements IRenderBackend {
 	private _state: SoftwareBackendState = "detached";
 	private readonly _surface = new SoftwareSurfaceRuntime();
 	private _executor: SoftwarePassExecutor | null = null;
-	private readonly _temporalFrameState = new TemporalFrameState();
-	private _previousWorldMatrices = new Map<string, FrameContext["worldMatrix"]>();
-	private _postProcessPlan: PostProcessPlan | null = null;
-	private readonly _frameRuntime = new SoftwareFrameRuntime();
-	private _options: SoftwareBackendOptions;
-	private readonly _passHandlers: Map<FramePass["stage"], SoftwarePassHandler>;
+	private _session: SoftwareFrameSession | null = null;
+	private readonly _options: SoftwareBackendOptions;
 	private _displayOutputState = resolveSDROnlyDisplayOutput(
 		DEFAULT_DISPLAY_OUTPUT_OPTIONS,
 	);
 
 	public constructor(options: SoftwareBackendOptions = {}) {
-		assertShaderDirectiveProfileRegistryComplete(DEFAULT_SHADER_DIRECTIVE_PROFILE_REGISTRY);
+		assertShaderDirectiveProfileRegistryComplete(
+			DEFAULT_SHADER_DIRECTIVE_PROFILE_REGISTRY,
+		);
 		this._options = options;
-		this._passHandlers = this._createPassHandlers();
-		this._ensureRuntime();
+		this._createRuntime();
 	}
 
 	public attach(context: RenderBackendAttachContext): void {
@@ -193,13 +119,7 @@ export class SoftwareBackend implements IRenderBackend {
 		this._state = "attached";
 	}
 
-	/**
-	 * Returns software backend diagnostics.
-	 *
-	 * @returns A stable unavailable snapshot because this backend does not own
-	 * a GPU device.
-	 * @sideEffects None.
-	 */
+	/** Returns a stable unavailable snapshot because Software owns no GPU device. */
 	public getDebugInfo(): RenderBackendDebugInfo {
 		return {
 			backend: "software",
@@ -236,9 +156,7 @@ export class SoftwareBackend implements IRenderBackend {
 	}
 
 	public async initialize(): Promise<void> {
-		if (this._state !== "attached") {
-			this._throwForInitializeState();
-		}
+		if (this._state !== "attached") this._throwForInitializeState();
 		this._state = "initializing";
 		try {
 			this._surface.initialize();
@@ -265,11 +183,11 @@ export class SoftwareBackend implements IRenderBackend {
 		this._state = "restoring";
 		try {
 			this._surface.initialize();
-			const replacement = this._createExecutor();
+			const replacement = this._buildRuntime();
 			const previous = this._executor;
-			this._executor = replacement;
+			this._executor = replacement.executor;
+			this._session = replacement.session;
 			previous?.destroy();
-			this._resetTemporalState();
 			this._state = "ready";
 			this._requireAttachContext().events.emit({ type: "device-restored" });
 		} catch (error) {
@@ -278,23 +196,16 @@ export class SoftwareBackend implements IRenderBackend {
 		}
 	}
 
-	private _ensureRuntime(): void {
-		this._executor ??= this._createExecutor();
-	}
-
-	private _createExecutor(): SoftwarePassExecutor {
-		return new SoftwarePassExecutor({
-			backend: this,
-			backendOptions: this._options,
-		});
-	}
-
 	public getAttachments(size: RenderSurfaceSize): FrameAttachments {
 		if (this._state === "detached" || this._state === "destroyed") {
-			throw new Error("SoftwareBackend.getAttachments() requires attach() to complete.");
+			throw new Error(
+				"SoftwareBackend.getAttachments() requires attach() to complete.",
+			);
 		}
 		if (this._state === "frame-active") {
-			throw new Error("SoftwareBackend cannot reconfigure attachments while a frame is active.");
+			throw new Error(
+				"SoftwareBackend cannot reconfigure attachments while a frame is active.",
+			);
 		}
 		return this._surface.getAttachments(size);
 	}
@@ -303,17 +214,7 @@ export class SoftwareBackend implements IRenderBackend {
 		if (this._state === "detached" || this._state === "destroyed") {
 			throw new Error("SoftwareBackend.resize() requires attach() to complete.");
 		}
-		if (this._state === "frame-active") {
-			this._frameRuntime.queueResize(size);
-			return;
-		}
-		this._applyResize(size);
-	}
-
-	private _applyResize(size: RenderSurfaceSize): void {
-		this._surface.resize(size);
-		this._executor?.invalidateFrameSized();
-		this._resetTemporalState();
+		this._requireSession().resize(size);
 	}
 
 	public beginFrame(context: FrameContext): void {
@@ -323,396 +224,91 @@ export class SoftwareBackend implements IRenderBackend {
 			);
 		}
 		this._state = "frame-active";
-		this._frameRuntime.begin(context);
-		this._executor?.beginFrame(context);
-		this._postProcessPlan =
-			this._executor?.planPostProcessFrame(context) ?? null;
-		this._prepareTemporalRenderState(context);
-
-		const pixels = context.attachments.pixels!;
-		const depthBuffer = context.attachments.depthBuffer!;
-		const normalBuffer = context.attachments.normalBuffer;
-		const motionBuffer = context.attachments.motionBuffer;
-		const frameWidth = context.attachments.width;
-		const frameHeight = context.attachments.height;
-		const incrementalPartial = this._isIncrementalPartial(context);
-		const dirtyRects = this._resolveDirtyRects(context);
-
-		if (!incrementalPartial) {
-			const size = pixels.length >> 2;
-			for (let i = 0; i < size; i++) {
-				const index = i << 2;
-				pixels[index] = 0;
-				pixels[index + 1] = 0;
-				pixels[index + 2] = 0;
-				pixels[index + 3] = 255;
-			}
-			depthBuffer.fill(Infinity);
-			normalBuffer?.fill(0);
-			motionBuffer?.fill(0);
-		} else {
-			for (const rect of dirtyRects) {
-				const minX = Math.max(0, Math.floor(rect.x));
-				const minY = Math.max(0, Math.floor(rect.y));
-				const maxX = Math.min(frameWidth, Math.ceil(rect.x + rect.width));
-				const maxY = Math.min(frameHeight, Math.ceil(rect.y + rect.height));
-				if (minX >= maxX || minY >= maxY) {
-					continue;
-				}
-
-				for (let y = minY; y < maxY; y++) {
-					const rowStart = y * frameWidth;
-					for (let x = minX; x < maxX; x++) {
-						const pixelIndex = (rowStart + x) << 2;
-						pixels[pixelIndex] = 0;
-						pixels[pixelIndex + 1] = 0;
-						pixels[pixelIndex + 2] = 0;
-						pixels[pixelIndex + 3] = 255;
-						depthBuffer[rowStart + x] = Infinity;
-						if (normalBuffer) {
-							const normalIndex = (rowStart + x) * 3;
-							normalBuffer[normalIndex] = 0;
-							normalBuffer[normalIndex + 1] = 0;
-							normalBuffer[normalIndex + 2] = 0;
-						}
-						if (motionBuffer) {
-							const motionIndex = (rowStart + x) * 4;
-							motionBuffer[motionIndex] = 0;
-							motionBuffer[motionIndex + 1] = 0;
-							motionBuffer[motionIndex + 2] = 0;
-							motionBuffer[motionIndex + 3] = 0;
-						}
-					}
-				}
-			}
-		}
-
-		const environment = resolvePreparedSceneEnvironment(context.scene);
-		if (
-			!incrementalPartial &&
-			context.features.enableEnvironment &&
-			environment.backgroundEnabled &&
-			environment.backgroundTexture
-		) {
-			SkyboxRenderer.render(
-				environment.backgroundTexture,
-				{
-					strength: environment.backgroundStrength,
-					tintLinear: environment.backgroundTintLinear,
-					exposure: environment.backgroundExposure,
-				},
-				pixels,
-				context.viewCamera,
-				context.attachments.width,
-				context.attachments.height,
-			);
-		}
+		this._requireSession().begin(context);
 	}
 
 	public async executePass(pass: FramePass, context: FrameContext): Promise<void> {
 		this._requireActiveContext(context, "executePass");
-		if (!this._executor) return;
-
-		if (context.customRenderPasses?.has(pass.stage)) {
-			const key = "software-custom-render-targets-unsupported";
-			Logger.warn(
-				`[${key}] Software backend does not support custom render targets or custom render passes yet; skipping pass "${pass.stage}".`,
-				{ scope: "SoftwareBackend", onceKey: key },
-			);
-			return;
-		}
-
-		const handler = this._passHandlers.get(pass.stage);
-		if (!handler) {
-			const key = `software-pass-unsupported-${pass.stage}`;
-			Logger.warn(
-				`[${key}] Software backend does not support pass "${pass.stage}" yet; skipping`,
-				{ scope: "SoftwareBackend", onceKey: key },
-			);
-			return;
-		}
-		await handler(context);
+		await this._requireSession().execute(pass, context);
 	}
 
 	public skipPass(_pass: FramePass): void {
-		this._requireActiveContext(this._frameRuntime.activeContext, "skipPass");
-		// No pass dependency tracking in SoftwareBackend; no-op.
+		const context = this._requireActiveContext(
+			this._requireSession().activeContext,
+			"skipPass",
+		);
+		this._requireSession().skip(context);
 	}
 
 	public endFrame(): void {
-		const context = this._requireActiveContext(this._frameRuntime.activeContext, "endFrame");
-		this._executor?.endParticleFrame();
-		const temporalCommit = this._prepareTemporalRenderCommit(context);
-
-		this._surface.present();
-
-		this._executor?.commitFrame();
-		this._temporalFrameState.commitFrame();
-		this._commitTemporalRenderState(temporalCommit);
-		if (this._canPreserveNonDirtyTiles(context)) {
-			this._frameRuntime.complete(true);
-		} else {
-			this._frameRuntime.complete(false);
-		}
-		this._postProcessPlan = null;
+		const session = this._requireSession();
+		const context = this._requireActiveContext(session.activeContext, "endFrame");
+		session.end(context);
 		this._state = "ready";
-		this._flushPendingResize();
 	}
 
-	/** @internal Returns sanitized post-process graph diagnostics for backend tests. */
+	/** @internal Returns sanitized post-process graph diagnostics for tests. */
 	public getPostProcessGraphDebugState(): unknown {
 		return this._executor?.getPostProcessDebugState() ?? null;
 	}
 
+	/** @internal Returns active Software temporal transaction state for tests. */
+	public getTemporalDebugState(): unknown {
+		return this._session?.getTemporalDebugState() ?? null;
+	}
+
 	/** @internal Renderer frame-coordination coverage report. */
 	public getCompletedFrameCoverage(): RenderBackendCompletedFrameCoverage {
-		return this._frameRuntime.completedCoverage;
+		return this._session?.completedCoverage ?? "full-frame";
 	}
 
-	public async abortFrame(_error?: unknown): Promise<void> {
-		let abortError: unknown = null;
+	public async abortFrame(error?: unknown): Promise<void> {
 		try {
-			await this._executor?.abortFrame(_error);
-		} catch (error) {
-			abortError = error;
-		}
-		try {
-			this._executor?.endParticleFrame();
-		} catch (error) {
-			abortError ??= error;
+			await this._session?.abort(error);
 		} finally {
-			this._temporalFrameState.abortFrame();
-			this._postProcessPlan = null;
-			this._frameRuntime.abort();
-			if (this._state === "frame-active") {
-				this._state = "ready";
-			}
-			this._flushPendingResize();
+			if (this._state === "frame-active") this._state = "ready";
 		}
-		if (abortError) throw abortError;
-	}
-
-	private _prepareTemporalRenderState(context: FrameContext): void {
-		const snapshot = this._temporalFrameState.beginFrame({
-			camera: context.viewCamera,
-			width: context.attachments.width,
-			height: context.attachments.height,
-			frameRequirements: this._postProcessPlan?.frameRequirements ?? {},
-			reset: context.incremental.temporalHistoryReset,
-		});
-		const resetHistory = context.incremental.temporalHistoryReset;
-		context.transient.set(SOFTWARE_TEMPORAL_RENDER_STATE_KEY, {
-			currentJitter: [
-				snapshot.jitterCurrentPrev[0],
-				snapshot.jitterCurrentPrev[1],
-			],
-			previousJitter: [
-				snapshot.jitterCurrentPrev[2],
-				snapshot.jitterCurrentPrev[3],
-			],
-			previousViewProjection: snapshot.previousViewProjection,
-			currentViewProjection: context.viewCamera.viewProjectionMatrix,
-			previousWorldMatrices: resetHistory ? new Map() : this._previousWorldMatrices,
-			currentWorldMatrices: new Map(),
-		});
-	}
-
-	private _prepareTemporalRenderCommit(
-		context: FrameContext,
-	): SoftwareTemporalCommit | null {
-		const state = context.transient.get(SOFTWARE_TEMPORAL_RENDER_STATE_KEY);
-		if (!state) {
-			return null;
-		}
-		return {
-			previousWorldMatrices: new Map(state.currentWorldMatrices),
-		};
-	}
-
-	private _commitTemporalRenderState(commit: SoftwareTemporalCommit | null): void {
-		if (!commit) return;
-		this._previousWorldMatrices = commit.previousWorldMatrices;
-	}
-
-	private _resolveParticleDeltaTime(context: FrameContext): number {
-		const value = context.transient.get(PARTICLE_SIM_DELTA_TIME_SECONDS_KEY);
-		if (typeof value !== "number" || !Number.isFinite(value)) {
-			return 0;
-		}
-		return Math.max(0, value);
-	}
-
-	private _isIncrementalPartial(context: FrameContext): boolean {
-		const incremental = context.incremental;
-		return (
-			incremental.enabled && !incremental.forceFullFrame && incremental.dirtyRects.length > 0
-		);
-	}
-
-	private _canPreserveNonDirtyTiles(context: FrameContext): boolean {
-		return (
-			this._isIncrementalPartial(context) &&
-			!context.incremental.temporalHistoryReset &&
-			(context.postProcess.getEnabledPasses().length === 0 ||
-				this._executor?.completedFramePreservesOutsideDirtyTiles === true)
-		);
-	}
-
-	private _resolveDirtyRects(
-		context: FrameContext,
-	): Array<{ x: number; y: number; width: number; height: number }> {
-		const width = Math.max(1, context.attachments.width | 0);
-		const height = Math.max(1, context.attachments.height | 0);
-		if (!this._isIncrementalPartial(context)) {
-			return [
-				{
-					x: 0,
-					y: 0,
-					width,
-					height,
-				},
-			];
-		}
-		const result: Array<{ x: number; y: number; width: number; height: number }> = [];
-		const incremental = context.incremental;
-		for (const rect of incremental.dirtyRects) {
-			const minX = Math.max(0, Math.floor(rect.x));
-			const minY = Math.max(0, Math.floor(rect.y));
-			const maxX = Math.min(width, Math.ceil(rect.x + rect.width));
-			const maxY = Math.min(height, Math.ceil(rect.y + rect.height));
-			const rectWidth = maxX - minX;
-			const rectHeight = maxY - minY;
-			if (rectWidth <= 0 || rectHeight <= 0) {
-				continue;
-			}
-			result.push({
-				x: minX,
-				y: minY,
-				width: rectWidth,
-				height: rectHeight,
-			});
-		}
-		return result;
-	}
-
-	private _resolvePacketsForPass(context: FrameContext, packets: DrawPacket[]): DrawPacket[] {
-		const spatialIndex = context.scene.spatialIndex;
-		if (!spatialIndex || !this._isIncrementalPartial(context)) {
-			return packets;
-		}
-		const dirtyRects = context.incremental.dirtyRects;
-		if (dirtyRects.length === 0) {
-			return [];
-		}
-		if (packets === context.scene.opaquePackets) {
-			return spatialIndex.queryOpaquePacketsInRects(dirtyRects);
-		}
-		if (packets === context.scene.transparentPackets) {
-			return spatialIndex.queryTransparentPacketsInRects(dirtyRects);
-		}
-		return packets;
-	}
-
-	private _resolveOpaqueReflectivePackets(packets: DrawPacket[]): DrawPacket[] {
-		return packets.filter(
-			(packet) => packet.material.reflectivity > 0 && packet.material.mirrorPlane !== null,
-		);
 	}
 
 	public destroy(): void {
 		if (this._state === "destroyed") return;
-		this._executor?.endParticleFrame();
-		this._destroyRuntimeResources();
-		this._resetTemporalState();
-		this._frameRuntime.clear();
+		this._session?.reset();
+		this._executor?.destroy();
+		this._executor = null;
+		this._session = null;
 		this._surface.destroy();
 		this._state = "destroyed";
 	}
 
-	private _destroyRuntimeResources(): void {
-		this._executor?.destroy();
-		this._executor = null;
+	private _createRuntime(): void {
+		const runtime = this._buildRuntime();
+		this._executor = runtime.executor;
+		this._session = runtime.session;
 	}
 
-	private _createPassHandlers(): Map<FramePass["stage"], SoftwarePassHandler> {
-		return new Map<FramePass["stage"], SoftwarePassHandler>([
-			[
-				"particle-sim",
-				(context) => {
-					this._executor?.simulateParticles(
-						context,
-						this._resolveParticleDeltaTime(context),
-					);
-				},
-			],
-			[
-				"shadow",
-				(context) => {
-					this._executor?.renderShadows(context);
-				},
-			],
-			[
-				"reflection",
-				(context) => {
-					this._executor?.renderReflections(context);
-				},
-			],
-			[
-				"main-opaque",
-				async (context) => {
-					const packets = this._resolvePacketsForPass(
-						context,
-						context.scene.opaquePackets,
-					);
-					await this._executor?.renderOpaque(
-						context,
-						packets,
-						this._resolveOpaqueReflectivePackets(packets),
-					);
-				},
-			],
-			[
-				"main-transparent",
-				async (context) => {
-					const packets = this._resolvePacketsForPass(
-						context,
-						context.scene.transparentPackets,
-					);
-					await this._executor?.renderTransparent(context, packets);
-				},
-			],
-			[
-				"particles",
-				(context) => {
-					this._executor?.renderParticles(context);
-				},
-			],
-			[
-				"postprocess",
-				async (context) => {
-					if (!this._postProcessPlan) {
-						throw new Error("Software post-process plan is unavailable.");
-					}
-					await this._executor?.executePostProcess(
-						context,
-						this._postProcessPlan,
-					);
-				},
-			],
-		]);
+	private _buildRuntime(): {
+		executor: SoftwarePassExecutor;
+		session: SoftwareFrameSession;
+	} {
+		const executor = new SoftwarePassExecutor({
+			backend: this,
+			backendOptions: this._options,
+		});
+		return {
+			executor,
+			session: new SoftwareFrameSession(this._surface, executor),
+		};
 	}
 
-	private _resetTemporalState(): void {
-		this._temporalFrameState.reset();
-		this._previousWorldMatrices.clear();
-		this._postProcessPlan = null;
+	private _ensureRuntime(): void {
+		if (!this._executor || !this._session) this._createRuntime();
 	}
 
-	private _flushPendingResize(): void {
-		const pending = this._frameRuntime.consumePendingResize();
-		if (pending) {
-			this._applyResize(pending);
+	private _requireSession(): SoftwareFrameSession {
+		if (!this._session) {
+			throw new Error("SoftwareBackend runtime is unavailable.");
 		}
+		return this._session;
 	}
 
 	private _requireActiveContext(
@@ -722,12 +318,14 @@ export class SoftwareBackend implements IRenderBackend {
 		if (this._state !== "frame-active") {
 			throw new Error(`SoftwareBackend.${operation}() requires an active frame.`);
 		}
-		return this._frameRuntime.requireActive(context, operation);
+		return this._requireSession().requireActive(context, operation);
 	}
 
 	private _throwForInitializeState(): never {
 		if (this._state === "detached") {
-			throw new Error("SoftwareBackend.initialize() requires attach() to complete.");
+			throw new Error(
+				"SoftwareBackend.initialize() requires attach() to complete.",
+			);
 		}
 		throw new Error(
 			`SoftwareBackend.initialize() requires the attached state; current state is "${this._state}".`,
@@ -736,7 +334,9 @@ export class SoftwareBackend implements IRenderBackend {
 
 	private _requireAttachContext(): RenderBackendAttachContext {
 		if (!this._attachContext) {
-			throw new Error("SoftwareBackend.attach() must be called before initialize().");
+			throw new Error(
+				"SoftwareBackend.attach() must be called before initialize().",
+			);
 		}
 		return this._attachContext;
 	}

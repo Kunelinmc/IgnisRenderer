@@ -89,10 +89,38 @@ function testSkyboxRendererPreservesHDRTextureValues() {
 	assert.deepEqual(Array.from(pixels), [255, 128, 64, 255]);
 }
 
+function testSkyboxRendererClipsToDirtyRegions() {
+	const environment = new Texture({
+		data: new Uint8ClampedArray([128, 64, 32, 255]),
+		width: 1,
+		height: 1,
+		colorSpace: "Linear",
+	});
+	const pixels = new Uint8ClampedArray(4 * 4 * 4);
+
+	SkyboxRenderer.render(
+		environment,
+		DEFAULT_BACKGROUND_OPTIONS,
+		pixels,
+		createCamera(),
+		4,
+		4,
+		[{ minX: 1, minY: 1, maxXExclusive: 3, maxYExclusive: 3 }],
+	);
+
+	assert.deepEqual(Array.from(pixels.slice(0, 4)), [0, 0, 0, 0]);
+	const dirtyPixel = (1 * 4 + 1) * 4;
+	assert.deepEqual(
+		Array.from(pixels.slice(dirtyPixel, dirtyPixel + 4)),
+		[128, 64, 32, 255],
+	);
+}
+
 function run() {
 	testSkyboxRendererDecodesSRGBToLinear();
 	testSkyboxRendererPreservesLinearTextureValues();
 	testSkyboxRendererPreservesHDRTextureValues();
+	testSkyboxRendererClipsToDirtyRegions();
 	console.log("Software environment color-space tests passed");
 }
 

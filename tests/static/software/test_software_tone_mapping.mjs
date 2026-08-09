@@ -32,6 +32,8 @@ function testToneMappingPreservesAlphaAndDirtyRect() {
 	const implementation = new SoftwareToneMappingImplementation();
 	implementation.execute({
 		frameContext: createFrameContext(pixels),
+	}, {
+		dirtyRects: [{ minX: 1, minY: 0, maxX: 1, maxY: 0 }],
 	});
 
 	assert.deepEqual(Array.from(pixels.slice(0, 4)), before.slice(0, 4));

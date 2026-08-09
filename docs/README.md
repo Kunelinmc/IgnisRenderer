@@ -38,6 +38,7 @@ contracts when changing the engine.
 - [Particles](contracts/particles.md)
 - [Shaders](contracts/shaders.md)
 - [Post-processing](contracts/postprocess.md)
+- [Software backend](contracts/software.md)
 - [WebGPU backend](contracts/webgpu.md)
 - [WebGL backend](contracts/webgl.md)
 

@@ -5,7 +5,7 @@ import {
 	injectParticleBatchIntoShadowVolume,
 } from "../../../src/pipeline/ParticleShadowVolume.ts";
 import { ParticleBlendMode } from "../../../src/particles/types.ts";
-import { sampleSoftwareShadow } from "../../../src/backends/software/passes/SoftwareShadowPass.ts";
+import { sampleSoftwareShadow } from "../../../src/backends/software/SoftwareShadowSampler.ts";
 
 function createFixture(size = 4, overrides = {}) {
 	const definition = {

@@ -1,26 +1,28 @@
-import type { DrawPacket, FrameContext } from "../../../pipeline/types";
+import type { DrawPacket } from "../../../pipeline/types";
 import type { Rasterizer } from "../Rasterizer";
-import {
-	setSoftwarePlanarReflectionRuntime,
-	SoftwarePlanarReflectionRuntime,
-} from "../SoftwarePlanarReflectionRuntime";
+import { SoftwarePlanarReflectionRuntime } from "../SoftwarePlanarReflectionRuntime";
 import type { SoftwarePassLike, SoftwareSurfaceCompositePass } from "./types";
+import type { SoftwarePassContext } from "../SoftwareFrameServices";
+import type { SoftwareReflectionResources } from "../SoftwareReflectionResources";
 
 export class SoftwareReflectionPass
 	implements SoftwarePassLike, SoftwareSurfaceCompositePass
 {
 	private _runtime: SoftwarePlanarReflectionRuntime;
 
-	constructor(rasterizer: Rasterizer) {
-		this._runtime = new SoftwarePlanarReflectionRuntime(rasterizer);
+	constructor(rasterizer: Rasterizer, resources?: SoftwareReflectionResources) {
+		this._runtime = new SoftwarePlanarReflectionRuntime(rasterizer, resources);
 	}
 
-	public render(context: FrameContext): void {
+	public render(context: SoftwarePassContext): void {
 		this._runtime.render(context);
-		setSoftwarePlanarReflectionRuntime(context.transient, this._runtime);
 	}
 
-	public composite(context: FrameContext, packets: DrawPacket[]): void {
+	public composite(context: SoftwarePassContext, packets: DrawPacket[]): void {
 		this._runtime.composite(context, packets);
+	}
+
+	public get runtime(): SoftwarePlanarReflectionRuntime {
+		return this._runtime;
 	}
 }
