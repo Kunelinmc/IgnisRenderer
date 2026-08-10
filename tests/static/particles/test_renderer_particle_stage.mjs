@@ -111,9 +111,15 @@ async function run() {
 			emit: {
 				rate: 0,
 				bursts: [{ time: 0, count: 2 }],
-				lifetimeRange: [2, 2],
-				speedRange: [0, 0],
 			},
+			templates: [
+				{
+					lifetimeRange: [2, 2],
+					speedRange: [0, 0],
+					sizeRange: [0.5, 1],
+					shape: { kind: "billboard" },
+				},
+			],
 		});
 		renderer.scene.add(system);
 

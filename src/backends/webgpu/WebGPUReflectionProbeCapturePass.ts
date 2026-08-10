@@ -9,11 +9,13 @@ import type { ICommandEncoder } from "../ICommandEncoder";
 import type {
 	DrawPacket,
 	FrameContext,
-	ParticleRenderBatch,
-	ParticleRenderItem,
 	PreparedScene,
 	ResolvedFeatureState,
 } from "../../pipeline/types";
+import type {
+	ParticleRenderBatch,
+	ParticleRenderItem,
+} from "../../particles/ParticleRenderBatch";
 import type {
 	FramePacketProvider,
 	PreparedFramePacketSet,

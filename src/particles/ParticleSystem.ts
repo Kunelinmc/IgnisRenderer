@@ -6,9 +6,6 @@ import {
 	type ParticleAtlas,
 	type ParticleCollider,
 	type ParticleTemplate,
-	type ParticleRange,
-	type ParticleCurve,
-	type ParticleColorGradient,
 	type ParticleEmitterParams,
 	type ParticleGradientKey,
 	type ParticleLODLevel,
@@ -22,12 +19,15 @@ import type { RGBA } from "../foundation/Color";
 const DEFAULT_EMITTER = {
 	rate: 10,
 	bursts: [],
-	lifetimeRange: [0.5, 1.5] as [number, number],
-	speedRange: [2, 5] as [number, number],
-	sizeRange: [0.5, 1.0] as [number, number],
 	direction: { x: 0, y: 1, z: 0 },
 	spread: 0.1,
 	spawnRadius: 0.0,
+};
+
+const DEFAULT_TEMPLATE = {
+	lifetimeRange: [0.5, 1.5] as [number, number],
+	speedRange: [2, 5] as [number, number],
+	sizeRange: [0.5, 1.0] as [number, number],
 	startColor: { r: 255, g: 255, b: 255, a: 1.0 },
 	rotationRange: [0, 0] as [number, number],
 	angularVelocityRange: [0, 0] as [number, number],
@@ -79,16 +79,6 @@ export class ParticleSystem extends Node {
 	public subEmitter: ParticleSubEmitterConfig | null;
 	public lod: ParticleLODSettings;
 
-	/** @deprecated Use templates instead. */
-	public get definitions(): ParticleTemplate[] {
-		return this.templates;
-	}
-
-	/** @deprecated Use templates instead. */
-	public set definitions(value: ParticleTemplate[]) {
-		this.templates = value;
-	}
-
 	constructor(params: ParticleSystemParams = {}) {
 		super({
 			idPrefix: "particleSystem",
@@ -101,10 +91,7 @@ export class ParticleSystem extends Node {
 		this.space = params.space ?? ParticleSpaceMode.Local;
 		this.gravity = cloneVector(params.gravity ?? DEFAULT_GRAVITY);
 		this.templates = normalizeParticleTemplates(params);
-		this.emit = createEmitterParams(
-			params.emit,
-			() => this._primaryTemplate
-		);
+		this.emit = createEmitterParams(params.emit);
 		this.colliders = (params.colliders ?? []).map((collider) =>
 			cloneCollider(collider)
 		);
@@ -208,10 +195,7 @@ export class ParticleSystem extends Node {
 		target.templates = this.templates.map((template) =>
 			cloneParticleTemplate(template)
 		);
-		target.emit = createEmitterParams(
-			this.emit,
-			() => target._primaryTemplate
-		);
+		target.emit = createEmitterParams(this.emit);
 		target.colliders = this.colliders.map((collider) =>
 			cloneCollider(collider)
 		);
@@ -221,7 +205,7 @@ export class ParticleSystem extends Node {
 
 	private get _primaryTemplate(): ParticleTemplate {
 		if (this.templates.length === 0) {
-			this.templates.push(createDefaultParticleTemplate({}));
+			this.templates.push(createDefaultParticleTemplate());
 		}
 		return this.templates[0];
 	}
@@ -256,106 +240,15 @@ function cloneRange(source: [number, number]): [number, number] {
 }
 
 function createEmitterParams(
-	source: ParticleEmitterParams | undefined,
-	resolveTemplate: () => ParticleTemplate
+	source: ParticleEmitterParams | undefined
 ): ParticleEmitterParams {
-	const emit: ParticleEmitterParams = {
+	return {
 		rate: source?.rate ?? DEFAULT_EMITTER.rate,
 		spread: source?.spread ?? DEFAULT_EMITTER.spread,
 		spawnRadius: source?.spawnRadius ?? DEFAULT_EMITTER.spawnRadius,
 		direction: cloneVector(source?.direction ?? DEFAULT_EMITTER.direction),
 		bursts: (source?.bursts ?? []).map((burst) => ({ ...burst })),
 	};
-	defineRangeAlias(
-		emit,
-		"lifetimeRange",
-		resolveTemplate,
-		DEFAULT_EMITTER.lifetimeRange
-	);
-	defineRangeAlias(
-		emit,
-		"speedRange",
-		resolveTemplate,
-		DEFAULT_EMITTER.speedRange
-	);
-	defineRangeAlias(
-		emit,
-		"sizeRange",
-		resolveTemplate,
-		DEFAULT_EMITTER.sizeRange
-	);
-	defineColorAlias(
-		emit,
-		"startColor",
-		resolveTemplate,
-		DEFAULT_EMITTER.startColor
-	);
-	defineRangeAlias(
-		emit,
-		"rotationRange",
-		resolveTemplate,
-		DEFAULT_EMITTER.rotationRange
-	);
-	defineRangeAlias(
-		emit,
-		"angularVelocityRange",
-		resolveTemplate,
-		DEFAULT_EMITTER.angularVelocityRange
-	);
-	return emit;
-}
-
-function defineRangeAlias(
-	emit: ParticleEmitterParams,
-	key:
-		| "lifetimeRange"
-		| "speedRange"
-		| "sizeRange"
-		| "rotationRange"
-		| "angularVelocityRange",
-	resolveTemplate: () => ParticleTemplate,
-	fallback: [number, number]
-): void {
-	Object.defineProperty(emit, key, {
-		configurable: true,
-		enumerable: true,
-		get: () => {
-			const template = resolveTemplate() as ParticleTemplate &
-				Record<typeof key, [number, number] | undefined>;
-			const current = template[key];
-			if (current) return current;
-			const next = cloneRange(fallback);
-			template[key] = next;
-			return next;
-		},
-		set: (value: [number, number] | undefined) => {
-			const template = resolveTemplate() as ParticleTemplate &
-				Record<typeof key, [number, number] | undefined>;
-			template[key] = cloneRange(value ?? fallback);
-		},
-	});
-}
-
-function defineColorAlias(
-	emit: ParticleEmitterParams,
-	key: "startColor",
-	resolveTemplate: () => ParticleTemplate,
-	fallback: RGBA
-): void {
-	Object.defineProperty(emit, key, {
-		configurable: true,
-		enumerable: true,
-		get: () => {
-			const template = resolveTemplate();
-			if (!template.startColor) {
-				template.startColor = cloneColor(fallback);
-			}
-			return template.startColor!;
-		},
-		set: (value: RGBA | undefined) => {
-			resolveTemplate().startColor = cloneColor(value ?? fallback);
-		},
-	});
 }
 
 function normalizeParticleTemplates(
@@ -363,8 +256,7 @@ function normalizeParticleTemplates(
 ): ParticleTemplate[] {
 	const rawTemplates =
 		params.templates && params.templates.length > 0 ? params.templates
-		: params.definitions && params.definitions.length > 0 ? params.definitions
-		: [createDefaultParticleTemplate(params)];
+		: [createDefaultParticleTemplate()];
 
 	if (rawTemplates.length > 8) {
 		throw new Error("ParticleSystem supports at most 8 particle templates.");
@@ -383,54 +275,28 @@ function normalizeParticleTemplates(
 	return templates;
 }
 
-function createDefaultParticleTemplate(
-	params: ParticleSystemParams
-): ParticleTemplate {
-	const emit = params.emit ?? {};
+function createDefaultParticleTemplate(): ParticleTemplate {
 	return {
 		id: "template-0",
 		weight: 1,
-		lifetimeRange: cloneRange(
-			(emit as ParticleEmitterParams & {
-				lifetimeRange?: [number, number];
-			}).lifetimeRange ?? DEFAULT_EMITTER.lifetimeRange
-		),
-		speedRange: cloneRange(
-			(emit as ParticleEmitterParams & {
-				speedRange?: [number, number];
-			}).speedRange ?? DEFAULT_EMITTER.speedRange
-		),
-		sizeRange: cloneRange(
-			(emit as ParticleEmitterParams & {
-				sizeRange?: [number, number];
-			}).sizeRange ?? DEFAULT_EMITTER.sizeRange
-		),
-		startColor: cloneColor(
-			(emit as ParticleEmitterParams & { startColor?: RGBA }).startColor ??
-				DEFAULT_EMITTER.startColor
-		),
-		rotationRange: cloneRange(
-			(emit as ParticleEmitterParams & {
-				rotationRange?: [number, number];
-			}).rotationRange ?? DEFAULT_EMITTER.rotationRange
-		),
-		angularVelocityRange: cloneRange(
-			(emit as ParticleEmitterParams & {
-				angularVelocityRange?: [number, number];
-			}).angularVelocityRange ?? DEFAULT_EMITTER.angularVelocityRange
-		),
-		sizeOverLifetime: cloneNumberGradient(params.sizeOverLifetime ?? []),
-		colorOverLifetime: cloneColorGradient(params.colorOverLifetime ?? []),
+		lifetimeRange: cloneRange(DEFAULT_TEMPLATE.lifetimeRange),
+		speedRange: cloneRange(DEFAULT_TEMPLATE.speedRange),
+		sizeRange: cloneRange(DEFAULT_TEMPLATE.sizeRange),
+		startColor: cloneColor(DEFAULT_TEMPLATE.startColor),
+		rotationRange: cloneRange(DEFAULT_TEMPLATE.rotationRange),
+		angularVelocityRange: cloneRange(DEFAULT_TEMPLATE.angularVelocityRange),
+		sizeOverLifetime: [],
+		colorOverLifetime: [],
 		shape: {
 			kind: "billboard",
-			texture: params.texture ?? null,
-			atlas: params.atlas ? { ...params.atlas } : null,
-			blendMode: params.blendMode ?? ParticleBlendMode.Alpha,
+			texture: null,
+			atlas: null,
+			blendMode: ParticleBlendMode.Alpha,
 		},
-		receiveShadows: params.receiveShadows ?? true,
-		castShadows: params.castShadows ?? true,
-		shadowDensity: resolveNonNegativeFinite(params.shadowDensity, 1),
-		shadowSoftness: resolveNonNegativeFinite(params.shadowSoftness, 1),
+		receiveShadows: true,
+		castShadows: true,
+		shadowDensity: 1,
+		shadowSoftness: 1,
 	};
 }
 

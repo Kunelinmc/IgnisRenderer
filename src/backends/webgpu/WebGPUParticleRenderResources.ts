@@ -1,10 +1,8 @@
 import { clamp } from "../../maths/Common";
 import { ParticleBlendMode } from "../../particles";
+import type { ParticleRenderBatch } from "../../particles/ParticleRenderBatch";
 import { PARTICLE_TRANSIENT_BATCHES_KEY } from "../../pipeline/types";
-import type {
-	FrameContext,
-	ParticleRenderBatch,
-} from "../../pipeline/types";
+import type { FrameContext } from "../../pipeline/types";
 import { ShaderSource } from "../../shaders/ShaderSource";
 import type { ICommandEncoder } from "../ICommandEncoder";
 import {

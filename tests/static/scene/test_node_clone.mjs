@@ -64,14 +64,22 @@ function testSpecializedNodeClone() {
 	const particle = new ParticleSystem({
 		space: ParticleSpaceMode.World,
 		maxParticles: 123,
-		castShadows: false,
-		shadowDensity: 3.5,
-		shadowSoftness: 0.25,
 		emit: {
 			rate: 42,
 			direction: { x: 1, y: 0.5, z: -1 },
 			bursts: [{ time: 0.25, count: 9 }],
 		},
+		templates: [
+			{
+				lifetimeRange: [0.5, 1.5],
+				speedRange: [2, 5],
+				sizeRange: [0.5, 1],
+				shape: { kind: "billboard" },
+				castShadows: false,
+				shadowDensity: 3.5,
+				shadowSoftness: 0.25,
+			},
+		],
 		colliders: [
 			{
 				type: "sphere",

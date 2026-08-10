@@ -2,8 +2,8 @@ import { Logger } from "../../foundation/Logger";
 import {
 	PARTICLE_TRANSIENT_BATCHES_KEY,
 	type FrameContext,
-	type ParticleRenderBatch,
 } from "../../pipeline/types";
+import type { ParticleRenderBatch } from "../../particles/ParticleRenderBatch";
 import {
 	ParticleBlendMode,
 	ParticleSpaceMode,

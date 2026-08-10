@@ -1,10 +1,10 @@
 import { clamp } from "../../maths/Common";
 import { ParticleBlendMode } from "../../particles";
+import type { ParticleRenderBatch } from "../../particles/ParticleRenderBatch";
 import {
 	PARTICLE_MESH_TRANSIENT_BATCHES_KEY,
 	PARTICLE_TRANSIENT_BATCHES_KEY,
 	type FrameContext,
-	type ParticleRenderBatch,
 } from "../../pipeline/types";
 import type { FogOptions } from "../../postprocess/passes/FogPass";
 import { PARTICLE_QUAD_VERTICES } from "../constants";

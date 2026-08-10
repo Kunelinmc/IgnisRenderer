@@ -5,7 +5,7 @@ import { ParticleBlendMode } from "../../../particles";
 import {
 	type ParticleRenderBatch,
 	type ParticleRenderItem,
-} from "../../../pipeline/types";
+} from "../../../particles/ParticleRenderBatch";
 import { CoreConstants } from "../constants";
 import { clamp } from "../../../maths/Common";
 import type { SoftwarePassLike } from "./types";

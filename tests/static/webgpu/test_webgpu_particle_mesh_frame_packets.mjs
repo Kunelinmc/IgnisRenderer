@@ -58,7 +58,6 @@ function createMeshBatch({
 				position,
 				previousPosition: { ...position, x: position.x - 1 },
 				size,
-				color: { r: 255, g: 255, b: 255, a: 1 },
 				rotation: 0.25,
 				previousRotation: 0,
 				depth,

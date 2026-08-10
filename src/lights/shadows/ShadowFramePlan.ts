@@ -8,10 +8,10 @@ import type {
 import type { Matrix4 } from "../../maths/Matrix4";
 import type { IVector3 } from "../../maths/types";
 import type {
-	DrawPacket,
 	ParticleMeshRenderBatch,
 	ParticleRenderBatch,
-} from "../../pipeline/types";
+} from "../../particles/ParticleRenderBatch";
+import type { DrawPacket } from "../../pipeline/types";
 
 export type ShadowStorageTechnique = "atlas" | "paged" | "atlas-fallback";
 

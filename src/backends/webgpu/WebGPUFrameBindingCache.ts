@@ -30,9 +30,9 @@ import {
 } from "./";
 import type {
 	FrameContext,
-	ParticleRenderBatch,
 	PreparedScene,
 } from "../../pipeline/types";
+import type { ParticleRenderBatch } from "../../particles/ParticleRenderBatch";
 import { PARTICLE_TRANSIENT_BATCHES_KEY } from "../../pipeline/types";
 import {
 	DEFAULT_FOG_OPTIONS,

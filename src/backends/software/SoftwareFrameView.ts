@@ -1,7 +1,11 @@
 import type { Camera } from "../../cameras/Camera";
 import type { DrawPacket, FrameContext, PreparedSceneEnvironment } from "../../pipeline/types";
-import type { DecalPacket, ParticleMeshRenderBatch, ParticleRenderBatch } from "../../pipeline/types";
+import type { DecalPacket } from "../../pipeline/types";
 import type { PreparedSceneSpatialIndex, ResolvedFeatureState } from "../../pipeline/types";
+import type {
+	ParticleMeshRenderBatch,
+	ParticleRenderBatch,
+} from "../../particles/ParticleRenderBatch";
 import type { SceneLight } from "../../lights";
 import type { ShadowFramePlan } from "../../lights/shadows/ShadowFramePlan";
 import type { Matrix4 } from "../../maths/Matrix4";

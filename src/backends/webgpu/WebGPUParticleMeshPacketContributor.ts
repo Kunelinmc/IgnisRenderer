@@ -5,6 +5,10 @@ import { Matrix4 } from "../../maths/Matrix4";
 import { Quaternion } from "../../maths/Quaternion";
 import type { Matrix3Arr } from "../../maths/types";
 import type { MeshInstance } from "../../meshes";
+import type {
+	ParticleMeshRenderBatch,
+	ParticleMeshRenderItem,
+} from "../../particles/ParticleRenderBatch";
 import {
 	DRAW_PACKET_FLAG_REFLECTIVE,
 	DRAW_PACKET_FLAG_SHADOW_CASTER,
@@ -12,8 +16,6 @@ import {
 	DRAW_PACKET_FLAG_TRANSPARENT,
 	PARTICLE_MESH_TRANSIENT_BATCHES_KEY,
 	type DrawPacket,
-	type ParticleMeshRenderBatch,
-	type ParticleMeshRenderItem,
 } from "../../pipeline/types";
 import type {
 	FramePacketContributor,

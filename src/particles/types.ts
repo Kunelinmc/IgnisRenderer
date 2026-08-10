@@ -38,30 +38,6 @@ export interface ParticleEmitterParams {
 	direction?: IVector3;
 	spread?: number;
 	spawnRadius?: number;
-	/**
-	 * @deprecated Use `definitions[].lifetimeRange`.
-	 */
-	lifetimeRange?: [number, number];
-	/**
-	 * @deprecated Use `definitions[].speedRange`.
-	 */
-	speedRange?: [number, number];
-	/**
-	 * @deprecated Use `definitions[].sizeRange`.
-	 */
-	sizeRange?: [number, number];
-	/**
-	 * @deprecated Use `definitions[].startColor`.
-	 */
-	startColor?: RGBA;
-	/**
-	 * @deprecated Use `definitions[].rotationRange`.
-	 */
-	rotationRange?: [number, number];
-	/**
-	 * @deprecated Use `definitions[].angularVelocityRange`.
-	 */
-	angularVelocityRange?: [number, number];
 }
 
 export interface ParticleBillboardShape {
@@ -99,9 +75,6 @@ export interface ParticleTemplate {
 	shadowDensity?: number;
 	shadowSoftness?: number;
 }
-
-/** @deprecated Use ParticleTemplate instead. */
-export type ParticleDefinition = ParticleTemplate;
 
 interface ParticleColliderBase {
 	restitution?: number;
@@ -167,46 +140,7 @@ export interface ParticleSystemParams {
 	gravity?: IVector3;
 	emit?: ParticleEmitterParams;
 	templates?: ParticleTemplate[];
-	/** @deprecated Use templates instead. */
-	definitions?: ParticleTemplate[];
 	colliders?: ParticleCollider[];
 	subEmitter?: ParticleSubEmitterConfig | null;
 	lod?: ParticleLODSettings;
-
-	/**
-	 * @deprecated Use `templates[].shape.blendMode`.
-	 */
-	blendMode?: ParticleBlendMode;
-	/**
-	 * @deprecated Use `templates[].shape.texture`.
-	 */
-	texture?: Texture | null;
-	/**
-	 * @deprecated Use `templates[].shape.atlas`.
-	 */
-	atlas?: ParticleAtlas | null;
-	/**
-	 * @deprecated Use `templates[].sizeOverLifetime`.
-	 */
-	sizeOverLifetime?: ParticleGradientKey<number>[];
-	/**
-	 * @deprecated Use `templates[].colorOverLifetime`.
-	 */
-	colorOverLifetime?: ParticleGradientKey<RGBA>[];
-	/**
-	 * @deprecated Use `templates[].receiveShadows`.
-	 */
-	receiveShadows?: boolean;
-	/**
-	 * @deprecated Use `templates[].castShadows`.
-	 */
-	castShadows?: boolean;
-	/**
-	 * @deprecated Use `templates[].shadowDensity`.
-	 */
-	shadowDensity?: number;
-	/**
-	 * @deprecated Use `templates[].shadowSoftness`.
-	 */
-	shadowSoftness?: number;
 }

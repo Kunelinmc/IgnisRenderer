@@ -9,8 +9,8 @@ import {
 	PARTICLE_TRANSIENT_BATCHES_KEY,
 	type DrawPacket,
 	type FrameContext,
-	type ParticleRenderBatch,
 } from "../../pipeline/types";
+import type { ParticleRenderBatch } from "../../particles/ParticleRenderBatch";
 import type {
 	RenderGraphPhysicalBinding,
 	RenderGraphResourceDescriptor,

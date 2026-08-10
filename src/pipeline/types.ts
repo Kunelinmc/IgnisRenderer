@@ -6,11 +6,14 @@ import type {
 	DecalChannelBlendModes,
 } from "../decals";
 import type { SceneLight } from "../lights";
-import type { ParticleBlendMode, ParticleSystem } from "../particles";
+import type { ParticleSystem } from "../particles";
+import type {
+	ParticleMeshRenderBatch,
+	ParticleRenderBatch,
+} from "../particles/ParticleRenderBatch";
 import type { Material } from "../materials/Material";
 import type { Matrix4 } from "../maths/Matrix4";
-import type { IVector3, Matrix3Arr, SHCoefficients } from "../maths/types";
-import type { RGBA } from "../foundation/Color";
+import type { Matrix3Arr, SHCoefficients } from "../maths/types";
 import type { DirtyRect, IncrementalFrameContext } from "./incremental";
 import type { ShadowFramePlan } from "../lights/shadows/ShadowFramePlan";
 import type {
@@ -108,65 +111,6 @@ export const PARTICLE_SIM_DELTA_TIME_SECONDS_KEY =
 	defineTransientKey<number>("pipeline:particle-delta-time-seconds");
 export const ANIMATION_SIM_DELTA_TIME_MS_KEY =
 	defineTransientKey<number>("pipeline:animation-delta-time-ms");
-
-export interface ParticleUVRect {
-	u0: number;
-	v0: number;
-	u1: number;
-	v1: number;
-}
-
-export interface ParticleRenderItem {
-	templateIndex?: number;
-	position: IVector3;
-	previousPosition?: IVector3;
-	size: number;
-	color: RGBA;
-	rotation: number;
-	previousRotation?: number;
-	depth: number;
-	uvRect: ParticleUVRect;
-}
-
-export interface ParticleRenderBatch {
-	kind?: "billboard";
-	systemId: string;
-	templateIndex?: number;
-	templateId?: string;
-	blendMode: ParticleBlendMode;
-	texture: Texture | null;
-	receiveShadows: boolean;
-	castShadows: boolean;
-	shadowDensity: number;
-	shadowSoftness: number;
-	particles: ParticleRenderItem[];
-}
-
-export interface ParticleMeshRenderItem {
-	templateIndex: number;
-	position: IVector3;
-	previousPosition: IVector3;
-	size: number;
-	color: RGBA;
-	rotation: number;
-	previousRotation: number;
-	depth: number;
-}
-
-export interface ParticleMeshRenderBatch {
-	kind: "mesh";
-	systemId: string;
-	templateIndex: number;
-	templateId?: string;
-	mesh: MeshAsset;
-	primitive: IPrimitive;
-	material: Material;
-	receiveShadows: boolean;
-	castShadows: boolean;
-	shadowDensity: number;
-	shadowSoftness: number;
-	particles: ParticleMeshRenderItem[];
-}
 
 export interface PreparedScene {
 	sceneBounds: BoundingSphere;

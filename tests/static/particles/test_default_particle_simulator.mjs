@@ -109,6 +109,16 @@ function createSimulator() {
 	});
 }
 
+function createBillboardTemplate(overrides = {}) {
+	return {
+		lifetimeRange: [0.5, 1.5],
+		speedRange: [2, 5],
+		sizeRange: [0.5, 1],
+		shape: { kind: "billboard" },
+		...overrides,
+	};
+}
+
 function executeSimulator(simulator, context, deltaTimeSeconds) {
 	simulator.beginFrame(context);
 	simulator.simulate(context, deltaTimeSeconds);
@@ -126,12 +136,16 @@ function testDeterministicSeed() {
 			emit: {
 				rate: 0,
 				bursts: [{ time: 0, count: 4 }],
-				lifetimeRange: [3, 3],
-				speedRange: [2, 2],
-				sizeRange: [1, 1],
 				spawnRadius: 1,
 				spread: 1.2,
 			},
+			templates: [
+				createBillboardTemplate({
+					lifetimeRange: [3, 3],
+					speedRange: [2, 2],
+					sizeRange: [1, 1],
+				}),
+			],
 		});
 		const context = createContext([system]);
 		executeSimulator(simulator, context, 0.016);
@@ -154,9 +168,13 @@ function testRateAndBurstSpawn() {
 		emit: {
 			rate: 2,
 			bursts: [{ time: 0, count: 3 }],
-			lifetimeRange: [10, 10],
-			speedRange: [0, 0],
 		},
+		templates: [
+			createBillboardTemplate({
+				lifetimeRange: [10, 10],
+				speedRange: [0, 0],
+			}),
+		],
 	});
 	const context = createContext([system]);
 	executeSimulator(simulator, context, 1);
@@ -172,30 +190,44 @@ function testShadowDefaultsAndBatchParams() {
 
 	const simulator = createSimulator();
 	const alphaSystem = new ParticleSystem({
-		blendMode: ParticleBlendMode.Alpha,
-		castShadows: true,
-		shadowDensity: 2.5,
-		shadowSoftness: 0.75,
 		emit: {
 			rate: 0,
 			bursts: [{ time: 0, count: 1 }],
-			lifetimeRange: [2, 2],
-			speedRange: [0, 0],
-			sizeRange: [1, 1],
 		},
+		templates: [
+			createBillboardTemplate({
+				lifetimeRange: [2, 2],
+				speedRange: [0, 0],
+				sizeRange: [1, 1],
+				shape: {
+					kind: "billboard",
+					blendMode: ParticleBlendMode.Alpha,
+				},
+				castShadows: true,
+				shadowDensity: 2.5,
+				shadowSoftness: 0.75,
+			}),
+		],
 	});
 	const additiveSystem = new ParticleSystem({
-		blendMode: ParticleBlendMode.Additive,
-		castShadows: true,
-		shadowDensity: 2,
-		shadowSoftness: 2,
 		emit: {
 			rate: 0,
 			bursts: [{ time: 0, count: 1 }],
-			lifetimeRange: [2, 2],
-			speedRange: [0, 0],
-			sizeRange: [1, 1],
 		},
+		templates: [
+			createBillboardTemplate({
+				lifetimeRange: [2, 2],
+				speedRange: [0, 0],
+				sizeRange: [1, 1],
+				shape: {
+					kind: "billboard",
+					blendMode: ParticleBlendMode.Additive,
+				},
+				castShadows: true,
+				shadowDensity: 2,
+				shadowSoftness: 2,
+			}),
+		],
 	});
 	const context = createContext([alphaSystem, additiveSystem]);
 	executeSimulator(simulator, context, 0.016);
@@ -219,26 +251,33 @@ function testGradientAndAtlas() {
 	const simulator = createSimulator();
 	const system = new ParticleSystem({
 		maxParticles: 8,
-		atlas: {
-			rows: 2,
-			columns: 2,
-			fps: 1,
-			loop: false,
-		},
 		emit: {
 			rate: 0,
 			bursts: [{ time: 0, count: 1 }],
-			lifetimeRange: [2, 2],
-			speedRange: [0, 0],
-			sizeRange: [4, 4],
 		},
-		sizeOverLifetime: [
-			{ t: 0, value: 1 },
-			{ t: 1, value: 3 },
-		],
-		colorOverLifetime: [
-			{ t: 0, value: { r: 255, g: 0, b: 0, a: 1 } },
-			{ t: 1, value: { r: 0, g: 0, b: 255, a: 0.5 } },
+		templates: [
+			createBillboardTemplate({
+				lifetimeRange: [2, 2],
+				speedRange: [0, 0],
+				sizeRange: [4, 4],
+				sizeOverLifetime: [
+					{ t: 0, value: 1 },
+					{ t: 1, value: 3 },
+				],
+				colorOverLifetime: [
+					{ t: 0, value: { r: 255, g: 0, b: 0, a: 1 } },
+					{ t: 1, value: { r: 0, g: 0, b: 255, a: 0.5 } },
+				],
+				shape: {
+					kind: "billboard",
+					atlas: {
+						rows: 2,
+						columns: 2,
+						fps: 1,
+						loop: false,
+					},
+				},
+			}),
 		],
 	});
 
@@ -254,45 +293,33 @@ function testGradientAndAtlas() {
 	assert.equal(particle.uvRect.v0, 0);
 }
 
-function testLegacyEmitterDefinitionAliases() {
+function testTemplateConfigurationOwnsSpawnProperties() {
 	const system = new ParticleSystem({
-		emit: {
-			lifetimeRange: [3, 4],
-			speedRange: [5, 6],
-			sizeRange: [7, 8],
-			startColor: { r: 10, g: 20, b: 30, a: 0.4 },
-			rotationRange: [0.1, 0.2],
-			angularVelocityRange: [0.3, 0.4],
-		},
+		templates: [
+			createBillboardTemplate({
+				lifetimeRange: [3, 4],
+				speedRange: [5, 6],
+				sizeRange: [7, 8],
+				startColor: { r: 10, g: 20, b: 30, a: 0.4 },
+				rotationRange: [0.1, 0.2],
+				angularVelocityRange: [0.3, 0.4],
+			}),
+		],
 	});
 
-	assert.deepEqual(system.emit.lifetimeRange, [3, 4]);
-	assert.deepEqual(system.emit.speedRange, [5, 6]);
-	assert.deepEqual(system.emit.sizeRange, [7, 8]);
-	assert.deepEqual(system.emit.startColor, { r: 10, g: 20, b: 30, a: 0.4 });
-	assert.deepEqual(system.emit.rotationRange, [0.1, 0.2]);
-	assert.deepEqual(system.emit.angularVelocityRange, [0.3, 0.4]);
-
-	system.emit.speedRange = [0, 0];
-	system.emit.startColor.r = 200;
-	assert.deepEqual(system.templates[0].speedRange, [0, 0]);
-	assert.equal(system.templates[0].startColor.r, 200);
-	assert.deepEqual(system.definitions[0].speedRange, [0, 0]);
-	assert.equal(system.definitions[0].startColor.r, 200);
-
-	const system2 = new ParticleSystem({
-		definitions: [
-			{
-				lifetimeRange: [1, 2],
-				speedRange: [3, 4],
-				sizeRange: [5, 6],
-				startColor: { r: 1, g: 2, b: 3, a: 1 },
-				shape: { kind: "billboard" },
-			}
-		]
+	assert.deepEqual(system.templates[0].lifetimeRange, [3, 4]);
+	assert.deepEqual(system.templates[0].speedRange, [5, 6]);
+	assert.deepEqual(system.templates[0].sizeRange, [7, 8]);
+	assert.deepEqual(system.templates[0].startColor, {
+		r: 10,
+		g: 20,
+		b: 30,
+		a: 0.4,
 	});
-	assert.deepEqual(system2.templates[0].lifetimeRange, [1, 2]);
-	assert.deepEqual(system2.definitions[0].lifetimeRange, [1, 2]);
+	assert.deepEqual(system.templates[0].rotationRange, [0.1, 0.2]);
+	assert.deepEqual(system.templates[0].angularVelocityRange, [0.3, 0.4]);
+	assert.equal(Object.hasOwn(system.emit, "lifetimeRange"), false);
+	assert.equal("definitions" in system, false);
 }
 
 function testWeightedDefinitionsBuildBillboardAndMeshBatches() {
@@ -304,7 +331,6 @@ function testWeightedDefinitionsBuildBillboardAndMeshBatches() {
 		emit: {
 			rate: 0,
 			bursts: [{ time: 0, count: 12 }],
-			speedRange: [0, 0],
 			spread: 0,
 		},
 		templates: [
@@ -326,7 +352,11 @@ function testWeightedDefinitionsBuildBillboardAndMeshBatches() {
 				lifetimeRange: [2, 2],
 				speedRange: [0, 0],
 				sizeRange: [2, 2],
-				startColor: { r: 128, g: 128, b: 255, a: 1 },
+				startColor: { r: 128, g: 128, b: 255, a: 0 },
+				colorOverLifetime: [
+					{ t: 0, value: { r: 255, g: 0, b: 0, a: 0 } },
+					{ t: 1, value: { r: 0, g: 0, b: 255, a: 0 } },
+				],
 				shape: {
 					kind: "mesh",
 					mesh,
@@ -350,6 +380,7 @@ function testWeightedDefinitionsBuildBillboardAndMeshBatches() {
 	assert.equal(meshBatch.material, mesh.primitives[0].material);
 	assert.ok(meshBatch.particles.length > 0);
 	assert.equal(meshBatch.particles[0].templateIndex, 1);
+	assert.equal(Object.hasOwn(meshBatch.particles[0], "color"), false);
 	assert.ok(
 		meshBatch.particles[0].previousPosition.y >
 			meshBatch.particles[0].position.y
@@ -364,9 +395,13 @@ function testLocalSpaceFollowsSystemPosition() {
 		emit: {
 			rate: 0,
 			bursts: [{ time: 0, count: 1 }],
-			lifetimeRange: [5, 5],
-			speedRange: [0, 0],
 		},
+		templates: [
+			createBillboardTemplate({
+				lifetimeRange: [5, 5],
+				speedRange: [0, 0],
+			}),
+		],
 	});
 	const context = createContext([system]);
 	executeSimulator(simulator, context, 0.016);
@@ -387,11 +422,15 @@ function testCollisionAndSubEmitter() {
 		emit: {
 			rate: 0,
 			bursts: [{ time: 0, count: 1 }],
-			lifetimeRange: [0.1, 0.1],
-			speedRange: [2, 2],
 			direction: { x: 0, y: -1, z: 0 },
 			spread: 0,
 		},
+		templates: [
+			createBillboardTemplate({
+				lifetimeRange: [0.1, 0.1],
+				speedRange: [2, 2],
+			}),
+		],
 		colliders: [
 			{
 				type: "plane",
@@ -434,11 +473,15 @@ function testLODScalesSimulationAndRenderSubset() {
 		emit: {
 			rate: 0,
 			bursts: [{ time: 0, count: 8 }],
-			lifetimeRange: [5, 5],
-			speedRange: [0, 0],
-			sizeRange: [1, 1],
 			spawnRadius: 0,
 		},
+		templates: [
+			createBillboardTemplate({
+				lifetimeRange: [5, 5],
+				speedRange: [0, 0],
+				sizeRange: [1, 1],
+			}),
+		],
 		lod: {
 			enabled: true,
 			hysteresisFrames: 0,
@@ -481,10 +524,14 @@ function testLODHysteresis() {
 		emit: {
 			rate: 10,
 			bursts: [],
-			lifetimeRange: [10, 10],
-			speedRange: [0, 0],
-			sizeRange: [1, 1],
 		},
+		templates: [
+			createBillboardTemplate({
+				lifetimeRange: [10, 10],
+				speedRange: [0, 0],
+				sizeRange: [1, 1],
+			}),
+		],
 		lod: {
 			enabled: true,
 			hysteresisFrames: 2,
@@ -531,9 +578,13 @@ function testStrictFailureWhenLODStillOverBudget() {
 		emit: {
 			rate: 0,
 			bursts: [{ time: 0, count: 1 }],
-			lifetimeRange: [2, 2],
-			speedRange: [0, 0],
 		},
+		templates: [
+			createBillboardTemplate({
+				lifetimeRange: [2, 2],
+				speedRange: [0, 0],
+			}),
+		],
 		lod: {
 			enabled: true,
 			hysteresisFrames: 0,
@@ -561,7 +612,7 @@ function run() {
 	testRateAndBurstSpawn();
 	testShadowDefaultsAndBatchParams();
 	testGradientAndAtlas();
-	testLegacyEmitterDefinitionAliases();
+	testTemplateConfigurationOwnsSpawnProperties();
 	testWeightedDefinitionsBuildBillboardAndMeshBatches();
 	testLocalSpaceFollowsSystemPosition();
 	testCollisionAndSubEmitter();

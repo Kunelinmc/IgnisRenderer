@@ -8,6 +8,12 @@ This document defines particle templates, mesh-particle rendering, simulation in
 
 - `ParticleSystemParams.templates` must accept one to eight
   `ParticleTemplate` entries.
+- `ParticleSystemParams.templates` must be the only constructor field for
+  particle template configuration. When omitted or empty, the system must
+  create one default billboard template.
+- `ParticleEmitterParams` must contain only emission scheduling and spatial
+  fields. Lifetime, speed, size, color, rotation, render shape, and shadow
+  configuration must belong to `ParticleTemplate`.
 - `ParticleTemplate.weight` must control weighted random selection at spawn
   time. Non-finite weights must resolve to `1`; negative weights must resolve to
   `0`.
@@ -15,11 +21,18 @@ This document defines particle templates, mesh-particle rendering, simulation in
 - `ParticleTemplate.shape.kind: "billboard"` must render through the existing
   billboard particle path and must use `shape.texture`, `shape.atlas`, and
   `shape.blendMode`.
+- Billboard particle render items must apply `startColor` and
+  `colorOverLifetime`. Mesh particle render items must not carry per-particle
+  color or use particle color alpha for visibility; their appearance must come
+  from each primitive's material.
 - `ParticleTemplate.shape.kind: "mesh"` must render the referenced
   `MeshAsset` primitives through their own primitive materials.
 - WebGPU must emit mesh particle draw packets from
 	`PARTICLE_MESH_TRANSIENT_BATCHES_KEY` and render them through the regular
 	mesh material pipeline.
+- `src/particles/ParticleRenderBatch.ts` must own the backend-neutral billboard
+  and mesh particle render-batch contracts. `src/pipeline/types.ts` must own
+  only the transient keys used to transport those batches through a frame.
 - WebGPU must register mesh-particle packet production with the internal frame
 	packet contributor registry. The contributor must prepare current-view
 	`DrawPacket` objects after particle simulation and before frame analysis.
@@ -48,13 +61,6 @@ This document defines particle templates, mesh-particle rendering, simulation in
 - WebGPU compute simulation may run only for compatible single-template
   additive billboard systems. Multi-template or mesh-template systems must
   use the CPU particle simulation path and may still render through WebGPU.
-- Legacy `ParticleSystemParams.blendMode`, `texture`, `atlas`,
-  `sizeOverLifetime`, `colorOverLifetime`, `receiveShadows`, `castShadows`,
-  `shadowDensity`, and `shadowSoftness` must remain accepted as aliases for the
-  first billboard template.
-- Legacy `ParticleEmitterParams.lifetimeRange`, `speedRange`, `sizeRange`,
-  `startColor`, `rotationRange`, and `angularVelocityRange` must remain accepted
-  as aliases for the first template.
 
 ### Particle shadows
 
@@ -209,11 +215,12 @@ bunx tsc --noEmit
 
 ### Particle templates
 
-- Legacy constructor fields remain accepted as first-template aliases.
-- Legacy `emit` spawn-range fields remain accepted as first-template aliases.
 - Code that reads `ParticleSystem.blendMode`, `texture`, `atlas`,
   `sizeOverLifetime`, `colorOverLifetime`, `receiveShadows`, `castShadows`,
   `shadowDensity`, or `shadowSoftness` continues to access the first template.
+- `ParticleSystemParams.definitions`, root-level template fields, emitter spawn
+  ranges, and the `ParticleDefinition` type alias are not supported. Callers
+  must use `templates` and `ParticleTemplate`.
 - Mesh particle templates are WebGPU-rendered only in this contract.
 
 ### Particle shadows
@@ -221,8 +228,6 @@ bunx tsc --noEmit
 - Existing particle systems will default to `castShadows: true`.
 - Additive particle systems remain visually compatible because they are
   excluded from particle shadow volume injection.
-- Legacy `ParticleSystemParams.castShadows`, `shadowDensity`, and
-  `shadowSoftness` remain accepted as first-template aliases.
 
 ## Verification
 

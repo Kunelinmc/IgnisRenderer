@@ -3,9 +3,9 @@ import {
 	type ParticleTemplate,
 	type ParticleSystem,
 } from "../particles";
+import type { ParticleRenderBatch } from "../particles/ParticleRenderBatch";
 import type { IVector3 } from "../maths/types";
 import { Matrix4 } from "../maths/Matrix4";
-import type { ParticleRenderBatch } from "./types";
 
 export interface ParticleShadowVolumeResolution {
 	width: number;
@@ -312,39 +312,25 @@ function estimateParticleSystemShadowRadius(system: ParticleSystem): number {
 	let startSize = 0;
 	let sizeScale = 1;
 
-	if (Array.isArray(system.templates)) {
-		for (const template of system.templates) {
-			if (template.shape.kind !== "billboard") continue;
-			lifetime = Math.max(
-				lifetime,
-				template.lifetimeRange[0],
-				template.lifetimeRange[1]
+	for (const template of system.templates) {
+		if (template.shape.kind !== "billboard") continue;
+		lifetime = Math.max(
+			lifetime,
+			template.lifetimeRange[0],
+			template.lifetimeRange[1]
+		);
+		speed = Math.max(speed, template.speedRange[0], template.speedRange[1]);
+		startSize = Math.max(
+			startSize,
+			template.sizeRange[0],
+			template.sizeRange[1]
+		);
+		if ((template.sizeOverLifetime?.length ?? 0) > 0) {
+			sizeScale = Math.max(
+				sizeScale,
+				...template.sizeOverLifetime!.map((key) => key.value)
 			);
-			speed = Math.max(speed, template.speedRange[0], template.speedRange[1]);
-			startSize = Math.max(
-				startSize,
-				template.sizeRange[0],
-				template.sizeRange[1]
-			);
-			if ((template.sizeOverLifetime?.length ?? 0) > 0) {
-				sizeScale = Math.max(
-					sizeScale,
-					...template.sizeOverLifetime!.map((key) => key.value)
-				);
-			}
 		}
-	} else {
-		const lifetimeRange = emit.lifetimeRange ?? [0.5, 1.5];
-		const speedRange = emit.speedRange ?? [2, 5];
-		const sizeRange = emit.sizeRange ?? [0.5, 1];
-		lifetime = Math.max(0, lifetimeRange[0], lifetimeRange[1]);
-		speed = Math.max(0, speedRange[0], speedRange[1]);
-		startSize = Math.max(0, sizeRange[0], sizeRange[1]);
-		const sizeOverLifetime = system.sizeOverLifetime ?? [];
-		sizeScale =
-			sizeOverLifetime.length > 0 ?
-				Math.max(0, ...sizeOverLifetime.map((key) => key.value))
-			:	1;
 	}
 	const gravity = system.gravity ?? { x: 0, y: 0, z: 0 };
 	const gravityDistance =
@@ -353,14 +339,7 @@ function estimateParticleSystemShadowRadius(system: ParticleSystem): number {
 }
 
 function hasParticleSystemShadowCaster(system: ParticleSystem): boolean {
-	if (Array.isArray(system.templates)) {
-		return system.templates.some(isParticleTemplateShadowCaster);
-	}
-	return (
-		system.castShadows === true &&
-		system.blendMode !== ParticleBlendMode.Additive &&
-		system.shadowDensity > MIN_PARTICLE_SHADOW_DENSITY
-	);
+	return system.templates.some(isParticleTemplateShadowCaster);
 }
 
 function isParticleTemplateShadowCaster(

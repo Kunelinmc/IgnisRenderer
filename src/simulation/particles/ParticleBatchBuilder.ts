@@ -8,12 +8,12 @@ import {
 	type ParticleSystem,
 } from "../../particles";
 import type {
-	FrameContext,
 	ParticleMeshRenderBatch,
 	ParticleMeshRenderItem,
 	ParticleRenderBatch,
 	ParticleUVRect,
-} from "../../pipeline/types";
+} from "../../particles/ParticleRenderBatch";
+import type { FrameContext } from "../../pipeline/types";
 import type { RGBA } from "../../foundation/Color";
 import { cloneColor } from "./ParticleSimulationCore";
 import type { RuntimeParticle, SystemRuntimeState } from "./types";
@@ -62,13 +62,8 @@ export class ParticleBatchBuilder {
 				1
 			);
 			const size = particle.startSize * Math.max(0, sizeMultiplier);
-			const color = this._sampleColorGradient(
-				template.colorOverLifetime,
-				lifeT,
-				particle.startColor
-			);
 
-			if (size <= 0 || color.a <= 0) continue;
+			if (size <= 0) continue;
 
 			if (template.shape.kind === "mesh") {
 				this._pushMeshParticle(
@@ -81,7 +76,6 @@ export class ParticleBatchBuilder {
 						position: worldPosition,
 						previousPosition: previousWorldPosition,
 						size,
-						color,
 						rotation: particle.rotation,
 						previousRotation: particle.previousRotation,
 						depth,
@@ -89,6 +83,13 @@ export class ParticleBatchBuilder {
 				);
 				continue;
 			}
+
+			const color = this._sampleColorGradient(
+				template.colorOverLifetime,
+				lifeT,
+				particle.startColor
+			);
+			if (color.a <= 0) continue;
 
 			const batch = this._getOrCreateBillboardBatch(
 				billboardBatches,

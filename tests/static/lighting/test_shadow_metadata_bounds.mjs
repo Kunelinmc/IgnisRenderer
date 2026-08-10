@@ -71,21 +71,38 @@ function testShadowBoundsFallbackToNearestCasterWhenNothingVisible() {
 function testParticleCastersExpandShadowBounds() {
 	const particle = new ParticleSystem({
 		position: { x: 12, y: 0, z: 0 },
-		blendMode: ParticleBlendMode.Alpha,
-		castShadows: true,
-		shadowDensity: 1,
 		emit: {
 			spawnRadius: 1,
-			lifetimeRange: [1, 1],
-			speedRange: [0, 0],
-			sizeRange: [2, 2],
 		},
+		templates: [
+			{
+				lifetimeRange: [1, 1],
+				speedRange: [0, 0],
+				sizeRange: [2, 2],
+				shape: {
+					kind: "billboard",
+					blendMode: ParticleBlendMode.Alpha,
+				},
+				castShadows: true,
+				shadowDensity: 1,
+			},
+		],
 	});
 	const additive = new ParticleSystem({
 		position: { x: 100, y: 0, z: 0 },
-		blendMode: ParticleBlendMode.Additive,
-		castShadows: true,
-		shadowDensity: 1,
+		templates: [
+			{
+				lifetimeRange: [0.5, 1.5],
+				speedRange: [2, 5],
+				sizeRange: [0.5, 1],
+				shape: {
+					kind: "billboard",
+					blendMode: ParticleBlendMode.Additive,
+				},
+				castShadows: true,
+				shadowDensity: 1,
+			},
+		],
 	});
 
 	const particleBounds = resolveParticleShadowCasterBounds([particle, additive]);

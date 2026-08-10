@@ -116,6 +116,15 @@ function createContext(particleSystems = []) {
 	};
 }
 
+function createBillboardTemplate(blendMode = ParticleBlendMode.Alpha) {
+	return {
+		lifetimeRange: [5, 5],
+		speedRange: [0, 0],
+		sizeRange: [1, 1],
+		shape: { kind: "billboard", blendMode },
+	};
+}
+
 function testWebGPUParticleSimulatorPublishesDrawBatches() {
 	const backend = new FakeBackend();
 	const simulator = new WebGPUParticleSimulator({
@@ -128,10 +137,8 @@ function testWebGPUParticleSimulatorPublishesDrawBatches() {
 		emit: {
 			rate: 0,
 			bursts: [{ time: 0, count: 3 }],
-			lifetimeRange: [5, 5],
-			speedRange: [0, 0],
-			sizeRange: [1, 1],
 		},
+		templates: [createBillboardTemplate()],
 	});
 	const context = createContext([system]);
 
@@ -162,14 +169,11 @@ async function testWebGPUParticleSimulatorDispatchesComputeSimulation() {
 	});
 	const system = new ParticleSystem({
 		maxParticles: 64,
-		blendMode: ParticleBlendMode.Additive,
 		emit: {
 			rate: 0,
 			bursts: [{ time: 0, count: 3 }],
-			lifetimeRange: [5, 5],
-			speedRange: [0, 0],
-			sizeRange: [1, 1],
 		},
+		templates: [createBillboardTemplate(ParticleBlendMode.Additive)],
 	});
 	const context = createContext([system]);
 
@@ -217,25 +221,19 @@ async function testWebGPUParticleSimulatorMixesComputeAndCpuFallbackBatches() {
 	});
 	const computeSystem = new ParticleSystem({
 		maxParticles: 64,
-		blendMode: ParticleBlendMode.Additive,
 		emit: {
 			rate: 0,
 			bursts: [{ time: 0, count: 2 }],
-			lifetimeRange: [5, 5],
-			speedRange: [0, 0],
-			sizeRange: [1, 1],
 		},
+		templates: [createBillboardTemplate(ParticleBlendMode.Additive)],
 	});
 	const fallbackSystem = new ParticleSystem({
 		maxParticles: 64,
-		blendMode: ParticleBlendMode.Alpha,
 		emit: {
 			rate: 0,
 			bursts: [{ time: 0, count: 2 }],
-			lifetimeRange: [5, 5],
-			speedRange: [0, 0],
-			sizeRange: [1, 1],
 		},
+		templates: [createBillboardTemplate()],
 	});
 	const context = createContext([computeSystem, fallbackSystem]);
 
