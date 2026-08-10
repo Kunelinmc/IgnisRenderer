@@ -26,7 +26,7 @@ function testDirectionalCsmPreparedSlices() {
 		sceneBounds: { center: { x: 0, y: 0, z: 0 }, radius: 80 },
 		casterIntent: { meshPackets: [], hasTransparentCasters: false, hasParticleCasters: false, estimatedParticleCapacity: 0 },
 		enableShadows: true,
-		capabilities: { backendKey: "test", supportsFilterModes: ["pcf"], supportsDirectionalCSM: true, supportsSpotCSM: false, supportsPointCSM: false, maxDynamicShadowCost: 128 },
+		backendKey: "webgpu",
 	}, ShadowPlanner.createState());
 	assert.equal(plan.lights[0].effectiveTechnique, "cascaded");
 	assert.equal(plan.lights[0].slices.length, 4);

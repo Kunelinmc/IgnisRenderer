@@ -1,6 +1,5 @@
 import { LightType, type SceneLight, type ShadowCastingLight } from "..";
 import {
-	type IShadowBackendCapabilities,
 	type ShadowDefinitionSnapshot,
 	type ShadowFilterMode,
 	type ShadowProjectionConfig,
@@ -14,6 +13,10 @@ import type { IVector3 } from "../../maths/types";
 import { Matrix4 } from "../../maths/Matrix4";
 import { resolveShadowCasterBounds } from "./ShadowCasterBounds";
 import type { ShadowStrategyCamera, SceneBounds } from "./types";
+import {
+	resolveShadowPlannerBackendPolicy,
+	type ShadowPlannerBackendPolicy,
+} from "./ShadowPlannerPolicy";
 import type {
 	PreparedShadowLight,
 	PreparedShadowSlice,
@@ -41,7 +44,7 @@ interface ShadowPlanCandidate {
 export interface ShadowPlannerOptions {
 	readonly manager: ShadowManager;
 	readonly lights: readonly SceneLight[];
-	readonly capabilities: IShadowBackendCapabilities;
+	readonly backendKey: string;
 	readonly camera: ShadowStrategyCamera;
 	readonly cameraPosition: IVector3 | null;
 	readonly sceneBounds: SceneBounds;
@@ -84,7 +87,7 @@ export class ShadowPlanner {
 	/**
 	 * Resolves one immutable, backend-neutral shadow frame plan.
 	 *
-	 * @param options Current scene, camera, caster, and backend capability input.
+	 * @param options Current scene, camera, caster, and backend identity input.
 	 * @param state Per-renderer projection history and plan revision state.
 	 * @returns The immutable shadow plan consumed by backend runtimes.
 	 * @internal `FrameCoordinator` is the owning caller.
@@ -99,10 +102,11 @@ export class ShadowPlanner {
 			return ShadowPlanner._publish(state, [], [], diagnostics, false, false);
 		}
 
-		const candidates = ShadowPlanner._collectCandidates(options, diagnostics);
+		const policy = resolveShadowPlannerBackendPolicy(options.backendKey);
+		const candidates = ShadowPlanner._collectCandidates(options, policy, diagnostics);
 		const selected = ShadowPlanner._applyBudget(
 			candidates,
-			options.capabilities,
+			policy,
 			diagnostics
 		);
 		// Particle positions are not available until simulation. Keep the full
@@ -171,17 +175,17 @@ export class ShadowPlanner {
 		: [];
 		const hasTransmissionWork =
 			options.hasTransmissionCasters &&
-			options.capabilities.supportsTransmission !== false &&
+			policy.supportsTransmission &&
 			jobs.length > 0;
 		if (
 			options.hasTransmissionCasters &&
-			options.capabilities.supportsTransmission === false &&
+			!policy.supportsTransmission &&
 			selected[0]
 		) {
 			diagnostics.push(ShadowPlanner._diagnostic(
 				"transmission-unsupported",
 				selected[0],
-				`Backend ${options.capabilities.backendKey} does not support shadow transmission.`
+				`Backend ${options.backendKey} does not support shadow transmission.`
 			));
 		}
 		ShadowPlanner._trimProjectionStates(state, activeLights);
@@ -198,6 +202,7 @@ export class ShadowPlanner {
 
 	private static _collectCandidates(
 		options: ShadowPlannerOptions,
+		policy: ShadowPlannerBackendPolicy,
 		diagnostics: ShadowDiagnostic[]
 	): ShadowPlanCandidate[] {
 		const candidates: ShadowPlanCandidate[] = [];
@@ -212,16 +217,17 @@ export class ShadowPlanner {
 					severity: "warning",
 					lightId: light.id,
 					definitionId: snapshot.id,
-					message: `Custom shadow kind ${snapshot.kind} is deprecated; planner converted it to a built-in descriptor.`,
+					message: `Custom shadow kind ${snapshot.kind} is deprecated; ` +
+						"planner converted it to a built-in descriptor.",
 				});
 			}
-			if (!ShadowPlanner._supportsLight(light, options.capabilities)) {
+			if (!ShadowPlanner._supportsLight(light, policy)) {
 				diagnostics.push({
 					code: "unsupported-light-type",
 					severity: "warning",
 					lightId: light.id,
 					definitionId: snapshot.id,
-					message: `Backend ${options.capabilities.backendKey} does not support ${light.type} shadows.`,
+					message: `Backend ${options.backendKey} does not support ${light.type} shadows.`,
 				});
 				continue;
 			}
@@ -232,7 +238,7 @@ export class ShadowPlanner {
 			);
 			const supportsCascaded = ShadowPlanner._supportsCascaded(
 				light,
-				options.capabilities,
+				policy,
 			);
 			const cascadeCount = supportsCascaded ? requestedCascadeCount : 1;
 			if (snapshot.projection.technique === "cascaded" && !supportsCascaded) {
@@ -241,12 +247,13 @@ export class ShadowPlanner {
 					severity: "warning",
 					lightId: light.id,
 					definitionId: snapshot.id,
-					message: `Backend ${options.capabilities.backendKey} resolved cascaded shadows to a single projection for light ${light.id}.`,
+					message: `Backend ${options.backendKey} resolved cascaded shadows ` +
+						`to a single projection for light ${light.id}.`,
 				});
 			}
 
 			const requestedFilter = definition.filterMode;
-			const filterMode = options.capabilities.supportsFilterModes.includes(
+			const filterMode = policy.supportsFilterModes.includes(
 				requestedFilter
 			) ? requestedFilter : "pcf";
 			if (filterMode !== requestedFilter) {
@@ -255,13 +262,15 @@ export class ShadowPlanner {
 					severity: "warning",
 					lightId: light.id,
 					definitionId: snapshot.id,
-					message: `Backend ${options.capabilities.backendKey} resolved ${requestedFilter} to ${filterMode} for light ${light.id}.`,
+					message: `Backend ${options.backendKey} resolved ${requestedFilter} ` +
+						`to ${filterMode} for light ${light.id}.`,
 				});
 			}
 
 			const storage = ShadowPlanner._resolveStorage(
 				definition,
-				options.capabilities,
+				policy,
+				options.backendKey,
 				light,
 				diagnostics
 			);
@@ -300,14 +309,16 @@ export class ShadowPlanner {
 		);
 		return ShadowPlanner._applyCapabilityLimits(
 			candidates,
-			options.capabilities,
+			policy,
+			options.backendKey,
 			diagnostics
 		);
 	}
 
 	private static _applyCapabilityLimits(
 		candidates: readonly ShadowPlanCandidate[],
-		capabilities: IShadowBackendCapabilities,
+		policy: ShadowPlannerBackendPolicy,
+		backendKey: string,
 		diagnostics: ShadowDiagnostic[]
 	): ShadowPlanCandidate[] {
 		const counts = new Map<string, number>();
@@ -315,7 +326,7 @@ export class ShadowPlanner {
 		const accepted: ShadowPlanCandidate[] = [];
 		for (const candidate of candidates) {
 			const key = candidate.definition.resolveBoundLightType(candidate.light.type);
-			const limits = capabilities.lightTypes?.[key];
+			const limits = policy.lightTypes[key];
 			if (!limits) {
 				accepted.push(candidate);
 				continue;
@@ -330,7 +341,7 @@ export class ShadowPlanner {
 				diagnostics.push(ShadowPlanner._diagnostic(
 					"capability-limit",
 					candidate,
-					`Backend ${capabilities.backendKey} shadow count limit disabled light ${candidate.light.id}.`
+					`Backend ${backendKey} shadow count limit disabled light ${candidate.light.id}.`
 				));
 				continue;
 			}
@@ -345,13 +356,12 @@ export class ShadowPlanner {
 
 	private static _applyBudget(
 		candidates: readonly ShadowPlanCandidate[],
-		capabilities: IShadowBackendCapabilities,
+		policy: ShadowPlannerBackendPolicy,
 		diagnostics: ShadowDiagnostic[]
 	): ShadowPlanCandidate[] {
 		const budget =
-			typeof capabilities.maxDynamicShadowCost === "number" &&
-			capabilities.maxDynamicShadowCost > 0 ?
-				capabilities.maxDynamicShadowCost
+			policy.maxDynamicShadowCost > 0 ?
+				policy.maxDynamicShadowCost
 			: Number.POSITIVE_INFINITY;
 		let consumed = 0;
 		const selected: ShadowPlanCandidate[] = [];
@@ -376,7 +386,8 @@ export class ShadowPlanner {
 			diagnostics.push(ShadowPlanner._diagnostic(
 				"budget-degraded",
 				degraded,
-				`Shadow for light ${candidate.light.id} was degraded to ${degraded.cascadeCount} cascade(s) at ${degraded.size}px.`
+				`Shadow for light ${candidate.light.id} was degraded to ` +
+					`${degraded.cascadeCount} cascade(s) at ${degraded.size}px.`
 			));
 			selected.push(degraded);
 			consumed += degraded.cost;
@@ -569,49 +580,44 @@ export class ShadowPlanner {
 
 	private static _supportsLight(
 		light: ShadowCastingLight,
-		capabilities: IShadowBackendCapabilities
+		policy: ShadowPlannerBackendPolicy
 	): boolean {
 		const key = lightTypeKey(light);
-		const explicit = capabilities.lightTypes?.[key];
-		if (explicit) return explicit.projections.length > 0 && explicit.maxLights > 0;
-		if (light.type === LightType.Point) return capabilities.supportsPointCSM;
-		return light.type !== LightType.RectArea;
+		const explicit = policy.lightTypes[key];
+		return !!explicit && explicit.projections.length > 0 && explicit.maxLights > 0;
 	}
 
 	private static _supportsCascaded(
 		light: ShadowCastingLight,
-		capabilities: IShadowBackendCapabilities
+		policy: ShadowPlannerBackendPolicy
 	): boolean {
-		const explicit = capabilities.lightTypes?.[lightTypeKey(light)];
-		if (explicit) return explicit.projections.includes("cascaded");
-		if (light.type === LightType.Directional) return capabilities.supportsDirectionalCSM;
-		if (light.type === LightType.Spot) return capabilities.supportsSpotCSM;
-		if (light.type === LightType.Point) return capabilities.supportsPointCSM;
-		return false;
+		const explicit = policy.lightTypes[lightTypeKey(light)];
+		return explicit?.projections.includes("cascaded") ?? false;
 	}
 
 	private static _resolveStorage(
 		definition: ShadowMapBase,
-		capabilities: IShadowBackendCapabilities,
+		policy: ShadowPlannerBackendPolicy,
+		backendKey: string,
 		light: ShadowCastingLight,
 		diagnostics: ShadowDiagnostic[]
 	): "atlas" | "paged" {
 		if (definition.kind !== "paged-shadow") return "atlas";
-		const explicit = capabilities.lightTypes?.[lightTypeKey(light)];
+		const explicit = policy.lightTypes[lightTypeKey(light)];
 		const layout = definition.snapshot().pagedSettings;
-		const pageSizeRange = capabilities.pagedShadowPageSizeRange;
+		const pageSizeRange = policy.pagedShadowPageSizeRange;
 		const hasCompletePagedSupport =
 			light.type === LightType.Directional &&
-			capabilities.supportsPagedShadowRendering === true &&
+			policy.supportsPagedShadowRendering === true &&
 			(explicit?.storage.includes("paged") ?? true) &&
 			!!layout &&
-			typeof capabilities.maxPagedShadowPages === "number" &&
-			capabilities.maxPagedShadowPages > 0 &&
+			typeof policy.maxPagedShadowPages === "number" &&
+			policy.maxPagedShadowPages > 0 &&
 			Array.isArray(pageSizeRange) &&
 			pageSizeRange.length === 2 &&
 			pageSizeRange[0] > 0 &&
 			pageSizeRange[1] >= pageSizeRange[0] &&
-			layout.physicalPageCount <= capabilities.maxPagedShadowPages &&
+			layout.physicalPageCount <= policy.maxPagedShadowPages &&
 			layout.pageSize >= pageSizeRange[0] &&
 			layout.pageSize <= pageSizeRange[1];
 		if (hasCompletePagedSupport) return "paged";
@@ -620,7 +626,7 @@ export class ShadowPlanner {
 			severity: "warning",
 			lightId: light.id,
 			definitionId: definition.id,
-			message: `Backend ${capabilities.backendKey} resolved paged shadows to atlas storage for light ${light.id}.`,
+			message: `Backend ${backendKey} resolved paged shadows to atlas storage for light ${light.id}.`,
 		});
 		return "atlas";
 	}

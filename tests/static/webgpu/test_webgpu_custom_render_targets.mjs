@@ -146,7 +146,6 @@ function createContext(passExecute, targetDescriptor = {}) {
 			id: "webgpu",
 			capabilities: {},
 			frameScheduling: "always",
-			shadow: {},
 			lighting: {},
 		},
 		camera: {},

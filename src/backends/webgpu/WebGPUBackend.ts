@@ -312,39 +312,6 @@ export class WebGPUBackend implements IRenderBackend {
 			id: "webgpu",
 			capabilities,
 			frameScheduling: "on-demand",
-			shadow: {
-				backendKey: "webgpu",
-				supportsFilterModes: ["pcf"],
-				lightTypes: {
-					directional: {
-						projections: ["single", "cascaded"],
-						storage: ["atlas", "paged"],
-						maxLights: 4,
-						maxCascadedLights: 1,
-					},
-					spot: {
-						projections: ["single"],
-						storage: ["atlas"],
-						maxLights: 8,
-						maxCascadedLights: 0,
-					},
-					point: {
-						projections: [],
-						storage: [],
-						maxLights: 0,
-						maxCascadedLights: 0,
-					},
-				},
-				supportsTransmission: true,
-				supportsDirectionalCSM: true,
-				supportsSpotCSM: false,
-				supportsPointCSM: false,
-				maxDynamicShadowCost: 48,
-				supportsPagedShadows: true,
-				supportsPagedShadowRendering: true,
-				maxPagedShadowPages: 2048,
-				pagedShadowPageSizeRange: [64, 256],
-			},
 			lighting: { localizedProbeMode: "backend-local" },
 		};
 		this.shaderRuntime = new ShaderRuntime({

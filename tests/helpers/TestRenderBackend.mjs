@@ -36,14 +36,6 @@ export class TestRenderBackend {
 			id: this.type,
 			capabilities: this.capabilities,
 			frameScheduling: this.frameScheduling,
-			shadow: {
-				backendKey: this.type,
-				supportsFilterModes: ["pcf"],
-				supportsDirectionalCSM: false,
-				supportsSpotCSM: false,
-				supportsPointCSM: false,
-				maxDynamicShadowCost: 0,
-			},
 			lighting: { localizedProbeMode: "accumulate-globally" },
 		};
 	}

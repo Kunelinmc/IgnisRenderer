@@ -43,9 +43,6 @@ export function writeWebGPUFrameGraphResource(
 }
 
 export function hasWebGPUPagedShadowWork(context: FrameContext): boolean {
-	if (context.backendProfile?.shadow?.supportsPagedShadowRendering !== true) {
-		return false;
-	}
 	return context.shadowPlan.hasPagedWork;
 }
 

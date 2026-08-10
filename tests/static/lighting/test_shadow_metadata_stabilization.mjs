@@ -9,7 +9,7 @@ function plan(plannerState, scene, light, radius, enableShadows = true) {
 		getWorldDirection(local, target = {}) { return Object.assign(target, local.y === 1 ? this.up : { x: 0, y: 0, z: -1 }); } };
 	return ShadowPlanner.plan({ manager: scene.shadows, lights: [light], camera, cameraPosition: camera.position,
 		sceneBounds: { center: { x: 0, y: 0, z: 0 }, radius }, casterIntent: { meshPackets: [], hasTransparentCasters: false, hasParticleCasters: false, estimatedParticleCapacity: 0 },
-		capabilities: { backendKey: "test", supportsFilterModes: ["pcf"], supportsDirectionalCSM: true, supportsSpotCSM: false, supportsPointCSM: false, maxDynamicShadowCost: 128 }, enableShadows }, plannerState);
+		backendKey: "software", enableShadows }, plannerState);
 }
 
 const scene = new Scene();

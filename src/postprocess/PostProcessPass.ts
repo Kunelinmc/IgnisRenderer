@@ -231,7 +231,6 @@ export abstract class PostProcessPass<
 				id: backend,
 				capabilities: {},
 				frameScheduling: "on-demand",
-				shadow: {},
 				lighting: {},
 			},
 			extensions: {

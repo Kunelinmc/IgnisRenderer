@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { Camera } from "../../../src/cameras/Camera.ts";
 import { Logger } from "../../../src/foundation/Logger.ts";
+import { DirectionalLight } from "../../../src/lights/DirectionalLight.ts";
 import { Renderer } from "../../../src/rendering/Renderer.ts";
 import {
 	installNoopPostProcessAdapter,
@@ -83,6 +84,28 @@ async function run() {
 			warning.includes("[webgpu-feature-reflection]")
 		);
 		assert.equal(reflectionWarnings.length, 1);
+
+		const shadowBackend = new StubBackend();
+		shadowBackend.capabilities.shadows = true;
+		const shadowRenderer = new Renderer({
+			backend: shadowBackend,
+			canvas,
+			camera: new Camera(),
+		});
+		shadowRenderer.features.enableReflection = false;
+		shadowRenderer.features.enableEnvironment = false;
+		shadowRenderer.postProcess.getPass("gamma")?.disable();
+		const sun = shadowRenderer.scene.add(new DirectionalLight());
+		const definition = shadowRenderer.scene.shadows.createVariance();
+		shadowRenderer.scene.shadows.bind(sun, definition);
+
+		await shadowRenderer.renderFrame(32);
+		await shadowRenderer.renderFrame(48);
+
+		const shadowWarnings = warnings.filter((warning) =>
+			warning.includes("[webgpu-shadow-filter-fallback-")
+		);
+		assert.equal(shadowWarnings.length, 1);
 
 		console.log("Renderer feature warning once tests passed");
 	} finally {

@@ -25,7 +25,17 @@ not supported.
 `ShadowPlanner` must derive projection, technique fallback, cascade count,
 resolution degradation, storage selection, and render jobs from immutable
 definition snapshots, light state, camera state, caster bounds, and backend
-capabilities. A plan must not change after it is published.
+identity. A plan must not change after it is published.
+
+`RenderBackendProfile` must not expose shadow-planning capability metadata.
+`ShadowPlanner` must own the fixed policies for built-in backend identifiers.
+Unknown backend identifiers must use the planner's fixed cross-backend policy;
+custom backends cannot inject or override shadow planning policy.
+
+Shadow warnings must be limited to invalid projection results and
+planner-selected degradation, fallback, or disabling. Renderer coordination
+must publish those warning diagnostics through its deduplicated warning
+channel.
 
 `PreparedShadowLight.pagedSettings` contains only logical paged settings:
 `virtualResolution`, `pageSize`, `pageGridSize`, `physicalPageCount`,

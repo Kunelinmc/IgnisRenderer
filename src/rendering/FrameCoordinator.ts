@@ -699,7 +699,7 @@ export class FrameCoordinator {
 		const shadowPlan = ShadowPlanner.plan({
 			manager: delegate.scene.shadows,
 			lights: frame.lights,
-			capabilities: this._backend.profile.shadow,
+			backendKey: this._backend.profile.id,
 			camera: delegate.camera,
 			cameraPosition,
 			sceneBounds: frame.sceneBounds,
@@ -721,6 +721,14 @@ export class FrameCoordinator {
 			needsAtlasFallback:
 				resolved.enableReflection && frame.reflectivePackets.length > 0,
 		}, this._shadowPlannerState);
+		for (const diagnostic of shadowPlan.diagnostics) {
+			if (diagnostic.severity !== "warning") continue;
+			delegate.warn(
+				`${this._backend.profile.id}-shadow-${diagnostic.code}-` +
+					`${diagnostic.lightId}-${diagnostic.definitionId}`,
+				diagnostic.message,
+			);
+		}
 		frame.shadowPlan = shadowPlan;
 
 		const attachments = this._backend.getAttachments({

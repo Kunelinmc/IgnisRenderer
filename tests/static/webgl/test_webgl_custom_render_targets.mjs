@@ -184,7 +184,6 @@ function createContext(passExecute, targetDescriptor = {}) {
 			id: "webgl",
 			capabilities: {},
 			frameScheduling: "always",
-			shadow: {},
 			lighting: {},
 		},
 		camera: {},

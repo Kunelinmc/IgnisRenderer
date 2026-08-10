@@ -19,6 +19,9 @@ function run() {
 	assert.equal(software.profile.id, "software");
 	assert.equal(webgpu.profile.id, "webgpu");
 	assert.equal(webgl.profile.id, "webgl");
+	assert.equal("shadow" in software.profile, false);
+	assert.equal("shadow" in webgpu.profile, false);
+	assert.equal("shadow" in webgl.profile, false);
 
 	assert.deepEqual(software.profile.capabilities, {
 		displayHDR: true,

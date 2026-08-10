@@ -8,7 +8,6 @@ import type {
 	RenderTargetReadbackResult,
 } from "../rendering/CustomRenderTargets";
 import type { RenderDirtyReason } from "../pipeline/incremental";
-import type { IShadowBackendCapabilities } from "../lights/shadows";
 import type { ShaderCompileError } from "../shaders/runtime";
 import type { RenderBackendExtensionRegistry } from "./BackendExtensions";
 import type {
@@ -194,8 +193,6 @@ export interface RenderBackendProfile {
 	readonly capabilities: BackendCapabilities;
 	/** Default frame scheduling policy for this backend. */
 	readonly frameScheduling: FrameSchedulingMode;
-	/** Shadow capability and configuration metadata. */
-	readonly shadow: IShadowBackendCapabilities;
 	/** Backend-specific lighting integration metadata. */
 	readonly lighting: {
 		/** How localized light probes are accumulated by the backend. */

@@ -5,6 +5,18 @@ IgnisRenderer consumers and contributors. Completed implementation history that
 does not require an action is retained in Git rather than in the documentation
 tree.
 
+## Shadow Backend Profiles
+
+`RenderBackendProfile.shadow` and `IShadowBackendCapabilities` are removed.
+Backend profiles continue to advertise general shadow support through
+`BackendCapabilities.shadows`, but they cannot configure light-type limits,
+filter support, shadow budgets, transmission, or paged-shadow planning.
+
+Remove the `shadow` property from custom backend profiles. `ShadowPlanner` now
+selects fixed policies for built-in backend identifiers and a fixed
+cross-backend policy for custom identifiers. There is no compatibility adapter
+or custom shadow-policy registration API.
+
 ## Environment Lighting Ownership
 
 Environment spherical harmonics projection and specular prefiltering are

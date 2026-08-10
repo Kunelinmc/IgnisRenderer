@@ -29,41 +29,6 @@ function createCamera() {
 	};
 }
 
-function createCapabilities({ budget = 48, paged = true } = {}) {
-	return {
-		backendKey: "planner-test",
-		supportsFilterModes: ["pcf"],
-		lightTypes: {
-			directional: {
-				projections: ["single", "cascaded"],
-				storage: paged ? ["atlas", "paged"] : ["atlas"],
-				maxLights: 4,
-				maxCascadedLights: 1,
-			},
-			point: {
-				projections: [],
-				storage: [],
-				maxLights: 0,
-				maxCascadedLights: 0,
-			},
-			spot: {
-				projections: ["single"],
-				storage: ["atlas"],
-				maxLights: 8,
-				maxCascadedLights: 0,
-			},
-		},
-		supportsTransmission: true,
-		supportsDirectionalCSM: true,
-		supportsSpotCSM: false,
-		supportsPointCSM: false,
-		maxDynamicShadowCost: budget,
-		supportsPagedShadowRendering: paged,
-		maxPagedShadowPages: 2048,
-		pagedShadowPageSizeRange: [64, 256],
-	};
-}
-
 function createIntent(hasCasters = true) {
 	return {
 		meshPackets: hasCasters ? [{
@@ -81,7 +46,7 @@ function planScene(scene, options = {}) {
 	return ShadowPlanner.plan({
 		manager: scene.shadows,
 		lights: scene.ecs.findLights(),
-		capabilities: options.capabilities ?? createCapabilities(),
+		backendKey: options.backendKey ?? "webgpu",
 		camera,
 		cameraPosition: camera.position,
 		sceneBounds: { center: { x: 0, y: 0, z: 0 }, radius: 80 },
@@ -112,16 +77,14 @@ function testBudgetDegradesCascadeBeforeResolution() {
 	const scene = new Scene();
 	const sun = scene.add(new DirectionalLight({ intensity: 1 }));
 	scene.shadows.bind(sun, scene.shadows.createCascaded({
-		size: 1024,
+		size: 4096,
 		cascadeCounts: { directional: 4 },
 	}));
 
-	const plan = planScene(scene, {
-		capabilities: createCapabilities({ budget: 1.1 }),
-	});
+	const plan = planScene(scene);
 	assert.equal(plan.lights.length, 1);
-	assert.equal(plan.lights[0].slices.length, 1);
-	assert.equal(plan.lights[0].slices[0].resolution, 512);
+	assert.equal(plan.lights[0].slices.length, 3);
+	assert.equal(plan.lights[0].slices[0].resolution, 2048);
 	assert.ok(plan.diagnostics.some((item) => item.code === "budget-degraded"));
 }
 
@@ -148,17 +111,10 @@ function testPagedJobsAreExplicitAndCasterGated() {
 
 function testPagedStorageIsDirectionalOnly() {
 	const scene = new Scene();
-	const spot = scene.add(new PointLight());
-	const pagedCapabilities = createCapabilities();
-	pagedCapabilities.lightTypes.point = {
-		projections: ["single"],
-		storage: ["paged"],
-		maxLights: 1,
-		maxCascadedLights: 0,
-	};
+	const spot = scene.add(new SpotLight());
 	scene.shadows.bind(spot, scene.shadows.createPaged());
 
-	const plan = planScene(scene, { capabilities: pagedCapabilities });
+	const plan = planScene(scene);
 	assert.equal(plan.lights[0].storage, "atlas");
 	assert.ok(plan.diagnostics.some((item) => item.code === "storage-fallback"));
 }
@@ -166,21 +122,42 @@ function testPagedStorageIsDirectionalOnly() {
 function testSingleCascadeCsmFallbackIsReported() {
 	const scene = new Scene();
 	const spot = scene.add(new SpotLight());
-	const capabilities = createCapabilities();
-	capabilities.lightTypes.spot = {
-		projections: ["single"],
-		storage: ["atlas"],
-		maxLights: 1,
-		maxCascadedLights: 0,
-	};
 	scene.shadows.bind(spot, scene.shadows.createCascaded({
 		cascadeCounts: { spot: 1 },
 	}));
 
-	const plan = planScene(scene, { capabilities });
+	const plan = planScene(scene);
 	assert.equal(plan.lights[0].effectiveTechnique, "single");
 	assert.equal(plan.lights[0].fallbackReason, "projection-fallback");
 	assert.ok(plan.diagnostics.some((item) => item.code === "projection-fallback"));
+}
+
+function testFixedBackendPoliciesRemainDistinct() {
+	const pointScene = new Scene();
+	const point = pointScene.add(new PointLight());
+	pointScene.shadows.bind(point, pointScene.shadows.createCascaded({
+		cascadeCounts: { point: 2 },
+	}));
+
+	const softwarePlan = planScene(pointScene, { backendKey: "software" });
+	assert.equal(softwarePlan.lights.length, 1);
+	assert.equal(softwarePlan.lights[0].effectiveTechnique, "cascaded");
+	assert.equal(softwarePlan.lights[0].slices.length, 12);
+
+	const webglPlan = planScene(pointScene, { backendKey: "webgl" });
+	assert.equal(webglPlan.lights.length, 0);
+	assert.ok(webglPlan.diagnostics.some((item) =>
+		item.code === "unsupported-light-type"
+	));
+
+	const pagedScene = new Scene();
+	const sun = pagedScene.add(new DirectionalLight());
+	pagedScene.shadows.bind(sun, pagedScene.shadows.createPaged());
+	const webglPagedPlan = planScene(pagedScene, { backendKey: "webgl" });
+	assert.equal(webglPagedPlan.lights[0].storage, "atlas");
+	assert.ok(webglPagedPlan.diagnostics.some((item) =>
+		item.code === "storage-fallback"
+	));
 }
 
 function testPlanStaysImmutableAcrossPlanningFrames() {
@@ -189,6 +166,7 @@ function testPlanStaysImmutableAcrossPlanningFrames() {
 	scene.shadows.bind(sun, scene.shadows.createSingle());
 	const plannerState = ShadowPlanner.createState();
 	const plan = planScene(scene, { plannerState });
+	assert.deepEqual(plan.diagnostics, []);
 	const planHash = (value) => JSON.stringify({
 		revision: value.revision,
 		lights: value.lights.map((light) => ({
@@ -224,6 +202,7 @@ function run() {
 	testPagedJobsAreExplicitAndCasterGated();
 	testPagedStorageIsDirectionalOnly();
 	testSingleCascadeCsmFallbackIsReported();
+	testFixedBackendPoliciesRemainDistinct();
 	testPlanStaysImmutableAcrossPlanningFrames();
 	console.log("Shadow planner tests passed");
 }

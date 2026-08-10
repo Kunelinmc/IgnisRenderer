@@ -135,23 +135,3 @@ export interface ShadowStrategyBuildContext {
 	sceneBounds: SceneBounds;
 	camera?: ShadowStrategyCamera | null;
 }
-
-export interface IShadowBackendCapabilities {
-	backendKey: string;
-	supportsFilterModes: ShadowFilterMode[];
-	lightTypes?: Partial<Record<ShadowBoundLightType, {
-		readonly projections: readonly ShadowProjectionPreference[];
-		readonly storage: readonly ShadowStoragePreference[];
-		readonly maxLights: number;
-		readonly maxCascadedLights: number;
-	}>>;
-	supportsTransmission?: boolean;
-	supportsDirectionalCSM: boolean;
-	supportsSpotCSM: boolean;
-	supportsPointCSM: boolean;
-	maxDynamicShadowCost?: number;
-	supportsPagedShadows?: boolean;
-	supportsPagedShadowRendering?: boolean;
-	maxPagedShadowPages?: number;
-	pagedShadowPageSizeRange?: [number, number];
-}

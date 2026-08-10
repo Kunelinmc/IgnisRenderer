@@ -59,35 +59,6 @@ export class SoftwareBackend implements IRenderBackend {
 			renderTargetReadback: false,
 		},
 		frameScheduling: "on-demand",
-		shadow: {
-			backendKey: "software",
-			supportsFilterModes: ["pcf"],
-			lightTypes: {
-				directional: {
-					projections: ["single", "cascaded"],
-					storage: ["atlas"],
-					maxLights: 4,
-					maxCascadedLights: 1,
-				},
-				spot: {
-					projections: ["single", "cascaded"],
-					storage: ["atlas"],
-					maxLights: 8,
-					maxCascadedLights: 8,
-				},
-				point: {
-					projections: ["single", "cascaded"],
-					storage: ["atlas"],
-					maxLights: 16,
-					maxCascadedLights: 16,
-				},
-			},
-			supportsTransmission: true,
-			supportsDirectionalCSM: true,
-			supportsSpotCSM: true,
-			supportsPointCSM: true,
-			maxDynamicShadowCost: 20,
-		},
 		lighting: { localizedProbeMode: "accumulate-globally" },
 	};
 
