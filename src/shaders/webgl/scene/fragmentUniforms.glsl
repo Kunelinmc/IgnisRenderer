@@ -27,6 +27,7 @@ __WEBGL_MATERIAL_SHADING_MODEL_UNIFORMS__
 uniform int uShadingModel;
 __WEBGL_MATERIAL_PBR_UNIFORMS__
 uniform vec4 uPBR;
+__WEBGL_MATERIAL_SPECULAR_UNIFORMS__
 uniform vec4 uSpecular;
 __WEBGL_MATERIAL_SPECULAR_MAP_UNIFORMS__
 uniform sampler2D uSpecularMap;

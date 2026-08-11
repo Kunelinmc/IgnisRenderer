@@ -493,10 +493,79 @@ function testDrawWebGLPacketBindsAnisotropyMapWhenSharedSlotIsFree() {
 	assert.equal(unitFor("uAnisotropyMapUV"), 3);
 }
 
+function testDrawWebGLPacketPreservesInactiveGlobalSamplerUnits() {
+	const gl = createScenePassCaptureGL();
+	const shadowAtlas = { id: "shadow-atlas" };
+	gl.activeTexture(gl.TEXTURE0);
+	gl.bindTexture(gl.TEXTURE_2D, shadowAtlas);
+	const sceneProgram = {
+		program: {},
+		samplerLayout: {
+			units: {
+				uShadowAtlas: 0,
+				uParticleShadowVolumeAtlas: 1,
+			},
+			activeSamplerNames: [
+				"uShadowAtlas",
+				"uParticleShadowVolumeAtlas",
+			],
+			required: 2,
+			available: 16,
+		},
+		uniforms: {
+			pbrExtensionUniforms: {},
+			customSamplers: {},
+		},
+	};
+	const host = {
+		_gl: gl,
+		_geometry: {
+			getGeometry() {
+				return {
+					vao: {},
+					topology: gl.TRIANGLES,
+					indexCount: 3,
+					indexType: 5123,
+				};
+			},
+		},
+		_textures: {
+			getBaseColorTexture() {
+				return { texture: { id: "material-fallback" }, isLinear: true };
+			},
+		},
+		_modelMatrixCache: new Map(),
+		_modelMatrixKeysThisFrame: new Set(),
+		_setCullMode() {},
+		_bindShaderMaterialTextures() {},
+		_bindShaderMaterialUniforms() {},
+	};
+	const packet = {
+		id: "packet-shadow-only-samplers",
+		meshInstance: { id: "mesh-shadow-only", skeleton: null },
+		primitive: { receiveShadows: true },
+		material: new Material(),
+		worldMatrix: Matrix4.identity(),
+		normalMatrix: Matrix4.identity(),
+	};
+
+	drawWebGLPacket(host, sceneProgram, packet, false, {});
+
+	const lastUnitZeroBinding = gl.calls.activeTextures.findLastIndex(
+		(unit) => unit === gl.TEXTURE0,
+	);
+	assert.equal(lastUnitZeroBinding, 0);
+	assert.equal(
+		gl.calls.boundTextures[lastUnitZeroBinding].texture,
+		shadowAtlas,
+	);
+}
+
 await runWebGLBackendFile([
 	testGeometryRegistryRejectsOutOfRangeIndices,
 	testGeometryRegistryRetriesAfterUploadAllocationFailure,
 	testGeometryRegistryUploadsUV1Attribute,
 	testDrawWebGLPacketBindsPBRTexturesAndUVSets,
 	testDrawWebGLPacketBindsAnisotropyMapWhenSharedSlotIsFree,
+	testDrawWebGLPacketPreservesInactiveGlobalSamplerUnits,
 ], "WebGL geometry and draw tests");

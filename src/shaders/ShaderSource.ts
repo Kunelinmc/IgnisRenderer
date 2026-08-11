@@ -370,6 +370,7 @@ function replaceWebGLSceneTemplateBlocks(
 		["__WEBGL_SCENE_SH_UNIFORMS__", variant.scene.sh],
 		["__WEBGL_MATERIAL_SHADING_MODEL_UNIFORMS__", isFullMaterial],
 		["__WEBGL_MATERIAL_PBR_UNIFORMS__", isPBR],
+		["__WEBGL_MATERIAL_SPECULAR_UNIFORMS__", isLit],
 		["__WEBGL_MATERIAL_SPECULAR_MAP_UNIFORMS__", isPBR && material.specularMap],
 		["__WEBGL_MATERIAL_SPECULAR_COLOR_MAP_UNIFORMS__", isPBR && material.specularColorMap],
 		["__WEBGL_MATERIAL_CLEARCOAT_UNIFORMS__", isPBR && material.clearcoat],

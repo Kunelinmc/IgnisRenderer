@@ -331,6 +331,80 @@ async function testWebGLScenePrunedVariant() {
 	assert.ok(!compiled.code.includes("uEnableClusteredLighting"));
 }
 
+async function testWebGLLegacySceneVariantIncludesSpecularUniform() {
+	ShaderSource.clearCache();
+	const variant = {
+		output: "mrt",
+		materialGBuffer: false,
+		oit: false,
+		scene: {
+			shadows: true,
+			shadowTransmittance: false,
+			clusteredLighting: false,
+			sh: false,
+			localLightProbes: false,
+			irradianceProbeGrid: false,
+			reflectionProbes: false,
+			environmentSpecular: false,
+		},
+		material: {
+			model: "legacy",
+			baseMap: false,
+			metallicRoughnessMap: false,
+			specularMap: false,
+			specularColorMap: false,
+			normalMap: false,
+			emissiveMap: false,
+			occlusionMap: false,
+			clearcoat: false,
+			clearcoatMap: false,
+			clearcoatRoughnessMap: false,
+			clearcoatNormalMap: false,
+			sheen: false,
+			sheenColorMap: false,
+			sheenRoughnessMap: false,
+			iridescence: false,
+			iridescenceMap: false,
+			iridescenceThicknessMap: false,
+			anisotropy: false,
+			anisotropyMap: false,
+			transmission: false,
+			transmissionMap: false,
+			thicknessMap: false,
+			alphaMask: false,
+		},
+	};
+	const raw = await ShaderSource.load("webgl.scene.raw", {
+		limits: WEBGL_SCENE_LIMITS,
+		variant,
+	});
+	const compileStage = new ShaderBackendCompileStage({
+		backend: "webgl",
+		runtime: new ShaderRuntime({ mode: "strict" }),
+		profiles: DEFAULT_SHADER_DIRECTIVE_PROFILE_REGISTRY,
+		mode: "strict",
+	});
+	const compiled = compileStage.compile({
+		code: raw.fragment,
+		language: "glsl",
+		stage: "fragment",
+		entryPoint: "main",
+		label: "WebGLSceneFragmentLegacy",
+		sourceKind: "builtin-scene",
+	});
+
+	assert.ok(raw.fragment.includes("uniform vec4 uSpecular;"));
+	assert.ok(raw.fragment.includes("vec3 shadePhong("));
+	assert.ok(raw.fragment.includes("uSpecular.rgb"));
+	assert.ok(!raw.fragment.includes("uniform vec4 uPBR;"));
+	assert.equal(compiled.hasErrors, false);
+	assert.ok(compiled.code.includes("uniform vec4 uSpecular;"));
+	assert.ok(compiled.code.includes("vec3 shadowNormal = normal;"));
+	assert.ok(compiled.code.includes(
+		"color = shadePhong(albedo, normal, shadowNormal, viewDir);"
+	));
+}
+
 async function testWebGPUCompositeIncludesSharedParts() {
 	ShaderSource.clearCache();
 
@@ -613,6 +687,7 @@ async function run() {
 	await testGetRequiresPrepare();
 	await testWebGLSceneVariants();
 	await testWebGLScenePrunedVariant();
+	await testWebGLLegacySceneVariantIncludesSpecularUniform();
 	await testWebGPUCompositeIncludesSharedParts();
 	await testPagedShadowDrawBuildUsesConservativePlaneCulling();
 	await testPagedShadowDirtyGridBuildUsesGlobalGridBuffers();

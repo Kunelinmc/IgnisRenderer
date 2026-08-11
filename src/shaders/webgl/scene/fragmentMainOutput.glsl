@@ -205,7 +205,6 @@ void main() {
 		normal = -normal;
 	}
 #endif
-	vec3 shadowNormal = normal;
 	float clearcoat = 0.0;
 	float clearcoatRoughness = 0.01;
 	vec3 clearcoatNormal = normal;
@@ -340,6 +339,7 @@ void main() {
 	);
 #endif
 #endif
+	vec3 shadowNormal = normal;
 
 	vec3 emissive = uEmissive.rgb;
 #if WEBGL_MATERIAL_EMISSIVE_MAP
