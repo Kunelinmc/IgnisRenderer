@@ -338,7 +338,7 @@ function testDrawWebGLPacketBindsPBRTexturesAndUVSets() {
 	assert.equal(unitFor("uHasOcclusionMap"), 1);
 	assert.equal(unitFor("uHasIridescenceMap"), 1);
 	assert.equal(unitFor("uHasIridescenceThicknessMap"), 1);
-	assert.equal(unitFor("uHasAnisotropyMap"), 0);
+	assert.equal(unitFor("uHasAnisotropyMap"), 1);
 	assert.equal(unitFor("uBaseMapIsLinear"), 0);
 	assert.equal(unitFor("uEmissiveMapIsLinear"), 0);
 	assert.ok(
@@ -477,7 +477,7 @@ function testDrawWebGLPacketBindsAnisotropyMapWhenSharedSlotIsFree() {
 	};
 
 	drawWebGLPacket(host, sceneProgram, packet, false, {});
-	const textureUnit15Index = gl.calls.activeTextures.findIndex(
+	const textureUnit15Index = gl.calls.activeTextures.findLastIndex(
 		(unit) => unit === gl.TEXTURE0 + 15
 	);
 	assert.notEqual(textureUnit15Index, -1);

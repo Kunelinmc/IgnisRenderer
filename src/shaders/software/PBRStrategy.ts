@@ -12,7 +12,6 @@ import {
 } from "./LightEvaluator";
 import {
 	GGX_EPSILON,
-	PBR_AMBIENT_FALLBACK_LINEAR,
 	PBR_DENOM_EPSILON,
 	PBR_MIN_NDOTV,
 	PBR_SPEC_FALLBACK,
@@ -589,9 +588,9 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 			const baseAttenuationAmbB =
 				clearcoatAttenuationAmb * (1.0 - sheenColorB * 0.5);
 
-			ambR = irrLinearR * albR * kDambR * baseAttenuationAmbR;
-			ambG = irrLinearG * albG * kDambG * baseAttenuationAmbG;
-			ambB = irrLinearB * albB * kDambB * baseAttenuationAmbB;
+			ambR = irrLinearR * albR * kDambR * baseAttenuationAmbR / Math.PI;
+			ambG = irrLinearG * albG * kDambG * baseAttenuationAmbG / Math.PI;
+			ambB = irrLinearB * albB * kDambB * baseAttenuationAmbB / Math.PI;
 
 			if (transmission > 0 && hasRefraction) {
 				let transmRadianceR = 0;
@@ -641,19 +640,25 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 				context
 			);
 			if (prefiltered && context.brdfLUT && brdfValue) {
+				const splitSumFresnelR =
+					iridescence > 0 || isTIR ? effectiveFambR : realF0R;
+				const splitSumFresnelG =
+					iridescence > 0 || isTIR ? effectiveFambG : realF0G;
+				const splitSumFresnelB =
+					iridescence > 0 || isTIR ? effectiveFambB : realF0B;
 				const specR =
 					prefiltered.r *
-					(effectiveFambR * brdfValue.r + brdfValue.g) *
+					(splitSumFresnelR * brdfValue.r + brdfValue.g) *
 					clearcoatAttenuationAmb *
 					energyCompensationR;
 				const specG =
 					prefiltered.g *
-					(effectiveFambG * brdfValue.r + brdfValue.g) *
+					(splitSumFresnelG * brdfValue.r + brdfValue.g) *
 					clearcoatAttenuationAmb *
 					energyCompensationG;
 				const specB =
 					prefiltered.b *
-					(effectiveFambB * brdfValue.r + brdfValue.g) *
+					(splitSumFresnelB * brdfValue.r + brdfValue.g) *
 					clearcoatAttenuationAmb *
 					energyCompensationB;
 
@@ -707,13 +712,6 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 			let ambientColR = ambientLightR;
 			let ambientColG = ambientLightG;
 			let ambientColB = ambientLightB;
-			if (ambientLightR + ambientLightG + ambientLightB === 0) {
-				const fallback = PBR_AMBIENT_FALLBACK_LINEAR;
-				ambientColR = fallback;
-				ambientColG = fallback;
-				ambientColB = fallback;
-			}
-
 			const ambientRadianceR = ambientColR / Math.PI;
 			const ambientRadianceG = ambientColG / Math.PI;
 			const ambientRadianceB = ambientColB / Math.PI;
@@ -766,9 +764,9 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 			const baseAttenuationAmbB =
 				clearcoatAttenuationAmb * (1.0 - sheenColorB * 0.5);
 
-			ambR = ambientColR * albR * kDambR * baseAttenuationAmbR;
-			ambG = ambientColG * albG * kDambG * baseAttenuationAmbG;
-			ambB = ambientColB * albB * kDambB * baseAttenuationAmbB;
+			ambR = ambientRadianceR * albR * kDambR * baseAttenuationAmbR;
+			ambG = ambientRadianceG * albG * kDambG * baseAttenuationAmbG;
+			ambB = ambientRadianceB * albB * kDambB * baseAttenuationAmbB;
 
 			if (transmission > 0 && hasRefraction) {
 				ambR +=

@@ -138,10 +138,15 @@ This document defines cross-backend rendering features, capability gating, pass 
   sRGB color space, and standard tone mapping when that member is supported.
 - WebGL is a Display SDR backend. It must resolve `"auto"` to SDR without a
   warning and explicit `"hdr"` to SDR with `backend-unsupported`.
+- WebGL must nevertheless preserve internal scene radiance in `rgba16float`
+  targets from scene shading through tone mapping. It must not clamp color to
+  `1.0` before exposure and ACES tone mapping, and it must present the mapped
+  result through the piecewise sRGB transfer function to the 8-bit canvas.
 - Software must resolve `"auto"` and `"hdr"` through its Canvas 2D HDR probe.
   Probe failure must fall back to SDR without throwing. Explicit HDR failure
   must report the applicable display, Canvas HDR, or configuration reason.
-- `WebGPUBackend` must preserve scene, post-process, and OIT radiance in
+- `WebGPUBackend` and `WebGLBackend` must preserve scene, post-process, OIT,
+  motion, normal, specular, and transmission-background radiance in
   `rgba16float` render targets. `SoftwareBackend` must preserve authoritative
   scene and post-process radiance in one reusable RGBA32F target. Its public
   `FrameAttachments.pixels` remains an RGBA8 presentation and diagnostic

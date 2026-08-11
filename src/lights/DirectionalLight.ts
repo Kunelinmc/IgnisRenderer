@@ -19,7 +19,7 @@ export class DirectionalLight extends Light<LightType.Directional> {
 	public color: RGB;
 
 	/**
-	 * Scalar strength applied to directional light contribution.
+	 * Lux-equivalent RGB irradiance delivered along `direction`.
 	 */
 	public intensity: number;
 

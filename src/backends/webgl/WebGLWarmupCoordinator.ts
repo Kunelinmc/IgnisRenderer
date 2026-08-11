@@ -1,6 +1,9 @@
 import type { Material } from "../../materials/Material";
 import { ShaderMaterial, type ShaderTargetMode } from "../../materials/ShaderMaterial";
-import { isMaterialTransparentPass } from "../../materials/transparency";
+import {
+	isMaterialTransparentPass,
+	materialUsesTransmission,
+} from "../../materials/transparency";
 import type { FrameContext } from "../../pipeline/types";
 import {
 	toShaderCompileError,
@@ -52,6 +55,28 @@ export class WebGLWarmupCoordinator {
 
 	public constructor(services: WebGLWarmupCoordinatorServices) {
 		this._services = services;
+	}
+
+	/** @internal Prepares exact built-in variants before synchronous frame draws. */
+	public async prepareFrameSources(context: FrameContext): Promise<void> {
+		const materials = Array.from(new Set([
+			...(context.scene?.opaquePackets ?? []).map((packet) => packet.material),
+			...(context.scene?.transparentPackets ?? []).map((packet) => packet.material),
+		]));
+		const lightState = this._collectLightState(context);
+		const variants = this._collectSceneVariants(
+			context,
+			materials,
+			["mrt", "single"],
+			lightState,
+		);
+		const limits = this._getSceneLightLimits();
+		await ShaderSource.prepareMany(
+			[...variants.values()].flatMap((variant) => [
+				{ key: "webgl.scene.raw" as const, params: { limits, variant } },
+				{ key: "webgl.scene.composite" as const, params: { limits, variant } },
+			]),
+		);
 	}
 
 	public async warmup(
@@ -155,6 +180,11 @@ export class WebGLWarmupCoordinator {
 				this._services.getPrograms().warmupOITResolveProgram(),
 			);
 		}
+		if (plan.materials.some((material) => materialUsesTransmission(material))) {
+			enqueue("WebGLCopyProgram", "core", () =>
+				this._services.getPrograms().warmupCopyProgram(),
+			);
+		}
 
 		const graph = postProcessPlan ?? (plan.includePostProcess ?
 			this._services.postProcessRuntime.planWarmup(context) : null);
@@ -229,11 +259,22 @@ export class WebGLWarmupCoordinator {
 		for (const material of materials) {
 			if (material instanceof ShaderMaterial) continue;
 			for (const mode of modes) {
-				this._addSceneVariant(variants, context, material, mode, 0, lightState);
+				this._addSceneVariant(
+					variants, context, material, mode, 0, lightState, false,
+				);
+				if (mode === "mrt") {
+					this._addSceneVariant(
+						variants, context, material, mode, 0, lightState, true,
+					);
+				}
 			}
 			if (context.features?.enableOIT && isMaterialTransparentPass(material)) {
-				this._addSceneVariant(variants, context, material, "single", 1, lightState);
-				this._addSceneVariant(variants, context, material, "single", 2, lightState);
+				this._addSceneVariant(
+					variants, context, material, "single", 1, lightState, false,
+				);
+				this._addSceneVariant(
+					variants, context, material, "single", 2, lightState, false,
+				);
 			}
 		}
 		return variants;
@@ -246,6 +287,7 @@ export class WebGLWarmupCoordinator {
 		mode: ShaderTargetMode,
 		oitPassMode: 0 | 1 | 2,
 		lightState: WebGLLightState,
+		materialGBuffer: boolean,
 	): void {
 		const variant = resolveWebGLBuiltinSceneVariant(
 			context,
@@ -259,7 +301,7 @@ export class WebGLWarmupCoordinator {
 				enableIrradianceProbeGrid:
 					this._services.irradianceProbeGridSamplingSupported,
 			},
-			mode === "mrt",
+			mode === "mrt" && materialGBuffer,
 		);
 		if (variant) variants.set(getWebGLSceneVariantKey(variant), variant);
 	}

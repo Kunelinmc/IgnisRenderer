@@ -176,6 +176,34 @@ export type WebGLContextWorkErrorCode =
 	| "context-lost"
 	| "destroyed";
 
+export type WebGLCapabilityErrorCode =
+	| "hdr-float-color-buffer-unavailable"
+	| "hdr-float-linear-filtering-unavailable"
+	| "material-texture-unit-overflow";
+
+/** @internal Used by the WebGL backend capability and binding boundary. */
+export class WebGLCapabilityError extends Error {
+	public readonly code: WebGLCapabilityErrorCode;
+
+	public constructor(code: WebGLCapabilityErrorCode, detail?: string) {
+		const suffix = detail && detail.length > 0 ? ` ${detail}` : "";
+		super(`[${code}] ${buildWebGLCapabilityErrorMessage(code)}${suffix}`);
+		this.name = "WebGLCapabilityError";
+		this.code = code;
+	}
+}
+
+function buildWebGLCapabilityErrorMessage(code: WebGLCapabilityErrorCode): string {
+	switch (code) {
+		case "hdr-float-color-buffer-unavailable":
+			return "Strict internal HDR requires EXT_color_buffer_float and a complete RGBA16F framebuffer.";
+		case "hdr-float-linear-filtering-unavailable":
+			return "Strict internal HDR requires linear filtering for half- or full-float textures.";
+		case "material-texture-unit-overflow":
+			return "The active WebGL scene sampler layout exceeds the fragment texture-unit limit.";
+	}
+}
+
 /** @internal Used by the WebGL backend context work scheduler. */
 export class WebGLContextWorkError extends Error {
 	public readonly code: WebGLContextWorkErrorCode;

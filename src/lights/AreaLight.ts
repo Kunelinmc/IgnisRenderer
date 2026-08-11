@@ -22,12 +22,15 @@ export class AreaLight extends Light<LightType.RectArea> {
 	public color: RGB;
 
 	/**
-	 * Scalar strength applied to area light contribution before attenuation.
+	 * Emitted-radiance-equivalent RGB intensity.
 	 */
 	public intensity: number;
 
+	/** Emitter width in world-space meters. */
 	public width: number;
+	/** Emitter height in world-space meters. */
 	public height: number;
+	/** Finite influence range in world-space meters. */
 	public range: number;
 
 	constructor(params: AreaLightParams = {}) {

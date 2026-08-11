@@ -24,7 +24,7 @@ export class SpotLight extends Light<LightType.Spot> {
 	public color: RGB;
 
 	/**
-	 * Scalar strength applied to spot light contribution before attenuation.
+	 * Candela-equivalent RGB luminous intensity before cone and distance attenuation.
 	 */
 	public intensity: number;
 
@@ -32,6 +32,7 @@ export class SpotLight extends Light<LightType.Spot> {
 	public outerAngle: number;
 	public innerAngle?: number;
 	public penumbra: number;
+	/** Finite influence range in world-space meters. */
 	public range: number;
 
 	constructor(params: SpotLightParams = {}) {

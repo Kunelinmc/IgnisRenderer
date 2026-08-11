@@ -18,5 +18,4 @@ const float PI = 3.14159265359;
 const float EPSILON = 0.000001;
 const float PBR_MIN_NDOTV = 0.001;
 const float PBR_SPEC_FALLBACK = 0.02;
-const float PBR_AMBIENT_FALLBACK_LINEAR = 0.05;
 const float TRANSMISSION_ALPHA_FLOOR = 0.12;

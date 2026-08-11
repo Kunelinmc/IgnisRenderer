@@ -7,7 +7,7 @@
 			ambientBase =
 				sampleDiffuseProbeIrradiance(input.worldPosition, normal) / 255.0;
 		}
-		var ambient = ambientBase * phongAmbient;
+		var ambient = ambientBase * phongAmbient / PI;
 		var direct = vec3<f32>(0.0);
 
 		let directionalCount = u32(frame.lightCounts.x + 0.5);
@@ -90,7 +90,10 @@
 					continue;
 				}
 
-				let lightDirection = toLight / distanceValue;
+				let lightDirection = safeNormalize(
+					toLight,
+					vec3<f32>(0.0, 1.0, 0.0)
+				);
 				var attenuation = pointAttenuation(distanceSq, lightRange);
 				var shadow = vec3<f32>(1.0);
 
@@ -149,7 +152,10 @@
 					continue;
 				}
 
-				let lightDirection = toLight / distanceValue;
+				let lightDirection = safeNormalize(
+					toLight,
+					vec3<f32>(0.0, 1.0, 0.0)
+				);
 				let attenuation = pointAttenuation(distanceSq, lightRange);
 				let radiance = frameLights.pointLights[i].color.xyz * attenuation;
 				let nDotL = max(dot(normal, lightDirection), 0.0);

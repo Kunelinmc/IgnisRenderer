@@ -282,6 +282,18 @@ export class WebGLFrameServiceOwner {
 	public set _postColorTexture(value: WebGLTexture | null) {
 		this._targets._postColorTexture = value;
 	}
+	public get _transmissionBackgroundTexture(): WebGLTexture | null {
+		return this._targets._transmissionBackgroundTexture;
+	}
+	public set _transmissionBackgroundTexture(value: WebGLTexture | null) {
+		this._targets._transmissionBackgroundTexture = value;
+	}
+	public get _transmissionDepthTexture(): WebGLTexture | null {
+		return this._targets._transmissionDepthTexture;
+	}
+	public set _transmissionDepthTexture(value: WebGLTexture | null) {
+		this._targets._transmissionDepthTexture = value;
+	}
 	public get _presentSourceTexture(): WebGLTexture | null {
 		return this._targets._presentSourceTexture;
 	}
@@ -559,7 +571,27 @@ export class WebGLFrameServiceOwner {
 	}
 
 	public renderTransparentLegacy(context: FrameContext): void {
-		this._scene.renderLegacyTransparent(context);
+		this._transparency.renderLegacyTransparent(context);
+	}
+
+	public prepareTransmissionDepth(context: FrameContext): void {
+		this._transparency.prepareTransmissionDepth(context);
+	}
+
+	public renderLegacyTransparentSegment(
+		context: FrameContext,
+		start: number,
+		end: number,
+	): void {
+		this._transparency.renderLegacyTransparentSegment(context, start, end);
+	}
+
+	public copyTransmissionBackground(context: FrameContext): void {
+		this._transparency.copyTransmissionBackground(context);
+	}
+
+	public renderTransmissionPacket(context: FrameContext, index: number): void {
+		this._transparency.renderTransmissionPacket(context, index);
 	}
 
 	public prepareOITTransparent(context: FrameContext): void {

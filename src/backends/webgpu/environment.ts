@@ -5,7 +5,6 @@ import {
 	type LightProbe,
 	type SceneLight,
 } from "../../lights";
-import { PBR_AMBIENT_FALLBACK_LINEAR } from "../../lights/constants";
 import { sRGBToLinear } from "../../maths/Common";
 import { SH } from "../../maths/SH";
 import type { SHCoefficients } from "../../maths/types";
@@ -204,7 +203,6 @@ function synthesizeSHAmbientCoeffsFromLights(
 	let ambientR = 0;
 	let ambientG = 0;
 	let ambientB = 0;
-	let hasAmbient = false;
 	const globalLightProbes = collectGlobalLightProbes(lights);
 
 	for (const light of lights) {
@@ -214,7 +212,6 @@ function synthesizeSHAmbientCoeffsFromLights(
 			ambientR += sRGBToLinear(color.r / 255) * 255 * intensity;
 			ambientG += sRGBToLinear(color.g / 255) * 255 * intensity;
 			ambientB += sRGBToLinear(color.b / 255) * 255 * intensity;
-			hasAmbient = true;
 			continue;
 		}
 
@@ -228,18 +225,6 @@ function synthesizeSHAmbientCoeffsFromLights(
 			ambientProbeSH[i].g += probeSH[i].g;
 			ambientProbeSH[i].b += probeSH[i].b;
 		}
-	}
-
-	if (
-		!hasAmbient &&
-		ambientProbeSH[0].r === 0 &&
-		ambientProbeSH[0].g === 0 &&
-		ambientProbeSH[0].b === 0
-	) {
-		const fallbackLinear = PBR_AMBIENT_FALLBACK_LINEAR * 255;
-		ambientR = fallbackLinear;
-		ambientG = fallbackLinear;
-		ambientB = fallbackLinear;
 	}
 
 	ambientProbeSH[0].r += ambientR / SH_DC_IRRADIANCE_SCALE;

@@ -1,35 +1,50 @@
+vec3 evaluateNormalizedPhongLight(
+	vec3 albedo,
+	vec3 f0,
+	vec3 n,
+	vec3 v,
+	vec3 l,
+	vec3 radiance,
+	float shininess
+) {
+	float nDotL = max(dot(n, l), 0.0);
+	if (nDotL <= 0.0) {
+		return vec3(0.0);
+	}
+	vec3 h = safeNormalize(l + v, v);
+	float vDotH = max(dot(v, h), 0.0);
+	vec3 fresnel = f0 + (vec3(1.0) - f0) * pow(1.0 - vDotH, 5.0);
+	vec3 diffuseBRDF = (vec3(1.0) - fresnel) * albedo / PI;
+	float normalizedLobe =
+		((shininess + 8.0) / (8.0 * PI)) *
+		pow(max(dot(n, h), 0.0), shininess);
+	vec3 specularBRDF = fresnel * normalizedLobe;
+	return (diffuseBRDF + specularBRDF) * radiance * nDotL;
+}
+
 vec3 shadePhong(vec3 albedo, vec3 n, vec3 shadowNormal, vec3 v) {
 	vec3 ambientBase = uAmbientColor;
 #if WEBGL_SCENE_SH
 	if (uEnableSH == 1) {
 		ambientBase = sampleDiffuseProbeIrradiance(vWorldPos, n) / 255.0;
-	} else
-#endif
-	if (ambientBase.x + ambientBase.y + ambientBase.z <= 0.0) {
-		ambientBase = vec3(PBR_AMBIENT_FALLBACK_LINEAR);
 	}
-	vec3 lit = ambientBase * albedo;
-	vec3 specular = vec3(0.0);
-	float shininess = max(1.0, uPhong.x);
+#endif
+	vec3 lit = ambientBase * uPhongAmbient.rgb / PI;
+	vec3 f0 = clamp(uSpecular.rgb, vec3(0.0), vec3(1.0));
+	float shininess = max(0.0, uPhong.x);
 
 	for (int i = 0; i < MAX_DIRECTIONAL_LIGHTS; i++) {
 		if (i >= uDirLightCount) break;
 		vec3 l = safeNormalize(uDirLightDirection[i].xyz, vec3(0.0, 1.0, 0.0));
-		float nDotL = max(dot(n, l), 0.0);
 		vec3 shadow = sampleDirectionalShadowVisibility(
 			i,
 			vWorldPos,
 			shadowNormal,
 			l
 		);
-		lit += albedo * uDirLightColor[i].xyz * nDotL * shadow;
-		if (nDotL > 0.0) {
-			vec3 h = safeNormalize(l + v, v);
-			specular +=
-				uDirLightColor[i].xyz *
-				pow(max(dot(n, h), 0.0), shininess) *
-				shadow;
-		}
+		lit += evaluateNormalizedPhongLight(
+			albedo, f0, n, v, l, uDirLightColor[i].xyz, shininess
+		) * shadow;
 	}
 
 #if WEBGL_SCENE_CLUSTERED_LIGHTING
@@ -61,19 +76,12 @@ vec3 shadePhong(vec3 albedo, vec3 n, vec3 shadowNormal, vec3 v) {
 				if (distanceValue > lightRange) {
 					continue;
 				}
-				vec3 l = toLight / distanceValue;
+				vec3 l = safeNormalize(toLight, vec3(0.0, 1.0, 0.0));
 				float attenuation = pointAttenuation(distanceSq, lightRange);
-				float nDotL = max(dot(n, l), 0.0);
-
 				if (lightType == 0) {
-					lit += albedo * lightC.xyz * nDotL * attenuation;
-					if (nDotL > 0.0) {
-						vec3 h = safeNormalize(l + v, v);
-						specular +=
-							lightC.xyz *
-							pow(max(dot(n, h), 0.0), shininess) *
-							attenuation;
-					}
+					lit += evaluateNormalizedPhongLight(
+						albedo, f0, n, v, l, lightC.xyz * attenuation, shininess
+					);
 				} else if (lightType == 1) {
 					vec3 lightToPoint = -l;
 					vec3 coneDirection = safeNormalize(lightB.xyz, vec3(0.0, -1.0, 0.0));
@@ -97,18 +105,10 @@ vec3 shadePhong(vec3 albedo, vec3 n, vec3 shadowNormal, vec3 v) {
 							);
 						}
 					}
-					lit +=
-						albedo * lightC.xyz *
-						nDotL * attenuation * coneFactor * shadow;
-					if (nDotL > 0.0) {
-						vec3 h = safeNormalize(l + v, v);
-						specular +=
-							lightC.xyz *
-							pow(max(dot(n, h), 0.0), shininess) *
-							attenuation *
-							coneFactor *
-							shadow;
-					}
+					lit += evaluateNormalizedPhongLight(
+						albedo, f0, n, v, l,
+						lightC.xyz * attenuation * coneFactor, shininess
+					) * shadow;
 				}
 			}
 		}
@@ -124,17 +124,12 @@ vec3 shadePhong(vec3 albedo, vec3 n, vec3 shadowNormal, vec3 v) {
 			if (distanceValue > lightRange) {
 				continue;
 			}
-			vec3 l = toLight / distanceValue;
+			vec3 l = safeNormalize(toLight, vec3(0.0, 1.0, 0.0));
 			float attenuation = pointAttenuation(distanceSq, lightRange);
-			float nDotL = max(dot(n, l), 0.0);
-			lit += albedo * uPointLightColor[i].xyz * nDotL * attenuation;
-			if (nDotL > 0.0) {
-				vec3 h = safeNormalize(l + v, v);
-				specular +=
-					uPointLightColor[i].xyz *
-					pow(max(dot(n, h), 0.0), shininess) *
-					attenuation;
-			}
+			lit += evaluateNormalizedPhongLight(
+				albedo, f0, n, v, l,
+				uPointLightColor[i].xyz * attenuation, shininess
+			);
 		}
 
 		for (int i = 0; i < MAX_SPOT_LIGHTS; i++) {
@@ -146,7 +141,7 @@ vec3 shadePhong(vec3 albedo, vec3 n, vec3 shadowNormal, vec3 v) {
 			if (distanceValue > lightRange) {
 				continue;
 			}
-			vec3 l = toLight / distanceValue;
+			vec3 l = safeNormalize(toLight, vec3(0.0, 1.0, 0.0));
 			float attenuation = pointAttenuation(distanceSq, lightRange);
 			vec3 lightToPoint = -l;
 			vec3 coneDirection = safeNormalize(
@@ -161,27 +156,19 @@ vec3 shadePhong(vec3 albedo, vec3 n, vec3 shadowNormal, vec3 v) {
 			if (coneFactor <= 0.0) {
 				continue;
 			}
-			float nDotL = max(dot(n, l), 0.0);
 			vec3 shadow = sampleSpotShadowVisibility(
 				i,
 				vWorldPos,
 				shadowNormal,
 				l
 			);
-			lit +=
-				albedo * uSpotLightColorInner[i].xyz *
-				nDotL * attenuation * coneFactor * shadow;
-			if (nDotL > 0.0) {
-				vec3 h = safeNormalize(l + v, v);
-				specular +=
-					uSpotLightColorInner[i].xyz *
-					pow(max(dot(n, h), 0.0), shininess) *
-					attenuation *
-					coneFactor *
-					shadow;
-			}
+			lit += evaluateNormalizedPhongLight(
+				albedo, f0, n, v, l,
+				uSpotLightColorInner[i].xyz * attenuation * coneFactor,
+				shininess
+			) * shadow;
 		}
 	}
 
-	return lit + specular * 0.25;
+	return lit;
 }

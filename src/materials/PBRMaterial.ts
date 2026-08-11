@@ -150,13 +150,13 @@ export interface PBRMaterialParams extends MaterialParams {
 	anisotropyMap?: TextureLike;
 	/** UV set used by `anisotropyMap`. */
 	anisotropyMapUV?: UVChannel;
-	/** KHR_materials_volume thickness factor. */
+	/** KHR_materials_volume thickness factor in world-space meters. */
 	thicknessFactor?: number;
 	/** KHR_materials_volume thickness texture. */
 	thicknessMap?: TextureLike;
 	/** UV set used by thicknessMap. */
 	thicknessMapUV?: UVChannel;
-	/** KHR_materials_volume attenuation distance. */
+	/** KHR_materials_volume attenuation distance in world-space meters. */
 	attenuationDistance?: number;
 	/**
 	 * KHR_materials_volume linear attenuation color stored in 0..255 units.
@@ -258,13 +258,13 @@ export class PBRMaterial extends Material {
 	/** UV set used by `anisotropyMap`. */
 	public anisotropyMapUV: UVChannel;
 
-	/** KHR_materials_volume thickness factor. */
+	/** KHR_materials_volume thickness factor in world-space meters. */
 	public thicknessFactor: number;
 	/** KHR_materials_volume thickness texture. */
 	public thicknessMap: TextureLike;
 	/** UV set used by thicknessMap. */
 	public thicknessMapUV: UVChannel;
-	/** KHR_materials_volume attenuation distance. */
+	/** KHR_materials_volume attenuation distance in world-space meters. */
 	public attenuationDistance: number;
 	/** KHR_materials_volume linear attenuation color stored in 0..255 units. */
 	public attenuationColor: RGB;

@@ -33,15 +33,15 @@ export class WebGLFrameTargetManager implements WebGLFrameTargetLifecycleHost {
 	public readonly _maxRenderbufferSize: number;
 	public _sceneFramebuffer: WebGLFramebuffer | null = null;
 	public _sceneColorTexture: WebGLTexture | null = null;
-	public _sceneColorFormat: WebGLFrameTargetFormat = "rgba8unorm";
+	public _sceneColorFormat: WebGLFrameTargetFormat = "rgba16float";
 	public _sceneMotionTexture: WebGLTexture | null = null;
-	public _sceneMotionFormat: WebGLFrameTargetFormat = "rgba8unorm";
+	public _sceneMotionFormat: WebGLFrameTargetFormat = "rgba16float";
 	public _sceneNormalTexture: WebGLTexture | null = null;
-	public _sceneNormalFormat: WebGLFrameTargetFormat = "rgba8unorm";
+	public _sceneNormalFormat: WebGLFrameTargetFormat = "rgba16float";
 	public _sceneAlbedoTexture: WebGLTexture | null = null;
 	public _sceneAlbedoFormat: WebGLFrameTargetFormat = "rgba8unorm";
 	public _sceneSpecularTexture: WebGLTexture | null = null;
-	public _sceneSpecularFormat: WebGLFrameTargetFormat = "rgba8unorm";
+	public _sceneSpecularFormat: WebGLFrameTargetFormat = "rgba16float";
 	public _materialGBufferEnabled = false;
 	public _sceneDepthBuffer: WebGLRenderbuffer | null = null;
 	public _oitFramebuffer: WebGLFramebuffer | null = null;
@@ -49,7 +49,9 @@ export class WebGLFrameTargetManager implements WebGLFrameTargetLifecycleHost {
 	public _oitRevealTexture: WebGLTexture | null = null;
 	public _postFramebuffer: WebGLFramebuffer | null = null;
 	public _postColorTexture: WebGLTexture | null = null;
-	public _postColorFormat: WebGLFrameTargetFormat = "rgba8unorm";
+	public _postColorFormat: WebGLFrameTargetFormat = "rgba16float";
+	public _transmissionBackgroundTexture: WebGLTexture | null = null;
+	public _transmissionDepthTexture: WebGLTexture | null = null;
 	public _presentSourceTexture: WebGLTexture | null = null;
 	public _targetWidth = 0;
 	public _targetHeight = 0;
@@ -99,6 +101,12 @@ export class WebGLFrameTargetManager implements WebGLFrameTargetLifecycleHost {
 		if (this._sceneNormalTexture) resources.add("frame:normal");
 		if (this._sceneDepthBuffer) resources.add("frame:depth");
 		if (this._postColorTexture) resources.add("post:color");
+		if (this._transmissionBackgroundTexture) {
+			resources.add("frame:transmission-background");
+		}
+		if (this._transmissionDepthTexture) {
+			resources.add("frame:transmission-linear-depth");
+		}
 		if (this._oitAccumTexture) resources.add("oit:accum");
 		if (this._oitRevealTexture) resources.add("oit:reveal");
 		return Array.from(resources);
@@ -118,7 +126,10 @@ export class WebGLFrameTargetManager implements WebGLFrameTargetLifecycleHost {
 			id: string,
 			handle: WebGLTexture | WebGLRenderbuffer | null,
 			format?: string,
-			options: { readonly physicalId?: string } = {},
+			options: {
+				readonly physicalId?: string;
+				readonly mipLevelCount?: number;
+			} = {},
 		): void => {
 			if (!handle) return;
 			const physicalId = options.physicalId ?? `webgl:slot:${id}`;
@@ -134,7 +145,7 @@ export class WebGLFrameTargetManager implements WebGLFrameTargetLifecycleHost {
 				depthOrArrayLayers: 1,
 				dimension: "2d" as const,
 				sampleCount: 1,
-				mipLevelCount: 1,
+				mipLevelCount: options.mipLevelCount ?? 1,
 			});
 			bindings.push({
 				resourceId: renderGraphResourceId(id),
@@ -157,6 +168,17 @@ export class WebGLFrameTargetManager implements WebGLFrameTargetLifecycleHost {
 		addTexture("frame:specular", this._sceneSpecularTexture, this._sceneSpecularFormat);
 		addTexture("frame:depth", this._sceneDepthBuffer, "depth24plus-stencil8");
 		addTexture("post:color", this._postColorTexture, this._postColorFormat);
+		addTexture(
+			"frame:transmission-background",
+			this._transmissionBackgroundTexture,
+			"rgba16float",
+			{ mipLevelCount: Math.floor(Math.log2(Math.max(width, height))) + 1 },
+		);
+		addTexture(
+			"frame:transmission-linear-depth",
+			this._transmissionDepthTexture,
+			"rgba16float",
+		);
 		addTexture("oit:accum", this._oitAccumTexture, "rgba16float");
 		addTexture("oit:reveal", this._oitRevealTexture, "r16float");
 		resources.push({

@@ -504,15 +504,13 @@ fn evaluateDeferredPBR(surface: DeferredSurface) -> vec3<f32> {
 	}
 
 	var ambientColor = frame.ambientColor.rgb;
-	if (ambientColor.x + ambientColor.y + ambientColor.z == 0.0) {
-		ambientColor = vec3<f32>(PBR_AMBIENT_FALLBACK_LINEAR);
-	}
 
-	var diffuseAmbient = ambientColor;
+	var diffuseAmbient = ambientColor / PI;
 	var specularAmbientRadiance = ambientColor / PI;
 	if (useSHAmbient()) {
 		diffuseAmbient =
-			sampleDiffuseProbeIrradiance(surface.worldPosition, surface.normal) / 255.0;
+			sampleDiffuseProbeIrradiance(surface.worldPosition, surface.normal) /
+			(255.0 * PI);
 
 		let reflectionDir = select(
 			reflectViewDirection(surface.normal, surface.viewDir),
@@ -585,9 +583,14 @@ fn evaluateDeferredPBR(surface: DeferredSurface) -> vec3<f32> {
 			surface.worldPosition
 		);
 		let brdf = sampleBRDFLUT(pbr.nDotV, surface.roughness);
+		let splitSumFresnel = select(
+			pbr.realF0,
+			fAmbient,
+			surface.iridescence > EPSILON
+		);
 		ambientLight +=
 			prefiltered *
-			(fAmbient * brdf.x + vec3<f32>(brdf.y)) *
+			(splitSumFresnel * brdf.x + vec3<f32>(brdf.y)) *
 			pbr.energyCompensation *
 			clearcoatAmbientAttenuation;
 
@@ -847,7 +850,10 @@ fn evaluateDeferredPhong(surface: DeferredSurface) -> vec3<f32> {
 		}
 	}
 
-	return max(ambientBase * surface.sheenColor + direct + surface.emissive, vec3<f32>(0.0));
+	return max(
+		ambientBase * surface.sheenColor / PI + direct + surface.emissive,
+		vec3<f32>(0.0)
+	);
 }
 
 @fragment

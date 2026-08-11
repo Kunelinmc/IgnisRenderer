@@ -8,6 +8,51 @@ vec2 encodeNormalForGBuffer(vec3 normal) {
 	return encoded * 0.5 + 0.5;
 }
 
+#if WEBGL_MATERIAL_TRANSMISSION || WEBGL_MATERIAL_MODEL_FULL
+vec2 traceTransmissionBackground(
+	vec2 startUv,
+	vec2 rayUvOffset,
+	float startDepth,
+	float rayDepthOffset,
+	out bool hit
+) {
+	hit = false;
+	float lowerT = 0.0;
+	float upperT = 1.0;
+	for (int stepIndex = 1; stepIndex <= 16; stepIndex++) {
+		float t = float(stepIndex) / 16.0;
+		vec2 candidateUv = startUv + rayUvOffset * t;
+		if (any(lessThan(candidateUv, vec2(0.0))) ||
+			any(greaterThan(candidateUv, vec2(1.0)))) {
+			return startUv;
+		}
+		float sceneDepth = texture(uTransmissionDepthMap, candidateUv).b;
+		float rayDepth = startDepth + rayDepthOffset * t;
+		if (sceneDepth > 0.0 && rayDepth >= sceneDepth) {
+			hit = true;
+			upperT = t;
+			lowerT = float(stepIndex - 1) / 16.0;
+			break;
+		}
+	}
+	if (!hit) {
+		return startUv;
+	}
+	for (int refinementIndex = 0; refinementIndex < 4; refinementIndex++) {
+		float middleT = (lowerT + upperT) * 0.5;
+		vec2 candidateUv = startUv + rayUvOffset * middleT;
+		float sceneDepth = texture(uTransmissionDepthMap, candidateUv).b;
+		float rayDepth = startDepth + rayDepthOffset * middleT;
+		if (sceneDepth > 0.0 && rayDepth >= sceneDepth) {
+			upperT = middleT;
+		} else {
+			lowerT = middleT;
+		}
+	}
+	return startUv + rayUvOffset * upperT;
+}
+#endif
+
 void main() {
 	vec3 albedo = uBaseColor.rgb;
 	float alpha = clamp(uBaseColor.a, 0.0, 1.0);
@@ -41,8 +86,38 @@ void main() {
 	float roughness = clamp(uPBR.x, 0.04, 1.0);
 	float metalness = clamp(uPBR.y, 0.0, 1.0);
 	float reflectance = clamp(uPBR.z, 0.0, 1.0);
+	float specularFactor = clamp(uSpecular.a, 0.0, 1.0);
+	vec3 specularColor = clamp(uSpecular.rgb, vec3(0.0), vec3(1.0));
+#if WEBGL_MATERIAL_SPECULAR_MAP
+	if (uHasSpecularMap == 1) {
+		vec2 specularUv = resolveMappedUV(
+			uSpecularMapUV, uSpecularMapTransformA, uSpecularMapTransformB
+		);
+		specularFactor *= texture(uSpecularMap, specularUv).a;
+	}
+#endif
+#if WEBGL_MATERIAL_SPECULAR_COLOR_MAP
+	if (uHasSpecularColorMap == 1) {
+		vec2 specularColorUv = resolveMappedUV(
+			uSpecularColorMapUV,
+			uSpecularColorMapTransformA,
+			uSpecularColorMapTransformB
+		);
+		specularColor *= srgbToLinear(texture(uSpecularColorMap, specularColorUv).rgb);
+	}
+#endif
 #if WEBGL_MATERIAL_TRANSMISSION || WEBGL_MATERIAL_MODEL_FULL
 	float transmission = clamp(uPBR.w, 0.0, 1.0);
+#if WEBGL_MATERIAL_TRANSMISSION_MAP
+	if (uHasTransmissionMap == 1) {
+		vec2 transmissionUv = resolveMappedUV(
+			uTransmissionMapUV,
+			uTransmissionMapTransformA,
+			uTransmissionMapTransformB
+		);
+		transmission *= texture(uTransmissionMap, transmissionUv).r;
+	}
+#endif
 #else
 	float transmission = 0.0;
 #endif
@@ -131,6 +206,89 @@ void main() {
 	}
 #endif
 	vec3 shadowNormal = normal;
+	float clearcoat = 0.0;
+	float clearcoatRoughness = 0.01;
+	vec3 clearcoatNormal = normal;
+#if WEBGL_MATERIAL_CLEARCOAT || WEBGL_MATERIAL_MODEL_FULL
+	clearcoat = clamp(uClearcoat.x, 0.0, 1.0);
+	clearcoatRoughness = clamp(uClearcoat.y, 0.01, 1.0);
+#if WEBGL_MATERIAL_CLEARCOAT_MAP
+	if (uHasClearcoatMap == 1) {
+		vec2 clearcoatUv = resolveMappedUV(
+			uClearcoatMapUV, uClearcoatMapTransformA, uClearcoatMapTransformB
+		);
+		clearcoat *= texture(uClearcoatMap, clearcoatUv).r;
+	}
+#endif
+#if WEBGL_MATERIAL_CLEARCOAT_ROUGHNESS_MAP
+	if (uHasClearcoatRoughnessMap == 1) {
+		vec2 clearcoatRoughnessUv = resolveMappedUV(
+			uClearcoatRoughnessMapUV,
+			uClearcoatRoughnessMapTransformA,
+			uClearcoatRoughnessMapTransformB
+		);
+		clearcoatRoughness = clamp(
+			clearcoatRoughness * texture(uClearcoatRoughnessMap, clearcoatRoughnessUv).g,
+			0.01,
+			1.0
+		);
+	}
+#endif
+#if WEBGL_MATERIAL_CLEARCOAT_NORMAL_MAP
+	if (uHasClearcoatNormalMap == 1) {
+		vec2 clearcoatNormalUv = resolveMappedUV(
+			uClearcoatNormalMapUV,
+			uClearcoatNormalMapTransformA,
+			uClearcoatNormalMapTransformB
+		);
+		clearcoatNormal = applyNormalMap(
+			normal,
+			vTangent,
+			texture(uClearcoatNormalMap, clearcoatNormalUv).xyz,
+			max(uClearcoat.z, 0.0)
+		);
+	}
+#endif
+#endif
+	vec3 sheenColor = vec3(0.0);
+	float sheenRoughness = 0.0;
+#if WEBGL_MATERIAL_SHEEN || WEBGL_MATERIAL_MODEL_FULL
+	sheenColor = clamp(uSheen.rgb, vec3(0.0), vec3(1.0));
+	sheenRoughness = clamp(uSheen.a, 0.0, 1.0);
+#if WEBGL_MATERIAL_SHEEN_COLOR_MAP
+	if (uHasSheenColorMap == 1) {
+		vec2 sheenColorUv = resolveMappedUV(
+			uSheenColorMapUV,
+			uSheenColorMapTransformA,
+			uSheenColorMapTransformB
+		);
+		sheenColor *= srgbToLinear(texture(uSheenColorMap, sheenColorUv).rgb);
+	}
+#endif
+#if WEBGL_MATERIAL_SHEEN_ROUGHNESS_MAP
+	if (uHasSheenRoughnessMap == 1) {
+		vec2 sheenRoughnessUv = resolveMappedUV(
+			uSheenRoughnessMapUV,
+			uSheenRoughnessMapTransformA,
+			uSheenRoughnessMapTransformB
+		);
+		sheenRoughness *= texture(uSheenRoughnessMap, sheenRoughnessUv).a;
+	}
+#endif
+#endif
+	float resolvedThickness = 0.0;
+#if WEBGL_MATERIAL_TRANSMISSION || WEBGL_MATERIAL_MODEL_FULL
+	resolvedThickness = max(uTransmissionVolume.y, 0.0);
+#if WEBGL_MATERIAL_THICKNESS_MAP
+	if (uHasThicknessMap == 1) {
+		vec2 thicknessUv = resolveMappedUV(
+			uThicknessMapUV, uThicknessMapTransformA, uThicknessMapTransformB
+		);
+		resolvedThickness *= texture(uThicknessMap, thicknessUv).g;
+	}
+#endif
+	resolvedThickness *= max(uTransmissionModelScale, 0.0001);
+#endif
 
 	float anisotropyStrength = 0.0;
 	vec3 anisotropyTangent = fallbackTangentFromNormal(normal);
@@ -148,7 +306,7 @@ void main() {
 			uAnisotropyMapTransformA,
 			uAnisotropyMapTransformB
 		);
-		vec3 anisotropyTexel = texture(uIridescenceThicknessMap, anisotropyUv).rgb;
+		vec3 anisotropyTexel = texture(uAnisotropyMap, anisotropyUv).rgb;
 		anisotropyDirection = anisotropyTexel.rg * 2.0 - vec2(1.0);
 		float anisotropyDirectionLen = length(anisotropyDirection);
 		anisotropyDirection =
@@ -212,7 +370,15 @@ void main() {
 			roughness,
 			metalness,
 			reflectance,
+			specularFactor,
+			specularColor,
 			transmission,
+			resolvedThickness,
+			clearcoat,
+			clearcoatRoughness,
+			clearcoatNormal,
+			sheenColor,
+			sheenRoughness,
 			anisotropyStrength,
 			anisotropyTangent,
 			anisotropyBitangent,
@@ -224,8 +390,9 @@ void main() {
 	}
 #if WEBGL_MATERIAL_TRANSMISSION
 	if (transmission > EPSILON) {
-		float dielectricF0 = 0.16 * reflectance * reflectance;
-		vec3 f0 = mix(vec3(dielectricF0), albedo, metalness);
+		vec3 dielectricF0 = vec3(0.16 * reflectance * reflectance) *
+			specularColor * specularFactor;
+		vec3 f0 = mix(dielectricF0, albedo, metalness);
 		float nDotV = max(dot(normal, viewDir), PBR_MIN_NDOTV);
 		vec3 fresnel = resolveIridescenceFresnel(
 			nDotV,
@@ -256,7 +423,15 @@ void main() {
 			roughness,
 			metalness,
 			reflectance,
+			specularFactor,
+			specularColor,
 			transmission,
+			resolvedThickness,
+			clearcoat,
+			clearcoatRoughness,
+			clearcoatNormal,
+			sheenColor,
+			sheenRoughness,
 			anisotropyStrength,
 			anisotropyTangent,
 			anisotropyBitangent,
@@ -266,8 +441,9 @@ void main() {
 			occlusion
 		);
 		if (transmission > EPSILON) {
-			float dielectricF0 = 0.16 * reflectance * reflectance;
-			vec3 f0 = mix(vec3(dielectricF0), albedo, metalness);
+			vec3 dielectricF0 = vec3(0.16 * reflectance * reflectance) *
+				specularColor * specularFactor;
+			vec3 f0 = mix(dielectricF0, albedo, metalness);
 			float nDotV = max(dot(normal, viewDir), PBR_MIN_NDOTV);
 			vec3 fresnel = resolveIridescenceFresnel(
 				nDotV,
@@ -289,6 +465,49 @@ void main() {
 #endif
 
 	color += emissive;
+#if WEBGL_MATERIAL_TRANSMISSION || WEBGL_MATERIAL_MODEL_FULL
+	if (transmission > EPSILON && uHasTransmissionBackgroundMap == 1) {
+		vec2 screenUv = gl_FragCoord.xy * uTransmissionBackgroundInvSize;
+		float ior = max(uTransmissionVolume.x, 1.0);
+		vec3 refractedDirection = refract(-viewDir, normal, 1.0 / ior);
+		bool totalInternalReflection =
+			dot(refractedDirection, refractedDirection) <= EPSILON;
+		bool rayHit = resolvedThickness <= EPSILON;
+		vec2 refractedUv = screenUv;
+		if (!totalInternalReflection && resolvedThickness > EPSILON &&
+			uHasTransmissionDepthMap == 1) {
+			float projectedZ = max(abs(refractedDirection.z), 0.1);
+			vec2 rayUvOffset = refractedDirection.xy / projectedZ *
+				resolvedThickness * 0.025;
+			float rayDepthOffset = projectedZ * resolvedThickness;
+			refractedUv = traceTransmissionBackground(
+				screenUv,
+				rayUvOffset,
+				max(vViewDepth, 0.0),
+				rayDepthOffset,
+				rayHit
+			);
+		}
+		float mipLevel = roughness * 8.0;
+		if (!totalInternalReflection && rayHit) {
+			vec3 currentBackground = textureLod(
+				uTransmissionBackgroundMap, refractedUv, mipLevel
+			).rgb;
+			float attenuationDistance = uTransmissionVolume.z;
+			vec3 volumeAttenuation = vec3(1.0);
+			if (attenuationDistance > EPSILON && resolvedThickness > EPSILON) {
+				volumeAttenuation = pow(
+					clamp(uAttenuationColor.rgb, vec3(0.0001), vec3(1.0)),
+					vec3(resolvedThickness / attenuationDistance)
+				);
+			}
+			currentBackground *= volumeAttenuation;
+			float coverage = clamp(alpha, 0.0, 1.0);
+			color = mix(currentBackground, color, coverage);
+		}
+		alpha = 1.0;
+	}
+#endif
 	int fogMode = int(floor(uFogParams0.x + 0.5));
 	float fogFactor = ignisComputeFogFactor(
 		fogMode,
@@ -331,11 +550,13 @@ void main() {
 	#if WEBGL_SCENE_OUTPUT_MATERIAL_GBUFFER
 		fragAlbedo = vec4(albedo, alpha);
 		#if WEBGL_MATERIAL_MODEL_PBR || WEBGL_MATERIAL_MODEL_FULL
-			float dielectricF0 = 0.16 * reflectance * reflectance;
-			float specularFactor = uSpecular.a;
-			vec3 specularColor = uSpecular.rgb;
 			fragSpecular = vec4(
-				mix(vec3(dielectricF0), albedo, metalness) * specularColor,
+				mix(
+					vec3(0.16 * reflectance * reflectance) *
+						specularColor * specularFactor,
+					albedo,
+					metalness
+				),
 				specularFactor
 			);
 		#else

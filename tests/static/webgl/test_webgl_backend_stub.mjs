@@ -26,7 +26,10 @@ function installFrameServices(backend, frame) {
 
 function createFakeWebGL2Context(options = {}) {
 	const debugInfo = options.debugRendererInfo;
-	const supportedExtensions = options.supportedExtensions ?? [];
+	const supportedExtensions = options.supportedExtensions ?? [
+		"EXT_color_buffer_float",
+		"OES_texture_half_float_linear",
+	];
 	return {
 		MAX_TEXTURE_SIZE: 0x0d33,
 		MAX_RENDERBUFFER_SIZE: 0x84e8,
@@ -70,6 +73,8 @@ function createFakeWebGL2Context(options = {}) {
 		RGBA: 0x1908,
 		UNSIGNED_BYTE: 0x1401,
 		FLOAT: 0x1406,
+		HALF_FLOAT: 0x140b,
+		RGBA16F: 0x881a,
 		UNSIGNED_SHORT: 0x1403,
 		UNSIGNED_INT: 0x1405,
 		COLOR_BUFFER_BIT: 0x4000,
@@ -176,7 +181,7 @@ function createFakeWebGL2Context(options = {}) {
 		framebufferTexture2D() {},
 		framebufferRenderbuffer() {},
 		checkFramebufferStatus() {
-			return this.FRAMEBUFFER_COMPLETE;
+			return options.framebufferComplete === false ? 0x8cd6 : this.FRAMEBUFFER_COMPLETE;
 		},
 		bindRenderbuffer() {},
 		renderbufferStorage() {},
@@ -386,7 +391,12 @@ async function testDebugInfoUsesWebGLDebugRendererExtension() {
 				vendor: "GPU Vendor",
 				renderer: "GPU Renderer",
 			},
-			supportedExtensions: ["EXT_beta", "EXT_alpha"],
+			supportedExtensions: [
+				"EXT_beta",
+				"EXT_alpha",
+				"EXT_color_buffer_float",
+				"OES_texture_half_float_linear",
+			],
 		})
 	);
 	const backend = createWebGLSession({}, canvas);
@@ -402,7 +412,12 @@ async function testDebugInfoUsesWebGLDebugRendererExtension() {
 	assert.equal(debugInfo.device.renderer, "GPU Renderer");
 	assert.equal(debugInfo.device.raw.unmaskedVendor, "GPU Vendor");
 	assert.equal(debugInfo.device.raw.unmaskedRenderer, "GPU Renderer");
-	assert.deepEqual(debugInfo.features, ["EXT_alpha", "EXT_beta"]);
+	assert.deepEqual(debugInfo.features, [
+		"EXT_alpha",
+		"EXT_beta",
+		"EXT_color_buffer_float",
+		"OES_texture_half_float_linear",
+	]);
 	assert.equal(debugInfo.limits.MAX_TEXTURE_SIZE, 4096);
 	assert.equal(debugInfo.limits.MAX_TEXTURE_IMAGE_UNITS, 16);
 	assert.equal(debugInfo.limits.MAX_DRAW_BUFFERS, 4);
@@ -436,6 +451,52 @@ async function testEarlyZPrepassOptionCanDisable() {
 
 	assert.equal(backend.isEarlyZPrepassEnabled(), false);
 	assert.equal(backend._frameServices._enableEarlyZPrepass, false);
+}
+
+async function testStrictHDRCapabilityBoundary() {
+	for (const [options, code] of [
+		[
+			{ supportedExtensions: ["OES_texture_half_float_linear"] },
+			"hdr-float-color-buffer-unavailable",
+		],
+		[
+			{ supportedExtensions: ["EXT_color_buffer_float"], framebufferComplete: false },
+			"hdr-float-color-buffer-unavailable",
+		],
+		[
+			{ supportedExtensions: ["EXT_color_buffer_float"] },
+			"hdr-float-linear-filtering-unavailable",
+		],
+	]) {
+		const backend = createWebGLSession(
+			{},
+			createFakeCanvas(createFakeWebGL2Context(options)),
+		);
+		await assert.rejects(backend.initialize(), (error) => error?.code === code);
+		assert.equal(backend._gl, null);
+		assert.equal(backend._contextServices, null);
+		assert.equal(backend.getDebugInfo().available, false);
+	}
+}
+
+async function testRestoreCapabilityLossStaysLost() {
+	const supportedExtensions = [
+		"EXT_color_buffer_float",
+		"OES_texture_half_float_linear",
+	];
+	const canvas = createFakeCanvas(createFakeWebGL2Context({ supportedExtensions }));
+	let restored = false;
+	const backend = createWebGLSession({}, canvas, {
+		onDeviceRestored() {
+			restored = true;
+		},
+	});
+	await backend.initialize();
+	canvas.dispatch("webglcontextlost", { preventDefault() {} });
+	supportedExtensions.splice(0, supportedExtensions.length);
+	captureWarnMessages(() => canvas.dispatch("webglcontextrestored", {}));
+	assert.equal(backend._contextLost, true);
+	assert.equal(restored, false);
 }
 
 async function testContextLostAndRestored() {
@@ -752,6 +813,8 @@ async function run() {
 	await testDebugInfoUsesWebGLDebugRendererExtension();
 	await testDebugInfoFallsBackToMaskedWebGLStrings();
 	await testEarlyZPrepassOptionCanDisable();
+	await testStrictHDRCapabilityBoundary();
+	await testRestoreCapabilityLossStaysLost();
 	await testContextLostAndRestored();
 	await testIBLPrefilterExecutorExtensionPersistsAcrossContextRestore();
 	await testPublicLifecycleMethods();

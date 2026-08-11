@@ -119,18 +119,14 @@ fn randomSample(pixel: vec2<f32>, frameIndex: f32, salt: f32) -> f32 {
 }
 
 fn pointAttenuation(distanceSq: f32, range: f32) -> f32 {
-	let rangeSq = max(range * range, 1e-6);
-	let rangeFactor = distanceSq / rangeSq;
-	let smoothFactor = max(0.0, 1.0 - rangeFactor * rangeFactor);
-	return (smoothFactor * smoothFactor) / (distanceSq + 1.0);
+	let safeRange = max(range, 0.0001);
+	let normalizedDistance = sqrt(max(distanceSq, 0.0)) / safeRange;
+	let rangeFactor = clamp(1.0 - pow(normalizedDistance, 4.0), 0.0, 1.0);
+	return (rangeFactor * rangeFactor) / max(distanceSq, 0.0001);
 }
 
 fn spotAttenuation(cosTheta: f32, outerCos: f32, innerCos: f32) -> f32 {
-	if (cosTheta < outerCos) {
-		return 0.0;
-	}
-	let cutoffRange = max(innerCos - outerCos, 1e-6);
-	return clamp((cosTheta - outerCos) / cutoffRange, 0.0, 1.0);
+	return smoothstep(outerCos, max(innerCos, outerCos + 1e-6), cosTheta);
 }
 
 fn henyeyGreenstein(cosTheta: f32, g: f32) -> f32 {

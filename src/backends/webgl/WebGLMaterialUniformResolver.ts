@@ -16,6 +16,8 @@ type WebGLPBRMaterial = PBRMaterial & {
 
 type WebGLLegacyMaterial = Material & {
 	readonly diffuse?: RGB;
+	readonly specular?: RGB;
+	readonly ambient?: RGB;
 	readonly emissive?: RGB;
 	readonly emissiveIntensity?: number;
 	readonly shininess?: number;
@@ -36,10 +38,13 @@ export interface MaterialUniformState {
 	pbr: [number, number, number, number];
 	specular: [number, number, number, number];
 	transmissionVolume: [number, number, number, number];
+	clearcoat: [number, number, number, number];
+	sheen: [number, number, number, number];
 	iridescence: [number, number, number, number];
 	attenuationColor: [number, number, number, number];
 	anisotropy: [number, number, number, number];
 	phong: [number, number, number, number];
+	phongAmbient: [number, number, number, number];
 	alpha: [number, number, number, number];
 	baseMap: TextureLike;
 	baseMapUV: 0 | 1 | 2 | 3;
@@ -49,6 +54,21 @@ export interface MaterialUniformState {
 	specularMapUV: 0 | 1 | 2 | 3;
 	specularColorMap: TextureLike;
 	specularColorMapUV: 0 | 1 | 2 | 3;
+	clearcoatMap: TextureLike;
+	clearcoatMapUV: 0 | 1 | 2 | 3;
+	clearcoatRoughnessMap: TextureLike;
+	clearcoatRoughnessMapUV: 0 | 1 | 2 | 3;
+	clearcoatNormalMap: TextureLike;
+	clearcoatNormalMapUV: 0 | 1 | 2 | 3;
+	clearcoatNormalScale: number;
+	sheenColorMap: TextureLike;
+	sheenColorMapUV: 0 | 1 | 2 | 3;
+	sheenRoughnessMap: TextureLike;
+	sheenRoughnessMapUV: 0 | 1 | 2 | 3;
+	transmissionMap: TextureLike;
+	transmissionMapUV: 0 | 1 | 2 | 3;
+	thicknessMap: TextureLike;
+	thicknessMapUV: 0 | 1 | 2 | 3;
 	normalMap: TextureLike;
 	normalMapUV: 0 | 1 | 2 | 3;
 	normalScale: number;
@@ -84,6 +104,11 @@ export function resolveMaterialUniforms(material: Material): MaterialUniformStat
 	let specularFactor = 1;
 	let specularColor: [number, number, number] = [1, 1, 1];
 	let transmission = 0;
+	let clearcoat = 0;
+	let clearcoatRoughness = 0.01;
+	let clearcoatNormalScale = 1;
+	let sheenColor: [number, number, number] = [0, 0, 0];
+	let sheenRoughness = 0;
 	let ior = 1.5;
 	let thickness = 0;
 	let iridescenceFactor = 0;
@@ -95,6 +120,7 @@ export function resolveMaterialUniforms(material: Material): MaterialUniformStat
 	let attenuationDistance = -1;
 	let attenuationColor: [number, number, number] = [1, 1, 1];
 	let shininess = 32;
+	let phongAmbient: [number, number, number] = [0, 0, 0];
 	let baseMap: TextureLike = material.map ?? null;
 	let baseMapUV: 0 | 1 | 2 | 3 = 0;
 	let metallicRoughnessMap: TextureLike = null;
@@ -103,6 +129,20 @@ export function resolveMaterialUniforms(material: Material): MaterialUniformStat
 	let specularMapUV: 0 | 1 | 2 | 3 = 0;
 	let specularColorMap: TextureLike = null;
 	let specularColorMapUV: 0 | 1 | 2 | 3 = 0;
+	let clearcoatMap: TextureLike = null;
+	let clearcoatMapUV: 0 | 1 | 2 | 3 = 0;
+	let clearcoatRoughnessMap: TextureLike = null;
+	let clearcoatRoughnessMapUV: 0 | 1 | 2 | 3 = 0;
+	let clearcoatNormalMap: TextureLike = null;
+	let clearcoatNormalMapUV: 0 | 1 | 2 | 3 = 0;
+	let sheenColorMap: TextureLike = null;
+	let sheenColorMapUV: 0 | 1 | 2 | 3 = 0;
+	let sheenRoughnessMap: TextureLike = null;
+	let sheenRoughnessMapUV: 0 | 1 | 2 | 3 = 0;
+	let transmissionMap: TextureLike = null;
+	let transmissionMapUV: 0 | 1 | 2 | 3 = 0;
+	let thicknessMap: TextureLike = null;
+	let thicknessMapUV: 0 | 1 | 2 | 3 = 0;
 	let normalMap: TextureLike = null;
 	let normalMapUV: 0 | 1 | 2 | 3 = 0;
 	let normalScale = 1;
@@ -144,6 +184,16 @@ export function resolveMaterialUniforms(material: Material): MaterialUniformStat
 			clamp((specularColorFactor.b ?? 255) / 255, 0, 1),
 		];
 		transmission = getMaterialTransmissionFactor(material);
+		clearcoat = clamp(pbr.clearcoat ?? 0, 0, 1);
+		clearcoatRoughness = clamp(pbr.clearcoatRoughness ?? 0.01, 0.01, 1);
+		clearcoatNormalScale = Math.max(0, pbr.clearcoatNormalScale ?? 1);
+		const resolvedSheenColor = pbr.sheenColorFactor ?? { r: 0, g: 0, b: 0 };
+		sheenColor = [
+			clamp((resolvedSheenColor.r ?? 0) / 255, 0, 1),
+			clamp((resolvedSheenColor.g ?? 0) / 255, 0, 1),
+			clamp((resolvedSheenColor.b ?? 0) / 255, 0, 1),
+		];
+		sheenRoughness = clamp(pbr.sheenRoughnessFactor ?? 0, 0, 1);
 		ior = Math.max(1, pbr.ior ?? 1.5);
 		thickness = Math.max(0, pbr.thicknessFactor ?? 0);
 		iridescenceFactor = clamp(pbr.iridescenceFactor ?? 0, 0, 1);
@@ -174,6 +224,20 @@ export function resolveMaterialUniforms(material: Material): MaterialUniformStat
 		specularMapUV = resolveUVSet(pbr.specularMapUV);
 		specularColorMap = pbr.specularColorMap ?? null;
 		specularColorMapUV = resolveUVSet(pbr.specularColorMapUV);
+		clearcoatMap = pbr.clearcoatMap ?? null;
+		clearcoatMapUV = resolveUVSet(pbr.clearcoatMapUV);
+		clearcoatRoughnessMap = pbr.clearcoatRoughnessMap ?? null;
+		clearcoatRoughnessMapUV = resolveUVSet(pbr.clearcoatRoughnessMapUV);
+		clearcoatNormalMap = pbr.clearcoatNormalMap ?? null;
+		clearcoatNormalMapUV = resolveUVSet(pbr.clearcoatNormalMapUV);
+		sheenColorMap = pbr.sheenColorMap ?? null;
+		sheenColorMapUV = resolveUVSet(pbr.sheenColorMapUV);
+		sheenRoughnessMap = pbr.sheenRoughnessMap ?? null;
+		sheenRoughnessMapUV = resolveUVSet(pbr.sheenRoughnessMapUV);
+		transmissionMap = pbr.transmissionMap ?? null;
+		transmissionMapUV = resolveUVSet(pbr.transmissionMapUV);
+		thicknessMap = pbr.thicknessMap ?? null;
+		thicknessMapUV = resolveUVSet(pbr.thicknessMapUV);
 		normalMap = pbr.normalMap ?? null;
 		normalMapUV = resolveUVSet(pbr.normalMapUV);
 		normalScale = Math.max(0, pbr.normalScale ?? 1);
@@ -213,7 +277,19 @@ export function resolveMaterialUniforms(material: Material): MaterialUniformStat
 					emissiveIntensity,
 			];
 		}
-		shininess = Math.max(1, basic.shininess ?? 32);
+		shininess = Math.max(0, basic.shininess ?? 32);
+		const legacySpecular = basic.specular ?? { r: 56, g: 56, b: 56 };
+		specularColor = [
+			sRGBToLinear(clamp((legacySpecular.r ?? 56) / 255, 0, 1)),
+			sRGBToLinear(clamp((legacySpecular.g ?? 56) / 255, 0, 1)),
+			sRGBToLinear(clamp((legacySpecular.b ?? 56) / 255, 0, 1)),
+		];
+		const legacyAmbient = basic.ambient ?? { r: 0, g: 0, b: 0 };
+		phongAmbient = [
+			sRGBToLinear(clamp((legacyAmbient.r ?? 0) / 255, 0, 1)),
+			sRGBToLinear(clamp((legacyAmbient.g ?? 0) / 255, 0, 1)),
+			sRGBToLinear(clamp((legacyAmbient.b ?? 0) / 255, 0, 1)),
+		];
 	}
 
 	const opacity = clamp(material.opacity ?? 1, 0, 1);
@@ -235,6 +311,8 @@ export function resolveMaterialUniforms(material: Material): MaterialUniformStat
 			specularFactor,
 		],
 		transmissionVolume: [ior, thickness, attenuationDistance, 0],
+		clearcoat: [clearcoat, clearcoatRoughness, clearcoatNormalScale, 0],
+		sheen: [sheenColor[0], sheenColor[1], sheenColor[2], sheenRoughness],
 		iridescence: [
 			iridescenceFactor,
 			iridescenceIor,
@@ -254,6 +332,7 @@ export function resolveMaterialUniforms(material: Material): MaterialUniformStat
 			0,
 		],
 		phong: [shininess, 0, 0, 0],
+		phongAmbient: [phongAmbient[0], phongAmbient[1], phongAmbient[2], 0],
 		alpha: [alphaCutoff, alphaModeMask, 0, 0],
 		baseMap,
 		baseMapUV,
@@ -263,6 +342,21 @@ export function resolveMaterialUniforms(material: Material): MaterialUniformStat
 		specularMapUV,
 		specularColorMap,
 		specularColorMapUV,
+		clearcoatMap,
+		clearcoatMapUV,
+		clearcoatRoughnessMap,
+		clearcoatRoughnessMapUV,
+		clearcoatNormalMap,
+		clearcoatNormalMapUV,
+		clearcoatNormalScale,
+		sheenColorMap,
+		sheenColorMapUV,
+		sheenRoughnessMap,
+		sheenRoughnessMapUV,
+		transmissionMap,
+		transmissionMapUV,
+		thicknessMap,
+		thicknessMapUV,
 		normalMap,
 		normalMapUV,
 		normalScale,

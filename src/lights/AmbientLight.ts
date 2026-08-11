@@ -13,7 +13,7 @@ export class AmbientLight extends Light<LightType.Ambient> {
 	public color: RGB;
 
 	/**
-	 * Scalar strength applied to ambient light contribution.
+	 * Lux-equivalent uniform RGB irradiance.
 	 */
 	public intensity: number;
 

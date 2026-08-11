@@ -18,6 +18,24 @@ float geometrySmith(float nDotV, float nDotL, float roughness) {
 		geometrySchlickGGX(nDotL, roughness);
 }
 
+float geometrySmithClearcoat(float nDotV, float nDotL, float roughness) {
+	float a = roughness * roughness;
+	float k = a * 0.5;
+	float g1V = nDotV / max(nDotV * (1.0 - k) + k, 0.0001);
+	float g1L = nDotL / max(nDotL * (1.0 - k) + k, 0.0001);
+	return g1V * g1L;
+}
+
+float distributionCharlie(float nDotH, float roughness) {
+	float invAlpha = 1.0 / max(roughness * roughness, 1e-6);
+	float sin2h = max(1.0 - nDotH * nDotH, 0.0078125);
+	return ((2.0 + invAlpha) * pow(sin2h, invAlpha * 0.5)) / (2.0 * PI);
+}
+
+float visibilityAshikhmin(float nDotL, float nDotV) {
+	return 1.0 / max(4.0 * (nDotL + nDotV - nDotL * nDotV), 0.0001);
+}
+
 vec3 fresnelSchlick(float cosTheta, vec3 f0) {
 	return f0 + (vec3(1.0) - f0) * pow(max(1.0 - cosTheta, 0.0), 5.0);
 }

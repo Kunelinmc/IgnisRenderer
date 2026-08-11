@@ -1,5 +1,8 @@
 import type { Material } from "../../materials/Material";
-import { isMaterialTransparentPass } from "../../materials/transparency";
+import {
+	isMaterialTransparentPass,
+	materialUsesTransmission,
+} from "../../materials/transparency";
 import {
 	ShaderMaterial,
 	type ShaderTargetMode,
@@ -21,6 +24,7 @@ import type {
 	WebGLSceneVariantDescriptor,
 } from "./WebGLSceneProgramVariants";
 import { Logger } from "../../foundation/Logger";
+import { getWebGLSceneSamplerUnit } from "./WebGLSceneSamplerLayout";
 
 const WEBGL_TEXTURE_UNIT_BASE_MAP = 0;
 const WEBGL_TEXTURE_UNIT_NORMAL_MAP = 8;
@@ -70,6 +74,9 @@ export interface WebGLScenePassHost {
 	};
 	_sceneFramebuffer: WebGLFramebuffer | null;
 	_sceneNormalTexture: WebGLTexture | null;
+	_postColorTexture: WebGLTexture | null;
+	_transmissionBackgroundTexture: WebGLTexture | null;
+	_transmissionDepthTexture: WebGLTexture | null;
 	_materialGBufferEnabled: boolean;
 	_oitPassMode: 0 | 1 | 2;
 	_width: number;
@@ -127,7 +134,7 @@ export interface WebGLScenePassHost {
 export interface WebGLSceneRenderOptions {
 	framebuffer?: WebGLFramebuffer | null;
 	drawBuffers?: number[];
-	blendMode?: "legacy" | "oit-accum" | "oit-reveal";
+	blendMode?: "legacy" | "disabled" | "oit-accum" | "oit-reveal";
 	oitPassMode?: 0 | 1 | 2;
 	earlyZPacketIds?: ReadonlySet<string>;
 }
@@ -185,8 +192,11 @@ export function renderWebGLPackets(
 	gl.depthFunc(gl.LESS);
 	gl.depthMask(!transparent);
 	if (transparent) {
-		gl.enable(gl.BLEND);
+		if (options.blendMode === "disabled") gl.disable(gl.BLEND);
+		else gl.enable(gl.BLEND);
 		switch (options.blendMode) {
+			case "disabled":
+				break;
 			case "oit-accum":
 				gl.blendFuncSeparate(gl.ONE, gl.ONE, gl.ONE, gl.ONE);
 				break;
@@ -398,6 +408,8 @@ export function drawWebGLPacket(
 	options: WebGLPacketDrawOptions = {}
 ): void {
 	const gl = host._gl;
+	const samplerUnit = (name: string, fallback: number): number =>
+		getWebGLSceneSamplerUnit(sceneProgram.samplerLayout, name, fallback);
 	const material = packet.material;
 	const requiresTransparent = isMaterialTransparentPass(material);
 	if (transparentPass !== requiresTransparent) {
@@ -431,6 +443,10 @@ export function drawWebGLPacket(
 	const metallicRoughnessMapUVTransform = resolveTextureUVTransform(
 		uniforms.metallicRoughnessMap
 	);
+	const specularMapUVTransform = resolveTextureUVTransform(uniforms.specularMap);
+	const specularColorMapUVTransform = resolveTextureUVTransform(
+		uniforms.specularColorMap,
+	);
 	const normalMapUVTransform = resolveTextureUVTransform(uniforms.normalMap);
 	const emissiveMapUVTransform = resolveTextureUVTransform(uniforms.emissiveMap);
 	const occlusionMapUVTransform = resolveTextureUVTransform(uniforms.occlusionMap);
@@ -443,6 +459,15 @@ export function drawWebGLPacket(
 	const anisotropyMapUVTransform = resolveTextureUVTransform(
 		uniforms.anisotropyMap
 	);
+	const extensionMaps = [
+		["Clearcoat", uniforms.clearcoatMap, uniforms.clearcoatMapUV],
+		["ClearcoatRoughness", uniforms.clearcoatRoughnessMap, uniforms.clearcoatRoughnessMapUV],
+		["ClearcoatNormal", uniforms.clearcoatNormalMap, uniforms.clearcoatNormalMapUV],
+		["SheenColor", uniforms.sheenColorMap, uniforms.sheenColorMapUV],
+		["SheenRoughness", uniforms.sheenRoughnessMap, uniforms.sheenRoughnessMapUV],
+		["Transmission", uniforms.transmissionMap, uniforms.transmissionMapUV],
+		["Thickness", uniforms.thicknessMap, uniforms.thicknessMapUV],
+	] as const;
 	const normalMatrix = toColumnMajorMat3(packet.normalMatrix);
 	if (!normalMatrix) {
 		logWebGLScenePassWarning(
@@ -476,36 +501,96 @@ export function drawWebGLPacket(
 	const resolvedAnisotropyMap = host._textures.getBaseColorTexture(
 		uniforms.anisotropyMap
 	);
-	const canBindAnisotropyMap =
-		!!uniforms.anisotropyMap && !uniforms.iridescenceThicknessMap;
-	const iridescenceThicknessTexture =
-		canBindAnisotropyMap ?
-			resolvedAnisotropyMap.texture
-			: resolvedIridescenceThicknessMap.texture;
-	if (uniforms.anisotropyMap && uniforms.iridescenceThicknessMap) {
-		logWebGLScenePassWarning(
-			"webgl-anisotropy-iridescence-thickness-texture-conflict",
-			`WebGL backend cannot bind anisotropy map for material ${material.name} while iridescence thickness map uses the shared texture slot.`
-		);
+	const pbrExtensionUniforms = sceneProgram.uniforms.pbrExtensionUniforms ?? {};
+	const transmissionBackgroundMap =
+		pbrExtensionUniforms.uTransmissionBackgroundMap;
+	const hasTransmissionBackgroundMap =
+		pbrExtensionUniforms.uHasTransmissionBackgroundMap;
+	const transmissionBackgroundInvSize =
+		pbrExtensionUniforms.uTransmissionBackgroundInvSize;
+	const transmissionDepthMap = pbrExtensionUniforms.uTransmissionDepthMap;
+	const hasTransmissionDepthMap = pbrExtensionUniforms.uHasTransmissionDepthMap;
+	const transmissionModelScale = pbrExtensionUniforms.uTransmissionModelScale;
+	if (materialUsesTransmission(material) && host._transmissionBackgroundTexture) {
+		const unit = samplerUnit("uTransmissionBackgroundMap", 23);
+		gl.activeTexture(gl.TEXTURE0 + unit);
+		gl.bindTexture(gl.TEXTURE_2D, host._transmissionBackgroundTexture);
+		if (transmissionBackgroundMap) {
+			gl.uniform1i(transmissionBackgroundMap, unit);
+		}
+		if (hasTransmissionBackgroundMap) {
+			gl.uniform1i(hasTransmissionBackgroundMap, 1);
+		}
+		if (transmissionBackgroundInvSize) {
+			gl.uniform2f(
+				transmissionBackgroundInvSize,
+				1 / Math.max(host._width, 1),
+				1 / Math.max(host._height, 1),
+			);
+		}
+		if (host._transmissionDepthTexture) {
+			const depthUnit = samplerUnit("uTransmissionDepthMap", 24);
+			gl.activeTexture(gl.TEXTURE0 + depthUnit);
+			gl.bindTexture(gl.TEXTURE_2D, host._transmissionDepthTexture);
+			if (transmissionDepthMap) gl.uniform1i(transmissionDepthMap, depthUnit);
+			if (hasTransmissionDepthMap) gl.uniform1i(hasTransmissionDepthMap, 1);
+		} else if (hasTransmissionDepthMap) {
+			gl.uniform1i(hasTransmissionDepthMap, 0);
+		}
+	} else if (hasTransmissionBackgroundMap) {
+		gl.uniform1i(hasTransmissionBackgroundMap, 0);
+		if (hasTransmissionDepthMap) gl.uniform1i(hasTransmissionDepthMap, 0);
 	}
-	gl.activeTexture(gl.TEXTURE0 + WEBGL_TEXTURE_UNIT_BASE_MAP);
+	for (let index = 0; index < extensionMaps.length; index++) {
+		const [prefix, texture, uv] = extensionMaps[index];
+		const samplerName = `u${prefix}Map`;
+		const sampler = pbrExtensionUniforms[samplerName];
+		const hasMap = pbrExtensionUniforms[`uHas${prefix}Map`];
+		const uvUniform = pbrExtensionUniforms[`u${prefix}MapUV`];
+		const transformA = pbrExtensionUniforms[`u${prefix}MapTransformA`];
+		const transformB = pbrExtensionUniforms[`u${prefix}MapTransformB`];
+		const transform = resolveTextureUVTransform(texture);
+		const unit = samplerUnit(samplerName, 16 + index);
+		const resolved = host._textures.getBaseColorTexture(texture);
+		gl.activeTexture(gl.TEXTURE0 + unit);
+		gl.bindTexture(gl.TEXTURE_2D, resolved.texture);
+		if (sampler) gl.uniform1i(sampler, unit);
+		if (hasMap) gl.uniform1i(hasMap, texture ? 1 : 0);
+		if (uvUniform) gl.uniform1i(uvUniform, uv);
+		if (transformA) {
+			gl.uniform4f(
+				transformA,
+				transform.repeatX,
+				transform.repeatY,
+				transform.offsetX,
+				transform.offsetY,
+			);
+		}
+		if (transformB) {
+			gl.uniform2f(transformB, transform.cosRotation, transform.sinRotation);
+		}
+	}
+	const canBindAnisotropyMap = !!uniforms.anisotropyMap;
+	gl.activeTexture(gl.TEXTURE0 + samplerUnit("uBaseMap", WEBGL_TEXTURE_UNIT_BASE_MAP));
 	gl.bindTexture(gl.TEXTURE_2D, resolvedMap.texture);
-	gl.activeTexture(gl.TEXTURE0 + WEBGL_TEXTURE_UNIT_NORMAL_MAP);
+	gl.activeTexture(gl.TEXTURE0 + samplerUnit("uNormalMap", WEBGL_TEXTURE_UNIT_NORMAL_MAP));
 	gl.bindTexture(gl.TEXTURE_2D, resolvedNormalMap.texture);
-	gl.activeTexture(gl.TEXTURE0 + WEBGL_TEXTURE_UNIT_METALLIC_ROUGHNESS_MAP);
+	gl.activeTexture(gl.TEXTURE0 + samplerUnit("uMetallicRoughnessMap", WEBGL_TEXTURE_UNIT_METALLIC_ROUGHNESS_MAP));
 	gl.bindTexture(gl.TEXTURE_2D, resolvedMetallicRoughnessMap.texture);
-	gl.activeTexture(gl.TEXTURE0 + WEBGL_TEXTURE_UNIT_SPECULAR_MAP);
+	gl.activeTexture(gl.TEXTURE0 + samplerUnit("uSpecularMap", WEBGL_TEXTURE_UNIT_SPECULAR_MAP));
 	gl.bindTexture(gl.TEXTURE_2D, resolvedSpecularMap.texture);
-	gl.activeTexture(gl.TEXTURE0 + WEBGL_TEXTURE_UNIT_SPECULAR_COLOR_MAP);
+	gl.activeTexture(gl.TEXTURE0 + samplerUnit("uSpecularColorMap", WEBGL_TEXTURE_UNIT_SPECULAR_COLOR_MAP));
 	gl.bindTexture(gl.TEXTURE_2D, resolvedSpecularColorMap.texture);
-	gl.activeTexture(gl.TEXTURE0 + WEBGL_TEXTURE_UNIT_EMISSIVE_MAP);
+	gl.activeTexture(gl.TEXTURE0 + samplerUnit("uEmissiveMap", WEBGL_TEXTURE_UNIT_EMISSIVE_MAP));
 	gl.bindTexture(gl.TEXTURE_2D, resolvedEmissiveMap.texture);
-	gl.activeTexture(gl.TEXTURE0 + WEBGL_TEXTURE_UNIT_OCCLUSION_MAP);
+	gl.activeTexture(gl.TEXTURE0 + samplerUnit("uOcclusionMap", WEBGL_TEXTURE_UNIT_OCCLUSION_MAP));
 	gl.bindTexture(gl.TEXTURE_2D, resolvedOcclusionMap.texture);
-	gl.activeTexture(gl.TEXTURE0 + WEBGL_TEXTURE_UNIT_IRIDESCENCE_MAP);
+	gl.activeTexture(gl.TEXTURE0 + samplerUnit("uIridescenceMap", WEBGL_TEXTURE_UNIT_IRIDESCENCE_MAP));
 	gl.bindTexture(gl.TEXTURE_2D, resolvedIridescenceMap.texture);
-	gl.activeTexture(gl.TEXTURE0 + WEBGL_TEXTURE_UNIT_IRIDESCENCE_THICKNESS_MAP);
-	gl.bindTexture(gl.TEXTURE_2D, iridescenceThicknessTexture);
+	gl.activeTexture(gl.TEXTURE0 + samplerUnit("uIridescenceThicknessMap", WEBGL_TEXTURE_UNIT_IRIDESCENCE_THICKNESS_MAP));
+	gl.bindTexture(gl.TEXTURE_2D, resolvedIridescenceThicknessMap.texture);
+	gl.activeTexture(gl.TEXTURE0 + samplerUnit("uAnisotropyMap", WEBGL_TEXTURE_UNIT_IRIDESCENCE_THICKNESS_MAP));
+	gl.bindTexture(gl.TEXTURE_2D, resolvedAnisotropyMap.texture);
 	host._bindShaderMaterialTextures(sceneProgram, material);
 	host._bindShaderMaterialUniforms(sceneProgram, material);
 
@@ -566,8 +651,12 @@ export function drawWebGLPacket(
 	if (sceneProgram.uniforms.specular) {
 		gl.uniform4fv(sceneProgram.uniforms.specular, uniforms.specular);
 	}
+	const clearcoatUniform = pbrExtensionUniforms.uClearcoat;
+	if (clearcoatUniform) gl.uniform4fv(clearcoatUniform, uniforms.clearcoat);
+	const sheenUniform = pbrExtensionUniforms.uSheen;
+	if (sheenUniform) gl.uniform4fv(sheenUniform, uniforms.sheen);
 	if (sceneProgram.uniforms.specularMap) {
-		gl.uniform1i(sceneProgram.uniforms.specularMap, WEBGL_TEXTURE_UNIT_SPECULAR_MAP);
+		gl.uniform1i(sceneProgram.uniforms.specularMap, samplerUnit("uSpecularMap", WEBGL_TEXTURE_UNIT_SPECULAR_MAP));
 	}
 	if (sceneProgram.uniforms.hasSpecularMap) {
 		gl.uniform1i(sceneProgram.uniforms.hasSpecularMap, uniforms.specularMap ? 1 : 0);
@@ -578,7 +667,7 @@ export function drawWebGLPacket(
 	if (sceneProgram.uniforms.specularColorMap) {
 		gl.uniform1i(
 			sceneProgram.uniforms.specularColorMap,
-			WEBGL_TEXTURE_UNIT_SPECULAR_COLOR_MAP
+			samplerUnit("uSpecularColorMap", WEBGL_TEXTURE_UNIT_SPECULAR_COLOR_MAP)
 		);
 	}
 	if (sceneProgram.uniforms.hasSpecularColorMap) {
@@ -593,10 +682,39 @@ export function drawWebGLPacket(
 			uniforms.specularColorMapUV
 		);
 	}
+	for (const [prefix, transform] of [
+		["uSpecularMapTransform", specularMapUVTransform],
+		["uSpecularColorMapTransform", specularColorMapUVTransform],
+	] as const) {
+		const transformA = pbrExtensionUniforms[`${prefix}A`];
+		const transformB = pbrExtensionUniforms[`${prefix}B`];
+		if (transformA) {
+			gl.uniform4f(
+				transformA,
+				transform.repeatX,
+				transform.repeatY,
+				transform.offsetX,
+				transform.offsetY,
+			);
+		}
+		if (transformB) {
+			gl.uniform2f(transformB, transform.cosRotation, transform.sinRotation);
+		}
+	}
 	if (sceneProgram.uniforms.transmissionVolume) {
 		gl.uniform4fv(
 			sceneProgram.uniforms.transmissionVolume,
 			uniforms.transmissionVolume
+		);
+	}
+	if (transmissionModelScale) {
+		const elements = packet.worldMatrix.elements;
+		const scaleX = Math.hypot(elements[0][0], elements[1][0], elements[2][0]);
+		const scaleY = Math.hypot(elements[0][1], elements[1][1], elements[2][1]);
+		const scaleZ = Math.hypot(elements[0][2], elements[1][2], elements[2][2]);
+		gl.uniform1f(
+			transmissionModelScale,
+			Math.max(scaleX, scaleY, scaleZ, 0.0001),
 		);
 	}
 	if (sceneProgram.uniforms.iridescence) {
@@ -614,6 +732,9 @@ export function drawWebGLPacket(
 	if (sceneProgram.uniforms.phong) {
 		gl.uniform4fv(sceneProgram.uniforms.phong, uniforms.phong);
 	}
+	if (sceneProgram.uniforms.phongAmbient) {
+		gl.uniform4fv(sceneProgram.uniforms.phongAmbient, uniforms.phongAmbient);
+	}
 	if (sceneProgram.uniforms.alpha) {
 		gl.uniform4fv(sceneProgram.uniforms.alpha, uniforms.alpha);
 	}
@@ -621,7 +742,7 @@ export function drawWebGLPacket(
 		gl.uniform1i(sceneProgram.uniforms.oitPassMode, host._oitPassMode);
 	}
 	if (sceneProgram.uniforms.baseMap) {
-		gl.uniform1i(sceneProgram.uniforms.baseMap, WEBGL_TEXTURE_UNIT_BASE_MAP);
+		gl.uniform1i(sceneProgram.uniforms.baseMap, samplerUnit("uBaseMap", WEBGL_TEXTURE_UNIT_BASE_MAP));
 	}
 	if (sceneProgram.uniforms.hasBaseMap) {
 		gl.uniform1i(sceneProgram.uniforms.hasBaseMap, uniforms.baseMap ? 1 : 0);
@@ -654,7 +775,7 @@ export function drawWebGLPacket(
 	if (sceneProgram.uniforms.metallicRoughnessMap) {
 		gl.uniform1i(
 			sceneProgram.uniforms.metallicRoughnessMap,
-			WEBGL_TEXTURE_UNIT_METALLIC_ROUGHNESS_MAP
+			samplerUnit("uMetallicRoughnessMap", WEBGL_TEXTURE_UNIT_METALLIC_ROUGHNESS_MAP)
 		);
 	}
 	if (sceneProgram.uniforms.hasMetallicRoughnessMap) {
@@ -686,7 +807,7 @@ export function drawWebGLPacket(
 		);
 	}
 	if (sceneProgram.uniforms.normalMap) {
-		gl.uniform1i(sceneProgram.uniforms.normalMap, WEBGL_TEXTURE_UNIT_NORMAL_MAP);
+		gl.uniform1i(sceneProgram.uniforms.normalMap, samplerUnit("uNormalMap", WEBGL_TEXTURE_UNIT_NORMAL_MAP));
 	}
 	if (sceneProgram.uniforms.hasNormalMap) {
 		gl.uniform1i(sceneProgram.uniforms.hasNormalMap, uniforms.normalMap ? 1 : 0);
@@ -714,7 +835,7 @@ export function drawWebGLPacket(
 		gl.uniform1f(sceneProgram.uniforms.normalScale, uniforms.normalScale);
 	}
 	if (sceneProgram.uniforms.emissiveMap) {
-		gl.uniform1i(sceneProgram.uniforms.emissiveMap, WEBGL_TEXTURE_UNIT_EMISSIVE_MAP);
+		gl.uniform1i(sceneProgram.uniforms.emissiveMap, samplerUnit("uEmissiveMap", WEBGL_TEXTURE_UNIT_EMISSIVE_MAP));
 	}
 	if (sceneProgram.uniforms.hasEmissiveMap) {
 		gl.uniform1i(sceneProgram.uniforms.hasEmissiveMap, uniforms.emissiveMap ? 1 : 0);
@@ -745,7 +866,7 @@ export function drawWebGLPacket(
 		);
 	}
 	if (sceneProgram.uniforms.occlusionMap) {
-		gl.uniform1i(sceneProgram.uniforms.occlusionMap, WEBGL_TEXTURE_UNIT_OCCLUSION_MAP);
+		gl.uniform1i(sceneProgram.uniforms.occlusionMap, samplerUnit("uOcclusionMap", WEBGL_TEXTURE_UNIT_OCCLUSION_MAP));
 	}
 	if (sceneProgram.uniforms.hasOcclusionMap) {
 		gl.uniform1i(sceneProgram.uniforms.hasOcclusionMap, uniforms.occlusionMap ? 1 : 0);
@@ -775,7 +896,7 @@ export function drawWebGLPacket(
 	if (sceneProgram.uniforms.iridescenceMap) {
 		gl.uniform1i(
 			sceneProgram.uniforms.iridescenceMap,
-			WEBGL_TEXTURE_UNIT_IRIDESCENCE_MAP
+			samplerUnit("uIridescenceMap", WEBGL_TEXTURE_UNIT_IRIDESCENCE_MAP)
 		);
 	}
 	if (sceneProgram.uniforms.hasIridescenceMap) {
@@ -809,7 +930,7 @@ export function drawWebGLPacket(
 	if (sceneProgram.uniforms.iridescenceThicknessMap) {
 		gl.uniform1i(
 			sceneProgram.uniforms.iridescenceThicknessMap,
-			WEBGL_TEXTURE_UNIT_IRIDESCENCE_THICKNESS_MAP
+			samplerUnit("uIridescenceThicknessMap", WEBGL_TEXTURE_UNIT_IRIDESCENCE_THICKNESS_MAP)
 		);
 	}
 	if (sceneProgram.uniforms.hasIridescenceThicknessMap) {
@@ -844,6 +965,12 @@ export function drawWebGLPacket(
 		gl.uniform1i(
 			sceneProgram.uniforms.hasAnisotropyMap,
 			canBindAnisotropyMap ? 1 : 0
+		);
+	}
+	if (sceneProgram.uniforms.anisotropyMap) {
+		gl.uniform1i(
+			sceneProgram.uniforms.anisotropyMap,
+			samplerUnit("uAnisotropyMap", WEBGL_TEXTURE_UNIT_IRIDESCENCE_THICKNESS_MAP),
 		);
 	}
 	if (sceneProgram.uniforms.anisotropyMapUV) {
@@ -1059,7 +1186,6 @@ export function bindWebGLShaderMaterialTextures(
 	}
 
 	const gl = host._gl;
-	let textureUnit = host._maxTextureImageUnits < 17 ? 8 : WEBGL_TEXTURE_UNIT_CUSTOM_START;
 	const boundUniforms = new Set<string>();
 	for (const binding of bindings) {
 		if (boundUniforms.has(binding.webglUniform)) {
@@ -1070,18 +1196,16 @@ export function bindWebGLShaderMaterialTextures(
 		if (!uniform) {
 			continue;
 		}
-		if (textureUnit >= host._maxTextureImageUnits) {
-			logWebGLScenePassWarning(
-				`webgl-shader-material-texture-unit-limit-${material.shaderId}`,
-				`ShaderMaterial ${material.name} custom textures exceed MAX_TEXTURE_IMAGE_UNITS=${host._maxTextureImageUnits}; extra bindings are ignored.`
-			);
-			break;
-		}
+		const textureUnit = getWebGLSceneSamplerUnit(
+			sceneProgram.samplerLayout,
+			binding.webglUniform,
+			(host._maxTextureImageUnits < 17 ? 8 : WEBGL_TEXTURE_UNIT_CUSTOM_START) +
+				boundUniforms.size - 1,
+		);
 		const resolved = host._textures.getBaseColorTexture(binding.texture);
 		gl.activeTexture(gl.TEXTURE0 + textureUnit);
 		gl.bindTexture(gl.TEXTURE_2D, resolved.texture);
 		gl.uniform1i(uniform, textureUnit);
-		textureUnit++;
 	}
 	gl.activeTexture(gl.TEXTURE0 + WEBGL_TEXTURE_UNIT_BASE_MAP);
 }

@@ -82,13 +82,18 @@ export class BlinnPhongStrategy implements ILightingStrategy<PhongSurfacePropert
 			g: sRGBToLinear(Math.max(0, surface.ambient.g / 255)),
 			b: sRGBToLinear(Math.max(0, surface.ambient.b / 255)),
 		};
+		const specColor = {
+			r: sRGBToLinear(Math.max(0, surface.specular.r / 255)),
+			g: sRGBToLinear(Math.max(0, surface.specular.g / 255)),
+			b: sRGBToLinear(Math.max(0, surface.specular.b / 255)),
+		};
 
 		// Ambient IBL or simple
 		if (useSHAmbient && shAmbient) {
 			const irr = SH.calculateIrradiance(N, shAmbient);
-			ambR = irr.r / 255;
-			ambG = irr.g / 255;
-			ambB = irr.b / 255;
+			ambR = irr.r / (255 * Math.PI);
+			ambG = irr.g / (255 * Math.PI);
+			ambB = irr.b / (255 * Math.PI);
 		}
 
 		for (const light of context.lights) {
@@ -108,9 +113,9 @@ export class BlinnPhongStrategy implements ILightingStrategy<PhongSurfacePropert
 				);
 				if (useSHAmbient && fallbackScale <= 0) continue;
 				const intensity = lightIntensity * fallbackScale;
-				ambR += sRGBToLinear(contrib.color.r / 255) * intensity;
-				ambG += sRGBToLinear(contrib.color.g / 255) * intensity;
-				ambB += sRGBToLinear(contrib.color.b / 255) * intensity;
+				ambR += sRGBToLinear(contrib.color.r / 255) * intensity / Math.PI;
+				ambG += sRGBToLinear(contrib.color.g / 255) * intensity / Math.PI;
+				ambB += sRGBToLinear(contrib.color.b / 255) * intensity / Math.PI;
 				continue;
 			}
 
@@ -132,30 +137,29 @@ export class BlinnPhongStrategy implements ILightingStrategy<PhongSurfacePropert
 				b: sRGBToLinear(contrib.color.b / 255) * lightIntensity,
 			};
 
-			// Diffuse
-			diffR += radiance.r * NdotL * shadow.r;
-			diffG += radiance.g * NdotL * shadow.g;
-			diffB += radiance.b * NdotL * shadow.b;
-
-			// Specular
 			const H = Vector3.normalize(Vector3.add(L, V));
 			const NdotH = Math.max(0, Vector3.dot(N, H));
-			const specFactor = NdotL > 0 ? Math.pow(NdotH, surface.shininess) : 0;
+			const VdotH = Math.max(0, Vector3.dot(V, H));
+			const fresnelWeight = Math.pow(1 - VdotH, 5);
+			const fR = specColor.r + (1 - specColor.r) * fresnelWeight;
+			const fG = specColor.g + (1 - specColor.g) * fresnelWeight;
+			const fB = specColor.b + (1 - specColor.b) * fresnelWeight;
+			const specularNormalization =
+				(surface.shininess + 8) / (8 * Math.PI);
+			const specularLobe =
+				specularNormalization * Math.pow(NdotH, surface.shininess);
 
-			specR += radiance.r * specFactor * shadow.r;
-			specG += radiance.g * specFactor * shadow.g;
-			specB += radiance.b * specFactor * shadow.b;
+			diffR += radiance.r * NdotL * (1 - fR) * shadow.r / Math.PI;
+			diffG += radiance.g * NdotL * (1 - fG) * shadow.g / Math.PI;
+			diffB += radiance.b * NdotL * (1 - fB) * shadow.b / Math.PI;
+			specR += radiance.r * NdotL * fR * specularLobe * shadow.r;
+			specG += radiance.g * NdotL * fG * specularLobe * shadow.g;
+			specB += radiance.b * NdotL * fB * specularLobe * shadow.b;
 		}
 
-		const specColor = {
-			r: sRGBToLinear(Math.max(0, surface.specular.r / 255)),
-			g: sRGBToLinear(Math.max(0, surface.specular.g / 255)),
-			b: sRGBToLinear(Math.max(0, surface.specular.b / 255)),
-		};
-
-		const finalR = ambR * ambColor.r + diffR * alb.r + specR * specColor.r;
-		const finalG = ambG * ambColor.g + diffG * alb.g + specG * specColor.g;
-		const finalB = ambB * ambColor.b + diffB * alb.b + specB * specColor.b;
+		const finalR = ambR * ambColor.r + diffR * alb.r + specR;
+		const finalG = ambG * ambColor.g + diffG * alb.g + specG;
+		const finalB = ambB * ambColor.b + diffB * alb.b + specB;
 
 		// Shader output stays in linear space; optional gamma encode happens in post-process
 		return {

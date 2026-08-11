@@ -127,6 +127,44 @@ function testTransparentUsesLegacyWithoutOIT() {
 	]);
 }
 
+function testTransmissionCreatesOrderedPacketNodes() {
+	const planner = new WebGLFrameGraphPlanner();
+	const context = createContext({
+		scene: {
+			transparentPackets: [
+				{ material: {} },
+				{ material: { transmissionFactor: 1 } },
+				{ material: {} },
+			],
+			particleSystems: [],
+			environment: {
+				backgroundEnabled: false,
+				backgroundTexture: null,
+			},
+		},
+	});
+	const plan = planner.planStage(
+		createPass("main-transparent"),
+		context,
+		createState({ oitActive: false }),
+	);
+
+	assert.deepEqual(plan.nodes.map((node) => node.kind), [
+		"transmission-depth-copy",
+		"transparent-legacy",
+		"transmission-background-copy",
+		"transmission-draw",
+		"transparent-legacy",
+	]);
+	assert.deepEqual(
+		plan.nodes.filter((node) => node.kind === "transparent-legacy")
+			.map((node) => [node.packetStart, node.packetEnd]),
+		[[0, 1], [2, 3]],
+	);
+	assert.equal(plan.nodes[2].packetIndex, 1);
+	assert.equal(plan.nodes[3].packetIndex, 1);
+}
+
 function testTransparentOITDefersResolveWhenParticlesExist() {
 	const planner = new WebGLFrameGraphPlanner();
 	const plan = planner.planStage(
@@ -246,6 +284,7 @@ function run() {
 	testMainOpaquePlansDepthThenColor();
 	testParticleShadowVolumeGraphOwnershipMatchesShaderConsumers();
 	testTransparentUsesLegacyWithoutOIT();
+	testTransmissionCreatesOrderedPacketNodes();
 	testTransparentOITDefersResolveWhenParticlesExist();
 	testTransparentOITResolvesWithoutParticles();
 	testParticleOITPlansResolveAndAdditiveParticles();

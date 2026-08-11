@@ -23,7 +23,7 @@ export interface WebGLTransparencyRuntimeHost {
 		options?: WebGLSceneRenderOptions,
 	): void;
 	renderParticles(context: FrameContext, options?: WebGLParticleRenderOptions): void;
-	drawFullscreen(width: number, height: number, context: FrameContext): void;
+	drawFullscreen(width: number, height: number, context: FrameContext | null): void;
 }
 
 /** Owns WebGL OIT routing and all per-frame transparency state. */
@@ -142,7 +142,59 @@ export class WebGLTransparencyRuntime {
 	}
 
 	public renderLegacyTransparent(context: FrameContext): void {
-		this._host.renderPackets(context, context.scene.transparentPackets, true);
+		if (context.scene.transparentPackets.some((packet) =>
+			materialUsesTransmission(packet.material)
+		)) {
+			this._copyOpaqueLinearDepth(context);
+		}
+		for (const packet of context.scene.transparentPackets) {
+			if (materialUsesTransmission(packet.material)) {
+				if (this._copyTransmissionBackground(context)) {
+					const gl = this._host.gl;
+					gl.bindTexture(
+						gl.TEXTURE_2D,
+						this._host.targets._transmissionBackgroundTexture,
+					);
+					gl.generateMipmap(gl.TEXTURE_2D);
+				}
+				this._host.renderPackets(context, [packet], true, {
+					blendMode: "disabled",
+				});
+			} else {
+				this._host.renderPackets(context, [packet], true);
+			}
+		}
+	}
+
+	public prepareTransmissionDepth(context: FrameContext): void {
+		this._copyOpaqueLinearDepth(context);
+	}
+
+	public renderLegacyTransparentSegment(
+		context: FrameContext,
+		start: number,
+		end: number,
+	): void {
+		const packets = context.scene.transparentPackets.slice(start, end);
+		if (packets.length > 0) this._host.renderPackets(context, packets, true);
+	}
+
+	public copyTransmissionBackground(context: FrameContext): void {
+		if (!this._copyTransmissionBackground(context)) return;
+		const gl = this._host.gl;
+		gl.bindTexture(
+			gl.TEXTURE_2D,
+			this._host.targets._transmissionBackgroundTexture,
+		);
+		gl.generateMipmap(gl.TEXTURE_2D);
+	}
+
+	public renderTransmissionPacket(context: FrameContext, index: number): void {
+		const packet = context.scene.transparentPackets[index];
+		if (!packet || !materialUsesTransmission(packet.material)) return;
+		this._host.renderPackets(context, [packet], true, {
+			blendMode: "disabled",
+		});
 	}
 
 	public renderParticlesLegacy(context: FrameContext): void {
@@ -156,6 +208,12 @@ export class WebGLTransparencyRuntime {
 	}
 
 	private _configure(context: FrameContext): void {
+		if ((context.scene?.transparentPackets ?? []).some((packet) =>
+			materialUsesTransmission(packet.material)
+		)) {
+			this._active = false;
+			return;
+		}
 		if (context.features.enableOIT !== true) {
 			this._active = false;
 			return;
@@ -216,18 +274,45 @@ export class WebGLTransparencyRuntime {
 	}
 
 	private _copySceneColor(context: FrameContext): boolean {
+		return this._copyTextureTo(
+			context,
+			this._host.targets._sceneColorTexture,
+			this._host.targets._postColorTexture,
+		);
+	}
+
+	private _copyTransmissionBackground(context: FrameContext): boolean {
+		return this._copyTextureTo(
+			context,
+			this._host.targets._sceneColorTexture,
+			this._host.targets._transmissionBackgroundTexture,
+		);
+	}
+
+	private _copyOpaqueLinearDepth(context: FrameContext): boolean {
+		return this._copyTextureTo(
+			context,
+			this._host.targets._sceneMotionTexture,
+			this._host.targets._transmissionDepthTexture,
+		);
+	}
+
+	private _copyTextureTo(
+		context: FrameContext,
+		sourceTexture: WebGLTexture | null,
+		targetTexture: WebGLTexture | null,
+	): boolean {
 		const targets = this._host.targets;
 		if (
 			!targets._postFramebuffer ||
-			!targets._postColorTexture ||
-			!targets._sceneColorTexture ||
+			!targetTexture ||
+			!sourceTexture ||
 			!this._host.getFullscreenVao()
 		) return false;
-		const program = this._host.getPrograms().tryGetCopyProgram();
-		if (!program) return false;
+		const program = this._host.getPrograms().getCopyProgram();
 		const gl = this._host.gl;
 		gl.bindFramebuffer(gl.FRAMEBUFFER, targets._postFramebuffer);
-		targets.bindPostSingleColorTarget(targets._postColorTexture);
+		targets.bindPostSingleColorTarget(targetTexture);
 		gl.viewport(0, 0, this._host.getWidth(), this._host.getHeight());
 		gl.useProgram(program.program);
 		gl.bindVertexArray(this._host.getFullscreenVao());
@@ -235,9 +320,10 @@ export class WebGLTransparencyRuntime {
 		gl.disable(gl.DEPTH_TEST);
 		gl.disable(gl.BLEND);
 		gl.activeTexture(gl.TEXTURE0);
-		gl.bindTexture(gl.TEXTURE_2D, targets._sceneColorTexture);
+		gl.bindTexture(gl.TEXTURE_2D, sourceTexture);
 		if (program.uniforms.sourceMap) gl.uniform1i(program.uniforms.sourceMap, 0);
-		this._host.drawFullscreen(this._host.getWidth(), this._host.getHeight(), context);
+		// Copies must cover preserved regions in an incremental frame as well.
+		this._host.drawFullscreen(this._host.getWidth(), this._host.getHeight(), null);
 		gl.bindVertexArray(null);
 		return true;
 	}

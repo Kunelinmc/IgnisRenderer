@@ -4,6 +4,41 @@ This document defines clustered lighting, environment IBL, irradiance grids, lig
 
 ## Contract
 
+### Units and world scale
+
+- World-space positions, `range`, `thicknessFactor`, and
+  `attenuationDistance` must use meters.
+- Directional and ambient light `intensity` must represent lux-equivalent RGB
+  irradiance. Point and spot light `intensity` must represent
+  candela-equivalent RGB luminous intensity. Area light `intensity` must
+  represent emitted-radiance-equivalent RGB values.
+- Point and spot attenuation must be
+  `pow(clamp(1 - pow(distance / range, 4), 0, 1), 2) /
+  max(distance * distance, 0.0001)`. The denominator floor represents one
+  centimeter and must be shared by runtime shading and probe capture.
+- Spot cone attenuation must use `smoothstep(outerCos, innerCos, cosTheta)`.
+- SH coefficients must store radiance. A Lambertian consumer must evaluate
+  irradiance from SH and contribute `albedo * irradiance / PI` exactly once.
+- A scene with no analytical light, environment, probe, or emissive source must
+  produce black scene radiance.
+
+### Material light transport
+
+- Built-in PBR shading must conserve energy across diffuse, base specular,
+  clearcoat, sheen, and transmission lobes.
+- Dielectric F0 must be
+  `0.16 * reflectance * reflectance * specularColor * specularFactor`;
+  metallic F0 must use base color and must remain reflective when
+  `specularFactor` is zero.
+- Split-sum specular IBL must reconstruct ordinary material reflection as
+  `F0 * A + B`. Iridescent material may replace F0 with the effective
+  thin-film Fresnel approximation but must not apply Schlick Fresnel twice.
+- Legacy Phong and Gouraud shading must use energy-normalized Blinn-Phong.
+  Encoded diffuse, specular F0, and ambient reflectance must be decoded to
+  linear light before evaluation. Direct lighting must use Schlick Fresnel,
+  `(1 - F) * diffuse / PI`, and
+  `F * ((shininess + 8) / (8 * PI)) * pow(NdotH, shininess)`.
+
 ### Clustered lighting
 
 #### Options

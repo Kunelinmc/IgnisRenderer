@@ -269,10 +269,10 @@ fn resolveAnisotropicSpecular(
 }
 
 fn pointAttenuation(distanceSq: f32, range: f32) -> f32 {
-	let rangeSq = max(range * range, EPSILON);
-	let rangeFactor = distanceSq / rangeSq;
-	let smoothFactor = max(0.0, 1.0 - rangeFactor * rangeFactor);
-	return (smoothFactor * smoothFactor) / (distanceSq + 1.0);
+	let safeRange = max(range, 0.0001);
+	let normalizedDistance = sqrt(max(distanceSq, 0.0)) / safeRange;
+	let rangeFactor = clamp(1.0 - pow(normalizedDistance, 4.0), 0.0, 1.0);
+	return (rangeFactor * rangeFactor) / max(distanceSq, 0.0001);
 }
 
 struct AreaLightSample {
@@ -417,12 +417,7 @@ fn clusteredRecordToAreaLight(lightIndex: u32) -> AreaLightData {
 }
 
 fn spotAttenuation(cosTheta: f32, outerCos: f32, innerCos: f32) -> f32 {
-	if (cosTheta < outerCos) {
-		return 0.0;
-	}
-
-	let cutoffRange = max(innerCos - outerCos, EPSILON);
-	return saturate((cosTheta - outerCos) / cutoffRange);
+	return smoothstep(outerCos, max(innerCos, outerCos + EPSILON), cosTheta);
 }
 
 fn distributionGGX(n: vec3<f32>, h: vec3<f32>, roughness: f32) -> f32 {

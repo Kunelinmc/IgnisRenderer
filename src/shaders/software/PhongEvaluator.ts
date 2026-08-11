@@ -64,7 +64,7 @@ export class PhongEvaluator extends BaseEvaluator<PhongSurfaceProperties> {
 		res.specular.r = spec.r;
 		res.specular.g = spec.g;
 		res.specular.b = spec.b;
-		res.shininess = mat.shininess || 32;
+		res.shininess = Math.max(0, mat.shininess ?? 32);
 
 		res.normal.x = input.normal.x;
 		res.normal.y = input.normal.y;

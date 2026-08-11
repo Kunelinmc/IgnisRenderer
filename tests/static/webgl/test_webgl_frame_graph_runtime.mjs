@@ -108,6 +108,8 @@ function createExecutor(events, options = {}) {
 				"frame:depth",
 				"frame:present-source",
 				"post:color",
+				"frame:transmission-background",
+				"frame:transmission-linear-depth",
 			];
 			if (options.oitActive) {
 				resources.push("oit:accum", "oit:reveal");
@@ -122,6 +124,8 @@ function createExecutor(events, options = {}) {
 				"frame:depth",
 				"frame:present-source",
 				"post:color",
+				"frame:transmission-background",
+				"frame:transmission-linear-depth",
 				"canvas:color",
 			];
 			if (options.oitActive) ids.push("oit:accum", "oit:reveal");
@@ -169,6 +173,18 @@ function createExecutor(events, options = {}) {
 		},
 		renderTransparentLegacy() {
 			events.push("transparent");
+		},
+		prepareTransmissionDepth() {
+			events.push("transmission-depth-copy");
+		},
+		renderLegacyTransparentSegment(_context, start, end) {
+			events.push(`transparent:${start}-${end}`);
+		},
+		copyTransmissionBackground() {
+			events.push("transmission-background-copy");
+		},
+		renderTransmissionPacket(_context, index) {
+			events.push(`transmission-draw:${index}`);
 		},
 		prepareOITTransparent() {
 			events.push("oit-clear:transparent");
@@ -454,6 +470,35 @@ function testRuntimePlansOITParticleFlow() {
 	]);
 }
 
+function testRuntimeExecutesTransmissionPacketsInSortedOrder() {
+	const events = [];
+	const runtime = createRuntime(events);
+	const context = createContext({
+		scene: {
+			transparentPackets: [
+				{ material: {} },
+				{ material: { transmissionFactor: 1 } },
+				{ material: {} },
+			],
+			particleSystems: [],
+			environment: {
+				backgroundEnabled: false,
+				backgroundTexture: null,
+			},
+		},
+	});
+	runtime.beginFrame(context);
+	runtime.executePass(createPass("main-transparent"), context);
+
+	assert.deepEqual(events.slice(2), [
+		"transmission-depth-copy",
+		"transparent:0-1",
+		"transmission-background-copy",
+		"transmission-draw:1",
+		"transparent:2-3",
+	]);
+}
+
 function testRuntimeDebugCapturesUnsupportedStage() {
 	const events = [];
 	const runtime = createRuntime(events);
@@ -714,6 +759,7 @@ async function run() {
 	await testRuntimeDelegatesPostProcessNode();
 	await testSkippedPostProcessRecordsExecutionOverlay();
 	testRuntimePlansOITParticleFlow();
+	testRuntimeExecutesTransmissionPacketsInSortedOrder();
 	testRuntimeDebugCapturesUnsupportedStage();
 	testFailedPresentPreservesLastSuccessfulAnalysis();
 	await testWholeFrameCompilesOnceAndUsesPhysicalAlias();

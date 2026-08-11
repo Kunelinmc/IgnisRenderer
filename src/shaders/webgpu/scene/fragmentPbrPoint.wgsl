@@ -163,7 +163,10 @@ if (isClusteredLightingEnabled()) {
 			continue;
 		}
 
-		let lightDirection = toLight / distanceValue;
+		let lightDirection = safeNormalize(
+			toLight,
+			vec3<f32>(0.0, 1.0, 0.0)
+		);
 		let radiance = frameLights.pointLights[i].color.xyz * pointAttenuation(distanceSq, lightRange);
 		let nDotLRaw = dot(pbrNormal, lightDirection);
 		let nDotL = max(nDotLRaw, 0.0);

@@ -124,11 +124,7 @@ function evaluatePointLight(
 
 	if (distance > light.range) return null;
 
-	const distanceSq = distance * distance;
-	const rangeSq = light.range * light.range;
-	const rangeFactor = distanceSq / rangeSq;
-	const smoothFactor = Math.max(0, 1 - rangeFactor * rangeFactor);
-	const attenuation = (smoothFactor * smoothFactor) / (distanceSq + 1.0);
+	const attenuation = pointLightAttenuation(distance, light.range);
 	const direction = out.direction;
 
 	if (distance > 0) {
@@ -189,15 +185,12 @@ function evaluateSpotLight(
 
 	if (cosTheta < outerCutoff) return null;
 
-	const spotIntensity = Math.max(
+	const coneT = Math.max(
 		0,
 		Math.min(1, (cosTheta - outerCutoff) / (cutoffRange || 1e-6))
 	);
-	const distanceSq = distance * distance;
-	const rangeSq = light.range * light.range;
-	const rangeFactor = distanceSq / rangeSq;
-	const smoothFactor = Math.max(0, 1 - rangeFactor * rangeFactor);
-	const attenuation = (smoothFactor * smoothFactor) / (distanceSq + 1.0);
+	const spotIntensity = coneT * coneT * (3 - 2 * coneT);
+	const attenuation = pointLightAttenuation(distance, light.range);
 
 	return writeContribution(out, {
 		type: "direct",
@@ -205,6 +198,12 @@ function evaluateSpotLight(
 		intensity: light.intensity * attenuation * spotIntensity,
 		direction,
 	});
+}
+
+function pointLightAttenuation(distance: number, range: number): number {
+	const normalized = distance / Math.max(range, 1e-6);
+	const rangeFade = Math.max(0, Math.min(1, 1 - normalized ** 4));
+	return (rangeFade * rangeFade) / Math.max(distance * distance, 0.0001);
 }
 
 function evaluateLightProbe(

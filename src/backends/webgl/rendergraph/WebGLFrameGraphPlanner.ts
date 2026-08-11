@@ -2,6 +2,7 @@ import type {
 	FrameContext,
 	FramePass,
 } from "../../../pipeline/types";
+import { materialUsesTransmission } from "../../../materials/transparency";
 import type {
 	WebGLFrameGraphNode,
 	WebGLFrameGraphPlannerState,
@@ -164,14 +165,7 @@ export class WebGLFrameGraphPlanner {
 				(pass, _context, state) =>
 					state.oitActive ?
 						this._createOITTransparentNodes(pass, state)
-					:	[
-							this._node(
-								pass,
-								"transparent-legacy",
-								"WebGLLegacyTransparent",
-								this._createTransparentResources()
-							),
-						],
+					:	this._createLegacyTransparentNodes(pass, _context),
 			],
 			[
 				"particles",
@@ -192,6 +186,93 @@ export class WebGLFrameGraphPlanner {
 						],
 			],
 		]);
+	}
+
+	private _createLegacyTransparentNodes(
+		pass: FramePass,
+		context: FrameContext,
+	): WebGLFrameGraphNode[] {
+		const packets = context.scene?.transparentPackets ?? [];
+		if (!packets.some((packet) => materialUsesTransmission(packet.material))) {
+			return [this._node(
+				pass,
+				"transparent-legacy",
+				"WebGLLegacyTransparent",
+				this._createTransparentResources(),
+			)];
+		}
+
+		const nodes: WebGLFrameGraphNode[] = [this._node(
+			pass,
+			"transmission-depth-copy",
+			"WebGLTransmissionOpaqueDepthCopy",
+			{
+				reads: [this._read("frame:motion-depth", "texture-sampling")],
+				writes: [this._write(
+					"frame:transmission-linear-depth",
+					"framebuffer-color",
+				)],
+			},
+		)];
+		let segmentStart = 0;
+		for (let index = 0; index < packets.length; index++) {
+			if (!materialUsesTransmission(packets[index].material)) continue;
+			if (segmentStart < index) {
+				nodes.push(this._node(
+					pass,
+					"transparent-legacy",
+					`WebGLLegacyTransparentSegment${segmentStart}-${index}`,
+					{
+						...this._createTransparentResources(),
+						packetStart: segmentStart,
+						packetEnd: index,
+					},
+				));
+			}
+			nodes.push(
+				this._node(
+					pass,
+					"transmission-background-copy",
+					`WebGLTransmissionBackgroundCopy${index}`,
+					{
+						reads: [this._read("frame:scene-color", "texture-sampling")],
+						writes: [this._write(
+							"frame:transmission-background",
+							"framebuffer-color",
+						)],
+						packetIndex: index,
+					},
+				),
+				this._node(
+					pass,
+					"transmission-draw",
+					`WebGLTransmissionDraw${index}`,
+					{
+						reads: [
+							this._read("frame:transmission-background", "texture-sampling"),
+							this._read("frame:transmission-linear-depth", "texture-sampling"),
+							...this._createTransparentResources().reads ?? [],
+						],
+						writes: this._createTransparentResources().writes,
+						packetIndex: index,
+					},
+				),
+			);
+			segmentStart = index + 1;
+		}
+		if (segmentStart < packets.length) {
+			nodes.push(this._node(
+				pass,
+				"transparent-legacy",
+				`WebGLLegacyTransparentSegment${segmentStart}-${packets.length}`,
+				{
+					...this._createTransparentResources(),
+					packetStart: segmentStart,
+					packetEnd: packets.length,
+				},
+			));
+		}
+		return nodes;
 	}
 
 	private _createOITTransparentNodes(
@@ -361,11 +442,17 @@ export class WebGLFrameGraphPlanner {
 		label: string,
 		resources: Pick<
 			WebGLFrameGraphNode,
-			"creates" | "requires" | "reads" | "writes" | "destroys" | "scope"
+			"creates" | "requires" | "reads" | "writes" | "destroys" | "scope" |
+				"packetStart" | "packetEnd" | "packetIndex"
 		> = {}
 	): WebGLFrameGraphNode {
+		const packetSuffix = resources.packetIndex !== undefined ?
+			`:${resources.packetIndex}`
+		:	resources.packetStart !== undefined ?
+				`:${resources.packetStart}-${resources.packetEnd}`
+			:	"";
 		return {
-			id: `${pass.stage}:${kind}:${resources.scope ?? "frame"}`,
+			id: `${pass.stage}:${kind}:${resources.scope ?? "frame"}${packetSuffix}`,
 			stage: pass.stage,
 			kind,
 			label,

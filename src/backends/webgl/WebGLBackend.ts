@@ -56,6 +56,7 @@ import {
 } from "../../pipeline/WarmupPlanner";
 import { Logger } from "../../foundation/Logger";
 import { WebGLContextWorkError } from "../../foundation/Error";
+import { assertWebGLHDRCapabilities } from "./WebGLHDRCapabilities";
 import {
 	FramePassPlanValidator,
 	type FramePassPlanValidatorState,
@@ -426,10 +427,11 @@ export class WebGLBackend implements IRenderBackend {
 		if (!this._frameServices || !this._frameGraphRuntime) {
 			return Promise.reject(new Error("WebGL backend has not been initialized."));
 		}
-		return this._contextWorkQueue.beginFrame("frame-begin", () => {
+		return this._contextWorkQueue.beginFrame("frame-begin", async () => {
 			this._executedPasses.clear();
 			this._activeContext = context;
 			this._prepareFramePassPlan(context);
+			await this._frameServices!.warmupCoordinator?.prepareFrameSources?.(context);
 			this._particleSimulator?.beginFrame(context);
 			this._frameGraphRuntime!.beginFrame(context);
 		});
@@ -634,6 +636,7 @@ export class WebGLBackend implements IRenderBackend {
 		if (!gl) {
 			throw new Error("Failed to acquire WebGL2 context. WebGL backend requires WebGL2.");
 		}
+		assertWebGLHDRCapabilities(gl);
 
 		this._gl = gl;
 		this._postProcessRuntime.destroy();

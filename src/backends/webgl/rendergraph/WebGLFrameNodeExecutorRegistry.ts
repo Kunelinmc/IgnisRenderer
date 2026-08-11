@@ -17,6 +17,14 @@ export interface WebGLFrameNodeServices {
 		earlyZPacketIds: ReadonlySet<string>,
 	): void;
 	renderTransparentLegacy(context: FrameContext): void;
+	prepareTransmissionDepth(context: FrameContext): void;
+	renderLegacyTransparentSegment(
+		context: FrameContext,
+		start: number,
+		end: number,
+	): void;
+	copyTransmissionBackground(context: FrameContext): void;
+	renderTransmissionPacket(context: FrameContext, index: number): void;
 	prepareOITTransparent(context: FrameContext): void;
 	renderOITTransparentAccum(context: FrameContext): void;
 	renderOITTransparentReveal(context: FrameContext): void;
@@ -85,12 +93,26 @@ export class WebGLFrameNodeExecutorRegistry {
 			["opaque-scene", (_node, context) =>
 				services.renderOpaqueScene(context, state.earlyZPacketIds)],
 			["transparent-legacy", (node, context) => {
+				if (node.packetStart !== undefined && node.packetEnd !== undefined) {
+					services.renderLegacyTransparentSegment(
+						context,
+						node.packetStart,
+						node.packetEnd,
+					);
+					return;
+				}
 				if (node.scope === "transparent" || node.scope === "particles") {
 					services.renderOITLegacyTransparent(context);
 					return;
 				}
 				services.renderTransparentLegacy(context);
 			}],
+			["transmission-depth-copy", (_node, context) =>
+				services.prepareTransmissionDepth(context)],
+			["transmission-background-copy", (_node, context) =>
+				services.copyTransmissionBackground(context)],
+			["transmission-draw", (node, context) =>
+				services.renderTransmissionPacket(context, node.packetIndex ?? -1)],
 			["oit-clear", (node, context) => {
 				if (node.scope === "particles") {
 					services.prepareOITParticles();

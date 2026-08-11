@@ -370,7 +370,18 @@ function replaceWebGLSceneTemplateBlocks(
 		["__WEBGL_SCENE_SH_UNIFORMS__", variant.scene.sh],
 		["__WEBGL_MATERIAL_SHADING_MODEL_UNIFORMS__", isFullMaterial],
 		["__WEBGL_MATERIAL_PBR_UNIFORMS__", isPBR],
+		["__WEBGL_MATERIAL_SPECULAR_MAP_UNIFORMS__", isPBR && material.specularMap],
+		["__WEBGL_MATERIAL_SPECULAR_COLOR_MAP_UNIFORMS__", isPBR && material.specularColorMap],
+		["__WEBGL_MATERIAL_CLEARCOAT_UNIFORMS__", isPBR && material.clearcoat],
+		["__WEBGL_MATERIAL_CLEARCOAT_MAP_UNIFORMS__", isPBR && material.clearcoatMap],
+		["__WEBGL_MATERIAL_CLEARCOAT_ROUGHNESS_MAP_UNIFORMS__", isPBR && material.clearcoatRoughnessMap],
+		["__WEBGL_MATERIAL_CLEARCOAT_NORMAL_MAP_UNIFORMS__", isPBR && material.clearcoatNormalMap],
+		["__WEBGL_MATERIAL_SHEEN_UNIFORMS__", isPBR && material.sheen],
+		["__WEBGL_MATERIAL_SHEEN_COLOR_MAP_UNIFORMS__", isPBR && material.sheenColorMap],
+		["__WEBGL_MATERIAL_SHEEN_ROUGHNESS_MAP_UNIFORMS__", isPBR && material.sheenRoughnessMap],
 		["__WEBGL_MATERIAL_TRANSMISSION_UNIFORMS__", isPBR && material.transmission],
+		["__WEBGL_MATERIAL_TRANSMISSION_MAP_UNIFORMS__", isPBR && material.transmissionMap],
+		["__WEBGL_MATERIAL_THICKNESS_MAP_UNIFORMS__", isPBR && material.thicknessMap],
 		["__WEBGL_MATERIAL_IRIDESCENCE_UNIFORMS__", isPBR && material.iridescence],
 		["__WEBGL_MATERIAL_ANISOTROPY_UNIFORMS__", isPBR && material.anisotropy],
 		["__WEBGL_MATERIAL_PHONG_UNIFORMS__", isLegacy],
@@ -389,11 +400,7 @@ function replaceWebGLSceneTemplateBlocks(
 		],
 		[
 			"__WEBGL_MATERIAL_IRIDESCENCE_THICKNESS_MAP_UNIFORMS__",
-			isPBR &&
-				(
-					(material.iridescence && material.iridescenceThicknessMap) ||
-					(material.anisotropy && material.anisotropyMap)
-				),
+			isPBR && material.iridescence && material.iridescenceThicknessMap,
 		],
 		[
 			"__WEBGL_MATERIAL_ANISOTROPY_MAP_UNIFORMS__",
@@ -1174,6 +1181,15 @@ export class ShaderSource {
 				"WEBGL_MATERIAL_METALLIC_ROUGHNESS_MAP",
 				material.metallicRoughnessMap
 			),
+			define("WEBGL_MATERIAL_SPECULAR_MAP", material.specularMap),
+			define("WEBGL_MATERIAL_SPECULAR_COLOR_MAP", material.specularColorMap),
+			define("WEBGL_MATERIAL_CLEARCOAT", material.clearcoat),
+			define("WEBGL_MATERIAL_CLEARCOAT_MAP", material.clearcoatMap),
+			define("WEBGL_MATERIAL_CLEARCOAT_ROUGHNESS_MAP", material.clearcoatRoughnessMap),
+			define("WEBGL_MATERIAL_CLEARCOAT_NORMAL_MAP", material.clearcoatNormalMap),
+			define("WEBGL_MATERIAL_SHEEN", material.sheen),
+			define("WEBGL_MATERIAL_SHEEN_COLOR_MAP", material.sheenColorMap),
+			define("WEBGL_MATERIAL_SHEEN_ROUGHNESS_MAP", material.sheenRoughnessMap),
 			define("WEBGL_MATERIAL_NORMAL_MAP", material.normalMap),
 			define("WEBGL_MATERIAL_EMISSIVE_MAP", material.emissiveMap),
 			define("WEBGL_MATERIAL_OCCLUSION_MAP", material.occlusionMap),
@@ -1186,6 +1202,8 @@ export class ShaderSource {
 			define("WEBGL_MATERIAL_ANISOTROPY", material.anisotropy),
 			define("WEBGL_MATERIAL_ANISOTROPY_MAP", material.anisotropyMap),
 			define("WEBGL_MATERIAL_TRANSMISSION", material.transmission),
+			define("WEBGL_MATERIAL_TRANSMISSION_MAP", material.transmissionMap),
+			define("WEBGL_MATERIAL_THICKNESS_MAP", material.thicknessMap),
 			define("WEBGL_MATERIAL_ALPHA_MASK", material.alphaMask),
 		].join("\n");
 	}

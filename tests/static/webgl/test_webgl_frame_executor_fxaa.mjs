@@ -705,36 +705,14 @@ function testGammaPassUsesScreenPostProcessFlow() {
 	assert.equal(executor._presentSourceTexture, postColor);
 }
 
-function testFrameTargetsFallbackToRGBA8MotionWithoutFloatExtension() {
+function testFrameTargetsRejectMissingFloatExtension() {
 	const gl = createFrameTargetTestGL({ floatExtension: false });
-	let executor;
-	const warnings = captureWarnMessages(() => {
-		executor = new WebGLFrameExecutor(gl);
-		executor._ensureFrameTargets(320, 180, false);
-	});
-
-	assert.equal(
-		gl.texImage2DCalls.some((call) => call.internalFormat === gl.RGBA16F),
-		false
+	const executor = new WebGLFrameExecutor(gl);
+	assert.throws(
+		() => executor._ensureFrameTargets(320, 180, false),
+		(error) => error?.code === "hdr-float-color-buffer-unavailable",
 	);
-	assert.equal(
-		gl.createdTextures.length,
-		4,
-		"frame targets must not allocate pass-owned post-process textures"
-	);
-	const bridge = executor.createGBufferBridge({
-		attachments: { width: 320, height: 180 },
-	});
-	assert.equal(bridge.channels.color.format, "rgba8unorm");
-	assert.equal(bridge.channels.depth.format, "rgba8unorm");
-	assert.equal(bridge.channels.motion.format, "rgba8unorm");
-	assert.equal(bridge.channels.normal.format, "rgba8unorm");
-	assert.equal(bridge.channels.normal.encoding, "encoded-world-normal");
-	assert.ok(
-		warnings.some(
-			(warning) => warning.includes("[webgl-hdr-float-unsupported]")
-		)
-	);
+	assert.equal(gl.createdTextures.length, 0);
 }
 
 function testFrameTargetsCreateOITResourcesWithFloatExtension() {
@@ -748,8 +726,8 @@ function testFrameTargetsCreateOITResourcesWithFloatExtension() {
 	assert.ok(executor._oitRevealTexture);
 	assert.equal(
 		gl.createdTextures.length,
-		6,
-		"float frame targets include OIT attachments but no pass-owned textures"
+		8,
+		"float frame targets include OIT, transmission background, and depth copies"
 	);
 	const bridge = executor.createGBufferBridge({
 		attachments: { width: 320, height: 180 },
@@ -757,7 +735,7 @@ function testFrameTargetsCreateOITResourcesWithFloatExtension() {
 	assert.equal(bridge.channels.color.format, "rgba16float");
 	assert.equal(bridge.channels.depth.format, "rgba16float");
 	assert.equal(bridge.channels.motion.format, "rgba16float");
-	assert.equal(bridge.channels.normal.format, "rgba8unorm");
+	assert.equal(bridge.channels.normal.format, "rgba16float");
 }
 
 function testMaterialGBufferBridgeUsesFiveAttachmentsWhenSupported() {
@@ -783,7 +761,10 @@ function testMaterialGBufferBridgeUsesFiveAttachmentsWhenSupported() {
 }
 
 function testMaterialGBufferFallsBackBelowFiveAttachments() {
-	const gl = createFrameTargetTestGL({ materialGBufferLimit: 4 });
+	const gl = createFrameTargetTestGL({
+		floatExtension: true,
+		materialGBufferLimit: 4,
+	});
 	let executor;
 	const warnings = captureWarnMessages(() => {
 		executor = new WebGLFrameExecutor(gl);
@@ -805,31 +786,7 @@ function testMaterialGBufferFallsBackBelowFiveAttachments() {
 	);
 }
 
-function testPostProcessResourceFormatFollowsFloatExtension() {
-	const fallbackGL = createFrameTargetTestGL({ floatExtension: false });
-	let fallbackResource;
-	const warnings = captureWarnMessages(() => {
-		const executor = new WebGLFrameExecutor(fallbackGL);
-		fallbackResource = executor.createPostProcessResource({
-			id: "hdr-history",
-			width: 16,
-			height: 8,
-			format: "rgba16float",
-			usage: ["sampled", "render-target"],
-		});
-	});
-
-	assert.equal(fallbackResource.format, "rgba8unorm");
-	assert.equal(
-		fallbackGL.texImage2DCalls.at(-1).internalFormat,
-		fallbackGL.RGBA8
-	);
-	assert.ok(
-		warnings.some((warning) =>
-			warning.includes("[webgl-hdr-float-unsupported]")
-		)
-	);
-
+function testPostProcessResourceFormatIsAlwaysFloat() {
 	const hdrGL = createFrameTargetTestGL({ floatExtension: true });
 	const executor = new WebGLFrameExecutor(hdrGL);
 	const hdrResource = executor.createPostProcessResource({
@@ -1604,11 +1561,11 @@ async function run() {
 	testWebGLContextUsesDeclarationForCustomPassId();
 	testWebGLContextRejectsUndeclaredResourceAccess();
 	testGammaPassUsesScreenPostProcessFlow();
-	testFrameTargetsFallbackToRGBA8MotionWithoutFloatExtension();
+	testFrameTargetsRejectMissingFloatExtension();
 	testFrameTargetsCreateOITResourcesWithFloatExtension();
 	testMaterialGBufferBridgeUsesFiveAttachmentsWhenSupported();
 	testMaterialGBufferFallsBackBelowFiveAttachments();
-	testPostProcessResourceFormatFollowsFloatExtension();
+	testPostProcessResourceFormatIsAlwaysFloat();
 	testConfigureOITWarnsWithoutRuntimeTargets();
 	testOITTransparentAndParticleExecutionOrder();
 	testOITTransparentResolvesImmediatelyWithoutParticles();

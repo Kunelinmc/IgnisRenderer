@@ -25,6 +25,9 @@ export type WebGLFrameGraphNodeKind =
 	| "opaque-depth-prepass"
 	| "opaque-scene"
 	| "transparent-legacy"
+	| "transmission-depth-copy"
+	| "transmission-background-copy"
+	| "transmission-draw"
 	| "oit-clear"
 	| "oit-accum"
 	| "oit-reveal"
@@ -43,6 +46,9 @@ export const WEBGL_FRAME_GRAPH_NODE_KINDS = [
 	"opaque-depth-prepass",
 	"opaque-scene",
 	"transparent-legacy",
+	"transmission-depth-copy",
+	"transmission-background-copy",
+	"transmission-draw",
 	"oit-clear",
 	"oit-accum",
 	"oit-reveal",
@@ -94,6 +100,9 @@ export interface WebGLFrameGraphNode {
 	readonly writes?: readonly WebGLFrameGraphResourceRef[];
 	readonly destroys?: readonly WebGLFrameGraphResourceMutation[];
 	readonly postProcess?: PostProcessSubgraphNodePayload;
+	readonly packetStart?: number;
+	readonly packetEnd?: number;
+	readonly packetIndex?: number;
 }
 
 export interface WebGLComposedFrameGraphStage {

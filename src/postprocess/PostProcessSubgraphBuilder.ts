@@ -49,7 +49,9 @@ export class PostProcessSubgraphBuilder {
 		const resources: RenderGraphResourceDescriptor[] = [];
 		const roles: Record<string, PostProcessLogicalResourceRole> = {};
 		const colorFormat = graph.gBuffer.channels.color?.format ??
-			(graph.backend === "webgpu" ? "rgba16float" : "rgba8unorm");
+			(graph.backend === "webgpu" || graph.backend === "webgl" ?
+				"rgba16float"
+			: "rgba8unorm");
 		const addResource = (
 			resource: RenderGraphResourceDescriptor,
 			role: PostProcessLogicalResourceRole

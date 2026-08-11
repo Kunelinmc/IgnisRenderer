@@ -1,14 +1,11 @@
 let shAmbientEnabled = useSHAmbient();
 var ambientColor = frame.ambientColor.rgb;
-if (ambientColor.x + ambientColor.y + ambientColor.z == 0.0) {
-	ambientColor = vec3<f32>(PBR_AMBIENT_FALLBACK_LINEAR);
-}
 
-var diffuseAmbient = ambientColor;
+var diffuseAmbient = ambientColor / PI;
 var specularAmbientRadiance = ambientColor / PI;
 if (shAmbientEnabled) {
 	diffuseAmbient =
-		sampleDiffuseProbeIrradiance(input.worldPosition, pbrNormal) / 255.0;
+		sampleDiffuseProbeIrradiance(input.worldPosition, pbrNormal) / (255.0 * PI);
 
 	let localSelection = selectTopTwoLocalLightProbes(input.worldPosition);
 	let globalSpecularAmbient = sampleSHRadiance(reflectionDir);
@@ -90,9 +87,14 @@ if (hasEnvSpecular()) {
 		input.worldPosition
 	);
 	let brdf = sampleBRDFLUT(nDotV, roughness);
+	let splitSumFresnel = select(
+		realF0,
+		effectiveFAmbient,
+		iridescence > EPSILON || isTIR
+	);
 	ambientLight +=
 		prefiltered *
-		(effectiveFAmbient * brdf.x + vec3<f32>(brdf.y)) *
+		(splitSumFresnel * brdf.x + vec3<f32>(brdf.y)) *
 		energyCompensation *
 		clearcoatAmbientAttenuation;
 

@@ -127,20 +127,42 @@ function resolveWebGLSceneMaterialVariant(
 	const anisotropy =
 		isPBR &&
 		(uniforms.anisotropy[0] > EPSILON || !!uniforms.anisotropyMap);
+	const clearcoat = isPBR && (
+		uniforms.clearcoat[0] > EPSILON || !!uniforms.clearcoatMap ||
+		!!uniforms.clearcoatRoughnessMap || !!uniforms.clearcoatNormalMap
+	);
+	const sheen = isPBR && (
+		Math.max(uniforms.sheen[0], uniforms.sheen[1], uniforms.sheen[2]) > EPSILON ||
+		!!uniforms.sheenColorMap || !!uniforms.sheenRoughnessMap
+	);
+	const transmission = isPBR && (
+		uniforms.pbr[3] > EPSILON || !!uniforms.transmissionMap
+	);
 	return {
 		model,
 		baseMap: !!uniforms.baseMap,
 		metallicRoughnessMap: isPBR && !!uniforms.metallicRoughnessMap,
+		specularMap: isPBR && !!uniforms.specularMap,
+		specularColorMap: isPBR && !!uniforms.specularColorMap,
 		normalMap: isPBR && !!uniforms.normalMap,
 		emissiveMap: !!uniforms.emissiveMap,
 		occlusionMap: isPBR && !!uniforms.occlusionMap,
+		clearcoat,
+		clearcoatMap: clearcoat && !!uniforms.clearcoatMap,
+		clearcoatRoughnessMap: clearcoat && !!uniforms.clearcoatRoughnessMap,
+		clearcoatNormalMap: clearcoat && !!uniforms.clearcoatNormalMap,
+		sheen,
+		sheenColorMap: sheen && !!uniforms.sheenColorMap,
+		sheenRoughnessMap: sheen && !!uniforms.sheenRoughnessMap,
 		iridescence,
 		iridescenceMap: iridescence && !!uniforms.iridescenceMap,
 		iridescenceThicknessMap:
 			iridescence && !!uniforms.iridescenceThicknessMap,
 		anisotropy,
 		anisotropyMap: anisotropy && !!uniforms.anisotropyMap,
-		transmission: isPBR && uniforms.pbr[3] > EPSILON,
+		transmission,
+		transmissionMap: transmission && !!uniforms.transmissionMap,
+		thicknessMap: transmission && !!uniforms.thicknessMap,
 		alphaMask: material.alphaMode === AlphaMode.Mask,
 	};
 }

@@ -8,7 +8,6 @@ import { Matrix4 } from "../maths/Matrix4";
 import { SH } from "../maths/SH";
 import { Vector3 } from "../maths/Vector3";
 import { sRGBToLinear } from "../maths/Common";
-import { PBR_AMBIENT_FALLBACK_LINEAR } from "../lights/constants";
 import { Scene } from "../core/Scene";
 import { Logger } from "../foundation/Logger";
 import { CSGMeshInstance } from "../meshes/CSGMeshInstance";
@@ -820,7 +819,6 @@ export class FrameCoordinator {
 		let ambientR = 0;
 		let ambientG = 0;
 		let ambientB = 0;
-		let hasAmbient = false;
 		for (const light of delegate.scene.getLights()) {
 			if (light.type === LightType.Ambient) {
 				const color = light.color || { r: 255, g: 255, b: 255 };
@@ -828,7 +826,6 @@ export class FrameCoordinator {
 				ambientR += sRGBToLinear(color.r / 255) * 255 * intensity;
 				ambientG += sRGBToLinear(color.g / 255) * 255 * intensity;
 				ambientB += sRGBToLinear(color.b / 255) * 255 * intensity;
-				hasAmbient = true;
 				continue;
 			}
 
@@ -848,18 +845,6 @@ export class FrameCoordinator {
 					ambientProbeSH[i].b += probeSH[i].b;
 				}
 			}
-		}
-
-		if (
-			!hasAmbient &&
-			ambientProbeSH[0].r === 0 &&
-			ambientProbeSH[0].g === 0 &&
-			ambientProbeSH[0].b === 0
-		) {
-			const fallbackLinear = PBR_AMBIENT_FALLBACK_LINEAR * 255;
-			ambientR = fallbackLinear;
-			ambientG = fallbackLinear;
-			ambientB = fallbackLinear;
 		}
 
 		ambientProbeSH[0].r += ambientR / Math.PI / 0.282095;

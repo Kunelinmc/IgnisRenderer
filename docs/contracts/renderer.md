@@ -314,6 +314,9 @@ This document defines the lifecycle, scheduling, warmup, incremental rendering, 
   `WarmupReport` after requested work completes.
 - WebGL backend warmup must prioritize core scene and presentation programs
   before optional environment, shadow, particle, OIT, and post-process programs.
+- WebGL warmup must validate every requested scene sampler layout. It must
+  reject an over-budget layout with `material-texture-unit-overflow` rather
+  than omitting a sampler or disabling a material feature.
 - WebGL backend warmup should split program finalization across scheduling
   slices so shader status and link checks do not all run in one main-thread
   loop.
@@ -589,7 +592,9 @@ bun tests/static/renderer/test_renderer_warmup_lightprobe.mjs
 - `Renderer.initialize() cannot be called multiple times.`: triggered when `initialize` is invoked on an already initialized renderer.
 - `RenderBackendDebugInfo.available === false`: returned before initialization, for the software backend, or when diagnostics cannot be collected. This is not an error.
 - `device-lost` event triggers warning logging with backend-supplied details.
-- Context restoration failures must log `WebGL context restore failed` or throw appropriate errors.
+- Context restoration failures must log `WebGL context restore failed` or
+  throw the originating `WebGLCapabilityError`. Failed HDR capability probing
+  must leave the backend lost and unpublished.
 - `beginFrame` called while a frame is active must throw an error.
 - If aborting fails, the backend must catch the error, log a critical diagnostic, and rethrow the original frame error.
 - `Render backend extension "<id>" is unavailable.`: thrown when calling `requireBackendExtension` for an unsupported extension.

@@ -72,16 +72,9 @@ export class WebGLPostProcessServices {
 		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
 		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
 		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-		const requestedFloat = desc.format !== "rgba8unorm";
-		const actualFormat =
-			requestedFloat && this._host.targets.supportsFloatColorBuffer() ?
-				"rgba16float"
-			: "rgba8unorm";
-		if (requestedFloat && actualFormat === "rgba8unorm") {
-			this._warnFloatColorFallback();
-		}
-		const internalFormat = actualFormat === "rgba8unorm" ? gl.RGBA8 : gl.RGBA16F;
-		const type = actualFormat === "rgba8unorm" ? gl.UNSIGNED_BYTE : gl.HALF_FLOAT;
+		const actualFormat = "rgba16float";
+		const internalFormat = gl.RGBA16F;
+		const type = gl.HALF_FLOAT;
 		gl.texImage2D(
 			gl.TEXTURE_2D,
 			0,
@@ -142,13 +135,5 @@ export class WebGLPostProcessServices {
 		result: PostProcessPassResult,
 	): PostProcessPassCompletion {
 		return this._bridge.completePass(request, result);
-	}
-
-	private _warnFloatColorFallback(): void {
-		const key = "webgl-hdr-float-unsupported";
-		Logger.warn(
-			`[${key}] EXT_color_buffer_float is unavailable; falling back to RGBA8 color, motion, and post-process attachments.`,
-			{ scope: "WebGLPostProcessServices", onceKey: key },
-		);
 	}
 }

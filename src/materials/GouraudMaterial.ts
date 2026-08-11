@@ -12,8 +12,12 @@ export class GouraudMaterial extends Material {
 		super({ ...params, shading: ShadingModel.Gouraud });
 		this.type = "Gouraud";
 		this.diffuse = params.diffuse || { r: 255, g: 255, b: 255 };
-		this.specular = params.specular || { r: 255, g: 255, b: 255 };
-		this.ambient = params.ambient || { r: 0, g: 0, b: 0 };
-		this.shininess = params.shininess || 32;
+		this.specular = params.specular || { r: 56, g: 56, b: 56 };
+		this.ambient = params.ambient || {
+			r: this.diffuse.r,
+			g: this.diffuse.g,
+			b: this.diffuse.b,
+		};
+		this.shininess = Math.max(params.shininess ?? 32, 0);
 	}
 }

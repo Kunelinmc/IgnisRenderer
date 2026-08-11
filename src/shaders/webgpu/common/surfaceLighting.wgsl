@@ -13,11 +13,15 @@ fn evaluateOpaquePhongLight(
 		return vec3<f32>(0.0);
 	}
 	let halfVector = safeNormalize(viewDirection + lightDirection, viewDirection);
-	let specular = pow(
-		max(dot(normal, halfVector), 0.0),
-		max(shininess, 0.0)
-	);
-	return radiance * visibility * (nDotL * albedo + specular * specularColor);
+	let vDotH = max(dot(viewDirection, halfVector), 0.0);
+	let fresnel = specularColor +
+		(vec3<f32>(1.0) - specularColor) * pow(1.0 - vDotH, 5.0);
+	let diffuseBRDF = (vec3<f32>(1.0) - fresnel) * albedo / PI;
+	let normalizedLobe =
+		((max(shininess, 0.0) + 8.0) / (8.0 * PI)) *
+		pow(max(dot(normal, halfVector), 0.0), max(shininess, 0.0));
+	let specularBRDF = fresnel * normalizedLobe;
+	return radiance * visibility * (diffuseBRDF + specularBRDF) * nDotL;
 }
 
 struct OpaquePBRSurfaceInput {

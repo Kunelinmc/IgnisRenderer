@@ -6,6 +6,18 @@ This document defines the current WebGL backend lifecycle, frame graph, resource
 
 ### Backend lifecycle and execution
 
+- `WebGLBackend.initialize()` must require `EXT_color_buffer_float`, a complete
+  `RGBA16F` framebuffer probe, and half- or full-float linear filtering.
+  Capability probing must complete before `_gl` or context-scoped services are
+  published.
+- A failed color-buffer probe must throw `WebGLCapabilityError` with code
+  `hdr-float-color-buffer-unavailable`. A failed filtering probe must use code
+  `hdr-float-linear-filtering-unavailable`.
+- Context restoration must repeat the same probes. Failure must leave the
+  backend context-lost and must not publish partially restored services.
+- `profile.capabilities.displayHDR` must remain `false`; strict internal HDR
+  does not imply floating-point canvas presentation.
+
 - `WebGLBackend` must report core `profile.capabilities.sh = true`.
 - `WebGLBackend` must report `profile.capabilities.clusteredLighting = true`.
 - `WebGLBackend` must report `profile.capabilities.postProcess = true`.
@@ -99,14 +111,15 @@ This document defines the current WebGL backend lifecycle, frame graph, resource
   `gNormalRoughMetal`, `gAlbedoAlpha`, and `gSpecular`. The latter three must
   expose `linear-rgb-alpha`, `normal-roughness-metallic.z/.w`, and
   `specular-color-factor.rgba` logical encodings through `LogicalGBufferBridge`.
-- `gNormalRoughMetal` and `gSpecular` must use `rgba16float` when float color
-  attachments are available and `rgba8unorm` otherwise; `gAlbedoAlpha` must
-  use `rgba8unorm`.
+- `gNormalRoughMetal` and `gSpecular` must use `rgba16float`;
+  `gAlbedoAlpha` may use `rgba8unorm`.
 - PBR `gSpecular` values must include the resolved `specularColorFactor` and
   `specularFactor`. Built-in opaque PBR, Phong, and Unlit draws may write the
   material payload; `ShaderMaterial` keeps its existing MRT compatibility path.
-- When `EXT_color_buffer_float` is unavailable, WebGL scene, motion-depth, and
-  post-process color attachments must fall back to `rgba8unorm`.
+- WebGL scene color, motion-depth, normal/specular material data, post-process
+  ping/pong/history, OIT accumulation, and transmission background targets must
+  use `rgba16float`. Required float allocations must fail rather than fall back
+  to normalized storage.
 - `WebGLBackend` must not expose public `postProcess`, `postProcessExecutor`,
   `postProcessAdapter`, or `createPostProcessGBufferBridge(context)` members.
 - The backend must validate pass dependency order per frame and must treat
@@ -162,8 +175,28 @@ This document defines the current WebGL backend lifecycle, frame graph, resource
   disable sampling for the frame without discarding prepared targets.
 - PBR materials with `transmissionFactor > 0` must be treated as transparent
   pass submissions even when `alphaMode` is `OPAQUE`.
-- WebGL PBR shading must consume transmission through `uPBR.w` and must modulate
-  composite alpha so transmissive surfaces do not render as fully opaque.
+- If any mesh packet in a frame uses transmission, the WebGL mesh-transparent
+  stage must disable weighted OIT and preserve global back-to-front packet
+  order. Each transmissive packet must be preceded by a copy of the current
+  scene color into a dedicated mipmapped `rgba16float` background texture.
+- Transmission must use the opaque linear-depth copy for a 16-step coarse ray
+  march followed by four binary-refinement steps. It must use world-space
+  thickness and model scale, Beer-Lambert attenuation, roughness-selected
+  background mips, environment fallback for misses, and total internal
+  reflection with zero transmission weight.
+- A transmission draw must disable blending and output its coverage composite
+  against the sampled current background so source-over blending cannot apply
+  the background twice.
+- The WebGL PBR material path must support the public specular, clearcoat,
+  sheen, transmission, thickness, iridescence, and anisotropy factors and maps.
+  Texture channels must follow glTF/KHR semantics: specular factor A, specular
+  color RGB, clearcoat R, clearcoat roughness G, sheen roughness A,
+  transmission R, thickness G, and anisotropy direction RG plus strength B.
+- Scene programs must own one variant-aware `WebGLSceneSamplerLayout` shared by
+  warmup and all binders. If an exact collision-free layout cannot fit the
+  active runtime limit, warmup or the first relevant draw must throw
+  `WebGLCapabilityError` with code `material-texture-unit-overflow`; the message
+  must include required, available, and all active sampler names.
 - `ShaderMaterial` custom WebGL scene shaders must resolve `webgl` GLSL
   `fragment-single` for `single` mode.
 - `ShaderMaterial` custom WebGL scene shaders must resolve `webgl` GLSL
@@ -307,9 +340,12 @@ bun tests/static/webgl/test_webgl_frame_graph_runtime.mjs
   texture allocation fails.
 - `webgl-sh-ambient-texture-upload-failed`: triggered when SH coefficient
   texture upload fails.
-- `webgl-hdr-float-unsupported`: triggered when `EXT_color_buffer_float` is
-  unavailable and WebGL falls back to `RGBA8` color, motion-depth, and
-  post-process attachments.
+- `hdr-float-color-buffer-unavailable`: thrown when float color-buffer support
+  or the `RGBA16F` completeness probe is unavailable.
+- `hdr-float-linear-filtering-unavailable`: thrown when neither half-float nor
+  float linear filtering is available.
+- `material-texture-unit-overflow`: thrown when the active scene/material
+  sampler set cannot be assigned without collision.
 - `webgl-gbuffer-material-semantics-unsupported`: triggered when an enabled
   material-semantic post-process requirement cannot use the five-target WebGL
   G-buffer because the runtime reports fewer than five draw buffers or color

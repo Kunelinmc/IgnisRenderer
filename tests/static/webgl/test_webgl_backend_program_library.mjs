@@ -70,6 +70,50 @@ function testProgramLibraryShaderMaterialCustomProgram() {
 	assert.equal(warnings.length, 0);
 }
 
+function testProgramLibraryPropagatesSamplerOverflowInWarnMode() {
+	const gl = createProgramCaptureGL();
+	gl.MAX_TEXTURE_IMAGE_UNITS = 0x8872;
+	gl.getParameter = (parameter) =>
+		parameter === gl.MAX_TEXTURE_IMAGE_UNITS ? 8 : 0;
+	const material = new ShaderMaterial({
+		name: "SamplerOverflowMaterial",
+		chunks: [
+			{
+				backend: "webgl",
+				language: "glsl",
+				stage: "vertex",
+				code: CUSTOM_WEBGL_VERTEX,
+			},
+			{
+				backend: "webgl",
+				language: "glsl",
+				stage: "fragment",
+				code: CUSTOM_WEBGL_FRAGMENT,
+			},
+		],
+		textureBindings: Array.from({ length: 9 }, (_, index) => ({
+			name: `texture-${index}`,
+			texture: null,
+			webglUniform: `uTexture${index}`,
+		})),
+	});
+	const library = createProgramLibrary(
+		gl,
+		() => {},
+		new ShaderRuntime({ mode: "warn" }),
+	);
+
+	assert.throws(
+		() => library.getSceneProgram(material),
+		(error) => {
+			assert.equal(error?.code, "material-texture-unit-overflow");
+			assert.match(error.message, /required=9/);
+			assert.match(error.message, /available=8/);
+			return true;
+		},
+	);
+}
+
 async function testProgramLibraryCachesBuiltinSceneVariants() {
 	const noMapVariant = createTestBuiltinSceneVariant();
 	const baseMapVariant = createTestBuiltinSceneVariant({
@@ -436,6 +480,7 @@ await runWebGLBackendFile([
 	testProgramLibraryCompileErrorMessage,
 	testProgramLibraryCompileErrorMapsSourceLine,
 	testProgramLibraryShaderMaterialCustomProgram,
+	testProgramLibraryPropagatesSamplerOverflowInWarnMode,
 	testProgramLibraryCachesBuiltinSceneVariants,
 	testProgramLibraryShaderMaterialIgnoresBuiltinVariant,
 	testProgramLibraryShaderMaterialCachesPerSceneTargetMode,

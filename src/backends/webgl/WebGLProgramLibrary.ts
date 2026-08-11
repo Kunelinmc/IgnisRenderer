@@ -3,6 +3,7 @@ import {
 	MAX_POINT_LIGHTS,
 	MAX_SPOT_LIGHTS,
 } from "../constants";
+import { WebGLCapabilityError } from "../../foundation/Error";
 import {
 	createWebGLSceneUniforms,
 	type WebGLSceneUniforms,
@@ -42,6 +43,10 @@ import {
 	type WebGLSceneDepthVariantDescriptor,
 	type WebGLSceneVariantDescriptor,
 } from "./WebGLSceneProgramVariants";
+import {
+	createWebGLSceneSamplerLayout,
+	type WebGLSceneSamplerLayout,
+} from "./WebGLSceneSamplerLayout";
 
 export type {
 	WebGLProgramCompileState,
@@ -84,6 +89,7 @@ export interface WebGLSceneProgram {
 	uniforms: WebGLSceneUniforms;
 	targetMode?: ShaderTargetMode;
 	colorOutputCount?: 1 | 3 | 5;
+	samplerLayout?: WebGLSceneSamplerLayout;
 }
 
 export interface WebGLEnvironmentProgram {
@@ -174,15 +180,15 @@ function resolveMaxFragmentTextureUnits(
 		!Number.isFinite(textureUnitParameter) ||
 		typeof gl.getParameter !== "function"
 	) {
-		return 0;
+		return 32;
 	}
 	try {
 		const textureUnits = gl.getParameter(textureUnitParameter);
-		return Number.isFinite(textureUnits) ?
+		return Number.isFinite(textureUnits) && textureUnits > 0 ?
 				Math.max(0, Math.floor(textureUnits))
-			:	0;
+			:	32;
 	} catch {
-		return 0;
+		return 32;
 	}
 }
 
@@ -258,12 +264,18 @@ export class WebGLProgramLibrary {
 	) {
 		this._gl = gl;
 		const maxFragmentTextureUnits = resolveMaxFragmentTextureUnits(gl);
+		const hasReportedTextureUnitLimit =
+			Number.isFinite(gl.MAX_TEXTURE_IMAGE_UNITS) &&
+			typeof gl.getParameter === "function" &&
+			Number(gl.getParameter(gl.MAX_TEXTURE_IMAGE_UNITS)) > 0;
 		this._enableShadowTransmittanceSampling =
+			hasReportedTextureUnitLimit &&
 			supportsShadowTransmittanceSampler(maxFragmentTextureUnits);
 		this._enableIrradianceProbeGridSampling =
+			hasReportedTextureUnitLimit &&
 			supportsIrradianceProbeGridSampler(
 				maxFragmentTextureUnits,
-				this._enableShadowTransmittanceSampling
+				this._enableShadowTransmittanceSampling,
 			);
 		let shaderRuntime: ShaderRuntime | null = null;
 		let shaderCompileStage: ShaderBackendCompileStage | null = null;
@@ -663,6 +675,7 @@ export class WebGLProgramLibrary {
 				this._getShaderMaterialSceneProgram(material, mode);
 			},
 			(error) => {
+				if (error instanceof WebGLCapabilityError) throw error;
 				if (!this._isWarnMode()) {
 					throw error;
 				}
@@ -781,6 +794,7 @@ export class WebGLProgramLibrary {
 				this._getShaderMaterialDepthPrepassProgram(material, mode);
 			},
 			(error) => {
+				if (error instanceof WebGLCapabilityError) throw error;
 				if (!this._isWarnMode()) {
 					throw error;
 				}
@@ -897,8 +911,10 @@ export class WebGLProgramLibrary {
 		const directiveTag = this._shaderCompileStage?.getCacheFingerprintTag() ?? "";
 		const limits = this._getSceneLightLimits();
 		let normalizedVariant = normalizeWebGLSceneVariantDescriptor(variant);
+		let useImplicitPreparedVariant = false;
 		if (!this._hasPreparedBuiltinSceneSources(limits, normalizedVariant)) {
 			normalizedVariant = normalizeWebGLSceneVariantDescriptor();
+			useImplicitPreparedVariant = true;
 		}
 		const cacheKey = this._createBuiltinSceneProgramCacheKey(
 			normalizedVariant,
@@ -908,14 +924,14 @@ export class WebGLProgramLibrary {
 		if (cached) {
 			return cached.program;
 		}
-		const sceneShaderSource = ShaderSource.get("webgl.scene.raw", {
-			limits,
-			variant: normalizedVariant,
-		});
-		const sceneCompositeSource = ShaderSource.get("webgl.scene.composite", {
-			limits,
-			variant: normalizedVariant,
-		});
+		const sourceParams = useImplicitPreparedVariant ?
+			{ limits }
+			: { limits, variant: normalizedVariant };
+		const sceneShaderSource = ShaderSource.get("webgl.scene.raw", sourceParams);
+		const sceneCompositeSource = ShaderSource.get(
+			"webgl.scene.composite",
+			sourceParams,
+		);
 		const variantKey = getWebGLSceneVariantKey(normalizedVariant);
 		const sceneProgram = this._createSceneProgram(
 			sceneShaderSource.vertex,
@@ -931,6 +947,9 @@ export class WebGLProgramLibrary {
 				variantKey,
 				sourceKind: "builtin-scene",
 			},
+			[],
+			[],
+			normalizedVariant,
 		);
 		sceneProgram.targetMode = normalizedVariant.output;
 		sceneProgram.colorOutputCount =
@@ -1058,6 +1077,7 @@ export class WebGLProgramLibrary {
 			sceneProgram.colorOutputCount =
 				sceneProgram.targetMode === "single" ? 1 : 3;
 		} catch (error) {
+			if (error instanceof WebGLCapabilityError) throw error;
 			if (!this._isWarnMode()) {
 				throw error;
 			}
@@ -1141,6 +1161,7 @@ export class WebGLProgramLibrary {
 				this._collectCustomUniforms(material),
 			);
 		} catch (error) {
+			if (error instanceof WebGLCapabilityError) throw error;
 			if (!this._isWarnMode()) {
 				throw error;
 			}
@@ -1202,6 +1223,7 @@ export class WebGLProgramLibrary {
 		fragmentMetadata?: ShaderCompileMetadata,
 		customSamplerUniforms: string[] = [],
 		customUniforms: string[] = [],
+		variant?: WebGLSceneVariantDescriptor,
 	): WebGLSceneProgram {
 		const program = this._createProgram(
 			vertexSource,
@@ -1210,15 +1232,25 @@ export class WebGLProgramLibrary {
 			vertexMetadata,
 			fragmentMetadata,
 		);
-		return {
-			program,
-			uniforms: createWebGLSceneUniforms(
-				this._gl,
+		try {
+			return {
 				program,
-				customSamplerUniforms,
-				customUniforms
-			),
-		};
+				uniforms: createWebGLSceneUniforms(
+					this._gl,
+					program,
+					customSamplerUniforms,
+					customUniforms
+				),
+				samplerLayout: createWebGLSceneSamplerLayout(
+					resolveMaxFragmentTextureUnits(this._gl),
+					variant,
+					customSamplerUniforms,
+				),
+			};
+		} catch (error) {
+			this._gl.deleteProgram(program);
+			throw error;
+		}
 	}
 
 	public getEnvironmentProgram(): WebGLEnvironmentProgram {

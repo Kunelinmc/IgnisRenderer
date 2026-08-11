@@ -31,15 +31,26 @@ export interface WebGLSceneMaterialVariant {
 	model: WebGLSceneMaterialModel;
 	baseMap: boolean;
 	metallicRoughnessMap: boolean;
+	specularMap: boolean;
+	specularColorMap: boolean;
 	normalMap: boolean;
 	emissiveMap: boolean;
 	occlusionMap: boolean;
+	clearcoat: boolean;
+	clearcoatMap: boolean;
+	clearcoatRoughnessMap: boolean;
+	clearcoatNormalMap: boolean;
+	sheen: boolean;
+	sheenColorMap: boolean;
+	sheenRoughnessMap: boolean;
 	iridescence: boolean;
 	iridescenceMap: boolean;
 	iridescenceThicknessMap: boolean;
 	anisotropy: boolean;
 	anisotropyMap: boolean;
 	transmission: boolean;
+	transmissionMap: boolean;
+	thicknessMap: boolean;
 	alphaMask: boolean;
 }
 
@@ -80,15 +91,26 @@ export const WEBGL_FULL_SCENE_VARIANT: WebGLSceneVariantDescriptor = {
 		model: "full",
 		baseMap: true,
 		metallicRoughnessMap: true,
+		specularMap: true,
+		specularColorMap: true,
 		normalMap: true,
 		emissiveMap: true,
 		occlusionMap: true,
+		clearcoat: true,
+		clearcoatMap: true,
+		clearcoatRoughnessMap: true,
+		clearcoatNormalMap: true,
+		sheen: true,
+		sheenColorMap: true,
+		sheenRoughnessMap: true,
 		iridescence: true,
 		iridescenceMap: true,
 		iridescenceThicknessMap: true,
 		anisotropy: true,
 		anisotropyMap: true,
 		transmission: true,
+		transmissionMap: true,
+		thicknessMap: true,
 		alphaMask: true,
 	},
 };
@@ -129,9 +151,19 @@ export function normalizeWebGLSceneVariantDescriptor(
 			baseMap: variant.material.baseMap === true,
 			metallicRoughnessMap:
 				variant.material.metallicRoughnessMap === true,
+			specularMap: variant.material.specularMap === true,
+			specularColorMap: variant.material.specularColorMap === true,
 			normalMap: variant.material.normalMap === true,
 			emissiveMap: variant.material.emissiveMap === true,
 			occlusionMap: variant.material.occlusionMap === true,
+			clearcoat: variant.material.clearcoat === true,
+			clearcoatMap: variant.material.clearcoatMap === true,
+			clearcoatRoughnessMap:
+				variant.material.clearcoatRoughnessMap === true,
+			clearcoatNormalMap: variant.material.clearcoatNormalMap === true,
+			sheen: variant.material.sheen === true,
+			sheenColorMap: variant.material.sheenColorMap === true,
+			sheenRoughnessMap: variant.material.sheenRoughnessMap === true,
 			iridescence: variant.material.iridescence === true,
 			iridescenceMap: variant.material.iridescenceMap === true,
 			iridescenceThicknessMap:
@@ -139,6 +171,8 @@ export function normalizeWebGLSceneVariantDescriptor(
 			anisotropy: variant.material.anisotropy === true,
 			anisotropyMap: variant.material.anisotropyMap === true,
 			transmission: variant.material.transmission === true,
+			transmissionMap: variant.material.transmissionMap === true,
+			thicknessMap: variant.material.thicknessMap === true,
 			alphaMask: variant.material.alphaMask === true,
 		},
 	};
@@ -165,15 +199,26 @@ export function getWebGLSceneVariantKey(
 		`mat:${material.model}`,
 		`base:${bit(material.baseMap)}`,
 		`mr:${bit(material.metallicRoughnessMap)}`,
+		`spm:${bit(material.specularMap)}`,
+		`spcm:${bit(material.specularColorMap)}`,
 		`norm:${bit(material.normalMap)}`,
 		`emis:${bit(material.emissiveMap)}`,
 		`occ:${bit(material.occlusionMap)}`,
+		`cc:${bit(material.clearcoat)}`,
+		`ccm:${bit(material.clearcoatMap)}`,
+		`ccrm:${bit(material.clearcoatRoughnessMap)}`,
+		`ccnm:${bit(material.clearcoatNormalMap)}`,
+		`sheen:${bit(material.sheen)}`,
+		`shcm:${bit(material.sheenColorMap)}`,
+		`shrm:${bit(material.sheenRoughnessMap)}`,
 		`iri:${bit(material.iridescence)}`,
 		`irim:${bit(material.iridescenceMap)}`,
 		`irit:${bit(material.iridescenceThicknessMap)}`,
 		`ani:${bit(material.anisotropy)}`,
 		`anim:${bit(material.anisotropyMap)}`,
 		`trans:${bit(material.transmission)}`,
+		`transm:${bit(material.transmissionMap)}`,
+		`thickm:${bit(material.thicknessMap)}`,
 		`mask:${bit(material.alphaMask)}`,
 	].join("|");
 }

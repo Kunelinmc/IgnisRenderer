@@ -99,7 +99,7 @@ function testPoint() {
 		"PointLight at distance 0 should not be null"
 	);
 	assertColorClose(atSource.color, { r: 10, g: 10, b: 10 });
-	assert.ok(Math.abs((atSource.intensity ?? 0) - 1) < 1e-6);
+	assert.ok(Math.abs((atSource.intensity ?? 0) - 10000) < 1e-6);
 
 	const closer = evaluateLightContribution(light, {
 		position: { x: 0, y: 5, z: 0 },

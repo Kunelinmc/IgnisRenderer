@@ -46,6 +46,7 @@ contracts when changing the engine.
 
 - [WebGPU bindings reference](reference/webgpu-bindings.md)
 - [Migration guidance](migrations/README.md)
+- [WebGL physical lighting migration](migrations/webgl-physical-lighting.md)
 - [Contributing documentation](contributing/README.md)
 
 ## Documentation Policy

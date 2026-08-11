@@ -1524,11 +1524,9 @@ function toLinearColor(
 }
 
 function computeDistanceAttenuation(distance: number, range: number): number {
-	if (distance <= MIN_LIGHT_DISTANCE) return 1;
 	const normalized = clamp(distance / Math.max(range, MIN_LIGHT_DISTANCE), 0, 1);
-	const inverseSquare = 1 / Math.max(distance * distance, MIN_LIGHT_DISTANCE);
-	const rangeFade = 1 - normalized * normalized;
-	return inverseSquare * rangeFade * rangeFade * 128;
+	const rangeFade = clamp(1 - normalized ** 4, 0, 1);
+	return (rangeFade * rangeFade) / Math.max(distance * distance, 0.0001);
 }
 
 function smoothstep(edge0: number, edge1: number, x: number): number {

@@ -16,10 +16,11 @@ export class PointLight extends Light<LightType.Point> {
 	public color: RGB;
 
 	/**
-	 * Scalar strength applied to point light contribution before attenuation.
+	 * Candela-equivalent RGB luminous intensity before inverse-square attenuation.
 	 */
 	public intensity: number;
 
+	/** Finite influence range in world-space meters. */
 	public range: number;
 
 	constructor(params: PointLightParams = {}) {

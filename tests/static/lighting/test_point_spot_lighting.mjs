@@ -33,7 +33,7 @@ function testPointLightEdgeCases() {
 		"Contribution at distance 0 should not be null"
 	);
 	assertColorClose(atSource.color, { r: 100, g: 100, b: 100 });
-	assert.ok(Math.abs((atSource.intensity ?? 0) - 1) < 1e-6);
+	assert.ok(Math.abs((atSource.intensity ?? 0) - 10000) < 1e-6);
 	assert.ok(atSource.direction, "Should have a direction even at distance 0");
 
 	// Case 2: Just inside range
@@ -57,7 +57,21 @@ function testPointLightEdgeCases() {
 	});
 	assert.notEqual(atNewSource, null);
 	assertColorClose(atNewSource.color, { r: 100, g: 100, b: 100 });
-	assert.ok(Math.abs((atNewSource.intensity ?? 0) - 1) < 1e-6);
+	assert.ok(Math.abs((atNewSource.intensity ?? 0) - 10000) < 1e-6);
+
+	const oneMeter = evaluateLightContribution(light, {
+		position: { x: 1, y: 0, z: 0 },
+	});
+	const twoMeters = evaluateLightContribution(light, {
+		position: { x: 2, y: 0, z: 0 },
+	});
+	assert.notEqual(oneMeter, null);
+	assert.notEqual(twoMeters, null);
+	const inverseSquareRatio = oneMeter.intensity / twoMeters.intensity;
+	assert.ok(
+		Math.abs(inverseSquareRatio - 4) / 4 < 0.01,
+		`Expected inverse-square ratio near 4, got ${inverseSquareRatio}`
+	);
 }
 
 function testSpotLightEdgeCases() {
@@ -77,7 +91,7 @@ function testSpotLightEdgeCases() {
 	});
 	assert.notEqual(atSource, null);
 	assertColorClose(atSource.color, { r: 100, g: 100, b: 100 });
-	assert.ok(Math.abs((atSource.intensity ?? 0) - 1) < 1e-6);
+	assert.ok(Math.abs((atSource.intensity ?? 0) - 10000) < 1e-6);
 
 	// Case 2: On the axis
 	const onAxis = evaluateLightContribution(light, {

@@ -9,6 +9,13 @@ vec3 evalPBRLight(
 	float transmission,
 	vec3 f0,
 	float nDotV,
+	vec3 energyCompensation,
+	vec3 volumeAttenuation,
+	float clearcoat,
+	float clearcoatRoughness,
+	vec3 clearcoatNormal,
+	vec3 sheenColor,
+	float sheenRoughness,
 	float anisotropyStrength,
 	vec3 anisotropyTangent,
 	vec3 anisotropyBitangent,
@@ -16,10 +23,25 @@ vec3 evalPBRLight(
 	float iridescenceThickness,
 	float iridescenceIor
 ) {
-	float nDotL = max(dot(pbrNormal, lightDir), 0.0);
-	if (nDotL <= 0.0) {
+	float nDotLRaw = dot(pbrNormal, lightDir);
+	float nDotL = max(nDotLRaw, 0.0);
+	float nDotLTransmission = max(-nDotLRaw, 0.0);
+	if (nDotL <= 0.0 && nDotLTransmission <= 0.0) {
 		return vec3(0.0);
 	}
+	vec3 fView = resolveIridescenceFresnel(
+		nDotV, f0, iridescence, iridescenceThickness, iridescenceIor
+	);
+	vec3 transmittedDiffuse =
+		(vec3(1.0) - fView) * (1.0 - metalness) * transmission *
+		volumeAttenuation * albedo / PI;
+	float clearcoatViewFresnel = clearcoat > 0.0 ?
+		fresnelSchlickScalar(max(dot(clearcoatNormal, viewDir), PBR_MIN_NDOTV), 0.04)
+		: 0.0;
+	vec3 transmitted = transmittedDiffuse *
+		(1.0 - clearcoatViewFresnel * clearcoat) *
+		radiance * nDotLTransmission;
+	if (nDotL <= 0.0) return transmitted;
 
 	vec3 halfVector = safeNormalize(viewDir + lightDir, viewDir);
 	vec3 fresnel = resolveIridescenceFresnel(
@@ -59,12 +81,51 @@ vec3 evalPBRLight(
 	specular = (ndf * geometry * fresnel) / denominator;
 #endif
 
+	specular *= energyCompensation;
 	vec3 kd =
 		diffuseFresnelWeight(fresnel, iridescence) *
 		(1.0 - metalness) *
 		(1.0 - transmission);
 	vec3 diffuse = (kd * albedo) / PI;
-	return (diffuse + specular) * radiance * nDotL;
+	float clearcoatFresnel = 0.0;
+	vec3 clearcoatSpecular = vec3(0.0);
+	if (clearcoat > 0.0) {
+		float ncDotL = max(dot(clearcoatNormal, lightDir), 0.0);
+		float ncDotV = max(dot(clearcoatNormal, viewDir), PBR_MIN_NDOTV);
+		vec3 clearcoatHalf = safeNormalize(viewDir + lightDir, viewDir);
+		clearcoatFresnel = fresnelSchlickScalar(
+			max(dot(clearcoatHalf, viewDir), 0.0), 0.04
+		);
+		float clearcoatNdf = distributionGGX(
+			clearcoatNormal, clearcoatHalf, clearcoatRoughness
+		);
+		float clearcoatGeometry = geometrySmithClearcoat(
+			ncDotV, ncDotL, clearcoatRoughness
+		);
+		clearcoatSpecular = vec3(
+			clearcoatNdf * clearcoatGeometry * clearcoatFresnel /
+			max(4.0 * ncDotV * ncDotL, 0.0001)
+		) * clearcoat;
+	}
+	vec3 sheenSpecular = vec3(0.0);
+	vec3 sheenAttenuation = vec3(1.0);
+	if (max(max(sheenColor.r, sheenColor.g), sheenColor.b) > EPSILON) {
+		float nDotH = max(dot(pbrNormal, halfVector), 0.0);
+		sheenSpecular = sheenColor *
+			distributionCharlie(nDotH, max(sheenRoughness, 0.04)) *
+			visibilityAshikhmin(nDotL, nDotV);
+		sheenAttenuation = max(
+			vec3(0.0), vec3(1.0) - fresnelSchlick(
+				max(dot(halfVector, viewDir), 0.0), sheenColor
+			)
+		);
+	}
+	vec3 baseAttenuation =
+		(vec3(1.0) - vec3(clearcoatFresnel * clearcoat)) * sheenAttenuation;
+	vec3 reflected =
+		((diffuse + specular) * baseAttenuation +
+		clearcoatSpecular + sheenSpecular) * radiance * nDotL;
+	return reflected + transmitted;
 }
 
 vec3 shadePBR(
@@ -75,7 +136,15 @@ vec3 shadePBR(
 	float roughness,
 	float metalness,
 	float reflectance,
+	float specularFactor,
+	vec3 specularColor,
 	float transmission,
+	float resolvedThickness,
+	float clearcoat,
+	float clearcoatRoughness,
+	vec3 clearcoatNormal,
+	vec3 sheenColor,
+	float sheenRoughness,
 	float anisotropyStrength,
 	vec3 anisotropyTangent,
 	vec3 anisotropyBitangent,
@@ -86,7 +155,7 @@ vec3 shadePBR(
 ) {
 #if WEBGL_MATERIAL_TRANSMISSION || WEBGL_MATERIAL_MODEL_FULL
 	float ior = max(uTransmissionVolume.x, 1.0);
-	float thickness = max(uTransmissionVolume.y, 0.0);
+	float thickness = max(resolvedThickness, 0.0);
 	float attenuationDistance = uTransmissionVolume.z;
 	vec3 attenuationColor = clamp(uAttenuationColor.rgb, vec3(0.0001), vec3(1.0));
 #else
@@ -100,9 +169,22 @@ vec3 shadePBR(
 		vec3 absorb = -log(attenuationColor) / attenuationDistance;
 		volumeAttenuation = exp(-absorb * thickness);
 	}
-	float dielectricF0 = 0.16 * reflectance * reflectance;
-	vec3 f0 = mix(vec3(dielectricF0), albedo, metalness);
+	vec3 dielectricF0 = vec3(0.16 * reflectance * reflectance) *
+		specularColor * specularFactor;
+	vec3 f0 = mix(dielectricF0, albedo, metalness);
 	float nDotV = max(dot(pbrNormal, viewDir), PBR_MIN_NDOTV);
+	vec3 energyCompensation = vec3(1.0);
+#if WEBGL_SCENE_ENVIRONMENT_SPECULAR
+	vec2 compensationBRDF = texture(
+		uBrdfLUT,
+		vec2(clamp(nDotV, 0.0, 0.999999), min(sqrt(roughness), 0.999999))
+	).rg;
+	float singleScatterEnergy = compensationBRDF.x + compensationBRDF.y;
+	if (singleScatterEnergy > 0.0 && singleScatterEnergy < 1.0) {
+		energyCompensation += clamp(f0, vec3(0.0), vec3(1.0)) *
+			(1.0 / singleScatterEnergy - 1.0);
+	}
+#endif
 	vec3 reflectionDir;
 #if WEBGL_MATERIAL_ANISOTROPY || WEBGL_MATERIAL_MODEL_FULL
 	if (anisotropyStrength > EPSILON) {
@@ -144,8 +226,8 @@ vec3 shadePBR(
 	} else
 #endif
 	if (ambientBase.x + ambientBase.y + ambientBase.z <= 0.0) {
-		ambientBase = vec3(PBR_AMBIENT_FALLBACK_LINEAR);
-		specularAmbientBase = ambientBase;
+		ambientBase = vec3(0.0);
+		specularAmbientBase = vec3(0.0);
 	}
 	vec3 ambientFresnel = resolveIridescenceFresnel(
 		nDotV,
@@ -154,7 +236,7 @@ vec3 shadePBR(
 		iridescenceThickness,
 		iridescenceIor
 	);
-	vec3 ambientDiffuse = ambientBase *
+	vec3 ambientDiffuse = (ambientBase / PI) *
 		albedo *
 		diffuseFresnelWeight(ambientFresnel, iridescence) *
 		(1.0 - metalness) *
@@ -171,13 +253,28 @@ vec3 shadePBR(
 			uBrdfLUT,
 			vec2(clamp(nDotV, 0.0, 1.0), sqrt(roughness))
 		).rg;
-		ambientSpecular = prefiltered * (ambientFresnel * brdf.x + vec3(brdf.y));
+		vec3 splitSumFresnel =
+			iridescence > EPSILON ? ambientFresnel : f0;
+		ambientSpecular = prefiltered * (splitSumFresnel * brdf.x + vec3(brdf.y));
 	} else
 #endif
 	{
 		float specularAmbientFactor = max(PBR_SPEC_FALLBACK, (1.0 - roughness) * 0.5);
 		ambientSpecular = specularAmbientBase * ambientFresnel * specularAmbientFactor;
 	}
+	float ambientClearcoatFresnel = clearcoat > 0.0 ?
+		fresnelSchlickScalar(
+			max(dot(clearcoatNormal, viewDir), PBR_MIN_NDOTV), 0.04
+		) : 0.0;
+	vec3 ambientSheenFresnel = fresnelSchlick(nDotV, sheenColor);
+	vec3 ambientBaseAttenuation =
+		(vec3(1.0) - vec3(ambientClearcoatFresnel * clearcoat)) *
+		max(vec3(0.0), vec3(1.0) - ambientSheenFresnel);
+	vec3 ambientClearcoat = specularAmbientBase *
+		ambientClearcoatFresnel * clearcoat *
+		max(PBR_SPEC_FALLBACK, (1.0 - clearcoatRoughness) * 0.5);
+	vec3 ambientSheen = (ambientBase / PI) * sheenColor *
+		(1.0 - 0.5 * sheenRoughness);
 	vec3 ambientTransmission = vec3(0.0);
 	if (transmission > EPSILON) {
 		float cosThetaI = dot(viewDir, pbrNormal);
@@ -262,6 +359,13 @@ vec3 shadePBR(
 			transmission,
 			f0,
 			nDotV,
+			energyCompensation,
+			volumeAttenuation,
+			clearcoat,
+			clearcoatRoughness,
+			clearcoatNormal,
+			sheenColor,
+			sheenRoughness,
 			anisotropyStrength,
 			anisotropyTangent,
 			anisotropyBitangent,
@@ -315,6 +419,13 @@ vec3 shadePBR(
 						transmission,
 						f0,
 						nDotV,
+						energyCompensation,
+						volumeAttenuation,
+						clearcoat,
+						clearcoatRoughness,
+						clearcoatNormal,
+						sheenColor,
+						sheenRoughness,
 						anisotropyStrength,
 						anisotropyTangent,
 						anisotropyBitangent,
@@ -359,6 +470,13 @@ vec3 shadePBR(
 						transmission,
 						f0,
 						nDotV,
+						energyCompensation,
+						volumeAttenuation,
+						clearcoat,
+						clearcoatRoughness,
+						clearcoatNormal,
+						sheenColor,
+						sheenRoughness,
 						anisotropyStrength,
 						anisotropyTangent,
 						anisotropyBitangent,
@@ -395,6 +513,13 @@ vec3 shadePBR(
 				transmission,
 				f0,
 				nDotV,
+				energyCompensation,
+				volumeAttenuation,
+				clearcoat,
+				clearcoatRoughness,
+				clearcoatNormal,
+				sheenColor,
+				sheenRoughness,
 				anisotropyStrength,
 				anisotropyTangent,
 				anisotropyBitangent,
@@ -447,6 +572,13 @@ vec3 shadePBR(
 				transmission,
 				f0,
 				nDotV,
+				energyCompensation,
+				volumeAttenuation,
+				clearcoat,
+				clearcoatRoughness,
+				clearcoatNormal,
+				sheenColor,
+				sheenRoughness,
 				anisotropyStrength,
 				anisotropyTangent,
 				anisotropyBitangent,
@@ -457,7 +589,10 @@ vec3 shadePBR(
 		}
 	}
 
-	vec3 ambient = (ambientDiffuse + ambientSpecular + ambientTransmission) *
+	vec3 ambient = (
+		(ambientDiffuse + ambientSpecular) * ambientBaseAttenuation +
+		ambientClearcoat + ambientSheen + ambientTransmission
+	) *
 		clamp(occlusion, 0.0, 1.0);
 	return ambient + directLight;
 }

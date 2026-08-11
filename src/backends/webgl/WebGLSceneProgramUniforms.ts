@@ -56,6 +56,7 @@ export class WebGLSceneMaterialUniforms {
 	public readonly attenuationColor: WebGLSceneUniformLocation;
 	public readonly anisotropy: WebGLSceneUniformLocation;
 	public readonly phong: WebGLSceneUniformLocation;
+	public readonly phongAmbient: WebGLSceneUniformLocation;
 	public readonly alpha: WebGLSceneUniformLocation;
 	public readonly oitPassMode: WebGLSceneUniformLocation;
 
@@ -78,6 +79,7 @@ export class WebGLSceneMaterialUniforms {
 		this.attenuationColor = get("uAttenuationColor");
 		this.anisotropy = get("uAnisotropy");
 		this.phong = get("uPhong");
+		this.phongAmbient = get("uPhongAmbient");
 		this.alpha = get("uAlpha");
 		this.oitPassMode = get("uOITPassMode");
 	}
@@ -124,6 +126,7 @@ export class WebGLSceneMaterialTextureUniforms {
 	public readonly iridescenceThicknessMapTransformA: WebGLSceneUniformLocation;
 	public readonly iridescenceThicknessMapTransformB: WebGLSceneUniformLocation;
 	public readonly hasAnisotropyMap: WebGLSceneUniformLocation;
+	public readonly anisotropyMap: WebGLSceneUniformLocation;
 	public readonly anisotropyMapUV: WebGLSceneUniformLocation;
 	public readonly anisotropyMapTransformA: WebGLSceneUniformLocation;
 	public readonly anisotropyMapTransformB: WebGLSceneUniformLocation;
@@ -177,10 +180,47 @@ export class WebGLSceneMaterialTextureUniforms {
 		this.iridescenceThicknessMapTransformB = get(
 			"uIridescenceThicknessMapTransformB"
 		);
+		this.anisotropyMap = get("uAnisotropyMap");
 		this.hasAnisotropyMap = get("uHasAnisotropyMap");
 		this.anisotropyMapUV = get("uAnisotropyMapUV");
 		this.anisotropyMapTransformA = get("uAnisotropyMapTransformA");
 		this.anisotropyMapTransformB = get("uAnisotropyMapTransformB");
+	}
+}
+
+export class WebGLScenePBRExtensionUniforms {
+	public readonly pbrExtensionUniforms: Readonly<
+		Record<string, WebGLSceneUniformLocation>
+	>;
+
+	public constructor(gl: WebGL2RenderingContext, program: WebGLProgram) {
+		const names = [
+			"uSpecularMapTransformA", "uSpecularMapTransformB",
+			"uSpecularColorMapTransformA", "uSpecularColorMapTransformB",
+			"uClearcoat", "uClearcoatMap", "uHasClearcoatMap",
+			"uClearcoatMapUV", "uClearcoatMapTransformA", "uClearcoatMapTransformB",
+			"uClearcoatRoughnessMap", "uHasClearcoatRoughnessMap",
+			"uClearcoatRoughnessMapUV", "uClearcoatRoughnessMapTransformA",
+			"uClearcoatRoughnessMapTransformB", "uClearcoatNormalMap",
+			"uHasClearcoatNormalMap", "uClearcoatNormalMapUV",
+			"uClearcoatNormalMapTransformA", "uClearcoatNormalMapTransformB",
+			"uSheen", "uSheenColorMap", "uHasSheenColorMap", "uSheenColorMapUV",
+			"uSheenColorMapTransformA", "uSheenColorMapTransformB",
+			"uSheenRoughnessMap", "uHasSheenRoughnessMap",
+			"uSheenRoughnessMapUV", "uSheenRoughnessMapTransformA",
+			"uSheenRoughnessMapTransformB", "uTransmissionMap",
+			"uHasTransmissionMap", "uTransmissionMapUV",
+			"uTransmissionMapTransformA", "uTransmissionMapTransformB",
+			"uThicknessMap", "uHasThicknessMap", "uThicknessMapUV",
+			"uThicknessMapTransformA", "uThicknessMapTransformB",
+			"uTransmissionBackgroundMap", "uHasTransmissionBackgroundMap",
+			"uTransmissionBackgroundInvSize",
+			"uTransmissionModelScale",
+			"uTransmissionDepthMap", "uHasTransmissionDepthMap",
+		] as const;
+		const uniforms: Record<string, WebGLSceneUniformLocation> = {};
+		for (const name of names) uniforms[name] = gl.getUniformLocation(program, name);
+		this.pbrExtensionUniforms = uniforms;
 	}
 }
 
@@ -458,6 +498,7 @@ export type WebGLSceneUniforms =
 	WebGLSceneFrameUniforms &
 	WebGLSceneMaterialUniforms &
 	WebGLSceneMaterialTextureUniforms &
+	WebGLScenePBRExtensionUniforms &
 	WebGLSceneEnvironmentUniforms &
 	WebGLSceneLightUniforms &
 	WebGLSceneShadowUniforms &
@@ -481,6 +522,7 @@ export function createWebGLSceneUniforms(
 		new WebGLSceneFrameUniforms(gl, program),
 		new WebGLSceneMaterialUniforms(gl, program),
 		new WebGLSceneMaterialTextureUniforms(gl, program),
+		new WebGLScenePBRExtensionUniforms(gl, program),
 		new WebGLSceneEnvironmentUniforms(gl, program),
 		new WebGLSceneLightUniforms(gl, program),
 		new WebGLSceneShadowUniforms(gl, program),

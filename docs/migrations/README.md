@@ -172,6 +172,8 @@ window.
 
 ## Related Documents
 
+- [WebGL physical lighting migration](webgl-physical-lighting.md)
+
 - [Renderer guide](../public/renderer.md)
 - [Renderer contract](../contracts/renderer.md)
 - [Lighting contract](../contracts/lighting.md)

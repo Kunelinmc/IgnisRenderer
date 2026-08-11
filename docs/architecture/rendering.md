@@ -58,6 +58,12 @@ Backend-specific packing is private, while logical semantics such as position,
 normal, motion, roughness, metallic, and specular remain explicit at shared
 boundaries.
 
+WebGL uses a strict internal HDR pipeline even though its presentation remains
+SDR. Scene, post-process, OIT, and transmission intermediates retain linear
+`rgba16float` radiance until exposure and ACES tone mapping. A backend that
+cannot create and linearly filter those resources is unavailable rather than a
+different normalized-color renderer.
+
 ## Shader Ownership
 
 Shader sources are stored by backend applicability under `src/shaders/`.
@@ -76,6 +82,12 @@ and shader data contracts.
 Environment prefiltering is a standalone workflow owned by `IBLPrefilter` and
 its CPU, worker, WebGPU, or WebGL executor. Renderer frame scheduling does not
 own environment bake work.
+
+Public analytical lights share meter-based geometry and physical-unit
+semantics across backends. SH stores radiance; the consuming BRDF owns the
+Lambertian `1 / PI` factor. WebGL transmissive packets remain sorted scene
+work: the frame graph snapshots accumulated scene color before each packet so
+nearer surfaces can refract already-composited farther transparent surfaces.
 
 ## Post-Processing
 
