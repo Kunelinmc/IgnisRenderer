@@ -118,6 +118,7 @@ async function testGetRequiresPrepare() {
 
 async function testWebGLSceneVariants() {
 	ShaderSource.clearCache();
+	assert.ok(!WEBGL_SHADER_PARTS.includes("sceneFragment"));
 	await ShaderSource.prepareMany([
 		...WEBGL_SHADER_PARTS.flatMap((part) => [
 			{ key: `webgl.part.${part}.raw` },
@@ -177,6 +178,12 @@ async function testWebGLSceneVariants() {
 		)
 	);
 	assert.ok(!raw.fragment.includes("__MAX_DIRECTIONAL_LIGHTS__"));
+	assert.ok(
+		raw.fragment.includes("vec3 calculateIrradianceFromSH(vec3 normal)")
+	);
+	assert.ok(
+		raw.fragment.includes("vec4 sampleBlendedLocalLightProbeIrradiance(")
+	);
 	assert.ok(!raw.fragment.includes("WEBGL_SHADOW_TRANSMITTANCE 1"));
 	assert.ok(
 		withShadowTransmittance.fragment.includes(

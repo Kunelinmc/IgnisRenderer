@@ -31,10 +31,11 @@ This document defines shader source ownership, composition, diagnostics, and cus
   `params.variant` descriptor. Renderer and material public APIs must not
   expose this descriptor; WebGL frame execution derives it from current
   frame, light, target, and built-in material state.
-- WebGL scene fragment source may be assembled from multiple internal GLSL
-  parts. `webgl.scene.composite.fragment.sourceMap.segments` may therefore
-  contain one segment per internal part plus generated define or fallback
-  segments.
+- WebGL scene fragment source must be assembled from the internal GLSL parts
+  listed by `WEBGL_SCENE_FRAGMENT_SHADER_FILES`. The source registry must not
+  retain or preload a monolithic `sceneFragment` part.
+  `webgl.scene.composite.fragment.sourceMap.segments` may contain one segment
+  per internal part plus generated define or fallback segments.
 - WebGL scene sources must leave light-count placeholders in source text using
   `__WEBGL_MAX_DIRECTIONAL_LIGHTS__`, `__WEBGL_MAX_POINT_LIGHTS__`, and
   `__WEBGL_MAX_SPOT_LIGHTS__`. Clustered fragment loops must use

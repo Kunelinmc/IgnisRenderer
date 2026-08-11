@@ -4,7 +4,6 @@ type ImportMetaGlobLoaderMap = Record<string, () => Promise<string>>;
 
 export type WebGLShaderPart =
 	| "sceneVertex"
-	| "sceneFragment"
 	| "sceneDepthPrepassVertex"
 	| "sceneDepthPrepassFragment"
 	| "environmentVertex"
@@ -52,7 +51,6 @@ export type WebGLSceneFragmentPart =
 
 export const WEBGL_SHADER_PARTS: readonly WebGLShaderPart[] = [
 	"sceneVertex",
-	"sceneFragment",
 	"sceneDepthPrepassVertex",
 	"sceneDepthPrepassFragment",
 	"environmentVertex",
@@ -101,13 +99,10 @@ export const WEBGL_SCENE_FRAGMENT_PARTS: readonly WebGLSceneFragmentPart[] = [
 ];
 
 export const WEBGL_PIPELINE_SHADER_PARTS: readonly WebGLShaderPart[] =
-	WEBGL_SHADER_PARTS.filter(
-		(part) => part !== "sceneVertex" && part !== "sceneFragment"
-	);
+	WEBGL_SHADER_PARTS.filter((part) => part !== "sceneVertex");
 
 export const WEBGL_SHADER_FILES: Record<WebGLShaderPart, string> = {
 	sceneVertex: "./webgl/scene/sceneVertex.glsl",
-	sceneFragment: "./webgl/scene/sceneFragment.glsl",
 	sceneDepthPrepassVertex: "./webgl/scene/sceneDepthPrepassVertex.glsl",
 	sceneDepthPrepassFragment: "./webgl/scene/sceneDepthPrepassFragment.glsl",
 	environmentVertex: "./webgl/environment/environmentVertex.glsl",
