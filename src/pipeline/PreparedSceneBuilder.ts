@@ -33,6 +33,8 @@ export interface PreparedSceneBuildOptions {
 	viewportHeight?: number;
 	occlusionCullingOptions?: NormalizedOcclusionCullingOptions;
 	occlusionVisibilityProvider?: OcclusionVisibilityProvider | null;
+	/** @internal Scene whose spatial index may accelerate secondary-view culling. */
+	visibilityScene?: Scene | null;
 }
 
 export interface PreparedSceneBuildSource {
@@ -52,7 +54,8 @@ export class PreparedSceneBuilder {
 	 * @param source - Prepared scene whose mesh instances and shared scene state
 	 * are reused as the rebuild source.
 	 * @param camera - Camera used for frustum culling and packet depth sorting.
-	 * @param options - Optional occlusion inputs for the rebuilt camera view.
+	 * @param options - Optional visibility acceleration and occlusion inputs for
+	 * the rebuilt camera view.
 	 * @returns A prepared scene sharing source scene metadata but with packets
 	 * rebuilt for `camera`.
 	 * @sideEffects None. The source prepared scene is not mutated.
@@ -68,22 +71,41 @@ export class PreparedSceneBuilder {
 		const cameraVisibleMeshInstances = this._resolveVisibleMeshInstances(
 			renderableMeshInstances,
 			camera,
-			null
+			options.visibilityScene ?? null
 		);
-		return this._buildFromMeshInstances({
-			meshInstances: source.meshInstances,
-			renderableMeshInstances,
-			cameraVisibleMeshInstances,
+		const opaquePackets: DrawPacket[] = [];
+		const transparentPackets: DrawPacket[] = [];
+		const reflectivePackets: DrawPacket[] = [];
+		for (const meshInstance of renderableMeshInstances) {
+			if (!cameraVisibleMeshInstances.has(meshInstance)) {
+				continue;
+			}
+			for (const packet of this._buildMeshPackets(meshInstance, camera)) {
+				this._appendViewPacket(
+					packet,
+					opaquePackets,
+					transparentPackets,
+					reflectivePackets
+				);
+			}
+		}
+		const viewState = this._finalizeViewPackets(
+			opaquePackets,
+			transparentPackets,
 			camera,
-			sceneBounds: source.sceneBounds,
-			environment: source.environment,
-			lights: source.lights,
-			particleSystems: source.particleSystems,
-			hasActiveAnimations: source.hasActiveAnimations,
-			shadowPlan: source.shadowPlan,
-			decals: source.decalPackets.map((packet) => packet.decal),
-			options,
-		});
+			source.decalPackets.map((packet) => packet.decal),
+			options
+		);
+		return {
+			...source,
+			camera,
+			opaquePackets,
+			transparentPackets,
+			reflectivePackets,
+			decalPackets: viewState.decalPackets,
+			occlusion: viewState.occlusion,
+			spatialIndex: null,
+		};
 	}
 
 	public static build(
@@ -198,12 +220,13 @@ export class PreparedSceneBuilder {
 				input.cameraVisibleMeshInstances.has(meshInstance);
 			const packets = this._buildMeshPackets(meshInstance, input.camera);
 			for (const packet of packets) {
-				if (packet.passFlags & DRAW_PACKET_FLAG_TRANSPARENT) {
-					if (visibleInCamera) {
-						transparentPackets.push(packet);
-					}
-				} else if (visibleInCamera) {
-					opaquePackets.push(packet);
+				if (visibleInCamera) {
+					this._appendViewPacket(
+						packet,
+						opaquePackets,
+						transparentPackets,
+						reflectivePackets
+					);
 				}
 
 				if (packet.passFlags & DRAW_PACKET_FLAG_SHADOW_CASTER) {
@@ -213,36 +236,15 @@ export class PreparedSceneBuilder {
 				if (packet.passFlags & DRAW_PACKET_FLAG_SHADOW_TRANSMITTER) {
 					shadowTransmitterPackets.push(packet);
 				}
-
-				if (packet.passFlags & DRAW_PACKET_FLAG_REFLECTIVE) {
-					if (visibleInCamera) {
-						reflectivePackets.push(packet);
-					}
-				}
 			}
 		}
 
-		const occlusion = this._resolveOcclusionState(
+		const viewState = this._finalizeViewPackets(
 			opaquePackets,
+			transparentPackets,
 			input.camera,
-			input.options
-		);
-		if (occlusion) {
-			if (occlusion.culledPacketIds.length > 0) {
-				const culled = new Set(occlusion.culledPacketIds);
-				for (let index = opaquePackets.length - 1; index >= 0; index--) {
-					if (culled.has(opaquePackets[index].id)) {
-						opaquePackets.splice(index, 1);
-					}
-				}
-			}
-		}
-
-		opaquePackets.sort(compareOpaquePackets);
-		transparentPackets.sort(compareTransparentPackets);
-		const decalPackets = this._buildDecalPackets(
 			input.decals,
-			opaquePackets
+			input.options
 		);
 
 		return {
@@ -259,9 +261,54 @@ export class PreparedSceneBuilder {
 			shadowCasterPackets,
 			shadowTransmitterPackets,
 			reflectivePackets,
-			decalPackets,
-			occlusion,
+			decalPackets: viewState.decalPackets,
+			occlusion: viewState.occlusion,
 			spatialIndex: null,
+		};
+	}
+
+	private static _appendViewPacket(
+		packet: DrawPacket,
+		opaquePackets: DrawPacket[],
+		transparentPackets: DrawPacket[],
+		reflectivePackets: DrawPacket[]
+	): void {
+		if (packet.passFlags & DRAW_PACKET_FLAG_TRANSPARENT) {
+			transparentPackets.push(packet);
+		} else {
+			opaquePackets.push(packet);
+		}
+		if (packet.passFlags & DRAW_PACKET_FLAG_REFLECTIVE) {
+			reflectivePackets.push(packet);
+		}
+	}
+
+	private static _finalizeViewPackets(
+		opaquePackets: DrawPacket[],
+		transparentPackets: DrawPacket[],
+		camera: Camera,
+		decals: Decal[],
+		options: PreparedSceneBuildOptions
+	): Pick<PreparedScene, "decalPackets" | "occlusion"> {
+		const occlusion = this._resolveOcclusionState(
+			opaquePackets,
+			camera,
+			options
+		);
+		if (occlusion?.culledPacketIds.length) {
+			const culled = new Set(occlusion.culledPacketIds);
+			for (let index = opaquePackets.length - 1; index >= 0; index--) {
+				if (culled.has(opaquePackets[index].id)) {
+					opaquePackets.splice(index, 1);
+				}
+			}
+		}
+
+		opaquePackets.sort(compareOpaquePackets);
+		transparentPackets.sort(compareTransparentPackets);
+		return {
+			decalPackets: this._buildDecalPackets(decals, opaquePackets),
+			occlusion,
 		};
 	}
 

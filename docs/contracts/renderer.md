@@ -122,6 +122,14 @@ This document defines the lifecycle, scheduling, warmup, incremental rendering, 
     camera used to build `FrameContext.scene`.
   - Constraint: secondary capture contexts, such as reflection probe captures,
     must rebuild `FrameContext.scene` for `viewCamera` before backend execution.
+  - Composition contract: secondary capture implementations must use
+    `PreparedSceneBuilder.rebuildForCamera()` for backend-neutral visibility,
+    packet construction, and sorting. Backend capture passes may apply
+    capture-specific filtering afterward, but must not maintain duplicate mesh
+    packet builders.
+  - Rebuild contract: secondary-camera rebuilds must reuse camera-independent
+    shadow packet lists from the source prepared scene and rebuild only packets
+    needed by the secondary view.
   - Compatibility contract: Software planar reflections may instead use an
     internal immutable mirrored view over the prepared main-view packets. That
     view must not mutate the application `Camera` or commit main-view temporal

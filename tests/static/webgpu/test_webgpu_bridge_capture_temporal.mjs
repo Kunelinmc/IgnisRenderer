@@ -18,6 +18,9 @@ import {
 	FramePacketContributorRegistry
 } from "../../../src/pipeline/FramePacketContributorRegistry.ts";
 import {
+	PreparedSceneBuilder
+} from "../../../src/pipeline/PreparedSceneBuilder.ts";
+import {
 	TextureFormat
 } from "../../../src/backends/types.ts";
 import {
@@ -412,7 +415,7 @@ async function testReflectionProbeCaptureUsesLegacyMRTAttachmentFormats() {
 		"webgpu"
 	);
 	const frameContext = {
-		camera: preparedScene.camera,
+		viewCamera: preparedScene.camera,
 		attachments: { width: 1, height: 1 },
 		features,
 		postProcess: createResolvedPostProcess(),
@@ -436,9 +439,11 @@ async function testReflectionProbeCaptureUsesLegacyMRTAttachmentFormats() {
 		},
 		transient: new Map(),
 	};
+	let preparedCaptureContext = null;
 	const resources = {
 		createFrameScope() { return createFrameScopeAdapter(resources); },
-		prepareFrame(_context, options = {}) {
+		prepareFrame(context, options = {}) {
+			preparedCaptureContext = context;
 			return createPreparedFrameResources(options);
 		},
 		releaseScope() {},
@@ -454,7 +459,7 @@ async function testReflectionProbeCaptureUsesLegacyMRTAttachmentFormats() {
 		},
 	};
 	const probe = new ReflectionProbe({
-		includeMeshes: false,
+		includeMeshes: true,
 		includeEnvironment: false,
 		includeTransparent: false,
 		includeParticles: false,
@@ -477,23 +482,64 @@ async function testReflectionProbeCaptureUsesLegacyMRTAttachmentFormats() {
 	);
 	backend.computeFacade = readyComputeFacade;
 	const probeCache = probe.getRuntimeCache();
-	const result = await capturePass.captureFace({
-		frameContext,
-		targetId: probe.id,
-		targetKind: "reflection",
-		captureWorldPosition: probeCache.captureWorldPosition,
-		captureFar: probe.captureFar,
-		faceIndex: 0,
-		faceSize: 1,
-		includeEnvironment: false,
-		includeMeshes: false,
-		includeTransparent: false,
-		includeParticles: false,
-		includeShadows: false,
-	});
+	const originalRebuildForCamera = PreparedSceneBuilder.rebuildForCamera;
+	const transparentPacket = {
+		...packet,
+		id: `${packet.id}:transparent`,
+	};
+	let rebuildInput = null;
+	PreparedSceneBuilder.rebuildForCamera = (source, camera, options) => {
+		rebuildInput = { source, camera, options };
+		return {
+			...source,
+			camera,
+			opaquePackets: [packet],
+			transparentPackets: [transparentPacket],
+			reflectivePackets: [packet],
+			decalPackets: [{ id: "capture-decal" }],
+		};
+	};
+	let result;
+	try {
+		result = await capturePass.captureFace({
+			frameContext,
+			targetId: probe.id,
+			targetKind: "reflection",
+			captureWorldPosition: probeCache.captureWorldPosition,
+			captureFar: probe.captureFar,
+			faceIndex: 0,
+			faceSize: 1,
+			includeEnvironment: false,
+			includeMeshes: true,
+			includeTransparent: false,
+			includeParticles: false,
+			includeShadows: false,
+		});
+	} finally {
+		PreparedSceneBuilder.rebuildForCamera = originalRebuildForCamera;
+	}
 
 	assert.ok(result);
 	assert.equal(result.length, 4);
+	assert.strictEqual(rebuildInput.source, preparedScene);
+	assert.strictEqual(rebuildInput.camera, preparedCaptureContext.viewCamera);
+	assert.equal(rebuildInput.options.visibilityScene, null);
+	assert.strictEqual(
+		preparedCaptureContext.scene.camera,
+		preparedCaptureContext.viewCamera
+	);
+	assert.deepEqual(preparedCaptureContext.scene.opaquePackets, [packet]);
+	assert.deepEqual(preparedCaptureContext.scene.transparentPackets, []);
+	assert.strictEqual(
+		preparedCaptureContext.scene.shadowCasterPackets,
+		preparedScene.shadowCasterPackets
+	);
+	assert.strictEqual(
+		preparedCaptureContext.scene.shadowTransmitterPackets,
+		preparedScene.shadowTransmitterPackets
+	);
+	assert.deepEqual(preparedCaptureContext.scene.reflectivePackets, []);
+	assert.deepEqual(preparedCaptureContext.scene.decalPackets, []);
 	assert.equal(backend.createTextureCalls.length >= 2, true);
 	assert.deepEqual(
 		[

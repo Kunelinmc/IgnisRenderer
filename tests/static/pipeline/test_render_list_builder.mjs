@@ -7,6 +7,7 @@ import { PBRMaterial } from "../../../src/materials/PBRMaterial.ts";
 import { MeshAsset } from "../../../src/meshes/MeshAsset.ts";
 import { MeshInstance } from "../../../src/meshes/MeshInstance.ts";
 import { normalizeOcclusionCullingOptions } from "../../../src/pipeline/OcclusionCulling.ts";
+import { DRAW_PACKET_FLAG_SHADOW_RECEIVER } from "../../../src/pipeline/types.ts";
 
 function createTriangleMesh(material) {
 	return MeshAsset.fromFaces([
@@ -228,8 +229,23 @@ function testRebuildForCameraUsesOverrideFrustum() {
 		),
 		false
 	);
+	const rebuiltOverridePacket = rebuiltFrame.opaquePackets.find(
+		(packet) => packet.meshInstance.id === overrideVisible.id
+	);
+	assert.ok(rebuiltOverridePacket);
+	assert.equal(
+		(rebuiltOverridePacket.passFlags & DRAW_PACKET_FLAG_SHADOW_RECEIVER) !== 0,
+		true
+	);
 	assert.strictEqual(rebuiltFrame.environment, mainFrame.environment);
-	assert.strictEqual(rebuiltFrame.shadowMaps, mainFrame.shadowMaps);
+	assert.strictEqual(
+		rebuiltFrame.shadowCasterPackets,
+		mainFrame.shadowCasterPackets
+	);
+	assert.strictEqual(
+		rebuiltFrame.shadowTransmitterPackets,
+		mainFrame.shadowTransmitterPackets
+	);
 }
 
 run();

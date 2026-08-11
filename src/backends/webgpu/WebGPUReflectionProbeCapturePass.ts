@@ -1,13 +1,8 @@
 import { Camera } from "../../cameras/Camera";
-import { AlphaMode } from "../../materials/Material";
-import { isMaterialTransparentPass } from "../../materials/transparency";
 import { Matrix4 } from "../../maths/Matrix4";
-import type { IVector3, Matrix3Arr } from "../../maths/types";
-import type { MeshInstance } from "../../meshes";
-import type { IPrimitive } from "../../core/types";
+import type { IVector3 } from "../../maths/types";
 import type { ICommandEncoder } from "../ICommandEncoder";
 import type {
-	DrawPacket,
 	FrameContext,
 	PreparedScene,
 	ResolvedFeatureState,
@@ -21,11 +16,11 @@ import type {
 	PreparedFramePacketSet,
 } from "../../pipeline/FramePacketContributorRegistry";
 import {
-	DRAW_PACKET_FLAG_TRANSPARENT,
 	PARTICLE_MESH_TRANSIENT_BATCHES_KEY,
 	PARTICLE_TRANSIENT_BATCHES_KEY,
 	createTransientStore,
 } from "../../pipeline/types";
+import { PreparedSceneBuilder } from "../../pipeline/PreparedSceneBuilder";
 import type { ResolvedPostProcessState } from "../../postprocess";
 import type { IncrementalFrameContext } from "../../pipeline/incremental";
 import type { ProbeCaptureFaceRequest } from "../../lights/runtime/ProbeCaptureRuntime";
@@ -475,72 +470,22 @@ function buildCapturePreparedScene(
 	targetId: string
 ): PreparedScene {
 	const baseScene = frameContext.scene;
-	const opaquePackets: DrawPacket[] = [];
-	const transparentPackets: DrawPacket[] = [];
+	const rebuiltScene =
+		includeMeshes ?
+			PreparedSceneBuilder.rebuildForCamera(baseScene, captureCamera, {
+				visibilityScene: frameContext.viewCamera.scene ?? null,
+			})
+		:	baseScene;
 	const lights = filterCapturePreparedSceneLights(
 		baseScene.lights,
 		targetKind,
 		targetId
 	);
 
-	if (includeMeshes) {
-		const meshInstances = baseScene.meshInstances.filter(
-			(meshInstance) => meshInstance.visible !== false
-		);
-		const bypassFrustumMeshInstances: MeshInstance[] = [];
-		const frustumCulledMeshInstances: MeshInstance[] = [];
-
-		for (const meshInstance of meshInstances) {
-			if (isAnimationDrivenMeshInstance(meshInstance)) {
-				bypassFrustumMeshInstances.push(meshInstance);
-			} else {
-				frustumCulledMeshInstances.push(meshInstance);
-			}
-		}
-
-		const sceneRef = frameContext.viewCamera.scene;
-		const visibleSet = new Set<MeshInstance>();
-		if (sceneRef) {
-			const visible = sceneRef.queryMeshInstancesInFrustum(
-				captureCamera,
-				frustumCulledMeshInstances
-			);
-			for (const meshInstance of visible) {
-				visibleSet.add(meshInstance);
-			}
-		} else {
-			for (const meshInstance of frustumCulledMeshInstances) {
-				visibleSet.add(meshInstance);
-			}
-		}
-		for (const meshInstance of bypassFrustumMeshInstances) {
-			visibleSet.add(meshInstance);
-		}
-
-		for (const meshInstance of meshInstances) {
-			if (!visibleSet.has(meshInstance)) continue;
-			for (const packet of buildMeshPackets(meshInstance, captureCamera)) {
-				const transparent =
-					(packet.passFlags & DRAW_PACKET_FLAG_TRANSPARENT) !== 0;
-				if (transparent) {
-					if (includeTransparent) {
-						transparentPackets.push(packet);
-					}
-				} else {
-					opaquePackets.push(packet);
-				}
-			}
-		}
-	}
-
-	opaquePackets.sort(compareOpaquePackets);
-	transparentPackets.sort(compareTransparentPackets);
-
 	return {
-		sceneBounds: baseScene.sceneBounds,
+		...rebuiltScene,
 		lights,
 		particleSystems: includeParticles ? baseScene.particleSystems : [],
-		hasActiveAnimations: baseScene.hasActiveAnimations,
 		camera: captureCamera,
 		environment: {
 			...baseScene.environment,
@@ -549,10 +494,9 @@ function buildCapturePreparedScene(
 			backgroundTexture:
 				includeEnvironment ? baseScene.environment.backgroundTexture : null,
 		},
-		meshInstances: baseScene.meshInstances,
-		shadowPlan: baseScene.shadowPlan,
-		opaquePackets,
-		transparentPackets,
+		opaquePackets: includeMeshes ? rebuiltScene.opaquePackets : [],
+		transparentPackets:
+			includeMeshes && includeTransparent ? rebuiltScene.transparentPackets : [],
 		shadowCasterPackets: baseScene.shadowCasterPackets,
 		shadowTransmitterPackets: baseScene.shadowTransmitterPackets,
 		reflectivePackets: [],
@@ -575,124 +519,6 @@ function filterCapturePreparedSceneLights(
 			light.type !== LightType.IrradianceProbeGrid ||
 			light.id !== targetId
 	);
-}
-
-function buildMeshPackets(
-	meshInstance: MeshInstance,
-	camera: Camera
-): DrawPacket[] {
-	const worldMatrix = meshInstance.worldMatrix;
-	const normalMatrix = Matrix4.normalMatrix(worldMatrix) as Matrix3Arr;
-	const cameraSpaceCenter = Matrix4.transformPoint(
-		camera.viewMatrix,
-		Matrix4.transformPoint(worldMatrix, meshInstance.mesh.boundingSphere.center)
-	);
-	const meshDepth = -cameraSpaceCenter.z;
-	const worldScale = getMaxScaleFromMatrix(worldMatrix) || 1;
-
-	return meshInstance.mesh.primitives
-		.filter((primitive) => primitive.visible !== false)
-		.map((primitive) =>
-			createDrawPacket(
-				meshInstance,
-				primitive,
-				worldMatrix,
-				normalMatrix,
-				worldScale,
-				meshDepth
-			)
-		);
-}
-
-function createDrawPacket(
-	meshInstance: MeshInstance,
-	primitive: IPrimitive,
-	worldMatrix: Matrix4,
-	normalMatrix: Matrix3Arr,
-	worldScale: number,
-	meshDepth: number
-): DrawPacket {
-	const material = primitive.material;
-	const isTransparent = isMaterialTransparentPass(material);
-	let passFlags = 0;
-	if (isTransparent) {
-		passFlags |= DRAW_PACKET_FLAG_TRANSPARENT;
-	}
-
-	const worldCenter = Matrix4.transformPoint(
-		worldMatrix,
-		primitive.boundingSphere.center
-	);
-	return {
-		id: `${meshInstance.id}:${primitive.id}`,
-		meshInstance,
-		mesh: meshInstance.mesh,
-		primitive,
-		material,
-		geometry: primitive.geometry,
-		worldMatrix,
-		normalMatrix,
-		worldBounds: {
-			center: {
-				x: worldCenter.x,
-				y: worldCenter.y,
-				z: worldCenter.z,
-			},
-			radius: primitive.boundingSphere.radius * worldScale,
-		},
-		sortDepth: meshDepth,
-		pipelineKey: [
-			material.type,
-			material.shading,
-			material.alphaMode ?? AlphaMode.Opaque,
-			material.doubleSided ? "double" : "single",
-			material.depthWrite ? "depth-write" : "depth-read",
-		].join(":"),
-		passFlags,
-	};
-}
-
-function compareOpaquePackets(left: DrawPacket, right: DrawPacket): number {
-	const keyCompare = left.pipelineKey.localeCompare(right.pipelineKey);
-	if (keyCompare !== 0) return keyCompare;
-
-	if (left.material !== right.material) {
-		return left.material.name.localeCompare(right.material.name);
-	}
-
-	if (left.geometry !== right.geometry) {
-		return left.id.localeCompare(right.id);
-	}
-
-	return left.sortDepth - right.sortDepth;
-}
-
-function compareTransparentPackets(
-	left: DrawPacket,
-	right: DrawPacket
-): number {
-	if (left.sortDepth !== right.sortDepth) {
-		return right.sortDepth - left.sortDepth;
-	}
-	return left.id.localeCompare(right.id);
-}
-
-function getMaxScaleFromMatrix(matrix: Matrix4): number {
-	const elements = matrix.elements;
-	const sx = Math.hypot(elements[0][0], elements[1][0], elements[2][0]);
-	const sy = Math.hypot(elements[0][1], elements[1][1], elements[2][1]);
-	const sz = Math.hypot(elements[0][2], elements[1][2], elements[2][2]);
-	return Math.max(sx, sy, sz);
-}
-
-function isAnimationDrivenMeshInstance(meshInstance: MeshInstance): boolean {
-	if (meshInstance.skeleton) return true;
-	for (const primitive of meshInstance.mesh.primitives) {
-		if ((primitive.geometry.morphTargets?.length ?? 0) > 0) {
-			return true;
-		}
-	}
-	return false;
 }
 
 function populateParticleBatchesForCapture(
