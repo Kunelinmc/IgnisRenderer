@@ -1,4 +1,3 @@
-import { Logger } from "../../../foundation/Logger";
 import type { FramePacketProvider } from "../../../pipeline/FramePacketContributorRegistry";
 import type { WebGPUFrameServiceOwner } from "../WebGPUFrameServiceOwner";
 import { WebGPUHiZBuilder } from "../WebGPUHiZBuilder";
@@ -42,10 +41,19 @@ export interface WebGPUFrameRuntimeCompositionAccess {
 /** @internal Sealed backend-private frame runtime composition. */
 export interface WebGPUFrameRuntimeComposition {
 	readonly modules: WebGPUFrameGraphModuleRegistry;
-	readonly postProcess: WebGPUPostProcessFrameModule;
-	readonly configuration: WebGPUFrameConfigurationModule;
-	readonly visibility: WebGPUVisibilityFrameModule;
-	readonly customRenderTargets: WebGPUCustomRenderTargetRuntime;
+	readonly postProcess: Pick<
+		WebGPUPostProcessFrameModule,
+		"describeFrame" | "buildGraphFrame" | "executeStage" | "getDebugState" |
+		"warmup" | "invalidateFrameResources" | "createSessionPort"
+	>;
+	readonly visibility: Pick<
+		WebGPUVisibilityFrameModule,
+		"reset" | "getVisibilityProvider"
+	>;
+	readonly customRenderTargets: Pick<
+		WebGPUCustomRenderTargetRuntime,
+		"sync" | "readColor"
+	>;
 }
 
 /** @internal Feature ports consumed by backend lifecycle integration. */
@@ -72,11 +80,7 @@ export function createWebGPUFrameRuntimeCompositionFactory(options: {
 		const hiZBuilder = new WebGPUHiZBuilder(host.computeFacade);
 		const postRuntime = new WebGPUPostProcessRuntime(
 			host.computeFacade,
-			(key, message) =>
-				Logger.warn(`[${key}] ${message}`, {
-					scope: "WebGPUFrameOrchestrator",
-					onceKey: key,
-				}),
+			(key, message) => access.warnOnce(key, message),
 			frameServices.sceneFrameLayout,
 			hiZBuilder,
 			() => host.displayOutputState,
@@ -90,10 +94,10 @@ export function createWebGPUFrameRuntimeCompositionFactory(options: {
 			host,
 			options.sampleCountResolver,
 		);
-		let postProcess!: WebGPUPostProcessFrameModule;
+		const modules = new WebGPUFrameGraphModuleRegistry();
 		const presentation = new WebGPUPresentationRuntime(host, {
 			recording: access.recording,
-			getOutputColorDomain: () => postProcess.outputColorDomain,
+			getOutputColorDomain: () => modules.finalOutput.colorDomain,
 		});
 		const postBridge = new WebGPUPostProcessBridge(host, postRuntime, {
 			getEncoder: () => access.recording.getEncoder(),
@@ -107,7 +111,7 @@ export function createWebGPUFrameRuntimeCompositionFactory(options: {
 				if (session) session.motionHistoryWriteTarget = texture;
 			},
 		});
-		postProcess = new WebGPUPostProcessFrameModule(
+		const postProcess = new WebGPUPostProcessFrameModule(
 			postRuntime,
 			host.postProcessRuntime,
 			postBridge,
@@ -147,7 +151,6 @@ export function createWebGPUFrameRuntimeCompositionFactory(options: {
 			new WebGPUOcclusionCullingRuntime(host),
 			access.recording,
 		);
-		const modules = new WebGPUFrameGraphModuleRegistry();
 		const configuration = new WebGPUFrameConfigurationModule();
 		for (const module of [
 			new WebGPUSceneFrameModule(sceneRecorder, depthDirtyClearPass),
@@ -156,7 +159,6 @@ export function createWebGPUFrameRuntimeCompositionFactory(options: {
 				deferredLightingPass,
 				deferredDecalPass,
 				sceneRecorder,
-				reflection,
 			),
 			new WebGPUTransparencyRuntime(
 				host,
@@ -174,11 +176,13 @@ export function createWebGPUFrameRuntimeCompositionFactory(options: {
 		]) {
 			modules.register(module);
 		}
+		for (const handler of configuration.messageHandlers) {
+			modules.registerMessageHandler(handler);
+		}
 		modules.seal();
 		return {
 			modules,
 			postProcess,
-			configuration,
 			visibility,
 			customRenderTargets,
 		};

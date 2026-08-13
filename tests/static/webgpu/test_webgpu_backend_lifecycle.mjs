@@ -241,7 +241,7 @@ async function testRestoreWaitsForAutomaticRecovery() {
 	assert.equal(backend._state, "ready");
 }
 
-function testReleaseRuntimeContinuesAfterCleanupFailure() {
+async function testReleaseRuntimeContinuesAfterCleanupFailure() {
 	const backend = attachBackend();
 	const calls = [];
 	backend._postProcessRuntime = {
@@ -273,7 +273,7 @@ function testReleaseRuntimeContinuesAfterCleanupFailure() {
 	assert.equal(backend._resources, null);
 }
 
-function testComputeExtensionRejectsUntilReadyAndKeepsIdentity() {
+async function testComputeExtensionRejectsUntilReadyAndKeepsIdentity() {
 	const backend = attachBackend();
 	const extension = backend.extensions.requireBackendExtension(
 		WEBGPU_COMPUTE_EXTENSION,
@@ -348,11 +348,11 @@ async function testAutomaticRecoveryExhaustionReturnsToLost() {
 async function testFrameGuardsRunBeforeSideEffects() {
 	const { backend, calls } = createReadyFrameBackend();
 	const context = createFrameContext();
-	backend.beginFrame(context);
+	await backend.beginFrame(context);
 	const callsBeforeDuplicate = calls.slice();
 
-	assert.throws(
-		() => backend.beginFrame(createFrameContext()),
+	await assert.rejects(
+		backend.beginFrame(createFrameContext()),
 		/requires no active frame/i,
 	);
 	assert.deepEqual(calls, callsBeforeDuplicate);
@@ -390,7 +390,7 @@ async function testFailedBeginCanBeAborted() {
 	const beginError = new Error("simulated begin failure");
 	const { backend, calls } = createReadyFrameBackend({ beginError });
 
-	assert.throws(() => backend.beginFrame(createFrameContext()), beginError);
+	await assert.rejects(backend.beginFrame(createFrameContext()), beginError);
 	assert.equal(backend._activeFrameTransaction, null);
 	await backend.abortFrame(beginError);
 
@@ -404,7 +404,7 @@ async function testFailedPassAndEndCanBeAborted() {
 	const passError = new Error("simulated pass failure");
 	const passRuntime = createReadyFrameBackend({ executeError: passError });
 	const passContext = createFrameContext();
-	passRuntime.backend.beginFrame(passContext);
+	await passRuntime.backend.beginFrame(passContext);
 	assert.throws(
 		() =>
 			passRuntime.backend.executePass(
@@ -419,7 +419,7 @@ async function testFailedPassAndEndCanBeAborted() {
 
 	const endError = new Error("simulated end failure");
 	const endRuntime = createReadyFrameBackend({ endError });
-	endRuntime.backend.beginFrame(createFrameContext());
+	await endRuntime.backend.beginFrame(createFrameContext());
 	await assert.rejects(() => endRuntime.backend.endFrame(), endError);
 	await endRuntime.backend.abortFrame(endError);
 	assert.ok(endRuntime.calls.includes("orchestrator:abort"));
@@ -433,8 +433,8 @@ async function run() {
 	await testDeviceLossSupersedesPendingInitialize();
 	await testReadyRestoreRebuildsSameBackend();
 	await testRestoreWaitsForAutomaticRecovery();
-	testReleaseRuntimeContinuesAfterCleanupFailure();
-	testComputeExtensionRejectsUntilReadyAndKeepsIdentity();
+	await testReleaseRuntimeContinuesAfterCleanupFailure();
+	await testComputeExtensionRejectsUntilReadyAndKeepsIdentity();
 	await testAutomaticRecoveryExhaustionReturnsToLost();
 	await testFrameGuardsRunBeforeSideEffects();
 	await testFrameOperationsRequireActiveFrame();

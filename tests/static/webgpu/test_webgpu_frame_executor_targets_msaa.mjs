@@ -20,15 +20,15 @@ const {
 
 const restoreTestState = initializeIsolatedWebGPUTestState();
 
-function testFrameTargetAllocationFailureReleasesPartialResources() {
+async function testFrameTargetAllocationFailureReleasesPartialResources() {
 	const backend = new FakeBackend();
 	backend.failTextureAtCall = 4;
 	const executor = new WebGPUFrameExecutor(backend, createResourcesStub());
 	const context = createFrameContext(64, 64);
 
-	assert.throws(
-		() => executor.beginFrame(context),
-		/simulated allocation failure/
+	await assert.rejects(
+		executor.beginFrame(context),
+		/simulated allocation failure/,
 	);
 	assert.equal(getFrameGraphDebugState(executor).texturePoolOwnerCount, 0);
 	assert.equal(getFrameTargets(executor), null);
@@ -59,7 +59,7 @@ async function testMSAAAllocationFallbackPersistsForDeviceRuntime() {
 		},
 	});
 	try {
-		executor.beginFrame(context);
+		await executor.beginFrame(context);
 		assert.equal(msaa.sampleCount, 1);
 		assert.equal(getFrameGraphDebugState(executor).msaaTargets, null);
 		assert.equal(
@@ -76,7 +76,7 @@ async function testMSAAAllocationFallbackPersistsForDeviceRuntime() {
 		assert.ok(warnings.some((warning) => warning.includes("4x scene sample-count")));
 
 		await executor.endFrame();
-		executor.beginFrame(context);
+		await executor.beginFrame(context);
 		assert.equal(multisampleAllocationAttempts, 1);
 		assert.equal(msaa.sampleCount, 1);
 	} finally {
@@ -85,7 +85,7 @@ async function testMSAAAllocationFallbackPersistsForDeviceRuntime() {
 	}
 }
 
-function testMSAATargetFormatsMatchLegacyMRTPipeline() {
+async function testMSAATargetFormatsMatchLegacyMRTPipeline() {
 	const backend = new FakeBackend();
 	const executor = new WebGPUFrameExecutor(
 		backend,
@@ -93,7 +93,7 @@ function testMSAATargetFormatsMatchLegacyMRTPipeline() {
 		createMSAAContext(4)
 	);
 	try {
-		executor.beginFrame(createFrameContext(64, 64));
+		await executor.beginFrame(createFrameContext(64, 64));
 		const targets = getMSAATargets(executor);
 		assert.ok(targets);
 		assert.deepEqual(
@@ -127,7 +127,7 @@ async function testLegacyMainPassForcesSingleSceneTargetMode() {
 	context.scene.opaquePackets = [{ id: "packet" }];
 	context.postProcess = createResolvedPostProcess({});
 
-	executor.beginFrame(context);
+	await executor.beginFrame(context);
 
 	await executor.executePass(
 		{ stage: "main-opaque", executor: "backend", enabled: true },
@@ -162,7 +162,7 @@ async function testIncrementalMainPassUsesDepthPartialReuse() {
 		temporalHistoryReset: false,
 	};
 
-	executor.beginFrame(context);
+	await executor.beginFrame(context);
 	await executor.executePass(
 		{ stage: "main-opaque", executor: "backend", enabled: true },
 		context
@@ -190,7 +190,7 @@ async function testMainOpaqueDisablesEarlyZWhenConfiguredOff() {
 	const context = createFrameContext(64, 64);
 	context.scene.opaquePackets = [{ id: "packet" }];
 
-	executor.beginFrame(context);
+	await executor.beginFrame(context);
 	await executor.executePass(
 		{ stage: "main-opaque", executor: "backend", enabled: true },
 		context
@@ -230,7 +230,7 @@ async function testLegacyMainPassScalesDirtyRectsToCanvasTarget() {
 		temporalHistoryReset: false,
 	};
 
-	executor.beginFrame(context);
+	await executor.beginFrame(context);
 
 	await executor.executePass(
 		{ stage: "main-opaque", executor: "backend", enabled: true },
@@ -249,12 +249,12 @@ async function testLegacyMainPassScalesDirtyRectsToCanvasTarget() {
 	]);
 }
 
-function testFrameTargetsSkipOptionalTargetsWhenUnused() {
+async function testFrameTargetsSkipOptionalTargetsWhenUnused() {
 	const backend = new FakeBackend();
 	const executor = new WebGPUFrameExecutor(backend, createResourcesStub());
 	const context = createFrameContext(64, 64);
 
-	executor.beginFrame(context);
+	await executor.beginFrame(context);
 	const targets = getFrameTargets(executor);
 	assert.ok(targets);
 	assert.equal(executor.getSceneTargetModeForFrame(), "mrt");
@@ -275,12 +275,12 @@ function testFrameTargetsSkipOptionalTargetsWhenUnused() {
 	assert.equal(getFrameTargets(executor), null);
 }
 
-function testGBufferBridgeReportsAllocatedWebGPUFormats() {
+async function testGBufferBridgeReportsAllocatedWebGPUFormats() {
 	const backend = new FakeBackend();
 	const executor = new WebGPUFrameExecutor(backend, createResourcesStub());
 	const context = createFrameContext(64, 64);
 
-	executor.beginFrame(context);
+	await executor.beginFrame(context);
 	const bridge = executor.runtimeCapabilities.postProcess.createGBufferBridge(context);
 
 	assert.equal(bridge.depthEncoding, "linear-view-z");
@@ -322,7 +322,7 @@ function testGBufferBridgeReportsAllocatedWebGPUFormats() {
 	executor.abortFrame();
 }
 
-function testHiZIsPlannableBeforeItsBuildExecutes() {
+async function testHiZIsPlannableBeforeItsBuildExecutes() {
 	const backend = new FakeBackend();
 	const executor = new WebGPUFrameExecutor(backend, createResourcesStub());
 	const context = createFrameContext(64, 64);
@@ -330,7 +330,7 @@ function testHiZIsPlannableBeforeItsBuildExecutes() {
 		ssgi: { enabled: true },
 	}, "webgpu");
 
-	executor.beginFrame(context);
+	await executor.beginFrame(context);
 	const targets = getFrameTargets(executor);
 	const debug = getFrameGraphDebugState(executor);
 	const port = executor.runtimeCapabilities.postProcess.createSessionPort();
@@ -345,7 +345,7 @@ function testHiZIsPlannableBeforeItsBuildExecutes() {
 	executor.abortFrame();
 }
 
-function testFrameTargetsAllocateAndReleaseOptionalTargetsWhenNeeded() {
+async function testFrameTargetsAllocateAndReleaseOptionalTargetsWhenNeeded() {
 	const backend = new FakeBackend();
 	const executor = new WebGPUFrameExecutor(backend, createResourcesStub());
 	const context = createFrameContext(64, 64);
@@ -355,7 +355,7 @@ function testFrameTargetsAllocateAndReleaseOptionalTargetsWhenNeeded() {
 	context.scene.transparentPackets = [{ id: "transparent", material: {} }];
 	context.scene.reflectivePackets = [{ id: "mirror", material: {} }];
 
-	executor.beginFrame(context);
+	await executor.beginFrame(context);
 	const targets = getFrameTargets(executor);
 	assert.ok(targets);
 	assert.equal(executor.getSceneTargetModeForFrame(), "color");
@@ -380,19 +380,19 @@ function testFrameTargetsAllocateAndReleaseOptionalTargetsWhenNeeded() {
 	assert.equal(getFrameGraphDebugState(executor).texturePoolOwnerCount, 0);
 }
 
-function testFrameTargetsSkippedWhenFrameHasNoOffscreenWork() {
+async function testFrameTargetsSkippedWhenFrameHasNoOffscreenWork() {
 	const backend = new FakeBackend();
 	const executor = new WebGPUFrameExecutor(backend, createResourcesStub());
 	const context = createFrameContext(64, 64);
 	context.postProcess = createResolvedPostProcess({});
 
-	executor.beginFrame(context);
+	await executor.beginFrame(context);
 	assert.equal(getFrameTargets(executor), null);
 	assert.equal(executor.getSceneTargetModeForFrame(), "single");
 	assert.equal(getFrameGraphDebugState(executor).texturePoolOwnerCount, 0);
 }
 
-function testTransmissionTargetsAllocateOnlyWhenRefractionHasWork() {
+async function testTransmissionTargetsAllocateOnlyWhenRefractionHasWork() {
 	const backend = new FakeBackend();
 	const executor = new WebGPUFrameExecutor(backend, createResourcesStub());
 	const context = createFrameContext(64, 64);
@@ -404,7 +404,7 @@ function testTransmissionTargetsAllocateOnlyWhenRefractionHasWork() {
 		{ id: "glass", material: { transmissionFactor: 1 } },
 	];
 
-	executor.beginFrame(context);
+	await executor.beginFrame(context);
 	const targets = getFrameTargets(executor);
 	assert.ok(targets.transmissionSceneColorCopy);
 	assert.ok(targets.transmissionLighting);
@@ -427,7 +427,7 @@ function testTransmissionTargetsAllocateOnlyWhenRefractionHasWork() {
 	noWorkContext.scene.transparentPackets = [
 		{ id: "alpha", material: { transmissionFactor: 0 } },
 	];
-	executor.beginFrame(noWorkContext);
+	await executor.beginFrame(noWorkContext);
 	assert.equal(getFrameTargets(executor), null);
 	executor.abortFrame();
 }
@@ -440,7 +440,7 @@ async function testFrameTargetReuseIgnoresPostProcessDownsampleOptions() {
 		ssao: { enabled: true, options: { downsample: 2 } },
 		ssr: { enabled: true, options: { downsample: 2 } },
 	});
-	executor.beginFrame(firstContext);
+	await executor.beginFrame(firstContext);
 	const firstTargets = getFrameTargets(executor);
 	const firstTextureCount = backend.createTextureCalls.length;
 	await executor.endFrame();
@@ -450,7 +450,7 @@ async function testFrameTargetReuseIgnoresPostProcessDownsampleOptions() {
 		ssao: { enabled: true, options: { downsample: 4 } },
 		ssr: { enabled: true, options: { downsample: 4 } },
 	});
-	executor.beginFrame(secondContext);
+	await executor.beginFrame(secondContext);
 	assert.strictEqual(getFrameTargets(executor), firstTargets);
 	assert.equal(backend.createTextureCalls.length, firstTextureCount);
 	await executor.endFrame();
@@ -463,7 +463,7 @@ async function testDeferredBaseSkipsFrameSizedExtensionTargets() {
 	const context = createFrameContext(64, 64);
 	context.postProcess = createResolvedPostProcess({});
 	context.scene.opaquePackets = [{ material: new PBRMaterial() }];
-	executor.beginFrame(context);
+	await executor.beginFrame(context);
 	const targets = getFrameTargets(executor);
 	assert.equal(executor.getSceneTargetModeForFrame(), "gbuffer");
 	assert.equal(
@@ -505,7 +505,7 @@ async function testDeferredAllocationFallbackReleasesCompactTargetsAtomically() 
 		},
 	});
 	try {
-		executor.beginFrame(context);
+		await executor.beginFrame(context);
 		assert.equal(failedExtendedAllocation, true);
 		assert.equal(executor.getSceneTargetModeForFrame(), "mrt");
 		assert.equal(
@@ -537,7 +537,7 @@ async function run() {
 	try {
 		await testFrameTargetAllocationFailureReleasesPartialResources();
 		await testMSAAAllocationFallbackPersistsForDeviceRuntime();
-		testMSAATargetFormatsMatchLegacyMRTPipeline();
+		await testMSAATargetFormatsMatchLegacyMRTPipeline();
 		await testLegacyMainPassForcesSingleSceneTargetMode();
 		await testIncrementalMainPassUsesDepthPartialReuse();
 		await testMainOpaqueDisablesEarlyZWhenConfiguredOff();

@@ -1,11 +1,10 @@
 import assert from "node:assert/strict";
 
 import { WebGPUFrameGraphModuleRegistry } from "../../../src/backends/webgpu/rendergraph/WebGPUFrameGraphModuleRegistry.ts";
-import {
-	WebGPUFrameModuleStateStore,
-	defineWebGPUFrameModuleStateKey,
-} from "../../../src/backends/webgpu/rendergraph/WebGPUFrameGraphModule.ts";
-import { WebGPUFrameGraphCompiler } from "../../../src/backends/webgpu/rendergraph/WebGPUFrameGraphCompiler.ts";
+import { WebGPUFrameMessageSnapshot } from "../../../src/backends/webgpu/rendergraph/WebGPUFrameMessage.ts";
+import { WebGPUDeferredFrameModule } from "../../../src/backends/webgpu/rendergraph/WebGPUDeferredFrameModule.ts";
+import { WebGPUReflectionFrameModule } from "../../../src/backends/webgpu/rendergraph/WebGPUReflectionFrameModule.ts";
+import { WEBGPU_FRAME_CONFIGURATION_DEMAND_MESSAGE } from "../../../src/backends/webgpu/rendergraph/WebGPUFrameMessages.ts";
 import { WEBGPU_FRAME_GRAPH_NODE_KINDS } from "../../../src/backends/webgpu/rendergraph/types.ts";
 
 const COMPLETE_EXECUTORS = Object.fromEntries(
@@ -18,8 +17,15 @@ const PASS = {
 	dependsOn: [],
 };
 
-function createNode(id, kind = "opaque-scene") {
-	return { id, stage: PASS.stage, kind, label: id, retention: "always" };
+function createNode(kind = "opaque-scene", localId = kind) {
+	return {
+		id: `${PASS.stage}:${localId}`,
+		localId,
+		stage: PASS.stage,
+		kind,
+		label: localId,
+		retention: "always",
+	};
 }
 
 function createRegistry(modules) {
@@ -31,18 +37,8 @@ function createRegistry(modules) {
 }
 
 function plan(registry) {
-	return registry.planStage({
-		pass: PASS,
-		context: {},
-		state: {},
-		moduleState: new WebGPUFrameModuleStateStore(),
-	});
-}
-
-function compileNodeIds(registry) {
-	const compiler = new WebGPUFrameGraphCompiler();
-	compiler.beginFrame([]);
-	return compiler.compileStage(plan(registry)).nodes.map((node) => node.id);
+	return registry.planStage({ pass: PASS, context: {}, state: {} },
+		new WebGPUFrameMessageSnapshot());
 }
 
 function testRegistrationAndSealingValidation() {
@@ -59,116 +55,196 @@ function testRegistrationAndSealingValidation() {
 		/registry is sealed/,
 	);
 	assert.equal(Object.isFrozen(sealed.modules), true);
-	assert.throws(
-		() => sealed.modules.push({ id: "late", executors: {}, destroy() {} }),
-		TypeError,
-	);
 
 	const missing = new WebGPUFrameGraphModuleRegistry();
 	assert.throws(() => missing.seal(), /missing executors/);
-
-	const duplicateExecutor = new WebGPUFrameGraphModuleRegistry();
-	duplicateExecutor.register({
-		id: "complete",
-		executors: COMPLETE_EXECUTORS,
-		destroy() {},
-	});
-	duplicateExecutor.register({
-		id: "duplicate-executor",
-		executors: { shadow: async () => {} },
-		destroy() {},
-	});
-	assert.throws(() => duplicateExecutor.seal(), /duplicate module owners/);
 }
 
-function testAnalysisStateOwnershipAndSealing() {
-	const ownerKey = defineWebGPUFrameModuleStateKey("owner", "owner:value");
-	const foreignKey = defineWebGPUFrameModuleStateKey("foreign", "foreign:value");
-	const forgedOwnerKey = defineWebGPUFrameModuleStateKey("intruder", "owner:value");
-	const registry = createRegistry([
-		{
-			id: "owner",
-			executors: {},
-			analyze(_input, state) {
-				state.set(ownerKey, 42);
-				assert.throws(() => state.set(foreignKey, 1), /cannot write state/);
-				assert.throws(() => state.get(foreignKey), /cannot read state/);
-			},
-			destroy() {},
-		},
-		{
-			id: "intruder",
-			executors: {},
-			analyze(_input, state) {
-				assert.throws(
-					() => state.get(forgedOwnerKey),
-					/conflicting identities/,
-				);
-			},
-			destroy() {},
-		},
-	]);
-	const state = registry.analyze({
-		context: {},
-		framePackets: {},
-		postProcessPasses: [],
-	});
-	assert.equal(state.require(ownerKey), 42);
-	assert.throws(() => state.set(ownerKey, 43), /state is sealed/);
-}
-
-function testContributionOrderDoesNotDependOnRegistrationOrder() {
-	const first = {
-		id: "first",
+async function testLaneOrderDoesNotDependOnRegistrationOrder() {
+	const geometry = {
+		id: "geometry",
 		executors: {},
-		planStage: () => [{ order: 100, nodes: [createNode("main-opaque:first")] }],
+		planStage: () => [{ lane: "geometry", nodes: [createNode()] }],
 		destroy() {},
 	};
-	const second = {
-		id: "second",
+	const lighting = {
+		id: "lighting",
 		executors: {},
-		planStage: () => [{ order: 200, nodes: [createNode("main-opaque:second")] }],
+		planStage: () => [{ lane: "lighting", nodes: [createNode("deferred-lighting")] }],
 		destroy() {},
 	};
-	const forward = compileNodeIds(createRegistry([first, second]));
-	const reversed = compileNodeIds(createRegistry([second, first]));
-	assert.deepEqual(forward, ["main-opaque:first", "main-opaque:second"]);
-	assert.deepEqual(reversed, forward);
+	const forward = await plan(createRegistry([geometry, lighting]));
+	const reversed = await plan(createRegistry([lighting, geometry]));
+	assert.deepEqual(
+		forward.nodes.map((node) => node.id),
+		["main-opaque:geometry:opaque-scene", "main-opaque:lighting:deferred-lighting"],
+	);
+	assert.deepEqual(reversed.nodes.map((node) => node.id), forward.nodes.map((node) => node.id));
 }
 
-function testContributionConflictsAreRejected() {
+async function testStaticEdgesAndOwnerLocalIdentity() {
 	const module = (id, contribution) => ({
 		id,
 		executors: {},
 		planStage: () => [contribution],
 		destroy() {},
 	});
-	assert.throws(
-		() => plan(createRegistry([
-			module("a", { order: 100, nodes: [createNode("a")] }),
-			module("b", { order: 100, nodes: [createNode("b")] }),
+	await assert.rejects(
+		plan(createRegistry([
+			module("a", { lane: "geometry", nodes: [createNode()] }),
+			module("b", { lane: "geometry", nodes: [createNode()] }),
 		])),
-		/order 100 is owned by both/,
+		/require a static before\/after edge/,
 	);
-	assert.throws(
-		() => plan(createRegistry([
-			module("a", { order: 100, nodes: [createNode("same-node")] }),
-			module("b", { order: 200, nodes: [createNode("same-node")] }),
-		])),
-		/is contributed by both/,
-	);
+	const ordered = await plan(createRegistry([
+		module("b", { lane: "geometry", after: ["a"], nodes: [createNode()] }),
+		module("a", {
+			lane: "geometry",
+			before: ["b"],
+			nodes: [createNode("opaque-scene", "first"), createNode("opaque-scene", "second")],
+		}),
+	]));
+	assert.deepEqual(ordered.nodes.map((node) => node.id), [
+		"main-opaque:a:first",
+		"main-opaque:a:second",
+		"main-opaque:b:opaque-scene",
+	]);
+}
+
+async function testExclusiveAndCompositionConflicts() {
+	const module = (id, contribution) => ({
+		id,
+		executors: {},
+		planStage: () => [contribution],
+		destroy() {},
+	});
+	const exclusive = await plan(createRegistry([
+		module("scene", { lane: "geometry", nodes: [createNode()] }),
+		module("custom", {
+			lane: "geometry",
+			exclusive: true,
+			nodes: [createNode("opaque-external")],
+		}),
+	]));
+	assert.deepEqual(exclusive.nodes.map((node) => node.ownerId), ["custom"]);
+
 	const composition = { namespace: "test", definition: {}, inputs: {} };
-	assert.throws(
-		() => plan(createRegistry([
-			module("a", { order: 100, composition }),
-			module("b", { order: 200, composition }),
+	await assert.rejects(
+		plan(createRegistry([
+			module("a", { lane: "postprocess", before: ["b"], composition }),
+			module("b", { lane: "postprocess", after: ["a"], composition }),
 		])),
 		/has composed subgraphs from both/,
 	);
 }
 
+async function testDeferredReflectionCompositeHasOneOwnerAndExecution() {
+	let lightingExecutions = 0;
+	let reflectionExecutions = 0;
+	const deferred = new WebGPUDeferredFrameModule(
+		{ async recordLightingPass() { lightingExecutions++; } },
+		{},
+		{ async recordMainPass() {} },
+	);
+	const reflection = new WebGPUReflectionFrameModule(
+		{},
+		{ async composite() { reflectionExecutions++; } },
+		{
+			getFrameTargets: () => ({ planarReflectionMask: null }),
+			getMSAATargets: () => null,
+		},
+	);
+	const planningInput = {
+		pass: PASS,
+		context: {},
+		state: {
+			deferredActive: true,
+			sceneTargetMode: "gbuffer",
+			deferredGBufferLayout: "base",
+		},
+		messages: {
+			getAll: (descriptor) => descriptor === WEBGPU_FRAME_CONFIGURATION_DEMAND_MESSAGE
+				? [{ source: "reflection", needsPlanarReflectionComposite: true }]
+				: [],
+		},
+	};
+	const nodes = [
+		...deferred.planStage(planningInput),
+		...reflection.planStage(planningInput),
+	].flatMap((contribution) => contribution.nodes ?? []);
+	assert.equal(
+		nodes.filter((node) => node.kind === "planar-reflection-composite").length,
+		1,
+	);
+	const session = {
+		context: {},
+		encoder: {},
+		resources: {},
+		configuration: {
+			mrtSupported: true,
+			samplePlan: { sampleCount: 1 },
+		},
+		deferredOpaqueFrameState: {
+			lightingEnabled: true,
+			clearSceneColor: true,
+			fallbackPackets: [],
+		},
+	};
+	await deferred.executors["deferred-lighting"]({}, session);
+	assert.equal(lightingExecutions, 1);
+	assert.equal(reflectionExecutions, 0);
+	await reflection.executors["planar-reflection-composite"]({}, session);
+	assert.equal(reflectionExecutions, 1);
+}
+
+async function testFinalOutputPublicationFeedsPresentationPlanning() {
+	let presentedResource = null;
+	const registry = createRegistry([{
+		id: "post-process",
+		executors: {},
+		planStage(input) {
+			return input.pass.stage === "postprocess" ? [{
+				lane: "postprocess",
+				finalOutput: {
+					resource: "postprocess:final-color",
+					colorDomain: "display-encoded",
+				},
+			}] : [];
+		},
+		destroy() {},
+	}, {
+		id: "presentation",
+		executors: {},
+		planStage(input) {
+			if (input.finalization !== true) return [];
+			presentedResource = input.finalColorResource;
+			return [];
+		},
+		destroy() {},
+	}]);
+	const snapshot = new WebGPUFrameMessageSnapshot();
+	await registry.planStage({
+		pass: { ...PASS, stage: "postprocess" },
+		context: {},
+		state: {},
+	}, snapshot);
+	assert.deepEqual(registry.finalOutput, {
+		resource: "postprocess:final-color",
+		colorDomain: "display-encoded",
+	});
+	await registry.planStage({
+		pass: { ...PASS, stage: "webgpu-present" },
+		context: {},
+		state: {},
+		finalization: true,
+	}, snapshot);
+	assert.equal(presentedResource, "postprocess:final-color");
+}
+
 testRegistrationAndSealingValidation();
-testAnalysisStateOwnershipAndSealing();
-testContributionOrderDoesNotDependOnRegistrationOrder();
-testContributionConflictsAreRejected();
+await testLaneOrderDoesNotDependOnRegistrationOrder();
+await testStaticEdgesAndOwnerLocalIdentity();
+await testExclusiveAndCompositionConflicts();
+await testDeferredReflectionCompositeHasOneOwnerAndExecution();
+await testFinalOutputPublicationFeedsPresentationPlanning();
 console.log("WebGPU frame graph module registry tests passed");

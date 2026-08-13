@@ -163,7 +163,7 @@ function createExecutionContextRequest(passId, request, overrides = {}) {
 	};
 }
 
-function createExecutorHarness(postProcessRequest = {
+async function createExecutorHarness(postProcessRequest = {
 	taa: { enabled: true },
 	ssr: { enabled: true },
 	volumetric: { enabled: true },
@@ -245,12 +245,12 @@ function createExecutorHarness(postProcessRequest = {
 		},
 		transient: new Map(),
 	};
-	executor.beginFrame(frameContext);
+	await executor.beginFrame(frameContext);
 	return { executor, backend, frameContext };
 }
 
 async function testGammaOwnsWebGPUKernelBeforeRawPresent() {
-	const { executor, backend, frameContext } = createExecutorHarness({
+	const { executor, backend, frameContext } = await createExecutorHarness({
 		gamma: { enabled: true },
 	});
 	const gammaPass = BUILTIN_PASS_BY_ID.get("gamma");
@@ -299,7 +299,7 @@ async function testGammaOwnsWebGPUKernelBeforeRawPresent() {
 }
 
 async function testTemporalExecutePassUsesPipelineHistories() {
-	const { executor } = createExecutorHarness();
+	const { executor } = await createExecutorHarness();
 
 	const taaRequest = createTemporalRequest({
 		histories: {
@@ -429,8 +429,8 @@ async function testTemporalExecutePassUsesPipelineHistories() {
 	executor.abortFrame();
 }
 
-function testCustomImplementationUsesFixedContext() {
-	const { executor } = createExecutorHarness();
+async function testCustomImplementationUsesFixedContext() {
+	const { executor } = await createExecutorHarness();
 	const request = createTemporalRequest();
 	const passRequest = createExecutionContextRequest("custom-webgpu", request, {
 			pass: {
@@ -530,7 +530,7 @@ async function testWarmupHintsFollowPlanPostProcessPasses() {
 	assert.equal(taaWarmup.compiled > 0, true);
 }
 
-function testBackendPostProcessSurfaceKeepsOnlyExecutorBridge() {
+async function testBackendPostProcessSurfaceKeepsOnlyExecutorBridge() {
 	const backend = new WebGPUBackend();
 	backend.attach({
 		surface: { canvas: {} },
@@ -549,7 +549,7 @@ function testBackendPostProcessSurfaceKeepsOnlyExecutorBridge() {
 	assert.equal("postProcess" in backend, false);
 }
 
-function testWebGPUOcclusionExtensionDescriptor() {
+async function testWebGPUOcclusionExtensionDescriptor() {
 	const backend = new WebGPUBackend();
 	backend.attach({
 		surface: { canvas: {} },
@@ -581,7 +581,7 @@ async function testProbeCaptureRemainsExtensionOnly() {
 	assert.equal("captureProbeFace" in backend, false);
 }
 
-function testSSRRequirementsExposeMaterialChannels() {
+async function testSSRRequirementsExposeMaterialChannels() {
 	const pass = new ScreenSpaceReflectionsPass({ enabled: true });
 	const options = pass.normalizeOptions({});
 	const declaration = pass.getImplementation("webgpu").describeExecution({
@@ -601,12 +601,12 @@ function testSSRRequirementsExposeMaterialChannels() {
 async function run() {
 	await testGammaOwnsWebGPUKernelBeforeRawPresent();
 	await testTemporalExecutePassUsesPipelineHistories();
-	testCustomImplementationUsesFixedContext();
+	await testCustomImplementationUsesFixedContext();
 	await testWarmupHintsFollowPlanPostProcessPasses();
-	testBackendPostProcessSurfaceKeepsOnlyExecutorBridge();
-	testWebGPUOcclusionExtensionDescriptor();
+	await testBackendPostProcessSurfaceKeepsOnlyExecutorBridge();
+	await testWebGPUOcclusionExtensionDescriptor();
 	await testProbeCaptureRemainsExtensionOnly();
-	testSSRRequirementsExposeMaterialChannels();
+	await testSSRRequirementsExposeMaterialChannels();
 	console.log("WebGPU post-process executor tests passed");
 }
 

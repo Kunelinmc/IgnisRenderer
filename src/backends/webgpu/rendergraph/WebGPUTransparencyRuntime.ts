@@ -1,5 +1,6 @@
 import type { DrawPacket, FrameContext } from "../../../pipeline/types";
 import { ParticleBlendMode } from "../../../particles";
+import { materialUsesTransmission } from "../../../materials/transparency";
 import { ShaderSource } from "../../../shaders/ShaderSource";
 import {
 	AddressMode,
@@ -20,24 +21,95 @@ import type { WebGPUSceneTargetMode } from "../WebGPUScenePassDescriptors";
 import type { WebGPUFrameGraphRecordingContext } from "./WebGPUFrameGraphRecordingContext";
 import type { WebGPUFrameGraphModule } from "./WebGPUFrameGraphModule";
 import type {
-	WebGPUFrameModuleAnalysisInput,
 	WebGPUFrameGraphContribution,
-	WebGPUFrameModuleConfigurationInput,
 	WebGPUFrameModulePlanningInput,
-	WebGPUFrameModuleStateStore,
 } from "./WebGPUFrameGraphModule";
-import type {
-	WebGPUFrameModuleConfigurationContribution,
-} from "./WebGPUFrameConfigurationContribution";
-import { WEBGPU_TRANSPARENCY_FEATURE_ANALYSIS } from "./WebGPUFrameModuleStateKeys";
-import { analyzeWebGPUTransparency } from "./WebGPUFrameFeatureAnalyzer";
+import {
+	defineWebGPUFrameMessage,
+	type WebGPUFrameMessageHandler,
+} from "./WebGPUFrameMessage";
+import {
+	WEBGPU_FRAME_CONFIGURATION_DEMAND_MESSAGE,
+	WEBGPU_FRAME_CONFIGURATION_REQUEST_MESSAGE,
+	WEBGPU_FRAME_LOGICAL_RESOURCES,
+	WEBGPU_FRAME_FEATURE_STATES,
+	WEBGPU_FRAME_CONTEXT_MESSAGE,
+	WEBGPU_FRAME_PACKETS_MESSAGE,
+} from "./WebGPUFrameMessages";
+import {
+	WEBGPU_MRT_COLOR_BYTES_PER_SAMPLE,
+	WEBGPU_MRT_COLOR_TARGET_COUNT,
+} from "../constants";
 import { WebGPUTransparencyFramePlanner } from "./WebGPUTransparencyFramePlanner";
 import type { WebGPUFrameSession } from "./WebGPUFrameSession";
 import type { WebGPUFrameHost } from "./WebGPUFrameHost";
-import type { WebGPUScenePassRecorder } from "./WebGPUScenePassRecorder";
+
+interface WebGPUTransparencyScenePort {
+	recordMainPass(
+		context: FrameContext,
+		packets: DrawPacket[],
+		clearAttachments: boolean,
+		allowEarlyZPrepass: boolean,
+	): Promise<void>;
+	drawTransmissionPackets(context: FrameContext, packets: DrawPacket[]): Promise<void>;
+}
 
 export interface WebGPUFrameDiagnosticSink {
 	warnOnce(code: string, message: string, cause?: unknown): void;
+}
+
+export interface WebGPUTransparencyAnalysis {
+	readonly oitPackets: readonly DrawPacket[];
+	readonly transmissionPackets: readonly DrawPacket[];
+	readonly legacyTransparentPackets: readonly DrawPacket[];
+	readonly hasAlphaBillboardParticles: boolean;
+	readonly hasAdditiveBillboardParticles: boolean;
+	readonly hasOITContributors: boolean;
+}
+
+export const WEBGPU_TRANSPARENCY_FEATURE_ANALYSIS =
+	defineWebGPUFrameMessage<WebGPUTransparencyAnalysis>({
+		id: "webgpu:transparency-analysis",
+		ownerId: "transparency",
+		phase: "analysis",
+	});
+
+export function analyzeWebGPUTransparency(
+	context: FrameContext,
+	transparentPackets: readonly DrawPacket[],
+): WebGPUTransparencyAnalysis {
+	const oitPackets: DrawPacket[] = [];
+	const transmissionPackets: DrawPacket[] = [];
+	for (const packet of transparentPackets) {
+		if (materialUsesTransmission(packet.material)) transmissionPackets.push(packet);
+		else oitPackets.push(packet);
+	}
+	let hasAlphaBillboardParticles = false;
+	let hasAdditiveBillboardParticles = false;
+	for (const system of context.scene.particleSystems ?? []) {
+		if (system.visible === false) continue;
+		if (!system.templates) {
+			hasAlphaBillboardParticles = true;
+			hasAdditiveBillboardParticles = true;
+			continue;
+		}
+		for (const template of system.templates) {
+			if (template.shape.kind !== "billboard") continue;
+			if (template.shape.blendMode === ParticleBlendMode.Additive) {
+				hasAdditiveBillboardParticles = true;
+			} else {
+				hasAlphaBillboardParticles = true;
+			}
+		}
+	}
+	return {
+		oitPackets,
+		transmissionPackets,
+		legacyTransparentPackets: oitPackets,
+		hasAlphaBillboardParticles,
+		hasAdditiveBillboardParticles,
+		hasOITContributors: oitPackets.length > 0 || hasAlphaBillboardParticles,
+	};
 }
 
 /**
@@ -49,6 +121,82 @@ export interface WebGPUFrameDiagnosticSink {
  */
 export class WebGPUTransparencyRuntime implements WebGPUFrameGraphModule {
 	public readonly id = "transparency";
+	public readonly planningInputs = [{
+		descriptor: WEBGPU_FRAME_CONFIGURATION_DEMAND_MESSAGE,
+		required: false,
+	}] as const;
+	public readonly messageHandlers: readonly WebGPUFrameMessageHandler[] = [{
+		id: "analyze",
+		moduleId: this.id,
+		phase: "analysis",
+		inputs: [
+			{ descriptor: WEBGPU_FRAME_CONTEXT_MESSAGE },
+			{ descriptor: WEBGPU_FRAME_PACKETS_MESSAGE },
+		],
+		outputs: [WEBGPU_TRANSPARENCY_FEATURE_ANALYSIS],
+		run: (messages, publisher) => publisher.publish(
+			WEBGPU_TRANSPARENCY_FEATURE_ANALYSIS,
+			analyzeWebGPUTransparency(
+				messages.get(WEBGPU_FRAME_CONTEXT_MESSAGE),
+				messages.get(WEBGPU_FRAME_PACKETS_MESSAGE).transparent,
+			),
+		),
+	}, {
+		id: "configure",
+		moduleId: this.id,
+		phase: "configuration",
+		inputs: [
+			{ descriptor: WEBGPU_TRANSPARENCY_FEATURE_ANALYSIS },
+			{ descriptor: WEBGPU_FRAME_CONFIGURATION_REQUEST_MESSAGE },
+		],
+		outputs: [WEBGPU_FRAME_CONFIGURATION_DEMAND_MESSAGE],
+		run: (messages, publisher) => {
+			const analysis = messages.get(WEBGPU_TRANSPARENCY_FEATURE_ANALYSIS);
+			const request = messages.get(WEBGPU_FRAME_CONFIGURATION_REQUEST_MESSAGE);
+			const mrtSupported =
+				request.capabilities.maxColorAttachments >= WEBGPU_MRT_COLOR_TARGET_COUNT &&
+				request.capabilities.maxColorAttachmentBytesPerSample >=
+					WEBGPU_MRT_COLOR_BYTES_PER_SAMPLE;
+			const requested = request.context.features.enableOIT === true;
+			const active =
+				mrtSupported && request.options.samplePlan.sampleCount === 1 &&
+				request.options.supportsInFrameTextureCopy && requested &&
+				analysis.hasOITContributors;
+			const diagnostics = [];
+			if (requested && analysis.hasOITContributors && !active) {
+				diagnostics.push({
+					code: request.options.samplePlan.sampleCount > 1
+						? "webgpu-oit-disabled-msaa"
+						: !mrtSupported
+							? "webgpu-oit-disabled-mrt-unavailable"
+							: "webgpu-oit-disabled-runtime",
+					message: request.options.samplePlan.sampleCount > 1
+						? "WebGPU OIT v1 only supports sampleCount=1; falling back to legacy transparent rendering."
+						: !mrtSupported
+							? "WebGPU OIT requires MRT scene targets; falling back to legacy transparent rendering."
+							: "WebGPU OIT requires in-frame texture-copy support; falling back to legacy transparent rendering.",
+				});
+			}
+			publisher.publish(WEBGPU_FRAME_CONFIGURATION_DEMAND_MESSAGE, {
+				source: this.id,
+				targetClass: active ? "color" :
+					analysis.transmissionPackets.length > 0 ? "color" : "single",
+				featureStates: {
+					[WEBGPU_FRAME_FEATURE_STATES.oitActive]: active,
+					[WEBGPU_FRAME_FEATURE_STATES.transparencyMode]:
+						active ? "oit" : "legacy",
+				},
+				resources: active
+					? [{ id: WEBGPU_FRAME_LOGICAL_RESOURCES.oitTargets }]
+					: [],
+				hasOITMeshContributors: analysis.oitPackets.length > 0,
+				hasTransmissionPackets: analysis.transmissionPackets.length > 0,
+				hasAlphaBillboardParticles: analysis.hasAlphaBillboardParticles,
+				hasAdditiveBillboardParticles: analysis.hasAdditiveBillboardParticles,
+				diagnostics,
+			});
+		},
+	}];
 	public readonly executors = {
 		"transparent-forward": async (_node: unknown, session: WebGPUFrameSession) =>
 			this._recordTransparentForward(session),
@@ -84,37 +232,30 @@ export class WebGPUTransparencyRuntime implements WebGPUFrameGraphModule {
 		private readonly _sceneResources: WebGPUSceneResourceProvider,
 		private readonly _particleRenderer: WebGPUParticleBillboardRenderer,
 		private readonly _recordingContext: WebGPUFrameGraphRecordingContext,
-		private readonly _sceneRecorder: WebGPUScenePassRecorder,
+		private readonly _scene: WebGPUTransparencyScenePort,
 		private readonly _diagnostics: WebGPUFrameDiagnosticSink,
 	) {}
-
-	public analyze(
-		input: WebGPUFrameModuleAnalysisInput,
-		state: WebGPUFrameModuleStateStore,
-	): void {
-		state.set(
-			WEBGPU_TRANSPARENCY_FEATURE_ANALYSIS,
-			analyzeWebGPUTransparency(input.context, input.framePackets.transparent),
-		);
-	}
-
-	public contributeConfiguration(
-		input: WebGPUFrameModuleConfigurationInput,
-	): WebGPUFrameModuleConfigurationContribution {
-		const analysis = input.state.require(WEBGPU_TRANSPARENCY_FEATURE_ANALYSIS);
-		const oitRequested = input.context.features.enableOIT === true;
-		return (builder) => builder.setTransparency(analysis, oitRequested);
-	}
 
 	public planStage(
 		input: WebGPUFrameModulePlanningInput,
 	): readonly WebGPUFrameGraphContribution[] {
+		const demand = input.messages
+			.getAll(WEBGPU_FRAME_CONFIGURATION_DEMAND_MESSAGE)
+			.find((candidate) => candidate.source === this.id);
 		const nodes = this._planner.plan(
 			input.pass,
 			input.context,
-			input.state,
+			{
+				...input.state,
+				hasOITMeshContributors: demand?.hasOITMeshContributors === true,
+				hasTransmissionPackets: demand?.hasTransmissionPackets === true,
+				hasAlphaBillboardParticles:
+					demand?.hasAlphaBillboardParticles === true,
+				hasAdditiveBillboardParticles:
+					demand?.hasAdditiveBillboardParticles === true,
+			},
 		);
-		return nodes.length > 0 ? [{ order: 100, nodes }] : [];
+		return nodes.length > 0 ? [{ lane: "transparent", nodes }] : [];
 	}
 
 	public beginFrame(_context: FrameContext): void {}
@@ -144,7 +285,7 @@ export class WebGPUTransparencyRuntime implements WebGPUFrameGraphModule {
 	private async _recordTransparentForward(session: WebGPUFrameSession): Promise<void> {
 		const analysis = this._requireTransparencyAnalysis(session);
 		if (analysis.legacyTransparentPackets.length <= 0) return;
-		await this._sceneRecorder.recordMainPass(
+		await this._scene.recordMainPass(
 			session.context,
 			analysis.legacyTransparentPackets.slice(),
 			false,
@@ -202,14 +343,14 @@ export class WebGPUTransparencyRuntime implements WebGPUFrameGraphModule {
 		const analysis = this._requireTransparencyAnalysis(session);
 		if (analysis.oitPackets.length <= 0) return;
 		if (session.transparencyMode !== "oit") {
-			await this._sceneRecorder.recordMainPass(session.context, analysis.oitPackets.slice(), false, false);
+			await this._scene.recordMainPass(session.context, analysis.oitPackets.slice(), false, false);
 			return;
 		}
 		const encoder = session.encoder;
 		const targets = this._recordingContext.getFrameTargets();
 		if (!encoder || !targets?.oitAccum || !targets.oitReveal) {
 			this._fallbackToLegacy(session, "webgpu-oit-disabled-runtime", "WebGPU OIT accumulation targets are unavailable; using legacy transparent rendering.");
-			await this._sceneRecorder.recordMainPass(session.context, analysis.oitPackets.slice(), false, false);
+			await this._scene.recordMainPass(session.context, analysis.oitPackets.slice(), false, false);
 			return;
 		}
 		const frameResources = this._recordingContext.requireFrameResources();
@@ -331,7 +472,7 @@ export class WebGPUTransparencyRuntime implements WebGPUFrameGraphModule {
 	private async _recordTransmission(session: WebGPUFrameSession): Promise<void> {
 		const packets = this._requireTransparencyAnalysis(session).transmissionPackets;
 		if (packets.length > 0) {
-			await this._sceneRecorder.drawTransmissionPackets(session.context, packets.slice());
+			await this._scene.drawTransmissionPackets(session.context, packets.slice());
 		}
 	}
 
@@ -401,7 +542,7 @@ export class WebGPUTransparencyRuntime implements WebGPUFrameGraphModule {
 	}
 
 	private _requireTransparencyAnalysis(session: WebGPUFrameSession) {
-		return session.moduleState.require(WEBGPU_TRANSPARENCY_FEATURE_ANALYSIS);
+		return session.messages.get(WEBGPU_TRANSPARENCY_FEATURE_ANALYSIS);
 	}
 
 	private _resolveSceneTargetMode(): Exclude<WebGPUSceneTargetMode, "single"> {

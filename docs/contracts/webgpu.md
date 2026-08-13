@@ -15,22 +15,39 @@ This document defines WebGPU frame-graph execution, deferred lighting, presentat
   seal the registry before the first frame begins. Applications must not
   receive a frame-module or frame-graph registration API.
 - A sealed frame-module registry must reject later registration. Sealing must
-  reject duplicate module ids and duplicate or missing node-kind executors.
+  reject duplicate module ids, duplicate owner-and-kind executors, and missing
+  node-kind executors.
   The sealed module list must be immutable at runtime.
-  Stage planning must reject duplicate planned node ids, ambiguous same-stage
-  contribution order, and multiple composed subgraphs for one renderer stage
-  before graph compilation.
-- Frame modules must declare an explicit same-stage contribution order.
-  Registration order must not affect planned graph order.
-- Frame-module analysis must write only module-owned typed frame state.
-  State ownership must use canonical key identity so another module cannot
-  reuse a key id to read or replace foreign analysis.
-  Configuration and planning may read the completed analysis store only after
-  every module has finished analysis.
-- Feature modules must provide configuration input through
-  `contributeConfiguration()` from their retained analysis. The configuration
-  builder must reject missing or duplicate feature contributions and must not
-  rescan scene packets during capability or allocation fallback retries.
+  Stage planning must reject duplicate planned node ids, unordered same-lane
+  contributors, lane cycles, and multiple composed subgraphs for one renderer
+  stage before graph compilation.
+- Frame modules must select a general stage lane from `setup`, `geometry`,
+  `lighting`, `composite`, `visibility`, `transparent`, `postprocess`, and
+  `present`. Contributors in the same lane must declare static `before` or
+  `after` edges. Registration order must not affect planned graph order.
+- Planned node identity must use stage, owner id, and module-local id. Node
+  execution must route by owner id and kind, so multiple modules may own the
+  same kind without ambiguity.
+- Frame-module analysis, configuration, and planning must use backend-private
+  typed message descriptors. Descriptors must declare a unique id, owner,
+  phase, cardinality, and handler inputs and outputs.
+- The frame-message registry must validate descriptor identity, required
+  producers, single-value producer cardinality, forward-only phase edges, and
+  an acyclic same-phase handler graph before the first frame.
+- Same-wave message handlers may execute concurrently, but their isolated
+  outputs must merge deterministically by wave, module id, handler id, and
+  publication order. A handler failure must discard all provisional output for
+  the phase before the frame transaction aborts.
+- Analysis output must seal before configuration begins. Allocation fallback
+  retries may rerun configuration against the same sealed analysis snapshot and
+  must not rescan scene packets.
+- Post-process planning must publish the final color resource and color domain
+  as a typed per-frame output message. Presentation must consume the sealed
+  publication and must not retain a post-process module callback.
+- Feature modules must publish capability policy and resource demands from
+  their retained analysis. The configuration reducer may merge generic target
+  classes, resource demands, diagnostics, and conflicts; it must not contain
+  feature-specific packet scans.
 - Scene, shadow, deferred, transparency, reflection, visibility, post-process,
   presentation, and custom-render-target modules must own their feature-local
   analysis, graph contribution, node execution, warmup, and lifecycle work.
@@ -79,9 +96,10 @@ This document defines WebGPU frame-graph execution, deferred lighting, presentat
 - WebGPU post-process declarations must be planned before frame-target
   allocation, finalized against allocated G-buffer and shared-resource
   availability, and reused for whole-frame graph composition.
-- `WebGPUFrameConfigurationResolver` must aggregate completed module analysis
-  and configuration contributions, resolving only capability gating, effective
-  configuration, target requirements, and fallback policy.
+- Feature-owned configuration handlers must apply capability and fallback
+  policy, then publish typed demands. `WebGPUFrameConfigurationModule` must
+  reduce only generic target classes, logical resource requirements, feature
+  states, diagnostics, and incompatible exclusive demands.
 - Planner, compiler, orchestrator, and debug state must use the shared typed
   graph resource catalog. The catalog must derive logical descriptors and
   stable physical bindings from concrete frame targets without exposing native
@@ -192,7 +210,9 @@ This document defines WebGPU frame-graph execution, deferred lighting, presentat
   shadow-volume bindings after resource preparation, so billboard and mesh
   particle shadow volumes consume the current frame's emitted batches.
 - Frames without an enabled `particle-sim` pass must seal during
-  `beginFrame()`.
+  `beginFrame()`. `WebGPUBackend.beginFrame()` must return a promise and callers
+  must await asynchronous frame-message dispatch and graph sealing before pass
+  execution.
 - Zero-sized frames must use a `"skipped"` session without allocating an
   encoder. They must still preserve the `beginFrame`/`endFrame` lifecycle.
 - `WebGPUFrameOrchestrator.beginFrame` must reject while another session is
@@ -218,7 +238,8 @@ This document defines WebGPU frame-graph execution, deferred lighting, presentat
 - A failure after at least one successful submission must throw
   `WebGPUFramePartialSubmitError` with submitted and pending command metadata.
 - `WebGPUFrameOrchestrator` must execute graph nodes through
-  `WebGPUFrameNodeExecutorRegistry`, keyed by `WebGPUFrameGraphNode.kind`.
+  `WebGPUFrameNodeExecutorRegistry`, keyed by node owner and kind. Multiple
+  modules may own the same generic node kind without sharing an executor.
 - `WebGPUFrameOrchestrator` must depend only on the sealed frame-module
   registry and its narrow capability ports. Adding a built-in frame feature
   must not require an orchestrator change.

@@ -9,6 +9,7 @@ import type {
 	PostProcessPassResult,
 	PostProcessResourceDescriptor,
 	PostProcessResourceHandle,
+	PlannedPostProcessPass,
 } from "../../../postprocess";
 import type {
 	BackendPostProcessRuntime,
@@ -21,7 +22,6 @@ import type { WarmupPhaseCounters, WarmupPlan } from "../../../pipeline/WarmupPl
 import { toShaderCompileError } from "../../../pipeline/WarmupPlanner";
 import { createWarmupYieldController } from "../../../pipeline/WarmupScheduler";
 import type { ShaderCompileError } from "../../../shaders/runtime";
-import type { RenderGraphResourceDescriptor } from "../../../rendergraph/types";
 import type { WebGPUPostProcessRuntime } from "../WebGPUPostProcessRuntime";
 import type { WebGPUPostProcessSessionPort } from "../WebGPUPostProcessExecutor";
 
@@ -29,22 +29,27 @@ import type { WebGPUFrameGraphCompiler } from "./WebGPUFrameGraphCompiler";
 import type {
 	WebGPUFrameGraphContribution,
 	WebGPUFrameGraphModule,
-	WebGPUFrameModuleAnalysisInput,
-	WebGPUFrameModuleConfigurationInput,
 	WebGPUFrameModulePlanningInput,
-	WebGPUFrameModuleStateStore,
 } from "./WebGPUFrameGraphModule";
-import type {
-	WebGPUFrameModuleConfigurationContribution,
-} from "./WebGPUFrameConfigurationContribution";
-import { WEBGPU_POST_PROCESS_FEATURE_ANALYSIS } from "./WebGPUFrameModuleStateKeys";
-import { analyzeWebGPUPostProcessFeatures } from "./WebGPUFrameFeatureAnalyzer";
+import {
+	defineWebGPUFrameMessage,
+	type WebGPUFrameMessageHandler,
+} from "./WebGPUFrameMessage";
+import {
+	WEBGPU_FRAME_CONFIGURATION_DEMAND_MESSAGE,
+	WEBGPU_FRAME_LOGICAL_RESOURCES,
+	WEBGPU_POST_PROCESS_PASSES_MESSAGE,
+} from "./WebGPUFrameMessages";
+import { WEBGPU_TRANSPARENCY_FEATURE_ANALYSIS } from "./WebGPUTransparencyRuntime";
 import type { WebGPUFrameGraphRecordingContext } from "./WebGPUFrameGraphRecordingContext";
 import { WEBGPU_FRAME_GRAPH_RESOURCES } from "./WebGPUFrameGraphResourceCatalog";
 import type { WebGPUFrameSession } from "./WebGPUFrameSession";
 import type { WebGPUPostProcessBridge } from "./WebGPUPostProcessBridge";
 import { createWebGPUPostProcessGraphComposition } from "./WebGPUPostProcessGraphAdapter";
-import { getWebGPUPostProcessSharedResourceDescriptor } from "./WebGPUPostProcessSharedResourceCatalog";
+import {
+	getWebGPUPostProcessSharedResourceDescriptor,
+	type WebGPUPostProcessAllocationGroup,
+} from "./WebGPUPostProcessSharedResourceCatalog";
 import type {
 	WebGPUCompiledFrameGraphStage,
 } from "./types";
@@ -54,9 +59,98 @@ interface WebGPUPostProcessPresentationPort {
 	warmup(): Promise<void>;
 }
 
+export interface WebGPUPostProcessFeatureAnalysis {
+	readonly postProcessPasses: readonly PlannedPostProcessPass[];
+	readonly needsPostProcessTargets: boolean;
+	readonly needsPostProcessGBuffer: boolean;
+	readonly needsPlanarReflectionMask: boolean;
+	readonly needsTransmissionTargets: boolean;
+	readonly needsHiZTarget: boolean;
+}
+
+export const WEBGPU_POST_PROCESS_FEATURE_ANALYSIS =
+	defineWebGPUFrameMessage<WebGPUPostProcessFeatureAnalysis>({
+		id: "webgpu:post-process-analysis",
+		ownerId: "post-process",
+		phase: "analysis",
+	});
+
+export function analyzeWebGPUPostProcessFeatures(
+	passes: readonly PlannedPostProcessPass[],
+): WebGPUPostProcessFeatureAnalysis {
+	const groups = new Set<WebGPUPostProcessAllocationGroup>();
+	for (const pass of passes) {
+		for (const resource of pass.declaration.shared ?? []) {
+			const descriptor = getWebGPUPostProcessSharedResourceDescriptor(resource.id);
+			if (descriptor && (resource.optional !== true || descriptor.allocateWhenOptional)) {
+				groups.add(descriptor.allocationGroup);
+			}
+		}
+	}
+	return {
+		postProcessPasses: passes,
+		needsPostProcessTargets: passes.length > 0,
+		needsPostProcessGBuffer: passes.some(
+			(pass) => (pass.declaration.gBuffer?.length ?? 0) > 0,
+		),
+		needsPlanarReflectionMask: groups.has("planar-reflection-mask"),
+		needsTransmissionTargets: groups.has("transmission"),
+		needsHiZTarget: groups.has("hiz"),
+	};
+}
+
 /** @internal Owns WebGPU post-process graph execution and session integration. */
 export class WebGPUPostProcessFrameModule implements WebGPUFrameGraphModule {
 	public readonly id = "post-process";
+	public readonly messageHandlers: readonly WebGPUFrameMessageHandler[] = [{
+		id: "analyze",
+		moduleId: this.id,
+		phase: "analysis",
+		inputs: [{ descriptor: WEBGPU_POST_PROCESS_PASSES_MESSAGE }],
+		outputs: [WEBGPU_POST_PROCESS_FEATURE_ANALYSIS],
+		run: (messages, publisher) => publisher.publish(
+			WEBGPU_POST_PROCESS_FEATURE_ANALYSIS,
+			analyzeWebGPUPostProcessFeatures(
+				messages.get(WEBGPU_POST_PROCESS_PASSES_MESSAGE),
+			),
+		),
+	}, {
+		id: "configure",
+		moduleId: this.id,
+		phase: "configuration",
+		inputs: [
+			{ descriptor: WEBGPU_POST_PROCESS_FEATURE_ANALYSIS },
+			{ descriptor: WEBGPU_TRANSPARENCY_FEATURE_ANALYSIS },
+		],
+		outputs: [WEBGPU_FRAME_CONFIGURATION_DEMAND_MESSAGE],
+		run: (messages, publisher) => {
+			const analysis = messages.get(WEBGPU_POST_PROCESS_FEATURE_ANALYSIS);
+			const transparency = messages.get(WEBGPU_TRANSPARENCY_FEATURE_ANALYSIS);
+			const needsTransmissionTargets = analysis.needsTransmissionTargets &&
+				transparency.transmissionPackets.length > 0;
+			publisher.publish(WEBGPU_FRAME_CONFIGURATION_DEMAND_MESSAGE, {
+				source: this.id,
+				targetClass: analysis.needsPostProcessGBuffer || analysis.needsHiZTarget
+					? "mrt"
+					: analysis.needsPostProcessTargets ? "color" : "single",
+				resources: [
+					...(analysis.needsPostProcessTargets
+						? [{ id: WEBGPU_FRAME_LOGICAL_RESOURCES.postProcessTargets }]
+						: []),
+					...(needsTransmissionTargets
+						? [{ id: WEBGPU_FRAME_LOGICAL_RESOURCES.transmissionTargets }]
+						: []),
+					...(analysis.needsPlanarReflectionMask
+						? [{ id: WEBGPU_FRAME_LOGICAL_RESOURCES.planarReflectionMask }]
+						: []),
+					...(analysis.needsHiZTarget
+						? [{ id: WEBGPU_FRAME_LOGICAL_RESOURCES.hiZTarget }]
+						: []),
+				],
+				needsHiZBuild: analysis.needsHiZTarget,
+			});
+		},
+	}];
 	public readonly executors = {
 		"post-process-pass": async () => {
 			throw new Error(
@@ -84,45 +178,12 @@ export class WebGPUPostProcessFrameModule implements WebGPUFrameGraphModule {
 		return this._graphFrame;
 	}
 
-	public get outputColor(): string {
-		return this._outputColor;
-	}
-
-	public set outputColor(value: string) {
-		this._outputColor = value;
-	}
-
-	public get outputColorDomain(): PostProcessColorDomain {
-		return this._outputColorDomain;
-	}
-
-	public set outputColorDomain(value: PostProcessColorDomain) {
-		this._outputColorDomain = value;
-	}
-
 	public beginFrame(): void {
 		this._graphFrame = null;
 		this._graphComposition = null;
 		this._outputColor = WEBGPU_FRAME_GRAPH_RESOURCES.frameColor;
 		this._outputColorDomain = "scene-linear-hdr";
 		this._bridge.clearPendingFrameState();
-	}
-
-	public analyze(
-		input: WebGPUFrameModuleAnalysisInput,
-		state: WebGPUFrameModuleStateStore,
-	): void {
-		state.set(
-			WEBGPU_POST_PROCESS_FEATURE_ANALYSIS,
-			analyzeWebGPUPostProcessFeatures(input.postProcessPasses),
-		);
-	}
-
-	public contributeConfiguration(
-		input: WebGPUFrameModuleConfigurationInput,
-	): WebGPUFrameModuleConfigurationContribution {
-		const analysis = input.state.require(WEBGPU_POST_PROCESS_FEATURE_ANALYSIS);
-		return (builder) => builder.setPostProcess(analysis);
 	}
 
 	public describeFrame(context: FrameContext) {
@@ -149,18 +210,18 @@ export class WebGPUPostProcessFrameModule implements WebGPUFrameGraphModule {
 		this._outputColor = composition.outputColor;
 		this._outputColorDomain = this._graphFrame.graph.outputColorDomain;
 		return [{
-			order: 100,
+			lane: "postprocess",
+			finalOutput: {
+				resource: composition.outputColor,
+				colorDomain: this._graphFrame.graph.outputColorDomain,
+			},
+			imports: composition.importResources,
 			composition: {
 				namespace: "postprocess",
 				definition: composition.definition,
 				inputs: composition.inputs,
 			},
 		}];
-	}
-
-	public getImportResources(): readonly RenderGraphResourceDescriptor[] {
-		if (!this._graphFrame || this._graphFrame.graph.passes.length === 0) return [];
-		return this._getGraphComposition().importResources;
 	}
 
 	public createResource(desc: PostProcessResourceDescriptor): PostProcessResourceHandle {

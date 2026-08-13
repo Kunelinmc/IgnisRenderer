@@ -40,7 +40,7 @@ async function testOITTransparentAndParticleExecutionOrder() {
 	];
 	context.scene.particleSystems = [{ id: "ps-0" }];
 
-	executor.beginFrame(context);
+	await executor.beginFrame(context);
 	await executor.executePass(
 		{ stage: "main-transparent", executor: "backend", enabled: true },
 		context
@@ -138,7 +138,7 @@ async function testOITTransparentResolvesImmediatelyWithoutParticles() {
 	];
 	context.scene.particleSystems = [];
 
-	executor.beginFrame(context);
+	await executor.beginFrame(context);
 	await executor.executePass(
 		{ stage: "main-transparent", executor: "backend", enabled: true },
 		context
@@ -217,7 +217,7 @@ async function testDeferredLightingBindsUnusedGroupOnePlaceholder() {
 		},
 	];
 
-	executor.beginFrame(context);
+	await executor.beginFrame(context);
 	const bridge = executor.runtimeCapabilities.postProcess.createGBufferBridge(context);
 	assert.equal(bridge.channels.specular.format, "rgba16float");
 	assert.equal(bridge.channels.specular.encoding, "specular-color-factor.rgba");
@@ -277,7 +277,7 @@ async function testDeferredLightingKeepsTransmissionOutOfGBuffer() {
 		},
 	];
 
-	executor.beginFrame(context);
+	await executor.beginFrame(context);
 	await executor.executePass(
 		{ stage: "main-opaque", executor: "backend", enabled: true },
 		context
@@ -320,7 +320,7 @@ async function testDeferredLightingCanBeExplicitlyDisabled() {
 		},
 	];
 
-	executor.beginFrame(context);
+	await executor.beginFrame(context);
 	await executor.executePass(
 		{ stage: "main-opaque", executor: "backend", enabled: true },
 		context
@@ -375,7 +375,7 @@ async function testDeferredPipelineFailureFallsBackBeforeGBufferCommands() {
 		},
 	});
 	try {
-		executor.beginFrame(context);
+		await executor.beginFrame(context);
 		await executor.executePass(
 			{ stage: "main-opaque", executor: "backend", enabled: true },
 			context
@@ -400,7 +400,7 @@ async function testDeferredPipelineFailureFallsBackBeforeGBufferCommands() {
 	}
 }
 
-function testDeferredLightingWarnsWhenRequestedButMRTUnavailable() {
+async function testDeferredLightingWarnsWhenRequestedButMRTUnavailable() {
 	const backend = new FakeBackend();
 	backend.device.limits.maxColorAttachments = 1;
 	backend.device.limits.maxColorAttachmentBytesPerSample = 16;
@@ -420,7 +420,7 @@ function testDeferredLightingWarnsWhenRequestedButMRTUnavailable() {
 		},
 	});
 	try {
-		executor.beginFrame(context);
+		await executor.beginFrame(context);
 		assert.equal(executor.getSceneTargetModeForFrame(), "single");
 		assert.equal(
 			warnings.some((warning) =>
@@ -451,7 +451,7 @@ async function testOITMSAAFallsBackToLegacyAndWarns() {
 		},
 	});
 	try {
-		executor.beginFrame(context);
+		await executor.beginFrame(context);
 		assert.equal(getFrameGraphDebugState(executor).oitActive, false);
 		await executor.executePass(
 			{ stage: "main-transparent", executor: "backend", enabled: true },
@@ -467,7 +467,7 @@ async function testOITMSAAFallsBackToLegacyAndWarns() {
 	}
 }
 
-function testOITRuntimeFallbackWarnsWithoutEncoderCopy() {
+async function testOITRuntimeFallbackWarnsWithoutEncoderCopy() {
 	const backend = new FakeBackend();
 	const originalCreateCommandEncoder =
 		backend.createCommandEncoder.bind(backend);
@@ -494,7 +494,7 @@ function testOITRuntimeFallbackWarnsWithoutEncoderCopy() {
 		},
 	});
 	try {
-		executor.beginFrame(context);
+		await executor.beginFrame(context);
 		assert.equal(getFrameGraphDebugState(executor).oitActive, false);
 		const runtimeWarnings = warnings.filter((warning) =>
 			warning.includes("[webgpu-oit-disabled-runtime]")

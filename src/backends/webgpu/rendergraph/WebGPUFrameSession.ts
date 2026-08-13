@@ -3,10 +3,10 @@ import type { PreparedFramePacketSet } from "../../../pipeline/FramePacketContri
 import type { ICommandEncoder } from "../../ICommandEncoder";
 import type { IRenderTexture } from "../../types";
 import type { WebGPUPreparedFrameResources } from "../WebGPUResourceContracts";
-import type { WebGPUFrameConfiguration } from "./WebGPUFrameConfigurationResolver";
+import type { WebGPUFrameConfiguration } from "./WebGPUFrameConfiguration";
 import type { WebGPUDeferredOpaqueFrameState } from "./WebGPUScenePassRecorder";
 import type { WebGPUFrameCommitter } from "./WebGPUFrameCommitter";
-import { WebGPUFrameModuleStateStore } from "./WebGPUFrameGraphModule";
+import { WebGPUFrameMessageSnapshot } from "./WebGPUFrameMessage";
 
 export type WebGPUFrameSessionState =
 	| "preparing"
@@ -28,7 +28,7 @@ interface WebGPURecordingFrameSessionOptions {
 	readonly hiZStatus: WebGPUFrameHiZStatus;
 	readonly framePackets: PreparedFramePacketSet;
 	readonly committer: WebGPUFrameCommitter;
-	readonly moduleState: WebGPUFrameModuleStateStore;
+	readonly messages: WebGPUFrameMessageSnapshot;
 }
 
 /**
@@ -50,7 +50,7 @@ export class WebGPUFrameSession {
 	public hiZBuildCount = 0;
 	public readonly framePackets: PreparedFramePacketSet | null;
 	public readonly committer: WebGPUFrameCommitter | null;
-	public readonly moduleState: WebGPUFrameModuleStateStore;
+	public readonly messages: WebGPUFrameMessageSnapshot;
 	public transparencyMode: WebGPUTransparencyMode;
 
 	private constructor(
@@ -61,7 +61,7 @@ export class WebGPUFrameSession {
 		hiZStatus: WebGPUFrameHiZStatus,
 		framePackets: PreparedFramePacketSet | null,
 		committer: WebGPUFrameCommitter | null,
-		moduleState: WebGPUFrameModuleStateStore,
+		messages: WebGPUFrameMessageSnapshot,
 	) {
 		this.context = context;
 		this.configuration = configuration;
@@ -70,7 +70,7 @@ export class WebGPUFrameSession {
 		this.hiZStatus = hiZStatus;
 		this.framePackets = framePackets;
 		this.committer = committer;
-		this.moduleState = moduleState;
+		this.messages = messages;
 		this.transparencyMode = configuration?.transparencyMode ?? "legacy";
 	}
 
@@ -85,13 +85,11 @@ export class WebGPUFrameSession {
 			options.hiZStatus,
 			options.framePackets,
 			options.committer,
-			options.moduleState,
+			options.messages,
 		);
 	}
 
 	public static createPreparing(context: FrameContext): WebGPUFrameSession {
-		const moduleState = new WebGPUFrameModuleStateStore();
-		moduleState.seal();
 		return new WebGPUFrameSession(
 			context,
 			null,
@@ -100,13 +98,11 @@ export class WebGPUFrameSession {
 			"unavailable",
 			null,
 			null,
-			moduleState,
+			new WebGPUFrameMessageSnapshot(),
 		);
 	}
 
 	public static createSkipped(context: FrameContext): WebGPUFrameSession {
-		const moduleState = new WebGPUFrameModuleStateStore();
-		moduleState.seal();
 		return new WebGPUFrameSession(
 			context,
 			null,
@@ -115,7 +111,7 @@ export class WebGPUFrameSession {
 			"unavailable",
 			null,
 			null,
-			moduleState,
+			new WebGPUFrameMessageSnapshot(),
 		);
 	}
 

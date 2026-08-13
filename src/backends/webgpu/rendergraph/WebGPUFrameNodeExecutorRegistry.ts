@@ -22,50 +22,69 @@ export type WebGPUFrameNodeExecutorTable = {
  * `Renderer.renderFrame()` instead.
  */
 export class WebGPUFrameNodeExecutorRegistry {
-	private readonly _executors: WebGPUFrameNodeExecutorTable;
+	private readonly _executors: ReadonlyMap<string, WebGPUFrameNodeExecutor>;
+	private readonly _ownersByKind: ReadonlyMap<
+		WebGPUFrameGraphNodeKind,
+		readonly string[]
+	>;
 
-	constructor(executors: WebGPUFrameNodeExecutorTable) {
+	constructor(
+		executors: ReadonlyMap<string, WebGPUFrameNodeExecutor>,
+		ownersByKind: ReadonlyMap<WebGPUFrameGraphNodeKind, readonly string[]>,
+	) {
 		this._executors = executors;
+		this._ownersByKind = ownersByKind;
 	}
 
 	public static fromModules(
 		modules: readonly WebGPUFrameGraphModule[],
 	): WebGPUFrameNodeExecutorRegistry {
-		const executors: Partial<Record<WebGPUFrameGraphNodeKind, WebGPUFrameNodeExecutor>> = {};
+		const executors = new Map<string, WebGPUFrameNodeExecutor>();
+		const ownersByKind = new Map<WebGPUFrameGraphNodeKind, string[]>();
 		for (const module of modules) {
 			for (const [kind, executor] of Object.entries(module.executors)) {
 				const nodeKind = kind as WebGPUFrameGraphNodeKind;
-				if (executors[nodeKind]) {
+				const key = executorKey(module.id, nodeKind);
+				if (executors.has(key)) {
 					throw new Error(
-						`WebGPU node kind "${nodeKind}" has duplicate module owners.`,
+						`WebGPU node executor "${key}" is registered more than once.`,
 					);
 				}
-				executors[nodeKind] = executor;
+				executors.set(key, executor);
+				const owners = ownersByKind.get(nodeKind) ?? [];
+				owners.push(module.id);
+				ownersByKind.set(nodeKind, owners);
 			}
 		}
 		const missing = WEBGPU_FRAME_GRAPH_NODE_KINDS.filter(
-			(kind) => typeof executors[kind] !== "function",
+			(kind) => (ownersByKind.get(kind)?.length ?? 0) === 0,
 		);
 		if (missing.length > 0) {
 			throw new Error(
 				`WebGPU frame modules are missing executors: ${missing.join(", ")}.`,
 			);
 		}
-		return new WebGPUFrameNodeExecutorRegistry(
-			executors as WebGPUFrameNodeExecutorTable,
-		);
+		return new WebGPUFrameNodeExecutorRegistry(executors, ownersByKind);
 	}
 
 	public async execute(
 		node: WebGPUFrameGraphNode,
 		session: WebGPUFrameSession,
 	): Promise<void> {
-		const executor = this._executors[node.kind];
+		const owners = this._ownersByKind.get(node.kind) ?? [];
+		const ownerId = node.ownerId ?? (owners.length === 1 ? owners[0] : null);
+		const executor = ownerId
+			? this._executors.get(executorKey(ownerId, node.kind))
+			: undefined;
 		if (typeof executor !== "function") {
 			throw new Error(
-				`WebGPU frame graph node kind "${node.kind}" has no executor.`,
+				`WebGPU frame graph node "${node.id}" has no owner-aware executor.`,
 			);
 		}
 		await executor(node, session);
 	}
+}
+
+function executorKey(ownerId: string, kind: WebGPUFrameGraphNodeKind): string {
+	return `${ownerId}:${kind}`;
 }

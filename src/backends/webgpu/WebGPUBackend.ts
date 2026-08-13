@@ -712,7 +712,7 @@ export class WebGPUBackend implements IRenderBackend {
 		return true;
 	}
 
-	public beginFrame(context: FrameContext): void {
+	public async beginFrame(context: FrameContext): Promise<void> {
 		this._requireReady("beginFrame");
 		if (this._activeFrameTransaction?.isOpen) {
 			throw new Error(
@@ -742,7 +742,7 @@ export class WebGPUBackend implements IRenderBackend {
 		});
 		this._activeFrameTransaction = transaction;
 		try {
-			transaction.begin();
+			await transaction.begin();
 		} catch (error) {
 			if (this._activeFrameTransaction === transaction) {
 				this._activeFrameTransaction = null;
@@ -798,7 +798,7 @@ export class WebGPUBackend implements IRenderBackend {
 			simulator?.simulate(context, deltaTimeSeconds);
 			simulator?.emitRenderBatches(context);
 		}
-		this._frameOrchestrator?.sealParticleSimulation?.(context);
+		await this._frameOrchestrator?.sealParticleSimulation?.(context);
 	}
 
 	public skipPass(pass: FramePass): void {

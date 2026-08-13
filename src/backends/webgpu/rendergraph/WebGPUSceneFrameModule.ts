@@ -4,12 +4,11 @@ import type {
 	WebGPUFrameModulePlanningInput,
 } from "./WebGPUFrameGraphModule";
 import {
-	createWebGPUForwardGraphResources,
 	createWebGPUFrameGraphNode,
-	createWebGPUPagedShadowLightingReads,
 	readWebGPUFrameGraphResource,
 	writeWebGPUFrameGraphResource,
-} from "./WebGPUFrameGraphPlanningUtils";
+} from "./WebGPUFrameGraphDsl";
+import { WEBGPU_FRAME_GRAPH_RESOURCES } from "./WebGPUFrameGraphResourceCatalog";
 import type { WebGPUFrameSession } from "./WebGPUFrameSession";
 import type { WebGPUDepthDirtyClearPass } from "./WebGPUDepthDirtyClearPass";
 import type { WebGPUScenePassRecorder } from "./WebGPUScenePassRecorder";
@@ -44,7 +43,7 @@ export class WebGPUSceneFrameModule implements WebGPUFrameGraphModule {
 		if (input.pass.stage === "webgpu-setup") {
 			return [
 				{
-					order: 100,
+					lane: "setup",
 					nodes: [
 						{
 							...createWebGPUFrameGraphNode(
@@ -62,7 +61,7 @@ export class WebGPUSceneFrameModule implements WebGPUFrameGraphModule {
 		if (input.pass.stage === "particle-sim") {
 			return [
 				{
-					order: 100,
+					lane: "setup",
 					nodes: [
 						{
 							...createWebGPUFrameGraphNode(
@@ -89,7 +88,7 @@ export class WebGPUSceneFrameModule implements WebGPUFrameGraphModule {
 				this._createOpaqueResources(input),
 			),
 		];
-		return nodes.length > 0 ? [{ order: 100, nodes }] : [];
+		return nodes.length > 0 ? [{ lane: "geometry", nodes }] : [];
 	}
 
 	public onShaderRuntimeChanged(): void {
@@ -103,9 +102,9 @@ export class WebGPUSceneFrameModule implements WebGPUFrameGraphModule {
 	private _createOpaqueResources(
 		input: WebGPUFrameModulePlanningInput,
 	): Pick<WebGPUFrameGraphNode, "reads" | "writes"> {
-		const { state, context } = input;
+		const { state } = input;
 		if (state.sceneTargetMode === "single") {
-			return createWebGPUForwardGraphResources(state, false, context);
+			return this._createForwardResources(input, false);
 		}
 		if (state.sceneTargetMode === "color") {
 			return {
@@ -116,7 +115,7 @@ export class WebGPUSceneFrameModule implements WebGPUFrameGraphModule {
 						"texture-binding",
 						true,
 					),
-					...createWebGPUPagedShadowLightingReads(context),
+					...this._createShadowReads(),
 				],
 				writes: [
 					writeWebGPUFrameGraphResource("frame:scene-color-main", "render-attachment"),
@@ -148,7 +147,7 @@ export class WebGPUSceneFrameModule implements WebGPUFrameGraphModule {
 				"texture-binding",
 				true,
 			),
-			...createWebGPUPagedShadowLightingReads(context),
+			...this._createShadowReads(),
 			readWebGPUFrameGraphResource("planar-reflection:capture", "texture-binding", true),
 		];
 		if (state.needsPlanarReflectionMask) {
@@ -157,5 +156,52 @@ export class WebGPUSceneFrameModule implements WebGPUFrameGraphModule {
 			);
 		}
 		return { reads, writes };
+	}
+
+	private _createForwardResources(
+		input: WebGPUFrameModulePlanningInput,
+		loadExistingColor: boolean,
+	): Pick<WebGPUFrameGraphNode, "reads" | "writes"> {
+		const useCanvas = input.state.sceneTargetMode === "single" ||
+			!input.state.hasFrameTargets;
+		const color = useCanvas
+			? WEBGPU_FRAME_GRAPH_RESOURCES.canvasColor
+			: WEBGPU_FRAME_GRAPH_RESOURCES.frameColor;
+		const depth = useCanvas
+			? WEBGPU_FRAME_GRAPH_RESOURCES.canvasDepth
+			: WEBGPU_FRAME_GRAPH_RESOURCES.frameDepth;
+		const reads = this._createShadowReads();
+		if (loadExistingColor) {
+			reads.push(readWebGPUFrameGraphResource(color, "render-attachment", true));
+			reads.push(readWebGPUFrameGraphResource(depth, "depth-attachment", true));
+		}
+		return {
+			reads,
+			writes: [
+				writeWebGPUFrameGraphResource(color, "render-attachment"),
+				writeWebGPUFrameGraphResource(depth, "depth-attachment"),
+			],
+		};
+	}
+
+	private _createShadowReads() {
+		return [
+			readWebGPUFrameGraphResource("shadow-atlas", "texture-binding", true),
+			readWebGPUFrameGraphResource(
+				"shadow-transmittance-atlas",
+				"texture-binding",
+				true,
+			),
+			readWebGPUFrameGraphResource(
+				"paged-shadow:page-table-texture",
+				"texture-binding",
+				true,
+			),
+			readWebGPUFrameGraphResource(
+				"paged-shadow:physical-depth",
+				"texture-binding",
+				true,
+			),
+		];
 	}
 }

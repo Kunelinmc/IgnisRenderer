@@ -52,7 +52,7 @@ export const WEBGPU_FRAME_GRAPH_NODE_KINDS = [
 export type WebGPUFrameGraphNodeKind =
 	(typeof WEBGPU_FRAME_GRAPH_NODE_KINDS)[number];
 
-export interface WebGPUFrameGraphPlannerState {
+export interface WebGPUFrameResourceAllocationSnapshot {
 	readonly deferredActive: boolean;
 	readonly oitActive: boolean;
 	readonly sceneTargetMode: WebGPUSceneTargetMode;
@@ -63,11 +63,6 @@ export interface WebGPUFrameGraphPlannerState {
 	readonly needsPlanarReflectionMask?: boolean;
 	readonly needsOcclusionTest?: boolean;
 	readonly needsHiZBuild?: boolean;
-	readonly needsPlanarReflectionComposite?: boolean;
-	readonly hasOITMeshContributors?: boolean;
-	readonly hasTransmissionPackets?: boolean;
-	readonly hasAlphaBillboardParticles?: boolean;
-	readonly hasAdditiveBillboardParticles?: boolean;
 }
 
 export type { WebGPUFrameGraphResourceId } from "./WebGPUFrameGraphResourceCatalog";
@@ -96,6 +91,8 @@ export interface WebGPUFrameGraphResourceMutation {
 
 export interface WebGPUFrameGraphNode {
 	readonly id: string;
+	readonly ownerId?: string;
+	readonly localId?: string;
 	readonly stage: FramePassStage;
 	readonly kind: WebGPUFrameGraphNodeKind;
 	readonly label: string;
@@ -123,6 +120,7 @@ export interface WebGPUFrameGraphStagePlan {
 	readonly pass: FramePass;
 	readonly nodes: readonly WebGPUFrameGraphNode[];
 	readonly composition?: WebGPUComposedFrameGraphStage;
+	readonly imports?: readonly RenderGraphResourceDescriptor[];
 }
 
 export interface WebGPUFrameGraphFramePlan {

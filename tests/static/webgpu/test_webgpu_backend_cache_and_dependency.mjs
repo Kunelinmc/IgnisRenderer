@@ -252,7 +252,7 @@ function createDeferred() {
 	return { promise, resolve, reject };
 }
 
-function testFrameHostOwnsShaderDirectiveCacheTag() {
+async function testFrameHostOwnsShaderDirectiveCacheTag() {
 	const { backend } = createBackend();
 	const host = backend._createFrameHost();
 
@@ -540,7 +540,7 @@ async function testStaleShaderModulePromiseDoesNotClearRecoveredInFlight() {
 	assert.strictEqual(shader._gpuResource.desc, newDevice.shaderModuleDescs[0]);
 }
 
-function testSamplerReferenceCounting() {
+async function testSamplerReferenceCounting() {
 	const { backend } = createBackend();
 	const samplerA = backend.createSampler({});
 	const samplerB = backend.createSampler({});
@@ -711,7 +711,7 @@ async function testStaleRenderPipelineCreationRejectsAfterRollback() {
 	assert.equal(stats.renderPipelineInFlight, 0);
 }
 
-function testBindingGroupCacheUsesHashedKey() {
+async function testBindingGroupCacheUsesHashedKey() {
 	const { backend, device } = createBackend();
 	const layout = { id: "layout0" };
 	const gpuBuffer = { destroy() {} };
@@ -737,7 +737,7 @@ function testBindingGroupCacheUsesHashedKey() {
 	assert.equal(stats.bucketCount, 1);
 }
 
-function testBindingGroupHashCollisionBucketSafety() {
+async function testBindingGroupHashCollisionBucketSafety() {
 	const { backend, device } = createBackend();
 	backend.setBindingGroupHashOverrideForTesting(() => 1n);
 
@@ -815,7 +815,7 @@ async function testSampleCountClampsAndDomainFallbackPreservesPipelineCache() {
 	);
 }
 
-function testMSAAPublicControlIsRemovedAndLegacyOptionFails() {
+async function testMSAAPublicControlIsRemovedAndLegacyOptionFails() {
 	const { backend } = createBackend();
 	assert.equal(backend._requestedSampleCount, 1);
 	assert.equal(typeof backend.getMSAASampleCount, "undefined");
@@ -839,7 +839,7 @@ function testMSAAPublicControlIsRemovedAndLegacyOptionFails() {
 	);
 }
 
-function testCreateBufferMappedAtCreationExposesUnmap() {
+async function testCreateBufferMappedAtCreationExposesUnmap() {
 	const { backend } = createBackend();
 	const buffer = backend.createBuffer({
 		size: 32,
@@ -854,7 +854,7 @@ function testCreateBufferMappedAtCreationExposesUnmap() {
 	assert.equal(buffer._gpuResource.mapState, "destroyed");
 }
 
-function testResizeUsesProvidedDimensions() {
+async function testResizeUsesProvidedDimensions() {
 	const { backend, device } = createBackend();
 	let invalidateCalls = 0;
 	let temporalResetCalls = 0;
@@ -1009,7 +1009,7 @@ async function testFrameCommitsBeforeDeferredShaderInvalidation() {
 		},
 	};
 
-	backend.beginFrame(createFrameContext());
+	await backend.beginFrame(createFrameContext());
 	backend.shaderRuntime.setMode("warn");
 	await backend.endFrame();
 
@@ -1081,7 +1081,7 @@ async function testDeviceLifecycleInternals() {
 	);
 }
 
-function testAutomaticDeviceLossDestroysPostProcessBeforeRollback() {
+async function testAutomaticDeviceLossDestroysPostProcessBeforeRollback() {
 	const { backend } = createBackend();
 	const calls = [];
 	backend._postProcessRuntime = {
@@ -1117,7 +1117,7 @@ function testAutomaticDeviceLossDestroysPostProcessBeforeRollback() {
 	]);
 }
 
-function testMapBindingResourceRejectsPrimitive() {
+async function testMapBindingResourceRejectsPrimitive() {
 	const { backend } = createBackend();
 	assert.throws(
 		() =>
@@ -1129,7 +1129,7 @@ function testMapBindingResourceRejectsPrimitive() {
 	);
 }
 
-function testCreateTextureClampsPublicDimensions() {
+async function testCreateTextureClampsPublicDimensions() {
 	const { backend, device } = createBackend();
 	const texture = backend.createTexture({
 		width: 0,
@@ -1144,7 +1144,7 @@ function testCreateTextureClampsPublicDimensions() {
 	assert.equal(device.textureDescs[0].size.height, 1);
 }
 
-function testCommandBufferOwnershipAndOneShotSubmit() {
+async function testCommandBufferOwnershipAndOneShotSubmit() {
 	const { backend, queueSubmissions } = createBackend();
 	const encoder = backend.createCommandEncoder();
 	const command = encoder.finish();
@@ -1160,7 +1160,7 @@ function testCommandBufferOwnershipAndOneShotSubmit() {
 	);
 }
 
-function testBackendPlanOmitsRendererOwnedPostProcessStage() {
+async function testBackendPlanOmitsRendererOwnedPostProcessStage() {
 	const { backend } = createBackend();
 	backend._resources = {
 		beginFrameResourceLifecycle() {},
@@ -1205,12 +1205,12 @@ function testBackendPlanOmitsRendererOwnedPostProcessStage() {
 			decalPackets: [],
 		},
 	});
-	backend.beginFrame(context);
+	await backend.beginFrame(context);
 	assert.equal(backend._plannedPasses.has("postprocess"), false);
 	assert.equal(backend._plannedPassOrder.has("postprocess"), false);
 }
 
-function testPassPlanAllowsParticleStageBeforeMainOpaque() {
+async function testPassPlanAllowsParticleStageBeforeMainOpaque() {
 	const { backend } = createBackend();
 	backend._resources = {
 		beginFrameResourceLifecycle() {},
@@ -1255,7 +1255,7 @@ function testPassPlanAllowsParticleStageBeforeMainOpaque() {
 			decalPackets: [],
 		},
 	});
-	backend.beginFrame(context);
+	await backend.beginFrame(context);
 
 	assert.ok(
 		backend._plannedPassOrder.get("particle-sim") <
@@ -1327,7 +1327,7 @@ async function testPostProcessSessionBindsBeforeFrameGraphPlanning() {
 		abortFrameState() {},
 	};
 
-	backend.beginFrame(createFrameContext());
+	await backend.beginFrame(createFrameContext());
 	assert.strictEqual(
 		backend._activeFrameTransaction._postProcessSessionPort,
 		port,
@@ -1393,7 +1393,7 @@ async function testAbortFrameClearsPlannerAndDelegatesWithoutEndFrame() {
 			decalPackets: [],
 		},
 	});
-	backend.beginFrame(context);
+	await backend.beginFrame(context);
 	await backend.executePass(
 		{ stage: "particle-sim", executor: "backend", enabled: true },
 		context
@@ -1447,7 +1447,7 @@ async function testEndFrameFailureStillEndsParticleFrameAndClearsPlanner() {
 		},
 	};
 
-	backend.beginFrame(createFrameContext());
+	await backend.beginFrame(createFrameContext());
 	let caught = null;
 	try {
 		await backend.endFrame();
@@ -1499,34 +1499,34 @@ async function testWarmupAggregatesPhases() {
 }
 
 async function run() {
-	testFrameHostOwnsShaderDirectiveCacheTag();
+	await testFrameHostOwnsShaderDirectiveCacheTag();
 	await testShaderModuleCacheUsesHashKey();
 	await testShaderModuleRetryWithinSingleRequest();
 	await testShaderModuleCompilationInfoErrorThrowsMappedError();
 	await testStaleShaderModuleCreationRejectsAfterRollback();
 	await testStaleShaderModulePromiseDoesNotClearRecoveredInFlight();
-	testSamplerReferenceCounting();
+	await testSamplerReferenceCounting();
 	await testComputePipelineAutoLayoutCaching();
 	await testRenderPipelineAutoLayoutCaching();
 	await testComputePipelineFailureClearsInFlight();
 	await testStaleRenderPipelineCreationRejectsAfterRollback();
-	testBindingGroupCacheUsesHashedKey();
-	testBindingGroupHashCollisionBucketSafety();
+	await testBindingGroupCacheUsesHashedKey();
+	await testBindingGroupHashCollisionBucketSafety();
 	await testSampleCountClampsAndDomainFallbackPreservesPipelineCache();
-	testMSAAPublicControlIsRemovedAndLegacyOptionFails();
-	testCreateBufferMappedAtCreationExposesUnmap();
-	testResizeUsesProvidedDimensions();
+	await testMSAAPublicControlIsRemovedAndLegacyOptionFails();
+	await testCreateBufferMappedAtCreationExposesUnmap();
+	await testResizeUsesProvidedDimensions();
 	await testResizeDuringActiveFrameDefersResourceInvalidation();
 	await testShaderRuntimeChangeDuringActiveFrameDefersInvalidation();
 	await testFrameCommitsBeforeDeferredShaderInvalidation();
 	await testDeferredResizeInvalidatesFrameTargets();
 	await testDeviceLifecycleInternals();
-	testAutomaticDeviceLossDestroysPostProcessBeforeRollback();
-	testMapBindingResourceRejectsPrimitive();
-	testCreateTextureClampsPublicDimensions();
-	testCommandBufferOwnershipAndOneShotSubmit();
-	testBackendPlanOmitsRendererOwnedPostProcessStage();
-	testPassPlanAllowsParticleStageBeforeMainOpaque();
+	await testAutomaticDeviceLossDestroysPostProcessBeforeRollback();
+	await testMapBindingResourceRejectsPrimitive();
+	await testCreateTextureClampsPublicDimensions();
+	await testCommandBufferOwnershipAndOneShotSubmit();
+	await testBackendPlanOmitsRendererOwnedPostProcessStage();
+	await testPassPlanAllowsParticleStageBeforeMainOpaque();
 	await testPostProcessSessionBindsBeforeFrameGraphPlanning();
 	await testAbortFrameClearsPlannerAndDelegatesWithoutEndFrame();
 	await testEndFrameFailureStillEndsParticleFrameAndClearsPlanner();

@@ -29,7 +29,8 @@ import type {
 	WebGPUFrameGraphModule,
 	WebGPUFrameModulePlanningInput,
 } from "./WebGPUFrameGraphModule";
-import { createWebGPUFrameGraphNode } from "./WebGPUFrameGraphPlanningUtils";
+import { createWebGPUFrameGraphNode } from "./WebGPUFrameGraphDsl";
+import type { WebGPUFrameSession } from "./WebGPUFrameSession";
 
 const WEBGPU_CUSTOM_TARGET_SAMPLE_COUNT_FALLBACK_KEY =
 	"webgpu-custom-target-sample-count-runtime-fallback-1x";
@@ -54,7 +55,15 @@ interface WebGPUCustomRenderTarget {
  */
 export class WebGPUCustomRenderTargetRuntime implements WebGPUFrameGraphModule {
 	public readonly id = "custom-render-target";
-	public readonly executors = {};
+	public readonly executors = {
+		"opaque-external": async (node: { stage: string }, session: WebGPUFrameSession) => {
+			const pass = session.context.framePlan?.backendPasses.find(
+				(candidate) => candidate.stage === node.stage,
+			);
+			if (!pass || !session.encoder) return;
+			await this.executePass(pass, session.context, session.encoder);
+		},
+	};
 	private readonly _host: WebGPUFrameHost;
 	private _readbackRuntime: ComputeRuntime | null = null;
 	private readonly _targets = new Map<string, WebGPUCustomRenderTarget>();
@@ -72,7 +81,8 @@ export class WebGPUCustomRenderTargetRuntime implements WebGPUFrameGraphModule {
 	): readonly WebGPUFrameGraphContribution[] {
 		if (!this.hasPass(input.pass, input.context)) return [];
 		return [{
-			order: 100,
+			lane: "geometry",
+			exclusive: true,
 			nodes: [{
 				...createWebGPUFrameGraphNode(
 					input.pass,

@@ -13,7 +13,7 @@ import {
 	createWebGPUFrameGraphNode,
 	readWebGPUFrameGraphResource,
 	writeWebGPUFrameGraphResource,
-} from "./WebGPUFrameGraphPlanningUtils";
+} from "./WebGPUFrameGraphDsl";
 import type { WebGPUFrameSession } from "./WebGPUFrameSession";
 import { WEBGPU_FRAME_GRAPH_RESOURCES } from "./WebGPUFrameGraphResourceCatalog";
 import { WebGPUPresentPass } from "./WebGPUPresentPass";
@@ -61,7 +61,7 @@ export class WebGPUPresentationRuntime implements WebGPUFrameGraphModule {
 		const source =
 			input.finalColorResource ?? WEBGPU_FRAME_GRAPH_RESOURCES.frameColor;
 		return [{
-			order: 100,
+			lane: "present",
 			nodes: [createWebGPUFrameGraphNode(
 				input.pass,
 				"presentation",

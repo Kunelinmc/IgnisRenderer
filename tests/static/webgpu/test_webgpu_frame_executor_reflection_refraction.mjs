@@ -77,7 +77,7 @@ async function testPlanarReflectionCaptureAndCompositeSequencing() {
 		backgroundExposure: 1,
 	};
 
-	executor.beginFrame(context);
+	await executor.beginFrame(context);
 	await executor.executePass(
 		{ stage: "reflection", executor: "backend", enabled: true },
 		context
@@ -183,7 +183,7 @@ async function testPlanarReflectionUsesColorTargetsWithoutPostProcess() {
 		backgroundExposure: 1,
 	};
 
-	executor.beginFrame(context);
+	await executor.beginFrame(context);
 	const targets = getFrameTargets(executor);
 	assert.ok(targets);
 	assert.equal(executor.getSceneTargetModeForFrame(), "color");
@@ -288,7 +288,7 @@ async function testPlanarReflectionCaptureKeepsMSAAFrameTargetsAlive() {
 		backgroundExposure: 1,
 	};
 
-	executor.beginFrame(context);
+	await executor.beginFrame(context);
 	const frameTargets = getFrameTargets(executor);
 	const msaaTargets = getMSAATargets(executor);
 	assert.ok(frameTargets);
@@ -383,7 +383,7 @@ async function testPlanarReflectionCaptureFailureKeepsMainFrameResources() {
 		backgroundExposure: 1,
 	};
 
-	executor.beginFrame(context);
+	await executor.beginFrame(context);
 	const mainFrameResources = executor.getPreparedFrameResources();
 
 	await assert.rejects(
@@ -456,7 +456,7 @@ async function testPlanarReflectionCaptureUsesMirroredCameraAndCenterSide() {
 		backgroundExposure: 1,
 	};
 
-	executor.beginFrame(context);
+	await executor.beginFrame(context);
 	await executor.executePass(
 		{ stage: "reflection", executor: "backend", enabled: true },
 		context
@@ -502,7 +502,7 @@ async function testScreenSpaceRefractionCapturesTransmissionPackets() {
 		},
 	];
 
-	executor.beginFrame(context);
+	await executor.beginFrame(context);
 	const targets = getFrameTargets(executor);
 	assert.ok(targets);
 	await executor.executePass(

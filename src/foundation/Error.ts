@@ -169,6 +169,41 @@ export class WebGPUFramePartialSubmitError extends Error {
 	}
 }
 
+export interface WebGPUFrameMessageFailure {
+	readonly phase: string;
+	readonly wave: number;
+	readonly moduleId: string;
+	readonly handlerId: string;
+	readonly cause: unknown;
+}
+
+/** @internal Used by the WebGPU frame-message transaction. */
+export class WebGPUFrameMessageDispatchError extends Error {
+	public readonly phase: string;
+	public readonly wave: number;
+	public readonly moduleId: string;
+	public readonly handlerId: string;
+	public readonly failures: readonly WebGPUFrameMessageFailure[];
+
+	public constructor(failures: readonly WebGPUFrameMessageFailure[]) {
+		const ordered = failures.slice();
+		const first = ordered[0];
+		super(
+			first
+				? `WebGPU frame message handler "${first.moduleId}:${first.handlerId}" ` +
+					`failed during ${first.phase} wave ${first.wave}.`
+				: "WebGPU frame message dispatch failed.",
+		);
+		this.name = "WebGPUFrameMessageDispatchError";
+		this.phase = first?.phase ?? "unknown";
+		this.wave = first?.wave ?? -1;
+		this.moduleId = first?.moduleId ?? "unknown";
+		this.handlerId = first?.handlerId ?? "unknown";
+		this.failures = Object.freeze(ordered);
+		(this as { cause?: unknown }).cause = first?.cause;
+	}
+}
+
 export type WebGLContextWorkErrorCode =
 	| "not-initialized"
 	| "active-frame"

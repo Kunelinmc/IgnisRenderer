@@ -4,17 +4,25 @@ import {
 	WebGPUFrameNodeExecutorRegistry,
 } from "./WebGPUFrameNodeExecutorRegistry";
 import type { WebGPUFrameSession } from "./WebGPUFrameSession";
+import type {
+	WebGPUFrameMessageHandler,
+	WebGPUFrameMessagePhase,
+	WebGPUFrameMessageSnapshot,
+} from "./WebGPUFrameMessage";
+import { WebGPUFrameMessageRegistry } from "./WebGPUFrameMessageRegistry";
 import {
-	WebGPUFrameModuleStateStore,
+	WEBGPU_FRAME_GRAPH_FRAGMENT_MESSAGE,
+	WEBGPU_FRAME_FINAL_OUTPUT_MESSAGE,
+	WEBGPU_FRAME_PLANNING_REQUEST_MESSAGE,
+	type WebGPUFrameFinalOutputMessage,
+} from "./WebGPUFrameMessages";
+import { WEBGPU_FRAME_GRAPH_RESOURCES } from "./WebGPUFrameGraphResourceCatalog";
+import {
+	WEBGPU_FRAME_STAGE_LANES,
 	type WebGPUFrameGraphContribution,
 	type WebGPUFrameGraphModule,
-	type WebGPUFrameModuleAnalysisInput,
-	type WebGPUFrameModuleConfigurationInput,
 	type WebGPUFrameModulePlanningInput,
 } from "./WebGPUFrameGraphModule";
-import type {
-	WebGPUFrameModuleConfigurationContribution,
-} from "./WebGPUFrameConfigurationContribution";
 import type { WebGPUFrameGraphStagePlan } from "./types";
 
 /**
@@ -27,7 +35,12 @@ export class WebGPUFrameGraphModuleRegistry {
 	private readonly _modules: WebGPUFrameGraphModule[] = [];
 	private readonly _ids = new Set<string>();
 	private _executors: WebGPUFrameNodeExecutorRegistry | null = null;
+	private readonly _messages = new WebGPUFrameMessageRegistry();
 	private _sealed = false;
+	private _finalOutput: WebGPUFrameFinalOutputMessage = {
+		resource: WEBGPU_FRAME_GRAPH_RESOURCES.frameColor,
+		colorDomain: "scene-linear-hdr",
+	};
 
 	public register(module: WebGPUFrameGraphModule): void {
 		if (this._sealed) {
@@ -38,62 +51,111 @@ export class WebGPUFrameGraphModuleRegistry {
 		}
 		this._ids.add(module.id);
 		this._modules.push(module);
+		for (const handler of module.messageHandlers ?? []) {
+			this._messages.register(handler);
+		}
+		if (module.planStage) {
+			this._messages.register({
+				id: "plan-stage",
+				moduleId: module.id,
+				phase: "planning",
+				inputs: [
+					{ descriptor: WEBGPU_FRAME_PLANNING_REQUEST_MESSAGE },
+					...(module.planningInputs ?? []),
+				],
+				outputs: [
+					WEBGPU_FRAME_GRAPH_FRAGMENT_MESSAGE,
+					WEBGPU_FRAME_FINAL_OUTPUT_MESSAGE,
+				],
+				run: (messages, publisher) => {
+					const request = messages.get(WEBGPU_FRAME_PLANNING_REQUEST_MESSAGE);
+					for (const contribution of module.planStage!({ ...request, messages })) {
+						publisher.publish(WEBGPU_FRAME_GRAPH_FRAGMENT_MESSAGE, {
+							moduleId: module.id,
+							contribution: this._ownContribution(module.id, contribution),
+						});
+						if (contribution.finalOutput) {
+							publisher.publish(
+								WEBGPU_FRAME_FINAL_OUTPUT_MESSAGE,
+								contribution.finalOutput,
+							);
+						}
+					}
+				},
+			});
+		}
+	}
+
+	public registerMessageHandler(handler: WebGPUFrameMessageHandler): void {
+		if (this._sealed) {
+			throw new Error("WebGPU frame module registry is sealed.");
+		}
+		this._messages.register(handler);
 	}
 
 	public seal(): void {
 		if (this._sealed) return;
 		this._executors = WebGPUFrameNodeExecutorRegistry.fromModules(this._modules);
+		this._messages.seal();
 		Object.freeze(this._modules);
 		this._sealed = true;
+	}
+
+	public dispatchMessages(
+		phase: WebGPUFrameMessagePhase,
+		options?: Parameters<WebGPUFrameMessageRegistry["dispatch"]>[1],
+	): Promise<WebGPUFrameMessageSnapshot> {
+		this._assertSealed();
+		return this._messages.dispatch(phase, options);
 	}
 
 	public get modules(): readonly WebGPUFrameGraphModule[] {
 		return this._modules;
 	}
 
-	public analyze(input: WebGPUFrameModuleAnalysisInput): WebGPUFrameModuleStateStore {
+	public async planStage(
+		input: Omit<WebGPUFrameModulePlanningInput, "messages">,
+		base: WebGPUFrameMessageSnapshot,
+	): Promise<WebGPUFrameGraphStagePlan> {
 		this._assertSealed();
-		const state = new WebGPUFrameModuleStateStore();
-		for (const module of this._modules) {
-			this._runAnalysisHook(state, module, () => module.analyze?.(input, state));
-		}
-		state.seal();
-		return state;
-	}
-
-	public collectConfigurationContributions(
-		input: WebGPUFrameModuleConfigurationInput,
-	): readonly WebGPUFrameModuleConfigurationContribution[] {
-		this._assertSealed();
-		return this._modules.flatMap((module) => {
-			const contribution = module.contributeConfiguration?.(input);
-			return contribution ? [contribution] : [];
+		const request = input.finalization === true && !input.finalColorResource
+			? { ...input, finalColorResource: this._finalOutput.resource }
+			: input;
+		const snapshot = await this._messages.dispatch("planning", {
+			prior: base,
+			seeds: [{ descriptor: WEBGPU_FRAME_PLANNING_REQUEST_MESSAGE, value: request }],
 		});
-	}
-
-	public planStage(input: WebGPUFrameModulePlanningInput): WebGPUFrameGraphStagePlan {
-		this._assertSealed();
-		const modules = input.exclusiveModuleId
-			? this._modules.filter((module) => module.id === input.exclusiveModuleId)
-			: this._modules;
-		const contributions = modules.flatMap((module) =>
-			(module.planStage?.(input) ?? []).map((contribution) => ({
-				moduleId: module.id,
-				contribution,
-			})),
-		);
-		if (input.exclusiveModuleId && modules.length !== 1) {
+		const contributions = snapshot.getAll(WEBGPU_FRAME_GRAPH_FRAGMENT_MESSAGE);
+		const finalOutputs = snapshot.getAll(WEBGPU_FRAME_FINAL_OUTPUT_MESSAGE);
+		if (finalOutputs.length > 1) {
 			throw new Error(
-				`WebGPU frame module "${input.exclusiveModuleId}" is unavailable.`,
+				`WebGPU stage "${input.pass.stage}" published multiple final outputs.`,
 			);
 		}
-		this._validateContributions(input.pass, contributions);
-		contributions.sort((a, b) => a.contribution.order - b.contribution.order);
+		if (finalOutputs[0]) this._finalOutput = finalOutputs[0];
+		const selected = this._selectExclusiveContribution(input.pass, contributions);
+		this._validateContributions(input.pass, selected);
+		const ordered = this._orderContributions(input.pass, selected);
 		return {
 			pass: input.pass,
-			nodes: contributions.flatMap(({ contribution }) => contribution.nodes ?? []),
-			composition: contributions.find(({ contribution }) => contribution.composition)
+			nodes: ordered.flatMap(({ contribution }) => contribution.nodes ?? []),
+			imports: ordered.flatMap(({ contribution }) => contribution.imports ?? []),
+			composition: ordered.find(({ contribution }) => contribution.composition)
 				?.contribution.composition,
+		};
+	}
+
+	private _ownContribution(
+		moduleId: string,
+		contribution: WebGPUFrameGraphContribution,
+	): WebGPUFrameGraphContribution {
+		return {
+			...contribution,
+			nodes: contribution.nodes?.map((node) => ({
+				...node,
+				id: `${node.stage}:${moduleId}:${node.localId ?? node.kind}`,
+				ownerId: moduleId,
+			})),
 		};
 	}
 
@@ -107,7 +169,15 @@ export class WebGPUFrameGraphModuleRegistry {
 
 	public beginFrame(context: FrameContext): void {
 		this._assertSealed();
+		this._finalOutput = {
+			resource: WEBGPU_FRAME_GRAPH_RESOURCES.frameColor,
+			colorDomain: "scene-linear-hdr",
+		};
 		for (const module of this._modules) module.beginFrame?.(context);
+	}
+
+	public get finalOutput() {
+		return this._finalOutput;
 	}
 
 	public async finalizeRecording(session: WebGPUFrameSession): Promise<void> {
@@ -148,19 +218,6 @@ export class WebGPUFrameGraphModuleRegistry {
 		}
 	}
 
-	private _runAnalysisHook(
-		state: WebGPUFrameModuleStateStore,
-		module: WebGPUFrameGraphModule,
-		hook: () => void,
-	): void {
-		state.beginAnalysis(module.id);
-		try {
-			hook();
-		} finally {
-			state.endAnalysis(module.id);
-		}
-	}
-
 	private _validateContributions(
 		pass: FramePass,
 		entries: readonly {
@@ -168,18 +225,9 @@ export class WebGPUFrameGraphModuleRegistry {
 			readonly contribution: WebGPUFrameGraphContribution;
 		}[],
 	): void {
-		const orders = new Map<number, string>();
 		const nodeIds = new Map<string, string>();
 		let compositionOwner: string | null = null;
 		for (const { moduleId, contribution } of entries) {
-			const priorOrder = orders.get(contribution.order);
-			if (priorOrder) {
-				throw new Error(
-					`WebGPU stage "${pass.stage}" order ${contribution.order} is owned by ` +
-					`both "${priorOrder}" and "${moduleId}".`,
-				);
-			}
-			orders.set(contribution.order, moduleId);
 			if (contribution.composition) {
 				if (compositionOwner) {
 					throw new Error(
@@ -201,4 +249,105 @@ export class WebGPUFrameGraphModuleRegistry {
 			}
 		}
 	}
+
+	private _selectExclusiveContribution(
+		pass: FramePass,
+		entries: readonly ContributionEntry[],
+	): readonly ContributionEntry[] {
+		const exclusive = entries.filter(({ contribution }) => contribution.exclusive === true);
+		if (exclusive.length > 1) {
+			throw new Error(
+				`WebGPU stage "${pass.stage}" has multiple exclusive graph contributors: ` +
+				exclusive.map(({ moduleId }) => `"${moduleId}"`).join(", ") + ".",
+			);
+		}
+		return exclusive.length === 1 ? exclusive : entries;
+	}
+
+	private _orderContributions(
+		pass: FramePass,
+		entries: readonly ContributionEntry[],
+	): readonly ContributionEntry[] {
+		const laneRank = new Map(WEBGPU_FRAME_STAGE_LANES.map((lane, index) => [lane, index]));
+		const result: ContributionEntry[] = [];
+		for (const lane of WEBGPU_FRAME_STAGE_LANES) {
+			const laneEntries = entries.filter(({ contribution }) => contribution.lane === lane);
+			if (laneEntries.length <= 1) {
+				result.push(...laneEntries);
+				continue;
+			}
+			const byId = new Map(laneEntries.map((entry) => [entry.moduleId, entry]));
+			const outgoing = new Map(laneEntries.map(({ moduleId }) => [moduleId, new Set<string>()]));
+			const indegree = new Map(laneEntries.map(({ moduleId }) => [moduleId, 0]));
+			for (const entry of laneEntries) {
+				for (const target of entry.contribution.before ?? []) {
+					if (byId.has(target)) outgoing.get(entry.moduleId)!.add(target);
+				}
+				for (const source of entry.contribution.after ?? []) {
+					if (byId.has(source)) outgoing.get(source)!.add(entry.moduleId);
+				}
+			}
+			for (const targets of outgoing.values()) {
+				for (const target of targets) indegree.set(target, indegree.get(target)! + 1);
+			}
+			for (let i = 0; i < laneEntries.length; i++) {
+				for (let j = i + 1; j < laneEntries.length; j++) {
+					const left = laneEntries[i].moduleId;
+					const right = laneEntries[j].moduleId;
+					if (!hasPath(left, right, outgoing) && !hasPath(right, left, outgoing)) {
+						throw new Error(
+							`WebGPU stage "${pass.stage}" lane "${lane}" contributors ` +
+							`"${left}" and "${right}" require a static before/after edge.`,
+						);
+					}
+				}
+			}
+			const ready = laneEntries
+				.filter(({ moduleId }) => indegree.get(moduleId) === 0)
+				.sort((a, b) => a.moduleId.localeCompare(b.moduleId));
+			while (ready.length > 0) {
+				const entry = ready.shift()!;
+				result.push(entry);
+				for (const target of outgoing.get(entry.moduleId)!) {
+					indegree.set(target, indegree.get(target)! - 1);
+					if (indegree.get(target) === 0) {
+						ready.push(byId.get(target)!);
+						ready.sort((a, b) => a.moduleId.localeCompare(b.moduleId));
+					}
+				}
+			}
+			if (result.filter(({ contribution }) => contribution.lane === lane).length !== laneEntries.length) {
+				throw new Error(`WebGPU stage "${pass.stage}" lane "${lane}" contains a cycle.`);
+			}
+		}
+		for (const entry of entries) {
+			if (!laneRank.has(entry.contribution.lane)) {
+				throw new Error(`Unknown WebGPU frame stage lane "${entry.contribution.lane}".`);
+			}
+		}
+		return result;
+	}
+}
+
+interface ContributionEntry {
+	readonly moduleId: string;
+	readonly contribution: WebGPUFrameGraphContribution;
+}
+
+function hasPath(
+	from: string,
+	to: string,
+	outgoing: ReadonlyMap<string, ReadonlySet<string>>,
+): boolean {
+	const pending = [from];
+	const visited = new Set<string>();
+	while (pending.length > 0) {
+		const current = pending.pop()!;
+		if (!visited.add(current)) continue;
+		for (const target of outgoing.get(current) ?? []) {
+			if (target === to) return true;
+			pending.push(target);
+		}
+	}
+	return false;
 }

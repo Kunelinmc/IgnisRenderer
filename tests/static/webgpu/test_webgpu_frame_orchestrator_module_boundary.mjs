@@ -40,6 +40,13 @@ for (const method of [
 	"_recordHiZ",
 	"_recordOcclusion",
 	"_createNodeRuntimes",
+	"exclusiveModuleId",
+	"hasPass(",
+	"WebGPUFrameFeatureAnalyzer",
+	"WebGPUFrameConfigurationResolver",
+	"WebGPUFrameConfigurationBuilder",
+	"WebGPUFrameGraphPlanningUtils",
+	"WebGPUFrameModuleStateStore",
 ]) {
 	assert.equal(
 		source.includes(method),

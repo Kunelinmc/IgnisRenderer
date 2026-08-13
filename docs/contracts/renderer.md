@@ -149,6 +149,9 @@ This document defines the lifecycle, scheduling, warmup, incremental rendering, 
 - `IRenderBackend.beginFrame(context: FrameContext)`
   - Behavior contract: must prepare command encoders, bind presentation attachments, and transition frame state.
   - Constraint: must throw if another frame is already active or if the backend is uninitialized.
+  - Async contract: callers must await the returned value before invoking
+    `executePass()`. A backend may perform asynchronous frame analysis and graph
+    sealing before the promise resolves.
 - `IRenderBackend.executePass(pass: FramePass, context: FrameContext)`
   - Behavior contract: must execute the commands for the given `FramePass`.
   - Constraint: must throw if no frame is active or `context` is not the active

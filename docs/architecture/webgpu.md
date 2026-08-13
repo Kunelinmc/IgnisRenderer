@@ -32,17 +32,20 @@ native resource lifetimes.
 1. `FrameCoordinator` resolves portable features, synchronizes ECS, runs the
    renderer-owned simulation stages, prepares the baseline scene, and creates
    `FrameContext` with the ordered backend passes.
-2. `WebGPUBackend.beginFrame()` establishes the backend transaction. Frames
-   without particle simulation proceed directly to frame sealing.
+2. Awaited `WebGPUBackend.beginFrame()` establishes the backend transaction.
+   Frames without particle simulation complete message dispatch, allocation,
+   and graph sealing before it resolves.
 3. When enabled, the `particle-sim` pass emits current-frame render batches.
 4. Frame sealing composes one view-local frame packet set from prepared-scene
    packets and registered backend contributors.
-5. Registered frame modules analyze their feature-owned work into typed frame
-   state.
-6. Configuration resolution aggregates module requirements and applies
-   capabilities and fallback policy.
+5. Registered frame modules analyze their feature-owned work into immutable
+   typed messages.
+6. Feature configuration handlers apply capabilities and fallback policy. A
+   generic reducer merges their target and logical-resource demands.
 7. Target managers allocate or reuse frame-sized resources.
-8. Module stage contributions and the compiler create one complete frame graph.
+8. Planning handlers publish graph fragments. General stage lanes and static
+   edges assemble those fragments before the compiler creates one complete
+   frame graph.
 9. Renderer backend passes execute their precompiled node slices.
 10. Presentation and final copies are recorded.
 11. Labeled command buffers are submitted in order.
@@ -68,7 +71,7 @@ to Software or WebGL.
 | `WebGPUBackend` | Attachment, device and canvas lifecycle, frame entrypoints, device loss, extensions, and commit coordination |
 | `WebGPUFrameHost` | Narrow device-scoped access to resources, command recording, submission, and validation |
 | `WebGPUFrameOrchestrator` | Active frame session, target retry, graph compilation and dispatch, submission, and transaction boundaries |
-| Frame-module registry | Initialization-time module registration, validation, deterministic contribution order, lifecycle dispatch, and executor lookup |
+| Frame-module registry | Initialization-time module registration, message DAG sealing, deterministic lane assembly, lifecycle dispatch, and owner-aware executor lookup |
 | Feature modules / frame graph compiler | Node expansion, ordering, logical resources, dependencies, stage slices, and diagnostics |
 | Feature modules | Feature analysis, configuration requirements, graph contributions, commands, warmup, and pass-local lifecycle |
 | Resource owners | Native texture, buffer, pipeline, binding, pool, and frame-target lifetimes |
@@ -115,9 +118,11 @@ backend-owned post-process and frame services in lifecycle order.
 
 Frame modules are backend-private and are registered by the WebGPU runtime
 composition root before rendering begins. The registry is sealed before the
-first frame, and module registration order has no execution meaning. Explicit
-same-stage order plus graph resource dependencies determine the compiled
-sequence. This composition boundary does not expose a public frame-graph API.
+first frame, and module registration order has no execution meaning. General
+stage lanes, static same-lane edges, and graph resource dependencies determine
+the compiled sequence. Planning also publishes the sealed final output
+consumed by presentation. This composition boundary does not expose a public
+frame-graph API.
 
 ## Related Documents
 

@@ -60,7 +60,7 @@ export class WebGPUFrameTransaction {
 		);
 	}
 
-	public begin(): void {
+	public async begin(): Promise<void> {
 		if (this._started || this._state !== "recording") {
 			throw new Error(`WebGPU frame transaction cannot begin from state "${this._state}".`);
 		}
@@ -75,7 +75,7 @@ export class WebGPUFrameTransaction {
 				this._services.postProcessExecutor?.bindSession(port);
 			}
 			this._postProcessSessionPort = port;
-			this._services.orchestrator.beginFrame(this.context);
+			await this._services.orchestrator.beginFrame(this.context);
 		} catch (error) {
 			this._abortSynchronous(error);
 			throw error;

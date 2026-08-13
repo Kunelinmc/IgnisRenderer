@@ -1,25 +1,30 @@
 import type { FrameContext, FramePass } from "../../../pipeline/types";
 
 import {
-	createWebGPUForwardGraphResources,
 	createWebGPUFrameGraphNode,
-	createWebGPUPagedShadowLightingReads,
 	readWebGPUFrameGraphResource,
 	writeWebGPUFrameGraphResource,
-} from "./WebGPUFrameGraphPlanningUtils";
+} from "./WebGPUFrameGraphDsl";
 import { WEBGPU_FRAME_GRAPH_RESOURCES } from "./WebGPUFrameGraphResourceCatalog";
 import type {
 	WebGPUFrameGraphNode,
-	WebGPUFrameGraphPlannerState,
+	WebGPUFrameResourceAllocationSnapshot,
 	WebGPUFrameGraphResourceId,
 } from "./types";
+
+interface WebGPUTransparencyPlanningState {
+	readonly hasOITMeshContributors?: boolean;
+	readonly hasTransmissionPackets?: boolean;
+	readonly hasAlphaBillboardParticles?: boolean;
+	readonly hasAdditiveBillboardParticles?: boolean;
+}
 
 /** @internal Owns graph planning for WebGPU transparency and particle stages. */
 export class WebGPUTransparencyFramePlanner {
 	public plan(
 		pass: FramePass,
 		context: FrameContext,
-		state: WebGPUFrameGraphPlannerState,
+		state: WebGPUFrameResourceAllocationSnapshot & WebGPUTransparencyPlanningState,
 	): WebGPUFrameGraphNode[] {
 		if (pass.stage === "main-transparent") {
 			return this._createTransparentNodes(pass, context, state);
@@ -32,7 +37,7 @@ export class WebGPUTransparencyFramePlanner {
 	private _createTransparentNodes(
 		pass: FramePass,
 		context: FrameContext,
-		state: WebGPUFrameGraphPlannerState,
+		state: WebGPUFrameResourceAllocationSnapshot & WebGPUTransparencyPlanningState,
 	): WebGPUFrameGraphNode[] {
 		const hasMeshContributors = state.hasOITMeshContributors !== false;
 		const hasTransmissionPackets = state.hasTransmissionPackets !== false;
@@ -69,7 +74,7 @@ export class WebGPUTransparencyFramePlanner {
 	private _createParticleNodes(
 		pass: FramePass,
 		context: FrameContext,
-		state: WebGPUFrameGraphPlannerState,
+		state: WebGPUFrameResourceAllocationSnapshot & WebGPUTransparencyPlanningState,
 	): WebGPUFrameGraphNode[] {
 		const hasAlphaParticles = state.hasAlphaBillboardParticles !== false;
 		const hasAdditiveParticles = state.hasAdditiveBillboardParticles !== false;
@@ -197,7 +202,7 @@ export class WebGPUTransparencyFramePlanner {
 	private _createTransmissionNode(
 		pass: FramePass,
 		context: FrameContext,
-		state: WebGPUFrameGraphPlannerState,
+		state: WebGPUFrameResourceAllocationSnapshot & WebGPUTransparencyPlanningState,
 	): WebGPUFrameGraphNode {
 		return createWebGPUFrameGraphNode(
 			pass,
@@ -212,7 +217,7 @@ export class WebGPUTransparencyFramePlanner {
 
 	private _withTransmissionCaptureResources(
 		resources: Pick<WebGPUFrameGraphNode, "reads" | "writes">,
-		state: WebGPUFrameGraphPlannerState,
+		state: WebGPUFrameResourceAllocationSnapshot & WebGPUTransparencyPlanningState,
 	): Pick<WebGPUFrameGraphNode, "reads" | "writes"> {
 		if (!state.needsTransmissionTargets) return resources;
 		const frameAttachmentIds = new Set<WebGPUFrameGraphResourceId>([
@@ -255,4 +260,55 @@ export class WebGPUTransparencyFramePlanner {
 			],
 		};
 	}
+}
+
+function createWebGPUPagedShadowLightingReads(
+	_context: FrameContext,
+) {
+	return [
+		readWebGPUFrameGraphResource(
+			"paged-shadow:page-table-texture",
+			"texture-binding",
+			true,
+		),
+		readWebGPUFrameGraphResource(
+			"paged-shadow:physical-depth",
+			"texture-binding",
+			true,
+		),
+	];
+}
+
+function createWebGPUForwardGraphResources(
+	state: WebGPUFrameResourceAllocationSnapshot & WebGPUTransparencyPlanningState,
+	loadExistingColor: boolean,
+	_context: FrameContext,
+): Pick<WebGPUFrameGraphNode, "reads" | "writes"> {
+	const useCanvas = state.sceneTargetMode === "single" || !state.hasFrameTargets;
+	const color = useCanvas
+		? WEBGPU_FRAME_GRAPH_RESOURCES.canvasColor
+		: WEBGPU_FRAME_GRAPH_RESOURCES.frameColor;
+	const depth = useCanvas
+		? WEBGPU_FRAME_GRAPH_RESOURCES.canvasDepth
+		: WEBGPU_FRAME_GRAPH_RESOURCES.frameDepth;
+	const reads = [
+		readWebGPUFrameGraphResource("shadow-atlas", "texture-binding", true),
+		readWebGPUFrameGraphResource(
+			"shadow-transmittance-atlas",
+			"texture-binding",
+			true,
+		),
+		...createWebGPUPagedShadowLightingReads(_context),
+	];
+	if (loadExistingColor) {
+		reads.push(readWebGPUFrameGraphResource(color, "render-attachment", true));
+		reads.push(readWebGPUFrameGraphResource(depth, "depth-attachment", true));
+	}
+	return {
+		reads,
+		writes: [
+			writeWebGPUFrameGraphResource(color, "render-attachment"),
+			writeWebGPUFrameGraphResource(depth, "depth-attachment"),
+		],
+	};
 }

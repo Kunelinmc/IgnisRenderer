@@ -2,31 +2,85 @@ import type { WebGPUPlanarReflectionMSAATargets } from "../WebGPUPlanarReflectio
 import type { WebGPUPlanarReflectionPass } from "../WebGPUPlanarReflectionPass";
 
 import type { WebGPUFrameHost } from "./WebGPUFrameHost";
+import type { FrameContext } from "../../../pipeline/types";
 import type {
 	WebGPUFrameGraphModule,
 	WebGPUFrameGraphContribution,
-	WebGPUFrameModuleAnalysisInput,
-	WebGPUFrameModuleConfigurationInput,
 	WebGPUFrameModulePlanningInput,
-	WebGPUFrameModuleStateStore,
 } from "./WebGPUFrameGraphModule";
-import type {
-	WebGPUFrameModuleConfigurationContribution,
-} from "./WebGPUFrameConfigurationContribution";
-import { WEBGPU_REFLECTION_FEATURE_ANALYSIS } from "./WebGPUFrameModuleStateKeys";
-import { analyzeWebGPUReflectionFeatures } from "./WebGPUFrameFeatureAnalyzer";
+import {
+	defineWebGPUFrameMessage,
+	type WebGPUFrameMessageHandler,
+} from "./WebGPUFrameMessage";
+import {
+	WEBGPU_FRAME_CONFIGURATION_DEMAND_MESSAGE,
+	WEBGPU_FRAME_LOGICAL_RESOURCES,
+	WEBGPU_FRAME_CONTEXT_MESSAGE,
+} from "./WebGPUFrameMessages";
 import {
 	createWebGPUFrameGraphNode,
 	readWebGPUFrameGraphResource,
 	writeWebGPUFrameGraphResource,
-} from "./WebGPUFrameGraphPlanningUtils";
+} from "./WebGPUFrameGraphDsl";
 import type { WebGPUFrameGraphRecordingContext } from "./WebGPUFrameGraphRecordingContext";
 import type { WebGPUFrameSession } from "./WebGPUFrameSession";
 import { WEBGPU_FRAME_GRAPH_RESOURCES } from "./WebGPUFrameGraphResourceCatalog";
 
+export interface WebGPUReflectionFeatureAnalysis {
+	readonly needsPlanarReflection: boolean;
+}
+
+export const WEBGPU_REFLECTION_FEATURE_ANALYSIS =
+	defineWebGPUFrameMessage<WebGPUReflectionFeatureAnalysis>({
+		id: "webgpu:reflection-analysis",
+		ownerId: "reflection",
+		phase: "analysis",
+	});
+
+export function analyzeWebGPUReflectionFeatures(
+	context: FrameContext,
+): WebGPUReflectionFeatureAnalysis {
+	return {
+		needsPlanarReflection:
+			context.features.enableReflection && context.scene.reflectivePackets.length > 0,
+	};
+}
+
 /** @internal Owns planar-reflection graph execution and pass resources. */
 export class WebGPUReflectionFrameModule implements WebGPUFrameGraphModule {
 	public readonly id = "reflection";
+	public readonly planningInputs = [{
+		descriptor: WEBGPU_FRAME_CONFIGURATION_DEMAND_MESSAGE,
+		required: false,
+	}] as const;
+	public readonly messageHandlers: readonly WebGPUFrameMessageHandler[] = [{
+		id: "analyze",
+		moduleId: this.id,
+		phase: "analysis",
+		inputs: [{ descriptor: WEBGPU_FRAME_CONTEXT_MESSAGE }],
+		outputs: [WEBGPU_REFLECTION_FEATURE_ANALYSIS],
+		run: (messages, publisher) => publisher.publish(
+			WEBGPU_REFLECTION_FEATURE_ANALYSIS,
+			analyzeWebGPUReflectionFeatures(messages.get(WEBGPU_FRAME_CONTEXT_MESSAGE)),
+		),
+	}, {
+		id: "configure",
+		moduleId: this.id,
+		phase: "configuration",
+		inputs: [{ descriptor: WEBGPU_REFLECTION_FEATURE_ANALYSIS }],
+		outputs: [WEBGPU_FRAME_CONFIGURATION_DEMAND_MESSAGE],
+		run: (messages, publisher) => {
+			const analysis = messages.get(WEBGPU_REFLECTION_FEATURE_ANALYSIS);
+			publisher.publish(WEBGPU_FRAME_CONFIGURATION_DEMAND_MESSAGE, {
+				source: this.id,
+				targetClass: analysis.needsPlanarReflection ? "color" : "single",
+				resources: analysis.needsPlanarReflection
+					? [{ id: WEBGPU_FRAME_LOGICAL_RESOURCES.planarReflectionMask }]
+					: [],
+				needsPlanarReflectionComposite: analysis.needsPlanarReflection,
+			});
+		},
+	}];
 	public readonly executors = {
 		"planar-reflection-capture": async (_node: unknown, session: WebGPUFrameSession) => {
 			await this._capture(session);
@@ -41,29 +95,12 @@ export class WebGPUReflectionFrameModule implements WebGPUFrameGraphModule {
 		private readonly _recording: WebGPUFrameGraphRecordingContext,
 	) {}
 
-	public analyze(
-		input: WebGPUFrameModuleAnalysisInput,
-		state: WebGPUFrameModuleStateStore,
-	): void {
-		state.set(
-			WEBGPU_REFLECTION_FEATURE_ANALYSIS,
-			analyzeWebGPUReflectionFeatures(input.context),
-		);
-	}
-
-	public contributeConfiguration(
-		input: WebGPUFrameModuleConfigurationInput,
-	): WebGPUFrameModuleConfigurationContribution {
-		const analysis = input.state.require(WEBGPU_REFLECTION_FEATURE_ANALYSIS);
-		return (builder) => builder.setReflection(analysis);
-	}
-
 	public planStage(
 		input: WebGPUFrameModulePlanningInput,
 	): readonly WebGPUFrameGraphContribution[] {
 		if (input.pass.stage === "reflection") {
 			return [{
-				order: 100,
+				lane: "geometry",
 				nodes: [createWebGPUFrameGraphNode(
 					input.pass,
 					"planar-reflection-capture",
@@ -86,13 +123,16 @@ export class WebGPUReflectionFrameModule implements WebGPUFrameGraphModule {
 				)],
 			}];
 		}
+		const demand = input.messages
+			.getAll(WEBGPU_FRAME_CONFIGURATION_DEMAND_MESSAGE)
+			.find((candidate) => candidate.source === this.id);
 		if (
 			input.pass.stage !== "main-opaque" ||
-			!input.state.needsPlanarReflectionComposite
+			demand?.needsPlanarReflectionComposite !== true
 		) return [];
 		const r = WEBGPU_FRAME_GRAPH_RESOURCES;
 		return [{
-			order: 300,
+			lane: "composite",
 			nodes: [createWebGPUFrameGraphNode(
 				input.pass,
 				"planar-reflection-composite",

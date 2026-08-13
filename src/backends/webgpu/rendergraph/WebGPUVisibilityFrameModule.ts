@@ -11,27 +11,78 @@ import type { WebGPUOcclusionCullingRuntime } from "../WebGPUOcclusionCullingRun
 import type {
 	WebGPUFrameGraphModule,
 	WebGPUFrameGraphContribution,
-	WebGPUFrameModuleAnalysisInput,
-	WebGPUFrameModuleConfigurationInput,
 	WebGPUFrameModulePlanningInput,
-	WebGPUFrameModuleStateStore,
 } from "./WebGPUFrameGraphModule";
-import type {
-	WebGPUFrameModuleConfigurationContribution,
-} from "./WebGPUFrameConfigurationContribution";
-import { WEBGPU_VISIBILITY_FEATURE_ANALYSIS } from "./WebGPUFrameModuleStateKeys";
-import { analyzeWebGPUVisibilityFeatures } from "./WebGPUFrameFeatureAnalyzer";
+import {
+	defineWebGPUFrameMessage,
+	type WebGPUFrameMessageHandler,
+} from "./WebGPUFrameMessage";
+import {
+	WEBGPU_FRAME_CONFIGURATION_DEMAND_MESSAGE,
+	WEBGPU_FRAME_LOGICAL_RESOURCES,
+	WEBGPU_FRAME_CONTEXT_MESSAGE,
+} from "./WebGPUFrameMessages";
 import {
 	createWebGPUFrameGraphNode,
 	readWebGPUFrameGraphResource,
 	writeWebGPUFrameGraphResource,
-} from "./WebGPUFrameGraphPlanningUtils";
+} from "./WebGPUFrameGraphDsl";
 import type { WebGPUFrameGraphRecordingContext } from "./WebGPUFrameGraphRecordingContext";
 import type { WebGPUFrameSession } from "./WebGPUFrameSession";
+
+export interface WebGPUVisibilityFeatureAnalysis {
+	readonly needsOcclusionTargets: boolean;
+}
+
+export const WEBGPU_VISIBILITY_FEATURE_ANALYSIS =
+	defineWebGPUFrameMessage<WebGPUVisibilityFeatureAnalysis>({
+		id: "webgpu:visibility-analysis",
+		ownerId: "visibility",
+		phase: "analysis",
+	});
+
+export function analyzeWebGPUVisibilityFeatures(
+	context: FrameContext,
+): WebGPUVisibilityFeatureAnalysis {
+	return {
+		needsOcclusionTargets:
+			context.features.enableOcclusionCulling === true &&
+			(context.scene.occlusion?.eligibleCandidateCount ?? 0) > 0,
+	};
+}
 
 /** @internal Owns shared Hi-Z and occlusion graph execution. */
 export class WebGPUVisibilityFrameModule implements WebGPUFrameGraphModule {
 	public readonly id = "visibility";
+	public readonly messageHandlers: readonly WebGPUFrameMessageHandler[] = [{
+		id: "analyze",
+		moduleId: this.id,
+		phase: "analysis",
+		inputs: [{ descriptor: WEBGPU_FRAME_CONTEXT_MESSAGE }],
+		outputs: [WEBGPU_VISIBILITY_FEATURE_ANALYSIS],
+		run: (messages, publisher) => publisher.publish(
+			WEBGPU_VISIBILITY_FEATURE_ANALYSIS,
+			analyzeWebGPUVisibilityFeatures(messages.get(WEBGPU_FRAME_CONTEXT_MESSAGE)),
+		),
+	}, {
+		id: "configure",
+		moduleId: this.id,
+		phase: "configuration",
+		inputs: [{ descriptor: WEBGPU_VISIBILITY_FEATURE_ANALYSIS }],
+		outputs: [WEBGPU_FRAME_CONFIGURATION_DEMAND_MESSAGE],
+		run: (messages, publisher) => {
+			const analysis = messages.get(WEBGPU_VISIBILITY_FEATURE_ANALYSIS);
+			publisher.publish(WEBGPU_FRAME_CONFIGURATION_DEMAND_MESSAGE, {
+				source: this.id,
+				targetClass: analysis.needsOcclusionTargets ? "mrt" : "single",
+				resources: analysis.needsOcclusionTargets
+					? [{ id: WEBGPU_FRAME_LOGICAL_RESOURCES.hiZTarget }]
+					: [],
+				needsHiZBuild: analysis.needsOcclusionTargets,
+				needsOcclusionTest: analysis.needsOcclusionTargets,
+			});
+		},
+	}];
 	public readonly executors = {
 		"hiz-build": async (_node: unknown, session: WebGPUFrameSession) => {
 			await this._buildHiZ(session);
@@ -45,23 +96,6 @@ export class WebGPUVisibilityFrameModule implements WebGPUFrameGraphModule {
 		private readonly _runtime: WebGPUOcclusionCullingRuntime,
 		private readonly _recording: WebGPUFrameGraphRecordingContext,
 	) {}
-
-	public analyze(
-		input: WebGPUFrameModuleAnalysisInput,
-		state: WebGPUFrameModuleStateStore,
-	): void {
-		state.set(
-			WEBGPU_VISIBILITY_FEATURE_ANALYSIS,
-			analyzeWebGPUVisibilityFeatures(input.context),
-		);
-	}
-
-	public contributeConfiguration(
-		input: WebGPUFrameModuleConfigurationInput,
-	): WebGPUFrameModuleConfigurationContribution {
-		const analysis = input.state.require(WEBGPU_VISIBILITY_FEATURE_ANALYSIS);
-		return (builder) => builder.setVisibility(analysis);
-	}
 
 	public planStage(
 		input: WebGPUFrameModulePlanningInput,
@@ -103,7 +137,7 @@ export class WebGPUVisibilityFrameModule implements WebGPUFrameGraphModule {
 				},
 			));
 		}
-		return nodes.length > 0 ? [{ order: 400, nodes }] : [];
+		return nodes.length > 0 ? [{ lane: "visibility", before: ["shadow"], nodes }] : [];
 	}
 
 	public beginFrame(context: FrameContext): void {

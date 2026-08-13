@@ -17,22 +17,33 @@ async function testRegistryDispatchesByNodeKind() {
 	const executor = async (node, session) => {
 		calls.push([node.id, session.context.id]);
 	};
-	const registry = new WebGPUFrameNodeExecutorRegistry(
-		new Proxy({}, { get: () => executor })
+	const complete = Object.fromEntries(
+		WEBGPU_FRAME_GRAPH_NODE_KINDS.map((kind) => [kind, executor]),
 	);
+	const registry = WebGPUFrameNodeExecutorRegistry.fromModules([
+		{ id: "owner", executors: complete, destroy() {} },
+	]);
 	const session = { context: { id: "frame-context" } };
 
-	await registry.execute(createNode(), session);
+	await registry.execute({ ...createNode(), ownerId: "owner" }, session);
 
 	assert.deepEqual(calls, [["main-opaque:opaque-scene", "frame-context"]]);
 }
 
 async function testRegistryRejectsMissingExecutor() {
-	const registry = new WebGPUFrameNodeExecutorRegistry({});
+	const registry = WebGPUFrameNodeExecutorRegistry.fromModules([
+		{
+			id: "owner",
+			executors: Object.fromEntries(
+				WEBGPU_FRAME_GRAPH_NODE_KINDS.map((kind) => [kind, async () => {}]),
+			),
+			destroy() {},
+		},
+	]);
 
 	await assert.rejects(
-		registry.execute(createNode("hiz-build"), { context: {} }),
-		/node kind "hiz-build" has no executor/
+		registry.execute({ ...createNode("hiz-build"), ownerId: "missing" }, { context: {} }),
+		/no owner-aware executor/,
 	);
 }
 
@@ -44,13 +55,10 @@ function testRuntimeCompositionRejectsDuplicateAndMissingOwners() {
 	const complete = Object.fromEntries(
 		WEBGPU_FRAME_GRAPH_NODE_KINDS.map((kind) => [kind, async () => {}]),
 	);
-	assert.throws(
-		() => WebGPUFrameNodeExecutorRegistry.fromModules([
-			{ id: "all", executors: complete, destroy() {} },
-			{ id: "duplicate", executors: { shadow: async () => {} }, destroy() {} },
-		]),
-		/duplicate module owners/,
-	);
+	assert.doesNotThrow(() => WebGPUFrameNodeExecutorRegistry.fromModules([
+		{ id: "all", executors: complete, destroy() {} },
+		{ id: "another-shadow-owner", executors: { shadow: async () => {} }, destroy() {} },
+	]));
 }
 
 await testRegistryDispatchesByNodeKind();

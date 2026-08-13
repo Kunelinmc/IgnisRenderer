@@ -96,6 +96,13 @@ nearer surfaces can refract already-composited farther transparent surfaces.
 frame. GPU backends compose the resulting subgraph into their authoritative
 whole-frame graph, while Software executes the logical plan directly.
 
+WebGPU feature modules exchange backend-private typed frame messages during
+analysis, configuration, and graph planning. Message handlers declare their
+inputs and outputs when the runtime is composed; the registry validates an
+acyclic dependency graph before the first frame. A module must not invoke or
+retain another feature module to establish frame ordering. Cross-feature
+requirements are represented as resource demands and graph dependencies.
+
 Histories, camera jitter, color versions, and presentation participate in the
 same frame transaction. Failed or skipped work is resolved by the backend
 runtime without exposing a public backend graph API.

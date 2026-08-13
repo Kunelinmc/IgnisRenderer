@@ -8,10 +8,9 @@ import type {
 } from "./WebGPUFrameGraphModule";
 import {
 	createWebGPUFrameGraphNode,
-	hasWebGPUPagedShadowWork,
 	readWebGPUFrameGraphResource,
 	writeWebGPUFrameGraphResource,
-} from "./WebGPUFrameGraphPlanningUtils";
+} from "./WebGPUFrameGraphDsl";
 import type { WebGPUFrameGraphRecordingContext } from "./WebGPUFrameGraphRecordingContext";
 import type { WebGPUFrameSession } from "./WebGPUFrameSession";
 
@@ -58,7 +57,11 @@ export class WebGPUShadowFrameModule implements WebGPUFrameGraphModule {
 				? this._createShadowNodes(input)
 				: this._createFeedbackNodes(input);
 		if (nodes.length === 0) return [];
-		return [{ order: input.pass.stage === "shadow" ? 100 : 500, nodes }];
+		return [{
+			lane: input.pass.stage === "shadow" ? "geometry" : "visibility",
+			after: input.pass.stage === "shadow" ? undefined : ["visibility"],
+			nodes,
+		}];
 	}
 
 	public destroy(): void {}
@@ -101,7 +104,7 @@ export class WebGPUShadowFrameModule implements WebGPUFrameGraphModule {
 				],
 			}));
 		}
-		if (!hasWebGPUPagedShadowWork(input.context)) return nodes;
+		if (!input.context.shadowPlan.hasPagedWork) return nodes;
 		nodes.push(
 			createWebGPUFrameGraphNode(
 				input.pass,
@@ -198,7 +201,7 @@ export class WebGPUShadowFrameModule implements WebGPUFrameGraphModule {
 	private _createFeedbackNodes(input: WebGPUFrameModulePlanningInput) {
 		if (
 			input.pass.stage !== "main-opaque" ||
-			!hasWebGPUPagedShadowWork(input.context) ||
+			!input.context.shadowPlan.hasPagedWork ||
 			input.state.sceneTargetMode === "single"
 		)
 			return [];
