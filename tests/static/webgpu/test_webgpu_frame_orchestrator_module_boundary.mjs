@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 const orchestratorPath = resolve(
@@ -18,10 +18,19 @@ const compositionPath = resolve(
 	process.cwd(),
 	"src/backends/webgpu/rendergraph/WebGPUFrameRuntimeComposition.ts",
 );
+const transparencyRuntimePath = resolve(
+	process.cwd(),
+	"src/backends/webgpu/rendergraph/WebGPUTransparencyRuntime.ts",
+);
+const obsoleteTransparencyPlannerPath = resolve(
+	process.cwd(),
+	"src/backends/webgpu/rendergraph/WebGPUTransparencyFramePlanner.ts",
+);
 const source = readFileSync(orchestratorPath, "utf8");
 const backendSource = readFileSync(backendPath, "utf8");
 const sessionSource = readFileSync(sessionPath, "utf8");
 const compositionSource = readFileSync(compositionPath, "utf8");
+const transparencyRuntimeSource = readFileSync(transparencyRuntimePath, "utf8");
 
 const forbiddenFeatureDependencies = [
 	"WebGPUDeferredLightingPass",
@@ -103,5 +112,8 @@ for (const forbidden of [
 ]) {
 	assert.equal(compositionSource.includes(forbidden), false);
 }
+assert.equal(existsSync(obsoleteTransparencyPlannerPath), false);
+assert.match(transparencyRuntimeSource, /private _createTransparentNodes\(/);
+assert.match(transparencyRuntimeSource, /private _createParticleNodes\(/);
 
 console.log("WebGPU frame orchestrator module boundary tests passed");

@@ -1,4 +1,4 @@
-import type { DrawPacket, FrameContext } from "../../../pipeline/types";
+import type { DrawPacket, FrameContext, FramePass } from "../../../pipeline/types";
 import { ParticleBlendMode } from "../../../particles";
 import { materialUsesTransmission } from "../../../materials/transparency";
 import { ShaderSource } from "../../../shaders/ShaderSource";
@@ -39,11 +39,21 @@ import {
 	WEBGPU_MRT_COLOR_BYTES_PER_SAMPLE,
 	WEBGPU_MRT_COLOR_TARGET_COUNT,
 } from "../constants";
-import { WebGPUTransparencyFramePlanner } from "./WebGPUTransparencyFramePlanner";
+import {
+	createWebGPUFrameGraphNode,
+	readWebGPUFrameGraphResource,
+	writeWebGPUFrameGraphResource,
+} from "./WebGPUFrameGraphDsl";
+import { WEBGPU_FRAME_GRAPH_RESOURCES } from "./WebGPUFrameGraphResourceCatalog";
 import type {
 	WebGPURecordingFrameSession as WebGPUFrameSession,
 } from "./WebGPUFrameSession";
 import type { WebGPUFrameHost } from "./WebGPUFrameHost";
+import type {
+	WebGPUFrameGraphNode,
+	WebGPUFrameGraphResourceId,
+	WebGPUFrameResourceAllocationSnapshot,
+} from "./types";
 
 interface WebGPUTransparencyScenePort {
 	recordMainPass(
@@ -66,6 +76,13 @@ export interface WebGPUTransparencyAnalysis {
 	readonly hasAlphaBillboardParticles: boolean;
 	readonly hasAdditiveBillboardParticles: boolean;
 	readonly hasOITContributors: boolean;
+}
+
+interface WebGPUTransparencyPlanningState {
+	readonly hasOITMeshContributors?: boolean;
+	readonly hasTransmissionPackets?: boolean;
+	readonly hasAlphaBillboardParticles?: boolean;
+	readonly hasAdditiveBillboardParticles?: boolean;
 }
 
 export const WEBGPU_TRANSPARENCY_FEATURE_ANALYSIS =
@@ -218,7 +235,6 @@ export class WebGPUTransparencyRuntime implements WebGPUFrameGraphModule {
 		"particle-additive": async (_node: unknown, session: WebGPUFrameSession) =>
 			this._recordLegacyParticles(session, [ParticleBlendMode.Additive]),
 	};
-	private readonly _planner = new WebGPUTransparencyFramePlanner();
 	private _mode: "legacy" | "oit" | "legacy-runtime-fallback" | null = null;
 
 	private _resolveShaderModule: IShaderModule | null = null;
@@ -243,20 +259,285 @@ export class WebGPUTransparencyRuntime implements WebGPUFrameGraphModule {
 		const demand = input.messages
 			.getAll(WEBGPU_FRAME_CONFIGURATION_DEMAND_MESSAGE)
 			.find((candidate) => candidate.source === this.id);
-		const nodes = this._planner.plan(
-			input.pass,
-			input.context,
-			{
-				...input.state,
-				hasOITMeshContributors: demand?.hasOITMeshContributors === true,
-				hasTransmissionPackets: demand?.hasTransmissionPackets === true,
-				hasAlphaBillboardParticles:
-					demand?.hasAlphaBillboardParticles === true,
-				hasAdditiveBillboardParticles:
-					demand?.hasAdditiveBillboardParticles === true,
-			},
-		);
+		const state = {
+			...input.state,
+			hasOITMeshContributors: demand?.hasOITMeshContributors === true,
+			hasTransmissionPackets: demand?.hasTransmissionPackets === true,
+			hasAlphaBillboardParticles: demand?.hasAlphaBillboardParticles === true,
+			hasAdditiveBillboardParticles: demand?.hasAdditiveBillboardParticles === true,
+		};
+		const nodes = input.pass.stage === "main-transparent"
+			? this._createTransparentNodes(input.pass, state)
+			: input.pass.stage === "particles"
+				? this._createParticleNodes(input.pass, state)
+				: [];
 		return nodes.length > 0 ? [{ lane: "transparent", nodes }] : [];
+	}
+
+	private _createTransparentNodes(
+		pass: FramePass,
+		state: WebGPUFrameResourceAllocationSnapshot & WebGPUTransparencyPlanningState,
+	): WebGPUFrameGraphNode[] {
+		const hasMeshContributors = state.hasOITMeshContributors !== false;
+		const hasTransmissionPackets = state.hasTransmissionPackets !== false;
+		if (!state.oitActive) {
+			const nodes: WebGPUFrameGraphNode[] = [];
+			if (hasMeshContributors) {
+				nodes.push(createWebGPUFrameGraphNode(
+					pass,
+					"transparent-forward",
+					"WebGPUTransparentForward",
+					this._createForwardGraphResources(state, true),
+				));
+			}
+			if (hasTransmissionPackets) {
+				nodes.push(this._createTransmissionNode(pass, state));
+			}
+			return nodes;
+		}
+		if (!hasMeshContributors) return [];
+		const nodes = [
+			this._createOITPrepareNode(pass),
+			this._createOITClearNode(pass),
+			this._createOITMeshAccumulateNode(pass),
+		];
+		if (state.hasAlphaBillboardParticles !== true) {
+			nodes.push(this._createOITResolveNode(pass));
+			if (hasTransmissionPackets) {
+				nodes.push(this._createTransmissionNode(pass, state));
+			}
+		}
+		return nodes;
+	}
+
+	private _createParticleNodes(
+		pass: FramePass,
+		state: WebGPUFrameResourceAllocationSnapshot & WebGPUTransparencyPlanningState,
+	): WebGPUFrameGraphNode[] {
+		const hasAlphaParticles = state.hasAlphaBillboardParticles !== false;
+		const hasAdditiveParticles = state.hasAdditiveBillboardParticles !== false;
+		if (!state.oitActive) {
+			const nodes: WebGPUFrameGraphNode[] = [];
+			if (hasAlphaParticles) {
+				nodes.push(createWebGPUFrameGraphNode(
+					pass,
+					"particle-alpha-forward",
+					"WebGPUParticlesAlpha",
+					this._createForwardGraphResources(state, true),
+				));
+			}
+			if (hasAdditiveParticles) {
+				nodes.push(createWebGPUFrameGraphNode(
+					pass,
+					"particle-additive",
+					"WebGPUParticlesAdditive",
+					this._createForwardGraphResources(state, true),
+				));
+			}
+			return nodes;
+		}
+		const nodes: WebGPUFrameGraphNode[] = [];
+		if (hasAlphaParticles) {
+			if (state.hasOITMeshContributors !== true) {
+				nodes.push(this._createOITPrepareNode(pass), this._createOITClearNode(pass));
+			}
+			nodes.push(this._createOITParticleAccumulateNode(pass));
+			nodes.push(this._createOITResolveNode(pass));
+			if (state.hasTransmissionPackets === true) {
+				nodes.push(this._createTransmissionNode(pass, state));
+			}
+		}
+		if (hasAdditiveParticles) {
+			nodes.push(createWebGPUFrameGraphNode(
+				pass,
+				"particle-additive",
+				"WebGPUParticlesAdditive",
+				this._createForwardGraphResources(state, true),
+			));
+		}
+		return nodes;
+	}
+
+	private _createOITPrepareNode(pass: FramePass): WebGPUFrameGraphNode {
+		return createWebGPUFrameGraphNode(pass, "oit-prepare", "WebGPUOITPrepare", {
+			reads: [readWebGPUFrameGraphResource(
+				"frame:scene-color-main",
+				"copy-src",
+			)],
+			writes: [writeWebGPUFrameGraphResource(
+				"oit:scene-color-copy",
+				"copy-dst",
+			)],
+		});
+	}
+
+	private _createOITClearNode(pass: FramePass): WebGPUFrameGraphNode {
+		return createWebGPUFrameGraphNode(pass, "oit-clear", "WebGPUOITClear", {
+			writes: [
+				writeWebGPUFrameGraphResource("oit:accum", "render-attachment"),
+				writeWebGPUFrameGraphResource("oit:reveal", "render-attachment"),
+			],
+		});
+	}
+
+	private _createOITMeshAccumulateNode(pass: FramePass): WebGPUFrameGraphNode {
+		return createWebGPUFrameGraphNode(
+			pass,
+			"oit-mesh-accumulate",
+			"WebGPUOITMeshAccumulate",
+			this._createOITAccumulateResources(),
+		);
+	}
+
+	private _createOITParticleAccumulateNode(pass: FramePass): WebGPUFrameGraphNode {
+		return createWebGPUFrameGraphNode(
+			pass,
+			"oit-particle-accumulate",
+			"WebGPUOITParticleAccumulate",
+			this._createOITAccumulateResources(),
+		);
+	}
+
+	private _createOITAccumulateResources() {
+		return {
+			reads: [
+				readWebGPUFrameGraphResource("frame:depth", "depth-attachment"),
+				readWebGPUFrameGraphResource("shadow-atlas", "texture-binding", true),
+				readWebGPUFrameGraphResource(
+					"shadow-transmittance-atlas",
+					"texture-binding",
+					true,
+				),
+				...this._createPagedShadowLightingReads(),
+			],
+			writes: [
+				writeWebGPUFrameGraphResource("oit:accum", "render-attachment"),
+				writeWebGPUFrameGraphResource("oit:reveal", "render-attachment"),
+			],
+		};
+	}
+
+	private _createOITResolveNode(pass: FramePass): WebGPUFrameGraphNode {
+		return createWebGPUFrameGraphNode(pass, "oit-resolve", "WebGPUOITResolve", {
+			reads: [
+				readWebGPUFrameGraphResource("oit:scene-color-copy", "texture-binding"),
+				readWebGPUFrameGraphResource("oit:accum", "texture-binding"),
+				readWebGPUFrameGraphResource("oit:reveal", "texture-binding"),
+			],
+			writes: [writeWebGPUFrameGraphResource(
+				"frame:scene-color-main",
+				"render-attachment",
+			)],
+		});
+	}
+
+	private _createTransmissionNode(
+		pass: FramePass,
+		state: WebGPUFrameResourceAllocationSnapshot & WebGPUTransparencyPlanningState,
+	): WebGPUFrameGraphNode {
+		return createWebGPUFrameGraphNode(
+			pass,
+			"transmission",
+			"WebGPUTransmission",
+			this._withTransmissionCaptureResources(
+				this._createForwardGraphResources(state, true),
+				state,
+			),
+		);
+	}
+
+	private _withTransmissionCaptureResources(
+		resources: Pick<WebGPUFrameGraphNode, "reads" | "writes">,
+		state: WebGPUFrameResourceAllocationSnapshot & WebGPUTransparencyPlanningState,
+	): Pick<WebGPUFrameGraphNode, "reads" | "writes"> {
+		if (!state.needsTransmissionTargets) return resources;
+		const frameAttachmentIds = new Set<WebGPUFrameGraphResourceId>([
+			WEBGPU_FRAME_GRAPH_RESOURCES.frameColor,
+			WEBGPU_FRAME_GRAPH_RESOURCES.frameDepth,
+			WEBGPU_FRAME_GRAPH_RESOURCES.canvasColor,
+			WEBGPU_FRAME_GRAPH_RESOURCES.canvasDepth,
+		]);
+		return {
+			reads: [
+				...(resources.reads ?? []).filter(
+					(resource) => !frameAttachmentIds.has(resource.id),
+				),
+				readWebGPUFrameGraphResource(
+					"frame:scene-color-main",
+					"copy-src",
+					true,
+				),
+				readWebGPUFrameGraphResource("frame:depth", "copy-src", true),
+			],
+			writes: [
+				writeWebGPUFrameGraphResource(
+					"transmission:scene-color-copy",
+					"copy-dst",
+				),
+				writeWebGPUFrameGraphResource(
+					"transmission:lighting",
+					"render-attachment",
+				),
+				...[
+					"transmission:surface0",
+					"transmission:surface1",
+					"transmission:surface2",
+				].map((id) => writeWebGPUFrameGraphResource(id, "render-attachment")),
+				writeWebGPUFrameGraphResource("transmission:depth", "copy-dst"),
+				writeWebGPUFrameGraphResource(
+					"transmission:depth",
+					"depth-attachment",
+				),
+			],
+		};
+	}
+
+	private _createPagedShadowLightingReads() {
+		return [
+			readWebGPUFrameGraphResource(
+				"paged-shadow:page-table-texture",
+				"texture-binding",
+				true,
+			),
+			readWebGPUFrameGraphResource(
+				"paged-shadow:physical-depth",
+				"texture-binding",
+				true,
+			),
+		];
+	}
+
+	private _createForwardGraphResources(
+		state: WebGPUFrameResourceAllocationSnapshot & WebGPUTransparencyPlanningState,
+		loadExistingColor: boolean,
+	): Pick<WebGPUFrameGraphNode, "reads" | "writes"> {
+		const useCanvas = state.sceneTargetMode === "single" || !state.hasFrameTargets;
+		const color = useCanvas
+			? WEBGPU_FRAME_GRAPH_RESOURCES.canvasColor
+			: WEBGPU_FRAME_GRAPH_RESOURCES.frameColor;
+		const depth = useCanvas
+			? WEBGPU_FRAME_GRAPH_RESOURCES.canvasDepth
+			: WEBGPU_FRAME_GRAPH_RESOURCES.frameDepth;
+		const reads = [
+			readWebGPUFrameGraphResource("shadow-atlas", "texture-binding", true),
+			readWebGPUFrameGraphResource(
+				"shadow-transmittance-atlas",
+				"texture-binding",
+				true,
+			),
+			...this._createPagedShadowLightingReads(),
+		];
+		if (loadExistingColor) {
+			reads.push(readWebGPUFrameGraphResource(color, "render-attachment", true));
+			reads.push(readWebGPUFrameGraphResource(depth, "depth-attachment", true));
+		}
+		return {
+			reads,
+			writes: [
+				writeWebGPUFrameGraphResource(color, "render-attachment"),
+				writeWebGPUFrameGraphResource(depth, "depth-attachment"),
+			],
+		};
 	}
 
 	public beginFrame(_context: FrameContext): void {

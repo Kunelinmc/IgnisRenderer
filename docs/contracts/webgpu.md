@@ -189,9 +189,10 @@ This document defines WebGPU frame-graph execution, deferred lighting, presentat
   clear, mesh accumulation, particle accumulation, resolve, transmission, and
   additive particle work. The OIT scene-color copy must occur in the prepare
   node before any accumulation node.
-- `WebGPUTransparencyRuntime` owns OIT resolve shader, pipeline, sampler, and
-  binding lifecycle. `WebGPUFrameTargetManager` exclusively owns OIT frame
-  textures.
+- `WebGPUTransparencyRuntime` owns transparency graph planning and node
+	execution together with the OIT resolve shader, pipeline, sampler, and binding
+	lifecycle. It must not delegate planning to a separate transparency planner.
+	`WebGPUFrameTargetManager` exclusively owns OIT frame textures.
 - Post-process and presentation must be explicit internal graph nodes.
 - Planar reflection composite must be an explicit graph node after opaque or
   deferred output and before transparency.
