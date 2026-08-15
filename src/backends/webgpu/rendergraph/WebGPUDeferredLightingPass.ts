@@ -6,11 +6,7 @@ import {
 import type { WebGPUFrameHost } from "./WebGPUFrameHost";
 import { GBufferSlot } from "../constants";
 import type { WebGPUDeferredResourceProvider } from "../WebGPUResourceContracts";
-import type { WebGPUFrameGraphRecordingContext } from "./WebGPUFrameGraphRecordingContext";
-
-export interface WebGPUDeferredLightingPassCallbacks {
-	readonly recordingContext: WebGPUFrameGraphRecordingContext;
-}
+import type { WebGPUFrameExecutionContext } from "./WebGPUFrameExecutionContext";
 
 /**
  * Owns deferred G-buffer bindings and full-screen lighting resolve.
@@ -18,7 +14,10 @@ export interface WebGPUDeferredLightingPassCallbacks {
 export class WebGPUDeferredLightingPass {
 	private readonly _host: WebGPUFrameHost;
 	private readonly _resources: WebGPUDeferredResourceProvider;
-	private readonly _recordingContext: WebGPUFrameGraphRecordingContext;
+	private _frame: Pick<
+		WebGPUFrameExecutionContext,
+		"commands" | "targets" | "resources" | "dirtyRects"
+	> | null = null;
 	private _gbufferWriteBinding: IBindingGroup | null = null;
 	private _gbufferWriteBindingSources: IRenderTexture[] = [];
 	private _gbufferReadBinding: IBindingGroup | null = null;
@@ -27,11 +26,17 @@ export class WebGPUDeferredLightingPass {
 	constructor(
 		host: WebGPUFrameHost,
 		resources: WebGPUDeferredResourceProvider,
-		callbacks: WebGPUDeferredLightingPassCallbacks,
 	) {
 		this._host = host;
 		this._resources = resources;
-		this._recordingContext = callbacks.recordingContext;
+	}
+
+	public bindFrame(frame: WebGPUFrameExecutionContext): void {
+		this._frame = frame;
+	}
+
+	public closeFrame(): void {
+		this._frame = null;
 	}
 
 	public destroyBindings(): void {
@@ -51,10 +56,7 @@ export class WebGPUDeferredLightingPass {
 	}
 
 	public getGBufferWriteBinding(): IBindingGroup {
-		const targets = this._recordingContext.getFrameTargets();
-		if (!targets) {
-			throw new Error("WebGPU deferred G-buffer targets are unavailable.");
-		}
+		const targets = this._requireFrame().targets.frameTargets;
 		const placeholders =
 			targets.gMaterialExt0 && targets.gMaterialExt3
 				? null
@@ -84,10 +86,7 @@ export class WebGPUDeferredLightingPass {
 	}
 
 	public getGBufferReadBinding(): IBindingGroup {
-		const targets = this._recordingContext.getFrameTargets();
-		if (!targets) {
-			throw new Error("WebGPU deferred G-buffer read targets are unavailable.");
-		}
+		const targets = this._requireFrame().targets.frameTargets;
 		const placeholders =
 			targets.gSpecular &&
 			targets.gCoatSheen &&
@@ -133,9 +132,10 @@ export class WebGPUDeferredLightingPass {
 		context: FrameContext,
 		clearSceneColor: boolean,
 	): Promise<void> {
-		const encoder = this._recordingContext.getEncoder();
-		const targets = this._recordingContext.getFrameTargets();
-		if (!encoder || !targets) {
+		const frame = this._requireFrame();
+		const encoder = frame.commands.encoder;
+		const targets = frame.targets.frameTargets;
+		if (!encoder) {
 			return;
 		}
 		const pipeline = await this._resources.getDeferredLightingPipeline();
@@ -152,12 +152,12 @@ export class WebGPUDeferredLightingPass {
 			],
 		});
 		encoder.setPipeline(pipeline);
-		const frameResources = this._recordingContext.requireFrameResources();
+		const frameResources = frame.resources;
 		encoder.setBindingGroup(0, frameResources.frameBinding);
 		encoder.setBindingGroup(1, this._resources.getDeferredUnusedBinding());
 		encoder.setBindingGroup(2, frameResources.clusteredSceneBinding);
 		encoder.setBindingGroup(3, gbufferReadBinding);
-		const dirtyRects = this._recordingContext.resolveDirtyRects(
+		const dirtyRects = frame.dirtyRects.resolveDirtyRects(
 			context,
 			targets.sceneColorMain.width,
 			targets.sceneColorMain.height,
@@ -174,5 +174,12 @@ export class WebGPUDeferredLightingPass {
 		if (typeof destroyFn === "function") {
 			destroyFn.call(group);
 		}
+	}
+
+	private _requireFrame() {
+		if (!this._frame) {
+			throw new Error("WebGPU deferred lighting frame is not active.");
+		}
+		return this._frame;
 	}
 }

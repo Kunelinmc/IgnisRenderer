@@ -5,10 +5,7 @@ import type {
 import type { WebGPUSceneTargetMode } from "../WebGPUScenePassDescriptors";
 import type { WebGPUDeferredGBufferLayout } from "../constants";
 import type { WebGPUFrameGraphResourceId } from "./WebGPUFrameGraphResourceCatalog";
-import type { WebGPUFrameCommitDebugState } from "./WebGPUFrameCommitter";
-import type { PostProcessGraphDebugState } from "../../../postprocess/BackendPostProcessRuntime";
 import type { PostProcessSubgraphNodePayload } from "../../../postprocess/PostProcessSubgraphBuilder";
-import type { RenderGraphTrackerDebugState } from "../../../rendergraph/types";
 import type {
 	CompiledRenderGraph,
 	RenderGraphAnalysisCompleteness,
@@ -177,48 +174,4 @@ export interface WebGPUFrameGraphResourceDebugState {
 	readonly lastNodeId: string | null;
 	readonly lastAccess: "create" | "read" | "write" | "destroy" | null;
 	readonly lastUsage: WebGPUFrameGraphResourceUsage | null;
-}
-
-export interface WebGPUFrameGraphTargetDebugState {
-	readonly width: number;
-	readonly height: number;
-	readonly sampleCount: number;
-	readonly texturePoolOwnerCount: number;
-	readonly deferredGBufferLayout: WebGPUDeferredGBufferLayout;
-	readonly frameTargets: unknown;
-	readonly msaaTargets: unknown;
-}
-
-export interface WebGPUFrameGraphDebugState {
-	readonly active: boolean;
-	readonly sceneTargetMode: WebGPUSceneTargetMode;
-	readonly deferredActive: boolean;
-	readonly oitActive: boolean;
-	readonly targetWidth: number;
-	readonly targetHeight: number;
-	readonly texturePoolOwnerCount: number;
-	readonly frameTargets: unknown;
-	readonly msaaTargets: unknown;
-	readonly motionHistoryWriteTarget: unknown;
-	readonly pendingFrameTargetInvalidation: boolean;
-	readonly pendingShaderRuntimeInvalidation: boolean;
-	readonly hiZ: {
-		readonly allocated: boolean;
-		readonly status: "unavailable" | "pending" | "ready" | "failed";
-		readonly width: number;
-		readonly height: number;
-		readonly mipLevelCount: number;
-		readonly buildCount: number;
-	};
-	readonly lastPlannedNodeIds: readonly string[];
-	readonly lastExecutedNodeIds: readonly string[];
-	readonly compiledStages: readonly WebGPUCompiledFrameGraphStage[];
-	readonly compiledGraph: CompiledRenderGraph<WebGPUFrameGraphNode, WebGPUFrameGraphNodeKind> | null;
-	readonly graphResources: readonly WebGPUFrameGraphResourceDebugState[];
-	readonly graphBarriers: readonly WebGPUFrameGraphBarrier[];
-	readonly graphDiagnostics: readonly WebGPUFrameGraphDiagnostic[];
-	readonly graphAnalysis: RenderGraphTrackerDebugState;
-	readonly targetManager: WebGPUFrameGraphTargetDebugState;
-	readonly commit: WebGPUFrameCommitDebugState | null;
-	readonly postProcess: PostProcessGraphDebugState;
 }

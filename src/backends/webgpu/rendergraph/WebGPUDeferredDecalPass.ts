@@ -48,11 +48,7 @@ import type {
 	WebGPUTextureResourceProvider,
 } from "../WebGPUResourceContracts";
 import type { WebGPUFrameTargets } from "../WebGPUFrameTargetContracts";
-import type { WebGPUFrameGraphRecordingContext } from "./WebGPUFrameGraphRecordingContext";
-
-export interface WebGPUDeferredDecalPassCallbacks {
-	readonly recordingContext: WebGPUFrameGraphRecordingContext;
-}
+import type { WebGPUFrameExecutionContext } from "./WebGPUFrameExecutionContext";
 
 interface DecalTargetRef {
 	texture: IRenderTexture;
@@ -140,7 +136,10 @@ const DECAL_BATCH_WORKGROUP_SIZE = 8;
 export class WebGPUDeferredDecalPass {
 	private readonly _host: WebGPUFrameHost;
 	private readonly _resources: WebGPUDeferredResourceProvider & WebGPUTextureResourceProvider;
-	private readonly _recordingContext: WebGPUFrameGraphRecordingContext;
+	private _frame: Pick<
+		WebGPUFrameExecutionContext,
+		"commands" | "targets" | "resources" | "dirtyRects"
+	> | null = null;
 	private _uniformBuffers: IRenderBuffer[] = [];
 	private _uniformBufferCursor = 0;
 	private _snapshotTextures: IRenderTexture[] = [];
@@ -155,11 +154,17 @@ export class WebGPUDeferredDecalPass {
 	constructor(
 		host: WebGPUFrameHost,
 		resources: WebGPUDeferredResourceProvider & WebGPUTextureResourceProvider,
-		callbacks: WebGPUDeferredDecalPassCallbacks,
 	) {
 		this._host = host;
 		this._resources = resources;
-		this._recordingContext = callbacks.recordingContext;
+	}
+
+	public bindFrame(frame: WebGPUFrameExecutionContext): void {
+		this._frame = frame;
+	}
+
+	public closeFrame(): void {
+		this._frame = null;
 	}
 
 	public destroyBindings(): void {
@@ -194,8 +199,9 @@ export class WebGPUDeferredDecalPass {
 	}
 
 	public async recordDecalPass(context: FrameContext): Promise<number> {
-		const encoder = this._recordingContext.getEncoder();
-		const targets = this._recordingContext.getFrameTargets();
+		const frame = this._requireFrame();
+		const encoder = frame.commands.encoder;
+		const targets = frame.targets.frameTargets;
 		const supportsDecals = this._deviceSupportsDecalPipeline();
 		const decalPackets = context.scene.decalPackets;
 		this._warnUnsupportedDeferredChannels(decalPackets);
@@ -232,8 +238,8 @@ export class WebGPUDeferredDecalPass {
 		this._batchBufferCursor = 0;
 		this._ensureSnapshotTextures(targetRefs);
 		const snapshotReadBinding = this._getSnapshotReadBinding();
-		const frameResources = this._recordingContext.requireFrameResources();
-		const dirtyRects = this._recordingContext.resolveDirtyRects(
+		const frameResources = frame.resources;
+		const dirtyRects = frame.dirtyRects.resolveDirtyRects(
 			context,
 			targetRefs[0].texture.width,
 			targetRefs[0].texture.height,
@@ -298,8 +304,9 @@ export class WebGPUDeferredDecalPass {
 			return;
 		}
 		this._warnUnsupportedDeferredChannels(decalPackets);
-		const targets = this._recordingContext.getFrameTargets();
-		const targetRefs = targets ? resolveDecalTargets(targets) : null;
+		const frame = this._requireFrame();
+		const targets = frame.targets.frameTargets;
+		const targetRefs = resolveDecalTargets(targets);
 		if (!targetRefs || !this._deviceSupportsDecalPipeline()) {
 			return;
 		}
@@ -307,7 +314,7 @@ export class WebGPUDeferredDecalPass {
 		this._getSnapshotReadBinding();
 		this._getGBufferWriteBinding(targetRefs);
 		this._uniformBufferCursor = 0;
-		const dirtyRects = this._recordingContext.resolveDirtyRects(
+		const dirtyRects = frame.dirtyRects.resolveDirtyRects(
 			context,
 			targetRefs[0].texture.width,
 			targetRefs[0].texture.height,
@@ -935,6 +942,13 @@ export class WebGPUDeferredDecalPass {
 		if (typeof destroyFn === "function") {
 			destroyFn.call(group);
 		}
+	}
+
+	private _requireFrame() {
+		if (!this._frame) {
+			throw new Error("WebGPU deferred decal frame is not active.");
+		}
+		return this._frame;
 	}
 }
 

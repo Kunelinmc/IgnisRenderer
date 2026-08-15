@@ -36,7 +36,10 @@ import {
 } from "../BackendExtensions";
 import { WebGPUErrorScopeHelper } from "./WebGPUErrorScopeHelper";
 import { WebGPUFrameOrchestrator } from "./rendergraph/WebGPUFrameOrchestrator";
-import { createWebGPUFrameRuntimeCompositionFactory } from "./rendergraph/WebGPUFrameRuntimeComposition";
+import {
+	createWebGPUFrameRuntimeComposition,
+	type WebGPUFrameRuntimeComposition,
+} from "./rendergraph/WebGPUFrameRuntimeComposition";
 import type { WebGPUFrameHost } from "./rendergraph/WebGPUFrameHost";
 import { WebGPUPostProcessExecutor } from "./WebGPUPostProcessExecutor";
 import { WebGPUFrameTransaction } from "./WebGPUFrameTransaction";
@@ -159,10 +162,10 @@ export class WebGPUBackend implements IRenderBackend {
 	private _activeFrameTransaction: WebGPUFrameTransaction | null = null;
 	private readonly _occlusionCullingExtensionApi: OcclusionCullingBackendAdapter = {
 		getVisibilityProvider: (options: NormalizedOcclusionCullingOptions) =>
-			this._frameOrchestrator?.runtimeCapabilities.visibility
+			this._frameRuntime?.visibility
 				.getVisibilityProvider(options) ?? null,
 		resetOcclusionCulling: () => {
-			this._frameOrchestrator?.runtimeCapabilities.visibility.reset();
+			this._frameRuntime?.visibility.reset();
 		},
 	};
 	public readonly extensions;
@@ -200,6 +203,7 @@ export class WebGPUBackend implements IRenderBackend {
 	private _errorScopes: WebGPUErrorScopeHelper | null = null;
 	private _resources: WebGPUFrameServiceOwner | null = null;
 	private _frameOrchestrator: WebGPUFrameOrchestrator | null = null;
+	private _frameRuntime: WebGPUFrameRuntimeComposition | null = null;
 	private _frameHost: WebGPUFrameHost | null = null;
 	private _reflectionProbeCapturePass: WebGPUReflectionProbeCapturePass | null = null;
 	private _particleSimulator: IParticleSimulator | null = null;
@@ -332,8 +336,8 @@ export class WebGPUBackend implements IRenderBackend {
 			get profile() {
 				return thisRef.profile;
 			},
-			get frameOrchestrator() {
-				return thisRef._frameOrchestrator;
+			get postProcess() {
+				return thisRef._frameRuntime?.postProcess ?? null;
 			},
 			get resources() {
 				return thisRef._resources;
@@ -586,25 +590,29 @@ export class WebGPUBackend implements IRenderBackend {
 					onceKey: key,
 				}),
 		});
+		this._frameRuntime = createWebGPUFrameRuntimeComposition({
+			host: this._frameHost,
+			frameServices: this._resources,
+			framePackets: this._framePacketRegistry,
+			sampleCountResolver: this._sampleCountResolver,
+			warnOnce: (code, message, cause) =>
+				Logger.warn(`[${code}] ${message}${cause ? ` ${String(cause)}` : ""}`, {
+					scope: "WebGPUBackend",
+					onceKey: code,
+				}),
+		});
 		this._frameOrchestrator = new WebGPUFrameOrchestrator(
 			this._frameHost,
 			this._resources.createFrameScope(),
 			this._framePacketRegistry,
 			this._sampleCountResolver,
 			this._requestedSampleCount,
-			createWebGPUFrameRuntimeCompositionFactory({
-				host: this._frameHost,
-				frameServices: this._resources,
-				framePackets: this._framePacketRegistry,
-				particleRenderer: this._resources.getParticleBillboardRenderer(),
-				sampleCountResolver: this._sampleCountResolver,
-			}),
+			this._frameRuntime.modules,
 		);
 		this._reflectionProbeCapturePass = new WebGPUReflectionProbeCapturePass(
 			this._frameHost,
 			this._resources,
 			this._framePacketRegistry,
-			this._resources.getParticleBillboardRenderer(),
 		);
 		this._particleSimulator = new WebGPUParticleSimulator({
 			backend: this._computeFacade,
@@ -738,6 +746,7 @@ export class WebGPUBackend implements IRenderBackend {
 			particleSimulator: this._particleSimulator,
 			postProcessRuntime: this._postProcessRuntime,
 			postProcessExecutor: this._postProcessExecutor,
+			postProcess: this._frameRuntime?.postProcess ?? null,
 			reportCleanupError: (scope, error) => this._reportNonFatalError(scope, error),
 		});
 		this._activeFrameTransaction = transaction;
@@ -814,7 +823,7 @@ export class WebGPUBackend implements IRenderBackend {
 		if (!this._frameOrchestrator) {
 			return Promise.reject(new Error("WebGPU backend has not been initialized."));
 		}
-		return this._frameOrchestrator.runtimeCapabilities.customRenderTargets.readColor(
+		return this._frameRuntime!.customRenderTargets.readColor(
 			id,
 			attachmentIndex,
 			options,
@@ -1422,9 +1431,14 @@ export class WebGPUBackend implements IRenderBackend {
 		}
 		const frameOrchestrator = this._frameOrchestrator;
 		this._frameOrchestrator = null;
+		const frameRuntime = this._frameRuntime;
+		this._frameRuntime = null;
 		this._frameHost = null;
 		if (frameOrchestrator) {
 			cleanup("frame orchestrator", () => frameOrchestrator.destroy());
+		}
+		if (frameRuntime) {
+			cleanup("frame runtime composition", () => frameRuntime.lifecycle.destroy());
 		}
 		const resources = this._resources;
 		this._resources = null;
@@ -1597,7 +1611,7 @@ export class WebGPUBackend implements IRenderBackend {
 		this._commandScheduler.submitPendingCopyCommands();
 		this._invalidateShaderDependentCaches();
 		this._postProcessRuntime?.destroy();
-		this._frameOrchestrator?.onShaderRuntimeChanged();
+		this._frameRuntime?.lifecycle.onShaderRuntimeChanged();
 		this._resources?.onShaderRuntimeChanged?.();
 		this._resetCurrentCanvasTargets();
 	}
@@ -1711,9 +1725,9 @@ export class WebGPUBackend implements IRenderBackend {
 			this._pipelineCache.clearPipelineCaches();
 			this._bindingGroupCache.clear();
 			this._sampleCountResolver.clearCapabilityCache();
-			this._frameOrchestrator?.onDisplayOutputChanged();
+			this._frameRuntime?.lifecycle.onDisplayOutputChanged();
 		} else {
-			this._frameOrchestrator?.runtimeCapabilities.postProcess
+			this._frameRuntime?.postProcess
 				.invalidateFrameResources();
 		}
 		this._resetCurrentCanvasTargets();

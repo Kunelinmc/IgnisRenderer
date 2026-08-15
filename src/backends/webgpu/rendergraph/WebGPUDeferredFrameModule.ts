@@ -35,8 +35,12 @@ import {
 	readWebGPUFrameGraphResource,
 	writeWebGPUFrameGraphResource,
 } from "./WebGPUFrameGraphDsl";
-import type { WebGPUFrameSession } from "./WebGPUFrameSession";
+import type {
+	WebGPURecordingFrameSession as WebGPUFrameSession,
+} from "./WebGPUFrameSession";
 import type { WebGPUFrameGraphNode } from "./types";
+import type { WebGPUDeferredOpaqueFrameState } from "./WebGPUScenePassRecorder";
+import type { WebGPUFrameExecutionContext } from "./WebGPUFrameExecutionContext";
 
 interface WebGPUDeferredScenePort {
 	recordMainPass(
@@ -45,6 +49,29 @@ interface WebGPUDeferredScenePort {
 		clearAttachments: boolean,
 		allowEarlyZPrepass: boolean,
 	): Promise<void>;
+}
+
+/** @internal Deferred-owned handoff between opaque recording and lighting. */
+export class WebGPUDeferredOpaqueStatePort {
+	private _state: WebGPUDeferredOpaqueFrameState | null = null;
+
+	public publish(state: WebGPUDeferredOpaqueFrameState): void {
+		this._state = state;
+	}
+
+	public peek(): WebGPUDeferredOpaqueFrameState | null {
+		return this._state;
+	}
+
+	public consume(): WebGPUDeferredOpaqueFrameState | null {
+		const state = this._state;
+		this._state = null;
+		return state;
+	}
+
+	public clear(): void {
+		this._state = null;
+	}
 }
 
 const DEFERRED_GBUFFER_RENDER_RESOURCE_IDS = [
@@ -179,7 +206,7 @@ export class WebGPUDeferredFrameModule implements WebGPUFrameGraphModule {
 	}];
 	public readonly executors = {
 		"deferred-decal": async (_node: unknown, session: WebGPUFrameSession) => {
-			if (session.deferredOpaqueFrameState?.lightingEnabled) {
+			if (this._opaqueState.peek()?.lightingEnabled) {
 				await this._decalPass.recordDecalPass(session.context);
 			}
 		},
@@ -191,7 +218,23 @@ export class WebGPUDeferredFrameModule implements WebGPUFrameGraphModule {
 		private readonly _lightingPass: WebGPUDeferredLightingPass,
 		private readonly _decalPass: WebGPUDeferredDecalPass,
 		private readonly _scene: WebGPUDeferredScenePort,
+		private readonly _opaqueState: WebGPUDeferredOpaqueStatePort,
 	) {}
+
+	public beginFrame(): void {
+		this._opaqueState.clear();
+	}
+
+	public activateFrame(context: WebGPUFrameExecutionContext): void {
+		this._lightingPass.bindFrame(context);
+		this._decalPass.bindFrame(context);
+	}
+
+	public closeFrame(): void {
+		this._lightingPass.closeFrame();
+		this._decalPass.closeFrame();
+		this._opaqueState.clear();
+	}
 
 	public planStage(
 		input: WebGPUFrameModulePlanningInput,
@@ -232,25 +275,21 @@ export class WebGPUDeferredFrameModule implements WebGPUFrameGraphModule {
 	}
 
 	private async _recordLighting(session: WebGPUFrameSession): Promise<void> {
-		const state = session.deferredOpaqueFrameState;
+		const state = this._opaqueState.consume();
 		if (!state) return;
-		try {
-			if (state.lightingEnabled) {
-				await this._lightingPass.recordLightingPass(
-					session.context,
-					state.clearSceneColor,
-				);
-			}
-			if (state.fallbackPackets.length > 0) {
-				await this._scene.recordMainPass(
-					session.context,
-					state.fallbackPackets,
-					false,
-					false,
-				);
-			}
-		} finally {
-			session.deferredOpaqueFrameState = null;
+		if (state.lightingEnabled) {
+			await this._lightingPass.recordLightingPass(
+				session.context,
+				state.clearSceneColor,
+			);
+		}
+		if (state.fallbackPackets.length > 0) {
+			await this._scene.recordMainPass(
+				session.context,
+				state.fallbackPackets,
+				false,
+				false,
+			);
 		}
 	}
 

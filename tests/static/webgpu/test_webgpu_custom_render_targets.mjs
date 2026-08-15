@@ -189,7 +189,7 @@ async function testWebGPUCustomTargetExecution() {
 		});
 		passContext.encoder.endRenderPass();
 	});
-	runtime.sync(context);
+	runtime.syncFrame(context);
 
 	assert.equal(backend.createdTextures.length, 3);
 	assert.equal(backend.createdTextures[0].width, 32);
@@ -257,7 +257,7 @@ async function testWebGPUMultisampledTargetUsesResolveTextures() {
 		});
 		passContext.encoder.endRenderPass();
 	}, { sampleCount: 4 });
-	runtime.sync(context);
+	runtime.syncFrame(context);
 	assert.equal(backend.createdTextures.length, 5);
 	assert.deepEqual(
 		backend.createdTextures.map((texture) => texture.descriptor.sampleCount),
@@ -310,7 +310,7 @@ function testWebGPUCustomTargetCapabilityDowngrade() {
 		new FakeSampleCountResolver(2),
 	);
 	const context = createContext(() => {}, { sampleCount: 4 });
-	runtime.sync(context);
+	runtime.syncFrame(context);
 	assert.equal(runtime._targets.get("gbuf").sampleCount, 2);
 	assert.deepEqual(
 		backend.createdTextures.map((texture) => texture.descriptor.sampleCount),
@@ -327,7 +327,7 @@ function testWebGPUCustomTargetAllocationFallbackIsDomainScoped() {
 	const resolver = new FakeSampleCountResolver();
 	const runtime = new WebGPUCustomRenderTargetRuntime(backend, resolver);
 	const context = createContext(() => {}, { sampleCount: 4 });
-	runtime.sync(context);
+	runtime.syncFrame(context);
 	assert.equal(runtime._targets.get("gbuf").sampleCount, 1);
 	assert.equal(backend.createdTextures[0].destroyed, true);
 	assert.equal(resolver.fallbacks.size, 1);
@@ -340,17 +340,17 @@ function testWebGPUCustomTargetAllocationFallbackIsDomainScoped() {
 		4,
 	);
 	const createdAfterFallback = backend.createdTextures.length;
-	runtime.sync(context);
+	runtime.syncFrame(context);
 	assert.equal(backend.createdTextures.length, createdAfterFallback);
 	const resizedContext = createContext(() => {}, {
 		size: { mode: "fixed", width: 64, height: 24 },
 		sampleCount: 4,
 	});
-	runtime.sync(resizedContext);
+	runtime.syncFrame(resizedContext);
 	assert.equal(runtime._targets.get("gbuf").sampleCount, 1);
 	assert.equal(runtime._targets.get("gbuf").width, 64);
 	assert.equal(backend.matchingAllocations, 2);
-	runtime.sync({
+	runtime.syncFrame({
 		...resizedContext,
 		renderTargets: new RenderTargetRegistrySnapshot(),
 	});
@@ -371,7 +371,7 @@ function testWebGPURejectsFormatFallbackTransactionally() {
 		new FakeSampleCountResolver(),
 	);
 	assert.throws(
-		() => runtime.sync(createContext(() => {})),
+		() => runtime.syncFrame(createContext(() => {})),
 		/requested "rgba16float" but received "rgba8unorm"/
 	);
 	assert.equal(backend.createdTextures.length, 2);

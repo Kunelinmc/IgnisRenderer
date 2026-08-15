@@ -5,10 +5,6 @@ import { WebGPUPresentationRuntime } from "../../../src/backends/webgpu/rendergr
 const source = { id: "scene-color" };
 const calls = [];
 const runtime = new WebGPUPresentationRuntime({}, {
-	recording: {
-		getFrameTargets: () => ({ sceneColor: source }),
-		resolveDirtyRects: (_context, width, height) => [{ x: 0, y: 0, width, height }],
-	},
 	getOutputColorDomain: () => "display-linear",
 });
 runtime._pass = {
@@ -38,11 +34,14 @@ runtime._pass = {
 
 const session = {
 	context: { id: "frame" },
-	encoder: {},
-	presented: false,
+	commands: { encoder: {} },
+	targets: { frameTargets: { sceneColor: source } },
+	dirtyRects: {
+		resolveDirtyRects: (_context, width, height) => [{ x: 0, y: 0, width, height }],
+	},
 };
+runtime.beginFrame(session.context);
 await runtime.executors.presentation({}, session);
-assert.equal(session.presented, true);
 assert.deepEqual(calls[0], ["present", "scene-color", "display-linear", "frame"]);
 
 await runtime.executors.presentation({}, session);

@@ -8,6 +8,7 @@ import type {
 	WebGPUPostProcessSessionPort,
 } from "./WebGPUPostProcessExecutor";
 import type { WebGPUFrameOrchestrator } from "./rendergraph/WebGPUFrameOrchestrator";
+import type { WebGPUPostProcessFrameModule } from "./rendergraph/WebGPUPostProcessFrameModule";
 
 export type WebGPUFrameTransactionState =
 	| "recording"
@@ -24,6 +25,7 @@ export interface WebGPUFrameTransactionServices {
 	readonly particleSimulator: IParticleSimulator | null;
 	readonly postProcessRuntime: BackendPostProcessRuntime | null;
 	readonly postProcessExecutor: WebGPUPostProcessExecutor | null;
+	readonly postProcess: Pick<WebGPUPostProcessFrameModule, "createSessionPort"> | null;
 	reportCleanupError(scope: string, error: unknown): void;
 }
 
@@ -69,8 +71,7 @@ export class WebGPUFrameTransaction {
 			this._services.particleSimulator?.beginFrame(this.context);
 			this._particleFrameActive = this._services.particleSimulator !== null;
 			this._services.resources.beginFrameResourceLifecycle();
-			const port = this._services.orchestrator.runtimeCapabilities.postProcess
-				.createSessionPort();
+			const port = this._services.postProcess?.createSessionPort() ?? null;
 			if (port) {
 				this._services.postProcessExecutor?.bindSession(port);
 			}

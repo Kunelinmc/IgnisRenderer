@@ -145,28 +145,26 @@ function createPassHarness({ dirtyRects, targets, resources, backend } = {}) {
 	const pass = new WebGPUDeferredDecalPass(
 		resolvedBackend,
 		resources ?? createResourcesStub(resolvedBackend),
-		{
-			recordingContext: {
-				getEncoder: () => encoder,
-				getFrameTargets: () => resolvedTargets,
-				getMSAATargets: () => null,
-				getTargetWidth: () => resolvedTargets.gAlbedoAlpha.width,
-				getTargetHeight: () => resolvedTargets.gAlbedoAlpha.height,
-				getSampleCount: () => 1,
-				getSceneTargetMode: () => "gbuffer",
-				isMRTEnabled: () => true,
-				isEarlyZPrepassEnabled: () => true,
-				requireFrameResources: () => ({
-					decalFrameBinding: { id: "decal-frame-binding" },
-				}),
-				isIncrementalPartial: () => true,
-				resolveDirtyRects: () =>
-					dirtyRects ?? [{ x: 4, y: 6, width: 16, height: 16 }],
-				selectPacketsForRect: (_context, packets) => packets,
-				selectTransparentSubsetForRect: (_context, packets) => packets,
-			},
-		}
 	);
+	pass.bindFrame({
+		commands: { encoder },
+		targets: {
+			frameTargets: resolvedTargets,
+			msaaTargets: null,
+			width: resolvedTargets.gAlbedoAlpha.width,
+			height: resolvedTargets.gAlbedoAlpha.height,
+			sampleCount: 1,
+			sceneTargetMode: "gbuffer",
+		},
+		resources: { decalFrameBinding: { id: "decal-frame-binding" } },
+		dirtyRects: {
+			isIncrementalPartial: () => true,
+			resolveDirtyRects: () =>
+				dirtyRects ?? [{ x: 4, y: 6, width: 16, height: 16 }],
+			selectPacketsForRect: (_context, packets) => packets,
+			selectTransparentSubsetForRect: (_context, packets) => packets,
+		},
+	});
 	return { backend: resolvedBackend, encoder, pass };
 }
 

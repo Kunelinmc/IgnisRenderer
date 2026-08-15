@@ -172,6 +172,11 @@ export interface WebGPUParticleBillboardRenderer {
 	): Promise<number>;
 }
 
+/** @internal Resolves the billboard renderer without widening its owner type. */
+export interface WebGPUParticleBillboardRendererProvider {
+	getParticleBillboardRenderer(): WebGPUParticleBillboardRenderer;
+}
+
 /** @internal Deferred G-buffer and decal pipeline capability. */
 export interface WebGPUDeferredResourceProvider {
 	getGBufferWriteLayout(): GPUBindGroupLayout;

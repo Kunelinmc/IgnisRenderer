@@ -6,14 +6,6 @@ function createRuntime(options = {}) {
 	const calls = [];
 	const port = {};
 	const orchestrator = {
-		runtimeCapabilities: {
-			postProcess: {
-				createSessionPort() {
-					calls.push("create-session");
-					return port;
-				},
-			},
-		},
 		beginFrame() {
 			calls.push("orchestrator-begin");
 		},
@@ -30,6 +22,12 @@ function createRuntime(options = {}) {
 		},
 		abortFrameState() {
 			calls.push("frame-state-abort");
+		},
+	};
+	const postProcess = {
+		createSessionPort() {
+			calls.push("create-session");
+			return port;
 		},
 	};
 	const resources = {
@@ -79,6 +77,7 @@ function createRuntime(options = {}) {
 		particleSimulator,
 		postProcessRuntime,
 		postProcessExecutor,
+		postProcess,
 		reportCleanupError(scope, error) {
 			calls.push(`cleanup-error:${scope}:${String(error)}`);
 		},

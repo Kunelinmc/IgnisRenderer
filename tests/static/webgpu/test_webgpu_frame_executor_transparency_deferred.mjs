@@ -218,7 +218,7 @@ async function testDeferredLightingBindsUnusedGroupOnePlaceholder() {
 	];
 
 	await executor.beginFrame(context);
-	const bridge = executor.runtimeCapabilities.postProcess.createGBufferBridge(context);
+	const bridge = executor.frameRuntime.postProcess.createGBufferBridge(context);
 	assert.equal(bridge.channels.specular.format, "rgba16float");
 	assert.equal(bridge.channels.specular.encoding, "specular-color-factor.rgba");
 	assert.equal(
@@ -328,7 +328,7 @@ async function testDeferredLightingCanBeExplicitlyDisabled() {
 
 	const frameEncoder = backend.commandEncoders[0];
 	assert.ok(frameEncoder);
-	assert.equal(executor.getSceneTargetModeForFrame(), "mrt");
+	assert.equal(getFrameGraphDebugState(executor).targetManager.sceneTargetMode, "mrt");
 	assert.equal(
 		frameEncoder.calls.some(
 			(call) =>
@@ -421,7 +421,7 @@ async function testDeferredLightingWarnsWhenRequestedButMRTUnavailable() {
 	});
 	try {
 		await executor.beginFrame(context);
-		assert.equal(executor.getSceneTargetModeForFrame(), "single");
+		assert.equal(getFrameGraphDebugState(executor).targetManager.sceneTargetMode, "single");
 		assert.equal(
 			warnings.some((warning) =>
 				warning.includes("[webgpu-deferred-disabled-attachments]")

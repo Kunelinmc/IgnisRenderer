@@ -27,11 +27,17 @@ import {
 	readWebGPUFrameGraphResource,
 	writeWebGPUFrameGraphResource,
 } from "./WebGPUFrameGraphDsl";
-import type { WebGPUFrameGraphRecordingContext } from "./WebGPUFrameGraphRecordingContext";
-import type { WebGPUFrameSession } from "./WebGPUFrameSession";
+import type {
+	WebGPURecordingFrameSession as WebGPUFrameSession,
+} from "./WebGPUFrameSession";
 
 export interface WebGPUVisibilityFeatureAnalysis {
 	readonly needsOcclusionTargets: boolean;
+}
+
+/** @internal Read-only Hi-Z readiness consumed by post-processing. */
+export interface WebGPUHiZReadinessPort {
+	isHiZReady(): boolean;
 }
 
 export const WEBGPU_VISIBILITY_FEATURE_ANALYSIS =
@@ -91,10 +97,12 @@ export class WebGPUVisibilityFrameModule implements WebGPUFrameGraphModule {
 			await this._recordOcclusion(session);
 		},
 	};
+	private _hiZStatus: "unavailable" | "pending" | "ready" | "failed" =
+		"unavailable";
+	private _hiZBuildCount = 0;
 	public constructor(
 		private readonly _builder: WebGPUHiZBuilder,
 		private readonly _runtime: WebGPUOcclusionCullingRuntime,
-		private readonly _recording: WebGPUFrameGraphRecordingContext,
 	) {}
 
 	public planStage(
@@ -141,7 +149,12 @@ export class WebGPUVisibilityFrameModule implements WebGPUFrameGraphModule {
 	}
 
 	public beginFrame(context: FrameContext): void {
+		this._hiZStatus = "pending";
 		this._runtime.beginFrame(context);
+	}
+
+	public isHiZReady(): boolean {
+		return this._hiZStatus === "ready";
 	}
 
 	public getVisibilityProvider(
@@ -169,21 +182,22 @@ export class WebGPUVisibilityFrameModule implements WebGPUFrameGraphModule {
 	}
 
 	private async _buildHiZ(session: WebGPUFrameSession): Promise<void> {
-		const targets = this._recording.getFrameTargets();
-		if (!session.encoder || !targets?.gMotionDepth || !targets.hiZ) {
-			session.hiZStatus = "unavailable";
+		const targets = session.targets.frameTargets;
+		const encoder = session.commands.encoder;
+		if (!encoder || !targets?.gMotionDepth || !targets.hiZ) {
+			this._hiZStatus = "unavailable";
 			return;
 		}
 		try {
 			await this._builder.build({
-				encoder: session.encoder,
+				encoder,
 				depth: targets.gMotionDepth,
 				hiZ: targets.hiZ,
 			});
-			session.hiZStatus = "ready";
-			session.hiZBuildCount++;
+			this._hiZStatus = "ready";
+			this._hiZBuildCount++;
 		} catch (error) {
-			session.hiZStatus = "failed";
+			this._hiZStatus = "failed";
 			Logger.warn(
 				"[webgpu-hiz-build-failed] Shared WebGPU Hi-Z build failed; " +
 					`dependent effects will be skipped. ${String(error)}`,
@@ -196,11 +210,12 @@ export class WebGPUVisibilityFrameModule implements WebGPUFrameGraphModule {
 	}
 
 	private async _recordOcclusion(session: WebGPUFrameSession): Promise<void> {
-		const hiZ = this._recording.getFrameTargets()?.hiZ;
-		if (!session.encoder || session.hiZStatus !== "ready" || !hiZ) return;
+		const hiZ = session.targets.frameTargets.hiZ;
+		const encoder = session.commands.encoder;
+		if (!encoder || this._hiZStatus !== "ready" || !hiZ) return;
 		await this._runtime.recordVisibilityPass({
 			context: session.context,
-			encoder: session.encoder,
+			encoder,
 			hiZ,
 			options: normalizeOcclusionCullingOptions(
 				session.context.features.occlusionCullingOptions,

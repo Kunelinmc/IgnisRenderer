@@ -186,7 +186,7 @@ async function testPlanarReflectionUsesColorTargetsWithoutPostProcess() {
 	await executor.beginFrame(context);
 	const targets = getFrameTargets(executor);
 	assert.ok(targets);
-	assert.equal(executor.getSceneTargetModeForFrame(), "color");
+	assert.equal(getFrameGraphDebugState(executor).targetManager.sceneTargetMode, "color");
 	assert.equal(targets.postPing, null);
 	assert.equal(targets.postPong, null);
 	assert.equal(targets.gAlbedoAlpha, null);
@@ -384,7 +384,7 @@ async function testPlanarReflectionCaptureFailureKeepsMainFrameResources() {
 	};
 
 	await executor.beginFrame(context);
-	const mainFrameResources = executor.getPreparedFrameResources();
+	const mainFrameResources = resources._state.mainPrepared;
 
 	await assert.rejects(
 		executor.executePass(
@@ -394,7 +394,7 @@ async function testPlanarReflectionCaptureFailureKeepsMainFrameResources() {
 		/simulated planar capture failure/
 	);
 
-	assert.strictEqual(executor.getPreparedFrameResources(), mainFrameResources);
+	assert.strictEqual(resources._state.mainPrepared, mainFrameResources);
 	assert.equal(mainFrameResources.sceneTargetMode, "mrt");
 	assert.ok(
 		resources._state.events.some((event) =>

@@ -457,6 +457,9 @@ async function testReflectionProbeCaptureUsesLegacyMRTAttachmentFormats() {
 		async renderParticles() {
 			return 0;
 		},
+		getParticleBillboardRenderer() {
+			return this;
+		},
 	};
 	const probe = new ReflectionProbe({
 		includeMeshes: true,
@@ -478,7 +481,6 @@ async function testReflectionProbeCaptureUsesLegacyMRTAttachmentFormats() {
 		backend,
 		resources,
 		new FramePacketContributorRegistry(),
-		resources,
 	);
 	backend.computeFacade = readyComputeFacade;
 	const probeCache = probe.getRuntimeCache();
@@ -662,6 +664,9 @@ async function testReflectionProbeCaptureUsesParentWorldPositionAsOrigin() {
 		async renderParticles() {
 			return 0;
 		},
+		getParticleBillboardRenderer() {
+			return this;
+		},
 	};
 	const modelRoot = new Node();
 	modelRoot.position.set(3, 0, 0);
@@ -680,7 +685,6 @@ async function testReflectionProbeCaptureUsesParentWorldPositionAsOrigin() {
 		backend,
 		resources,
 		new FramePacketContributorRegistry(),
-		resources,
 	);
 	const probeCache = probe.getRuntimeCache();
 

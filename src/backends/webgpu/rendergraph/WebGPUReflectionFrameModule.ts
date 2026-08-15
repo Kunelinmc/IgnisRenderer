@@ -22,8 +22,9 @@ import {
 	readWebGPUFrameGraphResource,
 	writeWebGPUFrameGraphResource,
 } from "./WebGPUFrameGraphDsl";
-import type { WebGPUFrameGraphRecordingContext } from "./WebGPUFrameGraphRecordingContext";
-import type { WebGPUFrameSession } from "./WebGPUFrameSession";
+import type {
+	WebGPURecordingFrameSession as WebGPUFrameSession,
+} from "./WebGPUFrameSession";
 import { WEBGPU_FRAME_GRAPH_RESOURCES } from "./WebGPUFrameGraphResourceCatalog";
 
 export interface WebGPUReflectionFeatureAnalysis {
@@ -92,7 +93,6 @@ export class WebGPUReflectionFrameModule implements WebGPUFrameGraphModule {
 	public constructor(
 		private readonly _host: WebGPUFrameHost,
 		private readonly _pass: WebGPUPlanarReflectionPass,
-		private readonly _recording: WebGPUFrameGraphRecordingContext,
 	) {}
 
 	public planStage(
@@ -167,9 +167,9 @@ export class WebGPUReflectionFrameModule implements WebGPUFrameGraphModule {
 	}
 
 	public async composite(session: WebGPUFrameSession): Promise<void> {
-		const encoder = session.encoder;
-		const targets = this._recording.getFrameTargets();
-		if (!encoder || session.configuration?.mrtSupported !== true || !targets) return;
+		const encoder = session.commands.encoder;
+		const targets = session.targets.frameTargets;
+		if (!encoder || session.configuration.mrtSupported !== true) return;
 		this._clearMask(session);
 		if (!session.resources) {
 			throw new Error("WebGPUFrameOrchestrator requires prepared main-frame resources.");
@@ -180,7 +180,7 @@ export class WebGPUReflectionFrameModule implements WebGPUFrameGraphModule {
 			frameResources: session.resources,
 			frameTargets: targets,
 			msaaTargets:
-				this._recording.getMSAATargets() as WebGPUPlanarReflectionMSAATargets | null,
+				session.targets.msaaTargets as WebGPUPlanarReflectionMSAATargets | null,
 			sampleCount: session.configuration.samplePlan.sampleCount,
 		});
 	}
@@ -198,19 +198,19 @@ export class WebGPUReflectionFrameModule implements WebGPUFrameGraphModule {
 	}
 
 	private async _capture(session: WebGPUFrameSession): Promise<void> {
-		if (!session.encoder || !session.committer) return;
-		session.committer.enqueueEncoder("main:before-reflection", session.encoder);
-		session.encoder = null;
+		if (!session.commands.encoder) return;
+		session.commands.enqueueCurrent("main:before-reflection");
 		await this._pass.capture(session.context, (label, encoder) => {
-			session.committer!.enqueueEncoder(label, encoder);
+			session.commands.enqueueEncoder(label, encoder);
 		});
-		session.encoder = this._host.createCommandEncoder();
+		session.commands.resume();
 	}
 
 	private _clearMask(session: WebGPUFrameSession): void {
-		const mask = this._recording.getFrameTargets()?.planarReflectionMask;
-		if (!session.encoder || !mask) return;
-		session.encoder.beginRenderPass({
+		const mask = session.targets.frameTargets.planarReflectionMask;
+		const encoder = session.commands.encoder;
+		if (!encoder || !mask) return;
+		encoder.beginRenderPass({
 			label: "WebGPUPlanarReflectionMaskClear",
 			colorAttachments: [{
 				view: mask,
@@ -219,6 +219,6 @@ export class WebGPUReflectionFrameModule implements WebGPUFrameGraphModule {
 				storeOp: "store",
 			}],
 		});
-		session.encoder.endRenderPass();
+		encoder.endRenderPass();
 	}
 }

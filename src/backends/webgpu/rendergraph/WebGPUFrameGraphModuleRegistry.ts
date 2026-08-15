@@ -1,9 +1,15 @@
 import type { FrameContext, FramePass } from "../../../pipeline/types";
+import type { FramePreparationRequirements } from "../../../pipeline/FrameRequirements";
 
 import {
 	WebGPUFrameNodeExecutorRegistry,
 } from "./WebGPUFrameNodeExecutorRegistry";
-import type { WebGPUFrameSession } from "./WebGPUFrameSession";
+import type {
+	WebGPUCommittingFrameSession,
+	WebGPURecordingFrameSession,
+} from "./WebGPUFrameSession";
+import type { WebGPUFrameExecutionContext } from "./WebGPUFrameExecutionContext";
+import type { WebGPUFrameGraphCompiler } from "./WebGPUFrameGraphCompiler";
 import type {
 	WebGPUFrameMessageHandler,
 	WebGPUFrameMessagePhase,
@@ -23,7 +29,10 @@ import {
 	type WebGPUFrameGraphModule,
 	type WebGPUFrameModulePlanningInput,
 } from "./WebGPUFrameGraphModule";
-import type { WebGPUFrameGraphStagePlan } from "./types";
+import type {
+	WebGPUCompiledFrameGraphStage,
+	WebGPUFrameGraphStagePlan,
+} from "./types";
 
 /**
  * Initialization-time registry for backend-private WebGPU frame modules.
@@ -161,10 +170,10 @@ export class WebGPUFrameGraphModuleRegistry {
 
 	public async execute(
 		node: Parameters<WebGPUFrameNodeExecutorRegistry["execute"]>[0],
-		session: WebGPUFrameSession,
+		context: WebGPUFrameExecutionContext,
 	): Promise<void> {
 		this._assertSealed();
-		await this._executors!.execute(node, session);
+		await this._executors!.execute(node, context);
 	}
 
 	public beginFrame(context: FrameContext): void {
@@ -176,15 +185,56 @@ export class WebGPUFrameGraphModuleRegistry {
 		for (const module of this._modules) module.beginFrame?.(context);
 	}
 
+	public syncFrame(context: FrameContext): void {
+		for (const module of this._modules) module.syncFrame?.(context);
+	}
+
+	public createAnalysisSeeds(context: FrameContext) {
+		return this._modules.flatMap(
+			(module) => module.createAnalysisSeeds?.(context) ?? [],
+		);
+	}
+
+	public sealFrame(context: FrameContext): FramePreparationRequirements {
+		const requirements = this._modules
+			.map((module) => module.sealFrame?.(context) ?? null)
+			.filter((value): value is FramePreparationRequirements => value !== null);
+		if (requirements.length > 1) {
+			throw new Error("Multiple WebGPU frame modules published preparation requirements.");
+		}
+		return requirements[0] ?? {};
+	}
+
+	public async executeComposedStage(
+		stage: WebGPUCompiledFrameGraphStage | undefined,
+		compiler: Pick<WebGPUFrameGraphCompiler, "recordSkippedNode">,
+		recordExecutedNode: (nodeId: string) => void,
+	): Promise<boolean> {
+		for (const module of this._modules) {
+			if (await module.executeComposedStage?.(stage, compiler, recordExecutedNode)) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	public activateFrame(context: WebGPUFrameExecutionContext): void {
+		for (const module of this._modules) module.activateFrame?.(context);
+	}
+
+	public closeFrame(): void {
+		for (const module of this._modules) module.closeFrame?.();
+	}
+
 	public get finalOutput() {
 		return this._finalOutput;
 	}
 
-	public async finalizeRecording(session: WebGPUFrameSession): Promise<void> {
+	public async finalizeRecording(session: WebGPURecordingFrameSession): Promise<void> {
 		for (const module of this._modules) await module.finalizeRecording?.(session);
 	}
 
-	public async afterSubmit(session: WebGPUFrameSession): Promise<void> {
+	public async afterSubmit(session: WebGPUCommittingFrameSession): Promise<void> {
 		for (const module of this._modules) await module.afterSubmit?.(session);
 	}
 

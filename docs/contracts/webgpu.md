@@ -111,9 +111,10 @@ This document defines WebGPU frame-graph execution, deferred lighting, presentat
   device capability probing, capability caches, and domain-scoped persistent
   `1x` fallback state. It must not own frame textures or one backend-wide
   active sample count.
-- `WebGPUFrameOrchestrator` must own a single active frame scope and orchestrate
-  target retry, frame lifecycle, and node execution; it must not own texture
-  pool allocation logic.
+- `WebGPUFrameOrchestrator` must own a single active-session slot and orchestrate
+  target retry, frame lifecycle, graph compilation, and node execution. It must
+  not own texture-pool allocation, command-stream state, feature-local frame
+  state, or runtime feature capabilities.
 - `WebGPUFrameServiceOwner` must be the backend-private shared-service
   composition root. It owns device-lifetime scene, texture, deferred, shadow,
   and particle-render resources; consumers must receive only the corresponding
@@ -194,9 +195,24 @@ This document defines WebGPU frame-graph execution, deferred lighting, presentat
 - Post-process and presentation must be explicit internal graph nodes.
 - Planar reflection composite must be an explicit graph node after opaque or
   deferred output and before transparency.
-- `WebGPUFrameSession` must own the mutable state for one frame and must expose
-  a lifecycle state of `"preparing"`, `"recording"`, `"committing"`, or
-  `"skipped"`.
+- `WebGPUFrameSession` must be a discriminated lifecycle state of
+  `"preparing"`, `"recording"`, `"committing"`, or `"skipped"`. A recording or
+  committing session must contain non-null configuration, prepared resources,
+  frame packets, sealed messages, target view, and command stream.
+- Frame sealing must use provisional local data and must publish a recording
+  session only after analysis, target configuration, graph compilation, and
+  main-scope resource preparation all succeed.
+- `WebGPUFrameCommandStream` must exclusively own the current encoder, labeled
+  encoder rotation, committer integration, ordered submission, abort, and
+  partial-submit diagnostics. Feature modules must not assign an encoder or
+  committer field on `WebGPUFrameSession`.
+- `WebGPUFrameTargetManager` must publish a stable frame-scoped target view with
+  attachments, MSAA attachments, dimensions, sample count, and scene-target
+  mode. Publishing the view must not transfer resource ownership.
+- An optional `WebGPUFrameDiagnosticsObserver` may receive immutable session,
+  target, graph, node-execution, and commit snapshots. The observer must not be
+  exposed as a runtime capability, and absent observers must not cause
+  per-event allocation.
 - When the renderer frame plan includes `particle-sim`,
   `WebGPUFrameOrchestrator.beginFrame()` must create a `"preparing"` session
   without analyzing features, allocating frame targets, preparing frame
@@ -220,8 +236,9 @@ This document defines WebGPU frame-graph execution, deferred lighting, presentat
 - `WebGPUFrameOrchestrator.executePass` must receive the same `FrameContext`
   object passed to `beginFrame`. A `"skipped"` session must ignore pass
   execution without recording commands.
-- `WebGPUFrameOrchestrator.abortFrame` must remain idempotent when no session is
-  active.
+- `WebGPUFrameTransaction` must use `abortRecording()` and `abortFrameState()`
+  for recording and logical-state rollback. `WebGPUFrameOrchestrator` must not
+  expose compatibility frame or graph-analysis aliases.
 - `WebGPUFrameOrchestrator.endFrame` must seal graph analysis after final graph
   recording. `WebGPUFrameTransaction` must coordinate submission and
   post-submit logical commits. It must commit post-process history, temporal
@@ -240,16 +257,25 @@ This document defines WebGPU frame-graph execution, deferred lighting, presentat
 - `WebGPUFrameOrchestrator` must execute graph nodes through
   `WebGPUFrameNodeExecutorRegistry`, keyed by node owner and kind. Multiple
   modules may own the same generic node kind without sharing an executor.
-- `WebGPUFrameOrchestrator` must depend only on the sealed frame-module
-  registry and its narrow capability ports. Adding a built-in frame feature
-  must not require an orchestrator change.
+- `WebGPUFrameOrchestrator` must depend only on the sealed frame-module registry
+  for feature execution. Runtime composition must be backend-owned and must
+  expose separate narrow post-process, visibility, custom-target, lifecycle,
+  and warmup ports. Adding a built-in frame feature must not require an
+  orchestrator change.
+- `WebGPUFrameNodeExecutor` must receive an explicit complete per-frame
+  execution context. Frame modules and leaf runtimes must not resolve current
+  session data through a callback-based recording context.
+- Hi-Z readiness and build diagnostics must be owned by the visibility module;
+  motion-history write state by the post-process module; presentation status by
+  the presentation runtime; deferred opaque state by a deferred state port; and
+  transparency runtime fallback by the transparency runtime.
 - The node executor table must exhaustively cover `WebGPUFrameGraphNodeKind` so
   adding a node kind produces a TypeScript error until an executor is supplied.
 - A planned graph node with no runtime executor must throw because it indicates
   an internal planner/runtime mismatch.
-- `WebGPUPresentationRuntime` must own the presentation node executor and the
-  `WebGPUPresentPass` resource lifecycle. `WebGPUFrameOrchestrator` must only
-  compose that runtime and provide its narrow recording context.
+- `WebGPUPresentationRuntime` must own the presentation node executor,
+  per-frame presentation status, and the `WebGPUPresentPass` resource
+  lifecycle. It must consume the explicit frame execution context.
 - The internal WebGPU graph must not add global renderer-level stages for
   Software or WebGL.
 - The frame graph may allocate a shared full-chain `frame:hiz` target when

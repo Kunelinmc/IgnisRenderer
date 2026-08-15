@@ -11,13 +11,16 @@ flowchart TB
 	R["Renderer and FrameCoordinator"]
 	B["WebGPUBackend lifecycle facade"]
 	G["WebGPUFrameOrchestrator"]
+	S["Frame session and command stream"]
 	M["Sealed frame-module registry"]
 	X["Feature modules and resource owners"]
 	W["WebGPU device, queue, and canvas"]
 
 	R -->|"FrameContext and ordered passes"| B
 	B -->|"Narrow frame host and lifecycle"| G
-	G -->|"Frame lifecycle and graph dispatch"| M
+	G -->|"Lifecycle transitions"| S
+	G -->|"Graph dispatch with execution context"| M
+	S -->|"Complete recording frame"| M
 	M -->|"Typed nodes and prepared resources"| X
 	X -->|"Command encoding and resources"| W
 ```
@@ -43,13 +46,15 @@ native resource lifetimes.
 6. Feature configuration handlers apply capabilities and fallback policy. A
    generic reducer merges their target and logical-resource demands.
 7. Target managers allocate or reuse frame-sized resources.
-8. Planning handlers publish graph fragments. General stage lanes and static
+8. The frame scope prepares resources, then sealing publishes one complete
+   recording execution context containing the command stream and target view.
+9. Planning handlers publish graph fragments. General stage lanes and static
    edges assemble those fragments before the compiler creates one complete
    frame graph.
-9. Renderer backend passes execute their precompiled node slices.
-10. Presentation and final copies are recorded.
-11. Labeled command buffers are submitted in order.
-12. Histories, graph analysis, custom targets, and deferred lifecycle work
+10. Renderer backend passes execute their precompiled node slices.
+11. Presentation and final copies are recorded.
+12. The frame command stream submits labeled command buffers in order.
+13. Histories, graph analysis, custom targets, and deferred lifecycle work
     commit after the frame succeeds.
 
 ## Stage Expansion
@@ -70,7 +75,10 @@ to Software or WebGL.
 | `Renderer` / `FrameCoordinator` | Portable stage order, simulation, prepared scenes, and frame context |
 | `WebGPUBackend` | Attachment, device and canvas lifecycle, frame entrypoints, device loss, extensions, and commit coordination |
 | `WebGPUFrameHost` | Narrow device-scoped access to resources, command recording, submission, and validation |
-| `WebGPUFrameOrchestrator` | Active frame session, target retry, graph compilation and dispatch, submission, and transaction boundaries |
+| `WebGPUFrameOrchestrator` | One active session, target retry, graph compilation and dispatch, and transaction transitions |
+| `WebGPUFrameSession` | Discriminated preparing, recording, committing, or skipped frame state |
+| `WebGPUFrameCommandStream` | Current encoder, labeled encoder splits, ordered submission, abort, and commit diagnostics |
+| Runtime composition | Module construction, feature capabilities, feature lifecycle, warmup, and destruction |
 | Frame-module registry | Initialization-time module registration, message DAG sealing, deterministic lane assembly, lifecycle dispatch, and owner-aware executor lookup |
 | Feature modules / frame graph compiler | Node expansion, ordering, logical resources, dependencies, stage slices, and diagnostics |
 | Feature modules | Feature analysis, configuration requirements, graph contributions, commands, warmup, and pass-local lifecycle |
@@ -78,7 +86,25 @@ to Software or WebGL.
 | Particle render resources | Owner-managed billboard pipelines, particle buffers, bindings, and pass recording |
 | Frame packet contributors | Backend-composed, device-independent conversion of supplemental current-view draw work |
 | Post-process runtime | Logical plan, declarations, histories, transients, and history transactions |
-| Frame committer | Labeled command-buffer retention and ordered submission |
+| Frame committer | Low-level labeled command-buffer retention and ordered submission behind the command stream |
+
+## Frame State Layers
+
+The orchestrator holds only the active-session slot and coordinates state
+transitions. A recording session is created only after analysis, target
+configuration, graph compilation, and main-scope resource preparation succeed.
+It contains a complete execution context; recording code does not recover
+individual fields through orchestrator callbacks.
+
+The frame target manager owns physical allocation and publishes a stable
+frame-scoped target view without transferring native ownership. The command
+stream owns encoder rotation and submission state. Visibility, deferred,
+transparency, post-process, and presentation modules retain their own mutable
+per-frame feature state and exchange only narrow typed ports.
+
+Runtime composition is backend-owned. The backend retains feature capabilities
+needed by extensions, readback, warmup, and invalidation, while the orchestrator
+receives only the sealed module registry required for graph dispatch.
 
 ## Resource Views
 
@@ -101,6 +127,10 @@ discard pending encoders, histories, and unpublished targets. Partial
 submission failures report submitted and pending command labels because
 already submitted GPU work cannot be rolled back. Device loss invalidates
 backend-owned post-process and frame services in lifecycle order.
+
+Optional frame diagnostics use an injected observer. The observer receives
+immutable lifecycle, target, graph, node, and commit snapshots and does not
+become a production runtime capability or retain native resource ownership.
 
 ## Placement Guide
 

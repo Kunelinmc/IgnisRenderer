@@ -8,7 +8,6 @@ import type {
 import type { PreparedFramePacketSet } from "../../../pipeline/FramePacketContributorRegistry";
 import { materialSupportsWebGPUDeferredLighting } from "../material";
 import { GBufferSlot } from "../constants";
-import type { WebGPUDeferredGBufferLayout } from "../constants";
 import {
 	getDefaultWebGPUDrawBindings,
 	submitWebGPUDraws,
@@ -19,6 +18,7 @@ import type {
 	WebGPUSceneResourceProvider,
 } from "../WebGPUResourceContracts";
 import type { WebGPUSceneTargetMode } from "../WebGPUScenePassDescriptors";
+import type { WebGPUFrameTargets } from "../WebGPUFrameTargetContracts";
 import type { WebGPUFrameHost } from "./WebGPUFrameHost";
 import {
 	TextureFormat,
@@ -26,7 +26,7 @@ import {
 	type IRenderTexture,
 } from "../../types";
 import type { WebGPUDepthDirtyClearPass } from "./WebGPUDepthDirtyClearPass";
-import type { WebGPUFrameGraphRecordingContext } from "./WebGPUFrameGraphRecordingContext";
+import type { WebGPUFrameExecutionContext } from "./WebGPUFrameExecutionContext";
 import { Logger } from "../../../foundation/Logger";
 
 export interface WebGPUDeferredOpaqueFrameState {
@@ -37,8 +37,67 @@ export interface WebGPUDeferredOpaqueFrameState {
 
 export interface WebGPUScenePassRecorderCallbacks {
 	getGBufferWriteBinding(): IBindingGroup;
-	getDeferredGBufferLayout(): WebGPUDeferredGBufferLayout;
 	preflightDeferredFrame(context: FrameContext): Promise<void>;
+}
+
+/** @internal Concrete leaf port for scene recording data. */
+export class WebGPUSceneRecordingPort {
+	private _frame: Pick<
+		WebGPUFrameExecutionContext,
+		"configuration" | "resources" | "targets" | "commands" |
+		"earlyZPrepassEnabled" | "dirtyRects"
+	> | null = null;
+
+	public bind(frame: WebGPUFrameExecutionContext): void {
+		this._frame = frame;
+	}
+
+	public close(): void {
+		this._frame = null;
+	}
+
+	public getEncoder() { return this._require().commands.encoder; }
+	public getFrameTargets() { return this._require().targets.frameTargets; }
+	public getMSAATargets() { return this._require().targets.msaaTargets; }
+	public getTargetWidth() { return this._require().targets.width; }
+	public getTargetHeight() { return this._require().targets.height; }
+	public getSampleCount() { return this._require().targets.sampleCount; }
+	public getSceneTargetMode() { return this._require().targets.sceneTargetMode; }
+	public getDeferredGBufferLayout() {
+		return this._require().configuration.deferredGBufferLayout;
+	}
+	public isMRTEnabled() { return this._require().configuration.mrtSupported; }
+	public isEarlyZPrepassEnabled() { return this._require().earlyZPrepassEnabled; }
+	public requireFrameResources() { return this._require().resources; }
+	public isIncrementalPartial(context: FrameContext | null) {
+		return this._require().dirtyRects.isIncrementalPartial(context);
+	}
+	public resolveDirtyRects(context: FrameContext | null, width: number, height: number) {
+		return this._require().dirtyRects.resolveDirtyRects(context, width, height);
+	}
+	public selectPacketsForRect(
+		context: FrameContext,
+		packets: DrawPacket[],
+		rect: DirtyRect,
+	) {
+		return this._require().dirtyRects.selectPacketsForRect(context, packets, rect);
+	}
+	public selectTransparentSubsetForRect(
+		context: FrameContext,
+		packets: DrawPacket[],
+		rect: DirtyRect,
+	) {
+		return this._require().dirtyRects.selectTransparentSubsetForRect(
+			context,
+			packets,
+			rect,
+		);
+	}
+
+	private _require() {
+		if (!this._frame) throw new Error("WebGPU scene recording frame is not active.");
+		return this._frame;
+	}
 }
 
 /**
@@ -48,7 +107,7 @@ export class WebGPUScenePassRecorder {
 	private readonly _host: WebGPUFrameHost;
 	private readonly _sceneResources: WebGPUSceneResourceProvider;
 	private readonly _particleRenderer: WebGPUParticleBillboardRenderer;
-	private readonly _recordingContext: WebGPUFrameGraphRecordingContext;
+	private readonly _framePort = new WebGPUSceneRecordingPort();
 	private readonly _depthDirtyClearPass: WebGPUDepthDirtyClearPass;
 	private readonly _callbacks: WebGPUScenePassRecorderCallbacks;
 
@@ -56,16 +115,24 @@ export class WebGPUScenePassRecorder {
 		host: WebGPUFrameHost,
 		sceneResources: WebGPUSceneResourceProvider,
 		particleRenderer: WebGPUParticleBillboardRenderer,
-		recordingContext: WebGPUFrameGraphRecordingContext,
 		depthDirtyClearPass: WebGPUDepthDirtyClearPass,
 		callbacks: WebGPUScenePassRecorderCallbacks
 	) {
 		this._host = host;
 		this._sceneResources = sceneResources;
 		this._particleRenderer = particleRenderer;
-		this._recordingContext = recordingContext;
 		this._depthDirtyClearPass = depthDirtyClearPass;
 		this._callbacks = callbacks;
+	}
+
+	/** @internal Binds the narrow frame data used by scene leaf recorders. */
+	public bindFrame(frame: WebGPUFrameExecutionContext): void {
+		this._framePort.bind(frame);
+	}
+
+	/** @internal Releases the active frame identity after commit or abort. */
+	public closeFrame(): void {
+		this._framePort.close();
 	}
 
 	/**
@@ -82,11 +149,11 @@ export class WebGPUScenePassRecorder {
 		framePackets: PreparedFramePacketSet,
 		deferredEnabled: boolean
 	): Promise<WebGPUDeferredOpaqueFrameState | null> {
-		const targets = this._recordingContext.getFrameTargets();
+		const targets = this._framePort.getFrameTargets();
 		const opaquePackets = framePackets.opaque.slice();
 		if (
 			!deferredEnabled ||
-			!this._recordingContext.isMRTEnabled() ||
+			!this._framePort.isMRTEnabled() ||
 			!targets
 		) {
 			await this.recordMainPass(
@@ -145,8 +212,8 @@ export class WebGPUScenePassRecorder {
 		context: FrameContext,
 		packets: readonly DrawPacket[]
 	): Promise<void> {
-		const frameResources = this._recordingContext.requireFrameResources();
-		const deferredGBufferLayout = this._callbacks.getDeferredGBufferLayout();
+		const frameResources = this._framePort.requireFrameResources();
+		const deferredGBufferLayout = this._framePort.getDeferredGBufferLayout();
 		this._callbacks.getGBufferWriteBinding();
 		await this._callbacks.preflightDeferredFrame(context);
 		for (const packet of packets) {
@@ -175,13 +242,13 @@ export class WebGPUScenePassRecorder {
 		clearAttachments: boolean,
 		allowEarlyZPrepass: boolean
 	): Promise<void> {
-		const encoder = this._recordingContext.getEncoder();
+		const encoder = this._framePort.getEncoder();
 		if (!encoder) return;
-		const frameResources = this._recordingContext.requireFrameResources();
+		const frameResources = this._framePort.requireFrameResources();
 		await this._sceneResources.buildClusteredLighting(encoder, frameResources);
 		if (
-			!this._recordingContext.isMRTEnabled() ||
-			!this._recordingContext.getFrameTargets()
+			!this._framePort.isMRTEnabled() ||
+			!this._framePort.getFrameTargets()
 		) {
 			await this.recordLegacyMainPass(
 				context,
@@ -191,7 +258,7 @@ export class WebGPUScenePassRecorder {
 			);
 			return;
 		}
-		if (this._recordingContext.getSceneTargetMode() === "color") {
+		if (this._framePort.getSceneTargetMode() === "color") {
 			await this._recordColorMainPass(
 				context,
 				packets,
@@ -226,16 +293,16 @@ export class WebGPUScenePassRecorder {
 		clearAttachments: boolean,
 		allowEarlyZPrepass: boolean
 	): Promise<void> {
-		const encoder = this._recordingContext.getEncoder();
+		const encoder = this._framePort.getEncoder();
 		if (!encoder) return;
-		const frameResources = this._recordingContext.requireFrameResources();
+		const frameResources = this._framePort.requireFrameResources();
 		await this._sceneResources.buildClusteredLighting(encoder, frameResources);
 		const incrementalPartial =
-			this._recordingContext.isIncrementalPartial(context);
+			this._framePort.isIncrementalPartial(context);
 		const colorTexture = this._host.getCanvasColorTexture();
 		const depthTexture = this._host.getCanvasDepthTexture();
 		const shouldClearAttachments = clearAttachments && !incrementalPartial;
-		const dirtyRects = this._recordingContext.resolveDirtyRects(
+		const dirtyRects = this._framePort.resolveDirtyRects(
 			context,
 			colorTexture.width,
 			colorTexture.height
@@ -252,7 +319,7 @@ export class WebGPUScenePassRecorder {
 		}
 		const shouldRunEarlyZ =
 			allowEarlyZPrepass &&
-			this._recordingContext.isEarlyZPrepassEnabled() &&
+			this._framePort.isEarlyZPrepassEnabled() &&
 			packets.length > 0;
 		const earlyZPacketIds =
 			shouldRunEarlyZ ?
@@ -313,7 +380,7 @@ export class WebGPUScenePassRecorder {
 			packets,
 			dirtyRects,
 			selectPacketsForRect: (candidatePackets, rect) =>
-				this._recordingContext.selectPacketsForRect(
+				this._framePort.selectPacketsForRect(
 					context,
 					candidatePackets,
 					rect
@@ -343,14 +410,14 @@ export class WebGPUScenePassRecorder {
 		context: FrameContext,
 		packets: DrawPacket[]
 	): Promise<void> {
-		const encoder = this._recordingContext.getEncoder();
+		const encoder = this._framePort.getEncoder();
 		if (!encoder || packets.length <= 0) {
 			return;
 		}
-		const frameResources = this._recordingContext.requireFrameResources();
+		const frameResources = this._framePort.requireFrameResources();
 		await this._sceneResources.buildClusteredLighting(encoder, frameResources);
-		const targets = this._recordingContext.getFrameTargets();
-		if (!this._recordingContext.isMRTEnabled() || !targets) {
+		const targets = this._framePort.getFrameTargets();
+		if (!this._framePort.isMRTEnabled() || !targets) {
 			await this.recordLegacyMainPass(context, packets, false, false);
 			return;
 		}
@@ -364,8 +431,8 @@ export class WebGPUScenePassRecorder {
 				return;
 			}
 		}
-		const msaaTargets = this._recordingContext.getMSAATargets();
-		if (this._recordingContext.getSceneTargetMode() === "color") {
+		const msaaTargets = this._framePort.getMSAATargets();
+		if (this._framePort.getSceneTargetMode() === "color") {
 			const sceneColorAttachment =
 				msaaTargets?.sceneColorMain ?? targets.sceneColorMain;
 			const depthAttachment = msaaTargets?.depth ?? targets.depth;
@@ -385,7 +452,7 @@ export class WebGPUScenePassRecorder {
 					depthStoreOp: "store",
 				},
 			});
-			const dirtyRects = this._recordingContext.resolveDirtyRects(
+			const dirtyRects = this._framePort.resolveDirtyRects(
 				context,
 				sceneColorAttachment.width,
 				sceneColorAttachment.height
@@ -397,7 +464,7 @@ export class WebGPUScenePassRecorder {
 				packets,
 				dirtyRects,
 				selectPacketsForRect: (candidatePackets, rect) =>
-					this._recordingContext.selectTransparentSubsetForRect(
+					this._framePort.selectTransparentSubsetForRect(
 						context,
 						candidatePackets,
 						rect
@@ -405,7 +472,7 @@ export class WebGPUScenePassRecorder {
 				resolveDrawOptions: () => ({
 					sceneTargetMode: "color",
 					transparentPipelineMode: "transmission",
-					sampleCount: this._recordingContext.getSampleCount(),
+					sampleCount: this._framePort.getSampleCount(),
 				}),
 			});
 			encoder.endRenderPass();
@@ -462,7 +529,7 @@ export class WebGPUScenePassRecorder {
 				depthStoreOp: "store",
 			},
 		});
-		const dirtyRects = this._recordingContext.resolveDirtyRects(
+		const dirtyRects = this._framePort.resolveDirtyRects(
 			context,
 			targets.oitAccum?.width ?? sceneColorAttachment.width,
 			targets.oitAccum?.height ?? sceneColorAttachment.height
@@ -474,7 +541,7 @@ export class WebGPUScenePassRecorder {
 			packets,
 			dirtyRects,
 			selectPacketsForRect: (candidatePackets, rect) =>
-				this._recordingContext.selectTransparentSubsetForRect(
+				this._framePort.selectTransparentSubsetForRect(
 					context,
 					candidatePackets,
 					rect
@@ -482,14 +549,14 @@ export class WebGPUScenePassRecorder {
 			resolveDrawOptions: () => ({
 				sceneTargetMode: "mrt",
 				transparentPipelineMode: "transmission",
-				sampleCount: this._recordingContext.getSampleCount(),
+				sampleCount: this._framePort.getSampleCount(),
 			}),
 		});
 		encoder.endRenderPass();
 	}
 
 	private _hasTransmissionCaptureTargets(
-		targets: NonNullable<ReturnType<WebGPUFrameGraphRecordingContext["getFrameTargets"]>>
+		targets: WebGPUFrameTargets,
 	): boolean {
 		return !!(
 			targets.transmissionSceneColorCopy &&
@@ -504,9 +571,9 @@ export class WebGPUScenePassRecorder {
 	private async _recordTransmissionCapture(
 		context: FrameContext,
 		packets: DrawPacket[],
-		targets: NonNullable<ReturnType<WebGPUFrameGraphRecordingContext["getFrameTargets"]>>
+		targets: WebGPUFrameTargets,
 	): Promise<boolean> {
-		const encoder = this._recordingContext.getEncoder();
+		const encoder = this._framePort.getEncoder();
 		if (
 			!encoder ||
 			!encoder.copyTextureToTexture ||
@@ -519,7 +586,7 @@ export class WebGPUScenePassRecorder {
 		) {
 			return false;
 		}
-		const frameResources = this._recordingContext.requireFrameResources();
+		const frameResources = this._framePort.requireFrameResources();
 		encoder.copyTextureToTexture(
 			{ texture: targets.sceneColorMain },
 			{ texture: targets.transmissionSceneColorCopy },
@@ -595,15 +662,15 @@ export class WebGPUScenePassRecorder {
 	 * @sideEffects Records particle draw passes through render resources.
 	 */
 	public async recordParticlePass(context: FrameContext): Promise<void> {
-		const encoder = this._recordingContext.getEncoder();
+		const encoder = this._framePort.getEncoder();
 		if (!encoder) return;
-		const frameResources = this._recordingContext.requireFrameResources();
-		const targets = this._recordingContext.getFrameTargets();
+		const frameResources = this._framePort.requireFrameResources();
+		const targets = this._framePort.getFrameTargets();
 
-		if (this._recordingContext.isMRTEnabled() && targets) {
-			const msaaTargets = this._recordingContext.getMSAATargets();
+		if (this._framePort.isMRTEnabled() && targets) {
+			const msaaTargets = this._framePort.getMSAATargets();
 			const sceneTargetMode =
-				this._recordingContext.getSceneTargetMode() === "color" ?
+				this._framePort.getSceneTargetMode() === "color" ?
 					"color"
 				:	"mrt";
 			await this._particleRenderer.renderParticles(
@@ -611,7 +678,7 @@ export class WebGPUScenePassRecorder {
 				context,
 				{
 					label: "WebGPUParticlesMRT",
-				sampleCount: this._recordingContext.getSampleCount(),
+				sampleCount: this._framePort.getSampleCount(),
 					colorAttachments: [
 						{
 							view:
@@ -665,12 +732,12 @@ export class WebGPUScenePassRecorder {
 		clearAttachments: boolean,
 		allowEarlyZPrepass: boolean
 	): Promise<{ clearSceneColor: boolean } | null> {
-		const encoder = this._recordingContext.getEncoder();
-		const targets = this._recordingContext.getFrameTargets();
+		const encoder = this._framePort.getEncoder();
+		const targets = this._framePort.getFrameTargets();
 		if (!encoder || !targets) {
 			return null;
 		}
-		const deferredGBufferLayout = this._callbacks.getDeferredGBufferLayout();
+		const deferredGBufferLayout = this._framePort.getDeferredGBufferLayout();
 		if (
 			deferredGBufferLayout === "extended" &&
 			(
@@ -685,13 +752,13 @@ export class WebGPUScenePassRecorder {
 			return null;
 		}
 
-		const frameResources = this._recordingContext.requireFrameResources();
+		const frameResources = this._framePort.requireFrameResources();
 		await this._sceneResources.buildClusteredLighting(encoder, frameResources);
 		const incrementalPartial =
-			this._recordingContext.isIncrementalPartial(context);
+			this._framePort.isIncrementalPartial(context);
 		const sceneColorAttachment = targets.sceneColorMain;
 		const depthAttachment = targets.depth;
-		const dirtyRects = this._recordingContext.resolveDirtyRects(
+		const dirtyRects = this._framePort.resolveDirtyRects(
 			context,
 			sceneColorAttachment.width,
 			sceneColorAttachment.height
@@ -744,7 +811,7 @@ export class WebGPUScenePassRecorder {
 
 		const shouldRunEarlyZ =
 			allowEarlyZPrepass &&
-			this._recordingContext.isEarlyZPrepassEnabled() &&
+			this._framePort.isEarlyZPrepassEnabled() &&
 			packets.length > 0;
 		const earlyZPacketIds =
 			shouldRunEarlyZ ?
@@ -838,7 +905,7 @@ export class WebGPUScenePassRecorder {
 			packets,
 			dirtyRects,
 			selectPacketsForRect: (candidatePackets, rect) =>
-				this._recordingContext.selectPacketsForRect(
+				this._framePort.selectPacketsForRect(
 					context,
 					candidatePackets,
 					rect
@@ -871,12 +938,12 @@ export class WebGPUScenePassRecorder {
 		allowEarlyZPrepass: boolean,
 		frameResources: WebGPUPreparedFrameResources
 	): Promise<void> {
-		const encoder = this._recordingContext.getEncoder();
-		const targets = this._recordingContext.getFrameTargets();
+		const encoder = this._framePort.getEncoder();
+		const targets = this._framePort.getFrameTargets();
 		if (!encoder || !targets) {
 			return;
 		}
-		const msaaTargets = this._recordingContext.getMSAATargets();
+		const msaaTargets = this._framePort.getMSAATargets();
 		const sceneColorAttachment =
 			msaaTargets?.sceneColorMain ?? targets.sceneColorMain;
 		const gAlbedoAttachment =
@@ -889,8 +956,8 @@ export class WebGPUScenePassRecorder {
 			msaaTargets?.gMotionDepth ?? targets.gMotionDepth;
 		const depthAttachment = msaaTargets?.depth ?? targets.depth;
 		const incrementalPartial =
-			this._recordingContext.isIncrementalPartial(context);
-		const dirtyRects = this._recordingContext.resolveDirtyRects(
+			this._framePort.isIncrementalPartial(context);
+		const dirtyRects = this._framePort.resolveDirtyRects(
 			context,
 			sceneColorAttachment.width,
 			sceneColorAttachment.height
@@ -902,7 +969,7 @@ export class WebGPUScenePassRecorder {
 				encoder,
 				depthAttachment,
 				TextureFormat.Depth32Float,
-				msaaTargets ? this._recordingContext.getSampleCount() : 1,
+				msaaTargets ? this._framePort.getSampleCount() : 1,
 				dirtyRects
 			);
 		}
@@ -911,7 +978,7 @@ export class WebGPUScenePassRecorder {
 		if (shouldClearAttachments) {
 			const environmentResources =
 				await this._sceneResources.getEnvironmentResources(frameResources, "mrt", {
-					sampleCount: this._recordingContext.getSampleCount(),
+					sampleCount: this._framePort.getSampleCount(),
 				});
 			if (environmentResources) {
 				encoder.beginRenderPass({
@@ -942,7 +1009,7 @@ export class WebGPUScenePassRecorder {
 		}
 		const shouldRunEarlyZ =
 			allowEarlyZPrepass &&
-			this._recordingContext.isEarlyZPrepassEnabled() &&
+			this._framePort.isEarlyZPrepassEnabled() &&
 			packets.length > 0;
 		const earlyZPacketIds =
 			shouldRunEarlyZ ?
@@ -1024,14 +1091,14 @@ export class WebGPUScenePassRecorder {
 			packets,
 			dirtyRects,
 			selectPacketsForRect: (candidatePackets, rect) =>
-				this._recordingContext.selectPacketsForRect(
+				this._framePort.selectPacketsForRect(
 					context,
 					candidatePackets,
 					rect
 				),
 			resolveDrawOptions: (packet) => ({
 				sceneTargetMode: "mrt",
-				sampleCount: this._recordingContext.getSampleCount(),
+				sampleCount: this._framePort.getSampleCount(),
 				drawMode:
 					earlyZExecuted && earlyZPacketIds.has(packet.id) ?
 						"early-z-color"
@@ -1049,18 +1116,18 @@ export class WebGPUScenePassRecorder {
 		allowEarlyZPrepass: boolean,
 		frameResources: WebGPUPreparedFrameResources
 	): Promise<void> {
-		const encoder = this._recordingContext.getEncoder();
-		const targets = this._recordingContext.getFrameTargets();
+		const encoder = this._framePort.getEncoder();
+		const targets = this._framePort.getFrameTargets();
 		if (!encoder || !targets) {
 			return;
 		}
-		const msaaTargets = this._recordingContext.getMSAATargets();
+		const msaaTargets = this._framePort.getMSAATargets();
 		const sceneColorAttachment =
 			msaaTargets?.sceneColorMain ?? targets.sceneColorMain;
 		const depthAttachment = msaaTargets?.depth ?? targets.depth;
 		const incrementalPartial =
-			this._recordingContext.isIncrementalPartial(context);
-		const dirtyRects = this._recordingContext.resolveDirtyRects(
+			this._framePort.isIncrementalPartial(context);
+		const dirtyRects = this._framePort.resolveDirtyRects(
 			context,
 			sceneColorAttachment.width,
 			sceneColorAttachment.height
@@ -1072,7 +1139,7 @@ export class WebGPUScenePassRecorder {
 				encoder,
 				depthAttachment,
 				TextureFormat.Depth32Float,
-				msaaTargets ? this._recordingContext.getSampleCount() : 1,
+				msaaTargets ? this._framePort.getSampleCount() : 1,
 				dirtyRects
 			);
 		}
@@ -1081,7 +1148,7 @@ export class WebGPUScenePassRecorder {
 		if (shouldClearAttachments) {
 			const environmentResources =
 				await this._sceneResources.getEnvironmentResources(frameResources, "color", {
-					sampleCount: this._recordingContext.getSampleCount(),
+					sampleCount: this._framePort.getSampleCount(),
 				});
 			if (environmentResources) {
 				encoder.beginRenderPass({
@@ -1113,7 +1180,7 @@ export class WebGPUScenePassRecorder {
 
 		const shouldRunEarlyZ =
 			allowEarlyZPrepass &&
-			this._recordingContext.isEarlyZPrepassEnabled() &&
+			this._framePort.isEarlyZPrepassEnabled() &&
 			packets.length > 0;
 		const earlyZPacketIds =
 			shouldRunEarlyZ ?
@@ -1169,14 +1236,14 @@ export class WebGPUScenePassRecorder {
 			packets,
 			dirtyRects,
 			selectPacketsForRect: (candidatePackets, rect) =>
-				this._recordingContext.selectPacketsForRect(
+				this._framePort.selectPacketsForRect(
 					context,
 					candidatePackets,
 					rect
 				),
 			resolveDrawOptions: (packet) => ({
 				sceneTargetMode: "color",
-				sampleCount: this._recordingContext.getSampleCount(),
+				sampleCount: this._framePort.getSampleCount(),
 				drawMode:
 					earlyZExecuted && earlyZPacketIds.has(packet.id) ?
 						"early-z-color"
@@ -1196,7 +1263,7 @@ export class WebGPUScenePassRecorder {
 		depthLoadOp: "clear" | "load"
 	): Promise<Set<string>> {
 		const prepassedPacketIds = new Set<string>();
-		const encoder = this._recordingContext.getEncoder();
+		const encoder = this._framePort.getEncoder();
 		if (!encoder || packets.length <= 0) {
 			return prepassedPacketIds;
 		}
@@ -1220,11 +1287,11 @@ export class WebGPUScenePassRecorder {
 		const submission = await submitWebGPUDraws({
 			encoder,
 			resources: this._sceneResources,
-			frameResources: this._recordingContext.requireFrameResources(),
+			frameResources: this._framePort.requireFrameResources(),
 			packets,
 			dirtyRects,
 			selectPacketsForRect: (candidatePackets, rect) =>
-				this._recordingContext.selectPacketsForRect(
+				this._framePort.selectPacketsForRect(
 					context,
 					candidatePackets,
 					rect
@@ -1235,7 +1302,7 @@ export class WebGPUScenePassRecorder {
 				sampleCount:
 					sceneTargetMode === "single"
 						? 1
-						: this._recordingContext.getSampleCount(),
+						: this._framePort.getSampleCount(),
 			}),
 		});
 

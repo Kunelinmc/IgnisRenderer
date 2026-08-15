@@ -3,7 +3,6 @@ import type { FrameContext } from "../../../pipeline/types";
 import type { IRenderTexture } from "../../types";
 
 import type { WebGPUFrameHost } from "./WebGPUFrameHost";
-import type { WebGPUFrameGraphRecordingContext } from "./WebGPUFrameGraphRecordingContext";
 import type {
 	WebGPUFrameGraphContribution,
 	WebGPUFrameGraphModule,
@@ -14,15 +13,13 @@ import {
 	readWebGPUFrameGraphResource,
 	writeWebGPUFrameGraphResource,
 } from "./WebGPUFrameGraphDsl";
-import type { WebGPUFrameSession } from "./WebGPUFrameSession";
+import type {
+	WebGPURecordingFrameSession as WebGPUFrameSession,
+} from "./WebGPUFrameSession";
 import { WEBGPU_FRAME_GRAPH_RESOURCES } from "./WebGPUFrameGraphResourceCatalog";
 import { WebGPUPresentPass } from "./WebGPUPresentPass";
 
 export interface WebGPUPresentationRuntimeContext {
-	readonly recording: Pick<
-		WebGPUFrameGraphRecordingContext,
-		"getFrameTargets" | "resolveDirtyRects"
-	>;
 	getOutputColorDomain(): PostProcessColorDomain;
 }
 
@@ -36,13 +33,14 @@ export class WebGPUPresentationRuntime implements WebGPUFrameGraphModule {
 	public readonly id = "presentation";
 	public readonly executors = {
 		presentation: async (_node: unknown, session: WebGPUFrameSession) => {
-			if (session.presented) return;
-			const source = this._context.recording.getFrameTargets()?.sceneColor;
+			if (this._presented) return;
+			const source = session.targets.frameTargets?.sceneColor;
 			if (source) await this.present(source, session);
 		},
 	};
 
 	private readonly _pass: WebGPUPresentPass;
+	private _presented = false;
 	public constructor(
 		host: WebGPUFrameHost,
 		private readonly _context: WebGPUPresentationRuntimeContext,
@@ -50,7 +48,9 @@ export class WebGPUPresentationRuntime implements WebGPUFrameGraphModule {
 		this._pass = new WebGPUPresentPass(host);
 	}
 
-	public beginFrame(_context: FrameContext): void {}
+	public beginFrame(_context: FrameContext): void {
+		this._presented = false;
+	}
 
 	public planStage(
 		input: WebGPUFrameModulePlanningInput,
@@ -85,16 +85,17 @@ export class WebGPUPresentationRuntime implements WebGPUFrameGraphModule {
 		source: IRenderTexture,
 		session: WebGPUFrameSession,
 	): Promise<void> {
-		if (!session.encoder || session.presented) return;
+		const encoder = session.commands.encoder;
+		if (!encoder || this._presented) return;
 		await this._pass.present({
-			encoder: session.encoder,
+			encoder,
 			frameContext: session.context,
 			source,
 			colorDomain: this._context.getOutputColorDomain(),
 			resolveDirtyRects: (context, width, height) =>
-				this._context.recording.resolveDirtyRects(context, width, height),
+				session.dirtyRects.resolveDirtyRects(context, width, height),
 		});
-		session.presented = true;
+		this._presented = true;
 	}
 
 	public invalidateFrameResources(): void {

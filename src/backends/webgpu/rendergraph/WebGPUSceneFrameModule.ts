@@ -9,10 +9,14 @@ import {
 	writeWebGPUFrameGraphResource,
 } from "./WebGPUFrameGraphDsl";
 import { WEBGPU_FRAME_GRAPH_RESOURCES } from "./WebGPUFrameGraphResourceCatalog";
-import type { WebGPUFrameSession } from "./WebGPUFrameSession";
+import type {
+	WebGPURecordingFrameSession as WebGPUFrameSession,
+} from "./WebGPUFrameSession";
 import type { WebGPUDepthDirtyClearPass } from "./WebGPUDepthDirtyClearPass";
+import type { WebGPUDeferredOpaqueStatePort } from "./WebGPUDeferredFrameModule";
 import type { WebGPUScenePassRecorder } from "./WebGPUScenePassRecorder";
 import type { WebGPUFrameGraphNode } from "./types";
+import type { WebGPUFrameExecutionContext } from "./WebGPUFrameExecutionContext";
 
 /** @internal Owns main-scene graph execution and pass-local lifecycle. */
 export class WebGPUSceneFrameModule implements WebGPUFrameGraphModule {
@@ -25,17 +29,26 @@ export class WebGPUSceneFrameModule implements WebGPUFrameGraphModule {
 			if (!packets) {
 				throw new Error("WebGPU frame session has no prepared frame packets.");
 			}
-			session.deferredOpaqueFrameState = await this.recorder.recordOpaque(
+			this._deferredOpaqueState.publish(await this.recorder.recordOpaque(
 				session.context,
 				packets,
 				session.configuration?.deferredActive === true,
-			);
+			));
 		},
 	};
 	constructor(
 		public readonly recorder: WebGPUScenePassRecorder,
 		private readonly _depthDirtyClearPass: WebGPUDepthDirtyClearPass,
+		private readonly _deferredOpaqueState: WebGPUDeferredOpaqueStatePort,
 	) {}
+
+	public activateFrame(context: WebGPUFrameExecutionContext): void {
+		this.recorder.bindFrame(context);
+	}
+
+	public closeFrame(): void {
+		this.recorder.closeFrame();
+	}
 
 	public planStage(
 		input: WebGPUFrameModulePlanningInput,

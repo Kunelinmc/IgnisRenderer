@@ -6,7 +6,7 @@ import {
 	WebGPUFrameOrchestrator as WebGPUFrameExecutor
 } from "../../../src/backends/webgpu/rendergraph/WebGPUFrameOrchestrator.ts";
 import {
-	createWebGPUFrameRuntimeCompositionFactory
+	createWebGPUFrameRuntimeComposition
 } from "../../../src/backends/webgpu/rendergraph/WebGPUFrameRuntimeComposition.ts";
 import {
 	ShaderSource
@@ -161,6 +161,9 @@ function testFrameExecutorConsumesComputeFacadeFromHost() {
 	const framePackets = new FramePacketContributorRegistry();
 	const resourcesStub = {
 		sceneFrameLayout: null,
+		getParticleBillboardRenderer() {
+			return { async renderParticles() {} };
+		},
 		createFrameScope() {
 			return {
 				prepare() { throw new Error("not used by this test"); },
@@ -183,23 +186,24 @@ function testFrameExecutorConsumesComputeFacadeFromHost() {
 			return false;
 		},
 	};
+	const frameRuntime = createWebGPUFrameRuntimeComposition({
+		host: backend,
+		frameServices: resourcesStub,
+		framePackets,
+		sampleCountResolver,
+		warnOnce() {},
+	});
 	const executor = new WebGPUFrameExecutor(
 		backend,
 		resourcesStub.createFrameScope(),
 		framePackets,
 		sampleCountResolver,
 		1,
-		createWebGPUFrameRuntimeCompositionFactory({
-			host: backend,
-			frameServices: resourcesStub,
-			framePackets,
-			particleRenderer: resourcesStub,
-			sampleCountResolver,
-		}),
+		frameRuntime.modules,
 	);
 
 	assert.equal(backend.getComputeFacadeCalls, 0);
-	assert.equal(typeof executor.getDebugState, "function");
+	assert.equal(typeof executor.getDebugState, "undefined");
 }
 
 async function testRenderResourcesUseCopyDstForUploads() {

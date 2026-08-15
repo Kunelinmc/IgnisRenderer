@@ -59,6 +59,16 @@ export interface WebGPUFrameTargetManagerDebugState {
 	readonly msaaTargets: WebGPUFrameMSAATargets | null;
 }
 
+/** Stable frame-scoped view of manager-owned render targets. */
+export interface WebGPUFrameTargetView {
+	readonly frameTargets: WebGPUFrameTargets | null;
+	readonly msaaTargets: WebGPUFrameMSAATargets | null;
+	readonly width: number;
+	readonly height: number;
+	readonly sampleCount: number;
+	readonly sceneTargetMode: WebGPUSceneTargetMode;
+}
+
 /**
  * Owns WebGPU frame target allocation, reuse, and pooled texture lifetime.
  */
@@ -109,6 +119,17 @@ export class WebGPUFrameTargetManager {
 
 	public get texturePoolOwnerCount(): number {
 		return this._texturePoolOwners.size;
+	}
+
+	public getTargetView(width: number, height: number): WebGPUFrameTargetView {
+		return Object.freeze({
+			frameTargets: this._frameTargets,
+			msaaTargets: this._msaaTargets,
+			width: this._frameTargets ? this._targetWidth : width,
+			height: this._frameTargets ? this._targetHeight : height,
+			sampleCount: this._targetSampleCount,
+			sceneTargetMode: this._frameTargets ? this._targetSceneTargetMode : "single",
+		});
 	}
 
 	public getDebugState(): WebGPUFrameTargetManagerDebugState {

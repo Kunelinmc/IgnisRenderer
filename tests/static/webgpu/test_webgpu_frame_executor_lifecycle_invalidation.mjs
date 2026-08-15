@@ -53,6 +53,38 @@ async function testDebugStateRetainsNodesFromEveryCompiledStage() {
 	);
 }
 
+async function testSessionTransitionsCoverCommitSkipAndSealFailure() {
+	const normal = new WebGPUFrameExecutor(new FakeBackend(), createResourcesStub());
+	await normal.beginFrame(createFrameContext(64, 64));
+	await normal.endFrame();
+	assert.deepEqual(normal.diagnostics.state.transitions, [
+		[null, "preparing"],
+		["preparing", "recording"],
+		["recording", "committing"],
+		["committing", null],
+	]);
+
+	const skipped = new WebGPUFrameExecutor(new FakeBackend(), createResourcesStub());
+	await skipped.beginFrame(createFrameContext(0, 0));
+	await skipped.endFrame();
+	assert.deepEqual(skipped.diagnostics.state.transitions, [
+		[null, "skipped"],
+		["skipped", null],
+	]);
+
+	const failingResources = createResourcesStub();
+	failingResources.prepareFrame = () => {
+		throw new Error("seal failed");
+	};
+	const failed = new WebGPUFrameExecutor(new FakeBackend(), failingResources);
+	await assert.rejects(failed.beginFrame(createFrameContext(64, 64)), /seal failed/);
+	assert.deepEqual(failed.diagnostics.state.transitions, [
+		[null, "preparing"],
+		["preparing", null],
+	]);
+	assert.equal(failed.diagnostics.state.active, false);
+}
+
 async function testFrameSessionRejectsInvalidLifecycleCalls() {
 	const backend = new FakeBackend();
 	const executor = new WebGPUFrameExecutor(backend, createResourcesStub());
@@ -119,7 +151,6 @@ async function testAbortFrameClearsActiveStateWithoutSubmit() {
 
 	assert.equal(backend.submits, 0);
 	assert.equal(getFrameGraphDebugState(executor).active, false);
-	assert.equal(getFrameGraphDebugState(executor).motionHistoryWriteTarget, null);
 	assert.equal(getFrameGraphDebugState(executor).oitActive, false);
 }
 
@@ -142,7 +173,7 @@ async function testEndFrameFailureClosesActiveState() {
 
 	assert.strictEqual(caught, error);
 	assert.equal(getFrameGraphDebugState(executor).active, false);
-	assert.equal(getFrameGraphDebugState(executor).motionHistoryWriteTarget, null);
+	assert.equal(getFrameGraphDebugState(executor).commit.state, "failed");
 }
 
 async function testInvalidateFrameTargetsDestroysPresentBinding() {
@@ -165,30 +196,16 @@ async function testInvalidateFrameTargetsDefersDuringActiveFrame() {
 
 	executor.invalidateFrameTargets();
 	assert.strictEqual(getFrameTargets(executor), activeTargets);
-	assert.equal(getFrameGraphDebugState(executor).pendingFrameTargetInvalidation, true);
 
 	executor.abortFrame();
 	assert.equal(getFrameTargets(executor), null);
-	assert.equal(getFrameGraphDebugState(executor).pendingFrameTargetInvalidation, false);
-}
-
-async function testShaderRuntimeInvalidationDefersDuringActiveFrame() {
-	const backend = new FakeBackend();
-	const executor = new WebGPUFrameExecutor(backend, createResourcesStub());
-	const context = createFrameContext(64, 64);
-
-	await executor.beginFrame(context);
-	executor.onShaderRuntimeChanged();
-	assert.equal(getFrameGraphDebugState(executor).pendingShaderRuntimeInvalidation, true);
-
-	executor.abortFrame();
-	assert.equal(getFrameGraphDebugState(executor).pendingShaderRuntimeInvalidation, false);
 }
 
 async function run() {
 	try {
 		await testZeroSizedFrameSkipsEncoderAndLegacyDepthPath();
 		await testDebugStateRetainsNodesFromEveryCompiledStage();
+		await testSessionTransitionsCoverCommitSkipAndSealFailure();
 		await testFrameSessionRejectsInvalidLifecycleCalls();
 		await testFrameSessionRequiresOriginalContext();
 		await testPassBeforeAsyncBeginSettlesIsRejected();
@@ -196,7 +213,6 @@ async function run() {
 		await testEndFrameFailureClosesActiveState();
 		await testInvalidateFrameTargetsDestroysPresentBinding();
 		await testInvalidateFrameTargetsDefersDuringActiveFrame();
-		await testShaderRuntimeInvalidationDefersDuringActiveFrame();
 		console.log("WebGPU frame-executor lifecycle/invalidation tests passed");
 	} finally {
 		restoreTestState();

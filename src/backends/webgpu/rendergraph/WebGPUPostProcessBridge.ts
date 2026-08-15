@@ -12,7 +12,6 @@ import type {
 } from "../../../postprocess";
 import { createPostProcessResourceAccessor } from "../../../postprocess/PostProcessResourceAccessor";
 import { Logger } from "../../../foundation/Logger";
-import type { ICommandEncoder } from "../../ICommandEncoder";
 import {
 	TextureFormat,
 	TextureUsage,
@@ -20,20 +19,14 @@ import {
 } from "../../types";
 import { tryGetTextureFormatInfo } from "../../TextureFormatInfo";
 import type { WebGPUFrameHost } from "./WebGPUFrameHost";
-import type { WebGPUPreparedFrameResources } from "../WebGPUResourceContracts";
 import type { WebGPUFrameTargets } from "../WebGPUFrameTargetContracts";
 import type { WebGPUPostProcessFrameTargets } from "../WebGPUPostProcessContracts";
 import { WebGPUPostProcessRuntime } from "../WebGPUPostProcessRuntime";
 import { getWebGPUPostProcessSharedResourceDescriptor } from "./WebGPUPostProcessSharedResourceCatalog";
+import type { WebGPUFrameExecutionContext } from "./WebGPUFrameExecutionContext";
 
-export interface WebGPUPostProcessBridgeCallbacks {
-	getEncoder(): ICommandEncoder | null;
-	getFrameTargets(): WebGPUFrameTargets | null;
+export interface WebGPUPostProcessBridgePorts {
 	isHiZReady(): boolean;
-	requireFrameResources(): WebGPUPreparedFrameResources;
-	presentToCanvas(source: IRenderTexture): Promise<void>;
-	warmupPresent(): Promise<void>;
-	setMotionHistoryWriteTarget(texture: IRenderTexture | null): void;
 }
 
 /**
@@ -42,19 +35,34 @@ export interface WebGPUPostProcessBridgeCallbacks {
 export class WebGPUPostProcessBridge {
 	private readonly _host: WebGPUFrameHost;
 	private readonly _runtime: WebGPUPostProcessRuntime;
-	private readonly _callbacks: WebGPUPostProcessBridgeCallbacks;
+	private readonly _ports: WebGPUPostProcessBridgePorts;
+	private _execution: WebGPUFrameExecutionContext | null = null;
 	private _expectedColorTarget: IRenderTexture | null = null;
+	private _motionHistoryWriteTarget: IRenderTexture | null = null;
 	private readonly _physicalIds = new WeakMap<object, string>();
 	private _nextPhysicalId = 1;
 
 	constructor(
 		host: WebGPUFrameHost,
 		runtime: WebGPUPostProcessRuntime,
-		callbacks: WebGPUPostProcessBridgeCallbacks,
+		ports: WebGPUPostProcessBridgePorts,
 	) {
 		this._host = host;
 		this._runtime = runtime;
-		this._callbacks = callbacks;
+		this._ports = ports;
+	}
+
+	public bindFrame(execution: WebGPUFrameExecutionContext): void {
+		this._execution = execution;
+	}
+
+	public unbindFrame(): void {
+		this._execution = null;
+		this.clearPendingFrameState();
+	}
+
+	public getFrameTargets(): WebGPUFrameTargets | null {
+		return this._execution?.targets.frameTargets ?? null;
 	}
 
 	public createResource(desc: PostProcessResourceDescriptor): PostProcessResourceHandle {
@@ -92,7 +100,7 @@ export class WebGPUPostProcessBridge {
 	}
 
 	public createGBufferBridge(context: FrameContext): LogicalGBufferBridge {
-		const targets = this._callbacks.getFrameTargets();
+		const targets = this._execution?.targets.frameTargets ?? null;
 		const width = Math.max(1, context.attachments.width);
 		const height = Math.max(1, context.attachments.height);
 		const channels: LogicalGBufferBridge["channels"] = {};
@@ -201,13 +209,13 @@ export class WebGPUPostProcessBridge {
 	}
 
 	public createPassExecutionContext(request: PostProcessPassExecutionContextRequest): unknown {
-		if (!this._callbacks.getEncoder() || !this._callbacks.getFrameTargets()) {
+		if (!this._execution?.commands.encoder) {
 			throw new Error(
 				`Post-process pass "${request.passId}" cannot create its required ` +
 					"WebGPU execution context.",
 			);
 		}
-		const targets = this._callbacks.getFrameTargets();
+		const targets = this._execution.targets.frameTargets;
 		this._expectedColorTarget = request.declaration.color.output === "new-version" && targets ?
 			(targets.sceneColor === targets.postPong ? targets.postPing : targets.postPong) : null;
 		if (
@@ -238,7 +246,7 @@ export class WebGPUPostProcessBridge {
 	): PostProcessPassCompletion {
 		const expectedColorTarget = this._expectedColorTarget;
 		this._expectedColorTarget = null;
-		const targets = this._callbacks.getFrameTargets();
+		const targets = this._execution?.targets.frameTargets ?? null;
 		if (result.ran === false || request.declaration.color.output === "preserve") {
 			return { committed: false };
 		}
@@ -265,14 +273,20 @@ export class WebGPUPostProcessBridge {
 
 	public clearPendingFrameState(): void {
 		this._expectedColorTarget = null;
+		this._motionHistoryWriteTarget = null;
+	}
+
+	public get motionHistoryWriteTarget(): IRenderTexture | null {
+		return this._motionHistoryWriteTarget;
 	}
 
 	private _createContext(
 		request: PostProcessPassExecutionContextRequest,
 	): Record<string, unknown> | undefined {
-		const frameResources = this._callbacks.requireFrameResources();
+		const execution = this._requireExecution();
+		const frameResources = execution.resources;
 		return Object.freeze({
-			encoder: this._callbacks.getEncoder() ?? undefined,
+			encoder: execution.commands.encoder ?? undefined,
 			targets: this._createFrameTargetsView(),
 			shared: this._runtime,
 			frameBinding: frameResources.frameBinding,
@@ -282,7 +296,7 @@ export class WebGPUPostProcessBridge {
 			resources: createPostProcessResourceAccessor<IRenderTexture>({
 				passId: request.passId,
 				declaration: request.declaration,
-				colorInput: this._callbacks.getFrameTargets()?.sceneColor ?? null,
+				colorInput: execution.targets.frameTargets.sceneColor,
 				colorOutput: this._expectedColorTarget,
 				getGBuffer: (semantic) => this._getGBufferTexture(request, semantic),
 				getHistory: (id) => {
@@ -296,9 +310,8 @@ export class WebGPUPostProcessBridge {
 				getTransient: (id) => this._getTransientTexture(request, id),
 				getShared: (id) => this._getSharedTexture(id),
 				copyGBufferToHistory: (_semantic, historyId) => {
-					this._callbacks.setMotionHistoryWriteTarget(
-						this._getHistoryTexture(request, historyId, "write"),
-					);
+					this._motionHistoryWriteTarget =
+						this._getHistoryTexture(request, historyId, "write");
 				},
 			}),
 		});
@@ -340,13 +353,13 @@ export class WebGPUPostProcessBridge {
 
 	private _getSharedTexture(id: string): IRenderTexture | null {
 		return getWebGPUPostProcessSharedResourceDescriptor(id)?.resolveTexture({
-			targets: this._callbacks.getFrameTargets(),
-			isHiZReady: this._callbacks.isHiZReady(),
+			targets: this._execution?.targets.frameTargets ?? null,
+			isHiZReady: this._ports.isHiZReady(),
 		}) ?? null;
 	}
 
 	private _createFrameTargetsView(): WebGPUPostProcessFrameTargets | undefined {
-		const targets = this._callbacks.getFrameTargets();
+		const targets = this._execution?.targets.frameTargets ?? null;
 		if (!targets) {
 			return undefined;
 		}
@@ -389,5 +402,12 @@ export class WebGPUPostProcessBridge {
 	): IRenderTexture | null {
 		const slot = request.transients?.[id];
 		return (slot?.handle.resource as IRenderTexture | null) ?? null;
+	}
+
+	private _requireExecution(): WebGPUFrameExecutionContext {
+		if (!this._execution) {
+			throw new Error("WebGPU post-process frame is not active.");
+		}
+		return this._execution;
 	}
 }

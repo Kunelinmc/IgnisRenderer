@@ -257,7 +257,7 @@ async function testFrameTargetsSkipOptionalTargetsWhenUnused() {
 	await executor.beginFrame(context);
 	const targets = getFrameTargets(executor);
 	assert.ok(targets);
-	assert.equal(executor.getSceneTargetModeForFrame(), "mrt");
+	assert.equal(getFrameGraphDebugState(executor).targetManager.sceneTargetMode, "mrt");
 	assert.ok(targets.postPing);
 	assert.ok(targets.postPong);
 	assert.ok(targets.gMotionDepth);
@@ -267,10 +267,6 @@ async function testFrameTargetsSkipOptionalTargetsWhenUnused() {
 	assert.equal(targets.planarReflectionMask, null);
 
 	executor.invalidateFrameTargets();
-	assert.equal(
-		getFrameGraphDebugState(executor).pendingFrameTargetInvalidation,
-		true
-	);
 	executor.abortFrame();
 	assert.equal(getFrameTargets(executor), null);
 }
@@ -281,7 +277,7 @@ async function testGBufferBridgeReportsAllocatedWebGPUFormats() {
 	const context = createFrameContext(64, 64);
 
 	await executor.beginFrame(context);
-	const bridge = executor.runtimeCapabilities.postProcess.createGBufferBridge(context);
+	const bridge = executor.frameRuntime.postProcess.createGBufferBridge(context);
 
 	assert.equal(bridge.depthEncoding, "linear-view-z");
 	assert.equal(bridge.motionEncoding, "ndc-delta");
@@ -332,11 +328,9 @@ async function testHiZIsPlannableBeforeItsBuildExecutes() {
 
 	await executor.beginFrame(context);
 	const targets = getFrameTargets(executor);
-	const debug = getFrameGraphDebugState(executor);
-	const port = executor.runtimeCapabilities.postProcess.createSessionPort();
+	const port = executor.frameRuntime.postProcess.createSessionPort();
 
 	assert.ok(targets.hiZ);
-	assert.equal(debug.hiZ.status, "pending");
 	assert.equal(
 		port.isGraphResourceAvailable("backend:frame-hiz"),
 		true,
@@ -358,7 +352,7 @@ async function testFrameTargetsAllocateAndReleaseOptionalTargetsWhenNeeded() {
 	await executor.beginFrame(context);
 	const targets = getFrameTargets(executor);
 	assert.ok(targets);
-	assert.equal(executor.getSceneTargetModeForFrame(), "color");
+	assert.equal(getFrameGraphDebugState(executor).targetManager.sceneTargetMode, "color");
 	assert.equal(targets.postPing, null);
 	assert.equal(targets.postPong, null);
 	assert.equal(targets.gMotionDepth, null);
@@ -388,7 +382,7 @@ async function testFrameTargetsSkippedWhenFrameHasNoOffscreenWork() {
 
 	await executor.beginFrame(context);
 	assert.equal(getFrameTargets(executor), null);
-	assert.equal(executor.getSceneTargetModeForFrame(), "single");
+	assert.equal(getFrameGraphDebugState(executor).targetManager.sceneTargetMode, "single");
 	assert.equal(getFrameGraphDebugState(executor).texturePoolOwnerCount, 0);
 }
 
@@ -412,7 +406,7 @@ async function testTransmissionTargetsAllocateOnlyWhenRefractionHasWork() {
 	assert.ok(targets.gTransmissionSurface1);
 	assert.ok(targets.gTransmissionSurface2);
 	assert.ok(targets.transmissionDepth);
-	const bridge = executor.runtimeCapabilities.postProcess.createGBufferBridge(context);
+	const bridge = executor.frameRuntime.postProcess.createGBufferBridge(context);
 	assert.equal(
 		bridge.channels.transmission.handle.texture,
 		targets.gTransmissionSurface0
@@ -465,7 +459,7 @@ async function testDeferredBaseSkipsFrameSizedExtensionTargets() {
 	context.scene.opaquePackets = [{ material: new PBRMaterial() }];
 	await executor.beginFrame(context);
 	const targets = getFrameTargets(executor);
-	assert.equal(executor.getSceneTargetModeForFrame(), "gbuffer");
+	assert.equal(getFrameGraphDebugState(executor).targetManager.sceneTargetMode, "gbuffer");
 	assert.equal(
 		getFrameGraphDebugState(executor).targetManager.deferredGBufferLayout,
 		"base"
@@ -507,7 +501,7 @@ async function testDeferredAllocationFallbackReleasesCompactTargetsAtomically() 
 	try {
 		await executor.beginFrame(context);
 		assert.equal(failedExtendedAllocation, true);
-		assert.equal(executor.getSceneTargetModeForFrame(), "mrt");
+		assert.equal(getFrameGraphDebugState(executor).targetManager.sceneTargetMode, "mrt");
 		assert.equal(
 			getFrameGraphDebugState(executor).targetManager.sceneTargetMode,
 			"mrt"

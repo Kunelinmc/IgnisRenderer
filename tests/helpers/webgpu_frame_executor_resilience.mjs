@@ -1,5 +1,5 @@
 import { WebGPUFrameOrchestrator } from "../../src/backends/webgpu/rendergraph/WebGPUFrameOrchestrator.ts";
-import { createWebGPUFrameRuntimeCompositionFactory } from "../../src/backends/webgpu/rendergraph/WebGPUFrameRuntimeComposition.ts";
+import { createWebGPUFrameRuntimeComposition } from "../../src/backends/webgpu/rendergraph/WebGPUFrameRuntimeComposition.ts";
 import { WebGPUPostProcessExecutor } from "../../src/backends/webgpu/WebGPUPostProcessExecutor.ts";
 import { Logger } from "../../src/foundation/Logger.ts";
 import { Camera } from "../../src/cameras/Camera.ts";
@@ -20,22 +20,117 @@ class WebGPUFrameExecutor extends WebGPUFrameOrchestrator {
 		const framePackets = new FramePacketContributorRegistry();
 		framePackets.register(new WebGPUParticleMeshPacketContributor());
 		const sampleCounts = msaa ?? createMSAAContext(1);
+		const frameServices = new Proxy(resources, {
+			get(target, property, receiver) {
+				if (property === "getParticleBillboardRenderer") {
+					return () => particleRenderer;
+				}
+				return Reflect.get(target, property, receiver);
+			},
+		});
+		const frameRuntime = createWebGPUFrameRuntimeComposition({
+			host,
+			frameServices,
+			framePackets,
+			sampleCountResolver: sampleCounts,
+			warnOnce: (code, message, cause) =>
+				Logger.warn(`[${code}] ${message}${cause ? ` ${String(cause)}` : ""}`),
+		});
+		const diagnostics = createFrameDiagnosticsCollector(frameRuntime);
 		super(
 			host,
 			resources.createFrameScope(),
 			framePackets,
 			sampleCounts,
 			sampleCounts.sampleCount,
-			createWebGPUFrameRuntimeCompositionFactory({
-				host,
-				frameServices: resources,
-				framePackets,
-				particleRenderer,
-				sampleCountResolver: sampleCounts,
-			}),
-			options,
+			frameRuntime.modules,
+			{
+				enableEarlyZPrepass: options?.enableEarlyZPrepass ?? host.enableEarlyZPrepass,
+				enableDeferredLighting:
+					options?.enableDeferredLighting ?? host.enableDeferredLighting,
+				frameGraphValidationMode:
+					options?.frameGraphValidationMode ?? host.frameGraphValidationMode,
+				diagnosticsObserver: diagnostics,
+			},
 		);
+		this.frameRuntime = frameRuntime;
+		this.diagnostics = diagnostics;
 	}
+
+	abortFrame(error) {
+		this.abortRecording(error);
+		this.abortFrameState(error);
+	}
+}
+
+function createFrameDiagnosticsCollector(frameRuntime) {
+	const state = {
+		active: false,
+		targetManager: null,
+		compiledGraph: null,
+		compiledStages: [],
+		lastPlannedNodeIds: [],
+		lastExecutedNodeIds: [],
+		commit: null,
+		transitions: [],
+	};
+	return {
+		state,
+		onSessionTransition({ previous, next }) {
+			state.transitions.push([previous, next]);
+			if (next === "preparing" || next === "skipped") {
+				state.compiledGraph = null;
+				state.compiledStages = [];
+				state.lastPlannedNodeIds = [];
+				state.lastExecutedNodeIds = [];
+				state.commit = null;
+			}
+			state.active = next !== null;
+		},
+		onTargetsConfigured(targets) {
+			state.targetManager = targets;
+		},
+		onGraphCompiled(graph, stages) {
+			if (graph) {
+				state.compiledGraph = graph.graph;
+				state.compiledStages = [...stages];
+			} else {
+				state.compiledStages.push(...stages);
+			}
+			state.lastPlannedNodeIds = state.compiledStages.flatMap(
+				(stage) => stage.nodes.map((node) => node.id),
+			);
+		},
+		onNodeExecuted(nodeId) {
+			state.lastExecutedNodeIds.push(nodeId);
+		},
+		onCommitSettled(commit) {
+			state.commit = commit;
+		},
+		getDebugState() {
+			const target = state.targetManager ?? {
+				width: 0,
+				height: 0,
+				sampleCount: 1,
+				texturePoolOwnerCount: 0,
+				sceneTargetMode: "single",
+				deferredGBufferLayout: "extended",
+				needsOITTargets: false,
+				frameTargets: null,
+				msaaTargets: null,
+			};
+			return {
+				...state,
+				frameTargets: target.frameTargets,
+				msaaTargets: target.msaaTargets,
+				texturePoolOwnerCount: target.texturePoolOwnerCount,
+				sceneTargetMode: target.sceneTargetMode,
+				oitActive: state.active && target.needsOITTargets,
+				targetManager: target,
+				postProcess: frameRuntime.postProcess.getDebugState(),
+			};
+		},
+	};
 }
 
 function createPreparedFrameResources(options = {}) {
@@ -57,7 +152,10 @@ function createPreparedFrameResources(options = {}) {
 
 function createFrameScopeAdapter(resources, state = {}) {
 	return {
-		prepare: (context, options) => resources.prepareFrame(context, options),
+		prepare: (context, options) => {
+			state.lastPrepared = resources.prepareFrame(context, options);
+			return state.lastPrepared;
+		},
 		updateParticleShadowVolumes(context) {
 			state.particleShadowVolumeUpdates ??= [];
 			state.particleShadowVolumeUpdates.push(context);
@@ -205,7 +303,7 @@ function findEncoderCallIndex(backend, predicate) {
 }
 
 function getFrameGraphDebugState(executor) {
-	return executor.getDebugState();
+	return executor.diagnostics.getDebugState();
 }
 
 function getFrameTargets(executor) {
@@ -353,7 +451,11 @@ function createPlanarReflectionResourcesStub() {
 		sceneFrameLayout: {},
 		createFrameScope() {
 			return {
-				prepare: (context, options) => this.prepareFrame(context, options),
+				prepare: (context, options) => {
+					state.lastPrepared = this.prepareFrame(context, options);
+					state.mainPrepared ??= state.lastPrepared;
+					return state.lastPrepared;
+				},
 				updateParticleShadowVolumes() {},
 				destroy() { state.events.push("scope:destroy"); },
 			};

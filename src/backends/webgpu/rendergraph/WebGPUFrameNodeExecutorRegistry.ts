@@ -2,13 +2,13 @@ import type {
 	WebGPUFrameGraphNode,
 	WebGPUFrameGraphNodeKind,
 } from "./types";
-import type { WebGPUFrameSession } from "./WebGPUFrameSession";
+import type { WebGPUFrameExecutionContext } from "./WebGPUFrameExecutionContext";
 import { WEBGPU_FRAME_GRAPH_NODE_KINDS } from "./types";
 import type { WebGPUFrameGraphModule } from "./WebGPUFrameGraphModule";
 
 export type WebGPUFrameNodeExecutor = (
 	node: WebGPUFrameGraphNode,
-	session: WebGPUFrameSession,
+	context: WebGPUFrameExecutionContext,
 ) => Promise<void>;
 
 export type WebGPUFrameNodeExecutorTable = {
@@ -69,7 +69,7 @@ export class WebGPUFrameNodeExecutorRegistry {
 
 	public async execute(
 		node: WebGPUFrameGraphNode,
-		session: WebGPUFrameSession,
+		context: WebGPUFrameExecutionContext,
 	): Promise<void> {
 		const owners = this._ownersByKind.get(node.kind) ?? [];
 		const ownerId = node.ownerId ?? (owners.length === 1 ? owners[0] : null);
@@ -81,7 +81,7 @@ export class WebGPUFrameNodeExecutorRegistry {
 				`WebGPU frame graph node "${node.id}" has no owner-aware executor.`,
 			);
 		}
-		await executor(node, session);
+		await executor(node, context);
 	}
 }
 

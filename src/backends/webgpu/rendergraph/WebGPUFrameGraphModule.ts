@@ -1,15 +1,23 @@
 import type { FrameContext, FramePass } from "../../../pipeline/types";
 import type { PostProcessColorDomain } from "../../../postprocess/PostProcessPass";
 import type { RenderGraphResourceDescriptor } from "../../../rendergraph/types";
+import type { FramePreparationRequirements } from "../../../pipeline/FrameRequirements";
 import type { WebGPUFrameNodeExecutor } from "./WebGPUFrameNodeExecutorRegistry";
-import type { WebGPUFrameSession } from "./WebGPUFrameSession";
+import type { WebGPUFrameExecutionContext } from "./WebGPUFrameExecutionContext";
+import type { WebGPUFrameGraphCompiler } from "./WebGPUFrameGraphCompiler";
+import type {
+	WebGPUCommittingFrameSession,
+	WebGPURecordingFrameSession,
+} from "./WebGPUFrameSession";
 import type {
 	WebGPUFrameMessageHandler,
 	WebGPUFrameMessageInput,
+	WebGPUFrameMessageDescriptor,
 	WebGPUFrameMessageReader,
 } from "./WebGPUFrameMessage";
 import type {
 	WebGPUComposedFrameGraphStage,
+	WebGPUCompiledFrameGraphStage,
 	WebGPUFrameGraphNode,
 	WebGPUFrameGraphNodeKind,
 	WebGPUFrameResourceAllocationSnapshot,
@@ -72,8 +80,21 @@ export interface WebGPUFrameGraphModule {
 		input: WebGPUFrameModulePlanningInput,
 	): readonly WebGPUFrameGraphContribution[];
 	beginFrame?(context: FrameContext): void;
-	finalizeRecording?(session: WebGPUFrameSession): void | Promise<void>;
-	afterSubmit?(session: WebGPUFrameSession): void | Promise<void>;
+	syncFrame?(context: FrameContext): void;
+	createAnalysisSeeds?(context: FrameContext): readonly {
+		readonly descriptor: WebGPUFrameMessageDescriptor<unknown>;
+		readonly value: unknown;
+	}[];
+	sealFrame?(context: FrameContext): FramePreparationRequirements | null;
+	executeComposedStage?(
+		stage: WebGPUCompiledFrameGraphStage | undefined,
+		compiler: Pick<WebGPUFrameGraphCompiler, "recordSkippedNode">,
+		recordExecutedNode: (nodeId: string) => void,
+	): Promise<boolean>;
+	activateFrame?(context: WebGPUFrameExecutionContext): void;
+	closeFrame?(): void;
+	finalizeRecording?(session: WebGPURecordingFrameSession): void | Promise<void>;
+	afterSubmit?(session: WebGPUCommittingFrameSession): void | Promise<void>;
 	commitFrameState?(): void;
 	abortFrameState?(error?: unknown): void;
 	invalidateFrameResources?(): void;

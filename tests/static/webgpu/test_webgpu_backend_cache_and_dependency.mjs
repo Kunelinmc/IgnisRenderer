@@ -925,8 +925,12 @@ async function testShaderRuntimeChangeDuringActiveFrameDefersInvalidation() {
 	backend._frameOrchestrator = {
 		endFrame() {},
 		abortFrame() {},
-		onShaderRuntimeChanged() {
-			executorInvalidations++;
+	};
+	backend._frameRuntime = {
+		lifecycle: {
+			onShaderRuntimeChanged() {
+				executorInvalidations++;
+			},
 		},
 	};
 	backend._resources = {
@@ -983,13 +987,6 @@ async function testFrameCommitsBeforeDeferredShaderInvalidation() {
 		},
 	};
 	backend._frameOrchestrator = {
-		runtimeCapabilities: {
-			postProcess: {
-				createSessionPort() {
-					return null;
-				},
-			},
-		},
 		beginFrame() {},
 		async endFrame(postSubmit) {
 			calls.push("submit");
@@ -1004,8 +1001,17 @@ async function testFrameCommitsBeforeDeferredShaderInvalidation() {
 		abortFrameState() {
 			calls.push("frame-state-abort");
 		},
-		onShaderRuntimeChanged() {
-			calls.push("orchestrator-invalidate");
+	};
+	backend._frameRuntime = {
+		postProcess: {
+			createSessionPort() {
+				return null;
+			},
+		},
+		lifecycle: {
+			onShaderRuntimeChanged() {
+				calls.push("orchestrator-invalidate");
+			},
 		},
 	};
 
@@ -1182,6 +1188,7 @@ async function testBackendPlanOmitsRendererOwnedPostProcessStage() {
 		destroy() {},
 		invalidateFrameTargets() {},
 	};
+	backend._frameRuntime = { postProcess: { createSessionPort: () => null } };
 	backend._particleSimulator = {
 		beginFrame() {},
 		simulate() {},
@@ -1232,6 +1239,7 @@ async function testPassPlanAllowsParticleStageBeforeMainOpaque() {
 		destroy() {},
 		invalidateFrameTargets() {},
 	};
+	backend._frameRuntime = { postProcess: { createSessionPort: () => null } };
 	backend._particleSimulator = {
 		beginFrame() {},
 		simulate() {},
@@ -1326,6 +1334,9 @@ async function testPostProcessSessionBindsBeforeFrameGraphPlanning() {
 		},
 		abortFrameState() {},
 	};
+	backend._frameRuntime = {
+		postProcess: backend._frameOrchestrator.runtimeCapabilities.postProcess,
+	};
 
 	await backend.beginFrame(createFrameContext());
 	assert.strictEqual(
@@ -1372,6 +1383,7 @@ async function testAbortFrameClearsPlannerAndDelegatesWithoutEndFrame() {
 		destroy() {},
 		invalidateFrameTargets() {},
 	};
+	backend._frameRuntime = { postProcess: { createSessionPort: () => null } };
 	backend._particleSimulator = {
 		beginFrame() {},
 		simulate() {},
@@ -1438,6 +1450,7 @@ async function testEndFrameFailureStillEndsParticleFrameAndClearsPlanner() {
 		destroy() {},
 		invalidateFrameTargets() {},
 	};
+	backend._frameRuntime = { postProcess: { createSessionPort: () => null } };
 	backend._particleSimulator = {
 		beginFrame() {},
 		simulate() {},
@@ -1470,15 +1483,15 @@ async function testWarmupAggregatesPhases() {
 			return { orderedPasses: [] };
 		},
 	};
-	backend._frameOrchestrator = {
-		warmup: async () => ({
+	backend._frameRuntime = {
+		postProcess: { warmup: async () => ({
 			phase: "frame",
 			total: 2,
 			compiled: 2,
 			skipped: 0,
 			failed: 0,
 			errors: [],
-		}),
+		}) },
 	};
 	backend._resources = {
 		warmup: async () => ({

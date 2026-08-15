@@ -51,14 +51,6 @@ function createReadyFrameBackend(options = {}) {
 		},
 	};
 	backend._frameOrchestrator = {
-		runtimeCapabilities: {
-			postProcess: {
-				createSessionPort() {
-					calls.push("postprocess:create-session");
-					return null;
-				},
-			},
-		},
 		beginFrame() {
 			calls.push("orchestrator:begin");
 			if (options.beginError) {
@@ -86,6 +78,14 @@ function createReadyFrameBackend(options = {}) {
 		},
 		commitFrameState() {
 			calls.push("orchestrator:commit-analysis");
+		},
+	};
+	backend._frameRuntime = {
+		postProcess: {
+			createSessionPort() {
+				calls.push("postprocess:create-session");
+				return null;
+			},
 		},
 	};
 	return { backend, calls };

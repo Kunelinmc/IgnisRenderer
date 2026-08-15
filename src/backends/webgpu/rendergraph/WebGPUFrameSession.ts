@@ -1,12 +1,11 @@
 import type { FrameContext } from "../../../pipeline/types";
 import type { PreparedFramePacketSet } from "../../../pipeline/FramePacketContributorRegistry";
-import type { ICommandEncoder } from "../../ICommandEncoder";
-import type { IRenderTexture } from "../../types";
 import type { WebGPUPreparedFrameResources } from "../WebGPUResourceContracts";
+import type { WebGPUFrameCommandStream } from "./WebGPUFrameCommandStream";
 import type { WebGPUFrameConfiguration } from "./WebGPUFrameConfiguration";
-import type { WebGPUDeferredOpaqueFrameState } from "./WebGPUScenePassRecorder";
-import type { WebGPUFrameCommitter } from "./WebGPUFrameCommitter";
 import { WebGPUFrameMessageSnapshot } from "./WebGPUFrameMessage";
+import type { WebGPUFrameTargetView } from "./WebGPUFrameTargetManager";
+import type { WebGPUFrameDirtyRectOperations } from "./WebGPUFrameExecutionContext";
 
 export type WebGPUFrameSessionState =
 	| "preparing"
@@ -14,121 +13,101 @@ export type WebGPUFrameSessionState =
 	| "committing"
 	| "skipped";
 
-export type WebGPUFrameHiZStatus = "unavailable" | "pending" | "ready" | "failed";
-
-export type WebGPUTransparencyMode =
-	| "legacy"
-	| "oit"
-	| "legacy-runtime-fallback";
-
-interface WebGPURecordingFrameSessionOptions {
+interface WebGPUFrameSessionBase {
 	readonly context: FrameContext;
-	readonly configuration: WebGPUFrameConfiguration;
-	readonly encoder: ICommandEncoder;
-	readonly hiZStatus: WebGPUFrameHiZStatus;
-	readonly framePackets: PreparedFramePacketSet;
-	readonly committer: WebGPUFrameCommitter;
+	readonly state: WebGPUFrameSessionState;
+}
+
+export interface WebGPUPreparingFrameSession extends WebGPUFrameSessionBase {
+	readonly state: "preparing";
+}
+
+export interface WebGPUSkippedFrameSession extends WebGPUFrameSessionBase {
+	readonly state: "skipped";
 	readonly messages: WebGPUFrameMessageSnapshot;
 }
 
-/**
- * Owns mutable state for one WebGPU frame lifecycle.
- *
- * @internal Owned by the WebGPU frame orchestrator. Applications should use
- * `Renderer.renderFrame()` instead.
- */
-export class WebGPUFrameSession {
-	public readonly context: FrameContext;
-	public readonly configuration: WebGPUFrameConfiguration | null;
-	public state: WebGPUFrameSessionState;
-	public encoder: ICommandEncoder | null;
-	public resources: WebGPUPreparedFrameResources | null = null;
-	public presented = false;
-	public motionHistoryWriteTarget: IRenderTexture | null = null;
-	public deferredOpaqueFrameState: WebGPUDeferredOpaqueFrameState | null = null;
-	public hiZStatus: WebGPUFrameHiZStatus;
-	public hiZBuildCount = 0;
-	public readonly framePackets: PreparedFramePacketSet | null;
-	public readonly committer: WebGPUFrameCommitter | null;
-	public readonly messages: WebGPUFrameMessageSnapshot;
-	public transparencyMode: WebGPUTransparencyMode;
+export interface WebGPURecordingFrameSession extends WebGPUFrameSessionBase {
+	readonly state: "recording";
+	readonly configuration: WebGPUFrameConfiguration;
+	readonly resources: WebGPUPreparedFrameResources;
+	readonly framePackets: PreparedFramePacketSet;
+	readonly messages: WebGPUFrameMessageSnapshot;
+	readonly targets: WebGPUFrameTargetView;
+	readonly commands: WebGPUFrameCommandStream;
+	readonly earlyZPrepassEnabled: boolean;
+	readonly dirtyRects: WebGPUFrameDirtyRectOperations;
+}
 
-	private constructor(
-		context: FrameContext,
-		configuration: WebGPUFrameConfiguration | null,
-		state: WebGPUFrameSessionState,
-		encoder: ICommandEncoder | null,
-		hiZStatus: WebGPUFrameHiZStatus,
-		framePackets: PreparedFramePacketSet | null,
-		committer: WebGPUFrameCommitter | null,
-		messages: WebGPUFrameMessageSnapshot,
-	) {
-		this.context = context;
-		this.configuration = configuration;
-		this.state = state;
-		this.encoder = encoder;
-		this.hiZStatus = hiZStatus;
-		this.framePackets = framePackets;
-		this.committer = committer;
-		this.messages = messages;
-		this.transparencyMode = configuration?.transparencyMode ?? "legacy";
-	}
+export interface WebGPUCommittingFrameSession extends WebGPUFrameSessionBase {
+	readonly state: "committing";
+	readonly configuration: WebGPUFrameConfiguration;
+	readonly resources: WebGPUPreparedFrameResources;
+	readonly framePackets: PreparedFramePacketSet;
+	readonly messages: WebGPUFrameMessageSnapshot;
+	readonly targets: WebGPUFrameTargetView;
+	readonly commands: WebGPUFrameCommandStream;
+	readonly earlyZPrepassEnabled: boolean;
+	readonly dirtyRects: WebGPUFrameDirtyRectOperations;
+}
 
-	public static createRecording(
+export type WebGPUExecutableFrameSession =
+	| WebGPURecordingFrameSession
+	| WebGPUCommittingFrameSession;
+
+export type WebGPUFrameSession =
+	| WebGPUPreparingFrameSession
+	| WebGPURecordingFrameSession
+	| WebGPUCommittingFrameSession
+	| WebGPUSkippedFrameSession;
+
+export interface WebGPURecordingFrameSessionOptions {
+	readonly context: FrameContext;
+	readonly configuration: WebGPUFrameConfiguration;
+	readonly resources: WebGPUPreparedFrameResources;
+	readonly framePackets: PreparedFramePacketSet;
+	readonly messages: WebGPUFrameMessageSnapshot;
+	readonly targets: WebGPUFrameTargetView;
+	readonly commands: WebGPUFrameCommandStream;
+	readonly earlyZPrepassEnabled: boolean;
+	readonly dirtyRects: WebGPUFrameDirtyRectOperations;
+}
+
+export const WebGPUFrameSession = {
+	createPreparing(context: FrameContext): WebGPUPreparingFrameSession {
+		return { state: "preparing", context };
+	},
+	createSkipped(context: FrameContext): WebGPUSkippedFrameSession {
+		return {
+			state: "skipped",
+			context,
+			messages: new WebGPUFrameMessageSnapshot(),
+		};
+	},
+	createRecording(
 		options: WebGPURecordingFrameSessionOptions,
-	): WebGPUFrameSession {
-		return new WebGPUFrameSession(
-			options.context,
-			options.configuration,
-			"recording",
-			options.encoder,
-			options.hiZStatus,
-			options.framePackets,
-			options.committer,
-			options.messages,
-		);
-	}
-
-	public static createPreparing(context: FrameContext): WebGPUFrameSession {
-		return new WebGPUFrameSession(
-			context,
-			null,
-			"preparing",
-			null,
-			"unavailable",
-			null,
-			null,
-			new WebGPUFrameMessageSnapshot(),
-		);
-	}
-
-	public static createSkipped(context: FrameContext): WebGPUFrameSession {
-		return new WebGPUFrameSession(
-			context,
-			null,
-			"skipped",
-			null,
-			"unavailable",
-			null,
-			null,
-			new WebGPUFrameMessageSnapshot(),
-		);
-	}
-
-	public assertContext(context: FrameContext): void {
-		if (context !== this.context) {
+	): WebGPURecordingFrameSession {
+		return {
+			state: "recording",
+			context: options.context,
+			configuration: options.configuration,
+			resources: options.resources,
+			framePackets: options.framePackets,
+			messages: options.messages,
+			targets: options.targets,
+			commands: options.commands,
+			earlyZPrepassEnabled: options.earlyZPrepassEnabled,
+			dirtyRects: options.dirtyRects,
+		};
+	},
+	beginCommit(session: WebGPURecordingFrameSession): WebGPUCommittingFrameSession {
+		return { ...session, state: "committing" };
+	},
+	assertContext(session: WebGPUFrameSession, context: FrameContext): void {
+		if (context !== session.context) {
 			throw new Error(
 				"WebGPU frame pass context must match the context passed to beginFrame().",
 			);
 		}
-	}
-
-	public beginCommit(): void {
-		if (this.state !== "recording") {
-			throw new Error(
-				`WebGPU frame session cannot commit from state "${this.state}".`,
-			);
-		}
-		this.state = "committing";
-	}
-}
+	},
+};

@@ -41,9 +41,11 @@ import {
 	WEBGPU_POST_PROCESS_PASSES_MESSAGE,
 } from "./WebGPUFrameMessages";
 import { WEBGPU_TRANSPARENCY_FEATURE_ANALYSIS } from "./WebGPUTransparencyRuntime";
-import type { WebGPUFrameGraphRecordingContext } from "./WebGPUFrameGraphRecordingContext";
+import type { WebGPUFrameExecutionContext } from "./WebGPUFrameExecutionContext";
 import { WEBGPU_FRAME_GRAPH_RESOURCES } from "./WebGPUFrameGraphResourceCatalog";
-import type { WebGPUFrameSession } from "./WebGPUFrameSession";
+import type {
+	WebGPURecordingFrameSession as WebGPUFrameSession,
+} from "./WebGPUFrameSession";
 import type { WebGPUPostProcessBridge } from "./WebGPUPostProcessBridge";
 import { createWebGPUPostProcessGraphComposition } from "./WebGPUPostProcessGraphAdapter";
 import {
@@ -160,6 +162,7 @@ export class WebGPUPostProcessFrameModule implements WebGPUFrameGraphModule {
 	};
 
 	private _graphFrame: PostProcessRenderGraphFrame | null = null;
+	private _declarations: ReturnType<BackendPostProcessRuntime["describeFrame"]> | null = null;
 	private _graphComposition: ReturnType<
 		typeof createWebGPUPostProcessGraphComposition
 	> | null = null;
@@ -171,7 +174,6 @@ export class WebGPUPostProcessFrameModule implements WebGPUFrameGraphModule {
 		private readonly _backendRuntime: BackendPostProcessRuntime,
 		private readonly _bridge: WebGPUPostProcessBridge,
 		private readonly _presentation: WebGPUPostProcessPresentationPort,
-		private readonly _recording: WebGPUFrameGraphRecordingContext,
 	) {}
 
 	public get graphFrame(): PostProcessRenderGraphFrame | null {
@@ -179,11 +181,40 @@ export class WebGPUPostProcessFrameModule implements WebGPUFrameGraphModule {
 	}
 
 	public beginFrame(): void {
+		this._declarations = null;
 		this._graphFrame = null;
 		this._graphComposition = null;
 		this._outputColor = WEBGPU_FRAME_GRAPH_RESOURCES.frameColor;
 		this._outputColorDomain = "scene-linear-hdr";
 		this._bridge.clearPendingFrameState();
+	}
+
+	public createAnalysisSeeds(context: FrameContext) {
+		this._declarations = this._backendRuntime.describeFrame(context);
+		return [{
+			descriptor: WEBGPU_POST_PROCESS_PASSES_MESSAGE,
+			value: this._declarations.passes,
+		}];
+	}
+
+	public sealFrame(context: FrameContext) {
+		if (!this._declarations) {
+			throw new Error("WebGPU post-process declarations are unavailable.");
+		}
+		this._graphComposition = null;
+		this._graphFrame = this._backendRuntime.buildRenderGraphFrame(
+			context,
+			this._declarations,
+		);
+		return this._graphFrame.graph.frameRequirements;
+	}
+
+	public activateFrame(context: WebGPUFrameExecutionContext): void {
+		this._bridge.bindFrame(context);
+	}
+
+	public closeFrame(): void {
+		this._bridge.unbindFrame();
 	}
 
 	public describeFrame(context: FrameContext) {
@@ -253,7 +284,7 @@ export class WebGPUPostProcessFrameModule implements WebGPUFrameGraphModule {
 	public isSharedResourceAvailable(resourceId: string): boolean {
 		return (
 			getWebGPUPostProcessSharedResourceDescriptor(resourceId)?.isAllocated(
-				this._recording.getFrameTargets(),
+				this._bridge.getFrameTargets(),
 			) ?? false
 		);
 	}
@@ -304,6 +335,16 @@ export class WebGPUPostProcessFrameModule implements WebGPUFrameGraphModule {
 			await this._backendRuntime.abortFrame(error);
 			throw error;
 		}
+	}
+
+	public async executeComposedStage(
+		compiled: WebGPUCompiledFrameGraphStage | undefined,
+		compiler: Pick<WebGPUFrameGraphCompiler, "recordSkippedNode">,
+		recordExecutedNode: (nodeId: string) => void,
+	): Promise<boolean> {
+		if (compiled?.pass.stage !== "postprocess") return false;
+		await this.executeStage(compiled, compiler, recordExecutedNode);
+		return true;
 	}
 
 	public async warmup(
@@ -366,18 +407,19 @@ export class WebGPUPostProcessFrameModule implements WebGPUFrameGraphModule {
 	}
 
 	public finalizeRecording(session: WebGPUFrameSession): void {
-		const targets = this._recording.getFrameTargets();
+		const targets = session.targets.frameTargets;
 		const target = session.configuration?.mrtSupported
-			? session.motionHistoryWriteTarget
+			? this._bridge.motionHistoryWriteTarget
 			: null;
-		const source = target ? targets?.gMotionDepth : null;
-		if (!session.encoder || !source || !target) return;
-		session.encoder.copyTextureToTexture?.(
+		const source = target ? targets.gMotionDepth : null;
+		const encoder = session.commands.encoder;
+		if (!encoder || !source || !target) return;
+		encoder.copyTextureToTexture?.(
 			{ texture: source },
 			{ texture: target },
 			{
-				width: this._recording.getTargetWidth(),
-				height: this._recording.getTargetHeight(),
+				width: session.targets.width,
+				height: session.targets.height,
 				depthOrArrayLayers: 1,
 			},
 		);

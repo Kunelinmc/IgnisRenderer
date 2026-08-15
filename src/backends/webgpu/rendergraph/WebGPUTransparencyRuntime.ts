@@ -18,7 +18,6 @@ import type {
 	WebGPUSceneResourceProvider,
 } from "../WebGPUResourceContracts";
 import type { WebGPUSceneTargetMode } from "../WebGPUScenePassDescriptors";
-import type { WebGPUFrameGraphRecordingContext } from "./WebGPUFrameGraphRecordingContext";
 import type { WebGPUFrameGraphModule } from "./WebGPUFrameGraphModule";
 import type {
 	WebGPUFrameGraphContribution,
@@ -41,7 +40,9 @@ import {
 	WEBGPU_MRT_COLOR_TARGET_COUNT,
 } from "../constants";
 import { WebGPUTransparencyFramePlanner } from "./WebGPUTransparencyFramePlanner";
-import type { WebGPUFrameSession } from "./WebGPUFrameSession";
+import type {
+	WebGPURecordingFrameSession as WebGPUFrameSession,
+} from "./WebGPUFrameSession";
 import type { WebGPUFrameHost } from "./WebGPUFrameHost";
 
 interface WebGPUTransparencyScenePort {
@@ -218,6 +219,7 @@ export class WebGPUTransparencyRuntime implements WebGPUFrameGraphModule {
 			this._recordLegacyParticles(session, [ParticleBlendMode.Additive]),
 	};
 	private readonly _planner = new WebGPUTransparencyFramePlanner();
+	private _mode: "legacy" | "oit" | "legacy-runtime-fallback" | null = null;
 
 	private _resolveShaderModule: IShaderModule | null = null;
 	private _resolvePipeline: IRenderPipeline | null = null;
@@ -231,7 +233,6 @@ export class WebGPUTransparencyRuntime implements WebGPUFrameGraphModule {
 		private readonly _host: WebGPUFrameHost,
 		private readonly _sceneResources: WebGPUSceneResourceProvider,
 		private readonly _particleRenderer: WebGPUParticleBillboardRenderer,
-		private readonly _recordingContext: WebGPUFrameGraphRecordingContext,
 		private readonly _scene: WebGPUTransparencyScenePort,
 		private readonly _diagnostics: WebGPUFrameDiagnosticSink,
 	) {}
@@ -258,7 +259,9 @@ export class WebGPUTransparencyRuntime implements WebGPUFrameGraphModule {
 		return nodes.length > 0 ? [{ lane: "transparent", nodes }] : [];
 	}
 
-	public beginFrame(_context: FrameContext): void {}
+	public beginFrame(_context: FrameContext): void {
+		this._mode = null;
+	}
 
 	public invalidateFrameResources(): void {
 		this._destroyBindingGroup(this._resolveBinding);
@@ -294,9 +297,9 @@ export class WebGPUTransparencyRuntime implements WebGPUFrameGraphModule {
 	}
 
 	private _prepareOIT(session: WebGPUFrameSession): void {
-		if (session.transparencyMode !== "oit") return;
-		const encoder = session.encoder;
-		const targets = this._recordingContext.getFrameTargets();
+		if (this._getMode(session) !== "oit") return;
+		const encoder = session.commands.encoder;
+		const targets = session.targets.frameTargets;
 		if (!encoder || !targets?.oitSceneColorCopy) {
 			this._fallbackToLegacy(session, "webgpu-oit-disabled-runtime", "WebGPU OIT frame targets are unavailable; using legacy transparent rendering.");
 			return;
@@ -306,8 +309,8 @@ export class WebGPUTransparencyRuntime implements WebGPUFrameGraphModule {
 				{ texture: targets.sceneColorMain },
 				{ texture: targets.oitSceneColorCopy },
 				{
-					width: Math.max(1, this._recordingContext.getTargetWidth()),
-					height: Math.max(1, this._recordingContext.getTargetHeight()),
+					width: Math.max(1, session.targets.width),
+					height: Math.max(1, session.targets.height),
 					depthOrArrayLayers: 1,
 				},
 			);
@@ -322,9 +325,9 @@ export class WebGPUTransparencyRuntime implements WebGPUFrameGraphModule {
 	}
 
 	private _clearOITTargets(session: WebGPUFrameSession): void {
-		if (session.transparencyMode !== "oit") return;
-		const encoder = session.encoder;
-		const targets = this._recordingContext.getFrameTargets();
+		if (this._getMode(session) !== "oit") return;
+		const encoder = session.commands.encoder;
+		const targets = session.targets.frameTargets;
 		if (!encoder || !targets?.oitAccum || !targets.oitReveal) {
 			this._fallbackToLegacy(session, "webgpu-oit-disabled-runtime", "WebGPU OIT accumulation targets are unavailable; using legacy transparent rendering.");
 			return;
@@ -342,20 +345,20 @@ export class WebGPUTransparencyRuntime implements WebGPUFrameGraphModule {
 	private async _recordOITMeshAccumulation(session: WebGPUFrameSession): Promise<void> {
 		const analysis = this._requireTransparencyAnalysis(session);
 		if (analysis.oitPackets.length <= 0) return;
-		if (session.transparencyMode !== "oit") {
+		if (this._getMode(session) !== "oit") {
 			await this._scene.recordMainPass(session.context, analysis.oitPackets.slice(), false, false);
 			return;
 		}
-		const encoder = session.encoder;
-		const targets = this._recordingContext.getFrameTargets();
+		const encoder = session.commands.encoder;
+		const targets = session.targets.frameTargets;
 		if (!encoder || !targets?.oitAccum || !targets.oitReveal) {
 			this._fallbackToLegacy(session, "webgpu-oit-disabled-runtime", "WebGPU OIT accumulation targets are unavailable; using legacy transparent rendering.");
 			await this._scene.recordMainPass(session.context, analysis.oitPackets.slice(), false, false);
 			return;
 		}
-		const frameResources = this._recordingContext.requireFrameResources();
+		const frameResources = session.resources;
 		await this._sceneResources.buildClusteredLighting(encoder, frameResources);
-		const depthAttachment = this._recordingContext.getMSAATargets()?.depth ?? targets.depth;
+		const depthAttachment = session.targets.msaaTargets?.depth ?? targets.depth;
 		encoder.beginRenderPass({
 			label: "WebGPUOITMeshAccumulate",
 			colorAttachments: [
@@ -368,7 +371,7 @@ export class WebGPUTransparencyRuntime implements WebGPUFrameGraphModule {
 				depthStoreOp: "store",
 			},
 		});
-		const dirtyRects = this._recordingContext.resolveDirtyRects(
+		const dirtyRects = session.dirtyRects.resolveDirtyRects(
 			session.context,
 			targets.sceneColorMain.width,
 			targets.sceneColorMain.height,
@@ -380,9 +383,9 @@ export class WebGPUTransparencyRuntime implements WebGPUFrameGraphModule {
 			packets: analysis.oitPackets.slice(),
 			dirtyRects,
 			selectPacketsForRect: (packets, rect) =>
-				this._recordingContext.selectTransparentSubsetForRect(session.context, packets, rect),
+				session.dirtyRects.selectTransparentSubsetForRect(session.context, packets, rect),
 			resolveDrawOptions: () => ({
-				sceneTargetMode: this._resolveSceneTargetMode(),
+				sceneTargetMode: this._resolveSceneTargetMode(session),
 				transparentPipelineMode: "oit",
 				sampleCount: 1,
 			}),
@@ -391,12 +394,12 @@ export class WebGPUTransparencyRuntime implements WebGPUFrameGraphModule {
 	}
 
 	private async _recordOITParticleAccumulation(session: WebGPUFrameSession): Promise<void> {
-		if (session.transparencyMode !== "oit") {
+		if (this._getMode(session) !== "oit") {
 			await this._recordLegacyParticles(session, [ParticleBlendMode.Alpha]);
 			return;
 		}
-		const encoder = session.encoder;
-		const targets = this._recordingContext.getFrameTargets();
+		const encoder = session.commands.encoder;
+		const targets = session.targets.frameTargets;
 		if (!encoder || !targets?.oitAccum || !targets.oitReveal) {
 			this._fallbackToLegacy(session, "webgpu-oit-disabled-runtime", "WebGPU OIT accumulation targets are unavailable; using legacy transparent rendering.");
 			await this._recordLegacyParticles(session, [ParticleBlendMode.Alpha]);
@@ -414,16 +417,16 @@ export class WebGPUTransparencyRuntime implements WebGPUFrameGraphModule {
 				],
 				depth: targets.depth,
 			},
-			this._recordingContext.requireFrameResources(),
-			this._resolveSceneTargetMode(),
+			session.resources,
+			this._resolveSceneTargetMode(session),
 			{ includeBlendModes: [ParticleBlendMode.Alpha], pipelineMode: "oit" },
 		);
 	}
 
 	private async _resolveOIT(session: WebGPUFrameSession): Promise<void> {
-		if (session.transparencyMode !== "oit") return;
-		const encoder = session.encoder;
-		const targets = this._recordingContext.getFrameTargets();
+		if (this._getMode(session) !== "oit") return;
+		const encoder = session.commands.encoder;
+		const targets = session.targets.frameTargets;
 		if (!encoder || !targets?.oitSceneColorCopy || !targets.oitAccum || !targets.oitReveal) {
 			this._fallbackToLegacy(session, "webgpu-oit-disabled-runtime", "WebGPU OIT resolve targets are unavailable; using legacy transparent rendering.");
 			return;
@@ -458,7 +461,7 @@ export class WebGPUTransparencyRuntime implements WebGPUFrameGraphModule {
 		});
 		encoder.setPipeline(this._resolvePipeline);
 		encoder.setBindingGroup(0, this._resolveBinding);
-		for (const rect of this._recordingContext.resolveDirtyRects(
+		for (const rect of session.dirtyRects.resolveDirtyRects(
 			session.context,
 			targets.sceneColorMain.width,
 			targets.sceneColorMain.height,
@@ -480,17 +483,17 @@ export class WebGPUTransparencyRuntime implements WebGPUFrameGraphModule {
 		session: WebGPUFrameSession,
 		includeBlendModes: readonly ParticleBlendMode[],
 	): Promise<void> {
-		const encoder = session.encoder;
-		const targets = this._recordingContext.getFrameTargets();
+		const encoder = session.commands.encoder;
+		const targets = session.targets.frameTargets;
 		if (!encoder || !targets) return;
-		const msaaTargets = this._recordingContext.getMSAATargets();
+		const msaaTargets = session.targets.msaaTargets;
 		await this._particleRenderer.renderParticles(
 			encoder,
 			session.context,
 			{
 				label: includeBlendModes[0] === ParticleBlendMode.Additive ?
 					"WebGPUParticlesMRT_Additive" : "WebGPUParticlesMRT_Alpha",
-				sampleCount: this._recordingContext.getSampleCount(),
+				sampleCount: session.targets.sampleCount,
 				colorAttachments: [{
 					view: msaaTargets?.sceneColorMain ?? targets.sceneColorMain,
 					resolveTarget: msaaTargets ? targets.sceneColorMain : undefined,
@@ -499,8 +502,8 @@ export class WebGPUTransparencyRuntime implements WebGPUFrameGraphModule {
 				}],
 				depth: msaaTargets?.depth ?? targets.depth,
 			},
-			this._recordingContext.requireFrameResources(),
-			this._resolveSceneTargetMode(),
+			session.resources,
+			this._resolveSceneTargetMode(session),
 			{ includeBlendModes, pipelineMode: "legacy" },
 		);
 	}
@@ -536,17 +539,26 @@ export class WebGPUTransparencyRuntime implements WebGPUFrameGraphModule {
 		message: string,
 		cause?: unknown,
 	): void {
-		if (session.transparencyMode === "legacy-runtime-fallback") return;
-		session.transparencyMode = "legacy-runtime-fallback";
+		if (this._getMode(session) === "legacy-runtime-fallback") return;
+		this._mode = "legacy-runtime-fallback";
 		this._diagnostics.warnOnce(code, message, cause);
+	}
+
+	private _getMode(
+		session: WebGPUFrameSession,
+	): "legacy" | "oit" | "legacy-runtime-fallback" {
+		this._mode ??= session.configuration.transparencyMode;
+		return this._mode;
 	}
 
 	private _requireTransparencyAnalysis(session: WebGPUFrameSession) {
 		return session.messages.get(WEBGPU_TRANSPARENCY_FEATURE_ANALYSIS);
 	}
 
-	private _resolveSceneTargetMode(): Exclude<WebGPUSceneTargetMode, "single"> {
-		return this._recordingContext.getSceneTargetMode() === "color" ? "color" : "mrt";
+	private _resolveSceneTargetMode(
+		session: WebGPUFrameSession,
+	): Exclude<WebGPUSceneTargetMode, "single"> {
+		return session.targets.sceneTargetMode === "color" ? "color" : "mrt";
 	}
 
 	private _destroyBindingGroup(group: IBindingGroup | null): void {

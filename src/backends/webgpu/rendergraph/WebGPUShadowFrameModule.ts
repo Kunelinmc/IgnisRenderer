@@ -11,8 +11,9 @@ import {
 	readWebGPUFrameGraphResource,
 	writeWebGPUFrameGraphResource,
 } from "./WebGPUFrameGraphDsl";
-import type { WebGPUFrameGraphRecordingContext } from "./WebGPUFrameGraphRecordingContext";
-import type { WebGPUFrameSession } from "./WebGPUFrameSession";
+import type {
+	WebGPURecordingFrameSession as WebGPUFrameSession,
+} from "./WebGPUFrameSession";
 
 /** @internal Owns shadow graph-node execution for one WebGPU runtime. */
 export class WebGPUShadowFrameModule implements WebGPUFrameGraphModule {
@@ -23,7 +24,7 @@ export class WebGPUShadowFrameModule implements WebGPUFrameGraphModule {
 			await this._renderer.renderShadows(
 				session.context,
 				packets,
-				session.encoder ?? undefined,
+				session.commands.encoder ?? undefined,
 			);
 		},
 		"paged-shadow-page-mark": async (_node: unknown, session: WebGPUFrameSession) => {
@@ -46,7 +47,6 @@ export class WebGPUShadowFrameModule implements WebGPUFrameGraphModule {
 	};
 	constructor(
 		private readonly _renderer: WebGPUShadowRenderProvider,
-		private readonly _recording: WebGPUFrameGraphRecordingContext,
 	) {}
 
 	public planStage(
@@ -68,15 +68,15 @@ export class WebGPUShadowFrameModule implements WebGPUFrameGraphModule {
 
 	private _createRequest(session: WebGPUFrameSession): WebGPUPagedShadowFrameRequest {
 		const packets = this._requirePackets(session);
-		const targets = this._recording.getFrameTargets();
+		const targets = session.targets.frameTargets;
 		return {
 			context: session.context,
-			encoder: session.encoder,
+			encoder: session.commands.encoder,
 			shadowPlan: session.context.shadowPlan,
 			shadowCasterPackets: packets.shadowCasters.slice(),
 			shadowTransmitterPackets: packets.shadowTransmitters.slice(),
-			feedbackDepthTexture: targets?.depth ?? null,
-			feedbackMotionDepthTexture: targets?.gMotionDepth ?? null,
+			feedbackDepthTexture: targets.depth,
+			feedbackMotionDepthTexture: targets.gMotionDepth ?? null,
 		};
 	}
 

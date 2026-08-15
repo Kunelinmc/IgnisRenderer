@@ -30,6 +30,7 @@ import type {
 	WebGPUPreparedFrameResources,
 	WebGPUFrameResourceProvider,
 	WebGPUParticleBillboardRenderer,
+	WebGPUParticleBillboardRendererProvider,
 	WebGPUSceneResourceProvider,
 } from "./WebGPUResourceContracts";
 import type { WebGPUFrameHost } from "./rendergraph/WebGPUFrameHost";
@@ -70,14 +71,15 @@ export class WebGPUReflectionProbeCapturePass {
 
 	constructor(
 		backend: WebGPUFrameHost,
-		captureResources: WebGPUFrameResourceProvider & WebGPUSceneResourceProvider,
+		captureResources: WebGPUFrameResourceProvider &
+			WebGPUSceneResourceProvider &
+			WebGPUParticleBillboardRendererProvider,
 		framePacketProvider: FramePacketProvider,
-		particleRenderer: WebGPUParticleBillboardRenderer,
 	) {
 		this._backend = backend;
 		this._captureResources = captureResources;
 		this._framePacketProvider = framePacketProvider;
-		this._particleRenderer = particleRenderer;
+		this._particleRenderer = captureResources.getParticleBillboardRenderer();
 	}
 
 	public async captureFace(

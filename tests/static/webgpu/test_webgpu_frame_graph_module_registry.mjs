@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 
 import { WebGPUFrameGraphModuleRegistry } from "../../../src/backends/webgpu/rendergraph/WebGPUFrameGraphModuleRegistry.ts";
 import { WebGPUFrameMessageSnapshot } from "../../../src/backends/webgpu/rendergraph/WebGPUFrameMessage.ts";
-import { WebGPUDeferredFrameModule } from "../../../src/backends/webgpu/rendergraph/WebGPUDeferredFrameModule.ts";
+import {
+	WebGPUDeferredFrameModule,
+	WebGPUDeferredOpaqueStatePort,
+} from "../../../src/backends/webgpu/rendergraph/WebGPUDeferredFrameModule.ts";
 import { WebGPUReflectionFrameModule } from "../../../src/backends/webgpu/rendergraph/WebGPUReflectionFrameModule.ts";
 import { WEBGPU_FRAME_CONFIGURATION_DEMAND_MESSAGE } from "../../../src/backends/webgpu/rendergraph/WebGPUFrameMessages.ts";
 import { WEBGPU_FRAME_GRAPH_NODE_KINDS } from "../../../src/backends/webgpu/rendergraph/types.ts";
@@ -141,10 +144,12 @@ async function testExclusiveAndCompositionConflicts() {
 async function testDeferredReflectionCompositeHasOneOwnerAndExecution() {
 	let lightingExecutions = 0;
 	let reflectionExecutions = 0;
+	const deferredState = new WebGPUDeferredOpaqueStatePort();
 	const deferred = new WebGPUDeferredFrameModule(
 		{ async recordLightingPass() { lightingExecutions++; } },
 		{},
 		{ async recordMainPass() {} },
+		deferredState,
 	);
 	const reflection = new WebGPUReflectionFrameModule(
 		{},
@@ -178,18 +183,22 @@ async function testDeferredReflectionCompositeHasOneOwnerAndExecution() {
 	);
 	const session = {
 		context: {},
-		encoder: {},
+		commands: { encoder: {} },
 		resources: {},
+		targets: {
+			frameTargets: { planarReflectionMask: null },
+			msaaTargets: null,
+		},
 		configuration: {
 			mrtSupported: true,
 			samplePlan: { sampleCount: 1 },
 		},
-		deferredOpaqueFrameState: {
+	};
+	deferredState.publish({
 			lightingEnabled: true,
 			clearSceneColor: true,
 			fallbackPackets: [],
-		},
-	};
+	});
 	await deferred.executors["deferred-lighting"]({}, session);
 	assert.equal(lightingExecutions, 1);
 	assert.equal(reflectionExecutions, 0);
