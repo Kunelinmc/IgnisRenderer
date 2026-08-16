@@ -78,7 +78,6 @@ export class WebGPUFrameOrchestrator {
 	private _enableDeferredLighting = true;
 	private readonly _frameGraphValidationMode: WebGPUFrameGraphValidationMode;
 	private readonly _diagnosticsObserver: WebGPUFrameDiagnosticsObserver | null;
-	private readonly _dirtyRectResolver = new WebGPUDirtyRectResolver();
 	private _frameTargetManager: WebGPUFrameTargetManager;
 	private readonly _graphCompiler = new WebGPUFrameGraphCompiler();
 	private readonly _frameModules: WebGPUFrameGraphModuleRegistry;
@@ -221,7 +220,7 @@ export class WebGPUFrameOrchestrator {
 				targets,
 				commands,
 				earlyZPrepassEnabled: this._enableEarlyZPrepass,
-				dirtyRects: this._dirtyRectResolver,
+				dirtyRects: WebGPUDirtyRectResolver,
 			});
 			this._transitionSession(recording);
 			this._frameModules.activateFrame(recording);

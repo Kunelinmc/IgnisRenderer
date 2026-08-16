@@ -9,6 +9,8 @@ import type {
 /**
  * Resolves incremental dirty regions and per-rect packet subsets for WebGPU
  * scene recording.
+ *
+ * @internal WebGPU frame-recording utility.
  */
 export class WebGPUDirtyRectResolver {
 	/**
@@ -19,7 +21,7 @@ export class WebGPUDirtyRectResolver {
 	 * @returns `true` when incremental rendering is active for dirty rectangles.
 	 * @sideEffects None.
 	 */
-	public isIncrementalPartial(context: FrameContext | null): boolean {
+	public static isIncrementalPartial(context: FrameContext | null): boolean {
 		if (!context?.incremental) {
 			return false;
 		}
@@ -39,7 +41,7 @@ export class WebGPUDirtyRectResolver {
 	 * @returns Full-frame or scaled dirty rectangles clipped to the target.
 	 * @sideEffects None.
 	 */
-	public resolveDirtyRects(
+	public static resolveDirtyRects(
 		context: FrameContext | null,
 		targetWidth: number,
 		targetHeight: number
@@ -49,7 +51,7 @@ export class WebGPUDirtyRectResolver {
 		if (!context) {
 			return [{ x: 0, y: 0, width, height }];
 		}
-		if (!this.isIncrementalPartial(context)) {
+		if (!WebGPUDirtyRectResolver.isIncrementalPartial(context)) {
 			return [{ x: 0, y: 0, width, height }];
 		}
 		const sourceWidth = Math.max(1, Math.floor(context.attachments.width));
@@ -93,7 +95,7 @@ export class WebGPUDirtyRectResolver {
 	 * @returns Candidate packets filtered for the rectangle.
 	 * @sideEffects None.
 	 */
-	public selectPacketsForRect(
+	public static selectPacketsForRect(
 		context: FrameContext,
 		packets: DrawPacket[],
 		rect: DirtyRect
@@ -121,7 +123,7 @@ export class WebGPUDirtyRectResolver {
 	 * @returns Transparent packets intersecting the rectangle and candidate set.
 	 * @sideEffects None.
 	 */
-	public selectTransparentSubsetForRect(
+	public static selectTransparentSubsetForRect(
 		context: FrameContext,
 		packets: DrawPacket[],
 		rect: DirtyRect
