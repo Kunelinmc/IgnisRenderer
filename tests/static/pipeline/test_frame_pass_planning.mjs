@@ -7,7 +7,7 @@ import {
 import {
 	createDefaultPipelineStages,
 } from "../../../src/pipeline/defaultPipeline.ts";
-import { createTransientStore } from "../../../src/pipeline/types.ts";
+import { createTransientStore } from "../../../src/foundation/TransientStore.ts";
 import {
 	hasPostProcessExecutionPasses,
 } from "../../../src/postprocess/index.ts";

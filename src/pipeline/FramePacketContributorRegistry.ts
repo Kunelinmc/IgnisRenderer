@@ -3,10 +3,10 @@ import {
 	DRAW_PACKET_FLAG_SHADOW_CASTER,
 	DRAW_PACKET_FLAG_SHADOW_TRANSMITTER,
 	DRAW_PACKET_FLAG_TRANSPARENT,
-	defineTransientKey,
 	type DrawPacket,
 	type FrameContext,
 } from "./types";
+import { defineTransientKey } from "../foundation/TransientStore";
 
 /** @internal Identifies the camera view for which frame packets are prepared. */
 export type FramePacketViewPurpose =

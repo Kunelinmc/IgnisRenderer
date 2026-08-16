@@ -19,7 +19,7 @@ import { deformPrimitiveGeometry } from "./SoftwareAnimationDeformer";
 import type { MeshInstance } from "../../meshes";
 import type { KeyframeTrack } from "../../animation/KeyframeTrack";
 import type { Scene } from "../../core/Scene";
-import type { TransientStore } from "../../pipeline/types";
+import type { TransientStore } from "../../foundation/TransientStore";
 
 interface TrackAccumulator {
 	track: KeyframeTrack;

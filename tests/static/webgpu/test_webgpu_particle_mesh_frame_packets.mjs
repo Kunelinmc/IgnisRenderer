@@ -14,8 +14,8 @@ import {
 	DRAW_PACKET_FLAG_TRANSPARENT,
 	PARTICLE_MESH_TRANSIENT_BATCHES_KEY,
 	PARTICLE_SIM_DELTA_TIME_SECONDS_KEY,
-	createTransientStore,
 } from "../../../src/pipeline/types.ts";
+import { createTransientStore } from "../../../src/foundation/TransientStore.ts";
 
 function createTriangleMesh(material) {
 	return MeshAsset.fromFaces([

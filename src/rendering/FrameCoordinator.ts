@@ -10,6 +10,7 @@ import { Vector3 } from "../maths/Vector3";
 import { sRGBToLinear } from "../maths/Common";
 import { Scene } from "../core/Scene";
 import { Logger } from "../foundation/Logger";
+import type { TransientStore } from "../foundation/TransientStore";
 import { CSGMeshInstance } from "../meshes/CSGMeshInstance";
 import { LODMeshInstance } from "../meshes/LODMeshInstance";
 import { resolveFeatureState } from "../pipeline/FeatureResolver";
@@ -34,7 +35,6 @@ import { isLocalizedLightProbe } from "../lights/runtime/lightProbeRuntime";
 import {
 	type FrameContext,
 	type FramePassStage,
-	type TransientStore,
 } from "../pipeline/types";
 import { RenderPipelineRegistry } from "../pipeline/RenderPipelineRegistry";
 import { resolveFramePassRequirements } from "../pipeline/FramePassRequirements";

@@ -8,8 +8,8 @@ import {
 	DRAW_PACKET_FLAG_SHADOW_CASTER,
 	DRAW_PACKET_FLAG_SHADOW_TRANSMITTER,
 	DRAW_PACKET_FLAG_TRANSPARENT,
-	createTransientStore,
 } from "../../../src/pipeline/types.ts";
+import { createTransientStore } from "../../../src/foundation/TransientStore.ts";
 
 function createPacket(id, passFlags = 0) {
 	return { id, passFlags };

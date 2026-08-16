@@ -1,6 +1,6 @@
 import type { IPrimitiveGeometry } from "../../core/types";
 import type { Skeleton } from "../../animation/Skeleton";
-import { defineTransientKey } from "../../pipeline/types";
+import { defineTransientKey } from "../../foundation/TransientStore";
 
 export const ANIMATION_SIM_DELTA_TIME_MS_KEY =
 	defineTransientKey<number>("pipeline:animation-delta-time-ms");

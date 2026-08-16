@@ -5,8 +5,8 @@ import {
 	type PreparedScene,
 	type RendererFramePlan,
 	type ResolvedFeatureState,
-	type TransientStore,
 } from "./types";
+import type { TransientStore } from "../foundation/TransientStore";
 import {
 	RendererStageGraph,
 	type RendererStageDefinition,

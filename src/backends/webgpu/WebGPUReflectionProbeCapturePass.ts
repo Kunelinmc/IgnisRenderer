@@ -18,8 +18,8 @@ import type {
 import {
 	PARTICLE_MESH_TRANSIENT_BATCHES_KEY,
 	PARTICLE_TRANSIENT_BATCHES_KEY,
-	createTransientStore,
 } from "../../pipeline/types";
+import { createTransientStore } from "../../foundation/TransientStore";
 import { PreparedSceneBuilder } from "../../pipeline/PreparedSceneBuilder";
 import type { ResolvedPostProcessState } from "../../postprocess";
 import type { IncrementalFrameContext } from "../../pipeline/incremental";

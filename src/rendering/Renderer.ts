@@ -2,6 +2,10 @@ import { Camera } from "../cameras/Camera";
 import { Scene } from "../core/Scene";
 import { EventEmitter } from "../core/EventEmitter";
 import { Logger, type LoggerStatic } from "../foundation/Logger";
+import {
+	createTransientStore,
+	type TransientStore,
+} from "../foundation/TransientStore";
 import { AnimationSystem } from "../animation/AnimationSystem";
 import type { PhysicsSystem } from "../physics";
 import { RenderPipelineRegistry } from "../pipeline/RenderPipelineRegistry";
@@ -14,10 +18,8 @@ import {
 import { resolveFeatureState } from "../pipeline/FeatureResolver";
 import { PreparedSceneBuilder } from "../pipeline/PreparedSceneBuilder";
 import {
-	createTransientStore,
 	ANIMATION_SIM_DELTA_TIME_MS_KEY,
 	PARTICLE_SIM_DELTA_TIME_SECONDS_KEY,
-	type TransientStore,
 	type RendererFeatureFlags,
 	type RendererFeatureResolvedOptions,
 } from "../pipeline/types";

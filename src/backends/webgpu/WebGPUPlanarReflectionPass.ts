@@ -4,7 +4,7 @@ import type {
 	FramePacketProvider,
 	PreparedFramePacketSet,
 } from "../../pipeline/FramePacketContributorRegistry";
-import { createTransientStore } from "../../pipeline/types";
+import { createTransientStore } from "../../foundation/TransientStore";
 import { PreparedSceneBuilder } from "../../pipeline/PreparedSceneBuilder";
 import { Matrix4 } from "../../maths/Matrix4";
 import { Plane } from "../../maths/Plane";

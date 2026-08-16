@@ -31,29 +31,10 @@ import type {
 } from "../rendering/CustomRenderTargets";
 import type { OcclusionCandidate } from "./OcclusionCulling";
 import type { RenderBackendProfile } from "../backends/IRenderBackend";
-
-export type TransientKey<TValue, TName extends string = string> = TName & {
-	readonly __transientValueType?: TValue;
-};
-
-export function defineTransientKey<TValue, TName extends string = string>(
-	name: TName
-): TransientKey<TValue, TName> {
-	return name as TransientKey<TValue, TName>;
-}
-
-export interface TransientStore extends Map<string, unknown> {
-	get<TValue>(key: TransientKey<TValue>): TValue | undefined;
-	get(key: string): unknown;
-	set<TValue>(key: TransientKey<TValue>, value: TValue): this;
-	set(key: string, value: unknown): this;
-}
-
-export function createTransientStore(
-	entries?: Iterable<readonly [string, unknown]>
-): TransientStore {
-	return new Map<string, unknown>(entries) as TransientStore;
-}
+import {
+	defineTransientKey,
+	type TransientStore,
+} from "../foundation/TransientStore";
 
 export const DRAW_PACKET_FLAG_TRANSPARENT = 1 << 0;
 export const DRAW_PACKET_FLAG_SHADOW_CASTER = 1 << 1;

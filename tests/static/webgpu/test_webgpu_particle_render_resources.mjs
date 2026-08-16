@@ -5,8 +5,8 @@ import { Texture } from "../../../src/core/Texture.ts";
 import { ParticleBlendMode } from "../../../src/particles/types.ts";
 import {
 	PARTICLE_TRANSIENT_BATCHES_KEY,
-	createTransientStore,
 } from "../../../src/pipeline/types.ts";
+import { createTransientStore } from "../../../src/foundation/TransientStore.ts";
 import { createWebGPUComputeFacade } from "../../../src/backends/webgpu/ComputeFacade.ts";
 import { WebGPUFrameServiceOwner } from "../../../src/backends/webgpu/WebGPUFrameServiceOwner.ts";
 import { WebGPUParticleRenderResources } from "../../../src/backends/webgpu/WebGPUParticleRenderResources.ts";

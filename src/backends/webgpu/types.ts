@@ -2,7 +2,7 @@ import type { Matrix4 } from "../../maths/Matrix4";
 import type { IVector3, SHCoefficients } from "../../maths/types";
 import type { ResolvedShadowStrategy } from "../../lights/runtime/lightingRuntime";
 import type { ClusteredLightingOptions } from "../../pipeline/types";
-import { defineTransientKey } from "../../pipeline/types";
+import { defineTransientKey } from "../../foundation/TransientStore";
 import type { ResolvedPostProcessState } from "../../postprocess";
 import type { Texture } from "../../core/Texture";
 import type { IPrimitive } from "../../core/types";
