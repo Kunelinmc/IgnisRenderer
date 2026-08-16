@@ -162,6 +162,11 @@ required references. Read them before changing related behavior:
   and logic layers, such as systems and simulation stages.
 - Do not mix backend-specific resource ownership into backend-agnostic public
   contracts.
+- Do not bind stateless, host-independent operations to runtime owners. Prefer
+  module functions or static methods when behavior depends only on explicit
+  inputs; use instance services when they own state, lifecycle, or injected
+  dependencies. Stateless implementations may still satisfy narrow operation
+  interfaces at composition boundaries.
 - `src/foundation/Error.ts` is the central definition file for custom error
   subclasses. New custom `Error` subclasses must be defined there and imported
   by owning subsystems.
@@ -197,7 +202,13 @@ required references. Read them before changing related behavior:
 3. Do not modify files, launch Playwright browser tests, or install modules
    unless the user explicitly requests that specific action.
 4. Avoid large-scale refactoring unless explicitly requested.
-5. Add or update regression tests for new behavior and bug fixes.
+5. Add or update regression tests for new behavior and bug fixes. Before
+   creating a new test file, verify that it covers meaningful behavior, a
+   regression, or an architectural contract not already covered by existing
+   tests. Prefer extending an existing relevant test when it provides
+   equivalent coverage. Do not add tests that only assert class or file names,
+   method placement, static-versus-instance shape, or similarly simple
+   implementation details.
 6. When changing public APIs or behavior, update relevant `docs/` first, then
    update tests in the same change.
 7. Update `AGENTS.md` only when high-priority agent guidance changes.
