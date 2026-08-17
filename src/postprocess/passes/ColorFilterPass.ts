@@ -1,5 +1,9 @@
 import { clamp } from "../../maths/Common";
-import { ceilDiv, finiteOr } from "../../maths/Misc";
+import {
+	ceilDiv,
+	finiteOr,
+	sanitizeFiniteClamped,
+} from "../../maths/Misc";
 import {
 	BufferUsage,
 	type IComputePipeline,
@@ -10,7 +14,6 @@ import {
 	WEBGPU_2D_COMPUTE_WORKGROUP_SIZE as WEBGPU_WORKGROUP_SIZE,
 } from "../../backends/webgpu/constants";
 import type { WebGPUPostProcessServices } from "../../backends/webgpu/WebGPUPostProcessContracts";
-import { sanitizeFiniteClamped } from "../../backends/webgl/WebGLFrameMath";
 import type {
 	WebGLProgramCompiler,
 	WebGLProgramSlot,

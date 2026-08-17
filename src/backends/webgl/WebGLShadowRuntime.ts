@@ -33,7 +33,6 @@ import {
 	WEBGL_SHADOW_ATLAS_COLUMNS,
 	WEBGL_SHADOW_ATLAS_ROWS,
 } from "./constants";
-import { getMaxShadowSize } from "./WebGLFrameMath";
 import type { WebGLGeometryRegistry } from "./WebGLGeometryRegistry";
 import type { WebGLLightState, WebGLShadowData } from "./WebGLLightCollector";
 import type { WebGLProgramCompiler, WebGLProgramWarmupHandle } from "./WebGLProgramCompiler";
@@ -59,6 +58,17 @@ const PARTICLE_ATLAS_ROWS = Math.ceil(
 );
 const PARTICLE_ATLAS_HEIGHT =
 	WEBGL_PARTICLE_SHADOW_VOLUME_GRID_HEIGHT * PARTICLE_ATLAS_ROWS;
+
+function getMaxShadowSize(values: WebGLShadowData[]): number {
+	let maxSize = 0;
+	for (const shadow of values) {
+		if (!shadow.enabled || !shadow.viewProjectionMatrix) {
+			continue;
+		}
+		maxSize = Math.max(maxSize, shadow.shadowMapBaseSize | 0);
+	}
+	return maxSize;
+}
 
 type WebGLShadowRuntimePhase =
 	| "idle"

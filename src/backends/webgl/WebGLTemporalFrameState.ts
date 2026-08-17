@@ -1,7 +1,7 @@
+import { Matrix4 } from "../../maths/Matrix4";
 import type { FrameContext } from "../../pipeline/types";
 import type { FramePreparationRequirements } from "../../pipeline/FrameRequirements";
 import { TemporalFrameState } from "../cross/TemporalFrameState";
-import { toColumnMajorMat4 } from "./WebGLFrameMath";
 
 /** @internal Transactional temporal camera uniforms for one WebGL device. */
 export class WebGLTemporalFrameState {
@@ -30,7 +30,7 @@ export class WebGLTemporalFrameState {
 		});
 		this._jitterCurrentPrev.set(snapshot.jitterCurrentPrev);
 		this._previousViewProjection = snapshot.previousViewProjection ?
-			toColumnMajorMat4(snapshot.previousViewProjection) : null;
+			Matrix4.toColumnMajorArray(snapshot.previousViewProjection) : null;
 	}
 
 	public commitFrame(): void {

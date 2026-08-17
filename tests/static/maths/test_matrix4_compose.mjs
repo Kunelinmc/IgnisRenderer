@@ -73,6 +73,35 @@ function testInverseReturnsNullForSingularMatrix() {
 	assert.equal(Matrix4.inverse(matrix), null);
 }
 
+function testColumnMajorArrayPacking() {
+	const matrix = new Matrix4([
+		[1, 2, 3, 4],
+		[5, 6, 7, 8],
+		[9, 10, 11, 12],
+		[13, 14, 15, 16],
+	]);
+	const expected = [
+		1, 5, 9, 13,
+		2, 6, 10, 14,
+		3, 7, 11, 15,
+		4, 8, 12, 16,
+	];
+	assert.deepEqual(Array.from(Matrix4.toColumnMajorArray(matrix)), expected);
+	assert.deepEqual(
+		Array.from(Matrix4.toColumnMajorArray({ elements: matrix.elements })),
+		expected
+	);
+}
+
+function testFiniteMatrixValidation() {
+	const matrix = Matrix4.identity();
+	assert.equal(Matrix4.isFinite(matrix), true);
+	matrix.elements[2][1] = Number.NaN;
+	assert.equal(Matrix4.isFinite(matrix), false);
+	matrix.elements[2][1] = Number.POSITIVE_INFINITY;
+	assert.equal(Matrix4.isFinite(matrix), false);
+}
+
 function assertMatrixApproximatelyIdentity(matrix) {
 	const identity = Matrix4.identity().elements;
 	for (let row = 0; row < 4; row++) {
@@ -91,6 +120,8 @@ function run() {
 	testNodeLocalMatrixUsesComposeContract();
 	testInverseReturnsMultiplicativeIdentity();
 	testInverseReturnsNullForSingularMatrix();
+	testColumnMajorArrayPacking();
+	testFiniteMatrixValidation();
 	console.log("Matrix4 compose tests passed");
 }
 

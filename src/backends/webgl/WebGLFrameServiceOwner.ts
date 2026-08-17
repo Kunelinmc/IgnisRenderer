@@ -49,11 +49,6 @@ import type {
 } from "../../shaders/runtime";
 import { WebGLClusteredLightingRuntime } from "./WebGLClusteredLightingRuntime";
 import {
-	isFiniteMatrix,
-	toColumnMajorMat4,
-	toSafeDimension,
-} from "./WebGLFrameMath";
-import {
 	resolveMaterialUniforms,
 	resolveTextureUVTransform,
 } from "./WebGLMaterialUniformResolver";
@@ -1119,4 +1114,11 @@ export class WebGLFrameServiceOwner {
 			gl.cullFace(gl.BACK);
 		}
 	}
+}
+
+function toSafeDimension(value: unknown): number {
+	if (typeof value !== "number" || !Number.isFinite(value)) {
+		return 1;
+	}
+	return Math.max(1, Math.floor(value));
 }

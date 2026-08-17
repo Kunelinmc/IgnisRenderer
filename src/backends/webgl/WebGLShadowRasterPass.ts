@@ -4,7 +4,6 @@ import { Matrix4 } from "../../maths/Matrix4";
 import type { DrawPacket } from "../../pipeline/types";
 import { ShaderSource } from "../../shaders/ShaderSource";
 
-import { isFiniteMatrix, toColumnMajorMat4 } from "./WebGLFrameMath";
 import type {
 	WebGLProgramCompiler,
 	WebGLProgramSlot,
@@ -245,7 +244,7 @@ export class WebGLShadowRasterPass {
 			);
 			return;
 		}
-		if (!isFiniteMatrix(packet.worldMatrix)) return;
+		if (!Matrix4.isFinite(packet.worldMatrix)) return;
 		const geometry = this._host.geometry.getGeometry(packet);
 		if (!geometry || geometry.topology !== this._host.gl.TRIANGLES) return;
 
@@ -255,7 +254,7 @@ export class WebGLShadowRasterPass {
 			gl.uniformMatrix4fv(
 				shadowProgram.uniforms.mvp,
 				false,
-				toColumnMajorMat4(this._shadowMvpMatrix),
+				Matrix4.toColumnMajorArray(this._shadowMvpMatrix),
 			);
 		}
 		gl.disable(gl.CULL_FACE);
@@ -271,7 +270,10 @@ export class WebGLShadowRasterPass {
 	): void {
 		const geometry = this._host.geometry.getGeometry(packet);
 		if (!geometry || geometry.topology !== this._host.gl.TRIANGLES) return;
-		if (!isFiniteMatrix(packet.worldMatrix) || !isFiniteMatrix(viewProjectionMatrix)) {
+		if (
+			!Matrix4.isFinite(packet.worldMatrix) ||
+			!Matrix4.isFinite(viewProjectionMatrix)
+		) {
 			return;
 		}
 		const gl = this._host.gl;
@@ -279,7 +281,7 @@ export class WebGLShadowRasterPass {
 		gl.uniformMatrix4fv(
 			shadowProgram.uniforms.mvp,
 			false,
-			toColumnMajorMat4(this._shadowMvpMatrix),
+			Matrix4.toColumnMajorArray(this._shadowMvpMatrix),
 		);
 		const transmittance = resolveMaterialShadowTransmittance(packet.material);
 		gl.uniform3f(

@@ -8,12 +8,9 @@ import {
 	type ShaderTargetMode,
 	type ResolvedShaderMaterialUniformBinding,
 } from "../../materials/ShaderMaterial";
+import { Matrix4 } from "../../maths/Matrix4";
+import type { Matrix3Arr } from "../../maths/types";
 import type { DrawPacket, FrameContext } from "../../pipeline/types";
-import {
-	isFiniteMatrix,
-	toColumnMajorMat3,
-	toColumnMajorMat4,
-} from "./WebGLFrameMath";
 import {
 	resolveMaterialUniforms,
 	resolveTextureUVTransform,
@@ -31,6 +28,32 @@ function logWebGLScenePassWarning(key: string, message: string): void {
 		scope: "WebGLScenePass",
 		onceKey: key,
 	});
+}
+
+function toColumnMajorMat3(
+	matrix: Matrix4 | Matrix3Arr
+): Float32Array | null {
+	const rows = Array.isArray(matrix) ? matrix : matrix.elements;
+	if (rows.length < 3) {
+		return null;
+	}
+	const values = [
+		rows[0][0],
+		rows[1][0],
+		rows[2][0],
+		rows[0][1],
+		rows[1][1],
+		rows[2][1],
+		rows[0][2],
+		rows[1][2],
+		rows[2][2],
+	];
+	for (let i = 0; i < values.length; i++) {
+		if (!Number.isFinite(values[i])) {
+			return null;
+		}
+	}
+	return new Float32Array(values);
 }
 
 export interface WebGLScenePassHost {
@@ -423,7 +446,7 @@ export function drawWebGLPacket(
 		);
 		return;
 	}
-	if (!isFiniteMatrix(packet.worldMatrix)) {
+	if (!Matrix4.isFinite(packet.worldMatrix)) {
 		logWebGLScenePassWarning(
 			"webgl-world-matrix-invalid",
 			`WebGL packet ${packet.id} has non-finite world matrix; skipping`
@@ -626,7 +649,7 @@ export function drawWebGLPacket(
 		gl.uniformMatrix4fv(
 			sceneProgram.uniforms.model,
 			false,
-			toColumnMajorMat4(packet.worldMatrix)
+			Matrix4.toColumnMajorArray(packet.worldMatrix)
 		);
 	}
 	if (sceneProgram.uniforms.normalMatrix) {
@@ -647,13 +670,13 @@ export function drawWebGLPacket(
 		gl.uniformMatrix4fv(
 			sceneProgram.uniforms.prevModel,
 			false,
-			cached ?? toColumnMajorMat4(packet.worldMatrix)
+			cached ?? Matrix4.toColumnMajorArray(packet.worldMatrix)
 		);
 		if (!cached) {
-			cached = toColumnMajorMat4(packet.worldMatrix);
+			cached = Matrix4.toColumnMajorArray(packet.worldMatrix);
 			host._modelMatrixCache.set(cacheKey, cached);
 		} else {
-			cached.set(toColumnMajorMat4(packet.worldMatrix));
+			cached.set(Matrix4.toColumnMajorArray(packet.worldMatrix));
 		}
 	}
 	if (sceneProgram.uniforms.shadingModel) {
@@ -1064,7 +1087,7 @@ function resolveWebGLDepthPrepassProgram(
 	if (isMaterialTransparentPass(material) || material.depthWrite === false) {
 		return null;
 	}
-	if (packet.meshInstance.skeleton || !isFiniteMatrix(packet.worldMatrix)) {
+	if (packet.meshInstance.skeleton || !Matrix4.isFinite(packet.worldMatrix)) {
 		return null;
 	}
 	const geometry = host._geometry.getGeometry(packet);
@@ -1104,15 +1127,16 @@ export function drawWebGLDepthPrepassPacket(
 	if (isMaterialTransparentPass(material) || material.depthWrite === false) {
 		return false;
 	}
-	if (packet.meshInstance.skeleton || !isFiniteMatrix(packet.worldMatrix)) {
+	if (packet.meshInstance.skeleton || !Matrix4.isFinite(packet.worldMatrix)) {
 		return false;
 	}
 	const geometry = host._geometry.getGeometry(packet);
 	if (!geometry || geometry.topology !== gl.TRIANGLES) {
 		return false;
 	}
-	const normalMatrix =
-		sceneProgram.uniforms.normalMatrix ? toColumnMajorMat3(packet.normalMatrix) : null;
+	const normalMatrix = sceneProgram.uniforms.normalMatrix ?
+		toColumnMajorMat3(packet.normalMatrix)
+	:	null;
 	if (sceneProgram.uniforms.normalMatrix && !normalMatrix) {
 		logWebGLScenePassWarning(
 			"webgl-depth-prepass-normal-matrix-invalid",
@@ -1139,7 +1163,7 @@ export function drawWebGLDepthPrepassPacket(
 		gl.uniformMatrix4fv(
 			sceneProgram.uniforms.model,
 			false,
-			toColumnMajorMat4(packet.worldMatrix)
+			Matrix4.toColumnMajorArray(packet.worldMatrix)
 		);
 	}
 	if (sceneProgram.uniforms.normalMatrix && normalMatrix) {
@@ -1306,7 +1330,7 @@ function bindWebGLShaderMaterialUniform(
 			gl.uniformMatrix4fv(
 				uniform,
 				false,
-				toColumnMajorMat4(value as number[][])
+				Matrix4.toColumnMajorArray(value as number[][])
 			);
 			break;
 	}

@@ -1,5 +1,9 @@
 import { clamp } from "../../maths/Common";
-import { ceilDiv, finiteOr } from "../../maths/Misc";
+import {
+	ceilDiv,
+	finiteOr,
+	sanitizeFiniteClamped,
+} from "../../maths/Misc";
 import {
 	BufferUsage,
 	type IComputePipeline,
@@ -17,7 +21,6 @@ import {
 	MOTION_BLUR_SHUTTER_SCALE_RANGE,
 	MOTION_BLUR_VELOCITY_CLAMP_RANGE,
 } from "../../backends/webgl/constants";
-import { sanitizeFiniteClamped } from "../../backends/webgl/WebGLFrameMath";
 import type {
 	WebGLProgramCompiler,
 	WebGLProgramSlot,

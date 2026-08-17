@@ -496,6 +496,44 @@ export class Matrix4 {
 		]);
 	}
 
+	/** Returns the matrix values in column-major order. */
+	public static toColumnMajorArray(
+		matrix: Matrix4 | number[][]
+	): Float32Array {
+		const elements = Array.isArray(matrix) ? matrix : matrix.elements;
+		return new Float32Array([
+			elements[0][0],
+			elements[1][0],
+			elements[2][0],
+			elements[3][0],
+			elements[0][1],
+			elements[1][1],
+			elements[2][1],
+			elements[3][1],
+			elements[0][2],
+			elements[1][2],
+			elements[2][2],
+			elements[3][2],
+			elements[0][3],
+			elements[1][3],
+			elements[2][3],
+			elements[3][3],
+		]);
+	}
+
+	/** Returns whether every matrix component is finite. */
+	public static isFinite(matrix: Matrix4 | number[][]): boolean {
+		const elements = Array.isArray(matrix) ? matrix : matrix.elements;
+		for (let row = 0; row < 4; row++) {
+			for (let col = 0; col < 4; col++) {
+				if (!Number.isFinite(elements[row][col])) {
+					return false;
+				}
+			}
+		}
+		return true;
+	}
+
 	public static fromTranslation(t: number[]): Matrix4 {
 		const m = Matrix4.identity();
 		m.elements[0][3] = t[0];

@@ -1,4 +1,6 @@
 import { clamp } from "../../maths/Common";
+import { Matrix4 } from "../../maths/Matrix4";
+import { finiteOr } from "../../maths/Misc";
 import { ParticleBlendMode } from "../../particles";
 import type { ParticleRenderBatch } from "../../particles/ParticleRenderBatch";
 import {
@@ -8,7 +10,6 @@ import {
 } from "../../pipeline/types";
 import type { FogOptions } from "../../postprocess/passes/FogPass";
 import { PARTICLE_QUAD_VERTICES } from "../constants";
-import { finiteOr, toColumnMajorMat4 } from "./WebGLFrameMath";
 import { resolveTextureUVTransform } from "./WebGLMaterialUniformResolver";
 import type { WebGLRenderPass } from "./WebGLPassLifecycle";
 import { Logger } from "../../foundation/Logger";
@@ -205,7 +206,7 @@ export class WebGLParticlePass
 			gl.uniformMatrix4fv(
 				particleProgram.uniforms.viewProjection as WebGLUniformLocation,
 				false,
-				toColumnMajorMat4(context.viewCamera.viewProjectionMatrix)
+				Matrix4.toColumnMajorArray(context.viewCamera.viewProjectionMatrix)
 			);
 		}
 		if (particleProgram.uniforms.basisRight) {

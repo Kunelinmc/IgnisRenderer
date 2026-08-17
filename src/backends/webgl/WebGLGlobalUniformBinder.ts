@@ -1,3 +1,6 @@
+import { clamp } from "../../maths/Common";
+import { Matrix4 } from "../../maths/Matrix4";
+import { finiteOr } from "../../maths/Misc";
 import type { SHCoefficients } from "../../maths/types";
 import type { FrameContext } from "../../pipeline/types";
 import type { FogOptions } from "../../postprocess/passes/FogPass";
@@ -5,28 +8,18 @@ import { IBLBRDF } from "../../lights/ibl/IBLBRDF";
 import { Logger } from "../../foundation/Logger";
 import {
 	MAX_DIRECTIONAL_LIGHTS,
+	MAX_LOCAL_LIGHT_PROBES,
 	MAX_POINT_LIGHTS,
+	MAX_REFLECTION_PROBES,
 	MAX_SPOT_LIGHTS,
 } from "../constants";
-import {
-	finiteOr,
-	flattenLocalLightProbeRows,
-	flattenLocalLightProbeVec4,
-	flattenReflectionProbeRows,
-	flattenReflectionProbeVec4,
-	flattenShadowParamsA,
-	flattenShadowParamsB,
-	flattenShadowParamsC,
-	flattenShadowParamsD,
-	flattenShadowCascadeSplits,
-	flattenShadowCascadeViewProjection,
-	flattenShadowViewProjection,
-	flattenVec4,
-	sanitizeFloat32Array,
-	toColumnMajorMat4,
-	toFiniteColumnMajorMat4,
-} from "./WebGLFrameMath";
-import type { WebGLLightState, WebGLClusteredLight } from "./WebGLLightCollector";
+import type {
+	WebGLLightState,
+	WebGLClusteredLight,
+	WebGLLocalLightProbeUniform,
+	WebGLReflectionProbeUniform,
+	WebGLShadowData,
+} from "./WebGLLightCollector";
 import type { WebGLSceneProgram } from "./WebGLSceneProgram";
 import type { WebGLShadowSamplingState } from "./WebGLShadowRuntime";
 import { getWebGLSceneSamplerUnit } from "./WebGLSceneSamplerLayout";
@@ -43,6 +36,272 @@ const IDENTITY_MATRIX4_COLUMN_MAJOR = new Float32Array([
 	0, 0, 1, 0,
 	0, 0, 0, 1,
 ]);
+
+function flattenVec4<T>(
+	values: T[],
+	mapper: (value: T) => [number, number, number, number],
+	maxCount: number
+): Float32Array {
+	const resolvedMaxCount =
+		typeof maxCount === "number" && Number.isFinite(maxCount) ?
+			Math.max(0, Math.floor(maxCount))
+		:	0;
+	const packed = new Float32Array(resolvedMaxCount * 4);
+	const count = Math.min(resolvedMaxCount, values.length);
+	for (let i = 0; i < count; i++) {
+		const value = mapper(values[i]);
+		const offset = i * 4;
+		packed[offset] = value[0];
+		packed[offset + 1] = value[1];
+		packed[offset + 2] = value[2];
+		packed[offset + 3] = value[3];
+	}
+	return packed;
+}
+
+function flattenShadowViewProjection(
+	values: WebGLShadowData[],
+	maxCount: number
+): Float32Array {
+	const packed = new Float32Array(maxCount * 16);
+	const count = Math.min(maxCount, values.length);
+	for (let i = 0; i < count; i++) {
+		const matrix = values[i]?.viewProjectionMatrix;
+		if (!matrix) {
+			continue;
+		}
+		packed.set(Matrix4.toColumnMajorArray(matrix), i * 16);
+	}
+	return packed;
+}
+
+function flattenShadowCascadeViewProjection(
+	values: WebGLShadowData[],
+	maxCount: number
+): Float32Array {
+	const cascadesPerLight = 4;
+	const packed = new Float32Array(maxCount * cascadesPerLight * 16);
+	const count = Math.min(maxCount, values.length);
+	for (let lightIndex = 0; lightIndex < count; lightIndex++) {
+		const shadow = values[lightIndex];
+		if (!shadow?.enabled) {
+			continue;
+		}
+		const cascades = shadow.cascadeViewProjectionMatrices ?? [];
+		for (
+			let cascadeIndex = 0;
+			cascadeIndex < Math.min(cascadesPerLight, cascades.length);
+			cascadeIndex++
+		) {
+			const matrix = cascades[cascadeIndex];
+			if (!matrix) {
+				continue;
+			}
+			const offset = (lightIndex * cascadesPerLight + cascadeIndex) * 16;
+			packed.set(Matrix4.toColumnMajorArray(matrix), offset);
+		}
+	}
+	return packed;
+}
+
+function flattenShadowCascadeSplits(
+	values: WebGLShadowData[],
+	maxCount: number
+): Float32Array {
+	const cascadesPerLight = 4;
+	const packed = new Float32Array(maxCount * cascadesPerLight * 4);
+	const count = Math.min(maxCount, values.length);
+	for (let lightIndex = 0; lightIndex < count; lightIndex++) {
+		const shadow = values[lightIndex];
+		const splits = shadow.cascadeSplits ?? [];
+		for (
+			let cascadeIndex = 0;
+			cascadeIndex < Math.min(cascadesPerLight, splits.length);
+			cascadeIndex++
+		) {
+			const split = splits[cascadeIndex];
+			const offset = (lightIndex * cascadesPerLight + cascadeIndex) * 4;
+			packed[offset] = finiteOr(split[0], 0);
+			packed[offset + 1] = finiteOr(split[1], 0);
+			packed[offset + 2] = finiteOr(split[2], 0);
+			packed[offset + 3] = finiteOr(split[3], 0);
+		}
+	}
+	return packed;
+}
+
+function flattenShadowParamsA(
+	values: WebGLShadowData[],
+	maxCount: number
+): Float32Array {
+	const packed = new Float32Array(maxCount * 4);
+	const count = Math.min(maxCount, values.length);
+	for (let i = 0; i < count; i++) {
+		const shadow = values[i];
+		const offset = i * 4;
+		packed[offset] = shadow.enabled ? 1 : 0;
+		packed[offset + 1] = finiteOr(shadow.depthBias, 0);
+		packed[offset + 2] = finiteOr(shadow.normalBias, 0);
+		packed[offset + 3] = finiteOr(shadow.normalBiasMin, 0);
+	}
+	return packed;
+}
+
+function flattenShadowParamsB(
+	values: WebGLShadowData[],
+	maxCount: number
+): Float32Array {
+	const packed = new Float32Array(maxCount * 4);
+	const count = Math.min(maxCount, values.length);
+	for (let i = 0; i < count; i++) {
+		const shadow = values[i];
+		const offset = i * 4;
+		packed[offset] = finiteOr(shadow.pcfRadius, 0);
+		packed[offset + 1] = finiteOr(shadow.shadowStrength, 0);
+		packed[offset + 2] = finiteOr(shadow.shadowMapSize, 0);
+		packed[offset + 3] = finiteOr(shadow.atlasTileSize, 0);
+	}
+	return packed;
+}
+
+function flattenShadowParamsC(
+	values: WebGLShadowData[],
+	maxCount: number
+): Float32Array {
+	const packed = new Float32Array(maxCount * 4);
+	const count = Math.min(maxCount, values.length);
+	for (let i = 0; i < count; i++) {
+		const shadow = values[i];
+		const offset = i * 4;
+		const isCSM =
+			shadow.enabled &&
+			shadow.strategyType === "csm" &&
+			shadow.cascadeCount > 1;
+		const cascadeCount =
+			isCSM ? Math.max(1, Math.min(4, shadow.cascadeCount | 0)) : 1;
+		packed[offset] = finiteOr(shadow.slopeBias, 0);
+		packed[offset + 1] = isCSM ? 1 : 0;
+		packed[offset + 2] = cascadeCount;
+		packed[offset + 3] =
+			isCSM ? clamp(finiteOr(shadow.cascadeBlendRatio, 0), 0, 1) : 0;
+	}
+	return packed;
+}
+
+function flattenShadowParamsD(
+	values: WebGLShadowData[],
+	maxCount: number
+): Float32Array {
+	const packed = new Float32Array(maxCount * 4);
+	const count = Math.min(maxCount, values.length);
+	for (let i = 0; i < count; i++) {
+		const shadow = values[i];
+		const offset = i * 4;
+		packed[offset] = shadow.pcssEnabled ? 1 : 0;
+		packed[offset + 1] = finiteOr(shadow.pcssRadius, 0);
+		packed[offset + 2] = finiteOr(shadow.shadowSamples, 0);
+		packed[offset + 3] = finiteOr(shadow.shadowSearchSamples, 0);
+	}
+	return packed;
+}
+
+function flattenReflectionProbeRows(
+	values: WebGLReflectionProbeUniform[],
+	matrixKey: "worldToProbeMatrix" | "probeToWorldMatrix",
+	row: 0 | 1 | 2
+): Float32Array {
+	const packed = new Float32Array(MAX_REFLECTION_PROBES * 4);
+	const count = Math.min(MAX_REFLECTION_PROBES, values.length);
+	for (let i = 0; i < count; i++) {
+		const matrix = values[i][matrixKey].elements;
+		const offset = i * 4;
+		packed[offset] = finiteOr(matrix[row][0], 0);
+		packed[offset + 1] = finiteOr(matrix[row][1], 0);
+		packed[offset + 2] = finiteOr(matrix[row][2], 0);
+		packed[offset + 3] = finiteOr(matrix[row][3], 0);
+	}
+	return packed;
+}
+
+function flattenReflectionProbeVec4(
+	values: WebGLReflectionProbeUniform[],
+	mapper: (probe: WebGLReflectionProbeUniform) => [number, number, number, number]
+): Float32Array {
+	const packed = new Float32Array(MAX_REFLECTION_PROBES * 4);
+	const count = Math.min(MAX_REFLECTION_PROBES, values.length);
+	for (let i = 0; i < count; i++) {
+		const mapped = mapper(values[i]);
+		const offset = i * 4;
+		packed[offset] = finiteOr(mapped[0], 0);
+		packed[offset + 1] = finiteOr(mapped[1], 0);
+		packed[offset + 2] = finiteOr(mapped[2], 0);
+		packed[offset + 3] = finiteOr(mapped[3], 0);
+	}
+	return packed;
+}
+
+function flattenLocalLightProbeRows(
+	values: WebGLLocalLightProbeUniform[],
+	row: 0 | 1 | 2
+): Float32Array {
+	const packed = new Float32Array(MAX_LOCAL_LIGHT_PROBES * 4);
+	const count = Math.min(MAX_LOCAL_LIGHT_PROBES, values.length);
+	for (let i = 0; i < count; i++) {
+		const matrix = values[i].worldToProbeMatrix.elements;
+		const offset = i * 4;
+		packed[offset] = finiteOr(matrix[row][0], 0);
+		packed[offset + 1] = finiteOr(matrix[row][1], 0);
+		packed[offset + 2] = finiteOr(matrix[row][2], 0);
+		packed[offset + 3] = finiteOr(matrix[row][3], 0);
+	}
+	return packed;
+}
+
+function flattenLocalLightProbeVec4(
+	values: WebGLLocalLightProbeUniform[],
+	mapper: (probe: WebGLLocalLightProbeUniform) => [number, number, number, number]
+): Float32Array {
+	const packed = new Float32Array(MAX_LOCAL_LIGHT_PROBES * 4);
+	const count = Math.min(MAX_LOCAL_LIGHT_PROBES, values.length);
+	for (let i = 0; i < count; i++) {
+		const mapped = mapper(values[i]);
+		const offset = i * 4;
+		packed[offset] = finiteOr(mapped[0], 0);
+		packed[offset + 1] = finiteOr(mapped[1], 0);
+		packed[offset + 2] = finiteOr(mapped[2], 0);
+		packed[offset + 3] = finiteOr(mapped[3], 0);
+	}
+	return packed;
+}
+
+function toFiniteColumnMajorMat4(
+	matrix: Matrix4 | number[][]
+): Float32Array | null {
+	const values = Matrix4.toColumnMajorArray(matrix);
+	for (let i = 0; i < values.length; i++) {
+		if (!Number.isFinite(values[i])) {
+			return null;
+		}
+	}
+	return values;
+}
+
+function sanitizeFloat32Array(
+	values: Float32Array,
+	fallback: number
+): {
+	values: Float32Array;
+	hadInvalid: boolean;
+} {
+	let hadInvalid = false;
+	for (let i = 0; i < values.length; i++) {
+		if (!Number.isFinite(values[i])) {
+			values[i] = fallback;
+			hadInvalid = true;
+		}
+	}
+	return { values, hadInvalid };
+}
 
 function logWebGLGlobalUniformWarning(key: string, message: string): void {
 	Logger.warn(`[${key}] ${message}`, {
@@ -772,7 +1031,7 @@ export function bindWebGLGlobalUniforms(
 	if (uniforms.prevViewProjection) {
 		const prevViewProjection = sanitizeFloat32Array(
 			host._previousViewProjection ??
-				toColumnMajorMat4(context.viewCamera.viewProjectionMatrix),
+				Matrix4.toColumnMajorArray(context.viewCamera.viewProjectionMatrix),
 			0
 		);
 		if (prevViewProjection.hadInvalid) {

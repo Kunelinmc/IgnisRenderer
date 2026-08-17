@@ -4,6 +4,15 @@ export function finiteOr(value: unknown, fallback: number): number {
 	return typeof value === "number" && Number.isFinite(value) ? value : fallback;
 }
 
+export function sanitizeFiniteClamped(
+	value: unknown,
+	fallback: number,
+	minValue: number,
+	maxValue: number
+): number {
+	return clamp(finiteOr(value, fallback), minValue, maxValue);
+}
+
 export function ceilDiv(value: number, divisor: number): number {
 	return Math.max(1, Math.ceil(value / Math.max(divisor, 1)));
 }
