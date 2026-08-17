@@ -1,4 +1,5 @@
 import type { Texture } from "../../core/Texture";
+import type { PrimitiveDrawTopology } from "../../core/types";
 import type {
 	DrawPacket,
 	FrameContext,
@@ -18,6 +19,7 @@ import type {
 	WebGPUEnvironmentState,
 	WebGPUFeatureState,
 	WebGPULightingState,
+	WebGPUMaterialUniformData,
 } from "./types";
 import type {
 	WebGPUScenePipelineDrawMode,
@@ -34,6 +36,26 @@ import type { WebGPUPagedShadowFrameRequest } from "./WebGPUPagedShadowTechnique
 import type { ParticleBlendMode } from "../../particles";
 import type { WebGPUDeferredGBufferLayout } from "./constants";
 
+/** @internal Inputs retained with a resolved WebGPU scene draw. */
+export interface WebGPUResolvedDrawInputs {
+	readonly materialData: WebGPUMaterialUniformData;
+	readonly textures: readonly IRenderTexture[];
+	readonly samplers: readonly ISampler[];
+	readonly anisotropyTexture: IRenderTexture;
+	readonly geometry: {
+		readonly vertexBuffer: IRenderBuffer;
+		readonly indexBuffer: IRenderBuffer;
+		readonly indexCount: number;
+		readonly topology: PrimitiveDrawTopology;
+		readonly wireframeIndexBuffer: IRenderBuffer;
+		readonly wireframeIndexCount: number;
+		readonly vertexCount: number;
+		readonly morphTargetCount: number;
+		readonly morphPositionBuffer: IRenderBuffer | null;
+		readonly morphNormalBuffer: IRenderBuffer | null;
+	};
+}
+
 /** @internal WebGPU scene draw resolution result. */
 export interface WebGPUDrawResources {
 	pipeline: IRenderPipeline;
@@ -43,6 +65,7 @@ export interface WebGPUDrawResources {
 	vertexBuffer: IRenderBuffer;
 	indexBuffer: IRenderBuffer;
 	indexCount: number;
+	resolvedInputs: WebGPUResolvedDrawInputs;
 }
 
 /** @internal WebGPU environment draw resolution result. */

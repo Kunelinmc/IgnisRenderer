@@ -261,6 +261,15 @@ async function testDeferredLightingBindsUnusedGroupOnePlaceholder() {
 			"draw:deferred-anisotropic:gbuffer:early-z-color"
 		)
 	);
+	assert.deepEqual(
+		resources._state.events.filter((event) =>
+			event.startsWith("draw:deferred-anisotropic:")
+		),
+		[
+			"draw:deferred-anisotropic:gbuffer:early-z-prepass",
+			"draw:deferred-anisotropic:gbuffer:early-z-color",
+		]
+	);
 }
 
 async function testDeferredLightingKeepsTransmissionOutOfGBuffer() {

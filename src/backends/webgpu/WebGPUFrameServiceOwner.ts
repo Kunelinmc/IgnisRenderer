@@ -1048,6 +1048,13 @@ export class WebGPUFrameServiceOwner {
 			vertexBuffer: geometry.vertexBuffer,
 			indexBuffer: geometry.indexBuffer,
 			indexCount: geometry.indexCount,
+			resolvedInputs: {
+				materialData: solidMaterialData,
+				textures: solidTextures,
+				samplers: solidSamplers,
+				anisotropyTexture: solidAnisotropyTexture,
+				geometry,
+			},
 		});
 
 		// ----- WIREFRAME OVERLAY -----
@@ -1096,6 +1103,13 @@ export class WebGPUFrameServiceOwner {
 				vertexBuffer: geometry.vertexBuffer,
 				indexBuffer: geometry.wireframeIndexBuffer,
 				indexCount: geometry.wireframeIndexCount,
+				resolvedInputs: {
+					materialData: wireMaterialData,
+					textures: wireTextures,
+					samplers: wireSamplers,
+					anisotropyTexture: wireAnisotropyTexture,
+					geometry,
+				},
 			});
 		}
 

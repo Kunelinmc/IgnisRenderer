@@ -32,6 +32,7 @@ export interface WebGPUDrawSubmissionRequest {
 	resources: WebGPUDrawResourceProvider;
 	frameResources: WebGPUPreparedFrameResources;
 	packets: DrawPacket[];
+	preparedResources?: ReadonlyMap<DrawPacket, WebGPUDrawResources[] | null>;
 	dirtyRects?: readonly WebGPUDrawSubmissionRect[] | null;
 	selectPacketsForRect?: (
 		packets: DrawPacket[],
@@ -75,11 +76,13 @@ export async function submitWebGPUDraws(
 		rect: WebGPUDrawSubmissionRect | null
 	): Promise<void> => {
 		for (const packet of packets) {
-			const resourcesList = await request.resources.getDrawResources(
-				packet,
-				request.frameResources,
-				request.resolveDrawOptions(packet, rect)
-			);
+			const resourcesList = request.preparedResources ?
+					request.preparedResources.get(packet) ?? null
+				: await request.resources.getDrawResources(
+						packet,
+						request.frameResources,
+						request.resolveDrawOptions(packet, rect)
+					);
 			if (!resourcesList || resourcesList.length <= 0) {
 				continue;
 			}

@@ -252,6 +252,24 @@ async function testRenderResourcesUseCopyDstForUploads() {
 	assert.ok(draw);
 	const firstDraw = draw[0];
 	assert.ok(firstDraw);
+	assert.equal(
+		firstDraw.resolvedInputs.geometry.vertexBuffer,
+		firstDraw.vertexBuffer
+	);
+	assert.equal(
+		firstDraw.resolvedInputs.geometry.indexBuffer,
+		firstDraw.indexBuffer
+	);
+	assert.equal(firstDraw.resolvedInputs.materialData.pipelineKey.length > 0, true);
+	assert.equal(
+		firstDraw.resolvedInputs.textures.length,
+		firstDraw.resolvedInputs.materialData.textureSlots.length
+	);
+	assert.equal(
+		firstDraw.resolvedInputs.samplers.length,
+		firstDraw.resolvedInputs.materialData.textureSlots.length
+	);
+	assert.ok(firstDraw.resolvedInputs.anisotropyTexture);
 	assert.equal(firstDraw.frameBinding.desc.entries.length, 17);
 	assert.ok(
 		firstDraw.frameBinding.desc.entries.some((entry) => entry.binding === 7)

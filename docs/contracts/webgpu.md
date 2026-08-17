@@ -333,6 +333,14 @@ This document defines WebGPU frame-graph execution, deferred lighting, presentat
 	  three-dimensional workgroup id so large valid frame grids do not exceed
 	  `maxComputeWorkgroupsPerDimension` in a single dimension.
 - G-buffer contract:
+	- Deferred packet preflight must retain one frame-local recording snapshot per
+	  packet. The snapshot must contain the resolved pipeline, material uniform
+	  data, texture and sampler resources, model binding, geometry resources, and
+	  the selected early-Z/G-buffer draw variants.
+	- G-buffer and early-Z recording must consume the retained packet snapshots
+	  and must not call `getDrawResources()` again. A packet selected by multiple
+	  incremental dirty rectangles must reuse the same snapshot for every
+	  rectangle.
 	- The frame analyzer must select `base` or `extended` deferred payload mode.
 	  `ShaderMaterial` deferred chunks and deferred decals must conservatively
 	  select `extended` mode.

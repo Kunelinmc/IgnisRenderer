@@ -7,12 +7,16 @@ import type {
 } from "../../../pipeline/types";
 import type { PreparedFramePacketSet } from "../../../pipeline/FramePacketContributorRegistry";
 import { materialSupportsWebGPUDeferredLighting } from "../material";
-import { GBufferSlot } from "../constants";
+import {
+	GBufferSlot,
+	type WebGPUDeferredGBufferLayout,
+} from "../constants";
 import {
 	getDefaultWebGPUDrawBindings,
 	submitWebGPUDraws,
 } from "../WebGPUDrawSubmission";
 import type {
+	WebGPUDrawResources,
 	WebGPUPreparedFrameResources,
 	WebGPUParticleBillboardRenderer,
 	WebGPUSceneResourceProvider,
@@ -33,6 +37,19 @@ export interface WebGPUDeferredOpaqueFrameState {
 	readonly fallbackPackets: DrawPacket[];
 	readonly clearSceneColor: boolean;
 	readonly lightingEnabled: boolean;
+}
+
+interface WebGPUDeferredGBufferRecording {
+	readonly deferredGBufferLayout: WebGPUDeferredGBufferLayout;
+	readonly gbufferWriteBinding: IBindingGroup;
+	readonly earlyZResources: ReadonlyMap<
+		DrawPacket,
+		WebGPUDrawResources[] | null
+	>;
+	readonly gbufferResources: ReadonlyMap<
+		DrawPacket,
+		WebGPUDrawResources[] | null
+	>;
 }
 
 export interface WebGPUScenePassRecorderCallbacks {
@@ -180,8 +197,9 @@ export class WebGPUScenePassRecorder {
 			return null;
 		}
 
+		let recording: WebGPUDeferredGBufferRecording;
 		try {
-			await this._preflightDeferredPackets(context, deferredPackets);
+			recording = await this._preflightDeferredPackets(context, deferredPackets);
 		} catch (error) {
 			Logger.warn(
 				"[webgpu-deferred-runtime-fallback] Deferred pipeline or binding " +
@@ -199,7 +217,8 @@ export class WebGPUScenePassRecorder {
 			context,
 			deferredPackets,
 			true,
-			true
+			true,
+			recording,
 		);
 		return {
 			fallbackPackets,
@@ -211,19 +230,56 @@ export class WebGPUScenePassRecorder {
 	private async _preflightDeferredPackets(
 		context: FrameContext,
 		packets: readonly DrawPacket[]
-	): Promise<void> {
+	): Promise<WebGPUDeferredGBufferRecording> {
 		const frameResources = this._framePort.requireFrameResources();
 		const deferredGBufferLayout = this._framePort.getDeferredGBufferLayout();
-		this._callbacks.getGBufferWriteBinding();
+		const gbufferWriteBinding = this._callbacks.getGBufferWriteBinding();
 		await this._callbacks.preflightDeferredFrame(context);
+		const earlyZResources = new Map<
+			DrawPacket,
+			WebGPUDrawResources[] | null
+		>();
+		const gbufferResources = new Map<
+			DrawPacket,
+			WebGPUDrawResources[] | null
+		>();
+		const preflightEarlyZ = this._framePort.isEarlyZPrepassEnabled();
 		for (const packet of packets) {
-			await this._sceneResources.getDrawResources(packet, frameResources, {
-				sceneTargetMode: "gbuffer",
-				deferredGBufferLayout,
-				sampleCount: 1,
-				drawMode: "default",
-			});
+			let drawMode: "default" | "early-z-color" = "default";
+			if (preflightEarlyZ) {
+				const resources = await this._sceneResources.getDrawResources(
+					packet,
+					frameResources,
+					{
+						sceneTargetMode: "gbuffer",
+						deferredGBufferLayout,
+						sampleCount: 1,
+						drawMode: "early-z-prepass",
+					},
+				);
+				earlyZResources.set(packet, resources);
+				if (resources && resources.length > 0) {
+					drawMode = "early-z-color";
+				}
+			}
+			const resources = await this._sceneResources.getDrawResources(
+				packet,
+				frameResources,
+				{
+					sceneTargetMode: "gbuffer",
+					deferredGBufferLayout,
+					sampleCount: 1,
+					drawMode,
+				},
+			);
+			gbufferResources.set(packet, resources);
 		}
+		return {
+			deferredGBufferLayout,
+			gbufferWriteBinding,
+			earlyZResources,
+			gbufferResources,
+		};
 	}
 
 	/**
@@ -730,14 +786,15 @@ export class WebGPUScenePassRecorder {
 		context: FrameContext,
 		packets: DrawPacket[],
 		clearAttachments: boolean,
-		allowEarlyZPrepass: boolean
+		allowEarlyZPrepass: boolean,
+		recording: WebGPUDeferredGBufferRecording,
 	): Promise<{ clearSceneColor: boolean } | null> {
 		const encoder = this._framePort.getEncoder();
 		const targets = this._framePort.getFrameTargets();
 		if (!encoder || !targets) {
 			return null;
 		}
-		const deferredGBufferLayout = this._framePort.getDeferredGBufferLayout();
+		const deferredGBufferLayout = recording.deferredGBufferLayout;
 		if (
 			deferredGBufferLayout === "extended" &&
 			(
@@ -827,11 +884,12 @@ export class WebGPUScenePassRecorder {
 						shouldClearAttachments,
 						environmentDrawn,
 						false
-					)
+					),
+					recording.earlyZResources,
 				)
 			:	new Set<string>();
 		const earlyZExecuted = earlyZPacketIds.size > 0;
-		const gbufferWriteBinding = this._callbacks.getGBufferWriteBinding();
+		const gbufferWriteBinding = recording.gbufferWriteBinding;
 		const colorAttachments = [];
 		colorAttachments[GBufferSlot.AlbedoAlpha] = {
 			view: targets.gAlbedoAlpha,
@@ -903,6 +961,7 @@ export class WebGPUScenePassRecorder {
 			resources: this._sceneResources,
 			frameResources,
 			packets,
+			preparedResources: recording.gbufferResources,
 			dirtyRects,
 			selectPacketsForRect: (candidatePackets, rect) =>
 				this._framePort.selectPacketsForRect(
@@ -1260,7 +1319,11 @@ export class WebGPUScenePassRecorder {
 		dirtyRects: DirtyRect[],
 		sceneTargetMode: WebGPUSceneTargetMode,
 		depthAttachment: IRenderTexture,
-		depthLoadOp: "clear" | "load"
+		depthLoadOp: "clear" | "load",
+		preparedResources?: ReadonlyMap<
+			DrawPacket,
+			WebGPUDrawResources[] | null
+		>,
 	): Promise<Set<string>> {
 		const prepassedPacketIds = new Set<string>();
 		const encoder = this._framePort.getEncoder();
@@ -1289,6 +1352,7 @@ export class WebGPUScenePassRecorder {
 			resources: this._sceneResources,
 			frameResources: this._framePort.requireFrameResources(),
 			packets,
+			preparedResources,
 			dirtyRects,
 			selectPacketsForRect: (candidatePackets, rect) =>
 				this._framePort.selectPacketsForRect(

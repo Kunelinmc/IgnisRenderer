@@ -163,6 +163,41 @@ async function testSubmissionSupportsExtraAndReplacementBindings() {
 	);
 }
 
+async function testSubmissionReusesPreparedResourcesAcrossDirtyRects() {
+	const encoder = createEncoder();
+	const packet = { id: "prepared" };
+	const preparedDraw = createDrawResource(packet.id);
+	const resources = {
+		async getDrawResources() {
+			throw new Error(
+				"Prepared submission must not resolve draw resources again."
+			);
+		},
+	};
+
+	const result = await submitWebGPUDraws({
+		encoder,
+		resources,
+		frameResources: createFrameResources(),
+		packets: [packet],
+		preparedResources: new Map([[packet, [preparedDraw]]]),
+		dirtyRects: [
+			{ x: 0, y: 0, width: 8, height: 8 },
+			{ x: 8, y: 0, width: 8, height: 8 },
+		],
+		resolveDrawOptions: () => {
+			throw new Error("Prepared submission must not resolve draw options again.");
+		},
+	});
+
+	assert.equal(result.drawCount, 2);
+	assert.deepEqual([...result.submittedPacketIds], [packet.id]);
+	assert.equal(
+		encoder.calls.filter((call) => call[0] === "setPipeline").length,
+		2
+	);
+}
+
 function testScenePassDescriptorsExposePipelineStateKeyParts() {
 	const gbuffer = resolveWebGPUScenePassDescriptor(
 		"gbuffer",
@@ -207,5 +242,6 @@ function testScenePassDescriptorsExposePipelineStateKeyParts() {
 
 await testDefaultSubmissionFiltersDirtyRectsAndTracksPackets();
 await testSubmissionSupportsExtraAndReplacementBindings();
+await testSubmissionReusesPreparedResourcesAcrossDirtyRects();
 testScenePassDescriptorsExposePipelineStateKeyParts();
 console.log("WebGPU draw submission tests passed");
