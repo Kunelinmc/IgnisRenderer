@@ -1,4 +1,4 @@
-import assert from "node:assert/strict";import { AlphaMode, Material } from "../../../src/materials/Material.ts";import { ShaderMaterial } from "../../../src/materials/ShaderMaterial.ts";import { WebGLProgramCompiler } from "../../../src/backends/webgl/WebGLProgramCompiler.ts";import { getWebGLSceneVariantKey } from "../../../src/backends/webgl/WebGLSceneProgramVariants.ts";import { ShaderCompileError, ShaderRuntime } from "../../../src/shaders/runtime/index.ts";import { createSceneProgramRepository, createTestBuiltinSceneVariant, prepareTestBuiltinSceneVariant, createCompilerSlot, createProgramCompileFailGL, createProgramCaptureGL, createSelectiveCompileFailGL, CUSTOM_WEBGL_VERTEX, CUSTOM_WEBGL_FRAGMENT, CUSTOM_WEBGL_FRAGMENT_MRT, CUSTOM_WEBGL_FRAGMENT_DEPTH, runWebGLBackendFile } from "../../helpers/webgl-backend.mjs";
+import assert from "node:assert/strict";import { AlphaMode, Material } from "../../../src/materials/Material.ts";import { ShaderMaterial } from "../../../src/materials/ShaderMaterial.ts";import { WebGLProgramCompiler } from "../../../src/backends/webgl/WebGLProgramCompiler.ts";import { getWebGLSceneVariantKey } from "../../../src/backends/webgl/WebGLSceneProgramVariants.ts";import { ShaderCompileError, ShaderRuntime } from "../../../src/shaders/runtime/index.ts";import { ShaderSource } from "../../../src/shaders/ShaderSource.ts";import { PROGRAM_LIBRARY_SCENE_LIMITS, createSceneProgramRepository, createTestBuiltinSceneVariant, prepareTestBuiltinSceneVariant, createCompilerSlot, createProgramCompileFailGL, createProgramCaptureGL, createSelectiveCompileFailGL, CUSTOM_WEBGL_VERTEX, CUSTOM_WEBGL_FRAGMENT, CUSTOM_WEBGL_FRAGMENT_MRT, CUSTOM_WEBGL_FRAGMENT_DEPTH, runWebGLBackendFile } from "../../helpers/webgl-backend.mjs";
 import { WebGLProgramPreparationError } from "../../../src/foundation/Error.ts";
 import { createWebGLShaderMaterialFallbackVariant } from "../../../src/backends/webgl/WebGLSceneProgramVariants.ts";
 
@@ -197,6 +197,25 @@ async function testSceneProgramRepositoryCachesBuiltinSceneVariants() {
 		getWebGLSceneVariantKey(noMapVariant),
 		getWebGLSceneVariantKey(baseMapVariant)
 	);
+}
+
+async function testNoShadowPBRVariantDeclaresFallbackBeforeLighting() {
+	const variant = createTestBuiltinSceneVariant({
+		output: "mrt",
+		material: { model: "pbr" },
+	});
+	await prepareTestBuiltinSceneVariant(variant);
+	const source = ShaderSource.get("webgl.scene.raw", {
+		limits: PROGRAM_LIBRARY_SCENE_LIMITS,
+		variant,
+	}).fragment;
+	const fallbackIndex = source.indexOf(
+		"vec3 sampleDirectionalShadowVisibility(int index"
+	);
+	const lightingIndex = source.indexOf("vec3 shadow = sampleDirectionalShadowVisibility(");
+
+	assert.ok(fallbackIndex >= 0);
+	assert.ok(lightingIndex > fallbackIndex);
 }
 
 async function testSceneProgramRepositoryShaderMaterialIgnoresBuiltinVariant() {
@@ -523,6 +542,7 @@ await runWebGLBackendFile([
 	testSceneProgramRepositoryShaderMaterialCustomProgram,
 	testSceneProgramRepositoryPropagatesSamplerOverflowInWarnMode,
 	testSceneProgramRepositoryCachesBuiltinSceneVariants,
+	testNoShadowPBRVariantDeclaresFallbackBeforeLighting,
 	testSceneProgramRepositoryShaderMaterialIgnoresBuiltinVariant,
 	testSceneProgramRepositoryShaderMaterialCachesPerSceneTargetMode,
 	testSceneProgramRepositoryBuiltinDepthPrepassProgram,

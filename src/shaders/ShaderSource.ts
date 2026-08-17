@@ -1021,6 +1021,13 @@ export class ShaderSource {
 				)
 			)
 		);
+		const materialPartIndex = selectedParts.findIndex((part) =>
+			part === "fragmentBrdfPbr" ||
+			part === "fragmentPhong" ||
+			part === "fragmentPbrLighting"
+		);
+		const fallbackInsertIndex =
+			materialPartIndex >= 0 ? materialPartIndex : parts.length;
 		return composeShaderParts(
 			[
 				parts[0],
@@ -1029,8 +1036,9 @@ export class ShaderSource {
 					WEBGL_SCENE_VARIANT_DEFINES_PATH,
 					"generated"
 				),
-				...parts.slice(1),
+				...parts.slice(1, fallbackInsertIndex),
 				...this._buildWebGLSceneFallbackComposites(variant),
+				...parts.slice(fallbackInsertIndex),
 			],
 			"<webgl-scene-fragment-part>"
 		);
