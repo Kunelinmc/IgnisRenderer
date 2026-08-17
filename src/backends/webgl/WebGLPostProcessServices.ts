@@ -163,10 +163,7 @@ export class WebGLPostProcessWarmupContributor
 		request: WebGLProgramWarmupRequest,
 	): readonly WebGLProgramWarmupTask[] {
 		const graph =
-			request.postProcessPlan ??
-			(request.plan.includePostProcess ?
-				this._runtime.planWarmup(request.context)
-			: null);
+			request.postProcessPlan ?? this._runtime.planWarmup(request.context);
 		const warmed = new Set<string>();
 		const tasks: WebGLProgramWarmupTask[] = [];
 		for (const passId of request.plan.postProcessPasses) {

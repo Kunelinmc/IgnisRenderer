@@ -368,8 +368,7 @@ export class WebGPUPostProcessFrameModule implements WebGPUFrameGraphModule {
 		await yieldController.yieldIfNeeded();
 
 		const warmupGraph =
-			postProcessPlan ??
-			(plan.includePostProcess ? this._backendRuntime.planWarmup(context) : null);
+			postProcessPlan ?? this._backendRuntime.planWarmup(context);
 		const warmedImplementations = new Set<string>();
 		for (const passId of plan.postProcessPasses) {
 			if (warmedImplementations.has(passId)) continue;

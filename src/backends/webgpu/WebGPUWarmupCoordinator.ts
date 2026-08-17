@@ -42,16 +42,12 @@ export class WebGPUWarmupCoordinator {
 			throw new Error("WebGPU backend has not been initialized.");
 		}
 
-		let warmupPostProcessPlan: WarmupPostProcessPlan | undefined;
-		let postProcessPlan: PostProcessPlan | undefined;
-		if (options.includePostProcess !== false) {
-			const graph = this._host.postProcessRuntime.planWarmup(context);
-			postProcessPlan = graph;
-			warmupPostProcessPlan = {
-				passIds: graph.orderedPasses.map((pass) => pass.id),
-				descriptors: graph.orderedPasses.map((pass) => pass.pass),
-			};
-		}
+		const postProcessPlan: PostProcessPlan =
+			this._host.postProcessRuntime.planWarmup(context);
+		const warmupPostProcessPlan: WarmupPostProcessPlan = {
+			passIds: postProcessPlan.orderedPasses.map((pass) => pass.id),
+			descriptors: postProcessPlan.orderedPasses.map((pass) => pass.pass),
+		};
 		const plan = buildWarmupPlan(context, options, warmupPostProcessPlan);
 		const framePackets = this._host.framePacketProvider.createBaseline(context);
 		this._host.setWarmupLogCompilationInfo(options.logCompilationInfo === true);

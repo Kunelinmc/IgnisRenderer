@@ -473,16 +473,12 @@ export class WebGLBackend implements IRenderBackend {
 		if (!this._frameServices) {
 			throw new Error("WebGL backend has not been initialized.");
 		}
-		let warmupPostProcessPlan: WarmupPostProcessPlan | undefined;
-		let postProcessPlan: PostProcessPlan | undefined;
-		if (options.includePostProcess !== false) {
-			const graph = this._postProcessRuntime.planWarmup(context);
-			postProcessPlan = graph;
-			warmupPostProcessPlan = {
-				passIds: graph.orderedPasses.map((pass) => pass.id),
-				descriptors: graph.orderedPasses.map((pass) => pass.pass),
-			};
-		}
+		const postProcessPlan: PostProcessPlan =
+			this._postProcessRuntime.planWarmup(context);
+		const warmupPostProcessPlan: WarmupPostProcessPlan = {
+			passIds: postProcessPlan.orderedPasses.map((pass) => pass.id),
+			descriptors: postProcessPlan.orderedPasses.map((pass) => pass.pass),
+		};
 		const plan = buildWarmupPlan(context, options, warmupPostProcessPlan);
 		return this._contextWorkQueue.enqueue({
 			label: "webgl-warmup",

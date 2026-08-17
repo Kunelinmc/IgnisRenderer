@@ -50,12 +50,6 @@ export type WarmupSchedulingMode = "immediate" | "next-frame" | "idle";
 
 /** Options controlling backend shader and pass warmup. */
 export interface WarmupOptions {
-	/** Include the backend's core rendering passes. */
-	includeCorePasses?: boolean;
-	/** Include shadow rendering passes. */
-	includeShadowPass?: boolean;
-	/** Include post-process passes. */
-	includePostProcess?: boolean;
 	/** Include particle rendering passes. */
 	includeParticles?: boolean;
 	/** Include shader compilation diagnostics in the report. */

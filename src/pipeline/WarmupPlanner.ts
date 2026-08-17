@@ -20,7 +20,6 @@ export interface WarmupPlan {
 	enableEnvironment: boolean;
 	enableShadows: boolean;
 	enableParticles: boolean;
-	includePostProcess: boolean;
 	postProcessPasses: string[];
 	postProcessDescriptors: readonly PostProcessPass[];
 	sceneTargetMode: WarmupSceneTargetMode;
@@ -40,37 +39,29 @@ export function buildWarmupPlan(
 	options: WarmupOptions = {},
 	postProcessPlan?: WarmupPostProcessPlan
 ): WarmupPlan {
-	const includeCore = options.includeCorePasses !== false;
-	const includeShadow = options.includeShadowPass !== false;
 	const includeParticles = options.includeParticles !== false;
-	const includePost = options.includePostProcess !== false;
 
 	const materials = collectUniqueMaterials(context);
 	const shaderMaterials = materials.filter(
 		(material): material is ShaderMaterial => material instanceof ShaderMaterial
 	);
-	const postProcessPasses =
-		includePost ? resolveEnabledPostProcessPasses(context, postProcessPlan) : [];
-	const postProcessDescriptors =
-		includePost ? resolvePostProcessDescriptors(context, postProcessPlan) : [];
+	const postProcessPasses = resolveEnabledPostProcessPasses(context, postProcessPlan);
+	const postProcessDescriptors = resolvePostProcessDescriptors(context, postProcessPlan);
 	const useMRT = postProcessPasses.length > 0;
 
 	return {
-		materials: includeCore ? materials : [],
-		shaderMaterials: includeCore ? shaderMaterials : [],
+		materials,
+		shaderMaterials,
 		enableEnvironment:
-			includeCore &&
 			context.features.enableEnvironment &&
 			context.scene.environment.backgroundEnabled &&
 			!!context.scene.environment.backgroundTexture,
 		enableShadows:
-			includeShadow &&
 			context.features.enableShadows &&
 			context.scene.shadowCasterPackets.length > 0,
 		enableParticles:
 			includeParticles &&
 			(context.scene.particleSystems?.length ?? 0) > 0,
-		includePostProcess: includePost,
 		postProcessPasses,
 		postProcessDescriptors,
 		sceneTargetMode: useMRT ? "mrt" : "single",
