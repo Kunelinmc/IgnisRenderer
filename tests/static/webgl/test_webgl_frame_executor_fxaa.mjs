@@ -1052,11 +1052,17 @@ function testTransparentRenderPacketsConfiguresBlendAndDepthState() {
 	const executor = new WebGLFrameExecutor(gl);
 	executor._sceneFramebuffer = { id: "scene-fbo" };
 	executor._sceneNormalTexture = { id: "normal" };
-	executor._programs = {
+	executor._scenePrograms = {
 		getSceneProgram() {
 			return {
 				program: { id: "scene-program" },
 				uniforms: {},
+				samplerLayout: {
+					units: {},
+					activeSamplerNames: [],
+					required: 0,
+					available: 16,
+				},
 			};
 		},
 	};
@@ -1357,6 +1363,12 @@ function testGlobalUniformsBindLightProbeIBLTextures() {
 		envSpecularMap: envProbeMap,
 	};
 	const sceneProgram = {
+		samplerLayout: {
+			units: { uEnvSpecularMap: 0, uBrdfLUT: 1 },
+			activeSamplerNames: ["uEnvSpecularMap", "uBrdfLUT"],
+			required: 2,
+			available: 16,
+		},
 		uniforms: {
 			envSpecularMap: "uEnvSpecularMap",
 			hasEnvSpecularMap: "uHasEnvSpecularMap",
@@ -1380,10 +1392,10 @@ function testGlobalUniformsBindLightProbeIBLTextures() {
 			.filter((call) => call.name === "uniform1i")
 			.map((call) => [call.location, call.value])
 	);
-	assert.equal(uniform1i.get("uEnvSpecularMap"), 2);
+	assert.equal(uniform1i.get("uEnvSpecularMap"), 0);
 	assert.equal(uniform1i.get("uHasEnvSpecularMap"), 1);
 	assert.equal(uniform1i.get("uEnvSpecularMapIsLinear"), 1);
-	assert.equal(uniform1i.get("uBrdfLUT"), 3);
+	assert.equal(uniform1i.get("uBrdfLUT"), 1);
 
 	const uniform1f = new Map(
 		gl.calls
@@ -1395,8 +1407,8 @@ function testGlobalUniformsBindLightProbeIBLTextures() {
 	const activeTextureUnits = gl.calls
 		.filter((call) => call.name === "activeTexture")
 		.map((call) => call.unit);
-	assert.ok(activeTextureUnits.includes(gl.TEXTURE2));
-	assert.ok(activeTextureUnits.includes(gl.TEXTURE3));
+	assert.ok(activeTextureUnits.includes(gl.TEXTURE0));
+	assert.ok(activeTextureUnits.includes(gl.TEXTURE1));
 	assert.equal(envSpecularMapCalls, 1);
 	assert.equal(fallbackMapCalls, 1);
 }
@@ -1429,6 +1441,7 @@ function testGlobalUniformsSanitizeNonFiniteCameraAndLightValues() {
 	};
 
 	const sceneProgram = {
+		samplerLayout: { units: {}, activeSamplerNames: [], required: 0, available: 16 },
 		uniforms: {
 			viewProjection: "uViewProjection",
 			viewMatrix: "uViewMatrix",
@@ -1508,17 +1521,6 @@ async function testWarmupCollectsPostProcessHintsFromPlanOrder() {
 	const calls = [];
 	executor._programCompiler = createProgramCompilerStub({}, calls);
 
-	executor._programs = {
-		warmupPresentProgram() {
-			calls.push("present");
-			return {
-				label: "present",
-				isComplete: () => true,
-				finalize: () => {},
-			};
-		},
-	};
-
 	await executor.warmupCoordinator.warmup(
 		{
 			features: {
@@ -1545,7 +1547,6 @@ async function testWarmupCollectsPostProcessHintsFromPlanOrder() {
 	);
 
 	assert.deepEqual(calls, [
-		"present",
 		"WebGLSSAORawProgram",
 		"WebGLSSAOBlurProgram",
 		"WebGLSSAOCombineProgram",

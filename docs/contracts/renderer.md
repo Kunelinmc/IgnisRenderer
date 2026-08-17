@@ -325,6 +325,8 @@ This document defines the lifecycle, scheduling, warmup, incremental rendering, 
   `WarmupReport` after requested work completes.
 - WebGL backend warmup must prioritize core scene and presentation programs
   before optional environment, shadow, particle, OIT, and post-process programs.
+- When shadow warmup is requested, WebGL must warm both the depth and
+  transmittance raster programs.
 - WebGL warmup must validate every requested scene sampler layout. It must
   reject an over-budget layout with `material-texture-unit-overflow` rather
   than omitting a sampler or disabling a material feature.

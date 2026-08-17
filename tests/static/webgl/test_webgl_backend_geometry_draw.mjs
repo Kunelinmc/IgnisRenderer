@@ -222,6 +222,30 @@ function testDrawWebGLPacketBindsPBRTexturesAndUVSets() {
 	]);
 	const sceneProgram = {
 		program: {},
+		samplerLayout: {
+			units: {
+				uBaseMap: 0,
+				uNormalMap: 1,
+				uMetallicRoughnessMap: 2,
+				uEmissiveMap: 3,
+				uOcclusionMap: 4,
+				uIridescenceMap: 5,
+				uIridescenceThicknessMap: 6,
+				uAnisotropyMap: 7,
+			},
+			activeSamplerNames: [
+				"uBaseMap",
+				"uNormalMap",
+				"uMetallicRoughnessMap",
+				"uEmissiveMap",
+				"uOcclusionMap",
+				"uIridescenceMap",
+				"uIridescenceThicknessMap",
+				"uAnisotropyMap",
+			],
+			required: 8,
+			available: 16,
+		},
 		uniforms: {
 			model: null,
 			normalMatrix: null,
@@ -318,12 +342,12 @@ function testDrawWebGLPacketBindsPBRTexturesAndUVSets() {
 	const unitFor = (name) =>
 		gl.calls.uniform1i.find((entry) => entry.location === name)?.value;
 	assert.equal(unitFor("uBaseMap"), 0);
-	assert.equal(unitFor("uNormalMap"), 8);
-	assert.equal(unitFor("uMetallicRoughnessMap"), 9);
-	assert.equal(unitFor("uEmissiveMap"), 10);
-	assert.equal(unitFor("uOcclusionMap"), 11);
-	assert.equal(unitFor("uIridescenceMap"), 12);
-	assert.equal(unitFor("uIridescenceThicknessMap"), 15);
+	assert.equal(unitFor("uNormalMap"), 1);
+	assert.equal(unitFor("uMetallicRoughnessMap"), 2);
+	assert.equal(unitFor("uEmissiveMap"), 3);
+	assert.equal(unitFor("uOcclusionMap"), 4);
+	assert.equal(unitFor("uIridescenceMap"), 5);
+	assert.equal(unitFor("uIridescenceThicknessMap"), 6);
 	assert.equal(unitFor("uBaseMapUV"), 2);
 	assert.equal(unitFor("uNormalMapUV"), 3);
 	assert.equal(unitFor("uMetallicRoughnessMapUV"), 2);
@@ -418,6 +442,12 @@ function testDrawWebGLPacketBindsAnisotropyMapWhenSharedSlotIsFree() {
 	material.anisotropyMapUV = 3;
 	const sceneProgram = {
 		program: {},
+		samplerLayout: {
+			units: { uIridescenceThicknessMap: 0, uAnisotropyMap: 1 },
+			activeSamplerNames: ["uIridescenceThicknessMap", "uAnisotropyMap"],
+			required: 2,
+			available: 16,
+		},
 		uniforms: {
 			model: null,
 			normalMatrix: null,
@@ -477,17 +507,17 @@ function testDrawWebGLPacketBindsAnisotropyMapWhenSharedSlotIsFree() {
 	};
 
 	drawWebGLPacket(host, sceneProgram, packet, false, {});
-	const textureUnit15Index = gl.calls.activeTextures.findLastIndex(
-		(unit) => unit === gl.TEXTURE0 + 15
+	const anisotropyTextureUnitIndex = gl.calls.activeTextures.findLastIndex(
+		(unit) => unit === gl.TEXTURE0 + 1
 	);
-	assert.notEqual(textureUnit15Index, -1);
+	assert.notEqual(anisotropyTextureUnitIndex, -1);
 	assert.equal(
-		gl.calls.boundTextures[textureUnit15Index].texture.id,
+		gl.calls.boundTextures[anisotropyTextureUnitIndex].texture.id,
 		"anisotropy"
 	);
 	const unitFor = (name) =>
 		gl.calls.uniform1i.find((entry) => entry.location === name)?.value;
-	assert.equal(unitFor("uIridescenceThicknessMap"), 15);
+	assert.equal(unitFor("uIridescenceThicknessMap"), 0);
 	assert.equal(unitFor("uHasIridescenceThicknessMap"), 0);
 	assert.equal(unitFor("uHasAnisotropyMap"), 1);
 	assert.equal(unitFor("uAnisotropyMapUV"), 3);

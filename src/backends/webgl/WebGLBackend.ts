@@ -267,7 +267,6 @@ export class WebGLBackend implements IRenderBackend {
 						maxDirectionalLights: MAX_DIRECTIONAL_LIGHTS,
 						maxPointLights: MAX_POINT_LIGHTS,
 						maxSpotLights: MAX_SPOT_LIGHTS,
-						enableShadowTransmittance: false,
 					},
 				},
 			},
@@ -278,77 +277,6 @@ export class WebGLBackend implements IRenderBackend {
 						maxDirectionalLights: MAX_DIRECTIONAL_LIGHTS,
 						maxPointLights: MAX_POINT_LIGHTS,
 						maxSpotLights: MAX_SPOT_LIGHTS,
-						enableShadowTransmittance: false,
-					},
-				},
-			},
-			{
-				key: "webgl.scene.raw" as const,
-				params: {
-					limits: {
-						maxDirectionalLights: MAX_DIRECTIONAL_LIGHTS,
-						maxPointLights: MAX_POINT_LIGHTS,
-						maxSpotLights: MAX_SPOT_LIGHTS,
-						enableShadowTransmittance: true,
-					},
-				},
-			},
-			{
-				key: "webgl.scene.composite" as const,
-				params: {
-					limits: {
-						maxDirectionalLights: MAX_DIRECTIONAL_LIGHTS,
-						maxPointLights: MAX_POINT_LIGHTS,
-						maxSpotLights: MAX_SPOT_LIGHTS,
-						enableShadowTransmittance: true,
-					},
-				},
-			},
-			{
-				key: "webgl.scene.raw" as const,
-				params: {
-					limits: {
-						maxDirectionalLights: MAX_DIRECTIONAL_LIGHTS,
-						maxPointLights: MAX_POINT_LIGHTS,
-						maxSpotLights: MAX_SPOT_LIGHTS,
-						enableShadowTransmittance: false,
-						enableIrradianceProbeGrid: true,
-					},
-				},
-			},
-			{
-				key: "webgl.scene.composite" as const,
-				params: {
-					limits: {
-						maxDirectionalLights: MAX_DIRECTIONAL_LIGHTS,
-						maxPointLights: MAX_POINT_LIGHTS,
-						maxSpotLights: MAX_SPOT_LIGHTS,
-						enableShadowTransmittance: false,
-						enableIrradianceProbeGrid: true,
-					},
-				},
-			},
-			{
-				key: "webgl.scene.raw" as const,
-				params: {
-					limits: {
-						maxDirectionalLights: MAX_DIRECTIONAL_LIGHTS,
-						maxPointLights: MAX_POINT_LIGHTS,
-						maxSpotLights: MAX_SPOT_LIGHTS,
-						enableShadowTransmittance: true,
-						enableIrradianceProbeGrid: true,
-					},
-				},
-			},
-			{
-				key: "webgl.scene.composite" as const,
-				params: {
-					limits: {
-						maxDirectionalLights: MAX_DIRECTIONAL_LIGHTS,
-						maxPointLights: MAX_POINT_LIGHTS,
-						maxSpotLights: MAX_SPOT_LIGHTS,
-						enableShadowTransmittance: true,
-						enableIrradianceProbeGrid: true,
 					},
 				},
 			},
@@ -431,7 +359,7 @@ export class WebGLBackend implements IRenderBackend {
 			this._executedPasses.clear();
 			this._activeContext = context;
 			this._prepareFramePassPlan(context);
-			await this._frameServices!.warmupCoordinator?.prepareFrameSources?.(context);
+			await this._frameServices!.prepareSceneProgramSources(context);
 			this._particleSimulator?.beginFrame(context);
 			this._frameGraphRuntime!.beginFrame(context);
 		});

@@ -75,9 +75,15 @@ export function createWebGLSceneSamplerLayout(
 }
 
 export function getWebGLSceneSamplerUnit(
-	layout: WebGLSceneSamplerLayout | undefined,
+	layout: WebGLSceneSamplerLayout,
 	name: string,
-	fallback: number,
 ): number {
-	return layout?.units[name] ?? fallback;
+	const unit = layout.units[name];
+	if (!Number.isInteger(unit)) {
+		throw new Error(
+			`WebGL scene sampler "${name}" is active in the program but missing ` +
+				"from its exact sampler layout.",
+		);
+	}
+	return unit;
 }

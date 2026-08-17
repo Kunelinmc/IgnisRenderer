@@ -197,6 +197,24 @@ This document defines the current WebGL backend lifecycle, frame graph, resource
   active runtime limit, warmup or the first relevant draw must throw
   `WebGLCapabilityError` with code `material-texture-unit-overflow`; the message
   must include required, available, and all active sampler names.
+- The exact `WebGLSceneSamplerLayout` must be the sole authority for scene
+  texture-unit allocation. WebGL must not disable shadow transmittance,
+  irradiance-probe grids, particle-shadow volumes, or material samplers through
+  fixed texture-unit thresholds. An over-budget exact layout must fail rather
+  than remove an active sampler.
+- WebGL frame preparation must prepare every exact built-in scene variant that
+  a frame may select, including both available and temporarily unavailable
+  shadow-transmittance sampling states. Resolving an unprepared exact variant
+  must throw `WebGLProgramPreparationError`; it must not substitute the full or
+  default scene variant.
+- Fixed WebGL programs must be owned by the feature runtime or pass that
+  executes them through context-scoped program slots. The scene program
+  repository may own only built-in, custom-material, and depth-prepass scene
+  program caches.
+- `WebGLTransparencyRuntime` must own the copy and OIT resolve program slots,
+  while its colocated `WebGLTransparencyWarmupContributor` adapter must own the
+  plan-dependent selection of their warmup tasks. The contributor must not own
+  frame state or WebGL program slots.
 - `ShaderMaterial` custom WebGL scene shaders must resolve `webgl` GLSL
   `fragment-single` for `single` mode.
 - `ShaderMaterial` custom WebGL scene shaders must resolve `webgl` GLSL

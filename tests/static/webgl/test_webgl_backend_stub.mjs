@@ -6,6 +6,7 @@ import { PARTICLE_SIM_DELTA_TIME_SECONDS_KEY } from "../../../src/pipeline/types
 import { createResolvedPostProcess } from "../../helpers/postprocess.mjs";
 
 function installFrameServices(backend, frame) {
+	frame.prepareSceneProgramSources ??= async () => {};
 	backend._contextServices = {
 		frame,
 		iblPrefilter: {

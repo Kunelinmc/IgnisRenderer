@@ -1,7 +1,34 @@
-import assert from "node:assert/strict";import { AlphaMode, Material } from "../../../src/materials/Material.ts";import { ShaderMaterial } from "../../../src/materials/ShaderMaterial.ts";import { WebGLProgramCompiler } from "../../../src/backends/webgl/WebGLProgramCompiler.ts";import { getWebGLSceneVariantKey } from "../../../src/backends/webgl/WebGLSceneProgramVariants.ts";import { ShaderCompileError, ShaderRuntime } from "../../../src/shaders/runtime/index.ts";import { createProgramLibrary, createTestBuiltinSceneVariant, prepareTestBuiltinSceneVariant, createCompilerSlot, createProgramCompileFailGL, createProgramCaptureGL, createSelectiveCompileFailGL, CUSTOM_WEBGL_VERTEX, CUSTOM_WEBGL_FRAGMENT, CUSTOM_WEBGL_FRAGMENT_MRT, CUSTOM_WEBGL_FRAGMENT_DEPTH, runWebGLBackendFile } from "../../helpers/webgl-backend.mjs";
+import assert from "node:assert/strict";import { AlphaMode, Material } from "../../../src/materials/Material.ts";import { ShaderMaterial } from "../../../src/materials/ShaderMaterial.ts";import { WebGLProgramCompiler } from "../../../src/backends/webgl/WebGLProgramCompiler.ts";import { getWebGLSceneVariantKey } from "../../../src/backends/webgl/WebGLSceneProgramVariants.ts";import { ShaderCompileError, ShaderRuntime } from "../../../src/shaders/runtime/index.ts";import { createSceneProgramRepository, createTestBuiltinSceneVariant, prepareTestBuiltinSceneVariant, createCompilerSlot, createProgramCompileFailGL, createProgramCaptureGL, createSelectiveCompileFailGL, CUSTOM_WEBGL_VERTEX, CUSTOM_WEBGL_FRAGMENT, CUSTOM_WEBGL_FRAGMENT_MRT, CUSTOM_WEBGL_FRAGMENT_DEPTH, runWebGLBackendFile } from "../../helpers/webgl-backend.mjs";
+import { WebGLProgramPreparationError } from "../../../src/foundation/Error.ts";
+import { createWebGLShaderMaterialFallbackVariant } from "../../../src/backends/webgl/WebGLSceneProgramVariants.ts";
 
-function testProgramLibraryCompileErrorMessage() {
-	const library = createProgramLibrary(createProgramCompileFailGL(), () => {});
+function testUnpreparedExactVariantFailsWithoutFallbackProgram() {
+	const gl = createProgramCaptureGL();
+	const repository = createSceneProgramRepository(gl, () => {});
+	const variant = createTestBuiltinSceneVariant({
+		oit: true,
+		scene: {
+			shadows: true,
+			shadowTransmittance: false,
+			clusteredLighting: true,
+		},
+		material: { model: "legacy", baseMap: true },
+	});
+	const variantKey = getWebGLSceneVariantKey(variant);
+	assert.throws(
+		() => repository.getSceneProgram(undefined, "single", variant),
+		(error) => {
+			assert.ok(error instanceof WebGLProgramPreparationError);
+			assert.equal(error.code, "webgl-scene-program-source-unprepared");
+			assert.equal(error.variantKey, variantKey);
+			return true;
+		},
+	);
+	assert.equal(gl.programCount, 0);
+}
+
+function testSceneProgramRepositoryCompileErrorMessage() {
+	const library = createSceneProgramRepository(createProgramCompileFailGL(), () => {});
 	assert.throws(
 		() => library.getSceneProgram(),
 		(error) => {
@@ -14,10 +41,10 @@ function testProgramLibraryCompileErrorMessage() {
 	);
 }
 
-function testProgramLibraryCompileErrorMapsSourceLine() {
+function testSceneProgramRepositoryCompileErrorMapsSourceLine() {
 	const gl = createProgramCompileFailGL();
 	gl.getShaderInfoLog = () => "ERROR: 0:4: syntax error";
-	const library = createProgramLibrary(gl, () => {});
+	const library = createSceneProgramRepository(gl, () => {});
 	assert.throws(
 		() => library.getSceneProgram(),
 		(error) => {
@@ -30,10 +57,10 @@ function testProgramLibraryCompileErrorMapsSourceLine() {
 	);
 }
 
-function testProgramLibraryShaderMaterialCustomProgram() {
+function testSceneProgramRepositoryShaderMaterialCustomProgram() {
 	const warnings = [];
 	const gl = createProgramCaptureGL();
-	const library = createProgramLibrary(gl, (key, message) =>
+	const library = createSceneProgramRepository(gl, (key, message) =>
 		warnings.push({ key, message })
 	);
 	const material = new ShaderMaterial({
@@ -54,7 +81,11 @@ function testProgramLibraryShaderMaterialCustomProgram() {
 		],
 	});
 
-	const builtin = library.getSceneProgram();
+	const builtin = library.getSceneProgram(
+		undefined,
+		"single",
+		createWebGLShaderMaterialFallbackVariant("single"),
+	);
 	const customA = library.getSceneProgram(material);
 	const customB = library.getSceneProgram(material);
 
@@ -70,7 +101,7 @@ function testProgramLibraryShaderMaterialCustomProgram() {
 	assert.equal(warnings.length, 0);
 }
 
-function testProgramLibraryPropagatesSamplerOverflowInWarnMode() {
+function testSceneProgramRepositoryPropagatesSamplerOverflowInWarnMode() {
 	const gl = createProgramCaptureGL();
 	gl.MAX_TEXTURE_IMAGE_UNITS = 0x8872;
 	gl.getParameter = (parameter) =>
@@ -97,7 +128,7 @@ function testProgramLibraryPropagatesSamplerOverflowInWarnMode() {
 			webglUniform: `uTexture${index}`,
 		})),
 	});
-	const library = createProgramLibrary(
+	const library = createSceneProgramRepository(
 		gl,
 		() => {},
 		new ShaderRuntime({ mode: "warn" }),
@@ -114,7 +145,7 @@ function testProgramLibraryPropagatesSamplerOverflowInWarnMode() {
 	);
 }
 
-async function testProgramLibraryCachesBuiltinSceneVariants() {
+async function testSceneProgramRepositoryCachesBuiltinSceneVariants() {
 	const noMapVariant = createTestBuiltinSceneVariant();
 	const baseMapVariant = createTestBuiltinSceneVariant({
 		material: { baseMap: true },
@@ -128,7 +159,7 @@ async function testProgramLibraryCachesBuiltinSceneVariants() {
 	await prepareTestBuiltinSceneVariant(materialGBufferVariant);
 
 	const gl = createProgramCaptureGL();
-	const library = createProgramLibrary(gl, () => {});
+	const library = createSceneProgramRepository(gl, () => {});
 	const first = library.getSceneProgram(undefined, "single", noMapVariant);
 	const second = library.getSceneProgram(new Material(), "single", noMapVariant);
 	const withBaseMap = library.getSceneProgram(
@@ -168,14 +199,14 @@ async function testProgramLibraryCachesBuiltinSceneVariants() {
 	);
 }
 
-async function testProgramLibraryShaderMaterialIgnoresBuiltinVariant() {
+async function testSceneProgramRepositoryShaderMaterialIgnoresBuiltinVariant() {
 	const variant = createTestBuiltinSceneVariant({
 		material: { baseMap: true },
 	});
 	await prepareTestBuiltinSceneVariant(variant);
 
 	const gl = createProgramCaptureGL();
-	const library = createProgramLibrary(gl, () => {});
+	const library = createSceneProgramRepository(gl, () => {});
 	const material = new ShaderMaterial({
 		name: "VariantIgnoredCustomWebGLShader",
 		chunks: [
@@ -208,9 +239,9 @@ async function testProgramLibraryShaderMaterialIgnoresBuiltinVariant() {
 	);
 }
 
-function testProgramLibraryShaderMaterialCachesPerSceneTargetMode() {
+function testSceneProgramRepositoryShaderMaterialCachesPerSceneTargetMode() {
 	const gl = createProgramCaptureGL();
-	const library = createProgramLibrary(gl, () => {});
+	const library = createSceneProgramRepository(gl, () => {});
 	const material = new ShaderMaterial({
 		name: "ModeAwareCustomWebGLShader",
 		chunks: [
@@ -256,9 +287,9 @@ function testProgramLibraryShaderMaterialCachesPerSceneTargetMode() {
 	);
 }
 
-function testProgramLibraryBuiltinDepthPrepassProgram() {
+function testSceneProgramRepositoryBuiltinDepthPrepassProgram() {
 	const gl = createProgramCaptureGL();
-	const library = createProgramLibrary(gl, () => {});
+	const library = createSceneProgramRepository(gl, () => {});
 
 	const depthProgramA = library.getSceneDepthPrepassProgram(new Material());
 	const depthProgramB = library.getSceneDepthPrepassProgram(new Material());
@@ -281,9 +312,9 @@ function testProgramLibraryBuiltinDepthPrepassProgram() {
 	);
 }
 
-function testProgramLibraryShaderMaterialDepthPrepassProgram() {
+function testSceneProgramRepositoryShaderMaterialDepthPrepassProgram() {
 	const gl = createProgramCaptureGL();
-	const library = createProgramLibrary(gl, () => {});
+	const library = createSceneProgramRepository(gl, () => {});
 	const material = new ShaderMaterial({
 		name: "DepthCustomWebGLShader",
 		chunks: [
@@ -313,10 +344,10 @@ function testProgramLibraryShaderMaterialDepthPrepassProgram() {
 	);
 }
 
-function testProgramLibraryShaderMaterialDepthPrepassMissingSourceDiagnostics() {
+function testSceneProgramRepositoryShaderMaterialDepthPrepassMissingSourceDiagnostics() {
 	const warnings = [];
 	const gl = createProgramCaptureGL();
-	const library = createProgramLibrary(gl, (key, message) =>
+	const library = createSceneProgramRepository(gl, (key, message) =>
 		warnings.push({ key, message })
 	);
 	const nonMaskMaterial = new ShaderMaterial({
@@ -357,20 +388,25 @@ function testProgramLibraryShaderMaterialDepthPrepassMissingSourceDiagnostics() 
 	);
 }
 
-function testProgramLibraryShaderMaterialMissingSourceFallsBack() {
+function testSceneProgramRepositoryShaderMaterialMissingSourceFallsBack() {
 	const warnings = [];
 	const gl = createProgramCaptureGL();
-	const library = createProgramLibrary(gl, (key, message) =>
+	const library = createSceneProgramRepository(gl, (key, message) =>
 		warnings.push({ key, message })
 	);
 	const material = new ShaderMaterial({
 		name: "NoWebGLShader",
 	});
 
-	const builtin = library.getSceneProgram();
+	const builtin = library.getSceneProgram(
+		undefined,
+		"single",
+		createWebGLShaderMaterialFallbackVariant("single"),
+	);
 	const resolved = library.getSceneProgram(material);
 
 	assert.strictEqual(resolved, builtin);
+	assert.equal(resolved.samplerLayout.required, 0);
 	assert.ok(
 		warnings.some((warning) =>
 			warning.key.startsWith("webgl-shader-material-missing-source-")
@@ -378,11 +414,11 @@ function testProgramLibraryShaderMaterialMissingSourceFallsBack() {
 	);
 }
 
-function testProgramLibraryWarnModeFallsBackOnCustomCompileFailure() {
+function testSceneProgramRepositoryWarnModeFallsBackOnCustomCompileFailure() {
 	const warnings = [];
 	const runtime = new ShaderRuntime({ mode: "warn" });
 	const gl = createSelectiveCompileFailGL("FORCE_CUSTOM_FAIL");
-	const library = createProgramLibrary(
+	const library = createSceneProgramRepository(
 		gl,
 		(key, message) => warnings.push({ key, message }),
 		runtime
@@ -405,7 +441,11 @@ function testProgramLibraryWarnModeFallsBackOnCustomCompileFailure() {
 		],
 	});
 
-	const builtin = library.getSceneProgram();
+	const builtin = library.getSceneProgram(
+		undefined,
+		"single",
+		createWebGLShaderMaterialFallbackVariant("single"),
+	);
 	const resolved = library.getSceneProgram(material);
 
 	assert.strictEqual(resolved, builtin);
@@ -416,10 +456,10 @@ function testProgramLibraryWarnModeFallsBackOnCustomCompileFailure() {
 	);
 }
 
-function testProgramLibraryRuntimeRevisionInvalidatesCustomCache() {
+function testSceneProgramRepositoryRuntimeRevisionInvalidatesCustomCache() {
 	const runtime = new ShaderRuntime({ mode: "warn" });
 	const gl = createProgramCaptureGL();
-	const library = createProgramLibrary(gl, () => {}, runtime);
+	const library = createSceneProgramRepository(gl, () => {}, runtime);
 	const material = new ShaderMaterial({
 		name: "RevisionInvalidateMaterial",
 		chunks: [
@@ -461,34 +501,35 @@ function testProgramLibraryRuntimeRevisionInvalidatesCustomCache() {
 function testProgramOwnershipSeparatesPostProcessAndBackendPrograms() {
 	const gl = createProgramCaptureGL();
 	const compiler = new WebGLProgramCompiler(gl);
-	const library = createProgramLibrary(gl, () => {});
+	const library = createSceneProgramRepository(gl, () => {});
 
 	const motionBlurProgram = createCompilerSlot(
 		compiler,
 		"WebGLMotionBlurProgram"
 	).get();
 	const dofProgram = createCompilerSlot(compiler, "WebGLDOFProgram").get();
-	const oitResolveProgram = library.getOITResolveProgram();
+	const sceneProgram = library.getSceneProgram();
 
 	assert.ok(motionBlurProgram.program);
 	assert.ok(dofProgram.program);
-	assert.ok(oitResolveProgram.program);
+	assert.ok(sceneProgram.program);
 	assert.equal(gl.programCount, 3);
 }
 
 await runWebGLBackendFile([
-	testProgramLibraryCompileErrorMessage,
-	testProgramLibraryCompileErrorMapsSourceLine,
-	testProgramLibraryShaderMaterialCustomProgram,
-	testProgramLibraryPropagatesSamplerOverflowInWarnMode,
-	testProgramLibraryCachesBuiltinSceneVariants,
-	testProgramLibraryShaderMaterialIgnoresBuiltinVariant,
-	testProgramLibraryShaderMaterialCachesPerSceneTargetMode,
-	testProgramLibraryBuiltinDepthPrepassProgram,
-	testProgramLibraryShaderMaterialDepthPrepassProgram,
-	testProgramLibraryShaderMaterialDepthPrepassMissingSourceDiagnostics,
-	testProgramLibraryShaderMaterialMissingSourceFallsBack,
-	testProgramLibraryWarnModeFallsBackOnCustomCompileFailure,
-	testProgramLibraryRuntimeRevisionInvalidatesCustomCache,
+	testUnpreparedExactVariantFailsWithoutFallbackProgram,
+	testSceneProgramRepositoryCompileErrorMessage,
+	testSceneProgramRepositoryCompileErrorMapsSourceLine,
+	testSceneProgramRepositoryShaderMaterialCustomProgram,
+	testSceneProgramRepositoryPropagatesSamplerOverflowInWarnMode,
+	testSceneProgramRepositoryCachesBuiltinSceneVariants,
+	testSceneProgramRepositoryShaderMaterialIgnoresBuiltinVariant,
+	testSceneProgramRepositoryShaderMaterialCachesPerSceneTargetMode,
+	testSceneProgramRepositoryBuiltinDepthPrepassProgram,
+	testSceneProgramRepositoryShaderMaterialDepthPrepassProgram,
+	testSceneProgramRepositoryShaderMaterialDepthPrepassMissingSourceDiagnostics,
+	testSceneProgramRepositoryShaderMaterialMissingSourceFallsBack,
+	testSceneProgramRepositoryWarnModeFallsBackOnCustomCompileFailure,
+	testSceneProgramRepositoryRuntimeRevisionInvalidatesCustomCache,
 	testProgramOwnershipSeparatesPostProcessAndBackendPrograms,
-], "WebGL program library tests");
+], "WebGL scene program repository tests");

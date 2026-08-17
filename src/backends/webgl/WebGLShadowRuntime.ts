@@ -32,13 +32,16 @@ import {
 	WEBGL_PARTICLE_SHADOW_VOLUME_MAX_SLICES,
 	WEBGL_SHADOW_ATLAS_COLUMNS,
 	WEBGL_SHADOW_ATLAS_ROWS,
-	WEBGL_TEXTURE_UNIT_PARTICLE_SHADOW_VOLUME,
-	WEBGL_TEXTURE_UNIT_SHADOW_TRANSMITTANCE,
 } from "./constants";
 import { getMaxShadowSize } from "./WebGLFrameMath";
 import type { WebGLGeometryRegistry } from "./WebGLGeometryRegistry";
 import type { WebGLLightState, WebGLShadowData } from "./WebGLLightCollector";
-import type { WebGLProgramLibrary } from "./WebGLProgramLibrary";
+import type { WebGLProgramCompiler, WebGLProgramWarmupHandle } from "./WebGLProgramCompiler";
+import type {
+	WebGLProgramWarmupContributor,
+	WebGLProgramWarmupRequest,
+	WebGLProgramWarmupTask,
+} from "./WebGLWarmupCoordinator";
 import {
 	WebGLShadowRasterPass,
 	type WebGLShadowRasterPlan,
@@ -111,17 +114,16 @@ interface MutableShadowSamplingState {
 /** @internal Device and frame-baseline dependencies for one WebGL shadow runtime. */
 export interface WebGLShadowRuntimeHost {
 	readonly gl: WebGL2RenderingContext;
-	readonly programs: WebGLProgramLibrary;
+	readonly programCompiler: WebGLProgramCompiler;
 	readonly geometry: WebGLGeometryRegistry;
 	readonly maxTextureSize: number;
-	readonly maxTextureImageUnits: number;
 	getSceneFramebuffer(): WebGLFramebuffer | null;
 	getWidth(): number;
 	getHeight(): number;
 }
 
 /** Owns all frame-aware WebGL shadow planning and sampling state. */
-export class WebGLShadowRuntime {
+export class WebGLShadowRuntime implements WebGLProgramWarmupContributor {
 	private readonly _host: WebGLShadowRuntimeHost;
 	private readonly _rasterPass: WebGLShadowRasterPass;
 	private readonly _slicePool: MutableRasterSlice[] = [];
@@ -147,9 +149,7 @@ export class WebGLShadowRuntime {
 		particleVolumeActiveSliceCount: 0,
 		particleVolumeAtlasSize: new Float32Array(2),
 		particleVolumeGridSize: new Float32Array(4),
-		particleVolumeSliceParams: new Float32Array(
-			WEBGL_PARTICLE_SHADOW_VOLUME_MAX_SLICES * 4,
-		),
+		particleVolumeSliceParams: new Float32Array(WEBGL_PARTICLE_SHADOW_VOLUME_MAX_SLICES * 4),
 	};
 	private _phase: WebGLShadowRuntimePhase = "idle";
 	private _context: FrameContext | null = null;
@@ -159,14 +159,32 @@ export class WebGLShadowRuntime {
 	private _particleVolumeTexture: WebGLTexture | null = null;
 	private _particleVolumePixels = new Float32Array(0);
 
-	public constructor(host: WebGLShadowRuntimeHost) {
+	constructor(host: WebGLShadowRuntimeHost) {
 		this._host = host;
 		this._rasterPass = new WebGLShadowRasterPass({
 			gl: host.gl,
-			programs: host.programs,
+			programCompiler: host.programCompiler,
 			geometry: host.geometry,
 			maxTextureSize: host.maxTextureSize,
 		});
+	}
+
+	public warmupPrograms(): WebGLProgramWarmupHandle[] {
+		return this._rasterPass.warmupPrograms();
+	}
+
+	public collectWarmupTasks(
+		request: WebGLProgramWarmupRequest,
+	): readonly WebGLProgramWarmupTask[] {
+		return request.plan.enableShadows
+			? [
+					{
+						label: "WebGLShadowPrograms",
+						priority: "optional",
+						run: () => this.warmupPrograms(),
+					},
+				]
+			: [];
 	}
 
 	/** Synchronizes metadata before WebGL light collection starts. */
@@ -203,20 +221,15 @@ export class WebGLShadowRuntime {
 		this._setLightAtlasTileSize(lightState, tileSize);
 		this._buildRasterSlices(lightState, tileSize);
 		try {
-			const prepared = this._rasterPass.prepare(
-				this._plan as WebGLShadowRasterPlan,
-			);
-			this._hasPreparedResources =
-				!!prepared.atlasTexture && !!prepared.transmittanceTexture;
+			const prepared = this._rasterPass.prepare(this._plan as WebGLShadowRasterPlan);
+			this._hasPreparedResources = !!prepared.atlasTexture && !!prepared.transmittanceTexture;
 			this._samplingState.atlasTexture = prepared.atlasTexture;
 			this._samplingState.transmittanceTexture = prepared.transmittanceTexture;
 			this._samplingState.atlasTileSize = prepared.atlasTileSize;
 			this._samplingState.enabled =
 				this._hasPreparedResources && prepared.depthProgramAvailable;
 			this._samplingState.transmittanceAvailable =
-				this._samplingState.enabled &&
-				this._host.maxTextureImageUnits >
-					WEBGL_TEXTURE_UNIT_SHADOW_TRANSMITTANCE;
+				this._samplingState.enabled && !!prepared.transmittanceTexture;
 			if (context.scene.particleSystems.length > 0) {
 				this._prepareParticleVolumeTexture();
 			}
@@ -329,9 +342,9 @@ export class WebGLShadowRuntime {
 		for (let index = 0; index < directionalCount; index++) {
 			const shadow = lightState.directionalShadows[index];
 			const cascadeCount =
-				shadow?.enabled && shadow.strategyType === "csm" && shadow.cascadeCount > 1 ?
-					Math.max(1, Math.min(4, shadow.cascadeCount | 0))
-				: 1;
+				shadow?.enabled && shadow.strategyType === "csm" && shadow.cascadeCount > 1
+					? Math.max(1, Math.min(4, shadow.cascadeCount | 0))
+					: 1;
 			for (let cascadeIndex = 0; cascadeIndex < cascadeCount; cascadeIndex++) {
 				this._appendRasterSlice(
 					"directional",
@@ -364,12 +377,7 @@ export class WebGLShadowRuntime {
 		tileIndex: number,
 		atlasTileSize: number,
 	): void {
-		const resolved = this._resolveShadowSlice(
-			shadow,
-			tileIndex,
-			cascadeIndex,
-			atlasTileSize,
-		);
+		const resolved = this._resolveShadowSlice(shadow, tileIndex, cascadeIndex, atlasTileSize);
 		if (!resolved) return;
 		const planIndex = this._plan.sliceCount++;
 		let slice = this._slicePool[planIndex];
@@ -410,30 +418,18 @@ export class WebGLShadowRuntime {
 	} | null {
 		if (!shadow?.enabled) return null;
 		const isCSM = shadow.strategyType === "csm" && shadow.cascadeCount > 1;
-		const cascadeCount = isCSM ?
-			Math.max(1, Math.min(4, shadow.cascadeCount | 0))
-		: 1;
-		const resolvedCascade = Math.max(
-			0,
-			Math.min(cascadeCount - 1, cascadeIndex | 0),
-		);
-		const viewProjectionMatrix = isCSM ?
-			shadow.cascadeViewProjectionMatrices[resolvedCascade]
-		: shadow.viewProjectionMatrix;
+		const cascadeCount = isCSM ? Math.max(1, Math.min(4, shadow.cascadeCount | 0)) : 1;
+		const resolvedCascade = Math.max(0, Math.min(cascadeCount - 1, cascadeIndex | 0));
+		const viewProjectionMatrix = isCSM
+			? shadow.cascadeViewProjectionMatrices[resolvedCascade]
+			: shadow.viewProjectionMatrix;
 		if (!viewProjectionMatrix) return null;
 		const localTileSpan = isCSM ? 2 : 1;
 		const subTileSize = Math.max(1, Math.floor(atlasTileSize / localTileSpan));
-		const shadowSize = Math.max(
-			1,
-			Math.min(shadow.shadowMapSize | 0, subTileSize),
-		);
+		const shadowSize = Math.max(1, Math.min(shadow.shadowMapSize | 0, subTileSize));
 		const split = shadow.cascadeSplits[resolvedCascade] ?? [0, 0, 0, 0];
-		const localTileX = isCSM ?
-			Math.max(0, Math.min(1, Math.floor(split[2] + 0.5)))
-		: 0;
-		const localTileY = isCSM ?
-			Math.max(0, Math.min(1, Math.floor(split[3] + 0.5)))
-		: 0;
+		const localTileX = isCSM ? Math.max(0, Math.min(1, Math.floor(split[2] + 0.5))) : 0;
+		const localTileY = isCSM ? Math.max(0, Math.min(1, Math.floor(split[3] + 0.5))) : 0;
 		const tileX = tileIndex % WEBGL_SHADOW_ATLAS_COLUMNS;
 		const tileY = Math.floor(tileIndex / WEBGL_SHADOW_ATLAS_COLUMNS);
 		return {
@@ -467,8 +463,7 @@ export class WebGLShadowRuntime {
 			const gl = this._host.gl;
 			const texture = gl.createTexture();
 			if (!texture) {
-				const message =
-					"Failed to create WebGL particle shadow volume atlas";
+				const message = "Failed to create WebGL particle shadow volume atlas";
 				this._warn("webgl-particle-shadow-volume-create-failed", message);
 				throw new Error(`[webgl-particle-shadow-volume-create-failed] ${message}`);
 			}
@@ -507,12 +502,7 @@ export class WebGLShadowRuntime {
 			this._particleVolumePixels = new Float32Array(requiredPixels);
 		}
 		this._particlePreparedThisFrame = true;
-		if (
-			this._host.maxTextureImageUnits >
-			WEBGL_TEXTURE_UNIT_PARTICLE_SHADOW_VOLUME
-		) {
-			this._samplingState.particleVolumeTexture = this._particleVolumeTexture;
-		}
+		this._samplingState.particleVolumeTexture = this._particleVolumeTexture;
 	}
 
 	private _updateParticleVolumes(context: FrameContext): void {
@@ -527,14 +517,15 @@ export class WebGLShadowRuntime {
 			!this._samplingState.particleVolumeTexture ||
 			!shadow?.enabled ||
 			!hasParticleShadowCastingBatches(batches)
-		) return;
+		)
+			return;
 		this._particleVolumePixels.fill(0);
-		const matrices = shadow.strategyType === "csm" ?
-			shadow.cascadeViewProjectionMatrices
-		: [shadow.viewProjectionMatrix];
-		const cascadeCount = shadow.strategyType === "csm" ?
-			Math.max(1, Math.min(4, shadow.cascadeCount | 0))
-		: 1;
+		const matrices =
+			shadow.strategyType === "csm"
+				? shadow.cascadeViewProjectionMatrices
+				: [shadow.viewProjectionMatrix];
+		const cascadeCount =
+			shadow.strategyType === "csm" ? Math.max(1, Math.min(4, shadow.cascadeCount | 0)) : 1;
 		let activeSlices = 0;
 		for (
 			let sliceIndex = 0;
@@ -563,14 +554,10 @@ export class WebGLShadowRuntime {
 		this._samplingState.particleVolumeActiveSliceCount = activeSlices;
 		this._samplingState.particleVolumeAtlasSize[0] = PARTICLE_ATLAS_WIDTH;
 		this._samplingState.particleVolumeAtlasSize[1] = PARTICLE_ATLAS_HEIGHT;
-		this._samplingState.particleVolumeGridSize[0] =
-			WEBGL_PARTICLE_SHADOW_VOLUME_GRID_WIDTH;
-		this._samplingState.particleVolumeGridSize[1] =
-			WEBGL_PARTICLE_SHADOW_VOLUME_GRID_HEIGHT;
-		this._samplingState.particleVolumeGridSize[2] =
-			WEBGL_PARTICLE_SHADOW_VOLUME_GRID_DEPTH;
-		this._samplingState.particleVolumeGridSize[3] =
-			WEBGL_PARTICLE_SHADOW_VOLUME_ATLAS_COLUMNS;
+		this._samplingState.particleVolumeGridSize[0] = WEBGL_PARTICLE_SHADOW_VOLUME_GRID_WIDTH;
+		this._samplingState.particleVolumeGridSize[1] = WEBGL_PARTICLE_SHADOW_VOLUME_GRID_HEIGHT;
+		this._samplingState.particleVolumeGridSize[2] = WEBGL_PARTICLE_SHADOW_VOLUME_GRID_DEPTH;
+		this._samplingState.particleVolumeGridSize[3] = WEBGL_PARTICLE_SHADOW_VOLUME_ATLAS_COLUMNS;
 		const gl = this._host.gl;
 		try {
 			gl.bindTexture(gl.TEXTURE_2D, this._samplingState.particleVolumeTexture);
@@ -600,8 +587,7 @@ export class WebGLShadowRuntime {
 			const tileY = Math.floor(tileIndex / WEBGL_PARTICLE_SHADOW_VOLUME_ATLAS_COLUMNS);
 			for (let y = 0; y < height; y++) {
 				const sourceOffset = z * width * height + y * width;
-				const targetOffset =
-					(tileY * height + y) * PARTICLE_ATLAS_WIDTH + tileX * width;
+				const targetOffset = (tileY * height + y) * PARTICLE_ATLAS_WIDTH + tileX * width;
 				this._particleVolumePixels.set(
 					density.subarray(sourceOffset, sourceOffset + width),
 					targetOffset,

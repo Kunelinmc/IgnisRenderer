@@ -10,7 +10,9 @@ import { SH } from "../../../src/maths/SH.ts";
 import { Texture } from "../../../src/core/Texture.ts";
 import { Node } from "../../../src/core/Node.ts";
 import { Scene } from "../../../src/core/Scene.ts";
+import { PBRMaterial } from "../../../src/materials/PBRMaterial.ts";
 import { collectWebGLLights } from "../../../src/backends/webgl/WebGLLightCollector.ts";
+import { planWebGLScenePrograms } from "../../../src/backends/webgl/WebGLSceneProgramPlanner.ts";
 import {
 	MAX_DIRECTIONAL_LIGHTS,
 	MAX_POINT_LIGHTS,
@@ -290,6 +292,36 @@ function createShadowPlan(light, options = {}) {
 	return { revision: 1, jobs: [], diagnostics: [], hasRasterWork: false, hasTransmissionWork: false, hasPagedWork: false, lights: [{ light, lightId: light.id, definition: { bias: { constant: 0.008, slope: 0.03, texel: 1, max: 0.05, normal: 1, normalMin: 0.05 }, sampling: { filterMode: "pcf", pcfRadius: 1, radius: 0, strength: 1, samples: 16, searchSamples: 16 }, projection: { blendRatio: options.blendRatio ?? 0 } }, requestedTechnique: cascades > 1 ? "cascaded" : "single", effectiveTechnique: cascades > 1 ? "cascaded" : "single", requestedCascadeCount: cascades, effectiveCascadeCount: cascades, requestedResolution: size, effectiveResolution: size, sampling: options.sampling ?? { filterMode: "pcf", pcfRadius: 1, radius: 0, strength: 1, samples: 16, searchSamples: 16 }, filterMode: "pcf", storage: "atlas", priority: 0, cost: 1, score: 1, slices }] };
 }
 
+function testSceneProgramPlannerEnumeratesRuntimeTransmittanceAlternatives() {
+	const light = new DirectionalLight();
+	const material = new PBRMaterial();
+	const context = {
+		features: {
+			enableLighting: true,
+			enableShadows: true,
+			enableSH: false,
+			enableClusteredLighting: false,
+			enableOIT: false,
+		},
+		shadowPlan: createShadowPlan(light),
+		viewCamera: {
+			getWorldPosition() {
+				return { x: 0, y: 0, z: 0 };
+			},
+		},
+		scene: {
+			lights: [light],
+			environment: { lightingEnabled: false, iblTexture: null },
+		},
+	};
+	const plan = planWebGLScenePrograms(context, [material], ["single", "mrt"]);
+	const keys = [...plan.sceneVariants.keys()];
+	assert.ok(keys.some((key) => key.includes("|shdt:0|")));
+	assert.ok(keys.some((key) => key.includes("|shdt:1|")));
+	assert.ok(keys.some((key) => key.startsWith("out:single|")));
+	assert.ok(keys.some((key) => key.startsWith("out:mrt|gbuf:1|")));
+}
+
 await runWebGLBackendFile(
 	[
 		testLightCollectorLimitsAndWarnings,
@@ -302,6 +334,7 @@ await runWebGLBackendFile(
 		testLightCollectorShadowBias,
 		testLightCollectorPCSSShadowParams,
 		testLightCollectorDirectionalCSMShadowData,
+		testSceneProgramPlannerEnumeratesRuntimeTransmittanceAlternatives,
 	],
 	"WebGL light collection tests",
 );

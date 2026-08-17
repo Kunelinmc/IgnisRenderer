@@ -31,6 +31,9 @@ This document defines shader source ownership, composition, diagnostics, and cus
   `params.variant` descriptor. Renderer and material public APIs must not
   expose this descriptor; WebGL frame execution derives it from current
   frame, light, target, and built-in material state.
+- Optional WebGL scene shader blocks must be selected solely by the normalized
+  scene variant. Device texture-unit limits must be validated by the resulting
+  exact sampler layout rather than by shader-source capability flags.
 - WebGL scene fragment source must be assembled from the internal GLSL parts
   listed by `WEBGL_SCENE_FRAGMENT_SHADER_FILES`. The source registry must not
   retain or preload a monolithic `sceneFragment` part.

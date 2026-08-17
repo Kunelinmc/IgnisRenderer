@@ -140,11 +140,12 @@ function createFakeWebGL(options = {}) {
 function createRuntime(options = {}) {
 	const { gl, calls, packState } = createFakeWebGL(options);
 	const uniform = {};
+	const compilerState = { slotDestroyed: false, compilerDestroyed: false };
 	const runtime = new WebGLIBLPrefilterRuntime({
 		gl,
-		programs: {
-			getIBLPrefilterProgram() {
-				return {
+		createProgramCompiler: () => ({
+			createSlot() {
+				const resource = {
 					program: {},
 					uniforms: {
 						environmentMap: uniform,
@@ -156,11 +157,28 @@ function createRuntime(options = {}) {
 						sourceMipLevelCount: uniform,
 					},
 				};
+				return {
+					get: () => resource,
+					destroy() {
+						compilerState.slotDestroyed = true;
+					},
+				};
 			},
-		},
+			destroy() {
+				compilerState.compilerDestroyed = true;
+			},
+		}),
 		getFullscreenVao: () => ({}),
 	});
-	return { runtime, calls, packState };
+	return { runtime, calls, packState, compilerState };
+}
+
+function testRuntimeDestroysItsOwnedCompilerAfterSlot() {
+	const { runtime, compilerState } = createRuntime();
+	runtime.destroy();
+	runtime.destroy();
+	assert.equal(compilerState.slotDestroyed, true);
+	assert.equal(compilerState.compilerDestroyed, true);
 }
 
 function createWorkPlan() {
@@ -362,6 +380,7 @@ await testRendersAndReadsEveryMip();
 await testFailureCleansResourcesAndRestoresState();
 await testAbortBetweenMipsCleansResources();
 testCapabilityPreflight();
+testRuntimeDestroysItsOwnedCompilerAfterSlot();
 await testExplicitLostRequestRestoresWithNewGeneration();
 await testAutoFallsBackAndChangedRetainedSourceRejects();
 

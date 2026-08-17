@@ -202,28 +202,25 @@ function testFullSceneShaderDeclaresExtensionSamplersForDynamicLayout() {
 	const shader = getTestSceneShader();
 	const samplerMatches = shader.fragment.match(/\buniform\s+sampler2D\b/g) ?? [];
 
-	assert.equal(samplerMatches.length, 28);
+	assert.equal(samplerMatches.length, 30);
 	assert.ok(shader.fragment.includes("uniform sampler2D uAnisotropyMap;"));
 	assert.ok(shader.fragment.includes("uniform sampler2D uClearcoatMap;"));
 	assert.ok(shader.fragment.includes("uniform sampler2D uTransmissionBackgroundMap;"));
 	assert.ok(shader.fragment.includes("uniform sampler2D uTransmissionDepthMap;"));
 	assert.ok(shader.fragment.includes("uniform vec3 uSHAmbientCoeffs[SH_COEFFICIENT_COUNT];"));
 	assert.ok(!shader.fragment.includes("uniform sampler2D uSHAmbientCoeffs;"));
-	assert.ok(!shader.fragment.includes("uIrradianceProbeGridCoeffs"));
+	assert.ok(shader.fragment.includes("uIrradianceProbeGridCoeffs"));
 	assert.ok(shader.fragment.includes("vec3 sampleDiffuseProbeIrradiance"));
-	assert.ok(!shader.fragment.includes("sampleIrradianceProbeGridIrradiance"));
+	assert.ok(shader.fragment.includes("sampleIrradianceProbeGridIrradiance"));
 }
 
 function testSceneShaderIncludesIrradianceProbeGridWhenEnabled() {
 	const shader = ShaderSource.get("webgl.scene.raw", {
-		limits: {
-			...TEST_SCENE_LIMITS,
-			enableIrradianceProbeGrid: true,
-		},
+		limits: TEST_SCENE_LIMITS,
 	});
 	const samplerMatches = shader.fragment.match(/\buniform\s+sampler2D\b/g) ?? [];
 
-	assert.equal(samplerMatches.length, 29);
+	assert.equal(samplerMatches.length, 30);
 	assert.ok(shader.fragment.includes("uniform sampler2D uIrradianceProbeGridCoeffs;"));
 	assert.ok(shader.fragment.includes("uIrradianceProbeGridWorldToGridRow0"));
 	assert.ok(shader.fragment.includes("sampleIrradianceProbeGridIrradiance"));

@@ -9,10 +9,6 @@ import {
 	MAX_SPOT_LIGHTS,
 } from "../constants";
 import {
-	WEBGL_TEXTURE_UNIT_PARTICLE_SHADOW_VOLUME,
-	WEBGL_TEXTURE_UNIT_SHADOW_TRANSMITTANCE,
-} from "./constants";
-import {
 	finiteOr,
 	flattenLocalLightProbeRows,
 	flattenLocalLightProbeVec4,
@@ -31,20 +27,10 @@ import {
 	toFiniteColumnMajorMat4,
 } from "./WebGLFrameMath";
 import type { WebGLLightState, WebGLClusteredLight } from "./WebGLLightCollector";
-import type { WebGLSceneProgram } from "./WebGLProgramLibrary";
+import type { WebGLSceneProgram } from "./WebGLSceneProgram";
 import type { WebGLShadowSamplingState } from "./WebGLShadowRuntime";
 import { getWebGLSceneSamplerUnit } from "./WebGLSceneSamplerLayout";
 
-const WEBGL_TEXTURE_UNIT_BASE_MAP = 0;
-const WEBGL_TEXTURE_UNIT_SHADOW_ATLAS = 1;
-const WEBGL_TEXTURE_UNIT_ENV_SPECULAR = 2;
-const WEBGL_TEXTURE_UNIT_BRDF_LUT = 3;
-const WEBGL_TEXTURE_UNIT_CLUSTER_HEADER = 5;
-const WEBGL_TEXTURE_UNIT_CLUSTER_INDEX = 6;
-const WEBGL_TEXTURE_UNIT_CLUSTER_LIGHT = 7;
-const WEBGL_TEXTURE_UNIT_LOCAL_LIGHT_PROBE_SH = 4;
-const WEBGL_TEXTURE_UNIT_ENV_SPECULAR_FALLBACK = 13;
-const WEBGL_TEXTURE_UNIT_IRRADIANCE_PROBE_GRID_SH = 15;
 const SH_COEFFICIENT_COUNT = 16;
 const SH_AMBIENT_UNIFORM_VALUES = new Float32Array(SH_COEFFICIENT_COUNT * 3);
 const IRRADIANCE_PROBE_GRID_ROW = new Float32Array(4);
@@ -146,8 +132,6 @@ export interface WebGLGlobalUniformBinderHost {
 		};
 	};
 	getShadowSamplingState(): WebGLShadowSamplingState;
-	_maxTextureImageUnits: number;
-	_irradianceProbeGridSamplingSupported: boolean;
 	_temporalJitterCurrentPrev: Float32Array;
 	_previousViewProjection: Float32Array | null;
 	_shAmbientTexture: WebGLTexture | null;
@@ -201,8 +185,8 @@ export function bindWebGLGlobalUniforms(
 ): void {
 	const gl = host._gl;
 	const uniforms = sceneProgram.uniforms;
-	const samplerUnit = (name: string, fallback: number): number =>
-		getWebGLSceneSamplerUnit(sceneProgram.samplerLayout, name, fallback);
+	const samplerUnit = (name: string): number =>
+		getWebGLSceneSamplerUnit(sceneProgram.samplerLayout, name);
 	const lightState = host._lightState as Partial<WebGLLightState> | null;
 	const ambientColorCandidate = lightState?.ambientColor;
 	const ambientColor: [number, number, number] =
@@ -326,10 +310,7 @@ export function bindWebGLGlobalUniforms(
 	const localLightProbeTextureReady = host._uploadLocalLightProbeCoefficients(
 		localLightProbes
 	);
-	const hasIrradianceProbeGridTextureUnit =
-		host._irradianceProbeGridSamplingSupported;
 	const irradianceProbeGridTextureReady =
-		hasIrradianceProbeGridTextureUnit &&
 		host._uploadIrradianceProbeGridCoefficients(lights.irradianceProbeGrid);
 	const resolvedIrradianceProbeGrid =
 		irradianceProbeGridTextureReady ? lights.irradianceProbeGrid : null;
@@ -400,10 +381,7 @@ export function bindWebGLGlobalUniforms(
 		);
 	}
 	if (uniforms.localLightProbeCoeffs) {
-		const unit = samplerUnit(
-			"uLocalLightProbeCoeffs",
-			WEBGL_TEXTURE_UNIT_LOCAL_LIGHT_PROBE_SH,
-		);
+		const unit = samplerUnit("uLocalLightProbeCoeffs");
 		gl.activeTexture(gl.TEXTURE0 + unit);
 		gl.bindTexture(gl.TEXTURE_2D, host._localLightProbeSHTexture);
 		gl.uniform1i(uniforms.localLightProbeCoeffs, unit);
@@ -452,10 +430,7 @@ export function bindWebGLGlobalUniforms(
 		);
 	}
 	if (uniforms.irradianceProbeGridCoeffs) {
-		const unit = samplerUnit(
-			"uIrradianceProbeGridCoeffs",
-			WEBGL_TEXTURE_UNIT_IRRADIANCE_PROBE_GRID_SH,
-		);
+		const unit = samplerUnit("uIrradianceProbeGridCoeffs");
 		gl.activeTexture(gl.TEXTURE0 + unit);
 		gl.bindTexture(gl.TEXTURE_2D, host._irradianceProbeGridSHTexture);
 		gl.uniform1i(uniforms.irradianceProbeGridCoeffs, unit);
@@ -518,19 +493,19 @@ export function bindWebGLGlobalUniforms(
 		);
 	}
 	if (uniforms.clusterHeaderTexture) {
-		const unit = samplerUnit("uClusterHeaderTexture", WEBGL_TEXTURE_UNIT_CLUSTER_HEADER);
+		const unit = samplerUnit("uClusterHeaderTexture");
 		gl.activeTexture(gl.TEXTURE0 + unit);
 		gl.bindTexture(gl.TEXTURE_2D, clusteredState.headerTexture);
 		gl.uniform1i(uniforms.clusterHeaderTexture, unit);
 	}
 	if (uniforms.clusterIndexTexture) {
-		const unit = samplerUnit("uClusterIndexTexture", WEBGL_TEXTURE_UNIT_CLUSTER_INDEX);
+		const unit = samplerUnit("uClusterIndexTexture");
 		gl.activeTexture(gl.TEXTURE0 + unit);
 		gl.bindTexture(gl.TEXTURE_2D, clusteredState.indexTexture);
 		gl.uniform1i(uniforms.clusterIndexTexture, unit);
 	}
 	if (uniforms.clusterLightTexture) {
-		const unit = samplerUnit("uClusterLightTexture", WEBGL_TEXTURE_UNIT_CLUSTER_LIGHT);
+		const unit = samplerUnit("uClusterLightTexture");
 		gl.activeTexture(gl.TEXTURE0 + unit);
 		gl.bindTexture(gl.TEXTURE_2D, clusteredState.lightTexture);
 		gl.uniform1i(uniforms.clusterLightTexture, unit);
@@ -544,7 +519,7 @@ export function bindWebGLGlobalUniforms(
 		gl.uniform1i(uniforms.enableShadows, shadowsEnabled ? 1 : 0);
 	}
 	if (uniforms.shadowAtlas) {
-		const unit = samplerUnit("uShadowAtlas", WEBGL_TEXTURE_UNIT_SHADOW_ATLAS);
+		const unit = samplerUnit("uShadowAtlas");
 		gl.activeTexture(gl.TEXTURE0 + unit);
 		gl.bindTexture(gl.TEXTURE_2D, shadowSampling.atlasTexture);
 		gl.uniform1i(uniforms.shadowAtlas, unit);
@@ -557,10 +532,7 @@ export function bindWebGLGlobalUniforms(
 		);
 	}
 	if (uniforms.shadowTransmittanceAtlas && hasShadowTransmittance) {
-		const unit = samplerUnit(
-			"uShadowTransmittanceAtlas",
-			WEBGL_TEXTURE_UNIT_SHADOW_TRANSMITTANCE,
-		);
+		const unit = samplerUnit("uShadowTransmittanceAtlas");
 		gl.activeTexture(gl.TEXTURE0 + unit);
 		gl.bindTexture(gl.TEXTURE_2D, shadowSampling.transmittanceTexture);
 		gl.uniform1i(
@@ -569,10 +541,7 @@ export function bindWebGLGlobalUniforms(
 		);
 	}
 	if (uniforms.particleShadowVolumeAtlas && shadowSampling.particleVolumeTexture) {
-		const unit = samplerUnit(
-			"uParticleShadowVolumeAtlas",
-			WEBGL_TEXTURE_UNIT_PARTICLE_SHADOW_VOLUME,
-		);
+		const unit = samplerUnit("uParticleShadowVolumeAtlas");
 		gl.activeTexture(gl.TEXTURE0 + unit);
 		gl.bindTexture(gl.TEXTURE_2D, shadowSampling.particleVolumeTexture);
 		gl.uniform1i(
@@ -644,16 +613,13 @@ export function bindWebGLGlobalUniforms(
 		);
 
 		if (uniforms.envSpecularMap) {
-			const unit = samplerUnit("uEnvSpecularMap", WEBGL_TEXTURE_UNIT_ENV_SPECULAR);
+			const unit = samplerUnit("uEnvSpecularMap");
 			gl.activeTexture(gl.TEXTURE0 + unit);
 			gl.bindTexture(gl.TEXTURE_2D, resolvedEnvSpecular.texture);
 			gl.uniform1i(uniforms.envSpecularMap, unit);
 		}
 		if (uniforms.envSpecularFallbackMap) {
-			const unit = samplerUnit(
-				"uEnvSpecularFallbackMap",
-				WEBGL_TEXTURE_UNIT_ENV_SPECULAR_FALLBACK,
-			);
+			const unit = samplerUnit("uEnvSpecularFallbackMap");
 			gl.activeTexture(gl.TEXTURE0 + unit);
 			gl.bindTexture(
 				gl.TEXTURE_2D,
@@ -665,7 +631,7 @@ export function bindWebGLGlobalUniforms(
 			);
 		}
 		if (uniforms.brdfLUT) {
-			const unit = samplerUnit("uBrdfLUT", WEBGL_TEXTURE_UNIT_BRDF_LUT);
+			const unit = samplerUnit("uBrdfLUT");
 			gl.activeTexture(gl.TEXTURE0 + unit);
 			gl.bindTexture(gl.TEXTURE_2D, resolvedBrdfLUT.texture);
 			gl.uniform1i(uniforms.brdfLUT, unit);
@@ -798,7 +764,7 @@ export function bindWebGLGlobalUniforms(
 			);
 		}
 	}
-	gl.activeTexture(gl.TEXTURE0 + WEBGL_TEXTURE_UNIT_BASE_MAP);
+	gl.activeTexture(gl.TEXTURE0);
 
 	if (uniforms.taaJitter) {
 		gl.uniform4fv(uniforms.taaJitter, host._temporalJitterCurrentPrev);

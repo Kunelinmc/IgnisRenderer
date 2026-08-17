@@ -55,7 +55,57 @@ function testCustomLayoutDeduplicatesActiveNames() {
 	assert.deepEqual(layout.units, { uCustomMap: 0, uNoiseMap: 1 });
 }
 
+function testSparseShadowAndGridLayoutFitsBelowLegacyThreshold() {
+	const variant = {
+		...WEBGL_FULL_SCENE_VARIANT,
+		output: "single",
+		oit: false,
+		scene: {
+			shadows: true,
+			shadowTransmittance: true,
+			clusteredLighting: false,
+			sh: true,
+			localLightProbes: true,
+			irradianceProbeGrid: true,
+			reflectionProbes: false,
+			environmentSpecular: false,
+		},
+		material: {
+			...WEBGL_FULL_SCENE_VARIANT.material,
+			model: "unlit",
+			baseMap: false,
+			metallicRoughnessMap: false,
+			specularMap: false,
+			specularColorMap: false,
+			normalMap: false,
+			emissiveMap: false,
+			occlusionMap: false,
+			clearcoat: false,
+			clearcoatMap: false,
+			clearcoatRoughnessMap: false,
+			clearcoatNormalMap: false,
+			sheen: false,
+			sheenColorMap: false,
+			sheenRoughnessMap: false,
+			iridescence: false,
+			iridescenceMap: false,
+			iridescenceThicknessMap: false,
+			anisotropy: false,
+			anisotropyMap: false,
+			transmission: false,
+			transmissionMap: false,
+			thicknessMap: false,
+			alphaMask: false,
+		},
+	};
+	const layout = createWebGLSceneSamplerLayout(5, variant);
+	assert.equal(layout.required, 5);
+	assert.ok(layout.activeSamplerNames.includes("uShadowTransmittanceAtlas"));
+	assert.ok(layout.activeSamplerNames.includes("uIrradianceProbeGridCoeffs"));
+}
+
 testFullLayoutIsDenseAndCollisionFree();
 testOverflowHasStableDiagnostic();
 testCustomLayoutDeduplicatesActiveNames();
+testSparseShadowAndGridLayoutFitsBelowLegacyThreshold();
 console.log("WebGL scene sampler layout tests passed");

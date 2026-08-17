@@ -72,16 +72,6 @@ export interface WebGLSceneLightLimits {
 	maxDirectionalLights: number;
 	maxPointLights: number;
 	maxSpotLights: number;
-	/**
-	 * Enables the optional transparent-shadow transmittance sampler. Leave disabled
-	 * on devices that only expose the WebGL2 minimum of 16 fragment texture units.
-	 */
-	enableShadowTransmittance?: boolean;
-	/**
-	 * Enables the optional irradiance probe grid sampler. Leave disabled on
-	 * devices whose fragment texture unit budget cannot fit the extra sampler.
-	 */
-	enableIrradianceProbeGrid?: boolean;
 }
 
 export interface WebGLSceneShaderSource {
@@ -314,16 +304,13 @@ const WEBGL_IRRADIANCE_PROBE_GRID_UNIFORMS = [
 
 function replaceOptionalDefines(
 	source: string,
-	limits: WebGLSceneLightLimits,
 	optionalBlocks: WebGLSceneOptionalBlocks,
 	variant: WebGLSceneVariantDescriptor
 ): string {
 	const shadowTransmittanceEnabled =
-		!!limits.enableShadowTransmittance &&
 		variant.scene.shadows &&
 		variant.scene.shadowTransmittance;
 	const irradianceProbeGridEnabled =
-		!!limits.enableIrradianceProbeGrid &&
 		variant.scene.sh &&
 		variant.scene.localLightProbes &&
 		variant.scene.irradianceProbeGrid;
@@ -482,8 +469,6 @@ function normalizeWebGLSceneLimits(
 		),
 		maxPointLights: Math.max(0, Math.floor(limits.maxPointLights ?? 0)),
 		maxSpotLights: Math.max(0, Math.floor(limits.maxSpotLights ?? 0)),
-		enableShadowTransmittance: !!limits.enableShadowTransmittance,
-		enableIrradianceProbeGrid: !!limits.enableIrradianceProbeGrid,
 	};
 }
 
@@ -1151,7 +1136,7 @@ export class ShaderSource {
 		optionalBlocks: WebGLSceneOptionalBlocks,
 		variant: WebGLSceneVariantDescriptor
 	): string {
-		return replaceOptionalDefines(template, limits, optionalBlocks, variant);
+		return replaceOptionalDefines(template, optionalBlocks, variant);
 	}
 
 	private static _buildWebGLSceneVariantDefines(
@@ -1504,8 +1489,6 @@ export class ShaderSource {
 				`|dir:${limits.maxDirectionalLights}` +
 				`|point:${limits.maxPointLights}` +
 				`|spot:${limits.maxSpotLights}` +
-				`|shadow:${limits.enableShadowTransmittance ? 1 : 0}` +
-				`|grid:${limits.enableIrradianceProbeGrid ? 1 : 0}` +
 				`|variant:${getWebGLSceneVariantKey(variant)}`
 			);
 		}

@@ -8,15 +8,34 @@ import {
 	type IBLPrefilterMipData,
 	type IBLPrefilterPlan,
 } from "../../lights/ibl/IBLPrefilterExecutor";
+import { ShaderSource } from "../../shaders/ShaderSource";
+import type { ShaderBackendCompileStage, ShaderRuntime } from "../../shaders/runtime";
 
-import type { WebGLProgramLibrary } from "./WebGLProgramLibrary";
+import { WebGLProgramCompiler, type WebGLProgramSlot } from "./WebGLProgramCompiler";
+
+interface WebGLIBLPrefilterProgram {
+	program: WebGLProgram;
+	uniforms: {
+		environmentMap: WebGLUniformLocation | null;
+		outputSize: WebGLUniformLocation | null;
+		sourceSize: WebGLUniformLocation | null;
+		roughness: WebGLUniformLocation | null;
+		sampleCount: WebGLUniformLocation | null;
+		sourceIsLinear: WebGLUniformLocation | null;
+		sourceMipLevelCount: WebGLUniformLocation | null;
+	};
+}
 
 const GPU_MAX_SAMPLE_COUNT = 256;
 const GPU_MIN_SAMPLE_COUNT = 48;
 
 interface WebGLIBLPrefilterRuntimeHost {
 	readonly gl: WebGL2RenderingContext;
-	readonly programs: WebGLProgramLibrary;
+	readonly shaderRuntime?: ShaderRuntime;
+	readonly shaderCompileStage?: ShaderBackendCompileStage;
+	readonly validatePrograms?: boolean;
+	/** @internal Test seam; the runtime still owns and destroys the result. */
+	readonly createProgramCompiler?: () => WebGLProgramCompiler;
 	getFullscreenVao(): WebGLVertexArrayObject | null;
 }
 
@@ -46,11 +65,35 @@ interface WebGLIBLPrefilterResources {
 export class WebGLIBLPrefilterRuntime implements IBLPrefilterExecutorLike {
 	public readonly id = "webgl" as const;
 	private readonly _host: WebGLIBLPrefilterRuntimeHost;
+	private readonly _programCompiler: WebGLProgramCompiler;
+	private readonly _program: WebGLProgramSlot<WebGLIBLPrefilterProgram>;
 	private readonly _baseAvailability: IBLPrefilterExecutorAvailability;
 	private _destroyed = false;
 
-	public constructor(host: WebGLIBLPrefilterRuntimeHost) {
+	constructor(host: WebGLIBLPrefilterRuntimeHost) {
 		this._host = host;
+		this._programCompiler =
+			host.createProgramCompiler?.() ??
+			new WebGLProgramCompiler(host.gl, host.shaderRuntime, host.shaderCompileStage, {
+				validatePrograms: host.validatePrograms === true,
+			});
+		this._program = this._programCompiler.createSlot({
+			label: "WebGLIBLPrefilterProgram",
+			vertex: () => ShaderSource.get("webgl.part.environmentVertex.raw"),
+			fragment: () => ShaderSource.get("webgl.part.iblPrefilterFragment.raw"),
+			reflect: (gl, program) => ({
+				program,
+				uniforms: {
+					environmentMap: gl.getUniformLocation(program, "uEnvironmentMap"),
+					outputSize: gl.getUniformLocation(program, "uOutputSize"),
+					sourceSize: gl.getUniformLocation(program, "uSourceSize"),
+					roughness: gl.getUniformLocation(program, "uRoughness"),
+					sampleCount: gl.getUniformLocation(program, "uSampleCount"),
+					sourceIsLinear: gl.getUniformLocation(program, "uSourceIsLinear"),
+					sourceMipLevelCount: gl.getUniformLocation(program, "uSourceMipLevelCount"),
+				},
+			}),
+		});
 		this._baseAvailability = resolveAvailability(host.gl);
 	}
 
@@ -72,16 +115,13 @@ export class WebGLIBLPrefilterRuntime implements IBLPrefilterExecutorLike {
 		return this._baseAvailability;
 	}
 
-	public async execute(
-		request: IBLPrefilterExecutionRequest,
-	): Promise<IBLPrefilterMipData[]> {
+	public async execute(request: IBLPrefilterExecutionRequest): Promise<IBLPrefilterMipData[]> {
 		const { envMap, plan: workPlan } = request;
 		assertIBLPrefilterSourceRevision(envMap, request.sourceRevision);
 		const availability = this.getAvailability();
 		if (!availability.acceptsRequests) {
 			throw new Error(
-				availability.reason ??
-					"WebGL IBL prefilter acceleration is unavailable.",
+				availability.reason ?? "WebGL IBL prefilter acceleration is unavailable.",
 			);
 		}
 		assertNotAborted(request.signal);
@@ -95,12 +135,7 @@ export class WebGLIBLPrefilterRuntime implements IBLPrefilterExecutorLike {
 		try {
 			preparePixelTransferState(gl);
 			resources = createResources(gl, envMap, workPlan);
-			return this._renderMipLevels(
-				envMap,
-				workPlan,
-				resources,
-				request,
-			);
+			return this._renderMipLevels(envMap, workPlan, resources, request);
 		} finally {
 			if (resources) {
 				destroyResources(gl, resources);
@@ -110,7 +145,10 @@ export class WebGLIBLPrefilterRuntime implements IBLPrefilterExecutorLike {
 	}
 
 	public destroy(): void {
+		if (this._destroyed) return;
 		this._destroyed = true;
+		this._program.destroy();
+		this._programCompiler.destroy();
 	}
 
 	private _renderMipLevels(
@@ -124,7 +162,7 @@ export class WebGLIBLPrefilterRuntime implements IBLPrefilterExecutorLike {
 		if (!vao) {
 			throw new Error("WebGL IBL prefilter fullscreen VAO is unavailable.");
 		}
-		const program = this._host.programs.getIBLPrefilterProgram();
+		const program = this._program.get();
 		const mipData: IBLPrefilterMipData[] = [];
 
 		gl.bindFramebuffer(gl.FRAMEBUFFER, resources.framebuffer);
@@ -147,23 +185,13 @@ export class WebGLIBLPrefilterRuntime implements IBLPrefilterExecutorLike {
 			Math.max(1, envMap.width),
 			Math.max(1, envMap.height),
 		);
-		setUniform1i(
-			gl,
-			program.uniforms.sourceIsLinear,
-			envMap.colorSpace === "sRGB" ? 0 : 1,
-		);
-		setUniform1i(
-			gl,
-			program.uniforms.sourceMipLevelCount,
-			resources.sourceMipLevelCount,
-		);
+		setUniform1i(gl, program.uniforms.sourceIsLinear, envMap.colorSpace === "sRGB" ? 0 : 1);
+		setUniform1i(gl, program.uniforms.sourceMipLevelCount, resources.sourceMipLevelCount);
 
 		for (const mipPlan of workPlan.mipLevels) {
 			assertNotAborted(request.signal);
 			if (gl.isContextLost?.()) {
-				throw new Error(
-					"WebGL context was lost during IBL prefilter acceleration.",
-				);
+				throw new Error("WebGL context was lost during IBL prefilter acceleration.");
 			}
 			gl.framebufferTexture2D(
 				gl.FRAMEBUFFER,
@@ -181,33 +209,14 @@ export class WebGLIBLPrefilterRuntime implements IBLPrefilterExecutorLike {
 			}
 
 			gl.viewport(0, 0, mipPlan.width, mipPlan.height);
-			setUniform2f(
-				gl,
-				program.uniforms.outputSize,
-				mipPlan.width,
-				mipPlan.height,
-			);
+			setUniform2f(gl, program.uniforms.outputSize, mipPlan.width, mipPlan.height);
 			setUniform1f(gl, program.uniforms.roughness, mipPlan.roughness);
-			setUniform1i(
-				gl,
-				program.uniforms.sampleCount,
-				resolveSampleCount(mipPlan.roughness),
-			);
+			setUniform1i(gl, program.uniforms.sampleCount, resolveSampleCount(mipPlan.roughness));
 			gl.drawArrays(gl.TRIANGLES, 0, 3);
 			throwOnWebGLError(gl, `rendering mip ${mipPlan.level}`);
 
-			const data = new Float32Array(
-				mipPlan.width * mipPlan.height * 4,
-			);
-			gl.readPixels(
-				0,
-				0,
-				mipPlan.width,
-				mipPlan.height,
-				gl.RGBA,
-				gl.FLOAT,
-				data,
-			);
+			const data = new Float32Array(mipPlan.width * mipPlan.height * 4);
+			gl.readPixels(0, 0, mipPlan.width, mipPlan.height, gl.RGBA, gl.FLOAT, data);
 			throwOnWebGLError(gl, `reading mip ${mipPlan.level}`);
 			for (let index = 3; index < data.length; index += 4) {
 				data[index] = 1;

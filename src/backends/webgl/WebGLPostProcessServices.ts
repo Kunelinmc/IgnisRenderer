@@ -1,4 +1,5 @@
 import type { FrameContext } from "../../pipeline/types";
+import type { BackendPostProcessRuntime } from "../../postprocess/BackendPostProcessRuntime";
 import type {
 	LogicalGBufferBridge,
 	PostProcessExecutionDeclaration,
@@ -14,6 +15,11 @@ import { Logger } from "../../foundation/Logger";
 import type { WebGLProgramCompiler } from "./WebGLProgramCompiler";
 import type { WebGLFrameTargetManager } from "./WebGLFrameTargetManager";
 import { WebGLPostProcessBridge } from "./WebGLPostProcessBridge";
+import type {
+	WebGLProgramWarmupContributor,
+	WebGLProgramWarmupRequest,
+	WebGLProgramWarmupTask,
+} from "./WebGLWarmupCoordinator";
 
 export interface WebGLPostProcessServicesHost {
 	readonly gl: WebGL2RenderingContext;
@@ -135,5 +141,58 @@ export class WebGLPostProcessServices {
 		result: PostProcessPassResult,
 	): PostProcessPassCompletion {
 		return this._bridge.completePass(request, result);
+	}
+}
+
+/** @internal Produces warmup tasks from one validated post-process plan. */
+export class WebGLPostProcessWarmupContributor
+	implements WebGLProgramWarmupContributor
+{
+	private readonly _runtime: BackendPostProcessRuntime;
+	private readonly _services: WebGLPostProcessServices;
+
+	constructor(
+		runtime: BackendPostProcessRuntime,
+		services: WebGLPostProcessServices,
+	) {
+		this._runtime = runtime;
+		this._services = services;
+	}
+
+	public collectWarmupTasks(
+		request: WebGLProgramWarmupRequest,
+	): readonly WebGLProgramWarmupTask[] {
+		const graph =
+			request.postProcessPlan ??
+			(request.plan.includePostProcess ?
+				this._runtime.planWarmup(request.context)
+			: null);
+		const warmed = new Set<string>();
+		const tasks: WebGLProgramWarmupTask[] = [];
+		for (const passId of request.plan.postProcessPasses) {
+			if (warmed.has(passId)) continue;
+			const compiled = graph?.passes.find((pass) => pass.id === passId);
+			const implementation = compiled?.implementation;
+			if (!compiled || typeof implementation?.warmup !== "function") continue;
+			warmed.add(passId);
+			tasks.push({
+				label: `WebGLPostWarmup:${passId}`,
+				priority: "postprocess",
+				run: async () => {
+					const context = this._services.getPassWarmupExecutionContext(
+						compiled.id,
+						compiled.declaration,
+					);
+					await implementation.warmup?.(context, {
+						frameContext: request.context,
+						postProcess: request.context.postProcess,
+						backend: "webgl",
+						context,
+						options: compiled.options,
+					});
+				},
+			});
+		}
+		return tasks;
 	}
 }

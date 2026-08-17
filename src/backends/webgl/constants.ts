@@ -25,8 +25,6 @@ export const DOF_DEPTH_CURVE_RANGE: [number, number] = [0.25, 4];
 export const DOF_HIGHLIGHT_GAIN_RANGE: [number, number] = [0, 3];
 export const DOF_CHROMATIC_ABERRATION_RANGE: [number, number] = [0, 2];
 
-export const WEBGL_TEXTURE_UNIT_PARTICLE_SHADOW_VOLUME = 14;
-export const WEBGL_TEXTURE_UNIT_SHADOW_TRANSMITTANCE = 16;
 export const WEBGL_PARTICLE_SHADOW_VOLUME_GRID_WIDTH = 64;
 export const WEBGL_PARTICLE_SHADOW_VOLUME_GRID_HEIGHT = 64;
 export const WEBGL_PARTICLE_SHADOW_VOLUME_GRID_DEPTH = 32;

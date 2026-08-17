@@ -14,7 +14,7 @@ export class WebGLContextServiceOwner {
 	public readonly frame: WebGLFrameServiceOwner;
 	public readonly iblPrefilter: WebGLIBLPrefilterRuntime;
 
-	public constructor(
+	constructor(
 		gl: WebGL2RenderingContext,
 		shaderRuntime: ShaderRuntime,
 		shaderCompileStage: ShaderBackendCompileStage,
@@ -29,7 +29,9 @@ export class WebGLContextServiceOwner {
 		try {
 			this.iblPrefilter = new WebGLIBLPrefilterRuntime({
 				gl,
-				programs: this.frame._programs,
+				shaderRuntime,
+				shaderCompileStage,
+				validatePrograms: options.validatePrograms,
 				getFullscreenVao: () => this.frame._fullscreenVao,
 			});
 		} catch (error) {

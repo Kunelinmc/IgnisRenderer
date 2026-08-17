@@ -124,6 +124,9 @@ function createBinderHost(gl, pointLights) {
 		_uploadLocalLightProbeCoefficients() {
 			return false;
 		},
+		_uploadIrradianceProbeGridCoefficients() {
+			return false;
+		},
 	};
 }
 
@@ -157,6 +160,7 @@ function testPointLightUniformPackingUsesConfiguredBudget() {
 	const pointLightPositionRange = { id: "point-position-range" };
 	const pointLightColor = { id: "point-color" };
 	const sceneProgram = {
+		samplerLayout: { units: {}, activeSamplerNames: [], required: 0, available: 16 },
 		uniforms: {
 			pointLightCount,
 			pointLightPositionRange,
@@ -200,6 +204,7 @@ function testSHAmbientCoefficientsUseUniformVectors() {
 	const enableSH = { id: "enable-sh" };
 	const shAmbientCoeffsLocation = { id: "sh-ambient-coeffs" };
 	const sceneProgram = {
+		samplerLayout: { units: {}, activeSamplerNames: [], required: 0, available: 16 },
 		uniforms: {
 			enableSH,
 			shAmbientCoeffs: shAmbientCoeffsLocation,
@@ -225,6 +230,12 @@ function testLocalLightProbeSHUsesFreedTextureUnit() {
 	const frameContext = createFrameContext();
 	const localLightProbeCoeffs = { id: "local-light-probe-coeffs" };
 	const sceneProgram = {
+		samplerLayout: {
+			units: { uLocalLightProbeCoeffs: 0 },
+			activeSamplerNames: ["uLocalLightProbeCoeffs"],
+			required: 1,
+			available: 16,
+		},
 		uniforms: {
 			localLightProbeCoeffs,
 		},
@@ -232,7 +243,7 @@ function testLocalLightProbeSHUsesFreedTextureUnit() {
 
 	bindWebGLGlobalUniforms(host, sceneProgram, frameContext);
 
-	assert.equal(gl._calls.uniform1iCalls.get(localLightProbeCoeffs), 4);
+	assert.equal(gl._calls.uniform1iCalls.get(localLightProbeCoeffs), 0);
 }
 
 function run() {

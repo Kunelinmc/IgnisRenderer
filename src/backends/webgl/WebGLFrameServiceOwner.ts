@@ -1,4 +1,3 @@
-import { CameraType } from "../../cameras/Camera";
 import {
 	AlphaMode,
 	type Material,
@@ -36,10 +35,8 @@ import {
 	SH_COEFFICIENT_COUNT,
 	WEBGL_REFLECTION_PROBE_CAMERA_WORLD_POSITION_SCRATCH,
 } from "./constants";
-import {
-	WebGLProgramLibrary,
-	type WebGLSceneProgram,
-} from "./WebGLProgramLibrary";
+import { WebGLSceneProgramRepository } from "./WebGLSceneProgramRepository";
+import type { WebGLSceneProgram } from "./WebGLSceneProgram";
 import { WebGLProgramCompiler } from "./WebGLProgramCompiler";
 import {
 	DEFAULT_DEFERRED_UPLOAD_BYTES_PER_FRAME,
@@ -64,6 +61,7 @@ import { Logger } from "../../foundation/Logger";
 import { WebGLFrameTargetManager } from "./WebGLFrameTargetManager";
 import { WebGLFrameSession } from "./WebGLFrameSession";
 import { WebGLFullscreenRenderer } from "./WebGLFullscreenRenderer";
+import { WebGLEnvironmentRenderer } from "./WebGLEnvironmentRenderer";
 import {
 	bindWebGLGlobalUniforms,
 	uploadWebGLIrradianceProbeGridCoefficients,
@@ -85,16 +83,26 @@ import {
 	type WebGLParticleRenderOptions,
 } from "./WebGLParticlePass";
 import { BackendPostProcessRuntime } from "../../postprocess/BackendPostProcessRuntime";
-import { WebGLPostProcessServices } from "./WebGLPostProcessServices";
+import {
+	WebGLPostProcessServices,
+	WebGLPostProcessWarmupContributor,
+} from "./WebGLPostProcessServices";
 import { WebGLTemporalFrameState } from "./WebGLTemporalFrameState";
 import { WebGLWarmupCoordinator } from "./WebGLWarmupCoordinator";
-import { WebGLTransparencyRuntime } from "./WebGLTransparencyRuntime";
+import {
+	WebGLTransparencyRuntime,
+	WebGLTransparencyWarmupContributor,
+} from "./WebGLTransparencyRuntime";
 import {
 	resolveWebGLBuiltinDepthVariant,
-	resolveWebGLBuiltinSceneVariant,
 	type WebGLSceneDepthVariantDescriptor,
 	type WebGLSceneVariantDescriptor,
 } from "./WebGLSceneProgramVariants";
+import {
+	planWebGLScenePrograms,
+	resolveWebGLSceneDrawVariant,
+	WebGLSceneProgramWarmupContributor,
+} from "./WebGLSceneProgramPlanner";
 import { WebGLCustomRenderTargetRuntime } from "./WebGLCustomRenderTargetRuntime";
 import type { FramePass } from "../../pipeline/types";
 import type {
@@ -119,7 +127,7 @@ export interface WebGLFrameServiceOwnerOptions {
 export class WebGLFrameServiceOwner {
 	public _gl: WebGL2RenderingContext;
 	private _programCompiler: WebGLProgramCompiler;
-	public _programs: WebGLProgramLibrary;
+	public _scenePrograms: WebGLSceneProgramRepository;
 	public _geometry: WebGLGeometryRegistry;
 	public _textures: WebGLTextureRegistry;
 	private _shadow: WebGLShadowRuntime;
@@ -128,11 +136,10 @@ export class WebGLFrameServiceOwner {
 	private readonly _temporalFrameState = new WebGLTemporalFrameState();
 	private _scene: WebGLSceneRuntime;
 	private _fullscreen: WebGLFullscreenRenderer;
+	private _environment: WebGLEnvironmentRenderer;
 	private readonly _session = new WebGLFrameSession();
 	private _maxTextureSize: number;
 	private _maxRenderbufferSize: number;
-	public _maxTextureImageUnits: number;
-	public _irradianceProbeGridSamplingSupported = false;
 	public _clusteredLighting: WebGLClusteredLightingRuntime;
 	public _shAmbientTexture: WebGLTexture | null = null;
 	public _shAmbientTextureWidth = SH_COEFFICIENT_COUNT;
@@ -159,6 +166,21 @@ export class WebGLFrameServiceOwner {
 
 	public get warmupCoordinator(): WebGLWarmupCoordinator {
 		return this._warmup;
+	}
+
+	public async prepareSceneProgramSources(context: FrameContext): Promise<void> {
+		const materials = Array.from(new Set([
+			...(context.scene?.opaquePackets ?? []).map((packet) => packet.material),
+			...(context.scene?.transparentPackets ?? []).map((packet) => packet.material),
+		]));
+		const plan = planWebGLScenePrograms(
+			context,
+			materials,
+			["mrt", "single"],
+		);
+		await this._scenePrograms.prepareBuiltinSceneVariants(
+			plan.sceneVariants.values(),
+		);
 	}
 
 	public get transparency(): WebGLTransparencyRuntime {
@@ -323,18 +345,11 @@ export class WebGLFrameServiceOwner {
 				onProgramCompilePending: options.onProgramCompilePending,
 			}
 		);
-		this._programs = new WebGLProgramLibrary(
-			gl,
+		this._scenePrograms = new WebGLSceneProgramRepository({
+			compiler: this._programCompiler,
 			shaderRuntime,
 			shaderCompileStage,
-			{
-				validatePrograms: options.validatePrograms === true,
-				onProgramCompilePending: options.onProgramCompilePending,
-				compiler: this._programCompiler,
-			},
-		);
-		this._irradianceProbeGridSamplingSupported =
-			this._programs.supportsIrradianceProbeGridSampling();
+		});
 		this._geometry = new WebGLGeometryRegistry(gl);
 		this._textures = new WebGLTextureRegistry(gl, undefined, {
 			uploadScheduling: "deferred",
@@ -344,7 +359,7 @@ export class WebGLFrameServiceOwner {
 		});
 		this._particlePass = new WebGLParticlePass({
 			gl,
-			programs: this._programs,
+			programCompiler: this._programCompiler,
 			textures: this._textures,
 			getSceneFramebuffer: () => this._targets._sceneFramebuffer,
 			getViewportSize: () => ({ width: this._session.width, height: this._session.height }),
@@ -365,10 +380,6 @@ export class WebGLFrameServiceOwner {
 			gl.MAX_RENDERBUFFER_SIZE,
 			4096
 		);
-		this._maxTextureImageUnits = this._resolveLimit(
-			gl.MAX_TEXTURE_IMAGE_UNITS,
-			16
-		);
 		this._targets = new WebGLFrameTargetManager(
 			gl,
 			this._maxTextureSize,
@@ -377,7 +388,7 @@ export class WebGLFrameServiceOwner {
 		this._fullscreen = new WebGLFullscreenRenderer({
 			gl: this._gl,
 			targets: this._targets,
-			getPrograms: () => this._programs,
+			programCompiler: this._programCompiler,
 			getWidth: () => this._session.width,
 			getHeight: () => this._session.height,
 			isIncrementalPartial: (context) => this._isIncrementalPartial(context),
@@ -388,6 +399,15 @@ export class WebGLFrameServiceOwner {
 			markPresented: () => {
 				this._session.presented = true;
 			},
+		});
+		this._environment = new WebGLEnvironmentRenderer({
+			gl: this._gl,
+			programCompiler: this._programCompiler,
+			targets: this._targets,
+			textures: this._textures,
+			getFullscreenVao: () => this._fullscreen._vao,
+			getWidth: () => this._session.width,
+			getHeight: () => this._session.height,
 		});
 		this._scene = new WebGLSceneRuntime({
 			gl: this._gl,
@@ -401,16 +421,17 @@ export class WebGLFrameServiceOwner {
 				this._resolveDirtyRects(context, width, height),
 			setScissorRect: (x, y, width, height, viewportHeight) =>
 				this._setScissorRect(x, y, width, height, viewportHeight),
-			renderEnvironment: (context) => this._renderEnvironment(context),
+			renderEnvironment: (context) => {
+				this._environment.render(context);
+			},
 			renderLegacyTransparent: (context) =>
 				this._transparency.renderLegacyTransparent(context),
 		});
 		this._shadow = new WebGLShadowRuntime({
 			gl: this._gl,
-			programs: this._programs,
+			programCompiler: this._programCompiler,
 			geometry: this._geometry,
 			maxTextureSize: this._maxTextureSize,
-			maxTextureImageUnits: this._maxTextureImageUnits,
 			getSceneFramebuffer: () => this._targets._sceneFramebuffer,
 			getWidth: () => this._session.width,
 			getHeight: () => this._session.height,
@@ -433,7 +454,7 @@ export class WebGLFrameServiceOwner {
 		this._transparency = new WebGLTransparencyRuntime({
 			gl: this._gl,
 			targets: this._targets,
-			getPrograms: () => this._programs,
+			programCompiler: this._programCompiler,
 			getFullscreenVao: () => this._fullscreen._vao,
 			getWidth: () => this._session.width,
 			getHeight: () => this._session.height,
@@ -444,14 +465,22 @@ export class WebGLFrameServiceOwner {
 				this._fullscreen.draw(width, height, context),
 		});
 		this._warmup = new WebGLWarmupCoordinator({
-			getPrograms: () => this._programs,
-			getCompiler: () => this._programCompiler,
-			postProcessRuntime: this._postProcessRuntime,
-			postProcess: this._postProcess,
-			enableEarlyZPrepass: this._enableEarlyZPrepass,
-			maxTextureImageUnits: this._maxTextureImageUnits,
-			irradianceProbeGridSamplingSupported:
-				this._irradianceProbeGridSamplingSupported,
+			compiler: this._programCompiler,
+			contributors: [
+				new WebGLSceneProgramWarmupContributor(
+					this._scenePrograms,
+					this._enableEarlyZPrepass,
+				),
+				this._environment,
+				this._shadow,
+				this._particlePass,
+				new WebGLTransparencyWarmupContributor(this._transparency),
+				new WebGLPostProcessWarmupContributor(
+					this._postProcessRuntime,
+					this._postProcess,
+				),
+				this._fullscreen,
+			],
 		});
 	}
 
@@ -802,6 +831,7 @@ export class WebGLFrameServiceOwner {
 	}
 
 	public destroy(): void {
+		this._transparency.destroy();
 		this._customRenderTargets.destroy();
 		this._destroyFrameTargets();
 		this._shadow.destroy();
@@ -820,10 +850,11 @@ export class WebGLFrameServiceOwner {
 			this._irradianceProbeGridSHTexture = null;
 		}
 		this._scene.destroy();
+		this._environment.destroy();
 		this._fullscreen.destroy();
 		this._geometry.destroy();
 		this._textures.destroy();
-		this._programs.destroy();
+		this._scenePrograms.destroy();
 		this._programCompiler.destroy();
 		this._temporalFrameState.reset();
 		this._session.finish();
@@ -929,17 +960,13 @@ export class WebGLFrameServiceOwner {
 		packet: DrawPacket,
 		mode: ShaderTargetMode
 	): WebGLSceneVariantDescriptor | null {
-		return resolveWebGLBuiltinSceneVariant(
+		return resolveWebGLSceneDrawVariant(
 			context,
 			packet.material,
 			mode,
 			this._oitPassMode,
-			{
-				lightState: this._session.lightState,
-				enableShadowTransmittance:
-					this.getShadowSamplingState().transmittanceAvailable,
-				enableIrradianceProbeGrid: this._irradianceProbeGridSamplingSupported,
-			},
+			this._session.lightState,
+			this.getShadowSamplingState().transmittanceAvailable,
 			this._targets._materialGBufferEnabled
 		);
 	}
@@ -1032,103 +1059,6 @@ export class WebGLFrameServiceOwner {
 			this,
 			grid
 		);
-	}
-
-	private _renderEnvironment(context: FrameContext): void {
-		const environmentBackgroundTexture =
-			context.scene.environment.backgroundTexture;
-		if (!environmentBackgroundTexture || !this._fullscreenVao) return;
-		const environment = context.scene.environment;
-
-		const gl = this._gl;
-		const environmentProgram = this._programs.tryGetEnvironmentProgram();
-		if (!environmentProgram) {
-			return;
-		}
-		const resolved = this._textures.getEnvironmentTexture(environmentBackgroundTexture);
-		const view = context.viewCamera.viewMatrix.elements;
-		const isOrthographic = context.viewCamera.type === CameraType.Orthographic;
-		const tanHalfFov =
-			isOrthographic ? 0 : Math.tan((context.viewCamera.fov * Math.PI) / 360);
-		const aspect = context.viewCamera.aspectRatio || this._session.width / this._session.height;
-
-		gl.bindFramebuffer(gl.FRAMEBUFFER, this._targets._sceneFramebuffer);
-		gl.drawBuffers([gl.COLOR_ATTACHMENT0, gl.COLOR_ATTACHMENT1]);
-		gl.useProgram(environmentProgram.program);
-		gl.bindVertexArray(this._fullscreenVao);
-		gl.disable(gl.CULL_FACE);
-		gl.disable(gl.BLEND);
-		gl.disable(gl.DEPTH_TEST);
-		gl.depthMask(false);
-
-		gl.activeTexture(gl.TEXTURE0);
-		gl.bindTexture(gl.TEXTURE_2D, resolved.texture);
-		if (environmentProgram.uniforms.environmentMap) {
-			gl.uniform1i(environmentProgram.uniforms.environmentMap, 0);
-		}
-		if (environmentProgram.uniforms.environmentBasisRight) {
-			gl.uniform4f(
-				environmentProgram.uniforms.environmentBasisRight,
-				view[0][0],
-				view[0][1],
-				view[0][2],
-				tanHalfFov
-			);
-		}
-		if (environmentProgram.uniforms.environmentBasisUp) {
-			gl.uniform4f(
-				environmentProgram.uniforms.environmentBasisUp,
-				view[1][0],
-				view[1][1],
-				view[1][2],
-				aspect
-			);
-		}
-		if (environmentProgram.uniforms.environmentBasisBackward) {
-			gl.uniform3f(
-				environmentProgram.uniforms.environmentBasisBackward,
-				view[2][0],
-				view[2][1],
-				view[2][2]
-			);
-		}
-		if (environmentProgram.uniforms.environmentIsOrthographic) {
-			gl.uniform1f(
-				environmentProgram.uniforms.environmentIsOrthographic,
-				isOrthographic ? 1 : 0
-			);
-		}
-		if (environmentProgram.uniforms.environmentMapIsLinear) {
-			gl.uniform1i(
-				environmentProgram.uniforms.environmentMapIsLinear,
-				resolved.isLinear ? 1 : 0
-			);
-		}
-		if (environmentProgram.uniforms.environmentBackgroundTint) {
-			gl.uniform3f(
-				environmentProgram.uniforms.environmentBackgroundTint,
-				environment.backgroundTintLinear.r,
-				environment.backgroundTintLinear.g,
-				environment.backgroundTintLinear.b
-			);
-		}
-		if (environmentProgram.uniforms.environmentBackgroundExposure) {
-			gl.uniform1f(
-				environmentProgram.uniforms.environmentBackgroundExposure,
-				Math.max(1e-6, environment.backgroundExposure)
-			);
-		}
-		if (environmentProgram.uniforms.environmentBackgroundStrength) {
-			gl.uniform1f(
-				environmentProgram.uniforms.environmentBackgroundStrength,
-				Math.max(0, environment.backgroundStrength)
-			);
-		}
-		gl.drawArrays(gl.TRIANGLES, 0, 3);
-
-		gl.depthMask(true);
-		gl.enable(gl.DEPTH_TEST);
-		gl.bindVertexArray(null);
 	}
 
 	public _updateFogParams(options: FogOptions | undefined, enabled: boolean): void {

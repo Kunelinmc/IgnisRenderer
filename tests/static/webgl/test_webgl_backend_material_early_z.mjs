@@ -5,6 +5,12 @@ function testDrawWebGLPacketAppliesMaterialDepthWriteState() {
 	const sceneProgram = {
 		program: {},
 		uniforms: {},
+		samplerLayout: {
+			units: {},
+			activeSamplerNames: [],
+			required: 0,
+			available: 16,
+		},
 	};
 	const host = {
 		_gl: gl,
@@ -223,51 +229,29 @@ function testShaderMaterialCustomTextureBinding() {
 	const customSamplers = {
 		uCustomTex: "uCustomTex"
 	};
-	const sceneProgram = { uniforms: { customSamplers } };
-
-	// Case 1: _maxTextureImageUnits is 32 (starts at WEBGL_TEXTURE_UNIT_CUSTOM_START = 17)
-	{
-		gl.calls.activeTextures = [];
-		gl.calls.boundTextures = [];
-		gl.calls.uniform1i = [];
-		const host = {
-			_gl: gl,
-			_maxTextureImageUnits: 32,
-			_textures: {
-				getBaseColorTexture(texture) {
-					return { texture };
-				}
-			}
-		};
-		bindWebGLShaderMaterialTextures(host, sceneProgram, material);
-		assert.equal(gl.calls.activeTextures.length, 2);
-		assert.equal(gl.calls.activeTextures[0], gl.TEXTURE0 + 17);
-		assert.equal(gl.calls.activeTextures[1], gl.TEXTURE0 + 0);
-		assert.deepEqual(gl.calls.boundTextures, [{ target: gl.TEXTURE_2D, texture: fakeTexture }]);
-		assert.deepEqual(gl.calls.uniform1i, [{ location: "uCustomTex", value: 17 }]);
-	}
-
-	// Case 2: _maxTextureImageUnits is 16 (falls back to start at 8)
-	{
-		gl.calls.activeTextures = [];
-		gl.calls.boundTextures = [];
-		gl.calls.uniform1i = [];
-		const host = {
-			_gl: gl,
-			_maxTextureImageUnits: 16,
-			_textures: {
-				getBaseColorTexture(texture) {
-					return { texture };
-				}
-			}
-		};
-		bindWebGLShaderMaterialTextures(host, sceneProgram, material);
-		assert.equal(gl.calls.activeTextures.length, 2);
-		assert.equal(gl.calls.activeTextures[0], gl.TEXTURE0 + 8);
-		assert.equal(gl.calls.activeTextures[1], gl.TEXTURE0 + 0);
-		assert.deepEqual(gl.calls.boundTextures, [{ target: gl.TEXTURE_2D, texture: fakeTexture }]);
-		assert.deepEqual(gl.calls.uniform1i, [{ location: "uCustomTex", value: 8 }]);
-	}
+	const sceneProgram = {
+		uniforms: { customSamplers },
+		samplerLayout: {
+			units: { uCustomTex: 0 },
+			activeSamplerNames: ["uCustomTex"],
+			required: 1,
+			available: 16,
+		},
+	};
+	const host = {
+		_gl: gl,
+		_textures: {
+			getBaseColorTexture(texture) {
+				return { texture };
+			},
+		},
+	};
+	bindWebGLShaderMaterialTextures(host, sceneProgram, material);
+	assert.deepEqual(gl.calls.activeTextures, [gl.TEXTURE0, gl.TEXTURE0]);
+	assert.deepEqual(gl.calls.boundTextures, [
+		{ target: gl.TEXTURE_2D, texture: fakeTexture },
+	]);
+	assert.deepEqual(gl.calls.uniform1i, [{ location: "uCustomTex", value: 0 }]);
 }
 
 await runWebGLBackendFile([

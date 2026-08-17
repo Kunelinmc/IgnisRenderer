@@ -1,4 +1,120 @@
 import assert from "node:assert/strict";import { ShaderMaterial } from "../../../src/materials/ShaderMaterial.ts";import { Matrix4 } from "../../../src/maths/Matrix4.ts";import { drawWebGLPacket } from "../../../src/backends/webgl/WebGLScenePass.ts";import { WebGLBackend } from "../../../src/backends/webgl/WebGLBackend.ts";import { PARTICLE_SIM_DELTA_TIME_SECONDS_KEY } from "../../../src/pipeline/types.ts";import { createResolvedPostProcess } from "../../helpers/postprocess.mjs";import { createScenePassCaptureGL, runWebGLBackendFile } from "../../helpers/webgl-backend.mjs";
+import { CameraType } from "../../../src/cameras/Camera.ts";
+import { WebGLEnvironmentRenderer } from "../../../src/backends/webgl/WebGLEnvironmentRenderer.ts";
+import { WebGLTransparencyWarmupContributor } from "../../../src/backends/webgl/WebGLTransparencyRuntime.ts";
+
+function testEnvironmentRendererOwnsProgramAndDrawLifecycle() {
+	const gl = createScenePassCaptureGL();
+	gl.drawArrays = () => {
+		gl.calls.drawArrays = (gl.calls.drawArrays ?? 0) + 1;
+	};
+	let slotDestroyed = false;
+	const uniform = {};
+	const program = {
+		program: {},
+		uniforms: {
+			environmentMap: uniform,
+			environmentBasisRight: uniform,
+			environmentBasisUp: uniform,
+			environmentBasisBackward: uniform,
+			environmentIsOrthographic: uniform,
+			environmentMapIsLinear: uniform,
+			environmentBackgroundTint: uniform,
+			environmentBackgroundExposure: uniform,
+			environmentBackgroundStrength: uniform,
+		},
+	};
+	const renderer = new WebGLEnvironmentRenderer({
+		gl,
+		programCompiler: {
+			createSlot(descriptor) {
+				return {
+					label: descriptor.label,
+					get: () => program,
+					tryGet: () => program,
+					warmup: () => ({
+						label: descriptor.label,
+						isComplete: () => true,
+						finalize() {},
+					}),
+					invalidate() {},
+					destroy() {
+						slotDestroyed = true;
+					},
+				};
+			},
+		},
+		targets: { _sceneFramebuffer: {} },
+		textures: {
+			getEnvironmentTexture() {
+				return { texture: {}, isLinear: true };
+			},
+		},
+		getFullscreenVao: () => ({}),
+		getWidth: () => 64,
+		getHeight: () => 32,
+	});
+	const rendered = renderer.render({
+		viewCamera: {
+			type: CameraType.Perspective,
+			fov: 60,
+			aspectRatio: 2,
+			viewMatrix: Matrix4.identity(),
+		},
+		scene: {
+			environment: {
+				backgroundTexture: {},
+				backgroundTintLinear: { r: 1, g: 0.5, b: 0.25 },
+				backgroundExposure: 1,
+				backgroundStrength: 1,
+			},
+		},
+	});
+	assert.equal(rendered, true);
+	assert.equal(gl.calls.drawArrays, 1);
+	assert.deepEqual(gl.calls.depthMask, [false, true]);
+	assert.equal(renderer.collectWarmupTasks({
+		context: {},
+		plan: { enableEnvironment: true },
+		postProcessPlan: null,
+	}).length, 1);
+	renderer.destroy();
+	assert.equal(slotDestroyed, true);
+}
+
+async function testTransparencyWarmupContributorSelectsRuntimePrograms() {
+	const warmed = [];
+	const contributor = new WebGLTransparencyWarmupContributor({
+		warmupCopyProgram() {
+			warmed.push("copy");
+		},
+		warmupOITResolveProgram() {
+			warmed.push("oit-resolve");
+		},
+	});
+	const tasks = contributor.collectWarmupTasks({
+		context: { features: { enableOIT: true } },
+		plan: { materials: [{ transmissionFactor: 1 }] },
+		postProcessPlan: null,
+	});
+
+	assert.deepEqual(
+		tasks.map(({ label, priority }) => ({ label, priority })),
+		[
+			{ label: "WebGLCopyProgram", priority: "core" },
+			{ label: "WebGLOITResolveProgram", priority: "optional" },
+		],
+	);
+	for (const task of tasks) await task.run();
+	assert.deepEqual(warmed, ["copy", "oit-resolve"]);
+
+	const emptyTasks = contributor.collectWarmupTasks({
+		context: { features: { enableOIT: false } },
+		plan: { materials: [] },
+		postProcessPlan: null,
+	});
+	assert.deepEqual(emptyTasks, []);
+}
 
 function testSceneProgramDrawBuffersMatchFragmentOutputCount() {
 	const gl = createScenePassCaptureGL();
@@ -9,6 +125,12 @@ function testSceneProgramDrawBuffersMatchFragmentOutputCount() {
 		program: {},
 		uniforms: {},
 		targetMode: "single",
+		samplerLayout: {
+			units: {},
+			activeSamplerNames: [],
+			required: 0,
+			available: 16,
+		},
 	};
 
 	const packet = {
@@ -69,6 +191,7 @@ function testSceneProgramDrawBuffersMatchFragmentOutputCount() {
 		uniforms: {},
 		targetMode: "mrt",
 		colorOutputCount: 3,
+		samplerLayout: { units: {}, activeSamplerNames: [], required: 0, available: 16 },
 	}, packet, false, {});
 	assert.deepEqual(gl.calls.drawBuffers, [
 		[
@@ -91,6 +214,7 @@ function testSceneProgramDrawBuffersMatchFragmentOutputCount() {
 		uniforms: {},
 		targetMode: "mrt",
 		colorOutputCount: 5,
+		samplerLayout: { units: {}, activeSamplerNames: [], required: 0, available: 16 },
 	}, packet, false, {});
 	assert.deepEqual(gl.calls.drawBuffers, []);
 
@@ -105,6 +229,7 @@ function testSceneProgramDrawBuffersMatchFragmentOutputCount() {
 			uniforms: {},
 			targetMode: "mrt",
 			colorOutputCount: 3,
+			samplerLayout: { units: {}, activeSamplerNames: [], required: 0, available: 16 },
 		}, packet, false, {}),
 		(error) => error === drawError,
 	);
@@ -196,6 +321,8 @@ async function testWebGLBackendWarmupDelegatesToCoordinator() {
 }
 
 await runWebGLBackendFile([
+	testEnvironmentRendererOwnsProgramAndDrawLifecycle,
+	testTransparencyWarmupContributorSelectsRuntimePrograms,
 	testSceneProgramDrawBuffersMatchFragmentOutputCount,
 	testWebGLBackendParticleDeltaTimeClamp,
 	testWebGLBackendWarmupDelegatesToCoordinator,

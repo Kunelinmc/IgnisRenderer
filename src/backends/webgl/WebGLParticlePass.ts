@@ -12,6 +12,17 @@ import { finiteOr, toColumnMajorMat4 } from "./WebGLFrameMath";
 import { resolveTextureUVTransform } from "./WebGLMaterialUniformResolver";
 import type { WebGLRenderPass } from "./WebGLPassLifecycle";
 import { Logger } from "../../foundation/Logger";
+import { ShaderSource } from "../../shaders/ShaderSource";
+import type {
+	WebGLProgramCompiler,
+	WebGLProgramSlot,
+	WebGLProgramWarmupHandle,
+} from "./WebGLProgramCompiler";
+import type {
+	WebGLProgramWarmupContributor,
+	WebGLProgramWarmupRequest,
+	WebGLProgramWarmupTask,
+} from "./WebGLWarmupCoordinator";
 
 const PARTICLE_QUAD_STRIDE = 16;
 const PARTICLE_INSTANCE_FLOATS = 13;
@@ -45,10 +56,7 @@ export interface WebGLParticleProgramLike {
 
 export interface WebGLParticlePassHost {
 	readonly gl: WebGL2RenderingContext;
-	readonly programs: {
-		getParticleProgram(): WebGLParticleProgramLike;
-		tryGetParticleProgram?(): WebGLParticleProgramLike | null;
-	};
+	readonly programCompiler: WebGLProgramCompiler;
 	readonly textures: {
 		getBaseColorTexture(texture: any | null): {
 			texture: WebGLTexture | null;
@@ -82,9 +90,12 @@ export interface WebGLParticleRenderOptions {
 }
 
 export class WebGLParticlePass
-	implements WebGLRenderPass<WebGLParticleRenderOptions>
+	implements
+		WebGLRenderPass<WebGLParticleRenderOptions>,
+		WebGLProgramWarmupContributor
 {
 	private readonly _host: WebGLParticlePassHost;
+	private readonly _program: WebGLProgramSlot<WebGLParticleProgramLike>;
 	private _particleVao: WebGLVertexArrayObject | null = null;
 	private _particleQuadBuffer: WebGLBuffer | null = null;
 	private _particleInstanceBuffer: WebGLBuffer | null = null;
@@ -94,6 +105,41 @@ export class WebGLParticlePass
 
 	public constructor(host: WebGLParticlePassHost) {
 		this._host = host;
+		this._program = host.programCompiler.createSlot({
+			label: "WebGLParticleProgram",
+			vertex: () => ShaderSource.get("webgl.part.particleVertex.raw"),
+			fragment: () => ShaderSource.get("webgl.part.particleFragment.raw"),
+			reflect: (gl, program) => ({
+				program,
+				uniforms: {
+					viewProjection: gl.getUniformLocation(program, "uViewProjection"),
+					basisRight: gl.getUniformLocation(program, "uBasisRight"),
+					basisUp: gl.getUniformLocation(program, "uBasisUp"),
+					particleMap: gl.getUniformLocation(program, "uParticleMap"),
+					uvTransformA: gl.getUniformLocation(program, "uUvTransformA"),
+					uvTransformB: gl.getUniformLocation(program, "uUvTransformB"),
+					mapIsLinear: gl.getUniformLocation(program, "uMapIsLinear"),
+					cameraPosition: gl.getUniformLocation(program, "uCameraPosition"),
+					fogParams0: gl.getUniformLocation(program, "uFogParams0"),
+					fogParams1: gl.getUniformLocation(program, "uFogParams1"),
+					oitPassMode: gl.getUniformLocation(program, "uOITPassMode"),
+				},
+			}),
+		});
+	}
+
+	public warmupParticleProgram(): WebGLProgramWarmupHandle {
+		return this._program.warmup();
+	}
+
+	public collectWarmupTasks(
+		request: WebGLProgramWarmupRequest
+	): readonly WebGLProgramWarmupTask[] {
+		return request.plan.enableParticles ? [{
+			label: "WebGLParticleProgram",
+			priority: "optional",
+			run: () => this.warmupParticleProgram(),
+		}] : [];
 	}
 
 	public render(
@@ -121,10 +167,7 @@ export class WebGLParticlePass
 		}
 
 		const gl = this._host.gl;
-		const particleProgram =
-			typeof this._host.programs.tryGetParticleProgram === "function" ?
-				this._host.programs.tryGetParticleProgram()
-			:	this._host.programs.getParticleProgram();
+		const particleProgram = this._program.tryGet();
 		if (!particleProgram) {
 			return;
 		}
@@ -334,6 +377,7 @@ export class WebGLParticlePass
 	}
 
 	public destroy(): void {
+		this._program.destroy();
 		const gl = this._host.gl;
 		if (this._particleVao) {
 			gl.deleteVertexArray(this._particleVao);

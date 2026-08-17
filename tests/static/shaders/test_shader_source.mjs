@@ -19,6 +19,7 @@ import {
 	MAX_REFLECTION_PROBES,
 	MAX_SPOT_LIGHTS,
 } from "../../../src/backends/constants.ts";
+import { WEBGL_FULL_SCENE_VARIANT } from "../../../src/shaders/webgl/sceneVariants.ts";
 
 const REPO_ROOT = path.resolve(
 	path.dirname(fileURLToPath(import.meta.url)),
@@ -119,35 +120,52 @@ async function testGetRequiresPrepare() {
 async function testWebGLSceneVariants() {
 	ShaderSource.clearCache();
 	assert.ok(!WEBGL_SHADER_PARTS.includes("sceneFragment"));
+	const withoutShadowTransmittance = {
+		...WEBGL_FULL_SCENE_VARIANT,
+		scene: {
+			...WEBGL_FULL_SCENE_VARIANT.scene,
+			shadowTransmittance: false,
+		},
+	};
 	await ShaderSource.prepareMany([
 		...WEBGL_SHADER_PARTS.flatMap((part) => [
 			{ key: `webgl.part.${part}.raw` },
 			{ key: `webgl.part.${part}.composite` },
 		]),
-		{ key: "webgl.scene.raw", params: { limits: WEBGL_SCENE_LIMITS } },
 		{
 			key: "webgl.scene.raw",
 			params: {
-				limits: {
-					...WEBGL_SCENE_LIMITS,
-					enableShadowTransmittance: true,
-				},
+				limits: WEBGL_SCENE_LIMITS,
+				variant: withoutShadowTransmittance,
 			},
 		},
-		{ key: "webgl.scene.composite", params: { limits: WEBGL_SCENE_LIMITS } },
+		{
+			key: "webgl.scene.raw",
+			params: {
+				limits: WEBGL_SCENE_LIMITS,
+				variant: WEBGL_FULL_SCENE_VARIANT,
+			},
+		},
+		{
+			key: "webgl.scene.composite",
+			params: {
+				limits: WEBGL_SCENE_LIMITS,
+				variant: withoutShadowTransmittance,
+			},
+		},
 	]);
 
 	const raw = ShaderSource.get("webgl.scene.raw", {
 		limits: WEBGL_SCENE_LIMITS,
+		variant: withoutShadowTransmittance,
 	});
 	const withShadowTransmittance = ShaderSource.get("webgl.scene.raw", {
-		limits: {
-			...WEBGL_SCENE_LIMITS,
-			enableShadowTransmittance: true,
-		},
+		limits: WEBGL_SCENE_LIMITS,
+		variant: WEBGL_FULL_SCENE_VARIANT,
 	});
 	const composite = ShaderSource.get("webgl.scene.composite", {
 		limits: WEBGL_SCENE_LIMITS,
+		variant: withoutShadowTransmittance,
 	});
 
 	assert.ok(raw.vertex.includes("layout(location = 0) in vec3 aPosition;"));

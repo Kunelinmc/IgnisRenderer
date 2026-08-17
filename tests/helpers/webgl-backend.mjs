@@ -2,8 +2,10 @@ import { Matrix4 } from "../../src/maths/Matrix4.ts";
 import { Logger } from "../../src/foundation/Logger.ts";
 import { CubeTexture } from "../../src/core/CubeTexture.ts";
 import { Material } from "../../src/materials/Material.ts";
-import { WebGLProgramLibrary } from "../../src/backends/webgl/WebGLProgramLibrary.ts";
+import { WebGLSceneProgramRepository } from "../../src/backends/webgl/WebGLSceneProgramRepository.ts";
+import { WebGLProgramCompiler } from "../../src/backends/webgl/WebGLProgramCompiler.ts";
 import { drawWebGLPacket } from "../../src/backends/webgl/WebGLScenePass.ts";
+import { createWebGLShaderMaterialFallbackVariant } from "../../src/backends/webgl/WebGLSceneProgramVariants.ts";
 import {
 	MAX_DIRECTIONAL_LIGHTS,
 	MAX_POINT_LIGHTS,
@@ -43,8 +45,19 @@ export function createTinyCubeTexture(mips = 1, value = 1) {
 	});
 }
 
-export function createProgramLibrary(gl, warn, shaderRuntime, shaderCompileStage) {
-	return new WebGLProgramLibrary(gl, warn, shaderRuntime, shaderCompileStage);
+export function createSceneProgramRepository(gl, warn, shaderRuntime, shaderCompileStage) {
+	const compiler = new WebGLProgramCompiler(
+		gl,
+		shaderRuntime,
+		shaderCompileStage,
+		{ warn },
+	);
+	return new WebGLSceneProgramRepository({
+		compiler,
+		shaderRuntime,
+		shaderCompileStage,
+		warn,
+	});
 }
 
 export function createTestBuiltinSceneVariant(overrides = {}) {
@@ -661,9 +674,16 @@ export function createEarlyZScenePassHost(gl, options = {}) {
 	const colorProgram = options.colorProgram ?? {
 		program: { id: "color-program" },
 		uniforms: {},
+		samplerLayout: { units: {}, activeSamplerNames: [], required: 0, available: 16 },
 	};
 	const depthProgram = options.depthProgram ?? {
 		program: { id: "depth-program" },
+		samplerLayout: {
+			units: { uBaseMap: 0 },
+			activeSamplerNames: ["uBaseMap"],
+			required: 1,
+			available: 16,
+		},
 		uniforms: {
 			model: "uModel",
 			normalMatrix: null,
@@ -681,7 +701,7 @@ export function createEarlyZScenePassHost(gl, options = {}) {
 	};
 	return {
 		_gl: gl,
-		_programs: {
+		_scenePrograms: {
 			getSceneProgram() {
 				return colorProgram;
 			},
@@ -761,22 +781,35 @@ export function createEarlyZPacket(id, material = new Material()) {
 
 export function createShadowPassHost(gl, options = {}) {
 	let cullModeCalls = 0;
+	const programs = {
+		WebGLShadowDepthProgram: {
+			program: { id: "shadow-depth" },
+			uniforms: { mvp: "uMvp" },
+		},
+		WebGLShadowTransmittanceProgram: {
+			program: { id: "shadow-transmittance" },
+			uniforms: {
+				mvp: "uMvp",
+				transmittance: "uTransmittance",
+			},
+		},
+	};
 	return {
 		gl,
-		programs: {
-			getShadowDepthProgram() {
+		programCompiler: {
+			createSlot(descriptor) {
+				const resource = programs[descriptor.label];
 				return {
-					program: { id: "shadow-depth" },
-					uniforms: { mvp: "uMvp" },
-				};
-			},
-			getShadowTransmittanceProgram() {
-				return {
-					program: { id: "shadow-transmittance" },
-					uniforms: {
-						mvp: "uMvp",
-						transmittance: "uTransmittance",
-					},
+					label: descriptor.label,
+					get: () => resource,
+					tryGet: () => resource,
+					warmup: () => ({
+						label: descriptor.label,
+						isComplete: () => true,
+						finalize() {},
+					}),
+					invalidate() {},
+					destroy() {},
 				};
 			},
 		},
@@ -869,64 +902,19 @@ export async function runWebGLBackendFile(testCases, label) {
 					},
 				},
 			},
-			{
-				key: "webgl.scene.raw",
-				params: {
-					limits: {
-						maxDirectionalLights: MAX_DIRECTIONAL_LIGHTS,
-						maxPointLights: MAX_POINT_LIGHTS,
-						maxSpotLights: MAX_SPOT_LIGHTS,
-						enableShadowTransmittance: true,
+			...["single", "mrt"].flatMap((mode) => {
+				const variant = createWebGLShaderMaterialFallbackVariant(mode);
+				return [
+					{
+						key: "webgl.scene.raw",
+						params: { limits: PROGRAM_LIBRARY_SCENE_LIMITS, variant },
 					},
-				},
-			},
-			{
-				key: "webgl.scene.composite",
-				params: {
-					limits: {
-						maxDirectionalLights: MAX_DIRECTIONAL_LIGHTS,
-						maxPointLights: MAX_POINT_LIGHTS,
-						maxSpotLights: MAX_SPOT_LIGHTS,
-						enableShadowTransmittance: true,
+					{
+						key: "webgl.scene.composite",
+						params: { limits: PROGRAM_LIBRARY_SCENE_LIMITS, variant },
 					},
-				},
-			},
-			{
-				key: "webgl.scene.raw",
-				params: {
-					limits: {
-						...TEST_SCENE_LIMITS,
-						enableShadowTransmittance: true,
-					},
-				},
-			},
-			{
-				key: "webgl.scene.composite",
-				params: {
-					limits: {
-						...TEST_SCENE_LIMITS,
-						enableShadowTransmittance: true,
-					},
-				},
-			},
-			{
-				key: "webgl.scene.raw",
-				params: {
-					limits: {
-						...TEST_SCENE_LIMITS,
-						enableIrradianceProbeGrid: true,
-					},
-				},
-			},
-			{
-				key: "webgl.scene.composite",
-				params: {
-					limits: {
-						...TEST_SCENE_LIMITS,
-						enableIrradianceProbeGrid: true,
-					},
-				},
-			},
+				];
+			}),
 		]);
 		for (const testCase of testCases) {
 			await testCase();

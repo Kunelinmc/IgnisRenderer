@@ -2,12 +2,29 @@ import { Logger } from "../../foundation/Logger";
 import { resolveMaterialShadowTransmittance } from "../../materials/transparency";
 import { Matrix4 } from "../../maths/Matrix4";
 import type { DrawPacket } from "../../pipeline/types";
+import { ShaderSource } from "../../shaders/ShaderSource";
 
 import { isFiniteMatrix, toColumnMajorMat4 } from "./WebGLFrameMath";
 import type {
-	WebGLShadowDepthProgram,
-	WebGLShadowTransmittanceProgram,
-} from "./WebGLProgramLibrary";
+	WebGLProgramCompiler,
+	WebGLProgramSlot,
+	WebGLProgramWarmupHandle,
+} from "./WebGLProgramCompiler";
+
+export interface WebGLShadowDepthProgram {
+	program: WebGLProgram;
+	uniforms: {
+		mvp: WebGLUniformLocation | null;
+	};
+}
+
+export interface WebGLShadowTransmittanceProgram {
+	program: WebGLProgram;
+	uniforms: {
+		mvp: WebGLUniformLocation | null;
+		transmittance: WebGLUniformLocation | null;
+	};
+}
 
 function logWebGLShadowRasterWarning(key: string, message: string): void {
 	Logger.warn(`[${key}] ${message}`, {
@@ -54,13 +71,7 @@ export interface WebGLShadowRasterPreparedState {
 /** @internal Narrow device dependencies for the plan-only shadow rasterizer. */
 export interface WebGLShadowRasterPassHost {
 	readonly gl: WebGL2RenderingContext;
-	readonly programs: {
-		getShadowDepthProgram(): WebGLShadowDepthProgram;
-		getShadowTransmittanceProgram(): WebGLShadowTransmittanceProgram;
-		tryGetShadowDepthProgram?(): WebGLShadowDepthProgram | null;
-		tryGetShadowTransmittanceProgram?():
-			WebGLShadowTransmittanceProgram | null;
-	};
+	readonly programCompiler: WebGLProgramCompiler;
 	readonly geometry: {
 		getGeometry(packet: DrawPacket): {
 			vao: WebGLVertexArrayObject;
@@ -75,6 +86,8 @@ export interface WebGLShadowRasterPassHost {
 /** Executes prepared WebGL shadow raster plans and owns their native atlas targets. */
 export class WebGLShadowRasterPass {
 	private readonly _host: WebGLShadowRasterPassHost;
+	private readonly _depthProgramSlot: WebGLProgramSlot<WebGLShadowDepthProgram>;
+	private readonly _transmittanceProgramSlot: WebGLProgramSlot<WebGLShadowTransmittanceProgram>;
 	private _shadowFramebuffer: WebGLFramebuffer | null = null;
 	private _shadowAtlasTexture: WebGLTexture | null = null;
 	private _shadowTransmittanceTexture: WebGLTexture | null = null;
@@ -83,8 +96,33 @@ export class WebGLShadowRasterPass {
 	private _depthProgram: WebGLShadowDepthProgram | null = null;
 	private _transmittanceProgram: WebGLShadowTransmittanceProgram | null = null;
 
-	public constructor(host: WebGLShadowRasterPassHost) {
+	constructor(host: WebGLShadowRasterPassHost) {
 		this._host = host;
+		this._depthProgramSlot = host.programCompiler.createSlot({
+			label: "WebGLShadowDepthProgram",
+			vertex: () => ShaderSource.get("webgl.part.shadowDepthVertex.raw"),
+			fragment: () => ShaderSource.get("webgl.part.shadowDepthFragment.raw"),
+			reflect: (gl, program) => ({
+				program,
+				uniforms: { mvp: gl.getUniformLocation(program, "uMvp") },
+			}),
+		});
+		this._transmittanceProgramSlot = host.programCompiler.createSlot({
+			label: "WebGLShadowTransmittanceProgram",
+			vertex: () => ShaderSource.get("webgl.part.shadowDepthVertex.raw"),
+			fragment: () => ShaderSource.get("webgl.part.shadowTransmittanceFragment.raw"),
+			reflect: (gl, program) => ({
+				program,
+				uniforms: {
+					mvp: gl.getUniformLocation(program, "uMvp"),
+					transmittance: gl.getUniformLocation(program, "uTransmittance"),
+				},
+			}),
+		});
+	}
+
+	public warmupPrograms(): WebGLProgramWarmupHandle[] {
+		return [this._depthProgramSlot.warmup(), this._transmittanceProgramSlot.warmup()];
 	}
 
 	/** Prepares native targets and shader programs without inspecting frame state. */
@@ -112,7 +150,8 @@ export class WebGLShadowRasterPass {
 			!this._shadowAtlasTexture ||
 			!this._depthProgram ||
 			plan.atlasTileSize !== this._shadowAtlasTileSize
-		) return;
+		)
+			return;
 
 		const gl = this._host.gl;
 		try {
@@ -155,6 +194,8 @@ export class WebGLShadowRasterPass {
 	}
 
 	public destroy(): void {
+		this._depthProgramSlot.destroy();
+		this._transmittanceProgramSlot.destroy();
 		this._depthProgram = null;
 		this._transmittanceProgram = null;
 		this._destroyShadowTargets();
@@ -181,28 +222,14 @@ export class WebGLShadowRasterPass {
 		if (!slice || plan.transmitterPackets.length === 0) return;
 		this._setSliceViewport(slice);
 		for (const packet of plan.transmitterPackets) {
-			this._drawShadowTransmittancePacket(
-				program,
-				packet,
-				slice.viewProjectionMatrix,
-			);
+			this._drawShadowTransmittancePacket(program, packet, slice.viewProjectionMatrix);
 		}
 	}
 
 	private _setSliceViewport(slice: WebGLShadowRasterSlice): void {
 		const gl = this._host.gl;
-		gl.viewport(
-			slice.viewportX,
-			slice.viewportY,
-			slice.viewportWidth,
-			slice.viewportHeight,
-		);
-		gl.scissor(
-			slice.viewportX,
-			slice.viewportY,
-			slice.viewportWidth,
-			slice.viewportHeight,
-		);
+		gl.viewport(slice.viewportX, slice.viewportY, slice.viewportWidth, slice.viewportHeight);
+		gl.scissor(slice.viewportX, slice.viewportY, slice.viewportWidth, slice.viewportHeight);
 	}
 
 	private _drawShadowPacket(
@@ -233,12 +260,7 @@ export class WebGLShadowRasterPass {
 		}
 		gl.disable(gl.CULL_FACE);
 		gl.bindVertexArray(geometry.vao);
-		gl.drawElements(
-			geometry.topology,
-			geometry.indexCount,
-			geometry.indexType,
-			0,
-		);
+		gl.drawElements(geometry.topology, geometry.indexCount, geometry.indexType, 0);
 		gl.bindVertexArray(null);
 	}
 
@@ -268,25 +290,16 @@ export class WebGLShadowRasterPass {
 		);
 		gl.disable(gl.CULL_FACE);
 		gl.bindVertexArray(geometry.vao);
-		gl.drawElements(
-			geometry.topology,
-			geometry.indexCount,
-			geometry.indexType,
-			0,
-		);
+		gl.drawElements(geometry.topology, geometry.indexCount, geometry.indexType, 0);
 		gl.bindVertexArray(null);
 	}
 
 	private _resolveDepthProgram(): WebGLShadowDepthProgram | null {
-		return typeof this._host.programs.tryGetShadowDepthProgram === "function" ?
-			this._host.programs.tryGetShadowDepthProgram()
-		: this._host.programs.getShadowDepthProgram();
+		return this._depthProgramSlot.tryGet();
 	}
 
 	private _resolveTransmittanceProgram(): WebGLShadowTransmittanceProgram | null {
-		return typeof this._host.programs.tryGetShadowTransmittanceProgram === "function" ?
-			this._host.programs.tryGetShadowTransmittanceProgram()
-		: this._host.programs.getShadowTransmittanceProgram();
+		return this._transmittanceProgramSlot.tryGet();
 	}
 
 	private _ensureShadowTargets(plan: WebGLShadowRasterPlan): void {
@@ -296,7 +309,8 @@ export class WebGLShadowRasterPass {
 			this._shadowAtlasTexture &&
 			this._shadowTransmittanceTexture &&
 			this._shadowAtlasTileSize === tileSize
-		) return;
+		)
+			return;
 		const atlasWidth = plan.atlasWidth;
 		const atlasHeight = plan.atlasHeight;
 		if (atlasWidth > this._host.maxTextureSize || atlasHeight > this._host.maxTextureSize) {
@@ -318,11 +332,7 @@ export class WebGLShadowRasterPass {
 
 		try {
 			this._allocateDepthAtlas(shadowTexture, atlasWidth, atlasHeight);
-			this._allocateTransmittanceAtlas(
-				transmittanceTexture,
-				atlasWidth,
-				atlasHeight,
-			);
+			this._allocateTransmittanceAtlas(transmittanceTexture, atlasWidth, atlasHeight);
 			gl.bindFramebuffer(gl.FRAMEBUFFER, shadowFramebuffer);
 			gl.framebufferTexture2D(
 				gl.FRAMEBUFFER,
@@ -360,11 +370,7 @@ export class WebGLShadowRasterPass {
 		this._shadowAtlasTileSize = tileSize;
 	}
 
-	private _allocateDepthAtlas(
-		texture: WebGLTexture,
-		width: number,
-		height: number,
-	): void {
+	private _allocateDepthAtlas(texture: WebGLTexture, width: number, height: number): void {
 		const gl = this._host.gl;
 		gl.bindTexture(gl.TEXTURE_2D, texture);
 		this._setAtlasTextureParameters();

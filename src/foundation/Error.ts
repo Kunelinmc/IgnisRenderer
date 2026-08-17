@@ -228,6 +228,23 @@ export class WebGLCapabilityError extends Error {
 	}
 }
 
+/** @internal Used when WebGL frame preparation omitted an exact scene variant. */
+export class WebGLProgramPreparationError extends Error {
+	public readonly code = "webgl-scene-program-source-unprepared";
+	public readonly programKind: "scene";
+	public readonly variantKey: string;
+
+	public constructor(programKind: "scene", variantKey: string) {
+		super(
+			`WebGL ${programKind} program source was not prepared for exact ` +
+				`variant "${variantKey}".`
+		);
+		this.name = "WebGLProgramPreparationError";
+		this.programKind = programKind;
+		this.variantKey = variantKey;
+	}
+}
+
 function buildWebGLCapabilityErrorMessage(code: WebGLCapabilityErrorCode): string {
 	switch (code) {
 		case "hdr-float-color-buffer-unavailable":

@@ -9,6 +9,7 @@ import {
 } from "../../materials/ShaderMaterial";
 import type { FrameContext } from "../../pipeline/types";
 import {
+	WEBGL_FULL_SCENE_VARIANT,
 	getWebGLSceneDepthVariantKey,
 	getWebGLSceneVariantKey,
 	normalizeWebGLSceneDepthVariantDescriptor,
@@ -32,6 +33,55 @@ export {
 	normalizeWebGLSceneDepthVariantDescriptor,
 	normalizeWebGLSceneVariantDescriptor,
 };
+
+/** @internal Exact sampler-free built-in fallback for a failed ShaderMaterial. */
+export function createWebGLShaderMaterialFallbackVariant(
+	mode: ShaderTargetMode
+): WebGLSceneVariantDescriptor {
+	const full = WEBGL_FULL_SCENE_VARIANT;
+	return normalizeWebGLSceneVariantDescriptor({
+		...full,
+		output: mode === "mrt" ? "mrt" : "single",
+		materialGBuffer: false,
+		oit: true,
+		scene: {
+			shadows: false,
+			shadowTransmittance: false,
+			clusteredLighting: false,
+			sh: false,
+			localLightProbes: false,
+			irradianceProbeGrid: false,
+			reflectionProbes: false,
+			environmentSpecular: false,
+		},
+		material: {
+			...full.material,
+			clearcoat: false,
+			sheen: false,
+			iridescence: false,
+			anisotropy: false,
+			transmission: false,
+			baseMap: false,
+			metallicRoughnessMap: false,
+			specularMap: false,
+			specularColorMap: false,
+			normalMap: false,
+			emissiveMap: false,
+			occlusionMap: false,
+			clearcoatMap: false,
+			clearcoatRoughnessMap: false,
+			clearcoatNormalMap: false,
+			sheenColorMap: false,
+			sheenRoughnessMap: false,
+			iridescenceMap: false,
+			iridescenceThicknessMap: false,
+			anisotropyMap: false,
+			transmissionMap: false,
+			thicknessMap: false,
+			alphaMask: false,
+		},
+	});
+}
 
 export interface WebGLSceneVariantEnvironment {
 	lightState: WebGLLightState | null;

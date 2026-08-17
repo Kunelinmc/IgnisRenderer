@@ -2,17 +2,41 @@ import { ParticleBlendMode } from "../../particles";
 import { materialUsesTransmission } from "../../materials/transparency";
 import { ShaderMaterial } from "../../materials/ShaderMaterial";
 import type { DrawPacket, FrameContext } from "../../pipeline/types";
+import { ShaderSource } from "../../shaders/ShaderSource";
 
 import type { WebGLFrameTargetManager } from "./WebGLFrameTargetManager";
-import type { WebGLProgramLibrary } from "./WebGLProgramLibrary";
+import type {
+	WebGLProgramCompiler,
+	WebGLProgramSlot,
+	WebGLProgramWarmupHandle,
+} from "./WebGLProgramCompiler";
 import type { WebGLParticleRenderOptions } from "./WebGLParticlePass";
 import type { WebGLSceneRenderOptions } from "./WebGLScenePass";
+import type {
+	WebGLProgramWarmupContributor,
+	WebGLProgramWarmupRequest,
+	WebGLProgramWarmupTask,
+} from "./WebGLWarmupCoordinator";
 import { Logger } from "../../foundation/Logger";
+
+interface WebGLCopyProgram {
+	program: WebGLProgram;
+	uniforms: { sourceMap: WebGLUniformLocation | null };
+}
+
+interface WebGLOITResolveProgram {
+	program: WebGLProgram;
+	uniforms: {
+		sceneColor: WebGLUniformLocation | null;
+		oitAccumMap: WebGLUniformLocation | null;
+		oitRevealMap: WebGLUniformLocation | null;
+	};
+}
 
 export interface WebGLTransparencyRuntimeHost {
 	readonly gl: WebGL2RenderingContext;
 	readonly targets: WebGLFrameTargetManager;
-	getPrograms(): WebGLProgramLibrary;
+	readonly programCompiler: WebGLProgramCompiler;
 	getFullscreenVao(): WebGLVertexArrayObject | null;
 	getWidth(): number;
 	getHeight(): number;
@@ -29,14 +53,51 @@ export interface WebGLTransparencyRuntimeHost {
 /** Owns WebGL OIT routing and all per-frame transparency state. */
 export class WebGLTransparencyRuntime {
 	private readonly _host: WebGLTransparencyRuntimeHost;
+	private readonly _copyProgram: WebGLProgramSlot<WebGLCopyProgram>;
+	private readonly _oitResolveProgram: WebGLProgramSlot<WebGLOITResolveProgram>;
 	private _active = false;
 	private _hasContributors = false;
 	private _sceneColorCopyReady = false;
 	private _transparentPackets: DrawPacket[] = [];
 	private _legacyPackets: DrawPacket[] = [];
 
-	public constructor(host: WebGLTransparencyRuntimeHost) {
+	constructor(host: WebGLTransparencyRuntimeHost) {
 		this._host = host;
+		this._copyProgram = host.programCompiler.createSlot({
+			label: "WebGLCopyProgram",
+			vertex: () => ShaderSource.get("webgl.part.presentVertex.raw"),
+			fragment: () => ShaderSource.get("webgl.part.copyFragment.raw"),
+			reflect: (gl, program) => ({
+				program,
+				uniforms: { sourceMap: gl.getUniformLocation(program, "uSourceMap") },
+			}),
+		});
+		this._oitResolveProgram = host.programCompiler.createSlot({
+			label: "WebGLOITResolveProgram",
+			vertex: () => ShaderSource.get("webgl.part.presentVertex.raw"),
+			fragment: () => ShaderSource.get("webgl.part.oitResolveFragment.raw"),
+			reflect: (gl, program) => ({
+				program,
+				uniforms: {
+					sceneColor: gl.getUniformLocation(program, "uSceneColor"),
+					oitAccumMap: gl.getUniformLocation(program, "uOITAccumMap"),
+					oitRevealMap: gl.getUniformLocation(program, "uOITRevealMap"),
+				},
+			}),
+		});
+	}
+
+	public warmupCopyProgram(): WebGLProgramWarmupHandle {
+		return this._copyProgram.warmup();
+	}
+
+	public warmupOITResolveProgram(): WebGLProgramWarmupHandle {
+		return this._oitResolveProgram.warmup();
+	}
+
+	public destroy(): void {
+		this._copyProgram.destroy();
+		this._oitResolveProgram.destroy();
 	}
 
 	public beginFrame(context: FrameContext): void {
@@ -121,8 +182,7 @@ export class WebGLTransparencyRuntime {
 	}
 
 	public copySceneColor(context: FrameContext): void {
-		this._sceneColorCopyReady =
-			this._hasContributors && this._copySceneColor(context);
+		this._sceneColorCopyReady = this._hasContributors && this._copySceneColor(context);
 	}
 
 	public resolve(context: FrameContext): void {
@@ -142,9 +202,11 @@ export class WebGLTransparencyRuntime {
 	}
 
 	public renderLegacyTransparent(context: FrameContext): void {
-		if (context.scene.transparentPackets.some((packet) =>
-			materialUsesTransmission(packet.material)
-		)) {
+		if (
+			context.scene.transparentPackets.some((packet) =>
+				materialUsesTransmission(packet.material),
+			)
+		) {
 			this._copyOpaqueLinearDepth(context);
 		}
 		for (const packet of context.scene.transparentPackets) {
@@ -170,11 +232,7 @@ export class WebGLTransparencyRuntime {
 		this._copyOpaqueLinearDepth(context);
 	}
 
-	public renderLegacyTransparentSegment(
-		context: FrameContext,
-		start: number,
-		end: number,
-	): void {
+	public renderLegacyTransparentSegment(context: FrameContext, start: number, end: number): void {
 		const packets = context.scene.transparentPackets.slice(start, end);
 		if (packets.length > 0) this._host.renderPackets(context, packets, true);
 	}
@@ -182,10 +240,7 @@ export class WebGLTransparencyRuntime {
 	public copyTransmissionBackground(context: FrameContext): void {
 		if (!this._copyTransmissionBackground(context)) return;
 		const gl = this._host.gl;
-		gl.bindTexture(
-			gl.TEXTURE_2D,
-			this._host.targets._transmissionBackgroundTexture,
-		);
+		gl.bindTexture(gl.TEXTURE_2D, this._host.targets._transmissionBackgroundTexture);
 		gl.generateMipmap(gl.TEXTURE_2D);
 	}
 
@@ -208,9 +263,11 @@ export class WebGLTransparencyRuntime {
 	}
 
 	private _configure(context: FrameContext): void {
-		if ((context.scene?.transparentPackets ?? []).some((packet) =>
-			materialUsesTransmission(packet.material)
-		)) {
+		if (
+			(context.scene?.transparentPackets ?? []).some((packet) =>
+				materialUsesTransmission(packet.material),
+			)
+		) {
 			this._active = false;
 			return;
 		}
@@ -308,8 +365,9 @@ export class WebGLTransparencyRuntime {
 			!targetTexture ||
 			!sourceTexture ||
 			!this._host.getFullscreenVao()
-		) return false;
-		const program = this._host.getPrograms().getCopyProgram();
+		)
+			return false;
+		const program = this._copyProgram.get();
 		const gl = this._host.gl;
 		gl.bindFramebuffer(gl.FRAMEBUFFER, targets._postFramebuffer);
 		targets.bindPostSingleColorTarget(targetTexture);
@@ -338,8 +396,9 @@ export class WebGLTransparencyRuntime {
 			!targets._oitAccumTexture ||
 			!targets._oitRevealTexture ||
 			!this._host.getFullscreenVao()
-		) return;
-		const program = this._host.getPrograms().tryGetOITResolveProgram();
+		)
+			return;
+		const program = this._oitResolveProgram.tryGet();
 		if (!program) return;
 		const gl = this._host.gl;
 		gl.bindFramebuffer(gl.FRAMEBUFFER, targets._sceneFramebuffer);
@@ -365,5 +424,37 @@ export class WebGLTransparencyRuntime {
 		gl.bindVertexArray(null);
 		gl.activeTexture(gl.TEXTURE0);
 		targets._presentSourceTexture = targets._sceneColorTexture;
+	}
+}
+
+/** @internal Adapts transparency program ownership into warmup tasks. */
+export class WebGLTransparencyWarmupContributor
+	implements WebGLProgramWarmupContributor
+{
+	private readonly _runtime: WebGLTransparencyRuntime;
+
+	public constructor(runtime: WebGLTransparencyRuntime) {
+		this._runtime = runtime;
+	}
+
+	public collectWarmupTasks(
+		request: WebGLProgramWarmupRequest,
+	): readonly WebGLProgramWarmupTask[] {
+		const tasks: WebGLProgramWarmupTask[] = [];
+		if (request.plan.materials.some((material) => materialUsesTransmission(material))) {
+			tasks.push({
+				label: "WebGLCopyProgram",
+				priority: "core",
+				run: () => this._runtime.warmupCopyProgram(),
+			});
+		}
+		if (request.context.features?.enableOIT) {
+			tasks.push({
+				label: "WebGLOITResolveProgram",
+				priority: "optional",
+				run: () => this._runtime.warmupOITResolveProgram(),
+			});
+		}
+		return tasks;
 	}
 }

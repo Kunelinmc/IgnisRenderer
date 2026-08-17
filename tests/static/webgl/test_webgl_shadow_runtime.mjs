@@ -89,17 +89,27 @@ function createHost(gl) {
 	let depthProgramAvailable = true;
 	return {
 		gl,
-		programs: {
-			tryGetShadowDepthProgram() {
-				return depthProgramAvailable ? {
+		programCompiler: {
+			createSlot(descriptor) {
+				const depth = descriptor.label === "WebGLShadowDepthProgram";
+				const resource = depth ? {
 					program: { id: "depth-program" },
 					uniforms: { mvp: null },
-				} : null;
-			},
-			tryGetShadowTransmittanceProgram() {
-				return {
+				} : {
 					program: { id: "transmittance-program" },
 					uniforms: { mvp: "mvp", transmittance: "transmittance" },
+				};
+				return {
+					label: descriptor.label,
+					get: () => resource,
+					tryGet: () => depth && !depthProgramAvailable ? null : resource,
+					warmup: () => ({
+						label: descriptor.label,
+						isComplete: () => true,
+						finalize() {},
+					}),
+					invalidate() {},
+					destroy() {},
 				};
 			},
 		},
@@ -109,7 +119,6 @@ function createHost(gl) {
 			},
 		},
 		maxTextureSize: 4096,
-		maxTextureImageUnits: 32,
 		getSceneFramebuffer() {
 			return { id: "scene-framebuffer" };
 		},
@@ -141,6 +150,28 @@ function createContext() {
 		shadowMaps: new Map(),
 		transient: new Map(),
 	};
+}
+
+function testShadowWarmupContributesDepthAndTransmittancePrograms() {
+	const runtime = new WebGLShadowRuntime(createHost(createGL()));
+	const disabled = runtime.collectWarmupTasks({
+		context: {},
+		plan: { enableShadows: false },
+		postProcessPlan: null,
+	});
+	assert.deepEqual(disabled, []);
+	const enabled = runtime.collectWarmupTasks({
+		context: {},
+		plan: { enableShadows: true },
+		postProcessPlan: null,
+	});
+	assert.equal(enabled.length, 1);
+	const handles = enabled[0].run();
+	assert.deepEqual(
+		handles.map((handle) => handle.label),
+		["WebGLShadowDepthProgram", "WebGLShadowTransmittanceProgram"],
+	);
+	runtime.destroy();
 }
 
 function createShadow(overrides = {}) {
@@ -273,6 +304,7 @@ function testCSMSpotPlanAndParticleResourceCatalog() {
 
 function run() {
 	testRuntimeLifecycleAndStableSamplingState();
+	testShadowWarmupContributesDepthAndTransmittancePrograms();
 	testContextMismatchAndProgramFallback();
 	testCSMSpotPlanAndParticleResourceCatalog();
 	console.log("WebGL shadow runtime tests passed");
