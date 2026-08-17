@@ -138,6 +138,8 @@ interface WebGLGammaProgram {
 	readonly program: WebGLProgram;
 	readonly uniforms: {
 		readonly sourceMap: WebGLUniformLocation | null;
+		readonly hdrEnabled: WebGLUniformLocation | null;
+		readonly hdrHeadroom: WebGLUniformLocation | null;
 	};
 }
 
@@ -305,6 +307,19 @@ export class WebGLGammaImplementation implements PostProcessPassImplementation<
 		if (program.uniforms.sourceMap) {
 			gl.uniform1i(program.uniforms.sourceMap, 0);
 		}
+		const display = context.displayOutput;
+		if (program.uniforms.hdrEnabled) {
+			gl.uniform1f(
+				program.uniforms.hdrEnabled,
+				display?.activeDynamicRange === "hdr" ? 1 : 0,
+			);
+		}
+		if (program.uniforms.hdrHeadroom) {
+			gl.uniform1f(
+				program.uniforms.hdrHeadroom,
+				display?.requested.hdrHeadroom ?? 4,
+			);
+		}
 		context.drawFullscreen();
 		gl.bindVertexArray(null);
 		return { ran: true };
@@ -328,6 +343,8 @@ export class WebGLGammaImplementation implements PostProcessPassImplementation<
 					program,
 					uniforms: {
 						sourceMap: gl.getUniformLocation(program, "uSourceMap"),
+						hdrEnabled: gl.getUniformLocation(program, "uHdrEnabled"),
+						hdrHeadroom: gl.getUniformLocation(program, "uHdrHeadroom"),
 					},
 				}),
 			});

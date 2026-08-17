@@ -65,11 +65,12 @@ import type { RenderBackendExtensionRegistry } from "../BackendExtensions";
 import { WebGLContextWorkQueue } from "./WebGLContextWorkQueue";
 import {
 	DEFAULT_DISPLAY_OUTPUT_OPTIONS,
+	createSDRDisplayOutputState,
 	displayOutputStatesEqual,
-	resolveSDROnlyDisplayOutput,
 	type DisplayOutputOptions,
 	type DisplayOutputState,
 } from "../../rendering/DisplayOutput";
+import { WebGLDisplayOutputManager } from "./WebGLDisplayOutputManager";
 
 const MAX_PARTICLE_SIM_DELTA_TIME_SECONDS = 0.5;
 const WEBGL_DEBUG_INFO_UNINITIALIZED: RenderBackendDebugInfo = {
@@ -111,7 +112,7 @@ export class WebGLBackend implements IRenderBackend {
 	public readonly profile: RenderBackendProfile = {
 		id: "webgl",
 		capabilities: {
-			displayHDR: false,
+			displayHDR: true,
 			sh: true,
 			shadows: true,
 			reflection: false,
@@ -151,7 +152,10 @@ export class WebGLBackend implements IRenderBackend {
 	private _plannedPassOrder = new Map<FramePass["stage"], number>();
 	private readonly _framePlanner = new FramePassPlanValidator("WebGL");
 	private _debugInfo: RenderBackendDebugInfo = WEBGL_DEBUG_INFO_UNINITIALIZED;
-	private _displayOutputState = resolveSDROnlyDisplayOutput(
+	private readonly _displayOutput = new WebGLDisplayOutputManager(
+		DEFAULT_DISPLAY_OUTPUT_OPTIONS,
+	);
+	private _displayOutputState = createSDRDisplayOutputState(
 		DEFAULT_DISPLAY_OUTPUT_OPTIONS,
 	);
 	private readonly _contextWorkQueue =
@@ -191,9 +195,10 @@ export class WebGLBackend implements IRenderBackend {
 			throw new Error("WebGLBackend is already attached to a renderer.");
 		}
 		this._attachContext = context;
-		this._displayOutputState = resolveSDROnlyDisplayOutput(
+		const requested = this._displayOutput.setRequested(
 			context.surface.displayOutput,
 		);
+		this._displayOutputState = createSDRDisplayOutputState(requested);
 		this._attached = true;
 	}
 
@@ -225,33 +230,23 @@ export class WebGLBackend implements IRenderBackend {
 	public async setDisplayOutput(
 		options: DisplayOutputOptions,
 	): Promise<DisplayOutputState> {
-		const previous = this._displayOutputState;
-		const current = resolveSDROnlyDisplayOutput(options, previous.requested);
-		this._displayOutputState = current;
-		if (current.fallbackReason === "backend-unsupported") {
-			Logger.warn(
-				"[display-hdr-unavailable] WebGLBackend supports SDR presentation only.",
-				{ scope: "WebGLBackend", onceKey: "display-hdr-unavailable" },
-			);
+		this._displayOutput.setRequested(options);
+		if (!this._gl || !this._contextServices) {
+			throw new Error("WebGLBackend.setDisplayOutput() requires initialization.");
 		}
-		if (!displayOutputStatesEqual(previous, current)) {
-			this._requireAttachContext().events.emit({
-				type: "display-output-change",
-				previous,
-				current,
-			});
-		}
-		return current;
+		await this._contextWorkQueue.enqueueMaintenance({
+			key: "display-output",
+			label: "display-output-change",
+			contextLossPolicy: "reject",
+			execute: () => {
+				this._applyDisplayOutput(true);
+			},
+		});
+		return this._displayOutputState;
 	}
 
 	public async initialize(): Promise<void> {
 		const canvas = this._requireAttachContext().surface.canvas;
-		if (this._displayOutputState.fallbackReason === "backend-unsupported") {
-			Logger.warn(
-				"[display-hdr-unavailable] WebGLBackend supports SDR presentation only.",
-				{ scope: "WebGLBackend", onceKey: "display-hdr-unavailable" },
-			);
-		}
 		this._ensureParticleSimulator();
 		this._canvas = canvas;
 		this._installContextLifecycleListeners(canvas);
@@ -295,6 +290,7 @@ export class WebGLBackend implements IRenderBackend {
 			return;
 		}
 		this._contextLost = true;
+		this._displayOutput.stopObservingDynamicRange();
 		this._contextWorkQueue.suspend();
 		this._frameGraphRuntime?.abortGraphAnalysis?.(info);
 		const detail =
@@ -325,6 +321,7 @@ export class WebGLBackend implements IRenderBackend {
 			execute: (scope) => {
 				this._postProcessRuntime.invalidateFrameSized();
 				scope.services.frame.resize(this._width, this._height);
+				this._applyDisplayOutput(true);
 			},
 		}).catch((error) => {
 			if (
@@ -513,6 +510,7 @@ export class WebGLBackend implements IRenderBackend {
 	}
 
 	public destroy(): void {
+		this._displayOutput.destroy();
 		this._contextWorkQueue.destroy();
 		this._postProcessRuntime.destroy();
 		this._contextServices?.destroy();
@@ -549,11 +547,11 @@ export class WebGLBackend implements IRenderBackend {
 
 	private _initializeGLContext(canvas: HTMLCanvasElement): void {
 		const gl = canvas.getContext("webgl2", {
-			alpha: false,
-			antialias: true,
+			alpha: true,
+			antialias: false,
 			depth: true,
 			stencil: false,
-			premultipliedAlpha: false,
+			premultipliedAlpha: true,
 			preserveDrawingBuffer: false,
 			powerPreference: "high-performance",
 		}) as WebGL2RenderingContext | null;
@@ -561,6 +559,12 @@ export class WebGLBackend implements IRenderBackend {
 			throw new Error("Failed to acquire WebGL2 context. WebGL backend requires WebGL2.");
 		}
 		assertWebGLHDRCapabilities(gl);
+		this._displayOutputState = this._displayOutput.configure(
+			gl,
+			this._width,
+			this._height,
+		);
+		this._warnDisplayOutputFallback(this._displayOutputState);
 
 		this._gl = gl;
 		this._postProcessRuntime.destroy();
@@ -575,6 +579,7 @@ export class WebGLBackend implements IRenderBackend {
 				onProgramCompilePending: () => this._emitProgramCompilePendingEvent(),
 				onTextureUploadPending: () => this._emitTextureUploadPendingEvent(),
 				postProcessRuntime: this._postProcessRuntime,
+				getDisplayOutputState: () => this._displayOutputState,
 			},
 		);
 		const frameServices = this._contextServices.frame;
@@ -586,6 +591,69 @@ export class WebGLBackend implements IRenderBackend {
 		frameServices.resize(this._width, this._height);
 		this._debugInfo = this._createDebugInfo(gl);
 		this._contextWorkQueue.bindContext();
+		this._displayOutput.observeDynamicRange(() => {
+			this._refreshDynamicRangeOutput();
+		});
+	}
+
+	private _applyDisplayOutput(emitChange: boolean): void {
+		if (!this._gl) return;
+		const previous = this._displayOutputState;
+		const current = this._displayOutput.configure(
+			this._gl,
+			this._width,
+			this._height,
+		);
+		this._displayOutputState = current;
+		this._warnDisplayOutputFallback(current);
+		if (emitChange && !displayOutputStatesEqual(previous, current)) {
+			this._requireAttachContext().events.emit({
+				type: "display-output-change",
+				previous,
+				current,
+			});
+		}
+	}
+
+	private _refreshDynamicRangeOutput(): void {
+		if (
+			this._displayOutput.requested.mode === "sdr" ||
+			this._contextLost ||
+			!this._contextServices
+		) {
+			return;
+		}
+		void this._contextWorkQueue.enqueueMaintenance({
+			key: "display-output",
+			label: "display-dynamic-range-change",
+			contextLossPolicy: "reject",
+			execute: () => {
+				this._applyDisplayOutput(true);
+			},
+		}).catch((error) => {
+			if (
+				error instanceof WebGLContextWorkError &&
+				(error.code === "context-lost" || error.code === "destroyed")
+			) {
+				return;
+			}
+			Logger.warn(`WebGL display-output refresh failed: ${String(error)}`, {
+				scope: "WebGLBackend",
+			});
+		});
+	}
+
+	private _warnDisplayOutputFallback(state: DisplayOutputState): void {
+		if (state.requested.mode !== "hdr" || !state.fallbackReason) return;
+		const configurationFailed =
+			state.fallbackReason === "hdr-context-configuration-failed";
+		const key = configurationFailed ?
+			"display-hdr-configuration-failed" : "display-hdr-unavailable";
+		Logger.warn(
+			`[${key}] WebGL Display HDR fell back to SDR ` +
+				`(${state.fallbackReason}).`,
+			{ scope: "WebGLBackend", onceKey: key },
+		);
 	}
 
 	private _createDebugInfo(gl: WebGL2RenderingContext): RenderBackendDebugInfo {

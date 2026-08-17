@@ -220,7 +220,9 @@ function createFakeCanvas(gl) {
 	return {
 		width: 640,
 		height: 360,
-		getContext(type) {
+		contextOptions: null,
+		getContext(type, options) {
+			this.contextOptions = options;
 			return type === "webgl2" ? gl : null;
 		},
 		addEventListener(name, listener) {
@@ -302,9 +304,18 @@ async function testInitAndPassRouting() {
 	assert.equal(backend.profile.frameScheduling, "on-demand");
 	assert.equal(backend.isEarlyZPrepassEnabled(), true);
 	assert.equal(backend._frameServices._enableEarlyZPrepass, true);
+	assert.deepEqual(canvas.contextOptions, {
+		alpha: true,
+		antialias: false,
+		depth: true,
+		stencil: false,
+		premultipliedAlpha: true,
+		preserveDrawingBuffer: false,
+		powerPreference: "high-performance",
+	});
 	assert.equal("passExecutors" in backend, false);
 	assert.deepEqual(backend.profile.capabilities, {
-		displayHDR: false,
+		displayHDR: true,
 		sh: true,
 		shadows: true,
 		reflection: false,
@@ -618,6 +629,7 @@ function createDependencyContext() {
 			dof: { enabled: true },
 		}),
 		scene: {
+			environment: { backgroundEnabled: false },
 			particleSystems: [{}],
 			shadowCasterPackets: [],
 			reflectivePackets: [],

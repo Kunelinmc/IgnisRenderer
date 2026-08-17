@@ -49,8 +49,8 @@ Construct `Renderer` with one options object:
 - `camera`: an optional initial `Camera`. If it has no parent, the renderer
   adds it to the default scene.
 - `displayOutput`: optional display settings. SDR is the default. Use
-  `mode: "auto"` to activate WebGPU HDR only when the current browser and
-  display support it, or `mode: "hdr"` to request HDR with observable fallback.
+	`mode: "auto"` to activate HDR only when the selected backend, current browser,
+	and display support it, or `mode: "hdr"` to request HDR with observable fallback.
 
 Call `initialize()` before performing optional setup that needs an initialized
 graphics device. Although the first `renderFrame()` can initialize the renderer
@@ -293,9 +293,11 @@ compatibility alias.
 Backend instances are single-use renderer dependencies. Code that replaces or
 recreates a renderer must also construct a new backend instance.
 
-Display HDR is currently implemented only by WebGPU. WebGL and Software resolve
-display output to SDR. Existing code remains SDR unless it opts into `"auto"`
-or `"hdr"`.
+Display HDR is implemented by WebGPU and Software, and by WebGL when Chromium
+exposes a verified `RGBA16F` Display-P3 drawing buffer. Unsupported WebGL
+browsers and devices continue rendering through SDR and report a fallback
+reason for explicit HDR requests. Existing code remains SDR unless it opts into
+`"auto"` or `"hdr"`.
 
 ### Screen-space global illumination
 

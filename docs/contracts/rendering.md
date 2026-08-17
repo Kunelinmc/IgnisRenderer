@@ -133,14 +133,25 @@ This document defines cross-backend rendering features, capability gating, pass 
   for presentation, and provide it to the display-output manager for
   verification. The display-output manager must not request the visible context
   itself.
+- WebGL HDR presentation must require a high-dynamic-range display query,
+  `drawingBufferStorage()`, `drawingBufferFormat`, `drawingBufferColorSpace`,
+  `EXT_color_buffer_float`, and a verified `RGBA16F` Display-P3 drawing buffer.
+  Unsupported or rejected configurations must restore SDR presentation without
+  failing the internal HDR backend.
 - SDR presentation must use the user agent's preferred 8-bit canvas format,
   sRGB color space, and standard tone mapping when that member is supported.
-- WebGL is a Display SDR backend. It must resolve `"auto"` to SDR without a
-  warning and explicit `"hdr"` to SDR with `backend-unsupported`.
-- WebGL must nevertheless preserve internal scene radiance in `rgba16float`
-  targets from scene shading through tone mapping. It must not clamp color to
-  `1.0` before exposure and ACES tone mapping, and it must present the mapped
-  result through the piecewise sRGB transfer function to the 8-bit canvas.
+- WebGL must resolve `"auto"` and `"hdr"` through its verified drawing-buffer
+  capability. Probe failure must fall back to SDR without throwing. Explicit
+  HDR failure must report the applicable display, Canvas HDR, or configuration
+  reason; automatic fallback must not warn.
+- WebGL must preserve internal scene radiance in `rgba16float` targets from
+  scene shading through presentation. SDR output must apply exposure, ACES tone
+  mapping, and the piecewise sRGB transfer function. HDR output must apply the
+  shared hue-preserving shoulder, convert linear sRGB to linear Display-P3, and
+  retain encoded RGB values above `1.0` up to the requested headroom.
+- WebGL display-output changes and dynamic-range media-query changes must apply
+  at a frame boundary. Resize and context restoration must reconfigure and
+  verify the active drawing-buffer format and color space.
 - Software must resolve `"auto"` and `"hdr"` through its Canvas 2D HDR probe.
   Probe failure must fall back to SDR without throwing. Explicit HDR failure
   must report the applicable display, Canvas HDR, or configuration reason.

@@ -5,11 +5,30 @@ precision highp float;
 in vec2 vUv;
 
 uniform sampler2D uSourceMap;
+uniform float uHdrEnabled;
+uniform float uHdrHeadroom;
 
 out vec4 fragColor;
 
+vec3 linearSrgbToDisplayP3(vec3 color) {
+	return vec3(
+		0.82259287 * color.r + 0.17753395 * color.g,
+		0.03319951 * color.r + 0.96678350 * color.g,
+		0.01708535 * color.r + 0.07239572 * color.g + 0.91030148 * color.b
+	);
+}
+
 void main() {
 	vec4 sampled = texture(uSourceMap, vUv);
-	vec3 color = linearToSrgb(max(sampled.rgb, vec3(0.0)));
-	fragColor = vec4(clamp(color, 0.0, 1.0), sampled.a);
+	bool hdr = uHdrEnabled > 0.5;
+	vec3 linear = max(sampled.rgb, vec3(0.0));
+	if (hdr) {
+		linear = clamp(
+			linearSrgbToDisplayP3(linear),
+			vec3(0.0),
+			vec3(uHdrHeadroom)
+		);
+	}
+	vec3 color = linearToSrgb(linear);
+	fragColor = vec4(hdr ? max(color, vec3(0.0)) : clamp(color, 0.0, 1.0), sampled.a);
 }

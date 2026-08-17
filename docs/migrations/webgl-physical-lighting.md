@@ -12,11 +12,12 @@ framebuffer-completeness probe, and support linear filtering for half- or
 full-float textures. `WebGLBackend.initialize()` now throws
 `WebGLCapabilityError` instead of rendering through an `RGBA8` fallback.
 
-WebGL remains an SDR presentation backend. Scene radiance remains linear HDR
-until exposure and ACES tone mapping, then uses piecewise sRGB encoding for the
-8-bit drawing buffer. Applications must not treat
-`profile.capabilities.displayHDR === false` as evidence that internal HDR is
-disabled.
+WebGL scene radiance remains linear HDR through presentation. Supported
+Chromium runtimes may now select an `RGBA16F` Display-P3 drawing buffer;
+unsupported runtimes retain exposure, ACES tone mapping, piecewise sRGB
+encoding, and an 8-bit SDR drawing buffer. The backend-level
+`profile.capabilities.displayHDR` flag reports the conditional implementation;
+applications must inspect `Renderer.getDisplayOutputState()` for actual output.
 
 ## Light Units and World Scale
 

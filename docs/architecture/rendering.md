@@ -58,11 +58,14 @@ Backend-specific packing is private, while logical semantics such as position,
 normal, motion, roughness, metallic, and specular remain explicit at shared
 boundaries.
 
-WebGL uses a strict internal HDR pipeline even though its presentation remains
-SDR. Scene, post-process, OIT, and transmission intermediates retain linear
-`rgba16float` radiance until exposure and ACES tone mapping. A backend that
-cannot create and linearly filter those resources is unavailable rather than a
-different normalized-color renderer.
+WebGL uses a strict internal HDR pipeline and may present Display HDR when the
+browser exposes a verified floating-point drawing buffer. Scene, post-process,
+OIT, and transmission intermediates retain linear `rgba16float` radiance until
+display conversion. Chromium implementations with `drawingBufferStorage()` may
+present through an `RGBA16F` Display-P3 drawing buffer; other implementations
+retain the same internal HDR pipeline and fall back to SDR presentation. A
+backend that cannot create and linearly filter the internal resources is
+unavailable rather than a different normalized-color renderer.
 
 ## Shader Ownership
 

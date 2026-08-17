@@ -1,4 +1,6 @@
 import type { FrameContext } from "../../pipeline/types";
+import type { PostProcessColorDomain } from "../../postprocess/PostProcessPass";
+import type { DisplayOutputState } from "../../rendering/DisplayOutput";
 import type {
 	LogicalGBufferSemantic,
 	PostProcessExecutionDeclaration,
@@ -21,6 +23,7 @@ export interface WebGLPostProcessBridgeCallbacks {
 	getWidth(): number;
 	getHeight(): number;
 	getActiveContext(): FrameContext | null;
+	getDisplayOutputState(): DisplayOutputState | undefined;
 	getSourceTexture(): WebGLTexture | null;
 	resolveTargetTexture(sourceTexture: WebGLTexture): WebGLTexture | null;
 	bindColorTarget(texture: WebGLTexture): void;
@@ -40,6 +43,15 @@ export class WebGLPostProcessBridge {
 	private readonly _physicalIds = new WeakMap<WebGLTexture, string>();
 	private _nextPhysicalId = 1;
 	private _transactionActive = false;
+	private _outputColorDomain: PostProcessColorDomain = "scene-linear-hdr";
+
+	public get outputColorDomain(): PostProcessColorDomain {
+		return this._outputColorDomain;
+	}
+
+	public setInitialColorDomain(domain: PostProcessColorDomain): void {
+		this._outputColorDomain = domain;
+	}
 
 	/** @internal Starts the runtime-owned controlled-publication transaction. */
 	public beginFrameTransaction(): void {
@@ -102,6 +114,12 @@ export class WebGLPostProcessBridge {
 		if (!this._transactionActive) return {};
 		const expectedTexture = this._expectedColorTexture;
 		this.clearPendingPassState();
+		if (result.ran) {
+			const contract = request.pass.colorContract;
+			if (contract?.input === this._outputColorDomain) {
+				this._outputColorDomain = contract.output;
+			}
+		}
 		if (result.ran === false || request.declaration.color.output === "preserve") {
 			return { committed: false };
 		}
@@ -142,6 +160,7 @@ export class WebGLPostProcessBridge {
 	): Record<string, unknown> {
 		return Object.freeze({
 			gl: this._callbacks.getGL(),
+			displayOutput: this._callbacks.getDisplayOutputState(),
 			programCompiler: this._callbacks.getProgramCompiler(),
 			fullscreenVao: this._callbacks.getFullscreenVao(),
 			postFramebuffer: this._callbacks.getPostFramebuffer(),
@@ -182,6 +201,7 @@ export class WebGLPostProcessBridge {
 	): Record<string, unknown> {
 		return Object.freeze({
 			gl: this._callbacks.getGL(),
+			displayOutput: this._callbacks.getDisplayOutputState(),
 			programCompiler: this._callbacks.getProgramCompiler(),
 			fullscreenVao: this._callbacks.getFullscreenVao(),
 			postFramebuffer: this._callbacks.getPostFramebuffer(),

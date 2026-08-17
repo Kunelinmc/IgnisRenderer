@@ -1,4 +1,6 @@
 import type { FrameContext } from "../../pipeline/types";
+import type { PostProcessColorDomain } from "../../postprocess/PostProcessPass";
+import type { DisplayOutputState } from "../../rendering/DisplayOutput";
 import type { BackendPostProcessRuntime } from "../../postprocess/BackendPostProcessRuntime";
 import type {
 	LogicalGBufferBridge,
@@ -29,6 +31,7 @@ export interface WebGLPostProcessServicesHost {
 	getWidth(): number;
 	getHeight(): number;
 	getActiveContext(): FrameContext | null;
+	getDisplayOutputState(): DisplayOutputState | undefined;
 	drawFullscreen(width: number, height: number, context: FrameContext | null): void;
 }
 
@@ -50,6 +53,7 @@ export class WebGLPostProcessServices {
 			getWidth: () => host.getWidth(),
 			getHeight: () => host.getHeight(),
 			getActiveContext: () => host.getActiveContext(),
+			getDisplayOutputState: () => host.getDisplayOutputState(),
 			getSourceTexture: () =>
 				host.targets._presentSourceTexture ?? host.targets._sceneColorTexture,
 			resolveTargetTexture: (sourceTexture) =>
@@ -66,6 +70,14 @@ export class WebGLPostProcessServices {
 					onceKey: key,
 				}),
 		});
+	}
+
+	public get outputColorDomain(): PostProcessColorDomain {
+		return this._bridge.outputColorDomain;
+	}
+
+	public setInitialColorDomain(domain: PostProcessColorDomain): void {
+		this._bridge.setInitialColorDomain(domain);
 	}
 
 	public createResource(

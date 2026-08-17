@@ -37,6 +37,7 @@ export type WebGPURuntimePostProcessContext = WebGPUScreenPostProcessContext;
 /** @internal WebGL context supplied to built-in screen post-process implementations. */
 export interface WebGLScreenPostProcessContext {
 	readonly gl: WebGL2RenderingContext;
+	readonly displayOutput?: DisplayOutputState;
 	readonly programCompiler: WebGLProgramCompiler;
 	readonly fullscreenVao: WebGLVertexArrayObject | null;
 	readonly postFramebuffer: WebGLFramebuffer | null;

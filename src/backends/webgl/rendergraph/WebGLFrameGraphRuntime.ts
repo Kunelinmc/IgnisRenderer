@@ -9,6 +9,7 @@ import type {
 	PostProcessRenderGraphFrame,
 } from "../../../postprocess/BackendPostProcessRuntime";
 import type { PostProcessDeclarationPlan } from "../../../postprocess/PostProcessPlanner";
+import type { PostProcessColorDomain } from "../../../postprocess/PostProcessPass";
 import type { FramePreparationRequirements } from "../../../pipeline/FrameRequirements";
 import type {
 	RenderGraphDiagnostic,
@@ -56,6 +57,7 @@ export interface WebGLFrameExecutionFacade extends WebGLFrameNodeServices {
 	): WebGLFrameGraphResourceCatalogSnapshot;
 	hasCustomRenderPass(pass: FramePass, context: FrameContext): boolean;
 	executeCustomRenderPass(pass: FramePass, context: FrameContext): Promise<void>;
+	setPostProcessInitialColorDomain?(domain: PostProcessColorDomain): void;
 }
 
 /**
@@ -432,6 +434,9 @@ export class WebGLFrameGraphRuntime {
 				nodeId: node.id,
 			})),
 		};
+		this._executor.setPostProcessInitialColorDomain?.(
+			graphFrame.graph.initialColorDomain,
+		);
 		const frame = await this._postProcessRuntime.beginGraphFrame(plan);
 		if (!frame) return;
 		try {

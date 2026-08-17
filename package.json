@@ -15,7 +15,7 @@
     "test:static": "bun tests/run_all.mjs",
     "test:browser": "bun run test:browser:probe && bun run test:browser:webgl",
     "test:browser:probe": "bun tests/run_browser.mjs",
-    "test:browser:webgl": "playwright test tests/browser/playwright/webgl_auxiliary_raster.spec.ts",
+    "test:browser:webgl": "playwright test tests/browser/playwright",
     "test:lighting": "bun tests/static/lighting/test_lighting.mjs",
     "test:pointspot": "bun tests/static/lighting/test_point_spot_lighting.mjs",
     "test:sh": "bun tests/static/lighting/test_sh_lighting_regression.mjs",

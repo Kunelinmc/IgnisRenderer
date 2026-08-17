@@ -28,6 +28,7 @@ import type {
 	PostProcessPassResult,
 } from "../types";
 import type { IRenderBackend } from "../../backends/IRenderBackend";
+import type { DisplayOutputState } from "../../rendering/DisplayOutput";
 import {
 	bindWebGLPostTarget,
 	forEachSoftwareDirtyRect,
@@ -51,6 +52,8 @@ interface WebGLToneMappingProgram {
 	readonly uniforms: {
 		readonly sourceMap: WebGLUniformLocation | null;
 		readonly exposure: WebGLUniformLocation | null;
+		readonly hdrHeadroom: WebGLUniformLocation | null;
+		readonly hdrEnabled: WebGLUniformLocation | null;
 	};
 }
 export const TONE_MAPPING_PASS_ORDER = {
@@ -359,10 +362,20 @@ export class WebGLToneMappingImplementation
 		if (program.uniforms.sourceMap) {
 			gl.uniform1i(program.uniforms.sourceMap, 0);
 		}
+		const display = resolveBackendDisplayOutput(this._backend);
 		if (program.uniforms.exposure) {
+			gl.uniform1f(program.uniforms.exposure, display?.requested.exposure ?? 1);
+		}
+		if (program.uniforms.hdrHeadroom) {
 			gl.uniform1f(
-				program.uniforms.exposure,
-				resolveBackendExposure(this._backend),
+				program.uniforms.hdrHeadroom,
+				display?.requested.hdrHeadroom ?? 4,
+			);
+		}
+		if (program.uniforms.hdrEnabled) {
+			gl.uniform1f(
+				program.uniforms.hdrEnabled,
+				display?.activeDynamicRange === "hdr" ? 1 : 0,
 			);
 		}
 		context.drawFullscreen();
@@ -397,6 +410,14 @@ export class WebGLToneMappingImplementation
 						exposure: gl.getUniformLocation(
 							webglProgram,
 							"uExposure",
+						),
+						hdrHeadroom: gl.getUniformLocation(
+							webglProgram,
+							"uHdrHeadroom",
+						),
+						hdrEnabled: gl.getUniformLocation(
+							webglProgram,
+							"uHdrEnabled",
 						),
 					},
 				}),
@@ -440,9 +461,11 @@ export class ToneMappingPass extends PostProcessPass<EmptyOptions, EmptyOptions>
 		});
 	}
 }
-function resolveBackendExposure(backend?: IRenderBackend): number {
-	if (!backend) return 1;
+function resolveBackendDisplayOutput(
+	backend?: IRenderBackend,
+): DisplayOutputState | null {
+	if (!backend) return null;
 	const getter = (backend as Partial<IRenderBackend>).getDisplayOutputState;
 	return typeof getter === "function" ?
-		getter.call(backend).requested.exposure : 1;
+		getter.call(backend) : null;
 }

@@ -49,6 +49,34 @@ function completeExecution(executor, request, result) {
 	return completion;
 }
 
+function testPostProcessColorDomainTracksSuccessfulPasses() {
+	const executor = new WebGLFrameExecutor(createFXAATestGL());
+	const toneMapping = new ToneMappingPass({ enabled: true });
+	const gamma = new GammaPass({ enabled: true });
+	const complete = (pass, ran) => {
+		executor.beginPostProcessFrame();
+		executor.completePostProcessPass({
+			pass,
+			declaration: { color: { access: "read-write", output: "preserve" } },
+		}, { ran });
+		executor.endPostProcessFrame();
+	};
+
+	executor.setPostProcessInitialColorDomain("scene-linear-hdr");
+	complete(toneMapping, false);
+	assert.equal(executor._postProcess.outputColorDomain, "scene-linear-hdr");
+	complete(toneMapping, true);
+	assert.equal(executor._postProcess.outputColorDomain, "display-linear");
+	complete(toneMapping, true);
+	assert.equal(
+		executor._postProcess.outputColorDomain,
+		"display-linear",
+		"a mismatched color contract must not advance the domain",
+	);
+	complete(gamma, true);
+	assert.equal(executor._postProcess.outputColorDomain, "display-encoded");
+}
+
 function createFXAATestGL() {
 	const calls = [];
 	return {
@@ -1556,6 +1584,7 @@ async function testWarmupCollectsPostProcessHintsFromPlanOrder() {
 }
 
 async function run() {
+	testPostProcessColorDomainTracksSuccessfulPasses();
 	testFXAAPassUsesLatestPostSourceAndRebindsPostTarget();
 	testFXAAPassSkipsWhileProgramPending();
 	testToneMappingPassUsesLatestPostSourceAndRebindsPostTarget();

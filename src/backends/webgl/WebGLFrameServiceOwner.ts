@@ -104,6 +104,8 @@ import type {
 	RenderTargetReadbackOptions,
 	RenderTargetReadbackResult,
 } from "../../rendering/CustomRenderTargets";
+import type { DisplayOutputState } from "../../rendering/DisplayOutput";
+import type { PostProcessColorDomain } from "../../postprocess/PostProcessPass";
 import { WebGLSceneRuntime } from "./WebGLSceneRuntime";
 
 export interface WebGLFrameServiceOwnerOptions {
@@ -117,6 +119,7 @@ export interface WebGLFrameServiceOwnerOptions {
 	 */
 	onTextureUploadPending?: () => void;
 	postProcessRuntime?: BackendPostProcessRuntime;
+	getDisplayOutputState?: () => DisplayOutputState;
 }
 
 export class WebGLFrameServiceOwner {
@@ -391,6 +394,8 @@ export class WebGLFrameServiceOwner {
 				this._resolveDirtyRects(context, width, height),
 			setScissorRect: (x, y, width, height, viewportHeight) =>
 				this._setScissorRect(x, y, width, height, viewportHeight),
+			getDisplayOutputState: () => options.getDisplayOutputState?.(),
+			getColorDomain: () => this._postProcess.outputColorDomain,
 			markPresented: () => {
 				this._session.presented = true;
 			},
@@ -443,6 +448,7 @@ export class WebGLFrameServiceOwner {
 			getWidth: () => this._session.width,
 			getHeight: () => this._session.height,
 			getActiveContext: () => this._session.context,
+			getDisplayOutputState: () => options.getDisplayOutputState?.(),
 			drawFullscreen: (width, height, context) =>
 				this._fullscreen.draw(width, height, context),
 		});
@@ -500,6 +506,7 @@ export class WebGLFrameServiceOwner {
 		);
 		this._transparency.beginFrame(context);
 		this._targets._presentSourceTexture = this._targets._sceneColorTexture;
+		this._postProcess.setInitialColorDomain("scene-linear-hdr");
 		this._oitPassMode = 0;
 		this._shadow.beginFrame(context);
 		this._session.lightState = collectWebGLLights(
@@ -666,6 +673,10 @@ export class WebGLFrameServiceOwner {
 		if (!this._session.presented) {
 			this._fullscreen.present(this._session.context, true);
 		}
+	}
+
+	public setPostProcessInitialColorDomain(domain: PostProcessColorDomain): void {
+		this._postProcess.setInitialColorDomain(domain);
 	}
 
 	public finishFrame(): void {

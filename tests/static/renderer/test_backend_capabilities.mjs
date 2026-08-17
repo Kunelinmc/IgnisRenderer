@@ -65,7 +65,7 @@ function run() {
 	assert.equal("postProcessCapabilities" in webgpu, false);
 
 	assert.deepEqual(webgl.profile.capabilities, {
-		displayHDR: false,
+		displayHDR: true,
 		sh: true,
 		shadows: true,
 		reflection: false,

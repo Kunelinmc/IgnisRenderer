@@ -15,8 +15,22 @@ This document defines the current WebGL backend lifecycle, frame graph, resource
   `hdr-float-linear-filtering-unavailable`.
 - Context restoration must repeat the same probes. Failure must leave the
   backend context-lost and must not publish partially restored services.
-- `profile.capabilities.displayHDR` must remain `false`; strict internal HDR
-  does not imply floating-point canvas presentation.
+- `profile.capabilities.displayHDR` must be `true`; actual Display HDR
+  availability must be reported by `DisplayOutputState` after runtime probing.
+- The WebGL context must use `alpha: true`, `premultipliedAlpha: true`, and
+  `antialias: false` so `RGBA16F` drawing-buffer storage can be selected without
+  recreating the renderer. Presentation must remain opaque for the normal scene
+  path.
+- Display HDR must require `drawingBufferStorage()`, reflected
+  `drawingBufferFormat` and `drawingBufferColorSpace` attributes,
+  `EXT_color_buffer_float`, and a matching high-dynamic-range media query. The
+  active HDR drawing buffer must use `RGBA16F` and Display-P3.
+- Missing drawing-buffer APIs must use `canvas-hdr-output-unsupported`; a
+  non-HDR display must use `display-not-hdr-capable`; rejected or unverifiable
+  configuration must use `hdr-context-configuration-failed`.
+- Display-output changes must be coalesced by the context work queue and applied
+  while idle. Resize and context restoration must reapply the current requested
+  output. Failed HDR configuration must restore an `RGBA8` sRGB drawing buffer.
 
 - `WebGLBackend` must report core `profile.capabilities.sh = true`.
 - `WebGLBackend` must report `profile.capabilities.clusteredLighting = true`.
