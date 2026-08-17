@@ -240,49 +240,6 @@ class CustomPass extends PostProcessPass {
 - Runtime attempts must preserve `lastAttempt` and `lastSuccessful`; only a
   committed enclosing frame may update `lastSuccessful`.
 
-## Compatibility
-
-### Cross-backend declarations
-
-- `PostProcessFrameRequirements` and
-  `PostProcessCameraJitterRequirement` are replaced by the pipeline-owned
-  `FramePreparationRequirements` and `CameraJitterRequirement` types.
-- `PostProcessPassConfig.warningLabel` and `PostProcessPass.warningLabel` are
-  renamed to `label`. Consumers must migrate to the new generic label name.
-- `createPostProcessExecutionDeclaration()` is removed. Built-in passes compose
-  immutable backend color policies and typed resource-use records directly.
-- `PostProcessPassImplementation.metadata`, `PostProcessGraphMetadata`, context
-  binding metadata, and controlled publication callbacks are removed.
-- `getRequirements()`, `getHistoryDescriptors()`,
-  `getTransientResourceDescriptors()`, and `getHistorySignature()` are removed.
-- `PostProcessPassConfig.placement`, `order`, and `incremental` move under
-  `schedule`.
-- Custom passes must migrate directly to `describeExecution()` and the fixed
-  resource accessor. No compatibility adapter is provided.
-- The WebGPU shared post-process copy helper is removed. Pass-local temporal
-  results must be written directly to declared history resources.
-- `WebGPUGammaContext` is removed. Gamma implementations use the shared
-  `WebGPUScreenPostProcessContext` contract directly.
-- WebGPU SSGI, SSR, screen-space refractions, and SSAO now use the
-  device-lifetime shared denoiser. This changes only WebGPU filtering results
-  and internal transient usage; logical pass IDs and non-WebGPU behavior remain
-  compatible.
-
-### Backend execution
-
-- `PostProcessSharedContext` and the `sharedContext` runtime indirection are
-  removed. Built-in WebGPU contexts receive `WebGPUPostProcessRuntime` through
-  the narrow `WebGPUPostProcessServices` contract.
-- Nested `PostProcessGraphCompiler` execution and
-  `PostProcessRenderGraphAdapter` are replaced by planning plus subgraph
-  building.
-- `IPostProcessExecutor.executePass(passId, request)` and pass-ID fallback
-  execution are removed.
-- Manual `publishColorTarget()` and `publishColorTexture()` callbacks are
-  removed; assigned color output is committed from the pass result.
-- Temporary and history resources migrate from separate descriptor and context
-  metadata APIs into `describeExecution()`.
-
 ## Verification
 
 ```bash

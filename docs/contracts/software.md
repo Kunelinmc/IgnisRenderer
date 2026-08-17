@@ -128,14 +128,6 @@ storage, mirrored-view rendering, and main-surface compositing. Secondary
 reflection views must not mutate the application camera or commit main-view
 temporal history.
 
-## Compatibility
-
-`SoftwareBackend`, `SoftwareBackendOptions`, and pass order remain available.
-The Software color pipeline, backend capability value, custom post-process
-color resource, and output pixels are breaking changes. RGBA8 intermediate
-lighting values and pixel-identical Software screenshots are not compatibility
-surfaces.
-
 ## Verification
 
 ```bash

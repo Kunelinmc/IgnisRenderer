@@ -296,8 +296,6 @@ This document defines WebGPU frame-graph execution, deferred lighting, presentat
 	- When `enableDeferredLighting !== false`, `WebGPUBackend` must attempt to
 	  enable deferred lighting and must warn once if any runtime requirement
 	  prevents correct activation.
-	- `WebGPUBackend.isDeferredLightingEnabled()` must return the configured
-	  public switch value.
 - Runtime gating contract:
 	- Deferred lighting must require `sampleCount === 1`.
 	- Base deferred lighting must require `maxColorAttachments >= 4` and
@@ -419,12 +417,6 @@ This document defines WebGPU frame-graph execution, deferred lighting, presentat
 	  may be lower than requested when device capabilities do not support the
 	  requested count. Custom render targets use their own descriptor count.
 	- Error contract: non-finite values must throw a configuration error.
-- Sample-count runtime control is internal. `WebGPUBackend` must not expose
-	`getMSAASampleCount()`, `setMSAAEnabled()`, or `setMSAASampleCount()`.
-- The legacy `enableMSAA`, `msaaSampleCount`, and `sceneSampleCount` options are
-	removed. JavaScript callers that supply any of them must receive a deterministic
-	error directing them to `sampleCount`.
-
 ### Custom render-target sample counts
 
 - Each custom render target must use an independent sample-count domain named
@@ -750,62 +742,6 @@ const packed = packer.pack({
   was not created for the same layout byte size.
 - Invalid scalar, vector, or matrix value: triggered by `StructuredBufferWriter`
   when a resolver returns an incompatible value.
-
-## Compatibility
-
-### Internal frame graph
-
-`getFrameGraphDebugState()` may expose structured internal graph diagnostics,
-barriers, resources, and target-manager state. Tests and diagnostic tooling must
-not depend on private runtime fields when equivalent graph debug data exists.
-Planning and execution use the internal frame-module registry instead of
-orchestrator switch statements;
-this does not add public WebGPU frame graph registration APIs. Rejecting
-duplicate frame begins, missing active sessions, and mismatched frame-context
-identity strengthens internal lifecycle validation without changing the public
-renderer API. WebGPU composes each eligible post-process pass into the
-whole-frame graph under the `"postprocess"` namespace. Module-owned analysis
-state does not transfer native resource ownership, allocate pool textures, emit
-native barriers, or change planner and executor order.
-
-### Deferred lighting
-
-No public renderer frame-pass stage is added. Builtin opaque and mask WebGPU
-materials may use deferred lighting by default when runtime limits allow it.
-Transparent, OIT, transmission, particles, `SoftwareBackend`, `WebGLBackend`,
-and reflection probe capture keep their existing paths.
-
-### Sample-count configuration
-
-This change is breaking. Runtime MSAA methods, `enableMSAA`,
-`msaaSampleCount`, and `sceneSampleCount` are removed; use `sampleCount` when
-creating `WebGPUBackend`. The default scene sample count is `1x`; applications
-that require multisampled main-scene rendering must request it explicitly.
-
-### Planar reflections
-
-- Behavior change: WebGPU now renders planar reflection for materials that set
-  `reflectivity` and `mirrorPlane`.
-- Behavior change: WebGPU no longer emits unsupported-material warnings for
-  `reflectivity` or `mirrorPlane`.
-- Behavior change: WebGPU planar reflection capture uses a single offscreen
-  `rgba16float` color target instead of writing scene MRT G-buffer targets.
-- Backend compatibility: Software keeps its existing reflection behavior.
-- Backend compatibility: WebGL remains without planar reflection support.
-- Capability inspection must use `Renderer.backendProfile` or an explicit
-  attached backend.
-
-### Structured buffer packing
-
-`packFrameUniformData` has been replaced by
-`packFrameCameraUniformData`, `packFrameLightUniformData`,
-`packFrameShadowUniformData`, and `packFrameEnvironmentUniformData`. Consumers
-must select the packer matching the target frame uniform binding.
-
-This is a breaking WebGPU shader contract. Custom WGSL must retain camera and
-global settings through `frame` at binding `0`, and must read lights, shadows,
-and probe data through `frameLights`, `frameShadows`, and `frameEnvironment`
-at bindings `14`, `15`, and `16` respectively.
 
 ## Verification
 

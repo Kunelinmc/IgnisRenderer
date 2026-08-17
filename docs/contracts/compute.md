@@ -73,22 +73,6 @@ async function run(runtime: IComputeRuntime): Promise<void> {
 - WebGPU `ComputeRuntime` should throw when a source does not expose an
   initialized WebGPU `device` and `queue`.
 
-## Compatibility
-
-### Compute runtime abstraction
-
-`IWebGPUComputeFacade.createComputePipeline(desc)` now returns
-`Promise<IComputePipeline>`. Direct facade consumers must `await` compute
-pipeline creation before dispatching or creating pipeline-dependent bind groups.
-
-Existing `IComputeRuntime.createKernel()` usage remains valid because it already
-returns `Promise<IComputeKernel>`.
-
-WebGPU `ComputeRuntime` construction no longer accepts `Renderer` instances or
-renderer-like `{ backend }` source wrappers. Consumers must pass a direct
-`WebGPUBackend`, `IWebGPUComputeFacade`, or compatible
-`WebGPUComputeFacadeSource`.
-
 ## Verification
 
 ```bash

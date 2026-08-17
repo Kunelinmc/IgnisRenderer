@@ -211,24 +211,6 @@ bunx tsc --noEmit
   fails; the renderer must keep CPU particle batches available for shadow volume
   injection.
 
-## Compatibility
-
-### Particle templates
-
-- Code that reads `ParticleSystem.blendMode`, `texture`, `atlas`,
-  `sizeOverLifetime`, `colorOverLifetime`, `receiveShadows`, `castShadows`,
-  `shadowDensity`, or `shadowSoftness` continues to access the first template.
-- `ParticleSystemParams.definitions`, root-level template fields, emitter spawn
-  ranges, and the `ParticleDefinition` type alias are not supported. Callers
-  must use `templates` and `ParticleTemplate`.
-- Mesh particle templates are WebGPU-rendered only in this contract.
-
-### Particle shadows
-
-- Existing particle systems will default to `castShadows: true`.
-- Additive particle systems remain visually compatible because they are
-  excluded from particle shadow volume injection.
-
 ## Verification
 
 ```bash

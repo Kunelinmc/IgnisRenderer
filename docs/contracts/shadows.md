@@ -71,12 +71,3 @@ shared plan.
 Atlas caster passes must iterate only explicit `"atlas"` and
 `"atlas-fallback"` jobs. Paged runtime layout is derived from prepared lights;
 backend layout offsets must not be written into prepared slices or definitions.
-
-## Breaking Migration
-
-This contract removes `ShadowConfig`, runtime `ShadowMap`, `ShadowRenderSet`,
-`ShadowFrameState`, `ShadowMapRegistry`, `LegacyShadowPlanAdapter`,
-`createLegacyShadowFramePlan()`, and `resolveLegacyShadowMaps()`. There is no
-compatibility adapter or transition window. Custom backend integrations must
-consume `ShadowFramePlan`; application code must continue to author shadows
-through `scene.shadows`.

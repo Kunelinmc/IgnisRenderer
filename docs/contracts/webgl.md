@@ -26,7 +26,6 @@ This document defines the current WebGL backend lifecycle, frame graph, resource
   `WebGLBackend` must ignore prepared `DecalPacket` instances without capability
   probing, receiver planning, resource allocation, decal passes, diagnostics,
   or changes to forward frame output.
-- `WebGLBackend` must not expose `postProcessCapabilities`.
 - WebGL post-process support must be derived from pass-owned WebGL
   implementations.
 - `WebGLBackend.extensions` must not expose `renderer.postprocess`.
@@ -121,8 +120,6 @@ This document defines the current WebGL backend lifecycle, frame graph, resource
   ping/pong/history, OIT accumulation, and transmission background targets must
   use `rgba16float`. Required float allocations must fail rather than fall back
   to normalized storage.
-- `WebGLBackend` must not expose public `postProcess`, `postProcessExecutor`,
-  `postProcessAdapter`, or `createPostProcessGBufferBridge(context)` members.
 - The backend must validate pass dependency order per frame and must treat
   `skipPass` as an executed stage.
 - WebGL custom color targets must support exact storage for `r8unorm`,
@@ -404,58 +401,6 @@ bun tests/static/webgl/test_webgl_frame_graph_runtime.mjs
 - `graphAnalysis` must expose grouped canonical transitions, generation-aware
   live ranges, completeness, shadow diagnostics, and successful/failed
   snapshots without native handles.
-
-## Compatibility
-
-### Backend lifecycle and execution
-
-- Public backend type name remains `WebGLBackend`.
-- `WebGLBackend` is now an attached backend runtime. It exposes
-  `attach(context)`, profile, extensions, and frame lifecycle methods directly.
-- A `WebGLBackend` instance must not be reused across multiple renderers.
-- Core capability fields `sh` and `clusteredLighting` changed from disabled to
-  enabled.
-- `WEBGL_AUXILIARY_RASTER_EXTENSION` is an additive public capability. The
-  previous internal IBL executor extension is removed; public
-  `IBLPrefilter` construction and acceleration options are unchanged.
-- `BackendCapabilities.postProcess` is added and is `true` for `WebGLBackend`.
-- Backend post-process capability maps remain removed.
-- `renderer.postprocess` is no longer a WebGL backend extension.
-- `resolvePostProcessBackendExtension(new WebGLBackend())` is removed.
-- `WebGLBackend.registerPostProcessPass(pass)` and
-  `WebGLBackend.unregisterPostProcessPass(id)` are removed.
-- `WebGLBackend.postProcess` is removed.
-- `WebGLBackend.postProcess.registerPass(pass)` and
-  `WebGLBackend.postProcess.unregisterPass(id)` are removed.
-- `WebGLBackend.postProcessAdapter`, `WebGLBackend.postProcessExecutor`, and
-  `WebGLBackend.createPostProcessGBufferBridge(context)` are removed.
-- `WebGLBackend.postProcessRuntime` is removed. Post-process execution remains
-  backend-owned and is not part of the public backend contract.
-- Public WebGL custom post-process passes must migrate to `PostProcessPass`
-  instances registered through `renderer.postProcess.registerPass(pass)`.
-- Forward-lighting point-light budget changed from `4` to `16` to match the
-  WebGPU backend budget.
-- Test entrypoints use the `tests/static/webgl/test_webgl_backend_*.mjs` prefix.
-- WebGL applications on runtimes with fewer than five color attachments retain
-  the existing `color`, `depth`, `motion`, and `normal` bridge channels. Passes
-  requiring omitted material channels are skipped through the shared
-  post-process requirement diagnostics.
-- Custom render targets no longer fall back to approximate color or depth
-  formats. Unsupported descriptors now fail the frame during target
-  configuration.
-- Custom depth attachments changed from renderbuffers to sampleable textures.
-
-### Internal frame graph
-
-The public `WebGLBackend` constructor and `Renderer` integration remain
-unchanged. The WebGL graph is an internal implementation detail. Tests and
-diagnostic tools may use internal debug state, but application code must not
-depend on it as a stable public API. The shared analyzer does not change
-framebuffer ownership, WebGL state changes, planner order, presentation, or the
-backend-owned post-process pool. Eligible post-process passes are composed as
-individual `"post-process-pass"` nodes in the authoritative whole-frame graph.
-`WebGLFrameExecutor` is removed; `WebGLFrameServiceOwner` now directly owns
-the internal frame-service lifecycle.
 
 ## Verification
 

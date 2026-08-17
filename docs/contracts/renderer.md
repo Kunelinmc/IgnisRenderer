@@ -336,9 +336,6 @@ This document defines the lifecycle, scheduling, warmup, incremental rendering, 
 
 ### Environment IBL warmup
 
-- `WarmupOptions` must not expose `allowEnvironmentSpecularFallback`.
-- `WarmupOptions` must not expose `includeEnvironmentIBLBake`.
-- `WarmupOptions` must not expose `environmentIBLBake`.
 - `Renderer.warmup(options)` must not project environment SH or prefilter
   environment IBL.
 - `Renderer.warmup(options)` must not synthesize IBL input from
@@ -650,77 +647,6 @@ bun tests/static/renderer/test_renderer_warmup_lightprobe.mjs
   not from `Renderer.warmup()`.
 - Environment specular prefilter errors must come from `IBLPrefilter` or
   `prefilterEnvironmentIBL`, not from `Renderer.warmup()`.
-
-## Compatibility
-
-### Renderer and backend lifecycle
-
-- `BackendCapabilities` now requires `meshParticles`. Custom backends must set
-  it to `true` only when mesh particle templates contribute regular mesh draw
-  packets.
-- `RenderPipelineFramePlanOptions` and `RenderPipelineStageRunContext` now
-  require `FramePassRequirements`. Built-in stages no longer derive pass
-  enablement from backend identifiers or backend capability objects.
-- `Renderer` construction now requires a single `RendererOptions` object.
-  The positional `new Renderer(backend, canvas, camera)` form is removed.
-- `RenderTargetReadbackOptions.format` and `bytesPerPixel` are removed.
-  `readColor` always returns the attachment's actual storage format.
-- `Renderer.renderTargets` now rejects unsupported sample counts and invalid
-  color/depth format kinds during registration instead of disabling the target
-  during frame execution.
-- `Renderer.renderPasses` now requires target-before-pass registration, and
-  targets with dependent passes must be unregistered after those passes.
-- `RenderFrameResult` requires an `incremental` property on both rendered and clean result branches. This is a breaking TypeScript API change.
-- `Renderer.renderScene()` is deprecated and retained only for compatibility. Applications must use `Renderer.renderFrame()` for manual rendering or `Renderer.renderLoop()` for automatic scheduling. Neither `renderFrame()` nor the deprecated alias schedules subsequent frames based on backend `frameScheduling`.
-- `IRenderBackend.createSession(context)` and public backend session APIs are removed.
-- Backend instances are one-shot renderer runtimes and must not be reused across renderers.
-- `Renderer.onDeviceLost` and `Renderer.onBackendResourceEvent` are removed.
-- `RendererBackendBridge` is removed.
-- Backends must route all lifecycle notifications as events through `RenderBackendEventSink` instead of direct callbacks.
-- `IRenderBackend` instances are one-shot renderer runtimes. Applications must create a new backend instance for each `Renderer`.
-- Backend profile, capability, extension, and frame lifecycle methods are read from the attached backend runtime.
-- `IRenderBackend.executeSharedPass` is removed.
-- Extensions must be queried via typed keys rather than raw string identifiers.
-- `WebGPUBackend.createBuffer`, `createTexture`, `createSampler`,
-  `createShaderModule`, `createPipeline`, `createComputePipeline`,
-  `createBindingGroup`, `createTextureView`, `createCommandEncoder`,
-  `writeBuffer`, `copyTextureToTexture`, `submit`, `getTextureForSlot`,
-  `registerExternalTexture`, and `unregisterExternalTexture` are removed.
-  Applications requiring WebGPU compute or texture-bridge operations must use
-  `WEBGPU_COMPUTE_EXTENSION`.
-- `WebGPUBackend.device` and `WebGPUBackend.queue` are removed. Native WebGPU
-  handles remain backend-private.
-- `WebGPUBackend.getShaderDirectiveCacheTag`,
-  `isOcclusionCullingEnabled`, `onDeviceLost`, `getFrameSceneTargetMode`,
-  `captureProbeFace`, `getCurrentColorView`, `getCurrentDepthView`,
-  `getTimestampDurationsMs`, and `createPassTimestampWrites` are removed.
-  Backend lifecycle and command helpers remain internal, and probe capture must
-  be requested through `PROBE_CAPTURE_EXTENSION`.
-- `getNativeWebGPUCommandEncoder` is removed from `ICommandEncoder`. Code that requires ordered texture copies must use `copyTextureToTexture`. WebGPU-internal passes that need native WebGPU objects must resolve them through WebGPU-owned helpers instead of the shared renderer contract.
-- SoftwareBackend does not support custom render targets.
-- `SoftwareBackend` exposes only its scanline rasterization path.
-  `SoftwareRasterMode`, `SoftwareTileOptions`, the `rasterMode` and `tile`
-  backend options, and the `requestedRasterMode` and `activeRasterMode`
-  properties are removed. Callers must construct `SoftwareBackend` without
-  raster-mode configuration.
-
-### Incremental rendering
-
-- `RenderFrameResult` now requires `incremental` in both union branches.
-- Consumers that constructed `RenderFrameResult` values must add the required
-  `IncrementalFrameStatus` value.
-
-### Warmup scheduling
-
-N/A. Existing `await renderer.warmup()` calls retain eager behavior.
-
-### Environment IBL warmup
-
-This change is breaking.
-`WarmupOptions.includeEnvironmentIBLBake` and
-`WarmupOptions.environmentIBLBake` are removed. Consumers must invoke
-`projectEnvironmentTextureToSH` and `IBLPrefilter` or
-`prefilterEnvironmentIBL` explicitly before assigning probe data.
 
 ## Verification
 

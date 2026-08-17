@@ -76,7 +76,6 @@ This document defines cross-backend rendering features, capability gating, pass 
   backend extension.
 - `Renderer` must resolve occlusion culling integration with
   `resolveOcclusionCullingBackendExtension(backend)?.api`.
-- `IRenderBackend` must not expose `occlusionCullingAdapter`.
 - `resolveFeatureState(...)` must disable `enableOcclusionCulling` when the
   backend capability is `false` and must emit a feature warning.
 - `PreparedScene.occlusion` may expose prepared-scene occlusion metadata,
@@ -580,68 +579,6 @@ prepared-scene construction.
 
 WebGPU adapters that cannot provide the required decal sampled textures must
 fail device negotiation with the standard WebGPU minimum-limit diagnostic.
-
-## Compatibility
-
-### Order-independent transparency
-
-`enableOIT` remains opt-in and defaults to disabled. Capability inspection must
-use `Renderer.backendProfile` or an explicit attached backend. Unattached
-backends must not be used for runtime capability checks. Unsupported backends
-and unsupported runtime conditions must fall back to legacy transparent
-rendering.
-
-### Occlusion culling
-
-Occlusion culling remains opt-in and defaults to disabled for renderer feature
-users. Backend integration APIs are breaking:
-`backend.occlusionCullingAdapter` is removed and must be replaced with
-`renderer.getBackendExtension(OCCLUSION_CULLING_EXTENSION)`. Unsupported backends
-must keep existing rendering behavior by disabling the resolved feature.
-
-WebGPU may promote an active occlusion-culling frame away from the single-target
-path so `gMotionDepth` can be sampled by the occlusion runtime. This is a
-backend-internal target selection detail and must not require public
-post-process graph APIs.
-
-### HDR rendering
-
-- SDR remains the default display mode.
-- Existing post-process pass IDs and enable/disable behavior remain available.
-- Existing custom passes remain executable without a color contract.
-- Software custom post-process implementations must migrate from direct
-  `FrameAttachments.pixels` access to `context.resources.color`.
-- WebGPU SDR output changes from a gamma `2.2` approximation to exact piecewise
-  sRGB encoding.
-- Software rendering is no longer pixel-compatible with its former RGBA8
-  intermediate pipeline. Lighting, reflections, transparency, particles,
-  histories, and post-processing now use normalized linear RGBA32F values.
-- WebGL floating-point internal targets remain governed by runtime extension
-  support and do not imply Display HDR support.
-
-### Early-Z prepass
-
-This optimization is backward compatible. Existing materials default to `depthWrite === true` and preserve prior rendering behavior.
-
-Mask `ShaderMaterial` users must provide the appropriate backend-specific depth-discard fragments (a `fragment-depth` chunk for WebGL, or `depthFragmentCode`/`depthFragmentEntryPoint` for WebGPU) to participate in the Early-Z prepass optimization.
-
-`SoftwareBackend` now has one scanline rasterization path. The public
-`SoftwareRasterMode` and `SoftwareTileOptions` types, the
-`SoftwareBackendOptions.rasterMode` and `SoftwareBackendOptions.tile` options,
-and the `SoftwareBackend.requestedRasterMode` and
-`SoftwareBackend.activeRasterMode` properties are removed. Callers must delete
-tile and raster-mode configuration; `enableEarlyZPrepass` remains supported.
-
-### Projected decals
-
-The WebGPU `ModelUniforms` layout includes `nodeRenderLayers` before
-`textureTransformA`. Custom WebGPU shaders that redeclare `ModelUniforms` must
-include the same field to keep texture transform offsets valid.
-
-Decals do not affect transparent objects, particles, shadows, reflection
-captures, or receivers that cannot provide the built-in material surface
-contract. WebGL decal applicability may be introduced by a future contract
-change; until then, WebGL must ignore decals without changing frame output.
 
 ## Verification
 

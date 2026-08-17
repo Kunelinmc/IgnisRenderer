@@ -271,22 +271,6 @@ bun tests/static/loaders/test_bvh_loader.mjs
   throw an `Error`.
 - `load`/`loadPrefab` network failures must emit `error` and rethrow.
 
-## Compatibility
-
-### glTF loading
-
-N/A
-
-### EXR loading
-
-This change adds a new loader export (`EXRLoader`) and does not remove or change
-existing loader APIs.
-
-### BVH loading
-
-This change adds a new loader export (`BVHLoader`) and does not remove or
-modify existing loader APIs. Existing code should remain compatible.
-
 ## Verification
 
 ```bash

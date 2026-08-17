@@ -320,31 +320,6 @@ bun tests/static/software/test_software_early_z_prepass.mjs
   `ShaderMaterial` diagnostics.
 - Non-finite render inputs must continue following existing backend guards.
 
-## Compatibility
-
-### Texture formats
-
-All `*Texture` constructors now accept one parameter object. The positional
-`Texture(data, width, height, colorSpace)`, `CanvasTexture(context, options)`,
-and `VideoTexture(video, options)` forms have been removed. Callers must move
-the source and options into `TextureParams`, `CanvasTextureParams`, or
-`VideoTextureParams`.
-
-`RenderTargetReadbackOptions.format` and `bytesPerPixel` are removed. Custom
-target readback always uses the attachment's actual format and standard byte
-layout.
-
-### PBR extensions
-
-This change is additive. Existing PBR materials without
-`KHR_materials_iridescence` or `KHR_materials_anisotropy` must preserve previous
-rendering behavior.
-
-### Depth writes
-
-This change is additive. Existing materials default to `depthWrite === true`
-and preserve prior rendering behavior.
-
 ## Verification
 
 ```bash

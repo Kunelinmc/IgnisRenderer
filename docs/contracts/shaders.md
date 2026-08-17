@@ -35,8 +35,7 @@ This document defines shader source ownership, composition, diagnostics, and cus
   scene variant. Device texture-unit limits must be validated by the resulting
   exact sampler layout rather than by shader-source capability flags.
 - WebGL scene fragment source must be assembled from the internal GLSL parts
-  listed by `WEBGL_SCENE_FRAGMENT_SHADER_FILES`. The source registry must not
-  retain or preload a monolithic `sceneFragment` part.
+  listed by `WEBGL_SCENE_FRAGMENT_SHADER_FILES`.
   `webgl.scene.composite.fragment.sourceMap.segments` may contain one segment
   per internal part plus generated define or fallback segments.
 - WebGL scene sources must leave light-count placeholders in source text using
@@ -224,24 +223,6 @@ bun tests/static/webgl/test_webgl_backend_scene_shadow_contracts.mjs
   or unsigned integer constraints are violated.
 - Shader compile diagnostics for custom chunks must follow the existing
   `ShaderMaterial` strict, warn, and silent runtime behavior.
-
-## Compatibility
-
-### Shader source
-
-The legacy `loadShaderSource`, WebGPU `load*Shader*` helpers, and
-`WebGLShaderSourceFactory` APIs have been removed. Callers must use
-`ShaderSource.load()`, `ShaderSource.prepare()`, and `ShaderSource.get()`
-instead.
-
-### ShaderMaterial custom uniforms
-
-No existing `ShaderMaterial` texture binding API is removed. Existing custom
-shader chunks remain valid unless they already declare WebGPU group `1` binding
-`36` with an incompatible resource. WebGPU custom shader chunks that manually
-targeted binding `38` must use `#inject <ignis/material/uniform-block>` or move
-their declaration to binding `36`. Builtin materials and `SoftwareBackend`
-behavior are unchanged.
 
 ## Verification
 

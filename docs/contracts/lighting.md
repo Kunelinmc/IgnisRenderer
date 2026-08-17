@@ -80,9 +80,10 @@ Clustered lighting is configured via `ClusteredLightingOptions` on `RendererFeat
 2. **GPU Culling Modes**:
    - **Gather Mode (`"gather"`)**: Uses one 128-thread workgroup per cluster. Workgroups test the active light list against their cluster boundaries in parallel. Out-of-bounds or overflow lights are discarded based on a deterministic estimated-luminance contribution score.
    - **Scatter Mode (`"scatter"`)**: Incurs three sequential compute passes:
-     - `ClearPass`: Clears atomic counters and cluster headers.
-     - `ScatterPass`: Evaluates each light's influence sphere and appends the light's index to intersecting clusters.
-     - `FinalizePass`: Resolves cluster index ranges.
+     - Clear atomic counters and cluster headers.
+     - Evaluate each light's influence sphere and append its index to
+       intersecting clusters.
+     - Resolve cluster index ranges.
 3. **Structured Storage Layout (`clusteredSceneBindGroupLayout` / `group(2)`)**:
    Shaders reading cluster data must declare the following bindings:
    - **Binding 0 (`uniform`)**: `clusterGrid` storing `ClusterGridParams`:
@@ -750,89 +751,6 @@ capture source, capture falls back to analytic lights and environment only.
 - **Low-Resolution Reflections**: If captured textures appear lower than the configured resolution, verify whether runtime budget pressure is forcing the scheduler to downscale resolution to `0.75` or `0.5`.
 - **Render Loop Instability**: If reflections show recursive feedback artifacts, verify that `enableReflection` and `enableSSR` are correctly set to `false` during the capture pass.
 - **Incorrect Projection Origin**: If reflections appear projected from the coordinate origin `[0, 0, 0]`, confirm that `scene.updateWorldMatrices()` has been executed prior to dispatching the capture stage.
-
-## Compatibility
-
-### Clustered lighting
-
-- **WebGL Fallbacks**: Applications targetting WebGL will automatically fall back to the legacy forward lighting path without crash/panic when an orthographic camera is bound or if texture size limits are exceeded.
-- **WebGPU Buffer Sizes**: Clustered lighting options above `1024` max lights or `128` lights per cluster are automatically clamped to those respective hardware budgets on WebGPU.
-
-### Environment IBL
-
-This change is breaking.
-`Renderer.setEnvironmentIBLUpdateOptions()`,
-`Renderer.getEnvironmentIBLUpdateOptions()`,
-`Renderer.requestEnvironmentIBLUpdate()`, `WarmupOptions.environmentIBLBake`,
-`WarmupOptions.includeEnvironmentIBLBake`,
-`bakeEnvironmentIBLFromEnvironmentMap()`, and `EnvironmentIBLBake*` types are
-removed. Consumers must use `projectEnvironmentTextureToSH` for SH data and
-`IBLPrefilter` or `prefilterEnvironmentIBL` for specular prefilter textures.
-`Renderer` instances, renderer-like wrappers, and direct WebGPU compute sources
-are no longer accepted. Consumers must pass an `IBLPrefilterServiceOptions`
-object containing at most one `IRenderBackend`.
-The `cpu` and `worker` acceleration values are replaced by `single-thread` and
-`multi-thread`, respectively.
-The `webgl` acceleration value is additive. Existing `auto` callers using an
-initialized capable `WebGLBackend` may now execute on the GPU before Worker or
-single-thread fallback.
-`IBLPrefilterConstructorOptions`, `IBLPrefilterBackendSource`,
-`IBLPrefilterSourceOptions`, positional constructor sources,
-`IBLPrefilterOptions.backend`, `IBLPrefilterOptions.computeSource`, and direct
-`webgpuComputeSource` values are removed. Consumers must pass an
-`IBLPrefilterServiceOptions` object to the constructor, or use the helper's
-`service` property, and keep execution settings in `IBLPrefilterOptions`.
-
-### Irradiance probe grids
-
-The grid affects diffuse irradiance only. It does not affect reflection probe
-specular IBL. Auto placement, per-object probe override, visibility masks, and
-occlusion masks are not supported.
-
-Breaking change: `IrradianceProbeGridRuntimeCache.worldToGrid3x3` is now a
-`Matrix3` instance. Code that read a bare `Matrix3Arr` must read
-`worldToGrid3x3.elements`.
-
-### Localized light probes
-
-- Breaking change: legacy `new LightProbe(sh)`, `new LightProbe(null)`, and
-  `new LightProbe()` initialization forms are no longer supported. Code must
-  use `new LightProbe({ sh })` for authored coefficients or `new LightProbe({})`
-  for an empty probe.
-- Existing scenes that do not set `shape` remain behaviorally compatible because
-  `shape` defaults to `"global"`.
-- WebGPU and WebGL scene lighting may change when localized probes are added
-  because only `shape="global"` probes contribute to global SH accumulation on
-  those backends.
-- The Software backend intentionally preserves the previous global accumulation
-  behavior for localized probes.
-- Breaking change: `LightProbeRuntimeCache.worldToProbe3x3` is now a `Matrix3`
-  instance. Code that read a bare `Matrix3Arr` must read
-  `worldToProbe3x3.elements`.
-- Breaking change: `computeLightProbeMetric(worldPosition, probe)` was replaced
-  by `probe.getMetric(worldPosition)`.
-
-### Captured light probes
-
-- Breaking change: `LightProbe` initialization now accepts only
-  `new LightProbe({ ...params })`. Code using `new LightProbe(sh)` must migrate
-  to `new LightProbe({ sh })`; code using `new LightProbe()` must migrate to
-  `new LightProbe({})`.
-- Renderer pipeline stage `reflection-probe-capture` has been replaced by
-  `probe-capture`.
-- Breaking change: `ReflectionProbeCaptureRuntime` compatibility exports have
-  been removed. Code must import `ProbeCaptureRuntime` and related types from
-  `src/lights/runtime/ProbeCaptureRuntime`.
-
-### Reflection probes
-
-- **Cross-Backend Fallbacks**: Mesh, transparent, particle, and shadow capture
-  paths are available only under WebGPU. WebGL and Software execute CPU
-  analytical and environment fallback calculations.
-- **Default Capture Resolution**: The default `captureResolution` is established at `512x256`.
-- **Default Feature Flags**: The new options `includeMeshes`, `includeTransparent`, `includeParticles`, and `includeShadows` default to `true`.
-- **Projection Matrix Structuring**: `ReflectionProbeRuntimeCache.worldToProbe3x3` is a `Matrix3` instance. Downstream shaders or binders reading raw values must retrieve row-major arrays from `worldToProbe3x3.elements`.
-- **Pipeline Stage Renaming**: The legacy renderer stage `reflection-probe-capture` has been unified under `probe-capture`.
 
 ## Verification
 

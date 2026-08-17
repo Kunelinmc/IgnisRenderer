@@ -358,44 +358,6 @@ Output exceeds `maxOutputTriangles`.
 - `csg-worker-fallback-sync`:
 `executionMode="worker"` was requested but worker runtime is unavailable.
 
-## Compatibility
-
-### Spatial indexing
-
-This change is breaking for TypeScript consumers that type against
-`SpatialIndex3D`:
-- `queryFrustum`, `queryBounds`, `queryRay`, and `queryRayDetailed` are no longer
-  interface methods;
-- callers should use `queryFrustumInto`, `queryBoundsInto`, and
-  `queryRayDetailedInto`;
-- default `Scene.spatialIndexMode` remains `"bvh"`;
-- class-level compatibility wrappers remain available on `BVH`, `LooseOctree`,
-  and `HybridSpatialIndex` for direct callers.
-
-### Mesh bounds
-
-This change is breaking for direct primitive and bounds mutation:
-
-- `MeshAsset.primitives` is readonly; use the asset structural mutation
-  methods;
-- `IPrimitive.geometryVersion` and derived bounds are readonly;
-- geometry replacement and in-place buffer edits must use the owning
-  `MeshAsset` mutation methods;
-- a primitive cannot be shared by multiple mesh assets.
-
-### LOD mesh instances
-
-This change is additive. Existing `MeshInstance` and `CSGMeshInstance` flows
-remain compatible.
-
-### Constructive solid geometry
-
-This change is additive for runtime behavior and APIs, but it introduces
-`IPrimitive.geometryVersion` as a required contract field in TypeScript source
-construction paths.
-`CSGSolver` and `defaultCSGSolver` are additive APIs; existing module-level
-solver helper functions remain supported.
-
 ## Verification
 
 ```bash

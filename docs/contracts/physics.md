@@ -347,38 +347,6 @@ Debug geometry producers should omit data they cannot compute. Missing
 contact-manifold support must produce an empty `points` array instead of
 throwing.
 
-## Compatibility
-
-### Runtime control
-
-This contract is breaking:
-
-- `setCollisionMask()` has been removed from `PhysicsSystem` and replaced by
-`setColliderCollisionFilter()`.
-- Adapter and worker commands no longer expose `setCollisionMask`; they expose
-`setColliderCollisionFilter` with an internal encoded filter.
-- `mode: "mesh"` remains the primary mesh-collider entry.
-
-### Oriented box queries
-
-This change is additive and non-breaking:
-
-- Existing query call sites without `rotation` remain valid.
-- Runtime behavior for axis-aligned query boxes is unchanged.
-
-### Mesh colliders
-
-This contract introduces moderate breaking changes with a compatibility window:
-
-- New primary descriptor is `MeshColliderDescriptorV2` (`mode: "mesh"`).
-- Legacy `mode: "trimesh-cook"` remains temporarily supported through automatic
-translation and warning.
-- Next major version may remove `trimesh-cook` support.
-
-### Debug visualization data
-
-N/A
-
 ## Verification
 
 ```bash
