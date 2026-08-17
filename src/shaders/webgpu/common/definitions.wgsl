@@ -118,6 +118,7 @@ struct ModelUniforms {
 	anisotropyTextureTransformA: vec4<f32>,
 	anisotropyTextureTransformB: vec4<f32>,
 	materialFlags: vec4<f32>,
+	pbrMasks: vec4<u32>,
 	nodeRenderLayers: vec4<f32>,
 	textureTransformA: array<vec4<f32>, __WEBGPU_TEXTURE_SLOT_COUNT__>,
 	textureTransformB: array<vec4<f32>, __WEBGPU_TEXTURE_SLOT_COUNT__>,

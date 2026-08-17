@@ -395,6 +395,20 @@ function testShaderRotatesAndOrthogonalizesAnisotropyTangent() {
 	assert.equal(rotationCalls?.length, 2);
 	assert.equal(orthogonalizationCalls?.length, 2);
 	assert.equal(resolvedPacks?.length, 2);
+	assert.match(source, /pbrMasks: vec4<u32>/);
+	assert.equal(
+		(source.match(/hasPBRTexture(?:From)?\(/g)?.length ?? 0) > 20,
+		true
+	);
+	assert.equal(
+		(source.match(/PBR_TEXTURE_CLEARCOAT_NORMAL_MAP/g)?.length ?? 0) >= 3,
+		true
+	);
+	assert.equal(
+		(source.match(/materialFlags\.x != f32\(SHADING_PBR\)/g)?.length ?? 0) >=
+			2,
+		true
+	);
 }
 
 await testSameMaterialDecalsUseBatchDispatchAndClippedCopy();

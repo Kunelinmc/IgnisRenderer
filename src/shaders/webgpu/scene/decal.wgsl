@@ -17,6 +17,30 @@ const TEX_THICKNESS: u32 = 13u;
 const TEX_IRIDESCENCE: u32 = 14u;
 const TEX_IRIDESCENCE_THICKNESS: u32 = 15u;
 
+const SHADING_PBR: u32 = 1u;
+
+const PBR_FEATURE_SPECULAR: u32 = 1u << 4u;
+const PBR_FEATURE_CLEARCOAT: u32 = 1u << 5u;
+const PBR_FEATURE_SHEEN: u32 = 1u << 6u;
+const PBR_FEATURE_IRIDESCENCE: u32 = 1u << 7u;
+const PBR_FEATURE_ANISOTROPY: u32 = 1u << 8u;
+
+const PBR_TEXTURE_BASE_COLOR_MAP: u32 = 1u << 0u;
+const PBR_TEXTURE_METALLIC_ROUGHNESS_MAP: u32 = 1u << 1u;
+const PBR_TEXTURE_NORMAL_MAP: u32 = 1u << 2u;
+const PBR_TEXTURE_EMISSIVE_MAP: u32 = 1u << 3u;
+const PBR_TEXTURE_OCCLUSION_MAP: u32 = 1u << 4u;
+const PBR_TEXTURE_SPECULAR_MAP: u32 = 1u << 5u;
+const PBR_TEXTURE_SPECULAR_COLOR_MAP: u32 = 1u << 6u;
+const PBR_TEXTURE_CLEARCOAT_MAP: u32 = 1u << 7u;
+const PBR_TEXTURE_CLEARCOAT_ROUGHNESS_MAP: u32 = 1u << 8u;
+const PBR_TEXTURE_CLEARCOAT_NORMAL_MAP: u32 = 1u << 9u;
+const PBR_TEXTURE_SHEEN_COLOR_MAP: u32 = 1u << 10u;
+const PBR_TEXTURE_SHEEN_ROUGHNESS_MAP: u32 = 1u << 11u;
+const PBR_TEXTURE_IRIDESCENCE_MAP: u32 = 1u << 14u;
+const PBR_TEXTURE_IRIDESCENCE_THICKNESS_MAP: u32 = 1u << 15u;
+const PBR_TEXTURE_ANISOTROPY_MAP: u32 = 1u << 16u;
+
 const MODE_DISABLED: u32 = 0u;
 const MODE_LERP: u32 = 1u;
 const MODE_REPLACE: u32 = 2u;
@@ -53,6 +77,7 @@ struct DecalUniforms {
 	anisotropyTextureTransformA: vec4<f32>,
 	anisotropyTextureTransformB: vec4<f32>,
 	materialFlags: vec4<f32>,
+	pbrMasks: vec4<u32>,
 	textureTransformA: array<vec4<f32>, 16>,
 	textureTransformB: array<vec4<f32>, 16>,
 	channelModes: array<vec4<f32>, 5>,
@@ -299,6 +324,22 @@ fn transformUV(slotIndex: u32, uv: vec2<f32>) -> vec2<f32> {
 	return transformed + transformA.xy;
 }
 
+fn hasPBRFeature(feature: u32) -> bool {
+	return (decal.pbrMasks.x & feature) != 0u;
+}
+
+fn hasPBRTexture(textureFeature: u32) -> bool {
+	return (decal.pbrMasks.y & textureFeature) != 0u;
+}
+
+fn hasPBRFeatureFrom(d: DecalUniforms, feature: u32) -> bool {
+	return (d.pbrMasks.x & feature) != 0u;
+}
+
+fn hasPBRTextureFrom(d: DecalUniforms, textureFeature: u32) -> bool {
+	return (d.pbrMasks.y & textureFeature) != 0u;
+}
+
 fn transformAnisotropyUV(uv: vec2<f32>) -> vec2<f32> {
 	let transformA = decal.anisotropyTextureTransformA;
 	let transformB = decal.anisotropyTextureTransformB;
@@ -440,12 +481,18 @@ fn fsMain(input: VSOut) -> GBufferOutput {
 	let worldPosition = reconstructDeferredWorldPosition(screenUV, motionDepthOld.z);
 	let localPosition = (decal.worldToLocal * vec4<f32>(worldPosition, 1.0)).xyz;
 	let projectorUV = localPosition.xy + vec2<f32>(0.5);
-	let baseSample = sampleColorTexture(
-		baseColorTexture,
-		baseColorSampler,
-		TEX_BASE_COLOR,
-		projectorUV
-	);
+	var baseSample = vec4<f32>(1.0);
+	if (
+		decal.materialFlags.x != f32(SHADING_PBR) ||
+		hasPBRTexture(PBR_TEXTURE_BASE_COLOR_MAP)
+	) {
+		baseSample = sampleColorTexture(
+			baseColorTexture,
+			baseColorSampler,
+			TEX_BASE_COLOR,
+			projectorUV
+		);
+	}
 	let opacity = projectorOpacity(localPosition, baseSample.a);
 	if (opacity <= 0.0) {
 		discard;
@@ -453,82 +500,166 @@ fn fsMain(input: VSOut) -> GBufferOutput {
 
 	let oldNormal = decodeDeferredNormal(normalRoughMetalOld.xy);
 	let baseColor = clamp(decal.baseColorFactor.rgb * baseSample.rgb, vec3<f32>(0.0), vec3<f32>(1.0));
-	let mrSample = sampleLinearTexture(
-		metallicRoughnessTexture,
-		metallicRoughnessSampler,
-		TEX_METALLIC_ROUGHNESS,
-		projectorUV
-	);
-	let normalSample = sampleLinearTexture(
-		normalTexture,
-		normalSampler,
-		TEX_NORMAL,
-		projectorUV
-	).rgb;
-	let emissiveSample = sampleColorTexture(
-		emissiveTexture,
-		emissiveSampler,
-		TEX_EMISSIVE,
-		projectorUV
-	);
-	let occlusionSample = sampleLinearTexture(
-		occlusionTexture,
-		occlusionSampler,
-		TEX_OCCLUSION,
-		projectorUV
-	);
-	let specularSample = sampleLinearTexture(
-		specularTexture,
-		specularSampler,
-		TEX_SPECULAR,
-		projectorUV
-	);
-	let specularColorSample = sampleColorTexture(
-		specularColorTexture,
-		specularColorSampler,
-		TEX_SPECULAR_COLOR,
-		projectorUV
-	);
-	let clearcoatSample = sampleLinearTexture(
-		clearcoatTexture,
-		clearcoatSampler,
-		TEX_CLEARCOAT,
-		projectorUV
-	);
-	let clearcoatRoughnessSample = sampleLinearTexture(
-		clearcoatRoughnessTexture,
-		clearcoatRoughnessSampler,
-		TEX_CLEARCOAT_ROUGHNESS,
-		projectorUV
-	);
-	let clearcoatNormalSample = sampleLinearTexture(
-		clearcoatNormalTexture,
-		clearcoatNormalSampler,
-		TEX_CLEARCOAT_NORMAL,
-		projectorUV
-	).rgb;
-	let sheenColorSample = sampleColorTexture(
-		sheenColorTexture,
-		sheenColorSampler,
-		TEX_SHEEN_COLOR,
-		projectorUV
-	);
-	let sheenRoughnessSample = sampleLinearTexture(
-		sheenRoughnessTexture,
-		sheenRoughnessSampler,
-		TEX_SHEEN_ROUGHNESS,
-		projectorUV
-	);
-	let iridescenceSample = textureSample(
-		iridescenceTexture,
-		transmissionSampler,
-		transformUV(TEX_IRIDESCENCE, projectorUV)
-	);
-	let iridescenceThicknessSample = textureSample(
-		iridescenceThicknessTexture,
-		transmissionSampler,
-		transformUV(TEX_IRIDESCENCE_THICKNESS, projectorUV)
-	);
+	var mrSample = vec4<f32>(1.0);
+	if (
+		decal.materialFlags.x != f32(SHADING_PBR) ||
+		hasPBRTexture(PBR_TEXTURE_METALLIC_ROUGHNESS_MAP)
+	) {
+		mrSample = sampleLinearTexture(
+			metallicRoughnessTexture,
+			metallicRoughnessSampler,
+			TEX_METALLIC_ROUGHNESS,
+			projectorUV
+		);
+	}
+	var normalSample = vec3<f32>(0.5, 0.5, 1.0);
+	if (
+		decal.materialFlags.x != f32(SHADING_PBR) ||
+		hasPBRTexture(PBR_TEXTURE_NORMAL_MAP)
+	) {
+		normalSample = sampleLinearTexture(
+			normalTexture,
+			normalSampler,
+			TEX_NORMAL,
+			projectorUV
+		).rgb;
+	}
+	var emissiveSample = vec4<f32>(1.0);
+	if (
+		decal.materialFlags.x != f32(SHADING_PBR) ||
+		hasPBRTexture(PBR_TEXTURE_EMISSIVE_MAP)
+	) {
+		emissiveSample = sampleColorTexture(
+			emissiveTexture,
+			emissiveSampler,
+			TEX_EMISSIVE,
+			projectorUV
+		);
+	}
+	var occlusionSample = vec4<f32>(1.0);
+	if (
+		decal.materialFlags.x != f32(SHADING_PBR) ||
+		hasPBRTexture(PBR_TEXTURE_OCCLUSION_MAP)
+	) {
+		occlusionSample = sampleLinearTexture(
+			occlusionTexture,
+			occlusionSampler,
+			TEX_OCCLUSION,
+			projectorUV
+		);
+	}
+	var specularSample = vec4<f32>(1.0);
+	if (
+		hasPBRFeature(PBR_FEATURE_SPECULAR) &&
+		decal.specularColorFactor.a > EPSILON &&
+		max(max(decal.specularColorFactor.r, decal.specularColorFactor.g),
+			decal.specularColorFactor.b) > EPSILON &&
+		hasPBRTexture(PBR_TEXTURE_SPECULAR_MAP)
+	) {
+		specularSample = sampleLinearTexture(
+			specularTexture,
+			specularSampler,
+			TEX_SPECULAR,
+			projectorUV
+		);
+	}
+	var specularColorSample = vec4<f32>(1.0);
+	if (
+		hasPBRFeature(PBR_FEATURE_SPECULAR) &&
+		decal.specularColorFactor.a > EPSILON &&
+		max(max(decal.specularColorFactor.r, decal.specularColorFactor.g),
+			decal.specularColorFactor.b) > EPSILON &&
+		hasPBRTexture(PBR_TEXTURE_SPECULAR_COLOR_MAP)
+	) {
+		specularColorSample = sampleColorTexture(
+			specularColorTexture,
+			specularColorSampler,
+			TEX_SPECULAR_COLOR,
+			projectorUV
+		);
+	}
+	var clearcoatSample = vec4<f32>(1.0);
+	if (
+		hasPBRFeature(PBR_FEATURE_CLEARCOAT) &&
+		hasPBRTexture(PBR_TEXTURE_CLEARCOAT_MAP)
+	) {
+		clearcoatSample = sampleLinearTexture(
+			clearcoatTexture,
+			clearcoatSampler,
+			TEX_CLEARCOAT,
+			projectorUV
+		);
+	}
+	var clearcoatRoughnessSample = vec4<f32>(1.0);
+	if (
+		hasPBRFeature(PBR_FEATURE_CLEARCOAT) &&
+		hasPBRTexture(PBR_TEXTURE_CLEARCOAT_ROUGHNESS_MAP)
+	) {
+		clearcoatRoughnessSample = sampleLinearTexture(
+			clearcoatRoughnessTexture,
+			clearcoatRoughnessSampler,
+			TEX_CLEARCOAT_ROUGHNESS,
+			projectorUV
+		);
+	}
+	var clearcoatNormalSample = vec3<f32>(0.5, 0.5, 1.0);
+	if (
+		hasPBRFeature(PBR_FEATURE_CLEARCOAT) &&
+		hasPBRTexture(PBR_TEXTURE_CLEARCOAT_NORMAL_MAP)
+	) {
+		clearcoatNormalSample = sampleLinearTexture(
+			clearcoatNormalTexture,
+			clearcoatNormalSampler,
+			TEX_CLEARCOAT_NORMAL,
+			projectorUV
+		).rgb;
+	}
+	var sheenColorSample = vec4<f32>(1.0);
+	if (
+		hasPBRFeature(PBR_FEATURE_SHEEN) &&
+		hasPBRTexture(PBR_TEXTURE_SHEEN_COLOR_MAP)
+	) {
+		sheenColorSample = sampleColorTexture(
+			sheenColorTexture,
+			sheenColorSampler,
+			TEX_SHEEN_COLOR,
+			projectorUV
+		);
+	}
+	var sheenRoughnessSample = vec4<f32>(1.0);
+	if (
+		hasPBRFeature(PBR_FEATURE_SHEEN) &&
+		hasPBRTexture(PBR_TEXTURE_SHEEN_ROUGHNESS_MAP)
+	) {
+		sheenRoughnessSample = sampleLinearTexture(
+			sheenRoughnessTexture,
+			sheenRoughnessSampler,
+			TEX_SHEEN_ROUGHNESS,
+			projectorUV
+		);
+	}
+	var iridescenceSample = vec4<f32>(1.0);
+	if (
+		hasPBRFeature(PBR_FEATURE_IRIDESCENCE) &&
+		hasPBRTexture(PBR_TEXTURE_IRIDESCENCE_MAP)
+	) {
+		iridescenceSample = textureSample(
+			iridescenceTexture,
+			transmissionSampler,
+			transformUV(TEX_IRIDESCENCE, projectorUV)
+		);
+	}
+	var iridescenceThicknessSample = vec4<f32>(1.0);
+	if (
+		hasPBRFeature(PBR_FEATURE_IRIDESCENCE) &&
+		hasPBRTexture(PBR_TEXTURE_IRIDESCENCE_THICKNESS_MAP)
+	) {
+		iridescenceThicknessSample = textureSample(
+			iridescenceThicknessTexture,
+			transmissionSampler,
+			transformUV(TEX_IRIDESCENCE_THICKNESS, projectorUV)
+		);
+	}
 
 	let decalNormalLocal = safeNormalize(
 		vec3<f32>(
@@ -584,8 +715,14 @@ fn fsMain(input: VSOut) -> GBufferOutput {
 	);
 
 	var anisotropyDirection = vec2<f32>(1.0, 0.0);
-	var anisotropyStrength = clamp(decal.anisotropyParams.x, 0.0, 1.0);
-	if (decal.anisotropyTextureTransformB.w > 0.5) {
+	var anisotropyStrength = 0.0;
+	if (hasPBRFeature(PBR_FEATURE_ANISOTROPY)) {
+		anisotropyStrength = clamp(decal.anisotropyParams.x, 0.0, 1.0);
+	}
+	if (
+		hasPBRFeature(PBR_FEATURE_ANISOTROPY) &&
+		hasPBRTexture(PBR_TEXTURE_ANISOTROPY_MAP)
+	) {
 		let anisotropySample = textureSample(
 			anisotropyTexture,
 			transmissionSampler,
@@ -874,13 +1011,19 @@ fn applyDecalToGBuffer(
 	let worldPosition = reconstructDeferredWorldPosition(screenUV, motionDepthOld.z);
 	let localPosition = (d.worldToLocal * vec4<f32>(worldPosition, 1.0)).xyz;
 	let projectorUV = localPosition.xy + vec2<f32>(0.5);
-	let baseSample = sampleColorTextureFrom(
-		d,
-		baseColorTexture,
-		baseColorSampler,
-		TEX_BASE_COLOR,
-		projectorUV
-	);
+	var baseSample = vec4<f32>(1.0);
+	if (
+		d.materialFlags.x != f32(SHADING_PBR) ||
+		hasPBRTextureFrom(d, PBR_TEXTURE_BASE_COLOR_MAP)
+	) {
+		baseSample = sampleColorTextureFrom(
+			d,
+			baseColorTexture,
+			baseColorSampler,
+			TEX_BASE_COLOR,
+			projectorUV
+		);
+	}
 	let opacity = projectorOpacityFrom(d, localPosition, baseSample.a);
 	if (opacity <= 0.0) {
 		return makeDecalEvaluation(
@@ -899,93 +1042,177 @@ fn applyDecalToGBuffer(
 
 	let oldNormal = decodeDeferredNormal(normalRoughMetalOld.xy);
 	let baseColor = clamp(d.baseColorFactor.rgb * baseSample.rgb, vec3<f32>(0.0), vec3<f32>(1.0));
-	let mrSample = sampleLinearTextureFrom(
-		d,
-		metallicRoughnessTexture,
-		metallicRoughnessSampler,
-		TEX_METALLIC_ROUGHNESS,
-		projectorUV
-	);
-	let normalSample = sampleLinearTextureFrom(
-		d,
-		normalTexture,
-		normalSampler,
-		TEX_NORMAL,
-		projectorUV
-	).rgb;
-	let emissiveSample = sampleColorTextureFrom(
-		d,
-		emissiveTexture,
-		emissiveSampler,
-		TEX_EMISSIVE,
-		projectorUV
-	);
-	let occlusionSample = sampleLinearTextureFrom(
-		d,
-		occlusionTexture,
-		occlusionSampler,
-		TEX_OCCLUSION,
-		projectorUV
-	);
-	let specularSample = sampleLinearTextureFrom(
-		d,
-		specularTexture,
-		specularSampler,
-		TEX_SPECULAR,
-		projectorUV
-	);
-	let specularColorSample = sampleColorTextureFrom(
-		d,
-		specularColorTexture,
-		specularColorSampler,
-		TEX_SPECULAR_COLOR,
-		projectorUV
-	);
-	let clearcoatSample = sampleLinearTextureFrom(
-		d,
-		clearcoatTexture,
-		clearcoatSampler,
-		TEX_CLEARCOAT,
-		projectorUV
-	);
-	let clearcoatRoughnessSample = sampleLinearTextureFrom(
-		d,
-		clearcoatRoughnessTexture,
-		clearcoatRoughnessSampler,
-		TEX_CLEARCOAT_ROUGHNESS,
-		projectorUV
-	);
-	let clearcoatNormalSample = sampleLinearTextureFrom(
-		d,
-		clearcoatNormalTexture,
-		clearcoatNormalSampler,
-		TEX_CLEARCOAT_NORMAL,
-		projectorUV
-	).rgb;
-	let sheenColorSample = sampleColorTextureFrom(
-		d,
-		sheenColorTexture,
-		sheenColorSampler,
-		TEX_SHEEN_COLOR,
-		projectorUV
-	);
-	let sheenRoughnessSample = sampleLinearTextureFrom(
-		d,
-		sheenRoughnessTexture,
-		sheenRoughnessSampler,
-		TEX_SHEEN_ROUGHNESS,
-		projectorUV
-	);
-	let iridescenceSample = textureSample(
-		iridescenceTexture,
-		transmissionSampler,
-		transformUVFrom(d, TEX_IRIDESCENCE, projectorUV)
-	);
-	let iridescenceThicknessSample = textureSample(
-		iridescenceThicknessTexture,
-		transmissionSampler,
-		transformUVFrom(d, TEX_IRIDESCENCE_THICKNESS, projectorUV)
-	);
+	var mrSample = vec4<f32>(1.0);
+	if (
+		d.materialFlags.x != f32(SHADING_PBR) ||
+		hasPBRTextureFrom(d, PBR_TEXTURE_METALLIC_ROUGHNESS_MAP)
+	) {
+		mrSample = sampleLinearTextureFrom(
+			d,
+			metallicRoughnessTexture,
+			metallicRoughnessSampler,
+			TEX_METALLIC_ROUGHNESS,
+			projectorUV
+		);
+	}
+	var normalSample = vec3<f32>(0.5, 0.5, 1.0);
+	if (
+		d.materialFlags.x != f32(SHADING_PBR) ||
+		hasPBRTextureFrom(d, PBR_TEXTURE_NORMAL_MAP)
+	) {
+		normalSample = sampleLinearTextureFrom(
+			d,
+			normalTexture,
+			normalSampler,
+			TEX_NORMAL,
+			projectorUV
+		).rgb;
+	}
+	var emissiveSample = vec4<f32>(1.0);
+	if (
+		d.materialFlags.x != f32(SHADING_PBR) ||
+		hasPBRTextureFrom(d, PBR_TEXTURE_EMISSIVE_MAP)
+	) {
+		emissiveSample = sampleColorTextureFrom(
+			d,
+			emissiveTexture,
+			emissiveSampler,
+			TEX_EMISSIVE,
+			projectorUV
+		);
+	}
+	var occlusionSample = vec4<f32>(1.0);
+	if (
+		d.materialFlags.x != f32(SHADING_PBR) ||
+		hasPBRTextureFrom(d, PBR_TEXTURE_OCCLUSION_MAP)
+	) {
+		occlusionSample = sampleLinearTextureFrom(
+			d,
+			occlusionTexture,
+			occlusionSampler,
+			TEX_OCCLUSION,
+			projectorUV
+		);
+	}
+	var specularSample = vec4<f32>(1.0);
+	if (
+		hasPBRFeatureFrom(d, PBR_FEATURE_SPECULAR) &&
+		d.specularColorFactor.a > EPSILON &&
+		max(max(d.specularColorFactor.r, d.specularColorFactor.g),
+			d.specularColorFactor.b) > EPSILON &&
+		hasPBRTextureFrom(d, PBR_TEXTURE_SPECULAR_MAP)
+	) {
+		specularSample = sampleLinearTextureFrom(
+			d,
+			specularTexture,
+			specularSampler,
+			TEX_SPECULAR,
+			projectorUV
+		);
+	}
+	var specularColorSample = vec4<f32>(1.0);
+	if (
+		hasPBRFeatureFrom(d, PBR_FEATURE_SPECULAR) &&
+		d.specularColorFactor.a > EPSILON &&
+		max(max(d.specularColorFactor.r, d.specularColorFactor.g),
+			d.specularColorFactor.b) > EPSILON &&
+		hasPBRTextureFrom(d, PBR_TEXTURE_SPECULAR_COLOR_MAP)
+	) {
+		specularColorSample = sampleColorTextureFrom(
+			d,
+			specularColorTexture,
+			specularColorSampler,
+			TEX_SPECULAR_COLOR,
+			projectorUV
+		);
+	}
+	var clearcoatSample = vec4<f32>(1.0);
+	if (
+		hasPBRFeatureFrom(d, PBR_FEATURE_CLEARCOAT) &&
+		hasPBRTextureFrom(d, PBR_TEXTURE_CLEARCOAT_MAP)
+	) {
+		clearcoatSample = sampleLinearTextureFrom(
+			d,
+			clearcoatTexture,
+			clearcoatSampler,
+			TEX_CLEARCOAT,
+			projectorUV
+		);
+	}
+	var clearcoatRoughnessSample = vec4<f32>(1.0);
+	if (
+		hasPBRFeatureFrom(d, PBR_FEATURE_CLEARCOAT) &&
+		hasPBRTextureFrom(d, PBR_TEXTURE_CLEARCOAT_ROUGHNESS_MAP)
+	) {
+		clearcoatRoughnessSample = sampleLinearTextureFrom(
+			d,
+			clearcoatRoughnessTexture,
+			clearcoatRoughnessSampler,
+			TEX_CLEARCOAT_ROUGHNESS,
+			projectorUV
+		);
+	}
+	var clearcoatNormalSample = vec3<f32>(0.5, 0.5, 1.0);
+	if (
+		hasPBRFeatureFrom(d, PBR_FEATURE_CLEARCOAT) &&
+		hasPBRTextureFrom(d, PBR_TEXTURE_CLEARCOAT_NORMAL_MAP)
+	) {
+		clearcoatNormalSample = sampleLinearTextureFrom(
+			d,
+			clearcoatNormalTexture,
+			clearcoatNormalSampler,
+			TEX_CLEARCOAT_NORMAL,
+			projectorUV
+		).rgb;
+	}
+	var sheenColorSample = vec4<f32>(1.0);
+	if (
+		hasPBRFeatureFrom(d, PBR_FEATURE_SHEEN) &&
+		hasPBRTextureFrom(d, PBR_TEXTURE_SHEEN_COLOR_MAP)
+	) {
+		sheenColorSample = sampleColorTextureFrom(
+			d,
+			sheenColorTexture,
+			sheenColorSampler,
+			TEX_SHEEN_COLOR,
+			projectorUV
+		);
+	}
+	var sheenRoughnessSample = vec4<f32>(1.0);
+	if (
+		hasPBRFeatureFrom(d, PBR_FEATURE_SHEEN) &&
+		hasPBRTextureFrom(d, PBR_TEXTURE_SHEEN_ROUGHNESS_MAP)
+	) {
+		sheenRoughnessSample = sampleLinearTextureFrom(
+			d,
+			sheenRoughnessTexture,
+			sheenRoughnessSampler,
+			TEX_SHEEN_ROUGHNESS,
+			projectorUV
+		);
+	}
+	var iridescenceSample = vec4<f32>(1.0);
+	if (
+		hasPBRFeatureFrom(d, PBR_FEATURE_IRIDESCENCE) &&
+		hasPBRTextureFrom(d, PBR_TEXTURE_IRIDESCENCE_MAP)
+	) {
+		iridescenceSample = textureSample(
+			iridescenceTexture,
+			transmissionSampler,
+			transformUVFrom(d, TEX_IRIDESCENCE, projectorUV)
+		);
+	}
+	var iridescenceThicknessSample = vec4<f32>(1.0);
+	if (
+		hasPBRFeatureFrom(d, PBR_FEATURE_IRIDESCENCE) &&
+		hasPBRTextureFrom(d, PBR_TEXTURE_IRIDESCENCE_THICKNESS_MAP)
+	) {
+		iridescenceThicknessSample = textureSample(
+			iridescenceThicknessTexture,
+			transmissionSampler,
+			transformUVFrom(d, TEX_IRIDESCENCE_THICKNESS, projectorUV)
+		);
+	}
 
 	let decalNormalLocal = safeNormalize(
 		vec3<f32>(
@@ -1041,8 +1268,14 @@ fn applyDecalToGBuffer(
 	);
 
 	var anisotropyDirection = vec2<f32>(1.0, 0.0);
-	var anisotropyStrength = clamp(d.anisotropyParams.x, 0.0, 1.0);
-	if (d.anisotropyTextureTransformB.w > 0.5) {
+	var anisotropyStrength = 0.0;
+	if (hasPBRFeatureFrom(d, PBR_FEATURE_ANISOTROPY)) {
+		anisotropyStrength = clamp(d.anisotropyParams.x, 0.0, 1.0);
+	}
+	if (
+		hasPBRFeatureFrom(d, PBR_FEATURE_ANISOTROPY) &&
+		hasPBRTextureFrom(d, PBR_TEXTURE_ANISOTROPY_MAP)
+	) {
 		let anisotropySample = textureSample(
 			anisotropyTexture,
 			transmissionSampler,

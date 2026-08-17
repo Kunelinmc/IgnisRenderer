@@ -39,6 +39,7 @@ import {
 } from "../../../src/backends/webgpu/bufferLayouts.ts";
 
 const VEC4_F32 = vec(4, "f32");
+const VEC4_U32 = vec(4, "u32");
 const MAT4X4_F32 = mat4x4f32();
 
 function createModelLayout() {
@@ -62,6 +63,7 @@ function createModelLayout() {
 			{ name: "anisotropyTextureTransformA", type: VEC4_F32 },
 			{ name: "anisotropyTextureTransformB", type: VEC4_F32 },
 			{ name: "materialFlags", type: VEC4_F32 },
+			{ name: "pbrMasks", type: VEC4_U32 },
 			{ name: "nodeRenderLayers", type: VEC4_F32 },
 			{
 				name: "textureTransformA",
@@ -88,6 +90,16 @@ function matrix(base) {
 function readVec(layout, data, path, length) {
 	const offset = layout.byteOffsetOf(path) >> 2;
 	return Array.from(data.slice(offset, offset + length));
+}
+
+function readU32Vec(layout, data, path, length) {
+	const offset = layout.byteOffsetOf(path) >> 2;
+	return Array.from(
+		new Uint32Array(data.buffer, data.byteOffset, data.length).slice(
+			offset,
+			offset + length
+		)
+	);
 }
 
 function createTextureSlot(transformA, transformB) {
@@ -118,6 +130,7 @@ function createMaterialData() {
 		anisotropyParams: [45, 46, 47, 48],
 		anisotropyTexture: createTextureSlot([49, 50, 51, 52], [53, 54, 55, 56]),
 		materialFlags: [57, 58, 59, 60],
+		pbrMasks: [61, 62, 0, 0],
 		textureSlots,
 		shaderUniforms: {
 			cacheKey: "none",
@@ -163,6 +176,7 @@ function testModelUniformPacking() {
 	assert.deepEqual(readVec(layout, data, "anisotropyTextureTransformA", 4), [
 		49, 50, 51, 52,
 	]);
+	assert.deepEqual(readU32Vec(layout, data, "pbrMasks", 4), [61, 62, 0, 0]);
 	assert.deepEqual(readVec(layout, data, "nodeRenderLayers", 4), [7, 1, 0, 0]);
 	assert.deepEqual(readVec(layout, data, ["textureTransformA", 1], 4), [
 		105, 106, 107, 108,

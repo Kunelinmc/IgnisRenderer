@@ -112,7 +112,11 @@ fn evaluateGBuffer(input: VertexOutput) -> GBufferFragmentOutput {
 
 	let isWireframe = model.materialFlags.w > 0.5;
 	var baseSample = vec4<f32>(1.0);
-	if (!isWireframe) {
+	if (
+		!isWireframe &&
+		(shadingMode != SHADING_PBR ||
+			hasPBRTexture(PBR_TEXTURE_BASE_COLOR_MAP))
+	) {
 		baseSample = sampleColorTexture(
 			baseColorTexture,
 			baseColorSampler,
@@ -145,15 +149,21 @@ fn evaluateGBuffer(input: VertexOutput) -> GBufferFragmentOutput {
 		normal = -normal;
 	}
 
-	let emissiveSample = sampleColorTexture(
-		emissiveTexture,
-		emissiveSampler,
-		TEX_EMISSIVE,
-		input.uv0,
-		input.uv1,
-		input.uv2,
-		input.uv3
-	);
+	var emissiveSample = vec4<f32>(1.0);
+	if (
+		shadingMode != SHADING_PBR ||
+		hasPBRTexture(PBR_TEXTURE_EMISSIVE_MAP)
+	) {
+		emissiveSample = sampleColorTexture(
+			emissiveTexture,
+			emissiveSampler,
+			TEX_EMISSIVE,
+			input.uv0,
+			input.uv1,
+			input.uv2,
+			input.uv3
+		);
+	}
 	let emissive =
 		model.emissiveFactor.rgb * emissiveSample.rgb * model.emissiveFactor.a;
 	let linearDepth = dot(
@@ -209,115 +219,184 @@ fn evaluateGBuffer(input: VertexOutput) -> GBufferFragmentOutput {
 		);
 	}
 
-	let mrSample = sampleLinearTexture(
-		metallicRoughnessTexture,
-		metallicRoughnessSampler,
-		TEX_METALLIC_ROUGHNESS,
-		input.uv0,
-		input.uv1,
-		input.uv2,
-		input.uv3
-	);
-	let occlusionSample = sampleLinearTexture(
-		occlusionTexture,
-		occlusionSampler,
-		TEX_OCCLUSION,
-		input.uv0,
-		input.uv1,
-		input.uv2,
-		input.uv3
-	);
-	let specularSample = sampleLinearTexture(
-		specularTexture,
-		specularSampler,
-		TEX_SPECULAR,
-		input.uv0,
-		input.uv1,
-		input.uv2,
-		input.uv3
-	);
-	let specularColorSample = sampleColorTexture(
-		specularColorTexture,
-		specularColorSampler,
-		TEX_SPECULAR_COLOR,
-		input.uv0,
-		input.uv1,
-		input.uv2,
-		input.uv3
-	);
-	let clearcoatSample = sampleLinearTexture(
-		clearcoatTexture,
-		clearcoatSampler,
-		TEX_CLEARCOAT,
-		input.uv0,
-		input.uv1,
-		input.uv2,
-		input.uv3
-	);
-	let clearcoatRoughnessSample = sampleLinearTexture(
-		clearcoatRoughnessTexture,
-		clearcoatRoughnessSampler,
-		TEX_CLEARCOAT_ROUGHNESS,
-		input.uv0,
-		input.uv1,
-		input.uv2,
-		input.uv3
-	);
-	let sheenColorSample = sampleColorTexture(
-		sheenColorTexture,
-		sheenColorSampler,
-		TEX_SHEEN_COLOR,
-		input.uv0,
-		input.uv1,
-		input.uv2,
-		input.uv3
-	);
-	let sheenRoughnessSample = sampleLinearTexture(
-		sheenRoughnessTexture,
-		sheenRoughnessSampler,
-		TEX_SHEEN_ROUGHNESS,
-		input.uv0,
-		input.uv1,
-		input.uv2,
-		input.uv3
-	);
-	let iridescenceSample = sampleLinearTexture(
-		iridescenceTexture,
-		transmissionSampler,
-		TEX_IRIDESCENCE,
-		input.uv0,
-		input.uv1,
-		input.uv2,
-		input.uv3
-	);
-	let iridescenceThicknessSample = sampleLinearTexture(
-		iridescenceThicknessTexture,
-		transmissionSampler,
-		TEX_IRIDESCENCE_THICKNESS,
-		input.uv0,
-		input.uv1,
-		input.uv2,
-		input.uv3
-	);
+	var mrSample = vec4<f32>(1.0);
+	if (hasPBRTexture(PBR_TEXTURE_METALLIC_ROUGHNESS_MAP)) {
+		mrSample = sampleLinearTexture(
+			metallicRoughnessTexture,
+			metallicRoughnessSampler,
+			TEX_METALLIC_ROUGHNESS,
+			input.uv0,
+			input.uv1,
+			input.uv2,
+			input.uv3
+		);
+	}
+	var occlusionSample = vec4<f32>(1.0);
+	if (hasPBRTexture(PBR_TEXTURE_OCCLUSION_MAP)) {
+		occlusionSample = sampleLinearTexture(
+			occlusionTexture,
+			occlusionSampler,
+			TEX_OCCLUSION,
+			input.uv0,
+			input.uv1,
+			input.uv2,
+			input.uv3
+		);
+	}
+	var specularSample = vec4<f32>(1.0);
+	if (
+		hasPBRFeature(PBR_FEATURE_SPECULAR) &&
+		model.specularColorFactor.a > EPSILON &&
+		max(max(model.specularColorFactor.r, model.specularColorFactor.g),
+			model.specularColorFactor.b) > EPSILON &&
+		hasPBRTexture(PBR_TEXTURE_SPECULAR_MAP)
+	) {
+		specularSample = sampleLinearTexture(
+			specularTexture,
+			specularSampler,
+			TEX_SPECULAR,
+			input.uv0,
+			input.uv1,
+			input.uv2,
+			input.uv3
+		);
+	}
+	var specularColorSample = vec4<f32>(1.0);
+	if (
+		hasPBRFeature(PBR_FEATURE_SPECULAR) &&
+		model.specularColorFactor.a > EPSILON &&
+		max(max(model.specularColorFactor.r, model.specularColorFactor.g),
+			model.specularColorFactor.b) > EPSILON &&
+		hasPBRTexture(PBR_TEXTURE_SPECULAR_COLOR_MAP)
+	) {
+		specularColorSample = sampleColorTexture(
+			specularColorTexture,
+			specularColorSampler,
+			TEX_SPECULAR_COLOR,
+			input.uv0,
+			input.uv1,
+			input.uv2,
+			input.uv3
+		);
+	}
+	var clearcoatSample = vec4<f32>(1.0);
+	if (
+		hasPBRFeature(PBR_FEATURE_CLEARCOAT) &&
+		hasPBRTexture(PBR_TEXTURE_CLEARCOAT_MAP)
+	) {
+		clearcoatSample = sampleLinearTexture(
+			clearcoatTexture,
+			clearcoatSampler,
+			TEX_CLEARCOAT,
+			input.uv0,
+			input.uv1,
+			input.uv2,
+			input.uv3
+		);
+	}
+	var clearcoatRoughnessSample = vec4<f32>(1.0);
+	if (
+		hasPBRFeature(PBR_FEATURE_CLEARCOAT) &&
+		hasPBRTexture(PBR_TEXTURE_CLEARCOAT_ROUGHNESS_MAP)
+	) {
+		clearcoatRoughnessSample = sampleLinearTexture(
+			clearcoatRoughnessTexture,
+			clearcoatRoughnessSampler,
+			TEX_CLEARCOAT_ROUGHNESS,
+			input.uv0,
+			input.uv1,
+			input.uv2,
+			input.uv3
+		);
+	}
+	var sheenColorSample = vec4<f32>(1.0);
+	if (
+		hasPBRFeature(PBR_FEATURE_SHEEN) &&
+		hasPBRTexture(PBR_TEXTURE_SHEEN_COLOR_MAP)
+	) {
+		sheenColorSample = sampleColorTexture(
+			sheenColorTexture,
+			sheenColorSampler,
+			TEX_SHEEN_COLOR,
+			input.uv0,
+			input.uv1,
+			input.uv2,
+			input.uv3
+		);
+	}
+	var sheenRoughnessSample = vec4<f32>(1.0);
+	if (
+		hasPBRFeature(PBR_FEATURE_SHEEN) &&
+		hasPBRTexture(PBR_TEXTURE_SHEEN_ROUGHNESS_MAP)
+	) {
+		sheenRoughnessSample = sampleLinearTexture(
+			sheenRoughnessTexture,
+			sheenRoughnessSampler,
+			TEX_SHEEN_ROUGHNESS,
+			input.uv0,
+			input.uv1,
+			input.uv2,
+			input.uv3
+		);
+	}
+	var iridescenceSample = vec4<f32>(1.0);
+	if (
+		hasPBRFeature(PBR_FEATURE_IRIDESCENCE) &&
+		hasPBRTexture(PBR_TEXTURE_IRIDESCENCE_MAP)
+	) {
+		iridescenceSample = sampleLinearTexture(
+			iridescenceTexture,
+			transmissionSampler,
+			TEX_IRIDESCENCE,
+			input.uv0,
+			input.uv1,
+			input.uv2,
+			input.uv3
+		);
+	}
+	var iridescenceThicknessSample = vec4<f32>(1.0);
+	if (
+		hasPBRFeature(PBR_FEATURE_IRIDESCENCE) &&
+		hasPBRTexture(PBR_TEXTURE_IRIDESCENCE_THICKNESS_MAP)
+	) {
+		iridescenceThicknessSample = sampleLinearTexture(
+			iridescenceThicknessTexture,
+			transmissionSampler,
+			TEX_IRIDESCENCE_THICKNESS,
+			input.uv0,
+			input.uv1,
+			input.uv2,
+			input.uv3
+		);
+	}
 
-	let normalSample = sampleLinearTexture(
-		normalTexture,
-		normalSampler,
-		TEX_NORMAL,
-		input.uv0,
-		input.uv1,
-		input.uv2,
-		input.uv3
-	).rgb;
-	let clearcoatNormalSample = sampleLinearTexture(
-		clearcoatNormalTexture,
-		clearcoatNormalSampler,
-		TEX_CLEARCOAT_NORMAL,
-		input.uv0,
-		input.uv1,
-		input.uv2,
-		input.uv3
-	).rgb;
+	var normalSample = vec3<f32>(0.5, 0.5, 1.0);
+	if (hasPBRTexture(PBR_TEXTURE_NORMAL_MAP)) {
+		normalSample = sampleLinearTexture(
+			normalTexture,
+			normalSampler,
+			TEX_NORMAL,
+			input.uv0,
+			input.uv1,
+			input.uv2,
+			input.uv3
+		).rgb;
+	}
+	var clearcoatNormalSample = vec3<f32>(0.5, 0.5, 1.0);
+	if (
+		hasPBRFeature(PBR_FEATURE_CLEARCOAT) &&
+		hasPBRTexture(PBR_TEXTURE_CLEARCOAT_NORMAL_MAP)
+	) {
+		clearcoatNormalSample = sampleLinearTexture(
+			clearcoatNormalTexture,
+			clearcoatNormalSampler,
+			TEX_CLEARCOAT_NORMAL,
+			input.uv0,
+			input.uv1,
+			input.uv2,
+			input.uv3
+		).rgb;
+	}
 
 	let roughness = clamp(model.surfaceParams0.x * mrSample.g, 0.04, 1.0);
 	let metalness = clamp(model.surfaceParams0.y * mrSample.b, 0.0, 1.0);
@@ -440,15 +519,21 @@ fn fsMainGBufferBase(input: VertexOutput) -> GBufferBaseFragmentOutput {
 	let shadingMode = u32(model.materialFlags.x + 0.5);
 	let alphaModeMask = model.materialFlags.y > 0.5;
 	let doubleSided = model.materialFlags.z > 0.5;
-	let baseSample = sampleColorTexture(
-		baseColorTexture,
-		baseColorSampler,
-		TEX_BASE_COLOR,
-		input.uv0,
-		input.uv1,
-		input.uv2,
-		input.uv3
-	);
+	var baseSample = vec4<f32>(1.0);
+	if (
+		shadingMode != SHADING_PBR ||
+		hasPBRTexture(PBR_TEXTURE_BASE_COLOR_MAP)
+	) {
+		baseSample = sampleColorTexture(
+			baseColorTexture,
+			baseColorSampler,
+			TEX_BASE_COLOR,
+			input.uv0,
+			input.uv1,
+			input.uv2,
+			input.uv3
+		);
+	}
 	let baseColor = model.baseColorFactor.rgb * baseSample.rgb;
 	let alpha = clamp(model.baseColorFactor.a * baseSample.a, 0.0, 1.0);
 	if (alphaModeMask && alpha < model.surfaceParams0.w) {
@@ -459,15 +544,21 @@ fn fsMainGBufferBase(input: VertexOutput) -> GBufferBaseFragmentOutput {
 		vec3<f32>(0.0, 0.0, 1.0)
 	);
 	var normal = safeNormalize(input.worldNormal, vec3<f32>(0.0, 0.0, 1.0));
-	let emissiveSample = sampleColorTexture(
-		emissiveTexture,
-		emissiveSampler,
-		TEX_EMISSIVE,
-		input.uv0,
-		input.uv1,
-		input.uv2,
-		input.uv3
-	);
+	var emissiveSample = vec4<f32>(1.0);
+	if (
+		shadingMode != SHADING_PBR ||
+		hasPBRTexture(PBR_TEXTURE_EMISSIVE_MAP)
+	) {
+		emissiveSample = sampleColorTexture(
+			emissiveTexture,
+			emissiveSampler,
+			TEX_EMISSIVE,
+			input.uv0,
+			input.uv1,
+			input.uv2,
+			input.uv3
+		);
+	}
 	let emissive =
 		model.emissiveFactor.rgb * emissiveSample.rgb * model.emissiveFactor.a;
 	let linearDepth = dot(
@@ -482,33 +573,42 @@ fn fsMainGBufferBase(input: VertexOutput) -> GBufferBaseFragmentOutput {
 	var occlusion = 1.0;
 	var materialWord = f32(SHADING_UNLIT);
 	if (shadingMode == SHADING_PBR && frame.options.x > 0.5) {
-		let mrSample = sampleLinearTexture(
-			metallicRoughnessTexture,
-			metallicRoughnessSampler,
-			TEX_METALLIC_ROUGHNESS,
-			input.uv0,
-			input.uv1,
-			input.uv2,
-			input.uv3
-		);
-		let occlusionSample = sampleLinearTexture(
-			occlusionTexture,
-			occlusionSampler,
-			TEX_OCCLUSION,
-			input.uv0,
-			input.uv1,
-			input.uv2,
-			input.uv3
-		);
-		let normalSample = sampleLinearTexture(
-			normalTexture,
-			normalSampler,
-			TEX_NORMAL,
-			input.uv0,
-			input.uv1,
-			input.uv2,
-			input.uv3
-		).rgb;
+		var mrSample = vec4<f32>(1.0);
+		if (hasPBRTexture(PBR_TEXTURE_METALLIC_ROUGHNESS_MAP)) {
+			mrSample = sampleLinearTexture(
+				metallicRoughnessTexture,
+				metallicRoughnessSampler,
+				TEX_METALLIC_ROUGHNESS,
+				input.uv0,
+				input.uv1,
+				input.uv2,
+				input.uv3
+			);
+		}
+		var occlusionSample = vec4<f32>(1.0);
+		if (hasPBRTexture(PBR_TEXTURE_OCCLUSION_MAP)) {
+			occlusionSample = sampleLinearTexture(
+				occlusionTexture,
+				occlusionSampler,
+				TEX_OCCLUSION,
+				input.uv0,
+				input.uv1,
+				input.uv2,
+				input.uv3
+			);
+		}
+		var normalSample = vec3<f32>(0.5, 0.5, 1.0);
+		if (hasPBRTexture(PBR_TEXTURE_NORMAL_MAP)) {
+			normalSample = sampleLinearTexture(
+				normalTexture,
+				normalSampler,
+				TEX_NORMAL,
+				input.uv0,
+				input.uv1,
+				input.uv2,
+				input.uv3
+			).rgb;
+		}
 		roughness = clamp(model.surfaceParams0.x * mrSample.g, 0.04, 1.0);
 		metalness = clamp(model.surfaceParams0.y * mrSample.b, 0.0, 1.0);
 		occlusion = clamp(

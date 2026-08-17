@@ -115,7 +115,7 @@ const DECAL_UNIFORM_FLOATS =
 	16 +
 	16 +
 	4 +
-	15 * 4 +
+	16 * 4 +
 	WEBGPU_TEXTURE_SLOT_COUNT * 4 +
 	WEBGPU_TEXTURE_SLOT_COUNT * 4 +
 	5 * 4;
@@ -1011,6 +1011,7 @@ function createDecalUniformData(
 	]) {
 		cursor = writeVec4(data, cursor, values);
 	}
+	cursor = writeU32Vec4(data, cursor, materialData.pbrMasks);
 	for (let i = 0; i < WEBGPU_TEXTURE_SLOT_COUNT; i++) {
 		cursor = writeVec4(
 			data,
@@ -1034,6 +1035,18 @@ function createDecalUniformData(
 		]);
 	}
 	return data;
+}
+
+function writeU32Vec4(
+	target: Float32Array,
+	cursor: number,
+	values: readonly number[]
+): number {
+	const words = new Uint32Array(target.buffer, target.byteOffset, target.length);
+	for (let index = 0; index < 4; index++) {
+		words[cursor + index] = (values[index] ?? 0) >>> 0;
+	}
+	return cursor + 4;
 }
 
 function encodeBlendMode(packet: DecalPacket, channelIndex: number): number {

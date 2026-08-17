@@ -204,6 +204,13 @@ This document defines the current WebGL backend lifecycle, frame graph, resource
   Texture channels must follow glTF/KHR semantics: specular factor A, specular
   color RGB, clearcoat R, clearcoat roughness G, sheen roughness A,
   transmission R, thickness G, and anisotropy direction RG plus strength B.
+- Built-in PBR scene variants and their exact sampler layouts must be derived
+  from `PBRMaterial.featureMask` and `PBRMaterial.textureMask`. A texture with a
+  set presence bit must still be omitted when its parent extension feature is
+  inactive, including extension maps annihilated by a zero resolved factor.
+- The full compatibility scene variant must remain available to explicit shader
+  source callers; mask-derived pruning applies to exact built-in material
+  variants used for rendering and warmup.
 - Scene programs must own one variant-aware `WebGLSceneSamplerLayout` shared by
   warmup and all binders. If an exact collision-free layout cannot fit the
   active runtime limit, warmup or the first relevant draw must throw

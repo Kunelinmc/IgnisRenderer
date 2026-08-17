@@ -5,6 +5,11 @@ import {
 	AlphaMode,
 } from "../../materials/Material";
 import {
+	PBRMaterial,
+	PBRMaterialFeature,
+	PBRMaterialTextureFeature,
+} from "../../materials/PBRMaterial";
+import {
 	isMaterialTransparentPass,
 	materialUsesTransmission,
 } from "../../materials/transparency";
@@ -103,6 +108,17 @@ export function createWebGPUMaterialUniformData(
 		true
 	);
 	anisotropyTexture.transformB[3] = mat.anisotropyMap ? 1 : 0;
+	const pbrMasks: [number, number, number, number] =
+		material instanceof PBRMaterial ?
+			[material.featureMask, material.textureMask, 0, 0]
+		: isPBR && material.map ?
+			[
+				PBRMaterialFeature.BASE_COLOR_MAP,
+				PBRMaterialTextureFeature.BASE_COLOR_MAP,
+				0,
+				0,
+			]
+		: [0, 0, 0, 0];
 	const shaderUniforms = createShaderUniformData(material);
 
 	pushMaterialWarnings(material, warnings);
@@ -167,6 +183,7 @@ export function createWebGPUMaterialUniformData(
 			material.doubleSided ? 1 : 0,
 			isWireframe ? 1 : 0,
 		],
+		pbrMasks,
 		textureSlots,
 		shaderUniforms,
 		pipelineKey: [

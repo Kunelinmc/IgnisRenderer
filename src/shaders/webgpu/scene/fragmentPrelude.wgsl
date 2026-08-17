@@ -9,7 +9,11 @@ fn shadeSceneWithOptions(
 
 	let isWireframe = model.materialFlags.w > 0.5;
 	var baseSample = vec4<f32>(1.0);
-	if (!isWireframe) {
+	if (
+		!isWireframe &&
+		(shadingMode != SHADING_PBR ||
+			hasPBRTexture(PBR_TEXTURE_BASE_COLOR_MAP))
+	) {
 		baseSample = sampleColorTexture(
 			baseColorTexture,
 			baseColorSampler,
@@ -44,15 +48,21 @@ fn shadeSceneWithOptions(
 		normal = -normal;
 	}
 
-	let emissiveSample = sampleColorTexture(
-		emissiveTexture,
-		emissiveSampler,
-		TEX_EMISSIVE,
-		input.uv0,
-		input.uv1,
-		input.uv2,
-		input.uv3
-	);
+	var emissiveSample = vec4<f32>(1.0);
+	if (
+		shadingMode != SHADING_PBR ||
+		hasPBRTexture(PBR_TEXTURE_EMISSIVE_MAP)
+	) {
+		emissiveSample = sampleColorTexture(
+			emissiveTexture,
+			emissiveSampler,
+			TEX_EMISSIVE,
+			input.uv0,
+			input.uv1,
+			input.uv2,
+			input.uv3
+		);
+	}
 	let emissive = model.emissiveFactor.rgb * emissiveSample.rgb * model.emissiveFactor.a;
 	let linearDepth = dot(frame.cameraPosition.xyz - input.worldPosition, frame.environmentBasisBackward.xyz);
 	let invCurrentW = 1.0 / max(abs(input.currentClip.w), EPSILON);

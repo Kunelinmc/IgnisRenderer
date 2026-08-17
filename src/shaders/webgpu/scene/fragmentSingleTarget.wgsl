@@ -28,7 +28,7 @@ fn shadeTransmissionCapture(input: VertexOutput) -> TransmissionFragmentOutput {
 	let isWireframe = model.materialFlags.w > 0.5;
 
 	var baseSample = vec4<f32>(1.0);
-	if (!isWireframe) {
+	if (!isWireframe && hasPBRTexture(PBR_TEXTURE_BASE_COLOR_MAP)) {
 		baseSample = sampleColorTexture(
 			baseColorTexture,
 			baseColorSampler,
@@ -58,15 +58,18 @@ fn shadeTransmissionCapture(input: VertexOutput) -> TransmissionFragmentOutput {
 		normal = -normal;
 	}
 
-	let normalSample = sampleLinearTexture(
-		normalTexture,
-		normalSampler,
-		TEX_NORMAL,
-		input.uv0,
-		input.uv1,
-		input.uv2,
-		input.uv3
-	).rgb;
+	var normalSample = vec3<f32>(0.5, 0.5, 1.0);
+	if (hasPBRTexture(PBR_TEXTURE_NORMAL_MAP)) {
+		normalSample = sampleLinearTexture(
+			normalTexture,
+			normalSampler,
+			TEX_NORMAL,
+			input.uv0,
+			input.uv1,
+			input.uv2,
+			input.uv3
+		).rgb;
+	}
 	var pbrNormal = applyNormalMap(
 		normal,
 		input.worldTangent,
@@ -77,33 +80,48 @@ fn shadeTransmissionCapture(input: VertexOutput) -> TransmissionFragmentOutput {
 		pbrNormal = -pbrNormal;
 	}
 
-	let mrSample = sampleLinearTexture(
-		metallicRoughnessTexture,
-		metallicRoughnessSampler,
-		TEX_METALLIC_ROUGHNESS,
-		input.uv0,
-		input.uv1,
-		input.uv2,
-		input.uv3
-	);
-	let transmissionSample = sampleLinearTexture(
-		transmissionTexture,
-		transmissionSampler,
-		TEX_TRANSMISSION,
-		input.uv0,
-		input.uv1,
-		input.uv2,
-		input.uv3
-	);
-	let thicknessSample = sampleLinearTexture(
-		thicknessTexture,
-		transmissionSampler,
-		TEX_THICKNESS,
-		input.uv0,
-		input.uv1,
-		input.uv2,
-		input.uv3
-	);
+	var mrSample = vec4<f32>(1.0);
+	if (hasPBRTexture(PBR_TEXTURE_METALLIC_ROUGHNESS_MAP)) {
+		mrSample = sampleLinearTexture(
+			metallicRoughnessTexture,
+			metallicRoughnessSampler,
+			TEX_METALLIC_ROUGHNESS,
+			input.uv0,
+			input.uv1,
+			input.uv2,
+			input.uv3
+		);
+	}
+	var transmissionSample = vec4<f32>(1.0);
+	if (
+		hasPBRFeature(PBR_FEATURE_TRANSMISSION) &&
+		hasPBRTexture(PBR_TEXTURE_TRANSMISSION_MAP)
+	) {
+		transmissionSample = sampleLinearTexture(
+			transmissionTexture,
+			transmissionSampler,
+			TEX_TRANSMISSION,
+			input.uv0,
+			input.uv1,
+			input.uv2,
+			input.uv3
+		);
+	}
+	var thicknessSample = vec4<f32>(1.0);
+	if (
+		hasPBRFeature(PBR_FEATURE_TRANSMISSION) &&
+		hasPBRTexture(PBR_TEXTURE_THICKNESS_MAP)
+	) {
+		thicknessSample = sampleLinearTexture(
+			thicknessTexture,
+			transmissionSampler,
+			TEX_THICKNESS,
+			input.uv0,
+			input.uv1,
+			input.uv2,
+			input.uv3
+		);
+	}
 
 	let roughness = clamp(model.surfaceParams0.x * mrSample.g, 0.04, 1.0);
 	let transmission = clamp(model.surfaceParams2.y * transmissionSample.r, 0.0, 1.0);
@@ -181,9 +199,14 @@ fn fsMainDepthMask(input: VertexOutput) {
 	if (!alphaModeMask) {
 		return;
 	}
+	let shadingMode = u32(model.materialFlags.x + 0.5);
 	let isWireframe = model.materialFlags.w > 0.5;
 	var baseSample = vec4<f32>(1.0);
-	if (!isWireframe) {
+	if (
+		!isWireframe &&
+		(shadingMode != SHADING_PBR ||
+			hasPBRTexture(PBR_TEXTURE_BASE_COLOR_MAP))
+	) {
 		baseSample = sampleColorTexture(
 			baseColorTexture,
 			baseColorSampler,

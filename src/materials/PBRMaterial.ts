@@ -14,6 +14,48 @@ export enum UVChannel {
 	UV3 = 3,
 }
 
+/**
+ * Stable, append-only feature bits exposed by {@link PBRMaterial.featureMask}.
+ */
+export enum PBRMaterialFeature {
+	BASE_COLOR_MAP = 1 << 0,
+	METALLIC_ROUGHNESS_MAP = 1 << 1,
+	NORMAL_MAP = 1 << 2,
+	OCCLUSION_MAP = 1 << 3,
+	SPECULAR = 1 << 4,
+	CLEARCOAT = 1 << 5,
+	SHEEN = 1 << 6,
+	IRIDESCENCE = 1 << 7,
+	ANISOTROPY = 1 << 8,
+	TRANSMISSION = 1 << 9,
+}
+
+/**
+ * Stable, append-only texture-presence bits exposed by
+ * {@link PBRMaterial.textureMask}.
+ */
+export enum PBRMaterialTextureFeature {
+	BASE_COLOR_MAP = 1 << 0,
+	METALLIC_ROUGHNESS_MAP = 1 << 1,
+	NORMAL_MAP = 1 << 2,
+	EMISSIVE_MAP = 1 << 3,
+	OCCLUSION_MAP = 1 << 4,
+	SPECULAR_MAP = 1 << 5,
+	SPECULAR_COLOR_MAP = 1 << 6,
+	CLEARCOAT_MAP = 1 << 7,
+	CLEARCOAT_ROUGHNESS_MAP = 1 << 8,
+	CLEARCOAT_NORMAL_MAP = 1 << 9,
+	SHEEN_COLOR_MAP = 1 << 10,
+	SHEEN_ROUGHNESS_MAP = 1 << 11,
+	TRANSMISSION_MAP = 1 << 12,
+	THICKNESS_MAP = 1 << 13,
+	IRIDESCENCE_MAP = 1 << 14,
+	IRIDESCENCE_THICKNESS_MAP = 1 << 15,
+	ANISOTROPY_MAP = 1 << 16,
+}
+
+const PBR_FEATURE_EPSILON = 0.000001;
+
 function normalizeUVChannel(uv: number | undefined): UVChannel {
 	if (typeof uv === "number" && Number.isFinite(uv)) {
 		const channel = Math.floor(uv);
@@ -268,6 +310,121 @@ export class PBRMaterial extends Material {
 	public attenuationDistance: number;
 	/** KHR_materials_volume linear attenuation color stored in 0..255 units. */
 	public attenuationColor: RGB;
+
+	/**
+	 * Returns the current resolved PBR feature mask.
+	 *
+	 * The value is computed on access so direct factor or texture mutations are
+	 * reflected without an explicit update call.
+	 */
+	public get featureMask(): number {
+		const textureMask = this.textureMask;
+		let mask = 0;
+		if (textureMask & PBRMaterialTextureFeature.BASE_COLOR_MAP) {
+			mask |= PBRMaterialFeature.BASE_COLOR_MAP;
+		}
+		if (textureMask & PBRMaterialTextureFeature.METALLIC_ROUGHNESS_MAP) {
+			mask |= PBRMaterialFeature.METALLIC_ROUGHNESS_MAP;
+		}
+		if (textureMask & PBRMaterialTextureFeature.NORMAL_MAP) {
+			mask |= PBRMaterialFeature.NORMAL_MAP;
+		}
+		if (textureMask & PBRMaterialTextureFeature.OCCLUSION_MAP) {
+			mask |= PBRMaterialFeature.OCCLUSION_MAP;
+		}
+
+		const specularFactor = clamp(this.specularFactor, 0, 1);
+		const specularR = clamp(this.specularColor.r, 0, 255) / 255;
+		const specularG = clamp(this.specularColor.g, 0, 255) / 255;
+		const specularB = clamp(this.specularColor.b, 0, 255) / 255;
+		const hasSpecularCustomization =
+			Math.abs(specularFactor - 1) > PBR_FEATURE_EPSILON ||
+			Math.abs(specularR - 1) > PBR_FEATURE_EPSILON ||
+			Math.abs(specularG - 1) > PBR_FEATURE_EPSILON ||
+			Math.abs(specularB - 1) > PBR_FEATURE_EPSILON ||
+			(
+				specularFactor > PBR_FEATURE_EPSILON &&
+				!!(textureMask & PBRMaterialTextureFeature.SPECULAR_MAP)
+			) ||
+			(
+				specularFactor > PBR_FEATURE_EPSILON &&
+				Math.max(specularR, specularG, specularB) > PBR_FEATURE_EPSILON &&
+				!!(textureMask & PBRMaterialTextureFeature.SPECULAR_COLOR_MAP)
+			);
+		if (hasSpecularCustomization) {
+			mask |= PBRMaterialFeature.SPECULAR;
+		}
+
+		if (clamp(this.clearcoat, 0, 1) > PBR_FEATURE_EPSILON) {
+			mask |= PBRMaterialFeature.CLEARCOAT;
+		}
+		if (
+			Math.max(
+				clamp(this.sheenColorFactor.r, 0, 255),
+				clamp(this.sheenColorFactor.g, 0, 255),
+				clamp(this.sheenColorFactor.b, 0, 255)
+			) / 255 > PBR_FEATURE_EPSILON
+		) {
+			mask |= PBRMaterialFeature.SHEEN;
+		}
+		if (clamp(this.iridescenceFactor, 0, 1) > PBR_FEATURE_EPSILON) {
+			mask |= PBRMaterialFeature.IRIDESCENCE;
+		}
+		if (clamp(this.anisotropyStrength, 0, 1) > PBR_FEATURE_EPSILON) {
+			mask |= PBRMaterialFeature.ANISOTROPY;
+		}
+		if (clamp(this.transmissionFactor, 0, 1) > PBR_FEATURE_EPSILON) {
+			mask |= PBRMaterialFeature.TRANSMISSION;
+		}
+		return mask >>> 0;
+	}
+
+	/**
+	 * Returns the current PBR texture-presence mask.
+	 *
+	 * Presence is independent of whether the texture's parent lobe is active.
+	 */
+	public get textureMask(): number {
+		let mask = 0;
+		if (this.map) mask |= PBRMaterialTextureFeature.BASE_COLOR_MAP;
+		if (this.metallicRoughnessMap) {
+			mask |= PBRMaterialTextureFeature.METALLIC_ROUGHNESS_MAP;
+		}
+		if (this.normalMap) mask |= PBRMaterialTextureFeature.NORMAL_MAP;
+		if (this.emissiveMap) mask |= PBRMaterialTextureFeature.EMISSIVE_MAP;
+		if (this.occlusionMap) mask |= PBRMaterialTextureFeature.OCCLUSION_MAP;
+		if (this.specularMap) mask |= PBRMaterialTextureFeature.SPECULAR_MAP;
+		if (this.specularColorMap) {
+			mask |= PBRMaterialTextureFeature.SPECULAR_COLOR_MAP;
+		}
+		if (this.clearcoatMap) mask |= PBRMaterialTextureFeature.CLEARCOAT_MAP;
+		if (this.clearcoatRoughnessMap) {
+			mask |= PBRMaterialTextureFeature.CLEARCOAT_ROUGHNESS_MAP;
+		}
+		if (this.clearcoatNormalMap) {
+			mask |= PBRMaterialTextureFeature.CLEARCOAT_NORMAL_MAP;
+		}
+		if (this.sheenColorMap) {
+			mask |= PBRMaterialTextureFeature.SHEEN_COLOR_MAP;
+		}
+		if (this.sheenRoughnessMap) {
+			mask |= PBRMaterialTextureFeature.SHEEN_ROUGHNESS_MAP;
+		}
+		if (this.transmissionMap) {
+			mask |= PBRMaterialTextureFeature.TRANSMISSION_MAP;
+		}
+		if (this.thicknessMap) mask |= PBRMaterialTextureFeature.THICKNESS_MAP;
+		if (this.iridescenceMap) {
+			mask |= PBRMaterialTextureFeature.IRIDESCENCE_MAP;
+		}
+		if (this.iridescenceThicknessMap) {
+			mask |= PBRMaterialTextureFeature.IRIDESCENCE_THICKNESS_MAP;
+		}
+		if (this.anisotropyMap) {
+			mask |= PBRMaterialTextureFeature.ANISOTROPY_MAP;
+		}
+		return mask >>> 0;
+	}
 
 	/**
 	 * Converts legacy sRGB F0 color to a physical reflectance value.

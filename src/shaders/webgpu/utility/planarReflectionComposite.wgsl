@@ -1,5 +1,8 @@
 #import <ignis/webgpu/constants>
 
+const SHADING_PBR: u32 = 1u;
+const PBR_TEXTURE_BASE_COLOR_MAP: u32 = 1u << 0u;
+
 struct FrameCameraUniforms {
 	viewProjection: mat4x4<f32>,
 }
@@ -23,6 +26,7 @@ struct ModelUniforms {
 	anisotropyTextureTransformA: vec4<f32>,
 	anisotropyTextureTransformB: vec4<f32>,
 	materialFlags: vec4<f32>,
+	pbrMasks: vec4<u32>,
 	nodeRenderLayers: vec4<f32>,
 	textureTransformA: array<vec4<f32>, __WEBGPU_TEXTURE_SLOT_COUNT__>,
 	textureTransformB: array<vec4<f32>, __WEBGPU_TEXTURE_SLOT_COUNT__>,
@@ -322,11 +326,18 @@ fn fsMain(input: VertexOutput) -> FragmentOutput {
 
 	let alphaModeMask = model.materialFlags.y > 0.5;
 	if (alphaModeMask) {
-		let baseSample = textureSample(
-			baseColorTexture,
-			baseColorSampler,
-			transformUV(0u, input.uv0, input.uv1, input.uv2, input.uv3)
-		);
+		let shadingMode = u32(model.materialFlags.x + 0.5);
+		var baseSample = vec4<f32>(1.0);
+		if (
+			shadingMode != SHADING_PBR ||
+			(model.pbrMasks.y & PBR_TEXTURE_BASE_COLOR_MAP) != 0u
+		) {
+			baseSample = textureSample(
+				baseColorTexture,
+				baseColorSampler,
+				transformUV(0u, input.uv0, input.uv1, input.uv2, input.uv3)
+			);
+		}
 		let alpha = clamp(model.baseColorFactor.a * baseSample.a, 0.0, 1.0);
 		if (alpha < model.surfaceParams0.w) {
 			discard;

@@ -333,6 +333,17 @@ This document defines WebGPU frame-graph execution, deferred lighting, presentat
 	  three-dimensional workgroup id so large valid frame grids do not exceed
 	  `maxComputeWorkgroupsPerDimension` in a single dimension.
 - G-buffer contract:
+	- Built-in `PBRMaterial` draws must upload the public feature and texture
+	  masks in a draw-uniform `pbrMasks` field. These masks must not participate
+	  in shader-module or render-pipeline cache keys.
+	- Built-in PBR shaders must use uniform `if` control flow to sample a material
+	  texture only when its texture-presence bit is set. Extension texture samples
+	  must additionally require an active parent feature; `select` must not be
+	  used to guard a texture operation.
+	- Missing texture samples must resolve to the same neutral values as the
+	  device-lifetime fallback textures. Fixed bind-group layouts and fallback
+	  bindings must remain available even when shader control flow skips the
+	  texture operation.
 	- Deferred packet preflight must retain one frame-local recording snapshot per
 	  packet. The snapshot must contain the resolved pipeline, material uniform
 	  data, texture and sampler resources, model binding, geometry resources, and

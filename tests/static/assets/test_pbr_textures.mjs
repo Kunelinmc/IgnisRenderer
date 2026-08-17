@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import { PBREvaluator } from "../../../src/shaders/software/PBREvaluator.ts";
-import { PBRMaterial, UVChannel } from "../../../src/materials/PBRMaterial.ts";
+import {
+	PBRMaterial,
+	PBRMaterialFeature,
+	PBRMaterialTextureFeature,
+	UVChannel,
+} from "../../../src/materials/PBRMaterial.ts";
 import { Texture } from "../../../src/core/Texture.ts";
 import { Vector3 } from "../../../src/maths/Vector3.ts";
 
@@ -53,6 +58,72 @@ function assertVectorClose(actual, expected, tolerance = 0.001) {
 		dx <= tolerance && dy <= tolerance && dz <= tolerance,
 		`Vector mismatch: got {${actual.x}, ${actual.y}, ${actual.z}}, expected {${expected.x}, ${expected.y}, ${expected.z}}`
 	);
+}
+
+function testStableFeatureMasks() {
+	console.log("Testing stable PBR feature masks...");
+	assert.equal(PBRMaterialFeature.BASE_COLOR_MAP, 1 << 0);
+	assert.equal(PBRMaterialFeature.TRANSMISSION, 1 << 9);
+	assert.equal(PBRMaterialTextureFeature.BASE_COLOR_MAP, 1 << 0);
+	assert.equal(PBRMaterialTextureFeature.ANISOTROPY_MAP, 1 << 16);
+
+	const material = new PBRMaterial();
+	assert.equal(material.featureMask, 0);
+	assert.equal(material.textureMask, 0);
+
+	const texture = create1x1Texture(255, 255, 255, 255, "Linear");
+	material.map = texture;
+	material.metallicRoughnessMap = texture;
+	material.normalMap = texture;
+	material.emissiveMap = texture;
+	material.occlusionMap = texture;
+	material.specularMap = texture;
+	material.specularColorMap = texture;
+	material.clearcoatMap = texture;
+	material.clearcoatRoughnessMap = texture;
+	material.clearcoatNormalMap = texture;
+	material.sheenColorMap = texture;
+	material.sheenRoughnessMap = texture;
+	material.transmissionMap = texture;
+	material.thicknessMap = texture;
+	material.iridescenceMap = texture;
+	material.iridescenceThicknessMap = texture;
+	material.anisotropyMap = texture;
+
+	const allTextureBits = (1 << 17) - 1;
+	assert.equal(material.textureMask, allTextureBits);
+	assert.equal(
+		material.featureMask,
+		PBRMaterialFeature.BASE_COLOR_MAP |
+			PBRMaterialFeature.METALLIC_ROUGHNESS_MAP |
+			PBRMaterialFeature.NORMAL_MAP |
+			PBRMaterialFeature.OCCLUSION_MAP |
+			PBRMaterialFeature.SPECULAR
+	);
+
+	material.clearcoat = 1;
+	material.sheenColorFactor = { r: 255, g: 0, b: 0 };
+	material.iridescenceFactor = 1;
+	material.anisotropyStrength = 1;
+	material.transmissionFactor = 1;
+	assert.equal(material.featureMask, (1 << 10) - 1);
+
+	material.map = null;
+	assert.equal(
+		material.textureMask & PBRMaterialTextureFeature.BASE_COLOR_MAP,
+		0
+	);
+	assert.equal(material.featureMask & PBRMaterialFeature.BASE_COLOR_MAP, 0);
+
+	const inactive = new PBRMaterial({
+		clearcoatMap: texture,
+		sheenColorMap: texture,
+		iridescenceMap: texture,
+		anisotropyMap: texture,
+		transmissionMap: texture,
+	});
+	assert.notEqual(inactive.textureMask, 0);
+	assert.equal(inactive.featureMask, 0);
 }
 
 function testAlbedoMap() {
@@ -374,6 +445,7 @@ function testUV3ChannelUsesFourthUVSet() {
 function run() {
 	try {
 		console.log("Starting PBR Texture Maps Tests...");
+		testStableFeatureMasks();
 		testAlbedoMap();
 		testMetallicRoughnessMap();
 		testEmissiveMap();

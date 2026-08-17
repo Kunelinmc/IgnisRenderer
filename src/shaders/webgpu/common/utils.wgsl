@@ -5,6 +5,14 @@ fn saturate(value: f32) -> f32 {
 	return clamp(value, 0.0, 1.0);
 }
 
+fn hasPBRFeature(feature: u32) -> bool {
+	return (model.pbrMasks.x & feature) != 0u;
+}
+
+fn hasPBRTexture(textureFeature: u32) -> bool {
+	return (model.pbrMasks.y & textureFeature) != 0u;
+}
+
 fn isFiniteF32(value: f32) -> bool {
 	return value == value && abs(value) <= 3.402823466e+38;
 }
@@ -161,9 +169,12 @@ fn resolveAnisotropyDirection(
 	uv2: vec2<f32>,
 	uv3: vec2<f32>
 ) -> vec3<f32> {
+	if (!hasPBRFeature(PBR_FEATURE_ANISOTROPY)) {
+		return vec3<f32>(1.0, 0.0, 0.0);
+	}
 	var strength = clamp(model.anisotropyParams.x, 0.0, 1.0);
 	var direction = vec2<f32>(1.0, 0.0);
-	if (model.anisotropyTextureTransformB.w > 0.5) {
+	if (hasPBRTexture(PBR_TEXTURE_ANISOTROPY_MAP)) {
 		let texel = textureSample(
 			anisotropyTexture,
 			transmissionSampler,

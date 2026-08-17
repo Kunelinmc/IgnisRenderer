@@ -63,6 +63,7 @@ function createMaterialData(pipelineKey = "none-opaque-solid") {
 			transformB: vec4,
 		},
 		materialFlags: vec4,
+		pbrMasks: [0, 0, 0, 0],
 		textureSlots: [],
 		shaderUniforms: {
 			cacheKey: "",
@@ -224,11 +225,48 @@ function testStaticMeshDoesNotWriteAnimationPayloads() {
 	assert.equal(getWriteCountForLabel(backend, "ModelAnimationParams_"), 1);
 }
 
+function testMaskMutationUpdatesUniformWithoutRebinding() {
+	const backend = createBackendStub();
+	const cache = new WebGPUMaterialBindingCache(backend, createLayoutsStub());
+	const packet = createPacket();
+	const materialData = createMaterialData();
+	const animation = createAnimationState();
+	cache.beginFrame();
+	const firstGroup = cache.getBinding(
+		packet,
+		{ id: "pipeline:a" },
+		materialData,
+		[],
+		[],
+		fallbackAnisotropyTexture,
+		animation
+	);
+	const modelWrites = getWriteCountForLabel(backend, "ModelUniform_");
+	materialData.pbrMasks = [1, 2, 0, 0];
+	const secondGroup = cache.getBinding(
+		packet,
+		{ id: "pipeline:a" },
+		materialData,
+		[],
+		[],
+		fallbackAnisotropyTexture,
+		animation
+	);
+
+	assert.equal(firstGroup, secondGroup);
+	assert.equal(
+		getWriteCountForLabel(backend, "ModelUniform_"),
+		modelWrites + 1
+	);
+	assert.equal(backend.createBindingGroupCalls, 1);
+}
+
 function run() {
 	testEvictionDestroysModelBindingGroup();
 	testTextureRebindDestroysPreviousModelBindingGroup();
 	testPipelineChangeReusesModelBindingGroup();
 	testStaticMeshDoesNotWriteAnimationPayloads();
+	testMaskMutationUpdatesUniformWithoutRebinding();
 	console.log("WebGPU material binding cache tests passed");
 }
 

@@ -312,6 +312,7 @@ export interface WebGPUMaterialUniformData {
 	anisotropyParams: [number, number, number, number];
 	anisotropyTexture: WebGPUTextureSlotData;
 	materialFlags: [number, number, number, number];
+	pbrMasks: [number, number, number, number];
 	textureSlots: WebGPUTextureSlotData[];
 	shaderUniforms: WebGPUShaderUniformData;
 	pipelineKey: string;

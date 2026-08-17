@@ -57,6 +57,7 @@ const U32 = scalar("u32");
 const VEC2_F32 = vec(2, "f32");
 const VEC3_F32 = vec(3, "f32");
 const VEC4_F32 = vec(4, "f32");
+const VEC4_U32 = vec(4, "u32");
 const MAT4X4_F32 = mat4x4f32();
 
 const DIRECTIONAL_LIGHT_SCHEMA = structOf([
@@ -365,6 +366,7 @@ export const WEBGPU_MODEL_UNIFORM_LAYOUT = new StructuredBufferLayout(
 		{ name: "anisotropyTextureTransformA", type: VEC4_F32 },
 		{ name: "anisotropyTextureTransformB", type: VEC4_F32 },
 		{ name: "materialFlags", type: VEC4_F32 },
+		{ name: "pbrMasks", type: VEC4_U32 },
 		{ name: "nodeRenderLayers", type: VEC4_F32 },
 		{
 			name: "textureTransformA",

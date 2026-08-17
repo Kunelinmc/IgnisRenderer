@@ -86,7 +86,7 @@ interface MaterialBindingEntry {
 	lastUsedFrame: number;
 }
 
-const MATERIAL_SNAPSHOT_FLOATS = (15 + WEBGPU_TEXTURE_SLOT_COUNT * 2) * 4;
+const MATERIAL_SNAPSHOT_FLOATS = (16 + WEBGPU_TEXTURE_SLOT_COUNT * 2) * 4;
 const FALLBACK_STORAGE_DATA: FloatBuffer = new Float32Array(4);
 const FALLBACK_UNIFORM_DATA: FloatBuffer = new Float32Array(4);
 
@@ -828,6 +828,7 @@ function updateMaterialSnapshot(
 		materialData.anisotropyTexture.transformA,
 		materialData.anisotropyTexture.transformB,
 		materialData.materialFlags,
+		materialData.pbrMasks,
 	]) {
 		changed = writeSnapshotVec4(target, offset, values) || changed;
 		offset += 4;

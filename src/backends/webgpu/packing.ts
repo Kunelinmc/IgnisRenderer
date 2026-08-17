@@ -480,6 +480,7 @@ const MODEL_UNIFORM_PACKER = createStructuredBufferPacker<
 			(input) => input.materialData.anisotropyTexture.transformB
 		),
 		packVec4("materialFlags", (input) => input.materialData.materialFlags),
+		packVec4("pbrMasks", (input) => input.materialData.pbrMasks),
 		packVec4("nodeRenderLayers", (input) => [
 			Math.max(0, Math.floor(input.renderLayers)) >>> 0,
 			input.receiveShadows ? 1 : 0,

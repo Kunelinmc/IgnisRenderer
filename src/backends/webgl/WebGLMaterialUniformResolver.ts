@@ -177,7 +177,10 @@ export function resolveMaterialUniforms(material: Material): MaterialUniformStat
 		metalness = clamp(pbr.metalness ?? 0, 0, 1);
 		reflectance = clamp(pbr.reflectance ?? 0.5, 0, 1);
 		specularFactor = clamp(pbr.specularFactor ?? 1, 0, 1);
-		const specularColorFactor = pbr.specularColorFactor ?? { r: 255, g: 255, b: 255 };
+		const specularColorFactor =
+			pbr.specularColor ??
+			pbr.specularColorFactor ??
+			{ r: 255, g: 255, b: 255 };
 		specularColor = [
 			clamp((specularColorFactor.r ?? 255) / 255, 0, 1),
 			clamp((specularColorFactor.g ?? 255) / 255, 0, 1),

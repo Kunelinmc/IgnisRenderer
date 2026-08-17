@@ -7,6 +7,11 @@ import {
 	ShaderMaterial,
 	type ShaderTargetMode,
 } from "../../materials/ShaderMaterial";
+import {
+	PBRMaterial,
+	PBRMaterialFeature,
+	PBRMaterialTextureFeature,
+} from "../../materials/PBRMaterial";
 import type { FrameContext } from "../../pipeline/types";
 import {
 	WEBGL_FULL_SCENE_VARIANT,
@@ -167,54 +172,206 @@ function resolveWebGLSceneMaterialVariant(
 	const uniforms = resolveMaterialUniforms(material);
 	const model = resolveMaterialModel(material);
 	const isPBR = model === "pbr";
-	const iridescence =
-		isPBR &&
-		(
-			uniforms.iridescence[0] > EPSILON ||
+	const pbrMaterial = material instanceof PBRMaterial ? material : null;
+	const featureMask = pbrMaterial?.featureMask ?? 0;
+	const textureMask = pbrMaterial?.textureMask ?? 0;
+	const iridescence = isPBR && resolvePBRFeature(
+		pbrMaterial,
+		featureMask,
+		PBRMaterialFeature.IRIDESCENCE,
+		uniforms.iridescence[0] > EPSILON ||
 			!!uniforms.iridescenceMap ||
 			!!uniforms.iridescenceThicknessMap
-		);
-	const anisotropy =
-		isPBR &&
-		(uniforms.anisotropy[0] > EPSILON || !!uniforms.anisotropyMap);
-	const clearcoat = isPBR && (
-		uniforms.clearcoat[0] > EPSILON || !!uniforms.clearcoatMap ||
-		!!uniforms.clearcoatRoughnessMap || !!uniforms.clearcoatNormalMap
 	);
-	const sheen = isPBR && (
-		Math.max(uniforms.sheen[0], uniforms.sheen[1], uniforms.sheen[2]) > EPSILON ||
-		!!uniforms.sheenColorMap || !!uniforms.sheenRoughnessMap
+	const anisotropy = isPBR && resolvePBRFeature(
+		pbrMaterial,
+		featureMask,
+		PBRMaterialFeature.ANISOTROPY,
+		uniforms.anisotropy[0] > EPSILON || !!uniforms.anisotropyMap
 	);
-	const transmission = isPBR && (
+	const clearcoat = isPBR && resolvePBRFeature(
+		pbrMaterial,
+		featureMask,
+		PBRMaterialFeature.CLEARCOAT,
+		uniforms.clearcoat[0] > EPSILON ||
+			!!uniforms.clearcoatMap ||
+			!!uniforms.clearcoatRoughnessMap ||
+			!!uniforms.clearcoatNormalMap
+	);
+	const sheen = isPBR && resolvePBRFeature(
+		pbrMaterial,
+		featureMask,
+		PBRMaterialFeature.SHEEN,
+		Math.max(uniforms.sheen[0], uniforms.sheen[1], uniforms.sheen[2]) >
+			EPSILON || !!uniforms.sheenColorMap || !!uniforms.sheenRoughnessMap
+	);
+	const transmission = isPBR && resolvePBRFeature(
+		pbrMaterial,
+		featureMask,
+		PBRMaterialFeature.TRANSMISSION,
 		uniforms.pbr[3] > EPSILON || !!uniforms.transmissionMap
 	);
+	const specular = isPBR && resolvePBRFeature(
+		pbrMaterial,
+		featureMask,
+		PBRMaterialFeature.SPECULAR,
+		true
+	);
+	const specularFactorActive = uniforms.specular[3] > EPSILON;
+	const specularColorActive = Math.max(
+		uniforms.specular[0],
+		uniforms.specular[1],
+		uniforms.specular[2]
+	) > EPSILON;
 	return {
 		model,
-		baseMap: !!uniforms.baseMap,
-		metallicRoughnessMap: isPBR && !!uniforms.metallicRoughnessMap,
-		specularMap: isPBR && !!uniforms.specularMap,
-		specularColorMap: isPBR && !!uniforms.specularColorMap,
-		normalMap: isPBR && !!uniforms.normalMap,
-		emissiveMap: !!uniforms.emissiveMap,
-		occlusionMap: isPBR && !!uniforms.occlusionMap,
+		baseMap: resolvePBRTexture(
+			pbrMaterial,
+			textureMask,
+			PBRMaterialTextureFeature.BASE_COLOR_MAP,
+			!!uniforms.baseMap
+		),
+		metallicRoughnessMap: isPBR &&
+			resolvePBRTexture(
+				pbrMaterial,
+				textureMask,
+				PBRMaterialTextureFeature.METALLIC_ROUGHNESS_MAP,
+				!!uniforms.metallicRoughnessMap
+			),
+		specularMap: specular && specularFactorActive && specularColorActive &&
+			resolvePBRTexture(
+				pbrMaterial,
+				textureMask,
+				PBRMaterialTextureFeature.SPECULAR_MAP,
+				!!uniforms.specularMap
+			),
+		specularColorMap: specular && specularFactorActive && specularColorActive &&
+			resolvePBRTexture(
+				pbrMaterial,
+				textureMask,
+				PBRMaterialTextureFeature.SPECULAR_COLOR_MAP,
+				!!uniforms.specularColorMap
+			),
+		normalMap: isPBR &&
+			resolvePBRTexture(
+				pbrMaterial,
+				textureMask,
+				PBRMaterialTextureFeature.NORMAL_MAP,
+				!!uniforms.normalMap
+			),
+		emissiveMap: resolvePBRTexture(
+			pbrMaterial,
+			textureMask,
+			PBRMaterialTextureFeature.EMISSIVE_MAP,
+			!!uniforms.emissiveMap
+		),
+		occlusionMap: isPBR &&
+			resolvePBRTexture(
+				pbrMaterial,
+				textureMask,
+				PBRMaterialTextureFeature.OCCLUSION_MAP,
+				!!uniforms.occlusionMap
+			),
 		clearcoat,
-		clearcoatMap: clearcoat && !!uniforms.clearcoatMap,
-		clearcoatRoughnessMap: clearcoat && !!uniforms.clearcoatRoughnessMap,
-		clearcoatNormalMap: clearcoat && !!uniforms.clearcoatNormalMap,
+		clearcoatMap: clearcoat &&
+			resolvePBRTexture(
+				pbrMaterial,
+				textureMask,
+				PBRMaterialTextureFeature.CLEARCOAT_MAP,
+				!!uniforms.clearcoatMap
+			),
+		clearcoatRoughnessMap: clearcoat &&
+			resolvePBRTexture(
+				pbrMaterial,
+				textureMask,
+				PBRMaterialTextureFeature.CLEARCOAT_ROUGHNESS_MAP,
+				!!uniforms.clearcoatRoughnessMap
+			),
+		clearcoatNormalMap: clearcoat &&
+			resolvePBRTexture(
+				pbrMaterial,
+				textureMask,
+				PBRMaterialTextureFeature.CLEARCOAT_NORMAL_MAP,
+				!!uniforms.clearcoatNormalMap
+			),
 		sheen,
-		sheenColorMap: sheen && !!uniforms.sheenColorMap,
-		sheenRoughnessMap: sheen && !!uniforms.sheenRoughnessMap,
+		sheenColorMap: sheen &&
+			resolvePBRTexture(
+				pbrMaterial,
+				textureMask,
+				PBRMaterialTextureFeature.SHEEN_COLOR_MAP,
+				!!uniforms.sheenColorMap
+			),
+		sheenRoughnessMap: sheen &&
+			resolvePBRTexture(
+				pbrMaterial,
+				textureMask,
+				PBRMaterialTextureFeature.SHEEN_ROUGHNESS_MAP,
+				!!uniforms.sheenRoughnessMap
+			),
 		iridescence,
-		iridescenceMap: iridescence && !!uniforms.iridescenceMap,
+		iridescenceMap: iridescence &&
+			resolvePBRTexture(
+				pbrMaterial,
+				textureMask,
+				PBRMaterialTextureFeature.IRIDESCENCE_MAP,
+				!!uniforms.iridescenceMap
+			),
 		iridescenceThicknessMap:
-			iridescence && !!uniforms.iridescenceThicknessMap,
+			iridescence &&
+			resolvePBRTexture(
+				pbrMaterial,
+				textureMask,
+				PBRMaterialTextureFeature.IRIDESCENCE_THICKNESS_MAP,
+				!!uniforms.iridescenceThicknessMap
+			),
 		anisotropy,
-		anisotropyMap: anisotropy && !!uniforms.anisotropyMap,
+		anisotropyMap: anisotropy &&
+			resolvePBRTexture(
+				pbrMaterial,
+				textureMask,
+				PBRMaterialTextureFeature.ANISOTROPY_MAP,
+				!!uniforms.anisotropyMap
+			),
 		transmission,
-		transmissionMap: transmission && !!uniforms.transmissionMap,
-		thicknessMap: transmission && !!uniforms.thicknessMap,
+		transmissionMap: transmission &&
+			resolvePBRTexture(
+				pbrMaterial,
+				textureMask,
+				PBRMaterialTextureFeature.TRANSMISSION_MAP,
+				!!uniforms.transmissionMap
+			),
+		thicknessMap: transmission &&
+			resolvePBRTexture(
+				pbrMaterial,
+				textureMask,
+				PBRMaterialTextureFeature.THICKNESS_MAP,
+				!!uniforms.thicknessMap
+			),
 		alphaMask: material.alphaMode === AlphaMode.Mask,
 	};
+}
+
+function resolvePBRFeature(
+	material: PBRMaterial | null,
+	mask: number,
+	bit: PBRMaterialFeature,
+	fallback: boolean
+): boolean {
+	return material ? hasMaskBit(mask, bit) : fallback;
+}
+
+function resolvePBRTexture(
+	material: PBRMaterial | null,
+	mask: number,
+	bit: PBRMaterialTextureFeature,
+	fallback: boolean
+): boolean {
+	return material ? hasMaskBit(mask, bit) : fallback;
+}
+
+function hasMaskBit(mask: number, bit: number): boolean {
+	return (mask & bit) !== 0;
 }
 
 function resolveMaterialModel(material: Material): WebGLSceneMaterialModel {

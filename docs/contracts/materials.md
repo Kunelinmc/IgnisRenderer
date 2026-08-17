@@ -74,6 +74,38 @@ const texture = new Texture({
 
 ### PBR extensions
 
+#### Stable feature masks
+
+- `PBRMaterialFeature` must define append-only unsigned feature bits with the
+  following fixed assignments: `BASE_COLOR_MAP` bit 0,
+  `METALLIC_ROUGHNESS_MAP` bit 1, `NORMAL_MAP` bit 2, `OCCLUSION_MAP` bit 3,
+  `SPECULAR` bit 4, `CLEARCOAT` bit 5, `SHEEN` bit 6, `IRIDESCENCE` bit 7,
+  `ANISOTROPY` bit 8, and `TRANSMISSION` bit 9. Existing assignments must not
+  be reordered or reused.
+- `PBRMaterialTextureFeature` must define append-only unsigned texture-presence
+  bits with the following fixed assignments: `BASE_COLOR_MAP` bit 0,
+  `METALLIC_ROUGHNESS_MAP` bit 1, `NORMAL_MAP` bit 2, `EMISSIVE_MAP` bit 3,
+  `OCCLUSION_MAP` bit 4, `SPECULAR_MAP` bit 5, `SPECULAR_COLOR_MAP` bit 6,
+  `CLEARCOAT_MAP` bit 7, `CLEARCOAT_ROUGHNESS_MAP` bit 8,
+  `CLEARCOAT_NORMAL_MAP` bit 9, `SHEEN_COLOR_MAP` bit 10,
+  `SHEEN_ROUGHNESS_MAP` bit 11, `TRANSMISSION_MAP` bit 12,
+  `THICKNESS_MAP` bit 13, `IRIDESCENCE_MAP` bit 14,
+  `IRIDESCENCE_THICKNESS_MAP` bit 15, and `ANISOTROPY_MAP` bit 16.
+- `PBRMaterial.featureMask` and `PBRMaterial.textureMask` must be readonly
+  computed properties. They must reflect direct material-field mutation without
+  requiring a dirty flag or explicit update call.
+- `textureMask` must report non-null texture references independently of whether
+  the parent material lobe currently contributes to the resolved result.
+- The base-color, metallic-roughness, normal, and occlusion feature bits must
+  mirror their texture-presence bits. `SPECULAR` must identify a resolved
+  `KHR_materials_specular` customization rather than the base PBR Fresnel lobe.
+  It must be enabled when the resolved factor or color differs from its neutral
+  default, or when a non-annihilated specular texture can affect the result.
+- `CLEARCOAT`, `SHEEN`, `IRIDESCENCE`, `ANISOTROPY`, and `TRANSMISSION` must be
+  enabled only when the resolved lobe multiplier is greater than the material
+  epsilon. A parent feature with a zero multiplier must remain disabled even
+  when one of its texture-presence bits is set.
+
 - `GLTFLoader.parseMaterials` must parse `KHR_materials_iridescence` and
   `KHR_materials_anisotropy` on PBR materials.
 - `iridescenceFactor` must default to `0.0` and must be multiplied by the red

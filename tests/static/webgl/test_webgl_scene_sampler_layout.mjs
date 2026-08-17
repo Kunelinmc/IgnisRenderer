@@ -6,6 +6,10 @@ import {
 import {
 	WEBGL_FULL_SCENE_VARIANT,
 } from "../../../src/shaders/webgl/sceneVariants.ts";
+import {
+	resolveWebGLBuiltinSceneVariant,
+} from "../../../src/backends/webgl/WebGLSceneProgramVariants.ts";
+import { PBRMaterial } from "../../../src/materials/PBRMaterial.ts";
 
 function testFullLayoutIsDenseAndCollisionFree() {
 	const layout = createWebGLSceneSamplerLayout(
@@ -43,6 +47,78 @@ function testOverflowHasStableDiagnostic() {
 			return true;
 		},
 	);
+}
+
+function testInactiveExtensionMapsArePruned() {
+	const clearcoatMap = {};
+	const specularMap = {};
+	const material = new PBRMaterial({
+		clearcoatMap,
+		specularFactor: 0,
+		specularMap,
+	});
+	const environment = {
+		lightState: null,
+		enableShadowTransmittance: false,
+		enableIrradianceProbeGrid: false,
+	};
+	const context = { features: {} };
+	const inactive = resolveWebGLBuiltinSceneVariant(
+		context,
+		material,
+		"single",
+		0,
+		environment,
+	);
+	assert.ok(inactive);
+	assert.equal(inactive.material.clearcoat, false);
+	assert.equal(inactive.material.clearcoatMap, false);
+	assert.equal(inactive.material.specularMap, false);
+	const inactiveLayout = createWebGLSceneSamplerLayout(64, inactive);
+	assert.ok(!inactiveLayout.activeSamplerNames.includes("uClearcoatMap"));
+	assert.ok(!inactiveLayout.activeSamplerNames.includes("uSpecularMap"));
+
+	material.clearcoat = 1;
+	material.specularFactor = 1;
+	const active = resolveWebGLBuiltinSceneVariant(
+		context,
+		material,
+		"single",
+		0,
+		environment,
+	);
+	assert.ok(active);
+	assert.equal(active.material.clearcoat, true);
+	assert.equal(active.material.clearcoatMap, true);
+	assert.equal(active.material.specularMap, true);
+	const activeLayout = createWebGLSceneSamplerLayout(64, active);
+	assert.ok(activeLayout.activeSamplerNames.includes("uClearcoatMap"));
+	assert.ok(activeLayout.activeSamplerNames.includes("uSpecularMap"));
+
+	const specularColorMap = {};
+	const blackSpecular = new PBRMaterial({
+		specularColor: { r: 0, g: 0, b: 0 },
+		specularColorMap,
+	});
+	const blackSpecularVariant = resolveWebGLBuiltinSceneVariant(
+		context,
+		blackSpecular,
+		"single",
+		0,
+		environment,
+	);
+	assert.ok(blackSpecularVariant);
+	assert.equal(blackSpecularVariant.material.specularColorMap, false);
+	blackSpecular.specularColor = { r: 255, g: 255, b: 255 };
+	const whiteSpecularVariant = resolveWebGLBuiltinSceneVariant(
+		context,
+		blackSpecular,
+		"single",
+		0,
+		environment,
+	);
+	assert.ok(whiteSpecularVariant);
+	assert.equal(whiteSpecularVariant.material.specularColorMap, true);
 }
 
 function testCustomLayoutDeduplicatesActiveNames() {
@@ -106,6 +182,7 @@ function testSparseShadowAndGridLayoutFitsBelowLegacyThreshold() {
 
 testFullLayoutIsDenseAndCollisionFree();
 testOverflowHasStableDiagnostic();
+testInactiveExtensionMapsArePruned();
 testCustomLayoutDeduplicatesActiveNames();
 testSparseShadowAndGridLayoutFitsBelowLegacyThreshold();
 console.log("WebGL scene sampler layout tests passed");

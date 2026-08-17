@@ -32,8 +32,14 @@ import {
 	Matrix4
 } from "../../../src/maths/Matrix4.ts";
 import {
-	PBRMaterial
+	PBRMaterial,
+	PBRMaterialFeature,
+	PBRMaterialTextureFeature
 } from "../../../src/materials/PBRMaterial.ts";
+import {
+	Material,
+	ShadingModel
+} from "../../../src/materials/Material.ts";
 import {
 	PhongMaterial
 } from "../../../src/materials/PhongMaterial.ts";
@@ -184,6 +190,7 @@ function testMaterialAdaptation() {
 	assert.ok(Math.abs(pbrData.surfaceParams0[1] - 0.75) < 1e-6);
 	assert.ok(Math.abs(pbrData.surfaceParams0[2] - 0.6) < 1e-6);
 	assert.equal(pbrData.textureSlots.length, WEBGPU_TEXTURE_SLOT_COUNT);
+	assert.deepEqual(pbrData.pbrMasks, [0, 0, 0, 0]);
 	pbr.albedoMapUV = 2;
 	pbr.normalMapUV = 3;
 	const pbrUVData = createWebGPUMaterialUniformData(pbr);
@@ -204,7 +211,27 @@ function testMaterialAdaptation() {
 	assert.ok(Math.abs(pbrAnisotropyData.anisotropyParams[2] - 1) < 1e-6);
 	assert.equal(pbrAnisotropyData.anisotropyTexture.transformB[1], 2);
 	assert.equal(pbrAnisotropyData.anisotropyTexture.transformB[3], 1);
+	assert.equal(
+		pbrAnisotropyData.pbrMasks[0],
+		PBRMaterialFeature.ANISOTROPY
+	);
+	assert.equal(
+		pbrAnisotropyData.pbrMasks[1],
+		PBRMaterialTextureFeature.ANISOTROPY_MAP
+	);
+	assert.equal(pbrAnisotropyData.pipelineKey, pbrData.pipelineKey);
 	assert.equal(materialSupportsWebGPUDeferredLighting(pbr), true);
+
+	const genericPBR = new Material({
+		shading: ShadingModel.PBR,
+		map: new Texture({
+			data: new Uint8ClampedArray([255, 255, 255, 255]),
+			width: 1,
+			height: 1,
+		}),
+	});
+	const genericPBRData = createWebGPUMaterialUniformData(genericPBR);
+	assert.deepEqual(genericPBRData.pbrMasks, [1, 1, 0, 0]);
 
 	const transmissivePBR = new PBRMaterial({ transmissionFactor: 1 });
 	assert.equal(materialSupportsWebGPUDeferredLighting(transmissivePBR), false);
@@ -215,6 +242,7 @@ function testMaterialAdaptation() {
 		shininess: 24,
 	});
 	const phongData = createWebGPUMaterialUniformData(phong);
+	assert.deepEqual(phongData.pbrMasks, [0, 0, 0, 0]);
 	assert.ok(
 		phongData.baseColorFactor[0] > 0.2 && phongData.baseColorFactor[0] < 0.22
 	);
@@ -895,6 +923,17 @@ async function testWebGPUShaderConstantTokenInjection() {
 	assert.ok(
 		WEBGPU_SCENE_SHADER.includes(
 			`textureTransformB: array<vec4<f32>, ${WEBGPU_TEXTURE_SLOT_COUNT}>`
+		)
+	);
+	assert.ok(WEBGPU_SCENE_SHADER.includes("pbrMasks: vec4<u32>"));
+	assert.ok(
+		WEBGPU_SCENE_SHADER.includes(
+			"if (hasPBRTexture(PBR_TEXTURE_METALLIC_ROUGHNESS_MAP))"
+		)
+	);
+	assert.ok(
+		WEBGPU_SCENE_SHADER.includes(
+			"hasPBRFeature(PBR_FEATURE_TRANSMISSION)"
 		)
 	);
 	assert.ok(
