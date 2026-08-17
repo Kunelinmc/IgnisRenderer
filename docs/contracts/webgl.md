@@ -31,15 +31,16 @@ This document defines the current WebGL backend lifecycle, frame graph, resource
   implementations.
 - `WebGLBackend.extensions` must not expose `renderer.postprocess`.
 - `WebGLBackend.extensions` must expose the stable
-  `IBL_PREFILTER_EXECUTOR_EXTENSION` facade for WebGL2 fragment-based IBL
-  prefiltering.
-- The IBL prefilter facade must remain identity-stable across WebGL context
-  loss and restoration. It must reject work while uninitialized, retain an
-  explicit WebGL request while context-lost, and resume delegation to restored
-  context-scoped services.
-- The stable facade and IBL scheduling policy must be owned by the WebGL
-  extension owner rather than `WebGLBackend`. The context-generation runtime
-  must be owned beside, not inside, `WebGLFrameServiceOwner`.
+  `WEBGL_AUXILIARY_RASTER_EXTENSION` facade for scheduled application raster
+  work and lighting-owned WebGL IBL prefilter execution.
+- The auxiliary raster facade must remain identity-stable across WebGL context
+  loss and restoration. It must reject work while uninitialized, retain a
+  request only when its context-loss policy permits replay, and late-bind work
+  to restored context-scoped services.
+- The stable facade and scheduling policy must be owned by the WebGL extension
+  owner rather than `WebGLBackend`. The context-generation raster runtime must
+  be shared with custom render-target execution and owned beside, not inside,
+  `WebGLFrameServiceOwner`.
 - WebGL fragment IBL prefiltering must require `EXT_color_buffer_float` and
   either `OES_texture_float_linear` or `OES_texture_half_float_linear`.
 - `WebGLContextWorkQueue` must serialize frame lifecycle operations, backend
@@ -414,6 +415,9 @@ bun tests/static/webgl/test_webgl_frame_graph_runtime.mjs
 - A `WebGLBackend` instance must not be reused across multiple renderers.
 - Core capability fields `sh` and `clusteredLighting` changed from disabled to
   enabled.
+- `WEBGL_AUXILIARY_RASTER_EXTENSION` is an additive public capability. The
+  previous internal IBL executor extension is removed; public
+  `IBLPrefilter` construction and acceleration options are unchanged.
 - `BackendCapabilities.postProcess` is added and is `true` for `WebGLBackend`.
 - Backend post-process capability maps remain removed.
 - `renderer.postprocess` is no longer a WebGL backend extension.
@@ -458,6 +462,8 @@ the internal frame-service lifecycle.
 ```bash
 bun tests/run_all.mjs tests/static/webgl
 bun tests/static/webgl/test_webgl_backend_stub.mjs
+bun tests/static/webgl/test_webgl_auxiliary_raster.mjs
+bun run test:browser:webgl
 bunx tsc --noEmit
 ```
 

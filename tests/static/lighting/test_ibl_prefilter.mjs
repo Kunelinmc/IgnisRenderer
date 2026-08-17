@@ -6,7 +6,7 @@ import {
 	IBLPrefilter,
 	prefilterEnvironmentIBL,
 } from "../../../src/lights/ibl/IBLPrefilter.ts";
-import { IBL_PREFILTER_EXECUTOR_EXTENSION } from "../../../src/backends/BackendExtensions.ts";
+import { WEBGL_AUXILIARY_RASTER_EXTENSION } from "../../../src/backends/webgl/WebGLAuxiliaryRaster.ts";
 import {
 	directionFromEquirectUV,
 	sampleEnvironmentTextureSpecular,
@@ -42,16 +42,15 @@ function createExecutor(id, options = {}) {
 				reason: null,
 			};
 		},
-		async execute(request) {
+		async execute() {
 			calls++;
 			if (options.error) throw options.error;
-			return request.plan.mipLevels.map((mip) => {
-				request.onMipComplete?.(mip.level);
-				return {
-					...mip,
-					data: new Float32Array(mip.width * mip.height * 4).fill(1),
-				};
-			});
+			return [{
+				level: 0,
+				width: 1,
+				height: 1,
+				data: new Float32Array(4).fill(1),
+			}];
 		},
 	};
 }
@@ -63,8 +62,16 @@ function createRenderBackend(executor = null) {
 		async initialize() {},
 		extensions: {
 			getBackendExtension(key) {
-				return key.id === IBL_PREFILTER_EXECUTOR_EXTENSION.id ?
-					executor : null;
+				if (
+					executor?.id === "webgl" &&
+					key.id === WEBGL_AUXILIARY_RASTER_EXTENSION.id
+				) {
+					return {
+						getAvailability: () => executor.getAvailability(),
+						execute: () => executor.execute(),
+					};
+				}
+				return null;
 			},
 		},
 	};
@@ -173,14 +180,14 @@ async function testDirectionAndWrapModes() {
 }
 
 async function testBackendExecutorSelectionAndNestedService() {
-	const executor = createExecutor("webgpu");
-	const result = await prefilterEnvironmentIBL(createTestTexture(2, 1), {
+	const executor = createExecutor("webgl");
+	const result = await prefilterEnvironmentIBL(createTestTexture(1, 1), {
 		service: { backend: createRenderBackend(executor) },
-		acceleration: "webgpu",
-		maxMipLevels: 2,
+		acceleration: "webgl",
+		maxMipLevels: 1,
 	});
 	assert.equal(executor.calls, 1);
-	assert.equal(result.mipmaps.length, 2);
+	assert.equal(result.mipmaps.length, 1);
 }
 
 async function testAutoUsesReadyBackendBeforeCPU() {
@@ -230,7 +237,7 @@ async function testExplicitExecutorHonorsAcceptsRequests() {
 	);
 	assert.equal(waiting.calls, 1);
 
-	const rejected = createExecutor("webgpu", {
+	const rejected = createExecutor("webgl", {
 		availability: {
 			state: "temporarily-unavailable",
 			acceptsRequests: false,
@@ -240,14 +247,14 @@ async function testExplicitExecutorHonorsAcceptsRequests() {
 	await assert.rejects(
 		new IBLPrefilter({ backend: createRenderBackend(rejected) }).prefilter(
 			createTestTexture(1, 1),
-			{ acceleration: "webgpu", maxMipLevels: 1 },
+			{ acceleration: "webgl", maxMipLevels: 1 },
 		),
 		/device unavailable/,
 	);
 }
 
 async function testExecutorFailureDoesNotFallback() {
-	const executor = createExecutor("webgpu", { error: new Error("gpu failed") });
+	const executor = createExecutor("webgl", { error: new Error("gpu failed") });
 	await assert.rejects(
 		new IBLPrefilter({ backend: createRenderBackend(executor) }).prefilter(
 			createTestTexture(1, 1),

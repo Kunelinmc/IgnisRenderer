@@ -17,7 +17,7 @@ The list covers:
   `deferredLightingShader.wgsl`, `environmentShader.wgsl`,
   `particleShader.wgsl`, `particleSimulation.wgsl`, and post-process shaders.
 - WebGPU compute kernels created through `ComputeRuntime` by
-  `WebGPUIBLPrefilterExecutor`,
+  `WebGPUPrefilterExecutor`,
   `SobelNormalMapper`, and `WebGPUParticleSimulator`.
 
 This document does not list vertex attribute `shaderLocation` values.
@@ -272,7 +272,7 @@ indices:
 
 ### IBL Prefilter Compute
 
-`iblPrefilter.wgsl` and `WebGPUIBLPrefilterExecutor` use:
+`iblPrefilter.wgsl` and `WebGPUPrefilterExecutor` use:
 
 | Binding | Shader name | Resource contract |
 | --- | --- | --- |

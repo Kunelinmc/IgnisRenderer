@@ -1,15 +1,15 @@
 import {
 	createRenderBackendExtensionRegistry,
+	type BackendExtensionAvailability,
 	type RenderBackendExtensionRegistry,
 } from "../BackendExtensions";
 import {
-	assertIBLPrefilterSourceRevision,
-	IBL_PREFILTER_EXECUTOR_EXTENSION,
-	type IBLPrefilterExecutionRequest,
-	type IBLPrefilterExecutorAvailability,
-	type IBLPrefilterExecutorLike,
-	type IBLPrefilterMipData,
-} from "../../lights/ibl/IBLPrefilterExecutor";
+	WEBGL_AUXILIARY_RASTER_EXTENSION,
+	type IWebGLAuxiliaryRasterFacade,
+	type WebGLAuxiliaryRasterAvailabilityOptions,
+	type WebGLAuxiliaryRasterRequest,
+	type WebGLAuxiliaryRasterRequirements,
+} from "./WebGLAuxiliaryRaster";
 
 import type { WebGLContextServiceOwner } from "./WebGLContextServiceOwner";
 import type { WebGLContextWorkQueue } from "./WebGLContextWorkQueue";
@@ -23,41 +23,45 @@ interface WebGLBackendExtensionOwnerOptions {
 /** Owns identity-stable WebGL extension facades. */
 export class WebGLBackendExtensionOwner {
 	public readonly registry: RenderBackendExtensionRegistry;
-	private readonly _iblPrefilterExecutor: IBLPrefilterExecutorLike;
+	private readonly _auxiliaryRaster: IWebGLAuxiliaryRasterFacade;
 	private readonly _options: WebGLBackendExtensionOwnerOptions;
 
 	public constructor(options: WebGLBackendExtensionOwnerOptions) {
 		this._options = options;
-		this._iblPrefilterExecutor = {
-			id: "webgl",
-			getAvailability: () => this._getIBLPrefilterAvailability(),
-			execute: (request) => this._executeIBLPrefilter(request),
+		this._auxiliaryRaster = {
+			getAvailability: (availabilityOptions) =>
+				this._getAuxiliaryRasterAvailability(availabilityOptions),
+			execute: (request) => this._executeAuxiliaryRaster(request),
 		};
 		this.registry = createRenderBackendExtensionRegistry([
 			{
-				id: IBL_PREFILTER_EXECUTOR_EXTENSION.id,
-				insertionPoints: ["application:ibl-prefilter"],
-				api: this._iblPrefilterExecutor,
+				id: WEBGL_AUXILIARY_RASTER_EXTENSION.id,
+				insertionPoints: ["application:webgl-auxiliary-raster"],
+				api: this._auxiliaryRaster,
 			},
 		]);
 	}
 
-	private _getIBLPrefilterAvailability(): IBLPrefilterExecutorAvailability {
+	private _getAuxiliaryRasterAvailability(
+		options: WebGLAuxiliaryRasterAvailabilityOptions = {},
+	): BackendExtensionAvailability {
 		const queueState = this._options.contextWorkQueue
 			.getDebugSnapshot().state;
 		if (queueState === "destroyed") {
 			return {
 				state: "unsupported",
 				acceptsRequests: false,
-				reason: "WebGL IBL prefilter executor has been destroyed.",
+				reason: "WebGL auxiliary raster facade has been destroyed.",
 			};
 		}
 		if (queueState === "context-lost") {
+			const retains = options.contextLossPolicy === "retain-pending";
 			return {
 				state: "temporarily-unavailable",
-				acceptsRequests: true,
-				reason:
-					"WebGL IBL prefilter executor is waiting for context restoration.",
+				acceptsRequests: retains,
+				reason: retains ?
+					"WebGL auxiliary raster work is waiting for context restoration." :
+					"WebGL context is lost and this request rejects on context loss.",
 			};
 		}
 		const services = this._options.resolveContextServices();
@@ -66,37 +70,89 @@ export class WebGLBackendExtensionOwner {
 				state: "temporarily-unavailable",
 				acceptsRequests: false,
 				reason:
-					"WebGL backend must be initialized before requesting IBL prefiltering.",
+					"WebGL backend must be initialized before requesting auxiliary raster work.",
 			};
 		}
-		return services.iblPrefilter.getAvailability();
+		return resolveRequirementsAvailability(services, options);
 	}
 
-	private _executeIBLPrefilter(
-		request: IBLPrefilterExecutionRequest,
-	): Promise<IBLPrefilterMipData[]> {
+	private _executeAuxiliaryRaster<T>(
+		request: WebGLAuxiliaryRasterRequest<T>,
+	): Promise<T> {
+		const framePolicy = request.framePolicy ?? "idle-only";
+		const contextLossPolicy = request.contextLossPolicy ?? "reject";
+		assertFramePolicy(framePolicy);
+		assertContextLossPolicy(contextLossPolicy);
 		return this._options.contextWorkQueue.enqueue({
-			label: "ibl-prefilter",
-			framePolicy: "between-passes",
-			contextLossPolicy: "retain-pending",
+			label: request.label,
+			framePolicy,
+			contextLossPolicy,
 			signal: request.signal,
 			execute: (scope) => {
-				assertIBLPrefilterSourceRevision(
-					request.envMap,
-					request.sourceRevision,
+				const availability = resolveRequirementsAvailability(
+					scope.services,
+					request,
 				);
-				const availability = scope.services.iblPrefilter.getAvailability();
 				if (!availability.acceptsRequests) {
 					throw new Error(
 						availability.reason ??
-							"WebGL IBL prefilter executor is unavailable.",
+							"WebGL auxiliary raster requirements are unavailable.",
 					);
 				}
-				return scope.services.iblPrefilter.execute({
-					...request,
-					signal: scope.signal,
-				});
+				return scope.services.auxiliaryRaster.execute(
+					scope.generation,
+					scope.signal,
+					request.task,
+				);
 			},
 		});
 	}
+}
+
+function resolveRequirementsAvailability(
+	services: WebGLContextServiceOwner,
+	requirements: WebGLAuxiliaryRasterRequirements,
+): BackendExtensionAvailability {
+	for (const extension of requirements.requiredExtensions ?? []) {
+		if (!services.auxiliaryRaster.hasExtension(extension)) {
+			return {
+				state: "unsupported",
+				acceptsRequests: false,
+				reason: `WebGL auxiliary raster requires ${extension}.`,
+			};
+		}
+	}
+	for (const group of requirements.alternativeExtensionGroups ?? []) {
+		if (group.length === 0) {
+			return {
+				state: "unsupported",
+				acceptsRequests: false,
+				reason: "WebGL auxiliary raster extension alternatives must not be empty.",
+			};
+		}
+		if (!group.some((extension) =>
+			services.auxiliaryRaster.hasExtension(extension))) {
+			return {
+				state: "unsupported",
+				acceptsRequests: false,
+				reason:
+					`WebGL auxiliary raster requires one of ${group.join(", ")}.`,
+			};
+		}
+	}
+	return { state: "ready", acceptsRequests: true, reason: null };
+}
+
+function assertFramePolicy(value: string): asserts value is
+	"between-passes" | "idle-only" {
+	if (value === "between-passes" || value === "idle-only") return;
+	throw new Error(`Unsupported WebGL auxiliary raster frame policy "${value}".`);
+}
+
+function assertContextLossPolicy(value: string): asserts value is
+	"reject" | "retain-pending" {
+	if (value === "reject" || value === "retain-pending") return;
+	throw new Error(
+		`Unsupported WebGL auxiliary raster context-loss policy "${value}".`,
+	);
 }

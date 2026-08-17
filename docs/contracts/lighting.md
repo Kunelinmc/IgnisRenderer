@@ -163,11 +163,12 @@ The cached culling state and bindings must be invalidated when:
   not override the service backend.
 - The one-shot helper must receive construction settings through
   `PrefilterEnvironmentIBLOptions.service`.
-- When an `IRenderBackend` is provided, `IBLPrefilter` must resolve one generic
-  executor through `IBL_PREFILTER_EXECUTOR_EXTENSION`. It must not inspect,
-  cast, initialize, restore, or destroy the backend.
-- Lighting-owned CPU and Worker executors and backend-owned WebGPU and WebGL
-  executors must implement the same internal execution contract.
+- When an `IRenderBackend` is provided, `IBLPrefilter` must resolve generic
+  WebGPU compute and WebGL auxiliary raster capabilities and construct the
+  corresponding lighting-owned executors. It must not inspect backend ids,
+  initialize, restore, or destroy the backend.
+- Lighting-owned CPU, Worker, WebGPU, and WebGL executors must implement the
+  same internal execution contract.
 - Backend executors must report an id, availability state, whether they accept
   requests in that state, and a descriptive unavailable reason.
 - Work plans must contain output dimensions, mip levels, and roughness only.
@@ -197,8 +198,9 @@ The cached culling state and bindings must be invalidated when:
 - `single-thread` must execute prefiltering synchronously on the calling
   JavaScript thread. `multi-thread` must distribute mip work through the Worker
   scheduler.
-- If `acceleration` is `webgpu` or `webgl`, the configured backend must expose
-  an accepting `IBL_PREFILTER_EXECUTOR_EXTENSION` with the matching executor id.
+- If `acceleration` is `webgpu`, the configured backend must expose an
+  accepting `WEBGPU_COMPUTE_EXTENSION`. If it is `webgl`, the backend must
+  expose an accepting `WEBGL_AUXILIARY_RASTER_EXTENSION`.
 - An explicit WebGL request made while the context is lost must wait in the
   backend context work queue until restoration or cancellation. A WebGL request
   already executing when loss occurs must reject and must not replay.
@@ -694,7 +696,7 @@ probe.position.set(10, 0, -5);
 - `IBLPrefilter.prefilter()` must throw an `AbortError` when `signal` is
   aborted.
 - Explicit `webgpu` acceleration must throw when the service backend does not
-  expose an accepting WebGPU IBL executor.
+  expose an accepting `WEBGPU_COMPUTE_EXTENSION`.
 - Explicit `webgl` acceleration must throw when the backend is uninitialized,
   lacks required extensions, or fails framebuffer or readback validation. A
   request submitted while the context is lost must wait for restoration or

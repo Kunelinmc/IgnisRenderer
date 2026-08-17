@@ -27,7 +27,6 @@ import type {
 } from "../../pipeline/OcclusionCulling";
 import {
 	createRenderBackendExtensionRegistry,
-	IBL_PREFILTER_EXECUTOR_EXTENSION,
 	PROBE_CAPTURE_EXTENSION,
 	RENDERER_OCCLUSION_CULLING_EXTENSION_ID,
 	RENDERER_OCCLUSION_VISIBILITY_INSERTION_POINT,
@@ -88,7 +87,6 @@ import {
 	type IWebGPUComputeFacade,
 	type WebGPUComputeFacadeHost,
 } from "./ComputeFacade";
-import { WebGPUIBLPrefilterExecutor } from "./WebGPUIBLPrefilterExecutor";
 import {
 	assertWebGPUMinimumLimits,
 	createWebGPUDebugInfo,
@@ -263,7 +261,6 @@ export class WebGPUBackend implements IRenderBackend {
 	private readonly _pipelineCache: WebGPUPipelineCache;
 	private readonly _bindingGroupCache: WebGPUBindingGroupCache;
 	private readonly _computeFacade: IWebGPUComputeFacade;
-	private readonly _iblPrefilterExecutor: WebGPUIBLPrefilterExecutor;
 	private readonly _warmupCoordinator: WebGPUWarmupCoordinator;
 	private readonly _framePacketRegistry = new FramePacketContributorRegistry();
 
@@ -355,9 +352,6 @@ export class WebGPUBackend implements IRenderBackend {
 		this._commandScheduler = new WebGPUCommandScheduler(this._createCommandSchedulerHost());
 		this._resourceManager = new WebGPUResourceManager(this._createResourceManagerHost());
 		this._computeFacade = createWebGPUComputeFacade(this._createComputeFacadeHost());
-		this._iblPrefilterExecutor = new WebGPUIBLPrefilterExecutor(
-			this._computeFacade,
-		);
 		this.extensions = createRenderBackendExtensionRegistry([
 			{
 				id: RENDERER_OCCLUSION_CULLING_EXTENSION_ID,
@@ -379,11 +373,6 @@ export class WebGPUBackend implements IRenderBackend {
 				id: WEBGPU_COMPUTE_EXTENSION.id,
 				insertionPoints: ["application:webgpu-compute"],
 				api: this._computeFacade,
-			},
-			{
-				id: IBL_PREFILTER_EXECUTOR_EXTENSION.id,
-				insertionPoints: ["application:ibl-prefilter"],
-				api: this._iblPrefilterExecutor,
 			},
 		]);
 		this.shaderRuntime.onDidChange(() => {

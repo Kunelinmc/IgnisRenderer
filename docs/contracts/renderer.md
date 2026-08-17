@@ -212,15 +212,13 @@ This document defines the lifecycle, scheduling, warmup, incremental rendering, 
   - `WebGPUBackend` must not expose backend-specific resource, pipeline,
     binding-group, or command-scheduler forwarding methods.
   - `WebGPUBackend` must not expose native `GPUDevice` or `GPUQueue` handles.
-- `IBL_PREFILTER_EXECUTOR_EXTENSION`
-  - Must expose a backend-owned generic executor API consumed by
-    `IBLPrefilter`.
-  - WebGPU and WebGL implementations must use the same request, availability,
-    and CPU-backed mip result contract.
-  - The WebGL implementation must delegate to context-scoped fragment-pass
-    services without exposing native `WebGLTexture` handles.
-  - The extension API object must remain identity-stable across WebGL context
-    restoration.
+- `WEBGL_AUXILIARY_RASTER_EXTENSION`
+  - Must expose an identity-stable, context-scheduled raster API without
+    exposing native WebGL handles.
+  - Requests must use scope-owned resources and must select only the public
+    frame and context-loss policies.
+  - The facade must late-bind restored WebGL context generations and must
+    revalidate request capabilities before executing retained work.
 - Identity Persistence:
   - Extension API objects must maintain the same object identity for the lifetime of the backend runtime.
 - Device Loss Behavior:

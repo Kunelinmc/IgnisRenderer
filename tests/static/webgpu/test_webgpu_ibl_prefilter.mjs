@@ -5,7 +5,7 @@ import {
 	captureIBLPrefilterSourceRevision,
 } from "../../../src/lights/ibl/IBLPrefilterExecutor.ts";
 import { createWebGPUComputeFacade } from "../../../src/backends/webgpu/ComputeFacade.ts";
-import { WebGPUIBLPrefilterExecutor } from "../../../src/backends/webgpu/WebGPUIBLPrefilterExecutor.ts";
+import { WebGPUPrefilterExecutor } from "../../../src/lights/ibl/WebGPUPrefilterExecutor.ts";
 import { TextureFormat } from "../../../src/backends/types.ts";
 
 import { FakeWebGPUBackend } from "../../helpers/fakes.mjs";
@@ -35,7 +35,7 @@ function createRequest(texture) {
 
 async function testExecutesRGBA16FloatPrefilter() {
 	const backend = new FakeWebGPUBackend();
-	const executor = new WebGPUIBLPrefilterExecutor(
+	const executor = new WebGPUPrefilterExecutor(
 		createWebGPUComputeFacade(backend),
 	);
 	const result = await executor.execute(createRequest(createTexture()));
@@ -57,7 +57,7 @@ async function testExecutesRGBA16FloatPrefilter() {
 
 async function testUnavailableDeviceRejectsRequests() {
 	const backend = new FakeWebGPUBackend();
-	const executor = new WebGPUIBLPrefilterExecutor(
+	const executor = new WebGPUPrefilterExecutor(
 		createWebGPUComputeFacade(backend),
 	);
 	backend.device = null;
@@ -76,7 +76,7 @@ async function testUnavailableDeviceRejectsRequests() {
 
 async function testSourceRevisionIsValidated() {
 	const backend = new FakeWebGPUBackend();
-	const executor = new WebGPUIBLPrefilterExecutor(
+	const executor = new WebGPUPrefilterExecutor(
 		createWebGPUComputeFacade(backend),
 	);
 	const texture = createTexture();

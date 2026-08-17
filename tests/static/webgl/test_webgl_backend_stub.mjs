@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { Logger } from "../../../src/foundation/Logger.ts";
 import { WebGLBackend } from "../../../src/backends/webgl/WebGLBackend.ts";
-import { IBL_PREFILTER_EXECUTOR_EXTENSION } from "../../../src/backends/BackendExtensions.ts";
+import { WEBGL_AUXILIARY_RASTER_EXTENSION } from "../../../src/backends/webgl/WebGLAuxiliaryRaster.ts";
 import { PARTICLE_SIM_DELTA_TIME_SECONDS_KEY } from "../../../src/pipeline/types.ts";
 import { createResolvedPostProcess } from "../../helpers/postprocess.mjs";
 
@@ -9,12 +9,10 @@ function installFrameServices(backend, frame) {
 	frame.prepareSceneProgramSources ??= async () => {};
 	backend._contextServices = {
 		frame,
-		iblPrefilter: {
-			getAvailability: () => ({
-				state: "unsupported",
-				acceptsRequests: false,
-				reason: "not used by this test",
-			}),
+		auxiliaryRaster: {
+			hasExtension: () => false,
+			execute: async (_generation, _signal, task) => task({}),
+			destroy() {},
 		},
 		restoreContextWorkBaseline() {
 			frame.restoreContextWorkBaseline?.();
@@ -541,7 +539,7 @@ async function testContextLostAndRestored() {
 	);
 }
 
-async function testIBLPrefilterExecutorExtensionPersistsAcrossContextRestore() {
+async function testAuxiliaryRasterExtensionPersistsAcrossContextRestore() {
 	const requiredExtensions = [
 		"EXT_color_buffer_float",
 		"OES_texture_float_linear",
@@ -551,7 +549,7 @@ async function testIBLPrefilterExecutorExtensionPersistsAcrossContextRestore() {
 	);
 	const backend = createWebGLSession({}, canvas);
 	const facade = backend.extensions.getBackendExtension(
-		IBL_PREFILTER_EXECUTOR_EXTENSION,
+		WEBGL_AUXILIARY_RASTER_EXTENSION,
 	);
 	assert.ok(facade);
 	assert.equal(facade.getAvailability().state, "temporarily-unavailable");
@@ -563,7 +561,7 @@ async function testIBLPrefilterExecutorExtensionPersistsAcrossContextRestore() {
 	backend.restore();
 	assert.strictEqual(
 		backend.extensions.getBackendExtension(
-			IBL_PREFILTER_EXECUTOR_EXTENSION,
+			WEBGL_AUXILIARY_RASTER_EXTENSION,
 		),
 		facade,
 	);
@@ -817,7 +815,7 @@ async function run() {
 	await testStrictHDRCapabilityBoundary();
 	await testRestoreCapabilityLossStaysLost();
 	await testContextLostAndRestored();
-	await testIBLPrefilterExecutorExtensionPersistsAcrossContextRestore();
+	await testAuxiliaryRasterExtensionPersistsAcrossContextRestore();
 	await testPublicLifecycleMethods();
 	testParticleDeltaTimeIsClampedToSafeMaximum();
 	await testBackendPlanOmitsRendererOwnedPostProcessStage();

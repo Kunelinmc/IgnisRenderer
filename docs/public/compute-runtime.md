@@ -24,7 +24,45 @@ A compute job usually follows this lifecycle:
 `ComputeRuntime` implements `IComputeRuntime`, so application code can depend
 on the interface while using the WebGPU implementation today.
 
+WebGL applications may use `WEBGL_AUXILIARY_RASTER_EXTENSION` for scheduled
+offscreen raster work. The facade supplies scope-owned resources and a safe
+encoder without exposing `WebGL2RenderingContext` or native WebGL resources.
+
 ## API
+
+### WebGL auxiliary raster
+
+Resolve `WEBGL_AUXILIARY_RASTER_EXTENSION` from an initialized WebGL backend or
+renderer. `execute()` schedules one scoped task. Resources created by the task
+are valid only until its callback settles and are then destroyed automatically.
+
+Requests default to `idle-only` frame scheduling and reject on context loss.
+Use `between-passes` only for work that may safely run at an active frame
+boundary, and use `retain-pending` only when replay against a restored context
+generation is valid. Required WebGL extensions are revalidated immediately
+before execution.
+
+```ts
+import {
+	Renderer,
+	WEBGL_AUXILIARY_RASTER_EXTENSION,
+	WebGLBackend,
+} from "ignisrenderer";
+
+const backend = new WebGLBackend();
+const renderer = new Renderer({ backend, canvas });
+await renderer.initialize();
+
+const raster = renderer.requireBackendExtension(
+	WEBGL_AUXILIARY_RASTER_EXTENSION,
+);
+await raster.execute({
+	label: "offscreen-raster",
+	task: async ({ encoder, resources }) => {
+		// Create scoped resources, encode raster work, and return CPU data.
+	},
+});
+```
 
 ### Compute workflow
 

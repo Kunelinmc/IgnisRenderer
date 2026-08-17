@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 
 import {
-	IBL_PREFILTER_EXECUTOR_EXTENSION,
 	WEBGPU_COMPUTE_EXTENSION,
 } from "../../../src/backends/BackendExtensions.ts";
 import { WebGPUBackend } from "../../../src/backends/webgpu/WebGPUBackend.ts";
@@ -278,15 +277,11 @@ async function testComputeExtensionRejectsUntilReadyAndKeepsIdentity() {
 	const extension = backend.extensions.requireBackendExtension(
 		WEBGPU_COMPUTE_EXTENSION,
 	);
-	const iblExecutor = backend.extensions.requireBackendExtension(
-		IBL_PREFILTER_EXECUTOR_EXTENSION,
-	);
 	backend._state = "lost";
 	backend._device = {};
 	backend._queue = {};
 
 	assert.equal(extension.device, null);
-	assert.equal(iblExecutor.getAvailability().acceptsRequests, false);
 	assert.throws(
 		() => extension.createBuffer({ size: 4, usage: 0 }),
 		/compute extension create buffers.*state "ready".*state is "lost"/i,
@@ -309,13 +304,6 @@ async function testComputeExtensionRejectsUntilReadyAndKeepsIdentity() {
 		backend.extensions.requireBackendExtension(WEBGPU_COMPUTE_EXTENSION),
 		extension,
 	);
-	assert.strictEqual(
-		backend.extensions.requireBackendExtension(
-			IBL_PREFILTER_EXECUTOR_EXTENSION,
-		),
-		iblExecutor,
-	);
-	assert.equal(iblExecutor.getAvailability().state, "ready");
 	assert.strictEqual(extension.createBuffer({ size: 4, usage: 0 }), buffer);
 }
 

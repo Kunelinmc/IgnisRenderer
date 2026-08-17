@@ -1,4 +1,10 @@
-import type { Texture } from "../../core/Texture";
+import { ShaderSource } from "../../shaders/ShaderSource";
+import { ComputeRuntime } from "../../backends/webgpu/ComputeRuntime";
+import {
+	createTextureMipUploadLevels,
+	resolveWebGPUTextureUploadFormat,
+} from "../../backends/webgpu/texture";
+import { WEBGPU_2D_COMPUTE_WORKGROUP_SIZE as WORKGROUP_SIZE } from "../../backends/webgpu/constants";
 import {
 	AddressMode,
 	BufferUsage,
@@ -8,8 +14,7 @@ import {
 	type IRenderBuffer,
 	type IRenderTexture,
 	type ISampler,
-} from "../types";
-import type { IComputeKernel, IComputeRuntime } from "../IComputeRuntime";
+} from "../../backends/types";
 import {
 	assertIBLPrefilterNotAborted,
 	assertIBLPrefilterSourceRevision,
@@ -17,22 +22,16 @@ import {
 	type IBLPrefilterExecutorAvailability,
 	type IBLPrefilterExecutorLike,
 	type IBLPrefilterMipData,
-} from "../../lights/ibl/IBLPrefilterExecutor";
-import { ShaderSource } from "../../shaders/ShaderSource";
-
-import type { IWebGPUComputeFacade } from "./ComputeFacade";
-import { ComputeRuntime } from "./ComputeRuntime";
-import {
-	createTextureMipUploadLevels,
-	resolveWebGPUTextureUploadFormat,
-} from "./texture";
-import { WEBGPU_2D_COMPUTE_WORKGROUP_SIZE as WORKGROUP_SIZE } from "./constants";
+} from "./IBLPrefilterExecutor";
+import type { Texture } from "../../core/Texture";
+import type { IComputeKernel, IComputeRuntime } from "../../backends/IComputeRuntime";
+import type { IWebGPUComputeFacade } from "../../backends/webgpu/ComputeFacade";
 
 const PREFILTER_PARAMS_SIZE = 32;
 const GPU_MAX_SAMPLE_COUNT = 256;
 const GPU_MIN_SAMPLE_COUNT = 48;
 
-interface IBLPrefilterWebGPUResources {
+interface WebGPUPrefilterResources {
 	runtime: IComputeRuntime;
 	sampler: ISampler;
 	kernel: IComputeKernel;
@@ -41,7 +40,7 @@ interface IBLPrefilterWebGPUResources {
 }
 
 /** @internal Backend-owned WebGPU compute executor for IBL prefiltering. */
-export class WebGPUIBLPrefilterExecutor implements IBLPrefilterExecutorLike {
+export class WebGPUPrefilterExecutor implements IBLPrefilterExecutorLike {
 	public readonly id = "webgpu" as const;
 	private readonly _computeFacade: IWebGPUComputeFacade;
 
@@ -54,29 +53,20 @@ export class WebGPUIBLPrefilterExecutor implements IBLPrefilterExecutorLike {
 		return {
 			state: ready ? "ready" : "temporarily-unavailable",
 			acceptsRequests: ready,
-			reason: ready ? null :
-				"WebGPU IBL prefilter executor requires an initialized device and queue.",
+			reason: ready
+				? null
+				: "WebGPU IBL prefilter executor requires an initialized device and queue.",
 		};
 	}
 
-	public async execute(
-		request: IBLPrefilterExecutionRequest,
-	): Promise<IBLPrefilterMipData[]> {
+	public async execute(request: IBLPrefilterExecutionRequest): Promise<IBLPrefilterMipData[]> {
 		const availability = this.getAvailability();
 		if (!availability.acceptsRequests) {
-			throw new Error(
-				availability.reason ?? "WebGPU IBL prefilter executor is unavailable.",
-			);
+			throw new Error(availability.reason ?? "WebGPU IBL prefilter executor is unavailable.");
 		}
-		assertIBLPrefilterSourceRevision(
-			request.envMap,
-			request.sourceRevision,
-		);
+		assertIBLPrefilterSourceRevision(request.envMap, request.sourceRevision);
 		assertIBLPrefilterNotAborted(request.signal);
-		const resources = await createWebGPUResources(
-			request.envMap,
-			this._computeFacade,
-		);
+		const resources = await createWebGPUResources(request.envMap, this._computeFacade);
 		const mipmaps: IBLPrefilterMipData[] = [];
 		try {
 			uploadSourceTexture(
@@ -142,7 +132,7 @@ export class WebGPUIBLPrefilterExecutor implements IBLPrefilterExecutorLike {
 async function createWebGPUResources(
 	envMap: Texture,
 	computeFacade: IWebGPUComputeFacade,
-): Promise<IBLPrefilterWebGPUResources> {
+): Promise<WebGPUPrefilterResources> {
 	const runtime = new ComputeRuntime(computeFacade);
 	try {
 		const kernel = await runtime.createKernel({
@@ -189,13 +179,10 @@ function uploadSourceTexture(
 	format: TextureFormat,
 ): void {
 	for (const upload of createTextureMipUploadLevels(envMap, format)) {
-		const uploadData = upload.data.buffer instanceof ArrayBuffer ?
-			new Uint8Array(
-				upload.data.buffer,
-				upload.data.byteOffset,
-				upload.data.byteLength,
-			) :
-			new Uint8Array(upload.data);
+		const uploadData =
+			upload.data.buffer instanceof ArrayBuffer
+				? new Uint8Array(upload.data.buffer, upload.data.byteOffset, upload.data.byteLength)
+				: new Uint8Array(upload.data);
 		runtime.writeTexture(
 			inputTexture,
 			uploadData,
@@ -215,7 +202,7 @@ function uploadSourceTexture(
 }
 
 async function prefilterMipLevel(
-	resources: IBLPrefilterWebGPUResources,
+	resources: WebGPUPrefilterResources,
 	paramsBuffer: IRenderBuffer,
 	outputTexture: IRenderTexture,
 	width: number,
@@ -272,26 +259,18 @@ function createPrefilterParamsBuffer(
 
 function resolveSampleCountByRoughness(roughness: number): number {
 	const sampleCount = Math.floor(
-		GPU_MAX_SAMPLE_COUNT +
-			(GPU_MIN_SAMPLE_COUNT - GPU_MAX_SAMPLE_COUNT) * roughness,
+		GPU_MAX_SAMPLE_COUNT + (GPU_MIN_SAMPLE_COUNT - GPU_MAX_SAMPLE_COUNT) * roughness,
 	);
-	return Math.max(
-		GPU_MIN_SAMPLE_COUNT,
-		Math.min(GPU_MAX_SAMPLE_COUNT, sampleCount),
-	);
+	return Math.max(GPU_MIN_SAMPLE_COUNT, Math.min(GPU_MAX_SAMPLE_COUNT, sampleCount));
 }
 
 function resolveTextureIsLinear(texture: Texture): boolean {
 	return texture.colorSpace === "HDR" || texture.colorSpace === "Linear";
 }
 
-function destroyWebGPUResources(
-	resources: IBLPrefilterWebGPUResources,
-): void {
+function destroyWebGPUResources(resources: WebGPUPrefilterResources): void {
 	resources.inputTexture.destroy();
-	const destroySampler = (
-		resources.sampler as { destroy?: () => void } | null
-	)?.destroy;
+	const destroySampler = (resources.sampler as { destroy?: () => void } | null)?.destroy;
 	if (typeof destroySampler === "function") {
 		destroySampler.call(resources.sampler);
 	}

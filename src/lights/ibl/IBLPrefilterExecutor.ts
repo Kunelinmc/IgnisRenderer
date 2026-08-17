@@ -1,8 +1,6 @@
 import type { Texture } from "../../core/Texture";
-import type { RenderBackendExtensionKey } from "../../backends/BackendExtensions";
-
-export const IBL_PREFILTER_EXECUTOR_EXTENSION_ID =
-	"lighting.ibl-prefilter-executor";
+import type { BackendExtensionAvailability } from
+	"../../backends/BackendExtensions";
 
 export type IBLPrefilterExecutorId =
 	| "single-thread"
@@ -38,11 +36,7 @@ export interface IBLPrefilterSourceRevision {
 	readonly mipFingerprint: string;
 }
 
-export interface IBLPrefilterExecutorAvailability {
-	readonly state: "ready" | "temporarily-unavailable" | "unsupported";
-	readonly acceptsRequests: boolean;
-	readonly reason: string | null;
-}
+export type IBLPrefilterExecutorAvailability = BackendExtensionAvailability;
 
 export interface IBLPrefilterExecutionRequest {
 	readonly envMap: Texture;
@@ -55,8 +49,8 @@ export interface IBLPrefilterExecutionRequest {
 /**
  * Executes one complete IBL prefilter plan.
  *
- * @internal Owned by the lighting IBL subsystem. Backend implementations must
- * expose this contract through `IBL_PREFILTER_EXECUTOR_EXTENSION`.
+ * @internal Owned by the lighting IBL subsystem. GPU implementations adapt
+ * generic backend compute or auxiliary raster capabilities.
  */
 export interface IBLPrefilterExecutorLike {
 	readonly id: IBLPrefilterExecutorId;
@@ -65,13 +59,6 @@ export interface IBLPrefilterExecutorLike {
 		request: IBLPrefilterExecutionRequest,
 	): IBLPrefilterMipData[] | Promise<IBLPrefilterMipData[]>;
 }
-
-/** @internal Typed lighting-owned backend extension key. */
-export const IBL_PREFILTER_EXECUTOR_EXTENSION: RenderBackendExtensionKey<
-	IBLPrefilterExecutorLike
-> = {
-	id: IBL_PREFILTER_EXECUTOR_EXTENSION_ID,
-};
 
 /** @internal Captures source state that deferred executors must preserve. */
 export function captureIBLPrefilterSourceRevision(

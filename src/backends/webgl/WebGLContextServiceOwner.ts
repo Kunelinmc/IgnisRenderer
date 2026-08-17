@@ -7,14 +7,14 @@ import {
 	WebGLFrameServiceOwner,
 	type WebGLFrameServiceOwnerOptions,
 } from "./WebGLFrameServiceOwner";
-import { WebGLIBLPrefilterRuntime } from "./WebGLIBLPrefilterRuntime";
+import { WebGLAuxiliaryRasterRuntime } from "./WebGLAuxiliaryRasterRuntime";
 
 /** Owns all services tied to one WebGL context generation. */
 export class WebGLContextServiceOwner {
 	public readonly frame: WebGLFrameServiceOwner;
-	public readonly iblPrefilter: WebGLIBLPrefilterRuntime;
+	public readonly auxiliaryRaster: WebGLAuxiliaryRasterRuntime;
 
-	constructor(
+	public constructor(
 		gl: WebGL2RenderingContext,
 		shaderRuntime: ShaderRuntime,
 		shaderCompileStage: ShaderBackendCompileStage,
@@ -27,13 +27,11 @@ export class WebGLContextServiceOwner {
 			options,
 		);
 		try {
-			this.iblPrefilter = new WebGLIBLPrefilterRuntime({
+			this.auxiliaryRaster = new WebGLAuxiliaryRasterRuntime(
 				gl,
 				shaderRuntime,
 				shaderCompileStage,
-				validatePrograms: options.validatePrograms,
-				getFullscreenVao: () => this.frame._fullscreenVao,
-			});
+			);
 		} catch (error) {
 			this.frame.destroy();
 			throw error;
@@ -46,7 +44,7 @@ export class WebGLContextServiceOwner {
 	}
 
 	public destroy(): void {
-		this.iblPrefilter.destroy();
 		this.frame.destroy();
+		this.auxiliaryRaster.destroy();
 	}
 }

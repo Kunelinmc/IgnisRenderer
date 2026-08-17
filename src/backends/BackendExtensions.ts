@@ -1,19 +1,11 @@
 import type { OcclusionCullingBackendAdapter } from "../pipeline/OcclusionCulling";
 import type { ProbeCaptureSource } from "../lights/runtime/ProbeCaptureRuntime";
 import type { IWebGPUComputeFacade } from "./webgpu/ComputeFacade";
-import {
-	IBL_PREFILTER_EXECUTOR_EXTENSION,
-	IBL_PREFILTER_EXECUTOR_EXTENSION_ID,
-} from "../lights/ibl/IBLPrefilterExecutor";
 
 export const RENDERER_OCCLUSION_CULLING_EXTENSION_ID =
 	"renderer.occlusion-culling";
 export const RENDERER_PROBE_CAPTURE_EXTENSION_ID = "renderer.probe-capture";
 export const WEBGPU_COMPUTE_EXTENSION_ID = "webgpu.compute";
-export {
-	IBL_PREFILTER_EXECUTOR_EXTENSION,
-	IBL_PREFILTER_EXECUTOR_EXTENSION_ID,
-};
 
 export const RENDERER_OCCLUSION_VISIBILITY_INSERTION_POINT =
 	"renderer:prepared-scene:occlusion-visibility";
@@ -24,8 +16,13 @@ export type RenderBackendExtensionId =
 	| typeof RENDERER_OCCLUSION_CULLING_EXTENSION_ID
 	| typeof RENDERER_PROBE_CAPTURE_EXTENSION_ID
 	| typeof WEBGPU_COMPUTE_EXTENSION_ID
-	| typeof IBL_PREFILTER_EXECUTOR_EXTENSION_ID
 	| (string & {});
+
+export interface BackendExtensionAvailability {
+	readonly state: "ready" | "temporarily-unavailable" | "unsupported";
+	readonly acceptsRequests: boolean;
+	readonly reason: string | null;
+}
 
 export type RenderBackendExtensionInsertionPoint =
 	| typeof RENDERER_OCCLUSION_VISIBILITY_INSERTION_POINT
@@ -124,8 +121,14 @@ export function resolveOcclusionCullingBackendExtension(
 	let api: OcclusionCullingBackendAdapter | null = null;
 	if (reader && typeof reader.getBackendExtension === "function") {
 		api = reader.getBackendExtension(OCCLUSION_CULLING_EXTENSION);
-	} else if (reader && (reader as any).extensions && typeof (reader as any).extensions.getBackendExtension === "function") {
-		api = (reader as any).extensions.getBackendExtension(OCCLUSION_CULLING_EXTENSION);
+	} else if (
+		reader &&
+		(reader as any).extensions &&
+		typeof (reader as any).extensions.getBackendExtension === "function"
+	) {
+		api = (reader as any).extensions.getBackendExtension(
+			OCCLUSION_CULLING_EXTENSION,
+		);
 	}
 	if (!api) return null;
 	return {

@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 
 import {
-	IBL_PREFILTER_EXECUTOR_EXTENSION_ID,
 	RENDERER_OCCLUSION_CULLING_EXTENSION_ID,
 	RENDERER_OCCLUSION_VISIBILITY_INSERTION_POINT,
 	WEBGPU_OCCLUSION_AFTER_DEPTH_INSERTION_POINT,
@@ -103,12 +102,7 @@ function testOcclusionControllerUsesExtensionApi() {
 function testWebGPURegistersExpectedExtensions() {
 	const session = attachBackend(new WebGPUBackend());
 	const extensions = session.extensions.listExtensions();
-	assert.equal(extensions.length, 4);
-	assert.ok(
-		extensions.some(
-			(extension) => extension.id === IBL_PREFILTER_EXECUTOR_EXTENSION_ID
-		)
-	);
+	assert.equal(extensions.length, 3);
 	assert.deepEqual(
 		resolveOcclusionCullingBackendExtension(session).insertionPoints,
 		[

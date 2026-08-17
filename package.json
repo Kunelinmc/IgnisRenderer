@@ -13,15 +13,17 @@
     "build:shaders": "bun scripts/generate_shader_manifest.mjs",
     "test": "bun run test:static",
     "test:static": "bun tests/run_all.mjs",
-    "test:browser": "bun tests/run_browser.mjs",
+    "test:browser": "bun run test:browser:probe && bun run test:browser:webgl",
+    "test:browser:probe": "bun tests/run_browser.mjs",
+    "test:browser:webgl": "playwright test tests/browser/playwright/webgl_auxiliary_raster.spec.ts",
     "test:lighting": "bun tests/static/lighting/test_lighting.mjs",
     "test:pointspot": "bun tests/static/lighting/test_point_spot_lighting.mjs",
     "test:sh": "bun tests/static/lighting/test_sh_lighting_regression.mjs",
     "test:winding": "bun tests/static/geometry/test_model_factory_winding.mjs",
     "test:sparse": "bun tests/static/loaders/test_sparse_accessor.mjs",
-		"bench:physics-mesh-v2": "bun tests/benchmarks/bench_physics_mesh_collision_v2.mjs",
-		"bench:webgpu-deferred": "bun tests/benchmarks/bench_webgpu_deferred.mjs",
-		"bench:spatial-index": "bun tests/benchmarks/bench_spatial_index.mjs"
+    "bench:physics-mesh-v2": "bun tests/benchmarks/bench_physics_mesh_collision_v2.mjs",
+    "bench:webgpu-deferred": "bun tests/benchmarks/bench_webgpu_deferred.mjs",
+    "bench:spatial-index": "bun tests/benchmarks/bench_spatial_index.mjs"
   },
   "keywords": [
     "renderer",
@@ -47,6 +49,7 @@
   "license": "MIT",
   "type": "module",
   "devDependencies": {
+    "@playwright/test": "^1.62.1",
     "typescript": "^5.9.3",
     "vite": "^7.3.1"
   },

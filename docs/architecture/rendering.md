@@ -80,8 +80,10 @@ and environment IBL retain separate state owners while sharing explicit scene
 and shader data contracts.
 
 Environment prefiltering is a standalone workflow owned by `IBLPrefilter` and
-its CPU, worker, WebGPU, or WebGL executor. Renderer frame scheduling does not
-own environment bake work.
+its CPU, worker, WebGPU, or WebGL executor. GPU executors consume generic
+backend capabilities: WebGPU compute or WebGL auxiliary raster work. Backends
+must not construct or register IBL-specific executors. Renderer frame
+scheduling does not own environment bake work.
 
 Public analytical lights share meter-based geometry and physical-unit
 semantics across backends. SH stores radiance; the consuming BRDF owns the

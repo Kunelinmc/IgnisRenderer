@@ -1,6 +1,9 @@
 import { Texture } from "../../core/Texture";
 import type { IRenderBackend } from "../../backends/IRenderBackend";
 import { TextureFormat } from "../../backends/types";
+import { WEBGPU_COMPUTE_EXTENSION } from "../../backends/BackendExtensions";
+import { WEBGL_AUXILIARY_RASTER_EXTENSION } from
+	"../../backends/webgl/WebGLAuxiliaryRaster";
 
 import {
 	ensureEnvironmentTextureEquirect,
@@ -10,13 +13,14 @@ import { SingleThreadIBLPrefilterExecutor } from "./IBLPrefilterCPUExecutor";
 import {
 	assertIBLPrefilterNotAborted,
 	captureIBLPrefilterSourceRevision,
-	IBL_PREFILTER_EXECUTOR_EXTENSION,
 	type IBLPrefilterExecutorId,
 	type IBLPrefilterExecutorLike,
 	type IBLPrefilterMipData,
 	type IBLPrefilterPlan,
 } from "./IBLPrefilterExecutor";
 import { MultiThreadIBLPrefilterExecutor } from "./IBLPrefilterWorkerExecutor";
+import { WebGPUPrefilterExecutor } from "./WebGPUPrefilterExecutor";
+import { WebGLPrefilterExecutor } from "./WebGLPrefilterExecutor";
 
 export const IBL_PREFILTER_MAX_SAMPLE_WIDTH = 128;
 export const IBL_PREFILTER_MAX_SAMPLE_HEIGHT = 64;
@@ -65,12 +69,13 @@ export interface IBLPrefilterOptions {
 /**
  * Backend-agnostic service for generating specular environment mip chains.
  *
- * @remarks GPU implementations are resolved through the configured backend's
- * generic IBL executor extension. CPU and Worker execution remain lighting
- * subsystem responsibilities.
+ * @remarks GPU implementations are constructed from generic backend compute
+ * or auxiliary raster capabilities. All executors remain lighting subsystem
+ * responsibilities.
  */
 export class IBLPrefilter {
 	private readonly _service: IBLPrefilterServiceOptions;
+	private _gpuExecutors: readonly IBLPrefilterExecutorLike[] | null = null;
 
 	/**
 	 * Creates a reusable environment IBL prefilter service.
@@ -153,14 +158,25 @@ export class IBLPrefilter {
 	private _createExecutors(
 		workerCount?: number,
 	): readonly IBLPrefilterExecutorLike[] {
-		const executors: IBLPrefilterExecutorLike[] = [];
-		const backendExecutor = this._service.backend?.extensions
-			.getBackendExtension(IBL_PREFILTER_EXECUTOR_EXTENSION);
-		if (backendExecutor) executors.push(backendExecutor);
+		const executors = [...this._getGPUExecutors()];
 		executors.push(
 			new MultiThreadIBLPrefilterExecutor(workerCount),
 			new SingleThreadIBLPrefilterExecutor(),
 		);
+		return executors;
+	}
+
+	private _getGPUExecutors(): readonly IBLPrefilterExecutorLike[] {
+		if (this._gpuExecutors) return this._gpuExecutors;
+		const executors: IBLPrefilterExecutorLike[] = [];
+		const extensions = this._service.backend?.extensions;
+		const compute = extensions?.getBackendExtension(WEBGPU_COMPUTE_EXTENSION);
+		if (compute) executors.push(new WebGPUPrefilterExecutor(compute));
+		const raster = extensions?.getBackendExtension(
+			WEBGL_AUXILIARY_RASTER_EXTENSION,
+		);
+		if (raster) executors.push(new WebGLPrefilterExecutor(raster));
+		this._gpuExecutors = executors;
 		return executors;
 	}
 }

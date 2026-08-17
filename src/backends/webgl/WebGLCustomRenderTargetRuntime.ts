@@ -55,6 +55,7 @@ import {
 	resolveWebGLDepthRenderTargetFormat,
 	type WebGLColorRenderTargetFormat,
 } from "./WebGLRenderTargetFormat";
+import type { WebGLAuxiliaryUniform } from "./WebGLAuxiliaryRaster";
 
 interface WebGLCustomTexture extends IRenderTexture {
 	_gpuResource: WebGLTexture;
@@ -228,7 +229,7 @@ export class WebGLCustomRenderTargetRuntime {
 			);
 			return;
 		}
-		const encoder = new WebGLCustomCommandEncoder(this._gl);
+		const encoder = new WebGLScopedRasterEncoder(this._gl);
 		try {
 			await descriptor.execute({
 				backend: "webgl",
@@ -237,7 +238,7 @@ export class WebGLCustomRenderTargetRuntime {
 				target: toExecutionTarget(target),
 				width: target.width,
 				height: target.height,
-				resources: createWebGLResourceFacade(this._gl),
+				resources: createWebGLRasterResourceFacade(this._gl),
 			} satisfies CustomRenderPassContext);
 			encoder.finish();
 		} finally {
@@ -432,8 +433,10 @@ export class WebGLCustomRenderTargetRuntime {
 	}
 }
 
-class WebGLCustomCommandEncoder implements ICommandEncoder {
+export class WebGLScopedRasterEncoder implements ICommandEncoder {
 	private readonly _gl: WebGL2RenderingContext;
+	private readonly _scopeState: { active: boolean } | null;
+	private _vertexArray: WebGLVertexArrayObject | null;
 	private _framebuffer: WebGLFramebuffer | null = null;
 	private _pipeline: WebGLCustomPipeline | null = null;
 	private readonly _vertexBuffers = new Map<number, IRenderBuffer>();
@@ -441,21 +444,30 @@ class WebGLCustomCommandEncoder implements ICommandEncoder {
 	private _indexFormat: IndexFormat = "uint16";
 	private _discardAttachments: number[] = [];
 
-	public constructor(gl: WebGL2RenderingContext) {
+	public constructor(
+		gl: WebGL2RenderingContext,
+		scopeState: { active: boolean } | null = null,
+	) {
 		this._gl = gl;
+		this._scopeState = scopeState;
+		this._vertexArray = typeof gl.createVertexArray === "function" ?
+			gl.createVertexArray() : null;
 	}
 
 	public beginRenderPass(desc: RenderPassDesc): void {
+		this._assertScopeActive();
 		if (this._framebuffer) {
 			throw new Error("WebGL custom render pass is already active.");
 		}
 		for (const attachment of desc.colorAttachments) {
+			this._assertScopeResource(attachment.view);
 			if (attachment.resolveTarget) {
 				throw new Error("WebGL custom render passes do not support resolve targets.");
 			}
 		}
 		const size = resolveRenderPassSize(desc);
 		const gl = this._gl;
+		if (this._vertexArray) gl.bindVertexArray(this._vertexArray);
 		const framebuffer = gl.createFramebuffer();
 		if (!framebuffer) {
 			throw new Error("Failed to create WebGL custom render pass framebuffer.");
@@ -480,6 +492,7 @@ class WebGLCustomCommandEncoder implements ICommandEncoder {
 			);
 		}
 		if (desc.depthStencilAttachment) {
+			this._assertScopeResource(desc.depthStencilAttachment.view);
 			this._attachDepth(desc.depthStencilAttachment);
 		}
 		const status = gl.checkFramebufferStatus(gl.FRAMEBUFFER);
@@ -526,6 +539,7 @@ class WebGLCustomCommandEncoder implements ICommandEncoder {
 	}
 
 	public setPipeline(pipeline: IRenderPipeline): void {
+		this._assertScopeResource(pipeline);
 		const customPipeline = pipeline as WebGLCustomPipeline;
 		if (!customPipeline._webglProgram) {
 			throw new Error("WebGL custom render pass received an incompatible pipeline.");
@@ -537,6 +551,7 @@ class WebGLCustomCommandEncoder implements ICommandEncoder {
 	}
 
 	public setBindingGroup(_index: number, group: IBindingGroup): void {
+		this._assertScopeResource(group);
 		const pipeline = this._requirePipeline();
 		const customGroup = group as WebGLCustomBindingGroup;
 		if (!customGroup._webglEntries) {
@@ -546,10 +561,12 @@ class WebGLCustomCommandEncoder implements ICommandEncoder {
 	}
 
 	public setVertexBuffer(slot: number, buffer: IRenderBuffer): void {
+		this._assertScopeResource(buffer);
 		this._vertexBuffers.set(slot, buffer);
 	}
 
 	public setIndexBuffer(buffer: IRenderBuffer, format: IndexFormat): void {
+		this._assertScopeResource(buffer);
 		this._indexBuffer = buffer;
 		this._indexFormat = format;
 	}
@@ -561,6 +578,7 @@ class WebGLCustomCommandEncoder implements ICommandEncoder {
 		baseVertex = 0,
 		firstInstance = 0
 	): void {
+		this._assertScopeActive();
 		if (baseVertex !== 0) {
 			throw new Error("WebGL custom indexed draws require baseVertex=0.");
 		}
@@ -597,6 +615,7 @@ class WebGLCustomCommandEncoder implements ICommandEncoder {
 		firstVertex = 0,
 		firstInstance = 0
 	): void {
+		this._assertScopeActive();
 		if (firstInstance !== 0) {
 			throw new Error("WebGL custom draws require firstInstance=0.");
 		}
@@ -611,8 +630,36 @@ class WebGLCustomCommandEncoder implements ICommandEncoder {
 		gl.drawArrays(mode, firstVertex, vertexCount);
 	}
 	public setScissorRect(x: number, y: number, width: number, height: number): void {
+		this._assertScopeActive();
 		this._gl.enable(this._gl.SCISSOR_TEST);
 		this._gl.scissor(x, y, width, height);
+	}
+
+	public setViewport(
+		x: number,
+		y: number,
+		width: number,
+		height: number,
+	): void {
+		this._assertScopeActive();
+		for (const value of [x, y, width, height]) {
+			if (!Number.isFinite(value) || value < 0) {
+				throw new Error("WebGL auxiliary raster viewport values must be finite and non-negative.");
+			}
+		}
+		this._gl.viewport(x, y, width, height);
+	}
+
+	public setUniforms(uniforms: readonly WebGLAuxiliaryUniform[]): void {
+		this._assertScopeActive();
+		const pipeline = this._requirePipeline();
+		for (const uniform of uniforms) {
+			applyNamedUniform(
+				this._gl,
+				pipeline._webglProgram,
+				uniform,
+			);
+		}
 	}
 	public copyTextureToTexture(
 		_source: TextureCopyView,
@@ -622,6 +669,7 @@ class WebGLCustomCommandEncoder implements ICommandEncoder {
 		throw new Error("WebGL custom render passes do not support texture copies.");
 	}
 	public endRenderPass(): void {
+		this._assertScopeActive();
 		if (!this._framebuffer) {
 			throw new Error("WebGL custom render pass is not active.");
 		}
@@ -659,6 +707,30 @@ class WebGLCustomCommandEncoder implements ICommandEncoder {
 			this._framebuffer = null;
 		}
 		this._discardAttachments = [];
+		if (this._vertexArray) {
+			this._gl.bindVertexArray(null);
+			this._gl.deleteVertexArray(this._vertexArray);
+			this._vertexArray = null;
+		}
+	}
+
+	private _assertScopeActive(): void {
+		if (this._scopeState && !this._scopeState.active) {
+			throw new Error("WebGL auxiliary raster scope is no longer active.");
+		}
+	}
+
+	private _assertScopeResource(resource: unknown): void {
+		this._assertScopeActive();
+		if (
+			this._scopeState &&
+			(resource as { _webglScopeState?: unknown } | null)?._webglScopeState !==
+				this._scopeState
+		) {
+			throw new Error(
+				"WebGL auxiliary raster resources must belong to the active scope.",
+			);
+		}
 	}
 
 	private _requirePipeline(): WebGLCustomPipeline {
@@ -873,7 +945,7 @@ function toExecutionTarget(
 	};
 }
 
-function createWebGLResourceFacade(
+export function createWebGLRasterResourceFacade(
 	gl: WebGL2RenderingContext
 ): CustomRenderPassResourceFacade {
 	return {
@@ -1089,6 +1161,85 @@ function findSamplerUniform(
 	return gl.getUniformLocation(program, `u_binding${binding}`) ??
 		gl.getUniformLocation(program, `u_texture${binding}`) ??
 		gl.getUniformLocation(program, `u_sampler${binding}`);
+}
+
+function applyNamedUniform(
+	gl: WebGL2RenderingContext,
+	program: WebGLProgram,
+	uniform: WebGLAuxiliaryUniform,
+): void {
+	if (!uniform.name) {
+		throw new Error("WebGL auxiliary raster uniform names must not be empty.");
+	}
+	const location = gl.getUniformLocation(program, uniform.name);
+	if (location === null) return;
+	const value = uniform.value;
+	if (typeof value === "number") {
+		if (!Number.isFinite(value)) {
+			throw new Error(`WebGL auxiliary raster uniform "${uniform.name}" is not finite.`);
+		}
+		switch (uniform.type) {
+			case "f32": gl.uniform1f(location, value); return;
+			case "i32": gl.uniform1i(location, value); return;
+			case "u32": gl.uniform1ui(location, value); return;
+			default:
+				throw new Error(
+					`WebGL auxiliary raster uniform "${uniform.name}" requires flat array data.`,
+				);
+		}
+	}
+
+	const values = Array.from(value);
+	const width = resolveUniformElementWidth(uniform.type);
+	if (values.length === 0 || values.length % width !== 0) {
+		throw new Error(
+			`WebGL auxiliary raster uniform "${uniform.name}" data length ` +
+				`${values.length} is not a positive multiple of ${width}.`,
+		);
+	}
+	if (values.some((entry) => !Number.isFinite(entry))) {
+		throw new Error(`WebGL auxiliary raster uniform "${uniform.name}" is not finite.`);
+	}
+	const floats = () => Float32Array.from(values);
+	const ints = () => Int32Array.from(values);
+	const uints = () => Uint32Array.from(values);
+	switch (uniform.type) {
+		case "f32": gl.uniform1fv(location, floats()); return;
+		case "i32": gl.uniform1iv(location, ints()); return;
+		case "u32": gl.uniform1uiv(location, uints()); return;
+		case "vec2f": gl.uniform2fv(location, floats()); return;
+		case "vec3f": gl.uniform3fv(location, floats()); return;
+		case "vec4f": gl.uniform4fv(location, floats()); return;
+		case "vec2i": gl.uniform2iv(location, ints()); return;
+		case "vec3i": gl.uniform3iv(location, ints()); return;
+		case "vec4i": gl.uniform4iv(location, ints()); return;
+		case "vec2u": gl.uniform2uiv(location, uints()); return;
+		case "vec3u": gl.uniform3uiv(location, uints()); return;
+		case "vec4u": gl.uniform4uiv(location, uints()); return;
+		case "mat3x3f": gl.uniformMatrix3fv(location, false, floats()); return;
+		case "mat4x4f": gl.uniformMatrix4fv(location, false, floats()); return;
+	}
+}
+
+function resolveUniformElementWidth(
+	type: WebGLAuxiliaryUniform["type"],
+): number {
+	switch (type) {
+		case "f32":
+		case "i32":
+		case "u32": return 1;
+		case "vec2f":
+		case "vec2i":
+		case "vec2u": return 2;
+		case "vec3f":
+		case "vec3i":
+		case "vec3u": return 3;
+		case "vec4f":
+		case "vec4i":
+		case "vec4u": return 4;
+		case "mat3x3f": return 9;
+		case "mat4x4f": return 16;
+	}
 }
 
 function bindVertexAttribute(

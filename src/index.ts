@@ -76,16 +76,61 @@ export type {
 	WarmupSchedulingMode,
 } from "./backends/IRenderBackend";
 export {
+	AddressMode,
+	BufferUsage,
+	FilterMode,
+	PrimitiveTopology,
+	TextureFormat,
+	TextureUsage,
+	type BindingGroupDesc,
+	type BufferDesc,
+	type ColorTargetState,
+	type IBindingGroup,
+	type IRenderBuffer,
+	type IRenderPipeline,
+	type IRenderTexture,
+	type IShaderModule,
+	type ISampler,
+	type PipelineDesc,
+	type SamplerDesc,
+	type ShaderModuleDesc,
+	type TextureDataLayout,
+	type TextureDesc,
+	type VertexAttribute,
+	type VertexBufferLayout,
+	type VertexFormat,
+} from "./backends/types";
+export type { ICommandEncoder } from "./backends/ICommandEncoder";
+export {
 	RENDERER_OCCLUSION_CULLING_EXTENSION_ID,
 	RENDERER_OCCLUSION_VISIBILITY_INSERTION_POINT,
 	WEBGPU_OCCLUSION_AFTER_DEPTH_INSERTION_POINT,
 	createRenderBackendExtensionRegistry,
 	resolveOcclusionCullingBackendExtension,
 	type RenderBackendExtension,
+	type BackendExtensionAvailability,
 	type RenderBackendExtensionId,
 	type RenderBackendExtensionInsertionPoint,
 	type RenderBackendExtensionRegistry,
 } from "./backends/BackendExtensions";
+export {
+	WEBGL_AUXILIARY_RASTER_EXTENSION,
+	WEBGL_AUXILIARY_RASTER_EXTENSION_ID,
+	type IWebGLAuxiliaryRasterFacade,
+	type IWebGLAuxiliaryRasterEncoder,
+	type WebGLAuxiliaryRasterAvailabilityOptions,
+	type WebGLAuxiliaryRasterContext,
+	type WebGLAuxiliaryRasterContextLossPolicy,
+	type WebGLAuxiliaryRasterFramePolicy,
+	type WebGLAuxiliaryRasterRequest,
+	type WebGLAuxiliaryRasterRequirements,
+	type WebGLAuxiliaryRasterResourceFacade,
+	type WebGLAuxiliaryUniform,
+	type WebGLAuxiliaryUniformMatrixType,
+	type WebGLAuxiliaryUniformScalarType,
+	type WebGLAuxiliaryUniformType,
+	type WebGLAuxiliaryUniformVectorType,
+} from "./backends/webgl/WebGLAuxiliaryRaster";
 export { EventEmitter } from "./core/EventEmitter";
 export * from "./workers";
 export {
