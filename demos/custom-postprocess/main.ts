@@ -207,7 +207,7 @@ async function init() {
 	renderer.postProcess.registerPass(blurPass);
 
 	// Warmup renderer
-	await renderer.warmup({ includeCorePasses: true });
+	await renderer.warmup();
 
 	// Start the render loop
 	renderer.renderLoop();

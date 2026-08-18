@@ -191,7 +191,7 @@ async function bootDemo(): Promise<DemoState> {
 	renderer.features.enableOIT = false;
 
 	await renderer.initialize();
-	await renderer.warmup({ includeCorePasses: true });
+	await renderer.warmup();
 
 	// Register FXAA pass
 	renderer.postProcess.registerPass(new FastApproximateAntiAliasingPass({ enabled: true }));

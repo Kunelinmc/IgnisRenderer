@@ -161,7 +161,7 @@ async function bootDemo(): Promise<DemoState> {
 		updateAnimation(demo, 0);
 
 		await renderer.initialize();
-		await renderer.warmup({ includeCorePasses: true });
+		await renderer.warmup();
 
 		scene.syncNodeToECS();
 		scene.updateWorldMatrices();

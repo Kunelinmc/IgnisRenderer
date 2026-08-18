@@ -162,7 +162,7 @@ async function startDemo(): Promise<void> {
 		return;
 	}
 
-	await renderer.warmup({ includeCorePasses: true });
+	await renderer.warmup();
 	bindOrbitControls(renderer, camera);
 	createTweakpane({
 		renderer,

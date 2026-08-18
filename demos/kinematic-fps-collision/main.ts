@@ -197,9 +197,6 @@ async function bootDemo(): Promise<DemoState> {
 	await renderer.initialize();
 	console.log("[Warmup] Starting renderer warmup...");
 	const report = await renderer.warmup({
-		includeCorePasses: true,
-		includeShadowPass: true,
-		includePostProcess: true,
 		onProgress: (progress) => {
 			console.log(
 				`[Warmup Progress] Phase: ${progress.phase} | ${progress.completed}/${progress.total}` +
