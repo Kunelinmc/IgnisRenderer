@@ -1,8 +1,99 @@
-import { GLTFLoader } from "../../../src/loaders/GLTFLoader";
+import assert from "node:assert/strict";
 
+import { GLTFLoader } from "../../../src/loaders/GLTFLoader.ts";
+
+const COMPONENT_TYPE_BYTE = 5120;
+const COMPONENT_TYPE_UNSIGNED_BYTE = 5121;
 const COMPONENT_TYPE_FLOAT = 5126;
 const COMPONENT_TYPE_UNSIGNED_SHORT = 5123;
+const TYPE_SCALAR = "SCALAR";
 const TYPE_VEC3 = "VEC3";
+
+function assertArrayApproximatelyEqual(actual, expected, epsilon = 1e-6) {
+	assert.equal(actual.length, expected.length);
+	for (let i = 0; i < expected.length; i++) {
+		assert.ok(
+			Math.abs(actual[i] - expected[i]) <= epsilon,
+			`Mismatch at index ${i}: expected ${expected[i]}, got ${actual[i]}`
+		);
+	}
+}
+
+function testNormalizedIntegerAccessorUsesFloatingPointStorage() {
+	const loader = new GLTFLoader();
+	const values = new Int8Array([-127, -64, 0, 64, 127]);
+	const json = {
+		accessors: [
+			{
+				bufferView: 0,
+				componentType: COMPONENT_TYPE_BYTE,
+				count: values.length,
+				type: TYPE_SCALAR,
+				normalized: true,
+			},
+		],
+		bufferViews: [
+			{ buffer: 0, byteOffset: 0, byteLength: values.byteLength },
+		],
+	};
+	const result = loader.getAccessorData(
+		json,
+		[new Uint8Array(values.buffer)],
+		0
+	);
+	assert.ok(result instanceof Float32Array);
+	assertArrayApproximatelyEqual(result, [-1, -64 / 127, 0, 64 / 127, 1]);
+}
+
+function testNormalizedSparseAccessorUsesFloatingPointStorage() {
+	const loader = new GLTFLoader();
+	const base = new Int8Array([-127, 0, 127]);
+	const sparseIndices = new Uint8Array([1]);
+	const sparseValues = new Int8Array([64]);
+	const json = {
+		accessors: [
+			{
+				bufferView: 0,
+				componentType: COMPONENT_TYPE_BYTE,
+				count: base.length,
+				type: TYPE_SCALAR,
+				normalized: true,
+				sparse: {
+					count: 1,
+					indices: {
+						bufferView: 1,
+						componentType: COMPONENT_TYPE_UNSIGNED_BYTE,
+					},
+					values: { bufferView: 2 },
+				},
+			},
+		],
+		bufferViews: [
+			{ buffer: 0, byteOffset: 0, byteLength: base.byteLength },
+			{
+				buffer: 1,
+				byteOffset: 0,
+				byteLength: sparseIndices.byteLength,
+			},
+			{
+				buffer: 2,
+				byteOffset: 0,
+				byteLength: sparseValues.byteLength,
+			},
+		],
+	};
+	const result = loader.getAccessorData(
+		json,
+		[
+			new Uint8Array(base.buffer),
+			new Uint8Array(sparseIndices.buffer),
+			new Uint8Array(sparseValues.buffer),
+		],
+		0
+	);
+	assert.ok(result instanceof Float32Array);
+	assertArrayApproximatelyEqual(result, [-1, 64 / 127, 1]);
+}
 
 async function testSparse() {
 	console.log("Starting Sparse Accessor Test...");
@@ -199,6 +290,8 @@ async function testSparseNoBase() {
 }
 
 async function runAll() {
+	testNormalizedIntegerAccessorUsesFloatingPointStorage();
+	testNormalizedSparseAccessorUsesFloatingPointStorage();
 	await testSparse();
 	await testSparseNoBase();
 }

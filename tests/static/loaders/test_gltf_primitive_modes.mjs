@@ -13,10 +13,22 @@ function buildPrimitiveSource(indices) {
 		1, 1, 0,
 		0, 1, 0,
 	]);
+	const normals = new Float32Array([
+		0, 0, 1,
+		0, 0, 1,
+		0, 0, 1,
+		0, 0, 1,
+	]);
 	const indexArray = new Uint16Array(indices);
-	const combined = new Uint8Array(positions.byteLength + indexArray.byteLength);
+	const combined = new Uint8Array(
+		positions.byteLength + normals.byteLength + indexArray.byteLength
+	);
 	combined.set(new Uint8Array(positions.buffer), 0);
-	combined.set(new Uint8Array(indexArray.buffer), positions.byteLength);
+	combined.set(new Uint8Array(normals.buffer), positions.byteLength);
+	combined.set(
+		new Uint8Array(indexArray.buffer),
+		positions.byteLength + normals.byteLength
+	);
 
 	return {
 		json: {
@@ -30,6 +42,13 @@ function buildPrimitiveSource(indices) {
 				},
 				{
 					bufferView: 1,
+					byteOffset: 0,
+					componentType: COMPONENT_TYPE_FLOAT,
+					count: 4,
+					type: TYPE_VEC3,
+				},
+				{
+					bufferView: 2,
 					byteOffset: 0,
 					componentType: COMPONENT_TYPE_UNSIGNED_SHORT,
 					count: indexArray.length,
@@ -45,6 +64,11 @@ function buildPrimitiveSource(indices) {
 				{
 					buffer: 0,
 					byteOffset: positions.byteLength,
+					byteLength: normals.byteLength,
+				},
+				{
+					buffer: 0,
+					byteOffset: positions.byteLength + normals.byteLength,
 					byteLength: indexArray.byteLength,
 				},
 			],
@@ -53,8 +77,64 @@ function buildPrimitiveSource(indices) {
 		primitive: {
 			attributes: {
 				POSITION: 0,
+				NORMAL: 1,
 			},
-			indices: 1,
+			indices: 2,
+		},
+	};
+}
+
+function buildMissingNormalSource() {
+	const positions = new Float32Array([
+		0, 0, 0,
+		1, 0, 0,
+		0, 1, 0,
+		0, 0, 1,
+	]);
+	const uv0 = new Float32Array([
+		0, 0,
+		1, 0,
+		0, 1,
+		1, 1,
+	]);
+	const indices = new Uint16Array([0, 1, 2, 0, 3, 1]);
+	return {
+		json: {
+			accessors: [
+				{
+					bufferView: 0,
+					componentType: COMPONENT_TYPE_FLOAT,
+					count: 4,
+					type: TYPE_VEC3,
+				},
+				{
+					bufferView: 1,
+					componentType: COMPONENT_TYPE_FLOAT,
+					count: 4,
+					type: "VEC2",
+				},
+				{
+					bufferView: 2,
+					componentType: COMPONENT_TYPE_UNSIGNED_SHORT,
+					count: indices.length,
+					type: TYPE_SCALAR,
+				},
+			],
+			bufferViews: [
+				{ buffer: 0, byteOffset: 0, byteLength: positions.byteLength },
+				{ buffer: 1, byteOffset: 0, byteLength: uv0.byteLength },
+				{ buffer: 2, byteOffset: 0, byteLength: indices.byteLength },
+			],
+		},
+		buffers: [
+			new Uint8Array(positions.buffer),
+			new Uint8Array(uv0.buffer),
+			new Uint8Array(indices.buffer),
+		],
+		primitive: {
+			attributes: { POSITION: 0, TEXCOORD_0: 1 },
+			indices: 2,
+			mode: 4,
 		},
 	};
 }
@@ -128,6 +208,35 @@ function testDefaultModeIsTriangles() {
 	assert.deepEqual(Array.from(parsed.geometry.indices), [0, 1, 2, 2, 3, 0]);
 }
 
+function testMissingNormalsGenerateIndependentFlatFaces() {
+	const loader = new GLTFLoader();
+	const source = buildMissingNormalSource();
+	const primitive = loader.parsePrimitive(
+		source.json,
+		source.primitive,
+		source.buffers,
+		[]
+	);
+	assert.ok(primitive);
+	assert.deepEqual(Array.from(primitive.geometry.indices), [0, 1, 2, 3, 4, 5]);
+	assert.deepEqual(Array.from(primitive.geometry.normals), [
+		0, 0, 1,
+		0, 0, 1,
+		0, 0, 1,
+		0, 1, 0,
+		0, 1, 0,
+		0, 1, 0,
+	]);
+	assert.deepEqual(Array.from(primitive.geometry.uv0), [
+		0, 0,
+		1, 0,
+		0, 1,
+		0, 0,
+		1, 1,
+		1, 0,
+	]);
+}
+
 function testUnsupportedModeThrows() {
 	const loader = new GLTFLoader();
 	const source = buildPrimitiveSource([0, 1, 2]);
@@ -155,6 +264,7 @@ function run() {
 		testTriangleStrip();
 		testTriangleFan();
 		testDefaultModeIsTriangles();
+		testMissingNormalsGenerateIndependentFlatFaces();
 		testUnsupportedModeThrows();
 		console.log("glTF primitive mode tests passed");
 	} catch (error) {

@@ -1226,7 +1226,7 @@ export class GLTFLoader extends Loader<GLTFLoaderEvents> {
 			buffers
 		);
 
-		const geometry: IPrimitiveGeometry = {
+		let geometry: IPrimitiveGeometry = {
 			positions,
 			normals,
 			tangents,
@@ -1242,6 +1242,9 @@ export class GLTFLoader extends Loader<GLTFLoaderEvents> {
 			morphTargets,
 			indices,
 		};
+		if (!normals && topology === DEFAULT_PRIMITIVE_DRAW_TOPOLOGY) {
+			geometry = generateFlatTriangleNormals(geometry);
+		}
 
 		const boundingBox = GeometryBuilder.computeBoundingBox(geometry);
 		const boundingSphere = GeometryBuilder.computeBoundingSphere(
@@ -1597,7 +1600,10 @@ export class GLTFLoader extends Loader<GLTFLoaderEvents> {
 			acc.byteOffset ?? 0,
 			`accessors[${index}].byteOffset`
 		);
-		const data = this.createTypedArray(acc.componentType, componentCount);
+		const data =
+			acc.normalized ?
+				new Float32Array(componentCount)
+			:	this.createTypedArray(acc.componentType, componentCount);
 		if (acc.bufferView !== undefined) {
 			const bv = this._resolveBufferView(
 				json,
@@ -2019,6 +2025,180 @@ function toJointArray(
 		return value;
 	}
 	return new Uint16Array(value as ArrayLike<number>);
+}
+
+function generateFlatTriangleNormals(
+	geometry: IPrimitiveGeometry
+): IPrimitiveGeometry {
+	const sourceVertexCount = (geometry.positions.length / 3) | 0;
+	const indices = geometry.indices;
+	if (sourceVertexCount === 0 || indices.length === 0) {
+		return {
+			...geometry,
+			normals: new Float32Array(0),
+		};
+	}
+
+	for (const index of indices) {
+		if (index >= sourceVertexCount) {
+			throw new Error(
+				`glTF primitive index ${index} exceeds vertex count ${sourceVertexCount}`
+			);
+		}
+	}
+
+	const positions = expandFloatVertexAttribute(
+		geometry.positions,
+		sourceVertexCount,
+		indices
+	) as Float32Array;
+	const normals = new Float32Array(positions.length);
+	for (let offset = 0; offset < positions.length; offset += 9) {
+		const ux = positions[offset + 3] - positions[offset];
+		const uy = positions[offset + 4] - positions[offset + 1];
+		const uz = positions[offset + 5] - positions[offset + 2];
+		const vx = positions[offset + 6] - positions[offset];
+		const vy = positions[offset + 7] - positions[offset + 1];
+		const vz = positions[offset + 8] - positions[offset + 2];
+		let nx = uy * vz - uz * vy;
+		let ny = uz * vx - ux * vz;
+		let nz = ux * vy - uy * vx;
+		const length = Math.hypot(nx, ny, nz);
+		if (length > Number.EPSILON) {
+			nx /= length;
+			ny /= length;
+			nz /= length;
+		} else {
+			nx = 0;
+			ny = 0;
+			nz = 1;
+		}
+		for (let vertexOffset = 0; vertexOffset < 9; vertexOffset += 3) {
+			normals[offset + vertexOffset] = nx;
+			normals[offset + vertexOffset + 1] = ny;
+			normals[offset + vertexOffset + 2] = nz;
+		}
+	}
+
+	return {
+		...geometry,
+		positions,
+		normals,
+		tangents: expandFloatVertexAttribute(
+			geometry.tangents,
+			sourceVertexCount,
+			indices
+		),
+		uv0: expandFloatVertexAttribute(
+			geometry.uv0,
+			sourceVertexCount,
+			indices
+		),
+		uv1: expandFloatVertexAttribute(
+			geometry.uv1,
+			sourceVertexCount,
+			indices
+		),
+		uv2: expandFloatVertexAttribute(
+			geometry.uv2,
+			sourceVertexCount,
+			indices
+		),
+		uv3: expandFloatVertexAttribute(
+			geometry.uv3,
+			sourceVertexCount,
+			indices
+		),
+		colors: expandFloatVertexAttribute(
+			geometry.colors,
+			sourceVertexCount,
+			indices
+		),
+		joints0: expandJointVertexAttribute(
+			geometry.joints0,
+			sourceVertexCount,
+			indices
+		),
+		weights0: expandFloatVertexAttribute(
+			geometry.weights0,
+			sourceVertexCount,
+			indices
+		),
+		joints1: expandJointVertexAttribute(
+			geometry.joints1,
+			sourceVertexCount,
+			indices
+		),
+		weights1: expandFloatVertexAttribute(
+			geometry.weights1,
+			sourceVertexCount,
+			indices
+		),
+		morphTargets:
+			geometry.morphTargets?.map((target) => ({
+				positions: expandFloatVertexAttribute(
+					target.positions,
+					sourceVertexCount,
+					indices
+				),
+				normals: expandFloatVertexAttribute(
+					target.normals,
+					sourceVertexCount,
+					indices
+				),
+				tangents: expandFloatVertexAttribute(
+					target.tangents,
+					sourceVertexCount,
+					indices
+				),
+			})) ?? geometry.morphTargets,
+		indices: createSequentialIndices(indices.length),
+	};
+}
+
+function expandFloatVertexAttribute(
+	source: Float32Array | null | undefined,
+	sourceVertexCount: number,
+	indices: Uint32Array
+): Float32Array | null | undefined {
+	if (!source) return source;
+	const componentCount = source.length / sourceVertexCount;
+	if (!Number.isInteger(componentCount)) {
+		throw new Error("glTF vertex attribute length does not match vertex count");
+	}
+	const result = new Float32Array(indices.length * componentCount);
+	for (let outputIndex = 0; outputIndex < indices.length; outputIndex++) {
+		const sourceOffset = indices[outputIndex] * componentCount;
+		const outputOffset = outputIndex * componentCount;
+		for (let component = 0; component < componentCount; component++) {
+			result[outputOffset + component] = source[sourceOffset + component];
+		}
+	}
+	return result;
+}
+
+function expandJointVertexAttribute(
+	source: Uint16Array | Uint32Array | null | undefined,
+	sourceVertexCount: number,
+	indices: Uint32Array
+): Uint16Array | Uint32Array | null | undefined {
+	if (!source) return source;
+	const componentCount = source.length / sourceVertexCount;
+	if (!Number.isInteger(componentCount)) {
+		throw new Error("glTF joint attribute length does not match vertex count");
+	}
+	const result =
+		source instanceof Uint32Array ?
+			new Uint32Array(indices.length * componentCount)
+		:	new Uint16Array(indices.length * componentCount);
+	for (let outputIndex = 0; outputIndex < indices.length; outputIndex++) {
+		const sourceOffset = indices[outputIndex] * componentCount;
+		const outputOffset = outputIndex * componentCount;
+		for (let component = 0; component < componentCount; component++) {
+			result[outputOffset + component] = source[sourceOffset + component];
+		}
+	}
+	return result;
 }
 
 function createSequentialIndices(vertexCount: number): Uint32Array {

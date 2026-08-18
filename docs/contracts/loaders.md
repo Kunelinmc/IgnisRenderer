@@ -13,7 +13,12 @@ This document defines model, image, and motion loading behavior for glTF, EXR, a
 - `GLTFLoader.parsePrefab(data, baseURL?)` must parse an in-memory `ArrayBuffer` of GLB/glTF data and return a `Promise` resolving to an `EntityPrefab` (specifically `NodeEntityPrefab`).
 - `GLTFLoader.getLastAnimationBundle()` must return a `GLTFAnimationBundle` containing parsed `AnimationClip` objects, `Skeleton` structures, morph bindings, and a node path-to-ID map, or `null` if no parsing has completed.
 - `GLTFLoader.clearLastAnimationBundle()` must clear the cached animation bundle.
-- `GLTFLoader.getAccessorData(json, buffers, index)` must retrieve data from the specified accessor `index`, applying data type conversions, normalization, and sparse overrides where defined.
+- `GLTFLoader.getAccessorData(json, buffers, index)` must retrieve data from the
+  specified accessor `index`, applying data type conversions, normalization, and
+  sparse overrides where defined.
+- Normalized integer accessors must expose normalized floating-point values.
+  Dense and sparse values must not be truncated by storage in an integer typed
+  array after normalization.
 
 #### Supported Features & Extensions
 
@@ -59,6 +64,11 @@ The loader must parse glTF primitive modes and convert them to IgnisRenderer `Pr
 - Mode `1` (`LINES`), `2` (`LINE_LOOP`), and `3` (`LINE_STRIP`) must yield `"line-list"`.
 - Mode `4` (`TRIANGLES`), `5` (`TRIANGLE_STRIP`), and `6` (`TRIANGLE_FAN`) must yield `"triangle-list"`.
 The loader must normalize or reconstruct indices for loop, strip, and fan topologies.
+
+Triangle primitives without a `NORMAL` attribute must receive generated flat
+face normals. The loader must duplicate shared vertices and every associated
+vertex or morph-target attribute as needed so adjacent faces retain independent
+normals. Non-triangle primitives may retain a missing normal attribute.
 
 #### Functional Limitations & Security Constraints
 
