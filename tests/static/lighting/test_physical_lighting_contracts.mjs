@@ -35,6 +35,27 @@ function testPBRShaderContracts() {
 	assert.doesNotMatch(lighting, /vec3\(0\.05\)/);
 }
 
+function testAnalyticalAmbientUsesDiffuseIrradianceOnly() {
+	const webgl = readSource("src/shaders/webgl/scene/fragmentPbrLighting.glsl");
+	const webgpuForward = readSource(
+		"src/shaders/webgpu/scene/fragmentPbrAmbient.wgsl"
+	);
+	const webgpuDeferred = readSource(
+		"src/shaders/webgpu/lighting/deferredLighting.wgsl"
+	);
+
+	assert.match(webgl, /specularAmbientBase = vec3\(0\.0\)/);
+	assert.match(webgl, /ambientSheen = specularAmbientBase \*/);
+	assert.match(webgl, /if \(shAmbientEnabled\) \{[\s\S]*ambientDiffuseWeight/);
+	assert.doesNotMatch(webgl, /specularAmbientBase = ambientBase/);
+	assert.doesNotMatch(webgl, /ambientSheen = \(ambientBase \/ PI\)/);
+	for (const source of [webgpuForward, webgpuDeferred]) {
+		assert.match(source, /specularAmbientRadiance = vec3<f32>\(0\.0\)/);
+		assert.match(source, /if \(shAmbientEnabled\) \{[\s\S]*kdAmbient/);
+		assert.doesNotMatch(source, /specularAmbientRadiance = ambientColor \/ PI/);
+	}
+}
+
 function testPhongSpecularLobeNormalization() {
 	for (const shininess of [0, 1, 8, 32, 128, 512]) {
 		for (const f0 of [0.04, 0.5]) {
@@ -58,5 +79,6 @@ function testPhongSpecularLobeNormalization() {
 
 testPhongDefaultAndNormalizedEquation();
 testPBRShaderContracts();
+testAnalyticalAmbientUsesDiffuseIrradianceOnly();
 testPhongSpecularLobeNormalization();
 console.log("Physical lighting contract tests passed");

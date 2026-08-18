@@ -43,6 +43,13 @@ function createBaseContext(enableSH = true) {
 	});
 }
 
+function createConstantWhiteSH(linearRadiance = 1) {
+	const sh = SH.empty();
+	const dc = (linearRadiance * 255) / 0.282095;
+	sh[0] = { r: dc, g: dc, b: dc };
+	return sh;
+}
+
 function testSHAmbientGateForBlinnPhong() {
 	const strategy = new BlinnPhongStrategy();
 	const context = createBaseContext(true);
@@ -104,50 +111,40 @@ function testSHAmbientGateForPBR() {
 	);
 }
 
-function testPBRFallbackAmbientUsesLinearBrightness() {
+function testPBRAmbientIrradianceIsViewIndependent() {
 	const strategy = new PBRStrategy();
-	const fallbackLinear = 0.05;
-	const sh = SH.empty();
-	const dc = (fallbackLinear * 255) / (Math.PI * 0.282095);
-	sh[0] = { r: dc, g: dc, b: dc };
-
 	const surface = {
 		type: "pbr",
-		albedo: { r: 255, g: 255, b: 255 },
+		albedo: { r: 94, g: 141, b: 206 },
 		opacity: 1,
 		normal: { x: 0, y: 0, z: 1 },
 		emissive: { r: 0, g: 0, b: 0 },
 		emissiveIntensity: 1,
-		roughness: 1,
+		roughness: 0.6,
 		metalness: 0,
 		reflectance: 0.5,
 		occlusion: 1,
 		clearcoat: 0,
 		clearcoatRoughness: 0,
 	};
+	const context = createBaseContext(false);
 
-	const fallbackColor = strategy.calculate(
+	const facing = strategy.calculate(
 		{ x: 0, y: 0, z: 0 },
 		{ x: 0, y: 0, z: 1 },
 		{ x: 0, y: 0, z: 1 },
 		surface,
-		createContext({ enableSH: false })
+		context
 	);
-
-	const shColor = strategy.calculate(
+	const grazing = strategy.calculate(
 		{ x: 0, y: 0, z: 0 },
 		{ x: 0, y: 0, z: 1 },
-		{ x: 0, y: 0, z: 1 },
+		{ x: 0.9999995, y: 0, z: 0.001 },
 		surface,
-		createContext({ enableSH: true, shAmbientCoeffs: sh })
+		context
 	);
 
-	assert.ok(
-		Math.abs(fallbackColor.r - shColor.r) < 0.5 &&
-			Math.abs(fallbackColor.g - shColor.g) < 0.5 &&
-			Math.abs(fallbackColor.b - shColor.b) < 0.5,
-		"PBR fallback ambient should use the same linear brightness as an equivalent SH fallback"
-	);
+	assert.deepEqual(grazing, facing);
 }
 
 function testPBRSHAmbientSpecularTracksReflectionDirection() {
@@ -202,13 +199,8 @@ function testPBRSHAmbientSpecularTracksReflectionDirection() {
 function testClearcoatAttenuatesAmbientSheen() {
 	const strategy = new PBRStrategy();
 	const context = createContext({
-		enableSH: false,
-		lights: [
-			new AmbientLight({
-				color: { r: 255, g: 255, b: 255 },
-				intensity: 0.25,
-			}),
-		],
+		enableSH: true,
+		shAmbientCoeffs: createConstantWhiteSH(0.25),
 	});
 	const baseSurface = {
 		type: "pbr",
@@ -282,16 +274,11 @@ function testClearcoatAttenuatesAmbientSheen() {
 	);
 }
 
-function testTransmissionVolumeAttenuationColorsAmbientLight() {
+function testTransmissionVolumeAttenuationColorsSHAmbient() {
 	const strategy = new PBRStrategy();
 	const context = createContext({
-		enableSH: false,
-		lights: [
-			new AmbientLight({
-				color: { r: 255, g: 255, b: 255 },
-				intensity: 1.0,
-			}),
-		],
+		enableSH: true,
+		shAmbientCoeffs: createConstantWhiteSH(),
 	});
 	const color = strategy.calculate(
 		{ x: 0, y: 0, z: 0 },
@@ -320,7 +307,7 @@ function testTransmissionVolumeAttenuationColorsAmbientLight() {
 
 	assert.ok(
 		color.b > 0 && color.r < color.b * 0.25 && color.g < color.b * 0.25,
-		"Transmission volume attenuation should tint ambient light with the attenuation color"
+		"Transmission volume attenuation should tint SH ambient radiance"
 	);
 }
 
@@ -688,13 +675,8 @@ function testTransmissionVolumeAttenuationUsesLinear255Color() {
 			attenuationColor: { r: 128, g: 128, b: 128 },
 		},
 		createContext({
-			enableSH: false,
-			lights: [
-				new AmbientLight({
-					color: { r: 255, g: 255, b: 255 },
-					intensity: 1.0,
-				}),
-			],
+			enableSH: true,
+			shAmbientCoeffs: createConstantWhiteSH(),
 		})
 	);
 
@@ -871,10 +853,10 @@ function run() {
 	try {
 		testSHAmbientGateForBlinnPhong();
 		testSHAmbientGateForPBR();
-		testPBRFallbackAmbientUsesLinearBrightness();
+		testPBRAmbientIrradianceIsViewIndependent();
 		testPBRSHAmbientSpecularTracksReflectionDirection();
 		testClearcoatAttenuatesAmbientSheen();
-		testTransmissionVolumeAttenuationColorsAmbientLight();
+		testTransmissionVolumeAttenuationColorsSHAmbient();
 		testPBRNormalMapFallbackWithoutTangent();
 		testEvaluatorCompileSwapsMaterial();
 		testPhongEvaluatorDirectEvaluate();

@@ -204,10 +204,12 @@ vec3 shadePBR(
 	ivec2 localProbeIndices = ivec2(-1);
 	vec2 localProbeWeights = vec2(0.0);
 
+	bool shAmbientEnabled = false;
 	vec3 ambientBase = uAmbientColor;
-	vec3 specularAmbientBase = ambientBase;
+	vec3 specularAmbientBase = vec3(0.0);
 #if WEBGL_SCENE_SH
 	if (uEnableSH == 1) {
+		shAmbientEnabled = true;
 		selectTopTwoLocalLightProbes(vWorldPos, localProbeIndices, localProbeWeights);
 		ambientBase =
 			sampleDiffuseProbeIrradiance(vWorldPos, pbrNormal) / 255.0;
@@ -236,11 +238,15 @@ vec3 shadePBR(
 		iridescenceThickness,
 		iridescenceIor
 	);
-	vec3 ambientDiffuse = (ambientBase / PI) *
-		albedo *
-		diffuseFresnelWeight(ambientFresnel, iridescence) *
-		(1.0 - metalness) *
-		(1.0 - transmission);
+	vec3 ambientDiffuseWeight =
+		vec3((1.0 - metalness) * (1.0 - transmission));
+	if (shAmbientEnabled) {
+		ambientDiffuseWeight =
+			diffuseFresnelWeight(ambientFresnel, iridescence) *
+			(1.0 - metalness) *
+			(1.0 - transmission);
+	}
+	vec3 ambientDiffuse = (ambientBase / PI) * albedo * ambientDiffuseWeight;
 	vec3 ambientSpecular;
 #if WEBGL_SCENE_ENVIRONMENT_SPECULAR
 	if (uHasEnvSpecularMap == 1) {
@@ -267,13 +273,20 @@ vec3 shadePBR(
 			max(dot(clearcoatNormal, viewDir), PBR_MIN_NDOTV), 0.04
 		) : 0.0;
 	vec3 ambientSheenFresnel = fresnelSchlick(nDotV, sheenColor);
-	vec3 ambientBaseAttenuation =
+	float diffuseClearcoatFresnel = shAmbientEnabled ?
+		ambientClearcoatFresnel : (clearcoat > 0.0 ? 0.04 : 0.0);
+	vec3 ambientDiffuseAttenuation =
+		(vec3(1.0) - vec3(diffuseClearcoatFresnel * clearcoat)) *
+		(shAmbientEnabled ?
+			max(vec3(0.0), vec3(1.0) - ambientSheenFresnel) :
+			max(vec3(0.0), vec3(1.0) - sheenColor * 0.5));
+	vec3 ambientSpecularAttenuation =
 		(vec3(1.0) - vec3(ambientClearcoatFresnel * clearcoat)) *
 		max(vec3(0.0), vec3(1.0) - ambientSheenFresnel);
 	vec3 ambientClearcoat = specularAmbientBase *
 		ambientClearcoatFresnel * clearcoat *
 		max(PBR_SPEC_FALLBACK, (1.0 - clearcoatRoughness) * 0.5);
-	vec3 ambientSheen = (ambientBase / PI) * sheenColor *
+	vec3 ambientSheen = specularAmbientBase * sheenColor *
 		(1.0 - 0.5 * sheenRoughness);
 	vec3 ambientTransmission = vec3(0.0);
 	if (transmission > EPSILON) {
@@ -590,7 +603,8 @@ vec3 shadePBR(
 	}
 
 	vec3 ambient = (
-		(ambientDiffuse + ambientSpecular) * ambientBaseAttenuation +
+		ambientDiffuse * ambientDiffuseAttenuation +
+		ambientSpecular * ambientSpecularAttenuation +
 		ambientClearcoat + ambientSheen + ambientTransmission
 	) *
 		clamp(occlusion, 0.0, 1.0);

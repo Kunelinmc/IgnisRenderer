@@ -26,6 +26,11 @@ This document defines clustered lighting, environment IBL, irradiance grids, lig
 
 - Built-in PBR shading must conserve energy across diffuse, base specular,
   clearcoat, sheen, and transmission lobes.
+- Analytical `AmbientLight` color must be consumed as view-independent diffuse
+  irradiance. It must not be reused as fallback specular radiance, and its
+  diffuse contribution must not be attenuated by view-dependent Fresnel.
+  Environment maps and SH radiance may retain Fresnel-weighted diffuse and
+  specular image-based lighting.
 - Dielectric F0 must be
   `0.16 * reflectance * reflectance * specularColor * specularFactor`;
   metallic F0 must use base color and must remain reflective when

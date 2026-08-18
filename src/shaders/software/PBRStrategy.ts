@@ -608,9 +608,9 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 					transmRadianceB = prefilteredRefraction.b;
 				} else {
 					this._sampleSHRadiance(this._refractionDir, shAmbient, specRadiance);
-					transmRadianceR = specRadiance.r;
-					transmRadianceG = specRadiance.g;
-					transmRadianceB = specRadiance.b;
+					transmRadianceR = specRadiance.r / 255;
+					transmRadianceG = specRadiance.g / 255;
+					transmRadianceB = specRadiance.b / 255;
 				}
 
 				ambR +=
@@ -709,54 +709,10 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 					clearcoatAttenuationAmb;
 			}
 		} else {
-			let ambientColR = ambientLightR;
-			let ambientColG = ambientLightG;
-			let ambientColB = ambientLightB;
-			const ambientRadianceR = ambientColR / Math.PI;
-			const ambientRadianceG = ambientColG / Math.PI;
-			const ambientRadianceB = ambientColB / Math.PI;
-			const fAmbient = this._resolveIridescenceFresnel(
-				NdotV,
-				realF0R,
-				realF0G,
-				realF0B,
-				iridescence,
-				iridescenceIor,
-				iridescenceThickness,
-				this._iridescenceFresnel
-			);
-			const FambR = fAmbient.r;
-			const FambG = fAmbient.g;
-			const FambB = fAmbient.b;
-
-			const hasRefraction =
-				transmission > 0 && this._refract(V, N, ior, this._refractionDir);
-			const isTIR = transmission > 0 && !hasRefraction;
-			const effectiveFambR = isTIR ? 1.0 : FambR;
-			const effectiveFambG = isTIR ? 1.0 : FambG;
-			const effectiveFambB = isTIR ? 1.0 : FambB;
-
-			const effectiveFambMax = Math.max(
-				effectiveFambR,
-				effectiveFambG,
-				effectiveFambB
-			);
-			const diffuseFambR = iridescence > 0 ? effectiveFambMax : effectiveFambR;
-			const diffuseFambG = iridescence > 0 ? effectiveFambMax : effectiveFambG;
-			const diffuseFambB = iridescence > 0 ? effectiveFambMax : effectiveFambB;
-			const kDambR =
-				(1.0 - diffuseFambR) * oneMinusMetal * oneMinusTransmission;
-			const kDambG =
-				(1.0 - diffuseFambG) * oneMinusMetal * oneMinusTransmission;
-			const kDambB =
-				(1.0 - diffuseFambB) * oneMinusMetal * oneMinusTransmission;
-			const kTambR = (1.0 - effectiveFambR) * oneMinusMetal * transmission;
-			const kTambG = (1.0 - effectiveFambG) * oneMinusMetal * transmission;
-			const kTambB = (1.0 - effectiveFambB) * oneMinusMetal * transmission;
-
-			const ccAmbFresnel =
-				clearcoat > 0 ? this._FresnelSchlickScalar(NdotV, 0.04) : 0;
-			const clearcoatAttenuationAmb = 1.0 - ccAmbFresnel * clearcoat;
+			const ambientRadianceR = ambientLightR / Math.PI;
+			const ambientRadianceG = ambientLightG / Math.PI;
+			const ambientRadianceB = ambientLightB / Math.PI;
+			const clearcoatAttenuationAmb = 1.0 - 0.04 * clearcoat;
 			const baseAttenuationAmbR =
 				clearcoatAttenuationAmb * (1.0 - sheenColorR * 0.5);
 			const baseAttenuationAmbG =
@@ -764,77 +720,13 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 			const baseAttenuationAmbB =
 				clearcoatAttenuationAmb * (1.0 - sheenColorB * 0.5);
 
-			ambR = ambientRadianceR * albR * kDambR * baseAttenuationAmbR;
-			ambG = ambientRadianceG * albG * kDambG * baseAttenuationAmbG;
-			ambB = ambientRadianceB * albB * kDambB * baseAttenuationAmbB;
-
-			if (transmission > 0 && hasRefraction) {
-				ambR +=
-					ambientColR *
-					albR *
-					kTambR *
-					volumeAttenuationR *
-					clearcoatAttenuationAmb;
-				ambG +=
-					ambientColG *
-					albG *
-					kTambG *
-					volumeAttenuationG *
-					clearcoatAttenuationAmb;
-				ambB +=
-					ambientColB *
-					albB *
-					kTambB *
-					volumeAttenuationB *
-					clearcoatAttenuationAmb;
-			}
-
-			const specFactor = Math.max(PBR_SPEC_FALLBACK, (1.0 - rough) * 0.5);
-			const ccSpecFactor = Math.max(
-				PBR_SPEC_FALLBACK,
-				(1.0 - clearcoatRoughness) * 0.5
-			);
-
-			ambR +=
-				ambientRadianceR *
-					effectiveFambR *
-					specFactor *
-					clearcoatAttenuationAmb +
-				ambientRadianceR * ccAmbFresnel * ccSpecFactor * clearcoat;
-			ambG +=
-				ambientRadianceG *
-					effectiveFambG *
-					specFactor *
-					clearcoatAttenuationAmb +
-				ambientRadianceG * ccAmbFresnel * ccSpecFactor * clearcoat;
-			ambB +=
-				ambientRadianceB *
-					effectiveFambB *
-					specFactor *
-					clearcoatAttenuationAmb +
-				ambientRadianceB * ccAmbFresnel * ccSpecFactor * clearcoat;
-
-			if (maxSheenColor > 0) {
-				const sheenAmb = Math.max(
-					PBR_SPEC_FALLBACK,
-					(1.0 - sheenRoughness) * 0.5
-				);
-				ambR +=
-					ambientRadianceR *
-					sheenColorR *
-					sheenAmb *
-					clearcoatAttenuationAmb;
-				ambG +=
-					ambientRadianceG *
-					sheenColorG *
-					sheenAmb *
-					clearcoatAttenuationAmb;
-				ambB +=
-					ambientRadianceB *
-					sheenColorB *
-					sheenAmb *
-					clearcoatAttenuationAmb;
-			}
+			const diffuseWeight = oneMinusMetal * oneMinusTransmission;
+			ambR =
+				ambientRadianceR * albR * diffuseWeight * baseAttenuationAmbR;
+			ambG =
+				ambientRadianceG * albG * diffuseWeight * baseAttenuationAmbG;
+			ambB =
+				ambientRadianceB * albB * diffuseWeight * baseAttenuationAmbB;
 		}
 
 		ambR *= occlusion;

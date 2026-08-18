@@ -503,11 +503,12 @@ fn evaluateDeferredPBR(surface: DeferredSurface) -> vec3<f32> {
 		}
 	}
 
+	let shAmbientEnabled = useSHAmbient();
 	var ambientColor = frame.ambientColor.rgb;
 
 	var diffuseAmbient = ambientColor / PI;
-	var specularAmbientRadiance = ambientColor / PI;
-	if (useSHAmbient()) {
+	var specularAmbientRadiance = vec3<f32>(0.0);
+	if (shAmbientEnabled) {
 		diffuseAmbient =
 			sampleDiffuseProbeIrradiance(surface.worldPosition, surface.normal) /
 			(255.0 * PI);
@@ -543,18 +544,28 @@ fn evaluateDeferredPBR(surface: DeferredSurface) -> vec3<f32> {
 		surface.iridescenceThickness,
 		surface.iridescenceIor
 	);
-	let kdAmbient =
-		diffuseFresnelWeight(fAmbient, surface.iridescence) *
-		(1.0 - surface.metalness);
+	var kdAmbient = vec3<f32>(1.0 - surface.metalness);
+	if (shAmbientEnabled) {
+		kdAmbient =
+			diffuseFresnelWeight(fAmbient, surface.iridescence) *
+			(1.0 - surface.metalness);
+	}
 	let ccAmbientFresnel = select(
 		0.0,
 		fresnelSchlickScalar(pbr.nDotV, 0.04),
 		surface.clearcoat > 0.0
 	);
-	let clearcoatAmbientAttenuation =
+	let diffuseCcAmbientFresnel = select(
+		select(0.0, 0.04, surface.clearcoat > 0.0),
+		ccAmbientFresnel,
+		shAmbientEnabled
+	);
+	let clearcoatDiffuseAttenuation =
+		1.0 - diffuseCcAmbientFresnel * surface.clearcoat;
+	let clearcoatSpecularAttenuation =
 		1.0 - ccAmbientFresnel * surface.clearcoat;
 	let baseAmbientAttenuation =
-		vec3<f32>(clearcoatAmbientAttenuation) *
+		vec3<f32>(clearcoatDiffuseAttenuation) *
 		(vec3<f32>(1.0) - surface.sheenColor * 0.5);
 	var ambientLight =
 		diffuseAmbient * surface.albedo * kdAmbient * baseAmbientAttenuation;
@@ -592,7 +603,7 @@ fn evaluateDeferredPBR(surface: DeferredSurface) -> vec3<f32> {
 			prefiltered *
 			(splitSumFresnel * brdf.x + vec3<f32>(brdf.y)) *
 			pbr.energyCompensation *
-			clearcoatAmbientAttenuation;
+			clearcoatSpecularAttenuation;
 
 		let clearcoatPrefiltered = sampleEnvironmentSpecular(
 			clearcoatReflectionDir,
@@ -616,7 +627,7 @@ fn evaluateDeferredPBR(surface: DeferredSurface) -> vec3<f32> {
 			specularAmbientRadiance *
 			fAmbient *
 			specularAmbientFactor *
-			clearcoatAmbientAttenuation;
+			clearcoatSpecularAttenuation;
 		ambientLight +=
 			specularAmbientRadiance *
 			ccAmbientFresnel *
@@ -635,7 +646,7 @@ fn evaluateDeferredPBR(surface: DeferredSurface) -> vec3<f32> {
 			specularAmbientRadiance *
 			surface.sheenColor *
 			sheenAmbientFactor *
-			clearcoatAmbientAttenuation;
+			clearcoatSpecularAttenuation;
 	}
 
 	return max(directLight + ambientLight * surface.occlusion + surface.emissive, vec3<f32>(0.0));

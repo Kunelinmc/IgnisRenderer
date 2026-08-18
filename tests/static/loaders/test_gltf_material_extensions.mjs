@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { GLTFLoader } from "../../../src/loaders/GLTFLoader.ts";
 import { Texture } from "../../../src/core/Texture.ts";
-import { AmbientLight } from "../../../src/lights/AmbientLight.ts";
+import { SH } from "../../../src/maths/SH.ts";
 import { PBRMaterial, UVChannel } from "../../../src/materials/PBRMaterial.ts";
 import { PBRStrategy } from "../../../src/shaders/software/PBRStrategy.ts";
 import { PBREvaluator } from "../../../src/shaders/software/PBREvaluator.ts";
@@ -361,19 +361,17 @@ function testTextureTransformStillCreatesDistinctTextureInstance() {
 
 function testSpecularColorUsesLinearSemanticsInPBRStrategy() {
 	const strategy = new PBRStrategy();
+	const sh = SH.empty();
+	const dc = 255 / 0.282095;
+	sh[0] = { r: dc, g: dc, b: dc };
 	const context = {
 		renderer: { shadowMaps: new Map() },
 		cameraPos: { x: 0, y: 0, z: 1 },
-		lights: [
-			new AmbientLight({
-				color: { r: 255, g: 255, b: 255 },
-				intensity: 10.0,
-			}),
-		],
+		lights: [],
 		worldMatrix: undefined,
-		shAmbientCoeffs: null,
+		shAmbientCoeffs: sh,
 		enableShadows: false,
-		enableSH: false,
+		enableSH: true,
 		enableGamma: false,
 		enableLighting: true,
 	};

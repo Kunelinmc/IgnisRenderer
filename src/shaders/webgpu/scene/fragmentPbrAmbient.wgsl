@@ -2,7 +2,7 @@ let shAmbientEnabled = useSHAmbient();
 var ambientColor = frame.ambientColor.rgb;
 
 var diffuseAmbient = ambientColor / PI;
-var specularAmbientRadiance = ambientColor / PI;
+var specularAmbientRadiance = vec3<f32>(0.0);
 if (shAmbientEnabled) {
 	diffuseAmbient =
 		sampleDiffuseProbeIrradiance(input.worldPosition, pbrNormal) / (255.0 * PI);
@@ -30,19 +30,28 @@ let fAmbient = resolveIridescenceFresnel(
 let refractionResult = refractViewDirection(viewDir, pbrNormal, ior);
 let isTIR = transmission > 0.0 && refractionResult.valid < 0.5;
 let effectiveFAmbient = select(fAmbient, vec3<f32>(1.0), isTIR);
-let kdAmbient =
-	diffuseFresnelWeight(effectiveFAmbient, iridescence) *
-	(1.0 - metalness) *
-	(1.0 - transmission);
+var kdAmbient = vec3<f32>((1.0 - metalness) * (1.0 - transmission));
+if (shAmbientEnabled) {
+	kdAmbient =
+		diffuseFresnelWeight(effectiveFAmbient, iridescence) *
+		(1.0 - metalness) *
+		(1.0 - transmission);
+}
 let ktAmbient =
 	(vec3<f32>(1.0) - effectiveFAmbient) *
 	(1.0 - metalness) *
 	transmission;
 
 let ccAmbientFresnel = select(0.0, fresnelSchlickScalar(nDotV, 0.04), clearcoat > 0.0);
-let clearcoatAmbientAttenuation = 1.0 - ccAmbientFresnel * clearcoat;
+let diffuseCcAmbientFresnel = select(
+	select(0.0, 0.04, clearcoat > 0.0),
+	ccAmbientFresnel,
+	shAmbientEnabled
+);
+let clearcoatDiffuseAttenuation = 1.0 - diffuseCcAmbientFresnel * clearcoat;
+let clearcoatSpecularAttenuation = 1.0 - ccAmbientFresnel * clearcoat;
 let baseAmbientAttenuation =
-	vec3<f32>(clearcoatAmbientAttenuation) * (vec3<f32>(1.0) - sheenColor * 0.5);
+	vec3<f32>(clearcoatDiffuseAttenuation) * (vec3<f32>(1.0) - sheenColor * 0.5);
 
 var ambientLight = diffuseAmbient * albedo * kdAmbient * baseAmbientAttenuation;
 if (
@@ -50,7 +59,7 @@ if (
 	transmission > 0.0 &&
 	refractionResult.valid > 0.5
 ) {
-	var transmissionRadiance = ambientColor;
+	var transmissionRadiance = vec3<f32>(0.0);
 	if (hasEnvSpecular()) {
 		transmissionRadiance = sampleEnvironmentSpecular(
 			refractionResult.direction,
@@ -75,7 +84,7 @@ if (
 		albedo *
 		ktAmbient *
 		volumeAttenuation *
-		clearcoatAmbientAttenuation;
+		clearcoatSpecularAttenuation;
 }
 
 let specularAmbientFactor = max(PBR_SPEC_FALLBACK, (1.0 - roughness) * 0.5);
@@ -96,7 +105,7 @@ if (hasEnvSpecular()) {
 		prefiltered *
 		(splitSumFresnel * brdf.x + vec3<f32>(brdf.y)) *
 		energyCompensation *
-		clearcoatAmbientAttenuation;
+		clearcoatSpecularAttenuation;
 
 	let clearcoatNdotV = max(dot(clearcoatNormal, viewDir), PBR_MIN_NDOTV);
 	let clearcoatReflectionDir = reflectViewDirection(clearcoatNormal, viewDir);
@@ -115,7 +124,7 @@ if (hasEnvSpecular()) {
 		specularAmbientRadiance *
 		effectiveFAmbient *
 		specularAmbientFactor *
-		clearcoatAmbientAttenuation;
+		clearcoatSpecularAttenuation;
 	ambientLight +=
 		specularAmbientRadiance *
 		ccAmbientFresnel *
@@ -129,7 +138,7 @@ if (maxSheenColor > 0.0) {
 		specularAmbientRadiance *
 		sheenColor *
 		sheenAmbientFactor *
-		clearcoatAmbientAttenuation;
+		clearcoatSpecularAttenuation;
 }
 
 ambientLight *= occlusion;
