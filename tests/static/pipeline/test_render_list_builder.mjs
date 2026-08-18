@@ -166,6 +166,7 @@ function run() {
 	assert.equal(occludedFrame.transparentPackets.length, 3);
 
 	testRebuildForCameraUsesOverrideFrustum();
+	testTransparentSortUsesDeformedCenter();
 
 	console.log("Render list builder tests passed");
 }
@@ -193,12 +194,27 @@ function testRebuildForCameraUsesOverrideFrustum() {
 
 	scene.updateWorldMatrices();
 	mainCamera.updateMatrices();
+	const overridePacketId = `${overrideVisible.id}:${mesh.primitives[0].id}`;
+	const deformationStates = new Map([
+		[
+			overridePacketId,
+			{
+				packetId: overridePacketId,
+				revision: 42,
+				localBounds: {
+					center: { x: 1.5, y: 0.5, z: 0 },
+					radius: 0.75,
+				},
+			},
+		],
+	]);
 
 	const mainFrame = PreparedSceneBuilder.build({
 		scene,
 		camera: mainCamera,
 		shadowMaps: new Map(),
 		hasActiveAnimations: false,
+		deformationStates,
 	});
 
 	assert.equal(
@@ -233,6 +249,9 @@ function testRebuildForCameraUsesOverrideFrustum() {
 		(packet) => packet.meshInstance.id === overrideVisible.id
 	);
 	assert.ok(rebuiltOverridePacket);
+	assert.equal(rebuiltOverridePacket.deformationRevision, 42);
+	assert.equal(rebuiltOverridePacket.worldBounds.center.x, 81.5);
+	assert.equal(rebuiltOverridePacket.worldBounds.radius, 0.75);
 	assert.equal(
 		(rebuiltOverridePacket.passFlags & DRAW_PACKET_FLAG_SHADOW_RECEIVER) !== 0,
 		true
@@ -245,6 +264,53 @@ function testRebuildForCameraUsesOverrideFrustum() {
 	assert.strictEqual(
 		rebuiltFrame.shadowTransmitterPackets,
 		mainFrame.shadowTransmitterPackets
+	);
+}
+
+function testTransparentSortUsesDeformedCenter() {
+	const scene = new Scene();
+	const camera = new Camera();
+	camera.position.set(0, 0, 5);
+	scene.add(camera);
+	const material = new Material({
+		name: "DeformedTransparent",
+		alphaMode: "BLEND",
+	});
+	const mesh = createTriangleMesh(material);
+	const near = scene.add(new MeshInstance({ mesh, name: "deformedNear" }));
+	const far = scene.add(new MeshInstance({ mesh, name: "deformedFar" }));
+	scene.updateWorldMatrices();
+	camera.updateMatrices();
+
+	const primitiveId = mesh.primitives[0].id;
+	const deformationStates = new Map([
+		[
+			`${near.id}:${primitiveId}`,
+			{
+				packetId: `${near.id}:${primitiveId}`,
+				revision: 1,
+				localBounds: { center: { x: 0, y: 0, z: 0 }, radius: 1 },
+			},
+		],
+		[
+			`${far.id}:${primitiveId}`,
+			{
+				packetId: `${far.id}:${primitiveId}`,
+				revision: 1,
+				localBounds: { center: { x: 0, y: 0, z: -4 }, radius: 1 },
+			},
+		],
+	]);
+
+	const frame = PreparedSceneBuilder.build({
+		scene,
+		camera,
+		hasActiveAnimations: true,
+		deformationStates,
+	});
+	assert.deepEqual(
+		frame.transparentPackets.map((packet) => packet.meshInstance.id),
+		[far.id, near.id],
 	);
 }
 

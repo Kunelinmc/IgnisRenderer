@@ -168,15 +168,22 @@ async function testIncrementalMainPassUsesDepthPartialReuse() {
 		context
 	);
 
-	assert.equal(backend.recordedRenderPasses.length >= 3, true);
-	const depthClearPass = backend.recordedRenderPasses[0];
+	assert.equal(backend.recordedRenderPasses.length >= 4, true);
+	const colorClearPass = backend.recordedRenderPasses[0];
+	assert.equal(colorClearPass.label, "WebGPUColorDirtyClear");
+	assert.equal(colorClearPass.colorAttachments.length, 5);
+	assert.equal(
+		colorClearPass.colorAttachments.every((attachment) => attachment.loadOp === "load"),
+		true
+	);
+	const depthClearPass = backend.recordedRenderPasses[1];
 	assert.equal(depthClearPass.depthStencilAttachment.depthLoadOp, "load");
 	assert.equal(depthClearPass.colorAttachments.length, 0);
-	const earlyZPass = backend.recordedRenderPasses[1];
+	const earlyZPass = backend.recordedRenderPasses[2];
 	assert.equal(earlyZPass.label, "WebGPUEarlyZPrepassMRT");
 	assert.equal(earlyZPass.colorAttachments.length, 0);
 	assert.equal(earlyZPass.depthStencilAttachment.depthLoadOp, "load");
-	const mainPass = backend.recordedRenderPasses[2];
+	const mainPass = backend.recordedRenderPasses[3];
 	assert.equal(mainPass.depthStencilAttachment.depthLoadOp, "load");
 }
 
@@ -243,6 +250,7 @@ async function testLegacyMainPassScalesDirtyRectsToCanvasTarget() {
 		(call) => call[0] === "setScissorRect"
 	);
 	assert.deepEqual(scissorCalls, [
+		["setScissorRect", 611, 0, 612, 869],
 		["setScissorRect", 611, 0, 612, 869],
 		["setScissorRect", 611, 0, 612, 869],
 		["setScissorRect", 611, 0, 612, 869],

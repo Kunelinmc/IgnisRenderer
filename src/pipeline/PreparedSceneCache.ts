@@ -30,9 +30,12 @@ import type { PreparedSceneBuildSource } from "./PreparedSceneBuilder";
 import { PreparedSceneTileSpatialIndex } from "./PreparedSceneSpatialIndex";
 import { computePacketScreenRect } from "./screenBounds";
 
-interface CachedSignatureState {
+interface MatrixSignatureState {
 	matrixSignatureA: number;
 	matrixSignatureB: number;
+}
+
+interface CachedSignatureState extends MatrixSignatureState {
 	materialSignatureA: number;
 	materialSignatureB: number;
 	rect: DirtyRect | null;
@@ -41,6 +44,11 @@ interface CachedSignatureState {
 interface CachedPacketState extends CachedSignatureState {
 	pipelineKey: string;
 	geometryVersion: number;
+	deformationRevision: number;
+	boundsCenterX: number;
+	boundsCenterY: number;
+	boundsCenterZ: number;
+	boundsRadius: number;
 	primitiveVisibility: number;
 	meshVisibility: number;
 }
@@ -113,11 +121,15 @@ export class PreparedSceneCache {
 	private _packetStateById = new Map<string, CachedPacketState>();
 	private _decalStateById = new Map<string, CachedDecalState>();
 	private _frameIndex = 0;
+	private _cameraSignatureA: number | null = null;
+	private _cameraSignatureB: number | null = null;
 
 	public reset(): void {
 		this._packetStateById.clear();
 		this._decalStateById.clear();
 		this._frameIndex = 0;
+		this._cameraSignatureA = null;
+		this._cameraSignatureB = null;
 	}
 
 	public build(input: PreparedSceneCacheBuildInput): PreparedSceneCacheBuildResult {
@@ -140,6 +152,14 @@ export class PreparedSceneCache {
 			height,
 			input.incrementalOptions.dirtyTileSize
 		);
+		const cameraSignature = createMatrixSignature(frame.camera.viewProjectionMatrix);
+		const cameraChanged =
+			this._cameraSignatureA !== null &&
+			this._cameraSignatureB !== null &&
+			(this._cameraSignatureA !== cameraSignature.matrixSignatureA ||
+				this._cameraSignatureB !== cameraSignature.matrixSignatureB);
+		this._cameraSignatureA = cameraSignature.matrixSignatureA;
+		this._cameraSignatureB = cameraSignature.matrixSignatureB;
 
 		if (!input.incrementalOptions.enabled) {
 			this._syncCacheState(frame, packetRects, width, height);
@@ -249,7 +269,7 @@ export class PreparedSceneCache {
 			input.incrementalOptions.dirtyTileSize
 		);
 
-		if (this._frameIndex <= 1) {
+		if (this._frameIndex <= 1 || cameraChanged) {
 			return {
 				frame,
 				dirtyRects: [fullScreenRect],
@@ -467,6 +487,11 @@ function createPacketState(
 	const state: CachedPacketState = {
 		pipelineKey: packet.pipelineKey,
 		geometryVersion: packet.primitive.geometryVersion ?? 0,
+		deformationRevision: packet.deformationRevision ?? 0,
+		boundsCenterX: packet.worldBounds.center.x,
+		boundsCenterY: packet.worldBounds.center.y,
+		boundsCenterZ: packet.worldBounds.center.z,
+		boundsRadius: packet.worldBounds.radius,
 		matrixSignatureA: SIGNATURE_INIT_A,
 		matrixSignatureB: SIGNATURE_INIT_B,
 		materialSignatureA: SIGNATURE_INIT_A,
@@ -509,6 +534,11 @@ function packetStateEquals(
 	return (
 		left.pipelineKey === right.pipelineKey &&
 		left.geometryVersion === right.geometryVersion &&
+		left.deformationRevision === right.deformationRevision &&
+		left.boundsCenterX === right.boundsCenterX &&
+		left.boundsCenterY === right.boundsCenterY &&
+		left.boundsCenterZ === right.boundsCenterZ &&
+		left.boundsRadius === right.boundsRadius &&
 		left.matrixSignatureA === right.matrixSignatureA &&
 		left.matrixSignatureB === right.matrixSignatureB &&
 		left.materialSignatureA === right.materialSignatureA &&
@@ -531,7 +561,7 @@ function decalStateEquals(
 }
 
 function writeMatrix4Signature(
-	state: CachedSignatureState,
+	state: MatrixSignatureState,
 	matrix: Matrix4
 ): void {
 	const elements = matrix.elements;
@@ -551,6 +581,15 @@ function writeMatrix4Signature(
 	}
 	state.matrixSignatureA = hashA;
 	state.matrixSignatureB = hashB;
+}
+
+function createMatrixSignature(matrix: Matrix4): MatrixSignatureState {
+	const signature: MatrixSignatureState = {
+		matrixSignatureA: SIGNATURE_INIT_A,
+		matrixSignatureB: SIGNATURE_INIT_B,
+	};
+	writeMatrix4Signature(signature, matrix);
+	return signature;
 }
 
 function writeMaterialSignature(

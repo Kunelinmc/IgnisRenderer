@@ -9,6 +9,8 @@ import type { PreparedFramePacketSet } from "../../../pipeline/FramePacketContri
 import { materialSupportsWebGPUDeferredLighting } from "../material";
 import {
 	GBufferSlot,
+	WEBGPU_DEFERRED_COLOR_FORMATS,
+	WEBGPU_MRT_COLOR_FORMATS,
 	type WebGPUDeferredGBufferLayout,
 } from "../constants";
 import {
@@ -30,6 +32,7 @@ import {
 	type IRenderTexture,
 } from "../../types";
 import type { WebGPUDepthDirtyClearPass } from "./WebGPUDepthDirtyClearPass";
+import type { WebGPUColorDirtyClearPass } from "./WebGPUColorDirtyClearPass";
 import type { WebGPUFrameExecutionContext } from "./WebGPUFrameExecutionContext";
 import { Logger } from "../../../foundation/Logger";
 
@@ -126,6 +129,7 @@ export class WebGPUScenePassRecorder {
 	private readonly _particleRenderer: WebGPUParticleBillboardRenderer;
 	private readonly _framePort = new WebGPUSceneRecordingPort();
 	private readonly _depthDirtyClearPass: WebGPUDepthDirtyClearPass;
+	private readonly _colorDirtyClearPass: WebGPUColorDirtyClearPass;
 	private readonly _callbacks: WebGPUScenePassRecorderCallbacks;
 
 	public constructor(
@@ -133,12 +137,14 @@ export class WebGPUScenePassRecorder {
 		sceneResources: WebGPUSceneResourceProvider,
 		particleRenderer: WebGPUParticleBillboardRenderer,
 		depthDirtyClearPass: WebGPUDepthDirtyClearPass,
+		colorDirtyClearPass: WebGPUColorDirtyClearPass,
 		callbacks: WebGPUScenePassRecorderCallbacks
 	) {
 		this._host = host;
 		this._sceneResources = sceneResources;
 		this._particleRenderer = particleRenderer;
 		this._depthDirtyClearPass = depthDirtyClearPass;
+		this._colorDirtyClearPass = colorDirtyClearPass;
 		this._callbacks = callbacks;
 	}
 
@@ -364,7 +370,17 @@ export class WebGPUScenePassRecorder {
 			colorTexture.height
 		);
 		let depthPartialReuseApplied = false;
-		if (incrementalPartial && dirtyRects.length > 0) {
+		if (incrementalPartial && clearAttachments && dirtyRects.length > 0) {
+			await this._colorDirtyClearPass.record(
+				encoder,
+				"color",
+				[{
+					view: colorTexture,
+					format: colorTexture.format ?? this._host.canvasFormat,
+				}],
+				1,
+				dirtyRects
+			);
 			depthPartialReuseApplied = await this._depthDirtyClearPass.record(
 				encoder,
 				depthTexture,
@@ -388,6 +404,7 @@ export class WebGPUScenePassRecorder {
 					this._resolveLegacyMainDepthLoadOp(
 						depthPartialReuseApplied,
 						incrementalPartial,
+						clearAttachments,
 						shouldClearAttachments,
 						false
 					)
@@ -410,6 +427,7 @@ export class WebGPUScenePassRecorder {
 				depthLoadOp: this._resolveLegacyMainDepthLoadOp(
 					depthPartialReuseApplied,
 					incrementalPartial,
+					clearAttachments,
 					shouldClearAttachments,
 					earlyZExecuted
 				),
@@ -417,7 +435,7 @@ export class WebGPUScenePassRecorder {
 			},
 		});
 
-		if (shouldClearAttachments) {
+		if (shouldClearAttachments || (incrementalPartial && clearAttachments)) {
 			const environmentResources =
 				await this._sceneResources.getEnvironmentResources(frameResources, "single", {
 					sampleCount: 1,
@@ -425,7 +443,10 @@ export class WebGPUScenePassRecorder {
 			if (environmentResources) {
 				encoder.setPipeline(environmentResources.pipeline);
 				encoder.setBindingGroup(0, environmentResources.frameBinding);
-				encoder.draw(3);
+				for (const rect of dirtyRects) {
+					encoder.setScissorRect?.(rect.x, rect.y, rect.width, rect.height);
+					encoder.draw(3);
+				}
 			}
 		}
 
@@ -822,7 +843,37 @@ export class WebGPUScenePassRecorder {
 		);
 		const shouldClearAttachments = clearAttachments && !incrementalPartial;
 		let depthPartialReuseApplied = false;
-		if (incrementalPartial && dirtyRects.length > 0) {
+		if (incrementalPartial && clearAttachments && dirtyRects.length > 0) {
+			const colorAttachments = [
+				targets.gAlbedoAlpha,
+				targets.gNormalRoughMetal,
+				targets.gEmissiveOcclusion,
+				targets.gMotionDepth,
+			];
+			if (deferredGBufferLayout === "extended") {
+				colorAttachments.push(
+					targets.gSpecular!,
+					targets.gCoatSheen!,
+					targets.gSheenReflectance!
+				);
+			}
+			await this._colorDirtyClearPass.record(
+				encoder,
+				deferredGBufferLayout === "extended" ? "extended" : "deferred",
+				[
+					{
+						view: sceneColorAttachment,
+						format:
+							sceneColorAttachment.format ?? TextureFormat.RGBA16Float,
+					},
+					...colorAttachments.map((view, index) => ({
+						view,
+						format: WEBGPU_DEFERRED_COLOR_FORMATS[index],
+					})),
+				],
+				1,
+				dirtyRects
+			);
 			depthPartialReuseApplied = await this._depthDirtyClearPass.record(
 				encoder,
 				depthAttachment,
@@ -833,7 +884,7 @@ export class WebGPUScenePassRecorder {
 		}
 
 		let environmentDrawn = false;
-		if (shouldClearAttachments) {
+		if (shouldClearAttachments || (incrementalPartial && clearAttachments)) {
 			const environmentResources =
 				await this._sceneResources.getEnvironmentResources(
 					frameResources,
@@ -847,20 +898,23 @@ export class WebGPUScenePassRecorder {
 						{
 							view: sceneColorAttachment,
 							clearValue: { r: 0, g: 0, b: 0, a: 1 },
-							loadOp: "clear",
+							loadOp: shouldClearAttachments ? "clear" : "load",
 							storeOp: "store",
 						},
 					],
 					depthStencilAttachment: {
 						view: depthAttachment,
 						depthClearValue: 1,
-						depthLoadOp: "clear",
+						depthLoadOp: shouldClearAttachments ? "clear" : "load",
 						depthStoreOp: "store",
 					},
 				});
 				encoder.setPipeline(environmentResources.pipeline);
 				encoder.setBindingGroup(0, environmentResources.frameBinding);
-				encoder.draw(3);
+				for (const rect of dirtyRects) {
+					encoder.setScissorRect?.(rect.x, rect.y, rect.width, rect.height);
+					encoder.draw(3);
+				}
 				encoder.endRenderPass();
 				environmentDrawn = true;
 			}
@@ -881,6 +935,7 @@ export class WebGPUScenePassRecorder {
 					this._resolveMRTMainDepthLoadOp(
 						depthPartialReuseApplied,
 						incrementalPartial,
+						clearAttachments,
 						shouldClearAttachments,
 						environmentDrawn,
 						false
@@ -948,6 +1003,7 @@ export class WebGPUScenePassRecorder {
 				depthLoadOp: this._resolveMRTMainDepthLoadOp(
 					depthPartialReuseApplied,
 					incrementalPartial,
+					clearAttachments,
 					shouldClearAttachments,
 					environmentDrawn,
 					earlyZExecuted
@@ -1023,7 +1079,40 @@ export class WebGPUScenePassRecorder {
 		);
 		const shouldClearAttachments = clearAttachments && !incrementalPartial;
 		let depthPartialReuseApplied = false;
-		if (incrementalPartial && dirtyRects.length > 0) {
+		if (incrementalPartial && clearAttachments && dirtyRects.length > 0) {
+			await this._colorDirtyClearPass.record(
+				encoder,
+				"mrt",
+				[
+					{
+						view: sceneColorAttachment,
+						resolveTarget: msaaTargets ? targets.sceneColorMain : undefined,
+						format: WEBGPU_MRT_COLOR_FORMATS[0],
+					},
+					{
+						view: gAlbedoAttachment,
+						resolveTarget: msaaTargets ? targets.gAlbedoAlpha : undefined,
+						format: WEBGPU_MRT_COLOR_FORMATS[1],
+					},
+					{
+						view: gNormalAttachment,
+						resolveTarget: msaaTargets ? targets.gNormalRoughMetal : undefined,
+						format: WEBGPU_MRT_COLOR_FORMATS[2],
+					},
+					{
+						view: gEmissiveAttachment,
+						resolveTarget: msaaTargets ? targets.gEmissiveOcclusion : undefined,
+						format: WEBGPU_MRT_COLOR_FORMATS[3],
+					},
+					{
+						view: gMotionAttachment,
+						resolveTarget: msaaTargets ? targets.gMotionDepth : undefined,
+						format: WEBGPU_MRT_COLOR_FORMATS[4],
+					},
+				],
+				this._framePort.getSampleCount(),
+				dirtyRects
+			);
 			depthPartialReuseApplied = await this._depthDirtyClearPass.record(
 				encoder,
 				depthAttachment,
@@ -1034,7 +1123,7 @@ export class WebGPUScenePassRecorder {
 		}
 
 		let environmentDrawn = false;
-		if (shouldClearAttachments) {
+		if (shouldClearAttachments || (incrementalPartial && clearAttachments)) {
 			const environmentResources =
 				await this._sceneResources.getEnvironmentResources(frameResources, "mrt", {
 					sampleCount: this._framePort.getSampleCount(),
@@ -1048,20 +1137,23 @@ export class WebGPUScenePassRecorder {
 							resolveTarget:
 								msaaTargets ? targets.sceneColorMain : undefined,
 							clearValue: { r: 0, g: 0, b: 0, a: 1 },
-							loadOp: "clear",
+							loadOp: shouldClearAttachments ? "clear" : "load",
 							storeOp: "store",
 						},
 					],
 					depthStencilAttachment: {
 						view: depthAttachment,
 						depthClearValue: 1,
-						depthLoadOp: "clear",
+						depthLoadOp: shouldClearAttachments ? "clear" : "load",
 						depthStoreOp: "store",
 					},
 				});
 				encoder.setPipeline(environmentResources.pipeline);
 				encoder.setBindingGroup(0, environmentResources.frameBinding);
-				encoder.draw(3);
+				for (const rect of dirtyRects) {
+					encoder.setScissorRect?.(rect.x, rect.y, rect.width, rect.height);
+					encoder.draw(3);
+				}
 				encoder.endRenderPass();
 				environmentDrawn = true;
 			}
@@ -1081,6 +1173,7 @@ export class WebGPUScenePassRecorder {
 					this._resolveMRTMainDepthLoadOp(
 						depthPartialReuseApplied,
 						incrementalPartial,
+						clearAttachments,
 						shouldClearAttachments,
 						environmentDrawn,
 						false
@@ -1135,6 +1228,7 @@ export class WebGPUScenePassRecorder {
 				depthLoadOp: this._resolveMRTMainDepthLoadOp(
 					depthPartialReuseApplied,
 					incrementalPartial,
+					clearAttachments,
 					shouldClearAttachments,
 					environmentDrawn,
 					earlyZExecuted
@@ -1193,7 +1287,18 @@ export class WebGPUScenePassRecorder {
 		);
 		const shouldClearAttachments = clearAttachments && !incrementalPartial;
 		let depthPartialReuseApplied = false;
-		if (incrementalPartial && dirtyRects.length > 0) {
+		if (incrementalPartial && clearAttachments && dirtyRects.length > 0) {
+			await this._colorDirtyClearPass.record(
+				encoder,
+				"color",
+				[{
+					view: sceneColorAttachment,
+					resolveTarget: msaaTargets ? targets.sceneColorMain : undefined,
+					format: WEBGPU_MRT_COLOR_FORMATS[0],
+				}],
+				this._framePort.getSampleCount(),
+				dirtyRects
+			);
 			depthPartialReuseApplied = await this._depthDirtyClearPass.record(
 				encoder,
 				depthAttachment,
@@ -1204,7 +1309,7 @@ export class WebGPUScenePassRecorder {
 		}
 
 		let environmentDrawn = false;
-		if (shouldClearAttachments) {
+		if (shouldClearAttachments || (incrementalPartial && clearAttachments)) {
 			const environmentResources =
 				await this._sceneResources.getEnvironmentResources(frameResources, "color", {
 					sampleCount: this._framePort.getSampleCount(),
@@ -1218,20 +1323,23 @@ export class WebGPUScenePassRecorder {
 							resolveTarget:
 								msaaTargets ? targets.sceneColorMain : undefined,
 							clearValue: { r: 0, g: 0, b: 0, a: 1 },
-							loadOp: "clear",
+							loadOp: shouldClearAttachments ? "clear" : "load",
 							storeOp: "store",
 						},
 					],
 					depthStencilAttachment: {
 						view: depthAttachment,
 						depthClearValue: 1,
-						depthLoadOp: "clear",
+						depthLoadOp: shouldClearAttachments ? "clear" : "load",
 						depthStoreOp: "store",
 					},
 				});
 				encoder.setPipeline(environmentResources.pipeline);
 				encoder.setBindingGroup(0, environmentResources.frameBinding);
-				encoder.draw(3);
+				for (const rect of dirtyRects) {
+					encoder.setScissorRect?.(rect.x, rect.y, rect.width, rect.height);
+					encoder.draw(3);
+				}
 				encoder.endRenderPass();
 				environmentDrawn = true;
 			}
@@ -1252,6 +1360,7 @@ export class WebGPUScenePassRecorder {
 					this._resolveMRTMainDepthLoadOp(
 						depthPartialReuseApplied,
 						incrementalPartial,
+						clearAttachments,
 						shouldClearAttachments,
 						environmentDrawn,
 						false
@@ -1280,6 +1389,7 @@ export class WebGPUScenePassRecorder {
 				depthLoadOp: this._resolveMRTMainDepthLoadOp(
 					depthPartialReuseApplied,
 					incrementalPartial,
+					clearAttachments,
 					shouldClearAttachments,
 					environmentDrawn,
 					earlyZExecuted
@@ -1377,11 +1487,12 @@ export class WebGPUScenePassRecorder {
 	private _resolveMRTMainDepthLoadOp(
 		depthPartialReuseApplied: boolean,
 		incrementalPartial: boolean,
+		clearAttachments: boolean,
 		shouldClearAttachments: boolean,
 		environmentDrawn: boolean,
 		earlyZExecuted: boolean
 	): "load" | "clear" {
-		if (earlyZExecuted || depthPartialReuseApplied) {
+		if (!clearAttachments || earlyZExecuted || depthPartialReuseApplied) {
 			return "load";
 		}
 		return incrementalPartial || (shouldClearAttachments && !environmentDrawn) ?
@@ -1392,10 +1503,11 @@ export class WebGPUScenePassRecorder {
 	private _resolveLegacyMainDepthLoadOp(
 		depthPartialReuseApplied: boolean,
 		incrementalPartial: boolean,
+		clearAttachments: boolean,
 		shouldClearAttachments: boolean,
 		earlyZExecuted: boolean
 	): "load" | "clear" {
-		if (earlyZExecuted || depthPartialReuseApplied) {
+		if (!clearAttachments || earlyZExecuted || depthPartialReuseApplied) {
 			return "load";
 		}
 		return incrementalPartial || shouldClearAttachments ? "clear" : "load";

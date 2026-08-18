@@ -67,6 +67,7 @@ export type WebGPUShadowShaderPart =
 export type WebGPUUtilityShaderPart =
 	| "planarReflectionComposite"
 	| "present"
+	| "colorDirtyClear"
 	| "depthDirtyClear"
 	| "decal"
 	| "oitResolve"
@@ -162,6 +163,7 @@ export const WEBGPU_SHADOW_SHADER_FILES: Record<WebGPUShadowShaderPart, string> 
 export const WEBGPU_UTILITY_SHADER_FILES: Record<WebGPUUtilityShaderPart, string> = {
 	planarReflectionComposite: "./webgpu/utility/planarReflectionComposite.wgsl",
 	present: "./webgpu/utility/present.wgsl",
+	colorDirtyClear: "./webgpu/utility/colorDirtyClear.wgsl",
 	depthDirtyClear: "./webgpu/utility/depthDirtyClear.wgsl",
 	decal: "./webgpu/scene/decal.wgsl",
 	oitResolve: "./webgpu/utility/oitResolve.wgsl",

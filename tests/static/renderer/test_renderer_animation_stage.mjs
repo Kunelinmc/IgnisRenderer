@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
 import { Camera } from "../../../src/cameras/Camera.ts";
+import { Node } from "../../../src/core/Node.ts";
 import { Material } from "../../../src/materials/Material.ts";
 import { Matrix4 } from "../../../src/maths/Matrix4.ts";
 import { MeshAsset } from "../../../src/meshes/MeshAsset.ts";
 import { MeshInstance } from "../../../src/meshes/MeshInstance.ts";
 import { AnimationClip } from "../../../src/animation/AnimationClip.ts";
 import { KeyframeTrack } from "../../../src/animation/KeyframeTrack.ts";
+import { Skeleton } from "../../../src/animation/Skeleton.ts";
 import { Renderer } from "../../../src/rendering/Renderer.ts";
 import {
 	installNoopPostProcessAdapter,
@@ -36,6 +38,7 @@ class StubBackend extends TestRenderBackend {
 		this.sharedStages = [];
 		this.executedStages = [];
 		this.mainOpaqueCenters = [];
+		this.mainOpaquePackets = [];
 	}
 
 	resize() {}
@@ -65,6 +68,13 @@ class StubBackend extends TestRenderBackend {
 			if (packet) {
 				this.mainOpaqueCenters.push(packet.worldBounds.center.x);
 			}
+			this.mainOpaquePackets.push(
+				context.scene.opaquePackets.map((candidate) => ({
+					meshInstanceId: candidate.meshInstance.id,
+					centerX: candidate.worldBounds.center.x,
+					deformationRevision: candidate.deformationRevision,
+				}))
+			);
 		}
 	}
 
@@ -136,6 +146,25 @@ async function run() {
 				name: "animatedMesh",
 			})
 		);
+		const joint = renderer.scene.add(new Node({ name: "animatedJoint" }));
+		const skinnedMesh = createTriangleMesh();
+		const skinnedGeometry = skinnedMesh.primitives[0].geometry;
+		skinnedGeometry.joints0 = new Uint16Array(12);
+		skinnedGeometry.weights0 = new Float32Array([
+			1, 0, 0, 0,
+			1, 0, 0, 0,
+			1, 0, 0, 0,
+		]);
+		const skinnedInstance = renderer.scene.add(
+			new MeshInstance({
+				mesh: skinnedMesh,
+				name: "skinnedMesh",
+				skeleton: new Skeleton({
+					joints: [joint],
+					inverseBindMatrices: [Matrix4.identity()],
+				}),
+			})
+		);
 
 		const clip = new AnimationClip({
 			name: "move",
@@ -152,11 +181,24 @@ async function run() {
 					valueSize: 3,
 					interpolation: "linear",
 				}),
+				new KeyframeTrack({
+					binding: {
+						targetType: "node",
+						targetPath: "/joint",
+						property: "translation",
+					},
+					times: [0, 1],
+					values: [0, 0, 0, 2, 0, 0],
+					valueSize: 3,
+					interpolation: "linear",
+				}),
 			],
 		});
 		const mixer = renderer.animationSystem.createMixer(renderer.scene.root);
 		mixer.addClip(clip);
 		mixer.bindNode("/animated", meshInstance);
+		mixer.bindNode("/joint", joint);
+		mixer.bindMorph("/skinned", skinnedInstance);
 		mixer.clipAction("move").play();
 
 		await renderer.renderFrame(0);
@@ -168,12 +210,34 @@ async function run() {
 		assert.ok(
 			backend.mainOpaqueCenters[2] > backend.mainOpaqueCenters[1] + 0.9
 		);
+		const skinnedAt16 = backend.mainOpaquePackets[1].find(
+			(packet) => packet.meshInstanceId === skinnedInstance.id
+		);
+		const skinnedAt516 = backend.mainOpaquePackets[2].find(
+			(packet) => packet.meshInstanceId === skinnedInstance.id
+		);
+		assert.ok(skinnedAt16);
+		assert.ok(skinnedAt516);
+		assert.ok(skinnedAt516.centerX > skinnedAt16.centerX + 0.9);
+		assert.notEqual(
+			skinnedAt516.deformationRevision,
+			skinnedAt16.deformationRevision
+		);
 		assert.equal(backend.executedStages.includes("animation-sim"), false);
 		assert.equal(backend.sharedStages.includes("animation-sim"), false);
 
+		camera.setRotationFromEuler(0, 0.05, 0);
+		const cameraChangedFrame = await renderer.renderFrame(600);
+		assert.equal(cameraChangedFrame.incremental.plan.forceFullFrame, true);
+		const animationAfterCameraFrame = await renderer.renderFrame(700);
+		assert.equal(
+			animationAfterCameraFrame.incremental.plan.forceFullFrame,
+			false
+		);
+
 		renderer.animationAutoRender = false;
 		await renderer.renderFrame(1016);
-		assert.equal(backend.beginFrameCount, 3);
+		assert.equal(backend.beginFrameCount, 5);
 
 		console.log("Renderer animation stage tests passed");
 	} finally {

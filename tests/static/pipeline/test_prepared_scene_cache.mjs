@@ -44,7 +44,7 @@ function createCamera() {
 	};
 }
 
-function createPacket(id, centerX, radius = 0.1) {
+function createPacket(id, centerX, radius = 0.1, deformationRevision = 0) {
 	return {
 		id,
 		meshInstance: {
@@ -72,10 +72,20 @@ function createPacket(id, centerX, radius = 0.1) {
 			},
 			radius,
 		},
+		deformationRevision,
 		sortDepth: 0,
 		pipelineKey: "default:pipeline",
 		passFlags: 0,
 	};
+}
+
+function rectContainsRect(container, target) {
+	return (
+		container.x <= target.x &&
+		container.y <= target.y &&
+		container.x + container.width >= target.x + target.width &&
+		container.y + container.height >= target.y + target.height
+	);
 }
 
 function createDecalPacket(id, centerX, radius = 0.1, overrides = {}) {
@@ -564,6 +574,124 @@ function testMaterialDiffDetectsDepthWriteChanges() {
 	}
 }
 
+function testDeformationRevisionAndBoundsDirtyPreviousAndCurrentCoverage() {
+	const camera = createCamera();
+	const previousPacket = createPacket("skin", 0, 0.08, 1);
+	previousPacket.worldBounds.center.x = -0.45;
+	const currentPacket = createPacket("skin", 0, 0.08, 2);
+	currentPacket.worldBounds.center.x = 0.45;
+	const unchangedPacket = createPacket("skin", 0, 0.08, 2);
+	unchangedPacket.worldBounds.center.x = 0.45;
+	const revisionOnlyPacket = createPacket("skin", 0, 0.08, 3);
+	revisionOnlyPacket.worldBounds.center.x = 0.45;
+	const boundsOnlyPacket = createPacket("skin", 0, 0.08, 3);
+	boundsOnlyPacket.worldBounds.center.x = 0.3;
+	const deformationRemovedPacket = createPacket("skin", 0, 0.08, 0);
+	const frames = [
+		createFrame(camera, [previousPacket]),
+		createFrame(camera, [currentPacket]),
+		createFrame(camera, [unchangedPacket]),
+		createFrame(camera, [revisionOnlyPacket]),
+		createFrame(camera, [boundsOnlyPacket]),
+		createFrame(camera, [deformationRemovedPacket]),
+	];
+	let frameIndex = 0;
+	const cache = new PreparedSceneCache();
+	const originalBuild = PreparedSceneBuilder.build;
+	PreparedSceneBuilder.build = () => frames[frameIndex++];
+
+	try {
+		const buildInput = {
+			viewportWidth: 320,
+			viewportHeight: 180,
+			features: createFeatures(),
+			postProcess: createResolvedPostProcess(),
+			incrementalOptions: {
+				...DEFAULT_INCREMENTAL_RENDERING_OPTIONS,
+				enabled: true,
+				fullFrameFallbackAreaRatio: 1,
+			},
+		};
+
+		const first = cache.build(buildInput);
+		const previousRect = first.packetRects.get("skin");
+		assert.ok(previousRect);
+		const moved = cache.build(buildInput);
+		const currentRect = moved.packetRects.get("skin");
+		assert.ok(currentRect);
+		assert.ok(moved.dirtyTiles.length > 0);
+		assert.ok(moved.dirtyRects.some((rect) => rectContainsRect(rect, previousRect)));
+		assert.ok(moved.dirtyRects.some((rect) => rectContainsRect(rect, currentRect)));
+
+		const unchanged = cache.build(buildInput);
+		assert.equal(unchanged.dirtyTiles.length, 0);
+
+		const revisionOnly = cache.build(buildInput);
+		assert.ok(revisionOnly.dirtyTiles.length > 0);
+
+		const boundsOnly = cache.build(buildInput);
+		assert.ok(boundsOnly.dirtyTiles.length > 0);
+
+		const deformationRemoved = cache.build(buildInput);
+		assert.ok(deformationRemoved.dirtyTiles.length > 0);
+	} finally {
+		PreparedSceneBuilder.build = originalBuild;
+	}
+}
+
+function testCameraMatrixChangeForcesFullFrameAndRebasesPacketRects() {
+	const initialCamera = createCamera();
+	const rotatedCamera = createCamera();
+	rotatedCamera.viewProjectionMatrix = Matrix4.fromTranslation([0.35, 0, 0]);
+	const initialPacket = createPacket("camera-skin", 0, 0.08, 1);
+	const rotatedPacket = createPacket("camera-skin", 0, 0.08, 1);
+	const stablePacket = createPacket("camera-skin", 0, 0.08, 1);
+	const animatedPacket = createPacket("camera-skin", 0, 0.08, 2);
+	animatedPacket.worldBounds.center.x = 0.15;
+	const frames = [
+		createFrame(initialCamera, [initialPacket]),
+		createFrame(rotatedCamera, [rotatedPacket]),
+		createFrame(rotatedCamera, [stablePacket]),
+		createFrame(rotatedCamera, [animatedPacket]),
+	];
+	let frameIndex = 0;
+	const cache = new PreparedSceneCache();
+	const originalBuild = PreparedSceneBuilder.build;
+	PreparedSceneBuilder.build = () => frames[frameIndex++];
+
+	try {
+		const buildInput = {
+			viewportWidth: 320,
+			viewportHeight: 180,
+			features: createFeatures(),
+			postProcess: createResolvedPostProcess(),
+			incrementalOptions: {
+				...DEFAULT_INCREMENTAL_RENDERING_OPTIONS,
+				enabled: true,
+				fullFrameFallbackAreaRatio: 1,
+			},
+		};
+
+		cache.build(buildInput);
+		const cameraChanged = cache.build(buildInput);
+		assert.equal(cameraChanged.forceFullFrame, true);
+		assert.equal(cameraChanged.dirtyAreaRatio, 1);
+
+		const stable = cache.build(buildInput);
+		assert.equal(stable.forceFullFrame, false);
+		assert.equal(stable.dirtyTiles.length, 0);
+
+		const animated = cache.build(buildInput);
+		assert.equal(animated.forceFullFrame, false);
+		assert.ok(animated.dirtyTiles.length > 0);
+		const currentRect = animated.packetRects.get("camera-skin");
+		assert.ok(currentRect);
+		assert.ok(animated.dirtyRects.some((rect) => rectContainsRect(rect, currentRect)));
+	} finally {
+		PreparedSceneBuilder.build = originalBuild;
+	}
+}
+
 function run() {
 	testPacketDiffLifecycle();
 	testDecalDiffLifecycle();
@@ -573,6 +701,8 @@ function run() {
 	testMatrixDiffDetectsSmallFloatChanges();
 	testMaterialDiffDetectsSmallFloatChanges();
 	testMaterialDiffDetectsDepthWriteChanges();
+	testDeformationRevisionAndBoundsDirtyPreviousAndCurrentCoverage();
+	testCameraMatrixChangeForcesFullFrameAndRebasesPacketRects();
 	console.log("Prepared scene cache tests passed");
 }
 

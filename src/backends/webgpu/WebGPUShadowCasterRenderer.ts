@@ -1339,7 +1339,7 @@ export class WebGPUShadowCasterRenderer {
 			jointMatrices = packet.meshInstance.skeleton.toFloat32Array();
 		}
 
-		const runtimeMorph = runtimeMorphMap?.get(packet.primitive.id) ?? null;
+		const runtimeMorph = runtimeMorphMap?.get(packet.id) ?? null;
 		let morphTargetCount = Math.max(0, runtimeMorph?.targetCount ?? 0);
 		let sourceMorphWeights: Float32Array | null = runtimeMorph?.weights ?? null;
 		if (!sourceMorphWeights || morphTargetCount <= 0) {

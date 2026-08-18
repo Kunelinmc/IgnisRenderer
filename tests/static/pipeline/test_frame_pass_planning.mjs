@@ -397,6 +397,20 @@ function run() {
 	const registry = new RenderPipelineRegistry({
 		stages: createDefaultPipelineStages(),
 	});
+	const defaultStageOrder = registry
+		.getExecutionOrder(
+			{ hasActiveAnimations: true, hasParticleSystems: false },
+			() => {},
+		)
+		.map((stage) => stage.id);
+	assert.ok(
+		defaultStageOrder.indexOf("deformation-update") >
+			defaultStageOrder.indexOf("csg-resolve"),
+	);
+	assert.ok(
+		defaultStageOrder.indexOf("prepared-scene-build") >
+			defaultStageOrder.indexOf("deformation-update"),
+	);
 	registry.registerPipelineStage({
 		id: "custom-plan-pass",
 		kind: "backend-pass",

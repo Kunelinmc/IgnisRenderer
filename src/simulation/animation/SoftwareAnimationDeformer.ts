@@ -8,6 +8,7 @@ export interface PrimitiveDeformOptions {
 	morphWeights?: ArrayLike<number> | null;
 	skeleton?: Skeleton | null;
 	meshWorldMatrix?: Matrix4;
+	jointMatricesCurrent?: boolean;
 }
 
 export function deformPrimitiveGeometry(
@@ -39,7 +40,8 @@ export function deformPrimitiveGeometry(
 			geometry,
 			options.skeleton,
 			options.meshWorldMatrix,
-			vertexCount
+			vertexCount,
+			options.jointMatricesCurrent === true
 		);
 	}
 
@@ -90,14 +92,17 @@ function applySkinning(
 	geometry: IPrimitiveGeometry,
 	skeleton: Skeleton,
 	meshWorldMatrix: Matrix4 | undefined,
-	vertexCount: number
+	vertexCount: number,
+	jointMatricesCurrent: boolean
 ): void {
 	const joints0 = geometry.joints0!;
 	const weights0 = geometry.weights0!;
 	const joints1 = geometry.joints1;
 	const weights1 = geometry.weights1;
 
-	skeleton.updateJointMatrices(meshWorldMatrix);
+	if (!jointMatricesCurrent) {
+		skeleton.updateJointMatrices(meshWorldMatrix);
+	}
 	const jointMatrices = skeleton.jointMatrices;
 
 	for (let vertexIndex = 0; vertexIndex < vertexCount; vertexIndex++) {

@@ -230,6 +230,9 @@ The option `enableEarlyZPrepass?: boolean` is accepted by `SoftwareBackendOption
 	- Incremental rendering must clear dirty rect regions to `Infinity` and may preserve non-dirty regions.
 - **WebGPU Backend**:
 	- Incremental dirty-rect flow must clear the dirty depth region to `1.0` before the prepass.
+	- Incremental dirty-rect flow must clear scene color and every active
+	  G-buffer attachment inside the dirty region before scene draws. It must
+	  preserve attachment contents outside the dirty region.
 	- The Early-Z prepass, G-buffer geometry pass, and legacy color pass must clip to resolved dirty rects.
 
 ### Projected decals

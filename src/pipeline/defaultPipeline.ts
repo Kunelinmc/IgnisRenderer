@@ -32,9 +32,14 @@ export function createDefaultPipelineStages(): RenderPipelineStageRegistration[]
 		{ id: "lod-resolve", kind: "renderer", dependsOn: ["transform-update"] },
 		{ id: "csg-resolve", kind: "renderer", dependsOn: ["lod-resolve"] },
 		{
-			id: "prepared-scene-build",
+			id: "deformation-update",
 			kind: "renderer",
 			dependsOn: ["csg-resolve"],
+		},
+		{
+			id: "prepared-scene-build",
+			kind: "renderer",
+			dependsOn: ["deformation-update"],
 		},
 		{
 			id: "particle-sim",

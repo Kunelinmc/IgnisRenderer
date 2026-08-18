@@ -9,6 +9,10 @@ import { EMPTY_SHADOW_FRAME_PLAN } from "../lights/shadows/ShadowFramePlan";
 import type { IPrimitive } from "../core/types";
 import { DEFAULT_PRIMITIVE_DRAW_TOPOLOGY } from "../core/types";
 import type { Decal } from "../decals";
+import type {
+	PrimitiveDeformationMap,
+	PrimitiveDeformationState,
+} from "../simulation/animation/types";
 import { resolveDecalReceiverLayerMask } from "../decals/evaluation";
 import { MeshInstance } from "../meshes";
 import {
@@ -41,6 +45,7 @@ export interface PreparedSceneBuildSource {
 	readonly scene: Scene;
 	readonly camera: Camera;
 	readonly hasActiveAnimations: boolean;
+	readonly deformationStates?: PrimitiveDeformationMap | null;
 }
 
 export class PreparedSceneBuilder {
@@ -80,7 +85,11 @@ export class PreparedSceneBuilder {
 			if (!cameraVisibleMeshInstances.has(meshInstance)) {
 				continue;
 			}
-			for (const packet of this._buildMeshPackets(meshInstance, camera)) {
+			for (const packet of this._buildMeshPackets(
+				meshInstance,
+				camera,
+				source.deformationStates ?? null
+			)) {
 				this._appendViewPacket(
 					packet,
 					opaquePackets,
@@ -144,6 +153,7 @@ export class PreparedSceneBuilder {
 			hasActiveAnimations: source.hasActiveAnimations,
 			shadowPlan: EMPTY_SHADOW_FRAME_PLAN,
 			decals: source.scene.getDecals(),
+			deformationStates: source.deformationStates ?? null,
 			options,
 		});
 	}
@@ -207,6 +217,7 @@ export class PreparedSceneBuilder {
 		hasActiveAnimations: boolean;
 		shadowPlan: PreparedScene["shadowPlan"];
 		decals: Decal[];
+		deformationStates: PrimitiveDeformationMap | null;
 		options: PreparedSceneBuildOptions;
 	}): PreparedScene {
 		const opaquePackets: DrawPacket[] = [];
@@ -218,7 +229,11 @@ export class PreparedSceneBuilder {
 		for (const meshInstance of input.renderableMeshInstances) {
 			const visibleInCamera =
 				input.cameraVisibleMeshInstances.has(meshInstance);
-			const packets = this._buildMeshPackets(meshInstance, input.camera);
+			const packets = this._buildMeshPackets(
+				meshInstance,
+				input.camera,
+				input.deformationStates
+			);
 			for (const packet of packets) {
 				if (visibleInCamera) {
 					this._appendViewPacket(
@@ -264,6 +279,7 @@ export class PreparedSceneBuilder {
 			decalPackets: viewState.decalPackets,
 			occlusion: viewState.occlusion,
 			spatialIndex: null,
+			deformationStates: input.deformationStates,
 		};
 	}
 
@@ -363,18 +379,11 @@ export class PreparedSceneBuilder {
 
 	private static _buildMeshPackets(
 		meshInstance: MeshInstance,
-		camera: Camera
+		camera: Camera,
+		deformationStates: PrimitiveDeformationMap | null
 	): DrawPacket[] {
 		const worldMatrix = meshInstance.worldMatrix;
 		const normalMatrix = Matrix4.normalMatrix(worldMatrix) as Matrix3Arr;
-		const cameraSpaceCenter = Matrix4.transformPoint(
-			camera.viewMatrix,
-			Matrix4.transformPoint(
-				worldMatrix,
-				meshInstance.mesh.boundingSphere.center
-			)
-		);
-		const meshDepth = -cameraSpaceCenter.z;
 		const worldScale = getMaxScaleFromMatrix(worldMatrix) || 1;
 
 		return meshInstance.mesh.primitives
@@ -386,7 +395,8 @@ export class PreparedSceneBuilder {
 					worldMatrix,
 					normalMatrix,
 					worldScale,
-					meshDepth
+					camera,
+					deformationStates?.get(`${meshInstance.id}:${primitive.id}`) ?? null
 				)
 			);
 	}
@@ -397,7 +407,8 @@ export class PreparedSceneBuilder {
 		worldMatrix: Matrix4,
 		normalMatrix: Matrix3Arr,
 		worldScale: number,
-		meshDepth: number
+		camera: Camera,
+		deformation: PrimitiveDeformationState | null
 	): DrawPacket {
 		const material = primitive.material;
 		const isTransparent = isMaterialTransparentPass(material);
@@ -424,9 +435,14 @@ export class PreparedSceneBuilder {
 			passFlags |= DRAW_PACKET_FLAG_SHADOW_RECEIVER;
 		}
 
+		const localBounds = deformation?.localBounds ?? primitive.boundingSphere;
 		const worldCenter = Matrix4.transformPoint(
 			worldMatrix,
-			primitive.boundingSphere.center
+			localBounds.center
+		);
+		const cameraSpaceCenter = Matrix4.transformPoint(
+			camera.viewMatrix,
+			worldCenter
 		);
 
 		return {
@@ -444,9 +460,10 @@ export class PreparedSceneBuilder {
 					y: worldCenter.y,
 					z: worldCenter.z,
 				},
-				radius: primitive.boundingSphere.radius * worldScale,
+				radius: localBounds.radius * worldScale,
 			},
-			sortDepth: meshDepth,
+			deformationRevision: deformation?.revision ?? 0,
+			sortDepth: -cameraSpaceCenter.z,
 			pipelineKey: [
 				material.type,
 				material.shading,

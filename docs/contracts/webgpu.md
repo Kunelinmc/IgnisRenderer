@@ -352,6 +352,11 @@ This document defines WebGPU frame-graph execution, deferred lighting, presentat
 	  and must not call `getDrawResources()` again. A packet selected by multiple
 	  incremental dirty rectangles must reuse the same snapshot for every
 	  rectangle.
+	- Before an incremental partial scene draw, WebGPU must shader-clear scene
+	  color and every active raster G-buffer attachment inside all dirty
+	  rectangles. The clear must use the attachment layout's canonical empty
+	  values, must preserve pixels outside the rectangles, and must precede
+	  depth clear, early-Z, and geometry recording.
 	- The frame analyzer must select `base` or `extended` deferred payload mode.
 	  `ShaderMaterial` deferred chunks and deferred decals must conservatively
 	  select `extended` mode.

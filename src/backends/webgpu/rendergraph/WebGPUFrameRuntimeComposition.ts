@@ -14,6 +14,7 @@ import {
 } from "./WebGPUDeferredFrameModule";
 import { WebGPUDeferredLightingPass } from "./WebGPUDeferredLightingPass";
 import { WebGPUDepthDirtyClearPass } from "./WebGPUDepthDirtyClearPass";
+import { WebGPUColorDirtyClearPass } from "./WebGPUColorDirtyClearPass";
 import { WebGPUFrameGraphModuleRegistry } from "./WebGPUFrameGraphModuleRegistry";
 import type { WebGPUFrameHost } from "./WebGPUFrameHost";
 import { WebGPUPostProcessBridge } from "./WebGPUPostProcessBridge";
@@ -95,6 +96,7 @@ export function createWebGPUFrameRuntimeComposition(options: {
 		presentation,
 	);
 	const depthDirtyClearPass = new WebGPUDepthDirtyClearPass(host);
+	const colorDirtyClearPass = new WebGPUColorDirtyClearPass(host);
 	const deferredOpaqueState = new WebGPUDeferredOpaqueStatePort();
 	const deferredLightingPass = new WebGPUDeferredLightingPass(host, frameServices);
 	const deferredDecalPass = new WebGPUDeferredDecalPass(host, frameServices);
@@ -103,6 +105,7 @@ export function createWebGPUFrameRuntimeComposition(options: {
 		frameServices,
 		particleRenderer,
 		depthDirtyClearPass,
+		colorDirtyClearPass,
 		{
 			getGBufferWriteBinding: () => deferredLightingPass.getGBufferWriteBinding(),
 			preflightDeferredFrame: async (context) => {
@@ -120,6 +123,7 @@ export function createWebGPUFrameRuntimeComposition(options: {
 		new WebGPUSceneFrameModule(
 			sceneRecorder,
 			depthDirtyClearPass,
+			colorDirtyClearPass,
 			deferredOpaqueState,
 		),
 		new WebGPUShadowFrameModule(frameServices),

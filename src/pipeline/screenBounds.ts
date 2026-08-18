@@ -31,18 +31,6 @@ export function computePacketScreenRect(
 		return null;
 	}
 
-	const center = projectToScreen(
-		camera.viewProjectionMatrix,
-		worldCenter.x,
-		worldCenter.y,
-		worldCenter.z,
-		viewportWidth,
-		viewportHeight
-	);
-	if (!center) {
-		return null;
-	}
-
 	const right = camera.getWorldDirection(
 		{ x: 1, y: 0, z: 0 },
 		{ x: 0, y: 0, z: 0 }
@@ -51,33 +39,59 @@ export function computePacketScreenRect(
 		{ x: 0, y: 1, z: 0 },
 		{ x: 0, y: 0, z: 0 }
 	);
+	const forward = camera.getWorldDirection(
+		{ x: 0, y: 0, z: -1 },
+		{ x: 0, y: 0, z: 0 }
+	);
+	let minX = Number.POSITIVE_INFINITY;
+	let minY = Number.POSITIVE_INFINITY;
+	let maxX = Number.NEGATIVE_INFINITY;
+	let maxY = Number.NEGATIVE_INFINITY;
+	let positiveWCount = 0;
+	let nonPositiveWCount = 0;
 
-	const rightPoint = projectToScreen(
-		camera.viewProjectionMatrix,
-		worldCenter.x + right.x * worldRadius,
-		worldCenter.y + right.y * worldRadius,
-		worldCenter.z + right.z * worldRadius,
-		viewportWidth,
-		viewportHeight
-	);
-	const upPoint = projectToScreen(
-		camera.viewProjectionMatrix,
-		worldCenter.x + up.x * worldRadius,
-		worldCenter.y + up.y * worldRadius,
-		worldCenter.z + up.z * worldRadius,
-		viewportWidth,
-		viewportHeight
-	);
-	if (!rightPoint || !upPoint) {
-		return null;
+	// A camera-aligned cube conservatively encloses the sphere. With positive
+	// clip-W throughout the cube, projected extrema occur at its vertices.
+	for (const sideX of [-1, 1]) {
+		for (const sideY of [-1, 1]) {
+			for (const sideZ of [-1, 1]) {
+				const projected = projectToScreen(
+					camera.viewProjectionMatrix,
+					worldCenter.x +
+						(right.x * sideX + up.x * sideY + forward.x * sideZ) *
+							worldRadius,
+					worldCenter.y +
+						(right.y * sideX + up.y * sideY + forward.y * sideZ) *
+							worldRadius,
+					worldCenter.z +
+						(right.z * sideX + up.z * sideY + forward.z * sideZ) *
+							worldRadius,
+					viewportWidth,
+					viewportHeight
+				);
+				if (!projected) {
+					return makeFullViewportRect(viewportWidth, viewportHeight);
+				}
+				if (projected.clipW <= 1e-8) {
+					nonPositiveWCount++;
+					continue;
+				}
+				positiveWCount++;
+				minX = Math.min(minX, projected.x);
+				minY = Math.min(minY, projected.y);
+				maxX = Math.max(maxX, projected.x);
+				maxY = Math.max(maxY, projected.y);
+			}
+		}
 	}
-
-	const radiusX = Math.max(1, Math.abs(rightPoint.x - center.x));
-	const radiusY = Math.max(1, Math.abs(upPoint.y - center.y));
-	const minX = center.x - radiusX - 1;
-	const minY = center.y - radiusY - 1;
-	const maxX = center.x + radiusX + 1;
-	const maxY = center.y + radiusY + 1;
+	if (positiveWCount === 0) return null;
+	if (nonPositiveWCount > 0) {
+		return makeFullViewportRect(viewportWidth, viewportHeight);
+	}
+	minX -= 1;
+	minY -= 1;
+	maxX += 1;
+	maxY += 1;
 
 	const x = Math.max(0, Math.floor(minX));
 	const y = Math.max(0, Math.floor(minY));
@@ -101,7 +115,7 @@ function projectToScreen(
 	z: number,
 	viewportWidth: number,
 	viewportHeight: number
-): { x: number; y: number; depth: number } | null {
+): { x: number; y: number; depth: number; clipW: number } | null {
 	const matrix = viewProjection.elements;
 	const clipX =
 		matrix[0][0] * x +
@@ -124,7 +138,7 @@ function projectToScreen(
 		matrix[3][2] * z +
 		matrix[3][3];
 
-	if (!Number.isFinite(clipW) || Math.abs(clipW) < 1e-8) {
+	if (!Number.isFinite(clipW) || Math.abs(clipW) < 1e-12) {
 		return null;
 	}
 
@@ -140,5 +154,18 @@ function projectToScreen(
 		x: (ndcX * 0.5 + 0.5) * viewportWidth,
 		y: (0.5 - ndcY * 0.5) * viewportHeight,
 		depth: ndcZ,
+		clipW,
+	};
+}
+
+function makeFullViewportRect(
+	viewportWidth: number,
+	viewportHeight: number
+): DirtyRect {
+	return {
+		x: 0,
+		y: 0,
+		width: Math.max(1, Math.floor(viewportWidth)),
+		height: Math.max(1, Math.floor(viewportHeight)),
 	};
 }

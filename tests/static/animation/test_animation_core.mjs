@@ -1,11 +1,19 @@
 import assert from "node:assert/strict";
 import { Node } from "../../../src/core/Node.ts";
+import { Material } from "../../../src/materials/Material.ts";
+import { MeshAsset } from "../../../src/meshes/MeshAsset.ts";
+import { MeshInstance } from "../../../src/meshes/MeshInstance.ts";
 import { AnimationClip } from "../../../src/animation/AnimationClip.ts";
 import { AnimationSystem } from "../../../src/animation/AnimationSystem.ts";
 import { KeyframeTrack } from "../../../src/animation/KeyframeTrack.ts";
 import { AnimationRuntime } from "../../../src/simulation/animation/AnimationRuntime.ts";
 import { sampleTrack } from "../../../src/simulation/animation/interpolation.ts";
-import { ANIMATION_RUNTIME_POSE_KEY } from "../../../src/simulation/animation/types.ts";
+import {
+	ANIMATION_DEFORMATION_STATES_KEY,
+	ANIMATION_RUNTIME_POSE_KEY,
+	ANIMATION_SOFTWARE_DEFORMED_GEOMETRY_KEY,
+	ANIMATION_WEBGPU_MORPH_WEIGHTS_KEY,
+} from "../../../src/simulation/animation/types.ts";
 
 function nearlyEqual(left, right, epsilon = 1e-5) {
 	return Math.abs(left - right) <= epsilon;
@@ -168,10 +176,116 @@ function testRootMotionToggle() {
 	assertNearly(root.position.x, 2.5, "root motion enabled translation");
 }
 
+function createMorphMesh() {
+	const mesh = MeshAsset.fromFaces([
+		{
+			material: new Material(),
+			vertices: [
+				{
+					x: 0,
+					y: 0,
+					z: 0,
+					u: 0,
+					v: 0,
+					normal: { x: 0, y: 0, z: 1 },
+				},
+				{
+					x: 1,
+					y: 0,
+					z: 0,
+					u: 1,
+					v: 0,
+					normal: { x: 0, y: 0, z: 1 },
+				},
+				{
+					x: 0,
+					y: 1,
+					z: 0,
+					u: 0,
+					v: 1,
+					normal: { x: 0, y: 0, z: 1 },
+				},
+			],
+		},
+	]);
+	mesh.primitives[0].geometry.morphTargets = [
+		{
+			positions: new Float32Array([
+				1, 0, 0,
+				1, 0, 0,
+				1, 0, 0,
+			]),
+		},
+	];
+	return mesh;
+}
+
+function testDeformationRevisionBoundsAndPacketIdentity() {
+	const mesh = createMorphMesh();
+	const firstInstance = new MeshInstance({
+		mesh,
+		morphWeights: [new Float32Array([0])],
+	});
+	const secondInstance = new MeshInstance({
+		mesh,
+		morphWeights: [new Float32Array([1])],
+	});
+	const system = new AnimationSystem();
+	const mixer = system.createMixer(new Node({ name: "root" }));
+	mixer.bindMorph("/first", firstInstance);
+	mixer.bindMorph("/second", secondInstance);
+	const runtime = new AnimationRuntime();
+	const primitiveId = mesh.primitives[0].id;
+	const firstPacketId = `${firstInstance.id}:${primitiveId}`;
+	const secondPacketId = `${secondInstance.id}:${primitiveId}`;
+
+	const firstTransient = new Map();
+	runtime.resolveDeformations(system, firstTransient);
+	const firstStates = firstTransient.get(ANIMATION_DEFORMATION_STATES_KEY);
+	assert.equal(firstStates.size, 2);
+	assert.ok(firstStates.has(firstPacketId));
+	assert.ok(firstStates.has(secondPacketId));
+	assert.ok(
+		firstStates.get(secondPacketId).localBounds.center.x >
+			firstStates.get(firstPacketId).localBounds.center.x + 0.9
+	);
+	assert.ok(
+		firstTransient
+			.get(ANIMATION_SOFTWARE_DEFORMED_GEOMETRY_KEY)
+			.has(firstPacketId)
+	);
+	assert.ok(
+		firstTransient
+			.get(ANIMATION_WEBGPU_MORPH_WEIGHTS_KEY)
+			.has(secondPacketId)
+	);
+
+	const unchangedTransient = new Map();
+	runtime.resolveDeformations(system, unchangedTransient);
+	const unchangedStates = unchangedTransient.get(ANIMATION_DEFORMATION_STATES_KEY);
+	assert.equal(
+		unchangedStates.get(firstPacketId).revision,
+		firstStates.get(firstPacketId).revision
+	);
+
+	firstInstance.morphWeights[0][0] = 0.5;
+	const changedTransient = new Map();
+	runtime.resolveDeformations(system, changedTransient);
+	const changedState = changedTransient
+		.get(ANIMATION_DEFORMATION_STATES_KEY)
+		.get(firstPacketId);
+	assert.notEqual(changedState.revision, firstStates.get(firstPacketId).revision);
+	assert.ok(
+		changedState.localBounds.center.x >
+			firstStates.get(firstPacketId).localBounds.center.x
+	);
+}
+
 function run() {
 	testTrackSampling();
 	testRuntimeLayerMaskAndAdditive();
 	testRootMotionToggle();
+	testDeformationRevisionBoundsAndPacketIdentity();
 	console.log("Animation core tests passed");
 }
 

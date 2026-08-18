@@ -150,6 +150,7 @@ function createParticleMeshPacket(
 			},
 			radius: batch.primitive.boundingSphere.radius * Math.max(0.001, particle.size),
 		},
+		deformationRevision: 0,
 		sortDepth,
 		pipelineKey: [
 			material.type,

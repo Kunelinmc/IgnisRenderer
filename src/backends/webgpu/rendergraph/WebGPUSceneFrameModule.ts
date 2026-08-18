@@ -13,6 +13,7 @@ import type {
 	WebGPURecordingFrameSession as WebGPUFrameSession,
 } from "./WebGPUFrameSession";
 import type { WebGPUDepthDirtyClearPass } from "./WebGPUDepthDirtyClearPass";
+import type { WebGPUColorDirtyClearPass } from "./WebGPUColorDirtyClearPass";
 import type { WebGPUDeferredOpaqueStatePort } from "./WebGPUDeferredFrameModule";
 import type { WebGPUScenePassRecorder } from "./WebGPUScenePassRecorder";
 import type { WebGPUFrameGraphNode } from "./types";
@@ -39,6 +40,7 @@ export class WebGPUSceneFrameModule implements WebGPUFrameGraphModule {
 	constructor(
 		public readonly recorder: WebGPUScenePassRecorder,
 		private readonly _depthDirtyClearPass: WebGPUDepthDirtyClearPass,
+		private readonly _colorDirtyClearPass: WebGPUColorDirtyClearPass,
 		private readonly _deferredOpaqueState: WebGPUDeferredOpaqueStatePort,
 	) {}
 
@@ -106,10 +108,12 @@ export class WebGPUSceneFrameModule implements WebGPUFrameGraphModule {
 
 	public onShaderRuntimeChanged(): void {
 		this._depthDirtyClearPass.onShaderRuntimeChanged();
+		this._colorDirtyClearPass.onShaderRuntimeChanged();
 	}
 
 	public destroy(): void {
 		this._depthDirtyClearPass.destroy();
+		this._colorDirtyClearPass.destroy();
 	}
 
 	private _createOpaqueResources(

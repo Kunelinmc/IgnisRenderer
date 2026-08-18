@@ -6,6 +6,7 @@ import type { AnimationStateMachine } from "../../animation/AnimationStateMachin
 import type { AnimationMotionDefinition } from "../../animation/types";
 import { sampleTrack } from "./interpolation";
 import {
+	ANIMATION_DEFORMATION_STATES_KEY,
 	ANIMATION_RUNTIME_POSE_KEY,
 	ANIMATION_SOFTWARE_DEFORMED_GEOMETRY_KEY,
 	ANIMATION_WEBGPU_JOINT_MATRICES_KEY,
@@ -14,12 +15,15 @@ import {
 	type DeformedGeometryMap,
 	type JointMatrixMap,
 	type MorphWeightMap,
+	type PrimitiveDeformationMap,
 } from "./types";
 import { deformPrimitiveGeometry } from "./SoftwareAnimationDeformer";
 import type { MeshInstance } from "../../meshes";
 import type { KeyframeTrack } from "../../animation/KeyframeTrack";
 import type { Scene } from "../../core/Scene";
 import type { TransientStore } from "../../foundation/TransientStore";
+import type { BoundingSphere, IPrimitiveGeometry } from "../../core/types";
+import type { Skeleton } from "../../animation/Skeleton";
 
 interface TrackAccumulator {
 	track: KeyframeTrack;
@@ -30,6 +34,22 @@ interface TrackAccumulator {
 	quaternionAdditives: Array<{ value: Quaternion; weight: number }>;
 }
 
+interface JointRevisionState {
+	skeleton: Skeleton;
+	matrices: Float32Array;
+	revision: number;
+}
+
+interface PrimitiveRevisionState {
+	geometry: IPrimitiveGeometry;
+	geometryVersion: number;
+	jointRevision: number;
+	morphWeights: Float32Array;
+	revision: number;
+}
+
+const EMPTY_MORPH_WEIGHTS = new Float32Array(0);
+
 export class AnimationRuntime {
 	private _defaultsByMixer = new WeakMap<
 		AnimationMixer,
@@ -39,6 +59,12 @@ export class AnimationRuntime {
 		AnimationStateMachine,
 		number | null
 	>();
+	private _jointRevisionStateByInstance = new Map<string, JointRevisionState>();
+	private _primitiveRevisionStateByPacket = new Map<
+		string,
+		PrimitiveRevisionState
+	>();
+	private _nextDeformationRevision = 1;
 
 	public update(
 		system: AnimationSystem,
@@ -46,37 +72,155 @@ export class AnimationRuntime {
 		transient: TransientStore,
 		scene?: Scene
 	): void {
+		this.updatePose(system, deltaSeconds, transient, scene);
+		this.resolveDeformations(system, transient);
+	}
+
+	/**
+	 * Samples animation state into scene and morph authoring values.
+	 *
+	 * @internal Owned by the renderer animation stage. Deformation payloads are
+	 * resolved separately after world transforms are current.
+	 */
+	public updatePose(
+		system: AnimationSystem,
+		deltaSeconds: number,
+		transient: TransientStore,
+		scene?: Scene
+	): void {
 		const dt = Math.max(0, deltaSeconds);
 		const poseStates: AnimationPoseState[] = [];
-		const deformedGeometry: DeformedGeometryMap = new Map();
-		const jointMatrices: JointMatrixMap = new Map();
-		const morphWeights: MorphWeightMap = new Map();
 
 		for (const mixer of system.mixers) {
 			this._updateMixer(
 				mixer,
 				dt,
 				poseStates,
-				deformedGeometry,
-				jointMatrices,
-				morphWeights,
 				scene
 			);
 		}
 
 		transient.set(ANIMATION_RUNTIME_POSE_KEY, poseStates);
+	}
+
+	/**
+	 * Resolves current deformation payloads after world transforms are updated.
+	 *
+	 * @internal Owned by the renderer deformation stage.
+	 */
+	public resolveDeformations(
+		system: AnimationSystem,
+		transient: TransientStore
+	): void {
+		const deformedGeometry: DeformedGeometryMap = new Map();
+		const jointMatrices: JointMatrixMap = new Map();
+		const morphWeights: MorphWeightMap = new Map();
+		const deformationStates: PrimitiveDeformationMap = new Map();
+		const nextJointStates = new Map<string, JointRevisionState>();
+		const nextPrimitiveStates = new Map<string, PrimitiveRevisionState>();
+		const instances = new Set<MeshInstance>();
+
+		for (const mixer of system.mixers) {
+			for (const binding of mixer.morphBindings.values()) {
+				instances.add(binding as MeshInstance);
+			}
+		}
+
+		for (const instance of instances) {
+			let jointRevision = 0;
+			if (instance.skeleton) {
+				instance.skeleton.updateJointMatrices(instance.worldMatrix);
+				const matrices = instance.skeleton.toFloat32Array();
+				const previous = this._jointRevisionStateByInstance.get(instance.id);
+				const changed =
+					!previous ||
+					previous.skeleton !== instance.skeleton ||
+					!floatArraysEqual(previous.matrices, matrices);
+				jointRevision = changed
+					? this._allocateDeformationRevision()
+					: previous.revision;
+				nextJointStates.set(instance.id, {
+					skeleton: instance.skeleton,
+					matrices,
+					revision: jointRevision,
+				});
+				jointMatrices.set(instance.id, {
+					skeleton: instance.skeleton,
+					matrices,
+				});
+			}
+
+			for (let index = 0; index < instance.mesh.primitives.length; index++) {
+				const primitive = instance.mesh.primitives[index];
+				const weights = instance.morphWeights[index] ?? EMPTY_MORPH_WEIGHTS;
+				const hasSkinning =
+					!!instance.skeleton &&
+					!!primitive.geometry.joints0 &&
+					!!primitive.geometry.weights0;
+				const hasMorphTargets =
+					(primitive.geometry.morphTargets?.length ?? 0) > 0 &&
+					weights.length > 0;
+				if (!hasSkinning && !hasMorphTargets) continue;
+				const packetId = `${instance.id}:${primitive.id}`;
+				const weightsSnapshot = new Float32Array(weights);
+				if (hasMorphTargets) {
+					morphWeights.set(packetId, {
+						packetId,
+						weights: weightsSnapshot,
+						targetCount: weightsSnapshot.length,
+					});
+				}
+
+				const override = deformPrimitiveGeometry({
+					geometry: primitive.geometry,
+					morphWeights: weights,
+					skeleton: hasSkinning ? instance.skeleton : null,
+					meshWorldMatrix: instance.worldMatrix,
+					jointMatricesCurrent: true,
+				});
+				const localBounds = computePositionBounds(
+					override.positions ?? primitive.geometry.positions
+				);
+				const geometryVersion = primitive.geometryVersion ?? 0;
+				const previous = this._primitiveRevisionStateByPacket.get(packetId);
+				const changed =
+					!previous ||
+					previous.geometry !== primitive.geometry ||
+					previous.geometryVersion !== geometryVersion ||
+					previous.jointRevision !== (hasSkinning ? jointRevision : 0) ||
+					!floatArraysEqual(previous.morphWeights, weightsSnapshot);
+				const revision = changed
+					? this._allocateDeformationRevision()
+					: previous.revision;
+
+				deformedGeometry.set(packetId, override);
+				deformationStates.set(packetId, {
+					packetId,
+					revision,
+					localBounds,
+				});
+				nextPrimitiveStates.set(packetId, {
+					geometry: primitive.geometry,
+					geometryVersion,
+					jointRevision: hasSkinning ? jointRevision : 0,
+					morphWeights: weightsSnapshot,
+					revision,
+				});
+			}
+		}
+
 		transient.set(ANIMATION_SOFTWARE_DEFORMED_GEOMETRY_KEY, deformedGeometry);
 		transient.set(ANIMATION_WEBGPU_JOINT_MATRICES_KEY, jointMatrices);
 		transient.set(ANIMATION_WEBGPU_MORPH_WEIGHTS_KEY, morphWeights);
+		transient.set(ANIMATION_DEFORMATION_STATES_KEY, deformationStates);
+		this._jointRevisionStateByInstance = nextJointStates;
+		this._primitiveRevisionStateByPacket = nextPrimitiveStates;
 	}
 
 	private _updateMixer(
 		mixer: AnimationMixer,
 		deltaSeconds: number,
 		poseStates: AnimationPoseState[],
-		deformedGeometry: DeformedGeometryMap,
-		jointMatrices: JointMatrixMap,
-		morphWeights: MorphWeightMap,
 		scene?: Scene
 	): void {
 		this._updateStateMachines(mixer, deltaSeconds);
@@ -209,36 +353,10 @@ export class AnimationRuntime {
 			}
 		}
 
-		for (const binding of mixer.morphBindings.values()) {
-			const instance = binding as MeshInstance;
-			for (let i = 0; i < instance.mesh.primitives.length; i++) {
-				const primitive = instance.mesh.primitives[i];
-				const weights = instance.morphWeights[i] ?? new Float32Array(0);
-				if (weights.length > 0) {
-					morphWeights.set(primitive.id, {
-						primitiveId: primitive.id,
-						weights: new Float32Array(weights),
-						targetCount: weights.length,
-					});
-				}
-				if (!instance.skeleton && weights.length === 0) continue;
-				const override = deformPrimitiveGeometry({
-					geometry: primitive.geometry,
-					morphWeights: weights,
-					skeleton: instance.skeleton,
-					meshWorldMatrix: instance.worldMatrix,
-				});
-				deformedGeometry.set(primitive.id, override);
-			}
+	}
 
-			if (instance.skeleton) {
-				instance.skeleton.updateJointMatrices(instance.worldMatrix);
-				jointMatrices.set(instance.id, {
-					skeleton: instance.skeleton,
-					matrices: instance.skeleton.toFloat32Array(),
-				});
-			}
-		}
+	private _allocateDeformationRevision(): number {
+		return this._nextDeformationRevision++;
 	}
 
 	private _updateStateMachines(
@@ -690,6 +808,57 @@ function bindingKey(track: KeyframeTrack): string {
 		binding.property,
 		binding.morphTargetIndex ?? -1,
 	].join("|");
+}
+
+function floatArraysEqual(left: Float32Array, right: Float32Array): boolean {
+	if (left.length !== right.length) return false;
+	for (let index = 0; index < left.length; index++) {
+		if (left[index] !== right[index]) return false;
+	}
+	return true;
+}
+
+function computePositionBounds(positions: ArrayLike<number>): BoundingSphere {
+	if (positions.length < 3) {
+		return {
+			center: { x: 0, y: 0, z: 0 },
+			radius: 0,
+		};
+	}
+
+	let minX = Number.POSITIVE_INFINITY;
+	let minY = Number.POSITIVE_INFINITY;
+	let minZ = Number.POSITIVE_INFINITY;
+	let maxX = Number.NEGATIVE_INFINITY;
+	let maxY = Number.NEGATIVE_INFINITY;
+	let maxZ = Number.NEGATIVE_INFINITY;
+	for (let index = 0; index + 2 < positions.length; index += 3) {
+		const x = Number(positions[index]);
+		const y = Number(positions[index + 1]);
+		const z = Number(positions[index + 2]);
+		minX = Math.min(minX, x);
+		minY = Math.min(minY, y);
+		minZ = Math.min(minZ, z);
+		maxX = Math.max(maxX, x);
+		maxY = Math.max(maxY, y);
+		maxZ = Math.max(maxZ, z);
+	}
+	const center = {
+		x: (minX + maxX) * 0.5,
+		y: (minY + maxY) * 0.5,
+		z: (minZ + maxZ) * 0.5,
+	};
+	let radiusSquared = 0;
+	for (let index = 0; index + 2 < positions.length; index += 3) {
+		const dx = Number(positions[index]) - center.x;
+		const dy = Number(positions[index + 1]) - center.y;
+		const dz = Number(positions[index + 2]) - center.z;
+		radiusSquared = Math.max(radiusSquared, dx * dx + dy * dy + dz * dz);
+	}
+	return {
+		center,
+		radius: Math.sqrt(radiusSquared),
+	};
 }
 
 function normalizeTime(time: number, duration: number): number {

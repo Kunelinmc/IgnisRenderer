@@ -24,6 +24,7 @@ import type {
 	RenderTargetRegistry,
 } from "./CustomRenderTargets";
 import { AnimationRuntime } from "../simulation/animation/AnimationRuntime";
+import { ANIMATION_DEFORMATION_STATES_KEY } from "../simulation/animation/types";
 import { PreparedSceneBuilder } from "../pipeline/PreparedSceneBuilder";
 import {
 	PreparedSceneCache,
@@ -357,6 +358,10 @@ export class FrameCoordinator {
 			["animation-sim", (delegate, state) => this._executeAnimationStage(delegate, state)],
 			["physics-sim", (delegate, state) => this._executePhysicsStage(delegate, state)],
 			["transform-update", (delegate) => this._executeTransformUpdateStage(delegate)],
+			[
+				"deformation-update",
+				(delegate, state) => this._executeDeformationStage(delegate, state),
+			],
 			["lod-resolve", (delegate) => this._resolveLODMeshes(delegate)],
 			["csg-resolve", (delegate) => this._resolveCSGMeshes(delegate)],
 			[
@@ -383,7 +388,7 @@ export class FrameCoordinator {
 		state: RenderSceneFrameState,
 	): void {
 		const dt = state.deltaTimeSeconds * 1000;
-		this._animationRuntime.update(
+		this._animationRuntime.updatePose(
 			delegate.animationSystem,
 			state.deltaTimeSeconds,
 			state.transient,
@@ -408,6 +413,16 @@ export class FrameCoordinator {
 		this._assertCameraInScene(delegate.scene, delegate.camera, "renderScene");
 		delegate.camera.updateMatrices();
 		delegate.refreshReflectionProbeCaches();
+	}
+
+	private _executeDeformationStage(
+		delegate: FrameCoordinatorDelegate,
+		state: RenderSceneFrameState
+	): void {
+		this._animationRuntime.resolveDeformations(
+			delegate.animationSystem,
+			state.transient
+		);
 	}
 
 	private _resolveLODMeshes(delegate: FrameCoordinatorDelegate): void {
@@ -455,6 +470,8 @@ export class FrameCoordinator {
 				scene: delegate.scene,
 				camera: delegate.camera,
 				hasActiveAnimations: delegate.animationSystem.hasActiveActions(),
+				deformationStates:
+					state.transient.get(ANIMATION_DEFORMATION_STATES_KEY) ?? null,
 			},
 			viewportWidth: delegate.canvas.width,
 			viewportHeight: delegate.canvas.height,

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 
 import * as frameExecutorFixture from "../../helpers/webgpu_frame_executor_resilience.mjs";
+import { WebGPUColorDirtyClearPass } from "../../../src/backends/webgpu/rendergraph/WebGPUColorDirtyClearPass.ts";
 
 const {
 	FakeBackend,
@@ -272,6 +273,146 @@ async function testDeferredLightingBindsUnusedGroupOnePlaceholder() {
 	);
 }
 
+async function testDeferredIncrementalClearsDirtyColorAndGBufferAttachments() {
+	const backend = new FakeBackend();
+	const resources = createDeferredLightingResourcesStub();
+	const executor = new WebGPUFrameExecutor(
+		backend, resources, undefined, undefined, resources,
+	);
+	const context = createFrameContext(64, 64);
+	context.scene.opaquePackets = [
+		{
+			id: "deferred-animated",
+			material: new PBRMaterial({ anisotropyStrength: 0.8 }),
+		},
+	];
+	context.incremental = {
+		enabled: true,
+		forceFullFrame: false,
+		dirtyRects: [{ x: 8, y: 12, width: 20, height: 24 }],
+		dirtyTileSize: 16,
+		dirtyTileColumns: 4,
+		dirtyTileRows: 4,
+		dirtyTiles: [0],
+		dirtyAreaRatio: 0.125,
+		firstPass: "main-opaque",
+		reasonMask: 0,
+		temporalHistoryReset: false,
+	};
+
+	await executor.beginFrame(context);
+	await executor.executePass(
+		{ stage: "main-opaque", executor: "backend", enabled: true },
+		context,
+	);
+
+	const colorClearIndex = backend.recordedRenderPasses.findIndex(
+		(pass) => pass.label === "WebGPUColorDirtyClear",
+	);
+	const gbufferIndex = backend.recordedRenderPasses.findIndex(
+		(pass) => pass.label === "WebGPUGBuffer_Load",
+	);
+	const lightingIndex = backend.recordedRenderPasses.findIndex(
+		(pass) => pass.label === "WebGPUDeferredLighting",
+	);
+	assert.ok(colorClearIndex >= 0);
+	assert.ok(colorClearIndex < gbufferIndex);
+	assert.ok(gbufferIndex < lightingIndex);
+	const colorClearPass = backend.recordedRenderPasses[colorClearIndex];
+	assert.equal(colorClearPass.colorAttachments.length, 8);
+	assert.equal(
+		colorClearPass.colorAttachments.every(
+			(attachment) => attachment.loadOp === "load",
+		),
+		true,
+	);
+	const frameEncoder = backend.commandEncoders[0];
+	assert.ok(
+		frameEncoder.calls.some(
+			(call) =>
+				call[0] === "setScissorRect" &&
+				call[1] === 8 &&
+				call[2] === 12 &&
+				call[3] === 20 &&
+				call[4] === 24,
+		),
+	);
+}
+
+async function testDeferredFallbackPreservesIncrementalState() {
+	const backend = new FakeBackend();
+	const resources = createDeferredLightingResourcesStub();
+	const executor = new WebGPUFrameExecutor(
+		backend, resources, undefined, undefined, resources,
+	);
+	const context = createFrameContext(64, 64);
+	context.scene.opaquePackets = [
+		{
+			id: "deferred-extended",
+			material: new PBRMaterial({ anisotropyStrength: 0.8 }),
+		},
+		{
+			id: "forward-fallback",
+			material: new PBRMaterial({ wireframe: true }),
+		},
+	];
+	context.incremental = {
+		enabled: true,
+		forceFullFrame: false,
+		dirtyRects: [{ x: 8, y: 12, width: 20, height: 24 }],
+		dirtyTileSize: 16,
+		dirtyTileColumns: 4,
+		dirtyTileRows: 4,
+		dirtyTiles: [0],
+		dirtyAreaRatio: 0.125,
+		firstPass: "main-opaque",
+		reasonMask: 0,
+		temporalHistoryReset: false,
+	};
+
+	await executor.beginFrame(context);
+	await executor.executePass(
+		{ stage: "main-opaque", executor: "backend", enabled: true },
+		context,
+	);
+
+	const colorClearPasses = backend.recordedRenderPasses.filter(
+		(pass) => pass.label === "WebGPUColorDirtyClear",
+	);
+	assert.equal(colorClearPasses.length, 1);
+	const fallbackPass = backend.recordedRenderPasses.find(
+		(pass) => pass.label === "WebGPUMainMRT_Load",
+	);
+	assert.ok(fallbackPass);
+	assert.equal(fallbackPass.depthStencilAttachment.depthLoadOp, "load");
+}
+
+async function testDeferredBaseClearSelectsCanonicalPipeline() {
+	const backend = new FakeBackend();
+	const clearPass = new WebGPUColorDirtyClearPass(backend);
+	const view = backend.getCanvasColorTexture();
+	await clearPass.record(
+		backend.createCommandEncoder(),
+		"deferred",
+		[
+			{ view, format: "rgba16float" },
+			{ view, format: "rgba8unorm" },
+			{ view, format: "rgba8unorm" },
+			{ view, format: "rgba16float" },
+			{ view, format: "rgba16float" },
+		],
+		1,
+		[{ x: 0, y: 0, width: 8, height: 8 }],
+	);
+
+	const pipeline = backend.renderPipelines.find((candidate) =>
+		candidate.label.startsWith("WebGPUColorDirtyClearPipeline_deferred|"),
+	);
+	assert.ok(pipeline);
+	assert.equal(pipeline.desc.fragment.entryPoint, "fsDeferred");
+	clearPass.destroy();
+}
+
 async function testDeferredLightingKeepsTransmissionOutOfGBuffer() {
 	const backend = new FakeBackend();
 	const resources = createDeferredLightingResourcesStub();
@@ -519,6 +660,9 @@ async function run() {
 		await testOITTransparentAndParticleExecutionOrder();
 		await testOITTransparentResolvesImmediatelyWithoutParticles();
 		await testDeferredLightingBindsUnusedGroupOnePlaceholder();
+		await testDeferredIncrementalClearsDirtyColorAndGBufferAttachments();
+		await testDeferredFallbackPreservesIncrementalState();
+		await testDeferredBaseClearSelectsCanonicalPipeline();
 		await testDeferredLightingKeepsTransmissionOutOfGBuffer();
 		await testDeferredLightingCanBeExplicitlyDisabled();
 		await testDeferredPipelineFailureFallsBackBeforeGBufferCommands();

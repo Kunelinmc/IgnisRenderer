@@ -289,6 +289,24 @@ This document defines the lifecycle, scheduling, warmup, incremental rendering, 
 ### Incremental rendering
 
 - Every `RenderFrameResult` must include `incremental`.
+- Animation pose sampling must complete before world-transform synchronization,
+  and deformation payloads and bounds must be resolved only after the current
+  world transforms are available.
+- Every animated `DrawPacket` must carry a monotonic deformation revision and
+  conservative world-space bounds for its current skinned or morphed geometry.
+- When a packet deformation revision or deformation bounds change, incremental
+  dirty coverage must include both the previous-frame and current-frame
+  projected packet bounds. Previous deformation coverage must remain owned by
+  the prepared-scene cache rather than `MeshInstance` or backend state.
+- The prepared-scene cache must compare the current camera view-projection
+  matrix with its previous build baseline. A changed matrix must force
+  full-frame coverage for that build and rebase cached packet rectangles before
+  later partial deformation updates, even when no explicit `"camera"` dirty
+  reason was supplied.
+- Projected packet bounds used for incremental coverage must conservatively
+  enclose the complete world-space bounding sphere under perspective and
+  orthographic cameras. A bound that crosses the camera plane must use
+  full-viewport coverage rather than an underestimated projected radius.
 - `IncrementalFrameStatus.plan` must describe the planner inputs and selected
   dirty rectangles and tiles for the completed frame.
 - `plannedCoverage` and `finalOutputCoverage` must use an

@@ -31,6 +31,7 @@ import type {
 } from "../rendering/CustomRenderTargets";
 import type { OcclusionCandidate } from "./OcclusionCulling";
 import type { RenderBackendProfile } from "../backends/IRenderBackend";
+import type { PrimitiveDeformationMap } from "../simulation/animation/types";
 import {
 	defineTransientKey,
 	type TransientStore,
@@ -53,6 +54,7 @@ export interface DrawPacket {
 	previousWorldMatrix?: Matrix4;
 	normalMatrix: Matrix4 | Matrix3Arr;
 	worldBounds: BoundingSphere;
+	deformationRevision: number;
 	sortDepth: number;
 	pipelineKey: string;
 	passFlags: number;
@@ -110,6 +112,8 @@ export interface PreparedScene {
 	decalPackets: DecalPacket[];
 	occlusion: PreparedSceneOcclusionState | null;
 	spatialIndex: PreparedSceneSpatialIndex | null;
+	/** @internal Current deformation metadata reused by secondary-camera builds. */
+	deformationStates?: PrimitiveDeformationMap | null;
 }
 
 export interface PreparedSceneOcclusionState {

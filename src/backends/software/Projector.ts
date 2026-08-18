@@ -315,7 +315,7 @@ export class Projector {
 		}
 
 		const overrides = frame.animationDeformedGeometry;
-		const geometryOverride = overrides?.get(packet.primitive.id);
+		const geometryOverride = overrides?.get(packet.id);
 		const triangleCount = (packet.geometry.indices.length / 3) | 0;
 		const faces: PrimitiveFace[] = [];
 		for (
