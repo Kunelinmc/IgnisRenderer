@@ -2,17 +2,17 @@ import assert from "node:assert/strict";import { Material } from "../../../src/m
 
 function testSceneShaderBackLitShadowGuard() {
 	const shader = getTestSceneShader();
-	const doubleSidedNormalFlip = "if (uDoubleSided == 1 && dot(normal, viewDir) < 0.0)";
-	const firstFlipIndex = shader.fragment.indexOf(doubleSidedNormalFlip);
-	const secondFlipIndex = shader.fragment.indexOf(
-		doubleSidedNormalFlip,
-		firstFlipIndex + doubleSidedNormalFlip.length,
-	);
+	const faceOrientation = "if (uDoubleSided == 1 && !gl_FrontFacing)";
+	const faceOrientationIndex = shader.fragment.indexOf(faceOrientation);
+	const hemisphereGuard = "if (dot(normal, geometryNormal) < 0.0)";
+	const hemisphereGuardIndex = shader.fragment.indexOf(hemisphereGuard);
 	const normalMapIndex = shader.fragment.indexOf("normal = applyNormalMap(");
 	assert.ok(shader.fragment.includes("dot(normal, lightDirection) <= 0.0"));
 	assert.ok(shader.fragment.includes("uniform int uDoubleSided;"));
-	assert.ok(firstFlipIndex >= 0);
-	assert.ok(secondFlipIndex > normalMapIndex);
+	assert.ok(faceOrientationIndex >= 0);
+	assert.ok(hemisphereGuardIndex > normalMapIndex);
+	assert.ok(shader.fragment.includes("dot(clearcoatNormal, normal) < 0.0"));
+	assert.ok(!shader.fragment.includes("dot(normal, viewDir) < 0.0"));
 }
 
 function testSceneShaderKeepsClusteredFragmentLightLimitPlaceholder() {
@@ -22,16 +22,16 @@ function testSceneShaderKeepsClusteredFragmentLightLimitPlaceholder() {
 
 function testSceneShaderUsesFlippedShadowNormal() {
 	const shader = getTestSceneShader();
-	const doubleSidedNormalFlip = "if (uDoubleSided == 1 && dot(normal, viewDir) < 0.0)";
-	const firstFlipIndex = shader.fragment.indexOf(doubleSidedNormalFlip);
-	const secondFlipIndex = shader.fragment.indexOf(
-		doubleSidedNormalFlip,
-		firstFlipIndex + doubleSidedNormalFlip.length,
+	const faceOrientationIndex = shader.fragment.indexOf(
+		"if (uDoubleSided == 1 && !gl_FrontFacing)"
+	);
+	const hemisphereGuardIndex = shader.fragment.indexOf(
+		"if (dot(normal, geometryNormal) < 0.0)"
 	);
 	const shadowNormalIndex = shader.fragment.indexOf("vec3 shadowNormal = normal;");
-	assert.ok(firstFlipIndex >= 0);
-	assert.ok(secondFlipIndex > firstFlipIndex);
-	assert.ok(shadowNormalIndex > secondFlipIndex);
+	assert.ok(faceOrientationIndex >= 0);
+	assert.ok(hemisphereGuardIndex > faceOrientationIndex);
+	assert.ok(shadowNormalIndex > hemisphereGuardIndex);
 	assert.ok(/shadePBR\(\s*albedo,\s*normal,\s*shadowNormal,\s*viewDir,/.test(shader.fragment));
 	assert.ok(shader.fragment.includes("shadePhong(albedo, normal, shadowNormal, viewDir);"));
 	assert.ok(/sampleDirectionalShadowVisibility\([\s\S]*shadowNormal/.test(shader.fragment));

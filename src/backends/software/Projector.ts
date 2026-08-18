@@ -166,6 +166,7 @@ export class Projector {
 				isOrthographic ?
 					-cullNormal.z
 				:	cullNormal.x * v0.x + cullNormal.y * v0.y + cullNormal.z * v0.z;
+			const frontFacing = flipCulling ? dot >= 0 : dot <= 0;
 
 			if (!packet.material.doubleSided) {
 				if (flipCulling ? dot < 0 : dot > 0) continue;
@@ -264,6 +265,7 @@ export class Projector {
 						max: maxDepth,
 						avg: sumDepth / 3,
 					},
+					frontFacing,
 				});
 			}
 		}

@@ -16,12 +16,15 @@ fn buildSceneOITOutput(sceneColor: vec4<f32>, linearDepth: f32) -> SceneFragment
 	return output;
 }
 
-fn shadeScene(input: VertexOutput) -> SceneFragmentOutput {
-	return shadeSceneWithOptions(input, true);
+fn shadeScene(input: VertexOutput, frontFacing: bool) -> SceneFragmentOutput {
+	return shadeSceneWithOptions(input, frontFacing, true);
 }
 
-fn shadeTransmissionCapture(input: VertexOutput) -> TransmissionFragmentOutput {
-	let shaded = shadeSceneWithOptions(input, false);
+fn shadeTransmissionCapture(
+	input: VertexOutput,
+	frontFacing: bool
+) -> TransmissionFragmentOutput {
+	let shaded = shadeSceneWithOptions(input, frontFacing, false);
 	let shadingMode = u32(model.materialFlags.x + 0.5);
 	let alphaModeMask = model.materialFlags.y > 0.5;
 	let doubleSided = model.materialFlags.z > 0.5;
@@ -54,9 +57,10 @@ fn shadeTransmissionCapture(input: VertexOutput) -> TransmissionFragmentOutput {
 		let faceNormal = cross(dpdx(input.worldPosition), dpdy(input.worldPosition));
 		normal = safeNormalize(faceNormal, normal);
 	}
-	if (doubleSided && dot(normal, viewDir) < 0.0) {
+	if (doubleSided && !frontFacing) {
 		normal = -normal;
 	}
+	let geometryNormal = normal;
 
 	var normalSample = vec3<f32>(0.5, 0.5, 1.0);
 	if (hasPBRTexture(PBR_TEXTURE_NORMAL_MAP)) {
@@ -76,7 +80,7 @@ fn shadeTransmissionCapture(input: VertexOutput) -> TransmissionFragmentOutput {
 		normalSample,
 		model.surfaceParams1.y
 	);
-	if (doubleSided && dot(pbrNormal, viewDir) < 0.0) {
+	if (dot(pbrNormal, geometryNormal) < 0.0) {
 		pbrNormal = -pbrNormal;
 	}
 
@@ -173,24 +177,36 @@ fn shadeTransmissionCapture(input: VertexOutput) -> TransmissionFragmentOutput {
 }
 
 @fragment
-fn fsMain(input: VertexOutput) -> SceneFragmentOutput {
-	return shadeScene(input);
+fn fsMain(
+	input: VertexOutput,
+	@builtin(front_facing) frontFacing: bool
+) -> SceneFragmentOutput {
+	return shadeScene(input, frontFacing);
 }
 
 @fragment
-fn fsMainSingle(input: VertexOutput) -> @location(0) vec4<f32> {
-	return shadeScene(input).sceneColor;
+fn fsMainSingle(
+	input: VertexOutput,
+	@builtin(front_facing) frontFacing: bool
+) -> @location(0) vec4<f32> {
+	return shadeScene(input, frontFacing).sceneColor;
 }
 
 @fragment
-fn fsMainOIT(input: VertexOutput) -> SceneFragmentOITOutput {
-	let shaded = shadeScene(input);
+fn fsMainOIT(
+	input: VertexOutput,
+	@builtin(front_facing) frontFacing: bool
+) -> SceneFragmentOITOutput {
+	let shaded = shadeScene(input, frontFacing);
 	return buildSceneOITOutput(shaded.sceneColor, shaded.gMotionDepth.z);
 }
 
 @fragment
-fn fsMainTransmissionCapture(input: VertexOutput) -> TransmissionFragmentOutput {
-	return shadeTransmissionCapture(input);
+fn fsMainTransmissionCapture(
+	input: VertexOutput,
+	@builtin(front_facing) frontFacing: bool
+) -> TransmissionFragmentOutput {
+	return shadeTransmissionCapture(input, frontFacing);
 }
 
 @fragment

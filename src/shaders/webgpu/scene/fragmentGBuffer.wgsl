@@ -104,7 +104,10 @@ fn buildGBufferOutput(
 	);
 }
 
-fn evaluateGBuffer(input: VertexOutput) -> GBufferFragmentOutput {
+fn evaluateGBuffer(
+	input: VertexOutput,
+	frontFacing: bool
+) -> GBufferFragmentOutput {
 	let shadingMode = u32(model.materialFlags.x + 0.5);
 	let alphaModeMask = model.materialFlags.y > 0.5;
 	let doubleSided = model.materialFlags.z > 0.5;
@@ -135,19 +138,15 @@ fn evaluateGBuffer(input: VertexOutput) -> GBufferFragmentOutput {
 		discard;
 	}
 
-	let viewDir = safeNormalize(
-		frame.cameraPosition.xyz - input.worldPosition,
-		vec3<f32>(0.0, 0.0, 1.0)
-	);
-
 	var normal = safeNormalize(input.worldNormal, vec3<f32>(0.0, 0.0, 1.0));
 	if (shadingMode == SHADING_FLAT) {
 		let faceNormal = cross(dpdx(input.worldPosition), dpdy(input.worldPosition));
 		normal = safeNormalize(faceNormal, normal);
 	}
-	if (doubleSided && dot(normal, viewDir) < 0.0) {
+	if (doubleSided && !frontFacing) {
 		normal = -normal;
 	}
+	let geometryNormal = normal;
 
 	var emissiveSample = vec4<f32>(1.0);
 	if (
@@ -442,7 +441,7 @@ fn evaluateGBuffer(input: VertexOutput) -> GBufferFragmentOutput {
 		normalSample,
 		model.surfaceParams1.y
 	);
-	if (doubleSided && dot(pbrNormal, viewDir) < 0.0) {
+	if (dot(pbrNormal, geometryNormal) < 0.0) {
 		pbrNormal = -pbrNormal;
 	}
 
@@ -452,7 +451,7 @@ fn evaluateGBuffer(input: VertexOutput) -> GBufferFragmentOutput {
 		clearcoatNormalSample,
 		model.sheenColorClearcoatNormalScale.a
 	);
-	if (doubleSided && dot(clearcoatNormal, viewDir) < 0.0) {
+	if (dot(clearcoatNormal, pbrNormal) < 0.0) {
 		clearcoatNormal = -clearcoatNormal;
 	}
 
@@ -510,12 +509,18 @@ fn evaluateGBuffer(input: VertexOutput) -> GBufferFragmentOutput {
 }
 
 @fragment
-fn fsMainGBuffer(input: VertexOutput) -> GBufferFragmentOutput {
-	return evaluateGBuffer(input);
+fn fsMainGBuffer(
+	input: VertexOutput,
+	@builtin(front_facing) frontFacing: bool
+) -> GBufferFragmentOutput {
+	return evaluateGBuffer(input, frontFacing);
 }
 
 @fragment
-fn fsMainGBufferBase(input: VertexOutput) -> GBufferBaseFragmentOutput {
+fn fsMainGBufferBase(
+	input: VertexOutput,
+	@builtin(front_facing) frontFacing: bool
+) -> GBufferBaseFragmentOutput {
 	let shadingMode = u32(model.materialFlags.x + 0.5);
 	let alphaModeMask = model.materialFlags.y > 0.5;
 	let doubleSided = model.materialFlags.z > 0.5;
@@ -539,11 +544,11 @@ fn fsMainGBufferBase(input: VertexOutput) -> GBufferBaseFragmentOutput {
 	if (alphaModeMask && alpha < model.surfaceParams0.w) {
 		discard;
 	}
-	let viewDir = safeNormalize(
-		frame.cameraPosition.xyz - input.worldPosition,
-		vec3<f32>(0.0, 0.0, 1.0)
-	);
 	var normal = safeNormalize(input.worldNormal, vec3<f32>(0.0, 0.0, 1.0));
+	if (doubleSided && !frontFacing) {
+		normal = -normal;
+	}
+	let geometryNormal = normal;
 	var emissiveSample = vec4<f32>(1.0);
 	if (
 		shadingMode != SHADING_PBR ||
@@ -622,12 +627,10 @@ fn fsMainGBufferBase(input: VertexOutput) -> GBufferBaseFragmentOutput {
 			normalSample,
 			model.surfaceParams1.y
 		);
-		if (doubleSided && dot(normal, viewDir) < 0.0) {
+		if (dot(normal, geometryNormal) < 0.0) {
 			normal = -normal;
 		}
 		materialWord = f32(SHADING_PBR);
-	} else if (doubleSided && dot(normal, viewDir) < 0.0) {
-		normal = -normal;
 	}
 	if (model.nodeRenderLayers.y > 0.5) {
 		materialWord = f32(

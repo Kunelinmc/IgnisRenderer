@@ -1,5 +1,6 @@
 fn shadeSceneWithOptions(
 	input: VertexOutput,
+	frontFacing: bool,
 	includeTransmissionBackground: bool
 ) -> SceneFragmentOutput {
 	let shadingMode = u32(model.materialFlags.x + 0.5);
@@ -43,10 +44,11 @@ fn shadeSceneWithOptions(
 		normal = safeNormalize(faceNormal, normal);
 	}
 
-	let shadowNormal = normal;
-	if (doubleSided && dot(normal, viewDir) < 0.0) {
+	if (doubleSided && !frontFacing) {
 		normal = -normal;
 	}
+	let geometryNormal = normal;
+	let shadowNormal = normal;
 
 	var emissiveSample = vec4<f32>(1.0);
 	if (

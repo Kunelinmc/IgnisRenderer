@@ -113,6 +113,11 @@ export class PBREvaluator extends BaseEvaluator<PBRSurfaceProperties> {
 		normalOut.y = ty * tNormX + by * tNormY + ny * tNormZ;
 		normalOut.z = tz * tNormX + bz * tNormY + nz * tNormZ;
 		Vector3.normalizeInPlace(normalOut);
+		if (normalOut.x * nx + normalOut.y * ny + normalOut.z * nz < 0) {
+			normalOut.x *= -1;
+			normalOut.y *= -1;
+			normalOut.z *= -1;
+		}
 	}
 
 	private _setFallbackTangent(
@@ -597,6 +602,11 @@ export class PBREvaluator extends BaseEvaluator<PBRSurfaceProperties> {
 			clearcoatNormal.x = normal.x;
 			clearcoatNormal.y = normal.y;
 			clearcoatNormal.z = normal.z;
+		}
+		if (Vector3.dot(clearcoatNormal, normal) < 0) {
+			clearcoatNormal.x *= -1;
+			clearcoatNormal.y *= -1;
+			clearcoatNormal.z *= -1;
 		}
 
 		this._resolveAnisotropyFrame(

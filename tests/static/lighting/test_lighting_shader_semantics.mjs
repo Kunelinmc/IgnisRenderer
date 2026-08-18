@@ -5,6 +5,7 @@ import { LightProbe } from "../../../src/lights/LightProbe.ts";
 import { evaluateLightContribution } from "../../../src/shaders/software/LightEvaluator.ts";
 import { SH } from "../../../src/maths/SH.ts";
 import { BlinnPhongStrategy } from "../../../src/shaders/software/BlinnPhongStrategy.ts";
+import { LitShader } from "../../../src/shaders/software/LitShader.ts";
 import { PBRStrategy } from "../../../src/shaders/software/PBRStrategy.ts";
 import { PBREvaluator } from "../../../src/shaders/software/PBREvaluator.ts";
 import { PhongEvaluator } from "../../../src/shaders/software/PhongEvaluator.ts";
@@ -48,6 +49,108 @@ function createConstantWhiteSH(linearRadiance = 1) {
 	const dc = (linearRadiance * 255) / 0.282095;
 	sh[0] = { r: dc, g: dc, b: dc };
 	return sh;
+}
+
+function testDoubleSidedNormalUsesRasterizerFacing() {
+	let observedNormal = null;
+	const shader = new LitShader(
+		{
+			calculate(_world, normal) {
+				observedNormal = { ...normal };
+				return { r: 0, g: 0, b: 0 };
+			},
+		},
+		{
+			evaluate(input) {
+				return {
+					opacity: 1,
+					normal: { ...input.normal },
+				};
+			},
+		}
+	);
+	const face = {
+		material: new Material({ doubleSided: true }),
+		center: { x: 0, y: 0, z: 0 },
+		depthInfo: { min: 0, max: 0, avg: 0 },
+	};
+	shader.initialize(
+		{
+			...face,
+			frontFacing: true,
+		},
+		createContext({ cameraPos: { x: 0, y: 0, z: 1 } })
+	);
+	shader.shade({
+		world: { x: 0, y: 0, z: 0 },
+		normal: { x: 0, y: 0, z: -1 },
+	});
+
+	assert.deepEqual(observedNormal, { x: 0, y: 0, z: -1 });
+
+	shader.initialize(
+		{ ...face, frontFacing: false },
+		createContext({ cameraPos: { x: 0, y: 0, z: 1 } })
+	);
+	shader.shade({
+		world: { x: 0, y: 0, z: 0 },
+		normal: { x: 0, y: 0, z: -1 },
+	});
+
+	assert.ok(Math.abs(observedNormal.x) <= 1e-6);
+	assert.ok(Math.abs(observedNormal.y) <= 1e-6);
+	assert.equal(observedNormal.z, 1);
+	const surfaceNormal = shader.getSurfaceNormal();
+	assert.ok(surfaceNormal);
+	assert.ok(Math.abs(surfaceNormal.x) <= 1e-6);
+	assert.ok(Math.abs(surfaceNormal.y) <= 1e-6);
+	assert.equal(surfaceNormal.z, 1);
+}
+
+function testDoubleSidedNormalMapUsesOrientedTBN() {
+	const material = new PBRMaterial({ doubleSided: true });
+	material.normalMap = new Texture({
+		data: new Uint8ClampedArray([255, 128, 128, 255]),
+		width: 1,
+		height: 1,
+	});
+	let observedNormal = null;
+	const shader = new LitShader(
+		{
+			calculate(_world, normal) {
+				observedNormal = { ...normal };
+				return { r: 0, g: 0, b: 0 };
+			},
+		},
+		new PBREvaluator(material)
+	);
+	shader.initialize(
+		{
+			material,
+			frontFacing: false,
+			center: { x: 0, y: 0, z: 0 },
+			depthInfo: { min: 0, max: 0, avg: 0 },
+		},
+		createContext({ cameraPos: { x: 0, y: 0, z: 1 } })
+	);
+	shader.shade({
+		zCam: 1,
+		world: { x: 0, y: 0, z: 0 },
+		normal: { x: 0, y: 0, z: -1 },
+		tangent: { x: 1, y: 0, z: 0, w: 1 },
+		u: 0,
+		v: 0,
+		u2: 0,
+		v2: 0,
+		u3: 0,
+		v3: 0,
+		u4: 0,
+		v4: 0,
+	});
+
+	assert.ok(observedNormal);
+	assert.ok(observedNormal.x > 0.9);
+	assert.ok(Math.abs(observedNormal.z) < 0.1);
 }
 
 function testSHAmbientGateForBlinnPhong() {
@@ -851,6 +954,8 @@ function testRendererUpdateSHDelegatesToCoordinator() {
 
 function run() {
 	try {
+		testDoubleSidedNormalUsesRasterizerFacing();
+		testDoubleSidedNormalMapUsesOrientedTBN();
 		testSHAmbientGateForBlinnPhong();
 		testSHAmbientGateForPBR();
 		testPBRAmbientIrradianceIsViewIndependent();

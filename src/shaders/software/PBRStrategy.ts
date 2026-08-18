@@ -60,6 +60,7 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 	private _reflectionDir: IVector3 = { x: 0, y: 0, z: 1 };
 	private _refractionDir: IVector3 = { x: 0, y: 0, z: 1 };
 	private _clearcoatReflectionDir: IVector3 = { x: 0, y: 0, z: 1 };
+	private _orientedClearcoatNormal: IVector3 = { x: 0, y: 0, z: 1 };
 	private _lightDir: IVector3 = { x: 0, y: 0, z: 1 };
 	private _halfDir: IVector3 = { x: 0, y: 0, z: 1 };
 	private _anisotropicBentNormal: IVector3 = { x: 0, y: 0, z: 1 };
@@ -215,7 +216,16 @@ export class PBRStrategy implements ILightingStrategy<PBRSurfaceProperties> {
 		const emissiveG = (surface.emissive.g / 255) * emissiveScale;
 		const emissiveB = (surface.emissive.b / 255) * emissiveScale;
 
-		const Nc = surface.clearcoatNormal ?? N;
+		const clearcoatNormal = surface.clearcoatNormal ?? N;
+		const Nc = this._orientedClearcoatNormal;
+		Nc.x = clearcoatNormal.x;
+		Nc.y = clearcoatNormal.y;
+		Nc.z = clearcoatNormal.z;
+		if (Vector3.dot(Nc, N) < 0) {
+			Nc.x *= -1;
+			Nc.y *= -1;
+			Nc.z *= -1;
+		}
 		const NcdotV = Math.max(Vector3.dot(Nc, V), PBR_MIN_NDOTV);
 		const clearcoatTransmissionFresnel =
 			clearcoat > 0 ? this._FresnelSchlickScalar(NcdotV, 0.04) : 0;

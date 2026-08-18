@@ -76,11 +76,12 @@ void main() {
 	}
 #endif
 
-	vec3 normal = normalize(vNormal);
+	vec3 geometryNormal = normalize(vNormal);
 	vec3 viewDir = safeNormalize(uCameraPosition - vWorldPos, vec3(0.0, 0.0, 1.0));
-	if (uDoubleSided == 1 && dot(normal, viewDir) < 0.0) {
-		normal = -normal;
+	if (uDoubleSided == 1 && !gl_FrontFacing) {
+		geometryNormal = -geometryNormal;
 	}
+	vec3 normal = geometryNormal;
 
 #if WEBGL_MATERIAL_MODEL_PBR || WEBGL_MATERIAL_MODEL_FULL
 	float roughness = clamp(uPBR.x, 0.04, 1.0);
@@ -201,7 +202,7 @@ void main() {
 			max(uNormalScale, 0.0)
 		);
 	}
-	if (uDoubleSided == 1 && dot(normal, viewDir) < 0.0) {
+	if (dot(normal, geometryNormal) < 0.0) {
 		normal = -normal;
 	}
 #endif
@@ -249,6 +250,9 @@ void main() {
 	}
 #endif
 #endif
+	if (dot(clearcoatNormal, normal) < 0.0) {
+		clearcoatNormal = -clearcoatNormal;
+	}
 	vec3 sheenColor = vec3(0.0);
 	float sheenRoughness = 0.0;
 #if WEBGL_MATERIAL_SHEEN || WEBGL_MATERIAL_MODEL_FULL

@@ -114,6 +114,11 @@ export interface ProjectedFace extends PrimitiveFace {
 	projected: ProjectedVertex[];
 	center: IVector3;
 	depthInfo: DepthInfo;
+	/**
+	 * Rasterizer winding classification used to orient double-sided normals.
+	 * @internal Software renderer projection contract.
+	 */
+	frontFacing?: boolean;
 }
 
 export interface ProjectedPoint {

@@ -31,6 +31,12 @@ This document defines clustered lighting, environment IBL, irradiance grids, lig
   diffuse contribution must not be attenuated by view-dependent Fresnel.
   Environment maps and SH radiance may retain Fresnel-weighted diffuse and
   specular image-based lighting.
+- Double-sided shading must orient the geometric normal from the rasterizer's
+  front-facing classification. It must not flip a shading normal by testing
+  `dot(normal, viewDir)`, because interpolated or hard vertex normals may cross
+  that threshold while the rasterized face orientation remains unchanged.
+  Normal-mapped and clearcoat normals must remain in the hemisphere of their
+  oriented geometric reference normal.
 - Dielectric F0 must be
   `0.16 * reflectance * reflectance * specularColor * specularFactor`;
   metallic F0 must use base color and must remain reflective when

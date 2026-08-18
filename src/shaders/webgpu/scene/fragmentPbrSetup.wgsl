@@ -252,10 +252,10 @@ var pbrNormal = applyNormalMap(
 	normalSample,
 	model.surfaceParams1.y
 );
-let pbrShadowNormal = pbrNormal;
-if (doubleSided && dot(pbrNormal, viewDir) < 0.0) {
+if (dot(pbrNormal, geometryNormal) < 0.0) {
 	pbrNormal = -pbrNormal;
 }
+let pbrShadowNormal = pbrNormal;
 
 var clearcoatNormal = applyNormalMap(
 	pbrNormal,
@@ -263,7 +263,7 @@ var clearcoatNormal = applyNormalMap(
 	clearcoatNormalSample,
 	model.sheenColorClearcoatNormalScale.a
 );
-if (doubleSided && dot(clearcoatNormal, viewDir) < 0.0) {
+if (dot(clearcoatNormal, pbrNormal) < 0.0) {
 	clearcoatNormal = -clearcoatNormal;
 }
 

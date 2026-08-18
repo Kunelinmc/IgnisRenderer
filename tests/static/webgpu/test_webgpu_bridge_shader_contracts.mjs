@@ -497,6 +497,10 @@ async function testSceneShaderCoverage() {
 	assert.ok(WEBGPU_SCENE_SHADER.includes("@fragment\nfn fsMainOIT("));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("@fragment\nfn fsMainTransmissionCapture("));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("@builtin(vertex_index)"));
+	assert.ok(WEBGPU_SCENE_SHADER.includes("@builtin(front_facing) frontFacing"));
+	assert.ok(WEBGPU_SCENE_SHADER.includes("doubleSided && !frontFacing"));
+	assert.ok(WEBGPU_SCENE_SHADER.includes("dot(pbrNormal, geometryNormal) < 0.0"));
+	assert.ok(!WEBGPU_SCENE_SHADER.includes("doubleSided && dot(normal, viewDir)"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("@location(8) weights1"));
 	assert.ok(WEBGPU_ENVIRONMENT_SHADER.includes("@group(0) @binding(1)"));
 	assert.ok(WEBGPU_ENVIRONMENT_SHADER.includes("prevViewProjection"));

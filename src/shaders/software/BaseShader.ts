@@ -39,12 +39,34 @@ export abstract class BaseShader<
 	}
 
 	protected _evaluateSurface(input: FragmentInput): T | null {
-		const surface = this._evaluator.evaluate(input, this._face);
+		const orientBackFace =
+			this._face.material?.doubleSided === true &&
+			this._face.frontFacing === false;
+		if (orientBackFace) {
+			// Normal maps must build their tangent frame from the rasterized face side.
+			input.normal.x *= -1;
+			input.normal.y *= -1;
+			input.normal.z *= -1;
+		}
+
+		let surface: T | null = null;
+		try {
+			surface = this._evaluator.evaluate(input, this._face);
+			if (surface) {
+				this._context.surfaceModifier?.apply(input, surface);
+			}
+		} finally {
+			if (orientBackFace) {
+				input.normal.x *= -1;
+				input.normal.y *= -1;
+				input.normal.z *= -1;
+			}
+		}
+
 		if (!surface) {
 			this._lastSurfaceNormal = null;
 			return null;
 		}
-		this._context.surfaceModifier?.apply(input, surface);
 		this._lastSurfaceNormal = surface.normal;
 		return surface;
 	}
