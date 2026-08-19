@@ -198,16 +198,9 @@ fn vsMain(
 			shadowTransmittance[min(safeInstanceIndex, transmittanceCount - 1u)];
 	}
 	let instanceData = shadowInstances[safeInstanceIndex];
-	var localInstanceIndex = 0u;
-	if (safeInstanceIndex >= instanceData.instanceBaseOffset) {
-		localInstanceIndex = safeInstanceIndex - instanceData.instanceBaseOffset;
-	}
-	let jointOffset =
-		instanceData.jointBaseOffset +
-		localInstanceIndex * animationParams.jointStride;
-	let morphWeightOffset =
-		instanceData.morphWeightBaseOffset +
-		localInstanceIndex * animationParams.morphWeightStride;
+	// Repeated atlas/page instances change projection only and share one pose.
+	let jointOffset = instanceData.jointBaseOffset;
+	let morphWeightOffset = instanceData.morphWeightBaseOffset;
 	var localVertexIndex = 0u;
 	if (vertexIndex >= instanceData.vertexBaseOffset) {
 		localVertexIndex = vertexIndex - instanceData.vertexBaseOffset;

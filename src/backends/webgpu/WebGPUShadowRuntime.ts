@@ -12,6 +12,7 @@ import type { WebGPUResourceManager } from "./WebGPUResourceManager";
 import { WebGPUAtlasShadowTechnique } from "./WebGPUAtlasShadowTechnique";
 import { WebGPUShadowAtlasAllocator } from "./WebGPUShadowAtlasAllocator";
 import { WebGPUShadowCasterRenderer } from "./WebGPUShadowCasterRenderer";
+import type { WebGPUAnimationPayloadPool } from "./WebGPUAnimationPayloadPool";
 import type { IRenderTexture } from "../types";
 
 /**
@@ -29,8 +30,13 @@ export class WebGPUShadowRuntime {
 		backend: WebGPUDeviceResourceHost,
 		resourceManager: WebGPUResourceManager,
 		geometryRegistry: WebGPUGeometryRegistry,
+		animationPayloads: WebGPUAnimationPayloadPool,
 	) {
-		this._casterRenderer = new WebGPUShadowCasterRenderer(backend, geometryRegistry);
+		this._casterRenderer = new WebGPUShadowCasterRenderer(
+			backend,
+			geometryRegistry,
+			animationPayloads
+		);
 		this._atlasTechnique = new WebGPUAtlasShadowTechnique(
 			new WebGPUShadowAtlasAllocator(backend),
 			this._casterRenderer,

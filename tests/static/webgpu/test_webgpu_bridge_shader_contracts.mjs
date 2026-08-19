@@ -769,6 +769,13 @@ function testShadowDepthLayoutMatchesTransmittanceShaderBinding() {
 	);
 	assert.match(shadowPassSource, depthLayoutBindingPattern);
 	assert.match(shadowPassSource, depthBindGroupEntryPattern);
+	assert.ok(shadowDepthShader.includes("let jointOffset = instanceData.jointBaseOffset;"));
+	assert.ok(
+		shadowDepthShader.includes(
+			"let morphWeightOffset = instanceData.morphWeightBaseOffset;"
+		)
+	);
+	assert.equal(shadowDepthShader.includes("localInstanceIndex *"), false);
 }
 
 async function testParticleShaderDepthConsistency() {

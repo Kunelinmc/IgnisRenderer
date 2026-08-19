@@ -11,8 +11,6 @@ import type { DrawPacket } from "../../pipeline/types";
 import type { Matrix3Arr } from "../../maths/types";
 import { Matrix4 } from "../../maths/Matrix4";
 import {
-	WEBGPU_MAX_MORPH_TARGETS,
-	WEBGPU_MODEL_ANIMATION_UNIFORM_FLOATS,
 	WEBGPU_MODEL_BINDING_ANIMATION_PARAMS,
 	WEBGPU_MODEL_BINDING_JOINT_MATRICES,
 	WEBGPU_MODEL_BINDING_MORPH_NORMAL,
@@ -28,17 +26,11 @@ import {
 	type WebGPUMaterialUniformData,
 	type WebGPUModelUniformWriter,
 } from "./";
+import type {
+	WebGPUAnimationPayloadPool,
+	WebGPUSceneAnimationPayload,
+} from "./WebGPUAnimationPayloadPool";
 import type { WebGPUPipelineLayouts } from "./WebGPUPipelineLayouts";
-
-export interface WebGPUModelAnimationBindingState {
-	jointMatrices: Float32Array | null;
-	morphWeights: Float32Array | null;
-	morphTargetCount: number;
-	vertexCount: number;
-	morphSemanticMask: number;
-	morphPositionBuffer: IRenderBuffer | null;
-	morphNormalBuffer: IRenderBuffer | null;
-}
 
 type MatrixRows = number[][];
 type FloatBuffer = Float32Array<ArrayBuffer>;
@@ -46,9 +38,6 @@ type FloatBuffer = Float32Array<ArrayBuffer>;
 interface MaterialBindingEntry {
 	uniformBuffer: IRenderBuffer;
 	shaderUniformBuffer: IRenderBuffer | null;
-	animationParamsBuffer: IRenderBuffer;
-	jointMatricesBuffer: IRenderBuffer;
-	morphWeightsBuffer: IRenderBuffer;
 	bindingGroup: IBindingGroup | null;
 	textures: IRenderTexture[];
 	samplers: ISampler[];
@@ -63,58 +52,40 @@ interface MaterialBindingEntry {
 	shaderUniformBufferSize: number;
 	shaderUniformCacheKey: string;
 	shaderUniformValueRevision: number;
+	animationPayloadGeneration: number;
 	hasModelSnapshot: boolean;
 	hasMaterialSnapshot: boolean;
 	hasPackedUniform: boolean;
 	modelFrame: number;
 	receiveShadows: boolean;
-	animationParamsData: FloatBuffer;
-	jointPayload: FloatBuffer;
-	morphPayload: FloatBuffer;
-	currentJointMatrices: FloatBuffer | null;
-	previousJointMatrices: FloatBuffer | null;
-	currentMorphWeights: FloatBuffer | null;
-	previousMorphWeights: FloatBuffer | null;
-	currentJointCount: number;
-	previousJointCount: number;
-	currentMorphCount: number;
-	previousMorphCount: number;
-	animationFrame: number;
-	animationParamsWritten: boolean;
-	jointPayloadWritten: boolean;
-	morphPayloadWritten: boolean;
-	jointMatrixCapacity: number;
-	morphWeightCapacity: number;
 	lastUsedFrame: number;
 }
 
 const MATERIAL_SNAPSHOT_FLOATS = (16 + WEBGPU_TEXTURE_SLOT_COUNT * 2) * 4;
-const FALLBACK_STORAGE_DATA: FloatBuffer = new Float32Array(4);
 const FALLBACK_UNIFORM_DATA: FloatBuffer = new Float32Array(4);
 
 export class WebGPUMaterialBindingCache {
 	private _backend: WebGPUDeviceResourceHost;
 	private _layouts: WebGPUPipelineLayouts;
+	private _animationPayloads: WebGPUAnimationPayloadPool;
 	private _cache = new Map<string, MaterialBindingEntry>();
 	private _currentFrame = 0;
-	private _fallbackStorageBuffer: IRenderBuffer;
 	private _fallbackShaderUniformBuffer: IRenderBuffer;
 	private _destroyed = false;
 
-	constructor(backend: WebGPUDeviceResourceHost, layouts: WebGPUPipelineLayouts) {
+	constructor(
+		backend: WebGPUDeviceResourceHost,
+		layouts: WebGPUPipelineLayouts,
+		animationPayloads: WebGPUAnimationPayloadPool
+	) {
 		this._backend = backend;
 		this._layouts = layouts;
-		this._fallbackStorageBuffer = this._backend.createBuffer({
-			size: 16,
-			usage: BufferUsage.Storage | BufferUsage.CopyDst,
-			label: "WebGPUFallbackAnimationStorageBuffer",
-		});
+		this._animationPayloads = animationPayloads;
 		this._fallbackShaderUniformBuffer = this._backend.createBuffer({
 			size: 16,
 			usage: BufferUsage.Uniform | BufferUsage.CopyDst,
 			label: "WebGPUFallbackShaderUniformBuffer",
 		});
-		this._backend.writeBuffer(this._fallbackStorageBuffer, FALLBACK_STORAGE_DATA);
 		this._backend.writeBuffer(
 			this._fallbackShaderUniformBuffer,
 			FALLBACK_UNIFORM_DATA
@@ -133,9 +104,6 @@ export class WebGPUMaterialBindingCache {
 				entry.bindingGroup = null;
 				entry.uniformBuffer.destroy();
 				entry.shaderUniformBuffer?.destroy();
-				entry.animationParamsBuffer.destroy();
-				entry.jointMatricesBuffer.destroy();
-				entry.morphWeightsBuffer.destroy();
 				this._cache.delete(key);
 			}
 		}
@@ -150,12 +118,8 @@ export class WebGPUMaterialBindingCache {
 			this._destroyBindingGroup(entry.bindingGroup);
 			entry.uniformBuffer.destroy();
 			entry.shaderUniformBuffer?.destroy();
-			entry.animationParamsBuffer.destroy();
-			entry.jointMatricesBuffer.destroy();
-			entry.morphWeightsBuffer.destroy();
 		}
 		this._cache.clear();
-		this._fallbackStorageBuffer.destroy();
 		this._fallbackShaderUniformBuffer.destroy();
 	}
 
@@ -166,7 +130,9 @@ export class WebGPUMaterialBindingCache {
 		textures: IRenderTexture[],
 		samplers: ISampler[],
 		anisotropyTexture: IRenderTexture,
-		animation: WebGPUModelAnimationBindingState
+		animation: WebGPUSceneAnimationPayload,
+		morphPositionBuffer: IRenderBuffer | null,
+		morphNormalBuffer: IRenderBuffer | null
 	): IBindingGroup {
 		const cacheKey = `${packet.id}-${materialData.pipelineKey}`;
 		let cached = this._cache.get(cacheKey);
@@ -179,14 +145,6 @@ export class WebGPUMaterialBindingCache {
 
 		this._updateModelUniform(cached, packet, materialData);
 
-		const jointCount = this._resolveJointCount(animation.jointMatrices);
-		const morphCount = this._resolveMorphCount(
-			animation.morphWeights,
-			animation.morphTargetCount
-		);
-		const jointCapacity = Math.max(1, jointCount);
-		const morphCapacity = Math.max(1, morphCount);
-
 		let requiresRebind = false;
 		requiresRebind =
 			this._updateShaderUniformBuffer(
@@ -194,22 +152,18 @@ export class WebGPUMaterialBindingCache {
 				cacheKey,
 				materialData
 			) || requiresRebind;
-		requiresRebind =
-			this._ensureJointBufferCapacity(cached, cacheKey, jointCapacity) ||
-			requiresRebind;
-		requiresRebind =
-			this._ensureMorphBufferCapacity(cached, cacheKey, morphCapacity) ||
-			requiresRebind;
+		if (cached.animationPayloadGeneration !== animation.generation) {
+			requiresRebind = true;
+		}
 
-		this._updateAnimationBuffers(cached, animation, jointCount, morphCount);
-
-		const morphPositionBuffer =
-			animation.morphPositionBuffer ?? this._fallbackStorageBuffer;
-		const morphNormalBuffer =
-			animation.morphNormalBuffer ?? this._fallbackStorageBuffer;
+		const fallbackStorageBuffer =
+			this._animationPayloads.getFallbackStorageBuffer();
+		const resolvedMorphPositionBuffer =
+			morphPositionBuffer ?? fallbackStorageBuffer;
+		const resolvedMorphNormalBuffer = morphNormalBuffer ?? fallbackStorageBuffer;
 		if (
-			cached.morphPositionBuffer !== morphPositionBuffer ||
-			cached.morphNormalBuffer !== morphNormalBuffer
+			cached.morphPositionBuffer !== resolvedMorphPositionBuffer ||
+			cached.morphNormalBuffer !== resolvedMorphNormalBuffer
 		) {
 			requiresRebind = true;
 		}
@@ -220,8 +174,8 @@ export class WebGPUMaterialBindingCache {
 			!areTexturesEqual(cached.textures, textures) ||
 			!areSamplersEqual(cached.samplers, samplers) ||
 			cached.anisotropyTexture !== anisotropyTexture ||
-			cached.morphPositionBuffer !== morphPositionBuffer ||
-			cached.morphNormalBuffer !== morphNormalBuffer
+			cached.morphPositionBuffer !== resolvedMorphPositionBuffer ||
+			cached.morphNormalBuffer !== resolvedMorphNormalBuffer
 		) {
 			const previousBindingGroup = cached.bindingGroup;
 			const entries: Array<{ binding: number; resource: any }> = [
@@ -236,23 +190,23 @@ export class WebGPUMaterialBindingCache {
 			entries.push(
 				{
 					binding: WEBGPU_MODEL_BINDING_ANIMATION_PARAMS,
-					resource: cached.animationParamsBuffer,
+					resource: animation.paramsBuffer,
 				},
 				{
 					binding: WEBGPU_MODEL_BINDING_JOINT_MATRICES,
-					resource: cached.jointMatricesBuffer,
+					resource: animation.jointMatricesBuffer,
 				},
 				{
 					binding: WEBGPU_MODEL_BINDING_MORPH_WEIGHTS,
-					resource: cached.morphWeightsBuffer,
+					resource: animation.morphWeightsBuffer,
 				},
 				{
 					binding: WEBGPU_MODEL_BINDING_MORPH_POSITION,
-					resource: morphPositionBuffer,
+					resource: resolvedMorphPositionBuffer,
 				},
 				{
 					binding: WEBGPU_MODEL_BINDING_MORPH_NORMAL,
-					resource: morphNormalBuffer,
+					resource: resolvedMorphNormalBuffer,
 				},
 				{
 					binding: WEBGPU_MODEL_BINDING_SHADER_UNIFORMS,
@@ -276,8 +230,9 @@ export class WebGPUMaterialBindingCache {
 			cached.textures = textures.slice();
 			cached.samplers = samplers.slice();
 			cached.anisotropyTexture = anisotropyTexture;
-			cached.morphPositionBuffer = morphPositionBuffer;
-			cached.morphNormalBuffer = morphNormalBuffer;
+			cached.morphPositionBuffer = resolvedMorphPositionBuffer;
+			cached.morphNormalBuffer = resolvedMorphNormalBuffer;
+			cached.animationPayloadGeneration = animation.generation;
 		}
 
 		return cached.bindingGroup;
@@ -291,27 +246,12 @@ export class WebGPUMaterialBindingCache {
 				label: `ModelUniform_${cacheKey}`,
 			}),
 			shaderUniformBuffer: null,
-			animationParamsBuffer: this._backend.createBuffer({
-				size: WEBGPU_MODEL_ANIMATION_UNIFORM_FLOATS * 4,
-				usage: BufferUsage.Uniform | BufferUsage.CopyDst,
-				label: `ModelAnimationParams_${cacheKey}`,
-			}),
-			jointMatricesBuffer: this._backend.createBuffer({
-				size: 2 * 16 * 4,
-				usage: BufferUsage.Storage | BufferUsage.CopyDst,
-				label: `ModelJointMatrices_${cacheKey}`,
-			}),
-			morphWeightsBuffer: this._backend.createBuffer({
-				size: 2 * 4,
-				usage: BufferUsage.Storage | BufferUsage.CopyDst,
-				label: `ModelMorphWeights_${cacheKey}`,
-			}),
 			bindingGroup: null,
 			textures: [],
 			samplers: [],
 			anisotropyTexture: null,
-			morphPositionBuffer: this._fallbackStorageBuffer,
-			morphNormalBuffer: this._fallbackStorageBuffer,
+			morphPositionBuffer: this._animationPayloads.getFallbackStorageBuffer(),
+			morphNormalBuffer: this._animationPayloads.getFallbackStorageBuffer(),
 			modelUniformWriter: createModelUniformWriter(),
 			currentModelMatrix: createMatrixRows(),
 			previousModelMatrix: createMatrixRows(),
@@ -320,31 +260,14 @@ export class WebGPUMaterialBindingCache {
 			shaderUniformBufferSize: 0,
 			shaderUniformCacheKey: "none",
 			shaderUniformValueRevision: -1,
+			animationPayloadGeneration: -1,
 			hasModelSnapshot: false,
 			hasMaterialSnapshot: false,
 			hasPackedUniform: false,
 			modelFrame: -1,
 			receiveShadows: true,
-			animationParamsData: new Float32Array([0, 0, 1, 1, 0, 0, 0, 0]),
-			jointPayload: createJointPayload(1),
-			morphPayload: new Float32Array(2),
-			currentJointMatrices: null,
-			previousJointMatrices: null,
-			currentMorphWeights: null,
-			previousMorphWeights: null,
-			currentJointCount: 0,
-			previousJointCount: 0,
-			currentMorphCount: 0,
-			previousMorphCount: 0,
-			animationFrame: -1,
-			animationParamsWritten: true,
-			jointPayloadWritten: false,
-			morphPayloadWritten: false,
-			jointMatrixCapacity: 1,
-			morphWeightCapacity: 1,
 			lastUsedFrame: this._currentFrame,
 		};
-		this._backend.writeBuffer(entry.animationParamsBuffer, entry.animationParamsData);
 		return entry;
 	}
 
@@ -455,285 +378,6 @@ export class WebGPUMaterialBindingCache {
 			entry.shaderUniformValueRevision = shaderUniforms.valueRevision;
 		}
 		return requiresRebind;
-	}
-
-	private _updateAnimationBuffers(
-		entry: MaterialBindingEntry,
-		animation: WebGPUModelAnimationBindingState,
-		jointCount: number,
-		morphCount: number
-	): void {
-		let jointPayloadDirty = false;
-		let morphPayloadDirty = false;
-
-		if (entry.animationFrame !== this._currentFrame) {
-			if (entry.currentJointMatrices && entry.currentJointCount > 0) {
-				this._ensureJointSnapshots(entry);
-				jointPayloadDirty =
-					copyFloatPrefix(
-						entry.currentJointMatrices,
-						entry.previousJointMatrices!,
-						entry.currentJointCount * 16
-					) || jointPayloadDirty;
-				entry.previousJointCount = entry.currentJointCount;
-			} else if (entry.previousJointCount !== 0) {
-				entry.previousJointCount = 0;
-				jointPayloadDirty = true;
-			}
-
-			if (entry.currentMorphWeights && entry.currentMorphCount > 0) {
-				this._ensureMorphSnapshots(entry);
-				morphPayloadDirty =
-					copyFloatPrefix(
-						entry.currentMorphWeights,
-						entry.previousMorphWeights!,
-						entry.currentMorphCount
-					) || morphPayloadDirty;
-				entry.previousMorphCount = entry.currentMorphCount;
-			} else if (entry.previousMorphCount !== 0) {
-				entry.previousMorphCount = 0;
-				morphPayloadDirty = true;
-			}
-
-			entry.animationFrame = this._currentFrame;
-		}
-
-		if (jointCount > 0 && animation.jointMatrices) {
-			const hadPreviousJointState = entry.currentJointCount > 0;
-			this._ensureJointSnapshots(entry);
-			jointPayloadDirty =
-				copyFloatPrefix(
-					animation.jointMatrices,
-					entry.currentJointMatrices!,
-					jointCount * 16
-				) || jointPayloadDirty;
-			if (entry.currentJointCount !== jointCount) {
-				entry.currentJointCount = jointCount;
-				jointPayloadDirty = true;
-			}
-			if (!hadPreviousJointState || entry.previousJointCount <= 0) {
-				copyFloatPrefix(
-					entry.currentJointMatrices!,
-					entry.previousJointMatrices!,
-					jointCount * 16
-				);
-				entry.previousJointCount = jointCount;
-				jointPayloadDirty = true;
-			}
-		} else if (entry.currentJointCount !== 0) {
-			entry.currentJointCount = 0;
-			jointPayloadDirty = true;
-		}
-
-		if (morphCount > 0) {
-			const hadPreviousMorphState = entry.currentMorphCount > 0;
-			this._ensureMorphSnapshots(entry);
-			if (animation.morphWeights) {
-				morphPayloadDirty =
-					copyFloatPrefix(
-						animation.morphWeights,
-						entry.currentMorphWeights!,
-						morphCount
-					) || morphPayloadDirty;
-			} else {
-				morphPayloadDirty =
-					zeroFloatPrefix(entry.currentMorphWeights!, morphCount) ||
-					morphPayloadDirty;
-			}
-			if (entry.currentMorphCount !== morphCount) {
-				entry.currentMorphCount = morphCount;
-				morphPayloadDirty = true;
-			}
-			if (!hadPreviousMorphState || entry.previousMorphCount <= 0) {
-				copyFloatPrefix(
-					entry.currentMorphWeights!,
-					entry.previousMorphWeights!,
-					morphCount
-				);
-				entry.previousMorphCount = morphCount;
-				morphPayloadDirty = true;
-			}
-		} else if (entry.currentMorphCount !== 0) {
-			entry.currentMorphCount = 0;
-			morphPayloadDirty = true;
-		}
-
-		this._writeAnimationParamsIfNeeded(entry, animation, jointCount, morphCount);
-
-		if (jointCount > 0 && (jointPayloadDirty || !entry.jointPayloadWritten)) {
-			this._writeJointPayload(entry, jointCount);
-		}
-		if (morphCount > 0 && (morphPayloadDirty || !entry.morphPayloadWritten)) {
-			this._writeMorphPayload(entry, morphCount);
-		}
-	}
-
-	private _writeAnimationParamsIfNeeded(
-		entry: MaterialBindingEntry,
-		animation: WebGPUModelAnimationBindingState,
-		jointCount: number,
-		morphCount: number
-	): void {
-		const params = entry.animationParamsData;
-		let dirty = !entry.animationParamsWritten;
-		dirty = setArrayValue(params, 0, jointCount) || dirty;
-		dirty = setArrayValue(params, 1, morphCount) || dirty;
-		dirty = setArrayValue(params, 2, entry.jointMatrixCapacity) || dirty;
-		dirty = setArrayValue(params, 3, entry.morphWeightCapacity) || dirty;
-		dirty = setArrayValue(
-			params,
-			4,
-			Number.isFinite(animation.vertexCount) ? animation.vertexCount : 0
-		) || dirty;
-		dirty = setArrayValue(
-			params,
-			5,
-			Number.isFinite(animation.morphSemanticMask) ? animation.morphSemanticMask : 0
-		) || dirty;
-		if (!dirty) {
-			return;
-		}
-		this._backend.writeBuffer(entry.animationParamsBuffer, params);
-		entry.animationParamsWritten = true;
-	}
-
-	private _writeJointPayload(
-		entry: MaterialBindingEntry,
-		jointCount: number
-	): void {
-		const capacity = entry.jointMatrixCapacity;
-		const payload = entry.jointPayload;
-		payload.fill(0);
-		fillIdentityMatrices(payload, 0, capacity);
-		fillIdentityMatrices(payload, capacity * 16, capacity);
-		if (entry.currentJointMatrices && jointCount > 0) {
-			payload.set(entry.currentJointMatrices.subarray(0, jointCount * 16), 0);
-		}
-		const prevCount = Math.min(entry.previousJointCount, jointCount);
-		if (entry.previousJointMatrices && prevCount > 0) {
-			payload.set(
-				entry.previousJointMatrices.subarray(0, prevCount * 16),
-				capacity * 16
-			);
-		}
-		this._backend.writeBuffer(entry.jointMatricesBuffer, payload);
-		entry.jointPayloadWritten = true;
-	}
-
-	private _writeMorphPayload(
-		entry: MaterialBindingEntry,
-		morphCount: number
-	): void {
-		const capacity = entry.morphWeightCapacity;
-		const payload = entry.morphPayload;
-		payload.fill(0);
-		if (entry.currentMorphWeights && morphCount > 0) {
-			payload.set(entry.currentMorphWeights.subarray(0, morphCount), 0);
-		}
-		const prevCount = Math.min(entry.previousMorphCount, morphCount);
-		if (entry.previousMorphWeights && prevCount > 0) {
-			payload.set(
-				entry.previousMorphWeights.subarray(0, prevCount),
-				capacity
-			);
-		}
-		this._backend.writeBuffer(entry.morphWeightsBuffer, payload);
-		entry.morphPayloadWritten = true;
-	}
-
-	private _resolveJointCount(matrices: Float32Array | null): number {
-		if (!matrices) return 0;
-		return Math.max(0, Math.floor(matrices.length / 16));
-	}
-
-	private _resolveMorphCount(
-		weights: Float32Array | null,
-		targetCount: number
-	): number {
-		const requested = Math.min(
-			WEBGPU_MAX_MORPH_TARGETS,
-			Math.max(0, Math.floor(targetCount))
-		);
-		if (!weights) return requested;
-		return Math.min(requested, weights.length);
-	}
-
-	private _ensureJointBufferCapacity(
-		entry: MaterialBindingEntry,
-		cacheKey: string,
-		capacity: number
-	): boolean {
-		if (capacity <= entry.jointMatrixCapacity) {
-			return false;
-		}
-		entry.jointMatricesBuffer.destroy();
-		entry.jointMatricesBuffer = this._backend.createBuffer({
-			size: capacity * 2 * 16 * 4,
-			usage: BufferUsage.Storage | BufferUsage.CopyDst,
-			label: `ModelJointMatrices_${cacheKey}`,
-		});
-		entry.jointPayload = createJointPayload(capacity);
-		entry.currentJointMatrices = resizeFloatArray(
-			entry.currentJointMatrices,
-			capacity * 16
-		);
-		entry.previousJointMatrices = resizeFloatArray(
-			entry.previousJointMatrices,
-			capacity * 16
-		);
-		entry.jointMatrixCapacity = capacity;
-		entry.jointPayloadWritten = false;
-		entry.animationParamsWritten = false;
-		return true;
-	}
-
-	private _ensureMorphBufferCapacity(
-		entry: MaterialBindingEntry,
-		cacheKey: string,
-		capacity: number
-	): boolean {
-		if (capacity <= entry.morphWeightCapacity) {
-			return false;
-		}
-		entry.morphWeightsBuffer.destroy();
-		entry.morphWeightsBuffer = this._backend.createBuffer({
-			size: capacity * 2 * 4,
-			usage: BufferUsage.Storage | BufferUsage.CopyDst,
-			label: `ModelMorphWeights_${cacheKey}`,
-		});
-		entry.morphPayload = new Float32Array(capacity * 2);
-		entry.currentMorphWeights = resizeFloatArray(
-			entry.currentMorphWeights,
-			capacity
-		);
-		entry.previousMorphWeights = resizeFloatArray(
-			entry.previousMorphWeights,
-			capacity
-		);
-		entry.morphWeightCapacity = capacity;
-		entry.morphPayloadWritten = false;
-		entry.animationParamsWritten = false;
-		return true;
-	}
-
-	private _ensureJointSnapshots(entry: MaterialBindingEntry): void {
-		const length = entry.jointMatrixCapacity * 16;
-		if (!entry.currentJointMatrices) {
-			entry.currentJointMatrices = new Float32Array(length);
-		}
-		if (!entry.previousJointMatrices) {
-			entry.previousJointMatrices = new Float32Array(length);
-		}
-	}
-
-	private _ensureMorphSnapshots(entry: MaterialBindingEntry): void {
-		const length = entry.morphWeightCapacity;
-		if (!entry.currentMorphWeights) {
-			entry.currentMorphWeights = new Float32Array(length);
-		}
-		if (!entry.previousMorphWeights) {
-			entry.previousMorphWeights = new Float32Array(length);
-		}
 	}
 
 	private _destroyBindingGroup(group: IBindingGroup | null): void {
@@ -884,75 +528,4 @@ function writeSnapshotVec4(
 		}
 	}
 	return changed;
-}
-
-function setArrayValue(
-	target: FloatBuffer,
-	index: number,
-	value: number
-): boolean {
-	if (target[index] === value) {
-		return false;
-	}
-	target[index] = value;
-	return true;
-}
-
-function copyFloatPrefix(
-	source: Float32Array,
-	target: FloatBuffer,
-	count: number
-): boolean {
-	let changed = false;
-	for (let i = 0; i < count; i++) {
-		const value = source[i] ?? 0;
-		if (target[i] !== value) {
-			target[i] = value;
-			changed = true;
-		}
-	}
-	return changed;
-}
-
-function zeroFloatPrefix(target: FloatBuffer, count: number): boolean {
-	let changed = false;
-	for (let i = 0; i < count; i++) {
-		if (target[i] !== 0) {
-			target[i] = 0;
-			changed = true;
-		}
-	}
-	return changed;
-}
-
-function resizeFloatArray(
-	source: Float32Array | null,
-	length: number
-): FloatBuffer {
-	const target = new Float32Array(length);
-	if (source) {
-		target.set(source.subarray(0, Math.min(source.length, length)));
-	}
-	return target;
-}
-
-function createJointPayload(jointCapacity: number): FloatBuffer {
-	const payload = new Float32Array(jointCapacity * 2 * 16);
-	fillIdentityMatrices(payload, 0, jointCapacity);
-	fillIdentityMatrices(payload, jointCapacity * 16, jointCapacity);
-	return payload;
-}
-
-function fillIdentityMatrices(
-	target: FloatBuffer,
-	startFloatOffset: number,
-	count: number
-): void {
-	for (let i = 0; i < count; i++) {
-		const base = startFloatOffset + i * 16;
-		target[base] = 1;
-		target[base + 5] = 1;
-		target[base + 10] = 1;
-		target[base + 15] = 1;
-	}
 }

@@ -718,7 +718,24 @@ async function testEmptyCasterSetStillClearsDirtyPagedDepthPages() {
 			},
 		},
 	};
-	const shadowPass = new WebGPUShadowCasterRenderer(backend, {});
+	const fallbackResource = { _gpuResource: nativeBuffer };
+	const animationPayloads = {
+		getStaticShadowPayload() {
+			return {
+				paramsBuffer: fallbackResource,
+				jointMatricesBuffer: fallbackResource,
+				morphWeightsBuffer: fallbackResource,
+			};
+		},
+		getFallbackStorageBuffer() {
+			return fallbackResource;
+		},
+	};
+	const shadowPass = new WebGPUShadowCasterRenderer(
+		backend,
+		{},
+		animationPayloads
+	);
 	const renderPipeline = { _gpuResource: {} };
 	Object.assign(shadowPass, {
 		_shaderModule: {},
@@ -727,7 +744,7 @@ async function testEmptyCasterSetStillClearsDirtyPagedDepthPages() {
 		_transmittancePipelines: new Map(),
 		_bindGroupLayout: {},
 		_animationBindGroupLayout: {},
-		_fallbackStorageBuffer: nativeBuffer,
+		_staticAnimationBindGroup: {},
 		_pagedClearPipeline: renderPipeline,
 		_pagedClearBindGroupLayout: {},
 		_pagedClearParamsBuffer: nativeBuffer,

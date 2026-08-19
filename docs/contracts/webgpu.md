@@ -292,6 +292,36 @@ lighting, presentation configuration, reflections, and structured buffer packing
 - `WebGPUHiZBuilder` owns Hi-Z shader, pipeline, mip-view, and binding caches.
   `WebGPUFrameTargetManager` owns the `frame:hiz` texture lifetime.
 
+### Animation payload resources
+
+- `WebGPUFrameServiceOwner` must own one device-lifetime
+  `WebGPUAnimationPayloadPool` shared by scene-material and shadow consumers.
+  The pool must own packet animation parameter, joint-matrix, morph-weight, and
+  zero-storage fallback buffers. Scene-material and shadow runtimes must retain
+  ownership of their feature-local bind groups.
+- The pool must key payload state by `DrawPacket.id` and must resolve and upload
+  joint and morph storage at most once per logical backend frame. Runtime joint
+  matrices and morph weights must be consumed directly without recomputing
+  skeleton matrices or allocating another morph snapshot in WebGPU consumers.
+- Packets without active skinning or morph targets must use device-lifetime
+  zero-value fallback buffers and must not allocate packet-owned animation
+  buffers. Scene and shadow animation parameter layouts may remain distinct.
+- Joint and morph storage must retain current and previous payloads. A changed
+  deformation must publish the last current payload as previous; the next
+  unchanged logical frame must settle previous to current before later
+  unchanged frames skip the upload.
+- Packet-owned animation buffers must grow only when active capacity increases.
+  Inactive packets must bind fallbacks immediately, retain dormant allocations
+  for 60 logical frames, then release their packet-owned GPU and CPU payloads.
+  Re-activation during the grace period must initialize previous data from the
+  new current pose so it does not create a false motion vector.
+- Shadow atlas or page instances of one caster must share the caster's current
+  joint and morph payload. Instance indices used for repeated shadow projection
+  must not advance into previous-pose storage.
+- `WebGPUAnimationPayloadPool.getDebugStats()` must expose backend-internal live
+  entry, buffer, and byte counts together with cumulative allocation, release,
+  upload, skipped-upload, rebuild, and grace-release counters.
+
 ### Geometry packing
 
 - `WebGPUGeometryRegistry` must store scene geometry in semantic vertex streams.

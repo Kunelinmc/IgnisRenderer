@@ -42,11 +42,9 @@ import {
 import { createWebGPUPipelineLayouts } from "./WebGPUPipelineLayouts";
 import { WebGPUFrameBindingCache } from "./WebGPUFrameBindingCache";
 import { WebGPUClusteredLightingRuntime } from "./WebGPUClusteredLightingRuntime";
-import { WebGPUGeometryRegistry, type WebGPUGeometryHandle } from "./WebGPUGeometryRegistry";
-import {
-	WebGPUMaterialBindingCache,
-	type WebGPUModelAnimationBindingState,
-} from "./WebGPUMaterialBindingCache";
+import { WebGPUGeometryRegistry } from "./WebGPUGeometryRegistry";
+import { WebGPUAnimationPayloadPool } from "./WebGPUAnimationPayloadPool";
+import { WebGPUMaterialBindingCache } from "./WebGPUMaterialBindingCache";
 import { WebGPUPipelineLibrary } from "./WebGPUPipelineLibrary";
 import { WebGPUDeferredResources } from "./WebGPUDeferredResources";
 import type {
@@ -141,6 +139,7 @@ export class WebGPUFrameServiceOwner {
 	private _geometryRegistry: WebGPUGeometryRegistry;
 	private _textureRegistry: WebGPUTextureRegistry;
 	private _pipelineLibrary: WebGPUPipelineLibrary;
+	private _animationPayloads: WebGPUAnimationPayloadPool;
 	private _materialBindings: WebGPUMaterialBindingCache;
 	private _shadowRuntime: WebGPUShadowRuntime;
 	private _shadowRuntimeDestroyed = false;
@@ -177,11 +176,17 @@ export class WebGPUFrameServiceOwner {
 		this._deferredResources = new WebGPUDeferredResources(backend, this._layouts, () =>
 			this._pipelineLibrary.getDeferredLightingPipeline(),
 		);
-		this._materialBindings = new WebGPUMaterialBindingCache(backend, this._layouts);
+		this._animationPayloads = new WebGPUAnimationPayloadPool(backend);
+		this._materialBindings = new WebGPUMaterialBindingCache(
+			backend,
+			this._layouts,
+			this._animationPayloads
+		);
 		this._shadowRuntime = new WebGPUShadowRuntime(
 			backend,
 			resourceManager,
-			this._geometryRegistry
+			this._geometryRegistry,
+			this._animationPayloads
 		);
 	}
 
@@ -388,6 +393,7 @@ export class WebGPUFrameServiceOwner {
 	 * stale per-frame cache entries.
 	 */
 	public beginFrameResourceLifecycle(): void {
+		this._animationPayloads.beginFrame();
 		this._materialBindings.beginFrame();
 		this._particleRenderResources.beginFrame();
 	}
@@ -787,6 +793,7 @@ export class WebGPUFrameServiceOwner {
 		}
 		this._frameScopes.clear();
 		this._materialBindings.destroy();
+		this._animationPayloads.destroy();
 		this._pipelineLibrary.destroy();
 		this._textureRegistry.destroy();
 		this._geometryRegistry.destroy();
@@ -985,7 +992,12 @@ export class WebGPUFrameServiceOwner {
 		const topology = geometry.topology;
 		const frameBinding = prepared.frameBinding;
 		const clusteredBinding = prepared.clusteredSceneBinding;
-		const animationState = this._resolveAnimationState(packet, geometry, prepared);
+		const animationPayload = this._animationPayloads.getScenePayload(
+			packet,
+			geometry,
+			prepared.jointMatrixMap,
+			prepared.morphWeightMap
+		);
 
 		// ----- SOLID OBJECT -----
 		const solidMaterialData = createWebGPUMaterialUniformData(packet.material, false);
@@ -1039,7 +1051,9 @@ export class WebGPUFrameServiceOwner {
 			solidTextures,
 			solidSamplers,
 			solidAnisotropyTexture,
-			animationState,
+			animationPayload,
+			geometry.morphPositionBuffer,
+			geometry.morphNormalBuffer,
 		);
 
 		results.push({
@@ -1100,7 +1114,9 @@ export class WebGPUFrameServiceOwner {
 				wireTextures,
 				wireSamplers,
 				wireAnisotropyTexture,
-				animationState,
+				animationPayload,
+				wireGeometry.morphPositionBuffer,
+				wireGeometry.morphNormalBuffer,
 			);
 
 			results.push({
@@ -1154,47 +1170,4 @@ export class WebGPUFrameServiceOwner {
 		};
 	}
 
-	private _resolveAnimationState(
-		packet: DrawPacket,
-		geometry: WebGPUGeometryHandle,
-		frameResources: WebGPUFrameServicePreparedResources,
-	): WebGPUModelAnimationBindingState {
-		const runtimeJoint = frameResources.jointMatrixMap?.get(packet.meshInstance.id) ?? null;
-		let jointMatrices: Float32Array | null = null;
-		if (runtimeJoint?.skeleton) {
-			runtimeJoint.skeleton.updateJointMatrices(packet.meshInstance.worldMatrix);
-			jointMatrices = runtimeJoint.skeleton.toFloat32Array(runtimeJoint.matrices);
-		} else if (packet.meshInstance.skeleton) {
-			packet.meshInstance.skeleton.updateJointMatrices(packet.meshInstance.worldMatrix);
-			jointMatrices = packet.meshInstance.skeleton.toFloat32Array();
-		}
-
-		const runtimeMorph = frameResources.morphWeightMap?.get(packet.id) ?? null;
-		let morphTargetCount = Math.max(0, runtimeMorph?.targetCount ?? 0);
-		let sourceMorphWeights: Float32Array | null = runtimeMorph?.weights ?? null;
-		if (!sourceMorphWeights || morphTargetCount <= 0) {
-			const primitiveIndex = packet.mesh.primitives.indexOf(packet.primitive);
-			const instanceWeights =
-				primitiveIndex >= 0 ? packet.meshInstance.morphWeights[primitiveIndex] : null;
-			sourceMorphWeights = instanceWeights ?? null;
-			morphTargetCount = sourceMorphWeights?.length ?? 0;
-		}
-
-		morphTargetCount = Math.min(Math.max(0, morphTargetCount), geometry.morphTargetCount);
-		let morphWeights: Float32Array | null = null;
-		if (sourceMorphWeights && morphTargetCount > 0) {
-			morphWeights = new Float32Array(morphTargetCount);
-			morphWeights.set(sourceMorphWeights.subarray(0, morphTargetCount));
-		}
-
-		return {
-			jointMatrices,
-			morphWeights,
-			morphTargetCount,
-			vertexCount: geometry.vertexCount,
-			morphSemanticMask: geometry.morphSemanticMask,
-			morphPositionBuffer: geometry.morphPositionBuffer,
-			morphNormalBuffer: geometry.morphNormalBuffer,
-		};
-	}
 }

@@ -11,7 +11,9 @@ function createBackendStub() {
 		createBindingGroupCalls: 0,
 		writeBufferCalls: 0,
 		writeCalls: [],
+		bufferLabels: [],
 		createBuffer(desc = {}) {
+			backend.bufferLabels.push(desc.label ?? "");
 			let destroyed = false;
 			return {
 				label: desc.label,
@@ -86,12 +88,30 @@ function createPacket(id = "meshInstance_8:primitive_8") {
 
 function createAnimationState() {
 	return {
-		jointMatrices: null,
-		morphWeights: null,
-		morphTargetCount: 0,
-		morphPositionBuffer: null,
-		morphNormalBuffer: null,
+		generation: 0,
+		paramsBuffer: { id: "animation:params" },
+		jointMatricesBuffer: { id: "animation:joints" },
+		morphWeightsBuffer: { id: "animation:morph" },
+		jointCount: 0,
+		morphCount: 0,
 	};
+}
+
+function createAnimationPayloadPoolStub() {
+	const fallbackStorage = { id: "animation:fallback" };
+	return {
+		getFallbackStorageBuffer() {
+			return fallbackStorage;
+		},
+	};
+}
+
+function createCache(backend) {
+	return new WebGPUMaterialBindingCache(
+		backend,
+		createLayoutsStub(),
+		createAnimationPayloadPoolStub()
+	);
 }
 
 function createLayoutsStub() {
@@ -108,7 +128,7 @@ function getWriteCountForLabel(backend, labelPrefix) {
 
 function testEvictionDestroysModelBindingGroup() {
 	const backend = createBackendStub();
-	const cache = new WebGPUMaterialBindingCache(backend, createLayoutsStub());
+	const cache = createCache(backend);
 	const packet = createPacket();
 	const materialData = createMaterialData();
 	const animation = createAnimationState();
@@ -133,7 +153,7 @@ function testEvictionDestroysModelBindingGroup() {
 
 function testTextureRebindDestroysPreviousModelBindingGroup() {
 	const backend = createBackendStub();
-	const cache = new WebGPUMaterialBindingCache(backend, createLayoutsStub());
+	const cache = createCache(backend);
 	const packet = createPacket();
 	const materialData = createMaterialData();
 	const animation = createAnimationState();
@@ -163,7 +183,7 @@ function testTextureRebindDestroysPreviousModelBindingGroup() {
 
 function testPipelineChangeReusesModelBindingGroup() {
 	const backend = createBackendStub();
-	const cache = new WebGPUMaterialBindingCache(backend, createLayoutsStub());
+	const cache = createCache(backend);
 	const packet = createPacket();
 	const materialData = createMaterialData();
 	const animation = createAnimationState();
@@ -196,7 +216,7 @@ function testPipelineChangeReusesModelBindingGroup() {
 
 function testStaticMeshDoesNotWriteAnimationPayloads() {
 	const backend = createBackendStub();
-	const cache = new WebGPUMaterialBindingCache(backend, createLayoutsStub());
+	const cache = createCache(backend);
 	const packet = createPacket();
 	const materialData = createMaterialData();
 	const animation = createAnimationState();
@@ -222,12 +242,16 @@ function testStaticMeshDoesNotWriteAnimationPayloads() {
 
 	assert.equal(getWriteCountForLabel(backend, "ModelJointMatrices_"), 0);
 	assert.equal(getWriteCountForLabel(backend, "ModelMorphWeights_"), 0);
-	assert.equal(getWriteCountForLabel(backend, "ModelAnimationParams_"), 1);
+	assert.equal(getWriteCountForLabel(backend, "ModelAnimationParams_"), 0);
+	assert.equal(
+		backend.bufferLabels.some((label) => label.startsWith("ModelAnimationParams_")),
+		false
+	);
 }
 
 function testMaskMutationUpdatesUniformWithoutRebinding() {
 	const backend = createBackendStub();
-	const cache = new WebGPUMaterialBindingCache(backend, createLayoutsStub());
+	const cache = createCache(backend);
 	const packet = createPacket();
 	const materialData = createMaterialData();
 	const animation = createAnimationState();
@@ -261,12 +285,56 @@ function testMaskMutationUpdatesUniformWithoutRebinding() {
 	assert.equal(backend.createBindingGroupCalls, 1);
 }
 
+function testPayloadGenerationRebuildsBindingWithoutOwningPayloadBuffers() {
+	const backend = createBackendStub();
+	const cache = createCache(backend);
+	const packet = createPacket();
+	const materialData = createMaterialData();
+	const animation = {
+		...createAnimationState(),
+		generation: 1,
+		paramsBuffer: { id: "params:1" },
+		jointMatricesBuffer: { id: "joint:1" },
+	};
+	cache.beginFrame();
+	const first = cache.getBinding(
+		packet,
+		{ id: "pipeline:a" },
+		materialData,
+		[],
+		[],
+		fallbackAnisotropyTexture,
+		animation,
+		null,
+		null
+	);
+	const payloadDestroyCount = backend.bufferDestroyCalls;
+	animation.generation = 2;
+	animation.jointMatricesBuffer = { id: "joint:2" };
+	const rebuilt = cache.getBinding(
+		packet,
+		{ id: "pipeline:a" },
+		materialData,
+		[],
+		[],
+		fallbackAnisotropyTexture,
+		animation,
+		null,
+		null
+	);
+
+	assert.notStrictEqual(rebuilt, first);
+	assert.equal(backend.createBindingGroupCalls, 2);
+	assert.equal(backend.bufferDestroyCalls, payloadDestroyCount);
+}
+
 function run() {
 	testEvictionDestroysModelBindingGroup();
 	testTextureRebindDestroysPreviousModelBindingGroup();
 	testPipelineChangeReusesModelBindingGroup();
 	testStaticMeshDoesNotWriteAnimationPayloads();
 	testMaskMutationUpdatesUniformWithoutRebinding();
+	testPayloadGenerationRebuildsBindingWithoutOwningPayloadBuffers();
 	console.log("WebGPU material binding cache tests passed");
 }
 

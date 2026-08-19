@@ -28,10 +28,7 @@ import {
 	MAX_DIRECTIONAL_LIGHTS,
 	MAX_SPOT_LIGHTS,
 } from "../constants";
-import {
-	WEBGPU_MAX_MORPH_TARGETS,
-	WEBGPU_SHADOW_ATLAS_COLUMNS,
-} from "./constants";
+import { WEBGPU_SHADOW_ATLAS_COLUMNS } from "./constants";
 import {
 	getWebGPUBuffer,
 	getWebGPURenderPipeline,
@@ -49,6 +46,7 @@ import type {
 	WebGPUGeometryHandle,
 	WebGPUGeometryRegistry,
 } from "./WebGPUGeometryRegistry";
+import type { WebGPUAnimationPayloadPool } from "./WebGPUAnimationPayloadPool";
 import type { WebGPUShadowAtlasAllocator } from "./WebGPUShadowAtlasAllocator";
 import type {
 	WebGPUPagedShadowIndirectRenderResources,
@@ -67,22 +65,9 @@ interface ShadowRenderSlot {
 	atlasBaseSize: number;
 }
 
-interface ShadowAnimationState {
-	jointMatrices: Float32Array | null;
-	morphWeights: Float32Array | null;
-	morphTargetCount: number;
-	vertexCount: number;
-	morphSemanticMask: number;
-	morphPositionBuffer: GPUBuffer | null;
-}
-
 interface ShadowAnimationBindingEntry {
-	paramsBuffer: GPUBuffer;
-	jointBuffer: GPUBuffer;
-	morphWeightBuffer: GPUBuffer;
 	bindGroup: GPUBindGroup | null;
-	jointCapacity: number;
-	morphCapacity: number;
+	payloadGeneration: number;
 	morphPositionBuffer: GPUBuffer | null;
 	lastUsedFrame: number;
 }
@@ -122,6 +107,7 @@ const DRAW_INDEXED_INDIRECT_UINTS = 5;
 export class WebGPUShadowCasterRenderer {
 	private _backend: WebGPUDeviceResourceHost;
 	private _geometryRegistry: WebGPUGeometryRegistry;
+	private _animationPayloads: WebGPUAnimationPayloadPool;
 	private _depthRemapMatrix = new Matrix4([
 		[1, 0, 0, 0],
 		[0, 1, 0, 0],
@@ -151,16 +137,18 @@ export class WebGPUShadowCasterRenderer {
 	private _pagedTransmittanceBufferGroups: InstanceBufferGroup[] = [];
 	private _frustum = new Frustum();
 	private _animationBindings = new Map<string, ShadowAnimationBindingEntry>();
-	private _fallbackStorageBuffer: GPUBuffer | null = null;
+	private _staticAnimationBindGroup: GPUBindGroup | null = null;
 	private _frameId = 0;
 	private _instanceTransmittanceData = new Float32Array(0);
 
 	constructor(
 		backend: WebGPUDeviceResourceHost,
-		geometryRegistry: WebGPUGeometryRegistry
+		geometryRegistry: WebGPUGeometryRegistry,
+		animationPayloads: WebGPUAnimationPayloadPool
 	) {
 		this._backend = backend;
 		this._geometryRegistry = geometryRegistry;
+		this._animationPayloads = animationPayloads;
 	}
 
 	/** @internal Encodes the atlas technique's caster work. */
@@ -607,6 +595,7 @@ export class WebGPUShadowCasterRenderer {
 		this._shaderModulePromise = null;
 		this._bindGroupLayout = null;
 		this._animationBindGroupLayout = null;
+		this._staticAnimationBindGroup = null;
 		this._pipelineLayout = null;
 		this._pagedClearShaderModule = null;
 		this._pagedClearShaderModulePromise = null;
@@ -654,14 +643,7 @@ export class WebGPUShadowCasterRenderer {
 		this._instanceMvpData = new Float32Array(0);
 		this._instanceMetaData = new Uint32Array(0);
 		this._instanceTransmittanceData = new Float32Array(0);
-		for (const entry of this._animationBindings.values()) {
-			entry.paramsBuffer.destroy();
-			entry.jointBuffer.destroy();
-			entry.morphWeightBuffer.destroy();
-		}
 		this._animationBindings.clear();
-		this._fallbackStorageBuffer?.destroy();
-		this._fallbackStorageBuffer = null;
 		this._frameId = 0;
 	}
 
@@ -1230,88 +1212,43 @@ export class WebGPUShadowCasterRenderer {
 		geometry: WebGPUGeometryHandle,
 		context: FrameContext
 	): GPUBindGroup | null {
-		if (!this._animationBindGroupLayout || !this._fallbackStorageBuffer) {
+		if (!this._animationBindGroupLayout || !this._staticAnimationBindGroup) {
 			return null;
 		}
 		const device = this._requireBackendDevice();
-		const queue = this._requireBackendQueue();
+		const jointMap =
+			context.transient.get(ANIMATION_WEBGPU_JOINT_MATRICES_KEY) ?? null;
+		const morphMap =
+			context.transient.get(ANIMATION_WEBGPU_MORPH_WEIGHTS_KEY) ?? null;
+		const payload = this._animationPayloads.getShadowPayload(
+			packet,
+			geometry,
+			jointMap,
+			morphMap
+		);
+		if (payload.generation === 0) {
+			this._animationBindings.delete(packet.id);
+			return this._staticAnimationBindGroup;
+		}
 
 		const key = packet.id;
 		let entry = this._animationBindings.get(key);
 		if (!entry) {
-			entry = this._createAnimationBindingEntry(key);
+			entry = {
+				bindGroup: null,
+				payloadGeneration: -1,
+				morphPositionBuffer: null,
+				lastUsedFrame: this._frameId,
+			};
 			this._animationBindings.set(key, entry);
 		}
 		entry.lastUsedFrame = this._frameId;
 
-		const state = this._resolveAnimationState(packet, geometry, context);
-		const jointCount = Math.max(
-			0,
-			Math.floor((state.jointMatrices?.length ?? 0) / 16)
-		);
-		const morphCount = Math.min(
-			Math.max(0, state.morphTargetCount),
-			state.morphWeights?.length ?? state.morphTargetCount
-		);
-		const jointCapacity = Math.max(1, jointCount);
-		const morphCapacity = Math.max(1, morphCount);
-
-		let needsRebind = false;
-		if (jointCapacity > entry.jointCapacity) {
-			entry.jointBuffer.destroy();
-			entry.jointBuffer = device.createBuffer({
-				label: `WebGPUShadowJointBuffer_${key}`,
-				size: jointCapacity * 16 * 4,
-				usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-			});
-			entry.jointCapacity = jointCapacity;
-			needsRebind = true;
-		}
-		if (morphCapacity > entry.morphCapacity) {
-			entry.morphWeightBuffer.destroy();
-			entry.morphWeightBuffer = device.createBuffer({
-				label: `WebGPUShadowMorphWeightBuffer_${key}`,
-				size: morphCapacity * 4,
-				usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-			});
-			entry.morphCapacity = morphCapacity;
-			needsRebind = true;
-		}
-
-		queue.writeBuffer(
-			entry.paramsBuffer,
-			0,
-			new Uint32Array([
-				jointCount,
-				morphCount,
-				jointCount,
-				morphCount,
-				state.vertexCount,
-				state.morphSemanticMask,
-				0,
-				0,
-			])
-		);
-		if (jointCount > 0 && state.jointMatrices) {
-			queue.writeBuffer(
-				entry.jointBuffer,
-				0,
-				state.jointMatrices.subarray(
-					0,
-					jointCount * 16
-				) as Float32Array<ArrayBuffer>
-			);
-		}
-		if (morphCount > 0 && state.morphWeights) {
-			queue.writeBuffer(
-				entry.morphWeightBuffer,
-				0,
-				state.morphWeights.subarray(0, morphCount) as Float32Array<ArrayBuffer>
-			);
-		}
-
 		const morphPositionBuffer =
-			state.morphPositionBuffer ?? this._fallbackStorageBuffer;
+			geometry.morphPositionBuffer ?
+				getWebGPUBuffer(geometry.morphPositionBuffer)
+			: getWebGPUBuffer(this._animationPayloads.getFallbackStorageBuffer());
+		let needsRebind = entry.payloadGeneration !== payload.generation;
 		if (entry.morphPositionBuffer !== morphPositionBuffer) {
 			entry.morphPositionBuffer = morphPositionBuffer;
 			needsRebind = true;
@@ -1324,15 +1261,15 @@ export class WebGPUShadowCasterRenderer {
 				entries: [
 					{
 						binding: 0,
-						resource: { buffer: entry.paramsBuffer },
+						resource: { buffer: getWebGPUBuffer(payload.paramsBuffer) },
 					},
 					{
 						binding: 1,
-						resource: { buffer: entry.jointBuffer },
+						resource: { buffer: getWebGPUBuffer(payload.jointMatricesBuffer) },
 					},
 					{
 						binding: 2,
-						resource: { buffer: entry.morphWeightBuffer },
+						resource: { buffer: getWebGPUBuffer(payload.morphWeightsBuffer) },
 					},
 					{
 						binding: 3,
@@ -1340,71 +1277,10 @@ export class WebGPUShadowCasterRenderer {
 					},
 				],
 			});
+			entry.payloadGeneration = payload.generation;
 		}
 
 		return entry.bindGroup;
-	}
-
-	private _resolveAnimationState(
-		packet: DrawPacket,
-		geometry: WebGPUGeometryHandle,
-		context: FrameContext
-	): ShadowAnimationState {
-		const runtimeJointMap =
-			context.transient.get(ANIMATION_WEBGPU_JOINT_MATRICES_KEY) ?? null;
-		const runtimeMorphMap =
-			context.transient.get(ANIMATION_WEBGPU_MORPH_WEIGHTS_KEY) ?? null;
-		const runtimeJoint = runtimeJointMap?.get(packet.meshInstance.id) ?? null;
-		let jointMatrices: Float32Array | null = null;
-		if (runtimeJoint?.skeleton) {
-			runtimeJoint.skeleton.updateJointMatrices(
-				packet.meshInstance.worldMatrix
-			);
-			jointMatrices = runtimeJoint.skeleton.toFloat32Array(
-				runtimeJoint.matrices
-			);
-		} else if (packet.meshInstance.skeleton) {
-			packet.meshInstance.skeleton.updateJointMatrices(
-				packet.meshInstance.worldMatrix
-			);
-			jointMatrices = packet.meshInstance.skeleton.toFloat32Array();
-		}
-
-		const runtimeMorph = runtimeMorphMap?.get(packet.id) ?? null;
-		let morphTargetCount = Math.max(0, runtimeMorph?.targetCount ?? 0);
-		let sourceMorphWeights: Float32Array | null = runtimeMorph?.weights ?? null;
-		if (!sourceMorphWeights || morphTargetCount <= 0) {
-			const primitiveIndex = packet.mesh.primitives.indexOf(packet.primitive);
-			const instanceWeights =
-				primitiveIndex >= 0 ?
-					packet.meshInstance.morphWeights[primitiveIndex]
-				:	null;
-			sourceMorphWeights = instanceWeights ?? null;
-			morphTargetCount = sourceMorphWeights?.length ?? 0;
-		}
-		morphTargetCount = Math.min(
-			Math.max(0, morphTargetCount),
-			geometry.morphTargetCount,
-			WEBGPU_MAX_MORPH_TARGETS
-		);
-
-		let morphWeights: Float32Array | null = null;
-		if (sourceMorphWeights && morphTargetCount > 0) {
-			morphWeights = sourceMorphWeights.subarray(0, morphTargetCount);
-		}
-
-		const morphPositionBuffer = (
-			geometry.morphPositionBuffer as { _gpuResource?: GPUBuffer } | null
-		)?._gpuResource;
-
-		return {
-			jointMatrices,
-			morphWeights,
-			morphTargetCount,
-			vertexCount: geometry.vertexCount,
-			morphSemanticMask: geometry.morphSemanticMask,
-			morphPositionBuffer: morphPositionBuffer ?? null,
-		};
 	}
 
 	private _setMatrixInArray(
@@ -1649,13 +1525,12 @@ export class WebGPUShadowCasterRenderer {
 			this._pipelineLayout &&
 			this._bindGroupLayout &&
 			this._animationBindGroupLayout &&
-			this._fallbackStorageBuffer
+			this._staticAnimationBindGroup
 		) {
 			return;
 		}
 
 		const device = this._requireBackendDevice();
-		const queue = this._requireBackendQueue();
 		if (!this._shaderModule) {
 			if (!this._shaderModulePromise) {
 				this._shaderModulePromise = ShaderSource.load(
@@ -1745,17 +1620,22 @@ export class WebGPUShadowCasterRenderer {
 			});
 		}
 
-		if (!this._fallbackStorageBuffer) {
-			this._fallbackStorageBuffer = device.createBuffer({
-				label: "WebGPUShadowFallbackStorage",
-				size: 16,
-				usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+		if (!this._staticAnimationBindGroup && this._animationBindGroupLayout) {
+			const fallback = this._animationPayloads.getStaticShadowPayload();
+			const fallbackStorage = getWebGPUBuffer(fallback.jointMatricesBuffer);
+			this._staticAnimationBindGroup = device.createBindGroup({
+				label: "WebGPUShadowStaticAnimationBinding",
+				layout: this._animationBindGroupLayout,
+				entries: [
+					{
+						binding: 0,
+						resource: { buffer: getWebGPUBuffer(fallback.paramsBuffer) },
+					},
+					{ binding: 1, resource: { buffer: fallbackStorage } },
+					{ binding: 2, resource: { buffer: fallbackStorage } },
+					{ binding: 3, resource: { buffer: fallbackStorage } },
+				],
 			});
-			queue.writeBuffer(
-				this._fallbackStorageBuffer,
-				0,
-				new Float32Array(4)
-			);
 		}
 
 		if (!this._pagedClearShaderModule) {
@@ -1838,34 +1718,6 @@ export class WebGPUShadowCasterRenderer {
 		}
 	}
 
-	private _createAnimationBindingEntry(
-		key: string
-	): ShadowAnimationBindingEntry {
-		const device = this._requireBackendDevice();
-		return {
-			paramsBuffer: device.createBuffer({
-				label: `WebGPUShadowAnimationParams_${key}`,
-				size: 32,
-				usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-			}),
-			jointBuffer: device.createBuffer({
-				label: `WebGPUShadowJointBuffer_${key}`,
-				size: 16 * 4,
-				usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-			}),
-			morphWeightBuffer: device.createBuffer({
-				label: `WebGPUShadowMorphWeightBuffer_${key}`,
-				size: 4,
-				usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-			}),
-			bindGroup: null,
-			jointCapacity: 1,
-			morphCapacity: 1,
-			morphPositionBuffer: null,
-			lastUsedFrame: this._frameId,
-		};
-	}
-
 	private _requireBackendDevice(): GPUDevice {
 		const device = this._backend.device;
 		if (!device) {
@@ -1897,9 +1749,6 @@ export class WebGPUShadowCasterRenderer {
 		const staleFrame = this._frameId - 120;
 		for (const [key, entry] of this._animationBindings) {
 			if (entry.lastUsedFrame >= staleFrame) continue;
-			entry.paramsBuffer.destroy();
-			entry.jointBuffer.destroy();
-			entry.morphWeightBuffer.destroy();
 			this._animationBindings.delete(key);
 		}
 	}
