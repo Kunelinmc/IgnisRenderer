@@ -322,6 +322,38 @@ lighting, presentation configuration, reflections, and structured buffer packing
   entry, buffer, and byte counts together with cumulative allocation, release,
   upload, skipped-upload, rebuild, and grace-release counters.
 
+### CPU draw preparation and static batching
+
+- WebGPU material uniform data, texture resources, sampler resources, and
+  pipeline keys must be resolved once per material render revision and reused
+  by every compatible draw in the frame.
+- Pipeline lookup must consume the resolved material snapshot and must not
+  rebuild material uniform data solely to obtain a cache key.
+- Every enabled scene stage must prepare draw resources before beginning its
+  render pass. Recording must not await resource discovery or resolve the same
+  packet again for each incremental dirty rectangle.
+- Unique model binding groups must not enter the shared binding-group
+  deduplication cache. Shared cache insertion and eviction must remain
+  amortized constant time and must not sort every entry after reaching its
+  capacity.
+- Shader-runtime invalidation and backend destruction must explicitly destroy
+  each unique managed shader-module and pipeline handle before clearing cache
+  maps. Alias caches must not cause duplicate destruction.
+- Concurrent requests for one Early-Z pipeline key must share one high-level
+  in-flight promise. Cache population must not overwrite managed wrappers from
+  other waiters without explicitly destroying the losing wrapper.
+- Render-pass recording must suppress redundant pipeline, bind-group, vertex
+  buffer, and index-buffer commands when native state is unchanged.
+- Static built-in opaque and mask packets may be grouped into instanced draws
+  when pipeline, geometry layout, material bindings, and pass behavior match.
+  Transparent, transmission, wireframe, reflection, `ShaderMaterial`, skinning,
+  and morph packets must retain the legacy path.
+- Static instance records must contain current and previous transforms, normal
+  data, render layers, and shadow flags in a frame-owned arena. Arena growth
+  must be geometric and uploads must be consolidated.
+- Incremental dirty-rectangle execution must build rect-local instance ranges;
+  instances outside the rectangle must not be emitted by a batched draw.
+
 ### Geometry packing
 
 - `WebGPUGeometryRegistry` must store scene geometry in semantic vertex streams.

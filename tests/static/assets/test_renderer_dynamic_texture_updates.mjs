@@ -3,6 +3,9 @@ import { Camera } from "../../../src/cameras/Camera.ts";
 import { Texture } from "../../../src/core/Texture.ts";
 import { PostProcessPass } from "../../../src/postprocess/index.ts";
 import { Renderer } from "../../../src/rendering/Renderer.ts";
+import { PBRMaterial } from "../../../src/materials/PBRMaterial.ts";
+import { MeshAsset } from "../../../src/meshes/MeshAsset.ts";
+import { MeshInstance } from "../../../src/meshes/MeshInstance.ts";
 
 import { FakeDynamicTexture } from "../../helpers/fakes.mjs";
 import {
@@ -256,6 +259,23 @@ async function run() {
 
 		assert.equal(backend.beginFrameCount, 2);
 		assert.equal(warnedMessages.length, 1200);
+
+		const material = new PBRMaterial();
+		const mesh = MeshAsset.fromFaces([{
+			material,
+			vertices: [
+				{ x: 0, y: 0, z: -2 },
+				{ x: 1, y: 0, z: -2 },
+				{ x: 0, y: 1, z: -2 },
+			],
+		}]);
+		renderer.scene.add(new MeshInstance({ mesh }));
+		await renderer.renderFrame(48);
+		await renderer.renderFrame(64);
+		assert.equal(backend.beginFrameCount, 3);
+		material.roughness = 0.2;
+		await renderer.renderFrame(80);
+		assert.equal(backend.beginFrameCount, 4);
 
 		dynamicTexture.dispose();
 		console.log("Renderer dynamic texture update tests passed");

@@ -37,6 +37,8 @@ export class Node {
 	private _scene: Scene | null;
 	private _entityId: number | null;
 	private _renderLayers: number;
+	private readonly _worldTransformSnapshot = new Float64Array(16);
+	private _worldTransformRevision = 0;
 
 	constructor(params: NodeParams = {}) {
 		this.id = IdGenerator.nextId(params.idPrefix ?? "node");
@@ -56,6 +58,7 @@ export class Node {
 		this._entityId = null;
 		this.updateLocalMatrix();
 		this.localMatrix.copyTo(this.worldMatrix);
+		this._captureWorldTransform(false);
 	}
 
 	public get entityId(): number | null {
@@ -64,6 +67,16 @@ export class Node {
 
 	public get scene(): Scene | null {
 		return this._scene;
+	}
+
+	/**
+	 * Monotonic revision of the resolved world transform.
+	 *
+	 * @internal Owned by prepared-scene and backend packet caches. Applications
+	 * should mutate `position`, `quaternion`, or `scale` and render normally.
+	 */
+	public get worldTransformRevision(): number {
+		return this._worldTransformRevision;
 	}
 
 	/**
@@ -241,10 +254,25 @@ export class Node {
 		} else {
 			this.localMatrix.copyTo(this.worldMatrix);
 		}
+		this._captureWorldTransform(true);
 
 		for (const child of this.children) {
 			child.updateWorldMatrix(this.worldMatrix);
 		}
+	}
+
+	private _captureWorldTransform(increment: boolean): void {
+		const elements = this.worldMatrix.elements;
+		let changed = false;
+		let cursor = 0;
+		for (let row = 0; row < 4; row++) {
+			for (let column = 0; column < 4; column++) {
+				const value = elements[row][column];
+				if (this._worldTransformSnapshot[cursor] !== value) changed = true;
+				this._worldTransformSnapshot[cursor++] = value;
+			}
+		}
+		if (changed && increment) this._worldTransformRevision++;
 	}
 
 	public getWorldPosition(out?: IVector3): IVector3 {

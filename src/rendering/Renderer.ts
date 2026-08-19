@@ -85,6 +85,7 @@ import type { SHCoefficients } from "../maths/types";
 import { LightType, ReflectionProbe } from "../lights";
 import { Matrix4 } from "../maths/Matrix4";
 import { Texture } from "../core/Texture";
+import { Material } from "../materials/Material";
 import {
 	resolveDisplayOutputOptions,
 	type DisplayOutputOptions,
@@ -169,6 +170,9 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 	private _pendingDirtyReasonMask = renderDirtyReasonToMask("unknown");
 	private _lastKnownSceneVersion = 0;
 	private _lastKnownTextureRevision = Texture.contentRevision;
+	private _lastKnownMaterialRevision = Material.contentRevision;
+	private _materialScanSceneVersion = -1;
+	private _trackedSceneMaterials: Material[] = [];
 	private _deviceScaleFactor = 1;
 
 	/**
@@ -670,6 +674,13 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 		if (this.animationAutoRender && hasActiveAnimations) {
 			this._pendingDirtyReasonMask |= renderDirtyReasonToMask("transform");
 		}
+		this._refreshSceneMaterialRevisions();
+		const materialRevision = Material.contentRevision;
+		if (materialRevision !== this._lastKnownMaterialRevision) {
+			this._lastKnownMaterialRevision = materialRevision;
+			this._pendingDirtyReasonMask |= renderDirtyReasonToMask("material");
+			this._frameDirty = true;
+		}
 		const textureRevision = Texture.contentRevision;
 		const hasTextureUpdates = textureRevision !== this._lastKnownTextureRevision;
 		if (hasTextureUpdates) {
@@ -731,6 +742,26 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 
 		this.emit("frameend", { now, deltaTime: this._deltaTime });
 		return { rendered: true, incremental };
+	}
+
+	private _refreshSceneMaterialRevisions(): void {
+		if (this._materialScanSceneVersion !== this._scene.version) {
+			const meshes = new Set<unknown>();
+			const materials = new Set<Material>();
+			for (const meshInstance of this._scene.getMeshInstances()) {
+				if (meshes.has(meshInstance.mesh)) continue;
+				meshes.add(meshInstance.mesh);
+				for (const primitive of meshInstance.mesh.primitives) {
+					materials.add(primitive.material);
+				}
+			}
+			for (const decal of this._scene.getDecals()) {
+				if (decal.material) materials.add(decal.material);
+			}
+			this._trackedSceneMaterials = Array.from(materials);
+			this._materialScanSceneVersion = this._scene.version;
+		}
+		for (const material of this._trackedSceneMaterials) material.refreshRevision();
 	}
 
 	/**
@@ -829,6 +860,8 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 		this._assertCameraInScene(scene, this._camera, "setScene");
 		this._scene = scene;
 		this._lastKnownSceneVersion = scene.version;
+		this._materialScanSceneVersion = -1;
+		this._trackedSceneMaterials = [];
 		this._coordinator.reset();
 		if (this._physicsSystem) {
 			this._physicsSystem.setEntityNodeResolver((entityId) => {

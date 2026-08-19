@@ -37,7 +37,7 @@ if (isClusteredLightingEnabled()) {
 			let radiance = lightSample.radiance;
 			var shadow = vec3<f32>(1.0);
 			if (clusterRef.lightType == CLUSTER_LIGHT_TYPE_SPOT &&
-				clusterRef.shadowed && model.nodeRenderLayers.y > 0.5) {
+				clusterRef.shadowed && input.instanceMeta.y > 0.5) {
 				let shadowIndex =
 					clusterMetadata.values[clusterRef.lightIndex].shadowIndex;
 				if (shadowIndex < 8u) {

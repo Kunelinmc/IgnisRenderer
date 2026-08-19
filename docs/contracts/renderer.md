@@ -25,6 +25,9 @@ This document defines the lifecycle, scheduling, warmup, incremental rendering, 
   - Constraint: concurrent calls must reject.
   - Output contract: must return an `IncrementalFrameStatus` in every result branch, including an on-demand clean result.
   - Output contract: `IncrementalFrameStatus` must distinguish planned tile coverage from verified final-output coverage.
+  - Behavior contract: before returning an on-demand `"clean"` result, the
+    renderer must refresh materials reachable from the active scene and treat
+    a changed global material revision as a material dirty reason.
 - `Renderer.renderScene(nowMs)`
   - Compatibility contract: must remain a deprecated alias of `renderFrame(nowMs)`.
   - Constraint: new application code must use `renderFrame(nowMs)` for manual rendering or `renderLoop()` for automatic scheduling.
@@ -288,6 +291,14 @@ This document defines the lifecycle, scheduling, warmup, incremental rendering, 
 
 ### Incremental rendering
 
+- Prepared-scene packet caches must reuse camera-independent packet state while
+  mesh, primitive, transform, geometry, material, deformation, visibility,
+  render-layer, and shadow revisions remain unchanged.
+- Main-view and secondary-view packet state must be isolated. Reusing a packet
+  for one camera must not overwrite sorting or visibility state consumed by
+  another camera.
+- Packet caches must be bounded and must not evict entries used by the active
+  frame. Eviction must prefer least-recently-used inactive entries.
 - Every `RenderFrameResult` must include `incremental`.
 - Animation pose sampling must complete before world-transform synchronization,
   and deformation payloads and bounds must be resolved only after the current

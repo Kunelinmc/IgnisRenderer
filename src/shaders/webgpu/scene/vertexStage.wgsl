@@ -192,12 +192,24 @@ fn vsMain(input: VertexInput, @builtin(vertex_index) vertexIndex: u32) -> Vertex
 		prevJointOffset
 	);
 
-	let worldPosition = model.modelMatrix * vec4<f32>(skinnedCurrent.position, 1.0);
+	var resolvedModelMatrix = model.modelMatrix;
+	var resolvedPrevModelMatrix = model.prevModelMatrix;
+	var resolvedNormalMatrix = model.normalMatrix;
+	var resolvedNodeRenderLayers = model.nodeRenderLayers;
+	if (model.instanceParams.x > 0.5) {
+		let instance = staticInstances[input.instanceIndex];
+		resolvedModelMatrix = instance.modelMatrix;
+		resolvedPrevModelMatrix = instance.prevModelMatrix;
+		resolvedNormalMatrix = instance.normalMatrix;
+		resolvedNodeRenderLayers = instance.nodeRenderLayers;
+	}
+	let worldPosition = resolvedModelMatrix * vec4<f32>(skinnedCurrent.position, 1.0);
 	let worldNormal = safeNormalize(
-		(model.normalMatrix * vec4<f32>(skinnedCurrent.normal, 0.0)).xyz,
+		(resolvedNormalMatrix * vec4<f32>(skinnedCurrent.normal, 0.0)).xyz,
 		vec3<f32>(0.0, 0.0, 1.0)
 	);
-	let worldTangent = (model.normalMatrix * vec4<f32>(skinnedCurrent.tangent, 0.0)).xyz;
+	let worldTangent =
+		(resolvedNormalMatrix * vec4<f32>(skinnedCurrent.tangent, 0.0)).xyz;
 	var clipPosition = frame.viewProjection * worldPosition;
 	let currJitter = frame.taaJitterCurrentPrev.xy * clipPosition.w;
 	clipPosition = vec4<f32>(
@@ -207,7 +219,8 @@ fn vsMain(input: VertexInput, @builtin(vertex_index) vertexIndex: u32) -> Vertex
 		clipPosition.w
 	);
 	clipPosition.z = clipPosition.z * 0.5 + clipPosition.w * 0.5;
-	let prevWorldPosition = model.prevModelMatrix * vec4<f32>(skinnedPrev.position, 1.0);
+	let prevWorldPosition =
+		resolvedPrevModelMatrix * vec4<f32>(skinnedPrev.position, 1.0);
 	var prevClipPosition = frame.prevViewProjection * prevWorldPosition;
 	let prevJitter = frame.taaJitterCurrentPrev.zw * prevClipPosition.w;
 	prevClipPosition = vec4<f32>(
@@ -231,5 +244,6 @@ fn vsMain(input: VertexInput, @builtin(vertex_index) vertexIndex: u32) -> Vertex
 	output.uv3 = input.uv3;
 	output.currentClip = clipPosition;
 	output.prevClip = prevClipPosition;
+	output.instanceMeta = resolvedNodeRenderLayers.xy;
 	return output;
 }

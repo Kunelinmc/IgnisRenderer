@@ -25,7 +25,10 @@ import type {
 import type { OcclusionVisibilityProvider } from "./OcclusionCulling";
 import { normalizeOcclusionCullingOptions } from "./OcclusionCulling";
 import type { ResolvedPostProcessState } from "../postprocess";
-import { PreparedSceneBuilder } from "./PreparedSceneBuilder";
+import {
+	PreparedSceneBuilder,
+	PreparedScenePacketCache,
+} from "./PreparedSceneBuilder";
 import type { PreparedSceneBuildSource } from "./PreparedSceneBuilder";
 import { PreparedSceneTileSpatialIndex } from "./PreparedSceneSpatialIndex";
 import { computePacketScreenRect } from "./screenBounds";
@@ -118,6 +121,7 @@ export interface PreparedSceneCacheBuildResult {
 }
 
 export class PreparedSceneCache {
+	private readonly _preparedPackets = new PreparedScenePacketCache();
 	private _packetStateById = new Map<string, CachedPacketState>();
 	private _decalStateById = new Map<string, CachedDecalState>();
 	private _frameIndex = 0;
@@ -125,6 +129,7 @@ export class PreparedSceneCache {
 	private _cameraSignatureB: number | null = null;
 
 	public reset(): void {
+		this._preparedPackets.clear();
 		this._packetStateById.clear();
 		this._decalStateById.clear();
 		this._frameIndex = 0;
@@ -133,6 +138,7 @@ export class PreparedSceneCache {
 	}
 
 	public build(input: PreparedSceneCacheBuildInput): PreparedSceneCacheBuildResult {
+		this._preparedPackets.beginFrame();
 		const frame = PreparedSceneBuilder.build(input.source, {
 			viewportWidth: input.viewportWidth,
 			viewportHeight: input.viewportHeight,
@@ -141,7 +147,9 @@ export class PreparedSceneCache {
 				input.occlusionVisibilityProvider ?
 					normalizeOcclusionCullingOptions(input.occlusionCullingOptions)
 				:	undefined,
+			packetCache: this._preparedPackets,
 		});
+		this._preparedPackets.endFrame();
 		const width = Math.max(1, Math.floor(input.viewportWidth));
 		const height = Math.max(1, Math.floor(input.viewportHeight));
 		const fullScreenRect = makeFullScreenRect(width, height);

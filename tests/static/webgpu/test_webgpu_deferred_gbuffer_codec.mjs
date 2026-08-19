@@ -99,7 +99,7 @@ const deferred = await ShaderSource.load("webgpu.deferredLighting.raw");
 const decal = await ShaderSource.load("webgpu.utility.decal.composite");
 assert.match(
 	scene,
-	/resolvedMaterialWord[\s\S]*model\.nodeRenderLayers\.y[\s\S]*DEFERRED_MATERIAL_RECEIVE_SHADOWS_BIT[\s\S]*f32\(resolvedMaterialWord\)/
+	/resolvedMaterialWord[\s\S]*nodeRenderLayers\.y[\s\S]*DEFERRED_MATERIAL_RECEIVE_SHADOWS_BIT[\s\S]*f32\(resolvedMaterialWord\)/
 );
 for (const source of [scene, deferred, decal.code]) {
 	assert.equal((source.match(/fn encodeDeferredMaterialWord\(/g) ?? []).length, 1);

@@ -59,6 +59,8 @@ type TextureDisposeListener = (texture: Texture) => void;
  */
 export class Texture {
 	private static _contentRevision = 0;
+	private _samplingRevision = 0;
+	private _samplingSignature = "";
 
 	data: TextureData | null;
 	width: number;
@@ -137,6 +139,18 @@ export class Texture {
 		this.label = params.label;
 		this.usageHint = params.usageHint;
 		this._isLoadErrorFallback = false;
+		this._refreshSamplingRevision(false);
+	}
+
+	/**
+	 * Monotonic revision of texture sampling and UV-transform state.
+	 *
+	 * @internal Owned by renderer material snapshots. Applications may continue
+	 * assigning the existing texture sampling properties directly.
+	 */
+	public get samplingRevision(): number {
+		this._refreshSamplingRevision(true);
+		return this._samplingRevision;
 	}
 
 	public clone(): Texture {
@@ -239,6 +253,26 @@ export class Texture {
 	 */
 	public static get contentRevision(): number {
 		return Texture._contentRevision;
+	}
+
+	private _refreshSamplingRevision(notify: boolean): void {
+		const signature = [
+			this.wrapS,
+			this.wrapT,
+			this.minFilter,
+			this.magFilter,
+			this.offset.x,
+			this.offset.y,
+			this.repeat.x,
+			this.repeat.y,
+			this.rotation,
+			this.colorSpace,
+		].join("|");
+		if (signature === this._samplingSignature) return;
+		this._samplingSignature = signature;
+		if (!notify) return;
+		this._samplingRevision++;
+		Texture._contentRevision++;
 	}
 
 	/**

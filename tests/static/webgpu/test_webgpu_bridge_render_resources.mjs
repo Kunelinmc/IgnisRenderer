@@ -43,6 +43,7 @@ import {
 	WEBGPU_MODEL_BINDING_MORPH_WEIGHTS,
 	WEBGPU_MODEL_BINDING_ANISOTROPY_TEXTURE,
 	WEBGPU_MODEL_BINDING_SHADER_UNIFORMS,
+	WEBGPU_MODEL_BINDING_STATIC_INSTANCES,
 	WEBGPU_TEXTURE_DEDICATED_SAMPLER_SLOT_COUNT,
 	WEBGPU_TEXTURE_SLOT_COUNT
 } from "../../../src/backends/webgpu/constants.ts";
@@ -289,7 +290,7 @@ async function testRenderResourcesUseCopyDstForUploads() {
 		1 +
 			WEBGPU_TEXTURE_SLOT_COUNT +
 			WEBGPU_TEXTURE_DEDICATED_SAMPLER_SLOT_COUNT +
-			7
+			8
 	);
 	assert.ok(
 		firstDraw.modelBinding.desc.entries.some(
@@ -337,7 +338,10 @@ async function testRenderResourcesUseCopyDstForUploads() {
 	assert.ok(
 		modelBindingIndices.includes(WEBGPU_MODEL_BINDING_ANISOTROPY_TEXTURE)
 	);
-	assert.equal(modelBindingIndices.includes(38), false);
+	assert.equal(
+		modelBindingIndices.includes(WEBGPU_MODEL_BINDING_STATIC_INSTANCES),
+		true
+	);
 	const sceneVertexLayouts = firstDraw.pipeline.desc.vertex.buffers;
 	const sceneVertexAttributes = sceneVertexLayouts.flatMap(
 		(layout) => layout.attributes

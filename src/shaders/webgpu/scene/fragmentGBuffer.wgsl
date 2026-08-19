@@ -24,13 +24,14 @@ fn buildGBufferOutputExtended(
 	coatSheenData: vec4<f32>,
 	sheenReflectanceData: vec4<f32>,
 	materialExt0: vec4<f32>,
-	materialExt3: vec4<u32>
+	materialExt3: vec4<u32>,
+	nodeRenderLayers: vec2<f32>
 ) -> GBufferFragmentOutput {
 	let coord = vec2<i32>(fragCoord);
 	textureStore(gMaterialExt0Out, coord, materialExt0);
 	textureStore(gMaterialExt3Out, coord, materialExt3);
 	var resolvedMaterialWord = decodeDeferredMaterialWord(materialWord);
-	if (model.nodeRenderLayers.y > 0.5) {
+	if (nodeRenderLayers.y > 0.5) {
 		resolvedMaterialWord =
 			resolvedMaterialWord | DEFERRED_MATERIAL_RECEIVE_SHADOWS_BIT;
 	} else {
@@ -78,7 +79,8 @@ fn buildGBufferOutput(
 	specularData: vec4<f32>,
 	coatSheenData: vec4<f32>,
 	sheenReflectanceData: vec4<f32>,
-	materialExt0: vec4<f32>
+	materialExt0: vec4<f32>,
+	nodeRenderLayers: vec2<f32>
 ) -> GBufferFragmentOutput {
 	return buildGBufferOutputExtended(
 		fragCoord,
@@ -99,8 +101,9 @@ fn buildGBufferOutput(
 		packDeferredExt3(
 			fallbackTangentFromNormal(worldNormal),
 			0.0,
-			model.nodeRenderLayers.x
-		)
+			nodeRenderLayers.x
+		),
+		nodeRenderLayers
 	);
 }
 
@@ -191,7 +194,8 @@ fn evaluateGBuffer(
 			vec4<f32>(0.0),
 			vec4<f32>(0.0),
 			vec4<f32>(0.0),
-			vec4<f32>(encodeNormalForGBuffer(normal), 0.0, 0.0)
+			vec4<f32>(encodeNormalForGBuffer(normal), 0.0, 0.0),
+			input.instanceMeta
 		);
 	}
 
@@ -214,7 +218,8 @@ fn evaluateGBuffer(
 			vec4<f32>(phongSpecular, shininess),
 			vec4<f32>(0.0),
 			vec4<f32>(phongAmbient, 0.0),
-			vec4<f32>(encodeNormalForGBuffer(normal), 0.0, 0.0)
+			vec4<f32>(encodeNormalForGBuffer(normal), 0.0, 0.0),
+			input.instanceMeta
 		);
 	}
 
@@ -478,7 +483,7 @@ fn evaluateGBuffer(
 		specularColor,
 		specularFactor,
 		reflectance,
-		model.nodeRenderLayers.y
+		input.instanceMeta.y
 	);
 	return buildGBufferOutputExtended(
 		input.position.xy,
@@ -503,8 +508,9 @@ fn evaluateGBuffer(
 		packDeferredExt3(
 			anisotropyTangent,
 			anisotropyStrength,
-			model.nodeRenderLayers.x
-		)
+			input.instanceMeta.x
+		),
+		input.instanceMeta
 	);
 }
 
@@ -632,7 +638,7 @@ fn fsMainGBufferBase(
 		}
 		materialWord = f32(SHADING_PBR);
 	}
-	if (model.nodeRenderLayers.y > 0.5) {
+	if (input.instanceMeta.y > 0.5) {
 		materialWord = f32(
 			u32(materialWord) | DEFERRED_MATERIAL_RECEIVE_SHADOWS_BIT
 		);

@@ -76,6 +76,7 @@ export interface WebGPUBindingGroupCacheDebugStats {
 
 export class WebGPUBindingGroupCache {
 	private _bindingGroupCache = new Map<bigint, CachedBindingGroupEntry[]>();
+	private _bindingGroupLru = new Map<CachedBindingGroupEntry, true>();
 	private _bindingGroupCacheEntryCount = 0;
 	private _pipelineBindGroupLayoutCache = new Map<string, GPUBindGroupLayout>();
 	private _bindingGroupTouchTick = 0;
@@ -106,6 +107,24 @@ export class WebGPUBindingGroupCache {
 				`WebGPU binding group ${desc.label ?? "(unnamed)"} requires an explicit layout or pipeline`,
 			);
 		}
+		if (desc.cache === false) {
+			const gpuBindGroup = this._host.runValidationScope(
+				`createBindGroup:${desc.label ?? "unnamed"}`,
+				() => device.createBindGroup({
+					layout,
+					entries: desc.entries.map((entry) => ({
+						binding: entry.binding,
+						resource: this.mapBindingResource(entry.resource),
+					})),
+					label: desc.label,
+				}),
+			);
+			return {
+				label: desc.label,
+				destroy: () => {},
+				_gpuResource: gpuBindGroup,
+			} as InternalBindingGroup;
+		}
 
 		const layoutId = this._host.objectIdentity.getObjectId(layout);
 		const signatures = desc.entries.map((entry) =>
@@ -116,6 +135,7 @@ export class WebGPUBindingGroupCache {
 		if (cached) {
 			cached.lastUsedFrame = this._host.frameSerial;
 			cached.lastTouchedTick = ++this._bindingGroupTouchTick;
+			this._touchBindingGroupEntry(cached);
 			return cached.group;
 		}
 
@@ -159,6 +179,7 @@ export class WebGPUBindingGroupCache {
 			this._bindingGroupCache.set(cacheKey, [entry]);
 		}
 		this._bindingGroupCacheEntryCount++;
+		this._bindingGroupLru.set(entry, true);
 		this.trim();
 		return group;
 	}
@@ -208,23 +229,18 @@ export class WebGPUBindingGroupCache {
 	}
 
 	public evictStale(): void {
-		if (this._bindingGroupCache.size <= 0) {
-			return;
-		}
-		for (const [hashKey, bucket] of this._bindingGroupCache.entries()) {
-			for (let i = bucket.length - 1; i >= 0; i--) {
-				const entry = bucket[i];
-				const frameAge = Math.max(0, this._host.frameSerial - entry.lastUsedFrame);
-				const ttlBudget = WEBGPU_BINDING_GROUP_CACHE_TTL_FRAMES;
-				if (frameAge > ttlBudget) {
-					this._removeBindingGroupCacheEntry(hashKey, entry);
-				}
-			}
+		let inspected = 0;
+		for (const entry of this._bindingGroupLru.keys()) {
+			if (inspected++ >= 128) break;
+			const frameAge = Math.max(0, this._host.frameSerial - entry.lastUsedFrame);
+			if (frameAge <= WEBGPU_BINDING_GROUP_CACHE_TTL_FRAMES) break;
+			this._removeBindingGroupCacheEntry(entry.hashKey, entry);
 		}
 	}
 
 	public clear(): void {
 		this._bindingGroupCache.clear();
+		this._bindingGroupLru.clear();
 		this._bindingGroupCacheEntryCount = 0;
 		this._pipelineBindGroupLayoutCache.clear();
 		this._bindingGroupTouchTick = 0;
@@ -232,6 +248,7 @@ export class WebGPUBindingGroupCache {
 
 	public clearBindingGroups(): void {
 		this._bindingGroupCache.clear();
+		this._bindingGroupLru.clear();
 		this._bindingGroupCacheEntryCount = 0;
 		this._bindingGroupTouchTick = 0;
 	}
@@ -461,44 +478,18 @@ export class WebGPUBindingGroupCache {
 
 	private trim(): void {
 		this.evictStale();
-		const entryCount = this._bindingGroupCacheEntryCount;
-		if (entryCount <= WEBGPU_BINDING_GROUP_CACHE_LIMIT) {
-			return;
+		while (this._bindingGroupCacheEntryCount > WEBGPU_BINDING_GROUP_CACHE_LIMIT) {
+			const oldest = this._bindingGroupLru.keys().next().value as
+				| CachedBindingGroupEntry
+				| undefined;
+			if (!oldest) break;
+			this._removeBindingGroupCacheEntry(oldest.hashKey, oldest);
 		}
+	}
 
-		const candidates: Array<{
-			hashKey: bigint;
-			entry: CachedBindingGroupEntry;
-		}> = [];
-		for (const [hashKey, bucket] of this._bindingGroupCache.entries()) {
-			for (const entry of bucket) {
-				candidates.push({
-					hashKey,
-					entry,
-				});
-			}
-		}
-		candidates.sort((a, b) => {
-			const frameDelta = a.entry.lastUsedFrame - b.entry.lastUsedFrame;
-			if (frameDelta !== 0) {
-				return frameDelta;
-			}
-			const touchDelta = a.entry.lastTouchedTick - b.entry.lastTouchedTick;
-			if (touchDelta !== 0) {
-				return touchDelta;
-			}
-			return a.entry.refCount - b.entry.refCount;
-		});
-
-		let remainingToEvict = entryCount - WEBGPU_BINDING_GROUP_CACHE_LIMIT;
-		for (const candidate of candidates) {
-			if (remainingToEvict <= 0) {
-				break;
-			}
-			if (this._removeBindingGroupCacheEntry(candidate.hashKey, candidate.entry)) {
-				remainingToEvict--;
-			}
-		}
+	private _touchBindingGroupEntry(entry: CachedBindingGroupEntry): void {
+		this._bindingGroupLru.delete(entry);
+		this._bindingGroupLru.set(entry, true);
 	}
 
 	private _removeBindingGroupCacheEntry(
@@ -514,6 +505,7 @@ export class WebGPUBindingGroupCache {
 			return false;
 		}
 		bucket.splice(index, 1);
+		this._bindingGroupLru.delete(target);
 		this._bindingGroupCacheEntryCount = Math.max(
 			0,
 			this._bindingGroupCacheEntryCount - 1

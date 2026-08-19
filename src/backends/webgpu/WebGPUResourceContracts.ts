@@ -71,6 +71,10 @@ export interface WebGPUDrawResources {
 	indexBuffer: IRenderBuffer;
 	indexFormat: IndexFormat;
 	indexCount: number;
+	/** @internal Key shared by compatible static instance draws. */
+	staticBatchKey?: string;
+	/** @internal Frame-arena instance record used by static batching. */
+	firstInstance?: number;
 	resolvedInputs: WebGPUResolvedDrawInputs;
 }
 

@@ -54,6 +54,7 @@ interface WebGPUModelUniformInput {
 	prevModelMatrix: Matrix4 | number[][];
 	renderLayers: number;
 	receiveShadows: boolean;
+	staticBatch: boolean;
 }
 
 const FRAME_CAMERA_UNIFORM_PACKER = createStructuredBufferPacker<
@@ -487,6 +488,7 @@ const MODEL_UNIFORM_PACKER = createStructuredBufferPacker<
 			0,
 			0,
 		]),
+		packVec4("instanceParams", (input) => [input.staticBatch ? 1 : 0, 0, 0, 0]),
 		packArrayVec4("textureTransformA", WEBGPU_TEXTURE_SLOT_COUNT, (input, i) =>
 			input.materialData.textureSlots[i]?.transformA
 		),
@@ -549,6 +551,7 @@ export function packModelUniformData(
 		prevModelMatrix,
 		renderLayers,
 		receiveShadows,
+		staticBatch: false,
 	});
 }
 
@@ -586,7 +589,8 @@ export function writeModelUniformData(
 	materialData: WebGPUMaterialUniformData,
 	prevModelMatrix: Matrix4 | number[][],
 	renderLayers = 1,
-	receiveShadows = true
+	receiveShadows = true,
+	staticBatch = false,
 ): Float32Array<ArrayBuffer> {
 	return MODEL_UNIFORM_PACKER.packInto(writer, {
 		modelMatrix,
@@ -595,6 +599,7 @@ export function writeModelUniformData(
 		prevModelMatrix,
 		renderLayers,
 		receiveShadows,
+		staticBatch,
 	});
 }
 

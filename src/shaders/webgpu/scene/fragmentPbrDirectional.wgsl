@@ -13,7 +13,7 @@ for (var i: u32 = 0u; i < directionalCount; i = i + 1u) {
 	}
 
 	var shadow = vec3<f32>(1.0);
-	if (model.nodeRenderLayers.y > 0.5) {
+	if (input.instanceMeta.y > 0.5) {
 		shadow = sampleDirectionalShadowVisibility(
 			i,
 			input.worldPosition,

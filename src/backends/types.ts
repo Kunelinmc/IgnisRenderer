@@ -321,6 +321,8 @@ export interface BindingGroupDesc {
 	layoutIndex?: number;
 	entries: BindingEntry[];
 	label?: string;
+	/** @internal Set to false for owner-cached groups with unique resources. */
+	cache?: boolean;
 }
 
 export type BindingResource =

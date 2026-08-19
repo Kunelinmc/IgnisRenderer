@@ -4,6 +4,23 @@ This document defines texture formats, PBR material extensions, and depth-write 
 
 ## Contract
 
+### Render-state revisions
+
+- `Material.revision` must be a monotonic readonly revision of every public
+  field that can change render output or pipeline selection.
+- `Material.contentRevision` must advance whenever any material revision
+  advances so on-demand renderers can detect changes without retaining every
+  live material.
+- Direct assignment to existing public material properties must remain
+  supported. Nested color values and texture sampling transforms must be
+  checked once per unique material before clean-frame rejection.
+- `Texture.samplingRevision` must advance when UV transforms, wrapping,
+  filtering, rotation, or color-space sampling semantics change. Pixel upload
+  changes must continue to use `Texture.version`.
+- Backend material snapshots must be reusable until the material revision,
+  referenced texture identity, texture upload version, or texture sampling
+  revision changes.
+
 ### Texture formats
 
 - `Texture` must expose `format: TextureFormat`.

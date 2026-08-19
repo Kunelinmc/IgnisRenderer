@@ -18,6 +18,7 @@ import {
 	WEBGPU_MODEL_BINDING_MORPH_WEIGHTS,
 	WEBGPU_MODEL_BINDING_ANISOTROPY_TEXTURE,
 	WEBGPU_MODEL_BINDING_SHADER_UNIFORMS,
+	WEBGPU_MODEL_BINDING_STATIC_INSTANCES,
 	WEBGPU_MODEL_UNIFORM_BYTE_SIZE,
 	WEBGPU_TEXTURE_DEDICATED_SAMPLER_SLOT_COUNT,
 	WEBGPU_TEXTURE_SLOT_COUNT,
@@ -62,6 +63,7 @@ interface MaterialBindingEntry {
 }
 
 const MATERIAL_SNAPSHOT_FLOATS = (16 + WEBGPU_TEXTURE_SLOT_COUNT * 2) * 4;
+const MATERIAL_BINDING_CACHE_MAX_ENTRIES = 16_384;
 const FALLBACK_UNIFORM_DATA: FloatBuffer = new Float32Array(4);
 
 export class WebGPUMaterialBindingCache {
@@ -97,16 +99,6 @@ export class WebGPUMaterialBindingCache {
 			return;
 		}
 		this._currentFrame++;
-
-		for (const [key, entry] of this._cache.entries()) {
-			if (entry.lastUsedFrame < this._currentFrame - 5) {
-				this._destroyBindingGroup(entry.bindingGroup);
-				entry.bindingGroup = null;
-				entry.uniformBuffer.destroy();
-				entry.shaderUniformBuffer?.destroy();
-				this._cache.delete(key);
-			}
-		}
 	}
 
 	public destroy(): void {
@@ -139,8 +131,11 @@ export class WebGPUMaterialBindingCache {
 		if (!cached) {
 			cached = this._createEntry(cacheKey);
 			this._cache.set(cacheKey, cached);
+			this._trimCache();
 		} else {
 			cached.lastUsedFrame = this._currentFrame;
+			this._cache.delete(cacheKey);
+			this._cache.set(cacheKey, cached);
 		}
 
 		this._updateModelUniform(cached, packet, materialData);
@@ -217,12 +212,17 @@ export class WebGPUMaterialBindingCache {
 				{
 					binding: WEBGPU_MODEL_BINDING_ANISOTROPY_TEXTURE,
 					resource: anisotropyTexture,
+				},
+				{
+					binding: WEBGPU_MODEL_BINDING_STATIC_INSTANCES,
+					resource: fallbackStorageBuffer,
 				}
 			);
 			cached.bindingGroup = this._backend.createBindingGroup({
 				label: `ModelBinding_${cacheKey}`,
 				layout: this._layouts.modelBindGroupLayout,
 				entries,
+				cache: false,
 			});
 			if (previousBindingGroup && previousBindingGroup !== cached.bindingGroup) {
 				this._destroyBindingGroup(previousBindingGroup);
@@ -384,6 +384,20 @@ export class WebGPUMaterialBindingCache {
 		const destroyFn = (group as { destroy?: () => void } | null)?.destroy;
 		if (typeof destroyFn === "function") {
 			destroyFn.call(group);
+		}
+	}
+
+	private _trimCache(): void {
+		while (this._cache.size > MATERIAL_BINDING_CACHE_MAX_ENTRIES) {
+			const oldest = this._cache.entries().next().value as
+				| [string, MaterialBindingEntry]
+				| undefined;
+			if (!oldest) break;
+			const [key, entry] = oldest;
+			this._cache.delete(key);
+			this._destroyBindingGroup(entry.bindingGroup);
+			entry.uniformBuffer.destroy();
+			entry.shaderUniformBuffer?.destroy();
 		}
 	}
 }

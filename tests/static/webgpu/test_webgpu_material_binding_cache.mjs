@@ -126,7 +126,7 @@ function getWriteCountForLabel(backend, labelPrefix) {
 	).length;
 }
 
-function testEvictionDestroysModelBindingGroup() {
+function testBudgetedCacheRetainsModelBindingGroup() {
 	const backend = createBackendStub();
 	const cache = createCache(backend);
 	const packet = createPacket();
@@ -148,6 +148,8 @@ function testEvictionDestroysModelBindingGroup() {
 		cache.beginFrame();
 	}
 
+	assert.equal(backend.bindingGroupDestroyCalls, 0);
+	cache.destroy();
 	assert.equal(backend.bindingGroupDestroyCalls, 1);
 }
 
@@ -329,7 +331,7 @@ function testPayloadGenerationRebuildsBindingWithoutOwningPayloadBuffers() {
 }
 
 function run() {
-	testEvictionDestroysModelBindingGroup();
+	testBudgetedCacheRetainsModelBindingGroup();
 	testTextureRebindDestroysPreviousModelBindingGroup();
 	testPipelineChangeReusesModelBindingGroup();
 	testStaticMeshDoesNotWriteAnimationPayloads();

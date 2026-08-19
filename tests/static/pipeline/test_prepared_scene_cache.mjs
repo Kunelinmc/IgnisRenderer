@@ -1,7 +1,14 @@
 import assert from "node:assert/strict";
 import { Material } from "../../../src/materials/Material.ts";
 import { Matrix4 } from "../../../src/maths/Matrix4.ts";
-import { PreparedSceneBuilder } from "../../../src/pipeline/PreparedSceneBuilder.ts";
+import { Camera } from "../../../src/cameras/Camera.ts";
+import { Scene } from "../../../src/core/Scene.ts";
+import { MeshAsset } from "../../../src/meshes/MeshAsset.ts";
+import { MeshInstance } from "../../../src/meshes/MeshInstance.ts";
+import {
+	PreparedSceneBuilder,
+	PreparedScenePacketCache,
+} from "../../../src/pipeline/PreparedSceneBuilder.ts";
 import { PreparedSceneCache } from "../../../src/pipeline/PreparedSceneCache.ts";
 import { DEFAULT_INCREMENTAL_RENDERING_OPTIONS } from "../../../src/pipeline/incremental.ts";
 import { createResolvedPostProcess } from "../../helpers/postprocess.mjs";
@@ -692,6 +699,48 @@ function testCameraMatrixChangeForcesFullFrameAndRebasesPacketRects() {
 	}
 }
 
+function testPreparedPacketCacheReusesViewLocalPackets() {
+	const material = new Material();
+	const mesh = MeshAsset.fromFaces([{
+		material,
+		vertices: [
+			{ x: 0, y: 0, z: -2 },
+			{ x: 1, y: 0, z: -2 },
+			{ x: 0, y: 1, z: -2 },
+		],
+	}]);
+	const scene = new Scene();
+	const camera = scene.add(new Camera());
+	const instance = scene.add(new MeshInstance({ mesh }));
+	scene.updateWorldMatrices();
+	camera.updateMatrices();
+	const packets = new PreparedScenePacketCache();
+	const build = (view = camera) => {
+		packets.beginFrame();
+		const frame = PreparedSceneBuilder.build(
+			{ scene, camera: view, hasActiveAnimations: false },
+			{ packetCache: packets },
+		);
+		packets.endFrame();
+		return frame.opaquePackets[0];
+	};
+	const first = build();
+	const firstNormal = first.normalMatrix;
+	const second = build();
+	assert.equal(second, first);
+	assert.equal(second.normalMatrix, firstNormal);
+
+	instance.scale.x = 2;
+	scene.updateWorldMatrices();
+	const transformed = build();
+	assert.equal(transformed, first);
+	assert.notEqual(transformed.normalMatrix, firstNormal);
+
+	const secondary = new Camera();
+	secondary.updateMatrices();
+	assert.notEqual(build(secondary), first);
+}
+
 function run() {
 	testPacketDiffLifecycle();
 	testDecalDiffLifecycle();
@@ -703,6 +752,7 @@ function run() {
 	testMaterialDiffDetectsDepthWriteChanges();
 	testDeformationRevisionAndBoundsDirtyPreviousAndCurrentCoverage();
 	testCameraMatrixChangeForcesFullFrameAndRebasesPacketRects();
+	testPreparedPacketCacheReusesViewLocalPackets();
 	console.log("Prepared scene cache tests passed");
 }
 

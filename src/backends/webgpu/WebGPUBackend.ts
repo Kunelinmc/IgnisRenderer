@@ -440,6 +440,7 @@ export class WebGPUBackend implements IRenderBackend {
 		return {
 			pipeline: this._pipelineCache.getDebugStats(),
 			bindingGroups: this._bindingGroupCache.getDebugStats(),
+			frameResources: this._resources?.getDebugStats?.() ?? null,
 		};
 	}
 

@@ -65,6 +65,7 @@ function createModelLayout() {
 			{ name: "materialFlags", type: VEC4_F32 },
 			{ name: "pbrMasks", type: VEC4_U32 },
 			{ name: "nodeRenderLayers", type: VEC4_F32 },
+			{ name: "instanceParams", type: VEC4_F32 },
 			{
 				name: "textureTransformA",
 				type: arrayOf(VEC4_F32, WEBGPU_TEXTURE_SLOT_COUNT),
@@ -178,6 +179,7 @@ function testModelUniformPacking() {
 	]);
 	assert.deepEqual(readU32Vec(layout, data, "pbrMasks", 4), [61, 62, 0, 0]);
 	assert.deepEqual(readVec(layout, data, "nodeRenderLayers", 4), [7, 1, 0, 0]);
+	assert.deepEqual(readVec(layout, data, "instanceParams", 4), [0, 0, 0, 0]);
 	assert.deepEqual(readVec(layout, data, ["textureTransformA", 1], 4), [
 		105, 106, 107, 108,
 	]);

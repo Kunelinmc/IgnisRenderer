@@ -120,6 +120,7 @@ struct ModelUniforms {
 	materialFlags: vec4<f32>,
 	pbrMasks: vec4<u32>,
 	nodeRenderLayers: vec4<f32>,
+	instanceParams: vec4<f32>,
 	textureTransformA: array<vec4<f32>, __WEBGPU_TEXTURE_SLOT_COUNT__>,
 	textureTransformB: array<vec4<f32>, __WEBGPU_TEXTURE_SLOT_COUNT__>,
 }
@@ -135,7 +136,15 @@ struct AnimationParams {
 	_pad1: f32,
 }
 
+struct StaticInstance {
+	modelMatrix: mat4x4<f32>,
+	prevModelMatrix: mat4x4<f32>,
+	normalMatrix: mat4x4<f32>,
+	nodeRenderLayers: vec4<f32>,
+}
+
 struct VertexInput {
+	@builtin(instance_index) instanceIndex: u32,
 	@location(0) position: vec3<f32>,
 	@location(1) uv0: vec2<f32>,
 	@location(2) normal: vec3<f32>,
@@ -160,6 +169,7 @@ struct VertexOutput {
 	@location(6) prevClip: vec4<f32>,
 	@location(7) uv2: vec2<f32>,
 	@location(8) uv3: vec2<f32>,
+	@location(9) @interpolate(flat) instanceMeta: vec2<f32>,
 }
 
 struct SceneFragmentOutput {
@@ -261,6 +271,7 @@ struct ParticleShadowVolumeBuffer {
 @group(1) @binding(34) var<storage, read> morphPositionDeltas: array<f32>;
 @group(1) @binding(35) var<storage, read> morphNormalDeltas: array<f32>;
 @group(1) @binding(37) var anisotropyTexture: texture_2d<f32>;
+@group(1) @binding(38) var<storage, read> staticInstances: array<StaticInstance>;
 
 @group(2) @binding(0) var<uniform> clusterGrid: ClusterGridParams;
 @group(2) @binding(1) var<storage, read> clusterPositionRanges: ClusterVec4Buffer;

@@ -35,13 +35,82 @@ function createEncoder() {
 		setIndexBuffer(buffer, format) {
 			calls.push(["setIndexBuffer", buffer.id, format]);
 		},
-		drawIndexed(indexCount) {
-			calls.push(["drawIndexed", indexCount]);
+		drawIndexed(indexCount, instanceCount, firstIndex, baseVertex, firstInstance) {
+			calls.push([
+				"drawIndexed",
+				indexCount,
+				instanceCount,
+				firstIndex,
+				baseVertex,
+				firstInstance,
+			]);
 		},
 		setScissorRect(x, y, width, height) {
 			calls.push(["setScissorRect", x, y, width, height]);
 		},
 	};
+}
+
+async function testStaticDrawsMergeContiguousInstanceRanges() {
+	const encoder = createEncoder();
+	const packets = [{ id: "instance-a" }, { id: "instance-b" }];
+	const shared = createDrawResource("shared");
+	const prepared = new Map(packets.map((packet, index) => [packet, [{
+		...shared,
+		staticBatchKey: "batch:shared",
+		firstInstance: index,
+	}]]));
+	const result = await submitWebGPUDraws({
+		encoder,
+		resources: {
+			getDrawResources() {
+				throw new Error("Static batch test must use prepared resources.");
+			},
+		},
+		frameResources: createFrameResources(),
+		packets,
+		preparedResources: prepared,
+		resolveDrawOptions() {
+			throw new Error("Static batch test must not resolve draw options.");
+		},
+	});
+	assert.equal(result.drawCount, 1);
+	assert.deepEqual([...result.submittedPacketIds], ["instance-a", "instance-b"]);
+	assert.deepEqual(
+		encoder.calls.find((call) => call[0] === "drawIndexed"),
+		["drawIndexed", 3, 2, 0, 0, 0],
+	);
+}
+
+async function testFiveThousandStaticDrawsCollapseToEightBatches() {
+	const encoder = createEncoder();
+	const packets = Array.from({ length: 5_000 }, (_, index) => ({
+		id: `mesh:${index}`,
+		materialIndex: Math.floor(index / 625),
+	}));
+	const resources = Array.from({ length: 8 }, (_, index) =>
+		createDrawResource(`material:${index}`));
+	const prepared = new Map(packets.map((packet, index) => [packet, [{
+		...resources[packet.materialIndex],
+		staticBatchKey: `batch:${packet.materialIndex}`,
+		firstInstance: index,
+	}]]));
+	const result = await submitWebGPUDraws({
+		encoder,
+		resources: {
+			getDrawResources() {
+				throw new Error("Static stress test must use prepared resources.");
+			},
+		},
+		frameResources: createFrameResources(),
+		packets,
+		preparedResources: prepared,
+		resolveDrawOptions() {
+			throw new Error("Static stress test must not resolve draw options.");
+		},
+	});
+	assert.equal(result.drawCount, 8);
+	assert.equal(result.submittedPacketIds.size, 5_000);
 }
 
 function createFrameResources() {
@@ -194,8 +263,33 @@ async function testSubmissionReusesPreparedResourcesAcrossDirtyRects() {
 	assert.deepEqual([...result.submittedPacketIds], [packet.id]);
 	assert.equal(
 		encoder.calls.filter((call) => call[0] === "setPipeline").length,
-		2
+		1
 	);
+}
+
+async function testEmptyDirtyRectsUseFullFramePreparation() {
+	const encoder = createEncoder();
+	const packet = { id: "empty-rects" };
+	let preparations = 0;
+	const result = await submitWebGPUDraws({
+		encoder,
+		resources: {
+			async getDrawResources() {
+				preparations++;
+				return [createDrawResource(packet.id)];
+			},
+		},
+		frameResources: createFrameResources(),
+		packets: [packet],
+		dirtyRects: [],
+		resolveDrawOptions: (_packet, rect) => ({
+			sampleCount: 1,
+			drawMode: rect === null ? "default" : "early-z-prepass",
+		}),
+	});
+
+	assert.equal(preparations, 1);
+	assert.equal(result.drawCount, 1);
 }
 
 function testScenePassDescriptorsExposePipelineStateKeyParts() {
@@ -243,5 +337,8 @@ function testScenePassDescriptorsExposePipelineStateKeyParts() {
 await testDefaultSubmissionFiltersDirtyRectsAndTracksPackets();
 await testSubmissionSupportsExtraAndReplacementBindings();
 await testSubmissionReusesPreparedResourcesAcrossDirtyRects();
+await testEmptyDirtyRectsUseFullFramePreparation();
+await testStaticDrawsMergeContiguousInstanceRanges();
+await testFiveThousandStaticDrawsCollapseToEightBatches();
 testScenePassDescriptorsExposePipelineStateKeyParts();
 console.log("WebGPU draw submission tests passed");

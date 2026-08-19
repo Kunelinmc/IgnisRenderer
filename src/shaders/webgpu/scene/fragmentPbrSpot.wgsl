@@ -36,7 +36,7 @@ if (!isClusteredLightingEnabled()) {
 		}
 
 		var shadow = vec3<f32>(1.0);
-		if (model.nodeRenderLayers.y > 0.5) {
+		if (input.instanceMeta.y > 0.5) {
 			shadow = sampleSpotShadowVisibility(
 				i,
 				input.worldPosition,

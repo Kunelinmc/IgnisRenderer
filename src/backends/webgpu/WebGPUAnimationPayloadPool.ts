@@ -11,7 +11,7 @@ import type { WebGPUDeviceResourceHost } from "./WebGPUDeviceResourceHost";
 import type { WebGPUGeometryHandle } from "./WebGPUGeometryRegistry";
 
 const ANIMATION_RESOURCE_RELEASE_DELAY_FRAMES = 60;
-const FALLBACK_STORAGE_BYTE_SIZE = 2 * 16 * 4;
+const FALLBACK_STORAGE_BYTE_SIZE = 4 * 16 * 4;
 const ANIMATION_PARAMS_BYTE_SIZE = 8 * 4;
 
 interface ResolvedAnimationSource {
@@ -169,6 +169,20 @@ export class WebGPUAnimationPayloadPool {
 		jointMap: JointMatrixMap | null,
 		morphMap: MorphWeightMap | null,
 	): WebGPUSceneAnimationPayload {
+		if (
+			geometry.skinProfile === "static" &&
+			geometry.morphTargetCount <= 0 &&
+			!packet.meshInstance.skeleton
+		) {
+			return {
+				generation: 0,
+				paramsBuffer: this._fallbackSceneParamsBuffer,
+				jointMatricesBuffer: this._fallbackStorageBuffer,
+				morphWeightsBuffer: this._fallbackStorageBuffer,
+				jointCount: 0,
+				morphCount: 0,
+			};
+		}
 		const entry = this._prepareEntry(packet, geometry, jointMap, morphMap);
 		if (!this._isActive(entry)) {
 			return {
@@ -214,6 +228,11 @@ export class WebGPUAnimationPayloadPool {
 		jointMap: JointMatrixMap | null,
 		morphMap: MorphWeightMap | null,
 	): WebGPUShadowAnimationPayload {
+		if (
+			geometry.skinProfile === "static" &&
+			geometry.morphTargetCount <= 0 &&
+			!packet.meshInstance.skeleton
+		) return this.getStaticShadowPayload();
 		const entry = this._prepareEntry(packet, geometry, jointMap, morphMap);
 		if (!this._isActive(entry)) {
 			return {
@@ -258,6 +277,18 @@ export class WebGPUAnimationPayloadPool {
 		return {
 			generation: 0,
 			paramsBuffer: this._fallbackShadowParamsBuffer,
+			jointMatricesBuffer: this._fallbackStorageBuffer,
+			morphWeightsBuffer: this._fallbackStorageBuffer,
+			jointCount: 0,
+			morphCount: 0,
+		};
+	}
+
+	/** @internal Returns the shared no-deformation scene payload. */
+	public getStaticScenePayload(): WebGPUSceneAnimationPayload {
+		return {
+			generation: 0,
+			paramsBuffer: this._fallbackSceneParamsBuffer,
 			jointMatricesBuffer: this._fallbackStorageBuffer,
 			morphWeightsBuffer: this._fallbackStorageBuffer,
 			jointCount: 0,
@@ -417,7 +448,10 @@ export class WebGPUAnimationPayloadPool {
 		let morphWeights = runtimeMorph?.weights ?? null;
 		let requestedMorphCount = Math.max(0, runtimeMorph?.targetCount ?? 0);
 		let morphReliable = !!runtimeMorph;
-		if (!morphWeights || requestedMorphCount <= 0) {
+		if (
+			geometry.morphTargetCount > 0 &&
+			(!morphWeights || requestedMorphCount <= 0)
+		) {
 			const primitiveIndex = packet.mesh.primitives.indexOf(packet.primitive);
 			morphWeights =
 				primitiveIndex >= 0

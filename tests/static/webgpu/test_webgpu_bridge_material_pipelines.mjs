@@ -24,6 +24,9 @@ import {
 	ShaderMaterial
 } from "../../../src/materials/ShaderMaterial.ts";
 import {
+	WebGPUPipelineLibrary,
+} from "../../../src/backends/webgpu/WebGPUPipelineLibrary.ts";
+import {
 	Texture
 } from "../../../src/core/Texture.ts";
 import {
@@ -238,11 +241,20 @@ async function testWebGPUEarlyZPrepassOpaquePipelineHasDepthOnlyState() {
 		createMainFrameOptions()
 	);
 
-	const draw = await resources.getDrawResources(packet, frameResources, {
-		drawMode: "early-z-prepass",
-		sampleCount: 1,
-	});
+	const draws = await Promise.all(Array.from({ length: 32 }, () =>
+		resources.getDrawResources(packet, frameResources, {
+			drawMode: "early-z-prepass",
+			sampleCount: 1,
+		})));
+	const draw = draws[0];
 	assert.ok(draw && draw.length > 0);
+	assert.ok(draws.every((candidate) => candidate?.[0].pipeline === draw[0].pipeline));
+	assert.equal(
+		backend.pipelines.filter((candidate) =>
+			candidate.label?.startsWith("WebGPUSceneEarlyZPipeline_"),
+		).length,
+		1,
+	);
 	const pipelineDesc = draw[0].pipeline.desc;
 	assert.equal(pipelineDesc.layout.desc.bindGroupLayouts.length, 3);
 	assert.equal(typeof pipelineDesc.fragment, "undefined");
@@ -979,6 +991,8 @@ async function run() {
 		await testWebGPUOITTransparentPipelineUsesDualTargets();
 		await testWebGPUOITTransmissionMaterialsStayLegacyPipeline();
 		await testWebGPUOITParticlePipelinesSplitAlphaAndAdditive();
+		await testEarlyZInvalidationDiscardsLatePipeline();
+		testPipelineLibraryExplicitlyDestroysInvalidatedHandles();
 		console.log("WebGPU bridge material pipelines tests passed");
 	} finally {
 		ShaderSource.resetConfiguration();
@@ -989,5 +1003,70 @@ async function run() {
 			globalThis.GPUShaderStage = previousGPUShaderStage;
 		}
 	}
+}
+
+async function testEarlyZInvalidationDiscardsLatePipeline() {
+	const backend = new FakeBackend();
+	const createPipeline = backend.createPipeline.bind(backend);
+	let release;
+	const gate = new Promise((resolve) => {
+		release = resolve;
+	});
+	let delayFirstPipeline = true;
+	backend.createPipeline = async (desc) => {
+		if (delayFirstPipeline) {
+			delayFirstPipeline = false;
+			await gate;
+		}
+		return createPipeline(desc);
+	};
+	const library = new WebGPUPipelineLibrary(backend, {}, {
+		listenToShaderRuntime: false,
+	});
+	const material = new PBRMaterial();
+	const pending = library.getEarlyZPrepassPipeline(
+		material,
+		"single",
+		false,
+		"triangle-list",
+		1,
+	);
+	await new Promise((resolve) => setTimeout(resolve, 0));
+	library.invalidateShaderRuntimeCaches();
+	release();
+	const pipeline = await pending;
+	assert.ok(pipeline);
+	assert.equal(pipeline.destroyed, false);
+	assert.equal(library._earlyZPrepassCache.size, 1);
+	assert.equal(backend.renderPipelineDestroyCalls, 1);
+}
+
+function testPipelineLibraryExplicitlyDestroysInvalidatedHandles() {
+	const library = new WebGPUPipelineLibrary({}, {}, { listenToShaderRuntime: false });
+	const pipeline = {
+		destroyCalls: 0,
+		destroy() {
+			this.destroyCalls++;
+		},
+	};
+	const shader = {
+		destroyCalls: 0,
+		destroy() {
+			this.destroyCalls++;
+		},
+	};
+	library._pipelineCache.set("scene", pipeline);
+	library._earlyZPrepassCache.set("early-z", pipeline);
+	library._environmentPipelines.set("environment", pipeline);
+	library._deferredLightingPipeline = pipeline;
+	library._customShaderModuleCache.set("custom", shader);
+	library._sceneShaderModule = shader;
+	library._environmentShaderModule = shader;
+	library.invalidateShaderRuntimeCaches();
+	assert.equal(pipeline.destroyCalls, 1);
+	assert.equal(shader.destroyCalls, 1);
+	assert.equal(library._pipelineCache.size, 0);
+	assert.equal(library._earlyZPrepassCache.size, 0);
+	assert.equal(library._customShaderModuleCache.size, 0);
 }
 await run();

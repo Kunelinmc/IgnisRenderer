@@ -28,7 +28,6 @@ import {
 	collectWebGPUEnvironment,
 	collectWebGPULightingCatalog,
 	createWebGPULightingState,
-	createWebGPUMaterialUniformData,
 	type WebGPUEnvironmentState,
 	type WebGPUFeatureState,
 	type WebGPULightingState,
@@ -45,6 +44,8 @@ import { WebGPUClusteredLightingRuntime } from "./WebGPUClusteredLightingRuntime
 import { WebGPUGeometryRegistry } from "./WebGPUGeometryRegistry";
 import { WebGPUAnimationPayloadPool } from "./WebGPUAnimationPayloadPool";
 import { WebGPUMaterialBindingCache } from "./WebGPUMaterialBindingCache";
+import { WebGPUMaterialSnapshotCache } from "./WebGPUMaterialSnapshotCache";
+import { WebGPUStaticMeshBatcher } from "./WebGPUStaticMeshBatcher";
 import { WebGPUPipelineLibrary } from "./WebGPUPipelineLibrary";
 import { WebGPUDeferredResources } from "./WebGPUDeferredResources";
 import type {
@@ -141,6 +142,8 @@ export class WebGPUFrameServiceOwner {
 	private _pipelineLibrary: WebGPUPipelineLibrary;
 	private _animationPayloads: WebGPUAnimationPayloadPool;
 	private _materialBindings: WebGPUMaterialBindingCache;
+	private _materialSnapshots: WebGPUMaterialSnapshotCache;
+	private _staticBatcher: WebGPUStaticMeshBatcher;
 	private _shadowRuntime: WebGPUShadowRuntime;
 	private _shadowRuntimeDestroyed = false;
 	private _frameFeatureRegistry = createWebGPUFrameFeatureRegistry();
@@ -165,6 +168,7 @@ export class WebGPUFrameServiceOwner {
 		this._layouts = createWebGPUPipelineLayouts(device);
 		this._geometryRegistry = new WebGPUGeometryRegistry(backend);
 		this._textureRegistry = new WebGPUTextureRegistry(backend, resourceManager);
+		this._materialSnapshots = new WebGPUMaterialSnapshotCache(this._textureRegistry);
 		this._pipelineLibrary = new WebGPUPipelineLibrary(backend, this._layouts, {
 			listenToShaderRuntime: false,
 		});
@@ -177,6 +181,11 @@ export class WebGPUFrameServiceOwner {
 			this._pipelineLibrary.getDeferredLightingPipeline(),
 		);
 		this._animationPayloads = new WebGPUAnimationPayloadPool(backend);
+		this._staticBatcher = new WebGPUStaticMeshBatcher(
+			backend,
+			this._layouts,
+			this._animationPayloads,
+		);
 		this._materialBindings = new WebGPUMaterialBindingCache(
 			backend,
 			this._layouts,
@@ -395,7 +404,9 @@ export class WebGPUFrameServiceOwner {
 	public beginFrameResourceLifecycle(): void {
 		this._animationPayloads.beginFrame();
 		this._materialBindings.beginFrame();
+		this._materialSnapshots.beginFrame();
 		this._particleRenderResources.beginFrame();
+		this._staticBatcher.beginFrame();
 	}
 
 	public prepareFrame(
@@ -403,6 +414,7 @@ export class WebGPUFrameServiceOwner {
 		options: WebGPUFrameServicePrepareOptions,
 	): WebGPUFrameServicePreparedResources {
 		const resolvedOptions = this._resolvePrepareFrameOptions(context, options);
+		this._staticBatcher.preparePackets(resolvedOptions.framePackets.opaque);
 		const jointMatrixMap = context.transient.get(ANIMATION_WEBGPU_JOINT_MATRICES_KEY) ?? null;
 		const morphWeightMap = context.transient.get(ANIMATION_WEBGPU_MORPH_WEIGHTS_KEY) ?? null;
 		const scene = context.scene;
@@ -793,6 +805,8 @@ export class WebGPUFrameServiceOwner {
 		}
 		this._frameScopes.clear();
 		this._materialBindings.destroy();
+		this._materialSnapshots.clear();
+		this._staticBatcher.destroy();
 		this._animationPayloads.destroy();
 		this._pipelineLibrary.destroy();
 		this._textureRegistry.destroy();
@@ -801,6 +815,15 @@ export class WebGPUFrameServiceOwner {
 
 	public getTextureForSlot(texture: Texture | null, slotIndex: number): IRenderTexture {
 		return this._textureRegistry.getTextureForSlot(texture, slotIndex);
+	}
+
+	/** @internal Test and benchmark diagnostics for CPU-side draw preparation. */
+	public getDebugStats() {
+		return {
+			materialSnapshots: this._materialSnapshots.getDebugStats(),
+			staticBatching: this._staticBatcher.getDebugStats(),
+			animationPayloads: this._animationPayloads.getDebugStats(),
+		};
 	}
 
 	public getTextureForSlotAsync(
@@ -869,12 +892,14 @@ export class WebGPUFrameServiceOwner {
 		for (const scope of this._frameScopes.values()) {
 			scope.frameBindings.commitTemporalFrame();
 		}
+		this._staticBatcher.commitFrame();
 	}
 
 	public abortTemporalFrame(): void {
 		for (const scope of this._frameScopes.values()) {
 			scope.frameBindings.abortTemporalFrame();
 		}
+		this._staticBatcher.abortFrame();
 	}
 
 	/** @internal Owned by the WebGPU device and resize lifecycle. */
@@ -1000,7 +1025,8 @@ export class WebGPUFrameServiceOwner {
 		);
 
 		// ----- SOLID OBJECT -----
-		const solidMaterialData = createWebGPUMaterialUniformData(packet.material, false);
+		const solidSnapshot = await this._materialSnapshots.resolve(packet.material, false);
+		const solidMaterialData = solidSnapshot.data;
 		for (const warning of solidMaterialData.warnings) {
 			Logger.warn(`[${warning.key}] ${warning.message}`, {
 				scope: "WebGPUFrameServiceOwner",
@@ -1017,6 +1043,7 @@ export class WebGPUFrameServiceOwner {
 						topology,
 						sampleCount,
 						geometry,
+						solidMaterialData,
 					)
 				: await this._pipelineLibrary.getPipeline(
 						packet.material,
@@ -1028,33 +1055,33 @@ export class WebGPUFrameServiceOwner {
 						sampleCount,
 						options.deferredGBufferLayout,
 						geometry,
+						solidMaterialData,
 					);
 		if (!solidPipeline) {
 			return null;
 		}
-		const solidTextures = await Promise.all(
-			solidMaterialData.textureSlots.map((slot, index) =>
-				this._textureRegistry.getTextureForSlotAsync(slot.map, index),
-			),
-		);
-		const solidSamplers = solidMaterialData.textureSlots.map((slot) =>
-			this._textureRegistry.getSamplerForTexture(slot.map),
-		);
-		const solidAnisotropyTexture = await this._textureRegistry.getTextureForSlotAsync(
-			solidMaterialData.anisotropyTexture.map,
-			-1,
-		);
-		const solidModelBinding = this._materialBindings.getBinding(
+		const solidTextures = solidSnapshot.textures;
+		const solidSamplers = solidSnapshot.samplers;
+		const solidAnisotropyTexture = solidSnapshot.anisotropyTexture;
+		const staticDraw = this._staticBatcher.getDrawState(
 			packet,
 			solidPipeline,
-			solidMaterialData,
-			solidTextures,
-			solidSamplers,
-			solidAnisotropyTexture,
-			animationPayload,
-			geometry.morphPositionBuffer,
-			geometry.morphNormalBuffer,
+			geometry,
+			solidSnapshot,
+			drawMode,
 		);
+		const solidModelBinding = staticDraw?.modelBinding ??
+			this._materialBindings.getBinding(
+				packet,
+				solidPipeline,
+				solidMaterialData,
+				solidTextures,
+				solidSamplers,
+				solidAnisotropyTexture,
+				animationPayload,
+				geometry.morphPositionBuffer,
+				geometry.morphNormalBuffer,
+			);
 
 		results.push({
 			pipeline: solidPipeline,
@@ -1065,6 +1092,8 @@ export class WebGPUFrameServiceOwner {
 			indexBuffer: geometry.indexBuffer,
 			indexFormat: geometry.indexFormat,
 			indexCount: geometry.indexCount,
+			staticBatchKey: staticDraw?.batchKey,
+			firstInstance: staticDraw?.firstInstance,
 			resolvedInputs: {
 				materialData: solidMaterialData,
 				textures: solidTextures,
@@ -1083,7 +1112,8 @@ export class WebGPUFrameServiceOwner {
 			const wireGeometry = this._geometryRegistry.getWireframeGeometry(
 				packet.primitive
 			);
-			const wireMaterialData = createWebGPUMaterialUniformData(packet.material, true);
+			const wireSnapshot = await this._materialSnapshots.resolve(packet.material, true);
+			const wireMaterialData = wireSnapshot.data;
 			const wirePipeline = await this._pipelineLibrary.getPipeline(
 				packet.material,
 				sceneTargetMode,
@@ -1094,19 +1124,11 @@ export class WebGPUFrameServiceOwner {
 				sampleCount,
 				options.deferredGBufferLayout,
 				wireGeometry,
+				wireMaterialData,
 			);
-			const wireTextures = await Promise.all(
-				wireMaterialData.textureSlots.map((slot, index) =>
-					this._textureRegistry.getTextureForSlotAsync(slot.map, index),
-				),
-			);
-			const wireSamplers = wireMaterialData.textureSlots.map((slot) =>
-				this._textureRegistry.getSamplerForTexture(slot.map),
-			);
-			const wireAnisotropyTexture = await this._textureRegistry.getTextureForSlotAsync(
-				wireMaterialData.anisotropyTexture.map,
-				-1,
-			);
+			const wireTextures = wireSnapshot.textures;
+			const wireSamplers = wireSnapshot.samplers;
+			const wireAnisotropyTexture = wireSnapshot.anisotropyTexture;
 			const wireModelBinding = this._materialBindings.getBinding(
 				packet,
 				wirePipeline,

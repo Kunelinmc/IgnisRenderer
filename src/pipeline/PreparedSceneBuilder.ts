@@ -1,5 +1,6 @@
 import type { Camera } from "../cameras/Camera";
 import { AlphaMode } from "../materials/Material";
+import type { Material } from "../materials/Material";
 import { ShaderMaterial } from "../materials/ShaderMaterial";
 import { isMaterialTransparentPass } from "../materials/transparency";
 import { Matrix4 } from "../maths/Matrix4";
@@ -39,6 +40,202 @@ export interface PreparedSceneBuildOptions {
 	occlusionVisibilityProvider?: OcclusionVisibilityProvider | null;
 	/** @internal Scene whose spatial index may accelerate secondary-view culling. */
 	visibilityScene?: Scene | null;
+	/** @internal View-local packet cache owned by frame coordination. */
+	packetCache?: PreparedScenePacketCache | null;
+}
+
+interface PreparedPacketCacheSignature {
+	readonly mesh: DrawPacket["mesh"];
+	readonly material: DrawPacket["material"];
+	readonly geometry: DrawPacket["geometry"];
+	readonly transformRevision: number;
+	readonly boundsVersion: number;
+	readonly meshBoundsVersion: number;
+	readonly geometryVersion: number;
+	readonly deformationRevision: number;
+	readonly primitiveVisible: boolean;
+	readonly castShadows: boolean;
+	readonly receiveShadows: boolean;
+	readonly renderLayers: number;
+	readonly materialRevision: number;
+}
+
+interface PreparedPacketCacheEntry {
+	readonly key: string;
+	readonly owner: Map<string, PreparedPacketCacheEntry>;
+	readonly packet: DrawPacket;
+	signature: PreparedPacketCacheSignature;
+	lastUsedFrame: number;
+}
+
+/** @internal Bounded view-local cache for prepared draw packets. */
+export class PreparedScenePacketCache {
+	private _views = new WeakMap<object, Map<string, PreparedPacketCacheEntry>>();
+	private readonly _lru = new Set<PreparedPacketCacheEntry>();
+	private _materialRevisions = new WeakMap<Material, number>();
+	private _frame = 0;
+	private _frameHits = 0;
+	private _frameRebuilds = 0;
+
+	public constructor(private readonly _maxEntries = 65_536) {}
+
+	public beginFrame(): void {
+		this._frame++;
+		this._frameHits = 0;
+		this._frameRebuilds = 0;
+		this._materialRevisions = new WeakMap<Material, number>();
+	}
+
+	public getReusablePacket(
+		view: Camera,
+		meshInstance: MeshInstance,
+		primitive: IPrimitive,
+		deformationRevision: number,
+	): DrawPacket | null {
+		const packets = this._views.get(view);
+		if (!packets) return null;
+		const key = `${meshInstance.id}:${primitive.id}`;
+		const entry = packets.get(key);
+		if (!entry) return null;
+		if (!this._isSignatureCurrent(
+			entry.signature,
+			meshInstance,
+			primitive,
+			deformationRevision,
+		)) return null;
+		this._frameHits++;
+		updatePacketSortDepth(entry.packet, view);
+		this._touchEntry(entry);
+		return entry.packet;
+	}
+
+	public storePacket(
+		view: Camera,
+		meshInstance: MeshInstance,
+		primitive: IPrimitive,
+		deformationRevision: number,
+		packet: DrawPacket,
+	): DrawPacket {
+		let packets = this._views.get(view);
+		if (!packets) {
+			packets = new Map();
+			this._views.set(view, packets);
+		}
+		const key = `${meshInstance.id}:${primitive.id}`;
+		const signature = this._createSignature(
+			meshInstance,
+			primitive,
+			deformationRevision,
+		);
+		let entry = packets.get(key);
+		this._frameRebuilds++;
+		if (entry) {
+			Object.assign(entry.packet, packet);
+			entry.signature = signature;
+			this._touchEntry(entry);
+			return entry.packet;
+		}
+		entry = {
+			key,
+			owner: packets,
+			packet,
+			signature,
+			lastUsedFrame: this._frame,
+		};
+		packets.set(key, entry);
+		this._lru.add(entry);
+		return packet;
+	}
+
+	public endFrame(): void {
+		while (this._lru.size > this._maxEntries) {
+			const oldest = this._lru.values().next().value as
+				| PreparedPacketCacheEntry
+				| undefined;
+			if (!oldest || oldest.lastUsedFrame === this._frame) break;
+			this._lru.delete(oldest);
+			oldest.owner.delete(oldest.key);
+		}
+	}
+
+	public clear(): void {
+		this._views = new WeakMap();
+		this._lru.clear();
+		this._materialRevisions = new WeakMap();
+		this._frame = 0;
+	}
+
+	public getDebugStats(): {
+		readonly entries: number;
+		readonly frameHits: number;
+		readonly frameRebuilds: number;
+	} {
+		return {
+			entries: this._lru.size,
+			frameHits: this._frameHits,
+			frameRebuilds: this._frameRebuilds,
+		};
+	}
+
+	private _createSignature(
+		meshInstance: MeshInstance,
+		primitive: IPrimitive,
+		deformationRevision: number,
+	): PreparedPacketCacheSignature {
+		return {
+			mesh: meshInstance.mesh,
+			material: primitive.material,
+			geometry: primitive.geometry,
+			transformRevision: meshInstance.worldTransformRevision,
+			boundsVersion: meshInstance.worldBoundsVersion,
+			meshBoundsVersion: meshInstance.mesh.boundsVersion,
+			geometryVersion: primitive.geometryVersion ?? 0,
+			deformationRevision,
+			primitiveVisible: primitive.visible !== false,
+			castShadows: primitive.castShadows === true,
+			receiveShadows: primitive.receiveShadows !== false,
+			renderLayers: meshInstance.renderLayers,
+			materialRevision: this._getMaterialRevision(primitive.material),
+		};
+	}
+
+	private _isSignatureCurrent(
+		signature: PreparedPacketCacheSignature,
+		meshInstance: MeshInstance,
+		primitive: IPrimitive,
+		deformationRevision: number,
+	): boolean {
+		return (
+			signature.mesh === meshInstance.mesh &&
+			signature.material === primitive.material &&
+			signature.geometry === primitive.geometry &&
+			signature.transformRevision === meshInstance.worldTransformRevision &&
+			signature.boundsVersion === meshInstance.worldBoundsVersion &&
+			signature.meshBoundsVersion === meshInstance.mesh.boundsVersion &&
+			signature.geometryVersion === (primitive.geometryVersion ?? 0) &&
+			signature.deformationRevision === deformationRevision &&
+			signature.primitiveVisible === (primitive.visible !== false) &&
+			signature.castShadows === (primitive.castShadows === true) &&
+			signature.receiveShadows === (primitive.receiveShadows !== false) &&
+			signature.renderLayers === meshInstance.renderLayers &&
+			signature.materialRevision === this._getMaterialRevision(primitive.material)
+		);
+	}
+
+	private _getMaterialRevision(material: Material): number {
+		let revision = this._materialRevisions.get(material);
+		if (revision !== undefined) return revision;
+		revision = material.revision;
+		this._materialRevisions.set(material, revision);
+		return revision;
+	}
+
+	private _touchEntry(entry: PreparedPacketCacheEntry): void {
+		if (entry.lastUsedFrame === this._frame) return;
+		this._lru.delete(entry);
+		this._lru.add(entry);
+		entry.lastUsedFrame = this._frame;
+	}
 }
 
 export interface PreparedSceneBuildSource {
@@ -85,18 +282,18 @@ export class PreparedSceneBuilder {
 			if (!cameraVisibleMeshInstances.has(meshInstance)) {
 				continue;
 			}
-			for (const packet of this._buildMeshPackets(
+			this._forEachMeshPacket(
 				meshInstance,
 				camera,
-				source.deformationStates ?? null
-			)) {
-				this._appendViewPacket(
+				source.deformationStates ?? null,
+				options.packetCache ?? null,
+				(packet) => this._appendViewPacket(
 					packet,
 					opaquePackets,
 					transparentPackets,
-					reflectivePackets
-				);
-			}
+					reflectivePackets,
+				),
+			);
 		}
 		const viewState = this._finalizeViewPackets(
 			opaquePackets,
@@ -229,12 +426,12 @@ export class PreparedSceneBuilder {
 		for (const meshInstance of input.renderableMeshInstances) {
 			const visibleInCamera =
 				input.cameraVisibleMeshInstances.has(meshInstance);
-			const packets = this._buildMeshPackets(
+			this._forEachMeshPacket(
 				meshInstance,
 				input.camera,
-				input.deformationStates
-			);
-			for (const packet of packets) {
+				input.deformationStates,
+				input.options.packetCache ?? null,
+				(packet) => {
 				if (visibleInCamera) {
 					this._appendViewPacket(
 						packet,
@@ -251,7 +448,8 @@ export class PreparedSceneBuilder {
 				if (packet.passFlags & DRAW_PACKET_FLAG_SHADOW_TRANSMITTER) {
 					shadowTransmitterPackets.push(packet);
 				}
-			}
+				},
+			);
 		}
 
 		const viewState = this._finalizeViewPackets(
@@ -377,28 +575,56 @@ export class PreparedSceneBuilder {
 		};
 	}
 
-	private static _buildMeshPackets(
+	private static _forEachMeshPacket(
 		meshInstance: MeshInstance,
 		camera: Camera,
-		deformationStates: PrimitiveDeformationMap | null
-	): DrawPacket[] {
+		deformationStates: PrimitiveDeformationMap | null,
+		packetCache: PreparedScenePacketCache | null,
+		visitor: (packet: DrawPacket) => void,
+	): void {
 		const worldMatrix = meshInstance.worldMatrix;
-		const normalMatrix = Matrix4.normalMatrix(worldMatrix) as Matrix3Arr;
-		const worldScale = getMaxScaleFromMatrix(worldMatrix) || 1;
+		let normalMatrix: Matrix3Arr | null = null;
+		let worldScale = 1;
+		let transformStatePrepared = false;
 
-		return meshInstance.mesh.primitives
-			.filter((primitive) => primitive.visible !== false)
-			.map((primitive) =>
-				this._createPacket(
+		for (const primitive of meshInstance.mesh.primitives) {
+			if (primitive.visible === false) continue;
+			const deformation =
+				deformationStates?.get(`${meshInstance.id}:${primitive.id}`) ?? null;
+			const cached = packetCache?.getReusablePacket(
+				camera,
+				meshInstance,
+				primitive,
+				deformation?.revision ?? 0,
+			);
+			if (cached) {
+				visitor(cached);
+				continue;
+			}
+			if (!transformStatePrepared) {
+				transformStatePrepared = true;
+				normalMatrix = Matrix4.normalMatrix(worldMatrix) as Matrix3Arr;
+				worldScale = getMaxScaleFromMatrix(worldMatrix) || 1;
+			}
+			const created = this._createPacket(
 					meshInstance,
 					primitive,
 					worldMatrix,
-					normalMatrix,
+					normalMatrix!,
 					worldScale,
 					camera,
-					deformationStates?.get(`${meshInstance.id}:${primitive.id}`) ?? null
-				)
+					deformation,
 			);
+			visitor(packetCache
+				? packetCache.storePacket(
+					camera,
+					meshInstance,
+					primitive,
+					deformation?.revision ?? 0,
+					created,
+				)
+				: created);
+		}
 	}
 
 	private static _createPacket(
@@ -577,6 +803,17 @@ function compareOpaquePackets(left: DrawPacket, right: DrawPacket): number {
 	}
 
 	return left.sortDepth - right.sortDepth;
+}
+
+function updatePacketSortDepth(packet: DrawPacket, camera: Camera): void {
+	const center = packet.worldBounds.center;
+	const view = camera.viewMatrix.elements;
+	packet.sortDepth = -(
+		view[2][0] * center.x +
+		view[2][1] * center.y +
+		view[2][2] * center.z +
+		view[2][3]
+	);
 }
 
 function compareTransparentPackets(

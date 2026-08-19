@@ -23,7 +23,7 @@
 			}
 
 			var shadow = vec3<f32>(1.0);
-			if (model.nodeRenderLayers.y > 0.5) {
+			if (input.instanceMeta.y > 0.5) {
 				shadow = sampleDirectionalShadowVisibility(
 					i,
 					input.worldPosition,
@@ -118,7 +118,7 @@
 					let shadowIndex =
 						clusterMetadata.values[clusterRef.lightIndex].shadowIndex;
 					if (clusterRef.shadowed && shadowIndex < 8u &&
-						model.nodeRenderLayers.y > 0.5) {
+						input.instanceMeta.y > 0.5) {
 						shadow = sampleSpotShadowVisibility(
 							shadowIndex,
 							input.worldPosition,
@@ -202,7 +202,7 @@
 				}
 
 				var shadow = vec3<f32>(1.0);
-				if (model.nodeRenderLayers.y > 0.5) {
+				if (input.instanceMeta.y > 0.5) {
 					shadow = sampleSpotShadowVisibility(
 						i,
 						input.worldPosition,
