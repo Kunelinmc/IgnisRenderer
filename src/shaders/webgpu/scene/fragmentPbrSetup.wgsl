@@ -324,10 +324,17 @@ let reflectionDir = select(
 );
 let maxSheenColor = max(max(sheenColor.x, sheenColor.y), sheenColor.z);
 
+var transmissionPathLength = thickness;
+if (thickness > 0.0) {
+	let eta = 1.0 / ior;
+	let sin2ThetaT = eta * eta * (1.0 - nDotV * nDotV);
+	let cosThetaT = sqrt(max(1.0 - sin2ThetaT, 0.0));
+	transmissionPathLength = thickness / max(cosThetaT, PBR_MIN_NDOTV);
+}
 var volumeAttenuation = vec3<f32>(1.0);
 if (thickness > 0.0 && attenuationDistance > 0.0) {
 	let absorb = -log(attenuationColor) / attenuationDistance;
-	volumeAttenuation = exp(-absorb * thickness);
+	volumeAttenuation = exp(-absorb * transmissionPathLength);
 }
 
 var directLight = vec3<f32>(0.0);

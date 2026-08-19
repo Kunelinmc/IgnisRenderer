@@ -550,6 +550,51 @@ async function testScreenSpaceRefractionCapturesTransmissionPackets() {
 	]);
 }
 
+async function testScreenSpaceRefractionFallsBackFromMSAA() {
+	const backend = new FakeBackend();
+	const resources = createOITSequencingResourcesStub();
+	const msaa = createMSAAContext(4);
+	const executor = new WebGPUFrameExecutor(
+		backend, resources, msaa, undefined, resources,
+	);
+	const context = createFrameContext(64, 64);
+	context.postProcess = createResolvedPostProcess(
+		{ ssrefraction: { enabled: true } },
+		"webgpu",
+	);
+	context.scene.transparentPackets = [
+		{
+			id: "transparent-transmission-msaa-fallback",
+			material: { transmissionFactor: 1 },
+		},
+	];
+
+	await executor.beginFrame(context);
+	await executor.executePass(
+		{ stage: "main-transparent", executor: "backend", enabled: true },
+		context,
+	);
+	await executor.endFrame();
+
+	const labels = backend.recordedRenderPasses.map((pass) => pass.label);
+	assert.equal(backend.encoderCopyCalls.length, 0);
+	assert.equal(backend.dispatches.length, 0);
+	assert.equal(labels.includes("WebGPUTransmissionCapture"), false);
+	assert.equal(
+		labels.some((label) =>
+			label === "WebGPUTransmissionMRT" ||
+			label === "WebGPUTransmissionColor"
+		),
+		true,
+	);
+	assert.equal(
+		resources._state.events.some((event) =>
+			event.includes(":transmission-capture:")
+		),
+		false,
+	);
+}
+
 async function run() {
 	try {
 		await testPlanarReflectionCaptureAndCompositeSequencing();
@@ -558,6 +603,7 @@ async function run() {
 		await testPlanarReflectionCaptureFailureKeepsMainFrameResources();
 		await testPlanarReflectionCaptureUsesMirroredCameraAndCenterSide();
 		await testScreenSpaceRefractionCapturesTransmissionPackets();
+		await testScreenSpaceRefractionFallsBackFromMSAA();
 		console.log("WebGPU frame-executor reflection/refraction tests passed");
 	} finally {
 		restoreTestState();

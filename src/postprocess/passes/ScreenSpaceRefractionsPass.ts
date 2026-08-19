@@ -74,7 +74,7 @@ export interface SSRefractionOptions {
 	intensity?: number;
 	/** Screen-edge fade distance that hides unreliable offscreen hits. */
 	edgeFade?: number;
-	/** Mip bias multiplier used for rough transmitted background sampling. */
+	/** Screen-space cone spread used for rough transmitted background sampling. */
 	roughnessMipScale?: number;
 	/** Internal trace buffer scale divisor. Higher values improve speed. */
 	downsample?: number;
@@ -164,13 +164,17 @@ export function resolveSSRefractionOptions(
 			options?.downsample,
 			DEFAULT_SSREFRACTION_OPTIONS.downsample
 		),
-		maxSteps: finiteOr(
+		maxSteps: clampInteger(
 			options?.maxSteps,
-			DEFAULT_SSREFRACTION_OPTIONS.maxSteps
+			DEFAULT_SSREFRACTION_OPTIONS.maxSteps,
+			1,
+			256
 		),
-		binarySearchSteps: finiteOr(
+		binarySearchSteps: clampInteger(
 			options?.binarySearchSteps,
-			DEFAULT_SSREFRACTION_OPTIONS.binarySearchSteps
+			DEFAULT_SSREFRACTION_OPTIONS.binarySearchSteps,
+			0,
+			16
 		),
 		planeRefinementSteps: clampInteger(
 			options?.planeRefinementSteps,
@@ -178,26 +182,41 @@ export function resolveSSRefractionOptions(
 			0,
 			8
 		),
-		maxDistance: finiteOr(
+		maxDistance: clampNumber(
 			options?.maxDistance,
-			DEFAULT_SSREFRACTION_OPTIONS.maxDistance
+			DEFAULT_SSREFRACTION_OPTIONS.maxDistance,
+			0.01,
+			10_000
 		),
-		thickness: finiteOr(
+		thickness: clampNumber(
 			options?.thickness,
-			DEFAULT_SSREFRACTION_OPTIONS.thickness
+			DEFAULT_SSREFRACTION_OPTIONS.thickness,
+			0.001,
+			100
 		),
-		stride: finiteOr(options?.stride, DEFAULT_SSREFRACTION_OPTIONS.stride),
-		intensity: finiteOr(
+		stride: clampNumber(
+			options?.stride,
+			DEFAULT_SSREFRACTION_OPTIONS.stride,
+			0.01,
+			100
+		),
+		intensity: clampNumber(
 			options?.intensity,
-			DEFAULT_SSREFRACTION_OPTIONS.intensity
+			DEFAULT_SSREFRACTION_OPTIONS.intensity,
+			0,
+			1
 		),
-		edgeFade: finiteOr(
+		edgeFade: clampNumber(
 			options?.edgeFade,
-			DEFAULT_SSREFRACTION_OPTIONS.edgeFade
+			DEFAULT_SSREFRACTION_OPTIONS.edgeFade,
+			0.001,
+			0.5
 		),
-		roughnessMipScale: finiteOr(
+		roughnessMipScale: clampNumber(
 			options?.roughnessMipScale,
-			DEFAULT_SSREFRACTION_OPTIONS.roughnessMipScale
+			DEFAULT_SSREFRACTION_OPTIONS.roughnessMipScale,
+			0,
+			32
 		),
 	};
 }
@@ -374,8 +393,11 @@ export class WebGPUScreenSpaceRefractionsImplementation
 		request: PostProcessPassRequest,
 		context: WebGPUSSRefractionContext
 	): Promise<boolean> {
-		const resources = await this._ensureResources(context.shared);
 		const targets = context.targets;
+		if (targets.sampleCount > 1) {
+			return false;
+		}
+		const resources = await this._ensureResources(context.shared);
 		const raw = context.resources.getTransient(WEBGPU_SSREFRACTION_RAW_TRANSIENT_ID);
 		const denoiseScratch = context.resources.getTransient(
 			WEBGPU_SSREFRACTION_DENOISE_SCRATCH_ID
@@ -467,8 +489,8 @@ export class WebGPUScreenSpaceRefractionsImplementation
 			source: raw,
 			scratch: denoiseScratch,
 			output: raw,
-			depth: depthTexture,
-			normal: normalTexture,
+			depth: transmissionSurface0,
+			normal: transmissionSurface0,
 			sampler: context.shared.sampler,
 			options: {
 				mode: "fast",
@@ -691,4 +713,14 @@ function clampInteger(
 		return fallback;
 	}
 	return Math.min(max, Math.max(min, Math.floor(value)));
+}
+
+function clampNumber(
+	value: unknown,
+	fallback: number,
+	min: number,
+	max: number
+): number {
+	const resolved = finiteOr(value as number | undefined, fallback);
+	return Math.min(max, Math.max(min, resolved));
 }

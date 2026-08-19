@@ -663,6 +663,11 @@ export class WebGPUScenePassRecorder {
 		) {
 			return false;
 		}
+		// Depth attachments are not resolved by WebGPU render passes. Keep the
+		// single-sample capture path from loading an unpopulated depth target.
+		if (this._framePort.getMSAATargets()) {
+			return false;
+		}
 		const frameResources = this._framePort.requireFrameResources();
 		encoder.copyTextureToTexture(
 			{ texture: targets.sceneColorMain },

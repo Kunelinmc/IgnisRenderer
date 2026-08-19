@@ -366,6 +366,7 @@ export class WebGPUPostProcessBridge {
 		return Object.freeze({
 			postPing: targets.postPing,
 			postPong: targets.postPong,
+			sampleCount: this._execution?.targets.sampleCount ?? 1,
 		});
 	}
 

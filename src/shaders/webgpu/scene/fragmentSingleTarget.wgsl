@@ -128,7 +128,10 @@ fn shadeTransmissionCapture(
 	}
 
 	let roughness = clamp(model.surfaceParams0.x * mrSample.g, 0.04, 1.0);
-	let transmission = clamp(model.surfaceParams2.y * transmissionSample.r, 0.0, 1.0);
+	let metalness = clamp(model.surfaceParams0.y * mrSample.b, 0.0, 1.0);
+	let transmission =
+		clamp(model.surfaceParams2.y * transmissionSample.r, 0.0, 1.0) *
+		(1.0 - metalness);
 	if (transmission <= EPSILON) {
 		discard;
 	}
@@ -140,28 +143,28 @@ fn shadeTransmissionCapture(
 		vec3<f32>(0.0001),
 		vec3<f32>(1.0)
 	);
+	var transmissionPathLength = thickness;
+	let interfaceNdotV = max(dot(pbrNormal, viewDir), PBR_MIN_NDOTV);
+	if (thickness > 0.0) {
+		let eta = 1.0 / ior;
+		let sin2ThetaT = eta * eta * (1.0 - interfaceNdotV * interfaceNdotV);
+		let cosThetaT = sqrt(max(1.0 - sin2ThetaT, 0.0));
+		transmissionPathLength = thickness / max(cosThetaT, PBR_MIN_NDOTV);
+	}
 	var volumeAttenuation = vec3<f32>(1.0);
 	if (thickness > 0.0 && attenuationDistance > 0.0) {
 		let absorb = -log(attenuationColor) / attenuationDistance;
-		volumeAttenuation = exp(-absorb * thickness);
+		volumeAttenuation = exp(-absorb * transmissionPathLength);
 	}
 
 	let f0Scalar = pow((ior - 1.0) / max(ior + 1.0, EPSILON), 2.0);
-	let nDotV = max(dot(pbrNormal, viewDir), PBR_MIN_NDOTV);
+	let nDotV = max(interfaceNdotV, PBR_MIN_NDOTV);
 	let fresnelAverage = clamp(
 		f0Scalar + (1.0 - f0Scalar) * pow(max(1.0 - nDotV, 0.0), 5.0),
 		0.0,
 		1.0
 	);
-	let coverage = resolveTransmissionAlpha(
-		alpha,
-		transmission,
-		nDotV,
-		vec3<f32>(f0Scalar),
-		0.0,
-		0.0,
-		1.0
-	);
+	let coverage = alpha;
 	let tint = clamp(baseColor, vec3<f32>(0.0), vec3<f32>(1.0)) * volumeAttenuation;
 
 	var output: TransmissionFragmentOutput;

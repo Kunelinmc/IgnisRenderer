@@ -76,6 +76,17 @@ struct HiZTraceResult {
 	t: f32,
 }
 
+const ROUGH_TRANSMISSION_OFFSETS = array<vec2<f32>, 8>(
+	vec2<f32>(1.0, 0.0),
+	vec2<f32>(-1.0, 0.0),
+	vec2<f32>(0.0, 1.0),
+	vec2<f32>(0.0, -1.0),
+	vec2<f32>(0.7071, 0.7071),
+	vec2<f32>(-0.7071, 0.7071),
+	vec2<f32>(0.7071, -0.7071),
+	vec2<f32>(-0.7071, -0.7071)
+);
+
 fn getCameraBasis() -> CameraBasis {
 	return CameraBasis(
 		frame.environmentBasisRight.xyz,
@@ -169,6 +180,33 @@ fn refractViewDirection(v: vec3<f32>, n: vec3<f32>, ior: f32) -> RefractionResul
 	let cosThetaT = sqrt(max(1.0 - sin2ThetaT, 0.0));
 	let refraction = eta * -v + (eta * absCosThetaI - cosThetaT) * refractNormal;
 	return RefractionResult(normalize(refraction), true);
+}
+
+fn sampleRoughTransmissionBackground(
+	uv: vec2<f32>,
+	roughness: f32,
+	travelDistance: f32
+) -> vec3<f32> {
+	let alpha = roughness * roughness;
+	let distanceScale = 1.0 + clamp(
+		travelDistance / max(traceParams.maxDistance, 1.0),
+		0.0,
+		1.0
+	) * 8.0;
+	let radiusPixels = alpha * max(traceParams.roughnessMipScale, 0.0) * distanceScale;
+	let radiusUv = traceParams.invTraceSize * radiusPixels;
+	var color = textureSampleLevel(backgroundColor, linearSampler, uv, 0.0).rgb * 2.0;
+	var weight = 2.0;
+	for (var i: i32 = 0; i < 8; i = i + 1) {
+		let sampleUv = clamp(
+			uv + ROUGH_TRANSMISSION_OFFSETS[i] * radiusUv,
+			vec2<f32>(0.0),
+			vec2<f32>(1.0)
+		);
+		color += textureSampleLevel(backgroundColor, linearSampler, sampleUv, 0.0).rgb;
+		weight += 1.0;
+	}
+	return color / weight;
 }
 
 fn refineHitWithPlane(
@@ -337,40 +375,87 @@ fn csTrace(@builtin(global_invocation_id) gid: vec3<u32>) {
 	let worldPos = getPosition(uv, depth);
 	let normal = decodeNormal(surface0.xy);
 	let viewDir = normalize(frame.cameraPosition.xyz - worldPos);
-	let refraction = refractViewDirection(viewDir, normal, max(surface1.x, 1.0));
+	let ior = max(surface1.x, 1.0);
+	let materialThickness = max(surface1.y, 0.0);
+	let roughness = clamp(surface1.z, 0.0, 1.0);
+	let tint = clamp(surface2.rgb, vec3<f32>(0.0), vec3<f32>(1.0));
+	let fresnelR = clamp(surface1.w, 0.0, 1.0);
+	let incidentDirection = -viewDir;
+	let frontSide = dot(viewDir, normal) > 0.0;
+	let entryRefraction = refractViewDirection(viewDir, normal, ior);
+	var rayOrigin = worldPos;
+	var rayDirection = incidentDirection;
+	var pathLength = 0.0;
+	var totalInternalReflection = !entryRefraction.valid;
 
-	var sampleUv = uv;
-	var reliability = 1.0;
-	var distanceFade = 1.0;
-	if (refraction.valid) {
-		let traceResult = traceHiZ(worldPos, refraction.direction);
-		if (traceResult.hit) {
-			sampleUv = traceResult.hitUv;
-			distanceFade =
-				1.0 - clamp(traceResult.t / max(traceParams.maxDistance, 1.0), 0.0, 1.0);
-			let edgeDistance = min(
-				min(sampleUv.x, 1.0 - sampleUv.x),
-				min(sampleUv.y, 1.0 - sampleUv.y)
+	if (entryRefraction.valid) {
+		if (frontSide && materialThickness > 1e-5) {
+			let insideCos = max(-dot(entryRefraction.direction, normal), 1e-4);
+			pathLength = materialThickness / insideCos;
+			rayOrigin = worldPos + entryRefraction.direction * pathLength;
+			let exitRefraction = refractViewDirection(
+				-entryRefraction.direction,
+				-normal,
+				ior
 			);
-			reliability =
-				clamp(edgeDistance / max(traceParams.edgeFade, 1e-4), 0.0, 1.0);
+			totalInternalReflection = !exitRefraction.valid;
+			rayDirection = select(
+				reflect(entryRefraction.direction, -normal),
+				exitRefraction.direction,
+				exitRefraction.valid
+			);
+		} else if (frontSide) {
+			// Coincident parallel interfaces cancel angular refraction.
+			rayDirection = incidentDirection;
+		} else {
+			rayDirection = entryRefraction.direction;
 		}
+	} else {
+		// Recover the transmission lobe as reflection during TIR.
+		rayDirection = normalize(reflect(incidentDirection, normal));
 	}
 
-	let roughness = clamp(surface1.z, 0.0, 1.0);
-	let mip = clamp(roughness * traceParams.roughnessMipScale, 0.0, 5.0);
-	let tint = clamp(surface2.rgb, vec3<f32>(0.0), vec3<f32>(4.0));
-	let background = textureSampleLevel(backgroundColor, linearSampler, sampleUv, mip).rgb;
-	let fresnelTransmit = clamp(1.0 - surface1.w, 0.0, 1.0);
-	let weight = clamp(
-		transmission * coverage * traceParams.intensity * reliability * distanceFade,
+	let traceResult = traceHiZ(rayOrigin, rayDirection);
+	var sampleUv = uv;
+	var hitConfidence = 0.0;
+	var traceDistance = 0.0;
+	if (traceResult.hit) {
+		sampleUv = traceResult.hitUv;
+		traceDistance = traceResult.t;
+		let distanceConfidence =
+			1.0 - clamp(traceResult.t / max(traceParams.maxDistance, 1.0), 0.0, 1.0);
+		let edgeDistance = min(
+			min(sampleUv.x, 1.0 - sampleUv.x),
+			min(sampleUv.y, 1.0 - sampleUv.y)
+		);
+		let edgeConfidence =
+			clamp(edgeDistance / max(traceParams.edgeFade, 1e-4), 0.0, 1.0);
+		hitConfidence = edgeConfidence * distanceConfidence;
+	}
+
+	let fallbackBackground = sampleRoughTransmissionBackground(
+		uv,
+		roughness,
+		pathLength
+	);
+	let tracedBackground = sampleRoughTransmissionBackground(
+		sampleUv,
+		roughness,
+		pathLength + traceDistance
+	);
+	let background = mix(fallbackBackground, tracedBackground, hitConfidence);
+	let opticalWeight = clamp(
+		transmission * (1.0 - fresnelR) * traceParams.intensity,
 		0.0,
 		1.0
 	);
 	textureStore(
 		outRefraction,
 		vec2<i32>(gid.xy),
-		vec4<f32>(max(background * tint * fresnelTransmit * weight, vec3<f32>(0.0)), weight)
+		vec4<f32>(
+			max(background * tint * opticalWeight, vec3<f32>(0.0)),
+			coverage * select(max(hitConfidence, 0.05), 1.0, totalInternalReflection)
+		)
 	);
 }
 
@@ -384,7 +469,7 @@ fn csCompose(@builtin(global_invocation_id) gid: vec3<u32>) {
 	let scene = textureLoad(composeScene, coord, 0);
 	let raw = textureSampleLevel(composeRefraction, composeSampler, uv, 0.0);
 	let lighting = textureLoad(composeTransmissionLighting, coord, 0);
-	let weight = clamp(raw.a, 0.0, 1.0);
-	let color = mix(scene.rgb, raw.rgb / max(weight, 1e-4), weight) + lighting.rgb;
+	let coverage = clamp(lighting.a, 0.0, 1.0);
+	let color = scene.rgb * (1.0 - coverage) + lighting.rgb + raw.rgb * coverage;
 	textureStore(composeOut, coord, vec4<f32>(max(color, vec3<f32>(0.0)), scene.a));
 }

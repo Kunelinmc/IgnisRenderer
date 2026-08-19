@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 
 import {
 	SCREEN_SPACE_REFRACTIONS_PASS_ID,
@@ -124,6 +125,28 @@ function testDescriptorAndOptions() {
 		planeRefinementSteps: 0,
 	});
 	assert.equal(disabledPlaneRefinement.planeRefinementSteps, 0);
+	const clampedPhysicalOptions = resolveSSRefractionOptions({
+		maxSteps: 999,
+		binarySearchSteps: -2,
+		maxDistance: -1,
+		thickness: 0,
+		stride: -5,
+		intensity: 4,
+		edgeFade: 2,
+		roughnessMipScale: -1,
+	});
+	assert.deepEqual(clampedPhysicalOptions, {
+		downsample: 1,
+		maxSteps: 256,
+		binarySearchSteps: 0,
+		planeRefinementSteps: 3,
+		maxDistance: 0.01,
+		thickness: 0.001,
+		stride: 0.01,
+		intensity: 1,
+		edgeFade: 0.5,
+		roughnessMipScale: 0,
+	});
 
 	pass.destroy();
 }
@@ -229,10 +252,73 @@ function testTransientDescriptors() {
 	pass.destroy();
 }
 
+async function testShaderPreservesTransmissionEnergyContract() {
+	const refractionShader = await readFile(new URL(
+		"../../../src/shaders/webgpu/postprocess/ssrf.wgsl",
+		import.meta.url,
+	), "utf8");
+	const captureShader = await readFile(new URL(
+		"../../../src/shaders/webgpu/scene/fragmentSingleTarget.wgsl",
+		import.meta.url,
+	), "utf8");
+
+	assert.match(
+		captureShader,
+		/let transmission =\s*clamp\([\s\S]*?\*\s*\(1\.0 - metalness\);/,
+		"transmission capture must suppress the metallic portion",
+	);
+	assert.match(
+		captureShader,
+		/let coverage = alpha;/,
+		"geometric coverage must stay independent from Fresnel",
+	);
+	assert.match(
+		captureShader,
+		/transmissionPathLength = thickness \/ max\(cosThetaT, PBR_MIN_NDOTV\);/,
+		"Beer-Lambert attenuation must use the refracted path length",
+	);
+	assert.match(
+		captureShader,
+		/encodeNormalForGBuffer\(pbrNormal\)/,
+		"transmission capture must use the camera-facing PBR normal",
+	);
+	assert.match(
+		refractionShader,
+		/pathLength = materialThickness \/ insideCos;/,
+		"non-zero volume thickness must move the ray to a parallel exit interface",
+	);
+	assert.match(
+		refractionShader,
+		/totalInternalReflection = !entryRefraction\.valid;/,
+		"invalid material-to-air refraction must enter the TIR path",
+	);
+	assert.match(
+		refractionShader,
+		/transmission \* \(1\.0 - fresnelR\) \* traceParams\.intensity/,
+		"the transmitted background must apply Fresnel transmittance once",
+	);
+	assert.match(
+		refractionShader,
+		/scene\.rgb \* \(1\.0 - coverage\) \+ lighting\.rgb \+ raw\.rgb \* coverage/,
+		"composition must separate uncovered scene, surface lighting, and transmission",
+	);
+	assert.match(
+		refractionShader,
+		/ROUGH_TRANSMISSION_OFFSETS/,
+		"rough transmission must widen its base-level sampling footprint",
+	);
+	assert.doesNotMatch(
+		refractionShader,
+		/textureSampleLevel\(backgroundColor,[\s\S]{0,80},\s*mip\s*\)/,
+		"the single-level transmission background must not be sampled at unavailable mips",
+	);
+}
+
 testDescriptorAndOptions();
 testShouldExecuteRequiresTransmissionPackets();
 testUnsupportedBackendsDisableWithoutBuiltInWarning();
 await testPipelineRequiresTransmissionChannel();
 await testPipelineRequiresNormalChannel();
 testTransientDescriptors();
+await testShaderPreservesTransmissionEnergyContract();
 console.log("ScreenSpaceRefractionsPass tests passed");

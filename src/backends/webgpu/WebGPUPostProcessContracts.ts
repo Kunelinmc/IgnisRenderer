@@ -33,4 +33,6 @@ export interface WebGPUPostProcessServices {
 /** @internal Read-only WebGPU frame target view for pass implementations. */
 export type WebGPUPostProcessFrameTargets = Readonly<
 	Pick<WebGPUFrameTargets, "postPing" | "postPong">
->;
+> & {
+	readonly sampleCount: number;
+};

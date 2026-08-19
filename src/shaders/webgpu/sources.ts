@@ -129,7 +129,7 @@ export const WEBGPU_POST_PROCESS_SHADER_FILES: Record<
 	taa: "./webgpu/postprocess/taa.wgsl",
 	hiz: "./webgpu/postprocess/hiz.wgsl",
 	ssr: "./webgpu/postprocess/ssr.wgsl",
-	screenSpaceRefractions: "./webgpu/postprocess/screenSpaceRefractions.wgsl",
+	screenSpaceRefractions: "./webgpu/postprocess/ssrf.wgsl",
 	volumetric: "./webgpu/postprocess/volumetric.wgsl",
 	fog: "./webgpu/postprocess/fog.wgsl",
 	motionBlur: "./webgpu/postprocess/motionBlur.wgsl",

@@ -431,6 +431,49 @@ This document defines WebGPU frame-graph execution, deferred lighting, presentat
 	  `environmentBasisRight.w` and `halfHeight` in `environmentBasisUp.w`.
 	- `environmentBasisBackward.w` must remain the orthographic flag.
 
+### Screen-space refractions
+
+- `ScreenSpaceRefractionsPass` must capture the nearest transmissive surface
+  separately from the opaque scene color and depth used by the trace.
+- Transmission capture must keep geometric coverage separate from optical
+  Fresnel reflectance. Fresnel reflectance must not be multiplied into the
+  geometric coverage or applied twice to captured surface lighting.
+- Double-sided transmission capture must use the same camera-facing normal
+  convention as double-sided PBR lighting for IOR side tests and refraction.
+- The transmitted background weight must be
+  `coverage * transmission * (1 - metallic) * (1 - Fresnel)`. The composed
+  surface lighting, transmitted background, and uncovered scene contribution
+  must not allocate more than the captured incident radiance before emissive
+  and analytical-light contributions.
+- A non-zero material thickness must use a parallel-interface volume
+  approximation: trace through the entry interface, advance by the refracted
+  path length, and refract through the exit interface before screen-space
+  intersection. Zero thickness must behave as a thin interface without an
+  artificial material-space travel distance.
+- Beer-Lambert attenuation must use the refracted path length through the
+  volume, not the normal-axis thickness alone.
+- Total internal reflection must contribute no transmitted background. Its
+  remaining transmission-lobe energy must be redirected to a reflected
+  screen-space ray when available.
+- A missing screen-space hit may fall back to the undisplaced captured
+  background, but must not change the optical energy partition. Screen-edge
+  and distance confidence may blend between the hit and fallback samples; it
+  must not delete transmitted energy.
+- Transmission roughness must widen the sampled background footprint. The
+  implementation may use a generated mip chain, cone filtering, or stochastic
+  microfacet sampling, but it must not request unavailable mip levels from a
+  single-level texture.
+- The transmission denoiser must use the captured transmission depth and normal
+  as geometry guides. Opaque surfaces behind the refractor must not define the
+  refractor's denoising boundary.
+- When MSAA is active, transmission capture must fall back to forward
+  transmission rendering because WebGPU does not resolve depth attachments.
+- The capture remains a nearest-layer screen-space approximation. Nested
+  transmissive layers, unavailable offscreen radiance, and exact curved-volume
+  exit geometry are outside the current contract and must use documented
+  fallbacks instead of pretending that an opaque-depth hit is a second material
+  interface.
+
 ### Sample-count configuration
 
 - `WebGPUBackendOptions.sampleCount?: number`
