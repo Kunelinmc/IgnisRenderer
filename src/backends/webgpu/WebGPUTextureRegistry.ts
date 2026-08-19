@@ -36,6 +36,15 @@ interface SamplerCacheEntry {
 	key: string;
 }
 
+interface TextureOwnedResources {
+	texture: IRenderTexture | null;
+	sampler: ISampler | null;
+}
+
+interface TextureDisposeObserver {
+	registry: WebGPUTextureRegistry | null;
+}
+
 export class WebGPUTextureRegistry {
 	private _backend: WebGPUDeviceResourceHost;
 	private _resourceManager: WebGPUResourceManager;
@@ -44,7 +53,16 @@ export class WebGPUTextureRegistry {
 	private _uploadedVersionCache = new WeakMap<Texture, number>();
 	private _ownedTextures = new Set<IRenderTexture>();
 	private _ownedSamplers = new Set<ISampler>();
+	private _ownedResources = new WeakMap<Texture, TextureOwnedResources>();
+	private _disposeUnsubscribers = new WeakMap<Texture, () => void>();
 	private _mipmapGenerationPromises = new WeakMap<Texture, Promise<void>>();
+	private _disposeObserver: TextureDisposeObserver = { registry: this };
+	private _finalizationRegistry: FinalizationRegistry<TextureOwnedResources> | null =
+		typeof FinalizationRegistry === "function" ?
+			new FinalizationRegistry((resources) => {
+				this._destroyOwnedResources(resources);
+			})
+		: null;
 	private _mipmapGenerator: WebGPUMipmapGenerator | null = null;
 	private _whiteTexture: IRenderTexture | null = null;
 	private _neutralNormalTexture: IRenderTexture | null = null;
@@ -106,8 +124,7 @@ export class WebGPUTextureRegistry {
 
 		if (shouldRecreateTexture) {
 			if (cacheEntry?.resource) {
-				cacheEntry.resource.destroy();
-				this._ownedTextures.delete(cacheEntry.resource);
+				this._releaseOwnedTextureResource(texture, cacheEntry.resource);
 			}
 			const usage =
 				TextureUsage.TextureBinding |
@@ -132,6 +149,7 @@ export class WebGPUTextureRegistry {
 				format: resource.format ?? uploadFormat,
 			};
 			this._ownedTextures.add(resource);
+			this._setOwnedTextureResource(texture, resource);
 			this._textureCache.set(texture, cacheEntry);
 			this._uploadedVersionCache.delete(texture);
 		}
@@ -205,8 +223,11 @@ export class WebGPUTextureRegistry {
 			cached.resource !== resource &&
 			this._ownedTextures.has(cached.resource)
 		) {
-			cached.resource.destroy();
-			this._ownedTextures.delete(cached.resource);
+			const resources = this._ownedResources.get(texture);
+			this._releaseOwnedTextureResource(texture, cached.resource, resources);
+			if (resources) {
+				this._clearOwnershipIfEmpty(texture, resources);
+			}
 		}
 		this._textureCache.set(texture, {
 			resource,
@@ -215,6 +236,32 @@ export class WebGPUTextureRegistry {
 			format: resolveRegisteredTextureFormat(resource, texture),
 		});
 		this._uploadedVersionCache.set(texture, uploadedVersion);
+	}
+
+	/**
+	 * Releases registry-owned GPU resources associated with one CPU texture.
+	 * Externally owned texture resources are removed from the cache but are not
+	 * destroyed.
+	 *
+	 * @internal Owned by the WebGPU texture lifecycle. Applications should call
+	 * `Texture.dispose()`.
+	 */
+	public releaseTexture(texture: Texture): void {
+		const resources = this._ownedResources.get(texture);
+		if (resources) {
+			if (resources.texture) {
+				this._releaseOwnedTextureResource(texture, resources.texture, resources);
+			}
+			if (resources.sampler) {
+				this._releaseOwnedSamplerResource(resources.sampler, resources);
+			}
+			this._clearOwnership(texture, resources);
+		}
+
+		this._textureCache.delete(texture);
+		this._samplerCache.delete(texture);
+		this._uploadedVersionCache.delete(texture);
+		this._mipmapGenerationPromises.delete(texture);
 	}
 
 	/**
@@ -243,12 +290,11 @@ export class WebGPUTextureRegistry {
 			return cached.sampler;
 		}
 
-		if (
-			cached &&
-			typeof (cached.sampler as { destroy?: () => void }).destroy === "function"
-		) {
-			this._destroySampler(cached.sampler);
-			this._ownedSamplers.delete(cached.sampler);
+		if (cached) {
+			this._releaseOwnedSamplerResource(
+				cached.sampler,
+				this._ownedResources.get(texture),
+			);
 		}
 
 		const sampler = this._backend.createSampler({
@@ -264,6 +310,7 @@ export class WebGPUTextureRegistry {
 			key,
 		});
 		this._ownedSamplers.add(sampler);
+		this._setOwnedSamplerResource(texture, sampler);
 		return sampler;
 	}
 
@@ -332,6 +379,7 @@ export class WebGPUTextureRegistry {
 	}
 
 	public destroy(): void {
+		this._disposeObserver.registry = null;
 		for (const texture of this._ownedTextures) {
 			texture.destroy();
 		}
@@ -343,6 +391,10 @@ export class WebGPUTextureRegistry {
 		this._textureCache = new WeakMap<Texture, TextureCacheEntry>();
 		this._samplerCache = new WeakMap<Texture, SamplerCacheEntry>();
 		this._uploadedVersionCache = new WeakMap<Texture, number>();
+		this._ownedResources = new WeakMap<Texture, TextureOwnedResources>();
+		this._disposeUnsubscribers = new WeakMap<Texture, () => void>();
+		this._mipmapGenerationPromises = new WeakMap<Texture, Promise<void>>();
+		this._finalizationRegistry = null;
 		this._mipmapGenerator?.destroy();
 		this._mipmapGenerator = null;
 		this._whiteTexture = null;
@@ -493,6 +545,116 @@ export class WebGPUTextureRegistry {
 		} catch {
 			return false;
 		}
+	}
+
+	private _ensureOwnedResources(texture: Texture): TextureOwnedResources {
+		let resources = this._ownedResources.get(texture);
+		if (resources) {
+			return resources;
+		}
+
+		resources = { texture: null, sampler: null };
+		this._ownedResources.set(texture, resources);
+		this._finalizationRegistry?.register(texture, resources, texture);
+		const observer = this._disposeObserver;
+		this._disposeUnsubscribers.set(
+			texture,
+			texture.onDispose((disposedTexture) => {
+				observer.registry?.releaseTexture(disposedTexture);
+			}),
+		);
+		return resources;
+	}
+
+	private _setOwnedTextureResource(
+		texture: Texture,
+		resource: IRenderTexture,
+	): void {
+		const resources = this._ensureOwnedResources(texture);
+		if (resources.texture && resources.texture !== resource) {
+			this._releaseOwnedTextureResource(texture, resources.texture, resources);
+		}
+		resources.texture = resource;
+		this._ownedTextures.add(resource);
+	}
+
+	private _setOwnedSamplerResource(texture: Texture, sampler: ISampler): void {
+		const resources = this._ensureOwnedResources(texture);
+		if (resources.sampler && resources.sampler !== sampler) {
+			this._releaseOwnedSamplerResource(resources.sampler, resources);
+		}
+		resources.sampler = sampler;
+		this._ownedSamplers.add(sampler);
+	}
+
+	private _releaseOwnedTextureResource(
+		texture: Texture | null,
+		resource: IRenderTexture,
+		resources: TextureOwnedResources | undefined =
+			texture ? this._ownedResources.get(texture) : undefined,
+	): void {
+		if (resources?.texture === resource) {
+			resources.texture = null;
+		}
+		if (!this._ownedTextures.has(resource)) {
+			return;
+		}
+
+		const destroy = () => {
+			if (this._ownedTextures.delete(resource)) {
+				resource.destroy();
+			}
+		};
+		const pendingGeneration =
+			texture ? this._mipmapGenerationPromises.get(texture) : undefined;
+		if (pendingGeneration) {
+			void pendingGeneration.then(destroy, destroy);
+			return;
+		}
+		destroy();
+	}
+
+	private _releaseOwnedSamplerResource(
+		sampler: ISampler,
+		resources?: TextureOwnedResources,
+	): void {
+		if (resources?.sampler === sampler) {
+			resources.sampler = null;
+		}
+		if (this._ownedSamplers.delete(sampler)) {
+			this._destroySampler(sampler);
+		}
+	}
+
+	private _destroyOwnedResources(resources: TextureOwnedResources): void {
+		if (resources.texture) {
+			this._releaseOwnedTextureResource(null, resources.texture, resources);
+		}
+		if (resources.sampler) {
+			this._releaseOwnedSamplerResource(resources.sampler, resources);
+		}
+	}
+
+	private _clearOwnershipIfEmpty(
+		texture: Texture,
+		resources: TextureOwnedResources,
+	): void {
+		if (resources.texture || resources.sampler) {
+			return;
+		}
+		this._clearOwnership(texture, resources);
+	}
+
+	private _clearOwnership(
+		texture: Texture,
+		resources: TextureOwnedResources,
+	): void {
+		this._finalizationRegistry?.unregister(texture);
+		if (this._ownedResources.get(texture) === resources) {
+			this._ownedResources.delete(texture);
+		}
+		this._disposeUnsubscribers.get(texture)?.();
+		this._disposeUnsubscribers.delete(texture);
 	}
 
 	private _destroySampler(sampler: ISampler): void {

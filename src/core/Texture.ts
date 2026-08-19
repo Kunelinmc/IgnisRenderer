@@ -52,6 +52,8 @@ export interface TextureParams extends TextureBaseParams {
 	levels?: TextureMipLevel[];
 }
 
+type TextureDisposeListener = (texture: Texture) => void;
+
 /**
  * Texture class to store image data and metadata for UV mapping.
  */
@@ -87,6 +89,7 @@ export class Texture {
 	usageHint?: TextureBaseParams["usageHint"];
 	public readonly sourceKind: TextureSourceKind = "static";
 	private _isLoadErrorFallback: boolean;
+	private _disposeListeners: Set<TextureDisposeListener> | null = null;
 
 	/**
 	 * Creates a texture from one parameter object.
@@ -239,9 +242,47 @@ export class Texture {
 	}
 
 	/**
-	 * Releases resources owned by specialized texture sources.
+	 * Releases specialized source resources and notifies backend cleanup owners.
 	 */
-	public dispose(): void {}
+	public dispose(): void {
+		const listeners = this._disposeListeners;
+		this._disposeListeners = null;
+		if (!listeners) {
+			return;
+		}
+
+		let firstError: unknown;
+		let didThrow = false;
+		for (const listener of listeners) {
+			try {
+				listener(this);
+			} catch (error) {
+				if (!didThrow) {
+					firstError = error;
+					didThrow = true;
+				}
+			}
+		}
+		listeners.clear();
+		if (didThrow) {
+			throw firstError;
+		}
+	}
+
+	/**
+	 * Registers backend cleanup for the next `dispose()` notification.
+	 *
+	 * @internal Owned by texture lifecycle integration. Applications should call
+	 * `dispose()` instead of registering observers.
+	 */
+	public onDispose(listener: TextureDisposeListener): () => void {
+		const listeners = this._disposeListeners ?? new Set<TextureDisposeListener>();
+		this._disposeListeners = listeners;
+		listeners.add(listener);
+		return () => {
+			listeners.delete(listener);
+		};
+	}
 
 	/**
 	 * Reads pixels for CPU consumers.

@@ -119,6 +119,11 @@ This document defines WebGPU frame-graph execution, deferred lighting, presentat
   composition root. It owns device-lifetime scene, texture, deferred, shadow,
   and particle-render resources; consumers must receive only the corresponding
   narrow resource-provider capability.
+- `WebGPUTextureRegistry` must explicitly release registry-owned texture and
+  sampler handles when `Texture.dispose()` is called. It must also release them
+  after an unreachable `Texture` is finalized when `FinalizationRegistry` is
+  available. Externally owned texture handles must never be destroyed by this
+  cleanup.
 - `WebGPUFrameServiceOwner` must own particle-render resources through a
 	delegated `WebGPUParticleRenderResources` service. The service must own only
 	billboard pipelines, buffers, bindings, and pass recording; frame scopes

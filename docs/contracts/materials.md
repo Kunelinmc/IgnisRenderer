@@ -57,6 +57,11 @@ const texture = new Texture({
 - External-source changes must advance the global texture content revision.
   Each `Renderer` must compare that revision independently so dynamic updates
   do not require a global collection of live `Texture` instances.
+- `Texture.dispose()` must notify every registered backend cleanup observer.
+  Registered observers must release their texture-specific native resources
+  without storing backend handles on `Texture`.
+- Backend cleanup observers registered on `Texture` must not keep either the
+  texture or a destroyed backend runtime alive.
 - `IRenderTexture.format` should report the actual backend format. If a backend
   cannot provide the requested format, `IRenderTexture.requestedFormat` should keep
   the requested value and `IRenderTexture.formatFallbackReason` should describe the
