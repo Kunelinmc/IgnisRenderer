@@ -48,7 +48,7 @@ export const WEBGPU_FRAME_ENVIRONMENT_UNIFORM_BYTE_SIZE =
 	WEBGPU_FRAME_ENVIRONMENT_UNIFORM_FLOATS * 4;
 export const WEBGPU_MODEL_UNIFORM_BYTE_SIZE =
 	WEBGPU_MODEL_UNIFORM_FLOATS * 4;
-export const WEBGPU_MODEL_ANIMATION_UNIFORM_FLOATS = 4;
+export const WEBGPU_MODEL_ANIMATION_UNIFORM_FLOATS = 8;
 export const WEBGPU_MRT_COLOR_TARGET_COUNT = 5;
 export const WEBGPU_MRT_COLOR_FORMATS = [
 	TextureFormat.RGBA16Float,
@@ -127,23 +127,6 @@ export const WEBGPU_SCENE_ATTR_JOINTS1 = 7;
 export const WEBGPU_SCENE_ATTR_WEIGHTS1 = 8;
 export const WEBGPU_SCENE_ATTR_UV2 = 9;
 export const WEBGPU_SCENE_ATTR_UV3 = 10;
-
-export const WEBGPU_SCENE_VERTEX_FLOATS = 34;
-export const WEBGPU_SCENE_VERTEX_STRIDE =
-	WEBGPU_SCENE_VERTEX_FLOATS * 4;
-export const WEBGPU_SCENE_VERTEX_FLOAT_OFFSET = {
-	position: 0,
-	normal: 3,
-	uv0: 6,
-	tangent: 8,
-	uv1: 12,
-	joints0: 14,
-	weights0: 18,
-	joints1: 22,
-	weights1: 26,
-	uv2: 30,
-	uv3: 32,
-} as const;
 
 export const WEBGPU_PARTICLE_BINDING_TEXTURE = 0;
 export const WEBGPU_PARTICLE_BINDING_SAMPLER = 1;

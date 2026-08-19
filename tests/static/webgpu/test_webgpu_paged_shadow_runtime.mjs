@@ -721,8 +721,10 @@ async function testEmptyCasterSetStillClearsDirtyPagedDepthPages() {
 	const shadowPass = new WebGPUShadowCasterRenderer(backend, {});
 	const renderPipeline = { _gpuResource: {} };
 	Object.assign(shadowPass, {
-		_pipeline: renderPipeline,
-		_transmittancePipeline: renderPipeline,
+		_shaderModule: {},
+		_pipelineLayout: {},
+		_pipelines: new Map(),
+		_transmittancePipelines: new Map(),
 		_bindGroupLayout: {},
 		_animationBindGroupLayout: {},
 		_fallbackStorageBuffer: nativeBuffer,

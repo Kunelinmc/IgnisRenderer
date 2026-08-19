@@ -129,9 +129,109 @@ function testWebGPUGeometryVersionInvalidation() {
 	assert.ok(calls.destroyBuffer >= 3);
 }
 
+function createWebGPUBackendHarness() {
+	const buffers = [];
+	const writes = [];
+	return {
+		buffers,
+		writes,
+		backend: {
+			createBuffer(desc) {
+				const buffer = {
+					desc,
+					destroyed: false,
+					destroy() {
+						this.destroyed = true;
+					},
+				};
+				buffers.push(buffer);
+				return buffer;
+			},
+			writeBuffer(buffer, data) {
+				writes.push({ buffer, data: new Uint8Array(
+					data.buffer,
+					data.byteOffset,
+					data.byteLength,
+				).slice() });
+			},
+		},
+	};
+}
+
+function testWebGPUSemanticPackingAndLazyWireframe() {
+	const harness = createWebGPUBackendHarness();
+	const registry = new WebGPUGeometryRegistry(harness.backend);
+	const primitive = createPrimitive();
+	const handle = registry.getGeometry(primitive);
+
+	assert.equal(handle.vertexByteLength, 3 * 28);
+	assert.equal(handle.indexFormat, "uint16");
+	assert.equal(handle.indexByteLength, 6);
+	assert.equal(handle.surfaceBuffer.desc.size, 48);
+	assert.deepEqual(handle.vertexBindings.map((binding) => binding.slot), [0, 1, 2, 3]);
+	assert.equal(handle.sceneVertexLayouts[1].arrayStride, 16);
+	assert.equal(handle.wireframeIndexBuffer, null);
+	assert.equal(
+		harness.buffers.some((buffer) => buffer.desc.label.startsWith("Wireframe")),
+		false,
+	);
+
+	const wireframe = registry.getWireframeGeometry(primitive);
+	assert.equal(wireframe.wireframeIndexFormat, "uint16");
+	assert.equal(wireframe.wireframeIndexCount, 6);
+	assert.equal(wireframe.wireframeIndexByteLength, 12);
+	const bufferCount = harness.buffers.length;
+	registry.getWireframeGeometry(primitive);
+	assert.equal(harness.buffers.length, bufferCount);
+}
+
+function testWebGPUWireframeDeduplicatesSharedEdges() {
+	const harness = createWebGPUBackendHarness();
+	const registry = new WebGPUGeometryRegistry(harness.backend);
+	const primitive = createPrimitive();
+	primitive.geometry.positions = new Float32Array(12);
+	primitive.geometry.normals = new Float32Array(12);
+	primitive.geometry.uv0 = new Float32Array(8);
+	primitive.geometry.indices = new Uint32Array([0, 1, 2, 2, 1, 3]);
+
+	const handle = registry.getWireframeGeometry(primitive);
+	assert.equal(handle.wireframeIndexCount, 10);
+}
+
+function testWebGPUMorphPackingAllocatesOnlyPresentSemantics() {
+	const harness = createWebGPUBackendHarness();
+	const registry = new WebGPUGeometryRegistry(harness.backend);
+	const primitive = createPrimitive();
+	primitive.geometry.morphTargets = [{
+		positions: new Float32Array(9).fill(0.25),
+	}];
+
+	const handle = registry.getGeometry(primitive);
+	assert.equal(handle.morphTargetCount, 1);
+	assert.equal(handle.morphSemanticMask, 1);
+	assert.equal(handle.morphPositionBuffer.desc.size, 36);
+	assert.equal(handle.morphNormalBuffer, null);
+	assert.equal(handle.morphByteLength, 36);
+}
+
+function testWebGPUIndexFormatBoundary() {
+	const harness = createWebGPUBackendHarness();
+	const registry = new WebGPUGeometryRegistry(harness.backend);
+	const primitive = createPrimitive();
+	primitive.geometry.indices = new Uint32Array([0, 65536, 1]);
+
+	const handle = registry.getGeometry(primitive);
+	assert.equal(handle.indexFormat, "uint32");
+	assert.equal(handle.indexByteLength, 12);
+}
+
 function run() {
 	testWebGLGeometryVersionInvalidation();
 	testWebGPUGeometryVersionInvalidation();
+	testWebGPUSemanticPackingAndLazyWireframe();
+	testWebGPUWireframeDeduplicatesSharedEdges();
+	testWebGPUMorphPackingAllocatesOnlyPresentSemantics();
+	testWebGPUIndexFormatBoundary();
 	console.log("Geometry registry versioning tests passed");
 }
 

@@ -302,6 +302,9 @@ export type VertexFormat =
 	| "uint32x2"
 	| "uint32x3"
 	| "uint32x4"
+	| "float16x2"
+	| "snorm16x4"
+	| "unorm16x4"
 	| "unorm8x4";
 
 export type BackendResourceHandle = unknown;

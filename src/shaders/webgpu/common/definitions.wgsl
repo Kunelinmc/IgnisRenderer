@@ -129,6 +129,10 @@ struct AnimationParams {
 	morphTargetCount: f32,
 	prevJointOffset: f32,
 	prevMorphOffset: f32,
+	vertexCount: f32,
+	morphSemanticMask: f32,
+	_pad0: f32,
+	_pad1: f32,
 }
 
 struct VertexInput {
@@ -254,8 +258,8 @@ struct ParticleShadowVolumeBuffer {
 @group(1) @binding(30) var<uniform> animationParams: AnimationParams;
 @group(1) @binding(32) var<storage, read> jointMatrices: array<mat4x4<f32>>;
 @group(1) @binding(33) var<storage, read> morphWeights: array<f32>;
-@group(1) @binding(34) var<storage, read> morphPositionDeltas: array<vec4<f32>>;
-@group(1) @binding(35) var<storage, read> morphNormalDeltas: array<vec4<f32>>;
+@group(1) @binding(34) var<storage, read> morphPositionDeltas: array<f32>;
+@group(1) @binding(35) var<storage, read> morphNormalDeltas: array<f32>;
 @group(1) @binding(37) var anisotropyTexture: texture_2d<f32>;
 
 @group(2) @binding(0) var<uniform> clusterGrid: ClusterGridParams;

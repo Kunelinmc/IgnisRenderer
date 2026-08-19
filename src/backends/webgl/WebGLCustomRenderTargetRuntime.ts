@@ -1282,6 +1282,12 @@ function vertexFormatToGL(
 			return { size: 3, type: gl.FLOAT, normalized: false, integer: false };
 		case "float32x4":
 			return { size: 4, type: gl.FLOAT, normalized: false, integer: false };
+		case "float16x2":
+			return { size: 2, type: gl.HALF_FLOAT, normalized: false, integer: false };
+		case "snorm16x4":
+			return { size: 4, type: gl.SHORT, normalized: true, integer: false };
+		case "unorm16x4":
+			return { size: 4, type: gl.UNSIGNED_SHORT, normalized: true, integer: false };
 		case "uint32":
 			return { size: 1, type: gl.UNSIGNED_INT, normalized: false, integer: true };
 		case "uint32x2":

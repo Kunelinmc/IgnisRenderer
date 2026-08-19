@@ -151,6 +151,10 @@ This document defines the current WebGL backend lifecycle, frame graph, resource
 	frame-executor baseline state on success or failure.
 - WebGL custom render passes must reject compute commands, texture copies,
   resolve targets, non-zero `baseVertex`, and non-zero `firstInstance`.
+- WebGL custom vertex layouts must map public `float16x2`, `snorm16x4`, and
+  `unorm16x4` formats to `HALF_FLOAT`, normalized `SHORT`, and normalized
+  `UNSIGNED_SHORT` attributes respectively. This support does not change the
+  WebGL scene-geometry layout.
 - WebGL custom target descriptors may retain normalized multisample requests,
   but frame synchronization must reject `sampleCount > 1`; WebGL custom targets
   remain single-sampled.

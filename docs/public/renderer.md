@@ -140,6 +140,13 @@ renderer and backend instead.
   cost.
 - Orthographic cameras must skip the pass and preserve the input color.
 
+### Vertex formats
+
+Advanced backend pipeline descriptors may use the exported `VertexFormat`
+type. In addition to the existing 32-bit and `unorm8x4` formats, it supports
+`"float16x2"`, `"snorm16x4"`, and `"unorm16x4"`. These formats preserve
+floating-point shader inputs while reducing vertex-buffer bandwidth.
+
 ## Usage
 
 ### Renderer workflow

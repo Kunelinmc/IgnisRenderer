@@ -1,6 +1,7 @@
 # WebGPU Backend Contract
 
-This document defines WebGPU frame-graph execution, deferred lighting, presentation configuration, reflections, and structured buffer packing.
+This document defines WebGPU frame-graph execution, geometry packing, deferred
+lighting, presentation configuration, reflections, and structured buffer packing.
 
 ## Contract
 
@@ -290,6 +291,47 @@ This document defines WebGPU frame-graph execution, deferred lighting, presentat
   must run after opaque depth is available and before `occlusion-test`.
 - `WebGPUHiZBuilder` owns Hi-Z shader, pipeline, mip-view, and binding caches.
   `WebGPUFrameTargetManager` owns the `frame:hiz` texture lifetime.
+
+### Geometry packing
+
+- `WebGPUGeometryRegistry` must store scene geometry in semantic vertex streams.
+  Position data must use an independent `float32x3` stream. Surface data may
+  contain normal, tangent, and UV attributes, while skinning data may contain
+  four- or eight-influence joint and weight groups.
+- Missing optional vertex attributes must be supplied by one device-lifetime
+  default vertex buffer with `arrayStride: 0`. Default normal, tangent, UV,
+  joint, and weight values must remain zero. Geometry uploads must not allocate
+  per-vertex padding for a missing semantic.
+- Normal and joint attributes must retain their existing floating-point shader
+  input types. Tangents should use `snorm16x4`, UVs should use `float16x2`, and
+  weights should use `unorm16x4` when the source data is safely representable.
+- A UV semantic may use `float16x2` only when every finite source component
+  round-trips with absolute error no greater than `1 / 4096`. A tangent may use
+  `snorm16x4` only when every component is finite and in `[-1, 1]`. A weight
+  group may use `unorm16x4` only when every component is finite and in `[0, 1]`.
+  The complete semantic must fall back to its corresponding `float32` format
+  when any component fails these requirements.
+- Scene, early-Z, wireframe, reflection, and shadow pipeline identity must
+  include the complete geometry layout signature. The signature must describe
+  stream slots, attributes, formats, offsets, strides, and the skinning profile.
+- Shadow draws must bind only the position, skinning, and default streams.
+  Surface attributes must not be fetched by shadow-depth pipelines.
+- Geometry whose largest index is at most `65535` must use `uint16` index
+  storage. Other geometry must use `uint32`. Every scene and shadow draw must
+  bind the index buffer with the format recorded by its geometry handle.
+- Triangle wireframe indices must be created only when a wireframe draw is
+  requested. Generation must retain the first occurrence of each canonical
+  undirected edge, cache the resulting buffer until geometry invalidation, and
+  use the smallest valid index format. Non-triangle geometry must not allocate
+  a wireframe buffer.
+- Morph position and normal deltas must use separate target-major flat XYZ
+  `array<f32>` storage. A semantic buffer must exist only when at least one
+  active target provides that semantic. Animation metadata must provide vertex
+  count and semantic-presence flags so shaders never infer layout from fallback
+  storage length.
+- Geometry-version invalidation and registry destruction must release every
+  semantic stream, index buffer, lazily created wireframe buffer, and morph
+  buffer owned by the invalidated handle.
 
 ### Deferred lighting
 
@@ -591,6 +633,13 @@ uniform layout must remain outside this input contract.
 
 ## Usage
 
+### Geometry packing
+
+Geometry packing is automatic and has no public configuration switch. Asset
+authors should keep UV values near their sampled range when half precision is
+desired. Values outside the accepted precision envelope remain supported and
+use a floating-point fallback for that semantic.
+
 ### Internal frame graph
 
 ```ts
@@ -727,6 +776,15 @@ const packed = packer.pack({
 
 ## Diagnostics
 
+### Geometry packing
+
+- A packed semantic that exceeds its finite range or error threshold must use
+  the float32 fallback without rejecting the geometry.
+- If one material produces pipelines for multiple geometry layouts, verify the
+  pipeline cache key includes the complete geometry layout signature.
+- If a wireframe allocation exists before the first wireframe draw or warmup,
+  verify the registry does not eagerly request wireframe indices.
+
 ### Internal frame graph
 
 - `read-before-create` must trigger when a required node read references an
@@ -819,7 +877,9 @@ const packed = packer.pack({
 
 ```bash
 bun tests/run_all.mjs tests/static/webgpu
+bun tests/static/geometry/test_geometry_registry_versioning.mjs
 bun tests/static/webgpu/test_webgpu_post_graph.mjs
+bun run test:browser:webgpu
 bunx tsc --noEmit
 ```
 

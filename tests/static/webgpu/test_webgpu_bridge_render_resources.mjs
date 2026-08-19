@@ -338,8 +338,14 @@ async function testRenderResourcesUseCopyDstForUploads() {
 		modelBindingIndices.includes(WEBGPU_MODEL_BINDING_ANISOTROPY_TEXTURE)
 	);
 	assert.equal(modelBindingIndices.includes(38), false);
-	const sceneVertexAttributes =
-		firstDraw.pipeline.desc.vertex.buffers[0].attributes;
+	const sceneVertexLayouts = firstDraw.pipeline.desc.vertex.buffers;
+	const sceneVertexAttributes = sceneVertexLayouts.flatMap(
+		(layout) => layout.attributes
+	);
+	assert.deepEqual(sceneVertexLayouts[0].attributes, [
+		{ shaderLocation: 0, format: "float32x3", offset: 0 },
+	]);
+	assert.equal(sceneVertexLayouts[3].arrayStride, 0);
 	assert.ok(
 		sceneVertexAttributes.some((attribute) => attribute.shaderLocation === 8)
 	);

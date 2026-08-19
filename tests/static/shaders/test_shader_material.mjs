@@ -223,6 +223,63 @@ async function testWGSLProgramSelection() {
 	assert.equal(backend.pipelines.length, pipelineCountBefore);
 }
 
+async function testWebGPUPipelineCacheIncludesGeometryLayout() {
+	const backend = new FakeBackend();
+	backend.shaderRuntime = new ShaderRuntime({ mode: "strict" });
+	const library = new WebGPUPipelineLibrary(backend, createLayouts());
+	const material = new ShaderMaterial({
+		chunks: [
+			{ language: "wgsl", stage: "vertex", code: WGSL_VERTEX },
+			{
+				language: "wgsl",
+				stage: "fragment",
+				mode: "single",
+				code: WGSL_FRAGMENT_SINGLE,
+			},
+		],
+		vertexEntryPoint: "customVs",
+		fragmentSingleEntryPoint: "customFsSingle",
+	});
+	const empty = { arrayStride: 0, attributes: [] };
+	const geometryA = {
+		layoutKey: "position-12",
+		sceneVertexLayouts: [
+			{
+				arrayStride: 12,
+				attributes: [{ shaderLocation: 0, format: "float32x3", offset: 0 }],
+			},
+			empty,
+			empty,
+			empty,
+		],
+	};
+	const geometryB = {
+		...geometryA,
+		layoutKey: "position-16",
+		sceneVertexLayouts: [
+			{
+				arrayStride: 16,
+				attributes: geometryA.sceneVertexLayouts[0].attributes,
+			},
+			empty,
+			empty,
+			empty,
+		],
+	};
+	const first = await library.getPipeline(
+		material, "single", false, undefined, undefined, undefined, 1, "extended", geometryA,
+	);
+	const second = await library.getPipeline(
+		material, "single", false, undefined, undefined, undefined, 1, "extended", geometryB,
+	);
+	const firstAgain = await library.getPipeline(
+		material, "single", false, undefined, undefined, undefined, 1, "extended", geometryA,
+	);
+
+	assert.notEqual(first, second);
+	assert.equal(firstAgain, first);
+}
+
 async function testWebGPUMRTFallsBackToSingleFragmentEntryPoint() {
 	const backend = new FakeBackend();
 	backend.shaderRuntime = new ShaderRuntime({ mode: "strict" });
@@ -1040,6 +1097,7 @@ function testUniformBindingInjectDirectivesDecoratePrograms() {
 
 async function run() {
 	await testWGSLProgramSelection();
+	await testWebGPUPipelineCacheIncludesGeometryLayout();
 	await testWebGPUMRTFallsBackToSingleFragmentEntryPoint();
 	await testWebGPUDeferredProgramSelection();
 	await testBuiltinBaseGBufferPipelineSelection();

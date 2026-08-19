@@ -46,6 +46,9 @@ async function testLoadsRawAndCompositeParts() {
 	const shadowComposite = await ShaderSource.load(
 		"webgpu.shadow.depth.composite"
 	);
+	const planarReflectionComposite = await ShaderSource.load(
+		"webgpu.utility.planarReflectionComposite.composite"
+	);
 	const pagedShadowCompute = await ShaderSource.load(
 		"webgpu.shadow.pagedShadowRequestMark.composite"
 	);
@@ -70,6 +73,13 @@ async function testLoadsRawAndCompositeParts() {
 	assert.ok(shadowRaw.includes("discardOutsideAtlasPage(input);"));
 	assert.ok(shadowRaw.includes("pixel.x >= input.atlasClipRect.z"));
 	assert.ok(shadowComposite.code.includes("fn fsTransmittance"));
+	assert.ok(
+		planarReflectionComposite.code.includes(
+			"morphPositionDeltas: array<f32>"
+		)
+	);
+	assert.ok(planarReflectionComposite.code.includes("vertexCount: f32"));
+	assert.ok(planarReflectionComposite.code.includes("morphSemanticMask: f32"));
 	assert.ok(pagedShadowCompute.code.includes("fn csMain"));
 	assert.ok(pagedShadowDrawBuild.code.includes("PagedShadowDrawParams"));
 	assert.ok(pagedShadowFeedback.code.includes("texture_depth_2d"));

@@ -9,6 +9,7 @@ import type { ICommandEncoder } from "../ICommandEncoder";
 import type {
 	IBindingGroup,
 	IComputePipeline,
+	IndexFormat,
 	IRenderBuffer,
 	IRenderPipeline,
 	IRenderTexture,
@@ -21,6 +22,7 @@ import type {
 	WebGPULightingState,
 	WebGPUMaterialUniformData,
 } from "./types";
+import type { WebGPUVertexBufferBinding } from "./WebGPUGeometryRegistry";
 import type {
 	WebGPUScenePipelineDrawMode,
 	WebGPUSceneTargetMode,
@@ -43,14 +45,17 @@ export interface WebGPUResolvedDrawInputs {
 	readonly samplers: readonly ISampler[];
 	readonly anisotropyTexture: IRenderTexture;
 	readonly geometry: {
-		readonly vertexBuffer: IRenderBuffer;
+		readonly vertexBindings: readonly WebGPUVertexBufferBinding[];
 		readonly indexBuffer: IRenderBuffer;
+		readonly indexFormat: IndexFormat;
 		readonly indexCount: number;
 		readonly topology: PrimitiveDrawTopology;
-		readonly wireframeIndexBuffer: IRenderBuffer;
+		readonly wireframeIndexBuffer: IRenderBuffer | null;
+		readonly wireframeIndexFormat: IndexFormat;
 		readonly wireframeIndexCount: number;
 		readonly vertexCount: number;
 		readonly morphTargetCount: number;
+		readonly morphSemanticMask: number;
 		readonly morphPositionBuffer: IRenderBuffer | null;
 		readonly morphNormalBuffer: IRenderBuffer | null;
 	};
@@ -62,8 +67,9 @@ export interface WebGPUDrawResources {
 	frameBinding: IBindingGroup;
 	modelBinding: IBindingGroup;
 	clusteredBinding: IBindingGroup;
-	vertexBuffer: IRenderBuffer;
+	vertexBindings: readonly WebGPUVertexBufferBinding[];
 	indexBuffer: IRenderBuffer;
+	indexFormat: IndexFormat;
 	indexCount: number;
 	resolvedInputs: WebGPUResolvedDrawInputs;
 }

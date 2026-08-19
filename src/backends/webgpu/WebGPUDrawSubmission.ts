@@ -95,8 +95,16 @@ export async function submitWebGPUDraws(
 				for (const binding of bindings) {
 					request.encoder.setBindingGroup(binding.slot, binding.group);
 				}
-				request.encoder.setVertexBuffer(0, draw.vertexBuffer);
-				request.encoder.setIndexBuffer(draw.indexBuffer, "uint32");
+				const vertexBindings = draw.vertexBindings ?? [{
+					slot: 0,
+					buffer: (draw as WebGPUDrawResources & {
+						vertexBuffer: WebGPUDrawResources["indexBuffer"];
+					}).vertexBuffer,
+				}];
+				for (const binding of vertexBindings) {
+					request.encoder.setVertexBuffer(binding.slot, binding.buffer);
+				}
+				request.encoder.setIndexBuffer(draw.indexBuffer, draw.indexFormat ?? "uint32");
 				request.encoder.drawIndexed(draw.indexCount);
 				drawCount++;
 			}

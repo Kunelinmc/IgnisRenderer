@@ -14,20 +14,19 @@ fn applyMorphDeltas(
 	baseNormal: vec3<f32>,
 	vertexIndex: u32,
 	morphTargetCount: u32,
-	morphWeightOffset: u32
+	morphWeightOffset: u32,
+	vertexCount: u32,
+	semanticMask: u32
 ) -> MorphVertex {
-	if (morphTargetCount == 0u) {
+	if (morphTargetCount == 0u || vertexCount == 0u) {
 		return MorphVertex(basePosition, baseNormal);
 	}
 
-	let morphDeltaCount = arrayLength(&morphPositionDeltas);
-	let morphNormalCount = arrayLength(&morphNormalDeltas);
 	let morphWeightCount = arrayLength(&morphWeights);
-	if (morphDeltaCount == 0u || morphWeightCount == 0u) {
+	if (morphWeightCount == 0u) {
 		return MorphVertex(basePosition, baseNormal);
 	}
 
-	let vertexCount = max(morphDeltaCount / morphTargetCount, 1u);
 	var position = basePosition;
 	var normal = baseNormal;
 	for (var targetIndex: u32 = 0u; targetIndex < morphTargetCount; targetIndex = targetIndex + 1u) {
@@ -41,14 +40,26 @@ fn applyMorphDeltas(
 			continue;
 		}
 
-		let deltaIndex = targetIndex * vertexCount + vertexIndex;
-		if (deltaIndex >= morphDeltaCount) {
-			continue;
+		let deltaIndex = (targetIndex * vertexCount + vertexIndex) * 3u;
+		if (
+			(semanticMask & 1u) != 0u &&
+			deltaIndex + 2u < arrayLength(&morphPositionDeltas)
+		) {
+			position += vec3<f32>(
+				morphPositionDeltas[deltaIndex],
+				morphPositionDeltas[deltaIndex + 1u],
+				morphPositionDeltas[deltaIndex + 2u]
+			) * weight;
 		}
-
-		position += morphPositionDeltas[deltaIndex].xyz * weight;
-		if (deltaIndex < morphNormalCount) {
-			normal += morphNormalDeltas[deltaIndex].xyz * weight;
+		if (
+			(semanticMask & 2u) != 0u &&
+			deltaIndex + 2u < arrayLength(&morphNormalDeltas)
+		) {
+			normal += vec3<f32>(
+				morphNormalDeltas[deltaIndex],
+				morphNormalDeltas[deltaIndex + 1u],
+				morphNormalDeltas[deltaIndex + 2u]
+			) * weight;
 		}
 	}
 
@@ -120,6 +131,8 @@ fn vsMain(input: VertexInput, @builtin(vertex_index) vertexIndex: u32) -> Vertex
 	let morphTargetCount = u32(animationParams.morphTargetCount + 0.5);
 	let prevJointOffset = u32(animationParams.prevJointOffset + 0.5);
 	let prevMorphOffset = u32(animationParams.prevMorphOffset + 0.5);
+	let vertexCount = u32(animationParams.vertexCount + 0.5);
+	let morphSemanticMask = u32(animationParams.morphSemanticMask + 0.5);
 	let baseTangent = safeNormalize(input.tangent.xyz, vec3<f32>(1.0, 0.0, 0.0));
 	let joints = array<f32, 8>(
 		input.joints0.x,
@@ -147,14 +160,18 @@ fn vsMain(input: VertexInput, @builtin(vertex_index) vertexIndex: u32) -> Vertex
 		input.normal,
 		vertexIndex,
 		morphTargetCount,
-		0u
+		0u,
+		vertexCount,
+		morphSemanticMask
 	);
 	let morphedPrev = applyMorphDeltas(
 		input.position,
 		input.normal,
 		vertexIndex,
 		morphTargetCount,
-		prevMorphOffset
+		prevMorphOffset,
+		vertexCount,
+		morphSemanticMask
 	);
 	let skinnedCurrent = applySkinning(
 		morphedCurrent.position,

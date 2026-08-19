@@ -25,19 +25,6 @@ import {
 	WEBGPU_PARTICLE_INSTANCE_STRIDE,
 	WEBGPU_PARTICLE_QUAD_VERTEX_STRIDE,
 	WEBGPU_PARTICLE_UV_UNIFORM_SIZE,
-	WEBGPU_SCENE_ATTR_JOINTS0,
-	WEBGPU_SCENE_ATTR_JOINTS1,
-	WEBGPU_SCENE_ATTR_NORMAL,
-	WEBGPU_SCENE_ATTR_POSITION,
-	WEBGPU_SCENE_ATTR_TANGENT,
-	WEBGPU_SCENE_ATTR_UV0,
-	WEBGPU_SCENE_ATTR_UV1,
-	WEBGPU_SCENE_ATTR_UV2,
-	WEBGPU_SCENE_ATTR_UV3,
-	WEBGPU_SCENE_ATTR_WEIGHTS0,
-	WEBGPU_SCENE_ATTR_WEIGHTS1,
-	WEBGPU_SCENE_VERTEX_FLOAT_OFFSET,
-	WEBGPU_SCENE_VERTEX_STRIDE,
 	WEBGPU_SH_COEFFICIENT_COUNT,
 	WEBGPU_TEXTURE_SLOT_COUNT,
 	WEBGPU_VOLUMETRIC_LIGHT_STRIDE_FLOATS,
@@ -115,33 +102,6 @@ const VOLUMETRIC_LIGHT_RECORD_SCHEMA = structOf([
 ]);
 
 const VOLUMETRIC_LIGHT_LAYOUT_CACHE = new Map<number, StructuredBufferLayout>();
-
-export const WEBGPU_SCENE_VERTEX_LAYOUT = new StructuredBufferLayout(
-	structOf([
-		{ name: "position", type: vec(3, "f32") },
-		{ name: "normal", type: vec(3, "f32") },
-		{ name: "uv0", type: VEC2_F32 },
-		{ name: "tangent", type: VEC4_F32 },
-		{ name: "uv1", type: VEC2_F32 },
-		{ name: "joints0", type: VEC4_F32 },
-		{ name: "weights0", type: VEC4_F32 },
-		{ name: "joints1", type: VEC4_F32 },
-		{ name: "weights1", type: VEC4_F32 },
-		{ name: "uv2", type: VEC2_F32 },
-		{ name: "uv3", type: VEC2_F32 },
-	]),
-	"vertex"
-);
-
-WEBGPU_SCENE_VERTEX_LAYOUT.assertByteSize(
-	WEBGPU_SCENE_VERTEX_STRIDE,
-	"scene vertex"
-);
-assertFloatOffsets(
-	WEBGPU_SCENE_VERTEX_LAYOUT,
-	WEBGPU_SCENE_VERTEX_FLOAT_OFFSET,
-	"scene vertex"
-);
 
 const PARTICLE_QUAD_VERTEX_STRUCT_LAYOUT = new StructuredBufferLayout(
 	structOf([
@@ -405,46 +365,6 @@ WEBGPU_CLUSTER_GRID_PARAMS_LAYOUT.assertByteSize(
 	WEBGPU_CLUSTERED_PARAMS_FLOATS * 4,
 	"ClusterGridParams"
 );
-
-/**
- * Creates the shared scene vertex layout consumed by scene render pipelines.
- *
- * @returns A WebGPU vertex buffer layout derived from `WEBGPU_SCENE_VERTEX_LAYOUT`.
- */
-export function createWebGPUSceneVertexBufferLayout(): VertexBufferLayout {
-	return WEBGPU_SCENE_VERTEX_LAYOUT.createVertexBufferLayout({
-		attributes: [
-			{ path: "position", shaderLocation: WEBGPU_SCENE_ATTR_POSITION },
-			{ path: "uv0", shaderLocation: WEBGPU_SCENE_ATTR_UV0 },
-			{ path: "normal", shaderLocation: WEBGPU_SCENE_ATTR_NORMAL },
-			{ path: "tangent", shaderLocation: WEBGPU_SCENE_ATTR_TANGENT },
-			{ path: "uv1", shaderLocation: WEBGPU_SCENE_ATTR_UV1 },
-			{ path: "joints0", shaderLocation: WEBGPU_SCENE_ATTR_JOINTS0 },
-			{ path: "weights0", shaderLocation: WEBGPU_SCENE_ATTR_WEIGHTS0 },
-			{ path: "joints1", shaderLocation: WEBGPU_SCENE_ATTR_JOINTS1 },
-			{ path: "weights1", shaderLocation: WEBGPU_SCENE_ATTR_WEIGHTS1 },
-			{ path: "uv2", shaderLocation: WEBGPU_SCENE_ATTR_UV2 },
-			{ path: "uv3", shaderLocation: WEBGPU_SCENE_ATTR_UV3 },
-		],
-	});
-}
-
-/**
- * Creates the reduced scene vertex layout required by shadow-depth pipelines.
- *
- * @returns A WebGPU vertex buffer layout with position and animation attributes.
- */
-export function createWebGPUShadowVertexBufferLayout(): VertexBufferLayout {
-	return WEBGPU_SCENE_VERTEX_LAYOUT.createVertexBufferLayout({
-		attributes: [
-			{ path: "position", shaderLocation: WEBGPU_SCENE_ATTR_POSITION },
-			{ path: "joints0", shaderLocation: WEBGPU_SCENE_ATTR_JOINTS0 },
-			{ path: "weights0", shaderLocation: WEBGPU_SCENE_ATTR_WEIGHTS0 },
-			{ path: "joints1", shaderLocation: WEBGPU_SCENE_ATTR_JOINTS1 },
-			{ path: "weights1", shaderLocation: WEBGPU_SCENE_ATTR_WEIGHTS1 },
-		],
-	});
-}
 
 /**
  * Creates a runtime uniform buffer layout for `ShaderMaterial` bindings.

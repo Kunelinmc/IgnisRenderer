@@ -1004,6 +1004,7 @@ export class WebGPUFrameServiceOwner {
 						false,
 						topology,
 						sampleCount,
+						geometry,
 					)
 				: await this._pipelineLibrary.getPipeline(
 						packet.material,
@@ -1014,6 +1015,7 @@ export class WebGPUFrameServiceOwner {
 						drawMode,
 						sampleCount,
 						options.deferredGBufferLayout,
+						geometry,
 					);
 		if (!solidPipeline) {
 			return null;
@@ -1045,8 +1047,9 @@ export class WebGPUFrameServiceOwner {
 			frameBinding,
 			modelBinding: solidModelBinding,
 			clusteredBinding,
-			vertexBuffer: geometry.vertexBuffer,
+			vertexBindings: geometry.vertexBindings,
 			indexBuffer: geometry.indexBuffer,
+			indexFormat: geometry.indexFormat,
 			indexCount: geometry.indexCount,
 			resolvedInputs: {
 				materialData: solidMaterialData,
@@ -1063,6 +1066,9 @@ export class WebGPUFrameServiceOwner {
 			packet.material.wireframe &&
 			topology === DEFAULT_PRIMITIVE_DRAW_TOPOLOGY
 		) {
+			const wireGeometry = this._geometryRegistry.getWireframeGeometry(
+				packet.primitive
+			);
 			const wireMaterialData = createWebGPUMaterialUniformData(packet.material, true);
 			const wirePipeline = await this._pipelineLibrary.getPipeline(
 				packet.material,
@@ -1072,6 +1078,8 @@ export class WebGPUFrameServiceOwner {
 				transparentPipelineMode,
 				drawMode,
 				sampleCount,
+				options.deferredGBufferLayout,
+				wireGeometry,
 			);
 			const wireTextures = await Promise.all(
 				wireMaterialData.textureSlots.map((slot, index) =>
@@ -1100,15 +1108,16 @@ export class WebGPUFrameServiceOwner {
 				frameBinding,
 				modelBinding: wireModelBinding,
 				clusteredBinding,
-				vertexBuffer: geometry.vertexBuffer,
-				indexBuffer: geometry.wireframeIndexBuffer,
-				indexCount: geometry.wireframeIndexCount,
+				vertexBindings: wireGeometry.vertexBindings,
+				indexBuffer: wireGeometry.wireframeIndexBuffer!,
+				indexFormat: wireGeometry.wireframeIndexFormat,
+				indexCount: wireGeometry.wireframeIndexCount,
 				resolvedInputs: {
 					materialData: wireMaterialData,
 					textures: wireTextures,
 					samplers: wireSamplers,
 					anisotropyTexture: wireAnisotropyTexture,
-					geometry,
+					geometry: wireGeometry,
 				},
 			});
 		}
@@ -1182,6 +1191,8 @@ export class WebGPUFrameServiceOwner {
 			jointMatrices,
 			morphWeights,
 			morphTargetCount,
+			vertexCount: geometry.vertexCount,
+			morphSemanticMask: geometry.morphSemanticMask,
 			morphPositionBuffer: geometry.morphPositionBuffer,
 			morphNormalBuffer: geometry.morphNormalBuffer,
 		};

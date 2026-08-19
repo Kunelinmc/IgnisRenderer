@@ -262,12 +262,12 @@ export class StructuredBufferLayout {
 		const arrayStride =
 			options.arrayStride !== undefined ? options.arrayStride : this.byteSize;
 		assertNonNegativeInteger(arrayStride, "vertex.arrayStride");
-		if (arrayStride <= 0) {
+		if ((arrayStride & 0x3) !== 0) {
 			throw new Error(
-				`StructuredBufferLayout.createVertexBufferLayout() requires arrayStride > 0, received ${arrayStride}.`
+				`StructuredBufferLayout.createVertexBufferLayout() requires arrayStride to be a multiple of 4, received ${arrayStride}.`
 			);
 		}
-		if (arrayStride < requiredStride) {
+		if (arrayStride > 0 && arrayStride < requiredStride) {
 			throw new Error(
 				`StructuredBufferLayout.createVertexBufferLayout() arrayStride ${arrayStride} is smaller than required ${requiredStride}.`
 			);
@@ -720,6 +720,7 @@ function assertVertexFormatCompatible(
 		}
 		if (
 			(info.kind === "f32" && layout.scalar === "f32") ||
+			(info.kind === "normalized-f32" && layout.scalar === "f32") ||
 			(info.kind === "u32" && layout.scalar === "u32")
 		) {
 			return;
@@ -742,6 +743,7 @@ function assertVertexFormatCompatible(
 		}
 		if (
 			(info.kind === "f32" && layout.scalar === "f32") ||
+			(info.kind === "normalized-f32" && layout.scalar === "f32") ||
 			(info.kind === "u32" && layout.scalar === "u32")
 		) {
 			return;
@@ -761,7 +763,7 @@ function vertexFormatByteSize(format: VertexFormat): number {
 }
 
 function describeVertexFormat(format: VertexFormat): {
-	kind: "f32" | "u32" | "unorm8x4";
+	kind: "f32" | "u32" | "normalized-f32" | "unorm8x4";
 	components: 1 | 2 | 3 | 4;
 	byteSize: number;
 } {
@@ -782,6 +784,11 @@ function describeVertexFormat(format: VertexFormat): {
 			return { kind: "u32", components: 3, byteSize: 12 };
 		case "uint32x4":
 			return { kind: "u32", components: 4, byteSize: 16 };
+		case "float16x2":
+			return { kind: "normalized-f32", components: 2, byteSize: 4 };
+		case "snorm16x4":
+		case "unorm16x4":
+			return { kind: "normalized-f32", components: 4, byteSize: 8 };
 		case "unorm8x4":
 			return { kind: "unorm8x4", components: 4, byteSize: 4 };
 		default:

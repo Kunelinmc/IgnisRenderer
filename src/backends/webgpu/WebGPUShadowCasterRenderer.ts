@@ -32,7 +32,6 @@ import {
 	WEBGPU_MAX_MORPH_TARGETS,
 	WEBGPU_SHADOW_ATLAS_COLUMNS,
 } from "./constants";
-import { createWebGPUShadowVertexBufferLayout } from "./bufferLayouts";
 import {
 	getWebGPUBuffer,
 	getWebGPURenderPipeline,
@@ -72,6 +71,8 @@ interface ShadowAnimationState {
 	jointMatrices: Float32Array | null;
 	morphWeights: Float32Array | null;
 	morphTargetCount: number;
+	vertexCount: number;
+	morphSemanticMask: number;
 	morphPositionBuffer: GPUBuffer | null;
 }
 
@@ -89,8 +90,9 @@ interface ShadowAnimationBindingEntry {
 interface ShadowDrawCandidate {
 	packet: DrawPacket;
 	geometry: WebGPUGeometryHandle;
-	vertexBuffer: GPUBuffer;
+	vertexBindings: readonly { slot: number; buffer: GPUBuffer }[];
 	indexBuffer: GPUBuffer;
+	indexFormat: GPUIndexFormat;
 }
 
 interface ShadowInstancedDrawBatch {
@@ -135,8 +137,8 @@ export class WebGPUShadowCasterRenderer {
 	private _bindGroupLayout: GPUBindGroupLayout | null = null;
 	private _animationBindGroupLayout: GPUBindGroupLayout | null = null;
 	private _pipelineLayout: GPUPipelineLayout | null = null;
-	private _pipeline: IRenderPipeline | null = null;
-	private _transmittancePipeline: IRenderPipeline | null = null;
+	private _pipelines = new Map<string, IRenderPipeline>();
+	private _transmittancePipelines = new Map<string, IRenderPipeline>();
 	private _pagedClearShaderModule: IShaderModule | null = null;
 	private _pagedClearShaderModulePromise: Promise<IShaderModule> | null = null;
 	private _pagedClearBindGroupLayout: GPUBindGroupLayout | null = null;
@@ -187,8 +189,8 @@ export class WebGPUShadowCasterRenderer {
 
 		await this._ensurePipelineResources();
 		if (
-			!this._pipeline ||
-			!this._transmittancePipeline ||
+			!this._shaderModule ||
+			!this._pipelineLayout ||
 			!this._bindGroupLayout ||
 			!this._animationBindGroupLayout
 		) {
@@ -202,6 +204,8 @@ export class WebGPUShadowCasterRenderer {
 		const transmitterCandidates = this._collectShadowDrawCandidates(
 			frame.shadowTransmitterPackets
 		);
+		await this._prepareGeometryPipelines(drawCandidates, false);
+		await this._prepareGeometryPipelines(transmitterCandidates, true);
 		const animationBindingCache = new Map<string, GPUBindGroup | null>();
 
 		const { commandEncoder, submitAtEnd } =
@@ -217,8 +221,6 @@ export class WebGPUShadowCasterRenderer {
 				depthStoreOp: "store",
 			},
 		});
-
-		passEncoder.setPipeline(getWebGPURenderPipeline(this._pipeline));
 
 		let slotIndex = 0;
 		for (const slot of slots) {
@@ -286,9 +288,6 @@ export class WebGPUShadowCasterRenderer {
 				depthStoreOp: "store",
 			},
 		});
-		transmittancePassEncoder.setPipeline(
-			getWebGPURenderPipeline(this._transmittancePipeline)
-		);
 		slotIndex = 0;
 		for (const slot of slots) {
 			const shadowMapSize = Math.max(1, slot.slice.resolution | 0);
@@ -361,7 +360,8 @@ export class WebGPUShadowCasterRenderer {
 
 		await this._ensurePipelineResources();
 		if (
-			!this._pipeline ||
+			!this._shaderModule ||
+			!this._pipelineLayout ||
 			!this._bindGroupLayout ||
 			!this._animationBindGroupLayout
 		) {
@@ -370,6 +370,7 @@ export class WebGPUShadowCasterRenderer {
 
 		this._frameId++;
 		const drawCandidates = this._collectShadowDrawCandidates(shadowCasterPackets);
+		await this._prepareGeometryPipelines(drawCandidates, false);
 		const animationBindingCache = new Map<string, GPUBindGroup | null>();
 		const { commandEncoder, submitAtEnd } =
 			this._resolveShadowCommandEncoder(frameEncoder);
@@ -383,7 +384,6 @@ export class WebGPUShadowCasterRenderer {
 			},
 		});
 
-		passEncoder.setPipeline(getWebGPURenderPipeline(this._pipeline));
 		const atlasSize = Math.max(
 			1,
 			Math.floor(
@@ -434,7 +434,8 @@ export class WebGPUShadowCasterRenderer {
 
 		await this._ensurePipelineResources();
 		if (
-			!this._pipeline ||
+			!this._shaderModule ||
+			!this._pipelineLayout ||
 			!this._bindGroupLayout ||
 			!this._animationBindGroupLayout
 		) {
@@ -442,6 +443,10 @@ export class WebGPUShadowCasterRenderer {
 		}
 
 		this._frameId++;
+		const indirectCandidates = this._collectShadowDrawCandidates(
+			shadowCasterPackets
+		);
+		await this._prepareGeometryPipelines(indirectCandidates, false);
 		// Update clear params buffer on queue
 		const paramsArray = new Uint32Array([
 			resources.physicalPageCount,
@@ -519,7 +524,6 @@ export class WebGPUShadowCasterRenderer {
 					},
 				],
 			});
-			passEncoder.setPipeline(getWebGPURenderPipeline(this._pipeline));
 			passEncoder.setBindGroup(0, bindGroup);
 			const indirectBuffer = getWebGPUBuffer(resources.drawIndirectArgsBuffer);
 			const candidateLimit = Math.min(
@@ -533,6 +537,9 @@ export class WebGPUShadowCasterRenderer {
 				if (!candidate) {
 					continue;
 				}
+				const pipeline = this._pipelines.get(candidate.geometry.shadowLayoutKey);
+				if (!pipeline) continue;
+				passEncoder.setPipeline(getWebGPURenderPipeline(pipeline));
 				const packet = candidate.packet;
 				if (!animationBindingCache.has(packet.id)) {
 					animationBindingCache.set(
@@ -545,8 +552,7 @@ export class WebGPUShadowCasterRenderer {
 				if (!animationBindGroup) {
 					continue;
 				}
-				passEncoder.setVertexBuffer(0, candidate.vertexBuffer);
-				passEncoder.setIndexBuffer(candidate.indexBuffer, "uint32");
+				bindShadowCandidate(passEncoder, candidate);
 				passEncoder.setBindGroup(1, animationBindGroup);
 				passEncoder.drawIndexedIndirect(
 					indirectBuffer,
@@ -563,14 +569,18 @@ export class WebGPUShadowCasterRenderer {
 
 	public onShaderRuntimeChanged(): void {
 		this._destroyManagedResource(this._shaderModule);
-		this._destroyManagedResource(this._pipeline);
-		this._destroyManagedResource(this._transmittancePipeline);
+		for (const pipeline of this._pipelines.values()) {
+			this._destroyManagedResource(pipeline);
+		}
+		for (const pipeline of this._transmittancePipelines.values()) {
+			this._destroyManagedResource(pipeline);
+		}
+		this._pipelines.clear();
+		this._transmittancePipelines.clear();
 		this._destroyManagedResource(this._pagedClearShaderModule);
 		this._destroyManagedResource(this._pagedClearPipeline);
 		this._shaderModule = null;
 		this._shaderModulePromise = null;
-		this._pipeline = null;
-		this._transmittancePipeline = null;
 		this._pagedClearShaderModule = null;
 		this._pagedClearShaderModulePromise = null;
 		this._pagedClearPipeline = null;
@@ -582,8 +592,14 @@ export class WebGPUShadowCasterRenderer {
 
 	public destroy(): void {
 		this._destroyManagedResource(this._shaderModule);
-		this._destroyManagedResource(this._pipeline);
-		this._destroyManagedResource(this._transmittancePipeline);
+		for (const pipeline of this._pipelines.values()) {
+			this._destroyManagedResource(pipeline);
+		}
+		for (const pipeline of this._transmittancePipelines.values()) {
+			this._destroyManagedResource(pipeline);
+		}
+		this._pipelines.clear();
+		this._transmittancePipelines.clear();
 		this._destroyManagedResource(this._pagedClearShaderModule);
 		this._destroyManagedResource(this._pagedClearPipeline);
 		this._destroyManagedResource(this._pagedClearParamsBuffer);
@@ -592,8 +608,6 @@ export class WebGPUShadowCasterRenderer {
 		this._bindGroupLayout = null;
 		this._animationBindGroupLayout = null;
 		this._pipelineLayout = null;
-		this._pipeline = null;
-		this._transmittancePipeline = null;
 		this._pagedClearShaderModule = null;
 		this._pagedClearShaderModulePromise = null;
 		this._pagedClearBindGroupLayout = null;
@@ -673,8 +687,12 @@ export class WebGPUShadowCasterRenderer {
 
 		passEncoder.setBindGroup(0, bindGroup);
 		for (const batch of drawBatches) {
-			passEncoder.setVertexBuffer(0, batch.candidate.vertexBuffer);
-			passEncoder.setIndexBuffer(batch.candidate.indexBuffer, "uint32");
+			const pipeline = this._pipelines.get(
+				batch.candidate.geometry.shadowLayoutKey
+			);
+			if (!pipeline) continue;
+			passEncoder.setPipeline(getWebGPURenderPipeline(pipeline));
+			bindShadowCandidate(passEncoder, batch.candidate);
 			passEncoder.setBindGroup(1, batch.animationBindGroup);
 			passEncoder.drawIndexed(
 				batch.candidate.geometry.indexCount,
@@ -770,8 +788,7 @@ export class WebGPUShadowCasterRenderer {
 			if (
 				lastBatch &&
 				lastBatch.animationBindGroup === animationBindGroup &&
-				lastBatch.candidate.vertexBuffer === candidate.vertexBuffer &&
-				lastBatch.candidate.indexBuffer === candidate.indexBuffer &&
+				lastBatch.candidate.geometry === candidate.geometry &&
 				lastBatch.candidate.geometry.indexCount === candidate.geometry.indexCount &&
 				lastBatch.firstInstance + lastBatch.instanceCount === firstInstance
 			) {
@@ -844,8 +861,12 @@ export class WebGPUShadowCasterRenderer {
 
 		passEncoder.setBindGroup(0, bindGroup);
 		for (const batch of drawBatches) {
-			passEncoder.setVertexBuffer(0, batch.candidate.vertexBuffer);
-			passEncoder.setIndexBuffer(batch.candidate.indexBuffer, "uint32");
+			const pipeline = this._pipelines.get(
+				batch.candidate.geometry.shadowLayoutKey
+			);
+			if (!pipeline) continue;
+			passEncoder.setPipeline(getWebGPURenderPipeline(pipeline));
+			bindShadowCandidate(passEncoder, batch.candidate);
 			passEncoder.setBindGroup(1, batch.animationBindGroup);
 			passEncoder.drawIndexed(
 				batch.candidate.geometry.indexCount,
@@ -883,8 +904,12 @@ export class WebGPUShadowCasterRenderer {
 
 		passEncoder.setBindGroup(0, bindGroup);
 		for (const batch of drawBatches) {
-			passEncoder.setVertexBuffer(0, batch.candidate.vertexBuffer);
-			passEncoder.setIndexBuffer(batch.candidate.indexBuffer, "uint32");
+			const pipeline = this._transmittancePipelines.get(
+				batch.candidate.geometry.shadowLayoutKey
+			);
+			if (!pipeline) continue;
+			passEncoder.setPipeline(getWebGPURenderPipeline(pipeline));
+			bindShadowCandidate(passEncoder, batch.candidate);
 			passEncoder.setBindGroup(1, batch.animationBindGroup);
 			passEncoder.drawIndexed(
 				batch.candidate.geometry.indexCount,
@@ -972,8 +997,7 @@ export class WebGPUShadowCasterRenderer {
 			if (
 				lastBatch &&
 				lastBatch.animationBindGroup === animationBindGroup &&
-				lastBatch.candidate.vertexBuffer === candidate.vertexBuffer &&
-				lastBatch.candidate.indexBuffer === candidate.indexBuffer &&
+				lastBatch.candidate.geometry === candidate.geometry &&
 				lastBatch.candidate.geometry.indexCount === candidate.geometry.indexCount
 			) {
 				lastBatch.instanceCount++;
@@ -1159,19 +1183,17 @@ export class WebGPUShadowCasterRenderer {
 			return null;
 		}
 		const geometry = this._geometryRegistry.getGeometry(packet.primitive);
-		const vertexBuffer = (
-			geometry.vertexBuffer as { _gpuResource?: GPUBuffer }
-		)._gpuResource;
-		const indexBuffer = (geometry.indexBuffer as { _gpuResource?: GPUBuffer })
-			._gpuResource;
-		if (!vertexBuffer || !indexBuffer) {
-			return null;
-		}
+		const vertexBindings = geometry.shadowVertexBindings.map((binding) => ({
+			slot: binding.slot,
+			buffer: getWebGPUBuffer(binding.buffer),
+		}));
+		const indexBuffer = getWebGPUBuffer(geometry.indexBuffer);
 		return {
 			packet,
 			geometry,
-			vertexBuffer,
+			vertexBindings,
 			indexBuffer,
+			indexFormat: geometry.indexFormat,
 		};
 	}
 
@@ -1259,7 +1281,16 @@ export class WebGPUShadowCasterRenderer {
 		queue.writeBuffer(
 			entry.paramsBuffer,
 			0,
-			new Uint32Array([jointCount, morphCount, jointCount, morphCount])
+			new Uint32Array([
+				jointCount,
+				morphCount,
+				jointCount,
+				morphCount,
+				state.vertexCount,
+				state.morphSemanticMask,
+				0,
+				0,
+			])
 		);
 		if (jointCount > 0 && state.jointMatrices) {
 			queue.writeBuffer(
@@ -1370,6 +1401,8 @@ export class WebGPUShadowCasterRenderer {
 			jointMatrices,
 			morphWeights,
 			morphTargetCount,
+			vertexCount: geometry.vertexCount,
+			morphSemanticMask: geometry.morphSemanticMask,
 			morphPositionBuffer: morphPositionBuffer ?? null,
 		};
 	}
@@ -1537,10 +1570,83 @@ export class WebGPUShadowCasterRenderer {
 		return slots;
 	}
 
+	private async _prepareGeometryPipelines(
+		candidates: readonly ShadowDrawCandidate[],
+		transmittance: boolean
+	): Promise<void> {
+		const unique = new Map<string, WebGPUGeometryHandle>();
+		for (const candidate of candidates) {
+			unique.set(candidate.geometry.shadowLayoutKey, candidate.geometry);
+		}
+		await Promise.all(
+			[...unique.values()].map((geometry) =>
+				this._getOrCreateGeometryPipeline(geometry, transmittance)
+			)
+		);
+	}
+
+	private async _getOrCreateGeometryPipeline(
+		geometry: WebGPUGeometryHandle,
+		transmittance: boolean
+	): Promise<IRenderPipeline> {
+		const cache = transmittance ?
+			this._transmittancePipelines : this._pipelines;
+		const cached = cache.get(geometry.shadowLayoutKey);
+		if (cached) return cached;
+		if (!this._shaderModule || !this._pipelineLayout) {
+			throw new Error("WebGPU shadow pipeline resources are unavailable.");
+		}
+
+		const pipeline = await this._backend.createPipeline({
+			label: transmittance ?
+				`WebGPUShadowTransmittancePipeline_${geometry.skinProfile}`
+			: `WebGPUShadowDepthPipeline_${geometry.skinProfile}`,
+			layout: this._pipelineLayout,
+			vertex: {
+				module: this._shaderModule,
+				entryPoint: "vsMain",
+				buffers: [...geometry.shadowVertexLayouts],
+			},
+			fragment: {
+				module: this._shaderModule,
+				entryPoint: transmittance ? "fsTransmittance" : "fsDepthClip",
+				targets: transmittance ? [
+					{
+						format: TextureFormat.RGBA16Float,
+						blend: {
+							color: {
+								operation: "add",
+								srcFactor: "zero",
+								dstFactor: "src",
+							},
+							alpha: {
+								operation: "add",
+								srcFactor: "zero",
+								dstFactor: "one",
+							},
+						},
+					},
+				] : [],
+			},
+			primitive: {
+				topology: PrimitiveTopology.TriangleList,
+				cullMode: "none",
+				frontFace: "ccw",
+			},
+			depthStencil: {
+				format: TextureFormat.Depth32Float,
+				depthWriteEnabled: !transmittance,
+				depthCompare: "less",
+			},
+		});
+		cache.set(geometry.shadowLayoutKey, pipeline);
+		return pipeline;
+	}
+
 	private async _ensurePipelineResources(): Promise<void> {
 		if (
-			this._pipeline &&
-			this._transmittancePipeline &&
+			this._shaderModule &&
+			this._pipelineLayout &&
 			this._bindGroupLayout &&
 			this._animationBindGroupLayout &&
 			this._fallbackStorageBuffer
@@ -1652,79 +1758,6 @@ export class WebGPUShadowCasterRenderer {
 			);
 		}
 
-		if (!this._pipeline && this._shaderModule && this._pipelineLayout) {
-			this._pipeline = await this._backend.createPipeline({
-				label: "WebGPUShadowDepthPipeline",
-				layout: this._pipelineLayout,
-				vertex: {
-					module: this._shaderModule,
-					entryPoint: "vsMain",
-					buffers: [createWebGPUShadowVertexBufferLayout()],
-				},
-				fragment: {
-					module: this._shaderModule,
-					entryPoint: "fsDepthClip",
-					targets: [],
-				},
-				primitive: {
-					topology: PrimitiveTopology.TriangleList,
-					cullMode: "none",
-					frontFace: "ccw",
-				},
-				depthStencil: {
-					format: TextureFormat.Depth32Float,
-					depthWriteEnabled: true,
-					depthCompare: "less",
-				},
-			});
-		}
-		if (
-			!this._transmittancePipeline &&
-			this._shaderModule &&
-			this._pipelineLayout
-		) {
-			this._transmittancePipeline = await this._backend.createPipeline({
-				label: "WebGPUShadowTransmittancePipeline",
-				layout: this._pipelineLayout,
-				vertex: {
-					module: this._shaderModule,
-					entryPoint: "vsMain",
-					buffers: [createWebGPUShadowVertexBufferLayout()],
-				},
-				fragment: {
-					module: this._shaderModule,
-					entryPoint: "fsTransmittance",
-					targets: [
-						{
-							format: TextureFormat.RGBA16Float,
-							blend: {
-								color: {
-									operation: "add",
-									srcFactor: "zero",
-									dstFactor: "src",
-								},
-								alpha: {
-									operation: "add",
-									srcFactor: "zero",
-									dstFactor: "one",
-								},
-							},
-						},
-					],
-				},
-				primitive: {
-					topology: PrimitiveTopology.TriangleList,
-					cullMode: "none",
-					frontFace: "ccw",
-				},
-				depthStencil: {
-					format: TextureFormat.Depth32Float,
-					depthWriteEnabled: false,
-					depthCompare: "less",
-				},
-			});
-		}
-
 		if (!this._pagedClearShaderModule) {
 			if (!this._pagedClearShaderModulePromise) {
 				this._pagedClearShaderModulePromise = ShaderSource.load(
@@ -1812,7 +1845,7 @@ export class WebGPUShadowCasterRenderer {
 		return {
 			paramsBuffer: device.createBuffer({
 				label: `WebGPUShadowAnimationParams_${key}`,
-				size: 16,
+				size: 32,
 				usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
 			}),
 			jointBuffer: device.createBuffer({
@@ -1870,6 +1903,16 @@ export class WebGPUShadowCasterRenderer {
 			this._animationBindings.delete(key);
 		}
 	}
+}
+
+function bindShadowCandidate(
+	passEncoder: GPURenderPassEncoder,
+	candidate: ShadowDrawCandidate
+): void {
+	for (const binding of candidate.vertexBindings) {
+		passEncoder.setVertexBuffer(binding.slot, binding.buffer);
+	}
+	passEncoder.setIndexBuffer(candidate.indexBuffer, candidate.indexFormat);
 }
 
 function getMaxShadowSize(slots: ShadowRenderSlot[]): number {

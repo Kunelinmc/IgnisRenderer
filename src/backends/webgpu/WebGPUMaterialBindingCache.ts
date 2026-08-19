@@ -34,6 +34,8 @@ export interface WebGPUModelAnimationBindingState {
 	jointMatrices: Float32Array | null;
 	morphWeights: Float32Array | null;
 	morphTargetCount: number;
+	vertexCount: number;
+	morphSemanticMask: number;
 	morphPositionBuffer: IRenderBuffer | null;
 	morphNormalBuffer: IRenderBuffer | null;
 }
@@ -323,7 +325,7 @@ export class WebGPUMaterialBindingCache {
 			hasPackedUniform: false,
 			modelFrame: -1,
 			receiveShadows: true,
-			animationParamsData: new Float32Array([0, 0, 1, 1]),
+			animationParamsData: new Float32Array([0, 0, 1, 1, 0, 0, 0, 0]),
 			jointPayload: createJointPayload(1),
 			morphPayload: new Float32Array(2),
 			currentJointMatrices: null,
@@ -556,7 +558,7 @@ export class WebGPUMaterialBindingCache {
 			morphPayloadDirty = true;
 		}
 
-		this._writeAnimationParamsIfNeeded(entry, jointCount, morphCount);
+		this._writeAnimationParamsIfNeeded(entry, animation, jointCount, morphCount);
 
 		if (jointCount > 0 && (jointPayloadDirty || !entry.jointPayloadWritten)) {
 			this._writeJointPayload(entry, jointCount);
@@ -568,6 +570,7 @@ export class WebGPUMaterialBindingCache {
 
 	private _writeAnimationParamsIfNeeded(
 		entry: MaterialBindingEntry,
+		animation: WebGPUModelAnimationBindingState,
 		jointCount: number,
 		morphCount: number
 	): void {
@@ -577,6 +580,16 @@ export class WebGPUMaterialBindingCache {
 		dirty = setArrayValue(params, 1, morphCount) || dirty;
 		dirty = setArrayValue(params, 2, entry.jointMatrixCapacity) || dirty;
 		dirty = setArrayValue(params, 3, entry.morphWeightCapacity) || dirty;
+		dirty = setArrayValue(
+			params,
+			4,
+			Number.isFinite(animation.vertexCount) ? animation.vertexCount : 0
+		) || dirty;
+		dirty = setArrayValue(
+			params,
+			5,
+			Number.isFinite(animation.morphSemanticMask) ? animation.morphSemanticMask : 0
+		) || dirty;
 		if (!dirty) {
 			return;
 		}

@@ -5,6 +5,10 @@ struct AnimationParams {
 	morphTargetCount: u32,
 	jointStride: u32,
 	morphWeightStride: u32,
+	vertexCount: u32,
+	morphSemanticMask: u32,
+	_pad0: u32,
+	_pad1: u32,
 }
 
 struct ShadowInstanceData {
@@ -43,16 +47,22 @@ struct ShadowVertexOutput {
 @group(1) @binding(0) var<uniform> animationParams: AnimationParams;
 @group(1) @binding(1) var<storage, read> jointMatrices: array<mat4x4<f32>>;
 @group(1) @binding(2) var<storage, read> morphWeights: array<f32>;
-@group(1) @binding(3) var<storage, read> morphPositionDeltas: array<vec4<f32>>;
+@group(1) @binding(3) var<storage, read> morphPositionDeltas: array<f32>;
 
 fn applyMorphPosition(
 	basePosition: vec3<f32>,
 	vertexIndex: u32,
 	morphTargetCount: u32,
 	morphWeightOffset: u32,
-	morphDeltaOffset: u32
+	morphDeltaOffset: u32,
+	vertexCount: u32,
+	semanticMask: u32
 ) -> vec3<f32> {
-	if (morphTargetCount == 0u) {
+	if (
+		morphTargetCount == 0u ||
+		vertexCount == 0u ||
+		(semanticMask & 1u) == 0u
+	) {
 		return basePosition;
 	}
 
@@ -62,9 +72,7 @@ fn applyMorphPosition(
 		return basePosition;
 	}
 
-	let deltaBase = min(morphDeltaOffset, morphDeltaCount);
-	let deltaRange = morphDeltaCount - deltaBase;
-	let vertexCount = max(deltaRange / morphTargetCount, 1u);
+	let deltaBase = min(morphDeltaOffset * 3u, morphDeltaCount);
 	var position = basePosition;
 	for (
 		var targetIndex: u32 = 0u;
@@ -81,12 +89,16 @@ fn applyMorphPosition(
 			continue;
 		}
 
-		let deltaIndex = deltaBase + targetIndex * vertexCount + vertexIndex;
-		if (deltaIndex >= morphDeltaCount) {
+		let deltaIndex = deltaBase + (targetIndex * vertexCount + vertexIndex) * 3u;
+		if (deltaIndex + 2u >= morphDeltaCount) {
 			continue;
 		}
 
-		position += morphPositionDeltas[deltaIndex].xyz * weight;
+		position += vec3<f32>(
+			morphPositionDeltas[deltaIndex],
+			morphPositionDeltas[deltaIndex + 1u],
+			morphPositionDeltas[deltaIndex + 2u]
+		) * weight;
 	}
 
 	return position;
@@ -206,7 +218,9 @@ fn vsMain(
 		localVertexIndex,
 		morphTargetCount,
 		morphWeightOffset,
-		instanceData.morphDeltaBaseOffset
+		instanceData.morphDeltaBaseOffset,
+		animationParams.vertexCount,
+		animationParams.morphSemanticMask
 	);
 	let skinnedPosition = applySkinningPosition(
 		morphedPosition,

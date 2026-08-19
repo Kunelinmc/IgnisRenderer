@@ -3,25 +3,63 @@ import {
 	type IPrimitive,
 	type PrimitiveDrawTopology,
 } from "../../core/types";
-import { BufferUsage, type IRenderBuffer } from "../types";
-import type { WebGPUDeviceResourceHost } from "./WebGPUDeviceResourceHost";
 import { GeometryBuilder } from "../../meshes/GeometryBuilder";
 import {
-	WEBGPU_SCENE_VERTEX_FLOAT_OFFSET,
-	WEBGPU_SCENE_VERTEX_FLOATS,
-} from "./constants";
+	BufferUsage,
+	type IndexFormat,
+	type IRenderBuffer,
+	type VertexBufferLayout,
+} from "../types";
+import type { WebGPUDeviceResourceHost } from "./WebGPUDeviceResourceHost";
+import {
+	WEBGPU_GEOMETRY_DEFAULT_SLOT,
+	WEBGPU_GEOMETRY_POSITION_SLOT,
+	WEBGPU_GEOMETRY_SKIN_SLOT,
+	WEBGPU_GEOMETRY_SURFACE_SLOT,
+	packWebGPUVertexGeometry,
+	type WebGPUSkinProfile,
+} from "./WebGPUGeometryPacking";
+import { WEBGPU_MAX_MORPH_TARGETS } from "./constants";
 
+export const WEBGPU_MORPH_POSITION_BIT = 1 << 0;
+export const WEBGPU_MORPH_NORMAL_BIT = 1 << 1;
+
+/** @internal WebGPU geometry vertex binding selected by the registry. */
+export interface WebGPUVertexBufferBinding {
+	readonly slot: number;
+	readonly buffer: IRenderBuffer;
+}
+
+/** @internal WebGPU geometry resources owned by `WebGPUGeometryRegistry`. */
 export interface WebGPUGeometryHandle {
-	vertexBuffer: IRenderBuffer;
+	positionBuffer: IRenderBuffer;
+	surfaceBuffer: IRenderBuffer | null;
+	skinBuffer: IRenderBuffer | null;
+	vertexBindings: readonly WebGPUVertexBufferBinding[];
+	shadowVertexBindings: readonly WebGPUVertexBufferBinding[];
+	sceneVertexLayouts: readonly VertexBufferLayout[];
+	shadowVertexLayouts: readonly VertexBufferLayout[];
+	layoutKey: string;
+	shadowLayoutKey: string;
+	skinProfile: WebGPUSkinProfile;
+	vertexByteLength: number;
 	indexBuffer: IRenderBuffer;
+	indexFormat: IndexFormat;
+	indexByteLength: number;
 	indexCount: number;
 	topology: PrimitiveDrawTopology;
-	wireframeIndexBuffer: IRenderBuffer;
+	wireframeIndexBuffer: IRenderBuffer | null;
+	wireframeIndexFormat: IndexFormat;
+	wireframeIndexByteLength: number;
 	wireframeIndexCount: number;
 	vertexCount: number;
 	morphTargetCount: number;
+	morphSemanticMask: number;
 	morphPositionBuffer: IRenderBuffer | null;
 	morphNormalBuffer: IRenderBuffer | null;
+	morphByteLength: number;
+	/** @internal Retained only for lazy wireframe generation. */
+	readonly sourceIndices: Uint32Array;
 }
 
 interface WebGPUCachedGeometryEntry {
@@ -29,17 +67,24 @@ interface WebGPUCachedGeometryEntry {
 	geometryVersion: number;
 }
 
+interface PackedIndexData {
+	data: Uint16Array | Uint32Array;
+	format: IndexFormat;
+}
+
+/** @internal Owns device-lifetime WebGPU geometry resources. */
 export class WebGPUGeometryRegistry {
 	private _backend: WebGPUDeviceResourceHost;
 	private _cache = new WeakMap<IPrimitive, WebGPUCachedGeometryEntry>();
 	private _owned = new Set<WebGPUGeometryHandle>();
+	private _defaultVertexBuffer: IRenderBuffer | null = null;
 	private _finalizationRegistry: FinalizationRegistry<WebGPUGeometryHandle> | null =
 		typeof FinalizationRegistry === "function" ?
 			new FinalizationRegistry((handle) => {
 				this._owned.delete(handle);
 				this._destroyHandle(handle);
 			})
-		:	null;
+		: null;
 
 	constructor(backend: WebGPUDeviceResourceHost) {
 		this._backend = backend;
@@ -55,10 +100,7 @@ export class WebGPUGeometryRegistry {
 				this._destroyHandle(cached.handle);
 			}
 			const handle = this._uploadGeometry(primitive);
-			cached = {
-				handle,
-				geometryVersion,
-			};
+			cached = { handle, geometryVersion };
 			this._cache.set(primitive, cached);
 			this._owned.add(handle);
 			this._finalizationRegistry?.register(
@@ -70,12 +112,28 @@ export class WebGPUGeometryRegistry {
 		return cached.handle;
 	}
 
+	/**
+	 * Returns geometry with its lazily generated wireframe index buffer.
+	 *
+	 * @internal Used by WebGPU scene draw preparation for wireframe materials.
+	 * @param primitive Primitive whose canonical triangle edges are required.
+	 * @returns The cached geometry handle with wireframe resources populated.
+	 * @sideEffects May allocate and upload one deduplicated index buffer.
+	 */
+	public getWireframeGeometry(primitive: IPrimitive): WebGPUGeometryHandle {
+		const handle = this.getGeometry(primitive);
+		if (
+			handle.topology === DEFAULT_PRIMITIVE_DRAW_TOPOLOGY &&
+			!handle.wireframeIndexBuffer
+		) {
+			this._uploadWireframeIndices(handle);
+		}
+		return handle;
+	}
+
 	public releaseGeometry(primitive: IPrimitive): void {
 		const cached = this._cache.get(primitive);
-		if (!cached) {
-			return;
-		}
-
+		if (!cached) return;
 		this._cache.delete(primitive);
 		this._finalizationRegistry?.unregister(primitive as unknown as object);
 		this._owned.delete(cached.handle);
@@ -83,18 +141,20 @@ export class WebGPUGeometryRegistry {
 	}
 
 	public destroy(): void {
-		for (const handle of this._owned) {
-			this._destroyHandle(handle);
-		}
+		for (const handle of this._owned) this._destroyHandle(handle);
 		this._owned.clear();
+		this._defaultVertexBuffer?.destroy();
+		this._defaultVertexBuffer = null;
 		this._cache = new WeakMap<IPrimitive, WebGPUCachedGeometryEntry>();
 		this._finalizationRegistry = null;
 	}
 
 	private _destroyHandle(handle: WebGPUGeometryHandle): void {
-		handle.vertexBuffer.destroy();
+		handle.positionBuffer.destroy();
+		handle.surfaceBuffer?.destroy();
+		handle.skinBuffer?.destroy();
 		handle.indexBuffer.destroy();
-		handle.wireframeIndexBuffer.destroy();
+		handle.wireframeIndexBuffer?.destroy();
 		handle.morphPositionBuffer?.destroy();
 		handle.morphNormalBuffer?.destroy();
 	}
@@ -103,207 +163,283 @@ export class WebGPUGeometryRegistry {
 		const geometry = primitive.geometry;
 		const topology = primitive.topology ?? DEFAULT_PRIMITIVE_DRAW_TOPOLOGY;
 		const vertexCount = GeometryBuilder.getVertexCount(geometry);
-		const vertexData = new Float32Array(
-			vertexCount * WEBGPU_SCENE_VERTEX_FLOATS
+		const packed = packWebGPUVertexGeometry(geometry, vertexCount);
+		const defaultVertexBuffer = this._getDefaultVertexBuffer(packed.defaultData);
+
+		const positionBuffer = this._createAndWriteBuffer(
+			packed.position.data,
+			BufferUsage.Vertex | BufferUsage.CopyDst,
+			`PositionVertexBuffer_${primitive.id}`
 		);
-		const vertexOffset = WEBGPU_SCENE_VERTEX_FLOAT_OFFSET;
-
-		for (let vertexIndex = 0; vertexIndex < vertexCount; vertexIndex++) {
-			const sourcePosition = vertexIndex * 3;
-			const sourceUv = vertexIndex * 2;
-			const sourceTangent = vertexIndex * 4;
-			const sourceJoint = vertexIndex * 4;
-			const base = vertexIndex * WEBGPU_SCENE_VERTEX_FLOATS;
-
-			vertexData[base + vertexOffset.position] =
-				geometry.positions[sourcePosition];
-			vertexData[base + vertexOffset.position + 1] =
-				geometry.positions[sourcePosition + 1];
-			vertexData[base + vertexOffset.position + 2] =
-				geometry.positions[sourcePosition + 2];
-
-			vertexData[base + vertexOffset.normal] =
-				geometry.normals?.[sourcePosition] ?? 0;
-			vertexData[base + vertexOffset.normal + 1] =
-				geometry.normals?.[sourcePosition + 1] ?? 0;
-			vertexData[base + vertexOffset.normal + 2] =
-				geometry.normals?.[sourcePosition + 2] ?? 0;
-
-			vertexData[base + vertexOffset.uv0] = geometry.uv0?.[sourceUv] ?? 0;
-			vertexData[base + vertexOffset.uv0 + 1] =
-				geometry.uv0?.[sourceUv + 1] ?? 0;
-
-			vertexData[base + vertexOffset.tangent] =
-				geometry.tangents?.[sourceTangent] ?? 0;
-			vertexData[base + vertexOffset.tangent + 1] =
-				geometry.tangents?.[sourceTangent + 1] ?? 0;
-			vertexData[base + vertexOffset.tangent + 2] =
-				geometry.tangents?.[sourceTangent + 2] ?? 0;
-			vertexData[base + vertexOffset.tangent + 3] =
-				geometry.tangents?.[sourceTangent + 3] ?? 0;
-
-			vertexData[base + vertexOffset.uv1] = geometry.uv1?.[sourceUv] ?? 0;
-			vertexData[base + vertexOffset.uv1 + 1] =
-				geometry.uv1?.[sourceUv + 1] ?? 0;
-
-			vertexData[base + vertexOffset.joints0] = Number(
-				geometry.joints0?.[sourceJoint] ?? 0
-			);
-			vertexData[base + vertexOffset.joints0 + 1] = Number(
-				geometry.joints0?.[sourceJoint + 1] ?? 0
-			);
-			vertexData[base + vertexOffset.joints0 + 2] = Number(
-				geometry.joints0?.[sourceJoint + 2] ?? 0
-			);
-			vertexData[base + vertexOffset.joints0 + 3] = Number(
-				geometry.joints0?.[sourceJoint + 3] ?? 0
-			);
-
-			vertexData[base + vertexOffset.weights0] =
-				geometry.weights0?.[sourceJoint] ?? 0;
-			vertexData[base + vertexOffset.weights0 + 1] =
-				geometry.weights0?.[sourceJoint + 1] ?? 0;
-			vertexData[base + vertexOffset.weights0 + 2] =
-				geometry.weights0?.[sourceJoint + 2] ?? 0;
-			vertexData[base + vertexOffset.weights0 + 3] =
-				geometry.weights0?.[sourceJoint + 3] ?? 0;
-
-			vertexData[base + vertexOffset.joints1] = Number(
-				geometry.joints1?.[sourceJoint] ?? 0
-			);
-			vertexData[base + vertexOffset.joints1 + 1] = Number(
-				geometry.joints1?.[sourceJoint + 1] ?? 0
-			);
-			vertexData[base + vertexOffset.joints1 + 2] = Number(
-				geometry.joints1?.[sourceJoint + 2] ?? 0
-			);
-			vertexData[base + vertexOffset.joints1 + 3] = Number(
-				geometry.joints1?.[sourceJoint + 3] ?? 0
-			);
-
-			vertexData[base + vertexOffset.weights1] =
-				geometry.weights1?.[sourceJoint] ?? 0;
-			vertexData[base + vertexOffset.weights1 + 1] =
-				geometry.weights1?.[sourceJoint + 1] ?? 0;
-			vertexData[base + vertexOffset.weights1 + 2] =
-				geometry.weights1?.[sourceJoint + 2] ?? 0;
-			vertexData[base + vertexOffset.weights1 + 3] =
-				geometry.weights1?.[sourceJoint + 3] ?? 0;
-
-			vertexData[base + vertexOffset.uv2] = geometry.uv2?.[sourceUv] ?? 0;
-			vertexData[base + vertexOffset.uv2 + 1] =
-				geometry.uv2?.[sourceUv + 1] ?? 0;
-			vertexData[base + vertexOffset.uv3] = geometry.uv3?.[sourceUv] ?? 0;
-			vertexData[base + vertexOffset.uv3 + 1] =
-				geometry.uv3?.[sourceUv + 1] ?? 0;
-		}
-
-		const indexCount = geometry.indices.length;
-		const wireframeIndices =
-			topology === DEFAULT_PRIMITIVE_DRAW_TOPOLOGY ?
-				createTriangleWireframeIndices(geometry.indices)
-			:	new Uint32Array(0);
-
-		const vertexBuffer = this._backend.createBuffer({
-			size: vertexData.byteLength,
-			usage: BufferUsage.Vertex | BufferUsage.CopyDst,
-			label: `VertexBuffer_${primitive.id}`,
-		});
-		const indexBuffer = this._backend.createBuffer({
-			size: geometry.indices.byteLength,
-			usage: BufferUsage.Index | BufferUsage.CopyDst,
-			label: `IndexBuffer_${primitive.id}`,
-		});
-		const wireframeIndexBuffer = this._backend.createBuffer({
-			size: Math.max(4, wireframeIndices.byteLength),
-			usage: BufferUsage.Index | BufferUsage.CopyDst,
-			label: `WireframeIndexBuffer_${primitive.id}`,
-		});
-
-		this._backend.writeBuffer(vertexBuffer, vertexData as any);
-		this._backend.writeBuffer(indexBuffer, geometry.indices as any);
-		this._backend.writeBuffer(
-			wireframeIndexBuffer,
-			(wireframeIndices.length > 0 ? wireframeIndices : new Uint32Array([0])) as any
+		const surfaceBuffer = packed.surface ?
+			this._createAndWriteBuffer(
+				packed.surface.data,
+				BufferUsage.Vertex | BufferUsage.CopyDst,
+				`SurfaceVertexBuffer_${primitive.id}`
+			)
+		: null;
+		const skinBuffer = packed.skin ?
+			this._createAndWriteBuffer(
+				packed.skin.data,
+				BufferUsage.Vertex | BufferUsage.CopyDst,
+				`SkinVertexBuffer_${primitive.id}`
+			)
+		: null;
+		const vertexBindings = createVertexBindings(
+			positionBuffer,
+			surfaceBuffer,
+			skinBuffer,
+			defaultVertexBuffer
+		);
+		const shadowVertexBindings = createShadowVertexBindings(
+			positionBuffer,
+			skinBuffer,
+			defaultVertexBuffer
 		);
 
-		const morphTargets = geometry.morphTargets ?? [];
-		const morphTargetCount = Math.min(8, morphTargets.length);
-		let morphPositionBuffer: IRenderBuffer | null = null;
-		let morphNormalBuffer: IRenderBuffer | null = null;
-		if (morphTargetCount > 0) {
-			const morphPositionData = new Float32Array(
-				morphTargetCount * vertexCount * 4
-			);
-			const morphNormalData = new Float32Array(
-				morphTargetCount * vertexCount * 4
-			);
-
-			for (let targetIndex = 0; targetIndex < morphTargetCount; targetIndex++) {
-				const target = morphTargets[targetIndex];
-				for (let vertexIndex = 0; vertexIndex < vertexCount; vertexIndex++) {
-					const offset = (targetIndex * vertexCount + vertexIndex) * 4;
-					const positionOffset = vertexIndex * 3;
-					morphPositionData[offset] = target.positions?.[positionOffset] ?? 0;
-					morphPositionData[offset + 1] =
-						target.positions?.[positionOffset + 1] ?? 0;
-					morphPositionData[offset + 2] =
-						target.positions?.[positionOffset + 2] ?? 0;
-					morphPositionData[offset + 3] = 0;
-
-					morphNormalData[offset] = target.normals?.[positionOffset] ?? 0;
-					morphNormalData[offset + 1] =
-						target.normals?.[positionOffset + 1] ?? 0;
-					morphNormalData[offset + 2] =
-						target.normals?.[positionOffset + 2] ?? 0;
-					morphNormalData[offset + 3] = 0;
-				}
-			}
-
-			morphPositionBuffer = this._backend.createBuffer({
-				size: morphPositionData.byteLength,
-				usage: BufferUsage.Storage | BufferUsage.CopyDst,
-				label: `MorphPositionBuffer_${primitive.id}`,
-			});
-			morphNormalBuffer = this._backend.createBuffer({
-				size: morphNormalData.byteLength,
-				usage: BufferUsage.Storage | BufferUsage.CopyDst,
-				label: `MorphNormalBuffer_${primitive.id}`,
-			});
-			this._backend.writeBuffer(morphPositionBuffer, morphPositionData as any);
-			this._backend.writeBuffer(morphNormalBuffer, morphNormalData as any);
-		}
+		const packedIndices = packIndexData(geometry.indices);
+		const indexBuffer = this._createAndWriteBuffer(
+			packedIndices.data,
+			BufferUsage.Index | BufferUsage.CopyDst,
+			`IndexBuffer_${primitive.id}`
+		);
+		const morph = this._uploadMorphTargets(primitive, vertexCount);
 
 		return {
-			vertexBuffer,
+			positionBuffer,
+			surfaceBuffer,
+			skinBuffer,
+			vertexBindings,
+			shadowVertexBindings,
+			sceneVertexLayouts: packed.sceneLayouts,
+			shadowVertexLayouts: packed.shadowLayouts,
+			layoutKey: packed.layoutKey,
+			shadowLayoutKey: packed.shadowLayoutKey,
+			skinProfile: packed.skinProfile,
+			vertexByteLength: packed.vertexByteLength,
 			indexBuffer,
-			indexCount,
+			indexFormat: packedIndices.format,
+			indexByteLength: packedIndices.data.byteLength,
+			indexCount: packedIndices.data.length,
 			topology,
-			wireframeIndexBuffer,
-			wireframeIndexCount: wireframeIndices.length,
+			wireframeIndexBuffer: null,
+			wireframeIndexFormat: "uint16",
+			wireframeIndexByteLength: 0,
+			wireframeIndexCount: 0,
 			vertexCount,
-			morphTargetCount,
-			morphPositionBuffer,
-			morphNormalBuffer,
+			morphTargetCount: morph.targetCount,
+			morphSemanticMask: morph.semanticMask,
+			morphPositionBuffer: morph.positionBuffer,
+			morphNormalBuffer: morph.normalBuffer,
+			morphByteLength: morph.byteLength,
+			sourceIndices: geometry.indices,
 		};
+	}
+
+	private _uploadMorphTargets(
+		primitive: IPrimitive,
+		vertexCount: number
+	): {
+		targetCount: number;
+		semanticMask: number;
+		positionBuffer: IRenderBuffer | null;
+		normalBuffer: IRenderBuffer | null;
+		byteLength: number;
+	} {
+		const targets = primitive.geometry.morphTargets ?? [];
+		const targetCount = Math.min(WEBGPU_MAX_MORPH_TARGETS, targets.length);
+		const activeTargets = targets.slice(0, targetCount);
+		const hasPositions = activeTargets.some((target) => !!target.positions);
+		const hasNormals = activeTargets.some((target) => !!target.normals);
+		let semanticMask = 0;
+		let positionBuffer: IRenderBuffer | null = null;
+		let normalBuffer: IRenderBuffer | null = null;
+		let byteLength = 0;
+
+		if (hasPositions) {
+			const data = packMorphSemantic(targets, targetCount, vertexCount, "positions");
+			positionBuffer = this._createAndWriteBuffer(
+				data,
+				BufferUsage.Storage | BufferUsage.CopyDst,
+				`MorphPositionBuffer_${primitive.id}`
+			);
+			semanticMask |= WEBGPU_MORPH_POSITION_BIT;
+			byteLength += data.byteLength;
+		}
+		if (hasNormals) {
+			const data = packMorphSemantic(targets, targetCount, vertexCount, "normals");
+			normalBuffer = this._createAndWriteBuffer(
+				data,
+				BufferUsage.Storage | BufferUsage.CopyDst,
+				`MorphNormalBuffer_${primitive.id}`
+			);
+			semanticMask |= WEBGPU_MORPH_NORMAL_BIT;
+			byteLength += data.byteLength;
+		}
+
+		return { targetCount, semanticMask, positionBuffer, normalBuffer, byteLength };
+	}
+
+	private _uploadWireframeIndices(handle: WebGPUGeometryHandle): void {
+		const data = createDeduplicatedWireframeIndices(handle.sourceIndices);
+		handle.wireframeIndexBuffer = this._createAndWriteBuffer(
+			data.data,
+			BufferUsage.Index | BufferUsage.CopyDst,
+			"WireframeIndexBuffer"
+		);
+		handle.wireframeIndexFormat = data.format;
+		handle.wireframeIndexByteLength = data.data.byteLength;
+		handle.wireframeIndexCount = data.data.length;
+	}
+
+	private _getDefaultVertexBuffer(data: Uint8Array): IRenderBuffer {
+		if (!this._defaultVertexBuffer) {
+			this._defaultVertexBuffer = this._createAndWriteBuffer(
+				data,
+				BufferUsage.Vertex | BufferUsage.CopyDst,
+				"WebGPUDefaultVertexBuffer"
+			);
+		}
+		return this._defaultVertexBuffer;
+	}
+
+	private _createAndWriteBuffer(
+		data: ArrayBufferView,
+		usage: BufferUsage,
+		label: string
+	): IRenderBuffer {
+		const alignedByteLength = Math.max(4, alignTo4(data.byteLength));
+		const buffer = this._backend.createBuffer({
+			size: alignedByteLength,
+			usage,
+			label,
+		});
+		let writeData: ArrayBufferView = data;
+		if (data.byteLength === 0) {
+			writeData = new Uint32Array([0]);
+		} else if ((data.byteLength & 0x3) !== 0) {
+			const padded = new Uint8Array(alignedByteLength);
+			padded.set(new Uint8Array(data.buffer, data.byteOffset, data.byteLength));
+			writeData = padded;
+		}
+		this._backend.writeBuffer(buffer, writeData as any);
+		return buffer;
 	}
 }
 
-function createTriangleWireframeIndices(indices: Uint32Array): Uint32Array {
+function alignTo4(value: number): number {
+	return (value + 3) & ~3;
+}
+
+function createVertexBindings(
+	positionBuffer: IRenderBuffer,
+	surfaceBuffer: IRenderBuffer | null,
+	skinBuffer: IRenderBuffer | null,
+	defaultBuffer: IRenderBuffer
+): WebGPUVertexBufferBinding[] {
+	const bindings: WebGPUVertexBufferBinding[] = [
+		{ slot: WEBGPU_GEOMETRY_POSITION_SLOT, buffer: positionBuffer },
+		{
+			slot: WEBGPU_GEOMETRY_SURFACE_SLOT,
+			buffer: surfaceBuffer ?? defaultBuffer,
+		},
+		{
+			slot: WEBGPU_GEOMETRY_SKIN_SLOT,
+			buffer: skinBuffer ?? defaultBuffer,
+		},
+		{ slot: WEBGPU_GEOMETRY_DEFAULT_SLOT, buffer: defaultBuffer },
+	];
+	return bindings;
+}
+
+function createShadowVertexBindings(
+	positionBuffer: IRenderBuffer,
+	skinBuffer: IRenderBuffer | null,
+	defaultBuffer: IRenderBuffer
+): WebGPUVertexBufferBinding[] {
+	return [
+		{ slot: WEBGPU_GEOMETRY_POSITION_SLOT, buffer: positionBuffer },
+		{ slot: WEBGPU_GEOMETRY_SURFACE_SLOT, buffer: defaultBuffer },
+		{
+			slot: WEBGPU_GEOMETRY_SKIN_SLOT,
+			buffer: skinBuffer ?? defaultBuffer,
+		},
+		{ slot: WEBGPU_GEOMETRY_DEFAULT_SLOT, buffer: defaultBuffer },
+	];
+}
+
+function packIndexData(indices: Uint32Array): PackedIndexData {
+	let maxIndex = 0;
+	for (let i = 0; i < indices.length; i++) maxIndex = Math.max(maxIndex, indices[i]);
+	if (maxIndex <= 65535) {
+		return { data: Uint16Array.from(indices), format: "uint16" };
+	}
+	return { data: new Uint32Array(indices), format: "uint32" };
+}
+
+function packMorphSemantic(
+	targets: NonNullable<IPrimitive["geometry"]["morphTargets"]>,
+	targetCount: number,
+	vertexCount: number,
+	semantic: "positions" | "normals"
+): Float32Array {
+	const data = new Float32Array(targetCount * vertexCount * 3);
+	for (let targetIndex = 0; targetIndex < targetCount; targetIndex++) {
+		const source = targets[targetIndex][semantic];
+		if (!source) continue;
+		const targetOffset = targetIndex * vertexCount * 3;
+		for (let component = 0; component < vertexCount * 3; component++) {
+			data[targetOffset + component] = source[component] ?? 0;
+		}
+	}
+	return data;
+}
+
+function createDeduplicatedWireframeIndices(indices: Uint32Array): PackedIndexData {
 	const triangleCount = Math.floor(indices.length / 3);
-	const wireframeIndices = new Uint32Array(triangleCount * 6);
+	const edgeCapacity = triangleCount * 3;
+	if (edgeCapacity === 0) return { data: new Uint16Array(0), format: "uint16" };
+
+	let tableCapacity = 1;
+	while (tableCapacity < edgeCapacity * 2) tableCapacity *= 2;
+	const occupied = new Uint8Array(tableCapacity);
+	const edgeMin = new Uint32Array(tableCapacity);
+	const edgeMax = new Uint32Array(tableCapacity);
+	const output = new Uint32Array(edgeCapacity * 2);
+	const mask = tableCapacity - 1;
 	let cursor = 0;
-	for (let i = 0; i < triangleCount; i++) {
-		const base = i * 3;
+	let maxIndex = 0;
+
+	const insert = (left: number, right: number): void => {
+		const min = Math.min(left, right) >>> 0;
+		const max = Math.max(left, right) >>> 0;
+		let slot = (Math.imul(min, 0x9e3779b1) ^ Math.imul(max, 0x85ebca6b)) & mask;
+		while (occupied[slot]) {
+			if (edgeMin[slot] === min && edgeMax[slot] === max) return;
+			slot = (slot + 1) & mask;
+		}
+		occupied[slot] = 1;
+		edgeMin[slot] = min;
+		edgeMax[slot] = max;
+		output[cursor++] = left;
+		output[cursor++] = right;
+		maxIndex = Math.max(maxIndex, left, right);
+	};
+
+	for (let triangleIndex = 0; triangleIndex < triangleCount; triangleIndex++) {
+		const base = triangleIndex * 3;
 		const i0 = indices[base];
 		const i1 = indices[base + 1];
 		const i2 = indices[base + 2];
-		wireframeIndices[cursor++] = i0;
-		wireframeIndices[cursor++] = i1;
-		wireframeIndices[cursor++] = i1;
-		wireframeIndices[cursor++] = i2;
-		wireframeIndices[cursor++] = i2;
-		wireframeIndices[cursor++] = i0;
+		insert(i0, i1);
+		insert(i1, i2);
+		insert(i2, i0);
 	}
-	return wireframeIndices;
+
+	if (maxIndex <= 65535) {
+		const compact = new Uint16Array(cursor);
+		for (let i = 0; i < cursor; i++) compact[i] = output[i];
+		return { data: compact, format: "uint16" };
+	}
+	return { data: output.slice(0, cursor), format: "uint32" };
 }

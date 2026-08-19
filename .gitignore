@@ -1,6 +1,8 @@
 node_modules/
 build/
 dist/
+test-results/
+playwright-report/
 .vscode/
 .env
 *.log

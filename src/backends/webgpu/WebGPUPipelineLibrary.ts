@@ -1,7 +1,6 @@
 import { createInlineCompositeShaderSource } from "../../shaders/runtime";
 import { ShaderSource } from "../../shaders/ShaderSource";
 import { createWebGPUMaterialUniformData } from "./";
-import { createWebGPUSceneVertexBufferLayout } from "./bufferLayouts";
 import { DEFAULT_PRIMITIVE_DRAW_TOPOLOGY } from "../../core/types";
 import { TextureFormat, type ColorTargetState } from "../types";
 import type { PrimitiveDrawTopology } from "../../core/types";
@@ -19,6 +18,8 @@ import {
 import type { IRenderPipeline, IShaderModule } from "../types";
 import type { WebGPUDeviceResourceHost } from "./WebGPUDeviceResourceHost";
 import type { WebGPUPipelineLayouts } from "./WebGPUPipelineLayouts";
+import type { WebGPUGeometryHandle } from "./WebGPUGeometryRegistry";
+import { packWebGPUVertexGeometry } from "./WebGPUGeometryPacking";
 import { Logger } from "../../foundation/Logger";
 import { GBufferSlot, WEBGPU_MRT_COLOR_FORMATS } from "./constants";
 import {
@@ -35,6 +36,13 @@ export type {
 	WebGPUTransparentPipelineMode,
 } from "./WebGPUScenePassDescriptors";
 const COLOR_WRITE_NONE = 0;
+const FALLBACK_GEOMETRY_LAYOUT = packWebGPUVertexGeometry(
+	{
+		positions: new Float32Array(3),
+		indices: new Uint32Array(0),
+	},
+	1
+);
 const ALPHA_BLEND_STATE = {
 	color: {
 		srcFactor: "src-alpha",
@@ -94,6 +102,7 @@ interface CachedPipelineEntry {
 	depthFormat: TextureFormat;
 	sampleCount: number;
 	topology: PrimitiveDrawTopology;
+	layoutKey: string;
 	pipeline: IRenderPipeline;
 }
 
@@ -103,6 +112,11 @@ interface WebGPUSceneProgram {
 	vertexEntryPoint: string;
 	fragmentEntryPoint: string;
 	fragmentTargetMode: "single" | "mrt" | "deferred" | null;
+}
+
+interface GeometryLayout {
+	readonly layoutKey: string;
+	readonly sceneVertexLayouts: WebGPUGeometryHandle["sceneVertexLayouts"];
 }
 
 interface WebGPUPipelineLibraryOptions {
@@ -187,8 +201,10 @@ export class WebGPUPipelineLibrary {
 		transparentMode: WebGPUTransparentPipelineMode = "default",
 		drawMode: WebGPUScenePipelineDrawMode = "default",
 		sampleCount: number,
-		deferredGBufferLayout: "base" | "extended" = "extended"
+		deferredGBufferLayout: "base" | "extended" = "extended",
+		geometry?: WebGPUGeometryHandle
 	): Promise<IRenderPipeline> {
+		const geometryLayout = resolveGeometryLayout(geometry);
 		const descriptor = resolveWebGPUScenePassDescriptor(
 			mode,
 			transparentMode,
@@ -215,14 +231,16 @@ export class WebGPUPipelineLibrary {
 			cached.shaderKey === initialShaderKey &&
 			cached.depthFormat === depthFormat &&
 			cached.sampleCount === resolvedSampleCount &&
-			cached.topology === topology
+			cached.topology === topology &&
+			cached.layoutKey === geometryLayout.layoutKey
 		) {
 			return cached.pipeline;
 		}
 
 		const initialCacheKey =
 			`${pipelineKey}|${descriptor.pipelineKeyPart}|${initialShaderKey}` +
-			`|topology:${topology}|depth:${depthFormat}|msaa:${resolvedSampleCount}`;
+			`|topology:${topology}|layout:${geometryLayout.layoutKey}|` +
+			`depth:${depthFormat}|msaa:${resolvedSampleCount}`;
 		let pipeline = this._pipelineCache.get(initialCacheKey);
 		if (!pipeline) {
 			pipeline = await this._createPipeline(
@@ -230,13 +248,15 @@ export class WebGPUPipelineLibrary {
 				descriptor,
 				isWireframe,
 				topology,
+				geometryLayout,
 				resolvedSampleCount
 			);
 		}
 		const finalShaderKey = this._getShaderCacheKey(material);
 		const finalCacheKey =
 			`${pipelineKey}|${descriptor.pipelineKeyPart}|${finalShaderKey}` +
-			`|topology:${topology}|depth:${depthFormat}|msaa:${resolvedSampleCount}`;
+			`|topology:${topology}|layout:${geometryLayout.layoutKey}|` +
+			`depth:${depthFormat}|msaa:${resolvedSampleCount}`;
 		const cachedFinalPipeline = this._pipelineCache.get(finalCacheKey);
 		if (cachedFinalPipeline) {
 			pipeline = cachedFinalPipeline;
@@ -254,6 +274,7 @@ export class WebGPUPipelineLibrary {
 			depthFormat,
 			sampleCount: resolvedSampleCount,
 			topology,
+			layoutKey: geometryLayout.layoutKey,
 			pipeline,
 		});
 
@@ -265,6 +286,7 @@ export class WebGPUPipelineLibrary {
 		descriptor: WebGPUScenePassDescriptor,
 		isWireframe: boolean,
 		topology: PrimitiveDrawTopology,
+		geometry: GeometryLayout,
 		sampleCount: number
 	): Promise<IRenderPipeline> {
 		const mode = descriptor.sceneTargetMode;
@@ -274,6 +296,7 @@ export class WebGPUPipelineLibrary {
 				descriptor,
 				isWireframe,
 				topology,
+				geometry,
 				sampleCount
 			);
 		}
@@ -319,7 +342,7 @@ export class WebGPUPipelineLibrary {
 			vertex: {
 				module: sceneProgram.vertexModule,
 				entryPoint: sceneProgram.vertexEntryPoint,
-				buffers: [createWebGPUSceneVertexBufferLayout()],
+				buffers: [...geometry.sceneVertexLayouts],
 			},
 			fragment: {
 				module: sceneProgram.fragmentModule,
@@ -349,6 +372,7 @@ export class WebGPUPipelineLibrary {
 		descriptor: WebGPUScenePassDescriptor,
 		isWireframe: boolean,
 		topology: PrimitiveDrawTopology,
+		geometry: GeometryLayout,
 		sampleCount: number
 	): Promise<IRenderPipeline> {
 		const mode = descriptor.sceneTargetMode;
@@ -370,7 +394,7 @@ export class WebGPUPipelineLibrary {
 			vertex: {
 				module: shaderModule,
 				entryPoint: "vsMain",
-				buffers: [createWebGPUSceneVertexBufferLayout()],
+				buffers: [...geometry.sceneVertexLayouts],
 			},
 			fragment: {
 				module: shaderModule,
@@ -408,8 +432,10 @@ export class WebGPUPipelineLibrary {
 		mode: WebGPUSceneTargetMode = "single",
 		isWireframe = false,
 		topology: PrimitiveDrawTopology = DEFAULT_PRIMITIVE_DRAW_TOPOLOGY,
-		sampleCount: number
+		sampleCount: number,
+		geometry?: WebGPUGeometryHandle
 	): Promise<IRenderPipeline | null> {
+		const geometryLayout = resolveGeometryLayout(geometry);
 		const descriptor = resolveWebGPUScenePassDescriptor(
 			mode,
 			"default",
@@ -433,6 +459,7 @@ export class WebGPUPipelineLibrary {
 			`earlyz|${pipelineKey}|${descriptor.pipelineKeyPart}|` +
 			`mask:${isMask ? 1 : 0}|` +
 			`wire:${isWireframe ? 1 : 0}|topology:${topology}|` +
+			`layout:${geometryLayout.layoutKey}|` +
 			`depth:${depthFormat}|msaa:${resolvedSampleCount}|shader:${shaderKey}`;
 		const cached = this._earlyZPrepassCache.get(cacheKey);
 		if (cached) {
@@ -454,7 +481,7 @@ export class WebGPUPipelineLibrary {
 			vertex: {
 				module: resolved.vertexModule,
 				entryPoint: resolved.vertexEntryPoint,
-				buffers: [createWebGPUSceneVertexBufferLayout()],
+				buffers: [...geometryLayout.sceneVertexLayouts],
 			},
 			primitive: {
 				topology: effectiveTopology as any,
@@ -1085,6 +1112,16 @@ export class WebGPUPipelineLibrary {
 	private _supportsRuntimeInjects(): boolean {
 		return this._getDirectiveCacheTag() !== "none";
 	}
+}
+
+function resolveGeometryLayout(
+	geometry?: WebGPUGeometryHandle
+): GeometryLayout {
+	if (geometry) return geometry;
+	return {
+		layoutKey: FALLBACK_GEOMETRY_LAYOUT.layoutKey,
+		sceneVertexLayouts: FALLBACK_GEOMETRY_LAYOUT.sceneLayouts,
+	};
 }
 
 function isMaterialMask(material: Material): boolean {
