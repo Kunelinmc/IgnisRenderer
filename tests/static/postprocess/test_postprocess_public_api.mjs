@@ -130,6 +130,7 @@ function createLifecycleHarness() {
 	const snapshot = registry.createSnapshot("software");
 	const executor = {
 		backend: "software",
+		gBufferNormalSpace: "view",
 		createGBufferBridge: (context) => ({
 			width: context.attachments.width,
 			height: context.attachments.height,

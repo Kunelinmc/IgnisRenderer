@@ -7,6 +7,8 @@ const host = new FakeWebGPUBackend();
 const executor = new WebGPUPostProcessExecutor(host);
 const context = { attachments: { width: 8, height: 4 } };
 
+assert.equal(executor.gBufferNormalSpace, "view");
+assert.equal(executor.createGBufferBridge(context).normalSpace, "view");
 assert.deepEqual(executor.createGBufferBridge(context).channels, {});
 assert.throws(
 	() => executor.createPassExecutionContext({ implementation: {} }),

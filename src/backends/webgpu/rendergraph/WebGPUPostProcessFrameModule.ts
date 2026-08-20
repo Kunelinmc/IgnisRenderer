@@ -42,6 +42,7 @@ import {
 } from "./WebGPUFrameMessages";
 import { WEBGPU_TRANSPARENCY_FEATURE_ANALYSIS } from "./WebGPUTransparencyRuntime";
 import type { WebGPUFrameExecutionContext } from "./WebGPUFrameExecutionContext";
+import type { WebGPUFrameTargetView } from "./WebGPUFrameTargetManager";
 import { WEBGPU_FRAME_GRAPH_RESOURCES } from "./WebGPUFrameGraphResourceCatalog";
 import type {
 	WebGPURecordingFrameSession as WebGPUFrameSession,
@@ -197,15 +198,20 @@ export class WebGPUPostProcessFrameModule implements WebGPUFrameGraphModule {
 		}];
 	}
 
-	public sealFrame(context: FrameContext) {
+	public sealFrame(context: FrameContext, targets: WebGPUFrameTargetView) {
 		if (!this._declarations) {
 			throw new Error("WebGPU post-process declarations are unavailable.");
 		}
 		this._graphComposition = null;
-		this._graphFrame = this._backendRuntime.buildRenderGraphFrame(
-			context,
-			this._declarations,
-		);
+		this._bridge.bindPlanningTargets(targets.frameTargets);
+		try {
+			this._graphFrame = this._backendRuntime.buildRenderGraphFrame(
+				context,
+				this._declarations,
+			);
+		} finally {
+			this._bridge.unbindPlanningTargets();
+		}
 		return this._graphFrame.graph.frameRequirements;
 	}
 

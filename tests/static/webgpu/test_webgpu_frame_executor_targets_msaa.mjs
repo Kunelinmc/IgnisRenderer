@@ -4,8 +4,10 @@ import { PBRMaterial } from "../../../src/materials/PBRMaterial.ts";
 import * as frameExecutorFixture from "../../helpers/webgpu_frame_executor_resilience.mjs";
 
 const {
+	BackendPostProcessRuntime,
 	FakeBackend,
 	Logger,
+	WebGPUPostProcessExecutor,
 	WebGPUFrameExecutor,
 	createFrameContext,
 	createMSAAContext,
@@ -287,6 +289,7 @@ async function testGBufferBridgeReportsAllocatedWebGPUFormats() {
 	await executor.beginFrame(context);
 	const bridge = executor.frameRuntime.postProcess.createGBufferBridge(context);
 
+	assert.equal(bridge.normalSpace, "view");
 	assert.equal(bridge.depthEncoding, "linear-view-z");
 	assert.equal(bridge.motionEncoding, "ndc-delta");
 	assert.equal(bridge.channels.depth.format, "rgba16float");
@@ -294,7 +297,7 @@ async function testGBufferBridgeReportsAllocatedWebGPUFormats() {
 	assert.equal(bridge.channels.motion.format, "rgba16float");
 	assert.equal(bridge.channels.motion.encoding, "motion-depth.xy");
 	assert.equal(bridge.channels.normal.format, "rgba8unorm");
-	assert.equal(bridge.channels.normal.encoding, "encoded-world-normal");
+	assert.equal(bridge.channels.normal.encoding, "encoded-view-normal");
 	assert.equal(bridge.channels.roughness.format, "rgba8unorm");
 	assert.equal(bridge.channels.roughness.encoding, "normal-roughness-metallic.z");
 	assert.equal(bridge.channels.metallic.format, "rgba8unorm");
@@ -328,23 +331,37 @@ async function testGBufferBridgeReportsAllocatedWebGPUFormats() {
 
 async function testHiZIsPlannableBeforeItsBuildExecutes() {
 	const backend = new FakeBackend();
+	const postProcessExecutor = new WebGPUPostProcessExecutor(backend);
+	backend.postProcessRuntime = new BackendPostProcessRuntime({
+		executor: postProcessExecutor,
+		backend,
+	});
 	const executor = new WebGPUFrameExecutor(backend, createResourcesStub());
 	const context = createFrameContext(64, 64);
 	context.postProcess = createResolvedPostProcess({
 		ssgi: { enabled: true },
 	}, "webgpu");
-
-	await executor.beginFrame(context);
-	const targets = getFrameTargets(executor);
 	const port = executor.frameRuntime.postProcess.createSessionPort();
+	postProcessExecutor.bindSession(port);
 
-	assert.ok(targets.hiZ);
-	assert.equal(
-		port.isGraphResourceAvailable("backend:frame-hiz"),
-		true,
-	);
+	try {
+		await executor.beginFrame(context);
+		const targets = getFrameTargets(executor);
 
-	executor.abortFrame();
+		assert.ok(targets.hiZ);
+		assert.equal(
+			port.isGraphResourceAvailable("backend:frame-hiz"),
+			true,
+		);
+		assert.deepEqual(
+			executor.frameRuntime.postProcess.graphFrame.graph.passes.map((pass) => pass.id),
+			["ssgi"],
+			"SSGI finalization must see the allocated MRT G-buffer channels",
+		);
+	} finally {
+		executor.abortFrame();
+		postProcessExecutor.unbindSession(port);
+	}
 }
 
 async function testFrameTargetsAllocateAndReleaseOptionalTargetsWhenNeeded() {

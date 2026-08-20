@@ -10,6 +10,7 @@ import type {
 } from "./WebGPUFrameSession";
 import type { WebGPUFrameExecutionContext } from "./WebGPUFrameExecutionContext";
 import type { WebGPUFrameGraphCompiler } from "./WebGPUFrameGraphCompiler";
+import type { WebGPUFrameTargetView } from "./WebGPUFrameTargetManager";
 import type {
 	WebGPUFrameMessageHandler,
 	WebGPUFrameMessagePhase,
@@ -195,9 +196,12 @@ export class WebGPUFrameGraphModuleRegistry {
 		);
 	}
 
-	public sealFrame(context: FrameContext): FramePreparationRequirements {
+	public sealFrame(
+		context: FrameContext,
+		targets: WebGPUFrameTargetView,
+	): FramePreparationRequirements {
 		const requirements = this._modules
-			.map((module) => module.sealFrame?.(context) ?? null)
+			.map((module) => module.sealFrame?.(context, targets) ?? null)
 			.filter((value): value is FramePreparationRequirements => value !== null);
 		if (requirements.length > 1) {
 			throw new Error("Multiple WebGPU frame modules published preparation requirements.");

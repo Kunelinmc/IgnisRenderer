@@ -58,7 +58,7 @@ function createGBufferBridge() {
 	return {
 		width: 64,
 		height: 32,
-		normalSpace: "world",
+		normalSpace: "view",
 		depthEncoding: "linear-view-z",
 		motionEncoding: "ndc-delta",
 		channels: {

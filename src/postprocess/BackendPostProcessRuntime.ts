@@ -667,6 +667,7 @@ export class BackendPostProcessRuntime {
 	private _createWarmupGBuffer(context: FrameContext): LogicalGBufferBridge {
 		const width = Math.max(1, context.attachments?.width ?? 1);
 		const height = Math.max(1, context.attachments?.height ?? 1);
+		const normalSpace = this._executor.gBufferNormalSpace;
 		const semantics: readonly LogicalGBufferSemantic[] = [
 			"color",
 			"depth",
@@ -696,7 +697,7 @@ export class BackendPostProcessRuntime {
 		return {
 			width,
 			height,
-			normalSpace: "world",
+			normalSpace,
 			depthEncoding: "linear-view-z",
 			motionEncoding: "ndc-delta",
 			channels,

@@ -105,17 +105,39 @@ fn octahedralWrap(value: vec2<f32>) -> vec2<f32> {
 	return (vec2<f32>(1.0) - abs(value.yx)) * signNotZero2(value);
 }
 
-fn decodeWorldNormal(encoded: vec2<f32>) -> vec3<f32> {
+fn decodeViewNormal(encoded: vec2<f32>) -> vec3<f32> {
 	let oct = encoded * 2.0 - vec2<f32>(1.0);
-	var normal = vec3<f32>(
+	var viewNormal = vec3<f32>(
 		oct.x,
 		oct.y,
 		1.0 - abs(oct.x) - abs(oct.y)
 	);
-	if (normal.z < 0.0) {
-		normal = vec3<f32>(octahedralWrap(normal.xy), normal.z);
+	if (viewNormal.z < 0.0) {
+		viewNormal = vec3<f32>(octahedralWrap(viewNormal.xy), viewNormal.z);
 	}
-	return normalize(normal);
+	return normalize(viewNormal);
+}
+
+fn decodeWorldNormal(encoded: vec2<f32>) -> vec3<f32> {
+	let viewNormal = decodeViewNormal(encoded);
+	let basis = getCameraBasis();
+	return normalize(
+		basis.right * viewNormal.x +
+		basis.up * viewNormal.y +
+		basis.backward * viewNormal.z
+	);
+}
+
+fn isFrontFacingTraceHit(uv: vec2<f32>, direction: vec3<f32>) -> bool {
+	let hitNormal = decodeWorldNormal(
+		textureSampleLevel(
+			traceNormalRoughMetal,
+			traceSampler,
+			uv,
+			0.0
+		).xy
+	);
+	return dot(hitNormal, -direction) > 0.0;
 }
 
 fn isInsideScreen(uv: vec2<f32>) -> bool {
@@ -259,6 +281,13 @@ fn traceHiZ(
 				mip = safeMip - 1;
 				continue;
 			}
+			// The first depth candidate is commonly the emitting surface itself.
+			// Keep marching until the ray reaches a surface facing the ray.
+			if (!isFrontFacingTraceHit(sampleUv, direction)) {
+				missT = t;
+				t += baseStride;
+				continue;
+			}
 			result.hitUv = sampleUv;
 			result.t = t;
 			result.hit = true;
@@ -309,7 +338,8 @@ fn traceHiZ(
 			).x;
 			if (
 				sceneDepth > 0.0 &&
-				rayDepth >= sceneDepth - thickness
+				rayDepth >= sceneDepth - thickness &&
+				isFrontFacingTraceHit(sampleUv, direction)
 			) {
 				refineMax = midpoint;
 				result.hitUv = sampleUv;
@@ -546,7 +576,7 @@ fn csCompose(@builtin(global_invocation_id) gid: vec3<u32>) {
 		uv,
 		0.0
 	);
-	let centerNormal = decodeWorldNormal(centerNormalRoughMetal.xy);
+	let centerNormal = decodeViewNormal(centerNormalRoughMetal.xy);
 	let offsets = array<vec2<f32>, 5>(
 		vec2<f32>(0.0, 0.0),
 		vec2<f32>(1.0, 0.0),
@@ -571,7 +601,7 @@ fn csCompose(@builtin(global_invocation_id) gid: vec3<u32>) {
 		if (sampleDepth <= 0.0) {
 			continue;
 		}
-		let sampleNormal = decodeWorldNormal(
+		let sampleNormal = decodeViewNormal(
 			textureSampleLevel(
 				composeNormalRoughMetal,
 				composeSampler,

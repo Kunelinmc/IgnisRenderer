@@ -5,6 +5,7 @@ import type { FramePreparationRequirements } from "../../../pipeline/FrameRequir
 import type { WebGPUFrameNodeExecutor } from "./WebGPUFrameNodeExecutorRegistry";
 import type { WebGPUFrameExecutionContext } from "./WebGPUFrameExecutionContext";
 import type { WebGPUFrameGraphCompiler } from "./WebGPUFrameGraphCompiler";
+import type { WebGPUFrameTargetView } from "./WebGPUFrameTargetManager";
 import type {
 	WebGPUCommittingFrameSession,
 	WebGPURecordingFrameSession,
@@ -85,7 +86,10 @@ export interface WebGPUFrameGraphModule {
 		readonly descriptor: WebGPUFrameMessageDescriptor<unknown>;
 		readonly value: unknown;
 	}[];
-	sealFrame?(context: FrameContext): FramePreparationRequirements | null;
+	sealFrame?(
+		context: FrameContext,
+		targets: WebGPUFrameTargetView,
+	): FramePreparationRequirements | null;
 	executeComposedStage?(
 		stage: WebGPUCompiledFrameGraphStage | undefined,
 		compiler: Pick<WebGPUFrameGraphCompiler, "recordSkippedNode">,

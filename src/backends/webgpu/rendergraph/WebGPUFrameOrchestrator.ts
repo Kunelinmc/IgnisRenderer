@@ -194,7 +194,7 @@ export class WebGPUFrameOrchestrator {
 			this._diagnosticsObserver?.onTargetsConfigured?.(
 				this._frameTargetManager.getDebugState(),
 			);
-			const frameRequirements = this._frameModules.sealFrame(context);
+			const frameRequirements = this._frameModules.sealFrame(context, targets);
 			if (context.framePlan) {
 				await this._compileWholeFrameGraph(
 					context,

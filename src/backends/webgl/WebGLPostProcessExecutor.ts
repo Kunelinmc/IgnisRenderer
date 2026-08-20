@@ -46,6 +46,7 @@ export class WebGLPostProcessExecutor implements IPostProcessExecutor {
 	 * Backend kind used for pass implementation resolution.
 	 */
 	public readonly backend = "webgl";
+	public readonly gBufferNormalSpace = "world";
 	private readonly _host: WebGLPostProcessExecutorHost;
 
 	constructor(host: WebGLPostProcessExecutorHost) {

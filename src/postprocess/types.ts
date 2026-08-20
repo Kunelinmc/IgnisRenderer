@@ -61,6 +61,7 @@ export interface LogicalGBufferChannel {
 export interface LogicalGBufferBridge {
 	readonly width: number;
 	readonly height: number;
+	/** Coordinate space of vectors stored in the logical `normal` channel. */
 	readonly normalSpace: "world" | "view";
 	readonly depthEncoding: "linear-view-z" | "ndc" | "hardware";
 	readonly motionEncoding?: "ndc-delta";
@@ -326,6 +327,8 @@ export interface PostProcessFrameAbortRequest extends PostProcessFrameRequest {
 
 export interface IPostProcessExecutor {
 	readonly backend: RenderBackendType;
+	/** @internal Physical coordinate space used by the backend normal channel. */
+	readonly gBufferNormalSpace: LogicalGBufferBridge["normalSpace"];
 	/**
 	 * Creates the logical G-buffer view consumed by cross-backend passes.
 	 *

@@ -19,6 +19,7 @@ import type { DisplayOutputState } from "../../rendering/DisplayOutput";
  */
 export class SoftwarePostProcessExecutor implements IPostProcessExecutor {
 	public readonly backend = "software";
+	public readonly gBufferNormalSpace = "view";
 	private _activeFrame: SoftwareFrameView | null = null;
 	private _outputColorDomain: PostProcessColorDomain = "scene-linear-hdr";
 

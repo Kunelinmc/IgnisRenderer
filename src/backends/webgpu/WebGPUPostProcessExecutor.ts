@@ -33,6 +33,7 @@ export interface WebGPUPostProcessSessionPort {
 /** Supplies backend resources and delegates frame-only work through a session port. */
 export class WebGPUPostProcessExecutor implements IPostProcessExecutor {
 	public readonly backend = "webgpu";
+	public readonly gBufferNormalSpace = "view";
 	private _sessionPort: WebGPUPostProcessSessionPort | null = null;
 
 	constructor(private readonly _host: WebGPUFrameHost) {}
@@ -131,7 +132,7 @@ export class WebGPUPostProcessExecutor implements IPostProcessExecutor {
 		return {
 			width: Math.max(1, context.attachments.width),
 			height: Math.max(1, context.attachments.height),
-			normalSpace: "world",
+			normalSpace: "view",
 			depthEncoding: "hardware",
 			channels: {},
 			worldPosition: { source: "derived", available: false },

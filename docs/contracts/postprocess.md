@@ -37,6 +37,13 @@ This document defines logical post-process declarations, planning, backend execu
 - The accessor must expose assigned color input/output and typed getters for
   G-buffer, history, transient, and shared resources. Access to an undeclared
   resource must throw; a missing optional resource must return `null`.
+- `LogicalGBufferBridge.normalSpace` must describe the physical normal channel
+  encoding supplied by the active backend. An implementation that reconstructs
+  positions or directions in another coordinate space must explicitly convert
+  sampled normals before combining them with those values.
+- `IPostProcessExecutor.gBufferNormalSpace` must declare the backend's physical
+  normal space. Synthetic warmup bridges must consume that declaration and
+  must not infer normal space from a backend identifier.
 - `color.output: "new-version"` must receive a backend-assigned output distinct
   from its input. `color.output: "preserve"` must not receive a new output.
 - `{ ran: true }` must commit the assigned color output automatically.

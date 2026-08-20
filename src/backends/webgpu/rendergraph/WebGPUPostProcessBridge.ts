@@ -37,6 +37,7 @@ export class WebGPUPostProcessBridge {
 	private readonly _runtime: WebGPUPostProcessRuntime;
 	private readonly _ports: WebGPUPostProcessBridgePorts;
 	private _execution: WebGPUFrameExecutionContext | null = null;
+	private _planningTargets: WebGPUFrameTargets | null = null;
 	private _expectedColorTarget: IRenderTexture | null = null;
 	private _motionHistoryWriteTarget: IRenderTexture | null = null;
 	private readonly _physicalIds = new WeakMap<object, string>();
@@ -61,8 +62,18 @@ export class WebGPUPostProcessBridge {
 		this.clearPendingFrameState();
 	}
 
+	/** @internal Makes allocated targets visible only while sealing a frame plan. */
+	public bindPlanningTargets(targets: WebGPUFrameTargets | null): void {
+		this._planningTargets = targets;
+	}
+
+	/** @internal Clears the temporary frame-sealing target view. */
+	public unbindPlanningTargets(): void {
+		this._planningTargets = null;
+	}
+
 	public getFrameTargets(): WebGPUFrameTargets | null {
-		return this._execution?.targets.frameTargets ?? null;
+		return this._execution?.targets.frameTargets ?? this._planningTargets;
 	}
 
 	public createResource(desc: PostProcessResourceDescriptor): PostProcessResourceHandle {
@@ -100,7 +111,7 @@ export class WebGPUPostProcessBridge {
 	}
 
 	public createGBufferBridge(context: FrameContext): LogicalGBufferBridge {
-		const targets = this._execution?.targets.frameTargets ?? null;
+		const targets = this.getFrameTargets();
 		const width = Math.max(1, context.attachments.width);
 		const height = Math.max(1, context.attachments.height);
 		const channels: LogicalGBufferBridge["channels"] = {};
@@ -141,7 +152,7 @@ export class WebGPUPostProcessBridge {
 					width,
 					height,
 					format: TextureFormat.RGBA8Unorm,
-					encoding: "encoded-world-normal",
+					encoding: "encoded-view-normal",
 				};
 				channels.roughness = {
 					semantic: "roughness",
@@ -197,7 +208,7 @@ export class WebGPUPostProcessBridge {
 		return {
 			width,
 			height,
-			normalSpace: "world",
+			normalSpace: "view",
 			depthEncoding: "linear-view-z",
 			motionEncoding: targets?.gMotionDepth ? "ndc-delta" : undefined,
 			channels,

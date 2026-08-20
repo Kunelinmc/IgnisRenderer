@@ -97,6 +97,9 @@ lighting, presentation configuration, reflections, and structured buffer packing
 - WebGPU post-process declarations must be planned before frame-target
   allocation, finalized against allocated G-buffer and shared-resource
   availability, and reused for whole-frame graph composition.
+- Post-process finalization must receive the allocated frame-target view during
+  frame sealing. It must not depend on the later recording-session execution
+  binding to discover G-buffer channels or shared-resource allocation.
 - Feature-owned configuration handlers must apply capability and fallback
   policy, then publish typed demands. `WebGPUFrameConfigurationModule` must
   reduce only generic target classes, logical resource requirements, feature
@@ -482,7 +485,7 @@ lighting, presentation configuration, reflections, and structured buffer packing
 	- `gAlbedoAlpha`, `gNormalRoughMetal`, and `gSheenReflectance` must use
 	  `rgba8unorm`. `gEmissiveOcclusion`, `gMotionDepth`, `gSpecular`, and
 	  `gCoatSheen` must use `rgba16float`.
-	- `gNormalRoughMetal.xy` must store the encoded world-space normal,
+	- `gNormalRoughMetal.xy` must store the encoded view-space normal,
 	  `gNormalRoughMetal.z` must store roughness, and
 	  `gNormalRoughMetal.w` must store metallic.
 	- `gSpecular.rgb` must store the resolved specular color. `gSpecular.a` must
@@ -491,12 +494,16 @@ lighting, presentation configuration, reflections, and structured buffer packing
 	- Deferred storage payload textures must be `gMaterialExt0` as
 	  `rgba16float` and `gMaterialExt3` as `rgba16uint`. Deferred opaque shading
 	  must not store transmission volume or attenuation payloads.
-	- `gMaterialExt0.xy` must store the encoded clearcoat normal,
+	- `gMaterialExt0.xy` must store the encoded view-space clearcoat normal,
 	  `gMaterialExt0.z` the iridescence factor, and `gMaterialExt0.w` the
 	  iridescence thickness.
-	- `gMaterialExt3.xy` must store the encoded world-space anisotropy tangent,
+	- `gMaterialExt3.xy` must store the encoded view-space anisotropy tangent,
 	  `gMaterialExt3.z` must store the resolved anisotropy strength, and
 	  `gMaterialExt3.w` must store the 11-bit receiver render-layer mask.
+	- WebGPU must expose `LogicalGBufferBridge.normalSpace` as `"view"`.
+	  Consumers that combine G-buffer normals with reconstructed world-space
+	  positions or directions must transform decoded normals through the packed
+	  camera basis first.
 	- `gMotionDepth.w` must store an exactly representable packed material word.
 	  Bits `0..1` contain the shading model; higher bits identify clearcoat,
 	  sheen, iridescence, anisotropy, and non-default specular/reflectance data.
@@ -539,6 +546,17 @@ lighting, presentation configuration, reflections, and structured buffer packing
 	- Orthographic camera packing must store `halfWidth` in
 	  `environmentBasisRight.w` and `halfHeight` in `environmentBasisUp.w`.
 	- `environmentBasisBackward.w` must remain the orthographic flag.
+
+### Screen-space global illumination
+
+- `ScreenSpaceGlobalIlluminationPass` must transform decoded view-space
+  G-buffer normals into world space before constructing hemisphere rays,
+  offsetting ray origins, or evaluating hit-facing terms.
+- A Hi-Z depth candidate whose normal does not face the incoming ray must be
+  treated as a traversal miss. SSGI must continue marching instead of ending
+  the ray with a rejected self-hit or back-facing hit.
+- Binary hit refinement must apply the same facing test as the coarse trace so
+  refinement cannot move a valid hit onto a rejected surface.
 
 ### Screen-space refractions
 
