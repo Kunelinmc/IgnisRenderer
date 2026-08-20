@@ -16,8 +16,8 @@ import type {
 	ShadowFramePlan,
 } from "../../lights/shadows/ShadowFramePlan";
 import {
-	ANIMATION_WEBGPU_JOINT_MATRICES_KEY,
-	ANIMATION_WEBGPU_MORPH_WEIGHTS_KEY,
+	ANIMATION_JOINT_MATRICES_KEY,
+	ANIMATION_MORPH_WEIGHTS_KEY,
 } from "../../simulation/animation/types";
 import { DEFAULT_PRIMITIVE_DRAW_TOPOLOGY } from "../../core/types";
 import { resolveMaterialShadowTransmittance } from "../../materials/transparency";
@@ -1217,9 +1217,9 @@ export class WebGPUShadowCasterRenderer {
 		}
 		const device = this._requireBackendDevice();
 		const jointMap =
-			context.transient.get(ANIMATION_WEBGPU_JOINT_MATRICES_KEY) ?? null;
+			context.transient.get(ANIMATION_JOINT_MATRICES_KEY) ?? null;
 		const morphMap =
-			context.transient.get(ANIMATION_WEBGPU_MORPH_WEIGHTS_KEY) ?? null;
+			context.transient.get(ANIMATION_MORPH_WEIGHTS_KEY) ?? null;
 		const payload = this._animationPayloads.getShadowPayload(
 			packet,
 			geometry,

@@ -12,7 +12,7 @@ import {
 	PBRMaterialFeature,
 	PBRMaterialTextureFeature,
 } from "../../materials/PBRMaterial";
-import type { FrameContext } from "../../pipeline/types";
+import type { DrawPacket, FrameContext } from "../../pipeline/types";
 import {
 	WEBGL_FULL_SCENE_VARIANT,
 	getWebGLSceneDepthVariantKey,
@@ -41,7 +41,8 @@ export {
 
 /** @internal Exact sampler-free built-in fallback for a failed ShaderMaterial. */
 export function createWebGLShaderMaterialFallbackVariant(
-	mode: ShaderTargetMode
+	mode: ShaderTargetMode,
+	deformation: WebGLDeformationProfile = WEBGL_STATIC_DEFORMATION_PROFILE,
 ): WebGLSceneVariantDescriptor {
 	const full = WEBGL_FULL_SCENE_VARIANT;
 	return normalizeWebGLSceneVariantDescriptor({
@@ -85,6 +86,8 @@ export function createWebGLShaderMaterialFallbackVariant(
 			thicknessMap: false,
 			alphaMask: false,
 		},
+		skinProfile: deformation.skinProfile,
+		morphSemanticMask: deformation.morphSemanticMask,
 	});
 }
 
@@ -100,7 +103,8 @@ export function resolveWebGLBuiltinSceneVariant(
 	mode: ShaderTargetMode,
 	oitPassMode: 0 | 1 | 2,
 	environment: WebGLSceneVariantEnvironment,
-	materialGBuffer = false
+	materialGBuffer = false,
+	deformation: WebGLDeformationProfile = WEBGL_STATIC_DEFORMATION_PROFILE,
 ): WebGLSceneVariantDescriptor | null {
 	if (material instanceof ShaderMaterial) {
 		return null;
@@ -149,11 +153,14 @@ export function resolveWebGLBuiltinSceneVariant(
 			environmentSpecular: hasEnvironmentSpecular,
 		},
 		material: materialVariant,
+		skinProfile: deformation.skinProfile,
+		morphSemanticMask: deformation.morphSemanticMask,
 	});
 }
 
 export function resolveWebGLBuiltinDepthVariant(
-	material: Material
+	material: Material,
+	deformation: WebGLDeformationProfile = WEBGL_STATIC_DEFORMATION_PROFILE,
 ): WebGLSceneDepthVariantDescriptor | null {
 	if (material instanceof ShaderMaterial) {
 		return null;
@@ -163,7 +170,36 @@ export function resolveWebGLBuiltinDepthVariant(
 	return normalizeWebGLSceneDepthVariantDescriptor({
 		alphaMask,
 		baseMap: alphaMask && !!uniforms.baseMap,
+		skinProfile: deformation.skinProfile,
+		morphPosition: (deformation.morphSemanticMask & 1) !== 0,
 	});
+}
+
+export interface WebGLDeformationProfile {
+	readonly skinProfile: "static" | "skin4" | "skin8";
+	readonly morphSemanticMask: number;
+}
+
+export const WEBGL_STATIC_DEFORMATION_PROFILE: WebGLDeformationProfile = {
+	skinProfile: "static",
+	morphSemanticMask: 0,
+};
+
+export function resolveWebGLPacketDeformationProfile(
+	packet: DrawPacket,
+): WebGLDeformationProfile {
+	const geometry = packet.primitive?.geometry;
+	if (!geometry) return WEBGL_STATIC_DEFORMATION_PROFILE;
+	const skinProfile =
+		geometry.joints1 || geometry.weights1 ? "skin8"
+		: geometry.joints0 || geometry.weights0 ? "skin4"
+		: "static";
+	let morphSemanticMask = 0;
+	for (const target of (geometry.morphTargets ?? []).slice(0, 8)) {
+		if (target.positions) morphSemanticMask |= 1;
+		if (target.normals) morphSemanticMask |= 2;
+	}
+	return { skinProfile, morphSemanticMask };
 }
 
 function resolveWebGLSceneMaterialVariant(

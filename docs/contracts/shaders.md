@@ -43,6 +43,18 @@ This document defines shader source ownership, composition, diagnostics, and cus
   `__WEBGL_MAX_SPOT_LIGHTS__`. Clustered fragment loops must use
   `__WEBGL_MAX_CLUSTER_LIGHTS_PER_FRAGMENT__`. `ShaderRuntime` directive
   profiles own replacement with concrete backend constants.
+- The WebGL directive profile must provide
+  `#import <ignis/webgl/animation>`. The include is the shader-facing animation
+  ABI for `ShaderMaterial` and built-in vertex shaders. It must declare the
+  reserved `uAnimationPayload`, `uMorphPositionDeltas`, and
+  `uMorphNormalDeltas` samplers; the `uAnimationCounts`, `uAnimationOffsets`,
+  and `uAnimationTextureWidths` metadata uniforms;
+  `IgnisAnimationVertex`, `ignisApplyAnimationVertex(...)`, and
+  `ignisApplyAnimationPosition(...)`.
+- WebGL animation helpers must expose current and previous deformation, apply
+  morph before skinning, and use the fixed scene joint and weight attribute
+  locations. Importing the ABI does not automatically rewrite a custom vertex
+  entry point; `ShaderMaterial` authors must call the appropriate helper.
 - Composite results returned from `ShaderSource` must be cloned so callers cannot
   mutate cached source maps.
 

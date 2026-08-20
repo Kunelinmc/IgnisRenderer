@@ -206,6 +206,10 @@ The option `enableEarlyZPrepass?: boolean` is accepted by `SoftwareBackendOption
 - Opaque mask materials (`material.alphaMode === MASK`) must run alpha-test discard in the depth prepass and must not write color targets.
 - **Software Backend**: Triangles with `material.alphaMode === MASK` must be skipped in the prepass and must be evaluated in the regular color pass.
 - **WebGL Backend**: Built-in material depth prepass fragments must only apply alpha mask discard. The discard test must use `uBaseColor.a * texture(uBaseMap, uv).a < uAlpha.x` when `uHasBaseMap == 1`, and `uBaseColor.a < uAlpha.x` otherwise. A WebGL `ShaderMaterial` using `AlphaMode.Mask` without a WebGL `fragment-depth` chunk should warn once and skip the Early-Z prepass for that material.
+- **Animated geometry**: WebGL and WebGPU early-Z vertex processing must apply
+  the same current morph and skinning deformation used by the matching color or
+  G-buffer draw. Animated opaque packets must not be excluded solely because
+  they use skinning or morph targets.
 - **WebGPU Backend**: A `ShaderMaterial` with `alphaMode === MASK` must provide explicit depth prepass fragment shader configuration via `depthFragmentCode` and `depthFragmentEntryPoint`. If this configuration is missing, the engine must skip the Early-Z prepass for that material and log a warning once.
 
 #### Pipeline and Render State Contract

@@ -428,6 +428,35 @@ void main() {
 	assert.equal(result.code.includes("__WEBGL_MAX_DIRECTIONAL_LIGHTS__"), false);
 }
 
+function testWebGLAnimationIncludeExpandsFromRuntimeProfile() {
+	const { stage } = createStage({
+		mode: "strict",
+		runtime: new ShaderRuntime({ mode: "strict" }),
+	});
+	const result = stage.compile({
+		code: `#version 300 es
+precision highp float;
+#import <ignis/webgl/animation>
+void main() { gl_Position = vec4(0.0); }`,
+		language: "glsl",
+		stage: "vertex",
+		entryPoint: "main",
+		label: "WebGLAnimationABI",
+		sourceKind: "custom-material",
+		directiveSourcePath: "./custom/animatedVertex.glsl",
+	});
+	assert.equal(result.hasErrors, false);
+	assert.ok(result.code.includes("uniform highp sampler2D uAnimationPayload;"));
+	assert.ok(result.code.includes("uniform highp sampler2D uMorphPositionDeltas;"));
+	assert.ok(result.code.includes("uniform highp sampler2D uMorphNormalDeltas;"));
+	assert.ok(result.code.includes("uniform ivec4 uAnimationCounts;"));
+	assert.ok(result.code.includes("uniform ivec4 uAnimationOffsets;"));
+	assert.ok(result.code.includes("uniform ivec4 uAnimationTextureWidths;"));
+	assert.equal(result.code.includes("uIgnisAnimationPayload"), false);
+	assert.ok(result.code.includes("IgnisAnimationVertex ignisApplyAnimationVertex("));
+	assert.ok(result.code.includes("vec3 ignisApplyAnimationPosition("));
+}
+
 async function testCompileAsyncUsesAsyncDirectivePreprocessPath() {
 	const { stage } = createStage({
 		hook: async () => ({
@@ -494,6 +523,7 @@ async function run() {
 		testAsyncHookFallbackByMode();
 		testLumaInjectionExpandsToConcreteWeightsForGLSL();
 		testWebGLLightLimitConstantsExpandFromRuntimeProfile();
+		testWebGLAnimationIncludeExpandsFromRuntimeProfile();
 		await testCompileAsyncUsesAsyncDirectivePreprocessPath();
 		await testCompileAsyncUsesAsyncRuntimeProcessPath();
 		console.log("Shader directive pipeline v2 tests passed");

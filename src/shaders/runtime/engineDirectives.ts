@@ -22,11 +22,12 @@ import {
 	WEBGPU_SH_COEFFICIENT_COUNT,
 	WEBGPU_TEXTURE_SLOT_COUNT,
 } from "../../backends/webgpu/constants";
+import { embeddedSyncShaderSources } from "../generated/embeddedSyncShaderSources";
 
 const WEBGPU_PROFILE_ID = "webgpu/v1";
 const WEBGL_PROFILE_ID = "webgl/v1";
 const SOFTWARE_PROFILE_ID = "software/v1";
-const PROFILE_REVISION = 12;
+const PROFILE_REVISION = 13;
 const MATERIAL_TEXTURE_SLOT_COUNT = 14;
 const MATERIAL_SHADER_UNIFORM_BINDING = WEBGPU_MODEL_BINDING_SHADER_UNIFORMS;
 const MIGRATION_HINT =
@@ -704,6 +705,13 @@ function createWebGLProfile(): ShaderDirectiveProfile {
 		backend: "webgl",
 		revision: PROFILE_REVISION,
 		includeModules: [
+			{
+				language: "glsl",
+				id: "ignis/webgl/animation.glsl",
+				code:
+					embeddedSyncShaderSources["./webgl/common/animation.glsl"] ?? "",
+				sourcePath: "src/shaders/webgl/common/animation.glsl",
+			},
 			{
 				language: "glsl",
 				id: "ignis/webgl/constants.glsl",

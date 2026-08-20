@@ -169,7 +169,20 @@ function testShadowWarmupContributesDepthAndTransmittancePrograms() {
 	const handles = enabled[0].run();
 	assert.deepEqual(
 		handles.map((handle) => handle.label),
-		["WebGLShadowDepthProgram", "WebGLShadowTransmittanceProgram"],
+		[
+			"WebGLShadowDepthProgram",
+			"WebGLShadowDepthProgram_static:1",
+			"WebGLShadowDepthProgram_skin4:0",
+			"WebGLShadowDepthProgram_skin4:1",
+			"WebGLShadowDepthProgram_skin8:0",
+			"WebGLShadowDepthProgram_skin8:1",
+			"WebGLShadowTransmittanceProgram",
+			"WebGLShadowTransmittanceProgram_static:1",
+			"WebGLShadowTransmittanceProgram_skin4:0",
+			"WebGLShadowTransmittanceProgram_skin4:1",
+			"WebGLShadowTransmittanceProgram_skin8:0",
+			"WebGLShadowTransmittanceProgram_skin8:1",
+		],
 	);
 	runtime.destroy();
 }

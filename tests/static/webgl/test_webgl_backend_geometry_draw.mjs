@@ -148,6 +148,77 @@ function testGeometryRegistryUploadsUV1Attribute() {
 	);
 }
 
+function testGeometryRegistryUploadsSkinAndMorphResources() {
+	const gl = createGeometryCaptureGL();
+	gl.MAX_TEXTURE_SIZE = 0x0d33;
+	gl.TEXTURE_2D = 0x0de1;
+	gl.TEXTURE_MIN_FILTER = 0x2801;
+	gl.TEXTURE_MAG_FILTER = 0x2800;
+	gl.TEXTURE_WRAP_S = 0x2802;
+	gl.TEXTURE_WRAP_T = 0x2803;
+	gl.NEAREST = 0x2600;
+	gl.CLAMP_TO_EDGE = 0x812f;
+	gl.RGBA32F = 0x8814;
+	gl.RGBA = 0x1908;
+	gl.getParameter = () => 64;
+	const textureUploads = [];
+	let textureId = 0;
+	gl.createTexture = () => ({ id: ++textureId });
+	gl.deleteTexture = () => {};
+	gl.bindTexture = () => {};
+	gl.texParameteri = () => {};
+	gl.texImage2D = (...args) => {
+		textureUploads.push({
+			width: args[3],
+			height: args[4],
+			data: new Float32Array(args[8]),
+		});
+	};
+	const registry = new WebGLGeometryRegistry(gl, () => {});
+	const positionDelta = new Float32Array([
+		1, 2, 3,
+		4, 5, 6,
+		7, 8, 9,
+	]);
+	const normalDelta = new Float32Array([
+		0.1, 0.2, 0.3,
+		0.4, 0.5, 0.6,
+		0.7, 0.8, 0.9,
+	]);
+	const morphTargets = Array.from({ length: 10 }, (_, index) => index === 0 ? {
+		positions: positionDelta,
+		normals: normalDelta,
+	} : {});
+	const primitive = {
+		id: "p-deformation",
+		geometry: {
+			positions: new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]),
+			indices: new Uint32Array([0, 1, 2]),
+			joints0: new Uint16Array([0, 1, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0]),
+			weights0: new Float32Array([0.5, 0.5, 0, 0, 1, 0, 0, 0, 0.25, 0.75, 0, 0]),
+			joints1: new Uint16Array(12),
+			weights1: new Float32Array(12),
+			morphTargets,
+		},
+		topology: "triangle-list",
+	};
+	const handle = registry.getGeometry({ id: "packet-deformation", primitive });
+	assert.ok(handle);
+	assert.equal(handle.skinProfile, "skin8");
+	assert.equal(handle.morphTargetCount, 8);
+	assert.equal(handle.morphSemanticMask, 3);
+	assert.ok(handle.skinBuffer);
+	assert.ok(handle.morphPositionTexture);
+	assert.ok(handle.morphNormalTexture);
+	for (const location of [7, 8, 9, 10]) {
+		assert.ok(gl.calls.attributePointers.some((call) => call.index === location));
+	}
+	assert.equal(textureUploads.length, 2);
+	assert.deepEqual(Array.from(textureUploads[0].data.slice(0, 4)), [1, 2, 3, 0]);
+	assert.ok(Math.abs(textureUploads[1].data[0] - 0.1) < 1e-6);
+	registry.destroy();
+}
+
 function testDrawWebGLPacketBindsPBRTexturesAndUVSets() {
 	const gl = createScenePassCaptureGL();
 	const material = new PBRMaterial();
@@ -595,6 +666,7 @@ await runWebGLBackendFile([
 	testGeometryRegistryRejectsOutOfRangeIndices,
 	testGeometryRegistryRetriesAfterUploadAllocationFailure,
 	testGeometryRegistryUploadsUV1Attribute,
+	testGeometryRegistryUploadsSkinAndMorphResources,
 	testDrawWebGLPacketBindsPBRTexturesAndUVSets,
 	testDrawWebGLPacketBindsAnisotropyMapWhenSharedSlotIsFree,
 	testDrawWebGLPacketPreservesInactiveGlobalSamplerUnits,

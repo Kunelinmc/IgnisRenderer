@@ -115,6 +115,10 @@ export interface WebGLScenePassHost {
 		viewportHeight: number
 	): void;
 	_bindGlobalUniforms(sceneProgram: WebGLSceneProgram, context: FrameContext): void;
+	_bindAnimationPayload?(
+		sceneProgram: WebGLSceneProgram,
+		packet: DrawPacket,
+	): boolean;
 	getShadowSamplingState(): { readonly enabled: boolean };
 	_setCullMode(material: Material): void;
 	_drawPacket(
@@ -439,13 +443,6 @@ export function drawWebGLPacket(
 
 	const activeDrawBuffers = host._activeDrawBuffers;
 
-	if (packet.meshInstance.skeleton) {
-		logWebGLScenePassWarning(
-			"webgl-skinning-unsupported",
-			`WebGL backend does not support skinning yet; skipping mesh instance ${packet.meshInstance.id}`
-		);
-		return;
-	}
 	if (!Matrix4.isFinite(packet.worldMatrix)) {
 		logWebGLScenePassWarning(
 			"webgl-world-matrix-invalid",
@@ -456,6 +453,9 @@ export function drawWebGLPacket(
 
 	const geometry = host._geometry.getGeometry(packet);
 	if (!geometry) {
+		return;
+	}
+	if (host._bindAnimationPayload && !host._bindAnimationPayload(sceneProgram, packet)) {
 		return;
 	}
 
@@ -1087,7 +1087,7 @@ function resolveWebGLDepthPrepassProgram(
 	if (isMaterialTransparentPass(material) || material.depthWrite === false) {
 		return null;
 	}
-	if (packet.meshInstance.skeleton || !Matrix4.isFinite(packet.worldMatrix)) {
+	if (!Matrix4.isFinite(packet.worldMatrix)) {
 		return null;
 	}
 	const geometry = host._geometry.getGeometry(packet);
@@ -1127,11 +1127,14 @@ export function drawWebGLDepthPrepassPacket(
 	if (isMaterialTransparentPass(material) || material.depthWrite === false) {
 		return false;
 	}
-	if (packet.meshInstance.skeleton || !Matrix4.isFinite(packet.worldMatrix)) {
+	if (!Matrix4.isFinite(packet.worldMatrix)) {
 		return false;
 	}
 	const geometry = host._geometry.getGeometry(packet);
 	if (!geometry || geometry.topology !== gl.TRIANGLES) {
+		return false;
+	}
+	if (host._bindAnimationPayload && !host._bindAnimationPayload(sceneProgram, packet)) {
 		return false;
 	}
 	const normalMatrix = sceneProgram.uniforms.normalMatrix ?

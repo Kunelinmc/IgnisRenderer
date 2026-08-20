@@ -303,6 +303,10 @@ This document defines the lifecycle, scheduling, warmup, incremental rendering, 
 - Animation pose sampling must complete before world-transform synchronization,
   and deformation payloads and bounds must be resolved only after the current
   world transforms are available.
+- Deformation resolution must include every skinned or morphed mesh instance in
+  the active scene, including instances that are not bound to an
+  `AnimationMixer`. Mixer bindings may supplement but must not define the set of
+  renderable deformation owners.
 - Every animated `DrawPacket` must carry a monotonic deformation revision and
   conservative world-space bounds for its current skinned or morphed geometry.
 - When a packet deformation revision or deformation bounds change, incremental

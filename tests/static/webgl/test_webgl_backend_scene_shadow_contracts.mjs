@@ -1,4 +1,4 @@
-import assert from "node:assert/strict";import { Material } from "../../../src/materials/Material.ts";import { Logger } from "../../../src/foundation/Logger.ts";import { WebGLShadowRasterPass } from "../../../src/backends/webgl/WebGLShadowRasterPass.ts";import { ShaderSource } from "../../../src/shaders/ShaderSource.ts";import { TEST_SCENE_LIMITS, getTestSceneShader, createShadowRasterCaptureGL, createShadowPassHost, createShadowRasterPlan, createShadowPacket, runWebGLBackendFile } from "../../helpers/webgl-backend.mjs";
+import assert from "node:assert/strict";import { Material } from "../../../src/materials/Material.ts";import { WebGLShadowRasterPass } from "../../../src/backends/webgl/WebGLShadowRasterPass.ts";import { ShaderSource } from "../../../src/shaders/ShaderSource.ts";import { TEST_SCENE_LIMITS, getTestSceneShader, createShadowRasterCaptureGL, createShadowPassHost, createShadowRasterPlan, createShadowPacket, runWebGLBackendFile } from "../../helpers/webgl-backend.mjs";
 
 function testSceneShaderBackLitShadowGuard() {
 	const shader = getTestSceneShader();
@@ -141,30 +141,19 @@ function testShadowRasterPassCleansPartialAllocationAndRestoresOnDrawError() {
 	throwingPass.destroy();
 }
 
-function testShadowRasterPassKeepsSkinningDiagnosticKey() {
+function testShadowRasterPassDoesNotRejectSkeletonPackets() {
 	const gl = createShadowRasterCaptureGL();
 	const pass = new WebGLShadowRasterPass(createShadowPassHost(gl));
 	const packet = createShadowPacket(new Material());
 	packet.meshInstance.skeleton = {};
-	const warnings = [];
-	Logger.configure({
-		level: "warn",
-		resetOnceKeys: true,
-		sink: {
-			warn(...args) {
-				warnings.push(args.join(" "));
-			},
-		},
-	});
 	try {
 		const plan = createShadowRasterPlan({ casterPackets: [packet] });
 		pass.prepare(plan);
 		pass.render(plan);
 	} finally {
 		pass.destroy();
-		Logger.reset();
 	}
-	assert.ok(warnings.some((warning) => warning.includes("[webgl-shadow-skinning-unsupported]")));
+	assert.equal(gl.calls.drawElements.length, 1);
 }
 
 function testSceneShaderIncludesReflectionProbeUniforms() {
@@ -273,7 +262,7 @@ await runWebGLBackendFile(
 		testShadowRasterPassConsumesResolvedPlanAndRestoresBaseline,
 		testShadowRasterPassRestoresDefaultFramebufferDrawBuffer,
 		testShadowRasterPassCleansPartialAllocationAndRestoresOnDrawError,
-		testShadowRasterPassKeepsSkinningDiagnosticKey,
+		testShadowRasterPassDoesNotRejectSkeletonPackets,
 		testSceneShaderIncludesReflectionProbeUniforms,
 		testSceneShaderIncludesLocalizedLightProbeUniforms,
 	testFullSceneShaderDeclaresExtensionSamplersForDynamicLayout,

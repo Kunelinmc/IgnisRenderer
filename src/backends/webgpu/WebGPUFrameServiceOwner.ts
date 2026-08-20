@@ -21,8 +21,8 @@ import {
 import type { WebGPUResourceManager } from "./WebGPUResourceManager";
 import type { IWebGPUComputeFacade } from "./ComputeFacade";
 import {
-	ANIMATION_WEBGPU_JOINT_MATRICES_KEY,
-	ANIMATION_WEBGPU_MORPH_WEIGHTS_KEY,
+	ANIMATION_JOINT_MATRICES_KEY,
+	ANIMATION_MORPH_WEIGHTS_KEY,
 } from "../../simulation/animation/types";
 import {
 	collectWebGPUEnvironment,
@@ -415,8 +415,8 @@ export class WebGPUFrameServiceOwner {
 	): WebGPUFrameServicePreparedResources {
 		const resolvedOptions = this._resolvePrepareFrameOptions(context, options);
 		this._staticBatcher.preparePackets(resolvedOptions.framePackets.opaque);
-		const jointMatrixMap = context.transient.get(ANIMATION_WEBGPU_JOINT_MATRICES_KEY) ?? null;
-		const morphWeightMap = context.transient.get(ANIMATION_WEBGPU_MORPH_WEIGHTS_KEY) ?? null;
+		const jointMatrixMap = context.transient.get(ANIMATION_JOINT_MATRICES_KEY) ?? null;
+		const morphWeightMap = context.transient.get(ANIMATION_MORPH_WEIGHTS_KEY) ?? null;
 		const scene = context.scene;
 		const features = context.features;
 		const postProcess = context.postProcess;

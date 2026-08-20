@@ -1,6 +1,6 @@
 import type { Material } from "../../materials/Material";
 import { ShaderMaterial, type ShaderTargetMode } from "../../materials/ShaderMaterial";
-import type { FrameContext } from "../../pipeline/types";
+import type { DrawPacket, FrameContext } from "../../pipeline/types";
 
 import {
 	collectWebGLLights,
@@ -12,6 +12,8 @@ import {
 	getWebGLSceneVariantKey,
 	createWebGLShaderMaterialFallbackVariant,
 	resolveWebGLBuiltinDepthVariant,
+	resolveWebGLPacketDeformationProfile,
+	type WebGLDeformationProfile,
 	resolveWebGLBuiltinSceneVariant,
 	type WebGLSceneDepthVariantDescriptor,
 	type WebGLSceneVariantDescriptor,
@@ -28,25 +30,32 @@ export interface WebGLSceneProgramPlan {
 	readonly lightState: WebGLLightState;
 	readonly sceneVariants: ReadonlyMap<string, WebGLSceneVariantDescriptor>;
 	readonly depthVariants: ReadonlyMap<string, WebGLSceneDepthVariantDescriptor>;
-	readonly shaderMaterialFallbackVariantKeys: ReadonlySet<string>;
 }
 
 /** @internal Produces every exact scene source variant a frame may select. */
 export function planWebGLScenePrograms(
 	context: FrameContext,
-	materials: readonly Material[],
+	inputs: readonly (Material | DrawPacket)[],
 	modes: readonly ShaderTargetMode[]
 ): WebGLSceneProgramPlan {
 	const lightState = collectPlannerLightState(context);
 	const sceneVariants = new Map<string, WebGLSceneVariantDescriptor>();
-	const shaderMaterialFallbackVariantKeys = new Set<string>();
-	for (const material of materials) {
+	const entries = inputs.map((input) => isDrawPacket(input) ? {
+		material: input.material,
+		deformation: resolveWebGLPacketDeformationProfile(input),
+	} : {
+		material: input,
+		deformation: { skinProfile: "static", morphSemanticMask: 0 } as const,
+	});
+	for (const { material, deformation } of entries) {
 		if (material instanceof ShaderMaterial) {
 			for (const mode of modes) {
-				const fallback = createWebGLShaderMaterialFallbackVariant(mode);
+				const fallback = createWebGLShaderMaterialFallbackVariant(
+					mode,
+					deformation,
+				);
 				const key = getWebGLSceneVariantKey(fallback);
 				sceneVariants.set(key, fallback);
-				shaderMaterialFallbackVariantKeys.add(key);
 			}
 			continue;
 		}
@@ -59,6 +68,7 @@ export function planWebGLScenePrograms(
 				0,
 				lightState,
 				false,
+				deformation,
 			);
 			if (mode === "mrt") {
 				addVariantAlternatives(
@@ -69,6 +79,7 @@ export function planWebGLScenePrograms(
 					0,
 					lightState,
 					true,
+					deformation,
 				);
 			}
 		}
@@ -81,6 +92,7 @@ export function planWebGLScenePrograms(
 				1,
 				lightState,
 				false,
+				deformation,
 			);
 			addVariantAlternatives(
 				sceneVariants,
@@ -90,12 +102,13 @@ export function planWebGLScenePrograms(
 				2,
 				lightState,
 				false,
+				deformation,
 			);
 		}
 	}
 
 	const depthVariants = new Map<string, WebGLSceneDepthVariantDescriptor>();
-	for (const material of materials) {
+	for (const { material, deformation } of entries) {
 		if (
 			material instanceof ShaderMaterial ||
 			isMaterialTransparentPass(material) ||
@@ -103,7 +116,7 @@ export function planWebGLScenePrograms(
 		) {
 			continue;
 		}
-		const variant = resolveWebGLBuiltinDepthVariant(material);
+		const variant = resolveWebGLBuiltinDepthVariant(material, deformation);
 		if (variant) {
 			depthVariants.set(getWebGLSceneDepthVariantKey(variant), variant);
 		}
@@ -113,7 +126,6 @@ export function planWebGLScenePrograms(
 		lightState,
 		sceneVariants,
 		depthVariants,
-		shaderMaterialFallbackVariantKeys,
 	};
 }
 
@@ -125,8 +137,15 @@ export function resolveWebGLSceneDrawVariant(
 	oitPassMode: 0 | 1 | 2,
 	lightState: WebGLLightState | null,
 	shadowTransmittanceAvailable: boolean,
-	materialGBuffer: boolean
+	materialGBuffer: boolean,
+	deformation: WebGLDeformationProfile = {
+		skinProfile: "static",
+		morphSemanticMask: 0,
+	},
 ): WebGLSceneVariantDescriptor | null {
+	if (material instanceof ShaderMaterial) {
+		return createWebGLShaderMaterialFallbackVariant(mode, deformation);
+	}
 	return resolveWebGLBuiltinSceneVariant(
 		context,
 		material,
@@ -138,6 +157,7 @@ export function resolveWebGLSceneDrawVariant(
 			enableIrradianceProbeGrid: true,
 		},
 		materialGBuffer,
+		deformation,
 	);
 }
 
@@ -163,7 +183,10 @@ export class WebGLSceneProgramWarmupContributor
 			request.plan.sceneTargetMode === "mrt" ? ["mrt", "single"] : ["single"];
 		const programPlan = planWebGLScenePrograms(
 			request.context,
-			request.plan.materials,
+			[
+				...(request.context.scene?.opaquePackets ?? []),
+				...(request.context.scene?.transparentPackets ?? []),
+			],
 			modes,
 		);
 		const tasks: WebGLProgramWarmupTask[] = [{
@@ -175,7 +198,6 @@ export class WebGLSceneProgramWarmupContributor
 		}];
 
 		for (const [key, variant] of programPlan.sceneVariants) {
-			if (programPlan.shaderMaterialFallbackVariantKeys.has(key)) continue;
 			tasks.push({
 				label: `WebGLSceneProgram:builtin:${key}`,
 				priority: "core",
@@ -234,7 +256,8 @@ function addVariantAlternatives(
 	mode: ShaderTargetMode,
 	oitPassMode: 0 | 1 | 2,
 	lightState: WebGLLightState,
-	materialGBuffer: boolean
+	materialGBuffer: boolean,
+	deformation: WebGLDeformationProfile,
 ): void {
 	for (const transmittanceAvailable of [false, true]) {
 		const variant = resolveWebGLSceneDrawVariant(
@@ -245,9 +268,14 @@ function addVariantAlternatives(
 			lightState,
 			transmittanceAvailable,
 			mode === "mrt" && materialGBuffer,
+			deformation,
 		);
 		if (variant) variants.set(getWebGLSceneVariantKey(variant), variant);
 	}
+}
+
+function isDrawPacket(value: Material | DrawPacket): value is DrawPacket {
+	return "primitive" in value && "meshInstance" in value;
 }
 
 function collectPlannerLightState(context: FrameContext): WebGLLightState {

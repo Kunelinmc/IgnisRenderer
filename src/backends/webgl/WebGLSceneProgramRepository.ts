@@ -140,7 +140,10 @@ export class WebGLSceneProgramRepository {
 
 		const custom = this._getShaderMaterialSceneProgram(material, mode);
 		return custom ?? this._getBuiltinSceneProgram(
-			createWebGLShaderMaterialFallbackVariant(mode),
+			createWebGLShaderMaterialFallbackVariant(mode, variant ? {
+				skinProfile: variant.skinProfile,
+				morphSemanticMask: variant.morphSemanticMask,
+			} : undefined),
 		);
 	}
 
@@ -554,8 +557,19 @@ export class WebGLSceneProgramRepository {
 			`#define WEBGL_DEPTH_ALPHA_MASK ${variant.alphaMask ? 1 : 0}`,
 			`#define WEBGL_DEPTH_BASE_MAP ${variant.baseMap ? 1 : 0}`,
 		].join("\n");
+		const influences =
+			variant.skinProfile === "skin8" ? 8
+			: variant.skinProfile === "skin4" ? 4
+			: 0;
+		const animationDefines = [
+			`#define IGNIS_WEBGL_DEFORMATION_ACTIVE ${influences > 0 || variant.morphPosition ? 1 : 0}`,
+			`#define IGNIS_WEBGL_SKIN_INFLUENCES ${influences}`,
+		].join("\n");
 		return {
-			vertexSource: this._shaderSource("sceneDepthPrepassVertex"),
+			vertexSource: this._shaderSource("sceneDepthPrepassVertex").replace(
+				"__IGNIS_WEBGL_ANIMATION_DEFINES__",
+				animationDefines,
+			),
 			fragmentSource:
 				`${defines}\n` + this._shaderSource("sceneDepthPrepassFragment"),
 		};

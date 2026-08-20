@@ -1,4 +1,3 @@
-import { Logger } from "../../foundation/Logger";
 import { resolveMaterialShadowTransmittance } from "../../materials/transparency";
 import { Matrix4 } from "../../maths/Matrix4";
 import type { DrawPacket } from "../../pipeline/types";
@@ -9,12 +8,20 @@ import type {
 	WebGLProgramSlot,
 	WebGLProgramWarmupHandle,
 } from "./WebGLProgramCompiler";
+import type {
+	WebGLAnimationPayloadPool,
+	WebGLAnimationUniforms,
+} from "./WebGLAnimationPayloadPool";
+import type {
+	WebGLGeometryHandle,
+	WebGLSkinProfile,
+} from "./WebGLGeometryRegistry";
 
 export interface WebGLShadowDepthProgram {
 	program: WebGLProgram;
 	uniforms: {
 		mvp: WebGLUniformLocation | null;
-	};
+	} & WebGLAnimationUniforms;
 }
 
 export interface WebGLShadowTransmittanceProgram {
@@ -22,14 +29,7 @@ export interface WebGLShadowTransmittanceProgram {
 	uniforms: {
 		mvp: WebGLUniformLocation | null;
 		transmittance: WebGLUniformLocation | null;
-	};
-}
-
-function logWebGLShadowRasterWarning(key: string, message: string): void {
-	Logger.warn(`[${key}] ${message}`, {
-		scope: "WebGLShadowRasterPass",
-		onceKey: key,
-	});
+	} & WebGLAnimationUniforms;
 }
 
 /** @internal A fully resolved atlas slice consumed by the WebGL shadow rasterizer. */
@@ -65,6 +65,7 @@ export interface WebGLShadowRasterPreparedState {
 	readonly transmittanceTexture: WebGLTexture | null;
 	readonly atlasTileSize: number;
 	readonly depthProgramAvailable: boolean;
+	readonly transmittanceProgramAvailable: boolean;
 }
 
 /** @internal Narrow device dependencies for the plan-only shadow rasterizer. */
@@ -72,70 +73,114 @@ export interface WebGLShadowRasterPassHost {
 	readonly gl: WebGL2RenderingContext;
 	readonly programCompiler: WebGLProgramCompiler;
 	readonly geometry: {
-		getGeometry(packet: DrawPacket): {
-			vao: WebGLVertexArrayObject;
-			topology: number;
-			indexCount: number;
-			indexType: number;
-		} | null;
+		getGeometry(packet: DrawPacket): WebGLGeometryHandle | null;
 	};
+	readonly animationPayloads?: WebGLAnimationPayloadPool;
 	readonly maxTextureSize: number;
 }
+
+type ShadowDeformationKey =
+	| "static:0"
+	| "static:1"
+	| "skin4:0"
+	| "skin4:1"
+	| "skin8:0"
+	| "skin8:1";
+
+const SHADOW_DEFORMATION_KEYS: readonly ShadowDeformationKey[] = [
+	"static:0",
+	"static:1",
+	"skin4:0",
+	"skin4:1",
+	"skin8:0",
+	"skin8:1",
+];
 
 /** Executes prepared WebGL shadow raster plans and owns their native atlas targets. */
 export class WebGLShadowRasterPass {
 	private readonly _host: WebGLShadowRasterPassHost;
-	private readonly _depthProgramSlot: WebGLProgramSlot<WebGLShadowDepthProgram>;
-	private readonly _transmittanceProgramSlot: WebGLProgramSlot<WebGLShadowTransmittanceProgram>;
+	private readonly _depthProgramSlots = new Map<
+		ShadowDeformationKey,
+		WebGLProgramSlot<WebGLShadowDepthProgram>
+	>();
+	private readonly _transmittanceProgramSlots = new Map<
+		ShadowDeformationKey,
+		WebGLProgramSlot<WebGLShadowTransmittanceProgram>
+	>();
 	private _shadowFramebuffer: WebGLFramebuffer | null = null;
 	private _shadowAtlasTexture: WebGLTexture | null = null;
 	private _shadowTransmittanceTexture: WebGLTexture | null = null;
 	private _shadowAtlasTileSize = 0;
 	private _shadowMvpMatrix = Matrix4.identity();
-	private _depthProgram: WebGLShadowDepthProgram | null = null;
-	private _transmittanceProgram: WebGLShadowTransmittanceProgram | null = null;
 
 	constructor(host: WebGLShadowRasterPassHost) {
 		this._host = host;
-		this._depthProgramSlot = host.programCompiler.createSlot({
-			label: "WebGLShadowDepthProgram",
-			vertex: () => ShaderSource.get("webgl.part.shadowDepthVertex.raw"),
-			fragment: () => ShaderSource.get("webgl.part.shadowDepthFragment.raw"),
-			reflect: (gl, program) => ({
-				program,
-				uniforms: { mvp: gl.getUniformLocation(program, "uMvp") },
-			}),
-		});
-		this._transmittanceProgramSlot = host.programCompiler.createSlot({
-			label: "WebGLShadowTransmittanceProgram",
-			vertex: () => ShaderSource.get("webgl.part.shadowDepthVertex.raw"),
-			fragment: () => ShaderSource.get("webgl.part.shadowTransmittanceFragment.raw"),
-			reflect: (gl, program) => ({
-				program,
-				uniforms: {
-					mvp: gl.getUniformLocation(program, "uMvp"),
-					transmittance: gl.getUniformLocation(program, "uTransmittance"),
-				},
-			}),
-		});
+		for (const key of SHADOW_DEFORMATION_KEYS) {
+			const vertex = () => createShadowVertexSource(key);
+			this._depthProgramSlots.set(key, host.programCompiler.createSlot({
+				label: key === "static:0" ?
+					"WebGLShadowDepthProgram" : `WebGLShadowDepthProgram_${key}`,
+				vertex,
+				fragment: () => ShaderSource.get("webgl.part.shadowDepthFragment.raw"),
+				reflect: (gl, program) => ({
+					program,
+					uniforms: {
+						mvp: gl.getUniformLocation(program, "uMvp"),
+						...createAnimationUniforms(gl, program),
+					},
+				}),
+			}));
+			this._transmittanceProgramSlots.set(key, host.programCompiler.createSlot({
+				label: key === "static:0" ?
+					"WebGLShadowTransmittanceProgram" :
+					`WebGLShadowTransmittanceProgram_${key}`,
+				vertex,
+				fragment: () => ShaderSource.get("webgl.part.shadowTransmittanceFragment.raw"),
+				reflect: (gl, program) => ({
+					program,
+					uniforms: {
+						mvp: gl.getUniformLocation(program, "uMvp"),
+						transmittance: gl.getUniformLocation(program, "uTransmittance"),
+						...createAnimationUniforms(gl, program),
+					},
+				}),
+			}));
+		}
 	}
 
 	public warmupPrograms(): WebGLProgramWarmupHandle[] {
-		return [this._depthProgramSlot.warmup(), this._transmittanceProgramSlot.warmup()];
+		return [
+			...Array.from(this._depthProgramSlots.values(), (slot) => slot.warmup()),
+			...Array.from(this._transmittanceProgramSlots.values(), (slot) => slot.warmup()),
+		];
 	}
 
 	/** Prepares native targets and shader programs without inspecting frame state. */
 	public prepare(plan: WebGLShadowRasterPlan): WebGLShadowRasterPreparedState {
 		try {
 			this._ensureShadowTargets(plan);
-			this._depthProgram = this._resolveDepthProgram();
-			this._transmittanceProgram = this._resolveTransmittanceProgram();
+			let depthProgramAvailable = !!this._resolveDepthProgram("static:0");
+			for (const packet of plan.casterPackets) {
+				const geometry = this._host.geometry.getGeometry(packet);
+				if (geometry && !this._resolveDepthProgram(profileKey(geometry))) {
+					depthProgramAvailable = false;
+				}
+			}
+			let transmittanceProgramAvailable =
+				!!this._resolveTransmittanceProgram("static:0");
+			for (const packet of plan.transmitterPackets) {
+				const geometry = this._host.geometry.getGeometry(packet);
+				if (geometry && !this._resolveTransmittanceProgram(profileKey(geometry))) {
+					transmittanceProgramAvailable = false;
+				}
+			}
 			return {
 				framebuffer: this._shadowFramebuffer,
 				atlasTexture: this._shadowAtlasTexture,
 				transmittanceTexture: this._shadowTransmittanceTexture,
 				atlasTileSize: this._shadowAtlasTileSize,
-				depthProgramAvailable: !!this._depthProgram,
+				depthProgramAvailable,
+				transmittanceProgramAvailable,
 			};
 		} finally {
 			this._restoreFrameBaseline(plan);
@@ -147,7 +192,6 @@ export class WebGLShadowRasterPass {
 		if (
 			!this._shadowFramebuffer ||
 			!this._shadowAtlasTexture ||
-			!this._depthProgram ||
 			plan.atlasTileSize !== this._shadowAtlasTileSize
 		)
 			return;
@@ -155,7 +199,6 @@ export class WebGLShadowRasterPass {
 		const gl = this._host.gl;
 		try {
 			gl.bindFramebuffer(gl.FRAMEBUFFER, this._shadowFramebuffer);
-			gl.useProgram(this._depthProgram.program);
 			gl.disable(gl.BLEND);
 			gl.enable(gl.DEPTH_TEST);
 			gl.depthMask(true);
@@ -165,7 +208,7 @@ export class WebGLShadowRasterPass {
 			gl.clear(gl.DEPTH_BUFFER_BIT);
 
 			for (let index = 0; index < plan.sliceCount; index++) {
-				this._renderDepthSlice(this._depthProgram, plan, plan.slices[index]);
+				this._renderDepthSlice(plan, plan.slices[index]);
 			}
 
 			gl.drawBuffers([gl.COLOR_ATTACHMENT0]);
@@ -176,13 +219,9 @@ export class WebGLShadowRasterPass {
 			gl.clearColor(1, 1, 1, 1);
 			gl.disable(gl.SCISSOR_TEST);
 			gl.clear(gl.COLOR_BUFFER_BIT);
-			if (!this._transmittanceProgram) return;
-
 			gl.enable(gl.SCISSOR_TEST);
-			gl.useProgram(this._transmittanceProgram.program);
 			for (let index = 0; index < plan.sliceCount; index++) {
 				this._renderTransmittanceSlice(
-					this._transmittanceProgram,
 					plan,
 					plan.slices[index],
 				);
@@ -193,15 +232,14 @@ export class WebGLShadowRasterPass {
 	}
 
 	public destroy(): void {
-		this._depthProgramSlot.destroy();
-		this._transmittanceProgramSlot.destroy();
-		this._depthProgram = null;
-		this._transmittanceProgram = null;
+		for (const slot of this._depthProgramSlots.values()) slot.destroy();
+		for (const slot of this._transmittanceProgramSlots.values()) slot.destroy();
+		this._depthProgramSlots.clear();
+		this._transmittanceProgramSlots.clear();
 		this._destroyShadowTargets();
 	}
 
 	private _renderDepthSlice(
-		program: WebGLShadowDepthProgram,
 		plan: WebGLShadowRasterPlan,
 		slice: WebGLShadowRasterSlice | undefined,
 	): void {
@@ -209,19 +247,18 @@ export class WebGLShadowRasterPass {
 		this._setSliceViewport(slice);
 		this._host.gl.clear(this._host.gl.DEPTH_BUFFER_BIT);
 		for (const packet of plan.casterPackets) {
-			this._drawShadowPacket(program, packet, slice.viewProjectionMatrix);
+			this._drawShadowPacket(packet, slice.viewProjectionMatrix);
 		}
 	}
 
 	private _renderTransmittanceSlice(
-		program: WebGLShadowTransmittanceProgram,
 		plan: WebGLShadowRasterPlan,
 		slice: WebGLShadowRasterSlice | undefined,
 	): void {
 		if (!slice || plan.transmitterPackets.length === 0) return;
 		this._setSliceViewport(slice);
 		for (const packet of plan.transmitterPackets) {
-			this._drawShadowTransmittancePacket(program, packet, slice.viewProjectionMatrix);
+			this._drawShadowTransmittancePacket(packet, slice.viewProjectionMatrix);
 		}
 	}
 
@@ -232,24 +269,24 @@ export class WebGLShadowRasterPass {
 	}
 
 	private _drawShadowPacket(
-		shadowProgram: WebGLShadowDepthProgram,
 		packet: DrawPacket,
 		viewProjectionMatrix: Matrix4,
 	): void {
-		if (packet.meshInstance.skeleton) {
-			logWebGLShadowRasterWarning(
-				"webgl-shadow-skinning-unsupported",
-				"WebGL shadow raster pass does not support skinning yet; skipping " +
-					`mesh instance ${packet.meshInstance.id}`,
-			);
-			return;
-		}
 		if (!Matrix4.isFinite(packet.worldMatrix)) return;
 		const geometry = this._host.geometry.getGeometry(packet);
 		if (!geometry || geometry.topology !== this._host.gl.TRIANGLES) return;
+		const shadowProgram = this._resolveDepthProgram(profileKey(geometry));
+		if (!shadowProgram) return;
 
 		Matrix4.multiply(viewProjectionMatrix, packet.worldMatrix, this._shadowMvpMatrix);
 		const gl = this._host.gl;
+		gl.useProgram(shadowProgram.program);
+		if (
+			this._host.animationPayloads &&
+			!this._host.animationPayloads.bind(shadowProgram.uniforms, packet, geometry)
+		) {
+			return;
+		}
 		if (shadowProgram.uniforms.mvp) {
 			gl.uniformMatrix4fv(
 				shadowProgram.uniforms.mvp,
@@ -264,12 +301,13 @@ export class WebGLShadowRasterPass {
 	}
 
 	private _drawShadowTransmittancePacket(
-		shadowProgram: WebGLShadowTransmittanceProgram,
 		packet: DrawPacket,
 		viewProjectionMatrix: Matrix4,
 	): void {
 		const geometry = this._host.geometry.getGeometry(packet);
 		if (!geometry || geometry.topology !== this._host.gl.TRIANGLES) return;
+		const shadowProgram = this._resolveTransmittanceProgram(profileKey(geometry));
+		if (!shadowProgram) return;
 		if (
 			!Matrix4.isFinite(packet.worldMatrix) ||
 			!Matrix4.isFinite(viewProjectionMatrix)
@@ -277,6 +315,13 @@ export class WebGLShadowRasterPass {
 			return;
 		}
 		const gl = this._host.gl;
+		gl.useProgram(shadowProgram.program);
+		if (
+			this._host.animationPayloads &&
+			!this._host.animationPayloads.bind(shadowProgram.uniforms, packet, geometry)
+		) {
+			return;
+		}
 		Matrix4.multiply(viewProjectionMatrix, packet.worldMatrix, this._shadowMvpMatrix);
 		gl.uniformMatrix4fv(
 			shadowProgram.uniforms.mvp,
@@ -296,12 +341,14 @@ export class WebGLShadowRasterPass {
 		gl.bindVertexArray(null);
 	}
 
-	private _resolveDepthProgram(): WebGLShadowDepthProgram | null {
-		return this._depthProgramSlot.tryGet();
+	private _resolveDepthProgram(key: ShadowDeformationKey): WebGLShadowDepthProgram | null {
+		return this._depthProgramSlots.get(key)?.tryGet() ?? null;
 	}
 
-	private _resolveTransmittanceProgram(): WebGLShadowTransmittanceProgram | null {
-		return this._transmittanceProgramSlot.tryGet();
+	private _resolveTransmittanceProgram(
+		key: ShadowDeformationKey,
+	): WebGLShadowTransmittanceProgram | null {
+		return this._transmittanceProgramSlots.get(key)?.tryGet() ?? null;
 	}
 
 	private _ensureShadowTargets(plan: WebGLShadowRasterPlan): void {
@@ -445,4 +492,45 @@ export class WebGLShadowRasterPass {
 		gl.bindFramebuffer(gl.FRAMEBUFFER, plan.baselineFramebuffer);
 		gl.viewport(0, 0, plan.baselineViewportWidth, plan.baselineViewportHeight);
 	}
+}
+
+function profileKey(geometry: WebGLGeometryHandle): ShadowDeformationKey {
+	const skinProfile =
+		geometry.skinProfile === "skin4" || geometry.skinProfile === "skin8" ?
+			geometry.skinProfile : "static";
+	return `${skinProfile}:${geometry.morphPositionTexture ? 1 : 0}` as
+		ShadowDeformationKey;
+}
+
+function createShadowVertexSource(key: ShadowDeformationKey): string {
+	const [skinProfile, morphPosition] = key.split(":") as [WebGLSkinProfile, string];
+	const influences = skinProfile === "skin8" ? 8 : skinProfile === "skin4" ? 4 : 0;
+	const active = influences > 0 || morphPosition === "1";
+	return ShaderSource.get("webgl.part.shadowDepthVertex.raw").replace(
+		"__IGNIS_WEBGL_ANIMATION_DEFINES__",
+		[
+			`#define IGNIS_WEBGL_DEFORMATION_ACTIVE ${active ? 1 : 0}`,
+			`#define IGNIS_WEBGL_SKIN_INFLUENCES ${influences}`,
+		].join("\n"),
+	);
+}
+
+function createAnimationUniforms(
+	gl: WebGL2RenderingContext,
+	program: WebGLProgram,
+): WebGLAnimationUniforms {
+	return {
+		animationPayload: gl.getUniformLocation(program, "uAnimationPayload"),
+		morphPositionDeltas: gl.getUniformLocation(
+			program,
+			"uMorphPositionDeltas",
+		),
+		morphNormalDeltas: gl.getUniformLocation(program, "uMorphNormalDeltas"),
+		animationCounts: gl.getUniformLocation(program, "uAnimationCounts"),
+		animationOffsets: gl.getUniformLocation(program, "uAnimationOffsets"),
+		animationTextureWidths: gl.getUniformLocation(
+			program,
+			"uAnimationTextureWidths",
+		),
+	};
 }

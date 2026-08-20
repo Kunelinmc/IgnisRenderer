@@ -34,6 +34,7 @@ import {
 	WEBGL_SHADOW_ATLAS_ROWS,
 } from "./constants";
 import type { WebGLGeometryRegistry } from "./WebGLGeometryRegistry";
+import type { WebGLAnimationPayloadPool } from "./WebGLAnimationPayloadPool";
 import type { WebGLLightState, WebGLShadowData } from "./WebGLLightCollector";
 import type { WebGLProgramCompiler, WebGLProgramWarmupHandle } from "./WebGLProgramCompiler";
 import type {
@@ -126,6 +127,7 @@ export interface WebGLShadowRuntimeHost {
 	readonly gl: WebGL2RenderingContext;
 	readonly programCompiler: WebGLProgramCompiler;
 	readonly geometry: WebGLGeometryRegistry;
+	readonly animationPayloads?: WebGLAnimationPayloadPool;
 	readonly maxTextureSize: number;
 	getSceneFramebuffer(): WebGLFramebuffer | null;
 	getWidth(): number;
@@ -175,6 +177,7 @@ export class WebGLShadowRuntime implements WebGLProgramWarmupContributor {
 			gl: host.gl,
 			programCompiler: host.programCompiler,
 			geometry: host.geometry,
+			animationPayloads: host.animationPayloads,
 			maxTextureSize: host.maxTextureSize,
 		});
 	}
@@ -239,7 +242,9 @@ export class WebGLShadowRuntime implements WebGLProgramWarmupContributor {
 			this._samplingState.enabled =
 				this._hasPreparedResources && prepared.depthProgramAvailable;
 			this._samplingState.transmittanceAvailable =
-				this._samplingState.enabled && !!prepared.transmittanceTexture;
+				this._samplingState.enabled &&
+				prepared.transmittanceProgramAvailable &&
+				!!prepared.transmittanceTexture;
 			if (context.scene.particleSystems.length > 0) {
 				this._prepareParticleVolumeTexture();
 			}

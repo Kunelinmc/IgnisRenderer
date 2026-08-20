@@ -288,7 +288,7 @@ export class GLTFLoader extends Loader<GLTFLoaderEvents> {
 			morphBindings: Array.from(context.pathToMeshInstance.entries())
 				.filter(
 					([, instance]) =>
-						instance.skeleton !== undefined ||
+						instance.skeleton !== null ||
 						instance.morphWeights.some((weights) => weights.length > 0)
 				)
 				.map(([path, instance]) => ({

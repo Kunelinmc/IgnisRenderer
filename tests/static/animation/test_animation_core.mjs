@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { Node } from "../../../src/core/Node.ts";
+import { Scene } from "../../../src/core/Scene.ts";
 import { Material } from "../../../src/materials/Material.ts";
 import { MeshAsset } from "../../../src/meshes/MeshAsset.ts";
 import { MeshInstance } from "../../../src/meshes/MeshInstance.ts";
@@ -12,7 +13,7 @@ import {
 	ANIMATION_DEFORMATION_STATES_KEY,
 	ANIMATION_RUNTIME_POSE_KEY,
 	ANIMATION_SOFTWARE_DEFORMED_GEOMETRY_KEY,
-	ANIMATION_WEBGPU_MORPH_WEIGHTS_KEY,
+	ANIMATION_MORPH_WEIGHTS_KEY,
 } from "../../../src/simulation/animation/types.ts";
 
 function nearlyEqual(left, right, epsilon = 1e-5) {
@@ -256,7 +257,7 @@ function testDeformationRevisionBoundsAndPacketIdentity() {
 	);
 	assert.ok(
 		firstTransient
-			.get(ANIMATION_WEBGPU_MORPH_WEIGHTS_KEY)
+			.get(ANIMATION_MORPH_WEIGHTS_KEY)
 			.has(secondPacketId)
 	);
 
@@ -281,11 +282,27 @@ function testDeformationRevisionBoundsAndPacketIdentity() {
 	);
 }
 
+function testSceneDeformationWithoutMixerBinding() {
+	const scene = new Scene();
+	const mesh = createMorphMesh();
+	const instance = scene.add(new MeshInstance({
+		mesh,
+		morphWeights: [new Float32Array([0.5])],
+	}));
+	const runtime = new AnimationRuntime();
+	const transient = new Map();
+	runtime.resolveDeformations(new AnimationSystem(), transient, scene);
+	const packetId = `${instance.id}:${mesh.primitives[0].id}`;
+	assert.ok(transient.get(ANIMATION_DEFORMATION_STATES_KEY).has(packetId));
+	assert.ok(transient.get(ANIMATION_MORPH_WEIGHTS_KEY).has(packetId));
+}
+
 function run() {
 	testTrackSampling();
 	testRuntimeLayerMaskAndAdditive();
 	testRootMotionToggle();
 	testDeformationRevisionBoundsAndPacketIdentity();
+	testSceneDeformationWithoutMixerBinding();
 	console.log("Animation core tests passed");
 }
 

@@ -9,8 +9,8 @@ import {
 	ANIMATION_DEFORMATION_STATES_KEY,
 	ANIMATION_RUNTIME_POSE_KEY,
 	ANIMATION_SOFTWARE_DEFORMED_GEOMETRY_KEY,
-	ANIMATION_WEBGPU_JOINT_MATRICES_KEY,
-	ANIMATION_WEBGPU_MORPH_WEIGHTS_KEY,
+	ANIMATION_JOINT_MATRICES_KEY,
+	ANIMATION_MORPH_WEIGHTS_KEY,
 	type AnimationPoseState,
 	type DeformedGeometryMap,
 	type JointMatrixMap,
@@ -50,6 +50,13 @@ interface PrimitiveRevisionState {
 
 const EMPTY_MORPH_WEIGHTS = new Float32Array(0);
 
+function isDeformableInstance(instance: MeshInstance): boolean {
+	if (instance.skeleton) return true;
+	return instance.mesh.primitives.some(
+		(primitive) => (primitive.geometry.morphTargets?.length ?? 0) > 0,
+	);
+}
+
 export class AnimationRuntime {
 	private _defaultsByMixer = new WeakMap<
 		AnimationMixer,
@@ -73,7 +80,7 @@ export class AnimationRuntime {
 		scene?: Scene
 	): void {
 		this.updatePose(system, deltaSeconds, transient, scene);
-		this.resolveDeformations(system, transient);
+		this.resolveDeformations(system, transient, scene);
 	}
 
 	/**
@@ -110,7 +117,8 @@ export class AnimationRuntime {
 	 */
 	public resolveDeformations(
 		system: AnimationSystem,
-		transient: TransientStore
+		transient: TransientStore,
+		scene?: Scene,
 	): void {
 		const deformedGeometry: DeformedGeometryMap = new Map();
 		const jointMatrices: JointMatrixMap = new Map();
@@ -119,6 +127,9 @@ export class AnimationRuntime {
 		const nextJointStates = new Map<string, JointRevisionState>();
 		const nextPrimitiveStates = new Map<string, PrimitiveRevisionState>();
 		const instances = new Set<MeshInstance>();
+		for (const instance of scene?.getMeshInstances() ?? []) {
+			if (isDeformableInstance(instance)) instances.add(instance);
+		}
 
 		for (const mixer of system.mixers) {
 			for (const binding of mixer.morphBindings.values()) {
@@ -210,8 +221,8 @@ export class AnimationRuntime {
 		}
 
 		transient.set(ANIMATION_SOFTWARE_DEFORMED_GEOMETRY_KEY, deformedGeometry);
-		transient.set(ANIMATION_WEBGPU_JOINT_MATRICES_KEY, jointMatrices);
-		transient.set(ANIMATION_WEBGPU_MORPH_WEIGHTS_KEY, morphWeights);
+		transient.set(ANIMATION_JOINT_MATRICES_KEY, jointMatrices);
+		transient.set(ANIMATION_MORPH_WEIGHTS_KEY, morphWeights);
 		transient.set(ANIMATION_DEFORMATION_STATES_KEY, deformationStates);
 		this._jointRevisionStateByInstance = nextJointStates;
 		this._primitiveRevisionStateByPacket = nextPrimitiveStates;

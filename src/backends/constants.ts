@@ -10,6 +10,9 @@ export const MAX_REFLECTION_PROBES = 8;
 export const MAX_LOCAL_LIGHT_PROBES = 8;
 export const MAX_VOLUMETRIC_LIGHTS = 65000;
 
+/** Logical frames retained before inactive packet animation resources are released. */
+export const ANIMATION_RESOURCE_RELEASE_DELAY_FRAMES = 60;
+
 export const DEFAULT_GAMMA = 2.2;
 export const MIN_GAMMA = 0.01;
 export const MAX_GAMMA = 8.0;

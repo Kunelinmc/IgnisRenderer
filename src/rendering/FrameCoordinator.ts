@@ -421,7 +421,8 @@ export class FrameCoordinator {
 	): void {
 		this._animationRuntime.resolveDeformations(
 			delegate.animationSystem,
-			state.transient
+			state.transient,
+			delegate.scene,
 		);
 	}
 

@@ -17,7 +17,10 @@ const syncOutputPath = path.join(
 	"generated",
 	"embeddedSyncShaderSources.ts"
 );
-const syncShaderPaths = new Set(["./webgpu/utility/mipmapBlit.wgsl"]);
+const syncShaderPaths = new Set([
+	"./webgl/common/animation.glsl",
+	"./webgpu/utility/mipmapBlit.wgsl",
+]);
 
 async function collectShaderFiles(relativeRoot, extension) {
 	const root = path.join(shaderRoot, relativeRoot);

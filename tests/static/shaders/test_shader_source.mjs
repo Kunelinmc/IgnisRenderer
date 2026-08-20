@@ -179,6 +179,8 @@ async function testWebGLSceneVariants() {
 	});
 
 	assert.ok(raw.vertex.includes("layout(location = 0) in vec3 aPosition;"));
+	assert.ok(raw.vertex.includes("#import <ignis/webgl/animation>"));
+	assert.ok(raw.vertex.includes("#define IGNIS_WEBGL_SKIN_INFLUENCES 8"));
 	assert.ok(raw.fragment.includes("#import <ignis/webgl/constants>"));
 	assert.ok(
 		raw.fragment.includes(

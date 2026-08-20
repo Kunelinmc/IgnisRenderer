@@ -155,6 +155,36 @@ This document defines the current WebGL backend lifecycle, frame graph, resource
   `unorm16x4` formats to `HALF_FLOAT`, normalized `SHORT`, and normalized
   `UNSIGNED_SHORT` attributes respectively. This support does not change the
   WebGL scene-geometry layout.
+- WebGL scene geometry must retain position and surface data in the existing
+  scene stream and must place skinning data in a separate stream. Skinning
+  profiles are `"static"`, `"skin4"`, and `"skin8"`; joint and weight groups
+  must use shader locations `7` through `10` and floating-point shader inputs.
+- WebGL geometry resources must store at most eight morph targets. Position and
+  normal deltas must use separate target-major `RGBA32F` textures with one
+  vertex delta per texel. Morph tangent deltas are not consumed by WebGL.
+- `WebGLAnimationPayloadPool` must be context-lifetime state shared by scene,
+  early-Z, shadow-depth, and shadow-transmittance consumers. It must key entries
+  by `DrawPacket.id`, retain current and previous joint matrices and morph
+  weights, and resolve or upload an entry at most once per logical frame.
+- A newly active or rebuilt animation payload must initialize previous data
+  from current data. A changed payload must retain the former current data as
+  previous, and the next unchanged logical frame must settle previous to
+  current. Inactive entries must bind a context-lifetime zero texture
+  immediately and release packet-owned storage after 60 logical frames.
+- WebGL GPU deformation must apply morph position and normal deltas before
+  four- or eight-influence linear-blend skinning. Invalid joint indices and
+  non-positive skin weights must be ignored, remaining skin weights must be
+  normalized, and a zero valid weight sum must retain the undeformed input.
+- WebGL scene variants must include the complete deformation profile. Depth and
+  shadow variants may omit morph-normal state but must include skinning and
+  morph-position state. Warmup and draw-time resolution must use the same exact
+  profile.
+- Animation payload, morph-position, and morph-normal samplers must use
+  backend-reserved vertex texture units selected from the high end of the
+  combined unit range. They must not collide with the exact low-unit fragment
+  sampler layout. A packet whose required vertex textures or payload dimensions
+  exceed device limits must be skipped with a deduplicated diagnostic; WebGL
+  must not silently draw its base geometry.
 - WebGL custom target descriptors may retain normalized multisample requests,
   but frame synchronization must reject `sampleCount > 1`; WebGL custom targets
   remain single-sampled.
@@ -183,6 +213,9 @@ This document defines the current WebGL backend lifecycle, frame graph, resource
   packing, prepare predictable native targets, and compile the frame graph only
   after those targets are known.
   The shadow graph node must execute only the prepared plan.
+- Skinned or morphed caster and transmitter packets must use the same current
+  animation payload as the scene draw. Shadow depth and transmittance must not
+  render bind-pose geometry or omit an otherwise valid animated packet.
 - Shadow consumers must obtain atlas, transmittance, particle-volume, and
   availability data through one readonly sampling-state contract. Runtime-owned
   typed arrays must remain identity-stable and must not be mutated by consumers.

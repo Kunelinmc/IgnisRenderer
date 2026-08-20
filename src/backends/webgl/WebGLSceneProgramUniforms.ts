@@ -38,6 +38,25 @@ export class WebGLSceneFrameUniforms {
 	}
 }
 
+export class WebGLSceneAnimationUniforms {
+	public readonly animationPayload: WebGLSceneUniformLocation;
+	public readonly morphPositionDeltas: WebGLSceneUniformLocation;
+	public readonly morphNormalDeltas: WebGLSceneUniformLocation;
+	public readonly animationCounts: WebGLSceneUniformLocation;
+	public readonly animationOffsets: WebGLSceneUniformLocation;
+	public readonly animationTextureWidths: WebGLSceneUniformLocation;
+
+	public constructor(gl: WebGL2RenderingContext, program: WebGLProgram) {
+		const get = createUniformLookup(gl, program);
+		this.animationPayload = get("uAnimationPayload");
+		this.morphPositionDeltas = get("uMorphPositionDeltas");
+		this.morphNormalDeltas = get("uMorphNormalDeltas");
+		this.animationCounts = get("uAnimationCounts");
+		this.animationOffsets = get("uAnimationOffsets");
+		this.animationTextureWidths = get("uAnimationTextureWidths");
+	}
+}
+
 export class WebGLSceneMaterialUniforms {
 	public readonly doubleSided: WebGLSceneUniformLocation;
 	public readonly shadingModel: WebGLSceneUniformLocation;
@@ -496,6 +515,7 @@ export class WebGLSceneCustomUniforms {
 export type WebGLSceneUniforms =
 	WebGLSceneTransformUniforms &
 	WebGLSceneFrameUniforms &
+	WebGLSceneAnimationUniforms &
 	WebGLSceneMaterialUniforms &
 	WebGLSceneMaterialTextureUniforms &
 	WebGLScenePBRExtensionUniforms &
@@ -520,6 +540,7 @@ export function createWebGLSceneUniforms(
 	return Object.assign(
 		new WebGLSceneTransformUniforms(gl, program),
 		new WebGLSceneFrameUniforms(gl, program),
+		new WebGLSceneAnimationUniforms(gl, program),
 		new WebGLSceneMaterialUniforms(gl, program),
 		new WebGLSceneMaterialTextureUniforms(gl, program),
 		new WebGLScenePBRExtensionUniforms(gl, program),

@@ -10,10 +10,10 @@ export const ANIMATION_SOFTWARE_DEFORMED_GEOMETRY_KEY =
 	defineTransientKey<DeformedGeometryMap>(
 		"pipeline:animation-software-deformed-geometry"
 	);
-export const ANIMATION_WEBGPU_JOINT_MATRICES_KEY =
-	defineTransientKey<JointMatrixMap>("pipeline:animation-webgpu-joint-matrices");
-export const ANIMATION_WEBGPU_MORPH_WEIGHTS_KEY =
-	defineTransientKey<MorphWeightMap>("pipeline:animation-webgpu-morph-weights");
+export const ANIMATION_JOINT_MATRICES_KEY =
+	defineTransientKey<JointMatrixMap>("pipeline:animation-joint-matrices");
+export const ANIMATION_MORPH_WEIGHTS_KEY =
+	defineTransientKey<MorphWeightMap>("pipeline:animation-morph-weights");
 export const ANIMATION_DEFORMATION_STATES_KEY =
 	defineTransientKey<PrimitiveDeformationMap>(
 		"pipeline:animation-deformation-states"
@@ -44,12 +44,12 @@ export interface PrimitiveDeformationState {
 	readonly localBounds: BoundingSphere;
 }
 
-export interface AnimationWebGPUJointState {
+export interface AnimationJointState {
 	skeleton: Skeleton;
 	matrices: Float32Array;
 }
 
-export interface AnimationWebGPUMorphState {
+export interface AnimationMorphState {
 	packetId: string;
 	weights: Float32Array;
 	targetCount: number;
@@ -57,8 +57,8 @@ export interface AnimationWebGPUMorphState {
 
 export type DeformedGeometryMap = Map<string, DeformedGeometryOverride>;
 
-export type JointMatrixMap = Map<string, AnimationWebGPUJointState>;
+export type JointMatrixMap = Map<string, AnimationJointState>;
 
-export type MorphWeightMap = Map<string, AnimationWebGPUMorphState>;
+export type MorphWeightMap = Map<string, AnimationMorphState>;
 
 export type PrimitiveDeformationMap = Map<string, PrimitiveDeformationState>;

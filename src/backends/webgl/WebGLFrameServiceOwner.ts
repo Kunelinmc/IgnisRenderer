@@ -90,6 +90,7 @@ import {
 } from "./WebGLTransparencyRuntime";
 import {
 	resolveWebGLBuiltinDepthVariant,
+	resolveWebGLPacketDeformationProfile,
 	type WebGLSceneDepthVariantDescriptor,
 	type WebGLSceneVariantDescriptor,
 } from "./WebGLSceneProgramVariants";
@@ -107,6 +108,11 @@ import type {
 import type { DisplayOutputState } from "../../rendering/DisplayOutput";
 import type { PostProcessColorDomain } from "../../postprocess/PostProcessPass";
 import { WebGLSceneRuntime } from "./WebGLSceneRuntime";
+import { WebGLAnimationPayloadPool } from "./WebGLAnimationPayloadPool";
+import {
+	createWebGLVertexTextureUnitLayout,
+	type WebGLVertexTextureUnitLayout,
+} from "./WebGLVertexTextureUnits";
 
 export interface WebGLFrameServiceOwnerOptions {
 	validatePrograms?: boolean;
@@ -127,6 +133,7 @@ export class WebGLFrameServiceOwner {
 	private _programCompiler: WebGLProgramCompiler;
 	public _scenePrograms: WebGLSceneProgramRepository;
 	public _geometry: WebGLGeometryRegistry;
+	public _animationPayloads: WebGLAnimationPayloadPool | null;
 	public _textures: WebGLTextureRegistry;
 	private _shadow: WebGLShadowRuntime;
 	private _particlePass: WebGLParticlePass;
@@ -137,6 +144,7 @@ export class WebGLFrameServiceOwner {
 	private _environment: WebGLEnvironmentRenderer;
 	private readonly _session = new WebGLFrameSession();
 	private _maxTextureSize: number;
+	private readonly _vertexTextureUnits: WebGLVertexTextureUnitLayout;
 	private _maxRenderbufferSize: number;
 	public _clusteredLighting: WebGLClusteredLightingRuntime;
 	public _shAmbientTexture: WebGLTexture | null = null;
@@ -167,13 +175,13 @@ export class WebGLFrameServiceOwner {
 	}
 
 	public async prepareSceneProgramSources(context: FrameContext): Promise<void> {
-		const materials = Array.from(new Set([
-			...(context.scene?.opaquePackets ?? []).map((packet) => packet.material),
-			...(context.scene?.transparentPackets ?? []).map((packet) => packet.material),
-		]));
+		const packets = [
+			...(context.scene?.opaquePackets ?? []),
+			...(context.scene?.transparentPackets ?? []),
+		];
 		const plan = planWebGLScenePrograms(
 			context,
-			materials,
+			packets,
 			["mrt", "single"],
 		);
 		await this._scenePrograms.prepareBuiltinSceneVariants(
@@ -374,6 +382,13 @@ export class WebGLFrameServiceOwner {
 				this._updateFogParams(fogOptions, enabled),
 		});
 		this._maxTextureSize = this._resolveLimit(gl.MAX_TEXTURE_SIZE, 4096);
+		this._vertexTextureUnits = createWebGLVertexTextureUnitLayout(gl);
+		this._animationPayloads = typeof gl.createTexture === "function" ?
+			new WebGLAnimationPayloadPool(
+				gl,
+				this._vertexTextureUnits,
+				this._maxTextureSize,
+			) : null;
 		this._maxRenderbufferSize = this._resolveLimit(
 			gl.MAX_RENDERBUFFER_SIZE,
 			4096
@@ -431,6 +446,7 @@ export class WebGLFrameServiceOwner {
 			gl: this._gl,
 			programCompiler: this._programCompiler,
 			geometry: this._geometry,
+			animationPayloads: this._animationPayloads ?? undefined,
 			maxTextureSize: this._maxTextureSize,
 			getSceneFramebuffer: () => this._targets._sceneFramebuffer,
 			getWidth: () => this._session.width,
@@ -498,6 +514,7 @@ export class WebGLFrameServiceOwner {
 		this._textures.beginFrame();
 		this._customRenderTargets.sync(context);
 		this._session.begin(context);
+		this._animationPayloads?.beginFrame(context);
 		this._scene.beginFrame();
 		this._ensureFrameTargets(
 			this._session.width,
@@ -859,6 +876,7 @@ export class WebGLFrameServiceOwner {
 		this._environment.destroy();
 		this._fullscreen.destroy();
 		this._geometry.destroy();
+		this._animationPayloads?.destroy();
 		this._textures.destroy();
 		this._scenePrograms.destroy();
 		this._programCompiler.destroy();
@@ -973,14 +991,18 @@ export class WebGLFrameServiceOwner {
 			this._oitPassMode,
 			this._session.lightState,
 			this.getShadowSamplingState().transmittanceAvailable,
-			this._targets._materialGBufferEnabled
+			this._targets._materialGBufferEnabled,
+			resolveWebGLPacketDeformationProfile(packet),
 		);
 	}
 
 	public _resolveSceneDepthPrepassVariant(
 		packet: DrawPacket
 	): WebGLSceneDepthVariantDescriptor | null {
-		return resolveWebGLBuiltinDepthVariant(packet.material);
+		return resolveWebGLBuiltinDepthVariant(
+			packet.material,
+			resolveWebGLPacketDeformationProfile(packet),
+		);
 	}
 
 	public _drawPacket(
@@ -998,6 +1020,20 @@ export class WebGLFrameServiceOwner {
 			context,
 			options
 		);
+	}
+
+	public _bindAnimationPayload(
+		sceneProgram: WebGLSceneProgram,
+		packet: DrawPacket,
+	): boolean {
+		if (!sceneProgram.uniforms.animationCounts) return true;
+		if (!this._animationPayloads) {
+			return !packet.meshInstance.skeleton &&
+				(packet.primitive.geometry.morphTargets?.length ?? 0) === 0;
+		}
+		const geometry = this._geometry.getGeometry(packet);
+		if (!geometry) return false;
+		return this._animationPayloads.bind(sceneProgram.uniforms, packet, geometry);
 	}
 
 	public _bindShaderMaterialTextures(

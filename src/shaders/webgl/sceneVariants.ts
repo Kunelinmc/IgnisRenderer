@@ -9,6 +9,7 @@ export type WebGLSceneOutputMode = "single" | "mrt";
  * `full` preserves the legacy unpruned scene source for compatibility callers.
  */
 export type WebGLSceneMaterialModel = "unlit" | "legacy" | "pbr" | "full";
+export type WebGLSceneSkinProfile = "static" | "skin4" | "skin8";
 
 /**
  * @internal Scene-wide feature bits that select WebGL built-in GLSL parts.
@@ -63,6 +64,8 @@ export interface WebGLSceneVariantDescriptor {
 	oit: boolean;
 	scene: WebGLSceneFeatureVariant;
 	material: WebGLSceneMaterialVariant;
+	skinProfile: WebGLSceneSkinProfile;
+	morphSemanticMask: number;
 }
 
 /**
@@ -71,6 +74,8 @@ export interface WebGLSceneVariantDescriptor {
 export interface WebGLSceneDepthVariantDescriptor {
 	alphaMask: boolean;
 	baseMap: boolean;
+	skinProfile: WebGLSceneSkinProfile;
+	morphPosition: boolean;
 }
 
 export const WEBGL_FULL_SCENE_VARIANT: WebGLSceneVariantDescriptor = {
@@ -113,16 +118,22 @@ export const WEBGL_FULL_SCENE_VARIANT: WebGLSceneVariantDescriptor = {
 		thicknessMap: true,
 		alphaMask: true,
 	},
+	skinProfile: "skin8",
+	morphSemanticMask: 3,
 };
 
 export const WEBGL_OPAQUE_DEPTH_VARIANT: WebGLSceneDepthVariantDescriptor = {
 	alphaMask: false,
 	baseMap: false,
+	skinProfile: "static",
+	morphPosition: false,
 };
 
 export const WEBGL_ALPHA_MAP_DEPTH_VARIANT: WebGLSceneDepthVariantDescriptor = {
 	alphaMask: true,
 	baseMap: true,
+	skinProfile: "static",
+	morphPosition: false,
 };
 
 export function normalizeWebGLSceneVariantDescriptor(
@@ -175,6 +186,8 @@ export function normalizeWebGLSceneVariantDescriptor(
 			thicknessMap: variant.material.thicknessMap === true,
 			alphaMask: variant.material.alphaMask === true,
 		},
+		skinProfile: normalizeSkinProfile(variant.skinProfile),
+		morphSemanticMask: Math.max(0, Math.floor(variant.morphSemanticMask ?? 0)) & 3,
 	};
 }
 
@@ -220,6 +233,8 @@ export function getWebGLSceneVariantKey(
 		`transm:${bit(material.transmissionMap)}`,
 		`thickm:${bit(material.thicknessMap)}`,
 		`mask:${bit(material.alphaMask)}`,
+		`skin:${normalized.skinProfile}`,
+		`morph:${normalized.morphSemanticMask}`,
 	].join("|");
 }
 
@@ -230,6 +245,8 @@ export function getWebGLSceneDepthVariantKey(
 	return [
 		`mask:${bit(normalized.alphaMask)}`,
 		`base:${bit(normalized.baseMap)}`,
+		`skin:${normalized.skinProfile}`,
+		`morphp:${bit(normalized.morphPosition)}`,
 	].join("|");
 }
 
@@ -243,6 +260,8 @@ export function normalizeWebGLSceneDepthVariantDescriptor(
 	return {
 		alphaMask,
 		baseMap: alphaMask && variant.baseMap === true,
+		skinProfile: normalizeSkinProfile(variant.skinProfile),
+		morphPosition: variant.morphPosition === true,
 	};
 }
 
@@ -255,7 +274,13 @@ function cloneWebGLSceneVariantDescriptor(
 		oit: variant.oit,
 		scene: { ...variant.scene },
 		material: { ...variant.material },
+		skinProfile: variant.skinProfile,
+		morphSemanticMask: variant.morphSemanticMask,
 	};
+}
+
+function normalizeSkinProfile(value: WebGLSceneSkinProfile): WebGLSceneSkinProfile {
+	return value === "skin4" || value === "skin8" ? value : "static";
 }
 
 function normalizeWebGLSceneMaterialModel(

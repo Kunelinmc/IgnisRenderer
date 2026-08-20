@@ -3,6 +3,7 @@ import type {
 	JointMatrixMap,
 	MorphWeightMap,
 } from "../../simulation/animation/types";
+import { ANIMATION_RESOURCE_RELEASE_DELAY_FRAMES } from "../constants";
 import {
 	BufferUsage,
 	type IRenderBuffer,
@@ -10,7 +11,6 @@ import {
 import type { WebGPUDeviceResourceHost } from "./WebGPUDeviceResourceHost";
 import type { WebGPUGeometryHandle } from "./WebGPUGeometryRegistry";
 
-const ANIMATION_RESOURCE_RELEASE_DELAY_FRAMES = 60;
 const FALLBACK_STORAGE_BYTE_SIZE = 4 * 16 * 4;
 const ANIMATION_PARAMS_BYTE_SIZE = 8 * 4;
 

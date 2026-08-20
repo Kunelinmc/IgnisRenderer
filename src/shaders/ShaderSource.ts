@@ -981,7 +981,7 @@ export class ShaderSource {
 			this._loadWebGLSceneFragmentComposite(limits, variant),
 		]);
 		return {
-			vertex,
+			vertex: this._buildWebGLSceneVertex(vertex, variant),
 			fragment: fragment.code,
 		};
 	}
@@ -1000,7 +1000,11 @@ export class ShaderSource {
 			this._loadWebGLSceneFragmentComposite(limits, variant),
 		]);
 		return {
-			vertex,
+			vertex: createInlineCompositeShaderSource(
+				this._buildWebGLSceneVertex(vertex.code, variant),
+				firstSourcePath(vertex, WEBGL_SHADER_FILES.sceneVertex),
+				"template",
+			),
 			fragment,
 		};
 	}
@@ -1042,6 +1046,30 @@ export class ShaderSource {
 			],
 			"<webgl-scene-fragment-part>"
 		);
+	}
+
+	private static _buildWebGLSceneVertex(
+		template: string,
+		variant: WebGLSceneVariantDescriptor,
+	): string {
+		return template.replace(
+			"__IGNIS_WEBGL_ANIMATION_DEFINES__",
+			this._buildWebGLAnimationDefines(
+				variant.skinProfile,
+				variant.morphSemanticMask !== 0,
+			),
+		);
+	}
+
+	private static _buildWebGLAnimationDefines(
+		skinProfile: "static" | "skin4" | "skin8",
+		hasMorph: boolean,
+	): string {
+		const influences = skinProfile === "skin8" ? 8 : skinProfile === "skin4" ? 4 : 0;
+		return [
+			`#define IGNIS_WEBGL_DEFORMATION_ACTIVE ${influences > 0 || hasMorph ? 1 : 0}`,
+			`#define IGNIS_WEBGL_SKIN_INFLUENCES ${influences}`,
+		].join("\n");
 	}
 
 	private static async _loadWebGLSceneOptionalBlocks():
