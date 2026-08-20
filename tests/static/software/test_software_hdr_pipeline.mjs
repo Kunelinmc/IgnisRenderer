@@ -76,6 +76,30 @@ function testHDRDomainBuiltInsPreserveRadiance() {
 	assert.ok(gammaColor[0] > 1);
 }
 
+function testSyntheticGBufferBridgeDoesNotResolveSceneColor() {
+	let sceneColorResolves = 0;
+	const executor = new SoftwarePostProcessExecutor(() => {
+		sceneColorResolves++;
+		return new Float32Array(16);
+	});
+	const context = { attachments: { width: 2, height: 2 } };
+	const synthetic = executor.createGBufferBridge(context, {
+		resourceMode: "synthetic",
+	});
+
+	assert.equal(sceneColorResolves, 0);
+	assert.equal(synthetic.normalSpace, "view");
+	assert.ok(synthetic.channels.depth);
+	assert.ok(synthetic.channels.normal);
+	assert.deepEqual(synthetic.channels.color.handle, {
+		backend: "software",
+		resource: null,
+	});
+
+	executor.createGBufferBridge(context);
+	assert.equal(sceneColorResolves, 1);
+}
+
 function testAuthoritativeColorResourceAndDomainTracking() {
 	const color = new Float32Array([4, 2, 1, 1]);
 	const executor = new SoftwarePostProcessExecutor(() => color, () => ({
@@ -196,6 +220,7 @@ function testAdditiveParticlesCanExceedOne() {
 }
 
 function run() {
+	testSyntheticGBufferBridgeDoesNotResolveSceneColor();
 	testHDRDomainBuiltInsPreserveRadiance();
 	testAuthoritativeColorResourceAndDomainTracking();
 	testAdditiveParticlesCanExceedOne();

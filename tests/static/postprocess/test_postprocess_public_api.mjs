@@ -124,28 +124,38 @@ class LifecyclePass extends postprocess.PostProcessPass {
 }
 
 function createLifecycleHarness() {
-	const state = { mode: "run", historyValidity: [], completions: 0 };
+	const state = {
+		mode: "run",
+		historyValidity: [],
+		completions: 0,
+		gBufferResourceModes: [],
+	};
 	const registry = new postprocess.PostProcessPassRegistry();
 	registry.registerPass(new LifecyclePass(state));
 	const snapshot = registry.createSnapshot("software");
 	const executor = {
 		backend: "software",
-		gBufferNormalSpace: "view",
-		createGBufferBridge: (context) => ({
-			width: context.attachments.width,
-			height: context.attachments.height,
-			normalSpace: "view",
-			depthEncoding: "linear-view-z",
-			channels: {
-				color: {
-					semantic: "color",
-					width: context.attachments.width,
-					height: context.attachments.height,
-					handle: { backend: "software", data: context.attachments.pixels },
+		createGBufferBridge: (context, options = {}) => {
+			state.gBufferResourceModes.push(options.resourceMode ?? "physical");
+			return {
+				width: context.attachments.width,
+				height: context.attachments.height,
+				normalSpace: "view",
+				depthEncoding: "linear-view-z",
+				channels: {
+					color: {
+						semantic: "color",
+						width: context.attachments.width,
+						height: context.attachments.height,
+						handle: {
+							backend: "software",
+							data: context.attachments.pixels,
+						},
+					},
 				},
-			},
-			worldPosition: { source: "derived", available: false },
-		}),
+				worldPosition: { source: "derived", available: false },
+			};
+		},
 		createResource: (descriptor) => ({
 			...descriptor,
 			backend: "software",
@@ -183,6 +193,10 @@ async function testLifecycleCommitSkipAbortAndHistory() {
 	const { state, runtime, context } = createLifecycleHarness();
 	await runtime.execute(context);
 	runtime.commitFrame();
+	assert.deepEqual(state.gBufferResourceModes.slice(0, 2), [
+		"synthetic",
+		"physical",
+	]);
 	assert.deepEqual(state.historyValidity, [false]);
 	assert.deepEqual(runtime.getDebugState().lastSuccessful.executedPassIds, ["lifecycle"]);
 

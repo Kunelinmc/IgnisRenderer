@@ -21,6 +21,7 @@ import { tryGetTextureFormatInfo } from "../../TextureFormatInfo";
 import type { WebGPUFrameHost } from "./WebGPUFrameHost";
 import type { WebGPUFrameTargets } from "../WebGPUFrameTargetContracts";
 import type { WebGPUPostProcessFrameTargets } from "../WebGPUPostProcessContracts";
+import { WEBGPU_POST_PROCESS_GBUFFER_METADATA } from "../WebGPUPostProcessContracts";
 import { WebGPUPostProcessRuntime } from "../WebGPUPostProcessRuntime";
 import { getWebGPUPostProcessSharedResourceDescriptor } from "./WebGPUPostProcessSharedResourceCatalog";
 import type { WebGPUFrameExecutionContext } from "./WebGPUFrameExecutionContext";
@@ -208,8 +209,8 @@ export class WebGPUPostProcessBridge {
 		return {
 			width,
 			height,
-			normalSpace: "view",
-			depthEncoding: "linear-view-z",
+			normalSpace: WEBGPU_POST_PROCESS_GBUFFER_METADATA.normalSpace,
+			depthEncoding: WEBGPU_POST_PROCESS_GBUFFER_METADATA.depthEncoding,
 			motionEncoding: targets?.gMotionDepth ? "ndc-delta" : undefined,
 			channels,
 			worldPosition: {

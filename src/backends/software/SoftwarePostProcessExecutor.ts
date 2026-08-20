@@ -3,23 +3,33 @@ import type {
 	IPostProcessExecutor,
 	LogicalGBufferBridge,
 	LogicalGBufferSemantic,
+	PostProcessGBufferBridgeOptions,
 	PostProcessPassExecutionContextRequest,
 	PostProcessPassRequest,
 	PostProcessPassResult,
 	PostProcessResourceDescriptor,
 	PostProcessResourceHandle,
 } from "../../postprocess";
+import { createSyntheticLogicalGBufferBridge } from "../../postprocess/GBufferBridge";
 import { createPostProcessResourceAccessor } from "../../postprocess/PostProcessResourceAccessor";
 import type { SoftwareFrameView } from "./SoftwareFrameView";
 import type { PostProcessColorDomain } from "../../postprocess/PostProcessPass";
 import type { DisplayOutputState } from "../../rendering/DisplayOutput";
+
+const SOFTWARE_GBUFFER_METADATA = {
+	normalSpace: "view",
+	depthEncoding: "linear-view-z",
+	motionEncoding: "ndc-delta",
+} as const satisfies Pick<
+	LogicalGBufferBridge,
+	"normalSpace" | "depthEncoding" | "motionEncoding"
+>;
 
 /**
  * Executes logical post-process passes on the software backend.
  */
 export class SoftwarePostProcessExecutor implements IPostProcessExecutor {
 	public readonly backend = "software";
-	public readonly gBufferNormalSpace = "view";
 	private _activeFrame: SoftwareFrameView | null = null;
 	private _outputColorDomain: PostProcessColorDomain = "scene-linear-hdr";
 
@@ -76,10 +86,21 @@ export class SoftwarePostProcessExecutor implements IPostProcessExecutor {
 	 * Creates a logical G-buffer bridge for the current software frame.
 	 *
 	 * @param context Current renderer frame context.
+	 * @param options Selects physical attachments or synthetic metadata.
 	 * @returns Logical bridge wrapping CPU frame attachments.
-	 * @sideEffects None.
+	 * @sideEffects Physical mode may resolve authoritative scene color;
+	 * synthetic mode performs no frame-sized allocation.
 	 */
-	public createGBufferBridge(context: FrameContext): LogicalGBufferBridge {
+	public createGBufferBridge(
+		context: FrameContext,
+		options: PostProcessGBufferBridgeOptions = {},
+	): LogicalGBufferBridge {
+		if (options.resourceMode === "synthetic") {
+			return createSyntheticLogicalGBufferBridge(context, {
+				backend: this.backend,
+				...SOFTWARE_GBUFFER_METADATA,
+			});
+		}
 		return createSoftwareGBufferBridge(context, this._resolveSceneColor(context));
 	}
 
@@ -168,9 +189,7 @@ export function createSoftwareGBufferBridge(
 	return {
 		width,
 		height,
-		normalSpace: "view",
-		depthEncoding: "linear-view-z",
-		motionEncoding: "ndc-delta",
+		...SOFTWARE_GBUFFER_METADATA,
 		channels: {
 			color: {
 				semantic: "color",

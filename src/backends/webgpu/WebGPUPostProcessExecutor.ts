@@ -2,6 +2,7 @@ import type { FrameContext } from "../../pipeline/types";
 import type {
 	IPostProcessExecutor,
 	LogicalGBufferBridge,
+	PostProcessGBufferBridgeOptions,
 	PostProcessPassExecutionContextRequest,
 	PostProcessPassRequest,
 	PostProcessPassResult,
@@ -11,6 +12,7 @@ import type {
 	PostProcessResourceDescriptor,
 	PostProcessResourceHandle,
 } from "../../postprocess";
+import { createSyntheticLogicalGBufferBridge } from "../../postprocess/GBufferBridge";
 import { tryGetTextureFormatInfo } from "../TextureFormatInfo";
 import {
 	TextureFormat,
@@ -18,6 +20,7 @@ import {
 	type IRenderTexture,
 } from "../types";
 import type { WebGPUFrameHost } from "./rendergraph/WebGPUFrameHost";
+import { WEBGPU_POST_PROCESS_GBUFFER_METADATA } from "./WebGPUPostProcessContracts";
 
 export interface WebGPUPostProcessSessionPort {
 	createGBufferBridge(context: FrameContext): LogicalGBufferBridge;
@@ -33,7 +36,6 @@ export interface WebGPUPostProcessSessionPort {
 /** Supplies backend resources and delegates frame-only work through a session port. */
 export class WebGPUPostProcessExecutor implements IPostProcessExecutor {
 	public readonly backend = "webgpu";
-	public readonly gBufferNormalSpace = "view";
 	private _sessionPort: WebGPUPostProcessSessionPort | null = null;
 
 	constructor(private readonly _host: WebGPUFrameHost) {}
@@ -89,7 +91,24 @@ export class WebGPUPostProcessExecutor implements IPostProcessExecutor {
 		this._sessionPort?.invalidateResourceBindings();
 	}
 
-	public createGBufferBridge(context: FrameContext): LogicalGBufferBridge {
+	/**
+	 * Creates physical frame bindings or allocation-free planning metadata.
+	 *
+	 * @param context Current renderer frame context.
+	 * @param options Selects physical targets or synthetic metadata.
+	 * @returns Logical G-buffer bridge for the selected resource mode.
+	 * @sideEffects Synthetic mode does not require an active session port.
+	 */
+	public createGBufferBridge(
+		context: FrameContext,
+		options: PostProcessGBufferBridgeOptions = {},
+	): LogicalGBufferBridge {
+		if (options.resourceMode === "synthetic") {
+			return createSyntheticLogicalGBufferBridge(context, {
+				backend: this.backend,
+				...WEBGPU_POST_PROCESS_GBUFFER_METADATA,
+			});
+		}
 		return (
 			this._sessionPort?.createGBufferBridge(context) ??
 			this._createFallbackGBufferBridge(context)
@@ -132,8 +151,8 @@ export class WebGPUPostProcessExecutor implements IPostProcessExecutor {
 		return {
 			width: Math.max(1, context.attachments.width),
 			height: Math.max(1, context.attachments.height),
-			normalSpace: "view",
-			depthEncoding: "hardware",
+			normalSpace: WEBGPU_POST_PROCESS_GBUFFER_METADATA.normalSpace,
+			depthEncoding: WEBGPU_POST_PROCESS_GBUFFER_METADATA.depthEncoding,
 			channels: {},
 			worldPosition: { source: "derived", available: false },
 		};

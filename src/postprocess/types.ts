@@ -72,6 +72,11 @@ export interface LogicalGBufferBridge {
 	};
 }
 
+export interface PostProcessGBufferBridgeOptions {
+	/** Selects allocated frame resources or allocation-free planning metadata. */
+	readonly resourceMode?: "physical" | "synthetic";
+}
+
 export interface PostProcessBaseResourceDescriptor {
 	readonly id: string;
 	readonly format?: string;
@@ -327,17 +332,20 @@ export interface PostProcessFrameAbortRequest extends PostProcessFrameRequest {
 
 export interface IPostProcessExecutor {
 	readonly backend: RenderBackendType;
-	/** @internal Physical coordinate space used by the backend normal channel. */
-	readonly gBufferNormalSpace: LogicalGBufferBridge["normalSpace"];
 	/**
 	 * Creates the logical G-buffer view consumed by cross-backend passes.
 	 *
 	 * @param context Frame context containing backend attachments for the
 	 * current render.
+	 * @param options Selects physical resources or synthetic planning metadata.
 	 * @returns A backend-specific bridge mapped to logical G-buffer semantics.
-	 * @sideEffects None. Resource ownership remains with the backend.
+	 * @sideEffects Physical mode reads backend-owned frame state. Synthetic mode
+	 * must not allocate frame resources or mutate lifecycle state.
 	 */
-	createGBufferBridge(context: FrameContext): LogicalGBufferBridge;
+	createGBufferBridge(
+		context: FrameContext,
+		options?: PostProcessGBufferBridgeOptions,
+	): LogicalGBufferBridge;
 	/** @internal Reports whether a backend-shared graph resource is ready. */
 	isGraphResourceAvailable?(resourceId: string): boolean;
 	/** @internal Opens a backend-private logical-to-physical binding transaction. */

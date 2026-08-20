@@ -15,7 +15,6 @@ import type { IRenderBackend } from "../backends/IRenderBackend";
 import type {
 	IPostProcessExecutor,
 	LogicalGBufferBridge,
-	LogicalGBufferSemantic,
 	PostProcessFrameRequest,
 	PostProcessPassExecutionContextRequest,
 	PostProcessPassCompletion,
@@ -665,46 +664,8 @@ export class BackendPostProcessRuntime {
 	}
 
 	private _createWarmupGBuffer(context: FrameContext): LogicalGBufferBridge {
-		const width = Math.max(1, context.attachments?.width ?? 1);
-		const height = Math.max(1, context.attachments?.height ?? 1);
-		const normalSpace = this._executor.gBufferNormalSpace;
-		const semantics: readonly LogicalGBufferSemantic[] = [
-			"color",
-			"depth",
-			"normal",
-			"motion",
-			"world-position",
-			"albedo",
-			"roughness",
-			"metallic",
-			"specular",
-			"transmission",
-			"emissive",
-			"occlusion",
-		];
-		const channels: LogicalGBufferBridge["channels"] = {};
-		for (const semantic of semantics) {
-			channels[semantic] = {
-				semantic,
-				width,
-				height,
-				handle: {
-					backend: this._executor.backend,
-					resource: null,
-				},
-			};
-		}
-		return {
-			width,
-			height,
-			normalSpace,
-			depthEncoding: "linear-view-z",
-			motionEncoding: "ndc-delta",
-			channels,
-			worldPosition: {
-				source: "derived",
-				available: true,
-			},
-		};
+		return this._executor.createGBufferBridge(context, {
+			resourceMode: "synthetic",
+		});
 	}
 }

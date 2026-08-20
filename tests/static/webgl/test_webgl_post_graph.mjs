@@ -1,9 +1,35 @@
 import assert from "node:assert/strict";
 import { resolvePostProcessExecutionOrder } from "../../../src/postprocess/index.ts";
+import { WebGLPostProcessExecutor } from "../../../src/backends/webgl/WebGLPostProcessExecutor.ts";
 import { createResolvedPostProcess } from "../../helpers/postprocess.mjs";
 
 function createPostProcess(overrides = {}) {
 	return createResolvedPostProcess(overrides, "webgl");
+}
+
+function testSyntheticGBufferBridgeDoesNotRequireDeviceServices() {
+	let deviceServiceReads = 0;
+	const executor = new WebGLPostProcessExecutor({
+		getDeviceServices() {
+			deviceServiceReads++;
+			return null;
+		},
+	});
+	const context = { attachments: { width: 8, height: 4 } };
+	const synthetic = executor.createGBufferBridge(context, {
+		resourceMode: "synthetic",
+	});
+
+	assert.equal(deviceServiceReads, 0);
+	assert.equal(synthetic.normalSpace, "world");
+	assert.ok(synthetic.channels.depth);
+	assert.deepEqual(synthetic.channels.depth.handle, {
+		backend: "webgl",
+		resource: null,
+	});
+
+	executor.createGBufferBridge(context);
+	assert.equal(deviceServiceReads, 1);
 }
 
 function testBuiltInOrderUsesPipelineAuthority() {
@@ -52,6 +78,7 @@ function testFogSceneModeSkipsFogInPipelineOrder() {
 }
 
 function run() {
+	testSyntheticGBufferBridgeDoesNotRequireDeviceServices();
 	testBuiltInOrderUsesPipelineAuthority();
 	testFogSceneModeSkipsFogInPipelineOrder();
 	console.log("WebGL post-process pipeline-order tests passed");

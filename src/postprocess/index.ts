@@ -239,6 +239,7 @@ export type {
 	LogicalGBufferChannel,
 	LogicalGBufferHandle,
 	LogicalGBufferSemantic,
+	PostProcessGBufferBridgeOptions,
 	PostProcessBackendKind,
 	PostProcessFrameAbortRequest,
 	PostProcessFrameEndRequest,

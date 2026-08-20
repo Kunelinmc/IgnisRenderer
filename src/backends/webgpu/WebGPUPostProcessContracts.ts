@@ -8,6 +8,17 @@ import type { WebGPUFrameTargets } from "./WebGPUFrameTargetContracts";
 import type { WebGPUDenoiser } from "./WebGPUDenoiser";
 import type { WebGPUHiZBuilder } from "./WebGPUHiZBuilder";
 import type { DisplayOutputState } from "../../rendering/DisplayOutput";
+import type { LogicalGBufferBridge } from "../../postprocess";
+
+/** @internal Canonical WebGPU logical G-buffer metadata. */
+export const WEBGPU_POST_PROCESS_GBUFFER_METADATA = {
+	normalSpace: "view",
+	depthEncoding: "linear-view-z",
+	motionEncoding: "ndc-delta",
+} as const satisfies Pick<
+	LogicalGBufferBridge,
+	"normalSpace" | "depthEncoding" | "motionEncoding"
+>;
 
 /** @internal Narrow device-lifetime services available to WebGPU passes. */
 export interface WebGPUPostProcessServices {

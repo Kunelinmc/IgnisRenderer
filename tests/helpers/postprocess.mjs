@@ -18,6 +18,7 @@ import {
 	createRenderBackendExtensionRegistry,
 } from "../../src/index.ts";
 import { BackendPostProcessRuntime } from "../../src/postprocess/BackendPostProcessRuntime.ts";
+import { createSyntheticLogicalGBufferBridge } from "../../src/postprocess/GBufferBridge.ts";
 
 export const ALL_POST_PROCESS_PASS_IDS = [
 	"ssao",
@@ -123,7 +124,15 @@ export function createNoopPostProcessSupport(
 		createdResources: [],
 		destroyedResources: [],
 		executedPasses: [],
-		createGBufferBridge(context) {
+		createGBufferBridge(context, options = {}) {
+			if (options.resourceMode === "synthetic") {
+				return createSyntheticLogicalGBufferBridge(context, {
+					backend,
+					normalSpace: "world",
+					depthEncoding: "linear-view-z",
+					motionEncoding: "ndc-delta",
+				});
+			}
 			const attachments = context.attachments;
 			const width = attachments.width ?? 1;
 			const height = attachments.height ?? 1;

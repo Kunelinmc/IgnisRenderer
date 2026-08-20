@@ -2,6 +2,7 @@ import type { FrameContext } from "../../pipeline/types";
 import type {
 	IPostProcessExecutor,
 	LogicalGBufferBridge,
+	PostProcessGBufferBridgeOptions,
 	PostProcessPassExecutionContextRequest,
 	PostProcessPassRequest,
 	PostProcessPassResult,
@@ -11,6 +12,9 @@ import type {
 	PostProcessResourceDescriptor,
 	PostProcessResourceHandle,
 } from "../../postprocess";
+import { createSyntheticLogicalGBufferBridge } from "../../postprocess/GBufferBridge";
+
+import { WEBGL_POST_PROCESS_GBUFFER_METADATA } from "./WebGLPostProcessContracts";
 
 export interface WebGLPostProcessDeviceServices {
 	createPostProcessResource(
@@ -46,7 +50,6 @@ export class WebGLPostProcessExecutor implements IPostProcessExecutor {
 	 * Backend kind used for pass implementation resolution.
 	 */
 	public readonly backend = "webgl";
-	public readonly gBufferNormalSpace = "world";
 	private readonly _host: WebGLPostProcessExecutorHost;
 
 	constructor(host: WebGLPostProcessExecutorHost) {
@@ -80,10 +83,20 @@ export class WebGLPostProcessExecutor implements IPostProcessExecutor {
 	 * Creates a logical G-buffer bridge for the current WebGL frame.
 	 *
 	 * @param context Current renderer frame context.
+	 * @param options Selects physical targets or synthetic metadata.
 	 * @returns Logical bridge wrapping active WebGL frame targets.
-	 * @sideEffects None.
+	 * @sideEffects Synthetic mode does not require device services.
 	 */
-	public createGBufferBridge(context: FrameContext): LogicalGBufferBridge {
+	public createGBufferBridge(
+		context: FrameContext,
+		options: PostProcessGBufferBridgeOptions = {},
+	): LogicalGBufferBridge {
+		if (options.resourceMode === "synthetic") {
+			return createSyntheticLogicalGBufferBridge(context, {
+				backend: this.backend,
+				...WEBGL_POST_PROCESS_GBUFFER_METADATA,
+			});
+		}
 		return (
 			this._host.getDeviceServices()?.createGBufferBridge(context) ??
 			this._createFallbackGBufferBridge(context)
@@ -143,8 +156,7 @@ export class WebGLPostProcessExecutor implements IPostProcessExecutor {
 		return {
 			width: Math.max(1, context.attachments.width),
 			height: Math.max(1, context.attachments.height),
-			normalSpace: "world",
-			depthEncoding: "hardware",
+			...WEBGL_POST_PROCESS_GBUFFER_METADATA,
 			channels: {},
 			worldPosition: {
 				source: "derived",

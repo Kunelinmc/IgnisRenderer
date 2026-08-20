@@ -7,9 +7,31 @@ const host = new FakeWebGPUBackend();
 const executor = new WebGPUPostProcessExecutor(host);
 const context = { attachments: { width: 8, height: 4 } };
 
-assert.equal(executor.gBufferNormalSpace, "view");
 assert.equal(executor.createGBufferBridge(context).normalSpace, "view");
 assert.deepEqual(executor.createGBufferBridge(context).channels, {});
+const syntheticBridge = executor.createGBufferBridge(context, {
+	resourceMode: "synthetic",
+});
+assert.equal(syntheticBridge.normalSpace, "view");
+assert.deepEqual(Object.keys(syntheticBridge.channels).sort(), [
+	"albedo",
+	"color",
+	"depth",
+	"emissive",
+	"metallic",
+	"motion",
+	"normal",
+	"occlusion",
+	"roughness",
+	"specular",
+	"transmission",
+	"world-position",
+]);
+assert.equal(syntheticBridge.worldPosition.available, true);
+assert.deepEqual(syntheticBridge.channels.depth.handle, {
+	backend: "webgpu",
+	resource: null,
+});
 assert.throws(
 	() => executor.createPassExecutionContext({ implementation: {} }),
 	/post-process session is not active/,

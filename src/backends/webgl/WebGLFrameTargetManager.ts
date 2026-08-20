@@ -4,6 +4,7 @@ import type {
 	LogicalGBufferChannel,
 	LogicalGBufferSemantic,
 } from "../../postprocess";
+import { WEBGL_POST_PROCESS_GBUFFER_METADATA } from "./WebGLPostProcessContracts";
 import type {
 	RenderGraphPhysicalBinding,
 	RenderGraphResourceDescriptor,
@@ -216,9 +217,7 @@ export class WebGLFrameTargetManager implements WebGLFrameTargetLifecycleHost {
 		return {
 			width,
 			height,
-			normalSpace: "world",
-			depthEncoding: "hardware",
-			motionEncoding: "ndc-delta",
+			...WEBGL_POST_PROCESS_GBUFFER_METADATA,
 			channels: {
 				color: this._channel("color", this._sceneColorTexture, width, height,
 					this._sceneColorFormat),

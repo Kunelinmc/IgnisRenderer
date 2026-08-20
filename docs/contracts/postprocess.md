@@ -41,9 +41,18 @@ This document defines logical post-process declarations, planning, backend execu
   encoding supplied by the active backend. An implementation that reconstructs
   positions or directions in another coordinate space must explicitly convert
   sampled normals before combining them with those values.
-- `IPostProcessExecutor.gBufferNormalSpace` must declare the backend's physical
-  normal space. Synthetic warmup bridges must consume that declaration and
-  must not infer normal space from a backend identifier.
+- `IPostProcessExecutor.createGBufferBridge(context, options)` must accept
+  `resourceMode: "physical" | "synthetic"`; omitted mode must mean
+  `"physical"`.
+- A physical bridge must expose only channels backed by the active frame's
+  allocated resources. A synthetic bridge must expose every logical G-buffer
+  semantic with null resource handles while preserving the backend's real
+  normal, depth, and motion metadata.
+- Creating a synthetic bridge must not allocate CPU or GPU frame resources,
+  require initialized device services, or mutate frame lifecycle state.
+- Declaration planning and warmup must request a synthetic bridge through
+  `createGBufferBridge()`. They must not duplicate backend metadata or infer it
+  from a backend identifier.
 - `color.output: "new-version"` must receive a backend-assigned output distinct
   from its input. `color.output: "preserve"` must not receive a new output.
 - `{ ran: true }` must commit the assigned color output automatically.
