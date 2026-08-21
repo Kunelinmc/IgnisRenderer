@@ -73,6 +73,24 @@ function testShadowRasterPassConsumesResolvedPlanAndRestoresBaseline() {
 	pass.destroy();
 }
 
+function testShadowRasterPassClearsOnlyActiveSlices() {
+	const gl = createShadowRasterCaptureGL();
+	const pass = new WebGLShadowRasterPass(createShadowPassHost(gl));
+	const plan = createShadowRasterPlan();
+
+	pass.prepare(plan);
+	gl.calls.clear.length = 0;
+	gl.calls.scissor.length = 0;
+	pass.render(plan);
+
+	assert.deepEqual(gl.calls.clear, [gl.DEPTH_BUFFER_BIT, gl.COLOR_BUFFER_BIT]);
+	assert.deepEqual(gl.calls.scissor, [
+		{ x: 8, y: 16, width: 32, height: 32 },
+		{ x: 8, y: 16, width: 32, height: 32 },
+	]);
+	pass.destroy();
+}
+
 function testShadowRasterPassRestoresDefaultFramebufferDrawBuffer() {
 	const gl = createShadowRasterCaptureGL();
 	const operations = [];
@@ -264,6 +282,7 @@ await runWebGLBackendFile(
 		testSceneShaderKeepsClusteredFragmentLightLimitPlaceholder,
 		testSceneShaderUsesFlippedShadowNormal,
 		testShadowRasterPassConsumesResolvedPlanAndRestoresBaseline,
+		testShadowRasterPassClearsOnlyActiveSlices,
 		testShadowRasterPassRestoresDefaultFramebufferDrawBuffer,
 		testShadowRasterPassCleansPartialAllocationAndRestoresOnDrawError,
 		testShadowRasterPassDoesNotRejectSkeletonPackets,

@@ -224,6 +224,10 @@ This document defines the current WebGL backend lifecycle, frame graph, resource
   `WebGLShadowRasterPlan`. It must not inspect `FrameContext`, light collection
   state, particle transients, or frame-target services, and it must exclusively
   own the shadow framebuffer, depth atlas, and transmittance atlas.
+- `WebGLShadowRasterPass` must clear depth and transmittance only within each
+  active atlas slice by using its scissor rectangle. It must not clear the full
+  atlas before slice rasterization; an active slice without transmitters must
+  still clear its transmittance region to fully lit.
 - WebGL frame preparation must consume prepared shadow lights before light
   packing, prepare predictable native targets, and compile the frame graph only
   after those targets are known.

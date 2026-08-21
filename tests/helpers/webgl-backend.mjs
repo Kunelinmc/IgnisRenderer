@@ -273,6 +273,7 @@ export function createScenePassCaptureGL() {
 		enable: [],
 		disable: [],
 		scissor: [],
+		clear: [],
 		drawElements: [],
 	};
 	return {
@@ -418,7 +419,7 @@ export function createShadowRasterCaptureGL() {
 	gl.readBuffer = () => {};
 	gl.checkFramebufferStatus = () => gl.FRAMEBUFFER_COMPLETE;
 	gl.clearDepth = () => {};
-	gl.clear = () => {};
+	gl.clear = (mask) => gl.calls.clear.push(mask);
 	gl.blendFuncSeparate = () => {};
 	gl.clearColor = () => {};
 	gl.viewport = (x, y, width, height) => {

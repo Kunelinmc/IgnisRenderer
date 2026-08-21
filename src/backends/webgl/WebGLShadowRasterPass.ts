@@ -204,7 +204,6 @@ export class WebGLShadowRasterPass {
 			gl.colorMask(false, false, false, false);
 			gl.enable(gl.SCISSOR_TEST);
 			gl.clearDepth(1);
-			gl.clear(gl.DEPTH_BUFFER_BIT);
 
 			for (let index = 0; index < plan.sliceCount; index++) {
 				this._renderDepthSlice(plan, plan.slices[index]);
@@ -216,9 +215,6 @@ export class WebGLShadowRasterPass {
 			gl.enable(gl.BLEND);
 			gl.blendFuncSeparate(gl.ZERO, gl.SRC_COLOR, gl.ZERO, gl.ONE);
 			gl.clearColor(1, 1, 1, 1);
-			gl.disable(gl.SCISSOR_TEST);
-			gl.clear(gl.COLOR_BUFFER_BIT);
-			gl.enable(gl.SCISSOR_TEST);
 			for (let index = 0; index < plan.sliceCount; index++) {
 				this._renderTransmittanceSlice(
 					plan,
@@ -254,8 +250,10 @@ export class WebGLShadowRasterPass {
 		plan: WebGLShadowRasterPlan,
 		slice: WebGLShadowRasterSlice | undefined,
 	): void {
-		if (!slice || plan.transmitterPackets.length === 0) return;
+		if (!slice) return;
 		this._setSliceViewport(slice);
+		this._host.gl.clear(this._host.gl.COLOR_BUFFER_BIT);
+		if (plan.transmitterPackets.length === 0) return;
 		for (const packet of plan.transmitterPackets) {
 			this._drawShadowTransmittancePacket(packet, slice.viewProjectionMatrix);
 		}
