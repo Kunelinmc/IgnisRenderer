@@ -89,9 +89,7 @@ async function run(): Promise<WebGLDisplayHDRBrowserResult> {
 	}) as typeof window.matchMedia;
 
 	const backend = new WebGLBackend({ shaderMode: "strict" });
-	const renderer = new Renderer({
-		backend,
-		canvas: rendererCanvas,
+	const renderer = new Renderer(rendererCanvas, backend, null, {
 		displayOutput: { mode: "hdr", hdrHeadroom: 4 },
 	});
 	await renderer.initialize();

@@ -357,7 +357,7 @@ import { Renderer } from "../src/rendering/Renderer";
 import { WebGLBackend } from "../src/backends/webgl/WebGLBackend";
 
 const backend = new WebGLBackend();
-const renderer = new Renderer({ backend, canvas, camera });
+const renderer = new Renderer(canvas, backend, camera);
 await renderer.initialize();
 
 renderer.features.enableOIT = true;
@@ -382,7 +382,7 @@ import { Renderer } from "../src/rendering/Renderer";
 import { WebGPUBackend } from "../src/backends/webgpu/WebGPUBackend";
 
 const backend = new WebGPUBackend();
-const renderer = new Renderer({ backend, canvas, camera });
+const renderer = new Renderer(canvas, backend, camera);
 await renderer.initialize();
 
 renderer.features.enableOcclusionCulling = true;
@@ -397,11 +397,7 @@ await renderer.renderFrame(performance.now());
 const disabledBackend = new WebGPUBackend({
 	enableOcclusionCulling: false,
 });
-const disabledRenderer = new Renderer({
-	backend: disabledBackend,
-	canvas,
-	camera,
-});
+const disabledRenderer = new Renderer(canvas, disabledBackend, camera);
 
 console.assert(
 	disabledRenderer.backendProfile.capabilities.occlusionCulling === false
@@ -422,9 +418,7 @@ bun tests/static/webgpu/test_webgpu_occlusion_culling_runtime.mjs
 ```ts
 import { Renderer, WebGPUBackend } from "ignisrenderer";
 
-const renderer = new Renderer({
-	backend: new WebGPUBackend(),
-	canvas,
+const renderer = new Renderer(canvas, new WebGPUBackend(), null, {
 	displayOutput: {
 		mode: "auto",
 		exposure: 1,

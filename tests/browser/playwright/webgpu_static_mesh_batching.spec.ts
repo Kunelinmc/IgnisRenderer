@@ -28,14 +28,14 @@ test("WebGPU batches compatible static meshes", async ({ page }) => {
 		canvas.height = 64;
 		document.body.append(canvas);
 		const camera = new Camera();
-		const renderer = new Renderer({
-			backend: new WebGPUBackend({
+		const renderer = new Renderer(
+			canvas,
+			new WebGPUBackend({
 				enableDeferredLighting: false,
 				enableEarlyZPrepass: false,
 			}),
-			canvas,
 			camera,
-		});
+		);
 		try {
 			const material = new PBRMaterial({ name: "StaticBatchMaterial" });
 			const mesh = MeshAsset.fromFaces([{

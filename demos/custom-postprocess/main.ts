@@ -193,11 +193,7 @@ async function init() {
 	// Scene is populated entirely with primitive shapes centered at the origin
 
 	// Initialize Renderer
-	const renderer = new Renderer({
-		backend,
-		canvas,
-		camera,
-	});
+	const renderer = new Renderer(canvas, backend, camera);
 	renderer.setScene(scene);
 	renderer.features.enableShadows = true;
 	await renderer.initialize();

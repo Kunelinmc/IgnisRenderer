@@ -108,6 +108,13 @@ post-process history.
 The package-root `Rasterizer` export is removed without a public replacement.
 Applications render through `Renderer` configured with `SoftwareBackend`.
 
+## Renderer Construction
+
+Renderer construction now uses
+`new Renderer(canvas, backend, camera?, options?)`. Move `canvas`, `backend`,
+and the optional initial `camera` out of the former single options object.
+`RendererOptions` now contains only optional renderer configuration.
+
 ## Software HDR Color Pipeline
 
 The Software backend color pipeline is now normalized linear RGBA32F. This is
@@ -122,8 +129,7 @@ buffer with the declaration-checked `context.resources.color` accessor. TAA
 or other custom histories that represent color should use float resources and
 must not clamp HDR radiance to `1.0`.
 
-No Renderer display API changes are required. Continue using
-`RendererOptions.displayOutput`, `setDisplayOutput()`, and
+Continue using `RendererOptions.displayOutput`, `setDisplayOutput()`, and
 `getDisplayOutputState()`. Software now attempts Display-P3 Float16 Canvas 2D
 HDR for `"auto"` and `"hdr"`; unsupported browsers and non-HDR displays safely
 fall back to SDR. Callers handling fallback reasons should accept the new

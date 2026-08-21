@@ -102,7 +102,7 @@ function createRendererFixture() {
 			return { width: 320, height: 180 };
 		},
 	};
-	const renderer = new Renderer({ backend, canvas, camera });
+	const renderer = new Renderer(canvas, backend, camera);
 	renderer.features.worldMatrix = Matrix4.identity();
 	return { backend, renderer };
 }

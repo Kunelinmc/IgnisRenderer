@@ -140,11 +140,7 @@ async function testShakeAppliedBeforeFrameAndRestoredAfterFrame() {
 		camera.position.set(0, 2, 6);
 		camera.updateMatrices();
 
-		const renderer = new Renderer({
-			backend,
-			canvas: TEST_CANVAS,
-			camera,
-		});
+		const renderer = new Renderer(TEST_CANVAS, backend, camera);
 		renderer.features.worldMatrix = Matrix4.identity();
 		renderer.postProcess.getPass("gamma")?.disable();
 		renderer.features.enableReflection = false;
@@ -197,11 +193,7 @@ async function testOnDemandSchedulingStaysAwakeWhileShakeIsActive() {
 	try {
 		const backend = new StubBackend("on-demand");
 		const camera = new Camera();
-		const renderer = new Renderer({
-			backend,
-			canvas: TEST_CANVAS,
-			camera,
-		});
+		const renderer = new Renderer(TEST_CANVAS, backend, camera);
 		renderer.features.worldMatrix = Matrix4.identity();
 		renderer.postProcess.getPass("gamma")?.disable();
 		renderer.features.enableReflection = false;
@@ -240,11 +232,7 @@ async function testStackedShakesKeepIndependentEnvelopes() {
 	try {
 		const backend = new StubBackend("always");
 		const camera = new Camera();
-		const renderer = new Renderer({
-			backend,
-			canvas: TEST_CANVAS,
-			camera,
-		});
+		const renderer = new Renderer(TEST_CANVAS, backend, camera);
 		renderer.features.worldMatrix = Matrix4.identity();
 		renderer.postProcess.getPass("gamma")?.disable();
 		renderer.features.enableReflection = false;
@@ -316,11 +304,7 @@ async function testTraumaAccumulatesDecaysAndUsesExponent() {
 	try {
 		const backend = new StubBackend("always");
 		const camera = new Camera();
-		const renderer = new Renderer({
-			backend,
-			canvas: TEST_CANVAS,
-			camera,
-		});
+		const renderer = new Renderer(TEST_CANVAS, backend, camera);
 		renderer.features.worldMatrix = Matrix4.identity();
 		renderer.postProcess.getPass("gamma")?.disable();
 		renderer.features.enableReflection = false;
@@ -377,11 +361,7 @@ async function testTraumaKeepsOnDemandRendererAwakeUntilDecayCompletes() {
 	try {
 		const backend = new StubBackend("on-demand");
 		const camera = new Camera();
-		const renderer = new Renderer({
-			backend,
-			canvas: TEST_CANVAS,
-			camera,
-		});
+		const renderer = new Renderer(TEST_CANVAS, backend, camera);
 		renderer.features.worldMatrix = Matrix4.identity();
 		renderer.postProcess.getPass("gamma")?.disable();
 		renderer.features.enableReflection = false;
@@ -423,11 +403,7 @@ async function testOrbitCameraShakeDoesNotDriftPoseBetweenFrames() {
 		camera.phi = 1.1;
 		camera.updatePosition();
 
-		const renderer = new Renderer({
-			backend,
-			canvas: TEST_CANVAS,
-			camera,
-		});
+		const renderer = new Renderer(TEST_CANVAS, backend, camera);
 		renderer.features.worldMatrix = Matrix4.identity();
 		renderer.postProcess.getPass("gamma")?.disable();
 		renderer.features.enableReflection = false;
@@ -492,11 +468,7 @@ async function testOrbitRotationShakeRotatesAroundPivot() {
 		camera.phi = 1.24;
 		camera.updatePosition();
 
-		const renderer = new Renderer({
-			backend,
-			canvas: TEST_CANVAS,
-			camera,
-		});
+		const renderer = new Renderer(TEST_CANVAS, backend, camera);
 		renderer.features.worldMatrix = Matrix4.identity();
 		renderer.postProcess.getPass("gamma")?.disable();
 		renderer.features.enableReflection = false;

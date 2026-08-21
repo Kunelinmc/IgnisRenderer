@@ -289,11 +289,7 @@ async function bootDemo(): Promise<DemoState> {
 
 		const backend = createBackend(platform, resolveBackendPreference());
 
-		const renderer = new Renderer({
-			canvas,
-			backend,
-			camera,
-		});
+		const renderer = new Renderer(canvas, backend, camera);
 
 		renderer.setScene(scene);
 		renderer.features.enableLighting = false;

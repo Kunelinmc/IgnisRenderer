@@ -130,9 +130,6 @@ export interface RendererEvents {
 }
 
 export interface RendererOptions {
-	readonly canvas: HTMLCanvasElement;
-	readonly backend: IRenderBackend;
-	readonly camera?: Camera | null;
 	readonly displayOutput?: DisplayOutputOptions;
 	/** Enables premultiplied-alpha canvas output for DOM/UI composition. */
 	readonly transparentOutput?: boolean;
@@ -182,11 +179,18 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 	/**
 	 * Creates a renderer attached to the supplied backend and canvas.
 	 *
-	 * @param options Renderer dependencies and optional initial camera.
+	 * @param canvas Presentation canvas owned by the renderer.
+	 * @param backend One-shot backend runtime attached to this renderer.
+	 * @param camera Optional initial camera. A default camera is created when omitted.
+	 * @param options Optional renderer presentation settings.
 	 */
-	constructor(options: RendererOptions) {
+	constructor(
+		canvas: HTMLCanvasElement,
+		backend: IRenderBackend,
+		camera: Camera | null = null,
+		options: RendererOptions = {},
+	) {
 		super();
-		const { backend, canvas, camera = null } = options;
 		const displayOutput = resolveDisplayOutputOptions(options.displayOutput);
 		this.presentationAlphaMode = options.transparentOutput === true ?
 			"premultiplied"

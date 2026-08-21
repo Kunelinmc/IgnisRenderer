@@ -27,7 +27,7 @@ async function run() {
 	const canvas = document.querySelector<HTMLCanvasElement>("#surface");
 	if (!canvas) throw new Error("Browser test canvas is unavailable.");
 	const backend = new WebGLBackend({ shaderMode: "strict" });
-	const renderer = new Renderer({ backend, canvas });
+	const renderer = new Renderer(canvas, backend);
 	await renderer.initialize();
 	try {
 		const raster = renderer.requireBackendExtension(

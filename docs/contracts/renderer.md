@@ -8,12 +8,11 @@ This document defines the lifecycle, scheduling, warmup, incremental rendering, 
 
 #### 1. Frame Scheduling & Loop (`Renderer`)
 
-- `new Renderer(options)`
-  - Input contract: must accept exactly one `RendererOptions` object containing
-    `backend`, `canvas`, and the optional `camera`, `displayOutput`, and
-    `transparentOutput` settings.
-  - Constraint: positional `backend`, `canvas`, and `camera` constructor
-    arguments are not supported.
+- `new Renderer(canvas, backend, camera?, options?)`
+  - Input contract: must accept `canvas` and `backend` as the first two
+    positional arguments, followed by the optional initial `camera` and
+    optional `RendererOptions`.
+  - `RendererOptions` may contain `displayOutput` and `transparentOutput`.
   - `transparentOutput` must default to `false` and may be selected only when
     the renderer is constructed. `true` must resolve the presentation surface
     to premultiplied-alpha output; `false` must resolve it to opaque output.
@@ -397,11 +396,7 @@ import { Renderer, WebGPUBackend } from "ignisrenderer";
 
 const backend = new WebGPUBackend();
 console.info(`Using ${backend.id} backend`);
-const renderer = new Renderer({
-	canvas,
-	backend,
-	camera,
-});
+const renderer = new Renderer(canvas, backend, camera);
 
 await renderer.initialize();
 

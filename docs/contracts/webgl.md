@@ -375,7 +375,7 @@ This document defines the current WebGL backend lifecycle, frame graph, resource
 import { FogPass, Renderer, WebGLBackend } from "../src";
 
 const backend = new WebGLBackend();
-const renderer = new Renderer({ backend, canvas, camera });
+const renderer = new Renderer(canvas, backend, camera);
 renderer.features.enableSH = true;
 renderer.features.enableClusteredLighting = true;
 renderer.features.clusteredLightingOptions = {

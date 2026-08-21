@@ -154,7 +154,7 @@ async function testRendererResolvesLODStage() {
 				return { width: 320, height: 180 };
 			},
 		};
-		const renderer = new Renderer({ backend, canvas, camera });
+		const renderer = new Renderer(canvas, backend, camera);
 		renderer.features.enableShadows = false;
 		renderer.features.enableReflection = false;
 		renderer.postProcess.getPass("gamma")?.disable();

@@ -438,15 +438,15 @@ async function createRenderer(
 	target: HTMLCanvasElement,
 	camera: OrbitCamera
 ): Promise<Renderer> {
-	return new Renderer({
-		canvas: target,
-		backend: new WebGPUBackend({
+	return new Renderer(
+		target,
+		new WebGPUBackend({
 			enableDeferredLighting: true,
 			enableEarlyZPrepass: true,
 			enableOcclusionCulling: false,
 		}),
 		camera,
-	});
+	);
 }
 
 async function createTweakpane(demo: DemoState): Promise<void> {

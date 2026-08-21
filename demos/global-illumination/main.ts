@@ -140,11 +140,7 @@ async function startDemo(): Promise<void> {
 		enableDeferredLighting: false,
 		sampleCount: 1,
 	});
-	const renderer = new Renderer({
-		backend,
-		canvas,
-		camera,
-	});
+	const renderer = new Renderer(canvas, backend, camera);
 	renderer.setScene(scene);
 	renderer.features.enableShadows = false;
 

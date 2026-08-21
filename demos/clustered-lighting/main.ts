@@ -390,22 +390,18 @@ async function createRenderer(
 ): Promise<Renderer> {
 	const platform = Platform.detect();
 	if (platform.hasWebGPU) {
-		return new Renderer({
-			canvas: target,
-			backend: new WebGPUBackend({
+		return new Renderer(
+			target,
+			new WebGPUBackend({
 				enableDeferredLighting: true,
 				enableEarlyZPrepass: true,
 				enableOcclusionCulling: false,
 			}),
 			camera,
-		});
+		);
 	}
 	if (platform.hasWebGL2) {
-		return new Renderer({
-			canvas: target,
-			backend: new WebGLBackend(),
-			camera,
-		});
+		return new Renderer(target, new WebGLBackend(), camera);
 	}
 	throw new Error("This browser does not expose WebGPU or WebGL2.");
 }

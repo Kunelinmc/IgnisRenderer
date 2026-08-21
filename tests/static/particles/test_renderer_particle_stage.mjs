@@ -100,7 +100,7 @@ async function run() {
 			},
 		};
 		const camera = new Camera();
-		const renderer = new Renderer({ backend, canvas, camera });
+		const renderer = new Renderer(canvas, backend, camera);
 		renderer.features.worldMatrix = Matrix4.identity();
 		renderer.postProcess.getPass("gamma")?.disable();
 		renderer.features.enableReflection = false;

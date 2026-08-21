@@ -50,7 +50,7 @@ import {
 } from "ignisrenderer";
 
 const backend = new WebGLBackend();
-const renderer = new Renderer({ backend, canvas });
+const renderer = new Renderer(canvas, backend);
 await renderer.initialize();
 
 const raster = renderer.requireBackendExtension(
@@ -80,7 +80,7 @@ import {
 } from "ignisrenderer";
 
 const backend = new WebGPUBackend();
-const renderer = new Renderer({ backend, canvas });
+const renderer = new Renderer(canvas, backend);
 await renderer.initialize();
 
 const runtime = new ComputeRuntime(backend);
@@ -184,7 +184,7 @@ fn csMain() {}
 }
 
 const backend = new WebGPUBackend();
-const renderer = new Renderer({ backend, canvas });
+const renderer = new Renderer(canvas, backend);
 await renderer.initialize();
 
 const runtime = new ComputeRuntime(backend);

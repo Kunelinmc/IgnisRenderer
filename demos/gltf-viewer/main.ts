@@ -123,28 +123,16 @@ function createRenderer(
 			throw new Error("WebGPU was requested but is unavailable in this browser.");
 		}
 		const backend = new WebGPUBackend();
-		return new Renderer({
-			canvas: target,
-			backend,
-			camera: viewCamera,
-		});
+		return new Renderer(target, backend, viewCamera);
 	}
 	if (preference === "webgl") {
 		if (!platform.hasWebGL2) {
 			throw new Error("WebGL2 was requested but is unavailable in this browser.");
 		}
-		return new Renderer({
-			canvas: target,
-			backend: new WebGLBackend(),
-			camera: viewCamera,
-		});
+		return new Renderer(target, new WebGLBackend(), viewCamera);
 	}
 	if (preference === "software") {
-		return new Renderer({
-			canvas: target,
-			backend: new SoftwareBackend(),
-			camera: viewCamera,
-		});
+		return new Renderer(target, new SoftwareBackend(), viewCamera);
 	}
 	throw new Error(`Unsupported backend preference: ${preference}.`);
 }

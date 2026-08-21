@@ -192,9 +192,9 @@ function testRendererRejectsReusedBackend() {
 	};
 
 	try {
-		new Renderer({ backend, canvas: canvasA });
+		new Renderer(canvasA, backend);
 		assert.throws(
-			() => new Renderer({ backend, canvas: canvasB }),
+			() => new Renderer(canvasB, backend),
 			/SoftwareBackend is already attached to a renderer/
 		);
 	} finally {
@@ -218,7 +218,7 @@ function testRendererDelegatesBackendDebugInfo() {
 	};
 
 	try {
-		const renderer = new Renderer({ backend, canvas });
+		const renderer = new Renderer(canvas, backend);
 		assert.deepEqual(renderer.getBackendDebugInfo(), backend.getDebugInfo());
 	} finally {
 		if (!originalWindow) {

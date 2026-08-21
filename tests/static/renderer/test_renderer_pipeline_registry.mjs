@@ -85,11 +85,7 @@ function createRenderer(backend) {
 			return { width: 320, height: 180 };
 		},
 	};
-	const renderer = new Renderer({
-		backend,
-		canvas,
-		camera: new Camera(),
-	});
+	const renderer = new Renderer(canvas, backend, new Camera());
 	renderer.features.enableShadows = false;
 	renderer.features.enableReflection = false;
 	renderer.features.enableEnvironment = false;

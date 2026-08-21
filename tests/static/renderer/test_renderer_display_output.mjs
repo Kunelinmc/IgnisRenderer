@@ -20,10 +20,7 @@ function createCanvas() {
 async function run() {
 	globalThis.window = { devicePixelRatio: 1 };
 	const backend = new TestRenderBackend();
-	const renderer = new Renderer({
-		backend,
-		canvas: createCanvas(),
-		camera: new Camera(),
+	const renderer = new Renderer(createCanvas(), backend, new Camera(), {
 		displayOutput: {
 			mode: "auto",
 			exposure: 1.5,
@@ -73,9 +70,7 @@ async function run() {
 	await renderer.destroy();
 
 	const transparentBackend = new TestRenderBackend();
-	const transparentRenderer = new Renderer({
-		backend: transparentBackend,
-		canvas: createCanvas(),
+	const transparentRenderer = new Renderer(createCanvas(), transparentBackend, null, {
 		transparentOutput: true,
 	});
 	assert.equal(transparentRenderer.presentationAlphaMode, "premultiplied");

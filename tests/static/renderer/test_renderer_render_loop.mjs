@@ -13,11 +13,7 @@ function createRenderer() {
 			return { width: 320, height: 180 };
 		},
 	};
-	return new Renderer({
-		backend: new TestRenderBackend(),
-		canvas,
-		camera: new Camera(),
-	});
+	return new Renderer(canvas, new TestRenderBackend(), new Camera());
 }
 
 async function flushPromises() {

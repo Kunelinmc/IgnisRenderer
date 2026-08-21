@@ -33,7 +33,7 @@ function createRenderer() {
 			return { width: 64, height: 64 };
 		},
 	};
-	const renderer = new Renderer({ backend, canvas });
+	const renderer = new Renderer(canvas, backend);
 	renderer.features.enableShadows = false;
 	renderer.features.enableReflection = false;
 	renderer.features.enableEnvironment = false;

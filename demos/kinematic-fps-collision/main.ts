@@ -182,11 +182,7 @@ async function bootDemo(): Promise<DemoState> {
 	scene.shadows.bind(sun, shadowMap);
 
 	// Initialize Renderer
-	const renderer = new Renderer({
-		canvas,
-		backend,
-		camera,
-	});
+	const renderer = new Renderer(canvas, backend, camera);
 	renderer.setScene(scene);
 	renderer.features.enableLighting = true;
 	renderer.features.enableShadows = true;

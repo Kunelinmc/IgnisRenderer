@@ -167,9 +167,7 @@ if (!canvas) {
 	throw new Error("Canvas #viewport was not found.");
 }
 
-const renderer = new Renderer({
-	canvas,
-	backend: new WebGPUBackend(),
+const renderer = new Renderer(canvas, new WebGPUBackend(), null, {
 	displayOutput: { mode: "auto" },
 });
 
@@ -220,11 +218,7 @@ const camera = scene.add(new Camera({
 }));
 camera.position.set(0, 2, 5);
 
-const renderer = new Renderer({
-	canvas,
-	backend: new WebGLBackend(),
-	camera,
-});
+const renderer = new Renderer(canvas, new WebGLBackend(), camera);
 renderer.setScene(scene);
 
 await renderer.initialize();
@@ -290,8 +284,10 @@ but multiplies the trace work directly.
 
 ### Renderer workflow
 
-`Renderer` requires a single options object. The positional
-`new Renderer(backend, canvas, camera)` form is not supported.
+`Renderer` uses `new Renderer(canvas, backend, camera?, options?)`.
+`RendererOptions` contains only optional renderer configuration such as
+`displayOutput` and `transparentOutput`; the former single-object constructor
+form is not supported.
 
 Use `renderFrame(nowMs)` for one manually scheduled frame and `renderLoop()` for
 continuous rendering. `renderScene(nowMs)` remains only as a deprecated

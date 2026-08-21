@@ -11,9 +11,7 @@ declare global {
 async function renderCanvas(id: string, transparentOutput: boolean): Promise<void> {
 	const canvas = document.getElementById(id) as HTMLCanvasElement | null;
 	if (!canvas) throw new Error(`Missing canvas "${id}".`);
-	const renderer = new Renderer({
-		backend: new WebGLBackend(),
-		canvas,
+	const renderer = new Renderer(canvas, new WebGLBackend(), null, {
 		transparentOutput,
 	});
 	await renderer.initialize();
