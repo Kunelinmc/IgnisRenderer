@@ -4,10 +4,9 @@ import { Camera } from "../../../src/cameras/Camera.ts";
 import { Material, AlphaMode } from "../../../src/materials/Material.ts";
 import { MeshAsset } from "../../../src/meshes/MeshAsset.ts";
 import {
-	FramePacketContributorRegistry,
-} from "../../../src/pipeline/FramePacketContributorRegistry.ts";
+	prepareFramePackets,
+} from "../../../src/pipeline/FramePackets.ts";
 import { WebGPUBackend } from "../../../src/backends/webgpu/WebGPUBackend.ts";
-import { WebGPUParticleMeshPacketContributor } from "../../../src/backends/webgpu/WebGPUParticleMeshPacketContributor.ts";
 import {
 	DRAW_PACKET_FLAG_SHADOW_CASTER,
 	DRAW_PACKET_FLAG_SHADOW_TRANSMITTER,
@@ -113,10 +112,8 @@ function testMeshParticleFramePreparation() {
 		}),
 	]);
 
-	const registry = new FramePacketContributorRegistry();
-	registry.register(new WebGPUParticleMeshPacketContributor());
-	const packets = registry.prepare(context, "main");
-	assert.strictEqual(registry.prepare(context, "main"), packets);
+	const packets = prepareFramePackets(context, "main");
+	assert.strictEqual(prepareFramePackets(context, "main"), packets);
 	assert.equal(packets.all.length, 2);
 	assert.equal(packets.opaque.length, 1);
 	assert.equal(packets.transparent.length, 1);
@@ -143,13 +140,13 @@ function testMeshParticleFramePreparation() {
 	const emptyViewA = createPacketContext();
 	const emptyViewB = createPacketContext();
 	assert.notStrictEqual(
-		registry.prepare(emptyViewA, "main"),
-		registry.prepare(emptyViewB, "main"),
+		prepareFramePackets(emptyViewA, "main"),
+		prepareFramePackets(emptyViewB, "main"),
 	);
-	const probePackets = registry.prepare(context, "probe-capture");
+	const probePackets = prepareFramePackets(context, "probe-capture");
 	assert.equal(probePackets.all.length, 2);
 	assert.notStrictEqual(probePackets.all[0], packets.all[0]);
-	assert.equal(registry.prepare(context, "planar-reflection").all.length, 0);
+	assert.equal(prepareFramePackets(context, "planar-reflection").all.length, 0);
 }
 
 async function testSimulationSealsFrameAfterBatchEmission() {

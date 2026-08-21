@@ -1,4 +1,4 @@
-import type { PreparedFramePacketSet } from "../../../pipeline/FramePacketContributorRegistry";
+import type { PreparedFramePacketSet } from "../../../pipeline/FramePackets";
 import type { DirtyRect } from "../../../pipeline/incremental";
 import type { DrawPacket, FrameContext } from "../../../pipeline/types";
 

@@ -33,9 +33,8 @@ This document defines particle templates, mesh-particle rendering, simulation in
 - `src/particles/ParticleRenderBatch.ts` must own the backend-neutral billboard
   and mesh particle render-batch contracts. `src/pipeline/types.ts` must own
   only the transient keys used to transport those batches through a frame.
-- WebGPU must register mesh-particle packet production with the internal frame
-	packet contributor registry. The contributor must prepare current-view
-	`DrawPacket` objects after particle simulation and before frame analysis.
+- `prepareFramePackets` must prepare current-view `DrawPacket` objects from
+	emitted mesh-particle batches after particle simulation and before frame analysis.
 - The composed frame packet set must expose opaque, transparent, shadow-caster,
 	shadow-transmitter, reflective, and complete draw work. Frame analysis,
 	resource preparation, and pass recording must reuse the same packet objects.

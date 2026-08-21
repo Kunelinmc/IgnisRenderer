@@ -15,9 +15,6 @@ import {
 	resolveFeatureState
 } from "../../../src/pipeline/FeatureResolver.ts";
 import {
-	FramePacketContributorRegistry
-} from "../../../src/pipeline/FramePacketContributorRegistry.ts";
-import {
 	PreparedSceneBuilder
 } from "../../../src/pipeline/PreparedSceneBuilder.ts";
 import {
@@ -480,7 +477,6 @@ async function testReflectionProbeCaptureUsesLegacyMRTAttachmentFormats() {
 	const capturePass = new WebGPUReflectionProbeCapturePass(
 		backend,
 		resources,
-		new FramePacketContributorRegistry(),
 	);
 	backend.computeFacade = readyComputeFacade;
 	const probeCache = probe.getRuntimeCache();
@@ -684,7 +680,6 @@ async function testReflectionProbeCaptureUsesParentWorldPositionAsOrigin() {
 	const capturePass = new WebGPUReflectionProbeCapturePass(
 		backend,
 		resources,
-		new FramePacketContributorRegistry(),
 	);
 	const probeCache = probe.getRuntimeCache();
 

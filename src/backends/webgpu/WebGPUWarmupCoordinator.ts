@@ -19,14 +19,13 @@ import type { BackendPostProcessRuntime } from "../../postprocess/BackendPostPro
 import type { PostProcessPlan } from "../../postprocess/PostProcessPlanner";
 import type { WebGPUPostProcessFrameModule } from "./rendergraph/WebGPUPostProcessFrameModule";
 import type { WebGPUFrameServiceOwner } from "./WebGPUFrameServiceOwner";
-import type { FramePacketProvider } from "../../pipeline/FramePacketContributorRegistry";
+import { createBaselineFramePacketSet } from "../../pipeline/FramePackets";
 
 export interface WebGPUWarmupCoordinatorHost {
 	readonly profile: RenderBackendProfile;
 	readonly postProcess: Pick<WebGPUPostProcessFrameModule, "warmup"> | null;
 	readonly resources: WebGPUFrameServiceOwner | null;
 	readonly postProcessRuntime: BackendPostProcessRuntime;
-	readonly framePacketProvider: FramePacketProvider;
 	setWarmupLogCompilationInfo(enabled: boolean): void;
 }
 
@@ -49,7 +48,7 @@ export class WebGPUWarmupCoordinator {
 			descriptors: postProcessPlan.orderedPasses.map((pass) => pass.pass),
 		};
 		const plan = buildWarmupPlan(context, options, warmupPostProcessPlan);
-		const framePackets = this._host.framePacketProvider.createBaseline(context);
+		const framePackets = createBaselineFramePacketSet(context);
 		this._host.setWarmupLogCompilationInfo(options.logCompilationInfo === true);
 		try {
 			const framePhase = await this._host.postProcess.warmup(

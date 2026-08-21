@@ -18,9 +18,6 @@ import {
 	WEBGPU_FRAME_SHADOW_UNIFORM_FLOATS
 } from "../../../src/backends/webgpu/index.ts";
 import {
-	FramePacketContributorRegistry
-} from "../../../src/pipeline/FramePacketContributorRegistry.ts";
-import {
 	BufferUsage
 } from "../../../src/backends/types.ts";
 import {
@@ -159,7 +156,6 @@ async function testRenderResourcesLogPointLightLimitOnlyOnce() {
 
 function testFrameExecutorConsumesComputeFacadeFromHost() {
 	const backend = new FakeBackend();
-	const framePackets = new FramePacketContributorRegistry();
 	const resourcesStub = {
 		sceneFrameLayout: null,
 		getParticleBillboardRenderer() {
@@ -190,14 +186,12 @@ function testFrameExecutorConsumesComputeFacadeFromHost() {
 	const frameRuntime = createWebGPUFrameRuntimeComposition({
 		host: backend,
 		frameServices: resourcesStub,
-		framePackets,
 		sampleCountResolver,
 		warnOnce() {},
 	});
 	const executor = new WebGPUFrameExecutor(
 		backend,
 		resourcesStub.createFrameScope(),
-		framePackets,
 		sampleCountResolver,
 		1,
 		frameRuntime.modules,

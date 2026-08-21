@@ -5,7 +5,7 @@ import type {
 	DrawPacket,
 	FrameContext,
 } from "../../../pipeline/types";
-import type { PreparedFramePacketSet } from "../../../pipeline/FramePacketContributorRegistry";
+import type { PreparedFramePacketSet } from "../../../pipeline/FramePackets";
 import { materialSupportsWebGPUDeferredLighting } from "../material";
 import {
 	GBufferSlot,

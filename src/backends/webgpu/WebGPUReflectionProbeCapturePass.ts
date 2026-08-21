@@ -11,10 +11,10 @@ import type {
 	ParticleRenderBatch,
 	ParticleRenderItem,
 } from "../../particles/ParticleRenderBatch";
-import type {
-	FramePacketProvider,
-	PreparedFramePacketSet,
-} from "../../pipeline/FramePacketContributorRegistry";
+import {
+	prepareFramePackets,
+	type PreparedFramePacketSet,
+} from "../../pipeline/FramePackets";
 import {
 	PARTICLE_MESH_TRANSIENT_BATCHES_KEY,
 	PARTICLE_TRANSIENT_BATCHES_KEY,
@@ -65,7 +65,6 @@ export class WebGPUReflectionProbeCapturePass {
 	private _captureResources: WebGPUFrameResourceProvider &
 		WebGPUSceneResourceProvider;
 	private _particleRenderer: WebGPUParticleBillboardRenderer;
-	private readonly _framePacketProvider: FramePacketProvider;
 	private _readbackRuntime: ComputeRuntime | null = null;
 	private _destroyed = false;
 
@@ -74,11 +73,9 @@ export class WebGPUReflectionProbeCapturePass {
 		captureResources: WebGPUFrameResourceProvider &
 			WebGPUSceneResourceProvider &
 			WebGPUParticleBillboardRendererProvider,
-		framePacketProvider: FramePacketProvider,
 	) {
 		this._backend = backend;
 		this._captureResources = captureResources;
-		this._framePacketProvider = framePacketProvider;
 		this._particleRenderer = captureResources.getParticleBillboardRenderer();
 	}
 
@@ -143,7 +140,7 @@ export class WebGPUReflectionProbeCapturePass {
 			incremental: createFullFrameIncrementalContext(faceSize),
 			transient: captureTransient,
 		};
-		const framePackets = this._framePacketProvider.prepare(
+		const framePackets = prepareFramePackets(
 			captureContext,
 			"probe-capture",
 		);

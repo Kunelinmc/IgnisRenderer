@@ -7,8 +7,6 @@ import { Material } from "../../src/materials/Material.ts";
 import { PBRMaterial } from "../../src/materials/PBRMaterial.ts";
 import { Matrix4 } from "../../src/maths/Matrix4.ts";
 import { BackendPostProcessRuntime } from "../../src/postprocess/BackendPostProcessRuntime.ts";
-import { FramePacketContributorRegistry } from "../../src/pipeline/FramePacketContributorRegistry.ts";
-import { WebGPUParticleMeshPacketContributor } from "../../src/backends/webgpu/WebGPUParticleMeshPacketContributor.ts";
 import { PARTICLE_MESH_TRANSIENT_BATCHES_KEY } from "../../src/pipeline/types.ts";
 import { EMPTY_SHADOW_FRAME_PLAN } from "../../src/lights/shadows/ShadowFramePlan.ts";
 
@@ -17,8 +15,6 @@ import { createResolvedPostProcess } from "./postprocess.mjs";
 
 class WebGPUFrameExecutor extends WebGPUFrameOrchestrator {
 	constructor(host, resources, msaa, options, particleRenderer = resources) {
-		const framePackets = new FramePacketContributorRegistry();
-		framePackets.register(new WebGPUParticleMeshPacketContributor());
 		const sampleCounts = msaa ?? createMSAAContext(1);
 		const frameServices = new Proxy(resources, {
 			get(target, property, receiver) {
@@ -31,7 +27,6 @@ class WebGPUFrameExecutor extends WebGPUFrameOrchestrator {
 		const frameRuntime = createWebGPUFrameRuntimeComposition({
 			host,
 			frameServices,
-			framePackets,
 			sampleCountResolver: sampleCounts,
 			warnOnce: (code, message, cause) =>
 				Logger.warn(`[${code}] ${message}${cause ? ` ${String(cause)}` : ""}`),
@@ -40,7 +35,6 @@ class WebGPUFrameExecutor extends WebGPUFrameOrchestrator {
 		super(
 			host,
 			resources.createFrameScope(),
-			framePackets,
 			sampleCounts,
 			sampleCounts.sampleCount,
 			frameRuntime.modules,

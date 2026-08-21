@@ -59,10 +59,8 @@ import {
 } from "./WebGPUSampleCountResolver";
 import { WebGPUWarmupCoordinator } from "./WebGPUWarmupCoordinator";
 import { WebGPUReflectionProbeCapturePass } from "./WebGPUReflectionProbeCapturePass";
-import { WebGPUParticleMeshPacketContributor } from "./WebGPUParticleMeshPacketContributor";
 import type { ProbeCaptureFaceRequest } from "../../lights/runtime/ProbeCaptureRuntime";
 import { WebGPUFrameServiceOwner } from "./WebGPUFrameServiceOwner";
-import { FramePacketContributorRegistry } from "../../pipeline/FramePacketContributorRegistry";
 import type { WebGPUCommandSchedulerHost } from "./WebGPUBackendContracts";
 import {
 	FramePassPlanValidator,
@@ -284,7 +282,6 @@ export class WebGPUBackend implements IRenderBackend {
 	private readonly _bindingGroupCache: WebGPUBindingGroupCache;
 	private readonly _computeFacade: IWebGPUComputeFacade;
 	private readonly _warmupCoordinator: WebGPUWarmupCoordinator;
-	private readonly _framePacketRegistry = new FramePacketContributorRegistry();
 
 	constructor(options: WebGPUBackendOptions = {}) {
 		if (Object.prototype.hasOwnProperty.call(options, "enableMSAA")) {
@@ -345,7 +342,6 @@ export class WebGPUBackend implements IRenderBackend {
 		this._shaderModuleCompiler = new WebGPUShaderModuleCompiler();
 		this._pipelineCache = new WebGPUPipelineCache(this._createPipelineCacheHost());
 		this._bindingGroupCache = new WebGPUBindingGroupCache(this._createBindingGroupCacheHost());
-		this._framePacketRegistry.register(new WebGPUParticleMeshPacketContributor());
 		this._warmupCoordinator = new WebGPUWarmupCoordinator({
 			get profile() {
 				return thisRef.profile;
@@ -358,9 +354,6 @@ export class WebGPUBackend implements IRenderBackend {
 			},
 			get postProcessRuntime() {
 				return thisRef._postProcessRuntime;
-			},
-			get framePacketProvider() {
-				return thisRef._framePacketRegistry;
 			},
 			setWarmupLogCompilationInfo: (enabled) => {
 				this._warmupLogCompilationInfo = enabled;
@@ -625,7 +618,6 @@ export class WebGPUBackend implements IRenderBackend {
 		this._frameRuntime = createWebGPUFrameRuntimeComposition({
 			host: this._frameHost,
 			frameServices: this._resources,
-			framePackets: this._framePacketRegistry,
 			sampleCountResolver: this._sampleCountResolver,
 			warnOnce: (code, message, cause) =>
 				Logger.warn(`[${code}] ${message}${cause ? ` ${String(cause)}` : ""}`, {
@@ -636,7 +628,6 @@ export class WebGPUBackend implements IRenderBackend {
 		this._frameOrchestrator = new WebGPUFrameOrchestrator(
 			this._frameHost,
 			this._resources.createFrameScope(),
-			this._framePacketRegistry,
 			this._sampleCountResolver,
 			this._requestedSampleCount,
 			this._frameRuntime.modules,
@@ -644,7 +635,6 @@ export class WebGPUBackend implements IRenderBackend {
 		this._reflectionProbeCapturePass = new WebGPUReflectionProbeCapturePass(
 			this._frameHost,
 			this._resources,
-			this._framePacketRegistry,
 		);
 		this._particleSimulator = new WebGPUParticleSimulator({
 			backend: this._computeFacade,

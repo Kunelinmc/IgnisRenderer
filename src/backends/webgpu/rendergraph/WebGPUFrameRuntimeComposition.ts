@@ -1,4 +1,3 @@
-import type { FramePacketProvider } from "../../../pipeline/FramePacketContributorRegistry";
 import type { WebGPUFrameServiceOwner } from "../WebGPUFrameServiceOwner";
 import { WebGPUHiZBuilder } from "../WebGPUHiZBuilder";
 import { WebGPUOcclusionCullingRuntime } from "../WebGPUOcclusionCullingRuntime";
@@ -55,11 +54,10 @@ export interface WebGPUFrameRuntimeComposition {
 export function createWebGPUFrameRuntimeComposition(options: {
 	readonly host: WebGPUFrameHost;
 	readonly frameServices: WebGPUFrameServiceOwner;
-	readonly framePackets: FramePacketProvider;
 	readonly sampleCountResolver: WebGPUSampleCountResolver;
 	warnOnce(code: string, message: string, cause?: unknown): void;
 }): WebGPUFrameRuntimeComposition {
-	const { host, frameServices, framePackets } = options;
+	const { host, frameServices } = options;
 	const particleRenderer = frameServices.getParticleBillboardRenderer();
 	const hiZBuilder = new WebGPUHiZBuilder(host.computeFacade);
 	const postRuntime = new WebGPUPostProcessRuntime(
@@ -72,7 +70,6 @@ export function createWebGPUFrameRuntimeComposition(options: {
 	const planarReflectionPass = new WebGPUPlanarReflectionPass(
 		host,
 		frameServices,
-		framePackets,
 	);
 	const customRenderTargets = new WebGPUCustomRenderTargetRuntime(
 		host,

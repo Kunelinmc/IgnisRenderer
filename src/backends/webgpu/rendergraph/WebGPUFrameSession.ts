@@ -1,5 +1,5 @@
 import type { FrameContext } from "../../../pipeline/types";
-import type { PreparedFramePacketSet } from "../../../pipeline/FramePacketContributorRegistry";
+import type { PreparedFramePacketSet } from "../../../pipeline/FramePackets";
 import type { WebGPUPreparedFrameResources } from "../WebGPUResourceContracts";
 import type { WebGPUFrameCommandStream } from "./WebGPUFrameCommandStream";
 import type { WebGPUFrameConfiguration } from "./WebGPUFrameConfiguration";

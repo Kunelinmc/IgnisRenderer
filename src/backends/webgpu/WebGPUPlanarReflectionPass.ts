@@ -1,9 +1,9 @@
 import { CameraType } from "../../cameras/Camera";
 import type { DrawPacket, FrameContext, PreparedScene } from "../../pipeline/types";
-import type {
-	FramePacketProvider,
-	PreparedFramePacketSet,
-} from "../../pipeline/FramePacketContributorRegistry";
+import {
+	prepareFramePackets,
+	type PreparedFramePacketSet,
+} from "../../pipeline/FramePackets";
 import { createTransientStore } from "../../foundation/TransientStore";
 import { PreparedSceneBuilder } from "../../pipeline/PreparedSceneBuilder";
 import { Matrix4 } from "../../maths/Matrix4";
@@ -70,7 +70,6 @@ export class WebGPUPlanarReflectionPass {
 	private _resources: WebGPUFrameResourceProvider &
 		WebGPUSceneResourceProvider &
 		WebGPUPlanarReflectionResourceProvider;
-	private readonly _framePacketProvider: FramePacketProvider;
 	private _targets = new Map<string, PlanarReflectionTargetSet>();
 	private _activeReflections: ActivePlanarReflection[] = [];
 	private _bindings = new Map<IRenderTexture, IBindingGroup>();
@@ -80,11 +79,9 @@ export class WebGPUPlanarReflectionPass {
 		resources: WebGPUFrameResourceProvider &
 			WebGPUSceneResourceProvider &
 			WebGPUPlanarReflectionResourceProvider,
-		framePacketProvider: FramePacketProvider,
 	) {
 		this._backend = backend;
 		this._resources = resources;
-		this._framePacketProvider = framePacketProvider;
 	}
 
 	/**
@@ -142,7 +139,7 @@ export class WebGPUPlanarReflectionPass {
 					width,
 					height
 				);
-				const framePackets = this._framePacketProvider.prepare(
+				const framePackets = prepareFramePackets(
 					captureContext,
 					"planar-reflection",
 				);

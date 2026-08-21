@@ -1,7 +1,5 @@
 import type { DrawPacket, FrameContext, FramePass } from "../../../pipeline/types";
-import type {
-	FramePacketProvider,
-} from "../../../pipeline/FramePacketContributorRegistry";
+import { prepareFramePackets } from "../../../pipeline/FramePackets";
 import type { ICommandEncoder } from "../../ICommandEncoder";
 import { TextureFormat, type IRenderTexture } from "../../types";
 import type { WebGPUFrameHost } from "./WebGPUFrameHost";
@@ -63,12 +61,11 @@ export interface WebGPUFrameOrchestratorOptions {
 	readonly enableEarlyZPrepass: boolean;
 	readonly enableDeferredLighting: boolean;
 	readonly frameGraphValidationMode: WebGPUFrameGraphValidationMode;
-	readonly diagnosticsObserver?: WebGPUFrameDiagnosticsObserver;
+	readonly diagnosticsObserver?: WebGPUFrameDiagnosticsObserver | null;
 }
 
 export class WebGPUFrameOrchestrator {
 	private _host: WebGPUFrameHost;
-	private readonly _framePacketProvider: FramePacketProvider;
 	private readonly _mainFrameScope: WebGPUFrameResourceScope;
 	private readonly _sampleCountResolver: WebGPUSampleCountResolver;
 	private readonly _requestedSampleCount: number;
@@ -87,7 +84,6 @@ export class WebGPUFrameOrchestrator {
 	constructor(
 		host: WebGPUFrameHost,
 		mainFrameScope: WebGPUFrameResourceScope,
-		framePacketProvider: FramePacketProvider,
 		sampleCountResolver: WebGPUSampleCountResolver,
 		requestedSampleCount: number,
 		frameModules: WebGPUFrameGraphModuleRegistry,
@@ -98,7 +94,6 @@ export class WebGPUFrameOrchestrator {
 		},
 	) {
 		this._host = host;
-		this._framePacketProvider = framePacketProvider;
 		this._mainFrameScope = mainFrameScope;
 		this._sampleCountResolver = sampleCountResolver;
 		this._requestedSampleCount = requestedSampleCount;
@@ -171,7 +166,7 @@ export class WebGPUFrameOrchestrator {
 	): Promise<void> {
 		let commands: WebGPUFrameCommandStream | null = null;
 		try {
-			const framePackets = this._framePacketProvider.prepare(context, "main");
+			const framePackets = prepareFramePackets(context, "main");
 			commands = new WebGPUFrameCommandStream(this._host);
 			const encoder = commands.requireEncoder();
 			this._frameModules.syncFrame(context);

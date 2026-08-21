@@ -1,5 +1,5 @@
 import type { PlannedPostProcessPass } from "../../../postprocess";
-import type { PreparedFramePacketSet } from "../../../pipeline/FramePacketContributorRegistry";
+import type { PreparedFramePacketSet } from "../../../pipeline/FramePackets";
 import type { FrameContext, FramePass } from "../../../pipeline/types";
 
 import type {

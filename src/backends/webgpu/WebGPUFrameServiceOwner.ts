@@ -17,7 +17,7 @@ import type { WebGPUDeviceResourceHost } from "./WebGPUDeviceResourceHost";
 import {
 	createBaselineFramePacketSet,
 	type PreparedFramePacketSet,
-} from "../../pipeline/FramePacketContributorRegistry";
+} from "../../pipeline/FramePackets";
 import type { WebGPUResourceManager } from "./WebGPUResourceManager";
 import type { IWebGPUComputeFacade } from "./ComputeFacade";
 import {

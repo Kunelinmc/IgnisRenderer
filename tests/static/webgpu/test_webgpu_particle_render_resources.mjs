@@ -385,7 +385,7 @@ function testParticleOwnershipAndExecutionBoundaries() {
 	);
 	assert.doesNotMatch(orchestratorSource, /_particle(Resources|Renderer)/);
 	assert.doesNotMatch(orchestratorSource, /ParticleMesh/);
-	assert.match(orchestratorSource, /_framePacketProvider\.prepare\(context, "main"\)/);
+	assert.match(orchestratorSource, /prepareFramePackets\(context, "main"\)/);
 	for (const source of packetConsumerSources) {
 		assert.doesNotMatch(source, /ParticleMesh/);
 		assert.doesNotMatch(source, /particleMeshFramePackets/);

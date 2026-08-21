@@ -12,7 +12,7 @@ import {
 	materialRequiresExtendedWebGPUGBuffer,
 	materialSupportsWebGPUDeferredLighting,
 } from "../material";
-import type { PreparedFramePacketSet } from "../../../pipeline/FramePacketContributorRegistry";
+import type { PreparedFramePacketSet } from "../../../pipeline/FramePackets";
 import type { DrawPacket, FrameContext } from "../../../pipeline/types";
 import type {
 	WebGPUFrameGraphModule,

@@ -145,21 +145,16 @@ lighting, presentation configuration, reflections, and structured buffer packing
 - `WebGPUParticleRenderResources` must select particle pipeline sample counts
 	from the concrete particle pass-target descriptor. It must not depend on the
 	backend MSAA controller or backend-wide MSAA state.
-- `FramePacketContributorRegistry` is a cross-backend internal composition
-	contract. A backend must register contributors before its first preparation;
-	registration must be sealed once preparation begins.
-- WebGPU must register its mesh-particle packet contributor with that registry.
-	The contributor must prepare packets without WebGPU device resources.
+- `prepareFramePackets` is a stateless pipeline composition function. Frame
+	analysis, resource preparation, pass recording, and capture recording must
+	consume the returned `PreparedFramePacketSet` instead of particle-specific
+	packet accessors.
 - `WebGPUBackend` must report `profile.capabilities.meshParticles = true` so
 	renderer-owned requirement resolution retains mesh-particle rendering passes
 	without depending on the `"webgpu"` backend identifier.
-- The registry must compose baseline prepared-scene packets and contributor
-	packets into one view-local `PreparedFramePacketSet`. Frame analysis, resource
-	preparation, pass recording, and capture recording must consume that set
-	instead of particle-specific packet accessors.
-- Packet-set cache identity must include the registry, prepared scene, view
-	camera, and view purpose. Cloned transients must not reuse a main-view set for
-	a secondary capture view.
+- Packet-set cache identity must include the prepared scene, view camera, and view
+	purpose in `context.transient`. Cloned transients must not reuse a main-view
+	set for a secondary capture view.
 - Billboard-pass consumers must receive `WebGPUParticleBillboardRenderer`
 	separately from scene, frame-scope, and shadow capabilities. The frame
 	orchestrator may pass this capability to leaf recording runtimes during
