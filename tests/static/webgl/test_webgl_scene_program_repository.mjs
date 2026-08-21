@@ -219,6 +219,34 @@ async function testNoShadowPBRVariantDeclaresFallbackBeforeLighting() {
 	assert.ok(lightingIndex > fallbackIndex);
 }
 
+async function testShadowVariantWithoutTransmittanceKeepsShadowUniforms() {
+	const variant = createTestBuiltinSceneVariant({
+		output: "mrt",
+		scene: {
+			shadows: true,
+			shadowTransmittance: false,
+		},
+		material: {
+			model: "pbr",
+			baseMap: true,
+		},
+	});
+	await prepareTestBuiltinSceneVariant(variant);
+	const source = ShaderSource.get("webgl.scene", {
+		specialization: variant,
+	}).stages.fragment.code;
+
+	assert.ok(
+		source.includes("uniform vec4 uParticleShadowVolumeSliceParams[4];"),
+	);
+	assert.ok(
+		source.includes(
+			"uniform mat4 uDirShadowCascadeViewProjection[MAX_DIRECTIONAL_LIGHTS * 4];",
+		),
+	);
+	assert.ok(!source.includes("uniform sampler2D uShadowTransmittanceAtlas;"));
+}
+
 async function testSceneProgramRepositoryShaderMaterialIgnoresBuiltinVariant() {
 	const variant = createTestBuiltinSceneVariant({
 		material: { baseMap: true },
@@ -536,6 +564,40 @@ function testProgramOwnershipSeparatesPostProcessAndBackendPrograms() {
 	assert.equal(gl.programCount, 3);
 }
 
+async function testOpaqueBaseMapPreparesNormalizedDepthPrepassVariant() {
+	ShaderSource.clearCache("webgl");
+	const variant = createTestBuiltinSceneVariant({
+		material: {
+			alphaMask: false,
+			baseMap: true,
+		},
+	});
+	const depthVariant = {
+		alphaMask: false,
+		baseMap: false,
+		skinProfile: "static",
+		morphPosition: false,
+	};
+	const gl = createProgramCaptureGL();
+	const library = createSceneProgramRepository(gl, () => {});
+
+	await library.prepareBuiltinSceneVariants([variant]);
+
+	assert.equal(
+		ShaderSource.has("webgl.scene.depth", {
+			specialization: depthVariant,
+		}),
+		true,
+	);
+	assert.ok(
+		library.getSceneDepthPrepassProgram(
+			new Material(),
+			"single",
+			depthVariant,
+		),
+	);
+}
+
 await runWebGLBackendFile([
 	testUnpreparedExactVariantFailsWithoutFallbackProgram,
 	testSceneProgramRepositoryCompileErrorMessage,
@@ -544,6 +606,7 @@ await runWebGLBackendFile([
 	testSceneProgramRepositoryPropagatesSamplerOverflowInWarnMode,
 	testSceneProgramRepositoryCachesBuiltinSceneVariants,
 	testNoShadowPBRVariantDeclaresFallbackBeforeLighting,
+	testShadowVariantWithoutTransmittanceKeepsShadowUniforms,
 	testSceneProgramRepositoryShaderMaterialIgnoresBuiltinVariant,
 	testSceneProgramRepositoryShaderMaterialCachesPerSceneTargetMode,
 	testSceneProgramRepositoryBuiltinDepthPrepassProgram,
@@ -553,4 +616,5 @@ await runWebGLBackendFile([
 	testSceneProgramRepositoryWarnModeFallsBackOnCustomCompileFailure,
 	testSceneProgramRepositoryRuntimeRevisionInvalidatesCustomCache,
 	testProgramOwnershipSeparatesPostProcessAndBackendPrograms,
+	testOpaqueBaseMapPreparesNormalizedDepthPrepassVariant,
 ], "WebGL scene program repository tests");

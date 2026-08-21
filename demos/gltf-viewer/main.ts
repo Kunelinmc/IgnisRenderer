@@ -33,7 +33,7 @@ scene.setSpatialIndexMode("hybrid");
 
 const camera = createCamera();
 scene.add(camera);
-scene.add(new AmbientLight({ intensity: 0.2 }));
+scene.add(new AmbientLight({ intensity: 1 }));
 const sun = new DirectionalLight({
 	intensity: 2.5,
 	direction: { x: 0.4, y: -1, z: -0.5 },

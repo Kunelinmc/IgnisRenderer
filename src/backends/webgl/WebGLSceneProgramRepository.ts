@@ -153,12 +153,13 @@ export class WebGLSceneProgramRepository {
 	): Promise<void> {
 		await ShaderSource.prepareMany(
 			Array.from(variants).flatMap((specialization) => {
-				const depthSpecialization = {
-					alphaMask: specialization.material.alphaMask,
-					baseMap: specialization.material.baseMap,
-					skinProfile: specialization.skinProfile,
-					morphPosition: (specialization.morphSemanticMask & 1) !== 0,
-				};
+				const depthSpecialization =
+					normalizeWebGLSceneDepthVariantDescriptor({
+						alphaMask: specialization.material.alphaMask,
+						baseMap: specialization.material.baseMap,
+						skinProfile: specialization.skinProfile,
+						morphPosition: (specialization.morphSemanticMask & 1) !== 0,
+					});
 				return [
 					{ key: "webgl.scene" as const, params: { specialization } },
 					{

@@ -213,9 +213,6 @@ uniform vec4 uSpotLightColorInner[MAX_SPOT_LIGHTS];
 __WEBGL_SCENE_SHADOW_UNIFORMS__
 uniform int uEnableShadows;
 uniform sampler2D uShadowAtlas;
-__WEBGL_SHADOW_TRANSMITTANCE_UNIFORMS__
-uniform sampler2D uShadowTransmittanceAtlas;
-uniform int uShadowTransmittanceAtlasAvailable;
 uniform sampler2D uParticleShadowVolumeAtlas;
 uniform vec2 uParticleShadowVolumeAtlasSize;
 uniform vec4 uParticleShadowVolumeGridSize;
@@ -232,6 +229,9 @@ uniform vec4 uSpotShadowParamsA[MAX_SPOT_LIGHTS];
 uniform vec4 uSpotShadowParamsB[MAX_SPOT_LIGHTS];
 uniform vec4 uSpotShadowParamsC[MAX_SPOT_LIGHTS];
 uniform vec4 uSpotShadowParamsD[MAX_SPOT_LIGHTS];
+__WEBGL_SHADOW_TRANSMITTANCE_UNIFORMS__
+uniform sampler2D uShadowTransmittanceAtlas;
+uniform int uShadowTransmittanceAtlasAvailable;
 __WEBGL_SCENE_CLUSTERED_LIGHT_UNIFORMS__
 uniform int uEnableClusteredLighting;
 uniform vec4 uClusterParams0;
