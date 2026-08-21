@@ -533,6 +533,7 @@ lighting, presentation configuration, reflections, and structured buffer packing
 	- `transmissionFactor > 0.0`, `AlphaMode.Blend`, OIT, and transparent
 	  particles must remain on forward transparent paths.
 - `ShaderMaterial` contract:
+	- Every WebGPU shader chunk must explicitly set `backend: "webgpu"`.
 	- `ShaderTargetMode` must include `"deferred"`.
 	- `ShaderStageKind` must include `"fragment-deferred"`.
 	- `ShaderMaterialParams.deferredLighting` must opt a shader material into
@@ -761,6 +762,7 @@ const material = new ShaderMaterial({
 	fragmentDeferredEntryPoint: "fsDeferred",
 	chunks: [
 		{
+			backend: "webgpu",
 			language: "wgsl",
 			stage: "fragment",
 			mode: "deferred",

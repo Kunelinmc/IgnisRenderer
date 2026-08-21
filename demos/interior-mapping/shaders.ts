@@ -57,8 +57,6 @@ struct FrameUniforms {
 
 @group(0) @binding(0) var<uniform> frame: FrameUniforms;
 
-#inject <ignis/material/uniform-block>
-
 struct VertexOutput {
 	@builtin(position) position: vec4<f32>,
 	@location(0) worldPosition: vec3<f32>,

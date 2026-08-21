@@ -99,6 +99,17 @@ This document defines shader source ownership, composition, diagnostics, and cus
   scripts. A hook patch must not replace a profile module or script; any
   collision must disable the entire patch for that invocation context.
 
+### ShaderMaterial custom chunks
+
+- Every `ShaderChunk` passed through `ShaderMaterialParams.chunks`,
+  `ShaderMaterial.setChunks()`, `ShaderMaterial.upsertChunk()`, or
+  `ShaderMaterial.removeChunk()` must explicitly declare `backend` as
+  `"webgpu"` or `"webgl"`. Missing or unsupported backend values must throw.
+- WebGPU chunks may provide WGSL directly or GLSL together with a
+  `ShaderMaterialGLSLToWGSL` transpiler. WebGPU must submit only the resolved
+  WGSL output to the native shader-module API.
+- WebGL chunks must use GLSL.
+
 ### ShaderMaterial custom uniforms
 
 - `ShaderMaterialParams.uniformBindings` may declare custom numeric uniforms.

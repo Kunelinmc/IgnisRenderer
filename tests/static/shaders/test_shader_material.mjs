@@ -169,17 +169,20 @@ async function testWGSLProgramSelection() {
 		name: "WGSLMaterial",
 		chunks: [
 			{
+				backend: "webgpu",
 				language: "wgsl",
 				stage: "vertex",
 				code: WGSL_VERTEX,
 			},
 			{
+				backend: "webgpu",
 				language: "wgsl",
 				stage: "fragment",
 				mode: "single",
 				code: WGSL_FRAGMENT_SINGLE,
 			},
 			{
+				backend: "webgpu",
 				language: "wgsl",
 				stage: "fragment",
 				mode: "mrt",
@@ -229,8 +232,14 @@ async function testWebGPUPipelineCacheIncludesGeometryLayout() {
 	const library = new WebGPUPipelineLibrary(backend, createLayouts());
 	const material = new ShaderMaterial({
 		chunks: [
-			{ language: "wgsl", stage: "vertex", code: WGSL_VERTEX },
 			{
+				backend: "webgpu",
+				language: "wgsl",
+				stage: "vertex",
+				code: WGSL_VERTEX,
+			},
+			{
+				backend: "webgpu",
 				language: "wgsl",
 				stage: "fragment",
 				mode: "single",
@@ -288,11 +297,13 @@ async function testWebGPUMRTFallsBackToSingleFragmentEntryPoint() {
 		name: "WGSLMRTFallbackMaterial",
 		chunks: [
 			{
+				backend: "webgpu",
 				language: "wgsl",
 				stage: "vertex",
 				code: WGSL_VERTEX,
 			},
 			{
+				backend: "webgpu",
 				language: "wgsl",
 				stage: "fragment",
 				mode: "single",
@@ -328,11 +339,13 @@ async function testWebGPUDeferredProgramSelection() {
 		deferredLighting: true,
 		chunks: [
 			{
+				backend: "webgpu",
 				language: "wgsl",
 				stage: "vertex",
 				code: WGSL_VERTEX,
 			},
 			{
+				backend: "webgpu",
 				language: "wgsl",
 				stage: "fragment",
 				mode: "deferred",
@@ -359,6 +372,7 @@ async function testWebGPUDeferredProgramSelection() {
 	const missingOptIn = new ShaderMaterial({
 		chunks: [
 			{
+				backend: "webgpu",
 				language: "wgsl",
 				stage: "fragment",
 				mode: "deferred",
@@ -392,6 +406,7 @@ function testResolveWebGPUDepthPrepassProgramContract() {
 		name: "DepthPrepassMaterial",
 		chunks: [
 			{
+				backend: "webgpu",
 				language: "wgsl",
 				stage: "vertex",
 				code: WGSL_VERTEX,
@@ -412,6 +427,7 @@ function testResolveWebGPUDepthPrepassProgramContract() {
 		name: "DepthPrepassMissing",
 		chunks: [
 			{
+				backend: "webgpu",
 				language: "wgsl",
 				stage: "vertex",
 				code: WGSL_VERTEX,
@@ -445,17 +461,20 @@ async function testGLSLProgramUsesTranspiler() {
 		name: "GLSLMaterial",
 		chunks: [
 			{
+				backend: "webgpu",
 				language: "glsl",
 				stage: "vertex",
 				code: "void main() { gl_Position = vec4(0.0); }",
 			},
 			{
+				backend: "webgpu",
 				language: "glsl",
 				stage: "fragment",
 				mode: "single",
 				code: "void main() { }",
 			},
 			{
+				backend: "webgpu",
 				language: "glsl",
 				stage: "fragment",
 				mode: "mrt",
@@ -499,11 +518,13 @@ async function testGLSLWithoutTranspilerThrows() {
 		name: "BrokenGLSLMaterial",
 		chunks: [
 			{
+				backend: "webgpu",
 				language: "glsl",
 				stage: "vertex",
 				code: "void main() { gl_Position = vec4(0.0); }",
 			},
 			{
+				backend: "webgpu",
 				language: "glsl",
 				stage: "fragment",
 				mode: "single",
@@ -532,11 +553,13 @@ async function testWarnModeFallbackToBuiltinShader() {
 		name: "BrokenCustomShader",
 		chunks: [
 			{
+				backend: "webgpu",
 				language: "wgsl",
 				stage: "vertex",
 				code: WGSL_VERTEX,
 			},
 			{
+				backend: "webgpu",
 				language: "wgsl",
 				stage: "fragment",
 				mode: "single",
@@ -664,11 +687,13 @@ function testResolveWebGLProgramFallsBackToWebGPUGLSL() {
 		name: "WebGLFallbackMaterial",
 		chunks: [
 			{
+				backend: "webgpu",
 				language: "glsl",
 				stage: "vertex",
 				code: "legacy-vertex",
 			},
 			{
+				backend: "webgpu",
 				language: "glsl",
 				stage: "fragment",
 				mode: "single",
@@ -740,22 +765,40 @@ function testResolveWebGLDepthPrepassProgramContract() {
 	assert.equal(missingDepth.resolveWebGLDepthPrepassProgram("single"), null);
 }
 
+function testChunkBackendMustBeExplicit() {
+	assert.throws(
+		() => new ShaderMaterial({
+			chunks: [
+				{
+					language: "wgsl",
+					stage: "vertex",
+					code: WGSL_VERTEX,
+				},
+			],
+		}),
+		/backend must be explicitly set to "webgpu" or "webgl"/
+	);
+}
+
 function testChunkApiSupportsUnifiedShaderUpdates() {
 	const material = new ShaderMaterial({
 		name: "ChunkMaterial",
 		chunks: [
 			{
+				backend: "webgpu",
 				language: "wgsl",
 				stage: "vertex",
 				code: WGSL_VERTEX,
 			},
 			{
+				backend: "webgpu",
 				language: "wgsl",
 				stage: "fragment",
 				mode: "single",
 				code: WGSL_FRAGMENT_SINGLE,
 			},
 			{
+				backend: "webgpu",
 				language: "wgsl",
 				stage: "fragment",
 				mode: "mrt",
@@ -877,11 +920,13 @@ function testTextureBindingInjectDirectivesDecoratePrograms() {
 		name: "InjectBindingMaterial",
 		chunks: [
 			{
+				backend: "webgpu",
 				language: "wgsl",
 				stage: "vertex",
 				code: WGSL_VERTEX,
 			},
 			{
+				backend: "webgpu",
 				language: "wgsl",
 				stage: "fragment",
 				mode: "single",
@@ -1034,11 +1079,13 @@ function testUniformBindingInjectDirectivesDecoratePrograms() {
 		name: "UniformInjectMaterial",
 		chunks: [
 			{
+				backend: "webgpu",
 				language: "wgsl",
 				stage: "vertex",
 				code: WGSL_VERTEX,
 			},
 			{
+				backend: "webgpu",
 				language: "wgsl",
 				stage: "fragment",
 				mode: "single",
@@ -1112,6 +1159,7 @@ async function run() {
 	testResolveWebGLProgramFallsBackToWebGPUGLSL();
 	testResolveWebGLProgramMissingSourceThrows();
 	testResolveWebGLDepthPrepassProgramContract();
+	testChunkBackendMustBeExplicit();
 	testChunkApiSupportsUnifiedShaderUpdates();
 	testTextureBindingAutoSlotAndUniformDefaults();
 	testTextureBindingInjectDirectivesDecoratePrograms();

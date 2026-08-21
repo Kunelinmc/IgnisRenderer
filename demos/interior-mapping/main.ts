@@ -472,11 +472,13 @@ function createInteriorMaterial(settings: DemoSettings, roomTexture: Texture): S
 		],
 		chunks: [
 			{
+				backend: "webgpu",
 				language: "wgsl",
 				stage: "vertex",
 				code: INTERIOR_MAPPING_VERTEX_WGSL,
 			},
 			{
+				backend: "webgpu",
 				language: "wgsl",
 				stage: "fragment",
 				mode: "single",

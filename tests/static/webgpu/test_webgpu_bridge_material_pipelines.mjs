@@ -371,6 +371,7 @@ fn customDepth() {
 `,
 		chunks: [
 			{
+				backend: "webgpu",
 				language: "wgsl",
 				stage: "vertex",
 				code: /* wgsl */ `
@@ -435,6 +436,7 @@ fn customVs(@location(0) position: vec3<f32>) -> @builtin(position) vec4<f32> {
 		vertexEntryPoint: "customVs",
 		chunks: [
 			{
+				backend: "webgpu",
 				language: "wgsl",
 				stage: "vertex",
 				code: /* wgsl */ `
@@ -468,6 +470,7 @@ async function testWebGPUShaderMaterialDepthWriteFalseSkipsDepthPrepass() {
 		fragmentSingleEntryPoint: "customFs",
 		chunks: [
 			{
+				backend: "webgpu",
 				language: "wgsl",
 				stage: "vertex",
 				code: /* wgsl */ `
@@ -478,6 +481,7 @@ fn customVs(@location(0) position: vec3<f32>) -> @builtin(position) vec4<f32> {
 `,
 			},
 			{
+				backend: "webgpu",
 				language: "wgsl",
 				stage: "fragment",
 				mode: "single",
@@ -565,6 +569,7 @@ async function testWebGPUShaderMaterialCustomUniformBufferBinding() {
 		],
 		chunks: [
 			{
+				backend: "webgpu",
 				language: "wgsl",
 				stage: "vertex",
 				code: /* wgsl */ `
@@ -575,6 +580,7 @@ fn customVs(@location(0) position: vec3<f32>) -> @builtin(position) vec4<f32> {
 `,
 			},
 			{
+				backend: "webgpu",
 				language: "wgsl",
 				stage: "fragment",
 				mode: "single",

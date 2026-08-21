@@ -286,6 +286,7 @@ This document defines the current WebGL backend lifecycle, frame graph, resource
 - `ShaderMaterial` custom WebGL scene shaders must resolve `webgl` GLSL
   `fragment-mrt` for `mrt` mode and may fall back to `fragment-single` when
   `fragment-mrt` is absent.
+- Every WebGL shader chunk must explicitly set `backend: "webgl"`.
 
 ### Internal frame graph
 

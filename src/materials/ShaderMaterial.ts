@@ -14,10 +14,10 @@ export type ShaderChunkBackend = "webgpu" | "webgl";
 export type ShaderChunkStage = "vertex" | "fragment" | "fragment-depth";
 
 export type ShaderChunk = {
+	backend: ShaderChunkBackend;
 	language: ShaderChunkLanguage;
 	stage: ShaderChunkStage;
 	code: string;
-	backend?: ShaderChunkBackend;
 	mode?: ShaderTargetMode;
 };
 
@@ -935,10 +935,15 @@ export class ShaderMaterial extends Material {
 	}
 
 	private _resolveChunkKey(chunk: Omit<ShaderChunk, "code">): ShaderChunkKey | null {
-		const backend = chunk.backend ?? "webgpu";
+		const backend = chunk.backend;
 		const language = chunk.language;
 		const stage = chunk.stage;
 		const mode = chunk.mode ?? "single";
+		if (backend !== "webgpu" && backend !== "webgl") {
+			throw new Error(
+				'Shader chunk backend must be explicitly set to "webgpu" or "webgl".'
+			);
+		}
 
 		if (backend === "webgl") {
 			if (language !== "glsl") {
@@ -956,9 +961,6 @@ export class ShaderMaterial extends Material {
 			return `webgl:glsl:fragment-${mode}` as ShaderChunkKey;
 		}
 
-		if (backend !== "webgpu") {
-			throw new Error(`Unsupported shader chunk backend "${backend}".`);
-		}
 		if (language !== "wgsl" && language !== "glsl") {
 			throw new Error(`Unsupported shader chunk language "${language}".`);
 		}
