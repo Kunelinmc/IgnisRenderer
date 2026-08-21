@@ -181,7 +181,7 @@ export class WebGLFrameTargetManager implements WebGLFrameTargetLifecycleHost {
 			"rgba16float",
 		);
 		addTexture("oit:accum", this._oitAccumTexture, "rgba16float");
-		addTexture("oit:reveal", this._oitRevealTexture, "r16float");
+		addTexture("oit:reveal", this._oitRevealTexture, "rgba8unorm");
 		resources.push({
 			id: renderGraphResourceId("canvas:color"),
 			origin: "imported",

@@ -686,6 +686,19 @@ function testResourceCatalogPreservesScenePresentAlias() {
 		entry.resourceId === "shadow:particle-volume"), false);
 }
 
+function testResourceCatalogReportsNativeOITFormats() {
+	const manager = new WebGLFrameTargetManager({}, 4096, 4096);
+	manager._targetWidth = 32;
+	manager._targetHeight = 16;
+	manager._oitAccumTexture = {};
+	manager._oitRevealTexture = {};
+	const catalog = manager.collectGraphResourceCatalog();
+	const accum = catalog.resources.find((entry) => entry.id === "oit:accum");
+	const reveal = catalog.resources.find((entry) => entry.id === "oit:reveal");
+	assert.equal(accum?.format, "rgba16float");
+	assert.equal(reveal?.format, "rgba8unorm");
+}
+
 function testPreparedShadowResourcesCompileWithPhysicalBindings() {
 	const manager = new WebGLFrameTargetManager({}, 4096, 4096);
 	manager._targetWidth = 32;
@@ -767,6 +780,7 @@ async function run() {
 	testEmptyPostProcessChainPresentsSceneColorDirectly();
 	testNodeRegistryRejectsMissingAndDuplicateOwners();
 	testResourceCatalogPreservesScenePresentAlias();
+	testResourceCatalogReportsNativeOITFormats();
 	testPreparedShadowResourcesCompileWithPhysicalBindings();
 	console.log("WebGL frame graph runtime tests passed");
 }
