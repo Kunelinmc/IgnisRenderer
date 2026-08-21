@@ -314,12 +314,12 @@ export class WebGPUColorFilterImplementation
 		await shared.ensureCommonResources();
 		if (!resources.module) {
 			const shader = await ShaderSource.load(
-				"webgpu.postprocess.colorFilter.composite"
+				"webgpu.postprocess.colorFilter"
 			);
 			resources.module = await shared.compute.createShaderModule({
 				label: "WebGPUColorFilterShader",
-				code: shader.code,
-				sourceMap: shader.sourceMap,
+				code: shader.source.code,
+				sourceMap: shader.source.sourceMap,
 				language: "wgsl",
 				stage: "compute",
 				sourceKind: "postprocess",
@@ -440,9 +440,9 @@ export class WebGLColorFilterImplementation
 			this._programCompiler = compiler;
 			this._programSlot = compiler.createSlot({
 				label: "WebGLColorFilterProgram",
-				vertex: () => ShaderSource.get("webgl.part.presentVertex.raw"),
+				vertex: () => ShaderSource.get("webgl.part.presentVertex").source.code,
 				fragment: () =>
-					ShaderSource.get("webgl.part.colorFilterFragment.raw"),
+					ShaderSource.get("webgl.part.colorFilterFragment").source.code,
 				reflect: (gl, webglProgram) => ({
 					program: webglProgram,
 					uniforms: {

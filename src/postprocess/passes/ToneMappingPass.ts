@@ -294,12 +294,12 @@ export class WebGPUToneMappingImplementation
 		}
 		if (!resources.module) {
 			const shader = await ShaderSource.load(
-				"webgpu.postprocess.toneMapping.composite"
+				"webgpu.postprocess.toneMapping"
 			);
 			resources.module = await shared.compute.createShaderModule({
 				label: "WebGPUToneMappingShader",
-				code: shader.code,
-				sourceMap: shader.sourceMap,
+				code: shader.source.code,
+				sourceMap: shader.source.sourceMap,
 				language: "wgsl",
 				stage: "compute",
 				sourceKind: "postprocess",
@@ -397,9 +397,9 @@ export class WebGLToneMappingImplementation
 			this._programCompiler = compiler;
 			this._programSlot = compiler.createSlot({
 				label: "WebGLToneMappingProgram",
-				vertex: () => ShaderSource.get("webgl.part.presentVertex.raw"),
+				vertex: () => ShaderSource.get("webgl.part.presentVertex").source.code,
 				fragment: () =>
-					ShaderSource.get("webgl.part.toneMappingFragment.raw"),
+					ShaderSource.get("webgl.part.toneMappingFragment").source.code,
 				reflect: (gl, webglProgram) => ({
 					program: webglProgram,
 					uniforms: {

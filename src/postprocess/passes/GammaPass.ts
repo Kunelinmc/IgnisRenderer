@@ -243,11 +243,11 @@ export class WebGPUGammaImplementation implements PostProcessPassImplementation<
 			this._resources.set(shared, resources);
 		}
 		if (!resources.module) {
-			const shader = await ShaderSource.load("webgpu.postprocess.gamma.composite");
+			const shader = await ShaderSource.load("webgpu.postprocess.gamma");
 			resources.module = await shared.compute.createShaderModule({
 				label: "WebGPUGammaShader",
-				code: shader.code,
-				sourceMap: shader.sourceMap,
+				code: shader.source.code,
+				sourceMap: shader.source.sourceMap,
 				language: "wgsl",
 				stage: "compute",
 				sourceKind: "postprocess",
@@ -337,8 +337,8 @@ export class WebGLGammaImplementation implements PostProcessPassImplementation<
 			this._programCompiler = compiler;
 			this._programSlot = compiler.createSlot({
 				label: "WebGLGammaProgram",
-				vertex: () => ShaderSource.get("webgl.part.presentVertex.raw"),
-				fragment: () => ShaderSource.get("webgl.part.gammaFragment.raw"),
+				vertex: () => ShaderSource.get("webgl.part.presentVertex").source.code,
+				fragment: () => ShaderSource.get("webgl.part.gammaFragment").source.code,
 				reflect: (gl, program) => ({
 					program,
 					uniforms: {

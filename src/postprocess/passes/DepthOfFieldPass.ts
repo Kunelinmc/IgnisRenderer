@@ -297,11 +297,11 @@ export class WebGPUDepthOfFieldImplementation
 		}
 		await shared.ensureCommonResources();
 		if (!resources.module) {
-			const shader = await ShaderSource.load("webgpu.postprocess.dof.composite");
+			const shader = await ShaderSource.load("webgpu.postprocess.dof");
 			resources.module = await shared.compute.createShaderModule({
 				label: "WebGPUDOFShader",
-				code: shader.code,
-				sourceMap: shader.sourceMap,
+				code: shader.source.code,
+				sourceMap: shader.source.sourceMap,
 				language: "wgsl",
 				stage: "compute",
 				sourceKind: "postprocess",
@@ -465,8 +465,8 @@ export class WebGLDepthOfFieldImplementation
 			this._programCompiler = compiler;
 			this._programSlot = compiler.createSlot({
 				label: "WebGLDOFProgram",
-				vertex: () => ShaderSource.get("webgl.part.presentVertex.raw"),
-				fragment: () => ShaderSource.get("webgl.part.dofFragment.raw"),
+				vertex: () => ShaderSource.get("webgl.part.presentVertex").source.code,
+				fragment: () => ShaderSource.get("webgl.part.dofFragment").source.code,
 				reflect: (gl, program) => ({
 					program,
 					uniforms: {

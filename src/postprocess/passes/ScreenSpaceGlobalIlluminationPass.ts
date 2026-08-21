@@ -710,12 +710,12 @@ export class WebGPUScreenSpaceGlobalIlluminationImplementation
 		await shared.getDenoiser().ensureResources();
 		if (!resources.module) {
 			const shader = await ShaderSource.load(
-				"webgpu.postprocess.ssgi.composite"
+				"webgpu.postprocess.ssgi"
 			);
 			resources.module = await shared.compute.createShaderModule({
 				label: "WebGPUSSGIShader",
-				code: shader.code,
-				sourceMap: shader.sourceMap,
+				code: shader.source.code,
+				sourceMap: shader.source.sourceMap,
 				language: "wgsl",
 				stage: "compute",
 				sourceKind: "postprocess",

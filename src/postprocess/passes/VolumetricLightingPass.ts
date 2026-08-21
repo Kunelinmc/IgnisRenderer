@@ -583,12 +583,12 @@ export class WebGPUVolumetricLightingImplementation
 		await shared.getHiZBuilder().ensureResources();
 		if (!resources.module) {
 			const shader = await ShaderSource.load(
-				"webgpu.postprocess.volumetric.composite"
+				"webgpu.postprocess.volumetric"
 			);
 			resources.module = await shared.compute.createShaderModule({
 				label: "WebGPUVolumetricShader",
-				code: shader.code,
-				sourceMap: shader.sourceMap,
+				code: shader.source.code,
+				sourceMap: shader.source.sourceMap,
 				language: "wgsl",
 				stage: "compute",
 				sourceKind: "postprocess",

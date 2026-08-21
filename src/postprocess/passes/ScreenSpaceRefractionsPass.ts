@@ -562,12 +562,12 @@ export class WebGPUScreenSpaceRefractionsImplementation
 		if (!resources.module) {
 			const shader =
 				await ShaderSource.load(
-					"webgpu.postprocess.screenSpaceRefractions.composite"
+					"webgpu.postprocess.screenSpaceRefractions"
 				);
 			resources.module = await shared.compute.createShaderModule({
 				label: "WebGPUSSRefractionShader",
-				code: shader.code,
-				sourceMap: shader.sourceMap,
+				code: shader.source.code,
+				sourceMap: shader.source.sourceMap,
 				language: "wgsl",
 				stage: "compute",
 				sourceKind: "postprocess",

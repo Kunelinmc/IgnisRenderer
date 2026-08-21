@@ -556,11 +556,11 @@ export class WebGPUScreenSpaceReflectionsImplementation implements PostProcessPa
 		await shared.getHiZBuilder().ensureResources();
 		await shared.getDenoiser().ensureResources();
 		if (!resources.module) {
-			const shader = await ShaderSource.load("webgpu.postprocess.ssr.composite");
+			const shader = await ShaderSource.load("webgpu.postprocess.ssr");
 			resources.module = await shared.compute.createShaderModule({
 				label: "WebGPUSSRShader",
-				code: shader.code,
-				sourceMap: shader.sourceMap,
+				code: shader.source.code,
+				sourceMap: shader.source.sourceMap,
 				language: "wgsl",
 				stage: "compute",
 				sourceKind: "postprocess",

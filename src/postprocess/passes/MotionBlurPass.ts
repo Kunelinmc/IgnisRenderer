@@ -278,12 +278,12 @@ export class WebGPUMotionBlurImplementation
 		await shared.ensureCommonResources();
 		if (!resources.module) {
 			const shader = await ShaderSource.load(
-				"webgpu.postprocess.motionBlur.composite"
+				"webgpu.postprocess.motionBlur"
 			);
 			resources.module = await shared.compute.createShaderModule({
 				label: "WebGPUMotionBlurShader",
-				code: shader.code,
-				sourceMap: shader.sourceMap,
+				code: shader.source.code,
+				sourceMap: shader.source.sourceMap,
 				language: "wgsl",
 				stage: "compute",
 				sourceKind: "postprocess",
@@ -423,9 +423,9 @@ export class WebGLMotionBlurImplementation
 			this._programCompiler = compiler;
 			this._programSlot = compiler.createSlot({
 				label: "WebGLMotionBlurProgram",
-				vertex: () => ShaderSource.get("webgl.part.presentVertex.raw"),
+				vertex: () => ShaderSource.get("webgl.part.presentVertex").source.code,
 				fragment: () =>
-					ShaderSource.get("webgl.part.motionBlurFragment.raw"),
+					ShaderSource.get("webgl.part.motionBlurFragment").source.code,
 				reflect: (gl, program) => ({
 					program,
 					uniforms: {

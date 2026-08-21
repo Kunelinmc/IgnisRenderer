@@ -334,11 +334,11 @@ export class WebGPUFogImplementation
 		}
 		await shared.ensureCommonResources();
 		if (!resources.module) {
-			const shader = await ShaderSource.load("webgpu.postprocess.fog.composite");
+			const shader = await ShaderSource.load("webgpu.postprocess.fog");
 			resources.module = await shared.compute.createShaderModule({
 				label: "WebGPUFogShader",
-				code: shader.code,
-				sourceMap: shader.sourceMap,
+				code: shader.source.code,
+				sourceMap: shader.source.sourceMap,
 				language: "wgsl",
 				stage: "compute",
 				sourceKind: "postprocess",
@@ -472,8 +472,8 @@ export class WebGLFogImplementation
 			this._programCompiler = compiler;
 			this._programSlot = compiler.createSlot({
 				label: "WebGLFogProgram",
-				vertex: () => ShaderSource.get("webgl.part.presentVertex.raw"),
-				fragment: () => ShaderSource.get("webgl.part.fogFragment.raw"),
+				vertex: () => ShaderSource.get("webgl.part.presentVertex").source.code,
+				fragment: () => ShaderSource.get("webgl.part.fogFragment").source.code,
 				reflect: (gl, program) => ({
 					program,
 					uniforms: {

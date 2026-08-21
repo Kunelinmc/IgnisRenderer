@@ -804,11 +804,11 @@ export class WebGPUScreenSpaceAmbientOcclusionImplementation
 		await shared.ensureCommonResources();
 		await shared.getDenoiser().ensureResources();
 		if (!resources.module) {
-			const shader = await ShaderSource.load("webgpu.postprocess.ssao.composite");
+			const shader = await ShaderSource.load("webgpu.postprocess.ssao");
 			resources.module = await shared.compute.createShaderModule({
 				label: "WebGPUSSAOShader",
-				code: shader.code,
-				sourceMap: shader.sourceMap,
+				code: shader.source.code,
+				sourceMap: shader.source.sourceMap,
 				language: "wgsl",
 				stage: "compute",
 				sourceKind: "postprocess",
@@ -1130,11 +1130,11 @@ export class WebGLScreenSpaceAmbientOcclusionImplementation
 		}
 		this.destroy();
 		this._programCompiler = compiler;
-		const vertex = () => ShaderSource.get("webgl.part.presentVertex.raw");
+		const vertex = () => ShaderSource.get("webgl.part.presentVertex").source.code;
 		this._rawProgramSlot = compiler.createSlot({
 			label: "WebGLSSAORawProgram",
 			vertex,
-			fragment: () => ShaderSource.get("webgl.part.ssaoRawFragment.raw"),
+			fragment: () => ShaderSource.get("webgl.part.ssaoRawFragment").source.code,
 			reflect: (gl, program) => ({
 				program,
 				uniforms: {
@@ -1154,7 +1154,7 @@ export class WebGLScreenSpaceAmbientOcclusionImplementation
 		this._blurProgramSlot = compiler.createSlot({
 			label: "WebGLSSAOBlurProgram",
 			vertex,
-			fragment: () => ShaderSource.get("webgl.part.ssaoBlurFragment.raw"),
+			fragment: () => ShaderSource.get("webgl.part.ssaoBlurFragment").source.code,
 			reflect: (gl, program) => ({
 				program,
 				uniforms: {
@@ -1170,7 +1170,7 @@ export class WebGLScreenSpaceAmbientOcclusionImplementation
 			label: "WebGLSSAOCombineProgram",
 			vertex,
 			fragment: () =>
-				ShaderSource.get("webgl.part.ssaoCombineFragment.raw"),
+				ShaderSource.get("webgl.part.ssaoCombineFragment").source.code,
 			reflect: (gl, program) => ({
 				program,
 				uniforms: {

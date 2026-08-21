@@ -433,11 +433,11 @@ export class WebGPUFastApproximateAntiAliasingImplementation
 		}
 		await shared.ensureCommonResources();
 		if (!resources.module) {
-			const shader = await ShaderSource.load("webgpu.postprocess.fxaa.composite");
+			const shader = await ShaderSource.load("webgpu.postprocess.fxaa");
 			resources.module = await shared.compute.createShaderModule({
 				label: "WebGPUFXAAShader",
-				code: shader.code,
-				sourceMap: shader.sourceMap,
+				code: shader.source.code,
+				sourceMap: shader.source.sourceMap,
 				language: "wgsl",
 				stage: "compute",
 				sourceKind: "postprocess",
@@ -546,8 +546,8 @@ export class WebGLFastApproximateAntiAliasingImplementation
 			this._programCompiler = compiler;
 			this._programSlot = compiler.createSlot({
 				label: "WebGLFXAAProgram",
-				vertex: () => ShaderSource.get("webgl.part.presentVertex.raw"),
-				fragment: () => ShaderSource.get("webgl.part.fxaaFragment.raw"),
+				vertex: () => ShaderSource.get("webgl.part.presentVertex").source.code,
+				fragment: () => ShaderSource.get("webgl.part.fxaaFragment").source.code,
 				reflect: (gl, program) => ({
 					program,
 					uniforms: {

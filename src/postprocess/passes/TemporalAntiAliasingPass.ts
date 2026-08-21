@@ -636,11 +636,11 @@ export class WebGPUTemporalAntiAliasingImplementation
 		}
 		await shared.ensureCommonResources();
 		if (!resources.module) {
-			const shader = await ShaderSource.load("webgpu.postprocess.taa.composite");
+			const shader = await ShaderSource.load("webgpu.postprocess.taa");
 			resources.module = await shared.compute.createShaderModule({
 				label: "WebGPUTAAShader",
-				code: shader.code,
-				sourceMap: shader.sourceMap,
+				code: shader.source.code,
+				sourceMap: shader.source.sourceMap,
 				language: "wgsl",
 				stage: "compute",
 				sourceKind: "postprocess",
@@ -857,8 +857,8 @@ export class WebGLTemporalAntiAliasingImplementation
 			this._programCompiler = compiler;
 			this._programSlot = compiler.createSlot({
 				label: "WebGLTAAProgram",
-				vertex: () => ShaderSource.get("webgl.part.presentVertex.raw"),
-				fragment: () => ShaderSource.get("webgl.part.taaFragment.raw"),
+				vertex: () => ShaderSource.get("webgl.part.presentVertex").source.code,
+				fragment: () => ShaderSource.get("webgl.part.taaFragment").source.code,
 				reflect: (gl, program) => ({
 					program,
 					uniforms: {

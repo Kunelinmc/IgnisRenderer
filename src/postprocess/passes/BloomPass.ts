@@ -604,12 +604,12 @@ export class WebGPUBloomImplementation
 		label: string
 	): Promise<IShaderModule> {
 		const shader = await ShaderSource.load(
-			`webgpu.postprocess.${part}.composite`
+			`webgpu.postprocess.${part}`
 		);
 		return shared.compute.createShaderModule({
 			label,
-			code: shader.code,
-			sourceMap: shader.sourceMap,
+			code: shader.source.code,
+			sourceMap: shader.source.sourceMap,
 			language: "wgsl",
 			stage: "compute",
 			sourceKind: "postprocess",
@@ -793,8 +793,8 @@ export class WebGLBloomImplementation
 			this._programCompiler = compiler;
 			this._programSlot = compiler.createSlot({
 				label: "WebGLBloomProgram",
-				vertex: () => ShaderSource.get("webgl.part.presentVertex.raw"),
-				fragment: () => ShaderSource.get("webgl.part.bloomFragment.raw"),
+				vertex: () => ShaderSource.get("webgl.part.presentVertex").source.code,
+				fragment: () => ShaderSource.get("webgl.part.bloomFragment").source.code,
 				reflect: (gl, program) => ({
 					program,
 					uniforms: {
