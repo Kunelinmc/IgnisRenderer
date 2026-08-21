@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";import { ShaderMaterial } from "../../../src/materials/ShaderMaterial.ts";import { Matrix4 } from "../../../src/maths/Matrix4.ts";import { drawWebGLPacket } from "../../../src/backends/webgl/WebGLScenePass.ts";import { WebGLBackend } from "../../../src/backends/webgl/WebGLBackend.ts";import { PARTICLE_SIM_DELTA_TIME_SECONDS_KEY } from "../../../src/pipeline/types.ts";import { createResolvedPostProcess } from "../../helpers/postprocess.mjs";import { createScenePassCaptureGL, runWebGLBackendFile } from "../../helpers/webgl-backend.mjs";
 import { CameraType } from "../../../src/cameras/Camera.ts";
 import { WebGLEnvironmentRenderer } from "../../../src/backends/webgl/WebGLEnvironmentRenderer.ts";
+import { WebGLFullscreenRenderer } from "../../../src/backends/webgl/WebGLFullscreenRenderer.ts";
 import { WebGLTransparencyWarmupContributor } from "../../../src/backends/webgl/WebGLTransparencyRuntime.ts";
 
 function testEnvironmentRendererOwnsProgramAndDrawLifecycle() {
@@ -263,6 +264,60 @@ function testWebGLBackendParticleDeltaTimeClamp() {
 	assert.equal(deltaTimeSeconds, 0.5);
 }
 
+function testFullscreenPresentationRepaintsIncrementalCanvas() {
+	const gl = createScenePassCaptureGL();
+	let drawCount = 0;
+	let dirtyRectResolveCount = 0;
+	let scissorSetCount = 0;
+	let presentedCount = 0;
+	gl.createVertexArray = () => ({});
+	gl.deleteVertexArray = () => {};
+	gl.viewport = () => {};
+	gl.drawArrays = () => drawCount++;
+	const program = {
+		program: {},
+		uniforms: {
+			sourceMap: null,
+			exposure: null,
+			hdrHeadroom: null,
+			hdrEnabled: null,
+			colorDomain: null,
+		},
+	};
+	const renderer = new WebGLFullscreenRenderer({
+		gl,
+		targets: {
+			_presentSourceTexture: {},
+			_sceneColorTexture: null,
+		},
+		programCompiler: {
+			createSlot: () => ({
+				get: () => program,
+				tryGet: () => program,
+				warmup: () => ({ poll: () => program }),
+				destroy: () => {},
+			}),
+		},
+		getWidth: () => 320,
+		getHeight: () => 180,
+		isIncrementalPartial: () => true,
+		resolveDirtyRects: () => {
+			dirtyRectResolveCount++;
+			return [{ x: 96, y: 32, width: 128, height: 128 }];
+		},
+		setScissorRect: () => scissorSetCount++,
+		markPresented: () => presentedCount++,
+	});
+
+	assert.equal(renderer.present({ incremental: {} }), true);
+	assert.equal(drawCount, 1);
+	assert.equal(dirtyRectResolveCount, 0);
+	assert.equal(scissorSetCount, 0);
+	assert.equal(presentedCount, 1);
+	assert.equal(gl.calls.disable.includes(gl.SCISSOR_TEST), true);
+	renderer.destroy();
+}
+
 async function testWebGLBackendWarmupDelegatesToCoordinator() {
 	const backend = new WebGLBackend();
 	backend.attach({
@@ -325,5 +380,6 @@ await runWebGLBackendFile([
 	testTransparencyWarmupContributorSelectsRuntimePrograms,
 	testSceneProgramDrawBuffersMatchFragmentOutputCount,
 	testWebGLBackendParticleDeltaTimeClamp,
+	testFullscreenPresentationRepaintsIncrementalCanvas,
 	testWebGLBackendWarmupDelegatesToCoordinator,
 ], "WebGL backend integration tests");

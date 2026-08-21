@@ -99,8 +99,7 @@ export class WebGLFullscreenRenderer implements WebGLProgramWarmupContributor {
 	): void {
 		const gl = this._host.gl;
 		if (!this._host.isIncrementalPartial(context)) {
-			gl.disable(gl.SCISSOR_TEST);
-			gl.drawArrays(gl.TRIANGLES, 0, 3);
+			this._drawFullViewport();
 			return;
 		}
 		const dirtyRects = this._host.resolveDirtyRects(context, viewportWidth, viewportHeight);
@@ -113,7 +112,7 @@ export class WebGLFullscreenRenderer implements WebGLProgramWarmupContributor {
 		gl.disable(gl.SCISSOR_TEST);
 	}
 
-	public present(context: FrameContext | null, nonBlocking = false): boolean {
+	public present(_context: FrameContext | null, nonBlocking = false): boolean {
 		const source =
 			this._host.targets._presentSourceTexture ?? this._host.targets._sceneColorTexture;
 		if (!source || !this._vao) return false;
@@ -154,10 +153,18 @@ export class WebGLFullscreenRenderer implements WebGLProgramWarmupContributor {
 				),
 			);
 		}
-		this.draw(this._host.getWidth(), this._host.getHeight(), context);
+		// The default framebuffer is non-preserving, so every presentation must
+		// repaint it completely from the persistent final-output texture.
+		this._drawFullViewport();
 		gl.bindVertexArray(null);
 		this._host.markPresented();
 		return true;
+	}
+
+	private _drawFullViewport(): void {
+		const gl = this._host.gl;
+		gl.disable(gl.SCISSOR_TEST);
+		gl.drawArrays(gl.TRIANGLES, 0, 3);
 	}
 
 	public destroy(): void {
