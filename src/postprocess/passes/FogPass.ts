@@ -510,6 +510,7 @@ export class FogPass extends PostProcessPass<FogOptions, FogOptions> {
 	public constructor(config: FogPassConfig = {}) {
 		super({
 			...config,
+			alphaContract: "premultiplied",
 			id: FOG_PASS_ORDER.id,
 			schedule: {
 				placement: config.schedule?.placement ?? FOG_PASS_ORDER.placement,

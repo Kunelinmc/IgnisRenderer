@@ -7,6 +7,7 @@ import {
 	type IShaderModule,
 } from "../../backends/types";
 import type { WebGPUPostProcessServices } from "../../backends/webgpu/WebGPUPostProcessContracts";
+import { CoreConstants } from "../../backends/software/constants";
 import type {
 	WebGLProgramCompiler,
 	WebGLProgramSlot,
@@ -104,21 +105,26 @@ export class SoftwareGammaImplementation implements PostProcessPassImplementatio
 				const row = y * width;
 				for (let x = rect.minX; x <= rect.maxX; x++) {
 					const i = (row + x) << 2;
-					this._inputColor[0] = pixels[i];
-					this._inputColor[1] = pixels[i + 1];
-					this._inputColor[2] = pixels[i + 2];
+					const alpha = Math.min(1, Math.max(0, pixels[i + 3]));
+					const inverseAlpha = alpha > CoreConstants.EPSILON ? 1 / alpha : 0;
+					this._inputColor[0] = pixels[i] * inverseAlpha;
+					this._inputColor[1] = pixels[i + 1] * inverseAlpha;
+					this._inputColor[2] = pixels[i + 2] * inverseAlpha;
 					const linear = hdr
 						? linearSrgbToDisplayP3(this._inputColor, this._p3Color)
 						: this._inputColor;
-					pixels[i] = encodeLinearSRGB(Math.min(upperBound, Math.max(0, linear[0])), hdr);
+					pixels[i] = encodeLinearSRGB(
+						Math.min(upperBound, Math.max(0, linear[0])),
+						hdr,
+					) * alpha;
 					pixels[i + 1] = encodeLinearSRGB(
 						Math.min(upperBound, Math.max(0, linear[1])),
 						hdr,
-					);
+					) * alpha;
 					pixels[i + 2] = encodeLinearSRGB(
 						Math.min(upperBound, Math.max(0, linear[2])),
 						hdr,
-					);
+					) * alpha;
 				}
 			}
 		});
@@ -365,6 +371,7 @@ export class GammaPass extends PostProcessPass<EmptyOptions, EmptyOptions> {
 	) {
 		super({
 			...config,
+			alphaContract: "premultiplied",
 			id: GAMMA_PASS_ORDER.id,
 			schedule: {
 				placement: config.schedule?.placement ?? GAMMA_PASS_ORDER.placement,

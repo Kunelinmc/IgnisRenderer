@@ -8,6 +8,8 @@ import {
 	type WebGLScenePassHost,
 } from "./WebGLScenePass";
 
+const TRANSPARENT_SCENE_CLEAR = new Float32Array([0, 0, 0, 0]);
+
 export interface WebGLSceneRuntimeServices {
 	readonly gl: WebGL2RenderingContext;
 	readonly host: WebGLScenePassHost;
@@ -77,6 +79,9 @@ export class WebGLSceneRuntime {
 
 		if (!this._services.isIncrementalPartial(context)) {
 			gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+			if (context.presentationAlphaMode === "premultiplied") {
+				gl.clearBufferfv(gl.COLOR, 0, TRANSPARENT_SCENE_CLEAR);
+			}
 			return;
 		}
 		const dirtyRects = this._services.resolveDirtyRects(context, width, height);
@@ -91,6 +96,9 @@ export class WebGLSceneRuntime {
 				height,
 			);
 			gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+			if (context.presentationAlphaMode === "premultiplied") {
+				gl.clearBufferfv(gl.COLOR, 0, TRANSPARENT_SCENE_CLEAR);
+			}
 		}
 		gl.disable(gl.SCISSOR_TEST);
 	}

@@ -1,4 +1,5 @@
 #import <ignis/color/srgb>
+#import <ignis/webgpu/constants>
 
 struct ToneMappingParams {
 	exposure: f32,
@@ -35,7 +36,7 @@ fn hdrSoftShoulder(color: vec3<f32>, headroom: f32) -> vec3<f32> {
 	let mappedPeak =
 		1.0 + (headroom - 1.0) *
 		(1.0 - exp(-(peak - 1.0) / (headroom - 1.0)));
-	return positive * (mappedPeak / max(peak, 1e-6));
+	return positive * (mappedPeak / max(peak, EPSILON));
 }
 
 @compute @workgroup_size(8, 8, 1)
@@ -47,11 +48,17 @@ fn csMain(@builtin(global_invocation_id) gid: vec3<u32>) {
 
 	let coord = vec2<i32>(gid.xy);
 	let src = textureLoad(srcTex, coord, 0);
-	let exposed = max(src.rgb * params.exposure, vec3<f32>(0.0));
+	let alpha = clamp(src.a, 0.0, 1.0);
+	let straight = select(
+		vec3<f32>(0.0),
+		max(src.rgb, vec3<f32>(0.0)) / max(alpha, EPSILON),
+		alpha > EPSILON
+	);
+	let exposed = max(straight * params.exposure, vec3<f32>(0.0));
 	let mapped = select(
 		acesFitted(exposed),
 		hdrSoftShoulder(exposed, params.hdrHeadroom),
 		params.hdrEnabled > 0.5
 	);
-	textureStore(outTex, coord, vec4<f32>(mapped, src.a));
+	textureStore(outTex, coord, vec4<f32>(mapped * alpha, alpha));
 }

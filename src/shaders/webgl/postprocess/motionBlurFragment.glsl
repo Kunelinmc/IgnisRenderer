@@ -1,6 +1,7 @@
 #version 300 es
 precision highp float;
 #import <ignis/postprocess/luma-common>
+#import <ignis/webgl/constants>
 #define IGNIS_LUMA_PROFILE bt709
 #define IGNIS_LUMA_CLAMP true
 #inject <ignis/postprocess/luma>(profile=IGNIS_LUMA_PROFILE, clamp=IGNIS_LUMA_CLAMP)
@@ -34,14 +35,14 @@ void main() {
 	vec2 velocity =
 		vec2(motionDepth.x * 0.5, -motionDepth.y * 0.5) * max(uMotionParams.x, 0.0);
 	float velocityMag = length(velocity);
-	float minInv = max(max(uTexelSize.x, uTexelSize.y), 1e-6);
+	float minInv = max(max(uTexelSize.x, uTexelSize.y), EPSILON);
 	if (velocityMag <= minInv * 0.35) {
 		fragColor = source;
 		return;
 	}
 
 	float maxVelocity = max(uMotionParams.z, minInv);
-	float clampScale = min(1.0, maxVelocity / max(velocityMag, 1e-6));
+	float clampScale = min(1.0, maxVelocity / max(velocityMag, EPSILON));
 	velocity *= clampScale;
 
 	float pixelVelocity = length(velocity / vec2(minInv, minInv));
@@ -49,7 +50,7 @@ void main() {
 		clamp(ceil(pixelVelocity), 1.0, max(uMotionParams.y, 1.0))
 	);
 
-	vec3 accum = source.rgb * max(uCenterWeight, 0.0);
+	vec4 accum = source * max(uCenterWeight, 0.0);
 	float weight = max(uCenterWeight, 0.0);
 	float sourceLuma = luma(source.rgb);
 	vec2 uvMin = uTexelSize * 0.5;
@@ -79,11 +80,11 @@ void main() {
 		float weightB =
 			motionWeight * depthConfidence(centerDepth, depthB) * lumaWeightB;
 
-		accum += sampleA.rgb * weightA;
-		accum += sampleB.rgb * weightB;
+		accum += sampleA * weightA;
+		accum += sampleB * weightB;
 		weight += weightA + weightB;
 	}
 
-	vec3 outColor = max(accum / max(weight, 1e-4), vec3(0.0));
-	fragColor = vec4(outColor, source.a);
+	vec4 filtered = accum / max(weight, 1e-4);
+	fragColor = vec4(max(filtered.rgb, vec3(0.0)), clamp(filtered.a, 0.0, 1.0));
 }

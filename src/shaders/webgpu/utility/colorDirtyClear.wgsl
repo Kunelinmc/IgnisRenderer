@@ -33,9 +33,25 @@ fn fsColor() -> @location(0) vec4<f32> {
 }
 
 @fragment
+fn fsColorTransparent() -> @location(0) vec4<f32> {
+	return vec4<f32>(0.0);
+}
+
+@fragment
 fn fsMRT() -> MRTClearOutput {
 	return MRTClearOutput(
 		vec4<f32>(0.0, 0.0, 0.0, 1.0),
+		vec4<f32>(0.0, 0.0, 0.0, 1.0),
+		vec4<f32>(0.5, 0.5, 1.0, 0.0),
+		vec4<f32>(0.0, 0.0, 0.0, 1.0),
+		vec4<f32>(0.0)
+	);
+}
+
+@fragment
+fn fsMRTTransparent() -> MRTClearOutput {
+	return MRTClearOutput(
+		vec4<f32>(0.0),
 		vec4<f32>(0.0, 0.0, 0.0, 1.0),
 		vec4<f32>(0.5, 0.5, 1.0, 0.0),
 		vec4<f32>(0.0, 0.0, 0.0, 1.0),
@@ -55,9 +71,34 @@ fn fsDeferred() -> MRTClearOutput {
 }
 
 @fragment
+fn fsDeferredTransparent() -> MRTClearOutput {
+	return MRTClearOutput(
+		vec4<f32>(0.0),
+		vec4<f32>(0.0),
+		vec4<f32>(0.5, 0.5, 1.0, 0.0),
+		vec4<f32>(0.0, 0.0, 0.0, 1.0),
+		vec4<f32>(0.0)
+	);
+}
+
+@fragment
 fn fsExtended() -> ExtendedClearOutput {
 	return ExtendedClearOutput(
 		vec4<f32>(0.0, 0.0, 0.0, 1.0),
+		vec4<f32>(0.0),
+		vec4<f32>(0.5, 0.5, 1.0, 0.0),
+		vec4<f32>(0.0, 0.0, 0.0, 1.0),
+		vec4<f32>(0.0),
+		vec4<f32>(0.0),
+		vec4<f32>(0.0),
+		vec4<f32>(0.0)
+	);
+}
+
+@fragment
+fn fsExtendedTransparent() -> ExtendedClearOutput {
+	return ExtendedClearOutput(
+		vec4<f32>(0.0),
 		vec4<f32>(0.0),
 		vec4<f32>(0.5, 0.5, 1.0, 0.0),
 		vec4<f32>(0.0, 0.0, 0.0, 1.0),

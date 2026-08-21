@@ -29,6 +29,7 @@ import type {
 } from "../types";
 import type { IRenderBackend } from "../../backends/IRenderBackend";
 import type { DisplayOutputState } from "../../rendering/DisplayOutput";
+import { CoreConstants } from "../../backends/software/constants";
 import {
 	bindWebGLPostTarget,
 	forEachSoftwareDirtyRect,
@@ -106,7 +107,7 @@ export function applyHDRSoftShoulder(
 	}
 	const mappedPeak = 1 + (hdrHeadroom - 1) *
 		(1 - Math.exp(-(peak - 1) / (hdrHeadroom - 1)));
-	const scale = mappedPeak / Math.max(peak, 1e-6);
+	const scale = mappedPeak / Math.max(peak, CoreConstants.EPSILON);
 	out[0] *= scale;
 	out[1] *= scale;
 	out[2] *= scale;
@@ -144,9 +145,11 @@ export class SoftwareToneMappingImplementation
 				const row = y * width;
 				for (let x = rect.minX; x <= rect.maxX; x++) {
 					const index = (row + x) << 2;
-					this._inputColor[0] = pixels[index];
-					this._inputColor[1] = pixels[index + 1];
-					this._inputColor[2] = pixels[index + 2];
+					const alpha = Math.min(1, Math.max(0, pixels[index + 3]));
+					const inverseAlpha = alpha > CoreConstants.EPSILON ? 1 / alpha : 0;
+					this._inputColor[0] = pixels[index] * inverseAlpha;
+					this._inputColor[1] = pixels[index + 1] * inverseAlpha;
+					this._inputColor[2] = pixels[index + 2] * inverseAlpha;
 					const mapped = hdr ?
 						applyHDRSoftShoulder(
 							this._inputColor,
@@ -159,9 +162,9 @@ export class SoftwareToneMappingImplementation
 							exposure,
 							this._mappedColor,
 						);
-					pixels[index] = mapped[0];
-					pixels[index + 1] = mapped[1];
-					pixels[index + 2] = mapped[2];
+					pixels[index] = mapped[0] * alpha;
+					pixels[index + 1] = mapped[1] * alpha;
+					pixels[index + 2] = mapped[2] * alpha;
 				}
 			}
 		});
@@ -441,6 +444,7 @@ export class ToneMappingPass extends PostProcessPass<EmptyOptions, EmptyOptions>
 	) {
 		super({
 			...config,
+			alphaContract: "premultiplied",
 			id: TONE_MAPPING_PASS_ORDER.id,
 			schedule: {
 				placement: config.schedule?.placement ?? TONE_MAPPING_PASS_ORDER.placement,

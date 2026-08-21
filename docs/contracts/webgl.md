@@ -27,8 +27,13 @@ This document defines the current WebGL backend lifecycle, frame graph, resource
   availability must be reported by `DisplayOutputState` after runtime probing.
 - The WebGL context must use `alpha: true`, `premultipliedAlpha: true`, and
   `antialias: false` so `RGBA16F` drawing-buffer storage can be selected without
-  recreating the renderer. Presentation must remain opaque for the normal scene
-  path.
+  recreating the renderer. Opaque presentation must force alpha `1.0`;
+  transparent presentation must copy valid premultiplied alpha from the final
+  color resource.
+- Main scene and dirty-region clears must use alpha `0.0` only for transparent
+  presentation. Environment background rendering must restore alpha `1.0`.
+- SDR and HDR presentation shaders must safely unpremultiply for display color
+  conversion and premultiply their output again.
 - Display HDR must require `drawingBufferStorage()`, reflected
   `drawingBufferFormat` and `drawingBufferColorSpace` attributes,
   `EXT_color_buffer_float`, and a matching high-dynamic-range media query. The

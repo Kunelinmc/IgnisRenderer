@@ -659,9 +659,15 @@ fn buildSceneOutput(
 		vec3<f32>(0.0)
 	);
 	var output: SceneFragmentOutput;
+	let materialRenderFlags = u32(model.materialFlags.w + 0.5);
+	let presentationAlpha = select(
+		1.0,
+		clamp(alpha, 0.0, 1.0),
+		(materialRenderFlags & 2u) != 0u
+	);
 	output.sceneColor = vec4<f32>(
 		clamp(foggedSceneLinear, vec3<f32>(0.0), vec3<f32>(65504.0)),
-		clamp(alpha, 0.0, 1.0)
+		presentationAlpha
 	);
 	output.gAlbedoAlpha = vec4<f32>(
 		clamp(albedo, vec3<f32>(0.0), vec3<f32>(1.0)),

@@ -61,6 +61,7 @@ import {
 } from "../pipeline/incremental";
 import type {
 	IRenderBackend,
+	PresentationAlphaMode,
 	RenderBackendDebugInfo,
 	RenderBackendProfile,
 	RenderBackendEvent,
@@ -133,10 +134,13 @@ export interface RendererOptions {
 	readonly backend: IRenderBackend;
 	readonly camera?: Camera | null;
 	readonly displayOutput?: DisplayOutputOptions;
+	/** Enables premultiplied-alpha canvas output for DOM/UI composition. */
+	readonly transparentOutput?: boolean;
 }
 
 export class Renderer extends EventEmitter<RendererEvents> implements FrameCoordinatorDelegate {
 	public readonly backendProfile: RenderBackendProfile;
+	public readonly presentationAlphaMode: PresentationAlphaMode;
 	public readonly animationSystem: AnimationSystem;
 	public readonly features: RendererFeatures;
 	public readonly pipeline: RenderPipelineRegistry;
@@ -184,6 +188,9 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 		super();
 		const { backend, canvas, camera = null } = options;
 		const displayOutput = resolveDisplayOutputOptions(options.displayOutput);
+		this.presentationAlphaMode = options.transparentOutput === true ?
+			"premultiplied"
+		:	"opaque";
 
 		this._canvas = canvas;
 		this.logger = Logger;
@@ -257,7 +264,11 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 		});
 
 		backend.attach({
-			surface: { canvas, displayOutput },
+			surface: {
+				canvas,
+				displayOutput,
+				presentationAlphaMode: this.presentationAlphaMode,
+			},
 			events: { emit: (event) => this._handleBackendEvent(event) },
 		});
 

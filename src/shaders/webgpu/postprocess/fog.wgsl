@@ -36,5 +36,7 @@ fn csMain(@builtin(global_invocation_id) gid: vec3<u32>) {
 		mix(source.rgb, params.fogParams1.rgb, fogFactor),
 		vec3<f32>(0.0)
 	);
-	textureStore(outTex, coord, vec4<f32>(fogged, source.a));
+	let outputAlpha = clamp(source.a, 0.0, 1.0) +
+		fogFactor * (1.0 - clamp(source.a, 0.0, 1.0));
+	textureStore(outTex, coord, vec4<f32>(fogged, outputAlpha));
 }

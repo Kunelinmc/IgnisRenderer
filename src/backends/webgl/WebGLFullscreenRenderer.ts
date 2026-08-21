@@ -23,6 +23,7 @@ interface WebGLPresentProgram {
 		hdrHeadroom: WebGLUniformLocation | null;
 		hdrEnabled: WebGLUniformLocation | null;
 		colorDomain: WebGLUniformLocation | null;
+		transparentOutput: WebGLUniformLocation | null;
 	};
 }
 
@@ -71,6 +72,7 @@ export class WebGLFullscreenRenderer implements WebGLProgramWarmupContributor {
 					hdrHeadroom: gl.getUniformLocation(program, "uHdrHeadroom"),
 					hdrEnabled: gl.getUniformLocation(program, "uHdrEnabled"),
 					colorDomain: gl.getUniformLocation(program, "uColorDomain"),
+					transparentOutput: gl.getUniformLocation(program, "uTransparentOutput"),
 				},
 			}),
 		});
@@ -112,7 +114,7 @@ export class WebGLFullscreenRenderer implements WebGLProgramWarmupContributor {
 		gl.disable(gl.SCISSOR_TEST);
 	}
 
-	public present(_context: FrameContext | null, nonBlocking = false): boolean {
+	public present(context: FrameContext | null, nonBlocking = false): boolean {
 		const source =
 			this._host.targets._presentSourceTexture ?? this._host.targets._sceneColorTexture;
 		if (!source || !this._vao) return false;
@@ -151,6 +153,12 @@ export class WebGLFullscreenRenderer implements WebGLProgramWarmupContributor {
 				encodeColorDomain(
 					this._host.getColorDomain?.() ?? "scene-linear-hdr",
 				),
+			);
+		}
+		if (program.uniforms.transparentOutput) {
+			gl.uniform1f(
+				program.uniforms.transparentOutput,
+				context?.presentationAlphaMode === "premultiplied" ? 1 : 0,
 			);
 		}
 		// The default framebuffer is non-preserving, so every presentation must

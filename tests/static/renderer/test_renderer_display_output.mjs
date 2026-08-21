@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 
 import { Camera } from "../../../src/cameras/Camera.ts";
+import { ShaderMaterial } from "../../../src/materials/ShaderMaterial.ts";
 import { Renderer } from "../../../src/rendering/Renderer.ts";
 import { TestRenderBackend } from "../../helpers/TestRenderBackend.mjs";
 
@@ -30,6 +31,11 @@ async function run() {
 	});
 
 	assert.equal(renderer.getDisplayOutputState(), null);
+	assert.equal(renderer.presentationAlphaMode, "opaque");
+	assert.equal(
+		backend.attachContext.surface.presentationAlphaMode,
+		"opaque",
+	);
 	await renderer.initialize();
 	assert.deepEqual(renderer.getDisplayOutputState(), {
 		requested: {
@@ -65,6 +71,44 @@ async function run() {
 		RangeError,
 	);
 	await renderer.destroy();
+
+	const transparentBackend = new TestRenderBackend();
+	const transparentRenderer = new Renderer({
+		backend: transparentBackend,
+		canvas: createCanvas(),
+		transparentOutput: true,
+	});
+	assert.equal(transparentRenderer.presentationAlphaMode, "premultiplied");
+	assert.equal(
+		transparentBackend.attachContext.surface.presentationAlphaMode,
+		"premultiplied",
+	);
+	const incompatibleMaterial = new ShaderMaterial({ name: "alpha-contract-test" });
+	assert.throws(
+		() => transparentRenderer._coordinator._validatePresentationMaterials(
+			"premultiplied",
+			{
+				opaquePackets: [{ material: incompatibleMaterial }],
+				transparentPackets: [],
+				reflectivePackets: [],
+				particleSystems: [],
+			},
+		),
+		(error) => /alpha-contract-test/.test(error.message) &&
+			/transparentOutputCompatible/.test(error.message),
+	);
+	transparentRenderer._coordinator._validatePresentationMaterials(
+		"premultiplied",
+		{
+			opaquePackets: [{
+				material: new ShaderMaterial({ transparentOutputCompatible: true }),
+			}],
+			transparentPackets: [],
+			reflectivePackets: [],
+			particleSystems: [],
+		},
+	);
+	await transparentRenderer.destroy();
 	console.log("Renderer display-output tests passed");
 }
 

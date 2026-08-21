@@ -1,5 +1,6 @@
 #version 300 es
 precision highp float;
+#import <ignis/webgl/constants>
 
 in vec2 vUv;
 
@@ -11,7 +12,8 @@ out vec4 fragColor;
 
 void main() {
 	vec4 sampled = texture(uSourceMap, vUv);
-	vec3 color = sampled.rgb;
+	float alpha = clamp(sampled.a, 0.0, 1.0);
+	vec3 color = alpha > EPSILON ? max(sampled.rgb, vec3(0.0)) / alpha : vec3(0.0);
 
 	float brightness = uFilterParams0.x;
 	float saturation = uFilterParams0.y;
@@ -29,5 +31,5 @@ void main() {
 		-temperature * 0.1 + tint * 0.05
 	);
 
-	fragColor = vec4(clamp(color, vec3(0.0), vec3(1.0)), sampled.a);
+	fragColor = vec4(clamp(color, vec3(0.0), vec3(1.0)) * alpha, alpha);
 }

@@ -41,17 +41,17 @@ void main() {
 	float rcpDirMin = 1.0 / (min(abs(dir.x), abs(dir.y)) + dirReduce);
 	dir = clamp(dir * rcpDirMin, vec2(-8.0), vec2(8.0)) * uTexelSize;
 
-	vec3 rgbA = 0.5 * (
-		texture(uSourceMap, vUv + dir * (1.0 / 3.0 - 0.5)).rgb +
-		texture(uSourceMap, vUv + dir * (2.0 / 3.0 - 0.5)).rgb
+	vec4 rgbaA = 0.5 * (
+		texture(uSourceMap, vUv + dir * (1.0 / 3.0 - 0.5)) +
+		texture(uSourceMap, vUv + dir * (2.0 / 3.0 - 0.5))
 	);
-	vec3 rgbB = rgbA * 0.5 + 0.25 * (
-		texture(uSourceMap, vUv + dir * -0.5).rgb +
-		texture(uSourceMap, vUv + dir * 0.5).rgb
+	vec4 rgbaB = rgbaA * 0.5 + 0.25 * (
+		texture(uSourceMap, vUv + dir * -0.5) +
+		texture(uSourceMap, vUv + dir * 0.5)
 	);
 
-	float lumaB = luma(rgbB);
-	vec3 filtered =
-		(lumaB < lumaMin || lumaB > lumaMax) ? rgbA : rgbB;
-	fragColor = vec4(max(filtered, vec3(0.0)), 1.0);
+	float lumaB = luma(rgbaB.rgb);
+	vec4 filtered =
+		(lumaB < lumaMin || lumaB > lumaMax) ? rgbaA : rgbaB;
+	fragColor = vec4(max(filtered.rgb, vec3(0.0)), clamp(filtered.a, 0.0, 1.0));
 }

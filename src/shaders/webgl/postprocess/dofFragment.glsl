@@ -1,6 +1,7 @@
 #version 300 es
 precision highp float;
 #import <ignis/postprocess/luma-common>
+#import <ignis/webgl/constants>
 #define IGNIS_LUMA_PROFILE bt709
 #define IGNIS_LUMA_CLAMP true
 #inject <ignis/postprocess/luma>(profile=IGNIS_LUMA_PROFILE, clamp=IGNIS_LUMA_CLAMP)
@@ -75,7 +76,7 @@ void main() {
 	vec2 uvMin = uTexelSize * 0.5;
 	vec2 uvMax = vec2(1.0) - uTexelSize * 0.5;
 
-	vec3 accum = source.rgb;
+	vec4 accum = source;
 	float weight = 1.0;
 	for (int i = 0; i < 12; i++) {
 		vec2 sampleUv = clamp(vUv + DOF_OFFSETS[i] * blurScale, uvMin, uvMax);
@@ -85,15 +86,15 @@ void main() {
 		float highlight =
 			max(luma(sampleColor.rgb) - uDOFParams.z, 0.0) * max(uDOFParams.w, 0.0);
 		float sampleWeight = gate * (1.0 + highlight);
-		accum += sampleColor.rgb * sampleWeight;
+		accum += sampleColor * sampleWeight;
 		weight += sampleWeight;
 	}
 
-	vec3 color = mix(source.rgb, accum / max(weight, 1e-4), coc);
+	vec4 filtered = mix(source, accum / max(weight, 1e-4), coc);
 	if (uChromaticAberration > 0.0) {
 		vec2 radial = vUv - vec2(0.5);
 		float radialLenSq = dot(radial, radial);
-		if (radialLenSq < 1e-6) {
+		if (radialLenSq < EPSILON) {
 			radial = vec2(1.0, 0.0);
 		} else {
 			radial = normalize(radial);
@@ -104,8 +105,8 @@ void main() {
 		vec2 blueUv = clamp(vUv - radial * chromaOffset, uvMin, uvMax);
 		float red = texture(uSourceMap, redUv).r;
 		float blue = texture(uSourceMap, blueUv).b;
-		color = vec3(red, color.g, blue);
+		filtered = vec4(red, filtered.g, blue, filtered.a);
 	}
 
-	fragColor = vec4(max(color, vec3(0.0)), source.a);
+	fragColor = vec4(max(filtered.rgb, vec3(0.0)), clamp(filtered.a, 0.0, 1.0));
 }

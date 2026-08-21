@@ -330,7 +330,12 @@ export class WebGLParticlePass
 						gl.ONE_MINUS_SRC_ALPHA
 					);
 				} else if (batch.blendMode === ParticleBlendMode.Additive) {
-					gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE, gl.ONE, gl.ONE);
+					gl.blendFuncSeparate(
+						gl.SRC_ALPHA,
+						gl.ONE,
+						gl.ONE,
+						gl.ONE_MINUS_SRC_ALPHA,
+					);
 				} else {
 					gl.blendFuncSeparate(
 						gl.SRC_ALPHA,

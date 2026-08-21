@@ -604,7 +604,7 @@ export class WebGPUParticleRenderResources implements WebGPUParticleBillboardRen
 						},
 						alpha: {
 							srcFactor: "one",
-							dstFactor: "one",
+							dstFactor: "one-minus-src-alpha",
 							operation: "add",
 						},
 					}

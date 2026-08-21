@@ -197,6 +197,17 @@ const texture = new Texture({
 - Cache contract:
 	- Material signatures and backend pipeline keys must include `depthWrite`.
 
+### Presentation alpha
+
+- Main scene color alpha represents presentation coverage, not stored material
+  opacity.
+- Built-in opaque and mask materials must write coverage `1.0`, even when a
+  source texture or factor contains another alpha value. Blend materials must
+  use their resolved opacity as source-over coverage.
+- `ShaderMaterial.transparentOutputCompatible` owns the explicit custom-shader
+  opt-in defined by the shader contract. Opaque rendering remains unaffected
+  when transparent presentation is not requested.
+
 ## Usage
 
 ### Texture formats

@@ -634,7 +634,7 @@ export class Rasterizer implements RasterizerLike {
 								pixels[idx] = finalColor.r * alpha + pixels[idx] * invA;
 								pixels[idx + 1] = finalColor.g * alpha + pixels[idx + 1] * invA;
 								pixels[idx + 2] = finalColor.b * alpha + pixels[idx + 2] * invA;
-								pixels[idx + 3] = 1;
+								pixels[idx + 3] = alpha + pixels[idx + 3] * invA;
 							}
 						}
 					}

@@ -1,4 +1,5 @@
 #import <ignis/postprocess/luma-common>
+#import <ignis/webgpu/constants>
 #define IGNIS_LUMA_PROFILE bt709
 #define IGNIS_LUMA_CLAMP true
 #inject <ignis/postprocess/luma>(profile=IGNIS_LUMA_PROFILE, clamp=IGNIS_LUMA_CLAMP)
@@ -42,14 +43,14 @@ fn csMain(@builtin(global_invocation_id) gid: vec3<u32>) {
 	var velocity = vec2<f32>(rawVelocity.x * 0.5, -rawVelocity.y * 0.5) *
 		max(params.shutterScale, 0.0);
 	let velocityMag = length(velocity);
-	let minInv = max(max(params.invSize.x, params.invSize.y), 1e-6);
+	let minInv = max(max(params.invSize.x, params.invSize.y), EPSILON);
 	if (velocityMag <= minInv * 0.35) {
 		textureStore(outTex, coord, source);
 		return;
 	}
 
 	let maxVelocity = max(params.velocityClamp, minInv);
-	let clampScale = min(1.0, maxVelocity / max(velocityMag, 1e-6));
+	let clampScale = min(1.0, maxVelocity / max(velocityMag, EPSILON));
 	velocity = velocity * clampScale;
 
 	let pixelVelocity = length(velocity) / minInv;
@@ -58,7 +59,7 @@ fn csMain(@builtin(global_invocation_id) gid: vec3<u32>) {
 	);
 
 	let centerWeight = max(params.centerWeight, 0.0);
-	var accum = source.rgb * centerWeight;
+	var accum = source * centerWeight;
 	var weight = centerWeight;
 	let sourceLuma = luma(source.rgb);
 	let safeSourceLuma = max(sourceLuma, 1e-4);
@@ -88,11 +89,15 @@ fn csMain(@builtin(global_invocation_id) gid: vec3<u32>) {
 		let weightB =
 			motionWeight * depthConfidence(centerDepth, depthB) * lumaWeightB;
 
-		accum += sampleA.rgb * weightA;
-		accum += sampleB.rgb * weightB;
+		accum += sampleA * weightA;
+		accum += sampleB * weightB;
 		weight += weightA + weightB;
 	}
 
-	let outColor = max(accum / max(weight, 1e-4), vec3<f32>(0.0));
-	textureStore(outTex, coord, vec4<f32>(outColor, source.a));
+	let filtered = accum / max(weight, 1e-4);
+	textureStore(
+		outTex,
+		coord,
+		vec4<f32>(max(filtered.rgb, vec3<f32>(0.0)), clamp(filtered.a, 0.0, 1.0))
+	);
 }

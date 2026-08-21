@@ -1,5 +1,6 @@
 #version 300 es
 precision highp float;
+#import <ignis/webgl/constants>
 
 in vec2 vUv;
 uniform sampler2D uSourceMap;
@@ -33,13 +34,15 @@ vec3 hdrSoftShoulder(vec3 color, float headroom) {
 	float mappedPeak =
 		1.0 + (headroom - 1.0) *
 		(1.0 - exp(-(peak - 1.0) / (headroom - 1.0)));
-	return positive * (mappedPeak / max(peak, 1e-6));
+	return positive * (mappedPeak / max(peak, EPSILON));
 }
 
 void main() {
 	vec4 sampled = texture(uSourceMap, vUv);
-	vec3 exposed = max(sampled.rgb * uExposure, vec3(0.0));
+	float alpha = clamp(sampled.a, 0.0, 1.0);
+	vec3 straight = alpha > EPSILON ? max(sampled.rgb, vec3(0.0)) / alpha : vec3(0.0);
+	vec3 exposed = max(straight * uExposure, vec3(0.0));
 	vec3 mapped = uHdrEnabled > 0.5 ?
 		hdrSoftShoulder(exposed, uHdrHeadroom) : acesFitted(exposed);
-	fragColor = vec4(mapped, sampled.a);
+	fragColor = vec4(mapped * alpha, alpha);
 }

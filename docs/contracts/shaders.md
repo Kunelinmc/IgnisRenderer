@@ -101,6 +101,12 @@ This document defines shader source ownership, composition, diagnostics, and cus
 
 ### ShaderMaterial custom chunks
 
+- `ShaderMaterialParams.transparentOutputCompatible` must default to `false`.
+  Transparent presentation must reject a visible custom material that has not
+  explicitly opted in before backend command recording.
+- An opted-in opaque or mask custom fragment must output alpha `1.0`. An
+  opted-in blend custom fragment must output straight RGBA; the backend blend
+  state owns conversion into premultiplied scene color.
 - Every `ShaderChunk` passed through `ShaderMaterialParams.chunks`,
   `ShaderMaterial.setChunks()`, `ShaderMaterial.upsertChunk()`, or
   `ShaderMaterial.removeChunk()` must explicitly declare `backend` as

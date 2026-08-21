@@ -10,18 +10,18 @@ struct Params {
 @group(0) @binding(3) var<uniform> params: Params;
 @group(0) @binding(4) var dstTex: texture_storage_2d<rgba16float, write>;
 
-fn tentFilter(uv: vec2<f32>, texelSize: vec2<f32>, filterRadius: f32) -> vec3<f32> {
+fn tentFilter(uv: vec2<f32>, texelSize: vec2<f32>, filterRadius: f32) -> vec4<f32> {
 	let d = texelSize * filterRadius;
 
-	var result = textureSampleLevel(srcTex, linearSampler, uv + vec2<f32>(-d.x,  d.y), 0.0).rgb;
-	result    += textureSampleLevel(srcTex, linearSampler, uv + vec2<f32>( 0.0,  d.y), 0.0).rgb * 2.0;
-	result    += textureSampleLevel(srcTex, linearSampler, uv + vec2<f32>( d.x,  d.y), 0.0).rgb;
-	result    += textureSampleLevel(srcTex, linearSampler, uv + vec2<f32>(-d.x,  0.0), 0.0).rgb * 2.0;
-	result    += textureSampleLevel(srcTex, linearSampler, uv,                         0.0).rgb * 4.0;
-	result    += textureSampleLevel(srcTex, linearSampler, uv + vec2<f32>( d.x,  0.0), 0.0).rgb * 2.0;
-	result    += textureSampleLevel(srcTex, linearSampler, uv + vec2<f32>(-d.x, -d.y), 0.0).rgb;
-	result    += textureSampleLevel(srcTex, linearSampler, uv + vec2<f32>( 0.0, -d.y), 0.0).rgb * 2.0;
-	result    += textureSampleLevel(srcTex, linearSampler, uv + vec2<f32>( d.x, -d.y), 0.0).rgb;
+	var result = textureSampleLevel(srcTex, linearSampler, uv + vec2<f32>(-d.x,  d.y), 0.0);
+	result    += textureSampleLevel(srcTex, linearSampler, uv + vec2<f32>( 0.0,  d.y), 0.0) * 2.0;
+	result    += textureSampleLevel(srcTex, linearSampler, uv + vec2<f32>( d.x,  d.y), 0.0);
+	result    += textureSampleLevel(srcTex, linearSampler, uv + vec2<f32>(-d.x,  0.0), 0.0) * 2.0;
+	result    += textureSampleLevel(srcTex, linearSampler, uv,                         0.0) * 4.0;
+	result    += textureSampleLevel(srcTex, linearSampler, uv + vec2<f32>( d.x,  0.0), 0.0) * 2.0;
+	result    += textureSampleLevel(srcTex, linearSampler, uv + vec2<f32>(-d.x, -d.y), 0.0);
+	result    += textureSampleLevel(srcTex, linearSampler, uv + vec2<f32>( 0.0, -d.y), 0.0) * 2.0;
+	result    += textureSampleLevel(srcTex, linearSampler, uv + vec2<f32>( d.x, -d.y), 0.0);
 
 	return result * (1.0 / 16.0);
 }
@@ -33,8 +33,12 @@ fn csMain(@builtin(global_invocation_id) gid: vec3<u32>) {
 
 	let uv = (vec2<f32>(gid.xy) + vec2<f32>(0.5)) / vec2<f32>(size);
 	let upsampled = tentFilter(uv, params.texelSize, params.filterRadius);
-	let existing = textureSampleLevel(blendTex, linearSampler, uv, 0.0).rgb;
-	let combined = existing + upsampled;
+	let existing = textureSampleLevel(blendTex, linearSampler, uv, 0.0);
+	let combined = vec4<f32>(
+		existing.rgb + upsampled.rgb,
+		1.0 - (1.0 - clamp(existing.a, 0.0, 1.0)) *
+			(1.0 - clamp(upsampled.a, 0.0, 1.0))
+	);
 
-	textureStore(dstTex, vec2<i32>(gid.xy), vec4<f32>(combined, 1.0));
+	textureStore(dstTex, vec2<i32>(gid.xy), combined);
 }

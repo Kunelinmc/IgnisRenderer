@@ -150,7 +150,8 @@ export class SoftwareParticlePass implements SoftwarePassLike {
 						pixels[pixelIndex] += srcR * alpha;
 						pixels[pixelIndex + 1] += srcG * alpha;
 						pixels[pixelIndex + 2] += srcB * alpha;
-						pixels[pixelIndex + 3] = 1;
+						pixels[pixelIndex + 3] =
+							alpha + pixels[pixelIndex + 3] * (1 - alpha);
 						continue;
 					}
 
@@ -158,7 +159,8 @@ export class SoftwareParticlePass implements SoftwarePassLike {
 					pixels[pixelIndex] = srcR * alpha + pixels[pixelIndex] * invAlpha;
 					pixels[pixelIndex + 1] = srcG * alpha + pixels[pixelIndex + 1] * invAlpha;
 					pixels[pixelIndex + 2] = srcB * alpha + pixels[pixelIndex + 2] * invAlpha;
-					pixels[pixelIndex + 3] = 1;
+					pixels[pixelIndex + 3] =
+						alpha + pixels[pixelIndex + 3] * invAlpha;
 				}
 			}
 		}

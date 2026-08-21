@@ -452,6 +452,13 @@ function testDepthWriteParamIsInheritedFromMaterial() {
 	assert.equal(depthReadMaterial.depthWrite, false);
 }
 
+function testTransparentOutputCompatibilityOptIn() {
+	assert.equal(new ShaderMaterial().transparentOutputCompatible, false);
+	assert.equal(new ShaderMaterial({
+		transparentOutputCompatible: true,
+	}).transparentOutputCompatible, true);
+}
+
 async function testGLSLProgramUsesTranspiler() {
 	const backend = new FakeBackend();
 	backend.shaderRuntime = new ShaderRuntime({ mode: "strict" });
@@ -1150,6 +1157,7 @@ async function run() {
 	await testBuiltinBaseGBufferPipelineSelection();
 	testResolveWebGPUDepthPrepassProgramContract();
 	testDepthWriteParamIsInheritedFromMaterial();
+	testTransparentOutputCompatibilityOptIn();
 	await testGLSLProgramUsesTranspiler();
 	await testGLSLWithoutTranspilerThrows();
 	await testWarnModeFallbackToBuiltinShader();

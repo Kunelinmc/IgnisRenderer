@@ -308,7 +308,10 @@ export class SoftwareBackend implements IRenderBackend {
 		}
 		if (!context) {
 			try {
-				context = canvas.getContext("2d", { willReadFrequently: true });
+				context = canvas.getContext("2d", {
+					alpha: true,
+					willReadFrequently: true,
+				});
 			} catch {
 				// A canvas that cannot create any 2D context remains unavailable.
 			}

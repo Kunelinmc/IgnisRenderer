@@ -23,5 +23,7 @@ void main() {
 		uFogParams1.w
 	);
 	vec3 color = max(mix(scene.rgb, uFogParams1.rgb, fogFactor), vec3(0.0));
-	fragColor = vec4(color, scene.a);
+	float outputAlpha = clamp(scene.a, 0.0, 1.0) +
+		fogFactor * (1.0 - clamp(scene.a, 0.0, 1.0));
+	fragColor = vec4(color, outputAlpha);
 }

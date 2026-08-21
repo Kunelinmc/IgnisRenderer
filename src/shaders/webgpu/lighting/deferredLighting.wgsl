@@ -887,6 +887,6 @@ fn fsMainDeferredLighting(input: DeferredVSOut) -> @location(0) vec4<f32> {
 	linearColor = applyDeferredFog(linearColor, surface.linearDepth);
 	return vec4<f32>(
 		clamp(linearColor, vec3<f32>(0.0), vec3<f32>(65504.0)),
-		surface.alpha
+		1.0
 	);
 }

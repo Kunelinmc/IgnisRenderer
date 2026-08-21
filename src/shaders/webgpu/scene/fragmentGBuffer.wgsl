@@ -116,7 +116,8 @@ fn evaluateGBuffer(
 	let doubleSided = model.materialFlags.z > 0.5;
 	let enableLighting = frame.options.x > 0.5;
 
-	let isWireframe = model.materialFlags.w > 0.5;
+	let materialRenderFlags = u32(model.materialFlags.w + 0.5);
+	let isWireframe = (materialRenderFlags & 1u) != 0u;
 	var baseSample = vec4<f32>(1.0);
 	if (
 		!isWireframe &&

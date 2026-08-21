@@ -27,7 +27,11 @@ export type {
 	BoundingBox,
 } from "./core/types";
 export { Renderer } from "./rendering/Renderer";
-export type { RenderFrameResult, RendererEvents } from "./rendering/Renderer";
+export type {
+	RenderFrameResult,
+	RendererEvents,
+	RendererOptions,
+} from "./rendering/Renderer";
 export {
 	DEFAULT_DISPLAY_OUTPUT_OPTIONS,
 	type DisplayColorSpace,
@@ -61,6 +65,7 @@ export {
 } from "./rendering/CustomRenderTargets";
 export type {
 	IRenderBackend,
+	PresentationAlphaMode,
 	RenderBackendType,
 	RenderBackendAttachContext,
 	RenderBackendDebugInfo,

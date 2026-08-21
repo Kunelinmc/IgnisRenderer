@@ -174,7 +174,8 @@ export function createWebGPUMaterialUniformData(
 			shadingMode,
 			alphaModeMask,
 			material.doubleSided ? 1 : 0,
-			isWireframe ? 1 : 0,
+			(isWireframe ? 1 : 0) +
+				(alphaMode === AlphaMode.Blend || isTransmissive ? 2 : 0),
 		],
 		pbrMasks,
 		textureSlots,

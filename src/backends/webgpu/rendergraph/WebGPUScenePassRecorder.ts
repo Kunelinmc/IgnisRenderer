@@ -379,7 +379,8 @@ export class WebGPUScenePassRecorder {
 					format: colorTexture.format ?? this._host.canvasFormat,
 				}],
 				1,
-				dirtyRects
+				dirtyRects,
+				context.presentationAlphaMode,
 			);
 			depthPartialReuseApplied = await this._depthDirtyClearPass.record(
 				encoder,
@@ -416,7 +417,12 @@ export class WebGPUScenePassRecorder {
 			colorAttachments: [
 				{
 					view: colorTexture,
-					clearValue: { r: 0, g: 0, b: 0, a: 1 },
+					clearValue: {
+						r: 0,
+						g: 0,
+						b: 0,
+						a: context.presentationAlphaMode === "premultiplied" ? 0 : 1,
+					},
 					loadOp: shouldClearAttachments ? "clear" : "load",
 					storeOp: "store",
 				},
@@ -877,7 +883,8 @@ export class WebGPUScenePassRecorder {
 					})),
 				],
 				1,
-				dirtyRects
+				dirtyRects,
+				context.presentationAlphaMode,
 			);
 			depthPartialReuseApplied = await this._depthDirtyClearPass.record(
 				encoder,
@@ -1116,7 +1123,8 @@ export class WebGPUScenePassRecorder {
 					},
 				],
 				this._framePort.getSampleCount(),
-				dirtyRects
+				dirtyRects,
+				context.presentationAlphaMode,
 			);
 			depthPartialReuseApplied = await this._depthDirtyClearPass.record(
 				encoder,
@@ -1194,7 +1202,12 @@ export class WebGPUScenePassRecorder {
 				{
 					view: sceneColorAttachment,
 					resolveTarget: msaaTargets ? targets.sceneColorMain : undefined,
-					clearValue: { r: 0, g: 0, b: 0, a: 1 },
+					clearValue: {
+						r: 0,
+						g: 0,
+						b: 0,
+						a: context.presentationAlphaMode === "premultiplied" ? 0 : 1,
+					},
 					loadOp: shouldClearAttachments && !environmentDrawn ? "clear" : "load",
 					storeOp: "store",
 				},
@@ -1302,7 +1315,8 @@ export class WebGPUScenePassRecorder {
 					format: WEBGPU_MRT_COLOR_FORMATS[0],
 				}],
 				this._framePort.getSampleCount(),
-				dirtyRects
+				dirtyRects,
+				context.presentationAlphaMode,
 			);
 			depthPartialReuseApplied = await this._depthDirtyClearPass.record(
 				encoder,
@@ -1383,7 +1397,12 @@ export class WebGPUScenePassRecorder {
 				{
 					view: sceneColorAttachment,
 					resolveTarget: msaaTargets ? targets.sceneColorMain : undefined,
-					clearValue: { r: 0, g: 0, b: 0, a: 1 },
+					clearValue: {
+						r: 0,
+						g: 0,
+						b: 0,
+						a: context.presentationAlphaMode === "premultiplied" ? 0 : 1,
+					},
 					loadOp: shouldClearAttachments && !environmentDrawn ? "clear" : "load",
 					storeOp: "store",
 				},

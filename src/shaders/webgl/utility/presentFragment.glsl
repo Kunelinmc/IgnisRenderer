@@ -1,6 +1,7 @@
 #version 300 es
 precision highp float;
 #import <ignis/color/srgb>
+#import <ignis/webgl/constants>
 
 in vec2 vUv;
 
@@ -9,6 +10,7 @@ uniform float uExposure;
 uniform float uHdrHeadroom;
 uniform float uHdrEnabled;
 uniform float uColorDomain;
+uniform float uTransparentOutput;
 
 out vec4 fragColor;
 
@@ -32,7 +34,7 @@ vec3 hdrSoftShoulder(vec3 color, float headroom) {
 	float mappedPeak =
 		1.0 + (headroom - 1.0) *
 		(1.0 - exp(-(peak - 1.0) / (headroom - 1.0)));
-	return positive * (mappedPeak / max(peak, 1e-6));
+	return positive * (mappedPeak / max(peak, EPSILON));
 }
 
 vec3 linearSrgbToDisplayP3(vec3 color) {
@@ -47,7 +49,11 @@ void main() {
 	vec4 sampled = texture(uSourceMap, vUv);
 	bool hdr = uHdrEnabled > 0.5;
 	int domain = int(uColorDomain + 0.5);
-	vec3 color = max(sampled.rgb, vec3(0.0));
+	bool transparent = uTransparentOutput > 0.5;
+	float alpha = transparent ? clamp(sampled.a, 0.0, 1.0) : 1.0;
+	vec3 color = transparent ?
+		(alpha > EPSILON ? max(sampled.rgb, vec3(0.0)) / alpha : vec3(0.0))
+	:	max(sampled.rgb, vec3(0.0));
 	if (domain == 0) {
 		vec3 exposed = color * uExposure;
 		color = hdr ? hdrSoftShoulder(exposed, uHdrHeadroom) : acesFitted(exposed);
@@ -64,5 +70,5 @@ void main() {
 		}
 	}
 	color = hdr ? max(color, vec3(0.0)) : clamp(color, vec3(0.0), vec3(1.0));
-	fragColor = vec4(color, clamp(sampled.a, 0.0, 1.0));
+	fragColor = vec4(transparent ? color * alpha : color, alpha);
 }

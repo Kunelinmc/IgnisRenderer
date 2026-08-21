@@ -17,6 +17,13 @@ lighting, presentation configuration, reflections, and structured buffer packing
 
 ### Internal frame graph
 
+- WebGPU canvas configurations for SDR and HDR must use premultiplied alpha.
+  Opaque presentation must force final alpha `1.0`; transparent presentation
+  must preserve premultiplied alpha from the final color resource.
+- Main scene and dirty-region clears must use alpha `0.0` only for transparent
+  presentation. Environment background rendering must write alpha `1.0`.
+- Presentation color conversion must safely unpremultiply before nonlinear
+  display conversion and premultiply the converted RGB again.
 - Registered frame modules must create WebGPU internal nodes for every enabled
   renderer-level `FramePass` during frame sealing through their stage
   contributions. Sealing normally occurs in `beginFrame()` and may follow

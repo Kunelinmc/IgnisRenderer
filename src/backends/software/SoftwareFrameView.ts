@@ -1,4 +1,5 @@
 import type { Camera } from "../../cameras/Camera";
+import type { PresentationAlphaMode } from "../IRenderBackend";
 import type { DrawPacket, FrameContext, PreparedSceneEnvironment } from "../../pipeline/types";
 import type { DecalPacket } from "../../pipeline/types";
 import type { PreparedSceneSpatialIndex, ResolvedFeatureState } from "../../pipeline/types";
@@ -72,6 +73,7 @@ export interface SoftwareSceneView {
 
 /** @internal Backend-local view imported from one renderer frame context. */
 export interface SoftwareFrameView {
+	readonly presentationAlphaMode: PresentationAlphaMode;
 	readonly attachments: SoftwareFrameAttachments;
 	readonly camera: SoftwareCameraView;
 	readonly scene: SoftwareSceneView;
@@ -106,6 +108,7 @@ export function createSoftwareFrameView(
 	const cameraPosition = camera.getWorldPosition();
 
 	return Object.freeze({
+		presentationAlphaMode: context.presentationAlphaMode,
 		attachments,
 		camera: Object.freeze({
 			type: camera.type,

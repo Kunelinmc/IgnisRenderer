@@ -154,6 +154,16 @@ export class PostProcessPlanner {
 			backend: request.backend,
 			frameContext: request.frameContext,
 		});
+		if (request.frameContext.presentationAlphaMode === "premultiplied") {
+			for (const resolved of orderedPasses) {
+				if (resolved.pass.alphaContract === "premultiplied") continue;
+				throw new Error(
+					`Post-process pass "${resolved.id}" is not compatible with transparent ` +
+						"output; declare alphaContract: \"premultiplied\" and preserve valid " +
+						"premultiplied RGBA.",
+				);
+			}
+		}
 		const startPassId = request.startPassId ??
 			this._resolveIncrementalStartPass(request.frameContext, orderedPasses);
 		const slicedPasses = this._sliceFromStartPass(orderedPasses, startPassId);

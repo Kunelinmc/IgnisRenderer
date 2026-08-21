@@ -28,7 +28,8 @@ fn shadeTransmissionCapture(
 	let shadingMode = u32(model.materialFlags.x + 0.5);
 	let alphaModeMask = model.materialFlags.y > 0.5;
 	let doubleSided = model.materialFlags.z > 0.5;
-	let isWireframe = model.materialFlags.w > 0.5;
+	let materialRenderFlags = u32(model.materialFlags.w + 0.5);
+	let isWireframe = (materialRenderFlags & 1u) != 0u;
 
 	var baseSample = vec4<f32>(1.0);
 	if (!isWireframe && hasPBRTexture(PBR_TEXTURE_BASE_COLOR_MAP)) {
@@ -219,7 +220,8 @@ fn fsMainDepthMask(input: VertexOutput) {
 		return;
 	}
 	let shadingMode = u32(model.materialFlags.x + 0.5);
-	let isWireframe = model.materialFlags.w > 0.5;
+	let materialRenderFlags = u32(model.materialFlags.w + 0.5);
+	let isWireframe = (materialRenderFlags & 1u) != 0u;
 	var baseSample = vec4<f32>(1.0);
 	if (
 		!isWireframe &&

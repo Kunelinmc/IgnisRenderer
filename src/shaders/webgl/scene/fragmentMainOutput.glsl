@@ -523,7 +523,7 @@ void main() {
 	);
 	color = max(mix(color, uFogParams1.rgb, fogFactor), vec3(0.0));
 	vec3 finalColor = max(color, vec3(0.0));
-	float finalAlpha = clamp(alpha, 0.0, 1.0);
+	float finalAlpha = uAlpha.z > 0.5 ? clamp(alpha, 0.0, 1.0) : 1.0;
 #if WEBGL_SCENE_OIT
 	if (uOITPassMode == 1) {
 		float weight = resolveOITWeight(finalAlpha, max(vViewDepth, 0.0));

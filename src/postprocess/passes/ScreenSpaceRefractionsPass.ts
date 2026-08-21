@@ -662,6 +662,7 @@ export class ScreenSpaceRefractionsPass extends PostProcessPass<
 	constructor(config: ScreenSpaceRefractionsPassConfig = {}) {
 		super({
 			...config,
+			alphaContract: "premultiplied",
 			id: SCREEN_SPACE_REFRACTIONS_PASS_ORDER.id,
 			schedule: {
 				placement:

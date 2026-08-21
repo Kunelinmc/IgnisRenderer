@@ -10,9 +10,15 @@ This document defines the lifecycle, scheduling, warmup, incremental rendering, 
 
 - `new Renderer(options)`
   - Input contract: must accept exactly one `RendererOptions` object containing
-    `backend`, `canvas`, and the optional `camera`.
+    `backend`, `canvas`, and the optional `camera`, `displayOutput`, and
+    `transparentOutput` settings.
   - Constraint: positional `backend`, `canvas`, and `camera` constructor
     arguments are not supported.
+  - `transparentOutput` must default to `false` and may be selected only when
+    the renderer is constructed. `true` must resolve the presentation surface
+    to premultiplied-alpha output; `false` must resolve it to opaque output.
+  - The resolved presentation alpha mode must be included in `RenderSurface`
+    and every renderer-owned main `FrameContext`.
 - `Renderer.renderLoop()`
   - Behavior contract: must schedule frames through `requestAnimationFrame`.
   - Behavior contract: must await each `renderFrame(nowMs)` call before scheduling the next frame.

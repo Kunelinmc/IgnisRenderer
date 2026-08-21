@@ -535,6 +535,7 @@ function createPlanarCaptureContext(
 
 	return {
 		backendProfile: context.backendProfile,
+		presentationAlphaMode: "opaque",
 		viewCamera: camera,
 		attachments: { width, height },
 		features: {

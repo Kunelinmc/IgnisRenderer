@@ -1,4 +1,5 @@
 #import <ignis/color/srgb>
+#import <ignis/webgpu/constants>
 
 struct PresentVSOut {
 	@builtin(position) position: vec4<f32>,
@@ -40,7 +41,7 @@ fn hdrSoftShoulder(color: vec3<f32>, headroom: f32) -> vec3<f32> {
 	let mappedPeak =
 		1.0 + (headroom - 1.0) *
 		(1.0 - exp(-(peak - 1.0) / (headroom - 1.0)));
-	return positive * (mappedPeak / max(peak, 1e-6));
+	return positive * (mappedPeak / max(peak, EPSILON));
 }
 
 fn linearSrgbToDisplayP3(color: vec3<f32>) -> vec3<f32> {
@@ -70,8 +71,19 @@ fn vsMain(@builtin(vertex_index) vertexIndex: u32) -> PresentVSOut {
 fn fsMain(input: PresentVSOut) -> @location(0) vec4<f32> {
 	let sampled = textureSample(srcTexture, srcSampler, input.uv);
 	let hdr = params.hdrEnabled > 0.5;
-	let domain = i32(params.colorDomain + 0.5);
-	var color = max(sampled.rgb, vec3<f32>(0.0));
+	let encodedDomain = i32(params.colorDomain + 0.5);
+	let transparent = encodedDomain >= 4;
+	let domain = encodedDomain % 4;
+	let alpha = select(1.0, clamp(sampled.a, 0.0, 1.0), transparent);
+	var color = select(
+		max(sampled.rgb, vec3<f32>(0.0)),
+		select(
+			vec3<f32>(0.0),
+			max(sampled.rgb, vec3<f32>(0.0)) / max(alpha, EPSILON),
+			alpha > EPSILON
+		),
+		transparent
+	);
 	if (domain == 0) {
 		let exposed = color * params.exposure;
 		color = select(
@@ -100,5 +112,6 @@ fn fsMain(input: PresentVSOut) -> @location(0) vec4<f32> {
 		max(color, vec3<f32>(0.0)),
 		hdr
 	);
-	return vec4<f32>(color, clamp(sampled.a, 0.0, 1.0));
+	let outputColor = select(color, color * alpha, transparent);
+	return vec4<f32>(outputColor, alpha);
 }

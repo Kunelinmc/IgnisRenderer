@@ -507,6 +507,7 @@ export class DepthOfFieldPass extends PostProcessPass<DOFOptions, DOFOptions> {
 	public constructor(config: DepthOfFieldPassConfig = {}) {
 		super({
 			...config,
+			alphaContract: "premultiplied",
 			id: DEPTH_OF_FIELD_PASS_ORDER.id,
 			schedule: {
 				placement: config.schedule?.placement ?? DEPTH_OF_FIELD_PASS_ORDER.placement,

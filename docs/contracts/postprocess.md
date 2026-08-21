@@ -6,6 +6,16 @@ This document defines logical post-process declarations, planning, backend execu
 
 ### Cross-backend declarations
 
+- `PostProcessPassConfig.alphaContract` may be `"opaque-only"` or
+  `"premultiplied"` and must default to `"opaque-only"`.
+- Transparent presentation must reject an enabled pass whose alpha contract is
+  not `"premultiplied"` before graph resource allocation or command recording.
+- Every built-in implementation must accept and produce premultiplied RGBA.
+  Point operations must safely unpremultiply before nonlinear RGB transforms;
+  spatial filters must filter coverage with the same support as RGB; effects
+  that add visible radiance outside source coverage must add coverage.
+- Alpha-zero post-process output must have zero RGB. Temporal color histories
+  must preserve premultiplied alpha and reset transparent pixels to zero.
 - `PostProcessPassConfig.schedule` must own placement, numeric order, and
   incremental metadata. Resource behavior must not appear in the schedule.
 - `PostProcessPassConfig.label` may provide a human-readable pass name for

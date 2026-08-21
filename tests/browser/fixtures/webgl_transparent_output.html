@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<title>WebGL Transparent Output Test</title>
+		<style>
+			html, body {
+				margin: 0;
+				background: rgb(20, 120, 220);
+			}
+			canvas {
+				display: inline-block;
+				width: 32px;
+				height: 32px;
+				background: transparent;
+			}
+		</style>
+	</head>
+	<body>
+		<canvas id="transparent" width="32" height="32"></canvas>
+		<script type="module" src="./webgl_transparent_output.ts"></script>
+	</body>
+</html>

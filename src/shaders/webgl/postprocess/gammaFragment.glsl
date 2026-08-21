@@ -1,6 +1,7 @@
 #version 300 es
 precision highp float;
 #import <ignis/color/srgb>
+#import <ignis/webgl/constants>
 
 in vec2 vUv;
 
@@ -21,7 +22,8 @@ vec3 linearSrgbToDisplayP3(vec3 color) {
 void main() {
 	vec4 sampled = texture(uSourceMap, vUv);
 	bool hdr = uHdrEnabled > 0.5;
-	vec3 linear = max(sampled.rgb, vec3(0.0));
+	float alpha = clamp(sampled.a, 0.0, 1.0);
+	vec3 linear = alpha > EPSILON ? max(sampled.rgb, vec3(0.0)) / alpha : vec3(0.0);
 	if (hdr) {
 		linear = clamp(
 			linearSrgbToDisplayP3(linear),
@@ -30,5 +32,6 @@ void main() {
 		);
 	}
 	vec3 color = linearToSrgb(linear);
-	fragColor = vec4(hdr ? max(color, vec3(0.0)) : clamp(color, 0.0, 1.0), sampled.a);
+	vec3 encoded = hdr ? max(color, vec3(0.0)) : clamp(color, 0.0, 1.0);
+	fragColor = vec4(encoded * alpha, alpha);
 }

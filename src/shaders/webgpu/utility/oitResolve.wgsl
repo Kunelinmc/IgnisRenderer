@@ -34,5 +34,6 @@ fn fsMain(input: ResolveVSOut) -> @location(0) vec4<f32> {
 	let weightedColor = accum.rgb / max(accum.a, 1e-5);
 	let alpha = clamp(1.0 - reveal, 0.0, 1.0);
 	let color = weightedColor * alpha + base.rgb * reveal;
-	return vec4<f32>(max(color, vec3<f32>(0.0)), base.a);
+	let outputAlpha = alpha + clamp(base.a, 0.0, 1.0) * reveal;
+	return vec4<f32>(max(color, vec3<f32>(0.0)), clamp(outputAlpha, 0.0, 1.0));
 }

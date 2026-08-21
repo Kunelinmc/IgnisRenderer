@@ -648,6 +648,7 @@ export class ScreenSpaceReflectionsPass extends PostProcessPass<SSROptions, Reso
 	constructor(config: ScreenSpaceReflectionsPassConfig = {}) {
 		super({
 			...config,
+			alphaContract: "premultiplied",
 			id: SCREEN_SPACE_REFLECTIONS_PASS_ORDER.id,
 			schedule: {
 				placement:

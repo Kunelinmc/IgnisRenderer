@@ -64,7 +64,8 @@ export class WebGPUPresentPass {
 		this._paramData[0] = display?.requested.exposure ?? 1;
 		this._paramData[1] = display?.requested.hdrHeadroom ?? 4;
 		this._paramData[2] = display?.activeDynamicRange === "hdr" ? 1 : 0;
-		this._paramData[3] = encodeColorDomain(request.colorDomain);
+		this._paramData[3] = encodeColorDomain(request.colorDomain) +
+			(request.frameContext?.presentationAlphaMode === "premultiplied" ? 4 : 0);
 		this._host.writeBuffer(this._params, this._paramData);
 
 		if (!this._binding || this._bindingSource !== request.source) {
@@ -101,7 +102,12 @@ export class WebGPUPresentPass {
 			label: "WebGPUPresentPass",
 			colorAttachments: [
 				{
-					clearValue: { r: 0, g: 0, b: 0, a: 1 },
+					clearValue: {
+						r: 0,
+						g: 0,
+						b: 0,
+						a: request.frameContext?.presentationAlphaMode === "premultiplied" ? 0 : 1,
+					},
 					loadOp: "clear",
 					storeOp: "store",
 				},

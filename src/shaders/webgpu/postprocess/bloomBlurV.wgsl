@@ -23,15 +23,15 @@ fn csMain(@builtin(global_invocation_id) gid: vec3<u32>) {
 	let uv = (vec2<f32>(gid.xy) + vec2<f32>(0.5)) / vec2<f32>(size);
 	let offset = vec2<f32>(0.0, params.texelSize.y);
 
-	var color = textureSampleLevel(srcTex, linearSampler, uv, 0.0).rgb * W0;
-	color += textureSampleLevel(srcTex, linearSampler, uv + offset * 1.0, 0.0).rgb * W1;
-	color += textureSampleLevel(srcTex, linearSampler, uv - offset * 1.0, 0.0).rgb * W1;
-	color += textureSampleLevel(srcTex, linearSampler, uv + offset * 2.0, 0.0).rgb * W2;
-	color += textureSampleLevel(srcTex, linearSampler, uv - offset * 2.0, 0.0).rgb * W2;
-	color += textureSampleLevel(srcTex, linearSampler, uv + offset * 3.0, 0.0).rgb * W3;
-	color += textureSampleLevel(srcTex, linearSampler, uv - offset * 3.0, 0.0).rgb * W3;
-	color += textureSampleLevel(srcTex, linearSampler, uv + offset * 4.0, 0.0).rgb * W4;
-	color += textureSampleLevel(srcTex, linearSampler, uv - offset * 4.0, 0.0).rgb * W4;
+	var color = textureSampleLevel(srcTex, linearSampler, uv, 0.0) * W0;
+	color += textureSampleLevel(srcTex, linearSampler, uv + offset * 1.0, 0.0) * W1;
+	color += textureSampleLevel(srcTex, linearSampler, uv - offset * 1.0, 0.0) * W1;
+	color += textureSampleLevel(srcTex, linearSampler, uv + offset * 2.0, 0.0) * W2;
+	color += textureSampleLevel(srcTex, linearSampler, uv - offset * 2.0, 0.0) * W2;
+	color += textureSampleLevel(srcTex, linearSampler, uv + offset * 3.0, 0.0) * W3;
+	color += textureSampleLevel(srcTex, linearSampler, uv - offset * 3.0, 0.0) * W3;
+	color += textureSampleLevel(srcTex, linearSampler, uv + offset * 4.0, 0.0) * W4;
+	color += textureSampleLevel(srcTex, linearSampler, uv - offset * 4.0, 0.0) * W4;
 
-	textureStore(dstTex, vec2<i32>(gid.xy), vec4<f32>(color, 1.0));
+	textureStore(dstTex, vec2<i32>(gid.xy), color);
 }

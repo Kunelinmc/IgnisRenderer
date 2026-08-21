@@ -15,6 +15,7 @@ import {
 	SoftwareDisplayOutputManager,
 } from "./SoftwareDisplayOutputManager";
 import type { SoftwareFrameView } from "./SoftwareFrameView";
+import { CoreConstants } from "./constants";
 
 /** @internal Presents through a backend-owned context and owns CPU frame targets. */
 export class SoftwareSurfaceRuntime {
@@ -184,14 +185,23 @@ export class SoftwareSurfaceRuntime {
 			for (let y = region.minY; y < region.maxYExclusive; y++) {
 				for (let x = region.minX; x < region.maxXExclusive; x++) {
 					const index = (y * width + x) << 2;
+					const transparent =
+						frame.presentationAlphaMode === "premultiplied";
+					const alpha = transparent ?
+						Math.min(1, Math.max(0, finiteOrZero(color[index + 3])))
+					:	1;
+					const inverseAlpha = alpha > CoreConstants.EPSILON ? 1 / alpha : 0;
 					const encoded = this._completeColor(
-						color[index],
-						color[index + 1],
-						color[index + 2],
+						transparent ? color[index] * inverseAlpha : color[index],
+						transparent ?
+							color[index + 1] * inverseAlpha
+						:	color[index + 1],
+						transparent ?
+							color[index + 2] * inverseAlpha
+						:	color[index + 2],
 						colorDomain,
 						state,
 					);
-					const alpha = Math.min(1, Math.max(0, finiteOrZero(color[index + 3])));
 					if (hdrPixels) {
 						hdrPixels[index] = finiteOrZero(encoded[0]);
 						hdrPixels[index + 1] = finiteOrZero(encoded[1]);

@@ -1,4 +1,5 @@
 #import <ignis/postprocess/luma-common>
+#import <ignis/webgpu/constants>
 #define IGNIS_LUMA_PROFILE bt709
 #define IGNIS_LUMA_CLAMP true
 #inject <ignis/postprocess/luma>(profile=IGNIS_LUMA_PROFILE, clamp=IGNIS_LUMA_CLAMP)
@@ -86,7 +87,7 @@ fn csMain(@builtin(global_invocation_id) gid: vec3<u32>) {
 		vec2<f32>(0.0, -2.0)
 	);
 
-	var accum = source.rgb;
+	var accum = source;
 	var weight = 1.0;
 	for (var i: i32 = 0; i < 12; i = i + 1) {
 		let sampleUv = clamp(
@@ -106,14 +107,14 @@ fn csMain(@builtin(global_invocation_id) gid: vec3<u32>) {
 			max(luma(sampleColor.rgb) - params.highlightThreshold, 0.0) *
 			max(params.highlightGain, 0.0);
 		let sampleWeight = gate * (1.0 + highlight);
-		accum += sampleColor.rgb * sampleWeight;
+		accum += sampleColor * sampleWeight;
 		weight += sampleWeight;
 	}
 
-	var color = mix(source.rgb, accum / max(weight, 1e-4), coc);
+	var filtered = mix(source, accum / max(weight, 1e-4), coc);
 	if (params.chromaticAberration > 0.0) {
 		var radial = uv - vec2<f32>(0.5, 0.5);
-		if (dot(radial, radial) < 1e-6) {
+		if (dot(radial, radial) < EPSILON) {
 			radial = vec2<f32>(1.0, 0.0);
 		} else {
 			radial = normalize(radial);
@@ -132,8 +133,12 @@ fn csMain(@builtin(global_invocation_id) gid: vec3<u32>) {
 		);
 		let red = textureSampleLevel(srcTex, linearSampler, redUv, 0.0).r;
 		let blue = textureSampleLevel(srcTex, linearSampler, blueUv, 0.0).b;
-		color = vec3<f32>(red, color.g, blue);
+		filtered = vec4<f32>(red, filtered.g, blue, filtered.a);
 	}
 
-	textureStore(outTex, coord, vec4<f32>(max(color, vec3<f32>(0.0)), source.a));
+	textureStore(
+		outTex,
+		coord,
+		vec4<f32>(max(filtered.rgb, vec3<f32>(0.0)), clamp(filtered.a, 0.0, 1.0))
+	);
 }

@@ -582,6 +582,7 @@ export class FastApproximateAntiAliasingPass extends PostProcessPass<
 	public constructor(config: FastApproximateAntiAliasingPassConfig = {}) {
 		super({
 			...config,
+			alphaContract: "premultiplied",
 			id: FAST_APPROXIMATE_ANTI_ALIASING_PASS_ORDER.id,
 			schedule: {
 				placement: config.schedule?.placement ??

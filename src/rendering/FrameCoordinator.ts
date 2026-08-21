@@ -13,6 +13,7 @@ import { Logger } from "../foundation/Logger";
 import type { TransientStore } from "../foundation/TransientStore";
 import { CSGMeshInstance } from "../meshes/CSGMeshInstance";
 import { LODMeshInstance } from "../meshes/LODMeshInstance";
+import { ShaderMaterial } from "../materials/ShaderMaterial";
 import { resolveFeatureState } from "../pipeline/FeatureResolver";
 import {
 	hasPostProcessExecutionPasses,
@@ -63,7 +64,12 @@ import {
 	type IncrementalFrameStatus,
 	type IncrementalRenderingOptions,
 } from "../pipeline/incremental";
-import type { IRenderBackend, WarmupOptions, WarmupReport } from "../backends/IRenderBackend";
+import type {
+	IRenderBackend,
+	PresentationAlphaMode,
+	WarmupOptions,
+	WarmupReport,
+} from "../backends/IRenderBackend";
 import {
 	PROBE_CAPTURE_EXTENSION,
 	type RenderBackendExtensionKey,
@@ -81,6 +87,7 @@ type RendererStageExecutor = (
 
 export interface FrameCoordinatorDelegate {
 	readonly canvas: HTMLCanvasElement;
+	readonly presentationAlphaMode: PresentationAlphaMode;
 	readonly scene: Scene;
 	readonly camera: Camera;
 	readonly animationSystem: AnimationSystem;
@@ -747,6 +754,7 @@ export class FrameCoordinator {
 			);
 		}
 		frame.shadowPlan = shadowPlan;
+		this._validatePresentationMaterials(delegate.presentationAlphaMode, frame);
 
 		const attachments = this._backend.getAttachments({
 			width: delegate.canvas.width,
@@ -766,6 +774,7 @@ export class FrameCoordinator {
 
 		return {
 			backendProfile: this._backend.profile,
+			presentationAlphaMode: delegate.presentationAlphaMode,
 			viewCamera: delegate.camera,
 			attachments,
 			features: resolved,
@@ -780,6 +789,47 @@ export class FrameCoordinator {
 			incremental,
 			transient,
 		};
+	}
+
+	private _validatePresentationMaterials(
+		alphaMode: PresentationAlphaMode,
+		frame: RenderSceneFrame,
+	): void {
+		if (alphaMode !== "premultiplied") return;
+		const materials = new Set<ShaderMaterial>();
+		for (const packets of [
+			frame.opaquePackets,
+			frame.transparentPackets,
+			frame.reflectivePackets,
+		]) {
+			for (const packet of packets) {
+				if (packet.material instanceof ShaderMaterial) {
+					materials.add(packet.material);
+				}
+			}
+		}
+		for (const system of frame.particleSystems) {
+			if (system.visible === false) continue;
+			for (const template of system.templates) {
+				if (template.shape.kind !== "mesh") continue;
+				for (const primitive of template.shape.mesh.primitives) {
+					if (
+						primitive.visible !== false &&
+						primitive.material instanceof ShaderMaterial
+					) {
+						materials.add(primitive.material);
+					}
+				}
+			}
+		}
+		for (const material of materials) {
+			if (material.transparentOutputCompatible) continue;
+			throw new Error(
+				`ShaderMaterial "${material.name}" is not compatible with transparent output; ` +
+					"set transparentOutputCompatible: true after ensuring opaque/mask outputs " +
+					"alpha 1 and blend outputs straight alpha.",
+			);
+		}
 	}
 
 	private _buildIncrementalFrameContext(

@@ -684,6 +684,7 @@ export class VolumetricLightingPass extends PostProcessPass<
 	public constructor(config: VolumetricLightingPassConfig = {}) {
 		super({
 			...config,
+			alphaContract: "premultiplied",
 			id: VOLUMETRIC_LIGHTING_PASS_ORDER.id,
 			schedule: {
 				placement: config.schedule?.placement ?? VOLUMETRIC_LIGHTING_PASS_ORDER.placement,

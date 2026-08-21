@@ -336,7 +336,15 @@ export function resolveMaterialUniforms(material: Material): MaterialUniformStat
 		],
 		phong: [shininess, 0, 0, 0],
 		phongAmbient: [phongAmbient[0], phongAmbient[1], phongAmbient[2], 0],
-		alpha: [alphaCutoff, alphaModeMask, 0, 0],
+		alpha: [
+			alphaCutoff,
+			alphaModeMask,
+			material.alphaMode === AlphaMode.Blend ||
+			getMaterialTransmissionFactor(material) > 0 ?
+				1
+			:	0,
+			0,
+		],
 		baseMap,
 		baseMapUV,
 		metallicRoughnessMap,

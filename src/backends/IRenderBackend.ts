@@ -25,6 +25,9 @@ export type RenderBackendType = KnownBackendType | (string & {});
 /** Backend frame scheduling policy reported to renderer coordination. */
 export type FrameSchedulingMode = "always" | "on-demand";
 
+/** Resolved alpha-compositing behavior for the presentation surface. */
+export type PresentationAlphaMode = "opaque" | "premultiplied";
+
 /** Diagnostic details reported when a backend device or context is lost. */
 export interface RenderBackendDeviceLostInfo {
 	/** Backend-specific reason for the loss, when available. */
@@ -210,6 +213,8 @@ export interface RenderSurface {
 	readonly canvas: HTMLCanvasElement;
 	/** Effective display-output configuration for the attached surface. */
 	readonly displayOutput: ResolvedDisplayOutputOptions;
+	/** Resolved canvas alpha-compositing behavior. */
+	readonly presentationAlphaMode: PresentationAlphaMode;
 }
 
 /** Pixel dimensions used to configure backend presentation attachments. */

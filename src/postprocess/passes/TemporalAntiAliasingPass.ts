@@ -905,6 +905,7 @@ export class TemporalAntiAliasingPass extends PostProcessPass<
 	public constructor(config: TemporalAntiAliasingPassConfig = {}) {
 		super({
 			...config,
+			alphaContract: "premultiplied",
 			id: TEMPORAL_ANTI_ALIASING_PASS_ORDER.id,
 			schedule: {
 				placement: config.schedule?.placement ?? TEMPORAL_ANTI_ALIASING_PASS_ORDER.placement,

@@ -896,6 +896,11 @@ fn csMain(@builtin(global_invocation_id) gid: vec3<u32>) {
 	);
 	let blend = clamp(adaptiveHistory * historyConfidence, 0.0, TEMPORAL_HISTORY_WEIGHT);
 	let volumetric = mix(volumetricCurrent, clampedPrevVolumetric, blend);
+	let volumetricOpacity = mix(
+		clamp(1.0 - transmittance, 0.0, 1.0),
+		clamp(prevVolumetric.a, 0.0, 1.0),
+		blend
+	);
 
 	let storedIndex = select(-1.0, f32(reservoir.lightIndex), reservoir.lightIndex >= 0);
 	let storedWeightSum = min(max(reservoir.weightSum, 0.0), 65000.0);
@@ -908,10 +913,14 @@ fn csMain(@builtin(global_invocation_id) gid: vec3<u32>) {
 		storedSelectedWeight,
 		storedSampleCount
 	));
-	textureStore(outHistory, coord, vec4<f32>(volumetric, 1.0));
+	textureStore(outHistory, coord, vec4<f32>(volumetric, volumetricOpacity));
 	textureStore(
 		outColor,
 		coord,
-		vec4<f32>(max(scene.rgb + volumetric, vec3<f32>(0.0)), scene.a)
+		vec4<f32>(
+			max(scene.rgb + volumetric, vec3<f32>(0.0)),
+			clamp(scene.a, 0.0, 1.0) +
+				volumetricOpacity * (1.0 - clamp(scene.a, 0.0, 1.0))
+		)
 	);
 }

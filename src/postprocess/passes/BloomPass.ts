@@ -827,6 +827,7 @@ export class BloomPass extends PostProcessPass<BloomOptions, BloomOptions> {
 	public constructor(config: BloomPassConfig = {}) {
 		super({
 			...config,
+			alphaContract: "premultiplied",
 			id: BLOOM_PASS_ORDER.id,
 			schedule: {
 				placement: config.schedule?.placement ?? BLOOM_PASS_ORDER.placement,

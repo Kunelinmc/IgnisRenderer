@@ -153,7 +153,8 @@ export class SoftwareFrameSession {
 				attachments.color[index] = 0;
 				attachments.color[index + 1] = 0;
 				attachments.color[index + 2] = 0;
-				attachments.color[index + 3] = 1;
+				attachments.color[index + 3] =
+					frame.presentationAlphaMode === "premultiplied" ? 0 : 1;
 			}
 			attachments.depthBuffer.fill(Infinity);
 			attachments.normalBuffer?.fill(0);
@@ -168,7 +169,8 @@ export class SoftwareFrameSession {
 						attachments.color[pixelIndex] = 0;
 						attachments.color[pixelIndex + 1] = 0;
 						attachments.color[pixelIndex + 2] = 0;
-						attachments.color[pixelIndex + 3] = 1;
+						attachments.color[pixelIndex + 3] =
+							frame.presentationAlphaMode === "premultiplied" ? 0 : 1;
 						attachments.depthBuffer[pixel] = Infinity;
 						if (attachments.normalBuffer) {
 							const normalIndex = pixel * 3;

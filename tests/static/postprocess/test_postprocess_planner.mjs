@@ -12,10 +12,18 @@ const READ = { access: "read", usage: "sampled" };
 const WRITE = { access: "write", usage: "storage" };
 
 class TestPass extends PostProcessPass {
-	constructor({ id, schedule, declaration, describe, implementation = true }) {
+	constructor({
+		id,
+		schedule,
+		declaration,
+		describe,
+		implementation = true,
+		alphaContract,
+	}) {
 		super({
 			id,
 			schedule,
+			alphaContract,
 			enabled: true,
 			implementations: implementation ? {
 				software: () => ({
@@ -30,6 +38,7 @@ class TestPass extends PostProcessPass {
 
 function frame(incremental = {}) {
 	return {
+		presentationAlphaMode: "opaque",
 		attachments: { width: 128, height: 64 },
 		incremental: {
 			enabled: false,
@@ -39,6 +48,33 @@ function frame(incremental = {}) {
 			...incremental,
 		},
 	};
+}
+
+function testTransparentOutputAlphaCompatibility() {
+	const incompatible = new PostProcessPassRegistry();
+	incompatible.registerPass(new TestPass({
+		id: "legacy-alpha",
+		declaration: { color: COLOR },
+	}));
+	const transparentFrame = frame();
+	transparentFrame.presentationAlphaMode = "premultiplied";
+	assert.throws(
+		() => plan(incompatible, { frameContext: transparentFrame }),
+		(error) => /legacy-alpha/.test(error.message) &&
+			/alphaContract/.test(error.message),
+	);
+
+	const compatible = new PostProcessPassRegistry();
+	compatible.registerPass(new TestPass({
+		id: "alpha-aware",
+		alphaContract: "premultiplied",
+		declaration: { color: COLOR },
+	}));
+	assert.deepEqual(
+		plan(compatible, { frameContext: transparentFrame }).result.passes
+			.map((entry) => entry.id),
+		["alpha-aware"],
+	);
 }
 
 function gBuffer(channels = {}) {
@@ -232,6 +268,7 @@ function testDeclarationPlanFinalizesAvailabilityWithoutRedescribing() {
 testOrderingSlicingAvailabilityAndSingleDescribe();
 testDescriptorsAndDeterministicSignature();
 testDeclarationPlanFinalizesAvailabilityWithoutRedescribing();
+testTransparentOutputAlphaCompatibility();
 
 // Keep the conflict assertion separate so its message checks backend, pass and resource.
 {

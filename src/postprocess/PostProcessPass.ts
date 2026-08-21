@@ -24,6 +24,8 @@ export interface PostProcessColorContract {
 	readonly output: PostProcessColorDomain;
 }
 
+export type PostProcessAlphaContract = "opaque-only" | "premultiplied";
+
 export type PostProcessPassImplementationFactory = (
 	backend: IRenderBackend
 ) => PostProcessPassImplementation;
@@ -54,6 +56,8 @@ export interface PostProcessPassConfig<TRawOptions = unknown> {
 	readonly enabled?: boolean;
 	readonly options?: Partial<TRawOptions>;
 	readonly colorContract?: PostProcessColorContract;
+	/** Alpha behavior of this pass's assigned color input and output. */
+	readonly alphaContract?: PostProcessAlphaContract;
 	readonly implementations?: Partial<
 		Record<RenderBackendType, PostProcessPassImplementationFactory>
 	>;
@@ -111,6 +115,7 @@ export abstract class PostProcessPass<
 	public readonly label: string;
 	public readonly schedule: Readonly<PostProcessSchedule>;
 	public readonly colorContract: Readonly<PostProcessColorContract> | null;
+	public readonly alphaContract: PostProcessAlphaContract;
 	private readonly _implementations: Partial<
 		Record<RenderBackendType, PostProcessPassImplementationFactory>
 	>;
@@ -129,6 +134,7 @@ export abstract class PostProcessPass<
 		this.schedule = Object.freeze({ ...config.schedule });
 		this.colorContract = config.colorContract ?
 			Object.freeze({ ...config.colorContract }) : null;
+		this.alphaContract = config.alphaContract ?? "opaque-only";
 		this._enabled = config.enabled === true;
 		this._initialOptions = clonePlainOptions(config.options);
 		this._options = clonePlainOptions(config.options);

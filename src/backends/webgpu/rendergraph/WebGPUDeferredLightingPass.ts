@@ -145,7 +145,12 @@ export class WebGPUDeferredLightingPass {
 			colorAttachments: [
 				{
 					view: targets.sceneColorMain,
-					clearValue: { r: 0, g: 0, b: 0, a: 1 },
+					clearValue: {
+						r: 0,
+						g: 0,
+						b: 0,
+						a: context.presentationAlphaMode === "premultiplied" ? 0 : 1,
+					},
 					loadOp: clearSceneColor ? "clear" : "load",
 					storeOp: "store",
 				},

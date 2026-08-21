@@ -16,5 +16,6 @@ void main() {
 	vec3 weightedColor = accum.rgb / max(accum.a, 1e-5);
 	float alpha = clamp(1.0 - reveal, 0.0, 1.0);
 	vec3 color = weightedColor * alpha + base.rgb * reveal;
-	fragColor = vec4(max(color, vec3(0.0)), base.a);
+	float outputAlpha = alpha + clamp(base.a, 0.0, 1.0) * reveal;
+	fragColor = vec4(max(color, vec3(0.0)), clamp(outputAlpha, 0.0, 1.0));
 }

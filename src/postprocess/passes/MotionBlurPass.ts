@@ -465,6 +465,7 @@ export class MotionBlurPass extends PostProcessPass<
 	public constructor(config: MotionBlurPassConfig = {}) {
 		super({
 			...config,
+			alphaContract: "premultiplied",
 			id: MOTION_BLUR_PASS_ORDER.id,
 			schedule: {
 				placement: config.schedule?.placement ?? MOTION_BLUR_PASS_ORDER.placement,

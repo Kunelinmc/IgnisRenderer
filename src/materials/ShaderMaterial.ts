@@ -103,6 +103,8 @@ export interface ShaderMaterialParams extends MaterialParams {
 	depthFragmentCode?: string;
 	/** Opts this material into WebGPU deferred lighting when a deferred chunk exists. */
 	deferredLighting?: boolean;
+	/** Declares that custom fragment outputs obey transparent presentation rules. */
+	transparentOutputCompatible?: boolean;
 	glslToWgsl?: ShaderMaterialGLSLToWGSL;
 	chunks?: ShaderChunk[];
 	textureBindings?: ShaderMaterialTextureBinding[];
@@ -230,6 +232,7 @@ let SHADER_MATERIAL_ID = 1;
 
 export class ShaderMaterial extends Material {
 	public readonly shaderId: number;
+	public readonly transparentOutputCompatible: boolean;
 	public vertexEntryPoint: string;
 	public fragmentSingleEntryPoint: string;
 	public fragmentMRTEntryPoint: string;
@@ -250,6 +253,7 @@ export class ShaderMaterial extends Material {
 		super({ ...params, shading: params.shading ?? ShadingModel.Flat });
 		this.type = "Shader";
 		this.shaderId = SHADER_MATERIAL_ID++;
+		this.transparentOutputCompatible = params.transparentOutputCompatible === true;
 		this.vertexEntryPoint = params.vertexEntryPoint ?? "vsMain";
 		this.fragmentSingleEntryPoint =
 			params.fragmentSingleEntryPoint ?? "fsMainSingle";

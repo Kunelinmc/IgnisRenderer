@@ -32,6 +32,7 @@ function createContext(backend, camera, packetsByStage = {}) {
 	const zeroSH = createZeroSH();
 
 	return {
+		presentationAlphaMode: packetsByStage.presentationAlphaMode ?? "opaque",
 		viewCamera: camera,
 		attachments,
 		features: {
@@ -331,12 +332,50 @@ async function testTransparentScanlinePreservesPacketOrder() {
 	backend.destroy();
 }
 
+async function testTransparentPresentationCoverage() {
+	const backend = createSoftwareSession();
+	const attachments = await renderPass(backend, "main-transparent", {
+		presentationAlphaMode: "premultiplied",
+		transparentPackets: [createTrianglePacket(
+			"transparent-coverage",
+			{ r: 255, g: 0, b: 0 },
+			{ alphaMode: AlphaMode.Blend, opacity: 0.5 },
+		)],
+	});
+	const centerPixel =
+		(Math.floor(HEIGHT / 2) * WIDTH + Math.floor(WIDTH / 2)) * 4;
+	const sceneColor = backend._surface.getSceneColorTarget();
+	assert.ok(Math.abs(sceneColor[centerPixel] - 0.5) < 0.02);
+	assert.ok(Math.abs(sceneColor[centerPixel + 3] - 0.5) < 0.02);
+	assert.ok(Math.abs(attachments.pixels[centerPixel + 3] - 128) <= 2);
+	assert.equal(attachments.pixels[3], 0, "transparent clear must retain zero alpha");
+	backend.destroy();
+}
+
+async function testOpaqueMaterialWritesFullCoverageOnTransparentSurface() {
+	const backend = createSoftwareSession();
+	const attachments = await renderPass(backend, "main-opaque", {
+		presentationAlphaMode: "premultiplied",
+		opaquePackets: [createTrianglePacket(
+			"opaque-coverage",
+			{ r: 0, g: 0, b: 255 },
+			{ opacity: 0.2 },
+		)],
+	});
+	const centerPixel =
+		(Math.floor(HEIGHT / 2) * WIDTH + Math.floor(WIDTH / 2)) * 4;
+	assert.equal(attachments.pixels[centerPixel + 3], 255);
+	backend.destroy();
+}
+
 async function run() {
 	await testOpaqueScanlineDepthOrdering();
 	await testRasterPreservesHDRRadiance();
 	await testTransparentRasterPreservesHDRRadiance();
-await testIncrementalRasterClipsOutsideDirtyRegion();
-await testTransparentScanlinePreservesPacketOrder();
+	await testIncrementalRasterClipsOutsideDirtyRegion();
+	await testTransparentScanlinePreservesPacketOrder();
+	await testTransparentPresentationCoverage();
+	await testOpaqueMaterialWritesFullCoverageOnTransparentSurface();
 	console.log("Software scanline raster tests passed");
 }
 

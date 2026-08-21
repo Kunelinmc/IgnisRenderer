@@ -87,6 +87,16 @@ clamped to `1.0`.
 
 ## Display Output
 
+The Software authoritative scene target must use premultiplied RGBA when the
+surface requests transparent presentation. Scene and dirty-region clears must
+use alpha zero in that mode. Built-in opaque coverage, transparent blending,
+particles, environment output, post-processing, and temporal histories must
+follow the shared transparent-presentation contract.
+
+Canvas `ImageData` contains straight RGBA. Software presentation must safely
+unpremultiply the authoritative color after display conversion before writing
+SDR or HDR `ImageData`; it must write zero RGB when alpha is zero.
+
 `SoftwareBackend.profile.capabilities.displayHDR` must be `true`, indicating
 that the backend can attempt Display HDR. The active state must still be
 resolved from runtime capability probes.

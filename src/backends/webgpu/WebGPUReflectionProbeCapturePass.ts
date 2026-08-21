@@ -123,6 +123,7 @@ export class WebGPUReflectionProbeCapturePass {
 
 		const captureContext: FrameContext = {
 			backendProfile: request.frameContext.backendProfile,
+			presentationAlphaMode: "opaque",
 			viewCamera: captureCamera,
 			attachments: {
 				width: faceSize,

@@ -38,6 +38,7 @@ type SoftwareCanvasContext = CanvasRenderingContext2D & {
  */
 const HDR_PROBE_CONTEXT_SETTINGS: CanvasRenderingContext2DSettings &
 	ExtendedCanvasRenderingContext2DSettings = Object.freeze({
+	alpha: true,
 	willReadFrequently: true,
 	colorSpace: "display-p3",
 	colorType: "float16",

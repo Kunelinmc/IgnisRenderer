@@ -14,6 +14,7 @@ import {
 	WEBGPU_2D_COMPUTE_WORKGROUP_SIZE as WEBGPU_WORKGROUP_SIZE,
 } from "../../backends/webgpu/constants";
 import type { WebGPUPostProcessServices } from "../../backends/webgpu/WebGPUPostProcessContracts";
+import { CoreConstants } from "../../backends/software/constants";
 import type {
 	WebGLProgramCompiler,
 	WebGLProgramSlot,
@@ -128,9 +129,11 @@ export class SoftwareColorFilterImplementation
 				const row = y * width;
 				for (let x = rect.minX; x <= rect.maxX; x++) {
 					const index = (row + x) << 2;
-					let red = pixels[index];
-					let green = pixels[index + 1];
-					let blue = pixels[index + 2];
+					const alpha = Math.min(1, Math.max(0, pixels[index + 3]));
+					const inverseAlpha = alpha > CoreConstants.EPSILON ? 1 / alpha : 0;
+					let red = pixels[index] * inverseAlpha;
+					let green = pixels[index + 1] * inverseAlpha;
+					let blue = pixels[index + 2] * inverseAlpha;
 
 					red += brightness;
 					green += brightness;
@@ -149,9 +152,9 @@ export class SoftwareColorFilterImplementation
 					green += tempShiftG;
 					blue += tempShiftB;
 
-					pixels[index] = clamp(red, 0, upperBound);
-					pixels[index + 1] = clamp(green, 0, upperBound);
-					pixels[index + 2] = clamp(blue, 0, upperBound);
+					pixels[index] = clamp(red, 0, upperBound) * alpha;
+					pixels[index + 1] = clamp(green, 0, upperBound) * alpha;
+					pixels[index + 2] = clamp(blue, 0, upperBound) * alpha;
 				}
 			}
 		});
@@ -483,6 +486,7 @@ export class ColorFilterPass extends PostProcessPass<
 	public constructor(config: ColorFilterPassConfig = {}) {
 		super({
 			...config,
+			alphaContract: "premultiplied",
 			id: COLOR_FILTER_PASS_ORDER.id,
 			schedule: {
 				placement: config.schedule?.placement ?? COLOR_FILTER_PASS_ORDER.placement,

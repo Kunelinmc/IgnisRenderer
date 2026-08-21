@@ -859,6 +859,7 @@ export class ScreenSpaceGlobalIlluminationPass extends PostProcessPass<
 	constructor(config: ScreenSpaceGlobalIlluminationPassConfig = {}) {
 		super({
 			...config,
+			alphaContract: "premultiplied",
 			id: SCREEN_SPACE_GLOBAL_ILLUMINATION_PASS_ORDER.id,
 			schedule: {
 				placement:

@@ -1,4 +1,5 @@
 #import <ignis/color/srgb>
+#import <ignis/webgpu/constants>
 
 struct GammaParams {
 	hdrEnabled: f32,
@@ -28,7 +29,12 @@ fn csMain(@builtin(global_invocation_id) gid: vec3<u32>) {
 
 	let coord = vec2<i32>(gid.xy);
 	let sampled = textureLoad(srcTex, coord, 0);
-	let linearColor = max(sampled.rgb, vec3<f32>(0.0));
+	let alpha = clamp(sampled.a, 0.0, 1.0);
+	let linearColor = select(
+		vec3<f32>(0.0),
+		max(sampled.rgb, vec3<f32>(0.0)) / max(alpha, EPSILON),
+		alpha > EPSILON
+	);
 	var encoded: vec3<f32>;
 	if (params.hdrEnabled > 0.5) {
 		let displayP3 = clamp(
@@ -48,5 +54,5 @@ fn csMain(@builtin(global_invocation_id) gid: vec3<u32>) {
 			vec3<f32>(1.0)
 		);
 	}
-	textureStore(outTex, coord, vec4<f32>(encoded, sampled.a));
+	textureStore(outTex, coord, vec4<f32>(encoded * alpha, alpha));
 }

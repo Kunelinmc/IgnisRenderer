@@ -175,6 +175,28 @@ This document defines cross-backend rendering features, capability gating, pass 
   linear-sRGB to linear Display-P3 conversion, and extended sRGB encoding
   without clamping encoded RGB to `1.0`.
 
+### Transparent presentation
+
+- `RendererOptions.transparentOutput` must default to `false`. Opaque output
+  must force final presentation alpha to `1.0`.
+- Transparent output must use premultiplied scene color and presentation alpha.
+  A cleared main scene pixel must be `(0, 0, 0, 0)`; a cleared opaque-output
+  pixel must retain alpha `1.0`.
+- Built-in opaque and mask draws must contribute coverage `1.0`. Blend and
+  transmission draws must accumulate source-over coverage. OIT resolve must
+  combine coverage as `coverage + baseAlpha * reveal` where
+  `coverage = 1 - reveal`.
+- Additive particles must retain additive RGB while accumulating alpha as
+  `srcAlpha + dstAlpha * (1 - srcAlpha)`. This is the required source-over
+  approximation for composition with an unknown DOM background.
+- An enabled environment background must remain opaque. Environment lighting
+  may remain enabled while its visible background is disabled.
+- Display conversion must transform straight RGB obtained by safely
+  unpremultiplying, then premultiply the converted RGB again. Alpha-zero output
+  must have zero RGB. This requirement applies to SDR, auto, and HDR output.
+- Transmission may sample only renderer-owned scene and environment resources.
+  It cannot refract DOM content behind the canvas.
+
 ### Early-Z prepass
 
 #### Configuration Contract

@@ -30,7 +30,10 @@ import type {
 	RenderTargetRegistrySnapshot,
 } from "../rendering/CustomRenderTargets";
 import type { OcclusionCandidate } from "./OcclusionCulling";
-import type { RenderBackendProfile } from "../backends/IRenderBackend";
+import type {
+	PresentationAlphaMode,
+	RenderBackendProfile,
+} from "../backends/IRenderBackend";
 import type { PrimitiveDeformationMap } from "../simulation/animation/types";
 import {
 	defineTransientKey,
@@ -148,6 +151,8 @@ export interface FrameAttachments {
 
 export interface FrameContext {
 	readonly backendProfile: RenderBackendProfile;
+	/** Alpha-compositing behavior of the renderer-owned presentation surface. */
+	readonly presentationAlphaMode: PresentationAlphaMode;
 	/**
 	 * Camera that provides the active view/projection for this frame context.
 	 *

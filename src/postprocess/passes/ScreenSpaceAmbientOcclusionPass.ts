@@ -1204,6 +1204,7 @@ export class ScreenSpaceAmbientOcclusionPass extends PostProcessPass<
 	constructor(config: ScreenSpaceAmbientOcclusionPassConfig = {}) {
 		super({
 			...config,
+			alphaContract: "premultiplied",
 			id: SCREEN_SPACE_AMBIENT_OCCLUSION_PASS_ORDER.id,
 			schedule: {
 				placement:

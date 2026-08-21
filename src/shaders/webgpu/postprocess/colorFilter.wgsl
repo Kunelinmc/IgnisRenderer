@@ -1,3 +1,5 @@
+#import <ignis/webgpu/constants>
+
 struct Params {
 	filterParams0: vec4<f32>,
 	filterParams1: vec4<f32>,
@@ -39,6 +41,12 @@ fn csMain(@builtin(global_invocation_id) gid: vec3<u32>) {
 		(vec2<f32>(f32(gid.x), f32(gid.y)) + vec2<f32>(0.5, 0.5)) /
 		vec2<f32>(f32(size.x), f32(size.y));
 	let sampled = textureSampleLevel(srcTex, linearSampler, uv, 0.0);
-	let filtered = applyColorFilter(max(sampled.rgb, vec3<f32>(0.0)));
-	textureStore(outTex, vec2<i32>(gid.xy), vec4<f32>(filtered, sampled.a));
+	let alpha = clamp(sampled.a, 0.0, 1.0);
+	let straight = select(
+		vec3<f32>(0.0),
+		max(sampled.rgb, vec3<f32>(0.0)) / max(alpha, EPSILON),
+		alpha > EPSILON
+	);
+	let filtered = applyColorFilter(straight);
+	textureStore(outTex, vec2<i32>(gid.xy), vec4<f32>(filtered * alpha, alpha));
 }
