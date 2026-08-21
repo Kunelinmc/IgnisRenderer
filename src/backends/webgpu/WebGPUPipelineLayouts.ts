@@ -1,7 +1,6 @@
 import {
 	WEBGPU_GBUFFER_READ_TEXTURE_COUNT,
 	WEBGPU_MODEL_BINDING_ANIMATION_PARAMS,
-	WEBGPU_MODEL_BINDING_ANISOTROPY_TEXTURE,
 	WEBGPU_MODEL_BINDING_JOINT_MATRICES,
 	WEBGPU_MODEL_BINDING_MORPH_NORMAL,
 	WEBGPU_MODEL_BINDING_MORPH_POSITION,
@@ -260,11 +259,6 @@ export function createWebGPUPipelineLayouts(
 			});
 		}
 	}
-	decalEntries.push({
-		binding: WEBGPU_MODEL_BINDING_ANISOTROPY_TEXTURE,
-		visibility: GPUShaderStage.FRAGMENT | GPUShaderStage.COMPUTE,
-		texture: { sampleType: "float" },
-	});
 	const decalBindGroupLayout = device.createBindGroupLayout({
 		label: "WebGPUDecalBindGroupLayout",
 		entries: decalEntries,
@@ -422,11 +416,6 @@ export function createWebGPUPipelineLayouts(
 			binding: WEBGPU_MODEL_BINDING_SHADER_UNIFORMS,
 			visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
 			buffer: { type: "uniform" },
-		},
-		{
-			binding: WEBGPU_MODEL_BINDING_ANISOTROPY_TEXTURE,
-			visibility: GPUShaderStage.FRAGMENT,
-			texture: { sampleType: "float" },
 		},
 		{
 			binding: WEBGPU_MODEL_BINDING_STATIC_INSTANCES,

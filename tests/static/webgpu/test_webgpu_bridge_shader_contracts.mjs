@@ -77,6 +77,7 @@ import {
 	WEBGPU_SCENE_REQUIRED_FRAGMENT_SAMPLER_COUNT,
 	WEBGPU_SCENE_REQUIRED_FRAGMENT_SAMPLED_TEXTURE_COUNT,
 	WEBGPU_REQUIRED_FRAGMENT_SAMPLED_TEXTURE_COUNT,
+	WEBGPU_TEXTURE_SLOT,
 	WEBGPU_TEXTURE_SLOT_COUNT,
 	GBufferSlot
 } from "../../../src/backends/webgpu/constants.ts";
@@ -209,8 +210,18 @@ function testMaterialAdaptation() {
 	assert.ok(Math.abs(pbrAnisotropyData.anisotropyParams[0] - 0.75) < 1e-6);
 	assert.ok(Math.abs(pbrAnisotropyData.anisotropyParams[1]) < 1e-6);
 	assert.ok(Math.abs(pbrAnisotropyData.anisotropyParams[2] - 1) < 1e-6);
-	assert.equal(pbrAnisotropyData.anisotropyTexture.transformB[1], 2);
-	assert.equal(pbrAnisotropyData.anisotropyTexture.transformB[3], 1);
+	assert.equal(
+		pbrAnisotropyData.textureSlots[WEBGPU_TEXTURE_SLOT.ANISOTROPY].transformB[1],
+		2
+	);
+	assert.equal(
+		pbrAnisotropyData.textureSlots[WEBGPU_TEXTURE_SLOT.ANISOTROPY].transformB[3],
+		1
+	);
+	assert.equal(
+		pbrAnisotropyData.textureSlots[WEBGPU_TEXTURE_SLOT.ANISOTROPY].map,
+		pbr.anisotropyMap
+	);
 	assert.equal(
 		pbrAnisotropyData.pbrMasks[0],
 		PBRMaterialFeature.ANISOTROPY
@@ -449,19 +460,21 @@ async function testSceneShaderCoverage() {
 	);
 	assert.ok(
 		WEBGPU_SCENE_SHADER.includes(
-			"@group(1) @binding(30) var<uniform> animationParams"
+			"@group(1) @binding(34) var<uniform> animationParams"
 		)
 	);
 	assert.ok(
 		WEBGPU_SCENE_SHADER.includes(
-			"@group(1) @binding(32) var<storage, read> jointMatrices"
+			"@group(1) @binding(35) var<storage, read> jointMatrices"
 		)
 	);
 	assert.ok(
 		WEBGPU_SCENE_SHADER.includes(
-			"@group(1) @binding(37) var anisotropyTexture"
+			"@group(1) @binding(33) var anisotropyTexture"
 		)
 	);
+	assert.ok(!WEBGPU_SCENE_SHADER.includes("anisotropyTextureTransformA"));
+	assert.ok(!WEBGPU_SCENE_SHADER.includes("anisotropyTextureTransformB"));
 	assert.ok(!WEBGPU_SCENE_SHADER.includes("var iridescenceSampler"));
 	assert.ok(!WEBGPU_SCENE_SHADER.includes("var iridescenceThicknessSampler"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("applySkinning("));

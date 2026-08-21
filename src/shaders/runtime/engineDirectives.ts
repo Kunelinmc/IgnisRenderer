@@ -27,7 +27,7 @@ import { embeddedSyncShaderSources } from "../generated/embeddedSyncShaderSource
 const WEBGPU_PROFILE_ID = "webgpu/v1";
 const WEBGL_PROFILE_ID = "webgl/v1";
 const SOFTWARE_PROFILE_ID = "software/v1";
-const PROFILE_REVISION = 13;
+const PROFILE_REVISION = 14;
 const MATERIAL_TEXTURE_SLOT_COUNT = 14;
 const MATERIAL_SHADER_UNIFORM_BINDING = WEBGPU_MODEL_BINDING_SHADER_UNIFORMS;
 const MIGRATION_HINT =

@@ -1,8 +1,7 @@
 import assert from "node:assert/strict";
 import { Matrix4 } from "../../../src/maths/Matrix4.ts";
 import { WebGPUMaterialBindingCache } from "../../../src/backends/webgpu/WebGPUMaterialBindingCache.ts";
-
-const fallbackAnisotropyTexture = { id: "anisotropy:fallback" };
+import { WEBGPU_TEXTURE_SLOT_COUNT } from "../../../src/backends/webgpu/constants.ts";
 
 function createBackendStub() {
 	const backend = {
@@ -59,14 +58,13 @@ function createMaterialData(pipelineKey = "none-opaque-solid") {
 		sheenColorClearcoatNormalScale: vec4,
 		attenuationColor: vec4,
 		anisotropyParams: vec4,
-		anisotropyTexture: {
+		materialFlags: vec4,
+		pbrMasks: [0, 0, 0, 0],
+		textureSlots: Array.from({ length: WEBGPU_TEXTURE_SLOT_COUNT }, () => ({
 			map: null,
 			transformA: vec4,
 			transformB: vec4,
-		},
-		materialFlags: vec4,
-		pbrMasks: [0, 0, 0, 0],
-		textureSlots: [],
+		})),
 		shaderUniforms: {
 			cacheKey: "",
 			byteLength: 0,
@@ -139,7 +137,6 @@ function testBudgetedCacheRetainsModelBindingGroup() {
 		materialData,
 		[],
 		[],
-		fallbackAnisotropyTexture,
 		animation
 	);
 	assert.equal(backend.bindingGroupDestroyCalls, 0);
@@ -160,22 +157,32 @@ function testTextureRebindDestroysPreviousModelBindingGroup() {
 	const materialData = createMaterialData();
 	const animation = createAnimationState();
 	cache.beginFrame();
+	const firstTextures = Array.from(
+		{ length: WEBGPU_TEXTURE_SLOT_COUNT },
+		(_, index) => ({ id: `texture:${index}` })
+	);
+	const secondTextures = firstTextures.slice();
+	secondTextures[WEBGPU_TEXTURE_SLOT_COUNT - 1] = {
+		id: "texture:anisotropy:next",
+	};
+	const samplers = Array.from(
+		{ length: WEBGPU_TEXTURE_SLOT_COUNT },
+		(_, index) => ({ id: `sampler:${index}` })
+	);
 	const firstGroup = cache.getBinding(
 		packet,
 		{ id: "pipeline:a" },
 		materialData,
-		[{ id: "texture:a" }],
-		[{ id: "sampler:a" }],
-		fallbackAnisotropyTexture,
+		firstTextures,
+		samplers,
 		animation
 	);
 	const secondGroup = cache.getBinding(
 		packet,
 		{ id: "pipeline:a" },
 		materialData,
-		[{ id: "texture:b" }],
-		[{ id: "sampler:a" }],
-		fallbackAnisotropyTexture,
+		secondTextures,
+		samplers,
 		animation
 	);
 
@@ -196,7 +203,6 @@ function testPipelineChangeReusesModelBindingGroup() {
 		materialData,
 		[],
 		[],
-		fallbackAnisotropyTexture,
 		animation
 	);
 	const writeCount = backend.writeBufferCalls;
@@ -206,7 +212,6 @@ function testPipelineChangeReusesModelBindingGroup() {
 		materialData,
 		[],
 		[],
-		fallbackAnisotropyTexture,
 		animation
 	);
 
@@ -229,7 +234,6 @@ function testStaticMeshDoesNotWriteAnimationPayloads() {
 		materialData,
 		[],
 		[],
-		fallbackAnisotropyTexture,
 		animation
 	);
 	cache.getBinding(
@@ -238,7 +242,6 @@ function testStaticMeshDoesNotWriteAnimationPayloads() {
 		materialData,
 		[],
 		[],
-		fallbackAnisotropyTexture,
 		animation
 	);
 
@@ -264,7 +267,6 @@ function testMaskMutationUpdatesUniformWithoutRebinding() {
 		materialData,
 		[],
 		[],
-		fallbackAnisotropyTexture,
 		animation
 	);
 	const modelWrites = getWriteCountForLabel(backend, "ModelUniform_");
@@ -275,7 +277,6 @@ function testMaskMutationUpdatesUniformWithoutRebinding() {
 		materialData,
 		[],
 		[],
-		fallbackAnisotropyTexture,
 		animation
 	);
 
@@ -305,7 +306,6 @@ function testPayloadGenerationRebuildsBindingWithoutOwningPayloadBuffers() {
 		materialData,
 		[],
 		[],
-		fallbackAnisotropyTexture,
 		animation,
 		null,
 		null
@@ -319,7 +319,6 @@ function testPayloadGenerationRebuildsBindingWithoutOwningPayloadBuffers() {
 		materialData,
 		[],
 		[],
-		fallbackAnisotropyTexture,
 		animation,
 		null,
 		null

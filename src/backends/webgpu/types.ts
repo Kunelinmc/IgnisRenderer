@@ -310,7 +310,6 @@ export interface WebGPUMaterialUniformData {
 	sheenColorClearcoatNormalScale: [number, number, number, number];
 	attenuationColor: [number, number, number, number];
 	anisotropyParams: [number, number, number, number];
-	anisotropyTexture: WebGPUTextureSlotData;
 	materialFlags: [number, number, number, number];
 	pbrMasks: [number, number, number, number];
 	textureSlots: WebGPUTextureSlotData[];

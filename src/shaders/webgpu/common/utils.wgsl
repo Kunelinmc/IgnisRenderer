@@ -52,35 +52,6 @@ fn transformUV(
 	return uv + transformA.xy;
 }
 
-fn transformAnisotropyUV(
-	uv0: vec2<f32>,
-	uv1: vec2<f32>,
-	uv2: vec2<f32>,
-	uv3: vec2<f32>
-) -> vec2<f32> {
-	let transformA = model.anisotropyTextureTransformA;
-	let transformB = model.anisotropyTextureTransformB;
-	let uvSet = u32(clamp(floor(transformB.y + 0.5), 0.0, 3.0));
-	var uv = uv0;
-	if (uvSet == 1u) {
-		uv = uv1;
-	} else if (uvSet == 2u) {
-		uv = uv2;
-	} else if (uvSet >= 3u) {
-		uv = uv3;
-	}
-	uv = uv * transformA.zw;
-
-	let rotation = transformB.x;
-	if (abs(rotation) > EPSILON) {
-		let c = cos(rotation);
-		let s = sin(rotation);
-		uv = vec2<f32>(uv.x * c - uv.y * s, uv.x * s + uv.y * c);
-	}
-
-	return uv + transformA.xy;
-}
-
 fn sampleLinearTexture(
 	textureRef: texture_2d<f32>,
 	samplerRef: sampler,
@@ -175,10 +146,14 @@ fn resolveAnisotropyDirection(
 	var strength = clamp(model.anisotropyParams.x, 0.0, 1.0);
 	var direction = vec2<f32>(1.0, 0.0);
 	if (hasPBRTexture(PBR_TEXTURE_ANISOTROPY_MAP)) {
-		let texel = textureSample(
+		let texel = sampleLinearTexture(
 			anisotropyTexture,
 			transmissionSampler,
-			transformAnisotropyUV(uv0, uv1, uv2, uv3)
+			TEX_ANISOTROPY,
+			uv0,
+			uv1,
+			uv2,
+			uv3
 		);
 		direction = texel.rg * 2.0 - vec2<f32>(1.0);
 		let directionLen = length(direction);

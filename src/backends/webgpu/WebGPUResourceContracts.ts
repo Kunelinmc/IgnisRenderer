@@ -43,7 +43,6 @@ export interface WebGPUResolvedDrawInputs {
 	readonly materialData: WebGPUMaterialUniformData;
 	readonly textures: readonly IRenderTexture[];
 	readonly samplers: readonly ISampler[];
-	readonly anisotropyTexture: IRenderTexture;
 	readonly geometry: {
 		readonly vertexBindings: readonly WebGPUVertexBufferBinding[];
 		readonly indexBuffer: IRenderBuffer;

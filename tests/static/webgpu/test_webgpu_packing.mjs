@@ -60,8 +60,6 @@ function createModelLayout() {
 			{ name: "sheenColorClearcoatNormalScale", type: VEC4_F32 },
 			{ name: "attenuationColor", type: VEC4_F32 },
 			{ name: "anisotropyParams", type: VEC4_F32 },
-			{ name: "anisotropyTextureTransformA", type: VEC4_F32 },
-			{ name: "anisotropyTextureTransformB", type: VEC4_F32 },
 			{ name: "materialFlags", type: VEC4_F32 },
 			{ name: "pbrMasks", type: VEC4_U32 },
 			{ name: "nodeRenderLayers", type: VEC4_F32 },
@@ -115,6 +113,7 @@ function createMaterialData() {
 	const textureSlots = Array.from({ length: WEBGPU_TEXTURE_SLOT_COUNT }, () => null);
 	textureSlots[0] = createTextureSlot([101, 102, 103, 104], [201, 202, 203, 204]);
 	textureSlots[1] = createTextureSlot([105, 106, 107, 108], [205, 206, 207, 208]);
+	textureSlots[16] = createTextureSlot([49, 50, 51, 52], [53, 54, 55, 56]);
 
 	return {
 		baseColorFactor: [1, 2, 3, 4],
@@ -129,7 +128,6 @@ function createMaterialData() {
 		sheenColorClearcoatNormalScale: [37, 38, 39, 40],
 		attenuationColor: [41, 42, 43, 44],
 		anisotropyParams: [45, 46, 47, 48],
-		anisotropyTexture: createTextureSlot([49, 50, 51, 52], [53, 54, 55, 56]),
 		materialFlags: [57, 58, 59, 60],
 		pbrMasks: [61, 62, 0, 0],
 		textureSlots,
@@ -174,7 +172,7 @@ function testModelUniformPacking() {
 		0, 0, 0, 1,
 	]);
 	assert.deepEqual(readVec(layout, data, "baseColorFactor", 4), [1, 2, 3, 4]);
-	assert.deepEqual(readVec(layout, data, "anisotropyTextureTransformA", 4), [
+	assert.deepEqual(readVec(layout, data, ["textureTransformA", 16], 4), [
 		49, 50, 51, 52,
 	]);
 	assert.deepEqual(readU32Vec(layout, data, "pbrMasks", 4), [61, 62, 0, 0]);

@@ -115,8 +115,6 @@ struct ModelUniforms {
 	sheenColorClearcoatNormalScale: vec4<f32>,
 	attenuationColor: vec4<f32>,
 	anisotropyParams: vec4<f32>,
-	anisotropyTextureTransformA: vec4<f32>,
-	anisotropyTextureTransformB: vec4<f32>,
 	materialFlags: vec4<f32>,
 	pbrMasks: vec4<u32>,
 	nodeRenderLayers: vec4<f32>,
@@ -265,13 +263,13 @@ struct ParticleShadowVolumeBuffer {
 @group(1) @binding(27) var thicknessTexture: texture_2d<f32>;
 @group(1) @binding(29) var iridescenceTexture: texture_2d<f32>;
 @group(1) @binding(31) var iridescenceThicknessTexture: texture_2d<f32>;
-@group(1) @binding(30) var<uniform> animationParams: AnimationParams;
-@group(1) @binding(32) var<storage, read> jointMatrices: array<mat4x4<f32>>;
-@group(1) @binding(33) var<storage, read> morphWeights: array<f32>;
-@group(1) @binding(34) var<storage, read> morphPositionDeltas: array<f32>;
-@group(1) @binding(35) var<storage, read> morphNormalDeltas: array<f32>;
-@group(1) @binding(37) var anisotropyTexture: texture_2d<f32>;
-@group(1) @binding(38) var<storage, read> staticInstances: array<StaticInstance>;
+@group(1) @binding(33) var anisotropyTexture: texture_2d<f32>;
+@group(1) @binding(34) var<uniform> animationParams: AnimationParams;
+@group(1) @binding(35) var<storage, read> jointMatrices: array<mat4x4<f32>>;
+@group(1) @binding(36) var<storage, read> morphWeights: array<f32>;
+@group(1) @binding(37) var<storage, read> morphPositionDeltas: array<f32>;
+@group(1) @binding(38) var<storage, read> morphNormalDeltas: array<f32>;
+@group(1) @binding(40) var<storage, read> staticInstances: array<StaticInstance>;
 
 @group(2) @binding(0) var<uniform> clusterGrid: ClusterGridParams;
 @group(2) @binding(1) var<storage, read> clusterPositionRanges: ClusterVec4Buffer;

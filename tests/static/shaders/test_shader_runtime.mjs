@@ -904,7 +904,7 @@ fn fsMain() -> @location(0) vec4<f32> {
 	assert.ok(wgsl.code.includes("struct IgnisShaderUniforms"));
 	assert.ok(
 		wgsl.code.includes(
-			"@group(1) @binding(36) var<uniform> ignisShaderUniforms"
+			"@group(1) @binding(39) var<uniform> ignisShaderUniforms"
 		)
 	);
 	assert.ok(wgsl.code.includes("time: f32"));

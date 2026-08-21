@@ -16,6 +16,7 @@ const TEX_TRANSMISSION: u32 = 12u;
 const TEX_THICKNESS: u32 = 13u;
 const TEX_IRIDESCENCE: u32 = 14u;
 const TEX_IRIDESCENCE_THICKNESS: u32 = 15u;
+const TEX_ANISOTROPY: u32 = 16u;
 
 const SHADING_PBR: u32 = 1u;
 
@@ -74,12 +75,10 @@ struct DecalUniforms {
 	sheenColorClearcoatNormalScale: vec4<f32>,
 	attenuationColor: vec4<f32>,
 	anisotropyParams: vec4<f32>,
-	anisotropyTextureTransformA: vec4<f32>,
-	anisotropyTextureTransformB: vec4<f32>,
 	materialFlags: vec4<f32>,
 	pbrMasks: vec4<u32>,
-	textureTransformA: array<vec4<f32>, 16>,
-	textureTransformB: array<vec4<f32>, 16>,
+	textureTransformA: array<vec4<f32>, 17>,
+	textureTransformB: array<vec4<f32>, 17>,
 	channelModes: array<vec4<f32>, 5>,
 }
 
@@ -158,7 +157,7 @@ struct DecalEvaluation {
 @group(2) @binding(27) var thicknessTexture: texture_2d<f32>;
 @group(2) @binding(29) var iridescenceTexture: texture_2d<f32>;
 @group(2) @binding(31) var iridescenceThicknessTexture: texture_2d<f32>;
-@group(2) @binding(37) var anisotropyTexture: texture_2d<f32>;
+@group(2) @binding(33) var anisotropyTexture: texture_2d<f32>;
 
 @group(3) @binding(0) var<uniform> batch: DecalBatchParams;
 @group(3) @binding(1) var<storage, read> batchDecals: array<DecalUniforms>;
@@ -338,22 +337,6 @@ fn hasPBRFeatureFrom(d: DecalUniforms, feature: u32) -> bool {
 
 fn hasPBRTextureFrom(d: DecalUniforms, textureFeature: u32) -> bool {
 	return (d.pbrMasks.y & textureFeature) != 0u;
-}
-
-fn transformAnisotropyUV(uv: vec2<f32>) -> vec2<f32> {
-	let transformA = decal.anisotropyTextureTransformA;
-	let transformB = decal.anisotropyTextureTransformB;
-	var transformed = uv * transformA.zw;
-	let rotation = transformB.x;
-	if (abs(rotation) > EPSILON) {
-		let c = cos(rotation);
-		let s = sin(rotation);
-		transformed = vec2<f32>(
-			transformed.x * c - transformed.y * s,
-			transformed.x * s + transformed.y * c
-		);
-	}
-	return transformed + transformA.xy;
 }
 
 fn sampleLinearTexture(
@@ -726,7 +709,7 @@ fn fsMain(input: VSOut) -> GBufferOutput {
 		let anisotropySample = textureSample(
 			anisotropyTexture,
 			transmissionSampler,
-			transformAnisotropyUV(projectorUV)
+			transformUV(TEX_ANISOTROPY, projectorUV)
 		);
 		anisotropyDirection = anisotropySample.rg * 2.0 - vec2<f32>(1.0);
 		anisotropyStrength = clamp(anisotropyStrength * anisotropySample.b, 0.0, 1.0);
@@ -859,22 +842,6 @@ fn fsMain(input: VSOut) -> GBufferOutput {
 fn transformUVFrom(d: DecalUniforms, slotIndex: u32, uv: vec2<f32>) -> vec2<f32> {
 	let transformA = d.textureTransformA[slotIndex];
 	let transformB = d.textureTransformB[slotIndex];
-	var transformed = uv * transformA.zw;
-	let rotation = transformB.x;
-	if (abs(rotation) > EPSILON) {
-		let c = cos(rotation);
-		let s = sin(rotation);
-		transformed = vec2<f32>(
-			transformed.x * c - transformed.y * s,
-			transformed.x * s + transformed.y * c
-		);
-	}
-	return transformed + transformA.xy;
-}
-
-fn transformAnisotropyUVFrom(d: DecalUniforms, uv: vec2<f32>) -> vec2<f32> {
-	let transformA = d.anisotropyTextureTransformA;
-	let transformB = d.anisotropyTextureTransformB;
 	var transformed = uv * transformA.zw;
 	let rotation = transformB.x;
 	if (abs(rotation) > EPSILON) {
@@ -1279,7 +1246,7 @@ fn applyDecalToGBuffer(
 		let anisotropySample = textureSample(
 			anisotropyTexture,
 			transmissionSampler,
-			transformAnisotropyUVFrom(d, projectorUV)
+			transformUVFrom(d, TEX_ANISOTROPY, projectorUV)
 		);
 		anisotropyDirection = anisotropySample.rg * 2.0 - vec2<f32>(1.0);
 		anisotropyStrength = clamp(anisotropyStrength * anisotropySample.b, 0.0, 1.0);

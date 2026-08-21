@@ -323,8 +323,6 @@ export const WEBGPU_MODEL_UNIFORM_LAYOUT = new StructuredBufferLayout(
 		{ name: "sheenColorClearcoatNormalScale", type: VEC4_F32 },
 		{ name: "attenuationColor", type: VEC4_F32 },
 		{ name: "anisotropyParams", type: VEC4_F32 },
-		{ name: "anisotropyTextureTransformA", type: VEC4_F32 },
-		{ name: "anisotropyTextureTransformB", type: VEC4_F32 },
 		{ name: "materialFlags", type: VEC4_F32 },
 		{ name: "pbrMasks", type: VEC4_U32 },
 		{ name: "nodeRenderLayers", type: VEC4_F32 },

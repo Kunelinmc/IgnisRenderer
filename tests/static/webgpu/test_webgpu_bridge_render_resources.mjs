@@ -41,10 +41,10 @@ import {
 	WEBGPU_MODEL_BINDING_MORPH_NORMAL,
 	WEBGPU_MODEL_BINDING_MORPH_POSITION,
 	WEBGPU_MODEL_BINDING_MORPH_WEIGHTS,
-	WEBGPU_MODEL_BINDING_ANISOTROPY_TEXTURE,
 	WEBGPU_MODEL_BINDING_SHADER_UNIFORMS,
 	WEBGPU_MODEL_BINDING_STATIC_INSTANCES,
 	WEBGPU_TEXTURE_DEDICATED_SAMPLER_SLOT_COUNT,
+	WEBGPU_TEXTURE_SLOT,
 	WEBGPU_TEXTURE_SLOT_COUNT
 } from "../../../src/backends/webgpu/constants.ts";
 import {
@@ -270,7 +270,8 @@ async function testRenderResourcesUseCopyDstForUploads() {
 		firstDraw.resolvedInputs.samplers.length,
 		firstDraw.resolvedInputs.materialData.textureSlots.length
 	);
-	assert.ok(firstDraw.resolvedInputs.anisotropyTexture);
+	assert.equal("anisotropyTexture" in firstDraw.resolvedInputs, false);
+	assert.ok(firstDraw.resolvedInputs.textures[WEBGPU_TEXTURE_SLOT.ANISOTROPY]);
 	assert.equal(firstDraw.frameBinding.desc.entries.length, 17);
 	assert.ok(
 		firstDraw.frameBinding.desc.entries.some((entry) => entry.binding === 7)
@@ -290,7 +291,7 @@ async function testRenderResourcesUseCopyDstForUploads() {
 		1 +
 			WEBGPU_TEXTURE_SLOT_COUNT +
 			WEBGPU_TEXTURE_DEDICATED_SAMPLER_SLOT_COUNT +
-			8
+			7
 	);
 	assert.ok(
 		firstDraw.modelBinding.desc.entries.some(
@@ -299,7 +300,8 @@ async function testRenderResourcesUseCopyDstForUploads() {
 	);
 	assert.ok(
 		firstDraw.modelBinding.desc.entries.some(
-			(entry) => entry.binding === WEBGPU_MODEL_BINDING_ANISOTROPY_TEXTURE
+			(entry) =>
+				entry.binding === 1 + WEBGPU_TEXTURE_SLOT.ANISOTROPY * 2
 		)
 	);
 	assert.equal(
@@ -336,7 +338,7 @@ async function testRenderResourcesUseCopyDstForUploads() {
 		modelBindingIndices.includes(WEBGPU_MODEL_BINDING_MORPH_NORMAL)
 	);
 	assert.ok(
-		modelBindingIndices.includes(WEBGPU_MODEL_BINDING_ANISOTROPY_TEXTURE)
+		modelBindingIndices.includes(1 + WEBGPU_TEXTURE_SLOT.ANISOTROPY * 2)
 	);
 	assert.equal(
 		modelBindingIndices.includes(WEBGPU_MODEL_BINDING_STATIC_INSTANCES),

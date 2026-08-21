@@ -84,7 +84,9 @@ This document defines shader source ownership, composition, diagnostics, and cus
   preserve buffer offsets.
 - WebGPU shaders must access values through `ignisShaderUniforms.<wgslField>`.
 - WebGL shaders must access values through the resolved `webglUniform` name.
-- WebGPU must bind the custom uniform buffer at `@group(1) @binding(36)`.
+- WebGPU must bind the custom uniform buffer at `@group(1) @binding(39)`.
+- Custom WebGPU shader code that declares the material uniform buffer directly
+  must use binding `39`; binding `36` is reserved for morph weights.
 - Shader source injection must use `ignis/material/uniform-block`.
 - Schema changes must affect shader/program caches. Value-only changes must
   update backend uniform data without rebuilding shader modules or pipelines.

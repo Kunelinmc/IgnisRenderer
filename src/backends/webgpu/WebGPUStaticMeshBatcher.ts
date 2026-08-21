@@ -14,7 +14,6 @@ import {
 } from "../types";
 import {
 	WEBGPU_MODEL_BINDING_ANIMATION_PARAMS,
-	WEBGPU_MODEL_BINDING_ANISOTROPY_TEXTURE,
 	WEBGPU_MODEL_BINDING_JOINT_MATRICES,
 	WEBGPU_MODEL_BINDING_MORPH_NORMAL,
 	WEBGPU_MODEL_BINDING_MORPH_POSITION,
@@ -301,7 +300,6 @@ export class WebGPUStaticMeshBatcher {
 				binding: WEBGPU_MODEL_BINDING_SHADER_UNIFORMS,
 				resource: this._fallbackUniformBuffer,
 			},
-			{ binding: WEBGPU_MODEL_BINDING_ANISOTROPY_TEXTURE, resource: snapshot.anisotropyTexture },
 			{ binding: WEBGPU_MODEL_BINDING_STATIC_INSTANCES, resource: this._instanceBuffer },
 		);
 		const bindingGroup = this._backend.createBindingGroup({

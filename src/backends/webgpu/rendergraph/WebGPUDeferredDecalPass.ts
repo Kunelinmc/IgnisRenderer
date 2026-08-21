@@ -25,7 +25,6 @@ import {
 } from "../../types";
 import type { WebGPUFrameHost } from "./WebGPUFrameHost";
 import {
-	WEBGPU_MODEL_BINDING_ANISOTROPY_TEXTURE,
 	WEBGPU_TEXTURE_DEDICATED_SAMPLER_SLOT_COUNT,
 	WEBGPU_TEXTURE_SLOT_COUNT,
 } from "../constants";
@@ -62,7 +61,6 @@ interface DecalMaterialBindingCacheEntry {
 	group: IBindingGroup;
 	textures: IRenderTexture[];
 	samplers: ISampler[];
-	anisotropyTexture: IRenderTexture;
 }
 
 interface DecalBatchBufferSet {
@@ -115,14 +113,14 @@ const DECAL_UNIFORM_FLOATS =
 	16 +
 	16 +
 	4 +
-	16 * 4 +
+	14 * 4 +
 	WEBGPU_TEXTURE_SLOT_COUNT * 4 +
 	WEBGPU_TEXTURE_SLOT_COUNT * 4 +
 	5 * 4;
 const DECAL_UNIFORM_BYTES = DECAL_UNIFORM_FLOATS * 4;
 const DECAL_LAYER_MASK_SUPPORTED_BITS = 0x7ff;
 const DECAL_REQUIRED_FRAGMENT_SAMPLED_TEXTURES =
-	WEBGPU_TEXTURE_SLOT_COUNT + 1 + 11;
+	WEBGPU_TEXTURE_SLOT_COUNT + 11;
 const DECAL_REQUIRED_FRAGMENT_SAMPLERS =
 	WEBGPU_TEXTURE_DEDICATED_SAMPLER_SLOT_COUNT;
 const DECAL_BATCH_REQUIRED_STORAGE_TEXTURES = 11;
@@ -864,18 +862,13 @@ export class WebGPUDeferredDecalPass {
 		const samplers = materialData.textureSlots.map((slot) =>
 			this._resources.getSamplerForTexture(slot.map),
 		);
-		const anisotropyTexture = await this._resources.getTextureForSlotAsync(
-			materialData.anisotropyTexture.map,
-			-1,
-		);
 		const cached = this._materialBindingSlots[slot];
 		if (
 			cached &&
 			cached.material === material &&
 			cached.uniformBuffer === uniformBuffer &&
 			areTexturesEqual(cached.textures, textures) &&
-			areSamplersEqual(cached.samplers, samplers) &&
-			cached.anisotropyTexture === anisotropyTexture
+			areSamplersEqual(cached.samplers, samplers)
 		) {
 			return cached.group;
 		}
@@ -892,10 +885,6 @@ export class WebGPUDeferredDecalPass {
 				entries.push({ binding: 2 + i * 2, resource: samplers[i] });
 			}
 		}
-		entries.push({
-			binding: WEBGPU_MODEL_BINDING_ANISOTROPY_TEXTURE,
-			resource: anisotropyTexture,
-		});
 		const group = this._host.createBindingGroup({
 			layout: this._resources.getDecalBindGroupLayout(),
 			entries,
@@ -907,7 +896,6 @@ export class WebGPUDeferredDecalPass {
 			group,
 			textures,
 			samplers,
-			anisotropyTexture,
 		};
 		this._materialBindingSlots[slot] = entry;
 		return group;
@@ -1005,8 +993,6 @@ function createDecalUniformData(
 		materialData.sheenColorClearcoatNormalScale,
 		materialData.attenuationColor,
 		materialData.anisotropyParams,
-		materialData.anisotropyTexture.transformA,
-		materialData.anisotropyTexture.transformB,
 		materialData.materialFlags,
 	]) {
 		cursor = writeVec4(data, cursor, values);

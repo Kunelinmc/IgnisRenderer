@@ -135,22 +135,25 @@ The following pipeline layouts must preserve these bind group roles:
 | `26` | `transmissionSampler` | Filtering sampler |
 | `27` | `thicknessTexture` | `texture_2d<f32>` |
 | `29` | `iridescenceTexture` | `texture_2d<f32>` |
-| `30` | `animationParams` | `AnimationParams` uniform buffer |
 | `31` | `iridescenceThicknessTexture` | `texture_2d<f32>` |
-| `32` | `jointMatrices` | Read-only storage buffer |
-| `33` | `morphWeights` | Read-only storage buffer |
-| `34` | `morphPositionDeltas` | Read-only storage buffer |
-| `35` | `morphNormalDeltas` | Read-only storage buffer |
-| `36` | `shaderUniforms` | Optional material shader uniform buffer |
-| `37` | `anisotropyTexture` | `texture_2d<f32>` |
+| `33` | `anisotropyTexture` | `texture_2d<f32>` |
+| `34` | `animationParams` | `AnimationParams` uniform buffer |
+| `35` | `jointMatrices` | Read-only storage buffer |
+| `36` | `morphWeights` | Read-only storage buffer |
+| `37` | `morphPositionDeltas` | Read-only storage buffer |
+| `38` | `morphNormalDeltas` | Read-only storage buffer |
+| `39` | `shaderUniforms` | Optional material shader uniform buffer |
+| `40` | `staticInstances` | Read-only storage buffer |
 
 Material texture slots are defined by `WEBGPU_TEXTURE_SLOT`. Texture bindings
 are `1 + slot * 2`. Dedicated sampler bindings are `2 + slot * 2` only for
 slots `0..12`. `thicknessTexture`, `iridescenceTexture`,
 `iridescenceThicknessTexture`, and `anisotropyTexture` do not have dedicated
 sampler bindings; shader code samples them with `transmissionSampler`.
-`anisotropyTexture` uses binding `37` and is not a
-`WEBGPU_TEXTURE_SLOT` entry.
+`anisotropyTexture` is `WEBGPU_TEXTURE_SLOT.ANISOTROPY` at slot `16` and uses
+binding `33`. Auxiliary model resources start at binding `34`, immediately
+after the material texture range. Custom shader uniform declarations that used
+binding `36` must migrate to binding `39`.
 
 ### `clusteredSceneBindGroupLayout` - `group(2)`
 

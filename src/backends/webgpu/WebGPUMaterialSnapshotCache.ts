@@ -14,7 +14,6 @@ export interface WebGPUResolvedMaterialSnapshot {
 	readonly data: WebGPUMaterialUniformData;
 	readonly textures: IRenderTexture[];
 	readonly samplers: ISampler[];
-	readonly anisotropyTexture: IRenderTexture;
 }
 
 interface CachedMaterialSnapshot {
@@ -100,10 +99,6 @@ export class WebGPUMaterialSnapshotCache {
 		const samplers = data.textureSlots.map((slot) =>
 			this._textures.getSamplerForTexture(slot.map),
 		);
-		const anisotropyTexture = await this._textures.getTextureForSlotAsync(
-			data.anisotropyTexture.map,
-			-1,
-		);
-		return { revision, data, textures, samplers, anisotropyTexture };
+		return { revision, data, textures, samplers };
 	}
 }

@@ -472,14 +472,6 @@ const MODEL_UNIFORM_PACKER = createStructuredBufferPacker<
 		),
 		packVec4("attenuationColor", (input) => input.materialData.attenuationColor),
 		packVec4("anisotropyParams", (input) => input.materialData.anisotropyParams),
-		packVec4(
-			"anisotropyTextureTransformA",
-			(input) => input.materialData.anisotropyTexture.transformA
-		),
-		packVec4(
-			"anisotropyTextureTransformB",
-			(input) => input.materialData.anisotropyTexture.transformB
-		),
 		packVec4("materialFlags", (input) => input.materialData.materialFlags),
 		packVec4("pbrMasks", (input) => input.materialData.pbrMasks),
 		packVec4("nodeRenderLayers", (input) => [

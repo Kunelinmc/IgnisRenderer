@@ -4,6 +4,7 @@ import { Matrix4 } from "../../../src/maths/Matrix4.ts";
 import { PBRMaterial } from "../../../src/materials/PBRMaterial.ts";
 import { createWebGPUMaterialUniformData } from "../../../src/backends/webgpu/material.ts";
 import { WebGPUStaticMeshBatcher } from "../../../src/backends/webgpu/WebGPUStaticMeshBatcher.ts";
+import { WEBGPU_TEXTURE_SLOT_COUNT } from "../../../src/backends/webgpu/constants.ts";
 
 const writes = [];
 const backend = {
@@ -74,9 +75,14 @@ const materialData = createWebGPUMaterialUniformData(material, false);
 const snapshot = {
 	revision: material.revision,
 	data: materialData,
-	textures: Array.from({ length: 16 }, (_, index) => ({ id: `texture:${index}` })),
-	samplers: Array.from({ length: 16 }, (_, index) => ({ id: `sampler:${index}` })),
-	anisotropyTexture: { id: "anisotropy" },
+	textures: Array.from(
+		{ length: WEBGPU_TEXTURE_SLOT_COUNT },
+		(_, index) => ({ id: `texture:${index}` })
+	),
+	samplers: Array.from(
+		{ length: WEBGPU_TEXTURE_SLOT_COUNT },
+		(_, index) => ({ id: `sampler:${index}` })
+	),
 };
 const geometry = {
 	indexBuffer: { id: "index" },

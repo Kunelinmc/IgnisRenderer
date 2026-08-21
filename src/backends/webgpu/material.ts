@@ -102,12 +102,6 @@ export function createWebGPUMaterialUniformData(
 	const phongShininess = Math.max(mat.shininess ?? 32, 0);
 	const emissiveIntensity = clamp(mat.emissiveIntensity ?? 1, 0, 64);
 	const textureSlots = createMaterialTextureSlots(material);
-	const anisotropyTexture = createTextureSlot(
-		mat.anisotropyMap ?? null,
-		mat.anisotropyMapUV ?? 0,
-		true
-	);
-	anisotropyTexture.transformB[3] = mat.anisotropyMap ? 1 : 0;
 	const pbrMasks: [number, number, number, number] =
 		material instanceof PBRMaterial ?
 			[material.featureMask, material.textureMask, 0, 0]
@@ -176,7 +170,6 @@ export function createWebGPUMaterialUniformData(
 			Math.sin(anisotropyRotation),
 			clamp(material.reflectivity ?? 0, 0, 1),
 		],
-		anisotropyTexture,
 		materialFlags: [
 			shadingMode,
 			alphaModeMask,
@@ -358,6 +351,13 @@ function createMaterialTextureSlots(
 		mat.iridescenceThicknessMapUV ?? 0,
 		true
 	);
+	slots[WEBGPU_TEXTURE_SLOT.ANISOTROPY] = createTextureSlot(
+		mat.anisotropyMap ?? null,
+		mat.anisotropyMapUV ?? 0,
+		true
+	);
+	slots[WEBGPU_TEXTURE_SLOT.ANISOTROPY].transformB[3] =
+		mat.anisotropyMap ? 1 : 0;
 
 	if (material instanceof ShaderMaterial) {
 		const textureBindings = material.getTextureBindings();

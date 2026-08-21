@@ -1062,7 +1062,6 @@ export class WebGPUFrameServiceOwner {
 		}
 		const solidTextures = solidSnapshot.textures;
 		const solidSamplers = solidSnapshot.samplers;
-		const solidAnisotropyTexture = solidSnapshot.anisotropyTexture;
 		const staticDraw = this._staticBatcher.getDrawState(
 			packet,
 			solidPipeline,
@@ -1077,7 +1076,6 @@ export class WebGPUFrameServiceOwner {
 				solidMaterialData,
 				solidTextures,
 				solidSamplers,
-				solidAnisotropyTexture,
 				animationPayload,
 				geometry.morphPositionBuffer,
 				geometry.morphNormalBuffer,
@@ -1098,7 +1096,6 @@ export class WebGPUFrameServiceOwner {
 				materialData: solidMaterialData,
 				textures: solidTextures,
 				samplers: solidSamplers,
-				anisotropyTexture: solidAnisotropyTexture,
 				geometry,
 			},
 		});
@@ -1128,14 +1125,12 @@ export class WebGPUFrameServiceOwner {
 			);
 			const wireTextures = wireSnapshot.textures;
 			const wireSamplers = wireSnapshot.samplers;
-			const wireAnisotropyTexture = wireSnapshot.anisotropyTexture;
 			const wireModelBinding = this._materialBindings.getBinding(
 				packet,
 				wirePipeline,
 				wireMaterialData,
 				wireTextures,
 				wireSamplers,
-				wireAnisotropyTexture,
 				animationPayload,
 				wireGeometry.morphPositionBuffer,
 				wireGeometry.morphNormalBuffer,
@@ -1154,7 +1149,6 @@ export class WebGPUFrameServiceOwner {
 					materialData: wireMaterialData,
 					textures: wireTextures,
 					samplers: wireSamplers,
-					anisotropyTexture: wireAnisotropyTexture,
 					geometry: wireGeometry,
 				},
 			});
