@@ -171,15 +171,15 @@ async function testHeightSourceControlsUniformAndInvalidation() {
 
 async function testSobelShaderSupportsChannelHeightSources() {
 	ShaderSource.clearCache();
-	const shader = await ShaderSource.load("webgpu.postprocess.sobelNormal.raw");
+	const shader = await ShaderSource.load("webgpu.postprocess.sobelNormal");
 
-	assert.match(shader, /heightSource: f32/);
-	assert.match(shader, /return color\.r;/);
-	assert.match(shader, /return color\.g;/);
-	assert.match(shader, /return color\.b;/);
-	assert.match(shader, /return color\.a;/);
+	assert.match(shader.source.code, /heightSource: f32/);
+	assert.match(shader.source.code, /return color\.r;/);
+	assert.match(shader.source.code, /return color\.g;/);
+	assert.match(shader.source.code, /return color\.b;/);
+	assert.match(shader.source.code, /return color\.a;/);
 	assert.match(
-		shader,
+		shader.source.code,
 		/dot\(color\.rgb, vec3<f32>\(0\.2126, 0\.7152, 0\.0722\)\)/
 	);
 }

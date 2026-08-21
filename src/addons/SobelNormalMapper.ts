@@ -205,7 +205,8 @@ export class SobelNormalMapper {
 
 		const runtime: IComputeRuntime = new ComputeRuntime(computeFacade);
 
-		const code = await ShaderSource.load("webgpu.postprocess.sobelNormal.raw");
+		const code = (await ShaderSource.load("webgpu.postprocess.sobelNormal"))
+			.source.code;
 		let kernel: IComputeKernel;
 		try {
 			kernel = await runtime.createKernel({

@@ -712,8 +712,8 @@ function testClusterHeaderFlagPack() {
 
 async function testClusteredCullShaderUsesActiveCountAndTiling() {
 	const shader = (await ShaderSource.load(
-		"webgpu.clusteredLightingCull.composite"
-	)).code;
+		"webgpu.clusteredLightingCull"
+	)).source.code;
 	assert.ok(shader.includes("lightCount: u32"));
 	assert.ok(shader.includes("maxLightsPerCluster: u32"));
 	assert.ok(shader.includes("const CLUSTER_LIGHT_TYPE_AREA: u32 = 2u;"));
@@ -742,8 +742,8 @@ async function testClusteredCullShaderUsesActiveCountAndTiling() {
 
 async function testClusteredShadingUsesActiveLightCountGuards() {
 	const deferred = (await ShaderSource.load(
-		"webgpu.deferredLighting.composite"
-	)).code;
+		"webgpu.deferredLighting"
+	)).source.code;
 	assert.ok(deferred.includes("fn activeClusteredLightCount() -> u32"));
 	assert.ok(
 		deferred.includes(
@@ -762,13 +762,13 @@ async function testClusteredShadingUsesActiveLightCountGuards() {
 
 	for (const part of ["fragmentPbrPoint", "fragmentPhong"]) {
 		const source = (
-			await ShaderSource.load(`webgpu.scene.part.${part}.composite`)
-		).code;
+			await ShaderSource.load(`webgpu.scene.part.${part}`)
+		).source.code;
 		assert.ok(source.includes("let clusterLightCount = activeClusteredLightCount();"));
 	}
 	const pointPart = (
-		await ShaderSource.load("webgpu.scene.part.fragmentPbrPoint.composite")
-	).code;
+		await ShaderSource.load("webgpu.scene.part.fragmentPbrPoint")
+	).source.code;
 	assert.equal(countOccurrences(pointPart, "getClusterHeaderForFragment("), 1);
 	assert.equal(
 		countOccurrences(pointPart, "clusterIndices.indices[clusterHeader.offset"),
@@ -778,16 +778,16 @@ async function testClusteredShadingUsesActiveLightCountGuards() {
 	assert.ok(pointPart.includes("clusterRef.lightType == CLUSTER_LIGHT_TYPE_AREA"));
 	assert.ok(pointPart.includes("clusterRef.lightType == CLUSTER_LIGHT_TYPE_SPOT"));
 	const spotPart = (
-		await ShaderSource.load("webgpu.scene.part.fragmentPbrSpot.composite")
-	).code;
+		await ShaderSource.load("webgpu.scene.part.fragmentPbrSpot")
+	).source.code;
 	assert.ok(spotPart.includes("if (!isClusteredLightingEnabled())"));
 	assert.ok(!spotPart.includes("getClusterHeaderForFragment"));
 	const areaPart = (
-		await ShaderSource.load("webgpu.scene.part.fragmentPbrArea.composite")
-	).code;
+		await ShaderSource.load("webgpu.scene.part.fragmentPbrArea")
+	).source.code;
 	assert.ok(areaPart.includes("if (!isClusteredLightingEnabled())"));
 	assert.ok(!areaPart.includes("getClusterHeaderForFragment"));
-	const scene = (await ShaderSource.load("webgpu.scene.composite")).code;
+	const scene = (await ShaderSource.load("webgpu.scene")).source.code;
 	assert.equal(countOccurrences(scene, "getClusterHeaderForFragment("), 3);
 	assert.equal(countOccurrences(scene, "clusterIndices.indices[clusterHeader.offset"), 2);
 }
