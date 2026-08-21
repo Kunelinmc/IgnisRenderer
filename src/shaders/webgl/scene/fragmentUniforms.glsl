@@ -177,6 +177,14 @@ uniform vec4 uLocalLightProbeDataB[MAX_LOCAL_LIGHT_PROBES];
 uniform sampler2D uLocalLightProbeCoeffs;
 uniform vec2 uLocalLightProbeCoeffsSize;
 __WEBGL_IRRADIANCE_PROBE_GRID_UNIFORMS__
+uniform int uIrradianceProbeGridEnabled;
+uniform vec4 uIrradianceProbeGridWorldToGridRow0;
+uniform vec4 uIrradianceProbeGridWorldToGridRow1;
+uniform vec4 uIrradianceProbeGridWorldToGridRow2;
+uniform vec4 uIrradianceProbeGridDataA;
+uniform vec4 uIrradianceProbeGridDataB;
+uniform sampler2D uIrradianceProbeGridCoeffs;
+uniform vec2 uIrradianceProbeGridCoeffsSize;
 __WEBGL_SCENE_REFLECTION_PROBE_UNIFORMS__
 uniform int uReflectionProbeCount;
 uniform vec4 uReflectionProbeWorldToProbeRow0[MAX_REFLECTION_PROBES];
@@ -206,6 +214,8 @@ __WEBGL_SCENE_SHADOW_UNIFORMS__
 uniform int uEnableShadows;
 uniform sampler2D uShadowAtlas;
 __WEBGL_SHADOW_TRANSMITTANCE_UNIFORMS__
+uniform sampler2D uShadowTransmittanceAtlas;
+uniform int uShadowTransmittanceAtlasAvailable;
 uniform sampler2D uParticleShadowVolumeAtlas;
 uniform vec2 uParticleShadowVolumeAtlasSize;
 uniform vec4 uParticleShadowVolumeGridSize;
@@ -241,3 +251,4 @@ layout(location = 2) out vec4 fragNormal;
 layout(location = 3) out vec4 fragAlbedo;
 layout(location = 4) out vec4 fragSpecular;
 #endif
+__WEBGL_SCENE_TEMPLATE_END__

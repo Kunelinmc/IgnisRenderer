@@ -75,6 +75,12 @@ scene, material, post-process, and backend services own their pipeline and
 binding integration. TypeScript orchestration references shader assets instead
 of embedding long source strings.
 
+Each GPU backend declares its built-in assets, source products,
+specialization rules, and directive-profile inputs in one pure-data shader
+manifest. `ShaderSource` interprets those manifests and owns source loading and
+caching. Backend services derive specialization parameters but must not rewrite
+built-in shader text directly.
+
 Directive profiles follow the same ownership boundary. Backend-applicable
 feature packs provide prepared static modules and injection scripts, while each
 backend instance contributes a capability-resolved overlay. The generic shader

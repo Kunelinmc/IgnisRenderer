@@ -1,5 +1,6 @@
 #version 300 es
 precision highp float;
+__IGNIS_WEBGL_DEPTH_DEFINES__
 
 in vec2 vUv;
 in vec2 vUv1;

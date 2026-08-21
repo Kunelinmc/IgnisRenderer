@@ -4,9 +4,10 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
 	ShaderSource,
-	WEBGL_SHADER_PARTS,
 } from "../../../src/shaders/ShaderSource.ts";
+import { WEBGL_SHADER_MANIFEST } from "../../../src/shaders/webgl/sources.ts";
 import { embeddedShaderSources } from "../../../src/shaders/generated/embeddedShaderSources.ts";
+import { validateShaderBackendManifest } from "../../../src/shaders/shaderManifest.ts";
 import {
 	ShaderBackendCompileStage,
 	ShaderRuntime,
@@ -41,40 +42,40 @@ const WEBGL_SCENE_LIMITS = {
 async function testLoadsRawAndCompositeParts() {
 	ShaderSource.clearCache();
 
-	const wgslRaw = await ShaderSource.load("webgpu.scene.part.lightData.raw");
-	const wgslComposite = await ShaderSource.load(
-		"webgpu.scene.part.lightData.composite"
-	);
-	const shadowRaw = await ShaderSource.load("webgpu.shadow.depth.raw");
-	const shadowComposite = await ShaderSource.load(
-		"webgpu.shadow.depth.composite"
-	);
-	const planarReflectionComposite = await ShaderSource.load(
-		"webgpu.utility.planarReflectionComposite.composite"
-	);
-	const pagedShadowCompute = await ShaderSource.load(
-		"webgpu.shadow.pagedShadowRequestMark.composite"
-	);
-	const pagedShadowDrawBuild = await ShaderSource.load(
-		"webgpu.shadow.pagedShadowDrawBuild.composite"
-	);
-	const pagedShadowFeedback = await ShaderSource.load(
-		"webgpu.shadow.pagedShadowFeedback.composite"
-	);
-	const pagedShadowPageTableCopy = await ShaderSource.load(
-		"webgpu.shadow.pagedShadowPageTableCopy.composite"
-	);
-	const glslRaw = await ShaderSource.load("webgl.part.sceneVertex.raw");
-	const glslComposite = await ShaderSource.load(
-		"webgl.part.sceneVertex.composite"
-	);
+	const wgslRaw = (await ShaderSource.load("webgpu.scene.part.lightData")).source;
+	const wgslComposite = (await ShaderSource.load(
+		"webgpu.scene.part.lightData"
+	)).source;
+	const shadowRaw = (await ShaderSource.load("webgpu.shadow.depth")).source;
+	const shadowComposite = (await ShaderSource.load(
+		"webgpu.shadow.depth"
+	)).source;
+	const planarReflectionComposite = (await ShaderSource.load(
+		"webgpu.utility.planarReflectionComposite"
+	)).source;
+	const pagedShadowCompute = (await ShaderSource.load(
+		"webgpu.shadow.pagedShadowRequestMark"
+	)).source;
+	const pagedShadowDrawBuild = (await ShaderSource.load(
+		"webgpu.shadow.pagedShadowDrawBuild"
+	)).source;
+	const pagedShadowFeedback = (await ShaderSource.load(
+		"webgpu.shadow.pagedShadowFeedback"
+	)).source;
+	const pagedShadowPageTableCopy = (await ShaderSource.load(
+		"webgpu.shadow.pagedShadowPageTableCopy"
+	)).source;
+	const glslRaw = (await ShaderSource.load("webgl.part.sceneVertex")).source;
+	const glslComposite = (await ShaderSource.load(
+		"webgl.part.sceneVertex"
+	)).source;
 
-	assert.ok(wgslRaw.includes("struct DirectionalLightData"));
+	assert.ok(wgslRaw.code.includes("struct DirectionalLightData"));
 	assert.ok(wgslComposite.code.includes("struct DirectionalLightData"));
-	assert.ok(shadowRaw.includes("fn vsMain"));
-	assert.ok(shadowRaw.includes("fn fsDepthClip"));
-	assert.ok(shadowRaw.includes("discardOutsideAtlasPage(input);"));
-	assert.ok(shadowRaw.includes("pixel.x >= input.atlasClipRect.z"));
+	assert.ok(shadowRaw.code.includes("fn vsMain"));
+	assert.ok(shadowRaw.code.includes("fn fsDepthClip"));
+	assert.ok(shadowRaw.code.includes("discardOutsideAtlasPage(input);"));
+	assert.ok(shadowRaw.code.includes("pixel.x >= input.atlasClipRect.z"));
 	assert.ok(shadowComposite.code.includes("fn fsTransmittance"));
 	assert.ok(
 		planarReflectionComposite.code.includes(
@@ -87,7 +88,7 @@ async function testLoadsRawAndCompositeParts() {
 	assert.ok(pagedShadowDrawBuild.code.includes("PagedShadowDrawParams"));
 	assert.ok(pagedShadowFeedback.code.includes("texture_depth_2d"));
 	assert.ok(pagedShadowPageTableCopy.code.includes("texture_storage_2d<r32uint"));
-	assert.ok(glslRaw.includes("layout(location = 0) in vec3 aPosition;"));
+	assert.ok(glslRaw.code.includes("layout(location = 0) in vec3 aPosition;"));
 	assert.ok(glslComposite.code.includes("layout(location = 0) in vec3 aPosition;"));
 	assert.equal(
 		wgslComposite.sourceMap.segments[0].sourcePath,
@@ -107,12 +108,12 @@ async function testConcurrentLoadsShareResultCache() {
 	ShaderSource.clearCache();
 
 	const [first, second] = await Promise.all([
-		ShaderSource.load("webgpu.utility.present.composite"),
-		ShaderSource.load("webgpu.utility.present.composite"),
+		ShaderSource.load("webgpu.utility.present"),
+		ShaderSource.load("webgpu.utility.present"),
 	]);
 	const stats = ShaderSource.getCacheStats();
 
-	assert.equal(first.code, second.code);
+	assert.equal(first.source.code, second.source.code);
 	assert.ok(stats.results.misses >= 1);
 	assert.ok(stats.results.hits >= 1);
 }
@@ -121,18 +122,18 @@ async function testGetRequiresPrepare() {
 	ShaderSource.clearCache();
 
 	assert.throws(
-		() => ShaderSource.get("webgpu.utility.present.raw"),
-		/ShaderSource "webgpu\.utility\.present\.raw" is not prepared/
+		() => ShaderSource.get("webgpu.utility.present"),
+		/Shader source "webgpu\.utility\.present" is not prepared/
 	);
-	await ShaderSource.prepare("webgpu.utility.present.raw");
-	const prepared = ShaderSource.get("webgpu.utility.present.raw");
+	await ShaderSource.prepare("webgpu.utility.present");
+	const prepared = ShaderSource.get("webgpu.utility.present");
 
-	assert.ok(prepared.includes("fn"));
+	assert.ok(prepared.source.code.includes("fn"));
 }
 
 async function testWebGLSceneVariants() {
 	ShaderSource.clearCache();
-	assert.ok(!WEBGL_SHADER_PARTS.includes("sceneFragment"));
+	assert.ok(!WEBGL_SHADER_MANIFEST.sources["webgl.part.sceneFragment"]);
 	const withoutShadowTransmittance = {
 		...WEBGL_FULL_SCENE_VARIANT,
 		scene: {
@@ -141,99 +142,90 @@ async function testWebGLSceneVariants() {
 		},
 	};
 	await ShaderSource.prepareMany([
-		...WEBGL_SHADER_PARTS.flatMap((part) => [
-			{ key: `webgl.part.${part}.raw` },
-			{ key: `webgl.part.${part}.composite` },
-		]),
+		...WEBGL_SHADER_MANIFEST.preloadGroups.backendInit.map((key) => ({ key })),
 		{
-			key: "webgl.scene.raw",
+			key: "webgl.scene",
 			params: {
-				limits: WEBGL_SCENE_LIMITS,
-				variant: withoutShadowTransmittance,
+				specialization: withoutShadowTransmittance,
 			},
 		},
 		{
-			key: "webgl.scene.raw",
+			key: "webgl.scene",
 			params: {
-				limits: WEBGL_SCENE_LIMITS,
-				variant: WEBGL_FULL_SCENE_VARIANT,
+				specialization: WEBGL_FULL_SCENE_VARIANT,
 			},
 		},
 		{
-			key: "webgl.scene.composite",
+			key: "webgl.scene",
 			params: {
-				limits: WEBGL_SCENE_LIMITS,
-				variant: withoutShadowTransmittance,
+				specialization: withoutShadowTransmittance,
 			},
 		},
 	]);
 
-	const raw = ShaderSource.get("webgl.scene.raw", {
-		limits: WEBGL_SCENE_LIMITS,
-		variant: withoutShadowTransmittance,
+	const raw = ShaderSource.get("webgl.scene", {
+		specialization: withoutShadowTransmittance,
 	});
-	const withShadowTransmittance = ShaderSource.get("webgl.scene.raw", {
-		limits: WEBGL_SCENE_LIMITS,
-		variant: WEBGL_FULL_SCENE_VARIANT,
+	const withShadowTransmittance = ShaderSource.get("webgl.scene", {
+		specialization: WEBGL_FULL_SCENE_VARIANT,
 	});
-	const composite = ShaderSource.get("webgl.scene.composite", {
-		limits: WEBGL_SCENE_LIMITS,
-		variant: withoutShadowTransmittance,
+	const composite = ShaderSource.get("webgl.scene", {
+		specialization: withoutShadowTransmittance,
 	});
 
-	assert.ok(raw.vertex.includes("layout(location = 0) in vec3 aPosition;"));
-	assert.ok(raw.vertex.includes("#import <ignis/webgl/animation>"));
-	assert.ok(raw.vertex.includes("#define IGNIS_WEBGL_SKIN_INFLUENCES 8"));
-	assert.ok(raw.fragment.includes("#import <ignis/webgl/constants>"));
+	assert.ok(raw.stages.vertex.code.includes("layout(location = 0) in vec3 aPosition;"));
+	assert.ok(raw.stages.vertex.code.includes("#import <ignis/webgl/animation>"));
+	assert.ok(raw.stages.vertex.code.includes("#define IGNIS_WEBGL_SKIN_INFLUENCES 8"));
+	assert.ok(raw.stages.fragment.code.includes("#import <ignis/webgl/constants>"));
 	assert.ok(
-		raw.fragment.includes(
+		raw.stages.fragment.code.includes(
 			"const int MAX_DIRECTIONAL_LIGHTS = __WEBGL_MAX_DIRECTIONAL_LIGHTS__;"
 		)
 	);
 	assert.ok(
-		raw.fragment.includes(
+		raw.stages.fragment.code.includes(
 			"const int MAX_POINT_LIGHTS = __WEBGL_MAX_POINT_LIGHTS__;"
 		)
 	);
 	assert.ok(
-		raw.fragment.includes(
+		raw.stages.fragment.code.includes(
 			"const int MAX_SPOT_LIGHTS = __WEBGL_MAX_SPOT_LIGHTS__;"
 		)
 	);
 	assert.ok(
-		raw.fragment.includes(
+		raw.stages.fragment.code.includes(
 			"const int MAX_LOCAL_LIGHT_PROBES = __WEBGL_MAX_LOCAL_LIGHT_PROBES__;"
 		)
 	);
 	assert.ok(
-		raw.fragment.includes(
+		raw.stages.fragment.code.includes(
 			"const int MAX_REFLECTION_PROBES = __WEBGL_MAX_REFLECTION_PROBES__;"
 		)
 	);
-	assert.ok(!raw.fragment.includes("__MAX_DIRECTIONAL_LIGHTS__"));
+	assert.ok(!raw.stages.fragment.code.includes("__MAX_DIRECTIONAL_LIGHTS__"));
 	assert.ok(
-		raw.fragment.includes("vec3 calculateIrradianceFromSH(vec3 normal)")
+		raw.stages.fragment.code.includes("vec3 calculateIrradianceFromSH(vec3 normal)")
 	);
 	assert.ok(
-		raw.fragment.includes("vec4 sampleBlendedLocalLightProbeIrradiance(")
+		raw.stages.fragment.code.includes("vec4 sampleBlendedLocalLightProbeIrradiance(")
 	);
-	assert.ok(!raw.fragment.includes("WEBGL_SHADOW_TRANSMITTANCE 1"));
+	assert.ok(!raw.stages.fragment.code.includes("WEBGL_SHADOW_TRANSMITTANCE 1"));
 	assert.ok(
-		withShadowTransmittance.fragment.includes(
+		withShadowTransmittance.stages.fragment.code.includes(
 			"#define WEBGL_SHADOW_TRANSMITTANCE 1"
 		)
 	);
 	assert.ok(
-		withShadowTransmittance.fragment.includes(
+		withShadowTransmittance.stages.fragment.code.includes(
 			"uniform sampler2D uShadowTransmittanceAtlas;"
 		)
 	);
 	assert.equal(
-		composite.fragment.sourceMap.segments[0].sourcePath,
+		composite.stages.fragment.sourceMap.segments[0].sourcePath,
 		"./webgl/scene/fragmentPrelude.glsl"
 	);
 	assert.ok(
-		composite.fragment.sourceMap.segments.some(
+		composite.stages.fragment.sourceMap.segments.some(
 			(segment) =>
 				segment.sourcePath === "./webgl/scene/fragmentMainOutput.glsl"
 		)
@@ -245,13 +237,13 @@ async function testWebGLSceneVariants() {
 		mode: "strict",
 	});
 	const compiled = compileStage.compile({
-		code: raw.fragment,
+		code: raw.stages.fragment.code,
 		language: "glsl",
 		stage: "fragment",
 		entryPoint: "main",
 		label: "WebGLSceneFragment",
 		sourceKind: "builtin-scene",
-		sourceMap: composite.fragment.sourceMap,
+		sourceMap: composite.stages.fragment.sourceMap,
 	});
 	assert.equal(compiled.hasErrors, false);
 	assert.ok(
@@ -314,29 +306,27 @@ async function testWebGLScenePrunedVariant() {
 		},
 	};
 	await ShaderSource.prepareMany([
-		{ key: "webgl.scene.raw", params: { limits: WEBGL_SCENE_LIMITS, variant } },
+		{ key: "webgl.scene", params: { specialization: variant } },
 		{
-			key: "webgl.scene.composite",
-			params: { limits: WEBGL_SCENE_LIMITS, variant },
+			key: "webgl.scene",
+			params: { specialization: variant },
 		},
 	]);
-	const raw = ShaderSource.get("webgl.scene.raw", {
-		limits: WEBGL_SCENE_LIMITS,
-		variant,
+	const raw = ShaderSource.get("webgl.scene", {
+		specialization: variant,
 	});
-	const composite = ShaderSource.get("webgl.scene.composite", {
-		limits: WEBGL_SCENE_LIMITS,
-		variant,
+	const composite = ShaderSource.get("webgl.scene", {
+		specialization: variant,
 	});
 
-	assert.ok(!raw.fragment.includes("uniform sampler2D uShadowAtlas;"));
-	assert.ok(!raw.fragment.includes("uniform int uEnableClusteredLighting;"));
-	assert.ok(!raw.fragment.includes("uniform int uEnableSH;"));
-	assert.ok(!raw.fragment.includes("uniform sampler2D uNormalMap;"));
-	assert.ok(!raw.fragment.includes("vec3 shadePBR("));
-	assert.ok(!raw.fragment.includes("vec3 shadePhong("));
+	assert.ok(!raw.stages.fragment.code.includes("uniform sampler2D uShadowAtlas;"));
+	assert.ok(!raw.stages.fragment.code.includes("uniform int uEnableClusteredLighting;"));
+	assert.ok(!raw.stages.fragment.code.includes("uniform int uEnableSH;"));
+	assert.ok(!raw.stages.fragment.code.includes("uniform sampler2D uNormalMap;"));
+	assert.ok(!raw.stages.fragment.code.includes("vec3 shadePBR("));
+	assert.ok(!raw.stages.fragment.code.includes("vec3 shadePhong("));
 	assert.ok(
-		composite.fragment.sourceMap.segments.some(
+		composite.stages.fragment.sourceMap.segments.some(
 			(segment) =>
 				segment.sourcePath === "./webgl/scene/fragmentUniforms.glsl"
 		)
@@ -348,13 +338,13 @@ async function testWebGLScenePrunedVariant() {
 		mode: "strict",
 	});
 	const compiled = compileStage.compile({
-		code: raw.fragment,
+		code: raw.stages.fragment.code,
 		language: "glsl",
 		stage: "fragment",
 		entryPoint: "main",
 		label: "WebGLSceneFragmentPruned",
 		sourceKind: "builtin-scene",
-		sourceMap: composite.fragment.sourceMap,
+		sourceMap: composite.stages.fragment.sourceMap,
 	});
 	assert.equal(compiled.hasErrors, false);
 	assert.ok(!compiled.code.includes("WEBGL_MATERIAL_MODEL_FULL"));
@@ -405,9 +395,8 @@ async function testWebGLLegacySceneVariantIncludesSpecularUniform() {
 			alphaMask: false,
 		},
 	};
-	const raw = await ShaderSource.load("webgl.scene.raw", {
-		limits: WEBGL_SCENE_LIMITS,
-		variant,
+	const raw = await ShaderSource.load("webgl.scene", {
+		specialization: variant,
 	});
 	const compileStage = new ShaderBackendCompileStage({
 		runtime: new ShaderRuntime({ mode: "strict" }),
@@ -415,7 +404,7 @@ async function testWebGLLegacySceneVariantIncludesSpecularUniform() {
 		mode: "strict",
 	});
 	const compiled = compileStage.compile({
-		code: raw.fragment,
+		code: raw.stages.fragment.code,
 		language: "glsl",
 		stage: "fragment",
 		entryPoint: "main",
@@ -423,10 +412,10 @@ async function testWebGLLegacySceneVariantIncludesSpecularUniform() {
 		sourceKind: "builtin-scene",
 	});
 
-	assert.ok(raw.fragment.includes("uniform vec4 uSpecular;"));
-	assert.ok(raw.fragment.includes("vec3 shadePhong("));
-	assert.ok(raw.fragment.includes("uSpecular.rgb"));
-	assert.ok(!raw.fragment.includes("uniform vec4 uPBR;"));
+	assert.ok(raw.stages.fragment.code.includes("uniform vec4 uSpecular;"));
+	assert.ok(raw.stages.fragment.code.includes("vec3 shadePhong("));
+	assert.ok(raw.stages.fragment.code.includes("uSpecular.rgb"));
+	assert.ok(!raw.stages.fragment.code.includes("uniform vec4 uPBR;"));
 	assert.equal(compiled.hasErrors, false);
 	assert.ok(compiled.code.includes("uniform vec4 uSpecular;"));
 	assert.ok(compiled.code.includes("vec3 shadowNormal = normal;"));
@@ -438,8 +427,8 @@ async function testWebGLLegacySceneVariantIncludesSpecularUniform() {
 async function testWebGPUCompositeIncludesSharedParts() {
 	ShaderSource.clearCache();
 
-	const ssr = await ShaderSource.load("webgpu.postprocess.ssr.composite");
-	const deferred = await ShaderSource.load("webgpu.deferredLighting.composite");
+	const ssr = (await ShaderSource.load("webgpu.postprocess.ssr")).source;
+	const deferred = (await ShaderSource.load("webgpu.deferredLighting")).source;
 
 	assert.ok(ssr.code.includes("struct DirectionalLightData"));
 	assert.ok(ssr.code.includes("struct TraceParams"));
@@ -450,9 +439,9 @@ async function testWebGPUCompositeIncludesSharedParts() {
 async function testSrgbDirectiveSupportsBuiltInConsumers() {
 	ShaderSource.clearCache();
 	const [webgpuIbl, webgpuDecal, webglIbl] = await Promise.all([
-		ShaderSource.load("webgpu.iblPrefilter.raw"),
-		ShaderSource.load("webgpu.utility.decal.composite"),
-		ShaderSource.load("webgl.part.iblPrefilterFragment.raw"),
+		ShaderSource.load("webgpu.iblPrefilter"),
+		ShaderSource.load("webgpu.utility.decal"),
+		ShaderSource.load("webgl.part.iblPrefilterFragment"),
 	]);
 	const webgpuCompileStage = new ShaderBackendCompileStage({
 		runtime: new ShaderRuntime({ mode: "strict" }),
@@ -465,7 +454,7 @@ async function testSrgbDirectiveSupportsBuiltInConsumers() {
 		mode: "strict",
 	});
 	const compiledWebgpuIbl = webgpuCompileStage.compile({
-		code: webgpuIbl,
+		code: webgpuIbl.source.code,
 		language: "wgsl",
 		stage: "compute",
 		entryPoint: "csMain",
@@ -473,16 +462,16 @@ async function testSrgbDirectiveSupportsBuiltInConsumers() {
 		sourceKind: "builtin-environment",
 	});
 	const compiledWebgpuDecal = webgpuCompileStage.compile({
-		code: webgpuDecal.code,
+		code: webgpuDecal.source.code,
 		language: "wgsl",
 		stage: "unknown",
 		entryPoint: "fsMain",
 		label: "WebGPUDecal",
 		sourceKind: "builtin-scene",
-		sourceMap: webgpuDecal.sourceMap,
+		sourceMap: webgpuDecal.source.sourceMap,
 	});
 	const compiledWebglIbl = webglCompileStage.compile({
-		code: webglIbl,
+		code: webglIbl.source.code,
 		language: "glsl",
 		stage: "fragment",
 		entryPoint: "main",
@@ -512,9 +501,9 @@ async function testSrgbDirectiveSupportsBuiltInConsumers() {
 async function testWebGPUSharedNumericalConstants() {
 	ShaderSource.clearCache();
 	const [constants, particleSimulation, ssao] = await Promise.all([
-		ShaderSource.load("webgpu.directive.constants.raw"),
-		ShaderSource.load("webgpu.particleSimulation.raw"),
-		ShaderSource.load("webgpu.postprocess.ssao.raw"),
+		ShaderSource.load("webgpu.directive.constants"),
+		ShaderSource.load("webgpu.particleSimulation"),
+		ShaderSource.load("webgpu.postprocess.ssao"),
 	]);
 	const compileStage = new ShaderBackendCompileStage({
 		runtime: new ShaderRuntime({ mode: "strict" }),
@@ -522,7 +511,7 @@ async function testWebGPUSharedNumericalConstants() {
 		mode: "strict",
 	});
 	const compiledParticleSimulation = compileStage.compile({
-		code: particleSimulation,
+		code: particleSimulation.source.code,
 		language: "wgsl",
 		stage: "compute",
 		entryPoint: "simulateMain",
@@ -530,7 +519,7 @@ async function testWebGPUSharedNumericalConstants() {
 		sourceKind: "unknown",
 	});
 	const compiledSsao = compileStage.compile({
-		code: ssao,
+		code: ssao.source.code,
 		language: "wgsl",
 		stage: "compute",
 		entryPoint: "csRaw",
@@ -538,15 +527,15 @@ async function testWebGPUSharedNumericalConstants() {
 		sourceKind: "postprocess",
 	});
 
-	assert.ok(constants.includes("const PI_SQUARED: f32 = 9.86960440109;"));
-	assert.ok(constants.includes("const GOLDEN_RATIO_CONJUGATE: f32 = 0.61803398875;"));
+	assert.ok(constants.source.code.includes("const PI_SQUARED: f32 = 9.86960440109;"));
+	assert.ok(constants.source.code.includes("const GOLDEN_RATIO_CONJUGATE: f32 = 0.61803398875;"));
 	assert.ok(
-		constants.includes("const STEFAN_BOLTZMANN_CONSTANT: f32 = 5.670374419e-8;")
+		constants.source.code.includes("const STEFAN_BOLTZMANN_CONSTANT: f32 = 5.670374419e-8;")
 	);
-	assert.ok(particleSimulation.includes("#import <ignis/webgpu/constants>"));
-	assert.ok(particleSimulation.includes("nextRandom(seed) * TWO_PI"));
-	assert.ok(!particleSimulation.includes("6.28318530718"));
-	assert.ok(!ssao.includes("const GOLDEN_RATIO_CONJUGATE"));
+	assert.ok(particleSimulation.source.code.includes("#import <ignis/webgpu/constants>"));
+	assert.ok(particleSimulation.source.code.includes("nextRandom(seed) * TWO_PI"));
+	assert.ok(!particleSimulation.source.code.includes("6.28318530718"));
+	assert.ok(!ssao.source.code.includes("const GOLDEN_RATIO_CONJUGATE"));
 	assert.equal(compiledParticleSimulation.hasErrors, false);
 	assert.equal(compiledSsao.hasErrors, false);
 }
@@ -554,58 +543,58 @@ async function testWebGPUSharedNumericalConstants() {
 async function testPagedShadowDrawBuildUsesConservativePlaneCulling() {
 	ShaderSource.clearCache();
 
-	const source = await ShaderSource.load(
-		"webgpu.shadow.pagedShadowDrawBuild.raw"
-	);
+	const source = (await ShaderSource.load(
+		"webgpu.shadow.pagedShadowDrawBuild"
+	)).source;
 
-	assert.ok(source.includes("var outsideNear = true;"));
-	assert.ok(source.includes("var outsideFar = true;"));
-	assert.ok(source.includes("atomicAdd(&counters[3], intersectingPageCount)"));
-	assert.ok(source.includes("atomicAdd(&counters[4]"));
-	assert.ok(!source.includes("candidateIndex * params.physicalPageCount"));
-	assert.ok(!source.includes("let ndc = clip.xyz / vec3<f32>(clip.w);"));
-	assert.ok(source.includes("let matrixIndex = dirtyPhysicalPages[dirtyBase + 2u];"));
-	assert.ok(source.includes("arrayLength(&drawInstanceMeta)"));
-	assert.ok(source.includes("array<CascadeUVRange, 4>"));
-	assert.ok(source.includes("@group(0) @binding(11) var<storage, read> dirtyGridOffsets"));
-	assert.ok(source.includes("@group(0) @binding(12) var<storage, read> dirtyGridIndices"));
-	assert.ok(source.includes("@group(0) @binding(13) var<storage, read> dirtyPageUvRanges"));
-	assert.ok(source.includes("var<workgroup> g_cachedDirtyPages"));
-	assert.ok(source.includes("workgroupUniformLoad(&g_cachedCellCount)"));
-	assert.ok(source.includes("rangeIntersectsCoarseCell"));
-	assert.ok(source.includes("CachedDirtyPage("));
-	assert.ok(source.includes("dirtyPageUvRanges[dirtyIndex]"));
-	assert.ok(!source.includes("fn dirtyPageUvRange"));
-	assert.ok(!source.includes("PAGE_CLIP_XY_MARGIN / atlasSize"));
-	assert.ok(!source.includes("(px - 1.5) / gridSize"));
+	assert.ok(source.code.includes("var outsideNear = true;"));
+	assert.ok(source.code.includes("var outsideFar = true;"));
+	assert.ok(source.code.includes("atomicAdd(&counters[3], intersectingPageCount)"));
+	assert.ok(source.code.includes("atomicAdd(&counters[4]"));
+	assert.ok(!source.code.includes("candidateIndex * params.physicalPageCount"));
+	assert.ok(!source.code.includes("let ndc = clip.xyz / vec3<f32>(clip.w);"));
+	assert.ok(source.code.includes("let matrixIndex = dirtyPhysicalPages[dirtyBase + 2u];"));
+	assert.ok(source.code.includes("arrayLength(&drawInstanceMeta)"));
+	assert.ok(source.code.includes("array<CascadeUVRange, 4>"));
+	assert.ok(source.code.includes("@group(0) @binding(11) var<storage, read> dirtyGridOffsets"));
+	assert.ok(source.code.includes("@group(0) @binding(12) var<storage, read> dirtyGridIndices"));
+	assert.ok(source.code.includes("@group(0) @binding(13) var<storage, read> dirtyPageUvRanges"));
+	assert.ok(source.code.includes("var<workgroup> g_cachedDirtyPages"));
+	assert.ok(source.code.includes("workgroupUniformLoad(&g_cachedCellCount)"));
+	assert.ok(source.code.includes("rangeIntersectsCoarseCell"));
+	assert.ok(source.code.includes("CachedDirtyPage("));
+	assert.ok(source.code.includes("dirtyPageUvRanges[dirtyIndex]"));
+	assert.ok(!source.code.includes("fn dirtyPageUvRange"));
+	assert.ok(!source.code.includes("PAGE_CLIP_XY_MARGIN / atlasSize"));
+	assert.ok(!source.code.includes("(px - 1.5) / gridSize"));
 }
 
 async function testPagedShadowDirtyGridBuildUsesGlobalGridBuffers() {
 	ShaderSource.clearCache();
 
-	const source = await ShaderSource.load(
-		"webgpu.shadow.pagedShadowDirtyGridBuild.raw"
-	);
+	const source = (await ShaderSource.load(
+		"webgpu.shadow.pagedShadowDirtyGridBuild"
+	)).source;
 
-	assert.ok(source.includes("var<storage, read_write> dirtyGridCounts"));
-	assert.ok(source.includes("var<storage, read_write> dirtyGridOffsets"));
-	assert.ok(source.includes("var<storage, read_write> dirtyGridIndices"));
-	assert.ok(source.includes("var<storage, read_write> dirtyPageUvRanges"));
-	assert.ok(source.includes("var<storage, read_write> clearDrawIndirectArgs"));
-	assert.ok(source.includes("const PAGE_CLIP_XY_MARGIN: f32 = 4.0;"));
-	assert.ok(source.includes("fn dirtyPageUvRange"));
-	assert.ok(source.includes("PAGE_CLIP_XY_MARGIN / atlasSize"));
-	assert.ok(source.includes("clearDrawIndirectArgs[0] = 6u"));
-	assert.ok(source.includes("clearDrawIndirectArgs[1] = dirtyCount"));
-	assert.ok(source.includes("dirtyPageUvRanges[i] = dirtyPageUvRange(dirtyBase)"));
-	assert.ok(source.includes("dirtyGridOffsets[DIRTY_GRID_CELL_COUNT] = sum"));
-	assert.ok(source.includes("dirtyGridIndices[insertIndex] = i"));
+	assert.ok(source.code.includes("var<storage, read_write> dirtyGridCounts"));
+	assert.ok(source.code.includes("var<storage, read_write> dirtyGridOffsets"));
+	assert.ok(source.code.includes("var<storage, read_write> dirtyGridIndices"));
+	assert.ok(source.code.includes("var<storage, read_write> dirtyPageUvRanges"));
+	assert.ok(source.code.includes("var<storage, read_write> clearDrawIndirectArgs"));
+	assert.ok(source.code.includes("const PAGE_CLIP_XY_MARGIN: f32 = 4.0;"));
+	assert.ok(source.code.includes("fn dirtyPageUvRange"));
+	assert.ok(source.code.includes("PAGE_CLIP_XY_MARGIN / atlasSize"));
+	assert.ok(source.code.includes("clearDrawIndirectArgs[0] = 6u"));
+	assert.ok(source.code.includes("clearDrawIndirectArgs[1] = dirtyCount"));
+	assert.ok(source.code.includes("dirtyPageUvRanges[i] = dirtyPageUvRange(dirtyBase)"));
+	assert.ok(source.code.includes("dirtyGridOffsets[DIRTY_GRID_CELL_COUNT] = sum"));
+	assert.ok(source.code.includes("dirtyGridIndices[insertIndex] = i"));
 }
 
 async function testPagedShadowClearLayoutMatchesShaderBindings() {
 	ShaderSource.clearCache();
 
-	const source = await ShaderSource.load("webgpu.shadow.pagedShadowClear.raw");
+	const source = (await ShaderSource.load("webgpu.shadow.pagedShadowClear")).source;
 	const shadowPass = await readFile(
 		path.join(
 			REPO_ROOT,
@@ -625,13 +614,13 @@ async function testPagedShadowClearLayoutMatchesShaderBindings() {
 	);
 	const layoutSource = shadowPass.slice(layoutStart, layoutEnd);
 
-	assert.ok(source.includes("@group(0) @binding(0) var<uniform> params"));
+	assert.ok(source.code.includes("@group(0) @binding(0) var<uniform> params"));
 	assert.ok(
-		source.includes(
+		source.code.includes(
 			"@group(0) @binding(1) var<storage, read> dirtyPhysicalPages"
 		)
 	);
-	assert.ok(!source.includes("@group(0) @binding(2)"));
+	assert.ok(!source.code.includes("@group(0) @binding(2)"));
 	assert.ok(layoutSource.includes("binding: 0"));
 	assert.ok(layoutSource.includes("binding: 1"));
 	assert.ok(!layoutSource.includes("binding: 2"));
@@ -640,35 +629,35 @@ async function testPagedShadowClearLayoutMatchesShaderBindings() {
 async function testPagedShadowRequestCompactUsesLayoutAddresses() {
 	ShaderSource.clearCache();
 
-	const source = await ShaderSource.load(
-		"webgpu.shadow.pagedShadowRequestCompact.raw"
-	);
+	const source = (await ShaderSource.load(
+		"webgpu.shadow.pagedShadowRequestCompact"
+	)).source;
 
-	assert.ok(source.includes("struct PagedShadowPageAddress"));
-	assert.ok(source.includes("@group(0) @binding(4) var<storage, read> pageAddresses"));
-	assert.ok(source.includes("let address = pageAddresses[tableIndex]"));
-	assert.ok(source.includes("compactedRequests[base + 1u] = address.matrixIndex"));
-	assert.ok(!source.includes("fn resolvePageTableAddress"));
-	assert.ok(!source.includes("tableIndex / (gridSize * gridSize)"));
+	assert.ok(source.code.includes("struct PagedShadowPageAddress"));
+	assert.ok(source.code.includes("@group(0) @binding(4) var<storage, read> pageAddresses"));
+	assert.ok(source.code.includes("let address = pageAddresses[tableIndex]"));
+	assert.ok(source.code.includes("compactedRequests[base + 1u] = address.matrixIndex"));
+	assert.ok(!source.code.includes("fn resolvePageTableAddress"));
+	assert.ok(!source.code.includes("tableIndex / (gridSize * gridSize)"));
 }
 
 async function testPagedShadowSamplingUsesGlobalPageTableStride() {
 	ShaderSource.clearCache();
-	const source = await ShaderSource.load("webgpu.scene.part.utils.raw");
+	const source = (await ShaderSource.load("webgpu.scene.part.utils")).source;
 
-	assert.ok(source.includes("textureDimensions(pagedShadowPageTable).x"));
-	assert.ok(source.includes("let pageTableIndex ="));
-	assert.ok(source.includes("pageTableIndex % pageTableWidth"));
-	assert.ok(source.includes("pageTableIndex / pageTableWidth"));
-	assert.ok(!source.includes("let pageTableBaseY ="));
+	assert.ok(source.code.includes("textureDimensions(pagedShadowPageTable).x"));
+	assert.ok(source.code.includes("let pageTableIndex ="));
+	assert.ok(source.code.includes("pageTableIndex % pageTableWidth"));
+	assert.ok(source.code.includes("pageTableIndex / pageTableWidth"));
+	assert.ok(!source.code.includes("let pageTableBaseY ="));
 }
 
 function testCompositeResultsAreCloned() {
 	ShaderSource.clearCache();
-	return ShaderSource.load("webgpu.utility.present.composite").then((first) => {
-		first.sourceMap.segments[0].sourcePath = "mutated";
-		return ShaderSource.load("webgpu.utility.present.composite").then((second) => {
-			assert.notEqual(second.sourceMap.segments[0].sourcePath, "mutated");
+	return ShaderSource.load("webgpu.utility.present").then((first) => {
+		first.source.sourceMap.segments[0].sourcePath = "mutated";
+		return ShaderSource.load("webgpu.utility.present").then((second) => {
+			assert.notEqual(second.source.sourceMap.segments[0].sourcePath, "mutated");
 		});
 	});
 }
@@ -676,12 +665,12 @@ function testCompositeResultsAreCloned() {
 function testSyncLoadPopulatesPreparedCache() {
 	ShaderSource.clearCache();
 
-	assert.equal(ShaderSource.has("webgpu.utility.mipmapBlit.raw"), false);
-	const source = ShaderSource.getSync("webgpu.utility.mipmapBlit.raw");
+	assert.equal(ShaderSource.has("webgpu.utility.mipmapBlit"), false);
+	const source = ShaderSource.getSync("webgpu.utility.mipmapBlit");
 
-	assert.ok(source.includes("fn vsMain"));
-	assert.equal(ShaderSource.has("webgpu.utility.mipmapBlit.raw"), true);
-	assert.equal(ShaderSource.get("webgpu.utility.mipmapBlit.raw"), source);
+	assert.ok(source.source.code.includes("fn vsMain"));
+	assert.equal(ShaderSource.has("webgpu.utility.mipmapBlit"), true);
+	assert.equal(ShaderSource.get("webgpu.utility.mipmapBlit").source.code, source.source.code);
 }
 
 async function testCustomAsyncLoaderOverridesBuiltInSource() {
@@ -694,8 +683,8 @@ async function testCustomAsyncLoaderOverridesBuiltInSource() {
 	});
 
 	try {
-		const source = await ShaderSource.load("webgpu.scene.part.lightData.raw");
-		assert.equal(source, "struct DirectionalLightData { value: f32, };");
+		const source = (await ShaderSource.load("webgpu.scene.part.lightData")).source;
+		assert.equal(source.code, "struct DirectionalLightData { value: f32, };");
 	} finally {
 		ShaderSource.resetConfiguration();
 	}
@@ -709,8 +698,8 @@ async function testCustomLoaderFailureFallsBackToBuiltIns() {
 	});
 
 	try {
-		const source = await ShaderSource.load("webgpu.utility.present.raw");
-		assert.ok(source.includes("fn"));
+		const source = (await ShaderSource.load("webgpu.utility.present")).source;
+		assert.ok(source.code.includes("fn"));
 	} finally {
 		ShaderSource.resetConfiguration();
 	}
@@ -726,8 +715,8 @@ function testCustomSyncLoaderOverridesBuiltInSource() {
 	});
 
 	try {
-		const source = ShaderSource.getSync("webgpu.utility.mipmapBlit.raw");
-		assert.equal(source, "@compute @workgroup_size(1) fn csMain() {}");
+		const source = ShaderSource.getSync("webgpu.utility.mipmapBlit");
+		assert.equal(source.source.code, "@compute @workgroup_size(1) fn csMain() {}");
 	} finally {
 		ShaderSource.resetConfiguration();
 	}
@@ -741,7 +730,7 @@ function testMissingCustomSyncLoaderReportsClearError() {
 
 	try {
 		assert.throws(
-			() => ShaderSource.getSync("webgpu.utility.mipmapBlit.raw"),
+			() => ShaderSource.getSync("webgpu.utility.mipmapBlit"),
 			/requires a syncLoader/
 		);
 	} finally {
@@ -768,6 +757,91 @@ function testClearCacheDoesNotTouchShaderRuntime() {
 
 	assert.equal(before.size, after.size);
 	assert.equal(before.hits, after.hits);
+}
+
+async function testWebGLDepthAndShadowArtifacts() {
+	const depthSpecialization = {
+		alphaMask: true,
+		baseMap: true,
+		skinProfile: "skin8",
+		morphPosition: true,
+	};
+	const shadowSpecialization = {
+		skinProfile: "skin4",
+		morphPosition: true,
+	};
+	const [depth, shadow] = await Promise.all([
+		ShaderSource.load("webgl.scene.depth", {
+			specialization: depthSpecialization,
+		}),
+		ShaderSource.load("webgl.shadow.depth", {
+			specialization: shadowSpecialization,
+		}),
+	]);
+	assert.equal(depth.kind, "program");
+	assert.match(depth.stages.vertex.code, /IGNIS_WEBGL_SKIN_INFLUENCES 8/);
+	assert.match(depth.stages.fragment.code, /WEBGL_DEPTH_ALPHA_MASK 1/);
+	assert.match(shadow.stages.vertex.code, /IGNIS_WEBGL_SKIN_INFLUENCES 4/);
+	assert.doesNotMatch(shadow.stages.vertex.code, /__IGNIS_WEBGL_ANIMATION_DEFINES__/);
+	assert.notEqual(depth.identity, shadow.identity);
+}
+
+function testShaderManifestValidation() {
+	const profile = {
+		baseId: "test-base",
+		assetPackId: "test-assets",
+		assetPackRevision: 1,
+		includes: [],
+		featurePacks: [],
+		overlay: {
+			id: "test-overlay",
+			includeId: "test/constants",
+			sourcePath: "runtime://test/constants",
+			parameters: { type: "record", fields: {} },
+			defines: {},
+		},
+	};
+	const base = {
+		backend: "webgpu",
+		language: "wgsl",
+		assets: { main: { path: "./webgpu/test.wgsl" } },
+		profile,
+	};
+	assert.throws(
+		() => validateShaderBackendManifest({
+			...base,
+			sources: {
+				broken: { kind: "module", sourceKind: "unknown", source: { asset: "missing" } },
+			},
+		}),
+		/unknown asset "missing"/,
+	);
+	assert.throws(
+		() => validateShaderBackendManifest({
+			...base,
+			sources: {
+				a: { kind: "module", sourceKind: "unknown", source: { source: "b" } },
+				b: { kind: "module", sourceKind: "unknown", source: { source: "a" } },
+			},
+		}),
+		/composition cycle/,
+	);
+	assert.throws(
+		() => validateShaderBackendManifest({
+			...base,
+			sources: {
+				broken: {
+					kind: "module",
+					sourceKind: "unknown",
+					source: {
+						when: { unsupported: true },
+						then: { asset: "main" },
+					},
+				},
+			},
+		}),
+		/Unsupported shader manifest expression/,
+	);
 }
 
 async function collectShaderFiles(relativeRoot, extension) {
@@ -837,6 +911,8 @@ async function run() {
 	testCustomSyncLoaderOverridesBuiltInSource();
 	testMissingCustomSyncLoaderReportsClearError();
 	testClearCacheDoesNotTouchShaderRuntime();
+	await testWebGLDepthAndShadowArtifacts();
+	testShaderManifestValidation();
 	await testEmbeddedManifestMatchesShaderFiles();
 	console.log("ShaderSource tests passed");
 }

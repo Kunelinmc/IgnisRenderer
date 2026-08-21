@@ -6,9 +6,12 @@ This document defines shader source ownership, composition, diagnostics, and cus
 
 ### Shader source
 
-- `ShaderSource.load(key, params)` must return the source identified by `key`.
-  Raw keys return `string`, composite keys return `CompositeShaderSource`, and
-  WebGL scene keys return `{ vertex, fragment }`.
+- `ShaderSource.load(key, params)` must return the source artifact identified by
+  the canonical, suffix-free `key`.
+- A module artifact must expose one `CompositeShaderSource` as `source`. A
+  program artifact must expose its composite sources through `stages`.
+- Every artifact must expose `kind`, `key`, stable `identity`, `language`, and
+  `sourceKind` metadata.
 - `ShaderSource.prepare(key, params)` must load and cache the requested source
   without returning it.
 - `ShaderSource.prepareMany(requests)` must prepare every requested source and
@@ -24,19 +27,18 @@ This document defines shader source ownership, composition, diagnostics, and cus
   prepared source caches for `scope`. `scope` may be `all`, `webgpu`, or `webgl`.
 - `ShaderSource.getCacheStats()` must report cache hit, miss, and size counters
   for raw files, file composites, assembled results, and prepared results.
-- `webgl.scene.raw` and `webgl.scene.composite` must receive
-  `params.limits` with `maxDirectionalLights`, `maxPointLights`, and
-  `maxSpotLights`.
-- `webgl.scene.raw` and `webgl.scene.composite` may receive an internal
-  `params.variant` descriptor. Renderer and material public APIs must not
+- `webgl.scene` may receive an internal `params.specialization` descriptor.
+  Renderer and material public APIs must not
   expose this descriptor; WebGL frame execution derives it from current
   frame, light, target, and built-in material state.
+- Light and device limits must be owned by the backend directive profile and
+  must not participate in shader source artifact identity.
 - Optional WebGL scene shader blocks must be selected solely by the normalized
   scene variant. Device texture-unit limits must be validated by the resulting
   exact sampler layout rather than by shader-source capability flags.
-- WebGL scene fragment source must be assembled from the internal GLSL parts
-  listed by `WEBGL_SCENE_FRAGMENT_SHADER_FILES`.
-  `webgl.scene.composite.fragment.sourceMap.segments` may contain one segment
+- WebGL scene fragment source must be assembled from the internal GLSL assets
+  declared by the WebGL shader manifest.
+  `webgl.scene` fragment source-map segments may contain one segment
   per internal part plus generated define or fallback segments.
 - WebGL scene sources must leave light-count placeholders in source text using
   `__WEBGL_MAX_DIRECTIONAL_LIGHTS__`, `__WEBGL_MAX_POINT_LIGHTS__`, and
@@ -65,6 +67,13 @@ This document defines shader source ownership, composition, diagnostics, and cus
   kernel's sigma, must remain owned by their effect.
 - Composite results returned from `ShaderSource` must be cloned so callers cannot
   mutate cached source maps.
+- Built-in WebGL and WebGPU shader assets, source composition, specialization,
+  preload groups, and directive-profile inputs must be declared by backend
+  pure-data manifests interpreted by the shared shader manifest runtime.
+- Built-in backend code must not perform ad hoc shader-text replacement.
+- Manifest source expressions are closed to the built-in `asset`, `concat`,
+  `when`, `defines`, and `template` nodes. Manifests must not contain callbacks
+  or register custom operations.
 
 ### Directive profiles
 
@@ -130,31 +139,16 @@ This document defines shader source ownership, composition, diagnostics, and cus
 ```ts
 import { ShaderSource } from "./shaders/ShaderSource";
 
-const scene = await ShaderSource.load("webgpu.scene.composite");
-const ssr = await ShaderSource.load("webgpu.postprocess.ssr.raw");
+const scene = await ShaderSource.load("webgpu.scene");
+const ssr = await ShaderSource.load("webgpu.postprocess.ssr");
 
-await ShaderSource.prepare("webgl.scene.raw", {
-	limits: {
-		maxDirectionalLights: 4,
-		maxPointLights: 16,
-		maxSpotLights: 8,
-	},
+await ShaderSource.prepare("webgl.scene", {
+	specialization: undefined,
 });
-const webglScene = ShaderSource.get("webgl.scene.raw", {
-	limits: {
-		maxDirectionalLights: 4,
-		maxPointLights: 16,
-		maxSpotLights: 8,
-	},
-});
+const webglScene = ShaderSource.get("webgl.scene");
 
-await ShaderSource.prepare("webgl.scene.composite", {
-	limits: {
-		maxDirectionalLights: 4,
-		maxPointLights: 16,
-		maxSpotLights: 8,
-	},
-	variant: {
+await ShaderSource.prepare("webgl.scene", {
+	specialization: {
 		output: "single",
 		oit: false,
 		scene: {
@@ -185,13 +179,13 @@ await ShaderSource.prepare("webgl.scene.composite", {
 	},
 });
 
-const mipmapBlit = ShaderSource.getSync("webgpu.utility.mipmapBlit.raw");
+const mipmapBlit = ShaderSource.getSync("webgpu.utility.mipmapBlit");
 
 console.log(
-	scene.sourceMap.lineCount,
-	ssr.length,
-	webglScene.fragment.length,
-	mipmapBlit.length
+	scene.source.sourceMap.lineCount,
+	ssr.source.code.length,
+	webglScene.stages.fragment?.code.length,
+	mipmapBlit.source.code.length
 );
 ```
 
@@ -247,8 +241,7 @@ bun tests/static/webgl/test_webgl_backend_scene_shadow_contracts.mjs
 
 - `ShaderSource.get()` must throw when the requested key and params have not
   been prepared.
-- WebGL scene keys must throw when `params.limits` is missing.
-- WebGL scene keys must normalize missing `params.variant` to the full
+- WebGL scene keys must normalize missing `params.specialization` to the full
   compatibility variant.
 - Browser loading must throw when a shader path is not bundled by the
   centralized `import.meta.glob` registry.
