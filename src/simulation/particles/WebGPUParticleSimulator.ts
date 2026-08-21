@@ -421,7 +421,8 @@ export class WebGPUParticleSimulator implements IParticleSimulator {
 		}
 
 		this._kernelPromise = (async () => {
-			const code = await ShaderSource.load("webgpu.particleSimulation.raw");
+			const code = (await ShaderSource.load("webgpu.particleSimulation"))
+				.source.code;
 			let reset: IComputeKernel | null = null;
 			let spawn: IComputeKernel | null = null;
 			try {

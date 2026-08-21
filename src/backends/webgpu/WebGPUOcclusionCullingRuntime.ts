@@ -229,11 +229,11 @@ export class WebGPUOcclusionCullingRuntime {
 
 	private async _ensureOcclusionResources(): Promise<void> {
 		if (!this._occlusionModule) {
-			const shader = await ShaderSource.load("webgpu.utility.occlusionCulling.composite");
+			const shader = await ShaderSource.load("webgpu.utility.occlusionCulling");
 			this._occlusionModule = await this._backend.createShaderModule({
 				label: "WebGPUOcclusionCullingShader",
-				code: shader.code,
-				sourceMap: shader.sourceMap,
+				code: shader.source.code,
+				sourceMap: shader.source.sourceMap,
 				language: "wgsl",
 				stage: "compute",
 				sourceKind: "unknown",

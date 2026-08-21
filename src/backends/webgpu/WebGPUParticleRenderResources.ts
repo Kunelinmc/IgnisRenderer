@@ -519,11 +519,11 @@ export class WebGPUParticleRenderResources implements WebGPUParticleBillboardRen
 		sampleCount: number,
 	): Promise<void> {
 		if (!this._particleShaderModule) {
-			const shader = await ShaderSource.load("webgpu.particle.composite");
+			const shader = await ShaderSource.load("webgpu.particle");
 			this._particleShaderModule = await this._backend.createShaderModule({
 				label: "WebGPUParticleShader",
-				code: shader.code,
-				sourceMap: shader.sourceMap,
+				code: shader.source.code,
+				sourceMap: shader.source.sourceMap,
 				language: "wgsl",
 				stage: "unknown",
 				sourceKind: "particle",

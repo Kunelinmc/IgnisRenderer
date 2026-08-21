@@ -90,11 +90,11 @@ export class WebGPUColorDirtyClearPass {
 
 		if (!this._shaderModule) {
 			const composite =
-				await ShaderSource.load("webgpu.utility.colorDirtyClear.composite");
+				await ShaderSource.load("webgpu.utility.colorDirtyClear");
 			this._shaderModule = await this._host.createShaderModule({
 				label: "WebGPUColorDirtyClearShader",
-				code: composite.code,
-				sourceMap: composite.sourceMap,
+				code: composite.source.code,
+				sourceMap: composite.source.sourceMap,
 				language: "wgsl",
 				stage: "unknown",
 				sourceKind: "postprocess",

@@ -110,11 +110,11 @@ export class WebGPUDepthDirtyClearPass {
 
 		if (!this._shaderModule) {
 			const composite =
-				await ShaderSource.load("webgpu.utility.depthDirtyClear.composite");
+				await ShaderSource.load("webgpu.utility.depthDirtyClear");
 			this._shaderModule = await this._host.createShaderModule({
 				label: "WebGPUDepthDirtyClearShader",
-				code: composite.code,
-				sourceMap: composite.sourceMap,
+				code: composite.source.code,
+				sourceMap: composite.source.sourceMap,
 				language: "wgsl",
 				stage: "unknown",
 				sourceKind: "postprocess",

@@ -1534,12 +1534,12 @@ export class WebGPUShadowCasterRenderer {
 		if (!this._shaderModule) {
 			if (!this._shaderModulePromise) {
 				this._shaderModulePromise = ShaderSource.load(
-					"webgpu.shadow.depth.composite"
-				).then((composite) =>
+					"webgpu.shadow.depth"
+				).then((artifact) =>
 					this._backend.createShaderModule({
 						label: "WebGPUShadowDepthShader",
-						code: composite.code,
-						sourceMap: composite.sourceMap,
+						code: artifact.source.code,
+						sourceMap: artifact.source.sourceMap,
 						language: "wgsl",
 						stage: "vertex",
 						entryPoint: "vsMain",
@@ -1641,12 +1641,12 @@ export class WebGPUShadowCasterRenderer {
 		if (!this._pagedClearShaderModule) {
 			if (!this._pagedClearShaderModulePromise) {
 				this._pagedClearShaderModulePromise = ShaderSource.load(
-					"webgpu.shadow.pagedShadowClear.composite"
-				).then((composite) =>
+					"webgpu.shadow.pagedShadowClear"
+				).then((artifact) =>
 					this._backend.createShaderModule({
 						label: "WebGPUPagedShadowClearShader",
-						code: composite.code,
-						sourceMap: composite.sourceMap,
+						code: artifact.source.code,
+						sourceMap: artifact.source.sourceMap,
 						language: "wgsl",
 						stage: "vertex",
 						entryPoint: "vsMain",

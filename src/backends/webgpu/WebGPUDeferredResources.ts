@@ -166,10 +166,10 @@ export class WebGPUDeferredResources implements WebGPUDeferredResourceProvider {
 
 	private async _getDecalShaderModule(): Promise<IShaderModule> {
 		if (!this._decalShaderModule) {
-			const shader = await ShaderSource.load("webgpu.utility.decal.composite");
+			const shader = await ShaderSource.load("webgpu.utility.decal");
 			this._decalShaderModule = await this._backend.createShaderModule({
-				code: shader.code,
-				sourceMap: shader.sourceMap,
+				code: shader.source.code,
+				sourceMap: shader.source.sourceMap,
 				label: "WebGPUDecalShader",
 				language: "wgsl",
 				stage: "unknown",

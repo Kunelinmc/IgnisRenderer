@@ -236,12 +236,12 @@ export class WebGPUDenoiser {
 	public async ensureResources(): Promise<void> {
 		if (!this._module) {
 			const shader = await ShaderSource.load(
-				"webgpu.postprocess.denoise.composite"
+				"webgpu.postprocess.denoise"
 			);
 			this._module = await this._compute.createShaderModule({
 				label: "WebGPUDenoiseShader",
-				code: shader.code,
-				sourceMap: shader.sourceMap,
+				code: shader.source.code,
+				sourceMap: shader.source.sourceMap,
 				language: "wgsl",
 				stage: "compute",
 				sourceKind: "postprocess",

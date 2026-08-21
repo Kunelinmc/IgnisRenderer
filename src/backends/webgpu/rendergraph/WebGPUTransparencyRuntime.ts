@@ -791,9 +791,9 @@ export class WebGPUTransparencyRuntime implements WebGPUFrameGraphModule {
 
 	private async _ensureResolveResources(): Promise<void> {
 		if (!this._resolveShaderModule) {
-			const source = await ShaderSource.load("webgpu.utility.oitResolve.composite");
+			const source = await ShaderSource.load("webgpu.utility.oitResolve");
 			this._resolveShaderModule = await this._host.createShaderModule({
-				label: "WebGPUOITResolveShader", code: source.code, sourceMap: source.sourceMap,
+				label: "WebGPUOITResolveShader", code: source.source.code, sourceMap: source.source.sourceMap,
 				language: "wgsl", stage: "unknown", sourceKind: "postprocess",
 			});
 		}

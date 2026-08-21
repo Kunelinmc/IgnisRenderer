@@ -1008,10 +1008,10 @@ export class WebGPUPipelineLibrary {
 			return this._sceneShaderModule;
 		}
 		if (!this._sceneShaderModule || this._sceneShaderDirectiveTag !== directiveTag) {
-			const shader = await ShaderSource.load("webgpu.scene.composite");
+			const shader = await ShaderSource.load("webgpu.scene");
 			this._sceneShaderModule = await this._backend.createShaderModule({
-				code: shader.code,
-				sourceMap: shader.sourceMap,
+				code: shader.source.code,
+				sourceMap: shader.source.sourceMap,
 				label: "WebGPUSceneShader",
 				language: "wgsl",
 				stage: "unknown",
@@ -1032,10 +1032,10 @@ export class WebGPUPipelineLibrary {
 			return this._environmentShaderModule;
 		}
 		if (!this._environmentShaderModule || this._environmentShaderDirectiveTag !== directiveTag) {
-			const shader = await ShaderSource.load("webgpu.environment.composite");
+			const shader = await ShaderSource.load("webgpu.environment");
 			this._environmentShaderModule = await this._backend.createShaderModule({
-				code: shader.code,
-				sourceMap: shader.sourceMap,
+				code: shader.source.code,
+				sourceMap: shader.source.sourceMap,
 				label: "WebGPUEnvironmentShader",
 				language: "wgsl",
 				stage: "unknown",
@@ -1059,11 +1059,11 @@ export class WebGPUPipelineLibrary {
 			!this._deferredLightingShaderModule ||
 			this._deferredLightingShaderDirectiveTag !== directiveTag
 		) {
-			const shader = await ShaderSource.load("webgpu.deferredLighting.composite");
+			const shader = await ShaderSource.load("webgpu.deferredLighting");
 			this._deferredLightingShaderModule =
 				await this._backend.createShaderModule({
-					code: shader.code,
-					sourceMap: shader.sourceMap,
+					code: shader.source.code,
+					sourceMap: shader.source.sourceMap,
 					label: "WebGPUDeferredLightingShader",
 					language: "wgsl",
 					stage: "unknown",
@@ -1090,12 +1090,12 @@ export class WebGPUPipelineLibrary {
 			this._planarReflectionCompositeDirectiveTag !== directiveTag
 		) {
 			const shader = await ShaderSource.load(
-				"webgpu.utility.planarReflectionComposite.composite"
+				"webgpu.utility.planarReflectionComposite"
 			);
 			this._planarReflectionCompositeShaderModule =
 				await this._backend.createShaderModule({
-					code: shader.code,
-					sourceMap: shader.sourceMap,
+					code: shader.source.code,
+					sourceMap: shader.source.sourceMap,
 					label: "WebGPUPlanarReflectionCompositeShader",
 					language: "wgsl",
 					stage: "unknown",

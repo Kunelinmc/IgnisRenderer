@@ -1910,14 +1910,17 @@ export class WebGPUPagedShadowTechnique {
 		let module = this._computeShaderModules.get(shaderPart);
 		if (!module) {
 			const composite = await ShaderSource.load(
-				`webgpu.shadow.${shaderPart}.composite` as Parameters<
+				`webgpu.shadow.${shaderPart}` as Parameters<
 					typeof ShaderSource.load
 				>[0]
-			) as { code: string; sourceMap?: unknown };
+			);
+			if (composite.kind !== "module") {
+				throw new Error(`WebGPU shadow source "${shaderPart}" is not a module.`);
+			}
 			module = await backend.createShaderModule({
 				label: `${label}Shader`,
-				code: composite.code,
-				sourceMap: composite.sourceMap,
+				code: composite.source.code,
+				sourceMap: composite.source.sourceMap,
 				language: "wgsl",
 				stage: "compute",
 				entryPoint: "csMain",

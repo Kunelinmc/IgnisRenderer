@@ -899,12 +899,12 @@ export class WebGPUClusteredLightingRuntime {
 	private async _ensureComputeResources(): Promise<void> {
 		if (!this._computeShaderModule) {
 			const shader = await ShaderSource.load(
-				"webgpu.clusteredLightingCull.composite"
+				"webgpu.clusteredLightingCull"
 			);
 			this._computeShaderModule = await this._compute.createShaderModule({
 				label: "WebGPUClusteredLightingCullShader",
-				code: shader.code,
-				sourceMap: shader.sourceMap,
+				code: shader.source.code,
+				sourceMap: shader.source.sourceMap,
 				language: "wgsl",
 				stage: "compute",
 				sourceKind: "clustered",

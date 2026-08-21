@@ -81,11 +81,15 @@ import type {
 	ShaderDirectiveProfileBase,
 	ShaderRuntimeMode,
 } from "../../shaders/runtime";
-import { ShaderSource } from "../../shaders/ShaderSource";
 import {
-	createWebGPUShaderDirectiveProfile,
-	prepareWebGPUShaderDirectiveProfileBase,
-} from "../../shaders/webgpu/webGPUProfile";
+	ShaderSource,
+	type ShaderSourceKey,
+} from "../../shaders/ShaderSource";
+import {
+	createShaderDirectiveProfileFromManifest,
+	prepareShaderDirectiveProfileBase,
+} from "../../shaders/ShaderManifest";
+import { WEBGPU_SHADER_MANIFEST } from "../../shaders/webgpu/sources";
 import {
 	MAX_AREA_LIGHTS,
 	MAX_DIRECTIONAL_LIGHTS,
@@ -513,8 +517,11 @@ export class WebGPUBackend implements IRenderBackend {
 		const [profileBase] = await Promise.all([
 			this._shaderProfileBase ?
 				Promise.resolve(this._shaderProfileBase)
-			:	prepareWebGPUShaderDirectiveProfileBase(),
-			ShaderSource.prepare("webgpu.utility.mipmapBlit.raw"),
+			:	prepareShaderDirectiveProfileBase(
+					WEBGPU_SHADER_MANIFEST,
+					(key) => ShaderSource.load(key as ShaderSourceKey),
+				),
+			ShaderSource.prepare("webgpu.utility.mipmapBlit"),
 		]);
 		this._shaderProfileBase = profileBase;
 		this._assertLifecycleOperation(epoch, expectedState, "prepare WebGPU shaders");
@@ -558,16 +565,20 @@ export class WebGPUBackend implements IRenderBackend {
 			throw error;
 		}
 
-		const profile = createWebGPUShaderDirectiveProfile(profileBase, {
-			maxDirectionalLights: MAX_DIRECTIONAL_LIGHTS,
-			maxPointLights: MAX_POINT_LIGHTS,
-			maxSpotLights: MAX_SPOT_LIGHTS,
-			maxAreaLights: MAX_AREA_LIGHTS,
-			maxLocalLightProbes: MAX_LOCAL_LIGHT_PROBES,
-			maxReflectionProbes: MAX_REFLECTION_PROBES,
-			shCoefficientCount: WEBGPU_SH_COEFFICIENT_COUNT,
-			textureSlotCount: WEBGPU_TEXTURE_SLOT_COUNT,
-		});
+		const profile = createShaderDirectiveProfileFromManifest(
+			WEBGPU_SHADER_MANIFEST,
+			profileBase,
+			{
+				maxDirectionalLights: MAX_DIRECTIONAL_LIGHTS,
+				maxPointLights: MAX_POINT_LIGHTS,
+				maxSpotLights: MAX_SPOT_LIGHTS,
+				maxAreaLights: MAX_AREA_LIGHTS,
+				maxLocalLightProbes: MAX_LOCAL_LIGHT_PROBES,
+				maxReflectionProbes: MAX_REFLECTION_PROBES,
+				shCoefficientCount: WEBGPU_SH_COEFFICIENT_COUNT,
+				textureSlotCount: WEBGPU_TEXTURE_SLOT_COUNT,
+			},
+		);
 		const compileStage = new ShaderBackendCompileStage({
 			runtime: this.shaderRuntime,
 			profile,

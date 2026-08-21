@@ -453,6 +453,9 @@ lighting, presentation configuration, reflections, and structured buffer packing
 	- Built-in `PBRMaterial` draws must upload the public feature and texture
 	  masks in a draw-uniform `pbrMasks` field. These masks must not participate
 	  in shader-module or render-pipeline cache keys.
+	- Built-in WGSL asset composition and directive-profile inputs must be
+	  declared by the WebGPU shader manifest. The shared manifest mechanism must
+	  not turn material masks into source specializations.
 	- Built-in PBR shaders must use uniform `if` control flow to sample a material
 	  texture only when its texture-presence bit is set. Extension texture samples
 	  must additionally require an active parent feature; `select` must not be

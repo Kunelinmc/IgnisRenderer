@@ -225,7 +225,7 @@ export class WebGPUMipmapGenerator {
 		const creationPromise = this._backend
 			.createShaderModule({
 				label: "WebGPUMipmapShader",
-				code: ShaderSource.getSync("webgpu.utility.mipmapBlit.raw"),
+				code: ShaderSource.getSync("webgpu.utility.mipmapBlit").source.code,
 				language: "wgsl",
 				stage: "unknown",
 				sourceKind: "unknown",

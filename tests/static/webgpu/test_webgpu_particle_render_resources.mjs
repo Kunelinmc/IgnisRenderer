@@ -376,7 +376,7 @@ function testParticleOwnershipAndExecutionBoundaries() {
 	].map((path) => readFileSync(new URL(path, import.meta.url), "utf8"));
 	assert.doesNotMatch(ownerSource, /_particlePipelineAlpha/);
 	assert.doesNotMatch(ownerSource, /public async renderParticles/);
-	assert.doesNotMatch(ownerSource, /ShaderSource\.load\("webgpu\.particle\.composite"\)/);
+	assert.doesNotMatch(ownerSource, /ShaderSource\.load\("webgpu\.particle"\)/);
 	assert.match(ownerSource, /private _particleRenderResources:/);
 	assert.doesNotMatch(particleResourceSource, /ParticleMeshFramePackets/);
 	assert.doesNotMatch(

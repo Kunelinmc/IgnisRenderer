@@ -137,7 +137,7 @@ async function createWebGPUResources(
 	try {
 		const kernel = await runtime.createKernel({
 			label: "IBLPrefilter",
-			code: await ShaderSource.load("webgpu.iblPrefilter.raw"),
+			code: (await ShaderSource.load("webgpu.iblPrefilter")).source.code,
 			language: "wgsl",
 			sourceKind: "unknown",
 			bindings: [

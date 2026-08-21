@@ -340,22 +340,22 @@ function testFeatureGate() {
 }
 
 async function testSceneShaderCoverage() {
-	const WEBGPU_SCENE_SHADER = await ShaderSource.load("webgpu.scene.raw");
-	const WEBGPU_DEFERRED_LIGHTING_SHADER = await ShaderSource.load(
-		"webgpu.deferredLighting.raw"
-	);
-	const WEBGPU_ENVIRONMENT_SHADER = await ShaderSource.load(
-		"webgpu.environment.raw"
-	);
-	const WEBGPU_SSAO_SHADER = await ShaderSource.load(
-		"webgpu.postprocess.ssao.raw"
-	);
-	const WEBGPU_SSGI_SHADER = await ShaderSource.load(
-		"webgpu.postprocess.ssgi.raw"
-	);
-	const WEBGPU_SSR_SHADER = await ShaderSource.load(
-		"webgpu.postprocess.ssr.raw"
-	);
+	const WEBGPU_SCENE_SHADER = (await ShaderSource.load("webgpu.scene")).source.code;
+	const WEBGPU_DEFERRED_LIGHTING_SHADER = (await ShaderSource.load(
+		"webgpu.deferredLighting"
+	)).source.code;
+	const WEBGPU_ENVIRONMENT_SHADER = (await ShaderSource.load(
+		"webgpu.environment"
+	)).source.code;
+	const WEBGPU_SSAO_SHADER = (await ShaderSource.load(
+		"webgpu.postprocess.ssao"
+	)).source.code;
+	const WEBGPU_SSGI_SHADER = (await ShaderSource.load(
+		"webgpu.postprocess.ssgi"
+	)).source.code;
+	const WEBGPU_SSR_SHADER = (await ShaderSource.load(
+		"webgpu.postprocess.ssr"
+	)).source.code;
 
 	assert.ok(
 		WEBGPU_SCENE_SHADER.includes(
@@ -528,7 +528,7 @@ async function testSceneShaderCoverage() {
 }
 
 async function testGBufferSlotShaderABI() {
-	const sceneShader = await ShaderSource.load("webgpu.scene.raw");
+	const sceneShader = (await ShaderSource.load("webgpu.scene")).source.code;
 	const slots = [
 		["gAlbedoAlpha", GBufferSlot.AlbedoAlpha],
 		["gNormalRoughMetal", GBufferSlot.NormalRoughMetal],
@@ -792,7 +792,7 @@ function testShadowDepthLayoutMatchesTransmittanceShaderBinding() {
 }
 
 async function testParticleShaderDepthConsistency() {
-	const WEBGPU_PARTICLE_SHADER = await ShaderSource.load("webgpu.particle.raw");
+	const WEBGPU_PARTICLE_SHADER = (await ShaderSource.load("webgpu.particle")).source.code;
 
 	assert.ok(
 		WEBGPU_PARTICLE_SHADER.includes(
@@ -841,18 +841,18 @@ async function testParticleShaderDepthConsistency() {
 }
 
 async function testWebGPUShaderConstantTokenInjection() {
-	const rawSceneShader = await ShaderSource.load("webgpu.scene.raw");
-	const rawEnvironmentShader = await ShaderSource.load("webgpu.environment.raw");
-	const rawParticleShader = await ShaderSource.load("webgpu.particle.raw");
-	const rawSSRShader = await ShaderSource.load("webgpu.postprocess.ssr.raw");
+	const rawSceneShader = (await ShaderSource.load("webgpu.scene")).source.code;
+	const rawEnvironmentShader = (await ShaderSource.load("webgpu.environment")).source.code;
+	const rawParticleShader = (await ShaderSource.load("webgpu.particle")).source.code;
+	const rawSSRShader = (await ShaderSource.load("webgpu.postprocess.ssr")).source.code;
 	const rawClusteredCullShader =
-		(await ShaderSource.load("webgpu.clusteredLightingCull.composite")).code;
+		(await ShaderSource.load("webgpu.clusteredLightingCull")).source.code;
 	const rawPlanarReflectionCompositeShader =
 		(
 			await ShaderSource.load(
-				"webgpu.utility.planarReflectionComposite.composite"
+				"webgpu.utility.planarReflectionComposite"
 			)
-		).code;
+		).source.code;
 	assert.ok(rawSceneShader.includes("__WEBGPU_MAX_DIRECTIONAL_LIGHTS__"));
 
 	const compileStage = new ShaderBackendCompileStage({

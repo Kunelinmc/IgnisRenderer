@@ -16,13 +16,20 @@ test("WebGPU accepts packed semantic geometry layouts", async ({ page }) => {
 			ShaderRuntime,
 		} = await import("/src/shaders/runtime/index.ts");
 		const {
-			createWebGPUShaderDirectiveProfile,
-			prepareWebGPUShaderDirectiveProfileBase,
-		} = await import("/src/shaders/webgpu/webGPUProfile.ts");
+			createShaderDirectiveProfileFromManifest,
+			prepareShaderDirectiveProfileBase,
+		} = await import("/src/shaders/shaderManifest.ts");
+		const { WEBGPU_SHADER_MANIFEST } = await import(
+			"/src/shaders/webgpu/sources.ts"
+		);
 		const backendConstants = await import("/src/backends/constants.ts");
 		const webgpuConstants = await import("/src/backends/webgpu/constants.ts");
-		const profile = createWebGPUShaderDirectiveProfile(
-			await prepareWebGPUShaderDirectiveProfileBase(),
+		const profile = createShaderDirectiveProfileFromManifest(
+			WEBGPU_SHADER_MANIFEST,
+			await prepareShaderDirectiveProfileBase(
+				WEBGPU_SHADER_MANIFEST,
+				(key) => ShaderSource.load(key as never),
+			),
 			{
 				maxDirectionalLights: backendConstants.MAX_DIRECTIONAL_LIGHTS,
 				maxPointLights: backendConstants.MAX_POINT_LIGHTS,
@@ -40,18 +47,18 @@ test("WebGPU accepts packed semantic geometry layouts", async ({ page }) => {
 			mode: "strict",
 		});
 		const shaderCompilationErrors: string[] = [];
-		for (const id of ["webgpu.scene.composite", "webgpu.shadow.depth.composite"]) {
+		for (const id of ["webgpu.scene", "webgpu.shadow.depth"]) {
 			const composite = await ShaderSource.load(id);
 			const processed = await compileStage.compileAsync({
-				code: composite.code,
+				code: composite.source.code,
 				language: "wgsl",
 				stage: "vertex",
 				entryPoint: "vsMain",
 				label: id,
 				sourceKind: id.includes("shadow") ? "shadow" : "scene",
-				sourceMap: composite.sourceMap,
+				sourceMap: composite.source.sourceMap,
 				directiveSourcePath:
-					composite.sourceMap.segments[0]?.sourcePath ?? id,
+					composite.source.sourceMap.segments[0]?.sourcePath ?? id,
 			});
 			const module = device.createShaderModule({ code: processed.code });
 			const info = await module.getCompilationInfo();

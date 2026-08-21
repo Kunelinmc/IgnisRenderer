@@ -140,11 +140,11 @@ export class WebGPUPresentPass {
 
 	private async _ensureResources(): Promise<void> {
 		if (!this._shaderModule) {
-			const composite = await ShaderSource.load("webgpu.utility.present.composite");
+			const composite = await ShaderSource.load("webgpu.utility.present");
 			this._shaderModule = await this._host.createShaderModule({
 				label: "WebGPUPresentShader",
-				code: composite.code,
-				sourceMap: composite.sourceMap,
+				code: composite.source.code,
+				sourceMap: composite.source.sourceMap,
 				language: "wgsl",
 				stage: "unknown",
 				sourceKind: "builtin-present",

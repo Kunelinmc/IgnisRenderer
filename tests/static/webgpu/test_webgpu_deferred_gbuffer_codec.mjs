@@ -94,14 +94,14 @@ assert.match(codec, /fn packDeferredExt3\(/);
 assert.match(codec, /fn decodeDeferredExt3RenderLayers\(/);
 assert.match(codec, /DEFERRED_RENDER_LAYER_MASK: u32 = 0x7ffu/);
 
-const scene = await ShaderSource.load("webgpu.scene.raw");
-const deferred = await ShaderSource.load("webgpu.deferredLighting.raw");
-const decal = await ShaderSource.load("webgpu.utility.decal.composite");
+const scene = (await ShaderSource.load("webgpu.scene")).source.code;
+const deferred = (await ShaderSource.load("webgpu.deferredLighting")).source.code;
+const decal = (await ShaderSource.load("webgpu.utility.decal")).source.code;
 assert.match(
 	scene,
 	/resolvedMaterialWord[\s\S]*nodeRenderLayers\.y[\s\S]*DEFERRED_MATERIAL_RECEIVE_SHADOWS_BIT[\s\S]*f32\(resolvedMaterialWord\)/
 );
-for (const source of [scene, deferred, decal.code]) {
+for (const source of [scene, deferred, decal]) {
 	assert.equal((source.match(/fn encodeDeferredMaterialWord\(/g) ?? []).length, 1);
 	assert.equal((source.match(/fn packDeferredExt3\(/g) ?? []).length, 1);
 }
