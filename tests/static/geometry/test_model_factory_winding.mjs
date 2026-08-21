@@ -50,8 +50,36 @@ function createBoxMesh() {
 	return MeshFactory.createBox({ x: 0, y: 0, z: 0 }, 2, 2, 2).mesh;
 }
 
+function createPlaneMesh() {
+	return MeshFactory.createPlane({ x: 0, y: 0, z: 0 }, 2, 2).mesh;
+}
+
+function assertPlaneFacesUpward(mesh) {
+	for (const primitive of mesh.primitives) {
+		const triangleCount = (primitive.geometry.indices.length / 3) | 0;
+		for (
+			let triangleIndex = 0;
+			triangleIndex < triangleCount;
+			triangleIndex++
+		) {
+			const vertices = GeometryBuilder.createVerticesForTriangle(
+				primitive,
+				triangleIndex
+			);
+			const geometricNormal = Vector3.calculateNormal(vertices);
+			assert.ok(
+				geometricNormal.y > 0,
+				`PlaneMeshAsset triangle ${triangleIndex} does not face positive Y`
+			);
+		}
+	}
+}
+
 function run() {
 	assertWindingMatchesPrimitiveNormals("BoxMeshAsset", createBoxMesh());
+	const planeMesh = createPlaneMesh();
+	assertWindingMatchesPrimitiveNormals("PlaneMeshAsset", planeMesh);
+	assertPlaneFacesUpward(planeMesh);
 	console.log("Mesh winding tests passed.");
 }
 

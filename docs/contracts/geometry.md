@@ -6,6 +6,8 @@ This document defines spatial indexing, level-of-detail mesh selection, and cons
 
 ### Mesh bounds
 
+- `MeshFactory.createPlane` must create an XZ-plane whose vertex normals and
+  front-face winding both point toward positive Y.
 - `MeshAsset.primitives` must be a frozen `ReadonlyArray<IPrimitive>` snapshot.
   Mutating the array passed to the constructor must not mutate the asset.
 - A primitive must belong to at most one `MeshAsset`. Adding a duplicate
