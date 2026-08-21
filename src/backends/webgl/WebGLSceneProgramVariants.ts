@@ -13,6 +13,8 @@ import {
 	PBRMaterialTextureFeature,
 } from "../../materials/PBRMaterial";
 import type { DrawPacket, FrameContext } from "../../pipeline/types";
+import { resolveShaderManifestRequest } from "../../shaders/ShaderManifest";
+import { WEBGL_SHADER_MANIFEST } from "../../shaders/webgl/sources";
 import {
 	WEBGL_FULL_SCENE_VARIANT,
 	getWebGLSceneDepthVariantKey,
@@ -38,6 +40,23 @@ export {
 	normalizeWebGLSceneDepthVariantDescriptor,
 	normalizeWebGLSceneVariantDescriptor,
 };
+
+/** @internal Resolves the manifest-owned scene specialization and identity. */
+export function resolveWebGLSceneSourceSpecialization(
+	variant?: WebGLSceneVariantDescriptor,
+): { specialization: WebGLSceneVariantDescriptor; identity: string } {
+	const resolved = resolveShaderManifestRequest(
+		WEBGL_SHADER_MANIFEST,
+		"webgl.scene",
+		{ specialization: variant },
+	);
+	return {
+		specialization: (
+			resolved.parameters as { specialization: WebGLSceneVariantDescriptor }
+		).specialization,
+		identity: resolved.identity,
+	};
+}
 
 /** @internal Exact sampler-free built-in fallback for a failed ShaderMaterial. */
 export function createWebGLShaderMaterialFallbackVariant(

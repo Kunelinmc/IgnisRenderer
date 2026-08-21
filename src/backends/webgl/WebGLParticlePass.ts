@@ -108,8 +108,8 @@ export class WebGLParticlePass
 		this._host = host;
 		this._program = host.programCompiler.createSlot({
 			label: "WebGLParticleProgram",
-			vertex: () => ShaderSource.get("webgl.part.particleVertex.raw"),
-			fragment: () => ShaderSource.get("webgl.part.particleFragment.raw"),
+			vertex: () => ShaderSource.get("webgl.part.particleVertex").source.code,
+			fragment: () => ShaderSource.get("webgl.part.particleFragment").source.code,
 			reflect: (gl, program) => ({
 				program,
 				uniforms: {

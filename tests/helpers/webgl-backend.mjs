@@ -11,7 +11,8 @@ import {
 	MAX_POINT_LIGHTS,
 	MAX_SPOT_LIGHTS,
 } from "../../src/backends/constants.ts";
-import { ShaderSource, WEBGL_SHADER_PARTS } from "../../src/shaders/ShaderSource.ts";
+import { ShaderSource } from "../../src/shaders/ShaderSource.ts";
+import { WEBGL_SHADER_MANIFEST } from "../../src/shaders/webgl/sources.ts";
 
 export const TEST_SCENE_LIMITS = {
 	maxDirectionalLights: 4,
@@ -26,9 +27,11 @@ export const PROGRAM_LIBRARY_SCENE_LIMITS = {
 };
 
 export function getTestSceneShader() {
-	return ShaderSource.get("webgl.scene.raw", {
-		limits: TEST_SCENE_LIMITS,
-	});
+	const artifact = ShaderSource.get("webgl.scene");
+	return {
+		vertex: artifact.stages.vertex.code,
+		fragment: artifact.stages.fragment.code,
+	};
 }
 
 export function createTinyCubeTexture(mips = 1, value = 1) {
@@ -96,14 +99,20 @@ export function createTestBuiltinSceneVariant(overrides = {}) {
 }
 
 export async function prepareTestBuiltinSceneVariant(variant) {
+	const depth = {
+		alphaMask: variant.material.alphaMask,
+		baseMap: variant.material.baseMap,
+		skinProfile: variant.skinProfile ?? "static",
+		morphPosition: ((variant.morphSemanticMask ?? 0) & 1) !== 0,
+	};
 	await ShaderSource.prepareMany([
 		{
-			key: "webgl.scene.raw",
-			params: { limits: PROGRAM_LIBRARY_SCENE_LIMITS, variant },
+			key: "webgl.scene",
+			params: { specialization: variant },
 		},
 		{
-			key: "webgl.scene.composite",
-			params: { limits: PROGRAM_LIBRARY_SCENE_LIMITS, variant },
+			key: "webgl.scene.depth",
+			params: { specialization: depth },
 		},
 	]);
 }
@@ -876,42 +885,38 @@ export async function runWebGLBackendFile(testCases, label) {
 	ShaderSource.clearCache("webgl");
 	try {
 		await ShaderSource.prepareMany([
-			...WEBGL_SHADER_PARTS.flatMap((part) => [
-				{ key: `webgl.part.${part}.raw` },
-				{ key: `webgl.part.${part}.composite` },
-			]),
-			{ key: "webgl.scene.raw", params: { limits: TEST_SCENE_LIMITS } },
-			{ key: "webgl.scene.composite", params: { limits: TEST_SCENE_LIMITS } },
-			{
-				key: "webgl.scene.raw",
-				params: {
-					limits: {
-						maxDirectionalLights: MAX_DIRECTIONAL_LIGHTS,
-						maxPointLights: MAX_POINT_LIGHTS,
-						maxSpotLights: MAX_SPOT_LIGHTS,
+			...WEBGL_SHADER_MANIFEST.preloadGroups.backendInit.map((key) => ({ key })),
+			{ key: "webgl.scene" },
+			{ key: "webgl.scene.depth" },
+			...(["static", "skin4", "skin8"]).flatMap((skinProfile) =>
+				[false, true].flatMap((morphPosition) => [
+					{
+						key: "webgl.shadow.depth",
+						params: { specialization: { skinProfile, morphPosition } },
 					},
-				},
-			},
-			{
-				key: "webgl.scene.composite",
-				params: {
-					limits: {
-						maxDirectionalLights: MAX_DIRECTIONAL_LIGHTS,
-						maxPointLights: MAX_POINT_LIGHTS,
-						maxSpotLights: MAX_SPOT_LIGHTS,
+					{
+						key: "webgl.shadow.transmittance",
+						params: { specialization: { skinProfile, morphPosition } },
 					},
-				},
-			},
+				]),
+			),
 			...["single", "mrt"].flatMap((mode) => {
 				const variant = createWebGLShaderMaterialFallbackVariant(mode);
 				return [
 					{
-						key: "webgl.scene.raw",
-						params: { limits: PROGRAM_LIBRARY_SCENE_LIMITS, variant },
+						key: "webgl.scene",
+						params: { specialization: variant },
 					},
 					{
-						key: "webgl.scene.composite",
-						params: { limits: PROGRAM_LIBRARY_SCENE_LIMITS, variant },
+						key: "webgl.scene.depth",
+						params: {
+							specialization: {
+								alphaMask: variant.material.alphaMask,
+								baseMap: variant.material.baseMap,
+								skinProfile: variant.skinProfile,
+								morphPosition: (variant.morphSemanticMask & 1) !== 0,
+							},
+						},
 					},
 				];
 			}),

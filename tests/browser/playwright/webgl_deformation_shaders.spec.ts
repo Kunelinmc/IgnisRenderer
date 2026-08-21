@@ -12,12 +12,19 @@ test("WebGL compiles built-in and ShaderMaterial deformation ABI", async ({ page
 			ShaderRuntime,
 		} = await import("/src/shaders/runtime/index.ts");
 		const {
-			createWebGLShaderDirectiveProfile,
-			prepareWebGLShaderDirectiveProfileBase,
-		} = await import("/src/shaders/webgl/webGLProfile.ts");
+			createShaderDirectiveProfileFromManifest,
+			prepareShaderDirectiveProfileBase,
+		} = await import("/src/shaders/shaderManifest.ts");
+		const { WEBGL_SHADER_MANIFEST } = await import(
+			"/src/shaders/webgl/sources.ts"
+		);
 		const backendConstants = await import("/src/backends/constants.ts");
-		const profile = createWebGLShaderDirectiveProfile(
-			await prepareWebGLShaderDirectiveProfileBase(),
+		const profile = createShaderDirectiveProfileFromManifest(
+			WEBGL_SHADER_MANIFEST,
+			await prepareShaderDirectiveProfileBase(
+				WEBGL_SHADER_MANIFEST,
+				(key) => ShaderSource.load(key as never),
+			),
 			{
 				maxDirectionalLights: backendConstants.MAX_DIRECTIONAL_LIGHTS,
 				maxPointLights: backendConstants.MAX_POINT_LIGHTS,
@@ -81,27 +88,25 @@ test("WebGL compiles built-in and ShaderMaterial deformation ABI", async ({ page
 			skinProfile: "skin8" as const,
 			morphSemanticMask: 3,
 		};
-		const scene = await ShaderSource.load("webgl.scene.composite", {
-			limits,
-			variant,
+		const scene = await ShaderSource.load("webgl.scene", {
+			specialization: variant,
 		});
 		const shadow = await ShaderSource.load(
-			"webgl.part.shadowDepthVertex.composite",
+			"webgl.shadow.depth",
+			{
+				specialization: { skinProfile: "skin8", morphPosition: true },
+			},
 		);
 		const sources = [
 			{
 				label: "scene",
-				code: scene.vertex.code,
-				sourceMap: scene.vertex.sourceMap,
+				code: scene.stages.vertex!.code,
+				sourceMap: scene.stages.vertex!.sourceMap,
 			},
 			{
 				label: "shadow",
-				code: shadow.code.replace(
-					"__IGNIS_WEBGL_ANIMATION_DEFINES__",
-					"#define IGNIS_WEBGL_DEFORMATION_ACTIVE 1\n" +
-						"#define IGNIS_WEBGL_SKIN_INFLUENCES 8",
-				),
-				sourceMap: shadow.sourceMap,
+				code: shadow.stages.vertex!.code,
+				sourceMap: shadow.stages.vertex!.sourceMap,
 			},
 			{
 				label: "custom-material",

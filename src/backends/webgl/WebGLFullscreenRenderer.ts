@@ -61,8 +61,8 @@ export class WebGLFullscreenRenderer implements WebGLProgramWarmupContributor {
 		this._vao = host.gl.createVertexArray();
 		this._presentProgram = host.programCompiler.createSlot({
 			label: "WebGLPresentProgram",
-			vertex: () => ShaderSource.get("webgl.part.presentVertex.raw"),
-			fragment: () => ShaderSource.get("webgl.part.presentFragment.raw"),
+			vertex: () => ShaderSource.get("webgl.part.presentVertex").source.code,
+			fragment: () => ShaderSource.get("webgl.part.presentFragment").source.code,
 			reflect: (gl, program) => ({
 				program,
 				uniforms: {

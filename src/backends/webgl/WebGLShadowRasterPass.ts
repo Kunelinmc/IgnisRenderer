@@ -116,12 +116,11 @@ export class WebGLShadowRasterPass {
 	constructor(host: WebGLShadowRasterPassHost) {
 		this._host = host;
 		for (const key of SHADOW_DEFORMATION_KEYS) {
-			const vertex = () => createShadowVertexSource(key);
 			this._depthProgramSlots.set(key, host.programCompiler.createSlot({
 				label: key === "static:0" ?
 					"WebGLShadowDepthProgram" : `WebGLShadowDepthProgram_${key}`,
-				vertex,
-				fragment: () => ShaderSource.get("webgl.part.shadowDepthFragment.raw"),
+				vertex: () => getShadowSource("depth", key, "vertex"),
+				fragment: () => getShadowSource("depth", key, "fragment"),
 				reflect: (gl, program) => ({
 					program,
 					uniforms: {
@@ -134,8 +133,8 @@ export class WebGLShadowRasterPass {
 				label: key === "static:0" ?
 					"WebGLShadowTransmittanceProgram" :
 					`WebGLShadowTransmittanceProgram_${key}`,
-				vertex,
-				fragment: () => ShaderSource.get("webgl.part.shadowTransmittanceFragment.raw"),
+				vertex: () => getShadowSource("transmittance", key, "vertex"),
+				fragment: () => getShadowSource("transmittance", key, "fragment"),
 				reflect: (gl, program) => ({
 					program,
 					uniforms: {
@@ -502,17 +501,19 @@ function profileKey(geometry: WebGLGeometryHandle): ShadowDeformationKey {
 		ShadowDeformationKey;
 }
 
-function createShadowVertexSource(key: ShadowDeformationKey): string {
+function getShadowSource(
+	kind: "depth" | "transmittance",
+	key: ShadowDeformationKey,
+	stage: "vertex" | "fragment",
+): string {
 	const [skinProfile, morphPosition] = key.split(":") as [WebGLSkinProfile, string];
-	const influences = skinProfile === "skin8" ? 8 : skinProfile === "skin4" ? 4 : 0;
-	const active = influences > 0 || morphPosition === "1";
-	return ShaderSource.get("webgl.part.shadowDepthVertex.raw").replace(
-		"__IGNIS_WEBGL_ANIMATION_DEFINES__",
-		[
-			`#define IGNIS_WEBGL_DEFORMATION_ACTIVE ${active ? 1 : 0}`,
-			`#define IGNIS_WEBGL_SKIN_INFLUENCES ${influences}`,
-		].join("\n"),
-	);
+	const artifact = ShaderSource.get(`webgl.shadow.${kind}`, {
+		specialization: {
+			skinProfile,
+			morphPosition: morphPosition === "1",
+		},
+	});
+	return artifact.stages[stage]!.code;
 }
 
 function createAnimationUniforms(

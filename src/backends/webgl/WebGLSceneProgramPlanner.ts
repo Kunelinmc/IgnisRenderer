@@ -15,6 +15,7 @@ import {
 	resolveWebGLPacketDeformationProfile,
 	type WebGLDeformationProfile,
 	resolveWebGLBuiltinSceneVariant,
+	resolveWebGLSceneSourceSpecialization,
 	type WebGLSceneDepthVariantDescriptor,
 	type WebGLSceneVariantDescriptor,
 } from "./WebGLSceneProgramVariants";
@@ -54,7 +55,7 @@ export function planWebGLScenePrograms(
 					mode,
 					deformation,
 				);
-				const key = getWebGLSceneVariantKey(fallback);
+				const key = resolveWebGLSceneSourceSpecialization(fallback).identity;
 				sceneVariants.set(key, fallback);
 			}
 			continue;
@@ -270,7 +271,9 @@ function addVariantAlternatives(
 			mode === "mrt" && materialGBuffer,
 			deformation,
 		);
-		if (variant) variants.set(getWebGLSceneVariantKey(variant), variant);
+		if (variant) {
+			variants.set(resolveWebGLSceneSourceSpecialization(variant).identity, variant);
+		}
 	}
 }
 

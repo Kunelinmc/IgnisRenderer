@@ -49,8 +49,8 @@ export class WebGLEnvironmentRenderer implements WebGLProgramWarmupContributor {
 		this._host = host;
 		this._program = host.programCompiler.createSlot({
 			label: "WebGLEnvironmentProgram",
-			vertex: () => ShaderSource.get("webgl.part.environmentVertex.raw"),
-			fragment: () => ShaderSource.get("webgl.part.environmentFragment.raw"),
+			vertex: () => ShaderSource.get("webgl.part.environmentVertex").source.code,
+			fragment: () => ShaderSource.get("webgl.part.environmentFragment").source.code,
 			reflect: (gl, program) => ({
 				program,
 				uniforms: {

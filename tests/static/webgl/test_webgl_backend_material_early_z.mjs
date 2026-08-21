@@ -109,7 +109,8 @@ function testEarlyZPrepassSkipsDepthWriteDisabledPackets() {
 }
 
 function testBuiltInMaskDepthPrepassShaderContract() {
-	const fragment = ShaderSource.get("webgl.part.sceneDepthPrepassFragment.raw");
+	const fragment = ShaderSource.get("webgl.part.sceneDepthPrepassFragment")
+		.source.code;
 	assert.ok(fragment.includes("uBaseColor.a"));
 	assert.ok(fragment.includes("texture(uBaseMap"));
 	assert.ok(fragment.includes("uAlpha.x"));

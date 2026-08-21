@@ -91,14 +91,16 @@ export class WebGLPrefilterExecutor implements IBLPrefilterExecutorLike {
 				const vertex = await resources.createShaderModule({
 					stage: "vertex",
 					language: "glsl",
-					code: await ShaderSource.load("webgl.part.environmentVertex.raw"),
+					code: (await ShaderSource.load("webgl.part.environmentVertex"))
+						.source.code,
 					sourceKind: "builtin-environment",
 					label: "IBLPrefilterVertex",
 				});
 				const fragment = await resources.createShaderModule({
 					stage: "fragment",
 					language: "glsl",
-					code: await ShaderSource.load("webgl.part.iblPrefilterFragment.raw"),
+					code: (await ShaderSource.load("webgl.part.iblPrefilterFragment"))
+						.source.code,
 					sourceKind: "builtin-environment",
 					label: "IBLPrefilterFragment",
 				});

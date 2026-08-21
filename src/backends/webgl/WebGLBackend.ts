@@ -45,13 +45,14 @@ import type {
 	ShaderRuntimeMode,
 } from "../../shaders/runtime";
 import {
-	createWebGLShaderDirectiveProfile,
-	prepareWebGLShaderDirectiveProfileBase,
-} from "../../shaders/webgl/webGLProfile";
-import {
 	ShaderSource,
-	WEBGL_SHADER_PARTS,
+	type ShaderSourceKey,
 } from "../../shaders/ShaderSource";
+import {
+	createShaderDirectiveProfileFromManifest,
+	prepareShaderDirectiveProfileBase,
+} from "../../shaders/ShaderManifest";
+import { WEBGL_SHADER_MANIFEST } from "../../shaders/webgl/sources";
 import {
 	addWarmupPhase,
 	buildWarmupPlan,
@@ -257,24 +258,27 @@ export class WebGLBackend implements IRenderBackend {
 		this._canvas = canvas;
 		this._installContextLifecycleListeners(canvas);
 		const [profileBase] = await Promise.all([
-			prepareWebGLShaderDirectiveProfileBase(),
+			prepareShaderDirectiveProfileBase(
+				WEBGL_SHADER_MANIFEST,
+				(key) => ShaderSource.load(key as ShaderSourceKey),
+			),
 			ShaderSource.prepareMany([
-				...WEBGL_SHADER_PARTS.flatMap((part) => [
-					{ key: `webgl.part.${part}.raw` as const },
-					{ key: `webgl.part.${part}.composite` as const },
-				]),
-				{
-					key: "webgl.scene.raw" as const,
-					params: {
-						limits: WEBGL_SCENE_LIGHT_LIMITS,
-					},
-				},
-				{
-					key: "webgl.scene.composite" as const,
-					params: {
-						limits: WEBGL_SCENE_LIGHT_LIMITS,
-					},
-				},
+				...(WEBGL_SHADER_MANIFEST.preloadGroups?.backendInit ?? []).map(
+					(key) => ({ key: key as ShaderSourceKey }),
+				),
+				{ key: "webgl.scene" as const },
+				...(["static", "skin4", "skin8"] as const).flatMap(
+					(skinProfile) => [false, true].flatMap((morphPosition) => [
+						{
+							key: "webgl.shadow.depth" as const,
+							params: { specialization: { skinProfile, morphPosition } },
+						},
+						{
+							key: "webgl.shadow.transmittance" as const,
+							params: { specialization: { skinProfile, morphPosition } },
+						},
+					]),
+				),
 			]),
 		]);
 		this._shaderProfileBase = profileBase;
@@ -565,12 +569,16 @@ export class WebGLBackend implements IRenderBackend {
 		if (!profileBase) {
 			throw new Error("WebGL shader directive profile base is not prepared.");
 		}
-		const profile = createWebGLShaderDirectiveProfile(profileBase, {
-			...WEBGL_SCENE_LIGHT_LIMITS,
-			maxClusterLightsPerFragment: MAX_CLUSTER_LIGHTS_PER_FRAGMENT,
-			maxLocalLightProbes: MAX_LOCAL_LIGHT_PROBES,
-			maxReflectionProbes: MAX_REFLECTION_PROBES,
-		});
+		const profile = createShaderDirectiveProfileFromManifest(
+			WEBGL_SHADER_MANIFEST,
+			profileBase,
+			{
+				...WEBGL_SCENE_LIGHT_LIMITS,
+				maxClusterLightsPerFragment: MAX_CLUSTER_LIGHTS_PER_FRAGMENT,
+				maxLocalLightProbes: MAX_LOCAL_LIGHT_PROBES,
+				maxReflectionProbes: MAX_REFLECTION_PROBES,
+			},
+		);
 		this._shaderCompileStage = new ShaderBackendCompileStage({
 			runtime: this.shaderRuntime,
 			profile,

@@ -65,8 +65,8 @@ export class WebGLTransparencyRuntime {
 		this._host = host;
 		this._copyProgram = host.programCompiler.createSlot({
 			label: "WebGLCopyProgram",
-			vertex: () => ShaderSource.get("webgl.part.presentVertex.raw"),
-			fragment: () => ShaderSource.get("webgl.part.copyFragment.raw"),
+			vertex: () => ShaderSource.get("webgl.part.presentVertex").source.code,
+			fragment: () => ShaderSource.get("webgl.part.copyFragment").source.code,
 			reflect: (gl, program) => ({
 				program,
 				uniforms: { sourceMap: gl.getUniformLocation(program, "uSourceMap") },
@@ -74,8 +74,8 @@ export class WebGLTransparencyRuntime {
 		});
 		this._oitResolveProgram = host.programCompiler.createSlot({
 			label: "WebGLOITResolveProgram",
-			vertex: () => ShaderSource.get("webgl.part.presentVertex.raw"),
-			fragment: () => ShaderSource.get("webgl.part.oitResolveFragment.raw"),
+			vertex: () => ShaderSource.get("webgl.part.presentVertex").source.code,
+			fragment: () => ShaderSource.get("webgl.part.oitResolveFragment").source.code,
 			reflect: (gl, program) => ({
 				program,
 				uniforms: {

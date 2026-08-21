@@ -204,9 +204,13 @@ function testFullSceneShaderDeclaresExtensionSamplersForDynamicLayout() {
 }
 
 function testSceneShaderIncludesIrradianceProbeGridWhenEnabled() {
-	const shader = ShaderSource.get("webgl.scene.raw", {
-		limits: TEST_SCENE_LIMITS,
+	const artifact = ShaderSource.get("webgl.scene", {
+		specialization: undefined,
 	});
+	const shader = {
+		vertex: artifact.stages.vertex.code,
+		fragment: artifact.stages.fragment.code,
+	};
 	const samplerMatches = shader.fragment.match(/\buniform\s+sampler2D\b/g) ?? [];
 
 	assert.equal(samplerMatches.length, 30);
@@ -246,7 +250,7 @@ function testSceneShaderIncludesOITPassMode() {
 }
 
 function testParticleShaderIncludesOITPassMode() {
-	const shader = ShaderSource.get("webgl.part.particleFragment.raw");
+	const shader = ShaderSource.get("webgl.part.particleFragment").source.code;
 
 	assert.ok(shader.includes("uniform int uOITPassMode;"));
 	assert.ok(shader.includes("float resolveParticleOITWeight("));

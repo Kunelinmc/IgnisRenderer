@@ -187,6 +187,8 @@ This document defines the current WebGL backend lifecycle, frame graph, resource
   shadow variants may omit morph-normal state but must include skinning and
   morph-position state. Warmup and draw-time resolution must use the same exact
   profile.
+- Scene, depth-prepass, and shadow shader specialization must be resolved by
+  the WebGL shader manifest. Backend passes must not rewrite built-in GLSL.
 - Animation payload, morph-position, and morph-normal samplers must use
   backend-reserved vertex texture units selected from the high end of the
   combined unit range. They must not collide with the exact low-unit fragment
@@ -253,8 +255,8 @@ This document defines the current WebGL backend lifecycle, frame graph, resource
   from `PBRMaterial.featureMask` and `PBRMaterial.textureMask`. A texture with a
   set presence bit must still be omitted when its parent extension feature is
   inactive, including extension maps annihilated by a zero resolved factor.
-- The full compatibility scene variant must remain available to explicit shader
-  source callers; mask-derived pruning applies to exact built-in material
+- The full compatibility scene specialization must remain available to
+  explicit `ShaderSource` callers; mask-derived pruning applies to exact built-in material
   variants used for rendering and warmup.
 - Scene programs must own one variant-aware `WebGLSceneSamplerLayout` shared by
   warmup and all binders. If an exact collision-free layout cannot fit the

@@ -14,7 +14,9 @@ function testUnpreparedExactVariantFailsWithoutFallbackProgram() {
 		},
 		material: { model: "legacy", baseMap: true },
 	});
-	const variantKey = getWebGLSceneVariantKey(variant);
+	const variantKey = ShaderSource.getIdentity("webgl.scene", {
+		specialization: variant,
+	});
 	assert.throws(
 		() => repository.getSceneProgram(undefined, "single", variant),
 		(error) => {
@@ -194,8 +196,8 @@ async function testSceneProgramRepositoryCachesBuiltinSceneVariants() {
 		)
 	);
 	assert.notEqual(
-		getWebGLSceneVariantKey(noMapVariant),
-		getWebGLSceneVariantKey(baseMapVariant)
+		ShaderSource.getIdentity("webgl.scene", { specialization: noMapVariant }),
+		ShaderSource.getIdentity("webgl.scene", { specialization: baseMapVariant })
 	);
 }
 
@@ -205,10 +207,9 @@ async function testNoShadowPBRVariantDeclaresFallbackBeforeLighting() {
 		material: { model: "pbr" },
 	});
 	await prepareTestBuiltinSceneVariant(variant);
-	const source = ShaderSource.get("webgl.scene.raw", {
-		limits: PROGRAM_LIBRARY_SCENE_LIMITS,
-		variant,
-	}).fragment;
+	const source = ShaderSource.get("webgl.scene", {
+		specialization: variant,
+	}).stages.fragment.code;
 	const fallbackIndex = source.indexOf(
 		"vec3 sampleDirectionalShadowVisibility(int index"
 	);

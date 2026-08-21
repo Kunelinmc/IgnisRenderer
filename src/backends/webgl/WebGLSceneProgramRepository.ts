@@ -151,12 +151,22 @@ export class WebGLSceneProgramRepository {
 	public async prepareBuiltinSceneVariants(
 		variants: Iterable<WebGLSceneVariantDescriptor>
 	): Promise<void> {
-		const limits = this._getSceneLightLimits();
 		await ShaderSource.prepareMany(
-			Array.from(variants).flatMap((variant) => [
-				{ key: "webgl.scene.raw" as const, params: { limits, variant } },
-				{ key: "webgl.scene.composite" as const, params: { limits, variant } },
-			]),
+			Array.from(variants).flatMap((specialization) => {
+				const depthSpecialization = {
+					alphaMask: specialization.material.alphaMask,
+					baseMap: specialization.material.baseMap,
+					skinProfile: specialization.skinProfile,
+					morphPosition: (specialization.morphSemanticMask & 1) !== 0,
+				};
+				return [
+					{ key: "webgl.scene" as const, params: { specialization } },
+					{
+						key: "webgl.scene.depth" as const,
+						params: { specialization: depthSpecialization },
+					},
+				];
+			}),
 		);
 	}
 
@@ -236,31 +246,27 @@ export class WebGLSceneProgramRepository {
 		);
 		const label = this._createBuiltinSceneProgramLabel(normalizedVariant);
 		const cached = this._builtinScenePrograms.get(cacheKey);
-		const limits = this._getSceneLightLimits();
-		const sceneShaderSource = ShaderSource.get("webgl.scene.raw", {
-			limits,
-			variant: normalizedVariant,
+		const artifact = ShaderSource.get("webgl.scene", {
+			specialization: normalizedVariant,
 		});
-		const sceneCompositeSource = ShaderSource.get("webgl.scene.composite", {
-			limits,
-			variant: normalizedVariant,
-		});
+		const vertex = artifact.stages.vertex!;
+		const fragment = artifact.stages.fragment!;
 		return this._warmupProgram(
 			label,
 			() => cached?.program ?? null,
 			() =>
 				this._beginProgramCompile(
-					sceneShaderSource.vertex,
-					sceneShaderSource.fragment,
+					vertex.code,
+					fragment.code,
 					label,
 					{
-						sourceMap: sceneCompositeSource.vertex.sourceMap,
-						variantKey: getWebGLSceneVariantKey(normalizedVariant),
+						sourceMap: vertex.sourceMap,
+						variantKey: artifact.identity,
 						sourceKind: "builtin-scene",
 					},
 					{
-						sourceMap: sceneCompositeSource.fragment.sourceMap,
-						variantKey: getWebGLSceneVariantKey(normalizedVariant),
+						sourceMap: fragment.sourceMap,
+						variantKey: artifact.identity,
 						sourceKind: "builtin-scene",
 					},
 				),
@@ -364,30 +370,27 @@ export class WebGLSceneProgramRepository {
 		);
 		const label = this._createBuiltinSceneDepthProgramLabel(normalizedVariant);
 		const cached = this._builtinSceneDepthPrepassPrograms.get(cacheKey);
-		const { vertexSource, fragmentSource } =
-			this._getBuiltinSceneDepthPrepassSources(normalizedVariant);
-		const vertexComposite = ShaderSource.get(
-			"webgl.part.sceneDepthPrepassVertex.composite"
-		);
-		const fragmentComposite = ShaderSource.get(
-			"webgl.part.sceneDepthPrepassFragment.composite"
-		);
+		const artifact = ShaderSource.get("webgl.scene.depth", {
+			specialization: normalizedVariant,
+		});
+		const vertex = artifact.stages.vertex!;
+		const fragment = artifact.stages.fragment!;
 		return this._warmupProgram(
 			label,
 			() => cached?.program ?? null,
 			() =>
 				this._beginProgramCompile(
-					vertexSource,
-					fragmentSource,
+					vertex.code,
+					fragment.code,
 					label,
 					{
-						sourceMap: vertexComposite.sourceMap,
-						variantKey: getWebGLSceneDepthVariantKey(normalizedVariant),
+						sourceMap: vertex.sourceMap,
+						variantKey: artifact.identity,
 						sourceKind: "builtin-scene",
 					},
 					{
-						sourceMap: fragmentComposite.sourceMap,
-						variantKey: getWebGLSceneDepthVariantKey(normalizedVariant),
+						sourceMap: fragment.sourceMap,
+						variantKey: artifact.identity,
 						sourceKind: "builtin-scene",
 					},
 				),
@@ -508,7 +511,7 @@ export class WebGLSceneProgramRepository {
 	): string {
 		const limits = this._getSceneLightLimits();
 		return (
-			`${getWebGLSceneVariantKey(variant)}` +
+			`${ShaderSource.getIdentity("webgl.scene", { specialization: variant })}` +
 			`|limits:${limits.maxDirectionalLights},` +
 			`${limits.maxPointLights},${limits.maxSpotLights}` +
 			`|runtime:${this._shaderRuntime?.revision ?? 0}` +
@@ -521,58 +524,35 @@ export class WebGLSceneProgramRepository {
 		directiveTag: string
 	): string {
 		return (
-			`${getWebGLSceneDepthVariantKey(variant)}` +
+			`${ShaderSource.getIdentity("webgl.scene.depth", {
+				specialization: variant,
+			})}` +
 			`|runtime:${this._shaderRuntime?.revision ?? 0}` +
 			`|directive:${directiveTag}`
 		);
 	}
 
 	private _hasPreparedBuiltinSceneSources(
-		limits: WebGLSceneLightLimits,
 		variant: WebGLSceneVariantDescriptor
 	): boolean {
-		const params = { limits, variant };
-		return (
-			ShaderSource.has("webgl.scene.raw", params) &&
-			ShaderSource.has("webgl.scene.composite", params)
-		);
+		return ShaderSource.has("webgl.scene", { specialization: variant });
 	}
 
 	private _createBuiltinSceneProgramLabel(
 		variant: WebGLSceneVariantDescriptor
 	): string {
-		return `WebGLSceneProgram_${getWebGLSceneVariantKey(variant)}`;
+		return `WebGLSceneProgram_${ShaderSource.getIdentity("webgl.scene", {
+			specialization: variant,
+		})}`;
 	}
 
 	private _createBuiltinSceneDepthProgramLabel(
 		variant: WebGLSceneDepthVariantDescriptor
 	): string {
-		return `WebGLSceneDepthPrepassProgram_${getWebGLSceneDepthVariantKey(variant)}`;
-	}
-
-	private _getBuiltinSceneDepthPrepassSources(
-		variant: WebGLSceneDepthVariantDescriptor
-	): { vertexSource: string; fragmentSource: string } {
-		const defines = [
-			`#define WEBGL_DEPTH_ALPHA_MASK ${variant.alphaMask ? 1 : 0}`,
-			`#define WEBGL_DEPTH_BASE_MAP ${variant.baseMap ? 1 : 0}`,
-		].join("\n");
-		const influences =
-			variant.skinProfile === "skin8" ? 8
-			: variant.skinProfile === "skin4" ? 4
-			: 0;
-		const animationDefines = [
-			`#define IGNIS_WEBGL_DEFORMATION_ACTIVE ${influences > 0 || variant.morphPosition ? 1 : 0}`,
-			`#define IGNIS_WEBGL_SKIN_INFLUENCES ${influences}`,
-		].join("\n");
-		return {
-			vertexSource: this._shaderSource("sceneDepthPrepassVertex").replace(
-				"__IGNIS_WEBGL_ANIMATION_DEFINES__",
-				animationDefines,
-			),
-			fragmentSource:
-				`${defines}\n` + this._shaderSource("sceneDepthPrepassFragment"),
-		};
+		return `WebGLSceneDepthPrepassProgram_${ShaderSource.getIdentity(
+			"webgl.scene.depth",
+			{ specialization: variant },
+		)}`;
 	}
 
 	private _getBuiltinSceneProgram(
@@ -581,10 +561,12 @@ export class WebGLSceneProgramRepository {
 		const directiveTag = this._shaderCompileStage?.getCacheFingerprintTag() ?? "";
 		const limits = this._getSceneLightLimits();
 		const normalizedVariant = normalizeWebGLSceneVariantDescriptor(variant);
-		if (!this._hasPreparedBuiltinSceneSources(limits, normalizedVariant)) {
+		if (!this._hasPreparedBuiltinSceneSources(normalizedVariant)) {
 			throw new WebGLProgramPreparationError(
 				"scene",
-				getWebGLSceneVariantKey(normalizedVariant),
+				ShaderSource.getIdentity("webgl.scene", {
+					specialization: normalizedVariant,
+				}),
 			);
 		}
 		const cacheKey = this._createBuiltinSceneProgramCacheKey(
@@ -595,24 +577,23 @@ export class WebGLSceneProgramRepository {
 		if (cached) {
 			return cached.program;
 		}
-		const sourceParams = { limits, variant: normalizedVariant };
-		const sceneShaderSource = ShaderSource.get("webgl.scene.raw", sourceParams);
-		const sceneCompositeSource = ShaderSource.get(
-			"webgl.scene.composite",
-			sourceParams,
-		);
-		const variantKey = getWebGLSceneVariantKey(normalizedVariant);
+		const artifact = ShaderSource.get("webgl.scene", {
+			specialization: normalizedVariant,
+		});
+		const vertex = artifact.stages.vertex!;
+		const fragment = artifact.stages.fragment!;
+		const variantKey = artifact.identity;
 		const sceneProgram = this._createSceneProgram(
-			sceneShaderSource.vertex,
-			sceneShaderSource.fragment,
+			vertex.code,
+			fragment.code,
 			this._createBuiltinSceneProgramLabel(normalizedVariant),
 			{
-				sourceMap: sceneCompositeSource.vertex.sourceMap,
+				sourceMap: vertex.sourceMap,
 				variantKey,
 				sourceKind: "builtin-scene",
 			},
 			{
-				sourceMap: sceneCompositeSource.fragment.sourceMap,
+				sourceMap: fragment.sourceMap,
 				variantKey,
 				sourceKind: "builtin-scene",
 			},
@@ -646,26 +627,23 @@ export class WebGLSceneProgramRepository {
 		if (cached) {
 			return cached.program;
 		}
-		const vertexComposite = ShaderSource.get(
-			"webgl.part.sceneDepthPrepassVertex.composite"
-		);
-		const fragmentComposite = ShaderSource.get(
-			"webgl.part.sceneDepthPrepassFragment.composite"
-		);
-		const { vertexSource, fragmentSource } =
-			this._getBuiltinSceneDepthPrepassSources(normalizedVariant);
-		const variantKey = getWebGLSceneDepthVariantKey(normalizedVariant);
+		const artifact = ShaderSource.get("webgl.scene.depth", {
+			specialization: normalizedVariant,
+		});
+		const vertex = artifact.stages.vertex!;
+		const fragment = artifact.stages.fragment!;
+		const variantKey = artifact.identity;
 		const sceneProgram = this._createSceneProgram(
-			vertexSource,
-			fragmentSource,
+			vertex.code,
+			fragment.code,
 			this._createBuiltinSceneDepthProgramLabel(normalizedVariant),
 			{
-				sourceMap: vertexComposite.sourceMap,
+				sourceMap: vertex.sourceMap,
 				variantKey,
 				sourceKind: "builtin-scene",
 			},
 			{
-				sourceMap: fragmentComposite.sourceMap,
+				sourceMap: fragment.sourceMap,
 				variantKey,
 				sourceKind: "builtin-scene",
 			},
@@ -924,7 +902,7 @@ export class WebGLSceneProgramRepository {
 	}
 
 	private _shaderSource(part: WebGLShaderPart): string {
-		return ShaderSource.get(`webgl.part.${part}.raw`);
+		return ShaderSource.get(`webgl.part.${part}`).source.code;
 	}
 
 	public destroy(): void {
