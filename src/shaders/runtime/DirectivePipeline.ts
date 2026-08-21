@@ -1,9 +1,6 @@
 import { ShaderRuntime } from "./ShaderRuntime";
 import { SOURCE_MAP_SCHEMA_VERSION } from "./sourceMap";
-import {
-	assertShaderDirectiveProfileRegistryComplete,
-	DEFAULT_SHADER_DIRECTIVE_PROFILE_REGISTRY,
-} from "./engineDirectives";
+import { canonicalizeModulePath } from "./runtimeShared";
 import { Logger } from "../../foundation/Logger";
 import type {
 	CompositeShaderSource,
@@ -15,7 +12,6 @@ import type {
 	ShaderDirectiveHookContext,
 	ShaderDirectiveHookResult,
 	ShaderDirectiveProfile,
-	ShaderDirectiveProfileRegistry,
 	ShaderDirectiveStageRequest,
 	ShaderDirectiveStageResult,
 	ShaderLanguage,
@@ -40,17 +36,15 @@ interface HookResolution {
 }
 
 interface ShaderDirectiveStageOptions {
-	backend: ShaderBackendId;
-	profiles?: ShaderDirectiveProfileRegistry;
+	profile: ShaderDirectiveProfile;
 	hook?: ShaderDirectiveCompileHook | null;
 	mode?: ShaderRuntimeMode;
 	warn?: ((key: string, message: string) => void) | null;
 }
 
 interface ShaderBackendCompileStageOptions {
-	backend: ShaderBackendId;
 	runtime: ShaderRuntime;
-	profiles?: ShaderDirectiveProfileRegistry;
+	profile: ShaderDirectiveProfile;
 	hook?: ShaderDirectiveCompileHook | null;
 	mode?: ShaderRuntimeMode;
 	warn?: ((key: string, message: string) => void) | null;
@@ -194,7 +188,16 @@ function buildHookPatchFingerprint(patch: HookPatch): string {
 		.sort()
 		.join("|");
 	const scriptPayload = patch.injectionScripts
-		.map((script) => script.id.trim())
+		.map((script) =>
+			JSON.stringify([
+				script.id.trim(),
+				script.language ?? null,
+				[...(script.symbols ?? [])],
+				Object.entries(script.arguments)
+					.sort(([left], [right]) => left.localeCompare(right))
+					.map(([name, definition]) => [name, definition]),
+			]),
+		)
 		.sort()
 		.join("|");
 	return hashStringFNV1a(`${includePayload}#${scriptPayload}`);
@@ -277,16 +280,23 @@ export class ShaderDirectiveStage {
 	private _baseRuntime: ShaderRuntime;
 	private _runtimeByToken = new Map<string, ShaderRuntime>();
 	private _patchFingerprintByToken = new Map<string, string>();
+	private _profileModuleKeys = new Set<string>();
+	private _profileScriptIds = new Set<string>();
 	private _cache = new Map<string, CachedDirectiveStageResult>();
 	private _lastFingerprintByContext = new Map<string, string>();
 	private _revision = 1;
 
 	public constructor(options: ShaderDirectiveStageOptions) {
-		this._backend = options.backend;
-		const registry =
-			options.profiles ?? DEFAULT_SHADER_DIRECTIVE_PROFILE_REGISTRY;
-		assertShaderDirectiveProfileRegistryComplete(registry);
-		this._profile = registry[this._backend];
+		this._profile = options.profile;
+		this._backend = this._profile.backend;
+		for (const module of this._profile.includeModules) {
+			this._profileModuleKeys.add(
+				`${module.language}:${canonicalizeModulePath(module.id)}`,
+			);
+		}
+		for (const script of this._profile.injectionScripts) {
+			this._profileScriptIds.add(script.id);
+		}
 		this._hook = options.hook ?? null;
 		this._mode = options.mode ?? "warn";
 		this._baseRuntime = this._createRuntimeForPatch(null);
@@ -302,7 +312,7 @@ export class ShaderDirectiveStage {
 	}
 
 	public getCacheFingerprintTag(): string {
-		return `${this._profile.id}|rev:${this._profile.revision}`;
+		return `${this._profile.id}|fp:${this._profile.fingerprint}`;
 	}
 
 	public process(request: ShaderDirectiveStageRequest): ShaderDirectiveStageResult {
@@ -505,6 +515,24 @@ export class ShaderDirectiveStage {
 		const injectionScripts = Array.isArray(result.injectionScripts) ?
 				result.injectionScripts.map((script) => ({ ...script }))
 			:	[];
+		const moduleCollision = includeModules.find((module) =>
+			this._profileModuleKeys.has(
+				`${module.language}:${canonicalizeModulePath(module.id)}`,
+			),
+		);
+		const scriptCollision = injectionScripts.find((script) =>
+			this._profileScriptIds.has(script.id.trim()),
+		);
+		if (moduleCollision || scriptCollision) {
+			const collision = moduleCollision ?
+				`include module "${moduleCollision.id}"`
+			:	`injection script "${scriptCollision?.id}"`;
+			this._handleHookError(
+				"hook-profile-collision",
+				`Shader directive hook for "${this._backend}" attempted to replace profile ${collision} for ${context.directiveSourcePath}; disabling the hook patch.`,
+			);
+			return { token: BASE_HOOK_TOKEN, patch: null };
+		}
 		const patch: HookPatch | null =
 			includeModules.length > 0 || injectionScripts.length > 0 ?
 				{
@@ -550,7 +578,7 @@ export class ShaderDirectiveStage {
 
 	private _buildDirectiveFingerprint(hookToken: string): string {
 		return (
-			`${this._profile.id}|rev:${this._profile.revision}` +
+			`${this._profile.id}|fp:${this._profile.fingerprint}` +
 			`|hook:${hookToken}`
 		);
 	}
@@ -587,6 +615,9 @@ export class ShaderDirectiveStage {
 				`${message} Migration hint: move directives to backend compile stage hooks with stable tokens.`
 			);
 		}
+		if (this._mode === "silent") {
+			return;
+		}
 		Logger.warn(`[${code}] ${message}`, {
 			scope: "ShaderDirectiveStage",
 			onceKey: `shader-directive-${this._backend}-${code}`,
@@ -603,8 +634,7 @@ export class ShaderBackendCompileStage {
 		this._runtime = options.runtime;
 		this._mode = options.mode ?? "warn";
 		this._directiveStage = new ShaderDirectiveStage({
-			backend: options.backend,
-			profiles: options.profiles,
+			profile: options.profile,
 			hook: options.hook ?? null,
 			mode: this._mode,
 			warn: options.warn ?? null,

@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
 import {
-	assertShaderDirectiveProfileRegistryComplete,
+	composeShaderDirectiveProfile,
 	createInlineShaderSourceMap,
-	DEFAULT_SHADER_DIRECTIVE_PROFILE_REGISTRY,
 	SOURCE_MAP_SCHEMA_VERSION,
 	ShaderBackendCompileStage,
 	ShaderRuntime,
 } from "../../../src/shaders/runtime/index.ts";
+import { WEBGL_TEST_PROFILE } from "./shaderDirectiveTestProfiles.mjs";
 import { Logger } from "../../../src/foundation/Logger.ts";
 import {
 	MAX_DIRECTIONAL_LIGHTS,
@@ -32,10 +32,8 @@ function createStage(options = {}) {
 		resetOnceKeys: true,
 	});
 	const stage = new ShaderBackendCompileStage({
-		backend: "webgl",
 		runtime,
-		profiles:
-			options.profiles ?? DEFAULT_SHADER_DIRECTIVE_PROFILE_REGISTRY,
+		profile: options.profile ?? WEBGL_TEST_PROFILE,
 		hook: options.hook ?? null,
 		mode: options.mode ?? "warn",
 	});
@@ -70,21 +68,60 @@ function compileSceneVertexAsync(stage, code, extra = {}) {
 	});
 }
 
-function testProfileCompletenessRequiresSoftwareProfile() {
-	const incompleteProfiles = {
-		...DEFAULT_SHADER_DIRECTIVE_PROFILE_REGISTRY,
+function testProfileCompositionValidationAndFingerprint() {
+	const base = {
+		id: "test/base",
+		backend: "webgl",
+		packs: [],
 	};
-	delete incompleteProfiles.software;
+	const overlay = {
+		id: "test/overlay",
+		backend: "webgl",
+		includeModules: [],
+	};
+	const first = composeShaderDirectiveProfile(base, overlay);
+	const second = composeShaderDirectiveProfile(base, overlay);
+	assert.equal(first.fingerprint, second.fingerprint);
+	const changed = composeShaderDirectiveProfile(base, {
+		...overlay,
+		includeModules: [
+			{
+				language: "glsl",
+				id: "test/module",
+				code: "const float TEST_VALUE = 1.0;",
+			},
+		],
+	});
+	assert.notEqual(first.fingerprint, changed.fingerprint);
 	assert.throws(
-		() => assertShaderDirectiveProfileRegistryComplete(incompleteProfiles),
-		/software/
+		() =>
+			composeShaderDirectiveProfile(base, {
+				...overlay,
+				backend: "webgpu",
+			}),
+		/does not match/
 	);
 	assert.throws(
 		() =>
-			createStage({
-				profiles: incompleteProfiles,
-			}),
-		/software/
+			composeShaderDirectiveProfile(
+				{
+					...base,
+					packs: [
+						{
+							id: "duplicate-modules",
+							backend: "webgl",
+							revision: 1,
+							includeModules: [
+								{ language: "glsl", id: "same", code: "a" },
+								{ language: "glsl", id: "same", code: "b" },
+							],
+							injectionScripts: [],
+						},
+					],
+				},
+				overlay,
+			),
+		/Duplicate shader directive include module/
 	);
 }
 
@@ -229,6 +266,59 @@ void main() {
 		second.directiveDiagnostics.some(
 			(diagnostic) => diagnostic.code === "directive-include-not-found"
 		)
+	);
+}
+
+function testHookCannotOverrideProfileModules() {
+	const code = `#version 300 es
+precision highp float;
+#import <ignis/color/srgb>
+out vec4 fragColor;
+void main() { fragColor = vec4(linearToSrgb(vec3(1.0)), 1.0); }`;
+	const warn = createStage({
+		hook: () => ({
+			token: "override-profile-module",
+			includeModules: [
+				{
+					language: "glsl",
+					id: "ignis/color/srgb.glsl",
+					code: "vec3 linearToSrgb(vec3 c) { return vec3(0.0); }",
+				},
+			],
+		}),
+	});
+	const result = warn.stage.compile({
+		code,
+		language: "glsl",
+		stage: "fragment",
+		entryPoint: "main",
+		directiveSourcePath: "./hookCollision.glsl",
+	});
+	assert.ok(result.code.includes("1.055"));
+	assert.ok(warn.warnings.some((message) => message.includes("hook-profile-collision")));
+	const strict = createStage({
+		mode: "strict",
+		hook: () => ({
+			token: "override-profile-module",
+			includeModules: [
+				{
+					language: "glsl",
+					id: "ignis/color/srgb.glsl",
+					code: "",
+				},
+			],
+		}),
+	});
+	assert.throws(
+		() =>
+			strict.stage.compile({
+				code,
+				language: "glsl",
+				stage: "fragment",
+				entryPoint: "main",
+				directiveSourcePath: "./hookCollisionStrict.glsl",
+			}),
+		/attempted to replace profile/,
 	);
 }
 
@@ -465,6 +555,7 @@ async function testCompileAsyncUsesAsyncDirectivePreprocessPath() {
 				{
 					id: "hook/async-directive-script",
 					language: "glsl",
+					arguments: {},
 					async run() {
 						return {
 							header: "const float ASYNC_DIRECTIVE_VALUE = 2.0;",
@@ -514,10 +605,11 @@ void main() {
 
 async function run() {
 	try {
-		testProfileCompletenessRequiresSoftwareProfile();
+		testProfileCompositionValidationAndFingerprint();
 		testStageABBoundaryNoDuplicateDirectiveDiagnostics();
 		testHookMissingTokenStrictWarnBehavior();
 		testHookTokenCollisionFallsBackToBasePatch();
+		testHookCannotOverrideProfileModules();
 		testDirectiveFingerprintChangeTriggersCacheMiss();
 		testSourceMapSchemaVersionNormalization();
 		testAsyncHookFallbackByMode();

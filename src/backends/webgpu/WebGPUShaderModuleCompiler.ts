@@ -9,11 +9,23 @@ import { Logger } from "../../foundation/Logger";
 import type { ShaderModuleDesc } from "../types";
 
 export class WebGPUShaderModuleCompiler {
-	constructor(private _shaderCompileStage: ShaderBackendCompileStage) {}
+	private _shaderCompileStage: ShaderBackendCompileStage | null;
+
+	constructor(shaderCompileStage?: ShaderBackendCompileStage) {
+		this._shaderCompileStage = shaderCompileStage ?? null;
+	}
+
+	/** @internal Rebinds compilation to the active device directive profile. */
+	public setCompileStage(stage: ShaderBackendCompileStage | null): void {
+		this._shaderCompileStage = stage;
+	}
 
 	public async processShaderSource(
 		desc: ShaderModuleDesc
 	): Promise<ShaderBackendCompileResult> {
+		if (!this._shaderCompileStage) {
+			throw new Error("WebGPU shader directive profile is not initialized.");
+		}
 		const sanitizedCode = this._stripUtf8BomCharacters(desc.code, desc.label);
 		const directiveSourcePath =
 			desc.sourceMap?.segments[0]?.sourcePath ?? desc.label ?? "<webgpu-shader>";

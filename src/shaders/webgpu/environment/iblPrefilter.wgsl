@@ -1,4 +1,5 @@
 #import <ignis/webgpu/constants>
+#import <ignis/color/srgb>
 
 const PREFILTER_EPSILON: f32 = 1e-6;
 const EQUIRECT_DISTORTION_EPSILON: f32 = 1e-4;
@@ -118,12 +119,6 @@ fn directionToEquirectUV(direction: vec3<f32>) -> vec2<f32> {
 	return vec2<f32>(u, v);
 }
 
-fn sRGBToLinear(color: vec3<f32>) -> vec3<f32> {
-	let low = color / 12.92;
-	let high = pow((color + vec3<f32>(0.055)) / 1.055, vec3<f32>(2.4));
-	return select(high, low, color <= vec3<f32>(0.04045));
-}
-
 @compute @workgroup_size(8, 8, 1)
 fn csMain(@builtin(global_invocation_id) globalId: vec3<u32>) {
 	if (globalId.x >= params.outputWidth || globalId.y >= params.outputHeight) {
@@ -173,7 +168,7 @@ fn csMain(@builtin(global_invocation_id) globalId: vec3<u32>) {
 			sampleLevel
 		).rgb;
 		if (params.sourceIsLinear == 0u) {
-			sampleColor = sRGBToLinear(sampleColor);
+			sampleColor = srgbToLinear(sampleColor);
 		}
 
 		accumulated += sampleColor * nDotL;

@@ -29,6 +29,9 @@ import type {
 	ShaderDiagnostic,
 	ShaderDiagnosticSeverity,
 	ShaderInjectionArgValue,
+	ShaderInjectionArgumentDefinition,
+	ShaderInjectionArguments,
+	ShaderInjectionArgumentSchema,
 	ShaderInjectionScript,
 	ShaderInjectionScriptContext,
 	ShaderLanguage,
@@ -1622,7 +1625,18 @@ export class DirectivePreprocessor {
 				preprocessContext,
 				composite.code
 			);
-			const injection = script.run(invocation.args, scriptContext);
+			const args = this._validateInjectionArguments(
+				script,
+				invocation.args,
+				scriptContext,
+				preprocessContext,
+				origin,
+				directive.column,
+			);
+			if (!args) {
+				continue;
+			}
+			const injection = script.run(args, scriptContext);
 			if (isPromiseLike(injection)) {
 				throw new Error(
 					`Injection script "${script.id}" returned a Promise during process(). Use processAsync().`
@@ -1708,7 +1722,18 @@ export class DirectivePreprocessor {
 				preprocessContext,
 				composite.code
 			);
-			const injection = await script.run(invocation.args, scriptContext);
+			const args = this._validateInjectionArguments(
+				script,
+				invocation.args,
+				scriptContext,
+				preprocessContext,
+				origin,
+				directive.column,
+			);
+			if (!args) {
+				continue;
+			}
+			const injection = await script.run(args, scriptContext);
 			this._appendDirectiveInjectionBlocks(
 				preprocessContext,
 				script,
@@ -1761,6 +1786,151 @@ export class DirectivePreprocessor {
 				),
 			});
 		}
+	}
+
+	private _validateInjectionArguments(
+		script: ShaderInjectionScript,
+		rawArgs: Readonly<Record<string, ShaderInjectionArgValue>>,
+		scriptContext: ShaderInjectionScriptContext,
+		preprocessContext: PreprocessContext,
+		origin: LineOrigin,
+		column: number,
+	): ShaderInjectionArguments<ShaderInjectionArgumentSchema> | null {
+		const schema = script.arguments;
+		const resolved: Record<string, ShaderInjectionArgValue | undefined> = {};
+		let valid = true;
+		for (const name of Object.keys(rawArgs)) {
+			if (Object.prototype.hasOwnProperty.call(schema, name)) {
+				continue;
+			}
+			valid = false;
+			this._pushInjectionArgumentDiagnostic(
+				preprocessContext,
+				"directive-inject-argument-unknown",
+				`Injection script "${script.id}" does not declare argument "${name}".`,
+				origin,
+				column,
+			);
+		}
+		for (const [name, definition] of Object.entries(schema)) {
+			const value = rawArgs[name];
+			if (value === undefined) {
+				if ("default" in definition && definition.default !== undefined) {
+					resolved[name] = definition.default;
+					continue;
+				}
+				resolved[name] = undefined;
+				if (definition.required === true) {
+					valid = false;
+					this._pushInjectionArgumentDiagnostic(
+						preprocessContext,
+						"directive-inject-argument-missing",
+						`Injection script "${script.id}" requires argument "${name}".`,
+						origin,
+						column,
+					);
+				}
+				continue;
+			}
+			const message = this._validateInjectionArgumentValue(
+				name,
+				value,
+				definition,
+			);
+			if (message) {
+				valid = false;
+				this._pushInjectionArgumentDiagnostic(
+					preprocessContext,
+					"directive-inject-argument-invalid",
+					`Injection script "${script.id}" ${message}`,
+					origin,
+					column,
+				);
+				continue;
+			}
+			resolved[name] = value;
+		}
+		if (!valid) {
+			return null;
+		}
+		const typedArgs = resolved as ShaderInjectionArguments<ShaderInjectionArgumentSchema>;
+		const validation = script.validateArguments?.(typedArgs, scriptContext);
+		const messages =
+			typeof validation === "string" ? [validation]
+			: Array.isArray(validation) ? validation
+			: [];
+		if (messages.length <= 0) {
+			return typedArgs;
+		}
+		for (const message of messages) {
+			this._pushInjectionArgumentDiagnostic(
+				preprocessContext,
+				"directive-inject-validation-failed",
+				`Injection script "${script.id}" ${message}`,
+				origin,
+				column,
+			);
+		}
+		return null;
+	}
+
+	private _validateInjectionArgumentValue(
+		name: string,
+		value: ShaderInjectionArgValue,
+		definition: ShaderInjectionArgumentDefinition,
+	): string | null {
+		switch (definition.type) {
+			case "string":
+				return typeof value === "string" ?
+					null
+				: `argument "${name}" must be a string.`;
+			case "boolean":
+				return typeof value === "boolean" ?
+					null
+				: `argument "${name}" must be a boolean.`;
+			case "enum":
+				return typeof value === "string" && definition.values.includes(value) ?
+					null
+				: `argument "${name}" must be one of ${definition.values
+						.map((entry) => `"${entry}"`)
+						.join(", ")}.`;
+			case "number":
+			case "integer":
+				if (
+					typeof value !== "number" ||
+					!Number.isFinite(value) ||
+					(definition.type === "integer" && !Number.isInteger(value))
+				) {
+					return `argument "${name}" must be ${definition.type === "integer" ? "an integer" : "a finite number"}.`;
+				}
+				if (definition.min !== undefined && value < definition.min) {
+					return `argument "${name}" must be at least ${definition.min}.`;
+				}
+				if (definition.max !== undefined && value > definition.max) {
+					return `argument "${name}" must be at most ${definition.max}.`;
+				}
+				return null;
+		}
+	}
+
+	private _pushInjectionArgumentDiagnostic(
+		preprocessContext: PreprocessContext,
+		code: string,
+		message: string,
+		origin: LineOrigin,
+		column: number,
+	): void {
+		if (preprocessContext.mode === "silent") {
+			return;
+		}
+		this._pushDirectiveDiagnostic(
+			preprocessContext,
+			code,
+			message,
+			origin.sourcePath,
+			origin.sourceLine,
+			column,
+		);
 	}
 
 	private _parseInjectInvocation(

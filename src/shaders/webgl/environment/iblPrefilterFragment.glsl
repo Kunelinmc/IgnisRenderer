@@ -2,8 +2,9 @@
 precision highp float;
 precision highp int;
 
-const float PI = 3.14159265359;
-const float TWO_PI = 6.28318530718;
+#import <ignis/webgl/constants>
+#import <ignis/color/srgb>
+
 const float PREFILTER_EPSILON = 1e-6;
 const float EQUIRECT_DISTORTION_EPSILON = 1e-4;
 const int MAX_SAMPLE_COUNT = 256;
@@ -117,19 +118,6 @@ vec2 directionToEquirectUV(vec3 direction) {
 	return vec2((phi + PI) / TWO_PI, theta / PI);
 }
 
-float sRGBChannelToLinear(float value) {
-	return value <= 0.04045 ?
-		value / 12.92 : pow((value + 0.055) / 1.055, 2.4);
-}
-
-vec3 sRGBToLinear(vec3 color) {
-	return vec3(
-		sRGBChannelToLinear(color.r),
-		sRGBChannelToLinear(color.g),
-		sRGBChannelToLinear(color.b)
-	);
-}
-
 void main() {
 	// `readPixels` is bottom-row first. Mapping the bottom row to v=0 keeps the
 	// CPU-backed equirectangular result in the engine's north-first row order.
@@ -176,7 +164,7 @@ void main() {
 			sampleLevel
 		).rgb;
 		if (uSourceIsLinear == 0) {
-			sampleColor = sRGBToLinear(sampleColor);
+			sampleColor = srgbToLinear(sampleColor);
 		}
 		accumulated += sampleColor * nDotL;
 		totalWeight += nDotL;

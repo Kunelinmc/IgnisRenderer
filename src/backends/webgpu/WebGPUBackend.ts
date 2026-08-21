@@ -76,11 +76,30 @@ import {
 } from "../types";
 import {
 	ShaderBackendCompileStage,
-	DEFAULT_SHADER_DIRECTIVE_PROFILE_REGISTRY,
 	ShaderRuntime,
 } from "../../shaders/runtime";
-import type { ShaderDirectiveCompileHook, ShaderRuntimeMode } from "../../shaders/runtime";
+import type {
+	ShaderDirectiveCompileHook,
+	ShaderDirectiveProfileBase,
+	ShaderRuntimeMode,
+} from "../../shaders/runtime";
 import { ShaderSource } from "../../shaders/ShaderSource";
+import {
+	createWebGPUShaderDirectiveProfile,
+	prepareWebGPUShaderDirectiveProfileBase,
+} from "../../shaders/webgpu/webGPUProfile";
+import {
+	MAX_AREA_LIGHTS,
+	MAX_DIRECTIONAL_LIGHTS,
+	MAX_LOCAL_LIGHT_PROBES,
+	MAX_POINT_LIGHTS,
+	MAX_REFLECTION_PROBES,
+	MAX_SPOT_LIGHTS,
+} from "../constants";
+import {
+	WEBGPU_SH_COEFFICIENT_COUNT,
+	WEBGPU_TEXTURE_SLOT_COUNT,
+} from "./constants";
 import type { Texture } from "../../core/Texture";
 import {
 	createWebGPUComputeFacade,
@@ -250,7 +269,10 @@ export class WebGPUBackend implements IRenderBackend {
 	private _enableOcclusionCulling = true;
 	private _frameGraphValidationMode: "throw" | "warn" = "throw";
 	private _completedFrameCoverage: RenderBackendCompletedFrameCoverage = "full-frame";
-	private _shaderCompileStage: ShaderBackendCompileStage;
+	private _shaderCompileStage: ShaderBackendCompileStage | null = null;
+	private _shaderProfileBase: ShaderDirectiveProfileBase | null = null;
+	private readonly _shaderMode: ShaderRuntimeMode;
+	private readonly _directiveHook: ShaderDirectiveCompileHook | null;
 
 	private readonly _framePlanner = new FramePassPlanValidator("WebGPU");
 	private readonly _sampleCountResolver: WebGPUSampleCountResolver;
@@ -281,6 +303,8 @@ export class WebGPUBackend implements IRenderBackend {
 			);
 		}
 		const shaderMode = options.shaderMode ?? "strict";
+		this._shaderMode = shaderMode;
+		this._directiveHook = options.directiveHook ?? null;
 		const thisRef = this;
 		this._sampleCountResolver = new WebGPUSampleCountResolver(
 			this._createSampleCountResolverHost(),
@@ -318,14 +342,7 @@ export class WebGPUBackend implements IRenderBackend {
 		this.shaderRuntime = new ShaderRuntime({
 			mode: shaderMode,
 		});
-		this._shaderCompileStage = new ShaderBackendCompileStage({
-			backend: "webgpu",
-			runtime: this.shaderRuntime,
-			profiles: DEFAULT_SHADER_DIRECTIVE_PROFILE_REGISTRY,
-			hook: options.directiveHook ?? null,
-			mode: shaderMode,
-		});
-		this._shaderModuleCompiler = new WebGPUShaderModuleCompiler(this._shaderCompileStage);
+		this._shaderModuleCompiler = new WebGPUShaderModuleCompiler();
 		this._pipelineCache = new WebGPUPipelineCache(this._createPipelineCacheHost());
 		this._bindingGroupCache = new WebGPUBindingGroupCache(this._createBindingGroupCacheHost());
 		this._framePacketRegistry.register(new WebGPUParticleMeshPacketContributor());
@@ -500,7 +517,13 @@ export class WebGPUBackend implements IRenderBackend {
 		if (!adapter) {
 			throw new Error("No appropriate GPUAdapter found.");
 		}
-		await ShaderSource.prepare("webgpu.utility.mipmapBlit.raw");
+		const [profileBase] = await Promise.all([
+			this._shaderProfileBase ?
+				Promise.resolve(this._shaderProfileBase)
+			:	prepareWebGPUShaderDirectiveProfileBase(),
+			ShaderSource.prepare("webgpu.utility.mipmapBlit.raw"),
+		]);
+		this._shaderProfileBase = profileBase;
 		this._assertLifecycleOperation(epoch, expectedState, "prepare WebGPU shaders");
 
 		let requestedDevice: GPUDevice | null = null;
@@ -541,6 +564,25 @@ export class WebGPUBackend implements IRenderBackend {
 			requestedDevice.destroy();
 			throw error;
 		}
+
+		const profile = createWebGPUShaderDirectiveProfile(profileBase, {
+			maxDirectionalLights: MAX_DIRECTIONAL_LIGHTS,
+			maxPointLights: MAX_POINT_LIGHTS,
+			maxSpotLights: MAX_SPOT_LIGHTS,
+			maxAreaLights: MAX_AREA_LIGHTS,
+			maxLocalLightProbes: MAX_LOCAL_LIGHT_PROBES,
+			maxReflectionProbes: MAX_REFLECTION_PROBES,
+			shCoefficientCount: WEBGPU_SH_COEFFICIENT_COUNT,
+			textureSlotCount: WEBGPU_TEXTURE_SLOT_COUNT,
+		});
+		const compileStage = new ShaderBackendCompileStage({
+			runtime: this.shaderRuntime,
+			profile,
+			hook: this._directiveHook,
+			mode: this._shaderMode,
+		});
+		this._shaderCompileStage = compileStage;
+		this._shaderModuleCompiler.setCompileStage(compileStage);
 
 		this._deviceLostInfo = null;
 		this._device = requestedDevice;
@@ -1057,7 +1099,8 @@ export class WebGPUBackend implements IRenderBackend {
 			get shaderRuntime() {
 				return backend.shaderRuntime;
 			},
-			getShaderDirectiveCacheTag: () => backend._shaderCompileStage.getCacheFingerprintTag(),
+			getShaderDirectiveCacheTag: () =>
+				backend._shaderCompileStage?.getCacheFingerprintTag() ?? "uninitialized",
 			createBuffer: (desc) => {
 				assertActive("create frame buffers");
 				return backend._resourceManager.createBuffer(desc);
@@ -1391,6 +1434,8 @@ export class WebGPUBackend implements IRenderBackend {
 	}
 
 	private _releaseDeviceRuntime(): void {
+		this._shaderModuleCompiler.setCompileStage(null);
+		this._shaderCompileStage = null;
 		const cleanup = (scope: string, operation: () => void): void => {
 			try {
 				operation();

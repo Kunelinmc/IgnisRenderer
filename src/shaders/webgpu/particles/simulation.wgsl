@@ -1,3 +1,5 @@
+#import <ignis/webgpu/constants>
+
 struct ParticleSimParams {
 	deltaTime: f32,
 	elapsedTime: f32,
@@ -73,7 +75,7 @@ fn randomRange(seed: ptr<function, u32>, lo: f32, hi: f32) -> f32 {
 
 fn normalizeSafe(value: vec3<f32>, fallback: vec3<f32>) -> vec3<f32> {
 	let len = length(value);
-	if (len <= 0.000001) {
+	if (len <= EPSILON) {
 		return fallback;
 	}
 	return value / len;
@@ -81,7 +83,7 @@ fn normalizeSafe(value: vec3<f32>, fallback: vec3<f32>) -> vec3<f32> {
 
 fn randomUnitVector(seed: ptr<function, u32>) -> vec3<f32> {
 	let u = nextRandom(seed) * 2.0 - 1.0;
-	let theta = nextRandom(seed) * 6.28318530718;
+	let theta = nextRandom(seed) * TWO_PI;
 	let r = sqrt(max(0.0, 1.0 - u * u));
 	return vec3<f32>(r * cos(theta), u, r * sin(theta));
 }

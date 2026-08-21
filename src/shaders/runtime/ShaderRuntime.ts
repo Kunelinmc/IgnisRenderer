@@ -1,6 +1,7 @@
 import {
 	createInlineCompositeShaderSource,
 	mapShaderGeneratedLocation,
+	SOURCE_MAP_SCHEMA_VERSION,
 } from "./sourceMap";
 import {
 	SHADER_RUNTIME_DEFAULT_CACHE_LIMIT,
@@ -12,10 +13,8 @@ import type {
 	CompositeShaderSource,
 	ShaderDiagnostic,
 	ShaderDiagnosticFilter,
-	ShaderDiagnosticSeverity,
 	ShaderDiagnosticRange,
 	ShaderDirectivePreprocessResult,
-	ShaderInjectionAnchor,
 	ShaderInjectionScript,
 	ShaderLanguage,
 	ShaderProcessRequest,
@@ -28,7 +27,6 @@ import type {
 	ShaderRuleReplacePatch,
 	ShaderRuleReplaceResolved,
 	ShaderRuleReplaceResult,
-	ShaderRuleTransformOutput,
 	ShaderRuleTransformResolved,
 	ShaderRuleTransformResult,
 	ShaderRuntimeCacheKind,
@@ -37,10 +35,8 @@ import type {
 	ShaderRuntimeChangeAction,
 	ShaderRuntimeChangeEvent,
 	ShaderRuntimeMode,
-	ShaderSourceKind,
 	ShaderSourceSegment,
 	ShaderSourceSegmentMap,
-	ShaderStage,
 } from "./types";
 import {
 	DirectivePreprocessor,
@@ -54,30 +50,18 @@ import {
 	type InjectionBlock,
 } from "./ShaderSourceInjection";
 import {
-	buildStrictModeError,
 	canonicalizeModulePath,
 	cloneCompositeSource,
 	cloneDiagnostics,
-	cloneProcessResult,
-	cloneRule,
 	cloneSourceMap,
-	createGeneratedCompositeWithColumnSpans,
 	createPointRange,
-	formatIncludeModuleEventId,
-	hashSourceCode,
-	hashSourceMap,
-	hashStringFNV1a,
 	isPromiseLike,
-	normalizeDependsOn,
-	normalizeDiagnosticRange,
 	normalizeInjectionBlock,
 	normalizeInjectionScript,
 	normalizeLanguage,
-	normalizePositiveInteger,
 	normalizeSourceKind,
 	normalizeStage,
 	normalizeSymbols,
-	resolveShaderRequestSourcePath,
 } from "./runtimeShared";
 
 interface ShaderRuntimeOptions {
@@ -171,25 +155,20 @@ export class ShaderRuntime {
 	private _asyncCacheStats: InternalCacheStats;
 	private _listeners: Set<ShaderRuntimeChangeListener>;
 	private _diagnosticFilters: Set<ShaderDiagnosticFilter>;
-	private _includeModulesByLanguage: Map<
-		ShaderLanguage,
-		Map<string, RegisteredIncludeModule>
-	>;
+	private _includeModulesByLanguage: Map<ShaderLanguage, Map<string, RegisteredIncludeModule>>;
 	private _injectionScripts: Map<string, ShaderInjectionScript>;
 	private _directiveRegistryRevision: number;
 	private _directivePreprocessor: DirectivePreprocessor;
 
-	public constructor(options: ShaderRuntimeOptions = {}) {
+	constructor(options: ShaderRuntimeOptions = {}) {
 		this._mode = options.mode ?? resolveDefaultShaderRuntimeMode();
 		this._cacheLimit = Math.max(
 			1,
-			Math.floor(options.cacheLimit ?? SHADER_RUNTIME_DEFAULT_CACHE_LIMIT)
+			Math.floor(options.cacheLimit ?? SHADER_RUNTIME_DEFAULT_CACHE_LIMIT),
 		);
 		this._strictErrorMaxDiagnostics = Math.max(
 			1,
-			Math.floor(
-				options.strictErrorMaxDiagnostics ?? DEFAULT_STRICT_ERROR_MAX_DIAGNOSTICS
-			)
+			Math.floor(options.strictErrorMaxDiagnostics ?? DEFAULT_STRICT_ERROR_MAX_DIAGNOSTICS),
 		);
 		this._revision = 1;
 		this._builtInRules = new Map();
@@ -255,11 +234,10 @@ export class ShaderRuntime {
 		language: ShaderLanguage,
 		id: string,
 		code: string,
-		sourcePath?: string
+		sourcePath?: string,
 	): void {
 		const normalizedLanguage = normalizeLanguage(language);
-		const normalizedId =
-			typeof id === "string" ? id.trim().replace(/\\/g, "/") : "";
+		const normalizedId = typeof id === "string" ? id.trim().replace(/\\/g, "/") : "";
 		if (normalizedId.length <= 0) {
 			throw new Error("Shader include module id must be a non-empty string.");
 		}
@@ -267,20 +245,18 @@ export class ShaderRuntime {
 			throw new Error("Shader include module code must be a string.");
 		}
 		const canonicalId = canonicalizeModulePath(normalizedId);
-		const languageModules =
-			this._includeModulesByLanguage.get(normalizedLanguage) ?? new Map();
-		const action: ShaderRuntimeChangeAction =
-			languageModules.has(canonicalId) ?
-				"update-include-module"
-			:	"register-include-module";
+		const languageModules = this._includeModulesByLanguage.get(normalizedLanguage) ?? new Map();
+		const action: ShaderRuntimeChangeAction = languageModules.has(canonicalId)
+			? "update-include-module"
+			: "register-include-module";
 		languageModules.set(canonicalId, {
 			id: normalizedId,
 			canonicalId,
 			code,
 			sourcePath:
-				typeof sourcePath === "string" && sourcePath.trim().length > 0 ?
-					sourcePath.trim()
-				:	canonicalId,
+				typeof sourcePath === "string" && sourcePath.trim().length > 0
+					? sourcePath.trim()
+					: canonicalId,
 		});
 		this._includeModulesByLanguage.set(normalizedLanguage, languageModules);
 		this._directiveRegistryRevision++;
@@ -292,14 +268,12 @@ export class ShaderRuntime {
 
 	public unregisterIncludeModule(language: ShaderLanguage, id: string): boolean {
 		const normalizedLanguage = normalizeLanguage(language);
-		const normalizedId =
-			typeof id === "string" ? id.trim().replace(/\\/g, "/") : "";
+		const normalizedId = typeof id === "string" ? id.trim().replace(/\\/g, "/") : "";
 		if (normalizedId.length <= 0) {
 			return false;
 		}
 		const canonicalId = canonicalizeModulePath(normalizedId);
-		const languageModules =
-			this._includeModulesByLanguage.get(normalizedLanguage) ?? null;
+		const languageModules = this._includeModulesByLanguage.get(normalizedLanguage) ?? null;
 		if (!languageModules || !languageModules.has(canonicalId)) {
 			return false;
 		}
@@ -333,13 +307,12 @@ export class ShaderRuntime {
 			return;
 		}
 		const normalizedLanguage = normalizeLanguage(language);
-		const languageModules =
-			this._includeModulesByLanguage.get(normalizedLanguage) ?? null;
+		const languageModules = this._includeModulesByLanguage.get(normalizedLanguage) ?? null;
 		if (!languageModules || languageModules.size <= 0) {
 			return;
 		}
 		const ids = [...languageModules.keys()].map((moduleId) =>
-			formatIncludeModuleEventId(normalizedLanguage, moduleId)
+			formatIncludeModuleEventId(normalizedLanguage, moduleId),
 		);
 		languageModules.clear();
 		this._directiveRegistryRevision++;
@@ -351,10 +324,9 @@ export class ShaderRuntime {
 
 	public registerInjectionScript(script: ShaderInjectionScript): void {
 		const normalized = normalizeInjectionScript(script);
-		const action: ShaderRuntimeChangeAction =
-			this._injectionScripts.has(normalized.id) ?
-				"update-injection-script"
-			:	"register-injection-script";
+		const action: ShaderRuntimeChangeAction = this._injectionScripts.has(normalized.id)
+			? "update-injection-script"
+			: "register-injection-script";
 		this._injectionScripts.set(normalized.id, normalized);
 		this._directiveRegistryRevision++;
 		this._applyMutation(action, [], {
@@ -394,11 +366,12 @@ export class ShaderRuntime {
 		const normalized = this._normalizeRule(rule);
 		if (normalized.id.startsWith(SHADER_RUNTIME_RESERVED_RULE_PREFIX)) {
 			throw new Error(
-				`ShaderRuntime user rules cannot use reserved prefix "${SHADER_RUNTIME_RESERVED_RULE_PREFIX}".`
+				`ShaderRuntime user rules cannot use reserved prefix "${SHADER_RUNTIME_RESERVED_RULE_PREFIX}".`,
 			);
 		}
-		const action: ShaderRuntimeChangeAction =
-			this._userRules.has(normalized.id) ? "update-rule" : "register-rule";
+		const action: ShaderRuntimeChangeAction = this._userRules.has(normalized.id)
+			? "update-rule"
+			: "register-rule";
 		const draftUserRules = new Map(this._userRules);
 		draftUserRules.set(normalized.id, normalized);
 		this._assertUserSymbolConflictForRule(normalized, draftUserRules);
@@ -419,7 +392,7 @@ export class ShaderRuntime {
 			throw new Error(
 				`ShaderRuntime cannot unregister rule "${normalizedRuleId}" because it is required by ${dependents
 					.map((id) => `"${id}"`)
-					.join(", ")}.`
+					.join(", ")}.`,
 			);
 		}
 		this._userRules.delete(normalizedRuleId);
@@ -456,7 +429,7 @@ export class ShaderRuntime {
 	public getCacheStats(kind: ShaderRuntimeCacheKind): ShaderRuntimeCacheStats;
 	public getCacheStats(): ShaderRuntimeCacheStatsSnapshot;
 	public getCacheStats(
-		kind?: ShaderRuntimeCacheKind
+		kind?: ShaderRuntimeCacheKind,
 	): ShaderRuntimeCacheStats | ShaderRuntimeCacheStatsSnapshot {
 		if (kind) {
 			return this._snapshotCacheStats(kind);
@@ -486,41 +459,35 @@ export class ShaderRuntime {
 		};
 	}
 
-	public resolveInjectionAnchors(
-		request: ShaderProcessRequest
-	): ShaderResolvedInjectionAnchors {
+	public resolveInjectionAnchors(request: ShaderProcessRequest): ShaderResolvedInjectionAnchors {
 		return this._directivePreprocessor.resolveInjectionAnchors(request);
 	}
 
-	public preprocessDirectives(
-		request: ShaderProcessRequest
-	): ShaderDirectivePreprocessResult {
+	public preprocessDirectives(request: ShaderProcessRequest): ShaderDirectivePreprocessResult {
 		const sourcePath = resolveShaderRequestSourcePath(request);
-		const initialComposite =
-			request.sourceMap ?
-				{
+		const initialComposite = request.sourceMap
+			? {
 					code: request.code,
 					sourceMap: cloneSourceMap(request.sourceMap),
 				}
-			:	createInlineCompositeShaderSource(request.code, sourcePath, "source");
+			: createInlineCompositeShaderSource(request.code, sourcePath, "source");
 		const preprocessed = this._directivePreprocessor.preprocessSync(request, initialComposite);
 		return this._finalizeDirectivePreprocessResult(request, preprocessed);
 	}
 
 	public async preprocessDirectivesAsync(
-		request: ShaderProcessRequest
+		request: ShaderProcessRequest,
 	): Promise<ShaderDirectivePreprocessResult> {
 		const sourcePath = resolveShaderRequestSourcePath(request);
-		const initialComposite =
-			request.sourceMap ?
-				{
+		const initialComposite = request.sourceMap
+			? {
 					code: request.code,
 					sourceMap: cloneSourceMap(request.sourceMap),
 				}
-			:	createInlineCompositeShaderSource(request.code, sourcePath, "source");
+			: createInlineCompositeShaderSource(request.code, sourcePath, "source");
 		const preprocessed = await this._directivePreprocessor.preprocessAsync(
 			request,
-			initialComposite
+			initialComposite,
 		);
 		return this._finalizeDirectivePreprocessResult(request, preprocessed);
 	}
@@ -533,28 +500,21 @@ export class ShaderRuntime {
 				prepared.context,
 				cached.result,
 				request.diagnosticFilter,
-				true
+				true,
 			);
 		}
 
 		const rawResult = this._executeRulesSync(prepared);
-		this._setCachedResult(
-			"sync",
-			prepared.cacheKey,
-			rawResult,
-			prepared.matchedRuleIds
-		);
+		this._setCachedResult("sync", prepared.cacheKey, rawResult, prepared.matchedRuleIds);
 		return this._finalizeProcessResult(
 			prepared.context,
 			rawResult,
 			request.diagnosticFilter,
-			false
+			false,
 		);
 	}
 
-	public async processAsync(
-		request: ShaderProcessRequest
-	): Promise<ShaderProcessResult> {
+	public async processAsync(request: ShaderProcessRequest): Promise<ShaderProcessResult> {
 		const prepared = await this._prepareProcessAsync(request);
 		const cached = this._getCachedResult("async", prepared.cacheKey);
 		if (cached) {
@@ -562,7 +522,7 @@ export class ShaderRuntime {
 				prepared.context,
 				cached.result,
 				request.diagnosticFilter,
-				true
+				true,
 			);
 		}
 		const inFlight = this._asyncInFlight.get(prepared.cacheKey);
@@ -572,7 +532,7 @@ export class ShaderRuntime {
 				prepared.context,
 				shared,
 				request.diagnosticFilter,
-				true
+				true,
 			);
 		}
 
@@ -585,7 +545,7 @@ export class ShaderRuntime {
 						"async",
 						prepared.cacheKey,
 						rawResult,
-						prepared.matchedRuleIds
+						prepared.matchedRuleIds,
 					);
 				}
 				return rawResult;
@@ -598,23 +558,17 @@ export class ShaderRuntime {
 		this._asyncInFlight.set(prepared.cacheKey, executionPromise);
 
 		const raw = await executionPromise;
-		return this._finalizeProcessResult(
-			prepared.context,
-			raw,
-			request.diagnosticFilter,
-			false
-		);
+		return this._finalizeProcessResult(prepared.context, raw, request.diagnosticFilter, false);
 	}
 
 	private _prepareProcessSync(request: ShaderProcessRequest): ProcessPreparation {
 		const initialSourcePath = resolveShaderRequestSourcePath(request);
-		const initialComposite =
-			request.sourceMap ?
-				{
+		const initialComposite = request.sourceMap
+			? {
 					code: request.code,
 					sourceMap: cloneSourceMap(request.sourceMap),
 				}
-			:	createInlineCompositeShaderSource(request.code, initialSourcePath, "source");
+			: createInlineCompositeShaderSource(request.code, initialSourcePath, "source");
 		const preprocessed = this._directivePreprocessor.preprocessSync(request, initialComposite);
 		const sourcePath =
 			preprocessed.composite.sourceMap.segments[0]?.sourcePath ?? initialSourcePath;
@@ -629,7 +583,7 @@ export class ShaderRuntime {
 			const matchResult = rule.match(context);
 			if (isPromiseLike(matchResult)) {
 				throw new Error(
-					`ShaderRuntime rule "${rule.id}" returned a Promise from match() during process(). Use processAsync().`
+					`ShaderRuntime rule "${rule.id}" returned a Promise from match() during process(). Use processAsync().`,
 				);
 			}
 			if (matchResult) {
@@ -639,7 +593,7 @@ export class ShaderRuntime {
 
 		const sourceHash = this._resolveSourceHash(
 			context.source,
-			preprocessed.composite.code === request.code ? request.sourceHash : undefined
+			preprocessed.composite.code === request.code ? request.sourceHash : undefined,
 		);
 		const matchedRuleIds = matchedRules.map((rule) => rule.id);
 		const cacheKey = this._buildProcessCacheKey(
@@ -647,7 +601,7 @@ export class ShaderRuntime {
 			preprocessed.composite.sourceMap,
 			sourceHash,
 			matchedRuleIds,
-			this._directiveRegistryRevision
+			this._directiveRegistryRevision,
 		);
 
 		return {
@@ -662,20 +616,17 @@ export class ShaderRuntime {
 		};
 	}
 
-	private async _prepareProcessAsync(
-		request: ShaderProcessRequest
-	): Promise<ProcessPreparation> {
+	private async _prepareProcessAsync(request: ShaderProcessRequest): Promise<ProcessPreparation> {
 		const initialSourcePath = resolveShaderRequestSourcePath(request);
-		const initialComposite =
-			request.sourceMap ?
-				{
+		const initialComposite = request.sourceMap
+			? {
 					code: request.code,
 					sourceMap: cloneSourceMap(request.sourceMap),
 				}
-			:	createInlineCompositeShaderSource(request.code, initialSourcePath, "source");
+			: createInlineCompositeShaderSource(request.code, initialSourcePath, "source");
 		const preprocessed = await this._directivePreprocessor.preprocessAsync(
 			request,
-			initialComposite
+			initialComposite,
 		);
 		const sourcePath =
 			preprocessed.composite.sourceMap.segments[0]?.sourcePath ?? initialSourcePath;
@@ -695,7 +646,7 @@ export class ShaderRuntime {
 
 		const sourceHash = this._resolveSourceHash(
 			context.source,
-			preprocessed.composite.code === request.code ? request.sourceHash : undefined
+			preprocessed.composite.code === request.code ? request.sourceHash : undefined,
 		);
 		const matchedRuleIds = matchedRules.map((rule) => rule.id);
 		const cacheKey = this._buildProcessCacheKey(
@@ -703,7 +654,7 @@ export class ShaderRuntime {
 			preprocessed.composite.sourceMap,
 			sourceHash,
 			matchedRuleIds,
-			this._directiveRegistryRevision
+			this._directiveRegistryRevision,
 		);
 
 		return {
@@ -720,7 +671,7 @@ export class ShaderRuntime {
 
 	private _buildRuleContext(
 		request: ShaderProcessRequest,
-		source: string = request.code
+		source: string = request.code,
 	): ShaderRuleContext {
 		return {
 			mode: this._mode,
@@ -734,8 +685,7 @@ export class ShaderRuntime {
 	}
 
 	private _resolveSourceHash(source: string, sourceHash: string | undefined): string {
-		const providedHash =
-			typeof sourceHash === "string" ? sourceHash.trim() : "";
+		const providedHash = typeof sourceHash === "string" ? sourceHash.trim() : "";
 		if (providedHash.length <= 0) {
 			return hashSourceCode(source);
 		}
@@ -743,7 +693,7 @@ export class ShaderRuntime {
 			const computedHash = hashSourceCode(source);
 			if (providedHash !== computedHash) {
 				throw new Error(
-					`ShaderRuntime sourceHash mismatch. Provided "${providedHash}" but computed "${computedHash}".`
+					`ShaderRuntime sourceHash mismatch. Provided "${providedHash}" but computed "${computedHash}".`,
 				);
 			}
 		}
@@ -762,21 +712,20 @@ export class ShaderRuntime {
 				const validateResult = rule.validate(rewrite.context);
 				if (isPromiseLike(validateResult)) {
 					throw new Error(
-						`ShaderRuntime rule "${rule.id}" returned a Promise from validate() during process(). Use processAsync().`
+						`ShaderRuntime rule "${rule.id}" returned a Promise from validate() during process(). Use processAsync().`,
 					);
 				}
-				const diagnosticsFromRule =
-					Array.isArray(validateResult) ? validateResult : [];
+				const diagnosticsFromRule = Array.isArray(validateResult) ? validateResult : [];
 				for (const diagnostic of diagnosticsFromRule) {
-						diagnostics.push(
-							this._normalizeDiagnostic(
-								{ ...diagnostic, ruleId: rule.id },
-								rewrite.composite.sourceMap,
-								prepared.sourcePath
-							)
-						);
-					}
+					diagnostics.push(
+						this._normalizeDiagnostic(
+							{ ...diagnostic, ruleId: rule.id },
+							rewrite.composite.sourceMap,
+							prepared.sourcePath,
+						),
+					);
 				}
+			}
 
 			if (!rule.inject) {
 				continue;
@@ -784,7 +733,7 @@ export class ShaderRuntime {
 			const injection = rule.inject(rewrite.context);
 			if (isPromiseLike(injection)) {
 				throw new Error(
-					`ShaderRuntime rule "${rule.id}" returned a Promise from inject() during process(). Use processAsync().`
+					`ShaderRuntime rule "${rule.id}" returned a Promise from inject() during process(). Use processAsync().`,
 				);
 			}
 			this._applyInjectionIfAny(
@@ -796,7 +745,7 @@ export class ShaderRuntime {
 				diagnostics,
 				headers,
 				functions,
-				dynamicUserSymbols
+				dynamicUserSymbols,
 			);
 		}
 
@@ -806,13 +755,11 @@ export class ShaderRuntime {
 			rewrite.context,
 			diagnostics,
 			headers,
-			functions
+			functions,
 		);
 	}
 
-	private async _executeRulesAsync(
-		prepared: ProcessPreparation
-	): Promise<ShaderProcessResult> {
+	private async _executeRulesAsync(prepared: ProcessPreparation): Promise<ShaderProcessResult> {
 		const rewrite = await this._applyRuleRewritesAsync(prepared);
 		const diagnostics: ShaderDiagnostic[] = [...rewrite.diagnostics];
 		const headers: InjectionBlock[] = [];
@@ -822,15 +769,14 @@ export class ShaderRuntime {
 		for (const rule of prepared.matchedRules) {
 			if (rule.validate) {
 				const validateResult = await rule.validate(rewrite.context);
-				const diagnosticsFromRule =
-					Array.isArray(validateResult) ? validateResult : [];
+				const diagnosticsFromRule = Array.isArray(validateResult) ? validateResult : [];
 				for (const diagnostic of diagnosticsFromRule) {
 					diagnostics.push(
 						this._normalizeDiagnostic(
 							{ ...diagnostic, ruleId: rule.id },
 							rewrite.composite.sourceMap,
-							prepared.sourcePath
-						)
+							prepared.sourcePath,
+						),
 					);
 				}
 			}
@@ -848,7 +794,7 @@ export class ShaderRuntime {
 				diagnostics,
 				headers,
 				functions,
-				dynamicUserSymbols
+				dynamicUserSymbols,
 			);
 		}
 
@@ -858,13 +804,11 @@ export class ShaderRuntime {
 			rewrite.context,
 			diagnostics,
 			headers,
-			functions
+			functions,
 		);
 	}
 
-	private _applyRuleRewritesSync(
-		prepared: ProcessPreparation
-	): RewritePreparation {
+	private _applyRuleRewritesSync(prepared: ProcessPreparation): RewritePreparation {
 		let composite = cloneCompositeSource(prepared.baseComposite);
 		let context = {
 			...prepared.context,
@@ -881,13 +825,13 @@ export class ShaderRuntime {
 				}
 				if (isPromiseLike(transformResult)) {
 					throw new Error(
-						`ShaderRuntime rule "${rule.id}" returned a Promise from transform() during process(). Use processAsync().`
+						`ShaderRuntime rule "${rule.id}" returned a Promise from transform() during process(). Use processAsync().`,
 					);
 				}
 				const applied = this._applyRuleTransformResult(
 					rule.id,
 					transformResult as ShaderRuleTransformResolved,
-					composite
+					composite,
 				);
 				composite = applied.composite;
 				context = {
@@ -899,7 +843,7 @@ export class ShaderRuntime {
 					rule.id,
 					applied.diagnostics,
 					composite.sourceMap,
-					prepared.sourcePath
+					prepared.sourcePath,
 				);
 			}
 			if (!rule.replace) {
@@ -913,13 +857,13 @@ export class ShaderRuntime {
 			}
 			if (isPromiseLike(replaceResult)) {
 				throw new Error(
-					`ShaderRuntime rule "${rule.id}" returned a Promise from replace() during process(). Use processAsync().`
+					`ShaderRuntime rule "${rule.id}" returned a Promise from replace() during process(). Use processAsync().`,
 				);
 			}
 			const applied = this._applyRuleReplaceResult(
 				rule.id,
 				replaceResult as ShaderRuleReplaceResolved,
-				composite
+				composite,
 			);
 			composite = applied.composite;
 			context = {
@@ -931,7 +875,7 @@ export class ShaderRuntime {
 				rule.id,
 				applied.diagnostics,
 				composite.sourceMap,
-				prepared.sourcePath
+				prepared.sourcePath,
 			);
 		}
 		return {
@@ -942,7 +886,7 @@ export class ShaderRuntime {
 	}
 
 	private async _applyRuleRewritesAsync(
-		prepared: ProcessPreparation
+		prepared: ProcessPreparation,
 	): Promise<RewritePreparation> {
 		let composite = cloneCompositeSource(prepared.baseComposite);
 		let context = {
@@ -958,11 +902,7 @@ export class ShaderRuntime {
 				} catch (error) {
 					throw this._createRuleHookError(rule.id, "transform", error);
 				}
-					const applied = this._applyRuleTransformResult(
-						rule.id,
-						transformResult,
-						composite
-					);
+				const applied = this._applyRuleTransformResult(rule.id, transformResult, composite);
 				composite = applied.composite;
 				context = {
 					...context,
@@ -973,7 +913,7 @@ export class ShaderRuntime {
 					rule.id,
 					applied.diagnostics,
 					composite.sourceMap,
-					prepared.sourcePath
+					prepared.sourcePath,
 				);
 			}
 			if (!rule.replace) {
@@ -988,7 +928,7 @@ export class ShaderRuntime {
 			const applied = this._applyRuleReplaceResult(
 				rule.id,
 				replaceResult as ShaderRuleReplaceResolved,
-				composite
+				composite,
 			);
 			composite = applied.composite;
 			context = {
@@ -1000,7 +940,7 @@ export class ShaderRuntime {
 				rule.id,
 				applied.diagnostics,
 				composite.sourceMap,
-				prepared.sourcePath
+				prepared.sourcePath,
 			);
 		}
 		return {
@@ -1013,7 +953,7 @@ export class ShaderRuntime {
 	private _applyRuleTransformResult(
 		ruleId: string,
 		result: ShaderRuleTransformResolved,
-		previousComposite: CompositeShaderSource
+		previousComposite: CompositeShaderSource,
 	): { composite: CompositeShaderSource; diagnostics: ShaderDiagnostic[] } {
 		if (!result) {
 			return {
@@ -1022,32 +962,31 @@ export class ShaderRuntime {
 			};
 		}
 		const normalized =
-			typeof result === "string" ?
-				{
-					code: result,
-					sourceMap: undefined,
-					diagnostics: [],
-				}
-			:	{
-					code: result.code,
-					sourceMap: result.sourceMap,
-					diagnostics: Array.isArray(result.diagnostics) ? result.diagnostics : [],
-				};
+			typeof result === "string"
+				? {
+						code: result,
+						sourceMap: undefined,
+						diagnostics: [],
+					}
+				: {
+						code: result.code,
+						sourceMap: result.sourceMap,
+						diagnostics: Array.isArray(result.diagnostics) ? result.diagnostics : [],
+					};
 		if (typeof normalized.code !== "string") {
 			throw new Error(
-				`ShaderRuntime rule "${ruleId}" transform() must return a string or { code } object.`
+				`ShaderRuntime rule "${ruleId}" transform() must return a string or { code } object.`,
 			);
 		}
-		const composite =
-			normalized.sourceMap ?
-				{
+		const composite = normalized.sourceMap
+			? {
 					code: normalized.code,
 					sourceMap: cloneSourceMap(normalized.sourceMap),
 				}
-			:	createGeneratedCompositeWithColumnSpans(
+			: createGeneratedCompositeWithColumnSpans(
 					normalized.code,
 					`<runtime:${ruleId}:transform>`,
-					`${ruleId}:transform`
+					`${ruleId}:transform`,
 				);
 		return {
 			composite,
@@ -1058,7 +997,7 @@ export class ShaderRuntime {
 	private _applyRuleReplaceResult(
 		ruleId: string,
 		result: ShaderRuleReplaceResolved,
-		previousComposite: CompositeShaderSource
+		previousComposite: CompositeShaderSource,
 	): { composite: CompositeShaderSource; diagnostics: ShaderDiagnostic[] } {
 		if (!result) {
 			return {
@@ -1066,20 +1005,21 @@ export class ShaderRuntime {
 				diagnostics: [],
 			};
 		}
-		const diagnostics =
-			Array.isArray(result) ? []
-			: Array.isArray((result as ShaderRuleReplaceOutput).diagnostics) ?
-				(result as ShaderRuleReplaceOutput).diagnostics!
-			:	[];
-		const patchesRaw =
-			Array.isArray(result) ? result : (result as ShaderRuleReplaceOutput).patches;
+		const diagnostics = Array.isArray(result)
+			? []
+			: Array.isArray((result as ShaderRuleReplaceOutput).diagnostics)
+				? (result as ShaderRuleReplaceOutput).diagnostics!
+				: [];
+		const patchesRaw = Array.isArray(result)
+			? result
+			: (result as ShaderRuleReplaceOutput).patches;
 		if (!Array.isArray(patchesRaw)) {
 			throw new Error(
-				`ShaderRuntime rule "${ruleId}" replace() must return patch list or { patches } object.`
+				`ShaderRuntime rule "${ruleId}" replace() must return patch list or { patches } object.`,
 			);
 		}
 		const patches = patchesRaw.map((patch, index) =>
-			this._normalizeReplacePatch(ruleId, index, patch)
+			this._normalizeReplacePatch(ruleId, index, patch),
 		);
 		if (patches.length <= 0) {
 			return {
@@ -1087,10 +1027,10 @@ export class ShaderRuntime {
 				diagnostics,
 			};
 		}
-			let code = previousComposite.code;
-			for (let index = 0; index < patches.length; index++) {
-				code = this._applyReplacePatch(code, patches[index]);
-			}
+		let code = previousComposite.code;
+		for (let index = 0; index < patches.length; index++) {
+			code = this._applyReplacePatch(code, patches[index]);
+		}
 		if (code === previousComposite.code) {
 			return {
 				composite: previousComposite,
@@ -1101,7 +1041,7 @@ export class ShaderRuntime {
 			composite: createGeneratedCompositeWithColumnSpans(
 				code,
 				`<runtime:${ruleId}:replace>`,
-				`${ruleId}:replace`
+				`${ruleId}:replace`,
 			),
 			diagnostics,
 		};
@@ -1110,24 +1050,21 @@ export class ShaderRuntime {
 	private _normalizeReplacePatch(
 		ruleId: string,
 		index: number,
-		patch: ShaderRuleReplacePatch
+		patch: ShaderRuleReplacePatch,
 	): ShaderRuleReplacePatch {
 		if (!patch || typeof patch !== "object") {
 			throw new Error(
-				`ShaderRuntime rule "${ruleId}" replace patch #${index + 1} must be an object.`
+				`ShaderRuntime rule "${ruleId}" replace patch #${index + 1} must be an object.`,
 			);
 		}
-		if (
-			typeof patch.pattern !== "string" &&
-			!(patch.pattern instanceof RegExp)
-		) {
+		if (typeof patch.pattern !== "string" && !(patch.pattern instanceof RegExp)) {
 			throw new Error(
-				`ShaderRuntime rule "${ruleId}" replace patch #${index + 1} pattern must be string or RegExp.`
+				`ShaderRuntime rule "${ruleId}" replace patch #${index + 1} pattern must be string or RegExp.`,
 			);
 		}
 		if (typeof patch.replacement !== "string") {
 			throw new Error(
-				`ShaderRuntime rule "${ruleId}" replace patch #${index + 1} replacement must be a string.`
+				`ShaderRuntime rule "${ruleId}" replace patch #${index + 1} replacement must be a string.`,
 			);
 		}
 		return {
@@ -1137,10 +1074,7 @@ export class ShaderRuntime {
 		};
 	}
 
-	private _applyReplacePatch(
-		code: string,
-		patch: ShaderRuleReplacePatch
-	): string {
+	private _applyReplacePatch(code: string, patch: ShaderRuleReplacePatch): string {
 		if (patch.pattern instanceof RegExp) {
 			let expression = patch.pattern;
 			if (patch.replaceAll === true && !expression.flags.includes("g")) {
@@ -1161,11 +1095,7 @@ export class ShaderRuntime {
 		if (found < 0) {
 			return code;
 		}
-		return (
-			code.slice(0, found) +
-			patch.replacement +
-			code.slice(found + patch.pattern.length)
-		);
+		return code.slice(0, found) + patch.replacement + code.slice(found + patch.pattern.length);
 	}
 
 	private _appendRuleDiagnostics(
@@ -1173,15 +1103,11 @@ export class ShaderRuntime {
 		ruleId: string,
 		diagnostics: ShaderDiagnostic[],
 		sourceMap: ShaderSourceSegmentMap | null | undefined,
-		fallbackSourcePath: string
+		fallbackSourcePath: string,
 	): void {
 		for (const diagnostic of diagnostics) {
 			target.push(
-				this._normalizeDiagnostic(
-					{ ...diagnostic, ruleId },
-					sourceMap,
-					fallbackSourcePath
-				)
+				this._normalizeDiagnostic({ ...diagnostic, ruleId }, sourceMap, fallbackSourcePath),
 			);
 		}
 	}
@@ -1189,17 +1115,15 @@ export class ShaderRuntime {
 	private _createRuleHookError(
 		ruleId: string,
 		hookKind: "transform" | "replace",
-		error: unknown
+		error: unknown,
 	): Error {
 		const message =
-			error instanceof Error ?
-				error.message
-			:	typeof error === "string" ?
-				error
-			:	"Unknown hook failure.";
-		return new Error(
-			`ShaderRuntime rule "${ruleId}" ${hookKind} hook failed: ${message}`
-		);
+			error instanceof Error
+				? error.message
+				: typeof error === "string"
+					? error
+					: "Unknown hook failure.";
+		return new Error(`ShaderRuntime rule "${ruleId}" ${hookKind} hook failed: ${message}`);
 	}
 
 	private _applyInjectionIfAny(
@@ -1211,7 +1135,7 @@ export class ShaderRuntime {
 		diagnostics: ShaderDiagnostic[],
 		headers: InjectionBlock[],
 		functions: InjectionBlock[],
-		dynamicUserSymbols: Map<string, string>
+		dynamicUserSymbols: Map<string, string>,
 	): void {
 		if (!injection) {
 			return;
@@ -1220,15 +1144,11 @@ export class ShaderRuntime {
 			const conflict = this._resolveInjectionSymbolConflict(
 				rule,
 				injection,
-				dynamicUserSymbols
+				dynamicUserSymbols,
 			);
 			if (conflict) {
 				diagnostics.push(
-					this._normalizeDiagnostic(
-						conflict,
-						sourceMap,
-						fallbackSourcePath
-					)
+					this._normalizeDiagnostic(conflict, sourceMap, fallbackSourcePath),
 				);
 				return;
 			}
@@ -1237,30 +1157,30 @@ export class ShaderRuntime {
 
 		const header = normalizeInjectionBlock(injection.header);
 		if (header.length > 0) {
-				headers.push({
-					code: header,
-					sourcePath: `<runtime:${rule.id}:header>`,
-					label: `${rule.id}:header`,
-					anchor: normalizeInjectionAnchorForLanguage(
-						context.language,
-						injection.headerAnchor
-					),
-				});
-			}
+			headers.push({
+				code: header,
+				sourcePath: `<runtime:${rule.id}:header>`,
+				label: `${rule.id}:header`,
+				anchor: normalizeInjectionAnchorForLanguage(
+					context.language,
+					injection.headerAnchor,
+				),
+			});
+		}
 
 		const functionBlock = normalizeInjectionBlock(injection.functions);
 		if (functionBlock.length > 0) {
-				functions.push({
-					code: functionBlock,
-					sourcePath: `<runtime:${rule.id}:functions>`,
-					label: `${rule.id}:functions`,
-					anchor: normalizeInjectionAnchorForLanguage(
-						context.language,
-						injection.functionsAnchor
-					),
-				});
-			}
+			functions.push({
+				code: functionBlock,
+				sourcePath: `<runtime:${rule.id}:functions>`,
+				label: `${rule.id}:functions`,
+				anchor: normalizeInjectionAnchorForLanguage(
+					context.language,
+					injection.functionsAnchor,
+				),
+			});
 		}
+	}
 
 	private _buildRawProcessResult(
 		prepared: ProcessPreparation,
@@ -1268,19 +1188,14 @@ export class ShaderRuntime {
 		context: ShaderRuleContext,
 		diagnostics: ShaderDiagnostic[],
 		headers: InjectionBlock[],
-		functions: InjectionBlock[]
+		functions: InjectionBlock[],
 	): ShaderProcessResult {
 		const composite =
-			context.language === "wgsl" ?
-				injectWGSLSource(rewriteComposite, [...headers, ...functions])
-			:	injectGLSLSource(rewriteComposite, [...headers, ...functions]);
-		const mergedDiagnostics = [
-			...prepared.preprocessedDiagnostics,
-			...diagnostics,
-		];
-		const hasErrors = mergedDiagnostics.some(
-			(diagnostic) => diagnostic.severity === "error"
-		);
+			context.language === "wgsl"
+				? injectWGSLSource(rewriteComposite, [...headers, ...functions])
+				: injectGLSLSource(rewriteComposite, [...headers, ...functions]);
+		const mergedDiagnostics = [...prepared.preprocessedDiagnostics, ...diagnostics];
+		const hasErrors = mergedDiagnostics.some((diagnostic) => diagnostic.severity === "error");
 		return {
 			code: composite.code,
 			sourceMap: composite.sourceMap,
@@ -1295,18 +1210,12 @@ export class ShaderRuntime {
 		context: ShaderRuleContext,
 		rawResult: ShaderProcessResult,
 		perCallFilter: ShaderDiagnosticFilter | undefined,
-		fromCache: boolean
+		fromCache: boolean,
 	): ShaderProcessResult {
 		const diagnostics = this._filterDiagnostics(rawResult.diagnostics, perCallFilter);
-		const hasErrors = diagnostics.some(
-			(diagnostic) => diagnostic.severity === "error"
-		);
+		const hasErrors = diagnostics.some((diagnostic) => diagnostic.severity === "error");
 		if (hasErrors && this._mode === "strict") {
-			throw buildStrictModeError(
-				context,
-				diagnostics,
-				this._strictErrorMaxDiagnostics
-			);
+			throw buildStrictModeError(context, diagnostics, this._strictErrorMaxDiagnostics);
 		}
 		return {
 			code: rawResult.code,
@@ -1320,15 +1229,13 @@ export class ShaderRuntime {
 
 	private _finalizeDirectivePreprocessResult(
 		request: ShaderProcessRequest,
-		preprocessed: PreprocessResult
+		preprocessed: PreprocessResult,
 	): ShaderDirectivePreprocessResult {
 		const diagnostics = this._filterDiagnostics(
 			preprocessed.diagnostics,
-			request.diagnosticFilter
+			request.diagnosticFilter,
 		);
-		const hasErrors = diagnostics.some(
-			(diagnostic) => diagnostic.severity === "error"
-		);
+		const hasErrors = diagnostics.some((diagnostic) => diagnostic.severity === "error");
 		return {
 			code: preprocessed.composite.code,
 			sourceMap: cloneSourceMap(preprocessed.composite.sourceMap),
@@ -1340,7 +1247,7 @@ export class ShaderRuntime {
 
 	private _filterDiagnostics(
 		diagnostics: ShaderDiagnostic[],
-		perCallFilter: ShaderDiagnosticFilter | undefined
+		perCallFilter: ShaderDiagnosticFilter | undefined,
 	): ShaderDiagnostic[] {
 		if (this._mode === "silent") {
 			return [];
@@ -1379,22 +1286,19 @@ export class ShaderRuntime {
 	private _normalizeDiagnostic(
 		diagnostic: ShaderDiagnostic,
 		sourceMap: ShaderSourceSegmentMap | null | undefined,
-		fallbackSourcePath: string
+		fallbackSourcePath: string,
 	): ShaderDiagnostic {
 		const generatedRange = normalizeDiagnosticRange(diagnostic.range) ?? null;
 		const generatedLine =
 			normalizePositiveInteger(diagnostic.line) ?? generatedRange?.start.line ?? null;
 		const generatedColumn =
-			normalizePositiveInteger(diagnostic.column) ??
-			generatedRange?.start.column ??
-			1;
+			normalizePositiveInteger(diagnostic.column) ?? generatedRange?.start.column ?? 1;
 		let resolvedLine = generatedLine ?? undefined;
 		let resolvedColumn = generatedLine ? generatedColumn : undefined;
 		let resolvedSourcePath =
-			typeof diagnostic.sourcePath === "string" &&
-			diagnostic.sourcePath.length > 0 ?
-				diagnostic.sourcePath
-			:	undefined;
+			typeof diagnostic.sourcePath === "string" && diagnostic.sourcePath.length > 0
+				? diagnostic.sourcePath
+				: undefined;
 		let resolvedRange =
 			generatedRange ??
 			(generatedLine ? createPointRange(generatedLine, generatedColumn) : undefined);
@@ -1403,7 +1307,7 @@ export class ShaderRuntime {
 			const mappedStart = mapShaderGeneratedLocation(
 				sourceMap,
 				generatedLine,
-				generatedColumn
+				generatedColumn,
 			);
 			if (mappedStart) {
 				resolvedLine = mappedStart.sourceLine;
@@ -1416,12 +1320,12 @@ export class ShaderRuntime {
 			const mappedStart = mapShaderGeneratedLocation(
 				sourceMap,
 				resolvedRange.start.line,
-				resolvedRange.start.column
+				resolvedRange.start.column,
 			);
 			const mappedEnd = mapShaderGeneratedLocation(
 				sourceMap,
 				resolvedRange.end.line,
-				resolvedRange.end.column
+				resolvedRange.end.column,
 			);
 			if (mappedStart && mappedEnd) {
 				resolvedRange = {
@@ -1465,21 +1369,21 @@ export class ShaderRuntime {
 			throw new Error("ShaderRuntime rule id must be a non-empty string.");
 		}
 		const priority =
-			typeof rule.priority === "number" && Number.isFinite(rule.priority) ?
-				Math.floor(rule.priority)
-			:	0;
-			if (rule.match !== undefined && typeof rule.match !== "function") {
-				throw new Error(`ShaderRuntime rule "${id}" match must be a function.`);
-			}
-			if (rule.transform !== undefined && typeof rule.transform !== "function") {
-				throw new Error(`ShaderRuntime rule "${id}" transform must be a function.`);
-			}
-			if (rule.replace !== undefined && typeof rule.replace !== "function") {
-				throw new Error(`ShaderRuntime rule "${id}" replace must be a function.`);
-			}
-			if (rule.validate !== undefined && typeof rule.validate !== "function") {
-				throw new Error(`ShaderRuntime rule "${id}" validate must be a function.`);
-			}
+			typeof rule.priority === "number" && Number.isFinite(rule.priority)
+				? Math.floor(rule.priority)
+				: 0;
+		if (rule.match !== undefined && typeof rule.match !== "function") {
+			throw new Error(`ShaderRuntime rule "${id}" match must be a function.`);
+		}
+		if (rule.transform !== undefined && typeof rule.transform !== "function") {
+			throw new Error(`ShaderRuntime rule "${id}" transform must be a function.`);
+		}
+		if (rule.replace !== undefined && typeof rule.replace !== "function") {
+			throw new Error(`ShaderRuntime rule "${id}" replace must be a function.`);
+		}
+		if (rule.validate !== undefined && typeof rule.validate !== "function") {
+			throw new Error(`ShaderRuntime rule "${id}" validate must be a function.`);
+		}
 		if (rule.inject !== undefined && typeof rule.inject !== "function") {
 			throw new Error(`ShaderRuntime rule "${id}" inject must be a function.`);
 		}
@@ -1493,9 +1397,7 @@ export class ShaderRuntime {
 			typeof rule.description === "string" ? rule.description.trim() : undefined;
 		const dependsOn = normalizeDependsOn(rule.dependsOn);
 		if (dependsOn.includes(id)) {
-			throw new Error(
-				`ShaderRuntime rule "${id}" cannot depend on itself in dependsOn.`
-			);
+			throw new Error(`ShaderRuntime rule "${id}" cannot depend on itself in dependsOn.`);
 		}
 		return {
 			...rule,
@@ -1520,7 +1422,7 @@ export class ShaderRuntime {
 		sourceMap: ShaderSourceSegmentMap | null | undefined,
 		sourceHash: string,
 		matchedRuleIds: readonly string[],
-		directiveRevision: number
+		directiveRevision: number,
 	): string {
 		const ruleFingerprint = hashStringFNV1a(matchedRuleIds.join("|"));
 		return [
@@ -1539,7 +1441,7 @@ export class ShaderRuntime {
 
 	private _getCachedResult(
 		kind: ShaderRuntimeCacheKind,
-		key: string
+		key: string,
 	): CachedShaderProcessResult | null {
 		const cache = this._getCacheMap(kind);
 		const stats = this._getCacheStats(kind);
@@ -1558,7 +1460,7 @@ export class ShaderRuntime {
 		kind: ShaderRuntimeCacheKind,
 		key: string,
 		result: ShaderProcessResult,
-		participatingRuleIds: readonly string[]
+		participatingRuleIds: readonly string[],
 	): void {
 		const cache = this._getCacheMap(kind);
 		const stats = this._getCacheStats(kind);
@@ -1583,7 +1485,7 @@ export class ShaderRuntime {
 	private _resolveInjectionSymbolConflict(
 		rule: ShaderRule,
 		injection: ShaderRuleInjection,
-		dynamicUserSymbols: Map<string, string>
+		dynamicUserSymbols: Map<string, string>,
 	): ShaderDiagnostic | null {
 		const symbols = this._collectRuleSymbols(rule, injection);
 		if (symbols.length <= 0) {
@@ -1595,8 +1497,7 @@ export class ShaderRuntime {
 					ruleId: rule.id,
 					code: "reserved-symbol-conflict",
 					severity: this._mode === "strict" ? "error" : "warning",
-					message:
-						`Rule "${rule.id}" conflicts with reserved symbol "${symbol}" and was skipped.`,
+					message: `Rule "${rule.id}" conflicts with reserved symbol "${symbol}" and was skipped.`,
 				};
 			}
 			const staticOwner = this._findStaticUserSymbolOwner(symbol, rule.id);
@@ -1605,8 +1506,7 @@ export class ShaderRuntime {
 					ruleId: rule.id,
 					code: "user-symbol-conflict",
 					severity: this._mode === "strict" ? "error" : "warning",
-					message:
-						`Rule "${rule.id}" conflicts with user rule "${staticOwner}" on symbol "${symbol}" and was skipped.`,
+					message: `Rule "${rule.id}" conflicts with user rule "${staticOwner}" on symbol "${symbol}" and was skipped.`,
 				};
 			}
 			const dynamicOwner = dynamicUserSymbols.get(symbol);
@@ -1615,8 +1515,7 @@ export class ShaderRuntime {
 					ruleId: rule.id,
 					code: "user-symbol-conflict",
 					severity: this._mode === "strict" ? "error" : "warning",
-					message:
-						`Rule "${rule.id}" conflicts with injected symbol "${symbol}" from "${dynamicOwner}" and was skipped.`,
+					message: `Rule "${rule.id}" conflicts with injected symbol "${symbol}" from "${dynamicOwner}" and was skipped.`,
 				};
 			}
 		}
@@ -1626,7 +1525,7 @@ export class ShaderRuntime {
 	private _registerDynamicInjectionSymbols(
 		rule: ShaderRule,
 		injection: ShaderRuleInjection,
-		dynamicUserSymbols: Map<string, string>
+		dynamicUserSymbols: Map<string, string>,
 	): void {
 		if (!this._isUserRule(rule.id)) {
 			return;
@@ -1638,10 +1537,7 @@ export class ShaderRuntime {
 		}
 	}
 
-	private _findStaticUserSymbolOwner(
-		symbol: string,
-		excludeRuleId: string
-	): string | null {
+	private _findStaticUserSymbolOwner(symbol: string, excludeRuleId: string): string | null {
 		for (const rule of this._userRules.values()) {
 			if (rule.id === excludeRuleId) {
 				continue;
@@ -1653,10 +1549,7 @@ export class ShaderRuntime {
 		return null;
 	}
 
-	private _collectRuleSymbols(
-		rule: ShaderRule,
-		injection: ShaderRuleInjection
-	): string[] {
+	private _collectRuleSymbols(rule: ShaderRule, injection: ShaderRuleInjection): string[] {
 		return normalizeSymbols([...(rule.symbols ?? []), ...(injection.symbols ?? [])]);
 	}
 
@@ -1679,7 +1572,7 @@ export class ShaderRuntime {
 			for (const dependencyId of rule.dependsOn ?? []) {
 				if (!mergedRules.has(dependencyId)) {
 					throw new Error(
-						`ShaderRuntime rule "${rule.id}" depends on missing rule "${dependencyId}".`
+						`ShaderRuntime rule "${rule.id}" depends on missing rule "${dependencyId}".`,
 					);
 				}
 				adjacency.get(dependencyId)?.push(rule.id);
@@ -1728,7 +1621,7 @@ export class ShaderRuntime {
 				.filter((entry) => entry[1] > 0)
 				.map((entry) => entry[0]);
 			throw new Error(
-				`ShaderRuntime rule dependency cycle detected: ${unresolved.join(" -> ")}`
+				`ShaderRuntime rule dependency cycle detected: ${unresolved.join(" -> ")}`,
 			);
 		}
 		return ordered;
@@ -1751,7 +1644,7 @@ export class ShaderRuntime {
 
 	private _assertUserSymbolConflictForRule(
 		rule: ShaderRule,
-		userRules: Map<string, ShaderRule>
+		userRules: Map<string, ShaderRule>,
 	): void {
 		const ruleSymbols = normalizeSymbols(rule.symbols);
 		for (const symbol of ruleSymbols) {
@@ -1761,7 +1654,7 @@ export class ShaderRuntime {
 				}
 				if (normalizeSymbols(otherRule.symbols).includes(symbol)) {
 					throw new Error(
-						`ShaderRuntime rule "${rule.id}" conflicts with rule "${otherRuleId}" on symbol "${symbol}".`
+						`ShaderRuntime rule "${rule.id}" conflicts with rule "${otherRuleId}" on symbol "${symbol}".`,
 					);
 				}
 			}
@@ -1781,9 +1674,7 @@ export class ShaderRuntime {
 		};
 	}
 
-	private _getCacheMap(
-		kind: ShaderRuntimeCacheKind
-	): Map<string, CachedShaderProcessResult> {
+	private _getCacheMap(kind: ShaderRuntimeCacheKind): Map<string, CachedShaderProcessResult> {
 		return kind === "sync" ? this._syncProcessCache : this._asyncProcessCache;
 	}
 
@@ -1810,12 +1701,12 @@ export class ShaderRuntime {
 		const removedSync = this._invalidateCacheEntriesByRuleIds(
 			this._syncProcessCache,
 			this._syncCacheStats,
-			targets
+			targets,
 		);
 		const removedAsync = this._invalidateCacheEntriesByRuleIds(
 			this._asyncProcessCache,
 			this._asyncCacheStats,
-			targets
+			targets,
 		);
 		return removedSync + removedAsync;
 	}
@@ -1823,13 +1714,11 @@ export class ShaderRuntime {
 	private _invalidateCacheEntriesByRuleIds(
 		cache: Map<string, CachedShaderProcessResult>,
 		stats: InternalCacheStats,
-		targetRuleIds: Set<string>
+		targetRuleIds: Set<string>,
 	): number {
 		let removed = 0;
 		for (const [key, entry] of cache) {
-			if (
-				entry.participatingRuleIds.some((ruleId) => targetRuleIds.has(ruleId))
-			) {
+			if (entry.participatingRuleIds.some((ruleId) => targetRuleIds.has(ruleId))) {
 				cache.delete(key);
 				removed++;
 			}
@@ -1846,7 +1735,7 @@ export class ShaderRuntime {
 			invalidateRuleIds?: string[];
 			includeModuleIds?: string[];
 			injectionScriptIds?: string[];
-		} = {}
+		} = {},
 	): void {
 		this._revision++;
 		this._ruleExecutionOrderCache = null;
@@ -1860,12 +1749,12 @@ export class ShaderRuntime {
 			revision: this._revision,
 			action,
 			ruleIds: [...new Set(ruleIds)],
-			includeModuleIds:
-				options.includeModuleIds ? [...new Set(options.includeModuleIds)] : undefined,
-			injectionScriptIds:
-				options.injectionScriptIds ?
-					[...new Set(options.injectionScriptIds)]
-				:	undefined,
+			includeModuleIds: options.includeModuleIds
+				? [...new Set(options.includeModuleIds)]
+				: undefined,
+			injectionScriptIds: options.injectionScriptIds
+				? [...new Set(options.injectionScriptIds)]
+				: undefined,
 		});
 	}
 
@@ -1882,4 +1771,212 @@ export class ShaderRuntime {
 			}
 		}
 	}
+}
+
+function cloneProcessResult(result: ShaderProcessResult, fromCache: boolean): ShaderProcessResult {
+	return {
+		code: result.code,
+		sourceMap: cloneSourceMap(result.sourceMap),
+		composite: cloneCompositeSource(result.composite),
+		diagnostics: cloneDiagnostics(result.diagnostics),
+		hasErrors: result.hasErrors,
+		fromCache,
+	};
+}
+
+function cloneRule(rule: ShaderRule): ShaderRule {
+	return {
+		...rule,
+		symbols: rule.symbols ? [...rule.symbols] : undefined,
+		dependsOn: rule.dependsOn ? [...rule.dependsOn] : undefined,
+	};
+}
+
+function hashStringFNV1a(value: string): string {
+	let hash = 0x811c9dc5;
+	for (let index = 0; index < value.length; index++) {
+		hash ^= value.charCodeAt(index);
+		hash = Math.imul(hash, 0x01000193);
+	}
+	return (hash >>> 0).toString(16);
+}
+
+function hashStringFNV1aChunked(value: string, chunkSize: number): string {
+	let hash = 0x811c9dc5;
+	for (let offset = 0; offset < value.length; offset += chunkSize) {
+		const end = Math.min(value.length, offset + chunkSize);
+		for (let index = offset; index < end; index++) {
+			hash ^= value.charCodeAt(index);
+			hash = Math.imul(hash, 0x01000193);
+		}
+	}
+	return (hash >>> 0).toString(16);
+}
+
+const LARGE_SOURCE_THRESHOLD = 16 * 1024;
+const LARGE_SOURCE_CHUNK_SIZE = 4 * 1024;
+
+function hashSourceCode(source: string): string {
+	if (source.length > LARGE_SOURCE_THRESHOLD) {
+		return hashStringFNV1aChunked(source, LARGE_SOURCE_CHUNK_SIZE);
+	}
+	return hashStringFNV1a(source);
+}
+
+function hashSourceMap(sourceMap: ShaderSourceSegmentMap | null | undefined): string {
+	if (!sourceMap || !Array.isArray(sourceMap.segments)) {
+		return "none";
+	}
+	const schemaVersion =
+		typeof sourceMap.schemaVersion === "number" ? Math.floor(sourceMap.schemaVersion) : 1;
+	const payload = [
+		`schema:${SOURCE_MAP_SCHEMA_VERSION}`,
+		`sourceSchema:${schemaVersion}`,
+		`lineCount:${sourceMap.lineCount}`,
+		...sourceMap.segments.map((segment) =>
+			[
+				segment.generatedLineStart,
+				segment.generatedLineEnd,
+				segment.generatedColumnStart ?? "",
+				segment.generatedColumnEnd ?? "",
+				segment.sourcePath,
+				segment.sourceLineStart,
+				segment.sourceLineEnd,
+				segment.sourceColumnStart ?? "",
+				segment.sourceColumnEnd ?? "",
+				segment.kind,
+				segment.label ?? "",
+			].join(":"),
+		),
+	].join("|");
+	return hashStringFNV1a(payload);
+}
+
+function normalizeDependsOn(dependsOn: string[] | undefined): string[] {
+	if (!Array.isArray(dependsOn)) {
+		return [];
+	}
+	const seen = new Set<string>();
+	const normalized: string[] = [];
+	for (const dependency of dependsOn) {
+		if (typeof dependency !== "string") {
+			continue;
+		}
+		const trimmed = dependency.trim();
+		if (trimmed.length <= 0 || seen.has(trimmed)) {
+			continue;
+		}
+		seen.add(trimmed);
+		normalized.push(trimmed);
+	}
+	return normalized;
+}
+
+function buildStrictModeError(
+	context: ShaderRuleContext,
+	diagnostics: ShaderDiagnostic[],
+	maxDiagnostics: number,
+): Error {
+	const label = context.label ?? "unnamed-shader";
+	const errors = diagnostics.filter((diagnostic) => diagnostic.severity === "error");
+	const cap = Number.isFinite(maxDiagnostics)
+		? Math.max(1, Math.floor(maxDiagnostics))
+		: errors.length;
+	const details = errors
+		.map((diagnostic) => `- [${diagnostic.code}] ${diagnostic.message}`)
+		.slice(0, cap)
+		.join("\n");
+	return new Error(
+		[
+			`ShaderRuntime validation failed (${label}, ${context.language}/${context.stage}).`,
+			details.length > 0 ? details : "- Unknown validation failure.",
+			errors.length > cap ? `- (${errors.length - cap} more diagnostics omitted)` : "",
+		].join("\n"),
+	);
+}
+
+function normalizePositiveInteger(value: number | undefined): number | null {
+	if (typeof value !== "number" || !Number.isFinite(value)) {
+		return null;
+	}
+	const normalized = Math.floor(value);
+	return normalized >= 1 ? normalized : 1;
+}
+
+function createGeneratedCompositeWithColumnSpans(
+	code: string,
+	sourcePath: string,
+	label?: string,
+): CompositeShaderSource {
+	const sourceLines = code.split(/\r?\n/g);
+	const lineCount = Math.max(1, sourceLines.length);
+	const segments: ShaderSourceSegment[] = [];
+	for (let lineIndex = 0; lineIndex < lineCount; lineIndex++) {
+		const line = sourceLines[lineIndex] ?? "";
+		const lineNumber = lineIndex + 1;
+		const columnEnd = Math.max(1, line.length + 1);
+		segments.push({
+			generatedLineStart: lineNumber,
+			generatedLineEnd: lineNumber,
+			generatedColumnStart: 1,
+			generatedColumnEnd: columnEnd,
+			sourcePath,
+			sourceLineStart: lineNumber,
+			sourceLineEnd: lineNumber,
+			sourceColumnStart: 1,
+			sourceColumnEnd: columnEnd,
+			kind: "generated",
+			label,
+		});
+	}
+	return {
+		code,
+		sourceMap: {
+			schemaVersion: SOURCE_MAP_SCHEMA_VERSION,
+			lineCount,
+			segments,
+		},
+	};
+}
+
+function normalizeDiagnosticRange(
+	range: ShaderDiagnosticRange | undefined,
+): ShaderDiagnosticRange | null {
+	if (!range || typeof range !== "object") {
+		return null;
+	}
+	const startLine = normalizePositiveInteger(range.start?.line);
+	const startColumn = normalizePositiveInteger(range.start?.column) ?? 1;
+	const endLine = normalizePositiveInteger(range.end?.line);
+	const endColumn = normalizePositiveInteger(range.end?.column) ?? 1;
+	if (!startLine || !endLine) {
+		return null;
+	}
+	return {
+		start: { line: startLine, column: startColumn },
+		end: { line: endLine, column: endColumn },
+	};
+}
+
+function resolveShaderRequestSourcePath(request: ShaderProcessRequest): string {
+	const explicitDirectivePath =
+		typeof request.directiveSourcePath === "string" ? request.directiveSourcePath.trim() : "";
+	if (explicitDirectivePath.length > 0) {
+		return explicitDirectivePath;
+	}
+	const sourceMapPath = request.sourceMap?.segments?.[0]?.sourcePath;
+	if (typeof sourceMapPath === "string" && sourceMapPath.length > 0) {
+		return sourceMapPath;
+	}
+	const normalizedLanguage = normalizeLanguage(request.language);
+	return (
+		request.label ??
+		`<runtime:${normalizedLanguage}:${normalizeStage(request.stage)}:${normalizeSourceKind(
+			request.sourceKind,
+		)}>`
+	);
+}
+
+function formatIncludeModuleEventId(language: ShaderLanguage, moduleId: string): string {
+	return `${language}:${moduleId}`;
 }

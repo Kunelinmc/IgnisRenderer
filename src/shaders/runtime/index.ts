@@ -1,10 +1,9 @@
 export { ShaderRuntime } from "./ShaderRuntime";
 export { ShaderDirectiveStage, ShaderBackendCompileStage } from "./DirectivePipeline";
 export {
-	assertShaderDirectiveProfileRegistryComplete,
-	createDefaultShaderDirectiveProfileRegistry,
-	DEFAULT_SHADER_DIRECTIVE_PROFILE_REGISTRY,
-} from "./engineDirectives";
+	composeShaderDirectiveProfile,
+	defineShaderInjectionScript,
+} from "./DirectiveProfile";
 export { ShaderCompileError } from "./errorMapping";
 export {
 	SHADER_RUNTIME_DEFAULT_CACHE_LIMIT,
@@ -41,8 +40,10 @@ export type {
 	ShaderDirectiveHookContext,
 	ShaderDirectiveHookResult,
 	ShaderDirectivePreprocessResult,
+	ShaderDirectiveFeaturePack,
 	ShaderDirectiveProfile,
-	ShaderDirectiveProfileRegistry,
+	ShaderDirectiveProfileBase,
+	ShaderDirectiveProfileOverlay,
 	ShaderDirectiveStageRequest,
 	ShaderDirectiveStageResult,
 	ShaderGLSLInjectionAnchor,
@@ -70,6 +71,9 @@ export type {
 	ShaderRuleInjection,
 	ShaderIncludeModule,
 	ShaderInjectionArgValue,
+	ShaderInjectionArgumentDefinition,
+	ShaderInjectionArgumentSchema,
+	ShaderInjectionArguments,
 	ShaderInjectionScript,
 	ShaderInjectionScriptContext,
 	ShaderWGSLInjectionAnchor,

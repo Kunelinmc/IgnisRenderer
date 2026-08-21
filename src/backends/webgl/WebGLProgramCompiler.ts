@@ -1,6 +1,5 @@
 import { Logger } from "../../foundation/Logger";
 import {
-	DEFAULT_SHADER_DIRECTIVE_PROFILE_REGISTRY,
 	ShaderBackendCompileStage,
 	ShaderCompileError,
 	createInlineShaderSourceMap,
@@ -136,16 +135,7 @@ export class WebGLProgramCompiler {
 	) {
 		this._gl = gl;
 		this._shaderRuntime = shaderRuntime ?? null;
-		this._shaderCompileStage =
-			shaderCompileStage ??
-			(this._shaderRuntime ?
-				new ShaderBackendCompileStage({
-					backend: "webgl",
-					runtime: this._shaderRuntime,
-					profiles: DEFAULT_SHADER_DIRECTIVE_PROFILE_REGISTRY,
-					mode: this._shaderRuntime.getMode(),
-				})
-			: null);
+		this._shaderCompileStage = shaderCompileStage ?? null;
 		this._parallelShaderCompile = resolveParallelShaderCompileExtension(gl);
 		this._validatePrograms = options.validatePrograms === true;
 		this._onProgramCompilePending = options.onProgramCompilePending ?? null;

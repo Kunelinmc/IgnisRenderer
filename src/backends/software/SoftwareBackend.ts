@@ -10,10 +10,6 @@ import type { FrameAttachments, FrameContext, FramePass } from "../../pipeline/t
 import { SoftwareSurfaceRuntime } from "./SoftwareSurfaceRuntime";
 import { SoftwarePassExecutor } from "./SoftwarePassExecutor";
 import { SoftwareFrameSession } from "./SoftwareFrameSession";
-import {
-	assertShaderDirectiveProfileRegistryComplete,
-	DEFAULT_SHADER_DIRECTIVE_PROFILE_REGISTRY,
-} from "../../shaders/runtime";
 import { Logger } from "../../foundation/Logger";
 import { createRenderBackendExtensionRegistry } from "../BackendExtensions";
 import {
@@ -80,7 +76,6 @@ export class SoftwareBackend implements IRenderBackend {
 	} | null = null;
 
 	constructor(options: SoftwareBackendOptions = {}) {
-		assertShaderDirectiveProfileRegistryComplete(DEFAULT_SHADER_DIRECTIVE_PROFILE_REGISTRY);
 		this._options = options;
 		this._createRuntime();
 	}

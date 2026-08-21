@@ -8,14 +8,29 @@ test("WebGL compiles built-in and ShaderMaterial deformation ABI", async ({ page
 		if (!gl) return { supported: false as const, errors: [] as string[] };
 		const { ShaderSource } = await import("/src/shaders/ShaderSource.ts");
 		const {
-			DEFAULT_SHADER_DIRECTIVE_PROFILE_REGISTRY,
 			ShaderBackendCompileStage,
 			ShaderRuntime,
 		} = await import("/src/shaders/runtime/index.ts");
+		const {
+			createWebGLShaderDirectiveProfile,
+			prepareWebGLShaderDirectiveProfileBase,
+		} = await import("/src/shaders/webgl/webGLProfile.ts");
+		const backendConstants = await import("/src/backends/constants.ts");
+		const profile = createWebGLShaderDirectiveProfile(
+			await prepareWebGLShaderDirectiveProfileBase(),
+			{
+				maxDirectionalLights: backendConstants.MAX_DIRECTIONAL_LIGHTS,
+				maxPointLights: backendConstants.MAX_POINT_LIGHTS,
+				maxSpotLights: backendConstants.MAX_SPOT_LIGHTS,
+				maxClusterLightsPerFragment:
+					backendConstants.MAX_CLUSTER_LIGHTS_PER_FRAGMENT,
+				maxLocalLightProbes: backendConstants.MAX_LOCAL_LIGHT_PROBES,
+				maxReflectionProbes: backendConstants.MAX_REFLECTION_PROBES,
+			},
+		);
 		const stage = new ShaderBackendCompileStage({
-			backend: "webgl",
 			runtime: new ShaderRuntime({ mode: "strict" }),
-			profiles: DEFAULT_SHADER_DIRECTIVE_PROFILE_REGISTRY,
+			profile,
 			mode: "strict",
 		});
 		const limits = {

@@ -5,6 +5,16 @@ lighting, presentation configuration, reflections, and structured buffer packing
 
 ## Contract
 
+### Shader directive profile lifecycle
+
+- `WebGPUBackend` must prepare its static directive profile assets during
+  initialization, after an adapter is available and before shader compilation.
+- The backend must compose an instance overlay from resolved logical limits,
+  binding ABI values, and validated device capabilities after device creation.
+- Device restoration must rebuild the instance overlay, directive profile,
+  compile stage, and dependent shader caches before the restored runtime is
+  published.
+
 ### Internal frame graph
 
 - Registered frame modules must create WebGPU internal nodes for every enabled

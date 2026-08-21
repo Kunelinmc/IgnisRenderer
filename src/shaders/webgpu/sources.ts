@@ -76,6 +76,13 @@ export type WebGPUUtilityShaderPart =
 
 export type WebGPUShaderSourceSyncKey = "webgpu.utility.mipmapBlit.raw";
 
+export type WebGPUDirectiveShaderPart =
+	| "constants"
+	| "srgb"
+	| "fog"
+	| "lumaWeights"
+	| "lumaCommon";
+
 export const WEBGPU_SCENE_SHADER_PARTS: readonly WebGPUSceneShaderPart[] = [
 	"lightData",
 	"constants",
@@ -213,6 +220,17 @@ export const WEBGPU_SYNC_SHADER_FILES: Record<
 		key: "webgpu.utility.mipmapBlit",
 		path: "./webgpu/utility/mipmapBlit.wgsl",
 	},
+};
+
+export const WEBGPU_DIRECTIVE_SHADER_FILES: Record<
+	WebGPUDirectiveShaderPart,
+	string
+> = {
+	constants: "./webgpu/directives/constants.wgsl",
+	srgb: "./webgpu/directives/srgb.wgsl",
+	fog: "./webgpu/directives/fog.wgsl",
+	lumaWeights: "./webgpu/directives/lumaWeights.wgsl",
+	lumaCommon: "./webgpu/directives/lumaCommon.wgsl",
 };
 
 export function createWebGPUBrowserShaderSources(): ImportMetaGlobLoaderMap {

@@ -6,10 +6,10 @@ import {
 	ShaderSource
 } from "../../../src/shaders/ShaderSource.ts";
 import {
-	DEFAULT_SHADER_DIRECTIVE_PROFILE_REGISTRY,
 	ShaderBackendCompileStage,
 	ShaderRuntime
 } from "../../../src/shaders/runtime/index.ts";
+import { WEBGPU_TEST_PROFILE } from "../shaders/shaderDirectiveTestProfiles.mjs";
 import {
 	createWebGPUMaterialUniformData,
 	materialSupportsWebGPUDeferredLighting,
@@ -856,9 +856,8 @@ async function testWebGPUShaderConstantTokenInjection() {
 	assert.ok(rawSceneShader.includes("__WEBGPU_MAX_DIRECTIONAL_LIGHTS__"));
 
 	const compileStage = new ShaderBackendCompileStage({
-		backend: "webgpu",
 		runtime: new ShaderRuntime({ mode: "strict" }),
-		profiles: DEFAULT_SHADER_DIRECTIVE_PROFILE_REGISTRY,
+		profile: WEBGPU_TEST_PROFILE,
 		mode: "strict",
 	});
 	const compileShader = async (code, label, sourceKind) => {

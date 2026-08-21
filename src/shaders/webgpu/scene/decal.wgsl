@@ -1,4 +1,5 @@
 #import <ignis/webgpu/constants>
+#import <ignis/color/srgb>
 
 const TEX_BASE_COLOR: u32 = 0u;
 const TEX_METALLIC_ROUGHNESS: u32 = 1u;
@@ -223,22 +224,6 @@ fn orthogonalizeTangent(
 	return safeNormalize(
 		direction - normal * dot(normal, direction),
 		fallback
-	);
-}
-
-fn srgbChannelToLinear(value: f32) -> f32 {
-	return select(
-		pow(max(value, 0.0), 2.2),
-		value,
-		value <= 0.0
-	);
-}
-
-fn srgbToLinear(value: vec3<f32>) -> vec3<f32> {
-	return vec3<f32>(
-		srgbChannelToLinear(value.r),
-		srgbChannelToLinear(value.g),
-		srgbChannelToLinear(value.b)
 	);
 }
 

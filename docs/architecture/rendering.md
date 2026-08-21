@@ -75,6 +75,12 @@ scene, material, post-process, and backend services own their pipeline and
 binding integration. TypeScript orchestration references shader assets instead
 of embedding long source strings.
 
+Directive profiles follow the same ownership boundary. Backend-applicable
+feature packs provide prepared static modules and injection scripts, while each
+backend instance contributes a capability-resolved overlay. The generic shader
+runtime composes and executes the supplied profile but does not construct
+WebGPU, WebGL, or Software profiles.
+
 ## Lighting and Materials
 
 Prepared scene lights are normalized into backend-appropriate views before

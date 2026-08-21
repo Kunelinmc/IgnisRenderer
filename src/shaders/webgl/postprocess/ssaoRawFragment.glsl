@@ -1,5 +1,6 @@
 #version 300 es
 precision highp float;
+#import <ignis/webgl/constants>
 
 in vec2 vUv;
 
@@ -16,8 +17,6 @@ uniform vec3 uBasisBackward;
 
 out vec4 fragColor;
 
-const float PI = 3.14159265359;
-const float GOLDEN_RATIO_CONJUGATE = 0.61803398875;
 const int MAX_DIRECTION_COUNT = 8;
 const int MAX_STEP_COUNT = 6;
 

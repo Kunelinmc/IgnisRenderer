@@ -6,9 +6,12 @@ import {
 	parseWebGLShaderInfoLog,
 	SOURCE_MAP_SCHEMA_VERSION,
 	SHADER_RUNTIME_RESERVED_RULE_PREFIX,
-	DEFAULT_SHADER_DIRECTIVE_PROFILE_REGISTRY,
 	ShaderRuntime,
 } from "../../../src/shaders/runtime/index.ts";
+import {
+	WEBGL_TEST_PROFILE,
+	WEBGPU_TEST_PROFILE,
+} from "./shaderDirectiveTestProfiles.mjs";
 
 const GLSL_SOURCE = `#version 300 es
 precision highp float;
@@ -884,8 +887,7 @@ function testExtendedAnchorsAndDryRun() {
 
 function testShaderMaterialUniformBlockInjection() {
 	const wgslRuntime = new ShaderRuntime({ mode: "warn" });
-	for (const script of DEFAULT_SHADER_DIRECTIVE_PROFILE_REGISTRY.webgpu
-		.injectionScripts) {
+	for (const script of WEBGPU_TEST_PROFILE.injectionScripts) {
 		wgslRuntime.registerInjectionScript(script);
 	}
 	const wgsl = wgslRuntime.process({
@@ -912,8 +914,7 @@ fn fsMain() -> @location(0) vec4<f32> {
 	assert.ok(wgsl.code.includes("mode: i32"));
 
 	const glslRuntime = new ShaderRuntime({ mode: "warn" });
-	for (const script of DEFAULT_SHADER_DIRECTIVE_PROFILE_REGISTRY.webgl
-		.injectionScripts) {
+	for (const script of WEBGL_TEST_PROFILE.injectionScripts) {
 		glslRuntime.registerInjectionScript(script);
 	}
 	const glsl = glslRuntime.process({
@@ -1539,6 +1540,9 @@ async function testDirectiveSyncAsyncParityForSyncScripts() {
 	runtime.registerInjectionScript({
 		id: "script-sync",
 		language: "wgsl",
+		arguments: {
+			value: { type: "number", required: true },
+		},
 		run(args) {
 			return {
 				header: `const SYNC_VALUE: f32 = ${args.value};`,
@@ -1570,6 +1574,7 @@ function testDirectiveProcessRejectsAsyncInjectScriptInSyncPath() {
 	const runtime = new ShaderRuntime({ mode: "warn" });
 	runtime.registerInjectionScript({
 		id: "script-async",
+		arguments: {},
 		async run() {
 			return {
 				header: "const ASYNC_VALUE: f32 = 1.0;",
@@ -1634,6 +1639,82 @@ fn vsMain() -> @builtin(position) vec4<f32> {
 	);
 }
 
+function testDirectiveInjectionArgumentSchema() {
+	const createRuntime = (mode) => {
+		const runtime = new ShaderRuntime({ mode });
+		let runs = 0;
+		runtime.registerInjectionScript({
+			id: "schema/test",
+			arguments: {
+				count: { type: "integer", required: true, min: 1, max: 4 },
+				mode: {
+					type: "enum",
+					values: ["fast", "quality"],
+					default: "quality",
+				},
+			},
+			validateArguments(args) {
+				return args.count === 3 ? "argument \"count\" cannot be 3." : null;
+			},
+			run(args) {
+				runs++;
+				return {
+					header: `const SCHEMA_COUNT: i32 = ${args.count};`,
+				};
+			},
+		});
+		return { runtime, getRuns: () => runs };
+	};
+	const valid = createRuntime("warn");
+	const validResult = valid.runtime.process({
+		code: `#define TEST_COUNT 2
+#inject <schema/test>(count=TEST_COUNT)
+@vertex fn main() -> @builtin(position) vec4<f32> { return vec4<f32>(); }`,
+		language: "wgsl",
+		stage: "vertex",
+		entryPoint: "main",
+	});
+	assert.equal(validResult.hasErrors, false);
+	assert.ok(validResult.code.includes("SCHEMA_COUNT"));
+	assert.equal(valid.getRuns(), 1);
+
+	const warn = createRuntime("warn");
+	const warnResult = warn.runtime.process({
+		code: `#inject <schema/test>(count=5, unknown=true)`,
+		language: "wgsl",
+	});
+	assert.equal(warn.getRuns(), 0);
+	assert.ok(
+		warnResult.diagnostics.some(
+			(diagnostic) => diagnostic.code === "directive-inject-argument-unknown",
+		),
+	);
+	assert.ok(
+		warnResult.diagnostics.some(
+			(diagnostic) => diagnostic.code === "directive-inject-argument-invalid",
+		),
+	);
+
+	const strict = createRuntime("strict");
+	assert.throws(
+		() =>
+			strict.runtime.process({
+				code: `#inject <schema/test>(count=3)`,
+				language: "wgsl",
+			}),
+		/directive-inject-validation-failed/,
+	);
+	assert.equal(strict.getRuns(), 0);
+
+	const silent = createRuntime("silent");
+	const silentResult = silent.runtime.process({
+		code: `#inject <schema/test>()`,
+		language: "wgsl",
+	});
+	assert.equal(silentResult.diagnostics.length, 0);
+	assert.equal(silent.getRuns(), 0);
+}
+
 function testDirectiveChangeEventsFineGrained() {
 	const runtime = new ShaderRuntime({ mode: "warn" });
 	const events = [];
@@ -1646,6 +1727,7 @@ function testDirectiveChangeEventsFineGrained() {
 	);
 	runtime.registerInjectionScript({
 		id: "script-event",
+		arguments: {},
 		run() {
 			return { header: "const EVENT: bool = true;" };
 		},
@@ -1679,6 +1761,7 @@ fn vsMain() -> @builtin(position) vec4<f32> {
 	assert.equal(second.fromCache, true);
 	runtime.registerInjectionScript({
 		id: "script-event",
+		arguments: {},
 		run() {
 			return { header: "const EVENT: bool = false;" };
 		},
@@ -1754,6 +1837,7 @@ async function run() {
 		await testDirectiveSyncAsyncParityForSyncScripts();
 	testDirectiveProcessRejectsAsyncInjectScriptInSyncPath();
 	testDirectiveUnknownInjectByMode();
+	testDirectiveInjectionArgumentSchema();
 	testDirectiveChangeEventsFineGrained();
 	testDirectiveDiagnosticsMapToIncludedSource();
 	console.log("ShaderRuntime tests passed");

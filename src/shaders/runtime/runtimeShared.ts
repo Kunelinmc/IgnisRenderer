@@ -1,17 +1,12 @@
-import { SOURCE_MAP_SCHEMA_VERSION } from "./sourceMap";
 import type {
 	CompositeShaderSource,
 	ShaderDiagnostic,
 	ShaderDiagnosticRange,
+	ShaderInjectionArgumentDefinition,
+	ShaderInjectionArgumentSchema,
 	ShaderInjectionScript,
 	ShaderLanguage,
-	ShaderProcessRequest,
-	ShaderProcessResult,
-	ShaderRule,
-	ShaderRuleContext,
-	ShaderRuntimeMode,
 	ShaderSourceKind,
-	ShaderSourceSegment,
 	ShaderSourceSegmentMap,
 	ShaderStage,
 } from "./types";
@@ -65,90 +60,6 @@ export function cloneCompositeSource(
 	};
 }
 
-export function cloneProcessResult(
-	result: ShaderProcessResult,
-	fromCache: boolean
-): ShaderProcessResult {
-	return {
-		code: result.code,
-		sourceMap: cloneSourceMap(result.sourceMap),
-		composite: cloneCompositeSource(result.composite),
-		diagnostics: cloneDiagnostics(result.diagnostics),
-		hasErrors: result.hasErrors,
-		fromCache,
-	};
-}
-
-export function cloneRule(rule: ShaderRule): ShaderRule {
-	return {
-		...rule,
-		symbols: rule.symbols ? [...rule.symbols] : undefined,
-		dependsOn: rule.dependsOn ? [...rule.dependsOn] : undefined,
-	};
-}
-
-export function hashStringFNV1a(value: string): string {
-	let hash = 0x811c9dc5;
-	for (let i = 0; i < value.length; i++) {
-		hash ^= value.charCodeAt(i);
-		hash = Math.imul(hash, 0x01000193);
-	}
-	return (hash >>> 0).toString(16);
-}
-
-export function hashStringFNV1aChunked(value: string, chunkSize: number): string {
-	let hash = 0x811c9dc5;
-	for (let offset = 0; offset < value.length; offset += chunkSize) {
-		const end = Math.min(value.length, offset + chunkSize);
-		for (let i = offset; i < end; i++) {
-			hash ^= value.charCodeAt(i);
-			hash = Math.imul(hash, 0x01000193);
-		}
-	}
-	return (hash >>> 0).toString(16);
-}
-
-const LARGE_SOURCE_THRESHOLD = 16 * 1024;
-const LARGE_SOURCE_CHUNK_SIZE = 4 * 1024;
-
-export function hashSourceCode(source: string): string {
-	if (source.length > LARGE_SOURCE_THRESHOLD) {
-		return hashStringFNV1aChunked(source, LARGE_SOURCE_CHUNK_SIZE);
-	}
-	return hashStringFNV1a(source);
-}
-
-export function hashSourceMap(sourceMap: ShaderSourceSegmentMap | null | undefined): string {
-	if (!sourceMap || !Array.isArray(sourceMap.segments)) {
-		return "none";
-	}
-	const schemaVersion =
-		typeof sourceMap.schemaVersion === "number" ?
-			Math.floor(sourceMap.schemaVersion)
-		:	1;
-	const payload = [
-		`schema:${SOURCE_MAP_SCHEMA_VERSION}`,
-		`sourceSchema:${schemaVersion}`,
-		`lineCount:${sourceMap.lineCount}`,
-		...sourceMap.segments.map((segment) =>
-			[
-				segment.generatedLineStart,
-				segment.generatedLineEnd,
-				segment.generatedColumnStart ?? "",
-				segment.generatedColumnEnd ?? "",
-				segment.sourcePath,
-				segment.sourceLineStart,
-				segment.sourceLineEnd,
-				segment.sourceColumnStart ?? "",
-				segment.sourceColumnEnd ?? "",
-				segment.kind,
-				segment.label ?? "",
-			].join(":")
-		),
-	].join("|");
-	return hashStringFNV1a(payload);
-}
-
 export function normalizeInjectionBlock(block: string | undefined): string {
 	if (typeof block !== "string") {
 		return "";
@@ -156,7 +67,7 @@ export function normalizeInjectionBlock(block: string | undefined): string {
 	return block.trim();
 }
 
-export function normalizeSymbols(symbols: string[] | undefined): string[] {
+export function normalizeSymbols(symbols: readonly string[] | undefined): string[] {
 	if (!Array.isArray(symbols)) {
 		return [];
 	}
@@ -167,26 +78,6 @@ export function normalizeSymbols(symbols: string[] | undefined): string[] {
 			continue;
 		}
 		const trimmed = symbol.trim();
-		if (trimmed.length <= 0 || seen.has(trimmed)) {
-			continue;
-		}
-		seen.add(trimmed);
-		normalized.push(trimmed);
-	}
-	return normalized;
-}
-
-export function normalizeDependsOn(dependsOn: string[] | undefined): string[] {
-	if (!Array.isArray(dependsOn)) {
-		return [];
-	}
-	const seen = new Set<string>();
-	const normalized: string[] = [];
-	for (const dependency of dependsOn) {
-		if (typeof dependency !== "string") {
-			continue;
-		}
-		const trimmed = dependency.trim();
 		if (trimmed.length <= 0 || seen.has(trimmed)) {
 			continue;
 		}
@@ -240,124 +131,11 @@ export function normalizeLanguage(language?: ShaderLanguage): ShaderLanguage {
 	return language === "glsl" ? "glsl" : "wgsl";
 }
 
-export function buildStrictModeError(
-	context: ShaderRuleContext,
-	diagnostics: ShaderDiagnostic[],
-	maxDiagnostics: number
-): Error {
-	const label = context.label ?? "unnamed-shader";
-	const errors = diagnostics.filter((diagnostic) => diagnostic.severity === "error");
-	const cap = Number.isFinite(maxDiagnostics) ?
-		Math.max(1, Math.floor(maxDiagnostics))
-	:	errors.length;
-	const details = errors
-		.map((diagnostic) => `- [${diagnostic.code}] ${diagnostic.message}`)
-		.slice(0, cap)
-		.join("\n");
-	return new Error(
-		[
-			`ShaderRuntime validation failed (${label}, ${context.language}/${context.stage}).`,
-			details.length > 0 ? details : "- Unknown validation failure.",
-			errors.length > cap ? `- (${errors.length - cap} more diagnostics omitted)` : "",
-		].join("\n")
-	);
-}
-
-export function normalizePositiveInteger(value: number | undefined): number | null {
-	if (typeof value !== "number" || !Number.isFinite(value)) {
-		return null;
-	}
-	const normalized = Math.floor(value);
-	return normalized >= 1 ? normalized : 1;
-}
-
 export function createPointRange(line: number, column: number): ShaderDiagnosticRange {
 	return {
 		start: { line, column },
 		end: { line, column },
 	};
-}
-
-export function createGeneratedCompositeWithColumnSpans(
-	code: string,
-	sourcePath: string,
-	label?: string
-): CompositeShaderSource {
-	const sourceLines = code.split(/\r?\n/g);
-	const lineCount = Math.max(1, sourceLines.length);
-	const segments: ShaderSourceSegment[] = [];
-	for (let lineIndex = 0; lineIndex < lineCount; lineIndex++) {
-		const line = sourceLines[lineIndex] ?? "";
-		const lineNumber = lineIndex + 1;
-		const columnEnd = Math.max(1, line.length + 1);
-		segments.push({
-			generatedLineStart: lineNumber,
-			generatedLineEnd: lineNumber,
-			generatedColumnStart: 1,
-			generatedColumnEnd: columnEnd,
-			sourcePath,
-			sourceLineStart: lineNumber,
-			sourceLineEnd: lineNumber,
-			sourceColumnStart: 1,
-			sourceColumnEnd: columnEnd,
-			kind: "generated",
-			label,
-		});
-	}
-	return {
-		code,
-		sourceMap: {
-			schemaVersion: SOURCE_MAP_SCHEMA_VERSION,
-			lineCount,
-			segments,
-		},
-	};
-}
-
-export function normalizeDiagnosticRange(
-	range: ShaderDiagnosticRange | undefined
-): ShaderDiagnosticRange | null {
-	if (!range || typeof range !== "object") {
-		return null;
-	}
-	const startLine = normalizePositiveInteger(range.start?.line);
-	const startColumn = normalizePositiveInteger(range.start?.column) ?? 1;
-	const endLine = normalizePositiveInteger(range.end?.line);
-	const endColumn = normalizePositiveInteger(range.end?.column) ?? 1;
-	if (!startLine || !endLine) {
-		return null;
-	}
-	return {
-		start: {
-			line: startLine,
-			column: startColumn,
-		},
-		end: {
-			line: endLine,
-			column: endColumn,
-		},
-	};
-}
-
-export function resolveShaderRequestSourcePath(request: ShaderProcessRequest): string {
-	const explicitDirectivePath =
-		typeof request.directiveSourcePath === "string" ?
-			request.directiveSourcePath.trim()
-		:	"";
-	if (explicitDirectivePath.length > 0) {
-		return explicitDirectivePath;
-	}
-	const sourceMapPath = request.sourceMap?.segments?.[0]?.sourcePath;
-	if (typeof sourceMapPath === "string" && sourceMapPath.length > 0) {
-		return sourceMapPath;
-	}
-	const normalizedLanguage = normalizeLanguage(request.language);
-	return (
-		request.label ??
-		`<runtime:${normalizedLanguage}:${normalizeStage(request.stage)}:${normalizeSourceKind(
-			request.sourceKind
-		)}>`
-	);
 }
 
 export function withLanguageDefaultExtension(
@@ -419,16 +197,9 @@ export function canonicalizeModulePath(value: string): string {
 	return segments.join("/");
 }
 
-export function formatIncludeModuleEventId(
-	language: ShaderLanguage,
-	moduleId: string
-): string {
-	return `${language}:${moduleId}`;
-}
-
-export function normalizeInjectionScript(
-	script: ShaderInjectionScript
-): ShaderInjectionScript {
+export function normalizeInjectionScript<
+	Schema extends ShaderInjectionArgumentSchema,
+>(script: ShaderInjectionScript<Schema>): ShaderInjectionScript<Schema> {
 	if (!script || typeof script !== "object") {
 		throw new Error("Shader injection script must be an object.");
 	}
@@ -439,6 +210,11 @@ export function normalizeInjectionScript(
 	if (typeof script.run !== "function") {
 		throw new Error(`Shader injection script "${id}" run must be a function.`);
 	}
+	if (!script.arguments || typeof script.arguments !== "object") {
+		throw new Error(
+			`Shader injection script "${id}" arguments must be an object schema.`,
+		);
+	}
 	const language =
 		script.language === "wgsl" || script.language === "glsl" ?
 			script.language
@@ -447,10 +223,110 @@ export function normalizeInjectionScript(
 		...script,
 		id,
 		language,
+		arguments: normalizeInjectionArgumentSchema(id, script.arguments) as Schema,
 		description:
 			typeof script.description === "string" ?
 				script.description.trim() || undefined
 			:	undefined,
 		symbols: normalizeSymbols(script.symbols),
 	};
+}
+
+function normalizeInjectionArgumentSchema(
+	scriptId: string,
+	schema: ShaderInjectionArgumentSchema,
+): ShaderInjectionArgumentSchema {
+	const normalized: Record<string, ShaderInjectionArgumentDefinition> = {};
+	for (const [rawName, rawDefinition] of Object.entries(schema)) {
+		const name = rawName.trim();
+		if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) {
+			throw new Error(
+				`Shader injection script "${scriptId}" argument name "${rawName}" is invalid.`,
+			);
+		}
+		if (!rawDefinition || typeof rawDefinition !== "object") {
+			throw new Error(
+				`Shader injection script "${scriptId}" argument "${name}" definition must be an object.`,
+			);
+		}
+		const definition = normalizeInjectionArgumentDefinition(
+			scriptId,
+			name,
+			rawDefinition,
+		);
+		normalized[name] = Object.freeze(definition);
+	}
+	return Object.freeze(normalized);
+}
+
+function normalizeInjectionArgumentDefinition(
+	scriptId: string,
+	name: string,
+	definition: ShaderInjectionArgumentDefinition,
+): ShaderInjectionArgumentDefinition {
+	const label = `Shader injection script "${scriptId}" argument "${name}"`;
+	switch (definition.type) {
+		case "string":
+			if (definition.default !== undefined && typeof definition.default !== "string") {
+				throw new Error(`${label} default must be a string.`);
+			}
+			return { ...definition, required: definition.required === true };
+		case "boolean":
+			if (
+				definition.default !== undefined &&
+				typeof definition.default !== "boolean"
+			) {
+				throw new Error(`${label} default must be a boolean.`);
+			}
+			return { ...definition, required: definition.required === true };
+		case "number":
+		case "integer": {
+			for (const [key, value] of [
+				["default", definition.default],
+				["min", definition.min],
+				["max", definition.max],
+			] as const) {
+				if (value !== undefined && !Number.isFinite(value)) {
+					throw new Error(`${label} ${key} must be finite.`);
+				}
+			}
+			if (
+				definition.type === "integer" &&
+				definition.default !== undefined &&
+				!Number.isInteger(definition.default)
+			) {
+				throw new Error(`${label} default must be an integer.`);
+			}
+			if (
+				definition.min !== undefined &&
+				definition.max !== undefined &&
+				definition.min > definition.max
+			) {
+				throw new Error(`${label} min must not exceed max.`);
+			}
+			return { ...definition, required: definition.required === true };
+		}
+		case "enum": {
+			const values = [...definition.values];
+			if (
+				values.length <= 0 ||
+				values.some((value) => typeof value !== "string" || value.length <= 0)
+			) {
+				throw new Error(`${label} enum values must contain non-empty strings.`);
+			}
+			if (
+				definition.default !== undefined &&
+				!values.includes(definition.default)
+			) {
+				throw new Error(`${label} default must be one of its enum values.`);
+			}
+			return {
+				...definition,
+				required: definition.required === true,
+				values: Object.freeze(values),
+			};
+		}
+		default:
+			throw new Error(`${label} has an unsupported type.`);
+	}
 }

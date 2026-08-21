@@ -1,8 +1,7 @@
 #version 300 es
 precision highp float;
+#import <ignis/webgl/constants>
 #import <ignis/color/srgb>
-
-const float PI = 3.14159265359;
 
 in vec2 vNdc;
 

@@ -123,6 +123,52 @@ export interface ShaderRuleInjection {
 
 export type ShaderInjectionArgValue = string | number | boolean;
 
+/** Describes one validated `#inject` argument. */
+export type ShaderInjectionArgumentDefinition =
+	| {
+			type: "string";
+			required?: boolean;
+			default?: string;
+	  }
+	| {
+			type: "number" | "integer";
+			required?: boolean;
+			default?: number;
+			min?: number;
+			max?: number;
+	  }
+	| {
+			type: "boolean";
+			required?: boolean;
+			default?: boolean;
+	  }
+	| {
+			type: "enum";
+			required?: boolean;
+			default?: string;
+			values: readonly string[];
+	  };
+
+/** Declares the accepted arguments for one injection script. */
+export type ShaderInjectionArgumentSchema = Readonly<
+	Record<string, ShaderInjectionArgumentDefinition>
+>;
+
+type ShaderInjectionArgumentValueForDefinition<
+	Definition extends ShaderInjectionArgumentDefinition,
+> = Definition["type"] extends "number" | "integer" ? number
+	: Definition["type"] extends "boolean" ? boolean
+	: string;
+
+/** Resolves schema definitions to the values received by an injection script. */
+export type ShaderInjectionArguments<
+	Schema extends ShaderInjectionArgumentSchema,
+> = {
+	readonly [Key in keyof Schema]:
+		| ShaderInjectionArgumentValueForDefinition<Schema[Key]>
+		| undefined;
+};
+
 export interface ShaderIncludeModule {
 	language: ShaderLanguage;
 	id: string;
@@ -132,31 +178,57 @@ export interface ShaderIncludeModule {
 
 export interface ShaderInjectionScriptContext extends ShaderRuleContext {}
 
-export interface ShaderInjectionScript {
+export interface ShaderInjectionScript<
+	Schema extends ShaderInjectionArgumentSchema = ShaderInjectionArgumentSchema,
+> {
 	id: string;
 	language?: ShaderLanguage;
 	description?: string;
-	symbols?: string[];
+	symbols?: readonly string[];
+	arguments: Schema;
+	validateArguments?: (
+		args: ShaderInjectionArguments<Schema>,
+		context: ShaderInjectionScriptContext,
+	) => string | readonly string[] | null | undefined;
 	run: (
-		args: Readonly<Record<string, ShaderInjectionArgValue>>,
+		args: ShaderInjectionArguments<Schema>,
 		context: ShaderInjectionScriptContext
 	) => ShaderRuleInjectResult;
 }
 
 export type ShaderBackendId = "webgpu" | "webgl" | "software";
 
+/** @internal Backend-owned shader directive compilation environment. */
 export interface ShaderDirectiveProfile {
-	id: string;
-	backend: ShaderBackendId;
-	revision: number;
-	includeModules: ShaderIncludeModule[];
-	injectionScripts: ShaderInjectionScript[];
+	readonly id: string;
+	readonly backend: ShaderBackendId;
+	readonly fingerprint: string;
+	readonly includeModules: readonly ShaderIncludeModule[];
+	readonly injectionScripts: readonly ShaderInjectionScript[];
 }
 
-export type ShaderDirectiveProfileRegistry = Record<
-	ShaderBackendId,
-	ShaderDirectiveProfile
->;
+/** @internal Backend-applicable directive feature composition unit. */
+export interface ShaderDirectiveFeaturePack {
+	readonly id: string;
+	readonly backend: ShaderBackendId;
+	readonly revision: number;
+	readonly includeModules: readonly ShaderIncludeModule[];
+	readonly injectionScripts: readonly ShaderInjectionScript[];
+}
+
+/** @internal Prepared device-independent directive profile base. */
+export interface ShaderDirectiveProfileBase {
+	readonly id: string;
+	readonly backend: ShaderBackendId;
+	readonly packs: readonly ShaderDirectiveFeaturePack[];
+}
+
+/** @internal Backend-instance directive profile overlay. */
+export interface ShaderDirectiveProfileOverlay {
+	readonly id: string;
+	readonly backend: ShaderBackendId;
+	readonly includeModules: readonly ShaderIncludeModule[];
+}
 
 export interface ShaderDirectiveHookContext {
 	backend: ShaderBackendId;

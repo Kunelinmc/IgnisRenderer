@@ -8,10 +8,13 @@ import {
 } from "../../../src/shaders/ShaderSource.ts";
 import { embeddedShaderSources } from "../../../src/shaders/generated/embeddedShaderSources.ts";
 import {
-	DEFAULT_SHADER_DIRECTIVE_PROFILE_REGISTRY,
 	ShaderBackendCompileStage,
 	ShaderRuntime,
 } from "../../../src/shaders/runtime/index.ts";
+import {
+	WEBGL_TEST_PROFILE,
+	WEBGPU_TEST_PROFILE,
+} from "./shaderDirectiveTestProfiles.mjs";
 import {
 	MAX_DIRECTIONAL_LIGHTS,
 	MAX_LOCAL_LIGHT_PROBES,
@@ -237,9 +240,8 @@ async function testWebGLSceneVariants() {
 	);
 
 	const compileStage = new ShaderBackendCompileStage({
-		backend: "webgl",
 		runtime: new ShaderRuntime({ mode: "strict" }),
-		profiles: DEFAULT_SHADER_DIRECTIVE_PROFILE_REGISTRY,
+		profile: WEBGL_TEST_PROFILE,
 		mode: "strict",
 	});
 	const compiled = compileStage.compile({
@@ -341,9 +343,8 @@ async function testWebGLScenePrunedVariant() {
 	);
 
 	const compileStage = new ShaderBackendCompileStage({
-		backend: "webgl",
 		runtime: new ShaderRuntime({ mode: "strict" }),
-		profiles: DEFAULT_SHADER_DIRECTIVE_PROFILE_REGISTRY,
+		profile: WEBGL_TEST_PROFILE,
 		mode: "strict",
 	});
 	const compiled = compileStage.compile({
@@ -409,9 +410,8 @@ async function testWebGLLegacySceneVariantIncludesSpecularUniform() {
 		variant,
 	});
 	const compileStage = new ShaderBackendCompileStage({
-		backend: "webgl",
 		runtime: new ShaderRuntime({ mode: "strict" }),
-		profiles: DEFAULT_SHADER_DIRECTIVE_PROFILE_REGISTRY,
+		profile: WEBGL_TEST_PROFILE,
 		mode: "strict",
 	});
 	const compiled = compileStage.compile({
@@ -445,6 +445,110 @@ async function testWebGPUCompositeIncludesSharedParts() {
 	assert.ok(ssr.code.includes("struct TraceParams"));
 	assert.ok(deferred.code.includes("struct DirectionalLightData"));
 	assert.ok(deferred.code.includes("fn activeClusteredLightCount() -> u32"));
+}
+
+async function testSrgbDirectiveSupportsBuiltInConsumers() {
+	ShaderSource.clearCache();
+	const [webgpuIbl, webgpuDecal, webglIbl] = await Promise.all([
+		ShaderSource.load("webgpu.iblPrefilter.raw"),
+		ShaderSource.load("webgpu.utility.decal.composite"),
+		ShaderSource.load("webgl.part.iblPrefilterFragment.raw"),
+	]);
+	const webgpuCompileStage = new ShaderBackendCompileStage({
+		runtime: new ShaderRuntime({ mode: "strict" }),
+		profile: WEBGPU_TEST_PROFILE,
+		mode: "strict",
+	});
+	const webglCompileStage = new ShaderBackendCompileStage({
+		runtime: new ShaderRuntime({ mode: "strict" }),
+		profile: WEBGL_TEST_PROFILE,
+		mode: "strict",
+	});
+	const compiledWebgpuIbl = webgpuCompileStage.compile({
+		code: webgpuIbl,
+		language: "wgsl",
+		stage: "compute",
+		entryPoint: "csMain",
+		label: "WebGPUIblPrefilter",
+		sourceKind: "builtin-environment",
+	});
+	const compiledWebgpuDecal = webgpuCompileStage.compile({
+		code: webgpuDecal.code,
+		language: "wgsl",
+		stage: "unknown",
+		entryPoint: "fsMain",
+		label: "WebGPUDecal",
+		sourceKind: "builtin-scene",
+		sourceMap: webgpuDecal.sourceMap,
+	});
+	const compiledWebglIbl = webglCompileStage.compile({
+		code: webglIbl,
+		language: "glsl",
+		stage: "fragment",
+		entryPoint: "main",
+		label: "WebGLIblPrefilter",
+		sourceKind: "builtin-environment",
+	});
+
+	assert.equal(compiledWebgpuIbl.hasErrors, false);
+	assert.equal(compiledWebgpuDecal.hasErrors, false);
+	assert.equal(compiledWebglIbl.hasErrors, false);
+	assert.equal(
+		compiledWebgpuIbl.code.match(/fn srgbToLinear\b/g)?.length,
+		1
+	);
+	assert.equal(
+		compiledWebgpuDecal.code.match(/fn srgbToLinear\b/g)?.length,
+		1
+	);
+	assert.equal(
+		compiledWebglIbl.code.match(/vec3 srgbToLinear\b/g)?.length,
+		1
+	);
+	assert.ok(!compiledWebgpuIbl.code.includes("sRGBToLinear"));
+	assert.ok(!compiledWebglIbl.code.includes("sRGBToLinear"));
+}
+
+async function testWebGPUSharedNumericalConstants() {
+	ShaderSource.clearCache();
+	const [constants, particleSimulation, ssao] = await Promise.all([
+		ShaderSource.load("webgpu.directive.constants.raw"),
+		ShaderSource.load("webgpu.particleSimulation.raw"),
+		ShaderSource.load("webgpu.postprocess.ssao.raw"),
+	]);
+	const compileStage = new ShaderBackendCompileStage({
+		runtime: new ShaderRuntime({ mode: "strict" }),
+		profile: WEBGPU_TEST_PROFILE,
+		mode: "strict",
+	});
+	const compiledParticleSimulation = compileStage.compile({
+		code: particleSimulation,
+		language: "wgsl",
+		stage: "compute",
+		entryPoint: "simulateMain",
+		label: "WebGPUParticleSimulation",
+		sourceKind: "unknown",
+	});
+	const compiledSsao = compileStage.compile({
+		code: ssao,
+		language: "wgsl",
+		stage: "compute",
+		entryPoint: "csRaw",
+		label: "WebGPUSsao",
+		sourceKind: "postprocess",
+	});
+
+	assert.ok(constants.includes("const PI_SQUARED: f32 = 9.86960440109;"));
+	assert.ok(constants.includes("const GOLDEN_RATIO_CONJUGATE: f32 = 0.61803398875;"));
+	assert.ok(
+		constants.includes("const STEFAN_BOLTZMANN_CONSTANT: f32 = 5.670374419e-8;")
+	);
+	assert.ok(particleSimulation.includes("#import <ignis/webgpu/constants>"));
+	assert.ok(particleSimulation.includes("nextRandom(seed) * TWO_PI"));
+	assert.ok(!particleSimulation.includes("6.28318530718"));
+	assert.ok(!ssao.includes("const GOLDEN_RATIO_CONJUGATE"));
+	assert.equal(compiledParticleSimulation.hasErrors, false);
+	assert.equal(compiledSsao.hasErrors, false);
 }
 
 async function testPagedShadowDrawBuildUsesConservativePlaneCulling() {
@@ -719,6 +823,8 @@ async function run() {
 	await testWebGLScenePrunedVariant();
 	await testWebGLLegacySceneVariantIncludesSpecularUniform();
 	await testWebGPUCompositeIncludesSharedParts();
+	await testSrgbDirectiveSupportsBuiltInConsumers();
+	await testWebGPUSharedNumericalConstants();
 	await testPagedShadowDrawBuildUsesConservativePlaneCulling();
 	await testPagedShadowDirtyGridBuildUsesGlobalGridBuffers();
 	await testPagedShadowClearLayoutMatchesShaderBindings();

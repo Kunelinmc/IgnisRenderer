@@ -3,8 +3,10 @@ import { Logger } from "../../../src/foundation/Logger.ts";
 import { WebGPUBackend } from "../../../src/backends/webgpu/WebGPUBackend.ts";
 import {
 	createInlineShaderSourceMap,
+	ShaderBackendCompileStage,
 	ShaderCompileError,
 } from "../../../src/shaders/runtime/index.ts";
+import { WEBGPU_TEST_PROFILE } from "../shaders/shaderDirectiveTestProfiles.mjs";
 import {
 	BufferUsage,
 	TextureFormat,
@@ -185,8 +187,19 @@ class FakeDevice {
 	destroy() {}
 }
 
+function bindTestCompileStage(backend) {
+	const compileStage = new ShaderBackendCompileStage({
+		runtime: backend.shaderRuntime,
+		profile: WEBGPU_TEST_PROFILE,
+		mode: backend.shaderRuntime.getMode(),
+	});
+	backend._shaderCompileStage = compileStage;
+	backend._shaderModuleCompiler.setCompileStage(compileStage);
+}
+
 function createBackend(options = undefined) {
 	const backend = new WebGPUBackend(options);
+	bindTestCompileStage(backend);
 	backend.attach({
 		surface: { canvas: {} },
 		events: { emit: () => {} },
@@ -258,7 +271,7 @@ async function testFrameHostOwnsShaderDirectiveCacheTag() {
 
 	assert.equal(
 		host.getShaderDirectiveCacheTag(),
-		backend._shaderCompileStage.getCacheFingerprintTag()
+		backend._shaderCompileStage.getCacheFingerprintTag(),
 	);
 }
 
@@ -501,6 +514,7 @@ async function testStaleShaderModulePromiseDoesNotClearRecoveredInFlight() {
 	};
 	backend._device = newDevice;
 	backend._queue = { submit() {} };
+	bindTestCompileStage(backend);
 
 	const recoveredPromise = backend.createShaderModule(shaderDesc);
 	await waitForCondition(

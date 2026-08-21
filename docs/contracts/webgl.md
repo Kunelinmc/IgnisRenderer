@@ -6,6 +6,14 @@ This document defines the current WebGL backend lifecycle, frame graph, resource
 
 ### Backend lifecycle and execution
 
+- `WebGLBackend` must prepare its static directive profile assets during
+  initialization and compose an instance overlay after context capability
+  probing. The overlay and WebGL scene-source requests must use the same
+  resolved logical light limits.
+- Context restoration must reuse the prepared static profile base, rebuild the
+  instance overlay and directive compile stage, and invalidate context-scoped
+  shader program caches before restored services are published.
+
 - `WebGLBackend.initialize()` must require `EXT_color_buffer_float`, a complete
   `RGBA16F` framebuffer probe, and half- or full-float linear filtering.
   Capability probing must complete before `_gl` or context-scoped services are

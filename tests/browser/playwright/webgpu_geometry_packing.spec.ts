@@ -12,14 +12,31 @@ test("WebGPU accepts packed semantic geometry layouts", async ({ page }) => {
 		);
 		const { ShaderSource } = await import("/src/shaders/ShaderSource.ts");
 		const {
-			DEFAULT_SHADER_DIRECTIVE_PROFILE_REGISTRY,
 			ShaderBackendCompileStage,
 			ShaderRuntime,
 		} = await import("/src/shaders/runtime/index.ts");
+		const {
+			createWebGPUShaderDirectiveProfile,
+			prepareWebGPUShaderDirectiveProfileBase,
+		} = await import("/src/shaders/webgpu/webGPUProfile.ts");
+		const backendConstants = await import("/src/backends/constants.ts");
+		const webgpuConstants = await import("/src/backends/webgpu/constants.ts");
+		const profile = createWebGPUShaderDirectiveProfile(
+			await prepareWebGPUShaderDirectiveProfileBase(),
+			{
+				maxDirectionalLights: backendConstants.MAX_DIRECTIONAL_LIGHTS,
+				maxPointLights: backendConstants.MAX_POINT_LIGHTS,
+				maxSpotLights: backendConstants.MAX_SPOT_LIGHTS,
+				maxAreaLights: backendConstants.MAX_AREA_LIGHTS,
+				maxLocalLightProbes: backendConstants.MAX_LOCAL_LIGHT_PROBES,
+				maxReflectionProbes: backendConstants.MAX_REFLECTION_PROBES,
+				shCoefficientCount: webgpuConstants.WEBGPU_SH_COEFFICIENT_COUNT,
+				textureSlotCount: webgpuConstants.WEBGPU_TEXTURE_SLOT_COUNT,
+			},
+		);
 		const compileStage = new ShaderBackendCompileStage({
-			backend: "webgpu",
 			runtime: new ShaderRuntime({ mode: "strict" }),
-			profiles: DEFAULT_SHADER_DIRECTIVE_PROFILE_REGISTRY,
+			profile,
 			mode: "strict",
 		});
 		const shaderCompilationErrors: string[] = [];

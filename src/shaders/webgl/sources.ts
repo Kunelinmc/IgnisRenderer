@@ -49,6 +49,14 @@ export type WebGLSceneFragmentPart =
 	| "fragmentPbrLighting"
 	| "fragmentMainOutput";
 
+export type WebGLDirectiveShaderPart =
+	| "animation"
+	| "constants"
+	| "srgb"
+	| "fog"
+	| "lumaWeights"
+	| "lumaCommon";
+
 export const WEBGL_SHADER_PARTS: readonly WebGLShaderPart[] = [
 	"sceneVertex",
 	"sceneDepthPrepassVertex",
@@ -160,6 +168,18 @@ export const WEBGL_INTERNAL_SHADER_FILES = {
 	diffuseProbeFallbackFragment: "./webgl/environment/diffuseProbeFallbackFragment.glsl",
 	irradianceProbeGridFragment: "./webgl/environment/irradianceProbeGridFragment.glsl",
 } as const;
+
+export const WEBGL_DIRECTIVE_SHADER_FILES: Record<
+	WebGLDirectiveShaderPart,
+	string
+> = {
+	animation: "./webgl/common/animation.glsl",
+	constants: "./webgl/directives/constants.glsl",
+	srgb: "./webgl/directives/srgb.glsl",
+	fog: "./webgl/directives/fog.glsl",
+	lumaWeights: "./webgl/directives/lumaWeights.glsl",
+	lumaCommon: "./webgl/directives/lumaCommon.glsl",
+};
 
 export function createWebGLBrowserShaderSources(): ImportMetaGlobLoaderMap {
 	if (Platform.isNodeRuntime()) {

@@ -55,8 +55,40 @@ This document defines shader source ownership, composition, diagnostics, and cus
   morph before skinning, and use the fixed scene joint and weight attribute
   locations. Importing the ABI does not automatically rewrite a custom vertex
   entry point; `ShaderMaterial` authors must call the appropriate helper.
+- The WebGL directive profile must provide
+  `#import <ignis/webgl/constants>`. Its general numerical constants must match
+  the equivalent WebGPU include.
+- The WebGPU directive profile must provide
+  `#import <ignis/webgpu/constants>`. The include owns general numerical
+  constants, including circular, Gaussian-normalization, golden-ratio, and
+  Stefan–Boltzmann constants. Effect-specific parameters, such as a blur
+  kernel's sigma, must remain owned by their effect.
 - Composite results returned from `ShaderSource` must be cloned so callers cannot
   mutate cached source maps.
+
+### Directive profiles
+
+- Each GPU backend instance must own one composed `ShaderDirectiveProfile`.
+  Shader runtime code must not construct a cross-backend default profile or
+  import backend constants and built-in shader assets.
+- A directive profile must be composed from a prepared static base and an
+  instance overlay resolved after backend capability probing. Profile
+  composition must reject duplicate include-module `(language, id)` pairs,
+  duplicate injection-script ids, and feature packs targeting another backend.
+- `ShaderDirectiveProfile.fingerprint` must be derived from the backend, feature
+  pack ids and revisions, include-module contents, injection-script schemas,
+  and instance overlay contents. Shader and program cache identities must include
+  this fingerprint.
+- Built-in directive include modules must be stored as shader assets. Instance
+  overlays may generate only short constant or define modules from resolved
+  backend limits and ABI values.
+- `ShaderInjectionScript` argument schemas must be validated after macro
+  expansion and before `run()` executes. Invalid invocations must not execute.
+  Strict mode must report an error, warn mode must report a warning, and silent
+  mode must skip the invocation without publishing a diagnostic.
+- Backend directive hooks may add namespaced include modules and injection
+  scripts. A hook patch must not replace a profile module or script; any
+  collision must disable the entire patch for that invocation context.
 
 ### ShaderMaterial custom uniforms
 

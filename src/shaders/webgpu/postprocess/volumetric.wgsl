@@ -1,5 +1,5 @@
 #import <ignis/postprocess/luma-common>
-#import <ignis/postprocess/volumetric>
+#inject <ignis/postprocess/volumetric>()
 #import <ignis/webgpu/constants>
 #define IGNIS_LUMA_PROFILE bt709
 #define IGNIS_LUMA_CLAMP false

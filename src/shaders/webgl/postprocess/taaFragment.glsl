@@ -1,5 +1,6 @@
 #version 300 es
 precision highp float;
+#import <ignis/webgl/constants>
 #import <ignis/postprocess/luma-common>
 #define IGNIS_LUMA_PROFILE bt709
 #define IGNIS_LUMA_CLAMP false
@@ -23,9 +24,6 @@ uniform float uHistoryValid;
 layout(location = 0) out vec4 fragColor;
 layout(location = 1) out vec4 fragHistory;
 layout(location = 2) out vec4 fragMotionHistory;
-
-const float PI = 3.14159265359;
-const float EPSILON = 0.000001;
 
 vec3 rgbToYCoCg(vec3 c) {
 	float co = c.r - c.b;

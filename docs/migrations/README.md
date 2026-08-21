@@ -90,6 +90,14 @@ and `ENGINE_DIRECTIVE_RUNTIME` with the staged runtime API.
 `schemaVersion` and optional column spans. Runtime caches are memory-only, so
 persisted cache migration is unnecessary.
 
+The cross-backend `ShaderDirectiveProfileRegistry`,
+`DEFAULT_SHADER_DIRECTIVE_PROFILE_REGISTRY`,
+`createDefaultShaderDirectiveProfileRegistry()`, and registry completeness
+assertion are removed. Construct `ShaderBackendCompileStage` with one composed
+backend-owned `profile`. Injection scripts must declare an argument schema;
+backend directive hooks remain additive and may not replace profile modules or
+scripts.
+
 ## Software Backend Lifecycle
 
 `SoftwareBackend` participates in the same attach, initialize, frame

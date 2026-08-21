@@ -28,19 +28,26 @@ import { WebGLPostProcessExecutor } from "./WebGLPostProcessExecutor";
 import { BackendPostProcessRuntime } from "../../postprocess/BackendPostProcessRuntime";
 import type { PostProcessPlan } from "../../postprocess/PostProcessPlanner";
 import {
+	MAX_CLUSTER_LIGHTS_PER_FRAGMENT,
 	MAX_DIRECTIONAL_LIGHTS,
+	MAX_LOCAL_LIGHT_PROBES,
 	MAX_POINT_LIGHTS,
+	MAX_REFLECTION_PROBES,
 	MAX_SPOT_LIGHTS,
 } from "../constants";
 import {
 	ShaderBackendCompileStage,
-	DEFAULT_SHADER_DIRECTIVE_PROFILE_REGISTRY,
 	ShaderRuntime,
 } from "../../shaders/runtime";
 import type {
 	ShaderDirectiveCompileHook,
+	ShaderDirectiveProfileBase,
 	ShaderRuntimeMode,
 } from "../../shaders/runtime";
+import {
+	createWebGLShaderDirectiveProfile,
+	prepareWebGLShaderDirectiveProfileBase,
+} from "../../shaders/webgl/webGLProfile";
 import {
 	ShaderSource,
 	WEBGL_SHADER_PARTS,
@@ -73,6 +80,11 @@ import {
 import { WebGLDisplayOutputManager } from "./WebGLDisplayOutputManager";
 
 const MAX_PARTICLE_SIM_DELTA_TIME_SECONDS = 0.5;
+const WEBGL_SCENE_LIGHT_LIMITS = Object.freeze({
+	maxDirectionalLights: MAX_DIRECTIONAL_LIGHTS,
+	maxPointLights: MAX_POINT_LIGHTS,
+	maxSpotLights: MAX_SPOT_LIGHTS,
+});
 const WEBGL_DEBUG_INFO_UNINITIALIZED: RenderBackendDebugInfo = {
 	backend: "webgl",
 	api: "webgl2",
@@ -146,7 +158,8 @@ export class WebGLBackend implements IRenderBackend {
 	private _width = 1;
 	private _height = 1;
 	public readonly shaderRuntime: ShaderRuntime;
-	private _shaderCompileStage: ShaderBackendCompileStage;
+	private _shaderCompileStage!: ShaderBackendCompileStage;
+	private _shaderProfileBase: ShaderDirectiveProfileBase | null = null;
 	private _executedPasses = new Set<FramePass["stage"]>();
 	private _plannedPasses = new Set<FramePass["stage"]>();
 	private _plannedPassOrder = new Map<FramePass["stage"], number>();
@@ -178,13 +191,6 @@ export class WebGLBackend implements IRenderBackend {
 		this.extensions = this._extensionOwner.registry;
 		const shaderMode = options.shaderMode ?? "warn";
 		this.shaderRuntime = new ShaderRuntime({
-			mode: shaderMode,
-		});
-		this._shaderCompileStage = new ShaderBackendCompileStage({
-			backend: "webgl",
-			runtime: this.shaderRuntime,
-			profiles: DEFAULT_SHADER_DIRECTIVE_PROFILE_REGISTRY,
-			hook: options.directiveHook ?? null,
 			mode: shaderMode,
 		});
 		this._ensureParticleSimulator();
@@ -250,32 +256,28 @@ export class WebGLBackend implements IRenderBackend {
 		this._ensureParticleSimulator();
 		this._canvas = canvas;
 		this._installContextLifecycleListeners(canvas);
-		await ShaderSource.prepareMany([
-			...WEBGL_SHADER_PARTS.flatMap((part) => [
-				{ key: `webgl.part.${part}.raw` as const },
-				{ key: `webgl.part.${part}.composite` as const },
+		const [profileBase] = await Promise.all([
+			prepareWebGLShaderDirectiveProfileBase(),
+			ShaderSource.prepareMany([
+				...WEBGL_SHADER_PARTS.flatMap((part) => [
+					{ key: `webgl.part.${part}.raw` as const },
+					{ key: `webgl.part.${part}.composite` as const },
+				]),
+				{
+					key: "webgl.scene.raw" as const,
+					params: {
+						limits: WEBGL_SCENE_LIGHT_LIMITS,
+					},
+				},
+				{
+					key: "webgl.scene.composite" as const,
+					params: {
+						limits: WEBGL_SCENE_LIGHT_LIMITS,
+					},
+				},
 			]),
-			{
-				key: "webgl.scene.raw" as const,
-				params: {
-					limits: {
-						maxDirectionalLights: MAX_DIRECTIONAL_LIGHTS,
-						maxPointLights: MAX_POINT_LIGHTS,
-						maxSpotLights: MAX_SPOT_LIGHTS,
-					},
-				},
-			},
-			{
-				key: "webgl.scene.composite" as const,
-				params: {
-					limits: {
-						maxDirectionalLights: MAX_DIRECTIONAL_LIGHTS,
-						maxPointLights: MAX_POINT_LIGHTS,
-						maxSpotLights: MAX_SPOT_LIGHTS,
-					},
-				},
-			},
 		]);
+		this._shaderProfileBase = profileBase;
 		this._initializeGLContext(canvas);
 	}
 
@@ -559,6 +561,22 @@ export class WebGLBackend implements IRenderBackend {
 			throw new Error("Failed to acquire WebGL2 context. WebGL backend requires WebGL2.");
 		}
 		assertWebGLHDRCapabilities(gl);
+		const profileBase = this._shaderProfileBase;
+		if (!profileBase) {
+			throw new Error("WebGL shader directive profile base is not prepared.");
+		}
+		const profile = createWebGLShaderDirectiveProfile(profileBase, {
+			...WEBGL_SCENE_LIGHT_LIMITS,
+			maxClusterLightsPerFragment: MAX_CLUSTER_LIGHTS_PER_FRAGMENT,
+			maxLocalLightProbes: MAX_LOCAL_LIGHT_PROBES,
+			maxReflectionProbes: MAX_REFLECTION_PROBES,
+		});
+		this._shaderCompileStage = new ShaderBackendCompileStage({
+			runtime: this.shaderRuntime,
+			profile,
+			hook: this._options.directiveHook ?? null,
+			mode: this._options.shaderMode ?? "warn",
+		});
 		this._displayOutputState = this._displayOutput.configure(
 			gl,
 			this._width,

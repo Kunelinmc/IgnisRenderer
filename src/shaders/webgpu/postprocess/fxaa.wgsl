@@ -1,4 +1,4 @@
-#import <ignis/postprocess/fxaa>
+#inject <ignis/postprocess/fxaa>()
 
 struct Params {
 	invSize: vec2<f32>,

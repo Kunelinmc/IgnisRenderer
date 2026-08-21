@@ -8,12 +8,14 @@ import {
 } from "./runtime";
 import {
 	createWebGLBrowserShaderSources,
+	WEBGL_DIRECTIVE_SHADER_FILES,
 	WEBGL_INTERNAL_SHADER_FILES,
 	WEBGL_PIPELINE_SHADER_PARTS,
 	WEBGL_SCENE_FRAGMENT_SHADER_FILES,
 	WEBGL_SHADER_FILES,
 	WEBGL_SHADER_PARTS,
 	type WebGLSceneFragmentPart,
+	type WebGLDirectiveShaderPart,
 	type WebGLShaderPart,
 } from "./webgl/sources";
 import {
@@ -24,6 +26,7 @@ import {
 import {
 	createWebGPUBrowserShaderSources,
 	createWebGPUBrowserSyncShaderSources,
+	WEBGPU_DIRECTIVE_SHADER_FILES,
 	WEBGPU_FIXED_SHADER_FILES,
 	WEBGPU_POST_PROCESS_PARTS_USING_SHARED_LIGHT_DATA,
 	WEBGPU_POST_PROCESS_SHADER_FILES,
@@ -33,6 +36,7 @@ import {
 	WEBGPU_SYNC_SHADER_FILES,
 	WEBGPU_UTILITY_SHADER_FILES,
 	type WebGPUPostProcessShaderPart,
+	type WebGPUDirectiveShaderPart,
 	type WebGPUSceneShaderPart,
 	type WebGPUShaderSourceSyncKey,
 	type WebGPUShadowShaderPart,
@@ -115,9 +119,17 @@ type WebGPUUtilityKey =
 	| `webgpu.utility.${WebGPUUtilityShaderPart}.raw`
 	| `webgpu.utility.${WebGPUUtilityShaderPart}.composite`;
 
+type WebGPUDirectiveKey =
+	| `webgpu.directive.${WebGPUDirectiveShaderPart}.raw`
+	| `webgpu.directive.${WebGPUDirectiveShaderPart}.composite`;
+
 type WebGLPartKey =
 	| `webgl.part.${WebGLShaderPart}.raw`
 	| `webgl.part.${WebGLShaderPart}.composite`;
+
+type WebGLDirectiveKey =
+	| `webgl.directive.${WebGLDirectiveShaderPart}.raw`
+	| `webgl.directive.${WebGLDirectiveShaderPart}.composite`;
 
 export type ShaderSourceKey =
 	| WebGPURawFixedShaderKey
@@ -126,7 +138,9 @@ export type ShaderSourceKey =
 	| WebGPUPostProcessKey
 	| WebGPUShadowKey
 	| WebGPUUtilityKey
+	| WebGPUDirectiveKey
 	| WebGLPartKey
+	| WebGLDirectiveKey
 	| "webgl.scene.raw"
 	| "webgl.scene.composite";
 
@@ -810,8 +824,14 @@ export class ShaderSource {
 		if (key.startsWith("webgpu.utility.")) {
 			return this._loadWebGPUUtilityPart(key as WebGPUUtilityKey);
 		}
+		if (key.startsWith("webgpu.directive.")) {
+			return this._loadWebGPUDirectivePart(key as WebGPUDirectiveKey);
+		}
 		if (key.startsWith("webgl.part.")) {
 			return this._loadWebGLPart(key as WebGLPartKey);
+		}
+		if (key.startsWith("webgl.directive.")) {
+			return this._loadWebGLDirectivePart(key as WebGLDirectiveKey);
 		}
 		throw new Error(`Unsupported ShaderSource key "${String(key)}".`);
 	}
@@ -961,6 +981,40 @@ export class ShaderSource {
 			scope: "webgl",
 			key: `webgl.part.${parsed.part}`,
 			path: WEBGL_SHADER_FILES[parsed.part],
+		};
+		return parsed.composite ?
+				this._loadFileComposite(descriptor)
+			:	this._loadFileRaw(descriptor);
+	}
+
+	private static _loadWebGPUDirectivePart(
+		key: WebGPUDirectiveKey,
+	): Promise<string | CompositeShaderSource> {
+		const parsed = this._parsePartKey<WebGPUDirectiveShaderPart>(
+			key,
+			"webgpu.directive.",
+		);
+		const descriptor: ShaderFileDescriptor = {
+			scope: "webgpu",
+			key: `webgpu.directive.${parsed.part}`,
+			path: WEBGPU_DIRECTIVE_SHADER_FILES[parsed.part],
+		};
+		return parsed.composite ?
+				this._loadFileComposite(descriptor)
+			:	this._loadFileRaw(descriptor);
+	}
+
+	private static _loadWebGLDirectivePart(
+		key: WebGLDirectiveKey,
+	): Promise<string | CompositeShaderSource> {
+		const parsed = this._parsePartKey<WebGLDirectiveShaderPart>(
+			key,
+			"webgl.directive.",
+		);
+		const descriptor: ShaderFileDescriptor = {
+			scope: "webgl",
+			key: `webgl.directive.${parsed.part}`,
+			path: WEBGL_DIRECTIVE_SHADER_FILES[parsed.part],
 		};
 		return parsed.composite ?
 				this._loadFileComposite(descriptor)

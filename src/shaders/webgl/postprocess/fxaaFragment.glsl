@@ -1,7 +1,7 @@
 #version 300 es
 precision highp float;
 #import <ignis/postprocess/luma-common>
-#import <ignis/postprocess/fxaa>
+#inject <ignis/postprocess/fxaa>()
 #define IGNIS_LUMA_PROFILE bt601
 #define IGNIS_LUMA_CLAMP false
 #inject <ignis/postprocess/luma>(profile=IGNIS_LUMA_PROFILE, clamp=IGNIS_LUMA_CLAMP)
