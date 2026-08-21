@@ -373,7 +373,7 @@ const uniformMarkers: readonly [string, ShaderManifestExpression][] = [
 	["__WEBGL_MATERIAL_IRIDESCENCE_UNIFORMS__", all(isPBR, material("iridescence"))],
 	["__WEBGL_MATERIAL_ANISOTROPY_UNIFORMS__", all(isPBR, material("anisotropy"))],
 	["__WEBGL_MATERIAL_PHONG_UNIFORMS__", isLegacy],
-	["__WEBGL_MATERIAL_ALPHA_MASK_UNIFORMS__", material("alphaMask")],
+	["__WEBGL_MATERIAL_ALPHA_UNIFORMS__", literal(true)],
 	["__WEBGL_MATERIAL_BASE_MAP_UNIFORMS__", material("baseMap")],
 	["__WEBGL_MATERIAL_METALLIC_ROUGHNESS_MAP_UNIFORMS__", all(isPBR, material("metallicRoughnessMap"))],
 	["__WEBGL_MATERIAL_NORMAL_MAP_UNIFORMS__", all(isPBR, material("normalMap"))],

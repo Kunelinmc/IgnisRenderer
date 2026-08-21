@@ -103,7 +103,7 @@ uniform vec4 uAnisotropy;
 __WEBGL_MATERIAL_PHONG_UNIFORMS__
 uniform vec4 uPhong;
 uniform vec4 uPhongAmbient;
-__WEBGL_MATERIAL_ALPHA_MASK_UNIFORMS__
+__WEBGL_MATERIAL_ALPHA_UNIFORMS__
 uniform vec4 uAlpha;
 __WEBGL_MATERIAL_BASE_MAP_UNIFORMS__
 uniform sampler2D uBaseMap;

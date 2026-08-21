@@ -219,6 +219,25 @@ async function testNoShadowPBRVariantDeclaresFallbackBeforeLighting() {
 	assert.ok(lightingIndex > fallbackIndex);
 }
 
+async function testOpaquePBRMRTVariantDeclaresAlphaUniform() {
+	const variant = createTestBuiltinSceneVariant({
+		output: "mrt",
+		skinProfile: "skin4",
+		scene: { shadows: true },
+		material: {
+			model: "pbr",
+			alphaMask: false,
+		},
+	});
+	await prepareTestBuiltinSceneVariant(variant);
+	const source = ShaderSource.get("webgl.scene", {
+		specialization: variant,
+	}).stages.fragment.code;
+
+	assert.ok(source.includes("uniform vec4 uAlpha;"));
+	assert.ok(source.includes("float finalAlpha = uAlpha.z > 0.5"));
+}
+
 async function testShadowVariantWithoutTransmittanceKeepsShadowUniforms() {
 	const variant = createTestBuiltinSceneVariant({
 		output: "mrt",
@@ -606,6 +625,7 @@ await runWebGLBackendFile([
 	testSceneProgramRepositoryPropagatesSamplerOverflowInWarnMode,
 	testSceneProgramRepositoryCachesBuiltinSceneVariants,
 	testNoShadowPBRVariantDeclaresFallbackBeforeLighting,
+	testOpaquePBRMRTVariantDeclaresAlphaUniform,
 	testShadowVariantWithoutTransmittanceKeepsShadowUniforms,
 	testSceneProgramRepositoryShaderMaterialIgnoresBuiltinVariant,
 	testSceneProgramRepositoryShaderMaterialCachesPerSceneTargetMode,
