@@ -393,48 +393,39 @@ export interface WebGLGlobalUniformBinderHost {
 	getShadowSamplingState(): WebGLShadowSamplingState;
 	_temporalJitterCurrentPrev: Float32Array;
 	_previousViewProjection: Float32Array | null;
-	_shAmbientTexture: WebGLTexture | null;
-	_shAmbientTextureWidth: number;
-	_shAmbientTextureHeight: number;
-	_localLightProbeSHTexture: WebGLTexture | null;
-	_localLightProbeSHTextureWidth: number;
-	_localLightProbeSHTextureHeight: number;
-	_irradianceProbeGridSHTexture: WebGLTexture | null;
-	_irradianceProbeGridSHTextureWidth: number;
-	_irradianceProbeGridSHTextureHeight: number;
-	_fogParams0: Float32Array;
-	_fogParams1: Float32Array;
-	_updateFogParams(options: FogOptions | undefined, enabled: boolean): void;
-	_uploadSHAmbientCoefficients(
-		coeffs: SHCoefficients | null | undefined
-	): boolean;
-	_uploadLocalLightProbeCoefficients(
+	/** Probe SH coefficient texture source consumed by scene uniform binding. */
+	_probeSHTextures: WebGLProbeSHUniformSource;
+	/** Packed scene-fog uniform values shared with the particle pass. */
+	_fog: WebGLSceneFogUniformState;
+}
+
+/**
+ * Narrow probe-texture surface required by global uniform binding. Satisfied
+ * structurally by `WebGLProbeSHTextures`.
+ */
+export interface WebGLProbeSHUniformSource {
+	localLightProbeSHTexture: WebGLTexture | null;
+	localLightProbeSHTextureWidth: number;
+	localLightProbeSHTextureHeight: number;
+	irradianceProbeGridSHTexture: WebGLTexture | null;
+	irradianceProbeGridSHTextureWidth: number;
+	irradianceProbeGridSHTextureHeight: number;
+	uploadLocalLightProbeCoefficients(
 		probes: WebGLLightState["localLightProbes"]
 	): boolean;
-	_uploadIrradianceProbeGridCoefficients(
+	uploadIrradianceProbeGridCoefficients(
 		grid: WebGLLightState["irradianceProbeGrid"]
 	): boolean;
 }
 
-export interface WebGLSHAmbientUploadHost {
-	_gl: WebGL2RenderingContext;
-	_shAmbientTexture: WebGLTexture | null;
-	_shAmbientTextureWidth: number;
-	_shAmbientTextureHeight: number;
-}
-
-export interface WebGLLocalLightProbeUploadHost {
-	_gl: WebGL2RenderingContext;
-	_localLightProbeSHTexture: WebGLTexture | null;
-	_localLightProbeSHTextureWidth: number;
-	_localLightProbeSHTextureHeight: number;
-}
-
-export interface WebGLIrradianceProbeGridUploadHost {
-	_gl: WebGL2RenderingContext;
-	_irradianceProbeGridSHTexture: WebGLTexture | null;
-	_irradianceProbeGridSHTextureWidth: number;
-	_irradianceProbeGridSHTextureHeight: number;
+/**
+ * Narrow packed-fog surface required by global uniform binding. Satisfied
+ * structurally by `WebGLFogState`.
+ */
+export interface WebGLSceneFogUniformState {
+	params0: Float32Array;
+	params1: Float32Array;
+	update(options: FogOptions | undefined, enabled: boolean): void;
 }
 
 export function bindWebGLGlobalUniforms(
@@ -541,12 +532,12 @@ export function bindWebGLGlobalUniforms(
 	const sceneFogEnabled =
 		context.postProcess.isEnabled("fog") &&
 		(fogOptions.application ?? "postprocess") === "scene";
-	host._updateFogParams(fogOptions, sceneFogEnabled);
+	host._fog.update(fogOptions, sceneFogEnabled);
 	if (uniforms.fogParams0) {
-		gl.uniform4fv(uniforms.fogParams0, host._fogParams0);
+		gl.uniform4fv(uniforms.fogParams0, host._fog.params0);
 	}
 	if (uniforms.fogParams1) {
-		gl.uniform4fv(uniforms.fogParams1, host._fogParams1);
+		gl.uniform4fv(uniforms.fogParams1, host._fog.params1);
 	}
 	if (uniforms.ambientColor) {
 		const ambientR = finiteOr(lights.ambientColor[0], 0);
@@ -566,11 +557,14 @@ export function bindWebGLGlobalUniforms(
 	}
 	const hasSHAmbientCoefficients =
 		Array.isArray(context.shAmbientCoeffs) && context.shAmbientCoeffs.length > 0;
-	const localLightProbeTextureReady = host._uploadLocalLightProbeCoefficients(
-		localLightProbes
-	);
+	const localLightProbeTextureReady =
+		host._probeSHTextures.uploadLocalLightProbeCoefficients(
+			localLightProbes
+		);
 	const irradianceProbeGridTextureReady =
-		host._uploadIrradianceProbeGridCoefficients(lights.irradianceProbeGrid);
+		host._probeSHTextures.uploadIrradianceProbeGridCoefficients(
+			lights.irradianceProbeGrid
+		);
 	const resolvedIrradianceProbeGrid =
 		irradianceProbeGridTextureReady ? lights.irradianceProbeGrid : null;
 	const resolvedLocalLightProbeCount =
@@ -642,14 +636,17 @@ export function bindWebGLGlobalUniforms(
 	if (uniforms.localLightProbeCoeffs) {
 		const unit = samplerUnit("uLocalLightProbeCoeffs");
 		gl.activeTexture(gl.TEXTURE0 + unit);
-		gl.bindTexture(gl.TEXTURE_2D, host._localLightProbeSHTexture);
+		gl.bindTexture(
+			gl.TEXTURE_2D,
+			host._probeSHTextures.localLightProbeSHTexture
+		);
 		gl.uniform1i(uniforms.localLightProbeCoeffs, unit);
 	}
 	if (uniforms.localLightProbeCoeffsSize) {
 		gl.uniform2f(
 			uniforms.localLightProbeCoeffsSize,
-			host._localLightProbeSHTextureWidth,
-			host._localLightProbeSHTextureHeight
+			host._probeSHTextures.localLightProbeSHTextureWidth,
+			host._probeSHTextures.localLightProbeSHTextureHeight
 		);
 	}
 	if (uniforms.irradianceProbeGridEnabled) {
@@ -691,14 +688,17 @@ export function bindWebGLGlobalUniforms(
 	if (uniforms.irradianceProbeGridCoeffs) {
 		const unit = samplerUnit("uIrradianceProbeGridCoeffs");
 		gl.activeTexture(gl.TEXTURE0 + unit);
-		gl.bindTexture(gl.TEXTURE_2D, host._irradianceProbeGridSHTexture);
+		gl.bindTexture(
+			gl.TEXTURE_2D,
+			host._probeSHTextures.irradianceProbeGridSHTexture
+		);
 		gl.uniform1i(uniforms.irradianceProbeGridCoeffs, unit);
 	}
 	if (uniforms.irradianceProbeGridCoeffsSize) {
 		gl.uniform2f(
 			uniforms.irradianceProbeGridCoeffsSize,
-			host._irradianceProbeGridSHTextureWidth,
-			host._irradianceProbeGridSHTextureHeight
+			host._probeSHTextures.irradianceProbeGridSHTextureWidth,
+			host._probeSHTextures.irradianceProbeGridSHTextureHeight
 		);
 	}
 
@@ -1363,227 +1363,3 @@ export function bindWebGLGlobalUniforms(
 	}
 }
 
-export function uploadWebGLSHAmbientCoefficients(
-	host: WebGLSHAmbientUploadHost,
-	coeffs: SHCoefficients | null | undefined
-): boolean {
-	const gl = host._gl;
-	const texelCount = SH_COEFFICIENT_COUNT;
-	const data = new Float32Array(texelCount * 4);
-	for (let i = 0; i < texelCount; i++) {
-		const coeff = coeffs?.[i];
-		const base = i * 4;
-		data[base] = finiteOr(coeff?.r, 0);
-		data[base + 1] = finiteOr(coeff?.g, 0);
-		data[base + 2] = finiteOr(coeff?.b, 0);
-		data[base + 3] = 0;
-	}
-
-	if (!host._shAmbientTexture) {
-		if (typeof gl.createTexture !== "function") {
-			logWebGLGlobalUniformWarning(
-				"webgl-sh-ambient-texture-create-unsupported",
-				"WebGL context does not expose createTexture(); disabling SH for this frame."
-			);
-			return false;
-		}
-		host._shAmbientTexture = gl.createTexture();
-		if (!host._shAmbientTexture) {
-			logWebGLGlobalUniformWarning(
-				"webgl-sh-ambient-texture-create-failed",
-				"Failed to create WebGL SH ambient texture; disabling SH for this frame."
-			);
-			return false;
-		}
-		gl.bindTexture(gl.TEXTURE_2D, host._shAmbientTexture);
-		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
-		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
-		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-	}
-
-	gl.bindTexture(gl.TEXTURE_2D, host._shAmbientTexture);
-	try {
-		const internalFormat =
-			(
-				gl as WebGL2RenderingContext & {
-					RGBA32F?: number;
-				}
-			).RGBA32F ?? gl.RGBA;
-		gl.texImage2D(
-			gl.TEXTURE_2D,
-			0,
-			internalFormat,
-			SH_COEFFICIENT_COUNT,
-			1,
-			0,
-			gl.RGBA,
-			gl.FLOAT,
-			data
-		);
-		host._shAmbientTextureWidth = SH_COEFFICIENT_COUNT;
-		host._shAmbientTextureHeight = 1;
-		return true;
-	} catch (error) {
-		logWebGLGlobalUniformWarning(
-			"webgl-sh-ambient-texture-upload-failed",
-			`WebGL SH ambient texture upload failed; disabling SH for this frame (${String(error)})`
-		);
-		return false;
-	}
-}
-
-export function uploadWebGLLocalLightProbeCoefficients(
-	host: WebGLLocalLightProbeUploadHost,
-	probes: WebGLLightState["localLightProbes"] | null | undefined
-): boolean {
-	const gl = host._gl;
-	const resolvedProbes = Array.isArray(probes) ? probes : [];
-	const width = SH_COEFFICIENT_COUNT;
-	const height = Math.max(1, resolvedProbes.length);
-	const data = new Float32Array(width * height * 4);
-
-	for (let probeIndex = 0; probeIndex < resolvedProbes.length; probeIndex++) {
-		const probe = resolvedProbes[probeIndex];
-		for (let coeffIndex = 0; coeffIndex < width; coeffIndex++) {
-			const coeff = probe.sh[coeffIndex];
-			const base = (probeIndex * width + coeffIndex) * 4;
-			data[base] = finiteOr(coeff?.r, 0);
-			data[base + 1] = finiteOr(coeff?.g, 0);
-			data[base + 2] = finiteOr(coeff?.b, 0);
-			data[base + 3] = 0;
-		}
-	}
-
-	if (!host._localLightProbeSHTexture) {
-		if (typeof gl.createTexture !== "function") {
-			logWebGLGlobalUniformWarning(
-				"webgl-local-light-probe-texture-create-unsupported",
-				"WebGL context does not expose createTexture(); disabling local light probe SH for this frame."
-			);
-			return false;
-		}
-		host._localLightProbeSHTexture = gl.createTexture();
-		if (!host._localLightProbeSHTexture) {
-			logWebGLGlobalUniformWarning(
-				"webgl-local-light-probe-texture-create-failed",
-				"Failed to create WebGL local light probe texture; disabling local light probe SH for this frame."
-			);
-			return false;
-		}
-		gl.bindTexture(gl.TEXTURE_2D, host._localLightProbeSHTexture);
-		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
-		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
-		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-	}
-
-	gl.bindTexture(gl.TEXTURE_2D, host._localLightProbeSHTexture);
-	try {
-		const internalFormat =
-			(
-				gl as WebGL2RenderingContext & {
-					RGBA32F?: number;
-				}
-			).RGBA32F ?? gl.RGBA;
-		gl.texImage2D(
-			gl.TEXTURE_2D,
-			0,
-			internalFormat,
-			width,
-			height,
-			0,
-			gl.RGBA,
-			gl.FLOAT,
-			data
-		);
-		host._localLightProbeSHTextureWidth = width;
-		host._localLightProbeSHTextureHeight = height;
-		return true;
-	} catch (error) {
-		logWebGLGlobalUniformWarning(
-			"webgl-local-light-probe-texture-upload-failed",
-			`WebGL local light probe texture upload failed; disabling local light probe SH for this frame (${String(error)})`
-		);
-		return false;
-	}
-}
-
-export function uploadWebGLIrradianceProbeGridCoefficients(
-	host: WebGLIrradianceProbeGridUploadHost,
-	grid: WebGLLightState["irradianceProbeGrid"] | null | undefined
-): boolean {
-	if (!grid || grid.cellCount <= 0) {
-		return false;
-	}
-	const gl = host._gl;
-	const width = SH_COEFFICIENT_COUNT;
-	const height = Math.max(1, Math.floor(grid.cellCount));
-	const data = new Float32Array(width * height * 4);
-
-	for (let cellIndex = 0; cellIndex < height; cellIndex++) {
-		const cellSH = grid.sh[cellIndex];
-		const valid = grid.validMask[cellIndex] ? 1 : 0;
-		for (let coeffIndex = 0; coeffIndex < width; coeffIndex++) {
-			const coeff = cellSH?.[coeffIndex];
-			const base = (cellIndex * width + coeffIndex) * 4;
-			data[base] = finiteOr(coeff?.r, 0);
-			data[base + 1] = finiteOr(coeff?.g, 0);
-			data[base + 2] = finiteOr(coeff?.b, 0);
-			data[base + 3] = valid;
-		}
-	}
-
-	if (!host._irradianceProbeGridSHTexture) {
-		if (typeof gl.createTexture !== "function") {
-			logWebGLGlobalUniformWarning(
-				"webgl-irradiance-probe-grid-texture-create-unsupported",
-				"WebGL context does not expose createTexture(); disabling irradiance probe grid for this frame."
-			);
-			return false;
-		}
-		host._irradianceProbeGridSHTexture = gl.createTexture();
-		if (!host._irradianceProbeGridSHTexture) {
-			logWebGLGlobalUniformWarning(
-				"webgl-irradiance-probe-grid-texture-create-failed",
-				"Failed to create WebGL irradiance probe grid texture; disabling the grid for this frame."
-			);
-			return false;
-		}
-		gl.bindTexture(gl.TEXTURE_2D, host._irradianceProbeGridSHTexture);
-		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
-		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
-		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-	}
-
-	gl.bindTexture(gl.TEXTURE_2D, host._irradianceProbeGridSHTexture);
-	try {
-		const internalFormat =
-			(
-				gl as WebGL2RenderingContext & {
-					RGBA32F?: number;
-				}
-			).RGBA32F ?? gl.RGBA;
-		gl.texImage2D(
-			gl.TEXTURE_2D,
-			0,
-			internalFormat,
-			width,
-			height,
-			0,
-			gl.RGBA,
-			gl.FLOAT,
-			data
-		);
-		host._irradianceProbeGridSHTextureWidth = width;
-		host._irradianceProbeGridSHTextureHeight = height;
-		return true;
-	} catch (error) {
-		logWebGLGlobalUniformWarning(
-			"webgl-irradiance-probe-grid-texture-upload-failed",
-			`WebGL irradiance probe grid texture upload failed; disabling the grid for this frame (${String(error)})`
-		);
-		return false;
-	}
-}

@@ -69,11 +69,13 @@ function testUploadSHAmbientCoefficients() {
 			b: index + 3,
 		}));
 
-		const uploaded = executor._uploadSHAmbientCoefficients(coeffs);
+		const uploaded = executor._probeSHTextures.uploadSHAmbientCoefficients(
+			coeffs
+		);
 		assert.equal(uploaded, true);
-		assert.ok(executor._shAmbientTexture);
-		assert.equal(executor._shAmbientTextureWidth, 16);
-		assert.equal(executor._shAmbientTextureHeight, 1);
+		assert.ok(executor._probeSHTextures.shAmbientTexture);
+		assert.equal(executor._probeSHTextures.shAmbientTextureWidth, 16);
+		assert.equal(executor._probeSHTextures.shAmbientTextureHeight, 1);
 		assert.equal(warnings.length, 0);
 	} finally {
 		Logger.reset();
@@ -99,11 +101,19 @@ function testUploadLocalLightProbeCoefficients() {
 		},
 	];
 
-	const uploaded = executor._uploadLocalLightProbeCoefficients(probes);
+	const uploaded = executor._probeSHTextures.uploadLocalLightProbeCoefficients(
+		probes
+	);
 	assert.equal(uploaded, true);
-	assert.ok(executor._localLightProbeSHTexture);
-	assert.equal(executor._localLightProbeSHTextureWidth, 16);
-	assert.equal(executor._localLightProbeSHTextureHeight, 2);
+	assert.ok(executor._probeSHTextures.localLightProbeSHTexture);
+	assert.equal(
+		executor._probeSHTextures.localLightProbeSHTextureWidth,
+		16
+	);
+	assert.equal(
+		executor._probeSHTextures.localLightProbeSHTextureHeight,
+		2
+	);
 	assert.deepEqual(
 		executor._gl.texImage2DCalls.at(-1),
 		{ width: 16, height: 2 }

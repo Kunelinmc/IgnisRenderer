@@ -3,7 +3,6 @@ import {
 	type Material,
 } from "../../materials/Material";
 import type { ShaderTargetMode } from "../../materials/ShaderMaterial";
-import type { SHCoefficients } from "../../maths/types";
 import {
 	type DrawPacket,
 	type FrameContext,
@@ -18,11 +17,6 @@ import type {
 	PostProcessResourceHandle,
 } from "../../postprocess";
 import type { FramePreparationRequirements } from "../../pipeline/FrameRequirements";
-import {
-	DEFAULT_FOG_OPTIONS,
-	resolveFogUniformParams,
-	type FogOptions,
-} from "../../postprocess/passes/FogPass";
 import { IBLBRDF } from "../../lights/ibl/IBLBRDF";
 import {
 	collectWebGLLights,
@@ -36,7 +30,6 @@ import {
 } from "./WebGLGeometryRegistry";
 import {
 	IDENTITY_MATRIX4_COLUMN_MAJOR,
-	SH_COEFFICIENT_COUNT,
 	WEBGL_REFLECTION_PROBE_CAMERA_WORLD_POSITION_SCRATCH,
 } from "./constants";
 import { WebGLSceneProgramRepository } from "./WebGLSceneProgramRepository";
@@ -61,12 +54,9 @@ import { WebGLFrameTargetManager } from "./WebGLFrameTargetManager";
 import { WebGLFrameSession } from "./WebGLFrameSession";
 import { WebGLFullscreenRenderer } from "./WebGLFullscreenRenderer";
 import { WebGLEnvironmentRenderer } from "./WebGLEnvironmentRenderer";
-import {
-	bindWebGLGlobalUniforms,
-	uploadWebGLIrradianceProbeGridCoefficients,
-	uploadWebGLLocalLightProbeCoefficients,
-	uploadWebGLSHAmbientCoefficients,
-} from "./WebGLGlobalUniformBinder";
+import { bindWebGLGlobalUniforms } from "./WebGLGlobalUniformBinder";
+import { WebGLProbeSHTextures } from "./WebGLProbeSHTextures";
+import { WebGLFogState } from "./WebGLFogState";
 import {
 	WebGLShadowRuntime,
 	type WebGLShadowSamplingState,
@@ -157,17 +147,8 @@ export class WebGLFrameServices {
 	private readonly _vertexTextureUnits: WebGLVertexTextureUnitLayout;
 	private _maxRenderbufferSize: number;
 	public _clusteredLighting: WebGLClusteredLightingRuntime;
-	public _shAmbientTexture: WebGLTexture | null = null;
-	public _shAmbientTextureWidth = SH_COEFFICIENT_COUNT;
-	public _shAmbientTextureHeight = 1;
-	public _localLightProbeSHTexture: WebGLTexture | null = null;
-	public _localLightProbeSHTextureWidth = SH_COEFFICIENT_COUNT;
-	public _localLightProbeSHTextureHeight = 1;
-	public _irradianceProbeGridSHTexture: WebGLTexture | null = null;
-	public _irradianceProbeGridSHTextureWidth = SH_COEFFICIENT_COUNT;
-	public _irradianceProbeGridSHTextureHeight = 1;
-	public _fogParams0 = new Float32Array(4);
-	public _fogParams1 = new Float32Array(4);
+	public _probeSHTextures: WebGLProbeSHTextures;
+	public _fog = new WebGLFogState();
 	public _oitPassMode: 0 | 1 | 2 = 0;
 	private _transparency: WebGLTransparencyRuntime;
 	private _enableEarlyZPrepass = true;
@@ -381,23 +362,25 @@ export class WebGLFrameServices {
 			maxUploadBytesPerFrame: DEFAULT_DEFERRED_UPLOAD_BYTES_PER_FRAME,
 			onUploadPending: options.onTextureUploadPending,
 		});
+		this._probeSHTextures = new WebGLProbeSHTextures(gl);
+		const fogUniformView = {
+			params0: this._fog.params0,
+			params1: this._fog.params1,
+		};
 		this._particlePass = new WebGLParticlePass({
 			gl,
 			programCompiler: this._programCompiler,
 			textures: this._textures,
 			getSceneFramebuffer: () => this._targets._sceneFramebuffer,
 			getViewportSize: () => ({ width: this._session.width, height: this._session.height }),
-			getFogParams: () => ({
-				params0: this._fogParams0,
-				params1: this._fogParams1,
-			}),
+			getFogParams: () => fogUniformView,
 			isIncrementalPartial: (context) => this._isIncrementalPartial(context),
 			resolveDirtyRects: (context, width, height) =>
 				this._resolveDirtyRects(context, width, height),
 			setScissorRect: (x, y, width, height, viewportHeight) =>
 				this._setScissorRect(x, y, width, height, viewportHeight),
 			updateFogParams: (fogOptions, enabled) =>
-				this._updateFogParams(fogOptions, enabled),
+				this._fog.update(fogOptions, enabled),
 		});
 		this._maxTextureSize = this._resolveLimit(gl.MAX_TEXTURE_SIZE, 4096);
 		this._vertexTextureUnits = createWebGLVertexTextureUnitLayout(gl);
@@ -879,18 +862,7 @@ export class WebGLFrameServices {
 		this._shadow.destroy();
 		this._particlePass.destroy();
 		this._clusteredLighting.destroy();
-		if (this._shAmbientTexture) {
-			this._gl.deleteTexture(this._shAmbientTexture);
-			this._shAmbientTexture = null;
-		}
-		if (this._localLightProbeSHTexture) {
-			this._gl.deleteTexture(this._localLightProbeSHTexture);
-			this._localLightProbeSHTexture = null;
-		}
-		if (this._irradianceProbeGridSHTexture) {
-			this._gl.deleteTexture(this._irradianceProbeGridSHTexture);
-			this._irradianceProbeGridSHTexture = null;
-		}
+		this._probeSHTextures.destroy();
 		this._scene.destroy();
 		this._environment.destroy();
 		this._fullscreen.destroy();
@@ -1093,37 +1065,6 @@ export class WebGLFrameServices {
 			sceneProgram,
 			context
 		);
-	}
-
-	public _uploadSHAmbientCoefficients(
-		coeffs: SHCoefficients | null | undefined
-	): boolean {
-		return uploadWebGLSHAmbientCoefficients(
-			this,
-			coeffs
-		);
-	}
-
-	public _uploadLocalLightProbeCoefficients(
-		probes: NonNullable<WebGLLightState["localLightProbes"]>
-	): boolean {
-		return uploadWebGLLocalLightProbeCoefficients(
-			this,
-			probes
-		);
-	}
-
-	public _uploadIrradianceProbeGridCoefficients(
-		grid: WebGLLightState["irradianceProbeGrid"]
-	): boolean {
-		return uploadWebGLIrradianceProbeGridCoefficients(
-			this,
-			grid
-		);
-	}
-
-	public _updateFogParams(options: FogOptions | undefined, enabled: boolean): void {
-		resolveFogUniformParams(options, enabled, this._fogParams0, this._fogParams1);
 	}
 
 	private _resolvePostProcessTargetTexture(

@@ -109,23 +109,24 @@ function createBinderHost(gl, pointLights) {
 		},
 		_temporalJitterCurrentPrev: new Float32Array([0, 0, 0, 0]),
 		_previousViewProjection: null,
-		_shAmbientTexture: null,
-		_shAmbientTextureWidth: 1,
-		_shAmbientTextureHeight: 1,
-		_localLightProbeSHTexture: null,
-		_localLightProbeSHTextureWidth: 1,
-		_localLightProbeSHTextureHeight: 1,
-		_fogParams0: new Float32Array([0, 0, 0, 0]),
-		_fogParams1: new Float32Array([0, 0, 0, 0]),
-		_updateFogParams() {},
-		_uploadSHAmbientCoefficients() {
-			return false;
+		_probeSHTextures: {
+			localLightProbeSHTexture: null,
+			localLightProbeSHTextureWidth: 1,
+			localLightProbeSHTextureHeight: 1,
+			irradianceProbeGridSHTexture: null,
+			irradianceProbeGridSHTextureWidth: 1,
+			irradianceProbeGridSHTextureHeight: 1,
+			uploadLocalLightProbeCoefficients() {
+				return false;
+			},
+			uploadIrradianceProbeGridCoefficients() {
+				return false;
+			},
 		},
-		_uploadLocalLightProbeCoefficients() {
-			return false;
-		},
-		_uploadIrradianceProbeGridCoefficients() {
-			return false;
+		_fog: {
+			params0: new Float32Array([0, 0, 0, 0]),
+			params1: new Float32Array([0, 0, 0, 0]),
+			update() {},
 		},
 	};
 }

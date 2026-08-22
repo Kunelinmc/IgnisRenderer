@@ -342,6 +342,10 @@ This document defines the current WebGL backend lifecycle, frame graph, resource
   Frame-sized attachments must be owned exclusively by
   `WebGLFrameTargetManager`; post-process histories must be owned exclusively
   by `BackendPostProcessRuntime` resource pools.
+- Probe SH coefficient textures must be created, uploaded to, and destroyed
+  exclusively by `WebGLProbeSHTextures`. Scene fog uniform packing must be
+  owned by `WebGLFogState`; global uniform binding and the particle pass must
+  consume them through narrow structural contracts.
 - `WebGLFrameNodeExecutorRegistry` must assign every WebGL graph node kind to
   exactly one executor and must reject missing or duplicate registrations.
 - `WebGLFrameServices` must not own renderer-level pass orchestration.
