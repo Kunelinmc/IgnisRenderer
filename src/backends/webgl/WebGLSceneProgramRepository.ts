@@ -606,7 +606,7 @@ export class WebGLSceneProgramRepository {
 	): string {
 		const limits = this._getSceneLightLimits();
 		return (
-			`${ShaderSource.getIdentity("webgl.scene", { specialization: variant })}` +
+			`${getWebGLSceneVariantKey(variant)}` +
 			`|limits:${limits.maxDirectionalLights},` +
 			`${limits.maxPointLights},${limits.maxSpotLights}` +
 			`|runtime:${this._shaderRuntime?.revision ?? 0}` +
@@ -619,9 +619,7 @@ export class WebGLSceneProgramRepository {
 		directiveTag: string
 	): string {
 		return (
-			`${ShaderSource.getIdentity("webgl.scene.depth", {
-				specialization: variant,
-			})}` +
+			`${getWebGLSceneDepthVariantKey(variant)}` +
 			`|runtime:${this._shaderRuntime?.revision ?? 0}` +
 			`|directive:${directiveTag}`
 		);
@@ -636,18 +634,13 @@ export class WebGLSceneProgramRepository {
 	private _createBuiltinSceneProgramLabel(
 		variant: WebGLSceneVariantDescriptor
 	): string {
-		return `WebGLSceneProgram_${ShaderSource.getIdentity("webgl.scene", {
-			specialization: variant,
-		})}`;
+		return `WebGLSceneProgram_${getWebGLSceneVariantKey(variant)}`;
 	}
 
 	private _createBuiltinSceneDepthProgramLabel(
 		variant: WebGLSceneDepthVariantDescriptor
 	): string {
-		return `WebGLSceneDepthPrepassProgram_${ShaderSource.getIdentity(
-			"webgl.scene.depth",
-			{ specialization: variant },
-		)}`;
+		return `WebGLSceneDepthPrepassProgram_${getWebGLSceneDepthVariantKey(variant)}`;
 	}
 
 	private _getBuiltinSceneProgram(

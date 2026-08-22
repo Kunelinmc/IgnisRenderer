@@ -7,7 +7,10 @@ import {
 } from "../../../src/shaders/ShaderSource.ts";
 import { WEBGL_SHADER_MANIFEST } from "../../../src/shaders/webgl/sources.ts";
 import { embeddedShaderSources } from "../../../src/shaders/generated/embeddedShaderSources.ts";
-import { validateShaderBackendManifest } from "../../../src/shaders/shaderManifest.ts";
+import {
+	resolveShaderManifestRequest,
+	validateShaderBackendManifest,
+} from "../../../src/shaders/shaderManifest.ts";
 import {
 	ShaderBackendCompileStage,
 	ShaderRuntime,
@@ -844,6 +847,70 @@ function testShaderManifestValidation() {
 	);
 }
 
+function testShaderManifestIdentityUsesNormalizedCanonicalParameters() {
+	const manifest = {
+		backend: "webgpu",
+		language: "wgsl",
+		assets: { main: { path: "./webgpu/test.wgsl" } },
+		sources: {
+			test: {
+				kind: "module",
+				sourceKind: "unknown",
+				parameters: {
+					type: "record",
+					fields: {
+						zeta: { type: "integer", default: 3, min: 0, max: 7 },
+						nested: {
+							type: "record",
+							fields: {
+								toggle: { type: "boolean", default: false },
+								mode: {
+									type: "enum",
+									values: ["a", "b"],
+									default: "a",
+								},
+							},
+						},
+					},
+				},
+				source: { asset: "main" },
+			},
+		},
+		profile: {
+			baseId: "test-base",
+			assetPackId: "test-assets",
+			assetPackRevision: 1,
+			includes: [],
+			featurePacks: [],
+			overlay: {
+				id: "test-overlay",
+				includeId: "test/constants",
+				sourcePath: "runtime://test/constants",
+				parameters: { type: "record", fields: {} },
+				defines: {},
+			},
+		},
+	};
+	const first = resolveShaderManifestRequest(manifest, "test", {
+		zeta: 99,
+		nested: { toggle: true, mode: "b", ignored: true },
+	});
+	const second = resolveShaderManifestRequest(manifest, "test", {
+		nested: { mode: "b", toggle: true },
+		zeta: 7,
+	});
+
+	assert.deepEqual(first.parameters, {
+		nested: { mode: "b", toggle: true },
+		zeta: 7,
+	});
+	assert.equal(first.identity, second.identity);
+	assert.equal(
+		first.identity,
+		'test|{"nested":{"mode":"b","toggle":true},"zeta":7}',
+	);
+}
+
 async function collectShaderFiles(relativeRoot, extension) {
 	const root = path.join(SHADER_ROOT, relativeRoot);
 	const files = [];
@@ -913,6 +980,7 @@ async function run() {
 	testClearCacheDoesNotTouchShaderRuntime();
 	await testWebGLDepthAndShadowArtifacts();
 	testShaderManifestValidation();
+	testShaderManifestIdentityUsesNormalizedCanonicalParameters();
 	await testEmbeddedManifestMatchesShaderFiles();
 	console.log("ShaderSource tests passed");
 }

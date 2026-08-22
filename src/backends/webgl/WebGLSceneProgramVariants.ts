@@ -12,9 +12,14 @@ import {
 	PBRMaterialFeature,
 	PBRMaterialTextureFeature,
 } from "../../materials/PBRMaterial";
+import type { IPrimitive } from "../../core/types";
 import type { DrawPacket, FrameContext } from "../../pipeline/types";
-import { resolveShaderManifestRequest } from "../../shaders/ShaderManifest";
-import { WEBGL_SHADER_MANIFEST } from "../../shaders/webgl/sources";
+import {
+	WEBGL_MAX_MORPH_TARGETS,
+	WEBGL_MORPH_NORMAL_BIT,
+	WEBGL_MORPH_POSITION_BIT,
+	type WebGLSkinProfile,
+} from "./WebGLGeometryRegistry";
 import {
 	WEBGL_FULL_SCENE_VARIANT,
 	getWebGLSceneDepthVariantKey,
@@ -40,23 +45,6 @@ export {
 	normalizeWebGLSceneDepthVariantDescriptor,
 	normalizeWebGLSceneVariantDescriptor,
 };
-
-/** @internal Resolves the manifest-owned scene specialization and identity. */
-export function resolveWebGLSceneSourceSpecialization(
-	variant?: WebGLSceneVariantDescriptor,
-): { specialization: WebGLSceneVariantDescriptor; identity: string } {
-	const resolved = resolveShaderManifestRequest(
-		WEBGL_SHADER_MANIFEST,
-		"webgl.scene",
-		{ specialization: variant },
-	);
-	return {
-		specialization: (
-			resolved.parameters as { specialization: WebGLSceneVariantDescriptor }
-		).specialization,
-		identity: resolved.identity,
-	};
-}
 
 /** @internal Exact sampler-free built-in fallback for a failed ShaderMaterial. */
 export function createWebGLShaderMaterialFallbackVariant(
@@ -195,7 +183,7 @@ export function resolveWebGLBuiltinDepthVariant(
 }
 
 export interface WebGLDeformationProfile {
-	readonly skinProfile: "static" | "skin4" | "skin8";
+	readonly skinProfile: WebGLSkinProfile;
 	readonly morphSemanticMask: number;
 }
 
@@ -204,21 +192,66 @@ export const WEBGL_STATIC_DEFORMATION_PROFILE: WebGLDeformationProfile = {
 	morphSemanticMask: 0,
 };
 
-export function resolveWebGLPacketDeformationProfile(
-	packet: DrawPacket,
+interface CachedDeformationProfile {
+	geometryVersion: number;
+	profile: WebGLDeformationProfile;
+}
+
+// Profiles derive only from geometry content, so they are memoized per
+// primitive and invalidated by `geometryVersion`, mirroring the geometry
+// registry cache contract.
+const deformationProfileCache = new WeakMap<
+	IPrimitive,
+	CachedDeformationProfile
+>();
+
+/**
+ * Derives the deformation profile from raw geometry content.
+ *
+ * @internal Owned by the WebGL scene program subsystem.
+ */
+export function resolveWebGLGeometryDeformationProfile(
+	geometry: IPrimitive["geometry"],
 ): WebGLDeformationProfile {
-	const geometry = packet.primitive?.geometry;
-	if (!geometry) return WEBGL_STATIC_DEFORMATION_PROFILE;
 	const skinProfile =
 		geometry.joints1 || geometry.weights1 ? "skin8"
 		: geometry.joints0 || geometry.weights0 ? "skin4"
 		: "static";
 	let morphSemanticMask = 0;
-	for (const target of (geometry.morphTargets ?? []).slice(0, 8)) {
-		if (target.positions) morphSemanticMask |= 1;
-		if (target.normals) morphSemanticMask |= 2;
+	const targets = geometry.morphTargets;
+	if (targets) {
+		const count = Math.min(targets.length, WEBGL_MAX_MORPH_TARGETS);
+		for (let index = 0; index < count; index++) {
+			const target = targets[index];
+			if (target.positions) morphSemanticMask |= WEBGL_MORPH_POSITION_BIT;
+			if (target.normals) morphSemanticMask |= WEBGL_MORPH_NORMAL_BIT;
+		}
 	}
 	return { skinProfile, morphSemanticMask };
+}
+
+/**
+ * Resolves a packet's deformation profile from its primitive geometry,
+ * returning the memoized profile until the primitive's `geometryVersion`
+ * changes.
+ *
+ * @internal Owned by the WebGL scene program subsystem; warmup and draw-time
+ * resolution must share this resolver so variants stay identical.
+ */
+export function resolveWebGLPacketDeformationProfile(
+	packet: DrawPacket,
+): WebGLDeformationProfile {
+	const primitive = packet.primitive;
+	const geometry = primitive?.geometry;
+	if (!geometry) return WEBGL_STATIC_DEFORMATION_PROFILE;
+	const geometryVersion = primitive.geometryVersion ?? 0;
+	const cached = deformationProfileCache.get(primitive);
+	if (cached && cached.geometryVersion === geometryVersion) {
+		return cached.profile;
+	}
+	const profile = resolveWebGLGeometryDeformationProfile(geometry);
+	deformationProfileCache.set(primitive, { geometryVersion, profile });
+	return profile;
 }
 
 function resolveWebGLSceneMaterialVariant(

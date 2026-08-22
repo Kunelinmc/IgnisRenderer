@@ -204,6 +204,7 @@ export interface ShaderManifestBuildContext {
 }
 
 const validatedManifests = new WeakSet<object>();
+const sortedParameterFieldKeys = new WeakMap<object, readonly string[]>();
 
 export function validateShaderBackendManifest(
 	manifest: ShaderBackendManifest,
@@ -395,13 +396,13 @@ export function resolveShaderManifestRequest(
 	validateShaderBackendManifest(manifest);
 	const definition = manifest.sources[key];
 	if (!definition) throw new Error(`Unsupported ShaderSource key "${key}".`);
-	const parameters = definition.parameters ?
-		normalizeParameter(definition.parameters, params, key)
+	const normalized = definition.parameters ?
+		normalizeParameterAndSerialize(definition.parameters, params, key)
 	:	undefined;
 	return {
-		parameters,
+		parameters: normalized?.value,
 		identity:
-			parameters === undefined ? key : `${key}|${stableSerialize(parameters)}`,
+			normalized === undefined ? key : `${key}|${normalized.serialized}`,
 	};
 }
 
@@ -632,13 +633,52 @@ function normalizeParameter(
 	value: unknown,
 	path: string,
 ): unknown {
+	return normalizeParameterInternal(schema, value, path, false).value;
+}
+
+interface NormalizedParameterResult {
+	readonly value: unknown;
+	readonly serialized?: string;
+}
+
+interface SerializedParameterResult extends NormalizedParameterResult {
+	readonly serialized: string;
+}
+
+function normalizeParameterAndSerialize(
+	schema: ShaderParameterSchema,
+	value: unknown,
+	path: string,
+): SerializedParameterResult {
+	return normalizeParameterInternal(
+		schema,
+		value,
+		path,
+		true,
+	) as SerializedParameterResult;
+}
+
+function normalizeParameterInternal(
+	schema: ShaderParameterSchema,
+	value: unknown,
+	path: string,
+	serialize: boolean,
+): NormalizedParameterResult {
 	if (schema.type === "boolean") {
-		return value === undefined ? schema.default === true : value === true;
+		const normalized = value === undefined ? schema.default === true : value === true;
+		return {
+			value: normalized,
+			serialized: serialize ? JSON.stringify(normalized) : undefined,
+		};
 	}
 	if (schema.type === "enum") {
-		return typeof value === "string" && schema.values.includes(value) ?
+		const normalized = typeof value === "string" && schema.values.includes(value) ?
 			value
 		:	schema.default;
+		return {
+			value: normalized,
+			serialized: serialize ? JSON.stringify(normalized) : undefined,
+		};
 	}
 	if (schema.type === "integer") {
 		if (value === undefined && schema.required && schema.default === undefined) {
@@ -649,17 +689,49 @@ function normalizeParameter(
 		if (schema.min !== undefined) result = Math.max(schema.min, result);
 		if (schema.max !== undefined) result = Math.min(schema.max, result);
 		if (schema.bitMask !== undefined) result &= schema.bitMask;
-		return result;
+		return {
+			value: result,
+			serialized: serialize ? JSON.stringify(result) : undefined,
+		};
 	}
 	const input =
 		value && typeof value === "object" ?
 			(value as Record<string, unknown>)
 		: schema.default ?? {};
 	const result: Record<string, unknown> = {};
-	for (const [key, field] of Object.entries(schema.fields)) {
-		result[key] = normalizeParameter(field, input[key], `${path}.${key}`);
+	const keys = serialize ?
+		getSortedParameterFieldKeys(schema)
+	:	Object.keys(schema.fields);
+	const serializedFields = serialize ? new Array<string>(keys.length) : undefined;
+	for (let index = 0; index < keys.length; index++) {
+		const key = keys[index];
+		const field = schema.fields[key];
+		const normalized = normalizeParameterInternal(
+			field,
+			input[key],
+			`${path}.${key}`,
+			serialize,
+		);
+		result[key] = normalized.value;
+		if (serializedFields) {
+			serializedFields[index] =
+				`${JSON.stringify(key)}:${normalized.serialized}`;
+		}
 	}
-	return result;
+	return {
+		value: result,
+		serialized: serializedFields ? `{${serializedFields.join(",")}}` : undefined,
+	};
+}
+
+function getSortedParameterFieldKeys(
+	schema: Extract<ShaderParameterSchema, { type: "record" }>,
+): readonly string[] {
+	const cached = sortedParameterFieldKeys.get(schema);
+	if (cached) return cached;
+	const keys = Object.keys(schema.fields).sort();
+	sortedParameterFieldKeys.set(schema, keys);
+	return keys;
 }
 
 function evaluate(
@@ -709,18 +781,6 @@ function readParameter(parameters: unknown, path: string): ShaderManifestPrimiti
 
 function formatDefineValue(value: ShaderManifestPrimitive): string {
 	return typeof value === "boolean" ? (value ? "1" : "0") : String(value);
-}
-
-function stableSerialize(value: unknown): string {
-	if (!value || typeof value !== "object") return JSON.stringify(value);
-	if (Array.isArray(value)) return `[${value.map(stableSerialize).join(",")}]`;
-	return `{${Object.keys(value as Record<string, unknown>)
-		.sort()
-		.map(
-			(key) =>
-				`${JSON.stringify(key)}:${stableSerialize((value as Record<string, unknown>)[key])}`,
-		)
-		.join(",")}}`;
 }
 
 function cloneComposite(source: CompositeShaderSource): CompositeShaderSource {

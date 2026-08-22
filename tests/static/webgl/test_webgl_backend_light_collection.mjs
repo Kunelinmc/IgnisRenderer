@@ -316,11 +316,11 @@ function testSceneProgramPlannerEnumeratesRuntimeTransmittanceAlternatives() {
 	};
 	const plan = planWebGLScenePrograms(context, [material], ["single", "mrt"]);
 	const keys = [...plan.sceneVariants.keys()];
-	assert.ok(keys.some((key) => key.includes('"shadowTransmittance":false')));
-	assert.ok(keys.some((key) => key.includes('"shadowTransmittance":true')));
-	assert.ok(keys.some((key) => key.includes('"output":"single"')));
+	assert.ok(keys.some((key) => key.includes("shdt:0")));
+	assert.ok(keys.some((key) => key.includes("shdt:1")));
+	assert.ok(keys.some((key) => key.includes("out:single")));
 	assert.ok(keys.some((key) =>
-		key.includes('"materialGBuffer":true') && key.includes('"output":"mrt"')
+		key.includes("gbuf:1") && key.includes("out:mrt")
 	));
 }
 
