@@ -1074,6 +1074,9 @@ function toUint8Data(
 	height: number,
 	channelCount: number
 ): Uint8Array {
+	if (source instanceof Float32Array) {
+		return float32ToUint8Data(source, width, height, channelCount);
+	}
 	const expectedLength = Math.max(1, width * height * channelCount);
 	if (source instanceof Uint8Array && !(source instanceof Uint8ClampedArray)) {
 		if (source.length === expectedLength) {
@@ -1084,18 +1087,74 @@ function toUint8Data(
 			resized.set(source.subarray(0, expectedLength));
 			return resized;
 		}
+	} else if (source.length === expectedLength) {
+		// Uint8ClampedArray bytes already match the target layout; a view
+		// avoids an element-wise copy on canvas-decoded sources.
+		return new Uint8Array(source.buffer, source.byteOffset, source.length);
 	}
 
+	// Byte sources need no quantization, so expansion reduces to copying
+	// sourceChannels per pixel and padding trailing channels with defaults.
 	const data = new Uint8Array(expectedLength);
 	const pixelCount = Math.max(1, width * height);
 	const sourceChannels = inferUploadSourceChannels(source, pixelCount, channelCount);
-	for (let pixel = 0; pixel < pixelCount; pixel++) {
+	const fullPixels = Math.min(pixelCount, Math.floor(source.length / sourceChannels));
+	const paddedPixelStart = fullPixels * channelCount;
+
+	let pixel = 0;
+	let src = 0;
+	let dst = 0;
+	for (; pixel < fullPixels; pixel++, src += sourceChannels, dst += channelCount) {
+		let channel = 0;
+		for (; channel < sourceChannels; channel++) {
+			data[dst + channel] = source[src + channel];
+		}
+		for (; channel < channelCount; channel++) {
+			data[dst + channel] = channel === 3 ? 1 : 0;
+		}
+	}
+	for (dst = paddedPixelStart; pixel < pixelCount; pixel++, dst += channelCount) {
 		for (let channel = 0; channel < channelCount; channel++) {
-			const srcIndex = pixel * sourceChannels + Math.min(channel, sourceChannels - 1);
-			data[pixel * channelCount + channel] = toUint8UploadValue(
-				source,
-				source[srcIndex] ?? defaultUploadChannelValue(channel)
-			);
+			data[dst + channel] = channel === 3 ? 1 : 0;
+		}
+	}
+	return data;
+}
+
+function float32ToUint8Data(
+	source: Float32Array,
+	width: number,
+	height: number,
+	channelCount: number
+): Uint8Array {
+	const expectedLength = Math.max(1, width * height * channelCount);
+	const data = new Uint8Array(expectedLength);
+	const pixelCount = Math.max(1, width * height);
+	const sourceChannels =
+		source.length === expectedLength ?
+			channelCount
+		:	inferUploadSourceChannels(source, pixelCount, channelCount);
+	const fullPixels = Math.min(pixelCount, Math.floor(source.length / sourceChannels));
+	const paddedPixelStart = fullPixels * channelCount;
+
+	// Hoisted quantization: scale once per element and truncate; negatives
+	// clamp to 0 either way, so round-half-up matches Math.round here.
+	let pixel = 0;
+	let src = 0;
+	let dst = 0;
+	for (; pixel < fullPixels; pixel++, src += sourceChannels, dst += channelCount) {
+		let channel = 0;
+		for (; channel < sourceChannels; channel++) {
+			const scaled = source[src + channel] * 255 + 0.5;
+			data[dst + channel] = scaled >= 255 ? 255 : scaled <= 0 ? 0 : scaled | 0;
+		}
+		for (; channel < channelCount; channel++) {
+			data[dst + channel] = channel === 3 ? 255 : 0;
+		}
+	}
+	for (dst = paddedPixelStart; pixel < pixelCount; pixel++, dst += channelCount) {
+		for (let channel = 0; channel < channelCount; channel++) {
+			data[dst + channel] = channel === 3 ? 255 : 0;
 		}
 	}
 	return data;
@@ -1167,19 +1226,6 @@ function inferUploadSourceChannels(
 
 function defaultUploadChannelValue(channel: number): number {
 	return channel === 3 ? 1 : 0;
-}
-
-function toUint8UploadValue(
-	source: Uint8Array | Uint8ClampedArray | Float32Array,
-	value: number
-): number {
-	if (source instanceof Float32Array) {
-		return clamp(Math.round(value * 255), 0, 255);
-	}
-	if (Number.isInteger(value) && value >= 0 && value <= 255) {
-		return value;
-	}
-	return clamp(Math.round(value * 255), 0, 255);
 }
 
 function toFloatUploadValue(
