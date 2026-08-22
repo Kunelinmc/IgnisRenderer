@@ -65,6 +65,22 @@ interface WebGLParallelShaderCompileExtension {
 	readonly COMPLETION_STATUS_KHR: number;
 }
 
+/**
+ * Frame-scoped compilation counters for scheduling diagnostics.
+ *
+ * @internal WebGL backend diagnostics only.
+ */
+export interface WebGLProgramCompilerStats {
+	/** Program compiles currently issued but not yet finalized. */
+	readonly pendingCompiles: number;
+	/**
+	 * Draw-path compilations that were force-finalized synchronously this
+	 * frame instead of completing through warmup; each occurrence is a
+	 * potential mid-frame stall.
+	 */
+	readonly forcedFinalizesThisFrame: number;
+}
+
 interface WebGLPendingShaderCompile {
 	readonly shader: WebGLShader;
 	readonly stage: "vertex" | "fragment";
@@ -123,6 +139,7 @@ export class WebGLProgramCompiler {
 	private readonly _invalidateListeners = new Set<() => void>();
 	private _compileFrameIndex = 0;
 	private _fallbackFinalizesThisFrame = 0;
+	private _forcedFinalizesThisFrame = 0;
 	private _lastPendingNotificationFrame = -1;
 	private _generation = 0;
 	private _destroyed = false;
@@ -169,6 +186,15 @@ export class WebGLProgramCompiler {
 	public beginFrame(): void {
 		this._compileFrameIndex++;
 		this._fallbackFinalizesThisFrame = 0;
+		this._forcedFinalizesThisFrame = 0;
+	}
+
+	/** @internal WebGL scheduling diagnostics only. */
+	public getStats(): WebGLProgramCompilerStats {
+		return {
+			pendingCompiles: this._pendingProgramCompiles.size,
+			forcedFinalizesThisFrame: this._forcedFinalizesThisFrame,
+		};
 	}
 
 	public getCompileState(label: string): WebGLProgramCompileState {
@@ -232,6 +258,7 @@ export class WebGLProgramCompiler {
 			return precompiled;
 		}
 		const pending = this._pendingProgramCompiles.get(label);
+		this._forcedFinalizesThisFrame++;
 		return this._finalizeProgramCompile(
 			pending ??
 				this._beginProgramCompile(

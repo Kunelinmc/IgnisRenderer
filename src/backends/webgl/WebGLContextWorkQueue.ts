@@ -58,6 +58,27 @@ export interface WebGLContextWorkDebugSnapshot {
 		| "aborting";
 	readonly pendingCount: number;
 	readonly pendingFrameCount: number;
+	/**
+	 * Wall-clock milliseconds spent settling the most recent completed
+	 * `endFrame`, from call entry through release and post-frame waits.
+	 *
+	 * @internal WebGL scheduling diagnostics only.
+	 */
+	readonly lastFrameEndSettleMs: number;
+	/**
+	 * Count of frames whose start was delayed behind at least one completed
+	 * maintenance operation that finished after the frame was enqueued.
+	 *
+	 * @internal WebGL scheduling diagnostics only.
+	 */
+	readonly maintenanceGatedFrameCount: number;
+	/**
+	 * Total wall-clock milliseconds frames spent queued behind maintenance
+	 * operations; accumulates across the queue lifetime.
+	 *
+	 * @internal WebGL scheduling diagnostics only.
+	 */
+	readonly maintenanceGatedFrameMsTotal: number;
 }
 
 interface Deferred<T> {
@@ -83,6 +104,7 @@ interface PendingFrame<TServices> {
 	label: string;
 	execute(scope: WebGLContextWorkScope<TServices>): void | Promise<void>;
 	deferred: Deferred<void>;
+	enqueuedAt: number;
 }
 
 interface ActiveExecution {
@@ -116,6 +138,10 @@ export class WebGLContextWorkQueue<TServices> {
 	private _deferredBatchCutoff: number | null = null;
 	private _frameOperationReservation: FrameOperationReservation | null = null;
 	private _scheduling = false;
+	private _lastFrameEndSettleMs = 0;
+	private _maintenanceGatedFrameCount = 0;
+	private _maintenanceGatedFrameMsTotal = 0;
+	private _lastMaintenanceCompletedAt = 0;
 
 	public constructor(options: WebGLContextWorkQueueOptions<TServices>) {
 		this._options = options;
@@ -181,7 +207,12 @@ export class WebGLContextWorkQueue<TServices> {
 			return Promise.reject(new WebGLContextWorkError("active-frame", label));
 		}
 		const deferred = createDeferred<void>();
-		this._pendingFrames.push({ label, execute, deferred });
+		this._pendingFrames.push({
+			label,
+			execute,
+			deferred,
+			enqueuedAt: performance.now(),
+		});
 		this._sealDeferredBatch();
 		this._schedule();
 		return deferred.promise;
@@ -215,6 +246,7 @@ export class WebGLContextWorkQueue<TServices> {
 		execute: (scope: WebGLContextWorkScope<TServices>) => void | Promise<void>,
 	): Promise<void> {
 		const reservation = this._reserveFrameOperation("end", label);
+		const settleStart = performance.now();
 		try {
 			await this._waitForFrameBoundaryAuxiliary();
 			this._assertReservedFrameOperation(reservation);
@@ -226,6 +258,7 @@ export class WebGLContextWorkQueue<TServices> {
 			await this._runContextExecution("frame-end", label, execute);
 			this._releaseFrame();
 			await this._waitForMaintenance();
+			this._lastFrameEndSettleMs = performance.now() - settleStart;
 		} catch (error) {
 			this._markAbortRequired();
 			throw error;
@@ -389,6 +422,9 @@ export class WebGLContextWorkQueue<TServices> {
 			frameState: this._frameState,
 			pendingCount: this._pendingAuxiliary.length,
 			pendingFrameCount: this._pendingFrames.length,
+			lastFrameEndSettleMs: this._lastFrameEndSettleMs,
+			maintenanceGatedFrameCount: this._maintenanceGatedFrameCount,
+			maintenanceGatedFrameMsTotal: this._maintenanceGatedFrameMsTotal,
 		};
 	}
 
@@ -454,6 +490,13 @@ export class WebGLContextWorkQueue<TServices> {
 		}
 		if (frame) {
 			this._pendingFrames.shift();
+			if (frame.enqueuedAt <= this._lastMaintenanceCompletedAt) {
+				this._maintenanceGatedFrameCount++;
+				this._maintenanceGatedFrameMsTotal += Math.max(
+					0,
+					this._lastMaintenanceCompletedAt - frame.enqueuedAt,
+				);
+			}
 			this._frameId++;
 			this._frameState = "beginning";
 			try {
@@ -559,11 +602,24 @@ export class WebGLContextWorkQueue<TServices> {
 		} finally {
 			if (controller.signal.aborted) {
 				void execution.catch(() => undefined).finally(() => {
+					this._stampMaintenanceCompletion();
 					this._clearActiveExecution(active, userSignal, abortHandler);
 				});
 			} else {
+				this._stampMaintenanceCompletion();
 				this._clearActiveExecution(active, userSignal, abortHandler);
 			}
+		}
+	}
+
+	/**
+	 * Stamps maintenance completion in the same microtask that clears the
+	 * execution slot so queued drains observe it before starting any waiting
+	 * frame.
+	 */
+	private _stampMaintenanceCompletion(): void {
+		if (this._activeStage === "maintenance") {
+			this._lastMaintenanceCompletedAt = performance.now();
 		}
 	}
 

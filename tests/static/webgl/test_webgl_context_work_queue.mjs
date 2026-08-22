@@ -464,6 +464,50 @@ async function testMaintenanceCoalescesAndBlocksFrameRelease() {
 	await host.queue.abortFrame("abort");
 }
 
+async function testDebugSnapshotSchedulingCounters() {
+	const log = [];
+	const host = createQueue(log);
+	host.bind();
+	const initial = host.queue.getDebugSnapshot();
+	assert.equal(initial.maintenanceGatedFrameCount, 0);
+	assert.equal(initial.maintenanceGatedFrameMsTotal, 0);
+	assert.ok(initial.lastFrameEndSettleMs >= 0);
+
+	// A maintenance operation running while a frame waits must gate that frame
+	// and be counted as scheduling cost.
+	const gate = deferred();
+	const idleMaintenance = host.queue.enqueueMaintenance({
+		key: "resize",
+		label: "resize:gated",
+		contextLossPolicy: "reject",
+		execute: async () => {
+			log.push("resize:start");
+			await gate.promise;
+			log.push("resize:end");
+		},
+	});
+	while (!log.includes("resize:start")) {
+		await new Promise((resolve) => setTimeout(resolve, 0));
+	}
+	const frame = host.queue.beginFrame("gated", () => log.push("gated-frame"));
+	assert.equal(log.includes("gated-frame"), false);
+	gate.resolve();
+	await idleMaintenance;
+	await frame;
+	let snapshot = host.queue.getDebugSnapshot();
+	assert.equal(snapshot.maintenanceGatedFrameCount, 1);
+	assert.ok(snapshot.maintenanceGatedFrameMsTotal >= 0);
+	await host.queue.endFrame("gated-end", () => log.push("gated-end"));
+
+	// A frame that ends without gating must not bump the gated counter and
+	// must refresh the settle duration.
+	await host.queue.beginFrame("plain", () => undefined);
+	await host.queue.endFrame("plain-end", () => log.push("plain-end"));
+	snapshot = host.queue.getDebugSnapshot();
+	assert.equal(snapshot.maintenanceGatedFrameCount, 1);
+	assert.ok(snapshot.lastFrameEndSettleMs >= 0);
+}
+
 async function run() {
 	await testFramePassAndBoundaryOrdering();
 	await testActivePassAndIdleOnlyRejection();
@@ -479,6 +523,7 @@ async function run() {
 	await testIdleDeferredBatchDoesNotStarveFrame();
 	await testIdleDeferredRejectsContextLossWithoutReplay();
 	await testMaintenanceCoalescesAndBlocksFrameRelease();
+	await testDebugSnapshotSchedulingCounters();
 	console.log("WebGL context work queue static tests passed");
 }
 

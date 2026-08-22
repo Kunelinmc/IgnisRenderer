@@ -376,6 +376,43 @@ async function testProgramWarmupQueueObservesAbortSignal() {
 	assert.equal(sliceCount, 1);
 }
 
+function testProgramCompilerTracksForcedFinalizeStats() {
+	const gl = createProgramWarmupTrackingGL();
+	const compiler = new WebGLProgramCompiler(gl);
+	const fxaaSlot = createCompilerSlot(compiler, "WebGLFXAAProgram", [
+		"uSourceMap",
+	]);
+	compiler.beginFrame();
+
+	assert.deepEqual(compiler.getStats(), {
+		pendingCompiles: 0,
+		forcedFinalizesThisFrame: 0,
+	});
+
+	assert.ok(fxaaSlot.get());
+	assert.equal(compiler.getStats().forcedFinalizesThisFrame, 1);
+	assert.equal(compiler.getStats().pendingCompiles, 0);
+	fxaaSlot.get();
+	assert.equal(compiler.getStats().forcedFinalizesThisFrame, 1);
+
+	compiler.beginFrame();
+	const bloomHandle = createCompilerSlot(
+		compiler,
+		"WebGLBloomProgram",
+		["uBloomParams"],
+	).warmup();
+	assert.equal(compiler.getStats().pendingCompiles, 1);
+	assert.equal(compiler.getStats().forcedFinalizesThisFrame, 0);
+	bloomHandle.finalize();
+	assert.equal(compiler.getStats().pendingCompiles, 0);
+
+	compiler.beginFrame();
+	assert.deepEqual(compiler.getStats(), {
+		pendingCompiles: 0,
+		forcedFinalizesThisFrame: 0,
+	});
+}
+
 await runWebGLBackendFile([
 	testProgramCompilerParallelWarmupDefersStatusQueries,
 	testProgramCompilerFallbackWarmupBatchesBeforeFinalize,
@@ -387,4 +424,5 @@ await runWebGLBackendFile([
 	testProgramWarmupQueueFinalizesOneProgramPerSlice,
 	testProgramWarmupQueueReportsStaleHandles,
 	testProgramWarmupQueueObservesAbortSignal,
+	testProgramCompilerTracksForcedFinalizeStats,
 ], "WebGL compiler and warmup tests");
