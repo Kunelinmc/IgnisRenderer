@@ -404,19 +404,10 @@ export class WebGLFrameGraphRuntime {
 		stage: string,
 		context: FrameContext,
 	): void | Promise<void> {
-		const compiled = this._findCompiledStage(stage);
-		let chain: Promise<void> | null = null;
-		for (const node of compiled?.nodes ?? []) {
-			if (chain) {
-				chain = chain.then(() => this._executeGraphNode(node, context));
-			} else {
-				const result = this._executeGraphNode(node, context);
-				if (result && typeof (result as Promise<void>).then === "function") {
-					chain = result as Promise<void>;
-				}
-			}
-		}
-		return chain ?? undefined;
+		return this._executeGraphNodesInOrder(
+			this._findCompiledStage(stage)?.nodes ?? [],
+			context,
+		);
 	}
 
 	private async _executePostProcessStage(
@@ -494,18 +485,49 @@ export class WebGLFrameGraphRuntime {
 		const compiled = this._compiler.compileStage(plan);
 		this._lastCompiledGraphStages.push(compiled);
 		this._handleGraphDiagnostics(compiled);
-		let chain: Promise<void> | null = null;
-		for (const node of compiled.nodes) {
-			if (chain) {
-				chain = chain.then(() => this._executeGraphNode(node, context));
-			} else {
-				const result = this._executeGraphNode(node, context);
-				if (result && typeof (result as Promise<void>).then === "function") {
-					chain = result as Promise<void>;
-				}
+		return this._executeGraphNodesInOrder(compiled.nodes, context);
+	}
+
+	/**
+	 * Executes graph nodes in order, running consecutive synchronous
+	 * executors inline and awaiting only when an executor returns a promise.
+	 *
+	 * GL-only stages therefore complete without any microtask hop, keeping the
+	 * synchronous fast path callers rely on for error handling, while ordering,
+	 * rejection propagation, and first-error-wins semantics stay identical to
+	 * a per-node promise chain.
+	 */
+	private _executeGraphNodesInOrder(
+		nodes: readonly WebGLFrameGraphNode[],
+		context: FrameContext,
+	): void | Promise<void> {
+		for (let index = 0; index < nodes.length; index++) {
+			const result = this._executeGraphNode(nodes[index], context);
+			if (result && typeof (result as Promise<void>).then === "function") {
+				return this._continueGraphNodesAfterAsync(
+					nodes,
+					context,
+					index + 1,
+					result as Promise<void>,
+				);
 			}
 		}
-		return chain ?? undefined;
+		return undefined;
+	}
+
+	private async _continueGraphNodesAfterAsync(
+		nodes: readonly WebGLFrameGraphNode[],
+		context: FrameContext,
+		startIndex: number,
+		pending: Promise<void>,
+	): Promise<void> {
+		await pending;
+		for (let index = startIndex; index < nodes.length; index++) {
+			const result = this._executeGraphNode(nodes[index], context);
+			if (result && typeof (result as Promise<void>).then === "function") {
+				await result;
+			}
+		}
 	}
 
 	private _executeGraphNode(
