@@ -437,6 +437,8 @@ async function testMaintenanceCoalescesAndBlocksFrameRelease() {
 		execute: () => log.push(`resize:${size}`),
 	});
 	await host.queue.endFrame("end", () => log.push("end"));
+	// Frame-end settles before unrelated idle maintenance executes.
+	assert.equal(log.includes("resize:latest"), false);
 	await Promise.all([first, second]);
 	assert.equal(log.filter((entry) => entry.startsWith("resize:")).length, 1);
 	assert.ok(log.indexOf("end") < log.indexOf("resize:latest"));

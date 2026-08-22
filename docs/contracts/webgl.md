@@ -85,8 +85,10 @@ This document defines the current WebGL backend lifecycle, frame graph, resource
   that batch cannot starve rendering.
 - WebGL resize must update desired dimensions synchronously and schedule one
   keyed, latest-wins maintenance operation. Active-frame resize must not destroy
-  frame resources until frame-end or frame-abort cleanup, and that cleanup must
-  await the maintenance operation before settling.
+  frame resources until frame-end or frame-abort cleanup, and the queue must
+  complete that maintenance operation before the next frame begins. Frame-end
+  and frame-abort settlement must not wait for unrelated idle maintenance; the
+  drain order alone sequences maintenance ahead of any subsequent frame begin.
 - The queue must restore the active scene framebuffer baseline after
   pass-boundary auxiliary work and the default framebuffer baseline after idle
   work. IBL execution must additionally restore pixel-pack state.
@@ -108,7 +110,8 @@ This document defines the current WebGL backend lifecycle, frame graph, resource
   context loss, or failure.
 - `WebGLBackend.endFrame()` must return and settle the complete asynchronous
   present and commit operation before the context work queue releases frame
-  ownership.
+  ownership. Pending idle maintenance is not part of frame settlement; it runs
+  after frame release and before any subsequent frame begins.
 - `WebGLBackend.executePass({ stage: "postprocess" }, context)` must delegate
   to backend-owned post-process runtime execution.
 - `WebGLBackend.endFrame()` must commit post-process histories only after the

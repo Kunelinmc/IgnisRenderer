@@ -810,6 +810,12 @@ async function testWarmupAndResizeUseContextWorkScheduling() {
 	assert.equal(log.includes("warmup"), false);
 	assert.equal(log.some((entry) => entry.startsWith("resize:")), false);
 	await backend.endFrame();
+	// Frame-end settlement must not wait for unrelated idle maintenance.
+	assert.equal(log.filter((entry) => entry.startsWith("resize:")).length, 0);
+	let guard = 0;
+	while (!log.some((entry) => entry.startsWith("resize:")) && guard++ < 100) {
+		await Promise.resolve();
+	}
 	assert.equal(log.filter((entry) => entry.startsWith("resize:")).length, 1);
 	assert.ok(log.includes("resize:640x360"));
 	await warmup;

@@ -132,7 +132,6 @@ export class WebGLContextWorkQueue<TServices> {
 	private _pendingMaintenance: PendingMaintenance<TServices>[] = [];
 	private _pendingFrames: PendingFrame<TServices>[] = [];
 	private _frameBoundaryWaiters: Deferred<void>[] = [];
-	private _maintenanceWaiters: Deferred<void>[] = [];
 	private _allowAuxiliaryBeforeNextFrame = false;
 	private _nextDeferredOrder = 0;
 	private _deferredBatchCutoff: number | null = null;
@@ -186,7 +185,6 @@ export class WebGLContextWorkQueue<TServices> {
 			for (const deferred of item.deferreds) deferred.reject(maintenanceError);
 		}
 		for (const waiter of this._frameBoundaryWaiters.splice(0)) waiter.reject(error);
-		for (const waiter of this._maintenanceWaiters.splice(0)) waiter.reject(error);
 		if (this._frameState !== "idle") this._frameState = "abort-required";
 	}
 
@@ -257,7 +255,6 @@ export class WebGLContextWorkQueue<TServices> {
 			this._frameState = "ending";
 			await this._runContextExecution("frame-end", label, execute);
 			this._releaseFrame();
-			await this._waitForMaintenance();
 			this._lastFrameEndSettleMs = performance.now() - settleStart;
 		} catch (error) {
 			this._markAbortRequired();
@@ -291,7 +288,6 @@ export class WebGLContextWorkQueue<TServices> {
 			this._activeStage = null;
 			this._releaseFrame();
 		}
-		await this._waitForMaintenance();
 		if (error) throw error;
 	}
 
@@ -408,7 +404,6 @@ export class WebGLContextWorkQueue<TServices> {
 			frame.deferred.reject(new WebGLContextWorkError("destroyed", frame.label));
 		}
 		for (const waiter of this._frameBoundaryWaiters.splice(0)) waiter.reject(error);
-		for (const waiter of this._maintenanceWaiters.splice(0)) waiter.reject(error);
 		this._frameOperationReservation = null;
 		this._frameState = "idle";
 	}
@@ -459,7 +454,6 @@ export class WebGLContextWorkQueue<TServices> {
 			this._schedule();
 			return;
 		}
-		this._notifyMaintenance();
 
 		const deferredAuxiliary = this._findEligibleDeferredAuxiliary();
 		if (deferredAuxiliary) {
@@ -533,8 +527,6 @@ export class WebGLContextWorkQueue<TServices> {
 			for (const deferred of item.deferreds) deferred.resolve();
 		} catch (error) {
 			for (const deferred of item.deferreds) deferred.reject(error);
-		} finally {
-			this._notifyMaintenance();
 		}
 	}
 
@@ -633,7 +625,6 @@ export class WebGLContextWorkQueue<TServices> {
 		this._activeExecution = null;
 		this._activeLabel = null;
 		this._activeStage = null;
-		this._notifyMaintenance();
 		this._schedule();
 	}
 
@@ -652,28 +643,6 @@ export class WebGLContextWorkQueue<TServices> {
 	private _notifyFrameBoundary(): void {
 		if (this._pendingAuxiliary.some((item) => item.frameId === this._frameId)) return;
 		for (const waiter of this._frameBoundaryWaiters.splice(0)) waiter.resolve();
-	}
-
-	private async _waitForMaintenance(): Promise<void> {
-		while (
-			this._pendingMaintenance.length > 0 ||
-			this._activeStage === "maintenance"
-		) {
-			const waiter = createDeferred<void>();
-			this._maintenanceWaiters.push(waiter);
-			this._schedule();
-			await waiter.promise;
-		}
-	}
-
-	private _notifyMaintenance(): void {
-		if (
-			this._pendingMaintenance.length > 0 ||
-			this._activeStage === "maintenance"
-		) {
-			return;
-		}
-		for (const waiter of this._maintenanceWaiters.splice(0)) waiter.resolve();
 	}
 
 	private _releaseFrame(): void {
