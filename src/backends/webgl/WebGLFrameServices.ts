@@ -1,9 +1,4 @@
 import {
-	AlphaMode,
-	type Material,
-} from "../../materials/Material";
-import type { ShaderTargetMode } from "../../materials/ShaderMaterial";
-import {
 	type DrawPacket,
 	type FrameContext,
 } from "../../pipeline/types";
@@ -17,19 +12,13 @@ import type {
 	PostProcessResourceHandle,
 } from "../../postprocess";
 import type { FramePreparationRequirements } from "../../pipeline/FrameRequirements";
-import { IBLBRDF } from "../../lights/ibl/IBLBRDF";
-import {
-	collectWebGLLights,
-	type WebGLLightState,
-	type WebGLClusteredLight,
-} from "./WebGLLightCollector";
+import { collectWebGLLights, type WebGLLightState } from "./WebGLLightCollector";
 import { WebGLGeometryRegistry } from "./WebGLGeometryRegistry";
 import {
 	DEFAULT_DEFERRED_GEOMETRY_UPLOAD_BYTES_PER_FRAME,
 	DEFAULT_DEFERRED_GEOMETRY_UPLOADS_PER_FRAME,
 } from "./WebGLGeometryRegistry";
 import {
-	IDENTITY_MATRIX4_COLUMN_MAJOR,
 	WEBGL_REFLECTION_PROBE_CAMERA_WORLD_POSITION_SCRATCH,
 } from "./constants";
 import { WebGLSceneProgramRepository } from "./WebGLSceneProgramRepository";
@@ -162,14 +151,6 @@ export class WebGLFrameServices {
 
 	public get scene(): WebGLSceneRuntime {
 		return this._scene;
-	}
-
-	public get _modelMatrixCache(): Map<string, Float32Array> {
-		return this._scene.modelMatrixCache;
-	}
-
-	public get _modelMatrixKeysThisFrame(): Set<string> {
-		return this._scene.modelMatrixKeysThisFrame;
 	}
 
 	public get _lightState(): WebGLLightState | null {
@@ -782,20 +763,6 @@ export class WebGLFrameServices {
 			sceneProgram,
 			context
 		);
-	}
-
-	private _resolvePostProcessTargetTexture(
-		sourceTexture: WebGLTexture
-	): WebGLTexture | null {
-		return this._targets.resolvePostProcessTargetTexture(sourceTexture);
-	}
-
-	private _bindPostSingleColorTarget(texture: WebGLTexture): void {
-		this._targets.bindPostSingleColorTarget(texture);
-	}
-
-	private _bindOITSingleColorTarget(texture: WebGLTexture): void {
-		this._targets.bindOITSingleColorTarget(texture);
 	}
 
 	private _ensureFrameTargets(
