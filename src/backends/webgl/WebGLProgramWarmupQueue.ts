@@ -13,7 +13,15 @@ export interface WebGLProgramWarmupQueueItem {
 }
 
 export interface WebGLProgramWarmupQueueOptions {
+	/**
+	 * Optional hard cap on finalizations per scheduling slice. When omitted,
+	 * only `timeBudgetMs` bounds a slice.
+	 */
 	readonly maxFinalizesPerSlice?: number;
+	/** Wall-clock budget per scheduling slice; defaults to 2 ms. */
+	readonly timeBudgetMs?: number;
+	/** Monotonic clock used for budget checks; injectable for tests. */
+	readonly now?: () => number;
 	readonly waitForSlice?: () => Promise<void>;
 }
 
@@ -36,7 +44,7 @@ const WEBGL_WARMUP_PRIORITY_ORDER: Record<WebGLProgramWarmupPriority, number> = 
 	postprocess: 2,
 };
 
-const DEFAULT_MAX_FINALIZES_PER_SLICE = 1;
+const DEFAULT_SLICE_TIME_BUDGET_MS = 2;
 
 interface PendingWarmupHandle {
 	readonly label: string;
@@ -49,23 +57,29 @@ interface QueuedWarmupItem extends WebGLProgramWarmupQueueItem {
 
 /**
  * Coordinates WebGL program warmup so expensive status/link finalization is
- * spread across browser scheduling slices instead of drained in one loop.
+ * spread across browser scheduling slices bounded by a wall-clock budget
+ * (default 2 ms) with an optional hard per-slice count cap.
  *
  * @internal WebGL backend warmup infrastructure only.
  */
 export class WebGLProgramWarmupQueue {
 	private readonly _items: QueuedWarmupItem[] = [];
-	private readonly _maxFinalizesPerSlice: number;
+	private readonly _maxFinalizesPerSlice: number | null;
+	private readonly _timeBudgetMs: number;
+	private readonly _now: () => number;
 	private readonly _waitForSlice: () => Promise<void>;
 	private _order = 0;
 
 	public constructor(options: WebGLProgramWarmupQueueOptions = {}) {
-		this._maxFinalizesPerSlice = Math.max(
-			1,
-			Math.floor(
-				options.maxFinalizesPerSlice ?? DEFAULT_MAX_FINALIZES_PER_SLICE
-			)
+		this._maxFinalizesPerSlice =
+			options.maxFinalizesPerSlice !== undefined
+				? Math.max(1, Math.floor(options.maxFinalizesPerSlice))
+				: null;
+		this._timeBudgetMs = Math.max(
+			0,
+			options.timeBudgetMs ?? DEFAULT_SLICE_TIME_BUDGET_MS
 		);
+		this._now = options.now ?? (() => performance.now());
 		this._waitForSlice = options.waitForSlice ?? waitForWebGLWarmupSlice;
 	}
 
@@ -103,11 +117,7 @@ export class WebGLProgramWarmupQueue {
 				errors.push({ label: item.label, error });
 			}
 
-			const progress = await this._finalizeReadyHandles(
-				pending,
-				errors,
-				this._maxFinalizesPerSlice
-			);
+			const progress = await this._finalizeReadyHandles(pending, errors);
 			assertWarmupNotAborted(signal);
 			compiled += progress.compiled;
 			failed += progress.failed;
@@ -121,11 +131,7 @@ export class WebGLProgramWarmupQueue {
 
 		while (pending.size > 0) {
 			assertWarmupNotAborted(signal);
-			const progress = await this._finalizeReadyHandles(
-				pending,
-				errors,
-				this._maxFinalizesPerSlice
-			);
+			const progress = await this._finalizeReadyHandles(pending, errors);
 			assertWarmupNotAborted(signal);
 			compiled += progress.compiled;
 			failed += progress.failed;
@@ -162,13 +168,22 @@ export class WebGLProgramWarmupQueue {
 
 	private async _finalizeReadyHandles(
 		pending: Map<string, PendingWarmupHandle>,
-		errors: WebGLProgramWarmupQueueError[],
-		maxFinalizes: number
+		errors: WebGLProgramWarmupQueueError[]
 	): Promise<{ compiled: number; failed: number }> {
 		let compiled = 0;
 		let failed = 0;
+		const sliceStartedAt = this._now();
 		for (const entry of Array.from(pending.values())) {
-			if (compiled + failed >= maxFinalizes) {
+			if (
+				this._maxFinalizesPerSlice !== null &&
+				compiled + failed >= this._maxFinalizesPerSlice
+			) {
+				break;
+			}
+			if (
+				compiled + failed > 0 &&
+				this._now() - sliceStartedAt >= this._timeBudgetMs
+			) {
 				break;
 			}
 			let complete = false;

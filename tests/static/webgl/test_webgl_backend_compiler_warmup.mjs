@@ -295,6 +295,8 @@ async function testProgramWarmupQueueFinalizesOneProgramPerSlice() {
 	let slice = 0;
 	const finalizedAt = [];
 	const queue = new WebGLProgramWarmupQueue({
+		maxFinalizesPerSlice: 1,
+		timeBudgetMs: Number.POSITIVE_INFINITY,
 		waitForSlice: async () => {
 			slice++;
 		},
@@ -318,6 +320,40 @@ async function testProgramWarmupQueueFinalizesOneProgramPerSlice() {
 	assert.deepEqual(finalizedAt, [0, 1, 2]);
 	assert.equal(result.compiled, 3);
 	assert.equal(result.failed, 0);
+}
+
+function testProgramWarmupQueueTimeBoxesSliceWithInjectedClock() {
+	let nowMs = 0;
+	let slice = 0;
+	const finalizedAt = [];
+	const queue = new WebGLProgramWarmupQueue({
+		timeBudgetMs: 10,
+		now: () => (nowMs += 4),
+		waitForSlice: async () => {
+			slice++;
+		},
+	});
+	const yieldController = { yieldIfNeeded: async () => {} };
+
+	queue.enqueue({
+		label: "batch",
+		priority: "core",
+		action: () => ["a", "b", "c", "d"].map((label) => ({
+			label,
+			isComplete: () => true,
+			finalize: () => {
+				finalizedAt.push(slice);
+			},
+		})),
+	});
+
+	return queue.run(yieldController).then((result) => {
+		// The budget cuts the first slice after three finalizations; the
+		// fourth still runs as the guaranteed first attempt of the next slice.
+		assert.deepEqual(finalizedAt, [0, 0, 0, 1]);
+		assert.equal(result.compiled, 4);
+		assert.equal(result.failed, 0);
+	});
 }
 
 async function testProgramWarmupQueueReportsStaleHandles() {
@@ -453,6 +489,7 @@ await runWebGLBackendFile([
 	testProgramCompilerSlotLifecycleAndStaleWarmup,
 	testProgramWarmupQueuePrioritizesCoreWork,
 	testProgramWarmupQueueFinalizesOneProgramPerSlice,
+	testProgramWarmupQueueTimeBoxesSliceWithInjectedClock,
 	testProgramWarmupQueueReportsStaleHandles,
 	testProgramWarmupQueueObservesAbortSignal,
 	testProgramCompilerTracksForcedFinalizeStats,
