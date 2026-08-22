@@ -57,6 +57,7 @@ import {
 	type IncrementalFrameStatus,
 	type IncrementalRenderingOptions,
 	type RenderDirtyReason,
+	type DirtyRect,
 	type DirtyTileCoverage,
 } from "../pipeline/incremental";
 import type {
@@ -169,6 +170,8 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 	private _deltaTime = 0;
 	private _frameDirty = true;
 	private _pendingDirtyReasonMask = renderDirtyReasonToMask("unknown");
+	private _pendingBackendDirtyRects: DirtyRect[] = [];
+	private _pendingBackendInvalidationRequiresFullFrame = false;
 	private _lastKnownSceneVersion = 0;
 	private _lastKnownTextureRevision = Texture.contentRevision;
 	private _lastKnownMaterialRevision = Material.contentRevision;
@@ -741,6 +744,7 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 		this.emit("framestart", { now, deltaTime: this._deltaTime });
 		this._frameDirty = false;
 		const frameDirtyReasonMask = this._consumeDirtyReasonMask();
+		const backendInvalidation = this._consumeBackendInvalidation();
 		const transient = createTransientStore();
 		const deltaTimeSeconds = Math.max(0, this._deltaTime) / 1000;
 		transient.set(PARTICLE_SIM_DELTA_TIME_SECONDS_KEY, deltaTimeSeconds);
@@ -763,6 +767,8 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 			now,
 			this._deltaTime,
 			frameDirtyReasonMask,
+			backendInvalidation.dirtyRects,
+			backendInvalidation.requiresFullFrame,
 			hasParticleSystems,
 			hasActiveAnimations,
 			deltaTimeSeconds,
@@ -1087,6 +1093,7 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 				});
 				return;
 			case "render-invalidated":
+				this._accumulateBackendInvalidation(event.dirtyRects);
 				this._markFrameDirty(event.reason);
 				return;
 			case "resource-lifecycle":
@@ -1106,6 +1113,46 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 		const combinedMask = this._pendingDirtyReasonMask | sceneReasonMask;
 		this._pendingDirtyReasonMask = 0;
 		return combinedMask >>> 0;
+	}
+
+	private _accumulateBackendInvalidation(
+		dirtyRects: readonly DirtyRect[] | undefined,
+	): void {
+		let accumulated = 0;
+		for (const rect of dirtyRects ?? []) {
+			if (
+				!Number.isFinite(rect.x) ||
+				!Number.isFinite(rect.y) ||
+				!Number.isFinite(rect.width) ||
+				!Number.isFinite(rect.height) ||
+				rect.width <= 0 ||
+				rect.height <= 0
+			) {
+				continue;
+			}
+			this._pendingBackendDirtyRects.push({
+				x: rect.x,
+				y: rect.y,
+				width: rect.width,
+				height: rect.height,
+			});
+			accumulated++;
+		}
+		if (accumulated === 0) {
+			this._pendingBackendInvalidationRequiresFullFrame = true;
+		}
+	}
+
+	private _consumeBackendInvalidation(): {
+		dirtyRects: DirtyRect[];
+		requiresFullFrame: boolean;
+	} {
+		const dirtyRects = this._pendingBackendDirtyRects;
+		const requiresFullFrame =
+			this._pendingBackendInvalidationRequiresFullFrame;
+		this._pendingBackendDirtyRects = [];
+		this._pendingBackendInvalidationRequiresFullFrame = false;
+		return { dirtyRects, requiresFullFrame };
 	}
 
 	private _createFullFrameCoverage(): {

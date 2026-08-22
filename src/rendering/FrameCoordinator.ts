@@ -59,6 +59,7 @@ import {
 	IncrementalFramePlanner,
 	makeFullScreenRect,
 	type IncrementalFrameContext,
+	type DirtyRect,
 	type DirtyTileCoverage,
 	type IncrementalFrameStats,
 	type IncrementalFrameStatus,
@@ -115,6 +116,8 @@ interface RenderSceneFrameState {
 	now: number;
 	deltaTimeSeconds: number;
 	frameDirtyReasonMask: number;
+	backendDirtyRects: readonly DirtyRect[];
+	backendInvalidationRequiresFullFrame: boolean;
 	transient: TransientStore;
 	resolved: RenderSceneFeatureState;
 	resolvedPostProcess: ResolvedPostProcessState;
@@ -181,6 +184,8 @@ export class FrameCoordinator {
 		now: number,
 		deltaTime: number,
 		frameDirtyReasonMask: number,
+		backendDirtyRects: readonly DirtyRect[],
+		backendInvalidationRequiresFullFrame: boolean,
 		hasParticleSystems: boolean,
 		hasActiveAnimations: boolean,
 		deltaTimeSeconds: number,
@@ -190,6 +195,8 @@ export class FrameCoordinator {
 			now,
 			deltaTimeSeconds,
 			frameDirtyReasonMask,
+			backendDirtyRects,
+			backendInvalidationRequiresFullFrame,
 			transient,
 			hasActiveAnimations,
 			hasParticleSystems,
@@ -258,6 +265,8 @@ export class FrameCoordinator {
 			now: number;
 			deltaTimeSeconds: number;
 			frameDirtyReasonMask: number;
+			backendDirtyRects: readonly DirtyRect[];
+			backendInvalidationRequiresFullFrame: boolean;
 			transient: TransientStore;
 			hasActiveAnimations: boolean;
 			hasParticleSystems: boolean;
@@ -292,6 +301,9 @@ export class FrameCoordinator {
 			now: options.now,
 			deltaTimeSeconds: options.deltaTimeSeconds,
 			frameDirtyReasonMask: options.frameDirtyReasonMask,
+			backendDirtyRects: options.backendDirtyRects,
+			backendInvalidationRequiresFullFrame:
+				options.backendInvalidationRequiresFullFrame,
 			transient: options.transient,
 			resolved,
 			resolvedPostProcess,
@@ -490,6 +502,8 @@ export class FrameCoordinator {
 				state.resolved,
 			),
 			occlusionCullingOptions: state.resolved.occlusionCullingOptions,
+			additionalDirtyRects: state.backendDirtyRects,
+			forceFullFrame: state.backendInvalidationRequiresFullFrame,
 		});
 		state.frame = preparedResult.frame;
 		const incrementalPlan = IncrementalFramePlanner.plan({

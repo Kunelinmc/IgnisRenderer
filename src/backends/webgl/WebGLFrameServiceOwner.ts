@@ -31,6 +31,10 @@ import {
 } from "./WebGLLightCollector";
 import { WebGLGeometryRegistry } from "./WebGLGeometryRegistry";
 import {
+	DEFAULT_DEFERRED_GEOMETRY_UPLOAD_BYTES_PER_FRAME,
+	DEFAULT_DEFERRED_GEOMETRY_UPLOADS_PER_FRAME,
+} from "./WebGLGeometryRegistry";
+import {
 	IDENTITY_MATRIX4_COLUMN_MAJOR,
 	SH_COEFFICIENT_COUNT,
 	WEBGL_REFLECTION_PROBE_CAMERA_WORLD_POSITION_SCRATCH,
@@ -124,6 +128,12 @@ export interface WebGLFrameServiceOwnerOptions {
 	 * can continue processing the queue.
 	 */
 	onTextureUploadPending?: () => void;
+	/**
+	 * Called when deferred WebGL geometry uploads remain queued after the
+	 * current upload budget. The callback should mark the renderer dirty so
+	 * another frame can continue processing the queue.
+	 */
+	onGeometryUploadPending?: (packets: readonly DrawPacket[]) => void;
 	postProcessRuntime?: BackendPostProcessRuntime;
 	getDisplayOutputState?: () => DisplayOutputState;
 }
@@ -359,7 +369,12 @@ export class WebGLFrameServiceOwner {
 			shaderRuntime,
 			shaderCompileStage,
 		});
-		this._geometry = new WebGLGeometryRegistry(gl);
+		this._geometry = new WebGLGeometryRegistry(gl, undefined, {
+			uploadScheduling: "deferred",
+			maxUploadsPerFrame: DEFAULT_DEFERRED_GEOMETRY_UPLOADS_PER_FRAME,
+			maxUploadBytesPerFrame: DEFAULT_DEFERRED_GEOMETRY_UPLOAD_BYTES_PER_FRAME,
+			onUploadPending: options.onGeometryUploadPending,
+		});
 		this._textures = new WebGLTextureRegistry(gl, undefined, {
 			uploadScheduling: "deferred",
 			maxUploadsPerFrame: DEFAULT_DEFERRED_UPLOADS_PER_FRAME,
@@ -514,6 +529,7 @@ export class WebGLFrameServiceOwner {
 		materialGBufferRequested = false,
 	): void {
 		this._programCompiler.beginFrame();
+		this._geometry.beginFrame();
 		this._textures.beginFrame();
 		this._customRenderTargets.sync(context);
 		this._session.begin(context);

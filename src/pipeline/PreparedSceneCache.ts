@@ -106,6 +106,10 @@ export interface PreparedSceneCacheBuildInput {
 	incrementalOptions: IncrementalRenderingOptions;
 	occlusionVisibilityProvider?: OcclusionVisibilityProvider | null;
 	occlusionCullingOptions?: OcclusionCullingOptions;
+	/** Renderer-accumulated backend invalidation regions for this frame. */
+	additionalDirtyRects?: readonly DirtyRect[];
+	/** Forces conservative full coverage for an unbounded backend invalidation. */
+	forceFullFrame?: boolean;
 }
 
 export interface PreparedSceneCacheBuildResult {
@@ -193,7 +197,14 @@ export class PreparedSceneCache {
 
 		const currentPacketStateById = new Map<string, CachedPacketState>();
 		const currentDecalStateById = new Map<string, CachedDecalState>();
-		const dirtyCandidates: DirtyRect[] = [];
+		const dirtyCandidates: DirtyRect[] = (input.additionalDirtyRects ?? []).map(
+			(rect) => ({
+				x: rect.x,
+				y: rect.y,
+				width: rect.width,
+				height: rect.height,
+			}),
+		);
 		const visited = new Set<string>();
 		const visitedDecals = new Set<string>();
 
@@ -277,7 +288,7 @@ export class PreparedSceneCache {
 			input.incrementalOptions.dirtyTileSize
 		);
 
-		if (this._frameIndex <= 1 || cameraChanged) {
+		if (this._frameIndex <= 1 || cameraChanged || input.forceFullFrame === true) {
 			return {
 				frame,
 				dirtyRects: [fullScreenRect],

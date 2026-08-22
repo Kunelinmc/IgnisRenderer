@@ -7,7 +7,7 @@ import type {
 	RenderTargetReadbackOptions,
 	RenderTargetReadbackResult,
 } from "../rendering/CustomRenderTargets";
-import type { RenderDirtyReason } from "../pipeline/incremental";
+import type { DirtyRect, RenderDirtyReason } from "../pipeline/incremental";
 import type { ShaderCompileError } from "../shaders/runtime";
 import type { RenderBackendExtensionRegistry } from "./BackendExtensions";
 import type {
@@ -255,7 +255,12 @@ export type RenderBackendEvent =
 			previous: DisplayOutputState;
 			current: DisplayOutputState;
 	  }
-	| { type: "render-invalidated"; reason: RenderDirtyReason }
+	| {
+			type: "render-invalidated";
+			reason: RenderDirtyReason;
+			/** Conservative viewport-space output regions affected by the change. */
+			dirtyRects?: readonly DirtyRect[];
+	  }
 	| { type: "resource-lifecycle"; event: RendererBackendResourceEvent };
 
 /** Event sink used by an attached backend to notify the renderer. */

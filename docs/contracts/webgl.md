@@ -83,6 +83,27 @@ This document defines the current WebGL backend lifecycle, frame graph, resource
   a backend pass callback is active must reject. Each released frame must fix
   the deferred warmup batch eligible before the next frame so work enqueued by
   that batch cannot starve rendering.
+- WebGL scene geometry uploads must support `immediate` and `deferred`
+  scheduling. The backend enables deferred scheduling: a first-use draw packet
+  whose primitive has no uploaded geometry must enqueue a budgeted upload
+  request and skip drawing for that frame instead of blocking the pass.
+- Deferred geometry uploads must process during frame-begin within per-frame
+  upload-count and byte budgets, cache results keyed by primitive identity and
+  geometry version, discard queued requests whose geometry version changed,
+  and preserve retry semantics for transient allocation failures. Permanent
+  validation failures must cache a failure result exactly like immediate
+  scheduling.
+- A newly queued deferred geometry packet must notify the backend during the
+  frame that skipped it. The backend must emit a render-invalidation event with
+  the packet's conservative viewport-space projected bounds so the next frame
+  can redraw its affected tiles without defaulting to full-frame coverage.
+  Repeated lookups of the same packet in one pending request must not duplicate
+  the notification.
+- When deferred geometry uploads remain queued after processing, the registry
+  must notify the backend again for their affected packets so rendering
+  continues until the queue drains. Scene, depth-prepass, and shadow passes
+  share one geometry registry, so skipped packets stay consistent across
+  passes within a frame.
 - WebGL resize must update desired dimensions synchronously and schedule one
   keyed, latest-wins maintenance operation. Active-frame resize must not destroy
   frame resources until frame-end or frame-abort cleanup, and the queue must

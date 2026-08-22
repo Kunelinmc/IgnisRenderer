@@ -216,6 +216,53 @@ function testPacketDiffLifecycle() {
 	}
 }
 
+function testBackendDirtyRectsJoinPreparedCoverage() {
+	const camera = createCamera();
+	const packet = createPacket("backend-dirty", 0, 0.08);
+	const frame = createFrame(camera, [packet]);
+	const cache = new PreparedSceneCache();
+	const originalBuild = PreparedSceneBuilder.build;
+	PreparedSceneBuilder.build = () => frame;
+
+	try {
+		const buildInput = {
+			viewportWidth: 320,
+			viewportHeight: 180,
+			features: createFeatures(),
+			postProcess: createResolvedPostProcess(),
+			incrementalOptions: {
+				...DEFAULT_INCREMENTAL_RENDERING_OPTIONS,
+				enabled: true,
+				fullFrameFallbackAreaRatio: 1,
+			},
+		};
+		cache.build(buildInput);
+		const stable = cache.build(buildInput);
+		assert.equal(stable.dirtyRects.length, 0);
+
+		const backendRect = { x: 64, y: 32, width: 8, height: 8 };
+		const targeted = cache.build({
+			...buildInput,
+			additionalDirtyRects: [backendRect],
+		});
+		assert.equal(targeted.forceFullFrame, false);
+		assert.ok(targeted.dirtyAreaRatio > 0);
+		assert.ok(targeted.dirtyAreaRatio < 1);
+		assert.ok(
+			targeted.dirtyRects.some((rect) => rectContainsRect(rect, backendRect)),
+		);
+
+		const unbounded = cache.build({
+			...buildInput,
+			forceFullFrame: true,
+		});
+		assert.equal(unbounded.forceFullFrame, true);
+		assert.equal(unbounded.dirtyAreaRatio, 1);
+	} finally {
+		PreparedSceneBuilder.build = originalBuild;
+	}
+}
+
 function testDecalDiffLifecycle() {
 	const camera = createCamera();
 	const decalA0 = createDecalPacket("decal-A", 0.0, 0.08);
@@ -743,6 +790,7 @@ function testPreparedPacketCacheReusesViewLocalPackets() {
 
 function run() {
 	testPacketDiffLifecycle();
+	testBackendDirtyRectsJoinPreparedCoverage();
 	testDecalDiffLifecycle();
 	testDecalStateDiffDetectsBlendAndOpacityChanges();
 	testAreaFallbackToFullFrame();

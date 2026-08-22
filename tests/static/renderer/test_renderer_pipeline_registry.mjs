@@ -195,6 +195,25 @@ async function testRendererSuccessfulFrameEndsWithoutScheduling() {
 	);
 }
 
+async function testBackendDirtyRectsProducePartialCoverage() {
+	const backend = new RegistryBackend();
+	const renderer = createRenderer(backend);
+	await renderer.renderFrame(0);
+
+	backend.attachContext.events.emit({
+		type: "render-invalidated",
+		reason: "texture",
+		dirtyRects: [{ x: 64, y: 32, width: 8, height: 8 }],
+	});
+	const result = await renderer.renderFrame(16);
+
+	assert.equal(result.rendered, true);
+	assert.equal(result.incremental.plan.forceFullFrame, false);
+	assert.equal(result.incremental.plannedCoverage.mode, "partial");
+	assert.ok(result.incremental.plan.dirtyAreaRatio > 0);
+	assert.ok(result.incremental.plan.dirtyAreaRatio < 1);
+}
+
 async function testRendererReturnsUnchangedCoverageForCleanFrame() {
 	const backend = new RegistryBackend();
 	backend.frameScheduling = "on-demand";
@@ -250,6 +269,7 @@ async function run() {
 		await testRendererAbortsBackendFrameOnPassFailure();
 		await testRendererAbortsPartialBeginFrameFailure();
 		await testRendererSuccessfulFrameEndsWithoutScheduling();
+		await testBackendDirtyRectsProducePartialCoverage();
 		await testRendererReturnsUnchangedCoverageForCleanFrame();
 		await testRendererWarnsForMissingRendererStageExecutor();
 

@@ -1,5 +1,6 @@
 import {
 	PARTICLE_SIM_DELTA_TIME_SECONDS_KEY,
+	type DrawPacket,
 	type FrameContext,
 	type FramePass,
 	type FrameAttachments,
@@ -79,6 +80,8 @@ import {
 	type DisplayOutputState,
 } from "../../rendering/DisplayOutput";
 import { WebGLDisplayOutputManager } from "./WebGLDisplayOutputManager";
+import { computePacketScreenRect } from "../../pipeline/screenBounds";
+import type { DirtyRect } from "../../pipeline/incremental";
 
 const MAX_PARTICLE_SIM_DELTA_TIME_SECONDS = 0.5;
 const WEBGL_SCENE_LIGHT_LIMITS = Object.freeze({
@@ -604,6 +607,10 @@ export class WebGLBackend implements IRenderBackend {
 				enableEarlyZPrepass: this._options.enableEarlyZPrepass !== false,
 				onProgramCompilePending: () => this._emitProgramCompilePendingEvent(),
 				onTextureUploadPending: () => this._emitTextureUploadPendingEvent(),
+				// Geometry streaming shares the texture dirty reason: both are
+				// backend resource uploads that only need another scheduled frame.
+				onGeometryUploadPending: (packets) =>
+					this._emitGeometryUploadPendingEvent(packets),
 				postProcessRuntime: this._postProcessRuntime,
 				getDisplayOutputState: () => this._displayOutputState,
 			},
@@ -739,6 +746,35 @@ export class WebGLBackend implements IRenderBackend {
 		this._requireAttachContext().events.emit({
 			type: "render-invalidated",
 			reason: "texture",
+		});
+	}
+
+	private _emitGeometryUploadPendingEvent(
+		packets: readonly DrawPacket[],
+	): void {
+		const context = this._activeContext;
+		if (!context) {
+			this._emitTextureUploadPendingEvent();
+			return;
+		}
+		const dirtyRects: DirtyRect[] = [];
+		for (const packet of packets) {
+			const rect = computePacketScreenRect(
+				packet,
+				context.viewCamera,
+				context.attachments.width,
+				context.attachments.height,
+			);
+			if (!rect) {
+				this._emitTextureUploadPendingEvent();
+				return;
+			}
+			dirtyRects.push(rect);
+		}
+		this._requireAttachContext().events.emit({
+			type: "render-invalidated",
+			reason: "texture",
+			dirtyRects,
 		});
 	}
 

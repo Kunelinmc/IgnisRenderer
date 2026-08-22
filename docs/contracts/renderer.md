@@ -61,7 +61,14 @@ This document defines the lifecycle, scheduling, warmup, incremental rendering, 
   - Must be a discriminated union representing backend state transitions.
   - `type: "device-lost"`: emitted when the backend observes device loss. Must carry `info` payload when diagnostics are available.
   - `type: "device-restored"`: emitted when the backend finishes context restoration.
-  - `type: "render-invalidated"`: emitted when the backend invalidates visual state. Must carry a semantic `reason` of type `RenderDirtyReason`.
+  - `type: "render-invalidated"`: emitted when the backend invalidates visual
+    state. Must carry a semantic `reason` of type `RenderDirtyReason` and may
+    carry conservative viewport-space `dirtyRects` for the affected output.
+    The renderer must accumulate supplied rectangles until the next rendered
+    frame and merge them with prepared-scene dirty coverage before tile
+    quantization, post-process inflation, and full-frame fallback evaluation.
+    An invalidation without usable rectangles must retain the conservative
+    full-frame fallback behavior.
   - `type: "resource-lifecycle"`: emitted when backend-owned resources require renderer-side invalidation or destruction.
 - `RenderBackendEventSink`
   - `emit(event: RenderBackendEvent): void`: method called by attached backends to dispatch events.
@@ -327,6 +334,10 @@ This document defines the lifecycle, scheduling, warmup, incremental rendering, 
   enclose the complete world-space bounding sphere under perspective and
   orthographic cameras. A bound that crosses the camera plane must use
   full-viewport coverage rather than an underestimated projected radius.
+- Backend-supplied dirty rectangles must participate in the same clamping,
+  merging, post-process inflation, tile quantization, and area-ratio fallback
+  as prepared-scene packet rectangles. Backend events must not directly mutate
+  the active frame's immutable incremental context.
 - `IncrementalFrameStatus.plan` must describe the planner inputs and selected
   dirty rectangles and tiles for the completed frame.
 - `plannedCoverage` and `finalOutputCoverage` must use an

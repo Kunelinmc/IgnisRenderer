@@ -26,9 +26,35 @@ export const WEBGL_MAX_MORPH_TARGETS = 8;
 export const WEBGL_MORPH_POSITION_BIT = 1 << 0;
 export const WEBGL_MORPH_NORMAL_BIT = 1 << 1;
 
+export const DEFAULT_DEFERRED_GEOMETRY_UPLOADS_PER_FRAME = 16;
+export const DEFAULT_DEFERRED_GEOMETRY_UPLOAD_BYTES_PER_FRAME = 32 * 1024 * 1024;
+
+export interface WebGLGeometryRegistryOptions {
+	/**
+	 * Upload scheduling mode. `deferred` queues first-use uploads into a
+	 * frame-budgeted queue instead of blocking the draw pass.
+	 */
+	readonly uploadScheduling?: "immediate" | "deferred";
+	/** Hard cap on uploads processed per `processPendingUploads` call. */
+	readonly maxUploadsPerFrame?: number;
+	/** Estimated-bytes budget per `processPendingUploads` call. */
+	readonly maxUploadBytesPerFrame?: number;
+	/** Invoked for packets that need another frame to complete their upload. */
+	readonly onUploadPending?: (packets: readonly DrawPacket[]) => void;
+}
+
 interface UploadPrimitiveResult {
 	handle: WebGLGeometryHandle | null;
 	cacheFailure: boolean;
+}
+
+interface PendingGeometryUpload {
+	primitive: IPrimitive;
+	packet: DrawPacket;
+	packetsById: Map<string, DrawPacket>;
+	geometryVersion: number;
+	estimatedBytes: number;
+	queued: boolean;
 }
 
 interface WebGLCachedGeometryEntry {
@@ -47,13 +73,39 @@ export class WebGLGeometryRegistry {
 	private _owned = new Set<WebGLGeometryHandle>();
 	private _warnCallback: WebGLGeometryWarn | null = null;
 	private readonly _maxTextureSize: number;
+	private _uploadScheduling: "immediate" | "deferred";
+	private _maxUploadsPerFrame: number;
+	private _maxUploadBytesPerFrame: number;
+	private _onUploadPending: ((packets: readonly DrawPacket[]) => void) | null;
+	private _pendingUploadQueue: PendingGeometryUpload[] = [];
+	private _pendingUploadsByPrimitive = new Map<IPrimitive, PendingGeometryUpload>();
 
-	constructor(gl: WebGL2RenderingContext, warn?: WebGLGeometryWarn) {
+	constructor(
+		gl: WebGL2RenderingContext,
+		warn?: WebGLGeometryWarn,
+		options: WebGLGeometryRegistryOptions = {}
+	) {
 		this._gl = gl;
 		this._warnCallback = warn ?? null;
 		const maxTextureSize = gl.getParameter?.(gl.MAX_TEXTURE_SIZE);
 		this._maxTextureSize = Number.isFinite(maxTextureSize) ?
 			Math.max(1, Math.floor(maxTextureSize)) : 4096;
+		this._uploadScheduling = options.uploadScheduling ?? "immediate";
+		this._maxUploadsPerFrame = Math.max(
+			1,
+			Math.floor(
+				options.maxUploadsPerFrame ??
+					DEFAULT_DEFERRED_GEOMETRY_UPLOADS_PER_FRAME
+			)
+		);
+		this._maxUploadBytesPerFrame = Math.max(
+			1,
+			Math.floor(
+				options.maxUploadBytesPerFrame ??
+					DEFAULT_DEFERRED_GEOMETRY_UPLOAD_BYTES_PER_FRAME
+			)
+		);
+		this._onUploadPending = options.onUploadPending ?? null;
 	}
 
 	public getGeometry(packet: DrawPacket): WebGLGeometryHandle | null {
@@ -66,6 +118,10 @@ export class WebGLGeometryRegistry {
 		if (cached?.handle) {
 			this._owned.delete(cached.handle);
 			this._destroyHandle(cached.handle);
+		}
+		if (this._uploadScheduling === "deferred") {
+			this._queueDeferredUpload(primitive, packet, geometryVersion);
+			return null;
 		}
 		const uploaded = this._uploadPrimitive(packet);
 		if (uploaded.handle) {
@@ -82,10 +138,130 @@ export class WebGLGeometryRegistry {
 	}
 
 	public destroy(): void {
+		this._pendingUploadQueue.length = 0;
+		this._pendingUploadsByPrimitive.clear();
 		for (const handle of this._owned) {
 			this._destroyHandle(handle);
 		}
 		this._owned.clear();
+	}
+
+	/**
+	 * Returns the number of queued geometry uploads waiting for frame-budgeted
+	 * processing. Reading this value has no side effects.
+	 */
+	public get pendingUploadCount(): number {
+		return this._pendingUploadQueue.length;
+	}
+
+	/**
+	 * Processes deferred geometry uploads at the start of a WebGL frame.
+	 *
+	 * The method respects the configured upload count and estimated-byte
+	 * budgets. If queued uploads remain after processing, `onUploadPending`
+	 * is called so the renderer can schedule another frame.
+	 */
+	public beginFrame(): void {
+		this.processPendingUploads();
+	}
+
+	public processPendingUploads(): void {
+		if (this._pendingUploadQueue.length === 0) {
+			return;
+		}
+
+		let uploads = 0;
+		let uploadedBytes = 0;
+		while (this._pendingUploadQueue.length > 0) {
+			const pending = this._pendingUploadQueue[0];
+			const wouldExceedUploadCount = uploads >= this._maxUploadsPerFrame;
+			const wouldExceedByteBudget =
+				uploadedBytes + pending.estimatedBytes >
+				this._maxUploadBytesPerFrame;
+			if (
+				uploads > 0 &&
+				(wouldExceedUploadCount || wouldExceedByteBudget)
+			) {
+				break;
+			}
+
+			this._pendingUploadQueue.shift();
+			pending.queued = false;
+			if (this._pendingUploadsByPrimitive.get(pending.primitive) === pending) {
+				this._pendingUploadsByPrimitive.delete(pending.primitive);
+			}
+			if (
+				pending.geometryVersion !== (pending.primitive.geometryVersion ?? 0)
+			) {
+				continue;
+			}
+
+			const uploaded = this._uploadPrimitive(pending.packet);
+			if (!uploaded.handle && !uploaded.cacheFailure) {
+				continue;
+			}
+			if (uploaded.handle) {
+				this._owned.add(uploaded.handle);
+			}
+			this._cache.set(pending.primitive, {
+				handle: uploaded.handle,
+				geometryVersion: pending.geometryVersion,
+				cacheFailure: uploaded.cacheFailure,
+			});
+			uploads++;
+			uploadedBytes += pending.estimatedBytes;
+		}
+
+		if (this._pendingUploadQueue.length > 0) {
+			this._notifyQueuedUploadsPending();
+		}
+	}
+
+	private _queueDeferredUpload(
+		primitive: IPrimitive,
+		packet: DrawPacket,
+		geometryVersion: number
+	): void {
+		const existing = this._pendingUploadsByPrimitive.get(primitive);
+		if (existing) {
+			if (existing.geometryVersion !== geometryVersion) {
+				existing.geometryVersion = geometryVersion;
+				existing.estimatedBytes =
+					estimateWebGLGeometryUploadBytes(primitive);
+			}
+			existing.packet = packet;
+			const alreadyTracked = existing.packetsById.has(packet.id);
+			existing.packetsById.set(packet.id, packet);
+			if (!alreadyTracked) {
+				this._notifyUploadPending([packet]);
+			}
+			return;
+		}
+		const pending: PendingGeometryUpload = {
+			primitive,
+			packet,
+			packetsById: new Map([[packet.id, packet]]),
+			geometryVersion,
+			estimatedBytes: estimateWebGLGeometryUploadBytes(primitive),
+			queued: true,
+		};
+		this._pendingUploadsByPrimitive.set(primitive, pending);
+		this._pendingUploadQueue.push(pending);
+		this._notifyUploadPending([packet]);
+	}
+
+	private _notifyQueuedUploadsPending(): void {
+		if (!this._onUploadPending) return;
+		const packets: DrawPacket[] = [];
+		for (const pending of this._pendingUploadQueue) {
+			packets.push(...pending.packetsById.values());
+		}
+		this._notifyUploadPending(packets);
+	}
+
+	private _notifyUploadPending(packets: readonly DrawPacket[]): void {
+		if (packets.length === 0) return;
+		this._onUploadPending?.(packets);
 	}
 
 	private _destroyHandle(handle: WebGLGeometryHandle): void {
@@ -120,48 +296,6 @@ export class WebGLGeometryRegistry {
 			this._warn(key, message);
 			return { handle: null, cacheFailure: true };
 		}
-		if (!isFiniteArray(positions)) {
-			const key = `webgl-geometry-nonfinite-positions-${primitive.id}`;
-			const message = `WebGL geometry ${primitiveLabel} contains non-finite position values; skipping`;
-			this._warn(key, message);
-			return { handle: null, cacheFailure: true };
-		}
-		if (geometry.normals && !isFiniteArray(geometry.normals)) {
-			const key = `webgl-geometry-nonfinite-normals-${primitive.id}`;
-			const message = `WebGL geometry ${primitiveLabel} contains non-finite normal values; skipping`;
-			this._warn(key, message);
-			return { handle: null, cacheFailure: true };
-		}
-		if (geometry.uv0 && !isFiniteArray(geometry.uv0)) {
-			const key = `webgl-geometry-nonfinite-uv-${primitive.id}`;
-			const message = `WebGL geometry ${primitiveLabel} contains non-finite UV values; skipping`;
-			this._warn(key, message);
-			return { handle: null, cacheFailure: true };
-		}
-		if (geometry.uv1 && !isFiniteArray(geometry.uv1)) {
-			const key = `webgl-geometry-nonfinite-uv1-${primitive.id}`;
-			const message = `WebGL geometry ${primitiveLabel} contains non-finite UV1 values; skipping`;
-			this._warn(key, message);
-			return { handle: null, cacheFailure: true };
-		}
-		if (geometry.uv2 && !isFiniteArray(geometry.uv2)) {
-			const key = `webgl-geometry-nonfinite-uv2-${primitive.id}`;
-			const message = `WebGL geometry ${primitiveLabel} contains non-finite UV2 values; skipping`;
-			this._warn(key, message);
-			return { handle: null, cacheFailure: true };
-		}
-		if (geometry.uv3 && !isFiniteArray(geometry.uv3)) {
-			const key = `webgl-geometry-nonfinite-uv3-${primitive.id}`;
-			const message = `WebGL geometry ${primitiveLabel} contains non-finite UV3 values; skipping`;
-			this._warn(key, message);
-			return { handle: null, cacheFailure: true };
-		}
-		if (geometry.tangents && !isFiniteArray(geometry.tangents)) {
-			const key = `webgl-geometry-nonfinite-tangents-${primitive.id}`;
-			const message = `WebGL geometry ${primitiveLabel} contains non-finite tangent values; skipping`;
-			this._warn(key, message);
-			return { handle: null, cacheFailure: true };
-		}
 
 		const vertexCount = (positions.length / 3) | 0;
 		const skinProfile = resolveWebGLSkinProfile(geometry);
@@ -193,29 +327,72 @@ export class WebGLGeometryRegistry {
 		const uv2 = geometry.uv2;
 		const uv3 = geometry.uv3;
 		const tangents = geometry.tangents;
+		// Fused validation + interleave pass: each source component is checked
+		// once as it is written, replacing separate whole-array finite scans.
+		// Reports the earliest offending vertex's attribute when several
+		// attributes contain non-finite values.
+		let nonFiniteAttribute: WebGLNonFiniteAttribute | null = null;
+		const scanState: { attribute: WebGLNonFiniteAttribute } = {
+			attribute: "positions",
+		};
+		interleaveLoop:
 		for (let i = 0; i < vertexCount; i++) {
 			const srcPos = i * 3;
 			const srcUv = i * 2;
 			const srcTangent = i * 4;
 			const dst = i * WEBGL_SCENE_VERTEX_FLOATS;
-			interleaved[dst] = positions[srcPos];
-			interleaved[dst + 1] = positions[srcPos + 1];
-			interleaved[dst + 2] = positions[srcPos + 2];
-			interleaved[dst + 3] = normals?.[srcPos] ?? 0;
-			interleaved[dst + 4] = normals?.[srcPos + 1] ?? 0;
-			interleaved[dst + 5] = normals?.[srcPos + 2] ?? 1;
-			interleaved[dst + 6] = uv0?.[srcUv] ?? 0;
-			interleaved[dst + 7] = uv0?.[srcUv + 1] ?? 0;
-			interleaved[dst + 8] = uv1?.[srcUv] ?? interleaved[dst + 6];
-			interleaved[dst + 9] = uv1?.[srcUv + 1] ?? interleaved[dst + 7];
-			interleaved[dst + 10] = uv2?.[srcUv] ?? interleaved[dst + 6];
-			interleaved[dst + 11] = uv2?.[srcUv + 1] ?? interleaved[dst + 7];
-			interleaved[dst + 12] = uv3?.[srcUv] ?? interleaved[dst + 6];
-			interleaved[dst + 13] = uv3?.[srcUv + 1] ?? interleaved[dst + 7];
-			interleaved[dst + 14] = tangents?.[srcTangent] ?? 0;
-			interleaved[dst + 15] = tangents?.[srcTangent + 1] ?? 0;
-			interleaved[dst + 16] = tangents?.[srcTangent + 2] ?? 0;
-			interleaved[dst + 17] = tangents?.[srcTangent + 3] ?? 0;
+			if (!copyCheckedComponents(interleaved, dst, positions, srcPos, 3, WEBGL_XYZ_DEFAULTS, "positions", scanState)) {
+				nonFiniteAttribute = "positions";
+				break interleaveLoop;
+			}
+			if (!copyCheckedComponents(interleaved, dst + 3, normals, srcPos, 3, WEBGL_NORMAL_DEFAULTS, "normals", scanState)) {
+				nonFiniteAttribute = "normals";
+				break interleaveLoop;
+			}
+			if (!copyCheckedComponents(interleaved, dst + 6, uv0, srcUv, 2, WEBGL_UV_DEFAULTS, "uv0", scanState)) {
+				nonFiniteAttribute = "uv0";
+				break interleaveLoop;
+			}
+			if (uv1) {
+				if (!copyCheckedComponents(interleaved, dst + 8, uv1, srcUv, 2, WEBGL_UV_DEFAULTS, "uv1", scanState)) {
+					nonFiniteAttribute = "uv1";
+					break interleaveLoop;
+				}
+			} else {
+				interleaved[dst + 8] = interleaved[dst + 6];
+				interleaved[dst + 9] = interleaved[dst + 7];
+			}
+			if (uv2) {
+				if (!copyCheckedComponents(interleaved, dst + 10, uv2, srcUv, 2, WEBGL_UV_DEFAULTS, "uv2", scanState)) {
+					nonFiniteAttribute = "uv2";
+					break interleaveLoop;
+				}
+			} else {
+				interleaved[dst + 10] = interleaved[dst + 6];
+				interleaved[dst + 11] = interleaved[dst + 7];
+			}
+			if (uv3) {
+				if (!copyCheckedComponents(interleaved, dst + 12, uv3, srcUv, 2, WEBGL_UV_DEFAULTS, "uv3", scanState)) {
+					nonFiniteAttribute = "uv3";
+					break interleaveLoop;
+				}
+			} else {
+				interleaved[dst + 12] = interleaved[dst + 6];
+				interleaved[dst + 13] = interleaved[dst + 7];
+			}
+			if (!copyCheckedComponents(interleaved, dst + 14, tangents, srcTangent, 4, WEBGL_TANGENT_DEFAULTS, "tangents", scanState)) {
+				nonFiniteAttribute = "tangents";
+				break interleaveLoop;
+			}
+		}
+		if (nonFiniteAttribute) {
+			const diagnostic =
+				WEBGL_NONFINITE_ATTRIBUTE_DIAGNOSTICS[nonFiniteAttribute];
+			this._warn(
+				`webgl-geometry-nonfinite-${diagnostic.key}-${primitive.id}`,
+				`WebGL geometry ${primitiveLabel} contains non-finite ${diagnostic.label} values; skipping`,
+			);
+			return { handle: null, cacheFailure: true };
 		}
 
 		const gl = this._gl;
@@ -273,10 +450,7 @@ export class WebGLGeometryRegistry {
 		let indexData: Uint32Array | Uint16Array;
 		if (maxIndex <= 65535) {
 			indexType = gl.UNSIGNED_SHORT;
-			indexData = new Uint16Array(indices.length);
-			for (let i = 0; i < indices.length; i++) {
-				indexData[i] = indices[i];
-			}
+			indexData = new Uint16Array(indices);
 		} else {
 			indexData = new Uint32Array(indices);
 		}
@@ -436,6 +610,33 @@ export function resolveWebGLSkinProfile(
 	return "static";
 }
 
+/**
+ * Estimates GPU bytes for a primitive upload without touching GL state.
+ * Used to budget deferred uploads; over-estimates index data (always assumes
+ * 32-bit indices) so budget decisions stay conservative.
+ */
+function estimateWebGLGeometryUploadBytes(primitive: IPrimitive): number {
+	const geometry = primitive.geometry;
+	const vertexCount = Math.max(0, ((geometry.positions?.length ?? 0) / 3) | 0);
+	let bytes = vertexCount * WEBGL_SCENE_VERTEX_FLOATS * 4;
+	bytes += (geometry.indices?.length ?? 0) * 4;
+	const skinProfile = resolveWebGLSkinProfile(geometry);
+	if (skinProfile === "skin4") {
+		bytes += vertexCount * 32;
+	} else if (skinProfile === "skin8") {
+		bytes += vertexCount * 64;
+	}
+	const morphTargetCount = Math.min(
+		WEBGL_MAX_MORPH_TARGETS,
+		geometry.morphTargets?.length ?? 0,
+	);
+	if (morphTargetCount > 0) {
+		// Position + normal RGBA32F morph texels per vertex, padded estimate.
+		bytes += morphTargetCount * vertexCount * 32;
+	}
+	return bytes;
+}
+
 function packWebGLSkinData(
 	geometry: IPrimitive["geometry"],
 	vertexCount: number,
@@ -488,11 +689,67 @@ function getMaxIndex(indices: Uint32Array): number {
 	return maxIndex;
 }
 
-function isFiniteArray(data: ArrayLike<number>): boolean {
-	for (let i = 0; i < data.length; i++) {
-		if (!Number.isFinite(data[i])) {
+type WebGLNonFiniteAttribute =
+	| "positions"
+	| "normals"
+	| "uv0"
+	| "uv1"
+	| "uv2"
+	| "uv3"
+	| "tangents";
+
+const WEBGL_NONFINITE_ATTRIBUTE_DIAGNOSTICS: Record<
+	WebGLNonFiniteAttribute,
+	{ key: string; label: string }
+> = {
+	positions: { key: "positions", label: "position" },
+	normals: { key: "normals", label: "normal" },
+	uv0: { key: "uv", label: "UV" },
+	uv1: { key: "uv1", label: "UV1" },
+	uv2: { key: "uv2", label: "UV2" },
+	uv3: { key: "uv3", label: "UV3" },
+	tangents: { key: "tangents", label: "tangent" },
+};
+
+const WEBGL_XYZ_DEFAULTS = [0, 0, 0];
+const WEBGL_NORMAL_DEFAULTS = [0, 0, 1];
+const WEBGL_UV_DEFAULTS = [0, 0];
+const WEBGL_TANGENT_DEFAULTS = [0, 0, 0, 0];
+
+/**
+ * Copies `componentCount` components from an optional attribute source into
+ * the interleaved target while validating finiteness. Missing sources and
+ * out-of-range reads fall back to per-component defaults, matching legacy
+ * upload behavior. Returns `false` when a non-finite value was found; in that
+ * case `state.attribute` names the offending attribute.
+ */
+function copyCheckedComponents(
+	target: Float32Array,
+	targetOffset: number,
+	source: ArrayLike<number> | null | undefined,
+	sourceOffset: number,
+	componentCount: number,
+	defaults: readonly number[],
+	attribute: WebGLNonFiniteAttribute,
+	state: { attribute: WebGLNonFiniteAttribute },
+): boolean {
+	if (!source) {
+		for (let i = 0; i < componentCount; i++) {
+			target[targetOffset + i] = defaults[i];
+		}
+		return true;
+	}
+	for (let i = 0; i < componentCount; i++) {
+		const value = source[sourceOffset + i];
+		if (value === undefined) {
+			target[targetOffset + i] = defaults[i];
+			continue;
+		}
+		if (!Number.isFinite(value)) {
+			state.attribute = attribute;
 			return false;
 		}
+		target[targetOffset + i] = value;
 	}
 	return true;
 }

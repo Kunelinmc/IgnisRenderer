@@ -219,6 +219,213 @@ function testGeometryRegistryUploadsSkinAndMorphResources() {
 	registry.destroy();
 }
 
+function createDeferredCaptureGL() {
+	const gl = createGeometryTestGL();
+	const calls = { bufferDataCount: 0 };
+	return Object.assign(gl, {
+		calls,
+		bufferData() {
+			calls.bufferDataCount++;
+		},
+	});
+}
+
+function makeTrianglePrimitive(id) {
+	return {
+		id,
+		geometry: {
+			positions: new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]),
+			normals: null,
+			uv0: null,
+			indices: new Uint32Array([0, 1, 2]),
+		},
+		topology: "triangle-list",
+		material: new Material(),
+	};
+}
+
+function testGeometryRegistryDeferredModeQueuesWithoutUploading() {
+	const gl = createDeferredCaptureGL();
+	const registry = new WebGLGeometryRegistry(gl, () => {}, {
+		uploadScheduling: "deferred",
+	});
+
+	const packet = { id: "packet-deferred", primitive: makeTrianglePrimitive("p-deferred") };
+	assert.equal(registry.getGeometry(packet), null);
+	assert.equal(gl.calls.bufferDataCount, 0);
+	assert.equal(registry.pendingUploadCount, 1);
+
+	// Repeated misses must not duplicate the queued request.
+	assert.equal(registry.getGeometry(packet), null);
+	assert.equal(registry.pendingUploadCount, 1);
+
+	registry.beginFrame();
+	assert.ok(gl.calls.bufferDataCount > 0);
+
+	const handle = registry.getGeometry(packet);
+	assert.ok(handle);
+	assert.equal(handle.indexCount, 3);
+	assert.equal(registry.pendingUploadCount, 0);
+}
+
+function testGeometryRegistryDeferredUploadsRespectByteBudgets() {
+	const gl = createDeferredCaptureGL();
+	const pendingNotifications = [];
+	const registry = new WebGLGeometryRegistry(gl, () => {}, {
+		uploadScheduling: "deferred",
+		maxUploadsPerFrame: 16,
+		maxUploadBytesPerFrame: 300,
+		onUploadPending: (packets) =>
+			pendingNotifications.push(packets.map((packet) => packet.id)),
+	});
+
+	const packets = ["pa", "pb", "pc"].map((id) => ({
+		id: `packet-${id}`,
+		primitive: makeTrianglePrimitive(id),
+	}));
+	for (const packet of packets) {
+		assert.equal(registry.getGeometry(packet), null);
+	}
+	assert.equal(registry.pendingUploadCount, 3);
+	assert.deepEqual(pendingNotifications, [
+		["packet-pa"],
+		["packet-pb"],
+		["packet-pc"],
+	]);
+
+	// Each triangle estimates 228 bytes; a 300-byte budget fits one per call.
+	registry.processPendingUploads();
+	assert.equal(registry.pendingUploadCount, 2);
+	assert.deepEqual(pendingNotifications.at(-1), ["packet-pb", "packet-pc"]);
+
+	registry.processPendingUploads();
+	assert.equal(registry.pendingUploadCount, 1);
+	assert.deepEqual(pendingNotifications.at(-1), ["packet-pc"]);
+
+	registry.processPendingUploads();
+	assert.equal(registry.pendingUploadCount, 0);
+	assert.equal(pendingNotifications.length, 5);
+
+	for (const packet of packets) {
+		assert.ok(registry.getGeometry(packet));
+	}
+}
+
+function testGeometryRegistryNotifiesEachSharedPrimitivePacketOnce() {
+	const notifications = [];
+	const registry = new WebGLGeometryRegistry(createDeferredCaptureGL(), () => {}, {
+		uploadScheduling: "deferred",
+		onUploadPending: (packets) =>
+			notifications.push(packets.map((packet) => packet.id)),
+	});
+	const primitive = makeTrianglePrimitive("p-shared");
+	const packetA = { id: "packet-shared-a", primitive };
+	const packetB = { id: "packet-shared-b", primitive };
+
+	assert.equal(registry.getGeometry(packetA), null);
+	assert.equal(registry.getGeometry(packetA), null);
+	assert.equal(registry.getGeometry(packetB), null);
+	assert.equal(registry.pendingUploadCount, 1);
+	assert.deepEqual(notifications, [
+		["packet-shared-a"],
+		["packet-shared-b"],
+	]);
+
+	registry.beginFrame();
+	assert.strictEqual(registry.getGeometry(packetA), registry.getGeometry(packetB));
+}
+
+function testGeometryRegistryDeferredDiscardsStaleVersions() {
+	const gl = createDeferredCaptureGL();
+	const registry = new WebGLGeometryRegistry(gl, () => {}, {
+		uploadScheduling: "deferred",
+	});
+
+	const primitive = makeTrianglePrimitive("p-versioned");
+	primitive.geometryVersion = 1;
+	const packet = { id: "packet-versioned", primitive };
+
+	assert.equal(registry.getGeometry(packet), null);
+	primitive.geometryVersion = 2;
+	assert.equal(registry.getGeometry(packet), null);
+	assert.equal(registry.pendingUploadCount, 1);
+
+	registry.processPendingUploads();
+	const handle = registry.getGeometry(packet);
+	assert.ok(handle);
+	assert.equal(handle.vertexCount, 3);
+}
+
+function testGeometryRegistryDeferredCachesPermanentFailures() {
+	const warnings = [];
+	const registry = new WebGLGeometryRegistry(createDeferredCaptureGL(), (k, m) =>
+		warnings.push({ key: k }), { uploadScheduling: "deferred" });
+
+	const primitive = makeTrianglePrimitive("p-bad");
+	primitive.geometry.indices = new Uint32Array([0, 1, 9]);
+	const packet = { id: "packet-bad", primitive };
+
+	assert.equal(registry.getGeometry(packet), null);
+	registry.processPendingUploads();
+	assert.ok(
+		warnings.some((warning) => warning.key === "webgl-geometry-index-range-p-bad")
+	);
+
+	// Permanent failures are cached: no requeue, no repeated warning work.
+	assert.equal(registry.getGeometry(packet), null);
+	assert.equal(registry.pendingUploadCount, 0);
+	assert.equal(warnings.filter((w) => w.key === "webgl-geometry-index-range-p-bad").length, 1);
+}
+
+function testGeometryRegistryFusedValidationPreservesWarnKeys() {
+	const cases = [
+		{
+			slot: "positions",
+			key: "webgl-geometry-nonfinite-positions-p-nf",
+			build(geometry) {
+				geometry.positions[4] = NaN;
+			},
+		},
+		{
+			slot: "normals",
+			key: "webgl-geometry-nonfinite-normals-p-nf",
+			build(geometry) {
+				geometry.normals = new Float32Array(9);
+				geometry.normals[8] = Infinity;
+			},
+		},
+		{
+			slot: "uv0",
+			key: "webgl-geometry-nonfinite-uv-p-nf",
+			build(geometry) {
+				geometry.uv0 = new Float32Array([NaN, 0, 0, 0, 0, 0]);
+			},
+		},
+		{
+			slot: "uv3",
+			key: "webgl-geometry-nonfinite-uv3-p-nf",
+			build(geometry) {
+				geometry.uv3 = new Float32Array([0, 0, 0, 0, 0, NaN]);
+			},
+		},
+	];
+
+	for (const testCase of cases) {
+		const warnings = [];
+		const registry = new WebGLGeometryRegistry(createGeometryTestGL(), (k) =>
+			warnings.push(k)
+		);
+		const primitive = makeTrianglePrimitive("p-nf");
+		testCase.build(primitive.geometry);
+		assert.equal(
+			registry.getGeometry({ id: "packet-nf", primitive }),
+			null,
+			testCase.slot
+		);
+		assert.ok(warnings.includes(testCase.key), testCase.slot);
+	}
+}
+
 function testDrawWebGLPacketBindsPBRTexturesAndUVSets() {
 	const gl = createScenePassCaptureGL();
 	const material = new PBRMaterial();
@@ -667,6 +874,12 @@ await runWebGLBackendFile([
 	testGeometryRegistryRetriesAfterUploadAllocationFailure,
 	testGeometryRegistryUploadsUV1Attribute,
 	testGeometryRegistryUploadsSkinAndMorphResources,
+	testGeometryRegistryDeferredModeQueuesWithoutUploading,
+	testGeometryRegistryDeferredUploadsRespectByteBudgets,
+	testGeometryRegistryNotifiesEachSharedPrimitivePacketOnce,
+	testGeometryRegistryDeferredDiscardsStaleVersions,
+	testGeometryRegistryDeferredCachesPermanentFailures,
+	testGeometryRegistryFusedValidationPreservesWarnKeys,
 	testDrawWebGLPacketBindsPBRTexturesAndUVSets,
 	testDrawWebGLPacketBindsAnisotropyMapWhenSharedSlotIsFree,
 	testDrawWebGLPacketPreservesInactiveGlobalSamplerUnits,
