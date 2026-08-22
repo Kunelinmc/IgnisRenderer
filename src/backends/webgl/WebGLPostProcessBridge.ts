@@ -82,7 +82,7 @@ export class WebGLPostProcessBridge {
 	/**
 	 * Provides a WebGL context for a pass-owned implementation.
 	 *
-	 * @internal Called by `WebGLFrameServiceOwner.createPassExecutionContext`.
+	 * @internal Called by `WebGLFrameServices.createPassExecutionContext`.
 	 *
 	 * @param request Current pass-owned implementation context request.
 	 * @returns Context declared by implementation metadata, or `undefined`.

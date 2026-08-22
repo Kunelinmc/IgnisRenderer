@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 
-import { WebGLFrameServiceOwner } from "../../../src/backends/webgl/WebGLFrameServiceOwner.ts";
+import { WebGLFrameServices } from "../../../src/backends/webgl/WebGLFrameServices.ts";
 import { WebGLFrameSession } from "../../../src/backends/webgl/WebGLFrameSession.ts";
 
 function testSessionClearsActiveFrameState() {
@@ -30,14 +30,14 @@ function testAbortClearsActiveFrameState() {
 	assert.equal(session.presented, false);
 }
 
-function testServiceOwnerRequiresExplicitPostProcessRuntime() {
+function testFrameServicesRequireExplicitPostProcessRuntime() {
 	assert.throws(
-		() => new WebGLFrameServiceOwner({}),
+		() => new WebGLFrameServices({}),
 		/explicitly owned post-process runtime/,
 	);
 }
 
 testSessionClearsActiveFrameState();
 testAbortClearsActiveFrameState();
-testServiceOwnerRequiresExplicitPostProcessRuntime();
+testFrameServicesRequireExplicitPostProcessRuntime();
 console.log("WebGL frame session tests passed");

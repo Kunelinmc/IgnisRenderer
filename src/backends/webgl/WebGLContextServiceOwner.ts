@@ -4,23 +4,23 @@ import type {
 } from "../../shaders/runtime";
 
 import {
-	WebGLFrameServiceOwner,
-	type WebGLFrameServiceOwnerOptions,
-} from "./WebGLFrameServiceOwner";
+	WebGLFrameServices,
+	type WebGLFrameServicesOptions,
+} from "./WebGLFrameServices";
 import { WebGLAuxiliaryRasterRuntime } from "./WebGLAuxiliaryRasterRuntime";
 
 /** Owns all services tied to one WebGL context generation. */
 export class WebGLContextServiceOwner {
-	public readonly frame: WebGLFrameServiceOwner;
+	public readonly frame: WebGLFrameServices;
 	public readonly auxiliaryRaster: WebGLAuxiliaryRasterRuntime;
 
 	public constructor(
 		gl: WebGL2RenderingContext,
 		shaderRuntime: ShaderRuntime,
 		shaderCompileStage: ShaderBackendCompileStage,
-		options: WebGLFrameServiceOwnerOptions,
+		options: WebGLFrameServicesOptions,
 	) {
-		this.frame = new WebGLFrameServiceOwner(
+		this.frame = new WebGLFrameServices(
 			gl,
 			shaderRuntime,
 			shaderCompileStage,

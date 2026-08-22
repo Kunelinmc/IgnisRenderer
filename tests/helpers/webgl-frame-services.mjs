@@ -1,6 +1,6 @@
 import { BackendPostProcessRuntime } from "../../src/postprocess/BackendPostProcessRuntime.ts";
 import { createRenderBackendExtensionRegistry } from "../../src/backends/BackendExtensions.ts";
-import { WebGLFrameServiceOwner } from "../../src/backends/webgl/WebGLFrameServiceOwner.ts";
+import { WebGLFrameServices } from "../../src/backends/webgl/WebGLFrameServices.ts";
 import { WebGLPostProcessExecutor } from "../../src/backends/webgl/WebGLPostProcessExecutor.ts";
 
 const TEST_BACKEND = {
@@ -49,7 +49,7 @@ const TEST_BACKEND = {
 };
 
 /** Static-test harness that explicitly owns and injects post-process runtime state. */
-export class WebGLFrameServiceTestHarness extends WebGLFrameServiceOwner {
+export class WebGLFrameServiceTestHarness extends WebGLFrameServices {
 	constructor(gl, shaderRuntime, shaderCompileStage, options = {}) {
 		let services = null;
 		const postProcessRuntime = options.postProcessRuntime ??

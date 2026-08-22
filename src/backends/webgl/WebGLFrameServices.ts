@@ -118,7 +118,7 @@ import {
 	type WebGLVertexTextureUnitLayout,
 } from "./WebGLVertexTextureUnits";
 
-export interface WebGLFrameServiceOwnerOptions {
+export interface WebGLFrameServicesOptions {
 	validatePrograms?: boolean;
 	enableEarlyZPrepass?: boolean;
 	onProgramCompilePending?: () => void;
@@ -138,7 +138,7 @@ export interface WebGLFrameServiceOwnerOptions {
 	getDisplayOutputState?: () => DisplayOutputState;
 }
 
-export class WebGLFrameServiceOwner {
+export class WebGLFrameServices {
 	public _gl: WebGL2RenderingContext;
 	private _programCompiler: WebGLProgramCompiler;
 	public _scenePrograms: WebGLSceneProgramRepository;
@@ -345,7 +345,7 @@ export class WebGLFrameServiceOwner {
 		gl: WebGL2RenderingContext,
 		shaderRuntime?: ShaderRuntime,
 		shaderCompileStage?: ShaderBackendCompileStage,
-		options: WebGLFrameServiceOwnerOptions = {},
+		options: WebGLFrameServicesOptions = {},
 	) {
 		this._gl = gl;
 		if (!options.postProcessRuntime) {

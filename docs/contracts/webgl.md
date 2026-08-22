@@ -66,7 +66,7 @@ This document defines the current WebGL backend lifecycle, frame graph, resource
 - The stable facade and scheduling policy must be owned by the WebGL extension
   owner rather than `WebGLBackend`. The context-generation raster runtime must
   be shared with custom render-target execution and owned beside, not inside,
-  `WebGLFrameServiceOwner`.
+  `WebGLFrameServices`.
 - WebGL fragment IBL prefiltering must require `EXT_color_buffer_float` and
   either `OES_texture_float_linear` or `OES_texture_half_float_linear`.
 - `WebGLContextWorkQueue` must serialize frame lifecycle operations, backend
@@ -335,7 +335,7 @@ This document defines the current WebGL backend lifecycle, frame graph, resource
   `environment` nodes during `beginFrame(context)`.
 - `WebGLFrameGraphRuntime` must execute a synthetic `present` node during
   `endFrame(context)`.
-- `WebGLFrameServiceOwner` must construct device-scoped WebGL frame services
+- `WebGLFrameServices` must construct device-scoped WebGL frame services
   and destroy them in dependency order. It must directly provide frame begin,
   finish, abort, resize, and service lifetime coordination.
 - Each WebGL frame runtime must own and destroy the native handles it creates.
@@ -344,9 +344,9 @@ This document defines the current WebGL backend lifecycle, frame graph, resource
   by `BackendPostProcessRuntime` resource pools.
 - `WebGLFrameNodeExecutorRegistry` must assign every WebGL graph node kind to
   exactly one executor and must reject missing or duplicate registrations.
-- `WebGLFrameServiceOwner` must not own renderer-level pass orchestration.
+- `WebGLFrameServices` must not own renderer-level pass orchestration.
 - WebGL graph and post-process runtimes must depend on narrow internal
-  contracts and must not require the concrete `WebGLFrameServiceOwner` type.
+  contracts and must not require the concrete `WebGLFrameServices` type.
 - The frame graph runtime must retain one post-process declaration plan,
   configure frame targets, finalize that plan, and pass only generic finalized
   frame requirements to frame services before scene execution.
@@ -361,7 +361,7 @@ This document defines the current WebGL backend lifecycle, frame graph, resource
   metadata is known and stable physical IDs without native handles.
 - `WebGLFrameTargetManager` must describe only scene, OIT, and post-process
   targets that it owns. `WebGLShadowRuntime` must separately describe prepared
-  shadow resources, and `WebGLFrameServiceOwner` must merge both catalogs before
+  shadow resources, and `WebGLFrameServices` must merge both catalogs before
   whole-frame compilation.
 - A retained shadow stage must declare `shadow:atlas`,
   `shadow:transmittance`, and `shadow:particle-volume` only when their prepared

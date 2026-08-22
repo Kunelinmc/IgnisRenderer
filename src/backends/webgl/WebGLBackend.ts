@@ -21,7 +21,7 @@ import type {
 	RenderTargetReadbackOptions,
 	RenderTargetReadbackResult,
 } from "../../rendering/CustomRenderTargets";
-import type { WebGLFrameServiceOwner } from "./WebGLFrameServiceOwner";
+import type { WebGLFrameServices } from "./WebGLFrameServices";
 import { WebGLContextServiceOwner } from "./WebGLContextServiceOwner";
 import { WebGLBackendExtensionOwner } from "./WebGLBackendExtensions";
 import { WebGLFrameGraphRuntime } from "./rendergraph/WebGLFrameGraphRuntime";
@@ -182,7 +182,7 @@ export class WebGLBackend implements IRenderBackend {
 	});
 	private readonly _extensionOwner: WebGLBackendExtensionOwner;
 
-	private get _frameServices(): WebGLFrameServiceOwner | null {
+	private get _frameServices(): WebGLFrameServices | null {
 		return this._contextServices?.frame ?? null;
 	}
 

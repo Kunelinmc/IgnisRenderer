@@ -5,7 +5,7 @@ import { join } from "node:path";
 const ROOT = join(import.meta.dir, "..", "..", "..");
 const backendFiles = [
 	"src/backends/software/SoftwareBackend.ts",
-	"src/backends/webgl/WebGLFrameServiceOwner.ts",
+	"src/backends/webgl/WebGLFrameServices.ts",
 	"src/backends/webgpu/WebGPUFrameBindingCache.ts",
 ];
 
