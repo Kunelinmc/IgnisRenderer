@@ -618,7 +618,10 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 	 * Starts a serialized animation-frame loop for this renderer.
 	 *
 	 * Frame failures are logged and do not stop later frames. Repeated calls
-	 * while the loop is active return the same stop function.
+	 * while the loop is active return the same stop function. The next
+	 * animation frame is scheduled before the current frame settles so slow
+	 * asynchronous frame tails cannot slip the next vsync deadline; ticks that
+	 * arrive while a frame is still rendering are coalesced into it.
 	 *
 	 * @returns An idempotent function that stops the loop.
 	 * @constraints The renderer must not have been destroyed.
@@ -632,18 +635,29 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 
 		let active = true;
 		let requestId: number | null = null;
+		let frameInFlight = false;
 		const scheduleNextFrame = (): void => {
 			if (!active) return;
-			requestId = requestAnimationFrame((nowMs) => {
-				requestId = null;
-				void this.renderFrame(nowMs)
-					.catch((error) => {
-						this.logger.error(["Renderer render loop frame failed.", error], {
-							scope: "Renderer",
-						});
-					})
-					.finally(scheduleNextFrame);
-			});
+			requestId = requestAnimationFrame(onAnimationFrame);
+		};
+		const onAnimationFrame = (nowMs: number): void => {
+			requestId = null;
+			scheduleNextFrame();
+			if (frameInFlight) {
+				// The previous frame is still settling; coalesce this tick
+				// into it instead of rejecting a concurrent render.
+				return;
+			}
+			frameInFlight = true;
+			void this.renderFrame(nowMs)
+				.catch((error) => {
+					this.logger.error(["Renderer render loop frame failed.", error], {
+						scope: "Renderer",
+					});
+				})
+				.finally(() => {
+					frameInFlight = false;
+				});
 		};
 		const stop = (): void => {
 			if (!active) return;

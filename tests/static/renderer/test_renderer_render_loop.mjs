@@ -81,6 +81,74 @@ async function testRenderLoopHandlesErrorsAndContinues() {
 	assert.equal(scheduled.size, 0);
 }
 
+async function testRenderLoopCoalescesTicksWhileFrameInFlight() {
+	const renderer = createRenderer();
+	const scheduled = new Map();
+	const errors = [];
+	const frameTimes = [];
+	let nextRequestId = 1;
+
+	globalThis.requestAnimationFrame = (callback) => {
+		const requestId = nextRequestId++;
+		scheduled.set(requestId, callback);
+		return requestId;
+	};
+	globalThis.cancelAnimationFrame = (requestId) => {
+		scheduled.delete(requestId);
+	};
+	Logger.configure({
+		level: "error",
+		resetOnceKeys: true,
+		sink: {
+			error: (...args) => errors.push(args),
+		},
+	});
+
+	let releaseFrame;
+	const gate = new Promise((resolve) => {
+		releaseFrame = resolve;
+	});
+	renderer.renderFrame = async (nowMs) => {
+		frameTimes.push(nowMs);
+		if (frameTimes.length === 1) {
+			await gate;
+		}
+		return { rendered: true };
+	};
+
+	function fireNextTick(nowMs) {
+		const entry = scheduled.entries().next().value;
+		scheduled.delete(entry[0]);
+		entry[1](nowMs);
+	}
+
+	const stop = renderer.renderLoop();
+	fireNextTick(16);
+	assert.deepEqual(frameTimes, [16]);
+	assert.equal(scheduled.size, 1);
+
+	// This tick arrives while frame 1 is still in flight and must be
+	// coalesced instead of rejecting or queueing another render.
+	fireNextTick(32);
+	await flushPromises();
+	assert.deepEqual(frameTimes, [16]);
+	assert.equal(errors.length, 0);
+	assert.equal(scheduled.size, 1);
+
+	// Releasing frame 1 lets the next already-scheduled tick render again.
+	releaseFrame();
+	await flushPromises();
+	fireNextTick(48);
+	await flushPromises();
+	assert.deepEqual(frameTimes, [16, 48]);
+
+	const pendingRequestId = scheduled.keys().next().value;
+	stop();
+	stop();
+	assert.equal(scheduled.has(pendingRequestId), false);
+	assert.equal(scheduled.size, 0);
+}
+
 async function testDestroyStopsRenderLoop() {
 	const renderer = createRenderer();
 	const scheduled = new Map();
@@ -112,6 +180,7 @@ const originalWindow = globalThis.window;
 try {
 	globalThis.window = { devicePixelRatio: 1 };
 	await testRenderLoopHandlesErrorsAndContinues();
+	await testRenderLoopCoalescesTicksWhileFrameInFlight();
 	await testDestroyStopsRenderLoop();
 	console.log("Renderer render loop tests passed");
 } finally {
