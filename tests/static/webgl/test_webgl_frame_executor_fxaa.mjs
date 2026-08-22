@@ -62,7 +62,7 @@ function testPostProcessColorDomainTracksSuccessfulPasses() {
 		executor.endPostProcessFrame();
 	};
 
-	executor.setPostProcessInitialColorDomain("scene-linear-hdr");
+	executor._postProcess.setInitialColorDomain("scene-linear-hdr");
 	complete(toneMapping, false);
 	assert.equal(executor._postProcess.outputColorDomain, "scene-linear-hdr");
 	complete(toneMapping, true);
@@ -895,16 +895,16 @@ function testOITTransparentAndParticleExecutionOrder() {
 		},
 	};
 
-	executor.prepareOITTransparent(context);
-	executor.renderOITTransparentAccum(context);
-	executor.renderOITTransparentReveal(context);
-	executor.prepareOITParticles();
-	executor.renderOITParticleAccum(context);
-	executor.renderOITParticleReveal(context);
-	executor.copySceneColorForOIT(context);
-	executor.resolveOIT(context);
-	executor.renderOITLegacyTransparent(context);
-	executor.renderOITAdditiveParticles(context);
+	executor._transparency.prepareTransparent(context);
+	executor._transparency.renderTransparentAccum(context);
+	executor._transparency.renderTransparentReveal(context);
+	executor._transparency.prepareParticles();
+	executor._transparency.renderParticleAccum(context);
+	executor._transparency.renderParticleReveal(context);
+	executor._transparency.copySceneColor(context);
+	executor._transparency.resolve(context);
+	executor._transparency.renderLegacy(context);
+	executor._transparency.renderAdditiveParticles(context);
 
 	assert.deepEqual(events, [
 		"clear",
@@ -960,12 +960,12 @@ function testOITTransparentResolvesImmediatelyWithoutParticles() {
 		},
 	};
 
-	executor.prepareOITTransparent(context);
-	executor.renderOITTransparentAccum(context);
-	executor.renderOITTransparentReveal(context);
-	executor.copySceneColorForOIT(context);
-	executor.resolveOIT(context);
-	executor.renderOITLegacyTransparent(context);
+	executor._transparency.prepareTransparent(context);
+	executor._transparency.renderTransparentAccum(context);
+	executor._transparency.renderTransparentReveal(context);
+	executor._transparency.copySceneColor(context);
+	executor._transparency.resolve(context);
+	executor._transparency.renderLegacy(context);
 
 	assert.deepEqual(events, [
 		"clear",
@@ -998,8 +998,8 @@ function testMainOpaqueRunsEarlyZPrepassBeforeColorPass() {
 		);
 	};
 
-	const earlyZPacketIds = executor.renderOpaqueDepthPrepass(context);
-	executor.renderOpaqueScene(context, earlyZPacketIds);
+	const earlyZPacketIds = executor.scene.renderOpaqueDepthPrepass(context);
+	executor.scene.renderOpaque(context, earlyZPacketIds);
 
 	assert.deepEqual(events, [
 		"prepass:1",
@@ -1026,8 +1026,8 @@ function testMainOpaqueCanDisableEarlyZPrepass() {
 		);
 	};
 
-	const earlyZPacketIds = executor.renderOpaqueDepthPrepass(context);
-	executor.renderOpaqueScene(context, earlyZPacketIds);
+	const earlyZPacketIds = executor.scene.renderOpaqueDepthPrepass(context);
+	executor.scene.renderOpaque(context, earlyZPacketIds);
 
 	assert.deepEqual(events, [
 		"color:1:false:0",

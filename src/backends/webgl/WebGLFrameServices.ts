@@ -81,10 +81,7 @@ import {
 	WebGLTransparencyRuntime,
 	WebGLTransparencyWarmupContributor,
 } from "./WebGLTransparencyRuntime";
-import {
-	planWebGLScenePrograms,
-	WebGLSceneProgramWarmupContributor,
-} from "./WebGLSceneProgramPlanner";
+import { WebGLSceneProgramWarmupContributor } from "./WebGLSceneProgramPlanner";
 import { WebGLCustomRenderTargetRuntime } from "./WebGLCustomRenderTargetRuntime";
 import type { FramePass } from "../../pipeline/types";
 import type {
@@ -92,8 +89,8 @@ import type {
 	RenderTargetReadbackResult,
 } from "../../rendering/CustomRenderTargets";
 import type { DisplayOutputState } from "../../rendering/DisplayOutput";
-import type { PostProcessColorDomain } from "../../postprocess/PostProcessPass";
 import { WebGLSceneRuntime } from "./WebGLSceneRuntime";
+import { WebGLFrameNodeAdapter } from "./rendergraph/WebGLFrameNodeAdapter";
 import { WebGLAnimationPayloadPool } from "./WebGLAnimationPayloadPool";
 import {
 	createWebGLVertexTextureUnitLayout,
@@ -144,7 +141,7 @@ export class WebGLFrameServices {
 	private readonly _sceneDrawState = createWebGLSceneDrawState();
 	/** @internal Scene-pass dependency bundle; exposed for test stubbing. */
 	public readonly _sceneDeps: WebGLScenePassDeps;
-	private _transparency: WebGLTransparencyRuntime;
+	public _transparency: WebGLTransparencyRuntime;
 	private _enableEarlyZPrepass = true;
 	private _postProcessRuntime: BackendPostProcessRuntime;
 	private _postProcess: WebGLPostProcessServices;
@@ -157,24 +154,6 @@ export class WebGLFrameServices {
 
 	public get warmupCoordinator(): WebGLWarmupCoordinator {
 		return this._warmup;
-	}
-
-	public async prepareSceneProgramSources(context: FrameContext): Promise<void> {
-		const packets = [
-			...(context.scene?.opaquePackets ?? []),
-			...(context.scene?.transparentPackets ?? []),
-		];
-		const plan = planWebGLScenePrograms(
-			context,
-			packets,
-			["mrt", "single"],
-		);
-		await this._scenePrograms.prepareBuiltinSceneVariants(
-			plan.sceneVariants.values(),
-		);
-		// Issue compiles for planned variants ahead of the draw loop so
-		// first-use resolution rarely blocks on link finalization.
-		this._scenePrograms.issuePlannedSceneProgramCompiles(plan);
 	}
 
 	public get transparency(): WebGLTransparencyRuntime {
@@ -349,6 +328,7 @@ export class WebGLFrameServices {
 			deps: sceneDeps,
 			modelMatrixCache,
 			modelMatrixKeysThisFrame,
+			scenePrograms: this._scenePrograms,
 			targets: this._targets,
 			enableEarlyZPrepass: this._enableEarlyZPrepass,
 			getWidth: () => this._session.width,
@@ -486,139 +466,20 @@ export class WebGLFrameServices {
 		this._temporalFrameState.commitFrame();
 	}
 
-	public clearFrameTargets(context: FrameContext): void {
-		this._scene.clearFrameTargets(context);
-	}
 
-	public renderEnvironmentNode(context: FrameContext): void {
-		this._scene.renderEnvironment(context);
-	}
-
-	public isOITActive(): boolean {
-		return this._transparency.isActive();
-	}
-
-	public hasPresentedInFrame(): boolean {
-		return this._session.presented;
-	}
-
-	public collectFrameGraphResources(): readonly string[] {
-		const resources = new Set(this._targets.collectGraphResources());
-		for (const descriptor of this._shadow.describeGraphResources().resources) {
-			resources.add(descriptor.id);
-		}
-		return Array.from(resources);
-	}
-
-	public collectFrameGraphResourceCatalog(includeShadowResources = true) {
-		const frameCatalog = this._targets.collectGraphResourceCatalog();
-		if (!includeShadowResources) return frameCatalog;
-		const shadowCatalog = this._shadow.describeGraphResources();
-		return Object.freeze({
-			resources: Object.freeze([
-				...frameCatalog.resources,
-				...shadowCatalog.resources,
-			]),
-			bindings: Object.freeze([
-				...frameCatalog.bindings,
-				...shadowCatalog.bindings,
-			]),
+	/** @internal Builds the graph-facing execution facade over owned runtimes. */
+	public createFrameNodeAdapter(): WebGLFrameNodeAdapter {
+		return new WebGLFrameNodeAdapter({
+			lifecycle: this,
+			scene: this._scene,
+			shadow: this._shadow,
+			transparency: this._transparency,
+			targets: this._targets,
+			session: this._session,
+			fullscreen: this._fullscreen,
+			postProcess: this._postProcess,
 		});
 	}
-
-	public renderShadowNode(context: FrameContext): void {
-		this._shadow.renderPreparedFrame(context);
-	}
-
-	public renderOpaqueDepthPrepass(context: FrameContext): Set<string> {
-		return this._scene.renderOpaqueDepthPrepass(context);
-	}
-
-	public renderOpaqueScene(
-		context: FrameContext,
-		earlyZPacketIds: ReadonlySet<string>
-	): void {
-		this._scene.renderOpaque(context, earlyZPacketIds);
-	}
-
-	public renderTransparentLegacy(context: FrameContext): void {
-		this._transparency.renderLegacyTransparent(context);
-	}
-
-	public prepareTransmissionDepth(context: FrameContext): void {
-		this._transparency.prepareTransmissionDepth(context);
-	}
-
-	public renderLegacyTransparentSegment(
-		context: FrameContext,
-		start: number,
-		end: number,
-	): void {
-		this._transparency.renderLegacyTransparentSegment(context, start, end);
-	}
-
-	public copyTransmissionBackground(context: FrameContext): void {
-		this._transparency.copyTransmissionBackground(context);
-	}
-
-	public renderTransmissionPacket(context: FrameContext, index: number): void {
-		this._transparency.renderTransmissionPacket(context, index);
-	}
-
-	public prepareOITTransparent(context: FrameContext): void {
-		this._transparency.prepareTransparent(context);
-	}
-
-	public renderOITTransparentAccum(context: FrameContext): void {
-		this._transparency.renderTransparentAccum(context);
-	}
-
-	public renderOITTransparentReveal(context: FrameContext): void {
-		this._transparency.renderTransparentReveal(context);
-	}
-
-	public copySceneColorForOIT(context: FrameContext): void {
-		this._transparency.copySceneColor(context);
-	}
-
-	public resolveOIT(context: FrameContext): void {
-		this._transparency.resolve(context);
-	}
-
-	public renderOITLegacyTransparent(context: FrameContext): void {
-		this._transparency.renderLegacy(context);
-	}
-
-	public prepareOITParticles(): void {
-		this._transparency.prepareParticles();
-	}
-
-	public renderOITParticleAccum(context: FrameContext): void {
-		this._transparency.renderParticleAccum(context);
-	}
-
-	public renderOITParticleReveal(context: FrameContext): void {
-		this._transparency.renderParticleReveal(context);
-	}
-
-	public renderParticlesLegacy(context: FrameContext): void {
-		this._transparency.renderParticlesLegacy(context);
-	}
-
-	public renderOITAdditiveParticles(context: FrameContext): void {
-		this._transparency.renderAdditiveParticles(context);
-	}
-
-	public presentFrame(): void {
-		if (!this._session.presented) {
-			this._fullscreen.present(this._session.context, true);
-		}
-	}
-
-	public setPostProcessInitialColorDomain(domain: PostProcessColorDomain): void {
-		this._postProcess.setInitialColorDomain(domain);
-	}
-
 	public finishFrame(): void {
 		this._customRenderTargets.markFrameCommitted();
 		this._scene.finishFrame();

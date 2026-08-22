@@ -365,7 +365,7 @@ export class WebGLBackend implements IRenderBackend {
 			this._executedPasses.clear();
 			this._activeContext = context;
 			this._prepareFramePassPlan(context);
-			await this._frameServices!.prepareSceneProgramSources(context);
+			await this._frameServices!.scene.prepareSceneProgramSources(context);
 			this._particleSimulator?.beginFrame(context);
 			this._frameGraphRuntime!.beginFrame(context);
 		});
@@ -617,7 +617,7 @@ export class WebGLBackend implements IRenderBackend {
 		);
 		const frameServices = this._contextServices.frame;
 		this._frameGraphRuntime = new WebGLFrameGraphRuntime(
-			frameServices,
+			frameServices.createFrameNodeAdapter(),
 			this._postProcessRuntime,
 		);
 		this._contextLost = false;

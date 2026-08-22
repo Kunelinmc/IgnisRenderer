@@ -354,6 +354,10 @@ This document defines the current WebGL backend lifecycle, frame graph, resource
   boundaries.
 - `WebGLFrameNodeExecutorRegistry` must assign every WebGL graph node kind to
   exactly one executor and must reject missing or duplicate registrations.
+- WebGL graph node execution must be routed through a
+  `WebGLFrameNodeAdapter` that implements the frame-graph execution facade by
+  delegating each node kind directly to its owning runtime. `WebGLFrameServices`
+  must not expose per-node pass-through methods.
 - `WebGLFrameServices` must not own renderer-level pass orchestration.
 - WebGL graph and post-process runtimes must depend on narrow internal
   contracts and must not require the concrete `WebGLFrameServices` type.
@@ -371,8 +375,8 @@ This document defines the current WebGL backend lifecycle, frame graph, resource
   metadata is known and stable physical IDs without native handles.
 - `WebGLFrameTargetManager` must describe only scene, OIT, and post-process
   targets that it owns. `WebGLShadowRuntime` must separately describe prepared
-  shadow resources, and `WebGLFrameServices` must merge both catalogs before
-  whole-frame compilation.
+  shadow resources, and the `WebGLFrameNodeAdapter` must merge both catalogs
+  before whole-frame compilation.
 - A retained shadow stage must declare `shadow:atlas`,
   `shadow:transmittance`, and `shadow:particle-volume` only when their prepared
   physical resources exist. A frame without a retained shadow stage must omit

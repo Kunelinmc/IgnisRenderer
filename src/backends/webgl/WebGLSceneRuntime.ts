@@ -1,12 +1,14 @@
 import type { DrawPacket, FrameContext } from "../../pipeline/types";
 
 import type { WebGLFrameTargetManager } from "./WebGLFrameTargetManager";
+import type { WebGLSceneProgramRepository } from "./WebGLSceneProgramRepository";
 import {
 	renderWebGLEarlyZPrepass,
 	renderWebGLPackets,
 	type WebGLSceneRenderOptions,
 	type WebGLScenePassDeps,
 } from "./WebGLScenePass";
+import { planWebGLScenePrograms } from "./WebGLSceneProgramPlanner";
 
 const TRANSPARENT_SCENE_CLEAR = new Float32Array([0, 0, 0, 0]);
 
@@ -15,6 +17,7 @@ export interface WebGLSceneRuntimeServices {
 	readonly deps: WebGLScenePassDeps;
 	readonly modelMatrixCache: Map<string, Float32Array>;
 	readonly modelMatrixKeysThisFrame: Set<string>;
+	readonly scenePrograms: WebGLSceneProgramRepository;
 	readonly targets: WebGLFrameTargetManager;
 	readonly enableEarlyZPrepass: boolean;
 	getWidth(): number;
@@ -50,6 +53,27 @@ export class WebGLSceneRuntime {
 
 	public beginFrame(): void {
 		this.modelMatrixKeysThisFrame.clear();
+	}
+
+	/**
+	 * Plans and issues compiles for every scene variant the upcoming frame can
+	 * draw, ahead of the draw loop so first-use resolution rarely blocks on
+	 * link finalization.
+	 */
+	public async prepareSceneProgramSources(context: FrameContext): Promise<void> {
+		const packets = [
+			...(context.scene?.opaquePackets ?? []),
+			...(context.scene?.transparentPackets ?? []),
+		];
+		const plan = planWebGLScenePrograms(
+			context,
+			packets,
+			["mrt", "single"],
+		);
+		await this._services.scenePrograms.prepareBuiltinSceneVariants(
+			plan.sceneVariants.values(),
+		);
+		this._services.scenePrograms.issuePlannedSceneProgramCompiles(plan);
 	}
 
 	public abortFrame(): void {
