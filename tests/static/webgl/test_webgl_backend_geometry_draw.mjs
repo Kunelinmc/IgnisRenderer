@@ -1,5 +1,44 @@
 import assert from "node:assert/strict";import { Material } from "../../../src/materials/Material.ts";import { PBRMaterial } from "../../../src/materials/PBRMaterial.ts";import { Matrix4 } from "../../../src/maths/Matrix4.ts";import { WebGLGeometryRegistry } from "../../../src/backends/webgl/WebGLGeometryRegistry.ts";import { drawWebGLPacket } from "../../../src/backends/webgl/WebGLScenePass.ts";import { createGeometryTestGL, createRetryGeometryTestGL, createGeometryCaptureGL, createScenePassCaptureGL, runWebGLBackendFile } from "../../helpers/webgl-backend.mjs";
 
+function createSceneDrawDeps(gl, overrides = {}) {
+	return {
+		gl,
+		targets: {
+			_sceneFramebuffer: null,
+			_sceneNormalTexture: null,
+			_materialGBufferEnabled: false,
+		},
+		drawState: { oitPassMode: 0, activeDrawBuffers: null },
+		scenePrograms: {},
+		geometry: {
+			getGeometry:
+				overrides.getGeometry ??
+				(() => ({ vao: {}, topology: 4, indexCount: 3, indexType: 5123 })),
+		},
+		textures: {
+			getBaseColorTexture:
+				overrides.getBaseColorTexture ??
+				(() => ({ texture: null, isLinear: true })),
+		},
+		animationPayloads: null,
+		modelMatrixCache: new Map(),
+		modelMatrixKeysThisFrame: new Set(),
+		getWidth: () => 64,
+		getHeight: () => 64,
+		isIncrementalPartial: () => false,
+		resolveDirtyRects: () => [{ x: 0, y: 0, width: 64, height: 64 }],
+		resolvePacketsForRect: (_context, packets) => packets,
+		setScissorRect: () => {},
+		bindGlobalUniforms: () => {},
+		bindAnimationPayload: () => true,
+		getLightState: () => null,
+		getShadowSamplingState: () => ({
+			enabled: false,
+			transmittanceAvailable: false,
+		}),
+	};
+}
+
 function testGeometryRegistryRejectsOutOfRangeIndices() {
 	const warnings = [];
 	const registry = new WebGLGeometryRegistry(createGeometryTestGL(), (k, m) =>
@@ -585,29 +624,10 @@ function testDrawWebGLPacketBindsPBRTexturesAndUVSets() {
 			customSamplers: {},
 		},
 	};
-	const host = {
-		_gl: gl,
-		_geometry: {
-			getGeometry() {
-				return {
-					vao: {},
-					topology: 4,
-					indexCount: 3,
-					indexType: 5123,
-				};
-			},
-		},
-		_textures: {
-			getBaseColorTexture(texture) {
-				return textureTable.get(texture) ?? { texture: null, isLinear: true };
-			},
-		},
-		_modelMatrixCache: new Map(),
-		_modelMatrixKeysThisFrame: new Set(),
-		_setCullMode() {},
-		_bindShaderMaterialTextures() {},
-		_bindShaderMaterialUniforms() {},
-	};
+	const host = createSceneDrawDeps(gl, {
+		getBaseColorTexture: (texture) =>
+			textureTable.get(texture) ?? { texture: null, isLinear: true },
+	});
 	const packet = {
 		id: "packet-pbr-textures",
 		meshInstance: { id: "mesh-0", skeleton: null },
@@ -753,29 +773,10 @@ function testDrawWebGLPacketBindsAnisotropyMapWhenSharedSlotIsFree() {
 	const textureTable = new Map([
 		[anisotropyMap, { texture: { id: "anisotropy" }, isLinear: true }],
 	]);
-	const host = {
-		_gl: gl,
-		_geometry: {
-			getGeometry() {
-				return {
-					vao: {},
-					topology: 4,
-					indexCount: 3,
-					indexType: 5123,
-				};
-			},
-		},
-		_textures: {
-			getBaseColorTexture(texture) {
-				return textureTable.get(texture) ?? { texture: null, isLinear: true };
-			},
-		},
-		_modelMatrixCache: new Map(),
-		_modelMatrixKeysThisFrame: new Set(),
-		_setCullMode() {},
-		_bindShaderMaterialTextures() {},
-		_bindShaderMaterialUniforms() {},
-	};
+	const host = createSceneDrawDeps(gl, {
+		getBaseColorTexture: (texture) =>
+			textureTable.get(texture) ?? { texture: null, isLinear: true },
+	});
 	const packet = {
 		id: "packet-pbr-anisotropy",
 		meshInstance: { id: "mesh-0", skeleton: null },
@@ -825,29 +826,12 @@ function testDrawWebGLPacketPreservesInactiveGlobalSamplerUnits() {
 			customSamplers: {},
 		},
 	};
-	const host = {
-		_gl: gl,
-		_geometry: {
-			getGeometry() {
-				return {
-					vao: {},
-					topology: gl.TRIANGLES,
-					indexCount: 3,
-					indexType: 5123,
-				};
-			},
-		},
-		_textures: {
-			getBaseColorTexture() {
-				return { texture: { id: "material-fallback" }, isLinear: true };
-			},
-		},
-		_modelMatrixCache: new Map(),
-		_modelMatrixKeysThisFrame: new Set(),
-		_setCullMode() {},
-		_bindShaderMaterialTextures() {},
-		_bindShaderMaterialUniforms() {},
-	};
+	const host = createSceneDrawDeps(gl, {
+		getBaseColorTexture: () => ({
+			texture: { id: "material-fallback" },
+			isLinear: true,
+		}),
+	});
 	const packet = {
 		id: "packet-shadow-only-samplers",
 		meshInstance: { id: "mesh-shadow-only", skeleton: null },

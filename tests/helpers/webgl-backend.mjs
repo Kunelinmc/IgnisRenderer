@@ -272,6 +272,8 @@ export function createScenePassCaptureGL() {
 		drawBuffers: [],
 		enable: [],
 		disable: [],
+		frontFace: [],
+		cullFace: [],
 		scissor: [],
 		clear: [],
 		drawElements: [],
@@ -306,6 +308,12 @@ export function createScenePassCaptureGL() {
 		},
 		disable(cap) {
 			calls.disable.push(cap);
+		},
+		frontFace(mode) {
+			calls.frontFace.push(mode);
+		},
+		cullFace(mode) {
+			calls.cullFace.push(mode);
 		},
 		depthFunc(func) {
 			calls.depthFunc.push(func);
@@ -403,6 +411,8 @@ export function createShadowRasterCaptureGL() {
 	gl.DEPTH_BUFFER_BIT = 0x0100;
 	gl.COLOR_BUFFER_BIT = 0x4000;
 	gl.BACK = 0x0405;
+	gl.FRONT = 0x0404;
+	gl.CCW = 0x0901;
 	gl.ZERO = 0;
 	gl.ONE = 1;
 	gl.SRC_COLOR = 0x0300;
@@ -710,8 +720,14 @@ export function createEarlyZScenePassHost(gl, options = {}) {
 		},
 	};
 	return {
-		_gl: gl,
-		_scenePrograms: {
+		gl,
+		targets: {
+			_sceneFramebuffer: { id: "scene-fbo" },
+			_sceneNormalTexture: options.sceneNormalTexture ?? null,
+			_materialGBufferEnabled: false,
+		},
+		drawState: { oitPassMode: 0, activeDrawBuffers: null },
+		scenePrograms: {
 			getSceneProgram() {
 				return colorProgram;
 			},
@@ -719,7 +735,7 @@ export function createEarlyZScenePassHost(gl, options = {}) {
 				return options.depthProgramAvailable === false ? null : depthProgram;
 			},
 		},
-		_geometry: {
+		geometry: {
 			getGeometry(packet) {
 				return (
 					options.getGeometry?.(packet) ?? {
@@ -731,7 +747,7 @@ export function createEarlyZScenePassHost(gl, options = {}) {
 				);
 			},
 		},
-		_textures: {
+		textures: {
 			getBaseColorTexture(texture) {
 				return (
 					options.getBaseColorTexture?.(texture) ?? {
@@ -741,41 +757,41 @@ export function createEarlyZScenePassHost(gl, options = {}) {
 				);
 			},
 		},
-		_sceneFramebuffer: { id: "scene-fbo" },
-		_sceneNormalTexture: options.sceneNormalTexture ?? null,
-		_oitPassMode: 0,
-		_width: 64,
-		_height: 64,
-		_maxTextureImageUnits: 32,
-		_modelMatrixCache: new Map(),
-		_modelMatrixKeysThisFrame: new Set(),
-		_prevViewProjection: null,
-		_taaHistoryValid: false,
-		_isIncrementalPartial(context) {
+		animationPayloads: null,
+		modelMatrixCache: new Map(),
+		modelMatrixKeysThisFrame: new Set(),
+		getWidth: () => 64,
+		getHeight: () => 64,
+		isIncrementalPartial(context) {
 			return (
 				context.incremental?.enabled === true &&
 				context.incremental.forceFullFrame !== true &&
 				(context.incremental.dirtyRects?.length ?? 0) > 0
 			);
 		},
-		_resolveDirtyRects(context) {
+		resolveDirtyRects(context) {
 			return context.incremental?.dirtyRects?.length
 				? context.incremental.dirtyRects
 				: [{ x: 0, y: 0, width: 64, height: 64 }];
 		},
-		_resolvePacketsForRect(context, packets, rect) {
+		resolvePacketsForRect(context, packets, rect) {
 			return options.resolvePacketsForRect?.(context, packets, rect) ?? packets;
 		},
-		_setScissorRect(x, y, width, height) {
+		setScissorRect(x, y, width, height) {
 			gl.scissor(x, y, width, height);
 		},
-		_bindGlobalUniforms() {},
-		_setCullMode() {},
-		_drawPacket(sceneProgram, packet, transparentPass, context, drawOptions) {
+		bindGlobalUniforms() {},
+		bindAnimationPayload() {
+			return true;
+		},
+		drawPacket(sceneProgram, packet, transparentPass, context, drawOptions) {
 			drawWebGLPacket(this, sceneProgram, packet, transparentPass, context, drawOptions);
 		},
-		_bindShaderMaterialTextures() {},
-		_bindShaderMaterialUniforms() {},
+		getLightState: () => null,
+		getShadowSamplingState: () => ({
+			enabled: false,
+			transmittanceAvailable: false,
+		}),
 	};
 }
 

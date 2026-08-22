@@ -20,13 +20,13 @@ function createExecutionContext(executor, request, implementation) {
 	request.gBuffer = {
 		channels: {
 			depth: {
-				handle: { backend: "webgl", texture: executor._sceneMotionTexture },
+				handle: { backend: "webgl", texture: executor._targets._sceneMotionTexture },
 			},
 			motion: {
-				handle: { backend: "webgl", texture: executor._sceneMotionTexture },
+				handle: { backend: "webgl", texture: executor._targets._sceneMotionTexture },
 			},
 			normal: {
-				handle: { backend: "webgl", texture: executor._sceneNormalTexture },
+				handle: { backend: "webgl", texture: executor._targets._sceneNormalTexture },
 			},
 		},
 	};
@@ -35,8 +35,8 @@ function createExecutionContext(executor, request, implementation) {
 		frameContext: request.frameContext,
 		postProcess: request.postProcess,
 		gBuffer: request.gBuffer,
-		width: executor._width,
-		height: executor._height,
+		width: executor._session.width,
+		height: executor._session.height,
 		options: request.options,
 	});
 	executor.beginPostProcessFrame();
@@ -424,13 +424,13 @@ function testFXAAPassUsesLatestPostSourceAndRebindsPostTarget() {
 				},
 		},
 	});
-	executor._sceneColorTexture = sceneColor;
-	executor._presentSourceTexture = taaHistory;
-	executor._postColorTexture = postColor;
-	executor._postFramebuffer = postFramebuffer;
-	executor._fullscreenVao = fullscreenVao;
-	executor._width = 1280;
-	executor._height = 720;
+	executor._targets._sceneColorTexture = sceneColor;
+	executor._targets._presentSourceTexture = taaHistory;
+	executor._targets._postColorTexture = postColor;
+	executor._targets._postFramebuffer = postFramebuffer;
+	executor._fullscreen._vao = fullscreenVao;
+	executor._session.width = 1280;
+	executor._session.height = 720;
 
 	const frameContext = {
 		postProcess: createResolvedPostProcess(
@@ -471,7 +471,7 @@ function testFXAAPassUsesLatestPostSourceAndRebindsPostTarget() {
 	const sourceBind = sourceBindCalls[sourceBindCalls.length - 1];
 	assert.equal(sourceBind?.texture, taaHistory);
 
-	assert.equal(executor._presentSourceTexture, postColor);
+	assert.equal(executor._targets._presentSourceTexture, postColor);
 }
 
 function testFXAAPassSkipsWhileProgramPending() {
@@ -488,13 +488,13 @@ function testFXAAPassSkipsWhileProgramPending() {
 			return null;
 		},
 	});
-	executor._sceneColorTexture = sceneColor;
-	executor._presentSourceTexture = sourceColor;
-	executor._postColorTexture = postColor;
-	executor._postFramebuffer = { id: "post-fbo" };
-	executor._fullscreenVao = { id: "fullscreen-vao" };
-	executor._width = 1280;
-	executor._height = 720;
+	executor._targets._sceneColorTexture = sceneColor;
+	executor._targets._presentSourceTexture = sourceColor;
+	executor._targets._postColorTexture = postColor;
+	executor._targets._postFramebuffer = { id: "post-fbo" };
+	executor._fullscreen._vao = { id: "fullscreen-vao" };
+	executor._session.width = 1280;
+	executor._session.height = 720;
 
 	const frameContext = {
 		postProcess: createResolvedPostProcess(
@@ -520,7 +520,7 @@ function testFXAAPassSkipsWhileProgramPending() {
 
 	assert.deepEqual(result, { ran: false });
 	assert.equal(tryCalls, 1);
-	assert.equal(executor._presentSourceTexture, sourceColor);
+	assert.equal(executor._targets._presentSourceTexture, sourceColor);
 	assert.equal(
 		gl.calls.some((call) => call.name === "framebufferTexture2D"),
 		false
@@ -544,13 +544,13 @@ function testToneMappingPassUsesLatestPostSourceAndRebindsPostTarget() {
 				},
 		},
 	});
-	executor._sceneColorTexture = sceneColor;
-	executor._presentSourceTexture = bloomColor;
-	executor._postColorTexture = postColor;
-	executor._postFramebuffer = postFramebuffer;
-	executor._fullscreenVao = fullscreenVao;
-	executor._width = 1280;
-	executor._height = 720;
+	executor._targets._sceneColorTexture = sceneColor;
+	executor._targets._presentSourceTexture = bloomColor;
+	executor._targets._postColorTexture = postColor;
+	executor._targets._postFramebuffer = postFramebuffer;
+	executor._fullscreen._vao = fullscreenVao;
+	executor._session.width = 1280;
+	executor._session.height = 720;
 
 	const frameContext = {
 		postProcess: createResolvedPostProcess({
@@ -588,7 +588,7 @@ function testToneMappingPassUsesLatestPostSourceAndRebindsPostTarget() {
 	const sourceBind = sourceBindCalls[sourceBindCalls.length - 1];
 	assert.equal(sourceBind?.texture, bloomColor);
 
-	assert.equal(executor._presentSourceTexture, postColor);
+	assert.equal(executor._targets._presentSourceTexture, postColor);
 }
 
 function testWebGLContextUsesDeclarationForCustomPassId() {
@@ -600,13 +600,13 @@ function testWebGLContextUsesDeclarationForCustomPassId() {
 	const postFramebuffer = { id: "post-fbo" };
 	const fullscreenVao = { id: "fullscreen-vao" };
 
-	executor._sceneColorTexture = sceneColor;
-	executor._presentSourceTexture = sourceColor;
-	executor._postColorTexture = postColor;
-	executor._postFramebuffer = postFramebuffer;
-	executor._fullscreenVao = fullscreenVao;
-	executor._width = 640;
-	executor._height = 360;
+	executor._targets._sceneColorTexture = sceneColor;
+	executor._targets._presentSourceTexture = sourceColor;
+	executor._targets._postColorTexture = postColor;
+	executor._targets._postFramebuffer = postFramebuffer;
+	executor._fullscreen._vao = fullscreenVao;
+	executor._session.width = 640;
+	executor._session.height = 360;
 
 	const implementation = {
 		describeExecution: () => ({
@@ -635,15 +635,15 @@ function testWebGLContextUsesDeclarationForCustomPassId() {
 	assert.equal(context.resources.color.output, postColor);
 	assert.equal("publishColorTexture" in context, false);
 	completeExecution(executor, request, { ran: true });
-	assert.equal(executor._presentSourceTexture, postColor);
+	assert.equal(executor._targets._presentSourceTexture, postColor);
 }
 
 function testWebGLContextRejectsUndeclaredResourceAccess() {
 	const gl = createFXAATestGL();
 	const executor = new WebGLFrameExecutor(gl);
-	executor._sceneColorTexture = { id: "scene-color" };
-	executor._presentSourceTexture = { id: "source-color" };
-	executor._postColorTexture = { id: "post-color" };
+	executor._targets._sceneColorTexture = { id: "scene-color" };
+	executor._targets._presentSourceTexture = { id: "source-color" };
+	executor._targets._postColorTexture = { id: "post-color" };
 	const request = {
 		frameContext: { transient: new Map() },
 		postProcess: createResolvedPostProcess({}, "webgl"),
@@ -687,13 +687,13 @@ function testGammaPassUsesScreenPostProcessFlow() {
 			},
 		},
 	});
-	executor._sceneColorTexture = sceneColor;
-	executor._presentSourceTexture = sourceColor;
-	executor._postColorTexture = postColor;
-	executor._postFramebuffer = postFramebuffer;
-	executor._fullscreenVao = fullscreenVao;
-	executor._width = 640;
-	executor._height = 360;
+	executor._targets._sceneColorTexture = sceneColor;
+	executor._targets._presentSourceTexture = sourceColor;
+	executor._targets._postColorTexture = postColor;
+	executor._targets._postFramebuffer = postFramebuffer;
+	executor._fullscreen._vao = fullscreenVao;
+	executor._session.width = 640;
+	executor._session.height = 360;
 
 	const pass = new GammaPass({ enabled: true });
 	const frameContext = {
@@ -730,7 +730,7 @@ function testGammaPassUsesScreenPostProcessFlow() {
 	);
 	const sourceBind = sourceBindCalls[sourceBindCalls.length - 1];
 	assert.equal(sourceBind?.texture, sourceColor);
-	assert.equal(executor._presentSourceTexture, postColor);
+	assert.equal(executor._targets._presentSourceTexture, postColor);
 }
 
 function testFrameTargetsRejectMissingFloatExtension() {
@@ -749,9 +749,9 @@ function testFrameTargetsCreateOITResourcesWithFloatExtension() {
 
 	executor._ensureFrameTargets(320, 180, false);
 
-	assert.ok(executor._oitFramebuffer);
-	assert.ok(executor._oitAccumTexture);
-	assert.ok(executor._oitRevealTexture);
+	assert.ok(executor._targets._oitFramebuffer);
+	assert.ok(executor._targets._oitAccumTexture);
+	assert.ok(executor._targets._oitRevealTexture);
 	assert.equal(
 		gl.createdTextures.length,
 		8,
@@ -778,7 +778,7 @@ function testMaterialGBufferBridgeUsesFiveAttachmentsWhenSupported() {
 		attachments: { width: 320, height: 180 },
 	});
 
-	assert.equal(executor._materialGBufferEnabled, true);
+	assert.equal(executor._targets._materialGBufferEnabled, true);
 	assert.equal(bridge.channels.albedo.format, "rgba8unorm");
 	assert.equal(bridge.channels.albedo.encoding, "linear-rgb-alpha");
 	assert.equal(bridge.channels.roughness.format, "rgba16float");
@@ -802,7 +802,7 @@ function testMaterialGBufferFallsBackBelowFiveAttachments() {
 		attachments: { width: 320, height: 180 },
 	});
 
-	assert.equal(executor._materialGBufferEnabled, false);
+	assert.equal(executor._targets._materialGBufferEnabled, false);
 	assert.equal(bridge.channels.albedo, undefined);
 	assert.equal(bridge.channels.roughness, undefined);
 	assert.equal(bridge.channels.metallic, undefined);
@@ -854,14 +854,14 @@ function testOITTransparentAndParticleExecutionOrder() {
 	const events = [];
 
 	executor.transparency._active = true;
-	executor._oitFramebuffer = { id: "oit-fbo" };
-	executor._sceneFramebuffer = { id: "scene-fbo" };
-	executor._sceneColorTexture = { id: "scene-color" };
-	executor._postFramebuffer = { id: "post-fbo" };
-	executor._postColorTexture = { id: "post-color" };
-	executor._oitAccumTexture = { id: "oit-accum" };
-	executor._oitRevealTexture = { id: "oit-reveal" };
-	executor._fullscreenVao = { id: "fullscreen-vao" };
+	executor._targets._oitFramebuffer = { id: "oit-fbo" };
+	executor._targets._sceneFramebuffer = { id: "scene-fbo" };
+	executor._targets._sceneColorTexture = { id: "scene-color" };
+	executor._targets._postFramebuffer = { id: "post-fbo" };
+	executor._targets._postColorTexture = { id: "post-color" };
+	executor._targets._oitAccumTexture = { id: "oit-accum" };
+	executor._targets._oitRevealTexture = { id: "oit-reveal" };
+	executor._fullscreen._vao = { id: "fullscreen-vao" };
 
 	executor.transparency._clearTargets = () => {
 		events.push("clear");
@@ -925,14 +925,14 @@ function testOITTransparentResolvesImmediatelyWithoutParticles() {
 	const events = [];
 
 	executor.transparency._active = true;
-	executor._oitFramebuffer = { id: "oit-fbo" };
-	executor._sceneFramebuffer = { id: "scene-fbo" };
-	executor._sceneColorTexture = { id: "scene-color" };
-	executor._postFramebuffer = { id: "post-fbo" };
-	executor._postColorTexture = { id: "post-color" };
-	executor._oitAccumTexture = { id: "oit-accum" };
-	executor._oitRevealTexture = { id: "oit-reveal" };
-	executor._fullscreenVao = { id: "fullscreen-vao" };
+	executor._targets._oitFramebuffer = { id: "oit-fbo" };
+	executor._targets._sceneFramebuffer = { id: "scene-fbo" };
+	executor._targets._sceneColorTexture = { id: "scene-color" };
+	executor._targets._postFramebuffer = { id: "post-fbo" };
+	executor._targets._postColorTexture = { id: "post-color" };
+	executor._targets._oitAccumTexture = { id: "oit-accum" };
+	executor._targets._oitRevealTexture = { id: "oit-reveal" };
+	executor._fullscreen._vao = { id: "fullscreen-vao" };
 
 	executor.transparency._clearTargets = () => {
 		events.push("clear");
@@ -1055,14 +1055,14 @@ function testEndFramePrunesStaleModelMatrixCache() {
 	const gl = createFXAATestGL();
 	const executor = new WebGLFrameExecutor(gl);
 
-	executor._modelMatrixCache.set("keep", new Float32Array(16));
-	executor._modelMatrixCache.set("drop", new Float32Array(16));
-	executor._modelMatrixKeysThisFrame.add("keep");
-	executor._presentedInFrame = true;
+	executor._scene.modelMatrixCache.set("keep", new Float32Array(16));
+	executor._scene.modelMatrixCache.set("drop", new Float32Array(16));
+	executor._scene.modelMatrixKeysThisFrame.add("keep");
+	executor._session.presented = true;
 	executor.finishFrame();
 
-	assert.equal(executor._modelMatrixCache.has("keep"), true);
-	assert.equal(executor._modelMatrixCache.has("drop"), false);
+	assert.equal(executor._scene.modelMatrixCache.has("keep"), true);
+	assert.equal(executor._scene.modelMatrixCache.has("drop"), false);
 }
 
 function testShadowSamplingStateIsTheSingleStableDependency() {
@@ -1078,9 +1078,9 @@ function testShadowSamplingStateIsTheSingleStableDependency() {
 function testTransparentRenderPacketsConfiguresBlendAndDepthState() {
 	const gl = createFXAATestGL();
 	const executor = new WebGLFrameExecutor(gl);
-	executor._sceneFramebuffer = { id: "scene-fbo" };
-	executor._sceneNormalTexture = { id: "normal" };
-	executor._scenePrograms = {
+	executor._targets._sceneFramebuffer = { id: "scene-fbo" };
+	executor._targets._sceneNormalTexture = { id: "normal" };
+	executor._sceneDeps.scenePrograms = {
 		getSceneProgram() {
 			return {
 				program: { id: "scene-program" },
@@ -1094,8 +1094,8 @@ function testTransparentRenderPacketsConfiguresBlendAndDepthState() {
 			};
 		},
 	};
-	executor._bindGlobalUniforms = () => {};
-	executor._drawPacket = () => {};
+	executor._sceneDeps.bindGlobalUniforms = () => {};
+	executor._sceneDeps.drawPacket = () => {};
 
 	executor.scene.renderPackets(
 		{
@@ -1154,13 +1154,13 @@ function testTAAPassDetachesMotionAttachmentAndSanitizesOptions() {
 				},
 		},
 	});
-	executor._postFramebuffer = { id: "post-fbo" };
-	executor._sceneColorTexture = { id: "scene-color" };
-	executor._sceneMotionTexture = { id: "scene-motion" };
-	executor._postColorTexture = { id: "post-color" };
-	executor._fullscreenVao = { id: "fullscreen-vao" };
-	executor._width = 1920;
-	executor._height = 1080;
+	executor._targets._postFramebuffer = { id: "post-fbo" };
+	executor._targets._sceneColorTexture = { id: "scene-color" };
+	executor._targets._sceneMotionTexture = { id: "scene-motion" };
+	executor._targets._postColorTexture = { id: "post-color" };
+	executor._fullscreen._vao = { id: "fullscreen-vao" };
+	executor._session.width = 1920;
+	executor._session.height = 1080;
 
 	const frameContext = {
 		postProcess: createResolvedPostProcess(
@@ -1247,7 +1247,7 @@ function testTAAPassDetachesMotionAttachmentAndSanitizesOptions() {
 	assert.deepEqual(drawBuffersCalls[drawBuffersCalls.length - 1]?.buffers, [
 		gl.COLOR_ATTACHMENT0,
 	]);
-	assert.equal(executor._presentSourceTexture.id, "post-color");
+	assert.equal(executor._targets._presentSourceTexture.id, "post-color");
 
 	const uniform1fCalls = gl.calls.filter((call) => call.name === "uniform1f");
 	const uniformMap = new Map(uniform1fCalls.map((call) => [call.location, call.value]));
@@ -1273,14 +1273,14 @@ function testSSAOPassDetachesSecondaryAttachmentForDownsampleTargets() {
 			uniforms: {},
 		},
 	});
-	executor._postFramebuffer = { id: "post-fbo" };
-	executor._postColorTexture = { id: "post-color" };
-	executor._sceneColorTexture = { id: "scene-color" };
-	executor._sceneMotionTexture = { id: "scene-motion" };
-	executor._sceneNormalTexture = { id: "scene-normal" };
-	executor._fullscreenVao = { id: "fullscreen-vao" };
-	executor._width = 1280;
-	executor._height = 720;
+	executor._targets._postFramebuffer = { id: "post-fbo" };
+	executor._targets._postColorTexture = { id: "post-color" };
+	executor._targets._sceneColorTexture = { id: "scene-color" };
+	executor._targets._sceneMotionTexture = { id: "scene-motion" };
+	executor._targets._sceneNormalTexture = { id: "scene-normal" };
+	executor._fullscreen._vao = { id: "fullscreen-vao" };
+	executor._session.width = 1280;
+	executor._session.height = 720;
 	const ssaoRawTexture = { id: "ssao-raw" };
 	const ssaoBlurTexture = { id: "ssao-blur" };
 
@@ -1381,7 +1381,7 @@ function testGlobalUniformsBindLightProbeIBLTextures() {
 			return { texture: brdfTexture, isLinear: true };
 		},
 	};
-	executor._lightState = {
+	executor._session.lightState = {
 		ambientColor: [0, 0, 0],
 		directionalLights: [],
 		directionalShadows: [],
@@ -1445,7 +1445,7 @@ function testGlobalUniformsSanitizeNonFiniteCameraAndLightValues() {
 	const gl = createFXAATestGL();
 	const executor = new WebGLFrameExecutor(gl);
 
-	executor._lightState = {
+	executor._session.lightState = {
 		ambientColor: [0, 0, 0],
 		directionalLights: [
 			{

@@ -12,29 +12,7 @@ function testDrawWebGLPacketAppliesMaterialDepthWriteState() {
 			available: 16,
 		},
 	};
-	const host = {
-		_gl: gl,
-		_geometry: {
-			getGeometry() {
-				return {
-					vao: {},
-					topology: 4,
-					indexCount: 3,
-					indexType: 5123,
-				};
-			},
-		},
-		_textures: {
-			getBaseColorTexture() {
-				return { texture: null, isLinear: true };
-			},
-		},
-		_modelMatrixCache: new Map(),
-		_modelMatrixKeysThisFrame: new Set(),
-		_setCullMode() {},
-		_bindShaderMaterialTextures() {},
-		_bindShaderMaterialUniforms() {},
-	};
+	const deps = createEarlyZScenePassHost(gl);
 	const material = new Material({
 		depthWrite: false,
 	});
@@ -46,12 +24,12 @@ function testDrawWebGLPacketAppliesMaterialDepthWriteState() {
 		normalMatrix: Matrix4.identity(),
 	};
 
-	drawWebGLPacket(host, sceneProgram, packet, false, {});
+	drawWebGLPacket(deps, sceneProgram, packet, false, {});
 	assert.deepEqual(gl.calls.depthMask, [false]);
 	assert.deepEqual(gl.calls.depthFunc, [gl.LESS]);
 
 	material.depthWrite = true;
-	drawWebGLPacket(host, sceneProgram, packet, false, {});
+	drawWebGLPacket(deps, sceneProgram, packet, false, {});
 	assert.deepEqual(gl.calls.depthMask, [false, true]);
 	assert.deepEqual(gl.calls.depthFunc, [gl.LESS, gl.LESS]);
 }
@@ -186,9 +164,16 @@ function testShaderMaterialCustomUniformBinding() {
 			binding.webglUniform === "uUnused" ? null : binding.webglUniform;
 	}
 	const sceneProgram = { uniforms: { customUniforms } };
-	const host = { _gl: gl };
+	const deps = {
+		gl,
+		textures: {
+			getBaseColorTexture(texture) {
+				return { texture };
+			},
+		},
+	};
 
-	bindWebGLShaderMaterialUniforms(host, sceneProgram, material);
+	bindWebGLShaderMaterialUniforms(deps, sceneProgram, material);
 
 	assert.deepEqual(gl.calls.uniform1f, [{ location: "uTime", value: 1.5 }]);
 	assert.deepEqual(gl.calls.uniform1i, [{ location: "uMode", value: 2 }]);
@@ -239,15 +224,15 @@ function testShaderMaterialCustomTextureBinding() {
 			available: 16,
 		},
 	};
-	const host = {
-		_gl: gl,
-		_textures: {
+	const deps = {
+		gl,
+		textures: {
 			getBaseColorTexture(texture) {
 				return { texture };
 			},
 		},
 	};
-	bindWebGLShaderMaterialTextures(host, sceneProgram, material);
+	bindWebGLShaderMaterialTextures(deps, sceneProgram, material);
 	assert.deepEqual(gl.calls.activeTextures, [gl.TEXTURE0, gl.TEXTURE0]);
 	assert.deepEqual(gl.calls.boundTextures, [
 		{ target: gl.TEXTURE_2D, texture: fakeTexture },

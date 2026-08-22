@@ -145,9 +145,23 @@ function testSceneProgramDrawBuffersMatchFragmentOutputCount() {
 		},
 	};
 
-	const host = {
-		_gl: gl,
-		_geometry: {
+	const deps = {
+		gl,
+		targets: {
+			_sceneFramebuffer: null,
+			_sceneNormalTexture: null,
+			_materialGBufferEnabled: false,
+		},
+		drawState: {
+			oitPassMode: 0,
+			activeDrawBuffers: [
+				gl.COLOR_ATTACHMENT0,
+				gl.COLOR_ATTACHMENT1,
+				gl.COLOR_ATTACHMENT2,
+			],
+		},
+		scenePrograms: {},
+		geometry: {
 			getGeometry() {
 				return {
 					vao: {},
@@ -157,21 +171,31 @@ function testSceneProgramDrawBuffersMatchFragmentOutputCount() {
 				};
 			},
 		},
-		_textures: {
+		textures: {
 			getBaseColorTexture() {
 				return { texture: null, isLinear: false };
 			},
 		},
-		_activeDrawBuffers: [gl.COLOR_ATTACHMENT0, gl.COLOR_ATTACHMENT1, gl.COLOR_ATTACHMENT2],
-		_modelMatrixCache: new Map(),
-		_modelMatrixKeysThisFrame: new Set(),
-		_bindShaderMaterialTextures() {},
-		_bindShaderMaterialUniforms() {},
-		_setCullMode() {},
+		animationPayloads: null,
+		modelMatrixCache: new Map(),
+		modelMatrixKeysThisFrame: new Set(),
+		getWidth: () => 64,
+		getHeight: () => 64,
+		isIncrementalPartial: () => false,
+		resolveDirtyRects: () => [{ x: 0, y: 0, width: 64, height: 64 }],
+		resolvePacketsForRect: (_context, packets) => packets,
+		setScissorRect: () => {},
+		bindGlobalUniforms: () => {},
+		bindAnimationPayload: () => true,
+		getLightState: () => null,
+		getShadowSamplingState: () => ({
+			enabled: false,
+			transmittanceAvailable: false,
+		}),
 	};
 
 	gl.calls.drawBuffers = [];
-	drawWebGLPacket(host, sceneProgram, packet, false, {});
+	drawWebGLPacket(deps, sceneProgram, packet, false, {});
 
 	// Should have changed draw buffers to [COLOR_ATTACHMENT0], then drawn, then restored back to original
 	assert.deepEqual(gl.calls.drawBuffers, [
@@ -179,7 +203,7 @@ function testSceneProgramDrawBuffersMatchFragmentOutputCount() {
 		[gl.COLOR_ATTACHMENT0, gl.COLOR_ATTACHMENT1, gl.COLOR_ATTACHMENT2],
 	]);
 
-	host._activeDrawBuffers = [
+	deps.drawState.activeDrawBuffers = [
 		gl.COLOR_ATTACHMENT0,
 		gl.COLOR_ATTACHMENT1,
 		gl.COLOR_ATTACHMENT2,
@@ -187,7 +211,7 @@ function testSceneProgramDrawBuffersMatchFragmentOutputCount() {
 		gl.COLOR_ATTACHMENT4,
 	];
 	gl.calls.drawBuffers = [];
-	drawWebGLPacket(host, {
+	drawWebGLPacket(deps, {
 		program: {},
 		uniforms: {},
 		targetMode: "mrt",
@@ -210,7 +234,7 @@ function testSceneProgramDrawBuffersMatchFragmentOutputCount() {
 	]);
 
 	gl.calls.drawBuffers = [];
-	drawWebGLPacket(host, {
+	drawWebGLPacket(deps, {
 		program: {},
 		uniforms: {},
 		targetMode: "mrt",
@@ -225,7 +249,7 @@ function testSceneProgramDrawBuffersMatchFragmentOutputCount() {
 		throw drawError;
 	};
 	assert.throws(
-		() => drawWebGLPacket(host, {
+		() => drawWebGLPacket(deps, {
 			program: {},
 			uniforms: {},
 			targetMode: "mrt",

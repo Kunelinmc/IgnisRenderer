@@ -16,10 +16,16 @@ import {
 	resolveTextureUVTransform,
 } from "./WebGLMaterialUniformResolver";
 import type { WebGLSceneProgram } from "./WebGLSceneProgram";
-import type {
-	WebGLSceneDepthVariantDescriptor,
-	WebGLSceneVariantDescriptor,
+import {
+	resolveWebGLBuiltinDepthVariant,
+	resolveWebGLPacketDeformationProfile,
+	type WebGLSceneDepthVariantDescriptor,
+	type WebGLSceneVariantDescriptor,
 } from "./WebGLSceneProgramVariants";
+import { resolveWebGLSceneDrawVariant } from "./WebGLSceneProgramPlanner";
+import type { WebGLFrameTargetManager } from "./WebGLFrameTargetManager";
+import type { WebGLAnimationPayloadPool } from "./WebGLAnimationPayloadPool";
+import type { WebGLLightState } from "./WebGLLightCollector";
 import { Logger } from "../../foundation/Logger";
 import { getWebGLSceneSamplerUnit } from "./WebGLSceneSamplerLayout";
 
@@ -56,9 +62,27 @@ function toColumnMajorMat3(
 	return new Float32Array(values);
 }
 
-export interface WebGLScenePassHost {
-	_gl: WebGL2RenderingContext;
-	_scenePrograms: {
+/** Mutable per-draw scratch owned by the scene pass; reset by the owner. */
+export interface WebGLSceneDrawState {
+	oitPassMode: 0 | 1 | 2;
+	activeDrawBuffers: number[] | null;
+}
+
+export function createWebGLSceneDrawState(): WebGLSceneDrawState {
+	return { oitPassMode: 0, activeDrawBuffers: null };
+}
+
+/**
+ * Explicit draw dependencies shared by every scene-pass function. Created
+ * once per frame-services container and reused across frames; never rebuilt
+ * per frame.
+ */
+export interface WebGLScenePassDeps {
+	readonly gl: WebGL2RenderingContext;
+	readonly targets: WebGLFrameTargetManager;
+	/** @internal Per-draw scratch owned by the scene pass. */
+	readonly drawState: WebGLSceneDrawState;
+	readonly scenePrograms: {
 		getSceneProgram(
 			material?: Material,
 			mode?: ShaderTargetMode,
@@ -70,7 +94,7 @@ export interface WebGLScenePassHost {
 			variant?: WebGLSceneDepthVariantDescriptor
 		): WebGLSceneProgram | null;
 	};
-	_geometry: {
+	readonly geometry: {
 		getGeometry(packet: DrawPacket): {
 			vao: WebGLVertexArrayObject;
 			topology: number;
@@ -78,72 +102,53 @@ export interface WebGLScenePassHost {
 			indexType: number;
 		} | null;
 	};
-	_textures: {
+	readonly textures: {
 		getBaseColorTexture(texture: any | null): {
 			texture: WebGLTexture | null;
 			isLinear: boolean;
 		};
 	};
-	_sceneFramebuffer: WebGLFramebuffer | null;
-	_sceneNormalTexture: WebGLTexture | null;
-	_postColorTexture: WebGLTexture | null;
-	_transmissionBackgroundTexture: WebGLTexture | null;
-	_transmissionDepthTexture: WebGLTexture | null;
-	_materialGBufferEnabled: boolean;
-	_oitPassMode: 0 | 1 | 2;
-	_width: number;
-	_height: number;
-	_activeDrawBuffers?: number[];
-	_modelMatrixCache: Map<string, Float32Array>;
-	_modelMatrixKeysThisFrame: Set<string>;
-	_isIncrementalPartial(context: FrameContext | null | undefined): boolean;
-	_resolveDirtyRects(
+	readonly animationPayloads: WebGLAnimationPayloadPool | null;
+	readonly modelMatrixCache: Map<string, Float32Array>;
+	readonly modelMatrixKeysThisFrame: Set<string>;
+	getWidth(): number;
+	getHeight(): number;
+	isIncrementalPartial(context: FrameContext | null | undefined): boolean;
+	resolveDirtyRects(
 		context: FrameContext | null | undefined,
 		viewportWidth: number,
 		viewportHeight: number
 	): Array<{ x: number; y: number; width: number; height: number }>;
-	_resolvePacketsForRect(
+	resolvePacketsForRect(
 		context: FrameContext,
 		packets: DrawPacket[],
 		rect: { x: number; y: number; width: number; height: number }
 	): DrawPacket[];
-	_setScissorRect(
+	setScissorRect(
 		x: number,
 		y: number,
 		width: number,
 		height: number,
 		viewportHeight: number
 	): void;
-	_bindGlobalUniforms(sceneProgram: WebGLSceneProgram, context: FrameContext): void;
-	_bindAnimationPayload?(
+	bindGlobalUniforms(sceneProgram: WebGLSceneProgram, context: FrameContext): void;
+	bindAnimationPayload(
 		sceneProgram: WebGLSceneProgram,
 		packet: DrawPacket,
 	): boolean;
-	getShadowSamplingState(): { readonly enabled: boolean };
-	_setCullMode(material: Material): void;
-	_drawPacket(
+	/** @internal Overridable packet-draw seam used by tests and recursion. */
+	drawPacket(
 		sceneProgram: WebGLSceneProgram,
 		packet: DrawPacket,
 		transparentPass: boolean,
 		context: FrameContext,
 		options?: WebGLPacketDrawOptions
 	): void;
-	_bindShaderMaterialTextures(
-		sceneProgram: WebGLSceneProgram,
-		material: Material
-	): void;
-	_bindShaderMaterialUniforms(
-		sceneProgram: WebGLSceneProgram,
-		material: Material
-	): void;
-	_resolveSceneProgramVariant?(
-		context: FrameContext,
-		packet: DrawPacket,
-		mode: ShaderTargetMode
-	): WebGLSceneVariantDescriptor | null;
-	_resolveSceneDepthPrepassVariant?(
-		packet: DrawPacket
-	): WebGLSceneDepthVariantDescriptor | null;
+	getLightState(): WebGLLightState | null;
+	getShadowSamplingState(): {
+		readonly enabled: boolean;
+		readonly transmittanceAvailable: boolean;
+	};
 }
 
 export interface WebGLSceneRenderOptions {
@@ -163,7 +168,7 @@ const WEBGL_EARLY_Z_COLOR_DRAW_OPTIONS: WebGLPacketDrawOptions = {
 };
 
 export function renderWebGLPackets(
-	host: WebGLScenePassHost,
+	deps: WebGLScenePassDeps,
 	context: FrameContext,
 	packets: DrawPacket[],
 	transparent: boolean,
@@ -172,21 +177,21 @@ export function renderWebGLPackets(
 	if (packets.length === 0) {
 		return;
 	}
-	const framebuffer = options.framebuffer ?? host._sceneFramebuffer;
+	const framebuffer = options.framebuffer ?? deps.targets._sceneFramebuffer;
 	if (!framebuffer) {
 		return;
 	}
 
-	const gl = host._gl;
-	const incrementalPartial = host._isIncrementalPartial(context);
-	const dirtyRects = host._resolveDirtyRects(context, host._width, host._height);
+	const gl = deps.gl;
+	const incrementalPartial = deps.isIncrementalPartial(context);
+	const dirtyRects = deps.resolveDirtyRects(context, deps.getWidth(), deps.getHeight());
 	if (incrementalPartial && dirtyRects.length === 0) {
 		return;
 	}
 	gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
 	const drawBuffers =
 		options.drawBuffers ??
-		(!transparent && host._materialGBufferEnabled ?
+		(!transparent && deps.targets._materialGBufferEnabled ?
 			[
 				gl.COLOR_ATTACHMENT0,
 				gl.COLOR_ATTACHMENT1,
@@ -194,13 +199,13 @@ export function renderWebGLPackets(
 				gl.COLOR_ATTACHMENT3,
 				gl.COLOR_ATTACHMENT4,
 			]
-		: !transparent && host._sceneNormalTexture ?
+		: !transparent && deps.targets._sceneNormalTexture ?
 			[gl.COLOR_ATTACHMENT0, gl.COLOR_ATTACHMENT1, gl.COLOR_ATTACHMENT2]
 		:	[gl.COLOR_ATTACHMENT0, gl.COLOR_ATTACHMENT1]);
 	const sceneProgramMode: ShaderTargetMode =
 		drawBuffers.length >= 3 ? "mrt" : "single";
 	gl.drawBuffers(drawBuffers);
-	host._activeDrawBuffers = drawBuffers;
+	deps.drawState.activeDrawBuffers = drawBuffers;
 	gl.activeTexture(gl.TEXTURE0);
 
 	gl.enable(gl.DEPTH_TEST);
@@ -235,23 +240,23 @@ export function renderWebGLPackets(
 	} else {
 		gl.disable(gl.BLEND);
 	}
-	const previousOITPassMode = host._oitPassMode;
-	host._oitPassMode = options.oitPassMode ?? 0;
+	const previousOITPassMode = deps.drawState.oitPassMode;
+	deps.drawState.oitPassMode = options.oitPassMode ?? 0;
 	try {
 		const drawPackets = (): void => {
 			let activeProgram: WebGLSceneProgram | null = null;
 			for (const packet of packets) {
-				const sceneProgram = host._scenePrograms.getSceneProgram(
+				const sceneProgram = deps.scenePrograms.getSceneProgram(
 					packet.material,
 					sceneProgramMode,
-					resolveSceneProgramVariant(host, context, packet, sceneProgramMode)
+					resolveSceneProgramVariant(deps, context, packet, sceneProgramMode)
 				);
 				if (activeProgram !== sceneProgram) {
 					gl.useProgram(sceneProgram.program);
-					host._bindGlobalUniforms(sceneProgram, context);
+					deps.bindGlobalUniforms(sceneProgram, context);
 					activeProgram = sceneProgram;
 				}
-				host._drawPacket(
+				deps.drawPacket(
 					sceneProgram,
 					packet,
 					transparent,
@@ -265,24 +270,24 @@ export function renderWebGLPackets(
 		if (incrementalPartial) {
 			gl.enable(gl.SCISSOR_TEST);
 			for (const rect of dirtyRects) {
-				const rectPackets = host._resolvePacketsForRect(context, packets, rect);
+				const rectPackets = deps.resolvePacketsForRect(context, packets, rect);
 				if (rectPackets.length === 0) {
 					continue;
 				}
-				host._setScissorRect(
+				deps.setScissorRect(
 					rect.x,
 					rect.y,
 					rect.width,
 					rect.height,
-					host._height
+					deps.getHeight()
 				);
 				let activeProgram: WebGLSceneProgram | null = null;
 				for (const packet of rectPackets) {
-					const sceneProgram = host._scenePrograms.getSceneProgram(
+					const sceneProgram = deps.scenePrograms.getSceneProgram(
 						packet.material,
 						sceneProgramMode,
 						resolveSceneProgramVariant(
-							host,
+							deps,
 							context,
 							packet,
 							sceneProgramMode
@@ -290,10 +295,10 @@ export function renderWebGLPackets(
 					);
 					if (activeProgram !== sceneProgram) {
 						gl.useProgram(sceneProgram.program);
-						host._bindGlobalUniforms(sceneProgram, context);
+						deps.bindGlobalUniforms(sceneProgram, context);
 						activeProgram = sceneProgram;
 					}
-					host._drawPacket(
+					deps.drawPacket(
 						sceneProgram,
 						packet,
 						transparent,
@@ -309,7 +314,7 @@ export function renderWebGLPackets(
 			drawPackets();
 		}
 	} finally {
-		host._oitPassMode = previousOITPassMode;
+		deps.drawState.oitPassMode = previousOITPassMode;
 	}
 
 	gl.depthMask(true);
@@ -319,7 +324,7 @@ export function renderWebGLPackets(
 }
 
 export function renderWebGLEarlyZPrepass(
-	host: WebGLScenePassHost,
+	deps: WebGLScenePassDeps,
 	context: FrameContext,
 	packets: DrawPacket[]
 ): Set<string> {
@@ -327,18 +332,18 @@ export function renderWebGLEarlyZPrepass(
 	if (packets.length === 0) {
 		return prepassedPacketIds;
 	}
-	if (!host._sceneFramebuffer) {
+	if (!deps.targets._sceneFramebuffer) {
 		return prepassedPacketIds;
 	}
 
-	const gl = host._gl;
-	const incrementalPartial = host._isIncrementalPartial(context);
-	const dirtyRects = host._resolveDirtyRects(context, host._width, host._height);
+	const gl = deps.gl;
+	const incrementalPartial = deps.isIncrementalPartial(context);
+	const dirtyRects = deps.resolveDirtyRects(context, deps.getWidth(), deps.getHeight());
 	if (incrementalPartial && dirtyRects.length === 0) {
 		return prepassedPacketIds;
 	}
 	const drawBuffers =
-		host._materialGBufferEnabled ?
+		deps.targets._materialGBufferEnabled ?
 			[
 				gl.COLOR_ATTACHMENT0,
 				gl.COLOR_ATTACHMENT1,
@@ -346,13 +351,13 @@ export function renderWebGLEarlyZPrepass(
 				gl.COLOR_ATTACHMENT3,
 				gl.COLOR_ATTACHMENT4,
 			]
-		: host._sceneNormalTexture ?
+		: deps.targets._sceneNormalTexture ?
 			[gl.COLOR_ATTACHMENT0, gl.COLOR_ATTACHMENT1, gl.COLOR_ATTACHMENT2]
 		:	[gl.COLOR_ATTACHMENT0, gl.COLOR_ATTACHMENT1];
 	const sceneProgramMode: ShaderTargetMode =
 		drawBuffers.length >= 3 ? "mrt" : "single";
 
-	gl.bindFramebuffer(gl.FRAMEBUFFER, host._sceneFramebuffer);
+	gl.bindFramebuffer(gl.FRAMEBUFFER, deps.targets._sceneFramebuffer);
 	gl.drawBuffers([gl.NONE]);
 	gl.colorMask(false, false, false, false);
 	gl.activeTexture(gl.TEXTURE0);
@@ -365,7 +370,7 @@ export function renderWebGLEarlyZPrepass(
 			let activeProgram: WebGLSceneProgram | null = null;
 			for (const packet of depthPackets) {
 				const depthProgram = resolveWebGLDepthPrepassProgram(
-					host,
+					deps,
 					packet,
 					sceneProgramMode
 				);
@@ -374,10 +379,10 @@ export function renderWebGLEarlyZPrepass(
 				}
 				if (activeProgram !== depthProgram) {
 					gl.useProgram(depthProgram.program);
-					host._bindGlobalUniforms(depthProgram, context);
+					deps.bindGlobalUniforms(depthProgram, context);
 					activeProgram = depthProgram;
 				}
-				if (drawWebGLDepthPrepassPacket(host, depthProgram, packet)) {
+				if (drawWebGLDepthPrepassPacket(deps, depthProgram, packet)) {
 					prepassedPacketIds.add(packet.id);
 				}
 			}
@@ -385,16 +390,16 @@ export function renderWebGLEarlyZPrepass(
 		if (incrementalPartial) {
 			gl.enable(gl.SCISSOR_TEST);
 			for (const rect of dirtyRects) {
-				const rectPackets = host._resolvePacketsForRect(context, packets, rect);
+				const rectPackets = deps.resolvePacketsForRect(context, packets, rect);
 				if (rectPackets.length === 0) {
 					continue;
 				}
-				host._setScissorRect(
+				deps.setScissorRect(
 					rect.x,
 					rect.y,
 					rect.width,
 					rect.height,
-					host._height
+					deps.getHeight()
 				);
 				drawDepthPackets(rectPackets);
 			}
@@ -406,7 +411,7 @@ export function renderWebGLEarlyZPrepass(
 		gl.disable(gl.SCISSOR_TEST);
 		gl.colorMask(true, true, true, true);
 		gl.drawBuffers(drawBuffers);
-		host._activeDrawBuffers = drawBuffers;
+		deps.drawState.activeDrawBuffers = drawBuffers;
 		gl.depthMask(true);
 		gl.depthFunc(gl.LESS);
 		gl.bindVertexArray(null);
@@ -415,14 +420,14 @@ export function renderWebGLEarlyZPrepass(
 }
 
 export function drawWebGLPacket(
-	host: WebGLScenePassHost,
+	deps: WebGLScenePassDeps,
 	sceneProgram: WebGLSceneProgram,
 	packet: DrawPacket,
 	transparentPass: boolean,
 	context: FrameContext,
 	options: WebGLPacketDrawOptions = {}
 ): void {
-	const gl = host._gl;
+	const gl = deps.gl;
 	const samplerUnit = (name: string): number =>
 		getWebGLSceneSamplerUnit(sceneProgram.samplerLayout, name);
 	const isSamplerActive = (name: string): boolean =>
@@ -441,7 +446,7 @@ export function drawWebGLPacket(
 		return;
 	}
 
-	const activeDrawBuffers = host._activeDrawBuffers;
+	const activeDrawBuffers = deps.drawState.activeDrawBuffers;
 
 	if (!Matrix4.isFinite(packet.worldMatrix)) {
 		logWebGLScenePassWarning(
@@ -451,11 +456,11 @@ export function drawWebGLPacket(
 		return;
 	}
 
-	const geometry = host._geometry.getGeometry(packet);
+	const geometry = deps.geometry.getGeometry(packet);
 	if (!geometry) {
 		return;
 	}
-	if (host._bindAnimationPayload && !host._bindAnimationPayload(sceneProgram, packet)) {
+	if (!deps.bindAnimationPayload(sceneProgram, packet)) {
 		return;
 	}
 
@@ -498,28 +503,28 @@ export function drawWebGLPacket(
 		return;
 	}
 
-	const resolvedMap = host._textures.getBaseColorTexture(uniforms.baseMap);
-	const resolvedNormalMap = host._textures.getBaseColorTexture(uniforms.normalMap);
-	const resolvedMetallicRoughnessMap = host._textures.getBaseColorTexture(
+	const resolvedMap = deps.textures.getBaseColorTexture(uniforms.baseMap);
+	const resolvedNormalMap = deps.textures.getBaseColorTexture(uniforms.normalMap);
+	const resolvedMetallicRoughnessMap = deps.textures.getBaseColorTexture(
 		uniforms.metallicRoughnessMap
 	);
-	const resolvedSpecularMap = host._textures.getBaseColorTexture(uniforms.specularMap);
-	const resolvedSpecularColorMap = host._textures.getBaseColorTexture(
+	const resolvedSpecularMap = deps.textures.getBaseColorTexture(uniforms.specularMap);
+	const resolvedSpecularColorMap = deps.textures.getBaseColorTexture(
 		uniforms.specularColorMap
 	);
-	const resolvedEmissiveMap = host._textures.getBaseColorTexture(
+	const resolvedEmissiveMap = deps.textures.getBaseColorTexture(
 		uniforms.emissiveMap
 	);
-	const resolvedOcclusionMap = host._textures.getBaseColorTexture(
+	const resolvedOcclusionMap = deps.textures.getBaseColorTexture(
 		uniforms.occlusionMap
 	);
-	const resolvedIridescenceMap = host._textures.getBaseColorTexture(
+	const resolvedIridescenceMap = deps.textures.getBaseColorTexture(
 		uniforms.iridescenceMap
 	);
-	const resolvedIridescenceThicknessMap = host._textures.getBaseColorTexture(
+	const resolvedIridescenceThicknessMap = deps.textures.getBaseColorTexture(
 		uniforms.iridescenceThicknessMap
 	);
-	const resolvedAnisotropyMap = host._textures.getBaseColorTexture(
+	const resolvedAnisotropyMap = deps.textures.getBaseColorTexture(
 		uniforms.anisotropyMap
 	);
 	const pbrExtensionUniforms = sceneProgram.uniforms.pbrExtensionUniforms ?? {};
@@ -534,12 +539,12 @@ export function drawWebGLPacket(
 	const transmissionModelScale = pbrExtensionUniforms.uTransmissionModelScale;
 	if (
 		materialUsesTransmission(material) &&
-		host._transmissionBackgroundTexture &&
+		deps.targets._transmissionBackgroundTexture &&
 		isSamplerActive("uTransmissionBackgroundMap")
 	) {
 		const unit = samplerUnit("uTransmissionBackgroundMap");
 		gl.activeTexture(gl.TEXTURE0 + unit);
-		gl.bindTexture(gl.TEXTURE_2D, host._transmissionBackgroundTexture);
+		gl.bindTexture(gl.TEXTURE_2D, deps.targets._transmissionBackgroundTexture);
 		if (transmissionBackgroundMap) {
 			gl.uniform1i(transmissionBackgroundMap, unit);
 		}
@@ -549,17 +554,17 @@ export function drawWebGLPacket(
 		if (transmissionBackgroundInvSize) {
 			gl.uniform2f(
 				transmissionBackgroundInvSize,
-				1 / Math.max(host._width, 1),
-				1 / Math.max(host._height, 1),
+				1 / Math.max(deps.getWidth(), 1),
+				1 / Math.max(deps.getHeight(), 1),
 			);
 		}
 		if (
-			host._transmissionDepthTexture &&
+			deps.targets._transmissionDepthTexture &&
 			isSamplerActive("uTransmissionDepthMap")
 		) {
 			const depthUnit = samplerUnit("uTransmissionDepthMap");
 			gl.activeTexture(gl.TEXTURE0 + depthUnit);
-			gl.bindTexture(gl.TEXTURE_2D, host._transmissionDepthTexture);
+			gl.bindTexture(gl.TEXTURE_2D, deps.targets._transmissionDepthTexture);
 			if (transmissionDepthMap) gl.uniform1i(transmissionDepthMap, depthUnit);
 			if (hasTransmissionDepthMap) gl.uniform1i(hasTransmissionDepthMap, 1);
 		} else if (hasTransmissionDepthMap) {
@@ -580,7 +585,7 @@ export function drawWebGLPacket(
 		const transformB = pbrExtensionUniforms[`u${prefix}MapTransformB`];
 		const transform = resolveTextureUVTransform(texture);
 		const unit = samplerUnit(samplerName);
-		const resolved = host._textures.getBaseColorTexture(texture);
+		const resolved = deps.textures.getBaseColorTexture(texture);
 		gl.activeTexture(gl.TEXTURE0 + unit);
 		gl.bindTexture(gl.TEXTURE_2D, resolved.texture);
 		if (sampler) gl.uniform1i(sampler, unit);
@@ -640,10 +645,10 @@ export function drawWebGLPacket(
 		"uAnisotropyMap",
 		resolvedAnisotropyMap.texture,
 	);
-	host._bindShaderMaterialTextures(sceneProgram, material);
-	host._bindShaderMaterialUniforms(sceneProgram, material);
+	bindWebGLShaderMaterialTextures(deps, sceneProgram, material);
+	bindWebGLShaderMaterialUniforms(deps, sceneProgram, material);
 
-	host._setCullMode(material);
+	setWebGLSceneCullMode(deps.gl, material);
 	gl.bindVertexArray(geometry.vao);
 	if (sceneProgram.uniforms.model) {
 		gl.uniformMatrix4fv(
@@ -659,14 +664,14 @@ export function drawWebGLPacket(
 		gl.uniform1i(
 			sceneProgram.uniforms.enableShadows,
 			context.features.enableShadows &&
-				host.getShadowSamplingState().enabled &&
+				deps.getShadowSamplingState().enabled &&
 				packet.primitive.receiveShadows !== false ? 1 : 0
 		);
 	}
 	if (sceneProgram.uniforms.prevModel) {
 		const cacheKey = packet.id;
-		host._modelMatrixKeysThisFrame.add(cacheKey);
-		let cached = host._modelMatrixCache.get(cacheKey);
+		deps.modelMatrixKeysThisFrame.add(cacheKey);
+		let cached = deps.modelMatrixCache.get(cacheKey);
 		gl.uniformMatrix4fv(
 			sceneProgram.uniforms.prevModel,
 			false,
@@ -674,7 +679,7 @@ export function drawWebGLPacket(
 		);
 		if (!cached) {
 			cached = Matrix4.toColumnMajorArray(packet.worldMatrix);
-			host._modelMatrixCache.set(cacheKey, cached);
+			deps.modelMatrixCache.set(cacheKey, cached);
 		} else {
 			cached.set(Matrix4.toColumnMajorArray(packet.worldMatrix));
 		}
@@ -788,7 +793,7 @@ export function drawWebGLPacket(
 		gl.uniform4fv(sceneProgram.uniforms.alpha, uniforms.alpha);
 	}
 	if (sceneProgram.uniforms.oitPassMode) {
-		gl.uniform1i(sceneProgram.uniforms.oitPassMode, host._oitPassMode);
+		gl.uniform1i(sceneProgram.uniforms.oitPassMode, deps.drawState.oitPassMode);
 	}
 	if (sceneProgram.uniforms.baseMap) {
 		gl.uniform1i(sceneProgram.uniforms.baseMap, samplerUnit("uBaseMap"));
@@ -1079,7 +1084,7 @@ export function drawWebGLPacket(
 }
 
 function resolveWebGLDepthPrepassProgram(
-	host: WebGLScenePassHost,
+	deps: WebGLScenePassDeps,
 	packet: DrawPacket,
 	mode: ShaderTargetMode
 ): WebGLSceneProgram | null {
@@ -1090,39 +1095,68 @@ function resolveWebGLDepthPrepassProgram(
 	if (!Matrix4.isFinite(packet.worldMatrix)) {
 		return null;
 	}
-	const geometry = host._geometry.getGeometry(packet);
-	if (!geometry || geometry.topology !== host._gl.TRIANGLES) {
+	const geometry = deps.geometry.getGeometry(packet);
+	if (!geometry || geometry.topology !== deps.gl.TRIANGLES) {
 		return null;
 	}
-	return host._scenePrograms.getSceneDepthPrepassProgram(
+	return deps.scenePrograms.getSceneDepthPrepassProgram(
 		material,
 		mode,
-		resolveSceneDepthPrepassVariant(host, packet)
+		resolveSceneDepthPrepassVariant(deps, packet)
 	);
 }
 
 function resolveSceneProgramVariant(
-	host: WebGLScenePassHost,
+	deps: WebGLScenePassDeps,
 	context: FrameContext,
 	packet: DrawPacket,
 	mode: ShaderTargetMode
 ): WebGLSceneVariantDescriptor | null {
-	return host._resolveSceneProgramVariant?.(context, packet, mode) ?? null;
+	return resolveWebGLSceneDrawVariant(
+		context,
+		packet.material,
+		mode,
+		deps.drawState.oitPassMode,
+		deps.getLightState(),
+		deps.getShadowSamplingState().transmittanceAvailable,
+		deps.targets._materialGBufferEnabled,
+		resolveWebGLPacketDeformationProfile(packet),
+	);
 }
 
 function resolveSceneDepthPrepassVariant(
-	host: WebGLScenePassHost,
+	deps: WebGLScenePassDeps,
 	packet: DrawPacket
 ): WebGLSceneDepthVariantDescriptor | null {
-	return host._resolveSceneDepthPrepassVariant?.(packet) ?? null;
+	return resolveWebGLBuiltinDepthVariant(
+		packet.material,
+		resolveWebGLPacketDeformationProfile(packet),
+	);
+}
+
+export function setWebGLSceneCullMode(
+	gl: WebGL2RenderingContext,
+	material: Material
+): void {
+	if (material.doubleSided || material.cullMode === "none") {
+		gl.disable(gl.CULL_FACE);
+		return;
+	}
+	gl.enable(gl.CULL_FACE);
+	gl.frontFace(gl.CCW);
+	if (material.cullMode === "front") {
+		gl.cullFace(gl.FRONT);
+	} else {
+		gl.cullFace(gl.BACK);
+	}
 }
 
 export function drawWebGLDepthPrepassPacket(
-	host: WebGLScenePassHost,
+	deps: WebGLScenePassDeps,
 	sceneProgram: WebGLSceneProgram,
 	packet: DrawPacket
 ): boolean {
-	const gl = host._gl;
+	const gl = deps.gl;
 	const material = packet.material;
 	if (isMaterialTransparentPass(material) || material.depthWrite === false) {
 		return false;
@@ -1130,11 +1164,11 @@ export function drawWebGLDepthPrepassPacket(
 	if (!Matrix4.isFinite(packet.worldMatrix)) {
 		return false;
 	}
-	const geometry = host._geometry.getGeometry(packet);
+	const geometry = deps.geometry.getGeometry(packet);
 	if (!geometry || geometry.topology !== gl.TRIANGLES) {
 		return false;
 	}
-	if (host._bindAnimationPayload && !host._bindAnimationPayload(sceneProgram, packet)) {
+	if (!deps.bindAnimationPayload(sceneProgram, packet)) {
 		return false;
 	}
 	const normalMatrix = sceneProgram.uniforms.normalMatrix ?
@@ -1150,17 +1184,17 @@ export function drawWebGLDepthPrepassPacket(
 
 	const uniforms = resolveMaterialUniforms(material);
 	const baseMapUVTransform = resolveTextureUVTransform(uniforms.baseMap);
-	const resolvedMap = host._textures.getBaseColorTexture(uniforms.baseMap);
+	const resolvedMap = deps.textures.getBaseColorTexture(uniforms.baseMap);
 	const baseMapUnit = sceneProgram.uniforms.baseMap ?
 		getWebGLSceneSamplerUnit(sceneProgram.samplerLayout, "uBaseMap")
 	: 0;
 
 	gl.activeTexture(gl.TEXTURE0 + baseMapUnit);
 	gl.bindTexture(gl.TEXTURE_2D, resolvedMap.texture);
-	host._bindShaderMaterialTextures(sceneProgram, material);
-	host._bindShaderMaterialUniforms(sceneProgram, material);
+	bindWebGLShaderMaterialTextures(deps, sceneProgram, material);
+	bindWebGLShaderMaterialUniforms(deps, sceneProgram, material);
 
-	host._setCullMode(material);
+	setWebGLSceneCullMode(deps.gl, material);
 	gl.bindVertexArray(geometry.vao);
 	if (sceneProgram.uniforms.model) {
 		gl.uniformMatrix4fv(
@@ -1229,7 +1263,7 @@ export function drawWebGLDepthPrepassPacket(
 }
 
 export function bindWebGLShaderMaterialTextures(
-	host: WebGLScenePassHost,
+	deps: WebGLScenePassDeps,
 	sceneProgram: WebGLSceneProgram,
 	material: Material
 ): void {
@@ -1241,7 +1275,7 @@ export function bindWebGLShaderMaterialTextures(
 		return;
 	}
 
-	const gl = host._gl;
+	const gl = deps.gl;
 	const boundUniforms = new Set<string>();
 	for (const binding of bindings) {
 		if (boundUniforms.has(binding.webglUniform)) {
@@ -1256,7 +1290,7 @@ export function bindWebGLShaderMaterialTextures(
 			sceneProgram.samplerLayout,
 			binding.webglUniform,
 		);
-		const resolved = host._textures.getBaseColorTexture(binding.texture);
+		const resolved = deps.textures.getBaseColorTexture(binding.texture);
 		gl.activeTexture(gl.TEXTURE0 + textureUnit);
 		gl.bindTexture(gl.TEXTURE_2D, resolved.texture);
 		gl.uniform1i(uniform, textureUnit);
@@ -1265,7 +1299,7 @@ export function bindWebGLShaderMaterialTextures(
 }
 
 export function bindWebGLShaderMaterialUniforms(
-	host: WebGLScenePassHost,
+	deps: WebGLScenePassDeps,
 	sceneProgram: WebGLSceneProgram,
 	material: Material
 ): void {
@@ -1276,7 +1310,7 @@ export function bindWebGLShaderMaterialUniforms(
 	if (bindings.length <= 0) {
 		return;
 	}
-	const gl = host._gl;
+	const gl = deps.gl;
 	for (const binding of bindings) {
 		const uniform = sceneProgram.uniforms.customUniforms[binding.webglUniform];
 		if (!uniform) {

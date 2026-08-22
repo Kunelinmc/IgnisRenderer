@@ -346,6 +346,12 @@ This document defines the current WebGL backend lifecycle, frame graph, resource
   exclusively by `WebGLProbeSHTextures`. Scene fog uniform packing must be
   owned by `WebGLFogState`; global uniform binding and the particle pass must
   consume them through narrow structural contracts.
+- WebGL scene-pass functions must consume an explicitly constructed
+  `WebGLScenePassDeps` dependency bundle and must not read or write mutable
+  frame state through the concrete `WebGLFrameServices` type. Per-draw scratch
+  such as the active OIT pass mode and active draw buffers must live in a
+  scene-pass-owned `WebGLSceneDrawState` that the owner resets at frame
+  boundaries.
 - `WebGLFrameNodeExecutorRegistry` must assign every WebGL graph node kind to
   exactly one executor and must reject missing or duplicate registrations.
 - `WebGLFrameServices` must not own renderer-level pass orchestration.

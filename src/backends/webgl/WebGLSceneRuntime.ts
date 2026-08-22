@@ -5,14 +5,16 @@ import {
 	renderWebGLEarlyZPrepass,
 	renderWebGLPackets,
 	type WebGLSceneRenderOptions,
-	type WebGLScenePassHost,
+	type WebGLScenePassDeps,
 } from "./WebGLScenePass";
 
 const TRANSPARENT_SCENE_CLEAR = new Float32Array([0, 0, 0, 0]);
 
 export interface WebGLSceneRuntimeServices {
 	readonly gl: WebGL2RenderingContext;
-	readonly host: WebGLScenePassHost;
+	readonly deps: WebGLScenePassDeps;
+	readonly modelMatrixCache: Map<string, Float32Array>;
+	readonly modelMatrixKeysThisFrame: Set<string>;
 	readonly targets: WebGLFrameTargetManager;
 	readonly enableEarlyZPrepass: boolean;
 	getWidth(): number;
@@ -36,12 +38,14 @@ export interface WebGLSceneRuntimeServices {
 
 /** Owns scene-node execution and frame-to-frame model transform state. */
 export class WebGLSceneRuntime {
-	public readonly modelMatrixCache = new Map<string, Float32Array>();
-	public readonly modelMatrixKeysThisFrame = new Set<string>();
+	public readonly modelMatrixCache: Map<string, Float32Array>;
+	public readonly modelMatrixKeysThisFrame: Set<string>;
 	private readonly _services: WebGLSceneRuntimeServices;
 
 	public constructor(services: WebGLSceneRuntimeServices) {
 		this._services = services;
+		this.modelMatrixCache = services.modelMatrixCache;
+		this.modelMatrixKeysThisFrame = services.modelMatrixKeysThisFrame;
 	}
 
 	public beginFrame(): void {
@@ -136,7 +140,7 @@ export class WebGLSceneRuntime {
 		options: WebGLSceneRenderOptions = {},
 	): void {
 		renderWebGLPackets(
-			this._services.host,
+			this._services.deps,
 			context,
 			packets,
 			transparent,
@@ -148,7 +152,7 @@ export class WebGLSceneRuntime {
 		if (!this._services.enableEarlyZPrepass || packets.length === 0) {
 			return new Set<string>();
 		}
-		return renderWebGLEarlyZPrepass(this._services.host, context, packets);
+		return renderWebGLEarlyZPrepass(this._services.deps, context, packets);
 	}
 
 	public finishFrame(): void {

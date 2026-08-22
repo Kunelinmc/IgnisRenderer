@@ -55,18 +55,17 @@ import { WebGLFrameSession } from "./WebGLFrameSession";
 import { WebGLFullscreenRenderer } from "./WebGLFullscreenRenderer";
 import { WebGLEnvironmentRenderer } from "./WebGLEnvironmentRenderer";
 import { bindWebGLGlobalUniforms } from "./WebGLGlobalUniformBinder";
+import {
+	drawWebGLPacket,
+	createWebGLSceneDrawState,
+	type WebGLScenePassDeps,
+} from "./WebGLScenePass";
 import { WebGLProbeSHTextures } from "./WebGLProbeSHTextures";
 import { WebGLFogState } from "./WebGLFogState";
 import {
 	WebGLShadowRuntime,
 	type WebGLShadowSamplingState,
 } from "./WebGLShadowRuntime";
-import {
-	bindWebGLShaderMaterialUniforms,
-	bindWebGLShaderMaterialTextures,
-	drawWebGLPacket,
-	type WebGLPacketDrawOptions,
-} from "./WebGLScenePass";
 import {
 	WebGLParticlePass,
 	type WebGLParticleRenderOptions,
@@ -83,14 +82,7 @@ import {
 	WebGLTransparencyWarmupContributor,
 } from "./WebGLTransparencyRuntime";
 import {
-	resolveWebGLBuiltinDepthVariant,
-	resolveWebGLPacketDeformationProfile,
-	type WebGLSceneDepthVariantDescriptor,
-	type WebGLSceneVariantDescriptor,
-} from "./WebGLSceneProgramVariants";
-import {
 	planWebGLScenePrograms,
-	resolveWebGLSceneDrawVariant,
 	WebGLSceneProgramWarmupContributor,
 } from "./WebGLSceneProgramPlanner";
 import { WebGLCustomRenderTargetRuntime } from "./WebGLCustomRenderTargetRuntime";
@@ -149,7 +141,9 @@ export class WebGLFrameServices {
 	public _clusteredLighting: WebGLClusteredLightingRuntime;
 	public _probeSHTextures: WebGLProbeSHTextures;
 	public _fog = new WebGLFogState();
-	public _oitPassMode: 0 | 1 | 2 = 0;
+	private readonly _sceneDrawState = createWebGLSceneDrawState();
+	/** @internal Scene-pass dependency bundle; exposed for test stubbing. */
+	public readonly _sceneDeps: WebGLScenePassDeps;
 	private _transparency: WebGLTransparencyRuntime;
 	private _enableEarlyZPrepass = true;
 	private _postProcessRuntime: BackendPostProcessRuntime;
@@ -199,36 +193,8 @@ export class WebGLFrameServices {
 		return this._scene.modelMatrixKeysThisFrame;
 	}
 
-	/** @internal Transitional access for typed WebGL draw-helper contracts. */
-	public get _width(): number {
-		return this._session.width;
-	}
-	public set _width(value: number) {
-		this._session.width = value;
-	}
-	public get _height(): number {
-		return this._session.height;
-	}
-	public set _height(value: number) {
-		this._session.height = value;
-	}
-	public get _activeContext(): FrameContext | null {
-		return this._session.context;
-	}
-	public set _activeContext(value: FrameContext | null) {
-		this._session.context = value;
-	}
-	public get _presentedInFrame(): boolean {
-		return this._session.presented;
-	}
-	public set _presentedInFrame(value: boolean) {
-		this._session.presented = value;
-	}
 	public get _lightState(): WebGLLightState | null {
 		return this._session.lightState;
-	}
-	public set _lightState(value: WebGLLightState | null) {
-		this._session.lightState = value;
 	}
 	public get _temporalJitterCurrentPrev(): Float32Array {
 		return this._temporalFrameState.jitterCurrentPrev;
@@ -236,92 +202,7 @@ export class WebGLFrameServices {
 	public get _previousViewProjection(): Float32Array | null {
 		return this._temporalFrameState.previousViewProjection;
 	}
-	public get _fullscreenVao(): WebGLVertexArrayObject | null {
-		return this._fullscreen._vao;
-	}
-	public set _fullscreenVao(value: WebGLVertexArrayObject | null) {
-		this._fullscreen._vao = value;
-	}
 
-	/** @internal Transitional frame-target access for WebGL draw helpers. */
-	public get _sceneFramebuffer(): WebGLFramebuffer | null {
-		return this._targets._sceneFramebuffer;
-	}
-	public set _sceneFramebuffer(value: WebGLFramebuffer | null) {
-		this._targets._sceneFramebuffer = value;
-	}
-	public get _sceneColorTexture(): WebGLTexture | null {
-		return this._targets._sceneColorTexture;
-	}
-	public set _sceneColorTexture(value: WebGLTexture | null) {
-		this._targets._sceneColorTexture = value;
-	}
-	public get _sceneMotionTexture(): WebGLTexture | null {
-		return this._targets._sceneMotionTexture;
-	}
-	public set _sceneMotionTexture(value: WebGLTexture | null) {
-		this._targets._sceneMotionTexture = value;
-	}
-	public get _sceneNormalTexture(): WebGLTexture | null {
-		return this._targets._sceneNormalTexture;
-	}
-	public set _sceneNormalTexture(value: WebGLTexture | null) {
-		this._targets._sceneNormalTexture = value;
-	}
-	public get _materialGBufferEnabled(): boolean {
-		return this._targets._materialGBufferEnabled;
-	}
-	public set _materialGBufferEnabled(value: boolean) {
-		this._targets._materialGBufferEnabled = value;
-	}
-	public get _oitFramebuffer(): WebGLFramebuffer | null {
-		return this._targets._oitFramebuffer;
-	}
-	public set _oitFramebuffer(value: WebGLFramebuffer | null) {
-		this._targets._oitFramebuffer = value;
-	}
-	public get _oitAccumTexture(): WebGLTexture | null {
-		return this._targets._oitAccumTexture;
-	}
-	public set _oitAccumTexture(value: WebGLTexture | null) {
-		this._targets._oitAccumTexture = value;
-	}
-	public get _oitRevealTexture(): WebGLTexture | null {
-		return this._targets._oitRevealTexture;
-	}
-	public set _oitRevealTexture(value: WebGLTexture | null) {
-		this._targets._oitRevealTexture = value;
-	}
-	public get _postFramebuffer(): WebGLFramebuffer | null {
-		return this._targets._postFramebuffer;
-	}
-	public set _postFramebuffer(value: WebGLFramebuffer | null) {
-		this._targets._postFramebuffer = value;
-	}
-	public get _postColorTexture(): WebGLTexture | null {
-		return this._targets._postColorTexture;
-	}
-	public set _postColorTexture(value: WebGLTexture | null) {
-		this._targets._postColorTexture = value;
-	}
-	public get _transmissionBackgroundTexture(): WebGLTexture | null {
-		return this._targets._transmissionBackgroundTexture;
-	}
-	public set _transmissionBackgroundTexture(value: WebGLTexture | null) {
-		this._targets._transmissionBackgroundTexture = value;
-	}
-	public get _transmissionDepthTexture(): WebGLTexture | null {
-		return this._targets._transmissionDepthTexture;
-	}
-	public set _transmissionDepthTexture(value: WebGLTexture | null) {
-		this._targets._transmissionDepthTexture = value;
-	}
-	public get _presentSourceTexture(): WebGLTexture | null {
-		return this._targets._presentSourceTexture;
-	}
-	public set _presentSourceTexture(value: WebGLTexture | null) {
-		this._targets._presentSourceTexture = value;
-	}
 	constructor(
 		gl: WebGL2RenderingContext,
 		shaderRuntime?: ShaderRuntime,
@@ -425,9 +306,49 @@ export class WebGLFrameServices {
 			getWidth: () => this._session.width,
 			getHeight: () => this._session.height,
 		});
+		const modelMatrixCache = new Map<string, Float32Array>();
+		const modelMatrixKeysThisFrame = new Set<string>();
+		const sceneDeps: WebGLScenePassDeps = {
+			gl: this._gl,
+			targets: this._targets,
+			drawState: this._sceneDrawState,
+			scenePrograms: this._scenePrograms,
+			geometry: this._geometry,
+			textures: this._textures,
+			animationPayloads: this._animationPayloads,
+			modelMatrixCache,
+			modelMatrixKeysThisFrame,
+			getWidth: () => this._session.width,
+			getHeight: () => this._session.height,
+			isIncrementalPartial: (context) => this._isIncrementalPartial(context),
+			resolveDirtyRects: (context, width, height) =>
+				this._resolveDirtyRects(context, width, height),
+			resolvePacketsForRect: (context, packets, rect) =>
+				this._resolvePacketsForRect(context, packets, rect),
+			setScissorRect: (x, y, width, height, viewportHeight) =>
+				this._setScissorRect(x, y, width, height, viewportHeight),
+			bindGlobalUniforms: (sceneProgram, context) =>
+				this._bindGlobalUniforms(sceneProgram, context),
+			bindAnimationPayload: (sceneProgram, packet) =>
+				this._bindAnimationPayload(sceneProgram, packet),
+			drawPacket: (sceneProgram, packet, transparentPass, context, options) =>
+				drawWebGLPacket(
+					this._sceneDeps,
+					sceneProgram,
+					packet,
+					transparentPass,
+					context,
+					options
+				),
+			getLightState: () => this._session.lightState,
+			getShadowSamplingState: () => this.getShadowSamplingState(),
+		};
+		this._sceneDeps = sceneDeps;
 		this._scene = new WebGLSceneRuntime({
 			gl: this._gl,
-			host: this,
+			deps: sceneDeps,
+			modelMatrixCache,
+			modelMatrixKeysThisFrame,
 			targets: this._targets,
 			enableEarlyZPrepass: this._enableEarlyZPrepass,
 			getWidth: () => this._session.width,
@@ -526,7 +447,7 @@ export class WebGLFrameServices {
 		this._transparency.beginFrame(context);
 		this._targets._presentSourceTexture = this._targets._sceneColorTexture;
 		this._postProcess.setInitialColorDomain("scene-linear-hdr");
-		this._oitPassMode = 0;
+		this._sceneDrawState.oitPassMode = 0;
 		this._shadow.beginFrame(context);
 		this._session.lightState = collectWebGLLights(
 			context.scene.lights,
@@ -843,7 +764,7 @@ export class WebGLFrameServices {
 		this._customRenderTargets.markFrameAborted();
 		this._session.abort();
 		this._targets._presentSourceTexture = this._targets._sceneColorTexture;
-		this._oitPassMode = 0;
+		this._sceneDrawState.oitPassMode = 0;
 		this._transparency.abortFrame();
 		this._scene.abortFrame();
 	}
@@ -970,49 +891,6 @@ export class WebGLFrameServices {
 		this._gl.scissor(resolvedX, scissorY, resolvedWidth, resolvedHeight);
 	}
 
-	public _resolveSceneProgramVariant(
-		context: FrameContext,
-		packet: DrawPacket,
-		mode: ShaderTargetMode
-	): WebGLSceneVariantDescriptor | null {
-		return resolveWebGLSceneDrawVariant(
-			context,
-			packet.material,
-			mode,
-			this._oitPassMode,
-			this._session.lightState,
-			this.getShadowSamplingState().transmittanceAvailable,
-			this._targets._materialGBufferEnabled,
-			resolveWebGLPacketDeformationProfile(packet),
-		);
-	}
-
-	public _resolveSceneDepthPrepassVariant(
-		packet: DrawPacket
-	): WebGLSceneDepthVariantDescriptor | null {
-		return resolveWebGLBuiltinDepthVariant(
-			packet.material,
-			resolveWebGLPacketDeformationProfile(packet),
-		);
-	}
-
-	public _drawPacket(
-		sceneProgram: WebGLSceneProgram,
-		packet: DrawPacket,
-		transparentPass: boolean,
-		context: FrameContext,
-		options?: WebGLPacketDrawOptions
-	): void {
-		drawWebGLPacket(
-			this,
-			sceneProgram,
-			packet,
-			transparentPass,
-			context,
-			options
-		);
-	}
-
 	public _bindAnimationPayload(
 		sceneProgram: WebGLSceneProgram,
 		packet: DrawPacket,
@@ -1025,28 +903,6 @@ export class WebGLFrameServices {
 		const geometry = this._geometry.getGeometry(packet);
 		if (!geometry) return false;
 		return this._animationPayloads.bind(sceneProgram.uniforms, packet, geometry);
-	}
-
-	public _bindShaderMaterialTextures(
-		sceneProgram: WebGLSceneProgram,
-		material: Material
-	): void {
-		bindWebGLShaderMaterialTextures(
-			this,
-			sceneProgram,
-			material
-		);
-	}
-
-	public _bindShaderMaterialUniforms(
-		sceneProgram: WebGLSceneProgram,
-		material: Material
-	): void {
-		bindWebGLShaderMaterialUniforms(
-			this,
-			sceneProgram,
-			material
-		);
 	}
 
 	private _renderParticles(
@@ -1105,21 +961,6 @@ export class WebGLFrameServices {
 			}
 		} catch {}
 		return fallback;
-	}
-
-	public _setCullMode(material: Material): void {
-		const gl = this._gl;
-		if (material.doubleSided || material.cullMode === "none") {
-			gl.disable(gl.CULL_FACE);
-			return;
-		}
-		gl.enable(gl.CULL_FACE);
-		gl.frontFace(gl.CCW);
-		if (material.cullMode === "front") {
-			gl.cullFace(gl.FRONT);
-		} else {
-			gl.cullFace(gl.BACK);
-		}
 	}
 }
 
