@@ -187,6 +187,9 @@ export class WebGLFrameServiceOwner {
 		await this._scenePrograms.prepareBuiltinSceneVariants(
 			plan.sceneVariants.values(),
 		);
+		// Issue compiles for planned variants ahead of the draw loop so
+		// first-use resolution rarely blocks on link finalization.
+		this._scenePrograms.issuePlannedSceneProgramCompiles(plan);
 	}
 
 	public get transparency(): WebGLTransparencyRuntime {

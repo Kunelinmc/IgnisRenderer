@@ -45,6 +45,7 @@ import {
 	createWebGLSceneSamplerLayout,
 } from "./WebGLSceneSamplerLayout";
 import type { WebGLSceneProgram } from "./WebGLSceneProgram";
+import type { WebGLSceneProgramPlan } from "./WebGLSceneProgramPlanner";
 
 export type { WebGLSceneProgram } from "./WebGLSceneProgram";
 
@@ -168,6 +169,99 @@ export class WebGLSceneProgramRepository {
 					},
 				];
 			}),
+		);
+	}
+
+	/**
+	 * Issues GLSL program compilation for every planned built-in scene and
+	 * depth-prepass variant that has neither a compiled program nor an
+	 * in-flight compilation yet.
+	 *
+	 * Compiles start without any status check so the driver works while frame
+	 * passes run; draw-time resolution keeps its blocking finalization as the
+	 * correctness fallback for programs still pending at first use.
+	 *
+	 * @internal WebGL frame-begin preparation hook.
+	 * @param plan Exact scene program plan for the active frame.
+	 * @returns The number of compiles newly issued by this call.
+	 * @sideEffects Starts asynchronous WebGL shader compilation.
+	 */
+	public issuePlannedSceneProgramCompiles(plan: WebGLSceneProgramPlan): number {
+		const directiveTag = this._shaderCompileStage?.getCacheFingerprintTag() ?? "";
+		let issued = 0;
+		for (const variant of plan.sceneVariants.values()) {
+			if (this._issueBuiltinSceneProgram(variant, directiveTag)) issued++;
+		}
+		for (const variant of plan.depthVariants.values()) {
+			if (this._issueBuiltinSceneDepthPrepassProgram(variant, directiveTag)) {
+				issued++;
+			}
+		}
+		return issued;
+	}
+
+	private _issueBuiltinSceneProgram(
+		variant: WebGLSceneVariantDescriptor,
+		directiveTag: string
+	): boolean {
+		const normalizedVariant = normalizeWebGLSceneVariantDescriptor(variant);
+		const cacheKey = this._createBuiltinSceneProgramCacheKey(
+			normalizedVariant,
+			directiveTag
+		);
+		if (this._builtinScenePrograms.has(cacheKey)) return false;
+		const artifact = ShaderSource.get("webgl.scene", {
+			specialization: normalizedVariant,
+		});
+		const vertex = artifact.stages.vertex!;
+		const fragment = artifact.stages.fragment!;
+		return this._compiler.issueProgramCompile(
+			vertex.code,
+			fragment.code,
+			this._createBuiltinSceneProgramLabel(normalizedVariant),
+			{
+				sourceMap: vertex.sourceMap,
+				variantKey: artifact.identity,
+				sourceKind: "builtin-scene",
+			},
+			{
+				sourceMap: fragment.sourceMap,
+				variantKey: artifact.identity,
+				sourceKind: "builtin-scene",
+			}
+		);
+	}
+
+	private _issueBuiltinSceneDepthPrepassProgram(
+		variant: WebGLSceneDepthVariantDescriptor,
+		directiveTag: string
+	): boolean {
+		const normalizedVariant =
+			normalizeWebGLSceneDepthVariantDescriptor(variant);
+		const cacheKey = this._createBuiltinSceneDepthProgramCacheKey(
+			normalizedVariant,
+			directiveTag
+		);
+		if (this._builtinSceneDepthPrepassPrograms.has(cacheKey)) return false;
+		const artifact = ShaderSource.get("webgl.scene.depth", {
+			specialization: normalizedVariant,
+		});
+		const vertex = artifact.stages.vertex!;
+		const fragment = artifact.stages.fragment!;
+		return this._compiler.issueProgramCompile(
+			vertex.code,
+			fragment.code,
+			this._createBuiltinSceneDepthProgramLabel(normalizedVariant),
+			{
+				sourceMap: vertex.sourceMap,
+				variantKey: artifact.identity,
+				sourceKind: "builtin-scene",
+			},
+			{
+				sourceMap: fragment.sourceMap,
+				variantKey: artifact.identity,
+				sourceKind: "builtin-scene",
+			}
 		);
 	}
 

@@ -79,6 +79,11 @@ export interface WebGLProgramCompilerStats {
 	 * potential mid-frame stall.
 	 */
 	readonly forcedFinalizesThisFrame: number;
+	/**
+	 * Frame-begin compiles issued ahead of first use this frame without any
+	 * status check.
+	 */
+	readonly issuedCompilesThisFrame: number;
 }
 
 interface WebGLPendingShaderCompile {
@@ -140,6 +145,7 @@ export class WebGLProgramCompiler {
 	private _compileFrameIndex = 0;
 	private _fallbackFinalizesThisFrame = 0;
 	private _forcedFinalizesThisFrame = 0;
+	private _issuedCompilesThisFrame = 0;
 	private _lastPendingNotificationFrame = -1;
 	private _generation = 0;
 	private _destroyed = false;
@@ -187,6 +193,7 @@ export class WebGLProgramCompiler {
 		this._compileFrameIndex++;
 		this._fallbackFinalizesThisFrame = 0;
 		this._forcedFinalizesThisFrame = 0;
+		this._issuedCompilesThisFrame = 0;
 	}
 
 	/** @internal WebGL scheduling diagnostics only. */
@@ -194,6 +201,7 @@ export class WebGLProgramCompiler {
 		return {
 			pendingCompiles: this._pendingProgramCompiles.size,
 			forcedFinalizesThisFrame: this._forcedFinalizesThisFrame,
+			issuedCompilesThisFrame: this._issuedCompilesThisFrame,
 		};
 	}
 
@@ -269,6 +277,39 @@ export class WebGLProgramCompiler {
 					fragmentMetadata
 				)
 		);
+	}
+
+	/**
+	 * Issues shader compilation and linking for a program without checking
+	 * status or recording warmup state, letting the driver compile
+	 * asynchronously ahead of first use.
+	 *
+	 * @internal Used by frame-begin preparation to start planned programs.
+	 * @returns True when a new compilation was issued by this call.
+	 */
+	public issueProgramCompile(
+		vertexSource: string,
+		fragmentSource: string,
+		label: string,
+		vertexMetadata?: WebGLShaderCompileMetadata,
+		fragmentMetadata?: WebGLShaderCompileMetadata
+	): boolean {
+		this._assertAlive();
+		if (
+			this._precompiledPrograms.has(label) ||
+			this._pendingProgramCompiles.has(label)
+		) {
+			return false;
+		}
+		this._beginProgramCompile(
+			vertexSource,
+			fragmentSource,
+			label,
+			vertexMetadata,
+			fragmentMetadata
+		);
+		this._issuedCompilesThisFrame++;
+		return true;
 	}
 
 	/** @internal Used by backend-owned dynamic program caches. */

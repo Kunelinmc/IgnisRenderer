@@ -285,6 +285,12 @@ This document defines the current WebGL backend lifecycle, frame graph, resource
   shadow-transmittance sampling states. Resolving an unprepared exact variant
   must throw `WebGLProgramPreparationError`; it must not substitute the full or
   default scene variant.
+- WebGL frame preparation must issue program compilation for every exact
+  planned built-in scene and depth-prepass variant that has neither a compiled
+  program nor an in-flight compilation. Issued compiles must not record warmup
+  handles or poll completion status; draw-time resolution keeps its blocking
+  finalization as the correctness fallback for programs still pending at first
+  use.
 - Fixed WebGL programs must be owned by the feature runtime or pass that
   executes them through context-scoped program slots. The scene program
   repository may own only built-in, custom-material, and depth-prepass scene

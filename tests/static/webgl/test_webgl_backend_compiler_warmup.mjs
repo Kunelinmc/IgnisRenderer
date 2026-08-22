@@ -387,6 +387,7 @@ function testProgramCompilerTracksForcedFinalizeStats() {
 	assert.deepEqual(compiler.getStats(), {
 		pendingCompiles: 0,
 		forcedFinalizesThisFrame: 0,
+		issuedCompilesThisFrame: 0,
 	});
 
 	assert.ok(fxaaSlot.get());
@@ -410,7 +411,37 @@ function testProgramCompilerTracksForcedFinalizeStats() {
 	assert.deepEqual(compiler.getStats(), {
 		pendingCompiles: 0,
 		forcedFinalizesThisFrame: 0,
+		issuedCompilesThisFrame: 0,
 	});
+}
+
+function testProgramCompilerIssueProgramCompileStartsWithoutHandles() {
+	const gl = createProgramWarmupTrackingGL();
+	const compiler = new WebGLProgramCompiler(gl);
+	const slot = createCompilerSlot(compiler, "WebGLFXAAProgram", [
+		"uSourceMap",
+	]);
+	compiler.beginFrame();
+
+	assert.equal(
+		compiler.issueProgramCompile(CUSTOM_WEBGL_VERTEX, CUSTOM_WEBGL_FRAGMENT, "WebGLFXAAProgram"),
+		true
+	);
+	assert.equal(gl.calls.linkProgram, 1);
+	assert.equal(compiler.getStats().pendingCompiles, 1);
+	assert.equal(compiler.getStats().issuedCompilesThisFrame, 1);
+
+	const mark = compiler.markWarmupHandles();
+	assert.equal(
+		compiler.issueProgramCompile(CUSTOM_WEBGL_VERTEX, CUSTOM_WEBGL_FRAGMENT, "WebGLFXAAProgram"),
+		false
+	);
+	assert.equal(compiler.collectWarmupHandlesSince(mark).length, 0);
+	assert.equal(gl.calls.linkProgram, 1);
+
+	assert.ok(slot.get());
+	assert.equal(gl.calls.linkProgram, 1);
+	assert.equal(compiler.getStats().pendingCompiles, 0);
 }
 
 await runWebGLBackendFile([
@@ -425,4 +456,5 @@ await runWebGLBackendFile([
 	testProgramWarmupQueueReportsStaleHandles,
 	testProgramWarmupQueueObservesAbortSignal,
 	testProgramCompilerTracksForcedFinalizeStats,
+	testProgramCompilerIssueProgramCompileStartsWithoutHandles,
 ], "WebGL compiler and warmup tests");

@@ -583,6 +583,30 @@ function testProgramOwnershipSeparatesPostProcessAndBackendPrograms() {
 	assert.equal(gl.programCount, 3);
 }
 
+async function testIssuePlannedSceneProgramCompilesStartsAheadOfFirstDraw() {
+	const variant = createTestBuiltinSceneVariant();
+	await prepareTestBuiltinSceneVariant(variant);
+
+	const gl = createProgramCaptureGL();
+	const library = createSceneProgramRepository(gl, () => {});
+	const plan = {
+		lightState: null,
+		sceneVariants: new Map([[getWebGLSceneVariantKey(variant), variant]]),
+		depthVariants: new Map(),
+	};
+
+	// Frame-begin issuance starts the compile without resolving the program.
+	assert.equal(library.issuePlannedSceneProgramCompiles(plan), 1);
+	assert.equal(gl.programCount, 1);
+
+	// Draw-time resolution consumes the in-flight compile: no second program.
+	assert.ok(library.getSceneProgram(undefined, "single", variant));
+	assert.equal(gl.programCount, 1);
+
+	// A resolved variant must not be re-issued on later frames.
+	assert.equal(library.issuePlannedSceneProgramCompiles(plan), 0);
+}
+
 async function testOpaqueBaseMapPreparesNormalizedDepthPrepassVariant() {
 	ShaderSource.clearCache("webgl");
 	const variant = createTestBuiltinSceneVariant({
@@ -637,4 +661,5 @@ await runWebGLBackendFile([
 	testSceneProgramRepositoryRuntimeRevisionInvalidatesCustomCache,
 	testProgramOwnershipSeparatesPostProcessAndBackendPrograms,
 	testOpaqueBaseMapPreparesNormalizedDepthPrepassVariant,
+	testIssuePlannedSceneProgramCompilesStartsAheadOfFirstDraw,
 ], "WebGL scene program repository tests");
