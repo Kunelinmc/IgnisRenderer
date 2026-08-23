@@ -1211,6 +1211,8 @@ async function run() {
 		await testPlanarCompositeUsesReflectionOwnedPipelineAndSharedSnapshot();
 		await testFeatureOwnedWarmupCompilesDeferredSceneVariants();
 		await testFeatureResourceWarmupReportsCompilationFailures();
+		await testSceneShaderModuleRequestsCoalesce();
+		await testCustomShaderModuleRequestsCoalesce();
 		await testEarlyZInvalidationDiscardsLatePipeline();
 		testScenePipelineResourcesExplicitlyDestroyInvalidatedHandles();
 		console.log("WebGPU bridge material pipelines tests passed");
@@ -1223,6 +1225,65 @@ async function run() {
 			globalThis.GPUShaderStage = previousGPUShaderStage;
 		}
 	}
+}
+
+async function testSceneShaderModuleRequestsCoalesce() {
+	const backend = new FakeBackend();
+	const createShaderModule = backend.createShaderModule.bind(backend);
+	let release;
+	const gate = new Promise((resolve) => {
+		release = resolve;
+	});
+	let createCalls = 0;
+	backend.createShaderModule = async (desc) => {
+		createCalls++;
+		await gate;
+		return createShaderModule(desc);
+	};
+	const scenePipelines = new WebGPUScenePipelineResources(backend, {});
+	const first = scenePipelines._getSceneShaderModule();
+	const second = scenePipelines._getSceneShaderModule();
+	release();
+	const [firstModule, secondModule] = await Promise.all([first, second]);
+
+	assert.equal(createCalls, 1);
+	assert.equal(firstModule, secondModule);
+	assert.equal(scenePipelines._sceneShaderModuleInFlight.size, 0);
+	scenePipelines.invalidateShaderRuntimeCaches();
+	assert.equal(backend.shaderModuleDestroyCalls, 1);
+}
+
+async function testCustomShaderModuleRequestsCoalesce() {
+	const backend = new FakeBackend();
+	const createShaderModule = backend.createShaderModule.bind(backend);
+	let release;
+	const gate = new Promise((resolve) => {
+		release = resolve;
+	});
+	let createCalls = 0;
+	backend.createShaderModule = async (desc) => {
+		createCalls++;
+		await gate;
+		return createShaderModule(desc);
+	};
+	const scenePipelines = new WebGPUScenePipelineResources(backend, {});
+	const requestModule = () => scenePipelines._getCustomShaderModule(
+		"coalesced-custom-module",
+		"@vertex fn vsMain() -> @builtin(position) vec4f { return vec4f(); }",
+		"WebGPUShaderMaterialVertex_coalesced",
+		"vertex",
+		"vsMain",
+	);
+	const first = requestModule();
+	const second = requestModule();
+	release();
+	const [firstModule, secondModule] = await Promise.all([first, second]);
+
+	assert.equal(createCalls, 1);
+	assert.equal(firstModule, secondModule);
+	assert.equal(scenePipelines._customShaderModuleInFlight.size, 0);
+	scenePipelines.invalidateShaderRuntimeCaches();
+	assert.equal(backend.shaderModuleDestroyCalls, 1);
 }
 
 async function testEarlyZInvalidationDiscardsLatePipeline() {

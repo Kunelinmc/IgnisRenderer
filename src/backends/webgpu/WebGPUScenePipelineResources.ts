@@ -79,6 +79,14 @@ export class WebGPUScenePipelineResources implements WebGPUDrawPipelineProvider 
 	private _sceneShaderModule: IShaderModule | null = null;
 	private _sceneShaderDirectiveTag = "";
 	private _customShaderModuleCache = new Map<string, IShaderModule>();
+	private _customShaderModuleInFlight = new Map<
+		string,
+		Promise<IShaderModule>
+	>();
+	private _sceneShaderModuleInFlight = new Map<
+		string,
+		Promise<IShaderModule>
+	>();
 	private _pipelineCache = new Map<string, IRenderPipeline>();
 	private _earlyZPrepassCache = new Map<string, IRenderPipeline>();
 	private _earlyZPrepassInFlight = new Map<
@@ -112,6 +120,8 @@ export class WebGPUScenePipelineResources implements WebGPUDrawPipelineProvider 
 		this._sceneShaderModule = null;
 		this._sceneShaderDirectiveTag = "";
 		this._customShaderModuleCache.clear();
+		this._customShaderModuleInFlight.clear();
+		this._sceneShaderModuleInFlight.clear();
 		this._pipelineCache.clear();
 		this._earlyZPrepassCache.clear();
 		this._earlyZPrepassInFlight.clear();
@@ -642,14 +652,21 @@ export class WebGPUScenePipelineResources implements WebGPUDrawPipelineProvider 
 		stage: "vertex" | "fragment",
 		entryPoint: string
 	): Promise<IShaderModule> {
-		let module = this._customShaderModuleCache.get(key);
-		if (!module) {
+		const cached = this._customShaderModuleCache.get(key);
+		if (cached) return cached;
+		const pending = this._customShaderModuleInFlight.get(key);
+		if (pending) return pending;
+
+		const generation = this._shaderCacheGeneration;
+		const creationPromise = (async (): Promise<IShaderModule> => {
+			const cachedAfterDispatch = this._customShaderModuleCache.get(key);
+			if (cachedAfterDispatch) return cachedAfterDispatch;
 			const composite = createInlineCompositeShaderSource(
 				code,
 				`<shader-material:${key}>`,
 				"source"
 			);
-			module = await this._backend.createShaderModule({
+			const module = await this._backend.createShaderModule({
 				code: composite.code,
 				sourceMap: composite.sourceMap,
 				label,
@@ -658,9 +675,40 @@ export class WebGPUScenePipelineResources implements WebGPUDrawPipelineProvider 
 				entryPoint,
 				sourceKind: "custom-material",
 			});
+			if (generation !== this._shaderCacheGeneration) {
+				destroyUniqueWebGPUHandles(
+					[module],
+					"shader module",
+					"WebGPUScenePipelineResources",
+				);
+				return this._getCustomShaderModule(
+					key,
+					code,
+					label,
+					stage,
+					entryPoint,
+				);
+			}
+			const winner = this._customShaderModuleCache.get(key);
+			if (winner) {
+				destroyUniqueWebGPUHandles(
+					[module],
+					"shader module",
+					"WebGPUScenePipelineResources",
+				);
+				return winner;
+			}
 			this._customShaderModuleCache.set(key, module);
+			return module;
+		})();
+		this._customShaderModuleInFlight.set(key, creationPromise);
+		try {
+			return await creationPromise;
+		} finally {
+			if (this._customShaderModuleInFlight.get(key) === creationPromise) {
+				this._customShaderModuleInFlight.delete(key);
+			}
 		}
-		return module;
 	}
 
 	private _resolvePipelineLayout(
@@ -710,9 +758,25 @@ export class WebGPUScenePipelineResources implements WebGPUDrawPipelineProvider 
 		) {
 			return this._sceneShaderModule;
 		}
-		if (!this._sceneShaderModule || this._sceneShaderDirectiveTag !== directiveTag) {
+		const pending = this._sceneShaderModuleInFlight.get(directiveTag);
+		if (pending) return pending;
+
+		const generation = this._shaderCacheGeneration;
+		const creationPromise = (async (): Promise<IShaderModule> => {
+			if (
+				this._sceneShaderModule &&
+				this._sceneShaderDirectiveTag === directiveTag
+			) {
+				return this._sceneShaderModule;
+			}
 			const shader = await ShaderSource.load("webgpu.scene");
-			this._sceneShaderModule = await this._backend.createShaderModule({
+			if (
+				generation !== this._shaderCacheGeneration ||
+				directiveTag !== this._getDirectiveCacheTag()
+			) {
+				return this._getSceneShaderModule();
+			}
+			const module = await this._backend.createShaderModule({
 				code: shader.source.code,
 				sourceMap: shader.source.sourceMap,
 				label: "WebGPUSceneShader",
@@ -720,10 +784,42 @@ export class WebGPUScenePipelineResources implements WebGPUDrawPipelineProvider 
 				stage: "unknown",
 				sourceKind: "builtin-scene",
 			});
-			this._sceneShaderDirectiveTag = this._getDirectiveCacheTag();
+			if (
+				generation !== this._shaderCacheGeneration ||
+				directiveTag !== this._getDirectiveCacheTag()
+			) {
+				destroyUniqueWebGPUHandles(
+					[module],
+					"shader module",
+					"WebGPUScenePipelineResources",
+				);
+				return this._getSceneShaderModule();
+			}
+			if (
+				this._sceneShaderModule &&
+				this._sceneShaderDirectiveTag === directiveTag
+			) {
+				destroyUniqueWebGPUHandles(
+					[module],
+					"shader module",
+					"WebGPUScenePipelineResources",
+				);
+				return this._sceneShaderModule;
+			}
+			this._sceneShaderModule = module;
+			this._sceneShaderDirectiveTag = directiveTag;
+			return module;
+		})();
+		this._sceneShaderModuleInFlight.set(directiveTag, creationPromise);
+		try {
+			return await creationPromise;
+		} finally {
+			if (
+				this._sceneShaderModuleInFlight.get(directiveTag) === creationPromise
+			) {
+				this._sceneShaderModuleInFlight.delete(directiveTag);
+			}
 		}
-
-		return this._sceneShaderModule;
 	}
 
 	private _getDirectiveCacheTag(): string {
