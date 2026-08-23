@@ -1102,6 +1102,16 @@ export class WebGPUBackend implements IRenderBackend {
 			},
 			getShaderDirectiveCacheTag: () =>
 				backend._shaderCompileStage?.getCacheFingerprintTag() ?? "uninitialized",
+			getShaderRuntimeView: () => {
+				const directiveCacheTag =
+					backend._shaderCompileStage?.getCacheFingerprintTag() ?? "uninitialized";
+				return {
+					revision: backend.shaderRuntime.revision,
+					mode: backend.shaderRuntime.getMode(),
+					directiveCacheTag,
+					supportsRuntimeInjects: directiveCacheTag !== "none",
+				};
+			},
 			createBuffer: (desc) => {
 				assertActive("create frame buffers");
 				return backend._resourceManager.createBuffer(desc);

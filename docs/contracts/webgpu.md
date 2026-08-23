@@ -342,6 +342,17 @@ lighting, presentation configuration, reflections, and structured buffer packing
 - WebGPU material uniform data, texture resources, sampler resources, and
   pipeline keys must be resolved once per material render revision and reused
   by every compatible draw in the frame.
+- `WebGPUMaterialPipelineResolver` must translate `Material` and
+  `ShaderMaterial` state into immutable WebGPU pipeline policy without creating
+  shader modules, pipelines, bindings, or other GPU resources.
+- Resolved material pipeline identity must include the material revision,
+  shader target mode, wireframe state, and shader-runtime fingerprint. Shared
+  scene pipeline resources must consume the resolved policy rather than inspect
+  concrete material subclasses.
+- WebGPU device resource hosts must expose shader-runtime revision, diagnostic
+  mode, directive cache identity, and runtime-injection support through one
+  read-only view. Pipeline resource owners must not recover those values by
+  casting a concrete backend.
 - Pipeline lookup must consume the resolved material snapshot and must not
   rebuild material uniform data solely to obtain a cache key.
 - Every enabled scene stage must prepare draw resources before beginning its

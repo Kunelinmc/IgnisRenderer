@@ -15,6 +15,7 @@ import type {
 	TextureDesc,
 	TextureFormat,
 } from "../types";
+import type { WebGPUShaderRuntimeView } from "./WebGPUMaterialPipelineResolver";
 
 /**
  * Narrow device-scoped capability consumed by WebGPU resource owners.
@@ -32,6 +33,7 @@ export interface WebGPUDeviceResourceHost {
 		onDidChange?: (listener: () => void) => () => void;
 	};
 	getShaderDirectiveCacheTag?(): string;
+	getShaderRuntimeView(): WebGPUShaderRuntimeView;
 	createBuffer(desc: BufferDesc): IRenderBuffer;
 	createTexture(desc: TextureDesc): IRenderTexture;
 	createSampler(desc: SamplerDesc): ISampler;

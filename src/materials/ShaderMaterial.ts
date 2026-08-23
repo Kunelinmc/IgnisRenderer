@@ -117,7 +117,7 @@ export interface ResolvedWebGPUShaderProgram {
 	vertexEntryPoint: string;
 	fragmentEntryPoint: string;
 	/**
-	 * @internal Used by the WebGPU pipeline library to match color target writes
+	 * @internal Used by the WebGPU material pipeline resolver to match color target writes
 	 * after source fallback. Applications should configure shader chunks and
 	 * entry points through `ShaderMaterialParams` instead.
 	 */

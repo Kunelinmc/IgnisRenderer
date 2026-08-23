@@ -4,6 +4,8 @@ import { Matrix4 } from "../../../src/maths/Matrix4.ts";
 import { ShaderMaterial } from "../../../src/materials/ShaderMaterial.ts";
 import { PBRMaterial } from "../../../src/materials/PBRMaterial.ts";
 import { WebGPUPipelineLibrary } from "../../../src/backends/webgpu/WebGPUPipelineLibrary.ts";
+import { WebGPUMaterialPipelineResolver } from "../../../src/backends/webgpu/WebGPUMaterialPipelineResolver.ts";
+import { createWebGPUMaterialUniformData } from "../../../src/backends/webgpu/material.ts";
 import { ShaderRuntime } from "../../../src/shaders/runtime/index.ts";
 
 import { FakeWebGPUBackend as FakeBackend } from "../../helpers/fakes.mjs";
@@ -15,6 +17,51 @@ function createLayouts() {
 		sceneDepthPrepassPipelineLayout: { id: "scene-depth-layout" },
 		environmentPipelineLayout: { id: "environment-layout" },
 	};
+}
+
+function testWebGPUMaterialPipelineResolverProducesImmutableRuntimeVariants() {
+	const material = new ShaderMaterial({
+		chunks: [
+			{ backend: "webgpu", language: "wgsl", stage: "vertex", code: WGSL_VERTEX },
+			{
+				backend: "webgpu",
+				language: "wgsl",
+				stage: "fragment",
+				mode: "single",
+				code: WGSL_FRAGMENT_SINGLE,
+			},
+		],
+	});
+	material.refreshRevision();
+	const data = createWebGPUMaterialUniformData(material, false);
+	const resolver = new WebGPUMaterialPipelineResolver();
+	const runtime = {
+		revision: 4,
+		mode: "warn",
+		directiveCacheTag: "profile:a",
+		supportsRuntimeInjects: true,
+	};
+	const first = resolver.resolve(material, data, false, "single", "scene", runtime);
+	const cached = resolver.resolve(material, data, false, "single", "scene", runtime);
+	assert.equal(first, cached);
+	assert.equal(first.program.kind, "custom");
+	assert.equal(first.program.regularProgram.fragmentTargetMode, "single");
+	assert.equal(first.pipelineKey, data.pipelineKey);
+	assert.equal(first.shaderRuntime.directiveCacheTag, "profile:a");
+	assert.ok(!("material" in first));
+
+	const changedRuntime = resolver.resolve(material, data, false, "single", "scene", {
+		...runtime,
+		revision: runtime.revision + 1,
+	});
+	assert.notEqual(changedRuntime, first);
+	assert.notEqual(changedRuntime.shaderCacheKey, first.shaderCacheKey);
+
+	resolver.clear();
+	assert.notEqual(
+		resolver.resolve(material, data, false, "single", "scene", runtime),
+		first,
+	);
 }
 
 const WGSL_VERTEX = /* wgsl */ `
@@ -1150,6 +1197,7 @@ function testUniformBindingInjectDirectivesDecoratePrograms() {
 }
 
 async function run() {
+	testWebGPUMaterialPipelineResolverProducesImmutableRuntimeVariants();
 	await testWGSLProgramSelection();
 	await testWebGPUPipelineCacheIncludesGeometryLayout();
 	await testWebGPUMRTFallsBackToSingleFragmentEntryPoint();
