@@ -21,6 +21,12 @@ class WebGPUFrameExecutor extends WebGPUFrameOrchestrator {
 				if (property === "getParticleBillboardRenderer") {
 					return () => particleRenderer;
 				}
+				if (property === "createPlanarReflectionDrawResources") {
+					return () => ({
+						getDrawResources: (...args) => target.getDrawResources(...args),
+						destroy() {},
+					});
+				}
 				return Reflect.get(target, property, receiver);
 			},
 		});

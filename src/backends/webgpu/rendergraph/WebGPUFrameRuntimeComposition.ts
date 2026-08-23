@@ -70,6 +70,7 @@ export function createWebGPUFrameRuntimeComposition(options: {
 	const planarReflectionPass = new WebGPUPlanarReflectionPass(
 		host,
 		frameServices,
+		frameServices.createPlanarReflectionDrawResources(),
 	);
 	const customRenderTargets = new WebGPUCustomRenderTargetRuntime(
 		host,

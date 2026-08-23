@@ -361,6 +361,13 @@ lighting, presentation configuration, reflections, and structured buffer packing
   casting a concrete backend.
 - Pipeline lookup must consume the resolved material snapshot and must not
   rebuild material uniform data solely to obtain a cache key.
+- `WebGPUDrawResourceAssembler` must own shared geometry, material snapshot,
+  animation payload, binding, wireframe, and static-batch preparation. It must
+  select pipelines only through an injected `WebGPUDrawPipelineProvider` and
+  must not branch on feature runtime identity.
+- Scene and planar-reflection composite draws must use distinct pipeline
+  providers. Planar composite must not enter scene pipeline resources through a
+  special draw-mode branch.
 - Every enabled scene stage must prepare draw resources before beginning its
   render pass. Recording must not await resource discovery or resolve the same
   packet again for each incremental dirty rectangle.

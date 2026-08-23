@@ -77,6 +77,7 @@ export interface WebGPUMaterialPipelineState {
 	readonly diagnostic: {
 		readonly materialName: string;
 		readonly shaderId: number | null;
+		readonly fallbackReason: string | null;
 	};
 	readonly program: WebGPUMaterialProgramDescriptor;
 }
@@ -122,13 +123,21 @@ export class WebGPUMaterialPipelineResolver {
 		const cached = entries?.find((entry) => entry.key === key);
 		if (cached) return cached.state;
 
-		const program = this._resolveProgram(
-			material,
-			targetMode,
-			purpose,
-			isMask,
-			runtime.supportsRuntimeInjects,
-		);
+		let fallbackReason: string | null = null;
+		let program: WebGPUMaterialProgramDescriptor;
+		try {
+			program = this._resolveProgram(
+				material,
+				targetMode,
+				purpose,
+				isMask,
+				runtime.supportsRuntimeInjects,
+			);
+		} catch (error) {
+			if (purpose !== "scene" || runtime.mode !== "warn") throw error;
+			program = { kind: "builtin" };
+			fallbackReason = String(error);
+		}
 		const shaderCacheKey = program.kind === "custom"
 			? `shader:${program.cacheKey}|runtime:${runtime.revision}|directive:${runtime.directiveCacheTag}`
 			: `builtin-scene|runtime:${runtime.revision}|directive:${runtime.directiveCacheTag}`;
@@ -146,6 +155,7 @@ export class WebGPUMaterialPipelineResolver {
 			diagnostic: {
 				materialName: material.name,
 				shaderId: material instanceof ShaderMaterial ? material.shaderId : null,
+				fallbackReason,
 			},
 			program,
 		};

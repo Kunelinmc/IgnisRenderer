@@ -23,6 +23,7 @@ import type {
 	WebGPUMaterialUniformData,
 } from "./types";
 import type { WebGPUVertexBufferBinding } from "./WebGPUGeometryRegistry";
+import type { WebGPUGeometryHandle } from "./WebGPUGeometryRegistry";
 import type {
 	WebGPUScenePipelineDrawMode,
 	WebGPUSceneTargetMode,
@@ -37,6 +38,8 @@ import type { FramePreparationRequirements } from "../../pipeline/FrameRequireme
 import type { WebGPUPagedShadowFrameRequest } from "./WebGPUPagedShadowTechnique";
 import type { ParticleBlendMode } from "../../particles";
 import type { WebGPUDeferredGBufferLayout } from "./constants";
+import type { WebGPUScenePassDescriptor } from "./WebGPUScenePassDescriptors";
+import type { WebGPUMaterialPipelineState } from "./WebGPUMaterialPipelineResolver";
 
 /** @internal Inputs retained with a resolved WebGPU scene draw. */
 export interface WebGPUResolvedDrawInputs {
@@ -75,6 +78,25 @@ export interface WebGPUDrawResources {
 	/** @internal Frame-arena instance record used by static batching. */
 	firstInstance?: number;
 	resolvedInputs: WebGPUResolvedDrawInputs;
+}
+
+/** @internal Immutable inputs accepted by a feature-owned draw pipeline provider. */
+export interface WebGPUDrawPipelineRequest {
+	readonly materialState: WebGPUMaterialPipelineState;
+	readonly pass: WebGPUScenePassDescriptor;
+	readonly topology: PrimitiveDrawTopology;
+	readonly geometryLayout: {
+		readonly layoutKey: string;
+		readonly sceneVertexLayouts: WebGPUGeometryHandle["sceneVertexLayouts"];
+	};
+	readonly sampleCount: number;
+}
+
+/** @internal Feature-owned pipeline selection used by shared draw preparation. */
+export interface WebGPUDrawPipelineProvider {
+	resolvePipeline(
+		request: WebGPUDrawPipelineRequest,
+	): Promise<IRenderPipeline | null>;
 }
 
 /** @internal WebGPU environment draw resolution result. */

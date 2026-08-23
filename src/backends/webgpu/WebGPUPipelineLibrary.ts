@@ -27,6 +27,10 @@ import {
 	type WebGPUShaderRuntimeView,
 } from "./WebGPUMaterialPipelineResolver";
 import { destroyUniqueWebGPUHandles } from "./WebGPUManagedResourceUtils";
+import type {
+	WebGPUDrawPipelineProvider,
+	WebGPUDrawPipelineRequest,
+} from "./WebGPUResourceContracts";
 
 export type {
 	WebGPUScenePipelineDrawMode,
@@ -50,18 +54,6 @@ const ALPHA_BLEND_STATE = {
 	alpha: {
 		srcFactor: "one",
 		dstFactor: "one-minus-src-alpha",
-		operation: "add",
-	},
-};
-const PLANAR_REFLECTION_BLEND_STATE = {
-	color: {
-		srcFactor: "src-alpha",
-		dstFactor: "one-minus-src-alpha",
-		operation: "add",
-	},
-	alpha: {
-		srcFactor: "zero",
-		dstFactor: "one",
 		operation: "add",
 	},
 };
@@ -110,14 +102,12 @@ interface WebGPUPipelineLibraryOptions {
 	listenToShaderRuntime?: boolean;
 }
 
-export class WebGPUPipelineLibrary {
+export class WebGPUPipelineLibrary implements WebGPUDrawPipelineProvider {
 	private _backend: WebGPUDeviceResourceHost;
 	private _layouts: WebGPUPipelineLayouts;
 	private _disposeShaderRuntimeListener: (() => void) | null = null;
 	private _sceneShaderModule: IShaderModule | null = null;
 	private _sceneShaderDirectiveTag = "";
-	private _planarReflectionCompositeShaderModule: IShaderModule | null = null;
-	private _planarReflectionCompositeDirectiveTag = "";
 	private _customShaderModuleCache = new Map<string, IShaderModule>();
 	private _materialPipelineCache = new WeakMap<Material, Map<string, IRenderPipeline>>();
 	private _pipelineCache = new Map<string, IRenderPipeline>();
@@ -165,12 +155,9 @@ export class WebGPUPipelineLibrary {
 		destroyUniqueWebGPUHandles([
 			...this._customShaderModuleCache.values(),
 			this._sceneShaderModule,
-			this._planarReflectionCompositeShaderModule,
 		], "shader module", "WebGPUPipelineLibrary");
 		this._sceneShaderModule = null;
 		this._sceneShaderDirectiveTag = "";
-		this._planarReflectionCompositeShaderModule = null;
-		this._planarReflectionCompositeDirectiveTag = "";
 		this._customShaderModuleCache.clear();
 		this._materialPipelineCache = new WeakMap<Material, Map<string, IRenderPipeline>>();
 		this._pipelineCache.clear();
@@ -180,6 +167,49 @@ export class WebGPUPipelineLibrary {
 
 	public async init(): Promise<void> {
 		await this._getSceneShaderModule();
+	}
+
+	public resolvePipeline(
+		request: WebGPUDrawPipelineRequest,
+	): Promise<IRenderPipeline | null> {
+		return request.pass.drawMode === "early-z-prepass"
+			? this._resolveEarlyZPipeline(request)
+			: this._resolveScenePipeline(request);
+	}
+
+	private async _resolveScenePipeline(
+		request: WebGPUDrawPipelineRequest,
+	): Promise<IRenderPipeline> {
+		const { materialState, pass, topology, geometryLayout } = request;
+		const sampleCount = this._resolveSampleCount(
+			pass.sceneTargetMode,
+			request.sampleCount,
+		);
+		const depthFormat = this._resolveSceneDepthFormat(pass.sceneTargetMode);
+		const cacheKey =
+			`${materialState.pipelineKey}|${pass.pipelineKeyPart}|` +
+			`${materialState.shaderCacheKey}|topology:${topology}|` +
+			`layout:${geometryLayout.layoutKey}|depth:${depthFormat}|msaa:${sampleCount}`;
+		const cached = this._pipelineCache.get(cacheKey);
+		if (cached) return cached;
+		const pipeline = await this._createPipeline(
+			materialState,
+			pass,
+			topology,
+			geometryLayout,
+			sampleCount,
+		);
+		const winner = this._pipelineCache.get(cacheKey);
+		if (winner) {
+			destroyUniqueWebGPUHandles(
+				[pipeline],
+				"pipeline",
+				"WebGPUPipelineLibrary",
+			);
+			return winner;
+		}
+		this._pipelineCache.set(cacheKey, pipeline);
+		return pipeline;
 	}
 
 	public async getPipeline(
@@ -287,15 +317,6 @@ export class WebGPUPipelineLibrary {
 		sampleCount: number,
 	): Promise<IRenderPipeline> {
 		const mode = descriptor.sceneTargetMode;
-		if (descriptor.drawMode === "planar-reflection-composite") {
-			return this._createPlanarReflectionCompositePipeline(
-				pipelineState,
-				descriptor,
-				topology,
-				geometry,
-				sampleCount
-			);
-		}
 		const resolvedSampleCount = this._resolveSampleCount(mode, sampleCount);
 		const { pipelineKey } = pipelineState;
 		const sceneProgram = await this._resolveSceneProgram(
@@ -361,63 +382,6 @@ export class WebGPUPipelineLibrary {
 		} as any);
 	}
 
-	private async _createPlanarReflectionCompositePipeline(
-		pipelineState: WebGPUMaterialPipelineState,
-		descriptor: WebGPUScenePassDescriptor,
-		topology: PrimitiveDrawTopology,
-		geometry: GeometryLayout,
-		sampleCount: number
-	): Promise<IRenderPipeline> {
-		const mode = descriptor.sceneTargetMode;
-		const resolvedSampleCount = this._resolveSampleCount(mode, sampleCount);
-		const depthFormat = this._resolveSceneDepthFormat(mode);
-		const { pipelineKey } = pipelineState;
-		const shaderModule =
-			await this._getPlanarReflectionCompositeShaderModule();
-		const effectiveTopology = pipelineState.wireframe ? "line-list" : topology;
-		const triangleTopology =
-			effectiveTopology === DEFAULT_PRIMITIVE_DRAW_TOPOLOGY;
-
-		return await this._backend.createPipeline({
-			layout: this._layouts.planarReflectionPipelineLayout,
-			label: `WebGPUPlanarReflectionCompositePipeline_${pipelineKey}_${mode}`,
-			vertex: {
-				module: shaderModule,
-				entryPoint: "vsMain",
-				buffers: [...geometry.sceneVertexLayouts],
-			},
-			fragment: {
-				module: shaderModule,
-				entryPoint: "fsMain",
-				targets: [
-					{
-						format:
-							mode === "mrt" || mode === "gbuffer" || mode === "color" ?
-								TextureFormat.RGBA16Float
-							:	this._backend.canvasFormat,
-						blend: PLANAR_REFLECTION_BLEND_STATE,
-					},
-					{
-						format: TextureFormat.R8Unorm,
-					},
-				],
-			},
-			primitive: {
-				topology: effectiveTopology as any,
-				cullMode:
-					pipelineState.wireframe || !triangleTopology ?
-						"none" : (pipelineState.cullMode as any),
-				frontFace: descriptor.frontFace,
-			},
-			depthStencil: {
-				format: depthFormat,
-				depthWriteEnabled: false,
-				depthCompare: "less-equal",
-			},
-			sampleCount: resolvedSampleCount,
-		} as any);
-	}
-
 	public async getEarlyZPrepassPipeline(
 		material: Material,
 		mode: WebGPUSceneTargetMode = "single",
@@ -455,22 +419,36 @@ export class WebGPUPipelineLibrary {
 			);
 			return null;
 		}
-		if (pipelineState.transparent || !pipelineState.depthWrite) return null;
-		const isMask = pipelineState.alphaMode === AlphaMode.Mask;
-		const resolvedSampleCount = this._resolveSampleCount(mode, sampleCount);
-		const depthFormat = this._resolveSceneDepthFormat(mode);
-		const { pipelineKey } = pipelineState;
-		const shaderKey = pipelineState.shaderCacheKey;
-		const cacheKey =
-			`earlyz|${pipelineKey}|${descriptor.pipelineKeyPart}|` +
-			`mask:${isMask ? 1 : 0}|` +
-			`wire:${isWireframe ? 1 : 0}|topology:${topology}|` +
-			`layout:${geometryLayout.layoutKey}|` +
-			`depth:${depthFormat}|msaa:${resolvedSampleCount}|shader:${shaderKey}`;
-		const cached = this._earlyZPrepassCache.get(cacheKey);
-		if (cached) {
-			return cached;
+		return this._resolveEarlyZPipeline({
+			materialState: pipelineState,
+			pass: descriptor,
+			topology,
+			geometryLayout,
+			sampleCount,
+		});
+	}
+
+	private _resolveEarlyZPipeline(
+		request: WebGPUDrawPipelineRequest,
+	): Promise<IRenderPipeline | null> {
+		const { materialState, pass, topology, geometryLayout } = request;
+		if (materialState.transparent || !materialState.depthWrite) {
+			return Promise.resolve(null);
 		}
+		const isMask = materialState.alphaMode === AlphaMode.Mask;
+		const sampleCount = this._resolveSampleCount(
+			pass.sceneTargetMode,
+			request.sampleCount,
+		);
+		const depthFormat = this._resolveSceneDepthFormat(pass.sceneTargetMode);
+		const cacheKey =
+			`earlyz|${materialState.pipelineKey}|${pass.pipelineKeyPart}|` +
+			`mask:${isMask ? 1 : 0}|wire:${materialState.wireframe ? 1 : 0}|` +
+			`topology:${topology}|layout:${geometryLayout.layoutKey}|` +
+			`depth:${depthFormat}|msaa:${sampleCount}|` +
+			`shader:${materialState.shaderCacheKey}`;
+		const cached = this._earlyZPrepassCache.get(cacheKey);
+		if (cached) return Promise.resolve(cached);
 		const pending = this._earlyZPrepassInFlight.get(cacheKey);
 		if (pending) return pending;
 
@@ -478,18 +456,19 @@ export class WebGPUPipelineLibrary {
 		const creationPromise = (async (): Promise<IRenderPipeline | null> => {
 			const cachedAfterDispatch = this._earlyZPrepassCache.get(cacheKey);
 			if (cachedAfterDispatch) return cachedAfterDispatch;
-			const effectiveTopology = isWireframe ? "line-list" : topology;
+			const effectiveTopology = materialState.wireframe ? "line-list" : topology;
 			const triangleTopology =
 				effectiveTopology === DEFAULT_PRIMITIVE_DRAW_TOPOLOGY;
-			const resolved =
-				await this._resolveEarlyZPrepassProgram(pipelineState, isMask);
-			if (!resolved) {
-				return null;
-			}
-
+			const resolved = await this._resolveEarlyZPrepassProgram(
+				materialState,
+				isMask,
+			);
+			if (!resolved) return null;
 			const desc: any = {
-				layout: this._resolvePipelineLayout(descriptor),
-				label: `WebGPUSceneEarlyZPipeline_${pipelineKey}_${mode}`,
+				layout: this._resolvePipelineLayout(pass),
+				label:
+					`WebGPUSceneEarlyZPipeline_${materialState.pipelineKey}_` +
+					pass.sceneTargetMode,
 				vertex: {
 					module: resolved.vertexModule,
 					entryPoint: resolved.vertexEntryPoint,
@@ -498,16 +477,17 @@ export class WebGPUPipelineLibrary {
 				primitive: {
 					topology: effectiveTopology as any,
 					cullMode:
-						isWireframe || !triangleTopology ?
-							"none" : (pipelineState.cullMode as any),
-					frontFace: descriptor.frontFace,
+						materialState.wireframe || !triangleTopology
+							? "none"
+							: materialState.cullMode as any,
+					frontFace: pass.frontFace,
 				},
 				depthStencil: {
 					format: depthFormat,
 					depthWriteEnabled: true,
 					depthCompare: "less",
 				},
-				sampleCount: resolvedSampleCount,
+				sampleCount,
 			};
 			if (resolved.fragmentModule && resolved.fragmentEntryPoint) {
 				desc.fragment = {
@@ -516,7 +496,6 @@ export class WebGPUPipelineLibrary {
 					targets: [],
 				};
 			}
-
 			const pipeline = await this._backend.createPipeline(desc);
 			if (generation !== this._shaderCacheGeneration) {
 				destroyUniqueWebGPUHandles(
@@ -524,15 +503,7 @@ export class WebGPUPipelineLibrary {
 					"pipeline",
 					"WebGPUPipelineLibrary",
 				);
-				return this.getEarlyZPrepassPipeline(
-					material,
-					mode,
-					isWireframe,
-					topology,
-					sampleCount,
-					geometry,
-					resolvedMaterialData,
-				);
+				return this._resolveEarlyZPipeline(request);
 			}
 			const winner = this._earlyZPrepassCache.get(cacheKey);
 			if (winner) {
@@ -547,13 +518,11 @@ export class WebGPUPipelineLibrary {
 			return pipeline;
 		})();
 		this._earlyZPrepassInFlight.set(cacheKey, creationPromise);
-		try {
-			return await creationPromise;
-		} finally {
+		return creationPromise.finally(() => {
 			if (this._earlyZPrepassInFlight.get(cacheKey) === creationPromise) {
 				this._earlyZPrepassInFlight.delete(cacheKey);
 			}
-		}
+		});
 	}
 
 	private _createSceneFragmentTargets(
@@ -675,6 +644,7 @@ export class WebGPUPipelineLibrary {
 		descriptor: WebGPUScenePassDescriptor
 	): Promise<WebGPUSceneProgram> {
 		if (pipelineState.program.kind === "builtin") {
+			this._warnMaterialPipelineFallback(pipelineState);
 			const shaderModule = await this._getSceneShaderModule();
 			return {
 				vertexModule: shaderModule,
@@ -747,6 +717,19 @@ export class WebGPUPipelineLibrary {
 				fragmentTargetMode: null,
 			};
 		}
+	}
+
+	private _warnMaterialPipelineFallback(
+		pipelineState: WebGPUMaterialPipelineState,
+	): void {
+		const reason = pipelineState.diagnostic.fallbackReason;
+		if (!reason) return;
+		const shaderId = pipelineState.diagnostic.shaderId ?? "unknown";
+		const key = `webgpu-shader-material-compile-failed-${shaderId}`;
+		Logger.warn(
+			`[${key}] ShaderMaterial ${pipelineState.diagnostic.materialName} custom WebGPU shader compile failed; using built-in scene shader. ${reason}`,
+			{ scope: "WebGPUPipelineLibrary", onceKey: key },
+		);
 	}
 
 	private async _resolveEarlyZPrepassProgram(
@@ -956,38 +939,6 @@ export class WebGPUPipelineLibrary {
 		}
 
 		return this._sceneShaderModule;
-	}
-
-	private async _getPlanarReflectionCompositeShaderModule():
-		Promise<IShaderModule> {
-		const directiveTag = this._getDirectiveCacheTag();
-		if (
-			this._planarReflectionCompositeShaderModule &&
-			this._planarReflectionCompositeDirectiveTag === directiveTag
-		) {
-			return this._planarReflectionCompositeShaderModule;
-		}
-		if (
-			!this._planarReflectionCompositeShaderModule ||
-			this._planarReflectionCompositeDirectiveTag !== directiveTag
-		) {
-			const shader = await ShaderSource.load(
-				"webgpu.utility.planarReflectionComposite"
-			);
-			this._planarReflectionCompositeShaderModule =
-				await this._backend.createShaderModule({
-					code: shader.source.code,
-					sourceMap: shader.source.sourceMap,
-					label: "WebGPUPlanarReflectionCompositeShader",
-					language: "wgsl",
-					stage: "unknown",
-					sourceKind: "builtin-scene",
-				});
-			this._planarReflectionCompositeDirectiveTag =
-				this._getDirectiveCacheTag();
-		}
-
-		return this._planarReflectionCompositeShaderModule;
 	}
 
 	private _getShaderRuntime():

@@ -161,6 +161,9 @@ function testFrameExecutorConsumesComputeFacadeFromHost() {
 		getParticleBillboardRenderer() {
 			return { async renderParticles() {} };
 		},
+		createPlanarReflectionDrawResources() {
+			return { async getDrawResources() { return null; }, destroy() {} };
+		},
 		createFrameScope() {
 			return {
 				prepare() { throw new Error("not used by this test"); },

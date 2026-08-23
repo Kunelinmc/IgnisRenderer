@@ -49,6 +49,9 @@ import { WebGPUStaticMeshBatcher } from "./WebGPUStaticMeshBatcher";
 import { WebGPUPipelineLibrary } from "./WebGPUPipelineLibrary";
 import { WebGPUDeferredResources } from "./WebGPUDeferredResources";
 import { WebGPUEnvironmentResources } from "./WebGPUEnvironmentResources";
+import { WebGPUDrawResourceAssembler } from "./WebGPUDrawResourceAssembler";
+import { WebGPUMaterialPipelineResolver } from "./WebGPUMaterialPipelineResolver";
+import { WebGPUPlanarReflectionDrawResources } from "./WebGPUPlanarReflectionDrawResources";
 import type {
 	WebGPUScenePipelineDrawMode,
 	WebGPUSceneTargetMode,
@@ -152,6 +155,8 @@ export class WebGPUFrameServiceOwner {
 	private _nextFrameScopeId = 0;
 	private _deferredResources: WebGPUDeferredResources;
 	private _environmentResources: WebGPUEnvironmentResources;
+	private _materialPipelineResolver: WebGPUMaterialPipelineResolver;
+	private _drawResourceAssembler: WebGPUDrawResourceAssembler;
 	private _particleRenderResources: WebGPUParticleRenderResources;
 	private _destroyed = false;
 
@@ -195,6 +200,16 @@ export class WebGPUFrameServiceOwner {
 			this._layouts,
 			this._animationPayloads
 		);
+		this._materialPipelineResolver = new WebGPUMaterialPipelineResolver();
+		this._drawResourceAssembler = new WebGPUDrawResourceAssembler(
+			backend,
+			this._geometryRegistry,
+			this._animationPayloads,
+			this._materialSnapshots,
+			this._materialBindings,
+			this._staticBatcher,
+			this._materialPipelineResolver,
+		);
 		this._shadowRuntime = new WebGPUShadowRuntime(
 			backend,
 			resourceManager,
@@ -205,6 +220,15 @@ export class WebGPUFrameServiceOwner {
 
 	public async init(): Promise<void> {
 		await this._pipelineLibrary.init();
+	}
+
+	/** @internal Creates reflection-owned composite draw resources. */
+	public createPlanarReflectionDrawResources(): WebGPUPlanarReflectionDrawResources {
+		return new WebGPUPlanarReflectionDrawResources(
+			this._backend,
+			this._layouts,
+			this._drawResourceAssembler,
+		);
 	}
 
 	/** @internal Creates an isolated frame-binding ownership scope. */
@@ -278,6 +302,7 @@ export class WebGPUFrameServiceOwner {
 
 		if (context.features.enableReflection && context.scene.reflectivePackets.length > 0) {
 			let reflectionResources: WebGPUFrameServicePreparedResources | null = null;
+			const reflectionDraws = this.createPlanarReflectionDrawResources();
 			try {
 				reflectionResources = this.prepareFrame(context, {
 					scopeKey: "warmup-planar-reflection",
@@ -318,7 +343,7 @@ export class WebGPUFrameServiceOwner {
 					total++;
 					try {
 						const resources = reflectionResources
-							? await this.getDrawResources(packet, reflectionResources, {
+							? await reflectionDraws.getDrawResources(packet, reflectionResources, {
 									sceneTargetMode: "mrt",
 									drawMode: "planar-reflection-composite",
 									sampleCount: 1,
@@ -342,6 +367,7 @@ export class WebGPUFrameServiceOwner {
 					await yieldController.yieldIfNeeded();
 				}
 			} finally {
+				reflectionDraws.destroy();
 				this.releaseScope("warmup-planar-reflection");
 			}
 		}
@@ -764,6 +790,7 @@ export class WebGPUFrameServiceOwner {
 			return;
 		}
 		this._pipelineLibrary.invalidateShaderRuntimeCaches();
+		this._materialPipelineResolver.clear();
 		this._environmentResources.onShaderRuntimeChanged();
 		this._particleRenderResources.onShaderRuntimeChanged();
 		this._deferredResources.onShaderRuntimeChanged();
@@ -1014,153 +1041,12 @@ export class WebGPUFrameServiceOwner {
 		options: WebGPUDrawResourceOptions,
 	): Promise<WebGPUDrawResources[] | null> {
 		const prepared = this._requirePreparedFrameResources(frameResources, "getDrawResources");
-		const transparentPipelineMode = options.transparentPipelineMode ?? "default";
-		const sceneTargetMode = options.sceneTargetMode ?? prepared.sceneTargetMode;
-		const drawMode = options.drawMode ?? "default";
-		const sampleCount = options.sampleCount;
-		const results: WebGPUDrawResources[] = [];
-		const geometry = this._geometryRegistry.getGeometry(packet.primitive);
-		const topology = geometry.topology;
-		const frameBinding = prepared.frameBinding;
-		const clusteredBinding = prepared.clusteredSceneBinding;
-		const animationPayload = this._animationPayloads.getScenePayload(
+		return this._drawResourceAssembler.getDrawResources(
 			packet,
-			geometry,
-			prepared.jointMatrixMap,
-			prepared.morphWeightMap
+			prepared,
+			options,
+			this._pipelineLibrary,
 		);
-
-		// ----- SOLID OBJECT -----
-		const solidSnapshot = await this._materialSnapshots.resolve(packet.material, false);
-		const solidMaterialData = solidSnapshot.data;
-		for (const warning of solidMaterialData.warnings) {
-			Logger.warn(`[${warning.key}] ${warning.message}`, {
-				scope: "WebGPUFrameServiceOwner",
-				onceKey: warning.key,
-			});
-		}
-
-		const solidPipeline =
-			drawMode === "early-z-prepass"
-				? await this._pipelineLibrary.getEarlyZPrepassPipeline(
-						packet.material,
-						sceneTargetMode,
-						false,
-						topology,
-						sampleCount,
-						geometry,
-						solidMaterialData,
-					)
-				: await this._pipelineLibrary.getPipeline(
-						packet.material,
-						sceneTargetMode,
-						false,
-						topology,
-						transparentPipelineMode,
-						drawMode,
-						sampleCount,
-						options.deferredGBufferLayout,
-						geometry,
-						solidMaterialData,
-					);
-		if (!solidPipeline) {
-			return null;
-		}
-		const solidTextures = solidSnapshot.textures;
-		const solidSamplers = solidSnapshot.samplers;
-		const staticDraw = this._staticBatcher.getDrawState(
-			packet,
-			solidPipeline,
-			geometry,
-			solidSnapshot,
-			drawMode,
-		);
-		const solidModelBinding = staticDraw?.modelBinding ??
-			this._materialBindings.getBinding(
-				packet,
-				solidPipeline,
-				solidMaterialData,
-				solidTextures,
-				solidSamplers,
-				animationPayload,
-				geometry.morphPositionBuffer,
-				geometry.morphNormalBuffer,
-			);
-
-		results.push({
-			pipeline: solidPipeline,
-			frameBinding,
-			modelBinding: solidModelBinding,
-			clusteredBinding,
-			vertexBindings: geometry.vertexBindings,
-			indexBuffer: geometry.indexBuffer,
-			indexFormat: geometry.indexFormat,
-			indexCount: geometry.indexCount,
-			staticBatchKey: staticDraw?.batchKey,
-			firstInstance: staticDraw?.firstInstance,
-			resolvedInputs: {
-				materialData: solidMaterialData,
-				textures: solidTextures,
-				samplers: solidSamplers,
-				geometry,
-			},
-		});
-
-		// ----- WIREFRAME OVERLAY -----
-		if (
-			drawMode !== "early-z-prepass" &&
-			packet.material.wireframe &&
-			topology === DEFAULT_PRIMITIVE_DRAW_TOPOLOGY
-		) {
-			const wireGeometry = this._geometryRegistry.getWireframeGeometry(
-				packet.primitive
-			);
-			const wireSnapshot = await this._materialSnapshots.resolve(packet.material, true);
-			const wireMaterialData = wireSnapshot.data;
-			const wirePipeline = await this._pipelineLibrary.getPipeline(
-				packet.material,
-				sceneTargetMode,
-				true,
-				topology,
-				transparentPipelineMode,
-				drawMode,
-				sampleCount,
-				options.deferredGBufferLayout,
-				wireGeometry,
-				wireMaterialData,
-			);
-			const wireTextures = wireSnapshot.textures;
-			const wireSamplers = wireSnapshot.samplers;
-			const wireModelBinding = this._materialBindings.getBinding(
-				packet,
-				wirePipeline,
-				wireMaterialData,
-				wireTextures,
-				wireSamplers,
-				animationPayload,
-				wireGeometry.morphPositionBuffer,
-				wireGeometry.morphNormalBuffer,
-			);
-
-			results.push({
-				pipeline: wirePipeline,
-				frameBinding,
-				modelBinding: wireModelBinding,
-				clusteredBinding,
-				vertexBindings: wireGeometry.vertexBindings,
-				indexBuffer: wireGeometry.wireframeIndexBuffer!,
-				indexFormat: wireGeometry.wireframeIndexFormat,
-				indexCount: wireGeometry.wireframeIndexCount,
-				resolvedInputs: {
-					materialData: wireMaterialData,
-					textures: wireTextures,
-					samplers: wireSamplers,
-					geometry: wireGeometry,
-				},
-			});
-		}
-
-		return results;
 	}
 
 	public async getEnvironmentResources(

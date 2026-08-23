@@ -986,6 +986,75 @@ async function testWebGPUOITParticlePipelinesSplitAlphaAndAdditive() {
 	);
 }
 
+async function testPlanarCompositeUsesReflectionOwnedPipelineAndSharedSnapshot() {
+	const backend = new FakeBackend();
+	const material = new PBRMaterial();
+	const packet = createPacket(createModel([material]));
+	const frame = createFrame(packet);
+	frame.reflectivePackets = [packet];
+	const owner = new WebGPURenderResources(
+		backend,
+		backend,
+		createWebGPUComputeFacade(backend),
+	);
+	await owner.init();
+	const frameResources = owner.prepareFrame(
+		createFrameContextWithFeatures(
+			frame,
+			{
+				enableLighting: true,
+				enableGamma: true,
+				enableShadows: false,
+			},
+			{
+				sh: false,
+				shadows: false,
+				reflection: true,
+				environment: false,
+				ssao: false,
+				taa: false,
+				ssr: false,
+				volumetric: false,
+				fog: false,
+				motionBlur: false,
+				dof: false,
+				bloom: false,
+				clusteredLighting: true,
+			},
+		),
+		createMainFrameOptions(),
+	);
+	const reflection = owner.createPlanarReflectionDrawResources();
+	try {
+		const first = await reflection.getDrawResources(packet, frameResources, {
+			sceneTargetMode: "mrt",
+			drawMode: "planar-reflection-composite",
+			sampleCount: 1,
+		});
+		const second = await reflection.getDrawResources(packet, frameResources, {
+			sceneTargetMode: "mrt",
+			drawMode: "planar-reflection-composite",
+			sampleCount: 1,
+		});
+		assert.ok(first?.[0].pipeline.label.startsWith(
+			"WebGPUPlanarReflectionCompositePipeline_",
+		));
+		assert.equal(second?.[0].pipeline, first[0].pipeline);
+		assert.deepEqual(owner.getDebugStats().materialSnapshots, {
+			frameHits: 1,
+			frameResolves: 1,
+		});
+		assert.ok(
+			![...owner._pipelineLibrary._pipelineCache.keys()].some((key) =>
+				key.includes("planar-reflection-composite"),
+			),
+		);
+	} finally {
+		reflection.destroy();
+		owner.destroy();
+	}
+}
+
 async function run() {
 	try {
 		await testWebGPUBlendMaterialsUseTransparentPipelineState();
@@ -999,6 +1068,7 @@ async function run() {
 		await testWebGPUOITTransparentPipelineUsesDualTargets();
 		await testWebGPUOITTransmissionMaterialsStayLegacyPipeline();
 		await testWebGPUOITParticlePipelinesSplitAlphaAndAdditive();
+		await testPlanarCompositeUsesReflectionOwnedPipelineAndSharedSnapshot();
 		await testEarlyZInvalidationDiscardsLatePipeline();
 		testPipelineLibraryExplicitlyDestroysInvalidatedHandles();
 		console.log("WebGPU bridge material pipelines tests passed");

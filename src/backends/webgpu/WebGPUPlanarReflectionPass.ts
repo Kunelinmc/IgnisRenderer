@@ -23,6 +23,7 @@ import type { WebGPUFrameTargets } from "./WebGPUFrameTargetContracts";
 import {
 	submitWebGPUDraws,
 } from "./WebGPUDrawSubmission";
+import type { WebGPUPlanarReflectionDrawResources } from "./WebGPUPlanarReflectionDrawResources";
 import { Logger } from "../../foundation/Logger";
 import {
 	CustomRenderPassRegistrySnapshot,
@@ -79,6 +80,7 @@ export class WebGPUPlanarReflectionPass {
 		resources: WebGPUFrameResourceProvider &
 			WebGPUSceneResourceProvider &
 			WebGPUPlanarReflectionResourceProvider,
+		private readonly _compositeDraws: WebGPUPlanarReflectionDrawResources,
 	) {
 		this._backend = backend;
 		this._resources = resources;
@@ -253,7 +255,7 @@ export class WebGPUPlanarReflectionPass {
 
 		await submitWebGPUDraws({
 			encoder: request.encoder,
-			resources: this._resources,
+			resources: this._compositeDraws,
 			frameResources: request.frameResources,
 			packets,
 			dirtyRects,
@@ -296,6 +298,7 @@ export class WebGPUPlanarReflectionPass {
 		}
 		this._bindings.clear();
 		this._activeReflections = [];
+		this._compositeDraws.destroy();
 	}
 
 	private async _recordCapture(
