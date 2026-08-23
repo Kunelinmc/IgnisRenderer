@@ -52,6 +52,7 @@ import { WebGPUEnvironmentResources } from "./WebGPUEnvironmentResources";
 import { WebGPUDrawResourceAssembler } from "./WebGPUDrawResourceAssembler";
 import { WebGPUMaterialPipelineResolver } from "./WebGPUMaterialPipelineResolver";
 import { WebGPUPlanarReflectionDrawResources } from "./WebGPUPlanarReflectionDrawResources";
+import { WebGPUSceneDrawResources } from "./WebGPUSceneDrawResources";
 import type {
 	WebGPUSceneTargetMode,
 } from "./WebGPUScenePassDescriptors";
@@ -64,7 +65,6 @@ import { WebGPUTextureRegistry } from "./WebGPUTextureRegistry";
 import type { WarmupPhaseCounters, WarmupPlan } from "../../pipeline/WarmupPlanner";
 import { toShaderCompileError } from "../../pipeline/WarmupPlanner";
 import { createWarmupYieldController } from "../../pipeline/WarmupScheduler";
-import type { ShaderCompileError } from "../../shaders/runtime";
 import { Logger } from "../../foundation/Logger";
 import type { WarmupOptions } from "../IRenderBackend";
 import type {
@@ -78,9 +78,20 @@ import type {
 	WebGPUPreparedFrameResources as WebGPUPreparedFrameResourcesContract,
 } from "./WebGPUResourceContracts";
 import { WebGPUParticleRenderResources } from "./WebGPUParticleRenderResources";
+import { materialSupportsWebGPUDeferredLighting } from "./material";
+import {
+	analyzeWebGPUDeferredFeatures,
+	resolveWebGPUDeferredConfiguration,
+} from "./rendergraph/WebGPUDeferredFrameModule";
 
 interface WebGPUFrameServicePrepareOptions extends WebGPUFrameScopePrepareOptions {
 	readonly scopeKey: string;
+}
+
+export interface WebGPUFrameServiceWarmupRuntimeOptions {
+	readonly enableEarlyZPrepass: boolean;
+	readonly enableDeferredLighting: boolean;
+	readonly sampleCount: number;
 }
 
 type WebGPUFrameServicePreparedResources = WebGPUPreparedFrameResourcesContract & {
@@ -155,6 +166,7 @@ export class WebGPUFrameServiceOwner {
 	private _environmentResources: WebGPUEnvironmentResources;
 	private _materialPipelineResolver: WebGPUMaterialPipelineResolver;
 	private _drawResourceAssembler: WebGPUDrawResourceAssembler;
+	private _sceneDraws: WebGPUSceneDrawResources;
 	private _particleRenderResources: WebGPUParticleRenderResources;
 	private _destroyed = false;
 
@@ -209,6 +221,10 @@ export class WebGPUFrameServiceOwner {
 			this._staticBatcher,
 			this._materialPipelineResolver,
 		);
+		this._sceneDraws = new WebGPUSceneDrawResources(
+			this._drawResourceAssembler,
+			this._scenePipelines,
+		);
 		this._shadowRuntime = new WebGPUShadowRuntime(
 			backend,
 			resourceManager,
@@ -240,166 +256,172 @@ export class WebGPUFrameServiceOwner {
 		plan: WarmupPlan,
 		options: WarmupOptions = {},
 		framePackets: PreparedFramePacketSet = createBaselineFramePacketSet(context),
-	): Promise<WarmupPhaseCounters> {
-		let total = 0;
-		let compiled = 0;
-		let skipped = 0;
-		let failed = 0;
-		const errors: ShaderCompileError[] = [];
+		runtimeOptions: WebGPUFrameServiceWarmupRuntimeOptions = {
+			enableEarlyZPrepass: true,
+			enableDeferredLighting: true,
+			sampleCount: 1,
+		},
+	): Promise<WarmupPhaseCounters[]> {
+		const phases: WarmupPhaseCounters[] = [];
 		const yieldController = createWarmupYieldController(options);
-		const warmupScopeKey = "warmup-main";
-		let warmupResources: WebGPUFrameServicePreparedResources | null = null;
-
+		const deferredAnalysis = analyzeWebGPUDeferredFeatures(context, framePackets);
+		const deviceLimits = this._backend.device?.limits;
+		const deferredConfiguration = resolveWebGPUDeferredConfiguration(
+			deferredAnalysis,
+			{
+				capabilities: {
+					maxColorAttachments: deviceLimits?.maxColorAttachments ?? 8,
+					maxColorAttachmentBytesPerSample:
+						deviceLimits?.maxColorAttachmentBytesPerSample ?? 32,
+					maxStorageTexturesPerShaderStage:
+						deviceLimits?.maxStorageTexturesPerShaderStage ?? 4,
+				},
+				options: {
+					sampleCount: runtimeOptions.sampleCount,
+					enableDeferredLighting: runtimeOptions.enableDeferredLighting,
+					forceDeferredFallback: false,
+				},
+			},
+		);
+		const mainSceneTargetMode = deferredConfiguration.active
+			? "mrt"
+			: plan.sceneTargetMode;
+		const mainScope = this.createFrameScope();
+		let warmupResources: WebGPUPreparedFrameResourcesContract | null = null;
 		try {
-			warmupResources = this.prepareFrame(context, {
-				scopeKey: warmupScopeKey,
-				sceneTargetMode: plan.sceneTargetMode,
+			warmupResources = mainScope.prepare(context, {
+				sceneTargetMode: mainSceneTargetMode,
 				framePackets,
 				temporalStateMode: "disabled",
 			});
 		} catch (error) {
-			failed++;
-			errors.push(toShaderCompileError(error, "webgpu", "WebGPUPrepareFrame"));
+			phases.push({
+				phase: "webgpu-prepare",
+				total: 1,
+				compiled: 0,
+				skipped: 0,
+				failed: 1,
+				errors: [toShaderCompileError(
+					error,
+					"webgpu",
+					"WebGPUPrepareFrame",
+				)],
+			});
 		}
-
-		if (plan.enableEnvironment && warmupResources) {
-			total++;
-			try {
-				await this.getEnvironmentResources(warmupResources, plan.sceneTargetMode, {
-					sampleCount: 1,
-				});
-				compiled++;
-			} catch (error) {
-				failed++;
-				errors.push(toShaderCompileError(error, "webgpu", "WebGPUEnvironmentWarmup"));
+		try {
+			const drawPackets = [
+				...context.scene.opaquePackets,
+				...context.scene.transparentPackets,
+			];
+			const forwardPackets = deferredConfiguration.active
+				? [
+					...context.scene.opaquePackets.filter((packet) =>
+						!materialSupportsWebGPUDeferredLighting(packet.material)),
+					...context.scene.transparentPackets,
+				]
+				: drawPackets;
+			if (warmupResources) {
+				phases.push(await this._sceneDraws.warmup({
+					packets: forwardPackets,
+					frameResources: warmupResources,
+					sceneTargetMode: mainSceneTargetMode,
+					sampleCount: runtimeOptions.sampleCount,
+					enableEarlyZPrepass: runtimeOptions.enableEarlyZPrepass,
+					yieldIfNeeded: () => yieldController.yieldIfNeeded(),
+				}));
 			}
-			await yieldController.yieldIfNeeded();
-		}
-
-		const drawPackets = [...context.scene.opaquePackets, ...context.scene.transparentPackets];
-		for (const packet of drawPackets) {
-			total++;
-			try {
-				const resources = warmupResources
-					? await this.getDrawResources(packet, warmupResources, { sampleCount: 1 })
-					: null;
-				if (resources && resources.length > 0) {
-					compiled++;
-				} else {
-					skipped++;
-				}
-			} catch (error) {
-				failed++;
-				errors.push(toShaderCompileError(error, "webgpu", `WebGPUDrawWarmup:${packet.id}`));
+			if (plan.enableEnvironment) {
+				phases.push(await this._environmentResources.warmup({
+					modes: [
+						deferredConfiguration.active ? "gbuffer" : mainSceneTargetMode,
+					],
+					sampleCount: runtimeOptions.sampleCount,
+					yieldIfNeeded: () => yieldController.yieldIfNeeded(),
+				}));
 			}
-			await yieldController.yieldIfNeeded();
-		}
 
-		if (context.features.enableReflection && context.scene.reflectivePackets.length > 0) {
-			let reflectionResources: WebGPUFrameServicePreparedResources | null = null;
-			const reflectionDraws = this.createPlanarReflectionDrawResources();
-			try {
-				reflectionResources = this.prepareFrame(context, {
-					scopeKey: "warmup-planar-reflection",
-					sceneTargetMode: "color",
-					framePackets,
-					temporalStateMode: "disabled",
-				});
-
-				for (const packet of drawPackets) {
-					total++;
-					try {
-						const resources = reflectionResources
-							? await this.getDrawResources(packet, reflectionResources, {
-									sceneTargetMode: "color",
-									drawMode: "reflection-capture",
-									sampleCount: 1,
-								})
-							: null;
-						if (resources && resources.length > 0) {
-							compiled++;
-						} else {
-							skipped++;
-						}
-					} catch (error) {
-						failed++;
-						errors.push(
-							toShaderCompileError(
-								error,
-								"webgpu",
-								`WebGPUPlanarReflectionCaptureWarmup:${packet.id}`,
-							),
-						);
-					}
-					await yieldController.yieldIfNeeded();
+			if (deferredConfiguration.active) {
+				const deferredScope = this.createFrameScope();
+				try {
+					const deferredResources = deferredScope.prepare(context, {
+						sceneTargetMode: "gbuffer",
+						framePackets,
+						temporalStateMode: "disabled",
+					});
+					phases.push(await this._sceneDraws.warmup({
+						phase: "webgpu-deferred-scene",
+						packets: context.scene.opaquePackets.filter((packet) =>
+							materialSupportsWebGPUDeferredLighting(packet.material)),
+						frameResources: deferredResources,
+						sceneTargetMode: "gbuffer",
+						sampleCount: 1,
+						enableEarlyZPrepass: runtimeOptions.enableEarlyZPrepass,
+						deferredGBufferLayout:
+							deferredConfiguration.deferredGBufferLayout,
+						yieldIfNeeded: () => yieldController.yieldIfNeeded(),
+					}));
+				} finally {
+					deferredScope.destroy();
 				}
-
-				for (const packet of context.scene.reflectivePackets) {
-					total++;
-					try {
-						const resources = reflectionResources
-							? await reflectionDraws.getDrawResources(packet, reflectionResources, {
-									sceneTargetMode: "mrt",
-									drawMode: "planar-reflection-composite",
-									sampleCount: 1,
-								})
-							: null;
-						if (resources && resources.length > 0) {
-							compiled++;
-						} else {
-							skipped++;
-						}
-					} catch (error) {
-						failed++;
-						errors.push(
-							toShaderCompileError(
-								error,
-								"webgpu",
-								`WebGPUPlanarReflectionCompositeWarmup:${packet.id}`,
-							),
-						);
-					}
-					await yieldController.yieldIfNeeded();
-				}
-			} finally {
-				reflectionDraws.destroy();
-				this.releaseScope("warmup-planar-reflection");
 			}
+			phases.push(await this._deferredResources.warmup({
+				active: deferredConfiguration.active,
+				hasDecals: (context.scene.decalPackets?.length ?? 0) > 0,
+				yieldIfNeeded: () => yieldController.yieldIfNeeded(),
+			}));
+		} finally {
+			mainScope.destroy();
 		}
 
 		if (plan.enableShadows) {
-			total++;
+			const phase: WarmupPhaseCounters = {
+				phase: "webgpu-shadows",
+				total: 1,
+				compiled: 0,
+				skipped: 0,
+				failed: 0,
+				errors: [],
+			};
 			try {
 				await this._shadowRuntime.warmup();
-				compiled++;
+				phase.compiled++;
 			} catch (error) {
-				failed++;
-				errors.push(toShaderCompileError(error, "webgpu", "WebGPUShadowWarmup"));
+				phase.failed++;
+				phase.errors.push(toShaderCompileError(
+					error,
+					"webgpu",
+					"WebGPUShadowWarmup",
+				));
 			}
 			await yieldController.yieldIfNeeded();
+			phases.push(phase);
 		}
 
 		if (plan.enableParticles) {
-			total++;
+			const phase: WarmupPhaseCounters = {
+				phase: "webgpu-particles",
+				total: 1,
+				compiled: 0,
+				skipped: 0,
+				failed: 0,
+				errors: [],
+			};
 			try {
 				await this._particleRenderResources.warmup(plan.sceneTargetMode);
-				compiled++;
+				phase.compiled++;
 			} catch (error) {
-				failed++;
-				errors.push(toShaderCompileError(error, "webgpu", "WebGPUParticleWarmup"));
+				phase.failed++;
+				phase.errors.push(toShaderCompileError(
+					error,
+					"webgpu",
+					"WebGPUParticleWarmup",
+				));
 			}
 			await yieldController.yieldIfNeeded();
+			phases.push(phase);
 		}
 
-		this.releaseScope(warmupScopeKey);
-		return {
-			phase: "webgpu-resources",
-			total,
-			compiled,
-			skipped,
-			failed,
-			errors,
-		};
+		return phases;
 	}
 
 	public async renderShadows(
@@ -784,7 +806,7 @@ export class WebGPUFrameServiceOwner {
 		if (this._destroyed) {
 			return;
 		}
-		this._scenePipelines.invalidateShaderRuntimeCaches();
+		this._sceneDraws.onShaderRuntimeChanged();
 		this._materialPipelineResolver.clear();
 		this._environmentResources.onShaderRuntimeChanged();
 		this._particleRenderResources.onShaderRuntimeChanged();
@@ -836,7 +858,7 @@ export class WebGPUFrameServiceOwner {
 		this._materialSnapshots.clear();
 		this._staticBatcher.destroy();
 		this._animationPayloads.destroy();
-		this._scenePipelines.destroy();
+		this._sceneDraws.destroy();
 		this._textureRegistry.destroy();
 		this._geometryRegistry.destroy();
 	}
@@ -1036,11 +1058,10 @@ export class WebGPUFrameServiceOwner {
 		options: WebGPUDrawResourceOptions,
 	): Promise<WebGPUDrawResources[] | null> {
 		const prepared = this._requirePreparedFrameResources(frameResources, "getDrawResources");
-		return this._drawResourceAssembler.getDrawResources(
+		return this._sceneDraws.getDrawResources(
 			packet,
 			prepared,
 			options,
-			this._scenePipelines,
 		);
 	}
 

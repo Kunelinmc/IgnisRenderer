@@ -29,6 +29,18 @@ import {
 	CustomRenderPassRegistrySnapshot,
 	RenderTargetRegistrySnapshot,
 } from "../../rendering/CustomRenderTargets";
+import {
+	toShaderCompileError,
+	type WarmupPhaseCounters,
+} from "../../pipeline/WarmupPlanner";
+import type { WebGPUFeatureWarmupContributor } from "./WebGPUFeatureWarmup";
+
+export interface WebGPUPlanarReflectionWarmupRequest {
+	readonly context: FrameContext;
+	readonly framePackets: PreparedFramePacketSet;
+	readonly sampleCount: number;
+	yieldIfNeeded(): Promise<void>;
+}
 
 export const WEBGPU_PLANAR_REFLECTION_MAX_PLANES = 2;
 export const WEBGPU_PLANAR_REFLECTION_RESOLUTION_SCALE = 0.5;
@@ -66,7 +78,8 @@ export interface WebGPUPlanarReflectionCompositeRequest {
 /**
  * Captures and composites bounded planar reflections for the WebGPU backend.
  */
-export class WebGPUPlanarReflectionPass {
+export class WebGPUPlanarReflectionPass
+	implements WebGPUFeatureWarmupContributor<WebGPUPlanarReflectionWarmupRequest> {
 	private _backend: WebGPUFrameHost;
 	private _resources: WebGPUFrameResourceProvider &
 		WebGPUSceneResourceProvider &
@@ -280,6 +293,121 @@ export class WebGPUPlanarReflectionPass {
 		});
 
 		request.encoder.endRenderPass();
+	}
+
+	/** @internal Warms reflection capture and composite pipeline variants. */
+	public async warmup(
+		request: WebGPUPlanarReflectionWarmupRequest,
+	): Promise<WarmupPhaseCounters> {
+		const { context, framePackets, sampleCount } = request;
+		if (
+			!context.features.enableReflection ||
+			context.scene.reflectivePackets.length <= 0
+		) {
+			return {
+				phase: "webgpu-reflection",
+				total: 0,
+				compiled: 0,
+				skipped: 0,
+				failed: 0,
+				errors: [],
+			};
+		}
+		let total = 0;
+		let compiled = 0;
+		let skipped = 0;
+		let failed = 0;
+		const errors = [];
+		const scope = this._resources.createFrameScope();
+		try {
+			const frameResources = scope.prepare(context, {
+				sceneTargetMode: "color",
+				framePackets,
+				temporalStateMode: "disabled",
+			});
+			if (
+				context.features.enableEnvironment &&
+				context.scene.environment.backgroundEnabled &&
+				context.scene.environment.backgroundTexture
+			) {
+				total++;
+				try {
+					const environment = await this._resources.getEnvironmentResources(
+						frameResources,
+						"color",
+						{ sampleCount: 1 },
+					);
+					if (environment) compiled++;
+					else skipped++;
+				} catch (error) {
+					failed++;
+					errors.push(toShaderCompileError(
+						error,
+						"webgpu",
+						"WebGPUPlanarReflectionEnvironmentWarmup",
+					));
+				}
+				await request.yieldIfNeeded();
+			}
+			for (const packet of framePackets.all) {
+				total++;
+				try {
+					const draws = await this._resources.getDrawResources(
+						packet,
+						frameResources,
+						{
+							sceneTargetMode: "color",
+							drawMode: "reflection-capture",
+							sampleCount: 1,
+						},
+					);
+					if (draws && draws.length > 0) compiled++;
+					else skipped++;
+				} catch (error) {
+					failed++;
+					errors.push(toShaderCompileError(
+						error,
+						"webgpu",
+						`WebGPUPlanarReflectionCaptureWarmup:${packet.id}`,
+					));
+				}
+				await request.yieldIfNeeded();
+			}
+			for (const packet of context.scene.reflectivePackets) {
+				total++;
+				try {
+					const draws = await this._compositeDraws.getDrawResources(
+						packet,
+						frameResources,
+						{
+							sceneTargetMode: "mrt",
+							drawMode: "planar-reflection-composite",
+							sampleCount,
+						},
+					);
+					if (draws && draws.length > 0) compiled++;
+					else skipped++;
+				} catch (error) {
+					failed++;
+					errors.push(toShaderCompileError(
+						error,
+						"webgpu",
+						`WebGPUPlanarReflectionCompositeWarmup:${packet.id}`,
+					));
+				}
+				await request.yieldIfNeeded();
+			}
+		} finally {
+			scope.destroy();
+		}
+		return {
+			phase: "webgpu-reflection",
+			total,
+			compiled,
+			skipped,
+			failed,
+			errors,
+		};
 	}
 
 	/**

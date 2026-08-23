@@ -9,9 +9,21 @@ import { destroyUniqueWebGPUHandles } from "./WebGPUManagedResourceUtils";
 import { readWebGPUShaderRuntimeView } from "./WebGPUMaterialPipelineResolver";
 import type { WebGPUPipelineLayouts } from "./WebGPUPipelineLayouts";
 import type { WebGPUSceneTargetMode } from "./WebGPUScenePassDescriptors";
+import {
+	toShaderCompileError,
+	type WarmupPhaseCounters,
+} from "../../pipeline/WarmupPlanner";
+import type { WebGPUFeatureWarmupContributor } from "./WebGPUFeatureWarmup";
+
+export interface WebGPUEnvironmentWarmupRequest {
+	readonly modes: readonly WebGPUSceneTargetMode[];
+	readonly sampleCount: number;
+	yieldIfNeeded(): Promise<void>;
+}
 
 /** @internal Shared environment pipeline resources used by scene capture paths. */
-export class WebGPUEnvironmentResources {
+export class WebGPUEnvironmentResources
+	implements WebGPUFeatureWarmupContributor<WebGPUEnvironmentWarmupRequest> {
 	private _shaderModule: IShaderModule | null = null;
 	private _shaderDirectiveTag = "";
 	private _pipelines = new Map<string, IRenderPipeline>();
@@ -64,6 +76,37 @@ export class WebGPUEnvironmentResources {
 		}
 		this._pipelines.set(cacheKey, pipeline);
 		return pipeline;
+	}
+
+	public async warmup(
+		request: WebGPUEnvironmentWarmupRequest,
+	): Promise<WarmupPhaseCounters> {
+		let compiled = 0;
+		let failed = 0;
+		const errors = [];
+		const uniqueModes = [...new Set(request.modes)];
+		for (const mode of uniqueModes) {
+			try {
+				await this.getPipeline(mode, request.sampleCount);
+				compiled++;
+			} catch (error) {
+				failed++;
+				errors.push(toShaderCompileError(
+					error,
+					"webgpu",
+					`WebGPUEnvironmentWarmup:${mode}`,
+				));
+			}
+			await request.yieldIfNeeded();
+		}
+		return {
+			phase: "webgpu-environment",
+			total: uniqueModes.length,
+			compiled,
+			skipped: 0,
+			failed,
+			errors,
+		};
 	}
 
 	public onShaderRuntimeChanged(): void {

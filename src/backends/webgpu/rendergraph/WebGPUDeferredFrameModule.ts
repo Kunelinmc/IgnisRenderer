@@ -125,6 +125,69 @@ export function analyzeWebGPUDeferredFeatures(
 	};
 }
 
+export interface WebGPUDeferredConfigurationInput {
+	readonly capabilities: {
+		readonly maxColorAttachments: number;
+		readonly maxColorAttachmentBytesPerSample: number;
+		readonly maxStorageTexturesPerShaderStage: number;
+	};
+	readonly options: {
+		readonly sampleCount: number;
+		readonly enableDeferredLighting: boolean;
+		readonly forceDeferredFallback: boolean;
+	};
+}
+
+/** @internal Shared deferred capability policy used by frames and warmup. */
+export function resolveWebGPUDeferredConfiguration(
+	analysis: WebGPUDeferredFeatureAnalysis,
+	input: WebGPUDeferredConfigurationInput,
+) {
+	const targetCount = analysis.deferredGBufferLayout === "base"
+		? WEBGPU_DEFERRED_BASE_COLOR_TARGET_COUNT
+		: WEBGPU_DEFERRED_COLOR_TARGET_COUNT;
+	const byteCount = analysis.deferredGBufferLayout === "base"
+		? WEBGPU_DEFERRED_BASE_COLOR_BYTES_PER_SAMPLE
+		: WEBGPU_DEFERRED_COLOR_BYTES_PER_SAMPLE;
+	const { capabilities, options } = input;
+	const supported =
+		options.sampleCount === 1 &&
+		capabilities.maxColorAttachments >= targetCount &&
+		capabilities.maxColorAttachmentBytesPerSample >= byteCount &&
+		capabilities.maxStorageTexturesPerShaderStage >=
+			WEBGPU_DEFERRED_STORAGE_TEXTURE_COUNT;
+	const requested = options.enableDeferredLighting &&
+		!options.forceDeferredFallback && analysis.hasDeferredLightingWork;
+	const diagnostics = [];
+	if (options.enableDeferredLighting && !options.forceDeferredFallback && !supported) {
+		if (options.sampleCount !== 1) diagnostics.push({
+			code: "webgpu-deferred-disabled-msaa",
+			message: "WebGPU deferred lighting requires sampleCount=1; using the legacy MRT forward path.",
+		});
+		if (capabilities.maxColorAttachments < targetCount) diagnostics.push({
+			code: "webgpu-deferred-disabled-attachments",
+			message: `WebGPU deferred lighting requires ${targetCount} color attachments; device exposes ${capabilities.maxColorAttachments}.`,
+		});
+		if (capabilities.maxColorAttachmentBytesPerSample < byteCount) diagnostics.push({
+			code: "webgpu-deferred-disabled-bytes",
+			message: `WebGPU deferred lighting requires ${byteCount} color attachment bytes per sample; device exposes ${capabilities.maxColorAttachmentBytesPerSample}.`,
+		});
+		if (
+			capabilities.maxStorageTexturesPerShaderStage <
+			WEBGPU_DEFERRED_STORAGE_TEXTURE_COUNT
+		) diagnostics.push({
+			code: "webgpu-deferred-disabled-storage-textures",
+			message: `WebGPU deferred lighting requires ${WEBGPU_DEFERRED_STORAGE_TEXTURE_COUNT} storage textures per shader stage; device exposes ${capabilities.maxStorageTexturesPerShaderStage}.`,
+		});
+	}
+	return {
+		supported,
+		active: requested && supported,
+		deferredGBufferLayout: analysis.deferredGBufferLayout,
+		diagnostics,
+	};
+}
+
 /** @internal Owns deferred decal, lighting, and fallback graph execution. */
 export class WebGPUDeferredFrameModule implements WebGPUFrameGraphModule {
 	public readonly id = "deferred";
@@ -158,49 +221,24 @@ export class WebGPUDeferredFrameModule implements WebGPUFrameGraphModule {
 			const { capabilities, options } = messages.get(
 				WEBGPU_FRAME_CONFIGURATION_REQUEST_MESSAGE,
 			);
-			const targetCount = analysis.deferredGBufferLayout === "base"
-				? WEBGPU_DEFERRED_BASE_COLOR_TARGET_COUNT
-				: WEBGPU_DEFERRED_COLOR_TARGET_COUNT;
-			const byteCount = analysis.deferredGBufferLayout === "base"
-				? WEBGPU_DEFERRED_BASE_COLOR_BYTES_PER_SAMPLE
-				: WEBGPU_DEFERRED_COLOR_BYTES_PER_SAMPLE;
-			const supported =
-				options.samplePlan.sampleCount === 1 &&
-				capabilities.maxColorAttachments >= targetCount &&
-				capabilities.maxColorAttachmentBytesPerSample >= byteCount &&
-				capabilities.maxStorageTexturesPerShaderStage >=
-					WEBGPU_DEFERRED_STORAGE_TEXTURE_COUNT;
-			const requested = options.enableDeferredLighting &&
-				!options.forceDeferredFallback && analysis.hasDeferredLightingWork;
-			const diagnostics = [];
-			if (options.enableDeferredLighting && !options.forceDeferredFallback && !supported) {
-				if (options.samplePlan.sampleCount !== 1) diagnostics.push({
-					code: "webgpu-deferred-disabled-msaa",
-					message: "WebGPU deferred lighting requires sampleCount=1; using the legacy MRT forward path.",
-				});
-				if (capabilities.maxColorAttachments < targetCount) diagnostics.push({
-					code: "webgpu-deferred-disabled-attachments",
-					message: `WebGPU deferred lighting requires ${targetCount} color attachments; device exposes ${capabilities.maxColorAttachments}.`,
-				});
-				if (capabilities.maxColorAttachmentBytesPerSample < byteCount) diagnostics.push({
-					code: "webgpu-deferred-disabled-bytes",
-					message: `WebGPU deferred lighting requires ${byteCount} color attachment bytes per sample; device exposes ${capabilities.maxColorAttachmentBytesPerSample}.`,
-				});
-				if (capabilities.maxStorageTexturesPerShaderStage < WEBGPU_DEFERRED_STORAGE_TEXTURE_COUNT) diagnostics.push({
-					code: "webgpu-deferred-disabled-storage-textures",
-					message: `WebGPU deferred lighting requires ${WEBGPU_DEFERRED_STORAGE_TEXTURE_COUNT} storage textures per shader stage; device exposes ${capabilities.maxStorageTexturesPerShaderStage}.`,
-				});
-			}
+			const resolved = resolveWebGPUDeferredConfiguration(analysis, {
+				capabilities,
+				options: {
+					sampleCount: options.samplePlan.sampleCount,
+					enableDeferredLighting: options.enableDeferredLighting,
+					forceDeferredFallback: options.forceDeferredFallback,
+				},
+			});
 			publisher.publish(WEBGPU_FRAME_CONFIGURATION_DEMAND_MESSAGE, {
 				source: this.id,
-				targetClass: requested && supported ? "gbuffer" : "single",
+				targetClass: resolved.active ? "gbuffer" : "single",
 				featureStates: {
-					[WEBGPU_FRAME_FEATURE_STATES.deferredSupported]: supported,
-					[WEBGPU_FRAME_FEATURE_STATES.deferredActive]: requested && supported,
+					[WEBGPU_FRAME_FEATURE_STATES.deferredSupported]: resolved.supported,
+					[WEBGPU_FRAME_FEATURE_STATES.deferredActive]: resolved.active,
 					[WEBGPU_FRAME_FEATURE_STATES.deferredGBufferLayout]:
-						analysis.deferredGBufferLayout,
+						resolved.deferredGBufferLayout,
 				},
-				diagnostics,
+				diagnostics: resolved.diagnostics,
 			});
 		},
 	}];

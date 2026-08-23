@@ -13,13 +13,26 @@ import type { WebGPUPipelineLayouts } from "./WebGPUPipelineLayouts";
 import type { WebGPUDeviceResourceHost } from "./WebGPUDeviceResourceHost";
 import { destroyUniqueWebGPUHandles } from "./WebGPUManagedResourceUtils";
 import { readWebGPUShaderRuntimeView } from "./WebGPUMaterialPipelineResolver";
+import {
+	toShaderCompileError,
+	type WarmupPhaseCounters,
+} from "../../pipeline/WarmupPlanner";
+import type { WebGPUFeatureWarmupContributor } from "./WebGPUFeatureWarmup";
+
+export interface WebGPUDeferredWarmupRequest {
+	readonly active: boolean;
+	readonly hasDecals: boolean;
+	yieldIfNeeded(): Promise<void>;
+}
 
 /**
  * Owns WebGPU deferred layouts, pipelines, and the deferred placeholder group.
  *
  * @internal Owned by the WebGPU frame service owner.
  */
-export class WebGPUDeferredResources implements WebGPUDeferredResourceProvider {
+export class WebGPUDeferredResources
+	implements WebGPUDeferredResourceProvider,
+		WebGPUFeatureWarmupContributor<WebGPUDeferredWarmupRequest> {
 	private _deferredLightingShaderModule: IShaderModule | null = null;
 	private _deferredLightingShaderDirectiveTag = "";
 	private _deferredLightingPipeline: IRenderPipeline | null = null;
@@ -169,6 +182,58 @@ export class WebGPUDeferredResources implements WebGPUDeferredResourceProvider {
 			},
 		} as any);
 		return this._decalBatchPipeline;
+	}
+
+	public async warmup(
+		options: WebGPUDeferredWarmupRequest,
+	): Promise<WarmupPhaseCounters> {
+		if (!options.active) {
+			return {
+				phase: "webgpu-deferred",
+				total: 0,
+				compiled: 0,
+				skipped: 0,
+				failed: 0,
+				errors: [],
+			};
+		}
+		const tasks: Array<{
+			readonly label: string;
+			readonly run: () => Promise<unknown>;
+		}> = [{
+			label: "WebGPUDeferredLightingWarmup",
+			run: () => this.getDeferredLightingPipeline(),
+		}];
+		if (options.hasDecals) {
+			tasks.push({
+				label: "WebGPUDeferredDecalWarmup",
+				run: () => this.getDecalPipeline(),
+			}, {
+				label: "WebGPUDeferredDecalBatchWarmup",
+				run: () => this.getDecalBatchPipeline(),
+			});
+		}
+		let compiled = 0;
+		let failed = 0;
+		const errors = [];
+		for (const task of tasks) {
+			try {
+				await task.run();
+				compiled++;
+			} catch (error) {
+				failed++;
+				errors.push(toShaderCompileError(error, "webgpu", task.label));
+			}
+			await options.yieldIfNeeded();
+		}
+		return {
+			phase: "webgpu-deferred",
+			total: tasks.length,
+			compiled,
+			skipped: 0,
+			failed,
+			errors,
+		};
 	}
 
 	public onShaderRuntimeChanged(): void {

@@ -3,7 +3,6 @@ import { ShaderSource } from "../../shaders/ShaderSource";
 import { DEFAULT_PRIMITIVE_DRAW_TOPOLOGY } from "../../core/types";
 import { TextureFormat, type ColorTargetState } from "../types";
 import type { PrimitiveDrawTopology } from "../../core/types";
-import { AlphaMode } from "../../materials/Material";
 import type { IRenderPipeline, IShaderModule } from "../types";
 import type { WebGPUDeviceResourceHost } from "./WebGPUDeviceResourceHost";
 import type { WebGPUPipelineLayouts } from "./WebGPUPipelineLayouts";
@@ -247,7 +246,7 @@ export class WebGPUScenePipelineResources implements WebGPUDrawPipelineProvider 
 		if (materialState.transparent || !materialState.depthWrite) {
 			return Promise.resolve(null);
 		}
-		const isMask = materialState.alphaMode === AlphaMode.Mask;
+		const isMask = materialState.alphaMode === "MASK";
 		const sampleCount = this._resolveSampleCount(
 			pass.sceneTargetMode,
 			request.sampleCount,

@@ -18,14 +18,20 @@ import {
 import type { BackendPostProcessRuntime } from "../../postprocess/BackendPostProcessRuntime";
 import type { PostProcessPlan } from "../../postprocess/PostProcessPlanner";
 import type { WebGPUPostProcessFrameModule } from "./rendergraph/WebGPUPostProcessFrameModule";
+import type { WebGPUReflectionFrameModule } from "./rendergraph/WebGPUReflectionFrameModule";
 import type { WebGPUFrameServiceOwner } from "./WebGPUFrameServiceOwner";
 import { createBaselineFramePacketSet } from "../../pipeline/FramePackets";
+import { createWarmupYieldController } from "../../pipeline/WarmupScheduler";
 
 export interface WebGPUWarmupCoordinatorHost {
 	readonly profile: RenderBackendProfile;
 	readonly postProcess: Pick<WebGPUPostProcessFrameModule, "warmup"> | null;
+	readonly reflection: Pick<WebGPUReflectionFrameModule, "warmup"> | null;
 	readonly resources: WebGPUFrameServiceOwner | null;
 	readonly postProcessRuntime: BackendPostProcessRuntime;
+	readonly enableEarlyZPrepass: boolean;
+	readonly enableDeferredLighting: boolean;
+	readonly sampleCount: number;
 	setWarmupLogCompilationInfo(enabled: boolean): void;
 }
 
@@ -37,7 +43,7 @@ export class WebGPUWarmupCoordinator {
 		options: WarmupOptions = {}
 	): Promise<WarmupReport> {
 		const report = createWarmupReport(this._host.profile.id);
-		if (!this._host.resources || !this._host.postProcess) {
+		if (!this._host.resources || !this._host.postProcess || !this._host.reflection) {
 			throw new Error("WebGPU backend has not been initialized.");
 		}
 
@@ -59,14 +65,30 @@ export class WebGPUWarmupCoordinator {
 			);
 			addWarmupPhase(report, framePhase);
 			this._reportWarmupProgress(options, framePhase);
-			const resourcePhase = await this._host.resources.warmup(
+			const resourcePhases = await this._host.resources.warmup(
 				context,
 				plan,
 				options,
 				framePackets,
+				{
+					enableEarlyZPrepass: this._host.enableEarlyZPrepass,
+					enableDeferredLighting: this._host.enableDeferredLighting,
+					sampleCount: this._host.sampleCount,
+				},
 			);
-			addWarmupPhase(report, resourcePhase);
-			this._reportWarmupProgress(options, resourcePhase);
+			for (const resourcePhase of resourcePhases) {
+				addWarmupPhase(report, resourcePhase);
+				this._reportWarmupProgress(options, resourcePhase);
+			}
+			const reflectionYield = createWarmupYieldController(options);
+			const reflectionPhase = await this._host.reflection.warmup(
+				context,
+				framePackets,
+				this._host.sampleCount,
+				() => reflectionYield.yieldIfNeeded(),
+			);
+			addWarmupPhase(report, reflectionPhase);
+			this._reportWarmupProgress(options, reflectionPhase);
 		} catch (error) {
 			const failedPhase = {
 				phase: "webgpu-warmup",

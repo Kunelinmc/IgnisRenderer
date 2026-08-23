@@ -44,6 +44,7 @@ export interface WebGPUFrameRuntimeComposition {
 		WebGPUVisibilityFrameModule,
 		"reset" | "getVisibilityProvider"
 	>;
+	readonly reflection: Pick<WebGPUReflectionFrameModule, "warmup">;
 	readonly customRenderTargets: Pick<
 		WebGPUCustomRenderTargetRuntime,
 		"readColor"
@@ -155,6 +156,7 @@ export function createWebGPUFrameRuntimeComposition(options: {
 		lifecycle: modules,
 		postProcess,
 		visibility,
+		reflection,
 		customRenderTargets,
 	};
 }

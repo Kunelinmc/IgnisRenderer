@@ -3,6 +3,8 @@ import type { WebGPUPlanarReflectionPass } from "../WebGPUPlanarReflectionPass";
 
 import type { WebGPUFrameHost } from "./WebGPUFrameHost";
 import type { FrameContext } from "../../../pipeline/types";
+import type { PreparedFramePacketSet } from "../../../pipeline/FramePackets";
+import type { WarmupPhaseCounters } from "../../../pipeline/WarmupPlanner";
 import type {
 	WebGPUFrameGraphModule,
 	WebGPUFrameGraphContribution,
@@ -182,6 +184,20 @@ export class WebGPUReflectionFrameModule implements WebGPUFrameGraphModule {
 			msaaTargets:
 				session.targets.msaaTargets as WebGPUPlanarReflectionMSAATargets | null,
 			sampleCount: session.configuration.samplePlan.sampleCount,
+		});
+	}
+
+	public warmup(
+		context: FrameContext,
+		framePackets: PreparedFramePacketSet,
+		sampleCount: number,
+		yieldIfNeeded: () => Promise<void>,
+	): Promise<WarmupPhaseCounters> {
+		return this._pass.warmup({
+			context,
+			framePackets,
+			sampleCount,
+			yieldIfNeeded,
 		});
 	}
 

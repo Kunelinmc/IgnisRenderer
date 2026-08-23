@@ -1506,23 +1506,31 @@ async function testWarmupAggregatesPhases() {
 			failed: 0,
 			errors: [],
 		}) },
+		reflection: { warmup: async () => ({
+			phase: "reflection",
+			total: 1,
+			compiled: 1,
+			skipped: 0,
+			failed: 0,
+			errors: [],
+		}) },
 	};
 	backend._resources = {
-		warmup: async () => ({
+		warmup: async () => [{
 			phase: "resources",
 			total: 3,
 			compiled: 2,
 			skipped: 1,
 			failed: 0,
 			errors: [],
-		}),
+		}],
 	};
 	const report = await backend.warmup(createFrameContext());
-	assert.equal(report.total, 5);
-	assert.equal(report.compiled, 4);
+	assert.equal(report.total, 6);
+	assert.equal(report.compiled, 5);
 	assert.equal(report.skipped, 1);
 	assert.equal(report.failed, 0);
-	assert.equal(report.phases.length, 2);
+	assert.equal(report.phases.length, 3);
 }
 
 async function run() {

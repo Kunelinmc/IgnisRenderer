@@ -353,11 +353,23 @@ export class WebGPUBackend implements IRenderBackend {
 			get postProcess() {
 				return thisRef._frameRuntime?.postProcess ?? null;
 			},
+			get reflection() {
+				return thisRef._frameRuntime?.reflection ?? null;
+			},
 			get resources() {
 				return thisRef._resources;
 			},
 			get postProcessRuntime() {
 				return thisRef._postProcessRuntime;
+			},
+			get enableEarlyZPrepass() {
+				return thisRef._enableEarlyZPrepass;
+			},
+			get enableDeferredLighting() {
+				return thisRef._enableDeferredLighting;
+			},
+			get sampleCount() {
+				return thisRef._requestedSampleCount;
 			},
 			setWarmupLogCompilationInfo: (enabled) => {
 				this._warmupLogCompilationInfo = enabled;

@@ -69,6 +69,16 @@ lighting, presentation configuration, reflections, and structured buffer packing
 - Scene, shadow, deferred, transparency, reflection, visibility, post-process,
   presentation, and custom-render-target modules must own their feature-local
   analysis, graph contribution, node execution, warmup, and lifecycle work.
+- WebGPU device initialization must construct resource owners without compiling
+  scene, environment, deferred, or reflection shader modules and pipelines.
+  Those resources must compile lazily on first use or explicit warmup.
+- Scene, environment, deferred, and reflection owners must enumerate their own
+  warmup variants from the current frame inputs, resolved backend options,
+  device capabilities, and sample count. The warmup coordinator may aggregate
+  phase reports but must not reproduce feature pipeline-selection policy.
+- Deferred warmup must reuse the same analysis and capability policy as frame
+  configuration. Reflection warmup must own its temporary frame scope and
+  release it in a `finally` block.
   Modules must receive narrow runtime capabilities and must not receive the
   concrete `WebGPUFrameOrchestrator`.
 - Unsupported renderer-level backend pass ids must produce an empty WebGPU

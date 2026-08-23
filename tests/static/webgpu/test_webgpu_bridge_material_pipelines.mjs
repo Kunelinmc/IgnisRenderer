@@ -27,6 +27,7 @@ import {
 	WebGPUScenePipelineResources,
 } from "../../../src/backends/webgpu/WebGPUScenePipelineResources.ts";
 import { resolveWebGPUScenePassDescriptor } from "../../../src/backends/webgpu/WebGPUScenePassDescriptors.ts";
+import { WebGPUPlanarReflectionPass } from "../../../src/backends/webgpu/WebGPUPlanarReflectionPass.ts";
 import { WebGPUEnvironmentResources } from "../../../src/backends/webgpu/WebGPUEnvironmentResources.ts";
 import { WebGPUDeferredResources } from "../../../src/backends/webgpu/WebGPUDeferredResources.ts";
 import {
@@ -41,6 +42,7 @@ import {
 import {
 	ParticleBlendMode
 } from "../../../src/particles/types.ts";
+import { createBaselineFramePacketSet } from "../../../src/pipeline/FramePackets.ts";
 import {
 	WEBGPU_MODEL_BINDING_SHADER_UNIFORMS
 } from "../../../src/backends/webgpu/constants.ts";
@@ -1002,13 +1004,13 @@ async function testPlanarCompositeUsesReflectionOwnedPipelineAndSharedSnapshot()
 		backend,
 		createWebGPUComputeFacade(backend),
 	);
-	const frameResources = owner.prepareFrame(
-		createFrameContextWithFeatures(
+	const context = createFrameContextWithFeatures(
 			frame,
 			{
 				enableLighting: true,
 				enableGamma: true,
 				enableShadows: false,
+				enableReflection: true,
 			},
 			{
 				sh: false,
@@ -1025,10 +1027,17 @@ async function testPlanarCompositeUsesReflectionOwnedPipelineAndSharedSnapshot()
 				bloom: false,
 				clusteredLighting: true,
 			},
-		),
+		);
+	const frameResources = owner.prepareFrame(
+		context,
 		createMainFrameOptions(),
 	);
 	const reflection = owner.createPlanarReflectionDrawResources();
+	const reflectionPass = new WebGPUPlanarReflectionPass(
+		backend,
+		owner,
+		reflection,
+	);
 	try {
 		const first = await reflection.getDrawResources(packet, frameResources, {
 			sceneTargetMode: "mrt",
@@ -1053,8 +1062,134 @@ async function testPlanarCompositeUsesReflectionOwnedPipelineAndSharedSnapshot()
 				key.includes("planar-reflection-composite"),
 			),
 		);
+		const warmup = await reflectionPass.warmup({
+			context,
+			framePackets: createBaselineFramePacketSet(context),
+			sampleCount: 4,
+			yieldIfNeeded: async () => {},
+		});
+		assert.equal(warmup.phase, "webgpu-reflection");
+		assert.ok(warmup.compiled > 0);
+		assert.ok(backend.pipelines.some((pipeline) =>
+			pipeline.label?.startsWith("WebGPUPlanarReflectionCompositePipeline_") &&
+			pipeline.desc.sampleCount === 4,
+		));
+		const createPipeline = backend.createPipeline.bind(backend);
+		backend.createPipeline = async (desc) => {
+			if (
+				desc.label?.startsWith("WebGPUPlanarReflectionCompositePipeline_") &&
+				desc.sampleCount === 8
+			) throw new Error("reflection warmup compile failure");
+			return createPipeline(desc);
+		};
+		const failedWarmup = await reflectionPass.warmup({
+			context,
+			framePackets: createBaselineFramePacketSet(context),
+			sampleCount: 8,
+			yieldIfNeeded: async () => {},
+		});
+		assert.equal(failedWarmup.failed, 1);
+		assert.match(failedWarmup.errors[0].message, /reflection warmup compile failure/);
 	} finally {
-		reflection.destroy();
+		reflectionPass.destroy();
+		owner.destroy();
+	}
+}
+
+async function testFeatureResourceWarmupReportsCompilationFailures() {
+	const backend = new FakeBackend();
+	backend.createPipeline = async () => {
+		throw new Error("feature warmup compile failure");
+	};
+	const environment = new WebGPUEnvironmentResources(backend, {
+		environmentPipelineLayout: {},
+	});
+	const deferred = new WebGPUDeferredResources(backend, {
+		deferredLightingPipelineLayout: {},
+	});
+	try {
+		const environmentPhase = await environment.warmup({
+			modes: ["single"],
+			sampleCount: 1,
+			yieldIfNeeded: async () => {},
+		});
+		assert.equal(environmentPhase.failed, 1);
+		assert.match(environmentPhase.errors[0].message, /feature warmup compile failure/);
+		const deferredPhase = await deferred.warmup({
+			active: true,
+			hasDecals: false,
+			yieldIfNeeded: async () => {},
+		});
+		assert.equal(deferredPhase.failed, 1);
+		assert.match(deferredPhase.errors[0].message, /feature warmup compile failure/);
+	} finally {
+		environment.destroy();
+		deferred.destroy();
+	}
+}
+
+async function testFeatureOwnedWarmupCompilesDeferredSceneVariants() {
+	const backend = new FakeBackend();
+	const packet = createPacket(createModel([new PBRMaterial()]));
+	const frame = createFrame(packet);
+	const context = createFrameContextWithFeatures(
+		frame,
+		{
+			enableLighting: true,
+			enableGamma: true,
+			enableShadows: false,
+		},
+		{
+			sh: false,
+			shadows: false,
+			reflection: false,
+			environment: false,
+			ssao: false,
+			taa: false,
+			ssr: false,
+			volumetric: false,
+			fog: false,
+			motionBlur: false,
+			dof: false,
+			bloom: false,
+			clusteredLighting: true,
+		},
+	);
+	const owner = new WebGPURenderResources(
+		backend,
+		backend,
+		createWebGPUComputeFacade(backend),
+	);
+	try {
+		const phases = await owner.warmup(
+			context,
+			{
+				materials: [packet.material],
+				shaderMaterials: [],
+				enableEnvironment: false,
+				enableShadows: false,
+				enableParticles: false,
+				postProcessPasses: [],
+				postProcessDescriptors: [],
+				sceneTargetMode: "single",
+			},
+			{},
+			createBaselineFramePacketSet(context),
+			{
+				enableEarlyZPrepass: true,
+				enableDeferredLighting: true,
+				sampleCount: 1,
+			},
+		);
+		assert.ok(phases.some((phase) => phase.phase === "webgpu-deferred-scene"));
+		assert.ok(phases.some((phase) => phase.phase === "webgpu-deferred"));
+		assert.ok(backend.pipelines.some((pipeline) =>
+			pipeline.label === "WebGPUDeferredLightingPipeline",
+		));
+		assert.ok(backend.pipelines.some((pipeline) =>
+			pipeline.label?.startsWith("WebGPUSceneEarlyZPipeline_"),
+		));
+	} finally {
 		owner.destroy();
 	}
 }
@@ -1074,6 +1209,8 @@ async function run() {
 		await testWebGPUOITTransmissionMaterialsStayLegacyPipeline();
 		await testWebGPUOITParticlePipelinesSplitAlphaAndAdditive();
 		await testPlanarCompositeUsesReflectionOwnedPipelineAndSharedSnapshot();
+		await testFeatureOwnedWarmupCompilesDeferredSceneVariants();
+		await testFeatureResourceWarmupReportsCompilationFailures();
 		await testEarlyZInvalidationDiscardsLatePipeline();
 		testScenePipelineResourcesExplicitlyDestroyInvalidatedHandles();
 		console.log("WebGPU bridge material pipelines tests passed");
