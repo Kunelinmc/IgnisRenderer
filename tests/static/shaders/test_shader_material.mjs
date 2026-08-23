@@ -3,9 +3,13 @@ import { Logger } from "../../../src/foundation/Logger.ts";
 import { Matrix4 } from "../../../src/maths/Matrix4.ts";
 import { ShaderMaterial } from "../../../src/materials/ShaderMaterial.ts";
 import { PBRMaterial } from "../../../src/materials/PBRMaterial.ts";
-import { WebGPUPipelineLibrary } from "../../../src/backends/webgpu/WebGPUPipelineLibrary.ts";
-import { WebGPUMaterialPipelineResolver } from "../../../src/backends/webgpu/WebGPUMaterialPipelineResolver.ts";
+import { WebGPUScenePipelineResources } from "../../../src/backends/webgpu/WebGPUScenePipelineResources.ts";
+import {
+	WebGPUMaterialPipelineResolver,
+	readWebGPUShaderRuntimeView,
+} from "../../../src/backends/webgpu/WebGPUMaterialPipelineResolver.ts";
 import { createWebGPUMaterialUniformData } from "../../../src/backends/webgpu/material.ts";
+import { resolveWebGPUScenePassDescriptor } from "../../../src/backends/webgpu/WebGPUScenePassDescriptors.ts";
 import { ShaderRuntime } from "../../../src/shaders/runtime/index.ts";
 
 import { FakeWebGPUBackend as FakeBackend } from "../../helpers/fakes.mjs";
@@ -17,6 +21,55 @@ function createLayouts() {
 		sceneDepthPrepassPipelineLayout: { id: "scene-depth-layout" },
 		environmentPipelineLayout: { id: "environment-layout" },
 	};
+}
+
+const scenePipelineResolvers = new WeakMap();
+
+async function getScenePipeline(
+	resources,
+	backend,
+	material,
+	mode = "single",
+	wireframe = false,
+	topology = "triangle-list",
+	transparentMode = "default",
+	drawMode = "default",
+	sampleCount,
+	deferredGBufferLayout = "extended",
+	geometry,
+	materialData,
+) {
+	material.refreshRevision();
+	const data = materialData ?? createWebGPUMaterialUniformData(material, wireframe);
+	let resolver = scenePipelineResolvers.get(resources);
+	if (!resolver) {
+		resolver = new WebGPUMaterialPipelineResolver();
+		scenePipelineResolvers.set(resources, resolver);
+	}
+	const shaderMode = mode === "gbuffer" ? "deferred" : mode === "color" ? "single" : mode;
+	const state = resolver.resolve(
+		material,
+		data,
+		wireframe,
+		shaderMode,
+		"scene",
+		readWebGPUShaderRuntimeView(backend),
+	);
+	return resources.resolvePipeline({
+		materialState: state,
+		pass: resolveWebGPUScenePassDescriptor(
+			mode,
+			transparentMode,
+			drawMode,
+			deferredGBufferLayout,
+		),
+		topology,
+		geometryLayout: geometry ?? {
+			layoutKey: "test-fallback",
+			sceneVertexLayouts: [],
+		},
+		sampleCount,
+	});
 }
 
 function testWebGPUMaterialPipelineResolverProducesImmutableRuntimeVariants() {
@@ -211,7 +264,7 @@ async function captureWarnMessagesAsync(run) {
 async function testWGSLProgramSelection() {
 	const backend = new FakeBackend();
 	backend.shaderRuntime = new ShaderRuntime({ mode: "strict" });
-	const library = new WebGPUPipelineLibrary(backend, createLayouts());
+	const library = new WebGPUScenePipelineResources(backend, createLayouts());
 	const material = new ShaderMaterial({
 		name: "WGSLMaterial",
 		chunks: [
@@ -241,7 +294,7 @@ async function testWGSLProgramSelection() {
 		fragmentMRTEntryPoint: "customFsMRT",
 	});
 
-	const singlePipeline = await library.getPipeline(
+	const singlePipeline = await getScenePipeline(library, backend,
 		material, "single", false, undefined, undefined, undefined, 1,
 	);
 	assert.equal(singlePipeline.desc.layout.id, "scene-layout");
@@ -249,7 +302,7 @@ async function testWGSLProgramSelection() {
 	assert.equal(singlePipeline.desc.fragment.entryPoint, "customFsSingle");
 	assert.equal(singlePipeline.desc.fragment.targets.length, 1);
 
-	const mrtPipeline = await library.getPipeline(
+	const mrtPipeline = await getScenePipeline(library, backend,
 		material, "mrt", false, undefined, undefined, undefined, 1,
 	);
 	assert.equal(mrtPipeline.desc.layout.id, "scene-layout");
@@ -264,10 +317,10 @@ async function testWGSLProgramSelection() {
 	assert.ok(moduleCodes.includes(WGSL_FRAGMENT_MRT));
 
 	const pipelineCountBefore = backend.pipelines.length;
-	await library.getPipeline(
+	await getScenePipeline(library, backend,
 		material, "single", false, undefined, undefined, undefined, 1,
 	);
-	await library.getPipeline(
+	await getScenePipeline(library, backend,
 		material, "mrt", false, undefined, undefined, undefined, 1,
 	);
 	assert.equal(backend.pipelines.length, pipelineCountBefore);
@@ -276,7 +329,7 @@ async function testWGSLProgramSelection() {
 async function testWebGPUPipelineCacheIncludesGeometryLayout() {
 	const backend = new FakeBackend();
 	backend.shaderRuntime = new ShaderRuntime({ mode: "strict" });
-	const library = new WebGPUPipelineLibrary(backend, createLayouts());
+	const library = new WebGPUScenePipelineResources(backend, createLayouts());
 	const material = new ShaderMaterial({
 		chunks: [
 			{
@@ -322,13 +375,13 @@ async function testWebGPUPipelineCacheIncludesGeometryLayout() {
 			empty,
 		],
 	};
-	const first = await library.getPipeline(
+	const first = await getScenePipeline(library, backend,
 		material, "single", false, undefined, undefined, undefined, 1, "extended", geometryA,
 	);
-	const second = await library.getPipeline(
+	const second = await getScenePipeline(library, backend,
 		material, "single", false, undefined, undefined, undefined, 1, "extended", geometryB,
 	);
-	const firstAgain = await library.getPipeline(
+	const firstAgain = await getScenePipeline(library, backend,
 		material, "single", false, undefined, undefined, undefined, 1, "extended", geometryA,
 	);
 
@@ -339,7 +392,7 @@ async function testWebGPUPipelineCacheIncludesGeometryLayout() {
 async function testWebGPUMRTFallsBackToSingleFragmentEntryPoint() {
 	const backend = new FakeBackend();
 	backend.shaderRuntime = new ShaderRuntime({ mode: "strict" });
-	const library = new WebGPUPipelineLibrary(backend, createLayouts());
+	const library = new WebGPUScenePipelineResources(backend, createLayouts());
 	const material = new ShaderMaterial({
 		name: "WGSLMRTFallbackMaterial",
 		chunks: [
@@ -367,7 +420,7 @@ async function testWebGPUMRTFallsBackToSingleFragmentEntryPoint() {
 	assert.equal(program.fragmentEntryPoint, "customFsSingle");
 	assert.equal(program.fragmentTargetMode, "single");
 
-	const pipeline = await library.getPipeline(
+	const pipeline = await getScenePipeline(library, backend,
 		material, "mrt", false, undefined, undefined, undefined, 1,
 	);
 	assert.equal(pipeline.desc.fragment.entryPoint, "customFsSingle");
@@ -380,7 +433,7 @@ async function testWebGPUMRTFallsBackToSingleFragmentEntryPoint() {
 async function testWebGPUDeferredProgramSelection() {
 	const backend = new FakeBackend();
 	backend.shaderRuntime = new ShaderRuntime({ mode: "strict" });
-	const library = new WebGPUPipelineLibrary(backend, createLayouts());
+	const library = new WebGPUScenePipelineResources(backend, createLayouts());
 	const material = new ShaderMaterial({
 		name: "DeferredCustomMaterial",
 		deferredLighting: true,
@@ -409,7 +462,7 @@ async function testWebGPUDeferredProgramSelection() {
 	assert.equal(program.fragmentTargetMode, "deferred");
 	assert.equal(program.fragmentCode.includes("DeferredOut"), true);
 
-	const pipeline = await library.getPipeline(
+	const pipeline = await getScenePipeline(library, backend,
 		material, "gbuffer", false, undefined, undefined, undefined, 1,
 	);
 	assert.equal(pipeline.desc.layout.id, "scene-gbuffer-layout");
@@ -433,8 +486,8 @@ async function testWebGPUDeferredProgramSelection() {
 async function testBuiltinBaseGBufferPipelineSelection() {
 	const backend = new FakeBackend();
 	backend.shaderRuntime = new ShaderRuntime({ mode: "strict" });
-	const library = new WebGPUPipelineLibrary(backend, createLayouts());
-	const pipeline = await library.getPipeline(
+	const library = new WebGPUScenePipelineResources(backend, createLayouts());
+	const pipeline = await getScenePipeline(library, backend,
 		new PBRMaterial(),
 		"gbuffer",
 		false,
@@ -509,7 +562,7 @@ function testTransparentOutputCompatibilityOptIn() {
 async function testGLSLProgramUsesTranspiler() {
 	const backend = new FakeBackend();
 	backend.shaderRuntime = new ShaderRuntime({ mode: "strict" });
-	const library = new WebGPUPipelineLibrary(backend, createLayouts());
+	const library = new WebGPUScenePipelineResources(backend, createLayouts());
 	const transpilerCalls = [];
 	const material = new ShaderMaterial({
 		name: "GLSLMaterial",
@@ -552,10 +605,10 @@ async function testGLSLProgramUsesTranspiler() {
 		fragmentMRTEntryPoint: "customFsMRT",
 	});
 
-	await library.getPipeline(
+	await getScenePipeline(library, backend,
 		material, "mrt", false, undefined, undefined, undefined, 1,
 	);
-	await library.getPipeline(
+	await getScenePipeline(library, backend,
 		material, "single", false, undefined, undefined, undefined, 1,
 	);
 
@@ -567,7 +620,7 @@ async function testGLSLProgramUsesTranspiler() {
 async function testGLSLWithoutTranspilerThrows() {
 	const backend = new FakeBackend();
 	backend.shaderRuntime = new ShaderRuntime({ mode: "strict" });
-	const library = new WebGPUPipelineLibrary(backend, createLayouts());
+	const library = new WebGPUScenePipelineResources(backend, createLayouts());
 	const material = new ShaderMaterial({
 		name: "BrokenGLSLMaterial",
 		chunks: [
@@ -590,7 +643,7 @@ async function testGLSLWithoutTranspilerThrows() {
 	});
 
 	await assert.rejects(
-		() => library.getPipeline(
+		() => getScenePipeline(library, backend,
 			material, "single", false, undefined, undefined, undefined, 1,
 		),
 		/glslToWgsl transpiler/
@@ -602,7 +655,7 @@ async function testWarnModeFallbackToBuiltinShader() {
 	backend.shaderRuntime = new ShaderRuntime({ mode: "strict" });
 	backend.shaderRuntime.setMode("warn");
 	backend.failCustomShaderModules = true;
-	const library = new WebGPUPipelineLibrary(backend, createLayouts());
+	const library = new WebGPUScenePipelineResources(backend, createLayouts());
 	const material = new ShaderMaterial({
 		name: "BrokenCustomShader",
 		chunks: [
@@ -626,7 +679,7 @@ async function testWarnModeFallbackToBuiltinShader() {
 
 	let pipeline = null;
 	const warnings = await captureWarnMessagesAsync(async () => {
-		pipeline = await library.getPipeline(
+		pipeline = await getScenePipeline(library, backend,
 			material, "single", false, undefined, undefined, undefined, 1,
 		);
 	});

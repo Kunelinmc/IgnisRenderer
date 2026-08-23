@@ -8,7 +8,9 @@ export type WebGPUScenePipelineDrawMode =
 	| "default"
 	| "early-z-color"
 	| "early-z-prepass"
-	| "reflection-capture"
+	| "reflection-capture";
+export type WebGPUDrawPipelineMode =
+	| WebGPUScenePipelineDrawMode
 	| "planar-reflection-composite";
 
 export type WebGPUScenePipelineLayoutKind =
@@ -42,10 +44,10 @@ export type WebGPUSceneDepthStateMode =
 export type WebGPUSampleCountMode = "single-sample" | "mrt-msaa";
 export type WebGPUDepthFormatMode = "canvas" | "depth32float";
 
-export interface WebGPUScenePassDescriptor {
+export interface WebGPUDrawPassDescriptor {
 	readonly sceneTargetMode: WebGPUSceneTargetMode;
 	readonly transparentMode: WebGPUTransparentPipelineMode;
-	readonly drawMode: WebGPUScenePipelineDrawMode;
+	readonly drawMode: WebGPUDrawPipelineMode;
 	readonly pipelineLayoutKind: WebGPUScenePipelineLayoutKind;
 	readonly fragmentTargetKind: WebGPUSceneFragmentTargetKind;
 	readonly shaderEntryMode: WebGPUSceneShaderEntryMode;
@@ -54,6 +56,10 @@ export interface WebGPUScenePassDescriptor {
 	readonly sampleCountMode: WebGPUSampleCountMode;
 	readonly depthFormatMode: WebGPUDepthFormatMode;
 	readonly pipelineKeyPart: string;
+}
+
+export interface WebGPUScenePassDescriptor extends WebGPUDrawPassDescriptor {
+	readonly drawMode: WebGPUScenePipelineDrawMode;
 }
 
 export function resolveWebGPUScenePassDescriptor(
@@ -84,24 +90,6 @@ export function resolveWebGPUScenePassDescriptor(
 			pipelineKeyPart:
 				`${sceneTargetMode}|${transparentMode}|${drawMode}|` +
 				`layout:scene-depth-prepass|targets:depth-only`,
-		};
-	}
-
-	if (drawMode === "planar-reflection-composite") {
-		return {
-			sceneTargetMode,
-			transparentMode,
-			drawMode,
-			pipelineLayoutKind: "planar-reflection",
-			fragmentTargetKind: "planar-reflection",
-			shaderEntryMode: "planar-reflection-composite",
-			depthStateMode: "planar-reflection",
-			frontFace: "ccw",
-			sampleCountMode,
-			depthFormatMode,
-			pipelineKeyPart:
-				`${sceneTargetMode}|${transparentMode}|${drawMode}|` +
-				`layout:planar-reflection|targets:planar-reflection`,
 		};
 	}
 

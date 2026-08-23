@@ -49,7 +49,7 @@ import {
 	TemporalFrameState,
 	type TemporalFrameSnapshot,
 } from "../cross/TemporalFrameState";
-import type { WebGPUSceneTargetMode } from "./WebGPUPipelineLibrary";
+import type { WebGPUSceneTargetMode } from "./WebGPUScenePassDescriptors";
 import { clamp } from "../../maths/Common";
 import type { Matrix4 } from "../../maths/Matrix4";
 import {

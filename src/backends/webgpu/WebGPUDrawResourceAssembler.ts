@@ -19,8 +19,9 @@ import type {
 } from "./WebGPUResourceContracts";
 import {
 	resolveWebGPUScenePassDescriptor,
-	type WebGPUScenePassDescriptor,
+	type WebGPUDrawPassDescriptor,
 } from "./WebGPUScenePassDescriptors";
+import { resolveWebGPUPlanarReflectionPassDescriptor } from "./WebGPUPlanarReflectionPassDescriptor";
 import type { WebGPUStaticMeshBatcher } from "./WebGPUStaticMeshBatcher";
 
 /** @internal Shared draw preparation independent of feature pipeline ownership. */
@@ -44,12 +45,14 @@ export class WebGPUDrawResourceAssembler {
 		const transparentPipelineMode = options.transparentPipelineMode ?? "default";
 		const sceneTargetMode = options.sceneTargetMode ?? frameResources.sceneTargetMode;
 		const drawMode = options.drawMode ?? "default";
-		const descriptor = resolveWebGPUScenePassDescriptor(
-			sceneTargetMode,
-			transparentPipelineMode,
-			drawMode,
-			options.deferredGBufferLayout,
-		);
+		const descriptor = drawMode === "planar-reflection-composite"
+			? resolveWebGPUPlanarReflectionPassDescriptor(sceneTargetMode)
+			: resolveWebGPUScenePassDescriptor(
+				sceneTargetMode,
+				transparentPipelineMode,
+				drawMode,
+				options.deferredGBufferLayout,
+			);
 		const geometry = this._geometry.getGeometry(packet.primitive);
 		const animationPayload = this._animation.getScenePayload(
 			packet,
@@ -172,7 +175,7 @@ export class WebGPUDrawResourceAssembler {
 		packet: DrawPacket,
 		materialData: WebGPUDrawResources["resolvedInputs"]["materialData"],
 		wireframe: boolean,
-		descriptor: WebGPUScenePassDescriptor,
+		descriptor: WebGPUDrawPassDescriptor,
 	) {
 		const purpose: WebGPUMaterialPipelinePurpose =
 			descriptor.drawMode === "early-z-prepass" ? "early-z" : "scene";
@@ -201,7 +204,7 @@ export class WebGPUDrawResourceAssembler {
 }
 
 function resolveShaderTargetMode(
-	mode: WebGPUScenePassDescriptor["sceneTargetMode"],
+	mode: WebGPUDrawPassDescriptor["sceneTargetMode"],
 ): "single" | "mrt" | "deferred" {
 	if (mode === "gbuffer") return "deferred";
 	return mode === "color" ? "single" : mode;

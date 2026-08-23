@@ -82,7 +82,6 @@ async function testWebGPUEnvironmentCombinationsRegression() {
 	const packet = createPacket(model);
 	const baseScene = createFrame(packet);
 	const resources = new WebGPURenderResources(backend, backend, createWebGPUComputeFacade(backend));
-	await resources.init();
 
 	const caps = {
 		sh: true,
@@ -191,7 +190,6 @@ async function testScopedSceneTargetModesUseDistinctBindings() {
 		createTinyTexture(1)
 	);
 	const resources = new WebGPURenderResources(backend, backend, createWebGPUComputeFacade(backend));
-	await resources.init();
 
 	const features = resolveFeatureState(
 		{
@@ -291,7 +289,6 @@ async function testSampleCountOverrideUsesSingleSampleCapturePipelines() {
 		createTinyTexture(1)
 	);
 	const resources = new WebGPURenderResources(backend, backend, createWebGPUComputeFacade(backend), msaa);
-	await resources.init();
 
 	const features = resolveFeatureState(
 		{
@@ -708,7 +705,6 @@ async function testFrameBindingReplacementDestroysOldBinding() {
 	const packet = createPacket(model);
 	const frame = createFrame(packet);
 	const resources = new WebGPURenderResources(backend, backend, createWebGPUComputeFacade(backend));
-	await resources.init();
 
 	const features = resolveFeatureState(
 		{
@@ -788,7 +784,6 @@ async function testWebGPUPrepareFrameTemporalStateModes() {
 	const model = createModel([new PBRMaterial()]);
 	const packet = createPacket(model);
 	const resources = new WebGPURenderResources(backend, backend, createWebGPUComputeFacade(backend));
-	await resources.init();
 
 	const features = resolveFeatureState(
 		{
@@ -980,7 +975,6 @@ async function testWebGPUPrepareFrameTemporalStateModes() {
 async function testSceneFrameBindingLayoutMatchesFallbackEnvironmentContract() {
 	const backend = new FakeBackend();
 	const resources = new WebGPURenderResources(backend, backend, createWebGPUComputeFacade(backend));
-	await resources.init();
 
 	const sceneLayout = backend.device.bindGroupLayouts.find(
 		(layout) => layout.desc.label === "WebGPUSceneFrameBindGroupLayout"

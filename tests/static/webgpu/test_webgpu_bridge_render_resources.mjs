@@ -122,7 +122,6 @@ async function testRenderResourcesLogPointLightLimitOnlyOnce() {
 	});
 
 	try {
-		await resources.init();
 		const model = createModel([new PBRMaterial()]);
 		const frame = createFrame(createPacket(model));
 		frame.lights = Array.from(
@@ -215,7 +214,6 @@ async function testRenderResourcesUseCopyDstForUploads() {
 	const frame = createFrame(packet);
 	const resources = new WebGPURenderResources(backend, backend, createWebGPUComputeFacade(backend));
 
-	await resources.init();
 	const frameResources = resources.prepareFrame(
 		createFrameContextWithFeatures(
 			frame,

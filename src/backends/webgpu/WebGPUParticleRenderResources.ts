@@ -27,7 +27,7 @@ import {
 } from "./constants";
 import type { WebGPUDeviceResourceHost } from "./WebGPUDeviceResourceHost";
 import type { WebGPUPipelineLayouts } from "./WebGPUPipelineLayouts";
-import type { WebGPUSceneTargetMode } from "./WebGPUPipelineLibrary";
+import type { WebGPUSceneTargetMode } from "./WebGPUScenePassDescriptors";
 import type {
 	WebGPUParticlePassTargets,
 	WebGPUParticleRenderOptions,

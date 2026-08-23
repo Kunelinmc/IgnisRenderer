@@ -24,8 +24,9 @@ import {
 	ShaderMaterial
 } from "../../../src/materials/ShaderMaterial.ts";
 import {
-	WebGPUPipelineLibrary,
-} from "../../../src/backends/webgpu/WebGPUPipelineLibrary.ts";
+	WebGPUScenePipelineResources,
+} from "../../../src/backends/webgpu/WebGPUScenePipelineResources.ts";
+import { resolveWebGPUScenePassDescriptor } from "../../../src/backends/webgpu/WebGPUScenePassDescriptors.ts";
 import { WebGPUEnvironmentResources } from "../../../src/backends/webgpu/WebGPUEnvironmentResources.ts";
 import { WebGPUDeferredResources } from "../../../src/backends/webgpu/WebGPUDeferredResources.ts";
 import {
@@ -73,6 +74,21 @@ globalThis.GPUShaderStage = {
 ShaderSource.resetConfiguration();
 Logger.reset();
 
+function testWebGPUFrameServiceConstructionDoesNotCompilePipelines() {
+	const backend = new FakeBackend();
+	const owner = new WebGPURenderResources(
+		backend,
+		backend,
+		createWebGPUComputeFacade(backend),
+	);
+	try {
+		assert.equal(backend.shaderModules.length, 0);
+		assert.equal(backend.pipelines.length, 0);
+	} finally {
+		owner.destroy();
+	}
+}
+
 async function testWebGPUBlendMaterialsUseTransparentPipelineState() {
 	const backend = new FakeBackend();
 	const material = new PBRMaterial({
@@ -87,7 +103,6 @@ async function testWebGPUBlendMaterialsUseTransparentPipelineState() {
 	frame.transparentPackets = [packet];
 	const resources = new WebGPURenderResources(backend, backend, createWebGPUComputeFacade(backend));
 
-	await resources.init();
 	const frameResources = resources.prepareFrame(
 		createFrameContextWithFeatures(
 			frame,
@@ -155,7 +170,6 @@ async function testWebGPUTransmissionMaterialsUseTransparentPipelineState() {
 	frame.transparentPackets = [packet];
 	const resources = new WebGPURenderResources(backend, backend, createWebGPUComputeFacade(backend));
 
-	await resources.init();
 	const frameResources = resources.prepareFrame(
 		createFrameContextWithFeatures(
 			frame,
@@ -215,7 +229,6 @@ async function testWebGPUEarlyZPrepassOpaquePipelineHasDepthOnlyState() {
 	const frame = createFrame(packet);
 	const resources = new WebGPURenderResources(backend, backend, createWebGPUComputeFacade(backend));
 
-	await resources.init();
 	const frameResources = resources.prepareFrame(
 		createFrameContextWithFeatures(
 			frame,
@@ -273,7 +286,6 @@ async function testWebGPUEarlyZPrepassMaskPipelineUsesMaskDepthFragment() {
 	const frame = createFrame(packet);
 	const resources = new WebGPURenderResources(backend, backend, createWebGPUComputeFacade(backend));
 
-	await resources.init();
 	const frameResources = resources.prepareFrame(
 		createFrameContextWithFeatures(
 			frame,
@@ -321,7 +333,6 @@ async function testWebGPUEarlyZColorPipelineUsesReadOnlyDepthState() {
 	const frame = createFrame(packet);
 	const resources = new WebGPURenderResources(backend, backend, createWebGPUComputeFacade(backend));
 
-	await resources.init();
 	const frameResources = resources.prepareFrame(
 		createFrameContextWithFeatures(
 			frame,
@@ -390,7 +401,6 @@ fn customVs(@location(0) position: vec3<f32>) -> @builtin(position) vec4<f32> {
 	const frame = createFrame(supportedPacket);
 	const resources = new WebGPURenderResources(backend, backend, createWebGPUComputeFacade(backend));
 
-	await resources.init();
 	const frameResources = resources.prepareFrame(
 		createFrameContextWithFeatures(
 			frame,
@@ -501,7 +511,6 @@ fn customFs() -> @location(0) vec4<f32> {
 	const frame = createFrame(packet);
 	const resources = new WebGPURenderResources(backend, backend, createWebGPUComputeFacade(backend));
 
-	await resources.init();
 	const frameResources = resources.prepareFrame(
 		createFrameContextWithFeatures(
 			frame,
@@ -600,7 +609,6 @@ fn customFs() -> @location(0) vec4<f32> {
 	const frame = createFrame(packet);
 	const resources = new WebGPURenderResources(backend, backend, createWebGPUComputeFacade(backend));
 
-	await resources.init();
 	const frameResources = resources.prepareFrame(
 		createFrameContextWithFeatures(
 			frame,
@@ -693,7 +701,6 @@ async function testWebGPUOITTransparentPipelineUsesDualTargets() {
 	frame.transparentPackets = [packet];
 	const resources = new WebGPURenderResources(backend, backend, createWebGPUComputeFacade(backend));
 
-	await resources.init();
 	const frameResources = resources.prepareFrame(
 		createFrameContextWithFeatures(
 			frame,
@@ -768,7 +775,6 @@ async function testWebGPUOITTransmissionMaterialsStayLegacyPipeline() {
 	frame.transparentPackets = [packet];
 	const resources = new WebGPURenderResources(backend, backend, createWebGPUComputeFacade(backend));
 
-	await resources.init();
 	const frameResources = resources.prepareFrame(
 		createFrameContextWithFeatures(
 			frame,
@@ -822,7 +828,6 @@ async function testWebGPUOITParticlePipelinesSplitAlphaAndAdditive() {
 	const packet = createPacket(model);
 	const frame = createFrame(packet);
 	const resources = new WebGPURenderResources(backend, backend, createWebGPUComputeFacade(backend));
-	await resources.init();
 
 	const features = resolveFeatureState(
 		{
@@ -997,7 +1002,6 @@ async function testPlanarCompositeUsesReflectionOwnedPipelineAndSharedSnapshot()
 		backend,
 		createWebGPUComputeFacade(backend),
 	);
-	await owner.init();
 	const frameResources = owner.prepareFrame(
 		createFrameContextWithFeatures(
 			frame,
@@ -1045,7 +1049,7 @@ async function testPlanarCompositeUsesReflectionOwnedPipelineAndSharedSnapshot()
 			frameResolves: 1,
 		});
 		assert.ok(
-			![...owner._pipelineLibrary._pipelineCache.keys()].some((key) =>
+			![...owner._scenePipelines._pipelineCache.keys()].some((key) =>
 				key.includes("planar-reflection-composite"),
 			),
 		);
@@ -1057,6 +1061,7 @@ async function testPlanarCompositeUsesReflectionOwnedPipelineAndSharedSnapshot()
 
 async function run() {
 	try {
+		testWebGPUFrameServiceConstructionDoesNotCompilePipelines();
 		await testWebGPUBlendMaterialsUseTransparentPipelineState();
 		await testWebGPUTransmissionMaterialsUseTransparentPipelineState();
 		await testWebGPUEarlyZPrepassOpaquePipelineHasDepthOnlyState();
@@ -1070,7 +1075,7 @@ async function run() {
 		await testWebGPUOITParticlePipelinesSplitAlphaAndAdditive();
 		await testPlanarCompositeUsesReflectionOwnedPipelineAndSharedSnapshot();
 		await testEarlyZInvalidationDiscardsLatePipeline();
-		testPipelineLibraryExplicitlyDestroysInvalidatedHandles();
+		testScenePipelineResourcesExplicitlyDestroyInvalidatedHandles();
 		console.log("WebGPU bridge material pipelines tests passed");
 	} finally {
 		ShaderSource.resetConfiguration();
@@ -1098,29 +1103,52 @@ async function testEarlyZInvalidationDiscardsLatePipeline() {
 		}
 		return createPipeline(desc);
 	};
-	const library = new WebGPUPipelineLibrary(backend, {}, {
-		listenToShaderRuntime: false,
+	const scenePipelines = new WebGPUScenePipelineResources(backend, {});
+	const pending = scenePipelines.resolvePipeline({
+		materialState: {
+			materialRevision: 1,
+			pipelineKey: "early-z-test",
+			shaderCacheKey: "builtin-scene|runtime:0|directive:none",
+			cullMode: "back",
+			depthWrite: true,
+			alphaMode: AlphaMode.Opaque,
+			transparent: false,
+			usesTransmission: false,
+			wireframe: false,
+			shaderRuntime: {
+				revision: 0,
+				mode: "strict",
+				directiveCacheTag: "none",
+				supportsRuntimeInjects: false,
+			},
+			diagnostic: {
+				materialName: "EarlyZTest",
+				shaderId: null,
+				fallbackReason: null,
+			},
+			program: { kind: "builtin" },
+		},
+		pass: resolveWebGPUScenePassDescriptor(
+			"single",
+			"default",
+			"early-z-prepass",
+		),
+		topology: "triangle-list",
+		geometryLayout: { layoutKey: "test", sceneVertexLayouts: [] },
+		sampleCount: 1,
 	});
-	const material = new PBRMaterial();
-	const pending = library.getEarlyZPrepassPipeline(
-		material,
-		"single",
-		false,
-		"triangle-list",
-		1,
-	);
 	await new Promise((resolve) => setTimeout(resolve, 0));
-	library.invalidateShaderRuntimeCaches();
+	scenePipelines.invalidateShaderRuntimeCaches();
 	release();
 	const pipeline = await pending;
 	assert.ok(pipeline);
 	assert.equal(pipeline.destroyed, false);
-	assert.equal(library._earlyZPrepassCache.size, 1);
+	assert.equal(scenePipelines._earlyZPrepassCache.size, 1);
 	assert.equal(backend.renderPipelineDestroyCalls, 1);
 }
 
-function testPipelineLibraryExplicitlyDestroysInvalidatedHandles() {
-	const library = new WebGPUPipelineLibrary({}, {}, { listenToShaderRuntime: false });
+function testScenePipelineResourcesExplicitlyDestroyInvalidatedHandles() {
+	const library = new WebGPUScenePipelineResources({}, {});
 	const pipeline = {
 		destroyCalls: 0,
 		destroy() {

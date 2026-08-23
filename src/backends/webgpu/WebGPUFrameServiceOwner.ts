@@ -46,17 +46,15 @@ import { WebGPUAnimationPayloadPool } from "./WebGPUAnimationPayloadPool";
 import { WebGPUMaterialBindingCache } from "./WebGPUMaterialBindingCache";
 import { WebGPUMaterialSnapshotCache } from "./WebGPUMaterialSnapshotCache";
 import { WebGPUStaticMeshBatcher } from "./WebGPUStaticMeshBatcher";
-import { WebGPUPipelineLibrary } from "./WebGPUPipelineLibrary";
+import { WebGPUScenePipelineResources } from "./WebGPUScenePipelineResources";
 import { WebGPUDeferredResources } from "./WebGPUDeferredResources";
 import { WebGPUEnvironmentResources } from "./WebGPUEnvironmentResources";
 import { WebGPUDrawResourceAssembler } from "./WebGPUDrawResourceAssembler";
 import { WebGPUMaterialPipelineResolver } from "./WebGPUMaterialPipelineResolver";
 import { WebGPUPlanarReflectionDrawResources } from "./WebGPUPlanarReflectionDrawResources";
 import type {
-	WebGPUScenePipelineDrawMode,
 	WebGPUSceneTargetMode,
-	WebGPUTransparentPipelineMode,
-} from "./WebGPUPipelineLibrary";
+} from "./WebGPUScenePassDescriptors";
 import {
 	type WebGPUPagedShadowFrameRequest,
 } from "./WebGPUPagedShadowTechnique";
@@ -143,7 +141,7 @@ export class WebGPUFrameServiceOwner {
 	private _layouts: ReturnType<typeof createWebGPUPipelineLayouts>;
 	private _geometryRegistry: WebGPUGeometryRegistry;
 	private _textureRegistry: WebGPUTextureRegistry;
-	private _pipelineLibrary: WebGPUPipelineLibrary;
+	private _scenePipelines: WebGPUScenePipelineResources;
 	private _animationPayloads: WebGPUAnimationPayloadPool;
 	private _materialBindings: WebGPUMaterialBindingCache;
 	private _materialSnapshots: WebGPUMaterialSnapshotCache;
@@ -176,9 +174,10 @@ export class WebGPUFrameServiceOwner {
 		this._geometryRegistry = new WebGPUGeometryRegistry(backend);
 		this._textureRegistry = new WebGPUTextureRegistry(backend, resourceManager);
 		this._materialSnapshots = new WebGPUMaterialSnapshotCache(this._textureRegistry);
-		this._pipelineLibrary = new WebGPUPipelineLibrary(backend, this._layouts, {
-			listenToShaderRuntime: false,
-		});
+		this._scenePipelines = new WebGPUScenePipelineResources(
+			backend,
+			this._layouts,
+		);
 		this._particleRenderResources = new WebGPUParticleRenderResources(
 			backend,
 			this._layouts,
@@ -216,10 +215,6 @@ export class WebGPUFrameServiceOwner {
 			this._geometryRegistry,
 			this._animationPayloads
 		);
-	}
-
-	public async init(): Promise<void> {
-		await this._pipelineLibrary.init();
 	}
 
 	/** @internal Creates reflection-owned composite draw resources. */
@@ -789,7 +784,7 @@ export class WebGPUFrameServiceOwner {
 		if (this._destroyed) {
 			return;
 		}
-		this._pipelineLibrary.invalidateShaderRuntimeCaches();
+		this._scenePipelines.invalidateShaderRuntimeCaches();
 		this._materialPipelineResolver.clear();
 		this._environmentResources.onShaderRuntimeChanged();
 		this._particleRenderResources.onShaderRuntimeChanged();
@@ -841,7 +836,7 @@ export class WebGPUFrameServiceOwner {
 		this._materialSnapshots.clear();
 		this._staticBatcher.destroy();
 		this._animationPayloads.destroy();
-		this._pipelineLibrary.destroy();
+		this._scenePipelines.destroy();
 		this._textureRegistry.destroy();
 		this._geometryRegistry.destroy();
 	}
@@ -1045,7 +1040,7 @@ export class WebGPUFrameServiceOwner {
 			packet,
 			prepared,
 			options,
-			this._pipelineLibrary,
+			this._scenePipelines,
 		);
 	}
 

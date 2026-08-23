@@ -140,6 +140,10 @@ lighting, presentation configuration, reflections, and structured buffer packing
   composition root. It owns device-lifetime scene, texture, deferred, shadow,
   and particle-render resources; consumers must receive only the corresponding
   narrow resource-provider capability.
+- `WebGPUScenePipelineResources` must own only built-in and custom scene shader
+  modules together with forward, G-buffer, Early-Z, and scene-capture pipeline
+  variants. It must not own environment, deferred-lighting, or planar-reflection
+  composite pipelines, and it must consume immutable material pipeline state.
 - `WebGPUEnvironmentResources` must own the environment shader and render
   pipeline handles shared by main-scene, planar-reflection, and reflection-probe
   capture paths. Capture runtimes must not create private copies.

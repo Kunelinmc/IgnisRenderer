@@ -27,7 +27,7 @@ import type { WebGPUAnimationPayloadPool } from "./WebGPUAnimationPayloadPool";
 import type { WebGPUDeviceResourceHost } from "./WebGPUDeviceResourceHost";
 import type { WebGPUGeometryHandle } from "./WebGPUGeometryRegistry";
 import type { WebGPUPipelineLayouts } from "./WebGPUPipelineLayouts";
-import type { WebGPUScenePipelineDrawMode } from "./WebGPUPipelineLibrary";
+import type { WebGPUDrawPipelineMode } from "./WebGPUScenePassDescriptors";
 import type { WebGPUResolvedMaterialSnapshot } from "./WebGPUMaterialSnapshotCache";
 import type { WebGPUMaterialUniformData } from "./types";
 
@@ -117,7 +117,7 @@ export class WebGPUStaticMeshBatcher {
 		pipeline: IRenderPipeline,
 		geometry: WebGPUGeometryHandle,
 		snapshot: WebGPUResolvedMaterialSnapshot,
-		drawMode: WebGPUScenePipelineDrawMode,
+		drawMode: WebGPUDrawPipelineMode,
 	): WebGPUStaticDrawState | null {
 		if (!this._isEligible(packet, geometry, drawMode)) return null;
 		let firstInstance = this._packetIndices.get(packet);
@@ -191,7 +191,7 @@ export class WebGPUStaticMeshBatcher {
 	private _isEligible(
 		packet: DrawPacket,
 		geometry: WebGPUGeometryHandle,
-		drawMode: WebGPUScenePipelineDrawMode,
+		drawMode: WebGPUDrawPipelineMode,
 	): boolean {
 		return !(
 			drawMode === "reflection-capture" ||

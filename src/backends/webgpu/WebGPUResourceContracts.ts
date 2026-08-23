@@ -25,10 +25,11 @@ import type {
 import type { WebGPUVertexBufferBinding } from "./WebGPUGeometryRegistry";
 import type { WebGPUGeometryHandle } from "./WebGPUGeometryRegistry";
 import type {
-	WebGPUScenePipelineDrawMode,
+	WebGPUDrawPassDescriptor,
+	WebGPUDrawPipelineMode,
 	WebGPUSceneTargetMode,
 	WebGPUTransparentPipelineMode,
-} from "./WebGPUPipelineLibrary";
+} from "./WebGPUScenePassDescriptors";
 import type { WebGPUTemporalStateMode } from "./WebGPUFrameBindingCache";
 import type {
 	JointMatrixMap,
@@ -38,7 +39,6 @@ import type { FramePreparationRequirements } from "../../pipeline/FrameRequireme
 import type { WebGPUPagedShadowFrameRequest } from "./WebGPUPagedShadowTechnique";
 import type { ParticleBlendMode } from "../../particles";
 import type { WebGPUDeferredGBufferLayout } from "./constants";
-import type { WebGPUScenePassDescriptor } from "./WebGPUScenePassDescriptors";
 import type { WebGPUMaterialPipelineState } from "./WebGPUMaterialPipelineResolver";
 
 /** @internal Inputs retained with a resolved WebGPU scene draw. */
@@ -83,7 +83,7 @@ export interface WebGPUDrawResources {
 /** @internal Immutable inputs accepted by a feature-owned draw pipeline provider. */
 export interface WebGPUDrawPipelineRequest {
 	readonly materialState: WebGPUMaterialPipelineState;
-	readonly pass: WebGPUScenePassDescriptor;
+	readonly pass: WebGPUDrawPassDescriptor;
 	readonly topology: PrimitiveDrawTopology;
 	readonly geometryLayout: {
 		readonly layoutKey: string;
@@ -123,7 +123,7 @@ export interface WebGPUParticlePassTargets {
 export interface WebGPUDrawResourceOptions {
 	transparentPipelineMode?: WebGPUTransparentPipelineMode;
 	sceneTargetMode?: WebGPUSceneTargetMode;
-	drawMode?: WebGPUScenePipelineDrawMode;
+	drawMode?: WebGPUDrawPipelineMode;
 	deferredGBufferLayout?: WebGPUDeferredGBufferLayout;
 	sampleCount: number;
 }

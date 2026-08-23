@@ -83,6 +83,7 @@ to Software or WebGL.
 | Feature modules / frame graph compiler | Node expansion, ordering, logical resources, dependencies, stage slices, and diagnostics |
 | Feature modules | Feature analysis, configuration requirements, graph contributions, commands, warmup, and pass-local lifecycle |
 | Resource owners | Native texture, buffer, pipeline, binding, pool, and frame-target lifetimes |
+| Scene pipeline resources | Shared forward, G-buffer, Early-Z, and capture scene variants |
 | Particle render resources | Owner-managed billboard pipelines, particle buffers, bindings, and pass recording |
 | Frame packet contributors | Backend-composed, device-independent conversion of supplemental current-view draw work |
 | Post-process runtime | Logical plan, declarations, histories, transients, and history transactions |

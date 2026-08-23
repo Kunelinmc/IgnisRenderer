@@ -615,7 +615,6 @@ export class WebGPUBackend implements IRenderBackend {
 			this._resourceManager,
 			this._computeFacade,
 		);
-		await this._resources.init();
 		this._postProcessExecutor = new WebGPUPostProcessExecutor(this._frameHost);
 		this._postProcessRuntime = new BackendPostProcessRuntime({
 			executor: this._postProcessExecutor,

@@ -1,50 +1,26 @@
 import { createInlineCompositeShaderSource } from "../../shaders/runtime";
 import { ShaderSource } from "../../shaders/ShaderSource";
-import { createWebGPUMaterialUniformData } from "./";
 import { DEFAULT_PRIMITIVE_DRAW_TOPOLOGY } from "../../core/types";
 import { TextureFormat, type ColorTargetState } from "../types";
 import type { PrimitiveDrawTopology } from "../../core/types";
-import { AlphaMode, type Material } from "../../materials/Material";
+import { AlphaMode } from "../../materials/Material";
 import type { IRenderPipeline, IShaderModule } from "../types";
 import type { WebGPUDeviceResourceHost } from "./WebGPUDeviceResourceHost";
 import type { WebGPUPipelineLayouts } from "./WebGPUPipelineLayouts";
-import type { WebGPUGeometryHandle } from "./WebGPUGeometryRegistry";
-import type { WebGPUMaterialUniformData } from "./types";
-import { packWebGPUVertexGeometry } from "./WebGPUGeometryPacking";
 import { Logger } from "../../foundation/Logger";
 import { GBufferSlot, WEBGPU_MRT_COLOR_FORMATS } from "./constants";
 import {
-	resolveWebGPUScenePassDescriptor,
 	type WebGPUScenePassDescriptor,
-	type WebGPUScenePipelineDrawMode,
 	type WebGPUSceneTargetMode,
-	type WebGPUTransparentPipelineMode,
 } from "./WebGPUScenePassDescriptors";
-import {
-	WebGPUMaterialPipelineResolver,
-	readWebGPUShaderRuntimeView,
-	type WebGPUMaterialPipelineState,
-	type WebGPUShaderRuntimeView,
-} from "./WebGPUMaterialPipelineResolver";
+import type { WebGPUMaterialPipelineState } from "./WebGPUMaterialPipelineResolver";
 import { destroyUniqueWebGPUHandles } from "./WebGPUManagedResourceUtils";
 import type {
 	WebGPUDrawPipelineProvider,
 	WebGPUDrawPipelineRequest,
 } from "./WebGPUResourceContracts";
 
-export type {
-	WebGPUScenePipelineDrawMode,
-	WebGPUSceneTargetMode,
-	WebGPUTransparentPipelineMode,
-} from "./WebGPUScenePassDescriptors";
 const COLOR_WRITE_NONE = 0;
-const FALLBACK_GEOMETRY_LAYOUT = packWebGPUVertexGeometry(
-	{
-		positions: new Float32Array(3),
-		indices: new Uint32Array(0),
-	},
-	1
-);
 const ALPHA_BLEND_STATE = {
 	color: {
 		srcFactor: "src-alpha",
@@ -93,92 +69,71 @@ interface WebGPUSceneProgram {
 	fragmentTargetMode: "single" | "mrt" | "deferred" | null;
 }
 
-interface GeometryLayout {
-	readonly layoutKey: string;
-	readonly sceneVertexLayouts: WebGPUGeometryHandle["sceneVertexLayouts"];
-}
+type GeometryLayout = WebGPUDrawPipelineRequest["geometryLayout"];
+type WebGPUScenePipelineRequest = Omit<WebGPUDrawPipelineRequest, "pass"> & {
+	readonly pass: WebGPUScenePassDescriptor;
+};
 
-interface WebGPUPipelineLibraryOptions {
-	listenToShaderRuntime?: boolean;
-}
-
-export class WebGPUPipelineLibrary implements WebGPUDrawPipelineProvider {
+export class WebGPUScenePipelineResources implements WebGPUDrawPipelineProvider {
 	private _backend: WebGPUDeviceResourceHost;
 	private _layouts: WebGPUPipelineLayouts;
-	private _disposeShaderRuntimeListener: (() => void) | null = null;
 	private _sceneShaderModule: IShaderModule | null = null;
 	private _sceneShaderDirectiveTag = "";
 	private _customShaderModuleCache = new Map<string, IShaderModule>();
-	private _materialPipelineCache = new WeakMap<Material, Map<string, IRenderPipeline>>();
 	private _pipelineCache = new Map<string, IRenderPipeline>();
 	private _earlyZPrepassCache = new Map<string, IRenderPipeline>();
 	private _earlyZPrepassInFlight = new Map<
 		string,
 		Promise<IRenderPipeline | null>
 	>();
-	private _materialPipelineResolver = new WebGPUMaterialPipelineResolver();
 	private _shaderCacheGeneration = 0;
 
 	constructor(
 		backend: WebGPUDeviceResourceHost,
 		layouts: WebGPUPipelineLayouts,
-		options: WebGPUPipelineLibraryOptions = {}
 	) {
 		this._backend = backend;
 		this._layouts = layouts;
-		const shaderRuntime = this._getShaderRuntime();
-		const listenToShaderRuntime = options.listenToShaderRuntime !== false;
-		if (
-			listenToShaderRuntime &&
-			shaderRuntime &&
-			typeof shaderRuntime.onDidChange === "function"
-		) {
-			this._disposeShaderRuntimeListener = shaderRuntime.onDidChange(() =>
-				this.invalidateShaderRuntimeCaches()
-			);
-		}
 	}
 
 	public destroy(): void {
-		this._disposeShaderRuntimeListener?.();
-		this._disposeShaderRuntimeListener = null;
 		this.invalidateShaderRuntimeCaches();
 	}
 
 	public invalidateShaderRuntimeCaches(): void {
 		this._shaderCacheGeneration++;
-		this._materialPipelineResolver.clear();
 		destroyUniqueWebGPUHandles([
 			...this._pipelineCache.values(),
 			...this._earlyZPrepassCache.values(),
-		], "pipeline", "WebGPUPipelineLibrary");
+		], "pipeline", "WebGPUScenePipelineResources");
 		destroyUniqueWebGPUHandles([
 			...this._customShaderModuleCache.values(),
 			this._sceneShaderModule,
-		], "shader module", "WebGPUPipelineLibrary");
+		], "shader module", "WebGPUScenePipelineResources");
 		this._sceneShaderModule = null;
 		this._sceneShaderDirectiveTag = "";
 		this._customShaderModuleCache.clear();
-		this._materialPipelineCache = new WeakMap<Material, Map<string, IRenderPipeline>>();
 		this._pipelineCache.clear();
 		this._earlyZPrepassCache.clear();
 		this._earlyZPrepassInFlight.clear();
 	}
 
-	public async init(): Promise<void> {
-		await this._getSceneShaderModule();
-	}
-
 	public resolvePipeline(
 		request: WebGPUDrawPipelineRequest,
 	): Promise<IRenderPipeline | null> {
-		return request.pass.drawMode === "early-z-prepass"
-			? this._resolveEarlyZPipeline(request)
-			: this._resolveScenePipeline(request);
+		if (request.pass.drawMode === "planar-reflection-composite") {
+			throw new Error(
+				"WebGPU scene pipeline resources do not own planar reflection composite pipelines.",
+			);
+		}
+		const sceneRequest = request as WebGPUScenePipelineRequest;
+		return sceneRequest.pass.drawMode === "early-z-prepass"
+			? this._resolveEarlyZPipeline(sceneRequest)
+			: this._resolveScenePipeline(sceneRequest);
 	}
 
 	private async _resolveScenePipeline(
-		request: WebGPUDrawPipelineRequest,
+		request: WebGPUScenePipelineRequest,
 	): Promise<IRenderPipeline> {
 		const { materialState, pass, topology, geometryLayout } = request;
 		const sampleCount = this._resolveSampleCount(
@@ -204,108 +159,11 @@ export class WebGPUPipelineLibrary implements WebGPUDrawPipelineProvider {
 			destroyUniqueWebGPUHandles(
 				[pipeline],
 				"pipeline",
-				"WebGPUPipelineLibrary",
+				"WebGPUScenePipelineResources",
 			);
 			return winner;
 		}
 		this._pipelineCache.set(cacheKey, pipeline);
-		return pipeline;
-	}
-
-	public async getPipeline(
-		material: Material,
-		mode: WebGPUSceneTargetMode = "single",
-		isWireframe = false,
-		topology: PrimitiveDrawTopology = DEFAULT_PRIMITIVE_DRAW_TOPOLOGY,
-		transparentMode: WebGPUTransparentPipelineMode = "default",
-		drawMode: WebGPUScenePipelineDrawMode = "default",
-		sampleCount: number,
-		deferredGBufferLayout: "base" | "extended" = "extended",
-		geometry?: WebGPUGeometryHandle,
-		resolvedMaterialData?: WebGPUMaterialUniformData,
-	): Promise<IRenderPipeline> {
-		if (!resolvedMaterialData) material.refreshRevision();
-		const geometryLayout = resolveGeometryLayout(geometry);
-		const descriptor = resolveWebGPUScenePassDescriptor(
-			mode,
-			transparentMode,
-			drawMode,
-			deferredGBufferLayout
-		);
-		const resolvedSampleCount = this._resolveSampleCount(
-			descriptor.sceneTargetMode,
-			sampleCount
-		);
-		const depthFormat = this._resolveSceneDepthFormat(
-			descriptor.sceneTargetMode
-		);
-		const materialData =
-			resolvedMaterialData ?? createWebGPUMaterialUniformData(material, isWireframe);
-		const pipelineState = this._resolveMaterialPipelineState(
-			material,
-			materialData,
-			isWireframe,
-			descriptor,
-			"scene",
-		);
-		const { pipelineKey } = pipelineState;
-		const initialShaderKey = pipelineState.shaderCacheKey;
-
-		const initialCacheKey =
-			`${pipelineKey}|${descriptor.pipelineKeyPart}|${initialShaderKey}` +
-			`|topology:${topology}|layout:${geometryLayout.layoutKey}|` +
-			`depth:${depthFormat}|msaa:${resolvedSampleCount}`;
-		let materialVariants = this._materialPipelineCache.get(material);
-		if (!materialVariants) {
-			materialVariants = new Map();
-			this._materialPipelineCache.set(material, materialVariants);
-		}
-		const materialCached = materialVariants.get(initialCacheKey);
-		if (materialCached) {
-			materialVariants.delete(initialCacheKey);
-			materialVariants.set(initialCacheKey, materialCached);
-			return materialCached;
-		}
-		let pipeline = this._pipelineCache.get(initialCacheKey);
-		if (!pipeline) {
-			pipeline = await this._createPipeline(
-				pipelineState,
-				descriptor,
-				topology,
-				geometryLayout,
-				resolvedSampleCount,
-			);
-		}
-		const finalShaderKey = pipelineState.shaderCacheKey;
-		const finalCacheKey =
-			`${pipelineKey}|${descriptor.pipelineKeyPart}|${finalShaderKey}` +
-			`|topology:${topology}|layout:${geometryLayout.layoutKey}|` +
-			`depth:${depthFormat}|msaa:${resolvedSampleCount}`;
-		const cachedFinalPipeline = this._pipelineCache.get(finalCacheKey);
-		if (cachedFinalPipeline) {
-			if (pipeline !== cachedFinalPipeline) {
-				destroyUniqueWebGPUHandles(
-					[pipeline],
-					"pipeline",
-					"WebGPUPipelineLibrary",
-				);
-			}
-			pipeline = cachedFinalPipeline;
-		} else {
-			this._pipelineCache.set(finalCacheKey, pipeline);
-		}
-		if (finalCacheKey !== initialCacheKey) {
-			this._pipelineCache.delete(initialCacheKey);
-		}
-
-		materialVariants.delete(initialCacheKey);
-		materialVariants.set(finalCacheKey, pipeline);
-		while (materialVariants.size > 32) {
-			const oldest = materialVariants.keys().next().value as string | undefined;
-			if (!oldest) break;
-			materialVariants.delete(oldest);
-		}
-
 		return pipeline;
 	}
 
@@ -382,54 +240,8 @@ export class WebGPUPipelineLibrary implements WebGPUDrawPipelineProvider {
 		} as any);
 	}
 
-	public async getEarlyZPrepassPipeline(
-		material: Material,
-		mode: WebGPUSceneTargetMode = "single",
-		isWireframe = false,
-		topology: PrimitiveDrawTopology = DEFAULT_PRIMITIVE_DRAW_TOPOLOGY,
-		sampleCount: number,
-		geometry?: WebGPUGeometryHandle,
-		resolvedMaterialData?: WebGPUMaterialUniformData,
-	): Promise<IRenderPipeline | null> {
-		if (!resolvedMaterialData) material.refreshRevision();
-		const geometryLayout = resolveGeometryLayout(geometry);
-		const descriptor = resolveWebGPUScenePassDescriptor(
-			mode,
-			"default",
-			"early-z-prepass"
-		);
-		const materialData =
-			resolvedMaterialData ?? createWebGPUMaterialUniformData(material, isWireframe);
-		let pipelineState: WebGPUMaterialPipelineState;
-		try {
-			pipelineState = this._resolveMaterialPipelineState(
-				material,
-				materialData,
-				isWireframe,
-				descriptor,
-				"early-z",
-			);
-		} catch (error) {
-			this._warnShaderMaterialDepthPrepassSkipped(
-				material.name,
-				material instanceof Object && "shaderId" in material
-					? Number((material as { shaderId: number }).shaderId)
-					: null,
-				String(error),
-			);
-			return null;
-		}
-		return this._resolveEarlyZPipeline({
-			materialState: pipelineState,
-			pass: descriptor,
-			topology,
-			geometryLayout,
-			sampleCount,
-		});
-	}
-
 	private _resolveEarlyZPipeline(
-		request: WebGPUDrawPipelineRequest,
+		request: WebGPUScenePipelineRequest,
 	): Promise<IRenderPipeline | null> {
 		const { materialState, pass, topology, geometryLayout } = request;
 		if (materialState.transparent || !materialState.depthWrite) {
@@ -501,7 +313,7 @@ export class WebGPUPipelineLibrary implements WebGPUDrawPipelineProvider {
 				destroyUniqueWebGPUHandles(
 					[pipeline],
 					"pipeline",
-					"WebGPUPipelineLibrary",
+					"WebGPUScenePipelineResources",
 				);
 				return this._resolveEarlyZPipeline(request);
 			}
@@ -510,7 +322,7 @@ export class WebGPUPipelineLibrary implements WebGPUDrawPipelineProvider {
 				destroyUniqueWebGPUHandles(
 					[pipeline],
 					"pipeline",
-					"WebGPUPipelineLibrary",
+					"WebGPUScenePipelineResources",
 				);
 				return winner;
 			}
@@ -699,7 +511,7 @@ export class WebGPUPipelineLibrary implements WebGPUDrawPipelineProvider {
 			const key = `webgpu-shader-material-compile-failed-${shaderId}`;
 			Logger.warn(
 				`[${key}] ShaderMaterial ${pipelineState.diagnostic.materialName} custom WebGPU shader compile failed; using built-in scene shader. ${String(error)}`,
-				{ scope: "WebGPUPipelineLibrary", onceKey: key }
+				{ scope: "WebGPUScenePipelineResources", onceKey: key }
 			);
 			const shaderModule = await this._getSceneShaderModule();
 			return {
@@ -728,7 +540,7 @@ export class WebGPUPipelineLibrary implements WebGPUDrawPipelineProvider {
 		const key = `webgpu-shader-material-compile-failed-${shaderId}`;
 		Logger.warn(
 			`[${key}] ShaderMaterial ${pipelineState.diagnostic.materialName} custom WebGPU shader compile failed; using built-in scene shader. ${reason}`,
-			{ scope: "WebGPUPipelineLibrary", onceKey: key },
+			{ scope: "WebGPUScenePipelineResources", onceKey: key },
 		);
 	}
 
@@ -820,7 +632,7 @@ export class WebGPUPipelineLibrary implements WebGPUDrawPipelineProvider {
 		const key = `webgpu-earlyz-shader-material-skip-${shaderId ?? "unknown"}`;
 		Logger.warn(
 			`[${key}] ShaderMaterial ${materialName} early-z pre-pass is skipped: ${reason}`,
-			{ scope: "WebGPUPipelineLibrary", onceKey: key }
+			{ scope: "WebGPUScenePipelineResources", onceKey: key }
 		);
 	}
 
@@ -891,32 +703,6 @@ export class WebGPUPipelineLibrary implements WebGPUDrawPipelineProvider {
 		return Math.max(1, Math.floor(sampleCount));
 	}
 
-	private _resolveShaderMaterialMode(
-		mode: WebGPUSceneTargetMode
-	): "single" | "mrt" | "deferred" {
-		if (mode === "gbuffer") {
-			return "deferred";
-		}
-		return mode === "color" ? "single" : mode;
-	}
-
-	private _resolveMaterialPipelineState(
-		material: Material,
-		materialData: WebGPUMaterialUniformData,
-		wireframe: boolean,
-		descriptor: WebGPUScenePassDescriptor,
-		purpose: "scene" | "early-z",
-	): WebGPUMaterialPipelineState {
-		return this._materialPipelineResolver.resolve(
-			material,
-			materialData,
-			wireframe,
-			this._resolveShaderMaterialMode(descriptor.sceneTargetMode),
-			purpose,
-			this._getShaderRuntimeView(),
-		);
-	}
-
 	private async _getSceneShaderModule(): Promise<IShaderModule> {
 		const directiveTag = this._getDirectiveCacheTag();
 		if (
@@ -941,20 +727,6 @@ export class WebGPUPipelineLibrary implements WebGPUDrawPipelineProvider {
 		return this._sceneShaderModule;
 	}
 
-	private _getShaderRuntime():
-		| {
-				revision?: number;
-				getMode?: () => "strict" | "warn" | "silent";
-				onDidChange?: (listener: () => void) => () => void;
-		  }
-		| null {
-		return this._backend.shaderRuntime ?? null;
-	}
-
-	private _getShaderRuntimeView(): WebGPUShaderRuntimeView {
-		return readWebGPUShaderRuntimeView(this._backend);
-	}
-
 	private _getDirectiveCacheTag(): string {
 		if (typeof this._backend.getShaderDirectiveCacheTag === "function") {
 			return this._backend.getShaderDirectiveCacheTag();
@@ -962,14 +734,4 @@ export class WebGPUPipelineLibrary implements WebGPUDrawPipelineProvider {
 		return "none";
 	}
 
-}
-
-function resolveGeometryLayout(
-	geometry?: WebGPUGeometryHandle
-): GeometryLayout {
-	if (geometry) return geometry;
-	return {
-		layoutKey: FALLBACK_GEOMETRY_LAYOUT.layoutKey,
-		sceneVertexLayouts: FALLBACK_GEOMETRY_LAYOUT.sceneLayouts,
-	};
 }

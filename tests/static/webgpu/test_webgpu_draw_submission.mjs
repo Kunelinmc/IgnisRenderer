@@ -6,6 +6,7 @@ import {
 import {
 	resolveWebGPUScenePassDescriptor,
 } from "../../../src/backends/webgpu/WebGPUScenePassDescriptors.ts";
+import { resolveWebGPUPlanarReflectionPassDescriptor } from "../../../src/backends/webgpu/WebGPUPlanarReflectionPassDescriptor.ts";
 
 function createDrawResource(id) {
 	return {
@@ -324,11 +325,7 @@ function testScenePassDescriptorsExposePipelineStateKeyParts() {
 		)
 	);
 
-	const planar = resolveWebGPUScenePassDescriptor(
-		"mrt",
-		"default",
-		"planar-reflection-composite"
-	);
+	const planar = resolveWebGPUPlanarReflectionPassDescriptor("mrt");
 	assert.equal(planar.pipelineLayoutKind, "planar-reflection");
 	assert.equal(planar.fragmentTargetKind, "planar-reflection");
 	assert.equal(planar.depthStateMode, "planar-reflection");

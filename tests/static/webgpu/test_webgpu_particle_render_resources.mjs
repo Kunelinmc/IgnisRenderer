@@ -91,7 +91,6 @@ async function testBillboardPipelinesBindingsScissorAndLifecycle() {
 		backend,
 		createWebGPUComputeFacade(backend),
 	);
-	await owner.init();
 	const particles = owner.getParticleBillboardRenderer();
 	const texture = new Texture({
 		data: new Uint8Array([255, 255, 255, 255]),
@@ -206,7 +205,6 @@ async function testGPUIndirectDrawAndFallback() {
 		backend,
 		createWebGPUComputeFacade(backend),
 	);
-	await owner.init();
 	const particles = owner.getParticleBillboardRenderer();
 	const texture = new Texture({
 		data: new Uint8Array([255, 255, 255, 255]),
@@ -279,7 +277,6 @@ async function testParticlePipelinesUsePassTargetSampleCount() {
 		backend,
 		createWebGPUComputeFacade(backend),
 	);
-	await owner.init();
 	const transient = createTransientStore();
 	transient.set(PARTICLE_TRANSIENT_BATCHES_KEY, [
 		createBillboardBatch(
@@ -317,7 +314,6 @@ async function testParticleBindingCacheEviction() {
 		backend,
 		createWebGPUComputeFacade(backend),
 	);
-	await owner.init();
 	const texture = new Texture({
 		data: new Uint8Array([255, 255, 255, 255]),
 		width: 1,
