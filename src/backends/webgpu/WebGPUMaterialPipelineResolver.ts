@@ -23,6 +23,30 @@ export interface WebGPUShaderRuntimeView {
 	readonly supportsRuntimeInjects: boolean;
 }
 
+/** @internal Reads the explicit runtime view with a compatibility fallback for test hosts. */
+export function readWebGPUShaderRuntimeView(source: {
+	getShaderRuntimeView?: () => WebGPUShaderRuntimeView;
+	getShaderDirectiveCacheTag?: () => string;
+	shaderRuntime?: {
+		revision?: number;
+		getMode?: () => "strict" | "warn" | "silent";
+	};
+}): WebGPUShaderRuntimeView {
+	if (typeof source.getShaderRuntimeView === "function") {
+		return source.getShaderRuntimeView();
+	}
+	const directiveCacheTag = source.getShaderDirectiveCacheTag?.() ?? "none";
+	return {
+		revision:
+			typeof source.shaderRuntime?.revision === "number"
+				? source.shaderRuntime.revision
+				: 0,
+		mode: source.shaderRuntime?.getMode?.() ?? "strict",
+		directiveCacheTag,
+		supportsRuntimeInjects: directiveCacheTag !== "none",
+	};
+}
+
 export interface WebGPUCustomMaterialProgramDescriptor {
 	readonly kind: "custom";
 	readonly cacheKey: string;

@@ -11,6 +11,8 @@ import {
 import type { WebGPUDeferredResourceProvider } from "./WebGPUResourceContracts";
 import type { WebGPUPipelineLayouts } from "./WebGPUPipelineLayouts";
 import type { WebGPUDeviceResourceHost } from "./WebGPUDeviceResourceHost";
+import { destroyUniqueWebGPUHandles } from "./WebGPUManagedResourceUtils";
+import { readWebGPUShaderRuntimeView } from "./WebGPUMaterialPipelineResolver";
 
 /**
  * Owns WebGPU deferred layouts, pipelines, and the deferred placeholder group.
@@ -18,6 +20,9 @@ import type { WebGPUDeviceResourceHost } from "./WebGPUDeviceResourceHost";
  * @internal Owned by the WebGPU frame service owner.
  */
 export class WebGPUDeferredResources implements WebGPUDeferredResourceProvider {
+	private _deferredLightingShaderModule: IShaderModule | null = null;
+	private _deferredLightingShaderDirectiveTag = "";
+	private _deferredLightingPipeline: IRenderPipeline | null = null;
 	private _decalShaderModule: IShaderModule | null = null;
 	private _decalPipeline: IRenderPipeline | null = null;
 	private _decalBatchPipeline: IComputePipeline | null = null;
@@ -31,7 +36,6 @@ export class WebGPUDeferredResources implements WebGPUDeferredResourceProvider {
 	constructor(
 		private readonly _backend: WebGPUDeviceResourceHost,
 		private readonly _layouts: WebGPUPipelineLayouts,
-		private readonly _getDeferredLightingPipeline: () => Promise<IRenderPipeline>,
 	) {}
 
 	public getGBufferWriteLayout(): GPUBindGroupLayout {
@@ -100,7 +104,28 @@ export class WebGPUDeferredResources implements WebGPUDeferredResourceProvider {
 	}
 
 	public async getDeferredLightingPipeline(): Promise<IRenderPipeline> {
-		return this._getDeferredLightingPipeline();
+		if (this._deferredLightingPipeline) return this._deferredLightingPipeline;
+		const shaderModule = await this._getDeferredLightingShaderModule();
+		this._deferredLightingPipeline = await this._backend.createPipeline({
+			layout: this._layouts.deferredLightingPipelineLayout,
+			label: "WebGPUDeferredLightingPipeline",
+			vertex: {
+				module: shaderModule,
+				entryPoint: "vsMainDeferredLighting",
+			},
+			fragment: {
+				module: shaderModule,
+				entryPoint: "fsMainDeferredLighting",
+				targets: [{ format: TextureFormat.RGBA16Float }],
+			},
+			primitive: {
+				topology: "triangle-list" as any,
+				cullMode: "none",
+				frontFace: "ccw",
+			},
+			sampleCount: 1,
+		} as any);
+		return this._deferredLightingPipeline;
 	}
 
 	public async getDecalPipeline(): Promise<IRenderPipeline> {
@@ -147,6 +172,23 @@ export class WebGPUDeferredResources implements WebGPUDeferredResourceProvider {
 	}
 
 	public onShaderRuntimeChanged(): void {
+		destroyUniqueWebGPUHandles(
+			[
+				this._deferredLightingPipeline,
+				this._decalPipeline,
+				this._decalBatchPipeline,
+			],
+			"pipeline",
+			"WebGPUDeferredResources",
+		);
+		destroyUniqueWebGPUHandles(
+			[this._deferredLightingShaderModule, this._decalShaderModule],
+			"shader module",
+			"WebGPUDeferredResources",
+		);
+		this._deferredLightingShaderModule = null;
+		this._deferredLightingShaderDirectiveTag = "";
+		this._deferredLightingPipeline = null;
 		this._decalShaderModule = null;
 		this._decalPipeline = null;
 		this._decalBatchPipeline = null;
@@ -177,6 +219,36 @@ export class WebGPUDeferredResources implements WebGPUDeferredResourceProvider {
 			});
 		}
 		return this._decalShaderModule;
+	}
+
+	private async _getDeferredLightingShaderModule(): Promise<IShaderModule> {
+		const directiveTag =
+			readWebGPUShaderRuntimeView(this._backend).directiveCacheTag;
+		if (
+			this._deferredLightingShaderModule &&
+			this._deferredLightingShaderDirectiveTag === directiveTag
+		) {
+			return this._deferredLightingShaderModule;
+		}
+		const shader = await ShaderSource.load("webgpu.deferredLighting");
+		const module = await this._backend.createShaderModule({
+			code: shader.source.code,
+			sourceMap: shader.source.sourceMap,
+			label: "WebGPUDeferredLightingShader",
+			language: "wgsl",
+			stage: "unknown",
+			sourceKind: "builtin-scene",
+		});
+		if (this._deferredLightingShaderModule) {
+			destroyUniqueWebGPUHandles(
+				[this._deferredLightingShaderModule],
+				"shader module",
+				"WebGPUDeferredResources",
+			);
+		}
+		this._deferredLightingShaderModule = module;
+		this._deferredLightingShaderDirectiveTag = directiveTag;
+		return module;
 	}
 
 	private _destroyBindingGroup(group: IBindingGroup | null): void {

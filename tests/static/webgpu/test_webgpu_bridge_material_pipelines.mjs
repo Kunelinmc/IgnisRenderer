@@ -26,6 +26,8 @@ import {
 import {
 	WebGPUPipelineLibrary,
 } from "../../../src/backends/webgpu/WebGPUPipelineLibrary.ts";
+import { WebGPUEnvironmentResources } from "../../../src/backends/webgpu/WebGPUEnvironmentResources.ts";
+import { WebGPUDeferredResources } from "../../../src/backends/webgpu/WebGPUDeferredResources.ts";
 import {
 	Texture
 } from "../../../src/core/Texture.ts";
@@ -1063,16 +1065,28 @@ function testPipelineLibraryExplicitlyDestroysInvalidatedHandles() {
 	};
 	library._pipelineCache.set("scene", pipeline);
 	library._earlyZPrepassCache.set("early-z", pipeline);
-	library._environmentPipelines.set("environment", pipeline);
-	library._deferredLightingPipeline = pipeline;
 	library._customShaderModuleCache.set("custom", shader);
 	library._sceneShaderModule = shader;
-	library._environmentShaderModule = shader;
 	library.invalidateShaderRuntimeCaches();
 	assert.equal(pipeline.destroyCalls, 1);
 	assert.equal(shader.destroyCalls, 1);
 	assert.equal(library._pipelineCache.size, 0);
 	assert.equal(library._earlyZPrepassCache.size, 0);
 	assert.equal(library._customShaderModuleCache.size, 0);
+
+	const environment = new WebGPUEnvironmentResources({}, {});
+	environment._pipelines.set("environment", pipeline);
+	environment._shaderModule = shader;
+	environment.onShaderRuntimeChanged();
+	assert.equal(pipeline.destroyCalls, 2);
+	assert.equal(shader.destroyCalls, 2);
+	assert.equal(environment._pipelines.size, 0);
+
+	const deferred = new WebGPUDeferredResources({}, {});
+	deferred._deferredLightingPipeline = pipeline;
+	deferred._deferredLightingShaderModule = shader;
+	deferred.onShaderRuntimeChanged();
+	assert.equal(pipeline.destroyCalls, 3);
+	assert.equal(shader.destroyCalls, 3);
 }
 await run();

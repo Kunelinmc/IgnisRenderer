@@ -48,6 +48,7 @@ import { WebGPUMaterialSnapshotCache } from "./WebGPUMaterialSnapshotCache";
 import { WebGPUStaticMeshBatcher } from "./WebGPUStaticMeshBatcher";
 import { WebGPUPipelineLibrary } from "./WebGPUPipelineLibrary";
 import { WebGPUDeferredResources } from "./WebGPUDeferredResources";
+import { WebGPUEnvironmentResources } from "./WebGPUEnvironmentResources";
 import type {
 	WebGPUScenePipelineDrawMode,
 	WebGPUSceneTargetMode,
@@ -150,6 +151,7 @@ export class WebGPUFrameServiceOwner {
 	private _frameScopes = new Map<string, WebGPUFrameResourceScope>();
 	private _nextFrameScopeId = 0;
 	private _deferredResources: WebGPUDeferredResources;
+	private _environmentResources: WebGPUEnvironmentResources;
 	private _particleRenderResources: WebGPUParticleRenderResources;
 	private _destroyed = false;
 
@@ -177,8 +179,10 @@ export class WebGPUFrameServiceOwner {
 			this._layouts,
 			this._textureRegistry,
 		);
-		this._deferredResources = new WebGPUDeferredResources(backend, this._layouts, () =>
-			this._pipelineLibrary.getDeferredLightingPipeline(),
+		this._deferredResources = new WebGPUDeferredResources(backend, this._layouts);
+		this._environmentResources = new WebGPUEnvironmentResources(
+			backend,
+			this._layouts,
 		);
 		this._animationPayloads = new WebGPUAnimationPayloadPool(backend);
 		this._staticBatcher = new WebGPUStaticMeshBatcher(
@@ -760,6 +764,7 @@ export class WebGPUFrameServiceOwner {
 			return;
 		}
 		this._pipelineLibrary.invalidateShaderRuntimeCaches();
+		this._environmentResources.onShaderRuntimeChanged();
 		this._particleRenderResources.onShaderRuntimeChanged();
 		this._deferredResources.onShaderRuntimeChanged();
 		this.onShadowRuntimeShaderChanged();
@@ -798,6 +803,7 @@ export class WebGPUFrameServiceOwner {
 		this.destroyShadowRuntimeResources();
 		this._particleRenderResources.destroy();
 		this.invalidateDeferredRuntimeResources();
+		this._environmentResources.destroy();
 		this._frameFeatureRegistry.destroy();
 		for (const scope of this._frameScopes.values()) {
 			scope.frameBindings.destroy();
@@ -1174,7 +1180,7 @@ export class WebGPUFrameServiceOwner {
 			return null;
 		}
 
-		const pipeline = await this._pipelineLibrary.getEnvironmentPipeline(
+		const pipeline = await this._environmentResources.getPipeline(
 			resolvedSceneTargetMode,
 			options.sampleCount,
 		);

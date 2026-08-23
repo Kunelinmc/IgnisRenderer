@@ -22,9 +22,11 @@ import {
 } from "./WebGPUScenePassDescriptors";
 import {
 	WebGPUMaterialPipelineResolver,
+	readWebGPUShaderRuntimeView,
 	type WebGPUMaterialPipelineState,
 	type WebGPUShaderRuntimeView,
 } from "./WebGPUMaterialPipelineResolver";
+import { destroyUniqueWebGPUHandles } from "./WebGPUManagedResourceUtils";
 
 export type {
 	WebGPUScenePipelineDrawMode,
@@ -114,15 +116,9 @@ export class WebGPUPipelineLibrary {
 	private _disposeShaderRuntimeListener: (() => void) | null = null;
 	private _sceneShaderModule: IShaderModule | null = null;
 	private _sceneShaderDirectiveTag = "";
-	private _environmentShaderModule: IShaderModule | null = null;
-	private _environmentShaderDirectiveTag = "";
-	private _deferredLightingShaderModule: IShaderModule | null = null;
-	private _deferredLightingShaderDirectiveTag = "";
 	private _planarReflectionCompositeShaderModule: IShaderModule | null = null;
 	private _planarReflectionCompositeDirectiveTag = "";
-	private _deferredLightingPipeline: IRenderPipeline | null = null;
 	private _customShaderModuleCache = new Map<string, IShaderModule>();
-	private _environmentPipelines = new Map<string, IRenderPipeline>();
 	private _materialPipelineCache = new WeakMap<Material, Map<string, IRenderPipeline>>();
 	private _pipelineCache = new Map<string, IRenderPipeline>();
 	private _earlyZPrepassCache = new Map<string, IRenderPipeline>();
@@ -162,30 +158,20 @@ export class WebGPUPipelineLibrary {
 	public invalidateShaderRuntimeCaches(): void {
 		this._shaderCacheGeneration++;
 		this._materialPipelineResolver.clear();
-		destroyManagedHandles([
+		destroyUniqueWebGPUHandles([
 			...this._pipelineCache.values(),
 			...this._earlyZPrepassCache.values(),
-			...this._environmentPipelines.values(),
-			this._deferredLightingPipeline,
-		], "pipeline");
-		destroyManagedHandles([
+		], "pipeline", "WebGPUPipelineLibrary");
+		destroyUniqueWebGPUHandles([
 			...this._customShaderModuleCache.values(),
 			this._sceneShaderModule,
-			this._environmentShaderModule,
-			this._deferredLightingShaderModule,
 			this._planarReflectionCompositeShaderModule,
-		], "shader module");
+		], "shader module", "WebGPUPipelineLibrary");
 		this._sceneShaderModule = null;
 		this._sceneShaderDirectiveTag = "";
-		this._environmentShaderModule = null;
-		this._environmentShaderDirectiveTag = "";
-		this._deferredLightingShaderModule = null;
-		this._deferredLightingShaderDirectiveTag = "";
 		this._planarReflectionCompositeShaderModule = null;
 		this._planarReflectionCompositeDirectiveTag = "";
-		this._deferredLightingPipeline = null;
 		this._customShaderModuleCache.clear();
-		this._environmentPipelines.clear();
 		this._materialPipelineCache = new WeakMap<Material, Map<string, IRenderPipeline>>();
 		this._pipelineCache.clear();
 		this._earlyZPrepassCache.clear();
@@ -193,11 +179,7 @@ export class WebGPUPipelineLibrary {
 	}
 
 	public async init(): Promise<void> {
-		await Promise.all([
-			this._getSceneShaderModule(),
-			this._getEnvironmentShaderModule(),
-			this._getDeferredLightingShaderModule(),
-		]);
+		await this._getSceneShaderModule();
 	}
 
 	public async getPipeline(
@@ -272,7 +254,11 @@ export class WebGPUPipelineLibrary {
 		const cachedFinalPipeline = this._pipelineCache.get(finalCacheKey);
 		if (cachedFinalPipeline) {
 			if (pipeline !== cachedFinalPipeline) {
-				destroyManagedHandles([pipeline], "pipeline");
+				destroyUniqueWebGPUHandles(
+					[pipeline],
+					"pipeline",
+					"WebGPUPipelineLibrary",
+				);
 			}
 			pipeline = cachedFinalPipeline;
 		} else {
@@ -533,7 +519,11 @@ export class WebGPUPipelineLibrary {
 
 			const pipeline = await this._backend.createPipeline(desc);
 			if (generation !== this._shaderCacheGeneration) {
-				destroyManagedHandles([pipeline], "pipeline");
+				destroyUniqueWebGPUHandles(
+					[pipeline],
+					"pipeline",
+					"WebGPUPipelineLibrary",
+				);
 				return this.getEarlyZPrepassPipeline(
 					material,
 					mode,
@@ -546,7 +536,11 @@ export class WebGPUPipelineLibrary {
 			}
 			const winner = this._earlyZPrepassCache.get(cacheKey);
 			if (winner) {
-				destroyManagedHandles([pipeline], "pipeline");
+				destroyUniqueWebGPUHandles(
+					[pipeline],
+					"pipeline",
+					"WebGPUPipelineLibrary",
+				);
 				return winner;
 			}
 			this._earlyZPrepassCache.set(cacheKey, pipeline);
@@ -891,84 +885,6 @@ export class WebGPUPipelineLibrary {
 		}
 	}
 
-	public async getEnvironmentPipeline(
-		mode: WebGPUSceneTargetMode = "single",
-		sampleCount: number
-	): Promise<IRenderPipeline> {
-		const resolvedSampleCount = this._resolveSampleCount(mode, sampleCount);
-		const depthFormat = this._resolveSceneDepthFormat(mode);
-		const cacheKey = `${mode}|depth:${depthFormat}|msaa:${resolvedSampleCount}`;
-		const cached = this._environmentPipelines.get(cacheKey);
-		if (cached) {
-			return cached;
-		}
-
-		const shaderModule = await this._getEnvironmentShaderModule();
-		const targetFormat =
-			mode === "mrt" || mode === "gbuffer" || mode === "color" ?
-				TextureFormat.RGBA16Float
-			:	this._backend.canvasFormat;
-		const pipeline = await this._backend.createPipeline({
-			layout: this._layouts.environmentPipelineLayout,
-			label: `WebGPUEnvironmentPipeline_${mode}`,
-			vertex: {
-				module: shaderModule,
-				entryPoint: "vsMain",
-			},
-			fragment: {
-				module: shaderModule,
-				entryPoint: "fsMain",
-				targets: [{ format: targetFormat }],
-			},
-			primitive: {
-				topology: "triangle-list" as any,
-				cullMode: "none",
-				frontFace: "ccw",
-			},
-			depthStencil: {
-				format: depthFormat,
-				depthWriteEnabled: false,
-				depthCompare: "always",
-			},
-			sampleCount: resolvedSampleCount,
-		} as any);
-		this._environmentPipelines.set(cacheKey, pipeline);
-		return pipeline;
-	}
-
-	/**
-	 * Returns the fullscreen pipeline that resolves WebGPU deferred lighting.
-	 *
-	 * @returns A cached render pipeline for `fsMainDeferredLighting`.
-	 * @sideEffects May compile the deferred lighting shader module and pipeline.
-	 */
-	public async getDeferredLightingPipeline(): Promise<IRenderPipeline> {
-		if (this._deferredLightingPipeline) {
-			return this._deferredLightingPipeline;
-		}
-		const shaderModule = await this._getDeferredLightingShaderModule();
-		this._deferredLightingPipeline = await this._backend.createPipeline({
-			layout: this._layouts.deferredLightingPipelineLayout,
-			label: "WebGPUDeferredLightingPipeline",
-			vertex: {
-				module: shaderModule,
-				entryPoint: "vsMainDeferredLighting",
-			},
-			fragment: {
-				module: shaderModule,
-				entryPoint: "fsMainDeferredLighting",
-				targets: [{ format: TextureFormat.RGBA16Float }],
-			},
-			primitive: {
-				topology: "triangle-list" as any,
-				cullMode: "none",
-				frontFace: "ccw",
-			},
-			sampleCount: 1,
-		} as any);
-		return this._deferredLightingPipeline;
-	}
-
 	private _resolveSceneDepthFormat(mode: WebGPUSceneTargetMode): TextureFormat {
 		if (mode === "mrt" || mode === "gbuffer" || mode === "color") {
 			return TextureFormat.Depth32Float;
@@ -1042,59 +958,6 @@ export class WebGPUPipelineLibrary {
 		return this._sceneShaderModule;
 	}
 
-	private async _getEnvironmentShaderModule(): Promise<IShaderModule> {
-		const directiveTag = this._getDirectiveCacheTag();
-		if (
-			this._environmentShaderModule &&
-			this._environmentShaderDirectiveTag === directiveTag
-		) {
-			return this._environmentShaderModule;
-		}
-		if (!this._environmentShaderModule || this._environmentShaderDirectiveTag !== directiveTag) {
-			const shader = await ShaderSource.load("webgpu.environment");
-			this._environmentShaderModule = await this._backend.createShaderModule({
-				code: shader.source.code,
-				sourceMap: shader.source.sourceMap,
-				label: "WebGPUEnvironmentShader",
-				language: "wgsl",
-				stage: "unknown",
-				sourceKind: "builtin-environment",
-			});
-			this._environmentShaderDirectiveTag = this._getDirectiveCacheTag();
-		}
-
-		return this._environmentShaderModule;
-	}
-
-	private async _getDeferredLightingShaderModule(): Promise<IShaderModule> {
-		const directiveTag = this._getDirectiveCacheTag();
-		if (
-			this._deferredLightingShaderModule &&
-			this._deferredLightingShaderDirectiveTag === directiveTag
-		) {
-			return this._deferredLightingShaderModule;
-		}
-		if (
-			!this._deferredLightingShaderModule ||
-			this._deferredLightingShaderDirectiveTag !== directiveTag
-		) {
-			const shader = await ShaderSource.load("webgpu.deferredLighting");
-			this._deferredLightingShaderModule =
-				await this._backend.createShaderModule({
-					code: shader.source.code,
-					sourceMap: shader.source.sourceMap,
-					label: "WebGPUDeferredLightingShader",
-					language: "wgsl",
-					stage: "unknown",
-					sourceKind: "builtin-scene",
-				});
-			this._deferredLightingShaderDirectiveTag =
-				this._getDirectiveCacheTag();
-		}
-
-		return this._deferredLightingShaderModule;
-	}
-
 	private async _getPlanarReflectionCompositeShaderModule():
 		Promise<IShaderModule> {
 		const directiveTag = this._getDirectiveCacheTag();
@@ -1138,18 +1001,7 @@ export class WebGPUPipelineLibrary {
 	}
 
 	private _getShaderRuntimeView(): WebGPUShaderRuntimeView {
-		if (typeof this._backend.getShaderRuntimeView === "function") {
-			return this._backend.getShaderRuntimeView();
-		}
-		const shaderRuntime = this._getShaderRuntime();
-		const directiveCacheTag = this._getDirectiveCacheTag();
-		return {
-			revision:
-				typeof shaderRuntime?.revision === "number" ? shaderRuntime.revision : 0,
-			mode: shaderRuntime?.getMode?.() ?? "strict",
-			directiveCacheTag,
-			supportsRuntimeInjects: directiveCacheTag !== "none",
-		};
+		return readWebGPUShaderRuntimeView(this._backend);
 	}
 
 	private _getDirectiveCacheTag(): string {
@@ -1159,27 +1011,6 @@ export class WebGPUPipelineLibrary {
 		return "none";
 	}
 
-}
-
-function destroyManagedHandles(
-	handles: readonly (IRenderPipeline | IShaderModule | null)[],
-	kind: string,
-): void {
-	const destroyed = new Set<object>();
-	for (const handle of handles) {
-		if (!handle || destroyed.has(handle as object)) continue;
-		destroyed.add(handle as object);
-		const destroy = (handle as { destroy?: () => void }).destroy;
-		if (typeof destroy !== "function") continue;
-		try {
-			destroy.call(handle);
-		} catch (error) {
-			Logger.warn(
-				`[webgpu-cache-resource-destroy-failed] Failed to destroy cached ${kind}: ${String(error)}`,
-				{ scope: "WebGPUPipelineLibrary" },
-			);
-		}
-	}
 }
 
 function resolveGeometryLayout(

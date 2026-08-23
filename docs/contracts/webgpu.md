@@ -140,6 +140,12 @@ lighting, presentation configuration, reflections, and structured buffer packing
   composition root. It owns device-lifetime scene, texture, deferred, shadow,
   and particle-render resources; consumers must receive only the corresponding
   narrow resource-provider capability.
+- `WebGPUEnvironmentResources` must own the environment shader and render
+  pipeline handles shared by main-scene, planar-reflection, and reflection-probe
+  capture paths. Capture runtimes must not create private copies.
+- `WebGPUDeferredResources` must directly own deferred-lighting and decal shader
+  and pipeline handles. It must not recover deferred-lighting pipelines through
+  a callback into a shared scene pipeline owner.
 - `WebGPUTextureRegistry` must explicitly release registry-owned texture and
   sampler handles when `Texture.dispose()` is called. It must also release them
   after an unreachable `Texture` is finalized when `FinalizationRegistry` is
