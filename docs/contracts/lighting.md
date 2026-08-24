@@ -259,10 +259,10 @@ controls edge fade outside the normalized box metric. `priority` defaults to
 then the nearest grid center to the camera, then the lowest `id`.
 
 `source` defaults to `"manual"`. `"capturedScene"` uses `ProbeCaptureRuntime`
-to capture one cell at a time. Capture fields match `LightProbe`:
-`captureUpdateMode`, `captureIntervalSeconds`, `captureResolution`,
-`captureFar`, `includeEnvironment`, `includeMeshes`, `includeTransparent`,
-`includeParticles`, and `includeShadows`.
+to capture one explicitly requested cell at a time. Capture fields match
+`LightProbe`: `captureResolution`, `captureFar`, `includeEnvironment`,
+`includeMeshes`, `includeTransparent`, `includeParticles`, and
+`includeShadows`.
 
 Grid SH data must use the engine SH contract: L=3 with `16` coefficients per
 cell. Cell indexing is `x` fastest, then `y`, then `z`.
@@ -287,7 +287,8 @@ getRuntimeCache(): IrradianceProbeGridRuntimeCache;
 
 `setCellSH` must mark the cell valid and advance the texture revision.
 `clearCell` must mark the cell invalid. `requestCapture()` without an argument
-must request all cells.
+must request all cells. Scene invalidation, elapsed time, and construction with
+`source === "capturedScene"` must not request grid capture implicitly.
 
 `IrradianceProbeGridRuntimeCache.worldToGrid3x3` must be a `Matrix3` instance.
 Consumers must read its row-major values from `worldToGrid3x3.elements`.
@@ -338,8 +339,6 @@ Consumers must read its row-major values from `worldToGrid3x3.elements`.
 - `LightProbe.source` must support `"environment"`, `"capturedScene"`, and
   `"manual"`.
 - `LightProbe.source` must default to `"environment"`.
-- `LightProbe.captureUpdateMode` must support `"manual"`, `"onSceneDirty"`,
-  and `"interval"`.
 - `LightProbe.captureResolution` must default to `64x32`.
 - `LightProbe.captureFar` must default to `200`.
 - `LightProbe.includeEnvironment`, `includeMeshes`, `includeTransparent`,
@@ -348,12 +347,17 @@ Consumers must read its row-major values from `worldToGrid3x3.elements`.
   `captureRevision` and must invalidate scene lighting so an on-demand renderer
   executes the requested capture.
 - `ProbeCaptureRuntime` must capture `LightProbe` instances only when
-  `source === "capturedScene"`.
+  `source === "capturedScene"` and `requestCapture()` has requested a newer
+  capture generation.
+- Construction, scene invalidation, and elapsed time must not request a
+  `LightProbe` capture implicitly.
+- Repeated requests before execution may coalesce to the newest capture
+  generation.
 - `ProbeCaptureRuntime` must write captured low-frequency radiance to
   `LightProbe.sh`.
 - `ProbeCaptureRuntime` must invalidate captured SH writes with a
   non-capture-relevant dirty reason such as `probe-capture`; runtime capture
-  writeback must not advance the `onSceneDirty` capture dirty stamp by itself.
+  writeback must not invalidate an in-flight capture generation by itself.
 - `ProbeCaptureRuntime` must store radiance SH coefficients and must not store
   pre-convolved irradiance coefficients.
 - `ProbeCaptureRuntime` must share one capture between `LightProbe` and
@@ -377,8 +381,6 @@ When initializing a `ReflectionProbe` or passing options to its constructor `Ref
 - `parallaxMode`: The parallax correction technique. Must be `"off"`, `"box"`, or `"sphere"`. Defaults to `"box"` if `shape` is `"box"`, otherwise `"off"`.
 - `prefilteredMap`: A pre-baked specular `Texture` to override captured results. Defaults to `null`.
 - `source`: The environment input source. Must be `"environment"` (analytical/sky only), `"capturedScene"` (dynamic scene capture), or `"manual"`. Defaults to `"environment"`.
-- `captureUpdateMode`: Scheduling frequency for `"capturedScene"` source. Must be `"manual"`, `"onSceneDirty"`, or `"interval"`. Defaults to `"onSceneDirty"`.
-- `captureIntervalSeconds`: Interval duration in seconds when update mode is `"interval"`. Defaults to `1`.
 - `captureResolution`: Dimension configuration of the target map. Must be a `Partial<ReflectionProbeCaptureResolution>` mapping `width` and `height`. Defaults to `{ width: 512, height: 256 }`.
 - `captureFar`: Far clipping distance used for capture cameras. Defaults to `200`.
 - `includeEnvironment`: When `true`, captures environment background maps. Defaults to `true`.
@@ -392,8 +394,14 @@ When initializing a `ReflectionProbe` or passing options to its constructor `Ref
   - If a `ReflectionProbe` is parented under a non-root scene `Node`, the capture origin must resolve from the parent's world position, while the probe's local transform continues to define the influence volume and parallax proxy.
   - If a `ReflectionProbe` is attached directly to the scene root (e.g. `scene.add(probe)`), the capture origin must resolve from the probe's own world position.
 - **Budgeting & Performance**:
-  - The runtime capture scheduler must prioritize nearest probes first relative to the active camera position.
+  - The runtime capture executor must prioritize requested probes nearest to the active camera position first.
   - The frame budget for probe capture updates must default to `4ms`. If a task exceeds this limit, the capture resolution must temporarily scale down using steps `1.0 -> 0.75 -> 0.5`.
+  - An unfinished capture must invalidate the next frame with the non-capture-relevant `probe-capture` reason so on-demand renderers continue the task.
+- **Explicit Requests**:
+  - `ReflectionProbe.requestCapture()` must increment `captureRequestToken` and `captureRevision` and must invalidate the attached scene so an on-demand renderer executes the request.
+  - `ProbeCaptureRuntime` must execute a reflection probe capture only when `source === "capturedScene"` and a newer explicit request generation exists.
+  - Construction, scene invalidation, and elapsed time must not request a reflection probe capture implicitly.
+  - Clone operations must not copy pending capture requests for reflection probes, light probes, or irradiance grid cells.
 - **Recursion Prevention**:
   - During a probe capture render pass, the features `enableReflection` and `enableSSR` must be forced to `false` to avoid feedback loops.
   - Shadow mapping must reuse the main frame's shadow maps; a dedicated shadow map render pass must not be triggered for the probe.
@@ -580,7 +588,6 @@ const grid = scene.add(new IrradianceProbeGrid({
 	dimensions: { x: 4, y: 2, z: 4 },
 	halfExtents: { x: 8, y: 3, z: 8 },
 	source: "capturedScene",
-	captureUpdateMode: "manual",
 	captureResolution: { width: 64, height: 32 },
 }));
 
@@ -633,7 +640,6 @@ const probe = new LightProbe({
 	source: "capturedScene",
 	shape: "box",
 	halfExtents: { x: 4, y: 3, z: 6 },
-	captureUpdateMode: "manual",
 	captureResolution: { width: 64, height: 32 },
 	includeEnvironment: true,
 	includeMeshes: true,
@@ -652,10 +658,9 @@ bun tests/static/lighting/test_probe_capture_runtime.mjs
 ```ts
 import { ReflectionProbe } from "../src/lights/ReflectionProbe";
 
-// Configure a reflection probe with manual scene capture features
+// Configure a reflection probe for explicitly requested scene captures
 const probe = new ReflectionProbe({
 	source: "capturedScene",
-	captureUpdateMode: "manual",
 	captureResolution: { width: 512, height: 256 },
 	captureFar: 200,
 	includeEnvironment: true,
@@ -665,7 +670,7 @@ const probe = new ReflectionProbe({
 	includeShadows: true,
 });
 
-// Explicitly trigger a capture request when using manual mode
+// Explicitly request each desired update
 probe.requestCapture();
 ```
 

@@ -65,7 +65,6 @@ async function testSHConfigurationInvalidatesAndComputesOnce() {
 
 			const probe = renderer.scene.add(new LightProbe({
 				source: "capturedScene",
-				captureUpdateMode: "manual",
 				includeEnvironment: false,
 				includeMeshes: false,
 			}));

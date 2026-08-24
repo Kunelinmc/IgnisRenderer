@@ -72,7 +72,7 @@ function createCapturedFace(faceSize, seed = 1) {
 	return data;
 }
 
-async function testCaptureRuntimeTriggerModes() {
+async function testCaptureRuntimeRequiresExplicitRequests() {
 	const prefilterCalls = [];
 	await withPrefilterStub(
 		async () => {
@@ -82,92 +82,45 @@ async function testCaptureRuntimeTriggerModes() {
 		async () => {
 			const runtime = new ProbeCaptureRuntime();
 
-			const manualScene = new Scene();
-			const manualProbe = manualScene.add(
+			const scene = new Scene();
+			const probe = scene.add(
 				new ReflectionProbe({
 					source: "capturedScene",
-					captureUpdateMode: "manual",
 					captureResolution: { width: 16, height: 8 },
 				})
 			);
-			manualScene.updateWorldMatrices();
+			scene.updateWorldMatrices();
 
-			await runtime.execute({ scene: manualScene, nowMs: 0 });
+			await runtime.execute({ scene, nowMs: 0 });
 			await flushAsyncTasks();
 			assert.equal(prefilterCalls.length, 0);
-			assert.equal(manualProbe.prefilteredMap, null);
+			assert.equal(probe.prefilteredMap, null);
 
-			manualProbe.requestCapture();
+			scene.invalidate("transform");
+			await runtime.execute({ scene, nowMs: 60_000 });
+			await flushAsyncTasks();
+			assert.equal(prefilterCalls.length, 0);
+
+			probe.requestCapture();
 			for (let step = 0; step < 12 && prefilterCalls.length < 1; step++) {
-				await runtime.execute({ scene: manualScene, nowMs: 16 + step * 16 });
+				await runtime.execute({ scene, nowMs: 60_016 + step * 16 });
 				await flushAsyncTasks();
 			}
 			assert.equal(prefilterCalls.length, 1);
-			assert.ok(manualProbe.prefilteredMap);
+			assert.ok(probe.prefilteredMap);
 
-			await runtime.execute({ scene: manualScene, nowMs: 32 });
+			scene.invalidate("lighting");
+			await runtime.execute({ scene, nowMs: 120_000 });
 			await flushAsyncTasks();
 			assert.equal(prefilterCalls.length, 1);
 
-			const dirtyScene = new Scene();
-			const dirtyProbe = dirtyScene.add(
-				new ReflectionProbe({
-					source: "capturedScene",
-					captureUpdateMode: "onSceneDirty",
-					captureResolution: { width: 16, height: 8 },
-				})
-			);
-			dirtyScene.updateWorldMatrices();
-
+			probe.requestCapture();
 			await driveRuntimeUntil(
 				runtime,
-				(step) => ({ scene: dirtyScene, nowMs: 100 + step * 16 }),
+				(step) => ({ scene, nowMs: 120_016 + step * 16 }),
 				() => prefilterCalls.length >= 2
 			);
 			assert.equal(prefilterCalls.length, 2);
-			assert.ok(dirtyProbe.prefilteredMap);
-
-			await runtime.execute({ scene: dirtyScene, nowMs: 116 });
-			await flushAsyncTasks();
-			assert.equal(prefilterCalls.length, 2);
-
-			dirtyScene.invalidate("transform");
-			await driveRuntimeUntil(
-				runtime,
-				(step) => ({ scene: dirtyScene, nowMs: 132 + step * 16 }),
-				() => prefilterCalls.length >= 3
-			);
-			assert.equal(prefilterCalls.length, 3);
-
-			const intervalScene = new Scene();
-			const intervalProbe = intervalScene.add(
-				new ReflectionProbe({
-					source: "capturedScene",
-					captureUpdateMode: "interval",
-					captureIntervalSeconds: 0.5,
-					captureResolution: { width: 16, height: 8 },
-				})
-			);
-			intervalScene.updateWorldMatrices();
-
-			await driveRuntimeUntil(
-				runtime,
-				(step) => ({ scene: intervalScene, nowMs: step * 16 }),
-				() => prefilterCalls.length >= 4
-			);
-			assert.equal(prefilterCalls.length, 4);
-			assert.ok(intervalProbe.prefilteredMap);
-
-			await runtime.execute({ scene: intervalScene, nowMs: 200 });
-			await flushAsyncTasks();
-			assert.equal(prefilterCalls.length, 4);
-
-			await driveRuntimeUntil(
-				runtime,
-				(step) => ({ scene: intervalScene, nowMs: 700 + step * 16 }),
-				() => prefilterCalls.length >= 5
-			);
-			assert.equal(prefilterCalls.length, 5);
 		}
 	);
 }
@@ -187,18 +140,18 @@ async function testCaptureRuntimeThrottlesToOneInFlightPrefilter() {
 			const firstProbe = scene.add(
 				new ReflectionProbe({
 					source: "capturedScene",
-					captureUpdateMode: "onSceneDirty",
 					captureResolution: { width: 16, height: 8 },
 				})
 			);
 			const secondProbe = scene.add(
 				new ReflectionProbe({
 					source: "capturedScene",
-					captureUpdateMode: "onSceneDirty",
 					captureResolution: { width: 16, height: 8 },
 				})
 			);
 			scene.updateWorldMatrices();
+			firstProbe.requestCapture();
+			secondProbe.requestCapture();
 
 			for (let step = 0; step < 12 && deferredPrefilters.length < 1; step++) {
 				runtime.execute({ scene, nowMs: step * 32 });
@@ -232,7 +185,6 @@ async function testCaptureRuntimeDropsStalePrefilterResults() {
 			const probe = scene.add(
 				new ReflectionProbe({
 					source: "capturedScene",
-					captureUpdateMode: "manual",
 					captureResolution: { width: 16, height: 8 },
 				})
 			);
@@ -271,7 +223,6 @@ async function testCaptureRuntimeDropsStalePrefilterResultsWhenCaptureFlagsChang
 			const probe = scene.add(
 				new ReflectionProbe({
 					source: "capturedScene",
-					captureUpdateMode: "manual",
 					captureResolution: { width: 32, height: 16 },
 					includeTransparent: true,
 				})
@@ -304,7 +255,6 @@ async function testCaptureRuntimeSchedulesNearestProbeFirst() {
 			const nearProbe = scene.add(
 				new ReflectionProbe({
 					source: "capturedScene",
-					captureUpdateMode: "manual",
 					captureResolution: { width: 32, height: 16 },
 				})
 			);
@@ -312,7 +262,6 @@ async function testCaptureRuntimeSchedulesNearestProbeFirst() {
 			const farProbe = scene.add(
 				new ReflectionProbe({
 					source: "capturedScene",
-					captureUpdateMode: "manual",
 					captureResolution: { width: 32, height: 16 },
 				})
 			);
@@ -341,7 +290,7 @@ async function testCaptureRuntimeSchedulesNearestProbeFirst() {
 	);
 }
 
-async function testCaptureRuntimeOnSceneDirtySettlesAcrossMultipleProbes() {
+async function testCaptureRuntimeSettlesExplicitRequestsAcrossMultipleProbes() {
 	let prefilterCallCount = 0;
 	await withPrefilterStub(
 		async () => createPrefilteredMap(++prefilterCallCount),
@@ -351,18 +300,18 @@ async function testCaptureRuntimeOnSceneDirtySettlesAcrossMultipleProbes() {
 			const firstProbe = scene.add(
 				new ReflectionProbe({
 					source: "capturedScene",
-					captureUpdateMode: "onSceneDirty",
 					captureResolution: { width: 16, height: 8 },
 				})
 			);
 			const secondProbe = scene.add(
 				new ReflectionProbe({
 					source: "capturedScene",
-					captureUpdateMode: "onSceneDirty",
 					captureResolution: { width: 16, height: 8 },
 				})
 			);
 			scene.updateWorldMatrices();
+			firstProbe.requestCapture();
+			secondProbe.requestCapture();
 
 			for (let i = 0; i < 5; i++) {
 				await runtime.execute({ scene, nowMs: i * 16 });
@@ -380,21 +329,21 @@ async function testCaptureRuntimeOnSceneDirtySettlesAcrossMultipleProbes() {
 	);
 }
 
-async function testCaptureRuntimeIgnoresCameraDirtyForOnSceneDirty() {
+async function testCaptureRuntimeDoesNotRecaptureAfterSceneInvalidation() {
 	let prefilterCallCount = 0;
 	await withPrefilterStub(
 		async () => createPrefilteredMap(++prefilterCallCount),
 		async () => {
 			const runtime = new ProbeCaptureRuntime();
 			const scene = new Scene();
-			scene.add(
+			const probe = scene.add(
 				new ReflectionProbe({
 					source: "capturedScene",
-					captureUpdateMode: "onSceneDirty",
 					captureResolution: { width: 16, height: 8 },
 				})
 			);
 			scene.updateWorldMatrices();
+			probe.requestCapture();
 
 			await driveRuntimeUntil(
 				runtime,
@@ -405,6 +354,11 @@ async function testCaptureRuntimeIgnoresCameraDirtyForOnSceneDirty() {
 
 			scene.invalidate("camera");
 			await runtime.execute({ scene, nowMs: 16 });
+			await flushAsyncTasks();
+			assert.equal(prefilterCallCount, 1);
+
+			scene.invalidate("transform");
+			await runtime.execute({ scene, nowMs: 60_000 });
 			await flushAsyncTasks();
 			assert.equal(prefilterCallCount, 1);
 		}
@@ -428,7 +382,6 @@ async function testCaptureRuntimeBudgetDowngradesResolution() {
 			const probe = scene.add(
 				new ReflectionProbe({
 					source: "capturedScene",
-					captureUpdateMode: "manual",
 					captureResolution: { width: 512, height: 256 },
 				})
 			);
@@ -436,7 +389,7 @@ async function testCaptureRuntimeBudgetDowngradesResolution() {
 			probe.requestCapture();
 
 			for (let i = 0; i < 40 && prefilterCallCount === 0; i++) {
-				runtime.execute({
+				await runtime.execute({
 					scene,
 					nowMs: i * 16,
 					frameContext: {},
@@ -448,6 +401,9 @@ async function testCaptureRuntimeBudgetDowngradesResolution() {
 						},
 					},
 				});
+				if (i === 0) {
+					assert.notEqual(scene.dirtyReasonMask, 0);
+				}
 				await flushAsyncTasks();
 			}
 
@@ -470,7 +426,6 @@ async function testCaptureRuntimeForwardsMeshCaptureFlags() {
 			const probe = scene.add(
 				new ReflectionProbe({
 					source: "capturedScene",
-					captureUpdateMode: "manual",
 					captureResolution: { width: 32, height: 16 },
 					includeEnvironment: false,
 					includeTransparent: false,
@@ -530,7 +485,6 @@ async function testCaptureRuntimeWarnsWhenMeshCaptureIsUnavailable() {
 				const probe = scene.add(
 					new ReflectionProbe({
 						source: "capturedScene",
-						captureUpdateMode: "manual",
 						includeMeshes: true,
 						includeEnvironment: false,
 						captureResolution: { width: 16, height: 8 },
@@ -631,7 +585,6 @@ async function testRendererCaptureStageRunsWithoutReflectivePackets() {
 		const capturedProbe = renderer.scene.add(
 			new ReflectionProbe({
 				source: "capturedScene",
-				captureUpdateMode: "manual",
 			})
 		);
 		capturedProbe.requestCapture();
@@ -656,13 +609,13 @@ async function testRendererCaptureStageRunsWithoutReflectivePackets() {
 }
 
 async function run() {
-	await testCaptureRuntimeTriggerModes();
+	await testCaptureRuntimeRequiresExplicitRequests();
 	await testCaptureRuntimeThrottlesToOneInFlightPrefilter();
 	await testCaptureRuntimeDropsStalePrefilterResults();
 	await testCaptureRuntimeDropsStalePrefilterResultsWhenCaptureFlagsChange();
 	await testCaptureRuntimeSchedulesNearestProbeFirst();
-	await testCaptureRuntimeOnSceneDirtySettlesAcrossMultipleProbes();
-	await testCaptureRuntimeIgnoresCameraDirtyForOnSceneDirty();
+	await testCaptureRuntimeSettlesExplicitRequestsAcrossMultipleProbes();
+	await testCaptureRuntimeDoesNotRecaptureAfterSceneInvalidation();
 	await testCaptureRuntimeBudgetDowngradesResolution();
 	await testCaptureRuntimeForwardsMeshCaptureFlags();
 	await testCaptureRuntimeWarnsWhenMeshCaptureIsUnavailable();

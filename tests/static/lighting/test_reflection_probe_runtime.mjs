@@ -210,8 +210,6 @@ function testReflectionProbeCaptureDefaultsAndClone() {
 		.bindCubeTexture(cubeTexture)
 		.bindPrefilteredTexture(prefilteredTexture);
 	assert.equal(probe.source, "environment");
-	assert.equal(probe.captureUpdateMode, "onSceneDirty");
-	assert.equal(probe.captureIntervalSeconds, 1);
 	assert.equal(probe.captureResolution.width, 512);
 	assert.equal(probe.captureResolution.height, 256);
 	assert.equal(probe.captureFar, 200);
@@ -221,10 +219,10 @@ function testReflectionProbeCaptureDefaultsAndClone() {
 	assert.equal(probe.includeParticles, true);
 	assert.equal(probe.includeShadows, true);
 
+	probe.requestCapture();
 	const cloned = probe.clone(false);
 	assert.equal(cloned.source, probe.source);
-	assert.equal(cloned.captureUpdateMode, probe.captureUpdateMode);
-	assert.equal(cloned.captureIntervalSeconds, probe.captureIntervalSeconds);
+	assert.equal(cloned.captureRequestToken, 0);
 	assert.equal(cloned.captureResolution.width, probe.captureResolution.width);
 	assert.equal(cloned.captureResolution.height, probe.captureResolution.height);
 	assert.equal(cloned.captureFar, probe.captureFar);
@@ -293,16 +291,18 @@ function testCubeTextureReplaceFacesSupportsResize() {
 }
 
 function testReflectionProbeRequestCaptureFlags() {
-	const probe = new ReflectionProbe({
+	const scene = new Scene();
+	const probe = scene.add(new ReflectionProbe({
 		source: "capturedScene",
-		captureUpdateMode: "manual",
-	});
+	}));
 	assert.equal(probe.captureRequestToken, 0);
 	assert.equal(probe.captureRevision, 0);
 
+	const sceneVersion = scene.version;
 	probe.requestCapture();
 	assert.equal(probe.captureRequestToken, 1);
 	assert.equal(probe.captureRevision, 1);
+	assert.ok(scene.version > sceneVersion);
 
 	probe.markCaptureUpdated();
 	assert.equal(probe.captureRevision, 2);

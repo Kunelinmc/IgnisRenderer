@@ -121,7 +121,6 @@ async function testLightProbeManualCaptureProjectsSHWithoutPrefilter() {
 	const probe = scene.add(
 		new LightProbe({
 			source: "capturedScene",
-			captureUpdateMode: "manual",
 			captureResolution: { width: 16, height: 8 },
 			includeMeshes: false,
 			includeEnvironment: false,
@@ -152,7 +151,6 @@ async function testLightProbeCaptureWritesBoundTextures() {
 	const probe = scene.add(
 		new LightProbe({
 			source: "capturedScene",
-			captureUpdateMode: "manual",
 			captureResolution: { width: 16, height: 8 },
 			includeEnvironment: false,
 		})
@@ -215,7 +213,6 @@ async function testSharedCaptureUpdatesLightAndReflectionProbe() {
 			const lightProbe = scene.add(
 				new LightProbe({
 					source: "capturedScene",
-					captureUpdateMode: "manual",
 					captureResolution: { width: 16, height: 8 },
 					includeEnvironment: false,
 				})
@@ -223,7 +220,6 @@ async function testSharedCaptureUpdatesLightAndReflectionProbe() {
 			const reflectionProbe = scene.add(
 				new ReflectionProbe({
 					source: "capturedScene",
-					captureUpdateMode: "manual",
 					captureResolution: { width: 16, height: 8 },
 					includeEnvironment: false,
 				})
@@ -270,7 +266,6 @@ async function testReflectionProbeCaptureWritesBoundPrefilteredTexture() {
 			const probe = scene.add(
 				new ReflectionProbe({
 					source: "capturedScene",
-					captureUpdateMode: "manual",
 					captureResolution: { width: 16, height: 8 },
 					includeEnvironment: false,
 				})
@@ -333,7 +328,6 @@ async function testSoftwareCapturePreservesHDREnvironmentRadiance() {
 			const probe = scene.add(
 				new ReflectionProbe({
 					source: "capturedScene",
-					captureUpdateMode: "manual",
 					captureResolution: { width: 16, height: 8 },
 					includeMeshes: false,
 					includeEnvironment: true,
@@ -374,7 +368,6 @@ async function testCubemapConversionUsesSeamAwareBilinearSampling() {
 			const probe = scene.add(
 				new ReflectionProbe({
 					source: "capturedScene",
-					captureUpdateMode: "manual",
 					captureResolution: { width: 32, height: 16 },
 					includeMeshes: true,
 					includeEnvironment: false,
@@ -438,7 +431,6 @@ async function testSharedCaptureSkipsStaleLightProbeResult() {
 			const lightProbe = scene.add(
 				new LightProbe({
 					source: "capturedScene",
-					captureUpdateMode: "manual",
 					captureResolution: { width: 16, height: 8 },
 					includeMeshes: false,
 					includeEnvironment: false,
@@ -447,7 +439,6 @@ async function testSharedCaptureSkipsStaleLightProbeResult() {
 			const reflectionProbe = scene.add(
 				new ReflectionProbe({
 					source: "capturedScene",
-					captureUpdateMode: "manual",
 					captureResolution: { width: 16, height: 8 },
 					includeMeshes: false,
 					includeEnvironment: false,
@@ -483,7 +474,6 @@ async function testGridManualCellAndWholeGridCaptureRequests() {
 		new IrradianceProbeGrid({
 			dimensions: { x: 2, y: 1, z: 1 },
 			source: "capturedScene",
-			captureUpdateMode: "manual",
 			captureResolution: { width: 16, height: 8 },
 			includeMeshes: false,
 			includeEnvironment: false,
@@ -512,7 +502,7 @@ async function testGridManualCellAndWholeGridCaptureRequests() {
 	assert.equal(grid.isCellValid(1), true);
 }
 
-async function testGridOnSceneDirtyCaptureDoesNotSelfTriggerOrStarveCells() {
+async function testGridCaptureRequiresExplicitRequest() {
 	const runtime = new ProbeCaptureRuntime({ captureBudgetMs: 100 });
 	const scene = new Scene();
 	scene.add(new AmbientLight({ intensity: 1 }));
@@ -520,7 +510,6 @@ async function testGridOnSceneDirtyCaptureDoesNotSelfTriggerOrStarveCells() {
 		new IrradianceProbeGrid({
 			dimensions: { x: 2, y: 1, z: 1 },
 			source: "capturedScene",
-			captureUpdateMode: "onSceneDirty",
 			captureResolution: { width: 16, height: 8 },
 			includeMeshes: false,
 			includeEnvironment: false,
@@ -528,32 +517,38 @@ async function testGridOnSceneDirtyCaptureDoesNotSelfTriggerOrStarveCells() {
 	);
 	scene.updateWorldMatrices();
 
-	await driveRuntimeUntil(
-		runtime,
-		(step) => ({ scene, nowMs: step * 16 }),
-		() => grid.isCellValid(0) && grid.isCellValid(1),
-		8
-	);
-	assert.equal(grid.isCellValid(0), true);
-	assert.equal(grid.isCellValid(1), true);
-	assert.equal(grid.captureRevision, 2);
-
 	for (let step = 0; step < 4; step++) {
 		await runtime.execute({ scene, nowMs: 200 + step * 16 });
 		await flushAsyncTasks();
 	}
-	assert.equal(grid.captureRevision, 2);
+	assert.equal(grid.isCellValid(0), false);
+	assert.equal(grid.isCellValid(1), false);
 
 	scene.invalidate("lighting");
+	for (let step = 0; step < 4; step++) {
+		await runtime.execute({ scene, nowMs: 400 + step * 16 });
+		await flushAsyncTasks();
+	}
+	assert.equal(grid.isCellValid(0), false);
+	assert.equal(grid.isCellValid(1), false);
+
+	grid.requestCapture();
 	await driveRuntimeUntil(
 		runtime,
 		(step) => ({ scene, nowMs: 1000 + step * 16 }),
-		() => grid.captureRevision >= 4,
+		() => grid.isCellValid(0) && grid.isCellValid(1),
 		8
 	);
-	assert.equal(grid.captureRevision, 4);
+	assert.equal(grid.captureRevision, 3);
 	assert.equal(grid.isCellValid(0), true);
 	assert.equal(grid.isCellValid(1), true);
+
+	scene.invalidate("transform");
+	for (let step = 0; step < 4; step++) {
+		await runtime.execute({ scene, nowMs: 2000 + step * 16 });
+		await flushAsyncTasks();
+	}
+	assert.equal(grid.captureRevision, 3);
 }
 
 async function run() {
@@ -565,7 +560,7 @@ async function run() {
 	await testCubemapConversionUsesSeamAwareBilinearSampling();
 	await testSharedCaptureSkipsStaleLightProbeResult();
 	await testGridManualCellAndWholeGridCaptureRequests();
-	await testGridOnSceneDirtyCaptureDoesNotSelfTriggerOrStarveCells();
+	await testGridCaptureRequiresExplicitRequest();
 	console.log("Probe capture runtime tests passed");
 }
 

@@ -66,7 +66,6 @@ function testConstructorAndLocalizedClone() {
 		blendDistance: -1,
 		priority: 3.9,
 		source: "capturedScene",
-		captureUpdateMode: "manual",
 		captureResolution: { width: 32, height: 16 },
 		includeMeshes: false,
 	});
@@ -78,7 +77,6 @@ function testConstructorAndLocalizedClone() {
 	assert.equal(probe.blendDistance, 0);
 	assert.equal(probe.priority, 3);
 	assert.equal(probe.source, "capturedScene");
-	assert.equal(probe.captureUpdateMode, "manual");
 	assert.equal(probe.captureResolution.width, 32);
 	assert.equal(probe.includeMeshes, false);
 	probe.requestCapture();
@@ -88,7 +86,7 @@ function testConstructorAndLocalizedClone() {
 	assert.equal(cloned.shape, "box");
 	assert.equal(cloned.priority, 3);
 	assert.equal(cloned.source, "capturedScene");
-	assert.equal(cloned.captureRequestToken, 1);
+	assert.equal(cloned.captureRequestToken, 0);
 	assert.notEqual(cloned.sh, probe.sh);
 	cloned.sh[0].r = 99;
 	assert.notEqual(cloned.sh[0].r, probe.sh[0].r);
@@ -116,10 +114,12 @@ function testCaptureOutputBindingsAreRuntimeOnly() {
 
 	const source = new LightProbe({});
 	source.capture.bindRawTexture(rawA).bindCubeTexture(cube);
+	source.requestCapture();
 	const target = new LightProbe({});
 	target.copy(source);
 	assert.equal(target.capture.rawTexture, null);
 	assert.equal(target.capture.cubeTexture, null);
+	assert.equal(target.captureRequestToken, 0);
 }
 
 function testCopyPreservesLocalizedState() {
@@ -152,7 +152,6 @@ function testSHMutationsAndCaptureRequestsInvalidateLighting() {
 	const probe = scene.add(new LightProbe({
 		sh: SH.empty(),
 		source: "capturedScene",
-		captureUpdateMode: "manual",
 	}));
 
 	let version = scene.version;

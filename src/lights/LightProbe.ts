@@ -11,10 +11,6 @@ export type LightProbeSource =
 	| "environment"
 	| "capturedScene"
 	| "manual";
-export type LightProbeCaptureUpdateMode =
-	| "manual"
-	| "onSceneDirty"
-	| "interval";
 
 export interface LightProbeCaptureResolution {
 	width: number;
@@ -40,8 +36,6 @@ export interface LightProbeParams extends LightParams {
 	blendDistance?: number;
 	priority?: number;
 	source?: LightProbeSource;
-	captureUpdateMode?: LightProbeCaptureUpdateMode;
-	captureIntervalSeconds?: number;
 	captureResolution?: Partial<LightProbeCaptureResolution>;
 	captureFar?: number;
 	includeEnvironment?: boolean;
@@ -68,10 +62,6 @@ export class LightProbe extends Light<LightType.LightProbe> {
 	public priority: number;
 	/** Source that owns the probe coefficients and runtime updates. */
 	public source: LightProbeSource;
-	/** Policy used by scene capture runtime for probes with captured-scene source. */
-	public captureUpdateMode: LightProbeCaptureUpdateMode;
-	/** Minimum elapsed seconds between interval capture attempts. */
-	public captureIntervalSeconds: number;
 	/** Equirectangular capture resolution used before SH projection. */
 	public captureResolution: LightProbeCaptureResolution;
 	/** Far clipping distance for scene captures. */
@@ -136,12 +126,6 @@ export class LightProbe extends Light<LightType.LightProbe> {
 		this.blendDistance = sanitizeLightProbeBlendDistance(resolvedParams.blendDistance ?? 0.15);
 		this.priority = sanitizeLightProbePriority(resolvedParams.priority ?? 0);
 		this.source = sanitizeLightProbeSource(resolvedParams.source ?? "environment");
-		this.captureUpdateMode = sanitizeLightProbeCaptureUpdateMode(
-			resolvedParams.captureUpdateMode ?? "onSceneDirty",
-		);
-		this.captureIntervalSeconds = sanitizeLightProbeCaptureIntervalSeconds(
-			resolvedParams.captureIntervalSeconds ?? 1,
-		);
 		this.captureResolution = sanitizeLightProbeCaptureResolution(
 			resolvedParams.captureResolution,
 		);
@@ -192,10 +176,6 @@ export class LightProbe extends Light<LightType.LightProbe> {
 			this.blendDistance = sanitizeLightProbeBlendDistance(source.blendDistance);
 			this.priority = sanitizeLightProbePriority(source.priority);
 			this.source = sanitizeLightProbeSource(source.source);
-			this.captureUpdateMode = sanitizeLightProbeCaptureUpdateMode(source.captureUpdateMode);
-			this.captureIntervalSeconds = sanitizeLightProbeCaptureIntervalSeconds(
-				source.captureIntervalSeconds,
-			);
 			this.captureResolution = sanitizeLightProbeCaptureResolution(source.captureResolution);
 			this.captureFar = sanitizeLightProbeCaptureFar(source.captureFar);
 			this.includeEnvironment = source.includeEnvironment;
@@ -203,7 +183,6 @@ export class LightProbe extends Light<LightType.LightProbe> {
 			this.includeTransparent = source.includeTransparent;
 			this.includeParticles = source.includeParticles;
 			this.includeShadows = source.includeShadows;
-			this._captureRequestToken = source._captureRequestToken;
 			this._captureRevision = source._captureRevision;
 			this.markRuntimeDirty();
 		}
@@ -322,8 +301,6 @@ export class LightProbe extends Light<LightType.LightProbe> {
 		target.blendDistance = this.blendDistance;
 		target.priority = this.priority;
 		target.source = this.source;
-		target.captureUpdateMode = this.captureUpdateMode;
-		target.captureIntervalSeconds = this.captureIntervalSeconds;
 		target.captureResolution.width = this.captureResolution.width;
 		target.captureResolution.height = this.captureResolution.height;
 		target.captureFar = this.captureFar;
@@ -332,7 +309,6 @@ export class LightProbe extends Light<LightType.LightProbe> {
 		target.includeTransparent = this.includeTransparent;
 		target.includeParticles = this.includeParticles;
 		target.includeShadows = this.includeShadows;
-		target._captureRequestToken = this._captureRequestToken;
 		target._captureRevision = this._captureRevision;
 		target.markRuntimeDirty();
 	}
@@ -613,20 +589,6 @@ function sanitizeLightProbeSource(value: LightProbeSource): LightProbeSource {
 		return value;
 	}
 	return "environment";
-}
-
-function sanitizeLightProbeCaptureUpdateMode(
-	value: LightProbeCaptureUpdateMode
-): LightProbeCaptureUpdateMode {
-	if (value === "manual" || value === "onSceneDirty" || value === "interval") {
-		return value;
-	}
-	return "onSceneDirty";
-}
-
-function sanitizeLightProbeCaptureIntervalSeconds(value: number): number {
-	if (!Number.isFinite(value)) return 1;
-	return Math.max(0.01, value);
 }
 
 function sanitizeLightProbeCaptureFar(value: number): number {

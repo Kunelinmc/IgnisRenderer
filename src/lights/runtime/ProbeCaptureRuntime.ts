@@ -62,8 +62,6 @@ interface ProbeCaptureTarget {
 	signature: string;
 	groupKey: string;
 	captureRequestToken: number;
-	captureUpdateMode: "manual" | "onSceneDirty" | "interval";
-	captureIntervalSeconds: number;
 	captureWidth: number;
 	captureHeight: number;
 	captureFar: number;
@@ -87,8 +85,7 @@ interface CaptureTaskState {
 	taskId: number;
 	groupKey: string;
 	targets: CaptureTaskTarget[];
-	sceneDirtyStamp: number;
-	startedAtSeconds: number;
+	captureSceneRevision: number;
 	scene: Scene;
 	captureWorldPosition: IVector3;
 	captureFar: number;
@@ -158,7 +155,6 @@ export interface ProbeCaptureSource {
 
 export interface ProbeCaptureRuntimeExecuteContext {
 	scene: Scene;
-	nowMs: number;
 	frameDirtyReasonMask?: number | null;
 	frameContext?: FrameContext | null;
 	cameraWorldPosition?: IVector3 | null;
@@ -177,10 +173,8 @@ export class ProbeCaptureRuntime {
 	private _nextTaskId = 0;
 	private _maxCapturesPerFrame: number;
 	private _captureBudgetMs: number;
-	private _lastCaptureSecondsByProbeId = new Map<string, number>();
-	private _lastCaptureSceneDirtyStampByProbeId = new Map<string, number>();
 	private _lastHandledRequestTokenByProbeId = new Map<string, number>();
-	private _sceneDirtyStampByScene = new WeakMap<Scene, number>();
+	private _captureSceneRevisionByScene = new WeakMap<Scene, number>();
 	private _lastRelevantSceneVersionByScene = new WeakMap<Scene, number>();
 
 	constructor(options: ProbeCaptureRuntimeOptions = {}) {
@@ -203,7 +197,7 @@ export class ProbeCaptureRuntime {
 	): Promise<void> {
 		const frameDirtyReasonMask =
 			context.frameDirtyReasonMask ?? context.scene.consumeDirtyReasonMask();
-		const sceneDirtyStamp = this._resolveSceneDirtyStamp(
+		const captureSceneRevision = this._resolveCaptureSceneRevision(
 			context.scene,
 			frameDirtyReasonMask
 		);
@@ -220,9 +214,8 @@ export class ProbeCaptureRuntime {
 		}
 
 		if (!this._activeTask) {
-			const nowSeconds = Math.max(0, context.nowMs) / 1000;
 			const candidates = targets.filter((target) =>
-				this._shouldCaptureTarget(target, sceneDirtyStamp, nowSeconds)
+				this._isCaptureRequested(target)
 			);
 			if (candidates.length <= 0) {
 				return Promise.resolve();
@@ -238,7 +231,7 @@ export class ProbeCaptureRuntime {
 					target,
 					candidates,
 					context,
-					sceneDirtyStamp
+					captureSceneRevision
 				);
 				if (!task) continue;
 				this._activeTask = task;
@@ -262,11 +255,7 @@ export class ProbeCaptureRuntime {
 		return quantum;
 	}
 
-	private _shouldCaptureTarget(
-		target: ProbeCaptureTarget,
-		sceneDirtyStamp: number,
-		nowSeconds: number
-	): boolean {
+	private _isCaptureRequested(target: ProbeCaptureTarget): boolean {
 		const key = createProbeCaptureTargetKey(
 			target.kind,
 			target.id,
@@ -274,32 +263,14 @@ export class ProbeCaptureRuntime {
 		);
 		const lastHandledToken =
 			this._lastHandledRequestTokenByProbeId.get(key) ?? 0;
-		if (target.captureRequestToken > lastHandledToken) {
-			return true;
-		}
-
-		if (target.captureUpdateMode === "manual") {
-			return false;
-		}
-
-		if (target.captureUpdateMode === "onSceneDirty") {
-			const lastCapturedSceneDirtyStamp =
-				this._lastCaptureSceneDirtyStampByProbeId.get(key);
-			return lastCapturedSceneDirtyStamp !== sceneDirtyStamp;
-		}
-
-		const lastCaptureSeconds = this._lastCaptureSecondsByProbeId.get(key);
-		if (lastCaptureSeconds === undefined) {
-			return true;
-		}
-		return nowSeconds - lastCaptureSeconds >= target.captureIntervalSeconds;
+		return target.captureRequestToken > lastHandledToken;
 	}
 
 	private _createTask(
 		primaryTarget: ProbeCaptureTarget,
 		candidates: ProbeCaptureTarget[],
 		context: ProbeCaptureRuntimeExecuteContext,
-		sceneDirtyStamp: number
+		captureSceneRevision: number
 	): CaptureTaskState | null {
 		const groupedTargets = candidates.filter(
 			(target) => target.groupKey === primaryTarget.groupKey
@@ -342,8 +313,7 @@ export class ProbeCaptureRuntime {
 				signature: target.signature,
 				captureRequestToken: target.captureRequestToken,
 			})),
-			sceneDirtyStamp,
-			startedAtSeconds: Math.max(0, context.nowMs) / 1000,
+			captureSceneRevision,
 			scene: context.scene,
 			captureWorldPosition: {
 				x: primaryTarget.captureWorldPosition.x,
@@ -412,6 +382,7 @@ export class ProbeCaptureRuntime {
 						CAPTURE_RESOLUTION_DOWNSCALE_OVERBUDGET_RATIO &&
 				this._downgradeTaskResolution(task)
 			) {
+				task.scene.invalidate("probe-capture");
 				return;
 			}
 
@@ -421,6 +392,7 @@ export class ProbeCaptureRuntime {
 		}
 
 		if (task.pendingFaces.length > 0) {
+			task.scene.invalidate("probe-capture");
 			return;
 		}
 
@@ -560,11 +532,6 @@ export class ProbeCaptureRuntime {
 				target.id,
 				target.cellIndex
 			);
-			this._lastCaptureSecondsByProbeId.set(key, task.startedAtSeconds);
-			this._lastCaptureSceneDirtyStampByProbeId.set(
-				key,
-				task.sceneDirtyStamp
-			);
 			this._lastHandledRequestTokenByProbeId.set(
 				key,
 				target.captureRequestToken
@@ -598,7 +565,10 @@ export class ProbeCaptureRuntime {
 				)
 			:	probe.captureRequestToken;
 		if (requestToken !== target.captureRequestToken) return false;
-		if (this._getSceneDirtyStamp(task.scene) !== task.sceneDirtyStamp) {
+		if (
+			this._getCaptureSceneRevision(task.scene) !==
+			task.captureSceneRevision
+		) {
 			return false;
 		}
 		return buildProbeCaptureSignature(probe, target.cellIndex) === target.signature;
@@ -614,8 +584,6 @@ export class ProbeCaptureRuntime {
 				)
 			)
 		);
-		pruneProbeMap(this._lastCaptureSecondsByProbeId, activeTargetKeys);
-		pruneProbeMap(this._lastCaptureSceneDirtyStampByProbeId, activeTargetKeys);
 		pruneProbeMap(this._lastHandledRequestTokenByProbeId, activeTargetKeys);
 		if (
 			this._activeTask &&
@@ -633,26 +601,29 @@ export class ProbeCaptureRuntime {
 		}
 	}
 
-	private _resolveSceneDirtyStamp(scene: Scene, dirtyReasonMask: number): number {
-		const currentStamp = this._getSceneDirtyStamp(scene);
+	private _resolveCaptureSceneRevision(
+		scene: Scene,
+		dirtyReasonMask: number
+	): number {
+		const currentRevision = this._getCaptureSceneRevision(scene);
 		const relevantDirtyReasonMask =
 			(dirtyReasonMask >>> 0) & CAPTURE_RELEVANT_SCENE_DIRTY_MASK;
 		if (relevantDirtyReasonMask === 0) {
-			return currentStamp;
+			return currentRevision;
 		}
 		const lastRelevantSceneVersion =
 			this._lastRelevantSceneVersionByScene.get(scene);
 		if (lastRelevantSceneVersion === scene.version) {
-			return currentStamp;
+			return currentRevision;
 		}
-		const nextStamp = currentStamp + 1;
-		this._sceneDirtyStampByScene.set(scene, nextStamp);
+		const nextRevision = currentRevision + 1;
+		this._captureSceneRevisionByScene.set(scene, nextRevision);
 		this._lastRelevantSceneVersionByScene.set(scene, scene.version);
-		return nextStamp;
+		return nextRevision;
 	}
 
-	private _getSceneDirtyStamp(scene: Scene): number {
-		return this._sceneDirtyStampByScene.get(scene) ?? 0;
+	private _getCaptureSceneRevision(scene: Scene): number {
+		return this._captureSceneRevisionByScene.get(scene) ?? 0;
 	}
 }
 
@@ -730,8 +701,6 @@ function createReflectionProbeCaptureTarget(
 			probe.includeShadows
 		),
 		captureRequestToken: probe.captureRequestToken,
-		captureUpdateMode: probe.captureUpdateMode,
-		captureIntervalSeconds: probe.captureIntervalSeconds,
 		captureWidth: probe.captureResolution.width,
 		captureHeight: probe.captureResolution.height,
 		captureFar: probe.captureFar,
@@ -767,8 +736,6 @@ function createLightProbeCaptureTarget(probe: LightProbe): ProbeCaptureTarget {
 			probe.includeShadows
 		),
 		captureRequestToken: probe.captureRequestToken,
-		captureUpdateMode: probe.captureUpdateMode,
-		captureIntervalSeconds: probe.captureIntervalSeconds,
 		captureWidth: probe.captureResolution.width,
 		captureHeight: probe.captureResolution.height,
 		captureFar: probe.captureFar,
@@ -804,8 +771,6 @@ function createIrradianceProbeGridCaptureTargets(
 				grid.includeShadows
 			),
 			captureRequestToken: grid.getCellCaptureRequestToken(cellIndex),
-			captureUpdateMode: grid.captureUpdateMode,
-			captureIntervalSeconds: grid.captureIntervalSeconds,
 			captureWidth: grid.captureResolution.width,
 			captureHeight: grid.captureResolution.height,
 			captureFar: grid.captureFar,
@@ -888,7 +853,6 @@ function buildProbeCaptureSignature(
 		kind,
 		cellIndex,
 		probe.source,
-		probe.captureUpdateMode,
 		probe.captureResolution.width,
 		probe.captureResolution.height,
 		probe.captureFar.toFixed(6),

@@ -579,7 +579,6 @@ export class FrameCoordinator {
 		const captureRuntime = (delegate as any)._probeCaptureRuntime || this._probeCaptureRuntime;
 		await captureRuntime.execute({
 			scene: delegate.scene,
-			nowMs: state.now,
 			frameDirtyReasonMask: state.frameDirtyReasonMask,
 			frameContext: state.context,
 			cameraWorldPosition,

@@ -306,7 +306,6 @@ function populateScene(scene: Scene, settings: DemoSettings): SceneControls {
 		blendDistance: 0.2,
 		parallaxMode: "box",
 		source: "capturedScene",
-		captureUpdateMode: "manual",
 		captureResolution: { width: 128, height: 64 },
 		captureFar: 10,
 		includeEnvironment: false,

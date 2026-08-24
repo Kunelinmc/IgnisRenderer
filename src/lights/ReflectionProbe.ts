@@ -12,10 +12,6 @@ export type ReflectionProbeSource =
 	| "environment"
 	| "capturedScene"
 	| "manual";
-export type ReflectionProbeCaptureUpdateMode =
-	| "manual"
-	| "onSceneDirty"
-	| "interval";
 
 export interface ReflectionProbeCaptureResolution {
 	width: number;
@@ -43,8 +39,6 @@ export interface ReflectionProbeParams extends LightParams {
 	parallaxMode?: ReflectionProbeParallaxMode;
 	prefilteredMap?: Texture | null;
 	source?: ReflectionProbeSource;
-	captureUpdateMode?: ReflectionProbeCaptureUpdateMode;
-	captureIntervalSeconds?: number;
 	captureResolution?: Partial<ReflectionProbeCaptureResolution>;
 	captureFar?: number;
 	includeEnvironment?: boolean;
@@ -67,8 +61,6 @@ export class ReflectionProbe extends Light<LightType.ReflectionProbe> {
 	public parallaxMode: ReflectionProbeParallaxMode;
 	public prefilteredMap: Texture | null;
 	public source: ReflectionProbeSource;
-	public captureUpdateMode: ReflectionProbeCaptureUpdateMode;
-	public captureIntervalSeconds: number;
 	public captureResolution: ReflectionProbeCaptureResolution;
 	public captureFar: number;
 	public includeEnvironment: boolean;
@@ -101,12 +93,6 @@ export class ReflectionProbe extends Light<LightType.ReflectionProbe> {
 		this.parallaxMode = params.parallaxMode ?? (this.shape === "box" ? "box" : "off");
 		this.prefilteredMap = params.prefilteredMap ?? null;
 		this.source = sanitizeReflectionProbeSource(params.source ?? "environment");
-		this.captureUpdateMode = sanitizeCaptureUpdateMode(
-			params.captureUpdateMode ?? "onSceneDirty",
-		);
-		this.captureIntervalSeconds = sanitizeCaptureIntervalSeconds(
-			params.captureIntervalSeconds ?? 1,
-		);
 		this.captureResolution = sanitizeCaptureResolution(params.captureResolution);
 		this.captureFar = sanitizeCaptureFar(params.captureFar ?? 200);
 		this.includeEnvironment = params.includeEnvironment ?? true;
@@ -141,9 +127,17 @@ export class ReflectionProbe extends Light<LightType.ReflectionProbe> {
 		}
 	}
 
+	/**
+	 * Requests a fresh captured-scene reflection update.
+	 *
+	 * @returns Nothing.
+	 * @sideEffects Increments capture revisions and invalidates scene lighting
+	 * when attached.
+	 */
 	public requestCapture(): void {
 		this._captureRequestToken++;
 		this._captureRevision++;
+		this.scene?.invalidate("lighting");
 	}
 
 	public get captureRequestToken(): number {
@@ -183,8 +177,6 @@ export class ReflectionProbe extends Light<LightType.ReflectionProbe> {
 		target.parallaxMode = this.parallaxMode;
 		target.prefilteredMap = this.prefilteredMap;
 		target.source = this.source;
-		target.captureUpdateMode = this.captureUpdateMode;
-		target.captureIntervalSeconds = this.captureIntervalSeconds;
 		target.captureResolution.width = this.captureResolution.width;
 		target.captureResolution.height = this.captureResolution.height;
 		target.captureFar = this.captureFar;
@@ -193,7 +185,6 @@ export class ReflectionProbe extends Light<LightType.ReflectionProbe> {
 		target.includeTransparent = this.includeTransparent;
 		target.includeParticles = this.includeParticles;
 		target.includeShadows = this.includeShadows;
-		target._captureRequestToken = this._captureRequestToken;
 		target._captureRevision = this._captureRevision;
 		target.markRuntimeDirty();
 	}
@@ -323,20 +314,6 @@ function sanitizeReflectionProbeSource(
 		return value;
 	}
 	return "environment";
-}
-
-function sanitizeCaptureUpdateMode(
-	value: ReflectionProbeCaptureUpdateMode
-): ReflectionProbeCaptureUpdateMode {
-	if (value === "manual" || value === "onSceneDirty" || value === "interval") {
-		return value;
-	}
-	return "onSceneDirty";
-}
-
-function sanitizeCaptureIntervalSeconds(value: number): number {
-	if (!Number.isFinite(value)) return 1;
-	return Math.max(0.01, value);
 }
 
 function sanitizeCaptureFar(value: number): number {

@@ -4,10 +4,7 @@ import { SH } from "../maths/SH";
 import type { IVector3, SHCoefficients } from "../maths/types";
 import { Vector3 } from "../maths/Vector3";
 import { Light, LightType, type LightParams } from "./Light";
-import type {
-	LightProbeCaptureResolution,
-	LightProbeCaptureUpdateMode,
-} from "./LightProbe";
+import type { LightProbeCaptureResolution } from "./LightProbe";
 
 export type IrradianceProbeGridSource = "manual" | "capturedScene";
 
@@ -49,8 +46,6 @@ export interface IrradianceProbeGridParams extends LightParams {
 	blendDistance?: number;
 	priority?: number;
 	source?: IrradianceProbeGridSource;
-	captureUpdateMode?: LightProbeCaptureUpdateMode;
-	captureIntervalSeconds?: number;
 	captureResolution?: Partial<LightProbeCaptureResolution>;
 	captureFar?: number;
 	includeEnvironment?: boolean;
@@ -84,10 +79,6 @@ export class IrradianceProbeGrid extends Light<LightType.IrradianceProbeGrid> {
 	public priority: number;
 	/** SH data source. `"capturedScene"` enables `ProbeCaptureRuntime` updates. */
 	public source: IrradianceProbeGridSource;
-	/** Capture scheduling mode used when `source` is `"capturedScene"`. */
-	public captureUpdateMode: LightProbeCaptureUpdateMode;
-	/** Minimum seconds between interval captures. */
-	public captureIntervalSeconds: number;
 	/** Equirectangular capture resolution used for SH projection. */
 	public captureResolution: LightProbeCaptureResolution;
 	/** Far plane distance for scene captures. */
@@ -143,12 +134,6 @@ export class IrradianceProbeGrid extends Light<LightType.IrradianceProbeGrid> {
 		);
 		this.priority = sanitizePriority(resolvedParams.priority ?? 0);
 		this.source = sanitizeSource(resolvedParams.source ?? "manual");
-		this.captureUpdateMode = sanitizeCaptureUpdateMode(
-			resolvedParams.captureUpdateMode ?? "manual"
-		);
-		this.captureIntervalSeconds = sanitizeCaptureIntervalSeconds(
-			resolvedParams.captureIntervalSeconds ?? 1
-		);
 		this.captureResolution = sanitizeCaptureResolution(
 			resolvedParams.captureResolution
 		);
@@ -420,8 +405,6 @@ export class IrradianceProbeGrid extends Light<LightType.IrradianceProbeGrid> {
 		target.blendDistance = this.blendDistance;
 		target.priority = this.priority;
 		target.source = this.source;
-		target.captureUpdateMode = this.captureUpdateMode;
-		target.captureIntervalSeconds = this.captureIntervalSeconds;
 		target.captureResolution.width = this.captureResolution.width;
 		target.captureResolution.height = this.captureResolution.height;
 		target.captureFar = this.captureFar;
@@ -438,8 +421,6 @@ export class IrradianceProbeGrid extends Light<LightType.IrradianceProbeGrid> {
 		});
 		target._validMask.set(this._validMask);
 		target._cellRevisions.set(this._cellRevisions);
-		target._cellCaptureRequestTokens.set(this._cellCaptureRequestTokens);
-		target._captureRequestToken = this._captureRequestToken;
 		target._captureRevision = this._captureRevision;
 		target._textureRevision = this._textureRevision;
 		target.markRuntimeDirty();
@@ -740,20 +721,6 @@ function sanitizeSource(value: IrradianceProbeGridSource): IrradianceProbeGridSo
 		return value;
 	}
 	return "manual";
-}
-
-function sanitizeCaptureUpdateMode(
-	value: LightProbeCaptureUpdateMode
-): LightProbeCaptureUpdateMode {
-	if (value === "manual" || value === "onSceneDirty" || value === "interval") {
-		return value;
-	}
-	return "manual";
-}
-
-function sanitizeCaptureIntervalSeconds(value: number): number {
-	if (!Number.isFinite(value)) return 1;
-	return Math.max(0.01, value);
 }
 
 function sanitizeCaptureFar(value: number): number {

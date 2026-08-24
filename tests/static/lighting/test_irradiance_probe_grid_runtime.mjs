@@ -123,7 +123,7 @@ function testCloneAndRuntimeCache() {
 	assert.equal(cloned.getCellSH({ x: 2, y: 1, z: 0 })[0].r, 12);
 	assert.equal(
 		cloned.getCellCaptureRequestToken(grid.getCellIndex(2, 1, 0)),
-		grid.captureRequestToken
+		0
 	);
 	cloned.setCellSH(0, createSH(99));
 	assert.notEqual(cloned.getCellSH(0)[0].r, grid.getCellSH(0)[0].r);
