@@ -19,6 +19,7 @@ import {
 	MAX_SPOT_LIGHTS,
 } from "../../../src/backends/constants.ts";
 import { createTinyCubeTexture, runWebGLBackendFile } from "../../helpers/webgl-backend.mjs";
+import { createTestDrawPacket } from "../helpers/drawPacket.mjs";
 
 function testLightCollectorLimitsAndWarnings() {
 	const warnings = [];
@@ -324,6 +325,37 @@ function testSceneProgramPlannerEnumeratesRuntimeTransmittanceAlternatives() {
 	));
 }
 
+function testSceneProgramPlannerReadsMaterialFromDrawSubmission() {
+	const material = new PBRMaterial();
+	material.map = { id: "base-map" };
+	const context = {
+		features: {
+			enableLighting: false,
+			enableShadows: false,
+			enableSH: false,
+			enableClusteredLighting: false,
+			enableOIT: false,
+		},
+		viewCamera: {
+			getWorldPosition() {
+				return { x: 0, y: 0, z: 0 };
+			},
+		},
+		scene: {
+			lights: [],
+			environment: { lightingEnabled: false, iblTexture: null },
+		},
+	};
+	const packet = createTestDrawPacket({ material });
+	const plan = planWebGLScenePrograms(context, [packet], ["mrt"]);
+	const keys = [...plan.sceneVariants.keys()];
+
+	assert.ok(keys.some((key) =>
+		key.includes("out:mrt") && key.includes("base:1")
+	));
+	assert.equal(keys.some((key) => key.includes("base:0")), false);
+}
+
 await runWebGLBackendFile(
 	[
 		testLightCollectorLimitsAndWarnings,
@@ -337,6 +369,7 @@ await runWebGLBackendFile(
 		testLightCollectorPCSSShadowParams,
 		testLightCollectorDirectionalCSMShadowData,
 		testSceneProgramPlannerEnumeratesRuntimeTransmittanceAlternatives,
+		testSceneProgramPlannerReadsMaterialFromDrawSubmission,
 	],
 	"WebGL light collection tests",
 );

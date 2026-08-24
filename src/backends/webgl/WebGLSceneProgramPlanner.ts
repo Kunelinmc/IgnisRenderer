@@ -275,7 +275,7 @@ function addVariantAlternatives(
 }
 
 function isDrawPacket(value: Material | DrawPacket): value is DrawPacket {
-	return "primitive" in value && "meshInstance" in value;
+	return "submission" in value;
 }
 
 function collectPlannerLightState(context: FrameContext): WebGLLightState {
