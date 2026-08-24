@@ -1,3 +1,4 @@
+import type { TextureFormat } from "../../core/TextureFormat";
 import type {
 	BindingGroupDesc,
 	BufferDesc,
@@ -13,7 +14,6 @@ import type {
 	SamplerDesc,
 	ShaderModuleDesc,
 	TextureDesc,
-	TextureFormat,
 } from "../types";
 import type { WebGPUShaderRuntimeView } from "./WebGPUMaterialPipelineResolver";
 

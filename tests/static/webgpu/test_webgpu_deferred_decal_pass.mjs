@@ -5,8 +5,8 @@ import { Material } from "../../../src/materials/Material.ts";
 import { ShaderMaterial } from "../../../src/materials/ShaderMaterial.ts";
 import { Matrix4 } from "../../../src/maths/Matrix4.ts";
 import { WebGPUDeferredDecalPass } from "../../../src/backends/webgpu/rendergraph/WebGPUDeferredDecalPass.ts";
+import { TextureFormat } from "../../../src/core/TextureFormat.ts";
 import {
-	TextureFormat,
 	TextureUsage,
 } from "../../../src/backends/types.ts";
 

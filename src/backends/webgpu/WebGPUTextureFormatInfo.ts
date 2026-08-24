@@ -1,5 +1,7 @@
-import { getTextureFormatInfo } from "../TextureFormatInfo";
-import { TextureFormat } from "../types";
+import {
+	getTextureFormatInfo,
+	TextureFormat,
+} from "../../core/TextureFormat";
 
 const WEBGPU_EIGHT_BYTE_RENDER_TARGET_FORMATS = new Set<TextureFormat>([
 	TextureFormat.RGBA8Unorm,

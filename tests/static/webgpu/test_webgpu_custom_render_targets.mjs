@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { WebGPUCustomRenderTargetRuntime } from "../../../src/backends/webgpu/rendergraph/WebGPUCustomRenderTargetRuntime.ts";
-import { TextureFormat } from "../../../src/backends/types.ts";
+import { TextureFormat } from "../../../src/core/TextureFormat.ts";
 import {
 	CustomRenderPassRegistrySnapshot,
 	RenderTargetRegistrySnapshot,

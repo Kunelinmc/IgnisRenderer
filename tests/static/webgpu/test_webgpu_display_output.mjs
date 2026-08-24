@@ -14,7 +14,7 @@ import { linearToSRGB } from "../../../src/maths/Common.ts";
 import {
 	WebGPUDisplayOutputManager,
 } from "../../../src/backends/webgpu/WebGPUDisplayOutputManager.ts";
-import { TextureFormat } from "../../../src/backends/types.ts";
+import { TextureFormat } from "../../../src/core/TextureFormat.ts";
 
 globalThis.GPUTextureUsage = {
 	RENDER_ATTACHMENT: 1,

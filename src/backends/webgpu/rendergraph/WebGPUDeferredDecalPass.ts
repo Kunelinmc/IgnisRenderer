@@ -14,9 +14,9 @@ import type {
 import type { DirtyRect } from "../../../pipeline/incremental";
 import { computePacketScreenRect } from "../../../pipeline/screenBounds";
 import type { ICommandEncoder } from "../../ICommandEncoder";
+import { TextureFormat } from "../../../core/TextureFormat";
 import {
 	BufferUsage,
-	TextureFormat,
 	TextureUsage,
 	type IBindingGroup,
 	type IRenderBuffer,

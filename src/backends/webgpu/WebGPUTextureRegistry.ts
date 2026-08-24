@@ -1,13 +1,15 @@
 import type { Texture } from "../../core/Texture";
 import {
+	getTextureFormatInfo,
+	TextureFormat,
+} from "../../core/TextureFormat";
+import {
 	AddressMode,
 	FilterMode,
-	TextureFormat,
 	TextureUsage,
 	type IRenderTexture,
 	type ISampler,
 } from "../types";
-import { getTextureFormatInfo } from "../TextureFormatInfo";
 import { Logger } from "../../foundation/Logger";
 import type { WebGPUDeviceResourceHost } from "./WebGPUDeviceResourceHost";
 import type { WebGPUResourceManager } from "./WebGPUResourceManager";

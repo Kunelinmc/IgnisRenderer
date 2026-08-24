@@ -7,9 +7,9 @@ import {
 	ShaderCompileError,
 } from "../../../src/shaders/runtime/index.ts";
 import { WEBGPU_TEST_PROFILE } from "../shaders/shaderDirectiveTestProfiles.mjs";
+import { TextureFormat } from "../../../src/core/TextureFormat.ts";
 import {
 	BufferUsage,
-	TextureFormat,
 	TextureUsage,
 } from "../../../src/backends/types.ts";
 import { createResolvedPostProcess } from "../../helpers/postprocess.mjs";

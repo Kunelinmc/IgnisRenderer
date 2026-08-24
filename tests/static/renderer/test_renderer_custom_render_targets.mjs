@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { Camera } from "../../../src/cameras/Camera.ts";
 import { Renderer } from "../../../src/rendering/Renderer.ts";
-import { TextureFormat } from "../../../src/backends/types.ts";
+import { TextureFormat } from "../../../src/core/TextureFormat.ts";
 import { installNoopPostProcessAdapter } from "../../helpers/postprocess.mjs";
 import { TestRenderBackend } from "../../helpers/TestRenderBackend.mjs";
 

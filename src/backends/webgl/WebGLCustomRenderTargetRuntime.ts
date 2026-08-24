@@ -11,11 +11,14 @@ import type {
 	RenderTargetReadbackResult,
 } from "../../rendering/CustomRenderTargets";
 import {
+	getTextureFormatInfo,
+	TextureFormat,
+} from "../../core/TextureFormat";
+import {
 	AddressMode,
 	BufferUsage,
 	FilterMode,
 	PrimitiveTopology,
-	TextureFormat,
 	TextureUsage,
 	type BufferDesc,
 	type BindingEntry,
@@ -48,7 +51,6 @@ import type {
 } from "../types";
 import { Logger } from "../../foundation/Logger";
 import { float16BitsToFloat32, float32ToFloat16Bits } from "../../foundation/Float16";
-import { getTextureFormatInfo } from "../TextureFormatInfo";
 import {
 	isWebGLFloatColorRenderTargetFormat,
 	resolveWebGLColorRenderTargetFormat,

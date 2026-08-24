@@ -5,9 +5,9 @@ import { PARTICLE_TRANSIENT_BATCHES_KEY } from "../../pipeline/types";
 import type { FrameContext } from "../../pipeline/types";
 import { ShaderSource } from "../../shaders/ShaderSource";
 import type { ICommandEncoder } from "../ICommandEncoder";
+import { TextureFormat } from "../../core/TextureFormat";
 import {
 	BufferUsage,
-	TextureFormat,
 	type IBindingGroup,
 	type IRenderBuffer,
 	type IRenderPipeline,

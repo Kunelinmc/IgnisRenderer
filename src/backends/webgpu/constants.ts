@@ -1,5 +1,5 @@
 import { PARTICLE_QUAD_VERTICES } from "../constants";
-import { TextureFormat } from "../types";
+import { TextureFormat } from "../../core/TextureFormat";
 import { getWebGPURenderTargetPixelByteCost } from "./WebGPUTextureFormatInfo";
 
 export type WebGPUDeferredGBufferLayout = "base" | "extended";

@@ -1,4 +1,4 @@
-import { TextureFormat } from "../types";
+import { TextureFormat } from "../../core/TextureFormat";
 
 export interface WebGLColorRenderTargetFormat {
 	readonly internalFormat: number;

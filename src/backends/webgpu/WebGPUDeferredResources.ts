@@ -1,6 +1,6 @@
 import { ShaderSource } from "../../shaders/ShaderSource";
+import { TextureFormat } from "../../core/TextureFormat";
 import {
-	TextureFormat,
 	TextureUsage,
 	type IBindingGroup,
 	type IComputePipeline,

@@ -6,7 +6,7 @@ import {
 } from "../../../src/lights/ibl/IBLPrefilterExecutor.ts";
 import { createWebGPUComputeFacade } from "../../../src/backends/webgpu/ComputeFacade.ts";
 import { WebGPUPrefilterExecutor } from "../../../src/lights/ibl/WebGPUPrefilterExecutor.ts";
-import { TextureFormat } from "../../../src/backends/types.ts";
+import { TextureFormat } from "../../../src/core/TextureFormat.ts";
 
 import { FakeWebGPUBackend } from "../../helpers/fakes.mjs";
 

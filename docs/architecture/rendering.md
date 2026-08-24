@@ -58,6 +58,10 @@ Backend-specific packing is private, while logical semantics such as position,
 normal, motion, roughness, metallic, and specular remain explicit at shared
 boundaries.
 
+`TextureFormat` and backend-neutral `TextureFormatInfo` metadata are owned by
+`src/core/TextureFormat.ts`. Backend-specific format capabilities and storage
+costs remain in their owning backend modules.
+
 WebGL uses a strict internal HDR pipeline and may present Display HDR when the
 browser exposes a verified floating-point drawing buffer. Scene, post-process,
 OIT, and transmission intermediates retain linear `rgba16float` radiance until

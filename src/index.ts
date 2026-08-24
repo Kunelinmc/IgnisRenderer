@@ -15,6 +15,7 @@ export * from "./foundation/Logger";
 export * from "./foundation/Platform";
 export { Node } from "./core/Node";
 export { Environment } from "./core/Environment";
+export { TextureFormat } from "./core/TextureFormat";
 export { MeshAsset, MeshInstance, LODMeshInstance, MeshFactory } from "./meshes";
 export * from "./decals";
 export * from "./csg";
@@ -85,7 +86,6 @@ export {
 	BufferUsage,
 	FilterMode,
 	PrimitiveTopology,
-	TextureFormat,
 	TextureUsage,
 	type BindingGroupDesc,
 	type BufferDesc,

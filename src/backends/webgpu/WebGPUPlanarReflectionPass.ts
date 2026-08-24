@@ -9,7 +9,8 @@ import { PreparedSceneBuilder } from "../../pipeline/PreparedSceneBuilder";
 import { Matrix4 } from "../../maths/Matrix4";
 import { Plane } from "../../maths/Plane";
 import type { IRenderTexture, IBindingGroup } from "../types";
-import { TextureFormat, TextureUsage } from "../types";
+import { TextureFormat } from "../../core/TextureFormat";
+import { TextureUsage } from "../types";
 import type { ICommandEncoder } from "../ICommandEncoder";
 import type { WebGPUFrameHost } from "./rendergraph/WebGPUFrameHost";
 import type {

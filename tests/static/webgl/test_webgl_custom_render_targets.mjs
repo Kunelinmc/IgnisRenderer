@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import { WebGLCustomRenderTargetRuntime } from "../../../src/backends/webgl/WebGLCustomRenderTargetRuntime.ts";
+import { TextureFormat } from "../../../src/core/TextureFormat.ts";
 import {
 	BufferUsage,
 	PrimitiveTopology,
-	TextureFormat,
 } from "../../../src/backends/types.ts";
 import {
 	CustomRenderPassRegistrySnapshot,

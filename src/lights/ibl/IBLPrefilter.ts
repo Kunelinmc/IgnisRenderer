@@ -1,6 +1,6 @@
 import { Texture } from "../../core/Texture";
 import type { IRenderBackend } from "../../backends/IRenderBackend";
-import { TextureFormat } from "../../backends/types";
+import { TextureFormat } from "../../core/TextureFormat";
 import { WEBGPU_COMPUTE_EXTENSION } from "../../backends/BackendExtensions";
 import { WEBGL_AUXILIARY_RASTER_EXTENSION } from
 	"../../backends/webgl/WebGLAuxiliaryRaster";

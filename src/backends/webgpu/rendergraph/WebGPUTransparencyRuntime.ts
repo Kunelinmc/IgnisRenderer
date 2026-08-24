@@ -2,10 +2,10 @@ import type { DrawPacket, FrameContext, FramePass } from "../../../pipeline/type
 import { ParticleBlendMode } from "../../../particles";
 import { materialUsesTransmission } from "../../../materials/transparency";
 import { ShaderSource } from "../../../shaders/ShaderSource";
+import { TextureFormat } from "../../../core/TextureFormat";
 import {
 	AddressMode,
 	FilterMode,
-	TextureFormat,
 	type IBindingGroup,
 	type IRenderPipeline,
 	type IRenderTexture,

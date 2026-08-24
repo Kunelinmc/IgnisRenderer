@@ -1,8 +1,8 @@
+import type { TextureFormat } from "../../core/TextureFormat";
 import {
 	TextureUsage,
 	type IRenderTexture,
 	type TextureDesc,
-	type TextureFormat,
 } from "../types";
 import {
 	attachWebGPUTexture,

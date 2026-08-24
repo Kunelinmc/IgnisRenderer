@@ -2,16 +2,14 @@ import assert from "node:assert/strict";
 
 import { Texture } from "../../../src/core/Texture.ts";
 import { float16BitsToFloat32 } from "../../../src/foundation/Float16.ts";
-import {
-	TextureFormat,
-	TextureUsage,
-} from "../../../src/backends/types.ts";
+import { TextureUsage } from "../../../src/backends/types.ts";
 import {
 	getTextureFormatBlockCount,
 	getTextureFormatBytesPerRow,
 	getTextureFormatInfo,
+	TextureFormat,
 	textureFormatRequiresFeature,
-} from "../../../src/backends/TextureFormatInfo.ts";
+} from "../../../src/core/TextureFormat.ts";
 import {
 	createTextureMipUploadData,
 } from "../../../src/backends/webgpu/texture.ts";

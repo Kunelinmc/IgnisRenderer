@@ -1,3 +1,4 @@
+import type { TextureFormat } from "../core/TextureFormat";
 import type {
 	BindingResource,
 	BufferDesc,
@@ -9,7 +10,6 @@ import type {
 	ShaderModuleDesc,
 	TextureDataLayout,
 	TextureDesc,
-	TextureFormat,
 } from "./types";
 
 export type ComputeBindingType = "buffer" | "texture" | "sampler";

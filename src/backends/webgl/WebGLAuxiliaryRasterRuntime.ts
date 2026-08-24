@@ -20,7 +20,7 @@ import type {
 	ShaderModuleDesc,
 	TextureDataLayout,
 } from "../types";
-import { TextureFormat } from "../types";
+import { TextureFormat } from "../../core/TextureFormat";
 import {
 	createWebGLRasterResourceFacade,
 	WebGLScopedRasterEncoder,

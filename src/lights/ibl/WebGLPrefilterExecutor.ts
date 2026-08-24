@@ -1,11 +1,11 @@
 import type { Texture, TextureData } from "../../core/Texture";
 import { float32ToFloat16Bits } from "../../foundation/Float16";
+import { TextureFormat } from "../../core/TextureFormat";
 import {
 	AddressMode,
 	BufferUsage,
 	FilterMode,
 	PrimitiveTopology,
-	TextureFormat,
 	TextureUsage,
 } from "../../backends/types";
 import type { IWebGLAuxiliaryRasterFacade } from

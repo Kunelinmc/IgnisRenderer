@@ -1,7 +1,7 @@
 import type { ICommandEncoder } from "../../backends/ICommandEncoder";
+import { TextureFormat } from "../../core/TextureFormat";
 import {
 	BufferUsage,
-	TextureFormat,
 	TextureUsage,
 	type IComputePipeline,
 	type IRenderBuffer,

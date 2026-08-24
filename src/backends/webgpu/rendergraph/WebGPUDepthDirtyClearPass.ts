@@ -4,8 +4,8 @@ import type {
 import { Logger } from "../../../foundation/Logger";
 import { ShaderSource } from "../../../shaders/ShaderSource";
 import type { ICommandEncoder } from "../../ICommandEncoder";
+import { TextureFormat } from "../../../core/TextureFormat";
 import {
-	TextureFormat,
 	type IRenderPipeline,
 	type IRenderTexture,
 	type IShaderModule,

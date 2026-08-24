@@ -1,7 +1,7 @@
 import type { IVector2 } from "../maths/types";
 import type { RGBA } from "../foundation/Color";
 import { clamp } from "../maths/Common";
-import { TextureFormat } from "../backends/types";
+import { TextureFormat } from "./TextureFormat";
 
 export type TextureFilter =
 	| "Nearest"

@@ -9,11 +9,11 @@ import type { IWebGPUComputeFacade } from "../backends/webgpu/ComputeFacade";
 import { WEBGPU_COMPUTE_EXTENSION } from "../backends/BackendExtensions";
 import type { IComputeKernel, IComputeRuntime } from "../backends/IComputeRuntime";
 import { ComputeRuntime } from "../backends/webgpu/ComputeRuntime";
+import { TextureFormat } from "../core/TextureFormat";
 import {
 	BufferUsage,
 	type IRenderBuffer,
 	type IRenderTexture,
-	TextureFormat,
 	TextureUsage,
 } from "../backends/types";
 

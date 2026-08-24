@@ -1,5 +1,6 @@
 import type { WebGPUDeviceResourceHost } from "./WebGPUDeviceResourceHost";
-import { TextureFormat, TextureUsage, type IRenderTexture } from "../types";
+import { TextureFormat } from "../../core/TextureFormat";
+import { TextureUsage, type IRenderTexture } from "../types";
 import {
 	WEBGPU_SHADOW_ATLAS_COLUMNS,
 	WEBGPU_SHADOW_ATLAS_ROWS,

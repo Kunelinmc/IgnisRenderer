@@ -2,11 +2,11 @@ import type { DirtyRect } from "../../../pipeline/incremental";
 import type { PresentationAlphaMode } from "../../IRenderBackend";
 import { ShaderSource } from "../../../shaders/ShaderSource";
 import type { ICommandEncoder } from "../../ICommandEncoder";
+import type { TextureFormat } from "../../../core/TextureFormat";
 import type {
 	IRenderPipeline,
 	IRenderTexture,
 	IShaderModule,
-	TextureFormat,
 } from "../../types";
 import type { WebGPUFrameHost } from "./WebGPUFrameHost";
 

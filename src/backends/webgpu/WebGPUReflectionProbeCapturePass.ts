@@ -34,7 +34,8 @@ import type {
 	WebGPUSceneResourceProvider,
 } from "./WebGPUResourceContracts";
 import type { WebGPUFrameHost } from "./rendergraph/WebGPUFrameHost";
-import { TextureFormat, TextureUsage, type IRenderTexture } from "../types";
+import { TextureFormat } from "../../core/TextureFormat";
+import { TextureUsage, type IRenderTexture } from "../types";
 import { submitWebGPUDraws } from "./WebGPUDrawSubmission";
 import { WEBGPU_MRT_COLOR_FORMATS } from "./constants";
 import {

@@ -13,9 +13,11 @@ import type {
 	PostProcessResourceHandle,
 } from "../../postprocess";
 import { createSyntheticLogicalGBufferBridge } from "../../postprocess/GBufferBridge";
-import { tryGetTextureFormatInfo } from "../TextureFormatInfo";
 import {
 	TextureFormat,
+	tryGetTextureFormatInfo,
+} from "../../core/TextureFormat";
+import {
 	TextureUsage,
 	type IRenderTexture,
 } from "../types";

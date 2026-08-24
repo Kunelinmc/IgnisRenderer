@@ -35,9 +35,9 @@ import {
 	getWebGPUTexture,
 } from "./WebGPUResourceAccess";
 import { tryGetNativeWebGPUCommandEncoder } from "./WebGPUCommandEncoder";
+import { TextureFormat } from "../../core/TextureFormat";
 import {
 	PrimitiveTopology,
-	TextureFormat,
 	type IRenderPipeline,
 	type IRenderTexture,
 	type IShaderModule,

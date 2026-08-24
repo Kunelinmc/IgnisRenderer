@@ -4,11 +4,11 @@ import type {
 	IRenderTexture,
 	ISampler,
 } from "../types";
+import { TextureFormat } from "../../core/TextureFormat";
 import {
 	AddressMode,
 	BufferUsage,
 	FilterMode,
-	TextureFormat,
 	TextureUsage,
 } from "../types";
 import type { WebGPUDeviceResourceHost } from "./WebGPUDeviceResourceHost";

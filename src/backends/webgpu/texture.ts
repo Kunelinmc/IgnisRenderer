@@ -1,13 +1,13 @@
 import { clamp } from "../../maths/Common";
 import type { Texture, TextureData } from "../../core/Texture";
 import { float32ToFloat16Bits } from "../../foundation/Float16";
-import { TextureFormat } from "../types";
 import {
 	getTextureFormatBytesPerRow,
 	getTextureFormatInfo,
 	getTextureFormatLevelByteLength,
+	TextureFormat,
 	type TextureFormatInfo,
-} from "../TextureFormatInfo";
+} from "../../core/TextureFormat";
 
 export interface WebGPUTextureUploadLevel {
 	data: Uint8Array;

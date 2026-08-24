@@ -17,9 +17,7 @@ import {
 import {
 	PreparedSceneBuilder
 } from "../../../src/pipeline/PreparedSceneBuilder.ts";
-import {
-	TextureFormat
-} from "../../../src/backends/types.ts";
+import { TextureFormat } from "../../../src/core/TextureFormat.ts";
 import {
 	ReflectionProbe
 } from "../../../src/lights/ReflectionProbe.ts";

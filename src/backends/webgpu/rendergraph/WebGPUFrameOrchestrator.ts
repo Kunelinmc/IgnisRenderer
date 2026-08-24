@@ -1,7 +1,8 @@
 import type { DrawPacket, FrameContext, FramePass } from "../../../pipeline/types";
 import { prepareFramePackets } from "../../../pipeline/FramePackets";
 import type { ICommandEncoder } from "../../ICommandEncoder";
-import { TextureFormat, type IRenderTexture } from "../../types";
+import { TextureFormat } from "../../../core/TextureFormat";
+import { type IRenderTexture } from "../../types";
 import type { WebGPUFrameHost } from "./WebGPUFrameHost";
 import type { WebGPUSampleCountResolver } from "../WebGPUSampleCountResolver";
 import type {

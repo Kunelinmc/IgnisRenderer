@@ -1,7 +1,7 @@
 import { DEFAULT_PRIMITIVE_DRAW_TOPOLOGY } from "../../core/types";
 import { ShaderSource } from "../../shaders/ShaderSource";
+import { TextureFormat } from "../../core/TextureFormat";
 import {
-	TextureFormat,
 	type IRenderPipeline,
 	type IShaderModule,
 } from "../types";

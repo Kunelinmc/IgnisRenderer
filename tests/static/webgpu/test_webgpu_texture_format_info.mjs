@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 
-import { TextureFormat } from "../../../src/backends/types.ts";
-import { getTextureFormatInfo } from "../../../src/backends/TextureFormatInfo.ts";
+import {
+	getTextureFormatInfo,
+	TextureFormat,
+} from "../../../src/core/TextureFormat.ts";
 import {
 	getWebGPURenderTargetPixelByteCost,
 } from "../../../src/backends/webgpu/WebGPUTextureFormatInfo.ts";

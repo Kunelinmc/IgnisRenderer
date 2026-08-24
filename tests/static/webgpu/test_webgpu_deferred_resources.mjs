@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 
 import { WebGPUDeferredResources } from
 	"../../../src/backends/webgpu/WebGPUDeferredResources.ts";
-import { TextureFormat } from "../../../src/backends/types.ts";
+import { TextureFormat } from "../../../src/core/TextureFormat.ts";
 
 import { FakeWebGPUBackend } from "../../helpers/fakes.mjs";
 

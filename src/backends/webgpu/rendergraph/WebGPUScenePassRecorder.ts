@@ -26,8 +26,8 @@ import type {
 import type { WebGPUSceneTargetMode } from "../WebGPUScenePassDescriptors";
 import type { WebGPUFrameTargets } from "../WebGPUFrameTargetContracts";
 import type { WebGPUFrameHost } from "./WebGPUFrameHost";
+import { TextureFormat } from "../../../core/TextureFormat";
 import {
-	TextureFormat,
 	type IBindingGroup,
 	type IRenderTexture,
 } from "../../types";

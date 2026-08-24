@@ -1,4 +1,5 @@
-import type { IRenderTexture, TextureFormat, TextureUsage } from "../types";
+import type { TextureFormat } from "../../core/TextureFormat";
+import type { IRenderTexture, TextureUsage } from "../types";
 import type { WebGPUFrameHost } from "./rendergraph/WebGPUFrameHost";
 
 export interface TexturePoolOptions {

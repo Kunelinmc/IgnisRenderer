@@ -5,11 +5,11 @@ import {
 	resolveWebGPUTextureUploadFormat,
 } from "../../backends/webgpu/texture";
 import { WEBGPU_2D_COMPUTE_WORKGROUP_SIZE as WORKGROUP_SIZE } from "../../backends/webgpu/constants";
+import { TextureFormat } from "../../core/TextureFormat";
 import {
 	AddressMode,
 	BufferUsage,
 	FilterMode,
-	TextureFormat,
 	TextureUsage,
 	type IRenderBuffer,
 	type IRenderTexture,

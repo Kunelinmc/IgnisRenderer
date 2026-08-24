@@ -9,9 +9,9 @@ import type {
 } from "../../pipeline/types";
 import type { ICommandEncoder } from "../ICommandEncoder";
 import { ShaderSource } from "../../shaders/ShaderSource";
+import { TextureFormat } from "../../core/TextureFormat";
 import {
 	BufferUsage,
-	TextureFormat,
 	TextureUsage,
 	type BindingResource,
 	type IBindingGroup,

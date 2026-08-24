@@ -1,7 +1,8 @@
 import { createInlineCompositeShaderSource } from "../../shaders/runtime";
 import { ShaderSource } from "../../shaders/ShaderSource";
 import { DEFAULT_PRIMITIVE_DRAW_TOPOLOGY } from "../../core/types";
-import { TextureFormat, type ColorTargetState } from "../types";
+import { TextureFormat } from "../../core/TextureFormat";
+import { type ColorTargetState } from "../types";
 import type { PrimitiveDrawTopology } from "../../core/types";
 import type { IRenderPipeline, IShaderModule } from "../types";
 import type { WebGPUDeviceResourceHost } from "./WebGPUDeviceResourceHost";

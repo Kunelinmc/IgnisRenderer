@@ -11,8 +11,8 @@ import type {
 	RenderTargetReadbackOptions,
 	RenderTargetReadbackResult,
 } from "../../../rendering/CustomRenderTargets";
+import { TextureFormat } from "../../../core/TextureFormat";
 import {
-	TextureFormat,
 	TextureUsage,
 	type IRenderTexture,
 } from "../../types";

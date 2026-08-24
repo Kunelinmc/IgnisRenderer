@@ -5,8 +5,8 @@ import type {
 } from "../../pipeline/types";
 import { DEFAULT_PRIMITIVE_DRAW_TOPOLOGY } from "../../core/types";
 import type { ICommandEncoder } from "../ICommandEncoder";
+import { TextureFormat } from "../../core/TextureFormat";
 import {
-	TextureFormat,
 	type IBindingGroup,
 	type IComputePipeline,
 	type IRenderPipeline,

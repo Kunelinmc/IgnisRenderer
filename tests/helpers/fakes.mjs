@@ -15,8 +15,10 @@ import {
  * Mocks the browser's Web Worker API.
  */
 import { Texture } from "../../src/core/Texture";
-import { TextureFormat } from "../../src/backends/types.ts";
-import { getTextureFormatInfo } from "../../src/backends/TextureFormatInfo.ts";
+import {
+	getTextureFormatInfo,
+	TextureFormat,
+} from "../../src/core/TextureFormat.ts";
 
 export class FakeWorker {
 	constructor(handler) {

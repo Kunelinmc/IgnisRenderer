@@ -7,7 +7,7 @@ import {
 	type TextureDesc,
 	TextureUsage,
 } from "../types";
-import { getTextureFormatFallback, textureFormatRequiresFeature } from "../TextureFormatInfo";
+import { getTextureFormatFallback, textureFormatRequiresFeature } from "../../core/TextureFormat";
 import { Logger } from "../../foundation/Logger";
 import {
 	attachWebGPUTexture,

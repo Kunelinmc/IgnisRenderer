@@ -20,7 +20,11 @@ import type {
 	WriteTextureSize,
 } from "../IComputeRuntime";
 import {
+	getTextureFormatBytesPerRow,
+	getTextureFormatInfo,
 	TextureFormat,
+} from "../../core/TextureFormat";
+import {
 	type BindingEntry,
 	type BindingResource,
 	type BufferDesc,
@@ -43,10 +47,6 @@ import {
 } from "./ComputeFacade";
 import { float16BitsToFloat32 } from "../../foundation/Float16";
 import { alignTo } from "./texture";
-import {
-	getTextureFormatBytesPerRow,
-	getTextureFormatInfo,
-} from "../TextureFormatInfo";
 import { getWebGPUResourceHandle } from "./WebGPUResourceHandle";
 import { getWebGPUTexture, tryGetWebGPUBuffer, tryGetWebGPUTexture } from "./WebGPUResourceAccess";
 

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { Texture } from "../../../src/core/Texture.ts";
 import { CanvasTexture } from "../../../src/core/CanvasTexture.ts";
 import { WebGLTextureRegistry } from "../../../src/backends/webgl/WebGLTextureRegistry.ts";
-import { TextureFormat } from "../../../src/backends/types.ts";
+import { TextureFormat } from "../../../src/core/TextureFormat.ts";
 import { FakeCanvas } from "../../helpers/fakes.mjs";
 
 function createTextureRegistryTestGL(options = {}) {

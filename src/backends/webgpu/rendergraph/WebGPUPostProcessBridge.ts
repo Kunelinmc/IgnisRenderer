@@ -14,10 +14,12 @@ import { createPostProcessResourceAccessor } from "../../../postprocess/PostProc
 import { Logger } from "../../../foundation/Logger";
 import {
 	TextureFormat,
+	tryGetTextureFormatInfo,
+} from "../../../core/TextureFormat";
+import {
 	TextureUsage,
 	type IRenderTexture,
 } from "../../types";
-import { tryGetTextureFormatInfo } from "../../TextureFormatInfo";
 import type { WebGPUFrameHost } from "./WebGPUFrameHost";
 import type { WebGPUFrameTargets } from "../WebGPUFrameTargetContracts";
 import type { WebGPUPostProcessFrameTargets } from "../WebGPUPostProcessContracts";

@@ -2,7 +2,7 @@ import type { Texture } from "../../core/Texture";
 import { clamp } from "../../maths/Common";
 import { Logger } from "../../foundation/Logger";
 import { float32ToFloat16Bits } from "../../foundation/Float16";
-import { TextureFormat } from "../types";
+import { TextureFormat } from "../../core/TextureFormat";
 
 interface TextureEntry {
 	texture: WebGLTexture;

@@ -1,6 +1,9 @@
 import { EventEmitter } from "../core/EventEmitter";
 import type { TextureReadbackResult } from "../backends/IComputeRuntime";
-import { getTextureFormatInfo } from "../backends/TextureFormatInfo";
+import {
+	getTextureFormatInfo,
+	type TextureFormat,
+} from "../core/TextureFormat";
 import type { ICommandEncoder } from "../backends/ICommandEncoder";
 import type {
 	BindingGroupDesc,
@@ -17,7 +20,6 @@ import type {
 	SamplerDesc,
 	ShaderModuleDesc,
 	TextureDesc,
-	TextureFormat,
 } from "../backends/types";
 import type { FrameContext, FramePassStage } from "../pipeline/types";
 import type {

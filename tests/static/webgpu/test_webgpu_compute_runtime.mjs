@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
+import { TextureFormat } from "../../../src/core/TextureFormat.ts";
 import {
 	BufferUsage,
-	TextureFormat,
 	TextureUsage,
 } from "../../../src/backends/types.ts";
 import { ComputeRuntime } from "../../../src/backends/webgpu/ComputeRuntime.ts";

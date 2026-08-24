@@ -19,7 +19,7 @@ import type {
 	ShaderMaterialUniformType,
 } from "../../materials/ShaderMaterial";
 import type { Texture } from "../../core/Texture";
-import { isTextureFormatSRGB } from "../TextureFormatInfo";
+import { isTextureFormatSRGB } from "../../core/TextureFormat";
 
 import { WEBGPU_TEXTURE_SLOT, WEBGPU_TEXTURE_SLOT_COUNT } from "./constants";
 import { createWebGPUShaderMaterialUniformLayout } from "./bufferLayouts";

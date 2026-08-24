@@ -68,9 +68,9 @@ import {
 } from "../../pipeline/FramePassPlanValidator";
 import type { IParticleSimulator } from "../../simulation/particles/IParticleSimulator";
 import { WebGPUParticleSimulator } from "../../simulation/particles/WebGPUParticleSimulator";
+import { TextureFormat } from "../../core/TextureFormat";
 import {
 	type IRenderTexture,
-	TextureFormat,
 } from "../types";
 import {
 	ShaderBackendCompileStage,

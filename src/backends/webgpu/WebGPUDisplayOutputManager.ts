@@ -10,7 +10,7 @@ import {
 	Platform,
 	type PlatformMediaQueryList,
 } from "../../foundation/Platform";
-import type { TextureFormat } from "../types";
+import type { TextureFormat } from "../../core/TextureFormat";
 
 export interface WebGPUDisplayOutputConfiguration {
 	readonly state: DisplayOutputState;

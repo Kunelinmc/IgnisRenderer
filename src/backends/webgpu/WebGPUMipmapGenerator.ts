@@ -1,6 +1,10 @@
 import type { TextureFilter } from "../../core/Texture";
 import { ShaderSource } from "../../shaders/ShaderSource";
 import {
+	getTextureFormatInfo,
+	TextureFormat,
+} from "../../core/TextureFormat";
+import {
 	AddressMode,
 	FilterMode,
 	type IBindingGroup,
@@ -9,9 +13,7 @@ import {
 	type ISampler,
 	type IShaderModule,
 	PrimitiveTopology,
-	TextureFormat,
 } from "../types";
-import { getTextureFormatInfo } from "../TextureFormatInfo";
 import type { WebGPUDeviceResourceHost } from "./WebGPUDeviceResourceHost";
 import { getWebGPURenderPipeline } from "./WebGPUResourceAccess";
 

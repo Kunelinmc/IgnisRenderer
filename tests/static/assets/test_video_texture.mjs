@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import { VideoTexture } from "../../../src/core/VideoTexture.ts";
 import { WebGPUTextureRegistry } from "../../../src/backends/webgpu/WebGPUTextureRegistry.ts";
 import { WEBGPU_TEXTURE_SLOT } from "../../../src/backends/webgpu/constants.ts";
-import { TextureFormat, TextureUsage } from "../../../src/backends/types.ts";
+import { TextureFormat } from "../../../src/core/TextureFormat.ts";
+import { TextureUsage } from "../../../src/backends/types.ts";
 
 import { FakeVideo, FakeCanvas, FakeWebGPUBackend, FakeCanvasContext2D } from "../../helpers/fakes.mjs";
 
