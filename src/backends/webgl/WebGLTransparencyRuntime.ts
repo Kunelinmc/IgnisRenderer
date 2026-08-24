@@ -204,13 +204,13 @@ export class WebGLTransparencyRuntime {
 	public renderLegacyTransparent(context: FrameContext): void {
 		if (
 			context.scene.transparentPackets.some((packet) =>
-				materialUsesTransmission(packet.material),
+				materialUsesTransmission(packet.submission.material.effective),
 			)
 		) {
 			this._copyOpaqueLinearDepth(context);
 		}
 		for (const packet of context.scene.transparentPackets) {
-			if (materialUsesTransmission(packet.material)) {
+			if (materialUsesTransmission(packet.submission.material.effective)) {
 				if (this._copyTransmissionBackground(context)) {
 					const gl = this._host.gl;
 					gl.bindTexture(
@@ -246,7 +246,7 @@ export class WebGLTransparencyRuntime {
 
 	public renderTransmissionPacket(context: FrameContext, index: number): void {
 		const packet = context.scene.transparentPackets[index];
-		if (!packet || !materialUsesTransmission(packet.material)) return;
+		if (!packet || !materialUsesTransmission(packet.submission.material.effective)) return;
 		this._host.renderPackets(context, [packet], true, {
 			blendMode: "disabled",
 		});
@@ -265,7 +265,7 @@ export class WebGLTransparencyRuntime {
 	private _configure(context: FrameContext): void {
 		if (
 			(context.scene?.transparentPackets ?? []).some((packet) =>
-				materialUsesTransmission(packet.material),
+				materialUsesTransmission(packet.submission.material.effective),
 			)
 		) {
 			this._active = false;
@@ -302,8 +302,8 @@ export class WebGLTransparencyRuntime {
 		const legacyPackets: DrawPacket[] = [];
 		for (const packet of packets) {
 			if (
-				materialUsesTransmission(packet.material) ||
-				packet.material instanceof ShaderMaterial
+				materialUsesTransmission(packet.submission.material.effective) ||
+				packet.submission.material.effective instanceof ShaderMaterial
 			) {
 				legacyPackets.push(packet);
 			} else {

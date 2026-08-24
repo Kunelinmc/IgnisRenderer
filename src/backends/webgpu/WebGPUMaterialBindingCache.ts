@@ -7,7 +7,10 @@ import {
 	type ISampler,
 } from "../types";
 import type { WebGPUDeviceResourceHost } from "./WebGPUDeviceResourceHost";
-import type { DrawPacket } from "../../pipeline/types";
+import {
+	DRAW_PACKET_FLAG_SHADOW_RECEIVER,
+	type DrawPacket,
+} from "../../pipeline/types";
 import type { Matrix3Arr } from "../../maths/types";
 import { Matrix4 } from "../../maths/Matrix4";
 import {
@@ -123,7 +126,7 @@ export class WebGPUMaterialBindingCache {
 		morphPositionBuffer: IRenderBuffer | null,
 		morphNormalBuffer: IRenderBuffer | null
 	): IBindingGroup {
-		const cacheKey = `${packet.id}-${materialData.pipelineKey}`;
+		const cacheKey = `${packet.submission.id}-${materialData.pipelineKey}`;
 		let cached = this._cache.get(cacheKey);
 		if (!cached) {
 			cached = this._createEntry(cacheKey);
@@ -267,7 +270,7 @@ export class WebGPUMaterialBindingCache {
 		materialData: WebGPUMaterialUniformData
 	): void {
 		let uniformDirty = !entry.hasPackedUniform;
-		const explicitPreviousMatrix = packet.previousWorldMatrix ?? null;
+		const explicitPreviousMatrix = packet.submission.instance.previousWorldMatrix ?? null;
 
 		if (entry.modelFrame !== this._currentFrame) {
 			if (explicitPreviousMatrix) {
@@ -278,7 +281,7 @@ export class WebGPUMaterialBindingCache {
 					) || uniformDirty;
 				entry.hasModelSnapshot = true;
 			} else if (!entry.hasModelSnapshot) {
-				copyMatrixToRows(packet.worldMatrix, entry.currentModelMatrix);
+				copyMatrixToRows(packet.submission.instance.worldMatrix, entry.currentModelMatrix);
 				copyRows(entry.currentModelMatrix, entry.previousModelMatrix);
 				entry.hasModelSnapshot = true;
 			} else {
@@ -290,10 +293,10 @@ export class WebGPUMaterialBindingCache {
 		}
 
 		uniformDirty =
-			copyMatrixToRows(packet.worldMatrix, entry.currentModelMatrix) ||
+			copyMatrixToRows(packet.submission.instance.worldMatrix, entry.currentModelMatrix) ||
 			uniformDirty;
 		uniformDirty =
-			copyNormalMatrixToRows(packet.normalMatrix, entry.normalMatrix) ||
+			copyNormalMatrixToRows(packet.submission.instance.normalMatrix, entry.normalMatrix) ||
 			uniformDirty;
 		uniformDirty =
 			updateMaterialSnapshot(
@@ -302,7 +305,8 @@ export class WebGPUMaterialBindingCache {
 				entry.hasMaterialSnapshot
 			) || uniformDirty;
 		entry.hasMaterialSnapshot = true;
-		const receiveShadows = packet.primitive?.receiveShadows !== false;
+		const receiveShadows =
+			(packet.submission.passFlags & DRAW_PACKET_FLAG_SHADOW_RECEIVER) !== 0;
 		if (entry.receiveShadows !== receiveShadows) {
 			entry.receiveShadows = receiveShadows;
 			uniformDirty = true;
@@ -318,7 +322,7 @@ export class WebGPUMaterialBindingCache {
 			entry.normalMatrix,
 			materialData,
 			entry.previousModelMatrix,
-			packet.meshInstance?.renderLayers ?? 1,
+			packet.submission.instance.renderLayers,
 			receiveShadows
 		);
 		this._backend.writeBuffer(entry.uniformBuffer, uniformData);

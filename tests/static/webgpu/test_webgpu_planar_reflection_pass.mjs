@@ -5,16 +5,17 @@ import {
 	filterPlanarReflectionCapturePackets,
 } from "../../../src/backends/webgpu/WebGPUPlanarReflectionPass.ts";
 import { Plane } from "../../../src/maths/Plane.ts";
+import { createTestDrawPacket } from "../helpers/drawPacket.mjs";
 
 function createPacket(id, centerY, radius, mirrorPlane = null) {
-	return {
+	return createTestDrawPacket({
 		id,
 		material: { mirrorPlane },
 		worldBounds: {
 			center: { x: 0, y: centerY, z: 0 },
 			radius,
 		},
-	};
+	});
 }
 
 function testCapturePacketFilterRejectsBackSideSphereOverlap() {
@@ -38,7 +39,7 @@ function testCapturePacketFilterRejectsBackSideSphereOverlap() {
 		true
 	);
 	assert.deepEqual(
-		result.map((packet) => packet.id),
+		result.map((packet) => packet.submission.id),
 		["near-plane-tolerance", "above-plane"]
 	);
 }
@@ -57,7 +58,10 @@ function testCapturePacketFilterHandlesCameraBelowPlane() {
 		planeKey,
 		false
 	);
-	assert.deepEqual(result.map((packet) => packet.id), ["below-plane"]);
+	assert.deepEqual(
+		result.map((packet) => packet.submission.id),
+		["below-plane"],
+	);
 }
 
 testCapturePacketFilterRejectsBackSideSphereOverlap();

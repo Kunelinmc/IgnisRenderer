@@ -418,7 +418,7 @@ export class WebGPUDeferredDecalPass {
 		}
 		const candidates = spatialIndex.queryOpaquePackets(rect);
 		for (const candidate of candidates) {
-			const renderLayers = candidate.meshInstance.renderLayers ?? 1;
+			const renderLayers = candidate.submission.instance.renderLayers;
 			if ((renderLayers & packet.receiverLayerMask) === 0) {
 				continue;
 			}
@@ -1249,10 +1249,10 @@ function boundingSpheresIntersect(
 	left: DrawPacket,
 	right: DecalPacket
 ): boolean {
-	const dx = left.worldBounds.center.x - right.worldBounds.center.x;
-	const dy = left.worldBounds.center.y - right.worldBounds.center.y;
-	const dz = left.worldBounds.center.z - right.worldBounds.center.z;
-	const radius = left.worldBounds.radius + right.worldBounds.radius;
+	const dx = left.submission.worldBounds.center.x - right.worldBounds.center.x;
+	const dy = left.submission.worldBounds.center.y - right.worldBounds.center.y;
+	const dz = left.submission.worldBounds.center.z - right.worldBounds.center.z;
+	const radius = left.submission.worldBounds.radius + right.worldBounds.radius;
 	return dx * dx + dy * dy + dz * dz <= radius * radius;
 }
 

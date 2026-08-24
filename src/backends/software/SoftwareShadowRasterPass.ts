@@ -50,8 +50,14 @@ export class SoftwareShadowRasterPass {
 		transmitters: readonly DrawPacket[],
 	): void {
 		for (const packet of casters) {
-			Matrix4.multiply(slice.viewProjection, packet.worldMatrix, this._mvpMatrix);
-			const inverse = Matrix4.inverse3x3(packet.worldMatrix);
+			Matrix4.multiply(
+				slice.viewProjection,
+				packet.submission.instance.worldMatrix,
+				this._mvpMatrix,
+			);
+			const inverse = Matrix4.inverse3x3(
+				packet.submission.instance.worldMatrix,
+			);
 			if (!inverse) continue;
 			Matrix4.transformNormal(inverse, slice.lightDirection, this._lightDirModel);
 			for (const face of Projector.getPacketFacesWithFrame(packet, frame)) {
@@ -59,16 +65,24 @@ export class SoftwareShadowRasterPass {
 					face.normal ?? Vector3.calculateNormal(face.vertices),
 					this._lightDirModel,
 				);
-				if (!packet.material.doubleSided && dot > 0) continue;
+				if (!packet.submission.material.effective.doubleSided && dot > 0) continue;
 				const projected = this._projectFace(face.vertices, slice.resolution);
 				if (projected) {
-					this._rasterizer.drawDepthTriangle(projected, target, packet.material);
+					this._rasterizer.drawDepthTriangle(
+						projected,
+						target,
+						packet.submission.material.effective,
+					);
 				}
 			}
 		}
 
 		for (const packet of transmitters) {
-			Matrix4.multiply(slice.viewProjection, packet.worldMatrix, this._mvpMatrix);
+			Matrix4.multiply(
+				slice.viewProjection,
+				packet.submission.instance.worldMatrix,
+				this._mvpMatrix,
+			);
 			for (const face of Projector.getPacketFacesWithFrame(packet, frame)) {
 				const projected = this._projectFace(face.vertices, slice.resolution);
 				if (!projected) continue;
@@ -77,7 +91,7 @@ export class SoftwareShadowRasterPass {
 					{
 						...face,
 						projected,
-						center: packet.worldBounds.center,
+						center: packet.submission.worldBounds.center,
 						depthInfo: { min: 0, max: 0, avg: 0 },
 					},
 					target,

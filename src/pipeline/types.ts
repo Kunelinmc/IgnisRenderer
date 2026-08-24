@@ -18,11 +18,11 @@ import type { DirtyRect, IncrementalFrameContext } from "./incremental";
 import type { ShadowFramePlan } from "../lights/shadows/ShadowFramePlan";
 import type {
 	BoundingSphere,
-	IPrimitive,
 	IPrimitiveGeometry,
+	PrimitiveDrawTopology,
 } from "../core/types";
 import type { Texture } from "../core/Texture";
-import type { MeshAsset, MeshInstance } from "../meshes";
+import type { MeshInstance } from "../meshes";
 import type { EnvironmentTintLinear } from "../core/Environment";
 import type { PostProcessPassRegistrySnapshot } from "../postprocess/PostProcessPass";
 import type {
@@ -34,7 +34,10 @@ import type {
 	PresentationAlphaMode,
 	RenderBackendProfile,
 } from "../backends/IRenderBackend";
-import type { PrimitiveDeformationMap } from "../simulation/animation/types";
+import type {
+	PrimitiveDeformationMap,
+	PrimitiveDeformationMode,
+} from "../simulation/animation/types";
 import {
 	defineTransientKey,
 	type TransientStore,
@@ -46,21 +49,69 @@ export const DRAW_PACKET_FLAG_SHADOW_TRANSMITTER = 1 << 2;
 export const DRAW_PACKET_FLAG_REFLECTIVE = 1 << 3;
 export const DRAW_PACKET_FLAG_SHADOW_RECEIVER = 1 << 4;
 
-export interface DrawPacket {
+/** @internal Authoring provenance retained only for identity and diagnostics. */
+export type DrawSourceRef =
+	| {
+		readonly kind: "mesh-instance";
+		readonly instanceId: string;
+	}
+	| {
+		readonly kind: "particle-mesh";
+		readonly systemId: string;
+		readonly templateIndex: number;
+		readonly particleIndex: number;
+	};
+
+/** @internal Resolved geometry resource consumed by rendering backends. */
+export interface DrawGeometryBinding {
+	readonly resourceKey: object;
 	readonly id: string;
-	meshInstance: MeshInstance;
-	mesh: MeshAsset;
-	primitive: IPrimitive;
-	material: Material;
-	geometry: IPrimitiveGeometry;
-	worldMatrix: Matrix4;
-	previousWorldMatrix?: Matrix4;
-	normalMatrix: Matrix4 | Matrix3Arr;
-	worldBounds: BoundingSphere;
-	deformationRevision: number;
-	sortDepth: number;
-	pipelineKey: string;
-	passFlags: number;
+	readonly data: IPrimitiveGeometry;
+	readonly version: number;
+	readonly topology: PrimitiveDrawTopology;
+}
+
+/** @internal Resolved per-instance state consumed by rendering backends. */
+export interface DrawInstanceBinding {
+	readonly renderLayers: number;
+	readonly worldMatrix: Matrix4;
+	readonly previousWorldMatrix?: Matrix4;
+	readonly normalMatrix: Matrix4 | Matrix3Arr;
+}
+
+/** @internal Effective material selected during prepared-scene construction. */
+export interface DrawMaterialBinding {
+	readonly effective: Material;
+	readonly revision: number;
+	readonly pipelineKey: string;
+}
+
+export type DrawDeformationMode = PrimitiveDeformationMode;
+
+/** @internal Current-frame animation payload routing for one submission. */
+export interface DrawDeformationBinding {
+	readonly mode: DrawDeformationMode;
+	readonly revision: number;
+	readonly jointPayloadKey: string | null;
+	readonly morphPayloadKey: string | null;
+}
+
+/** @internal Camera-independent, backend-neutral draw intent. */
+export interface DrawSubmission {
+	readonly id: string;
+	readonly source: DrawSourceRef;
+	readonly geometry: DrawGeometryBinding;
+	readonly instance: DrawInstanceBinding;
+	readonly material: DrawMaterialBinding;
+	readonly deformation: DrawDeformationBinding;
+	readonly worldBounds: BoundingSphere;
+	readonly passFlags: number;
+}
+
+/** @internal View-local wrapper around a camera-independent submission. */
+export interface DrawPacket {
+	readonly submission: DrawSubmission;
+	readonly sortDepth: number;
 }
 
 export interface DecalPacket {

@@ -6,6 +6,7 @@ import { WebGLSceneProgramRepository } from "../../src/backends/webgl/WebGLScene
 import { WebGLProgramCompiler } from "../../src/backends/webgl/WebGLProgramCompiler.ts";
 import { drawWebGLPacket } from "../../src/backends/webgl/WebGLScenePass.ts";
 import { createWebGLShaderMaterialFallbackVariant } from "../../src/backends/webgl/WebGLSceneProgramVariants.ts";
+import { createTestDrawPacket } from "../static/helpers/drawPacket.mjs";
 import {
 	MAX_DIRECTIONAL_LIGHTS,
 	MAX_POINT_LIGHTS,
@@ -739,7 +740,7 @@ export function createEarlyZScenePassHost(gl, options = {}) {
 			getGeometry(packet) {
 				return (
 					options.getGeometry?.(packet) ?? {
-						vao: { id: `vao-${packet.id}` },
+						vao: { id: `vao-${packet.submission.id}` },
 						topology: gl.TRIANGLES,
 						indexCount: 3,
 						indexType: 5123,
@@ -796,13 +797,13 @@ export function createEarlyZScenePassHost(gl, options = {}) {
 }
 
 export function createEarlyZPacket(id, material = new Material()) {
-	return {
+	return createTestDrawPacket({
 		id,
 		meshInstance: { id: `mesh-${id}`, skeleton: null },
 		material,
 		worldMatrix: Matrix4.identity(),
 		normalMatrix: Matrix4.identity(),
-	};
+	});
 }
 
 export function createShadowPassHost(gl, options = {}) {
@@ -843,7 +844,7 @@ export function createShadowPassHost(gl, options = {}) {
 			getGeometry(packet) {
 				return (
 					options.getGeometry?.(packet) ?? {
-						vao: { id: `shadow-vao-${packet.id}` },
+						vao: { id: `shadow-vao-${packet.submission.id}` },
 						topology: gl.TRIANGLES,
 						indexCount: 3,
 						indexType: 5123,
@@ -889,12 +890,12 @@ export function createShadowRasterPlan({
 }
 
 export function createShadowPacket(material = new Material()) {
-	return {
+	return createTestDrawPacket({
 		id: "shadow-packet",
 		meshInstance: { id: "shadow-mesh", skeleton: null },
 		material,
 		worldMatrix: Matrix4.identity(),
-	};
+	});
 }
 
 export async function runWebGLBackendFile(testCases, label) {

@@ -1413,13 +1413,13 @@ export class WebGPUPagedShadowTechnique {
 		for (let index = 0; index < request.shadowCasterPackets.length; index++) {
 			const packet = request.shadowCasterPackets[index];
 			this._setMatrixInFloatArray(
-				packet.worldMatrix,
+				packet.submission.instance.worldMatrix,
 				this._drawWorldMatrixData,
 				index * 16
 			);
 			const indirectOffset = index * DRAW_INDIRECT_UINTS;
 			this._drawIndirectArgsData[indirectOffset] =
-				Math.max(0, packet.geometry.indices.length | 0) >>> 0;
+				Math.max(0, packet.submission.geometry.data.indices.length | 0) >>> 0;
 			this._drawIndirectArgsData[indirectOffset + 1] = 0;
 			this._drawIndirectArgsData[indirectOffset + 2] = 0;
 			this._drawIndirectArgsData[indirectOffset + 3] = 0;
@@ -1529,17 +1529,17 @@ export class WebGPUPagedShadowTechnique {
 
 		// 1. Write current casters and check dirty states
 		for (const packet of packets) {
-			currentIds.add(packet.id);
-			const bounds = packet.worldBounds;
-			const prev = this._previousCasterBounds.get(packet.id);
+			currentIds.add(packet.submission.id);
+			const bounds = packet.submission.worldBounds;
+			const prev = this._previousCasterBounds.get(packet.submission.id);
 
 			let isDirty = true;
 			if (prev) {
-				const matricesMatch = matrix4Equals(packet.worldMatrix, prev.worldMatrix);
+				const matricesMatch = matrix4Equals(packet.submission.instance.worldMatrix, prev.worldMatrix);
 				if (matricesMatch) {
 					isDirty = false;
 				} else {
-					movedIds.add(packet.id);
+					movedIds.add(packet.submission.id);
 				}
 			}
 
@@ -1548,7 +1548,7 @@ export class WebGPUPagedShadowTechnique {
 				centerY: bounds.center.y,
 				centerZ: bounds.center.z,
 				radius: Math.max(0, bounds.radius),
-				worldMatrix: packet.worldMatrix,
+				worldMatrix: packet.submission.instance.worldMatrix,
 			});
 
 			this._writeCasterState(cursor, isDirty ? 1 : 0);
@@ -1569,13 +1569,13 @@ export class WebGPUPagedShadowTechnique {
 		// 3. Cache current bounds for the next frame
 		this._previousCasterBounds.clear();
 		for (const packet of packets) {
-			const bounds = packet.worldBounds;
-			this._previousCasterBounds.set(packet.id, {
+			const bounds = packet.submission.worldBounds;
+			this._previousCasterBounds.set(packet.submission.id, {
 				centerX: bounds.center.x,
 				centerY: bounds.center.y,
 				centerZ: bounds.center.z,
 				radius: Math.max(0, bounds.radius),
-				worldMatrix: packet.worldMatrix,
+				worldMatrix: packet.submission.instance.worldMatrix,
 			});
 		}
 
@@ -2033,8 +2033,8 @@ export function collectWebGPUPagedShadowPageRequests(
 					layout,
 					cascadeIndex,
 					viewProjection,
-					packet.worldBounds.center,
-					packet.worldBounds.radius
+					packet.submission.worldBounds.center,
+					packet.submission.worldBounds.radius
 				);
 			}
 		}
@@ -2231,7 +2231,7 @@ function countRemovedCasterSnapshots(
 	if (previous.size <= 0) {
 		return 0;
 	}
-	const currentIds = new Set(packets.map((packet) => packet.id));
+	const currentIds = new Set(packets.map((packet) => packet.submission.id));
 	let count = 0;
 	for (const id of previous.keys()) {
 		if (!currentIds.has(id)) {

@@ -89,7 +89,7 @@ export function buildOcclusionCandidate(
 	options: NormalizedOcclusionCullingOptions
 ): OcclusionCandidate | null {
 	const screenRect = computePacketScreenRect(
-		packet,
+		packet.submission,
 		camera,
 		viewportWidth,
 		viewportHeight
@@ -97,17 +97,17 @@ export function buildOcclusionCandidate(
 	if (!screenRect) {
 		return null;
 	}
-	const depthRange = resolveLinearDepthRange(packet.worldBounds, camera);
+	const depthRange = resolveLinearDepthRange(packet.submission.worldBounds, camera);
 	if (!depthRange) {
 		return null;
 	}
 	const screenAreaPx = screenRect.width * screenRect.height;
 	const signature = computeCandidateSignature(packet, screenRect, depthRange);
 	return {
-		packetId: packet.id,
+		packetId: packet.submission.id,
 		packet,
 		screenRect,
-		worldBounds: packet.worldBounds,
+		worldBounds: packet.submission.worldBounds,
 		nearDepth: depthRange.nearDepth,
 		farDepth: depthRange.farDepth,
 		screenAreaPx,
@@ -120,8 +120,8 @@ export function buildOcclusionCandidate(
 }
 
 export function isPacketEligibleForOcclusionCulling(packet: DrawPacket): boolean {
-	const material = packet.material;
-	if (packet.passFlags & DRAW_PACKET_FLAG_TRANSPARENT) {
+	const material = packet.submission.material.effective;
+	if (packet.submission.passFlags & DRAW_PACKET_FLAG_TRANSPARENT) {
 		return false;
 	}
 	if (material instanceof ShaderMaterial) {
@@ -137,8 +137,7 @@ export function isPacketEligibleForOcclusionCulling(packet: DrawPacket): boolean
 		return false;
 	}
 	return (
-		(packet.primitive.topology ?? DEFAULT_PRIMITIVE_DRAW_TOPOLOGY) ===
-		DEFAULT_PRIMITIVE_DRAW_TOPOLOGY
+		packet.submission.geometry.topology === DEFAULT_PRIMITIVE_DRAW_TOPOLOGY
 	);
 }
 
@@ -178,18 +177,18 @@ function computeCandidateSignature(
 		b = mix32(b, FLOAT64_SCRATCH.getUint32(4, true) ^ 0x9e3779b9);
 		b = mix32(b, FLOAT64_SCRATCH.getUint32(0, true) ^ 0x85ebca6b);
 	};
-	mixFloat(packet.worldBounds.center.x);
-	mixFloat(packet.worldBounds.center.y);
-	mixFloat(packet.worldBounds.center.z);
-	mixFloat(packet.worldBounds.radius);
+	mixFloat(packet.submission.worldBounds.center.x);
+	mixFloat(packet.submission.worldBounds.center.y);
+	mixFloat(packet.submission.worldBounds.center.z);
+	mixFloat(packet.submission.worldBounds.radius);
 	mixFloat(screenRect.x);
 	mixFloat(screenRect.y);
 	mixFloat(screenRect.width);
 	mixFloat(screenRect.height);
 	mixFloat(depthRange.nearDepth);
 	mixFloat(depthRange.farDepth);
-	a = mix32(a, packet.primitive.geometryVersion ?? 0);
-	b = mix32(b, (packet.material as { version?: number }).version ?? 0);
+	a = mix32(a, packet.submission.geometry.version);
+	b = mix32(b, packet.submission.material.revision);
 	return { a: a >>> 0, b: b >>> 0 };
 }
 

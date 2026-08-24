@@ -1,4 +1,8 @@
 import assert from "node:assert/strict";
+import { createTestDrawPacket } from "../helpers/drawPacket.mjs";
+
+const drawPacket = (id, extras = {}) =>
+	Object.assign(createTestDrawPacket({ id }), extras);
 import {
 	getDefaultWebGPUDrawBindings,
 	submitWebGPUDraws,
@@ -54,7 +58,7 @@ function createEncoder() {
 
 async function testStaticDrawsMergeContiguousInstanceRanges() {
 	const encoder = createEncoder();
-	const packets = [{ id: "instance-a" }, { id: "instance-b" }];
+	const packets = [drawPacket("instance-a"), drawPacket("instance-b")];
 	const shared = createDrawResource("shared");
 	const prepared = new Map(packets.map((packet, index) => [packet, [{
 		...shared,
@@ -85,10 +89,10 @@ async function testStaticDrawsMergeContiguousInstanceRanges() {
 
 async function testFiveThousandStaticDrawsCollapseToEightBatches() {
 	const encoder = createEncoder();
-	const packets = Array.from({ length: 5_000 }, (_, index) => ({
-		id: `mesh:${index}`,
-		materialIndex: Math.floor(index / 625),
-	}));
+	const packets = Array.from({ length: 5_000 }, (_, index) =>
+		drawPacket(`mesh:${index}`, {
+			materialIndex: Math.floor(index / 625),
+		}));
 	const resources = Array.from({ length: 8 }, (_, index) =>
 		createDrawResource(`material:${index}`));
 	const prepared = new Map(packets.map((packet, index) => [packet, [{
@@ -130,17 +134,17 @@ async function testDefaultSubmissionFiltersDirtyRectsAndTracksPackets() {
 	const options = [];
 	const resources = {
 		async getDrawResources(packet, _frameResources, drawOptions) {
-			options.push([packet.id, drawOptions]);
-			if (packet.id === "skip") {
+			options.push([packet.submission.id, drawOptions]);
+			if (packet.submission.id === "skip") {
 				return null;
 			}
-			return [createDrawResource(packet.id)];
+			return [createDrawResource(packet.submission.id)];
 		},
 	};
 	const packets = [
-		{ id: "a" },
-		{ id: "skip" },
-		{ id: "b" },
+		drawPacket("a"),
+		drawPacket("skip"),
+		drawPacket("b"),
 	];
 
 	const result = await submitWebGPUDraws({
@@ -154,10 +158,10 @@ async function testDefaultSubmissionFiltersDirtyRectsAndTracksPackets() {
 		],
 		selectPacketsForRect: (candidatePackets, rect) =>
 			rect.x === 0 ?
-				candidatePackets.filter((packet) => packet.id !== "b")
-			:	candidatePackets.filter((packet) => packet.id === "b"),
+				candidatePackets.filter((packet) => packet.submission.id !== "b")
+			:	candidatePackets.filter((packet) => packet.submission.id === "b"),
 		resolveDrawOptions: (packet, rect) => ({
-			sceneTargetMode: packet.id === "a" ? "gbuffer" : "mrt",
+			sceneTargetMode: packet.submission.id === "a" ? "gbuffer" : "mrt",
 			drawMode: rect?.x === 0 ? "early-z-prepass" : "default",
 			sampleCount: 1,
 		}),
@@ -191,7 +195,7 @@ async function testSubmissionSupportsExtraAndReplacementBindings() {
 	const encoder = createEncoder();
 	const resources = {
 		async getDrawResources(packet) {
-			return [createDrawResource(packet.id)];
+			return [createDrawResource(packet.submission.id)];
 		},
 	};
 
@@ -199,7 +203,7 @@ async function testSubmissionSupportsExtraAndReplacementBindings() {
 		encoder,
 		resources,
 		frameResources: createFrameResources(),
-		packets: [{ id: "gbuffer" }],
+		packets: [drawPacket("gbuffer")],
 		resolveDrawOptions: () => ({ sampleCount: 1 }),
 		resolveBindings: (draw) => [
 			...getDefaultWebGPUDrawBindings(draw),
@@ -210,7 +214,7 @@ async function testSubmissionSupportsExtraAndReplacementBindings() {
 		encoder,
 		resources,
 		frameResources: createFrameResources(),
-		packets: [{ id: "planar" }],
+		packets: [drawPacket("planar")],
 		resolveDrawOptions: () => ({ sampleCount: 1 }),
 		resolveBindings: (draw) => [
 			{ slot: 0, group: draw.frameBinding },
@@ -235,8 +239,8 @@ async function testSubmissionSupportsExtraAndReplacementBindings() {
 
 async function testSubmissionReusesPreparedResourcesAcrossDirtyRects() {
 	const encoder = createEncoder();
-	const packet = { id: "prepared" };
-	const preparedDraw = createDrawResource(packet.id);
+	const packet = drawPacket("prepared");
+	const preparedDraw = createDrawResource(packet.submission.id);
 	const resources = {
 		async getDrawResources() {
 			throw new Error(
@@ -261,7 +265,7 @@ async function testSubmissionReusesPreparedResourcesAcrossDirtyRects() {
 	});
 
 	assert.equal(result.drawCount, 2);
-	assert.deepEqual([...result.submittedPacketIds], [packet.id]);
+	assert.deepEqual([...result.submittedPacketIds], [packet.submission.id]);
 	assert.equal(
 		encoder.calls.filter((call) => call[0] === "setPipeline").length,
 		1
@@ -270,14 +274,14 @@ async function testSubmissionReusesPreparedResourcesAcrossDirtyRects() {
 
 async function testEmptyDirtyRectsUseFullFramePreparation() {
 	const encoder = createEncoder();
-	const packet = { id: "empty-rects" };
+	const packet = drawPacket("empty-rects");
 	let preparations = 0;
 	const result = await submitWebGPUDraws({
 		encoder,
 		resources: {
 			async getDrawResources() {
 				preparations++;
-				return [createDrawResource(packet.id)];
+				return [createDrawResource(packet.submission.id)];
 			},
 		},
 		frameResources: createFrameResources(),

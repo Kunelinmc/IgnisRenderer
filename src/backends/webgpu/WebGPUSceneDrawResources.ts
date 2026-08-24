@@ -73,7 +73,7 @@ export class WebGPUSceneDrawResources
 					errors.push(toShaderCompileError(
 						error,
 						"webgpu",
-						`WebGPUSceneWarmup:${packet.id}:${options.drawMode ?? "default"}`,
+						`WebGPUSceneWarmup:${packet.submission.id}:${options.drawMode ?? "default"}`,
 					));
 					return false;
 				} finally {

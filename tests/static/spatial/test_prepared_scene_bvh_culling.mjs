@@ -82,11 +82,14 @@ function run() {
 	}
 
 	assert.equal(frame.opaquePackets.length, 1);
-	assert.equal(frame.opaquePackets[0].meshInstance.id, visibleMesh.id);
+	assert.equal(
+		frame.opaquePackets[0].submission.source.instanceId,
+		visibleMesh.id,
+	);
 	assert.equal(frame.shadowCasterPackets.length, 2);
 	assert.ok(
 		frame.shadowCasterPackets.some(
-			(packet) => packet.meshInstance.id === culledMesh.id
+			(packet) => packet.submission.source.instanceId === culledMesh.id
 		)
 	);
 	assert.ok(scene.spatial);

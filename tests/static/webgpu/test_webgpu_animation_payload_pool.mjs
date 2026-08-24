@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
 	WebGPUAnimationPayloadPool,
 } from "../../../src/backends/webgpu/WebGPUAnimationPayloadPool.ts";
+import { createTestDrawPacket } from "../helpers/drawPacket.mjs";
 
 function createBackend() {
 	const buffers = [];
@@ -30,22 +31,28 @@ function createBackend() {
 }
 
 function createPacket(id = "packet") {
-	const primitive = { id: `primitive:${id}` };
-	const mesh = { primitives: [primitive] };
-	const meshInstance = {
-		id: `instance:${id}`,
-		mesh,
-		skeleton: null,
-		morphWeights: [],
-		worldMatrix: {},
-	};
-	return {
+	return createTestDrawPacket({
 		id,
-		primitive,
-		mesh,
-		meshInstance,
-		deformationRevision: 0,
-	};
+		meshInstance: { id: `instance:${id}` },
+	});
+}
+
+function setSkinRevision(packet, revision) {
+	Object.assign(packet.submission.deformation, {
+		mode: "skin",
+		revision,
+		jointPayloadKey: packet.submission.source.instanceId,
+		morphPayloadKey: null,
+	});
+}
+
+function setMorphRevision(packet, revision) {
+	Object.assign(packet.submission.deformation, {
+		mode: "morph",
+		revision,
+		jointPayloadKey: null,
+		morphPayloadKey: packet.submission.id,
+	});
 }
 
 function createGeometry(options = {}) {
@@ -70,8 +77,8 @@ function testStaticPacketsUseOnlyFallbackBuffers() {
 	}
 
 	const stats = pool.getDebugStats();
-	assert.equal(stats.entryCount, 10_000);
-	assert.equal(stats.staticEntryCount, 10_000);
+	assert.equal(stats.entryCount, 0);
+	assert.equal(stats.staticEntryCount, 0);
 	assert.equal(stats.liveBufferCount, 3);
 	assert.equal(stats.totalUploadCalls, 0);
 	assert.equal(backend.buffers.length, 3);
@@ -86,11 +93,11 @@ function testSceneAndShadowShareOneTemporalStorageUpload() {
 	const geometry = createGeometry();
 	const matrices = new Float32Array(16).fill(1);
 	const jointMap = new Map([
-		[packet.meshInstance.id, { skeleton: {}, matrices }],
+		[packet.submission.source.instanceId, { skeleton: {}, matrices }],
 	]);
 
 	pool.beginFrame();
-	packet.deformationRevision = 1;
+	setSkinRevision(packet, 1);
 	const shadow = pool.getShadowPayload(packet, geometry, jointMap, null);
 	const scene = pool.getScenePayload(packet, geometry, jointMap, null);
 	assert.strictEqual(shadow.jointMatricesBuffer, scene.jointMatricesBuffer);
@@ -100,7 +107,7 @@ function testSceneAndShadowShareOneTemporalStorageUpload() {
 	assert.equal(pool.getDebugStats().totalUploadCalls, 3);
 
 	pool.beginFrame();
-	packet.deformationRevision = 2;
+	setSkinRevision(packet, 2);
 	matrices.fill(2);
 	const changed = pool.getScenePayload(packet, geometry, jointMap, null);
 	pool.getShadowPayload(packet, geometry, jointMap, null);
@@ -123,32 +130,15 @@ function testSceneAndShadowShareOneTemporalStorageUpload() {
 	pool.destroy();
 }
 
-function testManualSkeletonMutationUsesArrayComparison() {
+function testMissingActiveJointPayloadSkipsPacket() {
 	const backend = createBackend();
 	const pool = new WebGPUAnimationPayloadPool(backend);
 	const packet = createPacket("manual");
 	const geometry = createGeometry();
-	let value = 3;
-	packet.meshInstance.skeleton = {
-		jointCount: 1,
-		updateJointMatrices() {},
-		toFloat32Array(out) {
-			out.fill(value);
-			return out;
-		},
-	};
-
 	pool.beginFrame();
-	pool.getScenePayload(packet, geometry, null, null);
-	const initialUploads = pool.getDebugStats().totalUploadCalls;
-	pool.beginFrame();
-	pool.getScenePayload(packet, geometry, null, null);
-	assert.equal(pool.getDebugStats().totalUploadCalls, initialUploads);
-
-	value = 4;
-	pool.beginFrame();
-	pool.getScenePayload(packet, geometry, null, null);
-	assert.equal(pool.getDebugStats().totalUploadCalls, initialUploads + 1);
+	setSkinRevision(packet, 1);
+	assert.equal(pool.getScenePayload(packet, geometry, null, null), null);
+	assert.equal(pool.getDebugStats().totalUploadCalls, 0);
 	pool.destroy();
 }
 
@@ -161,15 +151,15 @@ function testMorphStorageIsSharedWithoutJointAllocation() {
 		morphSemanticMask: 1,
 	});
 	const morphMap = new Map([
-		[packet.id, {
-			packetId: packet.id,
+		[packet.submission.id, {
+			packetId: packet.submission.id,
 			weights: new Float32Array([0.25, 0.5]),
 			targetCount: 2,
 		}],
 	]);
 
 	pool.beginFrame();
-	packet.deformationRevision = 1;
+	setMorphRevision(packet, 1);
 	const scene = pool.getScenePayload(packet, geometry, null, morphMap);
 	const shadow = pool.getShadowPayload(packet, geometry, null, morphMap);
 	const stats = pool.getDebugStats();
@@ -188,13 +178,13 @@ function testCapacityGrowthAdvancesGeneration() {
 	const packet = createPacket("growth");
 	const geometry = createGeometry();
 	const state = { skeleton: {}, matrices: new Float32Array(16).fill(1) };
-	const jointMap = new Map([[packet.meshInstance.id, state]]);
+	const jointMap = new Map([[packet.submission.source.instanceId, state]]);
 
 	pool.beginFrame();
-	packet.deformationRevision = 1;
+	setSkinRevision(packet, 1);
 	const first = pool.getScenePayload(packet, geometry, jointMap, null);
 	pool.beginFrame();
-	packet.deformationRevision = 2;
+	setSkinRevision(packet, 2);
 	state.matrices = new Float32Array(32).fill(2);
 	const grown = pool.getScenePayload(packet, geometry, jointMap, null);
 
@@ -211,15 +201,23 @@ function testInactiveResourcesReleaseAfterSixtyFrames() {
 	const packet = createPacket("release");
 	const geometry = createGeometry();
 	let jointMap = new Map([
-		[packet.meshInstance.id, { skeleton: {}, matrices: new Float32Array(16) }],
+		[packet.submission.source.instanceId, {
+			skeleton: {},
+			matrices: new Float32Array(16),
+		}],
 	]);
 
 	pool.beginFrame();
-	packet.deformationRevision = 1;
+	setSkinRevision(packet, 1);
 	pool.getScenePayload(packet, geometry, jointMap, null);
 	assert.equal(pool.getDebugStats().liveBufferCount, 5);
 
 	jointMap = null;
+	Object.assign(packet.submission.deformation, {
+		mode: "none",
+		revision: 0,
+		jointPayloadKey: null,
+	});
 	for (let inactiveFrame = 1; inactiveFrame <= 59; inactiveFrame++) {
 		pool.beginFrame();
 		const payload = pool.getScenePayload(packet, geometry, jointMap, null);
@@ -243,21 +241,26 @@ function testGracePeriodResumeReusesCapacityWithoutFalseMotion() {
 	const geometry = createGeometry();
 	const matrices = new Float32Array(16).fill(1);
 	let jointMap = new Map([
-		[packet.meshInstance.id, { skeleton: {}, matrices }],
+		[packet.submission.source.instanceId, { skeleton: {}, matrices }],
 	]);
 
 	pool.beginFrame();
-	packet.deformationRevision = 1;
+	setSkinRevision(packet, 1);
 	const first = pool.getScenePayload(packet, geometry, jointMap, null);
 	pool.beginFrame();
 	jointMap = null;
+	Object.assign(packet.submission.deformation, {
+		mode: "none",
+		revision: 0,
+		jointPayloadKey: null,
+	});
 	pool.getScenePayload(packet, geometry, jointMap, null);
 
 	pool.beginFrame();
-	packet.deformationRevision = 2;
+	setSkinRevision(packet, 2);
 	matrices.fill(5);
 	jointMap = new Map([
-		[packet.meshInstance.id, { skeleton: {}, matrices }],
+		[packet.submission.source.instanceId, { skeleton: {}, matrices }],
 	]);
 	const resumed = pool.getScenePayload(packet, geometry, jointMap, null);
 	const resumeWrite = backend.writes.at(-1);
@@ -270,7 +273,7 @@ function testGracePeriodResumeReusesCapacityWithoutFalseMotion() {
 
 testStaticPacketsUseOnlyFallbackBuffers();
 testSceneAndShadowShareOneTemporalStorageUpload();
-testManualSkeletonMutationUsesArrayComparison();
+testMissingActiveJointPayloadSkipsPacket();
 testMorphStorageIsSharedWithoutJointAllocation();
 testCapacityGrowthAdvancesGeneration();
 testInactiveResourcesReleaseAfterSixtyFrames();

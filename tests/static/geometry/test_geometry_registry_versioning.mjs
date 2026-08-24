@@ -2,6 +2,11 @@ import assert from "node:assert/strict";
 import { Material } from "../../../src/materials/Material.ts";
 import { WebGLGeometryRegistry } from "../../../src/backends/webgl/WebGLGeometryRegistry.ts";
 import { WebGPUGeometryRegistry } from "../../../src/backends/webgpu/WebGPUGeometryRegistry.ts";
+import { createTestDrawPacket } from "../helpers/drawPacket.mjs";
+
+function createGeometryBinding(primitive) {
+	return createTestDrawPacket({ primitive }).submission.geometry;
+}
 
 function createPrimitive() {
 	return {
@@ -83,10 +88,10 @@ function testWebGLGeometryVersionInvalidation() {
 	};
 	const registry = new WebGLGeometryRegistry(gl, () => {});
 	const primitive = createPrimitive();
-	const packet = {
+	let packet = createTestDrawPacket({
 		id: "packet-versioned",
 		primitive,
-	};
+	});
 
 	registry.getGeometry(packet);
 	const firstCreateCount = calls.createBuffer;
@@ -94,6 +99,7 @@ function testWebGLGeometryVersionInvalidation() {
 	assert.equal(calls.createBuffer, firstCreateCount);
 
 	primitive.geometryVersion = 1;
+	packet = createTestDrawPacket({ id: "packet-versioned", primitive });
 	registry.getGeometry(packet);
 	assert.ok(calls.createBuffer > firstCreateCount);
 	assert.ok(calls.deleteBuffer >= 2);
@@ -118,13 +124,13 @@ function testWebGPUGeometryVersionInvalidation() {
 	const registry = new WebGPUGeometryRegistry(backend);
 	const primitive = createPrimitive();
 
-	registry.getGeometry(primitive);
+	registry.getGeometry(createGeometryBinding(primitive));
 	const firstCreateCount = calls.createBuffer;
-	registry.getGeometry(primitive);
+	registry.getGeometry(createGeometryBinding(primitive));
 	assert.equal(calls.createBuffer, firstCreateCount);
 
 	primitive.geometryVersion = 1;
-	registry.getGeometry(primitive);
+	registry.getGeometry(createGeometryBinding(primitive));
 	assert.ok(calls.createBuffer > firstCreateCount);
 	assert.ok(calls.destroyBuffer >= 3);
 }
@@ -162,7 +168,7 @@ function testWebGPUSemanticPackingAndLazyWireframe() {
 	const harness = createWebGPUBackendHarness();
 	const registry = new WebGPUGeometryRegistry(harness.backend);
 	const primitive = createPrimitive();
-	const handle = registry.getGeometry(primitive);
+	const handle = registry.getGeometry(createGeometryBinding(primitive));
 
 	assert.equal(handle.vertexByteLength, 3 * 28);
 	assert.equal(handle.indexFormat, "uint16");
@@ -176,12 +182,12 @@ function testWebGPUSemanticPackingAndLazyWireframe() {
 		false,
 	);
 
-	const wireframe = registry.getWireframeGeometry(primitive);
+	const wireframe = registry.getWireframeGeometry(createGeometryBinding(primitive));
 	assert.equal(wireframe.wireframeIndexFormat, "uint16");
 	assert.equal(wireframe.wireframeIndexCount, 6);
 	assert.equal(wireframe.wireframeIndexByteLength, 12);
 	const bufferCount = harness.buffers.length;
-	registry.getWireframeGeometry(primitive);
+	registry.getWireframeGeometry(createGeometryBinding(primitive));
 	assert.equal(harness.buffers.length, bufferCount);
 }
 
@@ -194,7 +200,7 @@ function testWebGPUWireframeDeduplicatesSharedEdges() {
 	primitive.geometry.uv0 = new Float32Array(8);
 	primitive.geometry.indices = new Uint32Array([0, 1, 2, 2, 1, 3]);
 
-	const handle = registry.getWireframeGeometry(primitive);
+	const handle = registry.getWireframeGeometry(createGeometryBinding(primitive));
 	assert.equal(handle.wireframeIndexCount, 10);
 }
 
@@ -206,7 +212,7 @@ function testWebGPUMorphPackingAllocatesOnlyPresentSemantics() {
 		positions: new Float32Array(9).fill(0.25),
 	}];
 
-	const handle = registry.getGeometry(primitive);
+	const handle = registry.getGeometry(createGeometryBinding(primitive));
 	assert.equal(handle.morphTargetCount, 1);
 	assert.equal(handle.morphSemanticMask, 1);
 	assert.equal(handle.morphPositionBuffer.desc.size, 36);
@@ -220,7 +226,7 @@ function testWebGPUIndexFormatBoundary() {
 	const primitive = createPrimitive();
 	primitive.geometry.indices = new Uint32Array([0, 65536, 1]);
 
-	const handle = registry.getGeometry(primitive);
+	const handle = registry.getGeometry(createGeometryBinding(primitive));
 	assert.equal(handle.indexFormat, "uint32");
 	assert.equal(handle.indexByteLength, 12);
 }

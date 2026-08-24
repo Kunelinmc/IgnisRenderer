@@ -1,4 +1,4 @@
-import assert from "node:assert/strict";import { ShaderMaterial } from "../../../src/materials/ShaderMaterial.ts";import { Matrix4 } from "../../../src/maths/Matrix4.ts";import { drawWebGLPacket } from "../../../src/backends/webgl/WebGLScenePass.ts";import { WebGLBackend } from "../../../src/backends/webgl/WebGLBackend.ts";import { PARTICLE_SIM_DELTA_TIME_SECONDS_KEY } from "../../../src/pipeline/types.ts";import { createResolvedPostProcess } from "../../helpers/postprocess.mjs";import { createScenePassCaptureGL, runWebGLBackendFile } from "../../helpers/webgl-backend.mjs";
+import assert from "node:assert/strict";import { ShaderMaterial } from "../../../src/materials/ShaderMaterial.ts";import { Matrix4 } from "../../../src/maths/Matrix4.ts";import { drawWebGLPacket } from "../../../src/backends/webgl/WebGLScenePass.ts";import { WebGLBackend } from "../../../src/backends/webgl/WebGLBackend.ts";import { PARTICLE_SIM_DELTA_TIME_SECONDS_KEY } from "../../../src/pipeline/types.ts";import { createResolvedPostProcess } from "../../helpers/postprocess.mjs";import { createScenePassCaptureGL, runWebGLBackendFile } from "../../helpers/webgl-backend.mjs";import { createTestDrawPacket } from "../helpers/drawPacket.mjs";
 import { CameraType } from "../../../src/cameras/Camera.ts";
 import { WebGLEnvironmentRenderer } from "../../../src/backends/webgl/WebGLEnvironmentRenderer.ts";
 import { WebGLFullscreenRenderer } from "../../../src/backends/webgl/WebGLFullscreenRenderer.ts";
@@ -134,7 +134,7 @@ function testSceneProgramDrawBuffersMatchFragmentOutputCount() {
 		},
 	};
 
-	const packet = {
+	const packet = createTestDrawPacket({
 		id: "test-pkt",
 		material,
 		worldMatrix: Matrix4.identity(),
@@ -143,7 +143,7 @@ function testSceneProgramDrawBuffersMatchFragmentOutputCount() {
 			id: "test-mesh",
 			skeleton: null,
 		},
-	};
+	});
 
 	const deps = {
 		gl,

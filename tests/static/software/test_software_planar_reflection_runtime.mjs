@@ -16,6 +16,7 @@ import {
 	createSoftwarePassContextForTesting,
 } from "../../../src/backends/software/SoftwareFrameServices.ts";
 import { createResolvedPostProcess } from "../../helpers/postprocess.mjs";
+import { createTestDrawPacket } from "../helpers/drawPacket.mjs";
 
 const WIDTH = 64;
 const HEIGHT = 64;
@@ -183,7 +184,7 @@ function createTrianglePacket(id, color, options = {}) {
 		skeleton: null,
 		visible: true,
 	};
-	return {
+	return createTestDrawPacket({
 		id: `packet-${id}`,
 		meshInstance,
 		mesh,
@@ -199,7 +200,7 @@ function createTrianglePacket(id, color, options = {}) {
 		sortDepth: 0,
 		pipelineKey: `packet-${id}`,
 		passFlags: 0,
-	};
+	});
 }
 
 function createImageBuffer(width, height, data) {
@@ -364,8 +365,8 @@ function testRuntimeCompositeHonorsAlphaMask() {
 			alphaMode: AlphaMode.Mask,
 		}
 	);
-	packet.material.map = createAlphaTexture(0);
-	packet.material.alphaCutoff = 0.5;
+	packet.submission.material.effective.map = createAlphaTexture(0);
+	packet.submission.material.effective.alphaCutoff = 0.5;
 	const context = createContext(
 		createCamera(),
 		{

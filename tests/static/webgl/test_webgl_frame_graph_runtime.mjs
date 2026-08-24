@@ -19,6 +19,7 @@ import {
 } from "../../../src/backends/webgl/WebGLTemporalFrameState.ts";
 import { CameraType } from "../../../src/cameras/Camera.ts";
 import { Matrix4 } from "../../../src/maths/Matrix4.ts";
+import { createTestDrawPacket } from "../helpers/drawPacket.mjs";
 
 function createContext(overrides = {}) {
 	return {
@@ -476,9 +477,9 @@ function testRuntimeExecutesTransmissionPacketsInSortedOrder() {
 	const context = createContext({
 		scene: {
 			transparentPackets: [
-				{ material: {} },
-				{ material: { transmissionFactor: 1 } },
-				{ material: {} },
+				createTestDrawPacket({ material: {} }),
+				createTestDrawPacket({ material: { transmissionFactor: 1 } }),
+				createTestDrawPacket({ material: {} }),
 			],
 			particleSystems: [],
 			environment: {

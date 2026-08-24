@@ -5,6 +5,7 @@ import { PBRMaterial } from "../../../src/materials/PBRMaterial.ts";
 import { createWebGPUMaterialUniformData } from "../../../src/backends/webgpu/material.ts";
 import { WebGPUStaticMeshBatcher } from "../../../src/backends/webgpu/WebGPUStaticMeshBatcher.ts";
 import { WEBGPU_TEXTURE_SLOT_COUNT } from "../../../src/backends/webgpu/constants.ts";
+import { createTestDrawPacket } from "../helpers/drawPacket.mjs";
 
 const writes = [];
 const backend = {
@@ -49,7 +50,7 @@ function packet(id, x) {
 	worldMatrix.elements[0][3] = x;
 	const previousWorldMatrix = Matrix4.identity();
 	previousWorldMatrix.elements[0][3] = x - 1;
-	return {
+	return createTestDrawPacket({
 		id,
 		material,
 		worldMatrix,
@@ -57,10 +58,13 @@ function packet(id, x) {
 		normalMatrix: Matrix4.identity(),
 		meshInstance: { id: `instance:${id}`, skeleton: null, renderLayers: 1 },
 		primitive: {
+			id: `primitive:${id}`,
 			geometry: geometryData,
+			material,
 			receiveShadows: true,
 		},
-	};
+		passFlags: 1 << 4,
+	});
 }
 
 const packets = [packet("a", 1), packet("b", 2)];

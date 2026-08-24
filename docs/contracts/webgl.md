@@ -88,11 +88,15 @@ This document defines the current WebGL backend lifecycle, frame graph, resource
   whose primitive has no uploaded geometry must enqueue a budgeted upload
   request and skip drawing for that frame instead of blocking the pass.
 - Deferred geometry uploads must process during frame-begin within per-frame
-  upload-count and byte budgets, cache results keyed by primitive identity and
+  upload-count and byte budgets, cache results keyed by opaque geometry
+  resource identity and
   geometry version, discard queued requests whose geometry version changed,
   and preserve retry semantics for transient allocation failures. Permanent
   validation failures must cache a failure result exactly like immediate
   scheduling.
+- Prepared draw geometry must be consumed through its opaque resource key,
+  captured data, topology, and version. WebGL must not inspect primitive
+  authoring state through the resource key.
 - A newly queued deferred geometry packet must notify the backend during the
   frame that skipped it. The backend must emit a render-invalidation event with
   the packet's conservative viewport-space projected bounds so the next frame
@@ -208,6 +212,11 @@ This document defines the current WebGL backend lifecycle, frame graph, resource
   previous, and the next unchanged logical frame must settle previous to
   current. Inactive entries must bind a context-lifetime zero texture
   immediately and release packet-owned storage after 60 logical frames.
+- Animation consumers must resolve runtime payloads only through submission
+  deformation binding keys and must not recompute skeleton matrices or recover
+  morph weights from mesh authoring state. An active binding with a missing
+  required payload must skip the packet in scene, early-Z, and shadow passes and
+  emit one deduplicated diagnostic.
 - WebGL GPU deformation must apply morph position and normal deltas before
   four- or eight-influence linear-blend skinning. Invalid joint indices and
   non-positive skin weights must be ignored, remaining skin weights must be

@@ -15,9 +15,10 @@ import { createTransientStore } from "../../../src/foundation/TransientStore.ts"
 import { Material, AlphaMode } from "../../../src/materials/Material.ts";
 import { MeshAsset } from "../../../src/meshes/MeshAsset.ts";
 import { Camera } from "../../../src/cameras/Camera.ts";
+import { createTestDrawPacket } from "../helpers/drawPacket.mjs";
 
 function createPacket(id, passFlags = 0) {
-	return { id, passFlags };
+	return createTestDrawPacket({ id, passFlags });
 }
 
 function createContext({ transient = createTransientStore(), camera = new Camera(), scene } = {}) {
@@ -91,13 +92,13 @@ function testBaselinePacketSetCreation() {
 	const context = createContext();
 	const baseline = createBaselineFramePacketSet(context);
 
-	assert.deepEqual(baseline.all.map((p) => p.id), [
+	assert.deepEqual(baseline.all.map((p) => p.submission.id), [
 		"scene-opaque",
 		"scene-transparent",
 	]);
-	assert.deepEqual(baseline.opaque.map((p) => p.id), ["scene-opaque"]);
-	assert.deepEqual(baseline.transparent.map((p) => p.id), ["scene-transparent"]);
-	assert.deepEqual(baseline.shadowCasters.map((p) => p.id), ["scene-shadow"]);
+	assert.deepEqual(baseline.opaque.map((p) => p.submission.id), ["scene-opaque"]);
+	assert.deepEqual(baseline.transparent.map((p) => p.submission.id), ["scene-transparent"]);
+	assert.deepEqual(baseline.shadowCasters.map((p) => p.submission.id), ["scene-shadow"]);
 	assert.deepEqual(baseline.shadowTransmitters, []);
 	assert.deepEqual(baseline.reflective, []);
 }
@@ -141,10 +142,10 @@ function testFramePacketPreparationAndCaching() {
 	assert.strictEqual(prepareFramePackets(context, "main"), packets);
 
 	assert.equal(packets.all.length, 4);
-	assert.equal(packets.all[0].id, "scene-opaque");
-	assert.equal(packets.all[1].id, "scene-transparent");
-	assert.ok(packets.all[2].id.startsWith("particleMesh:particles:0:"));
-	assert.ok(packets.all[3].id.startsWith("particleMesh:particles:1:"));
+	assert.equal(packets.all[0].submission.id, "scene-opaque");
+	assert.equal(packets.all[1].submission.id, "scene-transparent");
+	assert.ok(packets.all[2].submission.id.startsWith("particleMesh:particles:0:"));
+	assert.ok(packets.all[3].submission.id.startsWith("particleMesh:particles:1:"));
 	assert.equal(packets.opaque.length, 2);
 	assert.equal(packets.transparent.length, 2);
 	assert.equal(packets.shadowCasters.length, 2);
@@ -155,7 +156,7 @@ function testFramePacketPreparationAndCaching() {
 	const planarPackets = prepareFramePackets(context, "planar-reflection");
 	assert.notStrictEqual(planarPackets, packets);
 	assert.equal(planarPackets.all.length, 2);
-	assert.deepEqual(planarPackets.all.map((p) => p.id), [
+	assert.deepEqual(planarPackets.all.map((p) => p.submission.id), [
 		"scene-opaque",
 		"scene-transparent",
 	]);

@@ -816,8 +816,8 @@ export class FrameCoordinator {
 			frame.reflectivePackets,
 		]) {
 			for (const packet of packets) {
-				if (packet.material instanceof ShaderMaterial) {
-					materials.add(packet.material);
+				if (packet.submission.material.effective instanceof ShaderMaterial) {
+					materials.add(packet.submission.material.effective);
 				}
 			}
 		}

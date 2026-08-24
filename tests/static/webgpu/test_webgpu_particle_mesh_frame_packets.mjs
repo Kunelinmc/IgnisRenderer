@@ -123,19 +123,24 @@ function testMeshParticleFramePreparation() {
 	assert.strictEqual(packets.all[1], packets.transparent[0]);
 	assert.strictEqual(packets.opaque[0], packets.shadowCasters[0]);
 	assert.strictEqual(packets.transparent[0], packets.shadowTransmitters[0]);
-	assert.equal(packets.opaque[0].material, opaqueMaterial);
+	assert.equal("meshInstance" in packets.opaque[0], false);
+	assert.equal("mesh" in packets.opaque[0], false);
+	assert.equal("primitive" in packets.opaque[0], false);
+	assert.equal(packets.opaque[0].submission.source.kind, "particle-mesh");
+	assert.equal(packets.opaque[0].submission.material.effective, opaqueMaterial);
 	assert.equal(
-		packets.opaque[0].worldBounds.radius,
+		packets.opaque[0].submission.worldBounds.radius,
 		opaqueMesh.primitives[0].boundingSphere.radius * 2,
 	);
 	assert.ok(
-		(packets.opaque[0].passFlags & DRAW_PACKET_FLAG_SHADOW_CASTER) !== 0,
+		(packets.opaque[0].submission.passFlags & DRAW_PACKET_FLAG_SHADOW_CASTER) !== 0,
 	);
 	assert.ok(
-		(packets.transparent[0].passFlags & DRAW_PACKET_FLAG_TRANSPARENT) !== 0,
+		(packets.transparent[0].submission.passFlags & DRAW_PACKET_FLAG_TRANSPARENT) !== 0,
 	);
 	assert.ok(
-		(packets.transparent[0].passFlags & DRAW_PACKET_FLAG_SHADOW_TRANSMITTER) !== 0,
+		(packets.transparent[0].submission.passFlags &
+			DRAW_PACKET_FLAG_SHADOW_TRANSMITTER) !== 0,
 	);
 	const emptyViewA = createPacketContext();
 	const emptyViewB = createPacketContext();

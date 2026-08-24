@@ -58,6 +58,17 @@ Backend-specific packing is private, while logical semantics such as position,
 normal, motion, roughness, metallic, and specular remain explicit at shared
 boundaries.
 
+Prepared mesh work is split into two layers. A camera-independent
+`DrawSubmission` resolves authoring objects into narrow source, geometry,
+instance, material, deformation, bounds, and pass bindings. A `DrawPacket`
+references one submission and adds only view-dependent sorting state. Published
+submissions are readonly and may be shared by packets for different cameras;
+packets themselves are owned by one camera view.
+
+`PreparedSceneBuilder` is the resolution boundary for `MeshInstance`,
+`MeshAsset`, and primitive authoring state. Backends consume resolved bindings
+and must not recover scene or mesh ownership from geometry resource identity.
+
 `TextureFormat` and backend-neutral `TextureFormatInfo` metadata are owned by
 `src/core/TextureFormat.ts`. Backend-specific format capabilities and storage
 costs remain in their owning backend modules.

@@ -1,4 +1,5 @@
 import type { DrawPacket } from "../../pipeline/types";
+import { Logger } from "../../foundation/Logger";
 import type {
 	JointMatrixMap,
 	MorphWeightMap,
@@ -42,7 +43,6 @@ interface AnimationPayloadEntry {
 	morphPrevious: Float32Array | null;
 	jointPayload: Float32Array | null;
 	morphPayload: Float32Array | null;
-	fallbackJointScratch: Float32Array | null;
 	sceneParamsData: Float32Array;
 	shadowParamsData: Uint32Array;
 	jointSettlePending: boolean;
@@ -168,12 +168,9 @@ export class WebGPUAnimationPayloadPool {
 		geometry: WebGPUGeometryHandle,
 		jointMap: JointMatrixMap | null,
 		morphMap: MorphWeightMap | null,
-	): WebGPUSceneAnimationPayload {
-		if (
-			geometry.skinProfile === "static" &&
-			geometry.morphTargetCount <= 0 &&
-			!packet.meshInstance.skeleton
-		) {
+	): WebGPUSceneAnimationPayload | null {
+		if (packet.submission.deformation.mode === "none") {
+			this._deactivateEntry(packet.submission.id);
 			return {
 				generation: 0,
 				paramsBuffer: this._fallbackSceneParamsBuffer,
@@ -184,6 +181,7 @@ export class WebGPUAnimationPayloadPool {
 			};
 		}
 		const entry = this._prepareEntry(packet, geometry, jointMap, morphMap);
+		if (!entry) return null;
 		if (!this._isActive(entry)) {
 			return {
 				generation: 0,
@@ -199,7 +197,7 @@ export class WebGPUAnimationPayloadPool {
 			entry.sceneParamsBuffer = this._createBuffer(
 				ANIMATION_PARAMS_BYTE_SIZE,
 				BufferUsage.Uniform | BufferUsage.CopyDst,
-				`ModelAnimationParams_${packet.id}`,
+				`ModelAnimationParams_${packet.submission.id}`,
 			);
 			entry.sceneGeneration = this._allocateGeneration();
 			this._writeSceneParams(entry, true);
@@ -227,13 +225,13 @@ export class WebGPUAnimationPayloadPool {
 		geometry: WebGPUGeometryHandle,
 		jointMap: JointMatrixMap | null,
 		morphMap: MorphWeightMap | null,
-	): WebGPUShadowAnimationPayload {
-		if (
-			geometry.skinProfile === "static" &&
-			geometry.morphTargetCount <= 0 &&
-			!packet.meshInstance.skeleton
-		) return this.getStaticShadowPayload();
+	): WebGPUShadowAnimationPayload | null {
+		if (packet.submission.deformation.mode === "none") {
+			this._deactivateEntry(packet.submission.id);
+			return this.getStaticShadowPayload();
+		}
 		const entry = this._prepareEntry(packet, geometry, jointMap, morphMap);
+		if (!entry) return null;
 		if (!this._isActive(entry)) {
 			return {
 				generation: 0,
@@ -249,7 +247,7 @@ export class WebGPUAnimationPayloadPool {
 			entry.shadowParamsBuffer = this._createBuffer(
 				ANIMATION_PARAMS_BYTE_SIZE,
 				BufferUsage.Uniform | BufferUsage.CopyDst,
-				`WebGPUShadowAnimationParams_${packet.id}`,
+				`WebGPUShadowAnimationParams_${packet.submission.id}`,
 			);
 			entry.shadowGeneration = this._allocateGeneration();
 			this._writeShadowParams(entry, true);
@@ -382,16 +380,17 @@ export class WebGPUAnimationPayloadPool {
 		geometry: WebGPUGeometryHandle,
 		jointMap: JointMatrixMap | null,
 		morphMap: MorphWeightMap | null,
-	): AnimationPayloadEntry {
-		let entry = this._entries.get(packet.id);
+	): AnimationPayloadEntry | null {
+		let entry = this._entries.get(packet.submission.id);
 		if (!entry) {
 			entry = createAnimationPayloadEntry();
-			this._entries.set(packet.id, entry);
+			this._entries.set(packet.submission.id, entry);
 		}
 		entry.lastUsedFrame = this._currentFrame;
 		if (entry.lastPreparedFrame === this._currentFrame) return entry;
 
-		const source = this._resolveSource(entry, packet, geometry, jointMap, morphMap);
+		const source = this._resolveSource(packet, geometry, jointMap, morphMap);
+		if (!source) return null;
 		const wasActive = this._isActive(entry);
 		const revisionChanged =
 			source.revisionReliable &&
@@ -420,46 +419,63 @@ export class WebGPUAnimationPayloadPool {
 		return entry;
 	}
 
+	private _deactivateEntry(packetId: string): void {
+		const entry = this._entries.get(packetId);
+		if (!entry) return;
+		entry.lastUsedFrame = this._currentFrame;
+		entry.lastPreparedFrame = this._currentFrame;
+		if (entry.jointCount > 0) {
+			entry.jointCount = 0;
+			entry.jointInactiveSinceFrame = this._currentFrame;
+		}
+		if (entry.morphCount > 0) {
+			entry.morphCount = 0;
+			entry.morphInactiveSinceFrame = this._currentFrame;
+		}
+		if (entry.inactiveSinceFrame < 0) {
+			entry.inactiveSinceFrame = this._currentFrame;
+		}
+		this._releaseInactiveResources(entry);
+	}
+
 	private _resolveSource(
-		entry: AnimationPayloadEntry,
 		packet: DrawPacket,
 		geometry: WebGPUGeometryHandle,
 		jointMap: JointMatrixMap | null,
 		morphMap: MorphWeightMap | null,
-	): ResolvedAnimationSource {
-		const runtimeJoint = jointMap?.get(packet.meshInstance.id) ?? null;
-		let jointMatrices = runtimeJoint?.matrices ?? null;
-		let jointReliable = !!runtimeJoint;
-		if (!jointMatrices && packet.meshInstance.skeleton) {
-			packet.meshInstance.skeleton.updateJointMatrices(packet.meshInstance.worldMatrix);
-			const requiredLength = packet.meshInstance.skeleton.jointCount * 16;
-			if (
-				!entry.fallbackJointScratch ||
-				entry.fallbackJointScratch.length !== requiredLength
-			) {
-				entry.fallbackJointScratch = new Float32Array(requiredLength);
-			}
-			jointMatrices = packet.meshInstance.skeleton.toFloat32Array(entry.fallbackJointScratch);
-			jointReliable = false;
+	): ResolvedAnimationSource | null {
+		const deformation = packet.submission.deformation;
+		const runtimeJoint = deformation.jointPayloadKey ?
+			jointMap?.get(deformation.jointPayloadKey) ?? null
+			: null;
+		if (deformation.jointPayloadKey && !runtimeJoint) {
+			Logger.warn(
+				`WebGPU packet ${packet.submission.id} is missing active joint payload; skipping`,
+				{
+					scope: "WebGPUAnimationPayloadPool",
+					onceKey: `webgpu-missing-joint-payload-${packet.submission.id}`,
+				},
+			);
+			return null;
 		}
+		let jointMatrices = runtimeJoint?.matrices ?? null;
 		const jointCount = Math.max(0, Math.floor((jointMatrices?.length ?? 0) / 16));
 
-		const runtimeMorph = morphMap?.get(packet.id) ?? null;
+		const runtimeMorph = deformation.morphPayloadKey ?
+			morphMap?.get(deformation.morphPayloadKey) ?? null
+			: null;
+		if (deformation.morphPayloadKey && !runtimeMorph) {
+			Logger.warn(
+				`WebGPU packet ${packet.submission.id} is missing active morph payload; skipping`,
+				{
+					scope: "WebGPUAnimationPayloadPool",
+					onceKey: `webgpu-missing-morph-payload-${packet.submission.id}`,
+				},
+			);
+			return null;
+		}
 		let morphWeights = runtimeMorph?.weights ?? null;
 		let requestedMorphCount = Math.max(0, runtimeMorph?.targetCount ?? 0);
-		let morphReliable = !!runtimeMorph;
-		if (
-			geometry.morphTargetCount > 0 &&
-			(!morphWeights || requestedMorphCount <= 0)
-		) {
-			const primitiveIndex = packet.mesh.primitives.indexOf(packet.primitive);
-			morphWeights =
-				primitiveIndex >= 0
-					? (packet.meshInstance.morphWeights[primitiveIndex] ?? null)
-					: null;
-			requestedMorphCount = morphWeights?.length ?? 0;
-			morphReliable = false;
-		}
 		const morphCount = Math.min(
 			Math.max(0, requestedMorphCount),
 			morphWeights?.length ?? 0,
@@ -473,9 +489,8 @@ export class WebGPUAnimationPayloadPool {
 			morphCount,
 			vertexCount: geometry.vertexCount,
 			morphSemanticMask: geometry.morphSemanticMask,
-			revision: packet.deformationRevision ?? 0,
-			revisionReliable:
-				(jointCount <= 0 || jointReliable) && (morphCount <= 0 || morphReliable),
+			revision: packet.submission.deformation.revision ?? 0,
+			revisionReliable: true,
 		};
 	}
 
@@ -795,7 +810,6 @@ function createAnimationPayloadEntry(): AnimationPayloadEntry {
 		morphPrevious: null,
 		jointPayload: null,
 		morphPayload: null,
-		fallbackJointScratch: null,
 		sceneParamsData: new Float32Array(8),
 		shadowParamsData: new Uint32Array(8),
 		jointSettlePending: false,

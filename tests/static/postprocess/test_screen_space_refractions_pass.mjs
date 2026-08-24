@@ -9,6 +9,7 @@ import {
 	PostProcessPlanner,
 } from "../../../src/postprocess/index.ts";
 import { createResolvedPostProcess } from "../../helpers/postprocess.mjs";
+import { createTestDrawPacket } from "../helpers/drawPacket.mjs";
 
 function createFrameContext(transmissionFactor = 1) {
 	return {
@@ -31,8 +32,14 @@ function createFrameContext(transmissionFactor = 1) {
 		scene: {
 			transparentPackets:
 				transmissionFactor > 0 ?
-					[{ id: "glass", material: { transmissionFactor } }]
-				:	[{ id: "alpha", material: { transmissionFactor: 0 } }],
+					[createTestDrawPacket({
+						id: "glass",
+						material: { transmissionFactor },
+					})]
+				:	[createTestDrawPacket({
+						id: "alpha",
+						material: { transmissionFactor: 0 },
+					})],
 		},
 		incremental: {
 			enabled: false,

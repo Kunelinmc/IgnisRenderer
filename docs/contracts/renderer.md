@@ -303,6 +303,20 @@ This document defines the lifecycle, scheduling, warmup, incremental rendering, 
 
 ### Incremental rendering
 
+- `PreparedSceneBuilder` must resolve mesh authoring state into a
+  camera-independent readonly `DrawSubmission`. A `DrawPacket` must reference
+  exactly one submission and add only state owned by its camera view.
+- Packets belonging to different cameras may share a submission but must not
+  share or overwrite view-dependent sorting state.
+- Published submissions must not contain `MeshInstance`, `MeshAsset`, or a
+  readable primitive authoring contract. Geometry resource keys are opaque and
+  may be used only for resource identity.
+- Primitive and mesh visibility must control packet admission. Geometry,
+  topology, material, render layers, transforms, shadow behavior, and
+  deformation must cross the prepared-scene boundary only through their
+  resolved submission bindings.
+- Source mutations made after scene preparation are observed by the next scene
+  preparation and must not alter the active frame transaction.
 - Prepared-scene packet caches must reuse camera-independent packet state while
   mesh, primitive, transform, geometry, material, deformation, visibility,
   render-layer, and shadow revisions remain unchanged.

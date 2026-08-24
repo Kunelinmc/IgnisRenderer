@@ -338,6 +338,11 @@ lighting, presentation configuration, reflections, and structured buffer packing
   joint and morph storage at most once per logical backend frame. Runtime joint
   matrices and morph weights must be consumed directly without recomputing
   skeleton matrices or allocating another morph snapshot in WebGPU consumers.
+- Animation consumers must resolve runtime payloads only through the
+  submission deformation binding keys. They must not recover skeleton or morph
+  state from scene, mesh, or primitive authoring objects. When an active
+  deformation binding lacks a required current-frame payload, every scene and
+  shadow consumer must skip that packet and emit one deduplicated diagnostic.
 - Packets without active skinning or morph targets must use device-lifetime
   zero-value fallback buffers and must not allocate packet-owned animation
   buffers. Scene and shadow animation parameter layouts may remain distinct.
@@ -410,6 +415,9 @@ lighting, presentation configuration, reflections, and structured buffer packing
 ### Geometry packing
 
 - `WebGPUGeometryRegistry` must store scene geometry in semantic vertex streams.
+- Geometry registry entries must be keyed by the submission's opaque geometry
+  resource key and invalidated by its captured geometry version. The registry
+  must not inspect primitive authoring state through that key.
   Position data must use an independent `float32x3` stream. Surface data may
   contain normal, tangent, and UV attributes, while skinning data may contain
   four- or eight-influence joint and weight groups.

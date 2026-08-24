@@ -66,13 +66,14 @@ class StubBackend extends TestRenderBackend {
 		if (pass.stage === "main-opaque") {
 			const packet = context.scene.opaquePackets[0];
 			if (packet) {
-				this.mainOpaqueCenters.push(packet.worldBounds.center.x);
+				this.mainOpaqueCenters.push(packet.submission.worldBounds.center.x);
 			}
 			this.mainOpaquePackets.push(
 				context.scene.opaquePackets.map((candidate) => ({
-					meshInstanceId: candidate.meshInstance.id,
-					centerX: candidate.worldBounds.center.x,
-					deformationRevision: candidate.deformationRevision,
+					meshInstanceId: candidate.submission.source.instanceId,
+					centerX: candidate.submission.worldBounds.center.x,
+					deformationRevision:
+						candidate.submission.deformation.revision,
 				}))
 			);
 		}

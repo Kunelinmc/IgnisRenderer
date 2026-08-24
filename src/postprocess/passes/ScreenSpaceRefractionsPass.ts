@@ -691,7 +691,7 @@ export class ScreenSpaceRefractionsPass extends PostProcessPass<
 	): boolean {
 		return (
 			request.frameContext?.scene.transparentPackets.some((packet) =>
-				materialUsesTransmission(packet.material),
+				materialUsesTransmission(packet.submission.material.effective),
 			) ?? false
 		);
 	}

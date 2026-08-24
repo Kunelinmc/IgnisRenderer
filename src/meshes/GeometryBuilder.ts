@@ -180,18 +180,18 @@ export class GeometryBuilder {
 	}
 
 	public static createVerticesForTriangle(
-		primitive: IPrimitive,
+		geometry: IPrimitiveGeometry,
 		triangleIndex: number,
 		overrides?: Partial<IPrimitiveGeometry>
 	): IVertex[] {
-		const geometry = mergeGeometry(primitive.geometry, overrides);
-		const indices = geometry.indices;
+		const resolvedGeometry = mergeGeometry(geometry, overrides);
+		const indices = resolvedGeometry.indices;
 		const baseIndex = triangleIndex * 3;
 
 		return [
-			this._createVertex(geometry, indices[baseIndex]),
-			this._createVertex(geometry, indices[baseIndex + 1]),
-			this._createVertex(geometry, indices[baseIndex + 2]),
+			this._createVertex(resolvedGeometry, indices[baseIndex]),
+			this._createVertex(resolvedGeometry, indices[baseIndex + 1]),
+			this._createVertex(resolvedGeometry, indices[baseIndex + 2]),
 		];
 	}
 

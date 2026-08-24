@@ -29,9 +29,21 @@ import {
 	DRAW_PACKET_FLAG_SHADOW_TRANSMITTER,
 	DRAW_PACKET_FLAG_TRANSPARENT,
 	type DecalPacket,
+	type DrawGeometryBinding,
+	type DrawInstanceBinding,
 	type DrawPacket,
+	type DrawSourceRef,
+	type DrawSubmission,
 	type PreparedScene,
 } from "./types";
+
+const geometryBindings = new WeakMap<IPrimitive, DrawGeometryBinding>();
+const NO_DEFORMATION = Object.freeze({
+	mode: "none",
+	revision: 0,
+	jointPayloadKey: null,
+	morphPayloadKey: null,
+} as const);
 
 export interface PreparedSceneBuildOptions {
 	viewportWidth?: number;
@@ -45,14 +57,19 @@ export interface PreparedSceneBuildOptions {
 }
 
 interface PreparedPacketCacheSignature {
-	readonly mesh: DrawPacket["mesh"];
-	readonly material: DrawPacket["material"];
-	readonly geometry: DrawPacket["geometry"];
+	readonly mesh: MeshInstance["mesh"];
+	readonly primitive: IPrimitive;
+	readonly material: Material;
+	readonly geometry: IPrimitive["geometry"];
+	readonly topology: IPrimitive["topology"];
 	readonly transformRevision: number;
 	readonly boundsVersion: number;
 	readonly meshBoundsVersion: number;
 	readonly geometryVersion: number;
 	readonly deformationRevision: number;
+	readonly deformationMode: PrimitiveDeformationState["mode"] | "none";
+	readonly jointPayloadKey: string | null;
+	readonly morphPayloadKey: string | null;
 	readonly primitiveVisible: boolean;
 	readonly castShadows: boolean;
 	readonly receiveShadows: boolean;
@@ -60,18 +77,31 @@ interface PreparedPacketCacheSignature {
 	readonly materialRevision: number;
 }
 
-interface PreparedPacketCacheEntry {
+interface MutableDrawPacket {
+	submission: DrawSubmission;
+	sortDepth: number;
+}
+
+interface PreparedViewPacketCacheEntry {
 	readonly key: string;
-	readonly owner: Map<string, PreparedPacketCacheEntry>;
-	readonly packet: DrawPacket;
+	readonly owner: Map<string, PreparedViewPacketCacheEntry>;
+	readonly submissionEntry: PreparedSubmissionCacheEntry;
+	packet: MutableDrawPacket;
+}
+
+interface PreparedSubmissionCacheEntry {
+	readonly key: string;
+	submission: DrawSubmission;
 	signature: PreparedPacketCacheSignature;
+	readonly viewEntries: Set<PreparedViewPacketCacheEntry>;
 	lastUsedFrame: number;
 }
 
-/** @internal Bounded view-local cache for prepared draw packets. */
+/** @internal Bounded submission cache with isolated view-local packets. */
 export class PreparedScenePacketCache {
-	private _views = new WeakMap<object, Map<string, PreparedPacketCacheEntry>>();
-	private readonly _lru = new Set<PreparedPacketCacheEntry>();
+	private _views = new WeakMap<object, Map<string, PreparedViewPacketCacheEntry>>();
+	private readonly _submissions = new Map<string, PreparedSubmissionCacheEntry>();
+	private readonly _lru = new Set<PreparedSubmissionCacheEntry>();
 	private _materialRevisions = new WeakMap<Material, number>();
 	private _frame = 0;
 	private _frameHits = 0;
@@ -86,80 +116,106 @@ export class PreparedScenePacketCache {
 		this._materialRevisions = new WeakMap<Material, number>();
 	}
 
-	public getReusablePacket(
-		view: Camera,
+	public getReusableSubmission(
 		meshInstance: MeshInstance,
 		primitive: IPrimitive,
-		deformationRevision: number,
-	): DrawPacket | null {
-		const packets = this._views.get(view);
-		if (!packets) return null;
+		deformation: PrimitiveDeformationState | null,
+	): DrawSubmission | null {
 		const key = `${meshInstance.id}:${primitive.id}`;
-		const entry = packets.get(key);
+		const entry = this._submissions.get(key);
 		if (!entry) return null;
 		if (!this._isSignatureCurrent(
 			entry.signature,
 			meshInstance,
 			primitive,
-			deformationRevision,
+			deformation,
 		)) return null;
 		this._frameHits++;
-		updatePacketSortDepth(entry.packet, view);
 		this._touchEntry(entry);
-		return entry.packet;
+		return entry.submission;
 	}
 
-	public storePacket(
-		view: Camera,
+	public storeSubmission(
 		meshInstance: MeshInstance,
 		primitive: IPrimitive,
-		deformationRevision: number,
-		packet: DrawPacket,
+		deformation: PrimitiveDeformationState | null,
+		submission: DrawSubmission,
+	): DrawSubmission {
+		const key = `${meshInstance.id}:${primitive.id}`;
+		const signature = this._createSignature(
+			meshInstance,
+			primitive,
+			deformation,
+		);
+		let entry = this._submissions.get(key);
+		this._frameRebuilds++;
+		if (entry) {
+			entry.submission = submission;
+			entry.signature = signature;
+			this._touchEntry(entry);
+			return submission;
+		}
+		entry = {
+			key,
+			submission,
+			signature,
+			viewEntries: new Set(),
+			lastUsedFrame: this._frame,
+		};
+		this._submissions.set(key, entry);
+		this._lru.add(entry);
+		return submission;
+	}
+
+	public getViewPacket(
+		view: Camera,
+		submission: DrawSubmission,
+		sortDepth: number,
 	): DrawPacket {
 		let packets = this._views.get(view);
 		if (!packets) {
 			packets = new Map();
 			this._views.set(view, packets);
 		}
-		const key = `${meshInstance.id}:${primitive.id}`;
-		const signature = this._createSignature(
-			meshInstance,
-			primitive,
-			deformationRevision,
-		);
-		let entry = packets.get(key);
-		this._frameRebuilds++;
-		if (entry) {
-			Object.assign(entry.packet, packet);
-			entry.signature = signature;
-			this._touchEntry(entry);
+		const submissionEntry = this._submissions.get(submission.id);
+		if (!submissionEntry) return { submission, sortDepth };
+		let entry = packets.get(submission.id);
+		if (!entry) {
+			entry = {
+				key: submission.id,
+				owner: packets,
+				submissionEntry,
+				packet: { submission, sortDepth },
+			};
+			packets.set(submission.id, entry);
+			submissionEntry.viewEntries.add(entry);
 			return entry.packet;
 		}
-		entry = {
-			key,
-			owner: packets,
-			packet,
-			signature,
-			lastUsedFrame: this._frame,
-		};
-		packets.set(key, entry);
-		this._lru.add(entry);
-		return packet;
+		if (entry.packet.submission !== submission) {
+			entry.packet = { submission, sortDepth };
+		} else {
+			entry.packet.sortDepth = sortDepth;
+		}
+		return entry.packet;
 	}
 
 	public endFrame(): void {
 		while (this._lru.size > this._maxEntries) {
 			const oldest = this._lru.values().next().value as
-				| PreparedPacketCacheEntry
+				| PreparedSubmissionCacheEntry
 				| undefined;
 			if (!oldest || oldest.lastUsedFrame === this._frame) break;
 			this._lru.delete(oldest);
-			oldest.owner.delete(oldest.key);
+			this._submissions.delete(oldest.key);
+			for (const viewEntry of oldest.viewEntries) {
+				viewEntry.owner.delete(viewEntry.key);
+			}
 		}
 	}
 
 	public clear(): void {
 		this._views = new WeakMap();
+		this._submissions.clear();
 		this._lru.clear();
 		this._materialRevisions = new WeakMap();
 		this._frame = 0;
@@ -180,17 +236,22 @@ export class PreparedScenePacketCache {
 	private _createSignature(
 		meshInstance: MeshInstance,
 		primitive: IPrimitive,
-		deformationRevision: number,
+		deformation: PrimitiveDeformationState | null,
 	): PreparedPacketCacheSignature {
 		return {
 			mesh: meshInstance.mesh,
+			primitive,
 			material: primitive.material,
 			geometry: primitive.geometry,
+			topology: primitive.topology,
 			transformRevision: meshInstance.worldTransformRevision,
 			boundsVersion: meshInstance.worldBoundsVersion,
 			meshBoundsVersion: meshInstance.mesh.boundsVersion,
 			geometryVersion: primitive.geometryVersion ?? 0,
-			deformationRevision,
+			deformationRevision: deformation?.revision ?? 0,
+			deformationMode: deformation?.mode ?? "none",
+			jointPayloadKey: deformation?.jointPayloadKey ?? null,
+			morphPayloadKey: deformation?.morphPayloadKey ?? null,
 			primitiveVisible: primitive.visible !== false,
 			castShadows: primitive.castShadows === true,
 			receiveShadows: primitive.receiveShadows !== false,
@@ -203,17 +264,22 @@ export class PreparedScenePacketCache {
 		signature: PreparedPacketCacheSignature,
 		meshInstance: MeshInstance,
 		primitive: IPrimitive,
-		deformationRevision: number,
+		deformation: PrimitiveDeformationState | null,
 	): boolean {
 		return (
 			signature.mesh === meshInstance.mesh &&
+			signature.primitive === primitive &&
 			signature.material === primitive.material &&
 			signature.geometry === primitive.geometry &&
+			signature.topology === primitive.topology &&
 			signature.transformRevision === meshInstance.worldTransformRevision &&
 			signature.boundsVersion === meshInstance.worldBoundsVersion &&
 			signature.meshBoundsVersion === meshInstance.mesh.boundsVersion &&
 			signature.geometryVersion === (primitive.geometryVersion ?? 0) &&
-			signature.deformationRevision === deformationRevision &&
+			signature.deformationRevision === (deformation?.revision ?? 0) &&
+			signature.deformationMode === (deformation?.mode ?? "none") &&
+			signature.jointPayloadKey === (deformation?.jointPayloadKey ?? null) &&
+			signature.morphPayloadKey === (deformation?.morphPayloadKey ?? null) &&
 			signature.primitiveVisible === (primitive.visible !== false) &&
 			signature.castShadows === (primitive.castShadows === true) &&
 			signature.receiveShadows === (primitive.receiveShadows !== false) &&
@@ -230,7 +296,7 @@ export class PreparedScenePacketCache {
 		return revision;
 	}
 
-	private _touchEntry(entry: PreparedPacketCacheEntry): void {
+	private _touchEntry(entry: PreparedSubmissionCacheEntry): void {
 		if (entry.lastUsedFrame === this._frame) return;
 		this._lru.delete(entry);
 		this._lru.add(entry);
@@ -441,11 +507,11 @@ export class PreparedSceneBuilder {
 					);
 				}
 
-				if (packet.passFlags & DRAW_PACKET_FLAG_SHADOW_CASTER) {
+				if (packet.submission.passFlags & DRAW_PACKET_FLAG_SHADOW_CASTER) {
 					shadowCasterPackets.push(packet);
 				}
 
-				if (packet.passFlags & DRAW_PACKET_FLAG_SHADOW_TRANSMITTER) {
+				if (packet.submission.passFlags & DRAW_PACKET_FLAG_SHADOW_TRANSMITTER) {
 					shadowTransmitterPackets.push(packet);
 				}
 				},
@@ -487,12 +553,12 @@ export class PreparedSceneBuilder {
 		transparentPackets: DrawPacket[],
 		reflectivePackets: DrawPacket[]
 	): void {
-		if (packet.passFlags & DRAW_PACKET_FLAG_TRANSPARENT) {
+		if (packet.submission.passFlags & DRAW_PACKET_FLAG_TRANSPARENT) {
 			transparentPackets.push(packet);
 		} else {
 			opaquePackets.push(packet);
 		}
-		if (packet.passFlags & DRAW_PACKET_FLAG_REFLECTIVE) {
+		if (packet.submission.passFlags & DRAW_PACKET_FLAG_REFLECTIVE) {
 			reflectivePackets.push(packet);
 		}
 	}
@@ -512,7 +578,7 @@ export class PreparedSceneBuilder {
 		if (occlusion?.culledPacketIds.length) {
 			const culled = new Set(occlusion.culledPacketIds);
 			for (let index = opaquePackets.length - 1; index >= 0; index--) {
-				if (culled.has(opaquePackets[index].id)) {
+				if (culled.has(opaquePackets[index].submission.id)) {
 					opaquePackets.splice(index, 1);
 				}
 			}
@@ -586,56 +652,65 @@ export class PreparedSceneBuilder {
 		let normalMatrix: Matrix3Arr | null = null;
 		let worldScale = 1;
 		let transformStatePrepared = false;
+		let source: DrawSourceRef | null = null;
+		let instance: DrawInstanceBinding | null = null;
 
 		for (const primitive of meshInstance.mesh.primitives) {
 			if (primitive.visible === false) continue;
 			const deformation =
 				deformationStates?.get(`${meshInstance.id}:${primitive.id}`) ?? null;
-			const cached = packetCache?.getReusablePacket(
-				camera,
+			let submission = packetCache?.getReusableSubmission(
 				meshInstance,
 				primitive,
-				deformation?.revision ?? 0,
-			);
-			if (cached) {
-				visitor(cached);
-				continue;
-			}
-			if (!transformStatePrepared) {
-				transformStatePrepared = true;
-				normalMatrix = Matrix4.normalMatrix(worldMatrix) as Matrix3Arr;
-				worldScale = getMaxScaleFromMatrix(worldMatrix) || 1;
-			}
-			const created = this._createPacket(
+				deformation,
+			) ?? null;
+			if (!submission) {
+				if (!transformStatePrepared) {
+					transformStatePrepared = true;
+					normalMatrix = Matrix4.normalMatrix(worldMatrix) as Matrix3Arr;
+					worldScale = getMaxScaleFromMatrix(worldMatrix) || 1;
+					source = {
+						kind: "mesh-instance",
+						instanceId: meshInstance.id,
+					};
+					instance = {
+						renderLayers: meshInstance.renderLayers,
+						worldMatrix,
+						normalMatrix,
+					};
+				}
+				submission = this._createSubmission(
 					meshInstance,
 					primitive,
-					worldMatrix,
-					normalMatrix!,
+					source!,
+					instance!,
 					worldScale,
-					camera,
 					deformation,
-			);
+				);
+				if (packetCache) {
+					submission = packetCache.storeSubmission(
+						meshInstance,
+						primitive,
+						deformation,
+						submission,
+					);
+				}
+			}
+			const sortDepth = resolveSubmissionSortDepth(submission, camera);
 			visitor(packetCache
-				? packetCache.storePacket(
-					camera,
-					meshInstance,
-					primitive,
-					deformation?.revision ?? 0,
-					created,
-				)
-				: created);
+				? packetCache.getViewPacket(camera, submission, sortDepth)
+				: { submission, sortDepth });
 		}
 	}
 
-	private static _createPacket(
+	private static _createSubmission(
 		meshInstance: MeshInstance,
 		primitive: IPrimitive,
-		worldMatrix: Matrix4,
-		normalMatrix: Matrix3Arr,
+		source: DrawSourceRef,
+		instance: DrawInstanceBinding,
 		worldScale: number,
-		camera: Camera,
 		deformation: PrimitiveDeformationState | null
-	): DrawPacket {
+	): DrawSubmission {
 		const material = primitive.material;
 		const isTransparent = isMaterialTransparentPass(material);
 		const isReflective =
@@ -663,23 +738,26 @@ export class PreparedSceneBuilder {
 
 		const localBounds = deformation?.localBounds ?? primitive.boundingSphere;
 		const worldCenter = Matrix4.transformPoint(
-			worldMatrix,
+			instance.worldMatrix,
 			localBounds.center
-		);
-		const cameraSpaceCenter = Matrix4.transformPoint(
-			camera.viewMatrix,
-			worldCenter
 		);
 
 		return {
 			id: `${meshInstance.id}:${primitive.id}`,
-			meshInstance,
-			mesh: meshInstance.mesh,
-			primitive,
-			material,
-			geometry: primitive.geometry,
-			worldMatrix,
-			normalMatrix,
+			source,
+			geometry: resolveGeometryBinding(primitive),
+			instance,
+			material: {
+				effective: material,
+				revision: material.revision,
+				pipelineKey: createMaterialPipelineKey(material),
+			},
+			deformation: deformation ? {
+				mode: deformation.mode,
+				revision: deformation.revision,
+				jointPayloadKey: deformation.jointPayloadKey,
+				morphPayloadKey: deformation.morphPayloadKey,
+			} : NO_DEFORMATION,
 			worldBounds: {
 				center: {
 					x: worldCenter.x,
@@ -688,15 +766,6 @@ export class PreparedSceneBuilder {
 				},
 				radius: localBounds.radius * worldScale,
 			},
-			deformationRevision: deformation?.revision ?? 0,
-			sortDepth: -cameraSpaceCenter.z,
-			pipelineKey: [
-				material.type,
-				material.shading,
-				material.alphaMode ?? AlphaMode.Opaque,
-				material.doubleSided ? "double" : "single",
-				material.depthWrite ? "depth-write" : "depth-read",
-			].join(":"),
 			passFlags,
 		};
 	}
@@ -741,7 +810,8 @@ export class PreparedSceneBuilder {
 			return null;
 		}
 		const hasReceiver = opaquePackets.some(
-			(packet) => (packet.meshInstance.renderLayers & receiverLayerMask) !== 0
+			(packet) =>
+				(packet.submission.instance.renderLayers & receiverLayerMask) !== 0
 		);
 		if (!hasReceiver) {
 			return null;
@@ -791,24 +861,33 @@ export class PreparedSceneBuilder {
 }
 
 function compareOpaquePackets(left: DrawPacket, right: DrawPacket): number {
-	const keyCompare = left.pipelineKey.localeCompare(right.pipelineKey);
+	const leftSubmission = left.submission;
+	const rightSubmission = right.submission;
+	const keyCompare = leftSubmission.material.pipelineKey.localeCompare(
+		rightSubmission.material.pipelineKey,
+	);
 	if (keyCompare !== 0) return keyCompare;
 
-	if (left.material !== right.material) {
-		return left.material.name.localeCompare(right.material.name);
+	if (leftSubmission.material.effective !== rightSubmission.material.effective) {
+		return leftSubmission.material.effective.name.localeCompare(
+			rightSubmission.material.effective.name,
+		);
 	}
 
-	if (left.geometry !== right.geometry) {
-		return left.id.localeCompare(right.id);
+	if (leftSubmission.geometry.resourceKey !== rightSubmission.geometry.resourceKey) {
+		return leftSubmission.id.localeCompare(rightSubmission.id);
 	}
 
 	return left.sortDepth - right.sortDepth;
 }
 
-function updatePacketSortDepth(packet: DrawPacket, camera: Camera): void {
-	const center = packet.worldBounds.center;
+function resolveSubmissionSortDepth(
+	submission: DrawSubmission,
+	camera: Camera,
+): number {
+	const center = submission.worldBounds.center;
 	const view = camera.viewMatrix.elements;
-	packet.sortDepth = -(
+	return -(
 		view[2][0] * center.x +
 		view[2][1] * center.y +
 		view[2][2] * center.z +
@@ -824,7 +903,39 @@ function compareTransparentPackets(
 		return right.sortDepth - left.sortDepth;
 	}
 
-	return left.id.localeCompare(right.id);
+	return left.submission.id.localeCompare(right.submission.id);
+}
+
+function resolveGeometryBinding(primitive: IPrimitive): DrawGeometryBinding {
+	const topology = primitive.topology ?? DEFAULT_PRIMITIVE_DRAW_TOPOLOGY;
+	const cached = geometryBindings.get(primitive);
+	if (
+		cached &&
+		cached.data === primitive.geometry &&
+		cached.version === (primitive.geometryVersion ?? 0) &&
+		cached.topology === topology
+	) {
+		return cached;
+	}
+	const binding: DrawGeometryBinding = {
+		resourceKey: primitive,
+		id: primitive.id,
+		data: primitive.geometry,
+		version: primitive.geometryVersion ?? 0,
+		topology,
+	};
+	geometryBindings.set(primitive, binding);
+	return binding;
+}
+
+function createMaterialPipelineKey(material: Material): string {
+	return [
+		material.type,
+		material.shading,
+		material.alphaMode ?? AlphaMode.Opaque,
+		material.doubleSided ? "double" : "single",
+		material.depthWrite ? "depth-write" : "depth-read",
+	].join(":");
 }
 
 function compareDecalPackets(left: DecalPacket, right: DecalPacket): number {

@@ -12,6 +12,40 @@ import { EMPTY_SHADOW_FRAME_PLAN } from "../../src/lights/shadows/ShadowFramePla
 
 import { FakeWebGPUBackend as FakeBackend } from "./fakes.mjs";
 import { createResolvedPostProcess } from "./postprocess.mjs";
+import { createTestDrawPacket } from "../static/helpers/drawPacket.mjs";
+
+const DRAW_PACKET_LIST_KEYS = new Set([
+	"opaquePackets",
+	"transparentPackets",
+	"shadowCasterPackets",
+	"shadowTransmitterPackets",
+	"reflectivePackets",
+]);
+
+function preparePacketFixture(packet) {
+	if (packet?.submission) return packet;
+	return Object.assign(packet, createTestDrawPacket(packet));
+}
+
+function createPreparedSceneFixture() {
+	return new Proxy({
+		shadowPlan: EMPTY_SHADOW_FRAME_PLAN,
+		particleSystems: [],
+		opaquePackets: [],
+		transparentPackets: [],
+		shadowCasterPackets: [],
+		shadowTransmitterPackets: [],
+		reflectivePackets: [],
+		decalPackets: [],
+	}, {
+		set(target, property, value) {
+			target[property] = DRAW_PACKET_LIST_KEYS.has(property) && Array.isArray(value) ?
+				value.map(preparePacketFixture)
+				: value;
+			return true;
+		},
+	});
+}
 
 class WebGPUFrameExecutor extends WebGPUFrameOrchestrator {
 	constructor(host, resources, msaa, options, particleRenderer = resources) {
@@ -242,16 +276,7 @@ function createFrameContext(width, height) {
 			taa: { enabled: true },
 		}, "webgpu"),
 		shadowPlan: EMPTY_SHADOW_FRAME_PLAN,
-		scene: {
-			shadowPlan: EMPTY_SHADOW_FRAME_PLAN,
-			particleSystems: [],
-			opaquePackets: [],
-			transparentPackets: [],
-			shadowCasterPackets: [],
-			shadowTransmitterPackets: [],
-			reflectivePackets: [],
-			decalPackets: [],
-		},
+		scene: createPreparedSceneFixture(),
 		shCoeffs: [],
 		shAmbientCoeffs: [],
 		worldMatrix: {},

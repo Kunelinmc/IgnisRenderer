@@ -1,8 +1,9 @@
 import {
 	DEFAULT_PRIMITIVE_DRAW_TOPOLOGY,
-	type IPrimitive,
+	type IPrimitiveGeometry,
 	type PrimitiveDrawTopology,
 } from "../../core/types";
+import type { DrawGeometryBinding } from "../../pipeline/types";
 import { GeometryBuilder } from "../../meshes/GeometryBuilder";
 import {
 	BufferUsage,
@@ -75,7 +76,7 @@ interface PackedIndexData {
 /** @internal Owns device-lifetime WebGPU geometry resources. */
 export class WebGPUGeometryRegistry {
 	private _backend: WebGPUDeviceResourceHost;
-	private _cache = new WeakMap<IPrimitive, WebGPUCachedGeometryEntry>();
+	private _cache = new WeakMap<object, WebGPUCachedGeometryEntry>();
 	private _owned = new Set<WebGPUGeometryHandle>();
 	private _defaultVertexBuffer: IRenderBuffer | null = null;
 	private _finalizationRegistry: FinalizationRegistry<WebGPUGeometryHandle> | null =
@@ -90,23 +91,24 @@ export class WebGPUGeometryRegistry {
 		this._backend = backend;
 	}
 
-	public getGeometry(primitive: IPrimitive): WebGPUGeometryHandle {
-		const geometryVersion = primitive.geometryVersion ?? 0;
-		let cached = this._cache.get(primitive);
+	public getGeometry(binding: DrawGeometryBinding): WebGPUGeometryHandle {
+		const geometryVersion = binding.version;
+		const resourceKey = binding.resourceKey;
+		let cached = this._cache.get(resourceKey);
 		if (!cached || cached.geometryVersion !== geometryVersion) {
 			if (cached) {
-				this._finalizationRegistry?.unregister(primitive as unknown as object);
+				this._finalizationRegistry?.unregister(resourceKey);
 				this._owned.delete(cached.handle);
 				this._destroyHandle(cached.handle);
 			}
-			const handle = this._uploadGeometry(primitive);
+			const handle = this._uploadGeometry(binding);
 			cached = { handle, geometryVersion };
-			this._cache.set(primitive, cached);
+			this._cache.set(resourceKey, cached);
 			this._owned.add(handle);
 			this._finalizationRegistry?.register(
-				primitive as unknown as object,
+				resourceKey,
 				handle,
-				primitive as unknown as object
+				resourceKey
 			);
 		}
 		return cached.handle;
@@ -120,8 +122,8 @@ export class WebGPUGeometryRegistry {
 	 * @returns The cached geometry handle with wireframe resources populated.
 	 * @sideEffects May allocate and upload one deduplicated index buffer.
 	 */
-	public getWireframeGeometry(primitive: IPrimitive): WebGPUGeometryHandle {
-		const handle = this.getGeometry(primitive);
+	public getWireframeGeometry(binding: DrawGeometryBinding): WebGPUGeometryHandle {
+		const handle = this.getGeometry(binding);
 		if (
 			handle.topology === DEFAULT_PRIMITIVE_DRAW_TOPOLOGY &&
 			!handle.wireframeIndexBuffer
@@ -131,11 +133,12 @@ export class WebGPUGeometryRegistry {
 		return handle;
 	}
 
-	public releaseGeometry(primitive: IPrimitive): void {
-		const cached = this._cache.get(primitive);
+	public releaseGeometry(binding: DrawGeometryBinding): void {
+		const resourceKey = binding.resourceKey;
+		const cached = this._cache.get(resourceKey);
 		if (!cached) return;
-		this._cache.delete(primitive);
-		this._finalizationRegistry?.unregister(primitive as unknown as object);
+		this._cache.delete(resourceKey);
+		this._finalizationRegistry?.unregister(resourceKey);
 		this._owned.delete(cached.handle);
 		this._destroyHandle(cached.handle);
 	}
@@ -145,7 +148,7 @@ export class WebGPUGeometryRegistry {
 		this._owned.clear();
 		this._defaultVertexBuffer?.destroy();
 		this._defaultVertexBuffer = null;
-		this._cache = new WeakMap<IPrimitive, WebGPUCachedGeometryEntry>();
+		this._cache = new WeakMap<object, WebGPUCachedGeometryEntry>();
 		this._finalizationRegistry = null;
 	}
 
@@ -159,9 +162,9 @@ export class WebGPUGeometryRegistry {
 		handle.morphNormalBuffer?.destroy();
 	}
 
-	private _uploadGeometry(primitive: IPrimitive): WebGPUGeometryHandle {
-		const geometry = primitive.geometry;
-		const topology = primitive.topology ?? DEFAULT_PRIMITIVE_DRAW_TOPOLOGY;
+	private _uploadGeometry(binding: DrawGeometryBinding): WebGPUGeometryHandle {
+		const geometry = binding.data;
+		const topology = binding.topology;
 		const vertexCount = GeometryBuilder.getVertexCount(geometry);
 		const packed = packWebGPUVertexGeometry(geometry, vertexCount);
 		const defaultVertexBuffer = this._getDefaultVertexBuffer(packed.defaultData);
@@ -169,20 +172,20 @@ export class WebGPUGeometryRegistry {
 		const positionBuffer = this._createAndWriteBuffer(
 			packed.position.data,
 			BufferUsage.Vertex | BufferUsage.CopyDst,
-			`PositionVertexBuffer_${primitive.id}`
+			`PositionVertexBuffer_${binding.id}`
 		);
 		const surfaceBuffer = packed.surface ?
 			this._createAndWriteBuffer(
 				packed.surface.data,
 				BufferUsage.Vertex | BufferUsage.CopyDst,
-				`SurfaceVertexBuffer_${primitive.id}`
+				`SurfaceVertexBuffer_${binding.id}`
 			)
 		: null;
 		const skinBuffer = packed.skin ?
 			this._createAndWriteBuffer(
 				packed.skin.data,
 				BufferUsage.Vertex | BufferUsage.CopyDst,
-				`SkinVertexBuffer_${primitive.id}`
+				`SkinVertexBuffer_${binding.id}`
 			)
 		: null;
 		const vertexBindings = createVertexBindings(
@@ -201,9 +204,9 @@ export class WebGPUGeometryRegistry {
 		const indexBuffer = this._createAndWriteBuffer(
 			packedIndices.data,
 			BufferUsage.Index | BufferUsage.CopyDst,
-			`IndexBuffer_${primitive.id}`
+			`IndexBuffer_${binding.id}`
 		);
-		const morph = this._uploadMorphTargets(primitive, vertexCount);
+		const morph = this._uploadMorphTargets(binding, vertexCount);
 
 		return {
 			positionBuffer,
@@ -237,7 +240,7 @@ export class WebGPUGeometryRegistry {
 	}
 
 	private _uploadMorphTargets(
-		primitive: IPrimitive,
+		binding: DrawGeometryBinding,
 		vertexCount: number
 	): {
 		targetCount: number;
@@ -246,7 +249,7 @@ export class WebGPUGeometryRegistry {
 		normalBuffer: IRenderBuffer | null;
 		byteLength: number;
 	} {
-		const targets = primitive.geometry.morphTargets ?? [];
+		const targets = binding.data.morphTargets ?? [];
 		const targetCount = Math.min(WEBGPU_MAX_MORPH_TARGETS, targets.length);
 		const activeTargets = targets.slice(0, targetCount);
 		const hasPositions = activeTargets.some((target) => !!target.positions);
@@ -261,7 +264,7 @@ export class WebGPUGeometryRegistry {
 			positionBuffer = this._createAndWriteBuffer(
 				data,
 				BufferUsage.Storage | BufferUsage.CopyDst,
-				`MorphPositionBuffer_${primitive.id}`
+				`MorphPositionBuffer_${binding.id}`
 			);
 			semanticMask |= WEBGPU_MORPH_POSITION_BIT;
 			byteLength += data.byteLength;
@@ -271,7 +274,7 @@ export class WebGPUGeometryRegistry {
 			normalBuffer = this._createAndWriteBuffer(
 				data,
 				BufferUsage.Storage | BufferUsage.CopyDst,
-				`MorphNormalBuffer_${primitive.id}`
+				`MorphNormalBuffer_${binding.id}`
 			);
 			semanticMask |= WEBGPU_MORPH_NORMAL_BIT;
 			byteLength += data.byteLength;
@@ -378,7 +381,7 @@ function packIndexData(indices: Uint32Array): PackedIndexData {
 }
 
 function packMorphSemantic(
-	targets: NonNullable<IPrimitive["geometry"]["morphTargets"]>,
+	targets: NonNullable<IPrimitiveGeometry["morphTargets"]>,
 	targetCount: number,
 	vertexCount: number,
 	semantic: "positions" | "normals"

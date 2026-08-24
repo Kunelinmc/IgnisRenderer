@@ -20,7 +20,7 @@ export class SoftwareReflectionPlanner {
 	public collect(frame: SoftwareFrameView): Map<string, SoftwareReflectionPlaneInfo> {
 		const result = new Map<string, SoftwareReflectionPlaneInfo>();
 		for (const packet of frame.scene.reflectivePackets) {
-			const material = packet.material;
+			const material = packet.submission.material.effective;
 			const key = resolveSoftwarePlanarReflectionPlaneKey(material?.mirrorPlane);
 			if (!material || material.reflectivity <= 0 || !key) continue;
 			let plane = this._planes.get(key);

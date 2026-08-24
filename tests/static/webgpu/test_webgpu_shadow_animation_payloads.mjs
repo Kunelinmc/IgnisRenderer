@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createTestDrawPacket } from "../helpers/drawPacket.mjs";
 
 import {
 	WebGPUShadowCasterRenderer,
@@ -40,7 +41,7 @@ Object.assign(renderer, {
 	_animationBindGroupLayout: { id: "layout:animation" },
 	_staticAnimationBindGroup: staticGroup,
 });
-const packet = { id: "packet:shadow" };
+const packet = createTestDrawPacket({ id: "packet:shadow" });
 const geometry = { morphPositionBuffer: null };
 const context = { transient: { get() { return null; } } };
 

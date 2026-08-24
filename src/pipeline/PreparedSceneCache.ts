@@ -52,8 +52,6 @@ interface CachedPacketState extends CachedSignatureState {
 	boundsCenterY: number;
 	boundsCenterZ: number;
 	boundsRadius: number;
-	primitiveVisibility: number;
-	meshVisibility: number;
 }
 
 interface CachedDecalState extends CachedSignatureState {}
@@ -451,17 +449,22 @@ export class PreparedSceneCache {
 	): void {
 		for (let index = 0; index < packets.length; index++) {
 			const packet = packets[index];
-			const rect = computePacketScreenRect(packet, camera, width, height);
+			const submission = packet.submission;
+			const rect = computePacketScreenRect(submission, camera, width, height);
 			if (rect) {
-				packetRects.set(packet.id, rect);
+				packetRects.set(submission.id, rect);
 			}
 			const currentState = createPacketState(packet, rect);
-			currentPacketStateById.set(packet.id, currentState);
+			currentPacketStateById.set(submission.id, currentState);
 			if (visited) {
-				visited.add(packet.id);
+				visited.add(submission.id);
 			}
 			if (observer) {
-				observer(packet.id, currentState, this._packetStateById.get(packet.id));
+				observer(
+					submission.id,
+					currentState,
+					this._packetStateById.get(submission.id),
+				);
 			}
 		}
 	}
@@ -504,23 +507,21 @@ function createPacketState(
 	rect: DirtyRect | null
 ): CachedPacketState {
 	const state: CachedPacketState = {
-		pipelineKey: packet.pipelineKey,
-		geometryVersion: packet.primitive.geometryVersion ?? 0,
-		deformationRevision: packet.deformationRevision ?? 0,
-		boundsCenterX: packet.worldBounds.center.x,
-		boundsCenterY: packet.worldBounds.center.y,
-		boundsCenterZ: packet.worldBounds.center.z,
-		boundsRadius: packet.worldBounds.radius,
+		pipelineKey: packet.submission.material.pipelineKey,
+		geometryVersion: packet.submission.geometry.version,
+		deformationRevision: packet.submission.deformation.revision,
+		boundsCenterX: packet.submission.worldBounds.center.x,
+		boundsCenterY: packet.submission.worldBounds.center.y,
+		boundsCenterZ: packet.submission.worldBounds.center.z,
+		boundsRadius: packet.submission.worldBounds.radius,
 		matrixSignatureA: SIGNATURE_INIT_A,
 		matrixSignatureB: SIGNATURE_INIT_B,
 		materialSignatureA: SIGNATURE_INIT_A,
 		materialSignatureB: SIGNATURE_INIT_B,
-		primitiveVisibility: packet.primitive.visible === false ? 0 : 1,
-		meshVisibility: packet.meshInstance.visible === false ? 0 : 1,
 		rect,
 	};
-	writeMatrix4Signature(state, packet.worldMatrix);
-	writeMaterialSignature(state, packet.material);
+	writeMatrix4Signature(state, packet.submission.instance.worldMatrix);
+	writeMaterialSignature(state, packet.submission.material.effective);
 	return state;
 }
 
@@ -561,9 +562,7 @@ function packetStateEquals(
 		left.matrixSignatureA === right.matrixSignatureA &&
 		left.matrixSignatureB === right.matrixSignatureB &&
 		left.materialSignatureA === right.materialSignatureA &&
-		left.materialSignatureB === right.materialSignatureB &&
-		left.primitiveVisibility === right.primitiveVisibility &&
-		left.meshVisibility === right.meshVisibility
+		left.materialSignatureB === right.materialSignatureB
 	);
 }
 

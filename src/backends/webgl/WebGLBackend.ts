@@ -760,7 +760,7 @@ export class WebGLBackend implements IRenderBackend {
 		const dirtyRects: DirtyRect[] = [];
 		for (const packet of packets) {
 			const rect = computePacketScreenRect(
-				packet,
+				packet.submission,
 				context.viewCamera,
 				context.attachments.width,
 				context.attachments.height,

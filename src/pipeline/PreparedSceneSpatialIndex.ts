@@ -199,7 +199,7 @@ export class PreparedSceneTileSpatialIndex
 		const entries: PacketRectBVHEntry[] = [];
 		for (let packetIndex = 0; packetIndex < packets.length; packetIndex++) {
 			const packet = packets[packetIndex];
-			const rect = packetRects.get(packet.id);
+			const rect = packetRects.get(packet.submission.id);
 			const clamped = rect ? this._clampRect(rect) : null;
 			if (!clamped) {
 				fallbackIndices.push(packetIndex);

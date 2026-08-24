@@ -5,13 +5,14 @@ import {
 	resolveWebGLGeometryDeformationProfile,
 	resolveWebGLPacketDeformationProfile,
 } from "../../../src/backends/webgl/WebGLSceneProgramVariants.ts";
+import { createTestDrawPacket } from "../helpers/drawPacket.mjs";
 
 function createPrimitive(geometry, geometryVersion = 0) {
 	return { geometry, geometryVersion };
 }
 
 function createPacket(primitive) {
-	return { primitive };
+	return createTestDrawPacket({ primitive });
 }
 
 function morphTarget(positions, normals) {
@@ -67,14 +68,12 @@ function testMorphSemanticMaskBitsAndCap() {
 }
 
 function testMissingGeometryFallsBackToStatic() {
-	assert.equal(
-		resolveWebGLPacketDeformationProfile({ primitive: null }),
+	assert.deepEqual(
+		resolveWebGLPacketDeformationProfile(createTestDrawPacket()),
 		WEBGL_STATIC_DEFORMATION_PROFILE,
 	);
-	assert.equal(
-		resolveWebGLPacketDeformationProfile({
-			primitive: { geometryVersion: 0 },
-		}),
+	assert.deepEqual(
+		resolveWebGLPacketDeformationProfile(createTestDrawPacket()),
 		WEBGL_STATIC_DEFORMATION_PROFILE,
 	);
 }
@@ -97,7 +96,7 @@ function testProfileIsMemoizedPerPrimitiveUntilVersionChanges() {
 	primitive.geometry.joints0 = new Uint16Array(4);
 	primitive.geometry.weights0 = new Float32Array(4);
 
-	const updated = resolveWebGLPacketDeformationProfile(packetA);
+	const updated = resolveWebGLPacketDeformationProfile(createPacket(primitive));
 	assert.notEqual(updated, first);
 	assert.equal(updated.skinProfile, "skin4");
 	assert.equal(updated.morphSemanticMask, 1);

@@ -1,5 +1,8 @@
-import type { DrawPacket } from "../../pipeline/types";
-import type { IPrimitive } from "../../core/types";
+import type {
+	DrawGeometryBinding,
+	DrawPacket,
+} from "../../pipeline/types";
+import type { IPrimitiveGeometry } from "../../core/types";
 import { DEFAULT_PRIMITIVE_DRAW_TOPOLOGY } from "../../core/types";
 import { Logger } from "../../foundation/Logger";
 
@@ -49,7 +52,7 @@ interface UploadPrimitiveResult {
 }
 
 interface PendingGeometryUpload {
-	primitive: IPrimitive;
+	geometry: DrawGeometryBinding;
 	packet: DrawPacket;
 	packetsById: Map<string, DrawPacket>;
 	geometryVersion: number;
@@ -69,7 +72,7 @@ const WEBGL_SCENE_VERTEX_STRIDE = WEBGL_SCENE_VERTEX_FLOATS * 4;
 
 export class WebGLGeometryRegistry {
 	private _gl: WebGL2RenderingContext;
-	private _cache = new WeakMap<IPrimitive, WebGLCachedGeometryEntry>();
+	private _cache = new WeakMap<object, WebGLCachedGeometryEntry>();
 	private _owned = new Set<WebGLGeometryHandle>();
 	private _warnCallback: WebGLGeometryWarn | null = null;
 	private readonly _maxTextureSize: number;
@@ -78,7 +81,7 @@ export class WebGLGeometryRegistry {
 	private _maxUploadBytesPerFrame: number;
 	private _onUploadPending: ((packets: readonly DrawPacket[]) => void) | null;
 	private _pendingUploadQueue: PendingGeometryUpload[] = [];
-	private _pendingUploadsByPrimitive = new Map<IPrimitive, PendingGeometryUpload>();
+	private _pendingUploadsByPrimitive = new Map<object, PendingGeometryUpload>();
 
 	constructor(
 		gl: WebGL2RenderingContext,
@@ -109,9 +112,9 @@ export class WebGLGeometryRegistry {
 	}
 
 	public getGeometry(packet: DrawPacket): WebGLGeometryHandle | null {
-		const primitive = packet.primitive;
-		const geometryVersion = primitive.geometryVersion ?? 0;
-		const cached = this._cache.get(primitive);
+		const geometry = packet.submission.geometry;
+		const geometryVersion = geometry.version;
+		const cached = this._cache.get(geometry.resourceKey);
 		if (cached && cached.geometryVersion === geometryVersion) {
 			return cached.handle;
 		}
@@ -120,7 +123,7 @@ export class WebGLGeometryRegistry {
 			this._destroyHandle(cached.handle);
 		}
 		if (this._uploadScheduling === "deferred") {
-			this._queueDeferredUpload(primitive, packet, geometryVersion);
+			this._queueDeferredUpload(geometry, packet, geometryVersion);
 			return null;
 		}
 		const uploaded = this._uploadPrimitive(packet);
@@ -128,7 +131,7 @@ export class WebGLGeometryRegistry {
 			this._owned.add(uploaded.handle);
 		}
 		if (uploaded.handle || uploaded.cacheFailure) {
-			this._cache.set(primitive, {
+			this._cache.set(geometry.resourceKey, {
 				handle: uploaded.handle,
 				geometryVersion,
 				cacheFailure: uploaded.cacheFailure,
@@ -187,11 +190,16 @@ export class WebGLGeometryRegistry {
 
 			this._pendingUploadQueue.shift();
 			pending.queued = false;
-			if (this._pendingUploadsByPrimitive.get(pending.primitive) === pending) {
-				this._pendingUploadsByPrimitive.delete(pending.primitive);
+			if (
+				this._pendingUploadsByPrimitive.get(pending.geometry.resourceKey) ===
+				pending
+			) {
+				this._pendingUploadsByPrimitive.delete(pending.geometry.resourceKey);
 			}
 			if (
-				pending.geometryVersion !== (pending.primitive.geometryVersion ?? 0)
+				pending.geometry.resourceKey !==
+					pending.packet.submission.geometry.resourceKey ||
+				pending.geometryVersion !== pending.packet.submission.geometry.version
 			) {
 				continue;
 			}
@@ -203,7 +211,7 @@ export class WebGLGeometryRegistry {
 			if (uploaded.handle) {
 				this._owned.add(uploaded.handle);
 			}
-			this._cache.set(pending.primitive, {
+			this._cache.set(pending.geometry.resourceKey, {
 				handle: uploaded.handle,
 				geometryVersion: pending.geometryVersion,
 				cacheFailure: uploaded.cacheFailure,
@@ -218,34 +226,35 @@ export class WebGLGeometryRegistry {
 	}
 
 	private _queueDeferredUpload(
-		primitive: IPrimitive,
+		geometry: DrawGeometryBinding,
 		packet: DrawPacket,
 		geometryVersion: number
 	): void {
-		const existing = this._pendingUploadsByPrimitive.get(primitive);
+		const existing = this._pendingUploadsByPrimitive.get(geometry.resourceKey);
 		if (existing) {
 			if (existing.geometryVersion !== geometryVersion) {
 				existing.geometryVersion = geometryVersion;
 				existing.estimatedBytes =
-					estimateWebGLGeometryUploadBytes(primitive);
+					estimateWebGLGeometryUploadBytes(geometry);
 			}
+			existing.geometry = geometry;
 			existing.packet = packet;
-			const alreadyTracked = existing.packetsById.has(packet.id);
-			existing.packetsById.set(packet.id, packet);
+			const alreadyTracked = existing.packetsById.has(packet.submission.id);
+			existing.packetsById.set(packet.submission.id, packet);
 			if (!alreadyTracked) {
 				this._notifyUploadPending([packet]);
 			}
 			return;
 		}
 		const pending: PendingGeometryUpload = {
-			primitive,
+			geometry,
 			packet,
-			packetsById: new Map([[packet.id, packet]]),
+			packetsById: new Map([[packet.submission.id, packet]]),
 			geometryVersion,
-			estimatedBytes: estimateWebGLGeometryUploadBytes(primitive),
+			estimatedBytes: estimateWebGLGeometryUploadBytes(geometry),
 			queued: true,
 		};
-		this._pendingUploadsByPrimitive.set(primitive, pending);
+		this._pendingUploadsByPrimitive.set(geometry.resourceKey, pending);
 		this._pendingUploadQueue.push(pending);
 		this._notifyUploadPending([packet]);
 	}
@@ -278,11 +287,11 @@ export class WebGLGeometryRegistry {
 	}
 
 	private _uploadPrimitive(packet: DrawPacket): UploadPrimitiveResult {
-		const primitive = packet.primitive;
-		const geometry = primitive.geometry;
+		const primitive = packet.submission.geometry;
+		const geometry = primitive.data;
 		const positions = geometry.positions;
 		const indices = geometry.indices;
-		const primitiveLabel = `${primitive.id}:${packet.id}`;
+		const primitiveLabel = `${primitive.id}:${packet.submission.id}`;
 
 		if (!positions || positions.length < 3 || positions.length % 3 !== 0) {
 			const key = `webgl-geometry-invalid-positions-${primitive.id}`;
@@ -494,7 +503,7 @@ export class WebGLGeometryRegistry {
 	}
 
 	private _uploadMorphTargets(
-		geometry: IPrimitive["geometry"],
+		geometry: IPrimitiveGeometry,
 		vertexCount: number,
 		targetCount: number,
 	): {
@@ -551,7 +560,7 @@ export class WebGLGeometryRegistry {
 	}
 
 	private _createMorphTexture(
-		targets: NonNullable<IPrimitive["geometry"]["morphTargets"]>,
+		targets: NonNullable<IPrimitiveGeometry["morphTargets"]>,
 		targetCount: number,
 		vertexCount: number,
 		semantic: "positions" | "normals",
@@ -603,7 +612,7 @@ export class WebGLGeometryRegistry {
 }
 
 export function resolveWebGLSkinProfile(
-	geometry: IPrimitive["geometry"],
+	geometry: IPrimitiveGeometry,
 ): WebGLSkinProfile {
 	if (geometry.joints1 || geometry.weights1) return "skin8";
 	if (geometry.joints0 || geometry.weights0) return "skin4";
@@ -615,8 +624,8 @@ export function resolveWebGLSkinProfile(
  * Used to budget deferred uploads; over-estimates index data (always assumes
  * 32-bit indices) so budget decisions stay conservative.
  */
-function estimateWebGLGeometryUploadBytes(primitive: IPrimitive): number {
-	const geometry = primitive.geometry;
+function estimateWebGLGeometryUploadBytes(binding: DrawGeometryBinding): number {
+	const geometry = binding.data;
 	const vertexCount = Math.max(0, ((geometry.positions?.length ?? 0) / 3) | 0);
 	let bytes = vertexCount * WEBGL_SCENE_VERTEX_FLOATS * 4;
 	bytes += (geometry.indices?.length ?? 0) * 4;
@@ -638,7 +647,7 @@ function estimateWebGLGeometryUploadBytes(primitive: IPrimitive): number {
 }
 
 function packWebGLSkinData(
-	geometry: IPrimitive["geometry"],
+	geometry: IPrimitiveGeometry,
 	vertexCount: number,
 	profile: WebGLSkinProfile,
 ): Float32Array {

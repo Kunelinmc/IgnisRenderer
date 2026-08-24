@@ -11,6 +11,7 @@ import {
 } from "../../../src/backends/webgpu/WebGPUPagedShadowTechnique.ts";
 import { WebGPUCommandEncoder } from "../../../src/backends/webgpu/WebGPUCommandEncoder.ts";
 import { WebGPUShadowCasterRenderer } from "../../../src/backends/webgpu/WebGPUShadowCasterRenderer.ts";
+import { createTestDrawPacket } from "../helpers/drawPacket.mjs";
 
 function createMockBackend() {
 	const buffers = [];
@@ -236,7 +237,7 @@ function createRequest(renderSet, packets, encoder = null) {
 }
 
 function createPacket(id, x, y, indexCount = 36) {
-	return {
+	return createTestDrawPacket({
 		id,
 		worldMatrix: Matrix4.identity(),
 		worldBounds: {
@@ -246,7 +247,7 @@ function createPacket(id, x, y, indexCount = 36) {
 		geometry: {
 			indices: new Uint32Array(indexCount),
 		},
-	};
+	});
 }
 
 function createLayout(renderSet) {

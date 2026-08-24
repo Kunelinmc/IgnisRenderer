@@ -191,7 +191,7 @@ export class WebGPUScenePassRecorder {
 		const deferredPackets: DrawPacket[] = [];
 		const fallbackPackets: DrawPacket[] = [];
 		for (const packet of opaquePackets) {
-			if (materialSupportsWebGPUDeferredLighting(packet.material)) {
+			if (materialSupportsWebGPUDeferredLighting(packet.submission.material.effective)) {
 				deferredPackets.push(packet);
 			} else {
 				fallbackPackets.push(packet);
@@ -472,7 +472,7 @@ export class WebGPUScenePassRecorder {
 				sceneTargetMode: "single",
 				sampleCount: 1,
 				drawMode:
-					earlyZExecuted && earlyZPacketIds.has(packet.id) ?
+					earlyZExecuted && earlyZPacketIds.has(packet.submission.id) ?
 						"early-z-color"
 					:	"default",
 			}),
@@ -1042,7 +1042,7 @@ export class WebGPUScenePassRecorder {
 				deferredGBufferLayout,
 				sampleCount: 1,
 				drawMode:
-					earlyZExecuted && earlyZPacketIds.has(packet.id) ?
+					earlyZExecuted && earlyZPacketIds.has(packet.submission.id) ?
 						"early-z-color"
 					:	"default",
 			}),
@@ -1271,7 +1271,7 @@ export class WebGPUScenePassRecorder {
 				sceneTargetMode: "mrt",
 				sampleCount: this._framePort.getSampleCount(),
 				drawMode:
-					earlyZExecuted && earlyZPacketIds.has(packet.id) ?
+					earlyZExecuted && earlyZPacketIds.has(packet.submission.id) ?
 						"early-z-color"
 					:	"default",
 			}),
@@ -1438,7 +1438,7 @@ export class WebGPUScenePassRecorder {
 				sceneTargetMode: "color",
 				sampleCount: this._framePort.getSampleCount(),
 				drawMode:
-					earlyZExecuted && earlyZPacketIds.has(packet.id) ?
+					earlyZExecuted && earlyZPacketIds.has(packet.submission.id) ?
 						"early-z-color"
 					:	"default",
 			}),

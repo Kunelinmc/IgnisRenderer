@@ -53,15 +53,16 @@ export class WebGPUDrawResourceAssembler {
 				drawMode,
 				options.deferredGBufferLayout,
 			);
-		const geometry = this._geometry.getGeometry(packet.primitive);
+		const geometry = this._geometry.getGeometry(packet.submission.geometry);
 		const animationPayload = this._animation.getScenePayload(
 			packet,
 			geometry,
 			frameResources.jointMatrixMap,
 			frameResources.morphWeightMap,
 		);
+		if (!animationPayload) return null;
 		const results: WebGPUDrawResources[] = [];
-		const solidSnapshot = await this._snapshots.resolve(packet.material, false);
+		const solidSnapshot = await this._snapshots.resolve(packet.submission.material.effective, false);
 		for (const warning of solidSnapshot.data.warnings) {
 			Logger.warn(`[${warning.key}] ${warning.message}`, {
 				scope: "WebGPUDrawResourceAssembler",
@@ -121,12 +122,14 @@ export class WebGPUDrawResourceAssembler {
 
 		if (
 			drawMode === "early-z-prepass" ||
-			!packet.material.wireframe ||
+			!packet.submission.material.effective.wireframe ||
 			geometry.topology !== DEFAULT_PRIMITIVE_DRAW_TOPOLOGY
 		) return results;
 
-		const wireGeometry = this._geometry.getWireframeGeometry(packet.primitive);
-		const wireSnapshot = await this._snapshots.resolve(packet.material, true);
+		const wireGeometry = this._geometry.getWireframeGeometry(
+			packet.submission.geometry,
+		);
+		const wireSnapshot = await this._snapshots.resolve(packet.submission.material.effective, true);
 		const wireState = this._resolveMaterialState(
 			packet,
 			wireSnapshot.data,
@@ -181,7 +184,7 @@ export class WebGPUDrawResourceAssembler {
 			descriptor.drawMode === "early-z-prepass" ? "early-z" : "scene";
 		try {
 			return this._materialPipelines.resolve(
-				packet.material,
+				packet.submission.material.effective,
 				materialData,
 				wireframe,
 				resolveShaderTargetMode(descriptor.sceneTargetMode),
@@ -190,12 +193,12 @@ export class WebGPUDrawResourceAssembler {
 			);
 		} catch (error) {
 			if (purpose !== "early-z") throw error;
-			const shaderId = "shaderId" in packet.material
-				? String((packet.material as { shaderId: number }).shaderId)
+			const shaderId = "shaderId" in packet.submission.material.effective
+				? String((packet.submission.material.effective as { shaderId: number }).shaderId)
 				: "unknown";
 			const key = `webgpu-earlyz-shader-material-skip-${shaderId}`;
 			Logger.warn(
-				`[${key}] ShaderMaterial ${packet.material.name} early-z pre-pass is skipped: ${String(error)}`,
+				`[${key}] ShaderMaterial ${packet.submission.material.effective.name} early-z pre-pass is skipped: ${String(error)}`,
 				{ scope: "WebGPUDrawResourceAssembler", onceKey: key },
 			);
 			return null;

@@ -1,4 +1,4 @@
-import assert from "node:assert/strict";import { Material } from "../../../src/materials/Material.ts";import { ShaderMaterial } from "../../../src/materials/ShaderMaterial.ts";import { Matrix4 } from "../../../src/maths/Matrix4.ts";import { bindWebGLShaderMaterialUniforms, bindWebGLShaderMaterialTextures, drawWebGLPacket, renderWebGLEarlyZPrepass, renderWebGLPackets } from "../../../src/backends/webgl/WebGLScenePass.ts";import { ShaderSource } from "../../../src/shaders/ShaderSource.ts";import { createScenePassCaptureGL, createScenePassContext, createEarlyZScenePassHost, createEarlyZPacket, runWebGLBackendFile } from "../../helpers/webgl-backend.mjs";
+import assert from "node:assert/strict";import { Material } from "../../../src/materials/Material.ts";import { ShaderMaterial } from "../../../src/materials/ShaderMaterial.ts";import { Matrix4 } from "../../../src/maths/Matrix4.ts";import { bindWebGLShaderMaterialUniforms, bindWebGLShaderMaterialTextures, drawWebGLPacket, renderWebGLEarlyZPrepass, renderWebGLPackets } from "../../../src/backends/webgl/WebGLScenePass.ts";import { ShaderSource } from "../../../src/shaders/ShaderSource.ts";import { createScenePassCaptureGL, createScenePassContext, createEarlyZScenePassHost, createEarlyZPacket, runWebGLBackendFile } from "../../helpers/webgl-backend.mjs";import { createTestDrawPacket } from "../helpers/drawPacket.mjs";
 
 function testDrawWebGLPacketAppliesMaterialDepthWriteState() {
 	const gl = createScenePassCaptureGL();
@@ -16,13 +16,13 @@ function testDrawWebGLPacketAppliesMaterialDepthWriteState() {
 	const material = new Material({
 		depthWrite: false,
 	});
-	const packet = {
+	const packet = createTestDrawPacket({
 		id: "packet-depth-read",
 		meshInstance: { id: "mesh-depth-read", skeleton: null },
 		material,
 		worldMatrix: Matrix4.identity(),
 		normalMatrix: Matrix4.identity(),
-	};
+	});
 
 	drawWebGLPacket(deps, sceneProgram, packet, false, {});
 	assert.deepEqual(gl.calls.depthMask, [false]);
@@ -43,7 +43,7 @@ function testEarlyZPrepassUsesDepthOnlyStateAndDrivesColorLEQUAL() {
 
 	const prepassedIds = renderWebGLEarlyZPrepass(host, context, [packet]);
 
-	assert.equal(prepassedIds.has(packet.id), true);
+	assert.equal(prepassedIds.has(packet.submission.id), true);
 	assert.deepEqual(gl.calls.drawBuffers[0], [gl.NONE]);
 	assert.deepEqual(gl.calls.colorMask[0], [false, false, false, false]);
 	assert.deepEqual(
@@ -123,8 +123,8 @@ function testEarlyZPrepassUsesDirtyRectPacketSelection() {
 	]);
 
 	assert.deepEqual(resolvedRects, context.incremental.dirtyRects);
-	assert.equal(prepassedIds.has(packetA.id), true);
-	assert.equal(prepassedIds.has(packetB.id), false);
+	assert.equal(prepassedIds.has(packetA.submission.id), true);
+	assert.equal(prepassedIds.has(packetB.submission.id), false);
 	assert.equal(gl.calls.scissor.length, 1);
 }
 

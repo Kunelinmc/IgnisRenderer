@@ -316,7 +316,7 @@ export class WebGPUFrameServiceOwner {
 			const forwardPackets = deferredConfiguration.active
 				? [
 					...context.scene.opaquePackets.filter((packet) =>
-						!materialSupportsWebGPUDeferredLighting(packet.material)),
+						!materialSupportsWebGPUDeferredLighting(packet.submission.material.effective)),
 					...context.scene.transparentPackets,
 				]
 				: drawPackets;
@@ -351,7 +351,7 @@ export class WebGPUFrameServiceOwner {
 					phases.push(await this._sceneDraws.warmup({
 						phase: "webgpu-deferred-scene",
 						packets: context.scene.opaquePackets.filter((packet) =>
-							materialSupportsWebGPUDeferredLighting(packet.material)),
+							materialSupportsWebGPUDeferredLighting(packet.submission.material.effective)),
 						frameResources: deferredResources,
 						sceneTargetMode: "gbuffer",
 						sampleCount: 1,

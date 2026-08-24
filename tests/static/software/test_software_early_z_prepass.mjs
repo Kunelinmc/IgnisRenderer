@@ -5,6 +5,7 @@ import { BasicMaterial, AlphaMode } from "../../../src/materials/index.ts";
 import { Matrix4 } from "../../../src/maths/Matrix4.ts";
 import { SoftwareBackend } from "../../../src/backends/software/SoftwareBackend.ts";
 import { createResolvedPostProcess } from "../../helpers/postprocess.mjs";
+import { createTestDrawPacket } from "../helpers/drawPacket.mjs";
 
 const WIDTH = 64;
 const HEIGHT = 64;
@@ -176,7 +177,7 @@ function createTrianglePacket(id, color, options = {}) {
 		visible: true,
 	};
 
-	return {
+	return createTestDrawPacket({
 		id: `packet-${id}`,
 		meshInstance,
 		mesh,
@@ -192,7 +193,7 @@ function createTrianglePacket(id, color, options = {}) {
 		sortDepth: 0,
 		pipelineKey: `packet-${id}`,
 		passFlags: 0,
-	};
+	});
 }
 
 function copyAttachments(attachments) {

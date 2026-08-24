@@ -4,7 +4,6 @@ import { isMaterialTransparentPass } from "../materials/transparency";
 import { Matrix4 } from "../maths/Matrix4";
 import { Quaternion } from "../maths/Quaternion";
 import type { Matrix3Arr } from "../maths/types";
-import type { MeshInstance } from "../meshes";
 import type {
 	ParticleMeshRenderBatch,
 	ParticleMeshRenderItem,
@@ -12,13 +11,17 @@ import type {
 import {
 	DRAW_PACKET_FLAG_REFLECTIVE,
 	DRAW_PACKET_FLAG_SHADOW_CASTER,
+	DRAW_PACKET_FLAG_SHADOW_RECEIVER,
 	DRAW_PACKET_FLAG_SHADOW_TRANSMITTER,
 	DRAW_PACKET_FLAG_TRANSPARENT,
 	PARTICLE_MESH_TRANSIENT_BATCHES_KEY,
 	type DrawPacket,
+	type DrawGeometryBinding,
 	type FrameContext,
 } from "./types";
 import { defineTransientKey } from "../foundation/TransientStore";
+
+const particleGeometryBindings = new WeakMap<object, DrawGeometryBinding>();
 
 /** @internal Identifies the camera view for which frame packets are prepared. */
 export type FramePacketViewPurpose =
@@ -135,7 +138,7 @@ export function prepareFramePackets(
 			particlePackets.sort(compareParticleMeshPackets);
 			for (const packet of particlePackets) {
 				all.push(packet);
-				const flags = packet.passFlags;
+				const flags = packet.submission.passFlags;
 				if ((flags & DRAW_PACKET_FLAG_TRANSPARENT) !== 0) {
 					transparent.push(packet);
 				} else {
@@ -214,7 +217,13 @@ function createParticleMeshPacket(
 		currentWorldMatrix,
 		batch.primitive.boundingSphere.center,
 	);
-	const meshInstance = createParticleMeshInstance(batch, currentWorldMatrix);
+	const id = [
+		"particleMesh",
+		batch.systemId,
+		batch.templateIndex,
+		batch.primitive.id,
+		particleIndex,
+	].join(":");
 
 	let passFlags = 0;
 	if (isTransparent) {
@@ -228,43 +237,56 @@ function createParticleMeshPacket(
 	if (isReflective) {
 		passFlags |= DRAW_PACKET_FLAG_REFLECTIVE;
 	}
+	if (batch.primitive.receiveShadows !== false) {
+		passFlags |= DRAW_PACKET_FLAG_SHADOW_RECEIVER;
+	}
 
 	return {
-		id: [
-			"particleMesh",
-			batch.systemId,
-			batch.templateIndex,
-			batch.primitive.id,
-			particleIndex,
-		].join(":"),
-		meshInstance,
-		mesh: batch.mesh,
-		primitive: batch.primitive,
-		material,
-		geometry: batch.primitive.geometry,
-		worldMatrix: currentWorldMatrix,
-		previousWorldMatrix,
-		normalMatrix,
-		worldBounds: {
-			center: {
-				x: worldCenter.x,
-				y: worldCenter.y,
-				z: worldCenter.z,
+		submission: {
+			id,
+			source: {
+				kind: "particle-mesh",
+				systemId: batch.systemId,
+				templateIndex: batch.templateIndex,
+				particleIndex,
 			},
-			radius:
-				batch.primitive.boundingSphere.radius *
-				Math.max(0.001, particle.size),
+			geometry: resolveParticleGeometryBinding(batch),
+			instance: {
+				renderLayers: 1,
+				worldMatrix: currentWorldMatrix,
+				previousWorldMatrix,
+				normalMatrix,
+			},
+			material: {
+				effective: material,
+				revision: material.revision,
+				pipelineKey: [
+					material.type,
+					material.shading,
+					material.alphaMode ?? AlphaMode.Opaque,
+					material.doubleSided ? "double" : "single",
+					material.depthWrite ? "depth-write" : "depth-read",
+				].join(":"),
+			},
+			deformation: {
+				mode: "none",
+				revision: 0,
+				jointPayloadKey: null,
+				morphPayloadKey: null,
+			},
+			worldBounds: {
+				center: {
+					x: worldCenter.x,
+					y: worldCenter.y,
+					z: worldCenter.z,
+				},
+				radius:
+					batch.primitive.boundingSphere.radius *
+					Math.max(0.001, particle.size),
+			},
+			passFlags,
 		},
-		deformationRevision: 0,
 		sortDepth,
-		pipelineKey: [
-			material.type,
-			material.shading,
-			material.alphaMode ?? AlphaMode.Opaque,
-			material.doubleSided ? "double" : "single",
-			material.depthWrite ? "depth-write" : "depth-read",
-		].join(":"),
-		passFlags,
 	};
 }
 
@@ -281,38 +303,53 @@ function createParticleMeshWorldMatrix(
 	});
 }
 
-function createParticleMeshInstance(
-	batch: ParticleMeshRenderBatch,
-	worldMatrix: Matrix4,
-): MeshInstance {
-	return {
-		id: `particleMeshInstance:${batch.systemId}:${batch.templateIndex}`,
-		mesh: batch.mesh,
-		skeleton: null,
-		morphWeights: batch.mesh.defaultMorphWeights,
-		renderLayers: 1,
-		worldMatrix,
-	} as MeshInstance;
-}
-
 function compareParticleMeshPackets(
 	left: DrawPacket,
 	right: DrawPacket,
 ): number {
 	const leftTransparent =
-		(left.passFlags & DRAW_PACKET_FLAG_TRANSPARENT) !== 0;
+		(left.submission.passFlags & DRAW_PACKET_FLAG_TRANSPARENT) !== 0;
 	const rightTransparent =
-		(right.passFlags & DRAW_PACKET_FLAG_TRANSPARENT) !== 0;
+		(right.submission.passFlags & DRAW_PACKET_FLAG_TRANSPARENT) !== 0;
 	if (leftTransparent !== rightTransparent) return leftTransparent ? 1 : -1;
 	if (leftTransparent && left.sortDepth !== right.sortDepth) {
 		return right.sortDepth - left.sortDepth;
 	}
 	if (!leftTransparent) {
-		const keyCompare = left.pipelineKey.localeCompare(right.pipelineKey);
+		const keyCompare = left.submission.material.pipelineKey.localeCompare(
+			right.submission.material.pipelineKey,
+		);
 		if (keyCompare !== 0) return keyCompare;
-		if (left.material !== right.material) {
-			return left.material.name.localeCompare(right.material.name);
+		if (left.submission.material.effective !== right.submission.material.effective) {
+			return left.submission.material.effective.name.localeCompare(
+				right.submission.material.effective.name,
+			);
 		}
 	}
-	return left.id.localeCompare(right.id);
+	return left.submission.id.localeCompare(right.submission.id);
+}
+
+function resolveParticleGeometryBinding(
+	batch: ParticleMeshRenderBatch,
+): DrawGeometryBinding {
+	const primitive = batch.primitive;
+	const topology = primitive.topology ?? DEFAULT_PRIMITIVE_DRAW_TOPOLOGY;
+	const cached = particleGeometryBindings.get(primitive);
+	if (
+		cached &&
+		cached.data === primitive.geometry &&
+		cached.version === (primitive.geometryVersion ?? 0) &&
+		cached.topology === topology
+	) {
+		return cached;
+	}
+	const binding: DrawGeometryBinding = {
+		resourceKey: primitive,
+		id: primitive.id,
+		data: primitive.geometry,
+		version: primitive.geometryVersion ?? 0,
+		topology,
+	};
+	particleGeometryBindings.set(primitive, binding);
+	return binding;
 }

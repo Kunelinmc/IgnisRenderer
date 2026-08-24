@@ -12,7 +12,7 @@ import {
 	PBRMaterialFeature,
 	PBRMaterialTextureFeature,
 } from "../../materials/PBRMaterial";
-import type { IPrimitive } from "../../core/types";
+import type { IPrimitiveGeometry } from "../../core/types";
 import type { DrawPacket, FrameContext } from "../../pipeline/types";
 import {
 	WEBGL_MAX_MORPH_TARGETS,
@@ -201,7 +201,7 @@ interface CachedDeformationProfile {
 // primitive and invalidated by `geometryVersion`, mirroring the geometry
 // registry cache contract.
 const deformationProfileCache = new WeakMap<
-	IPrimitive,
+	object,
 	CachedDeformationProfile
 >();
 
@@ -211,7 +211,7 @@ const deformationProfileCache = new WeakMap<
  * @internal Owned by the WebGL scene program subsystem.
  */
 export function resolveWebGLGeometryDeformationProfile(
-	geometry: IPrimitive["geometry"],
+	geometry: IPrimitiveGeometry,
 ): WebGLDeformationProfile {
 	const skinProfile =
 		geometry.joints1 || geometry.weights1 ? "skin8"
@@ -241,16 +241,15 @@ export function resolveWebGLGeometryDeformationProfile(
 export function resolveWebGLPacketDeformationProfile(
 	packet: DrawPacket,
 ): WebGLDeformationProfile {
-	const primitive = packet.primitive;
-	const geometry = primitive?.geometry;
-	if (!geometry) return WEBGL_STATIC_DEFORMATION_PROFILE;
-	const geometryVersion = primitive.geometryVersion ?? 0;
-	const cached = deformationProfileCache.get(primitive);
+	const binding = packet.submission.geometry;
+	const geometry = binding.data;
+	const geometryVersion = binding.version;
+	const cached = deformationProfileCache.get(binding.resourceKey);
 	if (cached && cached.geometryVersion === geometryVersion) {
 		return cached.profile;
 	}
 	const profile = resolveWebGLGeometryDeformationProfile(geometry);
-	deformationProfileCache.set(primitive, { geometryVersion, profile });
+	deformationProfileCache.set(binding.resourceKey, { geometryVersion, profile });
 	return profile;
 }
 

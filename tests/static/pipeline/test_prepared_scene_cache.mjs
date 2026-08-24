@@ -12,6 +12,7 @@ import {
 import { PreparedSceneCache } from "../../../src/pipeline/PreparedSceneCache.ts";
 import { DEFAULT_INCREMENTAL_RENDERING_OPTIONS } from "../../../src/pipeline/incremental.ts";
 import { createResolvedPostProcess } from "../../helpers/postprocess.mjs";
+import { createTestDrawPacket } from "../helpers/drawPacket.mjs";
 
 function createFeatures(overrides = {}) {
 	return {
@@ -52,7 +53,7 @@ function createCamera() {
 }
 
 function createPacket(id, centerX, radius = 0.1, deformationRevision = 0) {
-	return {
+	return createTestDrawPacket({
 		id,
 		meshInstance: {
 			id: `mesh-${id}`,
@@ -66,9 +67,8 @@ function createPacket(id, centerX, radius = 0.1, deformationRevision = 0) {
 			visible: true,
 		},
 		material: new Material(),
-		geometry: {
-			id: `geometry-${id}`,
-		},
+		geometryId: `geometry-${id}`,
+		geometry: { positions: new Float32Array(0), indices: new Uint32Array(0) },
 		worldMatrix: Matrix4.fromTranslation([centerX, 0, 0]),
 		normalMatrix: Matrix4.identity(),
 		worldBounds: {
@@ -83,7 +83,7 @@ function createPacket(id, centerX, radius = 0.1, deformationRevision = 0) {
 		sortDepth: 0,
 		pipelineKey: "default:pipeline",
 		passFlags: 0,
-	};
+	});
 }
 
 function rectContainsRect(container, target) {
@@ -134,7 +134,7 @@ function createFrame(camera, packets, decalPackets = []) {
 		hasActiveAnimations: false,
 		camera,
 		environment: null,
-		meshInstances: packets.map((packet) => packet.meshInstance),
+		meshInstances: [],
 		shadowMaps: new Map(),
 		opaquePackets: packets,
 		transparentPackets: [],
@@ -204,7 +204,7 @@ function testPacketDiffLifecycle() {
 		assert.ok(queryRect);
 		const spatialHits = third.frame.spatialIndex.queryOpaquePackets(queryRect);
 		assert.equal(spatialHits.length, 1);
-		assert.equal(spatialHits[0].id, "A");
+		assert.equal(spatialHits[0].submission.id, "A");
 
 		const fourth = cache.build(buildInput);
 		assert.equal(fourth.forceFullFrame, false);
@@ -431,7 +431,7 @@ function testOcclusionHideRevealDirtyRects() {
 
 	PreparedSceneBuilder.build = (_renderer, options = {}) => {
 		const candidate = {
-			packetId: packet.id,
+			packetId: packet.submission.id,
 			packet,
 			eligible: true,
 			signatureA: 1,
@@ -491,7 +491,7 @@ function testMatrixDiffDetectsSmallFloatChanges() {
 	const camera = createCamera();
 	const packetBase = createPacket("S", 0, 0.08);
 	const packetSmallDelta = createPacket("S", 0, 0.08);
-	packetSmallDelta.worldMatrix.elements[0][3] = 0.00001;
+	packetSmallDelta.submission.instance.worldMatrix.elements[0][3] = 0.00001;
 
 	const frames = [
 		createFrame(camera, [packetBase]),
@@ -538,7 +538,7 @@ function testMaterialDiffDetectsSmallFloatChanges() {
 	const camera = createCamera();
 	const packetBase = createPacket("M", 0, 0.08);
 	const packetSmallDelta = createPacket("M", 0, 0.08);
-	packetSmallDelta.material.opacity = 0.50001;
+	packetSmallDelta.submission.material.effective.opacity = 0.50001;
 
 	const frames = [
 		createFrame(camera, [packetBase]),
@@ -585,7 +585,7 @@ function testMaterialDiffDetectsDepthWriteChanges() {
 	const camera = createCamera();
 	const packetBase = createPacket("D", 0, 0.08);
 	const packetDepthRead = createPacket("D", 0, 0.08);
-	packetDepthRead.material.depthWrite = false;
+	packetDepthRead.submission.material.effective.depthWrite = false;
 
 	const frames = [
 		createFrame(camera, [packetBase]),
@@ -631,15 +631,15 @@ function testMaterialDiffDetectsDepthWriteChanges() {
 function testDeformationRevisionAndBoundsDirtyPreviousAndCurrentCoverage() {
 	const camera = createCamera();
 	const previousPacket = createPacket("skin", 0, 0.08, 1);
-	previousPacket.worldBounds.center.x = -0.45;
+	previousPacket.submission.worldBounds.center.x = -0.45;
 	const currentPacket = createPacket("skin", 0, 0.08, 2);
-	currentPacket.worldBounds.center.x = 0.45;
+	currentPacket.submission.worldBounds.center.x = 0.45;
 	const unchangedPacket = createPacket("skin", 0, 0.08, 2);
-	unchangedPacket.worldBounds.center.x = 0.45;
+	unchangedPacket.submission.worldBounds.center.x = 0.45;
 	const revisionOnlyPacket = createPacket("skin", 0, 0.08, 3);
-	revisionOnlyPacket.worldBounds.center.x = 0.45;
+	revisionOnlyPacket.submission.worldBounds.center.x = 0.45;
 	const boundsOnlyPacket = createPacket("skin", 0, 0.08, 3);
-	boundsOnlyPacket.worldBounds.center.x = 0.3;
+	boundsOnlyPacket.submission.worldBounds.center.x = 0.3;
 	const deformationRemovedPacket = createPacket("skin", 0, 0.08, 0);
 	const frames = [
 		createFrame(camera, [previousPacket]),
@@ -701,7 +701,7 @@ function testCameraMatrixChangeForcesFullFrameAndRebasesPacketRects() {
 	const rotatedPacket = createPacket("camera-skin", 0, 0.08, 1);
 	const stablePacket = createPacket("camera-skin", 0, 0.08, 1);
 	const animatedPacket = createPacket("camera-skin", 0, 0.08, 2);
-	animatedPacket.worldBounds.center.x = 0.15;
+	animatedPacket.submission.worldBounds.center.x = 0.15;
 	const frames = [
 		createFrame(initialCamera, [initialPacket]),
 		createFrame(rotatedCamera, [rotatedPacket]),
@@ -772,20 +772,30 @@ function testPreparedPacketCacheReusesViewLocalPackets() {
 		return frame.opaquePackets[0];
 	};
 	const first = build();
-	const firstNormal = first.normalMatrix;
+	const firstSubmission = first.submission;
+	const firstNormal = first.submission.instance.normalMatrix;
 	const second = build();
 	assert.equal(second, first);
-	assert.equal(second.normalMatrix, firstNormal);
+	assert.equal(second.submission, firstSubmission);
+	assert.equal(second.submission.instance.normalMatrix, firstNormal);
 
 	instance.scale.x = 2;
 	scene.updateWorldMatrices();
 	const transformed = build();
-	assert.equal(transformed, first);
-	assert.notEqual(transformed.normalMatrix, firstNormal);
+	assert.notEqual(transformed, first);
+	assert.notEqual(transformed.submission, firstSubmission);
+	assert.notEqual(transformed.submission.instance.normalMatrix, firstNormal);
 
 	const secondary = new Camera();
 	secondary.updateMatrices();
-	assert.notEqual(build(secondary), first);
+	const secondaryPacket = build(secondary);
+	assert.notEqual(secondaryPacket, transformed);
+	assert.equal(secondaryPacket.submission, transformed.submission);
+
+	mesh.primitives[0].topology = "line-list";
+	const topologyChanged = build();
+	assert.notEqual(topologyChanged.submission, transformed.submission);
+	assert.equal(topologyChanged.submission.geometry.topology, "line-list");
 }
 
 function run() {

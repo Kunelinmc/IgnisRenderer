@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 
 import { WebGLFrameGraphCompiler } from "../../../src/backends/webgl/rendergraph/WebGLFrameGraphCompiler.ts";
 import { WebGLFrameGraphPlanner } from "../../../src/backends/webgl/rendergraph/WebGLFrameGraphPlanner.ts";
+import { createTestDrawPacket } from "../helpers/drawPacket.mjs";
 
 function createContext(overrides = {}) {
 	return {
@@ -132,9 +133,9 @@ function testTransmissionCreatesOrderedPacketNodes() {
 	const context = createContext({
 		scene: {
 			transparentPackets: [
-				{ material: {} },
-				{ material: { transmissionFactor: 1 } },
-				{ material: {} },
+				createTestDrawPacket({ material: {} }),
+				createTestDrawPacket({ material: { transmissionFactor: 1 } }),
+				createTestDrawPacket({ material: {} }),
 			],
 			particleSystems: [],
 			environment: {

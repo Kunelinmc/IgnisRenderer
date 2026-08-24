@@ -224,7 +224,7 @@ export class WebGPUPlanarReflectionPass
 			this._activeReflections.map((reflection) => [reflection.key, reflection])
 		);
 		const packets = request.context.scene.reflectivePackets.filter((packet) =>
-			activeByKey.has(resolvePlaneKey(packet.material.mirrorPlane))
+			activeByKey.has(resolvePlaneKey(packet.submission.material.effective.mirrorPlane))
 		);
 		if (packets.length <= 0) {
 			return;
@@ -280,7 +280,7 @@ export class WebGPUPlanarReflectionPass
 			}),
 			resolveBindings: (draw, packet) => {
 				const reflection = activeByKey.get(
-					resolvePlaneKey(packet.material.mirrorPlane)
+					resolvePlaneKey(packet.submission.material.effective.mirrorPlane)
 				);
 				const binding = this._getReflectionBinding(
 					reflection!.targets.sceneColor
@@ -369,7 +369,7 @@ export class WebGPUPlanarReflectionPass
 					errors.push(toShaderCompileError(
 						error,
 						"webgpu",
-						`WebGPUPlanarReflectionCaptureWarmup:${packet.id}`,
+						`WebGPUPlanarReflectionCaptureWarmup:${packet.submission.id}`,
 					));
 				}
 				await request.yieldIfNeeded();
@@ -393,7 +393,7 @@ export class WebGPUPlanarReflectionPass
 					errors.push(toShaderCompileError(
 						error,
 						"webgpu",
-						`WebGPUPlanarReflectionCompositeWarmup:${packet.id}`,
+						`WebGPUPlanarReflectionCompositeWarmup:${packet.submission.id}`,
 					));
 				}
 				await request.yieldIfNeeded();
@@ -582,11 +582,11 @@ function collectActiveReflectionPlanes(context: FrameContext): Array<{
 	const result: Array<{ key: string; plane: Plane }> = [];
 	const seen = new Set<string>();
 	for (const packet of context.scene.reflectivePackets) {
-		const key = resolvePlaneKey(packet.material.mirrorPlane);
+		const key = resolvePlaneKey(packet.submission.material.effective.mirrorPlane);
 		if (!key || seen.has(key)) {
 			continue;
 		}
-		const plane = normalizePlane(packet.material.mirrorPlane);
+		const plane = normalizePlane(packet.submission.material.effective.mirrorPlane);
 		if (!plane) {
 			continue;
 		}
@@ -772,10 +772,10 @@ export function filterPlanarReflectionCapturePackets(
 	isCameraAbove: boolean
 ): DrawPacket[] {
 	return packets.filter((packet) => {
-		if (resolvePlaneKey(packet.material.mirrorPlane) === planeKey) {
+		if (resolvePlaneKey(packet.submission.material.effective.mirrorPlane) === planeKey) {
 			return false;
 		}
-		const distance = plane.distanceToPoint(packet.worldBounds.center);
+		const distance = plane.distanceToPoint(packet.submission.worldBounds.center);
 		if (!Number.isFinite(distance)) {
 			return false;
 		}
@@ -786,7 +786,7 @@ export function filterPlanarReflectionCapturePackets(
 }
 
 function normalizePlane(
-	planeLike: DrawPacket["material"]["mirrorPlane"]
+	planeLike: DrawPacket["submission"]["material"]["effective"]["mirrorPlane"]
 ): Plane | null {
 	if (!planeLike) {
 		return null;
@@ -812,7 +812,7 @@ function normalizePlane(
 }
 
 function resolvePlaneKey(
-	planeLike: DrawPacket["material"]["mirrorPlane"]
+	planeLike: DrawPacket["submission"]["material"]["effective"]["mirrorPlane"]
 ): string {
 	const plane = normalizePlane(planeLike);
 	if (!plane) {

@@ -90,7 +90,7 @@ function collectPacketDecals(
 	let result: DecalPacket[] | null = null;
 	for (const decal of decals) {
 		if (
-			(packet.meshInstance.renderLayers & decal.receiverLayerMask) === 0 ||
+			(packet.submission.instance.renderLayers & decal.receiverLayerMask) === 0 ||
 			!boundingSpheresIntersect(packet, decal)
 		) {
 			continue;
@@ -104,10 +104,11 @@ function boundingSpheresIntersect(
 	packet: DrawPacket,
 	decal: DecalPacket
 ): boolean {
-	const dx = packet.worldBounds.center.x - decal.worldBounds.center.x;
-	const dy = packet.worldBounds.center.y - decal.worldBounds.center.y;
-	const dz = packet.worldBounds.center.z - decal.worldBounds.center.z;
-	const radius = packet.worldBounds.radius + decal.worldBounds.radius;
+	const bounds = packet.submission.worldBounds;
+	const dx = bounds.center.x - decal.worldBounds.center.x;
+	const dy = bounds.center.y - decal.worldBounds.center.y;
+	const dz = bounds.center.z - decal.worldBounds.center.z;
+	const radius = bounds.radius + decal.worldBounds.radius;
 	return dx * dx + dy * dy + dz * dz <= radius * radius;
 }
 

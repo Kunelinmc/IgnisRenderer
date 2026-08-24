@@ -48,7 +48,7 @@ export class SoftwareReflectionCompositor {
 		if (clipRects.length === 0) return;
 
 		for (const packet of packets) {
-			const material = packet.material;
+			const material = packet.submission.material.effective;
 			const reflectivity = Math.max(0, Math.min(1, material.reflectivity ?? 0));
 			if (
 				reflectivity <= 0 ||

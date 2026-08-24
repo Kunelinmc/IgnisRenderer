@@ -739,8 +739,7 @@ export class WebGLFrameServices {
 	): boolean {
 		if (!sceneProgram.uniforms.animationCounts) return true;
 		if (!this._animationPayloads) {
-			return !packet.meshInstance.skeleton &&
-				(packet.primitive.geometry.morphTargets?.length ?? 0) === 0;
+			return packet.submission.deformation.mode === "none";
 		}
 		const geometry = this._geometry.getGeometry(packet);
 		if (!geometry) return false;

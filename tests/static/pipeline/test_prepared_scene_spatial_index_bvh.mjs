@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import { PreparedSceneTileSpatialIndex } from "../../../src/pipeline/PreparedSceneSpatialIndex.ts";
+import { createTestDrawPacket } from "../helpers/drawPacket.mjs";
 
 function createPacket(id) {
-	return { id };
+	return createTestDrawPacket({ id });
 }
 
 function testBVHRectQueries() {
@@ -48,7 +49,7 @@ function testBVHRectQueries() {
 			width: 48,
 			height: 48,
 		})
-		.map((packet) => packet.id);
+		.map((packet) => packet.submission.id);
 	assert.deepEqual(firstRectHits, ["opaque-a", "opaque-fallback"]);
 
 	const secondRectHits = spatialIndex
@@ -58,7 +59,7 @@ function testBVHRectQueries() {
 			width: 64,
 			height: 64,
 		})
-		.map((packet) => packet.id);
+		.map((packet) => packet.submission.id);
 	assert.deepEqual(secondRectHits, ["opaque-b", "opaque-fallback"]);
 
 	const emptyRectHits = spatialIndex
@@ -68,7 +69,7 @@ function testBVHRectQueries() {
 			width: 20,
 			height: 20,
 		})
-		.map((packet) => packet.id);
+		.map((packet) => packet.submission.id);
 	assert.deepEqual(emptyRectHits, ["opaque-fallback"]);
 
 	const unionHits = spatialIndex
@@ -86,7 +87,7 @@ function testBVHRectQueries() {
 				height: 64,
 			},
 		])
-		.map((packet) => packet.id);
+		.map((packet) => packet.submission.id);
 	assert.deepEqual(unionHits, ["opaque-a", "opaque-b", "opaque-fallback"]);
 }
 

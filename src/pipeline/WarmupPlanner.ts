@@ -148,8 +148,8 @@ function collectUniqueMaterials(context: FrameContext): Material[] {
 		...context.scene.reflectivePackets,
 	];
 	for (const packet of packets) {
-		if (packet.material) {
-			unique.add(packet.material);
+		if (packet.submission.material.effective) {
+			unique.add(packet.submission.material.effective);
 		}
 	}
 	return Array.from(unique);

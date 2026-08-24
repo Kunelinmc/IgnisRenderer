@@ -529,14 +529,14 @@ export class WebGPUShadowCasterRenderer {
 				if (!pipeline) continue;
 				passEncoder.setPipeline(getWebGPURenderPipeline(pipeline));
 				const packet = candidate.packet;
-				if (!animationBindingCache.has(packet.id)) {
+				if (!animationBindingCache.has(packet.submission.id)) {
 					animationBindingCache.set(
-						packet.id,
+						packet.submission.id,
 						this._resolveAnimationBinding(packet, candidate.geometry, context)
 					);
 				}
 				const animationBindGroup =
-					animationBindingCache.get(packet.id) ?? null;
+					animationBindingCache.get(packet.submission.id) ?? null;
 				if (!animationBindGroup) {
 					continue;
 				}
@@ -697,14 +697,14 @@ export class WebGPUShadowCasterRenderer {
 		let instanceCount = 0;
 		for (const candidate of drawCandidates) {
 			const packet = candidate.packet;
-			if (!animationBindingCache.has(packet.id)) {
+			if (!animationBindingCache.has(packet.submission.id)) {
 				animationBindingCache.set(
-					packet.id,
+					packet.submission.id,
 					this._resolveAnimationBinding(packet, candidate.geometry, context)
 				);
 			}
 			const animationBindGroup =
-				animationBindingCache.get(packet.id) ?? null;
+				animationBindingCache.get(packet.submission.id) ?? null;
 			if (!animationBindGroup) {
 				continue;
 			}
@@ -715,8 +715,8 @@ export class WebGPUShadowCasterRenderer {
 				this._frustum.setFromMatrix(page.viewProjection);
 				if (
 					!this._frustum.intersectsSphere(
-						packet.worldBounds.center,
-						packet.worldBounds.radius
+						packet.submission.worldBounds.center,
+						packet.submission.worldBounds.radius
 					)
 				) {
 					continue;
@@ -729,7 +729,7 @@ export class WebGPUShadowCasterRenderer {
 				);
 				Matrix4.multiply(
 					this._shadowViewProjectionMatrix,
-					packet.worldMatrix,
+					packet.submission.instance.worldMatrix,
 					this._mvpMatrix
 				);
 
@@ -919,26 +919,26 @@ export class WebGPUShadowCasterRenderer {
 			// Per-light Frustum Culling
 			if (
 				!this._frustum.intersectsSphere(
-					packet.worldBounds.center,
-					packet.worldBounds.radius
+					packet.submission.worldBounds.center,
+					packet.submission.worldBounds.radius
 				)
 			) {
 				continue;
 			}
 
-			if (!animationBindingCache.has(packet.id)) {
+			if (!animationBindingCache.has(packet.submission.id)) {
 				animationBindingCache.set(
-					packet.id,
+					packet.submission.id,
 					this._resolveAnimationBinding(packet, candidate.geometry, context)
 				);
 			}
 			const animationBindGroup =
-				animationBindingCache.get(packet.id) ?? null;
+				animationBindingCache.get(packet.submission.id) ?? null;
 			if (!animationBindGroup) continue;
 
 			Matrix4.multiply(
 				viewProjectionMatrix,
-				packet.worldMatrix,
+				packet.submission.instance.worldMatrix,
 				this._mvpMatrix
 			);
 
@@ -948,7 +948,7 @@ export class WebGPUShadowCasterRenderer {
 			const transmittanceOffset = instanceCount * 4;
 			if (resolveTransmittance) {
 				const transmittance = resolveMaterialShadowTransmittance(
-					packet.material
+					packet.submission.material.effective
 				);
 				this._instanceTransmittanceData[transmittanceOffset] =
 					transmittance.r;
@@ -1159,12 +1159,14 @@ export class WebGPUShadowCasterRenderer {
 		packet: DrawPacket
 	): ShadowDrawCandidate | null {
 		if (
-			(packet.primitive.topology ?? DEFAULT_PRIMITIVE_DRAW_TOPOLOGY) !==
+			packet.submission.geometry.topology !==
 			DEFAULT_PRIMITIVE_DRAW_TOPOLOGY
 		) {
 			return null;
 		}
-		const geometry = this._geometryRegistry.getGeometry(packet.primitive);
+		const geometry = this._geometryRegistry.getGeometry(
+			packet.submission.geometry,
+		);
 		const vertexBindings = geometry.shadowVertexBindings.map((binding) => ({
 			slot: binding.slot,
 			buffer: getWebGPUBuffer(binding.buffer),
@@ -1226,12 +1228,13 @@ export class WebGPUShadowCasterRenderer {
 			jointMap,
 			morphMap
 		);
+		if (!payload) return null;
 		if (payload.generation === 0) {
-			this._animationBindings.delete(packet.id);
+			this._animationBindings.delete(packet.submission.id);
 			return this._staticAnimationBindGroup;
 		}
 
-		const key = packet.id;
+		const key = packet.submission.id;
 		let entry = this._animationBindings.get(key);
 		if (!entry) {
 			entry = {

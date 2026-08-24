@@ -43,7 +43,62 @@ function createTriangleMesh(material) {
 	]);
 }
 
+function testMultiPrimitivePacketsShareResolvedInstanceBindings() {
+	const material = new Material();
+	const createPrimitive = (id, offsetX) => ({
+		id,
+		geometryVersion: 0,
+		topology: "triangle-list",
+		material,
+		geometry: {
+			positions: new Float32Array([
+				offsetX, 0, -2,
+				offsetX + 1, 0, -2,
+				offsetX, 1, -2,
+			]),
+			indices: new Uint32Array([0, 1, 2]),
+		},
+		boundingSphere: {
+			center: { x: offsetX + 0.5, y: 0.5, z: -2 },
+			radius: 1,
+		},
+		boundingBox: {
+			min: { x: offsetX, y: 0, z: -2 },
+			max: { x: offsetX + 1, y: 1, z: -2 },
+		},
+		visible: true,
+		castShadows: true,
+		receiveShadows: true,
+	});
+	const mesh = new MeshAsset([
+		createPrimitive("primitive:a", -1),
+		createPrimitive("primitive:b", 1),
+	]);
+	const scene = new Scene();
+	const camera = scene.add(new Camera());
+	const instance = scene.add(new MeshInstance({ mesh }));
+	instance.renderLayers = 3;
+	scene.updateWorldMatrices();
+	camera.updateMatrices();
+
+	const frame = PreparedSceneBuilder.build({
+		scene,
+		camera,
+		hasActiveAnimations: false,
+	});
+	assert.equal(frame.opaquePackets.length, 2);
+	const [first, second] = frame.opaquePackets;
+	assert.strictEqual(first.submission.source, second.submission.source);
+	assert.strictEqual(first.submission.instance, second.submission.instance);
+	assert.notStrictEqual(
+		first.submission.geometry.resourceKey,
+		second.submission.geometry.resourceKey,
+	);
+	assert.equal(first.submission.instance.renderLayers, 3);
+}
+
 function run() {
+	testMultiPrimitivePacketsShareResolvedInstanceBindings();
 	const scene = new Scene();
 	const camera = new Camera();
 	camera.position.set(0, 0, 5);
@@ -120,12 +175,24 @@ function run() {
 	assert.equal(frame.shadowCasterPackets.length, 3);
 	assert.equal(frame.shadowTransmitterPackets.length, 3);
 
-	assert.equal(frame.opaquePackets[0].meshInstance.id, nearOpaque.id);
-	assert.equal(frame.opaquePackets[1].meshInstance.id, farOpaque.id);
-	assert.equal(frame.transparentPackets[0].meshInstance.id, farTransparent.id);
-	assert.equal(frame.transparentPackets[1].meshInstance.id, transmissive.id);
-	assert.equal(frame.transparentPackets[2].meshInstance.id, nearTransparent.id);
-	assert.equal(frame.reflectivePackets[0].meshInstance.id, reflective.id);
+	assert.equal(frame.opaquePackets[0].submission.source.instanceId, nearOpaque.id);
+	assert.equal(frame.opaquePackets[1].submission.source.instanceId, farOpaque.id);
+	assert.equal(
+		frame.transparentPackets[0].submission.source.instanceId,
+		farTransparent.id,
+	);
+	assert.equal(
+		frame.transparentPackets[1].submission.source.instanceId,
+		transmissive.id,
+	);
+	assert.equal(
+		frame.transparentPackets[2].submission.source.instanceId,
+		nearTransparent.id,
+	);
+	assert.equal(
+		frame.reflectivePackets[0].submission.source.instanceId,
+		reflective.id,
+	);
 
 		const occludedFrame = PreparedSceneBuilder.build(
 		{
@@ -141,7 +208,7 @@ function run() {
 			occlusionVisibilityProvider: {
 				sourceFrameIndex: 4,
 				isPacketVisible(candidate) {
-					return candidate.packet.meshInstance.id !== farOpaque.id;
+					return candidate.packet.submission.source.instanceId !== farOpaque.id;
 				},
 			},
 		}
@@ -153,13 +220,13 @@ function run() {
 	assert.equal(occludedFrame.occlusion.culledPacketIds[0].startsWith(farOpaque.id), true);
 	assert.equal(
 		occludedFrame.opaquePackets.some(
-			(packet) => packet.meshInstance.id === farOpaque.id
+			(packet) => packet.submission.source.instanceId === farOpaque.id
 		),
 		false
 	);
 	assert.equal(
 		occludedFrame.shadowCasterPackets.some(
-			(packet) => packet.meshInstance.id === farOpaque.id
+			(packet) => packet.submission.source.instanceId === farOpaque.id
 		),
 		true
 	);
@@ -219,7 +286,7 @@ function testRebuildForCameraUsesOverrideFrustum() {
 
 	assert.equal(
 		mainFrame.opaquePackets.some(
-			(packet) => packet.meshInstance.id === overrideVisible.id
+			(packet) => packet.submission.source.instanceId === overrideVisible.id
 		),
 		false
 	);
@@ -235,25 +302,25 @@ function testRebuildForCameraUsesOverrideFrustum() {
 
 	assert.equal(
 		rebuiltFrame.opaquePackets.some(
-			(packet) => packet.meshInstance.id === overrideVisible.id
+			(packet) => packet.submission.source.instanceId === overrideVisible.id
 		),
 		true
 	);
 	assert.equal(
 		rebuiltFrame.opaquePackets.some(
-			(packet) => packet.meshInstance.id === mainVisible.id
+			(packet) => packet.submission.source.instanceId === mainVisible.id
 		),
 		false
 	);
 	const rebuiltOverridePacket = rebuiltFrame.opaquePackets.find(
-		(packet) => packet.meshInstance.id === overrideVisible.id
+		(packet) => packet.submission.source.instanceId === overrideVisible.id
 	);
 	assert.ok(rebuiltOverridePacket);
-	assert.equal(rebuiltOverridePacket.deformationRevision, 42);
-	assert.equal(rebuiltOverridePacket.worldBounds.center.x, 81.5);
-	assert.equal(rebuiltOverridePacket.worldBounds.radius, 0.75);
+	assert.equal(rebuiltOverridePacket.submission.deformation.revision, 42);
+	assert.equal(rebuiltOverridePacket.submission.worldBounds.center.x, 81.5);
+	assert.equal(rebuiltOverridePacket.submission.worldBounds.radius, 0.75);
 	assert.equal(
-		(rebuiltOverridePacket.passFlags & DRAW_PACKET_FLAG_SHADOW_RECEIVER) !== 0,
+		(rebuiltOverridePacket.submission.passFlags & DRAW_PACKET_FLAG_SHADOW_RECEIVER) !== 0,
 		true
 	);
 	assert.strictEqual(rebuiltFrame.environment, mainFrame.environment);
@@ -309,7 +376,7 @@ function testTransparentSortUsesDeformedCenter() {
 		deformationStates,
 	});
 	assert.deepEqual(
-		frame.transparentPackets.map((packet) => packet.meshInstance.id),
+		frame.transparentPackets.map((packet) => packet.submission.source.instanceId),
 		[far.id, near.id],
 	);
 }

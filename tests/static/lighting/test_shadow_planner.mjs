@@ -5,6 +5,7 @@ import { DirectionalLight } from "../../../src/lights/DirectionalLight.ts";
 import { PointLight } from "../../../src/lights/PointLight.ts";
 import { SpotLight } from "../../../src/lights/SpotLight.ts";
 import { ShadowPlanner } from "../../../src/lights/shadows/ShadowPlanner.ts";
+import { createTestDrawPacket } from "../helpers/drawPacket.mjs";
 
 function createCamera() {
 	const position = { x: 0, y: 4, z: 16 };
@@ -31,9 +32,9 @@ function createCamera() {
 
 function createIntent(hasCasters = true) {
 	return {
-		meshPackets: hasCasters ? [{
+		meshPackets: hasCasters ? [createTestDrawPacket({
 			worldBounds: { center: { x: 0, y: 0, z: 0 }, radius: 10 },
-		}] : [],
+		})] : [],
 		hasTransparentCasters: false,
 		hasParticleCasters: false,
 		estimatedParticleCapacity: 0,

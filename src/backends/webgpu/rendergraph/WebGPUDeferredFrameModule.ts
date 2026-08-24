@@ -115,11 +115,11 @@ export function analyzeWebGPUDeferredFeatures(
 ): WebGPUDeferredFeatureAnalysis {
 	return {
 		hasDeferredLightingWork: framePackets.opaque.some((packet) =>
-			materialSupportsWebGPUDeferredLighting(packet.material)),
+			materialSupportsWebGPUDeferredLighting(packet.submission.material.effective)),
 		deferredGBufferLayout:
 			(context.scene.decalPackets?.length ?? 0) > 0 ||
 			framePackets.opaque.some((packet) =>
-				materialRequiresExtendedWebGPUGBuffer(packet.material))
+				materialRequiresExtendedWebGPUGBuffer(packet.submission.material.effective))
 				? "extended"
 				: "base",
 	};

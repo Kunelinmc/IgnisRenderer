@@ -17,6 +17,7 @@ import {
 	analyzeWebGPUVisibilityFeatures,
 } from "../../../src/backends/webgpu/rendergraph/WebGPUVisibilityFrameModule.ts";
 import { POST_PROCESS_SHARED_RESOURCE_IDS } from "../../../src/postprocess/executionDeclarations.ts";
+import { createTestDrawPacket } from "../helpers/drawPacket.mjs";
 
 function createContext() {
 	return {
@@ -37,7 +38,7 @@ function createContext() {
 const context = createContext();
 const base = analyzeWebGPUDeferredFeatures(context, {
 	all: [],
-	opaque: [{ material: new PBRMaterial() }],
+	opaque: [createTestDrawPacket({ material: new PBRMaterial() })],
 	transparent: [],
 	shadowCasters: [],
 	shadowTransmitters: [],
@@ -49,7 +50,7 @@ assert.equal(base.deferredGBufferLayout, "base");
 context.scene.decalPackets.push({});
 const extended = analyzeWebGPUDeferredFeatures(context, {
 	all: [],
-	opaque: [{ material: new PBRMaterial() }],
+	opaque: [createTestDrawPacket({ material: new PBRMaterial() })],
 	transparent: [],
 	shadowCasters: [],
 	shadowTransmitters: [],
@@ -58,14 +59,14 @@ const extended = analyzeWebGPUDeferredFeatures(context, {
 assert.equal(extended.deferredGBufferLayout, "extended");
 
 let transmissionReads = 0;
-const transparency = analyzeWebGPUTransparency(context, [{
+const transparency = analyzeWebGPUTransparency(context, [createTestDrawPacket({
 	material: {
 		get transmissionFactor() {
 			transmissionReads++;
 			return 1;
 		},
 	},
-}, { material: {} }]);
+}), createTestDrawPacket({ material: {} })]);
 assert.equal(transmissionReads, 1);
 assert.equal(transparency.transmissionPackets.length, 1);
 assert.equal(transparency.oitPackets.length, 1);

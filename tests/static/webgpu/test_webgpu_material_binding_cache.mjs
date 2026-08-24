@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { Matrix4 } from "../../../src/maths/Matrix4.ts";
 import { WebGPUMaterialBindingCache } from "../../../src/backends/webgpu/WebGPUMaterialBindingCache.ts";
 import { WEBGPU_TEXTURE_SLOT_COUNT } from "../../../src/backends/webgpu/constants.ts";
+import { createTestDrawPacket } from "../helpers/drawPacket.mjs";
 
 function createBackendStub() {
 	const backend = {
@@ -77,11 +78,11 @@ function createMaterialData(pipelineKey = "none-opaque-solid") {
 }
 
 function createPacket(id = "meshInstance_8:primitive_8") {
-	return {
+	return createTestDrawPacket({
 		id,
 		worldMatrix: Matrix4.identity(),
 		normalMatrix: Matrix4.identity(),
-	};
+	});
 }
 
 function createAnimationState() {

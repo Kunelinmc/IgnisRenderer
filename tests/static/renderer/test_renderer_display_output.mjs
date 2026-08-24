@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 
 import { Camera } from "../../../src/cameras/Camera.ts";
 import { ShaderMaterial } from "../../../src/materials/ShaderMaterial.ts";
+import { createTestDrawPacket } from "../helpers/drawPacket.mjs";
 import { Renderer } from "../../../src/rendering/Renderer.ts";
 import { TestRenderBackend } from "../../helpers/TestRenderBackend.mjs";
 
@@ -83,7 +84,7 @@ async function run() {
 		() => transparentRenderer._coordinator._validatePresentationMaterials(
 			"premultiplied",
 			{
-				opaquePackets: [{ material: incompatibleMaterial }],
+				opaquePackets: [createTestDrawPacket({ material: incompatibleMaterial })],
 				transparentPackets: [],
 				reflectivePackets: [],
 				particleSystems: [],
@@ -95,9 +96,9 @@ async function run() {
 	transparentRenderer._coordinator._validatePresentationMaterials(
 		"premultiplied",
 		{
-			opaquePackets: [{
+			opaquePackets: [createTestDrawPacket({
 				material: new ShaderMaterial({ transparentOutputCompatible: true }),
-			}],
+			})],
 			transparentPackets: [],
 			reflectivePackets: [],
 			particleSystems: [],

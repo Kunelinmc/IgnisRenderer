@@ -48,7 +48,6 @@ interface PayloadEntry {
 	currentMorph: Float32Array;
 	previousMorph: Float32Array;
 	payload: Float32Array;
-	fallbackJointScratch: Float32Array;
 	jointSettlePending: boolean;
 	morphSettlePending: boolean;
 	preparedFrame: number;
@@ -121,7 +120,7 @@ export class WebGLAnimationPayloadPool {
 		if (!supportsWebGLVertexTextureCount(this._units, requiredVertexTextures)) {
 			this._warn(
 				"webgl-animation-vertex-texture-unavailable",
-				`WebGL packet ${packet.id} requires ${requiredVertexTextures} vertex ` +
+				`WebGL packet ${packet.submission.id} requires ${requiredVertexTextures} vertex ` +
 					"texture units; skipping",
 			);
 			return false;
@@ -223,36 +222,38 @@ export class WebGLAnimationPayloadPool {
 		packet: DrawPacket,
 		geometry: WebGLGeometryHandle,
 	): WebGLAnimationPayloadView | null {
-		let entry = this._entries.get(packet.id);
+		let entry = this._entries.get(packet.submission.id);
 		if (!entry) {
 			entry = createPayloadEntry();
-			this._entries.set(packet.id, entry);
+			this._entries.set(packet.submission.id, entry);
 		}
 		entry.lastUsedFrame = this._frame;
 		if (entry.preparedFrame === this._frame && entry.view) return entry.view;
 
-		const runtimeJoint = this._jointMap?.get(packet.meshInstance.id) ?? null;
-		let joints = runtimeJoint?.matrices ?? null;
-		let reliable = !!runtimeJoint;
-		if (!joints && packet.meshInstance.skeleton) {
-			packet.meshInstance.skeleton.updateJointMatrices(packet.meshInstance.worldMatrix);
-			const required = packet.meshInstance.skeleton.jointCount * 16;
-			if (entry.fallbackJointScratch.length !== required) {
-				entry.fallbackJointScratch = new Float32Array(required);
-			}
-			joints = packet.meshInstance.skeleton.toFloat32Array(entry.fallbackJointScratch);
-			reliable = false;
+		const deformation = packet.submission.deformation;
+		const runtimeJoint = deformation.jointPayloadKey ?
+			this._jointMap?.get(deformation.jointPayloadKey) ?? null
+			: null;
+		if (deformation.jointPayloadKey && !runtimeJoint) {
+			this._warn(
+				`webgl-missing-joint-payload-${packet.submission.id}`,
+				`WebGL packet ${packet.submission.id} is missing active joint payload; skipping`,
+			);
+			return null;
 		}
-		const runtimeMorph = this._morphMap?.get(packet.id) ?? null;
+		let joints = runtimeJoint?.matrices ?? null;
+		const runtimeMorph = deformation.morphPayloadKey ?
+			this._morphMap?.get(deformation.morphPayloadKey) ?? null
+			: null;
+		if (deformation.morphPayloadKey && !runtimeMorph) {
+			this._warn(
+				`webgl-missing-morph-payload-${packet.submission.id}`,
+				`WebGL packet ${packet.submission.id} is missing active morph payload; skipping`,
+			);
+			return null;
+		}
 		let morphWeights = runtimeMorph?.weights ?? null;
 		let morphCount = runtimeMorph?.targetCount ?? 0;
-		if (!morphWeights && geometry.morphTargetCount > 0) {
-			const primitiveIndex = packet.mesh.primitives.indexOf(packet.primitive);
-			morphWeights = primitiveIndex >= 0 ?
-				packet.meshInstance.morphWeights[primitiveIndex] ?? null : null;
-			morphCount = morphWeights?.length ?? 0;
-			reliable = false;
-		}
 		const jointCount = Math.floor((joints?.length ?? 0) / 16);
 		morphCount = Math.min(
 			Math.max(0, morphCount),
@@ -273,12 +274,12 @@ export class WebGLAnimationPayloadPool {
 		const rebuilt = this._ensureCapacity(entry, jointCount, morphCount);
 		if (rebuilt === null) {
 			this._warn(
-				`webgl-animation-payload-overflow-${packet.id}`,
-				`WebGL animation payload for packet ${packet.id} exceeds texture limits; skipping`,
+				`webgl-animation-payload-overflow-${packet.submission.id}`,
+				`WebGL animation payload for packet ${packet.submission.id} exceeds texture limits; skipping`,
 			);
 			return null;
 		}
-		const revisionChanged = entry.lastRevision !== (packet.deformationRevision ?? 0);
+		const revisionChanged = entry.lastRevision !== (packet.submission.deformation.revision ?? 0);
 		const jointChanged = updateHistory(
 			entry.currentJoints,
 			entry.previousJoints,
@@ -286,7 +287,7 @@ export class WebGLAnimationPayloadPool {
 			jointCount * 16,
 			entry.jointCount,
 			rebuilt || revisionChanged,
-			!reliable,
+			false,
 			entry.jointSettlePending,
 		);
 		entry.jointSettlePending = jointChanged.settlePending;
@@ -297,13 +298,13 @@ export class WebGLAnimationPayloadPool {
 			morphCount,
 			entry.morphCount,
 			rebuilt || revisionChanged,
-			!reliable,
+			false,
 			entry.morphSettlePending,
 		);
 		entry.morphSettlePending = morphChanged.settlePending;
 		entry.jointCount = jointCount;
 		entry.morphCount = morphCount;
-		entry.lastRevision = packet.deformationRevision ?? 0;
+		entry.lastRevision = packet.submission.deformation.revision ?? 0;
 		if (rebuilt || jointChanged.changed || morphChanged.changed) {
 			this._writePayload(entry);
 		} else {
@@ -459,7 +460,6 @@ function createPayloadEntry(): PayloadEntry {
 		currentMorph: new Float32Array(0),
 		previousMorph: new Float32Array(0),
 		payload: new Float32Array(0),
-		fallbackJointScratch: new Float32Array(0),
 		jointSettlePending: false,
 		morphSettlePending: false,
 		preparedFrame: -1,

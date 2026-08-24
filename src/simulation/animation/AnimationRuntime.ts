@@ -209,6 +209,12 @@ export class AnimationRuntime {
 					packetId,
 					revision,
 					localBounds,
+					mode:
+						hasSkinning && hasMorphTargets ? "skin-morph"
+						: hasSkinning ? "skin"
+						: "morph",
+					jointPayloadKey: hasSkinning ? instance.id : null,
+					morphPayloadKey: hasMorphTargets ? packetId : null,
 				});
 				nextPrimitiveStates.set(packetId, {
 					geometry: primitive.geometry,

@@ -269,13 +269,13 @@ export class WebGLShadowRasterPass {
 		packet: DrawPacket,
 		viewProjectionMatrix: Matrix4,
 	): void {
-		if (!Matrix4.isFinite(packet.worldMatrix)) return;
+		if (!Matrix4.isFinite(packet.submission.instance.worldMatrix)) return;
 		const geometry = this._host.geometry.getGeometry(packet);
 		if (!geometry || geometry.topology !== this._host.gl.TRIANGLES) return;
 		const shadowProgram = this._resolveDepthProgram(profileKey(geometry));
 		if (!shadowProgram) return;
 
-		Matrix4.multiply(viewProjectionMatrix, packet.worldMatrix, this._shadowMvpMatrix);
+		Matrix4.multiply(viewProjectionMatrix, packet.submission.instance.worldMatrix, this._shadowMvpMatrix);
 		const gl = this._host.gl;
 		gl.useProgram(shadowProgram.program);
 		if (
@@ -306,7 +306,7 @@ export class WebGLShadowRasterPass {
 		const shadowProgram = this._resolveTransmittanceProgram(profileKey(geometry));
 		if (!shadowProgram) return;
 		if (
-			!Matrix4.isFinite(packet.worldMatrix) ||
+			!Matrix4.isFinite(packet.submission.instance.worldMatrix) ||
 			!Matrix4.isFinite(viewProjectionMatrix)
 		) {
 			return;
@@ -319,13 +319,13 @@ export class WebGLShadowRasterPass {
 		) {
 			return;
 		}
-		Matrix4.multiply(viewProjectionMatrix, packet.worldMatrix, this._shadowMvpMatrix);
+		Matrix4.multiply(viewProjectionMatrix, packet.submission.instance.worldMatrix, this._shadowMvpMatrix);
 		gl.uniformMatrix4fv(
 			shadowProgram.uniforms.mvp,
 			false,
 			Matrix4.toColumnMajorArray(this._shadowMvpMatrix),
 		);
-		const transmittance = resolveMaterialShadowTransmittance(packet.material);
+		const transmittance = resolveMaterialShadowTransmittance(packet.submission.material.effective);
 		gl.uniform3f(
 			shadowProgram.uniforms.transmittance,
 			transmittance.r,

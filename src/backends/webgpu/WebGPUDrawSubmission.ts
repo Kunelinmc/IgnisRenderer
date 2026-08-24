@@ -135,7 +135,7 @@ export async function submitWebGPUDraws(
 					previous.firstInstance + previous.instanceCount === firstInstance
 				) {
 					previous.instanceCount++;
-					previous.packetIds.push(packet.id);
+					previous.packetIds.push(packet.submission.id);
 					continue;
 				}
 				commands.push({
@@ -143,7 +143,7 @@ export async function submitWebGPUDraws(
 					draw,
 					firstInstance,
 					instanceCount: 1,
-					packetIds: [packet.id],
+					packetIds: [packet.submission.id],
 				});
 			}
 		}

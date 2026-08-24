@@ -10,7 +10,11 @@ import {
 } from "../../materials/ShaderMaterial";
 import { Matrix4 } from "../../maths/Matrix4";
 import type { Matrix3Arr } from "../../maths/types";
-import type { DrawPacket, FrameContext } from "../../pipeline/types";
+import {
+	DRAW_PACKET_FLAG_SHADOW_RECEIVER,
+	type DrawPacket,
+	type FrameContext,
+} from "../../pipeline/types";
 import {
 	resolveMaterialUniforms,
 	resolveTextureUVTransform,
@@ -247,7 +251,7 @@ export function renderWebGLPackets(
 			let activeProgram: WebGLSceneProgram | null = null;
 			for (const packet of packets) {
 				const sceneProgram = deps.scenePrograms.getSceneProgram(
-					packet.material,
+					packet.submission.material.effective,
 					sceneProgramMode,
 					resolveSceneProgramVariant(deps, context, packet, sceneProgramMode)
 				);
@@ -261,7 +265,7 @@ export function renderWebGLPackets(
 					packet,
 					transparent,
 					context,
-					!transparent && options.earlyZPacketIds?.has(packet.id) ?
+					!transparent && options.earlyZPacketIds?.has(packet.submission.id) ?
 						WEBGL_EARLY_Z_COLOR_DRAW_OPTIONS
 					:	undefined
 				);
@@ -284,7 +288,7 @@ export function renderWebGLPackets(
 				let activeProgram: WebGLSceneProgram | null = null;
 				for (const packet of rectPackets) {
 					const sceneProgram = deps.scenePrograms.getSceneProgram(
-						packet.material,
+						packet.submission.material.effective,
 						sceneProgramMode,
 						resolveSceneProgramVariant(
 							deps,
@@ -303,7 +307,7 @@ export function renderWebGLPackets(
 						packet,
 						transparent,
 						context,
-						!transparent && options.earlyZPacketIds?.has(packet.id) ?
+						!transparent && options.earlyZPacketIds?.has(packet.submission.id) ?
 							WEBGL_EARLY_Z_COLOR_DRAW_OPTIONS
 						:	undefined
 					);
@@ -383,7 +387,7 @@ export function renderWebGLEarlyZPrepass(
 					activeProgram = depthProgram;
 				}
 				if (drawWebGLDepthPrepassPacket(deps, depthProgram, packet)) {
-					prepassedPacketIds.add(packet.id);
+					prepassedPacketIds.add(packet.submission.id);
 				}
 			}
 		};
@@ -440,7 +444,7 @@ export function drawWebGLPacket(
 		gl.activeTexture(gl.TEXTURE0 + samplerUnit(name));
 		gl.bindTexture(gl.TEXTURE_2D, texture);
 	};
-	const material = packet.material;
+	const material = packet.submission.material.effective;
 	const requiresTransparent = isMaterialTransparentPass(material);
 	if (transparentPass !== requiresTransparent) {
 		return;
@@ -448,10 +452,10 @@ export function drawWebGLPacket(
 
 	const activeDrawBuffers = deps.drawState.activeDrawBuffers;
 
-	if (!Matrix4.isFinite(packet.worldMatrix)) {
+	if (!Matrix4.isFinite(packet.submission.instance.worldMatrix)) {
 		logWebGLScenePassWarning(
 			"webgl-world-matrix-invalid",
-			`WebGL packet ${packet.id} has non-finite world matrix; skipping`
+			`WebGL packet ${packet.submission.id} has non-finite world matrix; skipping`
 		);
 		return;
 	}
@@ -494,11 +498,11 @@ export function drawWebGLPacket(
 		["Transmission", uniforms.transmissionMap, uniforms.transmissionMapUV],
 		["Thickness", uniforms.thicknessMap, uniforms.thicknessMapUV],
 	] as const;
-	const normalMatrix = toColumnMajorMat3(packet.normalMatrix);
+	const normalMatrix = toColumnMajorMat3(packet.submission.instance.normalMatrix);
 	if (!normalMatrix) {
 		logWebGLScenePassWarning(
 			"webgl-normal-matrix-invalid",
-			`WebGL packet ${packet.id} has invalid normal matrix; skipping`
+			`WebGL packet ${packet.submission.id} has invalid normal matrix; skipping`
 		);
 		return;
 	}
@@ -654,7 +658,7 @@ export function drawWebGLPacket(
 		gl.uniformMatrix4fv(
 			sceneProgram.uniforms.model,
 			false,
-			Matrix4.toColumnMajorArray(packet.worldMatrix)
+			Matrix4.toColumnMajorArray(packet.submission.instance.worldMatrix)
 		);
 	}
 	if (sceneProgram.uniforms.normalMatrix) {
@@ -665,23 +669,25 @@ export function drawWebGLPacket(
 			sceneProgram.uniforms.enableShadows,
 			context.features.enableShadows &&
 				deps.getShadowSamplingState().enabled &&
-				packet.primitive.receiveShadows !== false ? 1 : 0
+				(packet.submission.passFlags & DRAW_PACKET_FLAG_SHADOW_RECEIVER) !== 0 ?
+					1
+				: 0
 		);
 	}
 	if (sceneProgram.uniforms.prevModel) {
-		const cacheKey = packet.id;
+		const cacheKey = packet.submission.id;
 		deps.modelMatrixKeysThisFrame.add(cacheKey);
 		let cached = deps.modelMatrixCache.get(cacheKey);
 		gl.uniformMatrix4fv(
 			sceneProgram.uniforms.prevModel,
 			false,
-			cached ?? Matrix4.toColumnMajorArray(packet.worldMatrix)
+			cached ?? Matrix4.toColumnMajorArray(packet.submission.instance.worldMatrix)
 		);
 		if (!cached) {
-			cached = Matrix4.toColumnMajorArray(packet.worldMatrix);
+			cached = Matrix4.toColumnMajorArray(packet.submission.instance.worldMatrix);
 			deps.modelMatrixCache.set(cacheKey, cached);
 		} else {
-			cached.set(Matrix4.toColumnMajorArray(packet.worldMatrix));
+			cached.set(Matrix4.toColumnMajorArray(packet.submission.instance.worldMatrix));
 		}
 	}
 	if (sceneProgram.uniforms.shadingModel) {
@@ -762,7 +768,7 @@ export function drawWebGLPacket(
 		);
 	}
 	if (transmissionModelScale) {
-		const elements = packet.worldMatrix.elements;
+		const elements = packet.submission.instance.worldMatrix.elements;
 		const scaleX = Math.hypot(elements[0][0], elements[1][0], elements[2][0]);
 		const scaleY = Math.hypot(elements[0][1], elements[1][1], elements[2][1]);
 		const scaleZ = Math.hypot(elements[0][2], elements[1][2], elements[2][2]);
@@ -1088,11 +1094,11 @@ function resolveWebGLDepthPrepassProgram(
 	packet: DrawPacket,
 	mode: ShaderTargetMode
 ): WebGLSceneProgram | null {
-	const material = packet.material;
+	const material = packet.submission.material.effective;
 	if (isMaterialTransparentPass(material) || material.depthWrite === false) {
 		return null;
 	}
-	if (!Matrix4.isFinite(packet.worldMatrix)) {
+	if (!Matrix4.isFinite(packet.submission.instance.worldMatrix)) {
 		return null;
 	}
 	const geometry = deps.geometry.getGeometry(packet);
@@ -1114,7 +1120,7 @@ function resolveSceneProgramVariant(
 ): WebGLSceneVariantDescriptor | null {
 	return resolveWebGLSceneDrawVariant(
 		context,
-		packet.material,
+		packet.submission.material.effective,
 		mode,
 		deps.drawState.oitPassMode,
 		deps.getLightState(),
@@ -1129,7 +1135,7 @@ function resolveSceneDepthPrepassVariant(
 	packet: DrawPacket
 ): WebGLSceneDepthVariantDescriptor | null {
 	return resolveWebGLBuiltinDepthVariant(
-		packet.material,
+		packet.submission.material.effective,
 		resolveWebGLPacketDeformationProfile(packet),
 	);
 }
@@ -1157,11 +1163,11 @@ export function drawWebGLDepthPrepassPacket(
 	packet: DrawPacket
 ): boolean {
 	const gl = deps.gl;
-	const material = packet.material;
+	const material = packet.submission.material.effective;
 	if (isMaterialTransparentPass(material) || material.depthWrite === false) {
 		return false;
 	}
-	if (!Matrix4.isFinite(packet.worldMatrix)) {
+	if (!Matrix4.isFinite(packet.submission.instance.worldMatrix)) {
 		return false;
 	}
 	const geometry = deps.geometry.getGeometry(packet);
@@ -1172,12 +1178,12 @@ export function drawWebGLDepthPrepassPacket(
 		return false;
 	}
 	const normalMatrix = sceneProgram.uniforms.normalMatrix ?
-		toColumnMajorMat3(packet.normalMatrix)
+		toColumnMajorMat3(packet.submission.instance.normalMatrix)
 	:	null;
 	if (sceneProgram.uniforms.normalMatrix && !normalMatrix) {
 		logWebGLScenePassWarning(
 			"webgl-depth-prepass-normal-matrix-invalid",
-			`WebGL packet ${packet.id} has invalid normal matrix; skipping depth prepass`
+			`WebGL packet ${packet.submission.id} has invalid normal matrix; skipping depth prepass`
 		);
 		return false;
 	}
@@ -1200,7 +1206,7 @@ export function drawWebGLDepthPrepassPacket(
 		gl.uniformMatrix4fv(
 			sceneProgram.uniforms.model,
 			false,
-			Matrix4.toColumnMajorArray(packet.worldMatrix)
+			Matrix4.toColumnMajorArray(packet.submission.instance.worldMatrix)
 		);
 	}
 	if (sceneProgram.uniforms.normalMatrix && normalMatrix) {

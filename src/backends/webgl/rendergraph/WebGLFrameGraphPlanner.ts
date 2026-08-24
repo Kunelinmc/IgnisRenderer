@@ -193,7 +193,7 @@ export class WebGLFrameGraphPlanner {
 		context: FrameContext,
 	): WebGLFrameGraphNode[] {
 		const packets = context.scene?.transparentPackets ?? [];
-		if (!packets.some((packet) => materialUsesTransmission(packet.material))) {
+		if (!packets.some((packet) => materialUsesTransmission(packet.submission.material.effective))) {
 			return [this._node(
 				pass,
 				"transparent-legacy",
@@ -216,7 +216,11 @@ export class WebGLFrameGraphPlanner {
 		)];
 		let segmentStart = 0;
 		for (let index = 0; index < packets.length; index++) {
-			if (!materialUsesTransmission(packets[index].material)) continue;
+			if (
+				!materialUsesTransmission(
+					packets[index].submission.material.effective,
+				)
+			) continue;
 			if (segmentStart < index) {
 				nodes.push(this._node(
 					pass,

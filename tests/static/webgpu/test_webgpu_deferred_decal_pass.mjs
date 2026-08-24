@@ -11,6 +11,7 @@ import {
 } from "../../../src/backends/types.ts";
 
 import { FakeWebGPUBackend } from "../../helpers/fakes.mjs";
+import { createTestDrawPacket } from "../helpers/drawPacket.mjs";
 
 function createCamera() {
 	return {
@@ -328,13 +329,13 @@ async function testReceiverSpatialCullSkipsUnmatchedDecal() {
 	const spatialIndex = {
 		queryOpaquePackets() {
 			return [
-				{
+				createTestDrawPacket({
 					meshInstance: { renderLayers: 2 },
 					worldBounds: {
 						center: { x: 0, y: 0, z: 0 },
 						radius: 10,
 					},
-				},
+				}),
 			];
 		},
 	};

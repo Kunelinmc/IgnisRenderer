@@ -7,6 +7,7 @@ import {
 	ANIMATION_JOINT_MATRICES_KEY,
 	ANIMATION_MORPH_WEIGHTS_KEY,
 } from "../../../src/simulation/animation/types.ts";
+import { createTestDrawPacket } from "../helpers/drawPacket.mjs";
 
 function createGL(limits = {}) {
 	let nextTexture = 1;
@@ -70,17 +71,17 @@ function matrixPayload(translationX) {
 
 function createPacket() {
 	const primitive = { id: "primitive", geometry: {}, geometryVersion: 0 };
-	return {
+	return createTestDrawPacket({
 		id: "instance:primitive",
 		primitive,
-		mesh: { primitives: [primitive] },
 		meshInstance: {
 			id: "instance",
-			skeleton: null,
-			morphWeights: [new Float32Array([0.25])],
 		},
 		deformationRevision: 1,
-	};
+		deformationMode: "skin-morph",
+		jointPayloadKey: "instance",
+		morphPayloadKey: "instance:primitive",
+	});
 }
 
 function createGeometry() {
@@ -168,7 +169,7 @@ function run() {
 	);
 
 	const secondJoints = matrixPayload(2);
-	packet.deformationRevision = 2;
+	packet.submission.deformation.revision = 2;
 	pool.beginFrame(createContext(secondJoints, new Float32Array([0.75])));
 	pool.bind(uniforms, packet, geometry);
 	assert.equal(gl.uploads.length, 2);
@@ -196,6 +197,19 @@ function run() {
 	assert.equal(pool.getDebugStats().entryCount, 0);
 	assert.equal(pool.getDebugStats().graceReleases, 1);
 	pool.destroy();
+
+	const missingGL = createGL();
+	const missingPool = new WebGLAnimationPayloadPool(
+		missingGL,
+		createWebGLVertexTextureUnitLayout(missingGL),
+		64,
+	);
+	missingPool.beginFrame({ transient: new Map() });
+	const missingPacket = createPacket();
+	assert.equal(missingPool.bind(uniforms, missingPacket, geometry), false);
+	assert.equal(missingPool.bind(uniforms, missingPacket, geometry), false);
+	assert.equal(missingGL.uploads.length, 0);
+	missingPool.destroy();
 	console.log("WebGL animation payload pool tests passed");
 }
 

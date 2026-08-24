@@ -81,9 +81,9 @@ export interface DepthInfo {
 }
 
 export interface PrimitiveFace {
-	primitive: IPrimitive;
 	material: Material;
 	vertices: IVertex[];
+	receiveShadows: boolean;
 	color?: RGBA;
 	normal?: IVector3;
 	/**

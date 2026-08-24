@@ -17,6 +17,7 @@ import { WebGPUPostProcessFrameModule } from "../../../src/backends/webgpu/rende
 import { WebGPUReflectionFrameModule } from "../../../src/backends/webgpu/rendergraph/WebGPUReflectionFrameModule.ts";
 import { WebGPUTransparencyRuntime } from "../../../src/backends/webgpu/rendergraph/WebGPUTransparencyRuntime.ts";
 import { WebGPUVisibilityFrameModule } from "../../../src/backends/webgpu/rendergraph/WebGPUVisibilityFrameModule.ts";
+import { createTestDrawPacket } from "../helpers/drawPacket.mjs";
 
 const unused = {};
 const modules = [
@@ -52,10 +53,14 @@ function createContext() {
 }
 
 function packets(opaque = [], transparent = []) {
+	const preparedOpaque = opaque.map((packet) =>
+		packet.submission ? packet : createTestDrawPacket(packet));
+	const preparedTransparent = transparent.map((packet) =>
+		packet.submission ? packet : createTestDrawPacket(packet));
 	return {
-		all: [...opaque, ...transparent],
-		opaque,
-		transparent,
+		all: [...preparedOpaque, ...preparedTransparent],
+		opaque: preparedOpaque,
+		transparent: preparedTransparent,
 		shadowCasters: [],
 		shadowTransmitters: [],
 		reflective: [],

@@ -7,15 +7,16 @@ import {
 } from "../../../src/pipeline/ParticleShadowVolume.ts";
 import { ParticleSystem } from "../../../src/particles/ParticleSystem.ts";
 import { ParticleBlendMode } from "../../../src/particles/types.ts";
+import { createTestDrawPacket } from "../helpers/drawPacket.mjs";
 
 function createPacket(id, center, radius = 1) {
-	return {
+	return createTestDrawPacket({
 		id,
 		worldBounds: {
 			center,
 			radius,
 		},
-	};
+	});
 }
 
 function testShadowBoundsUseCameraVisibleCasters() {

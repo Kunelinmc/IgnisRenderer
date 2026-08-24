@@ -14,7 +14,7 @@ function assertWindingMatchesPrimitiveNormals(name, mesh) {
 			triangleIndex++
 		) {
 			const vertices = GeometryBuilder.createVerticesForTriangle(
-				primitive,
+				primitive.geometry,
 				triangleIndex
 			);
 			const geometricNormal = Vector3.calculateNormal(vertices);
@@ -35,7 +35,6 @@ function averageVertexNormal(vertices) {
 	let x = 0;
 	let y = 0;
 	let z = 0;
-
 	for (const vertex of vertices) {
 		x += vertex.normal?.x ?? 0;
 		y += vertex.normal?.y ?? 0;
@@ -63,7 +62,7 @@ function assertPlaneFacesUpward(mesh) {
 			triangleIndex++
 		) {
 			const vertices = GeometryBuilder.createVerticesForTriangle(
-				primitive,
+				primitive.geometry,
 				triangleIndex
 			);
 			const geometricNormal = Vector3.calculateNormal(vertices);
@@ -76,7 +75,8 @@ function assertPlaneFacesUpward(mesh) {
 }
 
 function run() {
-	assertWindingMatchesPrimitiveNormals("BoxMeshAsset", createBoxMesh());
+	const boxMesh = createBoxMesh();
+	assertWindingMatchesPrimitiveNormals("BoxMeshAsset", boxMesh);
 	const planeMesh = createPlaneMesh();
 	assertWindingMatchesPrimitiveNormals("PlaneMeshAsset", planeMesh);
 	assertPlaneFacesUpward(planeMesh);

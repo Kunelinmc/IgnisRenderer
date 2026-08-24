@@ -1,4 +1,7 @@
-import type { DrawPacket } from "../../pipeline/types";
+import {
+	DRAW_PACKET_FLAG_SHADOW_RECEIVER,
+	type DrawPacket,
+} from "../../pipeline/types";
 import { ShaderMaterial } from "../../materials/ShaderMaterial";
 import {
 	isMaterialTransparentPass,
@@ -203,8 +206,8 @@ export class WebGPUStaticMeshBatcher {
 	}
 
 	private _isPotentiallyEligible(packet: DrawPacket): boolean {
-		const material = packet.material;
-		const geometry = packet.primitive.geometry;
+		const material = packet.submission.material.effective;
+		const geometry = packet.submission.geometry.data;
 		return !(
 			material instanceof ShaderMaterial ||
 			isMaterialTransparentPass(material) ||
@@ -212,7 +215,7 @@ export class WebGPUStaticMeshBatcher {
 			material.wireframe ||
 			material.reflectivity > 0 ||
 			material.mirrorPlane !== null ||
-			packet.meshInstance.skeleton ||
+			packet.submission.deformation.mode !== "none" ||
 			(geometry.morphTargets?.length ?? 0) > 0 ||
 			geometry.joints0 ||
 			geometry.joints1 ||
@@ -225,23 +228,27 @@ export class WebGPUStaticMeshBatcher {
 		const index = this._count++;
 		this._packetIndices.set(packet, index);
 		const offset = index * STATIC_INSTANCE_FLOATS;
-		writeMatrix(this._instanceData, offset, packet.worldMatrix);
-		if (packet.previousWorldMatrix) {
-			writeMatrix(this._instanceData, offset + 16, packet.previousWorldMatrix);
+		writeMatrix(this._instanceData, offset, packet.submission.instance.worldMatrix);
+		if (packet.submission.instance.previousWorldMatrix) {
+			writeMatrix(this._instanceData, offset + 16, packet.submission.instance.previousWorldMatrix);
 		} else {
-			const previous = this._history.get(packet.id)?.matrix ?? null;
+			const previous = this._history.get(packet.submission.id)?.matrix ?? null;
 			if (previous) {
 				this._instanceData.set(previous, offset + 16);
 			} else {
 				this._instanceData.copyWithin(offset + 16, offset, offset + 16);
 			}
 		}
-		writeNormalMatrix(this._instanceData, offset + 32, packet.normalMatrix);
-		this._instanceData[offset + 48] = packet.meshInstance.renderLayers >>> 0;
-		this._instanceData[offset + 49] = packet.primitive.receiveShadows === false ? 0 : 1;
+		writeNormalMatrix(this._instanceData, offset + 32, packet.submission.instance.normalMatrix);
+		this._instanceData[offset + 48] =
+			packet.submission.instance.renderLayers >>> 0;
+		this._instanceData[offset + 49] =
+			(packet.submission.passFlags & DRAW_PACKET_FLAG_SHADOW_RECEIVER) !== 0 ?
+				1
+			: 0;
 		this._instanceData[offset + 50] = 0;
 		this._instanceData[offset + 51] = 0;
-		this._pendingHistory.set(packet.id, index);
+		this._pendingHistory.set(packet.submission.id, index);
 		return index;
 	}
 

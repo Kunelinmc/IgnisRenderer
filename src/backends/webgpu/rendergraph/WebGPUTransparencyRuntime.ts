@@ -99,7 +99,7 @@ export function analyzeWebGPUTransparency(
 	const oitPackets: DrawPacket[] = [];
 	const transmissionPackets: DrawPacket[] = [];
 	for (const packet of transparentPackets) {
-		if (materialUsesTransmission(packet.material)) transmissionPackets.push(packet);
+		if (materialUsesTransmission(packet.submission.material.effective)) transmissionPackets.push(packet);
 		else oitPackets.push(packet);
 	}
 	let hasAlphaBillboardParticles = false;

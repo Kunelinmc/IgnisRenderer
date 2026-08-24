@@ -159,11 +159,10 @@ function testShadowRasterPassCleansPartialAllocationAndRestoresOnDrawError() {
 	throwingPass.destroy();
 }
 
-function testShadowRasterPassDoesNotRejectSkeletonPackets() {
+function testShadowRasterPassAcceptsPreparedPackets() {
 	const gl = createShadowRasterCaptureGL();
 	const pass = new WebGLShadowRasterPass(createShadowPassHost(gl));
 	const packet = createShadowPacket(new Material());
-	packet.meshInstance.skeleton = {};
 	try {
 		const plan = createShadowRasterPlan({ casterPackets: [packet] });
 		pass.prepare(plan);
@@ -285,7 +284,7 @@ await runWebGLBackendFile(
 		testShadowRasterPassClearsOnlyActiveSlices,
 		testShadowRasterPassRestoresDefaultFramebufferDrawBuffer,
 		testShadowRasterPassCleansPartialAllocationAndRestoresOnDrawError,
-		testShadowRasterPassDoesNotRejectSkeletonPackets,
+		testShadowRasterPassAcceptsPreparedPackets,
 		testSceneShaderIncludesReflectionProbeUniforms,
 		testSceneShaderIncludesLocalizedLightProbeUniforms,
 	testFullSceneShaderDeclaresExtensionSamplersForDynamicLayout,

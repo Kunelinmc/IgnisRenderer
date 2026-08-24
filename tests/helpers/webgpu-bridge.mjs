@@ -9,6 +9,7 @@ import { resolveFeatureState } from "../../src/pipeline/FeatureResolver.ts";
 import { WEBGPU_FRAME_CAMERA_UNIFORM_LAYOUT } from "../../src/backends/webgpu/bufferLayouts.ts";
 import { createResolvedPostProcess } from "./postprocess.mjs";
 import { EMPTY_SHADOW_FRAME_PLAN } from "../../src/lights/shadows/ShadowFramePlan.ts";
+import { createTestDrawPacket } from "../static/helpers/drawPacket.mjs";
 
 function nearlyEqual(actual, expected, epsilon = 1e-6) {
 	assert.ok(Math.abs(actual - expected) <= epsilon, `${actual} != ${expected}`);
@@ -62,7 +63,7 @@ function createPacket(model) {
 	model.updateWorldMatrix(model.parent?.worldMatrix);
 	const primitive = model.mesh.primitives[0];
 	const worldMatrix = model.worldMatrix;
-	return {
+	return createTestDrawPacket({
 		id: `${model.id}:${primitive.id}`,
 		meshInstance: model,
 		mesh: model.mesh,
@@ -75,13 +76,13 @@ function createPacket(model) {
 		sortDepth: 1,
 		pipelineKey: "test",
 		passFlags: 0,
-	};
+	});
 }
 
 function createFrame(packet) {
 	const cameraPosition = { x: 0, y: 0, z: 5 };
 	const frame = {
-		sceneBounds: packet.mesh.boundingSphere,
+		sceneBounds: packet.submission.worldBounds,
 		lights: [],
 		camera: {
 			viewProjectionMatrix: Matrix4.identity(),
@@ -95,7 +96,7 @@ function createFrame(packet) {
 			type: "perspective",
 		},
 		environment: createEnvironmentSnapshot(null, null),
-		meshInstances: [packet.meshInstance],
+		meshInstances: [],
 		shadowMaps: new Map(),
 		opaquePackets: [packet],
 		transparentPackets: [],

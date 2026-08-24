@@ -11,6 +11,7 @@ import {
 	ToneMappingPass,
 } from "../../../src/postprocess/index.ts";
 import { createResolvedPostProcess } from "../../helpers/postprocess.mjs";
+import { createTestDrawPacket } from "../helpers/drawPacket.mjs";
 
 function createExecutionContext(executor, request, implementation) {
 	const resolvedImplementation = implementation ?? request.implementation ??
@@ -888,8 +889,8 @@ function testOITTransparentAndParticleExecutionOrder() {
 	const context = {
 		scene: {
 			transparentPackets: [
-				{ id: "oit-packet", material: {} },
-				{ id: "legacy-packet", material: { transmissionFactor: 1 } },
+				createTestDrawPacket({ id: "oit-packet", material: {} }),
+				createTestDrawPacket({ id: "legacy-packet", material: { transmissionFactor: 1 } }),
 			],
 			particleSystems: [{ id: "ps-0" }],
 		},
@@ -953,8 +954,8 @@ function testOITTransparentResolvesImmediatelyWithoutParticles() {
 	const context = {
 		scene: {
 			transparentPackets: [
-				{ id: "oit-packet", material: {} },
-				{ id: "legacy-packet", material: { transmissionFactor: 1 } },
+				createTestDrawPacket({ id: "oit-packet", material: {} }),
+				createTestDrawPacket({ id: "legacy-packet", material: { transmissionFactor: 1 } }),
 			],
 			particleSystems: [],
 		},
@@ -981,7 +982,7 @@ function testMainOpaqueRunsEarlyZPrepassBeforeColorPass() {
 	const gl = createFXAATestGL();
 	const executor = new WebGLFrameExecutor(gl);
 	const events = [];
-	const packet = { id: "opaque-0", material: {} };
+	const packet = createTestDrawPacket({ id: "opaque-0", material: {} });
 	const context = {
 		scene: {
 			opaquePackets: [packet],
@@ -1013,7 +1014,7 @@ function testMainOpaqueCanDisableEarlyZPrepass() {
 		enableEarlyZPrepass: false,
 	});
 	const events = [];
-	const packet = { id: "opaque-0", material: {} };
+	const packet = createTestDrawPacket({ id: "opaque-0", material: {} });
 	const context = {
 		scene: {
 			opaquePackets: [packet],
@@ -1108,7 +1109,7 @@ function testTransparentRenderPacketsConfiguresBlendAndDepthState() {
 				],
 			},
 		},
-		[{ material: {} }],
+		[createTestDrawPacket({ material: {} })],
 		true
 	);
 

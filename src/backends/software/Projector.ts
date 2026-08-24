@@ -2,13 +2,17 @@ import { CameraType } from "../../cameras/Camera";
 import { Matrix4 } from "../../maths/Matrix4";
 import { Vector3 } from "../../maths/Vector3";
 import { DEFAULT_PRIMITIVE_DRAW_TOPOLOGY } from "../../core/types";
+import { Logger } from "../../foundation/Logger";
 import type {
 	ProjectedFace,
 	ProjectedVertex,
 	IVertex,
 	PrimitiveFace,
 } from "../../core/types";
-import type { DrawPacket } from "../../pipeline/types";
+import {
+	DRAW_PACKET_FLAG_SHADOW_RECEIVER,
+	type DrawPacket,
+} from "../../pipeline/types";
 import { GeometryBuilder } from "../../meshes/GeometryBuilder";
 import {
 	type SoftwareTemporalRenderState,
@@ -48,6 +52,8 @@ export class Projector {
 		overrideSize?: { width: number; height: number },
 		projectionView?: SoftwareProjectionView,
 	): ProjectedFace[] {
+		const submission = packet.submission;
+		const instance = submission.instance;
 		const camera = projectionView?.camera ?? frame.camera;
 		const targetWidth = projectionView?.width ?? overrideSize?.width ?? frame.attachments.width;
 		const targetHeight = projectionView?.height ?? overrideSize?.height ?? frame.attachments.height;
@@ -58,9 +64,13 @@ export class Projector {
 			: frame.temporal;
 		const trackTemporalHistory = projectionView?.trackTemporalHistory !== false;
 		const previousWorldMatrix =
-			temporalState?.previousWorldMatrices.get(packet.id) ?? packet.worldMatrix;
+			temporalState?.previousWorldMatrices.get(submission.id) ??
+			instance.worldMatrix;
 		if (trackTemporalHistory) {
-			temporalState?.currentWorldMatrices.set(packet.id, packet.worldMatrix.clone());
+			temporalState?.currentWorldMatrices.set(
+				submission.id,
+				instance.worldMatrix.clone(),
+			);
 		}
 		const projectedFaces: ProjectedFace[] = [];
 
@@ -70,7 +80,7 @@ export class Projector {
 			const previousWorldVerts: IVertex[] = [];
 
 			for (const vertex of face.vertices) {
-				const worldPoint = Matrix4.transformPoint(packet.worldMatrix, vertex);
+				const worldPoint = Matrix4.transformPoint(instance.worldMatrix, vertex);
 				const previousWorldPoint = Matrix4.transformPoint(
 					previousWorldMatrix,
 					vertex
@@ -78,14 +88,14 @@ export class Projector {
 				const worldNormal =
 					vertex.normal ?
 						Vector3.normalize(
-							Matrix4.transformNormal(packet.normalMatrix, vertex.normal)
+								Matrix4.transformNormal(instance.normalMatrix, vertex.normal)
 						)
 					:	null;
 				const worldTangent =
 					vertex.tangent ?
 						(() => {
 							const tangent = Vector3.normalize(
-								Matrix4.transformNormal(packet.normalMatrix, vertex.tangent)
+								Matrix4.transformNormal(instance.normalMatrix, vertex.tangent)
 							);
 							return {
 								x: tangent.x,
@@ -168,7 +178,7 @@ export class Projector {
 				:	cullNormal.x * v0.x + cullNormal.y * v0.y + cullNormal.z * v0.z;
 			const frontFacing = flipCulling ? dot >= 0 : dot <= 0;
 
-			if (!packet.material.doubleSided) {
+			if (!submission.material.effective.doubleSided) {
 				if (flipCulling ? dot < 0 : dot > 0) continue;
 			}
 
@@ -243,9 +253,9 @@ export class Projector {
 				}
 
 				projectedFaces.push({
-					primitive: packet.primitive,
-					material: packet.material,
+					material: submission.material.effective,
 					vertices: triClipped.map((vertex) => vertex.world),
+					receiveShadows: face.receiveShadows,
 					color: face.color,
 					doubleSided: face.doubleSided,
 					projected: triProjected,
@@ -257,7 +267,7 @@ export class Projector {
 					normal:
 						face.normal ?
 							Vector3.normalize(
-								Matrix4.transformNormal(packet.normalMatrix, face.normal)
+								Matrix4.transformNormal(instance.normalMatrix, face.normal)
 							)
 						:	Vector3.calculateNormal(worldVerts),
 					depthInfo: {
@@ -274,14 +284,18 @@ export class Projector {
 	}
 
 	public static getPacketFaces(packet: DrawPacket): PrimitiveFace[] {
+		const submission = packet.submission;
+		if (!this._canResolveDeformation(submission.id, submission.deformation.mode, false)) {
+			return [];
+		}
 		if (
-			(packet.primitive.topology ?? DEFAULT_PRIMITIVE_DRAW_TOPOLOGY) !==
+			submission.geometry.topology !==
 			DEFAULT_PRIMITIVE_DRAW_TOPOLOGY
 		) {
 			return [];
 		}
 
-		const triangleCount = (packet.geometry.indices.length / 3) | 0;
+		const triangleCount = (submission.geometry.data.indices.length / 3) | 0;
 		const faces: PrimitiveFace[] = [];
 
 		for (
@@ -290,15 +304,16 @@ export class Projector {
 			triangleIndex++
 		) {
 			const vertices = GeometryBuilder.createVerticesForTriangle(
-				packet.primitive,
+				submission.geometry.data,
 				triangleIndex
 			);
 			faces.push({
-				primitive: packet.primitive,
-				material: packet.material,
+				material: submission.material.effective,
 				vertices,
+				receiveShadows:
+					(submission.passFlags & DRAW_PACKET_FLAG_SHADOW_RECEIVER) !== 0,
 				normal: Vector3.calculateNormal(vertices),
-				doubleSided: packet.material.doubleSided,
+				doubleSided: submission.material.effective.doubleSided,
 			});
 		}
 
@@ -309,16 +324,28 @@ export class Projector {
 		packet: DrawPacket,
 		frame: SoftwareFrameView
 	): PrimitiveFace[] {
+		const submission = packet.submission;
 		if (
-			(packet.primitive.topology ?? DEFAULT_PRIMITIVE_DRAW_TOPOLOGY) !==
+			submission.geometry.topology !==
 			DEFAULT_PRIMITIVE_DRAW_TOPOLOGY
 		) {
 			return [];
 		}
 
 		const overrides = frame.animationDeformedGeometry;
-		const geometryOverride = overrides?.get(packet.id);
-		const triangleCount = (packet.geometry.indices.length / 3) | 0;
+		const geometryOverride = overrides?.get(submission.id);
+		if (
+			submission.deformation.mode !== "none" &&
+			!geometryOverride
+		) {
+			this._canResolveDeformation(
+				submission.id,
+				submission.deformation.mode,
+				true,
+			);
+			return [];
+		}
+		const triangleCount = (submission.geometry.data.indices.length / 3) | 0;
 		const faces: PrimitiveFace[] = [];
 		for (
 			let triangleIndex = 0;
@@ -326,19 +353,38 @@ export class Projector {
 			triangleIndex++
 		) {
 			const vertices = GeometryBuilder.createVerticesForTriangle(
-				packet.primitive,
+				submission.geometry.data,
 				triangleIndex,
 				geometryOverride
 			);
 			faces.push({
-				primitive: packet.primitive,
-				material: packet.material,
+				material: submission.material.effective,
 				vertices,
+				receiveShadows:
+					(submission.passFlags & DRAW_PACKET_FLAG_SHADOW_RECEIVER) !== 0,
 				normal: Vector3.calculateNormal(vertices),
-				doubleSided: packet.material.doubleSided,
+				doubleSided: submission.material.effective.doubleSided,
 			});
 		}
 		return faces;
+	}
+
+	private static _canResolveDeformation(
+		packetId: string,
+		mode: DrawPacket["submission"]["deformation"]["mode"],
+		warn: boolean,
+	): boolean {
+		if (mode === "none") return true;
+		if (warn) {
+			Logger.warn(
+				`Software packet ${packetId} is missing active deformation geometry; skipping`,
+				{
+					scope: "Projector",
+					onceKey: `software-missing-deformation-${packetId}`,
+				},
+			);
+		}
+		return false;
 	}
 
 	public static getFaceAtPoint(

@@ -41,7 +41,7 @@ export function planWebGLScenePrograms(
 	const lightState = collectPlannerLightState(context);
 	const sceneVariants = new Map<string, WebGLSceneVariantDescriptor>();
 	const entries = inputs.map((input) => isDrawPacket(input) ? {
-		material: input.material,
+		material: input.submission.material.effective,
 		deformation: resolveWebGLPacketDeformationProfile(input),
 	} : {
 		material: input,

@@ -42,6 +42,9 @@ export interface PrimitiveDeformationState {
 	readonly packetId: string;
 	readonly revision: number;
 	readonly localBounds: BoundingSphere;
+	readonly mode: PrimitiveDeformationMode;
+	readonly jointPayloadKey: string | null;
+	readonly morphPayloadKey: string | null;
 }
 
 export interface AnimationJointState {
@@ -54,6 +57,12 @@ export interface AnimationMorphState {
 	weights: Float32Array;
 	targetCount: number;
 }
+
+export type PrimitiveDeformationMode =
+	| "none"
+	| "skin"
+	| "morph"
+	| "skin-morph";
 
 export type DeformedGeometryMap = Map<string, DeformedGeometryOverride>;
 

@@ -3,7 +3,9 @@ import { Camera } from "../../../src/cameras/Camera.ts";
 import { BasicMaterial, AlphaMode, PBRMaterial } from "../../../src/materials/index.ts";
 import { Matrix4 } from "../../../src/maths/Matrix4.ts";
 import { SoftwareBackend } from "../../../src/backends/software/SoftwareBackend.ts";
+import { Projector } from "../../../src/backends/software/Projector.ts";
 import { createResolvedPostProcess } from "../../helpers/postprocess.mjs";
+import { createTestDrawPacket } from "../helpers/drawPacket.mjs";
 
 const WIDTH = 64;
 const HEIGHT = 64;
@@ -157,7 +159,7 @@ function createTrianglePacket(id, color, options = {}) {
 		visible: true,
 	};
 
-	return {
+	return createTestDrawPacket({
 		id: `packet-${id}`,
 		meshInstance,
 		mesh,
@@ -173,7 +175,7 @@ function createTrianglePacket(id, color, options = {}) {
 		sortDepth: 0,
 		pipelineKey: `packet-${id}`,
 		passFlags: 0,
-	};
+	});
 }
 
 function createCamera() {
@@ -232,8 +234,7 @@ async function testRasterPreservesHDRRadiance() {
 		emissiveIntensity: 4,
 		doubleSided: true,
 	});
-	packet.material = material;
-	packet.primitive.material = material;
+	packet.submission.material.effective = material;
 	const context = createContext(backend, camera, { opaquePackets: [packet] });
 	context.features.enableLighting = true;
 	backend.beginFrame(context);
@@ -261,8 +262,7 @@ async function testTransparentRasterPreservesHDRRadiance() {
 		opacity: 1,
 		doubleSided: true,
 	});
-	packet.material = material;
-	packet.primitive.material = material;
+	packet.submission.material.effective = material;
 	const context = createContext(backend, camera, { transparentPackets: [packet] });
 	context.features.enableLighting = true;
 	backend.beginFrame(context);
@@ -368,6 +368,24 @@ async function testOpaqueMaterialWritesFullCoverageOnTransparentSurface() {
 	backend.destroy();
 }
 
+function testMissingActiveDeformationSkipsSoftwarePacket() {
+	const packet = createTrianglePacket(
+		"missing-deformation",
+		{ r: 255, g: 255, b: 255 },
+	);
+	Object.assign(packet.submission.deformation, {
+		mode: "skin",
+		revision: 1,
+		jointPayloadKey: "missing-instance",
+	});
+	assert.deepEqual(
+		Projector.getPacketFacesWithFrame(packet, {
+			animationDeformedGeometry: null,
+		}),
+		[],
+	);
+}
+
 async function run() {
 	await testOpaqueScanlineDepthOrdering();
 	await testRasterPreservesHDRRadiance();
@@ -376,6 +394,7 @@ async function run() {
 	await testTransparentScanlinePreservesPacketOrder();
 	await testTransparentPresentationCoverage();
 	await testOpaqueMaterialWritesFullCoverageOnTransparentSurface();
+	testMissingActiveDeformationSkipsSoftwarePacket();
 	console.log("Software scanline raster tests passed");
 }
 

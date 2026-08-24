@@ -25,8 +25,8 @@ export function resolveShadowCasterBounds(
 	let maxY = -Infinity;
 	let maxZ = -Infinity;
 	for (const packet of packets) {
-		const { center } = packet.worldBounds;
-		const radius = Math.max(0, packet.worldBounds.radius);
+		const { center } = packet.submission.worldBounds;
+		const radius = Math.max(0, packet.submission.worldBounds.radius);
 		minX = Math.min(minX, center.x - radius);
 		minY = Math.min(minY, center.y - radius);
 		minZ = Math.min(minZ, center.z - radius);
@@ -52,8 +52,13 @@ function resolveBoundsPackets(
 	let nearest: DrawPacket | null = null;
 	let nearestDistance = Infinity;
 	for (const packet of packets) {
-		const { center } = packet.worldBounds;
-		if (camera.isSphereInFrustum(center, Math.max(0, packet.worldBounds.radius))) {
+		const { center } = packet.submission.worldBounds;
+		if (
+			camera.isSphereInFrustum(
+				center,
+				Math.max(0, packet.submission.worldBounds.radius),
+			)
+		) {
 			visible.push(packet);
 			continue;
 		}

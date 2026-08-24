@@ -200,7 +200,10 @@ export class SoftwarePassExecutor {
 
 	private _resolveOpaqueReflectivePackets(packets: DrawPacket[]): DrawPacket[] {
 		return packets.filter(
-			(packet) => packet.material.reflectivity > 0 && packet.material.mirrorPlane !== null,
+			(packet) => {
+				const material = packet.submission.material.effective;
+				return material.reflectivity > 0 && material.mirrorPlane !== null;
+			},
 		);
 	}
 
