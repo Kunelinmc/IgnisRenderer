@@ -11,6 +11,7 @@
     "dev": "bun x vite",
     "build": "bun run build:shaders && bun x vite build",
     "build:shaders": "bun scripts/generate_shader_manifest.mjs",
+    "typecheck": "tsc --noEmit",
     "test": "bun run test:static",
     "test:static": "bun tests/run_all.mjs",
     "test:browser": "bun run test:browser:probe && bun run test:browser:webgl && bun run test:browser:webgpu",

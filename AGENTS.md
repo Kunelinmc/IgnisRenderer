@@ -56,7 +56,7 @@ required references. Read them before changing related behavior:
 
 - Dev server: `bun run dev`
 - Build: `bun run build`
-- Global type check: `bunx tsc --noEmit`
+- Global type check: `bun run typecheck`
 - Run all static tests: `bun run test`
 - Run browser tests: `bun run test:browser`
 - Run one static test: `bun tests/static/<subsystem>/<file>.mjs`
