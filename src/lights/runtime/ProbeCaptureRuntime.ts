@@ -148,6 +148,8 @@ export interface ProbeCaptureFaceRequest {
 }
 
 export interface ProbeCaptureSource {
+	/** Deferred sources enqueue renderer work and must not block the active frame. */
+	readonly deferred?: boolean;
 	captureProbeFace(
 		request: ProbeCaptureFaceRequest
 	): Promise<Float32Array | null>;
@@ -210,7 +212,8 @@ export class ProbeCaptureRuntime {
 			return Promise.resolve();
 		}
 		if (this._inFlightQuantum) {
-			return this._inFlightQuantum;
+			return context.captureSource?.deferred ?
+				Promise.resolve() : this._inFlightQuantum;
 		}
 
 		if (!this._activeTask) {
@@ -243,7 +246,11 @@ export class ProbeCaptureRuntime {
 		}
 
 		const quantum = this._runQuantum(context)
-			.catch(() => {
+			.catch((error) => {
+				Logger.warn(
+					`[probe-capture-quantum-failed] Probe capture work failed: ${String(error)}`,
+					{ scope: "ProbeCaptureRuntime" },
+				);
 				this._activeTask = null;
 			})
 			.finally(() => {
@@ -252,7 +259,7 @@ export class ProbeCaptureRuntime {
 				}
 			});
 		this._inFlightQuantum = quantum;
-		return quantum;
+		return context.captureSource?.deferred ? Promise.resolve() : quantum;
 	}
 
 	private _isCaptureRequested(target: ProbeCaptureTarget): boolean {
@@ -374,6 +381,10 @@ export class ProbeCaptureRuntime {
 				return;
 			}
 			task.capturedFaces[faceIndex] = faceData;
+			if (context.captureSource?.deferred) {
+				task.scene.invalidate("probe-capture");
+				return;
+			}
 
 			const faceDurationMs = resolveNowMs() - faceStart;
 			if (

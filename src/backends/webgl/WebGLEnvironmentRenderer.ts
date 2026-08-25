@@ -104,7 +104,11 @@ export class WebGLEnvironmentRenderer implements WebGLProgramWarmupContributor {
 			: [];
 	}
 
-	public render(context: FrameContext): boolean {
+	public render(
+		context: FrameContext,
+		framebuffer: WebGLFramebuffer | null = this._host.targets._sceneFramebuffer,
+		drawBuffers?: number[],
+	): boolean {
 		const backgroundTexture = context.scene.environment.backgroundTexture;
 		const vao = this._host.getFullscreenVao();
 		if (!backgroundTexture || !vao) return false;
@@ -121,8 +125,8 @@ export class WebGLEnvironmentRenderer implements WebGLProgramWarmupContributor {
 		const gl = this._host.gl;
 		const uniforms = program.uniforms;
 
-		gl.bindFramebuffer(gl.FRAMEBUFFER, this._host.targets._sceneFramebuffer);
-		gl.drawBuffers([gl.COLOR_ATTACHMENT0, gl.COLOR_ATTACHMENT1]);
+		gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
+		gl.drawBuffers(drawBuffers ?? [gl.COLOR_ATTACHMENT0, gl.COLOR_ATTACHMENT1]);
 		gl.useProgram(program.program);
 		gl.bindVertexArray(vao);
 		gl.disable(gl.CULL_FACE);

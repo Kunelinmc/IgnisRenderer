@@ -295,7 +295,7 @@ function testRebuildForCameraUsesOverrideFrustum() {
 	const overrideCamera = new Camera();
 	overrideCamera.position.set(80, 0, 5);
 	overrideCamera.updateMatrices();
-	const rebuiltFrame = PreparedSceneBuilder.rebuildForCamera(
+	const rebuiltFrame = PreparedSceneBuilder.buildView(
 		mainFrame,
 		overrideCamera
 	);
@@ -316,6 +316,13 @@ function testRebuildForCameraUsesOverrideFrustum() {
 		(packet) => packet.submission.source.instanceId === overrideVisible.id
 	);
 	assert.ok(rebuiltOverridePacket);
+	assert.strictEqual(
+		rebuiltOverridePacket.submission,
+		mainFrame.submissions.find(
+			(submission) => submission.source.instanceId === overrideVisible.id
+		),
+		"secondary views must reuse camera-independent submissions"
+	);
 	assert.equal(rebuiltOverridePacket.submission.deformation.revision, 42);
 	assert.equal(rebuiltOverridePacket.submission.worldBounds.center.x, 81.5);
 	assert.equal(rebuiltOverridePacket.submission.worldBounds.radius, 0.75);

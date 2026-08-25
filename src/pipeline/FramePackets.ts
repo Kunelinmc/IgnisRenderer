@@ -27,7 +27,8 @@ const particleGeometryBindings = new WeakMap<object, DrawGeometryBinding>();
 export type FramePacketViewPurpose =
 	| "main"
 	| "probe-capture"
-	| "planar-reflection";
+	| "planar-reflection"
+	| "render-target-view";
 
 /** @internal Complete draw-packet lists for one prepared frame view. */
 export interface PreparedFramePacketSet {

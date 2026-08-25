@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { WebGPUCustomRenderTargetRuntime } from "../../../src/backends/webgpu/rendergraph/WebGPUCustomRenderTargetRuntime.ts";
 import { TextureFormat } from "../../../src/core/TextureFormat.ts";
 import {
-	CustomRenderPassRegistrySnapshot,
+	RenderTargetJobRegistrySnapshot,
 	RenderTargetRegistrySnapshot,
 } from "../../../src/rendering/CustomRenderTargets.ts";
 import { createResolvedPostProcess } from "../../helpers/postprocess.mjs";
@@ -134,11 +134,14 @@ function createContext(passExecute, targetDescriptor = {}) {
 			...targetDescriptor,
 		},
 	]);
-	const customRenderPasses = new CustomRenderPassRegistrySnapshot([
+	const renderTargetJobs = new RenderTargetJobRegistrySnapshot([
 		{
 			id: "custom-gbuf",
-			target: "gbuf",
-			execute: passExecute,
+			targetId: "gbuf",
+			generation: 1,
+			recurring: false,
+			descriptor: { kind: "custom-pass", execute: passExecute },
+			scene: null,
 		},
 	]);
 	return {
@@ -153,7 +156,7 @@ function createContext(passExecute, targetDescriptor = {}) {
 		features: {},
 		postProcess: createResolvedPostProcess("webgpu"),
 		renderTargets,
-		customRenderPasses,
+		renderTargetJobs,
 		shadowMaps: new Map(),
 		scene: { shadowCasterPackets: [], shadowTransmitterPackets: [] },
 		shCoeffs: [],
@@ -197,7 +200,7 @@ async function testWebGPUCustomTargetExecution() {
 
 	const encoder = new FakeEncoder();
 	await runtime.executePass(
-		{ stage: "custom-gbuf", executor: "backend", enabled: true, dependsOn: [] },
+		{ stage: "render-target-views", executor: "backend", enabled: true, dependsOn: [] },
 		context,
 		encoder
 	);
@@ -266,7 +269,7 @@ async function testWebGPUMultisampledTargetUsesResolveTextures() {
 
 	const encoder = new FakeEncoder();
 	await runtime.executePass(
-		{ stage: "custom-gbuf", executor: "backend", enabled: true, dependsOn: [] },
+		{ stage: "render-target-views", executor: "backend", enabled: true, dependsOn: [] },
 		context,
 		encoder,
 	);

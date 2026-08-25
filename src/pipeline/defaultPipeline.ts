@@ -62,9 +62,16 @@ export function createDefaultPipelineStages(): RenderPipelineStageRegistration[]
 			dependsOn: ["prepared-scene-build"],
 		},
 		{
+			id: "render-target-views",
+			kind: "backend-pass",
+			dependsOn: ["particle-sim", "shadow", "probe-capture"],
+			shouldRun: ({ frameContext }) =>
+				(frameContext?.renderTargetJobs?.size ?? 0) > 0,
+		},
+		{
 			id: "reflection",
 			kind: "backend-pass",
-			dependsOn: ["prepared-scene-build", "probe-capture"],
+			dependsOn: ["prepared-scene-build", "render-target-views"],
 			shouldRun: ({ requirements }) =>
 				requirements.requiredPasses.has("reflection"),
 		},

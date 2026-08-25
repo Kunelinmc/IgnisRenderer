@@ -138,7 +138,7 @@ This document defines the lifecycle, scheduling, warmup, incremental rendering, 
   - Constraint: secondary capture contexts, such as reflection probe captures,
     must rebuild `FrameContext.scene` for `viewCamera` before backend execution.
   - Composition contract: secondary capture implementations must use
-    `PreparedSceneBuilder.rebuildForCamera()` for backend-neutral visibility,
+    `PreparedSceneBuilder.buildView()` for backend-neutral visibility,
     packet construction, and sorting. Backend capture passes may apply
     capture-specific filtering afterward, but must not maintain duplicate mesh
     packet builders.
@@ -218,8 +218,6 @@ This document defines the lifecycle, scheduling, warmup, incremental rendering, 
   - Behavior contract: must return the extension API or throw a deterministic error if the extension is unavailable.
 - `OCCLUSION_CULLING_EXTENSION`
   - Must expose an `OcclusionCullingBackendAdapter` API.
-- `PROBE_CAPTURE_EXTENSION`
-  - Must expose a backend-agnostic `ProbeCaptureSource` API.
 - `WEBGPU_COMPUTE_EXTENSION`
   - Must expose an `IWebGPUComputeFacade` API.
   - WebGPU compute callers must obtain buffer, texture, sampler, shader,
@@ -256,10 +254,25 @@ This document defines the lifecycle, scheduling, warmup, incremental rendering, 
 - Backend-level copy helpers that allocate or batch separate command encoders must not be used when an in-frame pass depends on copy ordering.
 - `ICommandEncoder` must not expose native backend command encoders through the shared contract.
 
-#### 6. Custom Render Targets (`Renderer.renderTargets` & `Renderer.renderPasses`)
+#### 6. Render Targets (`Renderer.renderTargets`)
 
-- `Renderer.renderTargets.register(descriptor)` must register one persistent custom render target.
-- `RenderTargetDescriptor.id` must be unique within the renderer.
+- `Renderer.renderTargets.create(descriptor)` must create one persistent render
+  target and return a renderer-owned `RenderTargetHandle` with an opaque id.
+- `RenderTargetHandle.destroy()` must cancel queued work, reject pending tickets,
+  and release the target after referenced backend work is safe to retire.
+- `RenderTargetHandle.enqueueJob(descriptor)` must enqueue one FIFO target job
+  and return a `RenderTargetJobTicket`.
+- `RenderTargetHandle.registerJob(descriptor)` must register recurring work and
+  return a destroyable `RenderTargetJobRegistration`.
+- Scene-view and custom-pass jobs must share ordering, transaction, generation,
+  and readback semantics. `Renderer` must not expose a separate custom
+  render-pass registry.
+- Scene-view jobs must render only the scene attached to the owning `Renderer`.
+  They must accept a camera and backend-neutral content controls, and must
+  produce scene-linear HDR without renderer post-processing.
+- A scene-view target must contain exactly one `rgba16float` color attachment,
+  use `sampleCount = 1`, and may contain one `depth32float` attachment. Backends
+  must keep scene-pipeline scratch attachments private.
 - `RenderTargetDescriptor.size` must use `canvas-scale` or `fixed`.
 - `RenderTargetDescriptor.color` must contain at least one color attachment.
 - `RenderTargetDescriptor.depth` may define one depth attachment.
@@ -276,30 +289,32 @@ This document defines the lifecycle, scheduling, warmup, incremental rendering, 
   Multisampled depth attachments do not receive an automatic depth resolve.
 - Color attachments must use color formats, and depth attachments must use
   depth-only formats.
-- `Renderer.renderTargets.readColor(id, attachmentIndex, options)` must return a
-  `Promise<RenderTargetReadbackResult>`.
+- `RenderTargetHandle.readColor(attachmentIndex, options)` must read the latest
+  committed target generation.
+- A job that requests readback must copy or read its attachment before a later
+  job overwrites the same target.
+- `RenderTargetJobTicket.done` must resolve only after its frame commits and any
+  requested readback completes. A normal frame abort must requeue one-shot work;
+  cancellation, target destruction, execution failure, and permanent backend
+  loss must reject the ticket.
 - `RenderTargetReadbackOptions` may restrict `width` and `height`, but must not
   reinterpret the attachment format or bytes-per-pixel layout.
-- `RenderTargetReadbackResult.origin` must be `"top-left"` for WebGPU and
-  `"bottom-left"` for WebGL.
+- `RenderTargetReadbackResult.origin` must be `"top-left"` for every backend.
+  WebGL must normalize framebuffer rows before publishing the result.
 - `readColor` must read only the most recent successfully completed frame.
 - WebGL `readColor` must serialize through the backend context work queue and
   must reject while a renderer frame is active.
 - `readColor` must reject before the first successful frame, after an invalid
   target id, for an invalid color attachment index, or when the requested
   dimensions exceed the target.
-- `Renderer.renderPasses.register(descriptor)` must register a backend pass stage with the same `id`.
-- `CustomRenderPassDescriptor.target` must reference a registered custom render target.
-- Custom pass registration must be transactional. Failed target validation or
-  pipeline-stage registration must not retain the pass descriptor or emit a
-  registry change.
-- A custom pass id must not replace a built-in pipeline stage.
-- A render target referenced by a registered custom pass must not be
-  unregistered until the dependent pass is unregistered.
-- `CustomRenderPassDescriptor.execute(context)` must receive an `ICommandEncoder`, `CustomRenderTargetExecutionTarget`, `FrameContext`, backend id, dimensions, and a backend-owned resource facade.
+- A custom-pass job callback must receive an `ICommandEncoder`,
+  `CustomRenderTargetExecutionTarget`, `FrameContext`, backend id, dimensions,
+  and a backend-owned resource facade.
 - Custom render pass callbacks must not receive native backend handles.
-- WebGPU and WebGL backends must support custom render targets, custom render passes, and color readback.
-- SoftwareBackend must report custom render target support as unavailable and must skip custom render passes without failing the frame.
+- Jobs enqueued after the owning frame is sealed must execute in the next frame.
+- WebGPU and WebGL must support render targets, scene-view jobs, custom-pass
+  jobs, and color readback. SoftwareBackend must reject these jobs as
+  unsupported without failing probe capture fallback.
 
 ### Incremental rendering
 
@@ -541,8 +556,7 @@ encoder.endRenderPass();
 ```ts
 import { TextureFormat, type CustomRenderPassContext } from "ignisrenderer";
 
-renderer.renderTargets.register({
-	id: "inspect",
+const inspectTarget = renderer.renderTargets.create({
 	size: { mode: "fixed", width: 256, height: 256 },
 	color: [
 		{ format: TextureFormat.RGBA8Unorm },
@@ -551,10 +565,8 @@ renderer.renderTargets.register({
 	depth: { format: TextureFormat.Depth32Float },
 });
 
-renderer.renderPasses.register({
-	id: "inspect-pass",
-	target: "inspect",
-	dependsOn: ["main-opaque"],
+inspectTarget.registerJob({
+	kind: "custom-pass",
 	execute(context: CustomRenderPassContext) {
 		context.encoder.beginRenderPass({
 			label: "InspectClear",
@@ -576,7 +588,7 @@ renderer.renderPasses.register({
 });
 
 await renderer.renderFrame(performance.now());
-const readback = await renderer.renderTargets.readColor("inspect", 0);
+const readback = await inspectTarget.readColor(0);
 ```
 
 ### Incremental rendering

@@ -6,6 +6,14 @@ This document defines the current WebGL backend lifecycle, frame graph, resource
 
 ### Backend lifecycle and execution
 
+- WebGL must execute scene-view render-target jobs inside the active frame
+  context rather than through an idle-only reentrant context request.
+- Each job must own isolated camera, lighting, clustered-lighting, framebuffer,
+  viewport, depth, blend, and transparency state.
+- Completion must restore main-frame state before later passes execute.
+- Float readback rows must be normalized to top-left origin before a committed
+  job ticket is published.
+
 - `WebGLBackend` must prepare its static directive profile assets during
   initialization and compose an instance overlay after context capability
   probing. The overlay and WebGL scene-source requests must use the same

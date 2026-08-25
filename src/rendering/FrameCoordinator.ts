@@ -20,9 +20,10 @@ import {
 	PostProcessPassRegistry,
 	type ResolvedPostProcessState,
 } from "../postprocess";
-import type {
-	CustomRenderPassRegistry,
-	RenderTargetRegistry,
+import {
+	type RenderTargetJobRegistrySnapshot,
+	type RenderTargetHandle,
+	type RenderTargetManager,
 } from "./CustomRenderTargets";
 import { AnimationRuntime } from "../simulation/animation/AnimationRuntime";
 import { ANIMATION_DEFORMATION_STATES_KEY } from "../simulation/animation/types";
@@ -32,6 +33,12 @@ import {
 	type PreparedSceneCacheBuildResult,
 } from "../pipeline/PreparedSceneCache";
 import { ProbeCaptureRuntime } from "../lights/runtime/ProbeCaptureRuntime";
+import type {
+	ProbeCaptureFaceRequest,
+	ProbeCaptureSource,
+} from "../lights/runtime/ProbeCaptureRuntime";
+import { CubeFaceCamera } from "../cameras/CubeFaceCamera";
+import { TextureFormat } from "../core/TextureFormat";
 import type { RendererStageDefinition } from "../pipeline/RendererStageGraph";
 import { isLocalizedLightProbe } from "../lights/runtime/lightProbeRuntime";
 import {
@@ -72,7 +79,6 @@ import type {
 	WarmupReport,
 } from "../backends/IRenderBackend";
 import {
-	PROBE_CAPTURE_EXTENSION,
 	type RenderBackendExtensionKey,
 } from "../backends/BackendExtensions";
 import { RendererOcclusionCullingController } from "./RendererOcclusionCullingController";
@@ -95,8 +101,7 @@ export interface FrameCoordinatorDelegate {
 	readonly physicsSystem: PhysicsSystem | null;
 	readonly pipeline: RenderPipelineRegistry;
 	readonly postProcess: PostProcessPassRegistry;
-	readonly renderTargets: RenderTargetRegistry;
-	readonly renderPasses: CustomRenderPassRegistry;
+	readonly renderTargets: RenderTargetManager;
 	readonly features: RendererFeatures;
 	readonly incrementalOptions: IncrementalRenderingOptions;
 	readonly animationAutoRender: boolean;
@@ -112,6 +117,22 @@ export interface FrameCoordinatorDelegate {
 	warn(key: string, message: string): void;
 }
 
+function flipProbeFaceRows(data: Float32Array, size: number): Float32Array {
+	const rowStride = size * 4;
+	const flipped = new Float32Array(data.length);
+	for (let row = 0; row < size; row++) {
+		const source = row * rowStride;
+		const target = (size - row - 1) * rowStride;
+		flipped.set(data.subarray(source, source + rowStride), target);
+	}
+	return flipped;
+}
+
+function isRetryableTargetFrameError(error: unknown): boolean {
+	const code = (error as { code?: unknown } | null)?.code;
+	return code === "context-lost" || code === "device-lost";
+}
+
 interface RenderSceneFrameState {
 	now: number;
 	deltaTimeSeconds: number;
@@ -124,6 +145,7 @@ interface RenderSceneFrameState {
 	frame: RenderSceneFrame | null;
 	context: FrameContext | null;
 	frameStarted: boolean;
+	renderTargetJobs: RenderTargetJobRegistrySnapshot | null;
 	emittedPostAnimation: boolean;
 	stageOrder: RendererStageDefinition[];
 	stageIndexById: Map<string, number>;
@@ -141,6 +163,7 @@ export class FrameCoordinator {
 	private readonly _occlusionCullingController: RendererOcclusionCullingController;
 	private readonly _animationRuntime = new AnimationRuntime();
 	private readonly _shadowPlannerState = ShadowPlanner.createState();
+	private _probeRenderTarget: { size: number; handle: RenderTargetHandle } | null = null;
 	private readonly _stageExecutors: Map<string, RendererStageExecutor>;
 
 	constructor(backend: IRenderBackend) {
@@ -211,10 +234,19 @@ export class FrameCoordinator {
 				await this._backend.endFrame();
 				state.frameStarted = false;
 			}
+			if (state.context?.renderTargetJobs) {
+				await delegate.renderTargets.commitFrame(state.context.renderTargetJobs);
+			}
 			const status = this._createIncrementalFrameStatus(state.incrementalFrameContext);
 			delegate.setLastIncrementalFrameStats(status.plan);
 			return status;
 		} catch (error) {
+			if (state.context?.renderTargetJobs) {
+				delegate.renderTargets.abortFrame(
+					state.context.renderTargetJobs,
+					isRetryableTargetFrameError(error) ? undefined : error,
+				);
+			}
 			await this._abortFailedFrame(error, state.frameStarted);
 			throw error;
 		}
@@ -310,6 +342,7 @@ export class FrameCoordinator {
 			frame: null,
 			context: null,
 			frameStarted: false,
+			renderTargetJobs: null,
 			emittedPostAnimation: false,
 			stageOrder,
 			stageIndexById,
@@ -582,9 +615,64 @@ export class FrameCoordinator {
 			frameDirtyReasonMask: state.frameDirtyReasonMask,
 			frameContext: state.context,
 			cameraWorldPosition,
-			captureSource: delegate.getBackendExtension(PROBE_CAPTURE_EXTENSION),
+			captureSource: this._createProbeRenderTargetSource(delegate),
 			backend: this._backend,
 		});
+	}
+
+	private _createProbeRenderTargetSource(
+		delegate: FrameCoordinatorDelegate,
+	): ProbeCaptureSource | null {
+		const capabilities = this._backend.profile.capabilities;
+		if (!capabilities.renderTargets) {
+			return null;
+		}
+		return {
+			deferred: true,
+			captureProbeFace: (request) => this._enqueueProbeFace(delegate, request),
+		};
+	}
+
+	private async _enqueueProbeFace(
+		delegate: FrameCoordinatorDelegate,
+		request: ProbeCaptureFaceRequest,
+	): Promise<Float32Array | null> {
+		const size = Math.max(1, Math.floor(request.faceSize));
+		if (!this._probeRenderTarget || this._probeRenderTarget.size !== size) {
+			this._probeRenderTarget?.handle.destroy();
+			this._probeRenderTarget = {
+				size,
+				handle: delegate.renderTargets.createInternal({
+					size: { mode: "fixed", width: size, height: size },
+					color: [{ format: TextureFormat.RGBA16Float }],
+					depth: { format: TextureFormat.Depth32Float },
+					sampleCount: 1,
+					label: "ProbeFaceRenderTarget",
+				}),
+			};
+		}
+		const camera = new CubeFaceCamera(
+			request.captureWorldPosition,
+			request.captureFar,
+			request.faceIndex,
+		);
+		const ticket = this._probeRenderTarget.handle.enqueueJob({
+			kind: "scene-view",
+			camera,
+			allowDetachedCamera: true,
+			content: {
+				environment: request.includeEnvironment,
+				opaque: request.includeMeshes,
+				transparent: request.includeMeshes && request.includeTransparent,
+				particles: request.includeParticles,
+				shadows: request.includeShadows ? "reuse" : "disabled",
+			},
+			excludedLightId: request.targetId,
+			readback: { attachmentIndex: 0, width: size, height: size },
+		});
+		const completion = await ticket.done;
+		const pixels = completion.readback?.toRGBAFloat32() ?? null;
+		return pixels ? flipProbeFaceRows(pixels, size) : null;
 	}
 
 	private async _executeFramePassStage(
@@ -792,10 +880,45 @@ export class FrameCoordinator {
 			attachments,
 			features: resolved,
 			postProcess,
-			renderTargets: delegate.renderTargets.createSnapshot(),
-			customRenderPasses: delegate.renderPasses.createSnapshot(),
+			renderTargets: delegate.renderTargets.createTargetSnapshot(),
+			renderTargetJobs: delegate.renderTargets.createJobSnapshot((descriptor) => {
+				if (!descriptor.allowDetachedCamera && !delegate.scene.contains(descriptor.camera)) {
+					throw new Error(
+						"Render-target scene-view camera must belong to the active renderer scene.",
+					);
+				}
+				const rebuilt = PreparedSceneBuilder.buildView(frame, descriptor.camera, {
+					visibilityScene: delegate.scene,
+				});
+				const filter = descriptor.packetFilter ?? null;
+				const layerMask = descriptor.layerMask ?? 0xffffffff;
+				const accepts = (packet: (typeof rebuilt.opaquePackets)[number]): boolean =>
+					(packet.submission.instance.renderLayers & layerMask) !== 0 &&
+					(!filter || filter(packet));
+				const content = descriptor.content ?? {};
+				return {
+					...rebuilt,
+					lights: descriptor.excludedLightId ?
+						rebuilt.lights.filter((light) => light.id !== descriptor.excludedLightId)
+					: rebuilt.lights,
+					environment: {
+						...rebuilt.environment,
+						backgroundEnabled:
+							content.environment !== false && rebuilt.environment.backgroundEnabled,
+					},
+					opaquePackets:
+						content.opaque === false ? [] : rebuilt.opaquePackets.filter(accepts),
+					transparentPackets:
+						content.transparent === false ? [] :
+							rebuilt.transparentPackets.filter(accepts),
+					particleSystems:
+						content.particles === false ? [] : rebuilt.particleSystems,
+				};
+			}),
 			shadowPlan,
 			scene: frame,
+			sceneState: frame,
+			view: frame,
 			shCoeffs,
 			shAmbientCoeffs,
 			worldMatrix: delegate.features.worldMatrix || Matrix4.identity(),

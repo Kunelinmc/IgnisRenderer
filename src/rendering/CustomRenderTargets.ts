@@ -1,8 +1,7 @@
-import { EventEmitter } from "../core/EventEmitter";
 import type { TextureReadbackResult } from "../backends/IComputeRuntime";
 import {
 	getTextureFormatInfo,
-	type TextureFormat,
+	TextureFormat,
 } from "../core/TextureFormat";
 import type { ICommandEncoder } from "../backends/ICommandEncoder";
 import type {
@@ -21,11 +20,9 @@ import type {
 	ShaderModuleDesc,
 	TextureDesc,
 } from "../backends/types";
-import type { FrameContext, FramePassStage } from "../pipeline/types";
-import type {
-	RenderPipelineStageIncrementalOptions,
-	RenderPipelineStagePredicate,
-} from "../pipeline/RenderPipelineRegistry";
+import type { FrameContext } from "../pipeline/types";
+import type { Camera } from "../cameras/Camera";
+import type { PreparedScene } from "../pipeline/types";
 import type { RenderBackendType } from "../backends/IRenderBackend";
 
 export type RenderTargetSizeDescriptor =
@@ -59,6 +56,111 @@ export interface RenderTargetDescriptor {
 	readonly label?: string;
 }
 
+/** Public descriptor used by the handle-centric render-target manager. */
+export type RenderTargetCreateDescriptor = Omit<RenderTargetDescriptor, "id">;
+
+export interface RenderTargetSceneViewContent {
+	readonly environment?: boolean;
+	readonly opaque?: boolean;
+	readonly transparent?: boolean;
+	readonly particles?: boolean;
+	readonly shadows?: "reuse" | "disabled";
+}
+
+export interface RenderTargetJobReadbackOptions extends RenderTargetReadbackOptions {
+	readonly attachmentIndex?: number;
+}
+
+export interface RenderTargetSceneViewJobDescriptor {
+	readonly kind: "scene-view";
+	readonly camera: Camera;
+	readonly content?: RenderTargetSceneViewContent;
+	readonly layerMask?: number;
+	readonly readback?: RenderTargetJobReadbackOptions | null;
+	/** @internal Feature-owned packet exclusion hook. */
+	readonly packetFilter?: ((packet: FrameContext["scene"]["opaquePackets"][number]) => boolean) | null;
+	/** @internal Feature-owned light id excluded from the prepared view. */
+	readonly excludedLightId?: string | null;
+	/** @internal Allows renderer-owned cameras outside the scene graph. */
+	readonly allowDetachedCamera?: boolean;
+}
+
+export interface RenderTargetCustomPassJobDescriptor {
+	readonly kind: "custom-pass";
+	readonly label?: string;
+	readonly execute: (context: CustomRenderPassContext) => void | Promise<void>;
+	readonly readback?: RenderTargetJobReadbackOptions | null;
+}
+
+export type RenderTargetJobDescriptor =
+	| RenderTargetSceneViewJobDescriptor
+	| RenderTargetCustomPassJobDescriptor;
+
+export interface RenderTargetJobCompletion {
+	readonly jobId: string;
+	readonly targetId: string;
+	readonly generation: number;
+	readonly readback: RenderTargetReadbackResult | null;
+}
+
+export interface RenderTargetJobTicket {
+	readonly id: string;
+	/** Resolves after the writing frame commits and requested readback completes. */
+	readonly done: Promise<RenderTargetJobCompletion>;
+	/** Cancels queued work and rejects `done`. */
+	cancel(): void;
+}
+
+export interface RenderTargetJobRegistration {
+	readonly id: string;
+	destroy(): void;
+}
+
+export interface RenderTargetHandle {
+	readonly id: string;
+	readonly descriptor: RenderTargetDescriptor;
+	/** Enqueues one FIFO target job for the next unsealed renderer frame. */
+	enqueueJob(descriptor: RenderTargetJobDescriptor): RenderTargetJobTicket;
+	/** Registers target work repeated in every eligible renderer frame. */
+	registerJob(descriptor: RenderTargetJobDescriptor): RenderTargetJobRegistration;
+	/** Reads the latest committed color generation. */
+	readColor(
+		attachmentIndex?: number,
+		options?: RenderTargetReadbackOptions,
+	): Promise<RenderTargetReadbackResult>;
+	/** Cancels pending work and releases the target. */
+	destroy(): void;
+}
+
+/** @internal One target job prepared for a renderer frame. */
+export interface PreparedRenderTargetJob {
+	readonly id: string;
+	readonly targetId: string;
+	readonly generation: number;
+	readonly recurring: boolean;
+	readonly descriptor: RenderTargetJobDescriptor;
+	readonly scene: PreparedScene | null;
+}
+
+/** @internal Immutable job list captured before backend frame sealing. */
+export class RenderTargetJobRegistrySnapshot {
+	public constructor(
+		private readonly _jobs: readonly PreparedRenderTargetJob[] = [],
+	) {}
+
+	public getAll(): readonly PreparedRenderTargetJob[] {
+		return this._jobs.slice();
+	}
+
+	public getForTarget(targetId: string): readonly PreparedRenderTargetJob[] {
+		return this._jobs.filter((job) => job.targetId === targetId);
+	}
+
+	public get size(): number {
+		return this._jobs.length;
+	}
+}
+
 export interface RenderTargetReadbackOptions {
 	readonly width?: number;
 	readonly height?: number;
@@ -68,11 +170,6 @@ export type RenderTargetReadbackOrigin = "top-left" | "bottom-left";
 
 export interface RenderTargetReadbackResult extends TextureReadbackResult {
 	readonly origin: RenderTargetReadbackOrigin;
-}
-
-export interface RenderTargetHandle {
-	readonly id: string;
-	readonly descriptor: RenderTargetDescriptor;
 }
 
 export interface CustomRenderTargetAttachment {
@@ -112,123 +209,6 @@ export interface CustomRenderPassContext {
 	readonly resources: CustomRenderPassResourceFacade;
 }
 
-export interface CustomRenderPassDescriptor {
-	readonly id: FramePassStage;
-	readonly target: string;
-	readonly dependsOn?: readonly FramePassStage[];
-	readonly shouldRun?: RenderPipelineStagePredicate;
-	readonly incremental?: RenderPipelineStageIncrementalOptions;
-	readonly label?: string;
-	execute(context: CustomRenderPassContext): void | Promise<void>;
-}
-
-export interface RenderTargetRegistryChange {
-	readonly id: string;
-	readonly reason: "register" | "unregister" | "lifecycle";
-}
-
-export interface CustomRenderPassRegistryChange {
-	readonly id: FramePassStage;
-	readonly reason: "register" | "unregister" | "lifecycle";
-}
-
-export interface RenderTargetRegistryOptions {
-	readonly readColor?: (
-		id: string,
-		attachmentIndex: number,
-		options?: RenderTargetReadbackOptions
-	) => Promise<RenderTargetReadbackResult>;
-	/** @internal Renderer registry coordination hook. */
-	readonly getReferencingPassId?: (id: string) => FramePassStage | null;
-}
-
-export class RenderTargetRegistry extends EventEmitter<{
-	change: [RenderTargetRegistryChange];
-}> {
-	private readonly _targets = new Map<string, RenderTargetDescriptor>();
-	private readonly _readColor?: RenderTargetRegistryOptions["readColor"];
-	private readonly _getReferencingPassId?: RenderTargetRegistryOptions["getReferencingPassId"];
-
-	public constructor(options: RenderTargetRegistryOptions = {}) {
-		super();
-		this._readColor = options.readColor;
-		this._getReferencingPassId = options.getReferencingPassId;
-	}
-
-	public register(descriptor: RenderTargetDescriptor): RenderTargetHandle {
-		const normalized = normalizeRenderTargetDescriptor(descriptor);
-		if (this._targets.has(normalized.id)) {
-			throw new Error(`Render target "${normalized.id}" is already registered.`);
-		}
-		this._targets.set(normalized.id, normalized);
-		this.emit("change", { id: normalized.id, reason: "register" });
-		return this._createHandle(normalized);
-	}
-
-	public unregister(id: string): void {
-		if (!this._targets.has(id)) {
-			return;
-		}
-		const passId = this._getReferencingPassId?.(id) ?? null;
-		if (passId) {
-			throw new Error(
-				`Render target "${id}" is referenced by custom render pass "${passId}".`
-			);
-		}
-		this._targets.delete(id);
-		this.emit("change", { id, reason: "unregister" });
-	}
-
-	public get(id: string): RenderTargetHandle | null {
-		const descriptor = this._targets.get(id);
-		return descriptor ? this._createHandle(descriptor) : null;
-	}
-
-	public getDescriptors(): readonly RenderTargetDescriptor[] {
-		return Array.from(this._targets.values()).map(cloneRenderTargetDescriptor);
-	}
-
-	public createSnapshot(): RenderTargetRegistrySnapshot {
-		return new RenderTargetRegistrySnapshot(this.getDescriptors());
-	}
-
-	public readColor(
-		id: string,
-		attachmentIndex = 0,
-		options?: RenderTargetReadbackOptions
-	): Promise<RenderTargetReadbackResult> {
-		if (!this._targets.has(id)) {
-			return Promise.reject(new Error(`Render target "${id}" is not registered.`));
-		}
-		const descriptor = this._targets.get(id)!;
-		if (
-			!Number.isInteger(attachmentIndex) ||
-			attachmentIndex < 0 ||
-			attachmentIndex >= descriptor.color.length
-		) {
-			return Promise.reject(
-				new Error(
-					`Render target "${id}" color attachment ${attachmentIndex} is unavailable.`
-				)
-			);
-		}
-		if (!this._readColor) {
-			return Promise.reject(
-				new Error("Render target readback is unavailable for this renderer.")
-			);
-		}
-		validateReadbackOptions(id, options);
-		return this._readColor(id, attachmentIndex, options);
-	}
-
-	private _createHandle(descriptor: RenderTargetDescriptor): RenderTargetHandle {
-		return {
-			id: descriptor.id,
-			descriptor: cloneRenderTargetDescriptor(descriptor),
-		};
-	}
-}
-
 export class RenderTargetRegistrySnapshot {
 	private readonly _targets = new Map<string, RenderTargetDescriptor>();
 
@@ -253,91 +233,331 @@ export class RenderTargetRegistrySnapshot {
 	}
 }
 
-export interface CustomRenderPassRegistryOptions {
-	readonly registerPipelineStage: (descriptor: CustomRenderPassDescriptor) => void;
-	readonly unregisterPipelineStage: (id: FramePassStage) => void;
-	readonly isRenderTargetRegistered: (id: string) => boolean;
+interface ManagedRenderTargetJob {
+	readonly id: string;
+	readonly targetId: string;
+	readonly descriptor: RenderTargetJobDescriptor;
+	readonly recurring: boolean;
+	resolve?: (completion: RenderTargetJobCompletion) => void;
+	reject?: (error: unknown) => void;
+	cancelled: boolean;
+	generation: number;
 }
 
-export class CustomRenderPassRegistry extends EventEmitter<{
-	change: [CustomRenderPassRegistryChange];
-}> {
-	private readonly _passes = new Map<FramePassStage, CustomRenderPassDescriptor>();
-	private readonly _options: CustomRenderPassRegistryOptions;
+interface ManagedRenderTarget {
+	readonly descriptor: RenderTargetDescriptor;
+	readonly queued: ManagedRenderTargetJob[];
+	readonly recurring: Map<string, ManagedRenderTargetJob>;
+	destroyed: boolean;
+	generation: number;
+	committedGeneration: number;
+	readonly internal: boolean;
+}
 
-	public constructor(options: CustomRenderPassRegistryOptions) {
-		super();
-		this._options = options;
+export interface RenderTargetManagerOptions {
+	readonly supportsJobs: boolean;
+	readonly readColor: (
+		id: string,
+		attachmentIndex: number,
+		options?: RenderTargetReadbackOptions,
+	) => Promise<RenderTargetReadbackResult>;
+	readonly invalidate: (scope: "public" | "internal") => void;
+}
+
+/** Handle-centric owner for public and renderer-private render targets. */
+export class RenderTargetManager {
+	private readonly _targets = new Map<string, ManagedRenderTarget>();
+	private readonly _frameJobs = new WeakMap<
+		RenderTargetJobRegistrySnapshot,
+		ManagedRenderTargetJob[]
+	>();
+	private readonly _inflight = new Set<ManagedRenderTargetJob>();
+	private _nextTargetId = 0;
+	private _nextJobId = 0;
+
+	public constructor(private readonly _options: RenderTargetManagerOptions) {}
+
+	/** Creates a persistent renderer-owned render target. */
+	public create(descriptor: RenderTargetCreateDescriptor): RenderTargetHandle {
+		return this._createTarget(descriptor, false);
 	}
 
-	public register(descriptor: CustomRenderPassDescriptor): void {
-		const normalized = normalizeCustomRenderPassDescriptor(descriptor);
-		if (this._passes.has(normalized.id)) {
-			throw new Error(`Custom render pass "${normalized.id}" is already registered.`);
-		}
-		if (!this._options.isRenderTargetRegistered(normalized.target)) {
-			throw new Error(
-				`Custom render pass "${normalized.id}" target "${normalized.target}" is not registered.`
-			);
-		}
-		this._options.registerPipelineStage(normalized);
-		this._passes.set(normalized.id, normalized);
-		this.emit("change", { id: normalized.id, reason: "register" });
+	/** @internal Creates a target hidden from the public renderer API. */
+	public createInternal(descriptor: RenderTargetCreateDescriptor): RenderTargetHandle {
+		return this._createTarget({
+			...descriptor,
+			label: descriptor.label ?? "RendererInternalRenderTarget",
+		}, true);
 	}
 
-	public unregister(id: FramePassStage): void {
-		if (!this._passes.delete(id)) {
-			return;
-		}
-		this._options.unregisterPipelineStage(id);
-		this.emit("change", { id, reason: "unregister" });
+	private _createTarget(
+		descriptor: RenderTargetCreateDescriptor,
+		internal: boolean,
+	): RenderTargetHandle {
+		const id = `render-target-${++this._nextTargetId}`;
+		const normalized = normalizeRenderTargetDescriptor({ ...descriptor, id });
+		const target: ManagedRenderTarget = {
+			descriptor: normalized,
+			queued: [],
+			recurring: new Map(),
+			destroyed: false,
+			generation: 0,
+			committedGeneration: 0,
+			internal,
+		};
+		this._targets.set(id, target);
+		this._invalidateTarget(target);
+		return this._createHandle(target);
 	}
 
-	public get(id: FramePassStage): CustomRenderPassDescriptor | null {
-		const descriptor = this._passes.get(id);
-		return descriptor ? cloneCustomRenderPassDescriptor(descriptor) : null;
+	/** @internal Captures backend allocation descriptors for frame coordination. */
+	public createTargetSnapshot(): RenderTargetRegistrySnapshot {
+		return new RenderTargetRegistrySnapshot(
+			Array.from(this._targets.values())
+				.filter((target) => !target.destroyed)
+				.map((target) => target.descriptor),
+		);
 	}
 
-	public getDescriptors(): readonly CustomRenderPassDescriptor[] {
-		return Array.from(this._passes.values()).map(cloneCustomRenderPassDescriptor);
-	}
-
-	/** @internal Used by the renderer target registry to enforce dependencies. */
-	public getReferencingPassId(target: string): FramePassStage | null {
-		for (const pass of this._passes.values()) {
-			if (pass.target === target) {
-				return pass.id;
+	/** @internal Prepares queued and recurring target work for one frame. */
+	public createJobSnapshot(
+		prepareScene: (descriptor: RenderTargetSceneViewJobDescriptor) => PreparedScene,
+	): RenderTargetJobRegistrySnapshot {
+		const prepared: PreparedRenderTargetJob[] = [];
+		const captured: ManagedRenderTargetJob[] = [];
+		for (const target of this._targets.values()) {
+			if (target.destroyed) continue;
+			const jobs: ManagedRenderTargetJob[] = [];
+			let blocksLaterWriter = false;
+			while (target.queued.length > 0 && !blocksLaterWriter) {
+				const queued = target.queued.shift()!;
+				jobs.push(queued);
+				blocksLaterWriter = queued.descriptor.readback != null;
+			}
+			if (!blocksLaterWriter) {
+				for (const recurring of target.recurring.values()) {
+					jobs.push(recurring);
+					if (recurring.descriptor.readback != null) break;
+				}
+			}
+			for (const job of jobs) {
+				if (job.cancelled) continue;
+				job.generation = ++target.generation;
+				prepared.push({
+					id: job.id,
+					targetId: job.targetId,
+					generation: job.generation,
+					recurring: job.recurring,
+					descriptor: job.descriptor,
+					scene:
+						job.descriptor.kind === "scene-view" ?
+							prepareScene(job.descriptor)
+						: null,
+				});
+				captured.push(job);
+				this._inflight.add(job);
 			}
 		}
-		return null;
+		const snapshot = new RenderTargetJobRegistrySnapshot(prepared);
+		this._frameJobs.set(snapshot, captured);
+		return snapshot;
 	}
 
-	public createSnapshot(): CustomRenderPassRegistrySnapshot {
-		return new CustomRenderPassRegistrySnapshot(this.getDescriptors());
-	}
-}
-
-export class CustomRenderPassRegistrySnapshot {
-	private readonly _passes = new Map<FramePassStage, CustomRenderPassDescriptor>();
-
-	public constructor(descriptors: readonly CustomRenderPassDescriptor[] = []) {
-		for (const descriptor of descriptors) {
-			const normalized = normalizeCustomRenderPassDescriptor(descriptor);
-			this._passes.set(normalized.id, normalized);
+	/** @internal Publishes job generations after a successful backend frame. */
+	public async commitFrame(snapshot: RenderTargetJobRegistrySnapshot): Promise<void> {
+		const jobs = this._frameJobs.get(snapshot) ?? [];
+		this._frameJobs.delete(snapshot);
+		for (const job of jobs) {
+			this._inflight.delete(job);
+			const target = this._targets.get(job.targetId);
+			if (target && !job.cancelled) {
+				target.committedGeneration = Math.max(
+					target.committedGeneration,
+					job.generation,
+				);
+			}
+			if (job.recurring || job.cancelled) continue;
+			try {
+				const request = job.descriptor.readback ?? null;
+				const attachmentIndex = request?.attachmentIndex ?? 0;
+				const readback = request ?
+					await this._options.readColor(job.targetId, attachmentIndex, request)
+				: null;
+				job.resolve?.({
+					jobId: job.id,
+					targetId: job.targetId,
+					generation: job.generation,
+					readback,
+				});
+			} catch (error) {
+				job.reject?.(error);
+			}
 		}
 	}
 
-	public get(id: FramePassStage): CustomRenderPassDescriptor | null {
-		const descriptor = this._passes.get(id);
-		return descriptor ? cloneCustomRenderPassDescriptor(descriptor) : null;
+	/** @internal Rejects failed work or requeues a non-error frame abort. */
+	public abortFrame(
+		snapshot: RenderTargetJobRegistrySnapshot,
+		error?: unknown,
+	): void {
+		const jobs = this._frameJobs.get(snapshot) ?? [];
+		this._frameJobs.delete(snapshot);
+		for (let index = jobs.length - 1; index >= 0; index--) {
+			const job = jobs[index];
+			this._inflight.delete(job);
+			if (job.recurring || job.cancelled) continue;
+			if (error !== undefined) {
+				job.reject?.(error);
+				continue;
+			}
+			const target = this._targets.get(job.targetId);
+			if (target && !target.destroyed) target.queued.unshift(job);
+		}
 	}
 
-	public has(id: FramePassStage): boolean {
-		return this._passes.has(id);
+	/** Destroys every target owned by this manager. */
+	public destroy(): void {
+		for (const target of Array.from(this._targets.values())) {
+			this._destroyTarget(target, new Error("Renderer render targets were destroyed."));
+		}
+		this._targets.clear();
 	}
 
-	public getAll(): readonly CustomRenderPassDescriptor[] {
-		return Array.from(this._passes.values()).map(cloneCustomRenderPassDescriptor);
+	private _createHandle(target: ManagedRenderTarget): RenderTargetHandle {
+		const manager = this;
+		return {
+			id: target.descriptor.id,
+			descriptor: cloneRenderTargetDescriptor(target.descriptor),
+			enqueueJob(descriptor) {
+				manager._assertTargetAlive(target);
+				manager._validateJobTarget(target, descriptor);
+				const job = manager._createJob(target, descriptor, false);
+				let resolve!: (completion: RenderTargetJobCompletion) => void;
+				let reject!: (error: unknown) => void;
+				const done = new Promise<RenderTargetJobCompletion>((accept, fail) => {
+					resolve = accept;
+					reject = fail;
+				});
+				job.resolve = resolve;
+				job.reject = reject;
+				target.queued.push(job);
+				manager._invalidateTarget(target);
+				return {
+					id: job.id,
+					done,
+					cancel: () => manager._cancelJob(job),
+				};
+			},
+			registerJob(descriptor) {
+				manager._assertTargetAlive(target);
+				manager._validateJobTarget(target, descriptor);
+				if (descriptor.readback) {
+					throw new Error(
+						"Recurring render-target jobs cannot request per-frame readback.",
+					);
+				}
+				const job = manager._createJob(target, descriptor, true);
+				target.recurring.set(job.id, job);
+				manager._invalidateTarget(target);
+				return {
+					id: job.id,
+					destroy: () => {
+						job.cancelled = true;
+						target.recurring.delete(job.id);
+						manager._invalidateTarget(target);
+					},
+				};
+			},
+			readColor(attachmentIndex = 0, options) {
+				manager._assertTargetAlive(target);
+				if (target.committedGeneration <= 0) {
+					return Promise.reject(new Error(
+						`Render target "${target.descriptor.id}" has no committed generation.`,
+					));
+				}
+				return manager._options.readColor(target.descriptor.id, attachmentIndex, options);
+			},
+			destroy() {
+				manager._destroyTarget(target, new Error(
+					`Render target "${target.descriptor.id}" was destroyed.`,
+				));
+			},
+		};
+	}
+
+	private _createJob(
+		target: ManagedRenderTarget,
+		descriptor: RenderTargetJobDescriptor,
+		recurring: boolean,
+	): ManagedRenderTargetJob {
+		return {
+			id: `render-target-job-${++this._nextJobId}`,
+			targetId: target.descriptor.id,
+			descriptor,
+			recurring,
+			cancelled: false,
+			generation: 0,
+		};
+	}
+
+	private _cancelJob(job: ManagedRenderTargetJob): void {
+		if (job.cancelled) return;
+		job.cancelled = true;
+		const target = this._targets.get(job.targetId);
+		if (target) {
+			const index = target.queued.indexOf(job);
+			if (index >= 0) target.queued.splice(index, 1);
+		}
+		job.reject?.(new Error(`Render target job "${job.id}" was cancelled.`));
+	}
+
+	private _destroyTarget(target: ManagedRenderTarget, error: Error): void {
+		if (target.destroyed) return;
+		target.destroyed = true;
+		this._targets.delete(target.descriptor.id);
+		for (const job of [...target.queued, ...target.recurring.values()]) {
+			job.cancelled = true;
+			job.reject?.(error);
+		}
+		for (const job of this._inflight) {
+			if (job.targetId !== target.descriptor.id) continue;
+			job.cancelled = true;
+			job.reject?.(error);
+			this._inflight.delete(job);
+		}
+		target.queued.length = 0;
+		target.recurring.clear();
+		this._invalidateTarget(target);
+	}
+
+	private _validateJobTarget(
+		target: ManagedRenderTarget,
+		descriptor: RenderTargetJobDescriptor,
+	): void {
+		if (!this._options.supportsJobs) {
+			throw new Error("Render-target jobs are unsupported by the active backend.");
+		}
+		if (descriptor.kind !== "scene-view") return;
+		if (
+			target.descriptor.color.length !== 1 ||
+			target.descriptor.color[0].format !== TextureFormat.RGBA16Float ||
+			(target.descriptor.sampleCount ?? 1) !== 1 ||
+			(target.descriptor.depth &&
+				target.descriptor.depth.format !== TextureFormat.Depth32Float)
+		) {
+			throw new Error(
+				"Scene-view render targets require one rgba16float color attachment, " +
+					"sampleCount 1, and optional depth32float depth.",
+			);
+		}
+	}
+
+	private _assertTargetAlive(target: ManagedRenderTarget): void {
+		if (target.destroyed) throw new Error("Render target has been destroyed.");
+	}
+
+	private _invalidateTarget(target: ManagedRenderTarget): void {
+		this._options.invalidate(target.internal ? "internal" : "public");
 	}
 }
 
@@ -424,21 +644,6 @@ function validateSizeDescriptor(id: string, size: RenderTargetSizeDescriptor): v
 	throw new Error(`Render target "${id}" has unsupported size mode.`);
 }
 
-function normalizeCustomRenderPassDescriptor(
-	descriptor: CustomRenderPassDescriptor
-): CustomRenderPassDescriptor {
-	if (!descriptor?.id) {
-		throw new Error("Custom render pass id is required.");
-	}
-	if (!descriptor.target) {
-		throw new Error(`Custom render pass "${descriptor.id}" requires a target.`);
-	}
-	if (typeof descriptor.execute !== "function") {
-		throw new Error(`Custom render pass "${descriptor.id}" requires execute().`);
-	}
-	return cloneCustomRenderPassDescriptor(descriptor);
-}
-
 function cloneRenderTargetDescriptor(
 	descriptor: RenderTargetDescriptor
 ): RenderTargetDescriptor {
@@ -450,14 +655,6 @@ function cloneRenderTargetDescriptor(
 	};
 }
 
-function cloneCustomRenderPassDescriptor(
-	descriptor: CustomRenderPassDescriptor
-): CustomRenderPassDescriptor {
-	return {
-		...descriptor,
-		dependsOn: descriptor.dependsOn?.slice(),
-	};
-}
 
 function validateReadbackOptions(
 	id: string,

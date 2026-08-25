@@ -112,16 +112,6 @@ export class SoftwarePassExecutor {
 
 	public async execute(pass: FramePass): Promise<void> {
 		const source = this._requireSourceContext();
-		if (source.customRenderPasses?.has(pass.stage)) {
-			const key = "software-custom-render-targets-unsupported";
-			Logger.warn(
-				`[${key}] Software backend does not support custom render targets or ` +
-					`custom render passes yet; skipping pass "${pass.stage}".`,
-				{ scope: "SoftwareBackend", onceKey: key },
-			);
-			return;
-		}
-
 		const handler = this._stageHandlers.get(pass.stage);
 		if (!handler) {
 			const key = `software-pass-unsupported-${pass.stage}`;

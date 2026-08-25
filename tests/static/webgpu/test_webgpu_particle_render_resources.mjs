@@ -368,7 +368,7 @@ function testParticleOwnershipAndExecutionBoundaries() {
 	const packetConsumerSources = [
 		"../../../src/backends/webgpu/rendergraph/WebGPUScenePassRecorder.ts",
 		"../../../src/backends/webgpu/WebGPUFrameServiceOwner.ts",
-		"../../../src/backends/webgpu/WebGPUReflectionProbeCapturePass.ts",
+		"../../../src/backends/webgpu/WebGPURenderTargetViewExecutor.ts",
 	].map((path) => readFileSync(new URL(path, import.meta.url), "utf8"));
 	assert.doesNotMatch(ownerSource, /_particlePipelineAlpha/);
 	assert.doesNotMatch(ownerSource, /public async renderParticles/);

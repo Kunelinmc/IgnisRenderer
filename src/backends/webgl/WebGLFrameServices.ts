@@ -12,6 +12,7 @@ import type {
 	PostProcessResourceHandle,
 } from "../../postprocess";
 import type { FramePreparationRequirements } from "../../pipeline/FrameRequirements";
+import { createRenderViewTransient } from "../../pipeline/RenderViewTransient";
 import { collectWebGLLights, type WebGLLightState } from "./WebGLLightCollector";
 import { WebGLGeometryRegistry } from "./WebGLGeometryRegistry";
 import {
@@ -74,6 +75,7 @@ import { WebGLSceneProgramWarmupContributor } from "./WebGLSceneProgramPlanner";
 import { WebGLCustomRenderTargetRuntime } from "./WebGLCustomRenderTargetRuntime";
 import type { FramePass } from "../../pipeline/types";
 import type {
+	PreparedRenderTargetJob,
 	RenderTargetReadbackOptions,
 	RenderTargetReadbackResult,
 } from "../../rendering/CustomRenderTargets";
@@ -135,7 +137,7 @@ export class WebGLFrameServices {
 	private _postProcessRuntime: BackendPostProcessRuntime;
 	private _postProcess: WebGLPostProcessServices;
 	private _warmup: WebGLWarmupCoordinator;
-	private _customRenderTargets: WebGLCustomRenderTargetRuntime;
+	private _renderTargets: WebGLCustomRenderTargetRuntime;
 
 	public get enableEarlyZPrepass(): boolean {
 		return this._enableEarlyZPrepass;
@@ -336,8 +338,10 @@ export class WebGLFrameServices {
 			getHeight: () => this._session.height,
 		});
 		this._clusteredLighting = new WebGLClusteredLightingRuntime(gl);
-		this._customRenderTargets = new WebGLCustomRenderTargetRuntime(gl, {
+		this._renderTargets = new WebGLCustomRenderTargetRuntime(gl, {
 			restoreFrameState: (context) => this._restoreCustomRenderPassState(context),
+			executeSceneView: (context, job, target) =>
+				this._executeRenderTargetSceneView(context, job, target),
 		});
 		this._postProcess = new WebGLPostProcessServices({
 			gl: this._gl,
@@ -396,7 +400,7 @@ export class WebGLFrameServices {
 		this._programCompiler.beginFrame();
 		this._geometry.beginFrame();
 		this._textures.beginFrame();
-		this._customRenderTargets.sync(context);
+		this._renderTargets.sync(context);
 		this._session.begin(context);
 		this._animationPayloads?.beginFrame(context);
 		this._scene.beginFrame();
@@ -462,21 +466,21 @@ export class WebGLFrameServices {
 		});
 	}
 	public finishFrame(): void {
-		this._customRenderTargets.markFrameCommitted();
+		this._renderTargets.markFrameCommitted();
 		this._scene.finishFrame();
 		this._shadow.abortFrame();
 		this._session.finish();
 	}
 
 	public hasCustomRenderPass(pass: FramePass, context: FrameContext): boolean {
-		return this._customRenderTargets.hasPass(pass, context);
+		return this._renderTargets.hasPass(pass, context);
 	}
 
 	public executeCustomRenderPass(
 		pass: FramePass,
 		context: FrameContext
 	): Promise<void> {
-		return this._customRenderTargets.executePass(pass, context);
+		return this._renderTargets.executePass(pass, context);
 	}
 
 	private _restoreCustomRenderPassState(context: FrameContext): void {
@@ -553,7 +557,7 @@ export class WebGLFrameServices {
 		attachmentIndex?: number,
 		options?: RenderTargetReadbackOptions
 	): Promise<RenderTargetReadbackResult> {
-		return this._customRenderTargets.readColor(id, attachmentIndex, options);
+		return this._renderTargets.readColor(id, attachmentIndex, options);
 	}
 
 	public createPostProcessResource(
@@ -603,7 +607,7 @@ export class WebGLFrameServices {
 		this._shadow.abortFrame();
 		this._temporalFrameState.abortFrame();
 		this._postProcess.abortFrame();
-		this._customRenderTargets.markFrameAborted();
+		this._renderTargets.markFrameAborted();
 		this._session.abort();
 		this._targets._presentSourceTexture = this._targets._sceneColorTexture;
 		this._sceneDrawState.oitPassMode = 0;
@@ -620,7 +624,7 @@ export class WebGLFrameServices {
 
 	public destroy(): void {
 		this._transparency.destroy();
-		this._customRenderTargets.destroy();
+		this._renderTargets.destroy();
 		this._destroyFrameTargets();
 		this._shadow.destroy();
 		this._particlePass.destroy();
@@ -751,6 +755,118 @@ export class WebGLFrameServices {
 		options: WebGLParticleRenderOptions = {}
 	): void {
 		this._particlePass.render(context, options);
+	}
+
+	private _executeRenderTargetSceneView(
+		baseContext: FrameContext,
+		job: PreparedRenderTargetJob,
+		target: {
+			framebuffer: WebGLFramebuffer;
+			width: number;
+			height: number;
+		},
+	): void {
+		if (job.descriptor.kind !== "scene-view" || !job.scene) return;
+		const scene = job.scene;
+		const content = job.descriptor.content ?? {};
+		const context: FrameContext = {
+			...baseContext,
+			presentationAlphaMode: "opaque",
+			viewCamera: scene.camera,
+			attachments: { width: target.width, height: target.height },
+			features: {
+				...baseContext.features,
+				enableReflection: false,
+				enableShadows:
+					content.shadows !== "disabled" && baseContext.features.enableShadows,
+				warnings: baseContext.features.warnings.slice(),
+			},
+			postProcess: baseContext.postProcess.withPassDisabled("ssr"),
+			renderTargetJobs: undefined,
+			scene,
+			sceneState: scene,
+			view: scene,
+			shadowPlan: scene.shadowPlan,
+			incremental: {
+				enabled: false,
+				forceFullFrame: true,
+				dirtyRects: [{ x: 0, y: 0, width: target.width, height: target.height }],
+				dirtyTileSize: Math.max(target.width, target.height),
+				dirtyTileColumns: 1,
+				dirtyTileRows: 1,
+				dirtyTiles: [0],
+				dirtyAreaRatio: 1,
+				firstPass: null,
+				postProcessStartPass: null,
+				reasonMask: 0,
+				temporalHistoryReset: true,
+			},
+			transient: createRenderViewTransient(baseContext.transient, scene.camera),
+		};
+		const savedWidth = this._session.width;
+		const savedHeight = this._session.height;
+		const savedLightState = this._session.lightState;
+		try {
+			this._session.width = target.width;
+			this._session.height = target.height;
+			this._session.lightState = collectWebGLLights(scene.lights, {
+				enableLighting: context.features.enableLighting,
+				enableShadows: context.features.enableShadows,
+				shadowPlan: context.shadowPlan,
+				enableSH: context.features.enableSH,
+				environmentTexture:
+					scene.environment.lightingEnabled ? scene.environment.iblTexture : null,
+				enableClusteredLighting: context.features.enableClusteredLighting,
+				cameraWorldPosition: scene.camera.getWorldPosition(
+					WEBGL_REFLECTION_PROBE_CAMERA_WORLD_POSITION_SCRATCH,
+				),
+			});
+			this._clusteredLighting.prepare(
+				context,
+				this._session.lightState,
+				this._maxTextureSize,
+			);
+			const gl = this._gl;
+			gl.bindFramebuffer(gl.FRAMEBUFFER, target.framebuffer);
+			gl.viewport(0, 0, target.width, target.height);
+			gl.drawBuffers([gl.COLOR_ATTACHMENT0]);
+			gl.disable(gl.BLEND);
+			gl.enable(gl.DEPTH_TEST);
+			gl.depthMask(true);
+			gl.clearColor(0, 0, 0, 1);
+			gl.clearDepth(1);
+			gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+			if (content.environment !== false) {
+				this._environment.render(context, target.framebuffer, [gl.COLOR_ATTACHMENT0]);
+			}
+			this._scene.renderPackets(context, scene.opaquePackets, false, {
+				framebuffer: target.framebuffer,
+				drawBuffers: [gl.COLOR_ATTACHMENT0],
+				blendMode: "disabled",
+			});
+			this._scene.renderPackets(context, scene.transparentPackets, true, {
+				framebuffer: target.framebuffer,
+				drawBuffers: [gl.COLOR_ATTACHMENT0],
+				blendMode: "legacy",
+			});
+			if (content.particles !== false) {
+				this._particlePass.render(context, {
+					framebuffer: target.framebuffer,
+					drawBuffers: [gl.COLOR_ATTACHMENT0],
+				});
+			}
+		} finally {
+			this._session.width = savedWidth;
+			this._session.height = savedHeight;
+			this._session.lightState = savedLightState;
+			if (savedLightState) {
+				this._clusteredLighting.prepare(
+					baseContext,
+					savedLightState,
+					this._maxTextureSize,
+				);
+			}
+		}
 	}
 
 	public _bindGlobalUniforms(

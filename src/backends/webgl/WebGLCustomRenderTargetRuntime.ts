@@ -9,6 +9,7 @@ import type {
 	RenderTargetDescriptor,
 	RenderTargetReadbackOptions,
 	RenderTargetReadbackResult,
+	PreparedRenderTargetJob,
 } from "../../rendering/CustomRenderTargets";
 import {
 	getTextureFormatInfo,
@@ -94,6 +95,7 @@ interface WebGLCustomRenderTarget {
 	width: number;
 	height: number;
 	sampleCount: number;
+	sceneDepth: boolean;
 	framebuffer: WebGLFramebuffer;
 	color: WebGLCustomTexture[];
 	depth: WebGLCustomTexture | null;
@@ -102,11 +104,22 @@ interface WebGLCustomRenderTarget {
 export interface WebGLCustomRenderTargetRuntimeOptions {
 	/** @internal Restores the WebGL frame executor baseline after a custom pass. */
 	readonly restoreFrameState?: (context: FrameContext) => void;
+	/** @internal Records a prepared scene view into an owned target. */
+	readonly executeSceneView?: (
+		context: FrameContext,
+		job: PreparedRenderTargetJob,
+		target: {
+			framebuffer: WebGLFramebuffer;
+			width: number;
+			height: number;
+		},
+	) => void | Promise<void>;
 }
 
 export class WebGLCustomRenderTargetRuntime {
 	private readonly _gl: WebGL2RenderingContext;
 	private readonly _restoreFrameState: (context: FrameContext) => void;
+	private readonly _executeSceneView?: WebGLCustomRenderTargetRuntimeOptions["executeSceneView"];
 	private readonly _supportsFloatColorBuffer: boolean;
 	private readonly _targets = new Map<string, WebGLCustomRenderTarget>();
 	private _lastSuccessfulFrame = false;
@@ -118,6 +131,7 @@ export class WebGLCustomRenderTargetRuntime {
 		this._gl = gl;
 		this._restoreFrameState =
 			options.restoreFrameState ?? ((context) => restoreNeutralFrameState(gl, context));
+		this._executeSceneView = options.executeSceneView;
 		this._supportsFloatColorBuffer =
 			typeof gl.getExtension === "function" &&
 			Boolean(gl.getExtension("EXT_color_buffer_float"));
@@ -135,18 +149,23 @@ export class WebGLCustomRenderTargetRuntime {
 			const width = resolveTargetWidth(descriptor, context.attachments.width);
 			const height = resolveTargetHeight(descriptor, context.attachments.height);
 			const sampleCount = descriptor.sampleCount ?? 1;
-			this._validateDescriptor(descriptor, width, height, sampleCount);
 			const current = this._targets.get(descriptor.id);
+			const sceneDepth = current?.sceneDepth === true ||
+				context.renderTargetJobs?.getForTarget(descriptor.id).some(
+					(job) => job.descriptor.kind === "scene-view",
+				) === true;
+			this._validateDescriptor(descriptor, width, height, sampleCount);
 			if (
 				current &&
 				current.width === width &&
 				current.height === height &&
 				current.sampleCount === sampleCount &&
+				current.sceneDepth === sceneDepth &&
 				JSON.stringify(current.descriptor) === JSON.stringify(descriptor)
 			) {
 				continue;
 			}
-			const replacement = this._createTarget(descriptor, width, height);
+			const replacement = this._createTarget(descriptor, width, height, sceneDepth);
 			this._targets.set(descriptor.id, replacement);
 			if (current) {
 				this._destroyTargetResources(current);
@@ -214,38 +233,40 @@ export class WebGLCustomRenderTargetRuntime {
 	}
 
 	public hasPass(pass: FramePass, context: FrameContext): boolean {
-		return context.customRenderPasses.has(pass.stage);
+		return pass.stage === "render-target-views" &&
+			(context.renderTargetJobs?.size ?? 0) > 0;
 	}
 
 	public async executePass(pass: FramePass, context: FrameContext): Promise<void> {
-		const descriptor = context.customRenderPasses.get(pass.stage);
-		if (!descriptor) {
-			return;
-		}
-		const target = this._targets.get(descriptor.target);
-		if (!target) {
-			const key = `webgl-custom-render-pass-target-missing-${pass.stage}`;
-			Logger.warn(
-				`[${key}] WebGL custom render pass "${pass.stage}" target "${descriptor.target}" is unavailable; skipping.`,
-				{ scope: "WebGLCustomRenderTargetRuntime", onceKey: key }
-			);
-			return;
-		}
-		const encoder = new WebGLScopedRasterEncoder(this._gl);
-		try {
-			await descriptor.execute({
-				backend: "webgl",
-				frameContext: context,
-				encoder,
-				target: toExecutionTarget(target),
-				width: target.width,
-				height: target.height,
-				resources: createWebGLRasterResourceFacade(this._gl),
-			} satisfies CustomRenderPassContext);
-			encoder.finish();
-		} finally {
-			encoder.cleanup();
-			this._restoreFrameState(context);
+		if (pass.stage === "render-target-views") {
+			for (const job of context.renderTargetJobs?.getAll() ?? []) {
+				const target = this._targets.get(job.targetId);
+				if (!target) continue;
+				if (job.descriptor.kind === "scene-view") {
+					if (!this._executeSceneView) {
+						throw new Error("WebGL scene-view target execution is unavailable.");
+					}
+					await this._executeSceneView(context, job, target);
+					this._restoreFrameState(context);
+					continue;
+				}
+				const encoder = new WebGLScopedRasterEncoder(this._gl);
+				try {
+					await job.descriptor.execute({
+						backend: "webgl",
+						frameContext: context,
+						encoder,
+						target: toExecutionTarget(target),
+						width: target.width,
+						height: target.height,
+						resources: createWebGLRasterResourceFacade(this._gl),
+					});
+					encoder.finish();
+				} finally {
+					encoder.cleanup();
+					this._restoreFrameState(context);
+				}
+			}
 		}
 	}
 
@@ -315,13 +336,13 @@ export class WebGLCustomRenderTargetRuntime {
 			gl.bindFramebuffer(gl.FRAMEBUFFER, null);
 		}
 		return createTextureReadbackResult({
-			bytes,
+			bytes: flipReadbackRows(bytes, bytesPerRow, height),
 			width,
 			height,
 			format,
 			bytesPerPixel,
 			bytesPerRow,
-			origin: "bottom-left",
+			origin: "top-left",
 		});
 	}
 
@@ -335,7 +356,8 @@ export class WebGLCustomRenderTargetRuntime {
 	private _createTarget(
 		descriptor: RenderTargetDescriptor,
 		width: number,
-		height: number
+		height: number,
+		sceneDepth: boolean,
 	): WebGLCustomRenderTarget {
 		const gl = this._gl;
 		const framebuffer = gl.createFramebuffer();
@@ -359,13 +381,13 @@ export class WebGLCustomRenderTargetRuntime {
 					)
 				);
 			}
-			if (descriptor.depth) {
+			if (descriptor.depth || sceneDepth) {
 				depth = createWebGLDepthTexture(
 					gl,
 					width,
 					height,
-					descriptor.depth.format,
-					descriptor.depth.label ??
+					descriptor.depth?.format ?? TextureFormat.Depth32Float,
+					descriptor.depth?.label ??
 						`WebGLCustomRenderTarget_${descriptor.id}_Depth`
 				);
 			}
@@ -401,6 +423,7 @@ export class WebGLCustomRenderTargetRuntime {
 				width,
 				height,
 				sampleCount: 1,
+				sceneDepth,
 				framebuffer,
 				color,
 				depth,
@@ -433,6 +456,20 @@ export class WebGLCustomRenderTargetRuntime {
 		target.depth?.destroy();
 		this._gl.deleteFramebuffer(target.framebuffer);
 	}
+}
+
+function flipReadbackRows(
+	bytes: Uint8Array,
+	bytesPerRow: number,
+	height: number,
+): Uint8Array {
+	const flipped = new Uint8Array(bytes.length);
+	for (let row = 0; row < height; row++) {
+		const source = row * bytesPerRow;
+		const target = (height - row - 1) * bytesPerRow;
+		flipped.set(bytes.subarray(source, source + bytesPerRow), target);
+	}
+	return flipped;
 }
 
 export class WebGLScopedRasterEncoder implements ICommandEncoder {
@@ -1522,7 +1559,7 @@ function createTextureReadbackResult(input: {
 	format: TextureFormat;
 	bytesPerPixel: number;
 	bytesPerRow: number;
-	origin: "bottom-left";
+	origin: RenderTargetReadbackResult["origin"];
 }): RenderTargetReadbackResult {
 	return {
 		bytes: input.bytes,

@@ -313,22 +313,22 @@ export interface PreparedSceneBuildSource {
 
 export class PreparedSceneBuilder {
 	/**
-	 * Rebuilds camera-visible draw packet lists from an existing prepared scene.
+	 * Builds camera-visible draw packet lists over an existing prepared scene.
 	 *
 	 * @internal Pipeline and backend passes use this when they need a secondary
 	 * camera view, such as mirrored planar reflection capture, without rebuilding
 	 * scene-wide lighting, environment, and shadow metadata from `Scene`.
 	 * Application code should normally let `Renderer` prepare scenes.
 	 * @param source - Prepared scene whose mesh instances and shared scene state
-	 * are reused as the rebuild source.
+	 * are reused as the view source.
 	 * @param camera - Camera used for frustum culling and packet depth sorting.
 	 * @param options - Optional visibility acceleration and occlusion inputs for
-	 * the rebuilt camera view.
+	 * the camera-local view.
 	 * @returns A prepared scene sharing source scene metadata but with packets
-	 * rebuilt for `camera`.
+	 * built for `camera`.
 	 * @sideEffects None. The source prepared scene is not mutated.
 	 */
-	public static rebuildForCamera(
+	public static buildView(
 		source: PreparedScene,
 		camera: Camera,
 		options: PreparedSceneBuildOptions = {}
@@ -344,21 +344,29 @@ export class PreparedSceneBuilder {
 		const opaquePackets: DrawPacket[] = [];
 		const transparentPackets: DrawPacket[] = [];
 		const reflectivePackets: DrawPacket[] = [];
-		for (const meshInstance of renderableMeshInstances) {
-			if (!cameraVisibleMeshInstances.has(meshInstance)) {
-				continue;
-			}
-			this._forEachMeshPacket(
-				meshInstance,
-				camera,
-				source.deformationStates ?? null,
-				options.packetCache ?? null,
-				(packet) => this._appendViewPacket(
-					packet,
-					opaquePackets,
-					transparentPackets,
-					reflectivePackets,
-				),
+		const visibleIds = new Set(
+			Array.from(cameraVisibleMeshInstances, (meshInstance) => meshInstance.id),
+		);
+		const submissions = source.submissions?.length ? source.submissions : Array.from(new Map(
+			[
+				...source.opaquePackets,
+				...source.transparentPackets,
+				...source.reflectivePackets,
+			].map((packet) => [packet.submission.id, packet.submission]),
+		).values());
+		for (const submission of submissions) {
+			if (
+				submission.source.kind === "mesh-instance" &&
+				!visibleIds.has(submission.source.instanceId)
+			) continue;
+			this._appendViewPacket(
+				{
+					submission,
+					sortDepth: resolveSubmissionSortDepth(submission, camera),
+				},
+				opaquePackets,
+				transparentPackets,
+				reflectivePackets,
 			);
 		}
 		const viewState = this._finalizeViewPackets(
@@ -488,6 +496,10 @@ export class PreparedSceneBuilder {
 		const shadowCasterPackets: DrawPacket[] = [];
 		const shadowTransmitterPackets: DrawPacket[] = [];
 		const reflectivePackets: DrawPacket[] = [];
+		const submissions: DrawSubmission[] = [];
+		const submissionIds = new Set<string>();
+		const shadowCasterSubmissions: DrawSubmission[] = [];
+		const shadowTransmitterSubmissions: DrawSubmission[] = [];
 
 		for (const meshInstance of input.renderableMeshInstances) {
 			const visibleInCamera =
@@ -498,6 +510,10 @@ export class PreparedSceneBuilder {
 				input.deformationStates,
 				input.options.packetCache ?? null,
 				(packet) => {
+				if (!submissionIds.has(packet.submission.id)) {
+					submissionIds.add(packet.submission.id);
+					submissions.push(packet.submission);
+				}
 				if (visibleInCamera) {
 					this._appendViewPacket(
 						packet,
@@ -509,10 +525,12 @@ export class PreparedSceneBuilder {
 
 				if (packet.submission.passFlags & DRAW_PACKET_FLAG_SHADOW_CASTER) {
 					shadowCasterPackets.push(packet);
+					shadowCasterSubmissions.push(packet.submission);
 				}
 
 				if (packet.submission.passFlags & DRAW_PACKET_FLAG_SHADOW_TRANSMITTER) {
 					shadowTransmitterPackets.push(packet);
+					shadowTransmitterSubmissions.push(packet.submission);
 				}
 				},
 			);
@@ -535,6 +553,9 @@ export class PreparedSceneBuilder {
 			environment: input.environment,
 			meshInstances: input.meshInstances,
 			shadowPlan: input.shadowPlan,
+			submissions,
+			shadowCasterSubmissions,
+			shadowTransmitterSubmissions,
 			opaquePackets,
 			transparentPackets,
 			shadowCasterPackets,

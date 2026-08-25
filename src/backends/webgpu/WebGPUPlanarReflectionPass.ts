@@ -27,7 +27,6 @@ import {
 import type { WebGPUPlanarReflectionDrawResources } from "./WebGPUPlanarReflectionDrawResources";
 import { Logger } from "../../foundation/Logger";
 import {
-	CustomRenderPassRegistrySnapshot,
 	RenderTargetRegistrySnapshot,
 } from "../../rendering/CustomRenderTargets";
 import {
@@ -676,9 +675,10 @@ function createPlanarCaptureContext(
 		},
 		postProcess: capturePostProcess,
 		renderTargets: new RenderTargetRegistrySnapshot(),
-		customRenderPasses: new CustomRenderPassRegistrySnapshot(),
 		shadowPlan: captureScene.shadowPlan,
 		scene: captureScene,
+		sceneState: captureScene,
+		view: captureScene,
 		shCoeffs: context.shCoeffs,
 		shAmbientCoeffs: context.shAmbientCoeffs,
 		worldMatrix: context.worldMatrix,
@@ -710,7 +710,7 @@ function createCaptureScene(
 	const meshInstances = context.scene.meshInstances ?? [];
 	const rebuiltScene =
 		meshInstances.length > 0 ?
-			PreparedSceneBuilder.rebuildForCamera(context.scene, camera)
+			PreparedSceneBuilder.buildView(context.scene, camera)
 		:	context.scene;
 	const opaquePackets = filterCapturePackets(
 		rebuiltScene.opaquePackets,

@@ -1,10 +1,8 @@
 import type { OcclusionCullingBackendAdapter } from "../pipeline/OcclusionCulling";
-import type { ProbeCaptureSource } from "../lights/runtime/ProbeCaptureRuntime";
 import type { IWebGPUComputeFacade } from "./webgpu/ComputeFacade";
 
 export const RENDERER_OCCLUSION_CULLING_EXTENSION_ID =
 	"renderer.occlusion-culling";
-export const RENDERER_PROBE_CAPTURE_EXTENSION_ID = "renderer.probe-capture";
 export const WEBGPU_COMPUTE_EXTENSION_ID = "webgpu.compute";
 
 export const RENDERER_OCCLUSION_VISIBILITY_INSERTION_POINT =
@@ -14,7 +12,6 @@ export const WEBGPU_OCCLUSION_AFTER_DEPTH_INSERTION_POINT =
 
 export type RenderBackendExtensionId =
 	| typeof RENDERER_OCCLUSION_CULLING_EXTENSION_ID
-	| typeof RENDERER_PROBE_CAPTURE_EXTENSION_ID
 	| typeof WEBGPU_COMPUTE_EXTENSION_ID
 	| (string & {});
 
@@ -142,12 +139,6 @@ export const OCCLUSION_CULLING_EXTENSION: RenderBackendExtensionKey<
 	OcclusionCullingBackendAdapter
 > = {
 	id: RENDERER_OCCLUSION_CULLING_EXTENSION_ID,
-};
-
-export const PROBE_CAPTURE_EXTENSION: RenderBackendExtensionKey<
-	ProbeCaptureSource
-> = {
-	id: RENDERER_PROBE_CAPTURE_EXTENSION_ID,
 };
 
 export const WEBGPU_COMPUTE_EXTENSION: RenderBackendExtensionKey<

@@ -64,6 +64,10 @@ export class WebGLSceneRuntime {
 		const packets = [
 			...(context.scene?.opaquePackets ?? []),
 			...(context.scene?.transparentPackets ?? []),
+			...(context.renderTargetJobs?.getAll().flatMap((job) =>
+				job.descriptor.kind === "scene-view" && job.scene ?
+					[...job.scene.opaquePackets, ...job.scene.transparentPackets] : []
+			) ?? []),
 		];
 		const plan = planWebGLScenePrograms(
 			context,

@@ -9,7 +9,6 @@ import {
 } from "../../../src/postprocess/index.ts";
 import { WebGPUBackend } from "../../../src/backends/webgpu/WebGPUBackend.ts";
 import {
-	PROBE_CAPTURE_EXTENSION,
 	RENDERER_OCCLUSION_CULLING_EXTENSION_ID,
 	RENDERER_OCCLUSION_VISIBILITY_INSERTION_POINT,
 	WEBGPU_OCCLUSION_AFTER_DEPTH_INSERTION_POINT,
@@ -557,17 +556,16 @@ async function testWebGPUOcclusionExtensionDescriptor() {
 	assert.equal(typeof extension.api.resetOcclusionCulling, "function");
 }
 
-async function testProbeCaptureRemainsExtensionOnly() {
+async function testProbeCaptureExtensionIsRemoved() {
 	const backend = new WebGPUBackend();
 	backend.attach({
 		surface: { canvas: {} },
 		events: { emit: () => {} },
 	});
-	const extension = backend.extensions.requireBackendExtension(
-		PROBE_CAPTURE_EXTENSION
-	);
-
-	assert.equal(await extension.captureProbeFace({}), null);
+	const extension = backend.extensions.getBackendExtension({
+		id: "renderer.probe-capture",
+	});
+	assert.equal(extension, null);
 	assert.equal("captureProbeFace" in backend, false);
 }
 
@@ -595,7 +593,7 @@ async function run() {
 	await testWarmupHintsFollowPlanPostProcessPasses();
 	await testBackendPostProcessSurfaceKeepsOnlyExecutorBridge();
 	await testWebGPUOcclusionExtensionDescriptor();
-	await testProbeCaptureRemainsExtensionOnly();
+	await testProbeCaptureExtensionIsRemoved();
 	await testSSRRequirementsExposeMaterialChannels();
 	console.log("WebGPU post-process executor tests passed");
 }

@@ -45,7 +45,7 @@ export interface WebGPUFrameRuntimeComposition {
 		"reset" | "getVisibilityProvider"
 	>;
 	readonly reflection: Pick<WebGPUReflectionFrameModule, "warmup">;
-	readonly customRenderTargets: Pick<
+	readonly renderTargets: Pick<
 		WebGPUCustomRenderTargetRuntime,
 		"readColor"
 	>;
@@ -73,9 +73,10 @@ export function createWebGPUFrameRuntimeComposition(options: {
 		frameServices,
 		frameServices.createPlanarReflectionDrawResources(),
 	);
-	const customRenderTargets = new WebGPUCustomRenderTargetRuntime(
+	const renderTargets = new WebGPUCustomRenderTargetRuntime(
 		host,
 		options.sampleCountResolver,
+		frameServices,
 	);
 	const modules = new WebGPUFrameGraphModuleRegistry();
 	const presentation = new WebGPUPresentationRuntime(host, {
@@ -143,7 +144,7 @@ export function createWebGPUFrameRuntimeComposition(options: {
 		visibility,
 		postProcess,
 		presentation,
-		customRenderTargets,
+		renderTargets,
 	]) {
 		modules.register(module);
 	}
@@ -157,6 +158,6 @@ export function createWebGPUFrameRuntimeComposition(options: {
 		postProcess,
 		visibility,
 		reflection,
-		customRenderTargets,
+		renderTargets,
 	};
 }

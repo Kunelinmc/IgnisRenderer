@@ -23,6 +23,12 @@ import type {
 	WebGPUSampleCountResolver,
 	WebGPUSampleCountSelection,
 } from "../WebGPUSampleCountResolver";
+import { WebGPURenderTargetViewExecutor } from "../WebGPURenderTargetViewExecutor";
+import type {
+	WebGPUFrameResourceProvider,
+	WebGPUParticleBillboardRendererProvider,
+	WebGPUSceneResourceProvider,
+} from "../WebGPUResourceContracts";
 import { getWebGPURenderTargetPixelByteCost } from "../WebGPUTextureFormatInfo";
 import type {
 	WebGPUFrameGraphContribution,
@@ -70,13 +76,18 @@ export class WebGPUCustomRenderTargetRuntime implements WebGPUFrameGraphModule {
 	private readonly _host: WebGPUFrameHost;
 	private _readbackRuntime: ComputeRuntime | null = null;
 	private readonly _targets = new Map<string, WebGPUCustomRenderTarget>();
+	private readonly _viewExecutor: WebGPURenderTargetViewExecutor | null;
 	private _lastSuccessfulFrame = false;
 
 	constructor(
 		host: WebGPUFrameHost,
 		private readonly _sampleCountResolver: WebGPUSampleCountResolver,
+		resources?: WebGPUFrameResourceProvider & WebGPUSceneResourceProvider &
+			WebGPUParticleBillboardRendererProvider,
 	) {
 		this._host = host;
+		this._viewExecutor = resources ?
+			new WebGPURenderTargetViewExecutor(host, resources) : null;
 	}
 
 	public planStage(
@@ -140,12 +151,14 @@ export class WebGPUCustomRenderTargetRuntime implements WebGPUFrameGraphModule {
 			this._targets.set(descriptor.id, replacement);
 			if (current) {
 				this._destroyTargetResources(current);
+				this._viewExecutor?.releaseTarget(descriptor.id);
 			}
 		}
 	}
 
 	public hasPass(pass: FramePass, context: FrameContext): boolean {
-		return context.customRenderPasses?.has(pass.stage) === true;
+		return pass.stage === "render-target-views" &&
+			(context.renderTargetJobs?.size ?? 0) > 0;
 	}
 
 	public async executePass(
@@ -153,30 +166,33 @@ export class WebGPUCustomRenderTargetRuntime implements WebGPUFrameGraphModule {
 		context: FrameContext,
 		encoder: ICommandEncoder,
 	): Promise<void> {
-		const descriptor = context.customRenderPasses.get(pass.stage);
-		if (!descriptor) {
-			return;
+		if (pass.stage === "render-target-views") {
+			for (const job of context.renderTargetJobs?.getAll() ?? []) {
+				const target = this._targets.get(job.targetId);
+				if (!target) continue;
+				if (job.descriptor.kind === "scene-view") {
+					if (!this._viewExecutor) {
+						throw new Error("WebGPU scene-view target execution is unavailable.");
+					}
+					await this._viewExecutor.execute(
+						encoder,
+						context,
+						job,
+						toExecutionTarget(target),
+					);
+					continue;
+				}
+				await job.descriptor.execute({
+					backend: "webgpu",
+					frameContext: context,
+					encoder,
+					target: toExecutionTarget(target),
+					width: target.width,
+					height: target.height,
+					resources: this._createResourceFacade(),
+				});
+			}
 		}
-		const target = this._targets.get(descriptor.target);
-		if (!target) {
-			const key = `webgpu-custom-render-pass-target-missing-${pass.stage}`;
-			Logger.warn(
-				`[${key}] WebGPU custom render pass "${pass.stage}" target "${descriptor.target}" is unavailable; skipping.`,
-				{ scope: "WebGPUCustomRenderTargetRuntime", onceKey: key },
-			);
-			return;
-		}
-		const executionTarget = toExecutionTarget(target);
-		const passContext: CustomRenderPassContext = {
-			backend: "webgpu",
-			frameContext: context,
-			encoder,
-			target: executionTarget,
-			width: target.width,
-			height: target.height,
-			resources: this._createResourceFacade(),
-		};
-		await descriptor.execute(passContext);
 	}
 
 	public commitFrameState(): void {
@@ -185,6 +201,11 @@ export class WebGPUCustomRenderTargetRuntime implements WebGPUFrameGraphModule {
 
 	public abortFrameState(): void {
 		this._lastSuccessfulFrame = false;
+		this._viewExecutor?.discardPendingScopes();
+	}
+
+	public afterSubmit(): void {
+		this._viewExecutor?.releaseSubmittedScopes();
 	}
 
 	public async readColor(
@@ -229,6 +250,7 @@ export class WebGPUCustomRenderTargetRuntime implements WebGPUFrameGraphModule {
 		}
 		this._readbackRuntime?.destroy();
 		this._readbackRuntime = null;
+		this._viewExecutor?.destroy();
 		this._lastSuccessfulFrame = false;
 	}
 
@@ -350,6 +372,7 @@ export class WebGPUCustomRenderTargetRuntime implements WebGPUFrameGraphModule {
 			return;
 		}
 		this._destroyTargetResources(target);
+		this._viewExecutor?.releaseTarget(id);
 		this._targets.delete(id);
 	}
 

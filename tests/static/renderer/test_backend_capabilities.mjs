@@ -34,8 +34,7 @@ function run() {
 		oit: false,
 		occlusionCulling: false,
 		postProcess: true,
-		customRenderTargets: false,
-		customRenderPasses: false,
+		renderTargets: false,
 		renderTargetReadback: false,
 	});
 	assert.equal("postProcessCapabilities" in software, false);
@@ -51,8 +50,7 @@ function run() {
 		oit: true,
 		occlusionCulling: true,
 		postProcess: true,
-		customRenderTargets: true,
-		customRenderPasses: true,
+		renderTargets: true,
 		renderTargetReadback: true,
 	});
 	assert.equal(
@@ -75,8 +73,7 @@ function run() {
 		oit: true,
 		occlusionCulling: false,
 		postProcess: true,
-		customRenderTargets: true,
-		customRenderPasses: true,
+		renderTargets: true,
 		renderTargetReadback: true,
 	});
 	assert.equal("postProcessCapabilities" in webgl, false);

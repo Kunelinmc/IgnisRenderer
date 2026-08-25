@@ -74,8 +74,7 @@ import type {
 } from "../backends/IRenderBackend";
 import type { RenderBackendExtensionKey } from "../backends/BackendExtensions";
 import {
-	CustomRenderPassRegistry,
-	RenderTargetRegistry,
+	RenderTargetManager,
 	type RenderTargetReadbackOptions,
 	type RenderTargetReadbackResult,
 } from "./CustomRenderTargets";
@@ -143,8 +142,7 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 	public readonly features: RendererFeatures;
 	public readonly pipeline: RenderPipelineRegistry;
 	public readonly postProcess: PostProcessPassRegistry;
-	public readonly renderTargets: RenderTargetRegistry;
-	public readonly renderPasses: CustomRenderPassRegistry;
+	public readonly renderTargets: RenderTargetManager;
 	public animationAutoRender: boolean;
 	public readonly logger: Pick<LoggerStatic, "warn" | "error">;
 
@@ -205,32 +203,22 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 		this.pipeline = new RenderPipelineRegistry({
 			stages: createDefaultPipelineStages(),
 		});
-		this.renderTargets = new RenderTargetRegistry({
+		this.renderTargets = new RenderTargetManager({
+			supportsJobs: backend.profile.capabilities.renderTargets,
 			readColor: (
 				id: string,
 				attachmentIndex: number,
 				options?: RenderTargetReadbackOptions,
 			): Promise<RenderTargetReadbackResult> =>
 				this._readRenderTargetColor(id, attachmentIndex, options),
-			getReferencingPassId: (id) => this.renderPasses?.getReferencingPassId(id) ?? null,
-		});
-		this.renderPasses = new CustomRenderPassRegistry({
-			registerPipelineStage: (pass) => {
-				this.pipeline.registerPipelineStage({
-					id: pass.id,
-					kind: "backend-pass",
-					dependsOn: pass.dependsOn ?? ["prepared-scene-build"],
-					shouldRun: (context) => {
-						if (!context.frameContext?.renderTargets.has(pass.target)) {
-							return false;
-						}
-						return pass.shouldRun ? pass.shouldRun(context) : true;
-					},
-					incremental: pass.incremental,
-				});
+			invalidate: (scope) => {
+				const reason = scope === "internal" ? "probe-capture" : "unknown";
+				if (this._scene) this._markFrameDirty(reason);
+				else {
+					this._frameDirty = true;
+					this._pendingDirtyReasonMask |= renderDirtyReasonToMask(reason);
+				}
 			},
-			unregisterPipelineStage: (id) => this.pipeline.unregisterPipelineStage(id),
-			isRenderTargetRegistered: (id) => this.renderTargets.get(id) !== null,
 		});
 
 		this.postProcess = new PostProcessPassRegistry();
@@ -253,22 +241,6 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 
 		this.postProcess.registerPass(new ToneMappingPass({ enabled: true }));
 		this.postProcess.registerPass(new GammaPass({ enabled: true }));
-		this.renderTargets.on("change", () => {
-			if (this._scene) {
-				this._markFrameDirty("unknown");
-			} else {
-				this._frameDirty = true;
-				this._pendingDirtyReasonMask |= renderDirtyReasonToMask("unknown");
-			}
-		});
-		this.renderPasses.on("change", () => {
-			if (this._scene) {
-				this._markFrameDirty("unknown");
-			} else {
-				this._frameDirty = true;
-				this._pendingDirtyReasonMask |= renderDirtyReasonToMask("unknown");
-			}
-		});
 
 		backend.attach({
 			surface: {
@@ -1065,6 +1037,7 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 				// Frame cleanup is handled by the render path before destruction.
 			}
 		}
+		this.renderTargets.destroy();
 		await this._backend.destroy();
 		this._destroyed = true;
 		this._initialized = false;

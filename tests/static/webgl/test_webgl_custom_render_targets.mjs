@@ -6,7 +6,7 @@ import {
 	PrimitiveTopology,
 } from "../../../src/backends/types.ts";
 import {
-	CustomRenderPassRegistrySnapshot,
+	RenderTargetJobRegistrySnapshot,
 	RenderTargetRegistrySnapshot,
 } from "../../../src/rendering/CustomRenderTargets.ts";
 import { createResolvedPostProcess } from "../../helpers/postprocess.mjs";
@@ -191,11 +191,14 @@ function createContext(passExecute, targetDescriptor = {}) {
 		features: {},
 		postProcess: createResolvedPostProcess("webgl"),
 		renderTargets: new RenderTargetRegistrySnapshot([descriptor]),
-		customRenderPasses: new CustomRenderPassRegistrySnapshot([
+		renderTargetJobs: new RenderTargetJobRegistrySnapshot([
 			{
 				id: "inspect-pass",
-				target: "inspect",
-				execute: passExecute,
+				targetId: "inspect",
+				generation: 1,
+				recurring: false,
+				descriptor: { kind: "custom-pass", execute: passExecute },
+				scene: null,
 			},
 		]),
 		shadowMaps: new Map(),
@@ -277,7 +280,7 @@ async function testWebGLCustomTargetExecutionAndReadback() {
 
 	runtime.sync(context);
 	await runtime.executePass(
-		{ stage: "inspect-pass", executor: "backend", enabled: true, dependsOn: [] },
+		{ stage: "render-target-views", executor: "backend", enabled: true, dependsOn: [] },
 		context
 	);
 	assert.equal(observed.backend, "webgl");
@@ -309,7 +312,7 @@ async function testWebGLCustomTargetExecutionAndReadback() {
 	assert.equal(readback.height, 32);
 	assert.equal(readback.bytes[1], 1);
 	assert.equal(readback.bytesPerPixel, 4);
-	assert.equal(readback.origin, "bottom-left");
+	assert.equal(readback.origin, "top-left");
 	await assert.rejects(() => runtime.readColor("inspect", 1, { width: 65 }), /between/);
 	runtime.destroy();
 	assert.ok(gl.calls.some((call) => call[0] === "deleteTexture"));
@@ -434,7 +437,7 @@ async function testWebGLPassFailureRestoresState() {
 	runtime.sync(context);
 	await assert.rejects(
 		() => runtime.executePass(
-			{ stage: "inspect-pass", executor: "backend", enabled: true, dependsOn: [] },
+			{ stage: "render-target-views", executor: "backend", enabled: true, dependsOn: [] },
 			context
 		),
 		/custom-pass-failed/
@@ -460,7 +463,7 @@ async function testWebGLPassFailureRestoresState() {
 	unfinishedRuntime.sync(unfinishedContext);
 	await assert.rejects(
 		() => unfinishedRuntime.executePass(
-			{ stage: "inspect-pass", executor: "backend", enabled: true, dependsOn: [] },
+			{ stage: "render-target-views", executor: "backend", enabled: true, dependsOn: [] },
 			unfinishedContext
 		),
 		/left a pass active/
@@ -500,10 +503,38 @@ async function testWebGLFloat16ReadbackLayout() {
 	assert.equal(framebufferBinds.at(-1)[2], null);
 }
 
+async function testWebGLSceneViewJobDelegatesToIsolatedExecutor() {
+	const gl = createFakeGL();
+	let received = null;
+	const runtime = new WebGLCustomRenderTargetRuntime(gl, {
+		executeSceneView(context, job, target) {
+			received = { context, job, target };
+		},
+	});
+	const context = createContext(() => {}, {
+		color: [{ format: TextureFormat.RGBA16Float }],
+		depth: { format: TextureFormat.Depth32Float },
+	});
+	context.renderTargetJobs = new RenderTargetJobRegistrySnapshot([{
+		id: "scene-job",
+		targetId: "inspect",
+		generation: 1,
+		recurring: false,
+		descriptor: { kind: "scene-view", camera: {} },
+		scene: {},
+	}]);
+	runtime.sync(context);
+	await runtime.executePass({ stage: "render-target-views" }, context);
+	assert.equal(received.job.id, "scene-job");
+	assert.equal(received.target.width, 64);
+	assert.equal(received.target.height, 32);
+}
+
 await testWebGLCustomTargetExecutionAndReadback();
 testWebGLStrictFormatValidation();
 testWebGLCoreFormatMappings();
 testWebGLIncompleteFramebufferIsTransactional();
 await testWebGLPassFailureRestoresState();
 await testWebGLFloat16ReadbackLayout();
+await testWebGLSceneViewJobDelegatesToIsolatedExecutor();
 console.log("WebGL custom render target tests passed");

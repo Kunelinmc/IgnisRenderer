@@ -192,8 +192,11 @@ lighting, presentation configuration, reflections, and structured buffer packing
   capabilities from a concrete `WebGPUBackend`.
 - `WebGPUFrameResourceScope` must own frame bindings and clustered-lighting
   state. The orchestrator owns the main scope, each planar target owns one
-  persistent capture scope, and probe capture must destroy its temporary scope
-  in a `finally` block. Prepared-frame data must not expose a string scope key.
+  persistent reflection scope, and each render-target view job owns one
+  temporary scope. A recorded view scope must remain alive through
+  `queue.submit()` and must be released by the module `afterSubmit` hook; an
+  aborted transaction must discard it through `abortFrameState`. Prepared-frame
+  data must not expose a string scope key.
 - Scope callers must use `WebGPUFrameScopePrepareOptions`; the frame service
   adapter must inject its private scope key through
   `WebGPUFrameServicePrepareOptions`. Distinct option shapes must not share one
@@ -687,7 +690,20 @@ lighting, presentation configuration, reflections, and structured buffer packing
 	the same synchronization operation. The pin must survive resize and clear
 	only when the device runtime is reset.
 - Custom pass pipelines must use `context.target.sampleCount`, and color
-	readback must use `resolveTexture` when it is present.
+  readback must use `resolveTexture` when it is present.
+
+### Render-target view jobs
+
+- WebGPU must execute render-target jobs through the active frame command stream
+  and must not submit a dedicated probe command buffer.
+- `WebGPURenderTargetViewExecutor` must prepare an isolated frame-resource scope
+  for the job camera and must reuse backend-owned scene, environment, lighting,
+  particle, and shadow services.
+- The public target must expose only final `rgba16float` scene color and optional
+  `depth32float`. Legacy MRT or deferred intermediates must be private scratch
+  resources.
+- Readback copies must follow their writer job in command order. Ticket results
+  must not publish until the frame transaction commits.
 
 ### Planar reflections
 

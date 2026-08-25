@@ -151,6 +151,7 @@ function run() {
 		[
 			"particle-sim",
 			"shadow",
+			"render-target-views",
 			"reflection",
 			"main-opaque",
 			"main-transparent",

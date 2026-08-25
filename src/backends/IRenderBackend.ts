@@ -174,10 +174,8 @@ export interface BackendCapabilities {
 	oit: boolean;
 	/** Whether occlusion culling is supported. */
 	occlusionCulling: boolean;
-	/** Whether custom render targets are supported. */
-	customRenderTargets: boolean;
-	/** Whether custom render passes are supported. */
-	customRenderPasses: boolean;
+	/** Whether renderer-owned render targets are supported. */
+	renderTargets: boolean;
 	/** Whether custom render-target readback is supported. */
 	renderTargetReadback: boolean;
 }

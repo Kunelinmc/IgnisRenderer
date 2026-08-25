@@ -27,7 +27,6 @@ import type {
 } from "../../pipeline/OcclusionCulling";
 import {
 	createRenderBackendExtensionRegistry,
-	PROBE_CAPTURE_EXTENSION,
 	RENDERER_OCCLUSION_CULLING_EXTENSION_ID,
 	RENDERER_OCCLUSION_VISIBILITY_INSERTION_POINT,
 	WEBGPU_COMPUTE_EXTENSION,
@@ -58,8 +57,6 @@ import {
 	type WebGPUSampleCountResolverHost,
 } from "./WebGPUSampleCountResolver";
 import { WebGPUWarmupCoordinator } from "./WebGPUWarmupCoordinator";
-import { WebGPUReflectionProbeCapturePass } from "./WebGPUReflectionProbeCapturePass";
-import type { ProbeCaptureFaceRequest } from "../../lights/runtime/ProbeCaptureRuntime";
 import { WebGPUFrameServiceOwner } from "./WebGPUFrameServiceOwner";
 import type { WebGPUCommandSchedulerHost } from "./WebGPUBackendContracts";
 import {
@@ -224,7 +221,6 @@ export class WebGPUBackend implements IRenderBackend {
 	private _frameOrchestrator: WebGPUFrameOrchestrator | null = null;
 	private _frameRuntime: WebGPUFrameRuntimeComposition | null = null;
 	private _frameHost: WebGPUFrameHost | null = null;
-	private _reflectionProbeCapturePass: WebGPUReflectionProbeCapturePass | null = null;
 	private _particleSimulator: IParticleSimulator | null = null;
 	private _deviceLostInfo: RenderBackendDeviceLostInfo | null = null;
 	private readonly _objectIdentity = new WebGPUObjectIdentity(() => {
@@ -330,8 +326,7 @@ export class WebGPUBackend implements IRenderBackend {
 			clusteredLighting: true,
 			oit: true,
 			occlusionCulling: this._enableOcclusionCulling,
-			customRenderTargets: true,
-			customRenderPasses: true,
+			renderTargets: true,
 			renderTargetReadback: true,
 		};
 		this.profile = {
@@ -386,14 +381,6 @@ export class WebGPUBackend implements IRenderBackend {
 					WEBGPU_OCCLUSION_AFTER_DEPTH_INSERTION_POINT,
 				],
 				api: this._occlusionCullingExtensionApi,
-			},
-			{
-				id: PROBE_CAPTURE_EXTENSION.id,
-				insertionPoints: ["renderer:probe-capture"],
-				api: {
-					captureProbeFace: (request: ProbeCaptureFaceRequest) =>
-						this._captureProbeFace(request),
-				},
 			},
 			{
 				id: WEBGPU_COMPUTE_EXTENSION.id,
@@ -654,10 +641,6 @@ export class WebGPUBackend implements IRenderBackend {
 			this._requestedSampleCount,
 			this._frameRuntime.modules,
 		);
-		this._reflectionProbeCapturePass = new WebGPUReflectionProbeCapturePass(
-			this._frameHost,
-			this._resources,
-		);
 		this._particleSimulator = new WebGPUParticleSimulator({
 			backend: this._computeFacade,
 			backendTag: this.profile.id,
@@ -867,7 +850,7 @@ export class WebGPUBackend implements IRenderBackend {
 		if (!this._frameOrchestrator) {
 			return Promise.reject(new Error("WebGPU backend has not been initialized."));
 		}
-		return this._frameRuntime!.customRenderTargets.readColor(
+		return this._frameRuntime!.renderTargets.readColor(
 			id,
 			attachmentIndex,
 			options,
@@ -960,15 +943,6 @@ export class WebGPUBackend implements IRenderBackend {
 			return;
 		}
 		this._resources.unregisterExternalTexture(texture);
-	}
-
-	private async _captureProbeFace(
-		request: ProbeCaptureFaceRequest,
-	): Promise<Float32Array | null> {
-		if (!this._reflectionProbeCapturePass) {
-			return null;
-		}
-		return this._reflectionProbeCapturePass.captureFace(request);
 	}
 
 	public destroy(): void {
@@ -1480,11 +1454,6 @@ export class WebGPUBackend implements IRenderBackend {
 		this._postProcessExecutor = null;
 		if (postProcessExecutor) {
 			cleanup("post-process session", () => postProcessExecutor.unbindSession());
-		}
-		const reflectionProbeCapturePass = this._reflectionProbeCapturePass;
-		this._reflectionProbeCapturePass = null;
-		if (reflectionProbeCapturePass) {
-			cleanup("reflection probe capture", () => reflectionProbeCapturePass.destroy());
 		}
 		const frameOrchestrator = this._frameOrchestrator;
 		this._frameOrchestrator = null;

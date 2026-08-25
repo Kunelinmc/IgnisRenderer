@@ -327,8 +327,7 @@ async function testInitAndPassRouting() {
 		oit: true,
 		occlusionCulling: false,
 		postProcess: true,
-		customRenderTargets: true,
-		customRenderPasses: true,
+		renderTargets: true,
 		renderTargetReadback: true,
 	});
 	assert.equal("postProcessCapabilities" in backend, false);

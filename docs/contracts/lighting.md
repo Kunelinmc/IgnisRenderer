@@ -405,14 +405,16 @@ When initializing a `ReflectionProbe` or passing options to its constructor `Ref
 - **Recursion Prevention**:
   - During a probe capture render pass, the features `enableReflection` and `enableSSR` must be forced to `false` to avoid feedback loops.
   - Shadow mapping must reuse the main frame's shadow maps; a dedicated shadow map render pass must not be triggered for the probe.
-- **WebGPU Lifecycle**:
-  - `WebGPUReflectionProbeCapturePass` must not resolve a `ComputeRuntime`
-    while `WebGPUBackend` is still initializing.
-  - The capture readback runtime must be created lazily on the first capture,
-    after the backend compute facade exposes its initialized device and queue.
-  - Scene capture render targets must use the shared WebGPU legacy MRT color
-    attachment formats so capture render passes remain compatible with scene
-    pipelines.
+- **Render-target capture lifecycle**:
+  - Probe capture must enqueue one renderer-owned scene-view render-target job
+    at a time and must not invoke a backend-specific capture API.
+  - Probe face data must be accepted only from a successfully committed
+    `RenderTargetJobTicket` generation.
+  - WebGPU and WebGL scene-view jobs must preserve HDR radiance in a final
+    `rgba16float` color attachment. Backend-specific intermediate attachments
+    must remain private.
+  - SoftwareBackend must continue to use analytical fallback when scene-view
+    render targets are unavailable.
 - **Capture Sampling**:
   - Cubemap faces must use the order `+X`, `-X`, `+Y`, `-Y`, `+Z`, `-Z`.
   - Cubemap-to-equirectangular conversion and final shader sampling must use
@@ -429,7 +431,7 @@ The following table outlines features and fallback behaviors across backends:
 
 | Feature / Capability                              | WebGPU Backend                           | WebGL Backend                            | Software Backend                         |
 | :------------------------------------------------ | :--------------------------------------- | :--------------------------------------- | :--------------------------------------- |
-| **Capture Interface**                             | Supported via `PROBE_CAPTURE_EXTENSION`  | Fallback only (No extension registered)  | Fallback only (No extension registered)  |
+| **Scene capture path**                            | Render-target scene-view jobs            | Render-target scene-view jobs            | Analytical fallback                      |
 | **Scene Mesh Capture (`includeMeshes`)**          | Fully Supported (renders real geometry)  | Not Supported (falls back to analytical) | Not Supported (falls back to analytical) |
 | **Transparent Geometry (`includeTransparent`)**   | Fully Supported (renders alpha passes)   | Not Supported (falls back to analytical) | Not Supported (falls back to analytical) |
 | **Particle Simulation (`includeParticles`)**      | Fully Supported (renders active systems) | Not Supported (falls back to analytical) | Not Supported (falls back to analytical) |
@@ -763,7 +765,11 @@ capture source, capture falls back to analytic lights and environment only.
 
 ### Reflection probes
 
-- **`[probe-mesh-capture-unsupported]`**: This warning is logged when a non-WebGPU backend (WebGL or Software) is active and `includeMeshes` is set to `true`. This indicates that the backend is falling back to environment background and analytical lights only.
+- **`[probe-mesh-capture-unsupported]`**: This warning is logged when the active
+  backend cannot execute render-target scene-view jobs and `includeMeshes` is
+  `true`. SoftwareBackend uses environment and analytical-light fallback.
+- **`[probe-capture-quantum-failed]`**: Emitted when deferred target rendering,
+  readback, or result resolution rejects and the active probe task is discarded.
 - **Low-Resolution Reflections**: If captured textures appear lower than the configured resolution, verify whether runtime budget pressure is forcing the scheduler to downscale resolution to `0.75` or `0.5`.
 - **Render Loop Instability**: If reflections show recursive feedback artifacts, verify that `enableReflection` and `enableSSR` are correctly set to `false` during the capture pass.
 - **Incorrect Projection Origin**: If reflections appear projected from the coordinate origin `[0, 0, 0]`, confirm that `scene.updateWorldMatrices()` has been executed prior to dispatching the capture stage.

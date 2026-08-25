@@ -25,10 +25,7 @@ import type { Texture } from "../core/Texture";
 import type { MeshInstance } from "../meshes";
 import type { EnvironmentTintLinear } from "../core/Environment";
 import type { PostProcessPassRegistrySnapshot } from "../postprocess/PostProcessPass";
-import type {
-	CustomRenderPassRegistrySnapshot,
-	RenderTargetRegistrySnapshot,
-} from "../rendering/CustomRenderTargets";
+import type { RenderTargetRegistrySnapshot } from "../rendering/CustomRenderTargets";
 import type { OcclusionCandidate } from "./OcclusionCulling";
 import type {
 	PresentationAlphaMode,
@@ -149,25 +146,38 @@ export const PARTICLE_SIM_DELTA_TIME_SECONDS_KEY =
 export const ANIMATION_SIM_DELTA_TIME_MS_KEY =
 	defineTransientKey<number>("pipeline:animation-delta-time-ms");
 
-export interface PreparedScene {
+/** Camera-independent scene work shared by every view in one renderer frame. */
+export interface PreparedSceneState {
 	sceneBounds: BoundingSphere;
 	lights: SceneLight[];
 	particleSystems: ParticleSystem[];
 	hasActiveAnimations: boolean;
-	camera: Camera;
 	environment: PreparedSceneEnvironment;
 	meshInstances: MeshInstance[];
 	shadowPlan: ShadowFramePlan;
+	/** Camera-independent mesh submissions reused by main and offscreen views. */
+	submissions: DrawSubmission[];
+	shadowCasterSubmissions: DrawSubmission[];
+	shadowTransmitterSubmissions: DrawSubmission[];
+	/** @internal Current deformation metadata reused by secondary-camera builds. */
+	deformationStates?: PrimitiveDeformationMap | null;
+}
+
+/** Camera-local visibility, ordering, and spatial data for one prepared view. */
+export interface PreparedSceneView {
+	camera: Camera;
 	opaquePackets: DrawPacket[];
 	transparentPackets: DrawPacket[];
-	shadowCasterPackets: DrawPacket[];
-	shadowTransmitterPackets: DrawPacket[];
 	reflectivePackets: DrawPacket[];
 	decalPackets: DecalPacket[];
 	occlusion: PreparedSceneOcclusionState | null;
 	spatialIndex: PreparedSceneSpatialIndex | null;
-	/** @internal Current deformation metadata reused by secondary-camera builds. */
-	deformationStates?: PrimitiveDeformationMap | null;
+}
+
+/** @internal Transitional combined main-view shape consumed by frame backends. */
+export interface PreparedScene extends PreparedSceneState, PreparedSceneView {
+	shadowCasterPackets: DrawPacket[];
+	shadowTransmitterPackets: DrawPacket[];
 }
 
 export interface PreparedSceneOcclusionState {
@@ -215,9 +225,14 @@ export interface FrameContext {
 	readonly features: ResolvedFeatureState;
 	readonly postProcess: PostProcessPassRegistrySnapshot;
 	readonly renderTargets: RenderTargetRegistrySnapshot;
-	readonly customRenderPasses: CustomRenderPassRegistrySnapshot;
+	/** Renderer-owned target work captured before backend frame sealing. */
+	readonly renderTargetJobs?: import("../rendering/CustomRenderTargets").RenderTargetJobRegistrySnapshot;
 	readonly shadowPlan: ShadowFramePlan;
 	readonly scene: PreparedScene;
+	/** Camera-independent scene data shared with render-target views. */
+	readonly sceneState: PreparedSceneState;
+	/** Main camera-local view. */
+	readonly view: PreparedSceneView;
 	readonly shCoeffs: SHCoefficients;
 	readonly shAmbientCoeffs: SHCoefficients;
 	readonly worldMatrix: Matrix4;
