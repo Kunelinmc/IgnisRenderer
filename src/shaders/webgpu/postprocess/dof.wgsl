@@ -1,8 +1,5 @@
 #import <ignis/postprocess/luma-common>
 #import <ignis/webgpu/constants>
-#define IGNIS_LUMA_PROFILE bt709
-#define IGNIS_LUMA_CLAMP true
-#inject <ignis/postprocess/luma>(profile=IGNIS_LUMA_PROFILE, clamp=IGNIS_LUMA_CLAMP)
 struct Params {
 	invSize: vec2<f32>,
 	focusDistance: f32,
@@ -104,7 +101,11 @@ fn csMain(@builtin(global_invocation_id) gid: vec3<u32>) {
 		).z;
 		let gate = depthGate(centerDepth, sampleDepth, isFar);
 		let highlight =
-			max(luma(sampleColor.rgb) - params.highlightThreshold, 0.0) *
+			max(
+				ignisLuma(sampleColor.rgb, IGNIS_LUMA_WEIGHTS_BT709, true) -
+					params.highlightThreshold,
+				0.0
+			) *
 			max(params.highlightGain, 0.0);
 		let sampleWeight = gate * (1.0 + highlight);
 		accum += sampleColor * sampleWeight;

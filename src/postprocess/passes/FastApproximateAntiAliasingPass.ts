@@ -6,7 +6,7 @@ import {
 	FXAA_EDGE_THRESHOLD_MULTIPLIER,
 	FXAA_QUALITY,
 	FXAA_SUBPIX_QUALITY,
-} from "../../backends/constants";
+} from "../constants";
 import {
 	BufferUsage,
 	type IComputePipeline,

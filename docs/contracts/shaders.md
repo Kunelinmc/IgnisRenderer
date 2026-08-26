@@ -74,6 +74,12 @@ This document defines shader source ownership, composition, diagnostics, and cus
 - Manifest source expressions are closed to the built-in `asset`, `concat`,
   `when`, `defines`, and `template` nodes. Manifests must not contain callbacks
   or register custom operations.
+- `ShaderBackendCompileStage` must apply backend-provided generated source
+  blocks after directive preprocessing and before backend runtime validation.
+  Generated blocks must use the shared language-specific source-injection
+  anchors and must preserve generated source-map segments.
+- Generated source block contents must participate in backend runtime cache
+  identity. They must not participate in directive-stage cache identity.
 
 ### Directive profiles
 
@@ -82,12 +88,10 @@ This document defines shader source ownership, composition, diagnostics, and cus
   import backend constants and built-in shader assets.
 - A directive profile must be composed from a prepared static base and an
   instance overlay resolved after backend capability probing. Profile
-  composition must reject duplicate include-module `(language, id)` pairs,
-  duplicate injection-script ids, and feature packs targeting another backend.
-- `ShaderDirectiveProfile.fingerprint` must be derived from the backend, feature
-  pack ids and revisions, include-module contents, injection-script schemas,
-  and instance overlay contents. Shader and program cache identities must include
-  this fingerprint.
+  composition must reject duplicate include-module `(language, id)` pairs.
+- `ShaderDirectiveProfile.fingerprint` must be derived from the backend, static
+  base id and revision, include-module contents, and instance overlay contents.
+  Shader and program cache identities must include this fingerprint.
 - Built-in directive include modules must be stored as shader assets. Instance
   overlays may generate only short constant or define modules from resolved
   backend limits and ABI values.
@@ -96,8 +100,8 @@ This document defines shader source ownership, composition, diagnostics, and cus
   Strict mode must report an error, warn mode must report a warning, and silent
   mode must skip the invocation without publishing a diagnostic.
 - Backend directive hooks may add namespaced include modules and injection
-  scripts. A hook patch must not replace a profile module or script; any
-  collision must disable the entire patch for that invocation context.
+  scripts. A hook patch must not replace a profile module; a module collision
+  must disable the entire patch for that invocation context.
 
 ### ShaderMaterial custom chunks
 
@@ -143,11 +147,16 @@ This document defines shader source ownership, composition, diagnostics, and cus
 - WebGPU shaders must access values through `ignisShaderUniforms.<wgslField>`.
 - WebGL shaders must access values through the resolved `webglUniform` name.
 - WebGPU must bind the custom uniform buffer at `@group(1) @binding(39)`.
-- Custom WebGPU shader code that declares the material uniform buffer directly
-  must use binding `39`; binding `36` is reserved for morph weights.
-- Shader source injection must use `ignis/material/uniform-block`.
+- Backend material source augmentation exclusively owns declarations generated
+  from `uniformBindings` and `textureBindings`. Custom shader chunks must not
+  redeclare their reserved bindings, uniforms, samplers, or helper symbols.
+- WebGPU binding `36` remains reserved for morph weights. Binding `39` is owned
+  by generated `ShaderMaterial` uniform declarations.
 - Schema changes must affect shader/program caches. Value-only changes must
   update backend uniform data without rebuilding shader modules or pipelines.
+- Built-in engine shader composition must not depend on injection scripts.
+  Generic `#inject` support remains available to backend directive hooks; the
+  removed built-in script ids are listed in the migration guide.
 
 ## Usage
 

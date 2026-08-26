@@ -17,16 +17,8 @@ export const DEFAULT_GAMMA = 2.2;
 export const MIN_GAMMA = 0.01;
 export const MAX_GAMMA = 8.0;
 
-export const FXAA_EDGE_THRESHOLD_MIN = 0.03125;
-export const FXAA_EDGE_THRESHOLD_MULTIPLIER = 0.166;
-export const FXAA_SUBPIX_QUALITY = 0.75;
-export const FXAA_QUALITY: readonly number[] = [
-	1.0, 1.0, 1.0, 1.0, 1.5, 2.0, 2.0, 2.0, 2.0, 4.0, 8.0,
-];
-
 export const POST_PROCESS_NOISE_REFERENCE_WIDTH = 1920;
 export const MAX_EXPOSURE = 8;
-export const VOLUMETRIC_SIGMA_T_SCALE = 0.02;
 export const TAA_JITTER_SEQUENCE_LENGTH = 16;
 
 /**

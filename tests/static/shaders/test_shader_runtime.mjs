@@ -8,10 +8,6 @@ import {
 	SHADER_RUNTIME_RESERVED_RULE_PREFIX,
 	ShaderRuntime,
 } from "../../../src/shaders/runtime/index.ts";
-import {
-	WEBGL_TEST_PROFILE,
-	WEBGPU_TEST_PROFILE,
-} from "./shaderDirectiveTestProfiles.mjs";
 
 const GLSL_SOURCE = `#version 300 es
 precision highp float;
@@ -883,58 +879,6 @@ function testExtendedAnchorsAndDryRun() {
 	assert.ok(
 		wgslAnchors.anchors.afterBindings >= wgslAnchors.anchors.afterStruct
 	);
-}
-
-function testShaderMaterialUniformBlockInjection() {
-	const wgslRuntime = new ShaderRuntime({ mode: "warn" });
-	for (const script of WEBGPU_TEST_PROFILE.injectionScripts) {
-		wgslRuntime.registerInjectionScript(script);
-	}
-	const wgsl = wgslRuntime.process({
-		code: `#inject <ignis/material/uniform-block>(fields="time:f32:uTime;tint:vec4f:uTint;mode:i32:uMode")
-@fragment
-fn fsMain() -> @location(0) vec4<f32> {
-	return vec4<f32>(ignisShaderUniforms.tint.xyz, ignisShaderUniforms.time);
-}`,
-		language: "wgsl",
-		stage: "fragment",
-		entryPoint: "fsMain",
-		label: "ShaderMaterialUniformWGSL",
-		sourceKind: "custom-material",
-	});
-	assert.equal(wgsl.hasErrors, false);
-	assert.ok(wgsl.code.includes("struct IgnisShaderUniforms"));
-	assert.ok(
-		wgsl.code.includes(
-			"@group(1) @binding(39) var<uniform> ignisShaderUniforms"
-		)
-	);
-	assert.ok(wgsl.code.includes("time: f32"));
-	assert.ok(wgsl.code.includes("tint: vec4<f32>"));
-	assert.ok(wgsl.code.includes("mode: i32"));
-
-	const glslRuntime = new ShaderRuntime({ mode: "warn" });
-	for (const script of WEBGL_TEST_PROFILE.injectionScripts) {
-		glslRuntime.registerInjectionScript(script);
-	}
-	const glsl = glslRuntime.process({
-		code: `#version 300 es
-precision highp float;
-#inject <ignis/material/uniform-block>(fields="time:f32:uTime;tint:vec4f:uTint;mode:i32:uMode")
-out vec4 outColor;
-void main() {
-	outColor = vec4(uTint.xyz, uTime + float(uMode));
-}`,
-		language: "glsl",
-		stage: "fragment",
-		entryPoint: "main",
-		label: "ShaderMaterialUniformGLSL",
-		sourceKind: "custom-material",
-	});
-	assert.equal(glsl.hasErrors, false);
-	assert.ok(glsl.code.includes("uniform float uTime;"));
-	assert.ok(glsl.code.includes("uniform vec4 uTint;"));
-	assert.ok(glsl.code.includes("uniform int uMode;"));
 }
 
 function testSilentModeAndDiagnosticFilters() {
@@ -1819,7 +1763,6 @@ async function run() {
 	testRuleDependenciesAndOrdering();
 	testUserSymbolConflictsStaticAndDynamic();
 	testExtendedAnchorsAndDryRun();
-	testShaderMaterialUniformBlockInjection();
 	testSilentModeAndDiagnosticFilters();
 	testRuleScopedInvalidationAndCacheStats();
 	testChangeEventsAndSourceHashValidation();

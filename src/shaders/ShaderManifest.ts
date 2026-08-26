@@ -1,4 +1,3 @@
-import { createBuiltinInjectionFeaturePacks } from "./features/builtinInjectionScripts";
 import { composeShaderDirectiveProfile } from "./runtime/DirectiveProfile";
 import {
 	composeCompositeShaderSources,
@@ -7,7 +6,6 @@ import {
 import type {
 	CompositeShaderSource,
 	ShaderBackendId,
-	ShaderDirectiveFeaturePack,
 	ShaderDirectiveProfile,
 	ShaderDirectiveProfileBase,
 	ShaderLanguage,
@@ -134,13 +132,11 @@ export type ShaderManifestSource =
 
 export interface ShaderManifestProfile {
 	readonly baseId: string;
-	readonly assetPackId: string;
-	readonly assetPackRevision: number;
+	readonly revision: number;
 	readonly includes: readonly {
 		readonly id: string;
 		readonly source: string;
 	}[];
-	readonly featurePacks: readonly "builtin-injections"[];
 	readonly overlay: {
 		readonly id: string;
 		readonly includeId: string;
@@ -485,22 +481,11 @@ export async function prepareShaderDirectiveProfileBase(
 			};
 		}),
 	);
-	const assetPack: ShaderDirectiveFeaturePack = {
-		id: manifest.profile.assetPackId,
-		backend: manifest.backend,
-		revision: manifest.profile.assetPackRevision,
-		includeModules: modules,
-		injectionScripts: [],
-	};
-	const packs = manifest.profile.featurePacks.flatMap((pack) =>
-		pack === "builtin-injections" ?
-			createBuiltinInjectionFeaturePacks(manifest.backend)
-		:	[],
-	);
 	return {
 		id: manifest.profile.baseId,
 		backend: manifest.backend,
-		packs: [assetPack, ...packs],
+		revision: manifest.profile.revision,
+		includeModules: modules,
 	};
 }
 

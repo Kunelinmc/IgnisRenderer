@@ -1094,7 +1094,6 @@ export class WebGPUBackend implements IRenderBackend {
 					revision: backend.shaderRuntime.revision,
 					mode: backend.shaderRuntime.getMode(),
 					directiveCacheTag,
-					supportsRuntimeInjects: directiveCacheTag !== "none",
 				};
 			},
 			createBuffer: (desc) => {

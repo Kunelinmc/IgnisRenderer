@@ -27,6 +27,11 @@ import {
 	MAX_SPOT_LIGHTS,
 } from "../../../src/backends/constants.ts";
 import { WEBGL_FULL_SCENE_VARIANT } from "../../../src/shaders/webgl/sceneVariants.ts";
+import {
+	FXAA_EDGE_THRESHOLD_MIN,
+	FXAA_QUALITY,
+	VOLUMETRIC_SIGMA_T_SCALE,
+} from "../../../src/postprocess/constants.ts";
 
 const REPO_ROOT = path.resolve(
 	path.dirname(fileURLToPath(import.meta.url)),
@@ -792,10 +797,8 @@ async function testWebGLDepthAndShadowArtifacts() {
 function testShaderManifestValidation() {
 	const profile = {
 		baseId: "test-base",
-		assetPackId: "test-assets",
-		assetPackRevision: 1,
+		revision: 1,
 		includes: [],
-		featurePacks: [],
 		overlay: {
 			id: "test-overlay",
 			includeId: "test/constants",
@@ -878,10 +881,8 @@ function testShaderManifestIdentityUsesNormalizedCanonicalParameters() {
 		},
 		profile: {
 			baseId: "test-base",
-			assetPackId: "test-assets",
-			assetPackRevision: 1,
+			revision: 1,
 			includes: [],
-			featurePacks: [],
 			overlay: {
 				id: "test-overlay",
 				includeId: "test/constants",
@@ -956,6 +957,36 @@ async function testEmbeddedManifestMatchesShaderFiles() {
 	}
 }
 
+function testPostProcessShaderConstantsMatchCPUContract() {
+	const compactWGSLFXAA = embeddedShaderSources[
+		"./webgpu/postprocess/fxaa.wgsl"
+	].replace(/\s+/g, "");
+	const quality = FXAA_QUALITY
+		.map((value) => value.toFixed(1))
+		.join(",");
+	assert.ok(
+		compactWGSLFXAA.includes(
+			`array<f32,${FXAA_QUALITY.length}>(${quality})`,
+		),
+	);
+	const compactGLSLFXAA = embeddedShaderSources[
+		"./webgl/postprocess/fxaaFragment.glsl"
+	].replace(/\s+/g, "");
+	assert.ok(
+		compactGLSLFXAA.includes(
+			`constfloatIGNIS_FXAA_EDGE_THRESHOLD_MIN=${FXAA_EDGE_THRESHOLD_MIN};`,
+		),
+	);
+	const compactVolumetric = embeddedShaderSources[
+		"./webgpu/postprocess/volumetric.wgsl"
+	].replace(/\s+/g, "");
+	assert.ok(
+		compactVolumetric.includes(
+			`constIGNIS_VOLUMETRIC_SIGMA_T_SCALE:f32=${VOLUMETRIC_SIGMA_T_SCALE};`,
+		),
+	);
+}
+
 async function run() {
 	await testLoadsRawAndCompositeParts();
 	await testConcurrentLoadsShareResultCache();
@@ -981,6 +1012,7 @@ async function run() {
 	await testWebGLDepthAndShadowArtifacts();
 	testShaderManifestValidation();
 	testShaderManifestIdentityUsesNormalizedCanonicalParameters();
+	testPostProcessShaderConstantsMatchCPUContract();
 	await testEmbeddedManifestMatchesShaderFiles();
 	console.log("ShaderSource tests passed");
 }

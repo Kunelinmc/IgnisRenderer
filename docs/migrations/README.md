@@ -95,8 +95,17 @@ The cross-backend `ShaderDirectiveProfileRegistry`,
 `createDefaultShaderDirectiveProfileRegistry()`, and registry completeness
 assertion are removed. Construct `ShaderBackendCompileStage` with one composed
 backend-owned `profile`. Injection scripts must declare an argument schema;
-backend directive hooks remain additive and may not replace profile modules or
-scripts.
+backend directive hooks remain additive and may not replace profile modules.
+
+Built-in engine injection scripts are removed. Custom shader integrations must
+not invoke `ignis/material/uniform-block`,
+`ignis/material/texture-binding`, `ignis/postprocess/luma`,
+`ignis/postprocess/fxaa`, or `ignis/postprocess/volumetric`.
+`ShaderMaterial.uniformBindings` and `textureBindings` now produce
+backend-owned generated source blocks automatically. Shader chunks using those
+bindings must remove matching manual uniform, sampler, binding, and helper
+declarations. Generic hook-provided `ShaderInjectionScript` values remain
+supported.
 
 ## Software Backend Lifecycle
 

@@ -74,9 +74,13 @@ type WebGPUScenePartKey = `webgpu.scene.part.${WebGPUSceneShaderPart}`;
 type WebGPUPostProcessKey = `webgpu.postprocess.${WebGPUPostProcessShaderPart}`;
 type WebGPUShadowKey = `webgpu.shadow.${WebGPUShadowShaderPart}`;
 type WebGPUUtilityKey = `webgpu.utility.${WebGPUUtilityShaderPart}`;
-type WebGPUDirectiveKey = `webgpu.directive.${"constants" | "srgb" | "fog" | "lumaWeights" | "lumaCommon"}`;
+type WebGPUDirectiveKey =
+	`webgpu.directive.${"constants" | "srgb" | "fog" | "lumaWeights" | "lumaCommon"}`;
+type WebGPUMaterialKey = "webgpu.material.textureHelpers";
 type WebGLPartKey = `webgl.part.${WebGLShaderPart}`;
-type WebGLDirectiveKey = `webgl.directive.${"animation" | "constants" | "srgb" | "fog" | "lumaWeights" | "lumaCommon"}`;
+type WebGLDirectiveKey =
+	`webgl.directive.${"animation" | "constants" | "srgb" | "fog" | "lumaWeights" | "lumaCommon"}`;
+type WebGLMaterialKey = "webgl.material.textureHelpers";
 
 export type ShaderSourceKey =
 	| WebGPUFixedShaderKey
@@ -85,14 +89,19 @@ export type ShaderSourceKey =
 	| WebGPUShadowKey
 	| WebGPUUtilityKey
 	| WebGPUDirectiveKey
+	| WebGPUMaterialKey
 	| WebGLPartKey
 	| WebGLDirectiveKey
+	| WebGLMaterialKey
 	| "webgl.scene"
 	| "webgl.scene.depth"
 	| "webgl.shadow.depth"
 	| "webgl.shadow.transmittance";
 
-export type ShaderSourceSyncKey = "webgpu.utility.mipmapBlit";
+export type ShaderSourceSyncKey =
+	| "webgpu.utility.mipmapBlit"
+	| "webgpu.material.textureHelpers"
+	| "webgl.material.textureHelpers";
 export type ShaderSourceParams<K extends ShaderSourceKey> =
 	K extends "webgl.scene" ? { specialization?: WebGLSceneVariantDescriptor }
 	: K extends "webgl.scene.depth" ? { specialization?: WebGLSceneDepthVariantDescriptor }

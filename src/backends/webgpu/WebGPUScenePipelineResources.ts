@@ -1,4 +1,7 @@
-import { createInlineCompositeShaderSource } from "../../shaders/runtime";
+import {
+	createInlineCompositeShaderSource,
+	type ShaderGeneratedSourceBlock,
+} from "../../shaders/runtime";
 import { ShaderSource } from "../../shaders/ShaderSource";
 import { DEFAULT_PRIMITIVE_DRAW_TOPOLOGY } from "../../core/types";
 import { TextureFormat } from "../../core/TextureFormat";
@@ -494,6 +497,7 @@ export class WebGPUScenePipelineResources implements WebGPUDrawPipelineProvider 
 			const vertexModule = await this._getCustomShaderModule(
 				`${shaderCacheKey}:${mode}:vertex`,
 				program.vertexCode,
+				pipelineState.program.generatedSourceBlocks.vertex,
 				`WebGPUShaderMaterialVertex_${shaderCacheKey}`,
 				"vertex",
 				program.vertexEntryPoint
@@ -501,6 +505,7 @@ export class WebGPUScenePipelineResources implements WebGPUDrawPipelineProvider 
 			const fragmentModule = await this._getCustomShaderModule(
 				`${shaderCacheKey}:${mode}:fragment`,
 				program.fragmentCode,
+				pipelineState.program.generatedSourceBlocks.fragment,
 				`WebGPUShaderMaterialFragment_${shaderCacheKey}_${mode}`,
 				"fragment",
 				program.fragmentEntryPoint
@@ -588,6 +593,7 @@ export class WebGPUScenePipelineResources implements WebGPUDrawPipelineProvider 
 				const vertexModule = await this._getCustomShaderModule(
 					`${shaderCacheKey}:depth-prepass:vertex`,
 					depthProgram.vertexCode,
+					pipelineState.program.generatedSourceBlocks.vertex,
 					`WebGPUShaderMaterialDepthVertex_${shaderCacheKey}`,
 					"vertex",
 					depthProgram.vertexEntryPoint
@@ -595,6 +601,7 @@ export class WebGPUScenePipelineResources implements WebGPUDrawPipelineProvider 
 				const fragmentModule = await this._getCustomShaderModule(
 					`${shaderCacheKey}:depth-prepass:fragment`,
 					depthProgram.fragmentCode,
+					pipelineState.program.generatedSourceBlocks.fragment,
 					`WebGPUShaderMaterialDepthFragment_${shaderCacheKey}`,
 					"fragment",
 					depthProgram.fragmentEntryPoint
@@ -614,6 +621,7 @@ export class WebGPUScenePipelineResources implements WebGPUDrawPipelineProvider 
 			const vertexModule = await this._getCustomShaderModule(
 				`${shaderCacheKey}:depth-prepass:vertex`,
 				regularProgram.vertexCode,
+				pipelineState.program.generatedSourceBlocks.vertex,
 				`WebGPUShaderMaterialDepthVertex_${shaderCacheKey}`,
 				"vertex",
 				regularProgram.vertexEntryPoint
@@ -649,6 +657,7 @@ export class WebGPUScenePipelineResources implements WebGPUDrawPipelineProvider 
 	private async _getCustomShaderModule(
 		key: string,
 		code: string,
+		generatedSourceBlocks: readonly ShaderGeneratedSourceBlock[],
 		label: string,
 		stage: "vertex" | "fragment",
 		entryPoint: string
@@ -675,6 +684,7 @@ export class WebGPUScenePipelineResources implements WebGPUDrawPipelineProvider 
 				stage,
 				entryPoint,
 				sourceKind: "custom-material",
+				generatedSourceBlocks,
 			});
 			if (generation !== this._shaderCacheGeneration) {
 				destroyUniqueWebGPUHandles(
@@ -685,6 +695,7 @@ export class WebGPUScenePipelineResources implements WebGPUDrawPipelineProvider 
 				return this._getCustomShaderModule(
 					key,
 					code,
+					generatedSourceBlocks,
 					label,
 					stage,
 					entryPoint,

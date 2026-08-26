@@ -1,9 +1,14 @@
 import { ShaderRuntime } from "./ShaderRuntime";
+import {
+	injectGLSLSource,
+	injectWGSLSource,
+} from "./ShaderSourceInjection";
 import { SOURCE_MAP_SCHEMA_VERSION } from "./sourceMap";
 import { canonicalizeModulePath } from "./runtimeShared";
 import { Logger } from "../../foundation/Logger";
 import type {
 	CompositeShaderSource,
+	ShaderBackendCompileRequest,
 	ShaderBackendCompileResult,
 	ShaderBackendId,
 	ShaderDiagnostic,
@@ -281,7 +286,6 @@ export class ShaderDirectiveStage {
 	private _runtimeByToken = new Map<string, ShaderRuntime>();
 	private _patchFingerprintByToken = new Map<string, string>();
 	private _profileModuleKeys = new Set<string>();
-	private _profileScriptIds = new Set<string>();
 	private _cache = new Map<string, CachedDirectiveStageResult>();
 	private _lastFingerprintByContext = new Map<string, string>();
 	private _revision = 1;
@@ -293,9 +297,6 @@ export class ShaderDirectiveStage {
 			this._profileModuleKeys.add(
 				`${module.language}:${canonicalizeModulePath(module.id)}`,
 			);
-		}
-		for (const script of this._profile.injectionScripts) {
-			this._profileScriptIds.add(script.id);
 		}
 		this._hook = options.hook ?? null;
 		this._mode = options.mode ?? "warn";
@@ -454,9 +455,6 @@ export class ShaderDirectiveStage {
 				includeModule.sourcePath
 			);
 		}
-		for (const script of profile.injectionScripts) {
-			runtime.registerInjectionScript(script);
-		}
 	}
 
 	private _resolveHookSync(request: ShaderDirectiveStageRequest): HookResolution {
@@ -520,13 +518,8 @@ export class ShaderDirectiveStage {
 				`${module.language}:${canonicalizeModulePath(module.id)}`,
 			),
 		);
-		const scriptCollision = injectionScripts.find((script) =>
-			this._profileScriptIds.has(script.id.trim()),
-		);
-		if (moduleCollision || scriptCollision) {
-			const collision = moduleCollision ?
-				`include module "${moduleCollision.id}"`
-			:	`injection script "${scriptCollision?.id}"`;
+		if (moduleCollision) {
+			const collision = `include module "${moduleCollision.id}"`;
 			this._handleHookError(
 				"hook-profile-collision",
 				`Shader directive hook for "${this._backend}" attempted to replace profile ${collision} for ${context.directiveSourcePath}; disabling the hook patch.`,
@@ -649,13 +642,13 @@ export class ShaderBackendCompileStage {
 		return this._directiveStage.getCacheFingerprintTag();
 	}
 
-	public compile(request: ShaderProcessRequest): ShaderBackendCompileResult {
+	public compile(request: ShaderBackendCompileRequest): ShaderBackendCompileResult {
 		const stageA = this._directiveStage.process(this._toDirectiveRequest(request));
 		return this._compileStageB(request, stageA);
 	}
 
 	public async compileAsync(
-		request: ShaderProcessRequest
+		request: ShaderBackendCompileRequest
 	): Promise<ShaderBackendCompileResult> {
 		const stageA = await this._directiveStage.processAsync(
 			this._toDirectiveRequest(request)
@@ -664,19 +657,23 @@ export class ShaderBackendCompileStage {
 	}
 
 	private _compileStageB(
-		request: ShaderProcessRequest,
+		request: ShaderBackendCompileRequest,
 		stageA: ShaderDirectiveStageResult
 	): ShaderBackendCompileResult {
 		this._throwOnDirectiveErrorsIfStrict(stageA, request);
+		const augmented = this._applyGeneratedSourceBlocks(request, stageA);
 		const stageB = this._runtime.process({
-			code: stageA.code,
-			sourceMap: stageA.sourceMap,
+			code: augmented.code,
+			sourceMap: augmented.sourceMap,
 			language: request.language,
 			stage: request.stage,
 			entryPoint: request.entryPoint,
 			label: request.label,
 			sourceKind: request.sourceKind,
-			sourceHash: request.sourceHash,
+			sourceHash:
+				(request.generatedSourceBlocks?.length ?? 0) > 0 ?
+					undefined
+				: request.sourceHash,
 			diagnosticFilter: request.diagnosticFilter,
 			enableDirectives: false,
 			directiveSourcePath: request.directiveSourcePath,
@@ -702,19 +699,23 @@ export class ShaderBackendCompileStage {
 	}
 
 	private async _compileStageBAsync(
-		request: ShaderProcessRequest,
+		request: ShaderBackendCompileRequest,
 		stageA: ShaderDirectiveStageResult
 	): Promise<ShaderBackendCompileResult> {
 		this._throwOnDirectiveErrorsIfStrict(stageA, request);
+		const augmented = this._applyGeneratedSourceBlocks(request, stageA);
 		const stageB = await this._runtime.processAsync({
-			code: stageA.code,
-			sourceMap: stageA.sourceMap,
+			code: augmented.code,
+			sourceMap: augmented.sourceMap,
 			language: request.language,
 			stage: request.stage,
 			entryPoint: request.entryPoint,
 			label: request.label,
 			sourceKind: request.sourceKind,
-			sourceHash: request.sourceHash,
+			sourceHash:
+				(request.generatedSourceBlocks?.length ?? 0) > 0 ?
+					undefined
+				: request.sourceHash,
 			diagnosticFilter: request.diagnosticFilter,
 			enableDirectives: false,
 			directiveSourcePath: request.directiveSourcePath,
@@ -739,9 +740,29 @@ export class ShaderBackendCompileStage {
 		};
 	}
 
+	private _applyGeneratedSourceBlocks(
+		request: ShaderBackendCompileRequest,
+		stageA: ShaderDirectiveStageResult,
+	): CompositeShaderSource {
+		const blocks = request.generatedSourceBlocks ?? [];
+		if (blocks.length <= 0) {
+			return stageA.composite;
+		}
+		const prepared = blocks.map((block) => ({
+			code: block.code,
+			sourcePath: block.sourcePath,
+			label: block.label,
+			anchor: block.anchor,
+			kind: "generated" as const,
+		}));
+		return request.language === "wgsl" ?
+			injectWGSLSource(stageA.composite, prepared)
+			: injectGLSLSource(stageA.composite, prepared);
+	}
+
 	private _throwOnDirectiveErrorsIfStrict(
 		stageA: ShaderDirectiveStageResult,
-		request: ShaderProcessRequest
+		request: ShaderBackendCompileRequest
 	): void {
 		if (!stageA.hasErrors || this._mode !== "strict") {
 			return;

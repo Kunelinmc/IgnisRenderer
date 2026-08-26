@@ -204,23 +204,14 @@ export interface ShaderDirectiveProfile {
 	readonly backend: ShaderBackendId;
 	readonly fingerprint: string;
 	readonly includeModules: readonly ShaderIncludeModule[];
-	readonly injectionScripts: readonly ShaderInjectionScript[];
-}
-
-/** @internal Backend-applicable directive feature composition unit. */
-export interface ShaderDirectiveFeaturePack {
-	readonly id: string;
-	readonly backend: ShaderBackendId;
-	readonly revision: number;
-	readonly includeModules: readonly ShaderIncludeModule[];
-	readonly injectionScripts: readonly ShaderInjectionScript[];
 }
 
 /** @internal Prepared device-independent directive profile base. */
 export interface ShaderDirectiveProfileBase {
 	readonly id: string;
 	readonly backend: ShaderBackendId;
-	readonly packs: readonly ShaderDirectiveFeaturePack[];
+	readonly revision: number;
+	readonly includeModules: readonly ShaderIncludeModule[];
 }
 
 /** @internal Backend-instance directive profile overlay. */
@@ -270,6 +261,19 @@ export interface ShaderDirectiveStageResult {
 	diagnostics: ShaderDiagnostic[];
 	hasErrors: boolean;
 	directiveFingerprint: string;
+}
+
+/** @internal Backend-generated source inserted between directive and runtime stages. */
+export interface ShaderGeneratedSourceBlock {
+	readonly code: string;
+	readonly sourcePath: string;
+	readonly label: string;
+	readonly anchor: ShaderInjectionAnchor;
+}
+
+/** @internal Backend compile request with optional structured source augmentation. */
+export interface ShaderBackendCompileRequest extends ShaderProcessRequest {
+	readonly generatedSourceBlocks?: readonly ShaderGeneratedSourceBlock[];
 }
 
 export interface ShaderBackendCompileResult extends ShaderProcessResult {

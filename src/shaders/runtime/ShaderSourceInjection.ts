@@ -18,6 +18,7 @@ export interface InjectionBlock {
 	sourcePath: string;
 	label: string;
 	anchor: ShaderInjectionAnchor;
+	kind?: "define-block" | "generated";
 }
 
 interface GLSLInsertionAnchors {
@@ -330,7 +331,7 @@ function injectBlocksAtLines(
 		code: string;
 		sourceMap: ShaderSourceSegmentMap;
 		sourcePath: string;
-		kind: "source" | "define-block";
+		kind: "source" | "define-block" | "generated";
 	}[] = [];
 	let cursorLine = 1;
 	for (const insertionLine of insertionLines) {
@@ -352,7 +353,7 @@ function injectBlocksAtLines(
 			bucket.map((block) => ({
 				code: block.code,
 				sourcePath: block.sourcePath,
-				kind: "define-block" as const,
+				kind: block.kind ?? "define-block",
 				label: block.label,
 			})),
 			"\n\n"
@@ -361,7 +362,10 @@ function injectBlocksAtLines(
 			code: injection.code,
 			sourceMap: injection.sourceMap,
 			sourcePath: "<runtime:injection>",
-			kind: "define-block",
+			kind:
+				bucket.every((block) => block.kind === "generated") ?
+					"generated"
+				: "define-block",
 		});
 		cursorLine = insertionLine;
 	}

@@ -21,6 +21,13 @@ This document defines the current WebGL backend lifecycle, frame graph, resource
 - Context restoration must reuse the prepared static profile base, rebuild the
   instance overlay and directive compile stage, and invalidate context-scoped
   shader program caches before restored services are published.
+- WebGL custom-material source augmentation must generate GLSL uniform,
+  sampler, and sampling-helper declarations from resolved material bindings.
+  It must pass generated blocks through `ShaderBackendCompileStage` rather than
+  emitting engine-owned `#inject` directives.
+- WebGL material ABI revision must participate in custom scene and depth-program
+  cache identity. Warmup and draw-time compilation must use the same generated
+  block path.
 
 - `WebGLBackend.initialize()` must require `EXT_color_buffer_float`, a complete
   `RGBA16F` framebuffer probe, and half- or full-float linear filtering.

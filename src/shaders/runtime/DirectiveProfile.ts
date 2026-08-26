@@ -1,9 +1,5 @@
-import {
-	canonicalizeModulePath,
-	normalizeInjectionScript,
-} from "./runtimeShared";
+import { canonicalizeModulePath } from "./runtimeShared";
 import type {
-	ShaderDirectiveFeaturePack,
 	ShaderDirectiveProfile,
 	ShaderDirectiveProfileBase,
 	ShaderDirectiveProfileOverlay,
@@ -52,33 +48,6 @@ function normalizeModule(module: ShaderIncludeModule): ShaderIncludeModule {
 	});
 }
 
-function stableSchemaValue(schema: ShaderInjectionArgumentSchema): unknown {
-	return Object.keys(schema)
-		.sort()
-		.map((key) => {
-			const definition = schema[key];
-			return [
-				key,
-				definition.type,
-				definition.required === true,
-				"default" in definition ? definition.default ?? null : null,
-				"min" in definition ? definition.min ?? null : null,
-				"max" in definition ? definition.max ?? null : null,
-				"values" in definition ? [...definition.values] : null,
-			];
-		});
-}
-
-function scriptFingerprintValue(script: ShaderInjectionScript): unknown {
-	return [
-		script.id,
-		script.language ?? null,
-		script.description ?? null,
-		[...(script.symbols ?? [])],
-		stableSchemaValue(script.arguments),
-	];
-}
-
 function moduleFingerprintValue(module: ShaderIncludeModule): unknown {
 	return [
 		module.language,
@@ -102,23 +71,6 @@ function registerModule(
 	modules.push(normalized);
 }
 
-function registerScript(
-	script: ShaderInjectionScript,
-	scripts: ShaderInjectionScript[],
-	scriptIds: Set<string>,
-): void {
-	const prepared = normalizeInjectionScript(script);
-	const normalized = Object.freeze({
-		...prepared,
-		symbols: prepared.symbols ? Object.freeze([...prepared.symbols]) : undefined,
-	});
-	if (scriptIds.has(normalized.id)) {
-		throw new Error(`Duplicate shader injection script "${normalized.id}".`);
-	}
-	scriptIds.add(normalized.id);
-	scripts.push(normalized);
-}
-
 /** Defines an injection script while preserving argument-schema inference. */
 export function defineShaderInjectionScript<
 	const Schema extends ShaderInjectionArgumentSchema,
@@ -138,24 +90,15 @@ export function composeShaderDirectiveProfile(
 	}
 	const baseId = normalizeId(base.id, "Shader directive profile base id");
 	const overlayId = normalizeId(overlay.id, "Shader directive profile overlay id");
-	const packIds = new Set<string>();
 	const moduleKeys = new Set<string>();
-	const scriptIds = new Set<string>();
 	const modules: ShaderIncludeModule[] = [];
-	const scripts: ShaderInjectionScript[] = [];
-	const packs: Array<[string, number]> = [];
-
-	for (const pack of base.packs) {
-		registerFeaturePack(
-			pack,
-			base.backend,
-			packIds,
-			packs,
-			modules,
-			moduleKeys,
-			scripts,
-			scriptIds,
+	if (!Number.isInteger(base.revision) || base.revision < 0) {
+		throw new Error(
+			"Shader directive profile base revision must be a non-negative integer.",
 		);
+	}
+	for (const module of base.includeModules) {
+		registerModule(module, modules, moduleKeys);
 	}
 	for (const module of overlay.includeModules) {
 		registerModule(module, modules, moduleKeys);
@@ -166,9 +109,8 @@ export function composeShaderDirectiveProfile(
 			backend: base.backend,
 			baseId,
 			overlayId,
-			packs,
+			revision: base.revision,
 			modules: modules.map(moduleFingerprintValue),
-			scripts: scripts.map(scriptFingerprintValue),
 		}),
 	);
 	return Object.freeze({
@@ -176,40 +118,5 @@ export function composeShaderDirectiveProfile(
 		backend: base.backend,
 		fingerprint,
 		includeModules: Object.freeze([...modules]),
-		injectionScripts: Object.freeze([...scripts]),
 	});
-}
-
-function registerFeaturePack(
-	pack: ShaderDirectiveFeaturePack,
-	backend: ShaderDirectiveProfileBase["backend"],
-	packIds: Set<string>,
-	packs: Array<[string, number]>,
-	modules: ShaderIncludeModule[],
-	moduleKeys: Set<string>,
-	scripts: ShaderInjectionScript[],
-	scriptIds: Set<string>,
-): void {
-	const id = normalizeId(pack.id, "Shader directive feature pack id");
-	if (pack.backend !== backend) {
-		throw new Error(
-			`Shader directive feature pack "${id}" targets "${pack.backend}" instead of "${backend}".`,
-		);
-	}
-	if (packIds.has(id)) {
-		throw new Error(`Duplicate shader directive feature pack "${id}".`);
-	}
-	if (!Number.isInteger(pack.revision) || pack.revision < 0) {
-		throw new Error(
-			`Shader directive feature pack "${id}" revision must be a non-negative integer.`,
-		);
-	}
-	packIds.add(id);
-	packs.push([id, pack.revision]);
-	for (const module of pack.includeModules) {
-		registerModule(module, modules, moduleKeys);
-	}
-	for (const script of pack.injectionScripts) {
-		registerScript(script, scripts, scriptIds);
-	}
 }

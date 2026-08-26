@@ -14,13 +14,32 @@ import {
 	materialUsesTransmission,
 } from "../../materials/transparency";
 import type { WebGPUMaterialUniformData } from "./types";
+import {
+	createShaderMaterialSourceBlocks,
+	SHADER_MATERIAL_SOURCE_ABI_REVISION,
+} from "../../shaders/ShaderMaterialSource";
+import type { ShaderGeneratedSourceBlock } from "../../shaders/runtime";
+import { WEBGPU_MODEL_BINDING_SHADER_UNIFORMS } from "./constants";
+
+function createWebGPUShaderMaterialSourceBlocks(
+	material: ShaderMaterial,
+	stage: "vertex" | "fragment",
+	source: string,
+): ShaderGeneratedSourceBlock[] {
+	return createShaderMaterialSourceBlocks({
+		material,
+		language: "wgsl",
+		stage,
+		source,
+		wgslUniformBinding: WEBGPU_MODEL_BINDING_SHADER_UNIFORMS,
+	});
+}
 
 /** @internal Immutable shader-runtime inputs used by material pipeline resolution. */
 export interface WebGPUShaderRuntimeView {
 	readonly revision: number;
 	readonly mode: "strict" | "warn" | "silent";
 	readonly directiveCacheTag: string;
-	readonly supportsRuntimeInjects: boolean;
 }
 
 /** @internal Reads the explicit runtime view with a compatibility fallback for test hosts. */
@@ -43,7 +62,6 @@ export function readWebGPUShaderRuntimeView(source: {
 				: 0,
 		mode: source.shaderRuntime?.getMode?.() ?? "strict",
 		directiveCacheTag,
-		supportsRuntimeInjects: directiveCacheTag !== "none",
 	};
 }
 
@@ -52,6 +70,10 @@ export interface WebGPUCustomMaterialProgramDescriptor {
 	readonly cacheKey: string;
 	readonly regularProgram: ResolvedWebGPUShaderProgram | null;
 	readonly depthPrepassProgram: ResolvedWebGPUDepthPrepassProgram | null;
+	readonly generatedSourceBlocks: {
+		readonly vertex: readonly ShaderGeneratedSourceBlock[];
+		readonly fragment: readonly ShaderGeneratedSourceBlock[];
+	};
 }
 
 export interface WebGPUBuiltinMaterialProgramDescriptor {
@@ -117,7 +139,7 @@ export class WebGPUMaterialPipelineResolver {
 			isMask ? 1 : 0,
 			runtime.revision,
 			runtime.directiveCacheTag,
-			runtime.supportsRuntimeInjects ? 1 : 0,
+			SHADER_MATERIAL_SOURCE_ABI_REVISION,
 		].join("|");
 		const entries = this._entries.get(material);
 		const cached = entries?.find((entry) => entry.key === key);
@@ -131,7 +153,6 @@ export class WebGPUMaterialPipelineResolver {
 				targetMode,
 				purpose,
 				isMask,
-				runtime.supportsRuntimeInjects,
 			);
 		} catch (error) {
 			if (purpose !== "scene" || runtime.mode !== "warn") throw error;
@@ -175,28 +196,57 @@ export class WebGPUMaterialPipelineResolver {
 		targetMode: ShaderTargetMode,
 		purpose: WebGPUMaterialPipelinePurpose,
 		isMask: boolean,
-		enableRuntimeInjects: boolean,
 	): WebGPUMaterialProgramDescriptor {
 		if (!(material instanceof ShaderMaterial)) return { kind: "builtin" };
-		const cacheKey = material.getWebGPUCacheKey();
+		const cacheKey =
+			`${material.getWebGPUCacheKey()}|abi:${SHADER_MATERIAL_SOURCE_ABI_REVISION}`;
 		if (purpose === "early-z" && isMask) {
+			const depthPrepassProgram = material.resolveWebGPUDepthPrepassProgram(
+				targetMode,
+			);
 			return {
 				kind: "custom",
 				cacheKey,
 				regularProgram: null,
-				depthPrepassProgram: material.resolveWebGPUDepthPrepassProgram(
-					targetMode,
-					{ enableRuntimeInjects },
-				),
+				depthPrepassProgram,
+				generatedSourceBlocks: {
+					vertex:
+						depthPrepassProgram ?
+							createWebGPUShaderMaterialSourceBlocks(
+								material,
+								"vertex",
+								depthPrepassProgram.vertexCode,
+							)
+							: [],
+					fragment:
+						depthPrepassProgram ?
+							createWebGPUShaderMaterialSourceBlocks(
+								material,
+								"fragment",
+								depthPrepassProgram.fragmentCode,
+							)
+							: [],
+				},
 			};
 		}
+		const regularProgram = material.resolveWebGPUProgram(targetMode);
 		return {
 			kind: "custom",
 			cacheKey,
-			regularProgram: material.resolveWebGPUProgram(targetMode, {
-				enableRuntimeInjects,
-			}),
+			regularProgram,
 			depthPrepassProgram: null,
+			generatedSourceBlocks: {
+				vertex: createWebGPUShaderMaterialSourceBlocks(
+					material,
+					"vertex",
+					regularProgram.vertexCode,
+				),
+				fragment: createWebGPUShaderMaterialSourceBlocks(
+					material,
+					"fragment",
+					regularProgram.fragmentCode,
+				),
+			},
 		};
 	}
 }

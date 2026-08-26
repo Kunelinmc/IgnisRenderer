@@ -11,8 +11,28 @@ import {
 import { createWebGPUMaterialUniformData } from "../../../src/backends/webgpu/material.ts";
 import { resolveWebGPUScenePassDescriptor } from "../../../src/backends/webgpu/WebGPUScenePassDescriptors.ts";
 import { ShaderRuntime } from "../../../src/shaders/runtime/index.ts";
+import { createShaderMaterialSourceBlocks } from "../../../src/shaders/ShaderMaterialSource.ts";
 
 import { FakeWebGPUBackend as FakeBackend } from "../../helpers/fakes.mjs";
+
+function createWebGPUShaderMaterialSourceBlocks(material, stage, source) {
+	return createShaderMaterialSourceBlocks({
+		material,
+		language: "wgsl",
+		stage,
+		source,
+		wgslUniformBinding: 39,
+	});
+}
+
+function createWebGLShaderMaterialSourceBlocks(material, stage, source) {
+	return createShaderMaterialSourceBlocks({
+		material,
+		language: "glsl",
+		stage,
+		source,
+	});
+}
 
 function createLayouts() {
 	return {
@@ -292,6 +312,7 @@ async function testWGSLProgramSelection() {
 		vertexEntryPoint: "customVs",
 		fragmentSingleEntryPoint: "customFsSingle",
 		fragmentMRTEntryPoint: "customFsMRT",
+		uniformBindings: [{ name: "time", type: "f32" }],
 	});
 
 	const singlePipeline = await getScenePipeline(library, backend,
@@ -315,6 +336,13 @@ async function testWGSLProgramSelection() {
 	assert.ok(moduleCodes.includes(WGSL_VERTEX));
 	assert.ok(moduleCodes.includes(WGSL_FRAGMENT_SINGLE));
 	assert.ok(moduleCodes.includes(WGSL_FRAGMENT_MRT));
+	assert.ok(
+		backend.shaderModules.some((module) =>
+			module.desc.generatedSourceBlocks?.some((block) =>
+				block.code.includes("@group(1) @binding(39)")
+			)
+		),
+	);
 
 	const pipelineCountBefore = backend.pipelines.length;
 	await getScenePipeline(library, backend,
@@ -1022,7 +1050,7 @@ function testTextureBindingAutoSlotAndUniformDefaults() {
 	);
 }
 
-function testTextureBindingInjectDirectivesDecoratePrograms() {
+function testTextureBindingGeneratedSourceBlocks() {
 	const material = new ShaderMaterial({
 		name: "InjectBindingMaterial",
 		chunks: [
@@ -1062,36 +1090,29 @@ function testTextureBindingInjectDirectivesDecoratePrograms() {
 		webglUniform: "uNoiseTex",
 	});
 
-	const webgpuWithoutInject = material.resolveWebGPUProgram("single");
-	assert.equal(
-		webgpuWithoutInject.fragmentCode.includes(
-			"ignis/material/texture-binding"
-		),
-		false
+	const webgpu = material.resolveWebGPUProgram("single");
+	assert.equal(webgpu.fragmentCode, WGSL_FRAGMENT_SINGLE);
+	const webgpuBlocks = createWebGPUShaderMaterialSourceBlocks(
+		material,
+		"fragment",
+		webgpu.fragmentCode,
 	);
-	const webgpuWithInject = material.resolveWebGPUProgram("single", {
-		enableRuntimeInjects: true,
-	});
-	assert.ok(
-		webgpuWithInject.fragmentCode.includes(
-			`#inject <ignis/material/texture-binding>(name="noise-map", slot=13`
-		)
-	);
+	const webgpuGenerated = webgpuBlocks.map((block) => block.code).join("\n");
+	assert.ok(webgpuGenerated.includes("@group(1) @binding(27)"));
+	assert.ok(webgpuGenerated.includes("@group(1) @binding(28)"));
+	assert.ok(webgpuGenerated.includes("ignisSampleTexture_noise_map"));
+	assert.ok(webgpuGenerated.includes("IGNIS_TEXTURE_UVSET_NOISE_MAP: u32 = 1u"));
 
-	const webglWithoutInject = material.resolveWebGLProgram();
-	assert.equal(
-		webglWithoutInject.fragmentCode.includes(
-			"ignis/material/texture-binding"
-		),
-		false
+	const webgl = material.resolveWebGLProgram();
+	assert.equal(webgl.fragmentCode, WEBGL_FRAGMENT);
+	const webglBlocks = createWebGLShaderMaterialSourceBlocks(
+		material,
+		"fragment",
+		webgl.fragmentCode,
 	);
-	const webglWithInject = material.resolveWebGLProgram({
-		enableRuntimeInjects: true,
-	});
-	assert.ok(webglWithInject.fragmentCode.trimStart().startsWith("#version 300 es"));
-	assert.ok(
-		webglWithInject.fragmentCode.includes('uniform="uNoiseTex"')
-	);
+	const webglGenerated = webglBlocks.map((block) => block.code).join("\n");
+	assert.ok(webglGenerated.includes("uniform sampler2D uNoiseTex;"));
+	assert.ok(webglGenerated.includes("ignisSampleTexture_noise_map"));
 }
 
 function testTextureBindingUvSetGreaterThanOneIsPreserved() {
@@ -1181,7 +1202,7 @@ function testUniformBindingDuplicateDiagnostics() {
 	);
 }
 
-function testUniformBindingInjectDirectivesDecoratePrograms() {
+function testUniformBindingGeneratedSourceBlocks() {
 	const material = new ShaderMaterial({
 		name: "UniformInjectMaterial",
 		chunks: [
@@ -1228,25 +1249,69 @@ function testUniformBindingInjectDirectivesDecoratePrograms() {
 		],
 	});
 
-	const webgpu = material.resolveWebGPUProgram("single", {
-		enableRuntimeInjects: true,
-	});
-	assert.ok(webgpu.vertexCode.includes("ignis/material/uniform-block"));
-	assert.ok(webgpu.vertexCode.includes("vertexTime:f32:uVertexTime"));
-	assert.ok(!webgpu.vertexCode.includes("fragmentTint:vec4f:uFragmentTint"));
-	assert.ok(webgpu.vertexCode.includes("__ignisPad_vertex_1:vec4f:uFragmentTint"));
-	assert.ok(webgpu.fragmentCode.includes("fragmentTint:vec4f:uFragmentTint"));
-	assert.ok(!webgpu.fragmentCode.includes("vertexTime:f32:uVertexTime"));
-	assert.ok(webgpu.fragmentCode.includes("__ignisPad_fragment_0:f32:uVertexTime"));
+	const webgpu = material.resolveWebGPUProgram("single");
+	const webgpuVertex = createWebGPUShaderMaterialSourceBlocks(
+		material,
+		"vertex",
+		webgpu.vertexCode,
+	).map((block) => block.code).join("\n");
+	const webgpuFragment = createWebGPUShaderMaterialSourceBlocks(
+		material,
+		"fragment",
+		webgpu.fragmentCode,
+	).map((block) => block.code).join("\n");
+	assert.ok(webgpuVertex.includes("vertexTime: f32"));
+	assert.ok(webgpuVertex.includes("__ignisPad_vertex_1: vec4<f32>"));
+	assert.ok(webgpuFragment.includes("fragmentTint: vec4<f32>"));
+	assert.ok(webgpuFragment.includes("__ignisPad_fragment_0: f32"));
+	assert.ok(webgpuFragment.includes("@group(1) @binding(39)"));
 
-	const webgl = material.resolveWebGLProgram({
-		enableRuntimeInjects: true,
+	const webgl = material.resolveWebGLProgram();
+	const webglVertex = createWebGLShaderMaterialSourceBlocks(
+		material,
+		"vertex",
+		webgl.vertexCode,
+	).map((block) => block.code).join("\n");
+	const webglFragment = createWebGLShaderMaterialSourceBlocks(
+		material,
+		"fragment",
+		webgl.fragmentCode,
+	).map((block) => block.code).join("\n");
+	assert.ok(webglVertex.includes("uniform float uVertexTime;"));
+	assert.equal(webglVertex.includes("uFragmentTint"), false);
+	assert.ok(webglFragment.includes("uniform vec4 uFragmentTint;"));
+	assert.equal(webglFragment.includes("uVertexTime"), false);
+	assert.equal(webglGeneratedIncludesPadding(webglVertex, webglFragment), false);
+}
+
+function webglGeneratedIncludesPadding(...sources) {
+	return sources.some((source) => source.includes("__ignisPad"));
+}
+
+function testGeneratedMaterialABIOwnershipRejectsRedeclarations() {
+	const material = new ShaderMaterial({
+		uniformBindings: [{ name: "time", type: "f32" }],
+		textureBindings: [{ name: "noise", texture: null, webglUniform: "uNoise" }],
 	});
-	assert.ok(webgl.vertexCode.trimStart().startsWith("#version 300 es"));
-	assert.ok(webgl.vertexCode.includes("vertexTime:f32:uVertexTime"));
-	assert.ok(!webgl.vertexCode.includes("__ignisPad"));
-	assert.ok(webgl.fragmentCode.includes("fragmentTint:vec4f:uFragmentTint"));
-	assert.ok(!webgl.fragmentCode.includes("__ignisPad"));
+	assert.throws(
+		() => createWebGPUShaderMaterialSourceBlocks(
+			material,
+			"fragment",
+			`@group(1) @binding(39) var<uniform> customUniforms: vec4<f32>;
+			@fragment fn fsMain() -> @location(0) vec4<f32> { return vec4<f32>(1.0); }`,
+		),
+		/redeclares reserved @group\(1\) @binding\(39\)/,
+	);
+	assert.throws(
+		() => createWebGLShaderMaterialSourceBlocks(
+			material,
+			"fragment",
+			`#version 300 es
+			uniform float uShaderUniform_time;
+			void main() {}`,
+		),
+		/redeclares generated uniform/,
+	);
 }
 
 async function run() {
@@ -1271,11 +1336,12 @@ async function run() {
 	testChunkBackendMustBeExplicit();
 	testChunkApiSupportsUnifiedShaderUpdates();
 	testTextureBindingAutoSlotAndUniformDefaults();
-	testTextureBindingInjectDirectivesDecoratePrograms();
+	testTextureBindingGeneratedSourceBlocks();
 	testTextureBindingUvSetGreaterThanOneIsPreserved();
 	testUniformBindingSchemaAndValueRevision();
 	testUniformBindingDuplicateDiagnostics();
-	testUniformBindingInjectDirectivesDecoratePrograms();
+	testUniformBindingGeneratedSourceBlocks();
+	testGeneratedMaterialABIOwnershipRejectsRedeclarations();
 	console.log("ShaderMaterial tests passed");
 }
 

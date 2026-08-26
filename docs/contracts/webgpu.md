@@ -14,6 +14,13 @@ lighting, presentation configuration, reflections, and structured buffer packing
 - Device restoration must rebuild the instance overlay, directive profile,
   compile stage, and dependent shader caches before the restored runtime is
   published.
+- WebGPU custom-material source augmentation must generate WGSL uniform,
+  texture, sampler, and sampling-helper declarations from resolved material
+  bindings. It must pass generated blocks through `ShaderBackendCompileStage`
+  rather than emitting engine-owned `#inject` directives.
+- WebGPU material ABI revision must participate in custom shader and pipeline
+  cache identity. Generated material blocks must be created only during shader
+  program resolution or cache miss, never during frame draw iteration.
 
 ### Internal frame graph
 

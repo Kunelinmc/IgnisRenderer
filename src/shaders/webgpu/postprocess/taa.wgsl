@@ -1,7 +1,4 @@
 #import <ignis/postprocess/luma-common>
-#define IGNIS_LUMA_PROFILE bt709
-#define IGNIS_LUMA_CLAMP false
-#inject <ignis/postprocess/luma>(profile=IGNIS_LUMA_PROFILE, clamp=IGNIS_LUMA_CLAMP)
 struct Params {
 	invSize: vec2<f32>,
 	historyWeight: f32,
@@ -251,8 +248,8 @@ fn csMain(@builtin(global_invocation_id) gid: vec3<u32>) {
 	let reprojectionErrorPx = max(reprojectionError.x, reprojectionError.y);
 	let reprojectionConfidence = 1.0 - smoothstep(0.75, 3.0, reprojectionErrorPx);
 
-	let currLuma = luma(curr.rgb);
-	let histLuma = luma(hist.rgb);
+	let currLuma = ignisLuma(curr.rgb, IGNIS_LUMA_WEIGHTS_BT709, false);
+	let histLuma = ignisLuma(hist.rgb, IGNIS_LUMA_WEIGHTS_BT709, false);
 	let lumaDiff = abs(currLuma - histLuma) / max(max(currLuma, histLuma), 1e-3);
 	let colorConfidence = 1.0 - smoothstep(0.12, 0.7, lumaDiff);
 

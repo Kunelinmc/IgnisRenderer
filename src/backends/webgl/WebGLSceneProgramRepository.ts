@@ -46,6 +46,23 @@ import {
 } from "./WebGLSceneSamplerLayout";
 import type { WebGLSceneProgram } from "./WebGLSceneProgram";
 import type { WebGLSceneProgramPlan } from "./WebGLSceneProgramPlanner";
+import {
+	createShaderMaterialSourceBlocks,
+	SHADER_MATERIAL_SOURCE_ABI_REVISION,
+} from "../../shaders/ShaderMaterialSource";
+
+function createWebGLShaderMaterialSourceBlocks(
+	material: ShaderMaterial,
+	stage: "vertex" | "fragment",
+	source: string,
+) {
+	return createShaderMaterialSourceBlocks({
+		material,
+		language: "glsl",
+		stage,
+		source,
+	});
+}
 
 export type { WebGLSceneProgram } from "./WebGLSceneProgram";
 
@@ -391,9 +408,7 @@ export class WebGLSceneProgramRepository {
 
 		let source: { vertexCode: string; fragmentCode: string };
 		try {
-			source = material.resolveWebGLProgram(mode, {
-				enableRuntimeInjects: this._supportsRuntimeInjects(),
-			});
+			source = material.resolveWebGLProgram(mode);
 		} catch (error) {
 			const key = `webgl-shader-material-missing-source-${material.shaderId}`;
 			const message =
@@ -418,6 +433,11 @@ export class WebGLSceneProgramRepository {
 							`<shader-material:${shaderKey}:vertex>`,
 							"source",
 						),
+						generatedSourceBlocks: createWebGLShaderMaterialSourceBlocks(
+							material,
+							"vertex",
+							source.vertexCode,
+						),
 						variantKey: shaderKey,
 						materialId: String(material.shaderId),
 						sourceKind: "custom-material",
@@ -427,6 +447,11 @@ export class WebGLSceneProgramRepository {
 							source.fragmentCode,
 							`<shader-material:${shaderKey}:fragment>`,
 							"source",
+						),
+						generatedSourceBlocks: createWebGLShaderMaterialSourceBlocks(
+							material,
+							"fragment",
+							source.fragmentCode,
 						),
 						variantKey: shaderKey,
 						materialId: String(material.shaderId),
@@ -513,9 +538,7 @@ export class WebGLSceneProgramRepository {
 			);
 		}
 
-		const source = material.resolveWebGLDepthPrepassProgram(mode, {
-			enableRuntimeInjects: this._supportsRuntimeInjects(),
-		});
+		const source = material.resolveWebGLDepthPrepassProgram(mode);
 		if (!source) {
 			this._warnMissingShaderMaterialDepthPrepassSource(material);
 			return null;
@@ -536,6 +559,11 @@ export class WebGLSceneProgramRepository {
 							`<shader-material:${shaderKey}:vertex-depth>`,
 							"source",
 						),
+						generatedSourceBlocks: createWebGLShaderMaterialSourceBlocks(
+							material,
+							"vertex",
+							source.vertexCode,
+						),
 						variantKey: shaderKey,
 						materialId: String(material.shaderId),
 						sourceKind: "custom-material",
@@ -545,6 +573,11 @@ export class WebGLSceneProgramRepository {
 							source.fragmentCode,
 							`<shader-material:${shaderKey}:fragment-depth>`,
 							"source",
+						),
+						generatedSourceBlocks: createWebGLShaderMaterialSourceBlocks(
+							material,
+							"fragment",
+							source.fragmentCode,
 						),
 						variantKey: shaderKey,
 						materialId: String(material.shaderId),
@@ -586,6 +619,7 @@ export class WebGLSceneProgramRepository {
 	): string {
 		return (
 			`${material.getWebGLCacheKey()}` +
+			`|abi:${SHADER_MATERIAL_SOURCE_ABI_REVISION}` +
 			`|mode:${mode}` +
 			`|runtime:${this._shaderRuntime?.revision ?? 0}` +
 			`|directive:${directiveTag}`
@@ -763,9 +797,7 @@ export class WebGLSceneProgramRepository {
 		let customSamplerUniforms: string[] = [];
 		let customUniforms: string[] = [];
 		try {
-			source = material.resolveWebGLProgram(mode, {
-				enableRuntimeInjects: this._supportsRuntimeInjects(),
-			});
+			source = material.resolveWebGLProgram(mode);
 			customSamplerUniforms = this._collectCustomSamplerUniforms(material);
 			customUniforms = this._collectCustomUniforms(material);
 		} catch (error) {
@@ -789,6 +821,11 @@ export class WebGLSceneProgramRepository {
 						`<shader-material:${shaderKey}:vertex>`,
 						"source",
 					),
+					generatedSourceBlocks: createWebGLShaderMaterialSourceBlocks(
+						material,
+						"vertex",
+						source.vertexCode,
+					),
 					variantKey: shaderKey,
 					materialId: String(material.shaderId),
 					sourceKind: "custom-material",
@@ -798,6 +835,11 @@ export class WebGLSceneProgramRepository {
 						source.fragmentCode,
 						`<shader-material:${shaderKey}:fragment>`,
 						"source",
+					),
+					generatedSourceBlocks: createWebGLShaderMaterialSourceBlocks(
+						material,
+						"fragment",
+						source.fragmentCode,
 					),
 					variantKey: shaderKey,
 					materialId: String(material.shaderId),
@@ -859,9 +901,7 @@ export class WebGLSceneProgramRepository {
 			return cached;
 		}
 
-		const source = material.resolveWebGLDepthPrepassProgram(mode, {
-			enableRuntimeInjects: this._supportsRuntimeInjects(),
-		});
+		const source = material.resolveWebGLDepthPrepassProgram(mode);
 		if (!source) {
 			this._warnMissingShaderMaterialDepthPrepassSource(material);
 			return null;
@@ -879,6 +919,11 @@ export class WebGLSceneProgramRepository {
 						`<shader-material:${shaderKey}:vertex-depth>`,
 						"source",
 					),
+					generatedSourceBlocks: createWebGLShaderMaterialSourceBlocks(
+						material,
+						"vertex",
+						source.vertexCode,
+					),
 					variantKey: shaderKey,
 					materialId: String(material.shaderId),
 					sourceKind: "custom-material",
@@ -888,6 +933,11 @@ export class WebGLSceneProgramRepository {
 						source.fragmentCode,
 						`<shader-material:${shaderKey}:fragment-depth>`,
 						"source",
+					),
+					generatedSourceBlocks: createWebGLShaderMaterialSourceBlocks(
+						material,
+						"fragment",
+						source.fragmentCode,
 					),
 					variantKey: shaderKey,
 					materialId: String(material.shaderId),
@@ -1055,10 +1105,6 @@ export class WebGLSceneProgramRepository {
 
 	private _isWarnMode(): boolean {
 		return this._shaderRuntime?.getMode() === "warn";
-	}
-
-	private _supportsRuntimeInjects(): boolean {
-		return this._shaderCompileStage !== null || this._shaderRuntime !== null;
 	}
 
 	private _collectCustomSamplerUniforms(material: ShaderMaterial): string[] {

@@ -1,5 +1,5 @@
 #include <ignis/postprocess/luma-weights>
-fn ignisLumaInternal(
+fn ignisLuma(
 	color: vec3<f32>,
 	weights: vec3<f32>,
 	clampInput: bool

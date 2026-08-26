@@ -1,9 +1,7 @@
 #import <ignis/postprocess/luma-common>
-#inject <ignis/postprocess/volumetric>()
 #import <ignis/webgpu/constants>
-#define IGNIS_LUMA_PROFILE bt709
-#define IGNIS_LUMA_CLAMP false
-#inject <ignis/postprocess/luma>(profile=IGNIS_LUMA_PROFILE, clamp=IGNIS_LUMA_CLAMP)
+
+const IGNIS_VOLUMETRIC_SIGMA_T_SCALE: f32 = 0.02;
 
 struct VolumetricLightData {
 	positionRange: vec4<f32>,
@@ -380,7 +378,10 @@ fn estimateLightWeight(
 		contribution = light.colorInner.xyz * attenuation * phase;
 	}
 
-	return max(luma(contribution), 0.0);
+	return max(
+		ignisLuma(contribution, IGNIS_LUMA_WEIGHTS_BT709, false),
+		0.0
+	);
 }
 
 fn evaluateLightAtSample(
@@ -868,9 +869,21 @@ fn csMain(@builtin(global_invocation_id) gid: vec3<u32>) {
 	);
 	let clampedPrevVolumetric = max(yCoCgToRgb(clampedPrevYCoCg), vec3<f32>(0.0));
 
-	let currLuma = luma(volumetricCurrent);
-	let clampedPrevLuma = luma(clampedPrevVolumetric);
-	let rawPrevLuma = luma(prevVolumetric.rgb);
+	let currLuma = ignisLuma(
+		volumetricCurrent,
+		IGNIS_LUMA_WEIGHTS_BT709,
+		false
+	);
+	let clampedPrevLuma = ignisLuma(
+		clampedPrevVolumetric,
+		IGNIS_LUMA_WEIGHTS_BT709,
+		false
+	);
+	let rawPrevLuma = ignisLuma(
+		prevVolumetric.rgb,
+		IGNIS_LUMA_WEIGHTS_BT709,
+		false
+	);
 	let clampedRelDiff =
 		abs(currLuma - clampedPrevLuma) / max(max(currLuma, clampedPrevLuma), 1e-3);
 	let rawRelDiff =

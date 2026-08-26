@@ -31,6 +31,7 @@ export class WebGPUShaderModuleCompiler {
 			desc.sourceMap?.segments[0]?.sourcePath ?? desc.label ?? "<webgpu-shader>";
 		return this._shaderCompileStage.compileAsync({
 			code: sanitizedCode,
+			generatedSourceBlocks: desc.generatedSourceBlocks,
 			language: desc.language ?? "wgsl",
 			stage: desc.stage ?? "unknown",
 			entryPoint: desc.entryPoint,

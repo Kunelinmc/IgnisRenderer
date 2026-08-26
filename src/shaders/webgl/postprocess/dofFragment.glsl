@@ -2,9 +2,6 @@
 precision highp float;
 #import <ignis/postprocess/luma-common>
 #import <ignis/webgl/constants>
-#define IGNIS_LUMA_PROFILE bt709
-#define IGNIS_LUMA_CLAMP true
-#inject <ignis/postprocess/luma>(profile=IGNIS_LUMA_PROFILE, clamp=IGNIS_LUMA_CLAMP)
 
 in vec2 vUv;
 
@@ -83,8 +80,11 @@ void main() {
 		vec4 sampleColor = texture(uSourceMap, sampleUv);
 		float sampleDepth = texture(uMotionDepthMap, sampleUv).z;
 		float gate = depthGate(centerDepth, sampleDepth, isFar);
-		float highlight =
-			max(luma(sampleColor.rgb) - uDOFParams.z, 0.0) * max(uDOFParams.w, 0.0);
+		float highlight = max(
+			ignisLuma(sampleColor.rgb, IGNIS_LUMA_WEIGHTS_BT709, true) -
+				uDOFParams.z,
+			0.0
+		) * max(uDOFParams.w, 0.0);
 		float sampleWeight = gate * (1.0 + highlight);
 		accum += sampleColor * sampleWeight;
 		weight += sampleWeight;

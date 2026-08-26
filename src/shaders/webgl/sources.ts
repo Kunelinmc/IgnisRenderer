@@ -187,6 +187,10 @@ const WEBGL_DIRECTIVE_SHADER_FILES: Record<
 	lumaCommon: "./webgl/directives/lumaCommon.glsl",
 };
 
+const WEBGL_SHADER_MATERIAL_FILES = {
+	textureHelpers: "./webgl/material/shaderMaterialTextureHelpers.glsl",
+} as const;
+
 const literal = (value: string | number | boolean): ShaderManifestExpression => ({ literal: value });
 const parameter = (path: string): ShaderManifestExpression => ({ parameter: path });
 const equals = (path: string, value: string): ShaderManifestExpression => ({
@@ -472,6 +476,15 @@ for (const [part, path] of Object.entries(WEBGL_DIRECTIVE_SHADER_FILES)) {
 		source: asset(id),
 	};
 }
+for (const [part, path] of Object.entries(WEBGL_SHADER_MATERIAL_FILES)) {
+	const id = `material.${part}`;
+	assets[id] = { path, sync: true };
+	sources[`webgl.material.${part}`] = {
+		kind: "module",
+		sourceKind: "custom-material",
+		source: asset(id),
+	};
+}
 
 const sceneVertex: ShaderSourceNode = {
 	template: asset("part.sceneVertex"),
@@ -591,8 +604,7 @@ export const WEBGL_SHADER_MANIFEST: ShaderBackendManifest = {
 	},
 	profile: {
 		baseId: "ignis/webgl-profile-base",
-		assetPackId: "ignis/webgl-directive-assets",
-		assetPackRevision: 1,
+		revision: 1,
 		includes: [
 			{ id: "ignis/webgl/animation.glsl", source: "webgl.directive.animation" },
 			{ id: "ignis/webgl/constants-base.glsl", source: "webgl.directive.constants" },
@@ -601,7 +613,6 @@ export const WEBGL_SHADER_MANIFEST: ShaderBackendManifest = {
 			{ id: "ignis/postprocess/luma-weights.glsl", source: "webgl.directive.lumaWeights" },
 			{ id: "ignis/postprocess/luma-common.glsl", source: "webgl.directive.lumaCommon" },
 		],
-		featurePacks: ["builtin-injections"],
 		overlay: {
 			id: "ignis/webgl-instance-overlay",
 			includeId: "ignis/webgl/constants.glsl",

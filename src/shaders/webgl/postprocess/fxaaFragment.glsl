@@ -1,10 +1,8 @@
 #version 300 es
 precision highp float;
 #import <ignis/postprocess/luma-common>
-#inject <ignis/postprocess/fxaa>()
-#define IGNIS_LUMA_PROFILE bt601
-#define IGNIS_LUMA_CLAMP false
-#inject <ignis/postprocess/luma>(profile=IGNIS_LUMA_PROFILE, clamp=IGNIS_LUMA_CLAMP)
+
+const float IGNIS_FXAA_EDGE_THRESHOLD_MIN = 0.03125;
 
 in vec2 vUv;
 
@@ -20,11 +18,11 @@ void main() {
 	vec3 rgbSE = texture(uSourceMap, vUv + vec2(1.0, 1.0) * uTexelSize).rgb;
 	vec3 rgbM = texture(uSourceMap, vUv).rgb;
 
-	float lumaNW = luma(rgbNW);
-	float lumaNE = luma(rgbNE);
-	float lumaSW = luma(rgbSW);
-	float lumaSE = luma(rgbSE);
-	float lumaM = luma(rgbM);
+	float lumaNW = ignisLuma(rgbNW, IGNIS_LUMA_WEIGHTS_BT601, false);
+	float lumaNE = ignisLuma(rgbNE, IGNIS_LUMA_WEIGHTS_BT601, false);
+	float lumaSW = ignisLuma(rgbSW, IGNIS_LUMA_WEIGHTS_BT601, false);
+	float lumaSE = ignisLuma(rgbSE, IGNIS_LUMA_WEIGHTS_BT601, false);
+	float lumaM = ignisLuma(rgbM, IGNIS_LUMA_WEIGHTS_BT601, false);
 
 	float lumaMin = min(lumaM, min(min(lumaNW, lumaNE), min(lumaSW, lumaSE)));
 	float lumaMax = max(lumaM, max(max(lumaNW, lumaNE), max(lumaSW, lumaSE)));
@@ -50,7 +48,7 @@ void main() {
 		texture(uSourceMap, vUv + dir * 0.5)
 	);
 
-	float lumaB = luma(rgbaB.rgb);
+	float lumaB = ignisLuma(rgbaB.rgb, IGNIS_LUMA_WEIGHTS_BT601, false);
 	vec4 filtered =
 		(lumaB < lumaMin || lumaB > lumaMax) ? rgbaA : rgbaB;
 	fragColor = vec4(max(filtered.rgb, vec3(0.0)), clamp(filtered.a, 0.0, 1.0));

@@ -141,10 +141,6 @@ export interface ResolvedWebGLDepthPrepassProgram {
 	fragmentCode: string;
 }
 
-export interface ShaderProgramResolveOptions {
-	enableRuntimeInjects?: boolean;
-}
-
 type ShaderChunkKey =
 	| "webgpu:wgsl:vertex"
 	| "webgpu:wgsl:fragment-single"
@@ -561,27 +557,16 @@ export class ShaderMaterial extends Material {
 	}
 
 	public resolveWebGPUProgram(
-		mode: ShaderTargetMode,
-		options: ShaderProgramResolveOptions = {}
+		mode: ShaderTargetMode
 	): ResolvedWebGPUShaderProgram {
 		const vertexSource = this._resolveWebGPUStageCode("vertex", mode);
-		const vertexCode = this._decorateShaderSource(
-			vertexSource.code,
-			"wgsl",
-			"vertex",
-			options.enableRuntimeInjects === true
-		);
+		const vertexCode = vertexSource.code;
 		const fragmentStage =
 			mode === "deferred" ? "fragment-deferred"
 			: mode === "mrt" ? "fragment-mrt"
 			: "fragment-single";
 		const fragmentSource = this._resolveWebGPUStageCode(fragmentStage, mode);
-		const fragmentCode = this._decorateShaderSource(
-			fragmentSource.code,
-			"wgsl",
-			"fragment",
-			options.enableRuntimeInjects === true
-		);
+		const fragmentCode = fragmentSource.code;
 		return {
 			vertexCode,
 			fragmentCode,
@@ -618,42 +603,26 @@ export class ShaderMaterial extends Material {
 	}
 
 	public resolveWebGPUDepthPrepassProgram(
-		mode: ShaderTargetMode,
-		options: ShaderProgramResolveOptions = {}
+		mode: ShaderTargetMode
 	): ResolvedWebGPUDepthPrepassProgram | null {
 		const vertexSource = this._resolveWebGPUStageCode("vertex", mode);
-		const vertexCode = this._decorateShaderSource(
-			vertexSource.code,
-			"wgsl",
-			"vertex",
-			options.enableRuntimeInjects === true
-		);
+		const vertexCode = vertexSource.code;
 		const rawDepthCode = this._resolveWebGPUDepthStageCode(mode);
 		if (!rawDepthCode) {
 			return null;
 		}
-		const fragmentCode = this._decorateShaderSource(
-			rawDepthCode,
-			"wgsl",
-			"fragment",
-			options.enableRuntimeInjects === true
-		);
 		return {
 			vertexCode,
-			fragmentCode,
+			fragmentCode: rawDepthCode,
 			vertexEntryPoint: this.vertexEntryPoint,
 			fragmentEntryPoint: this.depthFragmentEntryPoint,
 		};
 	}
 
 	public resolveWebGLProgram(
-		modeOrOptions: ShaderTargetMode | ShaderProgramResolveOptions = "single",
-		options?: ShaderProgramResolveOptions
+		mode: ShaderTargetMode = "single"
 	): ResolvedWebGLShaderProgram {
-		const { mode, resolveOptions } = this._resolveWebGLProgramArgs(
-			modeOrOptions,
-			options
-		);
+		this._assertWebGLTargetMode(mode);
 		const vertexCode =
 			this._chunks.get("webgl:glsl:vertex") ??
 			this._chunks.get("webgpu:glsl:vertex") ??
@@ -675,39 +644,23 @@ export class ShaderMaterial extends Material {
 		}
 
 		return {
-			vertexCode: this._decorateShaderSource(
-				vertexCode,
-				"glsl",
-				"vertex",
-				resolveOptions.enableRuntimeInjects === true
-			),
-			fragmentCode: this._decorateShaderSource(
-				rawFragmentCode,
-				"glsl",
-				"fragment",
-				resolveOptions.enableRuntimeInjects === true
-			),
+			vertexCode,
+			fragmentCode: rawFragmentCode,
 		};
 	}
 
 	/**
 	 * Resolves the opt-in WebGL depth pre-pass program for this material.
 	 *
-	 * @param modeOrOptions Scene target mode, or resolve options when using the
-	 * default single-target mode.
-	 * @param options Optional shader source decoration options.
-	 * @returns Decorated WebGL vertex and depth fragment sources, or `null` when
+	 * @param mode Scene target mode.
+	 * @returns WebGL vertex and depth fragment sources, or `null` when
 	 * the material has no WebGL-compatible depth pre-pass chunk.
 	 * @sideEffects None.
 	 */
 	public resolveWebGLDepthPrepassProgram(
-		modeOrOptions: ShaderTargetMode | ShaderProgramResolveOptions = "single",
-		options?: ShaderProgramResolveOptions
+		mode: ShaderTargetMode = "single"
 	): ResolvedWebGLDepthPrepassProgram | null {
-		const { resolveOptions } = this._resolveWebGLProgramArgs(
-			modeOrOptions,
-			options
-		);
+		this._assertWebGLTargetMode(mode);
 		const vertexCode =
 			this._chunks.get("webgl:glsl:vertex") ??
 			this._chunks.get("webgpu:glsl:vertex") ??
@@ -727,18 +680,8 @@ export class ShaderMaterial extends Material {
 		}
 
 		return {
-			vertexCode: this._decorateShaderSource(
-				vertexCode,
-				"glsl",
-				"vertex",
-				resolveOptions.enableRuntimeInjects === true
-			),
-			fragmentCode: this._decorateShaderSource(
-				rawDepthCode,
-				"glsl",
-				"fragment",
-				resolveOptions.enableRuntimeInjects === true
-			),
+			vertexCode,
+			fragmentCode: rawDepthCode,
 		};
 	}
 
@@ -1025,25 +968,6 @@ export class ShaderMaterial extends Material {
 		}
 	}
 
-	private _resolveWebGLProgramArgs(
-		modeOrOptions: ShaderTargetMode | ShaderProgramResolveOptions,
-		options?: ShaderProgramResolveOptions
-	): { mode: ShaderTargetMode; resolveOptions: ShaderProgramResolveOptions } {
-		if (typeof modeOrOptions === "string") {
-			if (modeOrOptions !== "single" && modeOrOptions !== "mrt") {
-				throw new Error(`Unsupported WebGL shader target mode "${modeOrOptions}".`);
-			}
-			return {
-				mode: modeOrOptions,
-				resolveOptions: options ?? {},
-			};
-		}
-		return {
-			mode: "single",
-			resolveOptions: modeOrOptions ?? {},
-		};
-	}
-
 	private _resolveWebGLStageCode(mode: ShaderTargetMode): string | null {
 		if (mode === "mrt") {
 			return (
@@ -1059,6 +983,12 @@ export class ShaderMaterial extends Material {
 			this._chunks.get("webgpu:glsl:fragment-single") ??
 			null
 		);
+	}
+
+	private _assertWebGLTargetMode(mode: ShaderTargetMode): void {
+		if (mode !== "single" && mode !== "mrt") {
+			throw new Error(`Unsupported WebGL shader target mode "${mode}".`);
+		}
 	}
 
 	private _normalizeTextureBinding(
@@ -1411,131 +1341,12 @@ export class ShaderMaterial extends Material {
 		}
 	}
 
-	private _buildTextureBindingInjectBlock(language: ShaderChunkLanguage): string {
-		const bindings = this._resolveTextureBindings();
-		if (bindings.length <= 0) {
-			return "";
-		}
-		return bindings
-			.map((binding) => this._buildTextureInjectDirective(language, binding))
-			.join("\n");
-	}
-
-	private _buildTextureInjectDirective(
-		_language: ShaderChunkLanguage,
-		binding: ResolvedShaderMaterialTextureBinding
-	): string {
-		const escapedName = this._escapeInjectString(binding.name);
-		const escapedUniform = this._escapeInjectString(binding.webglUniform);
-		return (
-			`#inject <ignis/material/texture-binding>(` +
-			`name="${escapedName}", ` +
-			`slot=${binding.slot}, ` +
-			`uv=${binding.uvSet}, ` +
-			`linear=${binding.linear ? "true" : "false"}, ` +
-			`uniform="${escapedUniform}")`
-		);
-	}
-
-	private _buildUniformBindingInjectBlock(
-		language: ShaderChunkLanguage,
-		stage: "vertex" | "fragment"
-	): string {
-		const allBindings = this._resolveUniformBindings();
-		const activeBindings = allBindings.filter(
-			(binding) => binding.stage === "both" || binding.stage === stage
-		);
-		if (activeBindings.length <= 0) {
-			return "";
-		}
-		const bindings =
-			language === "wgsl" ?
-				this._buildWGSLUniformLayoutBindings(allBindings, stage)
-			:	activeBindings;
-		const fields = bindings
-			.map((binding) =>
-				[
-					binding.wgslField,
-					binding.type,
-					binding.webglUniform,
-				].join(":")
-			)
-			.join(";");
-		return (
-			`#inject <ignis/material/uniform-block>(` +
-			`fields="${this._escapeInjectString(fields)}")`
-		);
-	}
-
-	private _decorateShaderSource(
-		code: string,
-		language: ShaderChunkLanguage,
-		stage: "vertex" | "fragment",
-		enableRuntimeInjects: boolean
-	): string {
-		if (!enableRuntimeInjects) {
-			return code;
-		}
-		const injectBlocks = [
-			this._buildUniformBindingInjectBlock(language, stage),
-			stage === "fragment" ? this._buildTextureBindingInjectBlock(language) : "",
-		].filter((block) => block.length > 0);
-		const injectBlock = injectBlocks.join("\n");
-		if (injectBlock.length <= 0) {
-			return code;
-		}
-
-		if (language === "glsl") {
-			const versionMatch = /^(\s*#version[^\n]*\n?)/.exec(code);
-			if (versionMatch) {
-				const prefix = versionMatch[1];
-				return `${prefix}${injectBlock}\n${code.slice(prefix.length)}`;
-			}
-		}
-		return `${injectBlock}\n${code}`;
-	}
-
-	private _buildWGSLUniformLayoutBindings(
-		bindings: ResolvedShaderMaterialUniformBinding[],
-		stage: "vertex" | "fragment"
-	): ResolvedShaderMaterialUniformBinding[] {
-		const usedFields = new Set(bindings.map((binding) => binding.wgslField));
-		return bindings.map((binding, index) => {
-			if (binding.stage === "both" || binding.stage === stage) {
-				return binding;
-			}
-			return {
-				...binding,
-				wgslField: this._createWGSLPaddingField(stage, index, usedFields),
-			};
-		});
-	}
-
-	private _createWGSLPaddingField(
-		stage: "vertex" | "fragment",
-		index: number,
-		usedFields: Set<string>
-	): string {
-		let suffix = 0;
-		let field = `__ignisPad_${stage}_${index}`;
-		while (usedFields.has(field)) {
-			suffix++;
-			field = `__ignisPad_${stage}_${index}_${suffix}`;
-		}
-		usedFields.add(field);
-		return field;
-	}
-
 	private _toIdentifierToken(value: string): string {
 		const sanitized = value.replace(/[^A-Za-z0-9_]/g, "_");
 		if (/^[A-Za-z_]/.test(sanitized)) {
 			return sanitized;
 		}
 		return `x_${sanitized}`;
-	}
-
-	private _escapeInjectString(value: string): string {
-		return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 	}
 
 	private _didChunkMapChange(nextChunks: Map<ShaderChunkKey, string>): boolean {

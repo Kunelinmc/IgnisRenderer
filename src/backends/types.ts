@@ -1,7 +1,10 @@
 /**
  * Universal Graphics Terminology for IgnisRenderer
  */
-import type { ShaderSourceSegmentMap } from "../shaders/runtime/types";
+import type {
+	ShaderGeneratedSourceBlock,
+	ShaderSourceSegmentMap,
+} from "../shaders/runtime/types";
 import type { TextureFormat } from "../core/TextureFormat";
 
 export enum BufferUsage {
@@ -97,6 +100,8 @@ export interface TextureDesc {
 
 export interface ShaderModuleDesc {
 	code: string;
+	/** @internal Backend-generated declarations applied after directive preprocessing. */
+	generatedSourceBlocks?: readonly ShaderGeneratedSourceBlock[];
 	/** Optional source map used to map compiler diagnostics back to source segments */
 	sourceMap?: ShaderSourceSegmentMap | null;
 	/** Optional precomputed hash/fingerprint for shader module caching */

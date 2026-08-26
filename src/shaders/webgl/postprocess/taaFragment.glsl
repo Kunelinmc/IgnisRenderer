@@ -2,9 +2,6 @@
 precision highp float;
 #import <ignis/webgl/constants>
 #import <ignis/postprocess/luma-common>
-#define IGNIS_LUMA_PROFILE bt709
-#define IGNIS_LUMA_CLAMP false
-#inject <ignis/postprocess/luma>(profile=IGNIS_LUMA_PROFILE, clamp=IGNIS_LUMA_CLAMP)
 
 in vec2 vUv;
 
@@ -116,8 +113,8 @@ void main() {
 	float reprojectionErrorPx = max(reprojectionError.x, reprojectionError.y);
 	float reprojectionConfidence = 1.0 - smoothstep(0.75, 3.0, reprojectionErrorPx);
 
-	float currLuma = luma(curr.rgb);
-	float histLuma = luma(hist.rgb);
+	float currLuma = ignisLuma(curr.rgb, IGNIS_LUMA_WEIGHTS_BT709, false);
+	float histLuma = ignisLuma(hist.rgb, IGNIS_LUMA_WEIGHTS_BT709, false);
 	float lumaDiff = abs(currLuma - histLuma) / max(max(currLuma, histLuma), 1e-3);
 	float colorConfidence = 1.0 - smoothstep(0.12, 0.7, lumaDiff);
 

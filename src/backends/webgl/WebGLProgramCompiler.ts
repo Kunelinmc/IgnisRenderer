@@ -5,6 +5,7 @@ import {
 	createInlineShaderSourceMap,
 	parseWebGLShaderInfoLog,
 	type ShaderCompilerMessage,
+	type ShaderGeneratedSourceBlock,
 	type ShaderProcessResult,
 	type ShaderRuntime,
 	type ShaderSourceKind,
@@ -17,6 +18,7 @@ export interface WebGLProgramResource {
 
 export interface WebGLShaderCompileMetadata {
 	readonly sourceMap?: ShaderSourceSegmentMap | null;
+	readonly generatedSourceBlocks?: readonly ShaderGeneratedSourceBlock[];
 	readonly variantKey?: string;
 	readonly materialId?: string;
 	readonly sourceKind?: ShaderSourceKind;
@@ -646,7 +648,8 @@ export class WebGLProgramCompiler {
 			stage,
 			sourceKind,
 			label,
-			metadata?.sourceMap
+			metadata?.sourceMap,
+			metadata?.generatedSourceBlocks,
 		);
 		if (processed.hasErrors) {
 			this._reportShaderRuntimeDiagnostics(label, processed);
@@ -698,13 +701,15 @@ export class WebGLProgramCompiler {
 		stage: "vertex" | "fragment",
 		sourceKind: ShaderSourceKind,
 		label: string,
-		sourceMap?: ShaderSourceSegmentMap | null
+		sourceMap?: ShaderSourceSegmentMap | null,
+		generatedSourceBlocks?: readonly ShaderGeneratedSourceBlock[],
 	): ShaderProcessResult {
 		const directiveSourcePath =
 			sourceMap?.segments[0]?.sourcePath ?? label ?? "<webgl-shader>";
 		if (this._shaderCompileStage) {
 			return this._shaderCompileStage.compile({
 				code: source,
+				generatedSourceBlocks,
 				language: "glsl",
 				stage,
 				entryPoint: "main",

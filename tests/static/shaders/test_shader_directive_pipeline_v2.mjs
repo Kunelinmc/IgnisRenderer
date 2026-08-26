@@ -51,6 +51,7 @@ function compileSceneVertex(stage, code, extra = {}) {
 		sourceKind: extra.sourceKind ?? "builtin-scene",
 		directiveSourcePath:
 			extra.directiveSourcePath ?? "./parts/testDirectivePipeline.glsl",
+		generatedSourceBlocks: extra.generatedSourceBlocks,
 	});
 }
 
@@ -65,6 +66,7 @@ function compileSceneVertexAsync(stage, code, extra = {}) {
 		sourceKind: extra.sourceKind ?? "builtin-scene",
 		directiveSourcePath:
 			extra.directiveSourcePath ?? "./parts/testDirectivePipelineAsync.glsl",
+		generatedSourceBlocks: extra.generatedSourceBlocks,
 	});
 }
 
@@ -72,7 +74,8 @@ function testProfileCompositionValidationAndFingerprint() {
 	const base = {
 		id: "test/base",
 		backend: "webgl",
-		packs: [],
+		revision: 1,
+		includeModules: [],
 	};
 	const overlay = {
 		id: "test/overlay",
@@ -106,17 +109,9 @@ function testProfileCompositionValidationAndFingerprint() {
 			composeShaderDirectiveProfile(
 				{
 					...base,
-					packs: [
-						{
-							id: "duplicate-modules",
-							backend: "webgl",
-							revision: 1,
-							includeModules: [
-								{ language: "glsl", id: "same", code: "a" },
-								{ language: "glsl", id: "same", code: "b" },
-							],
-							injectionScripts: [],
-						},
+					includeModules: [
+						{ language: "glsl", id: "same", code: "a" },
+						{ language: "glsl", id: "same", code: "b" },
 					],
 				},
 				overlay,
@@ -432,18 +427,19 @@ void main() {
 	);
 }
 
-function testLumaInjectionExpandsToConcreteWeightsForGLSL() {
+function testStaticLumaIncludeExpandsForGLSL() {
 	const { stage } = createStage();
 	const result = stage.compile({
 		code: `#version 300 es
 precision highp float;
 #import <ignis/postprocess/luma-common>
-#define IGNIS_LUMA_PROFILE bt709
-#define IGNIS_LUMA_CLAMP false
-#inject <ignis/postprocess/luma>(profile=IGNIS_LUMA_PROFILE, clamp=IGNIS_LUMA_CLAMP)
 out vec4 fragColor;
 void main() {
-	float lum = luma(vec3(1.0, 1.0, 1.0));
+	float lum = ignisLuma(
+		vec3(1.0, 1.0, 1.0),
+		IGNIS_LUMA_WEIGHTS_BT709,
+		false
+	);
 	fragColor = vec4(vec3(lum), 1.0);
 }`,
 		language: "glsl",
@@ -456,6 +452,47 @@ void main() {
 	assert.equal(result.hasErrors, false);
 	assert.ok(result.code.includes("vec3(0.2126, 0.7152, 0.0722)"));
 	assert.equal(result.code.includes("IGNIS_LUMA_WEIGHTS_BT709"), false);
+}
+
+async function testGeneratedSourceBlocksComposeBetweenStages() {
+	const { stage } = createStage();
+	const code = `#version 300 es
+precision highp float;
+void main() {
+	gl_Position = vec4(GENERATED_VALUE, 0.0, 0.0, 1.0);
+}`;
+	const generatedSourceBlocks = [{
+		code: "const float GENERATED_VALUE = 1.0;",
+		sourcePath: "<generated:test:value>",
+		label: "test-generated-value",
+		anchor: "afterPrecision",
+	}];
+	const syncResult = compileSceneVertex(stage, code, {
+		label: "GeneratedSourceBlocks",
+		generatedSourceBlocks,
+	});
+	const asyncResult = await compileSceneVertexAsync(stage, code, {
+		label: "GeneratedSourceBlocks",
+		generatedSourceBlocks,
+	});
+	assert.equal(syncResult.code, asyncResult.code);
+	assert.ok(syncResult.code.includes("const float GENERATED_VALUE = 1.0;"));
+	assert.ok(
+		syncResult.sourceMap.segments.some(
+			(segment) =>
+				segment.kind === "generated" &&
+				segment.sourcePath === "<generated:test:value>",
+		),
+	);
+	const changed = compileSceneVertex(stage, code, {
+		label: "GeneratedSourceBlocks",
+		generatedSourceBlocks: [{
+			...generatedSourceBlocks[0],
+			code: "const float GENERATED_VALUE = 2.0;",
+		}],
+	});
+	assert.ok(changed.code.includes("const float GENERATED_VALUE = 2.0;"));
+	assert.equal(changed.code.includes("GENERATED_VALUE = 1.0"), false);
 }
 
 function testWebGLLightLimitConstantsExpandFromRuntimeProfile() {
@@ -613,11 +650,12 @@ async function run() {
 		testDirectiveFingerprintChangeTriggersCacheMiss();
 		testSourceMapSchemaVersionNormalization();
 		testAsyncHookFallbackByMode();
-		testLumaInjectionExpandsToConcreteWeightsForGLSL();
+		testStaticLumaIncludeExpandsForGLSL();
 		testWebGLLightLimitConstantsExpandFromRuntimeProfile();
 		testWebGLAnimationIncludeExpandsFromRuntimeProfile();
 		await testCompileAsyncUsesAsyncDirectivePreprocessPath();
 		await testCompileAsyncUsesAsyncRuntimeProcessPath();
+		await testGeneratedSourceBlocksComposeBetweenStages();
 		console.log("Shader directive pipeline v2 tests passed");
 	} finally {
 		Logger.reset();

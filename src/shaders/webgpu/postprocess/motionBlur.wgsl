@@ -1,8 +1,5 @@
 #import <ignis/postprocess/luma-common>
 #import <ignis/webgpu/constants>
-#define IGNIS_LUMA_PROFILE bt709
-#define IGNIS_LUMA_CLAMP true
-#inject <ignis/postprocess/luma>(profile=IGNIS_LUMA_PROFILE, clamp=IGNIS_LUMA_CLAMP)
 struct Params {
 	invSize: vec2<f32>,
 	shutterScale: f32,
@@ -61,7 +58,7 @@ fn csMain(@builtin(global_invocation_id) gid: vec3<u32>) {
 	let centerWeight = max(params.centerWeight, 0.0);
 	var accum = source * centerWeight;
 	var weight = centerWeight;
-	let sourceLuma = luma(source.rgb);
+	let sourceLuma = ignisLuma(source.rgb, IGNIS_LUMA_WEIGHTS_BT709, true);
 	let safeSourceLuma = max(sourceLuma, 1e-4);
 	let uvMin = params.invSize * 0.5;
 	let uvMax = vec2<f32>(1.0) - uvMin;
@@ -81,9 +78,19 @@ fn csMain(@builtin(global_invocation_id) gid: vec3<u32>) {
 
 		let motionWeight = 1.0 - t * 0.85;
 		let lumaWeightA = 0.5 +
-			0.5 * clamp(luma(sampleA.rgb) / safeSourceLuma, 0.0, 1.5);
+			0.5 * clamp(
+				ignisLuma(sampleA.rgb, IGNIS_LUMA_WEIGHTS_BT709, true) /
+					safeSourceLuma,
+				0.0,
+				1.5
+			);
 		let lumaWeightB = 0.5 +
-			0.5 * clamp(luma(sampleB.rgb) / safeSourceLuma, 0.0, 1.5);
+			0.5 * clamp(
+				ignisLuma(sampleB.rgb, IGNIS_LUMA_WEIGHTS_BT709, true) /
+					safeSourceLuma,
+				0.0,
+				1.5
+			);
 		let weightA =
 			motionWeight * depthConfidence(centerDepth, depthA) * lumaWeightA;
 		let weightB =

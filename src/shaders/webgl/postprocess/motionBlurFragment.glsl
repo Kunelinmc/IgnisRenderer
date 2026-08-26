@@ -2,9 +2,6 @@
 precision highp float;
 #import <ignis/postprocess/luma-common>
 #import <ignis/webgl/constants>
-#define IGNIS_LUMA_PROFILE bt709
-#define IGNIS_LUMA_CLAMP true
-#inject <ignis/postprocess/luma>(profile=IGNIS_LUMA_PROFILE, clamp=IGNIS_LUMA_CLAMP)
 
 in vec2 vUv;
 
@@ -52,7 +49,7 @@ void main() {
 
 	vec4 accum = source * max(uCenterWeight, 0.0);
 	float weight = max(uCenterWeight, 0.0);
-	float sourceLuma = luma(source.rgb);
+	float sourceLuma = ignisLuma(source.rgb, IGNIS_LUMA_WEIGHTS_BT709, true);
 	vec2 uvMin = uTexelSize * 0.5;
 	vec2 uvMax = vec2(1.0) - uTexelSize * 0.5;
 
@@ -71,10 +68,18 @@ void main() {
 		float depthB = texture(uMotionDepthMap, uvB).z;
 
 		float motionWeight = 1.0 - t * 0.85;
-		float lumaWeightA = 0.5 +
-			0.5 * clamp(luma(sampleA.rgb) / max(sourceLuma, 1e-4), 0.0, 1.5);
-		float lumaWeightB = 0.5 +
-			0.5 * clamp(luma(sampleB.rgb) / max(sourceLuma, 1e-4), 0.0, 1.5);
+		float lumaWeightA = 0.5 + 0.5 * clamp(
+			ignisLuma(sampleA.rgb, IGNIS_LUMA_WEIGHTS_BT709, true) /
+				max(sourceLuma, 1e-4),
+			0.0,
+			1.5
+		);
+		float lumaWeightB = 0.5 + 0.5 * clamp(
+			ignisLuma(sampleB.rgb, IGNIS_LUMA_WEIGHTS_BT709, true) /
+				max(sourceLuma, 1e-4),
+			0.0,
+			1.5
+		);
 		float weightA =
 			motionWeight * depthConfidence(centerDepth, depthA) * lumaWeightA;
 		float weightB =

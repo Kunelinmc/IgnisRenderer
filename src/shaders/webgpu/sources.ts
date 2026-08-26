@@ -220,6 +220,10 @@ const WEBGPU_DIRECTIVE_SHADER_FILES: Record<
 	lumaCommon: "./webgpu/directives/lumaCommon.wgsl",
 };
 
+const WEBGPU_SHADER_MATERIAL_FILES = {
+	textureHelpers: "./webgpu/material/shaderMaterialTextureHelpers.wgsl",
+} as const;
+
 const asset = (id: string): ShaderSourceNode => ({ asset: id });
 const concat = (
 	ids: readonly string[],
@@ -280,6 +284,15 @@ for (const [part, path] of Object.entries(WEBGPU_DIRECTIVE_SHADER_FILES)) {
 	sources[`webgpu.directive.${part}`] = {
 		kind: "module",
 		sourceKind: "unknown",
+		source: asset(id),
+	};
+}
+for (const [part, path] of Object.entries(WEBGPU_SHADER_MATERIAL_FILES)) {
+	const id = `material.${part}`;
+	assets[id] = { path, sync: true };
+	sources[`webgpu.material.${part}`] = {
+		kind: "module",
+		sourceKind: "custom-material",
 		source: asset(id),
 	};
 }
@@ -351,8 +364,7 @@ export const WEBGPU_SHADER_MANIFEST: ShaderBackendManifest = {
 	},
 	profile: {
 		baseId: "ignis/webgpu-profile-base",
-		assetPackId: "ignis/webgpu-directive-assets",
-		assetPackRevision: 1,
+		revision: 1,
 		includes: [
 			{ id: "ignis/webgpu/constants-base.wgsl", source: "webgpu.directive.constants" },
 			{ id: "ignis/color/srgb.wgsl", source: "webgpu.directive.srgb" },
@@ -360,7 +372,6 @@ export const WEBGPU_SHADER_MANIFEST: ShaderBackendManifest = {
 			{ id: "ignis/postprocess/luma-weights.wgsl", source: "webgpu.directive.lumaWeights" },
 			{ id: "ignis/postprocess/luma-common.wgsl", source: "webgpu.directive.lumaCommon" },
 		],
-		featurePacks: ["builtin-injections"],
 		overlay: {
 			id: "ignis/webgpu-instance-overlay",
 			includeId: "ignis/webgpu/constants.wgsl",

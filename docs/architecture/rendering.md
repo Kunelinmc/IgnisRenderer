@@ -96,11 +96,12 @@ manifest. `ShaderSource` interprets those manifests and owns source loading and
 caching. Backend services derive specialization parameters but must not rewrite
 built-in shader text directly.
 
-Directive profiles follow the same ownership boundary. Backend-applicable
-feature packs provide prepared static modules and injection scripts, while each
-backend instance contributes a capability-resolved overlay. The generic shader
-runtime composes and executes the supplied profile but does not construct
-WebGPU, WebGL, or Software profiles.
+Directive profiles follow the same ownership boundary. Prepared static bases
+provide asset-backed include modules, while each backend instance contributes a
+capability-resolved overlay. Backend material compilers may add structured
+generated source blocks between directive expansion and runtime validation.
+The generic shader runtime composes and executes supplied inputs but does not
+construct WebGPU, WebGL, or Software profiles or material ABI declarations.
 
 ## Lighting and Materials
 
