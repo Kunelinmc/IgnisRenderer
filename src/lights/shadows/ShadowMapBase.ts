@@ -305,7 +305,7 @@ const BIAS_NORMALIZERS: SettingNormalizers<Required<ShadowBiasSettings>> = {
 };
 
 const SAMPLING_NORMALIZERS: SettingNormalizers<Required<ShadowSamplingSettings>> = {
-	filterMode: (value) => value === "vsm" ? "vsm" : "pcf",
+	filterMode: () => "pcf",
 	pcfRadius: (value) => toFiniteNumber(value, 1),
 	strength: (value) => toFiniteNumber(value, 1),
 	radius: (value) => toFiniteNumber(value, 0),

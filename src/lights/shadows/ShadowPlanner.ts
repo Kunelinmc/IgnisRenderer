@@ -699,8 +699,7 @@ function isShadowCastingLight(light: SceneLight): light is ShadowCastingLight {
 }
 
 function isBuiltinKind(kind: string): boolean {
-	return kind === "single" || kind === "variance" || kind === "cascaded" ||
-		kind === "paged-shadow";
+	return kind === "single" || kind === "cascaded" || kind === "paged-shadow";
 }
 
 function lightTypeKey(

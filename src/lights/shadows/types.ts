@@ -3,8 +3,8 @@ import type { IVector3 } from "../../maths/types";
 import type { ShadowCastingLight } from "..";
 import type { ShadowMapBase } from "./ShadowMapBase";
 
-export type ShadowMapKind = "single" | "variance" | "cascaded" | "paged-shadow";
-export type ShadowFilterMode = "pcf" | "vsm";
+export type ShadowMapKind = "single" | "cascaded" | "paged-shadow";
+export type ShadowFilterMode = "pcf";
 export type ShadowBoundLightType = "directional" | "point" | "spot" | "rectArea";
 
 export interface ShadowBiasSettings {

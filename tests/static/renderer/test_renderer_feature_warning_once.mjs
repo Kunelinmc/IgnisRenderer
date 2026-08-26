@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { Camera } from "../../../src/cameras/Camera.ts";
 import { Logger } from "../../../src/foundation/Logger.ts";
-import { DirectionalLight } from "../../../src/lights/DirectionalLight.ts";
+import { SpotLight } from "../../../src/lights/SpotLight.ts";
 import { Renderer } from "../../../src/rendering/Renderer.ts";
 import {
 	installNoopPostProcessAdapter,
@@ -91,15 +91,15 @@ async function run() {
 		shadowRenderer.features.enableReflection = false;
 		shadowRenderer.features.enableEnvironment = false;
 		shadowRenderer.postProcess.getPass("gamma")?.disable();
-		const sun = shadowRenderer.scene.add(new DirectionalLight());
-		const definition = shadowRenderer.scene.shadows.createVariance();
-		shadowRenderer.scene.shadows.bind(sun, definition);
+		const spot = shadowRenderer.scene.add(new SpotLight());
+		const definition = shadowRenderer.scene.shadows.createCascaded();
+		shadowRenderer.scene.shadows.bind(spot, definition);
 
 		await shadowRenderer.renderFrame(32);
 		await shadowRenderer.renderFrame(48);
 
 		const shadowWarnings = warnings.filter((warning) =>
-			warning.includes("[webgpu-shadow-filter-fallback-")
+			warning.includes("[webgpu-shadow-projection-fallback-")
 		);
 		assert.equal(shadowWarnings.length, 1);
 

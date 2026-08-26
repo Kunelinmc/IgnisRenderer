@@ -177,7 +177,7 @@ binding `8`.
 
 ## Shadow Definitions and Planning
 
-The built-in `scene.shadows.createSingle`, `createVariance`,
+The built-in `scene.shadows.createSingle`,
 `createCascaded`, `createPaged`, and `bind` workflows remain supported. Built-in
 shadow objects are definition facades; backend-native textures and residency
 are owned by the attached backend runtime.

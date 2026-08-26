@@ -11,12 +11,12 @@ frame lifecycle and backend resource ownership rules.
 
 Applications configure built-in definitions through `scene.shadows`.
 
-`createSingle()`, `createVariance()`, `createCascaded()`, `createPaged()`,
+`createSingle()`, `createCascaded()`, `createPaged()`,
 `bind()`, `unbindLight()`, `destroy()`, `clear()`, and `getBoundShadowMap()`
 are the supported authoring and lifecycle API. Built-in definitions keep their
 observable properties and `update()` method.
 
-`ShadowMapKind` is limited to `"single"`, `"variance"`, `"cascaded"`, and
+`ShadowMapKind` is limited to `"single"`, `"cascaded"`, and
 `"paged-shadow"`. Custom registry entries and public definition subclasses are
 not supported.
 

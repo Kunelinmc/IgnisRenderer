@@ -6,7 +6,6 @@ import {
 import { PagedShadowMap, type PagedShadowMapOptions } from "./PagedShadowMap";
 import { ShadowMapBase, type ShadowMapBaseOptions } from "./ShadowMapBase";
 import { SingleShadowMap } from "./SingleShadowMap";
-import { VarianceShadowMap, type VarianceShadowMapOptions } from "./VarianceShadowMap";
 
 /** @internal Scene owns this invalidation bridge. */
 export interface ShadowManagerOptions {
@@ -28,10 +27,6 @@ export class ShadowManager {
 
 	public createSingle(options: ShadowMapBaseOptions = {}): SingleShadowMap {
 		return this._track(new SingleShadowMap(options));
-	}
-
-	public createVariance(options: VarianceShadowMapOptions = {}): VarianceShadowMap {
-		return this._track(new VarianceShadowMap(options));
 	}
 
 	public createCascaded(options: CascadedShadowMapOptions = {}): CascadedShadowMap {

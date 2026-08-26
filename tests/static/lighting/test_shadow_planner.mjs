@@ -57,17 +57,17 @@ function planScene(scene, options = {}) {
 	}, plannerState);
 }
 
-function testCapabilityAndFilterFallbacksAreExplicit() {
+function testCapabilityFallbacksAreExplicit() {
 	const scene = new Scene();
-	const sun = scene.add(new DirectionalLight({ intensity: 2 }));
+	const spot = scene.add(new SpotLight({ intensity: 2 }));
 	const point = scene.add(new PointLight({ intensity: 10 }));
-	scene.shadows.bind(sun, scene.shadows.createVariance({ priority: 1 }));
+	scene.shadows.bind(spot, scene.shadows.createCascaded({ priority: 1 }));
 	scene.shadows.bind(point, scene.shadows.createSingle({ priority: 100 }));
 
 	const plan = planScene(scene);
-	assert.deepEqual(plan.lights.map((light) => light.lightId), [sun.id]);
+	assert.deepEqual(plan.lights.map((light) => light.lightId), [spot.id]);
 	assert.equal(plan.lights[0].filterMode, "pcf");
-	assert.ok(plan.diagnostics.some((item) => item.code === "filter-fallback"));
+	assert.ok(plan.diagnostics.some((item) => item.code === "projection-fallback"));
 	assert.ok(plan.diagnostics.some((item) =>
 		item.code === "unsupported-light-type" && item.lightId === point.id
 	));
@@ -228,7 +228,7 @@ function testPlanStaysImmutableAcrossPlanningFrames() {
 }
 
 function run() {
-	testCapabilityAndFilterFallbacksAreExplicit();
+	testCapabilityFallbacksAreExplicit();
 	testBudgetDegradesCascadeBeforeResolution();
 	testPagedJobsAreExplicitAndCasterGated();
 	testPagedStorageIsDirectionalOnly();

@@ -31,7 +31,6 @@ function testBuiltInDefinitionLifecycle() {
 function testBuiltInKindsAndPagedSnapshot() {
 	const scene = new Scene();
 	assert.equal(scene.shadows.createSingle().kind, "single");
-	assert.equal(scene.shadows.createVariance().kind, "variance");
 	assert.equal(scene.shadows.createCascaded().kind, "cascaded");
 	const paged = scene.shadows.createPaged({ pageSize: 128, virtualResolution: 4096 });
 	const settings = paged.snapshot().pagedSettings;
