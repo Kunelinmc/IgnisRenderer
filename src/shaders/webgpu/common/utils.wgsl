@@ -1818,13 +1818,21 @@ fn sampleShadowVisibilityForCascade(
 	let maxNormalBias = max(shadowData.paramsA.z, 0.0);
 	let minNormalBias = max(shadowData.paramsA.w, 0.0);
 	let cosTheta = max(dot(normal, lightDirection), 0.0);
-	let bias = max(shadowData.paramsA.y + slopeBias * (1.0 - cosTheta), 0.0);
+	let rawBias = max(shadowData.paramsA.y + slopeBias * (1.0 - cosTheta), 0.0);
 	let normalBias = minNormalBias + (maxNormalBias - minNormalBias) * (1.0 - cosTheta);
 	let shadowWorldPosition = worldPosition + normal * normalBias;
 	var shadowMatrix = shadowData.viewProjection;
 	if (isCSM) {
 		shadowMatrix = shadowData.cascadeViewProjections[clampedCascadeIndex];
 	}
+	let shadowClipDepthRow = vec3<f32>(
+		shadowMatrix[0][2],
+		shadowMatrix[1][2],
+		shadowMatrix[2][2]
+	);
+	let cascadeDepthBiasScale = min(1.0, length(shadowClipDepthRow) * 0.5);
+	let compensateCascadeDepthRange = isCSM && shadowType == 0u;
+	let bias = rawBias * select(1.0, cascadeDepthBiasScale, compensateCascadeDepthRange);
 	let shadowClip = shadowMatrix * vec4<f32>(shadowWorldPosition, 1.0);
 	if (shadowClip.w <= EPSILON) {
 		return vec3<f32>(1.0);

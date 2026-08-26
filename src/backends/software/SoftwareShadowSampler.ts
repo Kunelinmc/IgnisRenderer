@@ -175,6 +175,16 @@ function getVogelSample(index: number, numSamples: number, theta: number) {
 	return { x: r * Math.cos(angle), y: r * Math.sin(angle) };
 }
 
+function resolveDirectionalCascadeDepthBiasScale(viewProjection: Matrix4): number {
+	const row = viewProjection.elements[2];
+	const reciprocalDepthRange = Math.hypot(row[0], row[1], row[2]) * 0.5;
+	if (!Number.isFinite(reciprocalDepthRange) || reciprocalDepthRange <= 0) {
+		return 1;
+	}
+	return Math.min(1, reciprocalDepthRange);
+}
+
+
 function calculateShadowFactor(ctx: SoftwareShadowSampleContext): RGB {
 	const { worldPoint, normal, shadow, slice, runtimeTarget } = ctx;
 	const {
@@ -257,7 +267,7 @@ function calculateShadowFactor(ctx: SoftwareShadowSampleContext): RGB {
 		return (m[2][3] - zNdc) / m[2][2];
 	};
 
-	const bias = normal
+	const rawBias = normal
 		? Math.min(
 				maxBias,
 				constantBias +
@@ -265,6 +275,11 @@ function calculateShadowFactor(ctx: SoftwareShadowSampleContext): RGB {
 					texelBias,
 			)
 		: Math.min(maxBias, constantBias + texelBias);
+	const depthBiasScale =
+		shadow.effectiveTechnique === "cascaded" && shadow.slices.length > 1 && !isPerspective
+			? Math.min(1, resolveDirectionalCascadeDepthBiasScale(viewProjectionMatrix) * 2)
+			: 1;
+	const bias = rawBias * depthBiasScale;
 
 	const strength = clamp(params.strength ?? 1.0);
 	const pcfRadiusParams = params.radius ?? 0;

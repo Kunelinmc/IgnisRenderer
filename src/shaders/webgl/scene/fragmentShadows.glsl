@@ -124,7 +124,17 @@ vec3 sampleShadowVisibility(
 	float maxNormalBias = max(paramsA.z, 0.0);
 	float minNormalBias = max(paramsA.w, 0.0);
 	float cosTheta = max(dot(normal, lightDirection), 0.0);
-	float bias = max(paramsA.y + slopeBias * (1.0 - cosTheta), 0.0);
+	float rawBias = max(paramsA.y + slopeBias * (1.0 - cosTheta), 0.0);
+	bool compensateCascadeDepthRange =
+		shadowType == 0 && paramsC.y > 0.5 && paramsC.z > 1.5;
+	vec3 shadowClipDepthRow = vec3(
+		shadowViewProjection[0][2],
+		shadowViewProjection[1][2],
+		shadowViewProjection[2][2]
+	);
+	float cascadeDepthBiasScale = min(1.0, length(shadowClipDepthRow) * 0.5);
+	float bias = rawBias *
+		(compensateCascadeDepthRange ? cascadeDepthBiasScale : 1.0);
 	float normalBias = mix(minNormalBias, maxNormalBias, 1.0 - cosTheta);
 	vec3 shadowWorldPosition = worldPosition + normal * normalBias;
 	vec4 shadowClip = shadowViewProjection * vec4(shadowWorldPosition, 1.0);

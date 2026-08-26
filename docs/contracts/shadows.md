@@ -49,6 +49,16 @@ faces per cascade. Cascade counts are clamped to the built-in range, and
 unsupported projection or storage modes must produce an explicit fallback
 diagnostic.
 
+Directional cascade depth comparison bias must be compensated by the
+reciprocal light-space depth range of the selected orthographic cascade. The
+compensation factor must be clamped to at most `1` so a depth range below one
+world unit does not amplify authored bias. WebGPU, WebGL, Software, atlas, and
+paged-shadow consumers must apply the same compensation to constant, texel,
+and slope depth bias before comparing receiver and shadow depths. Normal bias
+remains a world-space receiver offset and must not use depth-range
+compensation. Single projections and perspective spot or point projections
+must retain their existing bias behavior.
+
 Projection stabilization history belongs to per-renderer `ShadowPlannerState`.
 `FrameCoordinator` must pass that state to the static `ShadowPlanner.plan()`
 entrypoint. The state must be reset when the definition revision, binding,

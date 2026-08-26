@@ -39,6 +39,8 @@ function testSceneShaderUsesFlippedShadowNormal() {
 	assert.ok(shader.fragment.includes("uDirShadowCascadeViewProjection"));
 	assert.ok(shader.fragment.includes("uDirShadowCascadeSplits"));
 	assert.ok(shader.fragment.includes("resolveDirectionalCascadeIndex"));
+	assert.ok(shader.fragment.includes("compensateCascadeDepthRange"));
+	assert.ok(shader.fragment.includes("length(shadowClipDepthRow) * 0.5"));
 	assert.ok(shader.fragment.includes("uSpotShadowParamsC"));
 	assert.ok(shader.fragment.includes("uParticleShadowVolumeAtlas"));
 	assert.ok(shader.fragment.includes("uParticleShadowVolumeSliceParams"));

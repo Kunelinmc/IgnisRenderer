@@ -42,6 +42,36 @@ function createFixture(size = 4, overrides = {}) {
 }
 
 {
+	const { shadow, slice, runtime } = createFixture(4, {
+		bias: {
+			constant: 0.1,
+			slope: 0,
+			texel: 0,
+			max: 1,
+			normal: 0,
+			normalMin: 0,
+		},
+	});
+	const cascadeProjection = Matrix4.ortho(-1, 1, -1, 1, 0, 100);
+	slice.projection = cascadeProjection;
+	slice.viewProjection = cascadeProjection;
+	shadow.effectiveTechnique = "cascaded";
+	shadow.slices = [slice, slice];
+	runtime.depthBuffer[5] = -0.05;
+	const visibility = sampleSoftwareShadow(
+		shadow,
+		slice,
+		runtime,
+		{ x: 0, y: 0, z: -50 },
+		{ x: 0, y: 0, z: 1 },
+	);
+	assert.ok(
+		visibility.r < 0.01,
+		"Directional cascade bias should be divided by its depth range",
+	);
+}
+
+{
 	const { shadow, slice, runtime } = createFixture();
 	runtime.transmissionBuffer.set([0.2, 0.4, 0.6], 15);
 	const visibility = sampleSoftwareShadow(shadow, slice, runtime, { x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 1 });

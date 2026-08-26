@@ -908,6 +908,9 @@ async function testWebGPUShaderConstantTokenInjection() {
 	);
 	assert.ok(WEBGPU_SCENE_SHADER.includes("const PI: f32 = 3.14159265359;"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("const INV_PI: f32 = 0.31830988618;"));
+	assert.ok(WEBGPU_SCENE_SHADER.includes("compensateCascadeDepthRange"));
+	assert.ok(WEBGPU_SCENE_SHADER.includes("length(shadowClipDepthRow) * 0.5"));
+	assert.ok(WEBGPU_PARTICLE_SHADER.includes("cascadeDepthBiasScale"));
 	assert.ok(
 		WEBGPU_SCENE_SHADER.includes(
 			`pointLights: array<PointLightData, ${MAX_POINT_LIGHTS}>`

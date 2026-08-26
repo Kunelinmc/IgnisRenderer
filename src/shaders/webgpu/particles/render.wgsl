@@ -143,7 +143,8 @@ fn sampleParticlePagedShadow(
 	shadow: ShadowData,
 	uv: vec2<f32>,
 	currentDepth: f32,
-	cascadeIndex: u32
+	cascadeIndex: u32,
+	depthBias: f32
 ) -> vec3<f32> {
 	let pageGridSize = max(u32(floor(shadow.paramsE.z + 0.5)), 1u);
 	let pageSize = max(i32(floor(shadow.paramsF.z + 0.5)), 1);
@@ -187,7 +188,7 @@ fn sampleParticlePagedShadow(
 		pagedShadowPhysicalDepth,
 		shadowComparisonSampler,
 		atlasPosition / max(dimensions, vec2<f32>(1.0)),
-		currentDepth - max(shadow.paramsA.y, 0.0)
+		currentDepth - depthBias
 	);
 	let strength = clamp(shadow.paramsB.y, 0.0, 1.0);
 	return vec3<f32>(1.0 - strength + strength * visibility);
@@ -205,6 +206,14 @@ fn sampleParticleDirectionalCascade(
 	if (isCSM) {
 		shadowMatrix = shadow.cascadeViewProjections[cascadeIndex];
 	}
+	let shadowClipDepthRow = vec3<f32>(
+		shadowMatrix[0][2],
+		shadowMatrix[1][2],
+		shadowMatrix[2][2]
+	);
+	let cascadeDepthBiasScale = min(1.0, length(shadowClipDepthRow) * 0.5);
+	let depthBias = max(shadow.paramsA.y, 0.0) *
+		select(1.0, cascadeDepthBiasScale, isCSM);
 	let lightClip = shadowMatrix * vec4<f32>(worldPosition, 1.0);
 	if (lightClip.w <= 1e-6) {
 		return vec3<f32>(1.0);
@@ -223,7 +232,13 @@ fn sampleParticleDirectionalCascade(
 	}
 
 	if (shadow.paramsE.x > 0.5) {
-		return sampleParticlePagedShadow(shadow, uv, currentDepth, cascadeIndex) *
+		return sampleParticlePagedShadow(
+			shadow,
+			uv,
+			currentDepth,
+			cascadeIndex,
+			depthBias
+		) *
 			sampleParticleShadowVolumeTransmittance(
 				0u,
 				index,
@@ -252,7 +267,7 @@ fn sampleParticleDirectionalCascade(
 		shadowAtlas,
 		shadowComparisonSampler,
 		atlasPosition / max(vec2<f32>(atlasDimensions), vec2<f32>(1.0)),
-		currentDepth - max(shadow.paramsA.y, 0.0)
+		currentDepth - depthBias
 	);
 	let localCoord = vec2<i32>(round(texelPosition));
 	let transmittance = textureLoad(
