@@ -7,7 +7,6 @@ import {
 	type IShaderModule,
 } from "../../backends/types";
 import type { WebGPUPostProcessServices } from "../../backends/webgpu/WebGPUPostProcessContracts";
-import { CoreConstants } from "../../backends/software/constants";
 import type {
 	WebGLProgramCompiler,
 	WebGLProgramSlot,
@@ -36,6 +35,8 @@ import {
 	type WebGLScreenPostProcessContext,
 	type WebGPUScreenPostProcessContext,
 } from "./ScreenPassShared";
+
+const ALPHA_EPSILON = 1e-6;
 
 export const GAMMA_PASS_ID = "gamma";
 export const GAMMA_PASS_INCREMENTAL = {
@@ -106,7 +107,7 @@ export class SoftwareGammaImplementation implements PostProcessPassImplementatio
 				for (let x = rect.minX; x <= rect.maxX; x++) {
 					const i = (row + x) << 2;
 					const alpha = Math.min(1, Math.max(0, pixels[i + 3]));
-					const inverseAlpha = alpha > CoreConstants.EPSILON ? 1 / alpha : 0;
+					const inverseAlpha = alpha > ALPHA_EPSILON ? 1 / alpha : 0;
 					this._inputColor[0] = pixels[i] * inverseAlpha;
 					this._inputColor[1] = pixels[i + 1] * inverseAlpha;
 					this._inputColor[2] = pixels[i + 2] * inverseAlpha;

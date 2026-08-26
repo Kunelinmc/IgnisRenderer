@@ -14,7 +14,6 @@ import {
 } from "./Interpolator";
 import { Projector, type SoftwareProjectionView } from "./Projector";
 import type { Rasterizer } from "./Rasterizer";
-import { CoreConstants, RenderConstants } from "./constants";
 import type { SoftwarePassContext } from "./SoftwareFrameServices";
 import type {
 	SoftwareFrameView,
@@ -38,6 +37,9 @@ import {
 	type SoftwareReflectionTriangleComposite,
 } from "./SoftwareReflectionCompositor";
 import { createSoftwareRasterizerContext } from "./SoftwareRasterContextFactory";
+
+const DEPTH_EPSILON = 1e-6;
+const REFLECTION_TRANSPARENT_THRESHOLD = 0.99;
 
 export type { SoftwarePlanarReflectionBuffer } from "./SoftwareReflectionResources";
 export { resolveSoftwarePlanarReflectionPlaneKey } from "./SoftwareReflectionPlanner";
@@ -218,7 +220,7 @@ export class SoftwarePlanarReflectionRuntime {
 						alphaMode === AlphaMode.Blend ||
 						transmissionTransparent ||
 						(explicitAlphaMode === undefined &&
-							alpha < RenderConstants.REFLECTION_TRANSPARENT_THRESHOLD)
+							alpha < REFLECTION_TRANSPARENT_THRESHOLD)
 					) {
 						transparentFaces.push(face);
 					} else {
@@ -346,7 +348,7 @@ export class SoftwarePlanarReflectionRuntime {
 			for (let x = startX; x <= endX; x++) {
 				const idx = row + x;
 				if (span.computeDepth() && span.zCamValue > 0) {
-					if (span.zCamValue <= depthBuffer[idx] + CoreConstants.EPSILON) {
+					if (span.zCamValue <= depthBuffer[idx] + DEPTH_EPSILON) {
 						if (!useMask || this._passesAlphaMask(material!, span)) {
 							let refX = Math.floor(x * scaleX);
 							let refY = Math.floor(y * scaleY);

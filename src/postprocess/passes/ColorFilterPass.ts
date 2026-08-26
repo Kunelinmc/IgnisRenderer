@@ -14,7 +14,6 @@ import {
 	WEBGPU_2D_COMPUTE_WORKGROUP_SIZE as WEBGPU_WORKGROUP_SIZE,
 } from "../../backends/webgpu/constants";
 import type { WebGPUPostProcessServices } from "../../backends/webgpu/WebGPUPostProcessContracts";
-import { CoreConstants } from "../../backends/software/constants";
 import type {
 	WebGLProgramCompiler,
 	WebGLProgramSlot,
@@ -41,6 +40,8 @@ import {
 	type WebGLScreenPostProcessContext,
 	type WebGPURuntimePostProcessContext,
 } from "./ScreenPassShared";
+
+const ALPHA_EPSILON = 1e-6;
 
 export const COLOR_FILTER_PASS_ID = "color-filter";
 
@@ -130,7 +131,7 @@ export class SoftwareColorFilterImplementation
 				for (let x = rect.minX; x <= rect.maxX; x++) {
 					const index = (row + x) << 2;
 					const alpha = Math.min(1, Math.max(0, pixels[index + 3]));
-					const inverseAlpha = alpha > CoreConstants.EPSILON ? 1 / alpha : 0;
+					const inverseAlpha = alpha > ALPHA_EPSILON ? 1 / alpha : 0;
 					let red = pixels[index] * inverseAlpha;
 					let green = pixels[index + 1] * inverseAlpha;
 					let blue = pixels[index + 2] * inverseAlpha;

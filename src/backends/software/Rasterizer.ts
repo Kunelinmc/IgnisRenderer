@@ -4,7 +4,6 @@ import {
 } from "../../materials/Material";
 import { resolveMaterialShadowTransmittance } from "../../materials/transparency";
 import { Matrix4 } from "../../maths/Matrix4";
-import { CoreConstants } from "./constants";
 import {
 	type ShaderContext,
 	type FragmentInput,
@@ -26,6 +25,9 @@ import {
 	type SoftwareFragmentProgram,
 } from "./SoftwareMaterialRuntime";
 import type { DecalPacket } from "../../pipeline/types";
+
+const RASTER_EPSILON = 1e-6;
+const WIREFRAME_DEPTH_BIAS = 0.1;
 
 export interface RasterizerLike {
 	prepareFragmentProgram(
@@ -214,7 +216,7 @@ export class Rasterizer implements RasterizerLike {
 				if (endX < startX) continue;
 
 				const spanWidth = rightX - leftX;
-				const spanInv = 1.0 / (spanWidth || CoreConstants.EPSILON);
+				const spanInv = 1.0 / (spanWidth || RASTER_EPSILON);
 				const dz = (rightZ - leftZ) * spanInv;
 				const dx = startX + 0.5 - leftX;
 				let z = leftZ + dx * dz;
@@ -308,7 +310,7 @@ export class Rasterizer implements RasterizerLike {
 			if (endX < startX) continue;
 
 			const spanWidth = rightX - leftX;
-			const spanInv = 1.0 / (spanWidth || CoreConstants.EPSILON);
+			const spanInv = 1.0 / (spanWidth || RASTER_EPSILON);
 			const dz = (rightZ - leftZ) * spanInv;
 			const diz = (rightIz - leftIz) * spanInv;
 			const duO = (rightUO - leftUO) * spanInv;
@@ -324,9 +326,9 @@ export class Rasterizer implements RasterizerLike {
 				const idx = row + x;
 				if (z < buffer[idx]) {
 					const safeIz =
-						Math.abs(iz) > CoreConstants.EPSILON ? iz
-						: iz >= 0 ? CoreConstants.EPSILON
-						: -CoreConstants.EPSILON;
+						Math.abs(iz) > RASTER_EPSILON ? iz
+						: iz >= 0 ? RASTER_EPSILON
+						: -RASTER_EPSILON;
 					const invIz = 1 / safeIz;
 					const u = uO * invIz;
 					const v = vO * invIz;
@@ -408,7 +410,7 @@ export class Rasterizer implements RasterizerLike {
 			if (endX < startX) continue;
 
 			const spanWidth = rightX - leftX;
-			const spanInv = 1.0 / (spanWidth || CoreConstants.EPSILON);
+			const spanInv = 1.0 / (spanWidth || RASTER_EPSILON);
 			const dz = (rightZ - leftZ) * spanInv;
 			const dx = startX + 0.5 - leftX;
 			let z = leftZ + dx * dz;
@@ -571,7 +573,7 @@ export class Rasterizer implements RasterizerLike {
 							earlyDepthBuffer ? earlyDepthBuffer[bufIdx] : depthBuffer[bufIdx];
 						const passedEarlyDepth =
 							earlyDepthBuffer ?
-								span.zCamValue <= earlyDepthValue + CoreConstants.EPSILON
+								span.zCamValue <= earlyDepthValue + RASTER_EPSILON
 							:	span.zCamValue < earlyDepthValue;
 						if (!passedEarlyDepth) {
 							span.advance();
@@ -671,11 +673,11 @@ export class Rasterizer implements RasterizerLike {
 				previousWorld
 			);
 			const previousW =
-				Math.abs(previousClip.w ?? 0) > CoreConstants.EPSILON ?
+				Math.abs(previousClip.w ?? 0) > RASTER_EPSILON ?
 					previousClip.w!
 				:	(previousClip.w ?? 0) >= 0 ?
-					CoreConstants.EPSILON
-				:	-CoreConstants.EPSILON;
+					RASTER_EPSILON
+				:	-RASTER_EPSILON;
 			previousNdcX =
 				previousClip.x / previousW + context.temporal.previousJitter[0];
 			previousNdcY =
@@ -749,14 +751,14 @@ export class Rasterizer implements RasterizerLike {
 				) {
 					const bufIdx = py * width + px;
 					const safeIz =
-						Math.abs(iz) > CoreConstants.EPSILON ? iz
-						: iz >= 0 ? CoreConstants.EPSILON
-						: -CoreConstants.EPSILON;
+						Math.abs(iz) > RASTER_EPSILON ? iz
+						: iz >= 0 ? RASTER_EPSILON
+						: -RASTER_EPSILON;
 					const zCam = 1 / safeIz;
 
 					if (
 						zCam > 0 &&
-						zCam < depthBuffer[bufIdx] + CoreConstants.WIREFRAME_DEPTH_BIAS
+						zCam < depthBuffer[bufIdx] + WIREFRAME_DEPTH_BIAS
 					) {
 						const idx = bufIdx << 2;
 						pixels[idx] = wireColor.r;

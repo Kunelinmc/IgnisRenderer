@@ -22,13 +22,6 @@ export const MAX_EXPOSURE = 8;
 export const TAA_JITTER_SEQUENCE_LENGTH = 16;
 
 /**
- * Shared post-process execution order across rendering backends.
- */
-export const POST_PROCESS_STAGES = [
-	"postprocess",
-] as const;
-
-/**
  * Shared particle billboard quad vertices [x, y, u, v].
  */
 export const PARTICLE_QUAD_VERTICES = new Float32Array([

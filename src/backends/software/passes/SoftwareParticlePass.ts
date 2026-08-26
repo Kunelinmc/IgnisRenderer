@@ -6,7 +6,6 @@ import {
 	type ParticleRenderBatch,
 	type ParticleRenderItem,
 } from "../../../particles/ParticleRenderBatch";
-import { CoreConstants } from "../constants";
 import { clamp } from "../../../maths/Common";
 import type { SoftwarePassLike } from "./types";
 import { Logger } from "../../../foundation/Logger";
@@ -21,6 +20,7 @@ const PARTICLE_RADIAL_FADE_RANGE =
 	PARTICLE_RADIAL_FADE_END - PARTICLE_RADIAL_FADE_START;
 const PARTICLE_ALPHA_CUTOFF = 0.001;
 const MIN_PARTICLE_WORLD_SIZE = 0.001;
+const PROJECTION_EPSILON = 1e-6;
 
 export class SoftwareParticlePass implements SoftwarePassLike {
 	public render(context: SoftwarePassContext): void {
@@ -61,7 +61,7 @@ export class SoftwareParticlePass implements SoftwarePassLike {
 
 		const clip = Matrix4.transformPoint(frame.camera.projectionMatrix, viewPosition);
 		const w = clip.w ?? 0;
-		if (Math.abs(w) < CoreConstants.EPSILON) return;
+		if (Math.abs(w) < PROJECTION_EPSILON) return;
 
 		const ndcX = clip.x / w;
 		const ndcY = clip.y / w;
@@ -176,7 +176,7 @@ export class SoftwareParticlePass implements SoftwarePassLike {
 		}
 
 		const halfFovRadians = (frame.camera.fov * Math.PI) / 360;
-		const tanHalfFov = Math.tan(halfFovRadians) || CoreConstants.EPSILON;
+		const tanHalfFov = Math.tan(halfFovRadians) || PROJECTION_EPSILON;
 		const focalLength = (frame.attachments.height * 0.5) / tanHalfFov;
 		const pixelSize = (Math.max(MIN_PARTICLE_WORLD_SIZE, size) * focalLength) / depth;
 		return Math.max(MIN_PARTICLE_PIXEL_RADIUS, pixelSize * 0.5);

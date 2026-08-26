@@ -15,7 +15,8 @@ import {
 	SoftwareDisplayOutputManager,
 } from "./SoftwareDisplayOutputManager";
 import type { SoftwareFrameView } from "./SoftwareFrameView";
-import { CoreConstants } from "./constants";
+
+const ALPHA_EPSILON = 1e-6;
 
 /** @internal Presents through a backend-owned context and owns CPU frame targets. */
 export class SoftwareSurfaceRuntime {
@@ -190,7 +191,7 @@ export class SoftwareSurfaceRuntime {
 					const alpha = transparent ?
 						Math.min(1, Math.max(0, finiteOrZero(color[index + 3])))
 					:	1;
-					const inverseAlpha = alpha > CoreConstants.EPSILON ? 1 / alpha : 0;
+					const inverseAlpha = alpha > ALPHA_EPSILON ? 1 / alpha : 0;
 					const encoded = this._completeColor(
 						transparent ? color[index] * inverseAlpha : color[index],
 						transparent ?

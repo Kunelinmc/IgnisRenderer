@@ -29,7 +29,6 @@ import type {
 } from "../types";
 import type { IRenderBackend } from "../../backends/IRenderBackend";
 import type { DisplayOutputState } from "../../rendering/DisplayOutput";
-import { CoreConstants } from "../../backends/software/constants";
 import {
 	bindWebGLPostTarget,
 	forEachSoftwareDirtyRect,
@@ -40,6 +39,8 @@ import {
 	type WebGLScreenPostProcessContext,
 	type WebGPURuntimePostProcessContext,
 } from "./ScreenPassShared";
+
+const COLOR_EPSILON = 1e-6;
 
 export const TONE_MAPPING_PASS_ID = "tonemap";
 export const TONE_MAPPING_PASS_INCREMENTAL = {
@@ -107,7 +108,7 @@ export function applyHDRSoftShoulder(
 	}
 	const mappedPeak = 1 + (hdrHeadroom - 1) *
 		(1 - Math.exp(-(peak - 1) / (hdrHeadroom - 1)));
-	const scale = mappedPeak / Math.max(peak, CoreConstants.EPSILON);
+	const scale = mappedPeak / Math.max(peak, COLOR_EPSILON);
 	out[0] *= scale;
 	out[1] *= scale;
 	out[2] *= scale;
@@ -146,7 +147,7 @@ export class SoftwareToneMappingImplementation
 				for (let x = rect.minX; x <= rect.maxX; x++) {
 					const index = (row + x) << 2;
 					const alpha = Math.min(1, Math.max(0, pixels[index + 3]));
-					const inverseAlpha = alpha > CoreConstants.EPSILON ? 1 / alpha : 0;
+					const inverseAlpha = alpha > COLOR_EPSILON ? 1 / alpha : 0;
 					this._inputColor[0] = pixels[index] * inverseAlpha;
 					this._inputColor[1] = pixels[index + 1] * inverseAlpha;
 					this._inputColor[2] = pixels[index + 2] * inverseAlpha;

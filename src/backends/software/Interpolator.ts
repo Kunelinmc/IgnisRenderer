@@ -1,7 +1,8 @@
 import type { ProjectedFace, ProjectedVertex } from "../../core/types";
 import type { IVector3, IVector4 } from "../../maths/types";
 import type { FragmentInput } from "../../shaders";
-import { CoreConstants } from "./constants";
+
+const INTERPOLATION_EPSILON = 1e-6;
 
 /**
  * @internal Software rasterizer cache for perspective-correct vertex attributes.
@@ -65,7 +66,7 @@ export class SoftwareDepthSpan {
 		startX: number
 	): void {
 		const spanWidth = right.x - left.x;
-		const spanInv = 1.0 / (spanWidth || CoreConstants.EPSILON);
+		const spanInv = 1.0 / (spanWidth || INTERPOLATION_EPSILON);
 		this._diz = (right.iz - left.iz) * spanInv;
 		this._dzCamO = (right.zCamO - left.zCamO) * spanInv;
 
@@ -76,9 +77,9 @@ export class SoftwareDepthSpan {
 
 	public computeDepth(): boolean {
 		const safeIz =
-			Math.abs(this.iz) > CoreConstants.EPSILON ? this.iz
-			: this.iz >= 0 ? CoreConstants.EPSILON
-			: -CoreConstants.EPSILON;
+			Math.abs(this.iz) > INTERPOLATION_EPSILON ? this.iz
+			: this.iz >= 0 ? INTERPOLATION_EPSILON
+			: -INTERPOLATION_EPSILON;
 		this.zCam = 1 / safeIz;
 		this.zCamValue = this.zCamO * this.zCam;
 		return this.zCam > 0;
@@ -150,7 +151,7 @@ export class SoftwareFragmentSpan {
 		startX: number
 	): void {
 		const spanWidth = right.x - left.x;
-		const spanInv = 1.0 / (spanWidth || CoreConstants.EPSILON);
+		const spanInv = 1.0 / (spanWidth || INTERPOLATION_EPSILON);
 
 		this._diz = (right.iz - left.iz) * spanInv;
 		this._dWorldOx = (right.worldO.x - left.worldO.x) * spanInv;
@@ -210,9 +211,9 @@ export class SoftwareFragmentSpan {
 
 	public computeDepth(): boolean {
 		const safeIz =
-			Math.abs(this.iz) > CoreConstants.EPSILON ? this.iz
-			: this.iz >= 0 ? CoreConstants.EPSILON
-			: -CoreConstants.EPSILON;
+			Math.abs(this.iz) > INTERPOLATION_EPSILON ? this.iz
+			: this.iz >= 0 ? INTERPOLATION_EPSILON
+			: -INTERPOLATION_EPSILON;
 		this.zCam = 1 / safeIz;
 		this.zCamValue = this.zCamO * this.zCam;
 		return this.zCam > 0;
