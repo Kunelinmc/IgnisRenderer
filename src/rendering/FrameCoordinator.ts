@@ -818,7 +818,6 @@ export class FrameCoordinator {
 		transient: TransientStore,
 		incremental: IncrementalFrameContext,
 	): FrameContext {
-		const cameraPosition = delegate.camera.getWorldPosition(_tmpRendererCameraWorldPosition);
 		const particleIntent = resolveParticleRenderIntent(frame.particleSystems);
 		const particleShadowBounds = resolveParticleShadowCasterBounds(frame.particleSystems);
 		const shadowPlan = ShadowPlanner.plan({
@@ -826,7 +825,6 @@ export class FrameCoordinator {
 			lights: frame.lights,
 			backendKey: this._backend.profile.id,
 			camera: delegate.camera,
-			cameraPosition,
 			sceneBounds: frame.sceneBounds,
 			casterIntent: {
 				meshPackets: frame.shadowCasterPackets,

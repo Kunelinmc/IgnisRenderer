@@ -26,6 +26,9 @@ import type {
 	ShadowRenderJob,
 } from "./ShadowFramePlan";
 
+// Pre-allocated scratch target for per-frame camera world position reads.
+const _tmpPlannerCameraWorldPosition = { x: 0, y: 0, z: 0 };
+
 interface ShadowPlanCandidate {
 	readonly light: ShadowCastingLight;
 	readonly definition: ShadowMapBase;
@@ -46,7 +49,6 @@ export interface ShadowPlannerOptions {
 	readonly lights: readonly SceneLight[];
 	readonly backendKey: string;
 	readonly camera: ShadowStrategyCamera;
-	readonly cameraPosition: IVector3 | null;
 	readonly sceneBounds: SceneBounds;
 	readonly casterIntent: ShadowCasterIntent;
 	readonly enableShadows: boolean;
@@ -206,6 +208,7 @@ export class ShadowPlanner {
 		diagnostics: ShadowDiagnostic[]
 	): ShadowPlanCandidate[] {
 		const candidates: ShadowPlanCandidate[] = [];
+		const cameraPosition = ShadowPlanner._resolveCameraPosition(options.camera);
 		for (const light of options.lights) {
 			if (!isShadowCastingLight(light)) continue;
 			const definition = options.manager.getBoundShadowMap(light);
@@ -289,7 +292,7 @@ export class ShadowPlanner {
 				score: ShadowPlanner._score(
 					light,
 					definition.priority,
-					options.cameraPosition,
+					cameraPosition,
 				),
 				requestedFilter,
 				filterMode,
@@ -649,6 +652,15 @@ export class ShadowPlanner {
 			: "projection-fallback";
 		}
 		return undefined;
+	}
+
+	private static _resolveCameraPosition(
+		camera: ShadowStrategyCamera,
+	): IVector3 | null {
+		if (typeof camera.getWorldPosition === "function") {
+			return camera.getWorldPosition(_tmpPlannerCameraWorldPosition);
+		}
+		return camera.position ?? null;
 	}
 
 	private static _score(

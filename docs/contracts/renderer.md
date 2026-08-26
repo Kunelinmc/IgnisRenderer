@@ -153,6 +153,9 @@ This document defines the lifecycle, scheduling, warmup, incremental rendering, 
   - Output contract: must contain the immutable cross-backend shadow plan
     resolved from scene bindings, prepared caster intent, the active camera,
     and the planner-owned policy selected by `RenderBackendProfile.id`.
+  - Camera contract: `ShadowPlanner` must resolve camera-dependent policy from
+    the active camera's world position. Callers must not supply a separate
+    camera-position value that can diverge from the camera transform.
   - Profile contract: `RenderBackendProfile` must not expose shadow-planning
     capability or configuration metadata. Built-in shadow policies belong to
     the shadow planner and are not backend extension points.

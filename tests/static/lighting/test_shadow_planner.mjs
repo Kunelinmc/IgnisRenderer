@@ -49,7 +49,6 @@ function planScene(scene, options = {}) {
 		lights: scene.ecs.findLights(),
 		backendKey: options.backendKey ?? "webgpu",
 		camera,
-		cameraPosition: camera.position,
 		sceneBounds: { center: { x: 0, y: 0, z: 0 }, radius: 80 },
 		casterIntent: options.intent ?? createIntent(),
 		enableShadows: true,
@@ -161,6 +160,37 @@ function testFixedBackendPoliciesRemainDistinct() {
 	));
 }
 
+function testCameraWorldPositionDrivesLightSelection() {
+	const scene = new Scene();
+	const spots = Array.from({ length: 9 }, (_, index) => {
+		const spot = scene.add(new SpotLight({
+			position: { x: index * 10, y: 0, z: 0 },
+		}));
+		scene.shadows.bind(spot, scene.shadows.createSingle());
+		return spot;
+	});
+	const camera = createCamera();
+	camera.position = { x: 0, y: 0, z: 0 };
+	camera.getWorldPosition = (target = { x: 0, y: 0, z: 0 }) => {
+		Object.assign(target, { x: 80, y: 0, z: 0 });
+		return target;
+	};
+	const plan = ShadowPlanner.plan({
+		manager: scene.shadows,
+		lights: spots,
+		backendKey: "webgpu",
+		camera,
+		sceneBounds: { center: { x: 40, y: 0, z: 0 }, radius: 80 },
+		casterIntent: createIntent(false),
+		enableShadows: true,
+		hasTransmissionCasters: false,
+		needsAtlasFallback: false,
+	}, ShadowPlanner.createState());
+	const selectedIds = new Set(plan.lights.map((light) => light.lightId));
+	assert.equal(selectedIds.has(spots[0].id), false);
+	assert.equal(selectedIds.has(spots[8].id), true);
+}
+
 function testPlanStaysImmutableAcrossPlanningFrames() {
 	const scene = new Scene();
 	const sun = scene.add(new DirectionalLight());
@@ -204,6 +234,7 @@ function run() {
 	testPagedStorageIsDirectionalOnly();
 	testSingleCascadeCsmFallbackIsReported();
 	testFixedBackendPoliciesRemainDistinct();
+	testCameraWorldPositionDrivesLightSelection();
 	testPlanStaysImmutableAcrossPlanningFrames();
 	console.log("Shadow planner tests passed");
 }

@@ -7,7 +7,7 @@ function plan(plannerState, scene, light, radius, enableShadows = true) {
 	const camera = { near: 0.1, far: 100, fov: 60, aspectRatio: 1, position: { x: 0, y: 4, z: 16 }, up: { x: 0, y: 1, z: 0 },
 		getWorldPosition(target = {}) { return Object.assign(target, this.position); },
 		getWorldDirection(local, target = {}) { return Object.assign(target, local.y === 1 ? this.up : { x: 0, y: 0, z: -1 }); } };
-	return ShadowPlanner.plan({ manager: scene.shadows, lights: [light], camera, cameraPosition: camera.position,
+	return ShadowPlanner.plan({ manager: scene.shadows, lights: [light], camera,
 		sceneBounds: { center: { x: 0, y: 0, z: 0 }, radius }, casterIntent: { meshPackets: [], hasTransparentCasters: false, hasParticleCasters: false, estimatedParticleCapacity: 0 },
 		backendKey: "software", enableShadows }, plannerState);
 }
