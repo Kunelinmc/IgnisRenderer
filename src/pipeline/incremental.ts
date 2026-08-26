@@ -711,43 +711,18 @@ export class IncrementalRegistry {
 	 *
 	 * @param pass Pass instance. Renderer-default built-ins cannot be removed;
 	 * manually registered passes can be removed.
-	 * @param metadata Optional incremental metadata override.
 	 * @returns Nothing.
 	 * @sideEffects Mutates post-process incremental planning metadata.
 	 */
-	public registerPostProcessPass(
-		pass: PostProcessPass,
-		metadata?: PostProcessIncrementalMetadata
-	): void;
-	/**
-	 * Registers incremental metadata for a custom logical post-process pass id.
-	 *
-	 * @param id Custom pass id.
-	 * @param metadata Optional incremental metadata override.
-	 * @returns Nothing.
-	 * @sideEffects Mutates post-process incremental planning metadata.
-	 */
-	public registerPostProcessPass(
-		id: string,
-		metadata?: PostProcessIncrementalMetadata
-	): void;
-	public registerPostProcessPass(
-		passOrId: PostProcessPass | string,
-		metadata?: PostProcessIncrementalMetadata
-	): void {
-		const id = typeof passOrId === "string" ? passOrId : passOrId.id;
-		const passMetadata =
-			typeof passOrId === "string" ?
-				metadata ?? {}
-			:	{
-					...(passOrId.schedule.order === undefined ? {} : {
-						order: passOrId.schedule.order,
-					}),
-					...(passOrId.schedule.incremental ?? {}),
-					...(metadata ?? {}),
-				};
-		const builtIn =
-			typeof passOrId === "string" ? false : passOrId.builtIn === true;
+	public registerPostProcessPass(pass: PostProcessPass): void {
+		const id = pass.id;
+		const passMetadata = {
+			...(pass.schedule.order === undefined ? {} : {
+				order: pass.schedule.order,
+			}),
+			...(pass.schedule.incremental ?? {}),
+		};
+		const builtIn = pass.builtIn === true;
 		const current = this._postProcessPasses.get(id);
 		if (current?.builtIn && !builtIn) {
 			throw new Error(
@@ -758,19 +733,15 @@ export class IncrementalRegistry {
 			current &&
 			!current.builtIn &&
 			!builtIn &&
-			metadata === undefined &&
-			typeof passOrId !== "string" &&
-			passOrId.schedule.incremental === undefined &&
-			passOrId.schedule.order === undefined
+			pass.schedule.incremental === undefined &&
+			pass.schedule.order === undefined
 		) {
 			return;
 		}
 		if (
 			current?.builtIn &&
 			builtIn &&
-			metadata === undefined &&
-			typeof passOrId !== "string" &&
-			passOrId.schedule.incremental === undefined
+			pass.schedule.incremental === undefined
 		) {
 			return;
 		}

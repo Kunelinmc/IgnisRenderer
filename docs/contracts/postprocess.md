@@ -18,6 +18,9 @@ This document defines logical post-process declarations, planning, backend execu
   must preserve premultiplied alpha and reset transparent pixels to zero.
 - `PostProcessPassConfig.schedule` must own placement, numeric order, and
   incremental metadata. Resource behavior must not appear in the schedule.
+- Incremental pass registration must accept one logical `PostProcessPass` and
+  derive its ID, built-in status, order, and incremental metadata from that
+  pass. A separate ID-and-metadata registration form must not exist.
 - `PostProcessPassConfig.label` may provide a human-readable pass name for
   diagnostics and consumer-facing metadata. It defaults to `id`.
 - `PostProcessPassImplementation.describeExecution(request)` must return one

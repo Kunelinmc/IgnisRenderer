@@ -5,7 +5,24 @@ import {
 	resolvePostProcessGrade,
 	scaleFullFrameFallbackAreaRatioForPostProcess,
 } from "../../../src/pipeline/incremental.ts";
+import { PostProcessPass } from "../../../src/postprocess/PostProcessPass.ts";
 import { createPostProcessRegistryFromRequest } from "../../helpers/postprocess.mjs";
+
+class CustomCinematicPass extends PostProcessPass {
+	constructor() {
+		super({
+			id: "custom-cinematic",
+			schedule: {
+				incremental: {
+					firstPass: "dof",
+					grade: "cinematic",
+					inflationRadius: 40,
+					fallbackScale: 0.5,
+				},
+			},
+		});
+	}
+}
 
 function createPostProcess(overrides = {}) {
 	const registry = createPostProcessRegistryFromRequest(
@@ -121,12 +138,7 @@ function testCustomPostProcessDefaultIncrementalMetadata() {
 
 function testCustomPostProcessIncrementalMetadataOverride() {
 	const registry = getDefaultIncrementalRegistry();
-	registry.registerPostProcessPass("custom-cinematic", {
-		firstPass: "dof",
-		grade: "cinematic",
-		inflationRadius: 40,
-		fallbackScale: 0.5,
-	});
+	registry.registerPostProcessPass(new CustomCinematicPass());
 	try {
 		const postProcess = createPostProcess(enable("custom-cinematic"));
 		assert.equal(resolvePostProcessGrade(postProcess), "cinematic");
