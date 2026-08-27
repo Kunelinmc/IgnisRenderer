@@ -66,7 +66,8 @@ function testCapabilityFallbacksAreExplicit() {
 
 	const plan = planScene(scene);
 	assert.deepEqual(plan.lights.map((light) => light.lightId), [spot.id]);
-	assert.equal(plan.lights[0].filterMode, "pcf");
+	assert.equal(plan.lights[0].requestedFilterMode, "pcf");
+	assert.equal(plan.lights[0].effectiveFilterMode, "pcf");
 	assert.ok(plan.diagnostics.some((item) => item.code === "projection-fallback"));
 	assert.ok(plan.diagnostics.some((item) =>
 		item.code === "unsupported-light-type" && item.lightId === point.id
@@ -107,6 +108,40 @@ function testPagedJobsAreExplicitAndCasterGated() {
 	assert.equal(noCasters.hasRasterWork, false);
 	assert.equal(noCasters.jobs.length, 0);
 	assert.equal(noCasters.lights.length, 1);
+}
+
+function testPagedPCSSFallsBackToPCF() {
+	const scene = new Scene();
+	const sun = scene.add(new DirectionalLight());
+	scene.shadows.bind(sun, scene.shadows.createPaged({
+		filterMode: "pcss",
+		sampling: { quality: "high" },
+	}));
+	const plan = planScene(scene);
+	assert.equal(plan.lights[0].requestedFilterMode, "pcss");
+	assert.equal(plan.lights[0].effectiveFilterMode, "pcf");
+	assert.equal(plan.lights[0].sampling.quality, "high");
+	assert.equal(plan.lights[0].fallbackReason, "filter-fallback");
+	assert.equal(
+		plan.diagnostics.filter((item) => item.code === "filter-fallback").length,
+		1,
+	);
+}
+
+function testAtlasPCSSSupportAndUnknownFallback() {
+	const scene = new Scene();
+	const sun = scene.add(new DirectionalLight());
+	scene.shadows.bind(sun, scene.shadows.createSingle({
+		filterMode: "pcss",
+		sampling: { quality: "medium" },
+	}));
+	const webgpuPlan = planScene(scene, { backendKey: "webgpu" });
+	assert.equal(webgpuPlan.lights[0].effectiveFilterMode, "pcss");
+	assert.equal(webgpuPlan.diagnostics.some((item) => item.code === "filter-fallback"), false);
+	const unknownPlan = planScene(scene, { backendKey: "custom" });
+	assert.equal(unknownPlan.lights[0].requestedFilterMode, "pcss");
+	assert.equal(unknownPlan.lights[0].effectiveFilterMode, "pcf");
+	assert.ok(unknownPlan.diagnostics.some((item) => item.code === "filter-fallback"));
 }
 
 function testPagedStorageIsDirectionalOnly() {
@@ -203,7 +238,8 @@ function testPlanStaysImmutableAcrossPlanningFrames() {
 		lights: value.lights.map((light) => ({
 			lightId: light.lightId,
 			definition: light.definition,
-			filterMode: light.filterMode,
+			requestedFilterMode: light.requestedFilterMode,
+			effectiveFilterMode: light.effectiveFilterMode,
 			storage: light.storage,
 			slices: light.slices.map((slice) => ({
 				...slice,
@@ -230,7 +266,9 @@ function testPlanStaysImmutableAcrossPlanningFrames() {
 function run() {
 	testCapabilityFallbacksAreExplicit();
 	testBudgetDegradesCascadeBeforeResolution();
-	testPagedJobsAreExplicitAndCasterGated();
+testPagedJobsAreExplicitAndCasterGated();
+testPagedPCSSFallsBackToPCF();
+testAtlasPCSSSupportAndUnknownFallback();
 	testPagedStorageIsDirectionalOnly();
 	testSingleCascadeCsmFallbackIsReported();
 	testFixedBackendPoliciesRemainDistinct();

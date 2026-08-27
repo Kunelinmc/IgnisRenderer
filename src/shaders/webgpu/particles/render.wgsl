@@ -139,7 +139,62 @@ fn resolveParticleDirectionalCascade(shadow: ShadowData, linearDepth: f32) -> u3
 	return selected;
 }
 
-fn sampleParticlePagedShadow(
+const PARTICLE_SHADOW_FILTER_PCSS: i32 = 1;
+const PARTICLE_SHADOW_PCF_RADIUS: f32 = 1.5;
+const PARTICLE_SHADOW_PCSS_SEARCH_RADIUS: f32 = 5.0;
+const PARTICLE_SHADOW_PCSS_MAX_RADIUS: f32 = 5.0;
+const PARTICLE_SHADOW_PCSS_CONTACT_THRESHOLD: f32 = 0.75;
+const PARTICLE_SHADOW_MAX_FILTER_SAMPLES: i32 = 7;
+const PARTICLE_SHADOW_MAX_SEARCH_SAMPLES: i32 = 12;
+
+fn particleShadowSampleCounts(quality: i32) -> vec3<i32> {
+	if (quality <= 0) { return vec3<i32>(1, 4, 3); }
+	if (quality >= 2) { return vec3<i32>(5, 12, 7); }
+	return vec3<i32>(3, 8, 5);
+}
+
+fn particleShadowDiskSampleBase(index: i32) -> vec2<f32> {
+	if (index == 0) { return vec2<f32>(0.0); }
+	if (index == 1) { return vec2<f32>(-0.191063595, 0.710747050); }
+	if (index == 2) { return vec2<f32>(0.328594541, 0.428593391); }
+	if (index == 3) { return vec2<f32>(-0.822442486, 0.339492303); }
+	if (index == 4) { return vec2<f32>(-0.260699267, 0.238821884); }
+	if (index == 5) { return vec2<f32>(-0.364378997, -0.701589586); }
+	if (index == 6) { return vec2<f32>(-0.603011395, -0.106664225); }
+	if (index == 7) { return vec2<f32>(0.396471625, -0.847236833); }
+	if (index == 8) { return vec2<f32>(0.039904201, -0.454687792); }
+	if (index == 9) { return vec2<f32>(0.790556673, 0.288710029); }
+	if (index == 10) { return vec2<f32>(0.571225035, -0.363366609); }
+	return vec2<f32>(0.292982446, 0.934074205);
+}
+
+fn particleShadowDiskSample(index: i32, rotation: vec2<f32>) -> vec2<f32> {
+	let sample = particleShadowDiskSampleBase(index);
+	return vec2<f32>(
+		sample.x * rotation.x - sample.y * rotation.y,
+		sample.x * rotation.y + sample.y * rotation.x
+	);
+}
+
+fn particleShadowRotation(texel: vec2<i32>, lightIndex: u32, cascadeIndex: u32) -> f32 {
+	var hash = u32(texel.x) * 0x8da6b343u;
+	hash = hash ^ (u32(texel.y) * 0xd8163841u);
+	hash = hash ^ (lightIndex * 0xcb1ab31fu);
+	hash = hash ^ (cascadeIndex * 0x165667b1u);
+	hash = hash ^ (hash >> 16u);
+	hash = hash * 0x7feb352du;
+	hash = hash ^ (hash >> 15u);
+	return f32(hash) * (2.0 * 3.141592653589793 / 4294967296.0);
+}
+
+fn particleLinearizeShadowDepth(depth: f32, params: vec4<f32>) -> f32 {
+	let ndcDepth = depth * 2.0 - 1.0;
+	let denominator = ndcDepth * params.z - params.x;
+	if (abs(denominator) <= 1e-8) { return 3.402823466e+38; }
+	return abs((params.y - ndcDepth * params.w) / denominator);
+}
+
+fn sampleParticlePagedShadowTap(
 	shadow: ShadowData,
 	uv: vec2<f32>,
 	currentDepth: f32,
@@ -180,18 +235,61 @@ fn sampleParticlePagedShadow(
 		i32(physicalPageIndex % physicalGridSize),
 		i32(physicalPageIndex / physicalGridSize)
 	);
-	let localUv = fract(uv * vec2<f32>(f32(pageGridSize)));
+	let localUv = clamp(
+		fract(uv * vec2<f32>(f32(pageGridSize))),
+		vec2<f32>(0.5 / f32(pageSize)),
+		vec2<f32>(1.0 - 0.5 / f32(pageSize))
+	);
 	let atlasPosition = vec2<f32>(physicalPageCoord * pageSize) +
 		localUv * vec2<f32>(f32(pageSize - 1)) + vec2<f32>(0.5);
 	let dimensions = vec2<f32>(textureDimensions(pagedShadowPhysicalDepth));
-	let visibility = textureSampleCompareLevel(
+	return vec3<f32>(textureSampleCompareLevel(
 		pagedShadowPhysicalDepth,
 		shadowComparisonSampler,
 		atlasPosition / max(dimensions, vec2<f32>(1.0)),
 		currentDepth - depthBias
+	));
+}
+
+fn sampleParticlePagedShadow(
+	shadow: ShadowData,
+	uv: vec2<f32>,
+	currentDepth: f32,
+	cascadeIndex: u32,
+	depthBias: f32
+) -> vec3<f32> {
+	let quality = i32(clamp(floor(shadow.paramsD.y + 0.5), 0.0, 2.0));
+	let sampleCount = particleShadowSampleCounts(quality).x;
+	let pageGridSize = max(i32(floor(shadow.paramsE.z + 0.5)), 1);
+	let pageSize = max(i32(floor(shadow.paramsF.z + 0.5)), 1);
+	let virtualSize = max(pageGridSize * pageSize, 1);
+	let texelPosition = uv * vec2<f32>(f32(virtualSize - 1));
+	let theta = particleShadowRotation(
+		vec2<i32>(floor(texelPosition)),
+		0u,
+		cascadeIndex
 	);
+	let rotation = vec2<f32>(cos(theta), sin(theta));
+	var visibility = vec3<f32>(0.0);
+	for (var i: i32 = 0; i < PARTICLE_SHADOW_MAX_FILTER_SAMPLES; i = i + 1) {
+		if (i >= sampleCount) { break; }
+		let samplePosition = clamp(
+			texelPosition + particleShadowDiskSample(i, rotation) *
+				PARTICLE_SHADOW_PCF_RADIUS,
+			vec2<f32>(0.0),
+			vec2<f32>(f32(virtualSize - 1))
+		);
+		visibility += sampleParticlePagedShadowTap(
+			shadow,
+			samplePosition / max(f32(virtualSize - 1), 1.0),
+			currentDepth,
+			cascadeIndex,
+			depthBias
+		);
+	}
 	let strength = clamp(shadow.paramsB.y, 0.0, 1.0);
-	return vec3<f32>(1.0 - strength + strength * visibility);
+	return vec3<f32>(1.0 - strength) +
+		strength * visibility / max(f32(sampleCount), 1.0);
 }
 
 fn sampleParticleDirectionalCascade(
@@ -262,25 +360,86 @@ fn sampleParticleDirectionalCascade(
 		select(0, i32(clamp(floor(split.w + 0.5), 0.0, 1.0)), isCSM) * subTileSize
 	);
 	let texelPosition = uv * vec2<f32>(f32(shadowSize - 1));
-	let atlasPosition = vec2<f32>(tileOffset) + texelPosition + vec2<f32>(0.5);
-	let visibility = textureSampleCompareLevel(
-		shadowAtlas,
-		shadowComparisonSampler,
-		atlasPosition / max(vec2<f32>(atlasDimensions), vec2<f32>(1.0)),
-		currentDepth - depthBias
+	let quality = i32(clamp(floor(shadow.paramsD.y + 0.5), 0.0, 2.0));
+	let sampleCounts = particleShadowSampleCounts(quality);
+	let theta = particleShadowRotation(
+		vec2<i32>(floor(texelPosition)),
+		index,
+		cascadeIndex
 	);
-	let localCoord = vec2<i32>(round(texelPosition));
-	let transmittance = textureLoad(
-		shadowTransmittanceAtlas,
-		tileOffset + clamp(
-			localCoord,
-			vec2<i32>(0),
-			vec2<i32>(shadowSize - 1)
-		),
-		0
-	).rgb;
+	let rotation = vec2<f32>(cos(theta), sin(theta));
+	var filterSampleCount = sampleCounts.x;
+	var filterRadius = PARTICLE_SHADOW_PCF_RADIUS;
+	if (i32(floor(shadow.paramsD.x + 0.5)) == PARTICLE_SHADOW_FILTER_PCSS) {
+		var blockerDistanceSum = 0.0;
+		var blockerCount = 0.0;
+		for (var i: i32 = 0; i < PARTICLE_SHADOW_MAX_SEARCH_SAMPLES; i = i + 1) {
+			if (i >= sampleCounts.y) { break; }
+			let samplePosition = clamp(
+				texelPosition + particleShadowDiskSample(i, rotation) *
+					PARTICLE_SHADOW_PCSS_SEARCH_RADIUS,
+				vec2<f32>(0.0),
+				vec2<f32>(f32(shadowSize - 1))
+			);
+			let sampleDepth = textureLoad(
+				shadowAtlas,
+				tileOffset + vec2<i32>(round(samplePosition)),
+				0
+			);
+			if (currentDepth - depthBias > sampleDepth) {
+				let blockerDistance = particleLinearizeShadowDepth(
+					sampleDepth,
+					shadow.depthProjectionParams[cascadeIndex]
+				);
+				if (blockerDistance < 3.402823466e+38) {
+					blockerDistanceSum += blockerDistance;
+					blockerCount += 1.0;
+				}
+			}
+		}
+		if (blockerCount < 1.0) { return vec3<f32>(1.0); }
+		let receiverDistance = particleLinearizeShadowDepth(
+			currentDepth,
+			shadow.depthProjectionParams[cascadeIndex]
+		);
+		let blockerDistance = blockerDistanceSum / blockerCount;
+		let penumbraRatio = clamp(
+			(receiverDistance - blockerDistance) / max(blockerDistance, 1e-6),
+			0.0,
+			1.0
+		);
+		let pcssRadius = penumbraRatio * PARTICLE_SHADOW_PCSS_MAX_RADIUS;
+		if (pcssRadius >= PARTICLE_SHADOW_PCSS_CONTACT_THRESHOLD) {
+			filterSampleCount = sampleCounts.z;
+			filterRadius = pcssRadius;
+		}
+	}
+
+	var filteredVisibility = vec3<f32>(0.0);
+	for (var i: i32 = 0; i < PARTICLE_SHADOW_MAX_FILTER_SAMPLES; i = i + 1) {
+		if (i >= filterSampleCount) { break; }
+		let samplePosition = clamp(
+			texelPosition + particleShadowDiskSample(i, rotation) * filterRadius,
+			vec2<f32>(0.0),
+			vec2<f32>(f32(shadowSize - 1))
+		);
+		let atlasPosition = vec2<f32>(tileOffset) + samplePosition + vec2<f32>(0.5);
+		let comparisonVisibility = textureSampleCompareLevel(
+			shadowAtlas,
+			shadowComparisonSampler,
+			atlasPosition / max(vec2<f32>(atlasDimensions), vec2<f32>(1.0)),
+			currentDepth - depthBias
+		);
+		let transmittance = textureLoad(
+			shadowTransmittanceAtlas,
+			tileOffset + vec2<i32>(round(samplePosition)),
+			0
+		).rgb;
+		filteredVisibility += comparisonVisibility * transmittance;
+	}
+	filteredVisibility /= max(f32(filterSampleCount), 1.0);
 	let strength = clamp(shadow.paramsB.y, 0.0, 1.0);
-	return (vec3<f32>(1.0 - strength) + strength * visibility * transmittance) *
+	return (vec3<f32>(1.0 - strength) + strength * filteredVisibility) *
 		sampleParticleShadowVolumeTransmittance(
 			0u,
 			index,

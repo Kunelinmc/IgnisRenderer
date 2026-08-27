@@ -10,6 +10,7 @@ import type {
 	PreparedPagedShadowSettings,
 	ShadowProjectionSnapshot,
 	ShadowSamplingSettings,
+	ShadowSamplingQuality,
 	ShadowStoragePreference,
 } from "./types";
 
@@ -21,7 +22,9 @@ export interface ShadowMapBaseOptions {
 	priority?: number;
 	size?: number;
 	bias?: ShadowBiasSettings;
+	filterMode?: ShadowFilterMode;
 	sampling?: ShadowSamplingSettings;
+	strength?: number;
 }
 
 export abstract class ShadowMapBase {
@@ -29,6 +32,8 @@ export abstract class ShadowMapBase {
 	private _enabled: boolean;
 	private _priority: number;
 	private _size: number;
+	private _filterMode: ShadowFilterMode;
+	private _strength: number;
 	private readonly _bias: ShadowBiasSettings;
 	private readonly _sampling: ShadowSamplingSettings;
 	private readonly _listeners = new Set<ShadowDefinitionListener>();
@@ -46,6 +51,8 @@ export abstract class ShadowMapBase {
 			1,
 			Math.floor(toFiniteNumber(options.size, DEFAULT_SHADOW_SIZE))
 		);
+		this._filterMode = normalizeShadowFilterMode(options.filterMode);
+		this._strength = normalizeShadowStrength(options.strength);
 		this._bias = createObservableSettings({
 			constant: toFiniteNumber(options.bias?.constant, 0),
 			slope: toFiniteNumber(options.bias?.slope, 0.01),
@@ -55,15 +62,7 @@ export abstract class ShadowMapBase {
 			max: toFiniteNumber(options.bias?.max, 0.1),
 		}, BIAS_NORMALIZERS, () => this._markDefinitionChanged());
 		this._sampling = createObservableSettings({
-			filterMode: options.sampling?.filterMode ?? "pcf",
-			pcfRadius: toFiniteNumber(options.sampling?.pcfRadius, 1),
-			strength: toFiniteNumber(options.sampling?.strength, 1),
-			radius: toFiniteNumber(options.sampling?.radius, 0),
-			samples: Math.max(1, Math.floor(toFiniteNumber(options.sampling?.samples, 16))),
-			searchSamples: Math.max(
-				1,
-				Math.floor(toFiniteNumber(options.sampling?.searchSamples, 16))
-			),
+			quality: normalizeShadowSamplingQuality(options.sampling?.quality),
 		}, SAMPLING_NORMALIZERS, () => this._markDefinitionChanged());
 	}
 
@@ -107,6 +106,28 @@ export abstract class ShadowMapBase {
 		this._markDefinitionChanged();
 	}
 
+	public get filterMode(): ShadowFilterMode {
+		return this._filterMode;
+	}
+
+	public set filterMode(value: ShadowFilterMode) {
+		const normalized = normalizeShadowFilterMode(value);
+		if (this._filterMode === normalized) return;
+		this._filterMode = normalized;
+		this._markDefinitionChanged();
+	}
+
+	public get strength(): number {
+		return this._strength;
+	}
+
+	public set strength(value: number) {
+		const normalized = normalizeShadowStrength(value);
+		if (Object.is(this._strength, normalized)) return;
+		this._strength = normalized;
+		this._markDefinitionChanged();
+	}
+
 	public get bias(): ShadowBiasSettings {
 		return this._bias;
 	}
@@ -136,7 +157,9 @@ export abstract class ShadowMapBase {
 			if (options.priority !== undefined) this.priority = options.priority;
 			if (options.size !== undefined) this.size = options.size;
 			if (options.bias !== undefined) this.bias = options.bias;
+			if (options.filterMode !== undefined) this.filterMode = options.filterMode;
 			if (options.sampling !== undefined) this.sampling = options.sampling;
+			if (options.strength !== undefined) this.strength = options.strength;
 		});
 	}
 
@@ -158,17 +181,15 @@ export abstract class ShadowMapBase {
 			bias: Object.freeze({ ...this.bias }) as Readonly<
 				Required<ShadowBiasSettings>
 			>,
+			filterMode: this.filterMode,
 			sampling: Object.freeze({ ...this.sampling }) as Readonly<
 				Required<ShadowSamplingSettings>
 			>,
+			strength: this.strength,
 			pagedSettings: this.createPagedSettingsSnapshot(),
 			priority: this.priority,
 			revision: this.revision,
 		});
-	}
-
-	public get filterMode(): ShadowFilterMode {
-		return this.sampling.filterMode ?? "pcf";
 	}
 
 	protected get storagePreference(): ShadowStoragePreference {
@@ -305,13 +326,21 @@ const BIAS_NORMALIZERS: SettingNormalizers<Required<ShadowBiasSettings>> = {
 };
 
 const SAMPLING_NORMALIZERS: SettingNormalizers<Required<ShadowSamplingSettings>> = {
-	filterMode: () => "pcf",
-	pcfRadius: (value) => toFiniteNumber(value, 1),
-	strength: (value) => toFiniteNumber(value, 1),
-	radius: (value) => toFiniteNumber(value, 0),
-	samples: (value) => Math.max(1, Math.floor(toFiniteNumber(value, 16))),
-	searchSamples: (value) => Math.max(1, Math.floor(toFiniteNumber(value, 16))),
+	quality: (value) => normalizeShadowSamplingQuality(value),
 };
+
+function normalizeShadowFilterMode(value: unknown): ShadowFilterMode {
+	return value === "pcss" ? "pcss" : "pcf";
+}
+
+function normalizeShadowSamplingQuality(value: unknown): ShadowSamplingQuality {
+	if (value === "low" || value === "high") return value;
+	return "medium";
+}
+
+function normalizeShadowStrength(value: unknown): number {
+	return Math.max(0, Math.min(1, toFiniteNumber(value, 1)));
+}
 
 function toFiniteNumber(value: unknown, fallback: number): number {
 	if (typeof value !== "number" || !Number.isFinite(value)) {

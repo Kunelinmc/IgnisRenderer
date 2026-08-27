@@ -197,7 +197,14 @@ function createRenderSet(overrides = {}) {
 	};
 	renderSet.prepared = {
 		light: { id: "sun", type: LightType.Directional }, lightId: "sun",
-		definition: { id: "paged-test", projection: {}, bias: {}, sampling: {} },
+		definition: {
+			id: "paged-test",
+			projection: {},
+			bias: {},
+			filterMode: "pcf",
+			sampling: { quality: "medium" },
+			strength: 1,
+		},
 		effectiveTechnique: "cascaded", storage: "paged", pagedSettings: paged,
 		effectiveCascadeCount: 1, effectiveResolution: paged.virtualResolution, slices,
 	};

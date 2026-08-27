@@ -14,7 +14,9 @@ interface ShadowPlannerLightPolicy {
 
 /** @internal Fixed shadow-planning policy owned by `ShadowPlanner`. */
 export interface ShadowPlannerBackendPolicy {
-	readonly supportsFilterModes: readonly ShadowFilterMode[];
+	readonly filterModes: Readonly<
+		Record<"atlas" | "paged", readonly ShadowFilterMode[]>
+	>;
 	readonly lightTypes: Partial<Record<ShadowBoundLightType, ShadowPlannerLightPolicy>>;
 	readonly supportsTransmission: boolean;
 	readonly maxDynamicShadowCost: number;
@@ -24,7 +26,7 @@ export interface ShadowPlannerBackendPolicy {
 }
 
 const SOFTWARE_POLICY: ShadowPlannerBackendPolicy = {
-	supportsFilterModes: ["pcf"],
+	filterModes: { atlas: ["pcf", "pcss"], paged: ["pcf"] },
 	lightTypes: {
 		directional: {
 			projections: ["single", "cascaded"],
@@ -50,7 +52,7 @@ const SOFTWARE_POLICY: ShadowPlannerBackendPolicy = {
 };
 
 const WEBGL_POLICY: ShadowPlannerBackendPolicy = {
-	supportsFilterModes: ["pcf"],
+	filterModes: { atlas: ["pcf", "pcss"], paged: ["pcf"] },
 	lightTypes: {
 		directional: {
 			projections: ["single", "cascaded"],
@@ -76,7 +78,7 @@ const WEBGL_POLICY: ShadowPlannerBackendPolicy = {
 };
 
 const WEBGPU_POLICY: ShadowPlannerBackendPolicy = {
-	supportsFilterModes: ["pcf"],
+	filterModes: { atlas: ["pcf", "pcss"], paged: ["pcf"] },
 	lightTypes: {
 		directional: {
 			projections: ["single", "cascaded"],
@@ -106,7 +108,7 @@ const WEBGPU_POLICY: ShadowPlannerBackendPolicy = {
 
 // Unknown backends receive only behavior shared by every built-in backend.
 const CROSS_BACKEND_POLICY: ShadowPlannerBackendPolicy = {
-	supportsFilterModes: ["pcf"],
+	filterModes: { atlas: ["pcf"], paged: ["pcf"] },
 	lightTypes: {
 		directional: {
 			projections: ["single", "cascaded"],

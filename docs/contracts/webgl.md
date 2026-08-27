@@ -286,6 +286,10 @@ This document defines the current WebGL backend lifecycle, frame graph, resource
 - Shadow consumers must obtain atlas, transmittance, particle-volume, and
   availability data through one readonly sampling-state contract. Runtime-owned
   typed arrays must remain identity-stable and must not be mutated by consumers.
+- WebGL shadow sampling must implement the shared PCF and PCSS quality presets.
+  A logical bilinear comparison tap must be reconstructed from four depth
+  comparisons without adding a second shadow-atlas sampler binding. Filter
+  footprints must clamp to the selected atlas tile or cascade.
 - Shadow frame abort must clear pending plans and active sampling availability
   while retaining reusable native resources. Missing shader programs must
   disable sampling for the frame without discarding prepared targets.

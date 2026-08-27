@@ -16,6 +16,17 @@ Applications configure built-in definitions through `scene.shadows`.
 are the supported authoring and lifecycle API. Built-in definitions keep their
 observable properties and `update()` method.
 
+`ShadowFilterMode` is limited to `"pcf"` and `"pcss"`. Definitions select
+the filter through top-level `filterMode`, select `"low"`, `"medium"`, or
+`"high"` through `sampling.quality`, and control artistic attenuation through
+top-level `strength`. `sampling` must not expose filter radii, sample counts,
+search counts, or strength. The defaults are `"pcf"`, `"medium"`, and `1`.
+
+Sampling quality changes only the fixed filter tap budget. It must not change
+the PCF radius, PCSS blocker-search radius, or maximum PCSS penumbra radius.
+Built-in sampling must be deterministic within a frame and must not depend on
+TAA or temporal history.
+
 `ShadowMapKind` is limited to `"single"`, `"cascaded"`, and
 `"paged-shadow"`. Custom registry entries and public definition subclasses are
 not supported.
@@ -49,6 +60,10 @@ faces per cascade. Cascade counts are clamped to the built-in range, and
 unsupported projection or storage modes must produce an explicit fallback
 diagnostic.
 
+Atlas storage supports PCF and PCSS on every built-in backend. Paged storage
+supports PCF only. A paged definition requesting PCSS must retain its requested
+quality, resolve its effective filter to PCF, and emit `filter-fallback`.
+
 Directional cascade depth comparison bias must be compensated by the
 reciprocal light-space depth range of the selected orthographic cascade. The
 compensation factor must be clamped to at most `1` so a depth range below one
@@ -81,3 +96,10 @@ shared plan.
 Atlas caster passes must iterate only explicit `"atlas"` and
 `"atlas-fallback"` jobs. Paged runtime layout is derived from prepared lights;
 backend layout offsets must not be written into prepared slices or definitions.
+
+PCF logical taps must represent bilinear `2x2` percentage-closer results.
+WebGPU may use hardware comparison filtering; WebGL and Software must reproduce
+the same interpolation from four depth comparisons. PCSS must average
+individually linearized blocker depths before estimating penumbra width.
+Projection-depth reconstruction must use the selected slice projection rather
+than backend-specific approximations.

@@ -399,11 +399,13 @@ export class WebGLSceneShadowUniforms {
 	public readonly dirShadowViewProjection: WebGLSceneUniformLocation;
 	public readonly dirShadowCascadeViewProjection: WebGLSceneUniformLocation;
 	public readonly dirShadowCascadeSplits: WebGLSceneUniformLocation;
+	public readonly dirShadowDepthProjectionParams: WebGLSceneUniformLocation;
 	public readonly dirShadowParamsA: WebGLSceneUniformLocation;
 	public readonly dirShadowParamsB: WebGLSceneUniformLocation;
 	public readonly dirShadowParamsC: WebGLSceneUniformLocation;
 	public readonly dirShadowParamsD: WebGLSceneUniformLocation;
 	public readonly spotShadowViewProjection: WebGLSceneUniformLocation;
+	public readonly spotShadowDepthProjectionParams: WebGLSceneUniformLocation;
 	public readonly spotShadowParamsA: WebGLSceneUniformLocation;
 	public readonly spotShadowParamsB: WebGLSceneUniformLocation;
 	public readonly spotShadowParamsC: WebGLSceneUniformLocation;
@@ -428,11 +430,17 @@ export class WebGLSceneShadowUniforms {
 			"uDirShadowCascadeViewProjection[0]"
 		);
 		this.dirShadowCascadeSplits = get("uDirShadowCascadeSplits[0]");
+		this.dirShadowDepthProjectionParams = get(
+			"uDirShadowDepthProjectionParams[0]"
+		);
 		this.dirShadowParamsA = get("uDirShadowParamsA[0]");
 		this.dirShadowParamsB = get("uDirShadowParamsB[0]");
 		this.dirShadowParamsC = get("uDirShadowParamsC[0]");
 		this.dirShadowParamsD = get("uDirShadowParamsD[0]");
 		this.spotShadowViewProjection = get("uSpotShadowViewProjection[0]");
+		this.spotShadowDepthProjectionParams = get(
+			"uSpotShadowDepthProjectionParams[0]"
+		);
 		this.spotShadowParamsA = get("uSpotShadowParamsA[0]");
 		this.spotShadowParamsB = get("uSpotShadowParamsB[0]");
 		this.spotShadowParamsC = get("uSpotShadowParamsC[0]");

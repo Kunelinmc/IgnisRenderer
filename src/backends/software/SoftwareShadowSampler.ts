@@ -16,7 +16,22 @@ import type {
 	SoftwareShadowSamplerCamera,
 } from "./SoftwareShadowContracts";
 import { sampleParticleShadowVolumeTransmittance } from "../../pipeline/ParticleShadowVolume";
-import { SoftwareShadowConstants } from "./SoftwareShadowConstants";
+import {
+	MAX_NDC_DEPTH,
+	MIN_CLIP_W,
+	MIN_NDC_DEPTH,
+} from "./SoftwareShadowConstants";
+import {
+	linearizeShadowNdcDepth,
+	resolveShadowDepthProjectionParams,
+	resolveShadowSampleRotation,
+	resolveShadowDiskSample,
+	SHADOW_PCF_RADIUS_TEXELS,
+	SHADOW_PCSS_CONTACT_THRESHOLD_TEXELS,
+	SHADOW_PCSS_MAX_PENUMBRA_TEXELS,
+	SHADOW_PCSS_SEARCH_RADIUS_TEXELS,
+	SHADOW_SAMPLING_PRESETS,
+} from "../../lights/shadows/shadowSampling";
 
 interface SoftwareShadowSampleContext {
 	worldPoint: IVector3;
@@ -168,13 +183,6 @@ function resolveCameraViewDepth(
 	return Math.max(0, position.z - worldPoint.z);
 }
 
-function getVogelSample(index: number, numSamples: number, theta: number) {
-	const goldenAngle = 2.400049405230919;
-	const r = Math.sqrt((index + 0.5) / numSamples);
-	const angle = index * goldenAngle + theta;
-	return { x: r * Math.cos(angle), y: r * Math.sin(angle) };
-}
-
 function resolveDirectionalCascadeDepthBiasScale(viewProjection: Matrix4): number {
 	const row = viewProjection.elements[2];
 	const reciprocalDepthRange = Math.hypot(row[0], row[1], row[2]) * 0.5;
@@ -229,14 +237,15 @@ function calculateShadowFactor(ctx: SoftwareShadowSampleContext): RGB {
 
 	const lightSpacePos = Matrix4.transformPoint(viewProjectionMatrix, offsetPoint);
 	const w = lightSpacePos.w;
-	if (w <= SoftwareShadowConstants.MIN_CLIP_W) {
+
+	if (w <= MIN_CLIP_W) {
 		return { r: 1.0, g: 1.0, b: 1.0 };
 	}
+
 	const invW = 1 / w;
 	const ndcX = lightSpacePos.x * invW;
 	const ndcY = lightSpacePos.y * invW;
 	const ndcZ = lightSpacePos.z * invW;
-
 	const u = ndcX * 0.5 + 0.5;
 	const v = 0.5 - ndcY * 0.5;
 	const currentDepth = ndcZ;
@@ -246,8 +255,8 @@ function calculateShadowFactor(ctx: SoftwareShadowSampleContext): RGB {
 		u > 1 ||
 		v < 0 ||
 		v > 1 ||
-		currentDepth < SoftwareShadowConstants.MIN_NDC_DEPTH ||
-		currentDepth > SoftwareShadowConstants.MAX_NDC_DEPTH
+		currentDepth < MIN_NDC_DEPTH ||
+		currentDepth > MAX_NDC_DEPTH
 	) {
 		return { r: 1.0, g: 1.0, b: 1.0 };
 	}
@@ -257,16 +266,6 @@ function calculateShadowFactor(ctx: SoftwareShadowSampleContext): RGB {
 	const texelBias = (biasSettings.texel ?? 1.0) * (2.0 / size);
 	const maxBias = biasSettings.max ?? 0.05;
 
-	const m = projectionMatrix ? projectionMatrix.elements : null;
-	const isPerspective = m ? Math.abs(m[3][2] + 1.0) < 1e-6 : false;
-	const linearizeDepth = (zNdc: number): number => {
-		if (!m) return zNdc;
-		if (isPerspective) {
-			return m[2][3] / (zNdc + m[2][2]);
-		}
-		return (m[2][3] - zNdc) / m[2][2];
-	};
-
 	const rawBias = normal
 		? Math.min(
 				maxBias,
@@ -275,151 +274,113 @@ function calculateShadowFactor(ctx: SoftwareShadowSampleContext): RGB {
 					texelBias,
 			)
 		: Math.min(maxBias, constantBias + texelBias);
+	const isPerspective = Math.abs(projectionMatrix.elements[3][2] + 1) < 1e-6;
 	const depthBiasScale =
-		shadow.effectiveTechnique === "cascaded" && shadow.slices.length > 1 && !isPerspective
+		shadow.effectiveTechnique === "cascaded" &&
+		shadow.slices.length > 1 &&
+		!isPerspective
 			? Math.min(1, resolveDirectionalCascadeDepthBiasScale(viewProjectionMatrix) * 2)
 			: 1;
 	const bias = rawBias * depthBiasScale;
+	const quality = params.quality ?? "medium";
+	const preset = SHADOW_SAMPLING_PRESETS[quality];
+	const texelPositionX = u * (size - 1);
+	const texelPositionY = v * (size - 1);
+	const rotation = resolveShadowSampleRotation(
+		Math.floor(texelPositionX),
+		Math.floor(texelPositionY),
+		0,
+		slice.index,
+	);
+	const rotationCos = Math.cos(rotation);
+	const rotationSin = Math.sin(rotation);
+	const projectionParams = resolveShadowDepthProjectionParams(projectionMatrix);
 
-	const strength = clamp(params.strength ?? 1.0);
-	const pcfRadiusParams = params.radius ?? 0;
-	const texelSize = 1.0 / size;
-
-	let visibilityR = 0;
-	let visibilityG = 0;
-	let visibilityB = 0;
-	let validSampleCount = 0;
-
-	if (pcfRadiusParams > 0) {
-		const theta =
-			(worldPoint.x * 12.9898 + worldPoint.y * 78.233 + worldPoint.z * 37.719) %
-			(Math.PI * 2);
-		const numSearchSamples = Math.floor(params.searchSamples ?? 16);
-		const numSamples = Math.floor(params.samples ?? 16);
-		const maxRadiusUV = pcfRadiusParams * texelSize;
-
-		let numBlockers = 0;
-		let avgBlockerDepth = 0;
-		for (let i = 0; i < numSearchSamples; i++) {
-			const offset = getVogelSample(i, numSearchSamples, theta);
-			const su = u + offset.x * maxRadiusUV;
-			const sv = v + offset.y * maxRadiusUV;
-			if (su >= 0 && su <= 1 && sv >= 0 && sv <= 1) {
-				const tx = Math.max(0, Math.min(size - 1, Math.floor(su * (size - 1))));
-				const ty = Math.max(0, Math.min(size - 1, Math.floor(sv * (size - 1))));
-				const shadowDepth = buffer[ty * size + tx];
-				if (currentDepth - bias > shadowDepth) {
-					numBlockers++;
-					avgBlockerDepth += shadowDepth;
-				}
-			}
+	const sampleFiltered = (sampleCount: number, radius: number): RGB => {
+		let visibilityR = 0;
+		let visibilityG = 0;
+		let visibilityB = 0;
+		for (let index = 0; index < sampleCount; index++) {
+			const offset = resolveShadowDiskSample(index, rotationCos, rotationSin);
+			const sampleX = Math.max(
+				0,
+				Math.min(size - 1, texelPositionX + offset[0] * radius),
+			);
+			const sampleY = Math.max(
+				0,
+				Math.min(size - 1, texelPositionY + offset[1] * radius),
+			);
+			const x0 = Math.floor(sampleX);
+			const y0 = Math.floor(sampleY);
+			const x1 = Math.min(size - 1, x0 + 1);
+			const y1 = Math.min(size - 1, y0 + 1);
+			const fx = sampleX - x0;
+			const fy = sampleY - y0;
+			const compare = (x: number, y: number): number =>
+				currentDepth - bias <= buffer[y * size + x] ? 1 : 0;
+			const top = compare(x0, y0) * (1 - fx) + compare(x1, y0) * fx;
+			const bottom = compare(x0, y1) * (1 - fx) + compare(x1, y1) * fx;
+			const visibility = top * (1 - fy) + bottom * fy;
+			const tx = Math.max(0, Math.min(size - 1, Math.round(sampleX)));
+			const ty = Math.max(0, Math.min(size - 1, Math.round(sampleY)));
+			const transmittanceOffset = (ty * size + tx) * 3;
+			visibilityR += visibility * transmissionBuffer[transmittanceOffset];
+			visibilityG += visibility * transmissionBuffer[transmittanceOffset + 1];
+			visibilityB += visibility * transmissionBuffer[transmittanceOffset + 2];
 		}
+		const invCount = 1 / Math.max(sampleCount, 1);
+		const strength = clamp(shadow.definition.strength);
+		return {
+			r: clamp(1 - strength + strength * visibilityR * invCount),
+			g: clamp(1 - strength + strength * visibilityG * invCount),
+			b: clamp(1 - strength + strength * visibilityB * invCount),
+		};
+	};
 
-		if (numBlockers === 0) {
-			return { r: 1.0, g: 1.0, b: 1.0 };
-		}
-
-		avgBlockerDepth /= numBlockers;
-		const linCurrent = linearizeDepth(currentDepth);
-		const linBlocker = linearizeDepth(avgBlockerDepth);
-
-		let penumbraRatio = 1.0;
-		if (linCurrent > linBlocker) {
-			const divergence = isPerspective ? linBlocker || 1e-6 : 100.0;
-			penumbraRatio = (linCurrent - linBlocker) / divergence;
-			penumbraRatio = Math.max(0.0, Math.min(1.0, penumbraRatio));
-		} else {
-			penumbraRatio = 0;
-		}
-
-		const filterRadiusUV = maxRadiusUV * penumbraRatio;
-		if (filterRadiusUV < texelSize * 0.1) {
-			return calculateShadowFactor({
-				...ctx,
-				shadow: {
-					...shadow,
-					definition: {
-						...shadow.definition,
-						sampling: { ...params, radius: 0 },
-					},
-				},
-			});
-		}
-
-		for (let i = 0; i < numSamples; i++) {
-			const offset = getVogelSample(i, numSamples, theta);
-			const su = u + offset.x * filterRadiusUV;
-			const sv = v + offset.y * filterRadiusUV;
-			if (su < 0 || su > 1 || sv < 0 || sv > 1) continue;
-
-			const tx = Math.max(0, Math.min(size - 1, Math.floor(su * (size - 1))));
-			const ty = Math.max(0, Math.min(size - 1, Math.floor(sv * (size - 1))));
-			const idx = ty * size + tx;
-			const shadowDepth = buffer[idx];
-
-			validSampleCount++;
-			const isOccluded = currentDepth - bias > shadowDepth;
-			if (isOccluded) {
-				visibilityR += 1.0 - strength;
-				visibilityG += 1.0 - strength;
-				visibilityB += 1.0 - strength;
-				continue;
-			}
-
-			const cIdx = idx * 3;
-			const transSampleR = transmissionBuffer[cIdx];
-			const transSampleG = transmissionBuffer[cIdx + 1];
-			const transSampleB = transmissionBuffer[cIdx + 2];
-			visibilityR += 1.0 - strength + strength * transSampleR;
-			visibilityG += 1.0 - strength + strength * transSampleG;
-			visibilityB += 1.0 - strength + strength * transSampleB;
-		}
-	} else {
-		const theta =
-			(worldPoint.x * 12.9898 + worldPoint.y * 78.233 + worldPoint.z * 37.719) %
-			(Math.PI * 2);
-		const pcfRadius = params.pcfRadius ?? 1.5;
-		const numSamples = Math.floor(params.samples ?? 16);
-		const radiusUV = pcfRadius * texelSize;
-
-		for (let i = 0; i < numSamples; i++) {
-			const offset = getVogelSample(i, numSamples, theta);
-			const su = u + offset.x * radiusUV;
-			const sv = v + offset.y * radiusUV;
-			if (su < 0 || su > 1 || sv < 0 || sv > 1) continue;
-
-			const tx = Math.max(0, Math.min(size - 1, Math.floor(su * (size - 1))));
-			const ty = Math.max(0, Math.min(size - 1, Math.floor(sv * (size - 1))));
-			const idx = ty * size + tx;
-			const shadowDepth = buffer[idx];
-
-			validSampleCount++;
-			const isOccluded = currentDepth - bias > shadowDepth;
-			if (isOccluded) {
-				visibilityR += 1.0 - strength;
-				visibilityG += 1.0 - strength;
-				visibilityB += 1.0 - strength;
-				continue;
-			}
-
-			const cIdx = idx * 3;
-			const transSampleR = transmissionBuffer[cIdx];
-			const transSampleG = transmissionBuffer[cIdx + 1];
-			const transSampleB = transmissionBuffer[cIdx + 2];
-			visibilityR += 1.0 - strength + strength * transSampleR;
-			visibilityG += 1.0 - strength + strength * transSampleG;
-			visibilityB += 1.0 - strength + strength * transSampleB;
-		}
+	if (shadow.effectiveFilterMode !== "pcss") {
+		return sampleFiltered(preset.pcfSamples, SHADOW_PCF_RADIUS_TEXELS);
 	}
 
-	if (validSampleCount === 0) return { r: 1.0, g: 1.0, b: 1.0 };
+	let blockerCount = 0;
+	let blockerDistanceSum = 0;
+	for (let index = 0; index < preset.pcssSearchSamples; index++) {
+		const offset = resolveShadowDiskSample(index, rotationCos, rotationSin);
+		const sampleX = Math.max(0, Math.min(
+			size - 1,
+			Math.round(texelPositionX + offset[0] * SHADOW_PCSS_SEARCH_RADIUS_TEXELS),
+		));
+		const sampleY = Math.max(0, Math.min(
+			size - 1,
+			Math.round(texelPositionY + offset[1] * SHADOW_PCSS_SEARCH_RADIUS_TEXELS),
+		));
+		const sampleDepth = buffer[sampleY * size + sampleX];
+		if (currentDepth - bias > sampleDepth) {
+			const blockerDistance = linearizeShadowNdcDepth(
+				sampleDepth,
+				projectionParams,
+			);
+			if (Number.isFinite(blockerDistance)) {
+				blockerDistanceSum += blockerDistance;
+				blockerCount++;
+			}
+		}
+	}
+	if (blockerCount === 0) return { r: 1, g: 1, b: 1 };
 
-	const invCount = 1.0 / validSampleCount;
-	return {
-		r: clamp(visibilityR * invCount),
-		g: clamp(visibilityG * invCount),
-		b: clamp(visibilityB * invCount),
-	};
+	const receiverDistance = linearizeShadowNdcDepth(
+		currentDepth,
+		projectionParams,
+	);
+	const blockerDistance = blockerDistanceSum / blockerCount;
+	const penumbraRatio = Math.max(0, Math.min(
+		1,
+		(receiverDistance - blockerDistance) / Math.max(blockerDistance, 1e-6),
+	));
+	const filterRadius = penumbraRatio * SHADOW_PCSS_MAX_PENUMBRA_TEXELS;
+	if (filterRadius < SHADOW_PCSS_CONTACT_THRESHOLD_TEXELS) {
+		return sampleFiltered(preset.pcfSamples, SHADOW_PCF_RADIUS_TEXELS);
+	}
+	return sampleFiltered(preset.pcssFilterSamples, filterRadius);
 }
 
 export function sampleSoftwareShadow(

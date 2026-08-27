@@ -1,6 +1,10 @@
 import { Matrix4 } from "../../maths/Matrix4";
 import type { Matrix3Arr } from "../../maths/types";
 import {
+	SHADOW_FILTER_MODE_CODE,
+	SHADOW_QUALITY_CODE,
+} from "../../lights/shadows/shadowSampling";
+import {
 	MAX_AREA_LIGHTS,
 	MAX_DIRECTIONAL_LIGHTS,
 	MAX_LOCAL_LIGHT_PROBES,
@@ -652,6 +656,16 @@ function writeShadowData(
 		}
 	}
 
+	for (let cascadeIndex = 0; cascadeIndex < 4; cascadeIndex++) {
+		const params = shadow?.depthProjectionParams?.[cascadeIndex];
+		if (params) {
+			writer.writeVec(
+				[arrayField, index, "depthProjectionParams", cascadeIndex],
+				params,
+			);
+		}
+	}
+
 	const isCSM =
 		shadow?.enabled && shadow.strategyType === "csm" && shadow.cascadeCount > 1;
 	const cascadeCount =
@@ -666,7 +680,7 @@ function writeShadowData(
 		shadow?.normalBiasMin ?? 0,
 	]);
 	writer.writeVec([arrayField, index, "paramsB"], [
-		shadow?.pcfRadius ?? 0,
+		0,
 		shadow?.shadowStrength ?? 0,
 		shadow?.shadowMapSize ?? 0,
 		shadow?.atlasTileSize ?? 0,
@@ -678,10 +692,10 @@ function writeShadowData(
 		cascadeBlendRatio,
 	]);
 	writer.writeVec([arrayField, index, "paramsD"], [
-		shadow?.pcssEnabled ? 1 : 0,
-		shadow?.pcssRadius ?? 0,
-		shadow?.shadowSamples ?? 0,
-		shadow?.shadowSearchSamples ?? 0,
+		shadow ? SHADOW_FILTER_MODE_CODE[shadow.filterMode] : 0,
+		shadow ? SHADOW_QUALITY_CODE[shadow.samplingQuality] : 1,
+		0,
+		0,
 	]);
 	writer.writeVec([arrayField, index, "paramsE"], [
 		shadow?.storageMode === "paged" ? 1 : 0,

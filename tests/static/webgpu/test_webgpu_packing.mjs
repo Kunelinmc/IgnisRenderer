@@ -288,6 +288,34 @@ function createFrameInput() {
 
 function testFrameUniformPacking() {
 	const input = createFrameInput();
+	input.directionalShadows = [{
+		enabled: true,
+		strategyType: "single-map",
+		cascadeCount: 1,
+		cascadeBlendRatio: 0,
+		cascadeViewProjectionMatrices: [null, null, null, null],
+		cascadeSplits: [[0, 1, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]],
+		depthProjectionParams: [[-1, -2, -1, 0], [0, 0, 0, 1], [0, 0, 0, 1], [0, 0, 0, 1]],
+		viewProjectionMatrix: matrix(500),
+		depthBias: 0.01,
+		slopeBias: 0.02,
+		normalBias: 0.03,
+		normalBiasMin: 0.04,
+		filterMode: "pcss",
+		samplingQuality: "high",
+		shadowStrength: 0.9,
+		shadowMapBaseSize: 1024,
+		shadowMapSize: 1024,
+		atlasTileSize: 1024,
+		storageMode: "atlas",
+		pagedPageTableBase: 0,
+		pagedPageTableCascadeStride: 0,
+		pagedPageGridSize: 0,
+		pagedPageSize: 0,
+		pagedPhysicalAtlasSize: 0,
+		pagedPhysicalGridSize: 0,
+		pagedPhysicalPageSize: 0,
+	}];
 	const cameraData = packFrameCameraUniformData(input);
 	const lightData = packFrameLightUniformData(input);
 	const shadowData = packFrameShadowUniformData(input);
@@ -310,7 +338,25 @@ function testFrameUniformPacking() {
 	);
 	assert.equal(
 		cameraData.byteLength + lightData.byteLength + shadowData.byteLength + environmentData.byteLength,
-		11936
+		12704
+	);
+	assert.deepEqual(
+		readVec(
+			WEBGPU_FRAME_SHADOW_UNIFORM_LAYOUT,
+			shadowData,
+			["directionalShadows", 0, "paramsD"],
+			4,
+		),
+		[1, 2, 0, 0],
+	);
+	assert.deepEqual(
+		readVec(
+			WEBGPU_FRAME_SHADOW_UNIFORM_LAYOUT,
+			shadowData,
+			["directionalShadows", 0, "depthProjectionParams", 0],
+			4,
+		),
+		[-1, -2, -1, 0],
 	);
 	assert.deepEqual(
 		readVec(WEBGPU_FRAME_CAMERA_UNIFORM_LAYOUT, cameraData, "cameraPosition", 4),
@@ -368,7 +414,7 @@ function testFrameUniformPacking() {
 	]);
 	assert.equal(
 		readVec(WEBGPU_FRAME_SHADOW_UNIFORM_LAYOUT, shadowData, ["directionalShadows", 0, "paramsA"], 4)[0],
-		0
+		1
 	);
 }
 

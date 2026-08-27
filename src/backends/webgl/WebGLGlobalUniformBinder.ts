@@ -5,6 +5,10 @@ import type { SHCoefficients } from "../../maths/types";
 import type { FrameContext } from "../../pipeline/types";
 import type { FogOptions } from "../../postprocess/passes/FogPass";
 import { IBLBRDF } from "../../lights/ibl/IBLBRDF";
+import {
+	SHADOW_FILTER_MODE_CODE,
+	SHADOW_QUALITY_CODE,
+} from "../../lights/shadows/shadowSampling";
 import { Logger } from "../../foundation/Logger";
 import {
 	MAX_DIRECTIONAL_LIGHTS,
@@ -147,6 +151,27 @@ function flattenShadowParamsA(
 	return packed;
 }
 
+function flattenShadowDepthProjectionParams(
+	values: WebGLShadowData[],
+	maxCount: number,
+): Float32Array {
+	const cascadesPerLight = 4;
+	const packed = new Float32Array(maxCount * cascadesPerLight * 4);
+	const count = Math.min(maxCount, values.length);
+	for (let lightIndex = 0; lightIndex < count; lightIndex++) {
+		const params = values[lightIndex].depthProjectionParams;
+		for (let cascadeIndex = 0; cascadeIndex < cascadesPerLight; cascadeIndex++) {
+			const source = params[cascadeIndex] ?? [0, 0, 0, 1];
+			const offset = (lightIndex * cascadesPerLight + cascadeIndex) * 4;
+			packed[offset] = finiteOr(source[0], 0);
+			packed[offset + 1] = finiteOr(source[1], 0);
+			packed[offset + 2] = finiteOr(source[2], 0);
+			packed[offset + 3] = finiteOr(source[3], 1);
+		}
+	}
+	return packed;
+}
+
 function flattenShadowParamsB(
 	values: WebGLShadowData[],
 	maxCount: number
@@ -156,7 +181,7 @@ function flattenShadowParamsB(
 	for (let i = 0; i < count; i++) {
 		const shadow = values[i];
 		const offset = i * 4;
-		packed[offset] = finiteOr(shadow.pcfRadius, 0);
+		packed[offset] = 0;
 		packed[offset + 1] = finiteOr(shadow.shadowStrength, 0);
 		packed[offset + 2] = finiteOr(shadow.shadowMapSize, 0);
 		packed[offset + 3] = finiteOr(shadow.atlasTileSize, 0);
@@ -197,10 +222,10 @@ function flattenShadowParamsD(
 	for (let i = 0; i < count; i++) {
 		const shadow = values[i];
 		const offset = i * 4;
-		packed[offset] = shadow.pcssEnabled ? 1 : 0;
-		packed[offset + 1] = finiteOr(shadow.pcssRadius, 0);
-		packed[offset + 2] = finiteOr(shadow.shadowSamples, 0);
-		packed[offset + 3] = finiteOr(shadow.shadowSearchSamples, 0);
+		packed[offset] = SHADOW_FILTER_MODE_CODE[shadow.filterMode];
+		packed[offset + 1] = SHADOW_QUALITY_CODE[shadow.samplingQuality];
+		packed[offset + 2] = 0;
+		packed[offset + 3] = 0;
 	}
 	return packed;
 }
@@ -1142,6 +1167,15 @@ export function bindWebGLGlobalUniforms(
 			packedCascadeSplits.values
 		);
 	}
+	if (uniforms.dirShadowDepthProjectionParams) {
+		gl.uniform4fv(
+			uniforms.dirShadowDepthProjectionParams,
+			flattenShadowDepthProjectionParams(
+				lights.directionalShadows,
+				MAX_DIRECTIONAL_LIGHTS,
+			),
+		);
+	}
 	if (uniforms.dirShadowParamsA) {
 		const packedDirShadowParamsA = sanitizeFloat32Array(
 			flattenShadowParamsA(lights.directionalShadows, MAX_DIRECTIONAL_LIGHTS),
@@ -1307,6 +1341,15 @@ export function bindWebGLGlobalUniforms(
 			uniforms.spotShadowViewProjection,
 			false,
 			packedSpotShadowViewProjection.values
+		);
+	}
+	if (uniforms.spotShadowDepthProjectionParams) {
+		gl.uniform4fv(
+			uniforms.spotShadowDepthProjectionParams,
+			flattenShadowDepthProjectionParams(
+				lights.spotShadows,
+				MAX_SPOT_LIGHTS,
+			),
 		);
 	}
 	if (uniforms.spotShadowParamsA) {

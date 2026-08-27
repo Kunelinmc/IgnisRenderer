@@ -387,6 +387,12 @@ async function testSceneShaderCoverage() {
 	assert.ok(WEBGPU_SCENE_SHADER.includes("textureSampleCompareLevel("));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("textureLoad(shadowTransmittanceAtlas"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("texture_depth_2d"));
+	assert.ok(WEBGPU_SCENE_SHADER.includes("MAX_SHADOW_SEARCH_SAMPLES: i32 = 12"));
+	assert.ok(WEBGPU_SCENE_SHADER.includes("MAX_SHADOW_FILTER_SAMPLES: i32 = 7"));
+	assert.ok(WEBGPU_SCENE_SHADER.includes("depthProjectionParams"));
+	assert.ok(WEBGPU_SCENE_SHADER.includes("linearizeShadowDepth"));
+	assert.equal(WEBGPU_SCENE_SHADER.includes("MAX_PCSS_SEARCH_SAMPLES"), false);
+	assert.equal(WEBGPU_SCENE_SHADER.includes("vogelDiskSample"), false);
 	assert.ok(!WEBGPU_SCENE_SHADER.includes("decodePackedShadowDepth"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("let shadowNormal = normal;"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("let pbrShadowNormal = pbrNormal;"));
@@ -825,6 +831,8 @@ async function testParticleShaderDepthConsistency() {
 		)
 	);
 	assert.ok(WEBGPU_PARTICLE_SHADER.includes("struct ParticleOITOutput"));
+	assert.ok(WEBGPU_PARTICLE_SHADER.includes("particleShadowSampleCounts"));
+	assert.ok(WEBGPU_PARTICLE_SHADER.includes("particleLinearizeShadowDepth"));
 	assert.ok(WEBGPU_PARTICLE_SHADER.includes("fn fsMainOIT("));
 	assert.ok(WEBGPU_PARTICLE_SHADER.includes("fn resolveParticleOITWeight("));
 	assert.ok(

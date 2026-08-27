@@ -228,17 +228,16 @@ function testLightCollectorShadowBias() {
 	assert.ok(Math.abs(shadow.depthBias - (0.008 + 1 / 1024)) < 1e-6);
 	assert.ok(Math.abs(shadow.slopeBias - 0.03) < 1e-6);
 	assert.equal(shadow.shadowMapSize, 1024);
-	assert.equal(shadow.pcssEnabled, false);
-	assert.equal(shadow.pcssRadius, 0);
-	assert.equal(shadow.shadowSamples, 16);
-	assert.equal(shadow.shadowSearchSamples, 16);
+	assert.equal(shadow.filterMode, "pcf");
+	assert.equal(shadow.samplingQuality, "medium");
 }
 
 function testLightCollectorPCSSShadowParams() {
 	const light = new DirectionalLight();
 	const shadowPlan = createShadowPlan(light, {
 		size: 1024,
-		sampling: { pcfRadius: 1.25, radius: 5, samples: 24, searchSamples: 12 },
+		filterMode: "pcss",
+		sampling: { quality: "high" },
 	});
 	const state = collectWebGLLights([light], {
 		enableLighting: true,
@@ -247,11 +246,8 @@ function testLightCollectorPCSSShadowParams() {
 		shadowPlan,
 	});
 	const shadow = state.directionalShadows[0];
-	assert.equal(shadow.pcfRadius, 1.25);
-	assert.equal(shadow.pcssEnabled, true);
-	assert.equal(shadow.pcssRadius, 5);
-	assert.equal(shadow.shadowSamples, 24);
-	assert.equal(shadow.shadowSearchSamples, 12);
+	assert.equal(shadow.filterMode, "pcss");
+	assert.equal(shadow.samplingQuality, "high");
 }
 
 function testLightCollectorDirectionalCSMShadowData() {
@@ -290,7 +286,9 @@ function createShadowPlan(light, options = {}) {
 	const slices = Array.from({ length: cascades }, (_, index) => ({
 		index, resolution: sliceSize, view: Matrix4.identity(), projection: Matrix4.identity(), viewProjection: Matrix4.identity(), lightDirection: { x: 0, y: -1, z: 0 }, splitNear: index * 10, splitFar: (index + 1) * 10,
 	}));
-	return { revision: 1, jobs: [], diagnostics: [], hasRasterWork: false, hasTransmissionWork: false, hasPagedWork: false, lights: [{ light, lightId: light.id, definition: { bias: { constant: 0.008, slope: 0.03, texel: 1, max: 0.05, normal: 1, normalMin: 0.05 }, sampling: { filterMode: "pcf", pcfRadius: 1, radius: 0, strength: 1, samples: 16, searchSamples: 16 }, projection: { blendRatio: options.blendRatio ?? 0 } }, requestedTechnique: cascades > 1 ? "cascaded" : "single", effectiveTechnique: cascades > 1 ? "cascaded" : "single", requestedCascadeCount: cascades, effectiveCascadeCount: cascades, requestedResolution: size, effectiveResolution: size, sampling: options.sampling ?? { filterMode: "pcf", pcfRadius: 1, radius: 0, strength: 1, samples: 16, searchSamples: 16 }, filterMode: "pcf", storage: "atlas", priority: 0, cost: 1, score: 1, slices }] };
+	const filterMode = options.filterMode ?? "pcf";
+	const sampling = options.sampling ?? { quality: "medium" };
+	return { revision: 1, jobs: [], diagnostics: [], hasRasterWork: false, hasTransmissionWork: false, hasPagedWork: false, lights: [{ light, lightId: light.id, definition: { bias: { constant: 0.008, slope: 0.03, texel: 1, max: 0.05, normal: 1, normalMin: 0.05 }, filterMode, sampling, strength: 1, projection: { blendRatio: options.blendRatio ?? 0 } }, requestedTechnique: cascades > 1 ? "cascaded" : "single", effectiveTechnique: cascades > 1 ? "cascaded" : "single", requestedCascadeCount: cascades, effectiveCascadeCount: cascades, requestedResolution: size, effectiveResolution: size, sampling, requestedFilterMode: filterMode, effectiveFilterMode: filterMode, storage: "atlas", priority: 0, cost: 1, score: 1, slices }] };
 }
 
 function testSceneProgramPlannerEnumeratesRuntimeTransmittanceAlternatives() {

@@ -157,7 +157,8 @@ export class ShadowPlanner {
 				effectiveResolution: candidate.size,
 				sampling: candidate.snapshot.sampling,
 				fallbackReason: ShadowPlanner._resolveFallbackReason(candidate),
-				filterMode: candidate.filterMode,
+				requestedFilterMode: candidate.requestedFilter,
+				effectiveFilterMode: candidate.filterMode,
 				storage: candidate.storage,
 				pagedSettings: candidate.storage === "paged" ?
 					candidate.snapshot.pagedSettings : undefined,
@@ -255,10 +256,17 @@ export class ShadowPlanner {
 				});
 			}
 
-			const requestedFilter = definition.filterMode;
-			const filterMode = policy.supportsFilterModes.includes(
+			const storage = ShadowPlanner._resolveStorage(
+				definition,
+				policy,
+				options.backendKey,
+				light,
+				diagnostics
+			);
+			const requestedFilter = snapshot.filterMode;
+			const filterMode = policy.filterModes[storage].includes(requestedFilter) ?
 				requestedFilter
-			) ? requestedFilter : "pcf";
+			: "pcf";
 			if (filterMode !== requestedFilter) {
 				diagnostics.push({
 					code: "filter-fallback",
@@ -270,13 +278,6 @@ export class ShadowPlanner {
 				});
 			}
 
-			const storage = ShadowPlanner._resolveStorage(
-				definition,
-				policy,
-				options.backendKey,
-				light,
-				diagnostics
-			);
 			const size = definition.size;
 			const projection = ShadowPlanner._resolveProjection(
 				snapshot,

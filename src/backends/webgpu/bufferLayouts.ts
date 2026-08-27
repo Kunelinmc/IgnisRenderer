@@ -75,6 +75,7 @@ const SHADOW_DATA_SCHEMA = structOf([
 	{ name: "viewProjection", type: MAT4X4_F32 },
 	{ name: "cascadeViewProjections", type: arrayOf(MAT4X4_F32, 4) },
 	{ name: "cascadeSplits", type: arrayOf(VEC4_F32, 4) },
+	{ name: "depthProjectionParams", type: arrayOf(VEC4_F32, 4) },
 	{ name: "paramsA", type: VEC4_F32 },
 	{ name: "paramsB", type: VEC4_F32 },
 	{ name: "paramsC", type: VEC4_F32 },

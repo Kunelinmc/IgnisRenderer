@@ -138,6 +138,11 @@ storage, mirrored-view rendering, and main-surface compositing. Secondary
 reflection views must not mutate the application camera or commit main-view
 temporal history.
 
+Software shadow sampling must implement the shared PCF and PCSS quality
+presets. It must reconstruct each logical bilinear comparison tap from four
+depth-buffer comparisons and use the selected slice projection coefficients
+for PCSS blocker-depth linearization.
+
 ## Verification
 
 ```bash

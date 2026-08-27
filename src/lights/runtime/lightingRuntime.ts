@@ -2,6 +2,14 @@ import type { RGB } from "../../foundation/Color";
 import type { PreparedShadowLight } from "../shadows/ShadowFramePlan";
 import { clamp, sRGBToLinear } from "../../maths/Common";
 import type { Matrix4 } from "../../maths/Matrix4";
+import type {
+	ShadowFilterMode,
+	ShadowSamplingQuality,
+} from "../shadows/types";
+import {
+	resolveShadowDepthProjectionParams,
+	type ShadowDepthProjectionParams,
+} from "../shadows/shadowSampling";
 
 type RGBLike = Partial<RGB>;
 
@@ -18,16 +26,14 @@ export interface ResolvedShadowData {
 	cascadeBlendRatio: number;
 	cascadeViewProjectionMatrices: Array<Matrix4 | null>;
 	cascadeSplits: Array<[number, number, number, number]>;
+	depthProjectionParams: Array<ShadowDepthProjectionParams>;
 	viewProjectionMatrix: Matrix4 | null;
 	depthBias: number;
 	slopeBias: number;
 	normalBias: number;
 	normalBiasMin: number;
-	pcfRadius: number;
-	pcssEnabled: boolean;
-	pcssRadius: number;
-	shadowSamples: number;
-	shadowSearchSamples: number;
+	filterMode: ShadowFilterMode;
+	samplingQuality: ShadowSamplingQuality;
 	shadowStrength: number;
 	shadowMapBaseSize: number;
 	shadowMapSize: number;
@@ -95,7 +101,6 @@ export function resolveShadowData(
 	const baseSize = Math.max(1, prepared.effectiveResolution | 0);
 	const sliceSize = Math.max(1, primarySlice.resolution | 0);
 	const bias = prepared.definition.bias;
-	const sampling = prepared.sampling;
 	const texelBias = (bias.texel ?? 1) * (1 / sliceSize);
 	const maxBias = bias.max ?? 0.05;
 	const depthBias = Math.min(maxBias, (bias.constant ?? 0.008) + texelBias);
@@ -111,9 +116,18 @@ export function resolveShadowData(
 		[0, 0, 0, 0],
 		[0, 0, 0, 0],
 	];
+	const depthProjectionParams: Array<ShadowDepthProjectionParams> = [
+		[0, 0, 0, 1],
+		[0, 0, 0, 1],
+		[0, 0, 0, 1],
+		[0, 0, 0, 1],
+	];
 	for (let index = 0; index < Math.min(prepared.slices.length, 4); index++) {
 		const slice = prepared.slices[index];
 		cascadeViewProjectionMatrices[index] = slice.viewProjection;
+		depthProjectionParams[index] = resolveShadowDepthProjectionParams(
+			slice.projection,
+		);
 		cascadeSplits[index] = [
 			Math.max(0, slice.splitNear),
 			Math.max(0, slice.splitFar),
@@ -129,7 +143,6 @@ export function resolveShadowData(
 	const cascadeCount = strategyType === "csm" ?
 		Math.max(1, Math.min(4, prepared.slices.length))
 	: 1;
-	const pcssRadius = Math.max(0, sampling.radius ?? 0);
 	return {
 		enabled: true,
 		strategyType,
@@ -138,20 +151,15 @@ export function resolveShadowData(
 			strategyType === "csm" ? clamp(prepared.definition.projection.blendRatio ?? 0.1, 0, 1) : 0,
 		cascadeViewProjectionMatrices,
 		cascadeSplits,
+		depthProjectionParams,
 		viewProjectionMatrix: primarySlice.viewProjection,
 		depthBias,
 		slopeBias: Math.max(0, bias.slope ?? 0.03),
 		normalBias: Math.max(0, bias.normal ?? 1),
 		normalBiasMin: Math.max(0, bias.normalMin ?? 0.05),
-		pcfRadius: Math.max(1, sampling.pcfRadius ?? 1),
-		pcssEnabled: pcssRadius > 0,
-		pcssRadius,
-		shadowSamples: Math.max(1, Math.min(64, Math.floor(sampling.samples ?? 16))),
-		shadowSearchSamples: Math.max(
-			1,
-			Math.min(64, Math.floor(sampling.searchSamples ?? 16))
-		),
-		shadowStrength: clamp(sampling.strength ?? 1, 0, 1),
+		filterMode: prepared.effectiveFilterMode,
+		samplingQuality: prepared.sampling.quality,
+		shadowStrength: clamp(prepared.definition.strength, 0, 1),
 		// A CSM atlas tile is the logical base resolution, while each
 		// rasterized slice occupies one quadrant of it. WGSL uses the latter
 		// for texel addressing and filter/bias calculations.
@@ -171,16 +179,19 @@ function createDisabledShadowData(): ResolvedShadowData {
 		cascadeBlendRatio: 0,
 		cascadeViewProjectionMatrices: [null, null, null, null],
 		cascadeSplits: [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]],
+		depthProjectionParams: [
+			[0, 0, 0, 1],
+			[0, 0, 0, 1],
+			[0, 0, 0, 1],
+			[0, 0, 0, 1],
+		],
 		viewProjectionMatrix: null,
 		depthBias: 0,
 		slopeBias: 0,
 		normalBias: 0,
 		normalBiasMin: 0,
-		pcfRadius: 0,
-		pcssEnabled: false,
-		pcssRadius: 0,
-		shadowSamples: 0,
-		shadowSearchSamples: 0,
+		filterMode: "pcf",
+		samplingQuality: "medium",
 		shadowStrength: 0,
 		shadowMapBaseSize: 0,
 		shadowMapSize: 0,

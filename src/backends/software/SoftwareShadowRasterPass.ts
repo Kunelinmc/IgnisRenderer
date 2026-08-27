@@ -7,7 +7,18 @@ import type { Rasterizer } from "./Rasterizer";
 import type { SoftwareFrameView } from "./SoftwareFrameView";
 import type { PreparedShadowSlice } from "../../lights/shadows/ShadowFramePlan";
 import type { SoftwareShadowRenderTarget } from "./SoftwareShadowContracts";
-import { SoftwareShadowConstants } from "./SoftwareShadowConstants";
+import {
+	CLIP_EPSILON,
+	CLIP_PLANE_BOTTOM,
+	CLIP_PLANE_COUNT,
+	CLIP_PLANE_FAR,
+	CLIP_PLANE_LEFT,
+	CLIP_PLANE_MIN_W,
+	CLIP_PLANE_NEAR,
+	CLIP_PLANE_RIGHT,
+	CLIP_PLANE_TOP,
+	MIN_CLIP_W,
+} from "./SoftwareShadowConstants";
 
 interface ClipVertex {
 	x: number;
@@ -126,19 +137,19 @@ export class SoftwareShadowRasterPass {
 
 	private _clipDistance(vertex: ClipVertex, plane: number): number {
 		switch (plane) {
-			case SoftwareShadowConstants.CLIP_PLANE_MIN_W:
-				return vertex.w - SoftwareShadowConstants.MIN_CLIP_W;
-			case SoftwareShadowConstants.CLIP_PLANE_LEFT:
+			case CLIP_PLANE_MIN_W:
+				return vertex.w - MIN_CLIP_W;
+			case CLIP_PLANE_LEFT:
 				return vertex.x + vertex.w;
-			case SoftwareShadowConstants.CLIP_PLANE_RIGHT:
+			case CLIP_PLANE_RIGHT:
 				return -vertex.x + vertex.w;
-			case SoftwareShadowConstants.CLIP_PLANE_BOTTOM:
+			case CLIP_PLANE_BOTTOM:
 				return vertex.y + vertex.w;
-			case SoftwareShadowConstants.CLIP_PLANE_TOP:
+			case CLIP_PLANE_TOP:
 				return -vertex.y + vertex.w;
-			case SoftwareShadowConstants.CLIP_PLANE_NEAR:
+			case CLIP_PLANE_NEAR:
 				return vertex.z + vertex.w;
-			case SoftwareShadowConstants.CLIP_PLANE_FAR:
+			case CLIP_PLANE_FAR:
 				return -vertex.z + vertex.w;
 			default:
 				return -1;
@@ -161,7 +172,7 @@ export class SoftwareShadowRasterPass {
 			if (currentInside !== previousInside) {
 				const denominator = previousDistance - currentDistance;
 				const t =
-					Math.abs(denominator) > SoftwareShadowConstants.CLIP_EPSILON
+					Math.abs(denominator) > CLIP_EPSILON
 						? previousDistance / denominator
 						: 0;
 				output.push(
@@ -210,7 +221,7 @@ export class SoftwareShadowRasterPass {
 		let inPolygon = this._clipScratchA;
 		let outPolygon = this._clipScratchB;
 
-		for (let plane = 0; plane < SoftwareShadowConstants.CLIP_PLANE_COUNT; plane++) {
+		for (let plane = 0; plane < CLIP_PLANE_COUNT; plane++) {
 			this._clipAgainstPlane(inPolygon, outPolygon, plane);
 			if (outPolygon.length < 3) return outPolygon;
 			const temp = inPolygon;
@@ -259,7 +270,7 @@ export class SoftwareShadowRasterPass {
 			clipVertex.v = vertex.v ?? 0;
 
 			let code = 0;
-			if (clipVertex.w < SoftwareShadowConstants.MIN_CLIP_W) code |= 1;
+			if (clipVertex.w < MIN_CLIP_W) code |= 1;
 			if (clipVertex.x < -clipVertex.w) code |= 2;
 			if (clipVertex.x > clipVertex.w) code |= 4;
 			if (clipVertex.y < -clipVertex.w) code |= 8;

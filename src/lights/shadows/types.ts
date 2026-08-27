@@ -4,7 +4,8 @@ import type { ShadowCastingLight } from "..";
 import type { ShadowMapBase } from "./ShadowMapBase";
 
 export type ShadowMapKind = "single" | "cascaded" | "paged-shadow";
-export type ShadowFilterMode = "pcf";
+export type ShadowFilterMode = "pcf" | "pcss";
+export type ShadowSamplingQuality = "low" | "medium" | "high";
 export type ShadowBoundLightType = "directional" | "point" | "spot" | "rectArea";
 
 export interface ShadowBiasSettings {
@@ -17,12 +18,7 @@ export interface ShadowBiasSettings {
 }
 
 export interface ShadowSamplingSettings {
-	filterMode?: ShadowFilterMode;
-	pcfRadius?: number;
-	strength?: number;
-	radius?: number;
-	samples?: number;
-	searchSamples?: number;
+	quality?: ShadowSamplingQuality;
 }
 
 export type ShadowProjectionPreference = "single" | "cascaded";
@@ -66,7 +62,9 @@ export interface ShadowDefinitionSnapshot {
 	readonly storagePreference: ShadowStoragePreference;
 	readonly resolution: number;
 	readonly bias: Readonly<Required<ShadowBiasSettings>>;
+	readonly filterMode: ShadowFilterMode;
 	readonly sampling: Readonly<Required<ShadowSamplingSettings>>;
+	readonly strength: number;
 	readonly pagedSettings?: Readonly<PreparedPagedShadowSettings>;
 	readonly priority: number;
 	readonly revision: number;

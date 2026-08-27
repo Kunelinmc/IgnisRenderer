@@ -5,6 +5,28 @@ IgnisRenderer consumers and contributors. Completed implementation history that
 does not require an action is retained in Git rather than in the documentation
 tree.
 
+## Shadow Sampling Quality
+
+`ShadowSamplingSettings` now contains only `quality`, with supported values
+`"low"`, `"medium"`, and `"high"`. Shadow filter selection and strength moved
+to top-level shadow-map options. There is no compatibility adapter for removed
+sampling fields.
+
+```ts
+scene.shadows.createCascaded({
+	filterMode: "pcss",
+	sampling: { quality: "high" },
+	strength: 0.9,
+});
+```
+
+Migrate an old positive `sampling.radius` to `filterMode: "pcss"`; otherwise
+use `"pcf"`. Move `sampling.strength` to `strength`. Approximate old sample
+budgets as `<= 4` to `"low"`, `<= 8` to `"medium"`, and larger budgets to
+`"high"`. Custom PCF radii, PCSS radii, filter counts, and blocker-search
+counts no longer have exact equivalents because the built-in filters now use
+fixed cross-backend quality presets.
+
 ## Shadow Backend Profiles
 
 `RenderBackendProfile.shadow` and `IShadowBackendCapabilities` are removed.

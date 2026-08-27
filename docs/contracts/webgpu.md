@@ -236,6 +236,11 @@ lighting, presentation configuration, reflections, and structured buffer packing
   `WebGPUShadowRuntime` instead of retaining either technique or its allocator.
 - WebGPU paged definitions must enter the conventional atlas path only through
   an explicit atlas-fallback job in the shared plan.
+- WebGPU atlas sampling must implement the shared PCF and PCSS quality presets.
+  One logical PCF tap must use bilinear comparison sampling. Paged sampling
+  must implement all PCF quality levels, resolve cross-page filter footprints
+  through virtual page lookup, and treat non-resident samples as fully lit.
+  Paged PCSS must be resolved to PCF by `ShadowPlanner` before runtime.
 - Transparency graph nodes must separately represent OIT preparation, target
   clear, mesh accumulation, particle accumulation, resolve, transmission, and
   additive particle work. The OIT scene-color copy must occur in the prepare

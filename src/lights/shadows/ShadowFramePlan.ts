@@ -59,7 +59,10 @@ export interface PreparedShadowLight {
 	/** Logical paged configuration; native page-table state remains backend-private. */
 	readonly pagedSettings?: Readonly<PreparedPagedShadowSettings>;
 	readonly fallbackReason?: ShadowDiagnostic["code"];
-	readonly filterMode: ShadowFilterMode;
+	/** Filter authored on the bound definition before planner fallback. */
+	readonly requestedFilterMode: ShadowFilterMode;
+	/** Filter that backend consumers must execute for the selected storage. */
+	readonly effectiveFilterMode: ShadowFilterMode;
 	readonly storage: Exclude<ShadowStorageTechnique, "atlas-fallback">;
 	readonly priority: number;
 	readonly cost: number;

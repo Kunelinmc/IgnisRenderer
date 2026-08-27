@@ -17,16 +17,15 @@ function createFixture(size = 4, overrides = {}) {
 			normal: 1,
 			normalMin: 0,
 		},
-		sampling: {
-			pcfRadius: 0,
-			radius: 0,
-			strength: 1,
-			samples: 1,
-			searchSamples: 1,
-		},
+		filterMode: "pcf",
+		sampling: { quality: "low" },
+		strength: 1,
 		...overrides,
 	};
-	const shadow = { definition };
+	const shadow = {
+		definition,
+		effectiveFilterMode: definition.filterMode ?? "pcf",
+	};
 	const slice = { resolution: size, viewProjection: Matrix4.identity(), projection: Matrix4.identity(), lightDirection: { x: 0, y: -1, z: 0 } };
 	const runtime = { size, depthBuffer: new Float32Array(size * size), transmissionBuffer: new Float32Array(size * size * 3), particleVolume: createParticleShadowVolumeGrid() };
 	runtime.depthBuffer.fill(1);
@@ -36,7 +35,7 @@ function createFixture(size = 4, overrides = {}) {
 
 {
 	const { shadow, slice, runtime } = createFixture();
-	runtime.depthBuffer[5] = -1;
+	for (const index of [5, 6, 9, 10]) runtime.depthBuffer[index] = -1;
 	const visibility = sampleSoftwareShadow(shadow, slice, runtime, { x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 1 });
 	assert.ok(visibility.r < 0.01);
 }
@@ -57,7 +56,7 @@ function createFixture(size = 4, overrides = {}) {
 	slice.viewProjection = cascadeProjection;
 	shadow.effectiveTechnique = "cascaded";
 	shadow.slices = [slice, slice];
-	runtime.depthBuffer[5] = -0.05;
+	for (const index of [5, 6, 9, 10]) runtime.depthBuffer[index] = -0.05;
 	const visibility = sampleSoftwareShadow(
 		shadow,
 		slice,
@@ -73,7 +72,7 @@ function createFixture(size = 4, overrides = {}) {
 
 {
 	const { shadow, slice, runtime } = createFixture();
-	runtime.transmissionBuffer.set([0.2, 0.4, 0.6], 15);
+	runtime.transmissionBuffer.set([0.2, 0.4, 0.6], 30);
 	const visibility = sampleSoftwareShadow(shadow, slice, runtime, { x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 1 });
 	assert.ok(Math.abs(visibility.r - 0.2) < 1e-6);
 	assert.ok(Math.abs(visibility.g - 0.4) < 1e-6);
@@ -91,7 +90,7 @@ function createFixture(size = 4, overrides = {}) {
 			normalMin: 1,
 		},
 	});
-	runtime.depthBuffer[7] = -1;
+	for (const index of [7, 11]) runtime.depthBuffer[index] = -1;
 	const withNormal = sampleSoftwareShadow(
 		shadow,
 		slice,
@@ -113,15 +112,14 @@ function createFixture(size = 4, overrides = {}) {
 {
 	const { shadow, slice, runtime } = createFixture(4, {
 		sampling: {
-			pcfRadius: 0,
-			radius: 2,
-			strength: 1,
-			samples: 1,
-			searchSamples: 1,
+			quality: "low",
 		},
+		filterMode: "pcss",
+		strength: 1,
 	});
+	shadow.effectiveFilterMode = "pcss";
 	slice.projection = Matrix4.perspective(60, 1, 0.1, 10);
-	runtime.depthBuffer[6] = 0;
+	runtime.depthBuffer.fill(0);
 	const visibility = sampleSoftwareShadow(
 		shadow,
 		slice,
@@ -130,6 +128,23 @@ function createFixture(size = 4, overrides = {}) {
 		null,
 	);
 	assert.ok(visibility.r < 0.01);
+}
+
+{
+	const { shadow, slice, runtime } = createFixture(8, {
+		filterMode: "pcss",
+		sampling: { quality: "high" },
+		strength: 1,
+	});
+	shadow.effectiveFilterMode = "pcss";
+	const visibility = sampleSoftwareShadow(
+		shadow,
+		slice,
+		runtime,
+		{ x: 0, y: 0, z: 0 },
+		{ x: 0, y: 0, z: 1 },
+	);
+	assert.deepEqual(visibility, { r: 1, g: 1, b: 1 });
 }
 
 {

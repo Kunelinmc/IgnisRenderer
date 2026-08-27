@@ -45,6 +45,13 @@ function testSceneShaderUsesFlippedShadowNormal() {
 	assert.ok(shader.fragment.includes("uParticleShadowVolumeAtlas"));
 	assert.ok(shader.fragment.includes("uParticleShadowVolumeSliceParams"));
 	assert.ok(shader.fragment.includes("sampleParticleShadowVolumeTransmittance"));
+	assert.ok(shader.fragment.includes("uDirShadowDepthProjectionParams"));
+	assert.ok(shader.fragment.includes("uSpotShadowDepthProjectionParams"));
+	assert.ok(shader.fragment.includes("MAX_SHADOW_SEARCH_SAMPLES = 12"));
+	assert.ok(shader.fragment.includes("MAX_SHADOW_FILTER_SAMPLES = 7"));
+	assert.ok(shader.fragment.includes("linearizeShadowDepth"));
+	assert.equal(shader.fragment.includes("MAX_PCSS_SEARCH_SAMPLES"), false);
+	assert.equal(shader.fragment.includes("vogelDiskSample"), false);
 }
 
 function testShadowRasterPassConsumesResolvedPlanAndRestoresBaseline() {
