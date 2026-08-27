@@ -16,6 +16,10 @@ import { LODMeshInstance } from "../meshes/LODMeshInstance";
 import { ShaderMaterial } from "../materials/ShaderMaterial";
 import { resolveFeatureState } from "../pipeline/FeatureResolver";
 import {
+	DEFAULT_RENDERER_STAGE_IDS,
+	type DefaultRendererStageId,
+} from "../pipeline/defaultPipeline";
+import {
 	hasPostProcessExecutionPasses,
 	PostProcessPassRegistry,
 	type ResolvedPostProcessState,
@@ -91,6 +95,10 @@ type RendererStageExecutor = (
 	delegate: FrameCoordinatorDelegate,
 	state: RenderSceneFrameState
 ) => void | Promise<void>;
+type DefaultRendererStageExecutors = Record<
+	DefaultRendererStageId,
+	RendererStageExecutor
+>;
 
 export interface FrameCoordinatorDelegate {
 	readonly canvas: HTMLCanvasElement;
@@ -386,43 +394,43 @@ export class FrameCoordinator {
 	}
 
 	private _createStageExecutors(): Map<string, RendererStageExecutor> {
-		return new Map<string, RendererStageExecutor>([
-			[
-				"feature-resolution",
-				(delegate, state) => {
-					state.resolved = resolveFeatureState(
-						delegate.features,
-						this._backend.profile.capabilities,
-						this._backend.profile.id,
-					);
-					state.resolvedPostProcess = delegate.postProcess.createSnapshot(
-						this._backend.profile.id,
-					);
-					for (const warning of [
-						...state.resolved.warnings,
-						...state.resolvedPostProcess.getWarnings(),
-					]) {
-						delegate.warn(warning.key, warning.message);
-					}
-				},
-			],
-			["sync-in", (delegate, state) => this._executeSyncInStage(delegate, state)],
-			["animation-sim", (delegate, state) => this._executeAnimationStage(delegate, state)],
-			["physics-sim", (delegate, state) => this._executePhysicsStage(delegate, state)],
-			["transform-update", (delegate) => this._executeTransformUpdateStage(delegate)],
-			[
-				"deformation-update",
-				(delegate, state) => this._executeDeformationStage(delegate, state),
-			],
-			["lod-resolve", (delegate) => this._resolveLODMeshes(delegate)],
-			["csg-resolve", (delegate) => this._resolveCSGMeshes(delegate)],
-			[
-				"prepared-scene-build",
-				(delegate, state) => this._executePreparedSceneBuildStage(delegate, state),
-			],
-			["probe-capture", (delegate, state) => this._executeProbeCaptureStage(delegate, state)],
-			["sync-out", (delegate) => delegate.scene.syncECSToNode()],
-		]);
+		const stageIds = DEFAULT_RENDERER_STAGE_IDS;
+		const executors: DefaultRendererStageExecutors = {
+			[stageIds.featureResolution]: (delegate, state) => {
+				state.resolved = resolveFeatureState(
+					delegate.features,
+					this._backend.profile.capabilities,
+					this._backend.profile.id,
+				);
+				state.resolvedPostProcess = delegate.postProcess.createSnapshot(
+					this._backend.profile.id,
+				);
+				for (const warning of [
+					...state.resolved.warnings,
+					...state.resolvedPostProcess.getWarnings(),
+				]) {
+					delegate.warn(warning.key, warning.message);
+				}
+			},
+			[stageIds.syncIn]: (delegate, state) =>
+				this._executeSyncInStage(delegate, state),
+			[stageIds.animationSim]: (delegate, state) =>
+				this._executeAnimationStage(delegate, state),
+			[stageIds.physicsSim]: (delegate, state) =>
+				this._executePhysicsStage(delegate, state),
+			[stageIds.transformUpdate]: (delegate) =>
+				this._executeTransformUpdateStage(delegate),
+			[stageIds.deformationUpdate]: (delegate, state) =>
+				this._executeDeformationStage(delegate, state),
+			[stageIds.lodResolve]: (delegate) => this._resolveLODMeshes(delegate),
+			[stageIds.csgResolve]: (delegate) => this._resolveCSGMeshes(delegate),
+			[stageIds.preparedSceneBuild]: (delegate, state) =>
+				this._executePreparedSceneBuildStage(delegate, state),
+			[stageIds.probeCapture]: (delegate, state) =>
+				this._executeProbeCaptureStage(delegate, state),
+			[stageIds.syncOut]: (delegate) => delegate.scene.syncECSToNode(),
+		};
+		return new Map(Object.entries(executors));
 	}
 
 	private _executeSyncInStage(

@@ -5,7 +5,7 @@ import {
 	resolveFramePassRequirements,
 } from "../../../src/pipeline/FramePassRequirements.ts";
 import {
-	createDefaultPipelineStages,
+	DEFAULT_PIPELINE_STAGES,
 } from "../../../src/pipeline/defaultPipeline.ts";
 import { createTransientStore } from "../../../src/foundation/TransientStore.ts";
 import {
@@ -42,7 +42,7 @@ function createFramePlan(frame, features, postProcess, options = {}) {
 	const registry =
 		options.registry ??
 		new RenderPipelineRegistry({
-			stages: createDefaultPipelineStages(),
+			stages: DEFAULT_PIPELINE_STAGES,
 		});
 	const stageOrder =
 		options.stageOrder ??
@@ -396,7 +396,7 @@ function run() {
 	);
 
 	const registry = new RenderPipelineRegistry({
-		stages: createDefaultPipelineStages(),
+		stages: DEFAULT_PIPELINE_STAGES,
 	});
 	const defaultStageOrder = registry
 		.getExecutionOrder(

@@ -9,7 +9,7 @@ import {
 import { AnimationSystem } from "../animation/AnimationSystem";
 import type { PhysicsSystem } from "../physics";
 import { RenderPipelineRegistry } from "../pipeline/RenderPipelineRegistry";
-import { createDefaultPipelineStages } from "../pipeline/defaultPipeline";
+import { DEFAULT_PIPELINE_STAGES } from "../pipeline/defaultPipeline";
 import {
 	GammaPass,
 	PostProcessPassRegistry,
@@ -201,7 +201,7 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 		this.logger = Logger;
 		this.animationSystem = new AnimationSystem();
 		this.pipeline = new RenderPipelineRegistry({
-			stages: createDefaultPipelineStages(),
+			stages: DEFAULT_PIPELINE_STAGES,
 		});
 		this.renderTargets = new RenderTargetManager({
 			supportsJobs: backend.profile.capabilities.renderTargets,
