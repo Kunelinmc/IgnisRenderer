@@ -7,11 +7,9 @@ import type {
 	ShadowDefinitionSnapshot,
 	ShadowFilterMode,
 	ShadowMapKind,
-	PreparedPagedShadowSettings,
 	ShadowProjectionSnapshot,
 	ShadowSamplingSettings,
 	ShadowSamplingQuality,
-	ShadowStoragePreference,
 } from "./types";
 
 const DEFAULT_SHADOW_SIZE = 1024;
@@ -176,7 +174,6 @@ export abstract class ShadowMapBase {
 			kind: this.kind,
 			enabled: this.enabled,
 			projection: Object.freeze(this.createProjectionSnapshot()),
-			storagePreference: this.storagePreference,
 			resolution: this.size,
 			bias: Object.freeze({ ...this.bias }) as Readonly<
 				Required<ShadowBiasSettings>
@@ -186,23 +183,13 @@ export abstract class ShadowMapBase {
 				Required<ShadowSamplingSettings>
 			>,
 			strength: this.strength,
-			pagedSettings: this.createPagedSettingsSnapshot(),
 			priority: this.priority,
 			revision: this.revision,
 		});
 	}
 
-	protected get storagePreference(): ShadowStoragePreference {
-		return "atlas";
-	}
-
 	protected createProjectionSnapshot(): ShadowProjectionSnapshot {
 		return { technique: "single" };
-	}
-
-	/** @internal Paged definitions override this logical planner snapshot. */
-	protected createPagedSettingsSnapshot(): Readonly<PreparedPagedShadowSettings> | undefined {
-		return undefined;
 	}
 
 	protected _runDefinitionUpdate(apply: () => void): this {

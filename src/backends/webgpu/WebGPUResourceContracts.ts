@@ -37,6 +37,7 @@ import type {
 } from "../../simulation/animation/types";
 import type { FramePreparationRequirements } from "../../pipeline/FrameRequirements";
 import type { WebGPUPagedShadowFrameRequest } from "./WebGPUPagedShadowTechnique";
+import type { WebGPUPagedShadowFrameState } from "./WebGPUPagedShadowExperiment";
 import type { ParticleBlendMode } from "../../particles";
 import type { WebGPUDeferredGBufferLayout } from "./constants";
 import type { WebGPUMaterialPipelineState } from "./WebGPUMaterialPipelineResolver";
@@ -174,9 +175,12 @@ export interface WebGPUFrameResourceScope {
 	destroy(): void;
 }
 
+/** @internal Controls which scoped bindings may expose main-view experiments. */
+export type WebGPUFrameScopeRole = "main" | "auxiliary";
+
 /** @internal Frame preparation and scoped binding ownership. */
 export interface WebGPUFrameResourceProvider {
-	createFrameScope(): WebGPUFrameResourceScope;
+	createFrameScope(role?: WebGPUFrameScopeRole): WebGPUFrameResourceScope;
 }
 
 /** @internal Scene pipeline, environment, and clustered-lighting capability. */
@@ -256,6 +260,7 @@ export interface WebGPUPlanarReflectionResourceProvider {
 
 /** @internal Regular and paged-shadow recording capability. */
 export interface WebGPUShadowRenderProvider {
+	resolvePagedShadowFrame(context: FrameContext): WebGPUPagedShadowFrameState | null;
 	renderShadows(
 		context: FrameContext,
 		framePackets: PreparedFramePacketSet,

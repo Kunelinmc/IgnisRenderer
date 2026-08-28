@@ -3,7 +3,6 @@ import type {
 	ShadowDefinitionSnapshot,
 	ShadowFilterMode,
 	ShadowProjectionPreference,
-	PreparedPagedShadowSettings,
 } from "./types";
 import type { Matrix4 } from "../../maths/Matrix4";
 import type { IVector3 } from "../../maths/types";
@@ -13,13 +12,10 @@ import type {
 } from "../../particles/ParticleRenderBatch";
 import type { DrawPacket } from "../../pipeline/types";
 
-export type ShadowStorageTechnique = "atlas" | "paged" | "atlas-fallback";
-
 export interface ShadowDiagnostic {
 	readonly code:
 		| "unsupported-light-type"
 		| "projection-fallback"
-		| "storage-fallback"
 		| "filter-fallback"
 		| "budget-degraded"
 		| "budget-disabled"
@@ -56,35 +52,23 @@ export interface PreparedShadowLight {
 	readonly requestedResolution: number;
 	readonly effectiveResolution: number;
 	readonly sampling: ShadowDefinitionSnapshot["sampling"];
-	/** Logical paged configuration; native page-table state remains backend-private. */
-	readonly pagedSettings?: Readonly<PreparedPagedShadowSettings>;
 	readonly fallbackReason?: ShadowDiagnostic["code"];
 	/** Filter authored on the bound definition before planner fallback. */
 	readonly requestedFilterMode: ShadowFilterMode;
-	/** Filter that backend consumers must execute for the selected storage. */
+	/** Filter that backend consumers must execute after planner fallback. */
 	readonly effectiveFilterMode: ShadowFilterMode;
-	readonly storage: Exclude<ShadowStorageTechnique, "atlas-fallback">;
 	readonly priority: number;
 	readonly cost: number;
 	readonly score: number;
 	readonly slices: readonly PreparedShadowSlice[];
 }
 
-export interface ShadowRenderJob {
-	readonly id: string;
-	readonly lightIndex: number;
-	readonly technique: ShadowStorageTechnique;
-	readonly sliceIndices: readonly number[];
-}
-
 export interface ShadowFramePlan {
 	readonly revision: number;
 	readonly lights: readonly PreparedShadowLight[];
-	readonly jobs: readonly ShadowRenderJob[];
 	readonly diagnostics: readonly ShadowDiagnostic[];
 	readonly hasRasterWork: boolean;
 	readonly hasTransmissionWork: boolean;
-	readonly hasPagedWork: boolean;
 }
 
 /** Conservative caster information available before particle simulation. */
@@ -110,9 +94,7 @@ export interface ShadowWorkSet {
 export const EMPTY_SHADOW_FRAME_PLAN: ShadowFramePlan = Object.freeze({
 	revision: 0,
 	lights: Object.freeze([]),
-	jobs: Object.freeze([]),
 	diagnostics: Object.freeze([]),
 	hasRasterWork: false,
 	hasTransmissionWork: false,
-	hasPagedWork: false,
 });

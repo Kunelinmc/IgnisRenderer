@@ -3,7 +3,6 @@ import {
 	CascadedShadowMap,
 	type CascadedShadowMapOptions,
 } from "./CascadedShadowMap";
-import { PagedShadowMap, type PagedShadowMapOptions } from "./PagedShadowMap";
 import { ShadowMapBase, type ShadowMapBaseOptions } from "./ShadowMapBase";
 import { SingleShadowMap } from "./SingleShadowMap";
 
@@ -31,11 +30,6 @@ export class ShadowManager {
 
 	public createCascaded(options: CascadedShadowMapOptions = {}): CascadedShadowMap {
 		return this._track(new CascadedShadowMap(options));
-	}
-
-	/** Creates an unbound built-in paged shadow definition. */
-	public createPaged(options: PagedShadowMapOptions = {}): PagedShadowMap {
-		return this._track(new PagedShadowMap(options));
 	}
 
 	public bind(light: ShadowCastingLight, shadowMap: ShadowMapBase): void {

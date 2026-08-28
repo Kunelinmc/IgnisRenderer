@@ -25,6 +25,7 @@ import { WebGPUScenePassRecorder } from "./WebGPUScenePassRecorder";
 import { WebGPUShadowFrameModule } from "./WebGPUShadowFrameModule";
 import { WebGPUTransparencyRuntime } from "./WebGPUTransparencyRuntime";
 import { WebGPUVisibilityFrameModule } from "./WebGPUVisibilityFrameModule";
+import type { WebGPUShadowRenderProvider } from "../WebGPUResourceContracts";
 
 /** @internal Sealed backend-private frame runtime composition. */
 export interface WebGPUFrameRuntimeComposition {
@@ -55,6 +56,7 @@ export interface WebGPUFrameRuntimeComposition {
 export function createWebGPUFrameRuntimeComposition(options: {
 	readonly host: WebGPUFrameHost;
 	readonly frameServices: WebGPUFrameServiceOwner;
+	readonly shadowRenderer: WebGPUShadowRenderProvider;
 	readonly sampleCountResolver: WebGPUSampleCountResolver;
 	warnOnce(code: string, message: string, cause?: unknown): void;
 }): WebGPUFrameRuntimeComposition {
@@ -126,7 +128,7 @@ export function createWebGPUFrameRuntimeComposition(options: {
 			colorDirtyClearPass,
 			deferredOpaqueState,
 		),
-		new WebGPUShadowFrameModule(frameServices),
+		new WebGPUShadowFrameModule(options.shadowRenderer),
 		new WebGPUDeferredFrameModule(
 			deferredLightingPass,
 			deferredDecalPass,

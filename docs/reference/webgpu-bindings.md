@@ -86,8 +86,8 @@ The following pipeline layouts must preserve these bind group roles:
 | `8` | `shadowTransmittanceAtlas` | `texture_2d<f32>` |
 | `9` | `brdfLUTTexture` | `texture_2d<f32>` |
 | `10` | `irradianceProbeGridCoeffs` | `texture_2d<f32>` |
-| `11` | `pagedShadowPageTable` | `texture_2d<u32>` |
-| `12` | `pagedShadowPhysicalDepth` | `texture_depth_2d` |
+| `11` | `pagedShadowPageTable` | `texture_2d<u32>`; backend-private experimental ABI with a fallback binding when disabled |
+| `12` | `pagedShadowPhysicalDepth` | `texture_depth_2d`; backend-private experimental ABI with a fallback binding when disabled |
 | `13` | `shadowComparisonSampler` | Comparison sampler |
 | `14` | `frameLights` | `FrameLightUniforms` uniform buffer (1,680 bytes) |
 | `15` | `frameShadows` | `FrameShadowUniforms` uniform buffer (5,760 bytes) |

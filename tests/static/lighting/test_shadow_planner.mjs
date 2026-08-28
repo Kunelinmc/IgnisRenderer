@@ -53,7 +53,6 @@ function planScene(scene, options = {}) {
 		casterIntent: options.intent ?? createIntent(),
 		enableShadows: true,
 		hasTransmissionCasters: false,
-		needsAtlasFallback: options.needsAtlasFallback ?? false,
 	}, plannerState);
 }
 
@@ -89,43 +88,18 @@ function testBudgetDegradesCascadeBeforeResolution() {
 	assert.ok(plan.diagnostics.some((item) => item.code === "budget-degraded"));
 }
 
-function testPagedJobsAreExplicitAndCasterGated() {
+function testRasterWorkIsCasterGated() {
 	const scene = new Scene();
 	const sun = scene.add(new DirectionalLight());
-	scene.shadows.bind(sun, scene.shadows.createPaged());
+	scene.shadows.bind(sun, scene.shadows.createCascaded());
 
-	const pagedOnly = planScene(scene);
-	assert.deepEqual(pagedOnly.jobs.map((job) => job.technique), ["paged"]);
-	assert.equal(pagedOnly.hasPagedWork, true);
-
-	const withFallback = planScene(scene, { needsAtlasFallback: true });
-	assert.deepEqual(
-		withFallback.jobs.map((job) => job.technique),
-		["paged", "atlas-fallback"]
-	);
+	const withCasters = planScene(scene);
+	assert.equal(withCasters.hasRasterWork, true);
+	assert.equal(withCasters.lights.length, 1);
 
 	const noCasters = planScene(scene, { intent: createIntent(false) });
 	assert.equal(noCasters.hasRasterWork, false);
-	assert.equal(noCasters.jobs.length, 0);
 	assert.equal(noCasters.lights.length, 1);
-}
-
-function testPagedPCSSFallsBackToPCF() {
-	const scene = new Scene();
-	const sun = scene.add(new DirectionalLight());
-	scene.shadows.bind(sun, scene.shadows.createPaged({
-		filterMode: "pcss",
-		sampling: { quality: "high" },
-	}));
-	const plan = planScene(scene);
-	assert.equal(plan.lights[0].requestedFilterMode, "pcss");
-	assert.equal(plan.lights[0].effectiveFilterMode, "pcf");
-	assert.equal(plan.lights[0].sampling.quality, "high");
-	assert.equal(plan.lights[0].fallbackReason, "filter-fallback");
-	assert.equal(
-		plan.diagnostics.filter((item) => item.code === "filter-fallback").length,
-		1,
-	);
 }
 
 function testAtlasPCSSSupportAndUnknownFallback() {
@@ -142,16 +116,6 @@ function testAtlasPCSSSupportAndUnknownFallback() {
 	assert.equal(unknownPlan.lights[0].requestedFilterMode, "pcss");
 	assert.equal(unknownPlan.lights[0].effectiveFilterMode, "pcf");
 	assert.ok(unknownPlan.diagnostics.some((item) => item.code === "filter-fallback"));
-}
-
-function testPagedStorageIsDirectionalOnly() {
-	const scene = new Scene();
-	const spot = scene.add(new SpotLight());
-	scene.shadows.bind(spot, scene.shadows.createPaged());
-
-	const plan = planScene(scene);
-	assert.equal(plan.lights[0].storage, "atlas");
-	assert.ok(plan.diagnostics.some((item) => item.code === "storage-fallback"));
 }
 
 function testSingleCascadeCsmFallbackIsReported() {
@@ -185,14 +149,6 @@ function testFixedBackendPoliciesRemainDistinct() {
 		item.code === "unsupported-light-type"
 	));
 
-	const pagedScene = new Scene();
-	const sun = pagedScene.add(new DirectionalLight());
-	pagedScene.shadows.bind(sun, pagedScene.shadows.createPaged());
-	const webglPagedPlan = planScene(pagedScene, { backendKey: "webgl" });
-	assert.equal(webglPagedPlan.lights[0].storage, "atlas");
-	assert.ok(webglPagedPlan.diagnostics.some((item) =>
-		item.code === "storage-fallback"
-	));
 }
 
 function testCameraWorldPositionDrivesLightSelection() {
@@ -219,7 +175,6 @@ function testCameraWorldPositionDrivesLightSelection() {
 		casterIntent: createIntent(false),
 		enableShadows: true,
 		hasTransmissionCasters: false,
-		needsAtlasFallback: false,
 	}, ShadowPlanner.createState());
 	const selectedIds = new Set(plan.lights.map((light) => light.lightId));
 	assert.equal(selectedIds.has(spots[0].id), false);
@@ -240,7 +195,6 @@ function testPlanStaysImmutableAcrossPlanningFrames() {
 			definition: light.definition,
 			requestedFilterMode: light.requestedFilterMode,
 			effectiveFilterMode: light.effectiveFilterMode,
-			storage: light.storage,
 			slices: light.slices.map((slice) => ({
 				...slice,
 				view: slice.view.elements,
@@ -248,7 +202,6 @@ function testPlanStaysImmutableAcrossPlanningFrames() {
 				viewProjection: slice.viewProjection.elements,
 			})),
 		})),
-		jobs: value.jobs,
 		diagnostics: value.diagnostics,
 	});
 	const before = planHash(plan);
@@ -258,7 +211,6 @@ function testPlanStaysImmutableAcrossPlanningFrames() {
 	assert.equal(nextPlan.revision, plan.revision + 1);
 	assert.equal(planScene(scene).revision, 1);
 	assert.ok(Object.isFrozen(plan));
-	assert.ok(Object.isFrozen(plan.jobs));
 	assert.ok(Object.isFrozen(plan.lights[0].slices[0].view));
 	assert.ok(Object.isFrozen(plan.lights[0].slices[0].view.elements));
 }
@@ -266,10 +218,8 @@ function testPlanStaysImmutableAcrossPlanningFrames() {
 function run() {
 	testCapabilityFallbacksAreExplicit();
 	testBudgetDegradesCascadeBeforeResolution();
-testPagedJobsAreExplicitAndCasterGated();
-testPagedPCSSFallsBackToPCF();
-testAtlasPCSSSupportAndUnknownFallback();
-	testPagedStorageIsDirectionalOnly();
+	testRasterWorkIsCasterGated();
+	testAtlasPCSSSupportAndUnknownFallback();
 	testSingleCascadeCsmFallbackIsReported();
 	testFixedBackendPoliciesRemainDistinct();
 	testCameraWorldPositionDrivesLightSelection();

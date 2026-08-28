@@ -23,7 +23,6 @@ import type {
 	ShadowCasterIntent,
 	ShadowDiagnostic,
 	ShadowFramePlan,
-	ShadowRenderJob,
 } from "./ShadowFramePlan";
 
 // Pre-allocated scratch target for per-frame camera world position reads.
@@ -36,7 +35,6 @@ interface ShadowPlanCandidate {
 	readonly score: number;
 	readonly requestedFilter: ShadowFilterMode;
 	readonly filterMode: ShadowFilterMode;
-	readonly storage: "atlas" | "paged";
 	readonly requestedCascadeCount: number;
 	readonly cascadeCount: number;
 	readonly size: number;
@@ -53,7 +51,6 @@ export interface ShadowPlannerOptions {
 	readonly casterIntent: ShadowCasterIntent;
 	readonly enableShadows: boolean;
 	readonly hasTransmissionCasters: boolean;
-	readonly needsAtlasFallback: boolean;
 }
 
 interface ShadowProjectionHistory {
@@ -101,7 +98,7 @@ export class ShadowPlanner {
 		const diagnostics: ShadowDiagnostic[] = [];
 		if (!options.enableShadows) {
 			state.projectionStates.clear();
-			return ShadowPlanner._publish(state, [], [], diagnostics, false, false);
+			return ShadowPlanner._publish(state, [], diagnostics, false, false);
 		}
 
 		const policy = resolveShadowPlannerBackendPolicy(options.backendKey);
@@ -159,9 +156,6 @@ export class ShadowPlanner {
 				fallbackReason: ShadowPlanner._resolveFallbackReason(candidate),
 				requestedFilterMode: candidate.requestedFilter,
 				effectiveFilterMode: candidate.filterMode,
-				storage: candidate.storage,
-				pagedSettings: candidate.storage === "paged" ?
-					candidate.snapshot.pagedSettings : undefined,
 				priority: candidate.snapshot.priority,
 				cost: candidate.cost,
 				score: candidate.score,
@@ -173,13 +167,11 @@ export class ShadowPlanner {
 			options.casterIntent.meshPackets.length > 0 ||
 			options.casterIntent.hasParticleCasters ||
 			options.hasTransmissionCasters;
-		const jobs = hasCasters ?
-			ShadowPlanner._createJobs(preparedLights, options.needsAtlasFallback)
-		: [];
+		const hasRasterWork = hasCasters && preparedLights.length > 0;
 		const hasTransmissionWork =
 			options.hasTransmissionCasters &&
 			policy.supportsTransmission &&
-			jobs.length > 0;
+			hasRasterWork;
 		if (
 			options.hasTransmissionCasters &&
 			!policy.supportsTransmission &&
@@ -195,14 +187,11 @@ export class ShadowPlanner {
 		return ShadowPlanner._publish(
 			state,
 			preparedLights,
-			jobs,
 			diagnostics,
+			hasRasterWork,
 			hasTransmissionWork,
-			true,
 		);
 	}
-
-
 	private static _collectCandidates(
 		options: ShadowPlannerOptions,
 		policy: ShadowPlannerBackendPolicy,
@@ -256,15 +245,8 @@ export class ShadowPlanner {
 				});
 			}
 
-			const storage = ShadowPlanner._resolveStorage(
-				definition,
-				policy,
-				options.backendKey,
-				light,
-				diagnostics
-			);
 			const requestedFilter = snapshot.filterMode;
-			const filterMode = policy.filterModes[storage].includes(requestedFilter) ?
+			const filterMode = policy.filterModes.includes(requestedFilter) ?
 				requestedFilter
 			: "pcf";
 			if (filterMode !== requestedFilter) {
@@ -297,7 +279,6 @@ export class ShadowPlanner {
 				),
 				requestedFilter,
 				filterMode,
-				storage,
 				requestedCascadeCount,
 				cascadeCount,
 				size,
@@ -536,48 +517,19 @@ export class ShadowPlanner {
 		}
 	}
 
-	private static _createJobs(
-		lights: readonly PreparedShadowLight[],
-		needsAtlasFallback: boolean
-	): ShadowRenderJob[] {
-		const jobs: ShadowRenderJob[] = [];
-		for (let lightIndex = 0; lightIndex < lights.length; lightIndex++) {
-			const light = lights[lightIndex];
-			const sliceIndices = Object.freeze(light.slices.map((slice) => slice.index));
-			jobs.push(Object.freeze({
-				id: `${light.definition.id}:${light.storage}`,
-				lightIndex,
-				technique: light.storage,
-				sliceIndices,
-			}));
-			if (light.storage === "paged" && needsAtlasFallback) {
-				jobs.push(Object.freeze({
-					id: `${light.definition.id}:atlas-fallback`,
-					lightIndex,
-					technique: "atlas-fallback",
-					sliceIndices,
-				}));
-			}
-		}
-		return jobs;
-	}
-
 	private static _publish(
 		state: ShadowPlannerState,
 		lights: PreparedShadowLight[],
-		jobs: ShadowRenderJob[],
 		diagnostics: ShadowDiagnostic[],
+		hasRasterWork: boolean,
 		hasTransmissionWork: boolean,
-		_publishLegacy: boolean,
 	): ShadowFramePlan {
 		const plan: ShadowFramePlan = Object.freeze({
 			revision: ++state.revision,
 			lights: Object.freeze(lights),
-			jobs: Object.freeze(jobs),
 			diagnostics: Object.freeze(diagnostics.map((item) => Object.freeze(item))),
-			hasRasterWork: jobs.length > 0,
+			hasRasterWork,
 			hasTransmissionWork,
-			hasPagedWork: jobs.some((job) => job.technique === "paged"),
 		});
 		return plan;
 	}
@@ -599,49 +551,10 @@ export class ShadowPlanner {
 		return explicit?.projections.includes("cascaded") ?? false;
 	}
 
-	private static _resolveStorage(
-		definition: ShadowMapBase,
-		policy: ShadowPlannerBackendPolicy,
-		backendKey: string,
-		light: ShadowCastingLight,
-		diagnostics: ShadowDiagnostic[]
-	): "atlas" | "paged" {
-		if (definition.kind !== "paged-shadow") return "atlas";
-		const explicit = policy.lightTypes[lightTypeKey(light)];
-		const layout = definition.snapshot().pagedSettings;
-		const pageSizeRange = policy.pagedShadowPageSizeRange;
-		const hasCompletePagedSupport =
-			light.type === LightType.Directional &&
-			policy.supportsPagedShadowRendering === true &&
-			(explicit?.storage.includes("paged") ?? true) &&
-			!!layout &&
-			typeof policy.maxPagedShadowPages === "number" &&
-			policy.maxPagedShadowPages > 0 &&
-			Array.isArray(pageSizeRange) &&
-			pageSizeRange.length === 2 &&
-			pageSizeRange[0] > 0 &&
-			pageSizeRange[1] >= pageSizeRange[0] &&
-			layout.physicalPageCount <= policy.maxPagedShadowPages &&
-			layout.pageSize >= pageSizeRange[0] &&
-			layout.pageSize <= pageSizeRange[1];
-		if (hasCompletePagedSupport) return "paged";
-		diagnostics.push({
-			code: "storage-fallback",
-			severity: "warning",
-			lightId: light.id,
-			definitionId: definition.id,
-			message: `Backend ${backendKey} resolved paged shadows to atlas storage for light ${light.id}.`,
-		});
-		return "atlas";
-	}
-
 	private static _resolveFallbackReason(
 		candidate: ShadowPlanCandidate
 	): ShadowDiagnostic["code"] | undefined {
 		if (candidate.filterMode !== candidate.requestedFilter) return "filter-fallback";
-		if (candidate.storage !== candidate.snapshot.storagePreference) {
-			return "storage-fallback";
-		}
 		if (
 			candidate.cascadeCount !== candidate.requestedCascadeCount ||
 			candidate.size !== candidate.snapshot.resolution ||
@@ -700,7 +613,7 @@ function isShadowCastingLight(light: SceneLight): light is ShadowCastingLight {
 }
 
 function isBuiltinKind(kind: string): boolean {
-	return kind === "single" || kind === "cascaded" || kind === "paged-shadow";
+	return kind === "single" || kind === "cascaded";
 }
 
 function lightTypeKey(

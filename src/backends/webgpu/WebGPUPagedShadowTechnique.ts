@@ -1,6 +1,5 @@
-import { LightType, type ShadowCastingLight } from "../../lights";
-import type { PreparedPagedShadowSettings } from "../../lights/shadows/types";
-import type { PreparedShadowLight, ShadowFramePlan } from "../../lights/shadows/ShadowFramePlan";
+import type { ShadowCastingLight } from "../../lights";
+import type { PreparedShadowLight } from "../../lights/shadows/ShadowFramePlan";
 import { Matrix4 } from "../../maths/Matrix4";
 import type { IVector3 } from "../../maths/types";
 import type {
@@ -23,6 +22,10 @@ import {
 import type { WebGPUDeviceResourceHost } from "./WebGPUDeviceResourceHost";
 import type { WebGPUResourceManager } from "./WebGPUResourceManager";
 import type { WebGPUShadowCasterRenderer } from "./WebGPUShadowCasterRenderer";
+import type {
+	WebGPUPagedShadowFrameState,
+	WebGPUPagedShadowSettings,
+} from "./WebGPUPagedShadowExperiment";
 import { tryGetNativeWebGPUCommandEncoder } from "./WebGPUCommandEncoder";
 import {
 	getWebGPUBuffer,
@@ -59,7 +62,7 @@ const WEBGPU_MAP_MODE_READ =
 export interface WebGPUPagedShadowFrameRequest {
 	context: FrameContext;
 	encoder: ICommandEncoder | null;
-	shadowPlan: ShadowFramePlan;
+	pagedFrame: WebGPUPagedShadowFrameState;
 	shadowCasterPackets: readonly DrawPacket[];
 	shadowTransmitterPackets: readonly DrawPacket[];
 	feedbackDepthTexture?: IRenderTexture | null;
@@ -132,7 +135,7 @@ export interface WebGPUPagedShadowDebugState {
 
 export interface WebGPUPagedShadowLayout {
 	prepared: PreparedShadowLight;
-	metadata: Readonly<PreparedPagedShadowSettings>;
+	metadata: Readonly<WebGPUPagedShadowSettings>;
 	pageTableBase: number;
 	pageTableCascadeStride: number;
 	cascadeCount: number;
@@ -659,32 +662,18 @@ export class WebGPUPagedShadowTechnique {
 	private _resolvePagedRenderSetLayouts(
 		request: WebGPUPagedShadowFrameRequest
 	): WebGPUPagedShadowLayout[] {
-		const layouts: WebGPUPagedShadowLayout[] = [];
-		let pageTableCursor = 0;
-		for (const prepared of request.shadowPlan?.lights ?? []) {
-			const light = prepared.light;
-			if (
-				light.type !== LightType.Directional ||
-				prepared.storage !== "paged" ||
-				!prepared.pagedSettings
-			) {
-				continue;
-			}
-			const metadata = prepared.pagedSettings;
-			const pageGridSize = Math.max(1, metadata.pageGridSize | 0);
-			const cascadeCount = Math.max(1, Math.min(prepared.slices.length, 4));
-			const pageTableCascadeStride = pageGridSize * pageGridSize;
-			layouts.push({
-				prepared,
-				metadata,
-				pageTableBase: pageTableCursor,
-				pageTableCascadeStride,
-				cascadeCount,
-			});
-			pageTableCursor += pageTableCascadeStride * cascadeCount;
-		}
-		this._pageTableLength = Math.max(1, pageTableCursor);
-		return layouts;
+		const { prepared, settings: metadata } = request.pagedFrame;
+		const pageGridSize = Math.max(1, metadata.pageGridSize | 0);
+		const cascadeCount = Math.max(1, Math.min(prepared.slices.length, 4));
+		const pageTableCascadeStride = pageGridSize * pageGridSize;
+		this._pageTableLength = Math.max(1, pageTableCascadeStride * cascadeCount);
+		return [{
+			prepared,
+			metadata,
+			pageTableBase: 0,
+			pageTableCascadeStride,
+			cascadeCount,
+		}];
 	}
 
 	private _prepareResourceShape(
@@ -1431,7 +1420,10 @@ export class WebGPUPagedShadowTechnique {
 			this._frameId <= 1 || layouts.some((layout) =>
 				layout.metadata.feedbackMode !== "screen-feedback"
 			) ? 1 : 0;
-		const maxPagesPerFrame = resolveMaxPagesPerFrame(request.shadowPlan);
+		const maxPagesPerFrame = Math.max(
+			1,
+			request.pagedFrame.settings.maxPagesPerFrame | 0,
+		);
 		this._requestParamsData[0] = this._pageTableLength;
 		this._requestParamsData[1] = casterCount;
 		this._requestParamsData[2] = layouts.length;
@@ -1448,7 +1440,10 @@ export class WebGPUPagedShadowTechnique {
 		this._allocationParamsData[1] = this._requestBufferCapacity;
 		this._allocationParamsData[2] = this._physicalPageCount;
 		this._allocationParamsData[3] = maxPagesPerFrame;
-		this._allocationParamsData[4] = resolveMaxCacheFrames(request.shadowPlan);
+		this._allocationParamsData[4] = Math.max(
+			0,
+			request.pagedFrame.settings.cacheFrames | 0,
+		);
 		this._allocationParamsData[5] = this._pageTableLength;
 		this._allocationParamsData[6] = this._projectionsChanged ? 1 : 0;
 		this._allocationParamsData[7] = resolveResidencyScanLimit(
@@ -2013,30 +2008,24 @@ export function collectWebGPUPagedShadowPageRequests(
 	layouts: readonly WebGPUPagedShadowLayout[]
 ): WebGPUPagedShadowPageRequest[] {
 	const requests = new Map<string, WebGPUPagedShadowPageRequest>();
-	for (const prepared of request.shadowPlan?.lights ?? []) {
-		const light = prepared.light;
-		if (light.type !== LightType.Directional) {
-			continue;
-		}
-		const layout = layouts.find((entry) => entry.prepared === prepared);
-		if (!layout) {
-			continue;
-		}
-		for (let cascadeIndex = 0; cascadeIndex < layout.cascadeCount; cascadeIndex++) {
-			const viewProjection = prepared.slices[cascadeIndex]?.viewProjection;
-			if (!viewProjection) continue;
-			for (const packet of request.shadowCasterPackets) {
-				addRequestsForPacketBounds(
-					requests,
-					light,
-					prepared,
-					layout,
-					cascadeIndex,
-					viewProjection,
-					packet.submission.worldBounds.center,
-					packet.submission.worldBounds.radius
-				);
-			}
+	const prepared = request.pagedFrame.prepared;
+	const light = prepared.light;
+	const layout = layouts.find((entry) => entry.prepared === prepared);
+	if (!layout) return [];
+	for (let cascadeIndex = 0; cascadeIndex < layout.cascadeCount; cascadeIndex++) {
+		const viewProjection = prepared.slices[cascadeIndex]?.viewProjection;
+		if (!viewProjection) continue;
+		for (const packet of request.shadowCasterPackets) {
+			addRequestsForPacketBounds(
+				requests,
+				light,
+				prepared,
+				layout,
+				cascadeIndex,
+				viewProjection,
+				packet.submission.worldBounds.center,
+				packet.submission.worldBounds.radius
+			);
 		}
 	}
 	return Array.from(requests.values()).sort((left, right) => {
@@ -2150,34 +2139,6 @@ function projectSphereToShadowUvBounds(
 		maxU: Math.min(1, maxU),
 		maxV: Math.min(1, maxV),
 	};
-}
-
-function resolveMaxPagesPerFrame(
-	plan: ShadowFramePlan | undefined
-): number {
-	let maxPages = 1;
-	for (const prepared of plan?.lights ?? []) {
-		const paged = prepared.pagedSettings;
-		if (!paged) {
-			continue;
-		}
-		maxPages = Math.max(maxPages, paged.maxPagesPerFrame | 0);
-	}
-	return Math.max(1, maxPages);
-}
-
-function resolveMaxCacheFrames(
-	plan: ShadowFramePlan | undefined
-): number {
-	let cacheFrames = 0;
-	for (const prepared of plan?.lights ?? []) {
-		const paged = prepared.pagedSettings;
-		if (!paged) {
-			continue;
-		}
-		cacheFrames = Math.max(cacheFrames, paged.cacheFrames | 0);
-	}
-	return Math.max(0, cacheFrames);
 }
 
 function resolveResidencyScanLimit(

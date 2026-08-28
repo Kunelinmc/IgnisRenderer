@@ -37,9 +37,6 @@ export interface ResolvedShadowData {
 	shadowStrength: number;
 	shadowMapBaseSize: number;
 	shadowMapSize: number;
-	storageMode: "atlas" | "paged";
-	pagedPageGridSize: number;
-	pagedPageSize: number;
 }
 
 const LIGHT_PROBE_DC_IRRADIANCE_SCALE = Math.PI * 0.282095;
@@ -165,9 +162,6 @@ export function resolveShadowData(
 		// for texel addressing and filter/bias calculations.
 		shadowMapBaseSize: baseSize,
 		shadowMapSize: sliceSize,
-		storageMode: prepared.storage,
-		pagedPageGridSize: prepared.pagedSettings?.pageGridSize ?? 0,
-		pagedPageSize: prepared.pagedSettings?.pageSize ?? 0,
 	};
 }
 
@@ -195,9 +189,6 @@ function createDisabledShadowData(): ResolvedShadowData {
 		shadowStrength: 0,
 		shadowMapBaseSize: 0,
 		shadowMapSize: 0,
-		storageMode: "atlas",
-		pagedPageGridSize: 0,
-		pagedPageSize: 0,
 	};
 }
 

@@ -13,6 +13,7 @@ import type {
 	PreparedShadowLight,
 	ShadowFramePlan,
 } from "../../lights/shadows/ShadowFramePlan";
+import type { WebGPUPagedShadowFrameState } from "./WebGPUPagedShadowExperiment";
 import {
 	accumulateAmbientLightColor,
 	accumulateLightProbeFallbackAmbientColor,
@@ -54,7 +55,8 @@ export function collectWebGPULightingCatalog(
 	enableLighting: boolean,
 	enableSH: boolean,
 	enableShadows: boolean = false,
-	shadowPlan?: ShadowFramePlan
+	shadowPlan?: ShadowFramePlan,
+	pagedFrame?: WebGPUPagedShadowFrameState | null,
 ): WebGPULightingCatalog {
 	const catalog: WebGPULightingCatalog = {
 		ambientColor: [0, 0, 0],
@@ -70,7 +72,13 @@ export function collectWebGPULightingCatalog(
 				accumulateAmbientLight(catalog, light);
 				break;
 			case LightType.Directional:
-				collectDirectionalLight(catalog, light, enableShadows, shadowPlan);
+				collectDirectionalLight(
+					catalog,
+					light,
+					enableShadows,
+					shadowPlan,
+					pagedFrame,
+				);
 				break;
 			case LightType.Point:
 				collectPointLight(catalog, light);
@@ -109,7 +117,8 @@ export function collectWebGPULighting(
 	enableSH: boolean,
 	enableShadows: boolean = false,
 	shadowPlan?: ShadowFramePlan,
-	enableClusteredLighting: boolean = false
+	enableClusteredLighting: boolean = false,
+	pagedFrame?: WebGPUPagedShadowFrameState | null,
 ): WebGPULightingState {
 	return createWebGPULightingState(
 		collectWebGPULightingCatalog(
@@ -117,7 +126,8 @@ export function collectWebGPULighting(
 			enableLighting,
 			enableSH,
 			enableShadows,
-			shadowPlan
+			shadowPlan,
+			pagedFrame,
 		),
 		enableClusteredLighting
 	);
@@ -316,7 +326,8 @@ function collectDirectionalLight(
 	catalog: WebGPULightingCatalog,
 	light: DirectionalLight,
 	enableShadows: boolean,
-	shadowPlan?: ShadowFramePlan
+	shadowPlan?: ShadowFramePlan,
+	pagedFrame?: WebGPUPagedShadowFrameState | null,
 ): void {
 	const direction = light.getWorldLightDirection();
 	catalog.lights.push({
@@ -336,7 +347,8 @@ function collectDirectionalLight(
 		color: toLinearLightColor(light.color, light.intensity),
 		shadow: resolveWebGPUShadowData(
 			enableShadows,
-			findPreparedShadow(shadowPlan, light as ShadowCastingLight)
+			findPreparedShadow(shadowPlan, light as ShadowCastingLight),
+			pagedFrame,
 		),
 		shadowIndex: -1,
 	});
@@ -573,16 +585,25 @@ function pushWarningOnce(
 
 function resolveWebGPUShadowData(
 	enableShadows: boolean,
-	prepared?: PreparedShadowLight
+	prepared?: PreparedShadowLight,
+	pagedFrame?: WebGPUPagedShadowFrameState | null,
 ): WebGPUShadowData {
+	const paged = prepared && pagedFrame?.prepared === prepared ?
+		pagedFrame.settings : null;
+	const physicalGridSize = paged ?
+		Math.max(1, Math.ceil(Math.sqrt(paged.physicalPageCount))) : 0;
 	return {
 		...resolveSharedShadowData(enableShadows, prepared),
 		atlasTileSize: 0,
+		storageMode: paged ? "paged" : "atlas",
 		pagedPageTableBase: 0,
-		pagedPageTableCascadeStride: 0,
-		pagedPhysicalAtlasSize: 0,
-		pagedPhysicalGridSize: 0,
-		pagedPhysicalPageSize: 0,
+		pagedPageTableCascadeStride:
+			paged ? paged.pageGridSize * paged.pageGridSize : 0,
+		pagedPageGridSize: paged?.pageGridSize ?? 0,
+		pagedPageSize: paged?.pageSize ?? 0,
+		pagedPhysicalAtlasSize: paged ? physicalGridSize * paged.pageSize : 0,
+		pagedPhysicalGridSize: physicalGridSize,
+		pagedPhysicalPageSize: paged?.pageSize ?? 0,
 	};
 }
 

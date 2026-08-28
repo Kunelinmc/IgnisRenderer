@@ -69,10 +69,14 @@ export class WebGPUShadowFrameModule implements WebGPUFrameGraphModule {
 	private _createRequest(session: WebGPUFrameSession): WebGPUPagedShadowFrameRequest {
 		const packets = this._requirePackets(session);
 		const targets = session.targets.frameTargets;
+		const pagedFrame = this._renderer.resolvePagedShadowFrame(session.context);
+		if (!pagedFrame) {
+			throw new Error("WebGPU paged shadow node has no selected experiment light.");
+		}
 		return {
 			context: session.context,
 			encoder: session.commands.encoder,
-			shadowPlan: session.context.shadowPlan,
+			pagedFrame,
 			shadowCasterPackets: packets.shadowCasters.slice(),
 			shadowTransmitterPackets: packets.shadowTransmitters.slice(),
 			feedbackDepthTexture: targets.depth,
@@ -90,10 +94,7 @@ export class WebGPUShadowFrameModule implements WebGPUFrameGraphModule {
 	private _createShadowNodes(input: WebGPUFrameModulePlanningInput) {
 		if (input.pass.stage !== "shadow") return [];
 		const nodes = [];
-		const hasAtlasWork = !input.context.shadowPlan || input.context.shadowPlan.jobs.some(
-			(job) => job.technique === "atlas" || job.technique === "atlas-fallback"
-		);
-		if (hasAtlasWork) {
+		if (input.context.shadowPlan.hasRasterWork) {
 			nodes.push(createWebGPUFrameGraphNode(input.pass, "shadow", "WebGPUShadow", {
 				writes: [
 					writeWebGPUFrameGraphResource("shadow-atlas", "render-attachment"),
@@ -104,7 +105,7 @@ export class WebGPUShadowFrameModule implements WebGPUFrameGraphModule {
 				],
 			}));
 		}
-		if (!input.context.shadowPlan.hasPagedWork) return nodes;
+		if (!this._renderer.resolvePagedShadowFrame(input.context)) return nodes;
 		nodes.push(
 			createWebGPUFrameGraphNode(
 				input.pass,
@@ -199,18 +200,14 @@ export class WebGPUShadowFrameModule implements WebGPUFrameGraphModule {
 	}
 
 	private _createFeedbackNodes(input: WebGPUFrameModulePlanningInput) {
+		const pagedFrame = this._renderer.resolvePagedShadowFrame(input.context);
 		if (
 			input.pass.stage !== "main-opaque" ||
-			!input.context.shadowPlan.hasPagedWork ||
+			!pagedFrame ||
 			input.state.sceneTargetMode === "single"
 		)
 			return [];
-		const hasScreenFeedback = input.context.shadowPlan.lights.some(
-			(prepared) =>
-				prepared.storage === "paged" &&
-				prepared.pagedSettings?.feedbackMode === "screen-feedback",
-		);
-		if (!hasScreenFeedback) return [];
+		if (pagedFrame.settings.feedbackMode !== "screen-feedback") return [];
 		return [
 			createWebGPUFrameGraphNode(
 				input.pass,

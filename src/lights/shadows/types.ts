@@ -3,7 +3,7 @@ import type { IVector3 } from "../../maths/types";
 import type { ShadowCastingLight } from "..";
 import type { ShadowMapBase } from "./ShadowMapBase";
 
-export type ShadowMapKind = "single" | "cascaded" | "paged-shadow";
+export type ShadowMapKind = "single" | "cascaded";
 export type ShadowFilterMode = "pcf" | "pcss";
 export type ShadowSamplingQuality = "low" | "medium" | "high";
 export type ShadowBoundLightType = "directional" | "point" | "spot" | "rectArea";
@@ -22,7 +22,6 @@ export interface ShadowSamplingSettings {
 }
 
 export type ShadowProjectionPreference = "single" | "cascaded";
-export type ShadowStoragePreference = "atlas" | "paged";
 
 export interface CascadedShadowMapDefaults {
 	directional: number;
@@ -39,33 +38,17 @@ export interface ShadowProjectionSnapshot {
 	readonly stabilize?: boolean;
 }
 
-export type PagedShadowFeedbackMode = "conservative" | "screen-feedback";
-
-/** Immutable logical configuration for a selected paged-shadow light. */
-export interface PreparedPagedShadowSettings {
-	readonly virtualResolution: number;
-	readonly pageSize: number;
-	readonly pageGridSize: number;
-	readonly physicalPageCount: number;
-	readonly clipmapLevels: number;
-	readonly maxPagesPerFrame: number;
-	readonly cacheFrames: number;
-	readonly feedbackMode: PagedShadowFeedbackMode;
-}
-
 /** @internal Immutable authoring input consumed by `ShadowPlanner`. */
 export interface ShadowDefinitionSnapshot {
 	readonly id: string;
 	readonly kind: ShadowMapKind;
 	readonly enabled: boolean;
 	readonly projection: Readonly<ShadowProjectionSnapshot>;
-	readonly storagePreference: ShadowStoragePreference;
 	readonly resolution: number;
 	readonly bias: Readonly<Required<ShadowBiasSettings>>;
 	readonly filterMode: ShadowFilterMode;
 	readonly sampling: Readonly<Required<ShadowSamplingSettings>>;
 	readonly strength: number;
-	readonly pagedSettings?: Readonly<PreparedPagedShadowSettings>;
 	readonly priority: number;
 	readonly revision: number;
 }

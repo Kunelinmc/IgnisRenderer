@@ -1,4 +1,5 @@
 import type { FrameContext } from "../../pipeline/types";
+import type { PreparedFramePacketSet } from "../../pipeline/FramePackets";
 import type { ICommandEncoder } from "../ICommandEncoder";
 import type { WebGPULightingState } from "./types";
 import type { WebGPUDeviceResourceHost } from "./WebGPUDeviceResourceHost";
@@ -14,6 +15,12 @@ import { WebGPUShadowAtlasAllocator } from "./WebGPUShadowAtlasAllocator";
 import { WebGPUShadowCasterRenderer } from "./WebGPUShadowCasterRenderer";
 import type { WebGPUAnimationPayloadPool } from "./WebGPUAnimationPayloadPool";
 import type { IRenderTexture } from "../types";
+import {
+	DEFAULT_WEBGPU_PAGED_SHADOW_EXPERIMENT,
+	WebGPUPagedShadowExperiment,
+	type WebGPUPagedShadowExperimentConfig,
+	type WebGPUPagedShadowFrameState,
+} from "./WebGPUPagedShadowExperiment";
 
 /**
  * Sole WebGPU owner for atlas and paged shadow techniques.
@@ -25,13 +32,17 @@ export class WebGPUShadowRuntime {
 	private readonly _casterRenderer: WebGPUShadowCasterRenderer;
 	private readonly _atlasTechnique: WebGPUAtlasShadowTechnique;
 	private readonly _pagedTechnique: WebGPUPagedShadowTechnique;
+	private readonly _pagedExperiment: WebGPUPagedShadowExperiment;
 
 	constructor(
 		backend: WebGPUDeviceResourceHost,
 		resourceManager: WebGPUResourceManager,
 		geometryRegistry: WebGPUGeometryRegistry,
 		animationPayloads: WebGPUAnimationPayloadPool,
+		pagedExperimentConfig: Readonly<WebGPUPagedShadowExperimentConfig> =
+			DEFAULT_WEBGPU_PAGED_SHADOW_EXPERIMENT,
 	) {
+		this._pagedExperiment = new WebGPUPagedShadowExperiment(pagedExperimentConfig);
 		this._casterRenderer = new WebGPUShadowCasterRenderer(
 			backend,
 			geometryRegistry,
@@ -52,35 +63,63 @@ export class WebGPUShadowRuntime {
 		return this._casterRenderer.warmup();
 	}
 
-	public renderAtlas(context: FrameContext, encoder?: ICommandEncoder | null): Promise<void> {
-		return this._atlasTechnique.render(context, encoder);
+	public renderShadows(
+		context: FrameContext,
+		framePackets: PreparedFramePacketSet,
+		encoder?: ICommandEncoder | null,
+	): Promise<void> {
+		return this._atlasTechnique.render(
+			{
+				...context,
+				scene: {
+					...context.scene,
+					shadowCasterPackets: framePackets.shadowCasters.slice(),
+					shadowTransmitterPackets: framePackets.shadowTransmitters.slice(),
+				},
+			},
+			encoder,
+		);
 	}
 
 	public prepareAtlas(lightingState: WebGPULightingState, tileSize: number): void {
 		this._atlasTechnique.prepare(lightingState, tileSize);
 	}
 
-	public preparePaged(request: WebGPUPagedShadowFrameRequest): void {
+	public preparePagedShadowFrame(request: WebGPUPagedShadowFrameRequest): void {
 		this._pagedTechnique.prepareFrame(request);
 	}
 
-	public recordPageMark(request: WebGPUPagedShadowFrameRequest): void | Promise<void> {
+	public resolvePagedShadowFrame(context: FrameContext): WebGPUPagedShadowFrameState | null {
+		return this._pagedExperiment.resolve(context);
+	}
+
+	public recordPagedShadowPageMarkPass(
+		request: WebGPUPagedShadowFrameRequest,
+	): void | Promise<void> {
 		return this._pagedTechnique.recordPageMarkPass(request);
 	}
 
-	public recordPageAllocation(request: WebGPUPagedShadowFrameRequest): void | Promise<void> {
+	public recordPagedShadowPageAllocationPass(
+		request: WebGPUPagedShadowFrameRequest,
+	): void | Promise<void> {
 		return this._pagedTechnique.recordPageAllocationPass(request);
 	}
 
-	public recordPageTableCopy(request: WebGPUPagedShadowFrameRequest): void | Promise<void> {
+	public recordPagedShadowPageTableCopyPass(
+		request: WebGPUPagedShadowFrameRequest,
+	): void | Promise<void> {
 		return this._pagedTechnique.recordPageTableCopyPass(request);
 	}
 
-	public recordPagedDepth(request: WebGPUPagedShadowFrameRequest): Promise<void> {
+	public recordPagedShadowDepthPass(
+		request: WebGPUPagedShadowFrameRequest,
+	): Promise<void> {
 		return this._pagedTechnique.recordDepthPass(request);
 	}
 
-	public recordFeedback(request: WebGPUPagedShadowFrameRequest): void | Promise<void> {
+	public recordPagedShadowFeedbackPass(
+		request: WebGPUPagedShadowFrameRequest,
+	): void | Promise<void> {
 		return this._pagedTechnique.recordFeedbackPass(request);
 	}
 

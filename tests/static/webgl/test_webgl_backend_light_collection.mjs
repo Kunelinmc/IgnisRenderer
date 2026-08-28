@@ -288,7 +288,7 @@ function createShadowPlan(light, options = {}) {
 	}));
 	const filterMode = options.filterMode ?? "pcf";
 	const sampling = options.sampling ?? { quality: "medium" };
-	return { revision: 1, jobs: [], diagnostics: [], hasRasterWork: false, hasTransmissionWork: false, hasPagedWork: false, lights: [{ light, lightId: light.id, definition: { bias: { constant: 0.008, slope: 0.03, texel: 1, max: 0.05, normal: 1, normalMin: 0.05 }, filterMode, sampling, strength: 1, projection: { blendRatio: options.blendRatio ?? 0 } }, requestedTechnique: cascades > 1 ? "cascaded" : "single", effectiveTechnique: cascades > 1 ? "cascaded" : "single", requestedCascadeCount: cascades, effectiveCascadeCount: cascades, requestedResolution: size, effectiveResolution: size, sampling, requestedFilterMode: filterMode, effectiveFilterMode: filterMode, storage: "atlas", priority: 0, cost: 1, score: 1, slices }] };
+	return { revision: 1, diagnostics: [], hasRasterWork: false, hasTransmissionWork: false, lights: [{ light, lightId: light.id, definition: { bias: { constant: 0.008, slope: 0.03, texel: 1, max: 0.05, normal: 1, normalMin: 0.05 }, filterMode, sampling, strength: 1, projection: { blendRatio: options.blendRatio ?? 0 } }, requestedTechnique: cascades > 1 ? "cascaded" : "single", effectiveTechnique: cascades > 1 ? "cascaded" : "single", requestedCascadeCount: cascades, effectiveCascadeCount: cascades, requestedResolution: size, effectiveResolution: size, sampling, requestedFilterMode: filterMode, effectiveFilterMode: filterMode, priority: 0, cost: 1, score: 1, slices }] };
 }
 
 function testSceneProgramPlannerEnumeratesRuntimeTransmittanceAlternatives() {

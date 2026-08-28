@@ -35,16 +35,10 @@ function testBuiltInDefinitionLifecycle() {
 	assert.equal(scene.shadows.getBoundShadowMap(spot), undefined);
 }
 
-function testBuiltInKindsAndPagedSnapshot() {
+function testBuiltInKinds() {
 	const scene = new Scene();
 	assert.equal(scene.shadows.createSingle().kind, "single");
 	assert.equal(scene.shadows.createCascaded().kind, "cascaded");
-	const paged = scene.shadows.createPaged({ pageSize: 128, virtualResolution: 4096 });
-	const settings = paged.snapshot().pagedSettings;
-	assert.equal(paged.kind, "paged-shadow");
-	assert.equal(settings?.pageSize, 128);
-	assert.equal(settings?.virtualResolution, 4096);
-	assert.equal("pageTableBase" in settings, false);
 }
 
 function testSamplingAuthoringAndProjectionDepth() {
@@ -89,6 +83,6 @@ function testSamplingAuthoringAndProjectionDepth() {
 }
 
 testBuiltInDefinitionLifecycle();
-testBuiltInKindsAndPagedSnapshot();
+testBuiltInKinds();
 testSamplingAuthoringAndProjectionDepth();
 console.log("shadow manager tests passed");

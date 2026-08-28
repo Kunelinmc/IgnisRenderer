@@ -849,8 +849,6 @@ export class FrameCoordinator {
 			},
 			enableShadows: resolved.enableShadows,
 			hasTransmissionCasters: frame.shadowTransmitterPackets.length > 0,
-			needsAtlasFallback:
-				resolved.enableReflection && frame.reflectivePackets.length > 0,
 		}, this._shadowPlannerState);
 		for (const diagnostic of shadowPlan.diagnostics) {
 			if (diagnostic.severity !== "warning") continue;

@@ -199,10 +199,16 @@ binding `8`.
 
 ## Shadow Definitions and Planning
 
-The built-in `scene.shadows.createSingle`,
-`createCascaded`, `createPaged`, and `bind` workflows remain supported. Built-in
-shadow objects are definition facades; backend-native textures and residency
-are owned by the attached backend runtime.
+The supported built-in authoring workflows are
+`scene.shadows.createSingle`, `createCascaded`, and `bind`. The public
+`createPaged` workflow, `PagedShadowMap`, and their paged option types were
+removed. Applications must migrate directional paged definitions to
+`createCascaded` and other definitions to `createSingle` as appropriate.
+Paged shadows now exist only as a disabled-by-default WebGPU backend experiment
+and applications cannot enable or configure them.
+
+Built-in shadow objects are definition facades; backend-native textures are
+owned by the attached backend runtime.
 
 Direct assignment to `enabled`, `size`, `priority`, `bias`, and `sampling`
 remains supported and now invalidates the scene. Prefer `shadow.update({...})`

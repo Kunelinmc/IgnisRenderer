@@ -627,6 +627,7 @@ export class WebGPUBackend implements IRenderBackend {
 		this._frameRuntime = createWebGPUFrameRuntimeComposition({
 			host: this._frameHost,
 			frameServices: this._resources,
+			shadowRenderer: this._resources.getShadowRenderProvider(),
 			sampleCountResolver: this._sampleCountResolver,
 			warnOnce: (code, message, cause) =>
 				Logger.warn(`[${code}] ${message}${cause ? ` ${String(cause)}` : ""}`, {
@@ -636,7 +637,7 @@ export class WebGPUBackend implements IRenderBackend {
 		});
 		this._frameOrchestrator = new WebGPUFrameOrchestrator(
 			this._frameHost,
-			this._resources.createFrameScope(),
+			this._resources.createFrameScope("main"),
 			this._sampleCountResolver,
 			this._requestedSampleCount,
 			this._frameRuntime.modules,

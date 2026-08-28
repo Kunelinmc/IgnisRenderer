@@ -56,10 +56,8 @@ import { WebGPUSceneDrawResources } from "./WebGPUSceneDrawResources";
 import type {
 	WebGPUSceneTargetMode,
 } from "./WebGPUScenePassDescriptors";
-import {
-	type WebGPUPagedShadowFrameRequest,
-} from "./WebGPUPagedShadowTechnique";
 import { WebGPUShadowRuntime } from "./WebGPUShadowRuntime";
+import type { WebGPUPagedShadowExperimentConfig } from "./WebGPUPagedShadowExperiment";
 import type { ShadowCastingLight } from "../../lights";
 import { WebGPUTextureRegistry } from "./WebGPUTextureRegistry";
 import type { WarmupPhaseCounters, WarmupPlan } from "../../pipeline/WarmupPlanner";
@@ -73,9 +71,11 @@ import type {
 	WebGPUEnvironmentDrawResources,
 	WebGPUEnvironmentResourceOptions,
 	WebGPUFrameResourceScope as WebGPUFrameResourceScopeContract,
+	WebGPUFrameScopeRole,
 	WebGPUFrameScopePrepareOptions,
 	WebGPUParticleBillboardRenderer,
 	WebGPUPreparedFrameResources as WebGPUPreparedFrameResourcesContract,
+	WebGPUShadowRenderProvider,
 } from "./WebGPUResourceContracts";
 import { WebGPUParticleRenderResources } from "./WebGPUParticleRenderResources";
 import { materialSupportsWebGPUDeferredLighting } from "./material";
@@ -86,6 +86,7 @@ import {
 
 interface WebGPUFrameServicePrepareOptions extends WebGPUFrameScopePrepareOptions {
 	readonly scopeKey: string;
+	readonly scopeRole: WebGPUFrameScopeRole;
 }
 
 export interface WebGPUFrameServiceWarmupRuntimeOptions {
@@ -111,6 +112,7 @@ class WebGPUFrameResourceScopeHandle implements WebGPUFrameResourceScopeContract
 	constructor(
 		private readonly _owner: WebGPUFrameServiceOwner,
 		private readonly _scopeKey: string,
+		private readonly _scopeRole: WebGPUFrameScopeRole,
 	) {}
 
 	public prepare(
@@ -123,6 +125,7 @@ class WebGPUFrameResourceScopeHandle implements WebGPUFrameResourceScopeContract
 		this._prepared = this._owner.prepareFrame(context, {
 			...options,
 			scopeKey: this._scopeKey,
+			scopeRole: this._scopeRole,
 		});
 		return this._prepared;
 	}
@@ -174,6 +177,7 @@ export class WebGPUFrameServiceOwner {
 		backend: WebGPUDeviceResourceHost,
 		resourceManager: WebGPUResourceManager,
 		computeFacade: IWebGPUComputeFacade,
+		pagedExperimentConfig?: Readonly<WebGPUPagedShadowExperimentConfig>,
 	) {
 		this._backend = backend;
 		this._resourceManager = resourceManager;
@@ -229,7 +233,8 @@ export class WebGPUFrameServiceOwner {
 			backend,
 			resourceManager,
 			this._geometryRegistry,
-			this._animationPayloads
+			this._animationPayloads,
+			pagedExperimentConfig,
 		);
 	}
 
@@ -243,12 +248,23 @@ export class WebGPUFrameServiceOwner {
 	}
 
 	/** @internal Creates an isolated frame-binding ownership scope. */
-	public createFrameScope(): WebGPUFrameResourceScopeContract {
+	public createFrameScope(
+		role: WebGPUFrameScopeRole = "auxiliary",
+	): WebGPUFrameResourceScopeContract {
 		if (this._destroyed) {
 			throw new Error("WebGPU frame service owner has been destroyed.");
 		}
 		this._nextFrameScopeId++;
-		return new WebGPUFrameResourceScopeHandle(this, `frame-scope-${this._nextFrameScopeId}`);
+		return new WebGPUFrameResourceScopeHandle(
+			this,
+			`frame-scope-${this._nextFrameScopeId}`,
+			role,
+		);
+	}
+
+	/** @internal Provides the frame module with the owning shadow runtime. */
+	public getShadowRenderProvider(): WebGPUShadowRenderProvider {
+		return this._shadowRuntime;
 	}
 
 	public async warmup(
@@ -424,24 +440,6 @@ export class WebGPUFrameServiceOwner {
 		return phases;
 	}
 
-	public async renderShadows(
-		context: FrameContext,
-		framePackets: WebGPUFrameServicePrepareOptions["framePackets"],
-		encoder?: ICommandEncoder | null,
-	): Promise<void> {
-		await this._shadowRuntime.renderAtlas(
-			{
-				...context,
-				scene: {
-					...context.scene,
-					shadowCasterPackets: framePackets.shadowCasters.slice(),
-					shadowTransmitterPackets: framePackets.shadowTransmitters.slice(),
-				},
-			},
-			encoder,
-		);
-	}
-
 	/**
 	 * Advances caches that are shared across prepared resource scopes.
 	 *
@@ -487,13 +485,17 @@ export class WebGPUFrameServiceOwner {
 			warnings: [],
 		};
 
-		this._shadowRuntime.preparePaged({
-			context,
-			encoder: null,
-			shadowPlan: context.shadowPlan,
-			shadowCasterPackets,
-			shadowTransmitterPackets,
-		});
+		const pagedFrame = resolvedOptions.scopeRole === "main" ?
+			this._shadowRuntime.resolvePagedShadowFrame(context) : null;
+		if (pagedFrame) {
+			this._shadowRuntime.preparePagedShadowFrame({
+				context,
+				encoder: null,
+				pagedFrame,
+				shadowCasterPackets,
+				shadowTransmitterPackets,
+			});
+		}
 
 		const lightingCatalog = collectWebGPULightingCatalog(
 			scene.lights,
@@ -501,6 +503,7 @@ export class WebGPUFrameServiceOwner {
 			features.enableSH,
 			features.enableShadows,
 			context.shadowPlan,
+			pagedFrame,
 		);
 		const enableClusteredSurfaceLighting = canPrepareClusteredLighting({
 			scene,
@@ -550,7 +553,6 @@ export class WebGPUFrameServiceOwner {
 			this._resolveShadowAtlasTileSize(
 				context.shadowPlan,
 				features.enableShadows,
-				context.shadowPlan
 			),
 		);
 		const scope = this._getOrCreateFrameScope(resolvedOptions.scopeKey);
@@ -743,56 +745,6 @@ export class WebGPUFrameServiceOwner {
 		prepared.frameBinding = scope.frameBindings.getSceneBinding();
 	}
 
-	/**
-	 * @internal WebGPU paged shadow frame graph hook.
-	 */
-	public preparePagedShadowFrame(request: WebGPUPagedShadowFrameRequest): void {
-		this._shadowRuntime.preparePaged(request);
-	}
-
-	/**
-	 * @internal WebGPU paged shadow frame graph hook.
-	 */
-	public recordPagedShadowPageMarkPass(
-		request: WebGPUPagedShadowFrameRequest,
-	): void | Promise<void> {
-		return this._shadowRuntime.recordPageMark(request);
-	}
-
-	/**
-	 * @internal WebGPU paged shadow frame graph hook.
-	 */
-	public recordPagedShadowPageAllocationPass(
-		request: WebGPUPagedShadowFrameRequest,
-	): void | Promise<void> {
-		return this._shadowRuntime.recordPageAllocation(request);
-	}
-
-	/**
-	 * @internal WebGPU paged shadow frame graph hook.
-	 */
-	public recordPagedShadowPageTableCopyPass(
-		request: WebGPUPagedShadowFrameRequest,
-	): void | Promise<void> {
-		return this._shadowRuntime.recordPageTableCopy(request);
-	}
-
-	/**
-	 * @internal WebGPU paged shadow frame graph hook.
-	 */
-	public recordPagedShadowDepthPass(request: WebGPUPagedShadowFrameRequest): Promise<void> {
-		return this._shadowRuntime.recordPagedDepth(request);
-	}
-
-	/**
-	 * @internal WebGPU paged shadow delayed feedback hook.
-	 */
-	public recordPagedShadowFeedbackPass(
-		request: WebGPUPagedShadowFrameRequest,
-	): void | Promise<void> {
-		return this._shadowRuntime.recordFeedback(request);
-	}
-
 	public async buildClusteredLighting(
 		encoder: ICommandEncoder,
 		frameResources: WebGPUFrameServicePreparedResources,
@@ -931,6 +883,7 @@ export class WebGPUFrameServiceOwner {
 		}
 		return {
 			scopeKey: options.scopeKey,
+			scopeRole: options.scopeRole,
 			sceneTargetMode: options.sceneTargetMode,
 			framePackets: options.framePackets ?? createBaselineFramePacketSet(context),
 			temporalStateMode: options?.temporalStateMode,
@@ -1025,23 +978,13 @@ export class WebGPUFrameServiceOwner {
 	private _resolveShadowAtlasTileSize(
 		shadowPlan: FrameContext["shadowPlan"],
 		enableShadows: boolean,
-		plan: FrameContext["shadowPlan"],
 	): number {
 		if (!enableShadows) {
 			return 1;
 		}
 
-		const atlasLightIds = new Set(
-			(plan?.jobs ?? [])
-				.filter((job) =>
-					job.technique === "atlas" || job.technique === "atlas-fallback"
-				)
-				.map((job) => plan.lights[job.lightIndex]?.lightId)
-				.filter((lightId): lightId is string => typeof lightId === "string")
-		);
 		let tileSize = 0;
 		for (const prepared of shadowPlan?.lights ?? []) {
-			if (!atlasLightIds.has(prepared.lightId)) continue;
 			const hasValidSlice = prepared.slices.length > 0;
 			if (!hasValidSlice) {
 				continue;

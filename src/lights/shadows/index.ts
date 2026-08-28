@@ -1,7 +1,6 @@
 export * from "./types";
 export * from "./SingleShadowMap";
 export * from "./CascadedShadowMap";
-export * from "./PagedShadowMap";
 export * from "./ShadowManager";
 export * from "./ShadowFramePlan";
 export * from "./ShadowPlanner";

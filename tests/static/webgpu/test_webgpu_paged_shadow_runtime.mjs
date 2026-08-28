@@ -11,6 +11,10 @@ import {
 } from "../../../src/backends/webgpu/WebGPUPagedShadowTechnique.ts";
 import { WebGPUCommandEncoder } from "../../../src/backends/webgpu/WebGPUCommandEncoder.ts";
 import { WebGPUShadowCasterRenderer } from "../../../src/backends/webgpu/WebGPUShadowCasterRenderer.ts";
+import {
+	DEFAULT_WEBGPU_PAGED_SHADOW_EXPERIMENT,
+	WebGPUPagedShadowExperiment,
+} from "../../../src/backends/webgpu/WebGPUPagedShadowExperiment.ts";
 import { createTestDrawPacket } from "../helpers/drawPacket.mjs";
 
 function createMockBackend() {
@@ -205,7 +209,7 @@ function createRenderSet(overrides = {}) {
 			sampling: { quality: "medium" },
 			strength: 1,
 		},
-		effectiveTechnique: "cascaded", storage: "paged", pagedSettings: paged,
+		effectiveTechnique: "cascaded", effectiveFilterMode: "pcf",
 		effectiveCascadeCount: 1, effectiveResolution: paged.virtualResolution, slices,
 	};
 	return renderSet;
@@ -230,7 +234,10 @@ function createRequest(renderSet, packets, encoder = null) {
 			},
 		},
 		encoder,
-		shadowPlan: { revision: 1, lights: [renderSet.prepared], jobs: [], diagnostics: [], hasRasterWork: true, hasTransmissionWork: false, hasPagedWork: true },
+		pagedFrame: {
+			prepared: renderSet.prepared,
+			settings: renderSet.layout.paged,
+		},
 		shadowCasterPackets: packets,
 		shadowTransmitterPackets: [],
 		feedbackDepthTexture: {
@@ -901,7 +908,41 @@ async function testCascadeProjectionChangesSetForceDirty() {
 	assert.equal(getLatestForceDirty(), 1);
 }
 
+function testPrivateExperimentSelectsFirstEligibleDirectionalLight() {
+	const disabled = new WebGPUPagedShadowExperiment();
+	const disabledPrepared = createRenderSet().prepared;
+	const disabledContext = {
+		features: { enableShadows: true },
+		shadowPlan: {
+			hasRasterWork: true,
+			lights: [disabledPrepared],
+		},
+	};
+	assert.equal(disabled.resolve(disabledContext), null);
+
+	const experiment = new WebGPUPagedShadowExperiment({
+		...DEFAULT_WEBGPU_PAGED_SHADOW_EXPERIMENT,
+		enabled: true,
+	});
+	const pcssPrepared = createRenderSet().prepared;
+	pcssPrepared.light = { id: "pcss", type: LightType.Directional };
+	pcssPrepared.effectiveFilterMode = "pcss";
+	const pcfPrepared = createRenderSet().prepared;
+	pcfPrepared.light = { id: "pcf", type: LightType.Directional };
+	const context = {
+		features: { enableShadows: true },
+		shadowPlan: {
+			hasRasterWork: true,
+			lights: [pcssPrepared, pcfPrepared],
+		},
+	};
+	assert.equal(experiment.resolve(context)?.prepared, pcfPrepared);
+	context.shadowPlan.lights = [pcfPrepared, disabledPrepared];
+	assert.equal(experiment.resolve(context)?.prepared, pcfPrepared);
+}
+
 async function run() {
+	testPrivateExperimentSelectsFirstEligibleDirectionalLight();
 	testCpuRequesterRemainsAvailableForDiagnostics();
 	testSamplingFallbackDoesNotCreateRenderBuffers();
 	testSamplingFallbackWritesNonResidentPageTable();

@@ -222,9 +222,10 @@ lighting, presentation configuration, reflections, and structured buffer packing
   construct concrete feature runtimes, retain feature passes, or provide
   callback-only runtime wrappers for those features.
 - `WebGPUShadowRuntime` must be the sole frame-aware WebGPU shadow owner. It
-  must consume `FrameContext.shadowPlan`, own atlas and paged technique
-  executors, contribute their graph nodes and logical resources, and publish
-  backend-private sampling state. It must not mutate the shared plan.
+  must consume the atlas-oriented `FrameContext.shadowPlan`, own atlas and
+  experimental paged technique executors, contribute their graph nodes and
+  logical resources, and publish backend-private sampling state. It must not
+  mutate the shared plan.
 - `WebGPUAtlasShadowTechnique` must exclusively own atlas allocation and atlas
   frame execution. `WebGPUPagedShadowTechnique` must exclusively own page
   residency, page-table, allocation, feedback, and paged frame execution.
@@ -234,13 +235,28 @@ lighting, presentation configuration, reflections, and structured buffer packing
 - The paged technique must depend on `WebGPUShadowCasterRenderer`, never on the
   atlas technique. Frame consumers must obtain sampling resources through
   `WebGPUShadowRuntime` instead of retaining either technique or its allocator.
-- WebGPU paged definitions must enter the conventional atlas path only through
-  an explicit atlas-fallback job in the shared plan.
+- Paged shadows are a backend-private experiment. They must not appear in
+  `WebGPUBackendOptions`, public shadow definitions, `ShadowFramePlan`, or the
+  package root exports.
+- The experiment configuration must be immutable for the device lifetime and
+  default to disabled. The default private values are page size `128`, page
+  grid size `128`, physical page count `2048`, maximum pages per frame `256`,
+  cache frames `120`, and conservative feedback.
+- When enabled, the runtime must select the first prepared directional light in
+  planner order that has one to four valid slices and uses PCF. A PCSS light or
+  a frame without a qualifying light must retain atlas-only behavior without a
+  public fallback diagnostic.
+- Only the main frame scope may publish paged sampling state or paged graph
+  nodes. Reflection, render-target, warmup, and other auxiliary scopes must
+  sample the atlas.
+- The selected light must retain its atlas rendering while the paged technique
+  runs. Atlas resources are the compatibility path for auxiliary views and the
+  resident fallback; the shared plan must not model a second storage job.
 - WebGPU atlas sampling must implement the shared PCF and PCSS quality presets.
   One logical PCF tap must use bilinear comparison sampling. Paged sampling
   must implement all PCF quality levels, resolve cross-page filter footprints
   through virtual page lookup, and treat non-resident samples as fully lit.
-  Paged PCSS must be resolved to PCF by `ShadowPlanner` before runtime.
+  Paged PCSS must not be selected by the private experiment resolver.
 - Transparency graph nodes must separately represent OIT preparation, target
   clear, mesh accumulation, particle accumulation, resolve, transmission, and
   additive particle work. The OIT scene-color copy must occur in the prepare

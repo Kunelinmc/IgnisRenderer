@@ -23,6 +23,8 @@ import {
 import {
 	PointLight
 } from "../../../src/lights/PointLight.ts";
+import { DirectionalLight } from "../../../src/lights/DirectionalLight.ts";
+import { Matrix4 } from "../../../src/maths/Matrix4.ts";
 import {
 	PBRMaterial
 } from "../../../src/materials/PBRMaterial.ts";
@@ -107,6 +109,88 @@ function testRenderResourcesLeaveShaderRuntimeSubscriptionToBackend() {
 	assert.equal(listenerCount, 0);
 }
 
+function testPagedExperimentIsLimitedToMainFrameScope() {
+	const backend = new FakeBackend();
+	const resources = new WebGPURenderResources(
+		backend,
+		backend,
+		createWebGPUComputeFacade(backend),
+		{
+			enabled: true,
+			pageSize: 64,
+			pageGridSize: 4,
+			physicalPageCount: 4,
+			maxPagesPerFrame: 1,
+			cacheFrames: 0,
+			feedbackMode: "conservative",
+		},
+	);
+	const light = new DirectionalLight();
+	const matrix = Matrix4.identity();
+	const prepared = {
+		light,
+		lightId: light.id,
+		definition: {
+			id: "main-scope-paged",
+			bias: {},
+			filterMode: "pcf",
+			sampling: { quality: "medium" },
+			strength: 1,
+			projection: {},
+		},
+		requestedTechnique: "single",
+		effectiveTechnique: "single",
+		requestedCascadeCount: 1,
+		effectiveCascadeCount: 1,
+		requestedResolution: 512,
+		effectiveResolution: 512,
+		sampling: { quality: "medium" },
+		requestedFilterMode: "pcf",
+		effectiveFilterMode: "pcf",
+		priority: 1,
+		cost: 1,
+		score: 1,
+		slices: [{
+			index: 0,
+			resolution: 512,
+			view: matrix,
+			projection: matrix,
+			viewProjection: matrix,
+			lightDirection: { x: 0, y: -1, z: 0 },
+			splitNear: 0,
+			splitFar: 1,
+		}],
+	};
+	const model = createModel([new PBRMaterial()]);
+	const frame = createFrame(createPacket(model));
+	frame.lights = [light];
+	const context = createFrameContextWithFeatures(
+		frame,
+		{ enableLighting: true, enableShadows: true },
+		{ clusteredLighting: false, shadows: true },
+	);
+	context.shadowPlan = {
+		revision: 1,
+		lights: [prepared],
+		diagnostics: [],
+		hasRasterWork: true,
+		hasTransmissionWork: false,
+	};
+
+	const auxiliaryScope = resources.createFrameScope();
+	const mainScope = resources.createFrameScope("main");
+	try {
+		const auxiliary = auxiliaryScope.prepare(context, createMainFrameOptions());
+		const main = mainScope.prepare(context, createMainFrameOptions());
+		assert.equal(auxiliary.lightingState.directionalShadows[0].storageMode, "atlas");
+		assert.equal(main.lightingState.directionalShadows[0].storageMode, "paged");
+	} finally {
+		mainScope.destroy();
+		auxiliaryScope.destroy();
+		resources.destroy();
+	}
+}
+
 async function testRenderResourcesLogPointLightLimitOnlyOnce() {
 	const backend = new FakeBackend();
 	const resources = new WebGPURenderResources(
@@ -188,6 +272,10 @@ function testFrameExecutorConsumesComputeFacadeFromHost() {
 	const frameRuntime = createWebGPUFrameRuntimeComposition({
 		host: backend,
 		frameServices: resourcesStub,
+		shadowRenderer: {
+			resolvePagedShadowFrame() { return null; },
+			renderShadows() {},
+		},
 		sampleCountResolver,
 		warnOnce() {},
 	});
@@ -389,6 +477,7 @@ async function run() {
 	try {
 		await testRenderResourcesConsumeInjectedComputeFacade();
 		await testRenderResourcesLeaveShaderRuntimeSubscriptionToBackend();
+		await testPagedExperimentIsLimitedToMainFrameScope();
 		await testRenderResourcesLogPointLightLimitOnlyOnce();
 		await testFrameExecutorConsumesComputeFacadeFromHost();
 		await testRenderResourcesUseCopyDstForUploads();

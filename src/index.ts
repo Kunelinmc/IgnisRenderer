@@ -179,11 +179,9 @@ export type {
 export type {
 	PreparedShadowLight,
 	PreparedShadowSlice,
-	ShadowStorageTechnique,
 	ShadowCasterIntent,
 	ShadowDiagnostic,
 	ShadowFramePlan,
-	ShadowRenderJob,
 	ShadowWorkSet,
 } from "./lights/shadows/ShadowFramePlan";
 export {

@@ -1343,14 +1343,6 @@ export class WebGPUShadowCasterRenderer {
 		plan: ShadowFramePlan
 	): ShadowRenderSlot[] {
 		const slots: ShadowRenderSlot[] = [];
-		const atlasLightIds = new Set(
-			plan.jobs
-				.filter((job) =>
-					job.technique === "atlas" || job.technique === "atlas-fallback"
-				)
-				.map((job) => plan.lights[job.lightIndex]?.lightId)
-				.filter((lightId): lightId is string => typeof lightId === "string")
-		);
 		const atlasColumns = Math.max(1, WEBGPU_SHADOW_ATLAS_COLUMNS);
 		let directionalIndex = 0;
 		let spotIndex = 0;
@@ -1360,7 +1352,7 @@ export class WebGPUShadowCasterRenderer {
 				if (directionalIndex >= MAX_DIRECTIONAL_LIGHTS) continue;
 				if (isShadowCastingLight(light)) {
 					const prepared = plan.lights.find((candidate) => candidate.light === light);
-					if (!prepared || (prepared.storage === "paged" && !atlasLightIds.has(light.id))) {
+					if (!prepared) {
 						directionalIndex++;
 						continue;
 					}
@@ -1418,7 +1410,7 @@ export class WebGPUShadowCasterRenderer {
 				if (spotIndex >= MAX_SPOT_LIGHTS) continue;
 				if (isShadowCastingLight(light)) {
 					const prepared = plan.lights.find((candidate) => candidate.light === light);
-					if (!prepared || (prepared.storage === "paged" && !atlasLightIds.has(light.id))) {
+					if (!prepared) {
 						spotIndex++;
 						continue;
 					}
