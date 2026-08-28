@@ -273,7 +273,7 @@ const AREA_LIGHT_SAMPLE_COUNT: u32 =
 
 fn areaLightCount() -> u32 {
 	return min(
-		u32(max(frameLights.areaLightCounts.x + 0.5, 0.0)),
+		u32(max(frame.lightCounts.w + 0.5, 0.0)),
 		u32(__WEBGPU_MAX_AREA_LIGHTS__)
 	);
 }
@@ -715,7 +715,7 @@ fn envSpecularFallbackMaxMipLevel() -> f32 {
 }
 
 fn reflectionProbeCount() -> u32 {
-	let count = u32(max(frame.lightCounts.w + 0.5, 0.0));
+	let count = u32(max(frameEnvironment.localLightProbeCounts.y + 0.5, 0.0));
 	return min(count, MAX_REFLECTION_PROBES);
 }
 

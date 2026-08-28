@@ -87,7 +87,7 @@ The following pipeline layouts must preserve these bind group roles:
 | `9` | `brdfLUTTexture` | `texture_2d<f32>` |
 | `10` | `irradianceProbeGridCoeffs` | `texture_2d<f32>` |
 | `11` | `shadowComparisonSampler` | Comparison sampler |
-| `12` | `frameLights` | `FrameLightUniforms` uniform buffer (1,680 bytes) |
+| `12` | `frameLights` | `FrameLightUniforms` uniform buffer (1,664 bytes) |
 | `13` | `frameShadows` | `FrameShadowUniforms` uniform buffer (5,760 bytes) |
 | `14` | `frameEnvironment` | `FrameEnvironmentUniforms` uniform buffer (4,208 bytes) |
 

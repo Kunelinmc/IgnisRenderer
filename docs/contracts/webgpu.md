@@ -781,7 +781,7 @@ The frame packers share `WebGPUFrameUniformInput` and target these
 | Packer | Binding | Layout | Size |
 | --- | --- | --- | --- |
 | `packFrameCameraUniformData` | `0` | `FrameCameraUniforms` | 288 bytes |
-| `packFrameLightUniformData` | `12` | `FrameLightUniforms` | 1,680 bytes |
+| `packFrameLightUniformData` | `12` | `FrameLightUniforms` | 1,664 bytes |
 | `packFrameShadowUniformData` | `13` | `FrameShadowUniforms` | 5,760 bytes |
 | `packFrameEnvironmentUniformData` | `14` | `FrameEnvironmentUniforms` | 4,208 bytes |
 

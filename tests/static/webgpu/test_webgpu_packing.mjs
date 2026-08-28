@@ -330,7 +330,7 @@ function testFrameUniformPacking() {
 	);
 	assert.equal(
 		cameraData.byteLength + lightData.byteLength + shadowData.byteLength + environmentData.byteLength,
-		12704
+		12688
 	);
 	assert.deepEqual(
 		readVec(
@@ -357,7 +357,7 @@ function testFrameUniformPacking() {
 	assert.deepEqual(readVec(WEBGPU_FRAME_CAMERA_UNIFORM_LAYOUT, cameraData, "environmentBasisRight", 4), [
 		4, 5, 6, 7,
 	]);
-	assert.deepEqual(readVec(WEBGPU_FRAME_CAMERA_UNIFORM_LAYOUT, cameraData, "lightCounts", 4), [1, 1, 1, 2]);
+	assert.deepEqual(readVec(WEBGPU_FRAME_CAMERA_UNIFORM_LAYOUT, cameraData, "lightCounts", 4), [1, 1, 1, 1]);
 	assert.deepEqual(readVec(WEBGPU_FRAME_CAMERA_UNIFORM_LAYOUT, cameraData, "options", 4), [1, 0, 1, 0]);
 	assert.deepEqual(readVec(WEBGPU_FRAME_CAMERA_UNIFORM_LAYOUT, cameraData, "environmentOptionsA", 4), [
 		1, 0, 7, 1,
@@ -374,7 +374,10 @@ function testFrameUniformPacking() {
 	assert.deepEqual(readVec(WEBGPU_FRAME_LIGHT_UNIFORM_LAYOUT, lightData, ["spotLights", 0, "colorInner"], 4), [
 		39, 40, 41, 42,
 	]);
-	assert.deepEqual(readVec(WEBGPU_FRAME_LIGHT_UNIFORM_LAYOUT, lightData, "areaLightCounts", 4), [1, 0, 0, 0]);
+	assert.deepEqual(
+		readVec(WEBGPU_FRAME_ENVIRONMENT_UNIFORM_LAYOUT, environmentData, "localLightProbeCounts", 4),
+		[0, 2, 0, 0]
+	);
 	assert.deepEqual(readVec(WEBGPU_FRAME_LIGHT_UNIFORM_LAYOUT, lightData, ["areaLights", 0, "positionRange"], 4), [
 		47, 48, 49, 50,
 	]);

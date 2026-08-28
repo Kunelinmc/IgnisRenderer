@@ -224,7 +224,6 @@ export const WEBGPU_FRAME_LIGHT_UNIFORM_LAYOUT = new StructuredBufferLayout(
 			name: "spotLights",
 			type: arrayOf(SPOT_LIGHT_SCHEMA, MAX_SPOT_LIGHTS),
 		},
-		{ name: "areaLightCounts", type: VEC4_F32 },
 		{
 			name: "areaLights",
 			type: arrayOf(AREA_LIGHT_SCHEMA, MAX_AREA_LIGHTS),

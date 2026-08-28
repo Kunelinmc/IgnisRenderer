@@ -105,7 +105,7 @@ const FRAME_CAMERA_UNIFORM_PACKER = createStructuredBufferPacker<
 			input.directionalLights.length,
 			input.pointLights.length,
 			input.spotLights.length,
-			input.reflectionProbeCount,
+			input.areaLights.length,
 		]),
 		packVec4("options", (input) => [
 			input.enableLighting ? 1 : 0,
@@ -202,12 +202,6 @@ const FRAME_LIGHT_UNIFORM_PACKER = createStructuredBufferPacker<
 				]),
 			]
 		),
-		packVec4("areaLightCounts", (input) => [
-			Math.min(input.areaLights.length, MAX_AREA_LIGHTS),
-			0,
-			0,
-			0,
-		]),
 		packArrayStruct<WebGPUFrameUniformInput, WebGPUAreaLightUniform>(
 			"areaLights",
 			MAX_AREA_LIGHTS,
@@ -326,7 +320,7 @@ const FRAME_ENVIRONMENT_UNIFORM_PACKER = createStructuredBufferPacker<
 		),
 		packVec4("localLightProbeCounts", (input) => [
 			Math.max(0, input.localLightProbeCount),
-			0,
+			Math.max(0, input.reflectionProbeCount),
 			0,
 			0,
 		]),

@@ -18,7 +18,6 @@ struct FrameLightUniforms {
 	directionalLights: array<DirectionalLightData, __WEBGPU_MAX_DIRECTIONAL_LIGHTS__>,
 	pointLights: array<PointLightData, __WEBGPU_MAX_POINT_LIGHTS__>,
 	spotLights: array<SpotLightData, __WEBGPU_MAX_SPOT_LIGHTS__>,
-	areaLightCounts: vec4<f32>,
 	areaLights: array<AreaLightData, __WEBGPU_MAX_AREA_LIGHTS__>,
 }
 
