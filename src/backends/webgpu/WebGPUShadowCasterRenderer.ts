@@ -48,10 +48,6 @@ import type {
 } from "./WebGPUGeometryRegistry";
 import type { WebGPUAnimationPayloadPool } from "./WebGPUAnimationPayloadPool";
 import type { WebGPUShadowAtlasAllocator } from "./WebGPUShadowAtlasAllocator";
-import type {
-	WebGPUPagedShadowIndirectRenderResources,
-	WebGPUPagedShadowResidentPage,
-} from "./WebGPUPagedShadowTechnique";
 
 interface ShadowRenderSlot {
 	prepared: PreparedShadowLight;
@@ -102,7 +98,7 @@ const DRAW_INDEXED_INDIRECT_UINTS = 5;
  * Encodes shadow-caster draws into targets selected by a shadow technique.
  *
  * This renderer owns shared draw pipelines and transient instance resources. It
- * does not own atlas allocation, paged residency, or frame-graph policy.
+ * does not own atlas allocation or frame-graph policy.
  */
 export class WebGPUShadowCasterRenderer {
 	private _backend: WebGPUDeviceResourceHost;
@@ -125,16 +121,8 @@ export class WebGPUShadowCasterRenderer {
 	private _pipelineLayout: GPUPipelineLayout | null = null;
 	private _pipelines = new Map<string, IRenderPipeline>();
 	private _transmittancePipelines = new Map<string, IRenderPipeline>();
-	private _pagedClearShaderModule: IShaderModule | null = null;
-	private _pagedClearShaderModulePromise: Promise<IShaderModule> | null = null;
-	private _pagedClearBindGroupLayout: GPUBindGroupLayout | null = null;
-	private _pagedClearPipelineLayout: GPUPipelineLayout | null = null;
-	private _pagedClearPipeline: IRenderPipeline | null = null;
-	private _pagedClearParamsBuffer: GPUBuffer | null = null;
 	private _opaqueBufferGroups: InstanceBufferGroup[] = [];
 	private _transmittanceBufferGroups: InstanceBufferGroup[] = [];
-	private _pagedOpaqueBufferGroups: InstanceBufferGroup[] = [];
-	private _pagedTransmittanceBufferGroups: InstanceBufferGroup[] = [];
 	private _frustum = new Frustum();
 	private _animationBindings = new Map<string, ShadowAnimationBindingEntry>();
 	private _staticAnimationBindGroup: GPUBindGroup | null = null;
@@ -328,233 +316,6 @@ export class WebGPUShadowCasterRenderer {
 		this._trimAnimationResources();
 	}
 
-	/**
-	 * @internal WebGPU paged shadow depth renderer.
-	 */
-	public async renderPagedDepthPages(
-		context: FrameContext,
-		pages: readonly WebGPUPagedShadowResidentPage[],
-		physicalDepthAtlas: IRenderTexture,
-		frameEncoder?: ICommandEncoder | null,
-		shadowCasterPackets: readonly DrawPacket[] = context.scene.shadowCasterPackets
-	): Promise<void> {
-		if (!context.features.enableShadows || pages.length <= 0) {
-			return;
-		}
-		const atlasView = getWebGPUTexture(physicalDepthAtlas).view;
-		if (!atlasView) {
-			return;
-		}
-
-		await this._ensurePipelineResources();
-		if (
-			!this._shaderModule ||
-			!this._pipelineLayout ||
-			!this._bindGroupLayout ||
-			!this._animationBindGroupLayout
-		) {
-			return;
-		}
-
-		this._frameId++;
-		const drawCandidates = this._collectShadowDrawCandidates(shadowCasterPackets);
-		await this._prepareGeometryPipelines(drawCandidates, false);
-		const animationBindingCache = new Map<string, GPUBindGroup | null>();
-		const { commandEncoder, submitAtEnd } =
-			this._resolveShadowCommandEncoder(frameEncoder);
-		const passEncoder = commandEncoder.beginRenderPass({
-			label: "WebGPUPagedShadowDepthPass",
-			colorAttachments: [],
-			depthStencilAttachment: {
-				view: atlasView,
-				depthLoadOp: "load",
-				depthStoreOp: "store",
-			},
-		});
-
-		const atlasSize = Math.max(
-			1,
-			Math.floor(
-				physicalDepthAtlas.width ??
-				pages.reduce(
-					(max, page) =>
-						Math.max(max, page.viewportX + page.viewportSize, page.viewportY + page.viewportSize),
-					1
-				)
-			)
-		);
-		passEncoder.setViewport(0, 0, atlasSize, atlasSize, 0, 1);
-		passEncoder.setScissorRect(0, 0, atlasSize, atlasSize);
-		this._drawPagedShadowCasters(
-			passEncoder,
-			drawCandidates,
-			pages,
-			atlasSize,
-			context,
-			animationBindingCache
-		);
-		passEncoder.end();
-		if (submitAtEnd) {
-			this._requireBackendQueue().submit([commandEncoder.finish()]);
-		}
-		this._trimAnimationResources();
-	}
-
-	/**
-	 * @internal WebGPU GPU-driven paged shadow depth renderer.
-	 */
-	public async renderPagedDepthIndirect(
-		context: FrameContext,
-		resources: WebGPUPagedShadowIndirectRenderResources,
-		frameEncoder?: ICommandEncoder | null,
-		shadowCasterPackets: readonly DrawPacket[] = context.scene.shadowCasterPackets
-	): Promise<void> {
-		if (
-			!context.features.enableShadows ||
-			resources.drawInstanceCapacity <= 0
-		) {
-			return;
-		}
-		const atlasView = getWebGPUTexture(resources.physicalDepthAtlas).view;
-		if (!atlasView) {
-			return;
-		}
-
-		await this._ensurePipelineResources();
-		if (
-			!this._shaderModule ||
-			!this._pipelineLayout ||
-			!this._bindGroupLayout ||
-			!this._animationBindGroupLayout
-		) {
-			return;
-		}
-
-		this._frameId++;
-		const indirectCandidates = this._collectShadowDrawCandidates(
-			shadowCasterPackets
-		);
-		await this._prepareGeometryPipelines(indirectCandidates, false);
-		// Update clear params buffer on queue
-		const paramsArray = new Uint32Array([
-			resources.physicalPageCount,
-			resources.pageSize,
-			resources.physicalGridSize,
-			0, // pad
-		]);
-		this._requireBackendQueue().writeBuffer(
-			this._pagedClearParamsBuffer!,
-			0,
-			paramsArray
-		);
-
-		const { commandEncoder, submitAtEnd } =
-			this._resolveShadowCommandEncoder(frameEncoder);
-		const passEncoder = commandEncoder.beginRenderPass({
-			label: "WebGPUPagedShadowDepthIndirectPass",
-			colorAttachments: [],
-			depthStencilAttachment: {
-				view: atlasView,
-				depthLoadOp: "load",
-				depthStoreOp: "store",
-			},
-		});
-
-		const atlasSize = Math.max(1, resources.physicalAtlasSize);
-		passEncoder.setViewport(0, 0, atlasSize, atlasSize, 0, 1);
-		passEncoder.setScissorRect(0, 0, atlasSize, atlasSize);
-
-		// Tombstones can dirty pages even when there are no current casters.
-		if (this._pagedClearPipeline && this._pagedClearBindGroupLayout) {
-			const clearBindGroup = this._requireBackendDevice().createBindGroup({
-				label: "WebGPUPagedShadowClearBindGroup",
-				layout: this._pagedClearBindGroupLayout,
-				entries: [
-					{
-						binding: 0,
-						resource: { buffer: this._pagedClearParamsBuffer! },
-					},
-					{
-						binding: 1,
-						resource: { buffer: getWebGPUBuffer(resources.dirtyPhysicalPages) },
-					},
-				],
-			});
-			passEncoder.setPipeline(getWebGPURenderPipeline(this._pagedClearPipeline));
-			passEncoder.setBindGroup(0, clearBindGroup);
-			passEncoder.drawIndirect(
-				getWebGPUBuffer(resources.clearDrawIndirectArgsBuffer),
-				0
-			);
-		}
-
-		if (shadowCasterPackets.length > 0 && resources.drawCandidateCount > 0) {
-			const animationBindingCache = new Map<string, GPUBindGroup | null>();
-			const bindGroup = this._requireBackendDevice().createBindGroup({
-				label: "WebGPUPagedShadowDepthIndirectBindGroup",
-				layout: this._bindGroupLayout,
-				entries: [
-					{
-						binding: 0,
-						resource: { buffer: getWebGPUBuffer(resources.drawMvpBuffer) },
-					},
-					{
-						binding: 1,
-						resource: {
-							buffer: getWebGPUBuffer(resources.drawInstanceMetaBuffer),
-						},
-					},
-					{
-						binding: 2,
-						resource: {
-							buffer: getWebGPUBuffer(resources.drawTransmittanceBuffer),
-						},
-					},
-				],
-			});
-			passEncoder.setBindGroup(0, bindGroup);
-			const indirectBuffer = getWebGPUBuffer(resources.drawIndirectArgsBuffer);
-			const candidateLimit = Math.min(
-				shadowCasterPackets.length,
-				resources.drawCandidateCount
-			);
-			for (let candidateIndex = 0; candidateIndex < candidateLimit; candidateIndex++) {
-				const candidate = this._collectShadowDrawCandidate(
-					shadowCasterPackets[candidateIndex]
-				);
-				if (!candidate) {
-					continue;
-				}
-				const pipeline = this._pipelines.get(candidate.geometry.shadowLayoutKey);
-				if (!pipeline) continue;
-				passEncoder.setPipeline(getWebGPURenderPipeline(pipeline));
-				const packet = candidate.packet;
-				if (!animationBindingCache.has(packet.submission.id)) {
-					animationBindingCache.set(
-						packet.submission.id,
-						this._resolveAnimationBinding(packet, candidate.geometry, context)
-					);
-				}
-				const animationBindGroup =
-					animationBindingCache.get(packet.submission.id) ?? null;
-				if (!animationBindGroup) {
-					continue;
-				}
-				bindShadowCandidate(passEncoder, candidate);
-				passEncoder.setBindGroup(1, animationBindGroup);
-				passEncoder.drawIndexedIndirect(
-					indirectBuffer,
-					candidateIndex * DRAW_INDEXED_INDIRECT_UINTS * 4
-				);
-			}
-		}
-		passEncoder.end();
-		if (submitAtEnd) {
-			this._requireBackendQueue().submit([commandEncoder.finish()]);
-		}
-		this._trimAnimationResources();
-	}
-
 	public onShaderRuntimeChanged(): void {
 		this._destroyManagedResource(this._shaderModule);
 		for (const pipeline of this._pipelines.values()) {
@@ -565,13 +326,8 @@ export class WebGPUShadowCasterRenderer {
 		}
 		this._pipelines.clear();
 		this._transmittancePipelines.clear();
-		this._destroyManagedResource(this._pagedClearShaderModule);
-		this._destroyManagedResource(this._pagedClearPipeline);
 		this._shaderModule = null;
 		this._shaderModulePromise = null;
-		this._pagedClearShaderModule = null;
-		this._pagedClearShaderModulePromise = null;
-		this._pagedClearPipeline = null;
 	}
 
 	public async warmup(): Promise<void> {
@@ -588,21 +344,12 @@ export class WebGPUShadowCasterRenderer {
 		}
 		this._pipelines.clear();
 		this._transmittancePipelines.clear();
-		this._destroyManagedResource(this._pagedClearShaderModule);
-		this._destroyManagedResource(this._pagedClearPipeline);
-		this._destroyManagedResource(this._pagedClearParamsBuffer);
 		this._shaderModule = null;
 		this._shaderModulePromise = null;
 		this._bindGroupLayout = null;
 		this._animationBindGroupLayout = null;
 		this._staticAnimationBindGroup = null;
 		this._pipelineLayout = null;
-		this._pagedClearShaderModule = null;
-		this._pagedClearShaderModulePromise = null;
-		this._pagedClearBindGroupLayout = null;
-		this._pagedClearPipelineLayout = null;
-		this._pagedClearPipeline = null;
-		this._pagedClearParamsBuffer = null;
 
 		for (const group of this._opaqueBufferGroups) {
 			if (group) {
@@ -622,199 +369,11 @@ export class WebGPUShadowCasterRenderer {
 		}
 		this._transmittanceBufferGroups = [];
 
-		for (const group of this._pagedOpaqueBufferGroups) {
-			if (group) {
-				group.mvpBuffer.destroy();
-				group.metaBuffer.destroy();
-				group.transmittanceBuffer.destroy();
-			}
-		}
-		this._pagedOpaqueBufferGroups = [];
-
-		for (const group of this._pagedTransmittanceBufferGroups) {
-			if (group) {
-				group.mvpBuffer.destroy();
-				group.metaBuffer.destroy();
-				group.transmittanceBuffer.destroy();
-			}
-		}
-		this._pagedTransmittanceBufferGroups = [];
-
 		this._instanceMvpData = new Float32Array(0);
 		this._instanceMetaData = new Uint32Array(0);
 		this._instanceTransmittanceData = new Float32Array(0);
 		this._animationBindings.clear();
 		this._frameId = 0;
-	}
-
-	private _drawPagedShadowCasters(
-		passEncoder: GPURenderPassEncoder,
-		drawCandidates: ShadowDrawCandidate[],
-		pages: readonly WebGPUPagedShadowResidentPage[],
-		atlasSize: number,
-		context: FrameContext,
-		animationBindingCache: Map<string, GPUBindGroup | null>
-	): void {
-		const { batches: drawBatches, bindGroup } =
-			this._buildPagedShadowDrawBatches(
-				drawCandidates,
-				pages,
-				atlasSize,
-				context,
-				animationBindingCache
-			);
-		if (drawBatches.length === 0 || !bindGroup) {
-			return;
-		}
-
-		passEncoder.setBindGroup(0, bindGroup);
-		for (const batch of drawBatches) {
-			const pipeline = this._pipelines.get(
-				batch.candidate.geometry.shadowLayoutKey
-			);
-			if (!pipeline) continue;
-			passEncoder.setPipeline(getWebGPURenderPipeline(pipeline));
-			bindShadowCandidate(passEncoder, batch.candidate);
-			passEncoder.setBindGroup(1, batch.animationBindGroup);
-			passEncoder.drawIndexed(
-				batch.candidate.geometry.indexCount,
-				batch.instanceCount,
-				0,
-				0,
-				batch.firstInstance
-			);
-		}
-	}
-
-	private _buildPagedShadowDrawBatches(
-		drawCandidates: ShadowDrawCandidate[],
-		pages: readonly WebGPUPagedShadowResidentPage[],
-		atlasSize: number,
-		context: FrameContext,
-		animationBindingCache: Map<string, GPUBindGroup | null>
-	): { batches: ShadowInstancedDrawBatch[]; bindGroup: GPUBindGroup | null } {
-		const drawBatches: ShadowInstancedDrawBatch[] = [];
-		let instanceCount = 0;
-		for (const candidate of drawCandidates) {
-			const packet = candidate.packet;
-			if (!animationBindingCache.has(packet.submission.id)) {
-				animationBindingCache.set(
-					packet.submission.id,
-					this._resolveAnimationBinding(packet, candidate.geometry, context)
-				);
-			}
-			const animationBindGroup =
-				animationBindingCache.get(packet.submission.id) ?? null;
-			if (!animationBindGroup) {
-				continue;
-			}
-
-			let firstInstance = -1;
-			let pageInstanceCount = 0;
-			for (const page of pages) {
-				this._frustum.setFromMatrix(page.viewProjection);
-				if (
-					!this._frustum.intersectsSphere(
-						packet.submission.worldBounds.center,
-						packet.submission.worldBounds.radius
-					)
-				) {
-					continue;
-				}
-
-				Matrix4.multiply(
-					this._depthRemapMatrix,
-					page.viewProjection,
-					this._shadowViewProjectionMatrix
-				);
-				Matrix4.multiply(
-					this._shadowViewProjectionMatrix,
-					packet.submission.instance.worldMatrix,
-					this._mvpMatrix
-				);
-
-				this._ensureInstanceDataCapacity(instanceCount + 1);
-				const mvpOffset = instanceCount * 16;
-				this._setMatrixInArray(this._mvpMatrix, this._instanceMvpData, mvpOffset);
-				const transmittanceOffset = instanceCount * 4;
-				this._instanceTransmittanceData[transmittanceOffset] = 1;
-				this._instanceTransmittanceData[transmittanceOffset + 1] = 1;
-				this._instanceTransmittanceData[transmittanceOffset + 2] = 1;
-				this._instanceTransmittanceData[transmittanceOffset + 3] = 1;
-				const metaOffset = instanceCount * SHADOW_INSTANCE_DATA_UINTS;
-				this._setShadowInstanceMetaInArray(
-					this._instanceMetaData,
-					metaOffset,
-					instanceCount,
-					0,
-					0,
-					0,
-					0,
-					page.viewportX,
-					page.viewportY,
-					page.viewportSize,
-					atlasSize,
-					1
-				);
-				if (firstInstance < 0) {
-					firstInstance = instanceCount;
-				}
-				instanceCount++;
-				pageInstanceCount++;
-			}
-
-			if (pageInstanceCount <= 0 || firstInstance < 0) {
-				continue;
-			}
-			const lastBatch = drawBatches[drawBatches.length - 1];
-			if (
-				lastBatch &&
-				lastBatch.animationBindGroup === animationBindGroup &&
-				lastBatch.candidate.geometry === candidate.geometry &&
-				lastBatch.candidate.geometry.indexCount === candidate.geometry.indexCount &&
-				lastBatch.firstInstance + lastBatch.instanceCount === firstInstance
-			) {
-				lastBatch.instanceCount += pageInstanceCount;
-				continue;
-			}
-			drawBatches.push({
-				candidate,
-				animationBindGroup,
-				firstInstance,
-				instanceCount: pageInstanceCount,
-			});
-		}
-
-		if (instanceCount === 0) {
-			return { batches: [], bindGroup: null };
-		}
-
-		const group = this._upsertShadowInstanceResources(instanceCount, 0, false, true);
-		if (!group) {
-			return { batches: [], bindGroup: null };
-		}
-		this._requireBackendQueue().writeBuffer(
-			group.mvpBuffer,
-			0,
-			this._instanceMvpData.subarray(0, instanceCount * 16) as Float32Array<ArrayBuffer>
-		);
-		this._requireBackendQueue().writeBuffer(
-			group.metaBuffer,
-			0,
-			this._instanceMetaData.subarray(
-				0,
-				instanceCount * SHADOW_INSTANCE_DATA_UINTS
-			) as Uint32Array<ArrayBuffer>
-		);
-		this._requireBackendQueue().writeBuffer(
-			group.transmittanceBuffer,
-			0,
-			this._instanceTransmittanceData.subarray(
-				0,
-				instanceCount * 4
-			) as Float32Array<ArrayBuffer>
-		);
-		return { batches: drawBatches, bindGroup: group.bindGroup };
 	}
 
 	private _drawShadowCasters(
@@ -1072,7 +631,6 @@ export class WebGPUShadowCasterRenderer {
 		instanceCount: number,
 		slotIndex: number,
 		isTransmittance: boolean,
-		isPaged = false
 	): InstanceBufferGroup | null {
 		if (!this._bindGroupLayout) {
 			return null;
@@ -1080,9 +638,7 @@ export class WebGPUShadowCasterRenderer {
 		const device = this._requireBackendDevice();
 		const requiredCapacity = Math.max(1, instanceCount);
 
-		const groups = isPaged ?
-			(isTransmittance ? this._pagedTransmittanceBufferGroups : this._pagedOpaqueBufferGroups) :
-			(isTransmittance ? this._transmittanceBufferGroups : this._opaqueBufferGroups);
+		const groups = isTransmittance ? this._transmittanceBufferGroups : this._opaqueBufferGroups;
 		let group = groups[slotIndex];
 
 		if (
@@ -1095,23 +651,23 @@ export class WebGPUShadowCasterRenderer {
 				group.transmittanceBuffer.destroy();
 			}
 			const mvpBuffer = device.createBuffer({
-				label: `WebGPUShadowDepthMvpStorage_${isPaged ? "paged_" : ""}${isTransmittance ? "trans" : "opaque"}_${slotIndex}`,
+				label: `WebGPUShadowDepthMvpStorage_${isTransmittance ? "trans" : "opaque"}_${slotIndex}`,
 				size: requiredCapacity * 16 * 4,
 				usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
 			});
 			const metaBuffer = device.createBuffer({
-				label: `WebGPUShadowDepthInstanceMeta_${isPaged ? "paged_" : ""}${isTransmittance ? "trans" : "opaque"}_${slotIndex}`,
+				label: `WebGPUShadowDepthInstanceMeta_${isTransmittance ? "trans" : "opaque"}_${slotIndex}`,
 				size: requiredCapacity * SHADOW_INSTANCE_DATA_UINTS * 4,
 				usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
 			});
 			const transmittanceBuffer = device.createBuffer({
-				label: `WebGPUShadowTransmittanceStorage_${isPaged ? "paged_" : ""}${isTransmittance ? "trans" : "opaque"}_${slotIndex}`,
+				label: `WebGPUShadowTransmittanceStorage_${isTransmittance ? "trans" : "opaque"}_${slotIndex}`,
 				size: requiredCapacity * 4 * 4,
 				usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
 			});
 
 			const bindGroup = device.createBindGroup({
-				label: `WebGPUShadowDepthMvpBindGroup_${isPaged ? "paged_" : ""}${isTransmittance ? "trans" : "opaque"}_${slotIndex}`,
+				label: `WebGPUShadowDepthMvpBindGroup_${isTransmittance ? "trans" : "opaque"}_${slotIndex}`,
 				layout: this._bindGroupLayout,
 				entries: [
 					{
@@ -1630,85 +1186,6 @@ export class WebGPUShadowCasterRenderer {
 					{ binding: 2, resource: { buffer: fallbackStorage } },
 					{ binding: 3, resource: { buffer: fallbackStorage } },
 				],
-			});
-		}
-
-		if (!this._pagedClearShaderModule) {
-			if (!this._pagedClearShaderModulePromise) {
-				this._pagedClearShaderModulePromise = ShaderSource.load(
-					"webgpu.shadow.pagedShadowClear"
-				).then((artifact) =>
-					this._backend.createShaderModule({
-						label: "WebGPUPagedShadowClearShader",
-						code: artifact.source.code,
-						sourceMap: artifact.source.sourceMap,
-						language: "wgsl",
-						stage: "vertex",
-						entryPoint: "vsMain",
-						sourceKind: "shadow",
-					})
-				);
-			}
-			try {
-				this._pagedClearShaderModule = await this._pagedClearShaderModulePromise;
-			} catch (error) {
-				this._pagedClearShaderModulePromise = null;
-				throw error;
-			}
-		}
-
-		if (!this._pagedClearBindGroupLayout) {
-			this._pagedClearBindGroupLayout = device.createBindGroupLayout({
-				label: "WebGPUPagedShadowClearBindGroupLayout",
-				entries: [
-					{
-						binding: 0,
-						visibility: GPUShaderStage.VERTEX,
-						buffer: { type: "uniform" },
-					},
-					{
-						binding: 1,
-						visibility: GPUShaderStage.VERTEX,
-						buffer: { type: "read-only-storage" },
-					},
-				],
-			});
-		}
-
-		if (!this._pagedClearPipelineLayout && this._pagedClearBindGroupLayout) {
-			this._pagedClearPipelineLayout = device.createPipelineLayout({
-				label: "WebGPUPagedShadowClearPipelineLayout",
-				bindGroupLayouts: [this._pagedClearBindGroupLayout],
-			});
-		}
-
-		if (!this._pagedClearParamsBuffer) {
-			this._pagedClearParamsBuffer = device.createBuffer({
-				label: "WebGPUPagedShadowClearParams",
-				size: 16,
-				usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-			});
-		}
-
-		if (!this._pagedClearPipeline && this._pagedClearShaderModule && this._pagedClearPipelineLayout) {
-			this._pagedClearPipeline = await this._backend.createPipeline({
-				label: "WebGPUPagedShadowClearPipeline",
-				layout: this._pagedClearPipelineLayout,
-				vertex: {
-					module: this._pagedClearShaderModule,
-					entryPoint: "vsMain",
-					buffers: [],
-				},
-				primitive: {
-					topology: PrimitiveTopology.TriangleList,
-					cullMode: "none",
-					frontFace: "ccw",
-				},
-				depthStencil: {
-					format: TextureFormat.Depth32Float,
-					depthWriteEnabled: true,
-					depthCompare: "always",
-				},
 			});
 		}
 	}

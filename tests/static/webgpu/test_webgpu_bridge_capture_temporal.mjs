@@ -629,10 +629,10 @@ async function testSceneFrameBindingLayoutMatchesFallbackEnvironmentContract() {
 		(layout) => layout.desc.label === "WebGPUSceneFrameBindGroupLayout"
 	);
 	assert.ok(sceneLayout);
-	assert.equal(sceneLayout.desc.entries.length, 17);
+	assert.equal(sceneLayout.desc.entries.length, 15);
 	assert.deepEqual(
 		sceneLayout.desc.entries.map((entry) => entry.binding),
-		[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
+		[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]
 	);
 	assert.equal(sceneLayout.desc.entries[4].texture?.sampleType, "float");
 	assert.equal(sceneLayout.desc.entries[5].sampler?.type, "filtering");
@@ -641,12 +641,10 @@ async function testSceneFrameBindingLayoutMatchesFallbackEnvironmentContract() {
 	assert.equal(sceneLayout.desc.entries[8].texture?.sampleType, "float");
 	assert.equal(sceneLayout.desc.entries[9].texture?.sampleType, "float");
 	assert.equal(sceneLayout.desc.entries[10].texture?.sampleType, "float");
-	assert.equal(sceneLayout.desc.entries[11].texture?.sampleType, "uint");
-	assert.equal(sceneLayout.desc.entries[12].texture?.sampleType, "depth");
-	assert.equal(sceneLayout.desc.entries[13].sampler?.type, "comparison");
+	assert.equal(sceneLayout.desc.entries[11].sampler?.type, "comparison");
+	assert.equal(sceneLayout.desc.entries[12].buffer?.type, "uniform");
+	assert.equal(sceneLayout.desc.entries[13].buffer?.type, "uniform");
 	assert.equal(sceneLayout.desc.entries[14].buffer?.type, "uniform");
-	assert.equal(sceneLayout.desc.entries[15].buffer?.type, "uniform");
-	assert.equal(sceneLayout.desc.entries[16].buffer?.type, "uniform");
 
 	resources.destroy();
 }

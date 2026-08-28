@@ -61,18 +61,6 @@ async function testLoadsRawAndCompositeParts() {
 	const planarReflectionComposite = (await ShaderSource.load(
 		"webgpu.utility.planarReflectionComposite"
 	)).source;
-	const pagedShadowCompute = (await ShaderSource.load(
-		"webgpu.shadow.pagedShadowRequestMark"
-	)).source;
-	const pagedShadowDrawBuild = (await ShaderSource.load(
-		"webgpu.shadow.pagedShadowDrawBuild"
-	)).source;
-	const pagedShadowFeedback = (await ShaderSource.load(
-		"webgpu.shadow.pagedShadowFeedback"
-	)).source;
-	const pagedShadowPageTableCopy = (await ShaderSource.load(
-		"webgpu.shadow.pagedShadowPageTableCopy"
-	)).source;
 	const glslRaw = (await ShaderSource.load("webgl.part.sceneVertex")).source;
 	const glslComposite = (await ShaderSource.load(
 		"webgl.part.sceneVertex"
@@ -92,10 +80,6 @@ async function testLoadsRawAndCompositeParts() {
 	);
 	assert.ok(planarReflectionComposite.code.includes("vertexCount: f32"));
 	assert.ok(planarReflectionComposite.code.includes("morphSemanticMask: f32"));
-	assert.ok(pagedShadowCompute.code.includes("fn csMain"));
-	assert.ok(pagedShadowDrawBuild.code.includes("PagedShadowDrawParams"));
-	assert.ok(pagedShadowFeedback.code.includes("texture_depth_2d"));
-	assert.ok(pagedShadowPageTableCopy.code.includes("texture_storage_2d<r32uint"));
 	assert.ok(glslRaw.code.includes("layout(location = 0) in vec3 aPosition;"));
 	assert.ok(glslComposite.code.includes("layout(location = 0) in vec3 aPosition;"));
 	assert.equal(
@@ -548,118 +532,6 @@ async function testWebGPUSharedNumericalConstants() {
 	assert.equal(compiledSsao.hasErrors, false);
 }
 
-async function testPagedShadowDrawBuildUsesConservativePlaneCulling() {
-	ShaderSource.clearCache();
-
-	const source = (await ShaderSource.load(
-		"webgpu.shadow.pagedShadowDrawBuild"
-	)).source;
-
-	assert.ok(source.code.includes("var outsideNear = true;"));
-	assert.ok(source.code.includes("var outsideFar = true;"));
-	assert.ok(source.code.includes("atomicAdd(&counters[3], intersectingPageCount)"));
-	assert.ok(source.code.includes("atomicAdd(&counters[4]"));
-	assert.ok(!source.code.includes("candidateIndex * params.physicalPageCount"));
-	assert.ok(!source.code.includes("let ndc = clip.xyz / vec3<f32>(clip.w);"));
-	assert.ok(source.code.includes("let matrixIndex = dirtyPhysicalPages[dirtyBase + 2u];"));
-	assert.ok(source.code.includes("arrayLength(&drawInstanceMeta)"));
-	assert.ok(source.code.includes("array<CascadeUVRange, 4>"));
-	assert.ok(source.code.includes("@group(0) @binding(11) var<storage, read> dirtyGridOffsets"));
-	assert.ok(source.code.includes("@group(0) @binding(12) var<storage, read> dirtyGridIndices"));
-	assert.ok(source.code.includes("@group(0) @binding(13) var<storage, read> dirtyPageUvRanges"));
-	assert.ok(source.code.includes("var<workgroup> g_cachedDirtyPages"));
-	assert.ok(source.code.includes("workgroupUniformLoad(&g_cachedCellCount)"));
-	assert.ok(source.code.includes("rangeIntersectsCoarseCell"));
-	assert.ok(source.code.includes("CachedDirtyPage("));
-	assert.ok(source.code.includes("dirtyPageUvRanges[dirtyIndex]"));
-	assert.ok(!source.code.includes("fn dirtyPageUvRange"));
-	assert.ok(!source.code.includes("PAGE_CLIP_XY_MARGIN / atlasSize"));
-	assert.ok(!source.code.includes("(px - 1.5) / gridSize"));
-}
-
-async function testPagedShadowDirtyGridBuildUsesGlobalGridBuffers() {
-	ShaderSource.clearCache();
-
-	const source = (await ShaderSource.load(
-		"webgpu.shadow.pagedShadowDirtyGridBuild"
-	)).source;
-
-	assert.ok(source.code.includes("var<storage, read_write> dirtyGridCounts"));
-	assert.ok(source.code.includes("var<storage, read_write> dirtyGridOffsets"));
-	assert.ok(source.code.includes("var<storage, read_write> dirtyGridIndices"));
-	assert.ok(source.code.includes("var<storage, read_write> dirtyPageUvRanges"));
-	assert.ok(source.code.includes("var<storage, read_write> clearDrawIndirectArgs"));
-	assert.ok(source.code.includes("const PAGE_CLIP_XY_MARGIN: f32 = 4.0;"));
-	assert.ok(source.code.includes("fn dirtyPageUvRange"));
-	assert.ok(source.code.includes("PAGE_CLIP_XY_MARGIN / atlasSize"));
-	assert.ok(source.code.includes("clearDrawIndirectArgs[0] = 6u"));
-	assert.ok(source.code.includes("clearDrawIndirectArgs[1] = dirtyCount"));
-	assert.ok(source.code.includes("dirtyPageUvRanges[i] = dirtyPageUvRange(dirtyBase)"));
-	assert.ok(source.code.includes("dirtyGridOffsets[DIRTY_GRID_CELL_COUNT] = sum"));
-	assert.ok(source.code.includes("dirtyGridIndices[insertIndex] = i"));
-}
-
-async function testPagedShadowClearLayoutMatchesShaderBindings() {
-	ShaderSource.clearCache();
-
-	const source = (await ShaderSource.load("webgpu.shadow.pagedShadowClear")).source;
-	const shadowPass = await readFile(
-		path.join(
-			REPO_ROOT,
-			"src",
-			"backends",
-			"webgpu",
-			"WebGPUShadowCasterRenderer.ts",
-		),
-		"utf8"
-	);
-	const layoutStart = shadowPass.indexOf(
-		"label: \"WebGPUPagedShadowClearBindGroupLayout\""
-	);
-	const layoutEnd = shadowPass.indexOf(
-		"label: \"WebGPUPagedShadowClearPipelineLayout\"",
-		layoutStart
-	);
-	const layoutSource = shadowPass.slice(layoutStart, layoutEnd);
-
-	assert.ok(source.code.includes("@group(0) @binding(0) var<uniform> params"));
-	assert.ok(
-		source.code.includes(
-			"@group(0) @binding(1) var<storage, read> dirtyPhysicalPages"
-		)
-	);
-	assert.ok(!source.code.includes("@group(0) @binding(2)"));
-	assert.ok(layoutSource.includes("binding: 0"));
-	assert.ok(layoutSource.includes("binding: 1"));
-	assert.ok(!layoutSource.includes("binding: 2"));
-}
-
-async function testPagedShadowRequestCompactUsesLayoutAddresses() {
-	ShaderSource.clearCache();
-
-	const source = (await ShaderSource.load(
-		"webgpu.shadow.pagedShadowRequestCompact"
-	)).source;
-
-	assert.ok(source.code.includes("struct PagedShadowPageAddress"));
-	assert.ok(source.code.includes("@group(0) @binding(4) var<storage, read> pageAddresses"));
-	assert.ok(source.code.includes("let address = pageAddresses[tableIndex]"));
-	assert.ok(source.code.includes("compactedRequests[base + 1u] = address.matrixIndex"));
-	assert.ok(!source.code.includes("fn resolvePageTableAddress"));
-	assert.ok(!source.code.includes("tableIndex / (gridSize * gridSize)"));
-}
-
-async function testPagedShadowSamplingUsesGlobalPageTableStride() {
-	ShaderSource.clearCache();
-	const source = (await ShaderSource.load("webgpu.scene.part.utils")).source;
-
-	assert.ok(source.code.includes("textureDimensions(pagedShadowPageTable).x"));
-	assert.ok(source.code.includes("let pageTableIndex ="));
-	assert.ok(source.code.includes("pageTableIndex % pageTableWidth"));
-	assert.ok(source.code.includes("pageTableIndex / pageTableWidth"));
-	assert.ok(!source.code.includes("let pageTableBaseY ="));
-}
-
 function testCompositeResultsAreCloned() {
 	ShaderSource.clearCache();
 	return ShaderSource.load("webgpu.utility.present").then((first) => {
@@ -997,11 +869,6 @@ async function run() {
 	await testWebGPUCompositeIncludesSharedParts();
 	await testSrgbDirectiveSupportsBuiltInConsumers();
 	await testWebGPUSharedNumericalConstants();
-	await testPagedShadowDrawBuildUsesConservativePlaneCulling();
-	await testPagedShadowDirtyGridBuildUsesGlobalGridBuffers();
-	await testPagedShadowClearLayoutMatchesShaderBindings();
-	await testPagedShadowRequestCompactUsesLayoutAddresses();
-	await testPagedShadowSamplingUsesGlobalPageTableStride();
 	await testCompositeResultsAreCloned();
 	testSyncLoadPopulatesPreparedCache();
 	await testCustomAsyncLoaderOverridesBuiltInSource();

@@ -21,41 +21,47 @@ const context = {
 		hasTransmissionWork: false,
 	},
 };
-const pagedFrame = {
-	prepared,
-	settings: {
-		pageSize: 128,
-		pageGridSize: 128,
-		physicalPageCount: 2048,
-		maxPagesPerFrame: 256,
-		cacheFrames: 120,
-		feedbackMode: "screen-feedback",
+
+const shadowRenderer = {
+	renderShadows: async () => {},
+};
+const shadowModule = new WebGPUShadowFrameModule(shadowRenderer);
+
+const contributions = shadowModule.planStage({
+	pass,
+	context,
+	state: { sceneTargetMode: "mrt" },
+	messages: {},
+});
+
+assert.equal(contributions.length, 1);
+assert.equal(contributions[0].lane, "geometry");
+assert.ok(contributions[0].nodes.some((node) => node.kind === "shadow"));
+const shadowNode = contributions[0].nodes.find((node) => node.kind === "shadow");
+assert.ok(shadowNode.writes.some((write) => write.id === "shadow-atlas"));
+assert.ok(shadowNode.writes.some((write) => write.id === "shadow-transmittance-atlas"));
+
+const noRasterContext = {
+	...context,
+	shadowPlan: {
+		...context.shadowPlan,
+		hasRasterWork: false,
 	},
 };
-const disabledModule = new WebGPUShadowFrameModule({
-	resolvePagedShadowFrame: () => null,
-});
-const disabledContributions = disabledModule.planStage({
+const noWorkContributions = shadowModule.planStage({
 	pass,
-	context,
+	context: noRasterContext,
 	state: { sceneTargetMode: "mrt" },
 	messages: {},
 });
-assert.ok(disabledContributions[0].nodes.some((node) => node.kind === "shadow"));
-assert.equal(
-	disabledContributions[0].nodes.some((node) => node.kind === "paged-shadow-page-mark"),
-	false,
-);
+assert.equal(noWorkContributions.length, 0);
 
-const enabledModule = new WebGPUShadowFrameModule({
-	resolvePagedShadowFrame: () => pagedFrame,
-});
-const contributions = enabledModule.planStage({
-	pass,
+const nonShadowContributions = shadowModule.planStage({
+	pass: { stage: "main-opaque", executor: "backend", enabled: true, dependsOn: [] },
 	context,
 	state: { sceneTargetMode: "mrt" },
 	messages: {},
 });
-assert.ok(contributions[0].nodes.some((node) => node.kind === "paged-shadow-page-mark"));
-assert.ok(contributions[0].nodes.some((node) => node.kind === "shadow"));
-console.log("WebGPU frame graph uses private paged shadow state");
+assert.equal(nonShadowContributions.length, 0);
+
+console.log("WebGPU frame graph shadow planner tests passed");

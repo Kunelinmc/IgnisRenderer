@@ -408,7 +408,6 @@ export class WebGPUTransparencyRuntime implements WebGPUFrameGraphModule {
 					"texture-binding",
 					true,
 				),
-				...this._createPagedShadowLightingReads(),
 			],
 			writes: [
 				writeWebGPUFrameGraphResource("oit:accum", "render-attachment"),
@@ -492,21 +491,6 @@ export class WebGPUTransparencyRuntime implements WebGPUFrameGraphModule {
 		};
 	}
 
-	private _createPagedShadowLightingReads() {
-		return [
-			readWebGPUFrameGraphResource(
-				"paged-shadow:page-table-texture",
-				"texture-binding",
-				true,
-			),
-			readWebGPUFrameGraphResource(
-				"paged-shadow:physical-depth",
-				"texture-binding",
-				true,
-			),
-		];
-	}
-
 	private _createForwardGraphResources(
 		state: WebGPUFrameResourceAllocationSnapshot & WebGPUTransparencyPlanningState,
 		loadExistingColor: boolean,
@@ -525,7 +509,6 @@ export class WebGPUTransparencyRuntime implements WebGPUFrameGraphModule {
 				"texture-binding",
 				true,
 			),
-			...this._createPagedShadowLightingReads(),
 		];
 		if (loadExistingColor) {
 			reads.push(readWebGPUFrameGraphResource(color, "render-attachment", true));

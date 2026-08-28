@@ -67,12 +67,7 @@ class WebGPUFrameExecutor extends WebGPUFrameOrchestrator {
 		const frameRuntime = createWebGPUFrameRuntimeComposition({
 			host,
 			frameServices,
-			shadowRenderer: new Proxy(frameServices, {
-				get(target, property, receiver) {
-					if (property === "resolvePagedShadowFrame") return () => null;
-					return Reflect.get(target, property, receiver);
-				},
-			}),
+			shadowRenderer: frameServices,
 			sampleCountResolver: sampleCounts,
 			warnOnce: (code, message, cause) =>
 				Logger.warn(`[${code}] ${message}${cause ? ` ${String(cause)}` : ""}`),

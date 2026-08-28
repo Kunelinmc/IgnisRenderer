@@ -451,7 +451,7 @@ async function testSceneShaderCoverage() {
 	assert.ok(WEBGPU_SCENE_SHADER.includes("@group(0) @binding(5) var envSpecularFallbackSampler"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("@group(0) @binding(6) var<uniform> fog"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("@group(0) @binding(9) var brdfLUTTexture"));
-	assert.ok(WEBGPU_SCENE_SHADER.includes("@group(0) @binding(13) var shadowComparisonSampler"));
+	assert.ok(WEBGPU_SCENE_SHADER.includes("@group(0) @binding(11) var shadowComparisonSampler"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("@group(2) @binding(0)"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("if (isClusteredLightingEnabled())"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("decodeClusteredLightRef"));
@@ -980,7 +980,7 @@ async function testWebGPUShaderConstantTokenInjection() {
 		WEBGPU_PARTICLE_SHADER.includes("struct FrameShadowUniforms")
 	);
 	assert.ok(
-		WEBGPU_PARTICLE_SHADER.includes("@group(0) @binding(15) var<uniform> frameShadows")
+		WEBGPU_PARTICLE_SHADER.includes("@group(0) @binding(13) var<uniform> frameShadows")
 	);
 	assert.ok(
 		WEBGPU_SSR_SHADER.includes("struct FrameCameraUniforms")

@@ -351,112 +351,6 @@ function testDeferredDecalNodeRecordsGBufferTransitions() {
 	assert.equal(albedoState.lastUsage, "texture-binding");
 }
 
-function testPagedShadowStubNodesValidate() {
-	const { stage } = compile([
-		{
-			id: "shadow:shadow",
-			stage: "shadow",
-			kind: "shadow",
-			label: "WebGPUShadow",
-			writes: [{ id: "shadow-atlas", usage: "render-attachment" }],
-		},
-		{
-			id: "shadow:paged-shadow-page-mark",
-			stage: "shadow",
-			kind: "paged-shadow-page-mark",
-			label: "WebGPUPagedShadowPageMark",
-			reads: [{
-				id: "paged-shadow:feedback-flags",
-				usage: "storage-binding",
-				optional: true,
-			}],
-			writes: [
-				{
-					id: "paged-shadow:page-request-flags",
-					usage: "storage-binding",
-				},
-				{
-					id: "paged-shadow:page-requests",
-					usage: "storage-binding",
-				},
-				{ id: "paged-shadow:counters", usage: "storage-binding" },
-			],
-		},
-		{
-			id: "shadow:paged-shadow-page-allocate",
-			stage: "shadow",
-			kind: "paged-shadow-page-allocate",
-			label: "WebGPUPagedShadowPageAllocate",
-			reads: [
-				{
-					id: "paged-shadow:page-requests",
-					usage: "storage-binding",
-				},
-				{
-					id: "paged-shadow:page-request-flags",
-					usage: "storage-binding",
-				},
-			],
-			writes: [
-				{ id: "paged-shadow:page-table", usage: "storage-binding" },
-				{ id: "paged-shadow:page-metadata", usage: "storage-binding" },
-				{ id: "paged-shadow:residency-state", usage: "storage-binding" },
-				{ id: "paged-shadow:free-list", usage: "storage-binding" },
-				{ id: "paged-shadow:counters", usage: "storage-binding" },
-				{ id: "paged-shadow:dirty-physical-pages", usage: "storage-binding" },
-			],
-		},
-		{
-			id: "shadow:paged-shadow-depth",
-			stage: "shadow",
-			kind: "paged-shadow-depth",
-			label: "WebGPUPagedShadowDepth",
-			reads: [
-				{ id: "paged-shadow:page-table", usage: "storage-binding" },
-				{ id: "paged-shadow:page-metadata", usage: "storage-binding" },
-				{ id: "paged-shadow:dirty-physical-pages", usage: "storage-binding" },
-			],
-			writes: [
-				{ id: "paged-shadow:draw-instances", usage: "storage-binding" },
-				{ id: "paged-shadow:draw-indirect-args", usage: "storage-binding" },
-				{
-					id: "paged-shadow:clear-draw-indirect-args",
-					usage: "storage-binding",
-				},
-				{ id: "paged-shadow:physical-depth", usage: "render-attachment" },
-			],
-		},
-		{
-			id: "main-opaque:paged-shadow-feedback",
-			stage: "main-opaque",
-			kind: "paged-shadow-feedback",
-			label: "WebGPUPagedShadowFeedback",
-			reads: [
-				{ id: "paged-shadow:page-table", usage: "storage-binding" },
-				{ id: "frame:depth", usage: "texture-binding", optional: true },
-			],
-			writes: [
-				{
-					id: "paged-shadow:next-feedback-flags",
-					usage: "storage-binding",
-				},
-			],
-		},
-	]);
-
-	assert.equal(stage.diagnostics.length, 0);
-	assert.ok(
-		stage.barriers.some(
-			(barrier) => barrier.resource === "paged-shadow:page-requests"
-		)
-	);
-	assert.ok(
-		stage.barriers.some(
-			(barrier) => barrier.resource === "paged-shadow:dirty-physical-pages"
-		)
-	);
-}
-
 function run() {
 	testReadBeforeCreateDiagnostic();
 	testOptionalReadDoesNotDiagnose();
@@ -467,7 +361,6 @@ function run() {
 	testResourceDebugStateTracksLastAccess();
 	testGroupedAnalysisSeparatesShadowDiagnostics();
 	testDeferredDecalNodeRecordsGBufferTransitions();
-	testPagedShadowStubNodesValidate();
 	console.log("test_webgpu_frame_graph_compiler: ok");
 }
 

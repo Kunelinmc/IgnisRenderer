@@ -47,21 +47,6 @@ export const WEBGPU_FRAME_GRAPH_RESOURCES = {
 	planarReflectionMask: "planar-reflection:mask",
 	shadowAtlas: "shadow-atlas",
 	shadowTransmittanceAtlas: "shadow-transmittance-atlas",
-	pagedShadowFeedbackFlags: "paged-shadow:feedback-flags",
-	pagedShadowPageRequestFlags: "paged-shadow:page-request-flags",
-	pagedShadowPageRequests: "paged-shadow:page-requests",
-	pagedShadowCounters: "paged-shadow:counters",
-	pagedShadowPageTable: "paged-shadow:page-table",
-	pagedShadowPageMetadata: "paged-shadow:page-metadata",
-	pagedShadowResidencyState: "paged-shadow:residency-state",
-	pagedShadowFreeList: "paged-shadow:free-list",
-	pagedShadowDirtyPhysicalPages: "paged-shadow:dirty-physical-pages",
-	pagedShadowPageTableTexture: "paged-shadow:page-table-texture",
-	pagedShadowDrawInstances: "paged-shadow:draw-instances",
-	pagedShadowDrawIndirectArgs: "paged-shadow:draw-indirect-args",
-	pagedShadowClearDrawIndirectArgs: "paged-shadow:clear-draw-indirect-args",
-	pagedShadowPhysicalDepth: "paged-shadow:physical-depth",
-	pagedShadowNextFeedbackFlags: "paged-shadow:next-feedback-flags",
 	occlusionResults: "occlusion:results",
 } as const;
 
@@ -149,8 +134,7 @@ export function collectWebGPUFrameGraphResourceCatalog(
 
 function isShadowResource(id: WebGPUFrameGraphResourceId): boolean {
 	return id === WEBGPU_FRAME_GRAPH_RESOURCES.shadowAtlas ||
-		id === WEBGPU_FRAME_GRAPH_RESOURCES.shadowTransmittanceAtlas ||
-		id.startsWith("paged-shadow:");
+		id === WEBGPU_FRAME_GRAPH_RESOURCES.shadowTransmittanceAtlas;
 }
 
 export function collectActiveWebGPUFrameGraphResources(

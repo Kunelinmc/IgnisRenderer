@@ -57,7 +57,6 @@ import type {
 	WebGPUSceneTargetMode,
 } from "./WebGPUScenePassDescriptors";
 import { WebGPUShadowRuntime } from "./WebGPUShadowRuntime";
-import type { WebGPUPagedShadowExperimentConfig } from "./WebGPUPagedShadowExperiment";
 import type { ShadowCastingLight } from "../../lights";
 import { WebGPUTextureRegistry } from "./WebGPUTextureRegistry";
 import type { WarmupPhaseCounters, WarmupPlan } from "../../pipeline/WarmupPlanner";
@@ -177,7 +176,6 @@ export class WebGPUFrameServiceOwner {
 		backend: WebGPUDeviceResourceHost,
 		resourceManager: WebGPUResourceManager,
 		computeFacade: IWebGPUComputeFacade,
-		pagedExperimentConfig?: Readonly<WebGPUPagedShadowExperimentConfig>,
 	) {
 		this._backend = backend;
 		this._resourceManager = resourceManager;
@@ -231,10 +229,8 @@ export class WebGPUFrameServiceOwner {
 		);
 		this._shadowRuntime = new WebGPUShadowRuntime(
 			backend,
-			resourceManager,
 			this._geometryRegistry,
 			this._animationPayloads,
-			pagedExperimentConfig,
 		);
 	}
 
@@ -485,25 +481,12 @@ export class WebGPUFrameServiceOwner {
 			warnings: [],
 		};
 
-		const pagedFrame = resolvedOptions.scopeRole === "main" ?
-			this._shadowRuntime.resolvePagedShadowFrame(context) : null;
-		if (pagedFrame) {
-			this._shadowRuntime.preparePagedShadowFrame({
-				context,
-				encoder: null,
-				pagedFrame,
-				shadowCasterPackets,
-				shadowTransmitterPackets,
-			});
-		}
-
 		const lightingCatalog = collectWebGPULightingCatalog(
 			scene.lights,
 			features.enableLighting,
 			features.enableSH,
 			features.enableShadows,
 			context.shadowPlan,
-			pagedFrame,
 		);
 		const enableClusteredSurfaceLighting = canPrepareClusteredLighting({
 			scene,

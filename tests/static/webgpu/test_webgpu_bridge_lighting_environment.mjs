@@ -46,20 +46,4 @@ const plan = {
 };
 const catalog = collectWebGPULightingCatalog([light], true, false, true, plan);
 assert.equal(catalog.lights[0].shadow.enabled, true);
-assert.equal(catalog.lights[0].shadow.storageMode, "atlas");
-
-const pagedCatalog = collectWebGPULightingCatalog([light], true, false, true, plan, {
-	prepared,
-	settings: {
-		pageSize: 128,
-		pageGridSize: 128,
-		physicalPageCount: 2048,
-		maxPagesPerFrame: 256,
-		cacheFrames: 120,
-		feedbackMode: "conservative",
-	},
-});
-assert.equal(pagedCatalog.lights[0].shadow.storageMode, "paged");
-assert.equal(pagedCatalog.lights[0].shadow.pagedPageGridSize, 128);
-assert.equal(pagedCatalog.lights[0].shadow.pagedPhysicalAtlasSize, 5888);
 console.log("WebGPU lighting bridge reads prepared shadow data");

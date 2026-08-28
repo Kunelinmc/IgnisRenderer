@@ -87,9 +87,9 @@ const catalogWithoutShadows = collectWebGPUFrameGraphResourceCatalog(
 );
 assert.equal(catalogWithoutShadows.resources.some((entry) =>
 	entry.id === WEBGPU_FRAME_GRAPH_RESOURCES.shadowAtlas ||
-	entry.id.startsWith("paged-shadow:")), false);
+	entry.id === WEBGPU_FRAME_GRAPH_RESOURCES.shadowTransmittanceAtlas), false);
 assert.equal(catalogWithoutShadows.bindings.some((entry) =>
 	entry.resourceId === WEBGPU_FRAME_GRAPH_RESOURCES.shadowAtlas ||
-	entry.resourceId.startsWith("paged-shadow:")), false);
+	entry.resourceId === WEBGPU_FRAME_GRAPH_RESOURCES.shadowTransmittanceAtlas), false);
 
 console.log("WebGPU frame resource catalog tests passed");

@@ -11,7 +11,7 @@ export const WEBGPU_TEXTURE_SLOT_COUNT = 17;
 // Three frame samplers plus these material samplers must fit WebGPU's default
 // maxSamplersPerShaderStage limit of 16.
 export const WEBGPU_TEXTURE_DEDICATED_SAMPLER_SLOT_COUNT = 13;
-export const WEBGPU_SCENE_FRAME_FRAGMENT_TEXTURE_COUNT = 8;
+export const WEBGPU_SCENE_FRAME_FRAGMENT_TEXTURE_COUNT = 6;
 export const WEBGPU_SCENE_FRAME_FRAGMENT_SAMPLER_COUNT = 3;
 export const WEBGPU_GBUFFER_READ_TEXTURE_COUNT = 9;
 export const WEBGPU_SCENE_REQUIRED_FRAGMENT_SAMPLED_TEXTURE_COUNT =

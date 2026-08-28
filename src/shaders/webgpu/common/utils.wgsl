@@ -1685,28 +1685,10 @@ fn sampleShadowAtlasCompare(
 	);
 }
 
-fn samplePagedShadowDepthCompare(
-	atlasPosition: vec2<f32>,
-	atlasDimensions: vec2<u32>,
-	referenceDepth: f32
-) -> f32 {
-	let atlasSize = vec2<f32>(
-		max(f32(atlasDimensions.x), 1.0),
-		max(f32(atlasDimensions.y), 1.0)
-	);
-	return textureSampleCompareLevel(
-		pagedShadowPhysicalDepth,
-		shadowComparisonSampler,
-		atlasPosition / atlasSize,
-		referenceDepth
-	);
-}
-
 fn loadShadowTransmittanceTexel(coord: vec2<i32>) -> vec3<f32> {
 	return textureLoad(shadowTransmittanceAtlas, coord, 0).rgb;
 }
 
-const PAGED_SHADOW_NON_RESIDENT: u32 = 0xffffffffu;
 const SHADOW_FILTER_PCSS: i32 = 1;
 const SHADOW_PCF_RADIUS_TEXELS: f32 = 1.5;
 const SHADOW_PCSS_SEARCH_RADIUS_TEXELS: f32 = 5.0;
@@ -1769,108 +1751,6 @@ fn linearizeShadowDepth(depth: f32, projectionParams: vec4<f32>) -> f32 {
 		return 3.402823466e+38;
 	}
 	return abs((projectionParams.y - ndcDepth * projectionParams.w) / denominator);
-}
-
-fn samplePagedShadowTap(
-	shadowData: ShadowData,
-	shadowUv: vec2<f32>,
-	currentDepth: f32,
-	bias: f32,
-	cascadeIndex: u32
-) -> vec3<f32> {
-	let pageGridSize = max(u32(floor(shadowData.paramsE.z + 0.5)), 1u);
-	let pageSize = max(i32(floor(shadowData.paramsF.z + 0.5)), 1);
-	let physicalGridSize = max(u32(floor(shadowData.paramsF.y + 0.5)), 1u);
-	let pageTableBase = u32(max(floor(shadowData.paramsE.y + 0.5), 0.0));
-	let pageTableCascadeStride = max(
-		u32(floor(shadowData.paramsF.w + 0.5)),
-		pageGridSize * pageGridSize
-	);
-	let pageCoord = vec2<u32>(
-		u32(clamp(floor(shadowUv.x * f32(pageGridSize)), 0.0, f32(pageGridSize - 1u))),
-		u32(clamp(floor(shadowUv.y * f32(pageGridSize)), 0.0, f32(pageGridSize - 1u)))
-	);
-	let pageTableWidth = max(textureDimensions(pagedShadowPageTable).x, 1u);
-	let pageTableIndex =
-		pageTableBase + cascadeIndex * pageTableCascadeStride +
-		pageCoord.y * pageGridSize + pageCoord.x;
-	let textureCoord = vec2<i32>(
-		i32(pageTableIndex % pageTableWidth),
-		i32(pageTableIndex / pageTableWidth)
-	);
-	let physicalPageIndex = textureLoad(pagedShadowPageTable, textureCoord, 0).x;
-	if (physicalPageIndex == PAGED_SHADOW_NON_RESIDENT) {
-		return vec3<f32>(1.0);
-	}
-	let maxPhysicalPages = physicalGridSize * physicalGridSize;
-	if (physicalPageIndex >= maxPhysicalPages) {
-		return vec3<f32>(1.0);
-	}
-
-	let physicalPageCoord = vec2<i32>(
-		i32(physicalPageIndex % physicalGridSize),
-		i32(physicalPageIndex / physicalGridSize)
-	);
-	let localUv = clamp(
-		fract(shadowUv * vec2<f32>(f32(pageGridSize))),
-		vec2<f32>(0.5 / f32(pageSize)),
-		vec2<f32>(1.0 - 0.5 / f32(pageSize))
-	);
-	let pageBase = vec2<f32>(physicalPageCoord * pageSize);
-	let atlasPosition =
-		pageBase + localUv * vec2<f32>(f32(pageSize - 1), f32(pageSize - 1)) +
-		vec2<f32>(0.5);
-	let atlasDimensions = textureDimensions(pagedShadowPhysicalDepth);
-	return vec3<f32>(
-		samplePagedShadowDepthCompare(
-			atlasPosition,
-			atlasDimensions,
-			currentDepth - bias
-		)
-	);
-}
-
-fn samplePagedShadowVisibilityForCascade(
-	shadowData: ShadowData,
-	shadowUv: vec2<f32>,
-	currentDepth: f32,
-	bias: f32,
-	cascadeIndex: u32
-) -> vec3<f32> {
-	let quality = i32(clamp(floor(shadowData.paramsD.y + 0.5), 0.0, 2.0));
-	let sampleCount = resolveShadowSampleCounts(quality).x;
-	let pageGridSize = max(i32(floor(shadowData.paramsE.z + 0.5)), 1);
-	let pageSize = max(i32(floor(shadowData.paramsF.z + 0.5)), 1);
-	let virtualSize = max(pageGridSize * pageSize, 1);
-	let texelPosition = shadowUv * vec2<f32>(f32(virtualSize - 1));
-	let theta = hashShadowRotation(
-		vec2<i32>(floor(texelPosition)),
-		0u,
-		cascadeIndex
-	);
-	let rotation = vec2<f32>(cos(theta), sin(theta));
-	var visibility = vec3<f32>(0.0);
-	for (var i: i32 = 0; i < MAX_SHADOW_FILTER_SAMPLES; i = i + 1) {
-		if (i >= sampleCount) {
-			break;
-		}
-		let samplePosition = clamp(
-			texelPosition + shadowDiskSample(i, rotation) * SHADOW_PCF_RADIUS_TEXELS,
-			vec2<f32>(0.0),
-			vec2<f32>(f32(virtualSize - 1))
-		);
-		let sampleUv = samplePosition / max(f32(virtualSize - 1), 1.0);
-		visibility += samplePagedShadowTap(
-			shadowData,
-			sampleUv,
-			currentDepth,
-			bias,
-			cascadeIndex
-		);
-	}
-	let filteredVisibility = visibility / max(f32(sampleCount), 1.0);
-	let strength = clamp(shadowData.paramsB.y, 0.0, 1.0);
-	return vec3<f32>(1.0 - strength) + strength * filteredVisibility;
 }
 
 fn sampleShadowVisibilityForCascade(
@@ -1945,21 +1825,6 @@ fn sampleShadowVisibilityForCascade(
 		currentDepth > 1.0
 	) {
 		return vec3<f32>(1.0);
-	}
-
-	if (shadowType == 0u && shadowData.paramsE.x > 0.5) {
-		return samplePagedShadowVisibilityForCascade(
-			shadowData,
-			shadowUv,
-			currentDepth,
-			bias,
-			clampedCascadeIndex
-		) * sampleParticleShadowVolumeTransmittance(
-			shadowType,
-			index,
-			clampedCascadeIndex,
-			worldPosition
-		);
 	}
 
 	let texelPosition = shadowUv * vec2<f32>(f32(shadowSize - 1), f32(shadowSize - 1));

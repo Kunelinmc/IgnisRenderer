@@ -52,17 +52,7 @@ export type WebGPUPostProcessShaderPart =
 	| "fxaa"
 	| "sobelNormal";
 
-export type WebGPUShadowShaderPart =
-	| "depth"
-	| "pagedShadowRequestMark"
-	| "pagedShadowRequestCompact"
-	| "pagedShadowResidencyAllocate"
-	| "pagedShadowDirtyCompact"
-	| "pagedShadowDirtyGridBuild"
-	| "pagedShadowDrawBuild"
-	| "pagedShadowFeedback"
-	| "pagedShadowPageTableCopy"
-	| "pagedShadowClear";
+export type WebGPUShadowShaderPart = "depth";
 
 export type WebGPUUtilityShaderPart =
 	| "planarReflectionComposite"
@@ -153,16 +143,6 @@ const WEBGPU_POST_PROCESS_SHADER_FILES: Record<
 
 const WEBGPU_SHADOW_SHADER_FILES: Record<WebGPUShadowShaderPart, string> = {
 	depth: "./webgpu/shadow/depth.wgsl",
-	pagedShadowRequestMark: "./webgpu/shadow/pagedShadowRequestMark.wgsl",
-	pagedShadowRequestCompact: "./webgpu/shadow/pagedShadowRequestCompact.wgsl",
-	pagedShadowResidencyAllocate:
-		"./webgpu/shadow/pagedShadowResidencyAllocate.wgsl",
-	pagedShadowDirtyCompact: "./webgpu/shadow/pagedShadowDirtyCompact.wgsl",
-	pagedShadowDirtyGridBuild: "./webgpu/shadow/pagedShadowDirtyGridBuild.wgsl",
-	pagedShadowDrawBuild: "./webgpu/shadow/pagedShadowDrawBuild.wgsl",
-	pagedShadowFeedback: "./webgpu/shadow/pagedShadowFeedback.wgsl",
-	pagedShadowPageTableCopy: "./webgpu/shadow/pagedShadowPageTableCopy.wgsl",
-	pagedShadowClear: "./webgpu/shadow/pagedShadowClear.wgsl",
 };
 
 const WEBGPU_UTILITY_SHADER_FILES: Record<WebGPUUtilityShaderPart, string> = {

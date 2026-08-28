@@ -36,8 +36,6 @@ import type {
 	MorphWeightMap,
 } from "../../simulation/animation/types";
 import type { FramePreparationRequirements } from "../../pipeline/FrameRequirements";
-import type { WebGPUPagedShadowFrameRequest } from "./WebGPUPagedShadowTechnique";
-import type { WebGPUPagedShadowFrameState } from "./WebGPUPagedShadowExperiment";
 import type { ParticleBlendMode } from "../../particles";
 import type { WebGPUDeferredGBufferLayout } from "./constants";
 import type { WebGPUMaterialPipelineState } from "./WebGPUMaterialPipelineResolver";
@@ -258,22 +256,11 @@ export interface WebGPUPlanarReflectionResourceProvider {
 	getPlanarReflectionLayout(): GPUBindGroupLayout;
 }
 
-/** @internal Regular and paged-shadow recording capability. */
+/** @internal Shadow recording capability. */
 export interface WebGPUShadowRenderProvider {
-	resolvePagedShadowFrame(context: FrameContext): WebGPUPagedShadowFrameState | null;
 	renderShadows(
 		context: FrameContext,
 		framePackets: PreparedFramePacketSet,
 		encoder?: ICommandEncoder | null,
 	): Promise<void>;
-	preparePagedShadowFrame(request: WebGPUPagedShadowFrameRequest): void;
-	recordPagedShadowPageMarkPass(request: WebGPUPagedShadowFrameRequest): void | Promise<void>;
-	recordPagedShadowPageAllocationPass(
-		request: WebGPUPagedShadowFrameRequest,
-	): void | Promise<void>;
-	recordPagedShadowPageTableCopyPass(
-		request: WebGPUPagedShadowFrameRequest,
-	): void | Promise<void>;
-	recordPagedShadowDepthPass(request: WebGPUPagedShadowFrameRequest): Promise<void>;
-	recordPagedShadowFeedbackPass(request: WebGPUPagedShadowFrameRequest): void | Promise<void>;
 }

@@ -11,7 +11,6 @@ function readSource(fileName) {
 
 const runtimeSource = readSource("WebGPUShadowRuntime.ts");
 const atlasSource = readSource("WebGPUAtlasShadowTechnique.ts");
-const pagedSource = readSource("WebGPUPagedShadowTechnique.ts");
 const casterSource = readSource("WebGPUShadowCasterRenderer.ts");
 
 assert.equal(
@@ -24,6 +23,18 @@ assert.equal(
 	),
 	false,
 );
+assert.equal(
+	existsSync(
+		resolve(process.cwd(), "src/backends/webgpu/WebGPUPagedShadowTechnique.ts"),
+	),
+	false,
+);
+assert.equal(
+	existsSync(
+		resolve(process.cwd(), "src/backends/webgpu/WebGPUPagedShadowExperiment.ts"),
+	),
+	false,
+);
 
 assert.match(
 	runtimeSource,
@@ -33,24 +44,17 @@ assert.match(
 	runtimeSource,
 	/private readonly _atlasTechnique: WebGPUAtlasShadowTechnique/,
 );
-assert.match(
-	runtimeSource,
-	/private readonly _pagedTechnique: WebGPUPagedShadowTechnique/,
-);
+assert.doesNotMatch(runtimeSource, /WebGPUPagedShadowTechnique/);
+assert.doesNotMatch(runtimeSource, /WebGPUPagedShadowExperiment/);
 assert.doesNotMatch(runtimeSource, /new WebGPUShadowPass/);
-assert.doesNotMatch(runtimeSource, /public readonly pagedTechnique/);
 assert.doesNotMatch(runtimeSource, /public readonly atlasAllocator/);
 
 assert.match(atlasSource, /private readonly _allocator: WebGPUShadowAtlasAllocator/);
 assert.match(atlasSource, /private readonly _casterRenderer: WebGPUShadowCasterRenderer/);
 assert.doesNotMatch(atlasSource, /WebGPUPagedShadowTechnique/);
 
-assert.match(pagedSource, /private _casterRenderer: WebGPUShadowCasterRenderer/);
-assert.doesNotMatch(pagedSource, /WebGPUShadowPass/);
-assert.doesNotMatch(pagedSource, /private _shadowPass/);
-assert.doesNotMatch(pagedSource, /WebGPUAtlasShadowTechnique/);
-
 assert.match(casterSource, /export class WebGPUShadowCasterRenderer/);
 assert.doesNotMatch(casterSource, /private _shadowAtlases/);
+assert.doesNotMatch(casterSource, /paged/i);
 
 console.log("WebGPU shadow runtime structure tests passed");

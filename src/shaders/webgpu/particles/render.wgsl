@@ -66,10 +66,8 @@ struct ParticleShadowVolumeBuffer {
 @group(0) @binding(7) var<storage, read> particleShadowVolumes:
 	ParticleShadowVolumeBuffer;
 @group(0) @binding(8) var shadowTransmittanceAtlas: texture_2d<f32>;
-@group(0) @binding(11) var pagedShadowPageTable: texture_2d<u32>;
-@group(0) @binding(12) var pagedShadowPhysicalDepth: texture_depth_2d;
-@group(0) @binding(13) var shadowComparisonSampler: sampler_comparison;
-@group(0) @binding(15) var<uniform> frameShadows: FrameShadowUniforms;
+@group(0) @binding(11) var shadowComparisonSampler: sampler_comparison;
+@group(0) @binding(13) var<uniform> frameShadows: FrameShadowUniforms;
 
 @group(1) @binding(0) var particleTexture: texture_2d<f32>;
 @group(1) @binding(1) var particleSampler: sampler;
@@ -194,104 +192,6 @@ fn particleLinearizeShadowDepth(depth: f32, params: vec4<f32>) -> f32 {
 	return abs((params.y - ndcDepth * params.w) / denominator);
 }
 
-fn sampleParticlePagedShadowTap(
-	shadow: ShadowData,
-	uv: vec2<f32>,
-	currentDepth: f32,
-	cascadeIndex: u32,
-	depthBias: f32
-) -> vec3<f32> {
-	let pageGridSize = max(u32(floor(shadow.paramsE.z + 0.5)), 1u);
-	let pageSize = max(i32(floor(shadow.paramsF.z + 0.5)), 1);
-	let physicalGridSize = max(u32(floor(shadow.paramsF.y + 0.5)), 1u);
-	let pageTableBase = u32(max(floor(shadow.paramsE.y + 0.5), 0.0));
-	let cascadeStride = max(
-		u32(floor(shadow.paramsF.w + 0.5)),
-		pageGridSize * pageGridSize
-	);
-	let pageCoord = vec2<u32>(
-		u32(clamp(floor(uv.x * f32(pageGridSize)), 0.0, f32(pageGridSize - 1u))),
-		u32(clamp(floor(uv.y * f32(pageGridSize)), 0.0, f32(pageGridSize - 1u)))
-	);
-	let pageTableWidth = max(textureDimensions(pagedShadowPageTable).x, 1u);
-	let pageTableIndex = pageTableBase + cascadeIndex * cascadeStride +
-		pageCoord.y * pageGridSize + pageCoord.x;
-	let physicalPageIndex = textureLoad(
-		pagedShadowPageTable,
-		vec2<i32>(
-			i32(pageTableIndex % pageTableWidth),
-			i32(pageTableIndex / pageTableWidth)
-		),
-		0
-	).x;
-	if (
-		physicalPageIndex == 0xffffffffu ||
-		physicalPageIndex >= physicalGridSize * physicalGridSize
-	) {
-		return vec3<f32>(1.0);
-	}
-
-	let physicalPageCoord = vec2<i32>(
-		i32(physicalPageIndex % physicalGridSize),
-		i32(physicalPageIndex / physicalGridSize)
-	);
-	let localUv = clamp(
-		fract(uv * vec2<f32>(f32(pageGridSize))),
-		vec2<f32>(0.5 / f32(pageSize)),
-		vec2<f32>(1.0 - 0.5 / f32(pageSize))
-	);
-	let atlasPosition = vec2<f32>(physicalPageCoord * pageSize) +
-		localUv * vec2<f32>(f32(pageSize - 1)) + vec2<f32>(0.5);
-	let dimensions = vec2<f32>(textureDimensions(pagedShadowPhysicalDepth));
-	return vec3<f32>(textureSampleCompareLevel(
-		pagedShadowPhysicalDepth,
-		shadowComparisonSampler,
-		atlasPosition / max(dimensions, vec2<f32>(1.0)),
-		currentDepth - depthBias
-	));
-}
-
-fn sampleParticlePagedShadow(
-	shadow: ShadowData,
-	uv: vec2<f32>,
-	currentDepth: f32,
-	cascadeIndex: u32,
-	depthBias: f32
-) -> vec3<f32> {
-	let quality = i32(clamp(floor(shadow.paramsD.y + 0.5), 0.0, 2.0));
-	let sampleCount = particleShadowSampleCounts(quality).x;
-	let pageGridSize = max(i32(floor(shadow.paramsE.z + 0.5)), 1);
-	let pageSize = max(i32(floor(shadow.paramsF.z + 0.5)), 1);
-	let virtualSize = max(pageGridSize * pageSize, 1);
-	let texelPosition = uv * vec2<f32>(f32(virtualSize - 1));
-	let theta = particleShadowRotation(
-		vec2<i32>(floor(texelPosition)),
-		0u,
-		cascadeIndex
-	);
-	let rotation = vec2<f32>(cos(theta), sin(theta));
-	var visibility = vec3<f32>(0.0);
-	for (var i: i32 = 0; i < PARTICLE_SHADOW_MAX_FILTER_SAMPLES; i = i + 1) {
-		if (i >= sampleCount) { break; }
-		let samplePosition = clamp(
-			texelPosition + particleShadowDiskSample(i, rotation) *
-				PARTICLE_SHADOW_PCF_RADIUS,
-			vec2<f32>(0.0),
-			vec2<f32>(f32(virtualSize - 1))
-		);
-		visibility += sampleParticlePagedShadowTap(
-			shadow,
-			samplePosition / max(f32(virtualSize - 1), 1.0),
-			currentDepth,
-			cascadeIndex,
-			depthBias
-		);
-	}
-	let strength = clamp(shadow.paramsB.y, 0.0, 1.0);
-	return vec3<f32>(1.0 - strength) +
-		strength * visibility / max(f32(sampleCount), 1.0);
-}
-
 fn sampleParticleDirectionalCascade(
 	index: u32,
 	shadow: ShadowData,
@@ -327,22 +227,6 @@ fn sampleParticleDirectionalCascade(
 		currentDepth > 1.0
 	) {
 		return vec3<f32>(1.0);
-	}
-
-	if (shadow.paramsE.x > 0.5) {
-		return sampleParticlePagedShadow(
-			shadow,
-			uv,
-			currentDepth,
-			cascadeIndex,
-			depthBias
-		) *
-			sampleParticleShadowVolumeTransmittance(
-				0u,
-				index,
-				cascadeIndex,
-				worldPosition
-			);
 	}
 
 	let requestedSize = max(i32(shadow.paramsB.z + 0.5), 1);

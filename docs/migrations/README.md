@@ -32,7 +32,7 @@ fixed cross-backend quality presets.
 `RenderBackendProfile.shadow` and `IShadowBackendCapabilities` are removed.
 Backend profiles continue to advertise general shadow support through
 `BackendCapabilities.shadows`, but they cannot configure light-type limits,
-filter support, shadow budgets, transmission, or paged-shadow planning.
+filter support, shadow budgets, transmission, or shadow planning.
 
 Remove the `shadow` property from custom backend profiles. `ShadowPlanner` now
 selects fixed policies for built-in backend identifiers and a fixed
@@ -200,12 +200,10 @@ binding `8`.
 ## Shadow Definitions and Planning
 
 The supported built-in authoring workflows are
-`scene.shadows.createSingle`, `createCascaded`, and `bind`. The public
-`createPaged` workflow, `PagedShadowMap`, and their paged option types were
-removed. Applications must migrate directional paged definitions to
+`scene.shadows.createSingle`, `createCascaded`, and `bind`. Paged shadows
+(`createPaged`, `PagedShadowMap`, option types, shaders, and backend implementations)
+have been removed completely. Applications must migrate directional definitions to
 `createCascaded` and other definitions to `createSingle` as appropriate.
-Paged shadows now exist only as a disabled-by-default WebGPU backend experiment
-and applications cannot enable or configure them.
 
 Built-in shadow objects are definition facades; backend-native textures are
 owned by the attached backend runtime.

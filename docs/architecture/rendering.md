@@ -28,9 +28,7 @@ Shadow authoring definitions and persistent light bindings belong to
 `Scene.shadows`. `ShadowPlanner` resolves them once into an immutable
 `ShadowFramePlan` before backend execution. Backend shadow runtimes own physical
 atlas resources and publish backend-private sampling state; they do not rewrite
-the shared plan. WebGPU may privately overlay its disabled-by-default paged
-shadow experiment on one prepared directional light while retaining the atlas
-result. Current particle work may attach after simulation as a late
+the shared plan. Current particle work may attach after simulation as a late
 `ShadowWorkSet` without changing the plan's resource topology.
 
 Before the frame plan is created, `FrameCoordinator` composes prepared scene

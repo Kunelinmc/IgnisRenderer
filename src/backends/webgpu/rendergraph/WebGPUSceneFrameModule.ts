@@ -209,16 +209,6 @@ export class WebGPUSceneFrameModule implements WebGPUFrameGraphModule {
 				"texture-binding",
 				true,
 			),
-			readWebGPUFrameGraphResource(
-				"paged-shadow:page-table-texture",
-				"texture-binding",
-				true,
-			),
-			readWebGPUFrameGraphResource(
-				"paged-shadow:physical-depth",
-				"texture-binding",
-				true,
-			),
 		];
 	}
 }

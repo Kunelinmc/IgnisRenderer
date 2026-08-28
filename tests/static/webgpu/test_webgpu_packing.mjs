@@ -307,14 +307,6 @@ function testFrameUniformPacking() {
 		shadowMapBaseSize: 1024,
 		shadowMapSize: 1024,
 		atlasTileSize: 1024,
-		storageMode: "atlas",
-		pagedPageTableBase: 0,
-		pagedPageTableCascadeStride: 0,
-		pagedPageGridSize: 0,
-		pagedPageSize: 0,
-		pagedPhysicalAtlasSize: 0,
-		pagedPhysicalGridSize: 0,
-		pagedPhysicalPageSize: 0,
 	}];
 	const cameraData = packFrameCameraUniformData(input);
 	const lightData = packFrameLightUniformData(input);
