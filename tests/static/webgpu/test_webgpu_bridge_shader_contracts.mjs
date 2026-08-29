@@ -23,6 +23,13 @@ import {
 	createWebGPUPipelineLayouts
 } from "../../../src/backends/webgpu/WebGPUPipelineLayouts.ts";
 import {
+	WEBGPU_FLAT_MATERIAL_UNIFORM_LAYOUT,
+	WEBGPU_MATERIAL_COMMON_UNIFORM_LAYOUT,
+	WEBGPU_OBJECT_UNIFORM_LAYOUT,
+	WEBGPU_PBR_MATERIAL_UNIFORM_LAYOUT,
+	WEBGPU_PHONG_MATERIAL_UNIFORM_LAYOUT,
+} from "../../../src/backends/webgpu/bufferLayouts.ts";
+import {
 	createWebGPURequiredLimits
 } from "../../../src/backends/webgpu/WebGPUDeviceCapabilities.ts";
 import {
@@ -70,6 +77,10 @@ import {
 	WEBGPU_DEFERRED_REQUIRED_FRAGMENT_SAMPLED_TEXTURE_COUNT,
 	WEBGPU_DEFERRED_STORAGE_TEXTURE_COUNT,
 	WEBGPU_GBUFFER_READ_TEXTURE_COUNT,
+	WEBGPU_MODEL_BINDING_FLAT_MATERIAL,
+	WEBGPU_MODEL_BINDING_MATERIAL_COMMON,
+	WEBGPU_MODEL_BINDING_PBR_MATERIAL,
+	WEBGPU_MODEL_BINDING_PHONG_MATERIAL,
 	WEBGPU_SH_COEFFICIENT_COUNT,
 	WEBGPU_SCENE_FRAME_FRAGMENT_TEXTURE_COUNT,
 	WEBGPU_PLANAR_REFLECTION_REQUIRED_FRAGMENT_SAMPLED_TEXTURE_COUNT,
@@ -92,6 +103,17 @@ globalThis.GPUShaderStage = {
 	FRAGMENT: previousGPUShaderStage?.FRAGMENT ?? 2,
 	COMPUTE: previousGPUShaderStage?.COMPUTE ?? 4,
 };
+
+function readWGSLStructFieldNames(source, structName) {
+	const match = source.match(new RegExp(`struct\\s+${structName}\\s*\\{([\\s\\S]*?)\\}`));
+	assert.ok(match, `missing WGSL struct ${structName}`);
+	return [...match[1].matchAll(/^\s*([A-Za-z_]\w*)\s*:/gm)].map((entry) => entry[1]);
+}
+
+function readLayoutFieldNames(layout) {
+	assert.equal(layout.rootSchema.kind, "struct");
+	return layout.rootSchema.fields.map((field) => field.name);
+}
 ShaderSource.resetConfiguration();
 Logger.reset();
 
@@ -186,17 +208,18 @@ function testMaterialAdaptation() {
 		reflectance: 0.6,
 	});
 	const pbrData = createWebGPUMaterialUniformData(pbr);
-	assert.ok(Math.abs(pbrData.baseColorFactor[0] - 128 / 255) < 1e-6);
-	assert.ok(Math.abs(pbrData.surfaceParams0[0] - 0.25) < 1e-6);
-	assert.ok(Math.abs(pbrData.surfaceParams0[1] - 0.75) < 1e-6);
-	assert.ok(Math.abs(pbrData.surfaceParams0[2] - 0.6) < 1e-6);
-	assert.equal(pbrData.textureSlots.length, WEBGPU_TEXTURE_SLOT_COUNT);
-	assert.deepEqual(pbrData.pbrMasks, [0, 0, 0, 0]);
+	assert.equal(pbrData.shadingFamily, "pbr");
+	assert.ok(Math.abs(pbrData.common.baseColorFactor[0] - 128 / 255) < 1e-6);
+	assert.ok(Math.abs(pbrData.lighting.surfaceParams0[0] - 0.25) < 1e-6);
+	assert.ok(Math.abs(pbrData.lighting.surfaceParams0[1] - 0.75) < 1e-6);
+	assert.ok(Math.abs(pbrData.lighting.surfaceParams0[2] - 0.6) < 1e-6);
+	assert.equal(pbrData.common.textureSlots.length, WEBGPU_TEXTURE_SLOT_COUNT);
+	assert.deepEqual(pbrData.lighting.pbrMasks, [0, 0, 0, 0]);
 	pbr.albedoMapUV = 2;
 	pbr.normalMapUV = 3;
 	const pbrUVData = createWebGPUMaterialUniformData(pbr);
-	assert.equal(pbrUVData.textureSlots[0].transformB[1], 2);
-	assert.equal(pbrUVData.textureSlots[2].transformB[1], 3);
+	assert.equal(pbrUVData.common.textureSlots[0].transformB[1], 2);
+	assert.equal(pbrUVData.common.textureSlots[2].transformB[1], 3);
 	pbr.anisotropyStrength = 0.75;
 	pbr.anisotropyRotation = Math.PI / 2;
 	pbr.anisotropyMap = new Texture({
@@ -207,27 +230,27 @@ function testMaterialAdaptation() {
 	});
 	pbr.anisotropyMapUV = 2;
 	const pbrAnisotropyData = createWebGPUMaterialUniformData(pbr);
-	assert.ok(Math.abs(pbrAnisotropyData.anisotropyParams[0] - 0.75) < 1e-6);
-	assert.ok(Math.abs(pbrAnisotropyData.anisotropyParams[1]) < 1e-6);
-	assert.ok(Math.abs(pbrAnisotropyData.anisotropyParams[2] - 1) < 1e-6);
+	assert.ok(Math.abs(pbrAnisotropyData.lighting.anisotropyParams[0] - 0.75) < 1e-6);
+	assert.ok(Math.abs(pbrAnisotropyData.lighting.anisotropyParams[1]) < 1e-6);
+	assert.ok(Math.abs(pbrAnisotropyData.lighting.anisotropyParams[2] - 1) < 1e-6);
 	assert.equal(
-		pbrAnisotropyData.textureSlots[WEBGPU_TEXTURE_SLOT.ANISOTROPY].transformB[1],
+		pbrAnisotropyData.common.textureSlots[WEBGPU_TEXTURE_SLOT.ANISOTROPY].transformB[1],
 		2
 	);
 	assert.equal(
-		pbrAnisotropyData.textureSlots[WEBGPU_TEXTURE_SLOT.ANISOTROPY].transformB[3],
-		1
+		pbrAnisotropyData.common.textureSlots[WEBGPU_TEXTURE_SLOT.ANISOTROPY].transformB[3],
+		0
 	);
 	assert.equal(
-		pbrAnisotropyData.textureSlots[WEBGPU_TEXTURE_SLOT.ANISOTROPY].map,
+		pbrAnisotropyData.common.textureSlots[WEBGPU_TEXTURE_SLOT.ANISOTROPY].map,
 		pbr.anisotropyMap
 	);
 	assert.equal(
-		pbrAnisotropyData.pbrMasks[0],
+		pbrAnisotropyData.lighting.pbrMasks[0],
 		PBRMaterialFeature.ANISOTROPY
 	);
 	assert.equal(
-		pbrAnisotropyData.pbrMasks[1],
+		pbrAnisotropyData.lighting.pbrMasks[1],
 		PBRMaterialTextureFeature.ANISOTROPY_MAP
 	);
 	assert.equal(pbrAnisotropyData.pipelineKey, pbrData.pipelineKey);
@@ -242,7 +265,7 @@ function testMaterialAdaptation() {
 		}),
 	});
 	const genericPBRData = createWebGPUMaterialUniformData(genericPBR);
-	assert.deepEqual(genericPBRData.pbrMasks, [1, 1, 0, 0]);
+	assert.deepEqual(genericPBRData.lighting.pbrMasks, [1, 1, 0, 0]);
 
 	const transmissivePBR = new PBRMaterial({ transmissionFactor: 1 });
 	assert.equal(materialSupportsWebGPUDeferredLighting(transmissivePBR), false);
@@ -253,25 +276,25 @@ function testMaterialAdaptation() {
 		shininess: 24,
 	});
 	const phongData = createWebGPUMaterialUniformData(phong);
-	assert.deepEqual(phongData.pbrMasks, [0, 0, 0, 0]);
+	assert.equal(phongData.shadingFamily, "phong");
 	assert.ok(
-		phongData.baseColorFactor[0] > 0.2 && phongData.baseColorFactor[0] < 0.22
+		phongData.common.baseColorFactor[0] > 0.2 && phongData.common.baseColorFactor[0] < 0.22
 	);
-	assert.equal(phongData.materialFlags[0], 0);
-	assert.equal(phongData.phongAmbientShininess[3], 24);
-	assert.ok(phongData.phongSpecularShading[0] > 0.9);
+	assert.equal(phongData.lighting.ambientShininess[3], 24);
+	assert.ok(phongData.lighting.specular[0] > 0.9);
 	for (const shininess of [0, 1, 32, 128]) {
 		const data = createWebGPUMaterialUniformData(
 			new PhongMaterial({ shininess })
 		);
-		assert.equal(data.phongAmbientShininess[3], shininess);
+		assert.equal(data.lighting.ambientShininess[3], shininess);
 	}
 
 	const unlit = new UnlitMaterial({
 		diffuse: { r: 255, g: 32, b: 16 },
 	});
 	const unlitData = createWebGPUMaterialUniformData(unlit);
-	assert.equal(unlitData.materialFlags[0], 2);
+	assert.equal(unlitData.shadingFamily, "unlit");
+	assert.equal(unlitData.lighting, null);
 
 	const shader = new ShaderMaterial({
 		uniformBindings: [
@@ -341,6 +364,19 @@ function testFeatureGate() {
 
 async function testSceneShaderCoverage() {
 	const WEBGPU_SCENE_SHADER = (await ShaderSource.load("webgpu.scene")).source.code;
+	for (const [name, layout] of [
+		["ObjectUniforms", WEBGPU_OBJECT_UNIFORM_LAYOUT],
+		["MaterialCommonUniforms", WEBGPU_MATERIAL_COMMON_UNIFORM_LAYOUT],
+		["PBRMaterialUniforms", WEBGPU_PBR_MATERIAL_UNIFORM_LAYOUT],
+		["PhongMaterialUniforms", WEBGPU_PHONG_MATERIAL_UNIFORM_LAYOUT],
+		["FlatMaterialUniforms", WEBGPU_FLAT_MATERIAL_UNIFORM_LAYOUT],
+	]) {
+		assert.deepEqual(
+			readWGSLStructFieldNames(WEBGPU_SCENE_SHADER, name),
+			readLayoutFieldNames(layout),
+			`${name} CPU and WGSL member order must match`,
+		);
+	}
 	const WEBGPU_DEFERRED_LIGHTING_SHADER = (await ShaderSource.load(
 		"webgpu.deferredLighting"
 	)).source.code;
@@ -455,7 +491,7 @@ async function testSceneShaderCoverage() {
 	assert.ok(WEBGPU_SCENE_SHADER.includes("decodeClusteredLightRef"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("@location(4) gMotionDepth"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("frame.prevViewProjection"));
-	assert.ok(WEBGPU_SCENE_SHADER.includes("model.prevModelMatrix"));
+	assert.ok(WEBGPU_SCENE_SHADER.includes("object.prevModelMatrix"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("@group(1) @binding(29) var iridescenceTexture"));
 	assert.ok(
 		WEBGPU_SCENE_SHADER.includes(
@@ -484,7 +520,7 @@ async function testSceneShaderCoverage() {
 	assert.ok(WEBGPU_SCENE_SHADER.includes("applySkinning("));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("struct SceneFragmentOITOutput"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("struct GBufferFragmentOutput"));
-	assert.ok(WEBGPU_SCENE_SHADER.includes("@fragment\nfn fsMainGBuffer("));
+	assert.ok(WEBGPU_SCENE_SHADER.includes("fn fsMainGBufferPBR("));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("gMaterialExt0Out"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("gMaterialExt3Out"));
 	assert.ok(WEBGPU_DEFERRED_LIGHTING_SHADER.includes("gMaterialExt3In"));
@@ -511,8 +547,8 @@ async function testSceneShaderCoverage() {
 	);
 	assert.ok(WEBGPU_SCENE_SHADER.includes("fn resolveOITWeight("));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("fn buildSceneOITOutput("));
-	assert.ok(WEBGPU_SCENE_SHADER.includes("@fragment\nfn fsMainOIT("));
-	assert.ok(WEBGPU_SCENE_SHADER.includes("@fragment\nfn fsMainTransmissionCapture("));
+	assert.ok(WEBGPU_SCENE_SHADER.includes("fn fsMainOITPBR("));
+	assert.ok(WEBGPU_SCENE_SHADER.includes("fn fsMainTransmissionCapturePBR("));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("@builtin(vertex_index)"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("@builtin(front_facing) frontFacing"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("doubleSided && !frontFacing"));
@@ -567,18 +603,29 @@ function testScenePipelineLimitConstantsMatchLayout() {
 		},
 	};
 	const layouts = createWebGPUPipelineLayouts(device);
+	const modelBindings = (family) => new Set(
+		layouts.modelBindGroupLayouts[family].desc.entries.map((entry) => entry.binding)
+	);
+	assert.ok(modelBindings("pbr").has(WEBGPU_MODEL_BINDING_MATERIAL_COMMON));
+	assert.ok(modelBindings("pbr").has(WEBGPU_MODEL_BINDING_PBR_MATERIAL));
+	assert.equal(modelBindings("pbr").has(WEBGPU_MODEL_BINDING_PHONG_MATERIAL), false);
+	assert.ok(modelBindings("phong").has(WEBGPU_MODEL_BINDING_PHONG_MATERIAL));
+	assert.ok(modelBindings("flat").has(WEBGPU_MODEL_BINDING_FLAT_MATERIAL));
+	assert.equal(modelBindings("unlit").has(WEBGPU_MODEL_BINDING_PBR_MATERIAL), false);
+	assert.equal(modelBindings("unlit").has(WEBGPU_MODEL_BINDING_PHONG_MATERIAL), false);
+	assert.equal(modelBindings("unlit").has(WEBGPU_MODEL_BINDING_FLAT_MATERIAL), false);
 	const getFragmentEntries = (pipelineLayout) =>
 		pipelineLayout.desc.bindGroupLayouts.flatMap((layout) =>
 			layout.desc.entries.filter(
 				(entry) => (entry.visibility & GPUShaderStage.FRAGMENT) !== 0
 			)
 		);
-	const sceneFragmentEntries = getFragmentEntries(layouts.scenePipelineLayout);
+	const sceneFragmentEntries = getFragmentEntries(layouts.scenePipelineLayouts.pbr);
 	const deferredFragmentEntries = getFragmentEntries(
 		layouts.deferredLightingPipelineLayout
 	);
 	const planarReflectionFragmentEntries = getFragmentEntries(
-		layouts.planarReflectionPipelineLayout
+		layouts.planarReflectionPipelineLayouts.pbr
 	);
 	const sceneSampledTextureCount = sceneFragmentEntries.filter(
 		(entry) => !!entry.texture
@@ -636,13 +683,13 @@ function testScenePipelineLimitConstantsMatchLayout() {
 		layouts.deferredLightingPipelineLayout.desc.bindGroupLayouts[1],
 		layouts.deferredUnusedBindGroupLayout
 	);
-	assert.equal(layouts.scenePipelineLayout.desc.bindGroupLayouts.length, 3);
+	assert.equal(layouts.scenePipelineLayouts.pbr.desc.bindGroupLayouts.length, 3);
 	assert.equal(
-		layouts.sceneGBufferPipelineLayout.desc.bindGroupLayouts.length,
+		layouts.sceneGBufferPipelineLayouts.pbr.desc.bindGroupLayouts.length,
 		4
 	);
 	assert.equal(
-		layouts.sceneGBufferPipelineLayout.desc.bindGroupLayouts[3],
+		layouts.sceneGBufferPipelineLayouts.pbr.desc.bindGroupLayouts[3],
 		layouts.gbufferWriteBindGroupLayout
 	);
 	assert.equal(
@@ -859,6 +906,14 @@ async function testWebGPUShaderConstantTokenInjection() {
 				"webgpu.utility.planarReflectionComposite"
 			)
 		).source.code;
+	assert.deepEqual(
+		readWGSLStructFieldNames(rawPlanarReflectionCompositeShader, "ObjectUniforms"),
+		readLayoutFieldNames(WEBGPU_OBJECT_UNIFORM_LAYOUT),
+	);
+	assert.deepEqual(
+		readWGSLStructFieldNames(rawPlanarReflectionCompositeShader, "MaterialCommonUniforms"),
+		readLayoutFieldNames(WEBGPU_MATERIAL_COMMON_UNIFORM_LAYOUT),
+	);
 	assert.ok(rawSceneShader.includes("__WEBGPU_MAX_DIRECTIONAL_LIGHTS__"));
 
 	const compileStage = new ShaderBackendCompileStage({
@@ -960,12 +1015,12 @@ async function testWebGPUShaderConstantTokenInjection() {
 	assert.ok(WEBGPU_SCENE_SHADER.includes("pbrMasks: vec4<u32>"));
 	assert.ok(
 		WEBGPU_SCENE_SHADER.includes(
-			"if (hasPBRTexture(PBR_TEXTURE_METALLIC_ROUGHNESS_MAP))"
+			"if (hasPBRTexture(material, PBR_TEXTURE_METALLIC_ROUGHNESS_MAP))"
 		)
 	);
 	assert.ok(
 		WEBGPU_SCENE_SHADER.includes(
-			"hasPBRFeature(PBR_FEATURE_TRANSMISSION)"
+			"hasPBRFeature(material, PBR_FEATURE_TRANSMISSION)"
 		)
 	);
 	assert.ok(

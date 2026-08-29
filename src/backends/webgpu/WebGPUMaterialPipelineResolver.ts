@@ -13,7 +13,10 @@ import {
 	isMaterialTransparentPass,
 	materialUsesTransmission,
 } from "../../materials/transparency";
-import type { WebGPUMaterialUniformData } from "./types";
+import type {
+	WebGPUMaterialUniformData,
+	WebGPUShadingFamily,
+} from "./types";
 import {
 	createShaderMaterialSourceBlocks,
 	SHADER_MATERIAL_SOURCE_ABI_REVISION,
@@ -95,6 +98,7 @@ export interface WebGPUMaterialPipelineState {
 	readonly transparent: boolean;
 	readonly usesTransmission: boolean;
 	readonly wireframe: boolean;
+	readonly shadingFamily: WebGPUShadingFamily;
 	readonly shaderRuntime: WebGPUShaderRuntimeView;
 	readonly diagnostic: {
 		readonly materialName: string;
@@ -133,6 +137,7 @@ export class WebGPUMaterialPipelineResolver {
 		const key = [
 			revision,
 			materialData.pipelineKey,
+			materialData.shadingFamily,
 			wireframe ? 1 : 0,
 			targetMode,
 			purpose,
@@ -160,8 +165,8 @@ export class WebGPUMaterialPipelineResolver {
 			fallbackReason = String(error);
 		}
 		const shaderCacheKey = program.kind === "custom"
-			? `shader:${program.cacheKey}|runtime:${runtime.revision}|directive:${runtime.directiveCacheTag}`
-			: `builtin-scene|runtime:${runtime.revision}|directive:${runtime.directiveCacheTag}`;
+			? `shader:${program.cacheKey}|family:${materialData.shadingFamily}|runtime:${runtime.revision}|directive:${runtime.directiveCacheTag}`
+			: `builtin-scene|family:${materialData.shadingFamily}|runtime:${runtime.revision}|directive:${runtime.directiveCacheTag}`;
 		const state: WebGPUMaterialPipelineState = {
 			materialRevision: revision,
 			pipelineKey: materialData.pipelineKey,
@@ -172,6 +177,7 @@ export class WebGPUMaterialPipelineResolver {
 			transparent: isMaterialTransparentPass(material),
 			usesTransmission: materialUsesTransmission(material),
 			wireframe,
+			shadingFamily: materialData.shadingFamily,
 			shaderRuntime: runtime,
 			diagnostic: {
 				materialName: material.name,

@@ -1,20 +1,21 @@
 fn shadeSceneWithOptions(
 	input: VertexOutput,
 	frontFacing: bool,
-	includeTransmissionBackground: bool
+	includeTransmissionBackground: bool,
+	material: ResolvedLightingMaterial
 ) -> SceneFragmentOutput {
-	let shadingMode = u32(model.materialFlags.x + 0.5);
-	let alphaModeMask = model.materialFlags.y > 0.5;
-	let doubleSided = model.materialFlags.z > 0.5;
+	let shadingMode = material.shadingMode;
+	let alphaModeMask = materialCommon.materialParams.z > 0.5;
+	let doubleSided = materialCommon.materialParams.w > 0.5;
 	let enableLighting = frame.options.x > 0.5;
 
-	let materialRenderFlags = u32(model.materialFlags.w + 0.5);
+	let materialRenderFlags = u32(materialCommon.renderParams.x + 0.5);
 	let isWireframe = (materialRenderFlags & 1u) != 0u;
 	var baseSample = vec4<f32>(1.0);
 	if (
 		!isWireframe &&
 		(shadingMode != SHADING_PBR ||
-			hasPBRTexture(PBR_TEXTURE_BASE_COLOR_MAP))
+			hasPBRTexture(material, PBR_TEXTURE_BASE_COLOR_MAP))
 	) {
 		baseSample = sampleColorTexture(
 			baseColorTexture,
@@ -27,10 +28,10 @@ fn shadeSceneWithOptions(
 		);
 	}
 
-	let baseColor = model.baseColorFactor.rgb * baseSample.rgb;
-	let alpha = clamp(model.baseColorFactor.a * baseSample.a, 0.0, 1.0);
+	let baseColor = materialCommon.baseColorFactor.rgb * baseSample.rgb;
+	let alpha = clamp(materialCommon.baseColorFactor.a * baseSample.a, 0.0, 1.0);
 
-	if (alphaModeMask && alpha < model.surfaceParams0.w) {
+	if (alphaModeMask && alpha < materialCommon.materialParams.x) {
 		discard;
 	}
 
@@ -54,7 +55,7 @@ fn shadeSceneWithOptions(
 	var emissiveSample = vec4<f32>(1.0);
 	if (
 		shadingMode != SHADING_PBR ||
-		hasPBRTexture(PBR_TEXTURE_EMISSIVE_MAP)
+		hasPBRTexture(material, PBR_TEXTURE_EMISSIVE_MAP)
 	) {
 		emissiveSample = sampleColorTexture(
 			emissiveTexture,
@@ -66,7 +67,7 @@ fn shadeSceneWithOptions(
 			input.uv3
 		);
 	}
-	let emissive = model.emissiveFactor.rgb * emissiveSample.rgb * model.emissiveFactor.a;
+	let emissive = materialCommon.emissiveFactor.rgb * emissiveSample.rgb * materialCommon.emissiveFactor.a;
 	let linearDepth = dot(frame.cameraPosition.xyz - input.worldPosition, frame.environmentBasisBackward.xyz);
 	let invCurrentW = 1.0 / max(abs(input.currentClip.w), EPSILON);
 	let invPrevW = 1.0 / max(abs(input.prevClip.w), EPSILON);

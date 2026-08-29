@@ -102,7 +102,7 @@ The following pipeline layouts must preserve these bind group roles:
 
 | Binding | Shader name | Resource contract |
 | --- | --- | --- |
-| `0` | `model` | `ModelUniforms` uniform buffer |
+| `0` | `object` | `ObjectUniforms` uniform buffer |
 | `1` | `baseColorTexture` | `texture_2d<f32>` |
 | `2` | `baseColorSampler` | Filtering sampler |
 | `3` | `metallicRoughnessTexture` | `texture_2d<f32>` |
@@ -140,6 +140,10 @@ The following pipeline layouts must preserve these bind group roles:
 | `38` | `morphNormalDeltas` | Read-only storage buffer |
 | `39` | `shaderUniforms` | Optional material shader uniform buffer |
 | `40` | `staticInstances` | Read-only storage buffer |
+| `41` | `materialCommon` | Shared `MaterialCommonUniforms` uniform buffer |
+| `42` | `pbrMaterial` | PBR-layout-only `PBRMaterialUniforms` uniform buffer |
+| `43` | `phongMaterial` | Phong/Gouraud-layout-only `PhongMaterialUniforms` uniform buffer |
+| `44` | `flatMaterial` | Flat-layout-only `FlatMaterialUniforms` uniform buffer |
 
 Material texture slots are defined by `WEBGPU_TEXTURE_SLOT`. Texture bindings
 are `1 + slot * 2`. Dedicated sampler bindings are `2 + slot * 2` only for
@@ -150,6 +154,13 @@ sampler bindings; shader code samples them with `transmissionSampler`.
 binding `33`. Auxiliary model resources start at binding `34`, immediately
 after the material texture range. Custom shader uniform declarations that used
 binding `36` must migrate to binding `39`.
+
+Every model bind-group layout contains the common bindings through `41`,
+subject to the existing sparse sampler entries. It additionally contains
+exactly one of bindings `42..44` for PBR, Phong/Gouraud, or Flat. The Unlit
+layout contains no lighting-model binding. Scene, G-buffer, Early-Z, and planar
+pipeline layouts must select the same family layout as the draw binding they
+consume.
 
 ### `clusteredSceneBindGroupLayout` - `group(2)`
 

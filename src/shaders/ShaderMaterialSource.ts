@@ -10,7 +10,7 @@ import type {
 	ShaderLanguage,
 } from "./runtime";
 
-export const SHADER_MATERIAL_SOURCE_ABI_REVISION = 1;
+export const SHADER_MATERIAL_SOURCE_ABI_REVISION = 2;
 
 export interface ShaderMaterialSourceOptions {
 	readonly material: ShaderMaterial;

@@ -1,23 +1,24 @@
 import assert from "node:assert/strict";
 import { Matrix4 } from "../../../src/maths/Matrix4.ts";
 import {
-	arrayOf,
-	mat4x4f32,
-	structOf,
-	StructuredBufferLayout,
-	vec,
-} from "../../../src/backends/webgpu/StructuredBufferLayout.ts";
-import {
 	WEBGPU_FRAME_CAMERA_UNIFORM_BYTE_SIZE,
 	WEBGPU_FRAME_ENVIRONMENT_UNIFORM_BYTE_SIZE,
 	WEBGPU_FRAME_LIGHT_UNIFORM_BYTE_SIZE,
 	WEBGPU_FRAME_SHADOW_UNIFORM_BYTE_SIZE,
-	WEBGPU_MODEL_UNIFORM_BYTE_SIZE,
+	WEBGPU_FLAT_MATERIAL_UNIFORM_BYTE_SIZE,
+	WEBGPU_MATERIAL_COMMON_UNIFORM_BYTE_SIZE,
+	WEBGPU_OBJECT_UNIFORM_BYTE_SIZE,
+	WEBGPU_PBR_MATERIAL_UNIFORM_BYTE_SIZE,
+	WEBGPU_PHONG_MATERIAL_UNIFORM_BYTE_SIZE,
 	packFrameCameraUniformData,
 	packFrameEnvironmentUniformData,
 	packFrameLightUniformData,
 	packFrameShadowUniformData,
-	packModelUniformData,
+	packFlatMaterialUniformData,
+	packMaterialCommonUniformData,
+	packObjectUniformData,
+	packPBRMaterialUniformData,
+	packPhongMaterialUniformData,
 } from "../../../src/backends/webgpu/packing.ts";
 import {
 	MAX_AREA_LIGHTS,
@@ -36,46 +37,12 @@ import {
 	WEBGPU_FRAME_ENVIRONMENT_UNIFORM_LAYOUT,
 	WEBGPU_FRAME_LIGHT_UNIFORM_LAYOUT,
 	WEBGPU_FRAME_SHADOW_UNIFORM_LAYOUT,
+	WEBGPU_FLAT_MATERIAL_UNIFORM_LAYOUT,
+	WEBGPU_MATERIAL_COMMON_UNIFORM_LAYOUT,
+	WEBGPU_OBJECT_UNIFORM_LAYOUT,
+	WEBGPU_PBR_MATERIAL_UNIFORM_LAYOUT,
+	WEBGPU_PHONG_MATERIAL_UNIFORM_LAYOUT,
 } from "../../../src/backends/webgpu/bufferLayouts.ts";
-
-const VEC4_F32 = vec(4, "f32");
-const VEC4_U32 = vec(4, "u32");
-const MAT4X4_F32 = mat4x4f32();
-
-function createModelLayout() {
-	return new StructuredBufferLayout(
-		structOf([
-			{ name: "modelMatrix", type: MAT4X4_F32 },
-			{ name: "prevModelMatrix", type: MAT4X4_F32 },
-			{ name: "normalMatrix", type: MAT4X4_F32 },
-			{ name: "baseColorFactor", type: VEC4_F32 },
-			{ name: "emissiveFactor", type: VEC4_F32 },
-			{ name: "surfaceParams0", type: VEC4_F32 },
-			{ name: "surfaceParams1", type: VEC4_F32 },
-			{ name: "surfaceParams2", type: VEC4_F32 },
-			{ name: "surfaceParams3", type: VEC4_F32 },
-			{ name: "specularColorFactor", type: VEC4_F32 },
-			{ name: "phongAmbientShininess", type: VEC4_F32 },
-			{ name: "phongSpecularShading", type: VEC4_F32 },
-			{ name: "sheenColorClearcoatNormalScale", type: VEC4_F32 },
-			{ name: "attenuationColor", type: VEC4_F32 },
-			{ name: "anisotropyParams", type: VEC4_F32 },
-			{ name: "materialFlags", type: VEC4_F32 },
-			{ name: "pbrMasks", type: VEC4_U32 },
-			{ name: "nodeRenderLayers", type: VEC4_F32 },
-			{ name: "instanceParams", type: VEC4_F32 },
-			{
-				name: "textureTransformA",
-				type: arrayOf(VEC4_F32, WEBGPU_TEXTURE_SLOT_COUNT),
-			},
-			{
-				name: "textureTransformB",
-				type: arrayOf(VEC4_F32, WEBGPU_TEXTURE_SLOT_COUNT),
-			},
-		]),
-		"uniform"
-	);
-}
 
 function matrix(base) {
 	return new Matrix4([
@@ -109,7 +76,7 @@ function createTextureSlot(transformA, transformB) {
 	};
 }
 
-function createMaterialData() {
+function createCommonMaterialData() {
 	const textureSlots = Array.from({ length: WEBGPU_TEXTURE_SLOT_COUNT }, () => null);
 	textureSlots[0] = createTextureSlot([101, 102, 103, 104], [201, 202, 203, 204]);
 	textureSlots[1] = createTextureSlot([105, 106, 107, 108], [205, 206, 207, 208]);
@@ -118,72 +85,93 @@ function createMaterialData() {
 	return {
 		baseColorFactor: [1, 2, 3, 4],
 		emissiveFactor: [5, 6, 7, 8],
+		materialParams: [57, 58, 59, 60],
+		renderParams: [63, 0, 0, 0],
+		textureSlots,
+	};
+}
+
+function createPBRMaterialData() {
+	return {
 		surfaceParams0: [9, 10, 11, 12],
 		surfaceParams1: [13, 14, 15, 16],
 		surfaceParams2: [17, 18, 19, 20],
 		surfaceParams3: [21, 22, 23, 24],
 		specularColorFactor: [25, 26, 27, 28],
-		phongAmbientShininess: [29, 30, 31, 32],
-		phongSpecularShading: [33, 34, 35, 36],
 		sheenColorClearcoatNormalScale: [37, 38, 39, 40],
 		attenuationColor: [41, 42, 43, 44],
 		anisotropyParams: [45, 46, 47, 48],
-		materialFlags: [57, 58, 59, 60],
 		pbrMasks: [61, 62, 0, 0],
-		textureSlots,
-		shaderUniforms: {
-			cacheKey: "none",
-			byteLength: 16,
-			valueRevision: 0,
-			data: null,
-		},
-		pipelineKey: "test",
-		warnings: [],
 	};
 }
 
-function testModelUniformPacking() {
-	const layout = createModelLayout();
-	assert.equal(layout.byteSize, WEBGPU_MODEL_UNIFORM_BYTE_SIZE);
-
-	const data = packModelUniformData(
+function testSeparatedMaterialUniformPacking() {
+	const objectData = packObjectUniformData(
 		matrix(1),
 		[
 			[301, 302, 303],
 			[304, 305, 306],
 			[307, 308, 309],
 		],
-		createMaterialData(),
 		matrix(401),
-		7
+		7,
+		true,
+		false,
 	);
-
-	assert.equal(data.length * 4, WEBGPU_MODEL_UNIFORM_BYTE_SIZE);
-	assert.deepEqual(readVec(layout, data, "modelMatrix", 16), [
+	assert.equal(objectData.length * 4, WEBGPU_OBJECT_UNIFORM_BYTE_SIZE);
+	assert.deepEqual(readVec(WEBGPU_OBJECT_UNIFORM_LAYOUT, objectData, "modelMatrix", 16), [
 		1, 5, 9, 13,
 		2, 6, 10, 14,
 		3, 7, 11, 15,
 		4, 8, 12, 16,
 	]);
-	assert.deepEqual(readVec(layout, data, "normalMatrix", 16), [
+	assert.deepEqual(readVec(WEBGPU_OBJECT_UNIFORM_LAYOUT, objectData, "normalMatrix", 16), [
 		301, 304, 307, 0,
 		302, 305, 308, 0,
 		303, 306, 309, 0,
 		0, 0, 0, 1,
 	]);
-	assert.deepEqual(readVec(layout, data, "baseColorFactor", 4), [1, 2, 3, 4]);
-	assert.deepEqual(readVec(layout, data, ["textureTransformA", 16], 4), [
+	assert.deepEqual(
+		readVec(WEBGPU_OBJECT_UNIFORM_LAYOUT, objectData, "instanceData", 4),
+		[7, 1, 0, 0],
+	);
+
+	const commonData = packMaterialCommonUniformData(createCommonMaterialData());
+	assert.equal(commonData.length * 4, WEBGPU_MATERIAL_COMMON_UNIFORM_BYTE_SIZE);
+	assert.deepEqual(
+		readVec(WEBGPU_MATERIAL_COMMON_UNIFORM_LAYOUT, commonData, "baseColorFactor", 4),
+		[1, 2, 3, 4],
+	);
+	assert.deepEqual(readVec(WEBGPU_MATERIAL_COMMON_UNIFORM_LAYOUT, commonData, ["textureTransformA", 16], 4), [
 		49, 50, 51, 52,
 	]);
-	assert.deepEqual(readU32Vec(layout, data, "pbrMasks", 4), [61, 62, 0, 0]);
-	assert.deepEqual(readVec(layout, data, "nodeRenderLayers", 4), [7, 1, 0, 0]);
-	assert.deepEqual(readVec(layout, data, "instanceParams", 4), [0, 0, 0, 0]);
-	assert.deepEqual(readVec(layout, data, ["textureTransformA", 1], 4), [
+	assert.deepEqual(readVec(WEBGPU_MATERIAL_COMMON_UNIFORM_LAYOUT, commonData, ["textureTransformA", 1], 4), [
 		105, 106, 107, 108,
 	]);
-	assert.deepEqual(readVec(layout, data, ["textureTransformB", 0], 4), [
+	assert.deepEqual(readVec(WEBGPU_MATERIAL_COMMON_UNIFORM_LAYOUT, commonData, ["textureTransformB", 0], 4), [
 		201, 202, 203, 204,
 	]);
+
+	const pbrData = packPBRMaterialUniformData(createPBRMaterialData());
+	assert.equal(pbrData.length * 4, WEBGPU_PBR_MATERIAL_UNIFORM_BYTE_SIZE);
+	assert.deepEqual(
+		readU32Vec(WEBGPU_PBR_MATERIAL_UNIFORM_LAYOUT, pbrData, "pbrMasks", 4),
+		[61, 62, 0, 0],
+	);
+
+	const legacy = { ambientShininess: [29, 30, 31, 32], specular: [33, 34, 35, 0] };
+	const phongData = packPhongMaterialUniformData(legacy);
+	const flatData = packFlatMaterialUniformData(legacy);
+	assert.equal(phongData.length * 4, WEBGPU_PHONG_MATERIAL_UNIFORM_BYTE_SIZE);
+	assert.equal(flatData.length * 4, WEBGPU_FLAT_MATERIAL_UNIFORM_BYTE_SIZE);
+	assert.deepEqual(
+		readVec(WEBGPU_PHONG_MATERIAL_UNIFORM_LAYOUT, phongData, "ambientShininess", 4),
+		legacy.ambientShininess,
+	);
+	assert.deepEqual(
+		readVec(WEBGPU_FLAT_MATERIAL_UNIFORM_LAYOUT, flatData, "specular", 4),
+		legacy.specular,
+	);
 }
 
 function createReflectionProbe(index) {
@@ -411,6 +399,6 @@ function testFrameUniformPacking() {
 	);
 }
 
-testModelUniformPacking();
+testSeparatedMaterialUniformPacking();
 testFrameUniformPacking();
 console.log("WebGPU packing tests passed");

@@ -5,14 +5,24 @@ import {
 	WEBGPU_MODEL_BINDING_MORPH_NORMAL,
 	WEBGPU_MODEL_BINDING_MORPH_POSITION,
 	WEBGPU_MODEL_BINDING_MORPH_WEIGHTS,
+	WEBGPU_MODEL_BINDING_MATERIAL_COMMON,
+	WEBGPU_MODEL_BINDING_FLAT_MATERIAL,
+	WEBGPU_MODEL_BINDING_PBR_MATERIAL,
+	WEBGPU_MODEL_BINDING_PHONG_MATERIAL,
 	WEBGPU_MODEL_BINDING_SHADER_UNIFORMS,
 	WEBGPU_MODEL_BINDING_STATIC_INSTANCES,
+	WEBGPU_FLAT_MATERIAL_UNIFORM_BYTE_SIZE,
+	WEBGPU_MATERIAL_COMMON_UNIFORM_BYTE_SIZE,
+	WEBGPU_OBJECT_UNIFORM_BYTE_SIZE,
+	WEBGPU_PBR_MATERIAL_UNIFORM_BYTE_SIZE,
+	WEBGPU_PHONG_MATERIAL_UNIFORM_BYTE_SIZE,
 	WEBGPU_PARTICLE_BINDING_SAMPLER,
 	WEBGPU_PARTICLE_BINDING_TEXTURE,
 	WEBGPU_PARTICLE_BINDING_UV_TRANSFORM,
 	WEBGPU_TEXTURE_DEDICATED_SAMPLER_SLOT_COUNT,
 	WEBGPU_TEXTURE_SLOT_COUNT,
 } from "./constants";
+import type { WebGPUShadingFamily } from "./types";
 
 const WEBGPU_DECAL_BATCH_STORAGE_TEXTURE_COUNT = WEBGPU_GBUFFER_READ_TEXTURE_COUNT;
 const WEBGPU_DECAL_BATCH_STORAGE_BUFFER_COUNT = 3;
@@ -29,12 +39,12 @@ export interface WebGPUPipelineLayouts {
 	planarReflectionBindGroupLayout: GPUBindGroupLayout;
 	deferredUnusedBindGroupLayout: GPUBindGroupLayout;
 	environmentFrameBindGroupLayout: GPUBindGroupLayout;
-	modelBindGroupLayout: GPUBindGroupLayout;
+	modelBindGroupLayouts: Record<WebGPUShadingFamily, GPUBindGroupLayout>;
 	particleBindGroupLayout: GPUBindGroupLayout;
-	scenePipelineLayout: GPUPipelineLayout;
-	sceneGBufferPipelineLayout: GPUPipelineLayout;
-	sceneDepthPrepassPipelineLayout: GPUPipelineLayout;
-	planarReflectionPipelineLayout: GPUPipelineLayout;
+	scenePipelineLayouts: Record<WebGPUShadingFamily, GPUPipelineLayout>;
+	sceneGBufferPipelineLayouts: Record<WebGPUShadingFamily, GPUPipelineLayout>;
+	sceneDepthPrepassPipelineLayouts: Record<WebGPUShadingFamily, GPUPipelineLayout>;
+	planarReflectionPipelineLayouts: Record<WebGPUShadingFamily, GPUPipelineLayout>;
 	deferredLightingPipelineLayout: GPUPipelineLayout;
 	decalPipelineLayout: GPUPipelineLayout;
 	decalBatchPipelineLayout: GPUPipelineLayout;
@@ -347,7 +357,10 @@ export function createWebGPUPipelineLayouts(
 		{
 			binding: 0,
 			visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
-			buffer: { type: "uniform" },
+			buffer: {
+				type: "uniform",
+				minBindingSize: WEBGPU_OBJECT_UNIFORM_BYTE_SIZE,
+			},
 		},
 	];
 
@@ -401,13 +414,30 @@ export function createWebGPUPipelineLayouts(
 			binding: WEBGPU_MODEL_BINDING_STATIC_INSTANCES,
 			visibility: GPUShaderStage.VERTEX,
 			buffer: { type: "read-only-storage" },
+		},
+		{
+			binding: WEBGPU_MODEL_BINDING_MATERIAL_COMMON,
+			visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
+			buffer: {
+				type: "uniform",
+				minBindingSize: WEBGPU_MATERIAL_COMMON_UNIFORM_BYTE_SIZE,
+			},
 		}
 	);
 
-	const modelBindGroupLayout = device.createBindGroupLayout({
-		label: "WebGPUModelBindGroupLayout",
-		entries: modelEntries,
-	});
+	const modelBindGroupLayouts = {} as Record<
+		WebGPUShadingFamily,
+		GPUBindGroupLayout
+	>;
+	for (const family of ["pbr", "phong", "flat", "unlit"] as const) {
+		const familyEntries = modelEntries.slice();
+		const lightingEntry = createLightingMaterialLayoutEntry(family);
+		if (lightingEntry) familyEntries.push(lightingEntry);
+		modelBindGroupLayouts[family] = device.createBindGroupLayout({
+			label: `WebGPUModelBindGroupLayout_${family}`,
+			entries: familyEntries,
+		});
+	}
 	const particleBindGroupLayout = device.createBindGroupLayout({
 		label: "WebGPUParticleBindGroupLayout",
 		entries: [
@@ -429,39 +459,55 @@ export function createWebGPUPipelineLayouts(
 		],
 	});
 
-	const scenePipelineLayout = device.createPipelineLayout({
-		label: "WebGPUScenePipelineLayout",
-		bindGroupLayouts: [
-			sceneFrameBindGroupLayout,
-			modelBindGroupLayout,
-			clusteredSceneBindGroupLayout,
-		],
-	});
-	const sceneGBufferPipelineLayout = device.createPipelineLayout({
-		label: "WebGPUSceneGBufferPipelineLayout",
-		bindGroupLayouts: [
-			sceneFrameBindGroupLayout,
-			modelBindGroupLayout,
-			clusteredSceneBindGroupLayout,
-			gbufferWriteBindGroupLayout,
-		],
-	});
-	const sceneDepthPrepassPipelineLayout = device.createPipelineLayout({
-		label: "WebGPUSceneDepthPrepassPipelineLayout",
-		bindGroupLayouts: [
-			sceneFrameBindGroupLayout,
-			modelBindGroupLayout,
-			clusteredSceneBindGroupLayout,
-		],
-	});
-	const planarReflectionPipelineLayout = device.createPipelineLayout({
-		label: "WebGPUPlanarReflectionPipelineLayout",
-		bindGroupLayouts: [
-			sceneFrameBindGroupLayout,
-			modelBindGroupLayout,
-			planarReflectionBindGroupLayout,
-		],
-	});
+	const scenePipelineLayouts = {} as Record<WebGPUShadingFamily, GPUPipelineLayout>;
+	const sceneGBufferPipelineLayouts = {} as Record<
+		WebGPUShadingFamily,
+		GPUPipelineLayout
+	>;
+	const sceneDepthPrepassPipelineLayouts = {} as Record<
+		WebGPUShadingFamily,
+		GPUPipelineLayout
+	>;
+	const planarReflectionPipelineLayouts = {} as Record<
+		WebGPUShadingFamily,
+		GPUPipelineLayout
+	>;
+	for (const family of ["pbr", "phong", "flat", "unlit"] as const) {
+		const modelLayout = modelBindGroupLayouts[family];
+		scenePipelineLayouts[family] = device.createPipelineLayout({
+			label: `WebGPUScenePipelineLayout_${family}`,
+			bindGroupLayouts: [
+				sceneFrameBindGroupLayout,
+				modelLayout,
+				clusteredSceneBindGroupLayout,
+			],
+		});
+		sceneGBufferPipelineLayouts[family] = device.createPipelineLayout({
+			label: `WebGPUSceneGBufferPipelineLayout_${family}`,
+			bindGroupLayouts: [
+				sceneFrameBindGroupLayout,
+				modelLayout,
+				clusteredSceneBindGroupLayout,
+				gbufferWriteBindGroupLayout,
+			],
+		});
+		sceneDepthPrepassPipelineLayouts[family] = device.createPipelineLayout({
+			label: `WebGPUSceneDepthPrepassPipelineLayout_${family}`,
+			bindGroupLayouts: [
+				sceneFrameBindGroupLayout,
+				modelLayout,
+				clusteredSceneBindGroupLayout,
+			],
+		});
+		planarReflectionPipelineLayouts[family] = device.createPipelineLayout({
+			label: `WebGPUPlanarReflectionPipelineLayout_${family}`,
+			bindGroupLayouts: [
+				sceneFrameBindGroupLayout,
+				modelLayout,
+				planarReflectionBindGroupLayout,
+			],
+		});
+	}
 	const deferredLightingPipelineLayout = device.createPipelineLayout({
 		label: "WebGPUDeferredLightingPipelineLayout",
 		bindGroupLayouts: [
@@ -510,18 +556,54 @@ export function createWebGPUPipelineLayouts(
 		planarReflectionBindGroupLayout,
 		deferredUnusedBindGroupLayout,
 		environmentFrameBindGroupLayout,
-		modelBindGroupLayout,
+		modelBindGroupLayouts,
 		particleBindGroupLayout,
-		scenePipelineLayout,
-		sceneGBufferPipelineLayout,
-		sceneDepthPrepassPipelineLayout,
-		planarReflectionPipelineLayout,
+		scenePipelineLayouts,
+		sceneGBufferPipelineLayouts,
+		sceneDepthPrepassPipelineLayouts,
+		planarReflectionPipelineLayouts,
 		deferredLightingPipelineLayout,
 		decalPipelineLayout,
 		decalBatchPipelineLayout,
 		environmentPipelineLayout,
 		particlePipelineLayout,
 	};
+}
+
+function createLightingMaterialLayoutEntry(
+	family: WebGPUShadingFamily,
+): GPUBindGroupLayoutEntry | null {
+	switch (family) {
+		case "pbr":
+			return {
+				binding: WEBGPU_MODEL_BINDING_PBR_MATERIAL,
+				visibility: GPUShaderStage.FRAGMENT,
+				buffer: {
+					type: "uniform",
+					minBindingSize: WEBGPU_PBR_MATERIAL_UNIFORM_BYTE_SIZE,
+				},
+			};
+		case "phong":
+			return {
+				binding: WEBGPU_MODEL_BINDING_PHONG_MATERIAL,
+				visibility: GPUShaderStage.FRAGMENT,
+				buffer: {
+					type: "uniform",
+					minBindingSize: WEBGPU_PHONG_MATERIAL_UNIFORM_BYTE_SIZE,
+				},
+			};
+		case "flat":
+			return {
+				binding: WEBGPU_MODEL_BINDING_FLAT_MATERIAL,
+				visibility: GPUShaderStage.FRAGMENT,
+				buffer: {
+					type: "uniform",
+					minBindingSize: WEBGPU_FLAT_MATERIAL_UNIFORM_BYTE_SIZE,
+				},
+			};
+		case "unlit":
+			return null;
+	}
 }
 
 function deviceSupportsDecalBatchBindGroupLayout(device: GPUDevice): boolean {

@@ -9,6 +9,7 @@ import {
 	WEBGPU_MRT_COLOR_TARGET_COUNT,
 	WEBGPU_REQUIRED_FRAGMENT_SAMPLED_TEXTURE_COUNT,
 	WEBGPU_REQUIRED_FRAGMENT_STORAGE_BUFFER_COUNT,
+	WEBGPU_REQUIRED_UNIFORM_BUFFER_COUNT,
 	WEBGPU_SCENE_REQUIRED_FRAGMENT_SAMPLER_COUNT,
 } from "./constants";
 
@@ -23,6 +24,7 @@ const WEBGPU_DEBUG_LIMIT_KEYS = [
 	"maxSampledTexturesPerShaderStage",
 	"maxSamplersPerShaderStage",
 	"maxStorageBuffersPerShaderStage",
+	"maxUniformBuffersPerShaderStage",
 	"maxStorageTexturesPerShaderStage",
 	"maxColorAttachments",
 	"maxColorAttachmentBytesPerSample",
@@ -49,6 +51,11 @@ const WEBGPU_REQUIRED_DEVICE_LIMITS = [
 		minimum: WEBGPU_REQUIRED_FRAGMENT_STORAGE_BUFFER_COUNT,
 		description: "WebGPU pipeline storage buffer count",
 	},
+	{
+		name: "maxUniformBuffersPerShaderStage",
+		minimum: WEBGPU_REQUIRED_UNIFORM_BUFFER_COUNT,
+		description: "WebGPU pipeline uniform buffer count",
+	},
 ] as const satisfies readonly WebGPUMinimumLimit[];
 
 const WEBGPU_COLOR_ATTACHMENT_LIMIT_TIERS = [
@@ -64,7 +71,8 @@ const WEBGPU_COLOR_ATTACHMENT_BYTE_LIMIT_TIERS = [
 type WebGPURequiredLimitName =
 	| "maxSampledTexturesPerShaderStage"
 	| "maxSamplersPerShaderStage"
-	| "maxStorageBuffersPerShaderStage";
+	| "maxStorageBuffersPerShaderStage"
+	| "maxUniformBuffersPerShaderStage";
 
 interface WebGPUMinimumLimit {
 	name: WebGPURequiredLimitName;
@@ -115,6 +123,7 @@ export function createWebGPURequiredLimits(limits: GPUSupportedLimits): Record<s
 	const requiredLimits: Record<string, number> = {
 		maxSampledTexturesPerShaderStage: WEBGPU_REQUIRED_FRAGMENT_SAMPLED_TEXTURE_COUNT,
 		maxSamplersPerShaderStage: WEBGPU_SCENE_REQUIRED_FRAGMENT_SAMPLER_COUNT,
+		maxUniformBuffersPerShaderStage: WEBGPU_REQUIRED_UNIFORM_BUFFER_COUNT,
 	};
 	const maxColorAttachments = selectHighestSupportedLimitTier(
 		limits.maxColorAttachments,

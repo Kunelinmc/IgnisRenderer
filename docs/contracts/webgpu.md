@@ -402,6 +402,22 @@ lighting, presentation configuration, reflections, and structured buffer packing
   deduplication cache. Shared cache insertion and eviction must remain
   amortized constant time and must not sort every entry after reaching its
   capacity.
+- Scene draw bindings must separate object, common material, and
+  lighting-model uniform buffers. `ObjectUniforms` must remain draw-owned;
+  immutable `MaterialCommonUniforms` and the active lighting-model uniform
+  buffer must be shared by compatible dynamic and static draws.
+- WebGPU material shading families are `pbr`, `phong`, `flat`, and `unlit`.
+  `GouraudMaterial` must continue to use the `phong` family until Gouraud is
+  removed by a separate public API change. An unlit draw must not bind an
+  inactive lighting-model uniform buffer.
+- Each shading family must use its own model bind-group and pipeline layouts.
+  Pipeline, shader-module, warmup, and binding cache identity must include the
+  resolved shading family. Public PBR feature and texture masks must remain
+  runtime uniform data and must not enter pipeline identity.
+- Material GPU buffers must use reference-counted ownership. Eviction or
+  destruction of a draw binding must release its material-buffer lease, and a
+  shared material buffer must not be destroyed while any dynamic or static
+  binding still references it.
 - Shader-runtime invalidation and backend destruction must explicitly destroy
   each unique managed shader-module and pipeline handle before clearing cache
   maps. Alias caches must not cause duplicate destruction.
@@ -794,6 +810,23 @@ backend post-process runtime state owns that decision.
 packer. Backend resource-presence state that is not represented in a frame
 uniform layout must remain outside this input contract.
 
+Scene material packing must use these `group(1)` uniform bindings:
+
+| Binding | Layout | Ownership |
+| --- | --- | --- |
+| `0` | `ObjectUniforms` | One dynamic draw or one static-batch material binding |
+| `41` | `MaterialCommonUniforms` | Shared immutable material snapshot |
+| `42` | `PBRMaterialUniforms` | Shared PBR snapshot only |
+| `43` | `PhongMaterialUniforms` | Shared Phong or Gouraud snapshot only |
+| `44` | `FlatMaterialUniforms` | Shared Flat snapshot only |
+
+`ObjectUniforms` must contain current and previous model transforms, the normal
+matrix, and one instance metadata vector. `MaterialCommonUniforms` must contain
+base color, emissive, alpha/render state, planar reflectivity, and material
+texture transforms. Lighting-model buffers must contain only properties
+consumed by that lighting model. The former combined `ModelUniforms` layout is
+not part of the current WebGPU shader ABI.
+
 ## Usage
 
 ### Geometry packing
@@ -891,20 +924,17 @@ The WebGPU frame planner should schedule the `reflection` frame pass when
 import {
 	StructuredBufferLayout,
 	arrayOf,
-	mat4x4f32,
 	structOf,
 	vec,
 } from "../src/backends/webgpu/StructuredBufferLayout";
 import {
 	arrayVec4,
 	createStructuredBufferPacker,
-	mat4,
 	vec4,
 } from "../src/backends/webgpu";
 
 const layout = new StructuredBufferLayout(
 	structOf([
-		{ name: "modelMatrix", type: mat4x4f32() },
 		{ name: "baseColorFactor", type: vec(4, "f32") },
 		{ name: "textureTransformA", type: arrayOf(vec(4, "f32"), 2) },
 	]),
@@ -912,11 +942,10 @@ const layout = new StructuredBufferLayout(
 );
 
 const packer = createStructuredBufferPacker({
-	label: "ExampleModelUniforms",
+	label: "ExampleMaterialCommonUniforms",
 	layout,
 	output: "float32Array",
 	fields: [
-		mat4("modelMatrix", (input) => input.modelMatrix),
 		vec4("baseColorFactor", (input) => input.material.baseColorFactor),
 		arrayVec4("textureTransformA", 2, (input, index) =>
 			input.material.textureSlots[index]?.transformA
@@ -925,12 +954,6 @@ const packer = createStructuredBufferPacker({
 });
 
 const packed = packer.pack({
-	modelMatrix: [
-		[1, 0, 0, 0],
-		[0, 1, 0, 0],
-		[0, 0, 1, 0],
-		[0, 0, 0, 1],
-	],
 	material: {
 		baseColorFactor: [1, 1, 1, 1],
 		textureSlots: [{ transformA: [0, 0, 1, 1] }],

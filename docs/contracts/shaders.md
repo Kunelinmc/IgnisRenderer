@@ -147,6 +147,12 @@ This document defines shader source ownership, composition, diagnostics, and cus
 - WebGPU shaders must access values through `ignisShaderUniforms.<wgslField>`.
 - WebGL shaders must access values through the resolved `webglUniform` name.
 - WebGPU must bind the custom uniform buffer at `@group(1) @binding(39)`.
+- WebGPU custom scene programs must follow shader material ABI revision `2`.
+  Engine object data is `ObjectUniforms` at `group(1)` binding `0`, common
+  material data is `MaterialCommonUniforms` at binding `41`, and the material's
+  resolved shading family selects binding `42`, `43`, `44`, or no lighting
+  buffer for PBR, Phong/Gouraud, Flat, or Unlit respectively. The former
+  combined `model: ModelUniforms` declaration is not supported.
 - Backend material source augmentation exclusively owns declarations generated
   from `uniformBindings` and `textureBindings`. Custom shader chunks must not
   redeclare their reserved bindings, uniforms, samplers, or helper symbols.

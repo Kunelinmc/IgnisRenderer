@@ -43,8 +43,8 @@ export function createWebGPUMaterialUniformData(
 ): WebGPUMaterialUniformData {
 	const warnings: WebGPUWarning[] = [];
 	const mat = material as any;
-	const shadingMode = resolveShadingMode(material);
-	const isPBR = shadingMode === 1;
+	const shadingFamily = resolveShadingFamily(material);
+	const isPBR = shadingFamily === "pbr";
 	const baseColor = getMaterialBaseColor(material, isPBR);
 	const emissive = getMaterialEmissive(material, isPBR);
 	const opacity = clamp(material.opacity ?? 1, 0, 1);
@@ -117,70 +117,29 @@ export function createWebGPUMaterialUniformData(
 
 	pushMaterialWarnings(material, warnings);
 
-	return {
+	const common = {
 		baseColorFactor: [baseColor[0], baseColor[1], baseColor[2], opacity],
 		emissiveFactor: [emissive[0], emissive[1], emissive[2], emissiveIntensity],
-		surfaceParams0: [roughness, metalness, reflectance, alphaCutoff],
-		surfaceParams1: [
-			occlusionStrength,
-			normalScale,
-			clearcoat,
-			clearcoatRoughness,
-		],
-		surfaceParams2: [sheenRoughness, transmission, ior, thickness],
-		surfaceParams3: [
-			attenuationDistance,
-			iridescenceFactor,
-			iridescenceIor,
-			iridescenceThicknessMinimum,
-		],
-		specularColorFactor: [
-			specularColor[0],
-			specularColor[1],
-			specularColor[2],
-			specularFactor,
-		],
-		phongAmbientShininess: [
-			phongAmbient[0],
-			phongAmbient[1],
-			phongAmbient[2],
-			phongShininess,
-		],
-		phongSpecularShading: [
-			phongSpecular[0],
-			phongSpecular[1],
-			phongSpecular[2],
-			shadingMode,
-		],
-		sheenColorClearcoatNormalScale: [
-			sheenColor[0],
-			sheenColor[1],
-			sheenColor[2],
-			clearcoatNormalScale,
-		],
-		attenuationColor: [
-			attenuationColor[0],
-			attenuationColor[1],
-			attenuationColor[2],
-			iridescenceThicknessMaximum,
-		],
-		anisotropyParams: [
-			anisotropyStrength,
-			Math.cos(anisotropyRotation),
-			Math.sin(anisotropyRotation),
+		materialParams: [
+			alphaCutoff,
 			clamp(material.reflectivity ?? 0, 0, 1),
-		],
-		materialFlags: [
-			shadingMode,
 			alphaModeMask,
 			material.doubleSided ? 1 : 0,
+		],
+		renderParams: [
 			(isWireframe ? 1 : 0) +
 				(alphaMode === AlphaMode.Blend || isTransmissive ? 2 : 0),
+			0,
+			0,
+			0,
 		],
-		pbrMasks,
 		textureSlots,
+	} satisfies WebGPUMaterialUniformData["common"];
+	const base = {
+		common,
 		shaderUniforms,
 		pipelineKey: [
+			shadingFamily,
 			material.cullMode,
 			alphaModeMask
 				? "mask"
@@ -193,6 +152,74 @@ export function createWebGPUMaterialUniformData(
 		].join("-"),
 		warnings,
 	};
+	if (shadingFamily === "pbr") {
+		return {
+			...base,
+			shadingFamily,
+			lighting: {
+				surfaceParams0: [roughness, metalness, reflectance, 0],
+				surfaceParams1: [
+					occlusionStrength,
+					normalScale,
+					clearcoat,
+					clearcoatRoughness,
+				],
+				surfaceParams2: [sheenRoughness, transmission, ior, thickness],
+				surfaceParams3: [
+					attenuationDistance,
+					iridescenceFactor,
+					iridescenceIor,
+					iridescenceThicknessMinimum,
+				],
+				specularColorFactor: [
+					specularColor[0],
+					specularColor[1],
+					specularColor[2],
+					specularFactor,
+				],
+				sheenColorClearcoatNormalScale: [
+					sheenColor[0],
+					sheenColor[1],
+					sheenColor[2],
+					clearcoatNormalScale,
+				],
+				attenuationColor: [
+					attenuationColor[0],
+					attenuationColor[1],
+					attenuationColor[2],
+					iridescenceThicknessMaximum,
+				],
+				anisotropyParams: [
+					anisotropyStrength,
+					Math.cos(anisotropyRotation),
+					Math.sin(anisotropyRotation),
+					0,
+				],
+				pbrMasks,
+			},
+		};
+	}
+	if (shadingFamily === "phong" || shadingFamily === "flat") {
+		return {
+			...base,
+			shadingFamily,
+			lighting: {
+				ambientShininess: [
+					phongAmbient[0],
+					phongAmbient[1],
+					phongAmbient[2],
+					phongShininess,
+				],
+				specular: [
+					phongSpecular[0],
+					phongSpecular[1],
+					phongSpecular[2],
+					0,
+				],
+			},
+		};
+	}
+	return { ...base, shadingFamily, lighting: null };
 }
 
 export function materialSupportsWebGPUDeferredLighting(
@@ -229,11 +256,11 @@ export function materialRequiresExtendedWebGPUGBuffer(
 	if (material instanceof ShaderMaterial) {
 		return material.hasWebGPUDeferredProgram();
 	}
-	const shadingMode = resolveShadingMode(material);
-	if (shadingMode === 0 || shadingMode === 3) {
+	const shadingFamily = resolveShadingFamily(material);
+	if (shadingFamily === "phong" || shadingFamily === "flat") {
 		return true;
 	}
-	if (shadingMode !== 1) {
+	if (shadingFamily !== "pbr") {
 		return false;
 	}
 	const mat = material as any;
@@ -357,8 +384,6 @@ function createMaterialTextureSlots(
 		mat.anisotropyMapUV ?? 0,
 		true
 	);
-	slots[WEBGPU_TEXTURE_SLOT.ANISOTROPY].transformB[3] =
-		mat.anisotropyMap ? 1 : 0;
 
 	if (material instanceof ShaderMaterial) {
 		const textureBindings = material.getTextureBindings();
@@ -599,16 +624,16 @@ function getPBRLinearColor(color: {
 	];
 }
 
-function resolveShadingMode(material: Material): number {
+function resolveShadingFamily(material: Material): WebGPUMaterialUniformData["shadingFamily"] {
 	switch (material.shading) {
 		case ShadingModel.PBR:
-			return 1;
+			return "pbr";
 		case ShadingModel.Unlit:
-			return 2;
+			return "unlit";
 		case ShadingModel.Flat:
-			return 3;
+			return "flat";
 		default:
-			return 0;
+			return "phong";
 	}
 }
 

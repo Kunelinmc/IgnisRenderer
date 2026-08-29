@@ -22,7 +22,11 @@ import {
 	WEBGPU_FRAME_ENVIRONMENT_UNIFORM_LAYOUT,
 	WEBGPU_FRAME_LIGHT_UNIFORM_LAYOUT,
 	WEBGPU_FRAME_SHADOW_UNIFORM_LAYOUT,
-	WEBGPU_MODEL_UNIFORM_LAYOUT as MODEL_UNIFORM_LAYOUT,
+	WEBGPU_FLAT_MATERIAL_UNIFORM_LAYOUT,
+	WEBGPU_MATERIAL_COMMON_UNIFORM_LAYOUT,
+	WEBGPU_OBJECT_UNIFORM_LAYOUT,
+	WEBGPU_PBR_MATERIAL_UNIFORM_LAYOUT,
+	WEBGPU_PHONG_MATERIAL_UNIFORM_LAYOUT,
 } from "./bufferLayouts";
 import type { StructuredBufferLayout } from "./StructuredBufferLayout";
 import {
@@ -37,7 +41,10 @@ import type {
 	WebGPUAreaLightUniform,
 	WebGPUDirectionalLightUniform,
 	WebGPUFrameUniformInput,
-	WebGPUMaterialUniformData,
+	WebGPUFlatMaterialUniformData,
+	WebGPUMaterialCommonUniformData,
+	WebGPUPBRMaterialUniformData,
+	WebGPUPhongMaterialUniformData,
 	WebGPUPointLightUniform,
 	WebGPUReflectionProbeUniform,
 	WebGPUSpotLightUniform,
@@ -48,13 +55,16 @@ export {
 	WEBGPU_FRAME_ENVIRONMENT_UNIFORM_BYTE_SIZE,
 	WEBGPU_FRAME_LIGHT_UNIFORM_BYTE_SIZE,
 	WEBGPU_FRAME_SHADOW_UNIFORM_BYTE_SIZE,
-	WEBGPU_MODEL_UNIFORM_BYTE_SIZE,
+	WEBGPU_FLAT_MATERIAL_UNIFORM_BYTE_SIZE,
+	WEBGPU_MATERIAL_COMMON_UNIFORM_BYTE_SIZE,
+	WEBGPU_OBJECT_UNIFORM_BYTE_SIZE,
+	WEBGPU_PBR_MATERIAL_UNIFORM_BYTE_SIZE,
+	WEBGPU_PHONG_MATERIAL_UNIFORM_BYTE_SIZE,
 } from "./constants";
 
-interface WebGPUModelUniformInput {
+interface WebGPUObjectUniformInput {
 	modelMatrix: Matrix4 | number[][];
 	normalMatrix: Matrix3Arr | Matrix4;
-	materialData: WebGPUMaterialUniformData;
 	prevModelMatrix: Matrix4 | number[][];
 	renderLayers: number;
 	receiveShadows: boolean;
@@ -431,12 +441,12 @@ const FRAME_ENVIRONMENT_UNIFORM_PACKER = createStructuredBufferPacker<
 	],
 });
 
-const MODEL_UNIFORM_PACKER = createStructuredBufferPacker<
-	WebGPUModelUniformInput,
+const OBJECT_UNIFORM_PACKER = createStructuredBufferPacker<
+	WebGPUObjectUniformInput,
 	"float32Array"
 >({
-	label: "ModelUniforms",
-	layout: MODEL_UNIFORM_LAYOUT,
+	label: "ObjectUniforms",
+	layout: WEBGPU_OBJECT_UNIFORM_LAYOUT,
 	output: "float32Array",
 	fields: [
 		packMat4("modelMatrix", (input) => input.modelMatrix),
@@ -444,45 +454,82 @@ const MODEL_UNIFORM_PACKER = createStructuredBufferPacker<
 		packMat4("normalMatrix", (input) =>
 			createNormalMatrixRows(input.normalMatrix)
 		),
-		packVec4("baseColorFactor", (input) => input.materialData.baseColorFactor),
-		packVec4("emissiveFactor", (input) => input.materialData.emissiveFactor),
-		packVec4("surfaceParams0", (input) => input.materialData.surfaceParams0),
-		packVec4("surfaceParams1", (input) => input.materialData.surfaceParams1),
-		packVec4("surfaceParams2", (input) => input.materialData.surfaceParams2),
-		packVec4("surfaceParams3", (input) => input.materialData.surfaceParams3),
-		packVec4(
-			"specularColorFactor",
-			(input) => input.materialData.specularColorFactor
-		),
-		packVec4(
-			"phongAmbientShininess",
-			(input) => input.materialData.phongAmbientShininess
-		),
-		packVec4(
-			"phongSpecularShading",
-			(input) => input.materialData.phongSpecularShading
-		),
-		packVec4(
-			"sheenColorClearcoatNormalScale",
-			(input) => input.materialData.sheenColorClearcoatNormalScale
-		),
-		packVec4("attenuationColor", (input) => input.materialData.attenuationColor),
-		packVec4("anisotropyParams", (input) => input.materialData.anisotropyParams),
-		packVec4("materialFlags", (input) => input.materialData.materialFlags),
-		packVec4("pbrMasks", (input) => input.materialData.pbrMasks),
-		packVec4("nodeRenderLayers", (input) => [
+		packVec4("instanceData", (input) => [
 			Math.max(0, Math.floor(input.renderLayers)) >>> 0,
 			input.receiveShadows ? 1 : 0,
-			0,
+			input.staticBatch ? 1 : 0,
 			0,
 		]),
-		packVec4("instanceParams", (input) => [input.staticBatch ? 1 : 0, 0, 0, 0]),
+	],
+});
+
+const MATERIAL_COMMON_UNIFORM_PACKER = createStructuredBufferPacker<
+	WebGPUMaterialCommonUniformData,
+	"float32Array"
+>({
+	label: "MaterialCommonUniforms",
+	layout: WEBGPU_MATERIAL_COMMON_UNIFORM_LAYOUT,
+	output: "float32Array",
+	fields: [
+		packVec4("baseColorFactor", (input) => input.baseColorFactor),
+		packVec4("emissiveFactor", (input) => input.emissiveFactor),
+		packVec4("materialParams", (input) => input.materialParams),
+		packVec4("renderParams", (input) => input.renderParams),
 		packArrayVec4("textureTransformA", WEBGPU_TEXTURE_SLOT_COUNT, (input, i) =>
-			input.materialData.textureSlots[i]?.transformA
+			input.textureSlots[i]?.transformA
 		),
 		packArrayVec4("textureTransformB", WEBGPU_TEXTURE_SLOT_COUNT, (input, i) =>
-			input.materialData.textureSlots[i]?.transformB
+			input.textureSlots[i]?.transformB
 		),
+	],
+});
+
+const PBR_MATERIAL_UNIFORM_PACKER = createStructuredBufferPacker<
+	WebGPUPBRMaterialUniformData,
+	"float32Array"
+>({
+	label: "PBRMaterialUniforms",
+	layout: WEBGPU_PBR_MATERIAL_UNIFORM_LAYOUT,
+	output: "float32Array",
+	fields: [
+		packVec4("surfaceParams0", (input) => input.surfaceParams0),
+		packVec4("surfaceParams1", (input) => input.surfaceParams1),
+		packVec4("surfaceParams2", (input) => input.surfaceParams2),
+		packVec4("surfaceParams3", (input) => input.surfaceParams3),
+		packVec4("specularColorFactor", (input) => input.specularColorFactor),
+		packVec4(
+			"sheenColorClearcoatNormalScale",
+			(input) => input.sheenColorClearcoatNormalScale
+		),
+		packVec4("attenuationColor", (input) => input.attenuationColor),
+		packVec4("anisotropyParams", (input) => input.anisotropyParams),
+		packVec4("pbrMasks", (input) => input.pbrMasks),
+	],
+});
+
+const PHONG_MATERIAL_UNIFORM_PACKER = createStructuredBufferPacker<
+	WebGPUPhongMaterialUniformData,
+	"float32Array"
+>({
+	label: "PhongMaterialUniforms",
+	layout: WEBGPU_PHONG_MATERIAL_UNIFORM_LAYOUT,
+	output: "float32Array",
+	fields: [
+		packVec4("ambientShininess", (input) => input.ambientShininess),
+		packVec4("specular", (input) => input.specular),
+	],
+});
+
+const FLAT_MATERIAL_UNIFORM_PACKER = createStructuredBufferPacker<
+	WebGPUFlatMaterialUniformData,
+	"float32Array"
+>({
+	label: "FlatMaterialUniforms",
+	layout: WEBGPU_FLAT_MATERIAL_UNIFORM_LAYOUT,
+	output: "float32Array",
+	fields: [
+		packVec4("ambientShininess", (input) => input.ambientShininess),
+		packVec4("specular", (input) => input.specular),
 	],
 });
 
@@ -524,71 +571,91 @@ export function remapClipSpaceDepth(clipZ: number, clipW: number): number {
 	return clipZ * 0.5 + clipW * 0.5;
 }
 
-export function packModelUniformData(
+export function packObjectUniformData(
 	modelMatrix: Matrix4 | number[][],
 	normalMatrix: Matrix3Arr | Matrix4,
-	materialData: WebGPUMaterialUniformData,
 	prevModelMatrix: Matrix4 | number[][],
 	renderLayers = 1,
-	receiveShadows = true
+	receiveShadows = true,
+	staticBatch = false,
 ): Float32Array<ArrayBuffer> {
-	return MODEL_UNIFORM_PACKER.pack({
+	return OBJECT_UNIFORM_PACKER.pack({
 		modelMatrix,
 		normalMatrix,
-		materialData,
 		prevModelMatrix,
 		renderLayers,
 		receiveShadows,
-		staticBatch: false,
+		staticBatch,
 	});
 }
 
-export type WebGPUModelUniformWriter = ReturnType<
+export type WebGPUObjectUniformWriter = ReturnType<
 	StructuredBufferLayout["createWriter"]
 >;
 
 /**
- * Creates a reusable writer for `ModelUniforms` data.
+ * Creates a reusable writer for `ObjectUniforms` data.
  *
  * @returns A zero-initialized structured buffer writer matching the WebGPU
  * model uniform layout.
  */
-export function createModelUniformWriter(): WebGPUModelUniformWriter {
-	return MODEL_UNIFORM_PACKER.createWriter();
+export function createObjectUniformWriter(): WebGPUObjectUniformWriter {
+	return OBJECT_UNIFORM_PACKER.createWriter();
 }
 
 /**
- * Writes `ModelUniforms` into an existing writer and returns its typed view.
+ * Writes `ObjectUniforms` into an existing writer and returns its typed view.
  *
- * @param writer - Reusable writer created by `createModelUniformWriter`.
+ * @param writer - Reusable writer created by `createObjectUniformWriter`.
  * @param modelMatrix - Current model transform in engine row-major layout.
  * @param normalMatrix - Current normal matrix; only its upper-left 3x3 is used.
- * @param materialData - Packed material scalar and texture transform data.
  * @param prevModelMatrix - Previous-frame model transform for motion vectors.
  * @param renderLayers - Unsigned render-layer mask for this draw packet.
  * @param receiveShadows - Whether this object samples shadow visibility.
  * @returns The writer-owned `Float32Array`; callers must consume it before
  * reusing the same writer.
  */
-export function writeModelUniformData(
-	writer: WebGPUModelUniformWriter,
+export function writeObjectUniformData(
+	writer: WebGPUObjectUniformWriter,
 	modelMatrix: Matrix4 | number[][],
 	normalMatrix: Matrix3Arr | Matrix4,
-	materialData: WebGPUMaterialUniformData,
 	prevModelMatrix: Matrix4 | number[][],
 	renderLayers = 1,
 	receiveShadows = true,
 	staticBatch = false,
 ): Float32Array<ArrayBuffer> {
-	return MODEL_UNIFORM_PACKER.packInto(writer, {
+	return OBJECT_UNIFORM_PACKER.packInto(writer, {
 		modelMatrix,
 		normalMatrix,
-		materialData,
 		prevModelMatrix,
 		renderLayers,
 		receiveShadows,
 		staticBatch,
 	});
+}
+
+export function packMaterialCommonUniformData(
+	input: WebGPUMaterialCommonUniformData,
+): Float32Array<ArrayBuffer> {
+	return MATERIAL_COMMON_UNIFORM_PACKER.pack(input);
+}
+
+export function packPBRMaterialUniformData(
+	input: WebGPUPBRMaterialUniformData,
+): Float32Array<ArrayBuffer> {
+	return PBR_MATERIAL_UNIFORM_PACKER.pack(input);
+}
+
+export function packPhongMaterialUniformData(
+	input: WebGPUPhongMaterialUniformData,
+): Float32Array<ArrayBuffer> {
+	return PHONG_MATERIAL_UNIFORM_PACKER.pack(input);
+}
+
+export function packFlatMaterialUniformData(
+	input: WebGPUFlatMaterialUniformData,
+): Float32Array<ArrayBuffer> {
+	return FLAT_MATERIAL_UNIFORM_PACKER.pack(input);
 }
 
 function resolveMatrixRows(matrix: Matrix4 | number[][]): number[][] {

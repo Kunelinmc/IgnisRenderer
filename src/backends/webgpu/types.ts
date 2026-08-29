@@ -285,26 +285,59 @@ export interface WebGPUShaderUniformData {
 	data: Uint8Array<ArrayBuffer> | null;
 }
 
-export interface WebGPUMaterialUniformData {
+export type WebGPUShadingFamily = "pbr" | "phong" | "flat" | "unlit";
+
+export interface WebGPUMaterialCommonUniformData {
 	baseColorFactor: [number, number, number, number];
 	emissiveFactor: [number, number, number, number];
+	materialParams: [number, number, number, number];
+	renderParams: [number, number, number, number];
+	textureSlots: WebGPUTextureSlotData[];
+}
+
+export interface WebGPUPBRMaterialUniformData {
 	surfaceParams0: [number, number, number, number];
 	surfaceParams1: [number, number, number, number];
 	surfaceParams2: [number, number, number, number];
 	surfaceParams3: [number, number, number, number];
 	specularColorFactor: [number, number, number, number];
-	phongAmbientShininess: [number, number, number, number];
-	phongSpecularShading: [number, number, number, number];
 	sheenColorClearcoatNormalScale: [number, number, number, number];
 	attenuationColor: [number, number, number, number];
 	anisotropyParams: [number, number, number, number];
-	materialFlags: [number, number, number, number];
 	pbrMasks: [number, number, number, number];
-	textureSlots: WebGPUTextureSlotData[];
+}
+
+export interface WebGPUPhongMaterialUniformData {
+	ambientShininess: [number, number, number, number];
+	specular: [number, number, number, number];
+}
+
+export type WebGPUFlatMaterialUniformData = WebGPUPhongMaterialUniformData;
+
+interface WebGPUMaterialUniformDataBase {
+	common: WebGPUMaterialCommonUniformData;
 	shaderUniforms: WebGPUShaderUniformData;
 	pipelineKey: string;
 	warnings: WebGPUWarning[];
 }
+
+export type WebGPUMaterialUniformData =
+	| (WebGPUMaterialUniformDataBase & {
+			shadingFamily: "pbr";
+			lighting: WebGPUPBRMaterialUniformData;
+	  })
+	| (WebGPUMaterialUniformDataBase & {
+			shadingFamily: "phong";
+			lighting: WebGPUPhongMaterialUniformData;
+	  })
+	| (WebGPUMaterialUniformDataBase & {
+			shadingFamily: "flat";
+			lighting: WebGPUFlatMaterialUniformData;
+	  })
+	| (WebGPUMaterialUniformDataBase & {
+			shadingFamily: "unlit";
+			lighting: null;
+	  });
 
 export interface WebGPUFrameUniformInput {
 	viewProjectionMatrix: Matrix4 | number[][];

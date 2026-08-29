@@ -406,8 +406,11 @@ function testShaderRotatesAndOrthogonalizesAnisotropyTangent() {
 		true
 	);
 	assert.equal(
-		(source.match(/materialFlags\.x != f32\(SHADING_PBR\)/g)?.length ?? 0) >=
-			2,
+		(source.match(/materialFlags\.x != f32\(SHADING_PBR\)/g)?.length ?? 0),
+		0
+	);
+	assert.equal(
+		(source.match(/sourceParams/g)?.length ?? 0) >= 3,
 		true
 	);
 }

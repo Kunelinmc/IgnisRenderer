@@ -4,6 +4,7 @@ import { Matrix4 } from "../../../src/maths/Matrix4.ts";
 import { PBRMaterial } from "../../../src/materials/PBRMaterial.ts";
 import { createWebGPUMaterialUniformData } from "../../../src/backends/webgpu/material.ts";
 import { WebGPUStaticMeshBatcher } from "../../../src/backends/webgpu/WebGPUStaticMeshBatcher.ts";
+import { WebGPUMaterialBufferCache } from "../../../src/backends/webgpu/WebGPUMaterialBufferCache.ts";
 import { WEBGPU_TEXTURE_SLOT_COUNT } from "../../../src/backends/webgpu/constants.ts";
 import { createTestDrawPacket } from "../helpers/drawPacket.mjs";
 
@@ -68,10 +69,19 @@ function packet(id, x) {
 }
 
 const packets = [packet("a", 1), packet("b", 2)];
+const materialBuffers = new WebGPUMaterialBufferCache(backend);
 const batcher = new WebGPUStaticMeshBatcher(
 	backend,
-	{ modelBindGroupLayout: { id: "model-layout" } },
+	{
+		modelBindGroupLayouts: {
+			pbr: { id: "model-layout:pbr" },
+			phong: { id: "model-layout:phong" },
+			flat: { id: "model-layout:flat" },
+			unlit: { id: "model-layout:unlit" },
+		},
+	},
 	animations,
+	materialBuffers,
 );
 batcher.beginFrame();
 batcher.preparePackets(packets);

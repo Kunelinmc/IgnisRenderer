@@ -264,11 +264,11 @@ async function testRenderResourcesUseCopyDstForUploads() {
 	assert.equal(firstDraw.resolvedInputs.materialData.pipelineKey.length > 0, true);
 	assert.equal(
 		firstDraw.resolvedInputs.textures.length,
-		firstDraw.resolvedInputs.materialData.textureSlots.length
+		firstDraw.resolvedInputs.materialData.common.textureSlots.length
 	);
 	assert.equal(
 		firstDraw.resolvedInputs.samplers.length,
-		firstDraw.resolvedInputs.materialData.textureSlots.length
+		firstDraw.resolvedInputs.materialData.common.textureSlots.length
 	);
 	assert.equal("anisotropyTexture" in firstDraw.resolvedInputs, false);
 	assert.ok(firstDraw.resolvedInputs.textures[WEBGPU_TEXTURE_SLOT.ANISOTROPY]);
@@ -291,7 +291,7 @@ async function testRenderResourcesUseCopyDstForUploads() {
 		1 +
 			WEBGPU_TEXTURE_SLOT_COUNT +
 			WEBGPU_TEXTURE_DEDICATED_SAMPLER_SLOT_COUNT +
-			7
+			9
 	);
 	assert.ok(
 		firstDraw.modelBinding.desc.entries.some(

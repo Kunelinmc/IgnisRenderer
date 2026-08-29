@@ -44,6 +44,7 @@ import { WebGPUClusteredLightingRuntime } from "./WebGPUClusteredLightingRuntime
 import { WebGPUGeometryRegistry } from "./WebGPUGeometryRegistry";
 import { WebGPUAnimationPayloadPool } from "./WebGPUAnimationPayloadPool";
 import { WebGPUMaterialBindingCache } from "./WebGPUMaterialBindingCache";
+import { WebGPUMaterialBufferCache } from "./WebGPUMaterialBufferCache";
 import { WebGPUMaterialSnapshotCache } from "./WebGPUMaterialSnapshotCache";
 import { WebGPUStaticMeshBatcher } from "./WebGPUStaticMeshBatcher";
 import { WebGPUScenePipelineResources } from "./WebGPUScenePipelineResources";
@@ -157,6 +158,7 @@ export class WebGPUFrameServiceOwner {
 	private _scenePipelines: WebGPUScenePipelineResources;
 	private _animationPayloads: WebGPUAnimationPayloadPool;
 	private _materialBindings: WebGPUMaterialBindingCache;
+	private _materialBuffers: WebGPUMaterialBufferCache;
 	private _materialSnapshots: WebGPUMaterialSnapshotCache;
 	private _staticBatcher: WebGPUStaticMeshBatcher;
 	private _shadowRuntime: WebGPUShadowRuntime;
@@ -203,15 +205,18 @@ export class WebGPUFrameServiceOwner {
 			this._layouts,
 		);
 		this._animationPayloads = new WebGPUAnimationPayloadPool(backend);
+		this._materialBuffers = new WebGPUMaterialBufferCache(backend);
 		this._staticBatcher = new WebGPUStaticMeshBatcher(
 			backend,
 			this._layouts,
 			this._animationPayloads,
+			this._materialBuffers,
 		);
 		this._materialBindings = new WebGPUMaterialBindingCache(
 			backend,
 			this._layouts,
-			this._animationPayloads
+			this._animationPayloads,
+			this._materialBuffers,
 		);
 		this._materialPipelineResolver = new WebGPUMaterialPipelineResolver();
 		this._drawResourceAssembler = new WebGPUDrawResourceAssembler(
@@ -792,6 +797,7 @@ export class WebGPUFrameServiceOwner {
 		this._materialBindings.destroy();
 		this._materialSnapshots.clear();
 		this._staticBatcher.destroy();
+		this._materialBuffers.destroy();
 		this._animationPayloads.destroy();
 		this._sceneDraws.destroy();
 		this._textureRegistry.destroy();
@@ -806,6 +812,7 @@ export class WebGPUFrameServiceOwner {
 	public getDebugStats() {
 		return {
 			materialSnapshots: this._materialSnapshots.getDebugStats(),
+			materialBuffers: this._materialBuffers.getDebugStats(),
 			staticBatching: this._staticBatcher.getDebugStats(),
 			animationPayloads: this._animationPayloads.getDebugStats(),
 		};

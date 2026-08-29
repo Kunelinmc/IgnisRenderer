@@ -4,7 +4,7 @@ import {
 	type DecalBlendMode,
 } from "../../../decals";
 import { Logger } from "../../../foundation/Logger";
-import { ShadingModel, type Material } from "../../../materials/Material";
+import type { Material } from "../../../materials/Material";
 import { ShaderMaterial } from "../../../materials/ShaderMaterial";
 import type {
 	DecalPacket,
@@ -36,7 +36,6 @@ import {
 	packNormalMatrix4ForWGSL,
 } from "../packing";
 import type {
-	WebGPUMaterialUniformData,
 	WebGPUTextureSlotData,
 } from "../types";
 import type {
@@ -74,10 +73,27 @@ interface DecalBatchBufferSet {
 
 interface DecalWorkItem {
 	packet: DecalPacket;
-	materialData: WebGPUMaterialUniformData;
+	materialData: WebGPUDecalSurfaceData;
 	binding: IBindingGroup;
 	rects: DirtyRect[];
 	unionRect: DirtyRect;
+}
+
+interface WebGPUDecalSurfaceData {
+	baseColorFactor: [number, number, number, number];
+	emissiveFactor: [number, number, number, number];
+	surfaceParams0: [number, number, number, number];
+	surfaceParams1: [number, number, number, number];
+	surfaceParams2: [number, number, number, number];
+	surfaceParams3: [number, number, number, number];
+	specularColorFactor: [number, number, number, number];
+	shininessParams: [number, number, number, number];
+	sheenColorClearcoatNormalScale: [number, number, number, number];
+	attenuationColor: [number, number, number, number];
+	anisotropyParams: [number, number, number, number];
+	sourceParams: [number, number, number, number];
+	pbrMasks: [number, number, number, number];
+	textureSlots: WebGPUTextureSlotData[];
 }
 
 type DecalExecutionSegment =
@@ -113,7 +129,7 @@ const DECAL_UNIFORM_FLOATS =
 	16 +
 	16 +
 	4 +
-	14 * 4 +
+	13 * 4 +
 	WEBGPU_TEXTURE_SLOT_COUNT * 4 +
 	WEBGPU_TEXTURE_SLOT_COUNT * 4 +
 	5 * 4;
@@ -850,7 +866,7 @@ export class WebGPUDeferredDecalPass {
 
 	private async _getMaterialBinding(
 		material: Material,
-		materialData: WebGPUMaterialUniformData,
+		materialData: WebGPUDecalSurfaceData,
 		uniformBuffer: IRenderBuffer,
 		slot: number,
 	): Promise<IBindingGroup> {
@@ -942,32 +958,64 @@ export class WebGPUDeferredDecalPass {
 
 function createDecalMaterialUniformData(
 	material: Material
-): WebGPUMaterialUniformData {
+): WebGPUDecalSurfaceData {
 	const data = createWebGPUMaterialUniformData(material, false);
-	if (
-		material.shading === ShadingModel.Phong ||
-		material.shading === ShadingModel.Gouraud ||
-		material.shading === ShadingModel.Flat
-	) {
-		const shininess = Math.max(0, data.phongAmbientShininess[3]);
-		const roughness = Math.max(
-			0.04,
-			Math.min(1, Math.sqrt(2 / Math.max(2, shininess + 2)))
-		);
-		data.surfaceParams0 = [roughness, 0, 0.5, data.surfaceParams0[3]];
-		data.specularColorFactor = [
-			data.phongSpecularShading[0],
-			data.phongSpecularShading[1],
-			data.phongSpecularShading[2],
-			1,
-		];
+	const shininess = Math.max(0, Number((material as any).shininess ?? 32));
+	const textureMask = data.common.textureSlots.reduce(
+		(mask, slot, index) => slot.map ? mask | (1 << index) : mask,
+		0,
+	) >>> 0;
+	if (data.shadingFamily === "pbr") {
+		return {
+			baseColorFactor: data.common.baseColorFactor,
+			emissiveFactor: data.common.emissiveFactor,
+			...data.lighting,
+			shininessParams: [shininess, 0, 0, 0],
+			sourceParams: [
+				data.common.materialParams[0],
+				data.common.materialParams[2],
+				0,
+				0,
+			],
+			textureSlots: data.common.textureSlots,
+		};
 	}
-	return data;
+	const roughness = Math.max(
+		0.04,
+		Math.min(1, Math.sqrt(2 / Math.max(2, shininess + 2))),
+	);
+	const legacySpecular = data.lighting?.specular ?? [1, 1, 1, 0];
+	return {
+		baseColorFactor: data.common.baseColorFactor,
+		emissiveFactor: data.common.emissiveFactor,
+		surfaceParams0: [roughness, 0, 0.5, 0],
+		surfaceParams1: [1, 1, 0, 0.04],
+		surfaceParams2: [0, 0, 1.5, 0],
+		surfaceParams3: [-1, 0, 1.3, 100],
+		specularColorFactor: [
+			legacySpecular[0],
+			legacySpecular[1],
+			legacySpecular[2],
+			1,
+		],
+		shininessParams: [shininess, 0, 0, 0],
+		sheenColorClearcoatNormalScale: [0, 0, 0, 1],
+		attenuationColor: [1, 1, 1, 400],
+		anisotropyParams: [0, 1, 0, 0],
+		sourceParams: [
+			data.common.materialParams[0],
+			data.common.materialParams[2],
+			0,
+			0,
+		],
+		pbrMasks: [0, textureMask, 0, 0],
+		textureSlots: data.common.textureSlots,
+	};
 }
 
 function createDecalUniformData(
 	packet: DecalPacket,
-	materialData: WebGPUMaterialUniformData
+	materialData: WebGPUDecalSurfaceData
 ): Float32Array<ArrayBuffer> {
 	const data = new Float32Array(DECAL_UNIFORM_FLOATS);
 	let cursor = 0;
@@ -988,12 +1036,11 @@ function createDecalUniformData(
 		materialData.surfaceParams2,
 		materialData.surfaceParams3,
 		materialData.specularColorFactor,
-		materialData.phongAmbientShininess,
-		materialData.phongSpecularShading,
+		materialData.shininessParams,
 		materialData.sheenColorClearcoatNormalScale,
 		materialData.attenuationColor,
 		materialData.anisotropyParams,
-		materialData.materialFlags,
+		materialData.sourceParams,
 	]) {
 		cursor = writeVec4(data, cursor, values);
 	}

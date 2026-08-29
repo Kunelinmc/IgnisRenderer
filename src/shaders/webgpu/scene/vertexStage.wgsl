@@ -192,16 +192,16 @@ fn vsMain(input: VertexInput, @builtin(vertex_index) vertexIndex: u32) -> Vertex
 		prevJointOffset
 	);
 
-	var resolvedModelMatrix = model.modelMatrix;
-	var resolvedPrevModelMatrix = model.prevModelMatrix;
-	var resolvedNormalMatrix = model.normalMatrix;
-	var resolvedNodeRenderLayers = model.nodeRenderLayers;
-	if (model.instanceParams.x > 0.5) {
+	var resolvedModelMatrix = object.modelMatrix;
+	var resolvedPrevModelMatrix = object.prevModelMatrix;
+	var resolvedNormalMatrix = object.normalMatrix;
+	var resolvedInstanceData = object.instanceData;
+	if (object.instanceData.z > 0.5) {
 		let instance = staticInstances[input.instanceIndex];
 		resolvedModelMatrix = instance.modelMatrix;
 		resolvedPrevModelMatrix = instance.prevModelMatrix;
 		resolvedNormalMatrix = instance.normalMatrix;
-		resolvedNodeRenderLayers = instance.nodeRenderLayers;
+		resolvedInstanceData = instance.instanceData;
 	}
 	let worldPosition = resolvedModelMatrix * vec4<f32>(skinnedCurrent.position, 1.0);
 	let worldNormal = safeNormalize(
@@ -244,6 +244,6 @@ fn vsMain(input: VertexInput, @builtin(vertex_index) vertexIndex: u32) -> Vertex
 	output.uv3 = input.uv3;
 	output.currentClip = clipPosition;
 	output.prevClip = prevClipPosition;
-	output.instanceMeta = resolvedNodeRenderLayers.xy;
+	output.instanceMeta = resolvedInstanceData.xy;
 	return output;
 }

@@ -72,6 +72,35 @@ interface WebGPUSceneProgram {
 	fragmentTargetMode: "single" | "mrt" | "deferred" | null;
 }
 
+function resolveBuiltinFragmentEntryPoint(
+	descriptor: WebGPUScenePassDescriptor,
+	family: WebGPUMaterialPipelineState["shadingFamily"],
+): string {
+	const suffix =
+		family === "pbr" ? "PBR"
+		: family === "phong" ? "Phong"
+		: family === "flat" ? "Flat"
+		: "Unlit";
+	switch (descriptor.shaderEntryMode) {
+		case "gbuffer":
+			return `fsMainGBuffer${suffix}`;
+		case "gbuffer-base":
+			return `fsMainGBufferBase${suffix}`;
+		case "oit":
+			return `fsMainOIT${suffix}`;
+		case "transmission-capture":
+			if (family !== "pbr") {
+				throw new Error("WebGPU transmission capture requires the PBR shading family.");
+			}
+			return "fsMainTransmissionCapturePBR";
+		case "mrt":
+			return `fsMain${suffix}`;
+		case "single":
+		default:
+			return `fsMainSingle${suffix}`;
+	}
+}
+
 type GeometryLayout = WebGPUDrawPipelineRequest["geometryLayout"];
 type WebGPUScenePipelineRequest = Omit<WebGPUDrawPipelineRequest, "pass"> & {
 	readonly pass: WebGPUScenePassDescriptor;
@@ -219,7 +248,7 @@ export class WebGPUScenePipelineResources implements WebGPUDrawPipelineProvider 
 			effectiveTopology === DEFAULT_PRIMITIVE_DRAW_TOPOLOGY;
 
 		return await this._backend.createPipeline({
-			layout: this._resolvePipelineLayout(descriptor),
+			layout: this._resolvePipelineLayout(descriptor, pipelineState.shadingFamily),
 			label:
 				descriptor.drawMode === "default" ?
 					`WebGPUScenePipeline_${pipelineKey}_${mode}`
@@ -290,7 +319,7 @@ export class WebGPUScenePipelineResources implements WebGPUDrawPipelineProvider 
 			);
 			if (!resolved) return null;
 			const desc: any = {
-				layout: this._resolvePipelineLayout(pass),
+				layout: this._resolvePipelineLayout(pass, materialState.shadingFamily),
 				label:
 					`WebGPUSceneEarlyZPipeline_${materialState.pipelineKey}_` +
 					pass.sceneTargetMode,
@@ -475,14 +504,10 @@ export class WebGPUScenePipelineResources implements WebGPUDrawPipelineProvider 
 				vertexModule: shaderModule,
 				fragmentModule: shaderModule,
 				vertexEntryPoint: "vsMain",
-				fragmentEntryPoint:
-					descriptor.shaderEntryMode === "gbuffer" ? "fsMainGBuffer"
-					: descriptor.shaderEntryMode === "gbuffer-base" ? "fsMainGBufferBase"
-					: descriptor.shaderEntryMode === "oit" ? "fsMainOIT"
-					: descriptor.shaderEntryMode === "transmission-capture" ?
-						"fsMainTransmissionCapture"
-					: descriptor.shaderEntryMode === "mrt" ? "fsMain"
-					:	"fsMainSingle",
+				fragmentEntryPoint: resolveBuiltinFragmentEntryPoint(
+					descriptor,
+					pipelineState.shadingFamily,
+				),
 				fragmentTargetMode: null,
 			};
 		}
@@ -533,14 +558,10 @@ export class WebGPUScenePipelineResources implements WebGPUDrawPipelineProvider 
 				vertexModule: shaderModule,
 				fragmentModule: shaderModule,
 				vertexEntryPoint: "vsMain",
-				fragmentEntryPoint:
-					descriptor.shaderEntryMode === "gbuffer" ? "fsMainGBuffer"
-					: descriptor.shaderEntryMode === "gbuffer-base" ? "fsMainGBufferBase"
-					: descriptor.shaderEntryMode === "oit" ? "fsMainOIT"
-					: descriptor.shaderEntryMode === "transmission-capture" ?
-						"fsMainTransmissionCapture"
-					: descriptor.shaderEntryMode === "mrt" ? "fsMain"
-					:	"fsMainSingle",
+				fragmentEntryPoint: resolveBuiltinFragmentEntryPoint(
+					descriptor,
+					pipelineState.shadingFamily,
+				),
 				fragmentTargetMode: null,
 			};
 		}
@@ -724,18 +745,19 @@ export class WebGPUScenePipelineResources implements WebGPUDrawPipelineProvider 
 	}
 
 	private _resolvePipelineLayout(
-		descriptor: WebGPUScenePassDescriptor
+		descriptor: WebGPUScenePassDescriptor,
+		family: WebGPUMaterialPipelineState["shadingFamily"],
 	): unknown {
 		switch (descriptor.pipelineLayoutKind) {
 			case "scene-gbuffer":
-				return this._layouts.sceneGBufferPipelineLayout;
+				return this._layouts.sceneGBufferPipelineLayouts?.[family];
 			case "scene-depth-prepass":
-				return this._layouts.sceneDepthPrepassPipelineLayout;
+				return this._layouts.sceneDepthPrepassPipelineLayouts?.[family];
 			case "planar-reflection":
-				return this._layouts.planarReflectionPipelineLayout;
+				return this._layouts.planarReflectionPipelineLayouts?.[family];
 			case "scene":
 			default:
-				return this._layouts.scenePipelineLayout;
+				return this._layouts.scenePipelineLayouts?.[family];
 		}
 	}
 

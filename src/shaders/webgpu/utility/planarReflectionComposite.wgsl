@@ -1,31 +1,21 @@
 #import <ignis/webgpu/constants>
 
-const SHADING_PBR: u32 = 1u;
-const PBR_TEXTURE_BASE_COLOR_MAP: u32 = 1u << 0u;
-
 struct FrameCameraUniforms {
 	viewProjection: mat4x4<f32>,
 }
 
-struct ModelUniforms {
+struct ObjectUniforms {
 	modelMatrix: mat4x4<f32>,
 	prevModelMatrix: mat4x4<f32>,
 	normalMatrix: mat4x4<f32>,
+	instanceData: vec4<f32>,
+}
+
+struct MaterialCommonUniforms {
 	baseColorFactor: vec4<f32>,
 	emissiveFactor: vec4<f32>,
-	surfaceParams0: vec4<f32>,
-	surfaceParams1: vec4<f32>,
-	surfaceParams2: vec4<f32>,
-	surfaceParams3: vec4<f32>,
-	specularColorFactor: vec4<f32>,
-	phongAmbientShininess: vec4<f32>,
-	phongSpecularShading: vec4<f32>,
-	sheenColorClearcoatNormalScale: vec4<f32>,
-	attenuationColor: vec4<f32>,
-	anisotropyParams: vec4<f32>,
-	materialFlags: vec4<f32>,
-	pbrMasks: vec4<u32>,
-	nodeRenderLayers: vec4<f32>,
+	materialParams: vec4<f32>,
+	renderParams: vec4<f32>,
 	textureTransformA: array<vec4<f32>, __WEBGPU_TEXTURE_SLOT_COUNT__>,
 	textureTransformB: array<vec4<f32>, __WEBGPU_TEXTURE_SLOT_COUNT__>,
 }
@@ -82,7 +72,7 @@ struct SkinnedVertex {
 
 @group(0) @binding(0) var<uniform> frame: FrameCameraUniforms;
 
-@group(1) @binding(0) var<uniform> model: ModelUniforms;
+@group(1) @binding(0) var<uniform> object: ObjectUniforms;
 @group(1) @binding(1) var baseColorTexture: texture_2d<f32>;
 @group(1) @binding(2) var baseColorSampler: sampler;
 @group(1) @binding(34) var<uniform> animationParams: AnimationParams;
@@ -90,6 +80,7 @@ struct SkinnedVertex {
 @group(1) @binding(36) var<storage, read> morphWeights: array<f32>;
 @group(1) @binding(37) var<storage, read> morphPositionDeltas: array<f32>;
 @group(1) @binding(38) var<storage, read> morphNormalDeltas: array<f32>;
+@group(1) @binding(41) var<uniform> materialCommon: MaterialCommonUniforms;
 
 @group(2) @binding(0) var reflectionTexture: texture_2d<f32>;
 
@@ -105,8 +96,8 @@ fn transformUV(
 	uv2: vec2<f32>,
 	uv3: vec2<f32>
 ) -> vec2<f32> {
-	let transformA = model.textureTransformA[slotIndex];
-	let transformB = model.textureTransformB[slotIndex];
+	let transformA = materialCommon.textureTransformA[slotIndex];
+	let transformB = materialCommon.textureTransformB[slotIndex];
 	let uvSet = u32(clamp(floor(transformB.y + 0.5), 0.0, 3.0));
 	var uv = uv0;
 	if (uvSet == 1u) {
@@ -318,7 +309,7 @@ fn vsMain(input: VertexInput, @builtin(vertex_index) vertexIndex: u32) -> Vertex
 		jointCount,
 		0u
 	);
-	let worldPosition = model.modelMatrix * vec4<f32>(skinned.position, 1.0);
+	let worldPosition = object.modelMatrix * vec4<f32>(skinned.position, 1.0);
 	var clipPosition = frame.viewProjection * worldPosition;
 	let invW = 1.0 / max(abs(clipPosition.w), EPSILON);
 	let ndc = clipPosition.xy * invW;
@@ -336,27 +327,20 @@ fn vsMain(input: VertexInput, @builtin(vertex_index) vertexIndex: u32) -> Vertex
 
 @fragment
 fn fsMain(input: VertexOutput) -> FragmentOutput {
-	let reflectivity = clamp(model.anisotropyParams.w, 0.0, 1.0);
+	let reflectivity = clamp(materialCommon.materialParams.y, 0.0, 1.0);
 	if (reflectivity <= 0.0) {
 		discard;
 	}
 
-	let alphaModeMask = model.materialFlags.y > 0.5;
+	let alphaModeMask = materialCommon.materialParams.z > 0.5;
 	if (alphaModeMask) {
-		let shadingMode = u32(model.materialFlags.x + 0.5);
-		var baseSample = vec4<f32>(1.0);
-		if (
-			shadingMode != SHADING_PBR ||
-			(model.pbrMasks.y & PBR_TEXTURE_BASE_COLOR_MAP) != 0u
-		) {
-			baseSample = textureSample(
-				baseColorTexture,
-				baseColorSampler,
-				transformUV(0u, input.uv0, input.uv1, input.uv2, input.uv3)
-			);
-		}
-		let alpha = clamp(model.baseColorFactor.a * baseSample.a, 0.0, 1.0);
-		if (alpha < model.surfaceParams0.w) {
+		let baseSample = textureSample(
+			baseColorTexture,
+			baseColorSampler,
+			transformUV(0u, input.uv0, input.uv1, input.uv2, input.uv3)
+		);
+		let alpha = clamp(materialCommon.baseColorFactor.a * baseSample.a, 0.0, 1.0);
+		if (alpha < materialCommon.materialParams.x) {
 			discard;
 		}
 	}

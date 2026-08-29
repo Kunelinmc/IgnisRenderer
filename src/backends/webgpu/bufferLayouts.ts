@@ -14,7 +14,11 @@ import {
 	WEBGPU_FRAME_ENVIRONMENT_UNIFORM_BYTE_SIZE,
 	WEBGPU_FRAME_LIGHT_UNIFORM_BYTE_SIZE,
 	WEBGPU_FRAME_SHADOW_UNIFORM_BYTE_SIZE,
-	WEBGPU_MODEL_UNIFORM_BYTE_SIZE,
+	WEBGPU_FLAT_MATERIAL_UNIFORM_BYTE_SIZE,
+	WEBGPU_MATERIAL_COMMON_UNIFORM_BYTE_SIZE,
+	WEBGPU_OBJECT_UNIFORM_BYTE_SIZE,
+	WEBGPU_PBR_MATERIAL_UNIFORM_BYTE_SIZE,
+	WEBGPU_PHONG_MATERIAL_UNIFORM_BYTE_SIZE,
 	WEBGPU_PARTICLE_ATTR_INSTANCE_COLOR,
 	WEBGPU_PARTICLE_ATTR_INSTANCE_POSITION_SIZE,
 	WEBGPU_PARTICLE_ATTR_INSTANCE_RECEIVE_SHADOW,
@@ -306,27 +310,26 @@ WEBGPU_FRAME_ENVIRONMENT_UNIFORM_LAYOUT.assertByteSize(
 	"FrameEnvironmentUniforms"
 );
 
-export const WEBGPU_MODEL_UNIFORM_LAYOUT = new StructuredBufferLayout(
+export const WEBGPU_OBJECT_UNIFORM_LAYOUT = new StructuredBufferLayout(
 	structOf([
 		{ name: "modelMatrix", type: MAT4X4_F32 },
 		{ name: "prevModelMatrix", type: MAT4X4_F32 },
 		{ name: "normalMatrix", type: MAT4X4_F32 },
+		{ name: "instanceData", type: VEC4_F32 },
+	]),
+	"uniform"
+);
+WEBGPU_OBJECT_UNIFORM_LAYOUT.assertByteSize(
+	WEBGPU_OBJECT_UNIFORM_BYTE_SIZE,
+	"ObjectUniforms"
+);
+
+export const WEBGPU_MATERIAL_COMMON_UNIFORM_LAYOUT = new StructuredBufferLayout(
+	structOf([
 		{ name: "baseColorFactor", type: VEC4_F32 },
 		{ name: "emissiveFactor", type: VEC4_F32 },
-		{ name: "surfaceParams0", type: VEC4_F32 },
-		{ name: "surfaceParams1", type: VEC4_F32 },
-		{ name: "surfaceParams2", type: VEC4_F32 },
-		{ name: "surfaceParams3", type: VEC4_F32 },
-		{ name: "specularColorFactor", type: VEC4_F32 },
-		{ name: "phongAmbientShininess", type: VEC4_F32 },
-		{ name: "phongSpecularShading", type: VEC4_F32 },
-		{ name: "sheenColorClearcoatNormalScale", type: VEC4_F32 },
-		{ name: "attenuationColor", type: VEC4_F32 },
-		{ name: "anisotropyParams", type: VEC4_F32 },
-		{ name: "materialFlags", type: VEC4_F32 },
-		{ name: "pbrMasks", type: VEC4_U32 },
-		{ name: "nodeRenderLayers", type: VEC4_F32 },
-		{ name: "instanceParams", type: VEC4_F32 },
+		{ name: "materialParams", type: VEC4_F32 },
+		{ name: "renderParams", type: VEC4_F32 },
 		{
 			name: "textureTransformA",
 			type: arrayOf(VEC4_F32, WEBGPU_TEXTURE_SLOT_COUNT),
@@ -338,9 +341,51 @@ export const WEBGPU_MODEL_UNIFORM_LAYOUT = new StructuredBufferLayout(
 	]),
 	"uniform"
 );
-WEBGPU_MODEL_UNIFORM_LAYOUT.assertByteSize(
-	WEBGPU_MODEL_UNIFORM_BYTE_SIZE,
-	"ModelUniforms"
+WEBGPU_MATERIAL_COMMON_UNIFORM_LAYOUT.assertByteSize(
+	WEBGPU_MATERIAL_COMMON_UNIFORM_BYTE_SIZE,
+	"MaterialCommonUniforms"
+);
+
+export const WEBGPU_PBR_MATERIAL_UNIFORM_LAYOUT = new StructuredBufferLayout(
+	structOf([
+		{ name: "surfaceParams0", type: VEC4_F32 },
+		{ name: "surfaceParams1", type: VEC4_F32 },
+		{ name: "surfaceParams2", type: VEC4_F32 },
+		{ name: "surfaceParams3", type: VEC4_F32 },
+		{ name: "specularColorFactor", type: VEC4_F32 },
+		{ name: "sheenColorClearcoatNormalScale", type: VEC4_F32 },
+		{ name: "attenuationColor", type: VEC4_F32 },
+		{ name: "anisotropyParams", type: VEC4_F32 },
+		{ name: "pbrMasks", type: VEC4_U32 },
+	]),
+	"uniform"
+);
+WEBGPU_PBR_MATERIAL_UNIFORM_LAYOUT.assertByteSize(
+	WEBGPU_PBR_MATERIAL_UNIFORM_BYTE_SIZE,
+	"PBRMaterialUniforms"
+);
+
+const LEGACY_MATERIAL_SCHEMA = structOf([
+	{ name: "ambientShininess", type: VEC4_F32 },
+	{ name: "specular", type: VEC4_F32 },
+]);
+
+export const WEBGPU_PHONG_MATERIAL_UNIFORM_LAYOUT = new StructuredBufferLayout(
+	LEGACY_MATERIAL_SCHEMA,
+	"uniform"
+);
+WEBGPU_PHONG_MATERIAL_UNIFORM_LAYOUT.assertByteSize(
+	WEBGPU_PHONG_MATERIAL_UNIFORM_BYTE_SIZE,
+	"PhongMaterialUniforms"
+);
+
+export const WEBGPU_FLAT_MATERIAL_UNIFORM_LAYOUT = new StructuredBufferLayout(
+	LEGACY_MATERIAL_SCHEMA,
+	"uniform"
+);
+WEBGPU_FLAT_MATERIAL_UNIFORM_LAYOUT.assertByteSize(
+	WEBGPU_FLAT_MATERIAL_UNIFORM_BYTE_SIZE,
+	"FlatMaterialUniforms"
 );
 
 export const WEBGPU_CLUSTER_GRID_PARAMS_LAYOUT = new StructuredBufferLayout(

@@ -98,28 +98,49 @@ struct ClusterLightIndexList {
 	indices: array<u32>,
 }
 
-struct ModelUniforms {
+struct ObjectUniforms {
 	modelMatrix: mat4x4<f32>,
 	prevModelMatrix: mat4x4<f32>,
 	normalMatrix: mat4x4<f32>,
+	instanceData: vec4<f32>,
+}
+
+struct MaterialCommonUniforms {
 	baseColorFactor: vec4<f32>,
 	emissiveFactor: vec4<f32>,
+	materialParams: vec4<f32>,
+	renderParams: vec4<f32>,
+	textureTransformA: array<vec4<f32>, __WEBGPU_TEXTURE_SLOT_COUNT__>,
+	textureTransformB: array<vec4<f32>, __WEBGPU_TEXTURE_SLOT_COUNT__>,
+}
+
+struct PBRMaterialUniforms {
 	surfaceParams0: vec4<f32>,
 	surfaceParams1: vec4<f32>,
 	surfaceParams2: vec4<f32>,
 	surfaceParams3: vec4<f32>,
 	specularColorFactor: vec4<f32>,
-	phongAmbientShininess: vec4<f32>,
-	phongSpecularShading: vec4<f32>,
 	sheenColorClearcoatNormalScale: vec4<f32>,
 	attenuationColor: vec4<f32>,
 	anisotropyParams: vec4<f32>,
-	materialFlags: vec4<f32>,
 	pbrMasks: vec4<u32>,
-	nodeRenderLayers: vec4<f32>,
-	instanceParams: vec4<f32>,
-	textureTransformA: array<vec4<f32>, __WEBGPU_TEXTURE_SLOT_COUNT__>,
-	textureTransformB: array<vec4<f32>, __WEBGPU_TEXTURE_SLOT_COUNT__>,
+}
+
+struct PhongMaterialUniforms {
+	ambientShininess: vec4<f32>,
+	specular: vec4<f32>,
+}
+
+struct FlatMaterialUniforms {
+	ambientShininess: vec4<f32>,
+	specular: vec4<f32>,
+}
+
+struct ResolvedLightingMaterial {
+	shadingMode: u32,
+	pbr: PBRMaterialUniforms,
+	ambientShininess: vec4<f32>,
+	specular: vec4<f32>,
 }
 
 struct AnimationParams {
@@ -137,7 +158,7 @@ struct StaticInstance {
 	modelMatrix: mat4x4<f32>,
 	prevModelMatrix: mat4x4<f32>,
 	normalMatrix: mat4x4<f32>,
-	nodeRenderLayers: vec4<f32>,
+	instanceData: vec4<f32>,
 }
 
 struct VertexInput {
@@ -228,7 +249,7 @@ struct ParticleShadowVolumeBuffer {
 @group(0) @binding(11) var<uniform> frameShadows: FrameShadowUniforms;
 @group(0) @binding(12) var<uniform> frameEnvironment: FrameEnvironmentUniforms;
 
-@group(1) @binding(0) var<uniform> model: ModelUniforms;
+@group(1) @binding(0) var<uniform> object: ObjectUniforms;
 @group(1) @binding(1) var baseColorTexture: texture_2d<f32>;
 @group(1) @binding(2) var baseColorSampler: sampler;
 @group(1) @binding(3) var metallicRoughnessTexture: texture_2d<f32>;
@@ -265,6 +286,10 @@ struct ParticleShadowVolumeBuffer {
 @group(1) @binding(37) var<storage, read> morphPositionDeltas: array<f32>;
 @group(1) @binding(38) var<storage, read> morphNormalDeltas: array<f32>;
 @group(1) @binding(40) var<storage, read> staticInstances: array<StaticInstance>;
+@group(1) @binding(41) var<uniform> materialCommon: MaterialCommonUniforms;
+@group(1) @binding(42) var<uniform> pbrMaterial: PBRMaterialUniforms;
+@group(1) @binding(43) var<uniform> phongMaterial: PhongMaterialUniforms;
+@group(1) @binding(44) var<uniform> flatMaterial: FlatMaterialUniforms;
 
 @group(2) @binding(0) var<uniform> clusterGrid: ClusterGridParams;
 @group(2) @binding(1) var<storage, read> clusterPositionRanges: ClusterVec4Buffer;

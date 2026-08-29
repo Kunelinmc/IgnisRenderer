@@ -1,6 +1,6 @@
-		let phongAmbient = model.phongAmbientShininess.rgb;
-		let phongSpecular = model.phongSpecularShading.rgb;
-		let shininess = max(model.phongAmbientShininess.a, 0.0);
+		let phongAmbient = material.ambientShininess.rgb;
+		let phongSpecular = material.specular.rgb;
+		let shininess = max(material.ambientShininess.a, 0.0);
 
 		var ambientBase = frame.ambientColor.rgb;
 		if (useSHAmbient()) {

@@ -21,11 +21,15 @@ import {
 	WEBGPU_MODEL_BINDING_MORPH_NORMAL,
 	WEBGPU_MODEL_BINDING_MORPH_POSITION,
 	WEBGPU_MODEL_BINDING_MORPH_WEIGHTS,
+	WEBGPU_MODEL_BINDING_MATERIAL_COMMON,
+	WEBGPU_MODEL_BINDING_FLAT_MATERIAL,
+	WEBGPU_MODEL_BINDING_PBR_MATERIAL,
+	WEBGPU_MODEL_BINDING_PHONG_MATERIAL,
 	WEBGPU_MODEL_BINDING_SHADER_UNIFORMS,
 	WEBGPU_MODEL_BINDING_STATIC_INSTANCES,
 	WEBGPU_TEXTURE_DEDICATED_SAMPLER_SLOT_COUNT,
 } from "./constants";
-import { writeModelUniformData, createModelUniformWriter } from "./packing";
+import { packObjectUniformData } from "./packing";
 import type { WebGPUAnimationPayloadPool } from "./WebGPUAnimationPayloadPool";
 import type { WebGPUDeviceResourceHost } from "./WebGPUDeviceResourceHost";
 import type { WebGPUGeometryHandle } from "./WebGPUGeometryRegistry";
@@ -33,6 +37,10 @@ import type { WebGPUPipelineLayouts } from "./WebGPUPipelineLayouts";
 import type { WebGPUDrawPipelineMode } from "./WebGPUScenePassDescriptors";
 import type { WebGPUResolvedMaterialSnapshot } from "./WebGPUMaterialSnapshotCache";
 import type { WebGPUMaterialUniformData } from "./types";
+import type {
+	WebGPUMaterialBufferCache,
+	WebGPUMaterialBufferLease,
+} from "./WebGPUMaterialBufferCache";
 
 const STATIC_INSTANCE_FLOATS = 52;
 const STATIC_INSTANCE_INITIAL_CAPACITY = 256;
@@ -41,8 +49,9 @@ const STATIC_HISTORY_LIMIT = 65_536;
 const IDENTITY_MATRIX = Matrix4.identity();
 
 interface StaticMaterialBindingEntry {
-	readonly uniformBuffer: IRenderBuffer;
+	readonly objectUniformBuffer: IRenderBuffer;
 	readonly bindingGroup: IBindingGroup;
+	readonly materialLease: WebGPUMaterialBufferLease;
 }
 
 interface StaticHistoryEntry {
@@ -78,6 +87,7 @@ export class WebGPUStaticMeshBatcher {
 		private readonly _backend: WebGPUDeviceResourceHost,
 		private readonly _layouts: WebGPUPipelineLayouts,
 		private readonly _animations: WebGPUAnimationPayloadPool,
+		private readonly _materialBuffers: WebGPUMaterialBufferCache,
 	) {
 		this._instanceData = new Float32Array(this._capacity * STATIC_INSTANCE_FLOATS);
 		this._instanceBuffer = this._createInstanceBuffer(this._capacity);
@@ -261,35 +271,26 @@ export class WebGPUStaticMeshBatcher {
 			this._materialBindings.set(snapshot.data, cached);
 			return cached.bindingGroup;
 		}
-		const uniformBuffer = this._backend.createBuffer({
-			size: writeModelUniformData(
-				createModelUniformWriter(),
-				IDENTITY_MATRIX,
-				IDENTITY_MATRIX,
-				snapshot.data,
-				IDENTITY_MATRIX,
-				1,
-				true,
-				true,
-			).byteLength,
-			usage: BufferUsage.Uniform | BufferUsage.CopyDst,
-			label: "WebGPUStaticBatchMaterialUniform",
-		});
-		const uniformData = writeModelUniformData(
-			createModelUniformWriter(),
+		const objectUniformData = packObjectUniformData(
 			IDENTITY_MATRIX,
 			IDENTITY_MATRIX,
-			snapshot.data,
 			IDENTITY_MATRIX,
 			1,
 			true,
 			true,
 		);
-		this._backend.writeBuffer(uniformBuffer, uniformData);
+		const objectUniformBuffer = this._backend.createBuffer({
+			size: objectUniformData.byteLength,
+			usage: BufferUsage.Uniform | BufferUsage.CopyDst,
+			label: "WebGPUStaticBatchObjectUniform",
+		});
+		this._backend.writeBuffer(objectUniformBuffer, objectUniformData);
+		const materialLease = this._materialBuffers.acquire(snapshot.data);
+		const materialResources = materialLease.resources;
 		const animation = this._animations.getStaticScenePayload();
 		const fallbackStorage = this._animations.getFallbackStorageBuffer();
 		const entries: Array<{ binding: number; resource: any }> = [
-			{ binding: 0, resource: uniformBuffer },
+			{ binding: 0, resource: objectUniformBuffer },
 		];
 		for (let index = 0; index < snapshot.textures.length; index++) {
 			entries.push({ binding: 1 + index * 2, resource: snapshot.textures[index] });
@@ -308,21 +309,43 @@ export class WebGPUStaticMeshBatcher {
 				resource: this._fallbackUniformBuffer,
 			},
 			{ binding: WEBGPU_MODEL_BINDING_STATIC_INSTANCES, resource: this._instanceBuffer },
+			{
+				binding: WEBGPU_MODEL_BINDING_MATERIAL_COMMON,
+				resource: materialResources.commonBuffer,
+			},
 		);
-		const bindingGroup = this._backend.createBindingGroup({
-			label: "WebGPUStaticBatchMaterialBinding",
-			layout: this._layouts.modelBindGroupLayout,
-			entries,
-			cache: false,
+		if (materialResources.lightingBuffer) {
+			entries.push({
+				binding: getLightingMaterialBinding(materialResources.shadingFamily),
+				resource: materialResources.lightingBuffer,
+			});
+		}
+		let bindingGroup: IBindingGroup;
+		try {
+			bindingGroup = this._backend.createBindingGroup({
+				label: "WebGPUStaticBatchMaterialBinding",
+				layout: this._layouts.modelBindGroupLayouts[materialResources.shadingFamily],
+				entries,
+				cache: false,
+			});
+		} catch (error) {
+			objectUniformBuffer.destroy();
+			materialLease.release();
+			throw error;
+		}
+		this._materialBindings.set(snapshot.data, {
+			objectUniformBuffer,
+			bindingGroup,
+			materialLease,
 		});
-		this._materialBindings.set(snapshot.data, { uniformBuffer, bindingGroup });
 		while (this._materialBindings.size > STATIC_MATERIAL_BINDING_LIMIT) {
 			const oldest = this._materialBindings.entries().next().value as
 				| [WebGPUMaterialUniformData, StaticMaterialBindingEntry]
 				| undefined;
 			if (!oldest) break;
 			this._materialBindings.delete(oldest[0]);
-			oldest[1].uniformBuffer.destroy();
+			oldest[1].objectUniformBuffer.destroy();
+			oldest[1].materialLease.release();
 		}
 		return bindingGroup;
 	}
@@ -350,8 +373,9 @@ export class WebGPUStaticMeshBatcher {
 
 	private _destroyMaterialBindings(): void {
 		for (const entry of this._materialBindings.values()) {
-			entry.uniformBuffer.destroy();
+			entry.objectUniformBuffer.destroy();
 			(entry.bindingGroup as { destroy?: () => void }).destroy?.();
+			entry.materialLease.release();
 		}
 		this._materialBindings.clear();
 	}
@@ -362,6 +386,21 @@ export class WebGPUStaticMeshBatcher {
 		id = this._nextObjectId++;
 		this._objectIds.set(value, id);
 		return id;
+	}
+}
+
+function getLightingMaterialBinding(
+	family: WebGPUMaterialUniformData["shadingFamily"],
+): number {
+	switch (family) {
+		case "pbr":
+			return WEBGPU_MODEL_BINDING_PBR_MATERIAL;
+		case "phong":
+			return WEBGPU_MODEL_BINDING_PHONG_MATERIAL;
+		case "flat":
+			return WEBGPU_MODEL_BINDING_FLAT_MATERIAL;
+		case "unlit":
+			throw new Error("Unlit static bindings do not contain a lighting buffer.");
 	}
 }
 

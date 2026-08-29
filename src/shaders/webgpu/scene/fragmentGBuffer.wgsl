@@ -64,6 +64,56 @@ fn buildGBufferOutputExtended(
 	return output;
 }
 
+@fragment fn fsMainGBufferPBR(
+	input: VertexOutput,
+	@builtin(front_facing) frontFacing: bool
+) -> GBufferFragmentOutput {
+	return evaluateGBuffer(input, frontFacing, resolvePBRLightingMaterial());
+}
+@fragment fn fsMainGBufferPhong(
+	input: VertexOutput,
+	@builtin(front_facing) frontFacing: bool
+) -> GBufferFragmentOutput {
+	return evaluateGBuffer(input, frontFacing, resolvePhongLightingMaterial());
+}
+@fragment fn fsMainGBufferFlat(
+	input: VertexOutput,
+	@builtin(front_facing) frontFacing: bool
+) -> GBufferFragmentOutput {
+	return evaluateGBuffer(input, frontFacing, resolveFlatLightingMaterial());
+}
+@fragment fn fsMainGBufferUnlit(
+	input: VertexOutput,
+	@builtin(front_facing) frontFacing: bool
+) -> GBufferFragmentOutput {
+	return evaluateGBuffer(input, frontFacing, resolveUnlitLightingMaterial());
+}
+
+@fragment fn fsMainGBufferBasePBR(
+	input: VertexOutput,
+	@builtin(front_facing) frontFacing: bool
+) -> GBufferBaseFragmentOutput {
+	return evaluateGBufferBase(input, frontFacing, resolvePBRLightingMaterial());
+}
+@fragment fn fsMainGBufferBasePhong(
+	input: VertexOutput,
+	@builtin(front_facing) frontFacing: bool
+) -> GBufferBaseFragmentOutput {
+	return evaluateGBufferBase(input, frontFacing, resolvePhongLightingMaterial());
+}
+@fragment fn fsMainGBufferBaseFlat(
+	input: VertexOutput,
+	@builtin(front_facing) frontFacing: bool
+) -> GBufferBaseFragmentOutput {
+	return evaluateGBufferBase(input, frontFacing, resolveFlatLightingMaterial());
+}
+@fragment fn fsMainGBufferBaseUnlit(
+	input: VertexOutput,
+	@builtin(front_facing) frontFacing: bool
+) -> GBufferBaseFragmentOutput {
+	return evaluateGBufferBase(input, frontFacing, resolveUnlitLightingMaterial());
+}
+
 fn buildGBufferOutput(
 	fragCoord: vec2<f32>,
 	alpha: f32,
@@ -109,20 +159,21 @@ fn buildGBufferOutput(
 
 fn evaluateGBuffer(
 	input: VertexOutput,
-	frontFacing: bool
+	frontFacing: bool,
+	material: ResolvedLightingMaterial
 ) -> GBufferFragmentOutput {
-	let shadingMode = u32(model.materialFlags.x + 0.5);
-	let alphaModeMask = model.materialFlags.y > 0.5;
-	let doubleSided = model.materialFlags.z > 0.5;
+	let shadingMode = material.shadingMode;
+	let alphaModeMask = materialCommon.materialParams.z > 0.5;
+	let doubleSided = materialCommon.materialParams.w > 0.5;
 	let enableLighting = frame.options.x > 0.5;
 
-	let materialRenderFlags = u32(model.materialFlags.w + 0.5);
+	let materialRenderFlags = u32(materialCommon.renderParams.x + 0.5);
 	let isWireframe = (materialRenderFlags & 1u) != 0u;
 	var baseSample = vec4<f32>(1.0);
 	if (
 		!isWireframe &&
 		(shadingMode != SHADING_PBR ||
-			hasPBRTexture(PBR_TEXTURE_BASE_COLOR_MAP))
+			hasPBRTexture(material, PBR_TEXTURE_BASE_COLOR_MAP))
 	) {
 		baseSample = sampleColorTexture(
 			baseColorTexture,
@@ -135,10 +186,10 @@ fn evaluateGBuffer(
 		);
 	}
 
-	let baseColor = model.baseColorFactor.rgb * baseSample.rgb;
-	let alpha = clamp(model.baseColorFactor.a * baseSample.a, 0.0, 1.0);
+	let baseColor = materialCommon.baseColorFactor.rgb * baseSample.rgb;
+	let alpha = clamp(materialCommon.baseColorFactor.a * baseSample.a, 0.0, 1.0);
 
-	if (alphaModeMask && alpha < model.surfaceParams0.w) {
+	if (alphaModeMask && alpha < materialCommon.materialParams.x) {
 		discard;
 	}
 
@@ -155,7 +206,7 @@ fn evaluateGBuffer(
 	var emissiveSample = vec4<f32>(1.0);
 	if (
 		shadingMode != SHADING_PBR ||
-		hasPBRTexture(PBR_TEXTURE_EMISSIVE_MAP)
+		hasPBRTexture(material, PBR_TEXTURE_EMISSIVE_MAP)
 	) {
 		emissiveSample = sampleColorTexture(
 			emissiveTexture,
@@ -168,7 +219,7 @@ fn evaluateGBuffer(
 		);
 	}
 	let emissive =
-		model.emissiveFactor.rgb * emissiveSample.rgb * model.emissiveFactor.a;
+		materialCommon.emissiveFactor.rgb * emissiveSample.rgb * materialCommon.emissiveFactor.a;
 	let linearDepth = dot(
 		frame.cameraPosition.xyz - input.worldPosition,
 		frame.environmentBasisBackward.xyz
@@ -201,9 +252,9 @@ fn evaluateGBuffer(
 	}
 
 	if (shadingMode == SHADING_PHONG || shadingMode == SHADING_FLAT) {
-		let phongAmbient = model.phongAmbientShininess.rgb;
-		let phongSpecular = model.phongSpecularShading.rgb;
-		let shininess = max(model.phongAmbientShininess.a, 0.0);
+		let phongAmbient = material.ambientShininess.rgb;
+		let phongSpecular = material.specular.rgb;
+		let shininess = max(material.ambientShininess.a, 0.0);
 		return buildGBufferOutput(
 			input.position.xy,
 			alpha,
@@ -225,7 +276,7 @@ fn evaluateGBuffer(
 	}
 
 	var mrSample = vec4<f32>(1.0);
-	if (hasPBRTexture(PBR_TEXTURE_METALLIC_ROUGHNESS_MAP)) {
+	if (hasPBRTexture(material, PBR_TEXTURE_METALLIC_ROUGHNESS_MAP)) {
 		mrSample = sampleLinearTexture(
 			metallicRoughnessTexture,
 			metallicRoughnessSampler,
@@ -237,7 +288,7 @@ fn evaluateGBuffer(
 		);
 	}
 	var occlusionSample = vec4<f32>(1.0);
-	if (hasPBRTexture(PBR_TEXTURE_OCCLUSION_MAP)) {
+	if (hasPBRTexture(material, PBR_TEXTURE_OCCLUSION_MAP)) {
 		occlusionSample = sampleLinearTexture(
 			occlusionTexture,
 			occlusionSampler,
@@ -250,11 +301,11 @@ fn evaluateGBuffer(
 	}
 	var specularSample = vec4<f32>(1.0);
 	if (
-		hasPBRFeature(PBR_FEATURE_SPECULAR) &&
-		model.specularColorFactor.a > EPSILON &&
-		max(max(model.specularColorFactor.r, model.specularColorFactor.g),
-			model.specularColorFactor.b) > EPSILON &&
-		hasPBRTexture(PBR_TEXTURE_SPECULAR_MAP)
+		hasPBRFeature(material, PBR_FEATURE_SPECULAR) &&
+		material.pbr.specularColorFactor.a > EPSILON &&
+		max(max(material.pbr.specularColorFactor.r, material.pbr.specularColorFactor.g),
+			material.pbr.specularColorFactor.b) > EPSILON &&
+		hasPBRTexture(material, PBR_TEXTURE_SPECULAR_MAP)
 	) {
 		specularSample = sampleLinearTexture(
 			specularTexture,
@@ -268,11 +319,11 @@ fn evaluateGBuffer(
 	}
 	var specularColorSample = vec4<f32>(1.0);
 	if (
-		hasPBRFeature(PBR_FEATURE_SPECULAR) &&
-		model.specularColorFactor.a > EPSILON &&
-		max(max(model.specularColorFactor.r, model.specularColorFactor.g),
-			model.specularColorFactor.b) > EPSILON &&
-		hasPBRTexture(PBR_TEXTURE_SPECULAR_COLOR_MAP)
+		hasPBRFeature(material, PBR_FEATURE_SPECULAR) &&
+		material.pbr.specularColorFactor.a > EPSILON &&
+		max(max(material.pbr.specularColorFactor.r, material.pbr.specularColorFactor.g),
+			material.pbr.specularColorFactor.b) > EPSILON &&
+		hasPBRTexture(material, PBR_TEXTURE_SPECULAR_COLOR_MAP)
 	) {
 		specularColorSample = sampleColorTexture(
 			specularColorTexture,
@@ -286,8 +337,8 @@ fn evaluateGBuffer(
 	}
 	var clearcoatSample = vec4<f32>(1.0);
 	if (
-		hasPBRFeature(PBR_FEATURE_CLEARCOAT) &&
-		hasPBRTexture(PBR_TEXTURE_CLEARCOAT_MAP)
+		hasPBRFeature(material, PBR_FEATURE_CLEARCOAT) &&
+		hasPBRTexture(material, PBR_TEXTURE_CLEARCOAT_MAP)
 	) {
 		clearcoatSample = sampleLinearTexture(
 			clearcoatTexture,
@@ -301,8 +352,8 @@ fn evaluateGBuffer(
 	}
 	var clearcoatRoughnessSample = vec4<f32>(1.0);
 	if (
-		hasPBRFeature(PBR_FEATURE_CLEARCOAT) &&
-		hasPBRTexture(PBR_TEXTURE_CLEARCOAT_ROUGHNESS_MAP)
+		hasPBRFeature(material, PBR_FEATURE_CLEARCOAT) &&
+		hasPBRTexture(material, PBR_TEXTURE_CLEARCOAT_ROUGHNESS_MAP)
 	) {
 		clearcoatRoughnessSample = sampleLinearTexture(
 			clearcoatRoughnessTexture,
@@ -316,8 +367,8 @@ fn evaluateGBuffer(
 	}
 	var sheenColorSample = vec4<f32>(1.0);
 	if (
-		hasPBRFeature(PBR_FEATURE_SHEEN) &&
-		hasPBRTexture(PBR_TEXTURE_SHEEN_COLOR_MAP)
+		hasPBRFeature(material, PBR_FEATURE_SHEEN) &&
+		hasPBRTexture(material, PBR_TEXTURE_SHEEN_COLOR_MAP)
 	) {
 		sheenColorSample = sampleColorTexture(
 			sheenColorTexture,
@@ -331,8 +382,8 @@ fn evaluateGBuffer(
 	}
 	var sheenRoughnessSample = vec4<f32>(1.0);
 	if (
-		hasPBRFeature(PBR_FEATURE_SHEEN) &&
-		hasPBRTexture(PBR_TEXTURE_SHEEN_ROUGHNESS_MAP)
+		hasPBRFeature(material, PBR_FEATURE_SHEEN) &&
+		hasPBRTexture(material, PBR_TEXTURE_SHEEN_ROUGHNESS_MAP)
 	) {
 		sheenRoughnessSample = sampleLinearTexture(
 			sheenRoughnessTexture,
@@ -346,8 +397,8 @@ fn evaluateGBuffer(
 	}
 	var iridescenceSample = vec4<f32>(1.0);
 	if (
-		hasPBRFeature(PBR_FEATURE_IRIDESCENCE) &&
-		hasPBRTexture(PBR_TEXTURE_IRIDESCENCE_MAP)
+		hasPBRFeature(material, PBR_FEATURE_IRIDESCENCE) &&
+		hasPBRTexture(material, PBR_TEXTURE_IRIDESCENCE_MAP)
 	) {
 		iridescenceSample = sampleLinearTexture(
 			iridescenceTexture,
@@ -361,8 +412,8 @@ fn evaluateGBuffer(
 	}
 	var iridescenceThicknessSample = vec4<f32>(1.0);
 	if (
-		hasPBRFeature(PBR_FEATURE_IRIDESCENCE) &&
-		hasPBRTexture(PBR_TEXTURE_IRIDESCENCE_THICKNESS_MAP)
+		hasPBRFeature(material, PBR_FEATURE_IRIDESCENCE) &&
+		hasPBRTexture(material, PBR_TEXTURE_IRIDESCENCE_THICKNESS_MAP)
 	) {
 		iridescenceThicknessSample = sampleLinearTexture(
 			iridescenceThicknessTexture,
@@ -376,7 +427,7 @@ fn evaluateGBuffer(
 	}
 
 	var normalSample = vec3<f32>(0.5, 0.5, 1.0);
-	if (hasPBRTexture(PBR_TEXTURE_NORMAL_MAP)) {
+	if (hasPBRTexture(material, PBR_TEXTURE_NORMAL_MAP)) {
 		normalSample = sampleLinearTexture(
 			normalTexture,
 			normalSampler,
@@ -389,8 +440,8 @@ fn evaluateGBuffer(
 	}
 	var clearcoatNormalSample = vec3<f32>(0.5, 0.5, 1.0);
 	if (
-		hasPBRFeature(PBR_FEATURE_CLEARCOAT) &&
-		hasPBRTexture(PBR_TEXTURE_CLEARCOAT_NORMAL_MAP)
+		hasPBRFeature(material, PBR_FEATURE_CLEARCOAT) &&
+		hasPBRTexture(material, PBR_TEXTURE_CLEARCOAT_NORMAL_MAP)
 	) {
 		clearcoatNormalSample = sampleLinearTexture(
 			clearcoatNormalTexture,
@@ -403,40 +454,40 @@ fn evaluateGBuffer(
 		).rgb;
 	}
 
-	let roughness = clamp(model.surfaceParams0.x * mrSample.g, 0.04, 1.0);
-	let metalness = clamp(model.surfaceParams0.y * mrSample.b, 0.0, 1.0);
-	let reflectance = clamp(model.surfaceParams0.z, 0.0, 1.0);
+	let roughness = clamp(material.pbr.surfaceParams0.x * mrSample.g, 0.04, 1.0);
+	let metalness = clamp(material.pbr.surfaceParams0.y * mrSample.b, 0.0, 1.0);
+	let reflectance = clamp(material.pbr.surfaceParams0.z, 0.0, 1.0);
 	let occlusion = clamp(
-		1.0 + model.surfaceParams1.x * (occlusionSample.r - 1.0),
+		1.0 + material.pbr.surfaceParams1.x * (occlusionSample.r - 1.0),
 		0.0,
 		1.0
 	);
-	let clearcoat = clamp(model.surfaceParams1.z * clearcoatSample.r, 0.0, 1.0);
+	let clearcoat = clamp(material.pbr.surfaceParams1.z * clearcoatSample.r, 0.0, 1.0);
 	let clearcoatRoughness = clamp(
-		model.surfaceParams1.w * clearcoatRoughnessSample.g,
+		material.pbr.surfaceParams1.w * clearcoatRoughnessSample.g,
 		0.04,
 		1.0
 	);
 	let sheenColor =
-		model.sheenColorClearcoatNormalScale.rgb * sheenColorSample.rgb;
+		material.pbr.sheenColorClearcoatNormalScale.rgb * sheenColorSample.rgb;
 	let sheenRoughness =
-		clamp(model.surfaceParams2.x * sheenRoughnessSample.a, 0.0, 1.0);
+		clamp(material.pbr.surfaceParams2.x * sheenRoughnessSample.a, 0.0, 1.0);
 	let iridescence =
-		clamp(model.surfaceParams3.y * iridescenceSample.r, 0.0, 1.0);
-	let iridescenceIor = max(model.surfaceParams3.z, 1.0);
+		clamp(material.pbr.surfaceParams3.y * iridescenceSample.r, 0.0, 1.0);
+	let iridescenceIor = max(material.pbr.surfaceParams3.z, 1.0);
 	let iridescenceThickness = max(
 		mix(
-			model.surfaceParams3.w,
-			model.attenuationColor.a,
+			material.pbr.surfaceParams3.w,
+			material.pbr.attenuationColor.a,
 			iridescenceThicknessSample.g
 		),
 		0.0
 	);
 
 	let specularFactor =
-		clamp(model.specularColorFactor.a * specularSample.a, 0.0, 1.0);
+		clamp(material.pbr.specularColorFactor.a * specularSample.a, 0.0, 1.0);
 	let specularColor = clamp(
-		model.specularColorFactor.rgb * specularColorSample.rgb,
+		material.pbr.specularColorFactor.rgb * specularColorSample.rgb,
 		vec3<f32>(0.0),
 		vec3<f32>(1.0)
 	);
@@ -445,7 +496,7 @@ fn evaluateGBuffer(
 		normal,
 		input.worldTangent,
 		normalSample,
-		model.surfaceParams1.y
+		material.pbr.surfaceParams1.y
 	);
 	if (dot(pbrNormal, geometryNormal) < 0.0) {
 		pbrNormal = -pbrNormal;
@@ -455,13 +506,14 @@ fn evaluateGBuffer(
 		pbrNormal,
 		input.worldTangent,
 		clearcoatNormalSample,
-		model.sheenColorClearcoatNormalScale.a
+		material.pbr.sheenColorClearcoatNormalScale.a
 	);
 	if (dot(clearcoatNormal, pbrNormal) < 0.0) {
 		clearcoatNormal = -clearcoatNormal;
 	}
 
 	let anisotropyData = resolveAnisotropyDirection(
+		material,
 		input.uv0,
 		input.uv1,
 		input.uv2,
@@ -515,26 +567,18 @@ fn evaluateGBuffer(
 	);
 }
 
-@fragment
-fn fsMainGBuffer(
+fn evaluateGBufferBase(
 	input: VertexOutput,
-	@builtin(front_facing) frontFacing: bool
-) -> GBufferFragmentOutput {
-	return evaluateGBuffer(input, frontFacing);
-}
-
-@fragment
-fn fsMainGBufferBase(
-	input: VertexOutput,
-	@builtin(front_facing) frontFacing: bool
+	frontFacing: bool,
+	material: ResolvedLightingMaterial
 ) -> GBufferBaseFragmentOutput {
-	let shadingMode = u32(model.materialFlags.x + 0.5);
-	let alphaModeMask = model.materialFlags.y > 0.5;
-	let doubleSided = model.materialFlags.z > 0.5;
+	let shadingMode = material.shadingMode;
+	let alphaModeMask = materialCommon.materialParams.z > 0.5;
+	let doubleSided = materialCommon.materialParams.w > 0.5;
 	var baseSample = vec4<f32>(1.0);
 	if (
 		shadingMode != SHADING_PBR ||
-		hasPBRTexture(PBR_TEXTURE_BASE_COLOR_MAP)
+		hasPBRTexture(material, PBR_TEXTURE_BASE_COLOR_MAP)
 	) {
 		baseSample = sampleColorTexture(
 			baseColorTexture,
@@ -546,9 +590,9 @@ fn fsMainGBufferBase(
 			input.uv3
 		);
 	}
-	let baseColor = model.baseColorFactor.rgb * baseSample.rgb;
-	let alpha = clamp(model.baseColorFactor.a * baseSample.a, 0.0, 1.0);
-	if (alphaModeMask && alpha < model.surfaceParams0.w) {
+	let baseColor = materialCommon.baseColorFactor.rgb * baseSample.rgb;
+	let alpha = clamp(materialCommon.baseColorFactor.a * baseSample.a, 0.0, 1.0);
+	if (alphaModeMask && alpha < materialCommon.materialParams.x) {
 		discard;
 	}
 	var normal = safeNormalize(input.worldNormal, vec3<f32>(0.0, 0.0, 1.0));
@@ -559,7 +603,7 @@ fn fsMainGBufferBase(
 	var emissiveSample = vec4<f32>(1.0);
 	if (
 		shadingMode != SHADING_PBR ||
-		hasPBRTexture(PBR_TEXTURE_EMISSIVE_MAP)
+		hasPBRTexture(material, PBR_TEXTURE_EMISSIVE_MAP)
 	) {
 		emissiveSample = sampleColorTexture(
 			emissiveTexture,
@@ -572,7 +616,7 @@ fn fsMainGBufferBase(
 		);
 	}
 	let emissive =
-		model.emissiveFactor.rgb * emissiveSample.rgb * model.emissiveFactor.a;
+		materialCommon.emissiveFactor.rgb * emissiveSample.rgb * materialCommon.emissiveFactor.a;
 	let linearDepth = dot(
 		frame.cameraPosition.xyz - input.worldPosition,
 		frame.environmentBasisBackward.xyz
@@ -586,7 +630,7 @@ fn fsMainGBufferBase(
 	var materialWord = f32(SHADING_UNLIT);
 	if (shadingMode == SHADING_PBR && frame.options.x > 0.5) {
 		var mrSample = vec4<f32>(1.0);
-		if (hasPBRTexture(PBR_TEXTURE_METALLIC_ROUGHNESS_MAP)) {
+		if (hasPBRTexture(material, PBR_TEXTURE_METALLIC_ROUGHNESS_MAP)) {
 			mrSample = sampleLinearTexture(
 				metallicRoughnessTexture,
 				metallicRoughnessSampler,
@@ -598,7 +642,7 @@ fn fsMainGBufferBase(
 			);
 		}
 		var occlusionSample = vec4<f32>(1.0);
-		if (hasPBRTexture(PBR_TEXTURE_OCCLUSION_MAP)) {
+		if (hasPBRTexture(material, PBR_TEXTURE_OCCLUSION_MAP)) {
 			occlusionSample = sampleLinearTexture(
 				occlusionTexture,
 				occlusionSampler,
@@ -610,7 +654,7 @@ fn fsMainGBufferBase(
 			);
 		}
 		var normalSample = vec3<f32>(0.5, 0.5, 1.0);
-		if (hasPBRTexture(PBR_TEXTURE_NORMAL_MAP)) {
+		if (hasPBRTexture(material, PBR_TEXTURE_NORMAL_MAP)) {
 			normalSample = sampleLinearTexture(
 				normalTexture,
 				normalSampler,
@@ -621,10 +665,10 @@ fn fsMainGBufferBase(
 				input.uv3
 			).rgb;
 		}
-		roughness = clamp(model.surfaceParams0.x * mrSample.g, 0.04, 1.0);
-		metalness = clamp(model.surfaceParams0.y * mrSample.b, 0.0, 1.0);
+		roughness = clamp(material.pbr.surfaceParams0.x * mrSample.g, 0.04, 1.0);
+		metalness = clamp(material.pbr.surfaceParams0.y * mrSample.b, 0.0, 1.0);
 		occlusion = clamp(
-			1.0 + model.surfaceParams1.x * (occlusionSample.r - 1.0),
+			1.0 + material.pbr.surfaceParams1.x * (occlusionSample.r - 1.0),
 			0.0,
 			1.0
 		);
@@ -632,7 +676,7 @@ fn fsMainGBufferBase(
 			normal,
 			input.worldTangent,
 			normalSample,
-			model.surfaceParams1.y
+			material.pbr.surfaceParams1.y
 		);
 		if (dot(normal, geometryNormal) < 0.0) {
 			normal = -normal;

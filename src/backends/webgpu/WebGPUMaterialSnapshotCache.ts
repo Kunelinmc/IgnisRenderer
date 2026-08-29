@@ -92,11 +92,11 @@ export class WebGPUMaterialSnapshotCache {
 		data: WebGPUMaterialUniformData,
 	): Promise<WebGPUResolvedMaterialSnapshot> {
 		const textures = await Promise.all(
-			data.textureSlots.map((slot, index) =>
+			data.common.textureSlots.map((slot, index) =>
 				this._textures.getTextureForSlotAsync(slot.map, index),
 			),
 		);
-		const samplers = data.textureSlots.map((slot) =>
+		const samplers = data.common.textureSlots.map((slot) =>
 			this._textures.getSamplerForTexture(slot.map),
 		);
 		return { revision, data, textures, samplers };

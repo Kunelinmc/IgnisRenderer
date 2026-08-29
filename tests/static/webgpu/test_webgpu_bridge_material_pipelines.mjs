@@ -739,7 +739,7 @@ async function testWebGPUOITTransparentPipelineUsesDualTargets() {
 	assert.ok(draw && draw.length > 0);
 	const pipelineDesc = draw[0].pipeline.desc;
 	assert.equal(pipelineDesc.depthStencil.depthWriteEnabled, false);
-	assert.equal(pipelineDesc.fragment.entryPoint, "fsMainOIT");
+	assert.equal(pipelineDesc.fragment.entryPoint, "fsMainOITPBR");
 	assert.equal(pipelineDesc.fragment.targets.length, 2);
 	assert.equal(pipelineDesc.fragment.targets[0].format, "rgba16float");
 	assert.equal(pipelineDesc.fragment.targets[1].format, "r8unorm");
@@ -812,7 +812,7 @@ async function testWebGPUOITTransmissionMaterialsStayLegacyPipeline() {
 	});
 	assert.ok(draw && draw.length > 0);
 	const pipelineDesc = draw[0].pipeline.desc;
-	assert.equal(pipelineDesc.fragment.entryPoint, "fsMain");
+	assert.equal(pipelineDesc.fragment.entryPoint, "fsMainPBR");
 	assert.equal(pipelineDesc.fragment.targets.length, 5);
 	assert.equal(
 		pipelineDesc.fragment.targets[0].blend?.color?.srcFactor,

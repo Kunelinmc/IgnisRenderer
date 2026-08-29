@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { Matrix4 } from "../../../src/maths/Matrix4.ts";
 import { WebGPUMaterialBindingCache } from "../../../src/backends/webgpu/WebGPUMaterialBindingCache.ts";
+import { WebGPUMaterialBufferCache } from "../../../src/backends/webgpu/WebGPUMaterialBufferCache.ts";
 import { WEBGPU_TEXTURE_SLOT_COUNT } from "../../../src/backends/webgpu/constants.ts";
 import { createTestDrawPacket } from "../helpers/drawPacket.mjs";
 
@@ -47,25 +48,29 @@ function createBackendStub() {
 function createMaterialData(pipelineKey = "none-opaque-solid") {
 	const vec4 = [0, 0, 0, 0];
 	return {
-		baseColorFactor: vec4,
-		emissiveFactor: vec4,
-		surfaceParams0: vec4,
-		surfaceParams1: vec4,
-		surfaceParams2: vec4,
-		surfaceParams3: vec4,
-		specularColorFactor: vec4,
-		phongAmbientShininess: vec4,
-		phongSpecularShading: vec4,
-		sheenColorClearcoatNormalScale: vec4,
-		attenuationColor: vec4,
-		anisotropyParams: vec4,
-		materialFlags: vec4,
-		pbrMasks: [0, 0, 0, 0],
-		textureSlots: Array.from({ length: WEBGPU_TEXTURE_SLOT_COUNT }, () => ({
-			map: null,
-			transformA: vec4,
-			transformB: vec4,
-		})),
+		shadingFamily: "pbr",
+		common: {
+			baseColorFactor: vec4,
+			emissiveFactor: vec4,
+			materialParams: vec4,
+			renderParams: vec4,
+			textureSlots: Array.from({ length: WEBGPU_TEXTURE_SLOT_COUNT }, () => ({
+				map: null,
+				transformA: vec4,
+				transformB: vec4,
+			})),
+		},
+		lighting: {
+			surfaceParams0: vec4,
+			surfaceParams1: vec4,
+			surfaceParams2: vec4,
+			surfaceParams3: vec4,
+			specularColorFactor: vec4,
+			sheenColorClearcoatNormalScale: vec4,
+			attenuationColor: vec4,
+			anisotropyParams: vec4,
+			pbrMasks: [0, 0, 0, 0],
+		},
 		shaderUniforms: {
 			cacheKey: "",
 			byteLength: 0,
@@ -106,16 +111,23 @@ function createAnimationPayloadPoolStub() {
 }
 
 function createCache(backend) {
+	const materialBuffers = new WebGPUMaterialBufferCache(backend);
 	return new WebGPUMaterialBindingCache(
 		backend,
 		createLayoutsStub(),
-		createAnimationPayloadPoolStub()
+		createAnimationPayloadPoolStub(),
+		materialBuffers,
 	);
 }
 
 function createLayoutsStub() {
 	return {
-		modelBindGroupLayout: { id: "layout:model" },
+		modelBindGroupLayouts: {
+			pbr: { id: "layout:pbr" },
+			phong: { id: "layout:phong" },
+			flat: { id: "layout:flat" },
+			unlit: { id: "layout:unlit" },
+		},
 	};
 }
 
@@ -255,7 +267,7 @@ function testStaticMeshDoesNotWriteAnimationPayloads() {
 	);
 }
 
-function testMaskMutationUpdatesUniformWithoutRebinding() {
+function testMaterialSnapshotChangeRebindsWithoutObjectUpload() {
 	const backend = createBackendStub();
 	const cache = createCache(backend);
 	const packet = createPacket();
@@ -270,23 +282,24 @@ function testMaskMutationUpdatesUniformWithoutRebinding() {
 		[],
 		animation
 	);
-	const modelWrites = getWriteCountForLabel(backend, "ModelUniform_");
-	materialData.pbrMasks = [1, 2, 0, 0];
+	const objectWrites = getWriteCountForLabel(backend, "ObjectUniform_");
+	const nextMaterialData = createMaterialData();
+	nextMaterialData.lighting.pbrMasks = [1, 2, 0, 0];
 	const secondGroup = cache.getBinding(
 		packet,
 		{ id: "pipeline:a" },
-		materialData,
+		nextMaterialData,
 		[],
 		[],
 		animation
 	);
 
-	assert.equal(firstGroup, secondGroup);
+	assert.notEqual(firstGroup, secondGroup);
 	assert.equal(
-		getWriteCountForLabel(backend, "ModelUniform_"),
-		modelWrites + 1
+		getWriteCountForLabel(backend, "ObjectUniform_"),
+		objectWrites
 	);
-	assert.equal(backend.createBindingGroupCalls, 1);
+	assert.equal(backend.createBindingGroupCalls, 2);
 }
 
 function testPayloadGenerationRebuildsBindingWithoutOwningPayloadBuffers() {
@@ -330,13 +343,29 @@ function testPayloadGenerationRebuildsBindingWithoutOwningPayloadBuffers() {
 	assert.equal(backend.bufferDestroyCalls, payloadDestroyCount);
 }
 
+function testMaterialBuffersDestroyAfterLastLease() {
+	const backend = createBackendStub();
+	const materialBuffers = new WebGPUMaterialBufferCache(backend);
+	const materialData = createMaterialData();
+	const first = materialBuffers.acquire(materialData);
+	const second = materialBuffers.acquire(materialData);
+	assert.deepEqual(materialBuffers.getDebugStats(), { entries: 1, references: 2 });
+	first.release();
+	assert.deepEqual(materialBuffers.getDebugStats(), { entries: 1, references: 1 });
+	const destroyCount = backend.bufferDestroyCalls;
+	second.release();
+	assert.deepEqual(materialBuffers.getDebugStats(), { entries: 0, references: 0 });
+	assert.equal(backend.bufferDestroyCalls, destroyCount + 2);
+}
+
 function run() {
 	testBudgetedCacheRetainsModelBindingGroup();
 	testTextureRebindDestroysPreviousModelBindingGroup();
 	testPipelineChangeReusesModelBindingGroup();
 	testStaticMeshDoesNotWriteAnimationPayloads();
-	testMaskMutationUpdatesUniformWithoutRebinding();
+	testMaterialSnapshotChangeRebindsWithoutObjectUpload();
 	testPayloadGenerationRebuildsBindingWithoutOwningPayloadBuffers();
+	testMaterialBuffersDestroyAfterLastLease();
 	console.log("WebGPU material binding cache tests passed");
 }
 

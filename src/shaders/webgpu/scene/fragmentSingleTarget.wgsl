@@ -16,23 +16,28 @@ fn buildSceneOITOutput(sceneColor: vec4<f32>, linearDepth: f32) -> SceneFragment
 	return output;
 }
 
-fn shadeScene(input: VertexOutput, frontFacing: bool) -> SceneFragmentOutput {
-	return shadeSceneWithOptions(input, frontFacing, true);
+fn shadeScene(
+	input: VertexOutput,
+	frontFacing: bool,
+	material: ResolvedLightingMaterial
+) -> SceneFragmentOutput {
+	return shadeSceneWithOptions(input, frontFacing, true, material);
 }
 
 fn shadeTransmissionCapture(
 	input: VertexOutput,
-	frontFacing: bool
+	frontFacing: bool,
+	material: ResolvedLightingMaterial
 ) -> TransmissionFragmentOutput {
-	let shaded = shadeSceneWithOptions(input, frontFacing, false);
-	let shadingMode = u32(model.materialFlags.x + 0.5);
-	let alphaModeMask = model.materialFlags.y > 0.5;
-	let doubleSided = model.materialFlags.z > 0.5;
-	let materialRenderFlags = u32(model.materialFlags.w + 0.5);
+	let shaded = shadeSceneWithOptions(input, frontFacing, false, material);
+	let shadingMode = material.shadingMode;
+	let alphaModeMask = materialCommon.materialParams.z > 0.5;
+	let doubleSided = materialCommon.materialParams.w > 0.5;
+	let materialRenderFlags = u32(materialCommon.renderParams.x + 0.5);
 	let isWireframe = (materialRenderFlags & 1u) != 0u;
 
 	var baseSample = vec4<f32>(1.0);
-	if (!isWireframe && hasPBRTexture(PBR_TEXTURE_BASE_COLOR_MAP)) {
+	if (!isWireframe && hasPBRTexture(material, PBR_TEXTURE_BASE_COLOR_MAP)) {
 		baseSample = sampleColorTexture(
 			baseColorTexture,
 			baseColorSampler,
@@ -43,9 +48,9 @@ fn shadeTransmissionCapture(
 			input.uv3
 		);
 	}
-	let baseColor = model.baseColorFactor.rgb * baseSample.rgb;
-	let alpha = clamp(model.baseColorFactor.a * baseSample.a, 0.0, 1.0);
-	if (alphaModeMask && alpha < model.surfaceParams0.w) {
+	let baseColor = materialCommon.baseColorFactor.rgb * baseSample.rgb;
+	let alpha = clamp(materialCommon.baseColorFactor.a * baseSample.a, 0.0, 1.0);
+	if (alphaModeMask && alpha < materialCommon.materialParams.x) {
 		discard;
 	}
 
@@ -64,7 +69,7 @@ fn shadeTransmissionCapture(
 	let geometryNormal = normal;
 
 	var normalSample = vec3<f32>(0.5, 0.5, 1.0);
-	if (hasPBRTexture(PBR_TEXTURE_NORMAL_MAP)) {
+	if (hasPBRTexture(material, PBR_TEXTURE_NORMAL_MAP)) {
 		normalSample = sampleLinearTexture(
 			normalTexture,
 			normalSampler,
@@ -79,14 +84,14 @@ fn shadeTransmissionCapture(
 		normal,
 		input.worldTangent,
 		normalSample,
-		model.surfaceParams1.y
+		material.pbr.surfaceParams1.y
 	);
 	if (dot(pbrNormal, geometryNormal) < 0.0) {
 		pbrNormal = -pbrNormal;
 	}
 
 	var mrSample = vec4<f32>(1.0);
-	if (hasPBRTexture(PBR_TEXTURE_METALLIC_ROUGHNESS_MAP)) {
+	if (hasPBRTexture(material, PBR_TEXTURE_METALLIC_ROUGHNESS_MAP)) {
 		mrSample = sampleLinearTexture(
 			metallicRoughnessTexture,
 			metallicRoughnessSampler,
@@ -99,8 +104,8 @@ fn shadeTransmissionCapture(
 	}
 	var transmissionSample = vec4<f32>(1.0);
 	if (
-		hasPBRFeature(PBR_FEATURE_TRANSMISSION) &&
-		hasPBRTexture(PBR_TEXTURE_TRANSMISSION_MAP)
+		hasPBRFeature(material, PBR_FEATURE_TRANSMISSION) &&
+		hasPBRTexture(material, PBR_TEXTURE_TRANSMISSION_MAP)
 	) {
 		transmissionSample = sampleLinearTexture(
 			transmissionTexture,
@@ -114,8 +119,8 @@ fn shadeTransmissionCapture(
 	}
 	var thicknessSample = vec4<f32>(1.0);
 	if (
-		hasPBRFeature(PBR_FEATURE_TRANSMISSION) &&
-		hasPBRTexture(PBR_TEXTURE_THICKNESS_MAP)
+		hasPBRFeature(material, PBR_FEATURE_TRANSMISSION) &&
+		hasPBRTexture(material, PBR_TEXTURE_THICKNESS_MAP)
 	) {
 		thicknessSample = sampleLinearTexture(
 			thicknessTexture,
@@ -128,19 +133,19 @@ fn shadeTransmissionCapture(
 		);
 	}
 
-	let roughness = clamp(model.surfaceParams0.x * mrSample.g, 0.04, 1.0);
-	let metalness = clamp(model.surfaceParams0.y * mrSample.b, 0.0, 1.0);
+	let roughness = clamp(material.pbr.surfaceParams0.x * mrSample.g, 0.04, 1.0);
+	let metalness = clamp(material.pbr.surfaceParams0.y * mrSample.b, 0.0, 1.0);
 	let transmission =
-		clamp(model.surfaceParams2.y * transmissionSample.r, 0.0, 1.0) *
+		clamp(material.pbr.surfaceParams2.y * transmissionSample.r, 0.0, 1.0) *
 		(1.0 - metalness);
 	if (transmission <= EPSILON) {
 		discard;
 	}
-	let ior = max(model.surfaceParams2.z, 1.0);
-	let thickness = max(model.surfaceParams2.w * thicknessSample.g, 0.0);
-	let attenuationDistance = model.surfaceParams3.x;
+	let ior = max(material.pbr.surfaceParams2.z, 1.0);
+	let thickness = max(material.pbr.surfaceParams2.w * thicknessSample.g, 0.0);
+	let attenuationDistance = material.pbr.surfaceParams3.x;
 	let attenuationColor = clamp(
-		model.attenuationColor.rgb,
+		material.pbr.attenuationColor.rgb,
 		vec3<f32>(0.0001),
 		vec3<f32>(1.0)
 	);
@@ -180,53 +185,89 @@ fn shadeTransmissionCapture(
 	return output;
 }
 
-@fragment
-fn fsMain(
+fn buildFamilyOITOutput(
 	input: VertexOutput,
-	@builtin(front_facing) frontFacing: bool
-) -> SceneFragmentOutput {
-	return shadeScene(input, frontFacing);
-}
-
-@fragment
-fn fsMainSingle(
-	input: VertexOutput,
-	@builtin(front_facing) frontFacing: bool
-) -> @location(0) vec4<f32> {
-	return shadeScene(input, frontFacing).sceneColor;
-}
-
-@fragment
-fn fsMainOIT(
-	input: VertexOutput,
-	@builtin(front_facing) frontFacing: bool
+	frontFacing: bool,
+	material: ResolvedLightingMaterial
 ) -> SceneFragmentOITOutput {
-	let shaded = shadeScene(input, frontFacing);
+	let shaded = shadeScene(input, frontFacing, material);
 	return buildSceneOITOutput(shaded.sceneColor, shaded.gMotionDepth.z);
 }
 
+@fragment fn fsMainPBR(input: VertexOutput, @builtin(front_facing) frontFacing: bool)
+	-> SceneFragmentOutput {
+	return shadeScene(input, frontFacing, resolvePBRLightingMaterial());
+}
+@fragment fn fsMainPhong(input: VertexOutput, @builtin(front_facing) frontFacing: bool)
+	-> SceneFragmentOutput {
+	return shadeScene(input, frontFacing, resolvePhongLightingMaterial());
+}
+@fragment fn fsMainFlat(input: VertexOutput, @builtin(front_facing) frontFacing: bool)
+	-> SceneFragmentOutput {
+	return shadeScene(input, frontFacing, resolveFlatLightingMaterial());
+}
+@fragment fn fsMainUnlit(input: VertexOutput, @builtin(front_facing) frontFacing: bool)
+	-> SceneFragmentOutput {
+	return shadeScene(input, frontFacing, resolveUnlitLightingMaterial());
+}
+
+@fragment fn fsMainSinglePBR(input: VertexOutput, @builtin(front_facing) frontFacing: bool)
+	-> @location(0) vec4<f32> {
+	return shadeScene(input, frontFacing, resolvePBRLightingMaterial()).sceneColor;
+}
+@fragment fn fsMainSinglePhong(input: VertexOutput, @builtin(front_facing) frontFacing: bool)
+	-> @location(0) vec4<f32> {
+	return shadeScene(input, frontFacing, resolvePhongLightingMaterial()).sceneColor;
+}
+@fragment fn fsMainSingleFlat(input: VertexOutput, @builtin(front_facing) frontFacing: bool)
+	-> @location(0) vec4<f32> {
+	return shadeScene(input, frontFacing, resolveFlatLightingMaterial()).sceneColor;
+}
+@fragment fn fsMainSingleUnlit(input: VertexOutput, @builtin(front_facing) frontFacing: bool)
+	-> @location(0) vec4<f32> {
+	return shadeScene(input, frontFacing, resolveUnlitLightingMaterial()).sceneColor;
+}
+
+@fragment fn fsMainOITPBR(input: VertexOutput, @builtin(front_facing) frontFacing: bool)
+	-> SceneFragmentOITOutput {
+	return buildFamilyOITOutput(input, frontFacing, resolvePBRLightingMaterial());
+}
+@fragment fn fsMainOITPhong(input: VertexOutput, @builtin(front_facing) frontFacing: bool)
+	-> SceneFragmentOITOutput {
+	return buildFamilyOITOutput(input, frontFacing, resolvePhongLightingMaterial());
+}
+@fragment fn fsMainOITFlat(input: VertexOutput, @builtin(front_facing) frontFacing: bool)
+	-> SceneFragmentOITOutput {
+	return buildFamilyOITOutput(input, frontFacing, resolveFlatLightingMaterial());
+}
+@fragment fn fsMainOITUnlit(input: VertexOutput, @builtin(front_facing) frontFacing: bool)
+	-> SceneFragmentOITOutput {
+	return buildFamilyOITOutput(input, frontFacing, resolveUnlitLightingMaterial());
+}
+
 @fragment
-fn fsMainTransmissionCapture(
+fn fsMainTransmissionCapturePBR(
 	input: VertexOutput,
 	@builtin(front_facing) frontFacing: bool
 ) -> TransmissionFragmentOutput {
-	return shadeTransmissionCapture(input, frontFacing);
+	return shadeTransmissionCapture(
+		input,
+		frontFacing,
+		resolvePBRLightingMaterial()
+	);
 }
 
 @fragment
 fn fsMainDepthMask(input: VertexOutput) {
-	let alphaModeMask = model.materialFlags.y > 0.5;
+	let alphaModeMask = materialCommon.materialParams.z > 0.5;
 	if (!alphaModeMask) {
 		return;
 	}
-	let shadingMode = u32(model.materialFlags.x + 0.5);
-	let materialRenderFlags = u32(model.materialFlags.w + 0.5);
+	let materialRenderFlags = u32(materialCommon.renderParams.x + 0.5);
 	let isWireframe = (materialRenderFlags & 1u) != 0u;
 	var baseSample = vec4<f32>(1.0);
 	if (
-		!isWireframe &&
-		(shadingMode != SHADING_PBR ||
-			hasPBRTexture(PBR_TEXTURE_BASE_COLOR_MAP))
+		!isWireframe
 	) {
 		baseSample = sampleColorTexture(
 			baseColorTexture,
@@ -238,8 +279,8 @@ fn fsMainDepthMask(input: VertexOutput) {
 			input.uv3
 		);
 	}
-	let alpha = clamp(model.baseColorFactor.a * baseSample.a, 0.0, 1.0);
-	if (alpha < model.surfaceParams0.w) {
+	let alpha = clamp(materialCommon.baseColorFactor.a * baseSample.a, 0.0, 1.0);
+	if (alpha < materialCommon.materialParams.x) {
 		discard;
 	}
 }

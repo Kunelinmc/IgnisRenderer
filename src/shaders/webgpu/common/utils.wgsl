@@ -5,12 +5,50 @@ fn saturate(value: f32) -> f32 {
 	return clamp(value, 0.0, 1.0);
 }
 
-fn hasPBRFeature(feature: u32) -> bool {
-	return (model.pbrMasks.x & feature) != 0u;
+fn emptyPBRMaterial() -> PBRMaterialUniforms {
+	return PBRMaterialUniforms(
+		vec4<f32>(0.0), vec4<f32>(0.0), vec4<f32>(0.0),
+		vec4<f32>(0.0), vec4<f32>(0.0), vec4<f32>(0.0),
+		vec4<f32>(0.0), vec4<f32>(0.0), vec4<u32>(0u)
+	);
 }
 
-fn hasPBRTexture(textureFeature: u32) -> bool {
-	return (model.pbrMasks.y & textureFeature) != 0u;
+fn resolvePBRLightingMaterial() -> ResolvedLightingMaterial {
+	return ResolvedLightingMaterial(
+		SHADING_PBR, pbrMaterial, vec4<f32>(0.0), vec4<f32>(0.0)
+	);
+}
+
+fn resolvePhongLightingMaterial() -> ResolvedLightingMaterial {
+	return ResolvedLightingMaterial(
+		SHADING_PHONG,
+		emptyPBRMaterial(),
+		phongMaterial.ambientShininess,
+		phongMaterial.specular
+	);
+}
+
+fn resolveFlatLightingMaterial() -> ResolvedLightingMaterial {
+	return ResolvedLightingMaterial(
+		SHADING_FLAT,
+		emptyPBRMaterial(),
+		flatMaterial.ambientShininess,
+		flatMaterial.specular
+	);
+}
+
+fn resolveUnlitLightingMaterial() -> ResolvedLightingMaterial {
+	return ResolvedLightingMaterial(
+		SHADING_UNLIT, emptyPBRMaterial(), vec4<f32>(0.0), vec4<f32>(0.0)
+	);
+}
+
+fn hasPBRFeature(material: ResolvedLightingMaterial, feature: u32) -> bool {
+	return (material.pbr.pbrMasks.x & feature) != 0u;
+}
+
+fn hasPBRTexture(material: ResolvedLightingMaterial, textureFeature: u32) -> bool {
+	return (material.pbr.pbrMasks.y & textureFeature) != 0u;
 }
 
 fn isFiniteF32(value: f32) -> bool {
@@ -29,8 +67,8 @@ fn transformUV(
 	uv2: vec2<f32>,
 	uv3: vec2<f32>
 ) -> vec2<f32> {
-	let transformA = model.textureTransformA[slotIndex];
-	let transformB = model.textureTransformB[slotIndex];
+	let transformA = materialCommon.textureTransformA[slotIndex];
+	let transformB = materialCommon.textureTransformB[slotIndex];
 	let uvSet = u32(clamp(floor(transformB.y + 0.5), 0.0, 3.0));
 	var uv = uv0;
 	if (uvSet == 1u) {
@@ -86,7 +124,7 @@ fn sampleColorTexture(
 		uv2,
 		uv3
 	);
-	let isLinear = model.textureTransformB[slotIndex].z > 0.5;
+	let isLinear = materialCommon.textureTransformB[slotIndex].z > 0.5;
 	return select(vec4<f32>(srgbToLinear(sampled.rgb), sampled.a), sampled, isLinear);
 }
 
@@ -135,17 +173,18 @@ fn fallbackTangentFromNormal(n: vec3<f32>) -> vec3<f32> {
 }
 
 fn resolveAnisotropyDirection(
+	material: ResolvedLightingMaterial,
 	uv0: vec2<f32>,
 	uv1: vec2<f32>,
 	uv2: vec2<f32>,
 	uv3: vec2<f32>
 ) -> vec3<f32> {
-	if (!hasPBRFeature(PBR_FEATURE_ANISOTROPY)) {
+	if (!hasPBRFeature(material, PBR_FEATURE_ANISOTROPY)) {
 		return vec3<f32>(1.0, 0.0, 0.0);
 	}
-	var strength = clamp(model.anisotropyParams.x, 0.0, 1.0);
+	var strength = clamp(material.pbr.anisotropyParams.x, 0.0, 1.0);
 	var direction = vec2<f32>(1.0, 0.0);
-	if (hasPBRTexture(PBR_TEXTURE_ANISOTROPY_MAP)) {
+	if (hasPBRTexture(material, PBR_TEXTURE_ANISOTROPY_MAP)) {
 		let texel = sampleLinearTexture(
 			anisotropyTexture,
 			transmissionSampler,
@@ -165,8 +204,8 @@ fn resolveAnisotropyDirection(
 		strength = clamp(strength * texel.b, 0.0, 1.0);
 	}
 
-	let c = model.anisotropyParams.y;
-	let s = model.anisotropyParams.z;
+	let c = material.pbr.anisotropyParams.y;
+	let s = material.pbr.anisotropyParams.z;
 	let rotated = vec2<f32>(
 		direction.x * c - direction.y * s,
 		direction.x * s + direction.y * c
@@ -659,7 +698,7 @@ fn buildSceneOutput(
 		vec3<f32>(0.0)
 	);
 	var output: SceneFragmentOutput;
-	let materialRenderFlags = u32(model.materialFlags.w + 0.5);
+	let materialRenderFlags = u32(materialCommon.renderParams.x + 0.5);
 	let presentationAlpha = select(
 		1.0,
 		clamp(alpha, 0.0, 1.0),

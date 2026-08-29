@@ -41,7 +41,7 @@ export class WebGPUPlanarReflectionDrawResources
 
 	public constructor(
 		private readonly _backend: WebGPUDeviceResourceHost,
-		private readonly _layouts: Pick<WebGPUPipelineLayouts, "planarReflectionPipelineLayout">,
+		private readonly _layouts: Pick<WebGPUPipelineLayouts, "planarReflectionPipelineLayouts">,
 		private readonly _draws: WebGPUDrawResourceAssembler,
 	) {}
 
@@ -82,7 +82,7 @@ export class WebGPUPlanarReflectionDrawResources
 		const triangleTopology =
 			effectiveTopology === DEFAULT_PRIMITIVE_DRAW_TOPOLOGY;
 		const pipeline = await this._backend.createPipeline({
-			layout: this._layouts.planarReflectionPipelineLayout,
+			layout: this._layouts.planarReflectionPipelineLayouts[state.shadingFamily],
 			label:
 				`WebGPUPlanarReflectionCompositePipeline_${state.pipelineKey}_` +
 				request.pass.sceneTargetMode,

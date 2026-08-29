@@ -19,51 +19,57 @@ import {
 	WEBGPU_MODEL_BINDING_MORPH_NORMAL,
 	WEBGPU_MODEL_BINDING_MORPH_POSITION,
 	WEBGPU_MODEL_BINDING_MORPH_WEIGHTS,
+	WEBGPU_MODEL_BINDING_MATERIAL_COMMON,
+	WEBGPU_MODEL_BINDING_FLAT_MATERIAL,
+	WEBGPU_MODEL_BINDING_PBR_MATERIAL,
+	WEBGPU_MODEL_BINDING_PHONG_MATERIAL,
 	WEBGPU_MODEL_BINDING_SHADER_UNIFORMS,
 	WEBGPU_MODEL_BINDING_STATIC_INSTANCES,
-	WEBGPU_MODEL_UNIFORM_BYTE_SIZE,
+	WEBGPU_OBJECT_UNIFORM_BYTE_SIZE,
 	WEBGPU_TEXTURE_DEDICATED_SAMPLER_SLOT_COUNT,
-	WEBGPU_TEXTURE_SLOT_COUNT,
-	createModelUniformWriter,
-	writeModelUniformData,
+	createObjectUniformWriter,
+	writeObjectUniformData,
 	type WebGPUMaterialUniformData,
-	type WebGPUModelUniformWriter,
+	type WebGPUObjectUniformWriter,
 } from "./";
 import type {
 	WebGPUAnimationPayloadPool,
 	WebGPUSceneAnimationPayload,
 } from "./WebGPUAnimationPayloadPool";
 import type { WebGPUPipelineLayouts } from "./WebGPUPipelineLayouts";
+import type {
+	WebGPUMaterialBufferCache,
+	WebGPUMaterialBufferLease,
+} from "./WebGPUMaterialBufferCache";
 
 type MatrixRows = number[][];
 type FloatBuffer = Float32Array<ArrayBuffer>;
 
 interface MaterialBindingEntry {
-	uniformBuffer: IRenderBuffer;
+	objectUniformBuffer: IRenderBuffer;
 	shaderUniformBuffer: IRenderBuffer | null;
 	bindingGroup: IBindingGroup | null;
+	materialData: WebGPUMaterialUniformData | null;
+	materialLease: WebGPUMaterialBufferLease | null;
 	textures: IRenderTexture[];
 	samplers: ISampler[];
 	morphPositionBuffer: IRenderBuffer;
 	morphNormalBuffer: IRenderBuffer;
-	modelUniformWriter: WebGPUModelUniformWriter;
+	objectUniformWriter: WebGPUObjectUniformWriter;
 	currentModelMatrix: MatrixRows;
 	previousModelMatrix: MatrixRows;
 	normalMatrix: MatrixRows;
-	materialSnapshot: FloatBuffer;
 	shaderUniformBufferSize: number;
 	shaderUniformCacheKey: string;
 	shaderUniformValueRevision: number;
 	animationPayloadGeneration: number;
 	hasModelSnapshot: boolean;
-	hasMaterialSnapshot: boolean;
 	hasPackedUniform: boolean;
 	modelFrame: number;
 	receiveShadows: boolean;
 	lastUsedFrame: number;
 }
 
-const MATERIAL_SNAPSHOT_FLOATS = (14 + WEBGPU_TEXTURE_SLOT_COUNT * 2) * 4;
 const MATERIAL_BINDING_CACHE_MAX_ENTRIES = 16_384;
 const FALLBACK_UNIFORM_DATA: FloatBuffer = new Float32Array(4);
 
@@ -79,7 +85,8 @@ export class WebGPUMaterialBindingCache {
 	constructor(
 		backend: WebGPUDeviceResourceHost,
 		layouts: WebGPUPipelineLayouts,
-		animationPayloads: WebGPUAnimationPayloadPool
+		animationPayloads: WebGPUAnimationPayloadPool,
+		private readonly _materialBuffers: WebGPUMaterialBufferCache,
 	) {
 		this._backend = backend;
 		this._layouts = layouts;
@@ -109,8 +116,9 @@ export class WebGPUMaterialBindingCache {
 		this._destroyed = true;
 		for (const entry of this._cache.values()) {
 			this._destroyBindingGroup(entry.bindingGroup);
-			entry.uniformBuffer.destroy();
+			entry.objectUniformBuffer.destroy();
 			entry.shaderUniformBuffer?.destroy();
+			entry.materialLease?.release();
 		}
 		this._cache.clear();
 		this._fallbackShaderUniformBuffer.destroy();
@@ -138,9 +146,9 @@ export class WebGPUMaterialBindingCache {
 			this._cache.set(cacheKey, cached);
 		}
 
-		this._updateModelUniform(cached, packet, materialData);
+		this._updateObjectUniform(cached, packet);
 
-		let requiresRebind = false;
+		let requiresRebind = this._updateMaterialLease(cached, materialData);
 		requiresRebind =
 			this._updateShaderUniformBuffer(
 				cached,
@@ -172,8 +180,12 @@ export class WebGPUMaterialBindingCache {
 			cached.morphNormalBuffer !== resolvedMorphNormalBuffer
 		) {
 			const previousBindingGroup = cached.bindingGroup;
+			const materialResources = cached.materialLease?.resources;
+			if (!materialResources) {
+				throw new Error("WebGPU model binding is missing material buffers.");
+			}
 			const entries: Array<{ binding: number; resource: any }> = [
-				{ binding: 0, resource: cached.uniformBuffer },
+				{ binding: 0, resource: cached.objectUniformBuffer },
 			];
 			for (let i = 0; i < textures.length; i++) {
 				entries.push({ binding: 1 + i * 2, resource: textures[i] });
@@ -211,11 +223,21 @@ export class WebGPUMaterialBindingCache {
 				{
 					binding: WEBGPU_MODEL_BINDING_STATIC_INSTANCES,
 					resource: fallbackStorageBuffer,
-				}
+				},
+				{
+					binding: WEBGPU_MODEL_BINDING_MATERIAL_COMMON,
+					resource: materialResources.commonBuffer,
+				},
 			);
+			if (materialResources.lightingBuffer) {
+				entries.push({
+					binding: getLightingMaterialBinding(materialResources.shadingFamily),
+					resource: materialResources.lightingBuffer,
+				});
+			}
 			cached.bindingGroup = this._backend.createBindingGroup({
 				label: `ModelBinding_${cacheKey}`,
-				layout: this._layouts.modelBindGroupLayout,
+				layout: this._layouts.modelBindGroupLayouts[materialResources.shadingFamily],
 				entries,
 				cache: false,
 			});
@@ -234,28 +256,28 @@ export class WebGPUMaterialBindingCache {
 
 	private _createEntry(cacheKey: string): MaterialBindingEntry {
 		const entry: MaterialBindingEntry = {
-			uniformBuffer: this._backend.createBuffer({
-				size: WEBGPU_MODEL_UNIFORM_BYTE_SIZE,
+			objectUniformBuffer: this._backend.createBuffer({
+				size: WEBGPU_OBJECT_UNIFORM_BYTE_SIZE,
 				usage: BufferUsage.Uniform | BufferUsage.CopyDst,
-				label: `ModelUniform_${cacheKey}`,
+				label: `ObjectUniform_${cacheKey}`,
 			}),
 			shaderUniformBuffer: null,
 			bindingGroup: null,
+			materialData: null,
+			materialLease: null,
 			textures: [],
 			samplers: [],
 			morphPositionBuffer: this._animationPayloads.getFallbackStorageBuffer(),
 			morphNormalBuffer: this._animationPayloads.getFallbackStorageBuffer(),
-			modelUniformWriter: createModelUniformWriter(),
+			objectUniformWriter: createObjectUniformWriter(),
 			currentModelMatrix: createMatrixRows(),
 			previousModelMatrix: createMatrixRows(),
 			normalMatrix: createMatrixRows(),
-			materialSnapshot: new Float32Array(MATERIAL_SNAPSHOT_FLOATS),
 			shaderUniformBufferSize: 0,
 			shaderUniformCacheKey: "none",
 			shaderUniformValueRevision: -1,
 			animationPayloadGeneration: -1,
 			hasModelSnapshot: false,
-			hasMaterialSnapshot: false,
 			hasPackedUniform: false,
 			modelFrame: -1,
 			receiveShadows: true,
@@ -264,10 +286,9 @@ export class WebGPUMaterialBindingCache {
 		return entry;
 	}
 
-	private _updateModelUniform(
+	private _updateObjectUniform(
 		entry: MaterialBindingEntry,
 		packet: DrawPacket,
-		materialData: WebGPUMaterialUniformData
 	): void {
 		let uniformDirty = !entry.hasPackedUniform;
 		const explicitPreviousMatrix = packet.submission.instance.previousWorldMatrix ?? null;
@@ -298,13 +319,6 @@ export class WebGPUMaterialBindingCache {
 		uniformDirty =
 			copyNormalMatrixToRows(packet.submission.instance.normalMatrix, entry.normalMatrix) ||
 			uniformDirty;
-		uniformDirty =
-			updateMaterialSnapshot(
-				entry.materialSnapshot,
-				materialData,
-				entry.hasMaterialSnapshot
-			) || uniformDirty;
-		entry.hasMaterialSnapshot = true;
 		const receiveShadows =
 			(packet.submission.passFlags & DRAW_PACKET_FLAG_SHADOW_RECEIVER) !== 0;
 		if (entry.receiveShadows !== receiveShadows) {
@@ -316,17 +330,28 @@ export class WebGPUMaterialBindingCache {
 			return;
 		}
 
-		const uniformData = writeModelUniformData(
-			entry.modelUniformWriter,
+		const uniformData = writeObjectUniformData(
+			entry.objectUniformWriter,
 			entry.currentModelMatrix,
 			entry.normalMatrix,
-			materialData,
 			entry.previousModelMatrix,
 			packet.submission.instance.renderLayers,
 			receiveShadows
 		);
-		this._backend.writeBuffer(entry.uniformBuffer, uniformData);
+		this._backend.writeBuffer(entry.objectUniformBuffer, uniformData);
 		entry.hasPackedUniform = true;
+	}
+
+	private _updateMaterialLease(
+		entry: MaterialBindingEntry,
+		materialData: WebGPUMaterialUniformData,
+	): boolean {
+		if (entry.materialData === materialData && entry.materialLease) return false;
+		const nextLease = this._materialBuffers.acquire(materialData);
+		entry.materialLease?.release();
+		entry.materialData = materialData;
+		entry.materialLease = nextLease;
+		return true;
 	}
 
 	private _updateShaderUniformBuffer(
@@ -390,8 +415,9 @@ export class WebGPUMaterialBindingCache {
 			const [key, entry] = oldest;
 			this._cache.delete(key);
 			this._destroyBindingGroup(entry.bindingGroup);
-			entry.uniformBuffer.destroy();
+			entry.objectUniformBuffer.destroy();
 			entry.shaderUniformBuffer?.destroy();
+			entry.materialLease?.release();
 		}
 	}
 }
@@ -470,68 +496,17 @@ function copyRows(source: MatrixRows, target: MatrixRows): boolean {
 	return changed;
 }
 
-function updateMaterialSnapshot(
-	target: FloatBuffer,
-	materialData: WebGPUMaterialUniformData,
-	hasSnapshot: boolean
-): boolean {
-	let offset = 0;
-	let changed = !hasSnapshot;
-	for (const values of [
-		materialData.baseColorFactor,
-		materialData.emissiveFactor,
-		materialData.surfaceParams0,
-		materialData.surfaceParams1,
-		materialData.surfaceParams2,
-		materialData.surfaceParams3,
-		materialData.specularColorFactor,
-		materialData.phongAmbientShininess,
-		materialData.phongSpecularShading,
-		materialData.sheenColorClearcoatNormalScale,
-		materialData.attenuationColor,
-		materialData.anisotropyParams,
-		materialData.materialFlags,
-		materialData.pbrMasks,
-	]) {
-		changed = writeSnapshotVec4(target, offset, values) || changed;
-		offset += 4;
+function getLightingMaterialBinding(
+	family: WebGPUMaterialUniformData["shadingFamily"],
+): number {
+	switch (family) {
+		case "pbr":
+			return WEBGPU_MODEL_BINDING_PBR_MATERIAL;
+		case "phong":
+			return WEBGPU_MODEL_BINDING_PHONG_MATERIAL;
+		case "flat":
+			return WEBGPU_MODEL_BINDING_FLAT_MATERIAL;
+		case "unlit":
+			throw new Error("Unlit model bindings do not contain a lighting buffer.");
 	}
-
-	for (let i = 0; i < WEBGPU_TEXTURE_SLOT_COUNT; i++) {
-		const slot = materialData.textureSlots[i];
-		changed =
-			writeSnapshotVec4(
-				target,
-				offset,
-				slot?.transformA ?? ZERO_VEC4
-			) || changed;
-		offset += 4;
-		changed =
-			writeSnapshotVec4(
-				target,
-				offset,
-				slot?.transformB ?? ZERO_VEC4
-			) || changed;
-		offset += 4;
-	}
-
-	return changed;
-}
-
-const ZERO_VEC4: [number, number, number, number] = [0, 0, 0, 0];
-
-function writeSnapshotVec4(
-	target: FloatBuffer,
-	offset: number,
-	values: readonly number[]
-): boolean {
-	let changed = false;
-	for (let i = 0; i < 4; i++) {
-		const value = values[i] ?? 0;
-		if (target[offset + i] !== value) {
-			target[offset + i] = value;
-			changed = true;
-		}
-	}
-	return changed;
 }

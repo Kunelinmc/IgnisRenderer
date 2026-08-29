@@ -35,10 +35,15 @@ function createWebGLShaderMaterialSourceBlocks(material, stage, source) {
 }
 
 function createLayouts() {
+	const families = ["pbr", "phong", "flat", "unlit"];
+	const familyLayouts = (prefix) => Object.fromEntries(
+		families.map((family) => [family, { id: `${prefix}:${family}` }])
+	);
 	return {
-		scenePipelineLayout: { id: "scene-layout" },
-		sceneGBufferPipelineLayout: { id: "scene-gbuffer-layout" },
-		sceneDepthPrepassPipelineLayout: { id: "scene-depth-layout" },
+		scenePipelineLayouts: familyLayouts("scene-layout"),
+		sceneGBufferPipelineLayouts: familyLayouts("scene-gbuffer-layout"),
+		sceneDepthPrepassPipelineLayouts: familyLayouts("scene-depth-layout"),
+		planarReflectionPipelineLayouts: familyLayouts("planar-layout"),
 		environmentPipelineLayout: { id: "environment-layout" },
 	};
 }
@@ -318,7 +323,7 @@ async function testWGSLProgramSelection() {
 	const singlePipeline = await getScenePipeline(library, backend,
 		material, "single", false, undefined, undefined, undefined, 1,
 	);
-	assert.equal(singlePipeline.desc.layout.id, "scene-layout");
+	assert.equal(singlePipeline.desc.layout.id, "scene-layout:flat");
 	assert.equal(singlePipeline.desc.vertex.entryPoint, "customVs");
 	assert.equal(singlePipeline.desc.fragment.entryPoint, "customFsSingle");
 	assert.equal(singlePipeline.desc.fragment.targets.length, 1);
@@ -326,7 +331,7 @@ async function testWGSLProgramSelection() {
 	const mrtPipeline = await getScenePipeline(library, backend,
 		material, "mrt", false, undefined, undefined, undefined, 1,
 	);
-	assert.equal(mrtPipeline.desc.layout.id, "scene-layout");
+	assert.equal(mrtPipeline.desc.layout.id, "scene-layout:flat");
 	assert.equal(mrtPipeline.desc.vertex.entryPoint, "customVs");
 	assert.equal(mrtPipeline.desc.fragment.entryPoint, "customFsMRT");
 	assert.equal(mrtPipeline.desc.fragment.targets.length, 5);
@@ -493,7 +498,7 @@ async function testWebGPUDeferredProgramSelection() {
 	const pipeline = await getScenePipeline(library, backend,
 		material, "gbuffer", false, undefined, undefined, undefined, 1,
 	);
-	assert.equal(pipeline.desc.layout.id, "scene-gbuffer-layout");
+	assert.equal(pipeline.desc.layout.id, "scene-gbuffer-layout:flat");
 	assert.equal(pipeline.desc.fragment.entryPoint, "customFsDeferred");
 	assert.equal(pipeline.desc.fragment.targets.length, 7);
 
@@ -525,7 +530,7 @@ async function testBuiltinBaseGBufferPipelineSelection() {
 		1,
 		"base",
 	);
-	assert.equal(pipeline.desc.fragment.entryPoint, "fsMainGBufferBase");
+	assert.equal(pipeline.desc.fragment.entryPoint, "fsMainGBufferBasePBR");
 	assert.equal(pipeline.desc.fragment.targets.length, 4);
 }
 
@@ -712,7 +717,7 @@ async function testWarnModeFallbackToBuiltinShader() {
 		);
 	});
 	assert.equal(pipeline.desc.vertex.entryPoint, "vsMain");
-	assert.equal(pipeline.desc.fragment.entryPoint, "fsMainSingle");
+	assert.equal(pipeline.desc.fragment.entryPoint, "fsMainSingleFlat");
 	assert.ok(
 		backend.shaderModules.some((module) => module.label === "WebGPUSceneShader")
 	);

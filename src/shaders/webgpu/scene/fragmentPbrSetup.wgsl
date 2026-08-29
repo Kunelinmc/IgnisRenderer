@@ -1,5 +1,5 @@
 var mrSample = vec4<f32>(1.0);
-if (hasPBRTexture(PBR_TEXTURE_METALLIC_ROUGHNESS_MAP)) {
+if (hasPBRTexture(material, PBR_TEXTURE_METALLIC_ROUGHNESS_MAP)) {
 	mrSample = sampleLinearTexture(
 		metallicRoughnessTexture,
 		metallicRoughnessSampler,
@@ -11,7 +11,7 @@ if (hasPBRTexture(PBR_TEXTURE_METALLIC_ROUGHNESS_MAP)) {
 	);
 }
 var occlusionSample = vec4<f32>(1.0);
-if (hasPBRTexture(PBR_TEXTURE_OCCLUSION_MAP)) {
+if (hasPBRTexture(material, PBR_TEXTURE_OCCLUSION_MAP)) {
 	occlusionSample = sampleLinearTexture(
 		occlusionTexture,
 		occlusionSampler,
@@ -24,11 +24,11 @@ if (hasPBRTexture(PBR_TEXTURE_OCCLUSION_MAP)) {
 }
 var specularSample = vec4<f32>(1.0);
 if (
-	hasPBRFeature(PBR_FEATURE_SPECULAR) &&
-	model.specularColorFactor.a > EPSILON &&
-	max(max(model.specularColorFactor.r, model.specularColorFactor.g),
-		model.specularColorFactor.b) > EPSILON &&
-	hasPBRTexture(PBR_TEXTURE_SPECULAR_MAP)
+	hasPBRFeature(material, PBR_FEATURE_SPECULAR) &&
+	material.pbr.specularColorFactor.a > EPSILON &&
+	max(max(material.pbr.specularColorFactor.r, material.pbr.specularColorFactor.g),
+		material.pbr.specularColorFactor.b) > EPSILON &&
+	hasPBRTexture(material, PBR_TEXTURE_SPECULAR_MAP)
 ) {
 	specularSample = sampleLinearTexture(
 		specularTexture,
@@ -42,11 +42,11 @@ if (
 }
 var specularColorSample = vec4<f32>(1.0);
 if (
-	hasPBRFeature(PBR_FEATURE_SPECULAR) &&
-	model.specularColorFactor.a > EPSILON &&
-	max(max(model.specularColorFactor.r, model.specularColorFactor.g),
-		model.specularColorFactor.b) > EPSILON &&
-	hasPBRTexture(PBR_TEXTURE_SPECULAR_COLOR_MAP)
+	hasPBRFeature(material, PBR_FEATURE_SPECULAR) &&
+	material.pbr.specularColorFactor.a > EPSILON &&
+	max(max(material.pbr.specularColorFactor.r, material.pbr.specularColorFactor.g),
+		material.pbr.specularColorFactor.b) > EPSILON &&
+	hasPBRTexture(material, PBR_TEXTURE_SPECULAR_COLOR_MAP)
 ) {
 	specularColorSample = sampleColorTexture(
 		specularColorTexture,
@@ -60,8 +60,8 @@ if (
 }
 var clearcoatSample = vec4<f32>(1.0);
 if (
-	hasPBRFeature(PBR_FEATURE_CLEARCOAT) &&
-	hasPBRTexture(PBR_TEXTURE_CLEARCOAT_MAP)
+	hasPBRFeature(material, PBR_FEATURE_CLEARCOAT) &&
+	hasPBRTexture(material, PBR_TEXTURE_CLEARCOAT_MAP)
 ) {
 	clearcoatSample = sampleLinearTexture(
 		clearcoatTexture,
@@ -75,8 +75,8 @@ if (
 }
 var clearcoatRoughnessSample = vec4<f32>(1.0);
 if (
-	hasPBRFeature(PBR_FEATURE_CLEARCOAT) &&
-	hasPBRTexture(PBR_TEXTURE_CLEARCOAT_ROUGHNESS_MAP)
+	hasPBRFeature(material, PBR_FEATURE_CLEARCOAT) &&
+	hasPBRTexture(material, PBR_TEXTURE_CLEARCOAT_ROUGHNESS_MAP)
 ) {
 	clearcoatRoughnessSample = sampleLinearTexture(
 		clearcoatRoughnessTexture,
@@ -90,8 +90,8 @@ if (
 }
 var sheenColorSample = vec4<f32>(1.0);
 if (
-	hasPBRFeature(PBR_FEATURE_SHEEN) &&
-	hasPBRTexture(PBR_TEXTURE_SHEEN_COLOR_MAP)
+	hasPBRFeature(material, PBR_FEATURE_SHEEN) &&
+	hasPBRTexture(material, PBR_TEXTURE_SHEEN_COLOR_MAP)
 ) {
 	sheenColorSample = sampleColorTexture(
 		sheenColorTexture,
@@ -105,8 +105,8 @@ if (
 }
 var sheenRoughnessSample = vec4<f32>(1.0);
 if (
-	hasPBRFeature(PBR_FEATURE_SHEEN) &&
-	hasPBRTexture(PBR_TEXTURE_SHEEN_ROUGHNESS_MAP)
+	hasPBRFeature(material, PBR_FEATURE_SHEEN) &&
+	hasPBRTexture(material, PBR_TEXTURE_SHEEN_ROUGHNESS_MAP)
 ) {
 	sheenRoughnessSample = sampleLinearTexture(
 		sheenRoughnessTexture,
@@ -120,8 +120,8 @@ if (
 }
 var transmissionSample = vec4<f32>(1.0);
 if (
-	hasPBRFeature(PBR_FEATURE_TRANSMISSION) &&
-	hasPBRTexture(PBR_TEXTURE_TRANSMISSION_MAP)
+	hasPBRFeature(material, PBR_FEATURE_TRANSMISSION) &&
+	hasPBRTexture(material, PBR_TEXTURE_TRANSMISSION_MAP)
 ) {
 	transmissionSample = sampleLinearTexture(
 		transmissionTexture,
@@ -135,8 +135,8 @@ if (
 }
 var thicknessSample = vec4<f32>(1.0);
 if (
-	hasPBRFeature(PBR_FEATURE_TRANSMISSION) &&
-	hasPBRTexture(PBR_TEXTURE_THICKNESS_MAP)
+	hasPBRFeature(material, PBR_FEATURE_TRANSMISSION) &&
+	hasPBRTexture(material, PBR_TEXTURE_THICKNESS_MAP)
 ) {
 	thicknessSample = sampleLinearTexture(
 		thicknessTexture,
@@ -150,8 +150,8 @@ if (
 }
 var iridescenceSample = vec4<f32>(1.0);
 if (
-	hasPBRFeature(PBR_FEATURE_IRIDESCENCE) &&
-	hasPBRTexture(PBR_TEXTURE_IRIDESCENCE_MAP)
+	hasPBRFeature(material, PBR_FEATURE_IRIDESCENCE) &&
+	hasPBRTexture(material, PBR_TEXTURE_IRIDESCENCE_MAP)
 ) {
 	iridescenceSample = sampleLinearTexture(
 		iridescenceTexture,
@@ -165,8 +165,8 @@ if (
 }
 var iridescenceThicknessSample = vec4<f32>(1.0);
 if (
-	hasPBRFeature(PBR_FEATURE_IRIDESCENCE) &&
-	hasPBRTexture(PBR_TEXTURE_IRIDESCENCE_THICKNESS_MAP)
+	hasPBRFeature(material, PBR_FEATURE_IRIDESCENCE) &&
+	hasPBRTexture(material, PBR_TEXTURE_IRIDESCENCE_THICKNESS_MAP)
 ) {
 	iridescenceThicknessSample = sampleLinearTexture(
 		iridescenceThicknessTexture,
@@ -180,7 +180,7 @@ if (
 }
 
 var normalSample = vec3<f32>(0.5, 0.5, 1.0);
-if (hasPBRTexture(PBR_TEXTURE_NORMAL_MAP)) {
+if (hasPBRTexture(material, PBR_TEXTURE_NORMAL_MAP)) {
 	normalSample = sampleLinearTexture(
 		normalTexture,
 		normalSampler,
@@ -193,8 +193,8 @@ if (hasPBRTexture(PBR_TEXTURE_NORMAL_MAP)) {
 }
 var clearcoatNormalSample = vec3<f32>(0.5, 0.5, 1.0);
 if (
-	hasPBRFeature(PBR_FEATURE_CLEARCOAT) &&
-	hasPBRTexture(PBR_TEXTURE_CLEARCOAT_NORMAL_MAP)
+	hasPBRFeature(material, PBR_FEATURE_CLEARCOAT) &&
+	hasPBRTexture(material, PBR_TEXTURE_CLEARCOAT_NORMAL_MAP)
 ) {
 	clearcoatNormalSample = sampleLinearTexture(
 		clearcoatNormalTexture,
@@ -207,41 +207,41 @@ if (
 	).rgb;
 }
 
-let roughness = clamp(model.surfaceParams0.x * mrSample.g, 0.04, 1.0);
-let metalness = clamp(model.surfaceParams0.y * mrSample.b, 0.0, 1.0);
-let reflectance = clamp(model.surfaceParams0.z, 0.0, 1.0);
+let roughness = clamp(material.pbr.surfaceParams0.x * mrSample.g, 0.04, 1.0);
+let metalness = clamp(material.pbr.surfaceParams0.y * mrSample.b, 0.0, 1.0);
+let reflectance = clamp(material.pbr.surfaceParams0.z, 0.0, 1.0);
 let occlusion = clamp(
-	1.0 + model.surfaceParams1.x * (occlusionSample.r - 1.0),
+	1.0 + material.pbr.surfaceParams1.x * (occlusionSample.r - 1.0),
 	0.0,
 	1.0
 );
-let clearcoat = clamp(model.surfaceParams1.z * clearcoatSample.r, 0.0, 1.0);
+let clearcoat = clamp(material.pbr.surfaceParams1.z * clearcoatSample.r, 0.0, 1.0);
 let clearcoatRoughness = clamp(
-	model.surfaceParams1.w * clearcoatRoughnessSample.g,
+	material.pbr.surfaceParams1.w * clearcoatRoughnessSample.g,
 	0.04,
 	1.0
 );
-let sheenColor = model.sheenColorClearcoatNormalScale.rgb * sheenColorSample.rgb;
-let sheenRoughness = clamp(model.surfaceParams2.x * sheenRoughnessSample.a, 0.0, 1.0);
-let transmission = clamp(model.surfaceParams2.y * transmissionSample.r, 0.0, 1.0);
-let ior = max(model.surfaceParams2.z, 1.0);
-let thickness = max(model.surfaceParams2.w * thicknessSample.g, 0.0);
-let attenuationDistance = model.surfaceParams3.x;
-let iridescence = clamp(model.surfaceParams3.y * iridescenceSample.r, 0.0, 1.0);
-let iridescenceIor = max(model.surfaceParams3.z, 1.0);
+let sheenColor = material.pbr.sheenColorClearcoatNormalScale.rgb * sheenColorSample.rgb;
+let sheenRoughness = clamp(material.pbr.surfaceParams2.x * sheenRoughnessSample.a, 0.0, 1.0);
+let transmission = clamp(material.pbr.surfaceParams2.y * transmissionSample.r, 0.0, 1.0);
+let ior = max(material.pbr.surfaceParams2.z, 1.0);
+let thickness = max(material.pbr.surfaceParams2.w * thicknessSample.g, 0.0);
+let attenuationDistance = material.pbr.surfaceParams3.x;
+let iridescence = clamp(material.pbr.surfaceParams3.y * iridescenceSample.r, 0.0, 1.0);
+let iridescenceIor = max(material.pbr.surfaceParams3.z, 1.0);
 let iridescenceThickness = max(
 	mix(
-		model.surfaceParams3.w,
-		model.attenuationColor.a,
+		material.pbr.surfaceParams3.w,
+		material.pbr.attenuationColor.a,
 		iridescenceThicknessSample.g
 	),
 	0.0
 );
-let attenuationColor = clamp(model.attenuationColor.rgb, vec3<f32>(0.0001), vec3<f32>(1.0));
+let attenuationColor = clamp(material.pbr.attenuationColor.rgb, vec3<f32>(0.0001), vec3<f32>(1.0));
 
-let specularFactor = clamp(model.specularColorFactor.a * specularSample.a, 0.0, 1.0);
+let specularFactor = clamp(material.pbr.specularColorFactor.a * specularSample.a, 0.0, 1.0);
 let specularColor = clamp(
-	model.specularColorFactor.rgb * specularColorSample.rgb,
+	material.pbr.specularColorFactor.rgb * specularColorSample.rgb,
 	vec3<f32>(0.0),
 	vec3<f32>(1.0)
 );
@@ -250,7 +250,7 @@ var pbrNormal = applyNormalMap(
 	normal,
 	input.worldTangent,
 	normalSample,
-	model.surfaceParams1.y
+	material.pbr.surfaceParams1.y
 );
 if (dot(pbrNormal, geometryNormal) < 0.0) {
 	pbrNormal = -pbrNormal;
@@ -261,7 +261,7 @@ var clearcoatNormal = applyNormalMap(
 	pbrNormal,
 	input.worldTangent,
 	clearcoatNormalSample,
-	model.sheenColorClearcoatNormalScale.a
+	material.pbr.sheenColorClearcoatNormalScale.a
 );
 if (dot(clearcoatNormal, pbrNormal) < 0.0) {
 	clearcoatNormal = -clearcoatNormal;
@@ -275,6 +275,7 @@ let nDotV = max(dot(pbrNormal, viewDir), PBR_MIN_NDOTV);
 let energyCompensation =
 	resolveSpecularEnergyCompensation(nDotV, roughness, realF0);
 let anisotropyData = resolveAnisotropyDirection(
+	material,
 	input.uv0,
 	input.uv1,
 	input.uv2,

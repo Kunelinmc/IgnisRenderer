@@ -19,8 +19,6 @@ const TEX_IRIDESCENCE: u32 = 14u;
 const TEX_IRIDESCENCE_THICKNESS: u32 = 15u;
 const TEX_ANISOTROPY: u32 = 16u;
 
-const SHADING_PBR: u32 = 1u;
-
 const PBR_FEATURE_SPECULAR: u32 = 1u << 4u;
 const PBR_FEATURE_CLEARCOAT: u32 = 1u << 5u;
 const PBR_FEATURE_SHEEN: u32 = 1u << 6u;
@@ -71,12 +69,11 @@ struct DecalUniforms {
 	surfaceParams2: vec4<f32>,
 	surfaceParams3: vec4<f32>,
 	specularColorFactor: vec4<f32>,
-	phongAmbientShininess: vec4<f32>,
-	phongSpecularShading: vec4<f32>,
+	shininessParams: vec4<f32>,
 	sheenColorClearcoatNormalScale: vec4<f32>,
 	attenuationColor: vec4<f32>,
 	anisotropyParams: vec4<f32>,
-	materialFlags: vec4<f32>,
+	sourceParams: vec4<f32>,
 	pbrMasks: vec4<u32>,
 	textureTransformA: array<vec4<f32>, 17>,
 	textureTransformB: array<vec4<f32>, 17>,
@@ -421,7 +418,7 @@ fn projectorOpacity(localPosition: vec3<f32>, baseAlpha: f32) -> f32 {
 	let edgeFade = max(decal.projectorParams.y, 0.0);
 	let fade = select(1.0, saturate(distanceToEdge / max(edgeFade, EPSILON)), edgeFade > 0.0);
 	let sourceAlpha = saturate(decal.baseColorFactor.a * baseAlpha);
-	if (decal.materialFlags.y > 0.5 && sourceAlpha < decal.surfaceParams0.w) {
+	if (decal.sourceParams.y > 0.5 && sourceAlpha < decal.sourceParams.x) {
 		return 0.0;
 	}
 	return saturate(decal.projectorParams.x * sourceAlpha * fade);
@@ -450,10 +447,7 @@ fn fsMain(input: VSOut) -> GBufferOutput {
 	let localPosition = (decal.worldToLocal * vec4<f32>(worldPosition, 1.0)).xyz;
 	let projectorUV = localPosition.xy + vec2<f32>(0.5);
 	var baseSample = vec4<f32>(1.0);
-	if (
-		decal.materialFlags.x != f32(SHADING_PBR) ||
-		hasPBRTexture(PBR_TEXTURE_BASE_COLOR_MAP)
-	) {
+	if (hasPBRTexture(PBR_TEXTURE_BASE_COLOR_MAP)) {
 		baseSample = sampleColorTexture(
 			baseColorTexture,
 			baseColorSampler,
@@ -469,10 +463,7 @@ fn fsMain(input: VSOut) -> GBufferOutput {
 	let oldNormal = decodeDeferredNormal(normalRoughMetalOld.xy);
 	let baseColor = clamp(decal.baseColorFactor.rgb * baseSample.rgb, vec3<f32>(0.0), vec3<f32>(1.0));
 	var mrSample = vec4<f32>(1.0);
-	if (
-		decal.materialFlags.x != f32(SHADING_PBR) ||
-		hasPBRTexture(PBR_TEXTURE_METALLIC_ROUGHNESS_MAP)
-	) {
+	if (hasPBRTexture(PBR_TEXTURE_METALLIC_ROUGHNESS_MAP)) {
 		mrSample = sampleLinearTexture(
 			metallicRoughnessTexture,
 			metallicRoughnessSampler,
@@ -481,10 +472,7 @@ fn fsMain(input: VSOut) -> GBufferOutput {
 		);
 	}
 	var normalSample = vec3<f32>(0.5, 0.5, 1.0);
-	if (
-		decal.materialFlags.x != f32(SHADING_PBR) ||
-		hasPBRTexture(PBR_TEXTURE_NORMAL_MAP)
-	) {
+	if (hasPBRTexture(PBR_TEXTURE_NORMAL_MAP)) {
 		normalSample = sampleLinearTexture(
 			normalTexture,
 			normalSampler,
@@ -493,10 +481,7 @@ fn fsMain(input: VSOut) -> GBufferOutput {
 		).rgb;
 	}
 	var emissiveSample = vec4<f32>(1.0);
-	if (
-		decal.materialFlags.x != f32(SHADING_PBR) ||
-		hasPBRTexture(PBR_TEXTURE_EMISSIVE_MAP)
-	) {
+	if (hasPBRTexture(PBR_TEXTURE_EMISSIVE_MAP)) {
 		emissiveSample = sampleColorTexture(
 			emissiveTexture,
 			emissiveSampler,
@@ -505,10 +490,7 @@ fn fsMain(input: VSOut) -> GBufferOutput {
 		);
 	}
 	var occlusionSample = vec4<f32>(1.0);
-	if (
-		decal.materialFlags.x != f32(SHADING_PBR) ||
-		hasPBRTexture(PBR_TEXTURE_OCCLUSION_MAP)
-	) {
+	if (hasPBRTexture(PBR_TEXTURE_OCCLUSION_MAP)) {
 		occlusionSample = sampleLinearTexture(
 			occlusionTexture,
 			occlusionSampler,
@@ -738,7 +720,7 @@ fn fsMain(input: VSOut) -> GBufferOutput {
 	let isPhong = shadingModel == 0u || shadingModel == 3u;
 	let specularPayload = select(
 		specularFactor,
-		max(decal.phongAmbientShininess.w, 0.0),
+		max(decal.shininessParams.x, 0.0),
 		isPhong
 	);
 	specular = vec4<f32>(
@@ -898,7 +880,7 @@ fn projectorOpacityFrom(
 	let edgeFade = max(d.projectorParams.y, 0.0);
 	let fade = select(1.0, saturate(distanceToEdge / max(edgeFade, EPSILON)), edgeFade > 0.0);
 	let sourceAlpha = saturate(d.baseColorFactor.a * baseAlpha);
-	if (d.materialFlags.y > 0.5 && sourceAlpha < d.surfaceParams0.w) {
+	if (d.sourceParams.y > 0.5 && sourceAlpha < d.sourceParams.x) {
 		return 0.0;
 	}
 	return saturate(d.projectorParams.x * sourceAlpha * fade);
@@ -964,10 +946,7 @@ fn applyDecalToGBuffer(
 	let localPosition = (d.worldToLocal * vec4<f32>(worldPosition, 1.0)).xyz;
 	let projectorUV = localPosition.xy + vec2<f32>(0.5);
 	var baseSample = vec4<f32>(1.0);
-	if (
-		d.materialFlags.x != f32(SHADING_PBR) ||
-		hasPBRTextureFrom(d, PBR_TEXTURE_BASE_COLOR_MAP)
-	) {
+	if (hasPBRTextureFrom(d, PBR_TEXTURE_BASE_COLOR_MAP)) {
 		baseSample = sampleColorTextureFrom(
 			d,
 			baseColorTexture,
@@ -995,10 +974,7 @@ fn applyDecalToGBuffer(
 	let oldNormal = decodeDeferredNormal(normalRoughMetalOld.xy);
 	let baseColor = clamp(d.baseColorFactor.rgb * baseSample.rgb, vec3<f32>(0.0), vec3<f32>(1.0));
 	var mrSample = vec4<f32>(1.0);
-	if (
-		d.materialFlags.x != f32(SHADING_PBR) ||
-		hasPBRTextureFrom(d, PBR_TEXTURE_METALLIC_ROUGHNESS_MAP)
-	) {
+	if (hasPBRTextureFrom(d, PBR_TEXTURE_METALLIC_ROUGHNESS_MAP)) {
 		mrSample = sampleLinearTextureFrom(
 			d,
 			metallicRoughnessTexture,
@@ -1008,10 +984,7 @@ fn applyDecalToGBuffer(
 		);
 	}
 	var normalSample = vec3<f32>(0.5, 0.5, 1.0);
-	if (
-		d.materialFlags.x != f32(SHADING_PBR) ||
-		hasPBRTextureFrom(d, PBR_TEXTURE_NORMAL_MAP)
-	) {
+	if (hasPBRTextureFrom(d, PBR_TEXTURE_NORMAL_MAP)) {
 		normalSample = sampleLinearTextureFrom(
 			d,
 			normalTexture,
@@ -1021,10 +994,7 @@ fn applyDecalToGBuffer(
 		).rgb;
 	}
 	var emissiveSample = vec4<f32>(1.0);
-	if (
-		d.materialFlags.x != f32(SHADING_PBR) ||
-		hasPBRTextureFrom(d, PBR_TEXTURE_EMISSIVE_MAP)
-	) {
+	if (hasPBRTextureFrom(d, PBR_TEXTURE_EMISSIVE_MAP)) {
 		emissiveSample = sampleColorTextureFrom(
 			d,
 			emissiveTexture,
@@ -1034,10 +1004,7 @@ fn applyDecalToGBuffer(
 		);
 	}
 	var occlusionSample = vec4<f32>(1.0);
-	if (
-		d.materialFlags.x != f32(SHADING_PBR) ||
-		hasPBRTextureFrom(d, PBR_TEXTURE_OCCLUSION_MAP)
-	) {
+	if (hasPBRTextureFrom(d, PBR_TEXTURE_OCCLUSION_MAP)) {
 		occlusionSample = sampleLinearTextureFrom(
 			d,
 			occlusionTexture,
@@ -1275,7 +1242,7 @@ fn applyDecalToGBuffer(
 	let isPhong = shadingModel == 0u || shadingModel == 3u;
 	let specularPayload = select(
 		specularFactor,
-		max(d.phongAmbientShininess.w, 0.0),
+		max(d.shininessParams.x, 0.0),
 		isPhong
 	);
 	specular = vec4<f32>(
