@@ -217,18 +217,16 @@ struct ParticleShadowVolumeBuffer {
 @group(0) @binding(1) var shadowAtlas: texture_depth_2d;
 @group(0) @binding(2) var envSpecularTexture: texture_2d<f32>;
 @group(0) @binding(3) var envSpecularSampler: sampler;
-@group(0) @binding(4) var envSpecularFallbackTexture: texture_2d<f32>;
-@group(0) @binding(5) var envSpecularFallbackSampler: sampler;
-@group(0) @binding(6) var<uniform> fog: FogUniforms;
-@group(0) @binding(7) var<storage, read> particleShadowVolumes:
+@group(0) @binding(4) var<uniform> fog: FogUniforms;
+@group(0) @binding(5) var<storage, read> particleShadowVolumes:
 	ParticleShadowVolumeBuffer;
-@group(0) @binding(8) var shadowTransmittanceAtlas: texture_2d<f32>;
-@group(0) @binding(9) var brdfLUTTexture: texture_2d<f32>;
-@group(0) @binding(10) var irradianceProbeGridCoeffs: texture_2d<f32>;
-@group(0) @binding(11) var shadowComparisonSampler: sampler_comparison;
-@group(0) @binding(12) var<uniform> frameLights: FrameLightUniforms;
-@group(0) @binding(13) var<uniform> frameShadows: FrameShadowUniforms;
-@group(0) @binding(14) var<uniform> frameEnvironment: FrameEnvironmentUniforms;
+@group(0) @binding(6) var shadowTransmittanceAtlas: texture_2d<f32>;
+@group(0) @binding(7) var brdfLUTTexture: texture_2d<f32>;
+@group(0) @binding(8) var irradianceProbeGridCoeffs: texture_2d<f32>;
+@group(0) @binding(9) var shadowComparisonSampler: sampler_comparison;
+@group(0) @binding(10) var<uniform> frameLights: FrameLightUniforms;
+@group(0) @binding(11) var<uniform> frameShadows: FrameShadowUniforms;
+@group(0) @binding(12) var<uniform> frameEnvironment: FrameEnvironmentUniforms;
 
 @group(1) @binding(0) var<uniform> model: ModelUniforms;
 @group(1) @binding(1) var baseColorTexture: texture_2d<f32>;

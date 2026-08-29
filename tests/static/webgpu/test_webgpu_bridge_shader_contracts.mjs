@@ -447,11 +447,9 @@ async function testSceneShaderCoverage() {
 		assert.ok(!postProcessShader.includes("sqrt(z2)"));
 	}
 	assert.ok(WEBGPU_SCENE_SHADER.includes("@group(0) @binding(2)"));
-	assert.ok(WEBGPU_SCENE_SHADER.includes("@group(0) @binding(4) var envSpecularFallbackTexture"));
-	assert.ok(WEBGPU_SCENE_SHADER.includes("@group(0) @binding(5) var envSpecularFallbackSampler"));
-	assert.ok(WEBGPU_SCENE_SHADER.includes("@group(0) @binding(6) var<uniform> fog"));
-	assert.ok(WEBGPU_SCENE_SHADER.includes("@group(0) @binding(9) var brdfLUTTexture"));
-	assert.ok(WEBGPU_SCENE_SHADER.includes("@group(0) @binding(11) var shadowComparisonSampler"));
+	assert.ok(WEBGPU_SCENE_SHADER.includes("@group(0) @binding(4) var<uniform> fog"));
+	assert.ok(WEBGPU_SCENE_SHADER.includes("@group(0) @binding(7) var brdfLUTTexture"));
+	assert.ok(WEBGPU_SCENE_SHADER.includes("@group(0) @binding(9) var shadowComparisonSampler"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("@group(2) @binding(0)"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("if (isClusteredLightingEnabled())"));
 	assert.ok(WEBGPU_SCENE_SHADER.includes("decodeClusteredLightRef"));
@@ -818,7 +816,7 @@ async function testParticleShaderDepthConsistency() {
 		WEBGPU_PARTICLE_SHADER.includes("@group(1) @binding(2) var<uniform>")
 	);
 	assert.ok(
-		WEBGPU_PARTICLE_SHADER.includes("@group(0) @binding(6) var<uniform> fog")
+		WEBGPU_PARTICLE_SHADER.includes("@group(0) @binding(4) var<uniform> fog")
 	);
 	assert.ok(
 		WEBGPU_PARTICLE_SHADER.includes(
@@ -842,7 +840,7 @@ async function testParticleShaderDepthConsistency() {
 	);
 	assert.ok(
 		WEBGPU_PARTICLE_SHADER.includes(
-			"@group(0) @binding(8) var shadowTransmittanceAtlas"
+			"@group(0) @binding(6) var shadowTransmittanceAtlas"
 		)
 	);
 	assert.equal(WEBGPU_PARTICLE_SHADER.includes("directionalShadows[0]"), false);
@@ -980,7 +978,7 @@ async function testWebGPUShaderConstantTokenInjection() {
 		WEBGPU_PARTICLE_SHADER.includes("struct FrameShadowUniforms")
 	);
 	assert.ok(
-		WEBGPU_PARTICLE_SHADER.includes("@group(0) @binding(13) var<uniform> frameShadows")
+		WEBGPU_PARTICLE_SHADER.includes("@group(0) @binding(11) var<uniform> frameShadows")
 	);
 	assert.ok(
 		WEBGPU_SSR_SHADER.includes("struct FrameCameraUniforms")

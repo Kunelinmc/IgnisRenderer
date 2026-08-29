@@ -278,10 +278,8 @@ function createFrameInput() {
 		hasSHAmbient: false,
 		environmentIsLinear: false,
 		hasEnvSpecular: true,
-		hasEnvSpecularFallback: true,
 		hasBRDFLUT: true,
 		envSpecularMaxMipLevel: 5,
-		envSpecularFallbackMaxMipLevel: 6,
 		taaJitterCurrentPrev: [43, 44, 45, 46],
 	};
 }
@@ -360,7 +358,7 @@ function testFrameUniformPacking() {
 	assert.deepEqual(readVec(WEBGPU_FRAME_CAMERA_UNIFORM_LAYOUT, cameraData, "lightCounts", 4), [1, 1, 1, 1]);
 	assert.deepEqual(readVec(WEBGPU_FRAME_CAMERA_UNIFORM_LAYOUT, cameraData, "options", 4), [1, 0, 1, 0]);
 	assert.deepEqual(readVec(WEBGPU_FRAME_CAMERA_UNIFORM_LAYOUT, cameraData, "environmentOptionsA", 4), [
-		1, 0, 7, 1,
+		1, 0, 0, 1,
 	]);
 	assert.deepEqual(readVec(WEBGPU_FRAME_CAMERA_UNIFORM_LAYOUT, cameraData, "environmentOptionsB", 4), [
 		1, 5, 0, 1,

@@ -116,9 +116,7 @@ const FRAME_CAMERA_UNIFORM_PACKER = createStructuredBufferPacker<
 		packVec4("environmentOptionsA", (input) => [
 			input.enableSH ? 1 : 0,
 			input.hasSHAmbient ? 1 : 0,
-			input.hasEnvSpecularFallback ?
-				Math.max(0, input.envSpecularFallbackMaxMipLevel) + 1
-			:	0,
+			0, // Reserved to preserve the published frame uniform layout.
 			input.hasEnvSpecular ? 1 : 0,
 		]),
 		packVec4("environmentOptionsB", (input) => [

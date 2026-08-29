@@ -781,9 +781,9 @@ The frame packers share `WebGPUFrameUniformInput` and target these
 | Packer | Binding | Layout | Size |
 | --- | --- | --- | --- |
 | `packFrameCameraUniformData` | `0` | `FrameCameraUniforms` | 288 bytes |
-| `packFrameLightUniformData` | `12` | `FrameLightUniforms` | 1,664 bytes |
-| `packFrameShadowUniformData` | `13` | `FrameShadowUniforms` | 5,760 bytes |
-| `packFrameEnvironmentUniformData` | `14` | `FrameEnvironmentUniforms` | 4,208 bytes |
+| `packFrameLightUniformData` | `10` | `FrameLightUniforms` | 1,664 bytes |
+| `packFrameShadowUniformData` | `11` | `FrameShadowUniforms` | 5,760 bytes |
+| `packFrameEnvironmentUniformData` | `12` | `FrameEnvironmentUniforms` | 4,208 bytes |
 
 `FrameCameraUniforms.options` must preserve its four-lane layout. The lanes
 must contain lighting enablement in `x`, zero in the reserved `y` lane, shadow

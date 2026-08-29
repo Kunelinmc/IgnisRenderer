@@ -272,14 +272,14 @@ async function testRenderResourcesUseCopyDstForUploads() {
 	);
 	assert.equal("anisotropyTexture" in firstDraw.resolvedInputs, false);
 	assert.ok(firstDraw.resolvedInputs.textures[WEBGPU_TEXTURE_SLOT.ANISOTROPY]);
-	assert.equal(firstDraw.frameBinding.desc.entries.length, 15);
+	assert.equal(firstDraw.frameBinding.desc.entries.length, 13);
 	assert.ok(
-		firstDraw.frameBinding.desc.entries.some((entry) => entry.binding === 7)
+		firstDraw.frameBinding.desc.entries.some((entry) => entry.binding === 5)
 	);
 	assert.ok(
-		firstDraw.frameBinding.desc.entries.some((entry) => entry.binding === 10)
+		firstDraw.frameBinding.desc.entries.some((entry) => entry.binding === 8)
 	);
-	for (const binding of [0, 12, 13, 14]) {
+	for (const binding of [0, 10, 11, 12]) {
 		assert.ok(
 			firstDraw.frameBinding.desc.entries.some(
 				(entry) => entry.binding === binding

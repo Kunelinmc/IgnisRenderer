@@ -107,7 +107,6 @@ export class WebGPUFrameBindingCache {
 	private _shadowTransmittanceAtlas: IRenderTexture | null = null;
 	private _environmentTexture: IRenderTexture | null = null;
 	private _envSpecularTexture: IRenderTexture | null = null;
-	private _envSpecularFallbackTexture: IRenderTexture | null = null;
 	private _brdfLUTTexture: IRenderTexture | null = null;
 	private _irradianceProbeGridTexture: IRenderTexture | null = null;
 	private _ownedIrradianceProbeGridTexture: IRenderTexture | null = null;
@@ -117,7 +116,6 @@ export class WebGPUFrameBindingCache {
 	private _irradianceProbeGridTextureData = new Float32Array(WEBGPU_SH_COEFFICIENT_COUNT * 4);
 	private _environmentSampler: ISampler | null = null;
 	private _envSpecularSampler: ISampler | null = null;
-	private _envSpecularFallbackSampler: ISampler | null = null;
 	private _shadowComparisonSampler: ISampler | null = null;
 	private readonly _temporalFrameState = new TemporalFrameState();
 	private _currentTemporalSnapshot: TemporalFrameSnapshot | null = null;
@@ -215,10 +213,8 @@ export class WebGPUFrameBindingCache {
 				!environmentState.environmentTexture ||
 				environmentState.environmentTexture.colorSpace !== "sRGB",
 			hasEnvSpecular: !!environmentState.envSpecularTexture,
-			hasEnvSpecularFallback: !!environmentState.envSpecularFallbackTexture,
 			hasBRDFLUT: !!environmentState.brdfLUTTexture,
 			envSpecularMaxMipLevel: environmentState.envSpecularMaxMipLevel,
-			envSpecularFallbackMaxMipLevel: environmentState.envSpecularFallbackMaxMipLevel,
 			taaJitterCurrentPrev: temporal.jitterCurrentPrev,
 		};
 
@@ -261,17 +257,6 @@ export class WebGPUFrameBindingCache {
 		const currentEnvSpecularSampler = environmentState.envSpecularTexture
 			? this._textureRegistry.getSamplerForTexture(environmentState.envSpecularTexture)
 			: this._textureRegistry.getWhiteSampler();
-		const currentEnvSpecularFallback = environmentState.envSpecularFallbackTexture
-			? this._textureRegistry.getTextureForSlot(
-					environmentState.envSpecularFallbackTexture,
-					0,
-				)
-			: this._textureRegistry.getWhiteTexture();
-		const currentEnvSpecularFallbackSampler = environmentState.envSpecularFallbackTexture
-			? this._textureRegistry.getSamplerForTexture(
-					environmentState.envSpecularFallbackTexture,
-				)
-			: this._textureRegistry.getWhiteSampler();
 		const currentBRDFLUT = environmentState.brdfLUTTexture
 			? this._textureRegistry.getTextureForSlot(environmentState.brdfLUTTexture, 0)
 			: this._textureRegistry.getWhiteTexture();
@@ -282,12 +267,10 @@ export class WebGPUFrameBindingCache {
 			this._shadowTransmittanceAtlas !== currentShadowTransmittanceAtlas ||
 			this._environmentTexture !== currentEnvironment ||
 			this._envSpecularTexture !== currentEnvSpecular ||
-			this._envSpecularFallbackTexture !== currentEnvSpecularFallback ||
 			this._brdfLUTTexture !== currentBRDFLUT ||
 			this._irradianceProbeGridTexture !== currentIrradianceProbeGrid ||
 			this._environmentSampler !== currentEnvironmentSampler ||
-			this._envSpecularSampler !== currentEnvSpecularSampler ||
-			this._envSpecularFallbackSampler !== currentEnvSpecularFallbackSampler
+			this._envSpecularSampler !== currentEnvSpecularSampler
 		) {
 			this._destroyBindingGroup(this._sceneBinding);
 			this._destroyBindingGroup(this._environmentBinding);
@@ -297,12 +280,10 @@ export class WebGPUFrameBindingCache {
 			this._shadowTransmittanceAtlas = currentShadowTransmittanceAtlas;
 			this._environmentTexture = currentEnvironment;
 			this._envSpecularTexture = currentEnvSpecular;
-			this._envSpecularFallbackTexture = currentEnvSpecularFallback;
 			this._brdfLUTTexture = currentBRDFLUT;
 			this._irradianceProbeGridTexture = currentIrradianceProbeGrid;
 			this._environmentSampler = currentEnvironmentSampler;
 			this._envSpecularSampler = currentEnvSpecularSampler;
-			this._envSpecularFallbackSampler = currentEnvSpecularFallbackSampler;
 		}
 	}
 
@@ -473,44 +454,32 @@ export class WebGPUFrameBindingCache {
 						resource:
 							this._envSpecularSampler ?? this._textureRegistry.getWhiteSampler(),
 					},
+					{ binding: 4, resource: this._getFogUniformBuffer() },
+					{ binding: 5, resource: this._getParticleShadowVolumeBuffer() },
 					{
-						binding: 4,
-						resource:
-							this._envSpecularFallbackTexture ??
-							this._textureRegistry.getWhiteTexture(),
-					},
-					{
-						binding: 5,
-						resource:
-							this._envSpecularFallbackSampler ??
-							this._textureRegistry.getWhiteSampler(),
-					},
-					{ binding: 6, resource: this._getFogUniformBuffer() },
-					{ binding: 7, resource: this._getParticleShadowVolumeBuffer() },
-					{
-						binding: 8,
+						binding: 6,
 						resource:
 							this._shadowTransmittanceAtlas ??
 							this._textureRegistry.getWhiteTexture(),
 					},
 					{
-						binding: 9,
+						binding: 7,
 						resource: this._brdfLUTTexture ?? this._textureRegistry.getWhiteTexture(),
 					},
 					{
-						binding: 10,
+						binding: 8,
 						resource:
 							this._irradianceProbeGridTexture ??
 							this._textureRegistry.getWhiteTexture(),
 					},
 					{
-						binding: 11,
+						binding: 9,
 						resource: this._getShadowComparisonSampler(),
 					},
-					{ binding: 12, resource: this._getFrameLightUniformBuffer() },
-					{ binding: 13, resource: this._getFrameShadowUniformBuffer() },
+					{ binding: 10, resource: this._getFrameLightUniformBuffer() },
+					{ binding: 11, resource: this._getFrameShadowUniformBuffer() },
 					{
-						binding: 14,
+						binding: 12,
 						resource: this._getFrameEnvironmentUniformBuffer(),
 					},
 				],
@@ -821,13 +790,11 @@ export class WebGPUFrameBindingCache {
 		this._shadowTransmittanceAtlas = null;
 		this._environmentTexture = null;
 		this._envSpecularTexture = null;
-		this._envSpecularFallbackTexture = null;
 		this._brdfLUTTexture = null;
 		this._destroySampler(this._shadowComparisonSampler);
 		this._shadowComparisonSampler = null;
 		this._environmentSampler = null;
 		this._envSpecularSampler = null;
-		this._envSpecularFallbackSampler = null;
 		this.resetTemporalState();
 	}
 

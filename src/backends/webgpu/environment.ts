@@ -172,7 +172,6 @@ export function collectWebGPUEnvironment(
 		hasSHAmbient,
 		environmentTexture: environmentBackgroundTexture,
 		envSpecularTexture,
-		envSpecularFallbackTexture: null,
 		localLightProbeCount,
 		localLightProbes: localizedProbeUniforms,
 		irradianceProbeGrid,
@@ -181,7 +180,6 @@ export function collectWebGPUEnvironment(
 		brdfLUTTexture: IBLBRDF.getLUT(),
 		envSpecularMaxMipLevel:
 			hasEnvSpecular ? Math.max(0, getEnvironmentMipLevelCount(envSpecularTexture) - 1) : 0,
-		envSpecularFallbackMaxMipLevel: 0,
 		warnings,
 	};
 }

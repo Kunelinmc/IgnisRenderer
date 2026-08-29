@@ -79,17 +79,15 @@ The following pipeline layouts must preserve these bind group roles:
 | `1` | `shadowAtlas` | `texture_depth_2d` |
 | `2` | `envSpecularTexture` | `texture_2d<f32>` |
 | `3` | `envSpecularSampler` | Filtering sampler |
-| `4` | `envSpecularFallbackTexture` | `texture_2d<f32>` |
-| `5` | `envSpecularFallbackSampler` | Filtering sampler |
-| `6` | `fog` | `FogUniforms` uniform buffer |
-| `7` | `particleShadowVolumes` | Read-only storage buffer |
-| `8` | `shadowTransmittanceAtlas` | `texture_2d<f32>` |
-| `9` | `brdfLUTTexture` | `texture_2d<f32>` |
-| `10` | `irradianceProbeGridCoeffs` | `texture_2d<f32>` |
-| `11` | `shadowComparisonSampler` | Comparison sampler |
-| `12` | `frameLights` | `FrameLightUniforms` uniform buffer (1,664 bytes) |
-| `13` | `frameShadows` | `FrameShadowUniforms` uniform buffer (5,760 bytes) |
-| `14` | `frameEnvironment` | `FrameEnvironmentUniforms` uniform buffer (4,208 bytes) |
+| `4` | `fog` | `FogUniforms` uniform buffer |
+| `5` | `particleShadowVolumes` | Read-only storage buffer |
+| `6` | `shadowTransmittanceAtlas` | `texture_2d<f32>` |
+| `7` | `brdfLUTTexture` | `texture_2d<f32>` |
+| `8` | `irradianceProbeGridCoeffs` | `texture_2d<f32>` |
+| `9` | `shadowComparisonSampler` | Comparison sampler |
+| `10` | `frameLights` | `FrameLightUniforms` uniform buffer (1,664 bytes) |
+| `11` | `frameShadows` | `FrameShadowUniforms` uniform buffer (5,760 bytes) |
+| `12` | `frameEnvironment` | `FrameEnvironmentUniforms` uniform buffer (4,208 bytes) |
 
 ### `environmentFrameBindGroupLayout` - `group(0)`
 
@@ -213,12 +211,11 @@ Particle render pipelines use `sceneFrameBindGroupLayout` as `group(0)` and
 | `0` | `1` | `shadowAtlas` | `texture_depth_2d` |
 | `0` | `2` | `envSpecularTexture` | `texture_2d<f32>` |
 | `0` | `3` | `envSpecularSampler` | Filtering sampler |
-| `0` | `6` | `fog` | `FogUniforms` uniform buffer |
-| `0` | `7` | `particleShadowVolumes` | Read-only storage buffer |
-| `0` | `13` | `shadowComparisonSampler` | Comparison sampler |
-| `0` | `14` | `frameLights` | `FrameLightUniforms` uniform buffer |
-| `0` | `15` | `frameShadows` | `FrameShadowUniforms` uniform buffer |
-| `0` | `16` | `frameEnvironment` | `FrameEnvironmentUniforms` uniform buffer |
+| `0` | `4` | `fog` | `FogUniforms` uniform buffer |
+| `0` | `5` | `particleShadowVolumes` | Read-only storage buffer |
+| `0` | `6` | `shadowTransmittanceAtlas` | `texture_2d<f32>` |
+| `0` | `9` | `shadowComparisonSampler` | Comparison sampler |
+| `0` | `11` | `frameShadows` | `FrameShadowUniforms` uniform buffer |
 | `1` | `0` | `particleTexture` | `texture_2d<f32>` |
 | `1` | `1` | `particleSampler` | Filtering sampler |
 | `1` | `2` | `particleUVTransform` | Particle UV transform uniform buffer |

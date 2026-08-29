@@ -73,16 +73,6 @@ export function createWebGPUPipelineLayouts(
 			},
 			{
 				binding: 4,
-				visibility: GPUShaderStage.FRAGMENT | GPUShaderStage.COMPUTE,
-				texture: { sampleType: "float" },
-			},
-			{
-				binding: 5,
-				visibility: GPUShaderStage.FRAGMENT | GPUShaderStage.COMPUTE,
-				sampler: { type: "filtering" },
-			},
-			{
-				binding: 6,
 				visibility:
 					GPUShaderStage.VERTEX |
 					GPUShaderStage.FRAGMENT |
@@ -90,48 +80,48 @@ export function createWebGPUPipelineLayouts(
 				buffer: { type: "uniform" },
 			},
 			{
-				binding: 7,
+				binding: 5,
 				visibility: GPUShaderStage.FRAGMENT,
 				buffer: { type: "read-only-storage" },
 			},
 			{
-				binding: 8,
+				binding: 6,
 				visibility: GPUShaderStage.FRAGMENT | GPUShaderStage.COMPUTE,
+				texture: { sampleType: "float" },
+			},
+			{
+				binding: 7,
+				visibility: GPUShaderStage.FRAGMENT,
+				texture: { sampleType: "float" },
+			},
+			{
+				binding: 8,
+				visibility: GPUShaderStage.FRAGMENT,
 				texture: { sampleType: "float" },
 			},
 			{
 				binding: 9,
-				visibility: GPUShaderStage.FRAGMENT,
-				texture: { sampleType: "float" },
-			},
-			{
-				binding: 10,
-				visibility: GPUShaderStage.FRAGMENT,
-				texture: { sampleType: "float" },
-			},
-			{
-				binding: 11,
 				visibility: GPUShaderStage.FRAGMENT | GPUShaderStage.COMPUTE,
 				sampler: { type: "comparison" },
 			},
 			{
+				binding: 10,
+				visibility:
+					GPUShaderStage.VERTEX |
+					GPUShaderStage.FRAGMENT |
+					GPUShaderStage.COMPUTE,
+				buffer: { type: "uniform" },
+			},
+			{
+				binding: 11,
+				visibility:
+					GPUShaderStage.VERTEX |
+					GPUShaderStage.FRAGMENT |
+					GPUShaderStage.COMPUTE,
+				buffer: { type: "uniform" },
+			},
+			{
 				binding: 12,
-				visibility:
-					GPUShaderStage.VERTEX |
-					GPUShaderStage.FRAGMENT |
-					GPUShaderStage.COMPUTE,
-				buffer: { type: "uniform" },
-			},
-			{
-				binding: 13,
-				visibility:
-					GPUShaderStage.VERTEX |
-					GPUShaderStage.FRAGMENT |
-					GPUShaderStage.COMPUTE,
-				buffer: { type: "uniform" },
-			},
-			{
-				binding: 14,
 				visibility:
 					GPUShaderStage.VERTEX |
 					GPUShaderStage.FRAGMENT |
