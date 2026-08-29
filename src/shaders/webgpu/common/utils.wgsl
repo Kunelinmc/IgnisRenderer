@@ -1691,19 +1691,37 @@ const SHADOW_PCSS_MAX_PENUMBRA_TEXELS: f32 = 5.0;
 const SHADOW_PCSS_CONTACT_THRESHOLD_TEXELS: f32 = 0.75;
 const MAX_SHADOW_FILTER_SAMPLES: i32 = 7;
 const MAX_SHADOW_SEARCH_SAMPLES: i32 = 12;
-const SHADOW_DISK_SAMPLES: array<vec2<f32>, 12> = array<vec2<f32>, 12>(
+const SHADOW_FILTER_DISK_SAMPLES: array<vec2<f32>, 16> = array<vec2<f32>, 16>(
 	vec2<f32>(0.0, 0.0),
+	vec2<f32>(0.0, 0.53),
+	vec2<f32>(-0.458993464, -0.265),
+	vec2<f32>(0.458993464, -0.265),
+	vec2<f32>(0.0, 0.0),
+	vec2<f32>(0.66, 0.0),
+	vec2<f32>(-0.66, 0.0),
+	vec2<f32>(0.0, 0.66),
+	vec2<f32>(0.0, -0.66),
+	vec2<f32>(0.0, 0.0),
+	vec2<f32>(0.68, 0.0),
+	vec2<f32>(0.34, 0.588897275),
+	vec2<f32>(-0.34, 0.588897275),
+	vec2<f32>(-0.68, 0.0),
+	vec2<f32>(-0.34, -0.588897275),
+	vec2<f32>(0.34, -0.588897275)
+);
+const SHADOW_SEARCH_DISK_SAMPLES: array<vec2<f32>, 12> = array<vec2<f32>, 12>(
 	vec2<f32>(-0.191063595, 0.710747050),
-	vec2<f32>(0.328594541, 0.428593391),
-	vec2<f32>(-0.822442486, 0.339492303),
-	vec2<f32>(-0.260699267, 0.238821884),
-	vec2<f32>(-0.364378997, -0.701589586),
-	vec2<f32>(-0.603011395, -0.106664225),
-	vec2<f32>(0.396471625, -0.847236833),
-	vec2<f32>(0.039904201, -0.454687792),
+	vec2<f32>(0.191063595, -0.710747050),
 	vec2<f32>(0.790556673, 0.288710029),
+	vec2<f32>(-0.790556673, -0.288710029),
+	vec2<f32>(-0.822442486, 0.339492303),
+	vec2<f32>(0.822442486, -0.339492303),
+	vec2<f32>(-0.364378997, -0.701589586),
+	vec2<f32>(0.364378997, 0.701589586),
+	vec2<f32>(0.396471625, -0.847236833),
+	vec2<f32>(-0.396471625, 0.847236833),
 	vec2<f32>(0.571225035, -0.363366609),
-	vec2<f32>(0.292982446, 0.934074205)
+	vec2<f32>(-0.571225035, 0.363366609)
 );
 
 fn resolveShadowSampleCounts(quality: i32) -> vec3<i32> {
@@ -1717,12 +1735,10 @@ fn resolveShadowSampleCounts(quality: i32) -> vec3<i32> {
 }
 
 fn hashShadowRotation(
-	texelPosition: vec2<i32>,
 	lightIndex: u32,
 	cascadeIndex: u32
 ) -> f32 {
-	var hash = u32(texelPosition.x) * 0x8da6b343u;
-	hash = hash ^ (u32(texelPosition.y) * 0xd8163841u);
+	var hash = 0x9e3779b9u;
 	hash = hash ^ (lightIndex * 0xcb1ab31fu);
 	hash = hash ^ (cascadeIndex * 0x165667b1u);
 	hash = hash ^ (hash >> 16u);
@@ -1731,12 +1747,37 @@ fn hashShadowRotation(
 	return f32(hash) * (2.0 * PI / 4294967296.0);
 }
 
-fn shadowDiskSample(sampleIndex: i32, rotation: vec2<f32>) -> vec2<f32> {
-	let sample = SHADOW_DISK_SAMPLES[u32(clamp(sampleIndex, 0, 11))];
+fn rotateShadowDiskSample(sample: vec2<f32>, rotation: vec2<f32>) -> vec2<f32> {
 	return vec2<f32>(
 		sample.x * rotation.x - sample.y * rotation.y,
 		sample.x * rotation.y + sample.y * rotation.x
 	);
+}
+
+fn shadowFilterDiskSample(
+	sampleIndex: i32,
+	sampleCount: i32,
+	rotation: vec2<f32>
+) -> vec2<f32> {
+	var normalizedCount = 7;
+	var start = 9;
+	if (sampleCount <= 1) {
+		normalizedCount = 1;
+		start = 0;
+	} else if (sampleCount <= 3) {
+		normalizedCount = 3;
+		start = 1;
+	} else if (sampleCount <= 5) {
+		normalizedCount = 5;
+		start = 4;
+	}
+	let index = start + clamp(sampleIndex, 0, normalizedCount - 1);
+	return rotateShadowDiskSample(SHADOW_FILTER_DISK_SAMPLES[u32(index)], rotation);
+}
+
+fn shadowSearchDiskSample(sampleIndex: i32, rotation: vec2<f32>) -> vec2<f32> {
+	let sample = SHADOW_SEARCH_DISK_SAMPLES[u32(clamp(sampleIndex, 0, 11))];
+	return rotateShadowDiskSample(sample, rotation);
 }
 
 fn linearizeShadowDepth(depth: f32, projectionParams: vec4<f32>) -> f32 {
@@ -1839,7 +1880,6 @@ fn sampleShadowVisibilityForCascade(
 	let quality = i32(clamp(floor(shadowData.paramsD.y + 0.5), 0.0, 2.0));
 	let sampleCounts = resolveShadowSampleCounts(quality);
 	let theta = hashShadowRotation(
-		vec2<i32>(floor(texelPosition)),
 		shadowGlobalIndex,
 		clampedCascadeIndex
 	);
@@ -1855,7 +1895,7 @@ fn sampleShadowVisibilityForCascade(
 				break;
 			}
 			let samplePosition = clamp(
-				texelPosition + shadowDiskSample(i, rotation) *
+				texelPosition + shadowSearchDiskSample(i, rotation) *
 					SHADOW_PCSS_SEARCH_RADIUS_TEXELS,
 				vec2<f32>(0.0),
 				vec2<f32>(f32(shadowSize - 1))
@@ -1900,7 +1940,11 @@ fn sampleShadowVisibilityForCascade(
 			break;
 		}
 		let samplePosition = clamp(
-			texelPosition + shadowDiskSample(i, rotation) * filterRadius,
+			texelPosition + shadowFilterDiskSample(
+				i,
+				filterSampleCount,
+				rotation
+			) * filterRadius,
 			vec2<f32>(0.0),
 			vec2<f32>(f32(shadowSize - 1))
 		);

@@ -6,7 +6,8 @@ import { Matrix4 } from "../../../src/maths/Matrix4.ts";
 import {
 	linearizeShadowNdcDepth,
 	resolveShadowDepthProjectionParams,
-	SHADOW_DISK_SAMPLES,
+	resolveShadowFilterDiskSample,
+	resolveShadowSearchDiskSample,
 	SHADOW_SAMPLING_PRESETS,
 } from "../../../src/lights/shadows/shadowSampling.ts";
 
@@ -67,10 +68,25 @@ function testSamplingAuthoringAndProjectionDepth() {
 		pcssSearchSamples: 8,
 		pcssFilterSamples: 5,
 	});
-	assert.equal(SHADOW_DISK_SAMPLES.length, 12);
-	for (const [x, y] of SHADOW_DISK_SAMPLES) {
-		assert.ok(Number.isFinite(x) && Number.isFinite(y));
-		assert.ok(Math.hypot(x, y) <= 1);
+	for (const sampleCount of [1, 3, 5, 7]) {
+		const offsets = Array.from({ length: sampleCount }, (_, index) =>
+			resolveShadowFilterDiskSample(index, sampleCount, 1, 0));
+		const centroid = offsets.reduce(
+			(sum, [x, y]) => [sum[0] + x / sampleCount, sum[1] + y / sampleCount],
+			[0, 0],
+		);
+		assert.ok(Math.hypot(...centroid) < 1e-8);
+		for (const [x, y] of offsets) assert.ok(Math.hypot(x, y) <= 1);
+	}
+	for (const sampleCount of [4, 8, 12]) {
+		const offsets = Array.from({ length: sampleCount }, (_, index) =>
+			resolveShadowSearchDiskSample(index, 1, 0));
+		const centroid = offsets.reduce(
+			(sum, [x, y]) => [sum[0] + x / sampleCount, sum[1] + y / sampleCount],
+			[0, 0],
+		);
+		assert.ok(Math.hypot(...centroid) < 1e-8);
+		for (const [x, y] of offsets) assert.ok(Math.hypot(x, y) <= 1);
 	}
 
 	const projection = Matrix4.perspective(60, 1, 0.1, 100);

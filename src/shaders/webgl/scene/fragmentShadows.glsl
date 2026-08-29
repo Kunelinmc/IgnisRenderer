@@ -12,9 +12,8 @@ ivec3 resolveShadowSampleCounts(int quality) {
 	return ivec3(3, 8, 5);
 }
 
-float hashShadowRotation(ivec2 texelPosition, int lightIndex, int cascadeIndex) {
-	uint hash = uint(texelPosition.x) * 0x8da6b343u;
-	hash ^= uint(texelPosition.y) * 0xd8163841u;
+float hashShadowRotation(int lightIndex, int cascadeIndex) {
+	uint hash = 0x9e3779b9u;
 	hash ^= uint(lightIndex) * 0xcb1ab31fu;
 	hash ^= uint(cascadeIndex) * 0x165667b1u;
 	hash ^= hash >> 16u;
@@ -23,27 +22,60 @@ float hashShadowRotation(ivec2 texelPosition, int lightIndex, int cascadeIndex) 
 	return float(hash) * (2.0 * PI / 4294967296.0);
 }
 
-vec2 shadowDiskSampleBase(int sampleIndex) {
+vec2 shadowFilterDiskSampleBase(int sampleIndex, int sampleCount) {
+	if (sampleCount <= 1) return vec2(0.0);
+	if (sampleCount <= 3) {
+		if (sampleIndex == 0) return vec2(0.0, 0.53);
+		if (sampleIndex == 1) return vec2(-0.458993464, -0.265);
+		return vec2(0.458993464, -0.265);
+	}
+	if (sampleCount <= 5) {
+		if (sampleIndex == 0) return vec2(0.0);
+		if (sampleIndex == 1) return vec2(0.66, 0.0);
+		if (sampleIndex == 2) return vec2(-0.66, 0.0);
+		if (sampleIndex == 3) return vec2(0.0, 0.66);
+		return vec2(0.0, -0.66);
+	}
 	if (sampleIndex == 0) return vec2(0.0);
-	if (sampleIndex == 1) return vec2(-0.191063595, 0.710747050);
-	if (sampleIndex == 2) return vec2(0.328594541, 0.428593391);
-	if (sampleIndex == 3) return vec2(-0.822442486, 0.339492303);
-	if (sampleIndex == 4) return vec2(-0.260699267, 0.238821884);
-	if (sampleIndex == 5) return vec2(-0.364378997, -0.701589586);
-	if (sampleIndex == 6) return vec2(-0.603011395, -0.106664225);
-	if (sampleIndex == 7) return vec2(0.396471625, -0.847236833);
-	if (sampleIndex == 8) return vec2(0.039904201, -0.454687792);
-	if (sampleIndex == 9) return vec2(0.790556673, 0.288710029);
-	if (sampleIndex == 10) return vec2(0.571225035, -0.363366609);
-	return vec2(0.292982446, 0.934074205);
+	if (sampleIndex == 1) return vec2(0.68, 0.0);
+	if (sampleIndex == 2) return vec2(0.34, 0.588897275);
+	if (sampleIndex == 3) return vec2(-0.34, 0.588897275);
+	if (sampleIndex == 4) return vec2(-0.68, 0.0);
+	if (sampleIndex == 5) return vec2(-0.34, -0.588897275);
+	return vec2(0.34, -0.588897275);
 }
 
-vec2 shadowDiskSample(int sampleIndex, vec2 rotation) {
-	vec2 sampleOffset = shadowDiskSampleBase(sampleIndex);
+vec2 shadowSearchDiskSampleBase(int sampleIndex) {
+	if (sampleIndex == 0) return vec2(-0.191063595, 0.710747050);
+	if (sampleIndex == 1) return vec2(0.191063595, -0.710747050);
+	if (sampleIndex == 2) return vec2(0.790556673, 0.288710029);
+	if (sampleIndex == 3) return vec2(-0.790556673, -0.288710029);
+	if (sampleIndex == 4) return vec2(-0.822442486, 0.339492303);
+	if (sampleIndex == 5) return vec2(0.822442486, -0.339492303);
+	if (sampleIndex == 6) return vec2(-0.364378997, -0.701589586);
+	if (sampleIndex == 7) return vec2(0.364378997, 0.701589586);
+	if (sampleIndex == 8) return vec2(0.396471625, -0.847236833);
+	if (sampleIndex == 9) return vec2(-0.396471625, 0.847236833);
+	if (sampleIndex == 10) return vec2(0.571225035, -0.363366609);
+	return vec2(-0.571225035, 0.363366609);
+}
+
+vec2 rotateShadowDiskSample(vec2 sampleOffset, vec2 rotation) {
 	return vec2(
 		sampleOffset.x * rotation.x - sampleOffset.y * rotation.y,
 		sampleOffset.x * rotation.y + sampleOffset.y * rotation.x
 	);
+}
+
+vec2 shadowFilterDiskSample(int sampleIndex, int sampleCount, vec2 rotation) {
+	return rotateShadowDiskSample(
+		shadowFilterDiskSampleBase(sampleIndex, sampleCount),
+		rotation
+	);
+}
+
+vec2 shadowSearchDiskSample(int sampleIndex, vec2 rotation) {
+	return rotateShadowDiskSample(shadowSearchDiskSampleBase(sampleIndex), rotation);
 }
 
 float linearizeShadowDepth(float depth, vec4 projectionParams) {
@@ -209,7 +241,6 @@ vec3 sampleShadowVisibility(
 	int quality = int(clamp(floor(paramsD.y + 0.5), 0.0, 2.0));
 	ivec3 sampleCounts = resolveShadowSampleCounts(quality);
 	float theta = hashShadowRotation(
-		ivec2(floor(texelPosition)),
 		int(tileIndex),
 		cascadeIndex
 	);
@@ -223,7 +254,7 @@ vec3 sampleShadowVisibility(
 		for (int i = 0; i < MAX_SHADOW_SEARCH_SAMPLES; i++) {
 			if (i >= sampleCounts.y) break;
 			vec2 samplePosition = clamp(
-				texelPosition + shadowDiskSample(i, rotation) *
+				texelPosition + shadowSearchDiskSample(i, rotation) *
 					SHADOW_PCSS_SEARCH_RADIUS_TEXELS,
 				vec2(0.0),
 				vec2(shadowSize - 1.0)
@@ -268,7 +299,11 @@ vec3 sampleShadowVisibility(
 	for (int i = 0; i < MAX_SHADOW_FILTER_SAMPLES; i++) {
 		if (i >= filterSampleCount) break;
 		vec2 samplePosition = clamp(
-			texelPosition + shadowDiskSample(i, rotation) * filterRadius,
+			texelPosition + shadowFilterDiskSample(
+				i,
+				filterSampleCount,
+				rotation
+			) * filterRadius,
 			vec2(0.0),
 			vec2(shadowSize - 1.0)
 		);

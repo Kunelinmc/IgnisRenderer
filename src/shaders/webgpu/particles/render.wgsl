@@ -151,32 +151,71 @@ fn particleShadowSampleCounts(quality: i32) -> vec3<i32> {
 	return vec3<i32>(3, 8, 5);
 }
 
-fn particleShadowDiskSampleBase(index: i32) -> vec2<f32> {
+fn particleShadowFilterDiskSampleBase(index: i32, sampleCount: i32) -> vec2<f32> {
+	if (sampleCount <= 1) { return vec2<f32>(0.0); }
+	if (sampleCount <= 3) {
+		if (index == 0) { return vec2<f32>(0.0, 0.53); }
+		if (index == 1) { return vec2<f32>(-0.458993464, -0.265); }
+		return vec2<f32>(0.458993464, -0.265);
+	}
+	if (sampleCount <= 5) {
+		if (index == 0) { return vec2<f32>(0.0); }
+		if (index == 1) { return vec2<f32>(0.66, 0.0); }
+		if (index == 2) { return vec2<f32>(-0.66, 0.0); }
+		if (index == 3) { return vec2<f32>(0.0, 0.66); }
+		return vec2<f32>(0.0, -0.66);
+	}
 	if (index == 0) { return vec2<f32>(0.0); }
-	if (index == 1) { return vec2<f32>(-0.191063595, 0.710747050); }
-	if (index == 2) { return vec2<f32>(0.328594541, 0.428593391); }
-	if (index == 3) { return vec2<f32>(-0.822442486, 0.339492303); }
-	if (index == 4) { return vec2<f32>(-0.260699267, 0.238821884); }
-	if (index == 5) { return vec2<f32>(-0.364378997, -0.701589586); }
-	if (index == 6) { return vec2<f32>(-0.603011395, -0.106664225); }
-	if (index == 7) { return vec2<f32>(0.396471625, -0.847236833); }
-	if (index == 8) { return vec2<f32>(0.039904201, -0.454687792); }
-	if (index == 9) { return vec2<f32>(0.790556673, 0.288710029); }
-	if (index == 10) { return vec2<f32>(0.571225035, -0.363366609); }
-	return vec2<f32>(0.292982446, 0.934074205);
+	if (index == 1) { return vec2<f32>(0.68, 0.0); }
+	if (index == 2) { return vec2<f32>(0.34, 0.588897275); }
+	if (index == 3) { return vec2<f32>(-0.34, 0.588897275); }
+	if (index == 4) { return vec2<f32>(-0.68, 0.0); }
+	if (index == 5) { return vec2<f32>(-0.34, -0.588897275); }
+	return vec2<f32>(0.34, -0.588897275);
 }
 
-fn particleShadowDiskSample(index: i32, rotation: vec2<f32>) -> vec2<f32> {
-	let sample = particleShadowDiskSampleBase(index);
+fn particleShadowSearchDiskSampleBase(index: i32) -> vec2<f32> {
+	if (index == 0) { return vec2<f32>(-0.191063595, 0.710747050); }
+	if (index == 1) { return vec2<f32>(0.191063595, -0.710747050); }
+	if (index == 2) { return vec2<f32>(0.790556673, 0.288710029); }
+	if (index == 3) { return vec2<f32>(-0.790556673, -0.288710029); }
+	if (index == 4) { return vec2<f32>(-0.822442486, 0.339492303); }
+	if (index == 5) { return vec2<f32>(0.822442486, -0.339492303); }
+	if (index == 6) { return vec2<f32>(-0.364378997, -0.701589586); }
+	if (index == 7) { return vec2<f32>(0.364378997, 0.701589586); }
+	if (index == 8) { return vec2<f32>(0.396471625, -0.847236833); }
+	if (index == 9) { return vec2<f32>(-0.396471625, 0.847236833); }
+	if (index == 10) { return vec2<f32>(0.571225035, -0.363366609); }
+	return vec2<f32>(-0.571225035, 0.363366609);
+}
+
+fn rotateParticleShadowDiskSample(sample: vec2<f32>, rotation: vec2<f32>) -> vec2<f32> {
 	return vec2<f32>(
 		sample.x * rotation.x - sample.y * rotation.y,
 		sample.x * rotation.y + sample.y * rotation.x
 	);
 }
 
-fn particleShadowRotation(texel: vec2<i32>, lightIndex: u32, cascadeIndex: u32) -> f32 {
-	var hash = u32(texel.x) * 0x8da6b343u;
-	hash = hash ^ (u32(texel.y) * 0xd8163841u);
+fn particleShadowFilterDiskSample(
+	index: i32,
+	sampleCount: i32,
+	rotation: vec2<f32>
+) -> vec2<f32> {
+	return rotateParticleShadowDiskSample(
+		particleShadowFilterDiskSampleBase(index, sampleCount),
+		rotation
+	);
+}
+
+fn particleShadowSearchDiskSample(index: i32, rotation: vec2<f32>) -> vec2<f32> {
+	return rotateParticleShadowDiskSample(
+		particleShadowSearchDiskSampleBase(index),
+		rotation
+	);
+}
+
+fn particleShadowRotation(lightIndex: u32, cascadeIndex: u32) -> f32 {
+	var hash = 0x9e3779b9u;
 	hash = hash ^ (lightIndex * 0xcb1ab31fu);
 	hash = hash ^ (cascadeIndex * 0x165667b1u);
 	hash = hash ^ (hash >> 16u);
@@ -247,7 +286,6 @@ fn sampleParticleDirectionalCascade(
 	let quality = i32(clamp(floor(shadow.paramsD.y + 0.5), 0.0, 2.0));
 	let sampleCounts = particleShadowSampleCounts(quality);
 	let theta = particleShadowRotation(
-		vec2<i32>(floor(texelPosition)),
 		index,
 		cascadeIndex
 	);
@@ -260,7 +298,7 @@ fn sampleParticleDirectionalCascade(
 		for (var i: i32 = 0; i < PARTICLE_SHADOW_MAX_SEARCH_SAMPLES; i = i + 1) {
 			if (i >= sampleCounts.y) { break; }
 			let samplePosition = clamp(
-				texelPosition + particleShadowDiskSample(i, rotation) *
+				texelPosition + particleShadowSearchDiskSample(i, rotation) *
 					PARTICLE_SHADOW_PCSS_SEARCH_RADIUS,
 				vec2<f32>(0.0),
 				vec2<f32>(f32(shadowSize - 1))
@@ -303,7 +341,11 @@ fn sampleParticleDirectionalCascade(
 	for (var i: i32 = 0; i < PARTICLE_SHADOW_MAX_FILTER_SAMPLES; i = i + 1) {
 		if (i >= filterSampleCount) { break; }
 		let samplePosition = clamp(
-			texelPosition + particleShadowDiskSample(i, rotation) * filterRadius,
+			texelPosition + particleShadowFilterDiskSample(
+				i,
+				filterSampleCount,
+				rotation
+			) * filterRadius,
 			vec2<f32>(0.0),
 			vec2<f32>(f32(shadowSize - 1))
 		);

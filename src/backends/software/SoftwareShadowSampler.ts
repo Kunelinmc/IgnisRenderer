@@ -24,8 +24,9 @@ import {
 import {
 	linearizeShadowNdcDepth,
 	resolveShadowDepthProjectionParams,
+	resolveShadowFilterDiskSample,
 	resolveShadowSampleRotation,
-	resolveShadowDiskSample,
+	resolveShadowSearchDiskSample,
 	SHADOW_PCF_RADIUS_TEXELS,
 	SHADOW_PCSS_CONTACT_THRESHOLD_TEXELS,
 	SHADOW_PCSS_MAX_PENUMBRA_TEXELS,
@@ -286,12 +287,7 @@ function calculateShadowFactor(ctx: SoftwareShadowSampleContext): RGB {
 	const preset = SHADOW_SAMPLING_PRESETS[quality];
 	const texelPositionX = u * (size - 1);
 	const texelPositionY = v * (size - 1);
-	const rotation = resolveShadowSampleRotation(
-		Math.floor(texelPositionX),
-		Math.floor(texelPositionY),
-		0,
-		slice.index,
-	);
+	const rotation = resolveShadowSampleRotation(0, slice.index);
 	const rotationCos = Math.cos(rotation);
 	const rotationSin = Math.sin(rotation);
 	const projectionParams = resolveShadowDepthProjectionParams(projectionMatrix);
@@ -301,7 +297,12 @@ function calculateShadowFactor(ctx: SoftwareShadowSampleContext): RGB {
 		let visibilityG = 0;
 		let visibilityB = 0;
 		for (let index = 0; index < sampleCount; index++) {
-			const offset = resolveShadowDiskSample(index, rotationCos, rotationSin);
+			const offset = resolveShadowFilterDiskSample(
+				index,
+				sampleCount,
+				rotationCos,
+				rotationSin,
+			);
 			const sampleX = Math.max(
 				0,
 				Math.min(size - 1, texelPositionX + offset[0] * radius),
@@ -344,7 +345,11 @@ function calculateShadowFactor(ctx: SoftwareShadowSampleContext): RGB {
 	let blockerCount = 0;
 	let blockerDistanceSum = 0;
 	for (let index = 0; index < preset.pcssSearchSamples; index++) {
-		const offset = resolveShadowDiskSample(index, rotationCos, rotationSin);
+		const offset = resolveShadowSearchDiskSample(
+			index,
+			rotationCos,
+			rotationSin,
+		);
 		const sampleX = Math.max(0, Math.min(
 			size - 1,
 			Math.round(texelPositionX + offset[0] * SHADOW_PCSS_SEARCH_RADIUS_TEXELS),

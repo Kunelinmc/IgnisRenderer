@@ -859,6 +859,19 @@ function testPostProcessShaderConstantsMatchCPUContract() {
 	);
 }
 
+function testShadowSamplingRotationIsSpatiallyStable() {
+	const shadowSources = [
+		embeddedShaderSources["./webgpu/common/utils.wgsl"],
+		embeddedShaderSources["./webgpu/particles/render.wgsl"],
+		embeddedShaderSources["./webgl/scene/fragmentShadows.glsl"],
+	];
+	for (const source of shadowSources) {
+		assert.equal(source.includes("floor(texelPosition)"), false);
+		assert.match(source, /ShadowFilterDiskSample/i);
+		assert.match(source, /ShadowSearchDiskSample/i);
+	}
+}
+
 async function run() {
 	await testLoadsRawAndCompositeParts();
 	await testConcurrentLoadsShareResultCache();
@@ -880,6 +893,7 @@ async function run() {
 	testShaderManifestValidation();
 	testShaderManifestIdentityUsesNormalizedCanonicalParameters();
 	testPostProcessShaderConstantsMatchCPUContract();
+	testShadowSamplingRotationIsSpatiallyStable();
 	await testEmbeddedManifestMatchesShaderFiles();
 	console.log("ShaderSource tests passed");
 }

@@ -27,6 +27,11 @@ the PCF radius, PCSS blocker-search radius, or maximum PCSS penumbra radius.
 Built-in sampling must be deterministic within a frame and must not depend on
 TAA or temporal history.
 
+The active filter and blocker-search offsets for every quality preset must be
+centered around the receiver. Sampling rotation may depend on the light and
+cascade, but it must not hash quantized receiver coordinates or otherwise
+change discontinuously when the receiver crosses a shadow-map texel boundary.
+
 `ShadowMapKind` is limited to `"single"` and `"cascaded"`. Custom registry
 entries and public definition subclasses are not supported.
 

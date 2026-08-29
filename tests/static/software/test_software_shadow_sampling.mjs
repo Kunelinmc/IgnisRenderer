@@ -148,6 +148,29 @@ function createFixture(size = 4, overrides = {}) {
 }
 
 {
+	const size = 16;
+	const { shadow, slice, runtime } = createFixture(size, {
+		sampling: { quality: "high" },
+	});
+	for (let y = 0; y < size; y++) {
+		for (let x = 0; x < 6; x++) runtime.depthBuffer[y * size + x] = -1;
+	}
+	const sampleAtTexelX = (texelX) => sampleSoftwareShadow(
+		shadow,
+		slice,
+		runtime,
+		{ x: texelX * 2 / (size - 1) - 1, y: 0, z: 0 },
+		null,
+	).r;
+	const beforeBoundary = sampleAtTexelX(5 - 1e-5);
+	const afterBoundary = sampleAtTexelX(5 + 1e-5);
+	assert.ok(
+		Math.abs(beforeBoundary - afterBoundary) < 1e-3,
+		"High-quality PCF must remain continuous across shadow-map texel boundaries",
+	);
+}
+
+{
 	const { shadow, slice, runtime } = createFixture();
 	const particleVolume = createParticleShadowVolumeGrid({
 		width: 16,
