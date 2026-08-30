@@ -20,8 +20,8 @@ reference documents when a task touches the relevant subsystem.
 These are contributor-facing project documents that `AGENTS.md` links as
 required references. Read them before changing related behavior:
 
-- `docs/architecture/engine.md`: backend roles, ECS and
-  scene graph synchronization, simulation ownership, foundation utilities,
+- `docs/architecture/engine.md`: backend roles, optional ECS projection,
+  scene graph indexing, simulation ownership, foundation utilities,
   and workers.
 - `docs/architecture/rendering.md`:
   frame pipeline stages, coordinate system, matrix conventions, color space,

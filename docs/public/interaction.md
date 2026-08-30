@@ -54,8 +54,8 @@ An `Interactable` can include:
 - `onHoverEnter`, `onHoverLeave`, `onSelect`, `onDeselect`, and `onClick`:
   callbacks scoped to that node.
 
-Each callback receives the node, its entity id, the interaction phase, the
-current selection, and the latest pointer state.
+Each callback receives the node, the interaction phase, the current node
+selection, and the latest pointer state.
 
 #### Forwarding input and reading state
 
@@ -66,14 +66,14 @@ coordinate space for `screenX`, `screenY`, `viewportWidth`, and
 
 Every call returns an `InteractionState` snapshot containing:
 
-- `selectedEntityIds`
-- `hoveredEntityId`
+- `selectedNodes`
+- `hoveredNode`
 - the active `gizmo`, if any
 - the active `dragRect`, if any
 
 Use `getState()` to read the same information without processing input.
-`getSelection()` returns the primary selected entity id, while
-`getSelectedEntities()` returns the complete selection.
+`getSelection()` returns the primary selected node, while
+`getSelectedNodes()` returns the complete selection.
 
 You can also subscribe to `hoverChanged`, `selectionChanged`, `click`,
 `transformCommitted`, and `transformCancelled` with `controller.on()`.
@@ -127,7 +127,7 @@ function forwardPointer(event: PointerEvent, type: PointerInputType): void {
 		viewportHeight: canvas.height,
 	});
 
-	console.log(state.selectedEntityIds);
+	console.log(state.selectedNodes);
 }
 
 canvas.addEventListener("pointermove", (event) => {
@@ -164,7 +164,7 @@ rendering work itself.
 - Hover works but selection does not: check whether `selectable` is `false`.
   If neither works, also check `enabled` and `hoverable`.
 - An overlapping node wins unexpectedly: compare `priority` values. Nodes with
-  equal priority are ordered by hit distance, then entity id.
+  equal priority are ordered by hit distance, then stable node id.
 - Drag selection does not add nodes: use `selectionMode: "multiple"` and make
   sure the drag rectangle spans at least a few viewport pixels.
 - State changes but the display does not: request or render another frame in
@@ -184,7 +184,7 @@ When migrating older code:
 - Replace ECS component registration with
   `controller.interactables.set(node, interactable)`.
 - Keep using `getSelection()` for the primary selection, or switch to
-  `getSelectedEntities()` for multi-selection.
+  `getSelectedNodes()` for multi-selection.
 - Read `InteractionState` directly to draw outlines, drag rectangles, or gizmo
   UI.
 

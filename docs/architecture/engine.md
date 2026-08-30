@@ -12,8 +12,9 @@ facades while delegating execution to one attached rendering backend.
 ```mermaid
 flowchart TD
 	A["Application facades"] --> S["Scene graph"]
-	S <--> E["ECS world"]
-	E --> F["FrameCoordinator"]
+	S --> I["Scene-native indexes"]
+	I --> F["FrameCoordinator"]
+	S <-. "optional projection" .-> E["User-owned ECS world"]
 	F --> P["RendererStageGraph"]
 	P --> B["Attached backend runtime"]
 	B --> R["Backend resources and native API"]
@@ -24,9 +25,10 @@ flowchart TD
 ```
 
 `Renderer` is the public frame facade. `FrameCoordinator` translates renderer
-requests into ECS synchronization, simulation stages, prepared scene data, and
-ordered backend passes. Backend instances own device or context state and are
-attached to one renderer for their lifetime.
+requests into simulation stages, prepared scene data, and ordered backend
+passes. Backend instances own device or context state and are attached to one
+renderer for their lifetime. ECS projection is optional and is not part of the
+renderer frame lifecycle.
 
 ## Responsibility Boundaries
 
@@ -34,7 +36,7 @@ attached to one renderer for their lifetime.
 | --- | --- |
 | Public facades | Application configuration, scene composition, and lifecycle entrypoints |
 | Scene graph | Hierarchical authoring state and application-facing node identity |
-| ECS | Simulation-ready component state and efficient system queries |
+| ECS | Optional, user-owned projection for component state and queries |
 | Simulation runtimes | Animation, physics, and particle state transitions |
 | Frame coordinator | Synchronization, stage scheduling, prepared scene construction, and backend dispatch |
 | Backend runtime | Device lifecycle, frame transactions, resources, backend passes, and presentation |
@@ -45,20 +47,18 @@ Definition layers remain separate from logic layers. Interfaces and data
 contracts describe cross-layer communication; systems and runtime owners
 perform state transitions.
 
-## Scene and ECS Synchronization
+## Scene and Optional ECS Projection
 
-`Node` and related scene objects are application-facing. ECS components hold
-the representation consumed by simulation and rendering stages.
+`Node` and related scene objects are application-facing and remain the
+authoritative rendering state. Scene-native typed indexes provide meshes,
+lights, cameras, decals, and particle systems to preparation stages without an
+ECS dependency.
 
-The frame coordinator runs synchronization in two directions:
-
-1. Sync-in copies application edits from scene nodes to ECS components.
-2. Simulation systems update ECS state.
-3. Transform and scene-preparation stages produce renderable state.
-4. Sync-out reflects simulation results back to application facades.
-
-This boundary keeps scene authoring ergonomic without requiring simulation
-systems to traverse the scene graph directly.
+Applications that need entity/component queries explicitly construct
+`experimentalECS.ECSWorld` with a `Scene`. The world creates an initial
+projection, subscribes to generic scene change batches, and incrementally
+maintains world-local entity mappings. Renderer and `FrameCoordinator` do not
+create, retain, discover, or synchronize that world.
 
 ## Backend Ownership
 

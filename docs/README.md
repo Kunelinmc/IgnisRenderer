@@ -27,6 +27,7 @@ contracts when changing the engine.
 ## Contracts
 
 - [Renderer](contracts/renderer.md)
+- [ECS projection](contracts/ecs.md)
 - [Compute](contracts/compute.md)
 - [Geometry](contracts/geometry.md)
 - [Physics](contracts/physics.md)
@@ -46,6 +47,7 @@ contracts when changing the engine.
 
 - [WebGPU bindings reference](reference/webgpu-bindings.md)
 - [Migration guidance](migrations/README.md)
+- [Scene and ECS decoupling](migrations/scene-ecs-decoupling.md)
 - [WebGL physical lighting migration](migrations/webgl-physical-lighting.md)
 - [Contributing documentation](contributing/README.md)
 

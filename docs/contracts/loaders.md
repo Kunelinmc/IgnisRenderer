@@ -8,9 +8,9 @@ This document defines model, image, and motion loading behavior for glTF, EXR, a
 
 - `new GLTFLoader()` must construct a loader with event behavior compatible with `Loader`.
 - `GLTFLoader.load(url)` must asynchronously fetch the asset at `url`, parse it, emit the `load` event with the root `Node`, and return the root `Node`.
-- `GLTFLoader.loadPrefab(url)` must asynchronously load the asset at `url`, parse it into an `EntityPrefab`, emit the `loadprefab` event, and return the `EntityPrefab`.
+- `GLTFLoader.loadPrefab(url)` must asynchronously load the asset at `url`, parse it into a `NodePrefab`, emit the `loadprefab` event, and return the `NodePrefab`.
 - `GLTFLoader.parse(data, baseURL?)` must accept an `ArrayBuffer` containing GLB or glTF JSON data, parse it, and return a `Promise` resolving to the root `Node` of the loaded scene graph.
-- `GLTFLoader.parsePrefab(data, baseURL?)` must parse an in-memory `ArrayBuffer` of GLB/glTF data and return a `Promise` resolving to an `EntityPrefab` (specifically `NodeEntityPrefab`).
+- `GLTFLoader.parsePrefab(data, baseURL?)` must parse an in-memory `ArrayBuffer` of GLB/glTF data and return a `Promise` resolving to a `NodePrefab`.
 - `GLTFLoader.getLastAnimationBundle()` must return a `GLTFAnimationBundle` containing parsed `AnimationClip` objects, `Skeleton` structures, morph bindings, and a node path-to-ID map, or `null` if no parsing has completed.
 - `GLTFLoader.clearLastAnimationBundle()` must clear the cached animation bundle.
 - `GLTFLoader.getAccessorData(json, buffers, index)` must retrieve data from the
@@ -122,9 +122,9 @@ normals. Non-triangle primitives may retain a missing normal attribute.
   hierarchy and motion, and resolve to a `Node` root.
 - `BVHLoader.parse(data, options?)` must accept either `string` or
   `ArrayBuffer` BVH input and return a `Node` root.
-- `BVHLoader.loadPrefab(url, options?)` must return an `EntityPrefab` that
+- `BVHLoader.loadPrefab(url, options?)` must return a `NodePrefab` that
   contains a parsed root and animation bundle.
-- `BVHLoader.parsePrefab(data, options?)` must return an `EntityPrefab` from
+- `BVHLoader.parsePrefab(data, options?)` must return a `NodePrefab` from
   in-memory BVH input.
 - `BVHLoader.getLastAnimationBundle()` must return the most recently parsed
   animation bundle or `null` when no parse has completed.
@@ -157,7 +157,7 @@ if (animationBundle) {
 }
 ```
 
-#### Loading and Instantiating an Entity Prefab
+#### Loading and Instantiating a Node Prefab
 
 ```ts
 import { GLTFLoader } from "../src/loaders/GLTFLoader";
@@ -166,11 +166,11 @@ import { Scene } from "../src/core/Scene";
 const scene = new Scene();
 const loader = new GLTFLoader();
 
-// Load as an EntityPrefab for ECS spawning
+// Load a reusable scene-graph prefab
 const prefab = await loader.loadPrefab("assets/models/character.glb");
 
 // Instantiate the prefab in the scene
-const { root, rootEntity } = prefab.instantiate(scene);
+const root = prefab.instantiate(scene);
 ```
 
 #### Verification Command

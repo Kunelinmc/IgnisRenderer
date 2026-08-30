@@ -32,9 +32,10 @@ native resource lifetimes.
 
 ## Frame Flow
 
-1. `FrameCoordinator` resolves portable features, synchronizes ECS, runs the
-   renderer-owned simulation stages, prepares the baseline scene, and creates
-   `FrameContext` with the ordered backend passes.
+1. `FrameCoordinator` resolves portable features, runs the renderer-owned
+   simulation stages, prepares the baseline scene, and creates `FrameContext`
+   with the ordered backend passes. Any ECS projection is user-owned and is
+   not part of this frame lifecycle.
 2. Awaited `WebGPUBackend.beginFrame()` establishes the backend transaction.
    Frames without particle simulation complete message dispatch, allocation,
    and graph sealing before it resolves.

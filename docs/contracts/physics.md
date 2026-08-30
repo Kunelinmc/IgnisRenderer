@@ -38,8 +38,7 @@ This document defines physics runtime control, collision filtering, mesh collide
 
 Contract rules:
 
-- `target` must be one of:
-`Node | PhysicsBodyHandle | string (bodyId) | PhysicsEntityId`.
+- `target` must be one of `Node | PhysicsBodyHandle | string (bodyId)`.
 - `target` must resolve to an existing body in an existing world, otherwise the
 call must throw.
 - All vector inputs (`velocity`, `force`, `torque`, `impulse`) must be passed in
@@ -306,10 +305,6 @@ const debugGeometry: PhysicsDebugGeometry = {
 handle or body id.
 - `Node "<id>" is not bound to any physics body`: `target` is a `Node` without
 an attached body.
-- `Entity "<id>" is not bound to a Node`: `target` is an unresolved ECS entity
-id.
-- `PhysicsSystem entity target requires setEntityNodeResolver()`: `target` is
-`PhysicsEntityId` but no resolver is registered.
 - `Physics collider "<id>" does not exist`: collider runtime control target is
 missing.
 - `Collider friction must be finite`: `setColliderFriction()` received `NaN` or

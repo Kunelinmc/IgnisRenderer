@@ -402,8 +402,8 @@ This document defines the lifecycle, scheduling, warmup, incremental rendering, 
 - `WarmupOptions.scheduling` must accept `"immediate"`, `"next-frame"`, or
   `"idle"`.
 - `"immediate"` must preserve eager warmup behavior.
-- `"next-frame"` must allow one animation frame before scene synchronization
-  and backend warmup begin.
+- `"next-frame"` must allow one animation frame before scene preparation and
+  backend warmup begin.
 - `"idle"` must prefer `requestIdleCallback` and must fall back to animation
   frame or timer scheduling when idle callbacks are unavailable.
 - `WarmupOptions.yieldIntervalMs` must define the approximate main-thread time

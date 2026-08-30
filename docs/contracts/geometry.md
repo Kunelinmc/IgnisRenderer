@@ -45,7 +45,7 @@ This document defines spatial indexing, level-of-detail mesh selection, and cons
   AABB, and return the same `out` array.
 - `SpatialIndex3D.queryRayDetailedInto(origin, direction, out, options?)` must
   clear `out`, append ray candidates ordered by ascending `distance`, then by
-  `entityId`, then by `meshInstance.id`, and return the same `out` array.
+  `meshInstance.id`, and return the same `out` array.
 - Implementations may expose compatibility wrappers named `queryFrustum`,
   `queryBounds`, `queryRay`, and `queryRayDetailed`, but these wrappers are not
   part of the `SpatialIndex3D` interface contract.

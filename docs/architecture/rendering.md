@@ -9,14 +9,12 @@ post-process behavior lives in the linked contracts.
 ```mermaid
 flowchart TD
 	A["Resolve renderer features"] --> B["Warmup when required"]
-	B --> C["Sync scene state into ECS"]
-	C --> D["Run animation and physics simulation"]
+	B --> D["Run animation and physics simulation"]
 	D --> E["Update transforms and prepare scene packets"]
 	E --> P["Run particle simulation and prepare particle work"]
 	P --> F["Execute ordered rendering passes"]
 	F --> G["Run backend-owned post-processing"]
 	G --> H["Commit and present"]
-	H --> I["Sync simulation state back to scene facades"]
 ```
 
 The renderer pipeline expresses portable intent. A backend may expand one
