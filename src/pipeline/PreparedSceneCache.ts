@@ -2,7 +2,10 @@ import type { Camera } from "../cameras/Camera";
 import type { Matrix4 } from "../maths/Matrix4";
 import type { Material } from "../materials/Material";
 import { getMaterialTransmissionFactor } from "../materials/transparency";
-import { DECAL_CHANNELS, resolveDecalChannelBlendMode } from "../decals";
+import {
+	DECAL_CHANNELS,
+	resolveDecalChannelBlendMode,
+} from "../decals";
 import {
 	buildDirtyTileCoverage,
 	computePostProcessInflationRadius,
@@ -18,6 +21,7 @@ import {
 import type {
 	DecalPacket,
 	DrawPacket,
+	DrawSubmission,
 	OcclusionCullingOptions,
 	PreparedScene,
 	ResolvedFeatureState,
@@ -126,6 +130,9 @@ export class PreparedSceneCache {
 	private readonly _preparedPackets = new PreparedScenePacketCache();
 	private _packetStateById = new Map<string, CachedPacketState>();
 	private _decalStateById = new Map<string, CachedDecalState>();
+	private _reusableFrame: PreparedScene | null = null;
+	private _reusableScene: PreparedSceneBuildSource["scene"] | null = null;
+	private _reusableSubmissionsById = new Map<string, DrawSubmission>();
 	private _frameIndex = 0;
 	private _cameraSignatureA: number | null = null;
 	private _cameraSignatureB: number | null = null;
@@ -134,6 +141,9 @@ export class PreparedSceneCache {
 		this._preparedPackets.clear();
 		this._packetStateById.clear();
 		this._decalStateById.clear();
+		this._reusableFrame = null;
+		this._reusableScene = null;
+		this._reusableSubmissionsById.clear();
 		this._frameIndex = 0;
 		this._cameraSignatureA = null;
 		this._cameraSignatureB = null;
@@ -141,7 +151,7 @@ export class PreparedSceneCache {
 
 	public build(input: PreparedSceneCacheBuildInput): PreparedSceneCacheBuildResult {
 		this._preparedPackets.beginFrame();
-		const frame = PreparedSceneBuilder.build(input.source, {
+		const buildOptions = {
 			viewportWidth: input.viewportWidth,
 			viewportHeight: input.viewportHeight,
 			occlusionVisibilityProvider: input.occlusionVisibilityProvider ?? null,
@@ -150,8 +160,42 @@ export class PreparedSceneCache {
 					normalizeOcclusionCullingOptions(input.occlusionCullingOptions)
 				:	undefined,
 			packetCache: this._preparedPackets,
-		});
-		this._preparedPackets.endFrame();
+		};
+		let frame: PreparedScene;
+		try {
+			const reusable = this._resolveReusableFrame(input.source);
+			if (reusable) {
+				frame = PreparedSceneBuilder.buildView(
+					reusable,
+					input.source.camera,
+					{
+						...buildOptions,
+						visibilityScene: input.source.scene,
+						decals: input.source.scene.getDecals(),
+					},
+				);
+				frame = {
+					...frame,
+					hasActiveAnimations: input.source.hasActiveAnimations,
+					deformationStates: input.source.deformationStates ?? null,
+				};
+			} else {
+				frame = PreparedSceneBuilder.build(input.source, buildOptions);
+				if (input.source?.scene && input.source.camera) {
+					this._reusableFrame = frame;
+					this._reusableScene = input.source.scene;
+					this._reusableSubmissionsById = new Map(
+						frame.submissions.map((submission) => [submission.id, submission]),
+					);
+				} else {
+					this._reusableFrame = null;
+					this._reusableScene = null;
+					this._reusableSubmissionsById.clear();
+				}
+			}
+		} finally {
+			this._preparedPackets.endFrame();
+		}
 		const width = Math.max(1, Math.floor(input.viewportWidth));
 		const height = Math.max(1, Math.floor(input.viewportHeight));
 		const fullScreenRect = makeFullScreenRect(width, height);
@@ -385,6 +429,31 @@ export class PreparedSceneCache {
 		};
 	}
 
+	private _resolveReusableFrame(
+		source: PreparedSceneBuildSource | undefined,
+	): PreparedScene | null {
+		const reusable = this._reusableFrame;
+		if (!source?.scene || !source.camera || !reusable) return null;
+		if (source.scene !== this._reusableScene) return null;
+
+		const meshInstances = source.scene.getMeshInstances();
+		if (!sameReferenceList(meshInstances, reusable.meshInstances)) return null;
+		if (!this._preparedPackets.canReuseSubmissions(
+			meshInstances,
+			this._reusableSubmissionsById,
+			source.deformationStates ?? null,
+		)) return null;
+
+		const lights = source.scene.ecs.findLights();
+		if (!sameReferenceList(lights, reusable.lights)) return null;
+		const particleSystems = source.scene.ecs.findParticleSystems();
+		if (!sameReferenceList(particleSystems, reusable.particleSystems)) return null;
+		if (!preparedEnvironmentMatchesScene(reusable, source.scene.environment)) {
+			return null;
+		}
+		return reusable;
+	}
+
 	private _processFramePackets(
 		frame: PreparedScene,
 		width: number,
@@ -500,6 +569,35 @@ export class PreparedSceneCache {
 			transparentPackets: frame.transparentPackets,
 		});
 	}
+}
+
+function sameReferenceList<T>(left: readonly T[], right: readonly T[]): boolean {
+	if (left.length !== right.length) return false;
+	for (let index = 0; index < left.length; index++) {
+		if (left[index] !== right[index]) return false;
+	}
+	return true;
+}
+
+function preparedEnvironmentMatchesScene(
+	frame: PreparedScene,
+	environment: PreparedSceneBuildSource["scene"]["environment"],
+): boolean {
+	const prepared = frame.environment;
+	const tint = environment.backgroundTintLinear;
+	return (
+		prepared.backgroundEnabled === environment.backgroundEnabled &&
+		prepared.lightingEnabled === environment.lightingEnabled &&
+		prepared.backgroundTexture === environment.backgroundTexture &&
+		prepared.iblTexture === environment.iblTexture &&
+		prepared.backgroundStrength === environment.backgroundStrength &&
+		prepared.diffuseStrength === environment.diffuseStrength &&
+		prepared.specularStrength === environment.specularStrength &&
+		prepared.backgroundExposure === environment.backgroundExposure &&
+		prepared.backgroundTintLinear.r === tint.r &&
+		prepared.backgroundTintLinear.g === tint.g &&
+		prepared.backgroundTintLinear.b === tint.b
+	);
 }
 
 function createPacketState(

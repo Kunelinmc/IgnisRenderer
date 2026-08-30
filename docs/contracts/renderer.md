@@ -338,6 +338,15 @@ This document defines the lifecycle, scheduling, warmup, incremental rendering, 
 - Prepared-scene packet caches must reuse camera-independent packet state while
   mesh, primitive, transform, geometry, material, deformation, visibility,
   render-layer, and shadow revisions remain unchanged.
+- `PreparedSceneCache` must retain the last reusable camera-independent prepared
+  state. When its submissions and scene-wide metadata are still current, the
+  next main-camera build must use `PreparedSceneBuilder.buildView()` and rebuild
+  only camera-local visibility, sort depth, packets, decals, and occlusion state.
+- Before taking that view-only path, the cache must validate mesh membership and
+  every submission revision that can affect geometry, transforms, materials,
+  deformation, visibility, render layers, or shadow-caster classification.
+  Changed scene-wide environment or light/particle membership must fall back to
+  a complete `PreparedSceneBuilder.build()`.
 - Main-view and secondary-view packet state must be isolated. Reusing a packet
   for one camera must not overwrite sorting or visibility state consumed by
   another camera.

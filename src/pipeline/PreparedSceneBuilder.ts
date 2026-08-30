@@ -45,15 +45,27 @@ const NO_DEFORMATION = Object.freeze({
 	morphPayloadKey: null,
 } as const);
 
-export interface PreparedSceneBuildOptions {
+interface PreparedSceneCommonBuildOptions {
 	viewportWidth?: number;
 	viewportHeight?: number;
 	occlusionCullingOptions?: NormalizedOcclusionCullingOptions;
 	occlusionVisibilityProvider?: OcclusionVisibilityProvider | null;
+}
+
+/** @internal Full scene preparation options owned by frame coordination. */
+export interface PreparedSceneFullBuildOptions extends PreparedSceneCommonBuildOptions {
+	/** Submission and packet cache shared with later main-camera view rebuilds. */
+	packetCache?: PreparedScenePacketCache | null;
+}
+
+/** @internal Secondary or cached main-camera view preparation options. */
+export interface PreparedSceneViewBuildOptions extends PreparedSceneCommonBuildOptions {
 	/** @internal Scene whose spatial index may accelerate secondary-view culling. */
 	visibilityScene?: Scene | null;
 	/** @internal View-local packet cache owned by frame coordination. */
 	packetCache?: PreparedScenePacketCache | null;
+	/** @internal Complete decal list used when rebuilding a cached main view. */
+	decals?: readonly Decal[];
 }
 
 interface PreparedPacketCacheSignature {
@@ -199,6 +211,47 @@ export class PreparedScenePacketCache {
 		return entry.packet;
 	}
 
+	/**
+	 * Checks whether a prepared submission set still matches current authoring
+	 * state without rebuilding its resolved bindings.
+	 *
+	 * @internal Owned by `PreparedSceneCache` main-view reuse validation.
+	 */
+	public canReuseSubmissions(
+		meshInstances: readonly MeshInstance[],
+		preparedById: ReadonlyMap<string, DrawSubmission>,
+		deformationStates: PrimitiveDeformationMap | null,
+	): boolean {
+		let currentSubmissionCount = 0;
+
+		for (const meshInstance of meshInstances) {
+			if (meshInstance.visible === false) continue;
+			for (const primitive of meshInstance.mesh.primitives) {
+				if (primitive.visible === false) continue;
+				currentSubmissionCount++;
+				const key = `${meshInstance.id}:${primitive.id}`;
+				const entry = this._submissions.get(key);
+				const deformation = deformationStates?.get(key) ?? null;
+				if (
+					!entry ||
+					entry.submission !== preparedById.get(key) ||
+					!this._isSignatureCurrent(
+						entry.signature,
+						meshInstance,
+						primitive,
+						deformation,
+					)
+				) {
+					return false;
+				}
+				this._frameHits++;
+				this._touchEntry(entry);
+			}
+		}
+
+		return currentSubmissionCount === preparedById.size;
+	}
+
 	public endFrame(): void {
 		while (this._lru.size > this._maxEntries) {
 			const oldest = this._lru.values().next().value as
@@ -331,7 +384,7 @@ export class PreparedSceneBuilder {
 	public static buildView(
 		source: PreparedScene,
 		camera: Camera,
-		options: PreparedSceneBuildOptions = {}
+		options: PreparedSceneViewBuildOptions = {}
 	): PreparedScene {
 		const renderableMeshInstances = source.meshInstances.filter(
 			(meshInstance) => meshInstance.visible !== false
@@ -359,11 +412,11 @@ export class PreparedSceneBuilder {
 				submission.source.kind === "mesh-instance" &&
 				!visibleIds.has(submission.source.instanceId)
 			) continue;
+			const sortDepth = resolveSubmissionSortDepth(submission, camera);
 			this._appendViewPacket(
-				{
-					submission,
-					sortDepth: resolveSubmissionSortDepth(submission, camera),
-				},
+				options.packetCache ?
+					options.packetCache.getViewPacket(camera, submission, sortDepth)
+				: { submission, sortDepth },
 				opaquePackets,
 				transparentPackets,
 				reflectivePackets,
@@ -373,7 +426,7 @@ export class PreparedSceneBuilder {
 			opaquePackets,
 			transparentPackets,
 			camera,
-			source.decalPackets.map((packet) => packet.decal),
+			options.decals ?? source.decalPackets.map((packet) => packet.decal),
 			options
 		);
 		return {
@@ -390,7 +443,7 @@ export class PreparedSceneBuilder {
 
 	public static build(
 		source: PreparedSceneBuildSource,
-		options: PreparedSceneBuildOptions = {}
+		options: PreparedSceneFullBuildOptions = {}
 	): PreparedScene {
 		const meshInstances = source.scene.getMeshInstances();
 		const renderableMeshInstances = meshInstances.filter(
@@ -489,7 +542,7 @@ export class PreparedSceneBuilder {
 		shadowPlan: PreparedScene["shadowPlan"];
 		decals: Decal[];
 		deformationStates: PrimitiveDeformationMap | null;
-		options: PreparedSceneBuildOptions;
+		options: PreparedSceneFullBuildOptions;
 	}): PreparedScene {
 		const opaquePackets: DrawPacket[] = [];
 		const transparentPackets: DrawPacket[] = [];
@@ -588,8 +641,8 @@ export class PreparedSceneBuilder {
 		opaquePackets: DrawPacket[],
 		transparentPackets: DrawPacket[],
 		camera: Camera,
-		decals: Decal[],
-		options: PreparedSceneBuildOptions
+		decals: readonly Decal[],
+		options: PreparedSceneCommonBuildOptions
 	): Pick<PreparedScene, "decalPackets" | "occlusion"> {
 		const occlusion = this._resolveOcclusionState(
 			opaquePackets,
@@ -616,7 +669,7 @@ export class PreparedSceneBuilder {
 	private static _resolveOcclusionState(
 		opaquePackets: DrawPacket[],
 		camera: Camera,
-		options: PreparedSceneBuildOptions
+		options: PreparedSceneCommonBuildOptions
 	): PreparedScene["occlusion"] {
 		const provider = options.occlusionVisibilityProvider ?? null;
 		const cullingOptions = options.occlusionCullingOptions;
@@ -792,7 +845,7 @@ export class PreparedSceneBuilder {
 	}
 
 	private static _buildDecalPackets(
-		decals: Decal[],
+		decals: readonly Decal[],
 		opaquePackets: DrawPacket[]
 	): DecalPacket[] {
 		const packets: DecalPacket[] = [];

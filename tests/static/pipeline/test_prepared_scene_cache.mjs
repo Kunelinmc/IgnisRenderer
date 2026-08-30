@@ -746,6 +746,97 @@ function testCameraMatrixChangeForcesFullFrameAndRebasesPacketRects() {
 	}
 }
 
+function testMainViewReusesCameraIndependentPreparedState() {
+	const material = new Material();
+	const mesh = MeshAsset.fromFaces([{
+		material,
+		vertices: [
+			{ x: 0, y: 0, z: -2 },
+			{ x: 1, y: 0, z: -2 },
+			{ x: 0, y: 1, z: -2 },
+		],
+	}]);
+	const scene = new Scene();
+	const camera = scene.add(new Camera());
+	const instance = scene.add(new MeshInstance({ mesh }));
+	scene.updateWorldMatrices();
+	camera.updateMatrices();
+
+	const cache = new PreparedSceneCache();
+	const originalBuild = PreparedSceneBuilder.build;
+	const originalBuildView = PreparedSceneBuilder.buildView;
+	let fullBuildCount = 0;
+	let viewBuildCount = 0;
+	PreparedSceneBuilder.build = (...args) => {
+		fullBuildCount++;
+		return originalBuild.call(PreparedSceneBuilder, ...args);
+	};
+	PreparedSceneBuilder.buildView = (...args) => {
+		viewBuildCount++;
+		return originalBuildView.call(PreparedSceneBuilder, ...args);
+	};
+
+	try {
+		const buildInput = {
+			source: {
+				scene,
+				camera,
+				hasActiveAnimations: false,
+				deformationStates: null,
+			},
+			viewportWidth: 320,
+			viewportHeight: 180,
+			features: createFeatures(),
+			postProcess: createResolvedPostProcess(),
+			incrementalOptions: {
+				...DEFAULT_INCREMENTAL_RENDERING_OPTIONS,
+				enabled: true,
+				fullFrameFallbackAreaRatio: 1,
+			},
+		};
+
+		const initial = cache.build(buildInput);
+		assert.equal(fullBuildCount, 1);
+		assert.equal(viewBuildCount, 0);
+		assert.ok(initial.frame.submissions.length > 0);
+
+		camera.position.x = 0.25;
+		scene.updateWorldMatrices();
+		camera.updateMatrices();
+		const cameraChanged = cache.build(buildInput);
+		assert.equal(fullBuildCount, 1);
+		assert.equal(viewBuildCount, 1);
+		assert.equal(cameraChanged.forceFullFrame, true);
+		assert.equal(cameraChanged.dirtyAreaRatio, 1);
+		assert.equal(cameraChanged.frame.submissions, initial.frame.submissions);
+		assert.equal(cameraChanged.frame.lights, initial.frame.lights);
+		assert.equal(cameraChanged.frame.environment, initial.frame.environment);
+		assert.equal(
+			cameraChanged.frame.shadowCasterSubmissions,
+			initial.frame.shadowCasterSubmissions,
+		);
+		assert.equal(
+			cameraChanged.frame.shadowTransmitterSubmissions,
+			initial.frame.shadowTransmitterSubmissions,
+		);
+		assert.notEqual(cameraChanged.frame.opaquePackets, initial.frame.opaquePackets);
+		assert.equal(
+			cameraChanged.frame.opaquePackets[0].submission,
+			initial.frame.opaquePackets[0].submission,
+		);
+
+		instance.position.x = 0.5;
+		scene.updateWorldMatrices();
+		camera.updateMatrices();
+		cache.build(buildInput);
+		assert.equal(fullBuildCount, 2);
+		assert.equal(viewBuildCount, 1);
+	} finally {
+		PreparedSceneBuilder.build = originalBuild;
+		PreparedSceneBuilder.buildView = originalBuildView;
+	}
+}
+
 function testPreparedPacketCacheReusesViewLocalPackets() {
 	const material = new Material();
 	const mesh = MeshAsset.fromFaces([{
@@ -810,6 +901,7 @@ function run() {
 	testMaterialDiffDetectsDepthWriteChanges();
 	testDeformationRevisionAndBoundsDirtyPreviousAndCurrentCoverage();
 	testCameraMatrixChangeForcesFullFrameAndRebasesPacketRects();
+	testMainViewReusesCameraIndependentPreparedState();
 	testPreparedPacketCacheReusesViewLocalPackets();
 	console.log("Prepared scene cache tests passed");
 }
