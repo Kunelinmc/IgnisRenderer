@@ -12,7 +12,7 @@ function testUnpreparedExactVariantFailsWithoutFallbackProgram() {
 			shadowTransmittance: false,
 			clusteredLighting: true,
 		},
-		material: { model: "legacy", baseMap: true },
+		material: { model: "phong", baseMap: true },
 	});
 	const variantKey = ShaderSource.getIdentity("webgl.scene", {
 		specialization: variant,
@@ -234,7 +234,8 @@ async function testOpaquePBRMRTVariantDeclaresAlphaUniform() {
 		specialization: variant,
 	}).stages.fragment.code;
 
-	assert.ok(source.includes("uniform vec4 uAlpha;"));
+	assert.ok(source.includes("uniform IgnisMaterialCommon"));
+	assert.ok(source.includes("vec4 ignisAlpha;"));
 	assert.ok(source.includes("float finalAlpha = uAlpha.z > 0.5"));
 }
 

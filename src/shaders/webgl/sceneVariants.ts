@@ -8,7 +8,12 @@ export type WebGLSceneOutputMode = "single" | "mrt";
  * @internal WebGL built-in material branch encoded into scene shader variants.
  * `full` preserves the legacy unpruned scene source for compatibility callers.
  */
-export type WebGLSceneMaterialModel = "unlit" | "legacy" | "pbr" | "full";
+export type WebGLSceneMaterialModel =
+	| "unlit"
+	| "flat"
+	| "phong"
+	| "pbr"
+	| "full";
 export type WebGLSceneSkinProfile = "static" | "skin4" | "skin8";
 
 /**
@@ -288,7 +293,8 @@ function normalizeWebGLSceneMaterialModel(
 ): WebGLSceneMaterialModel {
 	if (
 		model === "unlit" ||
-		model === "legacy" ||
+		model === "flat" ||
+		model === "phong" ||
 		model === "pbr" ||
 		model === "full"
 	) {

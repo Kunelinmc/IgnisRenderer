@@ -13,9 +13,11 @@ layout(location = 0) out vec4 fragColor;
 
 uniform vec3 uCameraPosition;
 uniform vec3 uAmbientColor;
+__WEBGL_MATERIAL_COMMON_LEGACY_UNIFORMS__
 uniform int uDoubleSided;
 uniform vec4 uBaseColor;
 uniform vec4 uEmissive;
+__WEBGL_SCENE_FOG_UNIFORMS__
 uniform vec4 uFogParams0;
 uniform vec4 uFogParams1;
 __WEBGL_SCENE_LIGHTING_UNIFORMS__
@@ -31,12 +33,14 @@ __WEBGL_MATERIAL_SPECULAR_UNIFORMS__
 uniform vec4 uSpecular;
 __WEBGL_MATERIAL_SPECULAR_MAP_UNIFORMS__
 uniform sampler2D uSpecularMap;
+__WEBGL_MATERIAL_SPECULAR_MAP_LEGACY_UNIFORMS__
 uniform int uHasSpecularMap;
 uniform int uSpecularMapUV;
 uniform vec4 uSpecularMapTransformA;
 uniform vec2 uSpecularMapTransformB;
 __WEBGL_MATERIAL_SPECULAR_COLOR_MAP_UNIFORMS__
 uniform sampler2D uSpecularColorMap;
+__WEBGL_MATERIAL_SPECULAR_COLOR_MAP_LEGACY_UNIFORMS__
 uniform int uHasSpecularColorMap;
 uniform int uSpecularColorMapUV;
 uniform vec4 uSpecularColorMapTransformA;
@@ -45,18 +49,21 @@ __WEBGL_MATERIAL_CLEARCOAT_UNIFORMS__
 uniform vec4 uClearcoat;
 __WEBGL_MATERIAL_CLEARCOAT_MAP_UNIFORMS__
 uniform sampler2D uClearcoatMap;
+__WEBGL_MATERIAL_CLEARCOAT_MAP_LEGACY_UNIFORMS__
 uniform int uHasClearcoatMap;
 uniform int uClearcoatMapUV;
 uniform vec4 uClearcoatMapTransformA;
 uniform vec2 uClearcoatMapTransformB;
 __WEBGL_MATERIAL_CLEARCOAT_ROUGHNESS_MAP_UNIFORMS__
 uniform sampler2D uClearcoatRoughnessMap;
+__WEBGL_MATERIAL_CLEARCOAT_ROUGHNESS_MAP_LEGACY_UNIFORMS__
 uniform int uHasClearcoatRoughnessMap;
 uniform int uClearcoatRoughnessMapUV;
 uniform vec4 uClearcoatRoughnessMapTransformA;
 uniform vec2 uClearcoatRoughnessMapTransformB;
 __WEBGL_MATERIAL_CLEARCOAT_NORMAL_MAP_UNIFORMS__
 uniform sampler2D uClearcoatNormalMap;
+__WEBGL_MATERIAL_CLEARCOAT_NORMAL_MAP_LEGACY_UNIFORMS__
 uniform int uHasClearcoatNormalMap;
 uniform int uClearcoatNormalMapUV;
 uniform vec4 uClearcoatNormalMapTransformA;
@@ -65,12 +72,14 @@ __WEBGL_MATERIAL_SHEEN_UNIFORMS__
 uniform vec4 uSheen;
 __WEBGL_MATERIAL_SHEEN_COLOR_MAP_UNIFORMS__
 uniform sampler2D uSheenColorMap;
+__WEBGL_MATERIAL_SHEEN_COLOR_MAP_LEGACY_UNIFORMS__
 uniform int uHasSheenColorMap;
 uniform int uSheenColorMapUV;
 uniform vec4 uSheenColorMapTransformA;
 uniform vec2 uSheenColorMapTransformB;
 __WEBGL_MATERIAL_SHEEN_ROUGHNESS_MAP_UNIFORMS__
 uniform sampler2D uSheenRoughnessMap;
+__WEBGL_MATERIAL_SHEEN_ROUGHNESS_MAP_LEGACY_UNIFORMS__
 uniform int uHasSheenRoughnessMap;
 uniform int uSheenRoughnessMapUV;
 uniform vec4 uSheenRoughnessMapTransformA;
@@ -78,6 +87,7 @@ uniform vec2 uSheenRoughnessMapTransformB;
 __WEBGL_MATERIAL_TRANSMISSION_UNIFORMS__
 uniform vec4 uTransmissionVolume;
 uniform vec4 uAttenuationColor;
+__WEBGL_MATERIAL_TRANSMISSION_RUNTIME_UNIFORMS__
 uniform sampler2D uTransmissionBackgroundMap;
 uniform int uHasTransmissionBackgroundMap;
 uniform vec2 uTransmissionBackgroundInvSize;
@@ -86,12 +96,14 @@ uniform sampler2D uTransmissionDepthMap;
 uniform int uHasTransmissionDepthMap;
 __WEBGL_MATERIAL_TRANSMISSION_MAP_UNIFORMS__
 uniform sampler2D uTransmissionMap;
+__WEBGL_MATERIAL_TRANSMISSION_MAP_LEGACY_UNIFORMS__
 uniform int uHasTransmissionMap;
 uniform int uTransmissionMapUV;
 uniform vec4 uTransmissionMapTransformA;
 uniform vec2 uTransmissionMapTransformB;
 __WEBGL_MATERIAL_THICKNESS_MAP_UNIFORMS__
 uniform sampler2D uThicknessMap;
+__WEBGL_MATERIAL_THICKNESS_MAP_LEGACY_UNIFORMS__
 uniform int uHasThicknessMap;
 uniform int uThicknessMapUV;
 uniform vec4 uThicknessMapTransformA;
@@ -107,19 +119,22 @@ __WEBGL_MATERIAL_ALPHA_UNIFORMS__
 uniform vec4 uAlpha;
 __WEBGL_MATERIAL_BASE_MAP_UNIFORMS__
 uniform sampler2D uBaseMap;
-uniform int uHasBaseMap;
 uniform int uBaseMapIsLinear;
+__WEBGL_MATERIAL_BASE_MAP_LEGACY_UNIFORMS__
+uniform int uHasBaseMap;
 uniform int uBaseMapUV;
 uniform vec4 uBaseMapTransformA;
 uniform vec2 uBaseMapTransformB;
 __WEBGL_MATERIAL_METALLIC_ROUGHNESS_MAP_UNIFORMS__
 uniform sampler2D uMetallicRoughnessMap;
+__WEBGL_MATERIAL_METALLIC_ROUGHNESS_MAP_LEGACY_UNIFORMS__
 uniform int uHasMetallicRoughnessMap;
 uniform int uMetallicRoughnessMapUV;
 uniform vec4 uMetallicRoughnessMapTransformA;
 uniform vec2 uMetallicRoughnessMapTransformB;
 __WEBGL_MATERIAL_NORMAL_MAP_UNIFORMS__
 uniform sampler2D uNormalMap;
+__WEBGL_MATERIAL_NORMAL_MAP_LEGACY_UNIFORMS__
 uniform int uHasNormalMap;
 uniform int uNormalMapUV;
 uniform vec4 uNormalMapTransformA;
@@ -127,13 +142,15 @@ uniform vec2 uNormalMapTransformB;
 uniform float uNormalScale;
 __WEBGL_MATERIAL_EMISSIVE_MAP_UNIFORMS__
 uniform sampler2D uEmissiveMap;
-uniform int uHasEmissiveMap;
 uniform int uEmissiveMapIsLinear;
+__WEBGL_MATERIAL_EMISSIVE_MAP_LEGACY_UNIFORMS__
+uniform int uHasEmissiveMap;
 uniform int uEmissiveMapUV;
 uniform vec4 uEmissiveMapTransformA;
 uniform vec2 uEmissiveMapTransformB;
 __WEBGL_MATERIAL_OCCLUSION_MAP_UNIFORMS__
 uniform sampler2D uOcclusionMap;
+__WEBGL_MATERIAL_OCCLUSION_MAP_LEGACY_UNIFORMS__
 uniform int uHasOcclusionMap;
 uniform int uOcclusionMapUV;
 uniform vec4 uOcclusionMapTransformA;
@@ -141,18 +158,21 @@ uniform vec2 uOcclusionMapTransformB;
 uniform float uOcclusionStrength;
 __WEBGL_MATERIAL_IRIDESCENCE_MAP_UNIFORMS__
 uniform sampler2D uIridescenceMap;
+__WEBGL_MATERIAL_IRIDESCENCE_MAP_LEGACY_UNIFORMS__
 uniform int uHasIridescenceMap;
 uniform int uIridescenceMapUV;
 uniform vec4 uIridescenceMapTransformA;
 uniform vec2 uIridescenceMapTransformB;
 __WEBGL_MATERIAL_IRIDESCENCE_THICKNESS_MAP_UNIFORMS__
 uniform sampler2D uIridescenceThicknessMap;
+__WEBGL_MATERIAL_IRIDESCENCE_THICKNESS_MAP_LEGACY_UNIFORMS__
 uniform int uHasIridescenceThicknessMap;
 uniform int uIridescenceThicknessMapUV;
 uniform vec4 uIridescenceThicknessMapTransformA;
 uniform vec2 uIridescenceThicknessMapTransformB;
 __WEBGL_MATERIAL_ANISOTROPY_MAP_UNIFORMS__
 uniform sampler2D uAnisotropyMap;
+__WEBGL_MATERIAL_ANISOTROPY_MAP_LEGACY_UNIFORMS__
 uniform int uHasAnisotropyMap;
 uniform int uAnisotropyMapUV;
 uniform vec4 uAnisotropyMapTransformA;

@@ -312,6 +312,33 @@ This document defines the current WebGL backend lifecycle, frame graph, resource
   Texture channels must follow glTF/KHR semantics: specular factor A, specular
   color RGB, clearcoat R, clearcoat roughness G, sheen roughness A,
   transmission R, thickness G, and anisotropy direction RG plus strength B.
+- Built-in WebGL scene materials must resolve to one of the `pbr`, `phong`,
+  `flat`, or `unlit` shading families. `Gouraud` must use the `phong` family.
+  `flat` must retain a distinct shader-family identity while sharing the
+  current Phong lighting-data layout and lighting behavior.
+- Built-in scene and built-in depth-prepass programs must consume immutable
+  material authoring data through std140 uniform blocks. Binding point `0`
+  must contain `IgnisMaterialCommon`; binding point `1` must contain the active
+  `IgnisPBRMaterial` or `IgnisPhongMaterial` block. Unlit programs must not bind
+  a lighting-family block.
+- WebGL material common state and the active lighting-family state must be
+  resolved and uploaded at most once per material render revision. Scene
+  planning, warmup, scene drawing, and depth prepasses must reuse the same
+  resolved material snapshot. Object, animation, pass, and texture-resource
+  availability state must remain outside the immutable material blocks.
+- Exact built-in variants must treat material texture presence as compile-time
+  state. Inactive maps must not declare samplers, allocate material transform
+  slots, resolve native textures, or consume texture units. Texture decode
+  state that may change when a deferred upload replaces a fallback texture
+  must remain runtime binding state rather than revision-only block data.
+- `ShaderMaterial`, its custom bindings, and the `full` compatibility scene
+  specialization must retain the individual-uniform ABI. They must not be
+  required to declare Ignis material uniform blocks.
+- A built-in material program that cannot obtain the required uniform-block
+  bindings, block capacity, reflected blocks, or native buffers must throw
+  `WebGLCapabilityError` with code
+  `material-uniform-buffer-unavailable`. WebGL must not silently fall back to a
+  second built-in individual-uniform path.
 - Built-in PBR scene variants and their exact sampler layouts must be derived
   from `PBRMaterial.featureMask` and `PBRMaterial.textureMask`. A texture with a
   set presence bit must still be omitted when its parent extension feature is
@@ -512,6 +539,8 @@ bun tests/static/webgl/test_webgl_frame_graph_runtime.mjs
   float linear filtering is available.
 - `material-texture-unit-overflow`: thrown when the active scene/material
   sampler set cannot be assigned without collision.
+- `material-uniform-buffer-unavailable`: thrown when a built-in scene material
+  cannot use the required common/family uniform-block ABI.
 - `webgl-gbuffer-material-semantics-unsupported`: triggered when an enabled
   material-semantic post-process requirement cannot use the five-target WebGL
   G-buffer because the runtime reports fewer than five draw buffers or color

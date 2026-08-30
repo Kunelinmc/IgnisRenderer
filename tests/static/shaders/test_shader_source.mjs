@@ -344,7 +344,7 @@ async function testWebGLScenePrunedVariant() {
 	assert.ok(!compiled.code.includes("uEnableClusteredLighting"));
 }
 
-async function testWebGLLegacySceneVariantIncludesSpecularUniform() {
+async function testWebGLPhongSceneVariantIncludesMaterialBlock() {
 	ShaderSource.clearCache();
 	const variant = {
 		output: "mrt",
@@ -361,7 +361,7 @@ async function testWebGLLegacySceneVariantIncludesSpecularUniform() {
 			environmentSpecular: false,
 		},
 		material: {
-			model: "legacy",
+			model: "phong",
 			baseMap: false,
 			metallicRoughnessMap: false,
 			specularMap: false,
@@ -400,20 +400,64 @@ async function testWebGLLegacySceneVariantIncludesSpecularUniform() {
 		language: "glsl",
 		stage: "fragment",
 		entryPoint: "main",
-		label: "WebGLSceneFragmentLegacy",
+		label: "WebGLSceneFragmentPhong",
 		sourceKind: "builtin-scene",
 	});
 
-	assert.ok(raw.stages.fragment.code.includes("uniform vec4 uSpecular;"));
+	assert.ok(raw.stages.fragment.code.includes("uniform IgnisPhongMaterial"));
 	assert.ok(raw.stages.fragment.code.includes("vec3 shadePhong("));
 	assert.ok(raw.stages.fragment.code.includes("uSpecular.rgb"));
 	assert.ok(!raw.stages.fragment.code.includes("uniform vec4 uPBR;"));
 	assert.equal(compiled.hasErrors, false);
-	assert.ok(compiled.code.includes("uniform vec4 uSpecular;"));
+	assert.ok(compiled.code.includes("uniform IgnisPhongMaterial"));
+	assert.ok(compiled.code.includes("vec4 ignisSpecular;"));
 	assert.ok(compiled.code.includes("vec3 shadowNormal = normal;"));
 	assert.ok(compiled.code.includes(
 		"color = shadePhong(albedo, normal, shadowNormal, viewDir);"
 	));
+}
+
+async function testWebGLPBRSceneVariantCompilesExactUniformBlocks() {
+	ShaderSource.clearCache();
+	const material = Object.fromEntries(
+		Object.keys(WEBGL_FULL_SCENE_VARIANT.material).map((name) => [name, false]),
+	);
+	material.model = "pbr";
+	material.normalMap = true;
+	const variant = {
+		...WEBGL_FULL_SCENE_VARIANT,
+		output: "single",
+		materialGBuffer: false,
+		oit: false,
+		scene: Object.fromEntries(
+			Object.keys(WEBGL_FULL_SCENE_VARIANT.scene).map((name) => [name, false]),
+		),
+		material,
+		skinProfile: "static",
+		morphSemanticMask: 0,
+	};
+	const raw = await ShaderSource.load("webgl.scene", {
+		specialization: variant,
+	});
+	const compileStage = new ShaderBackendCompileStage({
+		runtime: new ShaderRuntime({ mode: "strict" }),
+		profile: WEBGL_TEST_PROFILE,
+		mode: "strict",
+	});
+	const compiled = compileStage.compile({
+		code: raw.stages.fragment.code,
+		language: "glsl",
+		stage: "fragment",
+		entryPoint: "main",
+		label: "WebGLSceneFragmentPBRUniformBlocks",
+		sourceKind: "builtin-scene",
+	});
+	assert.equal(compiled.hasErrors, false);
+	assert.ok(compiled.code.includes("uniform IgnisMaterialCommon"));
+	assert.ok(compiled.code.includes("uniform IgnisPBRMaterial"));
+	assert.ok(compiled.code.includes("ignisNormalMapTransformA"));
+	assert.ok(!compiled.code.includes("ignisSheenColorMapTransformA"));
+	assert.ok(!compiled.code.includes("uniform vec4 uPBR;"));
 }
 
 async function testWebGPUCompositeIncludesSharedParts() {
@@ -878,7 +922,8 @@ async function run() {
 	await testGetRequiresPrepare();
 	await testWebGLSceneVariants();
 	await testWebGLScenePrunedVariant();
-	await testWebGLLegacySceneVariantIncludesSpecularUniform();
+	await testWebGLPhongSceneVariantIncludesMaterialBlock();
+	await testWebGLPBRSceneVariantCompilesExactUniformBlocks();
 	await testWebGPUCompositeIncludesSharedParts();
 	await testSrgbDirectiveSupportsBuiltInConsumers();
 	await testWebGPUSharedNumericalConstants();

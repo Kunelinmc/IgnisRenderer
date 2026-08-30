@@ -1,6 +1,5 @@
 import {
 	AlphaMode,
-	ShadingModel,
 	type Material,
 } from "../../materials/Material";
 import {
@@ -8,7 +7,6 @@ import {
 	type ShaderTargetMode,
 } from "../../materials/ShaderMaterial";
 import {
-	PBRMaterial,
 	PBRMaterialFeature,
 	PBRMaterialTextureFeature,
 } from "../../materials/PBRMaterial";
@@ -27,11 +25,13 @@ import {
 	normalizeWebGLSceneDepthVariantDescriptor,
 	normalizeWebGLSceneVariantDescriptor,
 	type WebGLSceneDepthVariantDescriptor,
-	type WebGLSceneMaterialModel,
 	type WebGLSceneVariantDescriptor,
 } from "../../shaders/webgl/sceneVariants";
 import type { WebGLLightState } from "./WebGLLightCollector";
-import { resolveMaterialUniforms } from "./WebGLMaterialUniformResolver";
+import {
+	resolveWebGLMaterialState,
+	type WebGLResolvedMaterialState,
+} from "./WebGLMaterialState";
 
 const EPSILON = 0.000001;
 
@@ -112,14 +112,18 @@ export function resolveWebGLBuiltinSceneVariant(
 	environment: WebGLSceneVariantEnvironment,
 	materialGBuffer = false,
 	deformation: WebGLDeformationProfile = WEBGL_STATIC_DEFORMATION_PROFILE,
+	materialState: WebGLResolvedMaterialState = resolveWebGLMaterialState(material),
+	resolvedMaterialVariant?: WebGLSceneVariantDescriptor["material"],
 ): WebGLSceneVariantDescriptor | null {
 	if (material instanceof ShaderMaterial) {
 		return null;
 	}
-	const materialVariant = resolveWebGLSceneMaterialVariant(material);
+	const materialVariant =
+		resolvedMaterialVariant ?? resolveWebGLSceneMaterialVariant(material, materialState);
 	const isLit =
 		materialVariant.model === "pbr" ||
-		materialVariant.model === "legacy" ||
+		materialVariant.model === "phong" ||
+		materialVariant.model === "flat" ||
 		materialVariant.model === "full";
 	const lightState = environment.lightState;
 	const features = context.features as Partial<FrameContext["features"]> | undefined;
@@ -168,15 +172,15 @@ export function resolveWebGLBuiltinSceneVariant(
 export function resolveWebGLBuiltinDepthVariant(
 	material: Material,
 	deformation: WebGLDeformationProfile = WEBGL_STATIC_DEFORMATION_PROFILE,
+	materialState: WebGLResolvedMaterialState = resolveWebGLMaterialState(material),
 ): WebGLSceneDepthVariantDescriptor | null {
 	if (material instanceof ShaderMaterial) {
 		return null;
 	}
-	const uniforms = resolveMaterialUniforms(material);
 	const alphaMask = material.alphaMode === AlphaMode.Mask;
 	return normalizeWebGLSceneDepthVariantDescriptor({
 		alphaMask,
-		baseMap: alphaMask && !!uniforms.baseMap,
+		baseMap: alphaMask && !!materialState.common.baseMap.texture,
 		skinProfile: deformation.skinProfile,
 		morphPosition: (deformation.morphSemanticMask & 1) !== 0,
 	});
@@ -253,220 +257,75 @@ export function resolveWebGLPacketDeformationProfile(
 	return profile;
 }
 
-function resolveWebGLSceneMaterialVariant(
-	material: Material
+export function resolveWebGLSceneMaterialVariant(
+	material: Material,
+	state: WebGLResolvedMaterialState = resolveWebGLMaterialState(material),
 ): WebGLSceneVariantDescriptor["material"] {
-	const uniforms = resolveMaterialUniforms(material);
-	const model = resolveMaterialModel(material);
+	const model = state.shadingFamily;
 	const isPBR = model === "pbr";
-	const pbrMaterial = material instanceof PBRMaterial ? material : null;
-	const featureMask = pbrMaterial?.featureMask ?? 0;
-	const textureMask = pbrMaterial?.textureMask ?? 0;
-	const iridescence = isPBR && resolvePBRFeature(
-		pbrMaterial,
-		featureMask,
-		PBRMaterialFeature.IRIDESCENCE,
-		uniforms.iridescence[0] > EPSILON ||
-			!!uniforms.iridescenceMap ||
-			!!uniforms.iridescenceThicknessMap
-	);
-	const anisotropy = isPBR && resolvePBRFeature(
-		pbrMaterial,
-		featureMask,
-		PBRMaterialFeature.ANISOTROPY,
-		uniforms.anisotropy[0] > EPSILON || !!uniforms.anisotropyMap
-	);
-	const clearcoat = isPBR && resolvePBRFeature(
-		pbrMaterial,
-		featureMask,
-		PBRMaterialFeature.CLEARCOAT,
-		uniforms.clearcoat[0] > EPSILON ||
-			!!uniforms.clearcoatMap ||
-			!!uniforms.clearcoatRoughnessMap ||
-			!!uniforms.clearcoatNormalMap
-	);
-	const sheen = isPBR && resolvePBRFeature(
-		pbrMaterial,
-		featureMask,
-		PBRMaterialFeature.SHEEN,
-		Math.max(uniforms.sheen[0], uniforms.sheen[1], uniforms.sheen[2]) >
-			EPSILON || !!uniforms.sheenColorMap || !!uniforms.sheenRoughnessMap
-	);
-	const transmission = isPBR && resolvePBRFeature(
-		pbrMaterial,
-		featureMask,
-		PBRMaterialFeature.TRANSMISSION,
-		uniforms.pbr[3] > EPSILON || !!uniforms.transmissionMap
-	);
-	const specular = isPBR && resolvePBRFeature(
-		pbrMaterial,
-		featureMask,
-		PBRMaterialFeature.SPECULAR,
-		true
-	);
-	const specularFactorActive = uniforms.specular[3] > EPSILON;
+	const pbr = state.shadingFamily === "pbr" ? state.lighting : null;
+	const featureMask = pbr?.featureMask ?? 0;
+	const textureMask = pbr?.textureMask ?? 0;
+	const iridescence = isPBR && hasMaskBit(featureMask, PBRMaterialFeature.IRIDESCENCE);
+	const anisotropy = isPBR && hasMaskBit(featureMask, PBRMaterialFeature.ANISOTROPY);
+	const clearcoat = isPBR && hasMaskBit(featureMask, PBRMaterialFeature.CLEARCOAT);
+	const sheen = isPBR && hasMaskBit(featureMask, PBRMaterialFeature.SHEEN);
+	const transmission = isPBR && hasMaskBit(featureMask, PBRMaterialFeature.TRANSMISSION);
+	const specular = isPBR && hasMaskBit(featureMask, PBRMaterialFeature.SPECULAR);
+	const specularFactorActive = (pbr?.specular[3] ?? 0) > EPSILON;
 	const specularColorActive = Math.max(
-		uniforms.specular[0],
-		uniforms.specular[1],
-		uniforms.specular[2]
+		pbr?.specular[0] ?? 0,
+		pbr?.specular[1] ?? 0,
+		pbr?.specular[2] ?? 0,
 	) > EPSILON;
 	return {
 		model,
-		baseMap: resolvePBRTexture(
-			pbrMaterial,
-			textureMask,
-			PBRMaterialTextureFeature.BASE_COLOR_MAP,
-			!!uniforms.baseMap
-		),
+		baseMap: isPBR ?
+			hasMaskBit(textureMask, PBRMaterialTextureFeature.BASE_COLOR_MAP)
+		: !!state.common.baseMap.texture,
 		metallicRoughnessMap: isPBR &&
-			resolvePBRTexture(
-				pbrMaterial,
-				textureMask,
-				PBRMaterialTextureFeature.METALLIC_ROUGHNESS_MAP,
-				!!uniforms.metallicRoughnessMap
-			),
+			hasMaskBit(textureMask, PBRMaterialTextureFeature.METALLIC_ROUGHNESS_MAP),
 		specularMap: specular && specularFactorActive && specularColorActive &&
-			resolvePBRTexture(
-				pbrMaterial,
-				textureMask,
-				PBRMaterialTextureFeature.SPECULAR_MAP,
-				!!uniforms.specularMap
-			),
+			hasMaskBit(textureMask, PBRMaterialTextureFeature.SPECULAR_MAP),
 		specularColorMap: specular && specularFactorActive && specularColorActive &&
-			resolvePBRTexture(
-				pbrMaterial,
-				textureMask,
-				PBRMaterialTextureFeature.SPECULAR_COLOR_MAP,
-				!!uniforms.specularColorMap
-			),
+			hasMaskBit(textureMask, PBRMaterialTextureFeature.SPECULAR_COLOR_MAP),
 		normalMap: isPBR &&
-			resolvePBRTexture(
-				pbrMaterial,
-				textureMask,
-				PBRMaterialTextureFeature.NORMAL_MAP,
-				!!uniforms.normalMap
-			),
-		emissiveMap: resolvePBRTexture(
-			pbrMaterial,
-			textureMask,
-			PBRMaterialTextureFeature.EMISSIVE_MAP,
-			!!uniforms.emissiveMap
-		),
+			hasMaskBit(textureMask, PBRMaterialTextureFeature.NORMAL_MAP),
+		emissiveMap: isPBR ?
+			hasMaskBit(textureMask, PBRMaterialTextureFeature.EMISSIVE_MAP)
+		: !!state.common.emissiveMap.texture,
 		occlusionMap: isPBR &&
-			resolvePBRTexture(
-				pbrMaterial,
-				textureMask,
-				PBRMaterialTextureFeature.OCCLUSION_MAP,
-				!!uniforms.occlusionMap
-			),
+			hasMaskBit(textureMask, PBRMaterialTextureFeature.OCCLUSION_MAP),
 		clearcoat,
 		clearcoatMap: clearcoat &&
-			resolvePBRTexture(
-				pbrMaterial,
-				textureMask,
-				PBRMaterialTextureFeature.CLEARCOAT_MAP,
-				!!uniforms.clearcoatMap
-			),
+			hasMaskBit(textureMask, PBRMaterialTextureFeature.CLEARCOAT_MAP),
 		clearcoatRoughnessMap: clearcoat &&
-			resolvePBRTexture(
-				pbrMaterial,
-				textureMask,
-				PBRMaterialTextureFeature.CLEARCOAT_ROUGHNESS_MAP,
-				!!uniforms.clearcoatRoughnessMap
-			),
+			hasMaskBit(textureMask, PBRMaterialTextureFeature.CLEARCOAT_ROUGHNESS_MAP),
 		clearcoatNormalMap: clearcoat &&
-			resolvePBRTexture(
-				pbrMaterial,
-				textureMask,
-				PBRMaterialTextureFeature.CLEARCOAT_NORMAL_MAP,
-				!!uniforms.clearcoatNormalMap
-			),
+			hasMaskBit(textureMask, PBRMaterialTextureFeature.CLEARCOAT_NORMAL_MAP),
 		sheen,
 		sheenColorMap: sheen &&
-			resolvePBRTexture(
-				pbrMaterial,
-				textureMask,
-				PBRMaterialTextureFeature.SHEEN_COLOR_MAP,
-				!!uniforms.sheenColorMap
-			),
+			hasMaskBit(textureMask, PBRMaterialTextureFeature.SHEEN_COLOR_MAP),
 		sheenRoughnessMap: sheen &&
-			resolvePBRTexture(
-				pbrMaterial,
-				textureMask,
-				PBRMaterialTextureFeature.SHEEN_ROUGHNESS_MAP,
-				!!uniforms.sheenRoughnessMap
-			),
+			hasMaskBit(textureMask, PBRMaterialTextureFeature.SHEEN_ROUGHNESS_MAP),
 		iridescence,
 		iridescenceMap: iridescence &&
-			resolvePBRTexture(
-				pbrMaterial,
-				textureMask,
-				PBRMaterialTextureFeature.IRIDESCENCE_MAP,
-				!!uniforms.iridescenceMap
-			),
+			hasMaskBit(textureMask, PBRMaterialTextureFeature.IRIDESCENCE_MAP),
 		iridescenceThicknessMap:
 			iridescence &&
-			resolvePBRTexture(
-				pbrMaterial,
-				textureMask,
-				PBRMaterialTextureFeature.IRIDESCENCE_THICKNESS_MAP,
-				!!uniforms.iridescenceThicknessMap
-			),
+			hasMaskBit(textureMask, PBRMaterialTextureFeature.IRIDESCENCE_THICKNESS_MAP),
 		anisotropy,
 		anisotropyMap: anisotropy &&
-			resolvePBRTexture(
-				pbrMaterial,
-				textureMask,
-				PBRMaterialTextureFeature.ANISOTROPY_MAP,
-				!!uniforms.anisotropyMap
-			),
+			hasMaskBit(textureMask, PBRMaterialTextureFeature.ANISOTROPY_MAP),
 		transmission,
 		transmissionMap: transmission &&
-			resolvePBRTexture(
-				pbrMaterial,
-				textureMask,
-				PBRMaterialTextureFeature.TRANSMISSION_MAP,
-				!!uniforms.transmissionMap
-			),
+			hasMaskBit(textureMask, PBRMaterialTextureFeature.TRANSMISSION_MAP),
 		thicknessMap: transmission &&
-			resolvePBRTexture(
-				pbrMaterial,
-				textureMask,
-				PBRMaterialTextureFeature.THICKNESS_MAP,
-				!!uniforms.thicknessMap
-			),
+			hasMaskBit(textureMask, PBRMaterialTextureFeature.THICKNESS_MAP),
 		alphaMask: material.alphaMode === AlphaMode.Mask,
 	};
 }
 
-function resolvePBRFeature(
-	material: PBRMaterial | null,
-	mask: number,
-	bit: PBRMaterialFeature,
-	fallback: boolean
-): boolean {
-	return material ? hasMaskBit(mask, bit) : fallback;
-}
-
-function resolvePBRTexture(
-	material: PBRMaterial | null,
-	mask: number,
-	bit: PBRMaterialTextureFeature,
-	fallback: boolean
-): boolean {
-	return material ? hasMaskBit(mask, bit) : fallback;
-}
-
 function hasMaskBit(mask: number, bit: number): boolean {
 	return (mask & bit) !== 0;
-}
-
-function resolveMaterialModel(material: Material): WebGLSceneMaterialModel {
-	if (material.shading === ShadingModel.Unlit) {
-		return "unlit";
-	}
-	if (material.shading === ShadingModel.PBR || material.type === "PBR") {
-		return "pbr";
-	}
-	return "legacy";
 }

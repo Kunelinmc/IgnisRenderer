@@ -35,10 +35,6 @@ import type {
 	ShaderRuntime,
 } from "../../shaders/runtime";
 import { WebGLClusteredLightingRuntime } from "./WebGLClusteredLightingRuntime";
-import {
-	resolveMaterialUniforms,
-	resolveTextureUVTransform,
-} from "./WebGLMaterialUniformResolver";
 import { Logger } from "../../foundation/Logger";
 import { WebGLFrameTargetManager } from "./WebGLFrameTargetManager";
 import { WebGLFrameSession } from "./WebGLFrameSession";
@@ -87,6 +83,11 @@ import {
 	createWebGLVertexTextureUnitLayout,
 	type WebGLVertexTextureUnitLayout,
 } from "./WebGLVertexTextureUnits";
+import { WebGLMaterialSnapshotCache } from "./WebGLMaterialSnapshotCache";
+import { WebGLMaterialBufferCache } from "./WebGLMaterialBufferCache";
+import {
+	validateWebGLMaterialUniformBufferCapabilities,
+} from "./WebGLMaterialUniformBlocks";
 
 export interface WebGLFrameServicesOptions {
 	validatePrograms?: boolean;
@@ -115,6 +116,8 @@ export class WebGLFrameServices {
 	public _geometry: WebGLGeometryRegistry;
 	public _animationPayloads: WebGLAnimationPayloadPool | null;
 	public _textures: WebGLTextureRegistry;
+	public _materialSnapshots: WebGLMaterialSnapshotCache;
+	public _materialBuffers: WebGLMaterialBufferCache;
 	private _shadow: WebGLShadowRuntime;
 	private _particlePass: WebGLParticlePass;
 	private _targets: WebGLFrameTargetManager;
@@ -172,6 +175,9 @@ export class WebGLFrameServices {
 		options: WebGLFrameServicesOptions = {},
 	) {
 		this._gl = gl;
+		validateWebGLMaterialUniformBufferCapabilities(gl);
+		this._materialSnapshots = new WebGLMaterialSnapshotCache();
+		this._materialBuffers = new WebGLMaterialBufferCache(gl);
 		if (!options.postProcessRuntime) {
 			throw new Error(
 				"WebGL frame services require an explicitly owned post-process runtime.",
@@ -277,6 +283,8 @@ export class WebGLFrameServices {
 			scenePrograms: this._scenePrograms,
 			geometry: this._geometry,
 			textures: this._textures,
+			materialSnapshots: this._materialSnapshots,
+			materialBuffers: this._materialBuffers,
 			animationPayloads: this._animationPayloads,
 			modelMatrixCache,
 			modelMatrixKeysThisFrame,
@@ -374,6 +382,7 @@ export class WebGLFrameServices {
 				new WebGLSceneProgramWarmupContributor(
 					this._scenePrograms,
 					this._enableEarlyZPrepass,
+					this._materialSnapshots,
 				),
 				this._environment,
 				this._shadow,
@@ -400,6 +409,7 @@ export class WebGLFrameServices {
 		this._programCompiler.beginFrame();
 		this._geometry.beginFrame();
 		this._textures.beginFrame();
+		this._materialSnapshots.beginFrame();
 		this._renderTargets.sync(context);
 		this._session.begin(context);
 		this._animationPayloads?.beginFrame(context);
@@ -635,6 +645,8 @@ export class WebGLFrameServices {
 		this._fullscreen.destroy();
 		this._geometry.destroy();
 		this._animationPayloads?.destroy();
+		this._materialBuffers.destroy();
+		this._materialSnapshots.clear();
 		this._textures.destroy();
 		this._scenePrograms.destroy();
 		this._programCompiler.destroy();

@@ -73,6 +73,7 @@ export class WebGLSceneRuntime {
 			context,
 			packets,
 			["mrt", "single"],
+			this._services.deps.materialSnapshots,
 		);
 		await this._services.scenePrograms.prepareBuiltinSceneVariants(
 			plan.sceneVariants.values(),

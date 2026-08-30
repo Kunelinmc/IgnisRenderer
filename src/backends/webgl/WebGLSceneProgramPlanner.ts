@@ -25,6 +25,11 @@ import type {
 	WebGLProgramWarmupRequest,
 	WebGLProgramWarmupTask,
 } from "./WebGLWarmupCoordinator";
+import type {
+	WebGLMaterialSnapshotCache,
+	WebGLResolvedMaterialSnapshot,
+} from "./WebGLMaterialSnapshotCache";
+import type { WebGLResolvedMaterialState } from "./WebGLMaterialState";
 
 export interface WebGLSceneProgramPlan {
 	readonly lightState: WebGLLightState;
@@ -36,7 +41,8 @@ export interface WebGLSceneProgramPlan {
 export function planWebGLScenePrograms(
 	context: FrameContext,
 	inputs: readonly (Material | DrawPacket)[],
-	modes: readonly ShaderTargetMode[]
+	modes: readonly ShaderTargetMode[],
+	materialSnapshots?: WebGLMaterialSnapshotCache,
 ): WebGLSceneProgramPlan {
 	const lightState = collectPlannerLightState(context);
 	const sceneVariants = new Map<string, WebGLSceneVariantDescriptor>();
@@ -46,8 +52,13 @@ export function planWebGLScenePrograms(
 	} : {
 		material: input,
 		deformation: { skinProfile: "static", morphSemanticMask: 0 } as const,
-	});
-	for (const { material, deformation } of entries) {
+	}).map((entry) => ({
+		...entry,
+		materialSnapshot:
+			entry.material instanceof ShaderMaterial ? null
+			: materialSnapshots?.resolve(entry.material) ?? null,
+	}));
+	for (const { material, deformation, materialSnapshot } of entries) {
 		if (material instanceof ShaderMaterial) {
 			for (const mode of modes) {
 				const fallback = createWebGLShaderMaterialFallbackVariant(
@@ -69,6 +80,7 @@ export function planWebGLScenePrograms(
 				lightState,
 				false,
 				deformation,
+				materialSnapshot,
 			);
 			if (mode === "mrt") {
 				addVariantAlternatives(
@@ -80,6 +92,7 @@ export function planWebGLScenePrograms(
 					lightState,
 					true,
 					deformation,
+					materialSnapshot,
 				);
 			}
 		}
@@ -93,6 +106,7 @@ export function planWebGLScenePrograms(
 				lightState,
 				false,
 				deformation,
+				materialSnapshot,
 			);
 			addVariantAlternatives(
 				sceneVariants,
@@ -103,12 +117,13 @@ export function planWebGLScenePrograms(
 				lightState,
 				false,
 				deformation,
+				materialSnapshot,
 			);
 		}
 	}
 
 	const depthVariants = new Map<string, WebGLSceneDepthVariantDescriptor>();
-	for (const { material, deformation } of entries) {
+	for (const { material, deformation, materialSnapshot } of entries) {
 		if (
 			material instanceof ShaderMaterial ||
 			isMaterialTransparentPass(material) ||
@@ -116,7 +131,11 @@ export function planWebGLScenePrograms(
 		) {
 			continue;
 		}
-		const variant = resolveWebGLBuiltinDepthVariant(material, deformation);
+		const variant = resolveWebGLBuiltinDepthVariant(
+			material,
+			deformation,
+			materialSnapshot?.data,
+		);
 		if (variant) {
 			depthVariants.set(getWebGLSceneDepthVariantKey(variant), variant);
 		}
@@ -142,6 +161,8 @@ export function resolveWebGLSceneDrawVariant(
 		skinProfile: "static",
 		morphSemanticMask: 0,
 	},
+	materialState?: WebGLResolvedMaterialState,
+	materialVariant?: WebGLSceneVariantDescriptor["material"],
 ): WebGLSceneVariantDescriptor | null {
 	if (material instanceof ShaderMaterial) {
 		return createWebGLShaderMaterialFallbackVariant(mode, deformation);
@@ -158,6 +179,8 @@ export function resolveWebGLSceneDrawVariant(
 		},
 		materialGBuffer,
 		deformation,
+		materialState,
+		materialVariant,
 	);
 }
 
@@ -167,13 +190,16 @@ export class WebGLSceneProgramWarmupContributor
 {
 	private readonly _repository: WebGLSceneProgramRepository;
 	private readonly _enableEarlyZPrepass: boolean;
+	private readonly _materialSnapshots: WebGLMaterialSnapshotCache;
 
 	public constructor(
 		repository: WebGLSceneProgramRepository,
 		enableEarlyZPrepass: boolean,
+		materialSnapshots: WebGLMaterialSnapshotCache,
 	) {
 		this._repository = repository;
 		this._enableEarlyZPrepass = enableEarlyZPrepass;
+		this._materialSnapshots = materialSnapshots;
 	}
 
 	public collectWarmupTasks(
@@ -188,6 +214,7 @@ export class WebGLSceneProgramWarmupContributor
 				...(request.context.scene?.transparentPackets ?? []),
 			],
 			modes,
+			this._materialSnapshots,
 		);
 		const tasks: WebGLProgramWarmupTask[] = [{
 			label: "WebGLSceneSource:builtin",
@@ -258,6 +285,7 @@ function addVariantAlternatives(
 	lightState: WebGLLightState,
 	materialGBuffer: boolean,
 	deformation: WebGLDeformationProfile,
+	materialSnapshot: WebGLResolvedMaterialSnapshot | null,
 ): void {
 	for (const transmittanceAvailable of [false, true]) {
 		const variant = resolveWebGLSceneDrawVariant(
@@ -269,6 +297,8 @@ function addVariantAlternatives(
 			transmittanceAvailable,
 			mode === "mrt" && materialGBuffer,
 			deformation,
+			materialSnapshot?.data,
+			materialSnapshot?.materialVariant,
 		);
 		if (variant) variants.set(getWebGLSceneVariantKey(variant), variant);
 	}

@@ -45,6 +45,10 @@ import {
 	createWebGLSceneSamplerLayout,
 } from "./WebGLSceneSamplerLayout";
 import type { WebGLSceneProgram } from "./WebGLSceneProgram";
+import {
+	configureWebGLDepthMaterialBlock,
+	configureWebGLSceneMaterialBlocks,
+} from "./WebGLMaterialUniformBlocks";
 import type { WebGLSceneProgramPlan } from "./WebGLSceneProgramPlanner";
 import {
 	createShaderMaterialSourceBlocks,
@@ -723,6 +727,16 @@ export class WebGLSceneProgramRepository {
 			[],
 			normalizedVariant,
 		);
+		try {
+			sceneProgram.materialBinding = configureWebGLSceneMaterialBlocks(
+				this._gl,
+				sceneProgram.program,
+				normalizedVariant.material,
+			);
+		} catch (error) {
+			this._gl.deleteProgram(sceneProgram.program);
+			throw error;
+		}
 		sceneProgram.targetMode = normalizedVariant.output;
 		sceneProgram.colorOutputCount =
 			normalizedVariant.output === "single" ? 1
@@ -771,6 +785,15 @@ export class WebGLSceneProgramRepository {
 			},
 			normalizedVariant.baseMap ? ["uBaseMap"] : [],
 		);
+		try {
+			sceneProgram.materialBinding = configureWebGLDepthMaterialBlock(
+				this._gl,
+				sceneProgram.program,
+			);
+		} catch (error) {
+			this._gl.deleteProgram(sceneProgram.program);
+			throw error;
+		}
 		this._builtinSceneDepthPrepassPrograms.set(cacheKey, {
 			program: sceneProgram,
 			directiveTag,
@@ -1032,6 +1055,7 @@ export class WebGLSceneProgramRepository {
 					variant,
 					customSamplerUniforms,
 				),
+				materialBinding: { mode: "legacy" },
 			};
 		} catch (error) {
 			this._gl.deleteProgram(program);

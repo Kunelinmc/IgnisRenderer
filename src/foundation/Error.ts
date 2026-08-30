@@ -214,6 +214,7 @@ export type WebGLContextWorkErrorCode =
 export type WebGLCapabilityErrorCode =
 	| "hdr-float-color-buffer-unavailable"
 	| "hdr-float-linear-filtering-unavailable"
+	| "material-uniform-buffer-unavailable"
 	| "material-texture-unit-overflow";
 
 /** @internal Used by the WebGL backend capability and binding boundary. */
@@ -251,6 +252,8 @@ function buildWebGLCapabilityErrorMessage(code: WebGLCapabilityErrorCode): strin
 			return "Strict internal HDR requires EXT_color_buffer_float and a complete RGBA16F framebuffer.";
 		case "hdr-float-linear-filtering-unavailable":
 			return "Strict internal HDR requires linear filtering for half- or full-float textures.";
+		case "material-uniform-buffer-unavailable":
+			return "Built-in WebGL materials require the Ignis material uniform-buffer ABI.";
 		case "material-texture-unit-overflow":
 			return "The active WebGL scene sampler layout exceeds the fragment texture-unit limit.";
 	}

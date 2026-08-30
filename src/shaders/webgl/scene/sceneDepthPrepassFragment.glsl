@@ -7,15 +7,26 @@ in vec2 vUv1;
 in vec2 vUv2;
 in vec2 vUv3;
 
-uniform vec4 uBaseColor;
+layout(std140) uniform IgnisMaterialCommon {
+	vec4 ignisBaseColor;
+	vec4 ignisEmissive;
+	vec4 ignisAlpha;
+	vec4 ignisMaterialRenderParams;
+#if WEBGL_DEPTH_BASE_MAP
+	vec4 ignisBaseMapTransformA;
+	vec4 ignisBaseMapTransformB;
+#endif
+};
+
+#define uBaseColor ignisBaseColor
 #if WEBGL_DEPTH_ALPHA_MASK
-uniform vec4 uAlpha;
+#define uAlpha ignisAlpha
 #if WEBGL_DEPTH_BASE_MAP
 uniform sampler2D uBaseMap;
-uniform int uHasBaseMap;
-uniform int uBaseMapUV;
-uniform vec4 uBaseMapTransformA;
-uniform vec2 uBaseMapTransformB;
+#define uHasBaseMap 1
+#define uBaseMapUV int(ignisBaseMapTransformB.z + 0.5)
+#define uBaseMapTransformA ignisBaseMapTransformA
+#define uBaseMapTransformB ignisBaseMapTransformB.xy
 #endif
 #endif
 

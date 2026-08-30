@@ -44,6 +44,7 @@ export type WebGLShaderPart =
 export type WebGLSceneFragmentPart =
 	| "fragmentPrelude"
 	| "fragmentUniforms"
+	| "fragmentMaterialBlocks"
 	| "fragmentUvTextureNormal"
 	| "fragmentSh"
 	| "fragmentLocalProbes"
@@ -100,6 +101,7 @@ const WEBGL_SHADER_PARTS: readonly WebGLShaderPart[] = [
 export const WEBGL_SCENE_FRAGMENT_PARTS: readonly WebGLSceneFragmentPart[] = [
 	"fragmentPrelude",
 	"fragmentUniforms",
+	"fragmentMaterialBlocks",
 	"fragmentUvTextureNormal",
 	"fragmentSh",
 	"fragmentLocalProbes",
@@ -152,6 +154,7 @@ const WEBGL_SCENE_FRAGMENT_SHADER_FILES: Record<
 > = {
 	fragmentPrelude: "./webgl/scene/fragmentPrelude.glsl",
 	fragmentUniforms: "./webgl/scene/fragmentUniforms.glsl",
+	fragmentMaterialBlocks: "./webgl/scene/fragmentMaterialBlocks.glsl",
 	fragmentUvTextureNormal: "./webgl/scene/fragmentUvTextureNormal.glsl",
 	fragmentSh: "./webgl/scene/fragmentSh.glsl",
 	fragmentLocalProbes: "./webgl/scene/fragmentLocalProbes.glsl",
@@ -214,7 +217,9 @@ const model = (value: string): ShaderManifestExpression =>
 	equals("specialization.material.model", value);
 const isFull = model("full");
 const isPBR = any(model("pbr"), isFull);
-const isLegacy = any(model("legacy"), isFull);
+const isPhong = model("phong");
+const isFlat = model("flat");
+const isLegacy = any(isPhong, isFlat, isFull);
 const isLit = any(isPBR, isLegacy);
 const shadowTransmittance = all(scene("shadows"), scene("shadowTransmittance"));
 const irradianceGrid = all(
@@ -250,7 +255,7 @@ const sceneSpecializationSchema: ShaderParameterSchema = {
 			fields: {
 				model: {
 					type: "enum",
-					values: ["unlit", "legacy", "pbr", "full"],
+					values: ["unlit", "flat", "phong", "pbr", "full"],
 					default: "pbr",
 				},
 				...materialFields,
@@ -341,7 +346,9 @@ const sceneDefines: ShaderSourceNode = {
 		WEBGL_SCENE_REFLECTION_PROBES: scene("reflectionProbes"),
 		WEBGL_SCENE_ENVIRONMENT_SPECULAR: scene("environmentSpecular"),
 		WEBGL_MATERIAL_MODEL_UNLIT: model("unlit"),
-		WEBGL_MATERIAL_MODEL_LEGACY: model("legacy"),
+		WEBGL_MATERIAL_MODEL_FLAT: isFlat,
+		WEBGL_MATERIAL_MODEL_PHONG: isPhong,
+		WEBGL_MATERIAL_MODEL_LEGACY: any(isPhong, isFlat),
 		WEBGL_MATERIAL_MODEL_PBR: model("pbr"),
 		WEBGL_MATERIAL_MODEL_FULL: isFull,
 		...Object.fromEntries(
@@ -357,35 +364,55 @@ const sceneDefines: ShaderSourceNode = {
 };
 
 const uniformMarkers: readonly [string, ShaderManifestExpression][] = [
+	["__WEBGL_MATERIAL_COMMON_LEGACY_UNIFORMS__", isFull],
+	["__WEBGL_SCENE_FOG_UNIFORMS__", literal(true)],
 	["__WEBGL_SCENE_LIGHTING_UNIFORMS__", isLit],
 	["__WEBGL_SCENE_SH_UNIFORMS__", scene("sh")],
 	["__WEBGL_MATERIAL_SHADING_MODEL_UNIFORMS__", isFull],
-	["__WEBGL_MATERIAL_PBR_UNIFORMS__", isPBR],
-	["__WEBGL_MATERIAL_SPECULAR_UNIFORMS__", isLit],
+	["__WEBGL_MATERIAL_PBR_UNIFORMS__", isFull],
+	["__WEBGL_MATERIAL_SPECULAR_UNIFORMS__", isFull],
 	["__WEBGL_MATERIAL_SPECULAR_MAP_UNIFORMS__", all(isPBR, material("specularMap"))],
+	["__WEBGL_MATERIAL_SPECULAR_MAP_LEGACY_UNIFORMS__", all(isFull, material("specularMap"))],
 	["__WEBGL_MATERIAL_SPECULAR_COLOR_MAP_UNIFORMS__", all(isPBR, material("specularColorMap"))],
-	["__WEBGL_MATERIAL_CLEARCOAT_UNIFORMS__", all(isPBR, material("clearcoat"))],
+	["__WEBGL_MATERIAL_SPECULAR_COLOR_MAP_LEGACY_UNIFORMS__", all(isFull, material("specularColorMap"))],
+	["__WEBGL_MATERIAL_CLEARCOAT_UNIFORMS__", isFull],
 	["__WEBGL_MATERIAL_CLEARCOAT_MAP_UNIFORMS__", all(isPBR, material("clearcoatMap"))],
+	["__WEBGL_MATERIAL_CLEARCOAT_MAP_LEGACY_UNIFORMS__", all(isFull, material("clearcoatMap"))],
 	["__WEBGL_MATERIAL_CLEARCOAT_ROUGHNESS_MAP_UNIFORMS__", all(isPBR, material("clearcoatRoughnessMap"))],
+	["__WEBGL_MATERIAL_CLEARCOAT_ROUGHNESS_MAP_LEGACY_UNIFORMS__", all(isFull, material("clearcoatRoughnessMap"))],
 	["__WEBGL_MATERIAL_CLEARCOAT_NORMAL_MAP_UNIFORMS__", all(isPBR, material("clearcoatNormalMap"))],
-	["__WEBGL_MATERIAL_SHEEN_UNIFORMS__", all(isPBR, material("sheen"))],
+	["__WEBGL_MATERIAL_CLEARCOAT_NORMAL_MAP_LEGACY_UNIFORMS__", all(isFull, material("clearcoatNormalMap"))],
+	["__WEBGL_MATERIAL_SHEEN_UNIFORMS__", isFull],
 	["__WEBGL_MATERIAL_SHEEN_COLOR_MAP_UNIFORMS__", all(isPBR, material("sheenColorMap"))],
+	["__WEBGL_MATERIAL_SHEEN_COLOR_MAP_LEGACY_UNIFORMS__", all(isFull, material("sheenColorMap"))],
 	["__WEBGL_MATERIAL_SHEEN_ROUGHNESS_MAP_UNIFORMS__", all(isPBR, material("sheenRoughnessMap"))],
-	["__WEBGL_MATERIAL_TRANSMISSION_UNIFORMS__", all(isPBR, material("transmission"))],
+	["__WEBGL_MATERIAL_SHEEN_ROUGHNESS_MAP_LEGACY_UNIFORMS__", all(isFull, material("sheenRoughnessMap"))],
+	["__WEBGL_MATERIAL_TRANSMISSION_UNIFORMS__", isFull],
+	["__WEBGL_MATERIAL_TRANSMISSION_RUNTIME_UNIFORMS__", all(isPBR, material("transmission"))],
 	["__WEBGL_MATERIAL_TRANSMISSION_MAP_UNIFORMS__", all(isPBR, material("transmissionMap"))],
+	["__WEBGL_MATERIAL_TRANSMISSION_MAP_LEGACY_UNIFORMS__", all(isFull, material("transmissionMap"))],
 	["__WEBGL_MATERIAL_THICKNESS_MAP_UNIFORMS__", all(isPBR, material("thicknessMap"))],
-	["__WEBGL_MATERIAL_IRIDESCENCE_UNIFORMS__", all(isPBR, material("iridescence"))],
-	["__WEBGL_MATERIAL_ANISOTROPY_UNIFORMS__", all(isPBR, material("anisotropy"))],
-	["__WEBGL_MATERIAL_PHONG_UNIFORMS__", isLegacy],
-	["__WEBGL_MATERIAL_ALPHA_UNIFORMS__", literal(true)],
+	["__WEBGL_MATERIAL_THICKNESS_MAP_LEGACY_UNIFORMS__", all(isFull, material("thicknessMap"))],
+	["__WEBGL_MATERIAL_IRIDESCENCE_UNIFORMS__", isFull],
+	["__WEBGL_MATERIAL_ANISOTROPY_UNIFORMS__", isFull],
+	["__WEBGL_MATERIAL_PHONG_UNIFORMS__", isFull],
+	["__WEBGL_MATERIAL_ALPHA_UNIFORMS__", isFull],
 	["__WEBGL_MATERIAL_BASE_MAP_UNIFORMS__", material("baseMap")],
+	["__WEBGL_MATERIAL_BASE_MAP_LEGACY_UNIFORMS__", all(isFull, material("baseMap"))],
 	["__WEBGL_MATERIAL_METALLIC_ROUGHNESS_MAP_UNIFORMS__", all(isPBR, material("metallicRoughnessMap"))],
+	["__WEBGL_MATERIAL_METALLIC_ROUGHNESS_MAP_LEGACY_UNIFORMS__", all(isFull, material("metallicRoughnessMap"))],
 	["__WEBGL_MATERIAL_NORMAL_MAP_UNIFORMS__", all(isPBR, material("normalMap"))],
+	["__WEBGL_MATERIAL_NORMAL_MAP_LEGACY_UNIFORMS__", all(isFull, material("normalMap"))],
 	["__WEBGL_MATERIAL_EMISSIVE_MAP_UNIFORMS__", material("emissiveMap")],
+	["__WEBGL_MATERIAL_EMISSIVE_MAP_LEGACY_UNIFORMS__", all(isFull, material("emissiveMap"))],
 	["__WEBGL_MATERIAL_OCCLUSION_MAP_UNIFORMS__", all(isPBR, material("occlusionMap"))],
+	["__WEBGL_MATERIAL_OCCLUSION_MAP_LEGACY_UNIFORMS__", all(isFull, material("occlusionMap"))],
 	["__WEBGL_MATERIAL_IRIDESCENCE_MAP_UNIFORMS__", all(isPBR, material("iridescence"), material("iridescenceMap"))],
+	["__WEBGL_MATERIAL_IRIDESCENCE_MAP_LEGACY_UNIFORMS__", all(isFull, material("iridescenceMap"))],
 	["__WEBGL_MATERIAL_IRIDESCENCE_THICKNESS_MAP_UNIFORMS__", all(isPBR, material("iridescence"), material("iridescenceThicknessMap"))],
+	["__WEBGL_MATERIAL_IRIDESCENCE_THICKNESS_MAP_LEGACY_UNIFORMS__", all(isFull, material("iridescenceThicknessMap"))],
 	["__WEBGL_MATERIAL_ANISOTROPY_MAP_UNIFORMS__", all(isPBR, material("anisotropy"), material("anisotropyMap"))],
+	["__WEBGL_MATERIAL_ANISOTROPY_MAP_LEGACY_UNIFORMS__", all(isFull, material("anisotropyMap"))],
 	["__WEBGL_SCENE_ENVIRONMENT_SPECULAR_UNIFORMS__", all(isPBR, scene("environmentSpecular"))],
 	["__WEBGL_SCENE_LOCAL_LIGHT_PROBE_UNIFORMS__", all(scene("sh"), scene("localLightProbes"))],
 	["__WEBGL_IRRADIANCE_PROBE_GRID_UNIFORMS__", irradianceGrid],
@@ -513,6 +540,7 @@ sources["webgl.scene"] = {
 				preludeTemplate,
 				sceneDefines,
 				uniformTemplate,
+				when(not(isFull), asset("scene.fragmentMaterialBlocks")),
 				asset("scene.fragmentUvTextureNormal"),
 				when(scene("sh"), asset("scene.fragmentSh")),
 				when(all(scene("sh"), scene("localLightProbes")), localProbeTemplate),
