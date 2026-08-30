@@ -1,3 +1,5 @@
+import type { Vec3Tuple } from "../../maths/Vector3";
+import type { Vec4Tuple } from "../../maths/Vector4";
 import { clamp, sRGBToLinear } from "../../maths/Common";
 import {
 	type Material,
@@ -102,7 +104,7 @@ export function createWebGPUMaterialUniformData(
 	const phongShininess = Math.max(mat.shininess ?? 32, 0);
 	const emissiveIntensity = clamp(mat.emissiveIntensity ?? 1, 0, 64);
 	const textureSlots = createMaterialTextureSlots(material);
-	const pbrMasks: [number, number, number, number] =
+	const pbrMasks: Vec4Tuple =
 		material instanceof PBRMaterial ?
 			[material.featureMask, material.textureMask, 0, 0]
 		: isPBR && material.map ?
@@ -558,7 +560,7 @@ function normalizeTextureUVSet(uvSet: number): number {
 function getMaterialBaseColor(
 	material: Material,
 	isPBR: boolean
-): [number, number, number] {
+): Vec3Tuple {
 	if (isPBR) {
 		const albedo = (material as any).albedo ?? { r: 255, g: 255, b: 255 };
 		return [
@@ -579,7 +581,7 @@ function getMaterialBaseColor(
 function getMaterialEmissive(
 	material: Material,
 	isPBR: boolean
-): [number, number, number] {
+): Vec3Tuple {
 	const emissive = (material as any).emissive;
 	if (!emissive) {
 		return [0, 0, 0];
@@ -604,7 +606,7 @@ function getPhongLinearColor(color: {
 	r: number;
 	g: number;
 	b: number;
-}): [number, number, number] {
+}): Vec3Tuple {
 	return [
 		sRGBToLinear(clamp(color.r / 255, 0, 1)),
 		sRGBToLinear(clamp(color.g / 255, 0, 1)),
@@ -616,7 +618,7 @@ function getPBRLinearColor(color: {
 	r: number;
 	g: number;
 	b: number;
-}): [number, number, number] {
+}): Vec3Tuple {
 	return [
 		clamp(color.r / 255, 0, 1),
 		clamp(color.g / 255, 0, 1),

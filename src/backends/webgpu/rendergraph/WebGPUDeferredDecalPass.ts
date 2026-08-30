@@ -1,3 +1,4 @@
+import type { Vec4Tuple } from "../../../maths/Vector4";
 import {
 	DECAL_CHANNELS,
 	resolveDecalChannelBlendMode,
@@ -80,19 +81,19 @@ interface DecalWorkItem {
 }
 
 interface WebGPUDecalSurfaceData {
-	baseColorFactor: [number, number, number, number];
-	emissiveFactor: [number, number, number, number];
-	surfaceParams0: [number, number, number, number];
-	surfaceParams1: [number, number, number, number];
-	surfaceParams2: [number, number, number, number];
-	surfaceParams3: [number, number, number, number];
-	specularColorFactor: [number, number, number, number];
-	shininessParams: [number, number, number, number];
-	sheenColorClearcoatNormalScale: [number, number, number, number];
-	attenuationColor: [number, number, number, number];
-	anisotropyParams: [number, number, number, number];
-	sourceParams: [number, number, number, number];
-	pbrMasks: [number, number, number, number];
+	baseColorFactor: Vec4Tuple;
+	emissiveFactor: Vec4Tuple;
+	surfaceParams0: Vec4Tuple;
+	surfaceParams1: Vec4Tuple;
+	surfaceParams2: Vec4Tuple;
+	surfaceParams3: Vec4Tuple;
+	specularColorFactor: Vec4Tuple;
+	shininessParams: Vec4Tuple;
+	sheenColorClearcoatNormalScale: Vec4Tuple;
+	attenuationColor: Vec4Tuple;
+	anisotropyParams: Vec4Tuple;
+	sourceParams: Vec4Tuple;
+	pbrMasks: Vec4Tuple;
 	textureSlots: WebGPUTextureSlotData[];
 }
 

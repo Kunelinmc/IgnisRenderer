@@ -1,3 +1,4 @@
+import type { Vec3Tuple } from "../../maths/Vector3";
 import { clamp } from "../../maths/Common";
 import type { ICommandEncoder } from "../../backends/ICommandEncoder";
 import {
@@ -62,7 +63,7 @@ export interface FogOptions {
 	/** Executes fog in the post-process stack or during scene shading. */
 	application?: "postprocess" | "scene";
 	/** Linear RGB fog color mixed over the scene. */
-	color?: [number, number, number];
+	color?: Vec3Tuple;
 	/** World/view depth where linear fog starts contributing. */
 	start?: number;
 	/** World/view depth where linear fog reaches full configured strength. */

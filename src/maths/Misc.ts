@@ -1,3 +1,4 @@
+import type { Vec3Tuple } from "./Vector3";
 const DEFAULT_HALTON_SAMPLE_COUNT = 16;
 
 export function finiteOr(value: unknown, fallback: number): number {
@@ -79,8 +80,8 @@ export function isDepthHistoryCompatible(
 }
 
 export function rgbToYCoCg(
-	rgb: [number, number, number]
-): [number, number, number] {
+	rgb: Vec3Tuple
+): Vec3Tuple {
 	const co = rgb[0] - rgb[2];
 	const t = rgb[2] + co * 0.5;
 	const cg = rgb[1] - t;
@@ -89,8 +90,8 @@ export function rgbToYCoCg(
 }
 
 export function yCoCgToRgb(
-	yCoCg: [number, number, number]
-): [number, number, number] {
+	yCoCg: Vec3Tuple
+): Vec3Tuple {
 	const t = yCoCg[0] - yCoCg[2] * 0.5;
 	const g = yCoCg[2] + t;
 	const b = t - yCoCg[1] * 0.5;
@@ -99,10 +100,10 @@ export function yCoCgToRgb(
 }
 
 export function clampHistoryToNeighborhoodYCoCg(
-	historyRgb: [number, number, number],
-	neighborhood: [number, number, number][],
+	historyRgb: Vec3Tuple,
+	neighborhood: Vec3Tuple[],
 	varianceClampGamma: number
-): [number, number, number] {
+): Vec3Tuple {
 	if (neighborhood.length === 0) {
 		return historyRgb;
 	}
@@ -157,7 +158,7 @@ export function clampHistoryToNeighborhoodYCoCg(
 	const clipMaxCo = Math.min(maxCo, varMaxCo);
 	const clipMaxCg = Math.min(maxCg, varMaxCg);
 	const historyYCoCg = rgbToYCoCg(historyRgb);
-	const clamped: [number, number, number] = [
+	const clamped: Vec3Tuple = [
 		clamp(
 			historyYCoCg[0],
 			Math.min(clipMinY, clipMaxY),

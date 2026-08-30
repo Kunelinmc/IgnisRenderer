@@ -19,6 +19,7 @@ import {
 	resolveShadowData as resolveSharedShadowData,
 	toLinearLightColor,
 } from "../../lights/runtime/lightingRuntime";
+import type { Vec3Tuple } from "../../maths/Vector3";
 
 import {
 	WEBGPU_CLUSTERED_LIGHT_TYPE_AREA,
@@ -32,7 +33,6 @@ import {
 	MAX_SPOT_LIGHTS,
 } from "../constants";
 import type {
-	Vec3Tuple,
 	WebGPUAreaLightUniform,
 	WebGPUClusteredLightUniform,
 	WebGPUClusteredLightingData,

@@ -1,3 +1,4 @@
+import type { Vec4Tuple } from "../../maths/Vector4";
 import { CameraType, type Camera } from "../../cameras/Camera";
 import type { Matrix4 } from "../../maths/Matrix4";
 import type { FramePreparationRequirements } from "../../pipeline/FrameRequirements";
@@ -7,7 +8,7 @@ import {
 } from "./TemporalJitterState";
 
 export interface TemporalFrameSnapshot {
-	readonly jitterCurrentPrev: readonly [number, number, number, number];
+	readonly jitterCurrentPrev: Readonly<Vec4Tuple>;
 	readonly previousViewProjection: Matrix4 | null;
 }
 

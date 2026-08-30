@@ -1,3 +1,5 @@
+import type { Vec3Tuple } from "../../maths/Vector3";
+import type { Vec4Tuple } from "../../maths/Vector4";
 import type { BoundingSphere, IPrimitiveGeometry } from "../../core/types";
 import type { Skeleton } from "../../animation/Skeleton";
 import { defineTransientKey } from "../../foundation/TransientStore";
@@ -21,9 +23,9 @@ export const ANIMATION_DEFORMATION_STATES_KEY =
 
 export interface AnimationPoseState {
 	path: string;
-	translation?: [number, number, number];
-	rotation?: [number, number, number, number];
-	scale?: [number, number, number];
+	translation?: Vec3Tuple;
+	rotation?: Vec4Tuple;
+	scale?: Vec3Tuple;
 }
 
 export interface DeformedGeometryOverride {

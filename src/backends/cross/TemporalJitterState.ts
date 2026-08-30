@@ -1,3 +1,4 @@
+import type { Vec4Tuple } from "../../maths/Vector4";
 import { computeHaltonJitterNDC } from "../../maths/Misc";
 
 export interface TemporalJitterStateRequest {
@@ -71,7 +72,7 @@ export class TemporalJitterState {
 	 */
 	public next(
 		request: TemporalJitterStateRequest
-	): [number, number, number, number] {
+	): Vec4Tuple {
 		if (request.reset) {
 			this.reset();
 		}

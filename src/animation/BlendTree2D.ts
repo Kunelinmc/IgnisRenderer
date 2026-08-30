@@ -1,3 +1,4 @@
+import type { Vec3Tuple } from "../maths/Vector3";
 import type { BlendTreeChildWeight } from "./types";
 
 const BLEND_EPSILON = 1e-6;
@@ -31,7 +32,7 @@ export interface BlendTree2DEvaluateOptions {
 }
 
 interface BlendTree2DTriangle {
-	indices: [number, number, number];
+	indices: Vec3Tuple;
 	area2: number;
 	neighbors: [number | null, number | null, number | null];
 }
@@ -43,12 +44,12 @@ interface BlendTree2DPoint {
 }
 
 interface DelaunayTriangle {
-	vertices: [number, number, number];
+	vertices: Vec3Tuple;
 }
 
 interface TriangleLocation {
 	triangleIndex: number;
-	weights: [number, number, number];
+	weights: Vec3Tuple;
 }
 
 export class BlendTree2D {
@@ -361,7 +362,7 @@ export class BlendTree2D {
 
 		let bestInside: {
 			triangleIndex: number;
-			weights: [number, number, number];
+			weights: Vec3Tuple;
 			minWeight: number;
 		} | null = null;
 		for (let i = 0; i < this._triangles.length; i++) {
@@ -400,10 +401,10 @@ export class BlendTree2D {
 	private _projectToNearestTriangle(
 		pointX: number,
 		pointY: number
-	): { triangleIndex: number; weights: [number, number, number] } | null {
+	): { triangleIndex: number; weights: Vec3Tuple } | null {
 		let bestProjection: {
 			triangleIndex: number;
-			weights: [number, number, number];
+			weights: Vec3Tuple;
 			distanceSquared: number;
 		} | null = null;
 
@@ -474,10 +475,10 @@ export class BlendTree2D {
 	}
 
 	private _computeTriangleWeights(
-		indices: [number, number, number],
+		indices: Vec3Tuple,
 		pointX: number,
 		pointY: number
-	): [number, number, number] | null {
+	): Vec3Tuple | null {
 		const a = this.children[indices[0]];
 		const b = this.children[indices[1]];
 		const c = this.children[indices[2]];
@@ -503,8 +504,8 @@ export class BlendTree2D {
 	}
 
 	private _clampAndNormalizeTriangleWeights(
-		weights: [number, number, number]
-	): [number, number, number] | null {
+		weights: Vec3Tuple
+	): Vec3Tuple | null {
 		const clampedA = Math.max(0, weights[0]);
 		const clampedB = Math.max(0, weights[1]);
 		const clampedC = Math.max(0, weights[2]);
@@ -516,9 +517,9 @@ export class BlendTree2D {
 	}
 
 	private _softClampAndNormalizeTriangleWeights(
-		weights: [number, number, number],
+		weights: Vec3Tuple,
 		softBias: number
-	): [number, number, number] | null {
+	): Vec3Tuple | null {
 		const bias = Math.max(0, softBias);
 		const clampedA = Math.max(0, weights[0] + bias);
 		const clampedB = Math.max(0, weights[1] + bias);
@@ -531,8 +532,8 @@ export class BlendTree2D {
 	}
 
 	private _projectTriangleWeights(
-		indices: [number, number, number],
-		weights: [number, number, number]
+		indices: Vec3Tuple,
+		weights: Vec3Tuple
 	): [number, number] {
 		const a = this.children[indices[0]];
 		const b = this.children[indices[1]];
@@ -544,8 +545,8 @@ export class BlendTree2D {
 	}
 
 	private _weightsFromTriangleValues(
-		indices: [number, number, number],
-		weights: [number, number, number]
+		indices: Vec3Tuple,
+		weights: Vec3Tuple
 	): number[] {
 		const rawWeights = new Array<number>(this.children.length).fill(0);
 		rawWeights[indices[0]] = weights[0];
@@ -658,7 +659,7 @@ export class BlendTree2D {
 		const triangles: BlendTree2DTriangle[] = [];
 		const seen = new Set<string>();
 		for (const triangle of delaunay) {
-			const indices: [number, number, number] = [
+			const indices: Vec3Tuple = [
 				uniquePoints[triangle.vertices[0]].childIndex,
 				uniquePoints[triangle.vertices[1]].childIndex,
 				uniquePoints[triangle.vertices[2]].childIndex,
@@ -869,7 +870,7 @@ export class BlendTree2D {
 		b: number,
 		c: number,
 		points: BlendTree2DPoint[]
-	): [number, number, number] | null {
+	): Vec3Tuple | null {
 		const area2 = this._signedArea2Points(points[a], points[b], points[c]);
 		if (Math.abs(area2) <= TRIANGLE_EPSILON) return null;
 		if (area2 > 0) {
@@ -901,7 +902,7 @@ export class BlendTree2D {
 	}
 
 	private _getTriangleEdgeVertices(
-		indices: [number, number, number],
+		indices: Vec3Tuple,
 		edgeIndex: number
 	): [number, number] {
 		switch (edgeIndex) {
@@ -918,7 +919,7 @@ export class BlendTree2D {
 		return a < b ? `${a}:${b}` : `${b}:${a}`;
 	}
 
-	private _childTriangleArea2(indices: [number, number, number]): number {
+	private _childTriangleArea2(indices: Vec3Tuple): number {
 		const a = this.children[indices[0]];
 		const b = this.children[indices[1]];
 		const c = this.children[indices[2]];

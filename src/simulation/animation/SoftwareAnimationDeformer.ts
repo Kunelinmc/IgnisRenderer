@@ -1,3 +1,4 @@
+import type { Vec3Tuple } from "../../maths/Vector3";
 import type { IPrimitiveGeometry } from "../../core/types";
 import type { Skeleton } from "../../animation/Skeleton";
 import type { Matrix4 } from "../../maths/Matrix4";
@@ -235,7 +236,7 @@ function transformPoint(
 	x: number,
 	y: number,
 	z: number
-): [number, number, number] {
+): Vec3Tuple {
 	return [
 		matrix[0][0] * x + matrix[0][1] * y + matrix[0][2] * z + matrix[0][3],
 		matrix[1][0] * x + matrix[1][1] * y + matrix[1][2] * z + matrix[1][3],
@@ -248,7 +249,7 @@ function transformDirection(
 	x: number,
 	y: number,
 	z: number
-): [number, number, number] {
+): Vec3Tuple {
 	return [
 		matrix[0][0] * x + matrix[0][1] * y + matrix[0][2] * z,
 		matrix[1][0] * x + matrix[1][1] * y + matrix[1][2] * z,

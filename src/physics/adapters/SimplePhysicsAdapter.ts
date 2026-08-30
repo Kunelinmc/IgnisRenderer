@@ -1,3 +1,4 @@
+import type { Vec4Tuple } from "../../maths/Vector4";
 import type { IVector3 } from "../../maths/types";
 import { Matrix3 } from "../../maths/Matrix3";
 import { Vector3 } from "../../maths/Vector3";
@@ -1234,15 +1235,15 @@ function sanitizeHalfExtents(halfExtents: IVector3): IVector3 {
 }
 
 function sanitizeQueryRotation(
-	rotation?: [number, number, number, number]
-): [number, number, number, number] {
+	rotation?: Vec4Tuple
+): Vec4Tuple {
 	if (!rotation) return [0, 0, 0, 1];
 	return normalizeQuaternion(rotation);
 }
 
 function normalizeQuaternion(
-	rotation: [number, number, number, number]
-): [number, number, number, number] {
+	rotation: Vec4Tuple
+): Vec4Tuple {
 	const x = Number.isFinite(rotation[0]) ? rotation[0] : 0;
 	const y = Number.isFinite(rotation[1]) ? rotation[1] : 0;
 	const z = Number.isFinite(rotation[2]) ? rotation[2] : 0;
@@ -1255,7 +1256,7 @@ function normalizeQuaternion(
 
 function toOrientedBoundsExtents(
 	halfExtents: IVector3,
-	rotation: [number, number, number, number]
+	rotation: Vec4Tuple
 ): IVector3 {
 	const matrix = Matrix3.fromQuaternion(
 		rotation,

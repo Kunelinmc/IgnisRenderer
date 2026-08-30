@@ -1,3 +1,4 @@
+import type { Vec4Tuple } from "../../maths/Vector4";
 import type {
 	IPhysicsEngineAdapter,
 	PhysicsAdapterBodyState,
@@ -136,7 +137,7 @@ interface RapierQueryCandidate {
 	body: RapierBodyState;
 	collider: RapierColliderState;
 	center: IVector3;
-	rotation: [number, number, number, number];
+	rotation: Vec4Tuple;
 }
 
 interface RapierQueryHit {
@@ -2120,7 +2121,7 @@ export class RapierPhysicsAdapter implements IPhysicsEngineAdapter {
 		target: any,
 		methodNames: string[],
 		value:
-			| [number, number, number, number]
+			| Vec4Tuple
 			| {
 					x: number;
 					y: number;
@@ -2306,8 +2307,8 @@ function cloneVector(source: IVector3): IVector3 {
 }
 
 function cloneQuaternion(
-	value: [number, number, number, number]
-): [number, number, number, number] {
+	value: Vec4Tuple
+): Vec4Tuple {
 	return [value[0], value[1], value[2], value[3]];
 }
 
@@ -2508,15 +2509,15 @@ function sanitizeHalfExtents(halfExtents: IVector3): IVector3 {
 }
 
 function sanitizeQueryRotation(
-	rotation?: [number, number, number, number]
-): [number, number, number, number] {
+	rotation?: Vec4Tuple
+): Vec4Tuple {
 	if (!rotation) return [0, 0, 0, 1];
 	return normalizeQuaternion(rotation);
 }
 
 function normalizeQuaternion(
-	rotation: [number, number, number, number]
-): [number, number, number, number] {
+	rotation: Vec4Tuple
+): Vec4Tuple {
 	const x = Number.isFinite(rotation[0]) ? rotation[0] : 0;
 	const y = Number.isFinite(rotation[1]) ? rotation[1] : 0;
 	const z = Number.isFinite(rotation[2]) ? rotation[2] : 0;
@@ -2529,7 +2530,7 @@ function normalizeQuaternion(
 
 function toOrientedBoundsExtents(
 	halfExtents: IVector3,
-	rotation: [number, number, number, number]
+	rotation: Vec4Tuple
 ): IVector3 {
 	const matrix = Matrix3.fromQuaternion(
 		rotation,
@@ -3000,7 +3001,7 @@ function intersectRayTrimesh(
 	direction: IVector3,
 	maxDistance: number,
 	center: IVector3,
-	rotation: [number, number, number, number],
+	rotation: Vec4Tuple,
 	vertices: Float32Array | number[],
 	indices: Uint32Array | number[],
 	bvh: TrimeshRayBVHEntry | null
@@ -3190,7 +3191,7 @@ function intersectRayBounds(
 	let tMin = 0;
 	let tMax = maxDistance;
 
-	const axisTests: Array<[number, number, number, number]> = [
+	const axisTests: Array<Vec4Tuple> = [
 		[origin.x, direction.x, minX, maxX],
 		[origin.y, direction.y, minY, maxY],
 		[origin.z, direction.z, minZ, maxZ],
@@ -3220,7 +3221,7 @@ function intersectRayBounds(
 
 function rotateVectorByQuaternion(
 	vector: IVector3,
-	rotation: [number, number, number, number]
+	rotation: Vec4Tuple
 ): IVector3 {
 	const x = rotation[0];
 	const y = rotation[1];
@@ -3238,7 +3239,7 @@ function rotateVectorByQuaternion(
 
 function rotateVectorByInverseQuaternion(
 	vector: IVector3,
-	rotation: [number, number, number, number]
+	rotation: Vec4Tuple
 ): IVector3 {
 	return rotateVectorByQuaternion(vector, [
 		-rotation[0],

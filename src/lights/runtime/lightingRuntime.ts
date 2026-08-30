@@ -1,3 +1,5 @@
+import type { Vec3Tuple } from "../../maths/Vector3";
+import type { Vec4Tuple } from "../../maths/Vector4";
 import type { RGB } from "../../foundation/Color";
 import type { PreparedShadowLight } from "../shadows/ShadowFramePlan";
 import { clamp, sRGBToLinear } from "../../maths/Common";
@@ -25,7 +27,7 @@ export interface ResolvedShadowData {
 	cascadeCount: number;
 	cascadeBlendRatio: number;
 	cascadeViewProjectionMatrices: Array<Matrix4 | null>;
-	cascadeSplits: Array<[number, number, number, number]>;
+	cascadeSplits: Array<Vec4Tuple>;
 	depthProjectionParams: Array<ShadowDepthProjectionParams>;
 	viewProjectionMatrix: Matrix4 | null;
 	depthBias: number;
@@ -44,7 +46,7 @@ const LIGHT_PROBE_DC_IRRADIANCE_SCALE = Math.PI * 0.282095;
 export function toLinearLightColor(
 	color: RGBLike | null | undefined,
 	intensity: number
-): [number, number, number] {
+): Vec3Tuple {
 	const resolvedIntensity = resolveFiniteNumber(intensity, 1);
 	return [
 		sRGBToLinear(resolveColorChannel(color?.r) / 255) * resolvedIntensity,
@@ -54,7 +56,7 @@ export function toLinearLightColor(
 }
 
 export function accumulateAmbientLightColor(
-	ambientColor: [number, number, number],
+	ambientColor: Vec3Tuple,
 	color: RGBLike | null | undefined,
 	intensity: number
 ): void {
@@ -65,7 +67,7 @@ export function accumulateAmbientLightColor(
 }
 
 export function accumulateLightProbeFallbackAmbientColor(
-	ambientColor: [number, number, number],
+	ambientColor: Vec3Tuple,
 	dc: RGBLike | null | undefined,
 	intensity: number
 ): void {
@@ -107,7 +109,7 @@ export function resolveShadowData(
 		null,
 		null,
 	];
-	const cascadeSplits: Array<[number, number, number, number]> = [
+	const cascadeSplits: Array<Vec4Tuple> = [
 		[0, 0, 0, 0],
 		[0, 0, 0, 0],
 		[0, 0, 0, 0],

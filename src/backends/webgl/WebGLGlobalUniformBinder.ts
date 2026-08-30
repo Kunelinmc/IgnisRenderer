@@ -1,3 +1,5 @@
+import type { Vec3Tuple } from "../../maths/Vector3";
+import type { Vec4Tuple } from "../../maths/Vector4";
 import { clamp } from "../../maths/Common";
 import { Matrix4 } from "../../maths/Matrix4";
 import { finiteOr } from "../../maths/Misc";
@@ -43,7 +45,7 @@ const IDENTITY_MATRIX4_COLUMN_MAJOR = new Float32Array([
 
 function flattenVec4<T>(
 	values: T[],
-	mapper: (value: T) => [number, number, number, number],
+	mapper: (value: T) => Vec4Tuple,
 	maxCount: number
 ): Float32Array {
 	const resolvedMaxCount =
@@ -250,7 +252,7 @@ function flattenReflectionProbeRows(
 
 function flattenReflectionProbeVec4(
 	values: WebGLReflectionProbeUniform[],
-	mapper: (probe: WebGLReflectionProbeUniform) => [number, number, number, number]
+	mapper: (probe: WebGLReflectionProbeUniform) => Vec4Tuple
 ): Float32Array {
 	const packed = new Float32Array(MAX_REFLECTION_PROBES * 4);
 	const count = Math.min(MAX_REFLECTION_PROBES, values.length);
@@ -284,7 +286,7 @@ function flattenLocalLightProbeRows(
 
 function flattenLocalLightProbeVec4(
 	values: WebGLLocalLightProbeUniform[],
-	mapper: (probe: WebGLLocalLightProbeUniform) => [number, number, number, number]
+	mapper: (probe: WebGLLocalLightProbeUniform) => Vec4Tuple
 ): Float32Array {
 	const packed = new Float32Array(MAX_LOCAL_LIGHT_PROBES * 4);
 	const count = Math.min(MAX_LOCAL_LIGHT_PROBES, values.length);
@@ -464,7 +466,7 @@ export function bindWebGLGlobalUniforms(
 		getWebGLSceneSamplerUnit(sceneProgram.samplerLayout, name);
 	const lightState = host._lightState as Partial<WebGLLightState> | null;
 	const ambientColorCandidate = lightState?.ambientColor;
-	const ambientColor: [number, number, number] =
+	const ambientColor: Vec3Tuple =
 		Array.isArray(ambientColorCandidate) && ambientColorCandidate.length >= 3 ?
 			[
 				ambientColorCandidate[0],

@@ -1,3 +1,4 @@
+import type { Vec3Tuple } from "../../maths/Vector3";
 import type { FrameAttachments } from "../../pipeline/types";
 import type { FramePreparationRequirements } from "../../pipeline/FrameRequirements";
 import type { ICommandEncoder } from "../../backends/ICommandEncoder";
@@ -992,7 +993,7 @@ function collectNeighborhood(
 	height: number,
 	x: number,
 	y: number
-): [number, number, number][] {
+): Vec3Tuple[] {
 	return [
 		sampleRgb(pixels, width, height, x, y),
 		sampleRgb(pixels, width, height, x - 1, y),
@@ -1008,7 +1009,7 @@ function sampleRgb(
 	height: number,
 	x: number,
 	y: number
-): [number, number, number] {
+): Vec3Tuple {
 	const c = samplePixel(pixels, width, height, x, y);
 	return [c.r, c.g, c.b];
 }

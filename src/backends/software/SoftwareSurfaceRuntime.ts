@@ -1,3 +1,4 @@
+import type { Vec3Tuple } from "../../maths/Vector3";
 import type { FrameAttachments } from "../../pipeline/types";
 import type { PostProcessColorDomain } from "../../postprocess/PostProcessPass";
 import {
@@ -31,10 +32,10 @@ export class SoftwareSurfaceRuntime {
 	private _hdrPixels: Float16Array | null = null;
 	private _frameWidth = 0;
 	private _frameHeight = 0;
-	private readonly _inputColor: [number, number, number] = [0, 0, 0];
-	private readonly _mappedColor: [number, number, number] = [0, 0, 0];
-	private readonly _p3Color: [number, number, number] = [0, 0, 0];
-	private readonly _encodedColor: [number, number, number] = [0, 0, 0];
+	private readonly _inputColor: Vec3Tuple = [0, 0, 0];
+	private readonly _mappedColor: Vec3Tuple = [0, 0, 0];
+	private readonly _p3Color: Vec3Tuple = [0, 0, 0];
+	private readonly _encodedColor: Vec3Tuple = [0, 0, 0];
 
 	constructor(private readonly _displayOutput: SoftwareDisplayOutputManager) {}
 
@@ -224,7 +225,7 @@ export class SoftwareSurfaceRuntime {
 		blue: number,
 		domain: PostProcessColorDomain,
 		state: DisplayOutputState,
-	): [number, number, number] {
+	): Vec3Tuple {
 		const encoded = this._encodedColor;
 		if (domain === "display-encoded") {
 			encoded[0] = finiteOrZero(red);

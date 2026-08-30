@@ -1,3 +1,5 @@
+import type { Vec3Tuple } from "../../maths/Vector3";
+import type { Vec4Tuple } from "../../maths/Vector4";
 import { Texture } from "../../core/Texture";
 import { Logger } from "../../foundation/Logger";
 import {
@@ -40,23 +42,23 @@ import {
 } from "../../lights/runtime/lightingRuntime";
 
 export interface WebGLDirectionalLight {
-	direction: [number, number, number];
-	color: [number, number, number];
+	direction: Vec3Tuple;
+	color: Vec3Tuple;
 }
 
 export interface WebGLPointLight {
-	position: [number, number, number];
+	position: Vec3Tuple;
 	range: number;
-	color: [number, number, number];
+	color: Vec3Tuple;
 }
 
 export interface WebGLSpotLight {
-	position: [number, number, number];
+	position: Vec3Tuple;
 	range: number;
-	direction: [number, number, number];
+	direction: Vec3Tuple;
 	outerCos: number;
 	innerCos: number;
-	color: [number, number, number];
+	color: Vec3Tuple;
 }
 
 export interface WebGLShadowData {
@@ -65,8 +67,8 @@ export interface WebGLShadowData {
 	cascadeCount: number;
 	cascadeBlendRatio: number;
 	cascadeViewProjectionMatrices: Array<Matrix4 | null>;
-	cascadeSplits: Array<[number, number, number, number]>;
-	depthProjectionParams: Array<readonly [number, number, number, number]>;
+	cascadeSplits: Array<Vec4Tuple>;
+	depthProjectionParams: Array<Readonly<Vec4Tuple>>;
 	viewProjectionMatrix: Matrix4 | null;
 	depthBias: number;
 	slopeBias: number;
@@ -81,7 +83,7 @@ export interface WebGLShadowData {
 }
 
 export interface WebGLLightState {
-	ambientColor: [number, number, number];
+	ambientColor: Vec3Tuple;
 	directionalLights: WebGLDirectionalLight[];
 	directionalShadows: WebGLShadowData[];
 	pointLights: WebGLPointLight[];
@@ -100,7 +102,7 @@ export interface WebGLLightState {
 export interface WebGLLocalLightProbeUniform {
 	id: string;
 	worldToProbeMatrix: Matrix4;
-	invHalfExtents: [number, number, number];
+	invHalfExtents: Vec3Tuple;
 	radiusInv: number;
 	shape: 0 | 1;
 	blendDistance: number;
@@ -111,8 +113,8 @@ export interface WebGLLocalLightProbeUniform {
 export interface WebGLIrradianceProbeGridUniform {
 	id: string;
 	worldToGridMatrix: Matrix4;
-	dimensions: [number, number, number];
-	invHalfExtents: [number, number, number];
+	dimensions: Vec3Tuple;
+	invHalfExtents: Vec3Tuple;
 	blendDistance: number;
 	cellCount: number;
 	textureRevision: number;
@@ -124,24 +126,24 @@ export interface WebGLReflectionProbeUniform {
 	id: string;
 	worldToProbeMatrix: Matrix4;
 	probeToWorldMatrix: Matrix4;
-	invHalfExtents: [number, number, number];
+	invHalfExtents: Vec3Tuple;
 	radiusInv: number;
 	shape: 0 | 1;
 	parallaxMode: 0 | 1 | 2;
 	blendDistance: number;
 	blendExponent: number;
-	captureWorldPosition: [number, number, number];
+	captureWorldPosition: Vec3Tuple;
 	layer: number;
 }
 
 export interface WebGLClusteredLight {
 	type: 0 | 1;
-	position: [number, number, number];
+	position: Vec3Tuple;
 	range: number;
-	direction: [number, number, number];
+	direction: Vec3Tuple;
 	outerCos: number;
 	innerCos: number;
-	color: [number, number, number];
+	color: Vec3Tuple;
 	castsShadow: boolean;
 	shadowIndex: number;
 }

@@ -1,3 +1,4 @@
+import type { Vec3Tuple } from "../../maths/Vector3";
 import { ceilDiv } from "../../maths/Misc";
 import { WEBGPU_2D_COMPUTE_WORKGROUP_SIZE as WEBGPU_WORKGROUP_SIZE } from "../../backends/webgpu/constants";
 import {
@@ -57,9 +58,9 @@ export const GAMMA_PASS_ORDER = {
  * @internal Shared by CPU presentation and numerical contract tests.
  */
 export function linearSrgbToDisplayP3(
-	color: readonly [number, number, number],
-	out: [number, number, number] = [0, 0, 0],
-): [number, number, number] {
+	color: Readonly<Vec3Tuple>,
+	out: Vec3Tuple = [0, 0, 0],
+): Vec3Tuple {
 	const [red, green, blue] = color;
 	out[0] = 0.82259287 * red + 0.17753395 * green;
 	out[1] = 0.03319951 * red + 0.9667835 * green;
@@ -79,8 +80,8 @@ export function encodeLinearSRGB(value: number, extended = false): number {
 /** @internal Software implementation for the built-in gamma pass. */
 export class SoftwareGammaImplementation implements PostProcessPassImplementation<SoftwareBuiltinPostProcessContext> {
 	public readonly id = "gamma:software";
-	private readonly _inputColor: [number, number, number] = [0, 0, 0];
-	private readonly _p3Color: [number, number, number] = [0, 0, 0];
+	private readonly _inputColor: Vec3Tuple = [0, 0, 0];
+	private readonly _p3Color: Vec3Tuple = [0, 0, 0];
 
 	public describeExecution() {
 		return SOFTWARE_IN_PLACE_EXECUTION;

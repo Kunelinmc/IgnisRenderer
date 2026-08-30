@@ -1,3 +1,5 @@
+import type { Vec3Tuple } from "../../maths/Vector3";
+import type { Vec4Tuple } from "../../maths/Vector4";
 import type { Matrix4 } from "../../maths/Matrix4";
 import type { IVector3, SHCoefficients } from "../../maths/types";
 import type { ResolvedShadowStrategy } from "../../lights/runtime/lightingRuntime";
@@ -15,8 +17,6 @@ export interface WebGPUWarning {
 	key: string;
 	message: string;
 }
-
-export type Vec3Tuple = [number, number, number];
 
 interface WebGPULightUniformBase {
 	color: Vec3Tuple;
@@ -136,8 +136,8 @@ export interface WebGPUShadowData {
 	cascadeCount: number;
 	cascadeBlendRatio: number;
 	cascadeViewProjectionMatrices: Array<Matrix4 | null>;
-	cascadeSplits: Array<[number, number, number, number]>;
-	depthProjectionParams: Array<readonly [number, number, number, number]>;
+	cascadeSplits: Array<Vec4Tuple>;
+	depthProjectionParams: Array<Readonly<Vec4Tuple>>;
 	viewProjectionMatrix: Matrix4 | null;
 	depthBias: number;
 	slopeBias: number;
@@ -194,18 +194,18 @@ export interface WebGPUClusterGridParams {
 export type WebGPUClusteredCullingMode = "gather" | "scatter";
 
 export interface WebGPUClusteredAreaPayload {
-	rightWidth: [number, number, number, number];
-	upHeight: [number, number, number, number];
-	normalAreaScale: [number, number, number, number];
+	rightWidth: Vec4Tuple;
+	upHeight: Vec4Tuple;
+	normalAreaScale: Vec4Tuple;
 }
 
 export interface WebGPUClusterLightRecord {
-	positionRange: [number, number, number, number];
-	directionOuter: [number, number, number, number];
-	colorInner: [number, number, number, number];
-	rightWidth: [number, number, number, number];
-	upHeight: [number, number, number, number];
-	normalAreaScale: [number, number, number, number];
+	positionRange: Vec4Tuple;
+	directionOuter: Vec4Tuple;
+	colorInner: Vec4Tuple;
+	rightWidth: Vec4Tuple;
+	upHeight: Vec4Tuple;
+	normalAreaScale: Vec4Tuple;
 	packedFlags: number;
 	shadowIndex: number;
 	reserved0: number;
@@ -238,7 +238,7 @@ export interface WebGPUEnvironmentState {
 export interface WebGPULocalLightProbeUniform {
 	id: string;
 	worldToProbeMatrix: Matrix4;
-	invHalfExtents: [number, number, number];
+	invHalfExtents: Vec3Tuple;
 	radiusInv: number;
 	shape: 0 | 1;
 	blendDistance: number;
@@ -249,8 +249,8 @@ export interface WebGPULocalLightProbeUniform {
 export interface WebGPUIrradianceProbeGridUniform {
 	id: string;
 	worldToGridMatrix: Matrix4;
-	dimensions: [number, number, number];
-	invHalfExtents: [number, number, number];
+	dimensions: Vec3Tuple;
+	invHalfExtents: Vec3Tuple;
 	blendDistance: number;
 	cellCount: number;
 	textureRevision: number;
@@ -262,9 +262,9 @@ export interface WebGPUReflectionProbeUniform {
 	id: string;
 	worldToProbeMatrix: Matrix4;
 	probeToWorldMatrix: Matrix4;
-	invHalfExtents: [number, number, number];
+	invHalfExtents: Vec3Tuple;
 	radiusInv: number;
-	captureWorldPosition: [number, number, number];
+	captureWorldPosition: Vec3Tuple;
 	shape: 0 | 1;
 	parallaxMode: 0 | 1 | 2;
 	blendDistance: number;
@@ -274,8 +274,8 @@ export interface WebGPUReflectionProbeUniform {
 
 export interface WebGPUTextureSlotData {
 	map: Texture | null;
-	transformA: [number, number, number, number];
-	transformB: [number, number, number, number];
+	transformA: Vec4Tuple;
+	transformB: Vec4Tuple;
 }
 
 export interface WebGPUShaderUniformData {
@@ -288,28 +288,28 @@ export interface WebGPUShaderUniformData {
 export type WebGPUShadingFamily = "pbr" | "phong" | "flat" | "unlit";
 
 export interface WebGPUMaterialCommonUniformData {
-	baseColorFactor: [number, number, number, number];
-	emissiveFactor: [number, number, number, number];
-	materialParams: [number, number, number, number];
-	renderParams: [number, number, number, number];
+	baseColorFactor: Vec4Tuple;
+	emissiveFactor: Vec4Tuple;
+	materialParams: Vec4Tuple;
+	renderParams: Vec4Tuple;
 	textureSlots: WebGPUTextureSlotData[];
 }
 
 export interface WebGPUPBRMaterialUniformData {
-	surfaceParams0: [number, number, number, number];
-	surfaceParams1: [number, number, number, number];
-	surfaceParams2: [number, number, number, number];
-	surfaceParams3: [number, number, number, number];
-	specularColorFactor: [number, number, number, number];
-	sheenColorClearcoatNormalScale: [number, number, number, number];
-	attenuationColor: [number, number, number, number];
-	anisotropyParams: [number, number, number, number];
-	pbrMasks: [number, number, number, number];
+	surfaceParams0: Vec4Tuple;
+	surfaceParams1: Vec4Tuple;
+	surfaceParams2: Vec4Tuple;
+	surfaceParams3: Vec4Tuple;
+	specularColorFactor: Vec4Tuple;
+	sheenColorClearcoatNormalScale: Vec4Tuple;
+	attenuationColor: Vec4Tuple;
+	anisotropyParams: Vec4Tuple;
+	pbrMasks: Vec4Tuple;
 }
 
 export interface WebGPUPhongMaterialUniformData {
-	ambientShininess: [number, number, number, number];
-	specular: [number, number, number, number];
+	ambientShininess: Vec4Tuple;
+	specular: Vec4Tuple;
 }
 
 export type WebGPUFlatMaterialUniformData = WebGPUPhongMaterialUniformData;
@@ -371,7 +371,7 @@ export interface WebGPUFrameUniformInput {
 	hasEnvSpecular: boolean;
 	hasBRDFLUT: boolean;
 	envSpecularMaxMipLevel: number;
-	taaJitterCurrentPrev: [number, number, number, number];
+	taaJitterCurrentPrev: Vec4Tuple;
 }
 
 export interface WebGPUParticleDrawBatch {

@@ -1,3 +1,4 @@
+import type { Vec3Tuple } from "../../maths/Vector3";
 import { CameraType } from "../../cameras/Camera";
 import { Logger } from "../../foundation/Logger";
 import { Matrix4 } from "../../maths/Matrix4";
@@ -19,12 +20,12 @@ interface ClusteredRuntimeOptions {
 
 interface ClusteredLightRecord {
 	type: 0 | 1;
-	position: [number, number, number];
+	position: Vec3Tuple;
 	range: number;
-	direction: [number, number, number];
+	direction: Vec3Tuple;
 	outerCos: number;
 	innerCos: number;
-	color: [number, number, number];
+	color: Vec3Tuple;
 	castsShadow: boolean;
 	shadowIndex: number;
 }

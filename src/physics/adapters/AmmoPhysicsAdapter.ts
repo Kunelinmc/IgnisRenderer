@@ -1,3 +1,4 @@
+import type { Vec4Tuple } from "../../maths/Vector4";
 import type {
 	IPhysicsEngineAdapter,
 	PhysicsAdapterBodyState,
@@ -1538,7 +1539,7 @@ export class AmmoPhysicsAdapter implements IPhysicsEngineAdapter {
 		return new Ctor(value.x, value.y, value.z);
 	}
 
-	private _createAmmoQuaternion(value: [number, number, number, number]): any {
+	private _createAmmoQuaternion(value: Vec4Tuple): any {
 		const ammo = this._requireAmmo();
 		if (typeof ammo.btQuaternion === "function") {
 			return new ammo.btQuaternion(value[0], value[1], value[2], value[3]);
@@ -1719,7 +1720,7 @@ export class AmmoPhysicsAdapter implements IPhysicsEngineAdapter {
 		world: AmmoWorldState,
 		shape: any,
 		origin: IVector3,
-		rotation: [number, number, number, number],
+		rotation: Vec4Tuple,
 		direction: IVector3,
 		maxDistanceRaw: number | undefined,
 		filter?: PhysicsQueryFilter
@@ -2455,15 +2456,15 @@ function sanitizeHalfExtents(halfExtents: IVector3): IVector3 {
 }
 
 function sanitizeQueryRotation(
-	rotation?: [number, number, number, number]
-): [number, number, number, number] {
+	rotation?: Vec4Tuple
+): Vec4Tuple {
 	if (!rotation) return [0, 0, 0, 1];
 	return normalizeQuaternion(rotation);
 }
 
 function normalizeQuaternion(
-	rotation: [number, number, number, number]
-): [number, number, number, number] {
+	rotation: Vec4Tuple
+): Vec4Tuple {
 	const x = Number.isFinite(rotation[0]) ? rotation[0] : 0;
 	const y = Number.isFinite(rotation[1]) ? rotation[1] : 0;
 	const z = Number.isFinite(rotation[2]) ? rotation[2] : 0;
@@ -2476,7 +2477,7 @@ function normalizeQuaternion(
 
 function toOrientedBoundsExtents(
 	halfExtents: IVector3,
-	rotation: [number, number, number, number]
+	rotation: Vec4Tuple
 ): IVector3 {
 	const matrix = Matrix3.fromQuaternion(
 		rotation,
@@ -2799,7 +2800,7 @@ function readAmmoVector3(value: unknown): IVector3 {
 	};
 }
 
-function toQuaternionTuple(value: unknown): [number, number, number, number] {
+function toQuaternionTuple(value: unknown): Vec4Tuple {
 	return [
 		readAmmoComponent(value, "x", 0),
 		readAmmoComponent(value, "y", 0),

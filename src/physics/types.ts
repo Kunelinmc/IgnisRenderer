@@ -1,7 +1,8 @@
+import type { Vec4Tuple } from "../maths/Vector4";
 import type { Node } from "../core/Node";
 import type { IVector3 } from "../maths/types";
 
-export type QuaternionTuple = [number, number, number, number];
+export type QuaternionTuple = Vec4Tuple;
 
 export type PhysicsWorldId = string;
 
@@ -267,7 +268,7 @@ export interface PhysicsDebugLine {
 	jointId?: string;
 	from: IVector3;
 	to: IVector3;
-	color?: [number, number, number, number];
+	color?: Vec4Tuple;
 }
 
 export interface PhysicsDebugPoint {
@@ -277,7 +278,7 @@ export interface PhysicsDebugPoint {
 	bodyBId?: string;
 	position: IVector3;
 	normal?: IVector3;
-	color?: [number, number, number, number];
+	color?: Vec4Tuple;
 }
 
 export interface PhysicsDebugGeometry {

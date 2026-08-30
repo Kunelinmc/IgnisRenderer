@@ -1,3 +1,4 @@
+import type { Vec4Tuple } from "../../maths/Vector4";
 import type {
 	IBindingGroup,
 	IRenderBuffer,
@@ -370,7 +371,7 @@ export class WebGPUFrameBindingCache {
 		temporalHistoryReset: boolean,
 	): {
 		previousViewProjection: PreparedScene["camera"]["viewProjectionMatrix"];
-		jitterCurrentPrev: [number, number, number, number];
+		jitterCurrentPrev: Vec4Tuple;
 	} {
 		if (temporalStateMode === "disabled") {
 			return {

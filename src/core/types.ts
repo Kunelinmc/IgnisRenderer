@@ -1,3 +1,4 @@
+import type { Vec4Tuple } from "../maths/Vector4";
 import type { IVector3, IVector4 } from "../maths/types";
 import type { RGBA } from "../foundation/Color";
 import type { Material } from "../materials/Material";
@@ -22,10 +23,10 @@ export interface IVertex extends IVector3 {
 	normal?: IVector3 | null;
 	tangent?: IVector4 | null;
 	color?: RGBA;
-	joints0?: [number, number, number, number];
-	weights0?: [number, number, number, number];
-	joints1?: [number, number, number, number];
-	weights1?: [number, number, number, number];
+	joints0?: Vec4Tuple;
+	weights0?: Vec4Tuple;
+	joints1?: Vec4Tuple;
+	weights1?: Vec4Tuple;
 }
 
 export interface MorphTargetGeometry {

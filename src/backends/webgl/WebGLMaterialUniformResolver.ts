@@ -1,3 +1,5 @@
+import type { Vec3Tuple } from "../../maths/Vector3";
+import type { Vec4Tuple } from "../../maths/Vector4";
 import { sRGBToLinear, clamp } from "../../maths/Common";
 import {
 	AlphaMode,
@@ -33,19 +35,19 @@ function isWebGLLegacyMaterial(material: Material): material is WebGLLegacyMater
 
 export interface MaterialUniformState {
 	shadingModel: number;
-	baseColor: [number, number, number, number];
-	emissive: [number, number, number];
-	pbr: [number, number, number, number];
-	specular: [number, number, number, number];
-	transmissionVolume: [number, number, number, number];
-	clearcoat: [number, number, number, number];
-	sheen: [number, number, number, number];
-	iridescence: [number, number, number, number];
-	attenuationColor: [number, number, number, number];
-	anisotropy: [number, number, number, number];
-	phong: [number, number, number, number];
-	phongAmbient: [number, number, number, number];
-	alpha: [number, number, number, number];
+	baseColor: Vec4Tuple;
+	emissive: Vec3Tuple;
+	pbr: Vec4Tuple;
+	specular: Vec4Tuple;
+	transmissionVolume: Vec4Tuple;
+	clearcoat: Vec4Tuple;
+	sheen: Vec4Tuple;
+	iridescence: Vec4Tuple;
+	attenuationColor: Vec4Tuple;
+	anisotropy: Vec4Tuple;
+	phong: Vec4Tuple;
+	phongAmbient: Vec4Tuple;
+	alpha: Vec4Tuple;
 	baseMap: TextureLike;
 	baseMapUV: 0 | 1 | 2 | 3;
 	metallicRoughnessMap: TextureLike;
@@ -96,18 +98,18 @@ export function resolveMaterialUniforms(material: Material): MaterialUniformStat
 		return Math.max(0, Math.min(3, Math.floor(value))) as 0 | 1 | 2 | 3;
 	};
 
-	let baseColor: [number, number, number] = [1, 1, 1];
-	let emissive: [number, number, number] = [0, 0, 0];
+	let baseColor: Vec3Tuple = [1, 1, 1];
+	let emissive: Vec3Tuple = [0, 0, 0];
 	let roughness = 0.5;
 	let metalness = 0;
 	let reflectance = 0.5;
 	let specularFactor = 1;
-	let specularColor: [number, number, number] = [1, 1, 1];
+	let specularColor: Vec3Tuple = [1, 1, 1];
 	let transmission = 0;
 	let clearcoat = 0;
 	let clearcoatRoughness = 0.01;
 	let clearcoatNormalScale = 1;
-	let sheenColor: [number, number, number] = [0, 0, 0];
+	let sheenColor: Vec3Tuple = [0, 0, 0];
 	let sheenRoughness = 0;
 	let ior = 1.5;
 	let thickness = 0;
@@ -118,9 +120,9 @@ export function resolveMaterialUniforms(material: Material): MaterialUniformStat
 	let anisotropyStrength = 0;
 	let anisotropyRotation = 0;
 	let attenuationDistance = -1;
-	let attenuationColor: [number, number, number] = [1, 1, 1];
+	let attenuationColor: Vec3Tuple = [1, 1, 1];
 	let shininess = 32;
-	let phongAmbient: [number, number, number] = [0, 0, 0];
+	let phongAmbient: Vec3Tuple = [0, 0, 0];
 	let baseMap: TextureLike = material.map ?? null;
 	let baseMapUV: 0 | 1 | 2 | 3 = 0;
 	let metallicRoughnessMap: TextureLike = null;

@@ -1,3 +1,4 @@
+import type { Vec4Tuple } from "../../maths/Vector4";
 import { Matrix4 } from "../../maths/Matrix4";
 import type { Matrix3Arr } from "../../maths/types";
 import {
@@ -677,7 +678,7 @@ function createNormalMatrixRows(normalMatrix: Matrix3Arr | Matrix4): number[][] 
 function matrixRow(
 	matrix: Matrix4,
 	row: 0 | 1 | 2
-): [number, number, number, number] {
+): Vec4Tuple {
 	const elements = matrix.elements;
 	return [
 		elements[row][0],

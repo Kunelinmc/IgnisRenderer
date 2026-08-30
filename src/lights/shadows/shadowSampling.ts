@@ -1,3 +1,4 @@
+import type { Vec4Tuple } from "../../maths/Vector4";
 import type { Matrix4 } from "../../maths/Matrix4";
 import type { ShadowFilterMode, ShadowSamplingQuality } from "./types";
 
@@ -84,7 +85,7 @@ export const SHADOW_SEARCH_DISK_SAMPLES: readonly (readonly [number, number])[] 
 		Object.freeze([-0.571225035, 0.363366609] as const),
 	]);
 
-export type ShadowDepthProjectionParams = readonly [number, number, number, number];
+export type ShadowDepthProjectionParams = Readonly<Vec4Tuple>;
 
 /** @internal Extracts coefficients used to reconstruct projection-space depth. */
 export function resolveShadowDepthProjectionParams(

@@ -1,3 +1,4 @@
+import type { Vec3Tuple } from "../../maths/Vector3";
 import { ceilDiv } from "../../maths/Misc";
 import {
 	BufferUsage,
@@ -69,10 +70,10 @@ export type WebGLToneMappingContext = WebGLScreenPostProcessContext;
 
 /** @internal Reference ACES fitted mapping shared by CPU presentation. */
 export function applyACESToneMapping(
-	color: readonly [number, number, number],
+	color: Readonly<Vec3Tuple>,
 	exposure: number,
-	out: [number, number, number] = [0, 0, 0],
-): [number, number, number] {
+	out: Vec3Tuple = [0, 0, 0],
+): Vec3Tuple {
 	for (let index = 0; index < 3; index++) {
 		const value = color[index];
 		const exposed = Math.max(0, value * exposure);
@@ -90,11 +91,11 @@ export function applyACESToneMapping(
  * @internal Shared by CPU presentation and numerical contract tests.
  */
 export function applyHDRSoftShoulder(
-	color: readonly [number, number, number],
+	color: Readonly<Vec3Tuple>,
 	exposure: number,
 	hdrHeadroom: number,
-	out: [number, number, number] = [0, 0, 0],
-): [number, number, number] {
+	out: Vec3Tuple = [0, 0, 0],
+): Vec3Tuple {
 	out[0] = Math.max(0, color[0] * exposure);
 	out[1] = Math.max(0, color[1] * exposure);
 	out[2] = Math.max(0, color[2] * exposure);
@@ -120,8 +121,8 @@ export class SoftwareToneMappingImplementation
 	implements PostProcessPassImplementation<SoftwareBuiltinPostProcessContext>
 {
 	public readonly id = "tonemap:software";
-	private readonly _mappedColor: [number, number, number] = [0, 0, 0];
-	private readonly _inputColor: [number, number, number] = [0, 0, 0];
+	private readonly _mappedColor: Vec3Tuple = [0, 0, 0];
+	private readonly _inputColor: Vec3Tuple = [0, 0, 0];
 
 	public describeExecution() {
 		return SOFTWARE_IN_PLACE_EXECUTION;

@@ -4,6 +4,8 @@
 
 import type { IVector4 } from "./types";
 
+export type Vec4Tuple = [number, number, number, number];
+
 export class Vector4 implements IVector4 {
 	constructor(
 		public x: number = 0,
