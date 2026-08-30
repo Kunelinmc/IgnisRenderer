@@ -1,6 +1,5 @@
 export { ECSWorld } from "./ECSWorld";
-export { NodeEntityPrefab } from "./EntityPrefab";
-export type { EntityPrefab } from "./EntityPrefab";
+export { NodePrefab } from "./NodePrefab";
 export type {
 	EntityId,
 	ECSComponentMap,

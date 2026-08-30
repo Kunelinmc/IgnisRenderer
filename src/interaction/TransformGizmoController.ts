@@ -141,14 +141,12 @@ export class TransformGizmoController {
 	}
 
 	public updateTransform(
-		entityId: number,
+		node: Node,
 		pointer: InteractionPointerState
 	): boolean {
 		if (!this._activeGizmo || !this._scene) {
 			return false;
 		}
-		const node = this._scene.ecs.getNodeByEntity(entityId);
-		if (!node) return false;
 
 		const gizmo = this._activeGizmo;
 		const dx = pointer.screenX - gizmo.pointerStart.x;
@@ -190,25 +188,18 @@ export class TransformGizmoController {
 		return true;
 	}
 
-	public commit(entityId: number | null): InteractionTransformEvent | null {
-		if (!this._activeGizmo || entityId === null || !this._scene) {
+	public commit(node: Node | null): InteractionTransformEvent | null {
+		if (!this._activeGizmo || !node || !this._scene) {
 			this._activeGizmo = null;
 			return null;
 		}
-		const node = this._scene.ecs.getNodeByEntity(entityId);
 		const mode = this._activeGizmo.mode;
 		this._activeGizmo = null;
-		if (!node) return null;
-		return { entityId, node, mode };
+		return { node, mode };
 	}
 
-	public cancel(entityId: number | null): InteractionTransformEvent | null {
-		if (!this._activeGizmo || entityId === null || !this._scene) {
-			this._activeGizmo = null;
-			return null;
-		}
-		const node = this._scene.ecs.getNodeByEntity(entityId);
-		if (!node) {
+	public cancel(node: Node | null): InteractionTransformEvent | null {
+		if (!this._activeGizmo || !node || !this._scene) {
 			this._activeGizmo = null;
 			return null;
 		}
@@ -229,7 +220,7 @@ export class TransformGizmoController {
 
 		const mode = this._activeGizmo.mode;
 		this._activeGizmo = null;
-		return { entityId, node, mode };
+		return { node, mode };
 	}
 
 	private _applyTranslateGizmo(

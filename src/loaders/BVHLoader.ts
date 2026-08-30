@@ -1,7 +1,6 @@
 import { AnimationClip, type GLTFAnimationBundle, KeyframeTrack } from "../animation";
 import { Node } from "../core/Node";
-import { NodeEntityPrefab } from "../ecs";
-import type { EntityPrefab } from "../ecs";
+import { NodePrefab } from "../ecs";
 import { Quaternion } from "../maths/Quaternion";
 import type { IVector3 } from "../maths/types";
 import { Loader, type LoaderEvents, type ParseProgressEvent } from "./Loader";
@@ -52,7 +51,7 @@ export interface BVHLoaderEvents extends LoaderEvents {
 	load: [Node];
 	parsestart: [];
 	parseend: [Node];
-	loadprefab: [EntityPrefab];
+	loadprefab: [NodePrefab];
 	loadanimation: [GLTFAnimationBundle];
 }
 
@@ -106,9 +105,9 @@ export class BVHLoader extends Loader<BVHLoaderEvents> {
 	}
 
 	/**
-	 * Loads a BVH file from URL and returns an EntityPrefab.
+	 * Loads a BVH file from URL and returns a NodePrefab.
 	 */
-	public async loadPrefab(url: string, options: BVHParseOptions = {}): Promise<EntityPrefab> {
+	public async loadPrefab(url: string, options: BVHParseOptions = {}): Promise<NodePrefab> {
 		try {
 			const buffer = await this._fetchWithProgress(url);
 			const text = decodeTextBuffer(buffer);
@@ -175,11 +174,11 @@ export class BVHLoader extends Loader<BVHLoaderEvents> {
 	}
 
 	/**
-	 * Parses BVH input into an EntityPrefab.
+	 * Parses BVH input into a NodePrefab.
 	 */
-	public parsePrefab(data: string | ArrayBuffer, options: BVHParseOptions = {}): EntityPrefab {
+	public parsePrefab(data: string | ArrayBuffer, options: BVHParseOptions = {}): NodePrefab {
 		const root = this.parse(data, options);
-		return new NodeEntityPrefab(root, this._lastAnimationBundle);
+		return new NodePrefab(root, this._lastAnimationBundle);
 	}
 
 	private _parseBVH(data: string | ArrayBuffer): ParsedBVHData {

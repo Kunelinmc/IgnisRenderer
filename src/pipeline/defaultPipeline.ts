@@ -4,7 +4,6 @@ import type {
 
 export const DEFAULT_RENDERER_STAGE_IDS = {
 	featureResolution: "feature-resolution",
-	syncIn: "sync-in",
 	animationSim: "animation-sim",
 	physicsSim: "physics-sim",
 	transformUpdate: "transform-update",
@@ -13,7 +12,6 @@ export const DEFAULT_RENDERER_STAGE_IDS = {
 	deformationUpdate: "deformation-update",
 	preparedSceneBuild: "prepared-scene-build",
 	probeCapture: "probe-capture",
-	syncOut: "sync-out",
 } as const;
 
 export type DefaultRendererStageId =
@@ -29,20 +27,15 @@ export const DEFAULT_PIPELINE_STAGES = [
 		dependsOn: [],
 	},
 	{
-		id: rendererStageIds.syncIn,
-		kind: "renderer",
-		dependsOn: [rendererStageIds.featureResolution],
-	},
-	{
 		id: rendererStageIds.animationSim,
 		kind: "renderer",
-		dependsOn: [rendererStageIds.syncIn],
+		dependsOn: [rendererStageIds.featureResolution],
 		enabled: (context) => context.hasActiveAnimations,
 	},
 	{
 		id: rendererStageIds.physicsSim,
 		kind: "renderer",
-		dependsOn: [rendererStageIds.animationSim, rendererStageIds.syncIn],
+		dependsOn: [rendererStageIds.animationSim, rendererStageIds.featureResolution],
 	},
 	{
 		id: rendererStageIds.transformUpdate,
@@ -50,7 +43,6 @@ export const DEFAULT_PIPELINE_STAGES = [
 		dependsOn: [
 			rendererStageIds.physicsSim,
 			rendererStageIds.animationSim,
-			rendererStageIds.syncIn,
 		],
 	},
 	{
@@ -134,10 +126,5 @@ export const DEFAULT_PIPELINE_STAGES = [
 		dependsOn: ["particles"],
 		shouldRun: ({ requirements }) =>
 			requirements.requiredPasses.has("postprocess"),
-	},
-	{
-		id: rendererStageIds.syncOut,
-		kind: "renderer",
-		dependsOn: ["postprocess"],
 	},
 ] as const satisfies readonly RenderPipelineStageRegistration[];

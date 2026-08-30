@@ -40,7 +40,6 @@ import type {
 	RigidBodyType,
 	StepOverride,
 	TransformAuthority,
-	PhysicsEntityId,
 } from "./types";
 import type {
 	IPhysicsEngineAdapter,
@@ -205,21 +204,11 @@ export class PhysicsSystem extends EventEmitter<PhysicsEvents> {
 	private _collisionLayerBits = new Map<string, number>([
 		[DEFAULT_COLLISION_LAYER, 0],
 	]);
-	private _entityNodeResolver:
-		| ((entityId: PhysicsEntityId) => Node | null)
-		| null = null;
-
 	constructor(options: PhysicsSystemOptions = {}) {
 		super();
 		this._adapter = options.adapter ?? new SimplePhysicsAdapter();
 		this._geometryProvider =
 			options.geometryProvider ?? new DefaultCollisionGeometryProvider();
-	}
-
-	public setEntityNodeResolver(
-		resolver: ((entityId: PhysicsEntityId) => Node | null) | null
-	): void {
-		this._entityNodeResolver = resolver;
 	}
 
 	public bindSceneSpatial(scene: Scene | null): void {
@@ -359,7 +348,7 @@ export class PhysicsSystem extends EventEmitter<PhysicsEvents> {
 	}
 
 	public attachBody(
-		target: Node | PhysicsBodyNode | PhysicsEntityId,
+		target: Node | PhysicsBodyNode,
 		desc?: BodyBinding
 	): PhysicsBodyHandle {
 		const node = this._resolveNodeTarget(target);
@@ -382,7 +371,6 @@ export class PhysicsSystem extends EventEmitter<PhysicsEvents> {
 			id: bodyId,
 			worldId: binding.worldId,
 			node,
-			entityId: typeof target === "number" ? target : undefined,
 			authority,
 			body: {
 				...binding.body,
@@ -441,7 +429,7 @@ export class PhysicsSystem extends EventEmitter<PhysicsEvents> {
 	}
 
 	public addCollider(
-		target: Node | PhysicsBodyHandle | PhysicsEntityId,
+		target: Node | PhysicsBodyHandle,
 		desc: ColliderDescriptor
 	): PhysicsColliderHandle {
 		const body = this._resolveBody(target);
@@ -584,7 +572,7 @@ export class PhysicsSystem extends EventEmitter<PhysicsEvents> {
 	}
 
 	public rebuildColliders(
-		target: Node | PhysicsBodyHandle | PhysicsEntityId
+		target: Node | PhysicsBodyHandle
 	): PhysicsColliderHandle[] {
 		const body = this._resolveBody(target);
 		const rebuilt: PhysicsColliderHandle[] = [];
@@ -622,7 +610,7 @@ export class PhysicsSystem extends EventEmitter<PhysicsEvents> {
 	 * @sideEffects None.
 	 */
 	public getLinearVelocity(
-		target: Node | PhysicsBodyHandle | string | PhysicsEntityId
+		target: Node | PhysicsBodyHandle | string
 	): IVector3 | null {
 		const body = this._resolveBodyRef(target);
 		const cache = this._runtimeByWorldId
@@ -644,7 +632,7 @@ export class PhysicsSystem extends EventEmitter<PhysicsEvents> {
 	 * @sideEffects None.
 	 */
 	public getAngularVelocity(
-		target: Node | PhysicsBodyHandle | string | PhysicsEntityId
+		target: Node | PhysicsBodyHandle | string
 	): IVector3 | null {
 		const body = this._resolveBodyRef(target);
 		const cache = this._runtimeByWorldId
@@ -666,7 +654,7 @@ export class PhysicsSystem extends EventEmitter<PhysicsEvents> {
 	 * @sideEffects None.
 	 */
 	public getBodyTransform(
-		target: Node | PhysicsBodyHandle | string | PhysicsEntityId
+		target: Node | PhysicsBodyHandle | string
 	): PhysicsTransform | null {
 		const body = this._resolveBodyRef(target);
 		const cache = this._runtimeByWorldId
@@ -696,7 +684,7 @@ export class PhysicsSystem extends EventEmitter<PhysicsEvents> {
 	 * @sideEffects Updates the physics engine, cached state, and node transform.
 	 */
 	public setBodyTransform(
-		target: Node | PhysicsBodyHandle | string | PhysicsEntityId,
+		target: Node | PhysicsBodyHandle | string,
 		transform: PhysicsTransform
 	): void {
 		const body = this._resolveBodyRef(target);
@@ -732,7 +720,7 @@ export class PhysicsSystem extends EventEmitter<PhysicsEvents> {
 	 * @sideEffects None.
 	 */
 	public isSleeping(
-		target: Node | PhysicsBodyHandle | string | PhysicsEntityId
+		target: Node | PhysicsBodyHandle | string
 	): boolean | null {
 		const body = this._resolveBodyRef(target);
 		const cache = this._runtimeByWorldId
@@ -760,7 +748,7 @@ export class PhysicsSystem extends EventEmitter<PhysicsEvents> {
 	}
 
 	public setLinearVelocity(
-		target: Node | PhysicsBodyHandle | string | PhysicsEntityId,
+		target: Node | PhysicsBodyHandle | string,
 		velocity: IVector3
 	): void {
 		const body = this._resolveBodyRef(target);
@@ -770,7 +758,7 @@ export class PhysicsSystem extends EventEmitter<PhysicsEvents> {
 	}
 
 	public setAngularVelocity(
-		target: Node | PhysicsBodyHandle | string | PhysicsEntityId,
+		target: Node | PhysicsBodyHandle | string,
 		velocity: IVector3
 	): void {
 		const body = this._resolveBodyRef(target);
@@ -788,7 +776,7 @@ export class PhysicsSystem extends EventEmitter<PhysicsEvents> {
 	 * dynamic tracking, and wakes the owning world.
 	 */
 	public setBodyType(
-		target: Node | PhysicsBodyHandle | string | PhysicsEntityId,
+		target: Node | PhysicsBodyHandle | string,
 		type: RigidBodyType
 	): void {
 		const body = this._resolveBodyRef(target);
@@ -820,7 +808,7 @@ export class PhysicsSystem extends EventEmitter<PhysicsEvents> {
 	 * the body, and marks the owning world dirty.
 	 */
 	public setBodyMass(
-		target: Node | PhysicsBodyHandle | string | PhysicsEntityId,
+		target: Node | PhysicsBodyHandle | string,
 		mass: number
 	): void {
 		if (!Number.isFinite(mass) || mass <= 0) {
@@ -845,7 +833,7 @@ export class PhysicsSystem extends EventEmitter<PhysicsEvents> {
 	 * the body, and marks the owning world dirty.
 	 */
 	public setBodyGravityScale(
-		target: Node | PhysicsBodyHandle | string | PhysicsEntityId,
+		target: Node | PhysicsBodyHandle | string,
 		scale: number
 	): void {
 		if (!Number.isFinite(scale)) {
@@ -870,7 +858,7 @@ export class PhysicsSystem extends EventEmitter<PhysicsEvents> {
 	 * the body, and marks the owning world dirty.
 	 */
 	public setBodyLinearDamping(
-		target: Node | PhysicsBodyHandle | string | PhysicsEntityId,
+		target: Node | PhysicsBodyHandle | string,
 		value: number
 	): void {
 		if (!Number.isFinite(value)) {
@@ -896,7 +884,7 @@ export class PhysicsSystem extends EventEmitter<PhysicsEvents> {
 	 * the body, and marks the owning world dirty.
 	 */
 	public setBodyAngularDamping(
-		target: Node | PhysicsBodyHandle | string | PhysicsEntityId,
+		target: Node | PhysicsBodyHandle | string,
 		value: number
 	): void {
 		if (!Number.isFinite(value)) {
@@ -921,7 +909,7 @@ export class PhysicsSystem extends EventEmitter<PhysicsEvents> {
 	 * the owning world dirty.
 	 */
 	public wakeUpBody(
-		target: Node | PhysicsBodyHandle | string | PhysicsEntityId
+		target: Node | PhysicsBodyHandle | string
 	): void {
 		const body = this._resolveBodyRef(target);
 		this._adapter.wakeUpBody(body.worldId, body.id);
@@ -930,7 +918,7 @@ export class PhysicsSystem extends EventEmitter<PhysicsEvents> {
 	}
 
 	public applyForce(
-		target: Node | PhysicsBodyHandle | string | PhysicsEntityId,
+		target: Node | PhysicsBodyHandle | string,
 		force: IVector3
 	): void {
 		const body = this._resolveBodyRef(target);
@@ -939,7 +927,7 @@ export class PhysicsSystem extends EventEmitter<PhysicsEvents> {
 	}
 
 	public applyTorque(
-		target: Node | PhysicsBodyHandle | string | PhysicsEntityId,
+		target: Node | PhysicsBodyHandle | string,
 		torque: IVector3
 	): void {
 		const body = this._resolveBodyRef(target);
@@ -948,7 +936,7 @@ export class PhysicsSystem extends EventEmitter<PhysicsEvents> {
 	}
 
 	public applyImpulse(
-		target: Node | PhysicsBodyHandle | string | PhysicsEntityId,
+		target: Node | PhysicsBodyHandle | string,
 		impulse: IVector3
 	): void {
 		const body = this._resolveBodyRef(target);
@@ -1146,17 +1134,6 @@ export class PhysicsSystem extends EventEmitter<PhysicsEvents> {
 		const bodyId = typeof hitOrBodyId === "string" ? hitOrBodyId : hitOrBodyId.bodyId;
 		const body = this._bodyById.get(bodyId);
 		return body?.node ?? null;
-	}
-
-	public resolveHitEntityId(
-		hitOrBodyId: PhysicsQueryHit | string
-	): PhysicsEntityId | null {
-		const bodyId = typeof hitOrBodyId === "string" ? hitOrBodyId : hitOrBodyId.bodyId;
-		const body = this._bodyById.get(bodyId);
-		if (!body || typeof body.entityId !== "number") {
-			return null;
-		}
-		return body.entityId;
 	}
 
 	public sphereCast(query: PhysicsSphereCastQuery): PhysicsQueryHit | null {
@@ -2364,21 +2341,8 @@ export class PhysicsSystem extends EventEmitter<PhysicsEvents> {
 	}
 
 	private _resolveBody(
-		target: Node | PhysicsBodyHandle | PhysicsEntityId
+		target: Node | PhysicsBodyHandle
 	): InternalBodyBinding {
-		if (typeof target === "number") {
-			if (!this._entityNodeResolver) {
-				throw new Error(
-					"PhysicsSystem entity target requires setEntityNodeResolver()"
-				);
-			}
-			const node = this._entityNodeResolver(target);
-			if (!node) {
-				throw new Error(`Entity "${target}" is not bound to a Node`);
-			}
-			return this._resolveBody(node);
-		}
-
 		if (isBodyHandle(target)) {
 			const body = this._bodyById.get(target.id);
 			if (body) return body;
@@ -2394,7 +2358,7 @@ export class PhysicsSystem extends EventEmitter<PhysicsEvents> {
 	}
 
 	private _resolveBodyRef(
-		target: Node | PhysicsBodyHandle | string | PhysicsEntityId
+		target: Node | PhysicsBodyHandle | string
 	): InternalBodyBinding {
 		if (typeof target === "string") {
 			const body = this._bodyById.get(target);
@@ -2464,17 +2428,9 @@ export class PhysicsSystem extends EventEmitter<PhysicsEvents> {
 	}
 
 	private _resolveNodeTarget(
-		target: Node | PhysicsBodyNode | PhysicsEntityId
+		target: Node | PhysicsBodyNode
 	): Node | PhysicsBodyNode {
-		if (typeof target !== "number") return target;
-		if (!this._entityNodeResolver) {
-			throw new Error(
-				"attachBody(entityId, desc) requires setEntityNodeResolver()"
-			);
-		}
-		const node = this._entityNodeResolver(target);
-		if (node) return node;
-		throw new Error(`Entity "${target}" is not bound to a Node`);
+		return target;
 	}
 
 	private _requireWorld(worldId: string): PhysicsWorldConfig {

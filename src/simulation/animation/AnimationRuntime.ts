@@ -537,18 +537,8 @@ export class AnimationRuntime {
 		const binding = track.binding;
 		let value: number[] = [];
 		if (binding.targetType === "node") {
-			const entityValue = this._getEntityDefaultValue(
-				mixer,
-				binding.targetPath,
-				binding.property,
-				scene
-			);
-			if (entityValue) {
-				value = entityValue;
-			}
-
 			const node = mixer.nodeBindings.get(binding.targetPath);
-			if (node && value.length === 0) {
+			if (node) {
 				switch (binding.property) {
 					case "translation":
 						value = [node.position.x, node.position.y, node.position.z];
@@ -629,15 +619,8 @@ export class AnimationRuntime {
 	): boolean {
 		const binding = track.binding;
 		if (binding.targetType === "node") {
-			const appliedToEntity = this._applyEntityTrackValue(
-				mixer,
-				binding.targetPath,
-				binding.property,
-				value,
-				scene
-			);
 			const node = mixer.nodeBindings.get(binding.targetPath);
-			if (!node) return appliedToEntity;
+			if (!node) return false;
 			if (binding.property === "translation" && value.length >= 3) {
 				node.position.set(value[0], value[1], value[2]);
 				node.updateLocalMatrix();
@@ -670,7 +653,7 @@ export class AnimationRuntime {
 				});
 				return true;
 			}
-			return appliedToEntity;
+			return false;
 		}
 		if (binding.targetType === "material") {
 			const material = mixer.materialBindings.get(binding.targetPath);
@@ -743,78 +726,6 @@ export class AnimationRuntime {
 		return false;
 	}
 
-	private _getEntityDefaultValue(
-		mixer: AnimationMixer,
-		path: string,
-		property: string,
-		scene: Scene | undefined
-	): number[] | null {
-		if (!scene) return null;
-		const entityId = mixer.entityBindings.get(path);
-		if (entityId === undefined) return null;
-		const local = scene.ecs.getComponent(entityId, "LocalTransform");
-		if (!local) return null;
-
-		switch (property) {
-			case "translation":
-				return [local.positionX, local.positionY, local.positionZ];
-			case "scale":
-				return [local.scaleX, local.scaleY, local.scaleZ];
-			case "rotation":
-				return [
-					local.rotationX,
-					local.rotationY,
-					local.rotationZ,
-					local.rotationW,
-				];
-			default:
-				return null;
-		}
-	}
-
-	private _applyEntityTrackValue(
-		mixer: AnimationMixer,
-		path: string,
-		property: string,
-		value: number[],
-		scene: Scene | undefined
-	): boolean {
-		if (!scene) return false;
-		const entityId = mixer.entityBindings.get(path);
-		if (entityId === undefined) return false;
-		const local = scene.ecs.getComponent(entityId, "LocalTransform");
-		if (!local) return false;
-
-		if (property === "translation" && value.length >= 3) {
-			local.positionX = value[0];
-			local.positionY = value[1];
-			local.positionZ = value[2];
-		} else if (property === "scale" && value.length >= 3) {
-			local.scaleX = value[0];
-			local.scaleY = value[1];
-			local.scaleZ = value[2];
-		} else if (property === "rotation" && value.length >= 4) {
-			local.rotationX = value[0];
-			local.rotationY = value[1];
-			local.rotationZ = value[2];
-			local.rotationW = value[3];
-		} else {
-			return false;
-		}
-
-		scene.ecs.setComponent(entityId, "LocalTransform", local);
-		const node = scene.ecs.getNodeByEntity(entityId);
-		if (node) {
-			node.position.set(local.positionX, local.positionY, local.positionZ);
-			node.quaternion.x = local.rotationX;
-			node.quaternion.y = local.rotationY;
-			node.quaternion.z = local.rotationZ;
-			node.quaternion.w = local.rotationW;
-			node.scale.set(local.scaleX, local.scaleY, local.scaleZ);
-			node.updateLocalMatrix();
-		}
-		return true;
-	}
 }
 
 function bindingKey(track: KeyframeTrack): string {

@@ -244,7 +244,7 @@ async function testRendererWarnsForMissingRendererStageExecutor() {
 		renderer.pipeline.registerPipelineStage({
 			id: "custom-renderer-stage",
 			kind: "renderer",
-			dependsOn: ["sync-out"],
+			dependsOn: ["postprocess"],
 		});
 		await renderer.renderFrame(16);
 	} finally {

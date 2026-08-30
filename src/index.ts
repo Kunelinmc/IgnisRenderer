@@ -288,7 +288,7 @@ export {
 	type InteractionControllerOptions,
 	type InteractionClickEvent,
 	type InteractionDragRectState,
-	type InteractionEntityEvent,
+	type InteractionNodeEvent,
 	type InteractionPointerEventLike,
 	type InteractionEvents,
 	type InteractionGizmoState,
@@ -362,4 +362,4 @@ export {
 export { BVHLoader } from "./loaders/BVHLoader";
 export { Loader } from "./loaders/Loader";
 export * as experimentalECS from "./ecs";
-export type { EntityPrefab } from "./ecs";
+export type { NodePrefab } from "./ecs";

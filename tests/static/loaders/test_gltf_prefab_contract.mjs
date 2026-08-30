@@ -16,9 +16,9 @@ async function run() {
 	assert.equal(typeof prefab.instantiate, "function");
 
 	const scene = new Scene();
-	const { root, rootEntity } = prefab.instantiate(scene);
+	const root = prefab.instantiate(scene);
 	assert.ok(root);
-	assert.ok(rootEntity !== null);
+	assert.equal(scene.contains(root), true);
 
 	console.log("GLTF prefab contract tests passed");
 }

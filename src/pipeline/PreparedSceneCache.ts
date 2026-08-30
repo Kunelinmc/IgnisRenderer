@@ -444,9 +444,9 @@ export class PreparedSceneCache {
 			source.deformationStates ?? null,
 		)) return null;
 
-		const lights = source.scene.ecs.findLights();
+		const lights = source.scene.getLights();
 		if (!sameReferenceList(lights, reusable.lights)) return null;
-		const particleSystems = source.scene.ecs.findParticleSystems();
+		const particleSystems = source.scene.getParticleSystems();
 		if (!sameReferenceList(particleSystems, reusable.particleSystems)) return null;
 		if (!preparedEnvironmentMatchesScene(reusable, source.scene.environment)) {
 			return null;

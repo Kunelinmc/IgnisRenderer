@@ -183,9 +183,9 @@ function run() {
 		framePlan.stageOrder.findIndex((stage) => stage.id === "particles") <
 			framePlan.stageOrder.findIndex((stage) => stage.id === "postprocess")
 	);
-	assert.ok(
-		framePlan.stageOrder.findIndex((stage) => stage.id === "postprocess") <
-			framePlan.stageOrder.findIndex((stage) => stage.id === "sync-out")
+	assert.equal(
+		framePlan.stageOrder.some((stage) => stage.id === "sync-out"),
+		false,
 	);
 
 	const disabledPlan = createBackendPasses(

@@ -35,14 +35,13 @@ import {
 	KeyframeTrack,
 	Skeleton,
 } from "../animation";
-import { NodeEntityPrefab } from "../ecs";
-import type { EntityPrefab } from "../ecs";
+import { NodePrefab } from "../ecs";
 
 export interface GLTFLoaderEvents extends LoaderEvents {
 	load: [Node];
 	parsestart: [];
 	parseend: [Node];
-	loadprefab: [EntityPrefab];
+	loadprefab: [NodePrefab];
 }
 
 const MAGIC_glTF = 0x46546c67;
@@ -139,7 +138,7 @@ export class GLTFLoader extends Loader<GLTFLoaderEvents> {
 		}
 	}
 
-	public async loadPrefab(url: string): Promise<EntityPrefab> {
+	public async loadPrefab(url: string): Promise<NodePrefab> {
 		try {
 			const buffer = await this._fetchWithProgress(url);
 			const baseURL = url.substring(0, url.lastIndexOf("/") + 1);
@@ -311,9 +310,9 @@ export class GLTFLoader extends Loader<GLTFLoaderEvents> {
 	public async parsePrefab(
 		data: ArrayBuffer,
 		baseURL: string = ""
-	): Promise<EntityPrefab> {
+	): Promise<NodePrefab> {
 		const root = await this.parse(data, baseURL);
-		return new NodeEntityPrefab(root, this._lastAnimationBundle);
+		return new NodePrefab(root, this._lastAnimationBundle);
 	}
 
 	private async _loadBuffer(uri: string, baseURL: string): Promise<Uint8Array> {

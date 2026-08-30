@@ -25,8 +25,6 @@ export interface NodeParams {
 
 export class Node {
 	public readonly id: string;
-	public name: string;
-	public visible: boolean;
 	public parent: Node | null;
 	public children: Node[];
 	public position: Vector3;
@@ -35,15 +33,19 @@ export class Node {
 	public localMatrix: Matrix4;
 	public worldMatrix: Matrix4;
 	private _scene: Scene | null;
-	private _entityId: number | null;
+	private _name: string;
+	private _visible: boolean;
 	private _renderLayers: number;
+	private readonly _localTransformSnapshot = new Float64Array(16);
+	private _localTransformRevision = 0;
+	private _localTransformChangePending = false;
 	private readonly _worldTransformSnapshot = new Float64Array(16);
 	private _worldTransformRevision = 0;
 
 	constructor(params: NodeParams = {}) {
 		this.id = IdGenerator.nextId(params.idPrefix ?? "node");
-		this.name = params.name ?? this.id;
-		this.visible = params.visible ?? true;
+		this._name = params.name ?? this.id;
+		this._visible = params.visible ?? true;
 		this._renderLayers = normalizeRenderLayerMask(params.renderLayers ?? 1);
 		this.parent = null;
 		this.children = [];
@@ -55,14 +57,29 @@ export class Node {
 		this.localMatrix = Matrix4.identity();
 		this.worldMatrix = Matrix4.identity();
 		this._scene = null;
-		this._entityId = null;
 		this.updateLocalMatrix();
 		this.localMatrix.copyTo(this.worldMatrix);
 		this._captureWorldTransform(false);
 	}
 
-	public get entityId(): number | null {
-		return this._entityId;
+	public get name(): string {
+		return this._name;
+	}
+
+	public set name(value: string) {
+		if (this._name === value) return;
+		this._name = value;
+		this._scene?.notifyNodeStateChanged(this, "name");
+	}
+
+	public get visible(): boolean {
+		return this._visible;
+	}
+
+	public set visible(value: boolean) {
+		if (this._visible === value) return;
+		this._visible = value;
+		this._scene?.notifyNodeStateChanged(this, "visibility");
 	}
 
 	public get scene(): Scene | null {
@@ -77,6 +94,11 @@ export class Node {
 	 */
 	public get worldTransformRevision(): number {
 		return this._worldTransformRevision;
+	}
+
+	/** @internal Scene change journals use this to publish local transform changes. */
+	public get localTransformRevision(): number {
+		return this._localTransformRevision;
 	}
 
 	/**
@@ -109,13 +131,6 @@ export class Node {
 	 */
 	public _setSceneInternal(scene: Scene | null): void {
 		this._scene = scene;
-	}
-
-	/**
-	 * @internal Scene-owned ECS binding. External code must not call this.
-	 */
-	public _setEntityIdInternal(entityId: number | null): void {
-		this._entityId = entityId;
 	}
 
 	public addChild(child: Node): Node {
@@ -244,35 +259,51 @@ export class Node {
 
 	public updateLocalMatrix(): void {
 		Matrix4.compose(this.position, this.quaternion, this.scale, this.localMatrix);
+		if (this._captureTransform(this.localMatrix, this._localTransformSnapshot)) {
+			this._localTransformRevision++;
+			this._localTransformChangePending = true;
+		}
 	}
 
-	public updateWorldMatrix(parentWorldMatrix?: Matrix4): void {
+	public updateWorldMatrix(parentWorldMatrix?: Matrix4, changedNodes?: Node[]): void {
 		this.updateLocalMatrix();
+		const localChanged = this._localTransformChangePending;
+		this._localTransformChangePending = false;
 
 		if (parentWorldMatrix) {
 			Matrix4.multiply(parentWorldMatrix, this.localMatrix, this.worldMatrix);
 		} else {
 			this.localMatrix.copyTo(this.worldMatrix);
 		}
-		this._captureWorldTransform(true);
+		const worldChanged = this._captureWorldTransform(true);
+		if (localChanged || worldChanged) changedNodes?.push(this);
 
 		for (const child of this.children) {
-			child.updateWorldMatrix(this.worldMatrix);
+			child.updateWorldMatrix(this.worldMatrix, changedNodes);
 		}
 	}
 
-	private _captureWorldTransform(increment: boolean): void {
-		const elements = this.worldMatrix.elements;
+	private _captureWorldTransform(increment: boolean): boolean {
+		const changed = this._captureTransform(
+			this.worldMatrix,
+			this._worldTransformSnapshot,
+		);
+		if (changed && increment) this._worldTransformRevision++;
+		return changed;
+	}
+
+	private _captureTransform(matrix: Matrix4, snapshot: Float64Array): boolean {
+		const elements = matrix.elements;
 		let changed = false;
 		let cursor = 0;
 		for (let row = 0; row < 4; row++) {
 			for (let column = 0; column < 4; column++) {
 				const value = elements[row][column];
-				if (this._worldTransformSnapshot[cursor] !== value) changed = true;
-				this._worldTransformSnapshot[cursor++] = value;
+				if (snapshot[cursor] !== value) changed = true;
+				snapshot[cursor++] = value;
 			}
 		}
-		if (changed && increment) this._worldTransformRevision++;
+		return changed;
 	}
 
 	public getWorldPosition(out?: IVector3): IVector3 {

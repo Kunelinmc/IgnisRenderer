@@ -1,5 +1,4 @@
 import type { Node } from "../core/Node";
-import type { Scene } from "../core/Scene";
 import type {
 	Interactable,
 	InteractableRegistry,
@@ -9,8 +8,8 @@ import type {
 } from "./Interactable";
 import type {
 	InteractionClickEvent,
-	InteractionEntityEvent,
 	InteractionEvents,
+	InteractionNodeEvent,
 	InteractionSelectionMode,
 } from "./types";
 
@@ -20,9 +19,8 @@ type InteractionEmitter = <K extends keyof InteractionEvents>(
 ) => boolean;
 
 export class InteractionSelectionState {
-	private _scene: Scene | null = null;
-	private _hoveredEntityId: number | null = null;
-	private _selectedEntityIds: number[] = [];
+	private _hoveredNode: Node | null = null;
+	private _selectedNodes: Node[] = [];
 	private _selectionMode: InteractionSelectionMode;
 	private _emit: InteractionEmitter;
 	private _interactables: InteractableRegistry;
@@ -30,233 +28,156 @@ export class InteractionSelectionState {
 	public constructor(
 		selectionMode: InteractionSelectionMode,
 		emit: InteractionEmitter,
-		interactables: InteractableRegistry
+		interactables: InteractableRegistry,
 	) {
 		this._selectionMode = selectionMode;
 		this._emit = emit;
 		this._interactables = interactables;
 	}
 
-	public setScene(scene: Scene | null): void {
-		this._scene = scene;
-		this._hoveredEntityId = null;
-		this._selectedEntityIds = [];
+	public reset(): void {
+		this._hoveredNode = null;
+		this._selectedNodes = [];
 	}
 
 	public setSelectionMode(selectionMode: InteractionSelectionMode): void {
 		if (this._selectionMode === selectionMode) return;
 		this._selectionMode = selectionMode;
-		if (selectionMode === "single" && this._selectedEntityIds.length > 1) {
-			this._applySelection(this._selectedEntityIds.slice(0, 1), null);
+		if (selectionMode === "single" && this._selectedNodes.length > 1) {
+			this._applySelection(this._selectedNodes.slice(0, 1), null);
 		}
 	}
 
-	public getSelection(): number | null {
-		return this._selectedEntityIds[0] ?? null;
+	public getSelection(): Node | null {
+		return this._selectedNodes[0] ?? null;
 	}
 
-	public getSelectedEntities(): number[] {
-		return this._selectedEntityIds.slice();
+	public getSelectedNodes(): Node[] {
+		return this._selectedNodes.slice();
 	}
 
-	public getHoveredEntity(): number | null {
-		return this._hoveredEntityId;
+	public getHoveredNode(): Node | null {
+		return this._hoveredNode;
 	}
 
-	public setHover(
-		entityId: number | null,
-		pointer: InteractionPointerState | null
-	): boolean {
-		if (this._hoveredEntityId === entityId) {
-			return false;
-		}
-		const previous = this._hoveredEntityId;
-		this._hoveredEntityId = entityId;
-		if (previous !== null) {
-			this._invokeCallback(previous, "hover-leave", pointer);
-		}
-		if (entityId !== null) {
-			this._invokeCallback(entityId, "hover-enter", pointer);
-		}
-		this._emit("hoverChanged", this._createEntityEvent(entityId));
+	public setHover(node: Node | null, pointer: InteractionPointerState | null): boolean {
+		if (this._hoveredNode === node) return false;
+		const previous = this._hoveredNode;
+		this._hoveredNode = node;
+		if (previous) this._invokeCallback(previous, "hover-leave", pointer);
+		if (node) this._invokeCallback(node, "hover-enter", pointer);
+		this._emit("hoverChanged", this._createNodeEvent(node));
 		return true;
 	}
 
-	public replaceSelection(
-		entityIds: number[],
-		pointer: InteractionPointerState | null
-	): boolean {
-		const next = this._normalizeSelection(entityIds);
-		return this._applySelection(next, pointer);
+	public replaceSelection(nodes: Node[], pointer: InteractionPointerState | null): boolean {
+		return this._applySelection(this._normalizeSelection(nodes), pointer);
 	}
 
-	public addSelection(
-		entityIds: number[],
-		pointer: InteractionPointerState | null
-	): boolean {
+	public addSelection(nodes: Node[], pointer: InteractionPointerState | null): boolean {
 		if (this._selectionMode === "single") {
-			return this.replaceSelection(entityIds.slice(0, 1), pointer);
+			return this.replaceSelection(nodes.slice(0, 1), pointer);
 		}
-		const next = this._normalizeSelection([
-			...this._selectedEntityIds,
-			...entityIds,
-		]);
-		return this._applySelection(next, pointer);
+		return this._applySelection(
+			this._normalizeSelection([...this._selectedNodes, ...nodes]),
+			pointer,
+		);
 	}
 
-	public toggleSelection(
-		entityId: number,
-		pointer: InteractionPointerState | null
-	): boolean {
+	public toggleSelection(node: Node, pointer: InteractionPointerState | null): boolean {
 		if (this._selectionMode === "single") {
 			return this.replaceSelection(
-				this._selectedEntityIds[0] === entityId ? [] : [entityId],
-				pointer
+				this._selectedNodes[0] === node ? [] : [node],
+				pointer,
 			);
 		}
-		const selected = new Set(this._selectedEntityIds);
-		if (selected.has(entityId)) {
-			selected.delete(entityId);
-		} else {
-			selected.add(entityId);
-		}
+		const selected = new Set(this._selectedNodes);
+		if (selected.has(node)) selected.delete(node);
+		else selected.add(node);
 		return this._applySelection(Array.from(selected), pointer);
 	}
 
-	public emitClick(
-		entityId: number,
-		pointer: InteractionPointerState | null
-	): void {
-		this._invokeCallback(entityId, "click", pointer);
+	public emitClick(node: Node, pointer: InteractionPointerState | null): void {
+		this._invokeCallback(node, "click", pointer);
 		const event: InteractionClickEvent = {
-			...this._createEntityEvent(entityId),
+			...this._createNodeEvent(node),
 			pointer,
 		};
 		this._emit("click", event);
 	}
 
-	private _applySelection(
-		next: number[],
-		pointer: InteractionPointerState | null
-	): boolean {
-		const previous = this._selectedEntityIds;
-		if (arraysEqual(previous, next)) {
-			return false;
-		}
-		this._selectedEntityIds = next;
+	private _applySelection(next: Node[], pointer: InteractionPointerState | null): boolean {
+		const previous = this._selectedNodes;
+		if (arraysEqual(previous, next)) return false;
+		this._selectedNodes = next;
 		const nextSet = new Set(next);
 		const previousSet = new Set(previous);
-		for (const entityId of previous) {
-			if (!nextSet.has(entityId)) {
-				this._invokeCallback(entityId, "deselect", pointer);
-			}
+		for (const node of previous) {
+			if (!nextSet.has(node)) this._invokeCallback(node, "deselect", pointer);
 		}
-		for (const entityId of next) {
-			if (!previousSet.has(entityId)) {
-				this._invokeCallback(entityId, "select", pointer);
-			}
+		for (const node of next) {
+			if (!previousSet.has(node)) this._invokeCallback(node, "select", pointer);
 		}
-		this._emitSelectionChanged();
+		this._emit("selectionChanged", this._createNodeEvent(next));
 		return true;
 	}
 
-	private _emitSelectionChanged(): void {
-		this._emit(
-			"selectionChanged",
-			this._createEntityEvent(this._selectedEntityIds)
-		);
-	}
-
-	private _normalizeSelection(entityIds: number[]): number[] {
-		const result: number[] = [];
-		const seen = new Set<number>();
-		for (const entityId of entityIds) {
-			if (!this._isSelectable(entityId) || seen.has(entityId)) continue;
-			seen.add(entityId);
-			result.push(entityId);
-			if (this._selectionMode === "single") {
-				break;
-			}
+	private _normalizeSelection(nodes: Node[]): Node[] {
+		const result: Node[] = [];
+		const seen = new Set<string>();
+		for (const node of nodes) {
+			if (!this._isSelectable(node) || seen.has(node.id)) continue;
+			seen.add(node.id);
+			result.push(node);
+			if (this._selectionMode === "single") break;
 		}
 		return result;
 	}
 
-	private _isSelectable(entityId: number): boolean {
-		const component = this._getInteractable(entityId);
+	private _isSelectable(node: Node): boolean {
+		const component = this._getInteractable(node);
 		return !!component && component.selectable !== false;
 	}
 
-	private _getInteractable(entityId: number): Interactable | null {
-		if (!this._scene || !this._scene.ecs.hasEntity(entityId)) return null;
-		const node = this._scene.ecs.getNodeByEntity(entityId);
-		if (!node) return null;
+	private _getInteractable(node: Node): Interactable | null {
 		const interactable = this._interactables.get(node);
 		if (!interactable || interactable.enabled === false) return null;
 		return interactable;
 	}
 
 	private _invokeCallback(
-		entityId: number,
+		node: Node,
 		phase: InteractionCallbackContext["phase"],
-		pointer: InteractionPointerState | null
+		pointer: InteractionPointerState | null,
 	): void {
-		const component = this._getInteractable(entityId);
-		if (!component) return;
-		const callback = resolveCallback(component, phase);
+		const component = this._getInteractable(node);
+		const callback = component ? resolveCallback(component, phase) : undefined;
 		if (!callback) return;
-		const node = this._scene?.ecs.getNodeByEntity(entityId);
-		if (!node) return;
-		callback({
-			entityId,
-			node,
-			phase,
-			selectedEntityIds: this.getSelectedEntities(),
-			pointer,
-		});
+		callback({ node, phase, selectedNodes: this.getSelectedNodes(), pointer });
 	}
 
-	private _createEntityEvent(
-		entityIdOrIds: number | number[] | null
-	): InteractionEntityEvent {
-		const entityIds =
-			Array.isArray(entityIdOrIds) ? entityIdOrIds
-			: entityIdOrIds === null ? []
-			: [entityIdOrIds];
-		const nodes: Node[] = [];
-		for (const entityId of entityIds) {
-			const node = this._scene?.ecs.getNodeByEntity(entityId);
-			if (node) {
-				nodes.push(node);
-			}
-		}
-		return {
-			entityId: entityIds[0] ?? null,
-			entityIds: entityIds.slice(),
-			node: nodes[0] ?? null,
-			nodes,
-		};
+	private _createNodeEvent(nodeOrNodes: Node | Node[] | null): InteractionNodeEvent {
+		const nodes = Array.isArray(nodeOrNodes)
+			? nodeOrNodes.slice()
+			: nodeOrNodes ? [nodeOrNodes] : [];
+		return { node: nodes[0] ?? null, nodes };
 	}
 }
 
 function resolveCallback(
 	component: Interactable,
-	phase: InteractionCallbackContext["phase"]
+	phase: InteractionCallbackContext["phase"],
 ): InteractionCallback | undefined {
 	switch (phase) {
-		case "hover-enter":
-			return component.onHoverEnter;
-		case "hover-leave":
-			return component.onHoverLeave;
-		case "select":
-			return component.onSelect;
-		case "deselect":
-			return component.onDeselect;
-		case "click":
-			return component.onClick;
+		case "hover-enter": return component.onHoverEnter;
+		case "hover-leave": return component.onHoverLeave;
+		case "select": return component.onSelect;
+		case "deselect": return component.onDeselect;
+		case "click": return component.onClick;
 	}
 }
 
-function arraysEqual(left: number[], right: number[]): boolean {
+function arraysEqual(left: Node[], right: Node[]): boolean {
 	if (left.length !== right.length) return false;
 	for (let index = 0; index < left.length; index++) {
 		if (left[index] !== right[index]) return false;

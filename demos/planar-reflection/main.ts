@@ -163,7 +163,6 @@ async function bootDemo(): Promise<DemoState> {
 		await renderer.initialize();
 		await renderer.warmup();
 
-		scene.syncNodeToECS();
 		scene.updateWorldMatrices();
 		renderer.requestRender("unknown");
 		await renderer.renderFrame(performanceNow());

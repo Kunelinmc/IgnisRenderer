@@ -210,10 +210,6 @@ async function bootDemo(): Promise<DemoState> {
 		maxDeltaSeconds: 1 / 10,
 	});
 
-	// Bind physics resolver to ECS nodes
-	physics.setEntityNodeResolver((entityId) => {
-		return scene.ecs.getNodeByEntity(entityId);
-	});
 	physics.bindSceneSpatial(scene);
 
 	const settings: DemoSettings = {

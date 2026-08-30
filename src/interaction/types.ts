@@ -29,26 +29,23 @@ export interface InteractionPointerEventLike {
 	viewportHeight?: number;
 }
 
-export interface InteractionEntityEvent {
-	entityId: number | null;
-	entityIds: number[];
+export interface InteractionNodeEvent {
 	node: Node | null;
 	nodes: Node[];
 }
 
-export interface InteractionClickEvent extends InteractionEntityEvent {
+export interface InteractionClickEvent extends InteractionNodeEvent {
 	pointer: InteractionPointerState | null;
 }
 
 export interface InteractionTransformEvent {
-	entityId: number;
 	node: Node;
 	mode: GizmoMode;
 }
 
 export interface InteractionEvents {
-	hoverChanged: [InteractionEntityEvent];
-	selectionChanged: [InteractionEntityEvent];
+	hoverChanged: [InteractionNodeEvent];
+	selectionChanged: [InteractionNodeEvent];
 	click: [InteractionClickEvent];
 	transformCommitted: [InteractionTransformEvent];
 	transformCancelled: [InteractionTransformEvent];
@@ -57,7 +54,6 @@ export interface InteractionEvents {
 
 export interface InteractionHitResult {
 	node: Node;
-	entityId: number;
 	distance: number;
 	priority: number;
 	source: "physics" | "bvh";
@@ -83,8 +79,8 @@ export interface InteractionGizmoState {
 }
 
 export interface InteractionState {
-	selectedEntityIds: number[];
-	hoveredEntityId: number | null;
+	selectedNodes: Node[];
+	hoveredNode: Node | null;
 	gizmo: InteractionGizmoState | null;
 	dragRect: InteractionDragRectState | null;
 }

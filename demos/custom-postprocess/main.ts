@@ -221,7 +221,6 @@ async function init() {
 			obj.mesh.position.y = obj.baseY + Math.sin(time * obj.bobSpeed + obj.phase) * 0.4;
 		}
 
-		scene.syncNodeToECS();
 		renderer.requestRender("tick");
 	});
 

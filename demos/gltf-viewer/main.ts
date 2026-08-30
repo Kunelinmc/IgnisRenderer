@@ -214,8 +214,6 @@ async function loadModel(
 		normalizeModel(root);
 		loadedModel = scene.add(root);
 		scene.updateWorldMatrices();
-		scene.syncNodeToECS();
-		scene.updateWorldMatrices();
 		loadedMixer = configureAnimations(root, loader);
 		updateModelStats(root);
 		frameCameraToScene();

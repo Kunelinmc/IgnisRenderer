@@ -73,7 +73,7 @@ export class InteractionPicker {
 	public pickDragRect(
 		rect: InteractionDragRectState,
 		viewport: InteractionViewport
-	): number[] {
+	): Node[] {
 		if (!this._scene || !this._camera) return [];
 		this._scene.updateWorldMatrices();
 		this._camera.updateMatrices();
@@ -86,14 +86,12 @@ export class InteractionPicker {
 		}
 
 		const candidates: Array<{
-			entityId: number;
+			node: Node;
 			priority: number;
 			depth: number;
 		}> = [];
 		for (const meshInstance of this._scene.getMeshInstances()) {
 			if (meshInstance.visible === false) continue;
-			const entityId = meshInstance.entityId;
-			if (typeof entityId !== "number") continue;
 			const interactable = this._resolveInteractable(meshInstance, "select");
 			if (!interactable) continue;
 			const sphere = meshInstance.getWorldBoundingSphere();
@@ -113,7 +111,7 @@ export class InteractionPicker {
 				continue;
 			}
 			candidates.push({
-				entityId,
+				node: meshInstance,
 				priority: normalizePriority(interactable.priority),
 				depth: clip.depth,
 			});
@@ -122,14 +120,13 @@ export class InteractionPicker {
 		candidates.sort((a, b) => {
 			if (a.priority !== b.priority) return b.priority - a.priority;
 			if (a.depth !== b.depth) return a.depth - b.depth;
-			return a.entityId - b.entityId;
+			return a.node.id.localeCompare(b.node.id);
 		});
-		return candidates.map((candidate) => candidate.entityId);
+		return candidates.map((candidate) => candidate.node);
 	}
 
-	public isEntitySelectable(entityId: number): boolean {
-		const node = this._scene?.ecs.getNodeByEntity(entityId);
-		return !!node && this._resolveInteractable(node, "select") !== null;
+	public isNodeSelectable(node: Node): boolean {
+		return this._resolveInteractable(node, "select") !== null;
 	}
 
 	private _pickPhysicsHit(
@@ -152,16 +149,10 @@ export class InteractionPicker {
 		for (const hit of hits) {
 			const node = this._physics.resolveHitNode(hit);
 			if (!node) continue;
-			const entityId =
-				typeof node.entityId === "number" ?
-					node.entityId
-				: this._physics.resolveHitEntityId(hit);
-			if (typeof entityId !== "number") continue;
 			const interactable = this._resolveInteractable(node, intent);
 			if (!interactable) continue;
 			const candidate: InteractionHitResult = {
 				node,
-				entityId,
 				distance: hit.distance,
 				priority: normalizePriority(interactable.priority),
 				source: "physics",
@@ -198,8 +189,6 @@ export class InteractionPicker {
 		let best: InteractionHitResult | null = null;
 		for (const candidate of candidates) {
 			const meshInstance = candidate.meshInstance;
-			const entityId = meshInstance.entityId;
-			if (typeof entityId !== "number") continue;
 			const interactable = this._resolveInteractable(meshInstance, intent);
 			if (!interactable) continue;
 			let distance = candidate.distance;
@@ -228,7 +217,6 @@ export class InteractionPicker {
 
 			best = chooseBetterHit(best, {
 				node: meshInstance,
-				entityId,
 				distance,
 				priority: normalizePriority(interactable.priority),
 				source: "bvh",
@@ -241,6 +229,7 @@ export class InteractionPicker {
 		node: Node,
 		intent: InteractionPickIntent
 	): Interactable | null {
+		if (!this._scene || !this._scene.contains(node)) return null;
 		const interactable = this._interactables.get(node);
 		if (!interactable || interactable.enabled === false) return null;
 		if (intent === "hover" && interactable.hoverable === false) return null;
@@ -261,7 +250,7 @@ function chooseBetterHit(
 	if (candidate.distance !== current.distance) {
 		return candidate.distance < current.distance ? candidate : current;
 	}
-	return candidate.entityId < current.entityId ? candidate : current;
+	return candidate.node.id.localeCompare(current.node.id) < 0 ? candidate : current;
 }
 
 function normalizePriority(value: number | undefined): number {

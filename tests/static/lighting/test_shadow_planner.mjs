@@ -46,7 +46,7 @@ function planScene(scene, options = {}) {
 	const camera = createCamera();
 	return ShadowPlanner.plan({
 		manager: scene.shadows,
-		lights: scene.ecs.findLights(),
+		lights: scene.getLights(),
 		backendKey: options.backendKey ?? "webgpu",
 		camera,
 		sceneBounds: { center: { x: 0, y: 0, z: 0 }, radius: 80 },

@@ -156,7 +156,6 @@ export class RenderPipelineRegistry {
 			throw new Error(`Cannot unregister built-in pipeline stage "${id}".`);
 		}
 		this._stages.delete(id);
-		this._stageGraph.removeDependency("sync-out", id);
 		this._stageGraph.unregisterStage(id);
 		if (isFramePassKind(stage.kind)) {
 			this._incrementalRegistry.unregisterFramePass(id);
@@ -316,13 +315,6 @@ export class RenderPipelineRegistry {
 			dependsOn,
 			enabled: stage.enabled,
 		});
-		if (
-			!builtIn &&
-			isFramePassKind(stage.kind) &&
-			this._stageGraph.hasStage("sync-out")
-		) {
-			this._stageGraph.addDependency("sync-out", stage.id);
-		}
 		if (isFramePassKind(stage.kind)) {
 			this._incrementalRegistry.registerFramePass(
 				{

@@ -20,10 +20,9 @@ export type InteractionEventPhase =
 	| "click";
 
 export interface InteractionCallbackContext {
-	entityId: number;
 	node: Node;
 	phase: InteractionEventPhase;
-	selectedEntityIds: number[];
+	selectedNodes: Node[];
 	pointer: InteractionPointerState | null;
 }
 

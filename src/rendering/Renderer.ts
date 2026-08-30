@@ -782,7 +782,6 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 		if (warmupStartDelay) {
 			await warmupStartDelay;
 		}
-		this._scene.syncNodeToECS();
 		this._scene.updateWorldMatrices();
 		this.refreshReflectionProbeCaches();
 		this._assertCameraInScene(this._scene, this._camera, "renderScene");
@@ -870,12 +869,7 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 		this._materialScanSceneVersion = -1;
 		this._trackedSceneMaterials = [];
 		this._coordinator.reset();
-		if (this._physicsSystem) {
-			this._physicsSystem.setEntityNodeResolver((entityId) => {
-				return this._scene.ecs.getNodeByEntity(entityId);
-			});
-			this._physicsSystem.bindSceneSpatial(this._scene);
-		}
+		this._physicsSystem?.bindSceneSpatial(this._scene);
 		this._markFrameDirty("unknown");
 	}
 
@@ -902,9 +896,6 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 		}
 		this._physicsSystem = physicsSystem;
 		if (physicsSystem) {
-			physicsSystem.setEntityNodeResolver((entityId) => {
-				return this._scene.ecs.getNodeByEntity(entityId);
-			});
 			physicsSystem.bindSceneSpatial(this._scene);
 		}
 	}

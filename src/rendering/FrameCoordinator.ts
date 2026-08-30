@@ -412,14 +412,12 @@ export class FrameCoordinator {
 					delegate.warn(warning.key, warning.message);
 				}
 			},
-			[stageIds.syncIn]: (delegate, state) =>
-				this._executeSyncInStage(delegate, state),
 			[stageIds.animationSim]: (delegate, state) =>
 				this._executeAnimationStage(delegate, state),
 			[stageIds.physicsSim]: (delegate, state) =>
 				this._executePhysicsStage(delegate, state),
-			[stageIds.transformUpdate]: (delegate) =>
-				this._executeTransformUpdateStage(delegate),
+			[stageIds.transformUpdate]: (delegate, state) =>
+				this._executeTransformUpdateStage(delegate, state),
 			[stageIds.deformationUpdate]: (delegate, state) =>
 				this._executeDeformationStage(delegate, state),
 			[stageIds.lodResolve]: (delegate) => this._resolveLODMeshes(delegate),
@@ -428,19 +426,8 @@ export class FrameCoordinator {
 				this._executePreparedSceneBuildStage(delegate, state),
 			[stageIds.probeCapture]: (delegate, state) =>
 				this._executeProbeCaptureStage(delegate, state),
-			[stageIds.syncOut]: (delegate) => delegate.scene.syncECSToNode(),
 		};
 		return new Map(Object.entries(executors));
-	}
-
-	private _executeSyncInStage(
-		delegate: FrameCoordinatorDelegate,
-		state: RenderSceneFrameState,
-	): void {
-		delegate.scene.syncNodeToECS();
-		if (!state.hasAnimationStage && !state.emittedPostAnimation) {
-			this._emitPostAnimation(delegate, state, state.deltaTimeSeconds * 1000);
-		}
 	}
 
 	private _executeAnimationStage(
@@ -468,7 +455,13 @@ export class FrameCoordinator {
 		}
 	}
 
-	private _executeTransformUpdateStage(delegate: FrameCoordinatorDelegate): void {
+	private _executeTransformUpdateStage(
+		delegate: FrameCoordinatorDelegate,
+		state: RenderSceneFrameState,
+	): void {
+		if (!state.emittedPostAnimation) {
+			this._emitPostAnimation(delegate, state, state.deltaTimeSeconds * 1000);
+		}
 		delegate.scene.updateWorldMatrices();
 		this._assertCameraInScene(delegate.scene, delegate.camera, "renderScene");
 		delegate.camera.updateMatrices();

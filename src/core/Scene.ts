@@ -3,10 +3,9 @@ import { Node } from "./Node";
 import type { BoundingSphere } from "./types";
 import { MeshInstance } from "../meshes";
 import { Decal } from "../decals";
-import type { SceneLight } from "../lights";
+import { Light, type SceneLight } from "../lights";
 import { Camera } from "../cameras/Camera";
 import { ParticleSystem } from "../particles";
-import { ECSWorld } from "../ecs";
 import {
 	BVH,
 	HybridSpatialIndex,
@@ -21,7 +20,6 @@ import {
 	type RenderDirtyReason,
 } from "../pipeline/incremental";
 
-const ROOT_PATH = "/sceneRoot";
 const DEFAULT_SCENE_BOUNDS_RADIUS = 100;
 
 interface SpatialMeshSignature {
@@ -46,11 +44,19 @@ export interface SceneNodeLifecycleEvent {
 export interface SceneNodeLifecycleListener {
 	nodeAttached?(event: SceneNodeLifecycleEvent): void;
 	nodeDetached?(event: SceneNodeLifecycleEvent): void;
+	nodeStateChanged?(event: SceneNodeStateChangeEvent): void;
+	transformsChanged?(nodes: readonly Node[]): void;
+}
+
+export type SceneNodeStateField = "name" | "visibility";
+
+export interface SceneNodeStateChangeEvent {
+	node: Node;
+	field: SceneNodeStateField;
 }
 
 export class Scene {
 	public readonly root: Node;
-	public readonly ecs: ECSWorld;
 	public readonly shadows: ShadowManager;
 	public readonly environment: Environment;
 	public spatial: SpatialIndex3D | null;
@@ -58,11 +64,16 @@ export class Scene {
 	private _version: number;
 	private _dirtyReasonMask = 0;
 	private _reparentingNodes = new WeakSet<Node>();
-	private _sceneGraphDirty = false;
 	private _meshInstancesCache: MeshInstance[] = [];
 	private _meshInstancesCacheDirty = true;
 	private _decalsCache: Decal[] = [];
 	private _decalsCacheDirty = true;
+	private _lightsCache: SceneLight[] = [];
+	private _lightsCacheDirty = true;
+	private _camerasCache: Camera[] = [];
+	private _camerasCacheDirty = true;
+	private _particleSystemsCache: ParticleSystem[] = [];
+	private _particleSystemsCacheDirty = true;
 	private _boundsDirty = true;
 	private _boundsCache: BoundingSphere = {
 		center: { x: 0, y: 0, z: 0 },
@@ -83,13 +94,13 @@ export class Scene {
 	private _spatialIndexMode: SpatialIndexMode;
 	private _spatialQueryScratch: MeshInstance[] = [];
 	private _nodeLifecycleListeners = new Set<SceneNodeLifecycleListener>();
+	private _transformChangeScratch: Node[] = [];
 
 	constructor(options: SceneOptions = {}) {
 		this.root = new Node({
 			idPrefix: "scene",
 			name: "sceneRoot",
 		});
-		this.ecs = new ECSWorld();
 		this.shadows = new ShadowManager({
 			onChange: () => this.invalidate("shadow"),
 		});
@@ -102,12 +113,6 @@ export class Scene {
 		this._spatialIndexMode = "bvh";
 
 		this.root._setSceneInternal(this);
-		const rootEntity = this.ecs.registerNode(this.root, null);
-		this.root._setEntityIdInternal(rootEntity);
-		this.ecs.setHierarchy(rootEntity, null, []);
-		this.ecs.setComponent(rootEntity, "PathBinding", {
-			path: ROOT_PATH,
-		});
 	}
 
 	public add<T extends Node>(node: T): T {
@@ -120,10 +125,10 @@ export class Scene {
 	}
 
 	/**
-	 * Subscribes to public scene graph attach and detach events.
+	 * Subscribes to scene graph lifecycle, state, and transform change events.
 	 *
 	 * @param listener - Listener invoked after public attach or detach calls update
-	 * scene ownership and ECS bindings.
+	 * scene ownership and optional scene projections.
 	 * @returns A disposer that removes the listener.
 	 * @sideEffects Stores the listener until the returned disposer is called.
 	 */
@@ -160,7 +165,9 @@ export class Scene {
 
 	public getMeshInstances(): MeshInstance[] {
 		if (this._meshInstancesCacheDirty) {
-			this._meshInstancesCache = this.ecs.findMeshInstances();
+			this._meshInstancesCache = this._collectByType(
+				(node): node is MeshInstance => node instanceof MeshInstance,
+			);
 			this._meshInstancesCacheDirty = false;
 		}
 		return this._meshInstancesCache;
@@ -177,15 +184,33 @@ export class Scene {
 	}
 
 	public getLights(): SceneLight[] {
-		return this.ecs.findLights();
+		if (this._lightsCacheDirty) {
+			this._lightsCache = this._collectByType(
+				(node): node is SceneLight => node instanceof Light,
+			);
+			this._lightsCacheDirty = false;
+		}
+		return this._lightsCache;
 	}
 
 	public getCameras(): Camera[] {
-		return this.ecs.findCameras();
+		if (this._camerasCacheDirty) {
+			this._camerasCache = this._collectByType(
+				(node): node is Camera => node instanceof Camera,
+			);
+			this._camerasCacheDirty = false;
+		}
+		return this._camerasCache;
 	}
 
 	public getParticleSystems(): ParticleSystem[] {
-		return this.ecs.findParticleSystems();
+		if (this._particleSystemsCacheDirty) {
+			this._particleSystemsCache = this._collectByType(
+				(node): node is ParticleSystem => node instanceof ParticleSystem,
+			);
+			this._particleSystemsCacheDirty = false;
+		}
+		return this._particleSystemsCache;
 	}
 
 	public get spatialIndexMode(): SpatialIndexMode {
@@ -309,46 +334,15 @@ export class Scene {
 	}
 
 	public updateWorldMatrices(): void {
-		this.root.updateWorldMatrix();
-		this.syncNodeToECS();
-	}
-
-	public syncNodeToECS(): void {
-		if (this._sceneGraphDirty) {
-			this._syncSceneGraphToECS();
+		if (this._nodeLifecycleListeners.size === 0) {
+			this.root.updateWorldMatrix();
 			return;
 		}
-		this._syncNodeStateRecursive(this.root, ROOT_PATH);
-		if (this._sceneGraphDirty) {
-			this._syncSceneGraphToECS();
-		}
-	}
-
-	private _syncSceneGraphToECS(): void {
-		const activeNodes = new Set<Node>();
-		const rootEntity = this.root.entityId;
-		if (rootEntity === null) {
-			throw new Error("Scene root entity is missing");
-		}
-		this._syncNodeRecursive(this.root, null, ROOT_PATH, activeNodes);
-
-		const entities = this.ecs.query(["NodeRef"]);
-		for (const entity of entities) {
-			const node = this.ecs.getNodeByEntity(entity);
-			if (!node || !activeNodes.has(node)) {
-				this.ecs.destroyEntity(entity);
-			}
-		}
-		this._sceneGraphDirty = false;
-		this._meshInstancesCacheDirty = true;
-		this._decalsCacheDirty = true;
-		this._boundsDirty = true;
-	}
-
-	public syncECSToNode(): void {
-		const entities = this.ecs.query(["NodeRef", "LocalTransform"]);
-		for (const entity of entities) {
-			this.ecs.syncEntityToNode(entity);
+		this._transformChangeScratch.length = 0;
+		this.root.updateWorldMatrix(undefined, this._transformChangeScratch);
+		if (this._transformChangeScratch.length === 0) return;
+		for (const listener of this._nodeLifecycleListeners) {
+			listener.transformsChanged?.(this._transformChangeScratch);
 		}
 	}
 
@@ -363,11 +357,8 @@ export class Scene {
 	public onNodeAttachedFromAPI(parent: Node, child: Node): void {
 		if (parent.scene !== this) return;
 		this._setSceneRecursive(child, this);
-		this._sceneGraphDirty = true;
-		this._meshInstancesCacheDirty = true;
-		this._decalsCacheDirty = true;
+		this._markTypedCachesDirty();
 		this._boundsDirty = true;
-		this.syncNodeToECS();
 		this.invalidate();
 		for (const listener of this._nodeLifecycleListeners) {
 			listener.nodeAttached?.({ parent, child });
@@ -376,23 +367,27 @@ export class Scene {
 
 	public onNodeDetachedFromAPI(_parent: Node, child: Node): void {
 		if (this._reparentingNodes.has(child)) {
-			this._sceneGraphDirty = true;
-			this._meshInstancesCacheDirty = true;
-			this._decalsCacheDirty = true;
+			this._markTypedCachesDirty();
 			this._boundsDirty = true;
 			this.invalidate();
 			return;
 		}
 
-		this._unregisterNodeRecursive(child);
 		this._setSceneRecursive(child, null);
-		this._sceneGraphDirty = true;
-		this._meshInstancesCacheDirty = true;
-		this._decalsCacheDirty = true;
+		this._markTypedCachesDirty();
 		this._boundsDirty = true;
 		this.invalidate();
 		for (const listener of this._nodeLifecycleListeners) {
 			listener.nodeDetached?.({ parent: _parent, child });
+		}
+	}
+
+	/** @internal Publishes metadata changes to optional scene projections. */
+	public notifyNodeStateChanged(node: Node, field: SceneNodeStateField): void {
+		if (node.scene !== this) return;
+		this.invalidate("unknown");
+		for (const listener of this._nodeLifecycleListeners) {
+			listener.nodeStateChanged?.({ node, field });
 		}
 	}
 
@@ -516,57 +511,12 @@ export class Scene {
 		return result;
 	}
 
-	private _syncNodeRecursive(
-		node: Node,
-		parentEntity: number | null,
-		path: string,
-		activeNodes: Set<Node>,
-	): number {
-		activeNodes.add(node);
-		const entity = this.ecs.registerNode(node, parentEntity);
-		node._setEntityIdInternal(entity);
-		node._setSceneInternal(this);
-		this.ecs.setExternalId(entity, node.id);
-		this.ecs.setComponent(entity, "PathBinding", { path });
-
-		const childEntities: number[] = [];
-		for (const child of node.children) {
-			const childEntity = this._syncNodeRecursive(
-				child,
-				entity,
-				`${path}/${sanitizePathSegment(child.name)}_${child.id}`,
-				activeNodes,
-			);
-			childEntities.push(childEntity);
-		}
-		this.ecs.setHierarchy(entity, parentEntity, childEntities);
-		return entity;
-	}
-
-	private _syncNodeStateRecursive(node: Node, path: string): void {
-		const entity = node.entityId;
-		if (entity === null || !this.ecs.hasEntity(entity)) {
-			this._sceneGraphDirty = true;
-			return;
-		}
-		node._setSceneInternal(this);
-		this.ecs.syncNodeToEntity(node, path);
-		for (const child of node.children) {
-			this._syncNodeStateRecursive(
-				child,
-				`${path}/${sanitizePathSegment(child.name)}_${child.id}`,
-			);
-		}
-	}
-
-	private _unregisterNodeRecursive(node: Node): void {
-		for (const child of node.children) {
-			this._unregisterNodeRecursive(child);
-		}
-		if (node.entityId !== null) {
-			this.ecs.unregisterNode(node);
-			node._setEntityIdInternal(null);
-		}
+	private _markTypedCachesDirty(): void {
+		this._meshInstancesCacheDirty = true;
+		this._decalsCacheDirty = true;
+		this._lightsCacheDirty = true;
+		this._camerasCacheDirty = true;
+		this._particleSystemsCacheDirty = true;
 	}
 
 	private _setSceneRecursive(node: Node, scene: Scene | null): void {
@@ -582,10 +532,6 @@ export class Scene {
 		}
 		return new BVH(meshInstances);
 	}
-}
-
-function sanitizePathSegment(value: string): string {
-	return value.replace(/[^\w\-]+/g, "_");
 }
 
 function shouldInvalidateSceneBounds(reason: RenderDirtyReason): boolean {

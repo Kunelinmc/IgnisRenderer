@@ -472,10 +472,5 @@ function compareRayHits(left: SpatialRayHit, right: SpatialRayHit): number {
 	if (left.distance !== right.distance) {
 		return left.distance - right.distance;
 	}
-	const leftEntity = left.meshInstance.entityId ?? Number.MAX_SAFE_INTEGER;
-	const rightEntity = right.meshInstance.entityId ?? Number.MAX_SAFE_INTEGER;
-	if (leftEntity !== rightEntity) {
-		return leftEntity - rightEntity;
-	}
 	return left.meshInstance.id.localeCompare(right.meshInstance.id);
 }

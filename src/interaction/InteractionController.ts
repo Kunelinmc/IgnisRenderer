@@ -1,5 +1,6 @@
 import type { Camera } from "../cameras/Camera";
 import { EventEmitter } from "../core/EventEmitter";
+import type { Node } from "../core/Node";
 import type { Scene } from "../core/Scene";
 import type { PhysicsSystem } from "../physics/PhysicsSystem";
 import {
@@ -17,7 +18,7 @@ import {
 	type InteractionClickEvent,
 	type InteractionControllerOptions,
 	type InteractionDragRectState,
-	type InteractionEntityEvent,
+	type InteractionNodeEvent,
 	type InteractionEvents,
 	type InteractionGizmoState,
 	type InteractionPointerEventLike,
@@ -98,7 +99,7 @@ export class InteractionController extends EventEmitter<InteractionEvents> {
 		this._camera = camera;
 		this._physics = physicsSystem;
 		this._picker.attach(scene, camera, physicsSystem);
-		this._selection.setScene(scene);
+		this._selection.reset();
 		this._gizmo.attach(scene, camera);
 		return this;
 	}
@@ -115,7 +116,7 @@ export class InteractionController extends EventEmitter<InteractionEvents> {
 		this._physics = null;
 		this._dragRect = null;
 		this._picker.detach();
-		this._selection.setScene(null);
+		this._selection.reset();
 		this._gizmo.detach();
 	}
 
@@ -130,23 +131,23 @@ export class InteractionController extends EventEmitter<InteractionEvents> {
 	}
 
 	/**
-	 * Reads the primary selected entity.
+	 * Reads the primary selected node.
 	 *
-	 * @returns The first selected entity id, or `null` when nothing is selected.
+	 * @returns The first selected node, or `null` when nothing is selected.
 	 * @sideEffects None.
 	 */
-	public getSelection(): number | null {
+	public getSelection(): Node | null {
 		return this._selection.getSelection();
 	}
 
 	/**
-	 * Reads all selected entities.
+	 * Reads all selected nodes.
 	 *
-	 * @returns A copy of the selected entity id list.
+	 * @returns A copy of the selected node list.
 	 * @sideEffects None.
 	 */
-	public getSelectedEntities(): number[] {
-		return this._selection.getSelectedEntities();
+	public getSelectedNodes(): Node[] {
+		return this._selection.getSelectedNodes();
 	}
 
 	/**
@@ -157,8 +158,8 @@ export class InteractionController extends EventEmitter<InteractionEvents> {
 	 */
 	public getState(): InteractionState {
 		return {
-			selectedEntityIds: this._selection.getSelectedEntities(),
-			hoveredEntityId: this._selection.getHoveredEntity(),
+			selectedNodes: this._selection.getSelectedNodes(),
+			hoveredNode: this._selection.getHoveredNode(),
 			gizmo: this._gizmo.getState(),
 			dragRect:
 				this._dragRect ?
@@ -174,9 +175,9 @@ export class InteractionController extends EventEmitter<InteractionEvents> {
 	}
 
 	/**
-	 * Updates whether selection is single-entity or multi-entity.
+	 * Updates whether selection is single-node or multi-node.
 	 *
-	 * @param selectionMode - `single` keeps one entity; `multiple` allows many.
+	 * @param selectionMode - `single` keeps one node; `multiple` allows many.
 	 * @returns Nothing.
 	 * @sideEffects May deselect entities and emit interaction callbacks.
 	 */
@@ -254,15 +255,15 @@ export class InteractionController extends EventEmitter<InteractionEvents> {
 	private _handlePointerMove(): void {
 		const pointer = this._snapshotPointer();
 		if (this._gizmo.isActive()) {
-			const entityId = this._selection.getSelection();
+			const node = this._selection.getSelection();
 			if (
-				entityId !== null &&
-				this._picker.isEntitySelectable(entityId) &&
-				this._gizmo.updateTransform(entityId, pointer)
+				node !== null &&
+				this._picker.isNodeSelectable(node) &&
+				this._gizmo.updateTransform(node, pointer)
 			) {
 				return;
 			}
-			const cancelled = this._gizmo.cancel(entityId);
+			const cancelled = this._gizmo.cancel(node);
 			if (cancelled) {
 				this.emit("transformCancelled", cancelled);
 			}
@@ -279,7 +280,7 @@ export class InteractionController extends EventEmitter<InteractionEvents> {
 			{ width: pointer.viewportWidth, height: pointer.viewportHeight },
 			"hover"
 		);
-		this._selection.setHover(hit?.entityId ?? null, pointer);
+		this._selection.setHover(hit?.node ?? null, pointer);
 	}
 
 	private _handlePointerDown(button: number): void {
@@ -310,11 +311,11 @@ export class InteractionController extends EventEmitter<InteractionEvents> {
 		);
 		if (hit) {
 			if (this._selectionMode === "multiple" && pointer.shiftKey) {
-				this._selection.toggleSelection(hit.entityId, pointer);
+				this._selection.toggleSelection(hit.node, pointer);
 			} else {
-				this._selection.replaceSelection([hit.entityId], pointer);
+				this._selection.replaceSelection([hit.node], pointer);
 			}
-			this._selection.emitClick(hit.entityId, pointer);
+			this._selection.emitClick(hit.node, pointer);
 			return;
 		}
 
@@ -389,11 +390,9 @@ export class InteractionController extends EventEmitter<InteractionEvents> {
 		}
 
 		if (key === "g" || key === "r" || key === "s") {
-			const entityId = this._selection.getSelection();
-			if (entityId === null || !this._scene) return;
-			if (!this._picker.isEntitySelectable(entityId)) return;
-			const node = this._scene.ecs.getNodeByEntity(entityId);
-			if (!node) return;
+			const node = this._selection.getSelection();
+			if (!node || !this._scene) return;
+			if (!this._picker.isNodeSelectable(node)) return;
 			const mode: GizmoMode =
 				key === "g" ? "translate" : key === "r" ? "rotate" : "scale";
 			this._gizmo.begin(mode, node, this._snapshotPointer());
@@ -444,7 +443,7 @@ export type {
 	InteractionControllerOptions,
 	InteractionClickEvent,
 	InteractionDragRectState,
-	InteractionEntityEvent,
+	InteractionNodeEvent,
 	InteractionEvents,
 	InteractionGizmoState,
 	InteractionPointerEventLike,

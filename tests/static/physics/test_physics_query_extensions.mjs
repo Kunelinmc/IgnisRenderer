@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { Scene } from "../../../src/core/Scene.ts";
 import { Node } from "../../../src/core/Node.ts";
 import { PhysicsSystem } from "../../../src/physics/PhysicsSystem.ts";
 
@@ -44,19 +43,13 @@ function run() {
 	assert.equal(physics.resolveHitNode(hits[0]), nodeA);
 	assert.equal(physics.resolveHitNode(hits[1]), nodeB);
 
-	const scene = new Scene();
 	const entityNode = new Node({ position: { x: 2, y: 0, z: 5 } });
-	scene.add(entityNode);
-	scene.updateWorldMatrices();
-	const entityId = entityNode.entityId;
-	assert.ok(typeof entityId === "number");
-	physics.setEntityNodeResolver((id) => scene.ecs.getNodeByEntity(id));
-	const entityBody = physics.attachBody(entityId, {
+	const nodeBody = physics.attachBody(entityNode, {
 		worldId: "main",
 		body: { type: "fixed" },
 		authority: "physics",
 	});
-	physics.addCollider(entityBody, {
+	physics.addCollider(nodeBody, {
 		mode: "explicit",
 		shape: { kind: "sphere", radius: 1 },
 	});
@@ -68,7 +61,7 @@ function run() {
 		filter: { includeTriggers: false },
 	});
 	assert.ok(entityHit);
-	assert.equal(physics.resolveHitEntityId(entityHit), entityId);
+	assert.equal(physics.resolveHitNode(entityHit), entityNode);
 
 	console.log("Physics query extension tests passed");
 }

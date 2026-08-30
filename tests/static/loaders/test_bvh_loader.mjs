@@ -103,8 +103,8 @@ function testPrefabContract() {
 
 	assert.ok(prefab.animationBundle);
 	assert.equal(prefab.animationBundle.clips[0].name, "prefabMotion");
-	assert.ok(instance.root);
-	assert.ok(instance.rootEntity !== null);
+	assert.ok(instance);
+	assert.equal(scene.contains(instance), true);
 }
 
 function run() {

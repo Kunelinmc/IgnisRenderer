@@ -74,9 +74,9 @@ function runDefaultAndCallbackTests() {
 	const interactionState = controller.updatePointer(
 		pointer("down", 99.5, 99.5, { button: 0 })
 	);
-	assert.equal(controller.getSelection(), box.entityId);
-	assert.deepEqual(interactionState.selectedEntityIds, [box.entityId]);
-	assert.equal(interactionState.hoveredEntityId, box.entityId);
+	assert.equal(controller.getSelection(), box);
+	assert.deepEqual(interactionState.selectedNodes, [box]);
+	assert.equal(interactionState.hoveredNode, box);
 	assert.deepEqual(controller.getState(), interactionState);
 
 	controller.updatePointer(pointer("move", 0, 0));
@@ -93,8 +93,8 @@ function runDefaultAndCallbackTests() {
 
 	controller.detach();
 	assert.deepEqual(controller.getState(), {
-		selectedEntityIds: [],
-		hoveredEntityId: null,
+		selectedNodes: [],
+		hoveredNode: null,
 		gizmo: null,
 		dragRect: null,
 	});
@@ -125,7 +125,7 @@ function runPriorityTest() {
 	controller.interactables.set(high, { priority: 10 });
 	controller.attach(scene, camera, null);
 	controller.updatePointer(pointer("down", 99.5, 99.5, { button: 0 }));
-	assert.equal(controller.getSelection(), high.entityId);
+	assert.equal(controller.getSelection(), high);
 }
 
 function runMultipleSelectionTest() {
@@ -156,13 +156,44 @@ function runMultipleSelectionTest() {
 	controller.updatePointer(pointer("move", 199, 199));
 	controller.updatePointer(pointer("up", 199, 199, { button: 0 }));
 
-	const selected = controller.getSelectedEntities().slice().sort((a, b) => a - b);
-	assert.deepEqual(selected, [left.entityId, right.entityId].sort((a, b) => a - b));
+	const selected = controller.getSelectedNodes().slice().sort((a, b) =>
+		a.id.localeCompare(b.id)
+	);
+	assert.deepEqual(selected, [left, right].sort((a, b) => a.id.localeCompare(b.id)));
 	assert.equal(controller.getSelection(), selected[0]);
+}
+
+function runPhysicsSceneBoundaryTest() {
+	const { scene, camera } = createScene();
+	const otherScene = createScene().scene;
+	const oldBox = MeshFactory.createBox(
+		{ x: 0, y: 0, z: -5 },
+		2,
+		2,
+		2,
+		new PBRMaterial(),
+	);
+	otherScene.add(oldBox);
+	const physics = {
+		raycastAll: () => [{ bodyId: "old-scene-body", distance: 1 }],
+		resolveHitNode: () => oldBox,
+	};
+
+	const controller = new InteractionController();
+	controller.interactables.set(oldBox, {});
+	controller.attach(scene, camera, physics);
+	controller.updatePointer(pointer("down", 100, 100, { button: 0 }));
+
+	assert.equal(
+		controller.getSelection(),
+		null,
+		"A physics hit from another scene must not be selectable",
+	);
 }
 
 runDefaultAndCallbackTests();
 runPriorityTest();
 runMultipleSelectionTest();
+runPhysicsSceneBoundaryTest();
 
 console.log("InteractionController selection tests passed");
