@@ -18,6 +18,7 @@ const compiler = fileURLToPath(new URL(
 ));
 const result = spawnSync(process.execPath, [
 	compiler,
+	"--ignoreConfig",
 	"--allowImportingTsExtensions",
 	"--module", "ESNext",
 	"--moduleResolution", "bundler",
