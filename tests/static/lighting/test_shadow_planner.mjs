@@ -51,7 +51,6 @@ function planScene(scene, options = {}) {
 		camera,
 		sceneBounds: { center: { x: 0, y: 0, z: 0 }, radius: 80 },
 		casterIntent: options.intent ?? createIntent(),
-		enableShadows: true,
 		hasTransmissionCasters: false,
 	}, plannerState);
 }
@@ -173,7 +172,6 @@ function testCameraWorldPositionDrivesLightSelection() {
 		camera,
 		sceneBounds: { center: { x: 40, y: 0, z: 0 }, radius: 80 },
 		casterIntent: createIntent(false),
-		enableShadows: true,
 		hasTransmissionCasters: false,
 	}, ShadowPlanner.createState());
 	const selectedIds = new Set(plan.lights.map((light) => light.lightId));

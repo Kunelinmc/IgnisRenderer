@@ -145,7 +145,7 @@ export class WebGPUShadowCasterRenderer {
 		shadowAtlases: WebGPUShadowAtlasAllocator,
 		frameEncoder?: ICommandEncoder | null
 	): Promise<void> {
-		if (!context.features.enableShadows) return;
+		if (context.shadowPlan?.hasRasterWork !== true) return;
 
 		const frame = context.scene;
 		const slots = this._collectShadowSlots(frame, context.shadowPlan);

@@ -139,7 +139,6 @@ async function run() {
 		renderer.postProcess.getPass("gamma")?.disable();
 		renderer.features.enableReflection = false;
 		renderer.features.enableEnvironment = false;
-		renderer.features.enableShadows = false;
 
 		const meshInstance = renderer.scene.add(
 			new MeshInstance({

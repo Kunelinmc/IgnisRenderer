@@ -73,7 +73,7 @@ async function run() {
 		};
 		const camera = new Camera();
 		const renderer = new Renderer(canvas, backend, camera);
-		renderer.features.enableShadows = false;
+		assert.equal("enableShadows" in renderer.features, false);
 		renderer.features.enableEnvironment = false;
 		renderer.postProcess.getPass("gamma")?.disable();
 
@@ -86,7 +86,6 @@ async function run() {
 		assert.equal(reflectionWarnings.length, 1);
 
 		const shadowBackend = new StubBackend();
-		shadowBackend.capabilities.shadows = true;
 		const shadowRenderer = new Renderer(canvas, shadowBackend, new Camera());
 		shadowRenderer.features.enableReflection = false;
 		shadowRenderer.features.enableEnvironment = false;

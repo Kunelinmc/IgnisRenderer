@@ -77,7 +77,7 @@ export class SoftwareParticlePass implements SoftwarePassLike {
 		const maxY = Math.min(height - 1, Math.ceil(centerY + radiusPx));
 		if (minX > maxX || minY > maxY) return;
 		const shadowVisibility =
-			batch.receiveShadows && frame.features.enableShadows
+			batch.receiveShadows && frame.shadowPlan?.hasRasterWork === true
 				? this._resolveShadowVisibility(frame, particle, sampleShadow)
 				: 1;
 		const baseAlpha = clamp(particle.color.a);

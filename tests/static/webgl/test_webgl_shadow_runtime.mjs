@@ -136,9 +136,8 @@ function createHost(gl) {
 
 function createContext() {
 	return {
-		features: {
-			enableShadows: true,
-		},
+		features: {},
+		shadowPlan: { hasRasterWork: true },
 		scene: {
 			lights: [],
 			shadowCasterPackets: [],

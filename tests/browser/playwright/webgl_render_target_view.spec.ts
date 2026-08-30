@@ -13,7 +13,6 @@ test("WebGL renders a committed scene view into an HDR target", async ({ page })
 		const { TextureFormat } = await import("/src/core/TextureFormat.ts");
 		const renderer = new Renderer(canvas, new WebGLBackend(), new Camera());
 		renderer.features.enableEnvironment = false;
-		renderer.features.enableShadows = false;
 		await renderer.initialize();
 		const target = renderer.renderTargets.create({
 			size: { mode: "fixed", width: 4, height: 4 },

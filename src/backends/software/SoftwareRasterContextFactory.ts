@@ -36,6 +36,6 @@ export function createSoftwareRasterizerContext(
 			environment.lightingEnabled ? environment.iblTexture : null,
 		enableLighting: frame.features.enableLighting,
 		enableSH: frame.features.enableSH,
-		enableShadows: frame.features.enableShadows,
+		enableShadows: frame.shadowPlan?.hasRasterWork === true,
 	};
 }

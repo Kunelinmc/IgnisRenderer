@@ -34,7 +34,6 @@ function createRenderer() {
 		},
 	};
 	const renderer = new Renderer(canvas, backend);
-	renderer.features.enableShadows = false;
 	renderer.features.enableReflection = false;
 	renderer.features.enableEnvironment = false;
 	return renderer;

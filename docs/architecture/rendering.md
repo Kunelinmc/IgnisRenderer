@@ -28,6 +28,9 @@ Shadow authoring definitions and persistent light bindings belong to
 atlas resources and publish backend-private sampling state; they do not rewrite
 the shared plan. Current particle work may attach after simulation as a late
 `ShadowWorkSet` without changing the plan's resource topology.
+Shadow enablement is definition-owned: `ShadowMapBase.enabled` is observed by
+`ShadowManager`, and no renderer feature flag independently gates the shadow
+pipeline.
 
 Before the frame plan is created, `FrameCoordinator` composes prepared scene
 work, subsystem render intent, post-process intent, and resolved render support

@@ -51,7 +51,6 @@ function createRenderer() {
 		getBoundingClientRect: () => ({ width: 320, height: 180 }),
 	};
 	const renderer = new Renderer(canvas, backend, new Camera());
-	renderer.features.enableShadows = false;
 	renderer.features.enableReflection = false;
 	renderer.features.enableEnvironment = false;
 	return { renderer, backend };

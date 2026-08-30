@@ -103,7 +103,6 @@ async function run() {
 			},
 		};
 		const renderer = new Renderer(canvas, backend, camera);
-		renderer.features.enableShadows = false;
 		renderer.features.enableReflection = false;
 		renderer.postProcess.getPass("gamma")?.disable();
 

@@ -31,7 +31,6 @@ function createFeatures(overrides = {}) {
 	return {
 		enableLighting: true,
 		enableSH: false,
-		enableShadows: true,
 		enableReflection: false,
 		enableEnvironment: false,
 		enableClusteredLighting: false,
@@ -224,7 +223,8 @@ function testCameraForcesFullAndResetsTemporal() {
 	const plan = IncrementalFramePlanner.plan({
 		enabled: true,
 		reasonMask: renderDirtyReasonToMask("camera"),
-		features: createFeatures({ enableShadows: true }),
+		features: createFeatures(),
+		hasEnabledShadows: true,
 		postProcess: createPostProcess(),
 	});
 	assert.equal(plan.firstPass, "shadow");
@@ -241,7 +241,8 @@ function testGeometryFallsBackToMainWhenShadowsDisabled() {
 	const plan = IncrementalFramePlanner.plan({
 		enabled: true,
 		reasonMask: mask,
-		features: createFeatures({ enableShadows: false }),
+		features: createFeatures(),
+		hasEnabledShadows: false,
 		postProcess: createPostProcess(),
 	});
 	assert.equal(plan.firstPass, "main-opaque");
@@ -267,7 +268,8 @@ function testDecalStartsAtMainOpaqueWithoutFullFrame() {
 	const plan = IncrementalFramePlanner.plan({
 		enabled: true,
 		reasonMask: renderDirtyReasonToMask("decal"),
-		features: createFeatures({ enableShadows: true }),
+		features: createFeatures(),
+		hasEnabledShadows: true,
 		postProcess: createPostProcess(),
 	});
 	assert.equal(plan.firstPass, "main-opaque");
@@ -318,7 +320,8 @@ function testCustomDirtyReasonUsesGroups() {
 		const plan = IncrementalFramePlanner.plan({
 			enabled: true,
 			reasonMask: mask,
-			features: createFeatures({ enableShadows: false }),
+			features: createFeatures(),
+			hasEnabledShadows: false,
 			postProcess: createPostProcess(),
 			registry,
 		});

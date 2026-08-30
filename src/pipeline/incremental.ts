@@ -264,6 +264,7 @@ export interface IncrementalPlanInput {
 	enabled: boolean;
 	reasonMask: number;
 	features: ResolvedFeatureState;
+	hasEnabledShadows?: boolean;
 	postProcess: ResolvedPostProcessState;
 	registry?: IncrementalRegistry;
 }
@@ -1456,7 +1457,7 @@ function resolveDirtyReasonFirstPass(
 			case "simulation":
 				return "particle-sim";
 			case "geometry":
-				return input.features.enableShadows ? "shadow" : "main-opaque";
+				return input.hasEnabledShadows ? "shadow" : "main-opaque";
 			case "postfx": {
 				const firstPostProcessPass =
 					registry.resolveFirstEnabledPostProcessStage(input.postProcess);

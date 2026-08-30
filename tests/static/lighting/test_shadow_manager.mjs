@@ -20,6 +20,10 @@ function testBuiltInDefinitionLifecycle() {
 
 	scene.shadows.bind(sun, single);
 	assert.equal(scene.shadows.getBoundShadowMap(sun), single);
+	assert.equal(scene.shadows.hasEnabledBinding(scene.getLights()), true);
+	single.enabled = false;
+	assert.equal(scene.shadows.hasEnabledBinding(scene.getLights()), false);
+	single.enabled = true;
 	scene.shadows.rebind(sun, cascaded);
 	scene.shadows.bind(spot, cascaded);
 	assert.equal(scene.shadows.getBoundShadowMap(sun), cascaded);

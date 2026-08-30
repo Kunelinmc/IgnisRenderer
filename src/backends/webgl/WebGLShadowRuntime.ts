@@ -222,7 +222,7 @@ export class WebGLShadowRuntime implements WebGLProgramWarmupContributor {
 			context.scene.shadowCasterPackets.length > 0 ||
 			context.scene.shadowTransmitterPackets.length > 0 ||
 			context.scene.particleSystems.length > 0;
-		if (!context.features.enableShadows || tileSize <= 0 || !hasPotentialCasters) {
+		if (context.shadowPlan?.hasRasterWork !== true || tileSize <= 0 || !hasPotentialCasters) {
 			this._setLightAtlasTileSize(lightState, 0);
 			this._phase = "prepared";
 			return;

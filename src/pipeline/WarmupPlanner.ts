@@ -57,8 +57,7 @@ export function buildWarmupPlan(
 			context.scene.environment.backgroundEnabled &&
 			!!context.scene.environment.backgroundTexture,
 		enableShadows:
-			context.features.enableShadows &&
-			context.scene.shadowCasterPackets.length > 0,
+			context.shadowPlan?.hasRasterWork === true,
 		enableParticles:
 			includeParticles &&
 			(context.scene.particleSystems?.length ?? 0) > 0,

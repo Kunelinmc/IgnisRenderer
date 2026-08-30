@@ -1,6 +1,7 @@
 import type { ICommandEncoder } from "../ICommandEncoder";
 import { TextureFormat } from "../../core/TextureFormat";
 import { createRenderViewTransient } from "../../pipeline/RenderViewTransient";
+import { EMPTY_SHADOW_FRAME_PLAN } from "../../lights/shadows";
 import {
 	prepareFramePackets,
 	type PreparedFramePacketSet,
@@ -138,13 +139,12 @@ export class WebGPURenderTargetViewExecutor {
 			features: {
 				...base.features,
 				enableReflection: false,
-				enableShadows: includeShadows && base.features.enableShadows,
 				warnings: base.features.warnings.slice(),
 			},
 			postProcess: base.postProcess.withPassDisabled("ssr"),
 			renderTargets: new RenderTargetRegistrySnapshot(),
 			renderTargetJobs: undefined,
-			shadowPlan: scene.shadowPlan,
+			shadowPlan: includeShadows ? scene.shadowPlan : EMPTY_SHADOW_FRAME_PLAN,
 			scene,
 			sceneState: scene,
 			view: scene,

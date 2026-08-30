@@ -14,7 +14,6 @@ test("WebGPU records a scene view target in the frame transaction", async ({ pag
 		const { TextureFormat } = await import("/src/core/TextureFormat.ts");
 		const renderer = new Renderer(canvas, new WebGPUBackend(), new Camera());
 		renderer.features.enableEnvironment = false;
-		renderer.features.enableShadows = false;
 		try {
 			await renderer.initialize();
 		} catch {

@@ -13,6 +13,7 @@ import type {
 } from "../../postprocess";
 import type { FramePreparationRequirements } from "../../pipeline/FrameRequirements";
 import { createRenderViewTransient } from "../../pipeline/RenderViewTransient";
+import { EMPTY_SHADOW_FRAME_PLAN } from "../../lights/shadows";
 import { collectWebGLLights, type WebGLLightState } from "./WebGLLightCollector";
 import { WebGLGeometryRegistry } from "./WebGLGeometryRegistry";
 import {
@@ -428,7 +429,7 @@ export class WebGLFrameServices {
 			context.scene.lights,
 			{
 				enableLighting: context.features.enableLighting,
-				enableShadows: context.features.enableShadows,
+				enableShadows: context.shadowPlan?.hasRasterWork === true,
 				shadowPlan: context.shadowPlan,
 				enableSH: context.features.enableSH,
 				environmentTexture: context.scene.environment.lightingEnabled ?
@@ -789,8 +790,6 @@ export class WebGLFrameServices {
 			features: {
 				...baseContext.features,
 				enableReflection: false,
-				enableShadows:
-					content.shadows !== "disabled" && baseContext.features.enableShadows,
 				warnings: baseContext.features.warnings.slice(),
 			},
 			postProcess: baseContext.postProcess.withPassDisabled("ssr"),
@@ -798,7 +797,8 @@ export class WebGLFrameServices {
 			scene,
 			sceneState: scene,
 			view: scene,
-			shadowPlan: scene.shadowPlan,
+			shadowPlan:
+				content.shadows === "disabled" ? EMPTY_SHADOW_FRAME_PLAN : scene.shadowPlan,
 			incremental: {
 				enabled: false,
 				forceFullFrame: true,
@@ -823,7 +823,7 @@ export class WebGLFrameServices {
 			this._session.height = target.height;
 			this._session.lightState = collectWebGLLights(scene.lights, {
 				enableLighting: context.features.enableLighting,
-				enableShadows: context.features.enableShadows,
+				enableShadows: context.shadowPlan?.hasRasterWork === true,
 				shadowPlan: context.shadowPlan,
 				enableSH: context.features.enableSH,
 				environmentTexture:

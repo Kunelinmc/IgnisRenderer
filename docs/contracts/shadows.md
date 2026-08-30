@@ -11,6 +11,12 @@ frame lifecycle and backend resource ownership rules.
 
 Applications configure built-in definitions through `scene.shadows`.
 
+`Scene.shadows` must be the sole authoring authority for shadow enablement.
+`Renderer.features` must not expose a renderer-level shadow switch. A bound
+shadow definition participates in planning only while its `enabled` property is
+`true`; applications that need to enable or disable shadows must update the
+relevant definition through its property or `update()` method.
+
 `createSingle()`, `createCascaded()`, `bind()`, `unbindLight()`, `destroy()`,
 `clear()`, and `getBoundShadowMap()` are the supported authoring and lifecycle
 API. Built-in definitions keep their observable properties and `update()`

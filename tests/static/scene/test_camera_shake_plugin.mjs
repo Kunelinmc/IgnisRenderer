@@ -145,7 +145,6 @@ async function testShakeAppliedBeforeFrameAndRestoredAfterFrame() {
 		renderer.postProcess.getPass("gamma")?.disable();
 		renderer.features.enableReflection = false;
 		renderer.features.enableEnvironment = false;
-		renderer.features.enableShadows = false;
 
 		const plugin = new CameraShakePlugin({
 			defaultIntensity: 1,
@@ -198,7 +197,6 @@ async function testOnDemandSchedulingStaysAwakeWhileShakeIsActive() {
 		renderer.postProcess.getPass("gamma")?.disable();
 		renderer.features.enableReflection = false;
 		renderer.features.enableEnvironment = false;
-		renderer.features.enableShadows = false;
 
 		const plugin = new CameraShakePlugin();
 		plugin.attach(renderer);
@@ -237,7 +235,6 @@ async function testStackedShakesKeepIndependentEnvelopes() {
 		renderer.postProcess.getPass("gamma")?.disable();
 		renderer.features.enableReflection = false;
 		renderer.features.enableEnvironment = false;
-		renderer.features.enableShadows = false;
 
 		const plugin = new CameraShakePlugin({
 			defaultFalloffExponent: 2,
@@ -309,7 +306,6 @@ async function testTraumaAccumulatesDecaysAndUsesExponent() {
 		renderer.postProcess.getPass("gamma")?.disable();
 		renderer.features.enableReflection = false;
 		renderer.features.enableEnvironment = false;
-		renderer.features.enableShadows = false;
 
 		const plugin = new CameraShakePlugin({
 			defaultFrequencyHz: 1,
@@ -366,7 +362,6 @@ async function testTraumaKeepsOnDemandRendererAwakeUntilDecayCompletes() {
 		renderer.postProcess.getPass("gamma")?.disable();
 		renderer.features.enableReflection = false;
 		renderer.features.enableEnvironment = false;
-		renderer.features.enableShadows = false;
 
 		const plugin = new CameraShakePlugin({
 			defaultTraumaDecayRatePerSecond: 2,
@@ -408,7 +403,6 @@ async function testOrbitCameraShakeDoesNotDriftPoseBetweenFrames() {
 		renderer.postProcess.getPass("gamma")?.disable();
 		renderer.features.enableReflection = false;
 		renderer.features.enableEnvironment = false;
-		renderer.features.enableShadows = false;
 
 		const plugin = new CameraShakePlugin({
 			defaultIntensity: 1,
@@ -473,7 +467,6 @@ async function testOrbitRotationShakeRotatesAroundPivot() {
 		renderer.postProcess.getPass("gamma")?.disable();
 		renderer.features.enableReflection = false;
 		renderer.features.enableEnvironment = false;
-		renderer.features.enableShadows = false;
 
 		const plugin = new CameraShakePlugin({
 			defaultIntensity: 1,

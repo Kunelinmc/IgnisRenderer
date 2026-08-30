@@ -93,7 +93,6 @@ function run() {
 	const baseResolved = {
 		enableLighting: true,
 		enableSH: false,
-		enableShadows: true,
 		enableReflection: false,
 		enableEnvironment: false,
 		enableClusteredLighting: false,

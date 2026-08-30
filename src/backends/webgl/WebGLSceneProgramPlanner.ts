@@ -314,7 +314,7 @@ function collectPlannerLightState(context: FrameContext): WebGLLightState {
 		context.scene?.lights ?? [],
 		{
 			enableLighting: context.features?.enableLighting ?? false,
-			enableShadows: context.features?.enableShadows ?? false,
+			enableShadows: context.shadowPlan?.hasRasterWork ?? false,
 			shadowPlan: context.shadowPlan,
 			enableSH: context.features?.enableSH ?? false,
 			environmentTexture:

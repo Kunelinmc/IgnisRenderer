@@ -86,7 +86,6 @@ function createRenderer(backend) {
 		},
 	};
 	const renderer = new Renderer(canvas, backend, new Camera());
-	renderer.features.enableShadows = false;
 	renderer.features.enableReflection = false;
 	renderer.features.enableEnvironment = false;
 	return renderer;

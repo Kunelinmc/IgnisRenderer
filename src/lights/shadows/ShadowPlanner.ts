@@ -49,7 +49,6 @@ export interface ShadowPlannerOptions {
 	readonly camera: ShadowStrategyCamera;
 	readonly sceneBounds: SceneBounds;
 	readonly casterIntent: ShadowCasterIntent;
-	readonly enableShadows: boolean;
 	readonly hasTransmissionCasters: boolean;
 }
 
@@ -96,11 +95,6 @@ export class ShadowPlanner {
 		state: ShadowPlannerState,
 	): ShadowFramePlan {
 		const diagnostics: ShadowDiagnostic[] = [];
-		if (!options.enableShadows) {
-			state.projectionStates.clear();
-			return ShadowPlanner._publish(state, [], diagnostics, false, false);
-		}
-
 		const policy = resolveShadowPlannerBackendPolicy(options.backendKey);
 		const candidates = ShadowPlanner._collectCandidates(options, policy, diagnostics);
 		const selected = ShadowPlanner._applyBudget(

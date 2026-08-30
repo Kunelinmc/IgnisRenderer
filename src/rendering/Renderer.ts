@@ -267,7 +267,6 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 		const requestedFeatures: RendererFeatures = {
 			enableLighting: true,
 			enableSH: false,
-			enableShadows: true,
 			enableReflection: true,
 			enableEnvironment: true,
 			enableOIT: false,

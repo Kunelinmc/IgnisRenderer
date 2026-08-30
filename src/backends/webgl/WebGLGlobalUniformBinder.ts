@@ -800,7 +800,7 @@ export function bindWebGLGlobalUniforms(
 		gl.uniform1i(uniforms.enableLighting, context.features.enableLighting ? 1 : 0);
 	}
 	const shadowSampling = host.getShadowSamplingState();
-	const shadowsEnabled = context.features.enableShadows && shadowSampling.enabled;
+	const shadowsEnabled = shadowSampling.enabled;
 	if (uniforms.enableShadows) {
 		gl.uniform1i(uniforms.enableShadows, shadowsEnabled ? 1 : 0);
 	}

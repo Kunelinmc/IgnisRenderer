@@ -146,7 +146,6 @@ async function run() {
 			},
 		};
 		const renderer = new Renderer(canvas, backend, new Camera());
-		renderer.features.enableShadows = false;
 		renderer.features.enableReflection = false;
 		renderer.features.enableEnvironment = false;
 
@@ -223,7 +222,6 @@ async function run() {
 
 		const noopBackend = new RegistryBackend();
 		const noopRenderer = new Renderer(canvas, noopBackend, new Camera());
-		noopRenderer.features.enableShadows = false;
 		noopRenderer.features.enableReflection = false;
 		noopRenderer.features.enableEnvironment = false;
 		noopRenderer.postProcess.getPass("tonemap")?.disable();
@@ -246,7 +244,6 @@ async function run() {
 		});
 		const missingAdapterBackend = new NoAdapterBackend();
 		const missingAdapterRenderer = new Renderer(canvas, missingAdapterBackend, new Camera());
-		missingAdapterRenderer.features.enableShadows = false;
 		missingAdapterRenderer.features.enableReflection = false;
 		missingAdapterRenderer.features.enableEnvironment = false;
 		missingAdapterRenderer.postProcess.getPass("tonemap")?.disable();
@@ -280,7 +277,6 @@ async function run() {
 		const historyBackend = new RegistryBackend();
 		const historyRenderer = new Renderer(canvas, historyBackend, new Camera());
 		historyRenderer.setIncrementalRendering({ enabled: false });
-		historyRenderer.features.enableShadows = false;
 		historyRenderer.features.enableReflection = false;
 		historyRenderer.features.enableEnvironment = false;
 		historyRenderer.postProcess.getPass("tonemap")?.disable();
@@ -329,7 +325,6 @@ async function run() {
 
 		const throwingBackend = new RegistryBackend();
 		const throwingRenderer = new Renderer(canvas, throwingBackend, new Camera());
-		throwingRenderer.features.enableShadows = false;
 		throwingRenderer.features.enableReflection = false;
 		throwingRenderer.features.enableEnvironment = false;
 		throwingRenderer.postProcess.getPass("tonemap")?.disable();

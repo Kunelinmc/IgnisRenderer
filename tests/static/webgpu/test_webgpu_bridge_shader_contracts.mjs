@@ -321,7 +321,6 @@ function testFeatureGate() {
 		{
 			enableLighting: true,
 			enableSH: true,
-			enableShadows: true,
 			enableReflection: true,
 			enableEnvironment: true,
 		},
@@ -338,7 +337,7 @@ function testFeatureGate() {
 
 	assert.equal(featureState.enableLighting, true);
 	assert.equal(featureState.enableSH, false);
-	assert.equal(featureState.enableShadows, true);
+	assert.equal("enableShadows" in featureState, false);
 	assert.equal(featureState.enableReflection, false);
 	assert.equal(featureState.enableEnvironment, false);
 	assert.ok(featureState.warnings.length >= 3);

@@ -1,4 +1,5 @@
-import type { ShadowCastingLight } from "..";
+import type { SceneLight, ShadowCastingLight } from "../types";
+import { isShadowCastingLight } from "./isShadowLight";
 import {
 	CascadedShadowMap,
 	type CascadedShadowMapOptions,
@@ -84,6 +85,20 @@ export class ShadowManager {
 
 	public getBoundShadowMap(light: ShadowCastingLight): ShadowMapBase | undefined {
 		return this._shadowByLight.get(light);
+	}
+
+	/**
+	 * Reports whether any supplied scene light has an enabled binding.
+	 *
+	 * @internal `FrameCoordinator` uses this for incremental pass planning.
+	 * Applications should configure each shadow definition through `enabled`.
+	 */
+	public hasEnabledBinding(lights: readonly SceneLight[]): boolean {
+		for (const light of lights) {
+			if (!isShadowCastingLight(light)) continue;
+			if (this._shadowByLight.get(light)?.enabled) return true;
+		}
+		return false;
 	}
 
 	private _track<TShadowMap extends ShadowMapBase>(shadowMap: TShadowMap): TShadowMap {

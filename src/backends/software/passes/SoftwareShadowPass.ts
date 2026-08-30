@@ -38,13 +38,6 @@ export class SoftwareShadowPass implements SoftwarePassLike {
 		const frame = context.frame;
 		const runtimeMap = context.services.shadow.runtimeMap;
 		const resources = context.services.shadow.resources;
-		const features = frame.features;
-		if (!features.enableShadows) {
-			resources.clear();
-			this.bindSamplers(context);
-			return;
-		}
-
 		const scene = frame.scene;
 		const shadowPlan = frame.shadowPlan;
 		const shadowLights = this._shadowLightsScratch;

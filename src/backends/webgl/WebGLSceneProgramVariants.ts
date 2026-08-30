@@ -129,7 +129,6 @@ export function resolveWebGLBuiltinSceneVariant(
 	const features = context.features as Partial<FrameContext["features"]> | undefined;
 	const hasShadows =
 		isLit &&
-		features?.enableShadows === true &&
 		!!lightState &&
 		(
 			lightState.directionalShadows.some((shadow) => shadow.enabled) ||

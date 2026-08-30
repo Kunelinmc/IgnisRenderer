@@ -716,8 +716,7 @@ function drawWebGLLegacyPacket(
 	if (sceneProgram.uniforms.enableShadows) {
 		gl.uniform1i(
 			sceneProgram.uniforms.enableShadows,
-			context.features.enableShadows &&
-				deps.getShadowSamplingState().enabled &&
+			deps.getShadowSamplingState().enabled &&
 				(packet.submission.passFlags & DRAW_PACKET_FLAG_SHADOW_RECEIVER) !== 0 ?
 					1
 				: 0
@@ -1218,8 +1217,7 @@ function drawWebGLUniformBufferPacket(
 	if (sceneProgram.uniforms.enableShadows) {
 		gl.uniform1i(
 			sceneProgram.uniforms.enableShadows,
-			context.features.enableShadows &&
-				deps.getShadowSamplingState().enabled &&
+			deps.getShadowSamplingState().enabled &&
 				(packet.submission.passFlags & DRAW_PACKET_FLAG_SHADOW_RECEIVER) !== 0 ? 1 : 0,
 		);
 	}

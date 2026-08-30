@@ -658,7 +658,7 @@ export class WebGPUFrameBindingCache {
 			| undefined;
 		const directionalShadow = lightingState.directionalShadows[0];
 		if (
-			!context.features.enableShadows ||
+			context.shadowPlan?.hasRasterWork !== true ||
 			!directionalShadow?.enabled ||
 			!hasParticleShadowCastingBatches(batches)
 		) {

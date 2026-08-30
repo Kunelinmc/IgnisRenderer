@@ -544,6 +544,9 @@ export class FrameCoordinator {
 			enabled: delegate.incrementalOptions.enabled,
 			reasonMask: state.frameDirtyReasonMask,
 			features: state.resolved,
+			hasEnabledShadows: delegate.scene.shadows.hasEnabledBinding(
+				state.frame.lights,
+			),
 			postProcess: state.resolvedPostProcess,
 			registry: delegate.pipeline.incremental,
 		});
@@ -840,7 +843,6 @@ export class FrameCoordinator {
 					0
 				),
 			},
-			enableShadows: resolved.enableShadows,
 			hasTransmissionCasters: frame.shadowTransmitterPackets.length > 0,
 		}, this._shadowPlannerState);
 		for (const diagnostic of shadowPlan.diagnostics) {

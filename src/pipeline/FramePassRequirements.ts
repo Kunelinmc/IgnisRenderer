@@ -58,7 +58,7 @@ export function resolveFramePassRequirements(
 		requiredPasses.add("particle-sim");
 		requiredPasses.add("particles");
 	}
-	if (features.enableShadows && frame.shadowPlan.hasRasterWork) {
+	if (frame.shadowPlan.hasRasterWork) {
 		requiredPasses.add("shadow");
 	}
 	if (features.enableReflection && frame.reflectivePackets.length > 0) {

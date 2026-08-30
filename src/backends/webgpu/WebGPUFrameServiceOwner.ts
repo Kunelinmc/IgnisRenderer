@@ -476,7 +476,7 @@ export class WebGPUFrameServiceOwner {
 		const featureState: WebGPUFeatureState = {
 			enableLighting: features.enableLighting,
 			enableSH: features.enableSH,
-			enableShadows: features.enableShadows,
+			enableShadows: context.shadowPlan?.hasRasterWork === true,
 			enableReflection: features.enableReflection,
 			enableEnvironment: features.enableEnvironment,
 			enableOIT: features.enableOIT,
@@ -490,7 +490,7 @@ export class WebGPUFrameServiceOwner {
 			scene.lights,
 			features.enableLighting,
 			features.enableSH,
-			features.enableShadows,
+			context.shadowPlan?.hasRasterWork === true,
 			context.shadowPlan,
 		);
 		const enableClusteredSurfaceLighting = canPrepareClusteredLighting({
@@ -538,10 +538,7 @@ export class WebGPUFrameServiceOwner {
 
 		this._shadowRuntime.prepareAtlas(
 			lightingState,
-			this._resolveShadowAtlasTileSize(
-				context.shadowPlan,
-				features.enableShadows,
-			),
+			this._resolveShadowAtlasTileSize(context.shadowPlan),
 		);
 		const scope = this._getOrCreateFrameScope(resolvedOptions.scopeKey);
 		scope.frameBindings.prepare(
@@ -967,12 +964,7 @@ export class WebGPUFrameServiceOwner {
 
 	private _resolveShadowAtlasTileSize(
 		shadowPlan: FrameContext["shadowPlan"],
-		enableShadows: boolean,
 	): number {
-		if (!enableShadows) {
-			return 1;
-		}
-
 		let tileSize = 0;
 		for (const prepared of shadowPlan?.lights ?? []) {
 			const hasValidSlice = prepared.slices.length > 0;
