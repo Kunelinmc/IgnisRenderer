@@ -1,12 +1,14 @@
 import assert from "node:assert/strict";
 import { Node } from "../../../src/core/Node.ts";
 import { Scene } from "../../../src/core/Scene.ts";
+import { Matrix4 } from "../../../src/maths/Matrix4.ts";
 import { Material } from "../../../src/materials/Material.ts";
 import { MeshAsset } from "../../../src/meshes/MeshAsset.ts";
 import { MeshInstance } from "../../../src/meshes/MeshInstance.ts";
 import { AnimationClip } from "../../../src/animation/AnimationClip.ts";
 import { AnimationSystem } from "../../../src/animation/AnimationSystem.ts";
 import { KeyframeTrack } from "../../../src/animation/KeyframeTrack.ts";
+import { Skeleton } from "../../../src/animation/Skeleton.ts";
 import { AnimationRuntime } from "../../../src/simulation/animation/AnimationRuntime.ts";
 import { sampleTrack } from "../../../src/simulation/animation/interpolation.ts";
 import {
@@ -260,13 +262,27 @@ function testDeformationRevisionBoundsAndPacketIdentity() {
 			.get(ANIMATION_MORPH_WEIGHTS_KEY)
 			.has(secondPacketId)
 	);
+	const firstDeformedGeometry = firstTransient.get(
+		ANIMATION_SOFTWARE_DEFORMED_GEOMETRY_KEY
+	);
 
 	const unchangedTransient = new Map();
 	runtime.resolveDeformations(system, unchangedTransient);
 	const unchangedStates = unchangedTransient.get(ANIMATION_DEFORMATION_STATES_KEY);
+	const unchangedDeformedGeometry = unchangedTransient.get(
+		ANIMATION_SOFTWARE_DEFORMED_GEOMETRY_KEY
+	);
 	assert.equal(
 		unchangedStates.get(firstPacketId).revision,
 		firstStates.get(firstPacketId).revision
+	);
+	assert.equal(
+		unchangedDeformedGeometry.get(firstPacketId),
+		firstDeformedGeometry.get(firstPacketId)
+	);
+	assert.equal(
+		unchangedStates.get(firstPacketId).localBounds,
+		firstStates.get(firstPacketId).localBounds
 	);
 
 	firstInstance.morphWeights[0][0] = 0.5;
@@ -279,6 +295,17 @@ function testDeformationRevisionBoundsAndPacketIdentity() {
 	assert.ok(
 		changedState.localBounds.center.x >
 			firstStates.get(firstPacketId).localBounds.center.x
+	);
+	const changedDeformedGeometry = changedTransient.get(
+		ANIMATION_SOFTWARE_DEFORMED_GEOMETRY_KEY
+	);
+	assert.notEqual(
+		changedDeformedGeometry.get(firstPacketId),
+		firstDeformedGeometry.get(firstPacketId)
+	);
+	assert.equal(
+		changedDeformedGeometry.get(secondPacketId),
+		firstDeformedGeometry.get(secondPacketId)
 	);
 }
 
@@ -297,12 +324,64 @@ function testSceneDeformationWithoutMixerBinding() {
 	assert.ok(transient.get(ANIMATION_MORPH_WEIGHTS_KEY).has(packetId));
 }
 
+function testStaticSkinningDeformationReuse() {
+	const scene = new Scene();
+	const mesh = createMorphMesh();
+	const geometry = mesh.primitives[0].geometry;
+	geometry.morphTargets = undefined;
+	geometry.joints0 = new Uint8Array([
+		0, 0, 0, 0,
+		0, 0, 0, 0,
+		0, 0, 0, 0,
+	]);
+	geometry.weights0 = new Float32Array([
+		1, 0, 0, 0,
+		1, 0, 0, 0,
+		1, 0, 0, 0,
+	]);
+	const joint = new Node({ name: "joint" });
+	joint.updateWorldMatrix();
+	const skeleton = new Skeleton({
+		joints: [joint],
+		inverseBindMatrices: [Matrix4.identity()],
+	});
+	const instance = scene.add(new MeshInstance({ mesh, skeleton }));
+	scene.updateWorldMatrices();
+	const runtime = new AnimationRuntime();
+	const system = new AnimationSystem();
+	const packetId = `${instance.id}:${mesh.primitives[0].id}`;
+
+	const firstTransient = new Map();
+	runtime.resolveDeformations(system, firstTransient, scene);
+	const firstOverride = firstTransient
+		.get(ANIMATION_SOFTWARE_DEFORMED_GEOMETRY_KEY)
+		.get(packetId);
+
+	const unchangedTransient = new Map();
+	runtime.resolveDeformations(system, unchangedTransient, scene);
+	const unchangedOverride = unchangedTransient
+		.get(ANIMATION_SOFTWARE_DEFORMED_GEOMETRY_KEY)
+		.get(packetId);
+	assert.equal(unchangedOverride, firstOverride);
+
+	joint.position.x = 1;
+	joint.updateWorldMatrix();
+	const changedTransient = new Map();
+	runtime.resolveDeformations(system, changedTransient, scene);
+	const changedOverride = changedTransient
+		.get(ANIMATION_SOFTWARE_DEFORMED_GEOMETRY_KEY)
+		.get(packetId);
+	assert.notEqual(changedOverride, firstOverride);
+	assert.ok(changedOverride.positions[0] > firstOverride.positions[0] + 0.9);
+}
+
 function run() {
 	testTrackSampling();
 	testRuntimeLayerMaskAndAdditive();
 	testRootMotionToggle();
 	testDeformationRevisionBoundsAndPacketIdentity();
 	testSceneDeformationWithoutMixerBinding();
+	testStaticSkinningDeformationReuse();
 	console.log("Animation core tests passed");
 }
 

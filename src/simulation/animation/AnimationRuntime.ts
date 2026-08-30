@@ -12,6 +12,7 @@ import {
 	ANIMATION_JOINT_MATRICES_KEY,
 	ANIMATION_MORPH_WEIGHTS_KEY,
 	type AnimationPoseState,
+	type DeformedGeometryOverride,
 	type DeformedGeometryMap,
 	type JointMatrixMap,
 	type MorphWeightMap,
@@ -46,6 +47,8 @@ interface PrimitiveRevisionState {
 	jointRevision: number;
 	morphWeights: Float32Array;
 	revision: number;
+	override: DeformedGeometryOverride;
+	localBounds: BoundingSphere;
 }
 
 const EMPTY_MORPH_WEIGHTS = new Float32Array(0);
@@ -182,16 +185,6 @@ export class AnimationRuntime {
 					});
 				}
 
-				const override = deformPrimitiveGeometry({
-					geometry: primitive.geometry,
-					morphWeights: weights,
-					skeleton: hasSkinning ? instance.skeleton : null,
-					meshWorldMatrix: instance.worldMatrix,
-					jointMatricesCurrent: true,
-				});
-				const localBounds = computePositionBounds(
-					override.positions ?? primitive.geometry.positions
-				);
 				const geometryVersion = primitive.geometryVersion ?? 0;
 				const previous = this._primitiveRevisionStateByPacket.get(packetId);
 				const changed =
@@ -200,6 +193,20 @@ export class AnimationRuntime {
 					previous.geometryVersion !== geometryVersion ||
 					previous.jointRevision !== (hasSkinning ? jointRevision : 0) ||
 					!floatArraysEqual(previous.morphWeights, weightsSnapshot);
+				const override = changed
+					? deformPrimitiveGeometry({
+							geometry: primitive.geometry,
+							morphWeights: weights,
+							skeleton: hasSkinning ? instance.skeleton : null,
+							meshWorldMatrix: instance.worldMatrix,
+							jointMatricesCurrent: true,
+						})
+					: previous.override;
+				const localBounds = changed
+					? computePositionBounds(
+							override.positions ?? primitive.geometry.positions,
+						)
+					: previous.localBounds;
 				const revision = changed
 					? this._allocateDeformationRevision()
 					: previous.revision;
@@ -222,6 +229,8 @@ export class AnimationRuntime {
 					jointRevision: hasSkinning ? jointRevision : 0,
 					morphWeights: weightsSnapshot,
 					revision,
+					override,
+					localBounds,
 				});
 			}
 		}
