@@ -1,5 +1,9 @@
 import { Logger } from "../../foundation/Logger";
-import type { DrawPacket, FrameContext } from "../../pipeline/types";
+import type {
+	DrawPacket,
+	DrawSubmission,
+	FrameContext,
+} from "../../pipeline/types";
 import {
 	ANIMATION_JOINT_MATRICES_KEY,
 	ANIMATION_MORPH_WEIGHTS_KEY,
@@ -109,9 +113,10 @@ export class WebGLAnimationPayloadPool {
 
 	public bind(
 		uniforms: WebGLAnimationUniforms,
-		packet: DrawPacket,
+		draw: DrawPacket | DrawSubmission,
 		geometry: WebGLGeometryHandle,
 	): boolean {
+		const submission = "submission" in draw ? draw.submission : draw;
 		const requiredVertexTextures =
 			(uniforms.animationPayload ? 1 : 0) +
 			(uniforms.morphPositionDeltas ? 1 : 0) +
@@ -120,14 +125,14 @@ export class WebGLAnimationPayloadPool {
 		if (!supportsWebGLVertexTextureCount(this._units, requiredVertexTextures)) {
 			this._warn(
 				"webgl-animation-vertex-texture-unavailable",
-				`WebGL packet ${packet.submission.id} requires ${requiredVertexTextures} vertex ` +
+				`WebGL submission ${submission.id} requires ${requiredVertexTextures} vertex ` +
 					"texture units; skipping",
 			);
 			return false;
 		}
 		const zeroTexture = this._getZeroTexture();
 		if (!zeroTexture) return false;
-		const view = this._prepare(packet, geometry);
+		const view = this._prepare(submission, geometry);
 		if (!view) return false;
 		const gl = this._gl;
 		if (geometry.skinProfile === "skin4") {
@@ -219,25 +224,25 @@ export class WebGLAnimationPayloadPool {
 	}
 
 	private _prepare(
-		packet: DrawPacket,
+		submission: DrawSubmission,
 		geometry: WebGLGeometryHandle,
 	): WebGLAnimationPayloadView | null {
-		let entry = this._entries.get(packet.submission.id);
+		let entry = this._entries.get(submission.id);
 		if (!entry) {
 			entry = createPayloadEntry();
-			this._entries.set(packet.submission.id, entry);
+			this._entries.set(submission.id, entry);
 		}
 		entry.lastUsedFrame = this._frame;
 		if (entry.preparedFrame === this._frame && entry.view) return entry.view;
 
-		const deformation = packet.submission.deformation;
+		const deformation = submission.deformation;
 		const runtimeJoint = deformation.jointPayloadKey ?
 			this._jointMap?.get(deformation.jointPayloadKey) ?? null
 			: null;
 		if (deformation.jointPayloadKey && !runtimeJoint) {
 			this._warn(
-				`webgl-missing-joint-payload-${packet.submission.id}`,
-				`WebGL packet ${packet.submission.id} is missing active joint payload; skipping`,
+				`webgl-missing-joint-payload-${submission.id}`,
+				`WebGL submission ${submission.id} is missing active joint payload; skipping`,
 			);
 			return null;
 		}
@@ -247,8 +252,8 @@ export class WebGLAnimationPayloadPool {
 			: null;
 		if (deformation.morphPayloadKey && !runtimeMorph) {
 			this._warn(
-				`webgl-missing-morph-payload-${packet.submission.id}`,
-				`WebGL packet ${packet.submission.id} is missing active morph payload; skipping`,
+				`webgl-missing-morph-payload-${submission.id}`,
+				`WebGL submission ${submission.id} is missing active morph payload; skipping`,
 			);
 			return null;
 		}
@@ -274,12 +279,12 @@ export class WebGLAnimationPayloadPool {
 		const rebuilt = this._ensureCapacity(entry, jointCount, morphCount);
 		if (rebuilt === null) {
 			this._warn(
-				`webgl-animation-payload-overflow-${packet.submission.id}`,
-				`WebGL animation payload for packet ${packet.submission.id} exceeds texture limits; skipping`,
+				`webgl-animation-payload-overflow-${submission.id}`,
+				`WebGL animation payload for submission ${submission.id} exceeds texture limits; skipping`,
 			);
 			return null;
 		}
-		const revisionChanged = entry.lastRevision !== (packet.submission.deformation.revision ?? 0);
+		const revisionChanged = entry.lastRevision !== (submission.deformation.revision ?? 0);
 		const jointChanged = updateHistory(
 			entry.currentJoints,
 			entry.previousJoints,
@@ -304,7 +309,7 @@ export class WebGLAnimationPayloadPool {
 		entry.morphSettlePending = morphChanged.settlePending;
 		entry.jointCount = jointCount;
 		entry.morphCount = morphCount;
-		entry.lastRevision = packet.submission.deformation.revision ?? 0;
+		entry.lastRevision = submission.deformation.revision ?? 0;
 		if (rebuilt || jointChanged.changed || morphChanged.changed) {
 			this._writePayload(entry);
 		} else {

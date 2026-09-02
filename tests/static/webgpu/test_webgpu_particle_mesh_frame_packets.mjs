@@ -72,8 +72,8 @@ function createPacketContext() {
 		scene: {
 			opaquePackets: [],
 			transparentPackets: [],
-			shadowCasterPackets: [],
-			shadowTransmitterPackets: [],
+			shadowCasterSubmissions: [],
+			shadowTransmitterSubmissions: [],
 			reflectivePackets: [],
 		},
 	};
@@ -117,12 +117,18 @@ function testMeshParticleFramePreparation() {
 	assert.equal(packets.all.length, 2);
 	assert.equal(packets.opaque.length, 1);
 	assert.equal(packets.transparent.length, 1);
-	assert.equal(packets.shadowCasters.length, 1);
-	assert.equal(packets.shadowTransmitters.length, 1);
+	assert.equal(packets.shadowCasterSubmissions.length, 1);
+	assert.equal(packets.shadowTransmitterSubmissions.length, 1);
 	assert.strictEqual(packets.all[0], packets.opaque[0]);
 	assert.strictEqual(packets.all[1], packets.transparent[0]);
-	assert.strictEqual(packets.opaque[0], packets.shadowCasters[0]);
-	assert.strictEqual(packets.transparent[0], packets.shadowTransmitters[0]);
+	assert.strictEqual(
+		packets.opaque[0].submission,
+		packets.shadowCasterSubmissions[0],
+	);
+	assert.strictEqual(
+		packets.transparent[0].submission,
+		packets.shadowTransmitterSubmissions[0],
+	);
 	assert.equal("meshInstance" in packets.opaque[0], false);
 	assert.equal("mesh" in packets.opaque[0], false);
 	assert.equal("primitive" in packets.opaque[0], false);

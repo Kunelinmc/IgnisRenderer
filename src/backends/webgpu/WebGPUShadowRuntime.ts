@@ -46,14 +46,9 @@ export class WebGPUShadowRuntime {
 		encoder?: ICommandEncoder | null,
 	): Promise<void> {
 		return this._atlasTechnique.render(
-			{
-				...context,
-				scene: {
-					...context.scene,
-					shadowCasterPackets: framePackets.shadowCasters.slice(),
-					shadowTransmitterPackets: framePackets.shadowTransmitters.slice(),
-				},
-			},
+			context,
+			framePackets.shadowCasterSubmissions,
+			framePackets.shadowTransmitterSubmissions,
 			encoder,
 		);
 	}

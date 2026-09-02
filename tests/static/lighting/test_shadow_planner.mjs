@@ -32,9 +32,9 @@ function createCamera() {
 
 function createIntent(hasCasters = true) {
 	return {
-		meshPackets: hasCasters ? [createTestDrawPacket({
+		meshSubmissions: hasCasters ? [createTestDrawPacket({
 			worldBounds: { center: { x: 0, y: 0, z: 0 }, radius: 10 },
-		})] : [],
+		}).submission] : [],
 		hasTransparentCasters: false,
 		hasParticleCasters: false,
 		estimatedParticleCapacity: 0,

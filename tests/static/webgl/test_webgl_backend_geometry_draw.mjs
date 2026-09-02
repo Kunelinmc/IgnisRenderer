@@ -310,6 +310,28 @@ function testGeometryRegistryDeferredModeQueuesWithoutUploading() {
 	assert.equal(registry.pendingUploadCount, 0);
 }
 
+function testGeometryRegistryQueuesShadowSubmissionsWithoutViewPackets() {
+	const notifications = [];
+	const registry = new WebGLGeometryRegistry(
+		createDeferredCaptureGL(),
+		() => {},
+		{
+			uploadScheduling: "deferred",
+			onUploadPending: (submissions) =>
+				notifications.push(submissions.map((submission) => submission.id)),
+		},
+	);
+	const packet = asPacket({
+		id: "shadow-submission",
+		primitive: makeTrianglePrimitive("shadow-primitive"),
+	});
+
+	assert.equal(registry.getGeometry(packet.submission), null);
+	assert.deepEqual(notifications, [["shadow-submission"]]);
+	registry.beginFrame();
+	assert.ok(registry.getGeometry(packet.submission));
+}
+
 function testGeometryRegistryDeferredUploadsRespectByteBudgets() {
 	const gl = createDeferredCaptureGL();
 	const pendingNotifications = [];
@@ -317,8 +339,8 @@ function testGeometryRegistryDeferredUploadsRespectByteBudgets() {
 		uploadScheduling: "deferred",
 		maxUploadsPerFrame: 16,
 		maxUploadBytesPerFrame: 300,
-		onUploadPending: (packets) =>
-			pendingNotifications.push(packets.map((packet) => packet.submission.id)),
+		onUploadPending: (submissions) =>
+			pendingNotifications.push(submissions.map((submission) => submission.id)),
 	});
 
 	const packets = ["pa", "pb", "pc"].map((id) => ({
@@ -357,8 +379,8 @@ function testGeometryRegistryNotifiesEachSharedPrimitivePacketOnce() {
 	const notifications = [];
 	const registry = new WebGLGeometryRegistry(createDeferredCaptureGL(), () => {}, {
 		uploadScheduling: "deferred",
-		onUploadPending: (packets) =>
-			notifications.push(packets.map((packet) => packet.submission.id)),
+		onUploadPending: (submissions) =>
+			notifications.push(submissions.map((submission) => submission.id)),
 	});
 	const primitive = makeTrianglePrimitive("p-shared");
 	const packetA = { id: "packet-shared-a", primitive };
@@ -864,6 +886,7 @@ await runWebGLBackendFile([
 	testGeometryRegistryUploadsUV1Attribute,
 	testGeometryRegistryUploadsSkinAndMorphResources,
 	testGeometryRegistryDeferredModeQueuesWithoutUploading,
+	testGeometryRegistryQueuesShadowSubmissionsWithoutViewPackets,
 	testGeometryRegistryDeferredUploadsRespectByteBudgets,
 	testGeometryRegistryNotifiesEachSharedPrimitivePacketOnce,
 	testGeometryRegistryDeferredDiscardsStaleVersions,

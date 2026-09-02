@@ -77,8 +77,8 @@ export class SoftwareShadowPass implements SoftwarePassLike {
 					frame,
 					shadowSlice,
 					shadowRuntime,
-					scene.shadowCasterPackets,
-					scene.shadowTransmitterPackets,
+					scene.shadowCasterSubmissions,
+					scene.shadowTransmitterSubmissions,
 				);
 
 				this._injectParticleShadowVolume(context, shadowSlice, shadowRuntime);

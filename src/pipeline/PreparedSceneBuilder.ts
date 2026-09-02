@@ -400,14 +400,7 @@ export class PreparedSceneBuilder {
 		const visibleIds = new Set(
 			Array.from(cameraVisibleMeshInstances, (meshInstance) => meshInstance.id),
 		);
-		const submissions = source.submissions?.length ? source.submissions : Array.from(new Map(
-			[
-				...source.opaquePackets,
-				...source.transparentPackets,
-				...source.reflectivePackets,
-			].map((packet) => [packet.submission.id, packet.submission]),
-		).values());
-		for (const submission of submissions) {
+		for (const submission of source.submissions) {
 			if (
 				submission.source.kind === "mesh-instance" &&
 				!visibleIds.has(submission.source.instanceId)
@@ -546,8 +539,6 @@ export class PreparedSceneBuilder {
 	}): PreparedScene {
 		const opaquePackets: DrawPacket[] = [];
 		const transparentPackets: DrawPacket[] = [];
-		const shadowCasterPackets: DrawPacket[] = [];
-		const shadowTransmitterPackets: DrawPacket[] = [];
 		const reflectivePackets: DrawPacket[] = [];
 		const submissions: DrawSubmission[] = [];
 		const submissionIds = new Set<string>();
@@ -557,34 +548,43 @@ export class PreparedSceneBuilder {
 		for (const meshInstance of input.renderableMeshInstances) {
 			const visibleInCamera =
 				input.cameraVisibleMeshInstances.has(meshInstance);
-			this._forEachMeshPacket(
+			this._forEachMeshSubmission(
 				meshInstance,
-				input.camera,
 				input.deformationStates,
 				input.options.packetCache ?? null,
-				(packet) => {
-				if (!submissionIds.has(packet.submission.id)) {
-					submissionIds.add(packet.submission.id);
-					submissions.push(packet.submission);
-				}
-				if (visibleInCamera) {
-					this._appendViewPacket(
-						packet,
-						opaquePackets,
-						transparentPackets,
-						reflectivePackets
-					);
-				}
+				(submission) => {
+					if (!submissionIds.has(submission.id)) {
+						submissionIds.add(submission.id);
+						submissions.push(submission);
+					}
+					if (visibleInCamera) {
+						const sortDepth = resolveSubmissionSortDepth(
+							submission,
+							input.camera,
+						);
+						this._appendViewPacket(
+							input.options.packetCache ?
+								input.options.packetCache.getViewPacket(
+									input.camera,
+									submission,
+									sortDepth,
+								)
+							: { submission, sortDepth },
+							opaquePackets,
+							transparentPackets,
+							reflectivePackets
+						);
+					}
 
-				if (packet.submission.passFlags & DRAW_PACKET_FLAG_SHADOW_CASTER) {
-					shadowCasterPackets.push(packet);
-					shadowCasterSubmissions.push(packet.submission);
-				}
+					if (submission.passFlags & DRAW_PACKET_FLAG_SHADOW_CASTER) {
+						shadowCasterSubmissions.push(submission);
+					}
 
-				if (packet.submission.passFlags & DRAW_PACKET_FLAG_SHADOW_TRANSMITTER) {
-					shadowTransmitterPackets.push(packet);
-					shadowTransmitterSubmissions.push(packet.submission);
-				}
+					if (
+						submission.passFlags & DRAW_PACKET_FLAG_SHADOW_TRANSMITTER
+					) {
+						shadowTransmitterSubmissions.push(submission);
+					}
 				},
 			);
 		}
@@ -611,8 +611,6 @@ export class PreparedSceneBuilder {
 			shadowTransmitterSubmissions,
 			opaquePackets,
 			transparentPackets,
-			shadowCasterPackets,
-			shadowTransmitterPackets,
 			reflectivePackets,
 			decalPackets: viewState.decalPackets,
 			occlusion: viewState.occlusion,
@@ -715,12 +713,11 @@ export class PreparedSceneBuilder {
 		};
 	}
 
-	private static _forEachMeshPacket(
+	private static _forEachMeshSubmission(
 		meshInstance: MeshInstance,
-		camera: Camera,
 		deformationStates: PrimitiveDeformationMap | null,
 		packetCache: PreparedScenePacketCache | null,
-		visitor: (packet: DrawPacket) => void,
+		visitor: (submission: DrawSubmission) => void,
 	): void {
 		const worldMatrix = meshInstance.worldMatrix;
 		let normalMatrix: Matrix3Arr | null = null;
@@ -770,10 +767,7 @@ export class PreparedSceneBuilder {
 					);
 				}
 			}
-			const sortDepth = resolveSubmissionSortDepth(submission, camera);
-			visitor(packetCache
-				? packetCache.getViewPacket(camera, submission, sortDepth)
-				: { submission, sortDepth });
+			visitor(submission);
 		}
 	}
 

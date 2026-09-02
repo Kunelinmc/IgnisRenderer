@@ -831,8 +831,8 @@ export class FrameCoordinator {
 			camera: delegate.camera,
 			sceneBounds: frame.sceneBounds,
 			casterIntent: {
-				meshPackets: frame.shadowCasterPackets,
-				hasTransparentCasters: frame.shadowTransmitterPackets.length > 0,
+				meshSubmissions: frame.shadowCasterSubmissions,
+				hasTransparentCasters: frame.shadowTransmitterSubmissions.length > 0,
 				hasParticleCasters:
 					hasParticleShadowCasters(frame.particleSystems) ||
 					(this._backend.profile.capabilities.meshParticles &&
@@ -843,7 +843,7 @@ export class FrameCoordinator {
 					0
 				),
 			},
-			hasTransmissionCasters: frame.shadowTransmitterPackets.length > 0,
+			hasTransmissionCasters: frame.shadowTransmitterSubmissions.length > 0,
 		}, this._shadowPlannerState);
 		for (const diagnostic of shadowPlan.diagnostics) {
 			if (diagnostic.severity !== "warning") continue;

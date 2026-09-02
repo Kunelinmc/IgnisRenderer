@@ -1,6 +1,11 @@
 import type { Camera } from "../../cameras/Camera";
 import type { PresentationAlphaMode } from "../IRenderBackend";
-import type { DrawPacket, FrameContext, PreparedSceneEnvironment } from "../../pipeline/types";
+import type {
+	DrawPacket,
+	DrawSubmission,
+	FrameContext,
+	PreparedSceneEnvironment,
+} from "../../pipeline/types";
 import type { DecalPacket } from "../../pipeline/types";
 import type { PreparedSceneSpatialIndex, ResolvedFeatureState } from "../../pipeline/types";
 import type {
@@ -64,8 +69,8 @@ export interface SoftwareSceneView {
 	readonly environment: PreparedSceneEnvironment;
 	readonly opaquePackets: DrawPacket[];
 	readonly transparentPackets: DrawPacket[];
-	readonly shadowCasterPackets: DrawPacket[];
-	readonly shadowTransmitterPackets: DrawPacket[];
+	readonly shadowCasterSubmissions: DrawSubmission[];
+	readonly shadowTransmitterSubmissions: DrawSubmission[];
 	readonly reflectivePackets: DrawPacket[];
 	readonly decalPackets: DecalPacket[];
 	readonly spatialIndex: PreparedSceneSpatialIndex | null;
@@ -129,8 +134,9 @@ export function createSoftwareFrameView(
 			environment: context.scene.environment ?? DEFAULT_SOFTWARE_ENVIRONMENT,
 			opaquePackets: context.scene.opaquePackets,
 			transparentPackets: context.scene.transparentPackets,
-			shadowCasterPackets: context.scene.shadowCasterPackets,
-			shadowTransmitterPackets: context.scene.shadowTransmitterPackets,
+			shadowCasterSubmissions: context.scene.shadowCasterSubmissions,
+			shadowTransmitterSubmissions:
+				context.scene.shadowTransmitterSubmissions,
 			reflectivePackets: context.scene.reflectivePackets,
 			decalPackets: context.scene.decalPackets,
 			spatialIndex: context.scene.spatialIndex,

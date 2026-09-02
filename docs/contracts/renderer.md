@@ -143,8 +143,8 @@ This document defines the lifecycle, scheduling, warmup, incremental rendering, 
     capture-specific filtering afterward, but must not maintain duplicate mesh
     packet builders.
   - Rebuild contract: secondary-camera rebuilds must reuse camera-independent
-    shadow packet lists from the source prepared scene and rebuild only packets
-    needed by the secondary view.
+    shadow submission lists from the source prepared scene and rebuild only
+    packets needed by the secondary view.
   - Compatibility contract: Software planar reflections may instead use an
     internal immutable mirrored view over the prepared main-view packets. That
     view must not mutate the application `Camera` or commit main-view temporal
@@ -326,6 +326,10 @@ This document defines the lifecycle, scheduling, warmup, incremental rendering, 
   exactly one submission and add only state owned by its camera view.
 - Packets belonging to different cameras may share a submission but must not
   share or overwrite view-dependent sorting state.
+- `PreparedSceneState.shadowCasterSubmissions` and
+  `PreparedSceneState.shadowTransmitterSubmissions` must be the authoritative
+  prepared mesh shadow collections. `PreparedScene` must not publish derived
+  shadow `DrawPacket` collections with an unrelated camera sort depth.
 - Published submissions must not contain `MeshInstance`, `MeshAsset`, or a
   readable primitive authoring contract. Geometry resource keys are opaque and
   may be used only for resource identity.

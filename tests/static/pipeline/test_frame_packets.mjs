@@ -30,10 +30,10 @@ function createContext({ transient = createTransientStore(), camera = new Camera
 			transparentPackets: [
 				createPacket("scene-transparent", DRAW_PACKET_FLAG_TRANSPARENT),
 			],
-			shadowCasterPackets: [
-				createPacket("scene-shadow", DRAW_PACKET_FLAG_SHADOW_CASTER),
+			shadowCasterSubmissions: [
+				createPacket("scene-shadow", DRAW_PACKET_FLAG_SHADOW_CASTER).submission,
 			],
-			shadowTransmitterPackets: [],
+			shadowTransmitterSubmissions: [],
 			reflectivePackets: [],
 		},
 	};
@@ -98,8 +98,11 @@ function testBaselinePacketSetCreation() {
 	]);
 	assert.deepEqual(baseline.opaque.map((p) => p.submission.id), ["scene-opaque"]);
 	assert.deepEqual(baseline.transparent.map((p) => p.submission.id), ["scene-transparent"]);
-	assert.deepEqual(baseline.shadowCasters.map((p) => p.submission.id), ["scene-shadow"]);
-	assert.deepEqual(baseline.shadowTransmitters, []);
+	assert.deepEqual(
+		baseline.shadowCasterSubmissions.map((submission) => submission.id),
+		["scene-shadow"],
+	);
+	assert.deepEqual(baseline.shadowTransmitterSubmissions, []);
 	assert.deepEqual(baseline.reflective, []);
 }
 
@@ -148,8 +151,8 @@ function testFramePacketPreparationAndCaching() {
 	assert.ok(packets.all[3].submission.id.startsWith("particleMesh:particles:1:"));
 	assert.equal(packets.opaque.length, 2);
 	assert.equal(packets.transparent.length, 2);
-	assert.equal(packets.shadowCasters.length, 2);
-	assert.equal(packets.shadowTransmitters.length, 1);
+	assert.equal(packets.shadowCasterSubmissions.length, 2);
+	assert.equal(packets.shadowTransmitterSubmissions.length, 1);
 	assert.equal(packets.reflective.length, 1);
 
 	// Test view purpose isolation: planar reflection excludes mesh particles

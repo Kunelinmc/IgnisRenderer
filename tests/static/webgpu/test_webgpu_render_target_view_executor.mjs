@@ -35,8 +35,6 @@ const scene = {
 	camera,
 	opaquePackets: [],
 	transparentPackets: [],
-	shadowCasterPackets: [],
-	shadowTransmitterPackets: [],
 	reflectivePackets: [],
 	decalPackets: [],
 	occlusion: null,

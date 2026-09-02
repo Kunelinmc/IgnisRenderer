@@ -1,4 +1,4 @@
-import type { DrawPacket } from "../../pipeline/types";
+import type { DrawPacket, DrawSubmission } from "../../pipeline/types";
 import { Logger } from "../../foundation/Logger";
 import type {
 	JointMatrixMap,
@@ -180,7 +180,12 @@ export class WebGPUAnimationPayloadPool {
 				morphCount: 0,
 			};
 		}
-		const entry = this._prepareEntry(packet, geometry, jointMap, morphMap);
+		const entry = this._prepareEntry(
+			packet.submission,
+			geometry,
+			jointMap,
+			morphMap,
+		);
 		if (!entry) return null;
 		if (!this._isActive(entry)) {
 			return {
@@ -216,21 +221,21 @@ export class WebGPUAnimationPayloadPool {
 	}
 
 	/**
-	 * Resolves the shadow-compatible animation buffers for one packet.
+	 * Resolves shadow-compatible animation buffers for one submission.
 	 *
 	 * @internal Used by `WebGPUShadowCasterRenderer`.
 	 */
 	public getShadowPayload(
-		packet: DrawPacket,
+		submission: DrawSubmission,
 		geometry: WebGPUGeometryHandle,
 		jointMap: JointMatrixMap | null,
 		morphMap: MorphWeightMap | null,
 	): WebGPUShadowAnimationPayload | null {
-		if (packet.submission.deformation.mode === "none") {
-			this._deactivateEntry(packet.submission.id);
+		if (submission.deformation.mode === "none") {
+			this._deactivateEntry(submission.id);
 			return this.getStaticShadowPayload();
 		}
-		const entry = this._prepareEntry(packet, geometry, jointMap, morphMap);
+		const entry = this._prepareEntry(submission, geometry, jointMap, morphMap);
 		if (!entry) return null;
 		if (!this._isActive(entry)) {
 			return {
@@ -247,7 +252,7 @@ export class WebGPUAnimationPayloadPool {
 			entry.shadowParamsBuffer = this._createBuffer(
 				ANIMATION_PARAMS_BYTE_SIZE,
 				BufferUsage.Uniform | BufferUsage.CopyDst,
-				`WebGPUShadowAnimationParams_${packet.submission.id}`,
+				`WebGPUShadowAnimationParams_${submission.id}`,
 			);
 			entry.shadowGeneration = this._allocateGeneration();
 			this._writeShadowParams(entry, true);
@@ -376,20 +381,20 @@ export class WebGPUAnimationPayloadPool {
 	}
 
 	private _prepareEntry(
-		packet: DrawPacket,
+		submission: DrawSubmission,
 		geometry: WebGPUGeometryHandle,
 		jointMap: JointMatrixMap | null,
 		morphMap: MorphWeightMap | null,
 	): AnimationPayloadEntry | null {
-		let entry = this._entries.get(packet.submission.id);
+		let entry = this._entries.get(submission.id);
 		if (!entry) {
 			entry = createAnimationPayloadEntry();
-			this._entries.set(packet.submission.id, entry);
+			this._entries.set(submission.id, entry);
 		}
 		entry.lastUsedFrame = this._currentFrame;
 		if (entry.lastPreparedFrame === this._currentFrame) return entry;
 
-		const source = this._resolveSource(packet, geometry, jointMap, morphMap);
+		const source = this._resolveSource(submission, geometry, jointMap, morphMap);
 		if (!source) return null;
 		const wasActive = this._isActive(entry);
 		const revisionChanged =
@@ -439,21 +444,21 @@ export class WebGPUAnimationPayloadPool {
 	}
 
 	private _resolveSource(
-		packet: DrawPacket,
+		submission: DrawSubmission,
 		geometry: WebGPUGeometryHandle,
 		jointMap: JointMatrixMap | null,
 		morphMap: MorphWeightMap | null,
 	): ResolvedAnimationSource | null {
-		const deformation = packet.submission.deformation;
+		const deformation = submission.deformation;
 		const runtimeJoint = deformation.jointPayloadKey ?
 			jointMap?.get(deformation.jointPayloadKey) ?? null
 			: null;
 		if (deformation.jointPayloadKey && !runtimeJoint) {
 			Logger.warn(
-				`WebGPU packet ${packet.submission.id} is missing active joint payload; skipping`,
+				`WebGPU submission ${submission.id} is missing active joint payload; skipping`,
 				{
 					scope: "WebGPUAnimationPayloadPool",
-					onceKey: `webgpu-missing-joint-payload-${packet.submission.id}`,
+					onceKey: `webgpu-missing-joint-payload-${submission.id}`,
 				},
 			);
 			return null;
@@ -466,10 +471,10 @@ export class WebGPUAnimationPayloadPool {
 			: null;
 		if (deformation.morphPayloadKey && !runtimeMorph) {
 			Logger.warn(
-				`WebGPU packet ${packet.submission.id} is missing active morph payload; skipping`,
+				`WebGPU submission ${submission.id} is missing active morph payload; skipping`,
 				{
 					scope: "WebGPUAnimationPayloadPool",
-					onceKey: `webgpu-missing-morph-payload-${packet.submission.id}`,
+					onceKey: `webgpu-missing-morph-payload-${submission.id}`,
 				},
 			);
 			return null;
@@ -489,7 +494,7 @@ export class WebGPUAnimationPayloadPool {
 			morphCount,
 			vertexCount: geometry.vertexCount,
 			morphSemanticMask: geometry.morphSemanticMask,
-			revision: packet.submission.deformation.revision ?? 0,
+			revision: submission.deformation.revision ?? 0,
 			revisionReliable: true,
 		};
 	}

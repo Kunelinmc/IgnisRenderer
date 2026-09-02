@@ -6,7 +6,7 @@ import {
 } from "../../lights";
 import { Matrix4 } from "../../maths/Matrix4";
 import type {
-	DrawPacket,
+	DrawSubmission,
 	FrameContext,
 	PreparedScene,
 } from "../../pipeline/types";
@@ -69,7 +69,7 @@ interface ShadowAnimationBindingEntry {
 }
 
 interface ShadowDrawCandidate {
-	packet: DrawPacket;
+	submission: DrawSubmission;
 	geometry: WebGPUGeometryHandle;
 	vertexBindings: readonly { slot: number; buffer: GPUBuffer }[];
 	indexBuffer: GPUBuffer;
@@ -142,6 +142,8 @@ export class WebGPUShadowCasterRenderer {
 	/** @internal Encodes the atlas technique's caster work. */
 	public async renderAtlas(
 		context: FrameContext,
+		casterSubmissions: readonly DrawSubmission[],
+		transmitterSubmissions: readonly DrawSubmission[],
 		shadowAtlases: WebGPUShadowAtlasAllocator,
 		frameEncoder?: ICommandEncoder | null
 	): Promise<void> {
@@ -175,10 +177,10 @@ export class WebGPUShadowCasterRenderer {
 
 		this._frameId++;
 		const drawCandidates = this._collectShadowDrawCandidates(
-			frame.shadowCasterPackets
+			casterSubmissions,
 		);
 		const transmitterCandidates = this._collectShadowDrawCandidates(
-			frame.shadowTransmitterPackets
+			transmitterSubmissions,
 		);
 		await this._prepareGeometryPipelines(drawCandidates, false);
 		await this._prepareGeometryPipelines(transmitterCandidates, true);
@@ -474,30 +476,30 @@ export class WebGPUShadowCasterRenderer {
 		const drawBatches: ShadowInstancedDrawBatch[] = [];
 		let instanceCount = 0;
 		for (const candidate of drawCandidates) {
-			const packet = candidate.packet;
+			const submission = candidate.submission;
 			// Per-light Frustum Culling
 			if (
 				!this._frustum.intersectsSphere(
-					packet.submission.worldBounds.center,
-					packet.submission.worldBounds.radius
+					submission.worldBounds.center,
+					submission.worldBounds.radius
 				)
 			) {
 				continue;
 			}
 
-			if (!animationBindingCache.has(packet.submission.id)) {
+			if (!animationBindingCache.has(submission.id)) {
 				animationBindingCache.set(
-					packet.submission.id,
-					this._resolveAnimationBinding(packet, candidate.geometry, context)
+					submission.id,
+					this._resolveAnimationBinding(submission, candidate.geometry, context)
 				);
 			}
 			const animationBindGroup =
-				animationBindingCache.get(packet.submission.id) ?? null;
+				animationBindingCache.get(submission.id) ?? null;
 			if (!animationBindGroup) continue;
 
 			Matrix4.multiply(
 				viewProjectionMatrix,
-				packet.submission.instance.worldMatrix,
+				submission.instance.worldMatrix,
 				this._mvpMatrix
 			);
 
@@ -507,7 +509,7 @@ export class WebGPUShadowCasterRenderer {
 			const transmittanceOffset = instanceCount * 4;
 			if (resolveTransmittance) {
 				const transmittance = resolveMaterialShadowTransmittance(
-					packet.submission.material.effective
+					submission.material.effective
 				);
 				this._instanceTransmittanceData[transmittanceOffset] =
 					transmittance.r;
@@ -699,11 +701,11 @@ export class WebGPUShadowCasterRenderer {
 	}
 
 	private _collectShadowDrawCandidates(
-		packets: readonly DrawPacket[]
+		submissions: readonly DrawSubmission[]
 	): ShadowDrawCandidate[] {
 		const candidates: ShadowDrawCandidate[] = [];
-		for (const packet of packets) {
-			const candidate = this._collectShadowDrawCandidate(packet);
+		for (const submission of submissions) {
+			const candidate = this._collectShadowDrawCandidate(submission);
 			if (candidate) {
 				candidates.push(candidate);
 			}
@@ -712,16 +714,16 @@ export class WebGPUShadowCasterRenderer {
 	}
 
 	private _collectShadowDrawCandidate(
-		packet: DrawPacket
+		submission: DrawSubmission
 	): ShadowDrawCandidate | null {
 		if (
-			packet.submission.geometry.topology !==
+			submission.geometry.topology !==
 			DEFAULT_PRIMITIVE_DRAW_TOPOLOGY
 		) {
 			return null;
 		}
 		const geometry = this._geometryRegistry.getGeometry(
-			packet.submission.geometry,
+			submission.geometry,
 		);
 		const vertexBindings = geometry.shadowVertexBindings.map((binding) => ({
 			slot: binding.slot,
@@ -729,7 +731,7 @@ export class WebGPUShadowCasterRenderer {
 		}));
 		const indexBuffer = getWebGPUBuffer(geometry.indexBuffer);
 		return {
-			packet,
+			submission,
 			geometry,
 			vertexBindings,
 			indexBuffer,
@@ -766,7 +768,7 @@ export class WebGPUShadowCasterRenderer {
 	}
 
 	private _resolveAnimationBinding(
-		packet: DrawPacket,
+		submission: DrawSubmission,
 		geometry: WebGPUGeometryHandle,
 		context: FrameContext
 	): GPUBindGroup | null {
@@ -779,18 +781,18 @@ export class WebGPUShadowCasterRenderer {
 		const morphMap =
 			context.transient.get(ANIMATION_MORPH_WEIGHTS_KEY) ?? null;
 		const payload = this._animationPayloads.getShadowPayload(
-			packet,
+			submission,
 			geometry,
 			jointMap,
 			morphMap
 		);
 		if (!payload) return null;
 		if (payload.generation === 0) {
-			this._animationBindings.delete(packet.submission.id);
+			this._animationBindings.delete(submission.id);
 			return this._staticAnimationBindGroup;
 		}
 
-		const key = packet.submission.id;
+		const key = submission.id;
 		let entry = this._animationBindings.get(key);
 		if (!entry) {
 			entry = {

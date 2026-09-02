@@ -85,8 +85,8 @@ This document defines cross-backend rendering features, capability gating, pass 
   It must not perform asynchronous GPU waits during prepared-scene building.
 - `PreparedSceneBuilder` must only filter main-camera `opaquePackets`.
 - `PreparedSceneBuilder` must not filter `transparentPackets`,
-  `shadowCasterPackets`, `shadowTransmitterPackets`, reflection captures, or
-  probe captures.
+  `shadowCasterSubmissions`, `shadowTransmitterSubmissions`, reflection
+  captures, or probe captures.
 - Decal packet generation must run after opaque packet filtering, so hidden
   opaque receivers do not create decal work.
 - WebGPU occlusion culling must use backend-internal frame graph nodes and must

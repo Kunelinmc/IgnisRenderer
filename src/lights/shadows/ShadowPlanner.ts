@@ -106,7 +106,7 @@ export class ShadowPlanner {
 		// scene bounds in that case instead of tightening the projection around
 		// mesh packets and clipping particle casters.
 		const meshCasterBounds = resolveShadowCasterBounds(
-			options.casterIntent.meshPackets.slice(),
+			options.casterIntent.meshSubmissions,
 			options.sceneBounds,
 			options.camera
 		);
@@ -158,7 +158,7 @@ export class ShadowPlanner {
 		}
 
 		const hasCasters =
-			options.casterIntent.meshPackets.length > 0 ||
+			options.casterIntent.meshSubmissions.length > 0 ||
 			options.casterIntent.hasParticleCasters ||
 			options.hasTransmissionCasters;
 		const hasRasterWork = hasCasters && preparedLights.length > 0;

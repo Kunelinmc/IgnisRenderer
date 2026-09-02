@@ -8,7 +8,7 @@ function plan(plannerState, scene, light, radius) {
 		getWorldPosition(target = {}) { return Object.assign(target, this.position); },
 		getWorldDirection(local, target = {}) { return Object.assign(target, local.y === 1 ? this.up : { x: 0, y: 0, z: -1 }); } };
 	return ShadowPlanner.plan({ manager: scene.shadows, lights: [light], camera,
-		sceneBounds: { center: { x: 0, y: 0, z: 0 }, radius }, casterIntent: { meshPackets: [], hasTransparentCasters: false, hasParticleCasters: false, estimatedParticleCapacity: 0 },
+		sceneBounds: { center: { x: 0, y: 0, z: 0 }, radius }, casterIntent: { meshSubmissions: [], hasTransparentCasters: false, hasParticleCasters: false, estimatedParticleCapacity: 0 },
 		backendKey: "software" }, plannerState);
 }
 

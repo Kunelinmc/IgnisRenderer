@@ -32,7 +32,7 @@ function testShadowBoundsUseCameraVisibleCasters() {
 	);
 
 	const bounds = resolveShadowCasterBounds(
-		[visibleCaster, farDroppedCaster],
+		[visibleCaster.submission, farDroppedCaster.submission],
 		{ center: { x: 0, y: -400, z: -10 }, radius: 1000 },
 		camera
 	);
@@ -54,7 +54,7 @@ function testShadowBoundsFallbackToNearestCasterWhenNothingVisible() {
 	const farBehindCaster = createPacket("farBehind", { x: 0, y: 0, z: 320 }, 1);
 
 	const bounds = resolveShadowCasterBounds(
-		[nearBehindCaster, farBehindCaster],
+		[nearBehindCaster.submission, farBehindCaster.submission],
 		{ center: { x: 0, y: 0, z: 1000 }, radius: 4000 },
 		camera
 	);

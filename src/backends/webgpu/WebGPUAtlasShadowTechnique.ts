@@ -1,4 +1,7 @@
-import type { FrameContext } from "../../pipeline/types";
+import type {
+	DrawSubmission,
+	FrameContext,
+} from "../../pipeline/types";
 import type { ICommandEncoder } from "../ICommandEncoder";
 import type { WebGPULightingState } from "./types";
 import type { WebGPUShadowAtlasAllocator } from "./WebGPUShadowAtlasAllocator";
@@ -24,8 +27,19 @@ export class WebGPUAtlasShadowTechnique {
 		this._allocator.prepare(lightingState, tileSize);
 	}
 
-	public render(context: FrameContext, encoder?: ICommandEncoder | null): Promise<void> {
-		return this._casterRenderer.renderAtlas(context, this._allocator, encoder);
+	public render(
+		context: FrameContext,
+		casterSubmissions: readonly DrawSubmission[],
+		transmitterSubmissions: readonly DrawSubmission[],
+		encoder?: ICommandEncoder | null,
+	): Promise<void> {
+		return this._casterRenderer.renderAtlas(
+			context,
+			casterSubmissions,
+			transmitterSubmissions,
+			this._allocator,
+			encoder,
+		);
 	}
 
 	public destroy(): void {

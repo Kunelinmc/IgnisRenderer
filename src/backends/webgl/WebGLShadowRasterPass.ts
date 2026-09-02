@@ -1,6 +1,6 @@
 import { resolveMaterialShadowTransmittance } from "../../materials/transparency";
 import { Matrix4 } from "../../maths/Matrix4";
-import type { DrawPacket } from "../../pipeline/types";
+import type { DrawSubmission } from "../../pipeline/types";
 import { ShaderSource } from "../../shaders/ShaderSource";
 
 import type {
@@ -51,8 +51,8 @@ export interface WebGLShadowRasterPlan {
 	readonly atlasHeight: number;
 	readonly slices: readonly WebGLShadowRasterSlice[];
 	readonly sliceCount: number;
-	readonly casterPackets: readonly DrawPacket[];
-	readonly transmitterPackets: readonly DrawPacket[];
+	readonly casterSubmissions: readonly DrawSubmission[];
+	readonly transmitterSubmissions: readonly DrawSubmission[];
 	readonly baselineFramebuffer: WebGLFramebuffer | null;
 	readonly baselineViewportWidth: number;
 	readonly baselineViewportHeight: number;
@@ -73,7 +73,7 @@ export interface WebGLShadowRasterPassHost {
 	readonly gl: WebGL2RenderingContext;
 	readonly programCompiler: WebGLProgramCompiler;
 	readonly geometry: {
-		getGeometry(packet: DrawPacket): WebGLGeometryHandle | null;
+		getGeometry(submission: DrawSubmission): WebGLGeometryHandle | null;
 	};
 	readonly animationPayloads?: WebGLAnimationPayloadPool;
 	readonly maxTextureSize: number;
@@ -159,16 +159,16 @@ export class WebGLShadowRasterPass {
 		try {
 			this._ensureShadowTargets(plan);
 			let depthProgramAvailable = !!this._resolveDepthProgram("static:0");
-			for (const packet of plan.casterPackets) {
-				const geometry = this._host.geometry.getGeometry(packet);
+			for (const submission of plan.casterSubmissions) {
+				const geometry = this._host.geometry.getGeometry(submission);
 				if (geometry && !this._resolveDepthProgram(profileKey(geometry))) {
 					depthProgramAvailable = false;
 				}
 			}
 			let transmittanceProgramAvailable =
 				!!this._resolveTransmittanceProgram("static:0");
-			for (const packet of plan.transmitterPackets) {
-				const geometry = this._host.geometry.getGeometry(packet);
+			for (const submission of plan.transmitterSubmissions) {
+				const geometry = this._host.geometry.getGeometry(submission);
 				if (geometry && !this._resolveTransmittanceProgram(profileKey(geometry))) {
 					transmittanceProgramAvailable = false;
 				}
@@ -241,8 +241,8 @@ export class WebGLShadowRasterPass {
 		if (!slice) return;
 		this._setSliceViewport(slice);
 		this._host.gl.clear(this._host.gl.DEPTH_BUFFER_BIT);
-		for (const packet of plan.casterPackets) {
-			this._drawShadowPacket(packet, slice.viewProjectionMatrix);
+		for (const submission of plan.casterSubmissions) {
+			this._drawShadowSubmission(submission, slice.viewProjectionMatrix);
 		}
 	}
 
@@ -253,9 +253,12 @@ export class WebGLShadowRasterPass {
 		if (!slice) return;
 		this._setSliceViewport(slice);
 		this._host.gl.clear(this._host.gl.COLOR_BUFFER_BIT);
-		if (plan.transmitterPackets.length === 0) return;
-		for (const packet of plan.transmitterPackets) {
-			this._drawShadowTransmittancePacket(packet, slice.viewProjectionMatrix);
+		if (plan.transmitterSubmissions.length === 0) return;
+		for (const submission of plan.transmitterSubmissions) {
+			this._drawShadowTransmittanceSubmission(
+				submission,
+				slice.viewProjectionMatrix,
+			);
 		}
 	}
 
@@ -265,22 +268,30 @@ export class WebGLShadowRasterPass {
 		gl.scissor(slice.viewportX, slice.viewportY, slice.viewportWidth, slice.viewportHeight);
 	}
 
-	private _drawShadowPacket(
-		packet: DrawPacket,
+	private _drawShadowSubmission(
+		submission: DrawSubmission,
 		viewProjectionMatrix: Matrix4,
 	): void {
-		if (!Matrix4.isFinite(packet.submission.instance.worldMatrix)) return;
-		const geometry = this._host.geometry.getGeometry(packet);
+		if (!Matrix4.isFinite(submission.instance.worldMatrix)) return;
+		const geometry = this._host.geometry.getGeometry(submission);
 		if (!geometry || geometry.topology !== this._host.gl.TRIANGLES) return;
 		const shadowProgram = this._resolveDepthProgram(profileKey(geometry));
 		if (!shadowProgram) return;
 
-		Matrix4.multiply(viewProjectionMatrix, packet.submission.instance.worldMatrix, this._shadowMvpMatrix);
+		Matrix4.multiply(
+			viewProjectionMatrix,
+			submission.instance.worldMatrix,
+			this._shadowMvpMatrix,
+		);
 		const gl = this._host.gl;
 		gl.useProgram(shadowProgram.program);
 		if (
 			this._host.animationPayloads &&
-			!this._host.animationPayloads.bind(shadowProgram.uniforms, packet, geometry)
+			!this._host.animationPayloads.bind(
+				shadowProgram.uniforms,
+				submission,
+				geometry,
+			)
 		) {
 			return;
 		}
@@ -297,16 +308,16 @@ export class WebGLShadowRasterPass {
 		gl.bindVertexArray(null);
 	}
 
-	private _drawShadowTransmittancePacket(
-		packet: DrawPacket,
+	private _drawShadowTransmittanceSubmission(
+		submission: DrawSubmission,
 		viewProjectionMatrix: Matrix4,
 	): void {
-		const geometry = this._host.geometry.getGeometry(packet);
+		const geometry = this._host.geometry.getGeometry(submission);
 		if (!geometry || geometry.topology !== this._host.gl.TRIANGLES) return;
 		const shadowProgram = this._resolveTransmittanceProgram(profileKey(geometry));
 		if (!shadowProgram) return;
 		if (
-			!Matrix4.isFinite(packet.submission.instance.worldMatrix) ||
+			!Matrix4.isFinite(submission.instance.worldMatrix) ||
 			!Matrix4.isFinite(viewProjectionMatrix)
 		) {
 			return;
@@ -315,17 +326,27 @@ export class WebGLShadowRasterPass {
 		gl.useProgram(shadowProgram.program);
 		if (
 			this._host.animationPayloads &&
-			!this._host.animationPayloads.bind(shadowProgram.uniforms, packet, geometry)
+			!this._host.animationPayloads.bind(
+				shadowProgram.uniforms,
+				submission,
+				geometry,
+			)
 		) {
 			return;
 		}
-		Matrix4.multiply(viewProjectionMatrix, packet.submission.instance.worldMatrix, this._shadowMvpMatrix);
+		Matrix4.multiply(
+			viewProjectionMatrix,
+			submission.instance.worldMatrix,
+			this._shadowMvpMatrix,
+		);
 		gl.uniformMatrix4fv(
 			shadowProgram.uniforms.mvp,
 			false,
 			Matrix4.toColumnMajorArray(this._shadowMvpMatrix),
 		);
-		const transmittance = resolveMaterialShadowTransmittance(packet.submission.material.effective);
+		const transmittance = resolveMaterialShadowTransmittance(
+			submission.material.effective,
+		);
 		gl.uniform3f(
 			shadowProgram.uniforms.transmittance,
 			transmittance.r,

@@ -47,7 +47,7 @@ The data path is:
 
 ```mermaid
 flowchart LR
-	M["Scene and material data"] --> P["PreparedScene packets"]
+	M["Scene and material data"] --> P["PreparedScene submissions and view packets"]
 	P --> B["Backend resource views"]
 	B --> S["Backend shaders or software kernels"]
 	S --> C["Linear scene color"]
@@ -65,6 +65,12 @@ instance, material, deformation, bounds, and pass bindings. A `DrawPacket`
 references one submission and adds only view-dependent sorting state. Published
 submissions are readonly and may be shared by packets for different cameras;
 packets themselves are owned by one camera view.
+
+Shadow caster and transmitter membership is camera-independent prepared-scene
+state and is represented by `DrawSubmission` collections. Shadow planning and
+backend shadow runtimes consume those submissions directly. They must not wrap
+shadow work in a `DrawPacket` with a main-camera `sortDepth`; a shadow pass that
+needs ordering must derive it from its own light or slice view.
 
 `PreparedSceneBuilder` is the resolution boundary for `MeshInstance`,
 `MeshAsset`, and primitive authoring state. Backends consume resolved bindings

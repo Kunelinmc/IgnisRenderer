@@ -30,8 +30,8 @@ function createFrame(overrides = {}) {
 		shadowPlan: EMPTY_SHADOW_FRAME_PLAN,
 		opaquePackets: [{}],
 		transparentPackets: [],
-		shadowCasterPackets: [],
-		shadowTransmitterPackets: [],
+		shadowCasterSubmissions: [],
+		shadowTransmitterSubmissions: [],
 		reflectivePackets: [],
 		decalPackets: [],
 		...overrides,
@@ -114,7 +114,7 @@ function run() {
 
 	const frame = createFrame({
 		particleSystems: [{}],
-		shadowCasterPackets: [{}],
+		shadowCasterSubmissions: [{}],
 		transparentPackets: [{}],
 		reflectivePackets: [{}],
 		shadowPlan: createShadowPlan(true),
@@ -257,8 +257,8 @@ function run() {
 			},
 		],
 		transparentPackets: [],
-		shadowCasterPackets: [],
-		shadowTransmitterPackets: [],
+		shadowCasterSubmissions: [],
+		shadowTransmitterSubmissions: [],
 		shadowPlan: createShadowPlan(true),
 	});
 	const meshParticlePlan = createFramePlan(
@@ -343,7 +343,7 @@ function run() {
 					shadowDensity: 1,
 				},
 			],
-			shadowCasterPackets: [],
+			shadowCasterSubmissions: [],
 			shadowPlan: createShadowPlan(true),
 		}),
 		baseResolved,
@@ -364,7 +364,7 @@ function run() {
 					shadowDensity: 1,
 				},
 			],
-			shadowCasterPackets: [],
+			shadowCasterSubmissions: [],
 			shadowPlan: createShadowPlan(false),
 		}),
 		baseResolved,

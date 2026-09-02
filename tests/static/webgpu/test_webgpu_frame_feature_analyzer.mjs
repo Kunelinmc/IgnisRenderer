@@ -40,8 +40,8 @@ const base = analyzeWebGPUDeferredFeatures(context, {
 	all: [],
 	opaque: [createTestDrawPacket({ material: new PBRMaterial() })],
 	transparent: [],
-	shadowCasters: [],
-	shadowTransmitters: [],
+	shadowCasterSubmissions: [],
+	shadowTransmitterSubmissions: [],
 	reflective: [],
 });
 assert.equal(base.hasDeferredLightingWork, true);
@@ -52,8 +52,8 @@ const extended = analyzeWebGPUDeferredFeatures(context, {
 	all: [],
 	opaque: [createTestDrawPacket({ material: new PBRMaterial() })],
 	transparent: [],
-	shadowCasters: [],
-	shadowTransmitters: [],
+	shadowCasterSubmissions: [],
+	shadowTransmitterSubmissions: [],
 	reflective: [],
 });
 assert.equal(extended.deferredGBufferLayout, "extended");

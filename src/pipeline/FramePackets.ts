@@ -16,6 +16,7 @@ import {
 	DRAW_PACKET_FLAG_TRANSPARENT,
 	PARTICLE_MESH_TRANSIENT_BATCHES_KEY,
 	type DrawPacket,
+	type DrawSubmission,
 	type DrawGeometryBinding,
 	type FrameContext,
 } from "./types";
@@ -30,13 +31,13 @@ export type FramePacketViewPurpose =
 	| "planar-reflection"
 	| "render-target-view";
 
-/** @internal Complete draw-packet lists for one prepared frame view. */
+/** @internal Complete view packets and shadow submissions for one frame view. */
 export interface PreparedFramePacketSet {
 	readonly all: readonly DrawPacket[];
 	readonly opaque: readonly DrawPacket[];
 	readonly transparent: readonly DrawPacket[];
-	readonly shadowCasters: readonly DrawPacket[];
-	readonly shadowTransmitters: readonly DrawPacket[];
+	readonly shadowCasterSubmissions: readonly DrawSubmission[];
+	readonly shadowTransmitterSubmissions: readonly DrawSubmission[];
 	readonly reflective: readonly DrawPacket[];
 }
 
@@ -51,8 +52,9 @@ export function createBaselineFramePacketSet(
 		],
 		opaque: context.scene.opaquePackets.slice(),
 		transparent: context.scene.transparentPackets.slice(),
-		shadowCasters: context.scene.shadowCasterPackets.slice(),
-		shadowTransmitters: context.scene.shadowTransmitterPackets.slice(),
+		shadowCasterSubmissions: context.scene.shadowCasterSubmissions.slice(),
+		shadowTransmitterSubmissions:
+			context.scene.shadowTransmitterSubmissions.slice(),
 		reflective: context.scene.reflectivePackets.slice(),
 	};
 }
@@ -101,8 +103,9 @@ export function prepareFramePackets(
 	];
 	const opaque = context.scene.opaquePackets.slice();
 	const transparent = context.scene.transparentPackets.slice();
-	const shadowCasters = context.scene.shadowCasterPackets.slice();
-	const shadowTransmitters = context.scene.shadowTransmitterPackets.slice();
+	const shadowCasterSubmissions = context.scene.shadowCasterSubmissions.slice();
+	const shadowTransmitterSubmissions =
+		context.scene.shadowTransmitterSubmissions.slice();
 	const reflective = context.scene.reflectivePackets.slice();
 
 	if (purpose !== "planar-reflection") {
@@ -146,10 +149,10 @@ export function prepareFramePackets(
 					opaque.push(packet);
 				}
 				if ((flags & DRAW_PACKET_FLAG_SHADOW_CASTER) !== 0) {
-					shadowCasters.push(packet);
+					shadowCasterSubmissions.push(packet.submission);
 				}
 				if ((flags & DRAW_PACKET_FLAG_SHADOW_TRANSMITTER) !== 0) {
-					shadowTransmitters.push(packet);
+					shadowTransmitterSubmissions.push(packet.submission);
 				}
 				if ((flags & DRAW_PACKET_FLAG_REFLECTIVE) !== 0) {
 					reflective.push(packet);
@@ -162,8 +165,8 @@ export function prepareFramePackets(
 		all,
 		opaque,
 		transparent,
-		shadowCasters,
-		shadowTransmitters,
+		shadowCasterSubmissions,
+		shadowTransmitterSubmissions,
 		reflective,
 	};
 	cacheMap.set(purpose, {

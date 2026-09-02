@@ -70,7 +70,7 @@ function testStaticPacketsUseOnlyFallbackBuffers() {
 	pool.beginFrame();
 	for (let i = 0; i < 10_000; i++) {
 		const packet = createPacket(`static:${i}`);
-		const shadow = pool.getShadowPayload(packet, geometry, null, null);
+		const shadow = pool.getShadowPayload(packet.submission, geometry, null, null);
 		const scene = pool.getScenePayload(packet, geometry, null, null);
 		assert.equal(shadow.generation, 0);
 		assert.equal(scene.generation, 0);
@@ -98,11 +98,11 @@ function testSceneAndShadowShareOneTemporalStorageUpload() {
 
 	pool.beginFrame();
 	setSkinRevision(packet, 1);
-	const shadow = pool.getShadowPayload(packet, geometry, jointMap, null);
+	const shadow = pool.getShadowPayload(packet.submission, geometry, jointMap, null);
 	const scene = pool.getScenePayload(packet, geometry, jointMap, null);
 	assert.strictEqual(shadow.jointMatricesBuffer, scene.jointMatricesBuffer);
 	assert.equal(pool.getDebugStats().totalUploadCalls, 3);
-	pool.getShadowPayload(packet, geometry, jointMap, null);
+	pool.getShadowPayload(packet.submission, geometry, jointMap, null);
 	pool.getScenePayload(packet, geometry, jointMap, null);
 	assert.equal(pool.getDebugStats().totalUploadCalls, 3);
 
@@ -110,7 +110,7 @@ function testSceneAndShadowShareOneTemporalStorageUpload() {
 	setSkinRevision(packet, 2);
 	matrices.fill(2);
 	const changed = pool.getScenePayload(packet, geometry, jointMap, null);
-	pool.getShadowPayload(packet, geometry, jointMap, null);
+	pool.getShadowPayload(packet.submission, geometry, jointMap, null);
 	assert.equal(pool.getDebugStats().totalUploadCalls, 4);
 	const changedWrite = backend.writes.at(-1);
 	assert.strictEqual(changedWrite.buffer, changed.jointMatricesBuffer);
@@ -161,7 +161,7 @@ function testMorphStorageIsSharedWithoutJointAllocation() {
 	pool.beginFrame();
 	setMorphRevision(packet, 1);
 	const scene = pool.getScenePayload(packet, geometry, null, morphMap);
-	const shadow = pool.getShadowPayload(packet, geometry, null, morphMap);
+	const shadow = pool.getShadowPayload(packet.submission, geometry, null, morphMap);
 	const stats = pool.getDebugStats();
 
 	assert.strictEqual(scene.morphWeightsBuffer, shadow.morphWeightsBuffer);

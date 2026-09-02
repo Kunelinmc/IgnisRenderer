@@ -61,8 +61,8 @@ function packets(opaque = [], transparent = []) {
 		all: [...preparedOpaque, ...preparedTransparent],
 		opaque: preparedOpaque,
 		transparent: preparedTransparent,
-		shadowCasters: [],
-		shadowTransmitters: [],
+		shadowCasterSubmissions: [],
+		shadowTransmitterSubmissions: [],
 		reflective: [],
 	};
 }

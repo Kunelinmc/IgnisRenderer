@@ -99,9 +99,9 @@ This document defines the current WebGL backend lifecycle, frame graph, resource
   the deferred warmup batch eligible before the next frame so work enqueued by
   that batch cannot starve rendering.
 - WebGL scene geometry uploads must support `immediate` and `deferred`
-  scheduling. The backend enables deferred scheduling: a first-use draw packet
-  whose primitive has no uploaded geometry must enqueue a budgeted upload
-  request and skip drawing for that frame instead of blocking the pass.
+  scheduling. The backend enables deferred scheduling: a first-use draw
+  submission whose primitive has no uploaded geometry must enqueue a budgeted
+  upload request and skip drawing for that frame instead of blocking the pass.
 - Deferred geometry uploads must process during frame-begin within per-frame
   upload-count and byte budgets, cache results keyed by opaque geometry
   resource identity and
@@ -112,17 +112,17 @@ This document defines the current WebGL backend lifecycle, frame graph, resource
 - Prepared draw geometry must be consumed through its opaque resource key,
   captured data, topology, and version. WebGL must not inspect primitive
   authoring state through the resource key.
-- A newly queued deferred geometry packet must notify the backend during the
+- A newly queued deferred geometry submission must notify the backend during the
   frame that skipped it. The backend must emit a render-invalidation event with
-  the packet's conservative viewport-space projected bounds so the next frame
+  the submission's conservative viewport-space projected bounds so the next frame
   can redraw its affected tiles without defaulting to full-frame coverage.
-  Repeated lookups of the same packet in one pending request must not duplicate
-  the notification.
+  Repeated lookups of the same submission in one pending request must not
+  duplicate the notification.
 - When deferred geometry uploads remain queued after processing, the registry
-  must notify the backend again for their affected packets so rendering
+  must notify the backend again for their affected submissions so rendering
   continues until the queue drains. Scene, depth-prepass, and shadow passes
-  share one geometry registry, so skipped packets stay consistent across
-  passes within a frame.
+  share one geometry registry, so skipped work stays consistent across passes
+  within a frame.
 - WebGL resize must update desired dimensions synchronously and schedule one
   keyed, latest-wins maintenance operation. Active-frame resize must not destroy
   frame resources until frame-end or frame-abort cleanup, and the queue must
@@ -220,7 +220,7 @@ This document defines the current WebGL backend lifecycle, frame graph, resource
   vertex delta per texel. Morph tangent deltas are not consumed by WebGL.
 - `WebGLAnimationPayloadPool` must be context-lifetime state shared by scene,
   early-Z, shadow-depth, and shadow-transmittance consumers. It must key entries
-  by `DrawPacket.id`, retain current and previous joint matrices and morph
+  by `DrawSubmission.id`, retain current and previous joint matrices and morph
   weights, and resolve or upload an entry at most once per logical frame.
 - A newly active or rebuilt animation payload must initialize previous data
   from current data. A changed payload must retain the former current data as
@@ -280,7 +280,7 @@ This document defines the current WebGL backend lifecycle, frame graph, resource
   packing, prepare predictable native targets, and compile the frame graph only
   after those targets are known.
   The shadow graph node must execute only the prepared plan.
-- Skinned or morphed caster and transmitter packets must use the same current
+- Skinned or morphed caster and transmitter submissions must use the same current
   animation payload as the scene draw. Shadow depth and transmittance must not
   render bind-pose geometry or omit an otherwise valid animated packet.
 - Shadow consumers must obtain atlas, transmittance, particle-volume, and

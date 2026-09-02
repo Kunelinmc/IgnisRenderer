@@ -42,11 +42,12 @@ Object.assign(renderer, {
 	_staticAnimationBindGroup: staticGroup,
 });
 const packet = createTestDrawPacket({ id: "packet:shadow" });
+const submission = packet.submission;
 const geometry = { morphPositionBuffer: null };
 const context = { transient: { get() { return null; } } };
 
 assert.strictEqual(
-	renderer._resolveAnimationBinding(packet, geometry, context),
+	renderer._resolveAnimationBinding(submission, geometry, context),
 	staticGroup
 );
 assert.equal(bindGroups.length, 0);
@@ -59,14 +60,14 @@ payload = {
 	jointCount: 1,
 	morphCount: 0,
 };
-const first = renderer._resolveAnimationBinding(packet, geometry, context);
+const first = renderer._resolveAnimationBinding(submission, geometry, context);
 assert.equal(bindGroups.length, 1);
 assert.strictEqual(
 	first.desc.entries[1].resource.buffer,
 	payload.jointMatricesBuffer._gpuResource
 );
 assert.strictEqual(
-	renderer._resolveAnimationBinding(packet, geometry, context),
+	renderer._resolveAnimationBinding(submission, geometry, context),
 	first
 );
 assert.equal(bindGroups.length, 1);
@@ -76,7 +77,7 @@ payload = {
 	generation: 2,
 	jointMatricesBuffer: createResource("joint:grown"),
 };
-const rebuilt = renderer._resolveAnimationBinding(packet, geometry, context);
+const rebuilt = renderer._resolveAnimationBinding(submission, geometry, context);
 assert.notStrictEqual(rebuilt, first);
 assert.equal(bindGroups.length, 2);
 

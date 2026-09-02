@@ -24,7 +24,7 @@ function testDirectionalCsmPreparedSlices() {
 	const plan = ShadowPlanner.plan({
 		manager: scene.shadows, lights: [sun], camera,
 		sceneBounds: { center: { x: 0, y: 0, z: 0 }, radius: 80 },
-		casterIntent: { meshPackets: [], hasTransparentCasters: false, hasParticleCasters: false, estimatedParticleCapacity: 0 },
+		casterIntent: { meshSubmissions: [], hasTransparentCasters: false, hasParticleCasters: false, estimatedParticleCapacity: 0 },
 		backendKey: "webgpu",
 	}, ShadowPlanner.createState());
 	assert.equal(plan.lights[0].effectiveTechnique, "cascaded");

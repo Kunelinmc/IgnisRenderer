@@ -841,10 +841,10 @@ export function createShadowPassHost(gl, options = {}) {
 			},
 		},
 		geometry: {
-			getGeometry(packet) {
+			getGeometry(submission) {
 				return (
-					options.getGeometry?.(packet) ?? {
-						vao: { id: `shadow-vao-${packet.submission.id}` },
+					options.getGeometry?.(submission) ?? {
+						vao: { id: `shadow-vao-${submission.id}` },
 						topology: gl.TRIANGLES,
 						indexCount: 3,
 						indexType: 5123,
@@ -860,8 +860,8 @@ export function createShadowPassHost(gl, options = {}) {
 }
 
 export function createShadowRasterPlan({
-	casterPackets = [],
-	transmitterPackets = [],
+	casterSubmissions = [],
+	transmitterSubmissions = [],
 	baselineFramebuffer = { id: "scene-framebuffer" },
 } = {}) {
 	return {
@@ -881,8 +881,8 @@ export function createShadowRasterPlan({
 			},
 		],
 		sliceCount: 1,
-		casterPackets,
-		transmitterPackets,
+		casterSubmissions,
+		transmitterSubmissions,
 		baselineFramebuffer,
 		baselineViewportWidth: 320,
 		baselineViewportHeight: 180,

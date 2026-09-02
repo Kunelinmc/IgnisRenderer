@@ -1,6 +1,7 @@
 import {
 	PARTICLE_SIM_DELTA_TIME_SECONDS_KEY,
 	type DrawPacket,
+	type DrawSubmission,
 	type FrameContext,
 	type FramePass,
 	type FrameAttachments,
@@ -749,7 +750,7 @@ export class WebGLBackend implements IRenderBackend {
 	}
 
 	private _emitGeometryUploadPendingEvent(
-		packets: readonly DrawPacket[],
+		submissions: readonly DrawSubmission[],
 	): void {
 		const context = this._activeContext;
 		if (!context) {
@@ -757,9 +758,9 @@ export class WebGLBackend implements IRenderBackend {
 			return;
 		}
 		const dirtyRects: DirtyRect[] = [];
-		for (const packet of packets) {
+		for (const submission of submissions) {
 			const rect = computePacketScreenRect(
-				packet.submission,
+				submission,
 				context.viewCamera,
 				context.attachments.width,
 				context.attachments.height,

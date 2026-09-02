@@ -35,9 +35,10 @@ This document defines particle templates, mesh-particle rendering, simulation in
   only the transient keys used to transport those batches through a frame.
 - `prepareFramePackets` must prepare current-view `DrawPacket` objects from
 	emitted mesh-particle batches after particle simulation and before frame analysis.
-- The composed frame packet set must expose opaque, transparent, shadow-caster,
-	shadow-transmitter, reflective, and complete draw work. Frame analysis,
-	resource preparation, and pass recording must reuse the same packet objects.
+- The composed frame packet set must expose opaque, transparent, reflective,
+	and complete view packets plus shadow-caster and shadow-transmitter
+	`DrawSubmission` collections. Shadow work must reuse the submissions owned by
+	the current-view particle packets.
 - Individual consumers must not rebuild mesh packets from
 	`PARTICLE_MESH_TRANSIENT_BATCHES_KEY` or depend on a particle-specific packet
 	accessor.
@@ -54,7 +55,8 @@ This document defines particle templates, mesh-particle rendering, simulation in
 	retained across frames. Planar reflection capture must exclude mesh-particle
 	contributors because particle reflection is unsupported.
 - WebGPU mesh particles must support opaque, transparent, OIT, and mesh shadow
-  caster/transmitter passes according to each primitive material.
+  caster/transmitter passes according to each primitive material. Shadow passes
+  must consume their prepared submissions without depending on view sort depth.
 - WebGLBackend and SoftwareBackend must skip mesh particle templates and emit
   a once-only warning.
 - WebGPU compute simulation may run only for compatible single-template

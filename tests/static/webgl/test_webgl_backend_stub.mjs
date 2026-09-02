@@ -632,7 +632,8 @@ function createDependencyContext() {
 		scene: {
 			environment: { backgroundEnabled: false },
 			particleSystems: [{}],
-			shadowCasterPackets: [],
+			shadowCasterSubmissions: [],
+			shadowTransmitterSubmissions: [],
 			reflectivePackets: [],
 			transparentPackets: [],
 			decalPackets: [],

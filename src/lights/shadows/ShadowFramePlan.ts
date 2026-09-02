@@ -10,7 +10,7 @@ import type {
 	ParticleMeshRenderBatch,
 	ParticleRenderBatch,
 } from "../../particles/ParticleRenderBatch";
-import type { DrawPacket } from "../../pipeline/types";
+import type { DrawSubmission } from "../../pipeline/types";
 
 export interface ShadowDiagnostic {
 	readonly code:
@@ -73,7 +73,7 @@ export interface ShadowFramePlan {
 
 /** Conservative caster information available before particle simulation. */
 export interface ShadowCasterIntent {
-	readonly meshPackets: readonly DrawPacket[];
+	readonly meshSubmissions: readonly DrawSubmission[];
 	readonly hasTransparentCasters: boolean;
 	readonly hasParticleCasters: boolean;
 	readonly particleBounds?: Readonly<{
@@ -85,10 +85,10 @@ export interface ShadowCasterIntent {
 
 /** Concrete draw work published after particle simulation. */
 export interface ShadowWorkSet {
-	readonly meshPackets: readonly DrawPacket[];
+	readonly casterSubmissions: readonly DrawSubmission[];
 	readonly meshParticleBatches: readonly ParticleMeshRenderBatch[];
 	readonly billboardBatches: readonly ParticleRenderBatch[];
-	readonly transmitters: readonly DrawPacket[];
+	readonly transmitterSubmissions: readonly DrawSubmission[];
 }
 
 export const EMPTY_SHADOW_FRAME_PLAN: ShadowFramePlan = Object.freeze({

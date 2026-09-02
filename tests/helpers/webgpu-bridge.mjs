@@ -100,8 +100,8 @@ function createFrame(packet) {
 		shadowMaps: new Map(),
 		opaquePackets: [packet],
 		transparentPackets: [],
-		shadowCasterPackets: [],
-		shadowTransmitterPackets: [],
+		shadowCasterSubmissions: [],
+		shadowTransmitterSubmissions: [],
 		reflectivePackets: [],
 		decalPackets: [],
 	};

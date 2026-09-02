@@ -64,8 +64,8 @@ function testShadowRasterPassConsumesResolvedPlanAndRestoresBaseline() {
 	});
 	const packet = createShadowPacket(material);
 	const plan = createShadowRasterPlan({
-		casterPackets: [packet],
-		transmitterPackets: [packet],
+		casterSubmissions: [packet.submission],
+		transmitterSubmissions: [packet.submission],
 	});
 
 	const prepared = pass.prepare(plan);
@@ -152,7 +152,9 @@ function testShadowRasterPassCleansPartialAllocationAndRestoresOnDrawError() {
 	const throwingGL = createShadowRasterCaptureGL();
 	const throwingPass = new WebGLShadowRasterPass(createShadowPassHost(throwingGL));
 	const packet = createShadowPacket(new Material());
-	const plan = createShadowRasterPlan({ casterPackets: [packet] });
+	const plan = createShadowRasterPlan({
+		casterSubmissions: [packet.submission],
+	});
 	throwingPass.prepare(plan);
 	throwingGL.calls.viewport.length = 0;
 	throwingGL.drawElements = () => {
@@ -168,12 +170,14 @@ function testShadowRasterPassCleansPartialAllocationAndRestoresOnDrawError() {
 	throwingPass.destroy();
 }
 
-function testShadowRasterPassAcceptsPreparedPackets() {
+function testShadowRasterPassAcceptsPreparedSubmissions() {
 	const gl = createShadowRasterCaptureGL();
 	const pass = new WebGLShadowRasterPass(createShadowPassHost(gl));
 	const packet = createShadowPacket(new Material());
 	try {
-		const plan = createShadowRasterPlan({ casterPackets: [packet] });
+		const plan = createShadowRasterPlan({
+			casterSubmissions: [packet.submission],
+		});
 		pass.prepare(plan);
 		pass.render(plan);
 	} finally {
@@ -293,7 +297,7 @@ await runWebGLBackendFile(
 		testShadowRasterPassClearsOnlyActiveSlices,
 		testShadowRasterPassRestoresDefaultFramebufferDrawBuffer,
 		testShadowRasterPassCleansPartialAllocationAndRestoresOnDrawError,
-		testShadowRasterPassAcceptsPreparedPackets,
+		testShadowRasterPassAcceptsPreparedSubmissions,
 		testSceneShaderIncludesReflectionProbeUniforms,
 		testSceneShaderIncludesLocalizedLightProbeUniforms,
 	testFullSceneShaderDeclaresExtensionSamplersForDynamicLayout,

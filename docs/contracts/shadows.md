@@ -84,11 +84,12 @@ temporary bounds reduction does not immediately resize the projection.
 
 ## Backend Runtime
 
-Backends consume `ShadowFramePlan` plus their prepared caster and transmitter
-packet collections. A backend integration may represent late concrete work as
-`ShadowWorkSet`; the built-in backends currently receive the equivalent
-`PreparedScene.shadowCasterPackets` and `PreparedScene.shadowTransmitterPackets`
-collections. Backends own their mutable atlas slots, textures, framebuffers,
+Backends consume `ShadowFramePlan` plus prepared caster and transmitter
+`DrawSubmission` collections. `PreparedSceneState.shadowCasterSubmissions` and
+`PreparedSceneState.shadowTransmitterSubmissions` provide baseline mesh work;
+late particle work may contribute additional submissions through the frame's
+`ShadowWorkSet`. Shadow runtimes must not depend on main-camera `DrawPacket`
+sorting state. Backends own their mutable atlas slots, textures, framebuffers,
 and binding caches. Native allocation failure may make sampling fully lit for
 that frame but must not mutate the shared plan.
 

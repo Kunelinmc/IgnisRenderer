@@ -7,7 +7,7 @@ import {
 } from "../../pipeline/ParticleShadowVolume";
 import {
 	PARTICLE_TRANSIENT_BATCHES_KEY,
-	type DrawPacket,
+	type DrawSubmission,
 	type FrameContext,
 } from "../../pipeline/types";
 import type { ParticleRenderBatch } from "../../particles/ParticleRenderBatch";
@@ -88,8 +88,8 @@ interface MutableRasterPlan {
 	atlasHeight: number;
 	slices: MutableRasterSlice[];
 	sliceCount: number;
-	casterPackets: readonly DrawPacket[];
-	transmitterPackets: readonly DrawPacket[];
+	casterSubmissions: readonly DrawSubmission[];
+	transmitterSubmissions: readonly DrawSubmission[];
 	baselineFramebuffer: WebGLFramebuffer | null;
 	baselineViewportWidth: number;
 	baselineViewportHeight: number;
@@ -145,8 +145,8 @@ export class WebGLShadowRuntime implements WebGLProgramWarmupContributor {
 		atlasHeight: 0,
 		slices: [],
 		sliceCount: 0,
-		casterPackets: [],
-		transmitterPackets: [],
+		casterSubmissions: [],
+		transmitterSubmissions: [],
 		baselineFramebuffer: null,
 		baselineViewportWidth: 1,
 		baselineViewportHeight: 1,
@@ -219,8 +219,8 @@ export class WebGLShadowRuntime implements WebGLProgramWarmupContributor {
 			getMaxShadowSize(lightState.spotShadows),
 		);
 		const hasPotentialCasters =
-			context.scene.shadowCasterPackets.length > 0 ||
-			context.scene.shadowTransmitterPackets.length > 0 ||
+			context.scene.shadowCasterSubmissions.length > 0 ||
+			context.scene.shadowTransmitterSubmissions.length > 0 ||
 			context.scene.particleSystems.length > 0;
 		if (context.shadowPlan?.hasRasterWork !== true || tileSize <= 0 || !hasPotentialCasters) {
 			this._setLightAtlasTileSize(lightState, 0);
@@ -342,8 +342,9 @@ export class WebGLShadowRuntime implements WebGLProgramWarmupContributor {
 		this._plan.atlasWidth = 0;
 		this._plan.atlasHeight = 0;
 		this._plan.sliceCount = 0;
-		this._plan.casterPackets = context.scene.shadowCasterPackets;
-		this._plan.transmitterPackets = context.scene.shadowTransmitterPackets;
+		this._plan.casterSubmissions = context.scene.shadowCasterSubmissions;
+		this._plan.transmitterSubmissions =
+			context.scene.shadowTransmitterSubmissions;
 		this._plan.baselineFramebuffer = this._host.getSceneFramebuffer();
 		this._plan.baselineViewportWidth = this._host.getWidth();
 		this._plan.baselineViewportHeight = this._host.getHeight();
@@ -645,8 +646,8 @@ export class WebGLShadowRuntime implements WebGLProgramWarmupContributor {
 		this._particlePreparedThisFrame = false;
 		this._plan.atlasTileSize = 0;
 		this._plan.sliceCount = 0;
-		this._plan.casterPackets = [];
-		this._plan.transmitterPackets = [];
+		this._plan.casterSubmissions = [];
+		this._plan.transmitterSubmissions = [];
 		this._samplingState.enabled = false;
 		this._samplingState.atlasTexture = null;
 		this._samplingState.transmittanceTexture = null;

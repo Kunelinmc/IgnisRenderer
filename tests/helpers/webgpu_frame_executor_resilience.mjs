@@ -17,9 +17,11 @@ import { createTestDrawPacket } from "../static/helpers/drawPacket.mjs";
 const DRAW_PACKET_LIST_KEYS = new Set([
 	"opaquePackets",
 	"transparentPackets",
-	"shadowCasterPackets",
-	"shadowTransmitterPackets",
 	"reflectivePackets",
+]);
+const DRAW_SUBMISSION_LIST_KEYS = new Set([
+	"shadowCasterSubmissions",
+	"shadowTransmitterSubmissions",
 ]);
 
 function preparePacketFixture(packet) {
@@ -33,15 +35,24 @@ function createPreparedSceneFixture() {
 		particleSystems: [],
 		opaquePackets: [],
 		transparentPackets: [],
-		shadowCasterPackets: [],
-		shadowTransmitterPackets: [],
+		shadowCasterSubmissions: [],
+		shadowTransmitterSubmissions: [],
 		reflectivePackets: [],
 		decalPackets: [],
 	}, {
 		set(target, property, value) {
-			target[property] = DRAW_PACKET_LIST_KEYS.has(property) && Array.isArray(value) ?
-				value.map(preparePacketFixture)
-				: value;
+			if (DRAW_PACKET_LIST_KEYS.has(property) && Array.isArray(value)) {
+				target[property] = value.map(preparePacketFixture);
+			} else if (
+				DRAW_SUBMISSION_LIST_KEYS.has(property) &&
+				Array.isArray(value)
+			) {
+				target[property] = value.map(
+					(item) => preparePacketFixture(item).submission,
+				);
+			} else {
+				target[property] = value;
+			}
 			return true;
 		},
 	});

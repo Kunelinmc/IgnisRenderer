@@ -158,7 +158,10 @@ function createContext(passExecute, targetDescriptor = {}) {
 		renderTargets,
 		renderTargetJobs,
 		shadowMaps: new Map(),
-		scene: { shadowCasterPackets: [], shadowTransmitterPackets: [] },
+		scene: {
+			shadowCasterSubmissions: [],
+			shadowTransmitterSubmissions: [],
+		},
 		shCoeffs: [],
 		shAmbientCoeffs: [],
 		worldMatrix: {},

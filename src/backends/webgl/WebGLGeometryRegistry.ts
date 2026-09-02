@@ -1,6 +1,7 @@
 import type {
 	DrawGeometryBinding,
 	DrawPacket,
+	DrawSubmission,
 } from "../../pipeline/types";
 import type { IPrimitiveGeometry } from "../../core/types";
 import { DEFAULT_PRIMITIVE_DRAW_TOPOLOGY } from "../../core/types";
@@ -42,8 +43,8 @@ export interface WebGLGeometryRegistryOptions {
 	readonly maxUploadsPerFrame?: number;
 	/** Estimated-bytes budget per `processPendingUploads` call. */
 	readonly maxUploadBytesPerFrame?: number;
-	/** Invoked for packets that need another frame to complete their upload. */
-	readonly onUploadPending?: (packets: readonly DrawPacket[]) => void;
+	/** Invoked for submissions that need another frame to complete their upload. */
+	readonly onUploadPending?: (submissions: readonly DrawSubmission[]) => void;
 }
 
 interface UploadPrimitiveResult {
@@ -53,8 +54,8 @@ interface UploadPrimitiveResult {
 
 interface PendingGeometryUpload {
 	geometry: DrawGeometryBinding;
-	packet: DrawPacket;
-	packetsById: Map<string, DrawPacket>;
+	submission: DrawSubmission;
+	submissionsById: Map<string, DrawSubmission>;
 	geometryVersion: number;
 	estimatedBytes: number;
 	queued: boolean;
@@ -79,7 +80,8 @@ export class WebGLGeometryRegistry {
 	private _uploadScheduling: "immediate" | "deferred";
 	private _maxUploadsPerFrame: number;
 	private _maxUploadBytesPerFrame: number;
-	private _onUploadPending: ((packets: readonly DrawPacket[]) => void) | null;
+	private _onUploadPending:
+		((submissions: readonly DrawSubmission[]) => void) | null;
 	private _pendingUploadQueue: PendingGeometryUpload[] = [];
 	private _pendingUploadsByPrimitive = new Map<object, PendingGeometryUpload>();
 
@@ -111,8 +113,12 @@ export class WebGLGeometryRegistry {
 		this._onUploadPending = options.onUploadPending ?? null;
 	}
 
-	public getGeometry(packet: DrawPacket): WebGLGeometryHandle | null {
-		const geometry = packet.submission.geometry;
+	public getGeometry(
+		draw: DrawPacket | DrawSubmission,
+	): WebGLGeometryHandle | null {
+		const submission: DrawSubmission = "submission" in draw ?
+			draw.submission : draw;
+		const geometry = submission.geometry;
 		const geometryVersion = geometry.version;
 		const cached = this._cache.get(geometry.resourceKey);
 		if (cached && cached.geometryVersion === geometryVersion) {
@@ -123,10 +129,10 @@ export class WebGLGeometryRegistry {
 			this._destroyHandle(cached.handle);
 		}
 		if (this._uploadScheduling === "deferred") {
-			this._queueDeferredUpload(geometry, packet, geometryVersion);
+			this._queueDeferredUpload(geometry, submission, geometryVersion);
 			return null;
 		}
-		const uploaded = this._uploadPrimitive(packet);
+		const uploaded = this._uploadPrimitive(submission);
 		if (uploaded.handle) {
 			this._owned.add(uploaded.handle);
 		}
@@ -198,13 +204,13 @@ export class WebGLGeometryRegistry {
 			}
 			if (
 				pending.geometry.resourceKey !==
-					pending.packet.submission.geometry.resourceKey ||
-				pending.geometryVersion !== pending.packet.submission.geometry.version
+					pending.submission.geometry.resourceKey ||
+				pending.geometryVersion !== pending.submission.geometry.version
 			) {
 				continue;
 			}
 
-			const uploaded = this._uploadPrimitive(pending.packet);
+			const uploaded = this._uploadPrimitive(pending.submission);
 			if (!uploaded.handle && !uploaded.cacheFailure) {
 				continue;
 			}
@@ -227,7 +233,7 @@ export class WebGLGeometryRegistry {
 
 	private _queueDeferredUpload(
 		geometry: DrawGeometryBinding,
-		packet: DrawPacket,
+		submission: DrawSubmission,
 		geometryVersion: number
 	): void {
 		const existing = this._pendingUploadsByPrimitive.get(geometry.resourceKey);
@@ -238,39 +244,41 @@ export class WebGLGeometryRegistry {
 					estimateWebGLGeometryUploadBytes(geometry);
 			}
 			existing.geometry = geometry;
-			existing.packet = packet;
-			const alreadyTracked = existing.packetsById.has(packet.submission.id);
-			existing.packetsById.set(packet.submission.id, packet);
+			existing.submission = submission;
+			const alreadyTracked = existing.submissionsById.has(submission.id);
+			existing.submissionsById.set(submission.id, submission);
 			if (!alreadyTracked) {
-				this._notifyUploadPending([packet]);
+				this._notifyUploadPending([submission]);
 			}
 			return;
 		}
 		const pending: PendingGeometryUpload = {
 			geometry,
-			packet,
-			packetsById: new Map([[packet.submission.id, packet]]),
+			submission,
+			submissionsById: new Map([[submission.id, submission]]),
 			geometryVersion,
 			estimatedBytes: estimateWebGLGeometryUploadBytes(geometry),
 			queued: true,
 		};
 		this._pendingUploadsByPrimitive.set(geometry.resourceKey, pending);
 		this._pendingUploadQueue.push(pending);
-		this._notifyUploadPending([packet]);
+		this._notifyUploadPending([submission]);
 	}
 
 	private _notifyQueuedUploadsPending(): void {
 		if (!this._onUploadPending) return;
-		const packets: DrawPacket[] = [];
+		const submissions: DrawSubmission[] = [];
 		for (const pending of this._pendingUploadQueue) {
-			packets.push(...pending.packetsById.values());
+			submissions.push(...pending.submissionsById.values());
 		}
-		this._notifyUploadPending(packets);
+		this._notifyUploadPending(submissions);
 	}
 
-	private _notifyUploadPending(packets: readonly DrawPacket[]): void {
-		if (packets.length === 0) return;
-		this._onUploadPending?.(packets);
+	private _notifyUploadPending(
+		submissions: readonly DrawSubmission[],
+	): void {
+		if (submissions.length === 0) return;
+		this._onUploadPending?.(submissions);
 	}
 
 	private _destroyHandle(handle: WebGLGeometryHandle): void {
@@ -286,12 +294,12 @@ export class WebGLGeometryRegistry {
 		this._gl.deleteVertexArray(handle.vao);
 	}
 
-	private _uploadPrimitive(packet: DrawPacket): UploadPrimitiveResult {
-		const primitive = packet.submission.geometry;
+	private _uploadPrimitive(submission: DrawSubmission): UploadPrimitiveResult {
+		const primitive = submission.geometry;
 		const geometry = primitive.data;
 		const positions = geometry.positions;
 		const indices = geometry.indices;
-		const primitiveLabel = `${primitive.id}:${packet.submission.id}`;
+		const primitiveLabel = `${primitive.id}:${submission.id}`;
 
 		if (!positions || positions.length < 3 || positions.length % 3 !== 0) {
 			const key = `webgl-geometry-invalid-positions-${primitive.id}`;

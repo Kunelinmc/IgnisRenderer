@@ -1,5 +1,5 @@
 import type { IVector3 } from "../../maths/types";
-import type { DrawPacket } from "../../pipeline/types";
+import type { DrawSubmission } from "../../pipeline/types";
 import type { SceneBounds } from "./types";
 
 interface ShadowBoundsCamera {
@@ -11,12 +11,12 @@ interface ShadowBoundsCamera {
 const _cameraPosition: IVector3 = { x: 0, y: 0, z: 0 };
 
 export function resolveShadowCasterBounds(
-	shadowCasterPackets: DrawPacket[],
+	shadowCasterSubmissions: readonly DrawSubmission[],
 	fallbackBounds: SceneBounds,
 	camera?: ShadowBoundsCamera | null,
 ): SceneBounds {
-	const packets = resolveBoundsPackets(shadowCasterPackets, camera);
-	if (packets.length === 0 || !Number.isFinite(fallbackBounds.radius) ||
+	const submissions = resolveBoundsSubmissions(shadowCasterSubmissions, camera);
+	if (submissions.length === 0 || !Number.isFinite(fallbackBounds.radius) ||
 		fallbackBounds.radius <= 1e-6) return fallbackBounds;
 	let minX = Infinity;
 	let minY = Infinity;
@@ -24,9 +24,9 @@ export function resolveShadowCasterBounds(
 	let maxX = -Infinity;
 	let maxY = -Infinity;
 	let maxZ = -Infinity;
-	for (const packet of packets) {
-		const { center } = packet.submission.worldBounds;
-		const radius = Math.max(0, packet.submission.worldBounds.radius);
+	for (const submission of submissions) {
+		const { center } = submission.worldBounds;
+		const radius = Math.max(0, submission.worldBounds.radius);
 		minX = Math.min(minX, center.x - radius);
 		minY = Math.min(minY, center.y - radius);
 		minZ = Math.min(minZ, center.z - radius);
@@ -42,32 +42,32 @@ export function resolveShadowCasterBounds(
 	};
 }
 
-function resolveBoundsPackets(
-	packets: DrawPacket[],
+function resolveBoundsSubmissions(
+	submissions: readonly DrawSubmission[],
 	camera?: ShadowBoundsCamera | null,
-): DrawPacket[] {
-	if (!camera?.isSphereInFrustum || packets.length === 0) return packets;
+): readonly DrawSubmission[] {
+	if (!camera?.isSphereInFrustum || submissions.length === 0) return submissions;
 	const position = camera.getWorldPosition?.(_cameraPosition) ?? camera.position ?? null;
-	const visible: DrawPacket[] = [];
-	let nearest: DrawPacket | null = null;
+	const visible: DrawSubmission[] = [];
+	let nearest: DrawSubmission | null = null;
 	let nearestDistance = Infinity;
-	for (const packet of packets) {
-		const { center } = packet.submission.worldBounds;
+	for (const submission of submissions) {
+		const { center } = submission.worldBounds;
 		if (
 			camera.isSphereInFrustum(
 				center,
-				Math.max(0, packet.submission.worldBounds.radius),
+				Math.max(0, submission.worldBounds.radius),
 			)
 		) {
-			visible.push(packet);
+			visible.push(submission);
 			continue;
 		}
 		if (!position) continue;
 		const distance = Math.hypot(center.x - position.x, center.y - position.y, center.z - position.z);
 		if (distance < nearestDistance) {
-			nearest = packet;
+			nearest = submission;
 			nearestDistance = distance;
 		}
 	}
-	return visible.length > 0 ? visible : nearest ? [nearest] : packets;
+	return visible.length > 0 ? visible : nearest ? [nearest] : submissions;
 }

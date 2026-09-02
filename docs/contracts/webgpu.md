@@ -342,15 +342,16 @@ lighting, presentation configuration, reflections, and structured buffer packing
   The pool must own packet animation parameter, joint-matrix, morph-weight, and
   zero-storage fallback buffers. Scene-material and shadow runtimes must retain
   ownership of their feature-local bind groups.
-- The pool must key payload state by `DrawPacket.id` and must resolve and upload
+- The pool must key payload state by `DrawSubmission.id` and must resolve and upload
   joint and morph storage at most once per logical backend frame. Runtime joint
   matrices and morph weights must be consumed directly without recomputing
   skeleton matrices or allocating another morph snapshot in WebGPU consumers.
 - Animation consumers must resolve runtime payloads only through the
   submission deformation binding keys. They must not recover skeleton or morph
   state from scene, mesh, or primitive authoring objects. When an active
-  deformation binding lacks a required current-frame payload, every scene and
-  shadow consumer must skip that packet and emit one deduplicated diagnostic.
+  deformation binding lacks a required current-frame payload, every scene
+  consumer must skip that packet, every shadow consumer must skip that
+  submission, and each must emit one deduplicated diagnostic.
 - Packets without active skinning or morph targets must use device-lifetime
   zero-value fallback buffers and must not allocate packet-owned animation
   buffers. Scene and shadow animation parameter layouts may remain distinct.

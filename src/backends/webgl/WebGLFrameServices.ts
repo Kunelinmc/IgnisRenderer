@@ -1,5 +1,6 @@
 import {
 	type DrawPacket,
+	type DrawSubmission,
 	type FrameContext,
 } from "../../pipeline/types";
 import type {
@@ -105,7 +106,7 @@ export interface WebGLFrameServicesOptions {
 	 * current upload budget. The callback should mark the renderer dirty so
 	 * another frame can continue processing the queue.
 	 */
-	onGeometryUploadPending?: (packets: readonly DrawPacket[]) => void;
+	onGeometryUploadPending?: (submissions: readonly DrawSubmission[]) => void;
 	postProcessRuntime?: BackendPostProcessRuntime;
 	getDisplayOutputState?: () => DisplayOutputState;
 }

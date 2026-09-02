@@ -12,6 +12,7 @@ import type {
 import {
 	DRAW_PACKET_FLAG_SHADOW_RECEIVER,
 	type DrawPacket,
+	type DrawSubmission,
 } from "../../pipeline/types";
 import { GeometryBuilder } from "../../meshes/GeometryBuilder";
 import {
@@ -324,7 +325,13 @@ export class Projector {
 		packet: DrawPacket,
 		frame: SoftwareFrameView
 	): PrimitiveFace[] {
-		const submission = packet.submission;
+		return this.getSubmissionFacesWithFrame(packet.submission, frame);
+	}
+
+	public static getSubmissionFacesWithFrame(
+		submission: DrawSubmission,
+		frame: SoftwareFrameView
+	): PrimitiveFace[] {
 		if (
 			submission.geometry.topology !==
 			DEFAULT_PRIMITIVE_DRAW_TOPOLOGY
@@ -371,7 +378,7 @@ export class Projector {
 
 	private static _canResolveDeformation(
 		packetId: string,
-		mode: DrawPacket["submission"]["deformation"]["mode"],
+		mode: DrawSubmission["deformation"]["mode"],
 		warn: boolean,
 	): boolean {
 		if (mode === "none") return true;

@@ -470,8 +470,6 @@ export class WebGPUFrameServiceOwner {
 		const renderWidth = Math.max(1, context.attachments.width || 1);
 		const renderHeight = Math.max(1, context.attachments.height || 1);
 		const temporalHistoryReset = context.incremental?.temporalHistoryReset === true;
-		const shadowCasterPackets = resolvedOptions.framePackets.shadowCasters.slice();
-		const shadowTransmitterPackets = resolvedOptions.framePackets.shadowTransmitters.slice();
 		const temporalStateMode = resolvedOptions.temporalStateMode ?? "advance";
 		const featureState: WebGPUFeatureState = {
 			enableLighting: features.enableLighting,

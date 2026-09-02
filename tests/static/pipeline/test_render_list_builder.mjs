@@ -172,8 +172,8 @@ function run() {
 	assert.equal(frame.opaquePackets.length, 3);
 	assert.equal(frame.transparentPackets.length, 3);
 	assert.equal(frame.reflectivePackets.length, 1);
-	assert.equal(frame.shadowCasterPackets.length, 3);
-	assert.equal(frame.shadowTransmitterPackets.length, 3);
+	assert.equal(frame.shadowCasterSubmissions.length, 3);
+	assert.equal(frame.shadowTransmitterSubmissions.length, 3);
 
 	assert.equal(frame.opaquePackets[0].submission.source.instanceId, nearOpaque.id);
 	assert.equal(frame.opaquePackets[1].submission.source.instanceId, farOpaque.id);
@@ -225,8 +225,8 @@ function run() {
 		false
 	);
 	assert.equal(
-		occludedFrame.shadowCasterPackets.some(
-			(packet) => packet.submission.source.instanceId === farOpaque.id
+		occludedFrame.shadowCasterSubmissions.some(
+			(submission) => submission.source.instanceId === farOpaque.id
 		),
 		true
 	);
@@ -332,12 +332,12 @@ function testRebuildForCameraUsesOverrideFrustum() {
 	);
 	assert.strictEqual(rebuiltFrame.environment, mainFrame.environment);
 	assert.strictEqual(
-		rebuiltFrame.shadowCasterPackets,
-		mainFrame.shadowCasterPackets
+		rebuiltFrame.shadowCasterSubmissions,
+		mainFrame.shadowCasterSubmissions
 	);
 	assert.strictEqual(
-		rebuiltFrame.shadowTransmitterPackets,
-		mainFrame.shadowTransmitterPackets
+		rebuiltFrame.shadowTransmitterSubmissions,
+		mainFrame.shadowTransmitterSubmissions
 	);
 }
 

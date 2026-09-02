@@ -157,6 +157,7 @@ export interface PreparedSceneState {
 	shadowPlan: ShadowFramePlan;
 	/** Camera-independent mesh submissions reused by main and offscreen views. */
 	submissions: DrawSubmission[];
+	/** Camera-independent shadow classifications over `submissions`. */
 	shadowCasterSubmissions: DrawSubmission[];
 	shadowTransmitterSubmissions: DrawSubmission[];
 	/** @internal Current deformation metadata reused by secondary-camera builds. */
@@ -174,11 +175,8 @@ export interface PreparedSceneView {
 	spatialIndex: PreparedSceneSpatialIndex | null;
 }
 
-/** @internal Transitional combined main-view shape consumed by frame backends. */
-export interface PreparedScene extends PreparedSceneState, PreparedSceneView {
-	shadowCasterPackets: DrawPacket[];
-	shadowTransmitterPackets: DrawPacket[];
-}
+/** @internal Combined camera-independent state and one prepared camera view. */
+export type PreparedScene = PreparedSceneState & PreparedSceneView;
 
 export interface PreparedSceneOcclusionState {
 	enabled: boolean;

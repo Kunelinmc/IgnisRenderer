@@ -86,11 +86,18 @@ function run() {
 		frame.opaquePackets[0].submission.source.instanceId,
 		visibleMesh.id,
 	);
-	assert.equal(frame.shadowCasterPackets.length, 2);
+	assert.equal(frame.shadowCasterSubmissions.length, 2);
 	assert.ok(
-		frame.shadowCasterPackets.some(
-			(packet) => packet.submission.source.instanceId === culledMesh.id
+		frame.shadowCasterSubmissions.some(
+			(submission) => submission.source.instanceId === culledMesh.id
 		)
+	);
+	assert.equal(
+		frame.shadowCasterSubmissions.some(
+			(submission) => "sortDepth" in submission
+		),
+		false,
+		"camera-independent shadow work must not carry view sort depth",
 	);
 	assert.ok(scene.spatial);
 	console.log("Prepared scene BVH culling tests passed");

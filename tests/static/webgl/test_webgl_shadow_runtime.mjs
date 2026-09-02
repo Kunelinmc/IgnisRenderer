@@ -140,8 +140,8 @@ function createContext() {
 		shadowPlan: { hasRasterWork: true },
 		scene: {
 			lights: [],
-			shadowCasterPackets: [],
-			shadowTransmitterPackets: [{}],
+			shadowCasterSubmissions: [],
+			shadowTransmitterSubmissions: [{}],
 			particleSystems: [],
 			sceneBounds: null,
 			camera: null,
@@ -269,7 +269,7 @@ function testCSMSpotPlanAndParticleResourceCatalog() {
 	const host = createHost(gl);
 	const runtime = new WebGLShadowRuntime(host);
 	const context = createContext();
-	context.scene.shadowTransmitterPackets = [];
+	context.scene.shadowTransmitterSubmissions = [];
 	runtime.beginFrame(context);
 	context.scene.particleSystems.push({});
 	const csm = createShadow({

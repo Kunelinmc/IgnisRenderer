@@ -140,15 +140,18 @@ export function toShaderCompileError(
 
 function collectUniqueMaterials(context: FrameContext): Material[] {
 	const unique = new Set<Material>();
-	const packets = [
-		...context.scene.opaquePackets,
-		...context.scene.transparentPackets,
-		...context.scene.shadowCasterPackets,
-		...context.scene.reflectivePackets,
+	const submissions = [
+		...context.scene.shadowCasterSubmissions,
+		...context.scene.shadowTransmitterSubmissions,
+		...[
+			...context.scene.opaquePackets,
+			...context.scene.transparentPackets,
+			...context.scene.reflectivePackets,
+		].map((packet) => packet.submission),
 	];
-	for (const packet of packets) {
-		if (packet.submission.material.effective) {
-			unique.add(packet.submission.material.effective);
+	for (const submission of submissions) {
+		if (submission.material.effective) {
+			unique.add(submission.material.effective);
 		}
 	}
 	return Array.from(unique);
