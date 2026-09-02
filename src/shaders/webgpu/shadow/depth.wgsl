@@ -49,6 +49,12 @@ struct ShadowVertexOutput {
 @group(1) @binding(2) var<storage, read> morphWeights: array<f32>;
 @group(1) @binding(3) var<storage, read> morphPositionDeltas: array<f32>;
 
+// With the current per-draw deformation path, shadow rendering must recompute
+// morphing and skinning. Vertex-stage storage access is read-only, and vertex
+// outputs continue into rasterization instead of being retained in a reusable
+// buffer. Sharing deformed vertices would require a separate compute pass.
+// https://www.w3.org/TR/WGSL/#address-spaces
+// https://www.w3.org/TR/webgpu/#render-pipeline
 fn applyMorphPosition(
 	basePosition: vec3<f32>,
 	vertexIndex: u32,
