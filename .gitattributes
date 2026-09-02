@@ -1,1 +1,2 @@
 * text=auto eol=lf
+src/shaders/generated/** linguist-generated=true
