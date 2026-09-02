@@ -521,11 +521,9 @@ function cloneSHCoefficients(coefficients?: SHCoefficients | null): SHCoefficien
 		return SH.empty();
 	}
 
-	return coefficients.map((coefficient) => ({
-		r: coefficient.r,
-		g: coefficient.g,
-		b: coefficient.b,
-	}));
+	const result = SH.empty();
+	copySHCoefficients(result, coefficients);
+	return result;
 }
 
 function copySHCoefficients(

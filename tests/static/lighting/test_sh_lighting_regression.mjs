@@ -50,10 +50,26 @@ function testSHDirectionality() {
 	console.log("✅ SH Directional projection passed");
 }
 
+function testSHFixedCoefficientShape() {
+	console.log("Testing fixed SH coefficient shape...");
+
+	const sh = SH.empty();
+	assert.equal(sh.length, 16);
+	assert.equal(SH.serialize(sh).length, 48);
+	assert.equal(SH.deserialize(new Array(48).fill(0)).length, 16);
+	assert.throws(
+		() => SH.deserialize(new Array(45).fill(0)),
+		/SH data must contain exactly 48 values/
+	);
+
+	console.log("✅ Fixed SH coefficient shape passed");
+}
+
 function run() {
 	try {
 		testSHReconstruction();
 		testSHDirectionality();
+		testSHFixedCoefficientShape();
 	} catch (e) {
 		console.error("❌ SH test failed");
 		console.error(e);

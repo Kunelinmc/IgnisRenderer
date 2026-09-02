@@ -85,6 +85,7 @@ import {
 import type { SHCoefficients } from "../maths/types";
 import { LightType, ReflectionProbe } from "../lights";
 import { Matrix4 } from "../maths/Matrix4";
+import { SH } from "../maths/SH";
 import { Texture } from "../core/Texture";
 import { Material } from "../materials/Material";
 import {
@@ -161,8 +162,8 @@ export class Renderer extends EventEmitter<RendererEvents> implements FrameCoord
 	private _activeFramePromise: Promise<RenderFrameResult> | null = null;
 	private _destroyPromise: Promise<void> | null = null;
 
-	private _shCoeffs: SHCoefficients = [] as any;
-	private _shAmbientCoeffs: SHCoefficients = [] as any;
+	private _shCoeffs: SHCoefficients = SH.empty();
+	private _shAmbientCoeffs: SHCoefficients = SH.empty();
 
 	private _lastTime = 0;
 	private _deltaTime = 0;

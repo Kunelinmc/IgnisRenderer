@@ -11,7 +11,7 @@ import {
 	DRAW_PACKET_FLAG_SHADOW_RECEIVER,
 	type DrawPacket,
 } from "../../pipeline/types";
-import type { Matrix3Arr } from "../../maths/types";
+import type { Matrix3Arr, Matrix4Arr } from "../../maths/types";
 import { Matrix4 } from "../../maths/Matrix4";
 import {
 	WEBGPU_MODEL_BINDING_ANIMATION_PARAMS,
@@ -42,7 +42,7 @@ import type {
 	WebGPUMaterialBufferLease,
 } from "./WebGPUMaterialBufferCache";
 
-type MatrixRows = number[][];
+type MatrixRows = Matrix4Arr;
 type FloatBuffer = Float32Array<ArrayBuffer>;
 
 interface MaterialBindingEntry {
@@ -482,7 +482,7 @@ function copyNormalMatrixToRows(
 	return changed;
 }
 
-function copyRows(source: MatrixRows, target: MatrixRows): boolean {
+function copyRows(source: number[][], target: MatrixRows): boolean {
 	let changed = false;
 	for (let row = 0; row < 4; row++) {
 		for (let column = 0; column < 4; column++) {

@@ -19,6 +19,11 @@ This document defines clustered lighting, environment IBL, irradiance grids, lig
 - Spot cone attenuation must use `smoothstep(outerCos, innerCos, cosTheta)`.
 - SH coefficients must store radiance. A Lambertian consumer must evaluate
   irradiance from SH and contribute `albedo * irradiance / PI` exactly once.
+- `SHCoefficients` must be a mutable tuple containing exactly `16` `RGB`
+  coefficients for the engine's L=3 representation.
+- SH constructors and deserialization must return exactly `16` coefficients.
+  Deserialization input must contain exactly `48` scalar channel values and
+  must throw `RangeError` otherwise.
 - A scene with no analytical light, environment, probe, or emissive source must
   produce black scene radiance.
 

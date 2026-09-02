@@ -1,6 +1,6 @@
 import type { Vec4Tuple } from "../../maths/Vector4";
 import { Matrix4 } from "../../maths/Matrix4";
-import type { Matrix3Arr } from "../../maths/types";
+import type { Matrix3Arr, Matrix4Arr } from "../../maths/types";
 import {
 	SHADOW_FILTER_MODE_CODE,
 	SHADOW_QUALITY_CODE,
@@ -65,7 +65,7 @@ export {
 
 interface WebGPUObjectUniformInput {
 	modelMatrix: Matrix4 | number[][];
-	normalMatrix: Matrix3Arr | Matrix4;
+	normalMatrix: Matrix3Arr | Matrix4Arr | Matrix4;
 	prevModelMatrix: Matrix4 | number[][];
 	renderLayers: number;
 	receiveShadows: boolean;
@@ -539,7 +539,7 @@ export function packMatrix4ForWGSL(matrix: Matrix4 | number[][]): Float32Array {
 }
 
 export function packNormalMatrix4ForWGSL(
-	normalMatrix: Matrix3Arr | Matrix4
+	normalMatrix: Matrix3Arr | Matrix4Arr | Matrix4
 ): Float32Array {
 	return packMatrix4ForWGSL(createNormalMatrixRows(normalMatrix));
 }
@@ -574,7 +574,7 @@ export function remapClipSpaceDepth(clipZ: number, clipW: number): number {
 
 export function packObjectUniformData(
 	modelMatrix: Matrix4 | number[][],
-	normalMatrix: Matrix3Arr | Matrix4,
+	normalMatrix: Matrix3Arr | Matrix4Arr | Matrix4,
 	prevModelMatrix: Matrix4 | number[][],
 	renderLayers = 1,
 	receiveShadows = true,
@@ -619,7 +619,7 @@ export function createObjectUniformWriter(): WebGPUObjectUniformWriter {
 export function writeObjectUniformData(
 	writer: WebGPUObjectUniformWriter,
 	modelMatrix: Matrix4 | number[][],
-	normalMatrix: Matrix3Arr | Matrix4,
+	normalMatrix: Matrix3Arr | Matrix4Arr | Matrix4,
 	prevModelMatrix: Matrix4 | number[][],
 	renderLayers = 1,
 	receiveShadows = true,
@@ -663,7 +663,9 @@ function resolveMatrixRows(matrix: Matrix4 | number[][]): number[][] {
 	return matrix instanceof Matrix4 ? matrix.elements : matrix;
 }
 
-function createNormalMatrixRows(normalMatrix: Matrix3Arr | Matrix4): number[][] {
+function createNormalMatrixRows(
+	normalMatrix: Matrix3Arr | Matrix4Arr | Matrix4
+): Matrix4Arr {
 	const rows =
 		normalMatrix instanceof Matrix4 ? normalMatrix.elements : normalMatrix;
 

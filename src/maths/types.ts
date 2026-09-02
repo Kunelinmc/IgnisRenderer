@@ -1,4 +1,5 @@
 import type { RGB } from "../foundation/Color";
+import type { Tuple } from "../foundation/types";
 
 export interface IVector2 {
 	x: number;
@@ -23,11 +24,11 @@ export interface Point extends IVector3 {
 	depth?: number;
 }
 
-export type Matrix4Arr = number[][];
-export type Matrix3Arr = number[][];
+export type Matrix4Arr = Tuple<Tuple<number, 4>, 4>;
+export type Matrix3Arr = Tuple<Tuple<number, 3>, 3>;
 
 /**
  * Spherical Harmonics coefficients for 3nd order (L=3)
  * Contains exactly 16 RGB coefficients.
  */
-export type SHCoefficients = RGB[];
+export type SHCoefficients = Tuple<RGB, 16>;

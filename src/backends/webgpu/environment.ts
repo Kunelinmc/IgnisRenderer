@@ -247,12 +247,18 @@ function createWebGPULocalLightProbeUniform(
 		shape: probe.shape === "box" ? 1 : 0,
 		blendDistance: cache.effectiveBlendDistance,
 		priority: cache.priority,
-		sh: probe.sh.map((coefficient) => ({
-			r: coefficient.r,
-			g: coefficient.g,
-			b: coefficient.b,
-		})),
+		sh: cloneSHCoefficients(probe.sh),
 	};
+}
+
+function cloneSHCoefficients(source: SHCoefficients): SHCoefficients {
+	const result = SH.empty();
+	for (let i = 0; i < result.length; i++) {
+		result[i].r = source[i].r;
+		result[i].g = source[i].g;
+		result[i].b = source[i].b;
+	}
+	return result;
 }
 
 function createWebGPUIrradianceProbeGridUniform(

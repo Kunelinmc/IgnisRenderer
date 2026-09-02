@@ -8,6 +8,9 @@ import type { RGB } from "../foundation/Color";
 
 type SHBasisBuffer = number[] | Float32Array;
 
+const SH_COEFFICIENT_COUNT = 16;
+const SH_SERIALIZED_COMPONENT_COUNT = SH_COEFFICIENT_COUNT * 3;
+
 export class SH {
 	/**
 	 * Compute SH basis functions for a given direction vector.
@@ -60,11 +63,14 @@ export class SH {
 		color: RGB
 	): SHCoefficients {
 		const basis = this.evalBasis(dir);
-		return basis.map((b) => ({
-			r: color.r * b,
-			g: color.g * b,
-			b: color.b * b,
-		})) as SHCoefficients;
+		const coefficients = this.empty();
+		for (let i = 0; i < SH_COEFFICIENT_COUNT; i++) {
+			const value = basis[i];
+			coefficients[i].r = color.r * value;
+			coefficients[i].g = color.g * value;
+			coefficients[i].b = color.b * value;
+		}
+		return coefficients;
 	}
 
 	/**
@@ -126,27 +132,18 @@ export class SH {
 		a: SHCoefficients,
 		b: SHCoefficients
 	): SHCoefficients {
-		const len = Math.max(a.length, b.length);
-		const result: RGB[] = [];
-		for (let i = 0; i < len; i++) {
-			const rgbA = a[i] || { r: 0, g: 0, b: 0 };
-			const rgbB = b[i] || { r: 0, g: 0, b: 0 };
-			result.push({
-				r: rgbA.r + rgbB.r,
-				g: rgbA.g + rgbB.g,
-				b: rgbA.b + rgbB.b,
-			});
+		const result = this.empty();
+		for (let i = 0; i < SH_COEFFICIENT_COUNT; i++) {
+			result[i].r = a[i].r + b[i].r;
+			result[i].g = a[i].g + b[i].g;
+			result[i].b = a[i].b + b[i].b;
 		}
-		return result as SHCoefficients;
+		return result;
 	}
 
-	/**
-	 * Create empty (zero) SH coefficients
-	 * @param orderSH The order of SH (e.g. 3 for L=3, 16 coefficients)
-	 */
-	public static empty(orderSH = 3): SHCoefficients {
-		const count = (orderSH + 1) * (orderSH + 1);
-		return Array.from({ length: count }, () => ({
+	/** Creates the engine's empty L=3 spherical harmonics coefficients. */
+	public static empty(): SHCoefficients {
+		return Array.from({ length: SH_COEFFICIENT_COUNT }, () => ({
 			r: 0,
 			g: 0,
 			b: 0,
@@ -168,15 +165,20 @@ export class SH {
 	 * Deserialize a flat array back to SH coefficients format
 	 */
 	public static deserialize(flat: number[]): SHCoefficients {
-		const coeffs: RGB[] = [];
-		const count = Math.floor(flat.length / 3);
-		for (let i = 0; i < count; i++) {
-			coeffs.push({
+		if (flat.length !== SH_SERIALIZED_COMPONENT_COUNT) {
+			throw new RangeError(
+				`Serialized SH data must contain exactly ${SH_SERIALIZED_COMPONENT_COUNT} values.`
+			);
+		}
+
+		const coefficients = this.empty();
+		for (let i = 0; i < SH_COEFFICIENT_COUNT; i++) {
+			coefficients[i] = {
 				r: flat[i * 3],
 				g: flat[i * 3 + 1],
 				b: flat[i * 3 + 2],
-			});
+			};
 		}
-		return coeffs as SHCoefficients;
+		return coefficients;
 	}
 }

@@ -88,9 +88,9 @@ backend-specific types into public contracts.
 
 Cross-cutting utilities live under `src/foundation/`. Custom error subclasses
 are centralized in `src/foundation/Error.ts`; platform detection, color
-conversion, logging, and deterministic identifiers have similarly narrow
-owners. This keeps low-level dependencies consistent across public facades,
-simulation, workers, and backends.
+conversion, logging, deterministic identifiers, and shared type utilities have
+similarly narrow owners. This keeps low-level dependencies consistent across
+public facades, simulation, workers, and backends.
 
 ## Related Documents
 

@@ -4,6 +4,15 @@ This document defines cross-backend rendering features, capability gating, pass 
 
 ## Contract
 
+### Fixed-size math arrays
+
+- The foundation type utility `Tuple<T, N>` must represent a mutable array with
+  exactly `N` elements at TypeScript assignment boundaries.
+- `Matrix4Arr` must contain exactly four rows of four numbers.
+- `Matrix3Arr` must contain exactly three rows of three numbers.
+- These tuple contracts must remain mutable because matrix operations write
+  elements in place.
+
 ### Order-independent transparency
 
 - `BackendCapabilities.oit` must exist on all backends.

@@ -16,6 +16,7 @@ import type {
 } from "../../lights/shadows/ShadowFramePlan";
 import type { ResolvedShadowStrategy } from "../../lights/runtime/lightingRuntime";
 import type { Matrix4 } from "../../maths/Matrix4";
+import { SH } from "../../maths/SH";
 import type { IVector3, SHCoefficients } from "../../maths/types";
 import { collectActiveLocalizedLightProbes } from "../../lights/runtime/lightProbeRuntime";
 import {
@@ -441,12 +442,18 @@ function createWebGLLocalLightProbeUniform(
 		shape: probe.shape === "box" ? 1 : 0,
 		blendDistance: cache.effectiveBlendDistance,
 		priority: cache.priority,
-		sh: probe.sh.map((coefficient) => ({
-			r: coefficient.r,
-			g: coefficient.g,
-			b: coefficient.b,
-		})),
+		sh: cloneSHCoefficients(probe.sh),
 	};
+}
+
+function cloneSHCoefficients(source: SHCoefficients): SHCoefficients {
+	const result = SH.empty();
+	for (let i = 0; i < result.length; i++) {
+		result[i].r = source[i].r;
+		result[i].g = source[i].g;
+		result[i].b = source[i].b;
+	}
+	return result;
 }
 
 function createWebGLIrradianceProbeGridUniform(

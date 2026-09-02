@@ -13,6 +13,7 @@ export * from "./maths/types";
 export * from "./foundation/Color";
 export * from "./foundation/Logger";
 export * from "./foundation/Platform";
+export type { Tuple } from "./foundation/types";
 export { Node } from "./core/Node";
 export { Environment } from "./core/Environment";
 export { TextureFormat } from "./core/TextureFormat";
