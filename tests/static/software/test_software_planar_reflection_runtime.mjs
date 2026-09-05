@@ -509,6 +509,39 @@ function testReflectionCaptureDisablesRecursiveComposite() {
 	);
 }
 
+function testReflectionCaptureUsesMaterialOpacity() {
+	const mirrorPlane = { normal: { x: 0, y: 0, z: 1 }, constant: 0 };
+	for (const opacity of [0.5, 0.05]) {
+		const mirrorPacket = createTrianglePacket(
+			"mirror-opacity",
+			{ r: 0, g: 0, b: 0 },
+			{ reflectivity: 1, mirrorPlane },
+		);
+		const reflectedPacket = createTrianglePacket(
+			"reflected-opacity",
+			{ r: 255, g: 0, b: 0 },
+			{ zOffset: 1, alphaMode: AlphaMode.Blend, opacity },
+		);
+		const context = createContext(createCamera(), {
+			opaquePackets: [mirrorPacket],
+			transparentPackets: [reflectedPacket],
+			reflectivePackets: [mirrorPacket],
+		});
+		const runtime = new SoftwarePlanarReflectionRuntime(new Rasterizer());
+		runtime.render(createSoftwarePassContextForTesting(context));
+		const buffer = runtime.reflectionBuffers.get(
+			resolveSoftwarePlanarReflectionPlaneKey(mirrorPlane),
+		);
+		assert.ok(buffer, "reflection capture must produce a buffer");
+		const centerPixel = ((buffer.height >> 1) * buffer.width + (buffer.width >> 1)) * 4;
+		const expectedRed = opacity === 0.5 ? 0.5 : 0;
+		assert.ok(
+			Math.abs(buffer.color[centerPixel] - expectedRed) < 1e-6,
+			"material opacity must control reflection blending and low-opacity filtering",
+		);
+	}
+}
+
 function testRasterizerDoesNotReferencePlanarReflection() {
 	const source = readFileSync(
 		new URL("../../../src/backends/software/Rasterizer.ts", import.meta.url),
@@ -525,6 +558,7 @@ async function run() {
 	testRuntimeCompositeHonorsAlphaMask();
 	await testReflectionPassCompositeAfterMainPass();
 	testReflectionCaptureDisablesRecursiveComposite();
+	testReflectionCaptureUsesMaterialOpacity();
 	testRasterizerDoesNotReferencePlanarReflection();
 	console.log("Software planar reflection runtime tests passed");
 }

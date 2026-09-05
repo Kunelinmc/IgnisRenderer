@@ -85,13 +85,7 @@ export interface PrimitiveFace {
 	material: Material;
 	vertices: IVertex[];
 	receiveShadows: boolean;
-	color?: RGBA;
 	normal?: IVector3;
-	/**
-	 * Flat-cached double-sided flag. Used by the CPU software renderer/projector
-	 * for self-contained clipping, culling, and normal calculations.
-	 */
-	doubleSided?: boolean;
 }
 
 export interface ProjectedVertex extends IVector3 {

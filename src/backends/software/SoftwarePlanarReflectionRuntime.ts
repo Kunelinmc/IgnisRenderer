@@ -209,7 +209,7 @@ export class SoftwarePlanarReflectionRuntime {
 						if (isCameraAbove ? dist < 0 : dist > 0) continue;
 					}
 
-					const alpha = face.color?.a ?? face.material?.opacity ?? 1;
+					const alpha = face.material.opacity;
 					if (alpha < 0.1) continue;
 					const explicitAlphaMode = face.material?.alphaMode;
 					const alphaMode = explicitAlphaMode || AlphaMode.Opaque;

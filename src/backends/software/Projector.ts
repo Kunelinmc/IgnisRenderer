@@ -257,8 +257,6 @@ export class Projector {
 					material: submission.material.effective,
 					vertices: triClipped.map((vertex) => vertex.world),
 					receiveShadows: face.receiveShadows,
-					color: face.color,
-					doubleSided: face.doubleSided,
 					projected: triProjected,
 					center: {
 						x: centerX / 3,
@@ -314,7 +312,6 @@ export class Projector {
 				receiveShadows:
 					(submission.passFlags & DRAW_PACKET_FLAG_SHADOW_RECEIVER) !== 0,
 				normal: Vector3.calculateNormal(vertices),
-				doubleSided: submission.material.effective.doubleSided,
 			});
 		}
 
@@ -370,7 +367,6 @@ export class Projector {
 				receiveShadows:
 					(submission.passFlags & DRAW_PACKET_FLAG_SHADOW_RECEIVER) !== 0,
 				normal: Vector3.calculateNormal(vertices),
-				doubleSided: submission.material.effective.doubleSided,
 			});
 		}
 		return faces;

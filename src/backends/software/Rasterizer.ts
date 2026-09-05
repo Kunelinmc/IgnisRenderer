@@ -629,9 +629,7 @@ export class Rasterizer implements RasterizerLike {
 									);
 								}
 							} else {
-								const faceAlpha = face.color?.a ?? 1;
-								const shaderAlpha = program.getOpacity();
-								const alpha = clamp(faceAlpha * shaderAlpha);
+								const alpha = clamp(program.getOpacity());
 								const invA = 1 - alpha;
 								pixels[idx] = finalColor.r * alpha + pixels[idx] * invA;
 								pixels[idx + 1] = finalColor.g * alpha + pixels[idx + 1] * invA;
@@ -715,8 +713,7 @@ export class Rasterizer implements RasterizerLike {
 		if (clipMinX > clipMaxX || clipMinY > clipMaxY) return;
 
 		const wireColor = { r: 1, g: 1, b: 1 };
-		const alpha =
-			isTransparent ? clamp(face.color?.a ?? material.opacity ?? 1) : 1;
+		const alpha = isTransparent ? clamp(material.opacity) : 1;
 
 		const drawLine = (p0: ProjectedVertex, p1: ProjectedVertex) => {
 			const x0 = p0.x,

@@ -80,6 +80,17 @@ material inputs such as albedo, roughness, metalness, opacity, and alpha-test
 coverage must retain their declared ranges. Environment, emissive, reflection,
 transparent, and additive-particle results may exceed `1.0`.
 
+`PrimitiveFace` and `ProjectedFace` must use their effective `material` for
+surface color and opacity. Faces must not carry a separate color or alpha
+override; per-vertex colors remain geometry attributes. Transparent triangle
+blending must apply the fragment program's resolved opacity exactly once,
+including material opacity and texture alpha. Transparent wireframe opacity
+and planar-reflection face filtering must read `material.opacity`.
+
+Face culling and back-face normal orientation must read `material.doubleSided`
+without caching a separate face flag. `ProjectedFace.frontFacing` must remain
+the projection-derived winding classification used to orient shading normals.
+
 Built-in SSAO, TAA, FXAA, and color-filter implementations must operate on
 float scene color. TAA history must preserve radiance above `1.0`. HDR color
 filter output may be limited by the requested `hdrHeadroom`, but must not be

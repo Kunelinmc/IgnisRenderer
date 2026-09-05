@@ -333,22 +333,67 @@ async function testTransparentScanlinePreservesPacketOrder() {
 }
 
 async function testTransparentPresentationCoverage() {
-	const backend = createSoftwareSession();
-	const attachments = await renderPass(backend, "main-transparent", {
-		presentationAlphaMode: "premultiplied",
-		transparentPackets: [createTrianglePacket(
+	for (const textureAlpha of [null, 128]) {
+		const packet = createTrianglePacket(
 			"transparent-coverage",
 			{ r: 255, g: 0, b: 0 },
 			{ alphaMode: AlphaMode.Blend, opacity: 0.5 },
-		)],
+		);
+		if (textureAlpha !== null) {
+			packet.submission.material.effective.map = {
+				data: new Uint8ClampedArray([255, 255, 255, textureAlpha]),
+				width: 1,
+				height: 1,
+				repeat: { x: 1, y: 1 },
+				offset: { x: 0, y: 0 },
+				rotation: 0,
+				wrapS: "ClampToEdge",
+				wrapT: "ClampToEdge",
+			};
+		}
+		const backend = createSoftwareSession();
+		const attachments = await renderPass(backend, "main-transparent", {
+			presentationAlphaMode: "premultiplied",
+			transparentPackets: [packet],
+		});
+		const centerPixel =
+			(Math.floor(HEIGHT / 2) * WIDTH + Math.floor(WIDTH / 2)) * 4;
+		const sceneColor = backend._surface.getSceneColorTarget();
+		const expectedAlpha = 0.5 * (textureAlpha === null ? 1 : textureAlpha / 255);
+		assert.ok(Math.abs(sceneColor[centerPixel] - expectedAlpha) < 1e-6);
+		assert.ok(
+			Math.abs(sceneColor[centerPixel + 3] - expectedAlpha) < 1e-6,
+			"material opacity and texture alpha must each contribute exactly once",
+		);
+		assert.ok(Math.abs(attachments.pixels[centerPixel + 3] - expectedAlpha * 255) <= 1);
+		assert.equal(attachments.pixels[3], 0, "transparent clear must retain zero alpha");
+		backend.destroy();
+	}
+}
+
+async function testTransparentWireframeUsesMaterialOpacity() {
+	const packet = createTrianglePacket(
+		"transparent-wireframe",
+		{ r: 255, g: 0, b: 0 },
+		{ alphaMode: AlphaMode.Blend, opacity: 0.35 },
+	);
+	packet.submission.material.effective.wireframe = true;
+	const backend = createSoftwareSession();
+	await renderPass(backend, "main-transparent", {
+		presentationAlphaMode: "premultiplied",
+		transparentPackets: [packet],
 	});
-	const centerPixel =
-		(Math.floor(HEIGHT / 2) * WIDTH + Math.floor(WIDTH / 2)) * 4;
 	const sceneColor = backend._surface.getSceneColorTarget();
-	assert.ok(Math.abs(sceneColor[centerPixel] - 0.5) < 0.02);
-	assert.ok(Math.abs(sceneColor[centerPixel + 3] - 0.5) < 0.02);
-	assert.ok(Math.abs(attachments.pixels[centerPixel + 3] - 128) <= 2);
-	assert.equal(attachments.pixels[3], 0, "transparent clear must retain zero alpha");
+	let wireframePixels = 0;
+	for (let pixel = 0; pixel < sceneColor.length; pixel += 4) {
+		if (sceneColor[pixel + 1] <= 0) continue;
+		wireframePixels++;
+		assert.ok(
+			Math.abs(sceneColor[pixel + 3] - 0.35) < 1e-6,
+			"wireframe coverage must use material opacity",
+		);
+	}
+	assert.ok(wireframePixels > 0, "transparent wireframe edges must be rendered");
 	backend.destroy();
 }
 
@@ -366,6 +411,31 @@ async function testOpaqueMaterialWritesFullCoverageOnTransparentSurface() {
 		(Math.floor(HEIGHT / 2) * WIDTH + Math.floor(WIDTH / 2)) * 4;
 	assert.equal(attachments.pixels[centerPixel + 3], 255);
 	backend.destroy();
+}
+
+async function testMaterialDoubleSidedControlsCulling() {
+	for (const backFacing of [false, true]) {
+		const packet = createTrianglePacket(
+			"material-culling",
+			{ r: 255, g: 0, b: 0 },
+		);
+		if (backFacing) {
+			packet.submission.geometry.data.indices.set([0, 2, 1]);
+		}
+		for (const doubleSided of [false, true]) {
+			packet.submission.material.effective.doubleSided = doubleSided;
+			const backend = createSoftwareSession();
+			const attachments = await renderPass(backend, "main-opaque", {
+				opaquePackets: [packet],
+			});
+			const center = Math.floor(HEIGHT / 2) * WIDTH + Math.floor(WIDTH / 2);
+			const shouldRender = !backFacing || doubleSided;
+			const message = `backFacing=${backFacing}, material.doubleSided=${doubleSided}`;
+			assert.equal(attachments.pixels[center * 4] > 0, shouldRender, message);
+			assert.equal(Number.isFinite(attachments.depthBuffer[center]), shouldRender, message);
+			backend.destroy();
+		}
+	}
 }
 
 function testMissingActiveDeformationSkipsSoftwarePacket() {
@@ -393,7 +463,9 @@ async function run() {
 	await testIncrementalRasterClipsOutsideDirtyRegion();
 	await testTransparentScanlinePreservesPacketOrder();
 	await testTransparentPresentationCoverage();
+	await testTransparentWireframeUsesMaterialOpacity();
 	await testOpaqueMaterialWritesFullCoverageOnTransparentSurface();
+	await testMaterialDoubleSidedControlsCulling();
 	testMissingActiveDeformationSkipsSoftwarePacket();
 	console.log("Software scanline raster tests passed");
 }
