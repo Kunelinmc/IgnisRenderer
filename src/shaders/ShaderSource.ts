@@ -358,6 +358,8 @@ export class ShaderSource {
 		return bundled;
 	}
 	private static async _readBrowserBundledShaderSource(descriptor: ShaderSourceFileDescriptor): Promise<string> {
+		const syncSource = browserSyncShaderSources[descriptor.path];
+		if (syncSource !== undefined) return syncSource;
 		const loader = browserShaderSources[descriptor.path];
 		if (loader) return loader();
 		const { embeddedShaderSources } = await import("./generated/embeddedShaderSources");
@@ -384,12 +386,22 @@ export class ShaderSource {
 function createBrowserShaderSources(): ImportMetaGlobLoaderMap {
 	if (Platform.isNodeRuntime()) return {};
 	try {
-		return import.meta.glob<string>(["./webgl/**/*.glsl", "./webgpu/**/*.wgsl", "!./webgpu/utility/mipmapBlit.wgsl"], { query: "?raw", import: "default" });
+		return import.meta.glob<string>([
+			"./webgl/**/*.glsl",
+			"./webgpu/**/*.wgsl",
+			"!./webgl/material/shaderMaterialTextureHelpers.glsl",
+			"!./webgpu/material/shaderMaterialTextureHelpers.wgsl",
+			"!./webgpu/utility/mipmapBlit.wgsl",
+		], { query: "?raw", import: "default" });
 	} catch { return {}; }
 }
 function createBrowserSyncShaderSources(): Record<string, string> {
 	if (Platform.isNodeRuntime()) return {};
 	try {
-		return import.meta.glob<string>("./webgpu/utility/mipmapBlit.wgsl", { query: "?raw", import: "default", eager: true });
+		return import.meta.glob<string>([
+			"./webgl/material/shaderMaterialTextureHelpers.glsl",
+			"./webgpu/material/shaderMaterialTextureHelpers.wgsl",
+			"./webgpu/utility/mipmapBlit.wgsl",
+		], { query: "?raw", import: "default", eager: true });
 	} catch { return {}; }
 }

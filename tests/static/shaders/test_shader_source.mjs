@@ -2,11 +2,15 @@ import assert from "node:assert/strict";
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+
+import { Platform } from "../../../src/foundation/Platform.ts";
 import {
 	ShaderSource,
 } from "../../../src/shaders/ShaderSource.ts";
 import { WEBGL_SHADER_MANIFEST } from "../../../src/shaders/webgl/sources.ts";
+import { WEBGPU_SHADER_MANIFEST } from "../../../src/shaders/webgpu/sources.ts";
 import { embeddedShaderSources } from "../../../src/shaders/generated/embeddedShaderSources.ts";
+import { embeddedSyncShaderSources } from "../../../src/shaders/generated/embeddedSyncShaderSources.ts";
 import {
 	resolveShaderManifestRequest,
 	validateShaderBackendManifest,
@@ -597,6 +601,36 @@ function testSyncLoadPopulatesPreparedCache() {
 	assert.equal(ShaderSource.get("webgpu.utility.mipmapBlit").source.code, source.source.code);
 }
 
+function testBrowserSyncSourcesWithoutPreparation() {
+	const originalIsNodeRuntime = Platform.isNodeRuntime;
+	// Disable filesystem loading; this runner also has no Vite import.meta.glob.
+	Platform.isNodeRuntime = () => false;
+	ShaderSource.resetConfiguration();
+
+	try {
+		for (const key of [
+			"webgpu.material.textureHelpers",
+			"webgl.material.textureHelpers",
+			"webgpu.utility.mipmapBlit",
+		]) {
+			const manifest = key.startsWith("webgpu.") ?
+				WEBGPU_SHADER_MANIFEST : WEBGL_SHADER_MANIFEST;
+			const asset = manifest.assets[manifest.sources[key].source.asset];
+			assert.equal(ShaderSource.has(key), false);
+			const result = ShaderSource.getSync(key);
+			assert.equal(result.source.code, embeddedShaderSources[asset.path]);
+			assert.equal(result.source.sourceMap.segments[0].sourcePath, asset.path);
+			assert.equal(ShaderSource.has(key), true);
+			assert.equal(ShaderSource.get(key).source.code, result.source.code);
+			ShaderSource.clearCache(manifest.backend);
+			assert.equal(ShaderSource.getSync(key).source.code, result.source.code);
+		}
+	} finally {
+		Platform.isNodeRuntime = originalIsNodeRuntime;
+		ShaderSource.resetConfiguration();
+	}
+}
+
 async function testCustomAsyncLoaderOverridesBuiltInSource() {
 	ShaderSource.configure({
 		loader: async (descriptor) => {
@@ -871,6 +905,16 @@ async function testEmbeddedManifestMatchesShaderFiles() {
 		const normalized = content.replace(/\r\n/g, "\n");
 		assert.equal(embeddedShaderSources[shaderPath], normalized);
 	}
+	for (const manifest of [WEBGPU_SHADER_MANIFEST, WEBGL_SHADER_MANIFEST]) {
+		for (const asset of Object.values(manifest.assets)) {
+			if (!asset.sync) continue;
+			assert.equal(
+				embeddedSyncShaderSources[asset.path],
+				embeddedShaderSources[asset.path],
+				`Synchronous shader asset must be bundled: ${asset.path}`,
+			);
+		}
+	}
 }
 
 function testPostProcessShaderConstantsMatchCPUContract() {
@@ -929,6 +973,7 @@ async function run() {
 	await testWebGPUSharedNumericalConstants();
 	await testCompositeResultsAreCloned();
 	testSyncLoadPopulatesPreparedCache();
+	testBrowserSyncSourcesWithoutPreparation();
 	await testCustomAsyncLoaderOverridesBuiltInSource();
 	await testCustomLoaderFailureFallsBackToBuiltIns();
 	testCustomSyncLoaderOverridesBuiltInSource();

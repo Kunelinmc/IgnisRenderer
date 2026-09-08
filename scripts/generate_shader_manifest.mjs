@@ -19,6 +19,8 @@ const syncOutputPath = path.join(
 );
 const syncShaderPaths = new Set([
 	"./webgl/common/animation.glsl",
+	"./webgl/material/shaderMaterialTextureHelpers.glsl",
+	"./webgpu/material/shaderMaterialTextureHelpers.wgsl",
 	"./webgpu/utility/mipmapBlit.wgsl",
 ]);
 

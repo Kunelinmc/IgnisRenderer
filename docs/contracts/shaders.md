@@ -21,6 +21,11 @@ This document defines shader source ownership, composition, diagnostics, and cus
 - `ShaderSource.getSync(key)` must synchronously load only keys listed by the
   `ShaderSourceSyncKey` contract. It must populate the same prepared cache used
   by `ShaderSource.get()`.
+- Browser bundles must include every approved synchronous source without
+  requiring prior asynchronous preparation. This includes the WebGPU and WebGL
+  material texture helpers used during custom-material program resolution.
+- The generated synchronous source table must contain every backend manifest
+  asset marked `sync`, with contents matching the source shader file.
 - `ShaderSource.has(key, params)` must report whether `ShaderSource.get()` can
   return the requested source without asynchronous work.
 - `ShaderSource.clearCache(scope)` must clear raw, composite, assembled, and
