@@ -309,7 +309,7 @@ export class PreparedScenePacketCache {
 			castShadows: primitive.castShadows === true,
 			receiveShadows: primitive.receiveShadows !== false,
 			renderLayers: meshInstance.renderLayers,
-			materialRevision: this._getMaterialRevision(primitive.material),
+			materialRevision: this.getMaterialRevision(primitive.material),
 		};
 	}
 
@@ -337,11 +337,17 @@ export class PreparedScenePacketCache {
 			signature.castShadows === (primitive.castShadows === true) &&
 			signature.receiveShadows === (primitive.receiveShadows !== false) &&
 			signature.renderLayers === meshInstance.renderLayers &&
-			signature.materialRevision === this._getMaterialRevision(primitive.material)
+			signature.materialRevision === this.getMaterialRevision(primitive.material)
 		);
 	}
 
-	private _getMaterialRevision(material: Material): number {
+	/**
+	 * Reuses a material revision within the current preparation frame.
+	 *
+	 * @internal Owned by prepared-scene construction; public callers should use
+	 * `Material.revision` to observe current material state.
+	 */
+	public getMaterialRevision(material: Material): number {
 		let revision = this._materialRevisions.get(material);
 		if (revision !== undefined) return revision;
 		revision = material.revision;
@@ -757,6 +763,7 @@ export class PreparedSceneBuilder {
 					instance!,
 					worldScale,
 					deformation,
+					packetCache?.getMaterialRevision(primitive.material) ?? primitive.material.revision,
 				);
 				if (packetCache) {
 					submission = packetCache.storeSubmission(
@@ -777,7 +784,8 @@ export class PreparedSceneBuilder {
 		source: DrawSourceRef,
 		instance: DrawInstanceBinding,
 		worldScale: number,
-		deformation: PrimitiveDeformationState | null
+		deformation: PrimitiveDeformationState | null,
+		materialRevision: number,
 	): DrawSubmission {
 		const material = primitive.material;
 		const isTransparent = isMaterialTransparentPass(material);
@@ -817,7 +825,7 @@ export class PreparedSceneBuilder {
 			instance,
 			material: {
 				effective: material,
-				revision: material.revision,
+				revision: materialRevision,
 				pipelineKey: createMaterialPipelineKey(material),
 			},
 			deformation: deformation ? {

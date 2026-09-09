@@ -889,6 +889,89 @@ function testPreparedPacketCacheReusesViewLocalPackets() {
 	assert.equal(topologyChanged.submission.geometry.topology, "line-list");
 }
 
+function testPreparedSubmissionsShareMaterialRevisionScans() {
+	const materials = [new Material(), new Material()];
+	const revisionReads = [0, 0];
+	const revisionGetter = Object.getOwnPropertyDescriptor(Material.prototype, "revision").get;
+	for (const [index, material] of materials.entries()) {
+		Object.defineProperty(material, "revision", {
+			get() {
+				revisionReads[index]++;
+				return revisionGetter.call(this);
+			},
+		});
+	}
+	const mesh = MeshAsset.fromFaces(materials.map((material) => ({
+		material,
+		vertices: [
+			{ x: 0, y: 0, z: -2 },
+			{ x: 1, y: 0, z: -2 },
+			{ x: 0, y: 1, z: -2 },
+		],
+	})));
+	const scene = new Scene();
+	const camera = scene.add(new Camera());
+	scene.add(new MeshInstance({ mesh }));
+	scene.add(new MeshInstance({ mesh }));
+	scene.updateWorldMatrices();
+	camera.updateMatrices();
+	const packets = new PreparedScenePacketCache();
+	const build = (cached = true) => {
+		if (cached) packets.beginFrame();
+		try {
+			return PreparedSceneBuilder.build(
+				{ scene, camera, hasActiveAnimations: false },
+				cached ? { packetCache: packets } : {},
+			).submissions;
+		} finally {
+			if (cached) packets.endFrame();
+		}
+	};
+	const first = build();
+	assert.equal(first.length, 4);
+	assert.deepEqual(revisionReads, [1, 1], "shared materials are scanned once on cache misses");
+	const unchanged = build();
+	assert.deepEqual(revisionReads, [2, 2], "each new frame refreshes its material observations");
+	for (const [index, submission] of unchanged.entries()) {
+		assert.equal(submission, first[index]);
+	}
+
+	materials[0].opacity = 0.5;
+	const changed = build();
+	assert.deepEqual(revisionReads, [3, 3], "rebuilding changed submissions reuses the scan");
+	for (const [index, submission] of changed.entries()) {
+		if (submission.material.effective === materials[0]) {
+			assert.notEqual(submission, first[index]);
+			assert.ok(submission.material.revision > first[index].material.revision);
+		} else {
+			assert.equal(submission, first[index]);
+		}
+	}
+
+	packets.clear();
+	materials[1].depthWrite = false;
+	const reset = build();
+	assert.deepEqual(revisionReads, [4, 4], "resize-style cache clearing keeps scans deduplicated");
+	for (const [index, submission] of reset.entries()) {
+		if (submission.material.effective === materials[1]) {
+			assert.ok(submission.material.revision > changed[index].material.revision);
+		} else {
+			assert.equal(submission.material.revision, changed[index].material.revision);
+		}
+	}
+
+	materials[0].depthWrite = false;
+	const uncached = build(false);
+	assert.equal(uncached.length, first.length);
+	for (const [index, submission] of uncached.entries()) {
+		if (submission.material.effective === materials[0]) {
+			assert.ok(submission.material.revision > reset[index].material.revision);
+		} else {
+			assert.equal(submission.material.revision, reset[index].material.revision);
+		}
+	}
+}
+
 function run() {
 	testPacketDiffLifecycle();
 	testBackendDirtyRectsJoinPreparedCoverage();
@@ -903,6 +986,7 @@ function run() {
 	testCameraMatrixChangeForcesFullFrameAndRebasesPacketRects();
 	testMainViewReusesCameraIndependentPreparedState();
 	testPreparedPacketCacheReusesViewLocalPackets();
+	testPreparedSubmissionsShareMaterialRevisionScans();
 	console.log("Prepared scene cache tests passed");
 }
 

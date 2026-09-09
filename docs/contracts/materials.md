@@ -14,6 +14,10 @@ This document defines texture formats, PBR material extensions, and depth-write 
 - Direct assignment to existing public material properties must remain
   supported. Nested color values and texture sampling transforms must be
   checked once per unique material before clean-frame rejection.
+- Cached prepared-scene construction must refresh each unique material revision
+  once per preparation frame and share it between submission bindings and cache
+  signatures. A new preparation frame or cache reset must discard those revision
+  observations. Uncached construction must still refresh material revisions.
 - `Texture.samplingRevision` must advance when UV transforms, wrapping,
   filtering, rotation, or color-space sampling semantics change. Pixel upload
   changes must continue to use `Texture.version`.
