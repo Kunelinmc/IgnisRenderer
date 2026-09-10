@@ -65,29 +65,7 @@ function ids(values) {
 	return values.map((value) => value.id).sort();
 }
 
-function run() {
-	const rng = createRng(0x51a71a1);
-	const mesh = createMesh();
-	const instances = [];
-	for (let index = 0; index < 240; index++) {
-		const instance = new MeshInstance({
-			mesh,
-			skeleton: index % 5 === 0 ? {} : null,
-		});
-		instance.position.set(
-			(rng() - 0.5) * 40,
-			(rng() - 0.5) * 20,
-			-2 - rng() * 80
-		);
-		instance.updateWorldMatrix();
-		instances.push(instance);
-	}
-	const indexes = [
-		new BVH(instances),
-		new LooseOctree(instances),
-		new HybridSpatialIndex(instances),
-	];
-
+function assertQueryParity(indexes, instances, rng) {
 	const camera = new Camera();
 	camera.updateWorldMatrix();
 	camera.updateMatrices();
@@ -115,7 +93,10 @@ function run() {
 	}
 
 	for (let queryIndex = 0; queryIndex < 20; queryIndex++) {
-		const origin = { x: (rng() - 0.5) * 30, y: (rng() - 0.5) * 15, z: 4 };
+		const target = instances[queryIndex * 11].position;
+		const origin = queryIndex % 2 === 0 ?
+			{ x: target.x, y: target.y, z: 4 }
+		: { x: (rng() - 0.5) * 30, y: (rng() - 0.5) * 15, z: 4 };
 		const direction = { x: 0, y: 0, z: -1 };
 		const expected = instances
 			.map((meshInstance) => ({
@@ -131,15 +112,56 @@ function run() {
 				(left, right) =>
 					left.distance - right.distance ||
 					left.meshInstance.id.localeCompare(right.meshInstance.id)
-			)
-			.slice(0, 8);
-		for (const index of indexes) {
-			const actual = index.queryRayDetailed(origin, direction, { maxResults: 8 });
-			assert.deepEqual(
-				actual.map((hit) => [hit.meshInstance.id, hit.distance]),
-				expected.map((hit) => [hit.meshInstance.id, hit.distance])
 			);
+		for (const maxResults of [1, 8]) {
+			for (const index of indexes) {
+				const actual = index.queryRayDetailed(origin, direction, { maxResults });
+				assert.deepEqual(
+					actual.map((hit) => [hit.meshInstance.id, hit.distance]),
+					expected.slice(0, maxResults).map((hit) => [hit.meshInstance.id, hit.distance])
+				);
+			}
 		}
+	}
+}
+
+function run() {
+	const rng = createRng(0x51a71a1);
+	const mesh = createMesh();
+	const instances = [];
+	for (let index = 0; index < 240; index++) {
+		const instance = new MeshInstance({
+			mesh,
+			skeleton: index % 5 === 0 ? {} : null,
+		});
+		instance.position.set(
+			(rng() - 0.5) * 40,
+			(rng() - 0.5) * 20,
+			-2 - rng() * 80
+		);
+		instance.updateWorldMatrix();
+		instances.push(instance);
+	}
+	const indexes = [
+		new BVH(instances),
+		new LooseOctree(instances),
+		new LooseOctree(instances, { looseness: 1 }),
+		new LooseOctree(instances, { looseness: 2 }),
+		new HybridSpatialIndex(instances),
+		new HybridSpatialIndex(instances, { dynamicBackend: "octree" }),
+	];
+	assertQueryParity(indexes, instances, rng);
+	// Exercise both in-place loose-node updates and reinsertion after larger moves.
+	for (const movement of [0.2, 20]) {
+		for (let i = 0; i < instances.length; i += 2) {
+			const instance = instances[i];
+			instance.position.x += (rng() - 0.5) * movement;
+			instance.position.y += (rng() - 0.5) * movement;
+			instance.position.z += (rng() - 0.5) * movement;
+			instance.updateWorldMatrix();
+			for (const index of indexes) index.markDirty(instance);
+		}
+		assertQueryParity(indexes, instances, rng);
 	}
 
 	console.log("Spatial query parity tests passed");

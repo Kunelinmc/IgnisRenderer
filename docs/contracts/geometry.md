@@ -77,8 +77,19 @@ This document defines spatial indexing, level-of-detail mesh selection, and cons
 - `HybridSpatialIndex.markDirty(meshInstance)` must preserve incremental
   updates within the currently selected dynamic backend unless the instance
   migrates between static and dynamic buckets.
+- `LooseOctree` insertion and redistribution must select one candidate child
+  from the center of the object's world-space AABB. The child may receive the
+  object only when its loose bounds, with half-size `childHalf * looseness`,
+  fully contain that AABB. Objects crossing a tight child boundary should
+  descend when they fit the selected child's loose bounds.
+- `LooseOctree` must store each object in exactly one node even when loose
+  child bounds overlap. Objects that do not fit the selected child must remain
+  in the parent. Descent must respect `maxDepth` and the minimum cell size;
+  `looseness: 1` must retain tight-bound containment.
 - `LooseOctree.markDirty(meshInstance)` should update the stored bounds in place
-  when the updated AABB remains inside the current loose node.
+  when the updated AABB remains inside the current loose node, including when
+  its center crosses a tight child boundary. Queries must still find the part
+  of an object's AABB outside its node's tight bounds.
 - `BVH.markDirty(meshInstance)` should refit only the affected leaf and changed
   ancestor path when the dirty ratio remains below the rebuild threshold.
 - `BVHOptions.rebuildSurfaceAreaInflation` must compare a tree-wide
@@ -333,6 +344,11 @@ defaultCSGSolver.unregisterWasmSolver("example-wasm");
   object AABB tests. These diagnostics must not become part of `SpatialIndex3D`.
 - `tests/benchmarks/bench_spatial_index.mjs` should remain a manual benchmark and
   must not be discovered by `bun run test`.
+- Octree regression tests should cover split-plane clusters, exclusive node
+  membership, and query parity after movement. Performance comparisons should
+  use identical scene, movement, and query inputs and report build/update costs
+  and node counts alongside query throughput; wall-clock speedup thresholds
+  should not gate static tests.
 
 ### LOD mesh instances
 

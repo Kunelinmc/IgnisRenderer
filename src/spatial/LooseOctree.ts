@@ -522,7 +522,7 @@ export class LooseOctree implements SpatialIndex3D {
 				this._redistributeNodeObjects(node, depth);
 			}
 
-			const childPlacement = resolveChildPlacement(node, bounds);
+			const childPlacement = resolveChildPlacement(node, bounds, this._looseness);
 			if (childPlacement) {
 				const child = this._ensureChild(node, childPlacement);
 				return this._insertIntoNode(child, meshInstance, bounds, depth + 1);
@@ -544,7 +544,7 @@ export class LooseOctree implements SpatialIndex3D {
 		while (index < node.objects.length) {
 			const meshInstance = node.objects[index];
 			const bounds = node.objectBounds[index];
-			const childPlacement = resolveChildPlacement(node, bounds);
+			const childPlacement = resolveChildPlacement(node, bounds, this._looseness);
 			if (!childPlacement) {
 				index++;
 				continue;
@@ -908,7 +908,8 @@ function isChildrenArrayEmpty(
 
 function resolveChildPlacement(
 	node: LooseOctreeNode,
-	bounds: BoundingBox
+	bounds: BoundingBox,
+	looseness: number
 ): ChildPlacement | null {
 	const childHalf = node.halfSize * 0.5;
 	if (!(childHalf > MIN_HALF_SIZE)) return null;
@@ -922,12 +923,13 @@ function resolveChildPlacement(
 	const childCenterZ =
 		node.centerZ + (centerZ >= node.centerZ ? childHalf : -childHalf);
 
+	// Match traversal bounds; the center selects one child despite loose overlap.
 	if (
 		!containsBoundsInCube(
 			childCenterX,
 			childCenterY,
 			childCenterZ,
-			childHalf,
+			childHalf * looseness,
 			bounds
 		)
 	) {
