@@ -103,6 +103,10 @@ manifest. `ShaderSource` interprets those manifests and owns source loading and
 caching. Backend services derive specialization parameters but must not rewrite
 built-in shader text directly.
 
+WebGPU scene, planar-reflection composite, and shadow vertex stages share
+morph and skinning logic through `common/animation.wgsl`. Each consumer owns
+its bindings and pose selection; the shadow variant evaluates positions only.
+
 Directive profiles follow the same ownership boundary. Prepared static bases
 provide asset-backed include modules, while each backend instance contributes a
 capability-resolved overlay. Backend material compilers may add structured

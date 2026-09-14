@@ -65,6 +65,7 @@ export type WebGPUUtilityShaderPart =
 	| "mipmapBlit";
 
 export type WebGPUDirectiveShaderPart =
+	| "animation"
 	| "constants"
 	| "srgb"
 	| "fog"
@@ -193,6 +194,7 @@ const WEBGPU_DIRECTIVE_SHADER_FILES: Record<
 	WebGPUDirectiveShaderPart,
 	string
 > = {
+	animation: "./webgpu/common/animation.wgsl",
 	constants: "./webgpu/directives/constants.wgsl",
 	srgb: "./webgpu/directives/srgb.wgsl",
 	fog: "./webgpu/directives/fog.wgsl",
@@ -346,6 +348,7 @@ export const WEBGPU_SHADER_MANIFEST: ShaderBackendManifest = {
 		baseId: "ignis/webgpu-profile-base",
 		revision: 1,
 		includes: [
+			{ id: "ignis/webgpu/animation.wgsl", source: "webgpu.directive.animation" },
 			{ id: "ignis/webgpu/constants-base.wgsl", source: "webgpu.directive.constants" },
 			{ id: "ignis/color/srgb.wgsl", source: "webgpu.directive.srgb" },
 			{ id: "ignis/postprocess/fog.wgsl", source: "webgpu.directive.fog" },

@@ -1,4 +1,5 @@
-#import <ignis/webgpu/constants>
+#define IGNIS_WEBGPU_ANIMATION_POSITION_ONLY 1
+#import <ignis/webgpu/animation>
 
 struct AnimationParams {
 	jointCount: u32,
@@ -49,114 +50,7 @@ struct ShadowVertexOutput {
 @group(1) @binding(2) var<storage, read> morphWeights: array<f32>;
 @group(1) @binding(3) var<storage, read> morphPositionDeltas: array<f32>;
 
-// With the current per-draw deformation path, shadow rendering must recompute
-// morphing and skinning. Vertex-stage storage access is read-only, and vertex
-// outputs continue into rasterization instead of being retained in a reusable
-// buffer. Sharing deformed vertices would require a separate compute pass.
-// https://www.w3.org/TR/WGSL/#address-spaces
-// https://www.w3.org/TR/webgpu/#render-pipeline
-fn applyMorphPosition(
-	basePosition: vec3<f32>,
-	vertexIndex: u32,
-	morphTargetCount: u32,
-	morphWeightOffset: u32,
-	morphDeltaOffset: u32,
-	vertexCount: u32,
-	semanticMask: u32
-) -> vec3<f32> {
-	if (
-		morphTargetCount == 0u ||
-		vertexCount == 0u ||
-		(semanticMask & 1u) == 0u
-	) {
-		return basePosition;
-	}
-
-	let morphDeltaCount = arrayLength(&morphPositionDeltas);
-	let morphWeightCount = arrayLength(&morphWeights);
-	if (morphDeltaCount == 0u || morphWeightCount == 0u) {
-		return basePosition;
-	}
-
-	let deltaBase = min(morphDeltaOffset * 3u, morphDeltaCount);
-	var position = basePosition;
-	for (
-		var targetIndex: u32 = 0u;
-		targetIndex < morphTargetCount;
-		targetIndex = targetIndex + 1u
-	) {
-		let weightIndex = morphWeightOffset + targetIndex;
-		if (weightIndex >= morphWeightCount) {
-			continue;
-		}
-
-		let weight = morphWeights[weightIndex];
-		if (abs(weight) <= EPSILON) {
-			continue;
-		}
-
-		let deltaIndex = deltaBase + (targetIndex * vertexCount + vertexIndex) * 3u;
-		if (deltaIndex + 2u >= morphDeltaCount) {
-			continue;
-		}
-
-		position += vec3<f32>(
-			morphPositionDeltas[deltaIndex],
-			morphPositionDeltas[deltaIndex + 1u],
-			morphPositionDeltas[deltaIndex + 2u]
-		) * weight;
-	}
-
-	return position;
-}
-
-fn applySkinningPosition(
-	basePosition: vec3<f32>,
-	jointIndices: array<f32, 8>,
-	jointWeights: array<f32, 8>,
-	jointCount: u32,
-	jointOffset: u32
-) -> vec3<f32> {
-	if (jointCount == 0u) {
-		return basePosition;
-	}
-
-	let matrixCount = arrayLength(&jointMatrices);
-	if (matrixCount == 0u) {
-		return basePosition;
-	}
-
-	var skinnedPosition = vec3<f32>(0.0);
-	var weightSum = 0.0;
-	for (var influence: u32 = 0u; influence < 8u; influence = influence + 1u) {
-		let weight = jointWeights[influence];
-		if (weight <= EPSILON) {
-			continue;
-		}
-
-		let rawJoint = max(jointIndices[influence], 0.0);
-		let jointIndex = u32(rawJoint + 0.5);
-		if (jointIndex >= jointCount) {
-			continue;
-		}
-
-		let matrixIndex = jointOffset + jointIndex;
-		if (matrixIndex >= matrixCount) {
-			continue;
-		}
-
-		let skinMatrix = jointMatrices[matrixIndex];
-		skinnedPosition += (skinMatrix * vec4<f32>(basePosition, 1.0)).xyz * weight;
-		weightSum += weight;
-	}
-
-	if (weightSum <= EPSILON) {
-		return basePosition;
-	}
-
-	return skinnedPosition / weightSum;
-}
-
+// Each pass evaluates the shared deformation helpers for its own projection.
 @vertex
 fn vsMain(
 	input: ShadowVertexInput,
@@ -212,8 +106,9 @@ fn vsMain(
 		localVertexIndex = vertexIndex - instanceData.vertexBaseOffset;
 	}
 
-	let morphedPosition = applyMorphPosition(
+	let morphed = applyMorphDeltas(
 		input.position,
+		vec3<f32>(0.0),
 		localVertexIndex,
 		morphTargetCount,
 		morphWeightOffset,
@@ -221,15 +116,17 @@ fn vsMain(
 		animationParams.vertexCount,
 		animationParams.morphSemanticMask
 	);
-	let skinnedPosition = applySkinningPosition(
-		morphedPosition,
+	let skinned = applySkinning(
+		morphed.position,
+		vec3<f32>(0.0),
+		vec3<f32>(0.0),
 		joints,
 		weights,
 		jointCount,
 		jointOffset
 	);
 	output.position =
-		shadowMvps[safeInstanceIndex] * vec4<f32>(skinnedPosition, 1.0);
+		shadowMvps[safeInstanceIndex] * vec4<f32>(skinned.position, 1.0);
 	if (instanceData.atlasSize > 0u && instanceData.atlasPageSize > 0u) {
 		let atlasSize = f32(instanceData.atlasSize);
 		let pageSize = f32(instanceData.atlasPageSize);

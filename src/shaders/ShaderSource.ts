@@ -20,6 +20,7 @@ import type {
 } from "./webgl/sceneVariants";
 import {
 	WEBGPU_SHADER_MANIFEST,
+	type WebGPUDirectiveShaderPart,
 	type WebGPUPostProcessShaderPart,
 	type WebGPUSceneShaderPart,
 	type WebGPUShadowShaderPart,
@@ -74,8 +75,7 @@ type WebGPUScenePartKey = `webgpu.scene.part.${WebGPUSceneShaderPart}`;
 type WebGPUPostProcessKey = `webgpu.postprocess.${WebGPUPostProcessShaderPart}`;
 type WebGPUShadowKey = `webgpu.shadow.${WebGPUShadowShaderPart}`;
 type WebGPUUtilityKey = `webgpu.utility.${WebGPUUtilityShaderPart}`;
-type WebGPUDirectiveKey =
-	`webgpu.directive.${"constants" | "srgb" | "fog" | "lumaWeights" | "lumaCommon"}`;
+type WebGPUDirectiveKey = `webgpu.directive.${WebGPUDirectiveShaderPart}`;
 type WebGPUMaterialKey = "webgpu.material.textureHelpers";
 type WebGLPartKey = `webgl.part.${WebGLShaderPart}`;
 type WebGLDirectiveKey =

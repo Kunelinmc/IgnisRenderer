@@ -337,6 +337,16 @@ lighting, presentation configuration, reflections, and structured buffer packing
 
 ### Animation payload resources
 
+- Scene, planar-reflection composite, and shadow vertex shaders must import
+  shared morph and skinning helpers from `ignis/webgpu/animation`, backed by
+  `src/shaders/webgpu/common/animation.wgsl`. Consumers must apply morph before
+  skinning and supply explicit pose offsets; morph delta offsets are measured
+  in three-component vertices, not scalar storage elements.
+- The animation include must leave resource bindings and `AnimationParams`
+  layouts to each consumer. Shadow shaders must define
+  `IGNIS_WEBGPU_ANIMATION_POSITION_ONLY` as `1` before importing it so the
+  compiled helpers require neither morph-normal storage nor direction
+  normalization. Scene consumers must retain normal and tangent deformation.
 - `WebGPUFrameServiceOwner` must own one device-lifetime
   `WebGPUAnimationPayloadPool` shared by scene-material and shadow consumers.
   The pool must own packet animation parameter, joint-matrix, morph-weight, and

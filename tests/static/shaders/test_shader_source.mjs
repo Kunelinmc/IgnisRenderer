@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -44,6 +45,37 @@ const REPO_ROOT = path.resolve(
 	".."
 );
 const SHADER_ROOT = path.join(REPO_ROOT, "src", "shaders");
+
+function testShaderSourceKeyTypes() {
+	const fixture = fileURLToPath(new URL(
+		"./fixtures/shader_source_types.ts",
+		import.meta.url,
+	));
+	const compiler = fileURLToPath(new URL(
+		"../../../node_modules/typescript/bin/tsc",
+		import.meta.url,
+	));
+	const result = spawnSync(process.execPath, [
+		compiler,
+		"--ignoreConfig",
+		"--allowImportingTsExtensions",
+		"--module", "ESNext",
+		"--moduleResolution", "bundler",
+		"--noEmit",
+		"--skipLibCheck",
+		"--strict", "false",
+		"--target", "ESNext",
+		"--types", "@webgpu/types,vite/client",
+		fixture,
+	], {
+		encoding: "utf8",
+	});
+	assert.equal(
+		result.status,
+		0,
+		[result.stdout, result.stderr].filter(Boolean).join("\n"),
+	);
+}
 
 const WEBGL_SCENE_LIMITS = {
 	maxDirectionalLights: MAX_DIRECTIONAL_LIGHTS,
@@ -474,6 +506,81 @@ async function testWebGPUCompositeIncludesSharedParts() {
 	assert.ok(ssr.code.includes("struct TraceParams"));
 	assert.ok(deferred.code.includes("struct DirectionalLightData"));
 	assert.ok(deferred.code.includes("fn activeClusteredLightCount() -> u32"));
+}
+
+async function testWebGPUAnimationConsumers() {
+	ShaderSource.clearCache();
+	const compileStage = new ShaderBackendCompileStage({
+		runtime: new ShaderRuntime({ mode: "strict" }),
+		profile: WEBGPU_TEST_PROFILE,
+		mode: "strict",
+	});
+	// Reuse one compile stage to catch position-only defines leaking between jobs.
+	for (const key of [
+		"webgpu.shadow.depth",
+		"webgpu.scene",
+		"webgpu.utility.planarReflectionComposite",
+		"webgpu.shadow.depth",
+	]) {
+		const artifact = await ShaderSource.load(key);
+		const compiled = compileStage.compile({
+			code: artifact.source.code,
+			language: "wgsl",
+			stage: "vertex",
+			entryPoint: "vsMain",
+			label: key,
+			sourceKind: artifact.sourceKind,
+			sourceMap: artifact.source.sourceMap,
+		});
+		assert.equal(compiled.hasErrors, false, JSON.stringify(compiled.diagnostics));
+		const code = compiled.code.replace(/\/\/[^\n]*/g, "");
+		assert.doesNotMatch(code, /^\s*#(?:import|if|define|endif)/m);
+		assert.equal(code.match(/fn applyMorphDeltas\b/g)?.length, 1);
+		assert.equal(code.match(/fn applySkinning\b/g)?.length, 1);
+		assert.equal(code.match(/const EPSILON\b/g)?.length, 1);
+
+		const compact = code.replace(/\s+/g, "");
+		assert.ok(compact.includes("jointOffset+jointIndex"));
+		assert.ok(compact.includes("morphWeightOffset+targetIndex"));
+		assert.ok(compact.includes("min(morphDeltaOffset*3u,morphDeltaCount)"));
+		assert.ok(compact.includes("deltaBase+(targetIndex*vertexCount+vertexIndex)*3u"));
+		assert.ok(compact.includes("deltaIndex+2u<morphDeltaCount"));
+		assert.ok(compact.includes("matrixIndex>=matrixCount"));
+		assert.ok(compact.includes("weightSum<=EPSILON"));
+
+		if (key === "webgpu.shadow.depth") {
+			// Shadows have no normal-delta binding or direction-normalization helper.
+			assert.doesNotMatch(code, /\b(?:morphNormalDeltas|safeNormalize)\b/);
+			assert.doesNotMatch(code, /\b(?:skinnedNormal|skinnedTangent)\b/);
+			assert.ok(compact.includes(
+				"applyMorphDeltas(input.position,vec3<f32>(0.0),localVertexIndex," +
+				"morphTargetCount,morphWeightOffset,instanceData.morphDeltaBaseOffset," +
+				"animationParams.vertexCount,animationParams.morphSemanticMask)",
+			));
+			assert.ok(compact.includes(
+				"applySkinning(morphed.position,vec3<f32>(0.0),vec3<f32>(0.0)," +
+				"joints,weights,jointCount,jointOffset)",
+			));
+		} else {
+			assert.ok(compact.includes("arrayLength(&morphNormalDeltas)"));
+			assert.ok(compact.includes("safeNormalize(skinnedNormal,baseNormal)"));
+			assert.ok(compact.includes("safeNormalize(skinnedTangent,baseTangent)"));
+			assert.ok(compact.includes(
+				"applyMorphDeltas(input.position,input.normal,vertexIndex," +
+				"morphTargetCount,0u,0u,vertexCount,morphSemanticMask)",
+			));
+			if (key === "webgpu.scene") {
+				assert.ok(compact.includes(
+					"applyMorphDeltas(input.position,input.normal,vertexIndex," +
+					"morphTargetCount,prevMorphOffset,0u,vertexCount,morphSemanticMask)",
+				));
+				assert.ok(compact.includes(
+					"applySkinning(morphedPrev.position,morphedPrev.normal,baseTangent," +
+					"joints,weights,jointCount,prevJointOffset)",
+				));
+			}
+		}
+	}
 }
 
 async function testSrgbDirectiveSupportsBuiltInConsumers() {
@@ -961,6 +1068,7 @@ function testShadowSamplingRotationIsSpatiallyStable() {
 }
 
 async function run() {
+	testShaderSourceKeyTypes();
 	await testLoadsRawAndCompositeParts();
 	await testConcurrentLoadsShareResultCache();
 	await testGetRequiresPrepare();
@@ -969,6 +1077,7 @@ async function run() {
 	await testWebGLPhongSceneVariantIncludesMaterialBlock();
 	await testWebGLPBRSceneVariantCompilesExactUniformBlocks();
 	await testWebGPUCompositeIncludesSharedParts();
+	await testWebGPUAnimationConsumers();
 	await testSrgbDirectiveSupportsBuiltInConsumers();
 	await testWebGPUSharedNumericalConstants();
 	await testCompositeResultsAreCloned();
