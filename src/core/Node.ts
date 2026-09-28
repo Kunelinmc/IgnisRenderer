@@ -36,11 +36,15 @@ export class Node {
 	private _name: string;
 	private _visible: boolean;
 	private _renderLayers: number;
+	private readonly _transformInputSnapshot = new Float64Array(10);
 	private readonly _localTransformSnapshot = new Float64Array(16);
 	private _localTransformRevision = 0;
 	private _localTransformChangePending = false;
+	private _worldTransformUpdatePending = false;
 	private readonly _worldTransformSnapshot = new Float64Array(16);
 	private _worldTransformRevision = 0;
+	private _parentWorldMatrix: Matrix4 | null = null;
+	private readonly _parentTransformSnapshot = new Float64Array(16);
 
 	constructor(params: NodeParams = {}) {
 		this.id = IdGenerator.nextId(params.idPrefix ?? "node");
@@ -257,27 +261,83 @@ export class Node {
 		return this;
 	}
 
+	/** Resolves direct transform edits, reusing an unchanged derived local matrix. */
 	public updateLocalMatrix(): void {
-		Matrix4.compose(this.position, this.quaternion, this.scale, this.localMatrix);
+		const position = this.position;
+		const quaternion = this.quaternion;
+		const scale = this.scale;
+		const input = this._transformInputSnapshot;
+		if (
+			Object.is(input[0], position.x) &&
+			Object.is(input[1], position.y) &&
+			Object.is(input[2], position.z) &&
+			Object.is(input[3], quaternion.x) &&
+			Object.is(input[4], quaternion.y) &&
+			Object.is(input[5], quaternion.z) &&
+			Object.is(input[6], quaternion.w) &&
+			Object.is(input[7], scale.x) &&
+			Object.is(input[8], scale.y) &&
+			Object.is(input[9], scale.z) &&
+			matrixMatchesSnapshot(this.localMatrix, this._localTransformSnapshot)
+		) {
+			return;
+		}
+
+		Matrix4.compose(position, quaternion, scale, this.localMatrix);
+		this._worldTransformUpdatePending = true;
+		input[0] = position.x;
+		input[1] = position.y;
+		input[2] = position.z;
+		input[3] = quaternion.x;
+		input[4] = quaternion.y;
+		input[5] = quaternion.z;
+		input[6] = quaternion.w;
+		input[7] = scale.x;
+		input[8] = scale.y;
+		input[9] = scale.z;
 		if (this._captureTransform(this.localMatrix, this._localTransformSnapshot)) {
 			this._localTransformRevision++;
 			this._localTransformChangePending = true;
 		}
 	}
 
+	/**
+	 * Synchronizes this subtree, including direct edits below unchanged ancestors.
+	 * @param parentWorldMatrix Parent transform; omission resolves this node as a root.
+	 * @param changedNodes Optional accumulator for resolved local or world changes.
+	 */
 	public updateWorldMatrix(parentWorldMatrix?: Matrix4, changedNodes?: Node[]): void {
 		this.updateLocalMatrix();
 		const localChanged = this._localTransformChangePending;
 		this._localTransformChangePending = false;
+		// Overrides can derive matrices from inputs that the base snapshots do not track.
+		const needsWorldUpdate = this._worldTransformUpdatePending ||
+			this.updateLocalMatrix !== Node.prototype.updateLocalMatrix;
+		this._worldTransformUpdatePending = false;
 
-		if (parentWorldMatrix) {
-			Matrix4.multiply(parentWorldMatrix, this.localMatrix, this.worldMatrix);
-		} else {
-			this.localMatrix.copyTo(this.worldMatrix);
+		const parent = parentWorldMatrix ?? null;
+		let worldChanged = false;
+		// Matrices are mutable, so identity alone cannot validate either input or output.
+		if (
+			needsWorldUpdate ||
+			parent !== this._parentWorldMatrix ||
+			parent?.elements === this.worldMatrix.elements ||
+			(parent && !matrixMatchesSnapshot(parent, this._parentTransformSnapshot)) ||
+			!matrixMatchesSnapshot(this.worldMatrix, this._worldTransformSnapshot)
+		) {
+			if (parent) {
+				// Preserve the input before output writes can mutate shared parent rows.
+				this._captureTransform(parent, this._parentTransformSnapshot);
+				Matrix4.multiply(parent, this.localMatrix, this.worldMatrix);
+			} else {
+				this.localMatrix.copyTo(this.worldMatrix);
+			}
+			this._parentWorldMatrix = parent;
+			worldChanged = this._captureWorldTransform(true);
 		}
-		const worldChanged = this._captureWorldTransform(true);
 		if (localChanged || worldChanged) changedNodes?.push(this);
 
+		// Descendants can have direct component edits even when this node is unchanged.
 		for (const child of this.children) {
 			child.updateWorldMatrix(this.worldMatrix, changedNodes);
 		}
@@ -438,6 +498,20 @@ export function normalizeRenderLayerMask(value: number, fallback = 1): number {
 		return fallback >>> 0;
 	}
 	return Math.max(0, Math.floor(value)) >>> 0;
+}
+
+function matrixMatchesSnapshot(matrix: Matrix4, snapshot: Float64Array): boolean {
+	const elements = matrix.elements;
+	let cursor = 0;
+	for (let row = 0; row < 4; row++) {
+		for (let column = 0; column < 4; column++) {
+			const value = elements[row][column];
+			const previous = snapshot[cursor++];
+			// Preserve signed-zero outputs and conservatively reevaluate NaN values.
+			if (value !== previous || !Object.is(value, previous)) return false;
+		}
+	}
+	return true;
 }
 
 function createQuaternion(

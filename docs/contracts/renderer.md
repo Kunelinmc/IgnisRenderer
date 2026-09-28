@@ -319,6 +319,34 @@ This document defines the lifecycle, scheduling, warmup, incremental rendering, 
   jobs, and color readback. SoftwareBackend must reject these jobs as
   unsupported without failing probe capture fallback.
 
+### Scene transform synchronization
+
+- `Node.updateLocalMatrix()` must observe direct component edits and replacement
+  of `position`, `quaternion`, and `scale`. It should reuse the resolved local
+  matrix when those values and the matrix contents remain unchanged.
+- `Node.updateWorldMatrix(parentWorldMatrix?, changedNodes?)` must continue
+  visiting descendants even when the current node is unchanged, so direct edits
+  below an unchanged ancestor are observed during the same traversal.
+- World-matrix evaluation should be skipped when the resolved local transform,
+  supplied parent-matrix contents, and resolved world-matrix contents are
+  unchanged. Parent-matrix identity alone must not determine reuse; in-place
+  edits, reparenting, and switching between parented and standalone updates must
+  be observed.
+- Parent reuse checks must use the input values from before the preceding
+  world-matrix evaluation. This must remain correct when `parentWorldMatrix`
+  and `worldMatrix` share storage, including individual row arrays beneath
+  distinct `elements` arrays.
+- Local and world matrices remain derived transform outputs. Synchronization
+  must restore externally edited or replaced outputs from the current transform
+  inputs. Clone synchronization must use the clone's own transform inputs and
+  supplied parent matrix, without inheriting the source's reuse state.
+- Transform revisions and `changedNodes` must continue to describe changes to
+  resolved transform values. An unchanged synchronization must not increment
+  revisions or publish a node to the scene change journal.
+- Subclasses that override `updateLocalMatrix()` must retain their custom local
+  transform behavior. World evaluation must not assume that the base class's
+  transform inputs describe an override's complete state.
+
 ### Incremental rendering
 
 - `PreparedSceneBuilder` must resolve mesh authoring state into a
