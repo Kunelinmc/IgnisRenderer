@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 
 import { Matrix4 } from "../../../src/maths/Matrix4.ts";
 import { WebGLShadowRuntime } from "../../../src/backends/webgl/WebGLShadowRuntime.ts";
+import { Material } from "../../../src/materials/Material.ts";
+import { createTestDrawPacket } from "../helpers/drawPacket.mjs";
 
 function createGL() {
 	let handle = 0;
@@ -94,7 +96,7 @@ function createHost(gl) {
 				const depth = descriptor.label === "WebGLShadowDepthProgram";
 				const resource = depth ? {
 					program: { id: "depth-program" },
-					uniforms: { mvp: null },
+					uniforms: { mvp: "mvp" },
 				} : {
 					program: { id: "transmittance-program" },
 					uniforms: { mvp: "mvp", transmittance: "transmittance" },
@@ -314,11 +316,41 @@ function testCSMSpotPlanAndParticleResourceCatalog() {
 	assert.ok(gl.deletedTextures.length >= 3);
 }
 
+function testShadowMatrixUploadsReuseScratchWithoutChangingValues() {
+	const gl = createGL();
+	const uploads = [];
+	gl.uniformMatrix4fv = (_location, _transpose, values) => {
+		uploads.push({ buffer: values, values: Array.from(values) });
+	};
+	const host = createHost(gl);
+	host.geometry.getGeometry = () => ({
+		vao: {}, topology: gl.TRIANGLES, indexCount: 3, indexType: 5123,
+	});
+	const runtime = new WebGLShadowRuntime(host);
+	const context = createContext();
+	const material = new Material();
+	const submissions = [2, 5].map((x) => {
+		const packet = createTestDrawPacket({ id: `caster-${x}`, material });
+		packet.submission.instance.worldMatrix.elements[0][3] = x;
+		return packet.submission;
+	});
+	context.scene.shadowCasterSubmissions = submissions;
+	context.scene.shadowTransmitterSubmissions = submissions;
+	runtime.beginFrame(context);
+	runtime.prepareFrame(context, createLightState());
+	runtime.renderPreparedFrame(context);
+	assert.deepEqual(uploads.map((upload) => upload.values[12]), [2, 5, 2, 5]);
+	assert.equal(new Set(uploads.map((upload) => upload.buffer)).size, 1);
+	assert.equal(submissions[0].instance.worldMatrix.elements[0][3], 2);
+	runtime.destroy();
+}
+
 function run() {
 	testRuntimeLifecycleAndStableSamplingState();
 	testShadowWarmupContributesDepthAndTransmittancePrograms();
 	testContextMismatchAndProgramFallback();
 	testCSMSpotPlanAndParticleResourceCatalog();
+	testShadowMatrixUploadsReuseScratchWithoutChangingValues();
 	console.log("WebGL shadow runtime tests passed");
 }
 

@@ -496,29 +496,39 @@ export class Matrix4 {
 		]);
 	}
 
-	/** Returns the matrix values in column-major order. */
+	/**
+	 * Packs matrix values in column-major order for upload or storage.
+	 * @param matrix Matrix whose values are copied.
+	 * @param out Optional output with at least sixteen elements. Only its first
+	 * sixteen elements are overwritten; the input matrix is not changed.
+	 * @returns `out`, or a new independent sixteen-element array when omitted.
+	 * @throws {RangeError} When `out` has fewer than sixteen elements.
+	 */
 	public static toColumnMajorArray(
-		matrix: Matrix4 | number[][]
+		matrix: Matrix4 | number[][],
+		out: Float32Array = new Float32Array(16),
 	): Float32Array {
+		if (out.length < 16) {
+			throw new RangeError("Matrix4 output must contain at least sixteen elements.");
+		}
 		const elements = Array.isArray(matrix) ? matrix : matrix.elements;
-		return new Float32Array([
-			elements[0][0],
-			elements[1][0],
-			elements[2][0],
-			elements[3][0],
-			elements[0][1],
-			elements[1][1],
-			elements[2][1],
-			elements[3][1],
-			elements[0][2],
-			elements[1][2],
-			elements[2][2],
-			elements[3][2],
-			elements[0][3],
-			elements[1][3],
-			elements[2][3],
-			elements[3][3],
-		]);
+		out[0] = elements[0][0];
+		out[1] = elements[1][0];
+		out[2] = elements[2][0];
+		out[3] = elements[3][0];
+		out[4] = elements[0][1];
+		out[5] = elements[1][1];
+		out[6] = elements[2][1];
+		out[7] = elements[3][1];
+		out[8] = elements[0][2];
+		out[9] = elements[1][2];
+		out[10] = elements[2][2];
+		out[11] = elements[3][2];
+		out[12] = elements[0][3];
+		out[13] = elements[1][3];
+		out[14] = elements[2][3];
+		out[15] = elements[3][3];
+		return out;
 	}
 
 	/** Returns whether every matrix component is finite. */

@@ -102,6 +102,25 @@ function testFiniteMatrixValidation() {
 	assert.equal(Matrix4.isFinite(matrix), false);
 }
 
+function testColumnMajorPackingReusesOutputWithoutAliasing() {
+	const matrix = new Matrix4([
+		[1, 2, 3, 4], [5, 6, 7, 8],
+		[9, 10, 11, 12], [13, 14, 15, 16],
+	]);
+	const out = new Float32Array(18).fill(-1);
+	const expected = [1, 5, 9, 13, 2, 6, 10, 14, 3, 7, 11, 15, 4, 8, 12, 16];
+	assert.strictEqual(Matrix4.toColumnMajorArray(matrix, out), out);
+	assert.deepEqual(Array.from(out), [...expected, -1, -1]);
+	const independent = Matrix4.toColumnMajorArray(matrix);
+	matrix.elements[0][0] = 0.1;
+	Matrix4.toColumnMajorArray(matrix.elements, out);
+	assert.equal(out[0], Math.fround(0.1));
+	assert.deepEqual(Array.from(independent), expected);
+	const short = new Float32Array(15).fill(-1);
+	assert.throws(() => Matrix4.toColumnMajorArray(matrix, short), RangeError);
+	assert.ok(short.every((value) => value === -1));
+}
+
 function assertMatrixApproximatelyIdentity(matrix) {
 	const identity = Matrix4.identity().elements;
 	for (let row = 0; row < 4; row++) {
@@ -121,6 +140,7 @@ function run() {
 	testInverseReturnsMultiplicativeIdentity();
 	testInverseReturnsNullForSingularMatrix();
 	testColumnMajorArrayPacking();
+	testColumnMajorPackingReusesOutputWithoutAliasing();
 	testFiniteMatrixValidation();
 	console.log("Matrix4 compose tests passed");
 }

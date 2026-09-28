@@ -112,6 +112,7 @@ export class WebGLShadowRasterPass {
 	private _shadowTransmittanceTexture: WebGLTexture | null = null;
 	private _shadowAtlasTileSize = 0;
 	private _shadowMvpMatrix = Matrix4.identity();
+	private readonly _shadowMvpScratch = new Float32Array(16);
 
 	constructor(host: WebGLShadowRasterPassHost) {
 		this._host = host;
@@ -299,7 +300,7 @@ export class WebGLShadowRasterPass {
 			gl.uniformMatrix4fv(
 				shadowProgram.uniforms.mvp,
 				false,
-				Matrix4.toColumnMajorArray(this._shadowMvpMatrix),
+				Matrix4.toColumnMajorArray(this._shadowMvpMatrix, this._shadowMvpScratch),
 			);
 		}
 		gl.disable(gl.CULL_FACE);
@@ -342,7 +343,7 @@ export class WebGLShadowRasterPass {
 		gl.uniformMatrix4fv(
 			shadowProgram.uniforms.mvp,
 			false,
-			Matrix4.toColumnMajorArray(this._shadowMvpMatrix),
+			Matrix4.toColumnMajorArray(this._shadowMvpMatrix, this._shadowMvpScratch),
 		);
 		const transmittance = resolveMaterialShadowTransmittance(
 			submission.material.effective,

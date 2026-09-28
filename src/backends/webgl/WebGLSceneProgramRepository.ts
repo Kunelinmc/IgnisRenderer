@@ -94,6 +94,7 @@ interface WebGLProgramCompileRequest {
 interface WebGLBuiltinProgramCacheEntry {
 	program: WebGLSceneProgram;
 	directiveTag: string;
+	sourceIdentity: string;
 }
 
 type WebGLProgramWarn = (key: string, message: string) => void;
@@ -687,6 +688,18 @@ export class WebGLSceneProgramRepository {
 		const directiveTag = this._shaderCompileStage?.getCacheFingerprintTag() ?? "";
 		const limits = this._getSceneLightLimits();
 		const normalizedVariant = normalizeWebGLSceneVariantDescriptor(variant);
+		const cacheKey = this._createBuiltinSceneProgramCacheKey(
+			normalizedVariant,
+			directiveTag
+		);
+		const cached = this._builtinScenePrograms.get(cacheKey);
+		if (cached) {
+			// Source caches can be cleared independently of native program caches.
+			if (!ShaderSource.hasIdentity(cached.sourceIdentity)) {
+				throw new WebGLProgramPreparationError("scene", cached.sourceIdentity);
+			}
+			return cached.program;
+		}
 		if (!this._hasPreparedBuiltinSceneSources(normalizedVariant)) {
 			throw new WebGLProgramPreparationError(
 				"scene",
@@ -694,14 +707,6 @@ export class WebGLSceneProgramRepository {
 					specialization: normalizedVariant,
 				}),
 			);
-		}
-		const cacheKey = this._createBuiltinSceneProgramCacheKey(
-			normalizedVariant,
-			directiveTag
-		);
-		const cached = this._builtinScenePrograms.get(cacheKey);
-		if (cached) {
-			return cached.program;
 		}
 		const artifact = ShaderSource.get("webgl.scene", {
 			specialization: normalizedVariant,
@@ -745,6 +750,7 @@ export class WebGLSceneProgramRepository {
 		this._builtinScenePrograms.set(cacheKey, {
 			program: sceneProgram,
 			directiveTag,
+			sourceIdentity: artifact.identity,
 		});
 		return sceneProgram;
 	}
@@ -797,6 +803,7 @@ export class WebGLSceneProgramRepository {
 		this._builtinSceneDepthPrepassPrograms.set(cacheKey, {
 			program: sceneProgram,
 			directiveTag,
+			sourceIdentity: artifact.identity,
 		});
 		return sceneProgram;
 	}

@@ -13,6 +13,7 @@ import {
 	createWebGLShaderMaterialFallbackVariant,
 	resolveWebGLBuiltinDepthVariant,
 	resolveWebGLPacketDeformationProfile,
+	WEBGL_STATIC_DEFORMATION_PROFILE,
 	type WebGLDeformationProfile,
 	resolveWebGLBuiltinSceneVariant,
 	type WebGLSceneDepthVariantDescriptor,
@@ -46,18 +47,33 @@ export function planWebGLScenePrograms(
 ): WebGLSceneProgramPlan {
 	const lightState = collectPlannerLightState(context);
 	const sceneVariants = new Map<string, WebGLSceneVariantDescriptor>();
-	const entries = inputs.map((input) => isDrawPacket(input) ? {
-		material: input.submission.material.effective,
-		deformation: resolveWebGLPacketDeformationProfile(input),
-	} : {
-		material: input,
-		deformation: { skinProfile: "static", morphSemanticMask: 0 } as const,
-	}).map((entry) => ({
-		...entry,
-		materialSnapshot:
-			entry.material instanceof ShaderMaterial ? null
-			: materialSnapshots?.resolve(entry.material) ?? null,
-	}));
+	const entries: {
+		material: Material;
+		deformation: WebGLDeformationProfile;
+		materialSnapshot: WebGLResolvedMaterialSnapshot | null;
+	}[] = [];
+	const profilesByMaterial = new Map<Material, Set<string>>();
+	for (const input of inputs) {
+		const packet = isDrawPacket(input) ? input : null;
+		const material = packet ? packet.submission.material.effective : input as Material;
+		const deformation = packet ?
+			resolveWebGLPacketDeformationProfile(packet) : WEBGL_STATIC_DEFORMATION_PROFILE;
+		const profileKey = `${deformation.skinProfile}:${deformation.morphSemanticMask}`;
+		let profiles = profilesByMaterial.get(material);
+		if (profiles?.has(profileKey)) continue;
+		if (!profiles) {
+			profiles = new Set();
+			profilesByMaterial.set(material, profiles);
+		}
+		profiles.add(profileKey);
+		// Only deduplicate this call: material and frame feature state may change next time.
+		entries.push({
+			material,
+			deformation,
+			materialSnapshot: material instanceof ShaderMaterial ? null
+				: materialSnapshots?.resolve(material) ?? null,
+		});
+	}
 	for (const { material, deformation, materialSnapshot } of entries) {
 		if (material instanceof ShaderMaterial) {
 			for (const mode of modes) {

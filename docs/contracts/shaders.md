@@ -28,6 +28,10 @@ This document defines shader source ownership, composition, diagnostics, and cus
   asset marked `sync`, with contents matching the source shader file.
 - `ShaderSource.has(key, params)` must report whether `ShaderSource.get()` can
   return the requested source without asynchronous work.
+- Backend source consumers may retain a canonical artifact identity and use
+  `ShaderSource.hasIdentity()` for an internal prepared-cache lookup without
+  resolving the same parameters again. This lookup must observe scoped cache
+  clearing and source-loader reconfiguration immediately.
 - `ShaderSource.clearCache(scope)` must clear raw, composite, assembled, and
   prepared source caches for `scope`. `scope` may be `all`, `webgpu`, or `webgl`.
 - `ShaderSource.getCacheStats()` must report cache hit, miss, and size counters

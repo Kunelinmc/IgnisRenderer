@@ -11,6 +11,8 @@ import { Texture } from "../../../src/core/Texture.ts";
 import { Node } from "../../../src/core/Node.ts";
 import { Scene } from "../../../src/core/Scene.ts";
 import { PBRMaterial } from "../../../src/materials/PBRMaterial.ts";
+import { AlphaMode } from "../../../src/materials/Material.ts";
+import { WebGLMaterialSnapshotCache } from "../../../src/backends/webgl/WebGLMaterialSnapshotCache.ts";
 import { collectWebGLLights } from "../../../src/backends/webgl/WebGLLightCollector.ts";
 import { planWebGLScenePrograms } from "../../../src/backends/webgl/WebGLSceneProgramPlanner.ts";
 import {
@@ -354,6 +356,57 @@ function testSceneProgramPlannerReadsMaterialFromDrawSubmission() {
 	assert.equal(keys.some((key) => key.includes("base:0")), false);
 }
 
+function testSceneProgramPlannerDeduplicatesInputsWithinEachCall() {
+	const material = new PBRMaterial();
+	const context = {
+		features: { enableLighting: false, enableSH: false, enableOIT: true },
+		viewCamera: { getWorldPosition: () => ({ x: 0, y: 0, z: 0 }) },
+		scene: { lights: [], environment: { lightingEnabled: false, iblTexture: null } },
+	};
+	const geometry = [
+		{},
+		{ morphTargets: [{ positions: new Float32Array(3) }] },
+		{ joints0: new Uint16Array(4) },
+		{ joints0: new Uint16Array(4), morphTargets: [{ positions: new Float32Array(3) }] },
+		{
+			joints1: new Uint16Array(4),
+			morphTargets: [{ positions: new Float32Array(3), normals: new Float32Array(3) }],
+		},
+	];
+	const packets = Array.from({ length: 60 }, (_, index) => createTestDrawPacket({
+		id: `duplicate-${index}`,
+		material,
+		geometry: geometry[index % geometry.length],
+	}));
+	const snapshots = new WebGLMaterialSnapshotCache();
+	const originalResolve = snapshots.resolve.bind(snapshots);
+	let resolutions = 0;
+	snapshots.resolve = (value) => {
+		resolutions++;
+		return originalResolve(value);
+	};
+	const plan = planWebGLScenePrograms(context, packets, ["single", "mrt"], snapshots);
+	assert.equal(resolutions, 5, "Expand each material/deformation pair only once");
+	const signatures = [...plan.sceneVariants.values()].map((variant) =>
+		`${variant.output}:${variant.materialGBuffer}:${variant.skinProfile}:${variant.morphSemanticMask}`
+	).sort();
+	assert.deepEqual(signatures, [
+		"mrt:false:skin4:0", "mrt:false:skin4:1", "mrt:false:skin8:3",
+		"mrt:false:static:0", "mrt:false:static:1",
+		"mrt:true:skin4:0", "mrt:true:skin4:1", "mrt:true:skin8:3",
+		"mrt:true:static:0", "mrt:true:static:1",
+		"single:false:skin4:0", "single:false:skin4:1", "single:false:skin8:3",
+		"single:false:static:0", "single:false:static:1",
+	]);
+	assert.equal(plan.depthVariants.size, 5);
+	material.alphaMode = AlphaMode.Blend;
+	snapshots.beginFrame();
+	const transparent = planWebGLScenePrograms(context, packets, ["single", "mrt"], snapshots);
+	assert.equal(resolutions, 10, "Deduplication must not survive another planning call");
+	assert.equal(transparent.depthVariants.size, 0);
+	assert.ok([...transparent.sceneVariants.values()].some((variant) => variant.oit));
+}
+
 await runWebGLBackendFile(
 	[
 		testLightCollectorLimitsAndWarnings,
@@ -368,6 +421,7 @@ await runWebGLBackendFile(
 		testLightCollectorDirectionalCSMShadowData,
 		testSceneProgramPlannerEnumeratesRuntimeTransmittanceAlternatives,
 		testSceneProgramPlannerReadsMaterialFromDrawSubmission,
+		testSceneProgramPlannerDeduplicatesInputsWithinEachCall,
 	],
 	"WebGL light collection tests",
 );

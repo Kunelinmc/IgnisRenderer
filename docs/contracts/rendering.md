@@ -12,6 +12,11 @@ This document defines cross-backend rendering features, capability gating, pass 
 - `Matrix3Arr` must contain exactly three rows of three numbers.
 - These tuple contracts must remain mutable because matrix operations write
   elements in place.
+- `Matrix4.toColumnMajorArray(matrix, out?)` must write the matrix in column-major
+  order. With `out`, it must return that same `Float32Array`, overwrite its first
+  sixteen elements, and preserve any remaining elements. It must reject an
+  output shorter than sixteen elements before writing. Without `out`, each call
+  must return an independent sixteen-element array.
 
 ### Order-independent transparency
 

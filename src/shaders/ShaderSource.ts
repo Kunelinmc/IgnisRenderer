@@ -236,6 +236,17 @@ export class ShaderSource {
 	public static has<K extends ShaderSourceKey>(key: K, params?: ShaderSourceParams<K>): boolean {
 		return this._preparedCache.has(this._resolve(key, params).identity);
 	}
+	/**
+	 * Checks whether a previously resolved canonical artifact is still prepared.
+	 *
+	 * @internal Owned by shader source caching for backend consumers retaining an
+	 * artifact identity. Other callers should use `ShaderSource.has(key, params)`.
+	 * @param identity Canonical identity obtained from a resolved source artifact.
+	 * @returns Whether the identity is present after any scoped cache clearing.
+	 */
+	public static hasIdentity(identity: string): boolean {
+		return this._preparedCache.has(identity);
+	}
 	/** Resolves the stable manifest identity for an exact source request. */
 	public static getIdentity<K extends ShaderSourceKey>(key: K, params?: ShaderSourceParams<K>): string {
 		return this._resolve(key, params).identity;

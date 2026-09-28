@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { createTestDrawPacket } from "../helpers/drawPacket.mjs";
+import { createWebGLSceneDrawState } from "../../../src/backends/webgl/WebGLScenePass.ts";
 
 const asPacket = (packet) => packet.submission ? packet : createTestDrawPacket(packet);import { Material } from "../../../src/materials/Material.ts";import { PBRMaterial } from "../../../src/materials/PBRMaterial.ts";import { Matrix4 } from "../../../src/maths/Matrix4.ts";import { WebGLGeometryRegistry } from "../../../src/backends/webgl/WebGLGeometryRegistry.ts";import { drawWebGLPacket } from "../../../src/backends/webgl/WebGLScenePass.ts";import { createGeometryTestGL, createRetryGeometryTestGL, createGeometryCaptureGL, createScenePassCaptureGL, runWebGLBackendFile } from "../../helpers/webgl-backend.mjs";
 
@@ -11,7 +12,7 @@ function createSceneDrawDeps(gl, overrides = {}) {
 			_sceneNormalTexture: null,
 			_materialGBufferEnabled: false,
 		},
-		drawState: { oitPassMode: 0, activeDrawBuffers: null },
+		drawState: createWebGLSceneDrawState(),
 		scenePrograms: {},
 		geometry: {
 			getGeometry:
@@ -880,7 +881,44 @@ function testDrawWebGLPacketPreservesInactiveGlobalSamplerUnits() {
 	);
 }
 
+function testSceneMatrixScratchPreservesPreviousModelsAndOwnerIsolation() {
+	const gl = createScenePassCaptureGL();
+	const uploads = [];
+	gl.uniformMatrix4fv = (location, _transpose, values) => {
+		uploads.push({ location, buffer: values, values: Array.from(values) });
+	};
+	const deps = createSceneDrawDeps(gl);
+	const program = {
+		program: {},
+		uniforms: { model: "model", prevModel: "previous" },
+		samplerLayout: { units: {}, activeSamplerNames: [], required: 0, available: 16 },
+	};
+	const material = new Material();
+	const first = createTestDrawPacket({ id: "first", material });
+	const second = createTestDrawPacket({ id: "second", material });
+	const draw = (packet, x, owner = deps) => {
+		packet.submission.instance.worldMatrix.elements[0][3] = x;
+		drawWebGLPacket(owner, program, packet, false, { features: {} });
+	};
+	draw(first, 2);
+	draw(second, 9);
+	draw(first, 5);
+	assert.deepEqual(
+		uploads.filter((upload) => upload.location === "previous").map((upload) => upload.values[12]),
+		[2, 9, 2],
+	);
+	assert.equal(deps.modelMatrixCache.get("first")[12], 5);
+	assert.equal(deps.modelMatrixCache.get("second")[12], 9);
+	const current = uploads.filter((upload) => upload.location === "model");
+	assert.equal(new Set(current.map((upload) => upload.buffer)).size, 1);
+	assert.notStrictEqual(deps.modelMatrixCache.get("first"), current[0].buffer);
+	draw(first, 7, createSceneDrawDeps(gl));
+	assert.notStrictEqual(uploads.at(-2).buffer, current[0].buffer);
+	assert.equal(deps.modelMatrixCache.get("first")[12], 5);
+}
+
 await runWebGLBackendFile([
+	testSceneMatrixScratchPreservesPreviousModelsAndOwnerIsolation,
 	testGeometryRegistryRejectsOutOfRangeIndices,
 	testGeometryRegistryRetriesAfterUploadAllocationFailure,
 	testGeometryRegistryUploadsUV1Attribute,

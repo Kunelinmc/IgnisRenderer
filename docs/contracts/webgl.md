@@ -361,6 +361,16 @@ This document defines the current WebGL backend lifecycle, frame graph, resource
   shadow-transmittance sampling states. Resolving an unprepared exact variant
   must throw `WebGLProgramPreparationError`; it must not substitute the full or
   default scene variant.
+- Scene program planning should deduplicate material identity and deformation
+  profile pairs within one planning call before expanding scene and depth
+  variants. Deduplication must not persist across planning calls or omit output,
+  OIT, GBuffer, or shadow-transmittance alternatives.
+- A cached built-in scene program must still require its canonical source
+  identity to be present in the prepared source cache. Cache hits should reuse
+  that identity instead of resolving source parameters again.
+- Scene and shadow matrix uploads should reuse scratch arrays owned by their
+  backend runtime or pass. Previous-model arrays must remain submission-owned;
+  their previous values must be uploaded before current values overwrite them.
 - WebGL frame preparation must issue program compilation for every exact
   planned built-in scene and depth-prepass variant that has neither a compiled
   program nor an in-flight compilation. Issued compiles must not record warmup

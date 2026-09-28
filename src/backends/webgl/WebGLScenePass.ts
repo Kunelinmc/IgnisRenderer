@@ -78,6 +78,7 @@ function toColumnMajorMat3(
 
 /** Mutable per-draw scratch owned by the scene pass; reset by the owner. */
 export interface WebGLSceneDrawState {
+	readonly modelMatrixScratch: Float32Array;
 	oitPassMode: 0 | 1 | 2;
 	activeDrawBuffers: number[] | null;
 	boundMaterialCommonBuffer: WebGLBuffer | null;
@@ -89,6 +90,7 @@ export interface WebGLSceneDrawState {
 
 export function createWebGLSceneDrawState(): WebGLSceneDrawState {
 	return {
+		modelMatrixScratch: new Float32Array(16),
 		oitPassMode: 0,
 		activeDrawBuffers: null,
 		boundMaterialCommonBuffer: null,
@@ -707,7 +709,10 @@ function drawWebGLLegacyPacket(
 		gl.uniformMatrix4fv(
 			sceneProgram.uniforms.model,
 			false,
-			Matrix4.toColumnMajorArray(packet.submission.instance.worldMatrix)
+			Matrix4.toColumnMajorArray(
+				packet.submission.instance.worldMatrix,
+				deps.drawState.modelMatrixScratch,
+			),
 		);
 	}
 	if (sceneProgram.uniforms.normalMatrix) {
@@ -722,22 +727,7 @@ function drawWebGLLegacyPacket(
 				: 0
 		);
 	}
-	if (sceneProgram.uniforms.prevModel) {
-		const cacheKey = packet.submission.id;
-		deps.modelMatrixKeysThisFrame.add(cacheKey);
-		let cached = deps.modelMatrixCache.get(cacheKey);
-		gl.uniformMatrix4fv(
-			sceneProgram.uniforms.prevModel,
-			false,
-			cached ?? Matrix4.toColumnMajorArray(packet.submission.instance.worldMatrix)
-		);
-		if (!cached) {
-			cached = Matrix4.toColumnMajorArray(packet.submission.instance.worldMatrix);
-			deps.modelMatrixCache.set(cacheKey, cached);
-		} else {
-			cached.set(Matrix4.toColumnMajorArray(packet.submission.instance.worldMatrix));
-		}
-	}
+	bindWebGLPreviousModel(deps, sceneProgram, packet);
 	if (sceneProgram.uniforms.shadingModel) {
 		gl.uniform1i(sceneProgram.uniforms.shadingModel, uniforms.shadingModel);
 	}
@@ -1208,7 +1198,10 @@ function drawWebGLUniformBufferPacket(
 		gl.uniformMatrix4fv(
 			sceneProgram.uniforms.model,
 			false,
-			Matrix4.toColumnMajorArray(packet.submission.instance.worldMatrix),
+			Matrix4.toColumnMajorArray(
+				packet.submission.instance.worldMatrix,
+				deps.drawState.modelMatrixScratch,
+			),
 		);
 	}
 	if (sceneProgram.uniforms.normalMatrix) {
@@ -1453,17 +1446,19 @@ function bindWebGLPreviousModel(
 	const cacheKey = packet.submission.id;
 	deps.modelMatrixKeysThisFrame.add(cacheKey);
 	let cached = deps.modelMatrixCache.get(cacheKey);
-	deps.gl.uniformMatrix4fv(
-		sceneProgram.uniforms.prevModel,
-		false,
-		cached ?? Matrix4.toColumnMajorArray(packet.submission.instance.worldMatrix),
-	);
 	if (!cached) {
 		cached = Matrix4.toColumnMajorArray(packet.submission.instance.worldMatrix);
 		deps.modelMatrixCache.set(cacheKey, cached);
-	} else {
-		cached.set(Matrix4.toColumnMajorArray(packet.submission.instance.worldMatrix));
+		deps.gl.uniformMatrix4fv(sceneProgram.uniforms.prevModel, false, cached);
+		return;
 	}
+	// Upload the previous transform before overwriting its persistent storage.
+	deps.gl.uniformMatrix4fv(
+		sceneProgram.uniforms.prevModel,
+		false,
+		cached,
+	);
+	Matrix4.toColumnMajorArray(packet.submission.instance.worldMatrix, cached);
 }
 
 function bindWebGLTransmissionModelScale(
@@ -1625,7 +1620,10 @@ function drawWebGLLegacyDepthPrepassPacket(
 		gl.uniformMatrix4fv(
 			sceneProgram.uniforms.model,
 			false,
-			Matrix4.toColumnMajorArray(packet.submission.instance.worldMatrix)
+			Matrix4.toColumnMajorArray(
+				packet.submission.instance.worldMatrix,
+				deps.drawState.modelMatrixScratch,
+			),
 		);
 	}
 	if (sceneProgram.uniforms.normalMatrix && normalMatrix) {
@@ -1722,7 +1720,10 @@ function drawWebGLUniformBufferDepthPrepassPacket(
 		gl.uniformMatrix4fv(
 			sceneProgram.uniforms.model,
 			false,
-			Matrix4.toColumnMajorArray(packet.submission.instance.worldMatrix),
+			Matrix4.toColumnMajorArray(
+				packet.submission.instance.worldMatrix,
+				deps.drawState.modelMatrixScratch,
+			),
 		);
 	}
 	if (sceneProgram.uniforms.normalMatrix && normalMatrix) {

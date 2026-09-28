@@ -270,6 +270,33 @@ function testDrawPathBindsCachedUniformBuffersWithoutReuploading() {
 	assert.equal(gl.calls.subData.length, 0);
 	assert.deepEqual(gl.bindBufferBaseCalls, [[0, 1], [1, 2]]);
 	assert.equal(gl.drawElementsCalls, 2);
+	const uploads = [];
+	gl.uniformMatrix4fv = (location, _transpose, values) => {
+		uploads.push({ location, buffer: values, values: Array.from(values) });
+	};
+	sceneProgram.uniforms.model = "model";
+	sceneProgram.uniforms.prevModel = "previous";
+	packet.submission.instance.worldMatrix.elements[0][3] = 2;
+	drawWebGLPacket(deps, sceneProgram, packet, false, context);
+	const history = deps.modelMatrixCache.get(packet.submission.id);
+	packet.submission.instance.worldMatrix.elements[0][3] = 5;
+	drawWebGLPacket(deps, sceneProgram, packet, false, context);
+	const other = createTestDrawPacket({ id: "other", material });
+	other.submission.instance.worldMatrix.elements[0][3] = 9;
+	drawWebGLPacket(deps, sceneProgram, other, false, context);
+	packet.submission.instance.worldMatrix.elements[0][3] = 7;
+	drawWebGLPacket(deps, sceneProgram, packet, false, context);
+	assert.deepEqual(
+		uploads.filter((upload) => upload.location === "previous").map((upload) => upload.values[12]),
+		[2, 2, 9, 5],
+	);
+	const modelUploads = uploads.filter((upload) => upload.location === "model");
+	assert.deepEqual(modelUploads.map((upload) => upload.values[12]), [2, 5, 9, 7]);
+	assert.equal(new Set(modelUploads.map((upload) => upload.buffer)).size, 1);
+	assert.strictEqual(deps.modelMatrixCache.get(packet.submission.id), history);
+	assert.equal(history[12], 7);
+	assert.equal(deps.modelMatrixCache.get("other")[12], 9);
+	assert.notStrictEqual(history, modelUploads[0].buffer);
 	buffers.destroy();
 }
 

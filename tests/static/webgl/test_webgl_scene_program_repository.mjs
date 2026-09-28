@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";import { AlphaMode, Material } from "../../../src/materials/Material.ts";import { ShaderMaterial } from "../../../src/materials/ShaderMaterial.ts";import { WebGLProgramCompiler } from "../../../src/backends/webgl/WebGLProgramCompiler.ts";import { getWebGLSceneVariantKey } from "../../../src/backends/webgl/WebGLSceneProgramVariants.ts";import { ShaderCompileError, ShaderRuntime } from "../../../src/shaders/runtime/index.ts";import { ShaderSource } from "../../../src/shaders/ShaderSource.ts";import { PROGRAM_LIBRARY_SCENE_LIMITS, createSceneProgramRepository, createTestBuiltinSceneVariant, prepareTestBuiltinSceneVariant, createCompilerSlot, createProgramCompileFailGL, createProgramCaptureGL, createSelectiveCompileFailGL, CUSTOM_WEBGL_VERTEX, CUSTOM_WEBGL_FRAGMENT, CUSTOM_WEBGL_FRAGMENT_MRT, CUSTOM_WEBGL_FRAGMENT_DEPTH, runWebGLBackendFile } from "../../helpers/webgl-backend.mjs";
 import { WebGLProgramPreparationError } from "../../../src/foundation/Error.ts";
 import { createWebGLShaderMaterialFallbackVariant } from "../../../src/backends/webgl/WebGLSceneProgramVariants.ts";
+import { ShaderBackendCompileStage } from "../../../src/shaders/runtime/index.ts";
+import { WEBGL_TEST_PROFILE } from "../shaders/shaderDirectiveTestProfiles.mjs";
 
 function testUnpreparedExactVariantFailsWithoutFallbackProgram() {
 	const gl = createProgramCaptureGL();
@@ -199,6 +201,92 @@ async function testSceneProgramRepositoryCachesBuiltinSceneVariants() {
 		ShaderSource.getIdentity("webgl.scene", { specialization: noMapVariant }),
 		ShaderSource.getIdentity("webgl.scene", { specialization: baseMapVariant })
 	);
+}
+
+async function testCachedSceneProgramAvoidsRepeatedSourceResolution() {
+	const variant = createTestBuiltinSceneVariant();
+	await prepareTestBuiltinSceneVariant(variant);
+	const gl = createProgramCaptureGL();
+	const repository = createSceneProgramRepository(gl, () => {});
+	const first = repository.getSceneProgram(undefined, "single", variant);
+	const originalResolve = ShaderSource._resolve;
+	let resolutions = 0;
+	ShaderSource._resolve = function (...args) {
+		resolutions++;
+		return originalResolve.apply(this, args);
+	};
+	try {
+		for (let index = 0; index < 20; index++) {
+			assert.strictEqual(
+				repository.getSceneProgram(undefined, "single", structuredClone(variant)),
+				first,
+			);
+		}
+		assert.equal(resolutions, 0, "Warm program lookup must reuse its source identity");
+		assert.equal(gl.programCount, 1);
+	} finally {
+		ShaderSource._resolve = originalResolve;
+		repository.destroy();
+	}
+}
+
+async function testCachedSceneProgramObservesSourceInvalidation() {
+	const variant = createTestBuiltinSceneVariant();
+	await prepareTestBuiltinSceneVariant(variant);
+	const repository = createSceneProgramRepository(createProgramCaptureGL(), () => {});
+	const first = repository.getSceneProgram(undefined, "single", variant);
+	const getProgram = () => repository.getSceneProgram(undefined, "single", variant);
+	try {
+		ShaderSource.clearCache("webgpu");
+		assert.strictEqual(getProgram(), first);
+		ShaderSource.clearCache("webgl");
+		assert.throws(getProgram, WebGLProgramPreparationError);
+		await prepareTestBuiltinSceneVariant(variant);
+		assert.strictEqual(getProgram(), first);
+		ShaderSource.configure({});
+		assert.throws(getProgram, WebGLProgramPreparationError);
+		await prepareTestBuiltinSceneVariant(variant);
+		assert.strictEqual(getProgram(), first);
+		variant.material.baseMap = true;
+		assert.throws(getProgram, WebGLProgramPreparationError);
+		await prepareTestBuiltinSceneVariant(variant);
+		assert.notStrictEqual(getProgram(), first);
+	} finally {
+		repository.destroy();
+		ShaderSource.resetConfiguration();
+	}
+}
+
+async function testCachedBuiltinProgramObservesCompilerFingerprintChanges() {
+	const variant = createTestBuiltinSceneVariant();
+	await prepareTestBuiltinSceneVariant(variant);
+	const runtime = new ShaderRuntime({ mode: "strict" });
+	const stage = new ShaderBackendCompileStage({
+		runtime, profile: WEBGL_TEST_PROFILE, mode: "strict",
+	});
+	const gl = createProgramCaptureGL();
+	const repository = createSceneProgramRepository(gl, () => {}, runtime, stage);
+	const getProgram = () => repository.getSceneProgram(undefined, "single", variant);
+	try {
+		const first = getProgram();
+		assert.strictEqual(getProgram(), first);
+		runtime.registerRule({
+			id: "user/builtin-cache-revision",
+			inject: () => ({ header: "// builtin runtime revision changed" }),
+		});
+		const second = getProgram();
+		assert.notStrictEqual(second, first);
+		assert.strictEqual(getProgram(), second);
+		// Vary the compiler-provided fingerprint while retaining real compilation.
+		const fingerprint = stage.getCacheFingerprintTag();
+		stage.getCacheFingerprintTag = () => `${fingerprint}|changed`;
+		const third = getProgram();
+		assert.notStrictEqual(third, second);
+		assert.strictEqual(getProgram(), third);
+		assert.equal(gl.programCount, 3);
+	} finally {
+		repository.destroy();
+	}
 }
 
 async function testNoShadowPBRVariantDeclaresFallbackBeforeLighting() {
@@ -649,6 +737,8 @@ await runWebGLBackendFile([
 	testSceneProgramRepositoryShaderMaterialCustomProgram,
 	testSceneProgramRepositoryPropagatesSamplerOverflowInWarnMode,
 	testSceneProgramRepositoryCachesBuiltinSceneVariants,
+	testCachedSceneProgramAvoidsRepeatedSourceResolution,
+	testCachedBuiltinProgramObservesCompilerFingerprintChanges,
 	testNoShadowPBRVariantDeclaresFallbackBeforeLighting,
 	testOpaquePBRMRTVariantDeclaresAlphaUniform,
 	testShadowVariantWithoutTransmittanceKeepsShadowUniforms,
@@ -663,4 +753,5 @@ await runWebGLBackendFile([
 	testProgramOwnershipSeparatesPostProcessAndBackendPrograms,
 	testOpaqueBaseMapPreparesNormalizedDepthPrepassVariant,
 	testIssuePlannedSceneProgramCompilesStartsAheadOfFirstDraw,
+	testCachedSceneProgramObservesSourceInvalidation,
 ], "WebGL scene program repository tests");
