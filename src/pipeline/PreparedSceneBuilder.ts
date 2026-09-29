@@ -107,6 +107,8 @@ interface PreparedSubmissionCacheEntry {
 	signature: PreparedPacketCacheSignature;
 	readonly viewEntries: Set<PreparedViewPacketCacheEntry>;
 	lastUsedFrame: number;
+	validatedEpoch: number;
+	validatedSignature: PreparedPacketCacheSignature | null;
 }
 
 /** @internal Bounded submission cache with isolated view-local packets. */
@@ -116,6 +118,8 @@ export class PreparedScenePacketCache {
 	private readonly _lru = new Set<PreparedSubmissionCacheEntry>();
 	private _materialRevisions = new WeakMap<Material, number>();
 	private _frame = 0;
+	private _frameActive = false;
+	private _validationEpoch = 0;
 	private _frameHits = 0;
 	private _frameRebuilds = 0;
 
@@ -123,6 +127,8 @@ export class PreparedScenePacketCache {
 
 	public beginFrame(): void {
 		this._frame++;
+		this._validationEpoch++;
+		this._frameActive = true;
 		this._frameHits = 0;
 		this._frameRebuilds = 0;
 		this._materialRevisions = new WeakMap<Material, number>();
@@ -136,7 +142,12 @@ export class PreparedScenePacketCache {
 		const key = `${meshInstance.id}:${primitive.id}`;
 		const entry = this._submissions.get(key);
 		if (!entry) return null;
-		if (!this._isSignatureCurrent(
+		const alreadyValidated = this._frameActive &&
+			entry.validatedEpoch === this._validationEpoch &&
+			entry.validatedSignature === entry.signature;
+		// A successful preflight can be consumed once by this preparation's fallback.
+		entry.validatedSignature = null;
+		if (!alreadyValidated && !this._isSignatureCurrent(
 			entry.signature,
 			meshInstance,
 			primitive,
@@ -164,6 +175,7 @@ export class PreparedScenePacketCache {
 		if (entry) {
 			entry.submission = submission;
 			entry.signature = signature;
+			entry.validatedSignature = null;
 			this._touchEntry(entry);
 			return submission;
 		}
@@ -173,6 +185,8 @@ export class PreparedScenePacketCache {
 			signature,
 			viewEntries: new Set(),
 			lastUsedFrame: this._frame,
+			validatedEpoch: 0,
+			validatedSignature: null,
 		};
 		this._submissions.set(key, entry);
 		this._lru.add(entry);
@@ -223,6 +237,8 @@ export class PreparedScenePacketCache {
 		deformationStates: PrimitiveDeformationMap | null,
 	): boolean {
 		let currentSubmissionCount = 0;
+		// A repeated preflight must also discard successes beyond its first failure.
+		this._validationEpoch++;
 
 		for (const meshInstance of meshInstances) {
 			if (meshInstance.visible === false) continue;
@@ -244,6 +260,10 @@ export class PreparedScenePacketCache {
 				) {
 					return false;
 				}
+				if (this._frameActive) {
+					entry.validatedEpoch = this._validationEpoch;
+					entry.validatedSignature = entry.signature;
+				}
 				this._frameHits++;
 				this._touchEntry(entry);
 			}
@@ -253,6 +273,7 @@ export class PreparedScenePacketCache {
 	}
 
 	public endFrame(): void {
+		this._frameActive = false;
 		while (this._lru.size > this._maxEntries) {
 			const oldest = this._lru.values().next().value as
 				| PreparedSubmissionCacheEntry
@@ -272,6 +293,7 @@ export class PreparedScenePacketCache {
 		this._lru.clear();
 		this._materialRevisions = new WeakMap();
 		this._frame = 0;
+		this._frameActive = false;
 	}
 
 	public getDebugStats(): {

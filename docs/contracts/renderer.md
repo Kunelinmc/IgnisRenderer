@@ -384,6 +384,20 @@ This document defines the lifecycle, scheduling, warmup, incremental rendering, 
   another camera.
 - Packet caches must be bounded and must not evict entries used by the active
   frame. Eviction must prefer least-recently-used inactive entries.
+- Dirty-state matrix and material signatures may be shared by object identity
+  within one synchronous `PreparedSceneCache.build()` only. Each build must
+  observe current contents using the existing signature fields and precision.
+  Decal-specific values must not mutate a shared material signature.
+- Successful submission validation may be consumed once by the following full
+  build within the same synchronous preparation. Failed checks must not be
+  memoized. Ending preparation, starting another preparation, clearing the
+  cache, or replacing an entry's signature must invalidate this reuse.
+- Prepared-scene spatial indexes may defer BVH construction until a query.
+  They must snapshot packet membership, ordering, clamped rectangle values,
+  and fallback membership at construction. Later edits to input arrays, maps,
+  or rectangles must not change that snapshot. Opaque and transparent trees
+  must initialize independently, at most once each, including empty trees.
+  Deferred construction must preserve query ordering and fallback semantics.
 - Every `RenderFrameResult` must include `incremental`.
 - Animation pose sampling must complete before world-transform synchronization,
   and deformation payloads and bounds must be resolved only after the current
@@ -767,8 +781,22 @@ bun tests/static/renderer/test_renderer_warmup_lightprobe.mjs
 
 ```bash
 bun tests/static/renderer/test_renderer_render_loop.mjs
+bun tests/run_all.mjs tests/static/pipeline
 bunx tsc --noEmit
 ```
+
+`tests/benchmarks/bench_prepared_scene.mjs` measures preparation plus the first
+spatial queries for fixed shared/unique-material and static/changing scenes.
+It reports five warmed-up rounds, median and p95 durations, and untimed work
+counts. Garbage collection between rounds is excluded from timing; allocation
+and collection during samples remain included. Work-count probes run after all
+timing cases to avoid perturbing later cases' JIT compilation.
+Use `--root=<baseline-checkout> --out=<baseline.json>` to record a
+baseline with the same harness, then `--baseline=<baseline.json>` against the
+changed checkout. Comparisons must use identical sample settings and fixtures.
+Output fingerprints must match; a median regression above 10% is flagged for
+repeat measurement before accepting the change. `--quick` reduces samples,
+and `--count=1000` or `--filter=shared/static` selects focused cases.
 
 ## Related Documents
 

@@ -64,6 +64,8 @@ export class PreparedSceneTileSpatialIndex
 	private _transparentPackets: DrawPacket[];
 	private _opaqueTree: PacketRectBVHNode | null = null;
 	private _transparentTree: PacketRectBVHNode | null = null;
+	private _opaqueEntries: PacketRectBVHEntry[] | null;
+	private _transparentEntries: PacketRectBVHEntry[] | null;
 
 	public constructor(input: PreparedSceneSpatialIndexBuildInput) {
 		this._viewportWidth = Math.max(1, Math.floor(input.viewportWidth));
@@ -75,12 +77,12 @@ export class PreparedSceneTileSpatialIndex
 		);
 		this._opaquePackets = input.opaquePackets.slice();
 		this._transparentPackets = input.transparentPackets.slice();
-		this._opaqueTree = this._buildPacketTree(
+		this._opaqueEntries = this._snapshotPacketRects(
 			this._opaquePackets,
 			input.packetRects,
 			this._opaqueFallbackIndices
 		);
-		this._transparentTree = this._buildPacketTree(
+		this._transparentEntries = this._snapshotPacketRects(
 			this._transparentPackets,
 			input.packetRects,
 			this._transparentFallbackIndices
@@ -91,7 +93,7 @@ export class PreparedSceneTileSpatialIndex
 		return this._queryPackets(
 			rect,
 			this._opaquePackets,
-			this._opaqueTree,
+			this._ensureOpaqueTree(),
 			this._opaqueFallbackIndices
 		);
 	}
@@ -100,7 +102,7 @@ export class PreparedSceneTileSpatialIndex
 		return this._queryPackets(
 			rect,
 			this._transparentPackets,
-			this._transparentTree,
+			this._ensureTransparentTree(),
 			this._transparentFallbackIndices
 		);
 	}
@@ -109,7 +111,7 @@ export class PreparedSceneTileSpatialIndex
 		return this._queryPacketsInRects(
 			rects,
 			this._opaquePackets,
-			this._opaqueTree,
+			this._ensureOpaqueTree(),
 			this._opaqueFallbackIndices
 		);
 	}
@@ -118,7 +120,7 @@ export class PreparedSceneTileSpatialIndex
 		return this._queryPacketsInRects(
 			rects,
 			this._transparentPackets,
-			this._transparentTree,
+			this._ensureTransparentTree(),
 			this._transparentFallbackIndices
 		);
 	}
@@ -191,11 +193,32 @@ export class PreparedSceneTileSpatialIndex
 		return result;
 	}
 
-	private _buildPacketTree(
+	private _ensureOpaqueTree(): PacketRectBVHNode | null {
+		if (this._opaqueEntries !== null) {
+			this._opaqueTree = this._buildPacketTree(this._opaqueEntries);
+			this._opaqueEntries = null;
+		}
+		return this._opaqueTree;
+	}
+
+	private _ensureTransparentTree(): PacketRectBVHNode | null {
+		if (this._transparentEntries !== null) {
+			this._transparentTree = this._buildPacketTree(this._transparentEntries);
+			this._transparentEntries = null;
+		}
+		return this._transparentTree;
+	}
+
+	private _buildPacketTree(entries: PacketRectBVHEntry[]): PacketRectBVHNode | null {
+		return buildPacketRectBVH(entries, 0, entries.length, this._leafSize);
+	}
+
+	private _snapshotPacketRects(
 		packets: DrawPacket[],
 		packetRects: ReadonlyMap<string, DirtyRect>,
 		fallbackIndices: number[]
-	): PacketRectBVHNode | null {
+	): PacketRectBVHEntry[] {
+		// Capture numeric bounds now; queries must not observe later caller edits.
 		const entries: PacketRectBVHEntry[] = [];
 		for (let packetIndex = 0; packetIndex < packets.length; packetIndex++) {
 			const packet = packets[packetIndex];
@@ -219,10 +242,7 @@ export class PreparedSceneTileSpatialIndex
 				centroidY: (minY + maxY) * 0.5,
 			});
 		}
-		if (entries.length === 0) {
-			return null;
-		}
-		return buildPacketRectBVH(entries, 0, entries.length, this._leafSize);
+		return entries;
 	}
 
 	private _clampRect(rect: DirtyRect): DirtyRect | null {

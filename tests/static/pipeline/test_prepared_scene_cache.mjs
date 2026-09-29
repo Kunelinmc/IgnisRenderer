@@ -972,7 +972,316 @@ function testPreparedSubmissionsShareMaterialRevisionScans() {
 	}
 }
 
+function testDirtySignaturesAreSharedOnlyWithinOneBuild() {
+	for (const enabled of [true, false]) {
+		const sharedMaterial = new Material();
+		const otherMaterial = new Material();
+		const texture = { version: 1 };
+		sharedMaterial.map = texture;
+		const sharedMatrix = Matrix4.identity();
+		const otherMatrix = Matrix4.identity();
+		const packets = [createPacket("shared-a", -0.5), createPacket("shared-b", 0)];
+		const otherPacket = createPacket("other", 0.5);
+		for (const packet of packets) {
+			packet.submission.material.effective = sharedMaterial;
+			packet.submission.instance.worldMatrix = sharedMatrix;
+		}
+		otherPacket.submission.material.effective = otherMaterial;
+		otherPacket.submission.instance.worldMatrix = otherMatrix;
+		const decals = [
+			createDecalPacket("decal-a", -0.5, 0.1, { material: sharedMaterial, opacity: 0.2 }),
+			createDecalPacket("decal-b", 0.5, 0.1, {
+				material: sharedMaterial, opacity: 0.8,
+				channelBlendModes: { baseColor: "multiply" },
+			}),
+		];
+		for (const decal of decals) decal.worldMatrix = sharedMatrix;
+		const frame = createFrame(createCamera(), [...packets, otherPacket], decals);
+		const materialReads = [0, 0];
+		const matrixReads = [0, 0];
+		const opacity = [sharedMaterial.opacity, otherMaterial.opacity];
+		const elements = [sharedMatrix.elements, otherMatrix.elements];
+		for (const [index, material] of [sharedMaterial, otherMaterial].entries()) {
+			Object.defineProperty(material, "opacity", {
+				get() { materialReads[index]++; return opacity[index]; },
+			});
+		}
+		for (const [index, matrix] of [sharedMatrix, otherMatrix].entries()) {
+			Object.defineProperty(matrix, "elements", {
+				get() { matrixReads[index]++; return elements[index]; },
+			});
+		}
+		const cache = new PreparedSceneCache();
+		const input = {
+			viewportWidth: 320, viewportHeight: 180,
+			features: createFeatures(), postProcess: createResolvedPostProcess(),
+			incrementalOptions: {
+				...DEFAULT_INCREMENTAL_RENDERING_OPTIONS,
+				enabled, fullFrameFallbackAreaRatio: 1,
+			},
+		};
+		const originalBuild = PreparedSceneBuilder.build;
+		PreparedSceneBuilder.build = () => frame;
+		const build = () => {
+			materialReads.fill(0);
+			matrixReads.fill(0);
+			const result = cache.build(input);
+			assert.deepEqual(materialReads, [1, 1], "hash each unique material once per build");
+			assert.deepEqual(matrixReads, [1, 1], "hash each unique matrix once per build");
+			assert.equal(result.packetRects.size, 3);
+			return result;
+		};
+		try {
+			build();
+			const stable = build();
+			if (enabled) assert.equal(stable.dirtyRects.length, 0);
+			for (const [index, change] of [
+				() => { opacity[0] -= 1e-10; },
+				() => { texture.version++; },
+				() => { elements[0][0][3] += 1e-10; },
+				() => { decals[0].opacity = 0.4; },
+				() => { decals[1].channelBlendModes.baseColor = "lerp"; },
+				() => { otherMaterial.depthWrite = false; },
+			].entries()) {
+				change();
+				const changed = build();
+				assert.ok(changed.dirtyRects.length > 0, "observe changes in the next build");
+				if (enabled && index === 3) {
+					assert.ok(changed.dirtyRects.every((rect) => rect.x + rect.width <= 160),
+						"changing the left decal must not dirty the right decal's shared material");
+				}
+				if (enabled) assert.equal(build().dirtyRects.length, 0);
+			}
+			// Disabled preparation still establishes the baseline for direct cache users.
+			input.incrementalOptions.enabled = true;
+			assert.equal(build().dirtyRects.length, 0);
+			cache.reset();
+			assert.equal(build().forceFullFrame, true);
+		} finally {
+			PreparedSceneBuilder.build = originalBuild;
+		}
+	}
+}
+
+function createSubmissionReuseFixture(count = 3) {
+	const scene = new Scene();
+	const camera = scene.add(new Camera());
+	const instances = Array.from({ length: count }, () => scene.add(new MeshInstance({
+		mesh: MeshAsset.fromFaces([{
+			material: new Material(),
+			vertices: [{ x: 0, y: 0, z: -2 }, { x: 1, y: 0, z: -2 }, { x: 0, y: 1, z: -2 }],
+		}]),
+	})));
+	scene.updateWorldMatrices();
+	camera.updateMatrices();
+	return { scene, camera, instances, source: { scene, camera, hasActiveAnimations: false } };
+}
+
+function testDecalOnlyMemoDoesNotMixOtherDecals() {
+	const material = new Material();
+	const left = createDecalPacket("left", -0.5, 0.1, { material, opacity: 0.2 });
+	const right = createDecalPacket("right", 0.5, 0.1, { material, opacity: 0.8 });
+	right.worldMatrix = left.worldMatrix;
+	const frame = createFrame(createCamera(), [], [left, right]);
+	const cache = new PreparedSceneCache();
+	const originalBuild = PreparedSceneBuilder.build;
+	PreparedSceneBuilder.build = () => frame;
+	try {
+		const input = {
+			viewportWidth: 320, viewportHeight: 180,
+			features: createFeatures(), postProcess: createResolvedPostProcess(),
+			incrementalOptions: {
+				...DEFAULT_INCREMENTAL_RENDERING_OPTIONS, enabled: true, fullFrameFallbackAreaRatio: 1,
+			},
+		};
+		cache.build(input);
+		assert.equal(cache.build(input).dirtyRects.length, 0);
+		left.opacity = 0.4;
+		const changed = cache.build(input);
+		assert.ok(changed.dirtyRects.length > 0);
+		assert.ok(changed.dirtyRects.every((rect) => rect.x + rect.width <= 160),
+			"decal-local mixing must not corrupt the cached base used by the right decal");
+	} finally {
+		PreparedSceneBuilder.build = originalBuild;
+	}
+}
+
+function testFallbackConsumesSuccessfulValidationOnce() {
+	for (const changedIndex of [0, 49, 99]) {
+		const fixture = createSubmissionReuseFixture(100);
+		const cache = new PreparedSceneCache();
+		const input = {
+			source: fixture.source, viewportWidth: 320, viewportHeight: 180,
+			features: createFeatures(), postProcess: createResolvedPostProcess(),
+			incrementalOptions: { ...DEFAULT_INCREMENTAL_RENDERING_OPTIONS, enabled: false },
+		};
+		const first = cache.build(input);
+		fixture.instances[changedIndex].position.x = 0.01;
+		fixture.scene.updateWorldMatrices();
+		const original = PreparedScenePacketCache.prototype._isSignatureCurrent;
+		let checks = 0;
+		PreparedScenePacketCache.prototype._isSignatureCurrent = function (...args) {
+			checks++;
+			return original.apply(this, args);
+		};
+		try {
+			const next = cache.build(input);
+			assert.equal(checks, 101, "fallback must not revalidate the successful prefix");
+			for (let index = 0; index < 100; index++) {
+				assert.equal(
+					next.frame.submissions[index] === first.frame.submissions[index],
+					index !== changedIndex,
+				);
+			}
+			checks = 0;
+			cache.build(input);
+			assert.equal(checks, 100, "the next preparation must validate again");
+		} finally {
+			PreparedScenePacketCache.prototype._isSignatureCurrent = original;
+		}
+	}
+}
+
+function testSubmissionValidationLifetimeAndMutations() {
+	const { scene, camera, instances, source } = createSubmissionReuseFixture();
+	const packets = new PreparedScenePacketCache(2);
+	const build = () => PreparedSceneBuilder.build(source, { packetCache: packets });
+	const validate = (frame) => packets.canReuseSubmissions(
+		scene.getMeshInstances(), new Map(frame.submissions.map((s) => [s.id, s])),
+		source.deformationStates ?? null,
+	);
+	packets.beginFrame();
+	let frame = build();
+	packets.endFrame();
+	assert.equal(packets.getDebugStats().entries, 3, "active entries exceed the soft limit safely");
+
+	const original = packets._isSignatureCurrent;
+	let checks = 0;
+	packets._isSignatureCurrent = function (...args) {
+		checks++;
+		return original.apply(this, args);
+	};
+	packets.beginFrame();
+	assert.equal(validate(frame), true);
+	assert.equal(checks, 3);
+	const firstReuse = build();
+	assert.equal(checks, 3, "consume successful checks once");
+	assert.equal(packets.getDebugStats().frameHits, 6, "preserve hit accounting");
+	build();
+	assert.equal(checks, 6, "consumed checks cannot be used twice");
+	packets.endFrame();
+
+	packets.beginFrame();
+	assert.equal(validate(firstReuse), true);
+	packets.endFrame();
+	const primitive = instances[0].mesh.primitives[0];
+	primitive.topology = "line-list";
+	const afterEnd = build();
+	assert.equal(afterEnd.submissions[0].geometry.topology, "line-list");
+	assert.notEqual(afterEnd.submissions[0], firstReuse.submissions[0]);
+
+	// Replacing a signature must also invalidate an unconsumed validation marker.
+	packets.beginFrame();
+	assert.equal(validate(afterEnd), true);
+	packets.storeSubmission(instances[0], primitive, null, afterEnd.submissions[0]);
+	checks = 0;
+	packets.getReusableSubmission(instances[0], primitive, null);
+	assert.equal(checks, 1);
+	packets.endFrame();
+
+	const changes = [
+		() => { primitive.castShadows = !primitive.castShadows; },
+		() => { primitive.receiveShadows = !primitive.receiveShadows; },
+		() => { instances[0].renderLayers = 4; },
+		() => { primitive.material.opacity = 0.4; },
+		() => { primitive.visible = false; },
+		() => { primitive.visible = true; },
+		() => { instances[0].visible = false; },
+		() => { instances[0].visible = true; },
+		() => { scene.remove(instances[2]); },
+		() => { scene.add(instances[2]); },
+		() => {
+			source.deformationStates = new Map([[`${instances[0].id}:${primitive.id}`, {
+				mode: "morph", revision: 1, jointPayloadKey: null,
+				morphPayloadKey: "morph-payload", localBounds: primitive.boundingSphere,
+			}]]);
+		},
+		() => { source.deformationStates.values().next().value.revision++; },
+		() => { source.deformationStates.values().next().value.morphPayloadKey = "new-payload"; },
+		() => { source.deformationStates = null; },
+	];
+	for (const change of changes) {
+		packets.beginFrame();
+		frame = build();
+		assert.equal(validate(frame), true);
+		packets.endFrame();
+		change();
+		packets.beginFrame();
+		assert.equal(validate(frame), false, "a new preparation must observe authoring changes");
+		const actual = build();
+		const expected = PreparedSceneBuilder.build(source);
+		assert.deepEqual(
+			actual.submissions.map((s) => [s.id, s.passFlags, s.instance.renderLayers, s.deformation]),
+			expected.submissions.map((s) => [s.id, s.passFlags, s.instance.renderLayers, s.deformation]),
+		);
+		packets.endFrame();
+	}
+
+	packets.beginFrame();
+	frame = build();
+	assert.equal(validate(frame), true);
+	packets.clear();
+	primitive.topology = "triangle-list";
+	packets.beginFrame();
+	const reset = build();
+	assert.notEqual(reset.submissions[0], frame.submissions[0]);
+	packets.endFrame();
+
+	// Inactive entries can be evicted; validated active entries must stay available.
+	scene.remove(instances[0]);
+	packets.beginFrame();
+	build();
+	packets.endFrame();
+	assert.equal(packets.getDebugStats().entries, 2);
+	scene.add(instances[0]);
+	packets.beginFrame();
+	assert.equal(validate(reset), false);
+	const restored = build();
+	assert.notEqual(restored.submissions.find((s) => s.id === reset.submissions[0].id), reset.submissions[0]);
+	packets.endFrame();
+	const otherCamera = new Camera();
+	otherCamera.position.z = 0.5;
+	otherCamera.updateWorldMatrix();
+	otherCamera.updateMatrices();
+	packets.beginFrame();
+	const otherView = PreparedSceneBuilder.build({ ...source, camera: otherCamera }, { packetCache: packets });
+	assert.equal(otherView.submissions[0], restored.submissions[0]);
+	assert.notEqual(otherView.opaquePackets[0], restored.opaquePackets[0]);
+	packets.endFrame();
+}
+
+function testRepeatedValidationDiscardsEarlierSuccesses() {
+	const { scene, instances, source } = createSubmissionReuseFixture();
+	const packets = new PreparedScenePacketCache();
+	packets.beginFrame();
+	const frame = PreparedSceneBuilder.build(source, { packetCache: packets });
+	const prepared = new Map(frame.submissions.map((s) => [s.id, s]));
+	assert.equal(packets.canReuseSubmissions(scene.getMeshInstances(), prepared, null), true);
+	instances[0].mesh.primitives[0].topology = "line-list";
+	instances[2].renderLayers = 8;
+	assert.equal(packets.canReuseSubmissions(scene.getMeshInstances(), prepared, null), false);
+	const changed = PreparedSceneBuilder.build(source, { packetCache: packets });
+	assert.equal(changed.submissions[0].geometry.topology, "line-list");
+	assert.equal(changed.submissions[2].instance.renderLayers, 8);
+	packets.endFrame();
+}
+
 function run() {
+	testDecalOnlyMemoDoesNotMixOtherDecals();
+	testRepeatedValidationDiscardsEarlierSuccesses();
+	testFallbackConsumesSuccessfulValidationOnce();
+	testSubmissionValidationLifetimeAndMutations();
+	testDirtySignaturesAreSharedOnlyWithinOneBuild();
 	testPacketDiffLifecycle();
 	testBackendDirtyRectsJoinPreparedCoverage();
 	testDecalDiffLifecycle();

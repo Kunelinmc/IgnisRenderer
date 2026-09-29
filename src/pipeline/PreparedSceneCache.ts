@@ -42,10 +42,18 @@ interface MatrixSignatureState {
 	matrixSignatureB: number;
 }
 
-interface CachedSignatureState extends MatrixSignatureState {
+interface MaterialSignatureState {
 	materialSignatureA: number;
 	materialSignatureB: number;
+}
+
+interface CachedSignatureState extends MatrixSignatureState, MaterialSignatureState {
 	rect: DirtyRect | null;
+}
+
+interface FrameSignatureMemo {
+	matrices: WeakMap<Matrix4, MatrixSignatureState>;
+	materials: WeakMap<Material, MaterialSignatureState>;
 }
 
 interface CachedPacketState extends CachedSignatureState {
@@ -200,6 +208,10 @@ export class PreparedSceneCache {
 		const height = Math.max(1, Math.floor(input.viewportHeight));
 		const fullScreenRect = makeFullScreenRect(width, height);
 		const packetRects = new Map<string, DirtyRect>();
+		const signatures: FrameSignatureMemo = {
+			matrices: new WeakMap(),
+			materials: new WeakMap(),
+		};
 		const fullFrameTileCoverage = buildDirtyTileCoverage(
 			[fullScreenRect],
 			width,
@@ -216,7 +228,7 @@ export class PreparedSceneCache {
 		this._cameraSignatureB = cameraSignature.matrixSignatureB;
 
 		if (!input.incrementalOptions.enabled) {
-			this._syncCacheState(frame, packetRects, width, height);
+			this._syncCacheState(frame, packetRects, width, height, signatures);
 			frame.spatialIndex = this._buildSpatialIndex(
 				frame,
 				packetRects,
@@ -247,16 +259,13 @@ export class PreparedSceneCache {
 				height: rect.height,
 			}),
 		);
-		const visited = new Set<string>();
-		const visitedDecals = new Set<string>();
-
 		this._processFramePackets(
 			frame,
 			width,
 			height,
 			packetRects,
 			currentPacketStateById,
-			visited,
+			signatures,
 			(_packetId, currentState, previous) => {
 				if (!previous) {
 					if (currentState.rect) {
@@ -281,7 +290,7 @@ export class PreparedSceneCache {
 			width,
 			height,
 			currentDecalStateById,
-			visitedDecals,
+			signatures,
 			(_packetId, currentState, previous) => {
 				if (!previous) {
 					if (currentState.rect) {
@@ -302,7 +311,7 @@ export class PreparedSceneCache {
 		);
 
 		for (const [packetId, previous] of this._packetStateById.entries()) {
-			if (visited.has(packetId)) {
+			if (currentPacketStateById.has(packetId)) {
 				continue;
 			}
 			if (previous.rect) {
@@ -311,7 +320,7 @@ export class PreparedSceneCache {
 		}
 
 		for (const [packetId, previous] of this._decalStateById.entries()) {
-			if (visitedDecals.has(packetId)) {
+			if (currentDecalStateById.has(packetId)) {
 				continue;
 			}
 			if (previous.rect) {
@@ -460,7 +469,7 @@ export class PreparedSceneCache {
 		height: number,
 		packetRects: Map<string, DirtyRect>,
 		currentPacketStateById: Map<string, CachedPacketState>,
-		visited?: Set<string>,
+		signatures: FrameSignatureMemo,
 		observer?: PacketStateObserver
 	): void {
 		this._processPacketList(
@@ -470,7 +479,7 @@ export class PreparedSceneCache {
 			height,
 			packetRects,
 			currentPacketStateById,
-			visited,
+			signatures,
 			observer
 		);
 		this._processPacketList(
@@ -480,7 +489,7 @@ export class PreparedSceneCache {
 			height,
 			packetRects,
 			currentPacketStateById,
-			visited,
+			signatures,
 			observer
 		);
 	}
@@ -490,16 +499,13 @@ export class PreparedSceneCache {
 		width: number,
 		height: number,
 		currentDecalStateById: Map<string, CachedDecalState>,
-		visited?: Set<string>,
+		signatures: FrameSignatureMemo,
 		observer?: DecalStateObserver
 	): void {
 		for (const packet of frame.decalPackets) {
 			const rect = computePacketScreenRect(packet, frame.camera, width, height);
-			const currentState = createDecalState(packet, rect);
+			const currentState = createDecalState(packet, rect, signatures);
 			currentDecalStateById.set(packet.id, currentState);
-			if (visited) {
-				visited.add(packet.id);
-			}
 			if (observer) {
 				observer(packet.id, currentState, this._decalStateById.get(packet.id));
 			}
@@ -513,7 +519,7 @@ export class PreparedSceneCache {
 		height: number,
 		packetRects: Map<string, DirtyRect>,
 		currentPacketStateById: Map<string, CachedPacketState>,
-		visited?: Set<string>,
+		signatures: FrameSignatureMemo,
 		observer?: PacketStateObserver
 	): void {
 		for (let index = 0; index < packets.length; index++) {
@@ -523,11 +529,8 @@ export class PreparedSceneCache {
 			if (rect) {
 				packetRects.set(submission.id, rect);
 			}
-			const currentState = createPacketState(packet, rect);
+			const currentState = createPacketState(packet, rect, signatures);
 			currentPacketStateById.set(submission.id, currentState);
-			if (visited) {
-				visited.add(submission.id);
-			}
 			if (observer) {
 				observer(
 					submission.id,
@@ -542,12 +545,13 @@ export class PreparedSceneCache {
 		frame: PreparedScene,
 		packetRects: Map<string, DirtyRect>,
 		width: number,
-		height: number
+		height: number,
+		signatures: FrameSignatureMemo,
 	): void {
 		const next = new Map<string, CachedPacketState>();
-		this._processFramePackets(frame, width, height, packetRects, next);
+		this._processFramePackets(frame, width, height, packetRects, next, signatures);
 		const nextDecals = new Map<string, CachedDecalState>();
-		this._processFrameDecals(frame, width, height, nextDecals);
+		this._processFrameDecals(frame, width, height, nextDecals, signatures);
 		this._packetStateById = next;
 		this._decalStateById = nextDecals;
 		this._frameIndex++;
@@ -572,6 +576,7 @@ export class PreparedSceneCache {
 }
 
 function sameReferenceList<T>(left: readonly T[], right: readonly T[]): boolean {
+	if (left === right) return true;
 	if (left.length !== right.length) return false;
 	for (let index = 0; index < left.length; index++) {
 		if (left[index] !== right[index]) return false;
@@ -602,7 +607,8 @@ function preparedEnvironmentMatchesScene(
 
 function createPacketState(
 	packet: DrawPacket,
-	rect: DirtyRect | null
+	rect: DirtyRect | null,
+	signatures: FrameSignatureMemo,
 ): CachedPacketState {
 	const state: CachedPacketState = {
 		pipelineKey: packet.submission.material.pipelineKey,
@@ -618,14 +624,17 @@ function createPacketState(
 		materialSignatureB: SIGNATURE_INIT_B,
 		rect,
 	};
-	writeMatrix4Signature(state, packet.submission.instance.worldMatrix);
-	writeMaterialSignature(state, packet.submission.material.effective);
+	writeSharedSignatures(
+		state, packet.submission.instance.worldMatrix, packet.submission.material.effective,
+		signatures,
+	);
 	return state;
 }
 
 function createDecalState(
 	packet: DecalPacket,
-	rect: DirtyRect | null
+	rect: DirtyRect | null,
+	signatures: FrameSignatureMemo,
 ): CachedDecalState {
 	const state: CachedDecalState = {
 		matrixSignatureA: SIGNATURE_INIT_A,
@@ -634,8 +643,7 @@ function createDecalState(
 		materialSignatureB: SIGNATURE_INIT_B,
 		rect,
 	};
-	writeMatrix4Signature(state, packet.worldMatrix);
-	writeMaterialSignature(state, packet.material);
+	writeSharedSignatures(state, packet.worldMatrix, packet.material, signatures, true);
 	mixMaterialUint32(state, packet.receiverLayerMask >>> 0);
 	mixMaterialFloat(state, packet.priority);
 	mixMaterialFloat(state, packet.opacity);
@@ -708,8 +716,37 @@ function createMatrixSignature(matrix: Matrix4): MatrixSignatureState {
 	return signature;
 }
 
-function writeMaterialSignature(
+function writeSharedSignatures(
 	state: CachedSignatureState,
+	matrix: Matrix4,
+	material: Material,
+	memo: FrameSignatureMemo,
+	copyMaterialBase = false,
+): void {
+	const matrixSignature = memo.matrices.get(matrix);
+	if (matrixSignature) {
+		state.matrixSignatureA = matrixSignature.matrixSignatureA;
+		state.matrixSignatureB = matrixSignature.matrixSignatureB;
+	} else {
+		writeMatrix4Signature(state, matrix);
+		memo.matrices.set(matrix, state);
+	}
+	const materialSignature = memo.materials.get(material);
+	if (materialSignature) {
+		state.materialSignatureA = materialSignature.materialSignatureA;
+		state.materialSignatureB = materialSignature.materialSignatureB;
+	} else {
+		writeMaterialSignature(state, material);
+		// Mesh states already retain immutable hashes. Only decals mix more fields.
+		memo.materials.set(material, copyMaterialBase ? {
+			materialSignatureA: state.materialSignatureA,
+			materialSignatureB: state.materialSignatureB,
+		} : state);
+	}
+}
+
+function writeMaterialSignature(
+	state: MaterialSignatureState,
 	material: Material
 ): void {
 	const mat = material as Material & Record<string, unknown>;
@@ -801,7 +838,7 @@ function resolveTextureVersion(value: unknown): number {
 	return version;
 }
 
-function mixMaterialString(state: CachedSignatureState, value: unknown): void {
+function mixMaterialString(state: MaterialSignatureState, value: unknown): void {
 	const normalized = typeof value === "string" ? value : String(value ?? "");
 	let hashA = mixFnv32(state.materialSignatureA, normalized.length);
 	let hashB = mixFnv32(
@@ -817,7 +854,7 @@ function mixMaterialString(state: CachedSignatureState, value: unknown): void {
 	state.materialSignatureB = hashB;
 }
 
-function mixMaterialUint32(state: CachedSignatureState, value: number): void {
+function mixMaterialUint32(state: MaterialSignatureState, value: number): void {
 	const normalized = value >>> 0;
 	state.materialSignatureA = mixFnv32(state.materialSignatureA, normalized);
 	state.materialSignatureB = mixFnv32(
@@ -826,7 +863,7 @@ function mixMaterialUint32(state: CachedSignatureState, value: number): void {
 	);
 }
 
-function mixMaterialFloat(state: CachedSignatureState, value: number): void {
+function mixMaterialFloat(state: MaterialSignatureState, value: number): void {
 	SIGNATURE_FLOAT64_SCRATCH.setFloat64(0, value, true);
 	const lo = SIGNATURE_FLOAT64_SCRATCH.getUint32(0, true);
 	const hi = SIGNATURE_FLOAT64_SCRATCH.getUint32(4, true);
