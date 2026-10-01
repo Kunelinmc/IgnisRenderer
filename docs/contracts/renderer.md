@@ -417,6 +417,11 @@ This document defines the lifecycle, scheduling, warmup, incremental rendering, 
   full-frame coverage for that build and rebase cached packet rectangles before
   later partial deformation updates, even when no explicit `"camera"` dirty
   reason was supplied.
+- When full-frame coverage is already required by disabled incremental rendering,
+  the first build, a camera matrix change, or explicit `forceFullFrame`, the
+  prepared-scene cache must skip previous-state comparisons and dirty-candidate
+  collection. It must still refresh packet and decal baselines, projected packet
+  rectangles, and the spatial index so later incremental builds use current state.
 - Projected packet bounds used for incremental coverage must conservatively
   enclose the complete world-space bounding sphere under perspective and
   orthographic cameras. A bound that crosses the camera plane must use

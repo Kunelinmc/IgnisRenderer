@@ -227,7 +227,13 @@ export class PreparedSceneCache {
 		this._cameraSignatureA = cameraSignature.matrixSignatureA;
 		this._cameraSignatureB = cameraSignature.matrixSignatureB;
 
-		if (!input.incrementalOptions.enabled) {
+		if (
+			!input.incrementalOptions.enabled ||
+			this._frameIndex === 0 ||
+			cameraChanged ||
+			input.forceFullFrame === true
+		) {
+			// Rebase current-view coverage without collecting unused incremental diffs.
 			this._syncCacheState(frame, packetRects, width, height, signatures);
 			frame.spatialIndex = this._buildSpatialIndex(
 				frame,
@@ -338,20 +344,6 @@ export class PreparedSceneCache {
 			height,
 			input.incrementalOptions.dirtyTileSize
 		);
-
-		if (this._frameIndex <= 1 || cameraChanged || input.forceFullFrame === true) {
-			return {
-				frame,
-				dirtyRects: [fullScreenRect],
-				dirtyTiles: fullFrameTileCoverage.dirtyTiles.slice(),
-				dirtyTileSize: fullFrameTileCoverage.tileSize,
-				dirtyTileColumns: fullFrameTileCoverage.tileColumns,
-				dirtyTileRows: fullFrameTileCoverage.tileRows,
-				dirtyAreaRatio: 1,
-				forceFullFrame: true,
-				packetRects,
-			};
-		}
 
 		const emptyCoverage = buildDirtyTileCoverage(
 			[],

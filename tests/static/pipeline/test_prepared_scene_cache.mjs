@@ -693,20 +693,119 @@ function testDeformationRevisionAndBoundsDirtyPreviousAndCurrentCoverage() {
 	}
 }
 
+function testFullFrameBuildSkipsDiffAndRebasesState() {
+	for (const reason of ["camera", "forced", "first", "disabled"]) {
+		const camera = createCamera();
+		let frame = createFrame(camera, [createPacket("old", -0.6, 0.05)], [
+			createDecalPacket("old-decal", -0.6, 0.05),
+		]);
+		const cache = new PreparedSceneCache();
+		const input = {
+			viewportWidth: 320,
+			viewportHeight: 180,
+			features: createFeatures(),
+			postProcess: createResolvedPostProcess(),
+			incrementalOptions: {
+				...DEFAULT_INCREMENTAL_RENDERING_OPTIONS,
+				enabled: true,
+				fullFrameFallbackAreaRatio: 1,
+			},
+		};
+		const originalBuild = PreparedSceneBuilder.build;
+		PreparedSceneBuilder.build = () => frame;
+		try {
+			if (reason !== "first") cache.build(input);
+			if (reason === "camera") {
+				camera.viewProjectionMatrix = Matrix4.fromTranslation([0.2, 0, 0]);
+			}
+			input.forceFullFrame = reason === "forced";
+			input.incrementalOptions.enabled = reason !== "disabled";
+			frame = createFrame(camera, [
+				createPacket("old", -0.2, 0.05),
+				createPacket("new", 0.4, 0.05),
+			], [
+				createDecalPacket("old-decal", -0.2, 0.05),
+				createDecalPacket("new-decal", 0.4, 0.05),
+			]);
+			frame.transparentPackets = [createPacket("transparent", 0.1, 0.05)];
+			// Count work on the previous baseline, without replacing the diff logic.
+			let previousStateReads = 0;
+			for (const states of [cache._packetStateById, cache._decalStateById]) {
+				for (const method of ["get", "entries"]) {
+					const original = states[method].bind(states);
+					states[method] = (...args) => {
+						previousStateReads++;
+						return original(...args);
+					};
+				}
+			}
+			let additionalRectReads = 0;
+			input.additionalDirtyRects = [{
+				get x() { additionalRectReads++; return 0; },
+				y: 0, width: 1, height: 1,
+			}];
+
+			const full = cache.build(input);
+			assert.equal(previousStateReads, 0, `${reason}: skip previous-state diff work`);
+			assert.equal(additionalRectReads, 0, `${reason}: skip dirty-candidate collection`);
+			assert.equal(full.forceFullFrame, true);
+			assert.equal(full.dirtyAreaRatio, 1);
+			const viewport = { x: 0, y: 0, width: 320, height: 180 };
+			assert.deepEqual(full.dirtyRects, [viewport]);
+			assert.equal(full.dirtyTiles.length, full.dirtyTileColumns * full.dirtyTileRows);
+			assert.deepEqual([...full.packetRects.keys()], ["old", "new", "transparent"]);
+			assert.deepEqual(
+				full.frame.spatialIndex.queryOpaquePackets(viewport).map((p) => p.submission.id),
+				["old", "new"],
+			);
+			assert.deepEqual(
+				full.frame.spatialIndex.queryTransparentPackets(viewport).map((p) => p.submission.id),
+				["transparent"],
+			);
+
+			input.forceFullFrame = false;
+			input.incrementalOptions.enabled = true;
+			input.additionalDirtyRects = [];
+			const stable = cache.build(input);
+			assert.equal(stable.forceFullFrame, false, `${reason}: advance the frame baseline`);
+			assert.deepEqual(stable.dirtyTiles, [], `${reason}: rebase packets and decals`);
+
+			frame.decalPackets = [];
+			const removedDecals = cache.build(input);
+			assert.equal(removedDecals.forceFullFrame, false);
+			assert.ok(removedDecals.dirtyTiles.length > 0, `${reason}: retain decal coverage`);
+			assert.deepEqual(cache.build(input).dirtyTiles, []);
+
+			frame = createFrame(camera, []);
+			const removedPackets = cache.build(input);
+			assert.equal(removedPackets.forceFullFrame, false);
+			for (const rect of full.packetRects.values()) {
+				assert.ok(
+					removedPackets.dirtyRects.some((dirty) => rectContainsRect(dirty, rect)),
+					`${reason}: retain current-view coverage for removed packets`,
+				);
+			}
+		} finally {
+			PreparedSceneBuilder.build = originalBuild;
+		}
+	}
+}
+
 function testCameraMatrixChangeForcesFullFrameAndRebasesPacketRects() {
 	const initialCamera = createCamera();
 	const rotatedCamera = createCamera();
 	rotatedCamera.viewProjectionMatrix = Matrix4.fromTranslation([0.35, 0, 0]);
 	const initialPacket = createPacket("camera-skin", 0, 0.08, 1);
 	const rotatedPacket = createPacket("camera-skin", 0, 0.08, 1);
-	const stablePacket = createPacket("camera-skin", 0, 0.08, 1);
+	const stablePacket = createPacket("camera-skin", 0, 0.08, 2);
 	const animatedPacket = createPacket("camera-skin", 0, 0.08, 2);
+	stablePacket.submission.worldBounds.center.x = 0.15;
 	animatedPacket.submission.worldBounds.center.x = 0.15;
 	const frames = [
 		createFrame(initialCamera, [initialPacket]),
 		createFrame(rotatedCamera, [rotatedPacket]),
-		createFrame(rotatedCamera, [stablePacket]),
 		createFrame(rotatedCamera, [animatedPacket]),
+		createFrame(rotatedCamera, [stablePacket]),
 	];
 	let frameIndex = 0;
 	const cache = new PreparedSceneCache();
@@ -731,16 +830,20 @@ function testCameraMatrixChangeForcesFullFrameAndRebasesPacketRects() {
 		assert.equal(cameraChanged.forceFullFrame, true);
 		assert.equal(cameraChanged.dirtyAreaRatio, 1);
 
-		const stable = cache.build(buildInput);
-		assert.equal(stable.forceFullFrame, false);
-		assert.equal(stable.dirtyTiles.length, 0);
-
+		// Exercise the full-frame baseline before a stable build can refresh it.
 		const animated = cache.build(buildInput);
 		assert.equal(animated.forceFullFrame, false);
 		assert.ok(animated.dirtyTiles.length > 0);
+		const previousRect = cameraChanged.packetRects.get("camera-skin");
+		assert.ok(previousRect);
+		assert.ok(animated.dirtyRects.some((rect) => rectContainsRect(rect, previousRect)));
 		const currentRect = animated.packetRects.get("camera-skin");
 		assert.ok(currentRect);
 		assert.ok(animated.dirtyRects.some((rect) => rectContainsRect(rect, currentRect)));
+
+		const stable = cache.build(buildInput);
+		assert.equal(stable.forceFullFrame, false);
+		assert.equal(stable.dirtyTiles.length, 0);
 	} finally {
 		PreparedSceneBuilder.build = originalBuild;
 	}
@@ -1292,6 +1395,7 @@ function run() {
 	testMaterialDiffDetectsSmallFloatChanges();
 	testMaterialDiffDetectsDepthWriteChanges();
 	testDeformationRevisionAndBoundsDirtyPreviousAndCurrentCoverage();
+	testFullFrameBuildSkipsDiffAndRebasesState();
 	testCameraMatrixChangeForcesFullFrameAndRebasesPacketRects();
 	testMainViewReusesCameraIndependentPreparedState();
 	testPreparedPacketCacheReusesViewLocalPackets();
