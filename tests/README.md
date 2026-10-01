@@ -46,6 +46,10 @@ The same behavior may be configured with `TEST_TIMEOUT_MS`,
 as DOM integration, actual canvas presentation, WebGL contexts, or WebGPU device
 access.
 
+Playwright specs use a shared HTML page and module-based fixture sessions for
+setup and cleanup. See [Browser Tests](browser/README.md) for the fixture
+contract and the distinction between Playwright suites and Bun probes.
+
 Run browser tests:
 
 ```bash

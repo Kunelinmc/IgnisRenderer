@@ -8,28 +8,18 @@ import {
 	TextureUsage,
 	WEBGL_AUXILIARY_RASTER_EXTENSION,
 	WebGLBackend,
-} from "../../../src/index";
+} from "../../../src/index.ts";
 
-declare global {
-	interface Window {
-		webglAuxiliaryRasterResult: Promise<{
-			center: number[];
-			corner: number[];
-			mipCount: number;
-			mipDataIsFloat32: boolean;
-		}>;
-	}
-}
+import { createBrowserTestSession, createTestCanvas } from "../helpers/browserTestSession.ts";
 
-window.webglAuxiliaryRasterResult = run();
-
-async function run() {
-	const canvas = document.querySelector<HTMLCanvasElement>("#surface");
-	if (!canvas) throw new Error("Browser test canvas is unavailable.");
-	const backend = new WebGLBackend({ shaderMode: "strict" });
-	const renderer = new Renderer(canvas, backend);
-	await renderer.initialize();
-	try {
+/** @internal Browser test fixture; invoke through withBrowserFixture(). */
+export function setup() {
+	return createBrowserTestSession(async (defer) => {
+		const canvas = createTestCanvas(defer, 8, 8);
+		const backend = new WebGLBackend({ shaderMode: "strict" });
+		const renderer = new Renderer(canvas, backend);
+		defer(() => renderer.destroy());
+		await renderer.initialize();
 		const raster = renderer.requireBackendExtension(
 			WEBGL_AUXILIARY_RASTER_EXTENSION,
 		);
@@ -133,7 +123,5 @@ void main() { color = vec4(1.0, 0.25, 0.0, 1.0); }`,
 			mipCount: prefiltered.mipmaps.length,
 			mipDataIsFloat32: prefiltered.mipmaps[0] instanceof Float32Array,
 		};
-	} finally {
-		await renderer.destroy();
-	}
+	});
 }

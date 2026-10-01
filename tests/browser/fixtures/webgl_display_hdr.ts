@@ -1,4 +1,7 @@
-import { Renderer, WebGLBackend } from "../../../src/index";
+import { Renderer, WebGLBackend } from "../../../src/index.ts";
+
+import { createBrowserTestSession, createTestCanvas } from "../helpers/browserTestSession.ts";
+import type { BrowserTestSession } from "../helpers/types.ts";
 
 interface ExtendedWebGL2RenderingContext extends WebGL2RenderingContext {
 	readonly drawingBufferFormat: number;
@@ -27,73 +30,67 @@ interface WebGLDisplayHDRBrowserResult {
 	};
 }
 
-declare global {
-	interface Window {
-		webglDisplayHDRResult: Promise<WebGLDisplayHDRBrowserResult>;
-	}
-}
+/** @internal Browser test fixture; invoke through withBrowserFixture(). */
+export function setup(): Promise<BrowserTestSession<WebGLDisplayHDRBrowserResult>> {
+	return createBrowserTestSession(async (defer) => {
+		const rawCanvas = createTestCanvas(defer, 8, 8);
+		const rendererCanvas = createTestCanvas(defer, 8, 8);
 
-window.webglDisplayHDRResult = run();
-
-async function run(): Promise<WebGLDisplayHDRBrowserResult> {
-	const rawCanvas = document.querySelector<HTMLCanvasElement>("#raw-surface");
-	const rendererCanvas = document.querySelector<HTMLCanvasElement>("#renderer-surface");
-	if (!rawCanvas || !rendererCanvas) {
-		throw new Error("Browser test canvases are unavailable.");
-	}
-
-	const rawGL = rawCanvas.getContext("webgl2", {
-		alpha: true,
-		antialias: false,
-		premultipliedAlpha: true,
-	}) as ExtendedWebGL2RenderingContext | null;
-	if (!rawGL || typeof rawGL.drawingBufferStorage !== "function") {
-		throw new Error("Chromium does not expose WebGL drawingBufferStorage().");
-	}
-	if (!rawGL.getExtension("EXT_color_buffer_float")) {
-		throw new Error("Chromium does not expose EXT_color_buffer_float.");
-	}
-	rawGL.drawingBufferColorSpace = "display-p3";
-	rawGL.drawingBufferStorage(rawGL.RGBA16F, 8, 8);
-	drawExtendedColor(rawGL);
-	const pixel = new Float32Array(4);
-	rawGL.readPixels(4, 4, 1, 1, rawGL.RGBA, rawGL.FLOAT, pixel);
-	const raw = {
-		hdrFormat: rawGL.drawingBufferFormat,
-		hdrColorSpace: rawGL.drawingBufferColorSpace,
-		pixel: Array.from(pixel),
-		error: rawGL.getError(),
-		sdrFormat: 0,
-		sdrColorSpace: "srgb" as PredefinedColorSpace,
-	};
-	rawGL.drawingBufferColorSpace = "srgb";
-	rawGL.drawingBufferStorage(rawGL.RGBA8, 8, 8);
-	raw.sdrFormat = rawGL.drawingBufferFormat;
-	raw.sdrColorSpace = rawGL.drawingBufferColorSpace;
-
-	const nativeMatchMedia = window.matchMedia.bind(window);
-	window.matchMedia = ((query: string) => {
-		if (query === "(dynamic-range: high)") {
-			return {
-				matches: true,
-				media: query,
-				onchange: null,
-				addEventListener() {},
-				removeEventListener() {},
-				addListener() {},
-				removeListener() {},
-				dispatchEvent: () => true,
-			};
+		const rawGL = rawCanvas.getContext("webgl2", {
+			alpha: true,
+			antialias: false,
+			premultipliedAlpha: true,
+		}) as ExtendedWebGL2RenderingContext | null;
+		if (!rawGL) throw new Error("WebGL2 context is unavailable.");
+		defer(() => { rawGL.getExtension("WEBGL_lose_context")?.loseContext(); });
+		if (typeof rawGL.drawingBufferStorage !== "function") {
+			throw new Error("Chromium does not expose WebGL drawingBufferStorage().");
 		}
-		return nativeMatchMedia(query);
-	}) as typeof window.matchMedia;
+		if (!rawGL.getExtension("EXT_color_buffer_float")) {
+			throw new Error("Chromium does not expose EXT_color_buffer_float.");
+		}
+		rawGL.drawingBufferColorSpace = "display-p3";
+		rawGL.drawingBufferStorage(rawGL.RGBA16F, 8, 8);
+		drawExtendedColor(rawGL);
+		const pixel = new Float32Array(4);
+		rawGL.readPixels(4, 4, 1, 1, rawGL.RGBA, rawGL.FLOAT, pixel);
+		const raw = {
+			hdrFormat: rawGL.drawingBufferFormat,
+			hdrColorSpace: rawGL.drawingBufferColorSpace,
+			pixel: Array.from(pixel),
+			error: rawGL.getError(),
+			sdrFormat: 0,
+			sdrColorSpace: "srgb" as PredefinedColorSpace,
+		};
+		rawGL.drawingBufferColorSpace = "srgb";
+		rawGL.drawingBufferStorage(rawGL.RGBA8, 8, 8);
+		raw.sdrFormat = rawGL.drawingBufferFormat;
+		raw.sdrColorSpace = rawGL.drawingBufferColorSpace;
 
-	const backend = new WebGLBackend({ shaderMode: "strict" });
-	const renderer = new Renderer(rendererCanvas, backend, null, {
-		displayOutput: { mode: "hdr", hdrHeadroom: 4 },
-	});
-	await renderer.initialize();
-	try {
+		const nativeMatchMedia = window.matchMedia;
+		defer(() => { window.matchMedia = nativeMatchMedia; });
+		window.matchMedia = ((query: string) => {
+			if (query === "(dynamic-range: high)") {
+				return {
+					matches: true,
+					media: query,
+					onchange: null,
+					addEventListener() {},
+					removeEventListener() {},
+					addListener() {},
+					removeListener() {},
+					dispatchEvent: () => true,
+				};
+			}
+			return nativeMatchMedia.call(window, query);
+		}) as typeof window.matchMedia;
+
+		const backend = new WebGLBackend({ shaderMode: "strict" });
+		const renderer = new Renderer(rendererCanvas, backend, null, {
+			displayOutput: { mode: "hdr", hdrHeadroom: 4 },
+		});
+		defer(() => renderer.destroy());
+		await renderer.initialize();
 		await renderer.renderFrame(0);
 		const rendererGL = rendererCanvas.getContext(
 			"webgl2",
@@ -117,10 +114,7 @@ async function run(): Promise<WebGLDisplayHDRBrowserResult> {
 				premultipliedAlpha: attributes?.premultipliedAlpha ?? false,
 			},
 		};
-	} finally {
-		await renderer.destroy();
-		window.matchMedia = nativeMatchMedia;
-	}
+	});
 }
 
 function drawExtendedColor(gl: WebGL2RenderingContext): void {

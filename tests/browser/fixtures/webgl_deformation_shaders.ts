@@ -1,0 +1,144 @@
+import { createBrowserTestSession, createTestCanvas } from "../helpers/browserTestSession.ts";
+
+/** @internal Browser test fixture; invoke through withBrowserFixture(). */
+export function setup() {
+	return createBrowserTestSession(async (defer) => {
+		const canvas = createTestCanvas(defer, 300, 150);
+		const gl = canvas.getContext("webgl2");
+		if (!gl) return { supported: false as const, errors: [] as string[] };
+		defer(() => { gl.getExtension("WEBGL_lose_context")?.loseContext(); });
+		const { ShaderSource } = await import("../../../src/shaders/ShaderSource.ts");
+		const {
+			ShaderBackendCompileStage,
+			ShaderRuntime,
+		} = await import("../../../src/shaders/runtime/index.ts");
+		const {
+			createShaderDirectiveProfileFromManifest,
+			prepareShaderDirectiveProfileBase,
+		} = await import("../../../src/shaders/ShaderManifest.ts");
+		const { WEBGL_SHADER_MANIFEST } = await import(
+			"../../../src/shaders/webgl/sources.ts"
+		);
+		const backendConstants = await import("../../../src/backends/constants.ts");
+		const profile = createShaderDirectiveProfileFromManifest(
+			WEBGL_SHADER_MANIFEST,
+			await prepareShaderDirectiveProfileBase(
+				WEBGL_SHADER_MANIFEST,
+				(key) => ShaderSource.load(key as never),
+			),
+			{
+				maxDirectionalLights: backendConstants.MAX_DIRECTIONAL_LIGHTS,
+				maxPointLights: backendConstants.MAX_POINT_LIGHTS,
+				maxSpotLights: backendConstants.MAX_SPOT_LIGHTS,
+				maxClusterLightsPerFragment:
+					backendConstants.MAX_CLUSTER_LIGHTS_PER_FRAGMENT,
+				maxLocalLightProbes: backendConstants.MAX_LOCAL_LIGHT_PROBES,
+				maxReflectionProbes: backendConstants.MAX_REFLECTION_PROBES,
+			},
+		);
+		const stage = new ShaderBackendCompileStage({
+			runtime: new ShaderRuntime({ mode: "strict" }),
+			profile,
+			mode: "strict",
+		});
+		const limits = {
+			maxDirectionalLights: 4,
+			maxPointLights: 16,
+			maxSpotLights: 8,
+		};
+		const variant = {
+			output: "single" as const,
+			materialGBuffer: false,
+			oit: false,
+			scene: {
+				shadows: false,
+				shadowTransmittance: false,
+				clusteredLighting: false,
+				sh: false,
+				localLightProbes: false,
+				irradianceProbeGrid: false,
+				reflectionProbes: false,
+				environmentSpecular: false,
+			},
+			material: {
+				model: "unlit" as const,
+				baseMap: false,
+				metallicRoughnessMap: false,
+				specularMap: false,
+				specularColorMap: false,
+				normalMap: false,
+				emissiveMap: false,
+				occlusionMap: false,
+				clearcoat: false,
+				clearcoatMap: false,
+				clearcoatRoughnessMap: false,
+				clearcoatNormalMap: false,
+				sheen: false,
+				sheenColorMap: false,
+				sheenRoughnessMap: false,
+				iridescence: false,
+				iridescenceMap: false,
+				iridescenceThicknessMap: false,
+				anisotropy: false,
+				anisotropyMap: false,
+				transmission: false,
+				transmissionMap: false,
+				thicknessMap: false,
+				alphaMask: false,
+			},
+			skinProfile: "skin8" as const,
+			morphSemanticMask: 3,
+		};
+		const scene = await ShaderSource.load("webgl.scene", {
+			specialization: variant,
+		});
+		const shadow = await ShaderSource.load(
+			"webgl.shadow.depth",
+			{
+				specialization: { skinProfile: "skin8", morphPosition: true },
+			},
+		);
+		const sources = [
+			{
+				label: "scene",
+				code: scene.stages.vertex!.code,
+				sourceMap: scene.stages.vertex!.sourceMap,
+			},
+			{
+				label: "shadow",
+				code: shadow.stages.vertex!.code,
+				sourceMap: shadow.stages.vertex!.sourceMap,
+			},
+			{
+				label: "custom-material",
+				code: `#version 300 es
+precision highp float;
+#import <ignis/webgl/animation>
+void main() { gl_Position = vec4(0.0); }`,
+				sourceMap: null,
+			},
+		];
+		const errors: string[] = [];
+		for (const source of sources) {
+			const processed = await stage.compileAsync({
+				code: source.code,
+				language: "glsl",
+				stage: "vertex",
+				entryPoint: "main",
+				label: source.label,
+				sourceKind: source.label === "custom-material" ?
+					"custom-material" : source.label === "shadow" ? "shadow" : "builtin-scene",
+				sourceMap: source.sourceMap,
+				directiveSourcePath: source.label,
+			});
+			const shader = gl.createShader(gl.VERTEX_SHADER)!;
+			gl.shaderSource(shader, processed.code);
+			gl.compileShader(shader);
+			if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+				errors.push(`${source.label}: ${gl.getShaderInfoLog(shader)}`);
+			}
+			gl.deleteShader(shader);
+		}
+		return { supported: true as const, errors };
+	});
+}
